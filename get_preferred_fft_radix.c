@@ -1,0 +1,294 @@
+/*******************************************************************************
+*                                                                              *
+*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*                                                                              *
+*  This program is free software; you can redistribute it and/or modify it     *
+*  under the terms of the GNU General Public License as published by the       *
+*  Free Software Foundation; either version 2 of the License, or (at your      *
+*  option) any later version.                                                  *
+*                                                                              *
+*  This program is distributed in the hope that it will be useful, but WITHOUT *
+*  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or       *
+*  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for   *
+*  more details.                                                               *
+*                                                                              *
+*  You should have received a copy of the GNU General Public License along     *
+*  with this program; see the file GPL.txt.  If not, you may view one at       *
+*  http://www.fsf.org/licenses/licenses.html, or obtain one by writing to the  *
+*  Free Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA     *
+*  02111-1307, USA.                                                            *
+*                                                                              *
+*******************************************************************************/
+
+#include "Mlucas.h"
+
+/*
+	Given a target FFT length via the [kblocks] argument, looks for a runtime-optimized *.cfg
+	preferred-FFT-radix file (assumed to have been created via a set of timing runs on the
+	platform in question). If one is found containing an entry for the specified FFT length,
+	returns the preferred FFT length as the function result and the preferred radix set
+	(assumed to have been determined previously via self-test on the host platform)
+	in the RADIX_VEC global.  We define "preferred FFT length" here as follows:
+
+		Given an input FFT length NI, the preferred FFT length NP is the FFT length >= NI
+		whose .cfg file entry contains the smallest per-iteration timing.
+
+	This may or may not be the same as the input FFT length, depending on how well we've
+	done our FFT coding (especially for the less-smooth leading FFT radices) and the quality
+	of the platform (compiler + hardware) which the code is built and run on. It also implicitly
+	assumes that if we have timing data for at least one FFT length NK > NI, then we also have timings
+	for any supported FFT lengths NJ lying between NI and NK, so as to have a full range of options
+	from which to choose. (E.g. if on some platform we had a faster timing for 2048K than for
+	1792K, we'd want to know that the 2048K timing is also faster than that for 1920K.)
+
+	Looks for the platform-specific *.cfg file for the number type stored in the MODULUS_TYPE global
+	(e.g. mlucas.cfg for Mersennes and fermat.cfg for Fermats) and if the requisite file is found,
+	look for an entry for the input FFT length (in units of K doubles).
+
+	If an entry for the input FFT length is found in the .cfg file (i.e. a timing-test run has
+	been done for that length), compares that timing to the best of any timings found for larger
+	FFT lengths and returns the best of these as described above, but in the following manner:
+
+	1) Stores the best-timing FFT radix set data for FFT length [kblocks] in the NRADICES and RADIX_VEC[]
+	   globals, irrespective of whether a larger FFT length with a better timing was found in the .cfg file;
+
+	2) If timing for the input FFT length [kblocks] is better than any larger ones, function returns value = kblocks;
+
+	3) If a larger FFT length with a better timing was found in the .cfg file, returns the FFT radix set data
+	for that FFT length in a compact bitwise form in the return value, as follows:
+
+		- Bits <0:5> store (leading radix-1): We subtract the 1 so radices up to 64 can be stored;
+		- Bits <6:9> store (number of FFT radices);
+		- Each successive pair of higher-order bits stores log2[(intermediate FFT radix)/8]: Since
+		  our smallest permitted intermediate FFT radix is 8 and these must be powers of 2, this
+		  again permits radices up to 64 to be stored using just 2 bits. Radix-8 of course maps to 0
+		  under this scheme, but we know when to stop because bits <6:9> tell us the number of radices.
+
+	In order to make it easy for the user to extract these bitwise FFT-radix data from the function
+	return value, we define 2 handy utility functions in util.c:
+
+		uint32	extractFFTlengthFrom32Bit (uint32 n) - returns the (real-vector) FFT length encoded by n according to the above scheme
+		void	extractFFTradicesFrom32Bit(uint32 n) - extracts the FFT-radix data encoded by n and stores in the NRADICES and RADIX_VEC[] globals
+
+	If the return FFT-length value differs from the input [kblocks] (which implies that a better timing
+	datum was found for at least one larger FFT length in the .cfg file), caller must decide whether
+	to reset the FFT length used for the computation to the larger value - if so, caller can use the
+	2nd of the above-described functions to read the corr. FFT radix data into the NRADICES and RADIX_VEC globals.
+
+	Returns 0 if no .cfg file is found or if the .cfg file contains no properly-formatted entry
+	for the input FFT length. In this case the caller should do a timing test at the input
+	FFT length so as to find the optimal radix set on-the-fly, or simply use the radix set index 0
+	(guaranteed to be supported if the FFT length is) if maximal execution speed is not crucial.
+*/
+uint32	get_preferred_fft_radix(uint32 kblocks)
+{
+	uint32 i, j, k, kprod, found, retval = 0;
+	double tbest = 0, tcurr;
+	char *char_addr;
+
+	/* For safety's sake, prevent caller from directly overwriting the RADIX_SET global: */
+	ASSERT(HERE, RADIX_VEC != 0x0, "get_preferred_fft_radix: invalid pointer for RADIX_VEC array!");
+
+	/* FFT-radix configuration file is named mlucas.cfg or fermat.cfg,
+	depending on whether Mersenne or Fermat number test is being done:
+	*/
+	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
+		strcpy(CONFIGFILE,"fermat.cfg");
+	else	/* For now, anything else gets done using the Mersenne-mod .cfg file */
+		strcpy(CONFIGFILE,"mlucas.cfg");
+
+	/*...Look for any FFT length >= [kblocks] and check the per-iteration timing: */
+	found = 0;		/* Was an entry for the specified FFT length found in the .cfg file? */
+	fp = fopen(CONFIGFILE,"r");
+	fq = fopen(STATFILE  ,"a");
+	if(fp)
+	{
+		while(fgets(in_line, STR_MAX_LEN, fp))
+		{
+			/* Each FFT-length entry assumed to begin with an int followed by whitespace: */
+			if(sscanf(in_line, "%d", &i) == 1)
+			{
+				/* Consider any entry with an FFT length >= target, which further contains
+				a per-iteration timing datum in the form 'sec/iter = sss.mmm', with mmm standing for milliseconds:
+				*/
+				if((i >= kblocks) && (char_addr = strstr(in_line, "sec/iter =")) != 0)
+				{
+					/* Stores whether we found an entry for the requested FFT length
+					(whether that proves to have the best timing for lengths >= kblocks or note):
+					*/
+					if(i == kblocks)
+						found = TRUE;
+
+					if(sscanf(char_addr + 10, "%lf", &tcurr) == 1)
+					{
+						ASSERT(HERE, tcurr >= 0, "tcurr < 0!");
+						if((tbest == 0.0) || ((tcurr > 0.0) && (tcurr < tbest)))
+						{
+							if((char_addr = strstr(in_line, "radices =")) == 0x0)
+							{
+								sprintf(cbuf, "get_preferred_fft_radix: invalid format for %s file: 'nradices =' not found in timing-data line %s", CONFIGFILE, in_line);
+								ASSERT(HERE, 0, cbuf);
+							}
+							char_addr += 10;
+
+							kprod = 1;	/* accumulate product of radices */
+							for(j=0; j<10; j++)	/* Read in the radices */
+							{
+								if(sscanf(char_addr, "%d", &k) != 1)
+								{
+									sprintf(cbuf, "get_preferred_fft_radix: invalid format for %s file: failed to read %dth element of radix set, offending input line %s", CONFIGFILE, j, in_line);
+									ASSERT(HERE, 0, cbuf);
+								}
+								else
+								{
+									char_addr += 3;
+									if(j == 0)
+									{
+										ASSERT(HERE, k <= 64  , "get_preferred_fft_radix: Leading radix > 64: out of range!");
+									}
+									else if(k)
+									{
+										ASSERT(HERE, k <= 32  , "get_preferred_fft_radix: Intermediate radix > 32: out of range!");
+										ASSERT(HERE, isPow2(k), "get_preferred_fft_radix: Intermediate FFT radix not a power of 2!");
+									}
+
+									/* If (i == kblocks), store the data directly into the NRADICES and RADIX_VEC[] globals: */
+									if(i == kblocks)
+									{
+										if(k == 0)
+										{
+											ASSERT(HERE, !NRADICES, "Zero terminator of radix set found but NRADICES != 0 ... please check your mlucas.cfg file for duplicate FFT-length entries and remove the unwanted ones, or delete the file and rerun the self-test.");
+											NRADICES = j;
+											break;
+										}
+										else
+										{
+											kprod *= k;
+											RADIX_VEC[j] = k;
+										}
+									}
+									else	/* Otherwise, store radix-set data into retval in above-described compact form */
+									{
+										if(k == 0)	/* Bits <6:9> store (number of FFT radices): */
+										{
+											if(!((retval >> 6) & 0xf))	/* Set based only position of first zero in the list */
+												retval += (j << 6);
+										}
+										else
+										{
+											kprod *= k;
+										}
+
+										/* Bits <0:5> store (leading radix-1): */
+										if(j == 0)
+										{
+											retval = k - 1;
+										}
+										else if(k)	/* Each successive pair of higher-order bits stores log2[(intermediate FFT radix)/8]: */
+										{
+											k = trailz32(k) - 3;
+											retval += (k << (8 + 2*j));
+										}
+									}
+								}
+							}
+
+							/* Product of real-FFT radices (kblocks) must be divisible by 1K = 1024
+							Since (kprod) here is product of complex radices, first multiply it by 2:
+							*/
+							kprod *= 2;
+							if((kprod & 1023) != 0)
+							{
+								sprintf(cbuf, "get_preferred_fft_radix: illegal data in %s file: product of complex radices (%d) not a multiple of 1K! Offending input line %s", CONFIGFILE, kprod, in_line);
+								ASSERT(HERE, 0, cbuf);
+							}
+							kprod >>= 10;
+
+							tbest = tcurr;
+
+							if(i == kblocks)
+							{
+								/* Product of radices must equal complex vector length (n/2): */
+								if(kprod != kblocks)
+								{
+									sprintf(cbuf, "get_preferred_fft_radix: mismatching data in %s file: (product of complex radices)/2^10 (%d) != kblocks/2 (%d), offending input line %s", CONFIGFILE, kprod, kblocks/2, in_line);
+									ASSERT(HERE, 0, cbuf);
+								}
+
+								retval = i;			/* Preferred FFT length */
+							}
+							else
+							{
+								ASSERT(HERE, i == extractFFTlengthFrom32Bit(retval), "get_preferred_fft_radix: i != extractFFTlengthFrom32Bit(retval)!");
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	fclose(fp);	fp = 0x0;
+	fclose(fq);	fq = 0x0;
+
+	/* Only return nonzero if an entry for the specified FFT length was found.
+	Otherwise clear RADIX_VEC and return 0:
+	*/
+	if(!found)
+	{
+		retval = 0;
+		for(j=0; j<10; j++)
+		{
+			RADIX_VEC[j] = 0;
+		}
+		NRADICES = 0;
+	}
+
+	return retval;
+}
+
+/********* Functions related to FFT-radix-set compact 32-bit encoding ***********/
+
+/* returns the (real-vector) FFT length encoded by n according to the above scheme */
+uint32	extractFFTlengthFrom32Bit (uint32 n)
+{
+	uint32 i, nrad, retval;
+	/* Bits <0:5> store (leading radix-1): We subtract the 1 so radices up to 64 can be stored: */
+	retval = (n & 0x3f) + 1;	n >>= 6;
+	ASSERT(HERE, retval > 4, "extractFFTlengthFrom32Bit: Leading radix must be 5 or larger!");
+	/* Bits <6:9> store (number of FFT radices): */
+	nrad   = (n & 0x0f)    ;	n >>= 4;
+	ASSERT(HERE, nrad >=  3, "extractFFTlengthFrom32Bit: Number of radices must be 3 or larger!");
+	/* Each successive pair of higher-order bits stores log2[(intermediate FFT radix)/8]: */
+	for(i = 1; i < nrad; i++)	/* Already done leading radix, so start at 1, not 0 */
+	{
+		retval *= ( 0x1 << ((n & 0x3)+3) );	n >>= 2;
+	}
+	/* return value is in units of K - combine div-by-2^10 with mul-by-2 (real-array length) here: */
+	return (retval >> 9);
+}
+
+/* extracts the FFT-radix data encoded by n and stores in the NRADICES and RADIX_VEC[] globals */
+void	extractFFTradicesFrom32Bit(uint32 n)
+{
+	uint32 i, nrad, retval;
+	/* Bits <0:5> store (leading radix-1): We subtract the 1 so radices up to 64 can be stored: */
+	retval = (n & 0x3f) + 1;	n >>= 6;
+	ASSERT(HERE, retval > 4, "extractFFTradicesFrom32Bit: Leading radix must be 5 or larger!");
+	RADIX_VEC[0] = retval;
+	/* Bits <6:9> store (number of FFT radices): */
+	nrad   = (n & 0x0f)    ;	n >>= 4;
+	ASSERT(HERE, nrad >=  3, "extractFFTradicesFrom32Bit: Number of radices must be 3 or larger!");
+	ASSERT(HERE, nrad <= 10, "extractFFTradicesFrom32Bit: Number of radices must be 10 or smaller!");
+	NRADICES = nrad;
+	/* Each successive pair of higher-order bits stores log2[(intermediate FFT radix)/8]: */
+	for(i = 1; i < 10; i++)	/* Already done leading radix, so start at 1, not 0 */
+	{
+		if(i < nrad)
+			RADIX_VEC[i] = ( 0x1 << ((n & 0x3)+3) );
+		else
+			RADIX_VEC[i] = 0;
+
+		n >>= 2;
+	}
+}
+
