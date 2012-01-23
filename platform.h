@@ -378,7 +378,7 @@ are mutually incompatible.
 		#include <dvec.h>					* SSE 2 intrinsics for Class Libraries												*
 		#include <fvec.h>					* SSE intrinsics for Class Libraries												*
 		#include <ia32intrin.h>				* Miscellaneous IA-32 intrinsics.													*
-		#include <ivec.h>					* MMX™ instructions intrinsics for Class Libraries									*
+		#include <ivec.h>					* MMXÃ´ instructions intrinsics for Class Libraries									*
 		#include <mathf.h>					* Principal header file for legacy Intel Math Library								*
 		#include <mathimf.h>				* Principal header file for current Intel Math Library								*
 		#include <mmintrin.h>				* Intrinsics for MMX instructions													*
@@ -456,9 +456,9 @@ are mutually incompatible.
 		#include <fvec.h>					* SSE intrinsics for Class Libraries											*
 		#include <ia64intrin.h>				* Miscellaneous IA-64 intrinsics.												*
 		#include <ia64regs.h>				* Header file for registers on Itanium-based systems							*
-		#include <ivec.h>					* MMX™ instructions intrinsics for Class Libraries								*
+		#include <ivec.h>					* MMXÃ´ instructions intrinsics for Class Libraries								*
 		#include <mathimf.h>				* Principal header file for current Intel Math Library							*
-		#include <mmclass.h>				* Principal header files for MMX™ instructions with Class Libraries				*
+		#include <mmclass.h>				* Principal header files for MMXÃ´ instructions with Class Libraries				*
 		#include <mmintrin.h>				* Intrinsics for MMX instructions												*
 		#include <omp.h>					* Principal header file OpenMP*													*
 		#include <sse2mmx.h>				* Emulated versions of 128-bit SSE2 intrinsics (for P3 and Itanium)					*
@@ -764,20 +764,10 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 	#define OS_VERSION "[Unknown]"
 #endif
 
-#ifdef USE_SSE2
-
-  #if defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
-
+#if defined(USE_SSE2) && defined(COMPILER_TYPE_GCC)
 	#ifndef OS_BITS
 		#error	Unable to determine if OS is 32-bit or 64-bit!
 	#endif
-
-  #else
-
-	#error SSE2 code not supported for this compiler!
-
-  #endif
-
 #endif
 
 #if(defined(CPU_TYPE_ALFA))

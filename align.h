@@ -37,22 +37,22 @@ Note that rather than simply assuming sizeof(void *) == sizeof(long), we check t
 util.c::check_nbits_in_types()>
 */
 
-#define ALLOC_INT(_p,_n)	(int           *)realloc(_p,(_n)*sizeof(int           )+256)
+#define ALLOC_INT(_p,_n)	(int           *)realloc(_p,(_n)*sizeof(int           )+1024)
 #define ALIGN_INT(_p)		(int           *)(((long)(_p) | 63)+1)
 
-#define ALLOC_UINT(_p,_n)	(uint          *)realloc(_p,(_n)*sizeof(uint          )+256)
+#define ALLOC_UINT(_p,_n)	(uint          *)realloc(_p,(_n)*sizeof(uint          )+1024)
 #define ALIGN_UINT(_p)		(uint          *)(((long)(_p) | 63)+1)
 
-#define ALLOC_INT64(_p,_n)	(int64         *)realloc(_p,(_n)*sizeof(int64         )+256)
+#define ALLOC_INT64(_p,_n)	(int64         *)realloc(_p,(_n)*sizeof(int64         )+1024)
 #define ALIGN_INT64(_p)		(int64         *)(((long)(_p) | 63)+1)
 
-#define ALLOC_UINT64(_p,_n)	(uint64        *)realloc(_p,(_n)*sizeof(uint64        )+256)
+#define ALLOC_UINT64(_p,_n)	(uint64        *)realloc(_p,(_n)*sizeof(uint64        )+1024)
 #define ALIGN_UINT64(_p)	(uint64        *)(((long)(_p) | 63)+1)
 
-#define ALLOC_DOUBLE(_p,_n)	(double        *)realloc(_p,(_n)*sizeof(double        )+512)
+#define ALLOC_DOUBLE(_p,_n)	(double        *)realloc(_p,(_n)*sizeof(double        )+1024)
 #define ALIGN_DOUBLE(_p)	(double        *)(((long)(_p) | 127)+1)
 
-#define ALLOC_COMPLEX(_p,_n)(struct complex*)realloc(_p,(_n)*sizeof(struct complex)+512)
+#define ALLOC_COMPLEX(_p,_n)(struct complex*)realloc(_p,(_n)*sizeof(struct complex)+1024)
 #define ALIGN_COMPLEX(_p)	(struct complex*)(((long)(_p) | 127)+1)
 
 

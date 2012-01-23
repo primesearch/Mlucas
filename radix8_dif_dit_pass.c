@@ -33,6 +33,10 @@ but declare it in different ways, so use a select/macro to ease access to the su
 	#define	GET_RE(x,r)	r = (x)->re
 	#define	GET_IM(x,i)	i = (x)->im
 
+	#ifdef COMPILER_TYPE_MSVC
+		#include "sse2_macro.h"
+	#endif
+
 	#undef DEBUG_SSE2
 //	#define DEBUG_SSE2
 
@@ -40,11 +44,7 @@ but declare it in different ways, so use a select/macro to ease access to the su
 		#define EPS 1e-10
 	#endif
 
-	#ifdef COMPILER_TYPE_MSVC
-
-		#include "sse2_macro.h"
-
-	#else	/* GCC-style inline ASM: */
+	#if defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)	/* GCC-style inline ASM: */
 
 		#if OS_BITS == 32
 
@@ -81,6 +81,8 @@ void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1
 	static int	first_entry = TRUE;
 	static double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7;	/* Addresses into array sections */
 
+  #if defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
+
 	/* This allows us to align sincos temporaries on 16-byte boundaries (e.g. for SSE2) via pointers:
 	In sse2 mode, alloc a complex[32] array (give it a few extra slots to allow ptr to initial element-to-be-used
 	to be aligned on 16-byte bdry, and 2 more for the doubled 1/sqrt2 pair),
@@ -95,6 +97,21 @@ void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1
 	static struct complex *c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*s0,*s1,*s2,*s3,*s4,*s5,*s6,*s7;
 	static struct complex *isrt2;
 	static uint64 *sm_arr = 0x0, *sm_ptr, *pd_smask_lo, *pd_smask_hi;
+
+  #elif defined(COMPILER_TYPE_ICC)
+
+	#error SSE2 code not supported for Intel C!
+
+	__m128d rd,id,re,im;
+	__m128d d1,d2,d3,d4,d5,d6,d7,d8,d9,d10,d11,d12,d13,d14,d15,d16;
+	__m128d c1,c2,c3,c4,c5,c6,c7,s1,s2,s3,s4,s5,s6,s7;
+	static __m128d isrt2;
+
+  #else
+
+	#error SSE2 code not supported for this compiler!
+
+  #endif
 
   #ifdef DEBUG_SSE2
 	int sse2_err;
@@ -821,7 +838,7 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
 														/* Totals: 140 load/store, 82 add/subpd, 32 mulpd, 72 address-compute */
 	  #endif	/* pure-ASM */
 
-	#else	/* GCC-style inline ASM: */
+	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 		add0 = &a[j1];
 		add1 = add0+p1;
@@ -1045,10 +1062,28 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 
 	static int	first_entry = TRUE;
 	static double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7;	/* Addresses into array sections */
+
+  #if defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
+
+	/* This allows us to align sincos temporaries on 16-byte boundaries (e.g. for SSE2) via pointers:
+	In sse2 mode, alloc a complex[32] array (give it a few extra slots to allow ptr to initial element-to-be-used
+	to be aligned on 16-byte bdry, and 2 more for the doubled 1/sqrt2 pair),
+	and then store doubled pairs of sincos data - for each scalar sincos datum used
+	in non-SSE2 mode, we have a double-pair consisting of 2 copies of the same datum, in SSE2 mode.
+	This relies on the fact that in our FFT algorithm, the same set of sincos multipliers computed in the outer
+	loop below is re-used for multiple (and an even number, in particular) inputs in the inner loop, i.e.
+	in SSE2 mode we simply double the inner-loop stride, and process vector DFT inputs in pairs.
+	*/
 	static struct complex *sc_arr = 0x0, *sc_ptr;
 	static struct complex *r0,*r1,*r2,*r3,*r4,*r5,*r6,*r7,*r8,*r9,*ra,*rb,*rc,*rd,*re,*rf;
 	static struct complex *c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*s0,*s1,*s2,*s3,*s4,*s5,*s6,*s7;
 	static struct complex *isrt2;
+
+  #else
+
+	#error SSE2 code not supported for this compiler!
+
+  #endif
 
   #ifdef DEBUG_SSE2
 	int sse2_err;
@@ -1848,7 +1883,7 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 														/* 42 fewer movaps than DIF! [I.e. it pays to do careful register mgmt] */
 	  #endif	/* #if 1 */
 
-	#else	/* GCC-style inline ASM: */
+	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 		add0 = &a[j1];
 		add1 = add0+p1;

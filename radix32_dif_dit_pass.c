@@ -34,7 +34,19 @@
 	#undef DEBUG_SSE2
 //	#define DEBUG_SSE2
 
-	#if defined(COMPILER_TYPE_MSVC)
+	#if(defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
+
+		#if OS_BITS == 32
+
+			#include "radix32_dif_dit_pass_gcc32.h"
+
+		#else
+
+			#include "radix32_dif_dit_pass_gcc64.h"
+
+		#endif
+
+	#elif defined(COMPILER_TYPE_MSVC)
 
 		/* Full-inline-asm version of SSE2_RADIX8_DIT_0TWIDDLE_B. Assumes base addresses add4-7 in e[a-d]x,
 		base offset in edi, these must remain unchanged, so esi is available for temporary storage. */
@@ -290,18 +302,6 @@
 													/* Totals: 97 load/store [61 movaps, 36 implied], 54 add/subpd,  4 mulpd, 59 address-compute */\
 		}
 
-	#else	/* GCC-style inline ASM: */
-
-		#if OS_BITS == 32
-
-			#include "radix32_dif_dit_pass_gcc32.h"
-
-		#else
-
-			#include "radix32_dif_dit_pass_gcc64.h"
-
-		#endif
-
 	#endif
 
 #endif
@@ -331,6 +331,9 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 	static int	first_entry = TRUE;
 	static double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7;	/* Addresses into array sections */
+
+  #if defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
+
 	static struct complex *sc_arr = 0x0, *sc_ptr;
 	static struct complex *isrt2, *two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3
 		,*c00,*c01,*c02,*c03,*c04,*c05,*c06,*c07,*c08,*c09,*c0A,*c0B,*c0C,*c0D,*c0E,*c0F
@@ -341,6 +344,11 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r1A,*r1B,*r1C,*r1D,*r1E,*r1F
 		,*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r2A,*r2B,*r2C,*r2D,*r2E,*r2F
 		,*r30,*r31,*r32,*r33,*r34,*r35,*r36,*r37,*r38,*r39,*r3A,*r3B,*r3C,*r3D,*r3E,*r3F;
+  #else
+
+	#error SSE2 code not supported for this compiler!
+
+  #endif
 
 #else
 
@@ -1845,7 +1853,7 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		__asm	movaps	[eax     ],xmm4	/* a[jt+p0 ] */			__asm	movaps	[edx     ],xmm7	/* a[jt+p3 ] */
 		__asm	movaps	[eax+0x10],xmm5	/* a[jp+p0 ] */			__asm	movaps	[ecx+0x10],xmm6	/* a[jp+p2 ] */
 
-	#else	/* GCC-style inline ASM: */
+	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 		add0 = &a[j1];
 		SSE2_RADIX32_DIF_TWIDDLE(add0,p01,p02,p03,p04,p08,p0C,p10,p18,r00)
@@ -2472,6 +2480,9 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 	static int	first_entry = TRUE;
 	static double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7;	/* Addresses into array sections */
+
+  #if defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
+
 	static struct complex *sc_arr = 0x0, *sc_ptr;
 	static struct complex *isrt2, *two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3
 		,*c00,*c01,*c02,*c03,*c04,*c05,*c06,*c07,*c08,*c09,*c0A,*c0B,*c0C,*c0D,*c0E,*c0F
@@ -2482,6 +2493,11 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r1A,*r1B,*r1C,*r1D,*r1E,*r1F
 		,*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r2A,*r2B,*r2C,*r2D,*r2E,*r2F
 		,*r30,*r31,*r32,*r33,*r34,*r35,*r36,*r37,*r38,*r39,*r3A,*r3B,*r3C,*r3D,*r3E,*r3F;
+  #else
+
+	#error SSE2 code not supported for this compiler!
+
+  #endif
 
 #else
 
@@ -3983,7 +3999,7 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 		SSE2_RADIX4_DIT_4TWIDDLE_2ND_HALF_B(c07)
 
-	#else	/* GCC-style inline ASM: */
+	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 		add0 = &a[j1];
 		SSE2_RADIX32_DIT_TWIDDLE(add0,p01,p02,p03,p04,p05,p06,p07,p08,p10,p18,r00,r10,r20,r30,isrt2)

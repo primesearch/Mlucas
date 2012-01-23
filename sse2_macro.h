@@ -5147,7 +5147,7 @@
 
 	/******************************************************************************************************************************************/
 
-	#else	/* GCC-style inline ASM: */
+	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 		#if OS_BITS == 32
 
@@ -5158,6 +5158,10 @@
 			#include "sse2_macro_gcc64.h"
 
 		#endif
+
+	#else
+
+		#error sse2_macro.h: No implementation for SSE2 macros on this platform!
 
 	#endif
 

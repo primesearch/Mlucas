@@ -31,98 +31,16 @@
 
 #ifdef USE_SSE2
 
-	#include "sse2_macro.h"
-
 	#undef DEBUG_SSE2
 //	#define DEBUG_SSE2
 
 //	#define	USE_SCALAR_CARRY	// Uncomment if want to use original non-SSE carry macros
 
-	#if 0//COMPILER_TYPE_MSVC
+	#ifdef COMPILER_TYPE_MSVC
+		#include "sse2_macro.h"
+	#endif
 
-		/*
-		In the Fermat-mod negacyclic-DWT carry scheme, real & imaginary parts
-		are carried separately due to the right-angle transform:
-		*/
-		#define SSE2_fermat_carry_norm_pow2_errcheck(__data,__cy,__iscale,__half_arr,........idx_offset)\
-		{\
-				__asm	mov	eax, __data\
-				__asm	mov	ebx, __half_arr\
-				/* Data enter in R0 = [a0.re,b0.re], I0 = [a0.im,b0.im]: */\
-				__asm	movaps	xmm0,[eax     ]	/* R0 */\
-				__asm	movaps	xmm1,[eax+0x10]	/* I0 */\
-				__asm	mulpd	xmm0,[ebx+__iscale]	/* R0 *= scale */\
-				__asm	mulpd	xmm1,[ebx+__iscale]	/* I0 *= scale */\
-			/* Get the needed Nth root of -1: */\
-				l = ((j + idx_offset) >> 1);\
-				k1=(l & NRTM1);\
-				k2=(l >> NRT_BITS);\
-				temp=rn0[k1].re;		wt_im=rn0[k1].im;\
-				rt  =rn1[k2].re;		it   =rn1[k2].im;\
-				wt_re =temp*rt-wt_im*it;wt_im =temp*it+wt_im*rt;\
-				__asm	mov	edi, __wt_re_ptr\
-				__asm	mov	esi, __wt_im_ptr\
-				__asm	movlpd	xmm2,[edi]\
-				__asm	movlpd	xmm3,[esi]\
-				l += 2;\
-				k1=(l & NRTM1);\
-				k2=(l >> NRT_BITS);\
-				temp=rn0[k1].re;		wt_im=rn0[k1].im;\
-				rt  =rn1[k2].re;		it   =rn1[k2].im;\
-				wt_re =temp*rt-wt_im*it;wt_im =temp*it+wt_im*rt;\
-				__asm	mov	edi, __wt_re_ptr\
-				__asm	mov	esi, __wt_im_ptr\
-				__asm	movhpd	xmm4,[edi]\
-				__asm	movhpd	xmm5,[esi]\
-				/* Init carries: (scalar) carries cx,cy will get added into low halves, high half just gets unweighted: */\
-				__asm	mov	edi, &__cx\
-				__asm	mov	esi, &__cy\
-				__asm	xorpd	xmm6,xmm6	/* zero */\
-				__asm	xorpd	xmm7,xmm7	/* zero */\
-				__asm	movlpd	xmm6,[edi]	/* cx in low half */\
-				__asm	movlpd	xmm7,[esi]	/* cy in low half */\
-				\
-			/* Inverse weight is (wt_re, -wt_im): */\
-				__asm	movaps	xmm2,xmm0	/* cpy R0 */\
-				__asm	movaps	xmm3,xmm1	/* cpy I0 */\
-				__asm	mulpd	xmm0,xmm4	/* rt*wt_re */\
-				__asm	mulpd	xmm1,xmm4	/* it*wt_re */\
-				__asm	mulpd	xmm3,xmm5	/* it*wt_im */\
-				__asm	mulpd	xmm2,xmm5	/* rt*wt_im */\
-				__asm	addpd	xmm0,xmm3	/* x = rt*wt_re - it*wt_im */\
-				__asm	subpd	xmm1,xmm2	/* y = rt*wt_im + it*wt_re */\
-				__asm	movaps	xmm2,[ebx-0x10]	/* rnd_const */\
-				__asm	addpd	xmm0,xmm6	/* rt = x*wt_re + y*wt_im + cx */\
-				__asm	addpd	xmm1,xmm7	/* it = y*wt_re - x*wt_im + cy */\
-				__asm	mulpd	xmm0,[ebx+0x40]	/* R0 *= [baseinv,1] */\
-				__asm	mulpd	xmm1,[ebx+0x40]	/* I0 *= [baseinv,1]; don't need to round to compute carry into high halves */\
-				__asm	haddpd	xmm0,xmm1	/* horizontal-add of carry from low into high halves */\
-				__asm	mulpd	xmm0,[ebx+0x50]	/* R0 *= [1,baseinv] */\
-				__asm	mulpd	xmm1,[ebx+0x50]	/* I0 *= [1,baseinv]; don't need to round to compute carry into high halves */\
-				__asm	movaps	xmm0,xmm6	/* cpy R0 */\
-				__asm	movaps	xmm1,xmm7	/* cpy I0 */\
-				__asm	addpd	xmm6,xmm2\
-				__asm	addpd	xmm7,xmm2\
-				__asm	subpd	xmm6,xmm2	/* cx */\
-				__asm	subpd	xmm7,xmm2	/* cy */\
-				__asm	movhpd	[edi],xmm6	/* cx in high half */\
-				__asm	movhpd	[esi],xmm7	/* cy in high half */\
-				__asm	mulpd	xmm6,[ebx+0x30]	/* cx *= [base,base] */\
-				__asm	mulpd	xmm7,[ebx+0x30]	/* cy *= [base,base] */\
-				__asm	subpd	xmm0,xmm6	/* rt = temp-cx*base[0] */\
-				__asm	subpd	xmm1,xmm7	/* it = temp-cy*base[0] */\
-			/* Forward weight is (wt_re, +wt_im): */\
-				__asm	movaps	xmm2,xmm0	/* cpy R0 */\
-				__asm	movaps	xmm3,xmm1	/* cpy I0 */\
-				__asm	mulpd	xmm0,xmm4	/* rt*wt_re */\
-				__asm	mulpd	xmm1,xmm4	/* it*wt_re */\
-				__asm	mulpd	xmm3,xmm5	/* it*wt_im */\
-				__asm	mulpd	xmm2,xmm5	/* rt*wt_im */\
-				__asm	subpd	xmm0,xmm3	/* x = rt*wt_re - it*wt_im */\
-				__asm	addpd	xmm1,xmm2	/* y = rt*wt_im + it*wt_re */\
-		}
-
-	#else	/* GCC-style inline ASM: */
+	#if defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)	/* GCC-style inline ASM: */
 
 		#if OS_BITS == 32
 
@@ -194,8 +112,7 @@ int radix16_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	static int n_div_nwt;
 	int col,co2,co3,m,m2,n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	double wt,wtinv,wtl,wtlp1,wtn,wtnm1,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
-	static double wt_re,wt_im;									/* Fermat-mod weights stuff */
-	static double *wt_re_ptr = &wt_re, *wt_im_ptr = &wt_im;
+	double wt_re,wt_im;									/* Fermat-mod weights stuff */
 
 #ifdef USE_SSE2
 
@@ -205,6 +122,7 @@ int radix16_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	int *si_ptr = &si[0];
 	double *wt0_ptr = &wt0[0], *wt1_ptr = &wt1[0], *scale_ptr = &scale;
 #endif
+  #if defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 	static struct complex *sc_arr = 0x0,*sc_ptr;
 	static struct complex *cc0, *ss0, *isrt2, *max_err, *sse2_rnd, *half_arr, *tmp;
@@ -213,6 +131,12 @@ int radix16_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	static uint64 *sm_arr = 0x0, *sm_ptr, *sign_mask, *sse_bw, *sse_sw, *sse_nm1;
 	uint64 tmp64;
 	static int *bjmodn0,*bjmodn1,*bjmodn2,*bjmodn3,*bjmodn4,*bjmodn5,*bjmodn6,*bjmodn7,*bjmodn8,*bjmodn9,*bjmodnA,*bjmodnB,*bjmodnC,*bjmodnD,*bjmodnE,*bjmodnF;
+
+  #else
+
+	#error SSE2 code not supported for this compiler!
+
+  #endif
 
   #ifdef DEBUG_SSE2
 	int jt,jp;
@@ -400,26 +324,11 @@ int radix16_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		*/
 		tmp = half_arr;
 		/* Forward-weight multipliers: */
-	if(TRANSFORM_TYPE == RIGHT_ANGLE)	/* In Fermat-mod mode, use first 2 128-bit slots for the needed combos of the 2 scaling factors 1/n2 and 1: */
-	{
-		tmp->re = n2inv;	tmp->im = n2inv;	++tmp;
-		/* In wraparound-carry step, scale = 1: */
-		tmp->re =   1.0;	tmp->im =   1.0;	++tmp;
-		/* Forward-base[] multipliers: */
-/*		tmp->re = base   [0];	tmp->im =        1.0;	++tmp;*/
-		tmp->re =        1.0;	tmp->im = base   [0];	++tmp;
-		tmp->re = base   [0];	tmp->im = base   [0];	++tmp;
-		/* Inverse-base[] multipliers: */
-		tmp->re = baseinv[0];	tmp->im =        1.0;	++tmp;
-		tmp->re =        1.0;	tmp->im = baseinv[0];	++tmp;
-	}
-	else
-	{
 		tmp->re = 1.0;	tmp->im = 1.0;	++tmp;
 		tmp->re = .50;	tmp->im = 1.0;	++tmp;
 		tmp->re = 1.0;	tmp->im = .50;	++tmp;
 		tmp->re = .50;	tmp->im = .50;	++tmp;
-		/* Inverse-weight multipliers (only needed for mersenne-mod): */
+		/* Inverse-weight multipliers: */
 		tmp->re = .50;	tmp->im = .50;	++tmp;
 		tmp->re = .25;	tmp->im = .50;	++tmp;
 		tmp->re = .50;	tmp->im = .25;	++tmp;
@@ -434,7 +343,6 @@ int radix16_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		tmp->re = baseinv[1];	tmp->im = baseinv[0];	++tmp;
 		tmp->re = baseinv[0];	tmp->im = baseinv[1];	++tmp;
 		tmp->re = baseinv[1];	tmp->im = baseinv[1];	++tmp;
-	}
 
 		/* Floating-point sign mask used for FABS on packed doubles: */
 		sign_mask = sm_ptr;
@@ -1298,7 +1206,7 @@ for(outer=0; outer <= 1; outer++)
 				/* DIT Totals: 143 MOVapd, 180 ADD/SUBpd, 24 MULpd */
 				/***************************************************/
 
-		  #else	/* GCC-style inline ASM: */
+		  #elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 				add0 = &a[j1];
 
@@ -1529,8 +1437,6 @@ for(outer=0; outer <= 1; outer++)
 					wtlp1   =wt0[    l+1];
 					wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
-				#if defined(USE_SCALAR_CARRY)
-
 				/*...set0 is slightly different from others:	*/
 				   cmplx_carry_norm_pow2_errcheck0(a1p0r,a1p0i,cy_r0,*bjmodn0    );
 					cmplx_carry_norm_pow2_errcheck(a1p1r,a1p1i,cy_r1,*bjmodn1,0x1);
@@ -1550,30 +1456,6 @@ for(outer=0; outer <= 1; outer++)
 					cmplx_carry_norm_pow2_errcheck(a1pFr,a1pFi,cy_rF,*bjmodnF,0xF);
 
 					i =((uint32)(sw - *bjmodn0) >> 31);	/* get ready for the next set...	*/
-
-				#else	/* SSE2 mode uses pointers for the bjmodn's, non-SSE2 uses scalars: */
-
-				/*...set0 is slightly different from others:	*/
-				   cmplx_carry_norm_pow2_errcheck0(a1p0r,a1p0i,cy_r0,bjmodn0    );
-					cmplx_carry_norm_pow2_errcheck(a1p1r,a1p1i,cy_r1,bjmodn1,0x1);
-					cmplx_carry_norm_pow2_errcheck(a1p2r,a1p2i,cy_r2,bjmodn2,0x2);
-					cmplx_carry_norm_pow2_errcheck(a1p3r,a1p3i,cy_r3,bjmodn3,0x3);
-					cmplx_carry_norm_pow2_errcheck(a1p4r,a1p4i,cy_r4,bjmodn4,0x4);
-					cmplx_carry_norm_pow2_errcheck(a1p5r,a1p5i,cy_r5,bjmodn5,0x5);
-					cmplx_carry_norm_pow2_errcheck(a1p6r,a1p6i,cy_r6,bjmodn6,0x6);
-					cmplx_carry_norm_pow2_errcheck(a1p7r,a1p7i,cy_r7,bjmodn7,0x7);
-					cmplx_carry_norm_pow2_errcheck(a1p8r,a1p8i,cy_r8,bjmodn8,0x8);
-					cmplx_carry_norm_pow2_errcheck(a1p9r,a1p9i,cy_r9,bjmodn9,0x9);
-					cmplx_carry_norm_pow2_errcheck(a1pAr,a1pAi,cy_rA,bjmodnA,0xA);
-					cmplx_carry_norm_pow2_errcheck(a1pBr,a1pBi,cy_rB,bjmodnB,0xB);
-					cmplx_carry_norm_pow2_errcheck(a1pCr,a1pCi,cy_rC,bjmodnC,0xC);
-					cmplx_carry_norm_pow2_errcheck(a1pDr,a1pDi,cy_rD,bjmodnD,0xD);
-					cmplx_carry_norm_pow2_errcheck(a1pEr,a1pEi,cy_rE,bjmodnE,0xE);
-					cmplx_carry_norm_pow2_errcheck(a1pFr,a1pFi,cy_rF,bjmodnF,0xF);
-
-					i =((uint32)(sw - bjmodn0) >> 31);	/* get ready for the next set...	*/
-
-				#endif
 
 					co2 = co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 								(and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).	*/
@@ -1622,7 +1504,7 @@ for(outer=0; outer <= 1; outer++)
 
 				if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 				{
-				/* In SSE2 mode, the data are arranged in memory like so, where we view things in 16-byte chunks:
+				/* In sse2 mode, the data are arranged in memory like so, where we view things in 16-byte chunks:
 
 					R0/r1 :	a0.re,b0.re		I0/r2 :	a0.im,b0.im
 					R1/r3 :	a1.re,b1.re		I1/r4 :	a1.im,b1.im
@@ -1779,7 +1661,7 @@ for(outer=0; outer <= 1; outer++)
 					__asm	mov		add2,edi
 					__asm	mov		add3,edx
 
-				#else	/* GCC-style inline ASM: */
+				#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 					#if OS_BITS == 32
 
@@ -2001,7 +1883,7 @@ if(j < 2 && full_pass && iter <= 10)
 				SSE2_cmplx_carry_norm_pow2_errcheck1_2B (r17,add1,add2,add3,cy_r89,cy_rAB,bjmodn8);
 				SSE2_cmplx_carry_norm_pow2_errcheck1_2B (r25,add1,add2,add3,cy_rCD,cy_rEF,bjmodnC);
 
-			#else	/* GCC-style inline ASM: */
+			#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 				SSE2_cmplx_carry_norm_pow2_errcheck0_2B(r1 ,add1,add2,add3,cy_r01,cy_r23,bjmodn0,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
 				SSE2_cmplx_carry_norm_pow2_nocheck1_2B (r9 ,add1,add2,add3,cy_r45,cy_r67,bjmodn4,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
@@ -2118,7 +2000,7 @@ if(j < 2 && full_pass && iter <= 10)
 					__asm	mov		add1,esi
 					__asm	mov		add2,edi
 
-				#else	/* GCC-style inline ASM: */
+				#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 				  #if OS_BITS == 32
 
@@ -2327,7 +2209,7 @@ if(j < 2 && full_pass && iter <= 10)
 				SSE2_cmplx_carry_norm_pow2_errcheck2_2B (r17,add1,add2,cy_r89,cy_rAB,bjmodn8);
 				SSE2_cmplx_carry_norm_pow2_errcheck2_2B (r25,add1,add2,cy_rCD,cy_rEF,bjmodnC);
 
-			#else	/* GCC-style inline ASM: */
+			#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 				SSE2_cmplx_carry_norm_pow2_nocheck2_2B (r1 ,add1,add2,cy_r01,cy_r23,bjmodn0,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
 				SSE2_cmplx_carry_norm_pow2_nocheck2_2B (r9 ,add1,add2,cy_r45,cy_r67,bjmodn4,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
@@ -2368,53 +2250,9 @@ if(j < 2 && full_pass && iter <= 10)
 				#endif
 
 				}
-				else	/* Fermat-mod carry in SSE2 mode */
+				else
 				{
-				/* In SSE2 mode, the data are arranged in memory like so, where we view things in 16-byte chunks:
-
-					R0/r1 :	a0.re,b0.re		I0/r2 :	a0.im,b0.im
-					R1/r3 :	a1.re,b1.re		I1/r4 :	a1.im,b1.im
-					R2/r5 :	a2.re,b2.re		I2/r6 :	a2.im,b2.im
-					R3/r7 :	a3.re,b3.re		I3/r8 :	a3.im,b3.im
-					R4/r9 :	a4.re,b4.re		I4/r10:	a4.im,b4.im
-					R5/r11:	a5.re,b5.re		I5/r12:	a5.im,b5.im
-					R6/r13:	a6.re,b6.re		I6/r14:	a6.im,b6.im
-					R7/r15:	a7.re,b7.re		I7/r16:	a7.im,b7.im
-					R8/r17:	a8.re,b8.re		I8/r18:	a8.im,b8.im
-					R9/r19:	a9.re,b9.re		I9/r20:	a9.im,b9.im
-					Ra/r21:	aA.re,bA.re		Ia/r22:	aA.im,bA.im
-					Rb/r23:	aB.re,bB.re		Ib/r24:	aB.im,bB.im
-					Rc/r25:	aC.re,bC.re		Ic/r26:	aC.im,bC.im
-					Rd/r27:	aD.re,bD.re		Id/r28:	aD.im,bD.im
-					Re/r29:	aE.re,bE.re		Ie/r30:	aE.im,bE.im
-					Rf/r31:	aF.re,bF.re		If/r32:	aF.im,bF.im
-
-				Where the R's and I's map to the local temps as follows: R0:f ==> r1:31:2, I0:f ==> r2:32:2 , and the
-				a's and b's of each pair represent doubles which in non-SSE2 mode would be getting processed in the same relative
-				position on subsequent passes through the main-array for-loop, i.e. among which the carry propagation proceeds as
-
-					a0.re -> b0.re;		a0.im -> b0.im, where these imaginary parts really represent elements
-					                                    a[n/2] and a[n/2+1] of the right-angle transform.
-
-				Because of the indesirable intra-xmm-register data dependency this leads to, we instead require data arranged as
-
-					R0/r1 :	a0.re,a0.im		I0/r2 :	b0.re,b0.im, i.e. the non-SSE2 data layout works best in the carry step!
-
-				We need to interleave these pairwise so as to swap the high word of each R-element
-				with the low word of the corresponding I-element, e.g. for R0/r1 and I0/r2:
-
-						low		high	low		high
-					R0	[a0.re,b0.re]	[a0.im,b0.im]	I0
-						   |      \       /      |
-						   |        \   /        |
-						   |          x          |
-						   |        /   \        |
-						   V      /       \      V
-					R0~	[a0.re,a0.im]	[b0.re,b0.im]	I0~.
-
-				Note that even though e.g. a0 and a1 appear adjacent, they are actually n/16 memory locations apart, i.e. there
-				is no carry propagation between them.
-				*/
+					ASSERT(HERE, 0, "Fermat-mod carry not supported in SSE2 mode!");
 				}	/* if(MODULUS_TYPE == ...) */
 
 			#endif	/* USE_SSE2 */
@@ -2810,7 +2648,7 @@ if(j < 2 && full_pass && iter <= 10)
 				/* DIF Totals: 132 MOVapd, 182 ADD/SUBpd, 24 MULpd */
 				/***************************************************/
 
-		#else	/* GCC-style inline ASM: */
+		#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 			SSE2_RADIX16_DIF_NOTWIDDLE(add0,p1,p2,p3,p4,r1,r3,r5,r7,r9,r11,r13,r15,r17,r19,r21,r23,r25,r27,r29,r31,isrt2,cc0);
 

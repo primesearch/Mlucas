@@ -236,7 +236,7 @@
 			/******** [~1/4 the cost of a radix-16 DIF or DIT pass] *******/\
 		}
 
-	#else	/* GCC-style inline ASM: */
+	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)	/* GCC-style inline ASM: */
 
 		#if OS_BITS == 32
 
@@ -385,10 +385,19 @@ The scratch array (2nd input argument) is only needed for data table initializat
 #ifdef USE_SSE2
 
 	double *add0, *add1, *add2, *add3;	/* Addresses into array sections */
+
+  #if defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
+
 	static struct complex *sc_arr = 0x0, *sc_ptr;
 	static struct complex *cc0, *ss0, *isrt2, *forth, *tmp0, *tmp1, *tmp2, *tmp3;
 	static struct complex *c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15,*s1,*s2,*s3,*s4,*s5,*s6,*s7,*s8,*s9,*s10,*s11,*s12,*s13,*s14,*s15;
 	static struct complex *r1,*r2,*r3,*r4,*r5,*r6,*r7,*r8,*r9,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r30,*r31,*r32;
+
+  #else
+
+	#error SSE2 code not supported for this compiler!
+
+  #endif
 
   #ifdef DEBUG_SSE2
 	int iloop;
@@ -2416,7 +2425,7 @@ jump_in:	/* Entry point for all blocks but the first. */
 		__asm	movaps	[eax+0x180],xmm7	/* a[jt+p3 ] */
 		__asm	movaps	[eax+0x090],xmm6	/* a[jp+p2 ] */
 
-	#else	/* GCC-style inline ASM: */
+	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 		SSE2_RADIX16_WRAPPER_DIF(add0,add1,r1,r9,r17,r25,isrt2,cc0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15)
 
@@ -2482,7 +2491,7 @@ jump_in:	/* Entry point for all blocks but the first. */
 		__asm	movaps	[ecx],xmm2
 		__asm	movaps	[edx],xmm3
 
-	#else	/* GCC-style inline ASM: */
+	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 		#if OS_BITS == 32
 
@@ -3136,7 +3145,7 @@ jump_in:	/* Entry point for all blocks but the first. */
 		__asm	movaps	[ebx+0xf0],xmm6	/* a[jp+p12] */
 		__asm	movaps	[ebx+0xe0],xmm0	/* a[jt+p12] */
 
-	#else	/* GCC-style inline ASM: */
+	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 		SSE2_RADIX16_WRAPPER_DIT(add0,add1,r1,r9,r17,r25,isrt2,cc0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15)
 

@@ -30,16 +30,16 @@
 	{\
 	__asm__ volatile (\
 		"movq		%[add0]	,%%rax			\n\t"\
-		"movq		%[add4]	,%%r15			\n\t"\
+		"movq		%[add4]	,%%rdi			\n\t"\
 		"movq		%[c4]	,%%rcx			\n\t"\
 		"movaps		    (%%rax)	,%%xmm0		\n\t"\
 		"movaps		0x10(%%rax)	,%%xmm1		\n\t"\
 		"movaps		    (%%rax)	,%%xmm6		\n\t"\
 		"movaps		0x10(%%rax)	,%%xmm7		\n\t"\
-		"movaps		    (%%r15)	,%%xmm2		\n\t"\
-		"movaps		0x10(%%r15)	,%%xmm3		\n\t"\
-		"movaps		    (%%r15)	,%%xmm4		\n\t"\
-		"movaps		0x10(%%r15)	,%%xmm5		\n\t"\
+		"movaps		    (%%rdi)	,%%xmm2		\n\t"\
+		"movaps		0x10(%%rdi)	,%%xmm3		\n\t"\
+		"movaps		    (%%rdi)	,%%xmm4		\n\t"\
+		"movaps		0x10(%%rdi)	,%%xmm5		\n\t"\
 		"mulpd		    (%%rcx)	,%%xmm2		\n\t"\
 		"mulpd		    (%%rcx)	,%%xmm3		\n\t"\
 		"mulpd		0x10(%%rcx)	,%%xmm4		\n\t"\
@@ -52,10 +52,10 @@
 		"subpd		%%xmm3		,%%xmm7		\n\t"\
 		"movaps		%%xmm0		,    (%%rax)	\n\t"\
 		"movaps		%%xmm1		,0x10(%%rax)	\n\t"\
-		"movaps		%%xmm6		,    (%%r15)	\n\t"\
-		"movaps		%%xmm7		,0x10(%%r15)	\n\t"\
+		"movaps		%%xmm6		,    (%%rdi)	\n\t"\
+		"movaps		%%xmm7		,0x10(%%rdi)	\n\t"\
 		"movq		%[add2]	,%%rax			\n\t"\
-		"movq		%[add6]	,%%r15			\n\t"\
+		"movq		%[add6]	,%%rdi			\n\t"\
 		"movq		%[c2]	,%%rcx			\n\t"\
 		"movq		%[c6]	,%%rdx			\n\t"\
 		"movaps		    (%%rax)	,%%xmm0		\n\t"\
@@ -68,10 +68,10 @@
 		"mulpd		    (%%rcx)	,%%xmm3		\n\t"\
 		"subpd		%%xmm2		,%%xmm0		\n\t"\
 		"addpd		%%xmm3		,%%xmm1		\n\t"\
-		"movaps		    (%%r15)	,%%xmm2		\n\t"\
-		"movaps		0x10(%%r15)	,%%xmm3		\n\t"\
-		"movaps		    (%%r15)	,%%xmm4		\n\t"\
-		"movaps		0x10(%%r15)	,%%xmm5		\n\t"\
+		"movaps		    (%%rdi)	,%%xmm2		\n\t"\
+		"movaps		0x10(%%rdi)	,%%xmm3		\n\t"\
+		"movaps		    (%%rdi)	,%%xmm4		\n\t"\
+		"movaps		0x10(%%rdi)	,%%xmm5		\n\t"\
 		"mulpd		    (%%rdx)	,%%xmm2		\n\t"\
 		"mulpd		0x10(%%rdx)	,%%xmm3		\n\t"\
 		"mulpd		0x10(%%rdx)	,%%xmm4		\n\t"\
@@ -86,10 +86,10 @@
 		"subpd		%%xmm5		,%%xmm1		\n\t"\
 		"movaps		%%xmm2		,    (%%rax)	\n\t"\
 		"movaps		%%xmm4		,0x10(%%rax)	\n\t"\
-		"movaps		%%xmm0		,    (%%r15)	\n\t"\
-		"movaps		%%xmm1		,0x10(%%r15)	\n\t"\
+		"movaps		%%xmm0		,    (%%rdi)	\n\t"\
+		"movaps		%%xmm1		,0x10(%%rdi)	\n\t"\
 		"movq		%[add1]	,%%rax			\n\t"\
-		"movq		%[add5]	,%%r15			\n\t"\
+		"movq		%[add5]	,%%rdi			\n\t"\
 		"movq		%[c1]	,%%rcx			\n\t"\
 		"movq		%[c5]	,%%rdx			\n\t"\
 		"movaps		    (%%rax)	,%%xmm0		\n\t"\
@@ -102,10 +102,10 @@
 		"mulpd		    (%%rcx)	,%%xmm3		\n\t"\
 		"subpd		%%xmm2		,%%xmm0		\n\t"\
 		"addpd		%%xmm3		,%%xmm1		\n\t"\
-		"movaps		    (%%r15)	,%%xmm2		\n\t"\
-		"movaps		0x10(%%r15)	,%%xmm3		\n\t"\
-		"movaps		    (%%r15)	,%%xmm4		\n\t"\
-		"movaps		0x10(%%r15)	,%%xmm5		\n\t"\
+		"movaps		    (%%rdi)	,%%xmm2		\n\t"\
+		"movaps		0x10(%%rdi)	,%%xmm3		\n\t"\
+		"movaps		    (%%rdi)	,%%xmm4		\n\t"\
+		"movaps		0x10(%%rdi)	,%%xmm5		\n\t"\
 		"mulpd		    (%%rdx)	,%%xmm2		\n\t"\
 		"mulpd		0x10(%%rdx)	,%%xmm3		\n\t"\
 		"mulpd		0x10(%%rdx)	,%%xmm4		\n\t"\
@@ -120,10 +120,10 @@
 		"subpd		%%xmm5		,%%xmm1		\n\t"\
 		"movaps		%%xmm2		,    (%%rax)	\n\t"\
 		"movaps		%%xmm4		,0x10(%%rax)	\n\t"\
-		"movaps		%%xmm0		,    (%%r15)	\n\t"\
-		"movaps		%%xmm1		,0x10(%%r15)	\n\t"\
+		"movaps		%%xmm0		,    (%%rdi)	\n\t"\
+		"movaps		%%xmm1		,0x10(%%rdi)	\n\t"\
 		"movq		%[add3]	,%%rax			\n\t"\
-		"movq		%[add7]	,%%r15			\n\t"\
+		"movq		%[add7]	,%%rdi			\n\t"\
 		"movq		%[c3]	,%%rcx			\n\t"\
 		"movq		%[c7]	,%%rdx			\n\t"\
 		"movaps		    (%%rax)	,%%xmm0		\n\t"\
@@ -136,10 +136,10 @@
 		"mulpd		    (%%rcx)	,%%xmm3		\n\t"\
 		"subpd		%%xmm2		,%%xmm0		\n\t"\
 		"addpd		%%xmm3		,%%xmm1		\n\t"\
-		"movaps		    (%%r15)	,%%xmm2		\n\t"\
-		"movaps		0x10(%%r15)	,%%xmm3		\n\t"\
-		"movaps		    (%%r15)	,%%xmm4		\n\t"\
-		"movaps		0x10(%%r15)	,%%xmm5		\n\t"\
+		"movaps		    (%%rdi)	,%%xmm2		\n\t"\
+		"movaps		0x10(%%rdi)	,%%xmm3		\n\t"\
+		"movaps		    (%%rdi)	,%%xmm4		\n\t"\
+		"movaps		0x10(%%rdi)	,%%xmm5		\n\t"\
 		"mulpd		    (%%rdx)	,%%xmm2		\n\t"\
 		"mulpd		0x10(%%rdx)	,%%xmm3		\n\t"\
 		"mulpd		0x10(%%rdx)	,%%xmm4		\n\t"\
@@ -154,22 +154,22 @@
 		"subpd		%%xmm5		,%%xmm1		\n\t"\
 		"movaps		%%xmm2		,    (%%rax)	\n\t"\
 		"movaps		%%xmm4		,0x10(%%rax)	\n\t"\
-		"movaps		%%xmm0		,    (%%r15)	\n\t"\
-		"movaps		%%xmm1		,0x10(%%r15)	\n\t"\
+		"movaps		%%xmm0		,    (%%rdi)	\n\t"\
+		"movaps		%%xmm1		,0x10(%%rdi)	\n\t"\
 		"movq		%[add0]	,%%rax			\n\t"\
-		"movq		%[add2]	,%%r15			\n\t"\
+		"movq		%[add2]	,%%rdi			\n\t"\
 		"movaps		    (%%rax)	,%%xmm0		\n\t"\
 		"movaps		0x10(%%rax)	,%%xmm1		\n\t"\
 		"movaps		%%xmm0		,%%xmm4		\n\t"\
 		"movaps		%%xmm1		,%%xmm5		\n\t"\
-		"addpd		    (%%r15)	,%%xmm0		\n\t"\
-		"subpd		    (%%r15)	,%%xmm4		\n\t"\
-		"addpd		0x10(%%r15)	,%%xmm1		\n\t"\
-		"subpd		0x10(%%r15)	,%%xmm5		\n\t"\
+		"addpd		    (%%rdi)	,%%xmm0		\n\t"\
+		"subpd		    (%%rdi)	,%%xmm4		\n\t"\
+		"addpd		0x10(%%rdi)	,%%xmm1		\n\t"\
+		"subpd		0x10(%%rdi)	,%%xmm5		\n\t"\
 		"movaps		%%xmm0		,    (%%rax)	\n\t"\
 		"movaps		%%xmm1		,0x10(%%rax)	\n\t"\
-		"movaps		%%xmm4		,    (%%r15)	\n\t"\
-		"movaps		%%xmm5		,0x10(%%r15)	\n\t"\
+		"movaps		%%xmm4		,    (%%rdi)	\n\t"\
+		"movaps		%%xmm5		,0x10(%%rdi)	\n\t"\
 		"movq		%[add1]	,%%rcx			\n\t"\
 		"movq		%[add3]	,%%rdx			\n\t"\
 		"movaps		    (%%rcx)	,%%xmm2		\n\t"\
@@ -186,30 +186,30 @@
 		"subpd		%%xmm6		,%%xmm5		\n\t"\
 		"addpd		    (%%rax)	,%%xmm2		\n\t"\
 		"addpd		0x10(%%rax)	,%%xmm3		\n\t"\
-		"addpd		    (%%r15)	,%%xmm7		\n\t"\
-		"addpd		0x10(%%r15)	,%%xmm6		\n\t"\
+		"addpd		    (%%rdi)	,%%xmm7		\n\t"\
+		"addpd		0x10(%%rdi)	,%%xmm6		\n\t"\
 		"movaps		%%xmm2		,    (%%rax)	\n\t"\
 		"movaps		%%xmm3		,0x10(%%rax)	\n\t"\
-		"movaps		%%xmm4		,    (%%r15)	\n\t"\
-		"movaps		%%xmm6		,0x10(%%r15)	\n\t"\
+		"movaps		%%xmm4		,    (%%rdi)	\n\t"\
+		"movaps		%%xmm6		,0x10(%%rdi)	\n\t"\
 		"movaps		%%xmm0		,    (%%rcx)	\n\t"\
 		"movaps		%%xmm1		,0x10(%%rcx)	\n\t"\
 		"movaps		%%xmm7		,    (%%rdx)	\n\t"\
 		"movaps		%%xmm5		,0x10(%%rdx)	\n\t"\
 		"movq		%[add4]	,%%rax			\n\t"\
-		"movq		%[add6]	,%%r15			\n\t"\
+		"movq		%[add6]	,%%rdi			\n\t"\
 		"movaps		    (%%rax)	,%%xmm0		\n\t"\
 		"movaps		0x10(%%rax)	,%%xmm1		\n\t"\
 		"movaps		%%xmm0		,%%xmm4		\n\t"\
 		"movaps		%%xmm1		,%%xmm5		\n\t"\
-		"subpd		0x10(%%r15)	,%%xmm0		\n\t"\
-		"addpd		0x10(%%r15)	,%%xmm4		\n\t"\
-		"addpd		    (%%r15)	,%%xmm1		\n\t"\
-		"subpd		    (%%r15)	,%%xmm5		\n\t"\
+		"subpd		0x10(%%rdi)	,%%xmm0		\n\t"\
+		"addpd		0x10(%%rdi)	,%%xmm4		\n\t"\
+		"addpd		    (%%rdi)	,%%xmm1		\n\t"\
+		"subpd		    (%%rdi)	,%%xmm5		\n\t"\
 		"movaps		%%xmm0		,    (%%rax)	\n\t"\
 		"movaps		%%xmm1		,0x10(%%rax)	\n\t"\
-		"movaps		%%xmm4		,    (%%r15)	\n\t"\
-		"movaps		%%xmm5		,0x10(%%r15)	\n\t"\
+		"movaps		%%xmm4		,    (%%rdi)	\n\t"\
+		"movaps		%%xmm5		,0x10(%%rdi)	\n\t"\
 		"movq		%[add5]	,%%rcx			\n\t"\
 		"movq		%[add7]	,%%rdx			\n\t"\
 		"movaps		    (%%rcx)	,%%xmm2		\n\t"\
@@ -242,12 +242,12 @@
 		"subpd		%%xmm7		,%%xmm3		\n\t"\
 		"addpd		    (%%rax)	,%%xmm2		\n\t"\
 		"addpd		0x10(%%rax)	,%%xmm5		\n\t"\
-		"addpd		    (%%r15)	,%%xmm4		\n\t"\
-		"addpd		0x10(%%r15)	,%%xmm7		\n\t"\
+		"addpd		    (%%rdi)	,%%xmm4		\n\t"\
+		"addpd		0x10(%%rdi)	,%%xmm7		\n\t"\
 		"movaps		%%xmm2		,    (%%rax)	\n\t"\
 		"movaps		%%xmm5		,0x10(%%rax)	\n\t"\
-		"movaps		%%xmm6		,    (%%r15)	\n\t"\
-		"movaps		%%xmm3		,0x10(%%r15)	\n\t"\
+		"movaps		%%xmm6		,    (%%rdi)	\n\t"\
+		"movaps		%%xmm3		,0x10(%%rdi)	\n\t"\
 		"movaps		%%xmm0		,    (%%rcx)	\n\t"\
 		"movaps		%%xmm1		,0x10(%%rcx)	\n\t"\
 		"movaps		%%xmm4		,    (%%rdx)	\n\t"\
@@ -269,7 +269,7 @@
 		 ,[c5] "m" (Xc5)\
 		 ,[c6] "m" (Xc6)\
 		 ,[c7] "m" (Xc7)\
-		: "rax","r15","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		: "rax","rdi","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","memory"		/* Clobbered registers */\
 	);\
 	}
 
@@ -277,15 +277,15 @@
 	{\
 	__asm__ volatile (\
 		"movq		%[add4]		,%%rax		\n\t"\
-		"movq		%[add5]		,%%r15		\n\t"\
+		"movq		%[add5]		,%%rdi		\n\t"\
 		"movaps		(%%rax)		,%%xmm0		\n\t"\
 		"movaps		0x10(%%rax)	,%%xmm1		\n\t"\
 		"movaps		%%xmm0		,%%xmm2		\n\t"\
 		"movaps		%%xmm1		,%%xmm3		\n\t"\
-		"addpd		(%%r15)		,%%xmm2		\n\t"\
-		"addpd		0x10(%%r15)	,%%xmm3		\n\t"\
-		"subpd		(%%r15)		,%%xmm0		\n\t"\
-		"subpd		0x10(%%r15)	,%%xmm1		\n\t"\
+		"addpd		(%%rdi)		,%%xmm2		\n\t"\
+		"addpd		0x10(%%rdi)	,%%xmm3		\n\t"\
+		"subpd		(%%rdi)		,%%xmm0		\n\t"\
+		"subpd		0x10(%%rdi)	,%%xmm1		\n\t"\
 		"movq		%[add6]		,%%rcx		\n\t"\
 		"movq		%[add7]		,%%rdx		\n\t"\
 		"movaps		(%%rcx)		,%%xmm4		\n\t"\
@@ -321,25 +321,25 @@
 		"mulpd		%%xmm1		,%%xmm5		\n\t"\
 		"mulpd		%%xmm1		,%%xmm2		\n\t"\
 		"movaps		%%xmm0		,%%xmm3		\n\t"\
-		"movaps		%%xmm5		,    (%%r15)\n\t"\
+		"movaps		%%xmm5		,    (%%rdi)\n\t"\
 		"movaps		%%xmm4		,%%xmm5		\n\t"\
 		"addpd		%%xmm4		,%%xmm0		\n\t"\
-		"movaps		%%xmm2		,0x10(%%r15)\n\t"\
+		"movaps		%%xmm2		,0x10(%%rdi)\n\t"\
 		"subpd		%%xmm5		,%%xmm3		\n\t"\
 		"mulpd		%%xmm1		,%%xmm0		\n\t"\
 		"mulpd		%%xmm1		,%%xmm3		\n\t"\
 		"movaps		%%xmm0		,    (%%rdx)\n\t"\
 		"movaps		%%xmm3		,0x10(%%rdx)\n\t"\
 		"movq		%[add0]		,%%rax		\n\t"\
-		"movq		%[add1]		,%%r15		\n\t"\
+		"movq		%[add1]		,%%rdi		\n\t"\
 		"movaps		(%%rax)		,%%xmm0		\n\t"\
 		"movaps		0x10(%%rax)	,%%xmm1		\n\t"\
 		"movaps		%%xmm0		,%%xmm2		\n\t"\
 		"movaps		%%xmm1		,%%xmm3		\n\t"\
-		"addpd		(%%r15)		,%%xmm2		\n\t"\
-		"addpd		0x10(%%r15)	,%%xmm3		\n\t"\
-		"subpd		(%%r15)		,%%xmm0		\n\t"\
-		"subpd		0x10(%%r15)	,%%xmm1		\n\t"\
+		"addpd		(%%rdi)		,%%xmm2		\n\t"\
+		"addpd		0x10(%%rdi)	,%%xmm3		\n\t"\
+		"subpd		(%%rdi)		,%%xmm0		\n\t"\
+		"subpd		0x10(%%rdi)	,%%xmm1		\n\t"\
 		"movaps		%%xmm6		,    (%%rax)\n\t"\
 		"movaps		%%xmm7		,0x10(%%rax)\n\t"\
 		"addpd		%%xmm6		,%%xmm6		\n\t"\
@@ -367,11 +367,11 @@
 		"addpd		0x10(%%rax)	,%%xmm7		\n\t"\
 		"movaps		%%xmm6		,    (%%rax)\n\t"\
 		"movaps		%%xmm7		,0x10(%%rax)\n\t"\
-		"movq		%[add4]		,%%r15		\n\t"\
-		"subpd		    (%%r15)	,%%xmm6		\n\t"\
-		"subpd		0x10(%%r15)	,%%xmm7		\n\t"\
-		"movaps		%%xmm6		,    (%%r15)\n\t"\
-		"movaps		%%xmm7		,0x10(%%r15)\n\t"\
+		"movq		%[add4]		,%%rdi		\n\t"\
+		"subpd		    (%%rdi)	,%%xmm6		\n\t"\
+		"subpd		0x10(%%rdi)	,%%xmm7		\n\t"\
+		"movaps		%%xmm6		,    (%%rdi)\n\t"\
+		"movaps		%%xmm7		,0x10(%%rdi)\n\t"\
 		"movaps		%%xmm6		,    (%%rdx)\n\t"\
 		"movaps		%%xmm7		,0x10(%%rdx)\n\t"\
 		"movaps		%%xmm4		,%%xmm6		\n\t"\
@@ -381,32 +381,32 @@
 		"addpd		%%xmm1		,%%xmm4		\n\t"\
 		"subpd		%%xmm6		,%%xmm1		\n\t"\
 		"movq		%[c4]		,%%rcx		\n\t"\
-		"movaps		    (%%r15)	,%%xmm6		\n\t"\
-		"movaps		0x10(%%r15)	,%%xmm7		\n\t"\
+		"movaps		    (%%rdi)	,%%xmm6		\n\t"\
+		"movaps		0x10(%%rdi)	,%%xmm7		\n\t"\
 		"mulpd		0x10(%%rcx)	,%%xmm6		\n\t"\
 		"mulpd		0x10(%%rcx)	,%%xmm7		\n\t"\
-		"movaps		%%xmm6		,    (%%r15)\n\t"\
-		"movaps		%%xmm7		,0x10(%%r15)\n\t"\
+		"movaps		%%xmm6		,    (%%rdi)\n\t"\
+		"movaps		%%xmm7		,0x10(%%rdi)\n\t"\
 		"movaps		    (%%rdx)	,%%xmm6		\n\t"\
 		"movaps		0x10(%%rdx)	,%%xmm7		\n\t"\
 		"mulpd		    (%%rcx)	,%%xmm6		\n\t"\
 		"mulpd		    (%%rcx)	,%%xmm7		\n\t"\
-		"addpd		0x10(%%r15)	,%%xmm6		\n\t"\
-		"subpd		    (%%r15)	,%%xmm7		\n\t"\
-		"movaps		%%xmm6		,    (%%r15)\n\t"\
-		"movaps		%%xmm7		,0x10(%%r15)\n\t"\
+		"addpd		0x10(%%rdi)	,%%xmm6		\n\t"\
+		"subpd		    (%%rdi)	,%%xmm7		\n\t"\
+		"movaps		%%xmm6		,    (%%rdi)\n\t"\
+		"movaps		%%xmm7		,0x10(%%rdi)\n\t"\
 		"movq		%[add1]		,%%rax		\n\t"\
-		"movq		%[add5]		,%%r15		\n\t"\
+		"movq		%[add5]		,%%rdi		\n\t"\
 		"movq		%[c1]		,%%rcx		\n\t"\
 		"movq		%[c5]		,%%rdx		\n\t"\
 		"movaps		%%xmm5		,%%xmm6		\n\t"\
 		"movaps		%%xmm1		,%%xmm7		\n\t"\
-		"addpd		    (%%r15)	,%%xmm5		\n\t"\
-		"subpd		0x10(%%r15)	,%%xmm1		\n\t"\
-		"subpd		    (%%r15)	,%%xmm6		\n\t"\
-		"addpd		0x10(%%r15)	,%%xmm7		\n\t"\
-		"movaps		%%xmm6		,    (%%r15)\n\t"\
-		"movaps		%%xmm7		,0x10(%%r15)\n\t"\
+		"addpd		    (%%rdi)	,%%xmm5		\n\t"\
+		"subpd		0x10(%%rdi)	,%%xmm1		\n\t"\
+		"subpd		    (%%rdi)	,%%xmm6		\n\t"\
+		"addpd		0x10(%%rdi)	,%%xmm7		\n\t"\
+		"movaps		%%xmm6		,    (%%rdi)\n\t"\
+		"movaps		%%xmm7		,0x10(%%rdi)\n\t"\
 		"movaps		%%xmm5		,%%xmm6		\n\t"\
 		"movaps		%%xmm1		,%%xmm7		\n\t"\
 		"mulpd		    (%%rcx)	,%%xmm5		\n\t"\
@@ -417,8 +417,8 @@
 		"addpd		%%xmm7		,%%xmm5		\n\t"\
 		"movaps		%%xmm1		,0x10(%%rax)\n\t"\
 		"movaps		%%xmm5		,    (%%rax)\n\t"\
-		"movaps		    (%%r15)	,%%xmm5		\n\t"\
-		"movaps		0x10(%%r15)	,%%xmm1		\n\t"\
+		"movaps		    (%%rdi)	,%%xmm5		\n\t"\
+		"movaps		0x10(%%rdi)	,%%xmm1		\n\t"\
 		"movaps		%%xmm5		,%%xmm6		\n\t"\
 		"movaps		%%xmm1		,%%xmm7		\n\t"\
 		"mulpd		    (%%rdx)	,%%xmm5		\n\t"\
@@ -427,18 +427,18 @@
 		"mulpd		0x10(%%rdx)	,%%xmm7		\n\t"\
 		"subpd		%%xmm6		,%%xmm1		\n\t"\
 		"addpd		%%xmm7		,%%xmm5		\n\t"\
-		"movaps		%%xmm1		,0x10(%%r15)\n\t"\
-		"movaps		%%xmm5		,    (%%r15)\n\t"\
+		"movaps		%%xmm1		,0x10(%%rdi)\n\t"\
+		"movaps		%%xmm5		,    (%%rdi)\n\t"\
 		"movq		%[add2]		,%%rax		\n\t"\
-		"movq		%[add6]		,%%r15		\n\t"\
+		"movq		%[add6]		,%%rdi		\n\t"\
 		"movq		%[c2]		,%%rcx		\n\t"\
 		"movq		%[c6]		,%%rdx		\n\t"\
 		"movaps		%%xmm2		,%%xmm6		\n\t"\
 		"movaps		%%xmm3		,%%xmm7		\n\t"\
-		"addpd		0x10(%%r15)	,%%xmm2		\n\t"\
-		"subpd		    (%%r15)	,%%xmm3		\n\t"\
-		"subpd		0x10(%%r15)	,%%xmm6		\n\t"\
-		"addpd		    (%%r15)	,%%xmm7		\n\t"\
+		"addpd		0x10(%%rdi)	,%%xmm2		\n\t"\
+		"subpd		    (%%rdi)	,%%xmm3		\n\t"\
+		"subpd		0x10(%%rdi)	,%%xmm6		\n\t"\
+		"addpd		    (%%rdi)	,%%xmm7		\n\t"\
 		"movaps		%%xmm2		,%%xmm1		\n\t"\
 		"movaps		%%xmm3		,%%xmm5		\n\t"\
 		"mulpd		    (%%rcx)	,%%xmm2		\n\t"\
@@ -457,18 +457,18 @@
 		"mulpd		0x10(%%rdx)	,%%xmm5		\n\t"\
 		"subpd		%%xmm1		,%%xmm7		\n\t"\
 		"addpd		%%xmm5		,%%xmm6		\n\t"\
-		"movaps		%%xmm7		,0x10(%%r15)\n\t"\
-		"movaps		%%xmm6		,    (%%r15)\n\t"\
+		"movaps		%%xmm7		,0x10(%%rdi)\n\t"\
+		"movaps		%%xmm6		,    (%%rdi)\n\t"\
 		"movq		%[add3]		,%%rax		\n\t"\
-		"movq		%[add7]		,%%r15		\n\t"\
+		"movq		%[add7]		,%%rdi		\n\t"\
 		"movq		%[c3]		,%%rcx		\n\t"\
 		"movq		%[c7]		,%%rdx		\n\t"\
 		"movaps		%%xmm0		,%%xmm6		\n\t"\
 		"movaps		%%xmm4		,%%xmm7		\n\t"\
-		"subpd		0x10(%%r15)	,%%xmm0		\n\t"\
-		"subpd		    (%%r15)	,%%xmm4		\n\t"\
-		"addpd		0x10(%%r15)	,%%xmm6		\n\t"\
-		"addpd		    (%%r15)	,%%xmm7		\n\t"\
+		"subpd		0x10(%%rdi)	,%%xmm0		\n\t"\
+		"subpd		    (%%rdi)	,%%xmm4		\n\t"\
+		"addpd		0x10(%%rdi)	,%%xmm6		\n\t"\
+		"addpd		    (%%rdi)	,%%xmm7		\n\t"\
 		"movaps		%%xmm0		,%%xmm1		\n\t"\
 		"movaps		%%xmm4		,%%xmm5		\n\t"\
 		"mulpd		    (%%rcx)	,%%xmm0		\n\t"\
@@ -487,8 +487,8 @@
 		"mulpd		0x10(%%rdx)	,%%xmm5		\n\t"\
 		"subpd		%%xmm1		,%%xmm7		\n\t"\
 		"addpd		%%xmm5		,%%xmm6		\n\t"\
-		"movaps		%%xmm7		,0x10(%%r15)\n\t"\
-		"movaps		%%xmm6		,    (%%r15)\n\t"\
+		"movaps		%%xmm7		,0x10(%%rdi)\n\t"\
+		"movaps		%%xmm6		,    (%%rdi)\n\t"\
 		:					/* outputs: none */\
 		: [add0] "m" (Xadd0)	/* All inputs from memory addresses here */\
 		 ,[add1] "m" (Xadd1)\
@@ -506,7 +506,7 @@
 		 ,[c5] "m" (Xc5)\
 		 ,[c6] "m" (Xc6)\
 		 ,[c7] "m" (Xc7)\
-		: "rax","r15","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		: "rax","rdi","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","memory"		/* Clobbered registers */\
 	);\
 	}
 

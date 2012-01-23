@@ -91,7 +91,7 @@
 																__asm	movaps	[eax+0x010],__r7	/* <- ~t2 */\
 		}
 
-	#else	/* GCC-style inline ASM: */
+	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)	/* GCC-style inline ASM: */
 
 		#if OS_BITS == 32
 
@@ -143,10 +143,19 @@ The scratch array (2nd input argument) is only needed for data table initializat
 #ifdef USE_SSE2
 
 	double *add0, *add1, *add2, *add3;	/* Addresses into array sections */
+
+  #if defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
+
 	static struct complex *sc_arr = 0x0, *sc_ptr;
 	static struct complex *cc0, *ss0, *isrt2, *two;
 	static struct complex *c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15,*s0,*s1,*s2,*s3,*s4,*s5,*s6,*s7,*s8,*s9,*s10,*s11,*s12,*s13,*s14,*s15;
 	static struct complex *r1,*r2,*r3,*r4,*r5,*r6,*r7,*r8,*r9,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r30,*r31,*r32;
+
+  #else
+
+	#error SSE2 code not supported for this compiler!
+
+  #endif
 
 #else
 
@@ -157,11 +166,11 @@ The scratch array (2nd input argument) is only needed for data table initializat
 
 #endif
 
-	static int first_entry=TRUE;
-
 #ifdef DEBUG_SSE2
 	int iloop;
 #endif
+
+	static int first_entry=TRUE;
 
 /*...initialize things upon first entry */
 /*...If a new runlength or first-pass radix, set first_entry to true:	*/
@@ -393,7 +402,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		c13 =rt;	s13 =it;
 	#endif
 
-	/* In SSE2 mode, also need next set of sincos to put into "Imaginary" slots: */
+	/* In SSE2 mode, also need next set of sincoa to put into "Imaginary" slots: */
 	#ifdef USE_SSE2
 		iroot = index0[index0_idx] + index1[index1_idx];
 
@@ -554,10 +563,10 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	It's not clear whether there is a preference for one or the other instruction sequence based on resulting performance.
 	*/
 
+	#ifdef COMPILER_TYPE_MSVC
+
 		add0 = &a[j1];
 		add1 = &a[j1+32];
-
-	#ifdef COMPILER_TYPE_MSVC
 
 	/*...Block 1: */
 		__asm	mov	eax, add0
@@ -1247,7 +1256,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	__asm	movaps	xmm1,[eax+0x110]	/* a[jp+p1 ], reload */
 		SSE2_RADIX4_DIT_IN_PLACE_C(xmm4,xmm5,xmm0,xmm1,xmm2,xmm6,xmm7,xmm3)
 
-	#else	/* GCC-style inline ASM: */
+	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 		SSE2_RADIX16_WRAPPER_DIF(add0,add1,r1,r9,r17,r25,isrt2,cc0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15)
 
@@ -1275,8 +1284,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		exit(0);
 	#endif
 
-	#ifdef COMPILER_TYPE_MSVC
-	  #if 0	// Roll squarings in with radix-4 DFTs
+	#if 0//COMPILER_TYPE_MSVC
+
 		__asm	mov	eax, r1
 		__asm	movaps	xmm0,[eax      ]	/* x0*/		__asm	movaps	xmm0,[eax+0x100]	/* x8*/
 		__asm	movaps	xmm1,[eax+0x010]	/* y0*/		__asm	movaps	xmm1,[eax+0x110]	/* y8*/
@@ -1365,8 +1374,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		__asm	mulpd	xmm1,[eax+0x0e0]/* 2xy */		__asm	mulpd	xmm4,[eax+0x1e0]
 		__asm	movaps	[eax+0x0e0],xmm0	/* Re */	__asm	movaps	[eax+0x1e0],xmm3
 		__asm	movaps	[eax+0x0f0],xmm1	/* Im */	__asm	movaps	[eax+0x1f0],xmm4
-	  #endif
-	#else	/* GCC-style inline ASM: */
+
+	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 	  #if OS_BITS == 32
 
@@ -1771,7 +1780,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	/*************************************************************/
 	/*                  1st set of inputs:                       */
 	/*************************************************************/
-	  #if 0
+#if 0
 	/*...Block 1: */
 		/* eax,ebx,ecx,edx = r1,r17,r9,r25: */
 		__asm	mov eax, r1
@@ -1810,7 +1819,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		__asm	add edx, 0x040
 		/* DIT radix-4 subconvolution, sans twiddles.	Cost: 16 MOVapd, 20 ADD/SUBpd,  0 MULpd */
 		SSE2_RADIX4_DIT_IN_PLACE_B()
-	  #endif
+#endif
 	/****************************************************************************************************
 	!...and now do four more radix-4 transforms, including the internal and external twiddle factors.   !
 	!   Write even-index 16-byte output pairs to a[j1], odd-index to a[j2], unpack same as on inputs.   !
@@ -2352,7 +2361,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		__asm	movaps	[ebx+0xf0],xmm6	/* a[jp+p12] */
 		__asm	movaps	[ebx+0xe0],xmm0	/* a[jt+p12] */
 
-	#else	/* GCC-style inline ASM: */
+	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 		SSE2_RADIX16_WRAPPER_DIT(add0,add1,r1,r9,r17,r25,isrt2,cc0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15)
 

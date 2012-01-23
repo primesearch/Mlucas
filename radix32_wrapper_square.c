@@ -23,16 +23,14 @@
 #include "Mlucas.h"
 #include "pair_square.h"
 
-#ifdef USE_SSE2
+#if defined(USE_SSE2)
 
 	#include "sse2_macro.h"
 
 	#undef DEBUG_SSE2
 //	#define DEBUG_SSE2
 
-	#ifdef COMPILER_TYPE_MSVC
-
-	#else	/* GCC-style inline ASM: */
+	#if defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)	/* GCC-style inline ASM: */
 
 		#if OS_BITS == 32
 
@@ -147,6 +145,9 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 #ifdef USE_SSE2
 
 	double *add0, *add1, *add2;	/* Addresses into array sections */
+
+  #if defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
+
 	static struct complex *sc_arr = 0x0, *sc_ptr;
 	static struct complex *isrt2, *two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3
 		, *forth, *tmp0, *tmp1, *tmp2, *tmp3, *tmp4, *tmp5, *tmp6, *tmp7
@@ -158,6 +159,12 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 		,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r1A,*r1B,*r1C,*r1D,*r1E,*r1F
 		,*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r2A,*r2B,*r2C,*r2D,*r2E,*r2F
 		,*r30,*r31,*r32,*r33,*r34,*r35,*r36,*r37,*r38,*r39,*r3A,*r3B,*r3C,*r3D,*r3E,*r3F;
+
+  #else
+
+	#error SSE2 code not supported for this compiler!
+
+  #endif
 
   #ifdef DEBUG_SSE2
 	int iloop;
@@ -186,7 +193,7 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 
 #ifdef USE_SSE2
 
-		sc_arr = ALLOC_COMPLEX(sc_arr,0x94);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_arr = ALLOC_COMPLEX(sc_arr, 148);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_COMPLEX(sc_arr);
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
@@ -3014,7 +3021,7 @@ jump_in:	/* Entry point for all blocks but the first. */
 	/* Forward DIF radix-32 pass on the interleaved block1 and block2 data: */
 	/************************************************************************/
 
-	  #if(0)	/* The "else" block below is the fully expanded and argcount-reduced version of this macro sequence, used to generate the GCC inline ASM */
+	  #if(0)	/* The "else" block below is the fully expaanded and argcount-reduced version of this macro sequence, used to generate the GCC inline ASM */
 
 	/*...Block 0:	*/
 		__asm	mov	eax,add0
@@ -4743,7 +4750,7 @@ jump_in:	/* Entry point for all blocks but the first. */
 		__asm	movaps	[edx     ],xmm7	/* a1pF3r, store in r3E */
 		__asm	movaps	[ebx+0x10],xmm6	/* a1pE3i, store in r1F */
 
-	#else	/* GCC-style inline ASM: */
+	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 		SSE2_RADIX32_WRAPPER_DIF(add0,add1,r00,r10,r20,r30,isrt2,cc0,c00,c01,c02,c03,c05,c07)
 
@@ -4785,7 +4792,6 @@ jump_in:	/* Entry point for all blocks but the first. */
 		fprintf(stderr, "radix32_dif_pass: r3A = %17.5f, %17.5f, %17.5f, %17.5f\n", r3A->re, r3B->re, r3A->im, r3B->im);
 		fprintf(stderr, "radix32_dif_pass: r3C = %17.5f, %17.5f, %17.5f, %17.5f\n", r3C->re, r3D->re, r3C->im, r3D->im);
 		fprintf(stderr, "radix32_dif_pass: r0E = %17.5f, %17.5f, %17.5f, %17.5f\n", r0E->re, r0F->re, r0E->im, r0F->im);
-		exit(0);
 	#endif
 
 /*
@@ -4853,7 +4859,7 @@ jump_in:	/* Entry point for all blocks but the first. */
 		__asm	movaps	[eax+0x60],xmm6
 		__asm	movaps	[eax+0x70],xmm7
 
-	#else	/* GCC-style inline ASM: */
+	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 		#if OS_BITS == 32
 
@@ -6760,7 +6766,7 @@ jump_in:	/* Entry point for all blocks but the first. */
 		__asm	movaps	[eax+0x1f0],xmm4	/* a[jp+p12] */
 		__asm	movaps	[eax+0x1e0],xmm2	/* a[jt+p12] */
 
-	#else	/* GCC-style inline ASM: */
+	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 			SSE2_RADIX32_WRAPPER_DIT(add0,add1,add2,isrt2,r00,r08,r10,r20,r28,r30,c00,c01,c02,c03,c04,c05,c06,c07,c08,c0A,c0C,c0E,c10,c12,c14,c16,c18,c1A,c1C,c1E)
 

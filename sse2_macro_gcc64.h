@@ -40,14 +40,14 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 	{\
 	__asm__ volatile (\
 		"movq	%[__cA]		,%%rax\n\t"\
-		"movq	%[__cB]		,%%rbx\n\t"\
+		"movq	%[__cB]		,%%r8\n\t"\
 		"movq	%[__cAmB]	,%%rcx\n\t"\
 		"movq	%[__cApB]	,%%rdx\n\t"\
 		"\n\t"\
 		"movaps	    (%%rax),%%xmm0\n\t"\
 		"movaps	0x10(%%rax),%%xmm2\n\t"\
-		"movaps	    (%%rbx),%%xmm4\n\t"\
-		"movaps	0x10(%%rbx),%%xmm5\n\t"\
+		"movaps	    (%%r8),%%xmm4\n\t"\
+		"movaps	0x10(%%r8),%%xmm5\n\t"\
 		"movaps	%%xmm0,%%xmm1\n\t"\
 		"movaps	%%xmm2,%%xmm3\n\t"\
 		"\n\t"\
@@ -70,7 +70,7 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		 ,[__cB]  "m" (XcB)\
 		 ,[__cAmB] "m" (XcAmB)\
 		 ,[__cApB] "m" (XcApB)\
-		: "rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5"		/* Clobbered registers */\
+		: "rax","r8","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5"		/* Clobbered registers */\
 	);\
 	}
 
@@ -106,16 +106,16 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		"	__jt=__tBi* ~tCr-__tBr* ~tCi; __jt=__jt+__jt;\n\t"\
 		"*/\n\t"\
 		"movq	%[__tCr]	,%%rcx\n\t"\
-		"movq	%[__tBr]	,%%rbx\n\t"\
+		"movq	%[__tBr]	,%%r8\n\t"\
 		"\n\t"\
 		"movaps	    (%%rcx)	,%%xmm6		/* tCr */\n\t"\
 		"movaps	0x10(%%rcx)	,%%xmm7		/* tCi */\n\t"\
-		"movaps	    (%%rbx)	,%%xmm2		/* tBr */\n\t"\
-		"movaps	0x10(%%rbx)	,%%xmm5		/* tBi */\n\t"\
+		"movaps	    (%%r8)	,%%xmm2		/* tBr */\n\t"\
+		"movaps	0x10(%%r8)	,%%xmm5		/* tBi */\n\t"\
 		"shufpd	$1	,%%xmm6	,%%xmm6	/*~tCr */\n\t"\
 		"shufpd	$1	,%%xmm7	,%%xmm7	/*~tCi */\n\t"\
-		"movaps	    (%%rbx)	,%%xmm4		/* cpy tBr */\n\t"\
-		"movaps	0x10(%%rbx)	,%%xmm3		/* cpy tBi */\n\t"\
+		"movaps	    (%%r8)	,%%xmm4		/* cpy tBr */\n\t"\
+		"movaps	0x10(%%r8)	,%%xmm3		/* cpy tBi */\n\t"\
 		"\n\t"\
 		"mulpd	%%xmm6		,%%xmm2	/* tBr*~tCr */\n\t"\
 		"mulpd	%%xmm7		,%%xmm5	/* tBi*~tCi */\n\t"\
@@ -148,18 +148,18 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		"/*	__tmp=(__tBr+__tBi)*(__tBr-__tBi); __tBi=__tBr*__tBi; __tBi=__tBi+__tBi; __tBr=__tmp;	*/\n\t"\
 		"/*** [Can be done in parallel with above segment] ***/\n\t"\
 		"\n\t"\
-		"movaps	    (%%rbx)	,%%xmm6		/* __tBr */\n\t"\
-		"movaps	0x10(%%rbx)	,%%xmm7		/* __tBi */\n\t"\
+		"movaps	    (%%r8)	,%%xmm6		/* __tBr */\n\t"\
+		"movaps	0x10(%%r8)	,%%xmm7		/* __tBi */\n\t"\
 		"subpd	%%xmm7		,%%xmm6		/* (__tBr-__tBi) */\n\t"\
 		"addpd	%%xmm7		,%%xmm7		/*      2*__tBi  */\n\t"\
 		"addpd	%%xmm6		,%%xmm7		/* (__tBr+__tBi) */\n\t"\
 		"mulpd	%%xmm7		,%%xmm6		/*>__tBr */\n\t"\
 		"\n\t"\
-		"movaps	    (%%rbx)	,%%xmm7		/* __tBr */\n\t"\
-		"mulpd	0x10(%%rbx)	,%%xmm7		/* __tBr*__tBi */\n\t"\
+		"movaps	    (%%r8)	,%%xmm7		/* __tBr */\n\t"\
+		"mulpd	0x10(%%r8)	,%%xmm7		/* __tBr*__tBi */\n\t"\
 		"addpd	%%xmm7		,%%xmm7		/*>__tBi */\n\t"\
-		"movaps	%%xmm6	,    (%%rbx)	/* tmp store >__tBr */\n\t"\
-		"movaps	%%xmm7	,0x10(%%rbx)	/* tmp store >__tBi */\n\t"\
+		"movaps	%%xmm6	,    (%%r8)	/* tmp store >__tBr */\n\t"\
+		"movaps	%%xmm7	,0x10(%%r8)	/* tmp store >__tBi */\n\t"\
 		"\n\t"\
 		"subpd	%%xmm6		,%%xmm2	/* st-__tBr */\n\t"\
 		"subpd	%%xmm7		,%%xmm3	/* jt-__tBi; xmm4-7 free */\n\t"\
@@ -210,7 +210,7 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		"*/\n\t"\
 		"/*** [Can be done in parallel with above segment] ***/\n\t"\
 		"movq	%[__c]		,%%rax\n\t"\
-		"movq	%[__s]		,%%rbx\n\t"\
+		"movq	%[__s]		,%%r8\n\t"\
 		"movq	%[__forth]	,%%rdx\n\t"\
 		"movaps	%%xmm0		,%%xmm4		/* cpy rt */\n\t"\
 		"movaps	%%xmm1		,%%xmm5		/* cpy it */\n\t"\
@@ -218,8 +218,8 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		"mulpd	(%%rax)		,%%xmm1		/* c*it */\n\t"\
 		"addpd	%%xmm4		,%%xmm0		/* (c+1.0)*rt */\n\t"\
 		"addpd	%%xmm5		,%%xmm1		/* (c+1.0)*it */\n\t"\
-		"mulpd	(%%rbx)		,%%xmm4		/* s*rt */\n\t"\
-		"mulpd	(%%rbx)		,%%xmm5		/* s*it */\n\t"\
+		"mulpd	(%%r8)		,%%xmm4		/* s*rt */\n\t"\
+		"mulpd	(%%r8)		,%%xmm5		/* s*it */\n\t"\
 		"subpd	%%xmm5		,%%xmm0		/* (c+1.0)*rt-s*it */\n\t"\
 		"addpd	%%xmm4		,%%xmm1		/* (c+1.0)*it+s*rt; xmm4,5 free */\n\t"\
 		"mulpd	(%%rdx)		,%%xmm0	/* -rt Both of these inherit the sign flip [w.r.to the non-SSE2 PAIR_SQUARE_4 macro] */\n\t"\
@@ -231,8 +231,8 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		"/*** [Can be done in parallel wjth above segment] ***/\n\t"\
 		"movaps	%%xmm2		,%%xmm6		/* cpy st */\n\t"\
 		"movaps	%%xmm3		,%%xmm7		/* cpy jt */\n\t"\
-		"mulpd	(%%rbx)		,%%xmm2		/* s*st */\n\t"\
-		"mulpd	(%%rbx)		,%%xmm3		/* s*jt */\n\t"\
+		"mulpd	(%%r8)		,%%xmm2		/* s*st */\n\t"\
+		"mulpd	(%%r8)		,%%xmm3		/* s*jt */\n\t"\
 		"subpd	%%xmm6		,%%xmm2		/* (s-1.0)*st, note sign flip! */\n\t"\
 		"subpd	%%xmm7		,%%xmm3		/* (s-1.0)*jt, note sign flip! */\n\t"\
 		"mulpd	(%%rax)		,%%xmm6		/* c*st */\n\t"\
@@ -248,20 +248,20 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		"	__tBi = (__tBi-__jt);\n\t"\
 		"*/\n\t"\
 		"movq	%[__tAr]	,%%rax\n\t"\
-		"movq	%[__tBr]	,%%rbx\n\t"\
+		"movq	%[__tBr]	,%%r8\n\t"\
 		"\n\t"\
 		"movaps	    (%%rax)	,%%xmm4		/* __tAr */\n\t"\
 		"movaps	0x10(%%rax)	,%%xmm5		/* __tAi */\n\t"\
-		"movaps	    (%%rbx)	,%%xmm6		/* __tBr */\n\t"\
-		"movaps	0x10(%%rbx)	,%%xmm7		/* __tBi */\n\t"\
+		"movaps	    (%%r8)	,%%xmm6		/* __tBr */\n\t"\
+		"movaps	0x10(%%r8)	,%%xmm7		/* __tBi */\n\t"\
 		"addpd	%%xmm0		,%%xmm4		/* (__tAr+__rt) */\n\t"\
 		"addpd	%%xmm1		,%%xmm5		/* (__tAi+__it) */\n\t"\
 		"subpd	%%xmm2		,%%xmm6		/* (__tBr-__st) */\n\t"\
 		"subpd	%%xmm3		,%%xmm7		/* (__tBi-__jt) */\n\t"\
 		"movaps	%%xmm4	,    (%%rax)	/* store >__tAr */\n\t"\
 		"movaps	%%xmm5	,0x10(%%rax)	/* store >__tAi */\n\t"\
-		"movaps	%%xmm6	,    (%%rbx)	/* store >__tBr */\n\t"\
-		"movaps	%%xmm7	,0x10(%%rbx)	/* store >__tBi */\n\t"\
+		"movaps	%%xmm6	,    (%%r8)	/* store >__tBr */\n\t"\
+		"movaps	%%xmm7	,0x10(%%r8)	/* store >__tBi */\n\t"\
 		"/*...N-j terms are as above, but with the replacements: __tAr<--> ~tDr, __tAi<--> ~tDi, __it|-->-__it. */\n\t"\
 		"/*	__tDr = (__tDr+ ~rt);\n\t"\
 		"	__tDi = (__tDi- ~it);\n\t"\
@@ -296,7 +296,7 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		 ,[__c] "m" (Xc)\
 		 ,[__s] "m" (Xs)\
 		 ,[__forth] "m" (Xforth)\
-		: "rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		: "rax","r8","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
 	);\
 	}
 
@@ -304,7 +304,7 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 	{\
 	__asm__ volatile (\
 		"movq	%[__in4],%%rax	\n\t"\
-		"movq	%[__in5],%%rbx	\n\t"\
+		"movq	%[__in5],%%r8	\n\t"\
 		"movq	%[__in6],%%rcx	\n\t"\
 		"movq	%[__in7],%%rdx	\n\t"\
 		"movq	%[__out],%%rsi	\n\t"\
@@ -312,10 +312,10 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		"movaps	0x10(%%rax),%%xmm1			\n\t"\
 		"movaps	%%xmm0,%%xmm2				\n\t"\
 		"movaps	%%xmm1,%%xmm3				\n\t"\
-		"addpd	    (%%rbx),%%xmm2			\n\t"\
-		"addpd	0x10(%%rbx),%%xmm3			\n\t"\
-		"subpd	    (%%rbx),%%xmm0			\n\t"\
-		"subpd	0x10(%%rbx),%%xmm1			\n\t"\
+		"addpd	    (%%r8),%%xmm2			\n\t"\
+		"addpd	0x10(%%r8),%%xmm3			\n\t"\
+		"subpd	    (%%r8),%%xmm0			\n\t"\
+		"subpd	0x10(%%r8),%%xmm1			\n\t"\
 		"\n\t"\
 		"movaps	    (%%rcx),%%xmm4			\n\t"\
 		"movaps	0x10(%%rcx),%%xmm5			\n\t"\
@@ -372,7 +372,7 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		"\n\t"\
 		"/**************** 1st of the 2 length-4 subtransforms... **************/\n\t"\
 		"movq	%[__in0],%%rax	\n\t"\
-		"movq	%[__in1],%%rbx	\n\t"\
+		"movq	%[__in1],%%r8	\n\t"\
 		"movq	%[__in2],%%rcx	\n\t"\
 		"movq	%[__in3],%%rdx	\n\t"\
 		"\n\t"\
@@ -380,10 +380,10 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		"movaps	0x10(%%rax),%%xmm1			\n\t"\
 		"movaps	%%xmm0,%%xmm2				\n\t"\
 		"movaps	%%xmm1,%%xmm3				\n\t"\
-		"addpd	    (%%rbx),%%xmm2			\n\t"\
-		"addpd	0x10(%%rbx),%%xmm3			\n\t"\
-		"subpd	    (%%rbx),%%xmm0			\n\t"\
-		"subpd	0x10(%%rbx),%%xmm1			\n\t"\
+		"addpd	    (%%r8),%%xmm2			\n\t"\
+		"addpd	0x10(%%r8),%%xmm3			\n\t"\
+		"subpd	    (%%r8),%%xmm0			\n\t"\
+		"subpd	0x10(%%r8),%%xmm1			\n\t"\
 		"\n\t"\
 		"/* Move   t4r,i into temp(j1+p0) in anticipation of final outputs (t0+t4)r,i which will go there: */\n\t"\
 		"movaps	%%xmm6,    (%%rsi)			\n\t"\
@@ -471,7 +471,7 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		 ,[__in7] "m" (Xin7)\
 		 ,[__out] "m" (Xout)\
 		 ,[__isrt2] "m" (Xisrt2)\
-		: "rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		: "rax","r8","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
 	);\
 	}
 
@@ -480,14 +480,14 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 	__asm__ volatile (\
 		"movq	%[__i0],%%rsi		\n\t"\
 		"movq	%[__i1],%%rax		\n\t"\
-		"movq	%[__i2],%%rbx		\n\t"\
+		"movq	%[__i2],%%r8		\n\t"\
 		"movq	%[__i3],%%rcx		\n\t"\
 		"movq	%[__i4],%%rdx		\n\t"\
 		"movq	%[__o0],%%rdi		\n\t"\
 		"movaps	    (%%rax),%%xmm0	\n\t"\
 		"movaps	0x10(%%rax),%%xmm1	\n\t"\
-		"movaps	    (%%rbx),%%xmm2	\n\t"\
-		"movaps	0x10(%%rbx),%%xmm3	\n\t"\
+		"movaps	    (%%r8),%%xmm2	\n\t"\
+		"movaps	0x10(%%r8),%%xmm3	\n\t"\
 		"movaps	    (%%rcx),%%xmm4	\n\t"\
 		"movaps	0x10(%%rcx),%%xmm5	\n\t"\
 		"movaps	    (%%rdx),%%xmm6	\n\t"\
@@ -559,18 +559,18 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		"addpd	%%xmm7,%%xmm2		\n\t"\
 		"movaps	%%xmm3,    (%%rdx)	\n\t"\
 		"movaps	%%xmm2,0x10(%%rax)	\n\t"\
-		"movq	%[__o2],%%rbx		\n\t"\
+		"movq	%[__o2],%%r8		\n\t"\
 		"movq	%[__o3],%%rcx		\n\t"\
 		"subpd	%%xmm1,%%xmm4		\n\t"\
 		"subpd	%%xmm0,%%xmm5		\n\t"\
 		"addpd	%%xmm1,%%xmm1		\n\t"\
 		"addpd	%%xmm0,%%xmm0		\n\t"\
-		"movaps	%%xmm4,    (%%rbx)	\n\t"\
+		"movaps	%%xmm4,    (%%r8)	\n\t"\
 		"movaps	%%xmm5,0x10(%%rcx)	\n\t"\
 		"addpd	%%xmm4,%%xmm1		\n\t"\
 		"addpd	%%xmm5,%%xmm0		\n\t"\
 		"movaps	%%xmm1,    (%%rcx)	\n\t"\
-		"movaps	%%xmm0,0x10(%%rbx)	\n\t"\
+		"movaps	%%xmm0,0x10(%%r8)	\n\t"\
 		"							\n\t"\
 		:					/* outputs: none */\
 		: [__i0] "m" (Xi0)	/* All inputs from memory addresses here */\
@@ -584,7 +584,7 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		 ,[__o2] "m" (Xo2)\
 		 ,[__o3] "m" (Xo3)\
 		 ,[__o4] "m" (Xo4)\
-		: "rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		: "rax","r8","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
 	);\
 	}
 
@@ -595,10 +595,10 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 	{\
 	__asm__ volatile (\
 		"movq	%[__r0],%%rax	/* i0 = r00 */\n\t"\
-		"movq	%[__i2],%%rbx	/* i2 */	\n\t"\
+		"movq	%[__i2],%%r8	/* i2 */	\n\t"\
 		"movq	%[__i4],%%rcx	/* i4 */	\n\t"\
 		"movq	%[__i6],%%rdx	/* i6 */	\n\t"\
-		"addq	%%rax,%%rbx					\n\t"\
+		"addq	%%rax,%%r8					\n\t"\
 		"addq	%%rax,%%rcx					\n\t"\
 		"addq	%%rax,%%rdx					\n\t"\
 		"\n\t"\
@@ -618,8 +618,8 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		"\n\t"\
 		"/* Do the p2,6 combo: */			\n\t"\
 		"\n\t"\
-		"movaps	    (%%rbx),%%xmm4			\n\t"\
-		"movaps	0x10(%%rbx),%%xmm5			\n\t"\
+		"movaps	    (%%r8),%%xmm4			\n\t"\
+		"movaps	0x10(%%r8),%%xmm5			\n\t"\
 		"movaps	%%xmm4,%%xmm6				\n\t"\
 		"movaps	%%xmm5,%%xmm7				\n\t"\
 		"\n\t"\
@@ -633,7 +633,7 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		"subpd	%%xmm5,%%xmm1				\n\t"\
 		"subpd	%%xmm6,%%xmm3				\n\t"\
 		"movaps	%%xmm0,     (%%rcx)			\n\t"\
-		"movaps	%%xmm2,     (%%rbx)			\n\t"\
+		"movaps	%%xmm2,     (%%r8)			\n\t"\
 		"movaps	%%xmm1,0x010(%%rcx)			\n\t"\
 		"movaps	%%xmm3,0x010(%%rdx)			\n\t"\
 		"addpd	%%xmm4,%%xmm4				\n\t"\
@@ -647,14 +647,14 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		"movaps	%%xmm4,     (%%rax)			\n\t"\
 		"movaps	%%xmm7,     (%%rdx)			\n\t"\
 		"movaps	%%xmm5,0x010(%%rax)			\n\t"\
-		"movaps	%%xmm6,0x010(%%rbx)			\n\t"\
+		"movaps	%%xmm6,0x010(%%r8)			\n\t"\
 		"\n\t"\
 		"/* Inline of SSE2_RADIX4_DIF_4TWIDDLE_2NDOFTWO_B(r8,c1): Do 2nd of 2 radix-4 subtransforms, but now keep outputs in registers: */\n\t"\
 		"\n\t"\
-		"movq	%[__i3],%%rbx		/* i3 */	\n\t"\
+		"movq	%[__i3],%%r8		/* i3 */	\n\t"\
 		"movq	%[__i5],%%rcx		/* i5 */	\n\t"\
 		"movq	%[__i7],%%rdx		/* i7 */	\n\t"\
-		"addq	%%rax,%%rbx					\n\t"\
+		"addq	%%rax,%%r8					\n\t"\
 		"addq	%%rax,%%rcx					\n\t"\
 		"addq	%%rax,%%rdx					\n\t"\
 		"addq	%[__i1],%%rax		/* i1 */	\n\t"\
@@ -675,8 +675,8 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		"\n\t"\
 		"/* Do the p3,7 combo: */			\n\t"\
 		"\n\t"\
-		"movaps	    (%%rbx),%%xmm4			\n\t"\
-		"movaps	0x10(%%rbx),%%xmm5			\n\t"\
+		"movaps	    (%%r8),%%xmm4			\n\t"\
+		"movaps	0x10(%%r8),%%xmm5			\n\t"\
 		"movaps	%%xmm4,%%xmm6				\n\t"\
 		"movaps	%%xmm5,%%xmm7				\n\t"\
 		"\n\t"\
@@ -723,7 +723,7 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		"movq	%[__r0],%%rsi			\n\t"\
 		"addq	$0x10,%%rsi				\n\t"\
 		"movq	%[__o4],%%rax	\n\t"\
-		"movq	%[__o5],%%rbx	\n\t"\
+		"movq	%[__o5],%%r8	\n\t"\
 		"movq	%[__o6],%%rcx	\n\t"\
 		"movq	%[__o7],%%rdx	\n\t"\
 		"\n\t"\
@@ -736,8 +736,8 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		"addpd   %%xmm6,%%xmm2				\n\t"\
 		"addpd   %%xmm7,%%xmm4				\n\t"\
 		"\n\t"\
-		"movaps	%%xmm6,    (%%rbx)	/* o5r */\n\t"\
-		"movaps	%%xmm7,0x10(%%rbx)	/* o5i */\n\t"\
+		"movaps	%%xmm6,    (%%r8)	/* o5r */\n\t"\
+		"movaps	%%xmm7,0x10(%%r8)	/* o5i */\n\t"\
 		"movaps	%%xmm2,    (%%rax)	/* o4r */\n\t"\
 		"movaps	%%xmm4,0x10(%%rax)	/* o4i */\n\t"\
 		"\n\t"\
@@ -757,7 +757,7 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		"movaps	%%xmm5,0x10(%%rcx)	/* o6i */\n\t"\
 		"\n\t"\
 		"movq	%[__o0],%%rax	\n\t"\
-		"movq	%[__o1],%%rbx	\n\t"\
+		"movq	%[__o1],%%r8	\n\t"\
 		"movq	%[__o2],%%rcx	\n\t"\
 		"movq	%[__o3],%%rdx	\n\t"\
 		"\n\t"\
@@ -780,9 +780,9 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		"addpd   %%xmm7,%%xmm3				\n\t"\
 		"addpd   %%xmm5,%%xmm0				\n\t"\
 		"\n\t"\
-		"movaps	%%xmm6,    (%%rbx)	/* o1r */\n\t"\
+		"movaps	%%xmm6,    (%%r8)	/* o1r */\n\t"\
 		"movaps	%%xmm4,    (%%rcx)	/* o2r */\n\t"\
-		"movaps	%%xmm7,0x10(%%rbx)	/* o1i */\n\t"\
+		"movaps	%%xmm7,0x10(%%r8)	/* o1i */\n\t"\
 		"movaps	%%xmm5,0x10(%%rdx)	/* o3i */\n\t"\
 		"movaps	%%xmm2,    (%%rax)	/* o0r */\n\t"\
 		"movaps	%%xmm1,    (%%rdx)	/* o3r */\n\t"\
@@ -807,7 +807,7 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		 ,[__o6] "m" (Xo6)\
 		 ,[__o7] "m" (Xo7)\
 		 ,[__isrt2] "m" (Xisrt2)\
-		: "rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		: "rax","r8","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
 	);\
 	}
 

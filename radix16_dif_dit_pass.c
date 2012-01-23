@@ -27,6 +27,10 @@
 
 #ifdef USE_SSE2
 
+	#ifdef COMPILER_TYPE_MSVC
+		#include "sse2_macro.h"
+	#endif
+
 	#undef DEBUG_SSE2
 //	#define DEBUG_SSE2
 
@@ -63,11 +67,7 @@ Additional Notes:
 	- Offsets with explicit + sign, e.g. "+0x10(%%eax)", not allowed
 */
 
-	#ifdef COMPILER_TYPE_MSVC
-
-		#include "sse2_macro.h"
-
-	#else	/* GCC-style inline ASM: */
+	#if(defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
 
 		#if OS_BITS == 32
 
@@ -110,10 +110,19 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 	static int	first_entry = TRUE;
 	static double *add0, *add1, *add2, *add3;	/* Addresses into array sections */
+
+  #if defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
+
 	static struct complex *sc_arr = 0x0, *sc_ptr;
 	static struct complex *cc0, *ss0, *isrt2, *two;
 	static struct complex *c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15,*s0,*s1,*s2,*s3,*s4,*s5,*s6,*s7,*s8,*s9,*s10,*s11,*s12,*s13,*s14,*s15;
 	static struct complex *r1,*r2,*r3,*r4,*r5,*r6,*r7,*r8,*r9,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r30,*r31,*r32;
+
+  #else
+
+	#error SSE2 code not supported for this compiler!
+
+  #endif
 
 #else
 
@@ -971,7 +980,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		/* Total Cost: 182 MOVapd, 214 ADD/SUBpd, 84 MULpd */
 		/***************************************************/
 
-	#else	/* GCC-style inline ASM: */
+	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 		add0 = &a[j1];
 		SSE2_RADIX16_DIF_TWIDDLE(add0,p1,p2,p3,p4,p8,p12,r1,r3,r5,r7,r9,r17,r25,isrt2,cc0,c0,c1,c2,c3);
@@ -1287,10 +1296,19 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 	static int	first_entry = TRUE;
 	static double *add0, *add1, *add2, *add3;	/* Addresses into array sections */
+
+  #if defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
+
 	static struct complex *sc_arr = 0x0, *sc_ptr;
 	static struct complex *cc0, *ss0, *isrt2, *two;
 	static struct complex *c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15,*s0,*s1,*s2,*s3,*s4,*s5,*s6,*s7,*s8,*s9,*s10,*s11,*s12,*s13,*s14,*s15;
 	static struct complex *r1,*r2,*r3,*r4,*r5,*r6,*r7,*r8,*r9,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r30,*r31,*r32;
+
+  #else
+
+	#error SSE2 code not supported for this compiler!
+
+  #endif
 
 #else
 
@@ -2024,7 +2042,7 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		/* Total Cost: 187 MOVapd, 210 ADD/SUBpd, 84 MULpd */
 		/***************************************************/
 
-	#else	/* GCC-style inline ASM: */
+	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 		add0 = &a[j1];
 		SSE2_RADIX16_DIT_TWIDDLE(add0,p1,p2,p3,p4,p8,r1,r3,r5,r7,r9,r11,r13,r15,r17,r25,isrt2,cc0,c0,c1,c2,c3);

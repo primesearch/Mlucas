@@ -260,7 +260,7 @@ void test_fft_radix(void)
 
 	/* Make sure this utility is run only in non-SSE2 mode, since the latter's data layout hoses us here. */
 #ifdef USE_SSE2
-	ASSERT(HERE, 0, "test_fft_radix: USE_SSE2 must not be set!");
+	#error test_fft_radix: USE_SSE2 must not be set!
 #endif
 	ASSERT(HERE, ((radix >> trailz32(radix)) < 16), "test_fft_radix: Illegal radix; must be odd*2^n with odd < 16");
 	/* These may not have been init'ed yet, so do it here: */

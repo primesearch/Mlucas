@@ -1116,7 +1116,7 @@
 
 	  #else
 
-		#define GCC_ASM_FULL_INLINE	1	// 0 to use small-macro form below, 1 to inline the fused macros as single big blob of asm (64-bit only)
+		#define GCC_ASM_FULL_INLINE	0	// 0 to use small-macro form below, 1 to inline the fused macros as single big blob of asm (64-bit only)
 
 		#if GCC_ASM_FULL_INLINE
 

@@ -29,13 +29,11 @@
 
 	#include "sse2_macro.h"
 
-	#ifdef COMPILER_TYPE_MSVC
-
-	#else	/* GCC-style inline ASM: */
+	#if defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)	/* GCC-style inline ASM: */
 
 		#if OS_BITS == 64
 
-		  #define GCC_ASM_FULL_INLINE	1	// 0 to use small-macro form below, 1 to inline the fused macros as single big blob of asm (64-bit only)
+		  #define GCC_ASM_FULL_INLINE	1	// 0 to use small-macro form below, 1 to inline the fused macros as a single big blob of assembler (64-bit only)
 		  #if GCC_ASM_FULL_INLINE
 			#include "radix40_ditN_cy_dif1_gcc64.h"
 		  #endif
@@ -1158,7 +1156,7 @@ for(outer=0; outer <= 1; outer++)
 				SSE2_RADIX_05_DFT_0TWIDDLE(r12,r28,r44,r60,r76,cc1,s1p30r,s1p06r,s1p22r,s1p38r,s1p14r)
 				SSE2_RADIX_05_DFT_0TWIDDLE(r14,r30,r46,r62,r78,cc1,s1p15r,s1p31r,s1p07r,s1p23r,s1p39r)
 
-		#else	/* GCC-style inline ASM: */
+		#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 			SSE2_RADIX40_DIT_NOTWIDDLE(add0,p01,p02,p03,p04,p08,p16,p24,p32,r00,cc1,s1p00r,s1p08r,s1p16r,s1p24r,s1p32r);
 
@@ -1362,7 +1360,7 @@ for(outer=0; outer <= 1; outer++)
 			SSE2_cmplx_carry_norm_nocheck1_2B (s1p32r,add1,add2,add3,cy_r32,cy_r34,bjmodn32);
 			SSE2_cmplx_carry_norm_nocheck1_2B (s1p36r,add1,add2,add3,cy_r36,cy_r38,bjmodn36);
 
-		#else	/* GCC-style inline ASM: */
+		#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 			SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy_r00,cy_r02,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
 			SSE2_cmplx_carry_norm_nocheck1_2B (s1p04r,add1,add2,add3,cy_r04,cy_r06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
@@ -1425,7 +1423,7 @@ for(outer=0; outer <= 1; outer++)
 			SSE2_cmplx_carry_norm_nocheck2_2B(s1p32r,add1,add2,     cy_r32,cy_r34,bjmodn32);
 			SSE2_cmplx_carry_norm_nocheck2_2B(s1p36r,add1,add2,     cy_r36,cy_r38,bjmodn36);
 
-		  #else	/* GCC-style inline ASM: */
+		  #elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 			SSE2_cmplx_carry_norm_nocheck2_2B(s1p00r,add1,add2,     cy_r00,cy_r02,bjmodn00,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
 			SSE2_cmplx_carry_norm_nocheck2_2B(s1p04r,add1,add2,     cy_r04,cy_r06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
@@ -1671,7 +1669,7 @@ for(outer=0; outer <= 1; outer++)
 			add6 = add7+p01;
 			SSE2_RADIX8_DIF_0TWIDDLE(r64,0x20,0x40,0x60,0x80,0xa0,0xc0,0xe0, add0,add1,add2,add3,add4,add5,add6,add7, isrt2);
 
-		  #else	/* GCC-style inline ASM: */
+		  #elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 			add0 = &a[j1    ];
 			SSE2_RADIX40_DIF_NOTWIDDLE(add0,p01,p02,p03,p04,p05,p06,p07,p08,p16,p24,p32,r00,cc1,s1p00r,s1p08r,s1p16r,s1p24r,s1p32r);

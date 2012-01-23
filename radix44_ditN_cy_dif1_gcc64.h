@@ -39,7 +39,7 @@
 			"shlq	$3,%%rcx			\n\t"\
 			"shlq	$3,%%rdx			\n\t"\
 			"addq	%%rax,%%rbx			\n\t"\
-			"addq	%%rax,%%rcx			\n\t							movslq	%[__cc],%%r8		\n\t"\
+			"addq	%%rax,%%rcx			\n\t							movq	%[__cc],%%r8		\n\t"\
 			"addq	%%rax,%%rdx			\n\t"\
 			"/* ecx <-> edx */			\n\t"\
 			"movaps	     (%%rax),%%xmm2	\n\t"\

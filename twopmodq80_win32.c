@@ -1,25 +1,3 @@
-/*******************************************************************************
-*                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
-*                                                                              *
-*  This program is free software; you can redistribute it and/or modify it     *
-*  under the terms of the GNU General Public License as published by the       *
-*  Free Software Foundation; either version 2 of the License, or (at your      *
-*  option) any later version.                                                  *
-*                                                                              *
-*  This program is distributed in the hope that it will be useful, but WITHOUT *
-*  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or       *
-*  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for   *
-*  more details.                                                               *
-*                                                                              *
-*  You should have received a copy of the GNU General Public License along     *
-*  with this program; see the file GPL.txt.  If not, you may view one at       *
-*  http://www.fsf.org/licenses/licenses.html, or obtain one by writing to the  *
-*  Free Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA     *
-*  02111-1307, USA.                                                            *
-*                                                                              *
-*******************************************************************************/
-
 #include "factor.h"
 
 //#define DBG_ASSERT ASSERT
@@ -30,6 +8,10 @@
 	#undef DEBUG_SSE2
 //	#define DEBUG_SSE2
 
+	#ifdef DEBUG_SSE2
+		#include "rng_isaac.h"
+		#define EPS 1e-10
+	#endif
 #endif
 
 //#define FAC_DEBUG	1
@@ -2088,8 +2070,6 @@ uint64 twopmodq78_3WORD_DOUBLE_q2(uint64 p, uint96 q0, uint96 q1)
 
 	  #elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
-		for(j = start_index-2; j >= 0; j--)
-		{
 		#if OS_BITS == 32
 
 		__asm__ volatile (\
@@ -2334,6 +2314,11 @@ uint64 twopmodq78_3WORD_DOUBLE_q2(uint64 p, uint96 q0, uint96 q1)
 		#else
 
 		__asm__ volatile (\
+			"movl ecx, start_index						\n\t"\
+			"subl ecx, 2								\n\t"\
+			"test ecx, ecx	/* int tmp = esi & esi = n*/\n\t"\
+			"jl LoopEnd		/* Skip if n < 0 */			\n\t"\
+		"LoopBeg:										\n\t"\
 			"/* SQR_LOHI78_3WORD_DOUBLE_q2(fx, flo,fhi): */\n\t"\
 			"movq	%[__fx0],%%rax\n\t"\
 			"movq	%[__two26i],%%rsi\n\t"\
@@ -2562,6 +2547,10 @@ uint64 twopmodq78_3WORD_DOUBLE_q2(uint64 p, uint96 q0, uint96 q1)
 		"movaps	%%xmm0,     (%%rax)	\n\t"\
 		"movaps	%%xmm2,0x010(%%rax)	\n\t"\
 		"movaps	%%xmm4,0x020(%%rax)	\n\t"\
+			"subl ecx, 1	/* j-- */					\n\t"\
+			"cmpl ecx, 0	/* j > 0 ?	*/				\n\t"\
+			"jge LoopBeg	/* if (j >= 0), Loop */		\n\t"\
+		"LoopEnd:										\n\t"\
 			:					/* outputs: none */\
 			: [__fqinv0] "m" (fqinv0)	/* All inputs from memory addresses here */\
 			 ,[__two26i] "m" (two26i)	\
@@ -2573,7 +2562,7 @@ uint64 twopmodq78_3WORD_DOUBLE_q2(uint64 p, uint96 q0, uint96 q1)
 		);
 
 		#endif	/* OS_BITS */
-		}	/* for(j...) */
+
 	  #endif	/* COMPILER_TYPE_ */
 
 	  #ifdef DEBUG_SSE2

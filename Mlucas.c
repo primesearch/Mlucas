@@ -3635,10 +3635,7 @@ TIMING_TEST_LOOP:
 		/* If it's a self-test [i.e. timing test] and user hasn't specified #iters, set to default: */
 		if(selfTest && !iters)
 		{
-		if(NTHREADS > 4)
 			iters = 1000;
-		else
-			iters = 100;
 		}
 
 		if(iters == 100 || iters == 1000)

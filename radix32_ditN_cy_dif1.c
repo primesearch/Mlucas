@@ -28,10 +28,10 @@
 //	#define DEBUG_SSE2
 
 	#ifdef COMPILER_TYPE_MSVC
-
 		#include "sse2_macro.h"
+	#endif
 
-	#else	/* GCC-style inline ASM: */
+	#if defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)	/* GCC-style inline ASM: */
 
 		#if OS_BITS == 32
 
@@ -106,6 +106,9 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	int i0,i1,m0,m1,m3;	/* m2 already def'd for regular carry sequence */
 	double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7;	/* Addresses into array sections */
+
+  #if defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
+
 	static struct complex *sc_arr = 0x0, *sc_ptr;
 	static struct complex *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *max_err, *sse2_rnd, *half_arr, *tmp
 		,*r00,*r01,*r02,*r03,*r04,*r05,*r06,*r07,*r08,*r09,*r0A,*r0B,*r0C,*r0D,*r0E,*r0F
@@ -118,6 +121,12 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	static uint64 *sm_arr = 0x0, *sm_ptr, *sign_mask, *sse_bw, *sse_sw, *sse_nm1;
 	uint64 tmp64;
 	static int *bjmodn00,*bjmodn01,*bjmodn02,*bjmodn03,*bjmodn04,*bjmodn05,*bjmodn06,*bjmodn07,*bjmodn08,*bjmodn09,*bjmodn0A,*bjmodn0B,*bjmodn0C,*bjmodn0D,*bjmodn0E,*bjmodn0F,*bjmodn10,*bjmodn11,*bjmodn12,*bjmodn13,*bjmodn14,*bjmodn15,*bjmodn16,*bjmodn17,*bjmodn18,*bjmodn19,*bjmodn1A,*bjmodn1B,*bjmodn1C,*bjmodn1D,*bjmodn1E,*bjmodn1F;
+
+  #else
+
+	#error SSE2 code not supported for this compiler!
+
+  #endif
 
 #else
 
@@ -1533,7 +1542,7 @@ for(outer=0; outer <= 1; outer++)
 			/* Intermediates in regs 0,1,2,3,6,7,4,5: */
 			SSE2_RADIX4_DIT_LASTPAIR_IN_PLACE_STRIDE(xmm0,xmm1,xmm2,xmm3,xmm6,xmm7,xmm4,xmm5)
 
-		  #else	/* GCC-style inline ASM: */
+		  #elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 			add0 = &a[j1    ];
 			SSE2_RADIX32_DIT_NOTWIDDLE(add0,p01,p02,p03,p04,p08,p10,p18,r00,isrt2,cc0);
@@ -1939,7 +1948,7 @@ for(outer=0; outer <= 1; outer++)
 				SSE2_cmplx_carry_norm_pow2_nocheck1_2B (r30,add0,add1,add2,cy_r18,cy_r1A,bjmodn18);
 				SSE2_cmplx_carry_norm_pow2_nocheck1_2B (r38,add0,add1,add2,cy_r1C,cy_r1E,bjmodn1C);
 
-			#else	/* GCC-style inline ASM: */
+			#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 				SSE2_cmplx_carry_norm_pow2_errcheck0_2B(r00,add0,add1,add2,cy_r00,cy_r02,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
 				SSE2_cmplx_carry_norm_pow2_nocheck1_2B (r08,add0,add1,add2,cy_r04,cy_r06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
@@ -1998,7 +2007,7 @@ for(outer=0; outer <= 1; outer++)
 				SSE2_cmplx_carry_norm_pow2_nocheck2_2B (r30,add0,add1,     cy_r18,cy_r1A,bjmodn18);
 				SSE2_cmplx_carry_norm_pow2_nocheck2_2B (r38,add0,add1,     cy_r1C,cy_r1E,bjmodn1C);
 
-			#else	/* GCC-style inline ASM: */
+			#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 				SSE2_cmplx_carry_norm_pow2_nocheck2_2B (r00,add0,add1,     cy_r00,cy_r02,bjmodn00,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
 				SSE2_cmplx_carry_norm_pow2_nocheck2_2B (r08,add0,add1,     cy_r04,cy_r06,bjmodn04,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
@@ -2564,7 +2573,7 @@ for(outer=0; outer <= 1; outer++)
 			__asm	movaps	[eax     ],xmm4	/* a[jt+p0 ] */		__asm	movaps	[edx     ],xmm7	/* a[jt+p3 ] */
 			__asm	movaps	[eax+0x10],xmm5	/* a[jp+p0 ] */		__asm	movaps	[ecx+0x10],xmm6	/* a[jp+p2 ] */
 
-		  #else	/* GCC-style inline ASM: */
+		  #elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 			add0 = &a[j1    ];
 			SSE2_RADIX32_DIF_NOTWIDDLE(add0,p01,p02,p03,p04,p08,p10,p18,r00,isrt2,cc0);
