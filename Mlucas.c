@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -66,10 +66,17 @@ void	write_ppm1_savefiles(uint64 p, FILE*fp, uint32 ihi, uint8 arr_tmp[], uint64
 /* Globals. Unless specified otherwise, these are declared in Mdata.h:           */
 /*********************************************************************************/
 
+FILE *dbg_file = 0x0;
+double*ADDR0 = 0x0;	// Allows for easy debug on address-read-or-write than setting a watchpoint
+
+/* Define FFT-related globals (declared in Mdata.h) */
 uint32 N2,NRT,NRT_BITS,NRTM1;
+int NRADICES, RADIX_VEC[10];	/* RADIX_VEC[] stores sequence of complex FFT radices used.	*/
 
 int ITERS_BETWEEN_CHECKPOINTS;	/* number of iterations between checkpoints */
 
+char ESTRING[STR_MAX_LEN];	/* Exponent in string form */
+char PSTRING[STR_MAX_LEN];	/* Number being tested in string form, typically estring concatenated with several other descriptors, e.g. strcat("M",estring) */
 #ifdef USE_SSE2
 	const uint32 mask01 = 0xfffffffc, br4[4]={0,2,1,3};	/* length-4 bit-reversal array */
 #endif
@@ -141,15 +148,13 @@ uint32 PMIN;		/* minimum exponent allowed */
 uint32 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
 					   and will be determined at runtime, via call to given_N_get_maxP(). */
 
-int NRADICES, RADIX_VEC[10];	/* RADIX_VEC[] stores sequence of complex FFT radices used.	*/
-
 /****************/
 
 /*
 !...Code to test primality of Mersenne numbers, using arbitrary-precision (array-integer) arithmetic.
 !   Author: Ernst W. Mayer.
 !
-!   This version (v3.0x) dated ?? ??? 2009.
+!   This version (v3.0x) dated 06 Dec 2012.
 !
 !   Accomplishes the Mersenne-mod squaring via the weighted discrete Fourier transform technique
 !   of Crandall and Fagin (Mathematics of Computation 62 (205), pp.305-324, January 1994; also
@@ -160,18 +165,9 @@ int NRADICES, RADIX_VEC[10];	/* RADIX_VEC[] stores sequence of complex FFT radic
 !       s(n+1) = s(n)**2 - 2, s(0) = 4
 !
 !   modulo N = 2^p - 1. If N divides s(p-2) (specifically, the (p-2)th residue == 0 modulo N), N is prime.
-!   If in addition (at least as of mid-2005), p > 30402457, fame (or at least a fleeting sort of notoriety :-) awaits.
-!   If not, maybe you'll have learned something nonetheless. In either case, go have a beer...
-!   (assuming you're of age, and are not a recovering alcoholic -
-!   wouldn't want to be accused by irate parents of driving the kiddies to the bottle ;-)
 !
-!   Oh, and make it a good sort. Life's too short to drink crappy brewhahas, as a college buddy of
-!   mine used to call them.
-!
-!   Calls MERS_MOD_SQUARE and a host of small FFT-pass and utility routines.
-!
-!   See the Whatsnew.txt file for a revision history of the code and summary of
-!   what has been changed/added/deleted in the latest release.
+!   See the Whatsnew.txt file for a brief overview of the various module dependencies and revision history of the code
+!   along with a summary of what has been changed/added/deleted in the latest release.
 !
 !***TO DO LIST:
 !
@@ -182,20 +178,17 @@ int NRADICES, RADIX_VEC[10];	/* RADIX_VEC[] stores sequence of complex FFT radic
 !      to be smaller than n/radix(pass 1). This should help at very large runlengths and on systems with
 !      small L1 caches.
 !
-!   (1) Implement hybrid complex floating-point FFT with a modular complex (i.e. Gaussian integer) transform
+!   (1) Continue to optimize SSE2/3/4/etc assembler; add support for next-gen 256-bit vector instructions.
+!
+!   (2) Implement hybrid complex floating-point FFT with a modular complex (i.e. Gaussian integer) transform
 !       over the Galois field GF(M61^2), where M61 = 2^61 - 1. See Richard Crandall's preprint, "Integer convolution
 !       via split-radix fast Galois transform" for details on the fast Galois transform (FGT), freely available at:
 !       http://www.perfsci.com/free/techpapers/confgt.ps. On hardware with good 64-bit integer capabilities, this
 !       will really rock.
 !
-!   (2) Implement critical portions of code in assembly language.
-!       I suggest beginning with the radix-8 forward and inverse transform passes, i.e. subroutines radix8_dif_pass
-!       and radix8_dit_pass, which (unlike their radix-16 brothers) can be coded with explicit access to no more
-!       than 32 floating-point registers. (Using < 32 integer registers in the hybrid FFT/FGT will be trickier,
-!       since we need up to 8-10 registers for array indices.)
 !
 !   Functionality-related:
-!   (*) Multithreading support.
+!   (*) Multithreading support, especially for SSE2 builds.
 !   (*) P-1 factoring module (together with hand-rolled subquadratic, memory-efficient GCD)
 !   (*) An (optional) GUI would be nice...
 !
@@ -217,6 +210,9 @@ int NRADICES, RADIX_VEC[10];	/* RADIX_VEC[] stores sequence of complex FFT radic
 !
 !  * Jason Papadopoulos - for his valuable perspectives regarding FFT machine
 !    implementations and algorithmic optimization for various machine architectures.
+!
+!  * Rob Giltrap and Tom Duell of Sun Microsystems - For parallel build & test on the latest
+!    SPARChitectures, and for the parallel verify runs of M45,46,47.
 !
 !  * Ed Haletky, John Henning and Greg Gaertner (Digital Equipment Corp.) - EH for
 !       patiently answering N ( >> 1) questions regarding the Alpha architecture,
@@ -270,7 +266,7 @@ uint32	ernstMain
 	uint32 timing_test_iters = 0;
 
 /*...scalars and fixed-size arrays...	*/
-	int i,j = 0,j1 = 0,nbits;
+	int i,j = 0,nbits;
 	/* TODO: some of these need to become 64-bit: */
 	uint32 dum,err_iter = 0,findex = 0,ierr = 0,ilo = 0,ihi = 0,iseed,isprime,kblocks = 0,maxiter = 0,n = 0,npad = 0;
 	uint64 itmp64;
@@ -297,11 +293,17 @@ uint32	ernstMain
 
 /*...initialize logicals and factoring parameters...	*/
 	int restart = FALSE, start_run=TRUE, relax_err = 0;
+	uint32 bit_depth_done = 0;
 
-	uint32 bit_depth_done = 0, bit_depth_todo = 0;
+#ifdef INCLUDE_TF
+	uint32 bit_depth_todo = 0;
 	uint64 factor_k_start = 0;
 	uint32 factor_pass_start = 0, factor_pass_hi = 0;
-	double log2_min_factor = 0, log2_max_factor = 0, pm1_done = 0;
+	double log2_min_factor = 0, log2_max_factor = 0;
+#endif
+#ifdef INCLUDE_PM1
+	pm1_done = 0;
+#endif
 
 /*...allocatable data arrays...	*/
 	static int32 nalloc = 0, *arrtmp = 0x0;
@@ -326,12 +328,11 @@ uint32	ernstMain
 	struct tm *local_time;
 	char timebuffer[SIZE];
 
-
 /*...entry point for one or more Lucas-Lehmer tests is here.	*/
 
 	MODULUS_TYPE = mod_type;
 	TEST_TYPE = test_type;
-	INTERACT=FALSE;
+	INTERACT = FALSE;
 
 RANGE_BEG:
 
@@ -353,8 +354,15 @@ in an nthreads.ini file : */
 
 #ifdef MULTITHREAD
 
+  #ifdef USE_OMP 
 	MAX_THREADS = omp_get_num_procs();
-
+  #elif(defined(USE_PTHREAD))
+	MAX_THREADS = get_num_cores();
+	ASSERT(HERE, MAX_THREADS > 0, "Illegal #Cores value stored in MAX_THREADS");
+  #else
+	#error Unrecognized multithreading model!
+  #endif
+	// MAX_THREADS based on number of processing cores will most often be a power of 2, but don't assume that.
 	ASSERT(HERE, MAX_THREADS > 0,"Mlucas.c: MAX_THREADS > 0");
 
 	if(!NTHREADS)	/* User may have already set via -nthread argument, in which case we skip this stuff: */
@@ -371,22 +379,56 @@ in an nthreads.ini file : */
 
 			if(NTHREADS > MAX_THREADS)
 			{
-				fprintf(stderr,"NTHREADS = %d specified in %s file exceeds maximum allowed - reducing to %d\n", NTHREADS, ntfile, MAX_THREADS);
+				fprintf(stderr,"NTHREADS = %d specified in %s file exceeds number of cores - reducing to %d\n", NTHREADS, ntfile, MAX_THREADS);
 				NTHREADS = MAX_THREADS;
 			}
 			if(start_run) fprintf(stderr,"NTHREADS = %d\n", NTHREADS);
 		}
 	}
-	else
+	else {	// In timing-test mode, allow #threads > #cores
+		if(NTHREADS > MAX_THREADS)
+		{
+			fprintf(stderr,"WARN: NTHREADS = %d exceeds number of cores = %d\n", NTHREADS, MAX_THREADS);
+		}
 		if(start_run) fprintf(stderr,"NTHREADS = %d\n", NTHREADS);
+	}
 
 	if(!NTHREADS)
 	{
 		NTHREADS = MAX_THREADS;
-		sprintf(cbuf, "Using #CPUs returned by omp_get_num_procs() to set NTHREADS = %d.\n", NTHREADS);
+		sprintf(cbuf, "Using NTHREADS = #CPUs = %d.\n", NTHREADS);
 		                               fprintf(stderr,"%s",cbuf);
 		fp = fopen(OFILE,"a"); if(fp){ fprintf(    fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
 	}
+
+  #if 0//defined(USE_PTHREAD) && defined(OS_TYPE_MACOSX)
+
+	thread_t thr = mach_thread_self();
+	thread_extended_policy_data_t epolicy;
+	epolicy.timeshare = FALSE;
+	kern_return_t ret = thread_policy_set(
+		thr, THREAD_EXTENDED_POLICY,
+		(thread_policy_t) &epolicy, THREAD_EXTENDED_POLICY_COUNT);
+	if (ret != KERN_SUCCESS) {
+		printf("thread_policy_set returned %d", ret);
+		exit(-1);
+	}
+
+	thread_affinity_policy_data_t apolicy;
+	int cpui = MAX_THREADS - 1;	// get cpu mask using sequential thread ID modulo #available cores
+	apolicy.affinity_tag = cpui; // set affinity tag
+
+	printf("Setting CPU = %d affinity of main thread, mach_id = %u\n", cpui, thr);
+
+	ret = thread_policy_set(
+		thr, THREAD_EXTENDED_POLICY,
+		(thread_policy_t) &apolicy, THREAD_EXTENDED_POLICY_COUNT);
+	if (ret != KERN_SUCCESS) {
+		printf("thread_policy_set returned %d", ret);
+		exit(-1);
+	}
+
+  #endif
 
 #else
 
@@ -548,7 +590,7 @@ in an nthreads.ini file : */
 		/* Special case of user forcing a non-default FFT length for an exponent in the worktodo.ini file: */
 		if(exponent)
 		{
-  			if((p != exponent) || (MODULUS_TYPE != MODULUS_TYPE_MERSENNE))
+  			if((p != exponent))// || (MODULUS_TYPE != MODULUS_TYPE_MERSENNE))	15. Oct 2012: Need same flexibility for Fermat numbers (e.g. F27 @ 7168k) as for Mersennes, so disable modulus-type part of conditional
 				ASSERT(HERE, 0,"User-supplied exponent and FFT-length for full-length test requires an exponent-matching 'Test=[exponent]' or 'DoubleCheck=[exponent]' worktodo.ini entry!");
 		}
 
@@ -575,7 +617,10 @@ in an nthreads.ini file : */
 
 		ASSERT(HERE, nbits_in_p <= MAX_EXPO_BITS,"Mlucas.c: p <= MAX_EXPO_BITS");
 
-	INIT_TF:
+	#ifdef INCLUDE_TF
+
+	  INIT_TF:
+
 		/* If nbits_in_p > MAX_PRIMALITY_TEST_BITS, it better be a TF run: */
 		if(TEST_TYPE == TEST_TYPE_TRIALFACTORING)
 		{
@@ -650,6 +695,7 @@ in an nthreads.ini file : */
 			fp = fopen(OFILE,"a"); if(fp){ fprintf(    fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
 			goto GET_NEXT_ASSIGNMENT;
 		}
+	#endif 	// INCLUDE_TF
 
 		/* If "Test..." or "DoubleCheck", check for bit_depth_done and pm1_done fields following the = sign:
 		if present and there is still factoring remaining to be done, modify the assignment type appropriately: */
@@ -837,8 +883,8 @@ in an nthreads.ini file : */
 	the backup restart file in these cases), 't' for trial-factoring.
 	*/
 	/* gcc with optimizations turned on wasn't initing all elements of restart file names = \0, so insert one manually after the p and q, before calling strcat() */
-	RESTARTFILE[0] = 'p'; RESTARTFILE[1] = '\0'; strcat(RESTARTFILE, ESTRING);
-
+	RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f'); RESTARTFILE[1] = '\0';
+	strcat(RESTARTFILE, ESTRING);
 	/* The statfile for a given exponent is 'p{exponent}.stat'irrespective of assignment type: */
 	strcpy(STATFILE, RESTARTFILE);
 	strcat(STATFILE, ".stat");
@@ -909,9 +955,12 @@ in an nthreads.ini file : */
 	else if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
 	{
 		ASSERT(HERE, findex >=14, "Fermat number index must be at least 14!\n");
-		ASSERT(HERE, findex < 63, "Fermat number index must be < 64!\n"       );
+		ASSERT(HERE, findex < 64, "Fermat number index must be < 64!\n"       );
 
-		convert_uint64_base10_char(ESTRING, (uint64)findex);
+		/* This takes care of the number-to-char conversion and leading-whitespace-removal
+		in one step - use PSTRING for temporary storage here:
+		*/
+		strcpy(ESTRING, &PSTRING[convert_uint64_base10_char(PSTRING, (uint64)findex)]);
 		ASSERT(HERE, (p >> findex) == 1,"Mlucas.c: (p >> findex) == 1");
 
 		TRANSFORM_TYPE = RIGHT_ANGLE;
@@ -1134,8 +1183,13 @@ in an nthreads.ini file : */
 		arrtmp = (int*)malloc(nalloc* sizeof(int));	if(!arrtmp){ sprintf(cbuf, "FATAL: unable to allocate array ARRTMP in main.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 	}
 
+// Multithreaded-code debug: Set address to watch:
+#ifdef MULTITHREAD
+	ADDR0 = a;
+#endif
+
 	/* Make sure we start with primary restart file: */
-	RESTARTFILE[0] = 'p';
+	RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
 
 READ_RESTART_FILE:
 
@@ -1167,7 +1221,7 @@ READ_RESTART_FILE:
 				if(fp){ fprintf(	fp,"%s",cbuf); fclose(fp); fp = 0x0; }
 				if(fq){ fprintf(	fq,"%s",cbuf); fclose(fq); fq = 0x0; }
 
-				if(RESTARTFILE[0] == 'p')
+				if(RESTARTFILE[0] != 'q')
 				{
 					RESTARTFILE[0] = 'q';
 					goto READ_RESTART_FILE;
@@ -1188,7 +1242,7 @@ READ_RESTART_FILE:
 													fprintf(stderr,"%s",cbuf);
 				fp = fopen(   OFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
 				fp = fopen(STATFILE,"a");	if(fq){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
-				if(RESTARTFILE[0] == 'p')
+				if(RESTARTFILE[0] != 'q')
 				{
 					RESTARTFILE[0] = 'q';
 					goto READ_RESTART_FILE;
@@ -1205,7 +1259,7 @@ READ_RESTART_FILE:
 		else /* if(!fp) */
 		{
 			/* If we're on the primary restart file, set up for secondary: */
-			if(RESTARTFILE[0] == 'p')
+			if(RESTARTFILE[0] != 'q')
 			{
 				sprintf(cbuf, "INFO: primary restart file %s not found...looking for secondary...\n",RESTARTFILE);
 													fprintf(stderr,"%s",cbuf);
@@ -1316,8 +1370,6 @@ READ_RESTART_FILE:
 		ASSERT(HERE,Res64 == itmp64,"On restart: Res64 != itmp64");
 		sprintf(cbuf, "Restarting %s at iteration = %u. Res%2d: %s\n",PSTRING,ilo,nbits,hex_res);
 	}
-	else
-		sprintf(cbuf, "");
 
 	/*...Restart and FFT info.	*/
 	if(INTERACT)
@@ -1402,7 +1454,7 @@ READ_RESTART_FILE:
 			is exactly 0.5. in this case the next-higher digits will also differ, by either +-1.
 			*/
 			sprintf(cbuf, "In convert_res test loop: I = %d, A[I] != B[I], %20.10f, %20.10f",i,a[i],b[i]);
-			DEBUG_WARN(HERE, cbuf, "", 0);
+			WARN(HERE, cbuf, "", 0);
 		}
 	}
 #endif
@@ -1427,23 +1479,19 @@ READ_RESTART_FILE:
 		strftime(timebuffer,SIZE,"%b %d %H:%M:%S",local_time);
 
 		/*...print runtime in hh:mm:ss format.	*/
-		sprintf(cbuf, "[%s] %s Iter# = %u clocks =%2d%1d:%1d%1d:%1d%1d.%1d%1d%1d [%8.4f sec/iter] Res%2d: %s. AvgMaxErr = %10.9f. MaxErr = %10.9f\n"
-			,timebuffer,PSTRING,ihi
-		,(int)tdiff/36000,((int)tdiff%36000)/3600
-		,((int)tdiff%3600)/600,((int)tdiff%600)/60
-		,((int)tdiff%60)/10,(int)tdiff%10
-		,(int)(10*(tdiff-(int)tdiff)),(int)(100*(tdiff-(int)tdiff))%10,(int)(1000*(tdiff-(int)tdiff))%10
+		sprintf(cbuf, "[%s] %s Iter# = %u clocks =%s [%8.4f sec/iter] Res%2d: %s. AvgMaxErr = %10.9f. MaxErr = %10.9f\n"
+			,timebuffer,PSTRING,ihi,get_time_str(tdiff)
 		,tdiff/(ihi - ilo),nbits,hex_res, AME, MME);
 
 		if(INTERACT)
 			fprintf(stderr,"%s",cbuf);
 		else
 		{
-		  fp = fopen(STATFILE,"a");	  if(fp){	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;	}
-		  if (scrnFlag)	fprintf(stderr,"%s",cbuf);	/* Echo output to stddev */
+			fp = fopen(STATFILE,"a");	  if(fp){	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;	}
+			if (scrnFlag)	fprintf(stderr,"%s",cbuf);	/* Echo output to stddev */
 		}
-
-		if(ihi == maxiter) break;
+		// For Mersennes we do not save a final residue (but this leaves the penultimate residue file intact)
+		if( (MODULUS_TYPE == MODULUS_TYPE_MERSENNE) && (ihi == maxiter) ) break;
 
 		/* We've already calculated the SH residues here, but recalculating them during floating-to-bytewise
 		residue array conversion is sufficiently cheap that the redundant calls to res64() and resSH() above don't
@@ -1457,10 +1505,8 @@ READ_RESTART_FILE:
 		ASSERT(HERE, sum2 == Res36m1, "Res36m1 returned by convert_res_FP_bytewise differs from resSH()!");
 
 		/* Make sure we start with primary restart file: */
-		RESTARTFILE[0] = 'p';
-
+		RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
 	WRITE_RESTART_FILE:
-
 		fp = fopen(RESTARTFILE, "wb");
 		if(fp)
 		{
@@ -1469,17 +1515,16 @@ READ_RESTART_FILE:
 		#else
 			write_ppm1_savefiles(p, fp, ihi, (uint8*)arrtmp, Res64, Res35m1, Res36m1);
 		#endif
-
 			fclose(fp);	fp = 0x0;
 
 			/* If we're on the primary restart file, set up for secondary: */
-			if(RESTARTFILE[0] == 'p')
+			if(RESTARTFILE[0] != 'q')
 			{
 				RESTARTFILE[0] = 'q';
 				goto WRITE_RESTART_FILE;
 			}
 			else
-				RESTARTFILE[0] = 'p';
+				RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
 
 		}
 		else
@@ -1493,6 +1538,9 @@ READ_RESTART_FILE:
 			e.g. due to a backup utility having temporarily locked the savefile, or an out-of-disk-space problem.
 			*/
 		}	/* endif(fp) */
+
+		// For Fermats, exit only after writing final-residue checkpoint file:
+		if( (MODULUS_TYPE == MODULUS_TYPE_FERMAT) && (ihi == maxiter) ) break;
 
 		/*...reset loop parameters and begin next iteration cycle...	*/
 		ilo=ihi;
@@ -1594,11 +1642,7 @@ READ_RESTART_FILE:
 		}
 
 		/*...print runtime in hh:mm:ss format.	*/
-		fprintf(stderr, "Clocks =%2d%1d:%1d%1d:%1d%1d.%1d%1d%1d\n"
-		,(int)tdiff/36000,((int)tdiff%36000)/3600
-		,((int)tdiff%3600)/600,((int)tdiff%600)/60
-		,((int)tdiff%60)/10,(int)tdiff%10
-		,(int)(10*(tdiff-(int)tdiff)),(int)(100*(tdiff-(int)tdiff))%10,(int)(1000*(tdiff-(int)tdiff))%10 );
+		fprintf(stderr, "Clocks =%s\n",get_time_str(tdiff) );
 
 		/*exit(EXIT_SUCCESS);*/
  		return(resFlag);
@@ -1687,10 +1731,10 @@ READ_RESTART_FILE:
 			{
 				if(nbits < 64)
 				{
-				  if (scrnFlag)		/* Echo output to stddev */
-				  {
-					fprintf(stderr,"%s",cbuf);
-				  }
+					if (scrnFlag)		/* Echo output to stddev */
+					{
+						fprintf(stderr,"%s",cbuf);
+					}
 					if(fp){ fprintf(fp,"WARNING: this residue contains only %u bits\n",nbits); }
 					if(fq){ fprintf(fq,"WARNING: this residue contains only %u bits\n",nbits); }
 				}
@@ -1719,7 +1763,7 @@ READ_RESTART_FILE:
 #endif
 	RESTARTFILE[0] = 'q';
 	if(remove(RESTARTFILE)) fprintf(stderr, "Unable to delete secondary restart file %s\n",RESTARTFILE);
-	RESTARTFILE[0] = 'p';
+	RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
 
 	/*...If in non-interactive (range test) mode, delete the just-completed exponent from the rangefile,
 	or (in the case of Mersenne primality pre-testing), munge the assignment line to reflect that trial
@@ -1786,7 +1830,7 @@ GET_NEXT_ASSIGNMENT:
 				{
 					/* Factor depth assumed to follow the first comma in in_line: */
 					char_addr = strstr(char_addr, ",");
-					ASSERT(HERE, (int)char_addr,"Mlucas.c: char_addr");
+					ASSERT(HERE, char_addr != 0x0,"Mlucas.c: char_addr");
 					sprintf(++char_addr, "%u", bit_depth_done);
 					fputs(in_line, fq);
 				}
@@ -1794,10 +1838,10 @@ GET_NEXT_ASSIGNMENT:
 				{
 					/*0/1 flag indicating whether P-1 has been done assumed to follow second comma in in_line: */
 					char_addr = strstr(char_addr, ",");
-					ASSERT(HERE, (int)char_addr,"Mlucas.c: char_addr");
+					ASSERT(HERE, char_addr != 0x0,"Mlucas.c: char_addr");
 					char_addr++;
 					char_addr = strstr(char_addr, ",");
-					ASSERT(HERE, (int)char_addr,"Mlucas.c: char_addr");
+					ASSERT(HERE, char_addr != 0x0,"Mlucas.c: char_addr");
 					sprintf(++char_addr, "1");
 					fputs(in_line, fq);
 				}
@@ -2000,9 +2044,9 @@ uint64 	res64(double a[], int n, const uint64 p, int *nbits, char *hex_res)
 	{
 	#ifdef USE_SSE2
 		j1 = (j & mask01) + br4[j&3];
-	    j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
+		j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 	#else
-	    j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+		j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 	#endif
 		if(a[j1] != 0.0)
 		{
@@ -2129,8 +2173,8 @@ void 	resSH(double a[], int n, const uint64 p, uint64 *Res35m1, uint64 *Res36m1)
 	uint64 nbits;
 	int bimodn,cy,findex,ii,j,j1,pass,shift;
 	int bw,sw,bits[2];
-	uint64 base[2];	/* Assume base may be > 2^32 (e.g. for mixed FFT/FGT)
-						but < 2^53, i.e. fits in a double */
+	uint64 base[2];	/* Assume base may be > 2^32 (e.g. for mixed FFT/FGT) but < 2^53, i.e. fits in a double */
+int bs_count[2];
 	int64 itmp;
 	uint64 curr_word = 0, mod1=0, mod2=0;
 	const uint64 two35m1 = (uint64)0x00000007FFFFFFFFull, two36m1 = (uint64)0x0000000FFFFFFFFFull;	/* 2^35,36-1 */
@@ -2188,9 +2232,9 @@ void 	resSH(double a[], int n, const uint64 p, uint64 *Res35m1, uint64 *Res36m1)
 	{
 	#ifdef USE_SSE2
 		j1 = (j & mask01) + br4[j&3];
-	    j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
+		j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 	#else
-	    j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+		j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 	#endif
 		if(a[j1]!= 0.0)
 		{
@@ -2228,9 +2272,9 @@ void 	resSH(double a[], int n, const uint64 p, uint64 *Res35m1, uint64 *Res36m1)
 		{
 		#ifdef USE_SSE2
 			j1 = (j & mask01) + br4[j&3];
-		    j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
+			j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 		#else
-		    j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+			j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		#endif
 
 			itmp = (int64)(a[j1]+ cy);	/* current digit in int64 form, subtracting any borrow from the previous digit.	*/
@@ -2282,10 +2326,10 @@ void 	resSH(double a[], int n, const uint64 p, uint64 *Res35m1, uint64 *Res36m1)
 	}
 	else
 	{
+bs_count[0] = bs_count[1] = 0;
 	  for(pass = 0; pass <=1; pass++)
 	  {
 		bimodn = n;
-
 		for(j = pass; j < n; j += 2)
 		{
 		#ifdef USE_SSE2
@@ -2294,8 +2338,8 @@ void 	resSH(double a[], int n, const uint64 p, uint64 *Res35m1, uint64 *Res36m1)
 		#else
 		    j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		#endif
-
 			ii = (bimodn > sw);					/*       i = 1 if a bigword,   0 if a smallword */
+++bs_count[ii];
 			bimodn -= sw;						/* result >= 0 if a bigword, < 0 if a smallword */
 			bimodn += ( ((int)ii-1) & n);		/*       add 0 if a bigword,   N if a smallword */
 
@@ -2309,9 +2353,11 @@ void 	resSH(double a[], int n, const uint64 p, uint64 *Res35m1, uint64 *Res36m1)
 			{
 				cy = 0;
 			}
-
-			ASSERT(HERE, itmp >= 0,"Mlucas.c: itmp >= 0");
-
+			if(itmp < 0)
+			{
+				fprintf(stderr, "Warning: itmp < 0 detected: value = %lld\n", itmp);
+				ASSERT(HERE, itmp >= 0,"Mlucas.c: itmp >= 0");
+			}
 		/* Mod-(2^35-1) residue: */
 			curr_word = (uint64)itmp;
 			/* Current word must be left-shifted by nbits%35 before folding into residue: */
@@ -2440,9 +2486,9 @@ void 	hex_res_printtofile(double a[], int n, const uint64 p, int timing_test_ite
 	{
 	#ifdef USE_SSE2
 		j1 = (j & mask01) + br4[j&3];
-	    j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
+		j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 	#else
-	    j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+		j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 	#endif
 		if(a[j1]!= 0.0)
 		{
@@ -2484,9 +2530,9 @@ void 	hex_res_printtofile(double a[], int n, const uint64 p, int timing_test_ite
 		{
 		#ifdef USE_SSE2
 			j1 = (j & mask01) + br4[j&3];
-		    j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
+			j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 		#else
-		    j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+			j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		#endif
 
 			itmp = (int64)(a[j1]+ cy);	/* current digit in int64 form, subtracting any borrow from the previous digit.	*/
@@ -2533,9 +2579,9 @@ void 	hex_res_printtofile(double a[], int n, const uint64 p, int timing_test_ite
 		{
 		#ifdef USE_SSE2
 			j1 = (j & mask01) + br4[j&3];
-		    j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
+			j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 		#else
-		    j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+			j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		#endif
 
 ii = (bimodn > sw);					/*       i = 1 if a bigword,   0 if a smallword */
@@ -2606,12 +2652,11 @@ int 	main(int argc, char *argv[])
 {
 	int		retVal=0;
 	uint64	Res64, Res35m1, Res36m1;
-	const uint32 pow10[10] = {1,10,100,1000,10000,100000,1000000,10000000,100000000,1000000000};
 	char	stFlag[STR_MAX_LEN];
 	uint32	iters = 0, k = 0, maxFFT, expo = 0, findex = 0;
 	double	darg;
 	int		new_cfg = FALSE;
-	int		i,j, iarg, idum, lo, hi, start = -1, finish = -1, nargs, errCheck = 0, scrnFlag, modType = 0, testType = 0, selfTest = 0, userSetExponent = 0, xNum = 0;
+	int		i, iarg = 0, idum, lo, hi, start = -1, finish = -1, nargs, errCheck = 0, scrnFlag, modType = 0, testType = 0, selfTest = 0, userSetExponent = 0, xNum = 0;
 	int		quick_self_test = 0;
 	int		radset = -1;
 	double	runtime, runtime_best, tdiff;
@@ -2619,8 +2664,9 @@ int 	main(int argc, char *argv[])
 	int		radix_set, radix_best;
 
 	/* Number of distinct FFT lengths supported for self-tests: */
-	#define numTest				86
+	#define numTest				118	// = sum of all the subranges below
 	/* Number of FFT lengths in the various subranges of the full self-test suite: */
+	#define numTiny 			32
 	#define numSmall			22
 	#define numMedium			16
 	#define numLarge			 9
@@ -2629,8 +2675,8 @@ int 	main(int argc, char *argv[])
 	#define numBrobdingnagian	15
 	#define numGodzillian		 0	/* Adding larger FFT lengths to test vectors requires supporting changes to Mdata.h:MAX_FFT_LENGTH_IN_K and get_fft_radices.c */
 
-	#if(numSmall+numMedium+numLarge+numHuge+numEgregious+numBrobdingnagian+numGodzillian != numTest)
-		#error Sum(numSmall+...) != numTest in main!
+	#if(numTiny+numSmall+numMedium+numLarge+numHuge+numEgregious+numBrobdingnagian+numGodzillian != numTest)
+		#error Sum(numTiny+...) != numTest in main!
 	#endif
 
 	struct res_triplet{
@@ -2646,7 +2692,7 @@ int 	main(int argc, char *argv[])
 	};
 	uint32 mvec_res_t_idx = 0;	/* Lookup index into the res_triplet table */
 	uint32 new_data;
-	struct res_triplet new_res;
+	struct res_triplet new_res = {0ull,0ull,0ull};
 
 	/* Array of distinct test cases for Mersenne self-tests. Add one extra slot to vector for user-specified self-test exponents;
 	We use p's given by given_N_get_maxP(), so maximum RO errors should be consistent and around the target 0.25 value, a little
@@ -2660,7 +2706,83 @@ int 	main(int argc, char *argv[])
 	/*                                         100-iteration residues:	                               1000-iteration residues:                */
 	/*	  FFTlen(K)     p              Res64           mod 2^35-1      mod 2^36-1               Res64           mod 2^35-1      mod 2^36-1     */
 	/*	    -----    --------     ----------------     -----------     -----------         ----------------     -----------     -----------    */
-		/* Small:                                    [%34359738367  ][%68719476735  ]                         [%34359738367  ][%68719476735  ] */
+		/* Tiny:                                     [%34359738367  ][%68719476735  ]                         [%34359738367  ][%68719476735  ] */
+/*
+./Mlucas_new -fftlen  8 -radset 0 -iters 1000
+./Mlucas_new -fftlen  9 -radset 0 -iters 1000
+./Mlucas_new -fftlen 10 -radset 0 -iters 1000*
+./Mlucas_new -fftlen 11 -radset 0 -iters 1000
+./Mlucas_new -fftlen 12 -radset 0 -iters 1000
+./Mlucas_new -fftlen 13 -radset 0 -iters 1000
+./Mlucas_new -fftlen 14 -radset 0 -iters 1000
+./Mlucas_new -fftlen 15 -radset 0 -iters 1000
+./Mlucas_new -fftlen 16 -radset 0 -iters 1000
+./Mlucas_new -fftlen 18 -radset 0 -iters 1000
+./Mlucas_new -fftlen 20 -radset 0 -iters 1000
+./Mlucas_new -fftlen 22 -radset 0 -iters 1000
+./Mlucas_new -fftlen 24 -radset 0 -iters 1000
+./Mlucas_new -fftlen 26 -radset 0 -iters 1000
+./Mlucas_new -fftlen 28 -radset 0 -iters 1000
+./Mlucas_new -fftlen 30 -radset 2 -iters 1000
+./Mlucas_new -fftlen 32 -radset 0 -iters 1000
+./Mlucas_new -fftlen 36 -radset 0 -iters 1000
+./Mlucas_new -fftlen 40 -radset 0 -iters 1000
+./Mlucas_new -fftlen 44 -radset 0 -iters 1000
+./Mlucas_new -fftlen 48 -radset 0 -iters 1000
+./Mlucas_new -fftlen 52 -radset 0 -iters 1000
+./Mlucas_new -fftlen 56 -radset 0 -iters 1000
+./Mlucas_new -fftlen 60 -radset 3 -iters 1000
+./Mlucas_new -fftlen 64 -radset 0 -iters 1000
+./Mlucas_new -fftlen 72 -radset 0 -iters 1000
+./Mlucas_new -fftlen 80 -radset 0 -iters 1000
+./Mlucas_new -fftlen 88 -radset 0 -iters 1000
+./Mlucas_new -fftlen 96 -radset 0 -iters 1000
+./Mlucas_new -fftlen 104 -radset 0 -iters 1000
+./Mlucas_new -fftlen 112 -radset 0 -iters 1000
+./Mlucas_new -fftlen 120 -radset 1 -iters 1000
+
+Radix-15 routines need debug:
+
+M2455003: using FFT length 120K = 122880 8-byte floats.
+ this gives an average   19.978865559895834 bits per digit
+Using complex FFT radices        15        16        16        16
+Output a[8194] =        -568516.00000 out of range: base[1] =         1048576
+ERROR: at line 1990 of file mers_mod_square.c
+Assertion failed: Output out of range!
+*/
+		{     8,    173431u, { {0x85301536E4CA9B11ull,  3707224323ull, 36851834664ull}, {0x2FD5120BEC41F449ull, 28734955954ull, 23103392631ull} } },
+		{     9,    194609u, { {0xC711AF1008612BC6ull,  1574019740ull, 37260026270ull}, {0x5153F6E040CD1BE6ull, 15446410924ull,  3291404673ull} } },
+		{    10,    215767u, { {0x4428783BC62760F0ull,  7466284975ull, 53916123655ull}, {0xED46A8C001908815ull,   739143119ull, 36950829937ull} } },
+		{    11,    236813u, { {0x592D849AF4D1336Full, 29025996994ull, 48905971124ull}, {0xB4EEB63BB656F424ull,  5361680901ull, 31850818767ull} } },
+		{    12,    257903u, { {0x1D8121DE28B60996ull, 22402402961ull, 65583959369ull}, {0x54F2BE961A674CB1ull, 25601315553ull, 54298899520ull} } },
+		{    13,    278917u, { {0xE3BC90B0E652C7C0ull, 21244206101ull, 51449948145ull}, {0x93AF8994F95F2E50ull, 16427368469ull, 10707190710ull} } },
+		{    14,    299903u, { {0xDB8E39C67F8CCA0Aull, 20506717562ull, 44874927985ull}, {0x4E7CCB446371C470ull, 34135369163ull, 61575700812ull} } },
+		{    15,    320851u, { {0xB3C5A1C03E26BB17ull, 22101045153ull,  4420560161ull}, {0x923A9870D65BC73Dull, 29411268414ull, 30739991617ull} } },
+		{    16,    341749u, { {0x8223DF939E46A0FFull, 32377771756ull, 38218252095ull}, {0xC6A5D4B6034A34B8ull, 31917858141ull, 59888258577ull} } },
+		{    18,    383521u, { {0xBF30D4AF5ADF87C8ull, 15059093425ull, 52618040649ull}, {0x9F453732B3FE3C04ull,  4385160151ull, 47987324636ull} } },
+		{    20,    425149u, { {0x6951388C3B99EEC0ull,  4401287495ull, 19242775142ull}, {0x501CEC2CB2080627ull, 21816565170ull, 41043945930ull} } },
+		{    22,    466733u, { {0xD95F8EC0F32B4756ull, 19305723506ull, 26588871256ull}, {0xB1F58184918D94B6ull,  8443388060ull, 11738516313ull} } },
+		{    24,    508223u, { {0xDA46E41316F8BCCAull, 25471180026ull,  1635203275ull}, {0x27A5B285281466B9ull, 11438869313ull,  7226774009ull} } },
+		{    26,    549623u, { {0x6649D9D6CD4E0CE1ull, 25445908581ull, 26118212198ull}, {0x1A4F280627A15B3Cull, 13286323782ull, 31550278005ull} } },
+		{    28,    590963u, { {0x4ADDB6C4A76465AFull,  6532108269ull, 54921134131ull}, {0x3063D08A7BABD7B8ull,  4777711548ull, 39733274344ull} } },
+		{    30,    632251u, { {0x0811FAA40601EB1Dull, 16369365746ull,  6888026123ull}, {0xF324E4DEC564AF91ull, 10236920023ull, 34068699974ull} } },
+		{    32,    673469u, { {0x1A4EF8A0D172FBAAull, 32667536946ull, 11393278588ull}, {0xA4DFD62B928F68A4ull, 11900420802ull, 66610946021ull} } },
+		{    36,    755737u, { {0x13B13C61298088DCull, 34092803628ull,  7584858890ull}, {0x33A2A43DE8782CCCull,  2953124985ull, 62434716987ull} } },
+		{    40,    837817u, { {0x88555D9AAD3FF2DDull,  8573348747ull, 67896670216ull}, {0xEAC1676D914878C0ull, 34312095136ull, 45077378164ull} } },
+		{    44,    919729u, { {0x6ACC03213A37BA5Bull,  3870201113ull, 48145739792ull}, {0xDA98B49CC83C60CBull, 15886769401ull, 62221100895ull} } },
+		{    48,   1001467u, { {0x6B1C76AB5431FDA4ull,  6795121241ull, 65308927583ull}, {0xBD99FD21F4136BFCull, 26386988063ull, 61607603549ull} } },
+		{    52,   1083077u, { {0xA591637EC8CF3FE4ull,  4769775755ull, 65114872367ull}, {0xE59C08B13B00E6FFull,  1383963096ull, 26100699764ull} } },
+		{    56,   1164533u, { {0xEC4F2579E4533584ull,  5456769127ull, 59922459736ull}, {0xF7D2BF94C2767D36ull, 30727892629ull, 48141128220ull} } },
+		{    60,   1245877u, { {0xC91002E1A4EE7E07ull,  6217476228ull, 40164514288ull}, {0xEABE9E1A31DF5877ull,   831216169ull, 29591771932ull} } },
+		{    64,   1327099u, { {0xAC070112281229E0ull, 14226353454ull,  1640524016ull}, {0xF25AA54053C5BB64ull, 32455038659ull, 53547160776ull} } },
+		{    72,   1489223u, { {0x6674518EA19B3D6Aull, 32383400562ull, 53234746310ull}, {0xEB312091097F6C3Bull,  3980687908ull,  8568698675ull} } },
+		{    80,   1650959u, { {0xE5326E754F3202A8ull,  5593233426ull, 33337128557ull}, {0xFC3E8CDA60AF5CF8ull, 11466296968ull, 12651602524ull} } },
+		{    88,   1812347u, { {0x81BDD3AC63DF3F73ull, 19957199947ull, 61002681293ull}, {0x3D3E429D7427C4EAull, 25342898119ull, 34322985438ull} } },
+		{    96,   1973431u, { {0x901C8305DA9FF95Aull, 32611811878ull, 55986702160ull}, {0x0790CA11ADAA47E3ull, 17075140845ull, 12883521448ull} } },
+		{   104,   2134201u, { {0x59BDA0D80F3279EDull, 17901153436ull,  3927067335ull}, {0x2F81B21BC680C861ull, 18443771511ull, 45465079919ull} } },
+		{   112,   2294731u, { {0xC44ACC96D268625Full, 10331638988ull,  2292055445ull}, {0xED20577E16E128DEull, 32248607028ull, 14903460370ull} } },
+		{   120,   2455003u, { {0xC5F7DB23F174A67Dull, 32991574397ull, 31642856976ull}, {0x401670254012E5ABull, 33626385418ull, 66465546971ull} } },
+		/* Small: */
 		{   128,   2614999u, { {0x040918890E98F8DAull, 14867710211ull, 47602627318ull}, {0x1A184504D2DE2D3Cull,  5934292942ull,  4090378120ull} } },
 		{   144,   2934479u, { {0x1B90A27301980A3Aull,  7043479338ull, 38327130996ull}, {0x8C3045C6534867C6ull, 12456621644ull, 52801948293ull} } },
 		{   160,   3253153u, { {0x9AFD3618C164D1B4ull, 16551334620ull, 55616214582ull}, {0x1493A70897A8D058ull, 34082962858ull, 60773088284ull} } },
@@ -2837,11 +2959,13 @@ Clocks = 12:03:41.449
 */
 
 	struct testFerm{
-		int Fidx;		/* Fermat number index */
+		int fftLength;		/* FFT length in K (i.e. 4 means an array of 4K doubles) */
+		int Fidx;			/* Fermat number index */
 		struct res_triplet	res_t[2];	/* 100 and 1000-iteration residue triplet */
 	};
 
 	/* Array of 100-iteration reference values for Fermat self-tests. Only allow Fidx >= 14: */
+	#define FermArrayIdxOffset		14	/* Amount to subtract from m to get the prestored residues for F_m */
 	#define numFerm		17
 	struct testMers FermVec[numFerm+1] =
 	{
@@ -2849,22 +2973,22 @@ Clocks = 12:03:41.449
 	/* FFTlen(K) Fidx           Res64           mod 2^35-1      mod 2^36-1               Res64           mod 2^35-1      mod 2^36-1     */
 	/*   ------- ----      ----------------     -----------     -----------         ----------------     -----------     -----------    */
 		/*                                    [%34359738367  ][%68719476735  ]                         [%34359738367  ][%68719476735  ] */
-		{     1,  14, { {0xDB9AC520C403CB21ull,   342168579ull, 59244817440ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{     2,  15, { {0x3B21A6E55ED13454ull, 28379302213ull, 15546218647ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{     4,  16, { {0xAAE76C15C2B37465ull, 20013824731ull,  2261076122ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{     8,  17, { {0xFFA16CDC8C87483Cull, 20917337408ull, 26110327818ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{    16,  18, { {0x7C6B681485EB86DBull,  5745147782ull, 50521157289ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{    32,  19, { {0x529E54642A813995ull, 17797950508ull, 32039741221ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{    64,  20, { {0x64629CED6E218018ull,  8485981669ull, 53977437340ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{   128,  21, { {0x1DE0171591038250ull, 33758422990ull,  8269940507ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{   256,  22, { {0x9201143390F3828Dull,  1749100092ull, 46602233256ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{   512,  23, { {0x9C3F8E29B397B32Bull,  1094055486ull, 13316822657ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{  1024,  24, { {0xDB9F01963ED9DC8Bull, 27887793041ull, 13169874547ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{  2048,  25, { {0x376C33921E5F675Full, 13022327996ull, 46818697393ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{  4096,  26, { {0xA42BECD80DAEC4CBull, 10087739060ull, 25252768685ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{  8192,  27, { {0xFB69E377519D8CE6ull, 15449775614ull, 51221672039ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{ 16384,  28, { {0xA4FF6F8C3CB38B85ull, 18933356966ull, 30899345457ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{ 32768,  29, { {0xAFBF110B593E26F6ull, 32666279868ull, 18995112582ull}, {0x0000000000000000ull,           0ull,           0ull} } },
+		{     1,  14, { {0xDB9AC520C403CB21ull,   342168579ull, 59244817440ull}, {0xF111F12732CCCB0Full, 24848612524ull, 66609820796ull} } },
+		{     2,  15, { {0x3B21A6E55ED13454ull, 28379302213ull, 15546218647ull}, {0x4784657F2A36BE74ull,   617376037ull, 44891093359ull} } },
+		{     4,  16, { {0xAAE76C15C2B37465ull, 20013824731ull,  2261076122ull}, {0x42CC2CBE97C728E6ull, 30814966349ull, 44505312792ull} } },
+		{     8,  17, { {0xFFA16CDC8C87483Cull, 20917337408ull, 26110327818ull}, {0x43CAB295FFB2661Full, 18197605796ull,  9842643677ull} } },
+		{    16,  18, { {0x7C6B681485EB86DBull,  5745147782ull, 50521157289ull}, {0x8193BD41931E9DE8ull, 19662968587ull, 51102742548ull} } },
+		{    32,  19, { {0x529E54642A813995ull, 17797950508ull, 32039741221ull}, {0xE24EAE4B153EE86Bull, 11155350666ull, 49866866361ull} } },
+		{    64,  20, { {0x64629CED6E218018ull,  8485981669ull, 53977437340ull}, {0xA380121F6FD26B2Aull, 15876203498ull, 36314727556ull} } },
+		{   128,  21, { {0x1DE0171591038250ull, 33758422990ull,  8269940507ull}, {0x1B331FBB41AF33D7ull, 17971032338ull,  2929392342ull} } },
+		{   256,  22, { {0x9201143390F3828Dull,  1749100092ull, 46602233256ull}, {0x1B331FBB41AF33D7ull, 17971032338ull,  2929392342ull} } },
+		{   512,  23, { {0x9C3F8E29B397B32Bull,  1094055486ull, 13316822657ull}, {0xBD642EA0479D8FF0ull, 31625967305ull, 57187857233ull} } },
+		{  1024,  24, { {0xDB9F01963ED9DC8Bull, 27887793041ull, 13169874547ull}, {0x40F2DECE9C351236ull,  9074286032ull, 38590877049ull} } },
+		{  2048,  25, { {0x376C33921E5F675Full, 13022327996ull, 46818697393ull}, {0xA51F8577A407CB75ull,  9865976783ull, 35171498411ull} } },
+		{  4096,  26, { {0xA42BECD80DAEC4CBull, 10087739060ull, 25252768685ull}, {0xECC9408A7295401Dull,  5904751941ull, 58967745948ull} } },
+		{  8192,  27, { {0xFB69E377519D8CE6ull, 15449775614ull, 51221672039ull}, {0x24898E3BEB59DCE6ull, 24957168001ull,  2072452827ull} } },
+		{ 16384,  28, { {0xA4FF6F8C3CB38B85ull, 18933356966ull, 30899345457ull}, {0x8B451AF25E8CC50Eull,   674652743ull, 39963850167ull} } },
+		{ 32768,  29, { {0xAFBF110B593E26F6ull, 32666279868ull, 18995112582ull}, {0xA6B643FF24C6ADC1ull, 15753158767ull, 13965270144ull} } },
 		{ 65536,  30, { {0x68B1BDA5D6BAE04Bull,  3347054148ull, 47892955488ull}, {0x0000000000000000ull,           0ull,           0ull} } },
 		{     0,   0, { {                 0ull,           0ull,           0ull}, {0x0000000000000000ull,           0ull,           0ull} } }
 	};
@@ -2889,6 +3013,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 	}
 	exit(0);
 #endif
+
 
 	fprintf(stderr, "\n    Mlucas %s\n", VERSION);
 	fprintf(stderr, "\n    http://hogranch.com/mayer/README.html\n\n");
@@ -3035,14 +3160,19 @@ else
 
 			for(;;)
 			{
-				if(STREQ(stFlag, "a") || STREQ(stFlag, "all"))		/* all    */
+				if(STREQ(stFlag, "a") || STREQ(stFlag, "all"))		/* all, which really means all the non-Huge-and-larger sets */
 				{
-					start = 0; finish = numSmall + numMedium + numLarge;
+					start = 0; finish = numTiny + numSmall + numMedium + numLarge;
 					break;
 				}
 
 				finish = 0;
 
+				start = finish; finish += numTiny;
+				if(STREQ(stFlag, "t") || STREQ(stFlag, "tiny"))		/* tiny   */
+				{
+					break;
+				}
 				start = finish; finish += numSmall;
 				if(STREQ(stFlag, "s") || STREQ(stFlag, "small"))	/* small  */
 				{
@@ -3373,9 +3503,9 @@ else
 				fprintf(stderr, " Fermat number index must be at least 14.\n");
 				return ERR_EXPONENT_ILLEGAL;
 			}
-			if(iarg > 31)
+			if(iarg > 63)
 			{
-				fprintf(stderr, " Fermat number index must be < 32.\n");
+				fprintf(stderr, " Fermat number index must be < 64.\n");
 				return ERR_EXPONENT_ILLEGAL;
 			}
 
@@ -3394,18 +3524,6 @@ else
 		}
 	}	/* end of command-line-argument processing while() loop */
 
-	/* Special case of user forcing a non-default FFT length for an exponent in the worktodo.ini file -
-	this assumes the arglist exponent matches the first entry in worktodo.ini and the specified FFT length
-	already has a best-radix-set entry in the mlucas.cfg file:
-	*/
-	if (argc == 5 && MersVec[start].exponent && MersVec[start].fftLength )
-	{
-		if((retVal = ernstMain(MODULUS_TYPE_MERSENNE,TEST_TYPE_PRIMALITY,MersVec[start].exponent,MersVec[start].fftLength,0,0,0,FALSE,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime)) != 0)
-		{
-			printMlucasErrCode(retVal);
-		}
-	}
-
 	if(!modType)
 	{
 		modType = MODULUS_TYPE_MERSENNE;
@@ -3414,7 +3532,18 @@ else
 	/* If user specified FFT length but no exponent, get default Mersenne exponent for that FFT length: */
 	if(modType == MODULUS_TYPE_MERSENNE)
 	{
-		if(MersVec[start].exponent == 0)
+		/* Special case of user forcing a non-default FFT length for an exponent in the worktodo.ini file -
+		this assumes the arglist exponent matches the first entry in worktodo.ini and the specified FFT length
+		already has a best-radix-set entry in the mlucas.cfg file:
+		*/
+		if (argc == 5 && MersVec[start].exponent && MersVec[start].fftLength )
+		{
+			if((retVal = ernstMain(MODULUS_TYPE_MERSENNE,TEST_TYPE_PRIMALITY,MersVec[start].exponent,MersVec[start].fftLength,0,0,0,FALSE,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime)) != 0)
+			{
+				printMlucasErrCode(retVal);
+			}
+		}
+		else if(MersVec[start].exponent == 0)
 		{
 			i = MersVec[start].fftLength;
 			ASSERT(HERE, i > 0                  ,"Mlucas.c: i > 0                  ");
@@ -3468,37 +3597,45 @@ else
 			ASSERT(HERE, i > 0                  ,"Mlucas.c: i > 0                  ");
 			ASSERT(HERE, i <=MAX_FFT_LENGTH_IN_K,"Mlucas.c: i <=MAX_FFT_LENGTH_IN_K");
 
-			if(i > FermVec[numFerm-1].fftLength)
+			if(i > FermVec[numFerm-1].fftLength)	/* Computing a new-largest entry? */
 			{
-				FermVec[numFerm].exponent = i << 4;
+				FermVec[numFerm].exponent = (i << 4);
 			}
 			else	/* Find the corresponding entry of FermVec: */
 			{
 				for(lo = 0; lo < numFerm; lo++)
 				{
-					if(FermVec[lo].fftLength == i)
+					if(FermVec[lo].fftLength >= i)
 					{
-						start = lo; finish = start+1;
+						start = lo; finish = start+1;	/* Using >= here allows for non-power-of-2 FFT lengths */
 						break;
 					}
 				}
-				if(lo == numFerm)	/* Non-power-of-2 FFT lengths */
+				if(lo >= numFerm)
 				{
-					FermVec[numFerm].exponent = i << 4;
+					fprintf(stderr, "ERROR: unable to find FFT length %d K in the Reference Residue table.\n", i);
+					ASSERT(HERE, 0,"0");
 				}
 			}
-
-			if(lo >= numTest)
-			{
-				fprintf(stderr, "ERROR: unable to find FFT length %d K in the Reference Residue table.\n", i);
-				ASSERT(HERE, 0,"0");
-			}
 		}
-		/* If user specified exponent but no FFT length, get default FFT length for that exponent: */
+		/* If user specified exponent but no FFT length, get default power-of-2 FFT length for that exponent: */
 		else if(findex && (FermVec[numFerm].fftLength == 0))
 		{
-			FermVec[numFerm].fftLength = (uint32)1 << (findex-14);	/* Default is 16 bits per word, #kblocks = (f/16)/1024 */
+			FermVec[numFerm].fftLength = (uint32)1 << (findex - FermArrayIdxOffset);	/* Default is 16 bits per word, #kblocks = (f/16)/1024 */
 		/*	FermVec[numFerm].fftLength = get_default_fft_length((uint32)1 << findex);	// Default is 16 bits per word */
+
+			if(findex <= FermVec[numFerm-1].exponent)	/* Find the corresponding entry of FermVec: */
+			{
+				start = (findex - FermArrayIdxOffset); finish = start+1;
+			}
+		}
+		/* User specified both exponent and FFT length: */
+		else if(0)
+		{
+			if(findex <= FermVec[numFerm-1].exponent)	/* Find the corresponding entry of FermVec: */
+			{
+				start = (findex - FermArrayIdxOffset); finish = start+1;
+			}
 		}
 	}
 	else
@@ -3635,7 +3772,10 @@ TIMING_TEST_LOOP:
 		/* If it's a self-test [i.e. timing test] and user hasn't specified #iters, set to default: */
 		if(selfTest && !iters)
 		{
+		if(NTHREADS > 4)
 			iters = 1000;
+		else
+			iters = 100;
 		}
 
 		if(iters == 100 || iters == 1000)
@@ -3643,8 +3783,8 @@ TIMING_TEST_LOOP:
 			mvec_res_t_idx = NINT( log((double)iters)/log(10.) ) - 2;	/* log10(iters) - 2, use slower NINT rather than DNINT here since latter needs correct rounding mode */
 			ASSERT(HERE, mvec_res_t_idx < 2,"main: mvec_res_t_idx out of range!");
 
-			if(modType == MODULUS_TYPE_MERSENNE && MersVec[  xNum].res_t[mvec_res_t_idx].sh0 == 0
-			|| modType == MODULUS_TYPE_FERMAT   && FermVec[  xNum].res_t[mvec_res_t_idx].sh0 == 0)	/* New self-test residue being computed */
+			if( (modType == MODULUS_TYPE_MERSENNE && MersVec[  xNum].res_t[mvec_res_t_idx].sh0 == 0)
+			 || (modType == MODULUS_TYPE_FERMAT   && FermVec[  xNum].res_t[mvec_res_t_idx].sh0 == 0) )	/* New self-test residue being computed */
 			{
 				new_data = TRUE;
 				new_res.sh0 = Res64  ;
@@ -3856,24 +3996,28 @@ MLUCAS_HELP:
 	fprintf(stderr, "\n");
 	fprintf(stderr, " -s {...}    Self-test, user must also supply exponent [via -m or -f] and/or FFT length to use.\n");
 	fprintf(stderr, "\n");
+	lo = 0; hi = numTiny;
+	fprintf(stderr, " -s tiny     Runs 100-iteration self-tests on set of %3d Mersenne exponents, ranging from %d to %d\n", numTiny, MersVec[lo].exponent, MersVec[hi-1].exponent);
+	fprintf(stderr, " -s t        This will take around 1 minute on a fast CPU..\n");
+	fprintf(stderr, "\n");
 	lo = 0; hi = numSmall;
-	fprintf(stderr, " -s small    Runs 100-iteration self-tests on 1st set of %3d Mersenne exponents, ranging from %d to %d\n", numSmall, MersVec[lo].exponent, MersVec[hi-1].exponent);
+	fprintf(stderr, " -s small    Runs 100-iteration self-tests on set of %3d Mersenne exponents, ranging from %d to %d\n", numSmall, MersVec[lo].exponent, MersVec[hi-1].exponent);
 	fprintf(stderr, " -s s        This will take around 10 minutes on a fast CPU..\n");
 	fprintf(stderr, "\n");
 	lo =hi; hi+= numMedium;
-	fprintf(stderr, "**** THIS IS THE ONLY SELF-TEST ORDINARY USERS ARE RECOMMENDED TO DO: **********\n");
-	fprintf(stderr, "*                                                                              *\n");
-	fprintf(stderr, "* -s medium   Runs 2nd set of %3d Mersenne exponents, ranging from %d to %d\n", numMedium,MersVec[lo].exponent, MersVec[hi-1].exponent);
-	fprintf(stderr, "* -s m        This will take around an hour on a fast CPU.                     *\n");
-	fprintf(stderr, "*                                                                              *\n");
-	fprintf(stderr, "********************************************************************************\n");
+	fprintf(stderr, "**** THIS IS THE ONLY SELF-TEST ORDINARY USERS ARE RECOMMENDED TO DO: ******\n");
+	fprintf(stderr, "*                                                                          *\n");
+	fprintf(stderr, "* -s medium   Runs set of %3d Mersenne exponents, ranging from %d to %d\n", numMedium,MersVec[lo].exponent, MersVec[hi-1].exponent);
+	fprintf(stderr, "* -s m        This will take around an hour on a fast CPU.                 *\n");
+	fprintf(stderr, "*                                                                          *\n");
+	fprintf(stderr, "****************************************************************************\n");
 	fprintf(stderr, "\n");
 	lo =hi; hi+= numLarge;
-	fprintf(stderr, " -s large    Runs 3rd set of %3d Mersenne exponents, ranging from %d to %d\n", numLarge, MersVec[lo].exponent, MersVec[hi-1].exponent);
+	fprintf(stderr, " -s large    Runs set of %3d Mersenne exponents, ranging from %d to %d\n", numLarge, MersVec[lo].exponent, MersVec[hi-1].exponent);
 	fprintf(stderr, " -s l        This will take around an hour on a fast CPU.\n");
 	fprintf(stderr, "\n");
 	lo =hi; hi+= numHuge;
-	fprintf(stderr, " -s huge     Runs 4th set of %3d Mersenne exponents, ranging from %d to %d\n", numHuge,  MersVec[lo].exponent, MersVec[hi-1].exponent);
+	fprintf(stderr, " -s huge     Runs set of %3d Mersenne exponents, ranging from %d to %d\n", numHuge,  MersVec[lo].exponent, MersVec[hi-1].exponent);
 	fprintf(stderr, " -s h        This will take a couple of hours on a fast CPU.\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, " -s all      Runs 100-iteration self-tests of all test Mersenne exponents and all FFT radix sets.\n");
@@ -4164,7 +4308,7 @@ fp = fopen(RESTARTFILE,"rb");
 int	read_ppm1_savefiles(uint64 p, FILE*fp, uint32*ilo, uint8 arr_tmp[], uint64*Res64, uint64*Res35m1, uint64*Res36m1)
 {
 	uint32 i;
-	uint32 nbytes = 0;
+	uint32 nbytes;
 	uint64 nsquares= 0;
 
 	ASSERT(HERE, !(p >> 32), "read_ppm1_savefiles: p must be 32-bit or less!");	/* Future versions will need to loosen this p < 2^32 restriction: */
@@ -4174,30 +4318,32 @@ int	read_ppm1_savefiles(uint64 p, FILE*fp, uint32*ilo, uint8 arr_tmp[], uint64*R
 		sprintf(cbuf, "read_ppm1_savefiles: File pointer invalid for read!\n");
 		return FALSE;
 	}
-
 	fprintf(stderr, " INFO: restart file %s found...reading...\n",RESTARTFILE);
 	/* t: */
-	if(fgetc(fp) != TEST_TYPE)
+	if((i = fgetc(fp)) != TEST_TYPE)
 	{
 		sprintf(cbuf, "read_ppm1_savefiles: TEST_TYPE != fgetc(fp)\n");
 		return FALSE;
 	}
 	/* m: */
-	if(fgetc(fp) != MODULUS_TYPE)
+	if((i = fgetc(fp)) != MODULUS_TYPE)
 	{
-		sprintf(cbuf, "read_ppm1_savefiles: MODULUS_TYPE != fgetc(fp)\n");
-		return FALSE;
+		// For some reason, this fubared in my rerun-final-F25-iterations-from-33.55m (fgetc = 176, MODULUS_TYPE = 3)
+		// but residue OK, so emit error msg but allow execution past it:
+		sprintf(cbuf, "ERROR: read_ppm1_savefiles: MODULUS_TYPE != fgetc(fp)\n");
+	//	return FALSE;
 	}
 	/* s: */
-	for(i = 0; i < 64; i+=8)
+	for(nbytes = 0; nbytes < 8; nbytes++)
 	{
-		nsquares += (uint64)fgetc(fp) << i;
+		i = fgetc(fp);
+		nsquares += (uint64)i << (8*nbytes);
 	}
 	/* For now, just make sure nsquares < 2^32 and copy to ilo: */
 	if(nsquares >= p)
 	{
 		sprintf(cbuf,"read_ppm1_savefiles: nsquares = %llu out of range, should be < p = %llu\n", nsquares, p);
-		return FALSE;
+	//	return FALSE;
 	}
 	*ilo = nsquares;
 
@@ -4216,34 +4362,34 @@ int	read_ppm1_savefiles(uint64 p, FILE*fp, uint32*ilo, uint8 arr_tmp[], uint64*R
 	}
 
 	i = fread(arr_tmp, sizeof(char), nbytes, fp);		/* Read bytewise residue...	*/
-
 	if(i != nbytes)	{ sprintf(cbuf, "read_ppm1_savefiles: Error reading bytewise residue array.\n")										; return FALSE; }
 	if(ferror(fp))	{ sprintf(cbuf, "read_ppm1_savefiles: Unknown Error reading bytewise residue array.\n")								; return FALSE; }
 	if(feof(fp))	{ sprintf(cbuf, "read_ppm1_savefiles: End-of-file encountered while attempting to read bytewise residue array.\n")	; return FALSE; }
 
-	/* Res64: */
+	/* 8 bytes for Res64: */
 	*Res64 = 0;
-	for(i = 0; i < 64; i+=8)
+	for(nbytes = 0; nbytes < 8; nbytes++)
 	{
-		*Res64 += (uint64)fgetc(fp) << i;
+		i = fgetc(fp);
+		*Res64 += (uint64)i << (8*nbytes);
 	}
-	/* Res35m1: */
+	/* 5 bytes for Res35m1: */
 	*Res35m1 = 0;
-	for(i = 0; i < 40; i+=8)
+	for(nbytes = 0; nbytes < 5; nbytes++)
 	{
-		*Res35m1 += (uint64)fgetc(fp) << i;
+		i = fgetc(fp);
+		*Res35m1 += (uint64)i << (8*nbytes);
 	}
 	ASSERT(HERE, *Res35m1 <= 0x00000007FFFFFFFFull,"read_ppm1_savefiles: *Res35m1 <= 0x00000007ffffffff");
-	/* Res36m1: */
+	/* 5 bytes for Res36m1: */
 	*Res36m1 = 0;
-	for(i = 0; i < 40; i+=8)
+	for(nbytes = 0; nbytes < 5; nbytes++)
 	{
-		*Res36m1 += (uint64)fgetc(fp) << i;
+		i = fgetc(fp);
+		*Res36m1 += (uint64)i << (8*nbytes);
 	}
 	ASSERT(HERE, *Res36m1 <= 0x0000000FFFFFFFFFull,"read_ppm1_savefiles: *Res36m1 <= 0x0000000fffffffff");
-
 	/* Don't deallocate arr_tmp here, since we'll need it later for savefile writes. */
-
 	return TRUE;
 }
 
@@ -4387,11 +4533,12 @@ int 	convert_res_bytewise_FP(const uint8 arr_tmp[], double a[], int n, const uin
 
 	ASSERT(HERE, !(p >> 32), "p must be 32-bit or less!");	/* Future versions will need to loosen this p < 2^32 restriction: */
 
-	/* Set the number of residue bytes, depending on the modulus: */
+	/* Set the number of residue bytes, which is the same for Mersenne (2^p-1) and Fermat-mod (2^p+1, with p = 2^findex)
+	despite the fact the latter can formally be as large as 2^p, since only ever hit that if it`s the last residue of
+	a Pepin test and the number hqppens to be prime. (We would love for that exception to break some other ASSERTion in the code): */
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 	{
 		ASSERT(HERE, TRANSFORM_TYPE == REAL_WRAPPER,"convert_res_bytewise_FP: TRANSFORM_TYPE == REAL_WRAPPER");
-		nbytes = (p + 7)/8;
 	}
 	else if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
 	{
@@ -4401,8 +4548,8 @@ int 	convert_res_bytewise_FP(const uint8 arr_tmp[], double a[], int n, const uin
 		ASSERT(HERE, (p >> findex) == 1,"convert_res_bytewise_FP: (p >> findex) == 1");
 
 		ASSERT(HERE, p % 8 == 0,"convert_res_bytewise_FP: p % 8 == 0");
-		nbytes = (p/8) + 1;
 	}
+	nbytes = (p + 7)/8;
 
 	/* Vector length a power of 2? */
 	if((n >> trailz32(n)) == 1)
@@ -4964,13 +5111,14 @@ void	convert_res_FP_bytewise(const double a[], uint8 arr_tmp[], int n, const uin
 
 uint32 	get_default_factoring_depth(uint64 p)
 {
-	uint32 qbitsmax;
 /* Sample: here's how to set things to factor to a constant k-depth: */
 #if 1
 	const uint32 KMAX_BITS = 40;
 	return (uint32) ceil(log(1.0*p)/log(2.0)) + 1 + KMAX_BITS;
 
 #else
+
+	uint32 qbitsmax;
 
 /* These default depths are designed to match those of Prime95 v24, as described here:
 
@@ -5050,10 +5198,10 @@ int	is_hex_string(char*s, int len)
 void write_fft_debug_data(double a[], int jlo, int jhi)
 {
 	int j,j1;
-	FILE *dbg_file;
 	const char dbg_fname[] = "FFT_DEBUG.txt";
-
-	dbg_file = fopen(dbg_fname, "a");	ASSERT(HERE, dbg_file != 0x0, "write_fft_debug_data: Unable to open dbg_file!");
+	ASSERT(HERE, dbg_file == 0x0, "dbg_file != 0x0 prior to fopen");
+	dbg_file = fopen(dbg_fname, "a");
+	ASSERT(HERE, dbg_file != 0x0, "Unable to open dbg_file!");
 	fprintf(dbg_file, "RE_IM_STRIDE = %d\n", RE_IM_STRIDE);
 	fprintf(dbg_file, "%s\n", cbuf);
 
@@ -5069,7 +5217,6 @@ void write_fft_debug_data(double a[], int jlo, int jhi)
 		fprintf(dbg_file, "j = %8u : %20.5f  %20.5f\n", j, a[j1], a[j1+RE_IM_STRIDE]);
 	}
 
-	fclose(dbg_file);
-	dbg_file = 0x0;
+	fclose(dbg_file);	dbg_file = 0x0;
 }
 

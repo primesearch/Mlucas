@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -20,10 +20,6 @@
 *                                                                              *
 *******************************************************************************/
 
-/*
-!...Module for stashing global parameters used by various Mlucas routines.
-*/
-
 /****************************************************************************
  * We now include this header file if it was not included before.
  ****************************************************************************/
@@ -35,6 +31,14 @@
 #include "mi64.h"
 #include "imul_macro.h"
 #include "util.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/*
+!...Module for stashing global parameters used by various Mlucas routines.
+*/
 
 /* X87 FPU control: */
 extern unsigned short FPU_64RND, FPU_64CHOP;
@@ -52,7 +56,7 @@ extern int len_a;
 #define MAX_FFT_LENGTH_IN_K			245760
 /* This next one should be set to log2(MAX_FFT_LENGTH_IN_K) + 10 + 4,
 i.e. max. 16 bits per digit of the transform vector: */
-#define MAX_PRIMALITY_TEST_BITS		32
+#define MAX_PRIMALITY_TEST_BITS		63
 
 #define MAX_SELFTEST_ITERS			1000000
 extern int ITERS_BETWEEN_CHECKPOINTS;	/* number of iterations between checkpoints */
@@ -65,7 +69,7 @@ extern int ITERS_BETWEEN_CHECKPOINTS;	/* number of iterations between checkpoint
 
 All but the "else" stuff below is specific to factor.c built in standalone mode:
 */
-#if(defined(NWORD))	/* 4-word P: */
+#if(defined(NWORD))	/* N-word P: */
 	#ifndef FACTOR_STANDALONE
 		#error NWORD flag requires FACTOR_STANDALONE flag, only allowed for factor.c built in standalone mode!
 	#endif
@@ -79,20 +83,23 @@ All but the "else" stuff below is specific to factor.c built in standalone mode:
 	#ifndef FACTOR_STANDALONE
 		#error P4WORD flag requires FACTOR_STANDALONE flag, only allowed for factor.c built in standalone mode!
 	#endif
-	#define MAX_BITS_P	242
 	#ifdef USE_FLOAT
-		#error	USE_FLOAT not currently supported for exponents of 2 or more words!
+		#error	USE_FLOAT not currently supported for exponents of 4 words!
+	//	#define MAX_BITS_P	128
+	//	#define MAX_BITS_Q	192	// This will eventually be raised to ~210 bits
 	#else
+		#define MAX_BITS_P	242
 		#define MAX_BITS_Q	256
 	#endif
 #elif(defined(P3WORD))	/* 3-word P: */
 	#ifndef FACTOR_STANDALONE
 		#error P3WORD flag requires FACTOR_STANDALONE flag, only allowed for factor.c built in standalone mode!
 	#endif
-	#define MAX_BITS_P	178
 	#ifdef USE_FLOAT
-		#error	USE_FLOAT not currently supported for exponents of 2 or more words!
+		#define MAX_BITS_P	178
+		#define MAX_BITS_Q	192	// This will eventually be raised to ~210 bits
 	#else
+		#define MAX_BITS_P	178
 		#define MAX_BITS_Q	192
 	#endif
 #elif(defined(P2WORD))	/* 2-word P: */
@@ -101,7 +108,7 @@ All but the "else" stuff below is specific to factor.c built in standalone mode:
 	#endif
 	#define MAX_BITS_P	114
 	#ifdef USE_FLOAT
-		#error	USE_FLOAT not currently supported for exponents of 2 or more words!
+		#error	USE_FLOAT not currently supported for exponents of 2 words!
 	#else
 		#define MAX_BITS_Q	128
 	#endif
@@ -135,9 +142,9 @@ All but the "else" stuff below is specific to factor.c built in standalone mode:
 										assumed to contain FFT length (in K) for which we need to run a timing self-test */
 #define ERR_MAX	ERR_RUN_SELFTEST_FORLENGTH
 
-/*********************************************************************************/
-/* Globals. Unless specified otherwise, these are allocated/defined in Mlucas.c: */
-/*********************************************************************************/
+/***********************************************************************************************/
+/* Globals. Unless specified otherwise, these are declared in Mdata.h and defined in Mlucas.c: */
+/***********************************************************************************************/
 
 /* ESTRING stores the exponent E of the number in question, whose representation is indicated by the value
 of the MODULUS_TYPE global declared below. We assume the number is of the form N = A^E + B,
@@ -145,10 +152,11 @@ with A and E positive ints and B an int of either sign). PSTRING stores some con
 representation of N, specifically for the following currently-supported modulus types:
 
 	MODULUS_TYPE_MERSENNE:	A = 2, E is a prime, B = -1, pstring = "M{E}"	({} denote string-appending)
+	MODULUS_TYPE_MERSMERS:	A = 2, E = 2^p-1 is itself a Mersenne-prime, B = -1, pstring = "M(M(p))"
 	MODULUS_TYPE_FERMAT:	A = 2, E = 2^findex, B = +1, pstring = "F{findex}"
 */
-char ESTRING[STR_MAX_LEN];	/* Exponent in string form */
-char PSTRING[STR_MAX_LEN];	/* Number being tested in string form, typically estring concatenated with several other descriptors, e.g. strcat("M",estring) for Mersennes */
+extern char ESTRING[STR_MAX_LEN];	/* Exponent in string form */
+extern char PSTRING[STR_MAX_LEN];	/* Number being tested in string form, typically estring concatenated with several other descriptors, e.g. strcat("M",estring) for Mersennes */
 
 #ifdef USE_SSE2
 	extern const uint32 mask01, br4[4];	/* length-4 bit-reversal array */
@@ -194,14 +202,15 @@ extern uint32 TEST_TYPE;
 
 /* These must be <= 255 to be compatible with bytewise savefile format! */
 extern uint32 MODULUS_TYPE;
-#define MODULUS_TYPE_MERSENNE		1
-#define MODULUS_TYPE_FERMAT			2
-#define MODULUS_TYPE_GENMERSENNE	3
-#define MODULUS_TYPE_GENFERMAT		4
-#define MODULUS_TYPE_PROTH			5
-#define MODULUS_TYPE_EISENSTEIN		6
-#define MODULUS_TYPE_MAX			2
-#define MODULUS_TYPE_DIM			7	/* Set = to largest *declared* modulus_type value + 1 */
+#define MODULUS_TYPE_MERSENNE		1	// First [MODULUS_TYPE_MAX] defines here must all be software-supported
+#define MODULUS_TYPE_MERSMERS		2
+#define MODULUS_TYPE_FERMAT			3
+#define MODULUS_TYPE_MAX			3	/* Set = to largest *supported* modulus type value */
+#define MODULUS_TYPE_GENMERSENNE	4
+#define MODULUS_TYPE_GENFERMAT		5
+#define MODULUS_TYPE_PROTH			6
+#define MODULUS_TYPE_EISENSTEIN		7
+#define MODULUS_TYPE_DIM			8	/* Set 1 larger than largest *declared* modulus_type value */
 
 extern uint32 TRANSFORM_TYPE;
 #define REAL_WRAPPER		1
@@ -224,12 +233,16 @@ extern double RND_A, RND_B;	/* "Magic" numbers for fast floating-double NINT */
 
 /* Various useful precomputed powers of 2 in floating-double form: */
 extern double             TWO13FLINV;	/* (double)2^13 inverse */
+extern double TWO25FLOAT, TWO25FLINV;	/* (double)2^25 and inverse */
 extern double TWO26FLOAT, TWO26FLINV;	/* (double)2^26 and inverse */
+extern double TWO32FLOAT, TWO32FLINV;	/* (double)2^32 and inverse */
+extern double TWO48FLOAT, TWO48FLINV;	/* (double)2^48 and inverse */
 extern double TWO50FLOAT, TWO50FLINV;	/* (double)2^50 and inverse */
 extern double TWO51FLOAT, TWO51FLINV;	/* (double)2^51 and inverse */
 extern double TWO52FLOAT, TWO52FLINV;	/* (double)2^52 and inverse */
 extern double TWO53FLOAT, TWO53FLINV;	/* (double)2^53 and inverse */
-extern double TWO54FLOAT;				/* (double)2^54 */
+extern double TWO54FLOAT;	/* (double)2^54 */
+extern double TWO63FLOAT;	/* (double)2^63 */
 extern double TWO64FLOAT, TWO64FLINV;	/* (double)2^64 and inverse */
 
 /* Use 2^16 as fixed base for generic FFT-based mul for now: */
@@ -268,7 +281,7 @@ extern int32 DAT_BITS, PAD_BITS;
 !* we invoke the < -assume accuracy_sensitive > compiler flag.
 */
 
-#if defined(CPU_TYPE_IA32)
+#if defined(CPU_IS_X86)
 /* ...x86 versions need an extra 2^11, due to 64-bit register mantissas. */
 
 /*typedef long double reg_double;	* This defines a register-length double, which we can use for
@@ -304,4 +317,18 @@ const long double inv_m61 = (long double)1.0/2305843009213693951ull;
 
 extern int NRADICES, RADIX_VEC[10];	/* RADIX[] stores sequence of complex FFT radices used.	*/
 
+extern FILE *dbg_file;
+extern double*ADDR0;	// Allows for easy debug on address-read-or-write than setting a watchpoint
+#ifdef MULTITHREAD
+	// Alas must do one-threa-at-a-time here (and then assemble the resulting data dumps) to prevent overlapping file writes:
+	#define	TARG_THREAD_ID	0
+#else
+	#define	TARG_THREAD_ID	-1
+#endif
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif	/* Mdata_h_included */
+

@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2012 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -19,6 +19,18 @@
 *  02111-1307, USA.                                                            *
 *                                                                              *
 *******************************************************************************/
+
+/****************************************************************************
+ * We now include this header file if it was not included before.
+ ****************************************************************************/
+#ifndef imul_macro0_h_included
+#define imul_macro0_h_included
+
+#include "util.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*
 Wide integer multiply macros, with ASM fragments to access efficient non-standard-C
@@ -81,14 +93,6 @@ and now there is no longer any potential variable-name collision, either within 
 or the with functions using them (if we declare no _-prepended variables local to the functions).
 */
 
-/****************************************************************************
- * We now include this header file if it was not included before.
- ****************************************************************************/
-#ifndef imul_macro0_h_included
-#define imul_macro0_h_included
-
-#include "util.h"
-
 #undef	MAX_IMUL_WORDS
 #define MAX_IMUL_WORDS	3	/* Max. # of 64-bit words allowed for multiplicands;
 							   64 x this should match the bit count of the largest MUL macro. */
@@ -119,13 +123,28 @@ or the with functions using them (if we declare no _-prepended variables local t
 	MUL_LOHI64	(_x,_y,_lo,_hi)		Lower/Upper 64 bits of 128-bit product of _x and _y returned in _lo and _hi, respectively.
 	SQR_LOHI64	(_x,   _lo,_hi)		Lower/Upper 64 bits of 128-bit square  of _x        returned in _lo and _hi, respectively.
 */
+#undef __MULL32
+#undef __MULH32
+#undef MULL32
+#undef MULH32
+#undef MUL_LOHI32
+#undef MUL64x32
+#undef MUL_LOHI64
+#undef SQR_LOHI64
+#undef __MULL64
+#undef __MULH64
+#undef MULL64
+#undef MULH64
+#undef MUL64x32
+#undef MUL_LOHI64
+#undef SQR_LOHI64
 
 /* Workaround for a SunStudio-for-AMD64 compiler bug: */
-#if(defined(CPU_TYPE_AMD64) && (defined(COMPILER_TYPE_SUNC) || defined(COMPILER_TYPE_ICC)))
+#if(defined(CPU_IS_X86_64) && (defined(COMPILER_TYPE_SUNC) || defined(COMPILER_TYPE_ICC)))
 	#define MUL_LOHI64_SUBROUTINE
 #endif
 
-#if(defined(CPU_TYPE_IA32)  && (defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_ICC)))
+#if(defined(CPU_IS_X86)  && (defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_ICC)))
 	#define MUL_LOHI64_SUBROUTINE
 #endif
 
@@ -139,11 +158,6 @@ or the with functions using them (if we declare no _-prepended variables local t
 	uint32	__MULL32	(uint32 x32, uint32 y32);
 	uint32	__MULH32	(uint32 x32, uint32 y32);
 	*/
-	#define __MULL32(x32,y32     )	 ((uint32)(x32)*(uint32)(y32))
-	#define __MULH32(x32,y32     )	(((uint32)(x32)*(uint64)(y32)) >> 32)
-	#define MULL32(  x32,y32,lo32)	lo32 = (uint32)((uint32)(x32)*(uint32)(y32))
-	#define MULH32(  x32,y32,hi32)	hi32 = __MULH32((uint32)(x32),(uint64)(y32))
-
 	void	MUL64x32(  uint64 x, uint64 y, uint64 *lo, uint64 *hi);
 	void	MUL_LOHI64(uint64 x, uint64 y, uint64 *lo, uint64 *hi);
 	void	SQR_LOHI64(uint64 x,           uint64 *lo, uint64 *hi);
@@ -266,26 +280,19 @@ or the with functions using them (if we declare no _-prepended variables local t
 /********************************************************************************/
 
 /* Alpha: */
-#elif(defined(CPU_TYPE_ALFA))
+#elif(defined(CPU_IS_ALFA))
 
 	/* Assume __UMULH has already been #defined in platform.h for this arch: */
-
-	#define __MULL32(	x32,y32     )                   ((uint32)(x32)*(uint32)(y32))
-	#define __MULH32(	x32,y32     )                  (((uint32)(x32)*(uint64)(y32)) >> 32)
-	#define MULL32(		x32,y32,lo32)	lo32 = (uint32) ((uint32)(x32)*(uint32)(y32))
-	#define MULH32(		x32,y32,hi32)	hi32 =  __MULH32((uint32)(x32),(uint64)(y32))
-
-	/* Prepend an extra _ onto the t-temp here, since temp "_t" is also frequently used in bigger macros: */
-	#define MUL64x32(  _x,_y,_lo,_hi){uint64 _t = (_x)*(_y); _hi = __UMULH((_x), (_y));	_lo = _t;}
 	#define MUL_LOHI64(_x,_y,_lo,_hi){uint64 _t = (_x)*(_y); _hi = __UMULH((_x), (_y));	_lo = _t;}
-	#define SQR_LOHI64(_x,   _lo,_hi){uint64 _t = (_x)*(_x); _hi = __UMULH((_x), (_x));	_lo = _t;}
+	#define MUL64x32(  _x,_y,_lo,_hi)	MUL_LOHI64(_x,(uint64)_y,_lo,_hi)
+	#define SQR_LOHI64(_x,   _lo,_hi)	MUL_LOHI64(_x,_x,_lo,_hi)
 	#define	__MULL64(	 _x,_y      )	        (_x)*(_y)
 	#define	__MULH64(	 _x,_y      )	__UMULH((_x),(_y))
 	#define MULL64(	 _x,_y, _lo     )	_lo =         (_x)*(_y)
 	#define MULH64(  _x,_y,      _hi)	_hi = __UMULH((_x),(_y))
 
 /* 64-bit x86 (Sun Studio has a bug related to inlines, so we skip it for now) */
-#elif(defined(CPU_TYPE_AMD64))
+#elif(defined(CPU_IS_X86_64))
 
 	/* Intel C: */
 	#if(defined(COMPILER_TYPE_ICC))
@@ -296,9 +303,9 @@ or the with functions using them (if we declare no _-prepended variables local t
 		  ({ uint64 _lo, _hi;		\
 		  __asm__("mulq %3" : "=a" (_lo), "=d" (_hi) : "%0" (_x), "rm" (_y)); _hi; })
 
-		#define MUL64x32(  _x,_y,_lo,_hi)	__asm__("mulq %3" : "=a" (_lo), "=d" (_hi) : "%0" (_x), "rm" (_y) );
 		#define MUL_LOHI64(_x,_y,_lo,_hi)	__asm__("mulq %3" : "=a" (_lo), "=d" (_hi) : "%0" (_x), "rm" (_y) );
-		#define SQR_LOHI64(_x,    _lo,_hi)	__asm__("mulq %0" : "=a" (_lo), "=d" (_hi) : "0"  (_x) );
+		#define MUL64x32(  _x,_y,_lo,_hi)	MUL_LOHI64(_x,(uint64)_y,_lo,_hi)
+		#define SQR_LOHI64(_x,   _lo,_hi)	MUL_LOHI64(_x,_x,_lo,_hi)
 		#define MULH64(  _x,_y,     _hi) _hi = __MULH64((_x), (_y))
 
 	/* Sun C: */
@@ -306,9 +313,9 @@ or the with functions using them (if we declare no _-prepended variables local t
 
 		extern uint64_t __MULH64(uint64_t, uint64_t);
 		extern void   MUL_LOHI64(uint64_t, uint64_t, uint64_t, uint64_t);
-		#define MUL64x32(  _x,_y,_lo,_hi)	MUL_LOHI64(_x,_y,_lo,_hi);
-		#define SQR_LOHI64(_x,    _lo,_hi)	MUL_LOHI64(_x,_x,_lo,_hi);
-		#define MULH64(  _x,_y,     _hi) _hi = __MULH64((_x), (_y))
+		#define MUL64x32(  _x,_y,_lo,_hi)	MUL_LOHI64(_x,(uint64)_y,_lo,_hi)
+		#define SQR_LOHI64(_x,   _lo,_hi)	MUL_LOHI64(_x,_x,_lo,_hi)
+		#define MULH64(  _x,_y,     _hi)	_hi = __MULH64((_x), (_y))
 
 	/* MSVC: */
 	#elif(defined(COMPILER_TYPE_MSVC))
@@ -333,23 +340,18 @@ or the with functions using them (if we declare no _-prepended variables local t
 			__asm	movq	_hi, rdx	\
 		}
 
-		#define MUL64x32(  _x,_y,_lo,_hi)	MUL_LOHI64(_x,_y,_lo,_hi);
-		#define SQR_LOHI64(_x,    _lo,_hi)	MUL_LOHI64(_x,_x,_lo,_hi);
+		#define MUL64x32(  _x,_y,_lo,_hi)	MUL_LOHI64(_x,(uint64)_y,_lo,_hi)
+		#define SQR_LOHI64(_x,   _lo,_hi)	MUL_LOHI64(_x,_x,_lo,_hi)
 
 	#else
 		#error unknown compiler for AMD64.
 	#endif
 
-	#define __MULL32(	x32,y32     )                   ((uint32)(x32)*(uint32)(y32))
-	#define __MULH32(	x32,y32     )                  (((uint32)(x32)*(uint64)(y32)) >> 32)
-	#define MULL32(		x32,y32,lo32)	lo32 = (uint32) ((uint32)(x32)*(uint32)(y32))
-	#define MULH32(		x32,y32,hi32)	hi32 =  __MULH32((uint32)(x32),(uint64)(y32))
-
-	#define MULL64(	 _x,_y,_lo     )	_lo = (_x)*(_y)
-	#define	__MULL64(_x, _y         )	       (_x)*(_y)
+	#define   MULL64(_x,_y,_lo     )	_lo = (_x)*(_y)
+	#define	__MULL64(_x, _y        )	      (_x)*(_y)
 
 /* 32-bit X86, Gnu C or MSVC compiler: */
-#elif(defined(CPU_TYPE_IA32))
+#elif(defined(CPU_IS_X86))
 
 	#if(defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
 
@@ -420,6 +422,7 @@ or the with functions using them (if we declare no _-prepended variables local t
 			__asm	mul	_y			\
 			__asm	mov	_hi, edx	\
 		}
+		#define __MULH32(_x,_y)	(( uint32 _hi; MULH32(_x,_y,_hi); _hi ))
 
 		/* Low 64 bits of product of uint64 inputs _x and _y returned in uint64 _lo */
 		#define	MULL64(_x,_y,_lo)\
@@ -603,7 +606,7 @@ or the with functions using them (if we declare no _-prepended variables local t
 		}
 
 /* Itanium: */
-#elif(defined( CPU_TYPE_IA64 ))
+#elif(defined( CPU_IS_IA64 ))
 	#if(defined(COMPILER_TYPE_ICC))
 
 		/* Itanium system under Linux. Compile using icc, not cc. */
@@ -657,15 +660,10 @@ or the with functions using them (if we declare no _-prepended variables local t
 		#error unknown compiler for Itanium.
 	#endif
 
-	#define __MULL32(x32,y32     )	 ((uint32)(x32)*(uint32)(y32))
-	#define __MULH32(x32,y32     )  (((uint32)(x32)*(uint64)(y32)) >> 32)
-	#define MULL32(  x32,y32,lo32)	lo32 = (uint32)((uint32)(x32)*(uint32)(y32))
-	#define MULH32(  x32,y32,hi32)	hi32 = __MULH32((uint32)(x32),(uint64)(y32))
-
 	/* Prepend an extra _ onto the t-temp here, since temp "_t" is also frequently used in bigger macros: */
-	#define MUL64x32(      _x, _y,       _lo,_hi) {uint64 _t = (_x)*(_y); _hi = __MULH64((_x), (_y));	_lo = _t;}
 	#define MUL_LOHI64(    _x, _y,       _lo,_hi) {uint64 _t = (_x)*(_y); _hi = __MULH64((_x), (_y));	_lo = _t;}
-	#define SQR_LOHI64(    _x,            _lo,_hi) {uint64 _t = (_x)*(_x); _hi = __MULH64((_x), (_x));	_lo = _t;}
+	#define MUL64x32(  _x,_y,_lo,_hi)	MUL_LOHI64(_x,(uint64)_y,_lo,_hi)
+	#define SQR_LOHI64(_x,   _lo,_hi)	MUL_LOHI64(_x,_x,_lo,_hi)
 	#define MUL_LOHI64_ADD(_x, _y, _add,_lo,_hi) {uint64 _t = __MULL64_ADD((_x), (_y), (_add)); _hi = __MULH64_ADD((_x), (_y), (_add));	_lo = _t;}
 	#define SQR_LOHI64_ADD(_x,      _add,_lo,_hi) {uint64 _t = __MULL64_ADD((_x), (_x), (_add)); _hi = __MULH64_ADD((_x), (_x), (_add));	_lo = _t;}
 
@@ -676,7 +674,7 @@ or the with functions using them (if we declare no _-prepended variables local t
 	#define MULH64_ADD(    _x, _y, _add,     _hi)	_hi = __MULH64_ADD((_x), (_y), (_add))
 
 /* PowerPC: */
-#elif(defined(CPU_TYPE_PPC))
+#elif(defined(CPU_IS_PPC))
 	/* 64-bit (e.g. G5 and later): */
 	#if(defined(CPU_SUBTYPE_PPC64))
 
@@ -696,15 +694,10 @@ or the with functions using them (if we declare no _-prepended variables local t
 			#error unknown compiler for PPC64.
 		#endif
 
-		#define __MULL32(x32,y32     )	 ((uint32)(x32)*(uint32)(y32))
-		#define __MULH32(x32,y32     )	(((uint32)(x32)*(uint64)(y32)) >> 32)
-		#define MULL32(  x32,y32,lo32)	lo32 = (uint32)((uint32)(x32)*(uint32)(y32))
-		#define MULH32(  x32,y32,hi32)	hi32 = __MULH32((uint32)(x32),(uint64)(y32))
-
 		/* Prepend an extra _ onto the t-temp here, since temp "_t" is also frequently used in bigger macros: */
-		#define MUL64x32(  _x,_y,_lo,_hi)	{uint64 _t = (_x)*(_y); _hi = __MULH64((_x), (_y));	_lo = _t;}
 		#define MUL_LOHI64(_x,_y,_lo,_hi)	{uint64 _t = (_x)*(_y); _hi = __MULH64((_x), (_y));	_lo = _t;}
-		#define SQR_LOHI64(_x,    _lo,_hi)	{uint64 _t = (_x)*(_x); _hi = __MULH64((_x), (_x));	_lo = _t;}
+		#define MUL64x32(  _x,_y,_lo,_hi)	MUL_LOHI64(_x,(uint64)_y,_lo,_hi)
+		#define SQR_LOHI64(_x,   _lo,_hi)	MUL_LOHI64(_x,_x,_lo,_hi)
 		#define MULL64(    _x,_y,_lo     )	_lo = (_x)*(_y)
 		#define MULH64(    _x,_y,     _hi)	_hi = __MULH64((_x), (_y))
 
@@ -721,23 +714,23 @@ or the with functions using them (if we declare no _-prepended variables local t
 
 		#if(defined(COMPILER_TYPE_GCC))
 
-			#define MULL32(	_a32,_b32,_l32) __asm__("mullw  %0,%1,%2" : "=r"(_l32) : "%r"((uint32)(_a32)), "r"((uint32)(_b32)));
-			#define MULH32(	_a32,_b32,_h32) __asm__("mulhwu %0,%1,%2" : "=r"(_h32) : "%r"((uint32)(_a32)), "r"((uint32)(_b32)));
-			#define __MULL32(	_a32,_b32     )	\
-				({ uint32 _l32;					\
-				__asm__("mullw  %0,%1,%2" : "=r"(_l32) : "%r"((uint32)(_a32)), "r"((uint32)(_b32)));	_l32; })
-			#define __MULH32(	_a32,_b32     )	\
-				({ uint32 _h32;					\
-				__asm__("mulhwu %0,%1,%2" : "=r"(_h32) : "%r"((uint32)(_a32)), "r"((uint32)(_b32)));	_h32; })
+			#define MULL32(	_x32,_y32,_lo32) __asm__("mullw  %0,%1,%2" : "=r"(_lo32) : "%r"((uint32)(_x32)), "r"((uint32)(_y32)));
+			#define MULH32(	_x32,_y32,_hi32) __asm__("mulhwu %0,%1,%2" : "=r"(_hi32) : "%r"((uint32)(_x32)), "r"((uint32)(_y32)));
+			#define __MULL32(	_x32,_y32     )	\
+				({ uint32 _lo32;					\
+				__asm__("mullw  %0,%1,%2" : "=r"(_lo32) : "%r"((uint32)(_x32)), "r"((uint32)(_y32)));	_lo32; })
+			#define __MULH32(	_x32,_y32     )	\
+				({ uint32 _hi32;					\
+				__asm__("mulhwu %0,%1,%2" : "=r"(_hi32) : "%r"((uint32)(_x32)), "r"((uint32)(_y32)));	_hi32; })
 
 		#elif(defined(COMPILER_TYPE_XLC))
 			/* If XLC intrinsic available, prefer that over Gnu-style ASM syntax
 			since intrinisc form may allow compiler to do better optimization: */
 			/* XLC has no sppecial intrinsics for low-half MUL: */
-			#define MULL32(	 _a32,_b32,_l32) _l32 = (uint32)((uint32)(_a32)*(uint32)(_b32));
-			#define MULH32(	 _a32,_b32,_h32) _h32 = __mulhwu((uint32)(_a32),(uint32)(_b32));
-			#define __MULL32(_a32,_b32     )        (uint32)((uint32)(_a32)*(uint32)(_b32));
-			#define __MULH32(_a32,_b32     )        __mulhwu((uint32)(_a32),(uint32)(_b32));
+			#define MULL32(	 _x32,_y32,_lo32) _lo32 = (uint32)((uint32)(_x32)*(uint32)(_y32));
+			#define MULH32(	 _x32,_y32,_hi32) _hi32 = __mulhwu((uint32)(_x32),(uint32)(_y32));
+			#define __MULL32(_x32,_y32      )         (uint32)((uint32)(_x32)*(uint32)(_y32));
+			#define __MULH32(_x32,_y32      )         __mulhwu((uint32)(_x32),(uint32)(_y32));
 
 		#else
 			#error unknown compiler for PPC32.
@@ -1116,8 +1109,8 @@ or the with functions using them (if we declare no _-prepended variables local t
 		char s0[21],s1[21];\
 		uint64 _t,_a,_b;\
 		\
-		ASSERT(HERE, ((_y) >> 32) == 0,"MUL64x32: ((_y) >> 32) == 0");\
-		MUL_LOHI64((_x), (_y), _a, _b);\
+		ASSERT(HERE, ((uint64)(_y) >> 32) == 0,"MUL64x32: ((_y) >> 32) == 0");\
+		MUL_LOHI64((_x), (uint64)(_y), _a, _b);\
 		\
 		_lo = ((uint32)((_x) & 0x00000000ffffffff)) * (_y);	/* a*c */\
 		_t  = ((uint32)((_x) >> 32)) * (_y);				/* b*c */\
@@ -1211,7 +1204,7 @@ or the with functions using them (if we declare no _-prepended variables local t
    This requires the smaller of the two multiplicands (we assume this is passed
    in x) to be no larger than 52 bits in size  - y may be as large as 64 bits.
 */
-#if USE_FLOATING__MULH64
+#if USE_FLOATING_MULH64
 
 	static const double scale = 1.0/(131072.0 * 131072.0 * 131072.0);
 
@@ -1228,14 +1221,34 @@ or the with functions using them (if we declare no _-prepended variables local t
 
 #endif
 
-/* Need this if forcing a 32-bit build on a 64-bit platform (e.g. for purposes of timing comparison */
+#ifndef __MULL32
+	#define __MULL32(x32,y32     )	 ((uint32)(x32)*(uint32)(y32))
+#endif
+
+#ifndef __MULH32
+	#define __MULH32(x32,y32     )	(((uint32)(x32)*(uint64)(y32)) >> 32)
+#endif
+
+#ifndef MULL32
+	#define MULL32(  x32,y32,lo32)	lo32 = (uint32)((uint32)(x32)*(uint32)(y32))
+#endif
+
+#ifndef MULH32
+	#define MULH32(  x32,y32,hi32)	hi32 = __MULH32((uint32)(x32),(uint64)(y32))
+#endif
+
 #ifndef MUL_LOHI32
 	#define MUL_LOHI32(_x32,_y32,_lo,_hi)\
 	{\
-		uint64 _tt = ((uint64)(_x32)*(uint64)(_y32));\
+		uint64 _x = (uint64)(_x32), _y = (uint64)(_y32);\
+		uint64 _tt = _x * _y;\
 		_lo = (uint32) _tt;\
 		_hi = (uint32)(_tt >> 32);\
 	}
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif	/* imul_macro0_h_included */

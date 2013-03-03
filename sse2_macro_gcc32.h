@@ -300,178 +300,190 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 	);\
 	}
 
-	#define	SSE2_RADIX8_DIT_0TWIDDLE(Xin0,Xin1,Xin2,Xin3,Xin4,Xin5,Xin6,Xin7, Xout, Xisrt2)\
+	#define SSE2_RADIX_03_DFT(Xi0,Xi1,Xi2, Xcc1, Xo0,Xo1,Xo2)\
 	{\
 	__asm__ volatile (\
-		"movl	%[__in4],%%eax	\n\t"\
-		"movl	%[__in5],%%ebx	\n\t"\
-		"movl	%[__in6],%%ecx	\n\t"\
-		"movl	%[__in7],%%edx	\n\t"\
-		"movl	%[__out],%%esi	\n\t"\
-		"movaps	    (%%eax),%%xmm0			\n\t"\
-		"movaps	0x10(%%eax),%%xmm1			\n\t"\
-		"movaps	%%xmm0,%%xmm2				\n\t"\
-		"movaps	%%xmm1,%%xmm3				\n\t"\
-		"addpd	    (%%ebx),%%xmm2			\n\t"\
-		"addpd	0x10(%%ebx),%%xmm3			\n\t"\
-		"subpd	    (%%ebx),%%xmm0			\n\t"\
-		"subpd	0x10(%%ebx),%%xmm1			\n\t"\
-		"\n\t"\
-		"movaps	    (%%ecx),%%xmm4			\n\t"\
-		"movaps	0x10(%%ecx),%%xmm5			\n\t"\
-		"movaps	%%xmm4,%%xmm6				\n\t"\
-		"movaps	%%xmm5,%%xmm7				\n\t"\
-		"addpd	    (%%edx),%%xmm6			\n\t"\
-		"addpd	0x10(%%edx),%%xmm7			\n\t"\
-		"subpd	    (%%edx),%%xmm4			\n\t"\
-		"subpd	0x10(%%edx),%%xmm5			\n\t"\
-		"/* Copy t6r,i into main-array slot add6 */\n\t"\
-		"movaps	%%xmm6,0xc0(%%esi)			\n\t"\
-		"movaps	%%xmm7,0xd0(%%esi)			\n\t"\
-		"/* Copy t7r,i into main-array slot add7 */\n\t"\
-		"movaps	%%xmm4,0xe0(%%esi)			\n\t"\
-		"movaps	%%xmm5,0xf0(%%esi)			\n\t"\
-		"\n\t"\
-		"/* Move outputs t5r,i into a(j1,j2+p5), first doing the addsub and mul by ISRT2: */\n\t"\
-		"/* Move outputs t7r,i into a(j1,j2+p7), first doing the addsub and mul by ISRT2: */\n\t"\
-		"\n\t"\
-		"addpd	%%xmm2,%%xmm6				\n\t"\
-		"addpd	%%xmm3,%%xmm7				\n\t"\
-		"subpd	0xc0(%%esi),%%xmm2			\n\t"\
-		"subpd	0xd0(%%esi),%%xmm3			\n\t"\
-		"/* Move t6r,i into a(j1,j2+p6) */	\n\t"\
-		"movaps	%%xmm2,0xc0(%%esi)			\n\t"\
-		"movaps	%%xmm3,0xd0(%%esi)			\n\t"\
-		"\n\t"\
-		"movaps	%%xmm4,%%xmm2				\n\t"\
-		"movaps	%%xmm5,%%xmm3				\n\t"\
-		"addpd	%%xmm0,%%xmm5				\n\t"\
-		"subpd	%%xmm3,%%xmm0				\n\t"\
-		"addpd	%%xmm1,%%xmm4				\n\t"\
-		"subpd	%%xmm2,%%xmm1				\n\t"\
-		"\n\t"\
-		"movaps	%%xmm5,%%xmm2				\n\t"\
-		"movaps	%%xmm1,%%xmm3				\n\t"\
-		"addpd	%%xmm1,%%xmm5				\n\t"\
-		"movl	%[__isrt2],%%edi			\n\t"\
-		"movaps	(%%edi),%%xmm1	/* isrt2 */	\n\t"\
-		"subpd	%%xmm3,%%xmm2				\n\t"\
-		"mulpd	%%xmm1,%%xmm5				\n\t"\
-		"mulpd	%%xmm1,%%xmm2				\n\t"\
-		"movaps	%%xmm0,%%xmm3				\n\t"\
-		"\n\t"\
-		"movaps	%%xmm5,0xa0(%%esi)			\n\t"\
-		"movaps	%%xmm4,%%xmm5				\n\t"\
-		"addpd	%%xmm4,%%xmm0				\n\t"\
-		"movaps	%%xmm2,0xb0(%%esi)			\n\t"\
-		"subpd	%%xmm5,%%xmm3				\n\t"\
-		"mulpd	%%xmm1,%%xmm0				\n\t"\
-		"mulpd	%%xmm1,%%xmm3				\n\t"\
-		"movaps	%%xmm0,0xe0(%%esi)			\n\t"\
-		"movaps	%%xmm3,0xf0(%%esi)			\n\t"\
-		"\n\t"\
-		"/**************** 1st of the 2 length-4 subtransforms... **************/\n\t"\
-		"movl	%[__in0],%%eax	\n\t"\
-		"movl	%[__in1],%%ebx	\n\t"\
-		"movl	%[__in2],%%ecx	\n\t"\
-		"movl	%[__in3],%%edx	\n\t"\
-		"\n\t"\
-		"movaps	    (%%eax),%%xmm0			\n\t"\
-		"movaps	0x10(%%eax),%%xmm1			\n\t"\
-		"movaps	%%xmm0,%%xmm2				\n\t"\
-		"movaps	%%xmm1,%%xmm3				\n\t"\
-		"addpd	    (%%ebx),%%xmm2			\n\t"\
-		"addpd	0x10(%%ebx),%%xmm3			\n\t"\
-		"subpd	    (%%ebx),%%xmm0			\n\t"\
-		"subpd	0x10(%%ebx),%%xmm1			\n\t"\
-		"\n\t"\
-		"/* Move   t4r,i into temp(j1+p0) in anticipation of final outputs (t0+t4)r,i which will go there: */\n\t"\
-		"movaps	%%xmm6,    (%%esi)			\n\t"\
-		"movaps	%%xmm7,0x10(%%esi)			\n\t"\
-		"addpd	%%xmm6,%%xmm6				\n\t"\
-		"addpd	%%xmm7,%%xmm7				\n\t"\
-		"/* Move 2*t4r,i into temp(j1+p4) in anticipation of final outputs (t0-t4)r,i which will go there: */\n\t"\
-		"movaps	%%xmm6,0x80(%%esi)			\n\t"\
-		"movaps	%%xmm7,0x90(%%esi)			\n\t"\
-		"\n\t"\
-		"movaps	    (%%ecx),%%xmm4			\n\t"\
-		"movaps	0x10(%%ecx),%%xmm5			\n\t"\
-		"movaps	%%xmm4,%%xmm6				\n\t"\
-		"movaps	%%xmm5,%%xmm7				\n\t"\
-		"addpd	    (%%edx),%%xmm6			\n\t"\
-		"addpd	0x10(%%edx),%%xmm7			\n\t"\
-		"subpd	    (%%edx),%%xmm4			\n\t"\
-		"subpd	0x10(%%edx),%%xmm5			\n\t"\
-		"/* Copy t5,6 into temp(j1+p2) */	\n\t"\
-		"movaps	%%xmm6,0x40(%%esi)			\n\t"\
-		"movaps	%%xmm7,0x50(%%esi)			\n\t"\
-		"addpd	%%xmm2,%%xmm6				\n\t"\
-		"addpd	%%xmm3,%%xmm7				\n\t"\
-		"subpd	0x40(%%esi),%%xmm2			\n\t"\
-		"subpd	0x50(%%esi),%%xmm3			\n\t"\
-		"\n\t"\
-		"/* Compute and dump first 2 outputs now, in order to free up 2 registers: */\n\t"\
-		"addpd	    (%%esi),%%xmm6			\n\t"\
-		"addpd	0x10(%%esi),%%xmm7			\n\t"\
-		"movaps	%%xmm6,    (%%esi)			\n\t"\
-		"movaps	%%xmm7,0x10(%%esi)			\n\t"\
-		"\n\t"\
-		"subpd	0x80(%%esi),%%xmm6			\n\t"\
-		"subpd	0x90(%%esi),%%xmm7			\n\t"\
-		"movaps	%%xmm6,0x80(%%esi)			\n\t"\
-		"movaps	%%xmm7,0x90(%%esi)			\n\t"\
-		"\n\t"\
-		"movaps	%%xmm4,%%xmm6				\n\t"\
-		"movaps	%%xmm5,%%xmm7				\n\t"\
-		"addpd	%%xmm0,%%xmm5				\n\t"\
-		"subpd	%%xmm7,%%xmm0				\n\t"\
-		"addpd	%%xmm1,%%xmm4				\n\t"\
-		"subpd	%%xmm6,%%xmm1				\n\t"\
-		"\n\t"\
-		"movaps	%%xmm2,%%xmm6				\n\t"\
-		"movaps	%%xmm3,%%xmm7				\n\t"\
-		"addpd	0xd0(%%esi),%%xmm2			\n\t"\
-		"subpd	0xc0(%%esi),%%xmm3			\n\t"\
-		"subpd	0xd0(%%esi),%%xmm6			\n\t"\
-		"addpd	0xc0(%%esi),%%xmm7			\n\t"\
-		"movaps	%%xmm2,0xc0(%%esi)			\n\t"\
-		"movaps	%%xmm3,0xd0(%%esi)			\n\t"\
-		"movaps	%%xmm6,0x40(%%esi)			\n\t"\
-		"movaps	%%xmm7,0x50(%%esi)			\n\t"\
-		"\n\t"\
-		"movaps	%%xmm5,%%xmm2				\n\t"\
-		"movaps	%%xmm0,%%xmm6				\n\t"\
-		"movaps	%%xmm1,%%xmm3				\n\t"\
-		"movaps	%%xmm4,%%xmm7				\n\t"\
-		"addpd	0xa0(%%esi),%%xmm5			\n\t"\
-		"subpd	0xf0(%%esi),%%xmm0			\n\t"\
-		"subpd	0xb0(%%esi),%%xmm1			\n\t"\
-		"subpd	0xe0(%%esi),%%xmm4			\n\t"\
-		"subpd	0xa0(%%esi),%%xmm2			\n\t"\
-		"addpd	0xf0(%%esi),%%xmm6			\n\t"\
-		"addpd	0xb0(%%esi),%%xmm3			\n\t"\
-		"addpd	0xe0(%%esi),%%xmm7			\n\t"\
-		"movaps	%%xmm5,0xe0(%%esi)			\n\t"\
-		"movaps	%%xmm0,0xa0(%%esi)			\n\t"\
-		"movaps	%%xmm1,0xf0(%%esi)			\n\t"\
-		"movaps	%%xmm4,0xb0(%%esi)			\n\t"\
-		"movaps	%%xmm2,0x60(%%esi)			\n\t"\
-		"movaps	%%xmm6,0x20(%%esi)			\n\t"\
-		"movaps	%%xmm3,0x70(%%esi)			\n\t"\
-		"movaps	%%xmm7,0x30(%%esi)			\n\t"\
-		"\n\t"\
+			"movl	%[__i0],%%eax		\n\t"\
+			"movl	%[__i1],%%ebx		\n\t"\
+			"movl	%[__i2],%%ecx		\n\t"\
+			"movl	%[__cc1],%%edx		\n\t"\
+			"\n\t"\
+			"movaps	    (%%ebx),%%xmm2	\n\t"\
+			"movaps	0x10(%%ebx),%%xmm3	\n\t"\
+			"movaps	    (%%eax),%%xmm0	\n\t"\
+			"movaps	0x10(%%eax),%%xmm1	\n\t"\
+			"movaps	    (%%ecx),%%xmm6	\n\t"\
+			"movaps	0x10(%%ecx),%%xmm7	\n\t"\
+			"movaps	%%xmm2,%%xmm4		\n\t"\
+			"movaps	%%xmm3,%%xmm5		\n\t"\
+			"\n\t"\
+			"movl	%[__o0],%%eax		\n\t"\
+			"movl	%[__o1],%%ebx		\n\t"\
+			"movl	%[__o2],%%ecx		\n\t"\
+			"addpd	%%xmm6,%%xmm2		\n\t"\
+			"addpd	%%xmm7,%%xmm3		\n\t"\
+			"subpd	%%xmm6,%%xmm4		\n\t"\
+			"subpd	%%xmm7,%%xmm5		\n\t"\
+			"addpd	%%xmm2,%%xmm0		\n\t"\
+			"addpd	%%xmm3,%%xmm1		\n\t"\
+			"movaps	    (%%edx),%%xmm6	\n\t"\
+			"movaps	0x10(%%edx),%%xmm7	\n\t"\
+			"movaps	%%xmm0,     (%%eax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%eax)	\n\t"\
+			"\n\t"\
+			"mulpd	%%xmm6,%%xmm2		\n\t"\
+			"mulpd	%%xmm6,%%xmm3		\n\t"\
+			"mulpd	%%xmm7,%%xmm4		\n\t"\
+			"mulpd	%%xmm7,%%xmm5		\n\t"\
+			"addpd	%%xmm0,%%xmm2		\n\t"\
+			"addpd	%%xmm1,%%xmm3		\n\t"\
+			"\n\t"\
+			"movaps	%%xmm2,%%xmm0		\n\t"\
+			"movaps	%%xmm3,%%xmm1		\n\t"\
+			"\n\t"\
+			"subpd	%%xmm5,%%xmm2		\n\t"\
+			"addpd	%%xmm4,%%xmm3		\n\t"\
+			"addpd	%%xmm5,%%xmm0		\n\t"\
+			"subpd	%%xmm4,%%xmm1		\n\t"\
+			"\n\t"\
+			"movaps	%%xmm2,     (%%ebx)	\n\t"\
+			"movaps	%%xmm3,0x010(%%ebx)	\n\t"\
+			"movaps	%%xmm0,     (%%ecx)	\n\t"\
+			"movaps	%%xmm1,0x010(%%ecx)	\n\t"\
 		:					/* outputs: none */\
-		: [__in0] "m" (Xin0)	/* All inputs from memory addresses here */\
-		 ,[__in1] "m" (Xin1)\
-		 ,[__in2] "m" (Xin2)\
-		 ,[__in3] "m" (Xin3)\
-		 ,[__in4] "m" (Xin4)\
-		 ,[__in5] "m" (Xin5)\
-		 ,[__in6] "m" (Xin6)\
-		 ,[__in7] "m" (Xin7)\
-		 ,[__out] "m" (Xout)\
-		 ,[__isrt2] "m" (Xisrt2)\
-		: "eax","ebx","ecx","edx","edi","esi"		/* Clobbered registers */\
+		: [__i0] "m" (Xi0)	/* All inputs from memory addresses here */\
+		 ,[__i1] "m" (Xi1)\
+		 ,[__i2] "m" (Xi2)\
+		 ,[__cc1] "m" (Xcc1)\
+		 ,[__o0] "m" (Xo0)\
+		 ,[__o1] "m" (Xo1)\
+		 ,[__o2] "m" (Xo2)\
+		: "rax","rbx","rcx","rdx"		/* Clobbered registers */\
+	);\
+	}
+
+	#define SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(Xadd0, Xadd1, Xadd2, Xadd3, Xtmp, Xstride)\
+	{\
+	__asm__ volatile (\
+		"movl	%[__tmp]   ,%%eax	\n\t"\
+		"movl	%[__stride],%%esi	\n\t"\
+		"movl	%%eax,%%ebx			\n\t"\
+		"addl	%%esi,%%ebx			/* add_in1  */\n\t"\
+		"shll	$1,%%esi			/* stride*2 */\n\t"\
+		"movaps	    (%%eax),%%xmm0	\n\t"\
+		"movaps	    (%%ebx),%%xmm2	\n\t"\
+		"movaps	0x10(%%eax),%%xmm1	\n\t"\
+		"movaps	0x10(%%ebx),%%xmm3	\n\t"\
+		"movaps	    (%%eax),%%xmm4	\n\t"\
+		"movaps	    (%%ebx),%%xmm6	\n\t"\
+		"movaps	0x10(%%eax),%%xmm5	\n\t"\
+		"movaps	0x10(%%ebx),%%xmm7	\n\t"\
+		"addl	%%esi,%%eax			/* add_in2  */\n\t"\
+		"addl	%%esi,%%ebx			/* add_in3  */\n\t"\
+		"addpd	    (%%eax),%%xmm0	\n\t"\
+		"addpd	    (%%ebx),%%xmm2	\n\t"\
+		"addpd	0x10(%%eax),%%xmm1	\n\t"\
+		"addpd	0x10(%%ebx),%%xmm3	\n\t"\
+		"subpd	    (%%eax),%%xmm4	\n\t"\
+		"subpd	    (%%ebx),%%xmm6	\n\t"\
+		"subpd	0x10(%%eax),%%xmm5	\n\t"\
+		"subpd	0x10(%%ebx),%%xmm7	\n\t"\
+		"/* Finish radix-4 butterfly and store results into main-array slots: */\n\t"\
+		"movl	%[__add0],%%eax		\n\t"\
+		"movl	%[__add1],%%ebx		\n\t"\
+		"movl	%[__add2],%%ecx		\n\t"\
+		"movl	%[__add3],%%edx		\n\t"\
+		"subpd	%%xmm2,%%xmm0		\n\t"\
+		"subpd	%%xmm7,%%xmm4		\n\t"\
+		"subpd	%%xmm3,%%xmm1		\n\t"\
+		"subpd	%%xmm6,%%xmm5		\n\t"\
+		"movaps	%%xmm0,     (%%ebx)	\n\t"\
+		"movaps	%%xmm4,     (%%ecx)	\n\t"\
+		"movaps	%%xmm1,0x010(%%ebx)	\n\t"\
+		"movaps	%%xmm5,0x010(%%edx)	\n\t"\
+		"addpd	%%xmm2,%%xmm2		\n\t"\
+		"addpd	%%xmm7,%%xmm7		\n\t"\
+		"addpd	%%xmm3,%%xmm3		\n\t"\
+		"addpd	%%xmm6,%%xmm6		\n\t"\
+		"addpd	%%xmm0,%%xmm2		\n\t"\
+		"addpd	%%xmm4,%%xmm7		\n\t"\
+		"addpd	%%xmm1,%%xmm3		\n\t"\
+		"addpd	%%xmm5,%%xmm6		\n\t"\
+		"movaps	%%xmm2,     (%%eax)	\n\t"\
+		"movaps	%%xmm7,     (%%edx)	\n\t"\
+		"movaps	%%xmm3,0x010(%%eax)	\n\t"\
+		"movaps	%%xmm6,0x010(%%ecx)	\n\t"\
+		:					/* outputs: none */\
+		: [__add0] "m" (Xadd0)	/* All inputs from memory addresses here */\
+		 ,[__add1] "m" (Xadd1)\
+		 ,[__add2] "m" (Xadd2)\
+		 ,[__add3] "m" (Xadd3)\
+		 ,[__tmp] "m" (Xtmp)\
+		 ,[__stride] "e" (Xstride)\
+		: "eax","ebx","ecx","edx","rsi"		/* Clobbered registers */\
+	);\
+	}
+
+	#define SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(Xadd0, Xadd1, Xadd2, Xadd3, Xtmp, Xstride)\
+	{\
+	__asm__ volatile (\
+		"movl	%[__add0],%%eax		\n\t"\
+		"movl	%[__add1],%%ebx		\n\t"\
+		"movl	%[__add2],%%ecx		\n\t"\
+		"movl	%[__add3],%%edx		\n\t"\
+		"movaps	    (%%eax),%%xmm0	\n\t"\
+		"movaps	    (%%ecx),%%xmm4	\n\t"\
+		"movaps	0x10(%%eax),%%xmm1	\n\t"\
+		"movaps	0x10(%%ecx),%%xmm5	\n\t"\
+		"movaps	%%xmm0,%%xmm2			\n\t"\
+		"movaps	%%xmm4,%%xmm6			\n\t"\
+		"movaps	%%xmm1,%%xmm3			\n\t"\
+		"movaps	%%xmm5,%%xmm7			\n\t"\
+		"movl	%[__tmp]   ,%%eax	\n\t"\
+		"movl	%[__stride],%%ecx	\n\t"\
+		"addpd	    (%%ebx),%%xmm0	\n\t"\
+		"addpd	    (%%edx),%%xmm4	\n\t"\
+		"addpd	0x10(%%ebx),%%xmm1	\n\t"\
+		"addpd	0x10(%%edx),%%xmm5	\n\t"\
+		"subpd	    (%%ebx),%%xmm2	\n\t"\
+		"subpd	    (%%edx),%%xmm6	\n\t"\
+		"subpd	0x10(%%ebx),%%xmm3	\n\t"\
+		"subpd	0x10(%%edx),%%xmm7	\n\t"\
+		"movl	%%eax,%%ebx			\n\t"\
+		"addl	%%ecx,%%ebx			\n\t"\
+		"movl	%%ebx,%%edx			\n\t"\
+		"addl	%%ecx,%%ecx			\n\t"\
+		"addl	%%ecx,%%edx			\n\t"\
+		"addl	%%eax,%%ecx			\n\t"\
+		"/* Finish radix-4 butterfly and store results into temp-array slots: */\n\t"\
+		"subpd	%%xmm4,%%xmm0			\n\t"\
+		"subpd	%%xmm7,%%xmm2			\n\t"\
+		"subpd	%%xmm5,%%xmm1			\n\t"\
+		"subpd	%%xmm6,%%xmm3			\n\t"\
+		"movaps	%%xmm0,     (%%ecx)	\n\t"\
+		"movaps	%%xmm2,     (%%edx)	\n\t"\
+		"movaps	%%xmm1,0x010(%%ecx)	\n\t"\
+		"movaps	%%xmm3,0x010(%%ebx)	\n\t"\
+		"addpd	%%xmm4,%%xmm4			\n\t"\
+		"addpd	%%xmm7,%%xmm7			\n\t"\
+		"addpd	%%xmm5,%%xmm5			\n\t"\
+		"addpd	%%xmm6,%%xmm6			\n\t"\
+		"addpd	%%xmm0,%%xmm4			\n\t"\
+		"addpd	%%xmm2,%%xmm7			\n\t"\
+		"addpd	%%xmm1,%%xmm5			\n\t"\
+		"addpd	%%xmm3,%%xmm6			\n\t"\
+		"movaps	%%xmm4,     (%%eax)	\n\t"\
+		"movaps	%%xmm7,     (%%ebx)	\n\t"\
+		"movaps	%%xmm5,0x010(%%eax)	\n\t"\
+		"movaps	%%xmm6,0x010(%%edx)	\n\t"\
+		:					/* outputs: none */\
+		: [__add0] "m" (Xadd0)	/* All inputs from memory addresses here */\
+		 ,[__add1] "m" (Xadd1)\
+		 ,[__add2] "m" (Xadd2)\
+		 ,[__add3] "m" (Xadd3)\
+		 ,[__tmp] "m" (Xtmp)\
+		 ,[__stride] "e" (Xstride)\
+		: "eax","ebx","ecx","edx","esi"		/* Clobbered registers */\
 	);\
 	}
 
@@ -504,7 +516,7 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		"addpd	%%xmm5,%%xmm5		\n\t"\
 		"addpd	%%xmm2,%%xmm4		\n\t"\
 		"addpd	%%xmm3,%%xmm5		\n\t"\
-	"movl	%[__cc1],%%eax		\n\t"\
+		"movl	%[__cc1],%%eax		\n\t"\
 		"subpd	%%xmm4,%%xmm6		\n\t"\
 		"subpd	%%xmm5,%%xmm7		\n\t"\
 		"addpd	%%xmm4,%%xmm4		\n\t"\
@@ -785,6 +797,181 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		 ,[__o5] "m" (Xo5)\
 		 ,[__o6] "m" (Xo6)\
 		 ,[__o7] "m" (Xo7)\
+		 ,[__isrt2] "m" (Xisrt2)\
+		: "eax","ebx","ecx","edx","edi","esi"		/* Clobbered registers */\
+	);\
+	}
+
+	#define	SSE2_RADIX8_DIT_0TWIDDLE(Xin0,Xin1,Xin2,Xin3,Xin4,Xin5,Xin6,Xin7, Xout, Xisrt2)\
+	{\
+	__asm__ volatile (\
+		"movl	%[__in4],%%eax	\n\t"\
+		"movl	%[__in5],%%ebx	\n\t"\
+		"movl	%[__in6],%%ecx	\n\t"\
+		"movl	%[__in7],%%edx	\n\t"\
+		"movl	%[__out],%%esi	\n\t"\
+		"movaps	    (%%eax),%%xmm0			\n\t"\
+		"movaps	0x10(%%eax),%%xmm1			\n\t"\
+		"movaps	%%xmm0,%%xmm2				\n\t"\
+		"movaps	%%xmm1,%%xmm3				\n\t"\
+		"addpd	    (%%ebx),%%xmm2			\n\t"\
+		"addpd	0x10(%%ebx),%%xmm3			\n\t"\
+		"subpd	    (%%ebx),%%xmm0			\n\t"\
+		"subpd	0x10(%%ebx),%%xmm1			\n\t"\
+		"\n\t"\
+		"movaps	    (%%ecx),%%xmm4			\n\t"\
+		"movaps	0x10(%%ecx),%%xmm5			\n\t"\
+		"movaps	%%xmm4,%%xmm6				\n\t"\
+		"movaps	%%xmm5,%%xmm7				\n\t"\
+		"addpd	    (%%edx),%%xmm6			\n\t"\
+		"addpd	0x10(%%edx),%%xmm7			\n\t"\
+		"subpd	    (%%edx),%%xmm4			\n\t"\
+		"subpd	0x10(%%edx),%%xmm5			\n\t"\
+		"/* Copy t6r,i into main-array slot add6 */\n\t"\
+		"movaps	%%xmm6,0xc0(%%esi)			\n\t"\
+		"movaps	%%xmm7,0xd0(%%esi)			\n\t"\
+		"/* Copy t7r,i into main-array slot add7 */\n\t"\
+		"movaps	%%xmm4,0xe0(%%esi)			\n\t"\
+		"movaps	%%xmm5,0xf0(%%esi)			\n\t"\
+		"\n\t"\
+		"/* Move outputs t5r,i into a(j1,j2+p5), first doing the addsub and mul by ISRT2: */\n\t"\
+		"/* Move outputs t7r,i into a(j1,j2+p7), first doing the addsub and mul by ISRT2: */\n\t"\
+		"\n\t"\
+		"addpd	%%xmm2,%%xmm6				\n\t"\
+		"addpd	%%xmm3,%%xmm7				\n\t"\
+		"subpd	0xc0(%%esi),%%xmm2			\n\t"\
+		"subpd	0xd0(%%esi),%%xmm3			\n\t"\
+		"/* Move t6r,i into a(j1,j2+p6) */	\n\t"\
+		"movaps	%%xmm2,0xc0(%%esi)			\n\t"\
+		"movaps	%%xmm3,0xd0(%%esi)			\n\t"\
+		"\n\t"\
+		"movaps	%%xmm4,%%xmm2				\n\t"\
+		"movaps	%%xmm5,%%xmm3				\n\t"\
+		"addpd	%%xmm0,%%xmm5				\n\t"\
+		"subpd	%%xmm3,%%xmm0				\n\t"\
+		"addpd	%%xmm1,%%xmm4				\n\t"\
+		"subpd	%%xmm2,%%xmm1				\n\t"\
+		"\n\t"\
+		"movaps	%%xmm5,%%xmm2				\n\t"\
+		"movaps	%%xmm1,%%xmm3				\n\t"\
+		"addpd	%%xmm1,%%xmm5				\n\t"\
+		"movl	%[__isrt2],%%edi			\n\t"\
+		"movaps	(%%edi),%%xmm1	/* isrt2 */	\n\t"\
+		"subpd	%%xmm3,%%xmm2				\n\t"\
+		"mulpd	%%xmm1,%%xmm5				\n\t"\
+		"mulpd	%%xmm1,%%xmm2				\n\t"\
+		"movaps	%%xmm0,%%xmm3				\n\t"\
+		"\n\t"\
+		"movaps	%%xmm5,0xa0(%%esi)			\n\t"\
+		"movaps	%%xmm4,%%xmm5				\n\t"\
+		"addpd	%%xmm4,%%xmm0				\n\t"\
+		"movaps	%%xmm2,0xb0(%%esi)			\n\t"\
+		"subpd	%%xmm5,%%xmm3				\n\t"\
+		"mulpd	%%xmm1,%%xmm0				\n\t"\
+		"mulpd	%%xmm1,%%xmm3				\n\t"\
+		"movaps	%%xmm0,0xe0(%%esi)			\n\t"\
+		"movaps	%%xmm3,0xf0(%%esi)			\n\t"\
+		"\n\t"\
+		"/**************** 1st of the 2 length-4 subtransforms... **************/\n\t"\
+		"movl	%[__in0],%%eax	\n\t"\
+		"movl	%[__in1],%%ebx	\n\t"\
+		"movl	%[__in2],%%ecx	\n\t"\
+		"movl	%[__in3],%%edx	\n\t"\
+		"\n\t"\
+		"movaps	    (%%eax),%%xmm0			\n\t"\
+		"movaps	0x10(%%eax),%%xmm1			\n\t"\
+		"movaps	%%xmm0,%%xmm2				\n\t"\
+		"movaps	%%xmm1,%%xmm3				\n\t"\
+		"addpd	    (%%ebx),%%xmm2			\n\t"\
+		"addpd	0x10(%%ebx),%%xmm3			\n\t"\
+		"subpd	    (%%ebx),%%xmm0			\n\t"\
+		"subpd	0x10(%%ebx),%%xmm1			\n\t"\
+		"\n\t"\
+		"/* Move   t4r,i into temp(j1+p0) in anticipation of final outputs (t0+t4)r,i which will go there: */\n\t"\
+		"movaps	%%xmm6,    (%%esi)			\n\t"\
+		"movaps	%%xmm7,0x10(%%esi)			\n\t"\
+		"addpd	%%xmm6,%%xmm6				\n\t"\
+		"addpd	%%xmm7,%%xmm7				\n\t"\
+		"/* Move 2*t4r,i into temp(j1+p4) in anticipation of final outputs (t0-t4)r,i which will go there: */\n\t"\
+		"movaps	%%xmm6,0x80(%%esi)			\n\t"\
+		"movaps	%%xmm7,0x90(%%esi)			\n\t"\
+		"\n\t"\
+		"movaps	    (%%ecx),%%xmm4			\n\t"\
+		"movaps	0x10(%%ecx),%%xmm5			\n\t"\
+		"movaps	%%xmm4,%%xmm6				\n\t"\
+		"movaps	%%xmm5,%%xmm7				\n\t"\
+		"addpd	    (%%edx),%%xmm6			\n\t"\
+		"addpd	0x10(%%edx),%%xmm7			\n\t"\
+		"subpd	    (%%edx),%%xmm4			\n\t"\
+		"subpd	0x10(%%edx),%%xmm5			\n\t"\
+		"/* Copy t5,6 into temp(j1+p2) */	\n\t"\
+		"movaps	%%xmm6,0x40(%%esi)			\n\t"\
+		"movaps	%%xmm7,0x50(%%esi)			\n\t"\
+		"addpd	%%xmm2,%%xmm6				\n\t"\
+		"addpd	%%xmm3,%%xmm7				\n\t"\
+		"subpd	0x40(%%esi),%%xmm2			\n\t"\
+		"subpd	0x50(%%esi),%%xmm3			\n\t"\
+		"\n\t"\
+		"/* Compute and dump first 2 outputs now, in order to free up 2 registers: */\n\t"\
+		"addpd	    (%%esi),%%xmm6			\n\t"\
+		"addpd	0x10(%%esi),%%xmm7			\n\t"\
+		"movaps	%%xmm6,    (%%esi)			\n\t"\
+		"movaps	%%xmm7,0x10(%%esi)			\n\t"\
+		"\n\t"\
+		"subpd	0x80(%%esi),%%xmm6			\n\t"\
+		"subpd	0x90(%%esi),%%xmm7			\n\t"\
+		"movaps	%%xmm6,0x80(%%esi)			\n\t"\
+		"movaps	%%xmm7,0x90(%%esi)			\n\t"\
+		"\n\t"\
+		"movaps	%%xmm4,%%xmm6				\n\t"\
+		"movaps	%%xmm5,%%xmm7				\n\t"\
+		"addpd	%%xmm0,%%xmm5				\n\t"\
+		"subpd	%%xmm7,%%xmm0				\n\t"\
+		"addpd	%%xmm1,%%xmm4				\n\t"\
+		"subpd	%%xmm6,%%xmm1				\n\t"\
+		"\n\t"\
+		"movaps	%%xmm2,%%xmm6				\n\t"\
+		"movaps	%%xmm3,%%xmm7				\n\t"\
+		"addpd	0xd0(%%esi),%%xmm2			\n\t"\
+		"subpd	0xc0(%%esi),%%xmm3			\n\t"\
+		"subpd	0xd0(%%esi),%%xmm6			\n\t"\
+		"addpd	0xc0(%%esi),%%xmm7			\n\t"\
+		"movaps	%%xmm2,0xc0(%%esi)			\n\t"\
+		"movaps	%%xmm3,0xd0(%%esi)			\n\t"\
+		"movaps	%%xmm6,0x40(%%esi)			\n\t"\
+		"movaps	%%xmm7,0x50(%%esi)			\n\t"\
+		"\n\t"\
+		"movaps	%%xmm5,%%xmm2				\n\t"\
+		"movaps	%%xmm0,%%xmm6				\n\t"\
+		"movaps	%%xmm1,%%xmm3				\n\t"\
+		"movaps	%%xmm4,%%xmm7				\n\t"\
+		"addpd	0xa0(%%esi),%%xmm5			\n\t"\
+		"subpd	0xf0(%%esi),%%xmm0			\n\t"\
+		"subpd	0xb0(%%esi),%%xmm1			\n\t"\
+		"subpd	0xe0(%%esi),%%xmm4			\n\t"\
+		"subpd	0xa0(%%esi),%%xmm2			\n\t"\
+		"addpd	0xf0(%%esi),%%xmm6			\n\t"\
+		"addpd	0xb0(%%esi),%%xmm3			\n\t"\
+		"addpd	0xe0(%%esi),%%xmm7			\n\t"\
+		"movaps	%%xmm5,0xe0(%%esi)			\n\t"\
+		"movaps	%%xmm0,0xa0(%%esi)			\n\t"\
+		"movaps	%%xmm1,0xf0(%%esi)			\n\t"\
+		"movaps	%%xmm4,0xb0(%%esi)			\n\t"\
+		"movaps	%%xmm2,0x60(%%esi)			\n\t"\
+		"movaps	%%xmm6,0x20(%%esi)			\n\t"\
+		"movaps	%%xmm3,0x70(%%esi)			\n\t"\
+		"movaps	%%xmm7,0x30(%%esi)			\n\t"\
+		"\n\t"\
+		:					/* outputs: none */\
+		: [__in0] "m" (Xin0)	/* All inputs from memory addresses here */\
+		 ,[__in1] "m" (Xin1)\
+		 ,[__in2] "m" (Xin2)\
+		 ,[__in3] "m" (Xin3)\
+		 ,[__in4] "m" (Xin4)\
+		 ,[__in5] "m" (Xin5)\
+		 ,[__in6] "m" (Xin6)\
+		 ,[__in7] "m" (Xin7)\
+		 ,[__out] "m" (Xout)\
 		 ,[__isrt2] "m" (Xisrt2)\
 		: "eax","ebx","ecx","edx","edi","esi"		/* Clobbered registers */\
 	);\

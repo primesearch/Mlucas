@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -90,6 +90,9 @@ int radix14_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	double wt,wtinv,wtl,wtlp1,wtn,wtnm1,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
 	int ii0,ii1,ii2,ii3,ii4,ii5,ii6,ii7,ii8,ii9,ii10,ii11,ii12,ii13;	/* indices into weights arrays (mod NWT) */
 	double wt_re,wt_im;									/* Fermat-mod weights stuff */
+
+	// Init these to get rid of GCC "may be used uninitialized in this function" warnings:
+	col=co2=co3=ii0=ii1=ii2=ii3=ii4=ii5=ii6=ii7=ii8=ii9=ii10=ii11=ii12=ii13=-1;
 
 /*...change n14 and n_div_wt to non-static to work around a gcc compiler bug. */
 	n14   = n/14;
@@ -512,20 +515,20 @@ for(outer=0; outer <= 1; outer++)
 		}
 		else
 		{
-			fermat_carry_norm_errcheck(aj1p0r ,aj1p0i ,cy_r0 ,cy_i0 ,ii0 ,bjmodn0 ,0 *n14);
-			fermat_carry_norm_errcheck(aj1p1r ,aj1p1i ,cy_r1 ,cy_i1 ,ii1 ,bjmodn1 ,1 *n14);
-			fermat_carry_norm_errcheck(aj1p2r ,aj1p2i ,cy_r2 ,cy_i2 ,ii2 ,bjmodn2 ,2 *n14);
-			fermat_carry_norm_errcheck(aj1p3r ,aj1p3i ,cy_r3 ,cy_i3 ,ii3 ,bjmodn3 ,3 *n14);
-			fermat_carry_norm_errcheck(aj1p4r ,aj1p4i ,cy_r4 ,cy_i4 ,ii4 ,bjmodn4 ,4 *n14);
-			fermat_carry_norm_errcheck(aj1p5r ,aj1p5i ,cy_r5 ,cy_i5 ,ii5 ,bjmodn5 ,5 *n14);
-			fermat_carry_norm_errcheck(aj1p6r ,aj1p6i ,cy_r6 ,cy_i6 ,ii6 ,bjmodn6 ,6 *n14);
-			fermat_carry_norm_errcheck(aj1p7r ,aj1p7i ,cy_r7 ,cy_i7 ,ii7 ,bjmodn7 ,7 *n14);
-			fermat_carry_norm_errcheck(aj1p8r ,aj1p8i ,cy_r8 ,cy_i8 ,ii8 ,bjmodn8 ,8 *n14);
-			fermat_carry_norm_errcheck(aj1p9r ,aj1p9i ,cy_r9 ,cy_i9 ,ii9 ,bjmodn9 ,9 *n14);
-			fermat_carry_norm_errcheck(aj1p10r,aj1p10i,cy_r10,cy_i10,ii10,bjmodn10,10*n14);
-			fermat_carry_norm_errcheck(aj1p11r,aj1p11i,cy_r11,cy_i11,ii11,bjmodn11,11*n14);
-			fermat_carry_norm_errcheck(aj1p12r,aj1p12i,cy_r12,cy_i12,ii12,bjmodn12,12*n14);
-			fermat_carry_norm_errcheck(aj1p13r,aj1p13i,cy_r13,cy_i13,ii13,bjmodn13,13*n14);
+			fermat_carry_norm_errcheck(aj1p0r ,aj1p0i ,cy_r0 ,cy_i0 ,ii0 ,bjmodn0 ,0 *n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(aj1p1r ,aj1p1i ,cy_r1 ,cy_i1 ,ii1 ,bjmodn1 ,1 *n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(aj1p2r ,aj1p2i ,cy_r2 ,cy_i2 ,ii2 ,bjmodn2 ,2 *n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(aj1p3r ,aj1p3i ,cy_r3 ,cy_i3 ,ii3 ,bjmodn3 ,3 *n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(aj1p4r ,aj1p4i ,cy_r4 ,cy_i4 ,ii4 ,bjmodn4 ,4 *n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(aj1p5r ,aj1p5i ,cy_r5 ,cy_i5 ,ii5 ,bjmodn5 ,5 *n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(aj1p6r ,aj1p6i ,cy_r6 ,cy_i6 ,ii6 ,bjmodn6 ,6 *n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(aj1p7r ,aj1p7i ,cy_r7 ,cy_i7 ,ii7 ,bjmodn7 ,7 *n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(aj1p8r ,aj1p8i ,cy_r8 ,cy_i8 ,ii8 ,bjmodn8 ,8 *n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(aj1p9r ,aj1p9i ,cy_r9 ,cy_i9 ,ii9 ,bjmodn9 ,9 *n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(aj1p10r,aj1p10i,cy_r10,cy_i10,ii10,bjmodn10,10*n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(aj1p11r,aj1p11i,cy_r11,cy_i11,ii11,bjmodn11,11*n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(aj1p12r,aj1p12i,cy_r12,cy_i12,ii12,bjmodn12,12*n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(aj1p13r,aj1p13i,cy_r13,cy_i13,ii13,bjmodn13,13*n14,NRTM1,NRT_BITS);
 		}
 
 	/*
@@ -957,6 +960,9 @@ int radix14_ditN_cy_dif1_nochk(double a[], int n, int nwt, int nwt_bits, double 
 	int ii0,ii1,ii2,ii3,ii4,ii5,ii6,ii7,ii8,ii9,ii10,ii11,ii12,ii13;	/* indices into weights arrays (mod NWT) */
 	double wt_re,wt_im;									/* Fermat-mod weights stuff */
 
+	// Init these to get rid of GCC "may be used uninitialized in this function" warnings:
+	col=co2=co3=ii0=ii1=ii2=ii3=ii4=ii5=ii6=ii7=ii8=ii9=ii10=ii11=ii12=ii13=-1;
+
 /*...change n14 and n_div_wt to non-static to work around a gcc compiler bug. */
 	n14   = n/14;
 	n_div_nwt = n14 >> nwt_bits;
@@ -1376,20 +1382,20 @@ for(outer=0; outer <= 1; outer++)
 		}
 		else
 		{
-			fermat_carry_norm_nocheck(aj1p0r ,aj1p0i ,cy_r0 ,cy_i0 ,ii0 ,bjmodn0 ,0 *n14);
-			fermat_carry_norm_nocheck(aj1p1r ,aj1p1i ,cy_r1 ,cy_i1 ,ii1 ,bjmodn1 ,1 *n14);
-			fermat_carry_norm_nocheck(aj1p2r ,aj1p2i ,cy_r2 ,cy_i2 ,ii2 ,bjmodn2 ,2 *n14);
-			fermat_carry_norm_nocheck(aj1p3r ,aj1p3i ,cy_r3 ,cy_i3 ,ii3 ,bjmodn3 ,3 *n14);
-			fermat_carry_norm_nocheck(aj1p4r ,aj1p4i ,cy_r4 ,cy_i4 ,ii4 ,bjmodn4 ,4 *n14);
-			fermat_carry_norm_nocheck(aj1p5r ,aj1p5i ,cy_r5 ,cy_i5 ,ii5 ,bjmodn5 ,5 *n14);
-			fermat_carry_norm_nocheck(aj1p6r ,aj1p6i ,cy_r6 ,cy_i6 ,ii6 ,bjmodn6 ,6 *n14);
-			fermat_carry_norm_nocheck(aj1p7r ,aj1p7i ,cy_r7 ,cy_i7 ,ii7 ,bjmodn7 ,7 *n14);
-			fermat_carry_norm_nocheck(aj1p8r ,aj1p8i ,cy_r8 ,cy_i8 ,ii8 ,bjmodn8 ,8 *n14);
-			fermat_carry_norm_nocheck(aj1p9r ,aj1p9i ,cy_r9 ,cy_i9 ,ii9 ,bjmodn9 ,9 *n14);
-			fermat_carry_norm_nocheck(aj1p10r,aj1p10i,cy_r10,cy_i10,ii10,bjmodn10,10*n14);
-			fermat_carry_norm_nocheck(aj1p11r,aj1p11i,cy_r11,cy_i11,ii11,bjmodn11,11*n14);
-			fermat_carry_norm_nocheck(aj1p12r,aj1p12i,cy_r12,cy_i12,ii12,bjmodn12,12*n14);
-			fermat_carry_norm_nocheck(aj1p13r,aj1p13i,cy_r13,cy_i13,ii13,bjmodn13,13*n14);
+			fermat_carry_norm_nocheck(aj1p0r ,aj1p0i ,cy_r0 ,cy_i0 ,ii0 ,bjmodn0 ,0 *n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(aj1p1r ,aj1p1i ,cy_r1 ,cy_i1 ,ii1 ,bjmodn1 ,1 *n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(aj1p2r ,aj1p2i ,cy_r2 ,cy_i2 ,ii2 ,bjmodn2 ,2 *n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(aj1p3r ,aj1p3i ,cy_r3 ,cy_i3 ,ii3 ,bjmodn3 ,3 *n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(aj1p4r ,aj1p4i ,cy_r4 ,cy_i4 ,ii4 ,bjmodn4 ,4 *n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(aj1p5r ,aj1p5i ,cy_r5 ,cy_i5 ,ii5 ,bjmodn5 ,5 *n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(aj1p6r ,aj1p6i ,cy_r6 ,cy_i6 ,ii6 ,bjmodn6 ,6 *n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(aj1p7r ,aj1p7i ,cy_r7 ,cy_i7 ,ii7 ,bjmodn7 ,7 *n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(aj1p8r ,aj1p8i ,cy_r8 ,cy_i8 ,ii8 ,bjmodn8 ,8 *n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(aj1p9r ,aj1p9i ,cy_r9 ,cy_i9 ,ii9 ,bjmodn9 ,9 *n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(aj1p10r,aj1p10i,cy_r10,cy_i10,ii10,bjmodn10,10*n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(aj1p11r,aj1p11i,cy_r11,cy_i11,ii11,bjmodn11,11*n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(aj1p12r,aj1p12i,cy_r12,cy_i12,ii12,bjmodn12,12*n14,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(aj1p13r,aj1p13i,cy_r13,cy_i13,ii13,bjmodn13,13*n14,NRTM1,NRT_BITS);
 		}
 
 /*

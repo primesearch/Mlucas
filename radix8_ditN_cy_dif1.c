@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -34,7 +34,7 @@ int radix8_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], 
 	return 0;
 }
 
-int radix8_ditN_cy_dif1_nochk(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[], double base[], double baseinv[], int iter                 , uint64 p)
+int radix8_ditN_cy_dif1_nochk(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[],double base[], double baseinv[], int iter                 , uint64 p)
 {
 	ASSERT(HERE, 0,"radix8_ditN_cy_dif1_nochk should not be called if GCD_STANDALONE is set!");
 	return 0;
@@ -44,7 +44,7 @@ int radix8_ditN_cy_dif1_nochk(double a[], int n, int nwt, int nwt_bits, double w
 
 /***************/
 
-int radix8_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[], double base[], double baseinv[], int iter, double *fracmax, uint64 p)
+int radix8_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[],double base[], double baseinv[], int iter, double *fracmax, uint64 p)
 {
 /*
 !...Acronym: DWT = Discrete Weighted Transform, DIT = Decimation In Time, DIF = Decimation In Frequency
@@ -366,7 +366,7 @@ for(outer=0; outer <= 1; outer++)
 	}
 
 /* Needed to remove the prefetch-address vars add0 & add for this to compile properly: */
-#ifdef MULTITHREAD
+#ifdef USE_OMP
   omp_set_num_threads(CY_THREADS);
 
 //	#pragma omp parallel for private(add0,add,i,iroot,j,j1,jstart,jhi,k,k1,k2,l,col,co2,co3,m,m2,n_minus_sil,n_minus_silp1,sinwt,sinwtm1,wtl,wtlp1,wtn,wtnm1,wt,wtinv,wtA,wtB,wtC,wt_re,wt_im,maxerr,rt,it,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,a1p0r,a1p1r,a1p2r,a1p3r,a1p4r,a1p5r,a1p6r,a1p7r,a1p0i,a1p1i,a1p2i,a1p3i,a1p4i,a1p5i,a1p6i,a1p7i,temp,frac,bjmodn0,bjmodn1,bjmodn2,bjmodn3,bjmodn4,bjmodn5,bjmodn6,bjmodn7,cy_r0,cy_r1,cy_r2,cy_r3,cy_r4,cy_r5,cy_r6,cy_r7,cy_i0,cy_i1,cy_i2,cy_i3,cy_i4,cy_i5,cy_i6,cy_i7) default(shared) schedule(dynamic)
@@ -510,14 +510,14 @@ for(outer=0; outer <= 1; outer++)
 				}
 				else
 				{
-					fermat_carry_norm_pow2_errcheck(a1p0r,a1p0i,cy_r0,cy_i0,0x0*n8);
-					fermat_carry_norm_pow2_errcheck(a1p1r,a1p1i,cy_r1,cy_i1,0x1*n8);
-					fermat_carry_norm_pow2_errcheck(a1p2r,a1p2i,cy_r2,cy_i2,0x2*n8);
-					fermat_carry_norm_pow2_errcheck(a1p3r,a1p3i,cy_r3,cy_i3,0x3*n8);
-					fermat_carry_norm_pow2_errcheck(a1p4r,a1p4i,cy_r4,cy_i4,0x4*n8);
-					fermat_carry_norm_pow2_errcheck(a1p5r,a1p5i,cy_r5,cy_i5,0x5*n8);
-					fermat_carry_norm_pow2_errcheck(a1p6r,a1p6i,cy_r6,cy_i6,0x6*n8);
-					fermat_carry_norm_pow2_errcheck(a1p7r,a1p7i,cy_r7,cy_i7,0x7*n8);
+					fermat_carry_norm_pow2_errcheck(a1p0r,a1p0i,cy_r0,cy_i0,0x0*n8,NRTM1,NRT_BITS);
+					fermat_carry_norm_pow2_errcheck(a1p1r,a1p1i,cy_r1,cy_i1,0x1*n8,NRTM1,NRT_BITS);
+					fermat_carry_norm_pow2_errcheck(a1p2r,a1p2i,cy_r2,cy_i2,0x2*n8,NRTM1,NRT_BITS);
+					fermat_carry_norm_pow2_errcheck(a1p3r,a1p3i,cy_r3,cy_i3,0x3*n8,NRTM1,NRT_BITS);
+					fermat_carry_norm_pow2_errcheck(a1p4r,a1p4i,cy_r4,cy_i4,0x4*n8,NRTM1,NRT_BITS);
+					fermat_carry_norm_pow2_errcheck(a1p5r,a1p5i,cy_r5,cy_i5,0x5*n8,NRTM1,NRT_BITS);
+					fermat_carry_norm_pow2_errcheck(a1p6r,a1p6i,cy_r6,cy_i6,0x6*n8,NRTM1,NRT_BITS);
+					fermat_carry_norm_pow2_errcheck(a1p7r,a1p7i,cy_r7,cy_i7,0x7*n8,NRTM1,NRT_BITS);
 				}
 
 				/*...The radix-8 DIF pass is here:	*/
@@ -763,7 +763,7 @@ for(outer=0; outer <= 1; outer++)
 
 #ifdef MULTITHREAD
 
-int radix8_ditN_cy_dif1_nochk(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[], double base[], double baseinv[], int iter, uint64 p)
+int radix8_ditN_cy_dif1_nochk(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[],double base[], double baseinv[], int iter, uint64 p)
 {
 /*
 !...Acronym: DWT = Discrete Weighted Transform, DIT = Decimation In Time, DIF = Decimation In Frequency
@@ -1074,7 +1074,7 @@ for(outer=0; outer <= 1; outer++)
 	}
 
 /* Needed to remove the prefetch-address vars add0 & add for this to compile properly: */
-#ifdef MULTITHREAD
+#ifdef USE_OMP
   omp_set_num_threads(CY_THREADS);
 
 //	#pragma omp parallel for private(add0,add,i,iroot,j,j1,jstart,jhi,k,k1,k2,l,col,co2,co3,m,m2,n_minus_sil,n_minus_silp1,sinwt,sinwtm1,wtl,wtlp1,wtn,wtnm1,wt,wtinv,wtA,wtB,wtC,wt_re,wt_im,rt,it,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,a1p0r,a1p1r,a1p2r,a1p3r,a1p4r,a1p5r,a1p6r,a1p7r,a1p0i,a1p1i,a1p2i,a1p3i,a1p4i,a1p5i,a1p6i,a1p7i,temp,bjmodn0,bjmodn1,bjmodn2,bjmodn3,bjmodn4,bjmodn5,bjmodn6,bjmodn7,cy_r0,cy_r1,cy_r2,cy_r3,cy_r4,cy_r5,cy_r6,cy_r7,cy_i0,cy_i1,cy_i2,cy_i3,cy_i4,cy_i5,cy_i6,cy_i7) default(shared) schedule(dynamic)
@@ -1214,14 +1214,14 @@ for(outer=0; outer <= 1; outer++)
 				}
 				else
 				{
-					fermat_carry_norm_pow2_nocheck(a1p0r,a1p0i,cy_r0,cy_i0,0x0*n8);
-					fermat_carry_norm_pow2_nocheck(a1p1r,a1p1i,cy_r1,cy_i1,0x1*n8);
-					fermat_carry_norm_pow2_nocheck(a1p2r,a1p2i,cy_r2,cy_i2,0x2*n8);
-					fermat_carry_norm_pow2_nocheck(a1p3r,a1p3i,cy_r3,cy_i3,0x3*n8);
-					fermat_carry_norm_pow2_nocheck(a1p4r,a1p4i,cy_r4,cy_i4,0x4*n8);
-					fermat_carry_norm_pow2_nocheck(a1p5r,a1p5i,cy_r5,cy_i5,0x5*n8);
-					fermat_carry_norm_pow2_nocheck(a1p6r,a1p6i,cy_r6,cy_i6,0x6*n8);
-					fermat_carry_norm_pow2_nocheck(a1p7r,a1p7i,cy_r7,cy_i7,0x7*n8);
+					fermat_carry_norm_pow2_nocheck(a1p0r,a1p0i,cy_r0,cy_i0,0x0*n8,NRTM1,NRT_BITS);
+					fermat_carry_norm_pow2_nocheck(a1p1r,a1p1i,cy_r1,cy_i1,0x1*n8,NRTM1,NRT_BITS);
+					fermat_carry_norm_pow2_nocheck(a1p2r,a1p2i,cy_r2,cy_i2,0x2*n8,NRTM1,NRT_BITS);
+					fermat_carry_norm_pow2_nocheck(a1p3r,a1p3i,cy_r3,cy_i3,0x3*n8,NRTM1,NRT_BITS);
+					fermat_carry_norm_pow2_nocheck(a1p4r,a1p4i,cy_r4,cy_i4,0x4*n8,NRTM1,NRT_BITS);
+					fermat_carry_norm_pow2_nocheck(a1p5r,a1p5i,cy_r5,cy_i5,0x5*n8,NRTM1,NRT_BITS);
+					fermat_carry_norm_pow2_nocheck(a1p6r,a1p6i,cy_r6,cy_i6,0x6*n8,NRTM1,NRT_BITS);
+					fermat_carry_norm_pow2_nocheck(a1p7r,a1p7i,cy_r7,cy_i7,0x7*n8,NRTM1,NRT_BITS);
 				}
 
 				/*...The radix-8 DIF pass is here:	*/
@@ -1456,7 +1456,7 @@ for(outer=0; outer <= 1; outer++)
 
 #else
 
-int radix8_ditN_cy_dif1_nochk(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[], double base[], double baseinv[], int iter                 , uint64 p)
+int radix8_ditN_cy_dif1_nochk(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[],double base[], double baseinv[], int iter                 , uint64 p)
 {
 /*
 !...Acronym: DWT = Discrete Weighted Transform, DIT = Decimation In Time, DIF = Decimation In Frequency
@@ -1708,14 +1708,14 @@ for(outer=0; outer <= 1; outer++)
 		}
 		else
 		{
-			fermat_carry_norm_pow2_nocheck(a1p0r,a1p0i,cy_r0,cy_i0,0x0*n8);
-			fermat_carry_norm_pow2_nocheck(a1p1r,a1p1i,cy_r1,cy_i1,0x1*n8);
-			fermat_carry_norm_pow2_nocheck(a1p2r,a1p2i,cy_r2,cy_i2,0x2*n8);
-			fermat_carry_norm_pow2_nocheck(a1p3r,a1p3i,cy_r3,cy_i3,0x3*n8);
-			fermat_carry_norm_pow2_nocheck(a1p4r,a1p4i,cy_r4,cy_i4,0x4*n8);
-			fermat_carry_norm_pow2_nocheck(a1p5r,a1p5i,cy_r5,cy_i5,0x5*n8);
-			fermat_carry_norm_pow2_nocheck(a1p6r,a1p6i,cy_r6,cy_i6,0x6*n8);
-			fermat_carry_norm_pow2_nocheck(a1p7r,a1p7i,cy_r7,cy_i7,0x7*n8);
+			fermat_carry_norm_pow2_nocheck(a1p0r,a1p0i,cy_r0,cy_i0,0x0*n8,NRTM1,NRT_BITS);
+			fermat_carry_norm_pow2_nocheck(a1p1r,a1p1i,cy_r1,cy_i1,0x1*n8,NRTM1,NRT_BITS);
+			fermat_carry_norm_pow2_nocheck(a1p2r,a1p2i,cy_r2,cy_i2,0x2*n8,NRTM1,NRT_BITS);
+			fermat_carry_norm_pow2_nocheck(a1p3r,a1p3i,cy_r3,cy_i3,0x3*n8,NRTM1,NRT_BITS);
+			fermat_carry_norm_pow2_nocheck(a1p4r,a1p4i,cy_r4,cy_i4,0x4*n8,NRTM1,NRT_BITS);
+			fermat_carry_norm_pow2_nocheck(a1p5r,a1p5i,cy_r5,cy_i5,0x5*n8,NRTM1,NRT_BITS);
+			fermat_carry_norm_pow2_nocheck(a1p6r,a1p6i,cy_r6,cy_i6,0x6*n8,NRTM1,NRT_BITS);
+			fermat_carry_norm_pow2_nocheck(a1p7r,a1p7i,cy_r7,cy_i7,0x7*n8,NRTM1,NRT_BITS);
 		}
 
 /*...The radix-8 DIF pass is here:	*/

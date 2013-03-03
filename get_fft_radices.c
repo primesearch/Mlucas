@@ -22,11 +22,15 @@
 
 #include "Mlucas.h"
 
+/* Define FFT-related globals (declared in Mdata.h) */
+uint32 N2,NRT,NRT_BITS,NRTM1;
+int NRADICES, RADIX_VEC[10];	/* RADIX_VEC[] stores sequence of complex FFT radices used.	*/
+
 /*
 	Given an FFT length (in terms of 1K doubles, i.e. there are N = kblocks*2^10 doubles)
 	and (optionally) a preferred radix set for the given FFT length (typically based on
 	actual timing data for the target platform), returns the set of complex radices to be
-	used in performing the FFT in the input radix_vec[] vector.
+	used in performing the FFT in the input rvec[] vector.
 
 	There are 3 different return values:
 
@@ -43,7 +47,7 @@
 							FFT length in question.
 
 		return 0;			- SUCCESS: both requested FFT length and radix_set supported.
-							If the nradices and radix_vec[] pointers are non-null, the radices
+							If the nradices and rvec[] pointers are non-null, the radices
 							corresponding to the requested radix_set are written to the latter,
  							and the number of radices in the radix_set is returned via nradices.
 
@@ -59,9 +63,9 @@
 	ourselves to radices >= 8 in the power-of-2 part.
 */
 
-int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_out[], int radix_vec_dim)
+int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec[], int radix_vec_dim)
 {
-	int radix_vec[10];	/* Temporary storage for FFT radices */
+	int rvec[10];	/* Temporary storage for FFT radices */
 	uint32 i, n,	numrad, rad_prod;
 
 	/*
@@ -108,7 +112,7 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 3; radix_vec[0] =  8; radix_vec[1] =  8; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] =  8; rvec[1] =  8; rvec[2] = 16; break;
 		default :
 			if(nradices){*nradices = 1;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -116,7 +120,7 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 3; radix_vec[0] =  6; radix_vec[1] = 16; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] =  6; rvec[1] = 16; rvec[2] = 16; break;
 		default :
 			if(nradices){*nradices = 1;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -124,11 +128,11 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 3; radix_vec[0] =  8; radix_vec[1] = 16; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] =  8; rvec[1] = 16; rvec[2] = 16; break;
 		case 1 :
-			numrad = 3; radix_vec[0] = 16; radix_vec[1] =  8; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 16; rvec[1] =  8; rvec[2] = 16; break;
 		case 2 :
-			numrad = 3; radix_vec[0] =  8; radix_vec[1] =  8; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] =  8; rvec[1] =  8; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 3;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -136,9 +140,9 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 3; radix_vec[0] = 10; radix_vec[1] = 16; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 10; rvec[1] = 16; rvec[2] = 16; break;
 		case 1 :
-			numrad = 3; radix_vec[0] =  5; radix_vec[1] = 16; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] =  5; rvec[1] = 16; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 2;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -146,9 +150,9 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 3; radix_vec[0] = 12; radix_vec[1] = 16; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 12; rvec[1] = 16; rvec[2] = 16; break;
 		case 1 :
-			numrad = 3; radix_vec[0] =  6; radix_vec[1] = 16; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] =  6; rvec[1] = 16; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 2;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -156,9 +160,9 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 3; radix_vec[0] = 14; radix_vec[1] = 16; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 14; rvec[1] = 16; rvec[2] = 16; break;
 		case 1 :
-			numrad = 3; radix_vec[0] =  7; radix_vec[1] = 16; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] =  7; rvec[1] = 16; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 2;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -166,9 +170,9 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 3; radix_vec[0] = 16; radix_vec[1] = 16; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 16; rvec[1] = 16; rvec[2] = 16; break;
 		case 1 :
-			numrad = 3; radix_vec[0] =  8; radix_vec[1] = 16; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] =  8; rvec[1] = 16; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 2;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -176,9 +180,9 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 3; radix_vec[0] =  9; radix_vec[1] = 32; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] =  9; rvec[1] = 32; rvec[2] = 16; break;
 		case 1 :
-			numrad = 3; radix_vec[0] =  9; radix_vec[1] = 16; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] =  9; rvec[1] = 16; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 2;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -186,15 +190,15 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] =  5; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] =  5; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; break;
 		case 1 :
-			numrad = 3; radix_vec[0] = 20; radix_vec[1] = 16; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 20; rvec[1] = 16; rvec[2] = 16; break;
 		case 2 :
-			numrad = 3; radix_vec[0] =  5; radix_vec[1] = 32; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] =  5; rvec[1] = 32; rvec[2] = 32; break;
 		case 3 :
-			numrad = 3; radix_vec[0] = 10; radix_vec[1] = 32; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 10; rvec[1] = 32; rvec[2] = 16; break;
 		case 4 :
-			numrad = 3; radix_vec[0] = 10; radix_vec[1] = 16; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 10; rvec[1] = 16; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -202,11 +206,11 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 3; radix_vec[0] = 22; radix_vec[1] = 16; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 22; rvec[1] = 16; rvec[2] = 16; break;
 		case 1 :
-			numrad = 3; radix_vec[0] = 11; radix_vec[1] = 32; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 11; rvec[1] = 32; rvec[2] = 16; break;
 		case 2 :
-			numrad = 3; radix_vec[0] = 11; radix_vec[1] = 16; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 11; rvec[1] = 16; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 3;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -214,15 +218,15 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] =  6; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] =  6; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; break;
 		case 1 :
-			numrad = 3; radix_vec[0] = 24; radix_vec[1] = 16; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 24; rvec[1] = 16; rvec[2] = 16; break;
 		case 2 :
-			numrad = 3; radix_vec[0] =  6; radix_vec[1] = 32; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] =  6; rvec[1] = 32; rvec[2] = 32; break;
 		case 3 :
-			numrad = 3; radix_vec[0] = 12; radix_vec[1] = 32; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 12; rvec[1] = 32; rvec[2] = 16; break;
 		case 4 :
-			numrad = 3; radix_vec[0] = 12; radix_vec[1] = 16; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 12; rvec[1] = 16; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -230,11 +234,11 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 3; radix_vec[0] = 26; radix_vec[1] = 16; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 26; rvec[1] = 16; rvec[2] = 16; break;
 		case 1 :
-			numrad = 3; radix_vec[0] = 13; radix_vec[1] = 32; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 13; rvec[1] = 32; rvec[2] = 16; break;
 		case 2 :
-			numrad = 3; radix_vec[0] = 13; radix_vec[1] = 16; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 13; rvec[1] = 16; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 3;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -242,15 +246,15 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 3; radix_vec[0] = 28; radix_vec[1] = 16; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 28; rvec[1] = 16; rvec[2] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] =  7; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] =  7; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; break;
 		case 2 :
-			numrad = 3; radix_vec[0] =  7; radix_vec[1] = 32; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] =  7; rvec[1] = 32; rvec[2] = 32; break;
 		case 3 :
-			numrad = 3; radix_vec[0] = 14; radix_vec[1] = 32; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 14; rvec[1] = 32; rvec[2] = 16; break;
 		case 4 :
-			numrad = 3; radix_vec[0] = 14; radix_vec[1] = 16; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 14; rvec[1] = 16; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -258,11 +262,11 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 3; radix_vec[0] = 30; radix_vec[1] = 16; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 30; rvec[1] = 16; rvec[2] = 16; break;
 		case 1 :
-			numrad = 3; radix_vec[0] = 15; radix_vec[1] = 32; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 15; rvec[1] = 32; rvec[2] = 16; break;
 		case 2 :
-			numrad = 3; radix_vec[0] = 15; radix_vec[1] = 16; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 15; rvec[1] = 16; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 3;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -270,15 +274,15 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] =  8; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] =  8; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; break;
 		case 1 :
-			numrad = 3; radix_vec[0] = 32; radix_vec[1] = 16; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 32; rvec[1] = 16; rvec[2] = 16; break;
 		case 2 :
-			numrad = 3; radix_vec[0] =  8; radix_vec[1] = 32; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] =  8; rvec[1] = 32; rvec[2] = 32; break;
 		case 3 :
-			numrad = 3; radix_vec[0] = 16; radix_vec[1] = 32; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 16; rvec[1] = 32; rvec[2] = 16; break;
 		case 4 :
-			numrad = 3; radix_vec[0] = 16; radix_vec[1] = 16; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 16; rvec[1] = 16; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -286,15 +290,15 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] =  9; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] =  9; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; break;
 		case 1 :
-			numrad = 3; radix_vec[0] = 36; radix_vec[1] = 16; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 36; rvec[1] = 16; rvec[2] = 16; break;
 		case 2 :
-			numrad = 3; radix_vec[0] =  9; radix_vec[1] = 32; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] =  9; rvec[1] = 32; rvec[2] = 32; break;
 		case 3 :
-			numrad = 3; radix_vec[0] = 18; radix_vec[1] = 32; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 18; rvec[1] = 32; rvec[2] = 16; break;
 		case 4 :
-			numrad = 3; radix_vec[0] = 18; radix_vec[1] = 16; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 18; rvec[1] = 16; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -302,15 +306,15 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] =  5; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] =  5; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 10; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 10; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; break;
 		case 2 :
-			numrad = 3; radix_vec[0] = 10; radix_vec[1] = 32; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 10; rvec[1] = 32; rvec[2] = 32; break;
 		case 3 :
-			numrad = 3; radix_vec[0] = 20; radix_vec[1] = 32; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 20; rvec[1] = 32; rvec[2] = 16; break;
 		case 4 :
-			numrad = 3; radix_vec[0] = 20; radix_vec[1] = 16; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 20; rvec[1] = 16; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -318,13 +322,13 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] = 11; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 11; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; break;
 		case 1 :
-			numrad = 3; radix_vec[0] = 11; radix_vec[1] = 32; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 11; rvec[1] = 32; rvec[2] = 32; break;
 		case 2 :
-			numrad = 3; radix_vec[0] = 22; radix_vec[1] = 32; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 22; rvec[1] = 32; rvec[2] = 16; break;
 		case 3 :
-			numrad = 3; radix_vec[0] = 22; radix_vec[1] = 16; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 22; rvec[1] = 16; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -332,15 +336,15 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] =  6; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] =  6; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 12; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 12; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; break;
 		case 2 :
-			numrad = 3; radix_vec[0] = 12; radix_vec[1] = 32; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 12; rvec[1] = 32; rvec[2] = 32; break;
 		case 3 :
-			numrad = 3; radix_vec[0] = 24; radix_vec[1] = 32; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 24; rvec[1] = 32; rvec[2] = 16; break;
 		case 4 :
-			numrad = 3; radix_vec[0] = 24; radix_vec[1] = 16; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 24; rvec[1] = 16; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -348,13 +352,13 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] = 13; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 13; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; break;
 		case 1 :
-			numrad = 3; radix_vec[0] = 13; radix_vec[1] = 32; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 13; rvec[1] = 32; rvec[2] = 32; break;
 		case 2 :
-			numrad = 3; radix_vec[0] = 26; radix_vec[1] = 32; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 26; rvec[1] = 32; rvec[2] = 16; break;
 		case 3 :
-			numrad = 3; radix_vec[0] = 26; radix_vec[1] = 16; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 26; rvec[1] = 16; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -362,15 +366,15 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] =  7; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] =  7; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 14; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 14; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; break;
 		case 2 :
-			numrad = 3; radix_vec[0] = 14; radix_vec[1] = 32; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 14; rvec[1] = 32; rvec[2] = 32; break;
 		case 3 :
-			numrad = 3; radix_vec[0] = 28; radix_vec[1] = 32; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 28; rvec[1] = 32; rvec[2] = 16; break;
 		case 4 :
-			numrad = 3; radix_vec[0] = 28; radix_vec[1] = 16; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 28; rvec[1] = 16; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -378,13 +382,15 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] = 15; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 15; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; break;
 		case 1 :
-			numrad = 3; radix_vec[0] = 15; radix_vec[1] = 32; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 15; rvec[1] = 32; rvec[2] = 32; break;
 		case 2 :
-			numrad = 3; radix_vec[0] = 30; radix_vec[1] = 32; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 30; rvec[1] = 32; rvec[2] = 16; break;
 		case 3 :
-			numrad = 3; radix_vec[0] = 30; radix_vec[1] = 16; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 30; rvec[1] = 16; rvec[2] = 32; break;
+		case 4 :
+			numrad = 3; rvec[0] = 60; rvec[1] = 16; rvec[2] = 16; break;
 		default :
 			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -392,15 +398,15 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] =  8; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] =  8; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 16; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 16; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; break;
 		case 2 :
-			numrad = 3; radix_vec[0] = 16; radix_vec[1] = 32; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 16; rvec[1] = 32; rvec[2] = 32; break;
 		case 3 :
-			numrad = 3; radix_vec[0] = 32; radix_vec[1] = 32; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 32; rvec[1] = 32; rvec[2] = 16; break;
 		case 4 :
-			numrad = 3; radix_vec[0] = 32; radix_vec[1] = 16; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 32; rvec[1] = 16; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -408,15 +414,15 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] =  9; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] =  9; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 18; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 18; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; break;
 		case 2 :
-			numrad = 3; radix_vec[0] = 18; radix_vec[1] = 32; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 18; rvec[1] = 32; rvec[2] = 32; break;
 		case 3 :
-			numrad = 3; radix_vec[0] = 36; radix_vec[1] = 32; radix_vec[2] = 16; break;
+			numrad = 3; rvec[0] = 36; rvec[1] = 32; rvec[2] = 16; break;
 		case 4 :
-			numrad = 3; radix_vec[0] = 36; radix_vec[1] = 16; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 36; rvec[1] = 16; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -424,13 +430,13 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] =  5; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] =  5; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 10; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 10; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 20; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 20; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; break;
 		case 3 :
-			numrad = 3; radix_vec[0] = 20; radix_vec[1] = 32; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 20; rvec[1] = 32; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -438,11 +444,11 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] = 11; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 11; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 22; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 22; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; break;
 		case 2 :
-			numrad = 3; radix_vec[0] = 22; radix_vec[1] = 32; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 22; rvec[1] = 32; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 3;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -450,13 +456,13 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] =  6; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] =  6; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 12; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 12; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 24; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 24; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; break;
 		case 3 :
-			numrad = 3; radix_vec[0] = 24; radix_vec[1] = 32; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 24; rvec[1] = 32; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -464,11 +470,11 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] = 13; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 13; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 26; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 26; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; break;
 		case 2 :
-			numrad = 3; radix_vec[0] = 26; radix_vec[1] = 32; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 26; rvec[1] = 32; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 3;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -476,13 +482,13 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] =  7; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] =  7; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 14; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 14; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 28; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 28; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; break;
 		case 3 :
-			numrad = 3; radix_vec[0] = 28; radix_vec[1] = 32; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 28; rvec[1] = 32; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -490,13 +496,17 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] = 15; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 15; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 15; radix_vec[1] = 16; radix_vec[2] =  8; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 15; rvec[1] = 16; rvec[2] =  8; rvec[3] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 15; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 15; rvec[1] =  8; rvec[2] =  8; rvec[3] = 32; break;
 		case 3 :
-			numrad = 3; radix_vec[0] = 30; radix_vec[1] = 32; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 30; rvec[1] = 32; rvec[2] = 32; break;
+		case 4 :
+			numrad = 3; rvec[0] = 60; rvec[1] = 16; rvec[2] = 32; break;
+		case 5 :
+			numrad = 3; rvec[0] = 60; rvec[1] = 32; rvec[2] = 16; break;
 		default :
 			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -504,13 +514,13 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] =  8; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] =  8; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 16; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 16; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 32; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 32; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; break;
 		case 3 :
-			numrad = 3; radix_vec[0] = 32; radix_vec[1] = 32; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 32; rvec[1] = 32; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -518,13 +528,13 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] =  9; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] =  9; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 18; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 18; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 36; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 36; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; break;
 		case 3 :
-			numrad = 3; radix_vec[0] = 36; radix_vec[1] = 32; radix_vec[2] = 32; break;
+			numrad = 3; rvec[0] = 36; rvec[1] = 32; rvec[2] = 32; break;
 		default :
 			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -532,13 +542,13 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] = 10; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 10; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 20; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 20; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] =  5; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] =  5; rvec[1] = 16; rvec[2] = 32; rvec[3] = 16; break;
 		case 3 :
-			numrad = 4; radix_vec[0] =  5; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] =  5; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -546,9 +556,9 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] = 11; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 11; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 22; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 22; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; break;
 		default :
 			if(nradices){*nradices = 2;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -556,13 +566,13 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] = 12; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 12; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 24; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 24; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] =  6; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] =  6; rvec[1] = 16; rvec[2] = 32; rvec[3] = 16; break;
 		case 3 :
-			numrad = 4; radix_vec[0] =  6; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] =  6; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -570,9 +580,9 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] = 13; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 13; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 26; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 26; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; break;
 		default :
 			if(nradices){*nradices = 2;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -580,13 +590,13 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] = 14; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 14; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 28; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 28; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] =  7; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] =  7; rvec[1] = 16; rvec[2] = 32; rvec[3] = 16; break;
 		case 3 :
-			numrad = 4; radix_vec[0] =  7; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] =  7; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -594,9 +604,11 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 4; radix_vec[0] = 15; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 15; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 30; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 30; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; break;
+		case 2 :
+			numrad = 4; rvec[0] = 60; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; break;
 		default :
 			if(nradices){*nradices = 2;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -604,15 +616,15 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] =  8; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] =  8; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 16; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 16; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 32; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 32; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; break;
 		case 3 :
-			numrad = 4; radix_vec[0] =  8; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] =  8; rvec[1] = 16; rvec[2] = 32; rvec[3] = 16; break;
 		case 4 :
-			numrad = 4; radix_vec[0] =  8; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] =  8; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -620,15 +632,15 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] =  9; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] =  9; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 18; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 18; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 36; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 36; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; break;
 		case 3 :
-			numrad = 4; radix_vec[0] =  9; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] =  9; rvec[1] = 16; rvec[2] = 32; rvec[3] = 16; break;
 		case 4 :
-			numrad = 4; radix_vec[0] =  9; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] =  9; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -636,17 +648,17 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] =  5; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] =  5; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 10; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 10; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 20; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 20; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; break;
 		case 3 :
-			numrad = 4; radix_vec[0] =  5; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] =  5; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		case 4 :
-			numrad = 4; radix_vec[0] = 10; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 10; rvec[1] = 16; rvec[2] = 32; rvec[3] = 16; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 10; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 10; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -654,13 +666,13 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] = 11; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 11; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 22; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 22; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 11; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 11; rvec[1] = 16; rvec[2] = 32; rvec[3] = 16; break;
 		case 3 :
-			numrad = 4; radix_vec[0] = 11; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 11; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -668,17 +680,17 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] =  6; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] =  6; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 12; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 12; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 24; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 24; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; break;
 		case 3 :
-			numrad = 4; radix_vec[0] =  6; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] =  6; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		case 4 :
-			numrad = 4; radix_vec[0] = 12; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 12; rvec[1] = 16; rvec[2] = 32; rvec[3] = 16; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 12; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 12; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -686,13 +698,13 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] = 13; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 13; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 26; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 26; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 13; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 13; rvec[1] = 16; rvec[2] = 32; rvec[3] = 16; break;
 		case 3 :
-			numrad = 4; radix_vec[0] = 13; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 13; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -700,17 +712,17 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] =  7; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] =  7; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 14; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 14; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 28; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 28; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; break;
 		case 3 :
-			numrad = 4; radix_vec[0] =  7; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] =  7; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		case 4 :
-			numrad = 4; radix_vec[0] = 14; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 14; rvec[1] = 16; rvec[2] = 32; rvec[3] = 16; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 14; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 14; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -718,13 +730,15 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] = 15; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 15; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 30; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 30; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 15; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 15; rvec[1] = 16; rvec[2] = 32; rvec[3] = 16; break;
 		case 3 :
-			numrad = 4; radix_vec[0] = 15; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 15; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
+		case 4 :
+			numrad = 4; rvec[0] = 60; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; break;
 		default :
 			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -732,17 +746,17 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] =  8; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] =  8; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 16; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 16; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 32; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 32; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; break;
 		case 3 :
-			numrad = 4; radix_vec[0] =  8; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] =  8; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		case 4 :
-			numrad = 4; radix_vec[0] = 16; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 16; rvec[1] = 16; rvec[2] = 32; rvec[3] = 16; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 16; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 16; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -750,19 +764,19 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] =  9; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] =  9; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 18; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 18; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 36; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 36; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; break;
 		case 3 :
-			numrad = 4; radix_vec[0] =  9; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] =  9; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		case 4 :
-			numrad = 4; radix_vec[0] =  9; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] =  9; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 18; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 18; rvec[1] = 16; rvec[2] = 32; rvec[3] = 16; break;
 		case 6 :
-			numrad = 4; radix_vec[0] = 18; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 18; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 7;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -770,21 +784,21 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] =  5; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] =  5; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 10; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 10; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 20; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 20; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; break;
 		case 3 :
-			numrad = 4; radix_vec[0] =  5; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] =  5; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		case 4 :
-			numrad = 4; radix_vec[0] = 10; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 10; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 10; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 10; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		case 6 :
-			numrad = 4; radix_vec[0] = 20; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 20; rvec[1] = 16; rvec[2] = 32; rvec[3] = 16; break;
 		case 7 :
-			numrad = 4; radix_vec[0] = 20; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 20; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 8;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -792,17 +806,17 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] = 11; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 11; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 22; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 22; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 11; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 11; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; break;
 		case 3 :
-			numrad = 4; radix_vec[0] = 11; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 11; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		case 4 :
-			numrad = 4; radix_vec[0] = 22; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 22; rvec[1] = 16; rvec[2] = 32; rvec[3] = 16; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 22; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 22; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -810,21 +824,21 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] =  6; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] =  6; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 12; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 12; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 24; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 24; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; break;
 		case 3 :
-			numrad = 4; radix_vec[0] =  6; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] =  6; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		case 4 :
-			numrad = 4; radix_vec[0] = 12; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 12; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 12; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 12; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		case 6 :
-			numrad = 4; radix_vec[0] = 24; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 24; rvec[1] = 16; rvec[2] = 32; rvec[3] = 16; break;
 		case 7 :
-			numrad = 4; radix_vec[0] = 24; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 24; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 8;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -832,17 +846,17 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] = 13; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 13; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 26; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 26; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 13; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 13; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; break;
 		case 3 :
-			numrad = 4; radix_vec[0] = 13; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 13; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		case 4 :
-			numrad = 4; radix_vec[0] = 26; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 26; rvec[1] = 16; rvec[2] = 32; rvec[3] = 16; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 26; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 26; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -850,21 +864,21 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] =  7; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] =  7; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 14; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 14; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 28; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 28; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; break;
 		case 3 :
-			numrad = 4; radix_vec[0] =  7; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] =  7; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		case 4 :
-			numrad = 4; radix_vec[0] = 14; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 14; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 14; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 14; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		case 6 :
-			numrad = 4; radix_vec[0] = 28; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 28; rvec[1] = 16; rvec[2] = 32; rvec[3] = 16; break;
 		case 7 :
-			numrad = 4; radix_vec[0] = 28; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 28; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 8;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -872,17 +886,19 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] = 15; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 15; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 30; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 30; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 15; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 15; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; break;
 		case 3 :
-			numrad = 4; radix_vec[0] = 15; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 15; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		case 4 :
-			numrad = 4; radix_vec[0] = 30; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 30; rvec[1] = 16; rvec[2] = 32; rvec[3] = 16; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 30; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 30; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
+		case 6 :
+			numrad = 4; rvec[0] = 60; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; break;
 		default :
 			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -890,21 +906,21 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] =  8; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] =  8; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 16; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 16; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 32; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 32; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; break;
 		case 3 :
-			numrad = 4; radix_vec[0] =  8; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] =  8; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		case 4 :
-			numrad = 4; radix_vec[0] = 16; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 16; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 16; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 16; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		case 6 :
-			numrad = 4; radix_vec[0] = 32; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 32; rvec[1] = 16; rvec[2] = 32; rvec[3] = 16; break;
 		case 7 :
-			numrad = 4; radix_vec[0] = 32; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 32; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 8;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -912,21 +928,21 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] =  9; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] =  9; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 18; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 18; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 36; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 36; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; break;
 		case 3 :
-			numrad = 4; radix_vec[0] =  9; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] =  9; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		case 4 :
-			numrad = 4; radix_vec[0] = 18; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 18; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 18; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 18; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		case 6 :
-			numrad = 4; radix_vec[0] = 36; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 36; rvec[1] = 16; rvec[2] = 32; rvec[3] = 16; break;
 		case 7 :
-			numrad = 4; radix_vec[0] = 36; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 36; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 8;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -934,19 +950,19 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] =  5; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] =  5; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 10; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 10; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 10; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 10; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		case 3 :
-			numrad = 4; radix_vec[0] = 20; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 20; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; break;
 		case 4 :
-			numrad = 4; radix_vec[0] = 20; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 20; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 40; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 40; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; break;
 		case 6 :
-			numrad = 4; radix_vec[0] = 40; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 40; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 7;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -954,17 +970,17 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] = 11; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 11; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 11; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 11; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 22; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 22; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; break;
 		case 3 :
-			numrad = 4; radix_vec[0] = 22; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 22; rvec[1] = 32; rvec[2] = 16; rvec[3] = 32; break;
 		case 4 :
-			numrad = 4; radix_vec[0] = 44; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 44; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 44; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 44; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -972,71 +988,87 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] =  6; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] =  6; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 12; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 12; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 12; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 12; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		case 3 :
-			numrad = 4; radix_vec[0] = 24; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 24; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; break;
+		case 4 :
+			numrad = 4; rvec[0] = 24; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		default :
-			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 832 :						/* 832K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] = 13; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 13; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 13; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 13; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 26; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 26; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; break;
+		case 3 :
+			numrad = 4; rvec[0] = 26; rvec[1] = 32; rvec[2] = 16; rvec[3] = 32; break;
+		case 4 :
+			numrad = 4; rvec[0] = 52; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; break;
+		case 5 :
+			numrad = 4; rvec[0] = 52; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
-			if(nradices){*nradices = 3;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 896 :						/* 896K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] =  7; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] =  7; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 14; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 14; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 14; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 14; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		case 3 :
-			numrad = 4; radix_vec[0] = 28; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 28; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; break;
+		case 4 :
+			numrad = 4; rvec[0] = 28; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		default :
-			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 960 :						/* 960K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 5; radix_vec[0] = 15; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 15; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 1 :
-			numrad = 4; radix_vec[0] = 15; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 15; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 30; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 30; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; break;
+		case 3 :
+			numrad = 4; rvec[0] = 30; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
+		case 4 :
+			numrad = 4; rvec[0] = 60; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; break;
+		case 5 :
+			numrad = 4; rvec[0] = 60; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; break;
 		default :
-			if(nradices){*nradices = 3;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 1024 :					/* 1M = 1024K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] =  8; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] =  8; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] =  8; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] =  8; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] =  8; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] =  8; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 16; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 16; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] =  8; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] =  8; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		case 4 :
-			numrad = 4; radix_vec[0] = 16; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 16; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 32; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 32; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; break;
 		case 6 :
-			numrad = 4; radix_vec[0] = 32; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 32; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 7;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1044,37 +1076,39 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] =  9; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] =  8; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] =  9; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] =  8; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] =  9; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] =  9; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 18; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 18; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] =  9; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] =  9; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		case 4 :
-			numrad = 4; radix_vec[0] = 18; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 18; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 36; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 36; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; break;
+		case 6 :
+			numrad = 4; rvec[0] = 36; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		default :
-			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 7;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 1280 :					/* 1.25M = 1280K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 10; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] =  8; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 10; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] =  8; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 10; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 10; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 20; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 20; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 10; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 10; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		case 4 :
-			numrad = 4; radix_vec[0] = 20; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 20; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 40; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 40; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; break;
 		case 6 :
-			numrad = 4; radix_vec[0] = 40; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 40; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 7;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1082,19 +1116,19 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 11; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] =  8; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 11; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] =  8; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 11; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 11; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 22; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 22; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 11; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 11; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		case 4 :
-			numrad = 4; radix_vec[0] = 22; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 22; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 44; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 44; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; break;
 		case 6 :
-			numrad = 4; radix_vec[0] = 44; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 44; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 7;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1102,15 +1136,15 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 12; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] =  8; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 12; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] =  8; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 12; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 12; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 24; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 24; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 12; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 12; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		case 4 :
-			numrad = 4; radix_vec[0] = 24; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 24; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1118,33 +1152,37 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 13; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] =  8; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 13; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] =  8; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 13; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 13; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 26; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 26; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 13; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 13; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		case 4 :
-			numrad = 4; radix_vec[0] = 26; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 26; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
+		case 5 :
+			numrad = 4; rvec[0] = 52; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; break;
+		case 6 :
+			numrad = 4; rvec[0] = 52; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		default :
-			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 7;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 1792 :					/* 1.75M = 1792K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] =  7; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] =  7; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 14; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 14; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 28; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 28; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] =  7; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] =  7; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		case 4 :
-			numrad = 5; radix_vec[0] =  7; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] =  7; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 16; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 28; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 28; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1152,29 +1190,33 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 15; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] =  8; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 15; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] =  8; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 15; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 15; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 30; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 30; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 15; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 15; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		case 4 :
-			numrad = 4; radix_vec[0] = 30; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 30; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
+		case 5 :
+			numrad = 4; rvec[0] = 60; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; break;
+		case 6 :
+			numrad = 4; rvec[0] = 60; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		default :
-			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 7;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 2048 :					/* 2M = 2048K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 16; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] =  8; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 16; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] =  8; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 16; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 16; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 2 :
-			numrad = 4; radix_vec[0] = 32; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 32; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		case 3 :
-			numrad = 5; radix_vec[0] =  8; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] =  8; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 16; break;
 		default :
 			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1182,17 +1224,17 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] =  9; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] =  9; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 18; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 18; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 36; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 36; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] =  9; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] =  9; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		case 4 :
-			numrad = 5; radix_vec[0] =  9; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] =  9; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 16; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 36; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 36; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1200,26 +1242,26 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 10; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 10; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 20; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 20; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 40; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 40; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 10; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 10; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 10; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 10; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 16; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 40; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 40; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 /*
 		case 5 :
-			numrad = 4; radix_vec[0] = 80; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 80; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; break;
 		case 6 :
-			numrad = 4; radix_vec[0] = 80; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 80; rvec[1] = 32; rvec[2] = 16; rvec[3] = 32; break;
 		case 7 :
-			numrad = 4; radix_vec[0] = 80; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; break;
+			numrad = 4; rvec[0] = 80; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; break;
 		default :
 			if(nradices){*nradices = 8;}	return ERR_RADIXSET_UNAVAILABLE;
 */
@@ -1228,17 +1270,17 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 11; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 11; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 22; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 22; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 44; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 44; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 11; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 11; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 11; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 11; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 16; break;
 		case 5 :
-			numrad = 4; radix_vec[0] = 44; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 44; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		default :
 			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1246,15 +1288,15 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] =  6; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] =  6; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 12; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 12; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; rvec[5] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 24; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 24; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 12; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 12; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 12; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 12; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 16; break;
 		default :
 			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1262,29 +1304,33 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 13; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 13; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 26; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 26; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 13; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 52; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 13; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 13; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
+		case 4 :
+			numrad = 5; rvec[0] = 13; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 16; break;
+		case 5 :
+			numrad = 4; rvec[0] = 52; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		default :
-			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 3584 :					/* 3.5M = 3584K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] =  7; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] =  7; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 14; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 14; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; rvec[5] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 28; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 28; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 14; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 14; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 14; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 14; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 16; break;
 		default :
 			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1292,31 +1338,35 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 15; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 15; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 30; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 30; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 15; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 60; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 15; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 15; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
+		case 4 :
+			numrad = 5; rvec[0] = 15; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 16; break;
+		case 5 :
+			numrad = 4; rvec[0] = 60; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		default :
-			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 4096 :						/* 4M = 4096K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] =  8; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] =  8; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 16; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 16; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; rvec[5] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 32; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 32; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 16; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 16; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 16; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 16; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 16; break;
 		case 5 :
-			numrad = 5; radix_vec[0] = 16; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 16; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		default :
 			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1324,15 +1374,15 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] =  9; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] =  9; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 18; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 18; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; rvec[5] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 18; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 18; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 18; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 18; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 36; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 36; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		default :
 			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1340,43 +1390,43 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] =  5; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] =  5; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 10; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 10; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 10; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 10; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 32; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 10; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 10; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 20; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 20; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 5 :
-			numrad = 5; radix_vec[0] = 20; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 20; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		case 6 :
-			numrad = 5; radix_vec[0] = 40; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 40; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		default :
 			if(nradices){*nradices = 7;}	return ERR_RADIXSET_UNAVAILABLE;
 /*
 		case 7 :
-			numrad = 4; radix_vec[0] = 80; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; break;
+			numrad = 4; rvec[0] = 80; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; break;
 		default :
-			if(nradices){*nradices = 7;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 8;}	return ERR_RADIXSET_UNAVAILABLE;
 */
 		}; break;
 	case 5632 :					/* 5.5M = 5632K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 11; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 11; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 11; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 11; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 32; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 11; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 11; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 22; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 22; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 22; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 22; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		case 5 :
-			numrad = 5; radix_vec[0] = 44; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 44; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		default :
 			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1384,17 +1434,17 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] =  6; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] =  6; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 12; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 12; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 12; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 12; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 32; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 12; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 12; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 24; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 24; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 5 :
-			numrad = 5; radix_vec[0] = 24; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 24; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		default :
 			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1402,33 +1452,35 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 13; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 13; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 13; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 13; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 32; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 13; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 13; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 26; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 26; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 26; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 26; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
+		case 5 :
+			numrad = 5; rvec[0] = 52; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		default :
-			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 7168 :					/* 7M = 7168K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] =  7; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] =  7; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 14; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 14; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 14; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 14; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 32; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 14; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 14; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 28; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 28; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 5 :
-			numrad = 5; radix_vec[0] = 28; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 28; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		default :
 			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1436,51 +1488,55 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 15; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 15; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 15; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 15; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 32; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 15; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 15; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 30; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 30; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 30; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 30; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
+		case 5 :
+			numrad = 5; rvec[0] = 60; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		default :
-			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 8192 :						/* 8M = 8192K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] =  8; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] =  8; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 16; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 16; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 16; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] =  8; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 16; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 16; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 32; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 32; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 16; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 5 :
-			numrad = 5; radix_vec[0] = 32; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 32; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
+		case 6 :
+			numrad = 5; rvec[0] = 32; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		default :
-			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 8;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 9216 :					/* 9M = 9216K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] =  9; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] =  9; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 18; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 18; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 18; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 18; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 32; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 18; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 18; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 36; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 36; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		case 5 :
-			numrad = 5; radix_vec[0] = 36; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 36; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		default :
 			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1488,45 +1544,47 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] =  5; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] =  5; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 10; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 10; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 10; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 10; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 10; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 10; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 20; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 20; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; rvec[4] = 16; break;
 		case 5 :
-			numrad = 5; radix_vec[0] =  5; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] =  5; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 6 :
-			numrad = 5; radix_vec[0] = 40; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 20; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 32; break;
 		case 7 :
-			numrad = 5; radix_vec[0] = 40; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 40; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
+		case 8 :
+			numrad = 5; rvec[0] = 40; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		default :
-			if(nradices){*nradices = 8;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 9;}	return ERR_RADIXSET_UNAVAILABLE;
 /*
 		case 7 :
-			numrad = 5; radix_vec[0] = 80; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 80; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
 		default :
-			if(nradices){*nradices = 8;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices =10;}	return ERR_RADIXSET_UNAVAILABLE;
 */
 		}; break;
 	case 11264 :				/* 11M = 11264K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 11; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 11; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 11; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 11; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 11; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 11; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 22; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; radix_vec[4] = 16; break;
-		case 6 :
-			numrad = 5; radix_vec[0] = 44; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; break;
-		case 7 :
-			numrad = 5; radix_vec[0] = 44; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 22; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; rvec[4] = 16; break;
+		case 4 :
+			numrad = 5; rvec[0] = 44; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
+		case 5 :
+			numrad = 5; rvec[0] = 44; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		default :
 			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1534,121 +1592,139 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] =  6; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] =  6; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 12; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 12; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 12; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 12; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 12; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 12; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 24; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 24; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; rvec[4] = 16; break;
 		case 5 :
-			numrad = 5; radix_vec[0] =  6; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] =  6; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
+		case 6 :
+			numrad = 5; rvec[0] = 24; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 32; break;
 		default :
-			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 7;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 13312 :				/* 13M = 13312K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 13; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 13; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 13; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 13; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 13; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 13; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 26; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 26; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; rvec[4] = 16; break;
+		case 4 :
+			numrad = 5; rvec[0] = 52; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
+		case 5 :
+			numrad = 5; rvec[0] = 52; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		default :
-			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 14336 :				/* 14M = 14336K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] =  7; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] =  7; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 14; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 14; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 14; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 14; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 14; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 14; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 28; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 28; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; rvec[4] = 16; break;
 		case 5 :
-			numrad = 5; radix_vec[0] =  7; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] =  7; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
+		case 6 :
+			numrad = 5; rvec[0] = 28; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 32; break;
 		default :
-			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 7;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 15360 :				/* 15M = 15360K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 15; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 15; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 15; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 15; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 15; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 15; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 30; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 30; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; rvec[4] = 16; break;
+		case 4 :
+			numrad = 5; rvec[0] = 30; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 32; break;
+		case 5 :
+			numrad = 5; rvec[0] = 60; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; break;
+		case 6 :
+			numrad = 5; rvec[0] = 60; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; break;
 		default :
-			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 7;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 16384 :				/* 16M = 16384K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] =  8; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] =  8; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 16; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 16; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 16; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 16; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 16; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 16; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 32; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 32; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; rvec[4] = 16; break;
 		case 5 :
-			numrad = 5; radix_vec[0] =  8; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] =  8; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
+		case 6 :
+			numrad = 5; rvec[0] = 32; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 32; break;
 		default :
-			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 7;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 18432 :				/* 18M = 18432K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] =  9; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] =  9; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 18; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 18; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 18; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 18; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 18; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 18; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 36; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 36; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; rvec[4] = 16; break;
 		case 5 :
-			numrad = 5; radix_vec[0] =  9; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] =  9; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
+		case 6 :
+			numrad = 5; rvec[0] = 36; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 32; break;
 		default :
-			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 7;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 20480 :				/* 20M = 20480K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 10; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 10; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 20; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 20; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 20; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 20; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 20; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 20; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 10; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 10; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 5 :
-			numrad = 5; radix_vec[0] = 40; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 40; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 32; break;
 		case 6 :
-			numrad = 5; radix_vec[0] = 40; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 40; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 7 :
-			numrad = 5; radix_vec[0] = 40; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 40; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; rvec[4] = 16; break;
 		default :
 			if(nradices){*nradices = 8;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1656,37 +1732,37 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 11; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 11; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 22; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 22; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 22; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 22; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 22; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 22; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 11; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 11; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 5 :
-			numrad = 5; radix_vec[0] = 44; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 44; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 32; break;
 		case 6 :
-			numrad = 5; radix_vec[0] = 44; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 44; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 7 :
-			numrad = 5; radix_vec[0] = 44; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 44; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; rvec[4] = 16; break;
 		default :
-			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 8;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 24576 :				/* 24M = 24576K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 12; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 12; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 24; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 24; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 24; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 24; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 24; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 24; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 12; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 12; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		default :
 			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1694,31 +1770,37 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 13; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 13; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 26; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 26; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 26; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 26; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 26; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 26; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 13; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 13; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
+		case 5 :
+			numrad = 5; rvec[0] = 52; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 32; break;
+		case 6 :
+			numrad = 5; rvec[0] = 52; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
+		case 7 :
+			numrad = 5; rvec[0] = 52; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; rvec[4] = 16; break;
 		default :
-			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 8;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 28672 :				/* 28M = 28672K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 14; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 14; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 28; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 28; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 28; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 28; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 28; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 28; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 14; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 14; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		default :
 			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1726,31 +1808,33 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 15; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 15; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 30; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 5; rvec[0] = 15; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 30; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 30; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 30; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 30; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 15; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 60; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; rvec[4] = 16; break;
+		case 5 :
+			numrad = 5; rvec[0] = 60; rvec[1] = 16; rvec[2] = 16; rvec[3] = 32; rvec[4] = 32; break;
 		default :
-			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 32768 :				/* 32M = 32768K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 16; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 16; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 32; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 32; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 32; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 32; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 32; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 32; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 16; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 16; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		default :
 			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1758,15 +1842,15 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 18; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 18; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 36; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 36; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 36; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 36; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 36; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 36; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 18; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 18; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		default :
 			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1774,13 +1858,13 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 20; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 20; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 20; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 20; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 40; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 40; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 40; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 40; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		default :
 			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1788,13 +1872,13 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 22; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 22; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 22; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 22; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		case 2 :
-			numrad = 5; radix_vec[0] = 44; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 16; break;
+			numrad = 5; rvec[0] = 44; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 44; radix_vec[1] = 16; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 44; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		default :
 			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1802,9 +1886,9 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 24; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 24; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 24; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 24; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		default :
 			if(nradices){*nradices = 2;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1812,19 +1896,23 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 26; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 26; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 26; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 26; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
+		case 2 :
+			numrad = 5; rvec[0] = 52; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
+		case 3 :
+			numrad = 5; rvec[0] = 52; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		default :
-			if(nradices){*nradices = 2;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 57344 :				/* 56M = 57344K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 28; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 28; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 28; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 28; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		default :
 			if(nradices){*nradices = 2;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1832,33 +1920,41 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 30; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 30; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 30; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 30; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
+		case 2 :
+			numrad = 5; rvec[0] = 60; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; break;
+		case 3 :
+			numrad = 5; rvec[0] = 60; rvec[1] = 16; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		default :
-			if(nradices){*nradices = 2;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 65536 :				/* 64M = 65536K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 6; radix_vec[0] = 32; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 32; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 1 :
-			numrad = 5; radix_vec[0] = 32; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 6; rvec[0] = 16; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 32; break;
+		case 2 :
+			numrad = 6; rvec[0] = 16; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
+		case 3 :
+			numrad = 5; rvec[0] = 32; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		default :
-			if(nradices){*nradices = 2;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 73728 :				/* 72M = 73728K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 7; radix_vec[0] = 18; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 18; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 1 :
-			numrad = 6; radix_vec[0] = 36; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 36; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 2 :
-			numrad = 6; radix_vec[0] = 18; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 18; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 3 :
-			numrad = 5; radix_vec[0] = 36; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 36; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		default :
 			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1866,15 +1962,15 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 7; radix_vec[0] = 10; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 10; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 1 :
-			numrad = 7; radix_vec[0] = 20; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 20; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 2 :
-			numrad = 6; radix_vec[0] = 20; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 20; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 3 :
-			numrad = 6; radix_vec[0] = 40; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 40; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 40; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 40; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		default :
 			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1882,15 +1978,15 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 7; radix_vec[0] = 11; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 11; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 1 :
-			numrad = 7; radix_vec[0] = 22; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 22; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 2 :
-			numrad = 6; radix_vec[0] = 22; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 22; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 3 :
-			numrad = 6; radix_vec[0] = 44; radix_vec[1] = 16; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 44; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		case 4 :
-			numrad = 5; radix_vec[0] = 44; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 32; radix_vec[4] = 32; break;
+			numrad = 5; rvec[0] = 44; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		default :
 			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1898,11 +1994,11 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 7; radix_vec[0] = 12; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 12; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 1 :
-			numrad = 7; radix_vec[0] = 24; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 24; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 2 :
-			numrad = 6; radix_vec[0] = 24; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 24; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		default :
 			if(nradices){*nradices = 3;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1910,23 +2006,27 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 7; radix_vec[0] = 13; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 13; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 1 :
-			numrad = 7; radix_vec[0] = 26; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 26; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 2 :
-			numrad = 6; radix_vec[0] = 26; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 26; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
+		case 3 :
+			numrad = 6; rvec[0] = 52; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
+		case 4 :
+			numrad = 5; rvec[0] = 52; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		default :
-			if(nradices){*nradices = 3;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 114688 :				/* 112M = 114688K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 7; radix_vec[0] = 14; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 14; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 1 :
-			numrad = 7; radix_vec[0] = 28; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 28; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 2 :
-			numrad = 6; radix_vec[0] = 28; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 28; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		default :
 			if(nradices){*nradices = 3;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1934,35 +2034,39 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 7; radix_vec[0] = 15; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 15; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 1 :
-			numrad = 7; radix_vec[0] = 30; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 30; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 2 :
-			numrad = 6; radix_vec[0] = 30; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 30; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
+		case 3 :
+			numrad = 5; rvec[0] = 60; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 32; break;
 		default :
-			if(nradices){*nradices = 3;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 131072 :				/* 128M = 131072K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 7; radix_vec[0] = 16; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 16; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 1 :
-			numrad = 7; radix_vec[0] = 32; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 32; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 2 :
-			numrad = 6; radix_vec[0] = 32; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 16; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
+		case 3 :
+			numrad = 6; rvec[0] = 32; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		default :
-			if(nradices){*nradices = 3;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 147456 :				/* 144M = 147456K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 7; radix_vec[0] = 18; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 18; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 1 :
-			numrad = 7; radix_vec[0] = 36; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] =  8; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 36; rvec[1] =  8; rvec[2] =  8; rvec[3] =  8; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 2 :
-			numrad = 6; radix_vec[0] = 36; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 36; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
 		default :
 			if(nradices){*nradices = 3;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -1970,37 +2074,43 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 7; radix_vec[0] = 10; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 10; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 1 :
-			numrad = 7; radix_vec[0] = 20; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 20; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 2 :
-			numrad = 6; radix_vec[0] = 20; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 20; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; rvec[5] = 16; break;
 		case 3 :
-			numrad = 6; radix_vec[0] = 40; radix_vec[1] = 32; radix_vec[2] = 32; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 40; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
+		case 4 :
+			numrad = 6; rvec[0] = 40; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; rvec[5] = 32; break;
 		default :
-			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 180224 :				/* 176M = 180224K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 7; radix_vec[0] = 11; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 11; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 1 :
-			numrad = 7; radix_vec[0] = 22; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 22; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 2 :
-			numrad = 6; radix_vec[0] = 22; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 22; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; rvec[5] = 16; break;
+		case 3 :
+			numrad = 6; rvec[0] = 44; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
+		case 4 :
+			numrad = 6; rvec[0] = 44; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; rvec[5] = 32; break;
 		default :
-			if(nradices){*nradices = 3;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 196608 :				/* 192M = 196608K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 7; radix_vec[0] = 12; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 12; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 1 :
-			numrad = 7; radix_vec[0] = 24; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 24; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 2 :
-			numrad = 6; radix_vec[0] = 24; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 24; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; rvec[5] = 16; break;
 		default :
 			if(nradices){*nradices = 3;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
@@ -2008,37 +2118,63 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 7; radix_vec[0] = 13; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 13; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 1 :
-			numrad = 7; radix_vec[0] = 26; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 26; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 2 :
-			numrad = 6; radix_vec[0] = 26; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 26; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; rvec[5] = 16; break;
+		case 3 :
+			numrad = 6; rvec[0] = 52; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
+		case 4 :
+			numrad = 6; rvec[0] = 52; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; rvec[5] = 32; break;
 		default :
-			if(nradices){*nradices = 3;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 5;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 229376 :				/* 224M = 229376K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 7; radix_vec[0] = 14; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 14; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 1 :
-			numrad = 7; radix_vec[0] = 28; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 28; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 2 :
-			numrad = 6; radix_vec[0] = 28; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 28; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
+		case 3 :
+			numrad = 6; rvec[0] = 28; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; rvec[5] = 32; break;
 		default :
-			if(nradices){*nradices = 3;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	case 245760 :				/* 240M = 245760K */
 		switch(radix_set)
 		{
 		case 0 :
-			numrad = 7; radix_vec[0] = 15; radix_vec[1] =  8; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 15; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 1 :
-			numrad = 7; radix_vec[0] = 30; radix_vec[1] =  8; radix_vec[2] =  8; radix_vec[3] = 16; radix_vec[4] = 16; radix_vec[5] = 16; radix_vec[6] = 16; break;
+			numrad = 7; rvec[0] = 30; rvec[1] =  8; rvec[2] =  8; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
 		case 2 :
-			numrad = 6; radix_vec[0] = 30; radix_vec[1] = 32; radix_vec[2] = 16; radix_vec[3] = 16; radix_vec[4] = 32; radix_vec[5] = 16; break;
+			numrad = 6; rvec[0] = 30; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
+		case 3 :
+			numrad = 6; rvec[0] = 30; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 32; rvec[5] = 32; break;
+		case 4 :
+			numrad = 6; rvec[0] = 60; rvec[1] = 32; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
+		case 5 :
+			numrad = 6; rvec[0] = 60; rvec[1] = 16; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 32; break;
 		default :
-			if(nradices){*nradices = 3;}	return ERR_RADIXSET_UNAVAILABLE;
+			if(nradices){*nradices = 6;}	return ERR_RADIXSET_UNAVAILABLE;
+		}; break;
+	case 262144 :				/* 256M = 262144K */
+		switch(radix_set)
+		{
+		case 0 :
+			numrad = 7; rvec[0] = 16; rvec[1] =  8; rvec[2] = 16; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
+		case 1 :
+			numrad = 7; rvec[0] = 32; rvec[1] =  8; rvec[2] = 16; rvec[3] =  8; rvec[4] = 16; rvec[5] = 16; rvec[6] = 16; break;
+		case 2 :
+			numrad = 6; rvec[0] = 16; rvec[1] = 32; rvec[2] = 32; rvec[3] = 32; rvec[4] = 16; rvec[5] = 16; break;
+		case 3 :
+			numrad = 6; rvec[0] = 32; rvec[1] = 32; rvec[2] = 32; rvec[3] = 16; rvec[4] = 16; rvec[5] = 16; break;
+		default :
+			if(nradices){*nradices = 4;}	return ERR_RADIXSET_UNAVAILABLE;
 		}; break;
 	default :
 		 return ERR_FFTLENGTH_ILLEGAL;
@@ -2052,10 +2188,10 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 	}
 
 	/* If user provided a radix array, make sure they gave a valid dimension: */
-	if(radix_vec_out)
+	if(radix_vec)
 		ASSERT(HERE, radix_vec_dim >=	numrad,"get_fft_radices: radix_vec_dim has illegal value!");
 
-	/* Check that N/2 = {product of the radices}, and if valid nradices and radix_vec_out pointers supplied,
+	/* Check that N/2 = {product of the radices}, and if valid nradices and radix_vec pointers supplied,
 	copy radices to the latter and	numrad to the former: */
 	rad_prod = 1;
 
@@ -2064,15 +2200,15 @@ int	get_fft_radices(uint32 kblocks, int radix_set, int *nradices, int radix_vec_
 
 	for(i = 0; i <	numrad; i++)
 	{
-		rad_prod *= radix_vec[i];
-		if(radix_vec_out)
-			radix_vec_out[i] = radix_vec[i];
+		rad_prod *= rvec[i];
+		if(radix_vec)
+			radix_vec[i] = rvec[i];
 	}
 	/* Zero-pad: */
 	for(i =	numrad; i < radix_vec_dim; i++)
 	{
-		if(radix_vec_out)
-			radix_vec_out[i] = 0;
+		if(radix_vec)
+			radix_vec[i] = 0;
 	}
 
 	if(rad_prod != n/2)
@@ -2250,120 +2386,149 @@ uint32 given_N_get_maxP(uint32 N)
 */
 	return (uint32)maxExp2;
 }
-/*
+/* Here a simple PARI 'script' to return maxExp for any desired
+
+Bmant = 53.; AsympConst = 0.6; ln2inv = 1.0/log(2.0);
+N = [enter FFT length in #doubles]
+ln_N = log(1.0*N); lnln_N = log(ln_N); l2_N = ln2inv*ln_N; lnl2_N = log(l2_N); l2l2_N = ln2inv*lnl2_N; lnlnln_N = log(lnln_N); l2lnln_N = ln2inv*lnlnln_N;
+Wbits = 0.5*( Bmant - AsympConst - 0.5*(l2_N + l2l2_N) - 1.5*(l2lnln_N) )
+maxExp2 = Wbits*N
+
 With AsympConst = 0.6, this gives the following maxP values for various FFT lengths:
 
-  N          maxP
---------  ----------
-     1 K       22686
-     2 K       44683
-     3 K       66435
-     4 K       88029
-     5 K      109506
-     6 K      130892
-     7 K      152201
-     8 K      173445
-     9 K      194632
-    10 K      215769
-    12 K      257912
-    14 K      299904
-    16 K      341769
-    18 K      383521
-    20 K      425174
-    24 K      508222
-    28 K      590972
-    32 K      673470
-    36 K      755746
-    40 K      837827
-    48 K     1001477
-    56 K     1164540
-    64 K     1327103
-    72 K     1489228
-    80 K     1650966
-    96 K     1973430
-   112 K     2294732
-   128 K     2615043
-   144 K     2934488
-   160 K     3253166
-   176 K     3571154
-   192 K     3888516
-   224 K     4521565
-   256 K     5152648
-   288 K     5782016
-   320 K     6409862
-   352 K     7036339
-   384 K     7661575
-   416 K     8285675
-   448 K     8908726
-   480 K     9530805
-   512 K    10151977
-   576 K    11391823
-   640 K    12628648
-   704 K    13862759
-   768 K    15094405
-   832 K    16323795
-   896 K    17551103
-   960 K    18776481
-  1024 K    20000058
-  1152 K    22442252
-  1280 K    24878447
-  1408 K    27309250
-  1536 K    29735157
-  1664 K    32156582
-  1792 K    34573872
-  1920 K    36987325
-  2048 K    39397201
-  2304 K    44207097
-  2560 K    49005071
-  2816 K    53792328
-  3072 K    58569855
-  3328 K    63338470
-  3584 K    68098867
-  3840 K    72851637
-  4096 K    77597294
-  4608 K    87069012
-  5120 K    96517023
-  5632 K   105943724
-  6144 K   115351074
-  6656 K   124740700
-  7168 K   134113980
-  7680 K   143472090
-  8192 K   152816052
-  9216 K   171464992
- 10240 K   190066770
- 11264 K   208626152
- 12288 K   227147031
- 13312 K   245632644
- 14336 K   264085729
- 15360 K   282508628
- 16384 K   300903371
- 18432 K   337615274
- 20480 K   374233313
- 22528 K   410766968
- 24576 K   447223981
- 26624 K   483610796
- 28672 K   519932856
- 30720 K   556194824
- 32768 K   592400738
- 36864 K   664658102
- 40960 K   736728582
- 45056 K   808631042
- 49152 K   880380890
- 53248 K   951990950
- 57344 K  1023472059
- 61440 K  1094833496
- 65536 K  1166083299
- 73728 K  1308275271
- 81920 K  1450095024
- 90112 K  1591580114
- 98304 K  1732761219
-106496 K  1873663870
-114688 K  2014309644
-122880 K  2154717020
-131072 K  2294902000
-147456 K  2574659086
-163840 K  2853674592
-180224 K  3132023315
-196608 K  3409766353	<<<<*** Allows numbers slightly > 1Gdigit
+             N          maxP
+        --------  ----------
+             1 K       22686
+             2 K       44683
+             3 K       66435
+             4 K       88029
+             5 K      109506
+             6 K      130892
+             7 K      152201
+             8 K      173445
+             9 K      194632
+            10 K      215769
+            12 K      257912
+            14 K      299904
+            16 K      341769
+            18 K      383521
+            20 K      425174
+            24 K      508222
+            28 K      590972
+            32 K      673470
+            36 K      755746
+            40 K      837827
+            48 K     1001477
+            56 K     1164540
+            64 K     1327103
+            72 K     1489228
+            80 K     1650966
+            96 K     1973430
+           112 K     2294732
+           128 K     2615043
+           144 K     2934488
+           160 K     3253166
+           176 K     3571154
+           192 K     3888516
+           224 K     4521565
+           256 K     5152648
+           288 K     5782016
+           320 K     6409862
+           352 K     7036339
+           384 K     7661575
+           416 K     8285675
+           448 K     8908726
+           480 K     9530805
+           512 K    10151977
+           576 K    11391823
+           640 K    12628648
+           704 K    13862759
+           768 K    15094405
+           832 K    16323795
+           896 K    17551103
+           960 K    18776481
+          1024 K    20000058
+          1152 K    22442252
+          1280 K    24878447
+          1408 K    27309250
+          1536 K    29735157
+          1664 K    32156582
+          1792 K    34573872
+          1920 K    36987325
+          2048 K    39397201
+          2304 K    44207097
+          2560 K    49005071
+          2816 K    53792328
+          3072 K    58569855
+          3328 K    63338470
+          3584 K    68098867
+          3840 K    72851637
+          4096 K    77597294
+          4608 K    87069012
+          5120 K    96517023
+          5632 K   105943724
+          6144 K   115351074
+          6656 K   124740700
+          7168 K   134113980
+          7680 K   143472090
+  8 M =   8192 K   152816052
+  9 M =   9216 K   171464992
+ 10 M =  10240 K   190066770
+ 11 M =  11264 K   208626152
+ 12 M =  12288 K   227147031
+ 13 M =  13312 K   245632644
+ 14 M =  14336 K   264085729
+ 15 M =  15360 K   282508628
+ 16 M =  16384 K   300903371
+ 18 M =  18432 K   337615274
+ 20 M =  20480 K   374233313
+ 22 M =  22528 K   410766968
+ 24 M =  24576 K   447223981
+ 26 M =  26624 K   483610796
+ 28 M =  28672 K   519932856
+ 30 M =  30720 K   556194824
+ 32 M =  32768 K   592400738
+ 36 M =  36864 K   664658102
+ 40 M =  40960 K   736728582
+ 44 M =  45056 K   808631042
+ 48 M =  49152 K   880380890
+ 52 M =  53248 K   951990950
+ 56 M =  57344 K  1023472059
+ 60 M =  61440 K  1094833496
+ 64 M =  65536 K  1166083299
+ 72 M =  73728 K  1308275271
+ 80 M =  81920 K  1450095024
+ 88 M =  90112 K  1591580114
+ 96 M =  98304 K  1732761219
+104 M = 106496 K  1873663870
+112 M = 114688 K  2014309644
+120 M = 122880 K  2154717020
+128 M = 131072 K  2294902000
+144 M = 147456 K  2574659086
+160 M = 163840 K  2853674592
+176 M = 180224 K  3132023315
+192 M = 196608 K  3409766353	<<<<*** Allows numbers slightly > 1Gdigit
+208 M = 212992 K  3686954556
+224 M = 229376 K  3963630903
+240 M = 245760 K  4239832202	<*** largest FFT length for 32-bit exponents
+256 M = 262144 K  4515590327
+288 M = 294912 K  5065885246
+320 M = 327680 K  5614702299
+352 M = 360448 K  6162190494
+384 M = 393216 K  6708471554
+416 M = 425984 K  7253646785
+448 M = 458752 K  7797801823
+480 M = 491520 K  8341010002
+512 M = 524288 K  8883334834
+
+For F33 have 2^33 = 8589934592, so could try a special FFT length based on leading radix = 31,
+which should be just large enough to run without overly frequent fatal ROE > 0.4:
+
+496 M = 507904 K	8612279197
+
+But as radix-31 DFT is relatively inefficient in terms of flops/input, better to use the slightly
+larger but much soother odd radix 63:
+
+504 M = 516096 K
 */
 

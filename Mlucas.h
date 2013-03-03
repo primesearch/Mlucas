@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -115,6 +115,7 @@ void	radix24_dif_pass1	(double a[], int n);
 void	radix26_dif_pass1	(double a[], int n);
 void	radix28_dif_pass1	(double a[], int n);
 void	radix30_dif_pass1	(double a[], int n);
+void	radix31_dif_pass1	(double a[], int n);
 void	radix32_dif_pass1	(double a[], int n);
 void	radix36_dif_pass1	(double a[], int n);
 void	radix40_dif_pass1	(double a[], int n);
@@ -126,6 +127,7 @@ void	radix60_dif_pass1	(double a[], int n);
 void	radix64_dif_pass1	(double a[], int n);
 void	radix72_dif_pass1	(double a[], int n);
 void	radix80_dif_pass1	(double a[], int n);
+void	radix31x32_dif_pass1(double a[], int n);
 
 void	radix5_dit_pass1	(double a[], int n);
 void	radix6_dit_pass1	(double a[], int n);
@@ -148,6 +150,7 @@ void	radix24_dit_pass1	(double a[], int n);
 void	radix26_dit_pass1	(double a[], int n);
 void	radix28_dit_pass1	(double a[], int n);
 void	radix30_dit_pass1	(double a[], int n);
+void	radix31_dit_pass1	(double a[], int n);
 void	radix32_dit_pass1	(double a[], int n);
 void	radix36_dit_pass1	(double a[], int n);
 void	radix40_dit_pass1	(double a[], int n);
@@ -159,20 +162,20 @@ void	radix60_dit_pass1	(double a[], int n);
 void	radix64_dit_pass1	(double a[], int n);
 void	radix72_dit_pass1	(double a[], int n);
 void	radix80_dit_pass1	(double a[], int n);
+void	radix31x32_dit_pass1(double a[], int n);
 
-void	radix8_dif_pass		(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr);
-void	radix16_dif_pass	(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr);
-void	radix32_dif_pass	(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr);
-void	radix64_dif_pass	(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr);
+void	radix8_dif_pass		(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr, int init_sse2, int thr_id);
+void	radix16_dif_pass	(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr, int init_sse2, int thr_id);
+void	radix32_dif_pass	(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr, int init_sse2, int thr_id);
+void	radix64_dif_pass	(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr, int init_sse2, int thr_id);
 
-void	radix8_dit_pass		(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr);
-void	radix16_dit_pass	(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr);
-void	radix32_dit_pass	(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr);
-void	radix64_dit_pass	(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr);
+void	radix8_dit_pass		(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr, int init_sse2, int thr_id);
+void	radix16_dit_pass	(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr, int init_sse2, int thr_id);
+void	radix32_dit_pass	(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr, int init_sse2, int thr_id);
+void	radix64_dit_pass	(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr, int init_sse2, int thr_id);
 
 /* mers_mod_square.c: */
 int		mers_mod_square		(double a[], int arr_scratch[], int n, int ilo, int ihi, uint64 p, uint32 *err_iter, int scrnFlag, double *tdiff);
-void	mers_process_chunk	(double a[], int arr_scratch[], int n, struct complex rt0[], struct complex rt1[], int index[], int block_index[], int ii, int nradices_prim, int radix_prim[], int ws_i[], int ws_j1[], int ws_j2[], int ws_j2_start[], int ws_k[], int ws_m[], int ws_blocklen[], int ws_blocklen_sum[]);
 
 	/* radix{16|32|64}_wrapper_square.c: */
 	void	pair_square  (double *x1, double *y1, double *x2, double *y2, double c, double s);
@@ -180,34 +183,45 @@ void	mers_process_chunk	(double a[], int arr_scratch[], int n, struct complex rt
 	void	pair_square2B(double *x1, double *y1, double *x2, double *y2, double *x3, double *y3, double *x4, double *y4, double c, double s);
 
 	void	radix16_wrapper_ini		(int n, int radix0, int iblock, int nradices_prim, int radix_prim[], int i[], int j1[], int j2[], int j2_start[], int k[], int m[], int blocklen[], int blocklen_sum[]);
-	void	radix16_wrapper_square	(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int nradices_prim, int radix_prim[], int ws_i, int ws_j1, int ws_j2, int ws_j2_start, int ws_k, int ws_m, int ws_blocklen, int ws_blocklen_sum, int INIT_MODE);
+	void	radix16_wrapper_square	(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int nradices_prim, int radix_prim[], int ws_i, int ws_j1, int ws_j2, int ws_j2_start, int ws_k, int ws_m, int ws_blocklen, int ws_blocklen_sum, int init_sse2, int thr_id);
 
 	void	radix32_wrapper_ini		(int n, int radix0, int iblock, int nradices_prim, int radix_prim[], int i[], int j1[], int j2[], int j2_start[], int k[], int m[], int blocklen[], int blocklen_sum[]);
-	void	radix32_wrapper_square	(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int nradices_prim, int radix_prim[], int ws_i, int ws_j1, int ws_j2, int ws_j2_start, int ws_k, int ws_m, int ws_blocklen, int ws_blocklen_sum, int INIT_MODE);
+	void	radix32_wrapper_square	(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int nradices_prim, int radix_prim[], int ws_i, int ws_j1, int ws_j2, int ws_j2_start, int ws_k, int ws_m, int ws_blocklen, int ws_blocklen_sum, int init_sse2, int thr_id);
 
 	void	radix64_wrapper_ini		(int n, int radix0, int iblock, int nradices_prim, int radix_prim[], int i[], int j1[], int j2[], int j2_start[], int k[], int m[], int blocklen[], int blocklen_sum[]);
-	void	radix64_wrapper_square	(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int nradices_prim, int radix_prim[], int ws_i, int ws_j1, int ws_j2, int ws_j2_start, int ws_k, int ws_m, int ws_blocklen, int ws_blocklen_sum, int INIT_MODE);
+	void	radix64_wrapper_square	(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int nradices_prim, int radix_prim[], int ws_i, int ws_j1, int ws_j2, int ws_j2_start, int ws_k, int ws_m, int ws_blocklen, int ws_blocklen_sum, int init_sse2, int thr_id);
 
 /* fermat_mod_square.c: */
 int 	fermat_mod_square	(double a[], int arr_scratch[], int n, int ilo, int ihi, uint64 p, uint32 *err_iter, int scrnFlag, double *tdiff);
-void	fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex rt0[], struct complex rt1[], int index[],                    int ii, int nradices_prim, int radix_prim[], int skip_square);
 
-	/* radix{16|32|64}_dyadic_square.c: */
-	void	radix16_dyadic_square	(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int ii, int nradices_prim, int radix_prim[], int nloops, int incr);
-	void	radix32_dyadic_square	(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int ii, int nradices_prim, int radix_prim[], int nloops, int incr);
-	void	radix64_dyadic_square	(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int ii, int nradices_prim, int radix_prim[], int nloops, int incr);
-
-#ifdef INCLUDE_PM1
-	/* pairFFT_mul.c: */
-	void	pairFFT_mul(double x[], double y[], int n, int INIT_ARRAYS, int FORWARD_FFT_ONLY);
-	void	pairFFT_mul_process_chunk(double a[], double ab_mul[], double cd_mul[], int n, int nradices, int radix_vec[], struct complex rt0[], struct complex rt1[], int index[], int ii, int nradices_prim, int radix_prim[], int FORWARD_FFT_ONLY, int skip_square);
-
-	void	radix16_pairFFT_mul		(double uv[], double ab_mul[], double cd_mul[], int n, int radix0, struct complex rt0[], struct complex rt1[], int ii, int nradices_prim, int radix_prim[], int nloops, int incr, int INIT_ARRAYS, int FORWARD_FFT_ONLY, int skip_square);
-	void	radix32_pairFFT_mul		(double uv[], double ab_mul[], double cd_mul[], int n, int radix0, struct complex rt0[], struct complex rt1[], int ii, int nradices_prim, int radix_prim[], int nloops, int incr, int INIT_ARRAYS, int FORWARD_FFT_ONLY, int skip_square);
+#ifdef MULTITHREAD
+	/* Multithreaded version must be in form of 1-arg functor */
+	void *mers_process_chunk  (void*targ);
+	void *fermat_process_chunk(void*targ);
+	// These are shared by both mers and fermat-mod, although the code contains switches to invoke the corr. carry macros:
+	void *cy16_process_chunk(void*targ);
+	void *cy20_process_chunk(void*targ);
+	void *cy24_process_chunk(void*targ);
+	void *cy28_process_chunk(void*targ);
+	void *cy32_process_chunk(void*targ);
+	void *cy36_process_chunk(void*targ);
+	void *cy40_process_chunk(void*targ);
+	void *cy44_process_chunk(void*targ);
+	void *cy52_process_chunk(void*targ);
+	void *cy60_process_chunk(void*targ);
+#else
+	void mers_process_chunk  (double a[], int arr_scratch[], int n, struct complex rt0[], struct complex rt1[], int index[], int block_index[], int ii, int nradices_prim, int radix_prim[], int ws_i[], int ws_j1[], int ws_j2[], int ws_j2_start[], int ws_k[], int ws_m[], int ws_blocklen[], int ws_blocklen_sum[]);
+	void fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex rt0[], struct complex rt1[], int index[],                    int ii, int nradices_prim, int radix_prim[]);
 #endif
 
-/* Each of the final-DIT-pass/propagate-carries/initial-DIF-pass routines comes in both an error-checking and non-error-checking version: */
+	/* radix{16|32|64}_dyadic_square.c: */
+	void	radix16_dyadic_square	(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int ii, int nradices_prim, int radix_prim[], int incr, int init_sse2, int thr_id);
+	void	radix32_dyadic_square	(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int ii, int nradices_prim, int radix_prim[], int incr, int init_sse2, int thr_id);
+	void	radix64_dyadic_square	(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int ii, int nradices_prim, int radix_prim[], int incr, int init_sse2, int thr_id);
 
+/* Each of the final-DIT-pass/propagate-carries/initial-DIF-pass routines comes in both an error-checking and non-error-checking
+version, unless it's one of the later SSE2-only radices, in which at least partial error checking is mandatory:
+*/
 	int	radix5_ditN_cy_dif1 		(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[],                                             double base[], double baseinv[], int iter, double *fracmax, uint64 p);
 	int	radix6_ditN_cy_dif1 		(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[],                                             double base[], double baseinv[], int iter, double *fracmax, uint64 p);
 	int radix7_ditN_cy_dif1 		(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[], double base[], double baseinv[], int iter, double *fracmax, uint64 p);
@@ -227,6 +241,7 @@ void	fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex r
 	int	radix26_ditN_cy_dif1		(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[],                                             double base[], double baseinv[], int iter, double *fracmax, uint64 p);
 	int	radix28_ditN_cy_dif1		(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[], double base[], double baseinv[], int iter, double *fracmax, uint64 p);
 	int	radix30_ditN_cy_dif1		(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[], double base[], double baseinv[], int iter, double *fracmax, uint64 p);
+	int	radix31_ditN_cy_dif1		(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[], double base[], double baseinv[], int iter, double *fracmax, uint64 p);
 	int	radix32_ditN_cy_dif1		(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[], double base[], double baseinv[], int iter, double *fracmax, uint64 p);
 	int	radix36_ditN_cy_dif1		(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[], double base[], double baseinv[], int iter, double *fracmax, uint64 p);
 	int	radix40_ditN_cy_dif1		(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[],                                             double base[], double baseinv[], int iter, double *fracmax, uint64 p);

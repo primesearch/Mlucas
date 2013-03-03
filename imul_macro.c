@@ -23,6 +23,42 @@
 #include "imul_macro.h"
 #include "factor.h"
 
+/* Binary predicates for use of stdlib qsort(): Only support unsigned for multiword ints (for now): */
+
+// Need extra () around deref-of-reinterpret-casts here; otherwise get "request for member ‘d1’ in something not a structure or union" errors:
+int ncmp_uint128(const void * a, const void * b)
+{
+	if( CMPULT128( (*(uint128*)a) , (*(uint128*)b) ) ) {
+		return -1;
+	} else if CMPEQ128( (*(uint128*)a) , (*(uint128*)b) ) {
+		return 0;
+	} else {
+		return +1;
+	}
+}
+
+int ncmp_uint192(const void * a, const void * b)
+{
+	if( CMPULT192( (*(uint192*)a) , (*(uint192*)b) ) ) {
+		return -1;
+	} else if CMPEQ192( (*(uint192*)a) , (*(uint192*)b) ) {
+		return 0;
+	} else {
+		return +1;
+	}
+}
+
+int ncmp_uint256(const void * a, const void * b)
+{
+	if( CMPULT256( (*(uint256*)a) , (*(uint256*)b) ) ) {
+		return -1;
+	} else if CMPEQ256( (*(uint256*)a) , (*(uint256*)b) ) {
+		return 0;
+	} else {
+		return +1;
+	}
+}
+
 /*********************************************************************************/
 
 /* Subroutine versions of the basic 64-bit integer MUL macros, for crappy compilers
@@ -149,7 +185,7 @@ that don't correctly inline the macro form of these.
 		/***********************************************************************/
 		/******* For 80x87-style architectures, use FPU for integer mul: *******/
 		/***********************************************************************/
-	#if 0/*(defined(CPU_TYPE_IA32) && (defined(COMPILER_TYPE_MWERKS) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_MSVC)))*/
+	#if 0/*(defined(CPU_IS_X86) && (defined(COMPILER_TYPE_MWERKS) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_MSVC)))*/
 
 		/* These 2 both yield 64-mantissa-bit register mode (bits <9:8> = 3),
 		with IEEE and truncating rounding mode set via bits <11:10> = 0 and 3,

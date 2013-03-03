@@ -1,3 +1,25 @@
+/*******************************************************************************
+*                                                                              *
+*   (C) 1997-2012 by Ernst W. Mayer.                                           *
+*                                                                              *
+*  This program is free software; you can redistribute it and/or modify it     *
+*  under the terms of the GNU General Public License as published by the       *
+*  Free Software Foundation; either version 2 of the License, or (at your      *
+*  option) any later version.                                                  *
+*                                                                              *
+*  This program is distributed in the hope that it will be useful, but WITHOUT *
+*  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or       *
+*  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for   *
+*  more details.                                                               *
+*                                                                              *
+*  You should have received a copy of the GNU General Public License along     *
+*  with this program; see the file GPL.txt.  If not, you may view one at       *
+*  http://www.fsf.org/licenses/licenses.html, or obtain one by writing to the  *
+*  Free Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA     *
+*  02111-1307, USA.                                                            *
+*                                                                              *
+*******************************************************************************/
+
 #include "factor.h"
 
 #if FAC_DEBUG
@@ -20,20 +42,28 @@ The key 3-operation sequence here is as follows:
 	MULH128(q,lo,lo);	// Inputs  q &   lo, and output (overwrites lo) have 128 bits
 							//    (but only lower 96 bits of q and output are nonzero).
 */
-uint128 twopmodq128_96(uint64 p, uint128 q)
+uint64 twopmodq128_96(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k)
 {
 #if FAC_DEBUG
 	int dbg = (p == 0);
 #endif
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 hi64;
-	uint128 qinv, x, lo;
+	uint128 q, qinv, x, lo;
 	static uint64 psave = 0, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
 
 #if FAC_DEBUG
 if(dbg)printf("twopmodq128_96:\n");
 #endif
+
+	ASSERT(HERE, (p >> 63) == 0, "p must be < 2^63!");
+	q.d0 = p+p;	q.d1 = 0;
+	MUL_LOHI64(q.d0, k, q.d0, q.d1);
+	q.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
+	ASSERT(HERE, (q.d1 >> 32) == 0, "(q.d1 >> 32) != 0");
+	*checksum1 += q.d0;
+
 	if(first_entry || p != psave)
 	{
 		first_entry = FALSE;
@@ -212,11 +242,12 @@ if(dbg)printf("\n");
 if(dbg)printf("x0 = %s\n", &char_buf[convert_uint128_base10_char(char_buf, x)]);
 #endif
 
-	return x;
+	*checksum2 += x.d0;
+	return (uint64)CMPEQ128(x, ONE128) ;
 }
 
 /*** 4-trial-factor version ***/
-uint64 twopmodq128_96_q4(uint64 p, uint128 q0, uint128 q1, uint128 q2, uint128 q3)
+uint64 twopmodq128_96_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 {
 #if FAC_DEBUG
 	int dbg = (p == 0);
@@ -225,7 +256,8 @@ uint64 twopmodq128_96_q4(uint64 p, uint128 q0, uint128 q1, uint128 q2, uint128 q
 #endif
 	 int32 j;
 	uint64 hi0, hi1, hi2, hi3, r;
-	uint128 qinv0, qinv1, qinv2, qinv3
+	uint128 q0, q1, q2, q3
+		, qinv0, qinv1, qinv2, qinv3
 		, x0, x1, x2, x3
 		, lo0, lo1, lo2, lo3;
 	static uint64 psave = 0, pshift;
@@ -260,6 +292,26 @@ if(dbg)printf("twopmodq128_96_q4:\n");
 #if FAC_DEBUG
 	if(dbg)	printf("start_index = %u\n", (uint32)start_index);
 #endif
+
+	ASSERT(HERE, (p >> 63) == 0, "p must be < 2^63!");
+	q0.d0 = q1.d0 = q2.d0 = q3.d0 = p+p;
+	q0.d1 = q1.d1 = q2.d1 = q3.d1 = 0;
+	MUL_LOHI64(q0.d0, k0, q0.d0, q0.d1);
+	MUL_LOHI64(q1.d0, k1, q1.d0, q1.d1);
+	MUL_LOHI64(q2.d0, k2, q2.d0, q2.d1);
+	MUL_LOHI64(q3.d0, k3, q3.d0, q3.d1);
+	ASSERT(HERE, (q0.d1 >> 32) == 0, "(q0.d1 >> 32) != 0");
+	ASSERT(HERE, (q1.d1 >> 32) == 0, "(q1.d1 >> 32) != 0");
+	ASSERT(HERE, (q2.d1 >> 32) == 0, "(q2.d1 >> 32) != 0");
+	ASSERT(HERE, (q3.d1 >> 32) == 0, "(q3.d1 >> 32) != 0");
+
+	q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
+	q1.d0 += 1;
+	q2.d0 += 1;
+	q3.d0 += 1;
+
+	*checksum1 += q0.d0 + q1.d0 + q2.d0 + q3.d0;
+
 	/* q must be odd for Montgomery-style modmul to work: */
 #if FAC_DEBUG
 	ASSERT(HERE, (q0.d0 & (uint64)1) == 1, "twopmodq128_96_q4 : (q0.d0 & (uint64)1) == 1");
@@ -515,23 +567,27 @@ if(dbg)printf("\n");
 if(dbg)printf("x0 = %s\n", &char_buf[convert_uint128_base10_char(char_buf, x0)]);
 #endif
 
+	*checksum2 += x0.d0 + x1.d0 + x2.d0 + x3.d0;
+
+	/* Only do the full 128-bit (Xj== 1) check if the bottom 64 bits of Xj == 1: */
 	r = 0;
-	if(CMPEQ128(x0, ONE128)) r +=  1;
-	if(CMPEQ128(x1, ONE128)) r +=  2;
-	if(CMPEQ128(x2, ONE128)) r +=  4;
-	if(CMPEQ128(x3, ONE128)) r +=  8;
+	if(x0.d0 == 1) r += ((uint64)CMPEQ128(x0, ONE128) << 0);
+	if(x1.d0 == 1) r += ((uint64)CMPEQ128(x1, ONE128) << 1);
+	if(x2.d0 == 1) r += ((uint64)CMPEQ128(x2, ONE128) << 2);
+	if(x3.d0 == 1) r += ((uint64)CMPEQ128(x3, ONE128) << 3);
 	return(r);
 }
 
 /*** 8-trial-factor version ***/
-uint64 twopmodq128_96_q8(uint64 p, uint128 q0, uint128 q1, uint128 q2, uint128 q3, uint128 q4, uint128 q5, uint128 q6, uint128 q7)
+uint64 twopmodq128_96_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7)
 {
 #if FAC_DEBUG
 	int dbg = STREQ(&char_buf[convert_uint64_base10_char(char_buf, p)], "0");
 #endif
 	 int32 j;
 	uint64 hi0, hi1, hi2, hi3, hi4, hi5, hi6, hi7, r;
-	uint128 qinv0, qinv1, qinv2, qinv3, qinv4, qinv5, qinv6, qinv7
+	uint128 q0, q1, q2, q3, q4, q5, q6, q7
+		, qinv0, qinv1, qinv2, qinv3, qinv4, qinv5, qinv6, qinv7
 		, x0, x1, x2, x3, x4, x5, x6, x7
 		, lo0, lo1, lo2, lo3, lo4, lo5, lo6, lo7;
 	static uint64 psave = 0, pshift;
@@ -568,6 +624,37 @@ if(dbg)printf("twopmodq128_96_q8:\n");
 
 		pshift = ~pshift;
 	}
+
+	ASSERT(HERE, (p >> 63) == 0, "p must be < 2^63!");
+	q0.d0 = q1.d0 = q2.d0 = q3.d0 = q4.d0 = q5.d0 = q6.d0 = q7.d0 = p+p;
+	q0.d1 = q1.d1 = q2.d1 = q3.d1 = q4.d1 = q5.d1 = q6.d1 = q7.d1 = 0;
+	MUL_LOHI64(q0.d0, k0, q0.d0, q0.d1);
+	MUL_LOHI64(q1.d0, k1, q1.d0, q1.d1);
+	MUL_LOHI64(q2.d0, k2, q2.d0, q2.d1);
+	MUL_LOHI64(q3.d0, k3, q3.d0, q3.d1);
+	MUL_LOHI64(q4.d0, k4, q4.d0, q4.d1);
+	MUL_LOHI64(q5.d0, k5, q5.d0, q5.d1);
+	MUL_LOHI64(q6.d0, k6, q6.d0, q6.d1);
+	MUL_LOHI64(q7.d0, k7, q7.d0, q7.d1);
+
+	q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
+	q1.d0 += 1;
+	q2.d0 += 1;
+	q3.d0 += 1;
+	q4.d0 += 1;
+	q5.d0 += 1;
+	q6.d0 += 1;
+	q7.d0 += 1;
+	ASSERT(HERE, (q0.d1 >> 32) == 0, "(q0.d1 >> 32) != 0");
+	ASSERT(HERE, (q1.d1 >> 32) == 0, "(q1.d1 >> 32) != 0");
+	ASSERT(HERE, (q2.d1 >> 32) == 0, "(q2.d1 >> 32) != 0");
+	ASSERT(HERE, (q3.d1 >> 32) == 0, "(q3.d1 >> 32) != 0");
+	ASSERT(HERE, (q4.d1 >> 32) == 0, "(q4.d1 >> 32) != 0");
+	ASSERT(HERE, (q5.d1 >> 32) == 0, "(q5.d1 >> 32) != 0");
+	ASSERT(HERE, (q6.d1 >> 32) == 0, "(q6.d1 >> 32) != 0");
+	ASSERT(HERE, (q7.d1 >> 32) == 0, "(q7.d1 >> 32) != 0");
+
+	*checksum1 += q0.d0 + q1.d0 + q2.d0 + q3.d0 + q4.d0 + q5.d0 + q6.d0 + q7.d0;
 
 	/*
 	!    Find modular inverse (mod 2^128) of q in preparation for modular multiply.
@@ -879,15 +966,18 @@ if(dbg)printf("\n");
 if(dbg)printf("x0 = %20llu + 2^64* %20llu\n",x0.d0, x0.d1);
 #endif
 
+	*checksum2 += x0.d0 + x1.d0 + x2.d0 + x3.d0 + x4.d0 + x5.d0 + x6.d0 + x7.d0;
+
+	/* Only do the full 128-bit (Xj== 1) check if the bottom 64 bits of Xj == 1: */
 	r = 0;
-	if(CMPEQ128(x0, ONE128)) r +=  1;
-	if(CMPEQ128(x1, ONE128)) r +=  2;
-	if(CMPEQ128(x2, ONE128)) r +=  4;
-	if(CMPEQ128(x3, ONE128)) r +=  8;
-	if(CMPEQ128(x4, ONE128)) r += 16;
-	if(CMPEQ128(x5, ONE128)) r += 32;
-	if(CMPEQ128(x6, ONE128)) r += 64;
-	if(CMPEQ128(x7, ONE128)) r +=128;
+	if(x0.d0 == 1) r += ((uint64)CMPEQ128(x0, ONE128) << 0);
+	if(x1.d0 == 1) r += ((uint64)CMPEQ128(x1, ONE128) << 1);
+	if(x2.d0 == 1) r += ((uint64)CMPEQ128(x2, ONE128) << 2);
+	if(x3.d0 == 1) r += ((uint64)CMPEQ128(x3, ONE128) << 3);
+	if(x4.d0 == 1) r += ((uint64)CMPEQ128(x4, ONE128) << 4);
+	if(x5.d0 == 1) r += ((uint64)CMPEQ128(x5, ONE128) << 5);
+	if(x6.d0 == 1) r += ((uint64)CMPEQ128(x6, ONE128) << 6);
+	if(x7.d0 == 1) r += ((uint64)CMPEQ128(x7, ONE128) << 7);
 	return(r);
 }
 

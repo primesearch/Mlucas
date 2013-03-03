@@ -100,7 +100,6 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 	/*...Look for any FFT length >= [kblocks] and check the per-iteration timing: */
 	found = 0;		/* Was an entry for the specified FFT length found in the .cfg file? */
 	fp = fopen(CONFIGFILE,"r");
-	fq = fopen(STATFILE  ,"a");
 	if(fp)
 	{
 		while(fgets(in_line, STR_MAX_LEN, fp))
@@ -126,7 +125,7 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 						{
 							if((char_addr = strstr(in_line, "radices =")) == 0x0)
 							{
-								sprintf(cbuf, "get_preferred_fft_radix: invalid format for %s file: 'nradices =' not found in timing-data line %s", CONFIGFILE, in_line);
+								sprintf(cbuf, "get_preferred_fft_radix: invalid format for %s file: 'radices =' not found in timing-data line %s", CONFIGFILE, in_line);
 								ASSERT(HERE, 0, cbuf);
 							}
 							char_addr += 10;
@@ -226,9 +225,13 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 				}
 			}
 		}
+		fclose(fp);	fp = 0x0;
 	}
-	fclose(fp);	fp = 0x0;
-	fclose(fq);	fq = 0x0;
+	else
+	{
+		sprintf(cbuf, "CONFIGFILE = %s: open failed!", CONFIGFILE);
+		ASSERT(HERE, 0 , cbuf);
+	}
 
 	/* Only return nonzero if an entry for the specified FFT length was found.
 	Otherwise clear RADIX_VEC and return 0:

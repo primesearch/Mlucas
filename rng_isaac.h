@@ -15,6 +15,10 @@ Bob Jenkins, 1996, Public Domain
 */
 #include	"Mdata.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef  uint64  ub8;
 #define UB8MAXVAL 0xffffffffffffffffLL
 #define UB8BITS 64
@@ -86,4 +90,9 @@ double	rng_isaac_rand_double_norm_pm1();
 
 #endif  /* RAND */
 
+#ifdef __cplusplus
+}
+#endif
+
 #endif	/* rng_isaac_h_included */
+

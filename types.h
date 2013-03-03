@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2012 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -28,6 +28,10 @@
 
 /* Include any needed level-0 header files: */
 #include "platform.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* Typedefs */
 
@@ -79,13 +83,27 @@ typedef unsigned int		uint32;
 /* MSVC doesn't like 'long long', and of course MS has their own
 completely non-portable substitute:
 */
-#ifdef OS_TYPE_WINDOWS
+#if(defined(OS_TYPE_WINDOWS) && defined(COMPILER_TYPE_MSVC))
 	typedef   signed __int64	 int64;
 	typedef   signed __int64	sint64;
 	typedef unsigned __int64	uint64;
 	typedef const  signed __int64	 int64c;
 	typedef const  signed __int64	sint64c;
 	typedef const unsigned __int64	uint64c;
+
+	/* GW: In many cases where the C code is interfacing with the assembly code */
+	/* we must declare variables that are exactly 32-bits wide.  This is the */
+	/* portable way to do this, as the linux x86-64 C compiler defines the */
+	/* long data type as 64 bits.  We also use portable definitions for */
+	/* values that can be either an integer or a pointer. */
+	#if OS_BITS == 64
+		typedef  int64		intptr_t;
+		typedef uint64		uintptr_t;
+	#else
+		typedef  int32		intptr_t;
+		typedef uint32		uintptr_t;
+	#endif
+
 #else
 	typedef          long long	 int64;
 	typedef          long long	sint64;
@@ -94,7 +112,13 @@ completely non-portable substitute:
 	typedef const          long long	sint64c;
 	typedef const unsigned long long	uint64c;
 #endif
-
+#ifdef int64_t
+#error int64_t already defined!
+	typedef  int64		 int64_t;
+	typedef uint64		uint64_t;
+	typedef  int32		 int32_t;
+	typedef uint32		uint32_t;
+#endif
 /*******************************************************************************
    Some useful utility macros:
 *******************************************************************************/
@@ -102,21 +126,74 @@ completely non-portable substitute:
 #undef	HERE
 #define	HERE	__LINE__, __FILE__
 
+/* Array-bounds check, return TRUE if y-array has either endpoint in x-array's range or v.v.
+(need both ways to handle e.g. one array entirely contained within the other. Consider the
+following cartoon illustrating the possibilities:
+
+                         *---------------------*
+                         x1                   x2
+
+                 *----------------------------------*
+                y1                                  y2
+
+The arrays are nonoverlapping iff  y2 < x1 or y1 > x2, so non-overlap is assured
+logical converse holds, that is if (y2 >= x1) && (y1 <= x2).
+*/
+#define ARRAYS_DISJOINT(xarr,lenx,yarr,leny)	((yarr+leny <= xarr) || (yarr >= xarr+lenx))
+#define  ARRAYS_OVERLAP(xarr,lenx,yarr,leny)	!ARRAYS_DISJOINT(xarr,lenx,yarr,leny)
+
+/* Original version of the above:
+#define ARRAYS_OVERLAP(x, lenx, y, leny)	( (x <= y) && (x+lenx) > y ) || ( (x > y) && (y+leny) > x )
+*/
+
+// 32 and 64-bit 2s-comp integer mod-add macros, compute z = (x + y)%q. Allow in-place: Any or all of x,y,z may refer to same operand.
+#define MOD_ADD32(__x, __y, __q, __z)\
+{\
+	__z = __x + __y - __q;						\
+	__z = __z + ( (-((int32)__z < 0)) & __q);	\
+}
+
+#define MOD_SUB32(__x, __y, __q, __z)\
+{\
+	__z = __x - __y;						\
+	__z = __z + ( (-((int32)__z < 0)) & __q);	\
+}
+
+#define MOD_ADD64(__x, __y, __q, __z)\
+{\
+	__z = __x + __y - __q;						\
+	__z = __z + ( (-((int64)__z < 0)) & __q);	\
+}
+
+#define MOD_SUB64(__x, __y, __q, __z)\
+{\
+	__z = __x - __y;						\
+	__z = __z + ( (-((int64)__z < 0)) & __q);	\
+}
+
 /* Slow version of nearest-int; for doubles use faster trick,
 but this is useful for reference purposes and error checking:
 */
 #undef  NINT
 #define NINT(x) floor(x + 0.5)
 
-/* Fast double-float NINT. RND_A & RND_B declared in Mdata.h, defined in util.c:check_nbits_in_types .
-
-***NOTE:*** The util.c functions set_fpu_params() and check_nbits_in_types()
-MUST BE CALLED (in that order) AT PROGRAM INVOCATION THIS MACRO TO WORK PROPERLY!!!
+/* Fast double-float NINT. For the hand-rolled versiom, RND_A & RND_B declared in Mdata.h, defined in util.c:check_nbits_in_types.
+Since the add/sub-magic-constant version depends on the compiler not optimizing things away, prefer an efficient intrinsic
+whenever available:
 */
 #undef  DNINT
-#ifdef COMPILER_TYPE_ICC
-	#define DNINT(x) rint((x))
+/* Consider broadening these platform checks to "Is C99 Standard supported?" if validate no adverse performance impact */
+#ifdef USE_RINT
+	/* E.g. CUDA kernel code needs rint(), not lrint() */
+	#define DNINT(x)  rint((x))
+#elif(defined(COMPILER_TYPE_ICC) || defined(COMPILER_TYPE_SUNC))
+	#define DNINT(x)  rint((x))
+#elif(defined(COMPILER_TYPE_GCC))
+	#define DNINT(x) lrint((x))
 #else
+	/***NOTE:*** The util.c functions set_fpu_params() and check_nbits_in_types()
+	MUST BE CALLED (in that order) AT PROGRAM INVOCATION THIS MACRO TO WORK PROPERLY!!!
+	*/
 	#define DNINT(x) ((x) + RND_A) - RND_B
 #endif
 
@@ -134,6 +211,16 @@ function call, since that may result in the function being called twice. */
 #define IS_ODD(a)	( (int)(a) & 1)
 
 #define IS_EVEN(a)	(~(int)(a) & 1)
+
+#define BIT_SET(x,b)	( (x) |= (1 << (b)) )
+
+#define BIT_SETC(x,b,condition)	( (x) |= ((condition) << (b)) )	// SETC = "Set conditional", bit set based on truth value of condition
+
+#define BIT_FLIP(x,b)	( (x) ^= (1 << (b)) )
+
+#define BIT_CLR(x,b)	( (x) &= ~(1 << (b)) )
+
+#define BIT_TEST(x,b)	( ((x) >> (b)) & 1 )
 
 #define	STREQ(s1,s2)	(!strcmp(s1,s2))
 
@@ -254,17 +341,23 @@ typedef	struct uint64p32	uint96;
 */
 
 /* Proceed analogously for 128-bit ints: */
+#undef uint64_32
+struct uint64_32{
+	uint64 d0;
+	uint32 d1;
+};
+
+#undef uint96
+typedef	struct uint64_32	uint96;
+
 #undef uint64x2
 struct uint64x2{
 	uint64 d0;
 	uint64 d1;
 };
 
-#undef uint96
 #undef uint128
-typedef	struct uint64x2		uint96;
 typedef	struct uint64x2		uint128;
-
 
 /* For 192-bit ints, want to be able to access the low 2 words either as uint192.d0,d1
 or as a uint128, so define uint64x3 and uint128+64 basic types, declare union192 as a
@@ -332,4 +425,16 @@ extern const uint256 NIL256;
 extern const uint256 ONE256;
 extern const uint256 TWO256;
 
+/* Binary predicates for use of stdlib qsort(): */
+int ncmp_int   (const void * a, const void * b);	// Default-int compare predicate
+int ncmp_uint32(const void * a, const void * b);	// Mnemonic: "Numeric CoMPare of UINT32 data"
+int ncmp_sint32(const void * a, const void * b);
+int ncmp_uint64(const void * a, const void * b);
+int ncmp_sint64(const void * a, const void * b);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif	/* types_h_included */
+

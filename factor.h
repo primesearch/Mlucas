@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2012 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -28,6 +28,10 @@
 
 #include "util.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /********
 PLEASE REFER TO FACTOR.C FOR A DESCRIPTION OF THE APPLICABLE #DEFINES
 
@@ -49,7 +53,7 @@ PLEASE REFER TO FACTOR.C FOR A DESCRIPTION OF THE APPLICABLE #DEFINES
 	/* This will need to be made platform-dependent at some point: */
   #ifndef TRYQ
 	#define TRYQ	4
-  #elif(TRYQ != 1 && TRYQ != 2 && TRYQ != 4)
+  #elif(TRYQ != 1 && TRYQ != 2 && TRYQ != 4 && TRYQ != 8)
 	#error USE_FLOAT option requires TRYQ = 1, 2 or 4
   #endif
 
@@ -57,9 +61,9 @@ PLEASE REFER TO FACTOR.C FOR A DESCRIPTION OF THE APPLICABLE #DEFINES
 	#ifdef P2WORD
 		#error P2WORD may not be used together with USE_FLOAT!
 	#endif
-	#ifdef P3WORD
-		#error P3WORD may not be used together with USE_FLOAT!
-	#endif
+//	#ifdef P3WORD
+//		#error P3WORD may not be used together with USE_FLOAT!
+//	#endif
 	#ifdef P4WORD
 		#error P4WORD may not be used together with USE_FLOAT!
 	#endif
@@ -193,64 +197,92 @@ extern uint64 checksum2;	/* Sum (mod 2^64) of all 2^p mod q's for  a predetermin
 #endif
 
 int		test_fac(void);
+uint64	factor_qmmp_sieve64(uint32 p, uint64 k, uint64 imin, uint64 imax);
 
 uint64	test_modsqr64    (uint64  x, uint64  q);
 uint96	test_modsqr96    (uint96  x, uint96  q);
 uint128	test_modsqr128_96(uint128 x, uint128 q);
 uint128	test_modsqr128   (uint128 x, uint128 q);
 
-uint64	twopmodq63    (uint64 p, uint64 q);
-uint64	twopmodq63_q4 (uint64 p, uint64 q0, uint64 q1, uint64 q2, uint64 q3);
-uint64	twopmodq63_q8 (uint64 p, uint64 q0, uint64 q1, uint64 q2, uint64 q3, uint64 q4, uint64 q5, uint64 q6, uint64 q7);
-uint64	twopmodq63_x8 (          uint64 q0, uint64 q1, uint64 q2, uint64 q3, uint64 q4, uint64 q5, uint64 q6, uint64 q7);
-uint64	twopmodq64    (uint64 p, uint64 q);
-uint64	twopmodq64_q4 (uint64 p, uint64 q0, uint64 q1, uint64 q2, uint64 q3);
-uint64	twopmodq64_q8 (uint64 p, uint64 q0, uint64 q1, uint64 q2, uint64 q3, uint64 q4, uint64 q5, uint64 q6, uint64 q7);
-uint64	twopmodq65    (uint64 p, uint64 q);
-uint64	twopmodq65_q4 (uint64 p, uint64 q0, uint64 q1, uint64 q2, uint64 q3);
-uint64	twopmodq65_q8 (uint64 p, uint64 q0, uint64 q1, uint64 q2, uint64 q3, uint64 q4, uint64 q5, uint64 q6, uint64 q7);
+// The single-trial-divisor versions of many of the modpow routines are in terms of exponent and *divisor*
+// to allow them to serve both as TF modules and to be used more generally, e.g. for PRP testing.
+// The multiple-trial-divisor routines are intended for TF use only, thus input their divisors
+// q = 2.k.p+1 using the factor index k:
+uint64	twopmodq63    (                                    uint64 p, uint64 q);	// q, not k!
+uint64	twopmodq63_q4 (uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
+uint64	twopmodq63_q8 (uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
+uint64	twopmodq64    (                                    uint64 p, uint64 q);	// q, not k!
+uint64	twopmodq64_q4 (uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
+uint64	twopmodq64_q8 (uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
+uint64	twopmodq65    (uint64*checksum1, uint64*checksum2, uint64 p, uint64 k);
+uint64	twopmodq65_q4 (uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
+uint64	twopmodq65_q8 (uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
 
-void cvt_uint78_3word_double	(uint96 __x, double*__fword0, double*__fword1, double*__fword2);
-void cvt78_3word_double_uint96	(double __fword0, double __fword1, double __fword2, uint96*__x);
-void mulq78_3word_double		(double __x0,double __x1,double __x2, double __y0,double __y1,double __y2, double*__lo0,double*__lo1,double*__lo2);
+// Conventional positive-power version of twopmodq, returns true mod:
+uint64	twopmmodq64    (uint64 p, uint64 q);	// q, not k!
+// This variant of twopmodq64_q4 returns the 4 true mods, overwriting the inputs
+void	twopmmodq64_q4(uint64 p, uint64 *i0, uint64 *i1, uint64 *i2, uint64 *i3, uint64 *qi0, uint64 *qi1, uint64 *qi2, uint64 *qi3);
 
-uint64	twopmodq78_3WORD_DOUBLE   (uint64 p, uint96 q);
-uint64	twopmodq78_3WORD_DOUBLE_q2(uint64 p, uint96 q0, uint96 q1);
-uint64	twopmodq78_3WORD_DOUBLE_q4(uint64 p, uint96 q0, uint96 q1, uint96 q2, uint96 q3);
+uint64 twopmodq63_x8(uint64 q0, uint64 q1, uint64 q2, uint64 q3, uint64 q4, uint64 q5, uint64 q6, uint64 q7);
 
-uint64	twopmodq100_2WORD_DOUBLE   (uint64 p, uint96 q);
-uint64	twopmodq100_2WORD_DOUBLE_q2(uint64 p, uint96 q0, uint96 q1);
-uint64	twopmodq100_2WORD_DOUBLE_q4(uint64 p, uint96 q0, uint96 q1, uint96 q2, uint96 q3);
+uint64	twopmodq78_3WORD_DOUBLE   (uint64*checksum1, uint64*checksum2, uint64 p, uint64 k);
+uint64	twopmodq78_3WORD_DOUBLE_q2(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1);
+uint64	twopmodq78_3WORD_DOUBLE_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
+uint64	twopmodq78_3WORD_DOUBLE_q4_REF(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
+#if defined(COMPILER_TYPE_GCC) && (OS_BITS == 64)
+uint64	twopmodq78_3WORD_DOUBLE_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
+#endif
 
-uint96	twopmodq96    (uint64 p, uint96 q);
-uint64	twopmodq96_q4 (uint64 p, uint96 q0, uint96 q1, uint96 q2, uint96 q3);
-uint64	twopmodq96_q8 (uint64 p, uint96 q0, uint96 q1, uint96 q2, uint96 q3, uint96 q4, uint96 q5, uint96 q6, uint96 q7);
-uint64	twopmodq96_q8_const_qhi(uint64 p, uint64 qhi, uint64 q0, uint64 q1, uint64 q2, uint64 q3, uint64 q4, uint64 q5, uint64 q6, uint64 q7);
+// GPU-TF stuff:
+#if defined(USE_GPU) && defined(REALLY_GPU)
+__global__
+#endif
+void	GPU_TF78(uint64*checksum1, uint64*checksum2, uint64 p, const uint64 kvec[], uint32 n, int64 *retval);
+#if defined(USE_GPU) && defined(REALLY_GPU)
+__device__
+#endif
+void	twopmodq78_q4_GPU(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 *retval);
 
-uint128	twopmodq128_96   (uint64 p, uint128 q);
-uint64	twopmodq128_96_q4(uint64 p, uint128 q0, uint128 q1, uint128 q2, uint128 q3);
-uint64	twopmodq128_96_q8(uint64 p, uint128 q0, uint128 q1, uint128 q2, uint128 q3, uint128 q4, uint128 q5, uint128 q6, uint128 q7);
-uint64	twopmodq128_96_q8_const_qhi(uint64 p, uint64 qhi, uint64 q0, uint64 q1, uint64 q2, uint64 q3, uint64 q4, uint64 q5, uint64 q6, uint64 q7);
+uint64	twopmodq100_2WORD_DOUBLE   (uint64*checksum1, uint64*checksum2, uint64 p, uint64 k);
+uint64	twopmodq100_2WORD_DOUBLE_q2(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1);
+uint64	twopmodq100_2WORD_DOUBLE_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
 
-uint128	twopmodq128   (uint64 p, uint128 q);
+uint96	twopmodq96    (uint64*checksum1, uint64*checksum2, uint64 p, uint64 k);
+uint64	twopmodq96_q4 (uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
+uint64	twopmodq96_q8 (uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
+uint64	twopmodq96_q8_const_qhi(uint64*checksum1, uint64*checksum2, uint64 p, uint64 khi, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
 
-uint128	twopmodq128x2	(uint64 *p, uint128 q);
-uint64	twopmodq128_q4	(uint128 p, uint128 q0, uint128 q1, uint128 q2, uint128 q3);
-uint64	twopmodq128_q8	(uint128 p, uint128 q0, uint128 q1, uint128 q2, uint128 q3, uint128 q4, uint128 q5, uint128 q6, uint128 q7);
+uint64	twopmodq128_96   (uint64*checksum1, uint64*checksum2, uint64 p, uint64 k);
+uint64	twopmodq128_96_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
+uint64	twopmodq128_96_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
+uint64	twopmodq128_96_q8_const_qhi(uint64*checksum1, uint64*checksum2, uint64 p, uint64 khi, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
 
-uint160	twopmodq160   (uint160 p, uint160 q);
-uint64	twopmodq160_q4(uint160 p, uint160 q0, uint160 q1, uint160 q2, uint160 q3);
-uint64	twopmodq160_q8(uint160 p, uint160 q0, uint160 q1, uint160 q2, uint160 q3, uint160 q4, uint160 q5, uint160 q6, uint160 q7);
+uint128	twopmodq128		(                                    uint128 p, uint128 q);	// q, not k!
+uint64	twopmodq128x2	(uint64*checksum1, uint64*checksum2, uint64 *p, uint64 k);
+uint64	twopmodq128_q4	(uint64*checksum1, uint64*checksum2, uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
+uint64	twopmodq128_q8	(uint64*checksum1, uint64*checksum2, uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
 
-uint192	twopmodq192   (uint192 p, uint192 q);
-uint64	twopmodq192_q4(uint192 p, uint192 q0, uint192 q1, uint192 q2, uint192 q3);
-uint64	twopmodq192_q8(uint192 p, uint192 q0, uint192 q1, uint192 q2, uint192 q3, uint192 q4, uint192 q5, uint192 q6, uint192 q7);
+uint64	twopmodq160   (uint64*checksum1, uint64*checksum2, uint64 *p, uint64 k);
+uint64	twopmodq160_q4(uint64*checksum1, uint64*checksum2, uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
+uint64	twopmodq160_q8(uint64*checksum1, uint64*checksum2, uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
 
-uint256	twopmodq256   (uint256 p, uint256 q);
-uint64	twopmodq256_q4(uint256 p, uint256 q0, uint256 q1, uint256 q2, uint256 q3);
-uint64	twopmodq256_q8(uint256 p, uint256 q0, uint256 q1, uint256 q2, uint256 q3, uint256 q4, uint256 q5, uint256 q6, uint256 q7);
+uint192	twopmodq192   (                                    uint192 p, uint192 q);	// q, not k!
+uint64	twopmodq192_q4(uint64*checksum1, uint64*checksum2, uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
+uint64	twopmodq192_q4_qmmp(uint64*checksum1, uint64*checksum2, uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
+uint64	twopmodq192_q8(uint64*checksum1, uint64*checksum2, uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
+
+uint256	twopmodq200_8WORD_DOUBLE(uint64*checksum1, uint64*checksum2, uint64 *p, uint64 k);
+uint256	twopmodq200_8WORD_qmmp  (uint64*checksum1, uint64*checksum2, uint64 *p, uint64 k);
+
+uint256	twopmodq256   (                                    uint256 p, uint256 q);	// q, not k!
+uint64	twopmodq256_q4(uint64*checksum1, uint64*checksum2, uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
+uint64	twopmodq256_q8(uint64*checksum1, uint64*checksum2, uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
 
 uint32	CHECK_PKMOD60(uint32 pmod60, uint32 kmod60);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif	/* factor_h_included */
 

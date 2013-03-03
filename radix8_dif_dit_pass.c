@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -28,7 +28,7 @@
 /* struct complex and Intel intrinsic __m128d both represent the sane composite paired-double data type,
 but declare it in different ways, so use a select/macro to ease access to the subcomponents for debug purposes:
 */
-#if defined(USE_SSE2)
+#ifdef USE_SSE2
 
 	#define	GET_RE(x,r)	r = (x)->re
 	#define	GET_IM(x,i)	i = (x)->im
@@ -62,8 +62,6 @@ but declare it in different ways, so use a select/macro to ease access to the su
 
 /***************/
 
-void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr)
-{
 /*
 !...Acronym: DIF = Decimation In Frequency
 !
@@ -71,17 +69,19 @@ void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1
 !
 !   See the documentation in radix16_dif_pass for further details.
 */
+void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr, int init_sse2, int thr_id)
+{
+	static int max_threads = 0;
 	int i,j,j1,j2,jlo,jhi,m,iroot_prim,iroot,k1,k2;
-	static int p1,p2,p3,p4,p5,p6,p7;
+	int p1,p2,p3,p4,p5,p6,p7;
 	double rt,it;
 	double re0,im0,re1,im1;
 
 #ifdef USE_SSE2
 
-	static int	first_entry = TRUE;
-	static double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7;	/* Addresses into array sections */
-
-  #if defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
+  #if !(defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
+	#error SSE2 code not supported for this compiler!
+  #endif
 
 	/* This allows us to align sincos temporaries on 16-byte boundaries (e.g. for SSE2) via pointers:
 	In sse2 mode, alloc a complex[32] array (give it a few extra slots to allow ptr to initial element-to-be-used
@@ -93,24 +93,17 @@ void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1
 	in SSE2 mode we simply double the inner-loop stride, and process vector DFT inputs in pairs.
 	*/
 	static struct complex *sc_arr = 0x0, *sc_ptr;
-	static struct complex *r0,*r1,*r2,*r3,*r4,*r5,*r6,*r7,*r8,*r9,*ra,*rb,*rc,*rd,*re,*rf;
-	static struct complex *c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*s0,*s1,*s2,*s3,*s4,*s5,*s6,*s7;
-	static struct complex *isrt2;
-	static uint64 *sm_arr = 0x0, *sm_ptr, *pd_smask_lo, *pd_smask_hi;
+	double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7;	/* Addresses into array sections */
+	struct complex *c_tmp,*s_tmp;
 
-  #elif defined(COMPILER_TYPE_ICC)
-
-	#error SSE2 code not supported for Intel C!
-
-	__m128d rd,id,re,im;
-	__m128d d1,d2,d3,d4,d5,d6,d7,d8,d9,d10,d11,d12,d13,d14,d15,d16;
-	__m128d c1,c2,c3,c4,c5,c6,c7,s1,s2,s3,s4,s5,s6,s7;
-	static __m128d isrt2;
-
+  #ifdef MULTITHREAD
+	static struct complex *__r0;					// Base address for discrete per-thread local stores
+	struct complex *isrt2,*c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7;	// In || mode, only above base-pointer (shared by all threads) is static:
+  #elif defined(COMPILER_TYPE_GCC)
+	static struct complex *isrt2,*c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7;
   #else
-
-	#error SSE2 code not supported for this compiler!
-
+	static struct complex *r0,*r8;
+	static struct complex *isrt2,*c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7;
   #endif
 
   #ifdef DEBUG_SSE2
@@ -131,49 +124,83 @@ void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1
 
 #ifdef USE_SSE2
 
-	if(first_entry)
+	/* In order to eschew complex thread-block-and-sync logic related to the local-store-init step in multithread mode,
+	switch to a special-init-mode-call paradigm, in which the function is inited once (for as many threads as needed)
+	prior to being executed:
+	*/
+	if(init_sse2 && !sc_ptr)	// Just check (init_sse2 != 0) here, to allow the *value* of init_sse2 to store #threads
 	{
-		first_entry = FALSE;
-
-		sc_arr = ALLOC_COMPLEX(sc_arr, 36);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		max_threads = init_sse2;
+	#ifndef COMPILER_TYPE_GCC
+		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+	#endif
+		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
+		ASSERT(HERE, sc_arr == 0x0, "Init-mode call conflicts with already-malloc'ed local storage!");
+		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+		sc_arr = ALLOC_COMPLEX(sc_arr, 36*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_COMPLEX(sc_arr);
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
-
-		sm_arr = ALLOC_UINT64(sm_arr, 2);	if(!sm_arr){ sprintf(cbuf, "FATAL: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		sm_ptr = ALIGN_UINT64(sm_arr);
-		ASSERT(HERE, ((uint32)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
 
 	/* Use low 16 16-byte slots of sc_arr for temporaries, next 16 for the doubled sincos twiddles,
 	next 1 for doubled 1/sqrt2, plus at least 3 more slots to allow for 64-byte alignment of the array:
 	*/
-		r0    = sc_ptr + 0x00;		c0    = sc_ptr + 0x10;
-		r1    = sc_ptr + 0x01;		s0    = sc_ptr + 0x11;
-		r2    = sc_ptr + 0x02;		c4    = sc_ptr + 0x12;
-		r3    = sc_ptr + 0x03;		s4    = sc_ptr + 0x13;
-		r4    = sc_ptr + 0x04;		c2    = sc_ptr + 0x14;
-		r5    = sc_ptr + 0x05;		s2    = sc_ptr + 0x15;
-		r6    = sc_ptr + 0x06;		c6    = sc_ptr + 0x16;
-		r7    = sc_ptr + 0x07;		s6    = sc_ptr + 0x17;
-		r8    = sc_ptr + 0x08;		c1    = sc_ptr + 0x18;
-		r9    = sc_ptr + 0x09;		s1    = sc_ptr + 0x19;
-		ra    = sc_ptr + 0x0a;		c5    = sc_ptr + 0x1a;
-		rb    = sc_ptr + 0x0b;		s5    = sc_ptr + 0x1b;
-		rc    = sc_ptr + 0x0c;		c3    = sc_ptr + 0x1c;
-		rd    = sc_ptr + 0x0d;		s3    = sc_ptr + 0x1d;
-		re    = sc_ptr + 0x0e;		c7    = sc_ptr + 0x1e;
-		rf    = sc_ptr + 0x0f;		s7    = sc_ptr + 0x1f;
-									isrt2 = sc_ptr + 0x20;
-
-		/* These remain fixed: */
-		isrt2->re = ISRT2;	isrt2->im = ISRT2;
-
-		/* Test SSE2 signmask functionality */
-		pd_smask_lo = sm_ptr + 0x0;
-		pd_smask_hi = sm_ptr + 0x1;
-		*pd_smask_lo = (uint64)0x0000000000000000ull;
-		*pd_smask_hi = (uint64)0x8000000000000000ull;	/* Flips *HIGH* word of an SSE2 register */
-
+		#ifdef MULTITHREAD
+			__r0  = sc_ptr;
+			isrt2 = sc_ptr + 0x20;
+			for(i = 0; i < max_threads; ++i) {
+				/* These remain fixed within each per-thread local store: */
+				isrt2->re = ISRT2;	isrt2->im = ISRT2;
+				isrt2 += 36;	/* Move on to next thread's local store */
+			}
+		#elif defined(COMPILER_TYPE_GCC)
+			c0    = sc_ptr + 0x10;
+			c4    = sc_ptr + 0x12;
+			c2    = sc_ptr + 0x14;
+			c6    = sc_ptr + 0x16;
+			c1    = sc_ptr + 0x18;
+			c5    = sc_ptr + 0x1a;
+			c3    = sc_ptr + 0x1c;
+			c7    = sc_ptr + 0x1e;
+			isrt2 = sc_ptr + 0x20;
+			/* These remain fixed: */
+			isrt2->re = ISRT2;	isrt2->im = ISRT2;
+		#else
+			r0    = sc_ptr + 0x00;		c0    = sc_ptr + 0x10;
+		//	r1    = sc_ptr + 0x01;		s0    = sc_ptr + 0x11;
+		/*	r2    = sc_ptr + 0x02;	*/	c4    = sc_ptr + 0x12;
+		//	r3    = sc_ptr + 0x03;		s4    = sc_ptr + 0x13;
+		/*	r4    = sc_ptr + 0x04;	*/	c2    = sc_ptr + 0x14;
+		//	r5    = sc_ptr + 0x05;		s2    = sc_ptr + 0x15;
+		/*	r6    = sc_ptr + 0x06;	*/	c6    = sc_ptr + 0x16;
+		//	r7    = sc_ptr + 0x07;		s6    = sc_ptr + 0x17;
+			r8    = sc_ptr + 0x08;		c1    = sc_ptr + 0x18;
+		//	r9    = sc_ptr + 0x09;		s1    = sc_ptr + 0x19;
+		/*	ra    = sc_ptr + 0x0a;	*/	c5    = sc_ptr + 0x1a;
+		//	rb    = sc_ptr + 0x0b;		s5    = sc_ptr + 0x1b;
+		/*	rc    = sc_ptr + 0x0c;	*/	c3    = sc_ptr + 0x1c;
+		//	rd    = sc_ptr + 0x0d;		s3    = sc_ptr + 0x1d;
+		/*	re    = sc_ptr + 0x0e;	*/	c7    = sc_ptr + 0x1e;
+		//	rf    = sc_ptr + 0x0f;		s7    = sc_ptr + 0x1f;
+										isrt2 = sc_ptr + 0x20;
+			/* These remain fixed: */
+			isrt2->re = ISRT2;	isrt2->im = ISRT2;
+		#endif
+		return;
 	}	/* end of inits */
+
+	/* If multithreaded, set the local-store pointers needed for the current thread; */
+	#ifdef MULTITHREAD
+		ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+		c0 = __r0 + thr_id*36 + 0x10;
+		c4    = c0 + 0x02;
+		c2    = c0 + 0x04;
+		c6    = c0 + 0x06;
+		c1    = c0 + 0x08;
+		c5    = c0 + 0x0a;
+		c3    = c0 + 0x0c;
+		c7    = c0 + 0x0e;
+		isrt2 = c0 + 0x10;
+	#endif
 
 #endif
 
@@ -215,8 +242,12 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
    since we only compute each set of twiddles once and re-use it for many data blocks. */
 #if HIACC
 	#ifdef USE_SSE2
-		c0->re=1.;	s0->re=0.;
-		c0->im=1.;	s0->im=0.;
+		/* Due to roots-locality considerations, roots (c,s)[0-7] are offset w.r.to the thread-local ptr pair as
+		(c0,s0) + 0x[0,8,4,c,2,a,6,e]:
+		*/
+		c_tmp = c0 + 0x0; s_tmp = c_tmp+1;	/* c0,s0 */
+		c_tmp->re = c_tmp->im = 1.0;
+		s_tmp->re = s_tmp->im = 0.0;
 	#endif
 
 		k1=(i & NRTM1);
@@ -226,10 +257,11 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
-		c1->re=rt;	s1->re=it;
-		c1->im=rt;	s1->im=it;
+		c_tmp = c0 + 0x8; s_tmp = c_tmp+1;
+		c_tmp->re = c_tmp->im = rt;
+		s_tmp->re = s_tmp->im = it;
 	#else
-		c1=rt;		s1=it;
+		c1 =rt;		s1 =it;
 	#endif
 
 		k1=(i & NRTM1);
@@ -239,10 +271,11 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
-		c2->re=rt;	s2->re=it;
-		c2->im=rt;	s2->im=it;
+		c_tmp = c0 + 0x4; s_tmp = c_tmp+1;
+		c_tmp->re = c_tmp->im = rt;
+		s_tmp->re = s_tmp->im = it;
 	#else
-		c2=rt;		s2=it;
+		c2 =rt;		s2 =it;
 	#endif
 
 		k1=(i & NRTM1);
@@ -252,10 +285,11 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
-		c3->re=rt;	s3->re=it;
-		c3->im=rt;	s3->im=it;
+		c_tmp = c0 + 0xc; s_tmp = c_tmp+1;
+		c_tmp->re = c_tmp->im = rt;
+		s_tmp->re = s_tmp->im = it;
 	#else
-		c3=rt;		s3=it;
+		c3 =rt;		s3 =it;
 	#endif
 
 		k1=(i & NRTM1);
@@ -265,10 +299,11 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
-		c4->re=rt;	s4->re=it;
-		c4->im=rt;	s4->im=it;
+		c_tmp = c0 + 0x2; s_tmp = c_tmp+1;
+		c_tmp->re = c_tmp->im = rt;
+		s_tmp->re = s_tmp->im = it;
 	#else
-		c4=rt;		s4=it;
+		c4 =rt;		s4 =it;
 	#endif
 
 		k1=(i & NRTM1);
@@ -278,10 +313,11 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
-		c5->re=rt;	s5->re=it;
-		c5->im=rt;	s5->im=it;
+		c_tmp = c0 + 0xa; s_tmp = c_tmp+1;
+		c_tmp->re = c_tmp->im = rt;
+		s_tmp->re = s_tmp->im = it;
 	#else
-		c5=rt;		s5=it;
+		c5 =rt;		s5 =it;
 	#endif
 
 		k1=(i & NRTM1);
@@ -291,24 +327,29 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
-		c6->re=rt;	s6->re=it;
-		c6->im=rt;	s6->im=it;
+		c_tmp = c0 + 0x6; s_tmp = c_tmp+1;
+		c_tmp->re = c_tmp->im = rt;
+		s_tmp->re = s_tmp->im = it;
 	#else
-		c6=rt;		s6=it;
+		c6 =rt;		s6 =it;
 	#endif
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
+		i += iroot;			/* 8*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
-		c7->re=rt;	s7->re=it;
-		c7->im=rt;	s7->im=it;
+		c_tmp = c0 + 0xe; s_tmp = c_tmp+1;
+		c_tmp->re = c_tmp->im = rt;
+		s_tmp->re = s_tmp->im = it;
 	#else
-		c7=rt;		s7=it;
+		c7 =rt;		s7 =it;
 	#endif
+
 #else
+
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
 		i += iroot;
@@ -365,9 +406,9 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		j2 = j1+RE_IM_STRIDE;
 
-#ifdef USE_SSE2
+	#ifdef USE_SSE2
 
-	#ifdef DEBUG_SSE2
+	  #ifdef DEBUG_SSE2
 
 		rng_isaac_init(TRUE);
 		a[j1    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[j2    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
@@ -451,19 +492,19 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
 		j1--;
 		j2--;
 
-	#endif
+	  #endif
 
-	#if defined(COMPILER_TYPE_MSVC)	/* MSVC-style inline ASM: */
+	  #if defined(COMPILER_TYPE_MSVC)	/* MSVC-style inline ASM: */
 
 		/* Only need to store addresses of real element of each pair - im offset by 0x10
 		(i.e. 2 doubles) from that, due to the [re0,re1,im0,im1] ordering we use in SSE2 mode:
 		*/
 		add0 = &a[j1];
-	  #if 1
+	   #if 1
 		SSE2_RADIX8_DIF_TWIDDLE(add0,p1,p2,p4,p6,r0,c0)
 												/* 117 load/store [91 movaps], 82 add/subpd, 32 mulpd, 67 address-compute */
 
-	  #elif 1
+	   #elif 1
  		__asm	mov	eax, add0
 		__asm	mov	ebx, p2		// Can't get these via simple load-one-and-shift-as-needed due to array padding scheme
 		__asm	mov	ecx, p4
@@ -487,7 +528,7 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
 
 												/* Totals:109 load/store [97 movaps], 82 add/subpd, 32 mulpd, 67 address-compute */
 												/* Versus 140 load/store [100movaps], 82 add/subpd, 32 mulpd, 72 address-compute for the original implementation below. */
-	  #else
+	   #else
 		add1 = add0+p1;
 		add2 = add0+p2;
 		add3 = add0+p3;
@@ -836,9 +877,9 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
 		__asm	movaps	[edx     ],xmm4	/* a[j1+p7]=t7+rt1 */
 		__asm	movaps	[edx+0x10],xmm7	/* a[j2+p7]=t8+it1 */
 														/* Totals: 140 load/store, 82 add/subpd, 32 mulpd, 72 address-compute */
-	  #endif	/* pure-ASM */
+	   #endif	/* pure-ASM */
 
-	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
+	  #elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 		add0 = &a[j1];
 		add1 = add0+p1;
@@ -851,10 +892,10 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
 
 		SSE2_RADIX8_DIF_TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7,isrt2,c1,c2,c3,c4,c5,c6,c7);
 
-	#endif	/* MSVC or GCC */
+	  #endif	/* MSVC or GCC */
 
-	/**** Check outputs versus non-SSE2-computed reference values: ****/
-	#ifdef DEBUG_SSE2
+	  /**** Check outputs versus non-SSE2-computed reference values: ****/
+	  #ifdef DEBUG_SSE2
 			rt =t5;					it =t6;
 			t5 =t1 -rt;				t6 =t2 -it;
 			t1 =t1 +rt;				t2 =t2 +it;
@@ -885,7 +926,6 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
 			a1p6r=t7-rt;			a1p6i=t8-it;
 			a1p7r=t7+rt;			a1p7i=t8+it;
 
-		#ifdef DEBUG_SSE2
 			ASSERT(HERE, fabs(a1p0r -a[j1   ])/fabs(EPS + a1p0r) < 1e-10, "a1p0r");	ASSERT(HERE, fabs(a1p0i -a[j2   ])/fabs(EPS + a1p0i) < 1e-10, "a1p0i");
 			ASSERT(HERE, fabs(a1p1r -a[j1+p1])/fabs(EPS + a1p1r) < 1e-10, "a1p1r");	ASSERT(HERE, fabs(a1p1i -a[j2+p1])/fabs(EPS + a1p1i) < 1e-10, "a1p1i");
 			ASSERT(HERE, fabs(a1p2r -a[j1+p2])/fabs(EPS + a1p2r) < 1e-10, "a1p2r");	ASSERT(HERE, fabs(a1p2i -a[j2+p2])/fabs(EPS + a1p2i) < 1e-10, "a1p2i");
@@ -894,7 +934,6 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
 			ASSERT(HERE, fabs(a1p5r -a[j1+p5])/fabs(EPS + a1p5r) < 1e-10, "a1p5r");	ASSERT(HERE, fabs(a1p5i -a[j2+p5])/fabs(EPS + a1p5i) < 1e-10, "a1p5i");
 			ASSERT(HERE, fabs(a1p6r -a[j1+p6])/fabs(EPS + a1p6r) < 1e-10, "a1p6r");	ASSERT(HERE, fabs(a1p6i -a[j2+p6])/fabs(EPS + a1p6i) < 1e-10, "a1p6i");
 			ASSERT(HERE, fabs(a1p7r -a[j1+p7])/fabs(EPS + a1p7r) < 1e-10, "a1p7r");	ASSERT(HERE, fabs(a1p7i -a[j2+p7])/fabs(EPS + a1p7i) < 1e-10, "a1p7i");
-		#endif
 
 		/*****************************/
 		/*** Second set of inputs: ***/
@@ -935,7 +974,6 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
 			a2p6r=u7-rt;			a2p6i=u8-it;
 			a2p7r=u7+rt;			a2p7i=u8+it;
 
-		#ifdef DEBUG_SSE2
 			ASSERT(HERE, fabs(a2p0r -a[j1   ])/fabs(EPS + a2p0r) < 1e-10, "a2p0r");	ASSERT(HERE, fabs(a2p0i -a[j2   ])/fabs(EPS + a2p0i) < 1e-10, "a2p0i");
 			ASSERT(HERE, fabs(a2p1r -a[j1+p1])/fabs(EPS + a2p1r) < 1e-10, "a2p1r");	ASSERT(HERE, fabs(a2p1i -a[j2+p1])/fabs(EPS + a2p1i) < 1e-10, "a2p1i");
 			ASSERT(HERE, fabs(a2p2r -a[j1+p2])/fabs(EPS + a2p2r) < 1e-10, "a2p2r");	ASSERT(HERE, fabs(a2p2i -a[j2+p2])/fabs(EPS + a2p2i) < 1e-10, "a2p2i");
@@ -944,13 +982,13 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
 			ASSERT(HERE, fabs(a2p5r -a[j1+p5])/fabs(EPS + a2p5r) < 1e-10, "a2p5r");	ASSERT(HERE, fabs(a2p5i -a[j2+p5])/fabs(EPS + a2p5i) < 1e-10, "a2p5i");
 			ASSERT(HERE, fabs(a2p6r -a[j1+p6])/fabs(EPS + a2p6r) < 1e-10, "a2p6r");	ASSERT(HERE, fabs(a2p6i -a[j2+p6])/fabs(EPS + a2p6i) < 1e-10, "a2p6i");
 			ASSERT(HERE, fabs(a2p7r -a[j1+p7])/fabs(EPS + a2p7r) < 1e-10, "a2p7r");	ASSERT(HERE, fabs(a2p7i -a[j2+p7])/fabs(EPS + a2p7i) < 1e-10, "a2p7i");
-		#endif
 
 			j1--;
 			j2--;
-	#endif	/* DEBUG_SSE2 */
+	  #endif	/* DEBUG_SSE2 */
 
-#else
+	#else	// !USE_SSE2
+
 	/* gather the needed data (8 64-bit complex, i.e. 16 64-bit reals) and combine to get the 4 length-2 transforms... */
 	#if PFETCH
 	addr = &a[j1];
@@ -1044,8 +1082,6 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
 
 /***************/
 
-void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr)
-{
 /*
 !...Acronym: DIT = Decimation In Time
 !
@@ -1053,17 +1089,19 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 !
 !   See the documentation in radix16_dif_pass for further details.
 */
+void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr, int init_sse2, int thr_id)
+{
+	static int max_threads = 0;
 	int i,j,j1,j2,jlo,jhi,m,iroot_prim,iroot,k1,k2;
-	static int p1,p2,p3,p4,p5,p6,p7;
+	int p1,p2,p3,p4,p5,p6,p7;
 	double rt,it;
 	double re0,im0,re1,im1;
 
 #ifdef USE_SSE2
 
-	static int	first_entry = TRUE;
-	static double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7;	/* Addresses into array sections */
-
-  #if defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
+  #if !(defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
+	#error SSE2 code not supported for this compiler!
+  #endif
 
 	/* This allows us to align sincos temporaries on 16-byte boundaries (e.g. for SSE2) via pointers:
 	In sse2 mode, alloc a complex[32] array (give it a few extra slots to allow ptr to initial element-to-be-used
@@ -1075,14 +1113,17 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 	in SSE2 mode we simply double the inner-loop stride, and process vector DFT inputs in pairs.
 	*/
 	static struct complex *sc_arr = 0x0, *sc_ptr;
-	static struct complex *r0,*r1,*r2,*r3,*r4,*r5,*r6,*r7,*r8,*r9,*ra,*rb,*rc,*rd,*re,*rf;
-	static struct complex *c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*s0,*s1,*s2,*s3,*s4,*s5,*s6,*s7;
-	static struct complex *isrt2;
+	double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7;	/* Addresses into array sections */
+	struct complex *c_tmp,*s_tmp;
 
+  #ifdef MULTITHREAD
+	static struct complex *__r0;					// Base address for discrete per-thread local stores
+	struct complex *isrt2,*c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7;	// In || mode, only above base-pointer (shared by all threads) is static:
+  #elif defined(COMPILER_TYPE_GCC)
+	static struct complex *isrt2,*c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7;
   #else
-
-	#error SSE2 code not supported for this compiler!
-
+	static struct complex *r0,*r8;
+	static struct complex *isrt2,*c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7;
   #endif
 
   #ifdef DEBUG_SSE2
@@ -1103,39 +1144,83 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 
 #ifdef USE_SSE2
 
-	if(first_entry)
+	/* In order to eschew complex thread-block-and-sync logic related to the local-store-init step in multithread mode,
+	switch to a special-init-mode-call paradigm, in which the function is inited once (for as many threads as needed)
+	prior to being executed:
+	*/
+	if(init_sse2 && !sc_ptr)	// Just check (init_sse2 != 0) here, to allow the *value* of init_sse2 to store #threads
 	{
-		first_entry = FALSE;
-
-		sc_arr = ALLOC_COMPLEX(sc_arr, 36);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		max_threads = init_sse2;
+	#ifndef COMPILER_TYPE_GCC
+		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+	#endif
+		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
+		ASSERT(HERE, sc_arr == 0x0, "Init-mode call conflicts with already-malloc'ed local storage!");
+		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+		sc_arr = ALLOC_COMPLEX(sc_arr, 36*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_COMPLEX(sc_arr);
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 16 16-byte slots of sc_arr for temporaries, next 16 for the doubled sincos twiddles,
 	next 1 for doubled 1/sqrt2, plus at least 3 more slots to allow for 64-byte alignment of the array:
 	*/
-		r0    = sc_ptr + 0x00;		c0    = sc_ptr + 0x10;
-		r1    = sc_ptr + 0x01;		s0    = sc_ptr + 0x11;
-		r2    = sc_ptr + 0x02;		c4    = sc_ptr + 0x12;
-		r3    = sc_ptr + 0x03;		s4    = sc_ptr + 0x13;
-		r4    = sc_ptr + 0x04;		c2    = sc_ptr + 0x14;
-		r5    = sc_ptr + 0x05;		s2    = sc_ptr + 0x15;
-		r6    = sc_ptr + 0x06;		c6    = sc_ptr + 0x16;
-		r7    = sc_ptr + 0x07;		s6    = sc_ptr + 0x17;
-		r8    = sc_ptr + 0x08;		c1    = sc_ptr + 0x18;
-		r9    = sc_ptr + 0x09;		s1    = sc_ptr + 0x19;
-		ra    = sc_ptr + 0x0a;		c5    = sc_ptr + 0x1a;
-		rb    = sc_ptr + 0x0b;		s5    = sc_ptr + 0x1b;
-		rc    = sc_ptr + 0x0c;		c3    = sc_ptr + 0x1c;
-		rd    = sc_ptr + 0x0d;		s3    = sc_ptr + 0x1d;
-		re    = sc_ptr + 0x0e;		c7    = sc_ptr + 0x1e;
-		rf    = sc_ptr + 0x0f;		s7    = sc_ptr + 0x1f;
-									isrt2 = sc_ptr + 0x20;
-
+	#ifdef MULTITHREAD
+		__r0  = sc_ptr;
+		isrt2 = sc_ptr + 0x20;
+		for(i = 0; i < max_threads; ++i) {
+			/* These remain fixed within each per-thread local store: */
+			isrt2->re = ISRT2;	isrt2->im = ISRT2;
+			isrt2 += 36;	/* Move on to next thread's local store */
+		}
+	#elif defined(COMPILER_TYPE_GCC)
+		c0    = sc_ptr + 0x10;
+		c4    = sc_ptr + 0x12;
+		c2    = sc_ptr + 0x14;
+		c6    = sc_ptr + 0x16;
+		c1    = sc_ptr + 0x18;
+		c5    = sc_ptr + 0x1a;
+		c3    = sc_ptr + 0x1c;
+		c7    = sc_ptr + 0x1e;
+		isrt2 = sc_ptr + 0x20;
 		/* These remain fixed: */
 		isrt2->re = ISRT2;	isrt2->im = ISRT2;
-
+	#else
+		r0    = sc_ptr + 0x00;		c0    = sc_ptr + 0x10;
+	//	r1    = sc_ptr + 0x01;		s0    = sc_ptr + 0x11;
+	/*	r2    = sc_ptr + 0x02;	*/	c4    = sc_ptr + 0x12;
+	//	r3    = sc_ptr + 0x03;		s4    = sc_ptr + 0x13;
+	/*	r4    = sc_ptr + 0x04;	*/	c2    = sc_ptr + 0x14;
+	//	r5    = sc_ptr + 0x05;		s2    = sc_ptr + 0x15;
+	/*	r6    = sc_ptr + 0x06;	*/	c6    = sc_ptr + 0x16;
+	//	r7    = sc_ptr + 0x07;		s6    = sc_ptr + 0x17;
+		r8    = sc_ptr + 0x08;		c1    = sc_ptr + 0x18;
+	//	r9    = sc_ptr + 0x09;		s1    = sc_ptr + 0x19;
+	/*	ra    = sc_ptr + 0x0a;	*/	c5    = sc_ptr + 0x1a;
+	//	rb    = sc_ptr + 0x0b;		s5    = sc_ptr + 0x1b;
+	/*	rc    = sc_ptr + 0x0c;	*/	c3    = sc_ptr + 0x1c;
+	//	rd    = sc_ptr + 0x0d;		s3    = sc_ptr + 0x1d;
+	/*	re    = sc_ptr + 0x0e;	*/	c7    = sc_ptr + 0x1e;
+	//	rf    = sc_ptr + 0x0f;		s7    = sc_ptr + 0x1f;
+									isrt2 = sc_ptr + 0x20;
+		/* These remain fixed: */
+		isrt2->re = ISRT2;	isrt2->im = ISRT2;
+	#endif
+		return;
 	}	/* end of inits */
+
+	/* If multithreaded, set the local-store pointers needed for the current thread; */
+	#ifdef MULTITHREAD
+		ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+		c0 = __r0 + thr_id*36 + 0x10;
+		c4    = c0 + 0x02;
+		c2    = c0 + 0x04;
+		c6    = c0 + 0x06;
+		c1    = c0 + 0x08;
+		c5    = c0 + 0x0a;
+		c3    = c0 + 0x0c;
+		c7    = c0 + 0x0e;
+		isrt2 = c0 + 0x10;
+	#endif
 
 #endif
 
@@ -1175,8 +1260,12 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
    since we only compute each set of twiddles once and re-use it for many data blocks. */
 #if HIACC
 	#ifdef USE_SSE2
-		c0->re=1.;	s0->re=0.;
-		c0->im=1.;	s0->im=0.;
+		/* Due to roots-locality considerations, roots (c,s)[0-7] are offset w.r.to the thread-local ptr pair as
+		(c0,s0) + 0x[0,8,4,c,2,a,6,e]:
+		*/
+		c_tmp = c0 + 0x0; s_tmp = c_tmp+1;	/* c0,s0 */
+		c_tmp->re = c_tmp->im = 1.0;
+		s_tmp->re = s_tmp->im = 0.0;
 	#endif
 
 		k1=(i & NRTM1);
@@ -1186,10 +1275,11 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
-		c1->re=rt;	s1->re=it;
-		c1->im=rt;	s1->im=it;
+		c_tmp = c0 + 0x8; s_tmp = c_tmp+1;
+		c_tmp->re = c_tmp->im = rt;
+		s_tmp->re = s_tmp->im = it;
 	#else
-		c1=rt;	s1=it;
+		c1 =rt;		s1 =it;
 	#endif
 
 		k1=(i & NRTM1);
@@ -1199,10 +1289,11 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
-		c2->re=rt;	s2->re=it;
-		c2->im=rt;	s2->im=it;
+		c_tmp = c0 + 0x4; s_tmp = c_tmp+1;
+		c_tmp->re = c_tmp->im = rt;
+		s_tmp->re = s_tmp->im = it;
 	#else
-		c2=rt;	s2=it;
+		c2 =rt;		s2 =it;
 	#endif
 
 		k1=(i & NRTM1);
@@ -1212,10 +1303,11 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
-		c3->re=rt;	s3->re=it;
-		c3->im=rt;	s3->im=it;
+		c_tmp = c0 + 0xc; s_tmp = c_tmp+1;
+		c_tmp->re = c_tmp->im = rt;
+		s_tmp->re = s_tmp->im = it;
 	#else
-		c3=rt;	s3=it;
+		c3 =rt;		s3 =it;
 	#endif
 
 		k1=(i & NRTM1);
@@ -1225,10 +1317,11 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
-		c4->re=rt;	s4->re=it;
-		c4->im=rt;	s4->im=it;
+		c_tmp = c0 + 0x2; s_tmp = c_tmp+1;
+		c_tmp->re = c_tmp->im = rt;
+		s_tmp->re = s_tmp->im = it;
 	#else
-		c4=rt;	s4=it;
+		c4 =rt;		s4 =it;
 	#endif
 
 		k1=(i & NRTM1);
@@ -1238,10 +1331,11 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
-		c5->re=rt;	s5->re=it;
-		c5->im=rt;	s5->im=it;
+		c_tmp = c0 + 0xa; s_tmp = c_tmp+1;
+		c_tmp->re = c_tmp->im = rt;
+		s_tmp->re = s_tmp->im = it;
 	#else
-		c5=rt;	s5=it;
+		c5 =rt;		s5 =it;
 	#endif
 
 		k1=(i & NRTM1);
@@ -1251,24 +1345,29 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
-		c6->re=rt;	s6->re=it;
-		c6->im=rt;	s6->im=it;
+		c_tmp = c0 + 0x6; s_tmp = c_tmp+1;
+		c_tmp->re = c_tmp->im = rt;
+		s_tmp->re = s_tmp->im = it;
 	#else
-		c6=rt;	s6=it;
+		c6 =rt;		s6 =it;
 	#endif
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
+		i += iroot;			/* 8*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
-		c7->re=rt;	s7->re=it;
-		c7->im=rt;	s7->im=it;
+		c_tmp = c0 + 0xe; s_tmp = c_tmp+1;
+		c_tmp->re = c_tmp->im = rt;
+		s_tmp->re = s_tmp->im = it;
 	#else
-		c7=rt;	s7=it;
+		c7 =rt;		s7 =it;
 	#endif
+
 #else
+
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
 		i += iroot;
@@ -1320,9 +1419,9 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		j2 = j1+RE_IM_STRIDE;
 
-#ifdef USE_SSE2
+	#ifdef USE_SSE2
 
-	#ifdef DEBUG_SSE2
+	  #ifdef DEBUG_SSE2
 
 		rng_isaac_init(TRUE);
 		a[j1    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[j2    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
@@ -1391,18 +1490,18 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 
 		j1--;
 		j2--;
-	#endif
+	  #endif
 
-	#if defined(COMPILER_TYPE_MSVC)	/* MSVC-style inline ASM: */
+	  #if defined(COMPILER_TYPE_MSVC)	/* MSVC-style inline ASM: */
 
 		/* Only need to store addresses of real element of each pair - im offset by 0x10
 		(i.e. 2 doubles) from that, due to the [re0,re1,im0,im1] ordering we use in SSE2 mode:
 		*/
 		add0 = &a[j1];
-	  #if 1
+	   #if 1
 		SSE2_RADIX8_DIT_TWIDDLE(add0,p4,p5,p6,p7,r0,c4)
 												/*  97 load/store, 82 add/subpd, 32 mulpd, 67 address-compute */
-	  #elif 0
+	   #elif 0
 		add1 = add0+p1;
 		add2 = add0+p2;
 		add3 = add0+p3;
@@ -1415,7 +1514,7 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO(add4, add5, add6, add7, r8)
 		SSE2_RADIX8_DIT_COMBINE_RAD4_SUBS(r0,r2,r4,r6,r8,ra,rc,re)
 
-	  #elif 0	// if(1) - test out pure-asm version
+	   #elif 0	// if(1) - test out pure-asm version
 		__asm	mov	eax, add0
 		__asm	mov	ebx, p2		// Can't get these via simple load-one-and-shift-as-needed due to array padding scheme
 		__asm	mov	ecx, p4
@@ -1439,7 +1538,7 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 
 												/* Totals:109 load/store, 82 add/subpd, 32 mulpd, 67 address-compute */
 												/* Versus 140 load/store, 82 add/subpd, 32 mulpd, 72 address-compute for the original implementation below. */
-	  #elif 1
+	   #elif 1
 
 		add1 = add0+p1;
 		add2 = add0+p2;
@@ -1881,9 +1980,9 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		__asm	movaps	[ebx     ],xmm6	/* a[j1+p7] */
 												/* Totals:121 load/store [64 movaps], 68 add/subpd, 32 mulpd, 60 address-compute */
 														/* 42 fewer movaps than DIF! [I.e. it pays to do careful register mgmt] */
-	  #endif	/* #if 1 */
+	   #endif	/* #if 1 */
 
-	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
+	  #elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 		add0 = &a[j1];
 		add1 = add0+p1;
@@ -1896,121 +1995,118 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 
 		SSE2_RADIX8_DIT_TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7,isrt2,c1,c2,c3,c4,c5,c6,c7);
 
-	#endif	/* MSVC or ICC */
+	  #endif	/* MSVC or GCC */
 
 	/**** Check outputs versus non-SSE2-computed reference values: ****/
-	#ifdef DEBUG_SSE2
+	  #ifdef DEBUG_SSE2
 
-			rt =t5;	t5 =t1 -rt;	t1 =t1 +rt;
-			it =t6;	t6 =t2 -it;	t2 =t2 +it;
+		rt =t5;	t5 =t1 -rt;	t1 =t1 +rt;
+		it =t6;	t6 =t2 -it;	t2 =t2 +it;
 
-			rt =t7;	t7 =t3 -t8;	t3 =t3 +t8;
-				t8 =t4 +rt;	t4 =t4 -rt;
+		rt =t7;	t7 =t3 -t8;	t3 =t3 +t8;
+			t8 =t4 +rt;	t4 =t4 -rt;
 
-			rt =t13;	t13=t9 -rt ;	t9 =t9 +rt ;
-			it =t14;	t14=t10-it ;	t10=t10+it ;
+		rt =t13;	t13=t9 -rt ;	t9 =t9 +rt ;
+		it =t14;	t14=t10-it ;	t10=t10+it ;
 
-			rt =t15;	t15=t11-t16;	t11=t11+t16;
-						t16=t12+rt ;	t12=t12-rt ;
+		rt =t15;	t15=t11-t16;	t11=t11+t16;
+					t16=t12+rt ;	t12=t12-rt ;
 
-			a1p0r=t1+t9;				a1p0i=t2+t10;
-			t1      =t1-t9;				t2      =t2-t10;
-			GET_RE(c4,re0);	GET_RE(s4,im0);
-			a1p4r=t1 *re0+t2 *im0;		a1p4i=t2 *re0-t1 *im0;
+		a1p0r=t1+t9;				a1p0i=t2+t10;
+		t1      =t1-t9;				t2      =t2-t10;
+		GET_RE(c4,re0);	GET_RE(s4,im0);
+		a1p4r=t1 *re0+t2 *im0;		a1p4i=t2 *re0-t1 *im0;
 
-			rt=(t11+t12)*ISRT2;			it=(t11-t12)*ISRT2;
-			t11     =t3+rt;				t12       =t4-it;
-			t3      =t3-rt;				t4        =t4+it;
-			GET_RE(c1,re0);	GET_RE(s1,im0);
-			a1p1r=t11*re0+t12*im0;		a1p1i=t12*re0-t11*im0;
-			GET_RE(c5,re0);	GET_RE(s5,im0);
-			a1p5r=t3 *re0+t4 *im0;		a1p5i=t4 *re0-t3 *im0;
+		rt=(t11+t12)*ISRT2;			it=(t11-t12)*ISRT2;
+		t11     =t3+rt;				t12       =t4-it;
+		t3      =t3-rt;				t4        =t4+it;
+		GET_RE(c1,re0);	GET_RE(s1,im0);
+		a1p1r=t11*re0+t12*im0;		a1p1i=t12*re0-t11*im0;
+		GET_RE(c5,re0);	GET_RE(s5,im0);
+		a1p5r=t3 *re0+t4 *im0;		a1p5i=t4 *re0-t3 *im0;
 
-			rt      =t5+t14;			it        =t6-t13;
-			t5      =t5-t14;			t6        =t6+t13;
-			GET_RE(c2,re0);	GET_RE(s2,im0);
-			a1p2r=rt *re0+it *im0;		a1p2i=it *re0-rt *im0;
-			GET_RE(c6,re0);	GET_RE(s6,im0);
-			a1p6r=t5 *re0+t6 *im0;		a1p6i=t6 *re0-t5 *im0;
+		rt      =t5+t14;			it        =t6-t13;
+		t5      =t5-t14;			t6        =t6+t13;
+		GET_RE(c2,re0);	GET_RE(s2,im0);
+		a1p2r=rt *re0+it *im0;		a1p2i=it *re0-rt *im0;
+		GET_RE(c6,re0);	GET_RE(s6,im0);
+		a1p6r=t5 *re0+t6 *im0;		a1p6i=t6 *re0-t5 *im0;
 
-			rt=(t15-t16)*ISRT2;			it=(t15+t16)*ISRT2;
-			t15     =t7-rt;				t16       =t8-it;
-			t7      =t7+rt;				t8        =t8+it;
-			GET_RE(c3,re0);	GET_RE(s3,im0);
-			a1p3r=t15*re0+t16*im0;		a1p3i=t16*re0-t15*im0;
-			GET_RE(c7,re0);	GET_RE(s7,im0);
-			a1p7r=t7 *re0+t8 *im0;		a1p7i=t8 *re0-t7 *im0;
+		rt=(t15-t16)*ISRT2;			it=(t15+t16)*ISRT2;
+		t15     =t7-rt;				t16       =t8-it;
+		t7      =t7+rt;				t8        =t8+it;
+		GET_RE(c3,re0);	GET_RE(s3,im0);
+		a1p3r=t15*re0+t16*im0;		a1p3i=t16*re0-t15*im0;
+		GET_RE(c7,re0);	GET_RE(s7,im0);
+		a1p7r=t7 *re0+t8 *im0;		a1p7i=t8 *re0-t7 *im0;
 
-		#if 0//def DEBUG_SSE2
-			ASSERT(HERE, fabs(a1p0r -a[j1   ])/fabs(EPS + a1p0r) < 1e-10, "a1p0r");	ASSERT(HERE, fabs(a1p0i -a[j2   ])/fabs(EPS + a1p0i) < 1e-10, "a1p0i");
-			ASSERT(HERE, fabs(a1p1r -a[j1+p1])/fabs(EPS + a1p1r) < 1e-10, "a1p1r");	ASSERT(HERE, fabs(a1p1i -a[j2+p1])/fabs(EPS + a1p1i) < 1e-10, "a1p1i");
-			ASSERT(HERE, fabs(a1p2r -a[j1+p2])/fabs(EPS + a1p2r) < 1e-10, "a1p2r");	ASSERT(HERE, fabs(a1p2i -a[j2+p2])/fabs(EPS + a1p2i) < 1e-10, "a1p2i");
-			ASSERT(HERE, fabs(a1p3r -a[j1+p3])/fabs(EPS + a1p3r) < 1e-10, "a1p3r");	ASSERT(HERE, fabs(a1p3i -a[j2+p3])/fabs(EPS + a1p3i) < 1e-10, "a1p3i");
-			ASSERT(HERE, fabs(a1p4r -a[j1+p4])/fabs(EPS + a1p4r) < 1e-10, "a1p4r");	ASSERT(HERE, fabs(a1p4i -a[j2+p4])/fabs(EPS + a1p4i) < 1e-10, "a1p4i");
-			ASSERT(HERE, fabs(a1p5r -a[j1+p5])/fabs(EPS + a1p5r) < 1e-10, "a1p5r");	ASSERT(HERE, fabs(a1p5i -a[j2+p5])/fabs(EPS + a1p5i) < 1e-10, "a1p5i");
-			ASSERT(HERE, fabs(a1p6r -a[j1+p6])/fabs(EPS + a1p6r) < 1e-10, "a1p6r");	ASSERT(HERE, fabs(a1p6i -a[j2+p6])/fabs(EPS + a1p6i) < 1e-10, "a1p6i");
-			ASSERT(HERE, fabs(a1p7r -a[j1+p7])/fabs(EPS + a1p7r) < 1e-10, "a1p7r");	ASSERT(HERE, fabs(a1p7i -a[j2+p7])/fabs(EPS + a1p7i) < 1e-10, "a1p7i");
-		#endif
+		ASSERT(HERE, fabs(a1p0r -a[j1   ])/fabs(EPS + a1p0r) < 1e-10, "a1p0r");	ASSERT(HERE, fabs(a1p0i -a[j2   ])/fabs(EPS + a1p0i) < 1e-10, "a1p0i");
+		ASSERT(HERE, fabs(a1p1r -a[j1+p1])/fabs(EPS + a1p1r) < 1e-10, "a1p1r");	ASSERT(HERE, fabs(a1p1i -a[j2+p1])/fabs(EPS + a1p1i) < 1e-10, "a1p1i");
+		ASSERT(HERE, fabs(a1p2r -a[j1+p2])/fabs(EPS + a1p2r) < 1e-10, "a1p2r");	ASSERT(HERE, fabs(a1p2i -a[j2+p2])/fabs(EPS + a1p2i) < 1e-10, "a1p2i");
+		ASSERT(HERE, fabs(a1p3r -a[j1+p3])/fabs(EPS + a1p3r) < 1e-10, "a1p3r");	ASSERT(HERE, fabs(a1p3i -a[j2+p3])/fabs(EPS + a1p3i) < 1e-10, "a1p3i");
+		ASSERT(HERE, fabs(a1p4r -a[j1+p4])/fabs(EPS + a1p4r) < 1e-10, "a1p4r");	ASSERT(HERE, fabs(a1p4i -a[j2+p4])/fabs(EPS + a1p4i) < 1e-10, "a1p4i");
+		ASSERT(HERE, fabs(a1p5r -a[j1+p5])/fabs(EPS + a1p5r) < 1e-10, "a1p5r");	ASSERT(HERE, fabs(a1p5i -a[j2+p5])/fabs(EPS + a1p5i) < 1e-10, "a1p5i");
+		ASSERT(HERE, fabs(a1p6r -a[j1+p6])/fabs(EPS + a1p6r) < 1e-10, "a1p6r");	ASSERT(HERE, fabs(a1p6i -a[j2+p6])/fabs(EPS + a1p6i) < 1e-10, "a1p6i");
+		ASSERT(HERE, fabs(a1p7r -a[j1+p7])/fabs(EPS + a1p7r) < 1e-10, "a1p7r");	ASSERT(HERE, fabs(a1p7i -a[j2+p7])/fabs(EPS + a1p7i) < 1e-10, "a1p7i");
 
-		/*****************************/
-		/*** Second set of inputs: ***/
-		/*****************************/
+	/*****************************/
+	/*** Second set of inputs: ***/
+	/*****************************/
 
-			j1++;
-			j2++;
+		j1++;
+		j2++;
 
-			rt =u5;	u5 =u1 -rt;	u1 =u1 +rt;
-			it =u6;	u6 =u2 -it;	u2 =u2 +it;
+		rt =u5;	u5 =u1 -rt;	u1 =u1 +rt;
+		it =u6;	u6 =u2 -it;	u2 =u2 +it;
 
-			rt =u7;	u7 =u3 -u8;	u3 =u3 +u8;
-				u8 =u4 +rt;	u4 =u4 -rt;
+		rt =u7;	u7 =u3 -u8;	u3 =u3 +u8;
+			u8 =u4 +rt;	u4 =u4 -rt;
 
-			rt =u13;	u13=u9 -rt ;	u9 =u9 +rt ;
-			it =u14;	u14=u10-it ;	u10=u10+it ;
+		rt =u13;	u13=u9 -rt ;	u9 =u9 +rt ;
+		it =u14;	u14=u10-it ;	u10=u10+it ;
 
-			rt =u15;	u15=u11-u16;	u11=u11+u16;
-						u16=u12+rt ;	u12=u12-rt ;
+		rt =u15;	u15=u11-u16;	u11=u11+u16;
+					u16=u12+rt ;	u12=u12-rt ;
 
-			a2p0r=u1+u9;				a2p0i=u2+u10;
-			u1      =u1-u9;				u2      =u2-u10;
-			GET_IM(c4,re0);	GET_IM(s4,im0);
-			a2p4r=u1 *re0+u2 *im0;		a2p4i=u2 *re0-u1 *im0;
+		a2p0r=u1+u9;				a2p0i=u2+u10;
+		u1      =u1-u9;				u2      =u2-u10;
+		GET_IM(c4,re0);	GET_IM(s4,im0);
+		a2p4r=u1 *re0+u2 *im0;		a2p4i=u2 *re0-u1 *im0;
 
-			rt=(u11+u12)*ISRT2;			it=(u11-u12)*ISRT2;
-			u11     =u3+rt;				u12       =u4-it;
-			u3      =u3-rt;				u4        =u4+it;
-			GET_IM(c1,re0);	GET_IM(s1,im0);
-			a2p1r=u11*re0+u12*im0;		a2p1i=u12*re0-u11*im0;
-			GET_IM(c5,re0);	GET_IM(s5,im0);
-			a2p5r=u3 *re0+u4 *im0;		a2p5i=u4 *re0-u3 *im0;
+		rt=(u11+u12)*ISRT2;			it=(u11-u12)*ISRT2;
+		u11     =u3+rt;				u12       =u4-it;
+		u3      =u3-rt;				u4        =u4+it;
+		GET_IM(c1,re0);	GET_IM(s1,im0);
+		a2p1r=u11*re0+u12*im0;		a2p1i=u12*re0-u11*im0;
+		GET_IM(c5,re0);	GET_IM(s5,im0);
+		a2p5r=u3 *re0+u4 *im0;		a2p5i=u4 *re0-u3 *im0;
 
-			rt      =u5+u14;			it        =u6-u13;
-			u5      =u5-u14;			u6        =u6+u13;
-			GET_IM(c2,re0);	GET_IM(s2,im0);
-			a2p2r=rt *re0+it *im0;		a2p2i=it *re0-rt *im0;
-			GET_IM(c6,re0);	GET_IM(s6,im0);
-			a2p6r=u5 *re0+u6 *im0;		a2p6i=u6 *re0-u5 *im0;
+		rt      =u5+u14;			it        =u6-u13;
+		u5      =u5-u14;			u6        =u6+u13;
+		GET_IM(c2,re0);	GET_IM(s2,im0);
+		a2p2r=rt *re0+it *im0;		a2p2i=it *re0-rt *im0;
+		GET_IM(c6,re0);	GET_IM(s6,im0);
+		a2p6r=u5 *re0+u6 *im0;		a2p6i=u6 *re0-u5 *im0;
 
-			rt=(u15-u16)*ISRT2;			it=(u15+u16)*ISRT2;
-			u15     =u7-rt;				u16       =u8-it;
-			u7      =u7+rt;				u8        =u8+it;
-			GET_IM(c3,re0);	GET_IM(s3,im0);
-			a2p3r=u15*re0+u16*im0;		a2p3i=u16*re0-u15*im0;
-			GET_IM(c7,re0);	GET_IM(s7,im0);
-			a2p7r=u7 *re0+u8 *im0;		a2p7i=u8 *re0-u7 *im0;
+		rt=(u15-u16)*ISRT2;			it=(u15+u16)*ISRT2;
+		u15     =u7-rt;				u16       =u8-it;
+		u7      =u7+rt;				u8        =u8+it;
+		GET_IM(c3,re0);	GET_IM(s3,im0);
+		a2p3r=u15*re0+u16*im0;		a2p3i=u16*re0-u15*im0;
+		GET_IM(c7,re0);	GET_IM(s7,im0);
+		a2p7r=u7 *re0+u8 *im0;		a2p7i=u8 *re0-u7 *im0;
 
-		#if 0//def DEBUG_SSE2
-			ASSERT(HERE, fabs(a2p0r -a[j1   ])/fabs(EPS + a2p0r) < 1e-10, "a2p0r");	ASSERT(HERE, fabs(a2p0i -a[j2   ])/fabs(EPS + a2p0i) < 1e-10, "a2p0i");
-			ASSERT(HERE, fabs(a2p1r -a[j1+p1])/fabs(EPS + a2p1r) < 1e-10, "a2p1r");	ASSERT(HERE, fabs(a2p1i -a[j2+p1])/fabs(EPS + a2p1i) < 1e-10, "a2p1i");
-			ASSERT(HERE, fabs(a2p2r -a[j1+p2])/fabs(EPS + a2p2r) < 1e-10, "a2p2r");	ASSERT(HERE, fabs(a2p2i -a[j2+p2])/fabs(EPS + a2p2i) < 1e-10, "a2p2i");
-			ASSERT(HERE, fabs(a2p3r -a[j1+p3])/fabs(EPS + a2p3r) < 1e-10, "a2p3r");	ASSERT(HERE, fabs(a2p3i -a[j2+p3])/fabs(EPS + a2p3i) < 1e-10, "a2p3i");
-			ASSERT(HERE, fabs(a2p4r -a[j1+p4])/fabs(EPS + a2p4r) < 1e-10, "a2p4r");	ASSERT(HERE, fabs(a2p4i -a[j2+p4])/fabs(EPS + a2p4i) < 1e-10, "a2p4i");
-			ASSERT(HERE, fabs(a2p5r -a[j1+p5])/fabs(EPS + a2p5r) < 1e-10, "a2p5r");	ASSERT(HERE, fabs(a2p5i -a[j2+p5])/fabs(EPS + a2p5i) < 1e-10, "a2p5i");
-			ASSERT(HERE, fabs(a2p6r -a[j1+p6])/fabs(EPS + a2p6r) < 1e-10, "a2p6r");	ASSERT(HERE, fabs(a2p6i -a[j2+p6])/fabs(EPS + a2p6i) < 1e-10, "a2p6i");
-			ASSERT(HERE, fabs(a2p7r -a[j1+p7])/fabs(EPS + a2p7r) < 1e-10, "a2p7r");	ASSERT(HERE, fabs(a2p7i -a[j2+p7])/fabs(EPS + a2p7i) < 1e-10, "a2p7i");
-		#endif
-			j1--;
-			j2--;
+		ASSERT(HERE, fabs(a2p0r -a[j1   ])/fabs(EPS + a2p0r) < 1e-10, "a2p0r");	ASSERT(HERE, fabs(a2p0i -a[j2   ])/fabs(EPS + a2p0i) < 1e-10, "a2p0i");
+		ASSERT(HERE, fabs(a2p1r -a[j1+p1])/fabs(EPS + a2p1r) < 1e-10, "a2p1r");	ASSERT(HERE, fabs(a2p1i -a[j2+p1])/fabs(EPS + a2p1i) < 1e-10, "a2p1i");
+		ASSERT(HERE, fabs(a2p2r -a[j1+p2])/fabs(EPS + a2p2r) < 1e-10, "a2p2r");	ASSERT(HERE, fabs(a2p2i -a[j2+p2])/fabs(EPS + a2p2i) < 1e-10, "a2p2i");
+		ASSERT(HERE, fabs(a2p3r -a[j1+p3])/fabs(EPS + a2p3r) < 1e-10, "a2p3r");	ASSERT(HERE, fabs(a2p3i -a[j2+p3])/fabs(EPS + a2p3i) < 1e-10, "a2p3i");
+		ASSERT(HERE, fabs(a2p4r -a[j1+p4])/fabs(EPS + a2p4r) < 1e-10, "a2p4r");	ASSERT(HERE, fabs(a2p4i -a[j2+p4])/fabs(EPS + a2p4i) < 1e-10, "a2p4i");
+		ASSERT(HERE, fabs(a2p5r -a[j1+p5])/fabs(EPS + a2p5r) < 1e-10, "a2p5r");	ASSERT(HERE, fabs(a2p5i -a[j2+p5])/fabs(EPS + a2p5i) < 1e-10, "a2p5i");
+		ASSERT(HERE, fabs(a2p6r -a[j1+p6])/fabs(EPS + a2p6r) < 1e-10, "a2p6r");	ASSERT(HERE, fabs(a2p6i -a[j2+p6])/fabs(EPS + a2p6i) < 1e-10, "a2p6i");
+		ASSERT(HERE, fabs(a2p7r -a[j1+p7])/fabs(EPS + a2p7r) < 1e-10, "a2p7r");	ASSERT(HERE, fabs(a2p7i -a[j2+p7])/fabs(EPS + a2p7i) < 1e-10, "a2p7i");
+
+		j1--;
+		j2--;
 	#endif	/* DEBUG_SSE2 */
 
 	#ifdef DEBUG_SSE2

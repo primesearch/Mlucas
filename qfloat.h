@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2012 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -20,7 +20,17 @@
 *                                                                              *
 *******************************************************************************/
 
+/****************************************************************************
+ * We now include this header file if it was not included before.
+ ****************************************************************************/
+#ifndef qfloat_h_included
+#define qfloat_h_included
+
 #include "Mdata.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*
 Implements a 128-bit floating-point emulation.
@@ -28,12 +38,6 @@ Implements a 128-bit floating-point emulation.
 ***NOTE: Any program that includes this header must call qtest() prior to calling
 any other qfloat functions!***
 */
-
-/****************************************************************************
- * We now include this header file if it was not included before.
- ****************************************************************************/
-#ifndef qfloat_h_included
-#define qfloat_h_included
 
 /* Integer constants needed to manipulate upper half of a qfloat: */
 
@@ -87,31 +91,64 @@ struct qfloat{
 /* Useful constants in qfloat form: */
 extern const struct qfloat QZRO;
 extern const struct qfloat QONE;
+extern const struct qfloat QEPS;
+extern const struct qfloat QHALF;
 extern const struct qfloat QTWO;
 extern const struct qfloat QTHREE;
 extern const struct qfloat Q2PI;
 extern const struct qfloat QPI;
 extern const struct qfloat QPIHALF;
+extern const struct qfloat QIPIHLF;
+extern const struct qfloat QPI4TH;
 extern const struct qfloat QLN2;
 extern const struct qfloat QEXP;
 extern const struct qfloat QSQRT2;
+extern const struct qfloat QISRT2;
+extern const struct qfloat QI64AGM;
+extern const struct qfloat QSNAN;	// signaling NaN
 
+/*********************/
 /* Qfloat functions: */
+/*********************/
+// Self-tests:
 int    qtest		(void);
-struct qfloat qfneg	(struct qfloat q);
-struct qfloat qfabs	(struct qfloat q);
-uint32 qfcmpeq		(struct qfloat q1, struct qfloat q2);
-uint32 qfcmplt		(struct qfloat q1, struct qfloat q2);
-uint32 qfcmple		(struct qfloat q1, struct qfloat q2);
-double qfdbl		(struct qfloat q);
+// I/O:
+char* qf2str(struct qfloat q);
+// Negation, absolute value:
+struct qfloat qfneg	(const struct qfloat q);
+struct qfloat qfabs	(const struct qfloat q);
+// Comparisons:
+uint32 qfiszero		(const struct qfloat q);
+uint32 qfcmpeq		(const struct qfloat q1, struct qfloat q2);
+uint32 qfcmpne		(const struct qfloat q1, struct qfloat q2);
+uint32 qfcmplt		(const struct qfloat q1, struct qfloat q2);
+uint32 qfcmpgt		(const struct qfloat q1, struct qfloat q2);
+uint32 qfcmple		(const struct qfloat q1, struct qfloat q2);
+uint32 qfcmpge		(const struct qfloat q1, struct qfloat q2);
+// qfloat --> double / long-double conversions:
+double qfdbl		(const struct qfloat q);
+long double qfldbl	(const struct qfloat q);
+// double / long-double --> qfloat conversions:
 struct qfloat dbl_to_q	(double d);
+struct qfloat ldbl_to_q	(long double ld);
+// int --> qfloat conversion:
 struct qfloat i64_to_q	(int64 i64);
+struct qfloat i128_to_q	(uint128 i);
+// Multiply by power of 2 ("binary shift", but with added exponent/significand handling needed)
 struct qfloat qfmul_pow2(struct qfloat q, int32 pow);
-struct qfloat qfnint	(struct qfloat q);
-struct qfloat qfint	(struct qfloat q);
+// Round-to-nearest / Round toward zero - Note these return result as a twos-comp 128-bit *integer*:
+uint128 qfnint	(struct qfloat q);
+uint128 qfint	(struct qfloat q);
+// q1*q2:
 struct qfloat qfmul	(struct qfloat q1, struct qfloat q2);
+// q1/q2:
 struct qfloat qfdiv	(struct qfloat q1, struct qfloat q2);
+// qfloat approximation to rational p/q:
 struct qfloat qf_rational_quotient(int64 p, int64 q);
+
+// Increment & decrement
+struct qfloat qfinc(struct qfloat q);
+struct qfloat qfdec(struct qfloat q);
 
 /* Top-level add and subtract routines seen by the caller - these examine the
    signs of the inputs, send the proper combination of +-q1 and +-q2 to the
@@ -124,17 +161,104 @@ struct qfloat qfsum	(struct qfloat q1, struct qfloat q2);
 struct qfloat qfdif	(struct qfloat q1, struct qfloat q2);
 /* Multiplicative inverse: */
 struct qfloat qfinv	(struct qfloat q);
-/* Square root: */
+/* Square root and inverse thereof: */
 struct qfloat qfsqrt(struct qfloat q);
-/* Exponential: */
+struct qfloat qisqrt(struct qfloat q);
+/* AGM-iteration utility: */
+struct qfloat qfagm	(struct qfloat x, struct qfloat y);
+/* Natural exponential and log, base-10 log: */
 struct qfloat qfexp	(struct qfloat q);
-/* Top-level sine and cosine routines seen by the caller - these examine the
+struct qfloat qflog	(struct qfloat q);
+struct qfloat qflog10(struct qfloat q);
+struct qfloat qfatan(struct qfloat x);
+/* Factorial: */
+struct qfloat qffact(uint32 n);
+
+/* Top-level trigonometric routines seen by the caller - these examine the
    sign and magnitude of the input and map that to the proper call to either
    +-qfsn1(arg) or +-qfcs1(arg), where arg is in [0, pi/2). */
 struct qfloat qfcos	(struct qfloat q);
 struct qfloat qfsin	(struct qfloat q);
+struct qfloat qftan (struct qfloat q);
+struct qfloat qfcot (struct qfloat q);
+struct qfloat qftan_and_sin(struct qfloat *x);
+struct qfloat qftan_and_cos(struct qfloat *x);
+struct qfloat qfcosh(struct qfloat q);
+struct qfloat qfsinh(struct qfloat q);
+struct qfloat qftanh(struct qfloat q);
+struct qfloat qftanh_and_sinh(struct qfloat *x);
+struct qfloat qftanh_and_cosh(struct qfloat *x);
+
 /* low-level sine and cosine routines - these require an argument in [0, pi/2). */
 struct qfloat qfcs1	(struct qfloat q);
 struct qfloat qfsn1	(struct qfloat q);
 
+// Utility macros:
+#define QLEADZ(__x)	( leadz64(__x.hi) + ((-(sint32)(__x.hi == 0)) && leadz64(__x.lo)) )
+
+/* Left-shift: This should move at most a bit into the lowest exp-field, so check that on output: */
+#define QLSHIFT(__x, __n, __y)\
+{\
+	/* Make sure sign/exp fields have been cleared and shift count >= 0: */\
+	ASSERT(HERE, (__x.hi>>52) == 0,"QLSHIFT: sign/exp fields not zero!");\
+	ASSERT(HERE, (int64)__n >= 0,"QLSHIFT: (int64)__n >= 0");\
+	/* Need to handle zero shift count separately: */\
+	if(__n == 0)\
+	{\
+		__y.hi = ((uint64)__x.hi);\
+		__y.lo = ((uint64)__x.lo);\
+	}\
+	else if(__n < 64)\
+	{\
+		__y.hi = ((uint64)__x.hi << __n) + ((uint64)__x.lo >> (64-__n));\
+		__y.lo = ((uint64)__x.lo << __n);\
+	}\
+	else if(__n < 128)\
+	{\
+		__y.hi = ((uint64)__x.lo << (__n-64));\
+		__y.lo = (uint64)0;\
+	}\
+	else\
+	{\
+		__y.hi = (uint64)0;\
+		__y.lo = (uint64)0;\
+	}\
+	/* Make sure exp field at most 1 after shift: */\
+	ASSERT(HERE, (__x.hi>>52) <= 1,"QLSHIFT: exp field out of range on output!");\
+}
+
+/* (Logical) Right-shift: */
+#define QRSHIFT(__x, __n, __y)\
+{\
+	/* Make sure sign/exp fields have been cleared and shift count >= 0: */\
+	ASSERT(HERE, (__x.hi>>52) == 0,"QRSHIFT:  sign/exp fields not zero!");\
+	ASSERT(HERE, (int64)__n >= 0,"QRSHIFT: (int64)__n >= 0 !");\
+	/* Need to handle zero shift count separately: */\
+	if(__n == 0)\
+	{\
+		__y.lo = ((uint64)__x.lo);\
+		__y.hi = ((uint64)__x.hi);\
+	}\
+	else if(__n < 64)\
+	{\
+		__y.lo = ((uint64)__x.lo >> __n) + ((uint64)__x.hi << (64-__n));\
+		__y.hi = ((uint64)__x.hi >> __n);\
+	}\
+	else if(__n < 128)\
+	{\
+		__y.lo = ((uint64)__x.hi >> (__n-64));\
+		__y.hi = (uint64)0;\
+	}\
+	else\
+	{\
+		__y.lo = (uint64)0;\
+		__y.hi = (uint64)0;\
+	}\
+}
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif	/* qfloat_h_included */
+

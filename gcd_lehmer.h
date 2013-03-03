@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2006 by Ernst W. Mayer.                                           *
+*   (C) 1997-2012 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -27,6 +27,11 @@
 #define gcd_lehmer_h_included
 
 #include "Mlucas.h"
+#include "genFFT_mul.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*******************************************************************************
    Function prototypes. The corresponding function definitions will either
@@ -67,4 +72,9 @@ void	gcd_init();
 
 int		test_gcd();
 
+#ifdef __cplusplus
+}
+#endif
+
 #endif	/* gcd_lehmer_h_included */
+

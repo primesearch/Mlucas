@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -22,95 +22,114 @@
 
 #include "Mlucas.h"
 
+	#undef FFT_DEBUG
+	#define FFT_DEBUG	0
+
 	#undef DEBUG_SSE2
 //	#define DEBUG_SSE2
-
+	
 #if defined(USE_SSE2)
 
 	#include "sse2_macro.h"
 
-	#if defined(COMPILER_TYPE_MSVC)
+	#undef inlineSquare
+	#define inlineSquare	// Toggle the fused dyadic-square/first-radix-4-DIT-pass used in the MSVC code
 
-		/* DIT radix-4 subconvolution, sans twiddles - this is the in-place version needed by the wrapper_square routines.
-		Assumes the base address __add0 enters in eax:
-		*/
-		#define SSE2_RADIX4_DIT_IN_PLACE_B()\
-		{\
-			__asm	movaps	xmm0,[eax+0x100]	/* a[jt+p2] */\
-			__asm	movaps	xmm1,[eax+0x110]	/* a[jp+p2] */\
-			__asm	movaps	xmm2,[eax      ]	/* a[jt   ] */\
-			__asm	movaps	xmm3,[eax+0x010]	/* a[jp   ] */\
-			\
-			__asm	subpd	xmm2,xmm0	/* t3 */				__asm	movaps	xmm4,[eax+0x180]	/* a[jt+p3] */\
-			__asm	subpd	xmm3,xmm1	/* t4 */				__asm	movaps	xmm5,[eax+0x190]	/* a[jp+p3] */\
-			__asm	addpd	xmm0,xmm0	/* 2*y */				__asm	movaps	xmm6,[eax+0x080]	/* a[jt+p1] */\
-			__asm	addpd	xmm1,xmm1	/* 2*y */				__asm	movaps	xmm7,[eax+0x090]	/* a[jp+p1] */\
-			__asm	addpd	xmm0,xmm2	/* t1 */				\
-			__asm	addpd	xmm1,xmm3	/* t2 */				__asm	subpd	xmm6,xmm4	/* t7 */\
-																__asm	subpd	xmm7,xmm5	/* t8 */\
-			__asm	subpd	xmm3,xmm6	/* ~t4 <- t4 -t7 */		__asm	addpd	xmm4,xmm4	/* 2*y */\
-			__asm	subpd	xmm2,xmm7	/* ~t7 <- t3 -t8 */		__asm	addpd	xmm5,xmm5	/* 2*y */\
-			__asm	movaps	[eax+0x090],xmm3	/* <- ~t4 */	__asm	addpd	xmm4,xmm6	/* t4 */\
-			__asm	movaps	[eax+0x180],xmm2	/* <- ~t7 */	__asm	addpd	xmm5,xmm7	/* t5 */\
-			\
-			__asm	addpd	xmm7,xmm7	/*          2*t8 */		__asm	subpd	xmm0,xmm4	/* ~t5 <- t1 -t5 */\
-			__asm	addpd	xmm6,xmm6	/*          2*t7 */		__asm	subpd	xmm1,xmm5	/* ~t6 <- t2 -t6 */\
-			__asm	addpd	xmm7,xmm2	/* ~t3 <- t3 +t8 */		__asm	movaps	[eax+0x100],xmm0	/* <- ~t5 */\
-			__asm	addpd	xmm6,xmm3	/* ~t8 <- t4 +t7 */		__asm	movaps	[eax+0x110],xmm1	/* <- ~t6 */\
-			__asm	movaps	[eax+0x080],xmm7	/* <- ~t3 */	__asm	addpd	xmm4,xmm4	/*          2*t5 */\
-			__asm	movaps	[eax+0x190],xmm6	/* <- ~t8 */	__asm	addpd	xmm5,xmm5	/*          2*t6 */\
-																__asm	addpd	xmm4,xmm0	/* ~t1 <- t1 +t5 */\
-																__asm	addpd	xmm5,xmm1	/* ~t2 <- t2 +t6 */\
-																__asm	movaps	[eax      ],xmm4	/* <- ~t1 */\
-																__asm	movaps	[eax+0x010],xmm5	/* <- ~t2 */\
-		}
-		/* Assumes a[jt,jp]+[p0,p2,p1,p3] enter in __r0,__r1,__r2,__r3,__r4,__r5,__r6,__r7, and *two in esi: */
-		#define SSE2_RADIX4_DIT_IN_PLACE_C(__r0,__r1,__r2,__r3,__r4,__r5,__r6,__r7)\
-		{\
-			__asm	subpd	__r0,__r2	/* t3 */				\
-			__asm	subpd	__r1,__r3	/* t4 */				\
-			__asm	addpd	__r2,__r2	/* 2*y */				\
-			__asm	addpd	__r3,__r3	/* 2*y */				\
-			__asm	addpd	__r2,__r0	/* t1 */				\
-			__asm	addpd	__r3,__r1	/* t2 */				__asm	subpd	__r4,__r6	/* t7 */\
-																__asm	subpd	__r5,__r7	/* t8 */\
-			__asm	subpd	__r1,__r4	/* ~t4 <- t4 -t7 */		__asm	mulpd	__r6,[esi]	/* 2*y */\
-			__asm	subpd	__r0,__r5	/* ~t7 <- t3 -t8 */		__asm	mulpd	__r7,[esi]	/* 2*y */\
-			__asm	movaps	[eax+0x090],__r1	/* <- ~t4 */	__asm	addpd	__r6,__r4	/* t4 */\
-			__asm	movaps	[eax+0x180],__r0	/* <- ~t7 */	__asm	addpd	__r7,__r5	/* t5 */\
-			\
-			__asm	addpd	__r5,__r5	/*          2*t8 */		__asm	subpd	__r2,__r6	/* ~t5 <- t1 -t5 */\
-			__asm	addpd	__r4,__r4	/*          2*t7 */		__asm	subpd	__r3,__r7	/* ~t6 <- t2 -t6 */\
-			__asm	addpd	__r5,__r0	/* ~t3 <- t3 +t8 */		__asm	movaps	[eax+0x100],__r2	/* <- ~t5 */\
-			__asm	addpd	__r4,__r1	/* ~t8 <- t4 +t7 */		__asm	movaps	[eax+0x110],__r3	/* <- ~t6 */\
-			__asm	movaps	[eax+0x080],__r5	/* <- ~t3 */	__asm	addpd	__r6,__r6	/*          2*t5 */\
-			__asm	movaps	[eax+0x190],__r4	/* <- ~t8 */	__asm	addpd	__r7,__r7	/*          2*t6 */\
-																__asm	addpd	__r6,__r2	/* ~t1 <- t1 +t5 */\
-																__asm	addpd	__r7,__r3	/* ~t2 <- t2 +t6 */\
-																__asm	movaps	[eax      ],__r6	/* <- ~t1 */\
-																__asm	movaps	[eax+0x010],__r7	/* <- ~t2 */\
-		}
+	// Try a fully-fused inline-asm version in 64-bit GCC:
+	#if defined(COMPILER_TYPE_GCC) && (OS_BITS == 64) && defined(inlineSquare)
 
-	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)	/* GCC-style inline ASM: */
+		#define FULLY_FUSED
+		#include "radix16_dyadic_square_gcc64.h"
 
-		#if OS_BITS == 32
+	#else
 
-			#include "radix16_wrapper_square_gcc32.h"
+		#if defined(COMPILER_TYPE_MSVC)
 
-		#else
+			/* DIT radix-4 subconvolution, sans twiddles - this is the in-place version needed by the wrapper_square routines.
+			Assumes the base address __add0 enters in eax:
+			*/
+			#define SSE2_RADIX4_DIT_IN_PLACE_B()\
+			{\
+				__asm	movaps	xmm0,[eax+0x100]	/* a[jt+p2] */\
+				__asm	movaps	xmm1,[eax+0x110]	/* a[jp+p2] */\
+				__asm	movaps	xmm2,[eax      ]	/* a[jt   ] */\
+				__asm	movaps	xmm3,[eax+0x010]	/* a[jp   ] */\
+				\
+				__asm	subpd	xmm2,xmm0	/* t3 */				__asm	movaps	xmm4,[eax+0x180]	/* a[jt+p3] */\
+				__asm	subpd	xmm3,xmm1	/* t4 */				__asm	movaps	xmm5,[eax+0x190]	/* a[jp+p3] */\
+				__asm	addpd	xmm0,xmm0	/* 2*y */				__asm	movaps	xmm6,[eax+0x080]	/* a[jt+p1] */\
+				__asm	addpd	xmm1,xmm1	/* 2*y */				__asm	movaps	xmm7,[eax+0x090]	/* a[jp+p1] */\
+				__asm	addpd	xmm0,xmm2	/* t1 */				\
+				__asm	addpd	xmm1,xmm3	/* t2 */				__asm	subpd	xmm6,xmm4	/* t7 */\
+																	__asm	subpd	xmm7,xmm5	/* t8 */\
+				__asm	subpd	xmm3,xmm6	/* ~t4 <- t4 -t7 */		__asm	addpd	xmm4,xmm4	/* 2*y */\
+				__asm	subpd	xmm2,xmm7	/* ~t7 <- t3 -t8 */		__asm	addpd	xmm5,xmm5	/* 2*y */\
+				__asm	movaps	[eax+0x090],xmm3	/* <- ~t4 */	__asm	addpd	xmm4,xmm6	/* t4 */\
+				__asm	movaps	[eax+0x180],xmm2	/* <- ~t7 */	__asm	addpd	xmm5,xmm7	/* t5 */\
+				\
+				__asm	addpd	xmm7,xmm7	/*          2*t8 */		__asm	subpd	xmm0,xmm4	/* ~t5 <- t1 -t5 */\
+				__asm	addpd	xmm6,xmm6	/*          2*t7 */		__asm	subpd	xmm1,xmm5	/* ~t6 <- t2 -t6 */\
+				__asm	addpd	xmm7,xmm2	/* ~t3 <- t3 +t8 */		__asm	movaps	[eax+0x100],xmm0	/* <- ~t5 */\
+				__asm	addpd	xmm6,xmm3	/* ~t8 <- t4 +t7 */		__asm	movaps	[eax+0x110],xmm1	/* <- ~t6 */\
+				__asm	movaps	[eax+0x080],xmm7	/* <- ~t3 */	__asm	addpd	xmm4,xmm4	/*          2*t5 */\
+				__asm	movaps	[eax+0x190],xmm6	/* <- ~t8 */	__asm	addpd	xmm5,xmm5	/*          2*t6 */\
+																	__asm	addpd	xmm4,xmm0	/* ~t1 <- t1 +t5 */\
+																	__asm	addpd	xmm5,xmm1	/* ~t2 <- t2 +t6 */\
+																	__asm	movaps	[eax      ],xmm4	/* <- ~t1 */\
+																	__asm	movaps	[eax+0x010],xmm5	/* <- ~t2 */\
+			}
+			/* Assumes a[jt,jp]+[p0,p2,p1,p3] enter in __r0,__r1,__r2,__r3,__r4,__r5,__r6,__r7, and *two in esi: */
+			#define SSE2_RADIX4_DIT_IN_PLACE_C(__r0,__r1,__r2,__r3,__r4,__r5,__r6,__r7)\
+			{\
+				__asm	subpd	__r0,__r2	/* t3 */				\
+				__asm	subpd	__r1,__r3	/* t4 */				\
+				__asm	addpd	__r2,__r2	/* 2*y */				\
+				__asm	addpd	__r3,__r3	/* 2*y */				\
+				__asm	addpd	__r2,__r0	/* t1 */				\
+				__asm	addpd	__r3,__r1	/* t2 */				__asm	subpd	__r4,__r6	/* t7 */\
+																	__asm	subpd	__r5,__r7	/* t8 */\
+				__asm	subpd	__r1,__r4	/* ~t4 <- t4 -t7 */		__asm	mulpd	__r6,[esi]	/* 2*y */\
+				__asm	subpd	__r0,__r5	/* ~t7 <- t3 -t8 */		__asm	mulpd	__r7,[esi]	/* 2*y */\
+				__asm	movaps	[eax+0x090],__r1	/* <- ~t4 */	__asm	addpd	__r6,__r4	/* t4 */\
+				__asm	movaps	[eax+0x180],__r0	/* <- ~t7 */	__asm	addpd	__r7,__r5	/* t5 */\
+				\
+				__asm	addpd	__r5,__r5	/*          2*t8 */		__asm	subpd	__r2,__r6	/* ~t5 <- t1 -t5 */\
+				__asm	addpd	__r4,__r4	/*          2*t7 */		__asm	subpd	__r3,__r7	/* ~t6 <- t2 -t6 */\
+				__asm	addpd	__r5,__r0	/* ~t3 <- t3 +t8 */		__asm	movaps	[eax+0x100],__r2	/* <- ~t5 */\
+				__asm	addpd	__r4,__r1	/* ~t8 <- t4 +t7 */		__asm	movaps	[eax+0x110],__r3	/* <- ~t6 */\
+				__asm	movaps	[eax+0x080],__r5	/* <- ~t3 */	__asm	addpd	__r6,__r6	/*          2*t5 */\
+				__asm	movaps	[eax+0x190],__r4	/* <- ~t8 */	__asm	addpd	__r7,__r7	/*          2*t6 */\
+																	__asm	addpd	__r6,__r2	/* ~t1 <- t1 +t5 */\
+																	__asm	addpd	__r7,__r3	/* ~t2 <- t2 +t6 */\
+																	__asm	movaps	[eax      ],__r6	/* <- ~t1 */\
+																	__asm	movaps	[eax+0x010],__r7	/* <- ~t2 */\
+			}
 
-			#include "radix16_wrapper_square_gcc64.h"
+		#else	/* GCC-style inline ASM: */
+
+			#if OS_BITS == 32
+
+				#include "radix16_wrapper_square_gcc32.h"
+
+			#else
+
+				#include "radix16_wrapper_square_gcc64.h"
+
+			#endif
 
 		#endif
 
-	#endif
+	#endif	// FULLY_FUSED
 
 #endif
 
-/***************/
+#ifdef MULTITHREAD
+	#if !defined(USE_PTHREAD) || !defined(FULLY_FUSED)
+		#error Multithreading currently only supported for 64-bit GCC builds using Pthreads!
+	#endif
+#endif
 
-void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int ii, int nradices_prim, int radix_prim[], int nloops, int incr)
-{
+/***************/
 
 /*
 !   NOTE: In the following commentary, N refers to the COMPLEX vector length (N2 in the code),
@@ -123,38 +142,43 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 !...Final pass of the DIF forward transform, pointwise squaring and initial pass of
 !   the inverse transform, all performed in one fell swoop (or better, one swell loop :)
 
-The scratch array (2nd input argument) is only needed for data table initializations, i.e. if first_entry = TRUE.
+The scratch array (2nd input argument) is only needed for data table initializations, i.e. if init_sse2 = TRUE.
 */
+void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int ii, int nradices_prim, int radix_prim[], int incr, int init_sse2, int thr_id)
+{
+	static int max_threads = 0;
 	static int nsave = 0;
 	static int rad0save = 0;
 /*	static int *index = 0x0;	OBSOLETE: full-N2/16-length Bit-reversal index array. */
 	static int *index0 = 0x0, *index1 = 0x0, *index_ptmp0 = 0x0, *index_ptmp1 = 0x0;
-	static int index0_idx, index0_mod, index1_idx, index1_mod;
+	       int index0_idx=-1, index1_idx=-1;
+	static int index0_mod=-1, index1_mod=-1;
 	int nradices_prim_radix0;
 
-	int i,j,j1,j2,k,l,iroot,k1,k2,ndivrad0;
+	int i,j,j1,j2,l,iroot,k1,k2,ndivrad0;
 	const double c = 0.9238795325112867561281831, s = 0.3826834323650897717284599;	/* exp[i*(twopi/16)] */
-	double re0,im0,re1,im1;
-	double rt,it
-	,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t30,t31,t32
-	,aj1p0r,aj1p1r,aj1p2r,aj1p3r,aj1p4r,aj1p5r,aj1p6r,aj1p7r,aj1p8r,aj1p9r,aj1p10r,aj1p11r,aj1p12r,aj1p13r,aj1p14r,aj1p15r
-	,aj1p0i,aj1p1i,aj1p2i,aj1p3i,aj1p4i,aj1p5i,aj1p6i,aj1p7i,aj1p8i,aj1p9i,aj1p10i,aj1p11i,aj1p12i,aj1p13i,aj1p14i,aj1p15i;
+	double re0,im0,re1,im1,rt,it;
 
 #ifdef USE_SSE2
 
-	double *add0, *add1, *add2, *add3;	/* Addresses into array sections */
-
-  #if defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
+  #if !(defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
+	#error SSE2 code not supported for this compiler!
+  #endif
 
 	static struct complex *sc_arr = 0x0, *sc_ptr;
+	double *add0, *add1;	/* Addresses into array sections */
+	struct complex *c_tmp,*s_tmp;
+
+  #ifdef MULTITHREAD
+	static struct complex *__r0;					// Base address for discrete per-thread local stores
+	// In || mode, only above base-pointer (shared by all threads) is static:
+	struct complex *cc0, *ss0, *isrt2, *two, *r1,*c8,*c4,*c12,*c2,*c10,*c6,*c14,*c1,*c9,*c5,*c13,*c3,*c11,*c7,*c15;
+  #elif defined(COMPILER_TYPE_GCC)
+	static struct complex *cc0, *ss0, *isrt2, *two, *r1,*c8,*c4,*c12,*c2,*c10,*c6,*c14,*c1,*c9,*c5,*c13,*c3,*c11,*c7,*c15;
+  #else
 	static struct complex *cc0, *ss0, *isrt2, *two;
 	static struct complex *c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15,*s0,*s1,*s2,*s3,*s4,*s5,*s6,*s7,*s8,*s9,*s10,*s11,*s12,*s13,*s14,*s15;
 	static struct complex *r1,*r2,*r3,*r4,*r5,*r6,*r7,*r8,*r9,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r30,*r31,*r32;
-
-  #else
-
-	#error SSE2 code not supported for this compiler!
-
   #endif
 
 #else
@@ -162,81 +186,144 @@ The scratch array (2nd input argument) is only needed for data table initializat
   #if PFETCH
 	double *add0;
   #endif
-	double c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12,s13,s14,s15;
+	double c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12,s13,s14,s15
+	,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t30,t31,t32
+	,aj1p0r,aj1p1r,aj1p2r,aj1p3r,aj1p4r,aj1p5r,aj1p6r,aj1p7r,aj1p8r,aj1p9r,aj1p10r,aj1p11r,aj1p12r,aj1p13r,aj1p14r,aj1p15r
+	,aj1p0i,aj1p1i,aj1p2i,aj1p3i,aj1p4i,aj1p5i,aj1p6i,aj1p7i,aj1p8i,aj1p9i,aj1p10i,aj1p11i,aj1p12i,aj1p13i,aj1p14i,aj1p15i;
 
 #endif
 
-#ifdef DEBUG_SSE2
+#if FFT_DEBUG || defined(DEBUG_SSE2)
 	int iloop;
 #endif
 
-	static int first_entry=TRUE;
+/*...If a new runlength or first-pass radix, it is assumed this function has been first-called with init_sse2 = true to
+     initialize static data and lcoal-storage prior to actual use in computing a transform-based result.
+*/
 
-/*...initialize things upon first entry */
-/*...If a new runlength or first-pass radix, set first_entry to true:	*/
+	/* In order to eschew complex thread-block-and-sync logic related to the local-store-init step in multithread mode,
+	switch to a special-init-mode-call paradigm, in which the function is inited once (for as many threads as needed)
+	prior to being executed:
+	*/
+/**************************************************************************************************************************************/
+/*** To-Do: Need to add code to allow for re-init when any of the FFT-related params or #threads changes during course of execution ***/
+/**************************************************************************************************************************************/
 
-	if(n != nsave || radix0 != rad0save) first_entry=TRUE;
-
-	if(first_entry)
+	/* Here this variable is somewhat misnamed because it is used to init both non-SIMD and SIMD-specific data */
+	if(init_sse2)	// Just check nonzero here, to allow the *value* of init_sse2 to store #threads
 	{
-		first_entry=FALSE;
+		max_threads = init_sse2;
+	#ifndef COMPILER_TYPE_GCC
+		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+	#endif
+		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
+
 		nsave = n;
+		ASSERT(HERE, N2 == n/2, "N2 bad!");
 		rad0save = radix0;
 
-#ifdef USE_SSE2
-		sc_arr = ALLOC_COMPLEX(sc_arr, 72);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+	#ifdef USE_SSE2
+		ASSERT(HERE, sc_arr == 0x0, "Init-mode call conflicts with already-malloc'ed local storage!");
+		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+		sc_arr = ALLOC_COMPLEX(sc_arr, 72*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_COMPLEX(sc_arr);
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 32 16-byte slots of sc_arr for temporaries, next 3 for the nontrivial complex 16th roots,
 	last 30 for the doubled sincos twiddles, plus at least 3 more slots to allow for 64-byte alignment of the array.
 	*/
-		r1  = sc_ptr + 0x00;	  isrt2 = sc_ptr + 0x20;
-		r2  = sc_ptr + 0x01;		cc0 = sc_ptr + 0x21;
-		r3  = sc_ptr + 0x02;		ss0 = sc_ptr + 0x22;
-		r4  = sc_ptr + 0x03;		c0  = sc_ptr + 0x23;
-		r5  = sc_ptr + 0x04;		s0  = sc_ptr + 0x24;
-		r6  = sc_ptr + 0x05;		c8  = sc_ptr + 0x25;
-		r7  = sc_ptr + 0x06;		s8  = sc_ptr + 0x26;
-		r8  = sc_ptr + 0x07;		c4  = sc_ptr + 0x27;
-		r9  = sc_ptr + 0x08;		s4  = sc_ptr + 0x28;
-		r10 = sc_ptr + 0x09;		c12 = sc_ptr + 0x29;
-		r11 = sc_ptr + 0x0a;		s12 = sc_ptr + 0x2a;
-		r12 = sc_ptr + 0x0b;		c2  = sc_ptr + 0x2b;
-		r13 = sc_ptr + 0x0c;		s2  = sc_ptr + 0x2c;
-		r14 = sc_ptr + 0x0d;		c10 = sc_ptr + 0x2d;
-		r15 = sc_ptr + 0x0e;		s10 = sc_ptr + 0x2e;
-		r16 = sc_ptr + 0x0f;		c6  = sc_ptr + 0x2f;
-		r17 = sc_ptr + 0x10;		s6  = sc_ptr + 0x30;
-		r18 = sc_ptr + 0x11;		c14 = sc_ptr + 0x31;
-		r19 = sc_ptr + 0x12;		s14 = sc_ptr + 0x32;
-		r20 = sc_ptr + 0x13;		c1  = sc_ptr + 0x33;
-		r21 = sc_ptr + 0x14;		s1  = sc_ptr + 0x34;
-		r22 = sc_ptr + 0x15;		c9  = sc_ptr + 0x35;
-		r23 = sc_ptr + 0x16;		s9  = sc_ptr + 0x36;
-		r24 = sc_ptr + 0x17;		c5  = sc_ptr + 0x37;
-		r25 = sc_ptr + 0x18;		s5  = sc_ptr + 0x38;
-		r26 = sc_ptr + 0x19;		c13 = sc_ptr + 0x39;
-		r27 = sc_ptr + 0x1a;		s13 = sc_ptr + 0x3a;
-		r28 = sc_ptr + 0x1b;		c3  = sc_ptr + 0x3b;
-		r29 = sc_ptr + 0x1c;		s3  = sc_ptr + 0x3c;
-		r30 = sc_ptr + 0x1d;		c11 = sc_ptr + 0x3d;
-		r31 = sc_ptr + 0x1e;		s11 = sc_ptr + 0x3e;
-		r32 = sc_ptr + 0x1f;		c7  = sc_ptr + 0x3f;
-									s7  = sc_ptr + 0x40;
-									c15 = sc_ptr + 0x41;
-									s15 = sc_ptr + 0x42;
-									two = sc_ptr + 0x43;
+		#ifdef MULTITHREAD
+	//	if(max_threads > 1) {
+			__r0  = sc_ptr;
+			isrt2 = sc_ptr + 0x20;
+			cc0   = sc_ptr + 0x21;
+			ss0   = sc_ptr + 0x22;
+			two   = sc_ptr + 0x43;
+			for(i = 0; i < max_threads; ++i) {
+				/* These remain fixed within each per-thread local store: */
+				isrt2->re = ISRT2;	isrt2->im = ISRT2;
+				two  ->re = 2.0;	two  ->im = 2.0;
+				cc0  ->re = c	;	cc0  ->im = c	;
+				ss0  ->re = s	;	ss0  ->im = s	;
+				isrt2 += 72;	/* Move on to next thread's local store */
+				cc0   += 72;
+				ss0   += 72;
+				two   += 72;
+			}
+		#elif defined(COMPILER_TYPE_GCC)
+			r1  = sc_ptr;
+			isrt2 = r1 + 0x20;
+			cc0 = r1 + 0x21;
+			ss0 = r1 + 0x22;
+			c8    = r1 + 0x25;	/* Need some added root-addresses here for expedited roots computation via SSE2_CMUL_EXPO macros */
+			c4    = r1 + 0x27;
+			c12   = r1 + 0x29;
+			c2    = r1 + 0x2b;
+			c10   = r1 + 0x2d;
+			c6    = r1 + 0x2f;
+			c14   = r1 + 0x31;
+			c1    = r1 + 0x33;
+			c9    = r1 + 0x35;
+			c5    = r1 + 0x37;
+			c13   = r1 + 0x39;
+			c3    = r1 + 0x3b;
+			c11   = r1 + 0x3d;
+			c7    = r1 + 0x3f;
+			c15   = r1 + 0x41;
+			two = r1 + 0x43;
+			/* These remain fixed: */
+			isrt2->re = ISRT2;	isrt2->im = ISRT2;
+			two  ->re = 2.0;	two  ->im = 2.0;
+			cc0  ->re = c	;	cc0  ->im = c	;
+			ss0  ->re = s	;	ss0  ->im = s	;
+		#else
+	//	} else {
+			/* The roots-quartet indexing pattern (middles 2 of each quartet swapped) mimic the radix-16 DIF-pass routine */
+			r1  = sc_ptr + 0x00;	  isrt2 = sc_ptr + 0x20;
+			r2  = sc_ptr + 0x01;		cc0 = sc_ptr + 0x21;
+			r3  = sc_ptr + 0x02;		ss0 = sc_ptr + 0x22;
+			r4  = sc_ptr + 0x03;		c0  = sc_ptr + 0x23;
+			r5  = sc_ptr + 0x04;		s0  = sc_ptr + 0x24;
+			r6  = sc_ptr + 0x05;		c8  = sc_ptr + 0x25;
+			r7  = sc_ptr + 0x06;		s8  = sc_ptr + 0x26;
+			r8  = sc_ptr + 0x07;		c4  = sc_ptr + 0x27;
+			r9  = sc_ptr + 0x08;		s4  = sc_ptr + 0x28;
+			r10 = sc_ptr + 0x09;		c12 = sc_ptr + 0x29;
+			r11 = sc_ptr + 0x0a;		s12 = sc_ptr + 0x2a;
+			r12 = sc_ptr + 0x0b;		c2  = sc_ptr + 0x2b;
+			r13 = sc_ptr + 0x0c;		s2  = sc_ptr + 0x2c;
+			r14 = sc_ptr + 0x0d;		c10 = sc_ptr + 0x2d;
+			r15 = sc_ptr + 0x0e;		s10 = sc_ptr + 0x2e;
+			r16 = sc_ptr + 0x0f;		c6  = sc_ptr + 0x2f;
+			r17 = sc_ptr + 0x10;		s6  = sc_ptr + 0x30;
+			r18 = sc_ptr + 0x11;		c14 = sc_ptr + 0x31;
+			r19 = sc_ptr + 0x12;		s14 = sc_ptr + 0x32;
+			r20 = sc_ptr + 0x13;		c1  = sc_ptr + 0x33;
+			r21 = sc_ptr + 0x14;		s1  = sc_ptr + 0x34;
+			r22 = sc_ptr + 0x15;		c9  = sc_ptr + 0x35;
+			r23 = sc_ptr + 0x16;		s9  = sc_ptr + 0x36;
+			r24 = sc_ptr + 0x17;		c5  = sc_ptr + 0x37;
+			r25 = sc_ptr + 0x18;		s5  = sc_ptr + 0x38;
+			r26 = sc_ptr + 0x19;		c13 = sc_ptr + 0x39;
+			r27 = sc_ptr + 0x1a;		s13 = sc_ptr + 0x3a;
+			r28 = sc_ptr + 0x1b;		c3  = sc_ptr + 0x3b;
+			r29 = sc_ptr + 0x1c;		s3  = sc_ptr + 0x3c;
+			r30 = sc_ptr + 0x1d;		c11 = sc_ptr + 0x3d;
+			r31 = sc_ptr + 0x1e;		s11 = sc_ptr + 0x3e;
+			r32 = sc_ptr + 0x1f;		c7  = sc_ptr + 0x3f;
+										s7  = sc_ptr + 0x40;
+										c15 = sc_ptr + 0x41;
+										s15 = sc_ptr + 0x42;
+										two = sc_ptr + 0x43;
+			/* These remain fixed: */
+			isrt2->re = ISRT2;	isrt2->im = ISRT2;
+			two  ->re = 2.0;	two  ->im = 2.0;
+			cc0  ->re = c	;	cc0  ->im = c	;
+			ss0  ->re = s	;	ss0  ->im = s	;
+		#endif
+	//	}
 
-		/* These remain fixed: */
-		isrt2->re = ISRT2;	isrt2->im = ISRT2;
-		two  ->re = 2.0;	two  ->im = 2.0;
-		cc0  ->re = c	;	cc0  ->im = c	;
-		ss0  ->re = s	;	ss0  ->im = s	;
-
-		c0->re=1.;	s0->re=0.;
-		c0->im=1.;	s0->im=0.;
-#endif
+	#endif	// USE_SSE2
 
 		free((void *)index_ptmp0);	index_ptmp0=0x0;	index0=0x0;
 		free((void *)index_ptmp1);	index_ptmp1=0x0;	index1=0x0;
@@ -284,7 +371,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 
 		bit_reverse_int(index0, index0_mod,                 nradices_prim_radix0, &radix_prim[nradices_prim_radix0-1], -1,(int *)arr_scratch);
 		bit_reverse_int(index1, index1_mod, nradices_prim-4-nradices_prim_radix0, &radix_prim[nradices_prim       -5], -1,(int *)arr_scratch);
-
+	/* fprintf(stderr, "index0[dim = %d] =",index0_mod);	for(i=0; i < index0_mod; i++){fprintf(stderr, " %d",index0[i]);}	fprintf(stderr, "\n"); */
 		/*****DEBUG: ******/
 		/*
 		fp = fopen("index.txt","a");
@@ -303,11 +390,35 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		*/
 		/******************/
 
-	}
+		return;
+	}	/* end of inits */
+
+	/* If multithreaded, set the local-store pointers needed for the current thread; */
+#ifdef MULTITHREAD
+	ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+	r1 = __r0 + thr_id*72;
+	isrt2 = r1 + 0x20;
+	cc0   = r1 + 0x21;
+	c8    = r1 + 0x25;	/* Need some added root-addresses here for expedited roots computation via SSE2_CMUL_EXPO macros */
+	c4    = r1 + 0x27;
+	c12   = r1 + 0x29;
+	c2    = r1 + 0x2b;
+	c10   = r1 + 0x2d;
+	c6    = r1 + 0x2f;
+	c14   = r1 + 0x31;
+	c1    = r1 + 0x33;
+	c9    = r1 + 0x35;
+	c5    = r1 + 0x37;
+	c13   = r1 + 0x39;
+	c3    = r1 + 0x3b;
+	c11   = r1 + 0x3d;
+	c7    = r1 + 0x3f;
+	c15   = r1 + 0x41;
+#endif
 
 	/*...If a new runlength, should not get to this point: */
-	ASSERT(HERE, n == nsave,"radix16_dyadic_square: n != nsave");
-	ASSERT(HERE, incr == 32,"radix16_dyadic_square.c: incr != 32");
+	ASSERT(HERE, n == nsave,"n != nsave");
+	ASSERT(HERE, incr == 32,"incr != 32");
 	ndivrad0 = n/radix0;
 	/*
 	k = ii*(ndivrad0 >> 5);
@@ -315,16 +426,16 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	index0_idx = ii;
 	index1_idx = 0;
 
-	#ifdef USE_SSE2
+#ifdef USE_SSE2
 	for(j = 0; j < ndivrad0; j += 64)
 	{
 		j1 = (j & mask01) + br4[j&3];
 	    j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
-	#else
+#else
 	for(j = 0; j < ndivrad0; j += 32)
 	{
 	    j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-	#endif
+#endif
 		j2 = j1+RE_IM_STRIDE;
 	/*
 		iroot = index[k];
@@ -333,15 +444,27 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	*/
 
 		iroot = index0[index0_idx] + index1[index1_idx];
-
+	//	fprintf(stderr, "idx0 = %d, idx1 = %d, irootA = %d\n",index0_idx,index1_idx,iroot);
 		if(++index1_idx >= index1_mod)
 		{
 			index1_idx -= index1_mod;
-		/*	ASSERT(HERE, index0_idx < index0_mod,"radix16_dyadic_square.c: index0_idx < index0_mod");	*/
+		//	ASSERT(HERE, index0_idx < index0_mod,"radix16_dyadic_square.c: index0_idx < index0_mod");
 			++index0_idx;
 		}
 
 		l = iroot;
+
+	#ifdef USE_SSE2
+		/* Due to roots-locality considerations, roots (c,s)[0-15] are offset w.r.to the thread-local ptr pair as
+		(cc0,ss0) + 0x[2,12,a,1a,6,16,e,1e,4,14,c,1c,8,18,10,20]. Here, due to the need to compute a new set of roots
+		for each set of inputs, we use a streamlined sequence which computes only the [0,1,2,4,8,13]th roots with
+		maximal accuracy (i.e. using 2-table-multiply), then generates the remaining ones from those. Thus the needed
+		pointer offsets below are (cc0,ss0) + 0x[2,12,a,6,4,18]:
+		*/
+		c_tmp = cc0 + 0x02; s_tmp = c_tmp+1;	/* c0,s0 */
+		c_tmp->re=1.;	s_tmp->re=0.;
+		c_tmp->im=1.;	s_tmp->im=0.;
+	#endif
 
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
@@ -350,7 +473,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
-		c1 ->re=rt;	s1 ->re=it;
+		c_tmp = cc0 + 0x12; s_tmp = c_tmp+1;
+		c_tmp->re=rt;	s_tmp->re=it;	/* For all but the trivial 0th root, re and im parts in SSE2 mode use a separate set of roots, im-parts done below */
 	#else
 		c1 =rt;	s1 =it;
 	#endif
@@ -362,7 +486,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
-		c2 ->re=rt;	s2 ->re=it;
+		c_tmp = cc0 + 0xa; s_tmp = c_tmp+1;
+		c_tmp->re=rt;	s_tmp->re=it;
 	#else
 		c2 =rt;	s2 =it;
 	#endif
@@ -374,7 +499,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
-		c4 ->re=rt;	s4 ->re=it;
+		c_tmp = cc0 + 0x6; s_tmp = c_tmp+1;
+		c_tmp->re=rt;	s_tmp->re=it;
 	#else
 		c4 =rt;	s4 =it;
 	#endif
@@ -386,7 +512,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
-		c8 ->re=rt;	s8 ->re=it;
+		c_tmp = cc0 + 0x4; s_tmp = c_tmp+1;
+		c_tmp->re=rt;	s_tmp->re=it;
 	#else
 		c8 =rt;	s8 =it;
 	#endif
@@ -397,15 +524,16 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
-		c13->re=rt;	s13->re=it;
+		c_tmp = cc0 + 0x18; s_tmp = c_tmp+1;
+		c_tmp->re=rt;	s_tmp->re=it;
 	#else
 		c13 =rt;	s13 =it;
 	#endif
 
-	/* In SSE2 mode, also need next set of sincoa to put into "Imaginary" slots: */
+	/* In SSE2 mode, also need next set of sincos to put into "Imaginary" slots: */
 	#ifdef USE_SSE2
 		iroot = index0[index0_idx] + index1[index1_idx];
-
+	/* fprintf(stderr, "idx0 = %d, idx1 = %d, irootB = %d\n",index0_idx,index1_idx,iroot); */
 		if(++index1_idx >= index1_mod)
 		{
 			index1_idx -= index1_mod;
@@ -421,7 +549,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-		c1 ->im=rt;	s1 ->im=it;
+		c_tmp = cc0 + 0x12; s_tmp = c_tmp+1;	/* c1,s1 */
+		c_tmp->im=rt;	s_tmp->im=it;
 
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
@@ -429,7 +558,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-		c2 ->im=rt;	s2 ->im=it;
+		c_tmp = cc0 + 0x0a; s_tmp = c_tmp+1;	/* c2,s2 */
+		c_tmp->im=rt;	s_tmp->im=it;
 
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
@@ -437,7 +567,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-		c4 ->im=rt;	s4 ->im=it;
+		c_tmp = cc0 + 0x06; s_tmp = c_tmp+1;	/* c4,s4 */
+		c_tmp->im=rt;	s_tmp->im=it;
 
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
@@ -445,14 +576,16 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-		c8 ->im=rt;	s8 ->im=it;
+		c_tmp = cc0 + 0x04; s_tmp = c_tmp+1;	/* c8,s8 */
+		c_tmp->im=rt;	s_tmp->im=it;
 
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-		c13->im=rt;	s13->im=it;
+		c_tmp = cc0 + 0x18; s_tmp = c_tmp+1;	/* c13,s13 */
+		c_tmp->im=rt;	s_tmp->im=it;
 
 		SSE2_CMUL_EXPO(c1,c4 ,c3 ,c5 )
 		SSE2_CMUL_EXPO(c1,c8 ,c7 ,c9 )
@@ -483,29 +616,46 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		rng_isaac_init(TRUE);
 		for(iloop = 0; iloop < 64; iloop += 4)
 		{
-	  #ifdef USE_SSE2
+		#ifdef USE_SSE2
 			a[j1+iloop  ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
 			a[j1+iloop+2] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
 			a[j1+iloop+1] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
 			a[j1+iloop+3] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
 			fprintf(stderr, "radix16_dyadic_square: A_in[%2d] = %20.5f, %20.5f\n",iloop,a[j1+iloop+0],a[j1+iloop+2]);
 			fprintf(stderr, "radix16_dyadic_square: A_in[%2d] = %20.5f, %20.5f\n",iloop,a[j1+iloop+1],a[j1+iloop+3]);
-	  #else
+		#else
 			a[j1+iloop  ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
 			a[j1+iloop+1] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
 			a[j1+iloop+2] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
 			a[j1+iloop+3] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
 			fprintf(stderr, "radix16_dyadic_square: A_in[%2d] = %20.5f, %20.5f\n",iloop,a[j1+iloop+0],a[j1+iloop+1]);
 			fprintf(stderr, "radix16_dyadic_square: A_in[%2d] = %20.5f, %20.5f\n",iloop,a[j1+iloop+2],a[j1+iloop+3]);
-	  #endif
+		#endif
 		}
 	#endif
 
-/*   gather the needed data (16 64-bit complex, i.e. 32 64-bit reals) and do the first set of four length-4 transforms... */
+#if FFT_DEBUG
+	if(NTHREADS == 1 || thr_id == TARG_THREAD_ID) {
+		ASSERT(HERE, dbg_file != 0x0, "dbg_file == 0x0!");
+		fprintf(dbg_file, "Thread %d: j1 = %d, Dyadic-square Inputs:\n",thr_id,j1);
+		for(iloop = 0; iloop < 64; iloop += 4)
+		{
+		#ifdef USE_SSE2
+			fprintf(dbg_file, "A_in[%2d] = %20.5f[0x%16llX], %20.5f[0x%16llX]\n",iloop,a[j1+iloop+0],a+j1+iloop+0,a[j1+iloop+2],a+j1+iloop+2);
+			fprintf(dbg_file, "A_in[%2d] = %20.5f[0x%16llX], %20.5f[0x%16llX]\n",iloop,a[j1+iloop+1],a+j1+iloop+1,a[j1+iloop+3],a+j1+iloop+3);
+		#else
+			fprintf(dbg_file, "A_in[%2d] = %20.5f[0x%16llX], %20.5f[0x%16llX]\n",iloop,a[j1+iloop+0],a+j1+iloop+0,a[j1+iloop+1],a+j1+iloop+1);
+			fprintf(dbg_file, "A_in[%2d] = %20.5f[0x%16llX], %20.5f[0x%16llX]\n",iloop,a[j1+iloop+2],a+j1+iloop+2,a[j1+iloop+3],a+j1+iloop+3);
+		#endif
+		}
+	}
+#endif
+
+/*   Radix-16 DIF FFT: gather the needed data (16 64-bit complex, i.e. 32 64-bit reals) and do the first set of four length-4 transforms... */
 
 #ifdef USE_SSE2
 
-	/* In sse2 mode, the input data are arranged in memory like so, where we view things in 16-byte chunks:
+	/* In SSE2 mode, the input data are arranged in memory like so, where we view things in 16-byte chunks:
 
 		&a[j1]	a0.re,a1.re  &a[j1+32]	b0.re,b1.re
 		+0x010	a0.im,a1.im		+0x010	b0.im,b1.im
@@ -524,7 +674,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		+0x0e0	aE.re,aF.re		+0x0e0	bE.re,bF.re
 		+0x0f0	aE.im,aF.im		+0x0f0	bE.im,bF.im
 
-	We need to interleave these pairwise so as to swap the high word of each A-pair with the low word of the corresponding B-pair, e.g
+	We need to interleave these pairwise so as to swap the high double of each A-pair with the low double of the corresponding B-pair, e.g
 
 				low		high	low		high
 				[a0.re,a1.re]	[b0.re,b1.re]
@@ -563,751 +713,808 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	It's not clear whether there is a preference for one or the other instruction sequence based on resulting performance.
 	*/
 
-	#ifdef COMPILER_TYPE_MSVC
-
 		add0 = &a[j1];
 		add1 = &a[j1+32];
 
-	/*...Block 1: */
-		__asm	mov	eax, add0
-		__asm	mov	ebx, add1
-		__asm	mov	ecx, r1
+  #ifdef FULLY_FUSED
 
-		__asm	mov	edx, c4
+	SSE2_RADIX16_DIF_DYADIC_DIT(add0,add1,r1,isrt2)
 
-		/* For interleaved [j1,j2] version, replace e.g.
+  #else
 
-			__asm	movaps	xmm0,[eax+0x40]	// a[jt+p4]
-			__asm	movaps	xmm1,[eax+0x50]	// a[jp+p4]
-			__asm	movaps	xmm2,[eax+0x40]	// xmm2 <- cpy a[jt+p4]
-			__asm	movaps	xmm3,[eax+0x50]	// xmm3 <- cpy a[jp+p4]
+	#ifdef COMPILER_TYPE_MSVC
 
-		by the following:
-		*/
-		/* Real parts: */
-		__asm	movaps		xmm6,[eax+0x40]	/* a[j1+p4], this is the scratch xmm register  */
-		__asm	movaps		xmm0,xmm6		/* a[j1+p4] copy, his is the active  xmm register */
-		__asm	movaps		xmm2,[ebx+0x40]	/* a[j2+p4] */
-		__asm	movaps		xmm3,xmm2		/* a[j2+p4] copy */
-		__asm	unpckhpd	xmm6,xmm2
-		__asm	unpcklpd	xmm0,xmm3
-		__asm	movaps	[ecx+0x140],xmm6	/* Store hi real in t21 */
-		/* Imag parts: */
-		__asm	movaps		xmm7,[eax+0x50]
-		__asm	movaps		xmm1,xmm7
-		__asm	movaps		xmm4,[ebx+0x50]
-		__asm	movaps		xmm5,xmm4
-		__asm	unpckhpd	xmm7,xmm4
-		__asm	unpcklpd	xmm1,xmm5
-		__asm	movaps	[ecx+0x150],xmm7	/* Store hi imag in t22 */
+		/*...Block 1: */
+			__asm	mov	eax, add0
+			__asm	mov	ebx, add1
+			__asm	mov	ecx, r1
 
-		__asm	movaps	xmm2,xmm0	/* xmm2 <- cpy a[jt+p4] */
-		__asm	movaps	xmm3,xmm1	/* xmm3 <- cpy a[jp+p4] */
-		/*************************************************************************************/
-		/******** From here on, things are identical to the code in radix16_dif_pass: ********/
-		/*************************************************************************************/
-		__asm	mulpd	xmm0,[edx     ]	/* a[jt+p4]*c4 */
-		__asm	mulpd	xmm1,[edx     ]	/* a[jp+p4]*c4 */
-		__asm	mulpd	xmm2,[edx+0x10]	/* a[jt+p4]*s4 */
-		__asm	mulpd	xmm3,[edx+0x10]	/* a[jp+p4]*s4 */
-		__asm	addpd	xmm1,xmm2	/* xmm1 <- t6 */
-		__asm	subpd	xmm0,xmm3	/* xmm0 <- t5 */
-		__asm	movaps	xmm3,xmm1	/* xmm3 <- cpy t6 */
-		__asm	movaps	xmm2,xmm0	/* xmm2 <- cpy t5 */
+			__asm	mov	edx, c4
 
-		__asm	mov	edx, c12
-		/* Real parts: */
-		__asm	movaps		xmm6,[eax+0xc0]	/* a[j1+p12], this is the scratch xmm register  */
-		__asm	movaps		xmm4,[eax+0xc0]	/* a[j1+p12], this is the active  xmm register */
-		__asm	unpckhpd	xmm6,[ebx+0xc0]	/* a[j2+p12] gets read twice */
-		__asm	unpcklpd	xmm4,[ebx+0xc0]	/* a[jt+p12] */
-		__asm	movaps	[ecx+0x160],xmm6	/* Store hi real in t23 */
-		/* Imag parts: */
-		__asm	movaps		xmm7,[eax+0xd0]
-		__asm	movaps		xmm5,[eax+0xd0]
-		__asm	unpckhpd	xmm7,[ebx+0xd0]
-		__asm	unpcklpd	xmm5,[ebx+0xd0]	/* a[jp+p12] */
-		__asm	movaps	[ecx+0x170],xmm7	/* Store hi imag in t24 */
+			/* For interleaved [j1,j2] version, replace e.g.
 
-		__asm	movaps	xmm6,xmm4	/* xmm6 <- cpy a[jt+p12] */
-		__asm	movaps	xmm7,xmm5	/* xmm7 <- cpy a[jp+p12] */
+				__asm	movaps	xmm0,[eax+0x40]	// a[jt+p4]
+				__asm	movaps	xmm1,[eax+0x50]	// a[jp+p4]
+				__asm	movaps	xmm2,[eax+0x40]	// xmm2 <- cpy a[jt+p4]
+				__asm	movaps	xmm3,[eax+0x50]	// xmm3 <- cpy a[jp+p4]
 
-		__asm	mulpd	xmm4,[edx     ]	/* a[jt+p12]*c12 */
-		__asm	mulpd	xmm5,[edx     ]	/* a[jp+p12]*c12 */
-		__asm	mulpd	xmm6,[edx+0x10]	/* a[jt+p12]*s12 */
-		__asm	mulpd	xmm7,[edx+0x10]	/* a[jp+p12]*s12 */
-		__asm	addpd	xmm5,xmm6	/* xmm5 <- it */
-		__asm	subpd	xmm4,xmm7	/* xmm4 <- rt		xmm6,7 free */
+			by the following:
+			*/
+			/* Real parts: */
+			__asm	movaps		xmm6,[eax+0x40]	/* a[j1+p4], this is the scratch xmm register  */
+			__asm	movaps		xmm0,xmm6		/* a[j1+p4] copy, his is the active  xmm register */
+			__asm	movaps		xmm2,[ebx+0x40]	/* a[j2+p4] */
+			__asm	movaps		xmm3,xmm2		/* a[j2+p4] copy */
+			__asm	unpckhpd	xmm6,xmm2
+			__asm	unpcklpd	xmm0,xmm3
+			__asm	movaps	[ecx+0x140],xmm6	/* Store hi real in t21 */
+			/* Imag parts: */
+			__asm	movaps		xmm7,[eax+0x50]
+			__asm	movaps		xmm1,xmm7
+			__asm	movaps		xmm4,[ebx+0x50]
+			__asm	movaps		xmm5,xmm4
+			__asm	unpckhpd	xmm7,xmm4
+			__asm	unpcklpd	xmm1,xmm5
+			__asm	movaps	[ecx+0x150],xmm7	/* Store hi imag in t22 */
 
-		__asm	addpd	xmm0,xmm4	/* ~t5 <- t5 +rt */
-		__asm	addpd	xmm1,xmm5	/* ~t6 <- t6 +it */
-		__asm	subpd	xmm2,xmm4	/* ~t7 <- t5 -rt */
-		__asm	subpd	xmm3,xmm5	/* ~t8 <- t6 -it	xmm4,5 free */
+			__asm	movaps	xmm2,xmm0	/* xmm2 <- cpy a[jt+p4] */
+			__asm	movaps	xmm3,xmm1	/* xmm3 <- cpy a[jp+p4] */
+			/*************************************************************************************/
+			/******** From here on, things are identical to the code in radix16_dif_pass: ********/
+			/*************************************************************************************/
+			__asm	mulpd	xmm0,[edx     ]	/* a[jt+p4]*c4 */
+			__asm	mulpd	xmm1,[edx     ]	/* a[jp+p4]*c4 */
+			__asm	mulpd	xmm2,[edx+0x10]	/* a[jt+p4]*s4 */
+			__asm	mulpd	xmm3,[edx+0x10]	/* a[jp+p4]*s4 */
+			__asm	addpd	xmm1,xmm2	/* xmm1 <- t6 */
+			__asm	subpd	xmm0,xmm3	/* xmm0 <- t5 */
+			__asm	movaps	xmm3,xmm1	/* xmm3 <- cpy t6 */
+			__asm	movaps	xmm2,xmm0	/* xmm2 <- cpy t5 */
 
-		/* Now do the p0,8 combo: */
-		__asm	mov	edx, c8
-		/* Real parts: */
-		__asm	movaps		xmm6,[eax+0x80]	/* a[j1+p8 ], this is the scratch xmm register  */
-		__asm	movaps		xmm4,[eax+0x80]	/* a[j1+p8 ], this is the active  xmm register */
-		__asm	unpckhpd	xmm6,[ebx+0x80]	/* a[j2+p8 ] gets read twice */
-		__asm	unpcklpd	xmm4,[ebx+0x80]	/* a[jt+p8 ] */
-		__asm	movaps	[ecx+0x120],xmm6	/* Store hi real in t19 */
-		/* Imag parts: */
-		__asm	movaps		xmm7,[eax+0x90]
-		__asm	movaps		xmm5,[eax+0x90]
-		__asm	unpckhpd	xmm7,[ebx+0x90]
-		__asm	unpcklpd	xmm5,[ebx+0x90]	/* a[jp+p8 ] */
-		__asm	movaps	[ecx+0x130],xmm7	/* Store hi imag in t20 */
+			__asm	mov	edx, c12
+			/* Real parts: */
+			__asm	movaps		xmm6,[eax+0xc0]	/* a[j1+p12], this is the scratch xmm register  */
+			__asm	movaps		xmm4,[eax+0xc0]	/* a[j1+p12], this is the active  xmm register */
+			__asm	unpckhpd	xmm6,[ebx+0xc0]	/* a[j2+p12] gets read twice */
+			__asm	unpcklpd	xmm4,[ebx+0xc0]	/* a[jt+p12] */
+			__asm	movaps	[ecx+0x160],xmm6	/* Store hi real in t23 */
+			/* Imag parts: */
+			__asm	movaps		xmm7,[eax+0xd0]
+			__asm	movaps		xmm5,[eax+0xd0]
+			__asm	unpckhpd	xmm7,[ebx+0xd0]
+			__asm	unpcklpd	xmm5,[ebx+0xd0]	/* a[jp+p12] */
+			__asm	movaps	[ecx+0x170],xmm7	/* Store hi imag in t24 */
 
-		__asm	movaps	xmm6,xmm4	/* xmm6 <- cpy a[jt+p8] */
-		__asm	movaps	xmm7,xmm5	/* xmm7 <- cpy a[jp+p8] */
+			__asm	movaps	xmm6,xmm4	/* xmm6 <- cpy a[jt+p12] */
+			__asm	movaps	xmm7,xmm5	/* xmm7 <- cpy a[jp+p12] */
 
-		__asm	mulpd	xmm4,[edx     ]	/* a[jt+p8]*c8 */
-		__asm	mulpd	xmm5,[edx     ]	/* a[jp+p8]*c8 */
-		__asm	mulpd	xmm6,[edx+0x10]	/* a[jt+p8]*s8 */
-		__asm	mulpd	xmm7,[edx+0x10]	/* a[jp+p8]*s8 */
-		__asm	addpd	xmm5,xmm6	/* xmm5 <- it */
-		__asm	subpd	xmm4,xmm7	/* xmm4 <- rt 	xmm6,7 free - stick t1,t2 in those */
+			__asm	mulpd	xmm4,[edx     ]	/* a[jt+p12]*c12 */
+			__asm	mulpd	xmm5,[edx     ]	/* a[jp+p12]*c12 */
+			__asm	mulpd	xmm6,[edx+0x10]	/* a[jt+p12]*s12 */
+			__asm	mulpd	xmm7,[edx+0x10]	/* a[jp+p12]*s12 */
+			__asm	addpd	xmm5,xmm6	/* xmm5 <- it */
+			__asm	subpd	xmm4,xmm7	/* xmm4 <- rt		xmm6,7 free */
 
-		/* Real parts: */
-		__asm	movaps		xmm6,[eax     ]	/* a[j1    ], this is the scratch xmm register  */
-		__asm	movaps		xmm7,[eax     ]	/* a[j1    ], this is the active  xmm register */
-		__asm	unpckhpd	xmm6,[ebx     ]	/* a[j2    ] gets read twice */
-		__asm	unpcklpd	xmm7,[ebx     ]	/* a[jt] = t1*/
-		__asm	movaps	[ecx+0x100],xmm6	/* Store hi real in t17 */
-		__asm	movaps	[ecx      ],xmm7	/* Store active  in t1  */
-		/* Imag parts: */
-		__asm	movaps		xmm6,[eax+0x10]
-		__asm	movaps		xmm7,[eax+0x10]
-		__asm	unpckhpd	xmm6,[ebx+0x10]
-		__asm	unpcklpd	xmm7,[ebx+0x10]	/* a[jp] = t2*/
-		__asm	movaps	[ecx+0x110],xmm6	/* Store hi imag in t18... */
-		__asm	movaps	xmm6,[ecx      ]	/* ...and reload t1. */
+			__asm	addpd	xmm0,xmm4	/* ~t5 <- t5 +rt */
+			__asm	addpd	xmm1,xmm5	/* ~t6 <- t6 +it */
+			__asm	subpd	xmm2,xmm4	/* ~t7 <- t5 -rt */
+			__asm	subpd	xmm3,xmm5	/* ~t8 <- t6 -it	xmm4,5 free */
 
-		__asm	subpd	xmm6,xmm4	/* ~t3 <- t1 -rt */
-		__asm	subpd	xmm7,xmm5	/* ~t4 <- t2 -it */
-		__asm	addpd	xmm4,xmm4	/*          2*rt */
-		__asm	addpd	xmm5,xmm5	/*          2*it */
-		__asm	addpd	xmm4,xmm6	/* ~t1 <- t1 +rt */
-		__asm	addpd	xmm5,xmm7	/* ~t2 <- t2 +it	xmm4,5 free */
+			/* Now do the p0,8 combo: */
+			__asm	mov	edx, c8
+			/* Real parts: */
+			__asm	movaps		xmm6,[eax+0x80]	/* a[j1+p8 ], this is the scratch xmm register  */
+			__asm	movaps		xmm4,[eax+0x80]	/* a[j1+p8 ], this is the active  xmm register */
+			__asm	unpckhpd	xmm6,[ebx+0x80]	/* a[j2+p8 ] gets read twice */
+			__asm	unpcklpd	xmm4,[ebx+0x80]	/* a[jt+p8 ] */
+			__asm	movaps	[ecx+0x120],xmm6	/* Store hi real in t19 */
+			/* Imag parts: */
+			__asm	movaps		xmm7,[eax+0x90]
+			__asm	movaps		xmm5,[eax+0x90]
+			__asm	unpckhpd	xmm7,[ebx+0x90]
+			__asm	unpcklpd	xmm5,[ebx+0x90]	/* a[jp+p8 ] */
+			__asm	movaps	[ecx+0x130],xmm7	/* Store hi imag in t20 */
 
-		/* Finish radix-4 butterfly and store results into temporary-array slots: */
-		__asm	mov	eax, r1
+			__asm	movaps	xmm6,xmm4	/* xmm6 <- cpy a[jt+p8] */
+			__asm	movaps	xmm7,xmm5	/* xmm7 <- cpy a[jp+p8] */
+
+			__asm	mulpd	xmm4,[edx     ]	/* a[jt+p8]*c8 */
+			__asm	mulpd	xmm5,[edx     ]	/* a[jp+p8]*c8 */
+			__asm	mulpd	xmm6,[edx+0x10]	/* a[jt+p8]*s8 */
+			__asm	mulpd	xmm7,[edx+0x10]	/* a[jp+p8]*s8 */
+			__asm	addpd	xmm5,xmm6	/* xmm5 <- it */
+			__asm	subpd	xmm4,xmm7	/* xmm4 <- rt 	xmm6,7 free - stick t1,t2 in those */
+
+			/* Real parts: */
+			__asm	movaps		xmm6,[eax     ]	/* a[j1    ], this is the scratch xmm register  */
+			__asm	movaps		xmm7,[eax     ]	/* a[j1    ], this is the active  xmm register */
+			__asm	unpckhpd	xmm6,[ebx     ]	/* a[j2    ] gets read twice */
+			__asm	unpcklpd	xmm7,[ebx     ]	/* a[jt] = t1*/
+			__asm	movaps	[ecx+0x100],xmm6	/* Store hi real in t17 */
+			__asm	movaps	[ecx      ],xmm7	/* Store active  in t1  */
+			/* Imag parts: */
+			__asm	movaps		xmm6,[eax+0x10]
+			__asm	movaps		xmm7,[eax+0x10]
+			__asm	unpckhpd	xmm6,[ebx+0x10]
+			__asm	unpcklpd	xmm7,[ebx+0x10]	/* a[jp] = t2*/
+			__asm	movaps	[ecx+0x110],xmm6	/* Store hi imag in t18... */
+			__asm	movaps	xmm6,[ecx      ]	/* ...and reload t1. */
+
+			__asm	subpd	xmm6,xmm4	/* ~t3 <- t1 -rt */
+			__asm	subpd	xmm7,xmm5	/* ~t4 <- t2 -it */
+			__asm	addpd	xmm4,xmm4	/*          2*rt */
+			__asm	addpd	xmm5,xmm5	/*          2*it */
+			__asm	addpd	xmm4,xmm6	/* ~t1 <- t1 +rt */
+			__asm	addpd	xmm5,xmm7	/* ~t2 <- t2 +it	xmm4,5 free */
+
+			/* Finish radix-4 butterfly and store results into temporary-array slots: */
+			__asm	mov	eax, r1
+			/*
+			~t5 =t1 -t5;		~t1 =t1 +t5;
+			~t6 =t2 -t6;		~t2 =t2 +t6;
+			*/
+			__asm	subpd	xmm4,xmm0	/*~t5 =t1 -t5 */
+			__asm	subpd	xmm5,xmm1	/*~t6 =t2 -t6 */
+			__asm	movaps	[eax+0x040],xmm4	/* a[jt+p8 ] <- ~t5 */
+			__asm	movaps	[eax+0x050],xmm5	/* a[jp+p8 ] <- ~t6 */
+			__asm	addpd	xmm0,xmm0	/* 2*t5 */
+			__asm	addpd	xmm1,xmm1	/* 2*t6 */
+			__asm	addpd	xmm0,xmm4	/*~t1 =t1 +t5 */
+			__asm	addpd	xmm1,xmm5	/*~t2 =t2 +t6 */
+			__asm	movaps	[eax      ],xmm0	/* a[jt    ] <- ~t1 */
+			__asm	movaps	[eax+0x010],xmm1	/* a[jp    ] <- ~t2 */
+
+			/*
+			~t7 =t3 +t8;		~t3 =t3 -t8;
+			~t8 =t4 -t7;		~t4 =t4 +t7;
+			*/
+			__asm	subpd	xmm6,xmm3	/*~t3 =t3 -t8 */
+			__asm	subpd	xmm7,xmm2	/*~t8 =t4 -t7 */
+			__asm	movaps	[eax+0x020],xmm6	/* a[jt+p4 ] <- ~t3 */
+			__asm	movaps	[eax+0x070],xmm7	/* a[jp+p12] <- ~t8 */
+			__asm	addpd	xmm3,xmm3	/* 2*t8 */
+			__asm	addpd	xmm2,xmm2	/* 2*t7 */
+			__asm	addpd	xmm3,xmm6	/*~t7 =t3 +t8 */
+			__asm	addpd	xmm2,xmm7	/*~t4 =t4 +t7 */
+			__asm	movaps	[eax+0x060],xmm3	/* a[jt+p12] <- ~t7 */
+			__asm	movaps	[eax+0x030],xmm2	/* a[jp+p4 ] <- ~t4 */
+
+		/*...Block 2:		Cost: 46 MOVapd, 16 UNPCKHPD, 28 ADD/SUBpd, 16 MULpd */
+			__asm	mov	eax, add0
+			__asm	mov	ebx, add1
+			__asm	mov	ecx, r9
+
+		/* Do the p2,10 combo: */
+			__asm	mov	edx, c2
+			/* Real parts: */
+			__asm	movaps		xmm6,[eax+0x20]	/* a[j1+p2 ], this is the scratch xmm register */
+			__asm	movaps		xmm0,[eax+0x20]	/* a[j1+p2 ], this is the active  xmm register */
+			__asm	unpckhpd	xmm6,[ebx+0x20]	/* a[j2+p2 ] gets read twice */
+			__asm	unpcklpd	xmm0,[ebx+0x20]	/* a[jt+p2 ] */
+			__asm	movaps	[ecx+0x100],xmm6	/* Store hi real in t9 +16 */
+			/* Imag parts: */
+			__asm	movaps		xmm7,[eax+0x30]
+			__asm	movaps		xmm1,[eax+0x30]
+			__asm	unpckhpd	xmm7,[ebx+0x30]
+			__asm	unpcklpd	xmm1,[ebx+0x30]	/* a[jp+p2 ] */
+			__asm	movaps	[ecx+0x110],xmm7	/* Store hi imag in t10+16 */
+
+			__asm	movaps	xmm2,xmm0	/* xmm2 <- cpy a[jt+p2] */
+			__asm	movaps	xmm3,xmm1	/* xmm3 <- cpy a[jp+p2] */
+
+			__asm	mulpd	xmm0,[edx     ]	/* a[jt+p2]*c2 */
+			__asm	mulpd	xmm1,[edx     ]	/* a[jp+p2]*c2 */
+			__asm	mulpd	xmm2,[edx+0x10]	/* a[jt+p2]*s2 */
+			__asm	mulpd	xmm3,[edx+0x10]	/* a[jp+p2]*s2 */
+			__asm	addpd	xmm1,xmm2	/* xmm1 <- t10*/
+			__asm	subpd	xmm0,xmm3	/* xmm0 <- t9 */
+			__asm	movaps	xmm3,xmm1	/* xmm3 <- cpy t10*/
+			__asm	movaps	xmm2,xmm0	/* xmm2 <- cpy t9 */
+
+			__asm	mov	edx, c10
+			/* Real parts: */
+			__asm	movaps		xmm6,[eax+0xa0]	/* a[j1+p10], this is the scratch xmm register  */
+			__asm	movaps		xmm4,[eax+0xa0]	/* a[j1+p10], this is the active  xmm register */
+			__asm	unpckhpd	xmm6,[ebx+0xa0]	/* a[j2+p10] gets read twice */
+			__asm	unpcklpd	xmm4,[ebx+0xa0]	/* a[jt+p10] */
+			__asm	movaps	[ecx+0x120],xmm6	/* Store hi real in t11+16 */
+			/* Imag parts: */
+			__asm	movaps		xmm7,[eax+0xb0]
+			__asm	movaps		xmm5,[eax+0xb0]
+			__asm	unpckhpd	xmm7,[ebx+0xb0]
+			__asm	unpcklpd	xmm5,[ebx+0xb0]	/* a[jp+p10] */
+			__asm	movaps	[ecx+0x130],xmm7	/* Store hi imag in t12+16 */
+
+			__asm	movaps	xmm6,xmm4	/* xmm6 <- cpy a[jt+p10] */
+			__asm	movaps	xmm7,xmm5	/* xmm7 <- cpy a[jp+p10] */
+
+			__asm	mulpd	xmm4,[edx     ]	/* a[jt+p10]*c10 */
+			__asm	mulpd	xmm5,[edx     ]	/* a[jp+p10]*c10 */
+			__asm	mulpd	xmm6,[edx+0x10]	/* a[jt+p10]*s10 */
+			__asm	mulpd	xmm7,[edx+0x10]	/* a[jp+p10]*s10 */
+			__asm	addpd	xmm5,xmm6	/* xmm5 <- it */
+			__asm	subpd	xmm4,xmm7	/* xmm4 <- rt		xmm6,7 free */
+
+			__asm	addpd	xmm0,xmm4	/* ~t13<- t13+rt */
+			__asm	addpd	xmm1,xmm5	/* ~t14<- t14+it */
+			__asm	subpd	xmm2,xmm4	/* ~t15<- t13-rt */
+			__asm	subpd	xmm3,xmm5	/* ~t16<- t14-it	xmm4,5 free */
+
+		/* Do the p6,14 combo - do p14 first so register assignments come out in same relative order as for p2,10 */
+			__asm	mov	edx, c14
+			/* Real parts: */
+			__asm	movaps		xmm6,[eax+0xe0]	/* a[j1+p14], this is the scratch xmm register  */
+			__asm	movaps		xmm4,[eax+0xe0]	/* a[j1+p14], this is the active  xmm register */
+			__asm	unpckhpd	xmm6,[ebx+0xe0]	/* a[j2+p14] gets read twice */
+			__asm	unpcklpd	xmm4,[ebx+0xe0]	/* a[jt+p14] */
+			__asm	movaps	[ecx+0x160],xmm6	/* Store hi real in t15+16 */
+			/* Imag parts: */
+			__asm	movaps		xmm7,[eax+0xf0]
+			__asm	movaps		xmm5,[eax+0xf0]
+			__asm	unpckhpd	xmm7,[ebx+0xf0]
+			__asm	unpcklpd	xmm5,[ebx+0xf0]	/* a[jp+p14] */
+			__asm	movaps	[ecx+0x170],xmm7	/* Store hi imag in t16+16 */
+
+			__asm	movaps	xmm6,xmm4	/* xmm6 <- cpy a[jt+p14] */
+			__asm	movaps	xmm7,xmm5	/* xmm7 <- cpy a[jp+p14] */
+
+			__asm	mulpd	xmm4,[edx     ]	/* a[jt+p14]*c14 */
+			__asm	mulpd	xmm5,[edx     ]	/* a[jp+p14]*c14 */
+			__asm	mulpd	xmm6,[edx+0x10]	/* a[jt+p14]*s14 */
+			__asm	mulpd	xmm7,[edx+0x10]	/* a[jp+p14]*s14 */
+			__asm	addpd	xmm5,xmm6	/* xmm5 <- it */
+			__asm	subpd	xmm4,xmm7	/* xmm4 <- rt		xmm6,7 free */
+			__asm	movaps	[ecx+0x070],xmm5	/* Store it in t16*/
+			__asm	movaps	[ecx+0x060],xmm4	/* Store rt in t15*/
+
+			__asm	mov	edx, c6
+			/* Real parts: */
+			__asm	movaps		xmm6,[eax+0x60]	/* a[j1+p6 ], this is the scratch xmm register  */
+			__asm	movaps		xmm4,[eax+0x60]	/* a[j1+p6 ], this is the active  xmm register */
+			__asm	unpckhpd	xmm6,[ebx+0x60]	/* a[j2+p6 ] gets read twice */
+			__asm	unpcklpd	xmm4,[ebx+0x60]	/* a[jt+p6 ] */
+			__asm	movaps	[ecx+0x140],xmm6	/* Store hi real in t13+16 */
+			/* Imag parts: */
+			__asm	movaps		xmm7,[eax+0x70]
+			__asm	movaps		xmm5,[eax+0x70]
+			__asm	unpckhpd	xmm7,[ebx+0x70]
+			__asm	unpcklpd	xmm5,[ebx+0x70]	/* a[jp+p6 ] */
+			__asm	movaps	[ecx+0x150],xmm7	/* Store hi imag in t14+16 */
+
+			__asm	movaps	xmm6,xmm4	/* xmm6 <- cpy a[jt+p6] */
+			__asm	movaps	xmm7,xmm5	/* xmm7 <- cpy a[jp+p6] */
+
+			__asm	mulpd	xmm4,[edx     ]	/* a[jt+p6]*c6 */
+			__asm	mulpd	xmm5,[edx     ]	/* a[jp+p6]*c6 */
+			__asm	mulpd	xmm6,[edx+0x10]	/* a[jt+p6]*s6 */
+			__asm	mulpd	xmm7,[edx+0x10]	/* a[jp+p6]*s6 */
+			__asm	addpd	xmm5,xmm6	/* xmm5 <- t14*/
+			__asm	subpd	xmm4,xmm7	/* xmm4 <- t13*/
+			__asm	movaps	xmm7,xmm5	/* xmm7 <- cpy t14*/
+			__asm	movaps	xmm6,xmm4	/* xmm6 <- cpy t13*/
+
+			__asm	subpd	xmm4,[ecx+0x060]	/* ~t15<- t13-rt */
+			__asm	subpd	xmm5,[ecx+0x070]	/* ~t16<- t14-it */
+			__asm	addpd	xmm6,[ecx+0x060]	/* ~t13<- t13+rt */
+			__asm	addpd	xmm7,[ecx+0x070]	/* ~t14<- t14+it */
+
+			/* Finish radix-4 butterfly and store results into temporary-array slots: */
+			/*
+			~t13=t9 -t5;		~t9 =t9 +t5;
+			~t14=t10-t6;		~t10=t10+t6;
+			*/
+			__asm	subpd	xmm0,xmm6	/*~t13*/
+			__asm	subpd	xmm1,xmm7	/*~t14*/
+			__asm	movaps	[ecx+0x040],xmm0	/* a[jt+p8 ] <- ~t13*/
+			__asm	movaps	[ecx+0x050],xmm1	/* a[jp+p8 ] <- ~t14*/
+			__asm	addpd	xmm6,xmm6	/* 2*t13*/
+			__asm	addpd	xmm7,xmm7	/* 2*t14*/
+			__asm	addpd	xmm6,xmm0	/*~t9 */
+			__asm	addpd	xmm7,xmm1	/*~t10*/
+			__asm	movaps	[ecx      ],xmm6	/* a[jt    ] <- ~t9 */
+			__asm	movaps	[ecx+0x010],xmm7	/* a[jp    ] <- ~t10*/
+
+			/*
+			~t15=t11+t8;		~t11=t11-t8;
+			~t16=t12-t7;		~t12=t12+t7;
+			*/
+			__asm	subpd	xmm2,xmm5	/*~t11*/
+			__asm	subpd	xmm3,xmm4	/*~t16*/
+			__asm	movaps	[ecx+0x020],xmm2	/* a[jt+p4 ] <- ~t11*/
+			__asm	movaps	[ecx+0x070],xmm3	/* a[jp+p12] <- ~t16*/
+			__asm	addpd	xmm5,xmm5	/* 2*t16*/
+			__asm	addpd	xmm4,xmm4	/* 2*t15*/
+			__asm	addpd	xmm5,xmm2	/*~t15*/
+			__asm	addpd	xmm4,xmm3	/*~t12*/
+			__asm	movaps	[ecx+0x060],xmm5	/* a[jt+p12] <- ~t15*/
+			__asm	movaps	[ecx+0x030],xmm4	/* a[jp+p4 ] <- ~t12*/
+
+		/***************************************************************************************************************************
+		Each of the above 2 radix-4 blocks is unique, but the ensuing 2 blocks
+		[operating on the odd-indexed elements from the unpck*pd commands which were stored to temporaries can use a common macro:
+		***************************************************************************************************************************/
+		/*...Block 3: */
+			SSE2_RADIX4_DIF_4TWIDDLE(r17,r21,r19,r23, r17,c1)
+
+		/*...Block 4: */
+			SSE2_RADIX4_DIF_4TWIDDLE(r25,r29,r27,r31, r25,c3)
+
 		/*
-		~t5 =t1 -t5;		~t1 =t1 +t5;
-		~t6 =t2 -t6;		~t2 =t2 +t6;
+		!...and now do four more radix-4 transforms, including the internal twiddle factors:
+		!	1, exp(i* 1*twopi/16) =       ( c, s), exp(i* 2*twopi/16) = ISRT2*( 1, 1), exp(i* 3*twopi/16) =       ( s, c) (for inputs to transform block 2)
+		!	1, exp(i* 2*twopi/16) = ISRT2*( 1, 1), exp(i* 4*twopi/16) =       ( 0, 1), exp(i* 6*twopi/16) = ISRT2*(-1, 1) (for inputs to transform block 3)
+		!	1, exp(i* 3*twopi/16) =       ( s, c), exp(i* 6*twopi/16) = ISRT2*(-1, 1), exp(i* 9*twopi/16) =       (-c,-s) (for inputs to transform block 4).
+		!  (This is 4 real*complex and 4 complex*complex multiplies (= 24 FMUL), compared to 6 and 4, respectively (= 28 FMUL) for my old scheme.)
+		!   I.e. do similar as above, except inputs a[j1  +p0:15:1] are replaced by t0:30:2,
+		!					   a[j1+1+p0:15:1] are replaced by t1:31:2, and v.v. for outputs,
+		!   and only the last 3 inputs to each of the radix-4 transforms 2 through 4 are multiplied by non-unity twiddles.
 		*/
-		__asm	subpd	xmm4,xmm0	/*~t5 =t1 -t5 */
-		__asm	subpd	xmm5,xmm1	/*~t6 =t2 -t6 */
-		__asm	movaps	[eax+0x040],xmm4	/* a[jt+p8 ] <- ~t5 */
-		__asm	movaps	[eax+0x050],xmm5	/* a[jp+p8 ] <- ~t6 */
-		__asm	addpd	xmm0,xmm0	/* 2*t5 */
-		__asm	addpd	xmm1,xmm1	/* 2*t6 */
-		__asm	addpd	xmm0,xmm4	/*~t1 =t1 +t5 */
-		__asm	addpd	xmm1,xmm5	/*~t2 =t2 +t6 */
-		__asm	movaps	[eax      ],xmm0	/* a[jt    ] <- ~t1 */
-		__asm	movaps	[eax+0x010],xmm1	/* a[jp    ] <- ~t2 */
 
-		/*
-		~t7 =t3 +t8;		~t3 =t3 -t8;
-		~t8 =t4 -t7;		~t4 =t4 +t7;
-		*/
-		__asm	subpd	xmm6,xmm3	/*~t3 =t3 -t8 */
-		__asm	subpd	xmm7,xmm2	/*~t8 =t4 -t7 */
-		__asm	movaps	[eax+0x020],xmm6	/* a[jt+p4 ] <- ~t3 */
-		__asm	movaps	[eax+0x070],xmm7	/* a[jp+p12] <- ~t8 */
-		__asm	addpd	xmm3,xmm3	/* 2*t8 */
-		__asm	addpd	xmm2,xmm2	/* 2*t7 */
-		__asm	addpd	xmm3,xmm6	/*~t7 =t3 +t8 */
-		__asm	addpd	xmm2,xmm7	/*~t4 =t4 +t7 */
-		__asm	movaps	[eax+0x060],xmm3	/* a[jt+p12] <- ~t7 */
-		__asm	movaps	[eax+0x030],xmm2	/* a[jp+p4 ] <- ~t4 */
+		/*...Block 1: t1,9,17,25 */
+			__asm	mov	esi, two
+			__asm	mov	eax, r1
 
-	/*...Block 2:		Cost: 46 MOVapd, 16 UNPCKHPD, 28 ADD/SUBpd, 16 MULpd */
-		__asm	mov	eax, add0
-		__asm	mov	ebx, add1
-		__asm	mov	ecx, r9
+			__asm	movaps	xmm0,[eax      ]	/* t1  */
+			__asm	movaps	xmm1,[eax+0x010]	/* t2  */
+			__asm	movaps	xmm2,[eax+0x080]	/* t9  */
+			__asm	movaps	xmm3,[eax+0x090]	/* t10 */
 
-	/* Do the p2,10 combo: */
-		__asm	mov	edx, c2
-		/* Real parts: */
-		__asm	movaps		xmm6,[eax+0x20]	/* a[j1+p2 ], this is the scratch xmm register */
-		__asm	movaps		xmm0,[eax+0x20]	/* a[j1+p2 ], this is the active  xmm register */
-		__asm	unpckhpd	xmm6,[ebx+0x20]	/* a[j2+p2 ] gets read twice */
-		__asm	unpcklpd	xmm0,[ebx+0x20]	/* a[jt+p2 ] */
-		__asm	movaps	[ecx+0x100],xmm6	/* Store hi real in t9 +16 */
-		/* Imag parts: */
-		__asm	movaps		xmm7,[eax+0x30]
-		__asm	movaps		xmm1,[eax+0x30]
-		__asm	unpckhpd	xmm7,[ebx+0x30]
-		__asm	unpcklpd	xmm1,[ebx+0x30]	/* a[jp+p2 ] */
-		__asm	movaps	[ecx+0x110],xmm7	/* Store hi imag in t10+16 */
+			__asm	subpd	xmm0,[eax+0x080]	/* t9 =t1 -rt */
+			__asm	subpd	xmm1,[eax+0x090]	/* t10=t2 -it */
+			__asm	addpd	xmm2,[eax      ]	/* t1 =t1 +rt */
+			__asm	addpd	xmm3,[eax+0x010]	/* t2 =t2 +it */
 
-		__asm	movaps	xmm2,xmm0	/* xmm2 <- cpy a[jt+p2] */
-		__asm	movaps	xmm3,xmm1	/* xmm3 <- cpy a[jp+p2] */
+			__asm	movaps	xmm4,[eax+0x100]	/* t17 */
+			__asm	movaps	xmm5,[eax+0x110]	/* t18 */
+			__asm	movaps	xmm6,[eax+0x180]	/* t25 */
+			__asm	movaps	xmm7,[eax+0x190]	/* t26 */
 
-		__asm	mulpd	xmm0,[edx     ]	/* a[jt+p2]*c2 */
-		__asm	mulpd	xmm1,[edx     ]	/* a[jp+p2]*c2 */
-		__asm	mulpd	xmm2,[edx+0x10]	/* a[jt+p2]*s2 */
-		__asm	mulpd	xmm3,[edx+0x10]	/* a[jp+p2]*s2 */
-		__asm	addpd	xmm1,xmm2	/* xmm1 <- t10*/
-		__asm	subpd	xmm0,xmm3	/* xmm0 <- t9 */
-		__asm	movaps	xmm3,xmm1	/* xmm3 <- cpy t10*/
-		__asm	movaps	xmm2,xmm0	/* xmm2 <- cpy t9 */
+			__asm	subpd	xmm4,[eax+0x180]	/* t25=t17-rt */
+			__asm	subpd	xmm5,[eax+0x190]	/* t26=t18-it */
+			__asm	addpd	xmm6,[eax+0x100]	/* t17=t17+rt */
+			__asm	addpd	xmm7,[eax+0x110]	/* t18=t18+it */
 
-		__asm	mov	edx, c10
-		/* Real parts: */
-		__asm	movaps		xmm6,[eax+0xa0]	/* a[j1+p10], this is the scratch xmm register  */
-		__asm	movaps		xmm4,[eax+0xa0]	/* a[j1+p10], this is the active  xmm register */
-		__asm	unpckhpd	xmm6,[ebx+0xa0]	/* a[j2+p10] gets read twice */
-		__asm	unpcklpd	xmm4,[ebx+0xa0]	/* a[jt+p10] */
-		__asm	movaps	[ecx+0x120],xmm6	/* Store hi real in t11+16 */
-		/* Imag parts: */
-		__asm	movaps		xmm7,[eax+0xb0]
-		__asm	movaps		xmm5,[eax+0xb0]
-		__asm	unpckhpd	xmm7,[ebx+0xb0]
-		__asm	unpcklpd	xmm5,[ebx+0xb0]	/* a[jp+p10] */
-		__asm	movaps	[ecx+0x130],xmm7	/* Store hi imag in t12+16 */
+			__asm	subpd	xmm2,xmm6		/* t1  <- t1 -t17 */
+			__asm	subpd	xmm3,xmm7		/* t2  <- t2 -t18 */
+			__asm	addpd	xmm6,xmm6		/*          2*t17 */
+			__asm	addpd	xmm7,xmm7		/*          2*t18 */
+			__asm	addpd	xmm6,xmm2		/* t17 <- t1 +t17 */
+			__asm	addpd	xmm7,xmm3		/* t18 <- t2 +t18 */
+		#ifdef inlineSquare
+		__asm	movaps	[eax+0x100],xmm2	/* a[jt+p1 ], tmp-store in t17 */
+		__asm	movaps	[eax      ],xmm6	/* a[jt+p0 ], tmp-store in t0  */
+		__asm	movaps	xmm6,xmm2	/* cpy x */
+		__asm	addpd	xmm2,xmm3	/* x+y */
+		__asm	subpd	xmm6,xmm3	/* x-y */
+		__asm	addpd	xmm3,xmm3	/* 2*y */
+		__asm	mulpd	xmm2,xmm6	/* x^2-y^2 */
+		__asm	mulpd	xmm3,[eax+0x100]/* 2xy */
+		__asm	movaps	xmm6,[eax      ]	/* a[jt+p0 ], reload */
+		#endif
+			__asm	movaps	[eax+0x100],xmm2	/* a[jt+p1 ], store in t17 */
+			__asm	movaps	[eax+0x110],xmm3	/* a[jp+p1 ], store in t18 */
+		#ifdef inlineSquare
+		__asm	movaps	xmm2,xmm6	/* cpy x */
+		__asm	movaps	xmm3,xmm6	/* cpy x */
+		__asm	addpd	xmm6,xmm7	/* x+y */
+		__asm	subpd	xmm2,xmm7	/* x-y */
+		__asm	addpd	xmm7,xmm7	/* 2*y */
+		__asm	mulpd	xmm6,xmm2	/* x^2-y^2 */
+		__asm	mulpd	xmm7,xmm3	/* 2xy */
+		#else
+			__asm	movaps	[eax      ],xmm6	/* a[jt+p0 ], store in t0 */
+			__asm	movaps	[eax+0x010],xmm7	/* a[jp+p0 ], store in t1 */
+		#endif
+			__asm	subpd	xmm0,xmm5		/* t9  <- t9 -t26 */
+			__asm	subpd	xmm1,xmm4		/* t10 <- t10-t25 */
+			__asm	addpd	xmm5,xmm5		/*          2*t26 */
+			__asm	addpd	xmm4,xmm4		/*          2*t25 */
+			__asm	addpd	xmm5,xmm0		/* t26 <- t9 +t26 */
+			__asm	addpd	xmm4,xmm1		/* t25 <- t10+t25 */
+		#ifdef inlineSquare
+		__asm	movaps	xmm2,xmm5	/* cpy x */
+		__asm	movaps	xmm3,xmm5	/* cpy x */
+		__asm	addpd	xmm5,xmm1	/* x+y */
+		__asm	subpd	xmm2,xmm1	/* x-y */
+		__asm	addpd	xmm1,xmm1	/* 2*y */
+		__asm	mulpd	xmm5,xmm2	/* x^2-y^2 */
+		__asm	mulpd	xmm1,xmm3	/* 2xy */
+		#else
+			__asm	movaps	[eax+0x180],xmm5	/* a[jt+p3 ], store in t25 */
+			__asm	movaps	[eax+0x190],xmm1	/* a[jp+p3 ], store in t26 */
+		#endif
+		#ifdef inlineSquare
+		__asm	movaps	xmm2,xmm0	/* cpy x */
+		__asm	movaps	xmm3,xmm0	/* cpy x */
+		__asm	addpd	xmm0,xmm4	/* x+y */
+		__asm	subpd	xmm2,xmm4	/* x-y */
+		__asm	addpd	xmm4,xmm4	/* 2*y */
+		__asm	mulpd	xmm0,xmm2	/* x^2-y^2 */
+		__asm	mulpd	xmm4,xmm3	/* 2xy */
+			__asm	movaps	xmm2,[eax+0x100]	/* a[jt+p1 ], reload */
+			__asm	movaps	xmm3,[eax+0x110]	/* a[jp+p1 ], reload */
+			SSE2_RADIX4_DIT_IN_PLACE_C(xmm6,xmm7,xmm2,xmm3,xmm0,xmm4,xmm5,xmm1)	/* This stores all 8 memlocas */
+		#else
+			__asm	movaps	[eax+0x080],xmm0	/* a[jt+p2 ], store in t9  */
+			__asm	movaps	[eax+0x090],xmm4	/* a[jp+p2 ], store in t10 */
+		#endif
+		/*...Block 3: t5,13,21,29 */
+			__asm	mov	eax, r5
 
-		__asm	movaps	xmm6,xmm4	/* xmm6 <- cpy a[jt+p10] */
-		__asm	movaps	xmm7,xmm5	/* xmm7 <- cpy a[jp+p10] */
+			__asm	movaps	xmm0,[eax      ]	/* t5  */
+			__asm	movaps	xmm1,[eax+0x010]	/* t6  */
+			__asm	movaps	xmm2,[eax+0x080]	/* t13 */
+			__asm	movaps	xmm3,[eax+0x090]	/* t14 */
 
-		__asm	mulpd	xmm4,[edx     ]	/* a[jt+p10]*c10 */
-		__asm	mulpd	xmm5,[edx     ]	/* a[jp+p10]*c10 */
-		__asm	mulpd	xmm6,[edx+0x10]	/* a[jt+p10]*s10 */
-		__asm	mulpd	xmm7,[edx+0x10]	/* a[jp+p10]*s10 */
-		__asm	addpd	xmm5,xmm6	/* xmm5 <- it */
-		__asm	subpd	xmm4,xmm7	/* xmm4 <- rt		xmm6,7 free */
+			__asm	subpd	xmm0,[eax+0x090]	/* t5 =t5 -t14*/
+			__asm	subpd	xmm1,[eax+0x080]	/* t14=t6 -t13*/
+			__asm	addpd	xmm2,[eax+0x010]	/* t6 =t13+t6 */
+			__asm	addpd	xmm3,[eax      ]	/* t13=t14+t5 */
+			__asm	mov	ebx, isrt2
 
-		__asm	addpd	xmm0,xmm4	/* ~t13<- t13+rt */
-		__asm	addpd	xmm1,xmm5	/* ~t14<- t14+it */
-		__asm	subpd	xmm2,xmm4	/* ~t15<- t13-rt */
-		__asm	subpd	xmm3,xmm5	/* ~t16<- t14-it	xmm4,5 free */
+			__asm	movaps	xmm4,[eax+0x100]	/* t21 */
+			__asm	movaps	xmm5,[eax+0x110]	/* t22 */
+			__asm	movaps	xmm6,[eax+0x180]	/* t29 */
+			__asm	movaps	xmm7,[eax+0x190]	/* t30 */
 
-	/* Do the p6,14 combo - do p14 first so register assignments come out in same relative order as for p2,10 */
-		__asm	mov	edx, c14
-		/* Real parts: */
-		__asm	movaps		xmm6,[eax+0xe0]	/* a[j1+p14], this is the scratch xmm register  */
-		__asm	movaps		xmm4,[eax+0xe0]	/* a[j1+p14], this is the active  xmm register */
-		__asm	unpckhpd	xmm6,[ebx+0xe0]	/* a[j2+p14] gets read twice */
-		__asm	unpcklpd	xmm4,[ebx+0xe0]	/* a[jt+p14] */
-		__asm	movaps	[ecx+0x160],xmm6	/* Store hi real in t15+16 */
-		/* Imag parts: */
-		__asm	movaps		xmm7,[eax+0xf0]
-		__asm	movaps		xmm5,[eax+0xf0]
-		__asm	unpckhpd	xmm7,[ebx+0xf0]
-		__asm	unpcklpd	xmm5,[ebx+0xf0]	/* a[jp+p14] */
-		__asm	movaps	[ecx+0x170],xmm7	/* Store hi imag in t16+16 */
+			__asm	subpd	xmm4,[eax+0x110]	/* t21-t22 */
+			__asm	addpd	xmm5,[eax+0x100]	/* t22+t21 */
+			__asm	mulpd	xmm4,[ebx]	/* t21 = (t21-t22)*ISRT2 */
+			__asm	mulpd	xmm5,[ebx]	/* t22 = (t22+t21)*ISRT2 */
 
-		__asm	movaps	xmm6,xmm4	/* xmm6 <- cpy a[jt+p14] */
-		__asm	movaps	xmm7,xmm5	/* xmm7 <- cpy a[jp+p14] */
+			__asm	addpd	xmm6,[eax+0x190]	/* t29+t30 */
+			__asm	subpd	xmm7,[eax+0x180]	/* t30-t29 */
+			__asm	mulpd	xmm6,[ebx]	/*  rt = (t29+t30)*ISRT2 */
+			__asm	mulpd	xmm7,[ebx]	/*  it = (t30-t29)*ISRT2 */
 
-		__asm	mulpd	xmm4,[edx     ]	/* a[jt+p14]*c14 */
-		__asm	mulpd	xmm5,[edx     ]	/* a[jp+p14]*c14 */
-		__asm	mulpd	xmm6,[edx+0x10]	/* a[jt+p14]*s14 */
-		__asm	mulpd	xmm7,[edx+0x10]	/* a[jp+p14]*s14 */
-		__asm	addpd	xmm5,xmm6	/* xmm5 <- it */
-		__asm	subpd	xmm4,xmm7	/* xmm4 <- rt		xmm6,7 free */
-		__asm	movaps	[ecx+0x070],xmm5	/* Store it in t16*/
-		__asm	movaps	[ecx+0x060],xmm4	/* Store rt in t15*/
+			__asm	subpd	xmm4,xmm6		/* t21=t21-rt */
+			__asm	subpd	xmm5,xmm7		/* t22=t22-it */
+			__asm	addpd	xmm6,xmm6		/*      2* rt */
+			__asm	addpd	xmm7,xmm7		/*      2* it */
+			__asm	addpd	xmm6,xmm4		/* t29=t21+rt */
+			__asm	addpd	xmm7,xmm5		/* t30=t22+it */
 
-		__asm	mov	edx, c6
-		/* Real parts: */
-		__asm	movaps		xmm6,[eax+0x60]	/* a[j1+p6 ], this is the scratch xmm register  */
-		__asm	movaps		xmm4,[eax+0x60]	/* a[j1+p6 ], this is the active  xmm register */
-		__asm	unpckhpd	xmm6,[ebx+0x60]	/* a[j2+p6 ] gets read twice */
-		__asm	unpcklpd	xmm4,[ebx+0x60]	/* a[jt+p6 ] */
-		__asm	movaps	[ecx+0x140],xmm6	/* Store hi real in t13+16 */
-		/* Imag parts: */
-		__asm	movaps		xmm7,[eax+0x70]
-		__asm	movaps		xmm5,[eax+0x70]
-		__asm	unpckhpd	xmm7,[ebx+0x70]
-		__asm	unpcklpd	xmm5,[ebx+0x70]	/* a[jp+p6 ] */
-		__asm	movaps	[ecx+0x150],xmm7	/* Store hi imag in t14+16 */
-
-		__asm	movaps	xmm6,xmm4	/* xmm6 <- cpy a[jt+p6] */
-		__asm	movaps	xmm7,xmm5	/* xmm7 <- cpy a[jp+p6] */
-
-		__asm	mulpd	xmm4,[edx     ]	/* a[jt+p6]*c6 */
-		__asm	mulpd	xmm5,[edx     ]	/* a[jp+p6]*c6 */
-		__asm	mulpd	xmm6,[edx+0x10]	/* a[jt+p6]*s6 */
-		__asm	mulpd	xmm7,[edx+0x10]	/* a[jp+p6]*s6 */
-		__asm	addpd	xmm5,xmm6	/* xmm5 <- t14*/
-		__asm	subpd	xmm4,xmm7	/* xmm4 <- t13*/
-		__asm	movaps	xmm7,xmm5	/* xmm7 <- cpy t14*/
-		__asm	movaps	xmm6,xmm4	/* xmm6 <- cpy t13*/
-
-		__asm	subpd	xmm4,[ecx+0x060]	/* ~t15<- t13-rt */
-		__asm	subpd	xmm5,[ecx+0x070]	/* ~t16<- t14-it */
-		__asm	addpd	xmm6,[ecx+0x060]	/* ~t13<- t13+rt */
-		__asm	addpd	xmm7,[ecx+0x070]	/* ~t14<- t14+it */
-
-		/* Finish radix-4 butterfly and store results into temporary-array slots: */
-		/*
-		~t13=t9 -t5;		~t9 =t9 +t5;
-		~t14=t10-t6;		~t10=t10+t6;
-		*/
-		__asm	subpd	xmm0,xmm6	/*~t13*/
-		__asm	subpd	xmm1,xmm7	/*~t14*/
-		__asm	movaps	[ecx+0x040],xmm0	/* a[jt+p8 ] <- ~t13*/
-		__asm	movaps	[ecx+0x050],xmm1	/* a[jp+p8 ] <- ~t14*/
-		__asm	addpd	xmm6,xmm6	/* 2*t13*/
-		__asm	addpd	xmm7,xmm7	/* 2*t14*/
-		__asm	addpd	xmm6,xmm0	/*~t9 */
-		__asm	addpd	xmm7,xmm1	/*~t10*/
-		__asm	movaps	[ecx      ],xmm6	/* a[jt    ] <- ~t9 */
-		__asm	movaps	[ecx+0x010],xmm7	/* a[jp    ] <- ~t10*/
-
-		/*
-		~t15=t11+t8;		~t11=t11-t8;
-		~t16=t12-t7;		~t12=t12+t7;
-		*/
-		__asm	subpd	xmm2,xmm5	/*~t11*/
-		__asm	subpd	xmm3,xmm4	/*~t16*/
-		__asm	movaps	[ecx+0x020],xmm2	/* a[jt+p4 ] <- ~t11*/
-		__asm	movaps	[ecx+0x070],xmm3	/* a[jp+p12] <- ~t16*/
-		__asm	addpd	xmm5,xmm5	/* 2*t16*/
-		__asm	addpd	xmm4,xmm4	/* 2*t15*/
-		__asm	addpd	xmm5,xmm2	/*~t15*/
-		__asm	addpd	xmm4,xmm3	/*~t12*/
-		__asm	movaps	[ecx+0x060],xmm5	/* a[jt+p12] <- ~t15*/
-		__asm	movaps	[ecx+0x030],xmm4	/* a[jp+p4 ] <- ~t12*/
-
-	/***************************************************************************************************************************
-	Each of the above 2 radix-4 blocks is unique, but the ensuing 2 blocks
-	[operating on the odd-indexed elements from the unpck*pd commands which were stored to temporaries can use a common macro:
-	***************************************************************************************************************************/
-	/*...Block 3: */
-		SSE2_RADIX4_DIF_4TWIDDLE(r17,r21,r19,r23, r17,c1)
-
-	/*...Block 4: */
-		SSE2_RADIX4_DIF_4TWIDDLE(r25,r29,r27,r31, r25,c3)
-
-	/*
-	!...and now do four more radix-4 transforms, including the internal twiddle factors:
-	!	1, exp(i* 1*twopi/16) =       ( c, s), exp(i* 2*twopi/16) = ISRT2*( 1, 1), exp(i* 3*twopi/16) =       ( s, c) (for inputs to transform block 2)
-	!	1, exp(i* 2*twopi/16) = ISRT2*( 1, 1), exp(i* 4*twopi/16) =       ( 0, 1), exp(i* 6*twopi/16) = ISRT2*(-1, 1) (for inputs to transform block 3)
-	!	1, exp(i* 3*twopi/16) =       ( s, c), exp(i* 6*twopi/16) = ISRT2*(-1, 1), exp(i* 9*twopi/16) =       (-c,-s) (for inputs to transform block 4).
-	!  (This is 4 real*complex and 4 complex*complex multiplies (= 24 FMUL), compared to 6 and 4, respectively (= 28 FMUL) for my old scheme.)
-	!   I.e. do similar as above, except inputs a[j1  +p0:15:1] are replaced by t0:30:2,
-	!					   a[j1+1+p0:15:1] are replaced by t1:31:2, and v.v. for outputs,
-	!   and only the last 3 inputs to each of the radix-4 transforms 2 through 4 are multiplied by non-unity twiddles.
-	*/
-
-	/*...Block 1: t1,9,17,25 */
-		__asm	mov	esi, two
-		__asm	mov	eax, r1
-
-		__asm	movaps	xmm0,[eax      ]	/* t1  */
-		__asm	movaps	xmm1,[eax+0x010]	/* t2  */
-		__asm	movaps	xmm2,[eax+0x080]	/* t9  */
-		__asm	movaps	xmm3,[eax+0x090]	/* t10 */
-
-		__asm	subpd	xmm0,[eax+0x080]	/* t9 =t1 -rt */
-		__asm	subpd	xmm1,[eax+0x090]	/* t10=t2 -it */
-		__asm	addpd	xmm2,[eax      ]	/* t1 =t1 +rt */
-		__asm	addpd	xmm3,[eax+0x010]	/* t2 =t2 +it */
-
-		__asm	movaps	xmm4,[eax+0x100]	/* t17 */
-		__asm	movaps	xmm5,[eax+0x110]	/* t18 */
-		__asm	movaps	xmm6,[eax+0x180]	/* t25 */
-		__asm	movaps	xmm7,[eax+0x190]	/* t26 */
-
-		__asm	subpd	xmm4,[eax+0x180]	/* t25=t17-rt */
-		__asm	subpd	xmm5,[eax+0x190]	/* t26=t18-it */
-		__asm	addpd	xmm6,[eax+0x100]	/* t17=t17+rt */
-		__asm	addpd	xmm7,[eax+0x110]	/* t18=t18+it */
-
-		__asm	subpd	xmm2,xmm6		/* t1  <- t1 -t17 */
-		__asm	subpd	xmm3,xmm7		/* t2  <- t2 -t18 */
-		__asm	movaps	[eax+0x100],xmm2	/* a[jt+p1 ], store in t17 */
-		__asm	addpd	xmm6,xmm6		/*          2*t17 */
-		__asm	addpd	xmm7,xmm7		/*          2*t18 */
-		__asm	addpd	xmm6,xmm2		/* t17 <- t1 +t17 */
-		__asm	addpd	xmm7,xmm3		/* t18 <- t2 +t18 */
-		__asm	movaps	[eax      ],xmm6	/* a[jt+p0 ], store in t0  */
-	__asm	movaps	xmm6,xmm2	/* cpy x */
-	__asm	addpd	xmm2,xmm3	/* x+y */
-	__asm	subpd	xmm6,xmm3	/* x-y */
-	__asm	addpd	xmm3,xmm3	/* 2*y */
-	__asm	mulpd	xmm2,xmm6	/* x^2-y^2 */
-	__asm	mulpd	xmm3,[eax+0x100]/* 2xy */
-	__asm	movaps	xmm6,[eax      ]	/* a[jt+p0 ], reload */
-		__asm	movaps	[eax+0x100],xmm2	/* a[jt+p1 ], store in t17 */
-		__asm	movaps	[eax+0x110],xmm3	/* a[jp+p1 ], store in t18 */
-	__asm	movaps	xmm2,xmm6	/* cpy x */
-	__asm	movaps	xmm3,xmm6	/* cpy x */
-	__asm	addpd	xmm6,xmm7	/* x+y */
-	__asm	subpd	xmm2,xmm7	/* x-y */
-	__asm	addpd	xmm7,xmm7	/* 2*y */
-	__asm	mulpd	xmm6,xmm2	/* x^2-y^2 */
-	__asm	mulpd	xmm7,xmm3	/* 2xy */
-//		__asm	movaps	[eax      ],xmm6	/* a[jt+p0 ], store in t0 */
-//		__asm	movaps	[eax+0x010],xmm7	/* a[jp+p0 ], store in t1 */
-
-		__asm	subpd	xmm0,xmm5		/* t9  <- t9 -t26 */
-		__asm	subpd	xmm1,xmm4		/* t10 <- t10-t25 */
-		__asm	addpd	xmm5,xmm5		/*          2*t26 */
-		__asm	addpd	xmm4,xmm4		/*          2*t25 */
-		__asm	addpd	xmm5,xmm0		/* t26 <- t9 +t26 */
-		__asm	addpd	xmm4,xmm1		/* t25 <- t10+t25 */
-	__asm	movaps	xmm2,xmm5	/* cpy x */
-	__asm	movaps	xmm3,xmm5	/* cpy x */
-	__asm	addpd	xmm5,xmm1	/* x+y */
-	__asm	subpd	xmm2,xmm1	/* x-y */
-	__asm	addpd	xmm1,xmm1	/* 2*y */
-	__asm	mulpd	xmm5,xmm2	/* x^2-y^2 */
-	__asm	mulpd	xmm1,xmm3	/* 2xy */
-//		__asm	movaps	[eax+0x180],xmm5	/* a[jt+p3 ], store in t25 */
-//		__asm	movaps	[eax+0x190],xmm1	/* a[jp+p3 ], store in t26 */
-	__asm	movaps	xmm2,xmm0	/* cpy x */
-	__asm	movaps	xmm3,xmm0	/* cpy x */
-	__asm	addpd	xmm0,xmm4	/* x+y */
-	__asm	subpd	xmm2,xmm4	/* x-y */
-	__asm	addpd	xmm4,xmm4	/* 2*y */
-	__asm	mulpd	xmm0,xmm2	/* x^2-y^2 */
-	__asm	mulpd	xmm4,xmm3	/* 2xy */
-//		__asm	movaps	[eax+0x080],xmm0	/* a[jt+p2 ], store in t9  */
-//		__asm	movaps	[eax+0x090],xmm4	/* a[jp+p2 ], store in t10 */
-
-	__asm	movaps	xmm2,[eax+0x100]	/* a[jt+p1 ], reload */
-	__asm	movaps	xmm3,[eax+0x110]	/* a[jp+p1 ], reload */
-		SSE2_RADIX4_DIT_IN_PLACE_C(xmm6,xmm7,xmm2,xmm3,xmm0,xmm4,xmm5,xmm1)
-
-	/*...Block 3: t5,13,21,29 */
-		__asm	mov	eax, r5
-
-		__asm	movaps	xmm0,[eax      ]	/* t5  */
-		__asm	movaps	xmm1,[eax+0x010]	/* t6  */
-		__asm	movaps	xmm2,[eax+0x080]	/* t13 */
-		__asm	movaps	xmm3,[eax+0x090]	/* t14 */
-
-		__asm	subpd	xmm0,[eax+0x090]	/* t5 =t5 -t14*/
-		__asm	subpd	xmm1,[eax+0x080]	/* t14=t6 -t13*/
-		__asm	addpd	xmm2,[eax+0x010]	/* t6 =t13+t6 */
-		__asm	addpd	xmm3,[eax      ]	/* t13=t14+t5 */
-		__asm	mov	ebx, isrt2
-
-		__asm	movaps	xmm4,[eax+0x100]	/* t21 */
-		__asm	movaps	xmm5,[eax+0x110]	/* t22 */
-		__asm	movaps	xmm6,[eax+0x180]	/* t29 */
-		__asm	movaps	xmm7,[eax+0x190]	/* t30 */
-
-		__asm	subpd	xmm4,[eax+0x110]	/* t21-t22 */
-		__asm	addpd	xmm5,[eax+0x100]	/* t22+t21 */
-		__asm	mulpd	xmm4,[ebx]	/* t21 = (t21-t22)*ISRT2 */
-		__asm	mulpd	xmm5,[ebx]	/* t22 = (t22+t21)*ISRT2 */
-
-		__asm	addpd	xmm6,[eax+0x190]	/* t29+t30 */
-		__asm	subpd	xmm7,[eax+0x180]	/* t30-t29 */
-		__asm	mulpd	xmm6,[ebx]	/*  rt = (t29+t30)*ISRT2 */
-		__asm	mulpd	xmm7,[ebx]	/*  it = (t30-t29)*ISRT2 */
-
-		__asm	subpd	xmm4,xmm6		/* t21=t21-rt */
-		__asm	subpd	xmm5,xmm7		/* t22=t22-it */
-		__asm	addpd	xmm6,xmm6		/*      2* rt */
-		__asm	addpd	xmm7,xmm7		/*      2* it */
-		__asm	addpd	xmm6,xmm4		/* t29=t21+rt */
-		__asm	addpd	xmm7,xmm5		/* t30=t22+it */
-
-		__asm	subpd	xmm0,xmm4		/* t5 -t21 */
-		__asm	subpd	xmm2,xmm5		/* t6 -t22 */
-		__asm	addpd	xmm4,xmm4		/*   2*t21 */
-		__asm	addpd	xmm5,xmm5		/*   2*t22 */
+			__asm	subpd	xmm0,xmm4		/* t5 -t21 */
+			__asm	subpd	xmm2,xmm5		/* t6 -t22 */
+			__asm	addpd	xmm4,xmm4		/*   2*t21 */
+			__asm	addpd	xmm5,xmm5		/*   2*t22 */
+			__asm	addpd	xmm4,xmm0		/* t5 +t21 */
+			__asm	addpd	xmm5,xmm2		/* t6 +t22 */
+		#ifdef inlineSquare
 		__asm	movaps	[eax+0x100],xmm0	/* a[jt+p1 ] */
-		__asm	addpd	xmm4,xmm0		/* t5 +t21 */
-		__asm	addpd	xmm5,xmm2		/* t6 +t22 */
 		__asm	movaps	[eax      ],xmm4	/* a[jt+p0 ] */
-	__asm	movaps	xmm4,xmm0	/* cpy x */
-	__asm	addpd	xmm0,xmm2	/* x+y */
-	__asm	subpd	xmm4,xmm2	/* x-y */
-	__asm	addpd	xmm2,xmm2	/* 2*y */
-	__asm	mulpd	xmm0,xmm4	/* x^2-y^2 */
-	__asm	mulpd	xmm2,[eax+0x100]/* 2xy */
-	__asm	movaps	xmm4,[eax      ]	/* a[jt+p0 ], reload */
-		__asm	movaps	[eax+0x100],xmm0	/* a[jt+p1 ] */
-		__asm	movaps	[eax+0x110],xmm2	/* a[jp+p1 ] */
-	__asm	movaps	xmm0,xmm4	/* cpy x */
-	__asm	movaps	xmm2,xmm4	/* cpy x */
-	__asm	addpd	xmm4,xmm5	/* x+y */
-	__asm	subpd	xmm0,xmm5	/* x-y */
-	__asm	addpd	xmm5,xmm5	/* 2*y */
-	__asm	mulpd	xmm4,xmm0	/* x^2-y^2 */
-	__asm	mulpd	xmm5,xmm2	/* 2xy */
-//		__asm	movaps	[eax      ],xmm4	/* a[jt+p0 ] */
-//		__asm	movaps	[eax+0x010],xmm5	/* a[jp+p0 ] */
+		__asm	movaps	xmm4,xmm0	/* cpy x */
+		__asm	addpd	xmm0,xmm2	/* x+y */
+		__asm	subpd	xmm4,xmm2	/* x-y */
+		__asm	addpd	xmm2,xmm2	/* 2*y */
+		__asm	mulpd	xmm0,xmm4	/* x^2-y^2 */
+		__asm	mulpd	xmm2,[eax+0x100]/* 2xy */
+		__asm	movaps	xmm4,[eax      ]	/* a[jt+p0 ], reload */
+		#endif
+			__asm	movaps	[eax+0x100],xmm0	/* a[jt+p1 ] */
+			__asm	movaps	[eax+0x110],xmm2	/* a[jp+p1 ] */
+		#ifdef inlineSquare
+		__asm	movaps	xmm0,xmm4	/* cpy x */
+		__asm	movaps	xmm2,xmm4	/* cpy x */
+		__asm	addpd	xmm4,xmm5	/* x+y */
+		__asm	subpd	xmm0,xmm5	/* x-y */
+		__asm	addpd	xmm5,xmm5	/* 2*y */
+		__asm	mulpd	xmm4,xmm0	/* x^2-y^2 */
+		__asm	mulpd	xmm5,xmm2	/* 2xy */
+		#else
+			__asm	movaps	[eax      ],xmm4	/* a[jt+p0 ] */
+			__asm	movaps	[eax+0x010],xmm5	/* a[jp+p0 ] */
+		#endif
+			__asm	subpd	xmm3,xmm7		/* t13-t30 */
+			__asm	subpd	xmm1,xmm6		/* t14-t29 */
+			__asm	addpd	xmm7,xmm7		/*   2*t30 */
+			__asm	addpd	xmm6,xmm6		/*   2*t29 */
+			__asm	addpd	xmm7,xmm3		/* t13+t30 */
+			__asm	addpd	xmm6,xmm1		/* t14+t29 */
+		#ifdef inlineSquare
+		__asm	movaps	xmm0,xmm7	/* cpy x */
+		__asm	movaps	xmm2,xmm7	/* cpy x */
+		__asm	addpd	xmm7,xmm1	/* x+y */
+		__asm	subpd	xmm0,xmm1	/* x-y */
+		__asm	addpd	xmm1,xmm1	/* 2*y */
+		__asm	mulpd	xmm7,xmm0	/* x^2-y^2 */
+		__asm	mulpd	xmm1,xmm2	/* 2xy */
+		#else
+			__asm	movaps	[eax+0x180],xmm7	/* a[jt+p3 ] */
+			__asm	movaps	[eax+0x190],xmm1	/* a[jp+p3 ] */
+		#endif
+		#ifdef inlineSquare
+		__asm	movaps	xmm0,xmm3	/* cpy x */
+		__asm	movaps	xmm2,xmm3	/* cpy x */
+		__asm	addpd	xmm3,xmm6	/* x+y */
+		__asm	subpd	xmm0,xmm6	/* x-y */
+		__asm	addpd	xmm6,xmm6	/* 2*y */
+		__asm	mulpd	xmm3,xmm0	/* x^2-y^2 */
+		__asm	mulpd	xmm6,xmm2	/* 2xy */
+			__asm	movaps	xmm0,[eax+0x100]	/* a[jt+p1 ], reload */
+			__asm	movaps	xmm2,[eax+0x110]	/* a[jp+p1 ], reload */
+			SSE2_RADIX4_DIT_IN_PLACE_C(xmm4,xmm5,xmm0,xmm2,xmm3,xmm6,xmm7,xmm1)
+		#else
+			__asm	movaps	[eax+0x080],xmm3	/* a[jt+p2 ] */
+			__asm	movaps	[eax+0x090],xmm6	/* a[jp+p2 ] */
+		#endif
+		/*...Block 2: t3,11,19,27 */
+			__asm	mov	eax, r3
+			__asm	mov	ebx, cc0
 
-		__asm	subpd	xmm3,xmm7		/* t13-t30 */
-		__asm	subpd	xmm1,xmm6		/* t14-t29 */
-		__asm	addpd	xmm7,xmm7		/*   2*t30 */
-		__asm	addpd	xmm6,xmm6		/*   2*t29 */
-		__asm	addpd	xmm7,xmm3		/* t13+t30 */
-		__asm	addpd	xmm6,xmm1		/* t14+t29 */
-	__asm	movaps	xmm0,xmm7	/* cpy x */
-	__asm	movaps	xmm2,xmm7	/* cpy x */
-	__asm	addpd	xmm7,xmm1	/* x+y */
-	__asm	subpd	xmm0,xmm1	/* x-y */
-	__asm	addpd	xmm1,xmm1	/* 2*y */
-	__asm	mulpd	xmm7,xmm0	/* x^2-y^2 */
-	__asm	mulpd	xmm1,xmm2	/* 2xy */
-//		__asm	movaps	[eax+0x180],xmm7	/* a[jt+p3 ] */
-//		__asm	movaps	[eax+0x190],xmm1	/* a[jp+p3 ] */
-	__asm	movaps	xmm0,xmm3	/* cpy x */
-	__asm	movaps	xmm2,xmm3	/* cpy x */
-	__asm	addpd	xmm3,xmm6	/* x+y */
-	__asm	subpd	xmm0,xmm6	/* x-y */
-	__asm	addpd	xmm6,xmm6	/* 2*y */
-	__asm	mulpd	xmm3,xmm0	/* x^2-y^2 */
-	__asm	mulpd	xmm6,xmm2	/* 2xy */
-//		__asm	movaps	[eax+0x080],xmm3	/* a[jt+p2 ] */
-//		__asm	movaps	[eax+0x090],xmm6	/* a[jp+p2 ] */
+			__asm	movaps	xmm4,[eax+0x100]	/* t19 */		__asm	movaps	xmm6,[eax+0x180]	/* t27 */
+			__asm	movaps	xmm5,[eax+0x110]	/* t20 */		__asm	movaps	xmm7,[eax+0x190]	/* t28 */
+			__asm	movaps	xmm0,[eax+0x100]	/* copy t19 */	__asm	movaps	xmm2,[eax+0x180]	/* copy t27 */
+			__asm	movaps	xmm1,[eax+0x110]	/* copy t20 */	__asm	movaps	xmm3,[eax+0x190]	/* copy t28 */
 
-	__asm	movaps	xmm0,[eax+0x100]	/* a[jt+p1 ], reload */
-	__asm	movaps	xmm2,[eax+0x110]	/* a[jp+p1 ], reload */
-		SSE2_RADIX4_DIT_IN_PLACE_C(xmm4,xmm5,xmm0,xmm2,xmm3,xmm6,xmm7,xmm1)
+			__asm	mulpd	xmm4,[ebx     ]	/* t19*c */			__asm	mulpd	xmm6,[ebx+0x10]	/* t27*s */
+			__asm	mulpd	xmm1,[ebx+0x10]	/* t20*s */			__asm	mulpd	xmm3,[ebx     ]	/* t28*c */
+			__asm	mulpd	xmm5,[ebx     ]	/* t20*c */			__asm	mulpd	xmm7,[ebx+0x10]	/* t28*s */
+			__asm	mulpd	xmm0,[ebx+0x10]	/* t19*s */			__asm	mulpd	xmm2,[ebx     ]	/* t27*c */
+			__asm	subpd	xmm4,xmm1	/* ~t19 */				__asm	subpd	xmm6,xmm3	/* rt */
+			__asm	addpd	xmm5,xmm0	/* ~t20 */				__asm	addpd	xmm7,xmm2	/* it */
 
-	/*...Block 2: t3,11,19,27 */
-		__asm	mov	eax, r3
-		__asm	mov	ebx, cc0
+			__asm	subpd	xmm4,xmm6		/*~t27=t19-rt */
+			__asm	subpd	xmm5,xmm7		/*~t28=t20-it */
+			__asm	addpd	xmm6,xmm6		/*      2* rt */
+			__asm	addpd	xmm7,xmm7		/*      2* it */
+			__asm	addpd	xmm6,xmm4		/*~t19=t19+rt */
+			__asm	addpd	xmm7,xmm5		/*~t20=t20+it */
 
-		__asm	movaps	xmm4,[eax+0x100]	/* t19 */		__asm	movaps	xmm6,[eax+0x180]	/* t27 */
-		__asm	movaps	xmm5,[eax+0x110]	/* t20 */		__asm	movaps	xmm7,[eax+0x190]	/* t28 */
-		__asm	movaps	xmm0,[eax+0x100]	/* copy t19 */	__asm	movaps	xmm2,[eax+0x180]	/* copy t27 */
-		__asm	movaps	xmm1,[eax+0x110]	/* copy t20 */	__asm	movaps	xmm3,[eax+0x190]	/* copy t28 */
+			__asm	mov	ebx, isrt2
+			__asm	movaps	xmm2,[eax+0x080]	/* t11 */
+			__asm	movaps	xmm3,[eax+0x090]	/* t12 */
+			__asm	subpd	xmm2,[eax+0x090]	/* t11-t12 */
+			__asm	addpd	xmm3,[eax+0x080]	/* t12+t11 */
+			__asm	mulpd	xmm2,[ebx]	/* rt = (t11-t12)*ISRT2 */
+			__asm	mulpd	xmm3,[ebx]	/* it = (t12+t11)*ISRT2 */
 
-		__asm	mulpd	xmm4,[ebx     ]	/* t19*c */			__asm	mulpd	xmm6,[ebx+0x10]	/* t27*s */
-		__asm	mulpd	xmm1,[ebx+0x10]	/* t20*s */			__asm	mulpd	xmm3,[ebx     ]	/* t28*c */
-		__asm	mulpd	xmm5,[ebx     ]	/* t20*c */			__asm	mulpd	xmm7,[ebx+0x10]	/* t28*s */
-		__asm	mulpd	xmm0,[ebx+0x10]	/* t19*s */			__asm	mulpd	xmm2,[ebx     ]	/* t27*c */
-		__asm	subpd	xmm4,xmm1	/* ~t19 */				__asm	subpd	xmm6,xmm3	/* rt */
-		__asm	addpd	xmm5,xmm0	/* ~t20 */				__asm	addpd	xmm7,xmm2	/* it */
+			__asm	movaps	xmm0,[eax      ]	/* t3  */
+			__asm	movaps	xmm1,[eax+0x010]	/* t4  */
 
-		__asm	subpd	xmm4,xmm6		/*~t27=t19-rt */
-		__asm	subpd	xmm5,xmm7		/*~t28=t20-it */
-		__asm	addpd	xmm6,xmm6		/*      2* rt */
-		__asm	addpd	xmm7,xmm7		/*      2* it */
-		__asm	addpd	xmm6,xmm4		/*~t19=t19+rt */
-		__asm	addpd	xmm7,xmm5		/*~t20=t20+it */
+			__asm	subpd	xmm0,xmm2			/*~t11=t3 -rt */
+			__asm	subpd	xmm1,xmm3			/*~t12=t4 -it */
+			__asm	addpd	xmm2,[eax      ]	/*~t3 =rt +t3 */
+			__asm	addpd	xmm3,[eax+0x010]	/*~t4 =it +t4 */
 
-		__asm	mov	ebx, isrt2
-		__asm	movaps	xmm2,[eax+0x080]	/* t11 */
-		__asm	movaps	xmm3,[eax+0x090]	/* t12 */
-		__asm	subpd	xmm2,[eax+0x090]	/* t11-t12 */
-		__asm	addpd	xmm3,[eax+0x080]	/* t12+t11 */
-		__asm	mulpd	xmm2,[ebx]	/* rt = (t11-t12)*ISRT2 */
-		__asm	mulpd	xmm3,[ebx]	/* it = (t12+t11)*ISRT2 */
-
-		__asm	movaps	xmm0,[eax      ]	/* t3  */
-		__asm	movaps	xmm1,[eax+0x010]	/* t4  */
-
-		__asm	subpd	xmm0,xmm2			/*~t11=t3 -rt */
-		__asm	subpd	xmm1,xmm3			/*~t12=t4 -it */
-		__asm	addpd	xmm2,[eax      ]	/*~t3 =rt +t3 */
-		__asm	addpd	xmm3,[eax+0x010]	/*~t4 =it +t4 */
-
-		__asm	subpd	xmm2,xmm6		/* t3 -t19 */
-		__asm	subpd	xmm3,xmm7		/* t4 -t20 */
-		__asm	addpd	xmm6,xmm6		/*   2*t19 */
-		__asm	addpd	xmm7,xmm7		/*   2*t20 */
+			__asm	subpd	xmm2,xmm6		/* t3 -t19 */
+			__asm	subpd	xmm3,xmm7		/* t4 -t20 */
+			__asm	addpd	xmm6,xmm6		/*   2*t19 */
+			__asm	addpd	xmm7,xmm7		/*   2*t20 */
+			__asm	addpd	xmm6,xmm2		/* t3 +t19 */
+			__asm	addpd	xmm7,xmm3		/* t4 +t20 */
+		#ifdef inlineSquare
 		__asm	movaps	[eax+0x100],xmm2	/* a[jt+p1 ] */
-		__asm	addpd	xmm6,xmm2		/* t3 +t19 */
-		__asm	addpd	xmm7,xmm3		/* t4 +t20 */
 		__asm	movaps	[eax      ],xmm6	/* a[jt+p0 ] */
-	__asm	movaps	xmm6,xmm2	/* cpy x */
-	__asm	addpd	xmm2,xmm3	/* x+y */
-	__asm	subpd	xmm6,xmm3	/* x-y */
-	__asm	addpd	xmm3,xmm3	/* 2*y */
-	__asm	mulpd	xmm2,xmm6	/* x^2-y^2 */
-	__asm	mulpd	xmm3,[eax+0x100]/* 2xy */
-	__asm	movaps	xmm6,[eax      ]	/* a[jt+p0 ], reload */
-		__asm	movaps	[eax+0x100],xmm2	/* a[jt+p1 ] */
-		__asm	movaps	[eax+0x110],xmm3	/* a[jp+p1 ] */
-	__asm	movaps	xmm2,xmm6	/* cpy x */
-	__asm	movaps	xmm3,xmm6	/* cpy x */
-	__asm	addpd	xmm6,xmm7	/* x+y */
-	__asm	subpd	xmm2,xmm7	/* x-y */
-	__asm	addpd	xmm7,xmm7	/* 2*y */
-	__asm	mulpd	xmm6,xmm2	/* x^2-y^2 */
-	__asm	mulpd	xmm7,xmm3	/* 2xy */
-//		__asm	movaps	[eax      ],xmm6	/* a[jt+p0 ] */
-//		__asm	movaps	[eax+0x010],xmm7	/* a[jp+p0 ] */
+		__asm	movaps	xmm6,xmm2	/* cpy x */
+		__asm	addpd	xmm2,xmm3	/* x+y */
+		__asm	subpd	xmm6,xmm3	/* x-y */
+		__asm	addpd	xmm3,xmm3	/* 2*y */
+		__asm	mulpd	xmm2,xmm6	/* x^2-y^2 */
+		__asm	mulpd	xmm3,[eax+0x100]/* 2xy */
+		__asm	movaps	xmm6,[eax      ]	/* a[jt+p0 ], reload */
+		#endif
+			__asm	movaps	[eax+0x100],xmm2	/* a[jt+p1 ] */
+			__asm	movaps	[eax+0x110],xmm3	/* a[jp+p1 ] */
+		#ifdef inlineSquare
+		__asm	movaps	xmm2,xmm6	/* cpy x */
+		__asm	movaps	xmm3,xmm6	/* cpy x */
+		__asm	addpd	xmm6,xmm7	/* x+y */
+		__asm	subpd	xmm2,xmm7	/* x-y */
+		__asm	addpd	xmm7,xmm7	/* 2*y */
+		__asm	mulpd	xmm6,xmm2	/* x^2-y^2 */
+		__asm	mulpd	xmm7,xmm3	/* 2xy */
+		#else
+			__asm	movaps	[eax      ],xmm6	/* a[jt+p0 ] */
+			__asm	movaps	[eax+0x010],xmm7	/* a[jp+p0 ] */
+		#endif
+			__asm	subpd	xmm0,xmm5		/* t11-t28 */
+			__asm	subpd	xmm1,xmm4		/* t12-t27 */
+			__asm	addpd	xmm5,xmm5		/*          2*t28 */
+			__asm	addpd	xmm4,xmm4		/*          2*t27 */
+			__asm	addpd	xmm5,xmm0		/* t11+t28 */
+			__asm	addpd	xmm4,xmm1		/* t12+t27 */
+		#ifdef inlineSquare
+		__asm	movaps	xmm2,xmm5	/* cpy x */
+		__asm	movaps	xmm3,xmm5	/* cpy x */
+		__asm	addpd	xmm5,xmm1	/* x+y */
+		__asm	subpd	xmm2,xmm1	/* x-y */
+		__asm	addpd	xmm1,xmm1	/* 2*y */
+		__asm	mulpd	xmm5,xmm2	/* x^2-y^2 */
+		__asm	mulpd	xmm1,xmm3	/* 2xy */
+		#else
+			__asm	movaps	[eax+0x180],xmm5	/* a[jt+p3 ] */
+			__asm	movaps	[eax+0x190],xmm1	/* a[jp+p3 ] */
+		#endif
+		#ifdef inlineSquare
+		__asm	movaps	xmm2,xmm0	/* cpy x */
+		__asm	movaps	xmm3,xmm0	/* cpy x */
+		__asm	addpd	xmm0,xmm4	/* x+y */
+		__asm	subpd	xmm2,xmm4	/* x-y */
+		__asm	addpd	xmm4,xmm4	/* 2*y */
+		__asm	mulpd	xmm0,xmm2	/* x^2-y^2 */
+		__asm	mulpd	xmm4,xmm3	/* 2xy */
+			__asm	movaps	xmm2,[eax+0x100]	/* a[jt+p1 ], reload */
+			__asm	movaps	xmm3,[eax+0x110]	/* a[jp+p1 ], reload */
+			SSE2_RADIX4_DIT_IN_PLACE_C(xmm6,xmm7,xmm2,xmm3,xmm0,xmm4,xmm5,xmm1)
+		#else
+			__asm	movaps	[eax+0x080],xmm0	/* a[jt+p2 ] */
+			__asm	movaps	[eax+0x090],xmm4	/* a[jp+p2 ] */
+		#endif
+		/*...Block 4: t7,15,23,31 */
+			__asm	mov	eax, r7
+			__asm	mov	ebx, cc0
 
-		__asm	subpd	xmm0,xmm5		/* t11-t28 */
-		__asm	subpd	xmm1,xmm4		/* t12-t27 */
-		__asm	addpd	xmm5,xmm5		/*          2*t28 */
-		__asm	addpd	xmm4,xmm4		/*          2*t27 */
-		__asm	addpd	xmm5,xmm0		/* t11+t28 */
-		__asm	addpd	xmm4,xmm1		/* t12+t27 */
-	__asm	movaps	xmm2,xmm5	/* cpy x */
-	__asm	movaps	xmm3,xmm5	/* cpy x */
-	__asm	addpd	xmm5,xmm1	/* x+y */
-	__asm	subpd	xmm2,xmm1	/* x-y */
-	__asm	addpd	xmm1,xmm1	/* 2*y */
-	__asm	mulpd	xmm5,xmm2	/* x^2-y^2 */
-	__asm	mulpd	xmm1,xmm3	/* 2xy */
-//		__asm	movaps	[eax+0x180],xmm5	/* a[jt+p3 ] */
-//		__asm	movaps	[eax+0x190],xmm1	/* a[jp+p3 ] */
-	__asm	movaps	xmm2,xmm0	/* cpy x */
-	__asm	movaps	xmm3,xmm0	/* cpy x */
-	__asm	addpd	xmm0,xmm4	/* x+y */
-	__asm	subpd	xmm2,xmm4	/* x-y */
-	__asm	addpd	xmm4,xmm4	/* 2*y */
-	__asm	mulpd	xmm0,xmm2	/* x^2-y^2 */
-	__asm	mulpd	xmm4,xmm3	/* 2xy */
-//		__asm	movaps	[eax+0x080],xmm0	/* a[jt+p2 ] */
-//		__asm	movaps	[eax+0x090],xmm4	/* a[jp+p2 ] */
+			__asm	movaps	xmm4,[eax+0x100]	/* t23 */			__asm	movaps	xmm6,[eax+0x180]	/* t31 */
+			__asm	movaps	xmm5,[eax+0x110]	/* t24 */			__asm	movaps	xmm7,[eax+0x190]	/* t32 */
+			__asm	movaps	xmm0,[eax+0x100]	/* copy t23 */		__asm	movaps	xmm2,[eax+0x180]	/* copy t31 */
+			__asm	movaps	xmm1,[eax+0x110]	/* copy t24 */		__asm	movaps	xmm3,[eax+0x190]	/* copy t32 */
 
-	__asm	movaps	xmm2,[eax+0x100]	/* a[jt+p1 ], reload */
-	__asm	movaps	xmm3,[eax+0x110]	/* a[jp+p1 ], reload */
-		SSE2_RADIX4_DIT_IN_PLACE_C(xmm6,xmm7,xmm2,xmm3,xmm0,xmm4,xmm5,xmm1)
+			__asm	mulpd	xmm4,[ebx+0x10]	/* t23*s */			__asm	mulpd	xmm6,[ebx     ]	/* t31*c */
+			__asm	mulpd	xmm1,[ebx     ]	/* t24*c */			__asm	mulpd	xmm3,[ebx+0x10]	/* t32*s */
+			__asm	mulpd	xmm5,[ebx+0x10]	/* t24*s */			__asm	mulpd	xmm7,[ebx     ]	/* t32*c */
+			__asm	mulpd	xmm0,[ebx     ]	/* t23*c */			__asm	mulpd	xmm2,[ebx+0x10]	/* t31*s */
+			__asm	subpd	xmm4,xmm1	/* ~t23 */				__asm	subpd	xmm6,xmm3	/* rt */
+			__asm	addpd	xmm5,xmm0	/* ~t24 */				__asm	addpd	xmm7,xmm2	/* it */
 
-	/*...Block 4: t7,15,23,31 */
-		__asm	mov	eax, r7
-		__asm	mov	ebx, cc0
+			__asm	subpd	xmm4,xmm6		/*~t23=t23-rt */
+			__asm	subpd	xmm5,xmm7		/*~t24=t24-it */
+			__asm	addpd	xmm6,xmm6		/*      2* rt */
+			__asm	addpd	xmm7,xmm7		/*      2* it */
+			__asm	addpd	xmm6,xmm4		/*~t31=t23+rt */
+			__asm	addpd	xmm7,xmm5		/*~t32=t24+it */
 
-		__asm	movaps	xmm4,[eax+0x100]	/* t23 */			__asm	movaps	xmm6,[eax+0x180]	/* t31 */
-		__asm	movaps	xmm5,[eax+0x110]	/* t24 */			__asm	movaps	xmm7,[eax+0x190]	/* t32 */
-		__asm	movaps	xmm0,[eax+0x100]	/* copy t23 */		__asm	movaps	xmm2,[eax+0x180]	/* copy t31 */
-		__asm	movaps	xmm1,[eax+0x110]	/* copy t24 */		__asm	movaps	xmm3,[eax+0x190]	/* copy t32 */
+			__asm	mov	ebx, isrt2
+			__asm	movaps	xmm2,[eax+0x080]	/* t15 */
+			__asm	movaps	xmm3,[eax+0x090]	/* t16 */
+			__asm	addpd	xmm2,[eax+0x090]	/* t15+t16 */
+			__asm	subpd	xmm3,[eax+0x080]	/* t16-t15 */
+			__asm	mulpd	xmm2,[ebx]	/* rt = (t15+t16)*ISRT2 */
+			__asm	mulpd	xmm3,[ebx]	/* it = (t16-t15)*ISRT2 */
 
-		__asm	mulpd	xmm4,[ebx+0x10]	/* t23*s */			__asm	mulpd	xmm6,[ebx     ]	/* t31*c */
-		__asm	mulpd	xmm1,[ebx     ]	/* t24*c */			__asm	mulpd	xmm3,[ebx+0x10]	/* t32*s */
-		__asm	mulpd	xmm5,[ebx+0x10]	/* t24*s */			__asm	mulpd	xmm7,[ebx     ]	/* t32*c */
-		__asm	mulpd	xmm0,[ebx     ]	/* t23*c */			__asm	mulpd	xmm2,[ebx+0x10]	/* t31*s */
-		__asm	subpd	xmm4,xmm1	/* ~t23 */				__asm	subpd	xmm6,xmm3	/* rt */
-		__asm	addpd	xmm5,xmm0	/* ~t24 */				__asm	addpd	xmm7,xmm2	/* it */
+			__asm	movaps	xmm0,[eax      ]	/* t7  */
+			__asm	movaps	xmm1,[eax+0x010]	/* t8  */
 
-		__asm	subpd	xmm4,xmm6		/*~t23=t23-rt */
-		__asm	subpd	xmm5,xmm7		/*~t24=t24-it */
-		__asm	addpd	xmm6,xmm6		/*      2* rt */
-		__asm	addpd	xmm7,xmm7		/*      2* it */
-		__asm	addpd	xmm6,xmm4		/*~t31=t23+rt */
-		__asm	addpd	xmm7,xmm5		/*~t32=t24+it */
+			__asm	subpd	xmm0,xmm2			/*~t7 =t7 -rt */
+			__asm	subpd	xmm1,xmm3			/*~t8 =t8 -it */
+			__asm	addpd	xmm2,[eax      ]	/*~t15=rt +t7 */
+			__asm	addpd	xmm3,[eax+0x010]	/*~t16=it +t8 */
 
-		__asm	mov	ebx, isrt2
-		__asm	movaps	xmm2,[eax+0x080]	/* t15 */
-		__asm	movaps	xmm3,[eax+0x090]	/* t16 */
-		__asm	addpd	xmm2,[eax+0x090]	/* t15+t16 */
-		__asm	subpd	xmm3,[eax+0x080]	/* t16-t15 */
-		__asm	mulpd	xmm2,[ebx]	/* rt = (t15+t16)*ISRT2 */
-		__asm	mulpd	xmm3,[ebx]	/* it = (t16-t15)*ISRT2 */
-
-		__asm	movaps	xmm0,[eax      ]	/* t7  */
-		__asm	movaps	xmm1,[eax+0x010]	/* t8  */
-
-		__asm	subpd	xmm0,xmm2			/*~t7 =t7 -rt */
-		__asm	subpd	xmm1,xmm3			/*~t8 =t8 -it */
-		__asm	addpd	xmm2,[eax      ]	/*~t15=rt +t7 */
-		__asm	addpd	xmm3,[eax+0x010]	/*~t16=it +t8 */
-
-		__asm	subpd	xmm0,xmm4		/* t7 -t23 */
-		__asm	subpd	xmm1,xmm5		/* t8 -t24 */
-		__asm	addpd	xmm4,xmm4		/*   2*t23 */
-		__asm	addpd	xmm5,xmm5		/*   2*t24 */
+			__asm	subpd	xmm0,xmm4		/* t7 -t23 */
+			__asm	subpd	xmm1,xmm5		/* t8 -t24 */
+			__asm	addpd	xmm4,xmm4		/*   2*t23 */
+			__asm	addpd	xmm5,xmm5		/*   2*t24 */
+			__asm	addpd	xmm4,xmm0		/* t7 +t23 */
+			__asm	addpd	xmm5,xmm1		/* t8 +t24 */
+		#ifdef inlineSquare
 		__asm	movaps	[eax+0x100],xmm0	/* a[jt+p1 ] */
-		__asm	addpd	xmm4,xmm0		/* t7 +t23 */
-		__asm	addpd	xmm5,xmm1		/* t8 +t24 */
 		__asm	movaps	[eax      ],xmm4	/* a[jt+p0 ] */
-	__asm	movaps	xmm4,xmm0	/* cpy x */
-	__asm	addpd	xmm0,xmm1	/* x+y */
-	__asm	subpd	xmm4,xmm1	/* x-y */
-	__asm	addpd	xmm1,xmm1	/* 2*y */
-	__asm	mulpd	xmm0,xmm4	/* x^2-y^2 */
-	__asm	mulpd	xmm1,[eax+0x100]/* 2xy */
-	__asm	movaps	xmm4,[eax      ]	/* a[jt+p0 ], reload */
-		__asm	movaps	[eax+0x100],xmm0	/* a[jt+p1 ] */
-		__asm	movaps	[eax+0x110],xmm1	/* a[jp+p1 ] */
-	__asm	movaps	xmm0,xmm4	/* cpy x */
-	__asm	movaps	xmm1,xmm4	/* cpy x */
-	__asm	addpd	xmm4,xmm5	/* x+y */
-	__asm	subpd	xmm0,xmm5	/* x-y */
-	__asm	addpd	xmm5,xmm5	/* 2*y */
-	__asm	mulpd	xmm4,xmm0	/* x^2-y^2 */
-	__asm	mulpd	xmm5,xmm1	/* 2xy */
-//		__asm	movaps	[eax      ],xmm4	/* a[jt+p0 ] */
-//		__asm	movaps	[eax+0x010],xmm5	/* a[jp+p0 ] */
+		__asm	movaps	xmm4,xmm0	/* cpy x */
+		__asm	addpd	xmm0,xmm1	/* x+y */
+		__asm	subpd	xmm4,xmm1	/* x-y */
+		__asm	addpd	xmm1,xmm1	/* 2*y */
+		__asm	mulpd	xmm0,xmm4	/* x^2-y^2 */
+		__asm	mulpd	xmm1,[eax+0x100]/* 2xy */
+		__asm	movaps	xmm4,[eax      ]	/* a[jt+p0 ], reload */
+		#endif
+			__asm	movaps	[eax+0x100],xmm0	/* a[jt+p1 ] */
+			__asm	movaps	[eax+0x110],xmm1	/* a[jp+p1 ] */
+		#ifdef inlineSquare
+		__asm	movaps	xmm0,xmm4	/* cpy x */
+		__asm	movaps	xmm1,xmm4	/* cpy x */
+		__asm	addpd	xmm4,xmm5	/* x+y */
+		__asm	subpd	xmm0,xmm5	/* x-y */
+		__asm	addpd	xmm5,xmm5	/* 2*y */
+		__asm	mulpd	xmm4,xmm0	/* x^2-y^2 */
+		__asm	mulpd	xmm5,xmm1	/* 2xy */
+		#else
+			__asm	movaps	[eax      ],xmm4	/* a[jt+p0 ] */
+			__asm	movaps	[eax+0x010],xmm5	/* a[jp+p0 ] */
+		#endif
+			__asm	subpd	xmm2,xmm7		/* t15-t32 */
+			__asm	subpd	xmm3,xmm6		/* t16-t31 */
+			__asm	addpd	xmm7,xmm7		/*   2*t32 */
+			__asm	addpd	xmm6,xmm6		/*   2*t31 */
+			__asm	addpd	xmm7,xmm2		/* t15+t32 */
+			__asm	addpd	xmm6,xmm3		/* t16+t31 */
+		#ifdef inlineSquare
+		__asm	movaps	xmm0,xmm7	/* cpy x */
+		__asm	movaps	xmm1,xmm7	/* cpy x */
+		__asm	addpd	xmm7,xmm3	/* x+y */
+		__asm	subpd	xmm0,xmm3	/* x-y */
+		__asm	addpd	xmm3,xmm3	/* 2*y */
+		__asm	mulpd	xmm7,xmm0	/* x^2-y^2 */
+		__asm	mulpd	xmm3,xmm1	/* 2xy */
+		#else
+			__asm	movaps	[eax+0x180],xmm7	/* a[jt+p3 ] */
+			__asm	movaps	[eax+0x190],xmm3	/* a[jp+p3 ] */
+		#endif
+		#ifdef inlineSquare
+		__asm	movaps	xmm0,xmm2	/* cpy x */
+		__asm	movaps	xmm1,xmm2	/* cpy x */
+		__asm	addpd	xmm2,xmm6	/* x+y */
+		__asm	subpd	xmm0,xmm6	/* x-y */
+		__asm	addpd	xmm6,xmm6	/* 2*y */
+		__asm	mulpd	xmm2,xmm0	/* x^2-y^2 */
+		__asm	mulpd	xmm6,xmm1	/* 2xy */
+			__asm	movaps	xmm0,[eax+0x100]	/* a[jt+p1 ], reload */
+			__asm	movaps	xmm1,[eax+0x110]	/* a[jp+p1 ], reload */
+			SSE2_RADIX4_DIT_IN_PLACE_C(xmm4,xmm5,xmm0,xmm1,xmm2,xmm6,xmm7,xmm3)
+		#else
+			__asm	movaps	[eax+0x080],xmm2	/* a[jt+p2 ] */
+			__asm	movaps	[eax+0x090],xmm6	/* a[jp+p2 ] */
+		#endif
 
-		__asm	subpd	xmm2,xmm7		/* t15-t32 */
-		__asm	subpd	xmm3,xmm6		/* t16-t31 */
-		__asm	addpd	xmm7,xmm7		/*   2*t32 */
-		__asm	addpd	xmm6,xmm6		/*   2*t31 */
-		__asm	addpd	xmm7,xmm2		/* t15+t32 */
-		__asm	addpd	xmm6,xmm3		/* t16+t31 */
-	__asm	movaps	xmm0,xmm7	/* cpy x */
-	__asm	movaps	xmm1,xmm7	/* cpy x */
-	__asm	addpd	xmm7,xmm3	/* x+y */
-	__asm	subpd	xmm0,xmm3	/* x-y */
-	__asm	addpd	xmm3,xmm3	/* 2*y */
-	__asm	mulpd	xmm7,xmm0	/* x^2-y^2 */
-	__asm	mulpd	xmm3,xmm1	/* 2xy */
-//		__asm	movaps	[eax+0x180],xmm7	/* a[jt+p3 ] */
-//		__asm	movaps	[eax+0x190],xmm3	/* a[jp+p3 ] */
-	__asm	movaps	xmm0,xmm2	/* cpy x */
-	__asm	movaps	xmm1,xmm2	/* cpy x */
-	__asm	addpd	xmm2,xmm6	/* x+y */
-	__asm	subpd	xmm0,xmm6	/* x-y */
-	__asm	addpd	xmm6,xmm6	/* 2*y */
-	__asm	mulpd	xmm2,xmm0	/* x^2-y^2 */
-	__asm	mulpd	xmm6,xmm1	/* 2xy */
-//		__asm	movaps	[eax+0x080],xmm2	/* a[jt+p2 ] */
-//		__asm	movaps	[eax+0x090],xmm6	/* a[jp+p2 ] */
-
-	__asm	movaps	xmm0,[eax+0x100]	/* a[jt+p1 ], reload */
-	__asm	movaps	xmm1,[eax+0x110]	/* a[jp+p1 ], reload */
-		SSE2_RADIX4_DIT_IN_PLACE_C(xmm4,xmm5,xmm0,xmm1,xmm2,xmm6,xmm7,xmm3)
-
-	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
+	#else	/* GCC-style inline ASM: */
 
 		SSE2_RADIX16_WRAPPER_DIF(add0,add1,r1,r9,r17,r25,isrt2,cc0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15)
 
 	#endif
 
-	#if 0//DEBUG_SSE2
-		fprintf(stderr, "Outputs B:\n");
-		fprintf(stderr, "radix16_dyadic_square: R1:= %20.5f, %20.5f\n",r1 ->re,r2 ->re);
-		fprintf(stderr, "radix16_dyadic_square: R17= %20.5f, %20.5f\n",r17->re,r18->re);
-		fprintf(stderr, "radix16_dyadic_square: R9:= %20.5f, %20.5f\n",r9 ->re,r10->re);
-		fprintf(stderr, "radix16_dyadic_square: R25= %20.5f, %20.5f\n",r25->re,r26->re);
-		fprintf(stderr, "radix16_dyadic_square: R5:= %20.5f, %20.5f\n",r5 ->re,r6 ->re);
-		fprintf(stderr, "radix16_dyadic_square: R21= %20.5f, %20.5f\n",r21->re,r22->re);
-		fprintf(stderr, "radix16_dyadic_square: R13= %20.5f, %20.5f\n",r13->re,r14->re);
-		fprintf(stderr, "radix16_dyadic_square: R29= %20.5f, %20.5f\n",r29->re,r30->re);
-		fprintf(stderr, "radix16_dyadic_square: R3:= %20.5f, %20.5f\n",r3 ->re,r4 ->re);
-		fprintf(stderr, "radix16_dyadic_square: R19= %20.5f, %20.5f\n",r19->re,r20->re);
-		fprintf(stderr, "radix16_dyadic_square: R11= %20.5f, %20.5f\n",r11->re,r12->re);
-		fprintf(stderr, "radix16_dyadic_square: R27= %20.5f, %20.5f\n",r27->re,r28->re);
-		fprintf(stderr, "radix16_dyadic_square: R7:= %20.5f, %20.5f\n",r7 ->re,r8 ->re);
-		fprintf(stderr, "radix16_dyadic_square: R23= %20.5f, %20.5f\n",r23->re,r24->re);
-		fprintf(stderr, "radix16_dyadic_square: R15= %20.5f, %20.5f\n",r15->re,r16->re);
-		fprintf(stderr, "radix16_dyadic_square: R31= %20.5f, %20.5f\n",r31->re,r32->re);
+	#ifdef DEBUG_SSE2 && defined(ewm30Nov2011)
+		fprintf(stderr, "DIF Outputs:\n");
+		fprintf(stderr, "radix16_dyadic_square: R1 = %20.5f, %20.5f\n",r1 ->re,r1 ->im);
+		fprintf(stderr, "radix16_dyadic_square: R2 = %20.5f, %20.5f\n",r2 ->re,r2 ->im);
+		fprintf(stderr, "radix16_dyadic_square: R3 = %20.5f, %20.5f\n",r3 ->re,r3 ->im);
+		fprintf(stderr, "radix16_dyadic_square: R4 = %20.5f, %20.5f\n",r4 ->re,r4 ->im);
+		fprintf(stderr, "radix16_dyadic_square: R5 = %20.5f, %20.5f\n",r5 ->re,r5 ->im);
+		fprintf(stderr, "radix16_dyadic_square: R6 = %20.5f, %20.5f\n",r6 ->re,r6 ->im);
+		fprintf(stderr, "radix16_dyadic_square: R7 = %20.5f, %20.5f\n",r7 ->re,r7 ->im);
+		fprintf(stderr, "radix16_dyadic_square: R8 = %20.5f, %20.5f\n",r8 ->re,r8 ->im);
+		fprintf(stderr, "radix16_dyadic_square: R9 = %20.5f, %20.5f\n",r9 ->re,r9 ->im);
+		fprintf(stderr, "radix16_dyadic_square: R10= %20.5f, %20.5f\n",r10->re,r10->im);
+		fprintf(stderr, "radix16_dyadic_square: R11= %20.5f, %20.5f\n",r11->re,r11->im);
+		fprintf(stderr, "radix16_dyadic_square: R12= %20.5f, %20.5f\n",r12->re,r12->im);
+		fprintf(stderr, "radix16_dyadic_square: R13= %20.5f, %20.5f\n",r13->re,r13->im);
+		fprintf(stderr, "radix16_dyadic_square: R14= %20.5f, %20.5f\n",r14->re,r14->im);
+		fprintf(stderr, "radix16_dyadic_square: R15= %20.5f, %20.5f\n",r15->re,r15->im);
+		fprintf(stderr, "radix16_dyadic_square: R16= %20.5f, %20.5f\n",r16->re,r16->im);
+		fprintf(stderr, "radix16_dyadic_square: R17= %20.5f, %20.5f\n",r17->re,r17->im);
+		fprintf(stderr, "radix16_dyadic_square: R18= %20.5f, %20.5f\n",r18->re,r18->im);
+		fprintf(stderr, "radix16_dyadic_square: R19= %20.5f, %20.5f\n",r19->re,r19->im);
+		fprintf(stderr, "radix16_dyadic_square: R20= %20.5f, %20.5f\n",r20->re,r20->im);
+		fprintf(stderr, "radix16_dyadic_square: R21= %20.5f, %20.5f\n",r21->re,r21->im);
+		fprintf(stderr, "radix16_dyadic_square: R22= %20.5f, %20.5f\n",r22->re,r22->im);
+		fprintf(stderr, "radix16_dyadic_square: R23= %20.5f, %20.5f\n",r23->re,r23->im);
+		fprintf(stderr, "radix16_dyadic_square: R24= %20.5f, %20.5f\n",r24->re,r24->im);
+		fprintf(stderr, "radix16_dyadic_square: R25= %20.5f, %20.5f\n",r25->re,r25->im);
+		fprintf(stderr, "radix16_dyadic_square: R26= %20.5f, %20.5f\n",r26->re,r26->im);
+		fprintf(stderr, "radix16_dyadic_square: R27= %20.5f, %20.5f\n",r27->re,r27->im);
+		fprintf(stderr, "radix16_dyadic_square: R28= %20.5f, %20.5f\n",r28->re,r28->im);
+		fprintf(stderr, "radix16_dyadic_square: R29= %20.5f, %20.5f\n",r29->re,r29->im);
+		fprintf(stderr, "radix16_dyadic_square: R30= %20.5f, %20.5f\n",r30->re,r30->im);
+		fprintf(stderr, "radix16_dyadic_square: R31= %20.5f, %20.5f\n",r31->re,r31->im);
+		fprintf(stderr, "radix16_dyadic_square: R32= %20.5f, %20.5f\n",r32->re,r32->im);
 		fprintf(stderr, "\n");
-		exit(0);
+	//	exit(0);
 	#endif
 
-	#if 0//COMPILER_TYPE_MSVC
+	#ifndef inlineSquare	// defined(inlineSquare) means we rolled squarings in with radix-4 DFTs above
+
+	  #ifdef COMPILER_TYPE_MSVC
 
 		__asm	mov	eax, r1
-		__asm	movaps	xmm0,[eax      ]	/* x0*/		__asm	movaps	xmm0,[eax+0x100]	/* x8*/
-		__asm	movaps	xmm1,[eax+0x010]	/* y0*/		__asm	movaps	xmm1,[eax+0x110]	/* y8*/
-		__asm	movaps	xmm2,xmm0		/* cpy x */		__asm	movaps	xmm2,xmm0		/* cpy x */
-		__asm	addpd	xmm0,xmm1		/* x+y */		__asm	addpd	xmm0,xmm1		/* x+y */
-		__asm	subpd	xmm2,xmm1		/* x-y */		__asm	subpd	xmm2,xmm1		/* x-y */
-		__asm	addpd	xmm1,xmm1		/* 2*y */		__asm	addpd	xmm1,xmm1		/* 2*y */
-		__asm	mulpd	xmm0,xmm2	/* x^2-y^2 */		__asm	mulpd	xmm0,xmm2	/* x^2-y^2 */
-		__asm	mulpd	xmm1,[eax      ]/* 2xy */		__asm	mulpd	xmm1,[eax+0x100]/* 2xy */
-		__asm	movaps	[eax      ],xmm0	/* Re */	__asm	movaps	[eax+0x100],xmm0	/* Re */
-		__asm	movaps	[eax+0x010],xmm1	/* Im */	__asm	movaps	[eax+0x110],xmm1	/* Im */
+		__asm	movaps	xmm0,[eax      ]	/* x0*/		__asm	movaps	xmm3,[eax+0x100]	/* x8*/
+		__asm	movaps	xmm1,[eax+0x010]	/* y0*/		__asm	movaps	xmm4,[eax+0x110]	/* y8*/
+		__asm	movaps	xmm2,xmm0		/* cpy x */		__asm	movaps	xmm5,xmm3		/* cpy x */
+		__asm	addpd	xmm0,xmm1		/* x+y */		__asm	addpd	xmm3,xmm4		/* x+y */
+		__asm	subpd	xmm2,xmm1		/* x-y */		__asm	subpd	xmm5,xmm4		/* x-y */
+		__asm	addpd	xmm1,xmm1		/* 2*y */		__asm	addpd	xmm4,xmm4		/* 2*y */
+		__asm	mulpd	xmm0,xmm2	/* x^2-y^2 */		__asm	mulpd	xmm3,xmm5	/* x^2-y^2 */
+		__asm	mulpd	xmm1,[eax      ]/* 2xy */		__asm	mulpd	xmm4,[eax+0x100]/* 2xy */
+		__asm	movaps	[eax      ],xmm0	/* Re */	__asm	movaps	[eax+0x100],xmm3	/* Re */
+		__asm	movaps	[eax+0x010],xmm1	/* Im */	__asm	movaps	[eax+0x110],xmm4	/* Im */
 
-		__asm	movaps	xmm0,[eax+0x080]	/* x4*/		__asm	movaps	xmm0,[eax+0x180]	/* xC*/
-		__asm	movaps	xmm1,[eax+0x090]	/* y4*/		__asm	movaps	xmm1,[eax+0x190]	/* yC*/
-		__asm	movaps	xmm2,xmm0		/* cpy x */		__asm	movaps	xmm2,xmm0		/* cpy x */
-		__asm	addpd	xmm0,xmm1		/* x+y */		__asm	addpd	xmm0,xmm1		/* x+y */
-		__asm	subpd	xmm2,xmm1		/* x-y */		__asm	subpd	xmm2,xmm1		/* x-y */
-		__asm	addpd	xmm1,xmm1		/* 2*y */		__asm	addpd	xmm1,xmm1		/* 2*y */
-		__asm	mulpd	xmm0,xmm2	/* x^2-y^2 */		__asm	mulpd	xmm0,xmm2	/* x^2-y^2 */
-		__asm	mulpd	xmm1,[eax+0x080]/* 2xy */		__asm	mulpd	xmm1,[eax+0x180]/* 2xy */
-		__asm	movaps	[eax+0x080],xmm0	/* Re */	__asm	movaps	[eax+0x180],xmm0	/* Re */
-		__asm	movaps	[eax+0x090],xmm1	/* Im */	__asm	movaps	[eax+0x190],xmm1	/* Im */
+		__asm	movaps	xmm0,[eax+0x080]	/* x4*/		__asm	movaps	xmm3,[eax+0x180]	/* xC*/
+		__asm	movaps	xmm1,[eax+0x090]	/* y4*/		__asm	movaps	xmm4,[eax+0x190]	/* yC*/
+		__asm	movaps	xmm2,xmm0		/* cpy x */		__asm	movaps	xmm5,xmm3		/* cpy x */
+		__asm	addpd	xmm0,xmm1		/* x+y */		__asm	addpd	xmm3,xmm4		/* x+y */
+		__asm	subpd	xmm2,xmm1		/* x-y */		__asm	subpd	xmm5,xmm4		/* x-y */
+		__asm	addpd	xmm1,xmm1		/* 2*y */		__asm	addpd	xmm4,xmm4		/* 2*y */
+		__asm	mulpd	xmm0,xmm2	/* x^2-y^2 */		__asm	mulpd	xmm3,xmm5	/* x^2-y^2 */
+		__asm	mulpd	xmm1,[eax+0x080]/* 2xy */		__asm	mulpd	xmm4,[eax+0x180]/* 2xy */
+		__asm	movaps	[eax+0x080],xmm0	/* Re */	__asm	movaps	[eax+0x180],xmm3	/* Re */
+		__asm	movaps	[eax+0x090],xmm1	/* Im */	__asm	movaps	[eax+0x190],xmm4	/* Im */
 
 		__asm	movaps	xmm0,[eax+0x040]	/* x2*/		__asm	movaps	xmm3,[eax+0x140]
 		__asm	movaps	xmm1,[eax+0x050]	/* y2*/		__asm	movaps	xmm4,[eax+0x150]
@@ -1375,400 +1582,238 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		__asm	movaps	[eax+0x0e0],xmm0	/* Re */	__asm	movaps	[eax+0x1e0],xmm3
 		__asm	movaps	[eax+0x0f0],xmm1	/* Im */	__asm	movaps	[eax+0x1f0],xmm4
 
-	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
-
-	  #if OS_BITS == 32
+	#elif OS_BITS == 32	/* GCC-style inline ASM: */
 
 		__asm__ volatile (\
 			"movl	%[__r1],%%eax		\n\t"\
-			"/* z0^2: */				\n\t"\
-			"movaps	     (%%eax),%%xmm0	\n\t"\
-			"movaps	0x010(%%eax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	     (%%eax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,     (%%eax)	\n\t"\
-			"movaps	%%xmm1,0x010(%%eax)	\n\t"\
-			"/* z1^2: */				\n\t"\
-			"movaps	0x020(%%eax),%%xmm0	\n\t"\
-			"movaps	0x030(%%eax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x020(%%eax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x020(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x030(%%eax)	\n\t"\
-			"/* z2^2: */				\n\t"\
-			"movaps	0x040(%%eax),%%xmm0	\n\t"\
-			"movaps	0x050(%%eax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x050(%%eax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x040(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x050(%%eax)	\n\t"\
-			"/* z3^2: */				\n\t"\
-			"movaps	0x060(%%eax),%%xmm0	\n\t"\
-			"movaps	0x070(%%eax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x060(%%eax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x060(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x070(%%eax)	\n\t"\
-			"/* z4^2: */				\n\t"\
-			"movaps	0x080(%%eax),%%xmm0	\n\t"\
-			"movaps	0x090(%%eax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x080(%%eax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x080(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x090(%%eax)	\n\t"\
-			"/* z5^2: */				\n\t"\
-			"movaps	0x0a0(%%eax),%%xmm0	\n\t"\
-			"movaps	0x0b0(%%eax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x0a0(%%eax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x0a0(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x0b0(%%eax)	\n\t"\
-			"/* z6^2: */				\n\t"\
-			"movaps	0x0c0(%%eax),%%xmm0	\n\t"\
-			"movaps	0x0d0(%%eax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x0c0(%%eax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x0c0(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x0d0(%%eax)	\n\t"\
-			"/* z7^2: */				\n\t"\
-			"movaps	0x0e0(%%eax),%%xmm0	\n\t"\
-			"movaps	0x0f0(%%eax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x0e0(%%eax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x0e0(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x0f0(%%eax)	\n\t"\
-			"/* z8^2: */				\n\t"\
-			"movaps	0x100(%%eax),%%xmm0	\n\t"\
-			"movaps	0x110(%%eax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x100(%%eax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x100(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x110(%%eax)	\n\t"\
-			"/* z9^2: */				\n\t"\
-			"movaps	0x120(%%eax),%%xmm0	\n\t"\
-			"movaps	0x130(%%eax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x120(%%eax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x120(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x130(%%eax)	\n\t"\
-			"/* zA^2: */				\n\t"\
-			"movaps	0x140(%%eax),%%xmm0	\n\t"\
-			"movaps	0x150(%%eax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x150(%%eax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x140(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x150(%%eax)	\n\t"\
-			"/* zB^2: */				\n\t"\
-			"movaps	0x160(%%eax),%%xmm0	\n\t"\
-			"movaps	0x170(%%eax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x160(%%eax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x160(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x170(%%eax)	\n\t"\
-			"/* zC^2: */				\n\t"\
-			"movaps	0x180(%%eax),%%xmm0	\n\t"\
-			"movaps	0x190(%%eax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x180(%%eax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x180(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x190(%%eax)	\n\t"\
-			"/* zD^2: */				\n\t"\
-			"movaps	0x1a0(%%eax),%%xmm0	\n\t"\
-			"movaps	0x1b0(%%eax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x1a0(%%eax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x1a0(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x1b0(%%eax)	\n\t"\
-			"/* zE^2: */				\n\t"\
-			"movaps	0x1c0(%%eax),%%xmm0	\n\t"\
-			"movaps	0x1d0(%%eax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x1c0(%%eax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x1c0(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x1d0(%%eax)	\n\t"\
-			"/* zF^2: */				\n\t"\
-			"movaps	0x1e0(%%eax),%%xmm0	\n\t"\
-			"movaps	0x1f0(%%eax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x1e0(%%eax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x1e0(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x1f0(%%eax)	\n\t"\
+			"/* z0^2: */				\n\t		/* z8^2: */				\n\t"\
+			"movaps	     (%%eax),%%xmm0	\n\t		movaps	0x100(%%eax),%%xmm3	\n\t"\
+			"movaps	0x010(%%eax),%%xmm1	\n\t		movaps	0x110(%%eax),%%xmm4	\n\t"\
+			"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
+			"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
+			"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"mulpd	     (%%eax),%%xmm1	\n\t		mulpd	0x100(%%eax),%%xmm4	\n\t"\
+			"movaps	%%xmm0,     (%%eax)	\n\t		movaps	%%xmm3,0x100(%%eax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%eax)	\n\t		movaps	%%xmm4,0x110(%%eax)	\n\t"\
+			"/* z1^2: */				\n\t		/* z9^2: */				\n\t"\
+			"movaps	0x020(%%eax),%%xmm0	\n\t		movaps	0x120(%%eax),%%xmm3	\n\t"\
+			"movaps	0x030(%%eax),%%xmm1	\n\t		movaps	0x130(%%eax),%%xmm4	\n\t"\
+			"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
+			"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
+			"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"mulpd	0x020(%%eax),%%xmm1	\n\t		mulpd	0x120(%%eax),%%xmm4	\n\t"\
+			"movaps	%%xmm0,0x020(%%eax)	\n\t		movaps	%%xmm3,0x120(%%eax)	\n\t"\
+			"movaps	%%xmm1,0x030(%%eax)	\n\t		movaps	%%xmm4,0x130(%%eax)	\n\t"\
+			"/* z2^2: */				\n\t		/* zA^2: */				\n\t"\
+			"movaps	0x040(%%eax),%%xmm0	\n\t		movaps	0x140(%%eax),%%xmm3	\n\t"\
+			"movaps	0x050(%%eax),%%xmm1	\n\t		movaps	0x150(%%eax),%%xmm4	\n\t"\
+			"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
+			"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
+			"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"mulpd	0x040(%%eax),%%xmm1	\n\t		mulpd	0x140(%%eax),%%xmm4	\n\t"\
+			"movaps	%%xmm0,0x040(%%eax)	\n\t		movaps	%%xmm3,0x140(%%eax)	\n\t"\
+			"movaps	%%xmm1,0x050(%%eax)	\n\t		movaps	%%xmm4,0x150(%%eax)	\n\t"\
+			"/* z3^2: */				\n\t		/* zB^2: */				\n\t"\
+			"movaps	0x060(%%eax),%%xmm0	\n\t		movaps	0x160(%%eax),%%xmm3	\n\t"\
+			"movaps	0x070(%%eax),%%xmm1	\n\t		movaps	0x170(%%eax),%%xmm4	\n\t"\
+			"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
+			"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
+			"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"mulpd	0x060(%%eax),%%xmm1	\n\t		mulpd	0x160(%%eax),%%xmm4	\n\t"\
+			"movaps	%%xmm0,0x060(%%eax)	\n\t		movaps	%%xmm3,0x160(%%eax)	\n\t"\
+			"movaps	%%xmm1,0x070(%%eax)	\n\t		movaps	%%xmm4,0x170(%%eax)	\n\t"\
+			"/* z4^2: */				\n\t		/* zC^2: */				\n\t"\
+			"movaps	0x080(%%eax),%%xmm0	\n\t		movaps	0x180(%%eax),%%xmm3	\n\t"\
+			"movaps	0x090(%%eax),%%xmm1	\n\t		movaps	0x190(%%eax),%%xmm4	\n\t"\
+			"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
+			"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
+			"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"mulpd	0x080(%%eax),%%xmm1	\n\t		mulpd	0x180(%%eax),%%xmm4	\n\t"\
+			"movaps	%%xmm0,0x080(%%eax)	\n\t		movaps	%%xmm3,0x180(%%eax)	\n\t"\
+			"movaps	%%xmm1,0x090(%%eax)	\n\t		movaps	%%xmm4,0x190(%%eax)	\n\t"\
+			"/* z5^2: */				\n\t		/* zD^2: */				\n\t"\
+			"movaps	0x0a0(%%eax),%%xmm0	\n\t		movaps	0x1a0(%%eax),%%xmm3	\n\t"\
+			"movaps	0x0b0(%%eax),%%xmm1	\n\t		movaps	0x1b0(%%eax),%%xmm4	\n\t"\
+			"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
+			"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
+			"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"mulpd	0x0a0(%%eax),%%xmm1	\n\t		mulpd	0x1a0(%%eax),%%xmm4	\n\t"\
+			"movaps	%%xmm0,0x0a0(%%eax)	\n\t		movaps	%%xmm3,0x1a0(%%eax)	\n\t"\
+			"movaps	%%xmm1,0x0b0(%%eax)	\n\t		movaps	%%xmm4,0x1b0(%%eax)	\n\t"\
+			"/* z6^2: */				\n\t		/* zE^2: */				\n\t"\
+			"movaps	0x0c0(%%eax),%%xmm0	\n\t		movaps	0x1c0(%%eax),%%xmm3	\n\t"\
+			"movaps	0x0d0(%%eax),%%xmm1	\n\t		movaps	0x1d0(%%eax),%%xmm4	\n\t"\
+			"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
+			"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
+			"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"mulpd	0x0c0(%%eax),%%xmm1	\n\t		mulpd	0x1c0(%%eax),%%xmm4	\n\t"\
+			"movaps	%%xmm0,0x0c0(%%eax)	\n\t		movaps	%%xmm3,0x1c0(%%eax)	\n\t"\
+			"movaps	%%xmm1,0x0d0(%%eax)	\n\t		movaps	%%xmm4,0x1d0(%%eax)	\n\t"\
+			"/* z7^2: */				\n\t		/* zF^2: */				\n\t"\
+			"movaps	0x0e0(%%eax),%%xmm0	\n\t		movaps	0x1e0(%%eax),%%xmm3	\n\t"\
+			"movaps	0x0f0(%%eax),%%xmm1	\n\t		movaps	0x1f0(%%eax),%%xmm4	\n\t"\
+			"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
+			"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
+			"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"mulpd	0x0e0(%%eax),%%xmm1	\n\t		mulpd	0x1e0(%%eax),%%xmm4	\n\t"\
+			"movaps	%%xmm0,0x0e0(%%eax)	\n\t		movaps	%%xmm3,0x1e0(%%eax)	\n\t"\
+			"movaps	%%xmm1,0x0f0(%%eax)	\n\t		movaps	%%xmm4,0x1f0(%%eax)	\n\t"\
 			:					// outputs: none
 			: [__r1] "m" (r1)	// All inputs from memory addresses here
-			: "eax"				// Clobbered registers
+			: "memory","eax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5"				// Clobbered registers
 		);
 
-	  #else
+	  #else	/* GCC-style 64-bit inline ASM: */
 
 		__asm__ volatile (\
 			"movq	%[__r1],%%rax		\n\t"\
-			"/* z0^2: */				\n\t"\
-			"movaps	     (%%rax),%%xmm0	\n\t"\
-			"movaps	0x010(%%rax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	     (%%rax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,     (%%rax)	\n\t"\
-			"movaps	%%xmm1,0x010(%%rax)	\n\t"\
-			"/* z1^2: */				\n\t"\
-			"movaps	0x020(%%rax),%%xmm0	\n\t"\
-			"movaps	0x030(%%rax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x020(%%rax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x020(%%rax)	\n\t"\
-			"movaps	%%xmm1,0x030(%%rax)	\n\t"\
-			"/* z2^2: */				\n\t"\
-			"movaps	0x040(%%rax),%%xmm0	\n\t"\
-			"movaps	0x050(%%rax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x050(%%rax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x040(%%rax)	\n\t"\
-			"movaps	%%xmm1,0x050(%%rax)	\n\t"\
-			"/* z3^2: */				\n\t"\
-			"movaps	0x060(%%rax),%%xmm0	\n\t"\
-			"movaps	0x070(%%rax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x060(%%rax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x060(%%rax)	\n\t"\
-			"movaps	%%xmm1,0x070(%%rax)	\n\t"\
-			"/* z4^2: */				\n\t"\
-			"movaps	0x080(%%rax),%%xmm0	\n\t"\
-			"movaps	0x090(%%rax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x080(%%rax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x080(%%rax)	\n\t"\
-			"movaps	%%xmm1,0x090(%%rax)	\n\t"\
-			"/* z5^2: */				\n\t"\
-			"movaps	0x0a0(%%rax),%%xmm0	\n\t"\
-			"movaps	0x0b0(%%rax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x0a0(%%rax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x0a0(%%rax)	\n\t"\
-			"movaps	%%xmm1,0x0b0(%%rax)	\n\t"\
-			"/* z6^2: */				\n\t"\
-			"movaps	0x0c0(%%rax),%%xmm0	\n\t"\
-			"movaps	0x0d0(%%rax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x0c0(%%rax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x0c0(%%rax)	\n\t"\
-			"movaps	%%xmm1,0x0d0(%%rax)	\n\t"\
-			"/* z7^2: */				\n\t"\
-			"movaps	0x0e0(%%rax),%%xmm0	\n\t"\
-			"movaps	0x0f0(%%rax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x0e0(%%rax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x0e0(%%rax)	\n\t"\
-			"movaps	%%xmm1,0x0f0(%%rax)	\n\t"\
-			"/* z8^2: */				\n\t"\
-			"movaps	0x100(%%rax),%%xmm0	\n\t"\
-			"movaps	0x110(%%rax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x100(%%rax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x100(%%rax)	\n\t"\
-			"movaps	%%xmm1,0x110(%%rax)	\n\t"\
-			"/* z9^2: */				\n\t"\
-			"movaps	0x120(%%rax),%%xmm0	\n\t"\
-			"movaps	0x130(%%rax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x120(%%rax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x120(%%rax)	\n\t"\
-			"movaps	%%xmm1,0x130(%%rax)	\n\t"\
-			"/* zA^2: */				\n\t"\
-			"movaps	0x140(%%rax),%%xmm0	\n\t"\
-			"movaps	0x150(%%rax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x150(%%rax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x140(%%rax)	\n\t"\
-			"movaps	%%xmm1,0x150(%%rax)	\n\t"\
-			"/* zB^2: */				\n\t"\
-			"movaps	0x160(%%rax),%%xmm0	\n\t"\
-			"movaps	0x170(%%rax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x160(%%rax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x160(%%rax)	\n\t"\
-			"movaps	%%xmm1,0x170(%%rax)	\n\t"\
-			"/* zC^2: */				\n\t"\
-			"movaps	0x180(%%rax),%%xmm0	\n\t"\
-			"movaps	0x190(%%rax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x180(%%rax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x180(%%rax)	\n\t"\
-			"movaps	%%xmm1,0x190(%%rax)	\n\t"\
-			"/* zD^2: */				\n\t"\
-			"movaps	0x1a0(%%rax),%%xmm0	\n\t"\
-			"movaps	0x1b0(%%rax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x1a0(%%rax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x1a0(%%rax)	\n\t"\
-			"movaps	%%xmm1,0x1b0(%%rax)	\n\t"\
-			"/* zE^2: */				\n\t"\
-			"movaps	0x1c0(%%rax),%%xmm0	\n\t"\
-			"movaps	0x1d0(%%rax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x1c0(%%rax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x1c0(%%rax)	\n\t"\
-			"movaps	%%xmm1,0x1d0(%%rax)	\n\t"\
-			"/* zF^2: */				\n\t"\
-			"movaps	0x1e0(%%rax),%%xmm0	\n\t"\
-			"movaps	0x1f0(%%rax),%%xmm1	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t"\
-			"mulpd	0x1e0(%%rax),%%xmm1	\n\t"\
-			"movaps	%%xmm0,0x1e0(%%rax)	\n\t"\
-			"movaps	%%xmm1,0x1f0(%%rax)	\n\t"\
+			"/* z0^2: */				\n\t		/* z8^2: */				\n\t"\
+			"movaps	     (%%rax),%%xmm0	\n\t		movaps	0x100(%%rax),%%xmm3	\n\t"\
+			"movaps	0x010(%%rax),%%xmm1	\n\t		movaps	0x110(%%rax),%%xmm4	\n\t"\
+			"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
+			"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
+			"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"mulpd	     (%%rax),%%xmm1	\n\t		mulpd	0x100(%%rax),%%xmm4	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t		movaps	%%xmm3,0x100(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t		movaps	%%xmm4,0x110(%%rax)	\n\t"\
+			"/* z1^2: */				\n\t		/* z9^2: */				\n\t"\
+			"movaps	0x020(%%rax),%%xmm0	\n\t		movaps	0x120(%%rax),%%xmm3	\n\t"\
+			"movaps	0x030(%%rax),%%xmm1	\n\t		movaps	0x130(%%rax),%%xmm4	\n\t"\
+			"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
+			"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
+			"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"mulpd	0x020(%%rax),%%xmm1	\n\t		mulpd	0x120(%%rax),%%xmm4	\n\t"\
+			"movaps	%%xmm0,0x020(%%rax)	\n\t		movaps	%%xmm3,0x120(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x030(%%rax)	\n\t		movaps	%%xmm4,0x130(%%rax)	\n\t"\
+			"/* z2^2: */				\n\t		/* zA^2: */				\n\t"\
+			"movaps	0x040(%%rax),%%xmm0	\n\t		movaps	0x140(%%rax),%%xmm3	\n\t"\
+			"movaps	0x050(%%rax),%%xmm1	\n\t		movaps	0x150(%%rax),%%xmm4	\n\t"\
+			"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
+			"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
+			"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"mulpd	0x040(%%rax),%%xmm1	\n\t		mulpd	0x140(%%rax),%%xmm4	\n\t"\
+			"movaps	%%xmm0,0x040(%%rax)	\n\t		movaps	%%xmm3,0x140(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x050(%%rax)	\n\t		movaps	%%xmm4,0x150(%%rax)	\n\t"\
+			"/* z3^2: */				\n\t		/* zB^2: */				\n\t"\
+			"movaps	0x060(%%rax),%%xmm0	\n\t		movaps	0x160(%%rax),%%xmm3	\n\t"\
+			"movaps	0x070(%%rax),%%xmm1	\n\t		movaps	0x170(%%rax),%%xmm4	\n\t"\
+			"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
+			"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
+			"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"mulpd	0x060(%%rax),%%xmm1	\n\t		mulpd	0x160(%%rax),%%xmm4	\n\t"\
+			"movaps	%%xmm0,0x060(%%rax)	\n\t		movaps	%%xmm3,0x160(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x070(%%rax)	\n\t		movaps	%%xmm4,0x170(%%rax)	\n\t"\
+			"/* z4^2: */				\n\t		/* zC^2: */				\n\t"\
+			"movaps	0x080(%%rax),%%xmm0	\n\t		movaps	0x180(%%rax),%%xmm3	\n\t"\
+			"movaps	0x090(%%rax),%%xmm1	\n\t		movaps	0x190(%%rax),%%xmm4	\n\t"\
+			"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
+			"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
+			"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"mulpd	0x080(%%rax),%%xmm1	\n\t		mulpd	0x180(%%rax),%%xmm4	\n\t"\
+			"movaps	%%xmm0,0x080(%%rax)	\n\t		movaps	%%xmm3,0x180(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x090(%%rax)	\n\t		movaps	%%xmm4,0x190(%%rax)	\n\t"\
+			"/* z5^2: */				\n\t		/* zD^2: */				\n\t"\
+			"movaps	0x0a0(%%rax),%%xmm0	\n\t		movaps	0x1a0(%%rax),%%xmm3	\n\t"\
+			"movaps	0x0b0(%%rax),%%xmm1	\n\t		movaps	0x1b0(%%rax),%%xmm4	\n\t"\
+			"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
+			"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
+			"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"mulpd	0x0a0(%%rax),%%xmm1	\n\t		mulpd	0x1a0(%%rax),%%xmm4	\n\t"\
+			"movaps	%%xmm0,0x0a0(%%rax)	\n\t		movaps	%%xmm3,0x1a0(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x0b0(%%rax)	\n\t		movaps	%%xmm4,0x1b0(%%rax)	\n\t"\
+			"/* z6^2: */				\n\t		/* zE^2: */				\n\t"\
+			"movaps	0x0c0(%%rax),%%xmm0	\n\t		movaps	0x1c0(%%rax),%%xmm3	\n\t"\
+			"movaps	0x0d0(%%rax),%%xmm1	\n\t		movaps	0x1d0(%%rax),%%xmm4	\n\t"\
+			"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
+			"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
+			"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"mulpd	0x0c0(%%rax),%%xmm1	\n\t		mulpd	0x1c0(%%rax),%%xmm4	\n\t"\
+			"movaps	%%xmm0,0x0c0(%%rax)	\n\t		movaps	%%xmm3,0x1c0(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x0d0(%%rax)	\n\t		movaps	%%xmm4,0x1d0(%%rax)	\n\t"\
+			"/* z7^2: */				\n\t		/* zF^2: */				\n\t"\
+			"movaps	0x0e0(%%rax),%%xmm0	\n\t		movaps	0x1e0(%%rax),%%xmm3	\n\t"\
+			"movaps	0x0f0(%%rax),%%xmm1	\n\t		movaps	0x1f0(%%rax),%%xmm4	\n\t"\
+			"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
+			"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
+			"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
+			"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"mulpd	0x0e0(%%rax),%%xmm1	\n\t		mulpd	0x1e0(%%rax),%%xmm4	\n\t"\
+			"movaps	%%xmm0,0x0e0(%%rax)	\n\t		movaps	%%xmm3,0x1e0(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x0f0(%%rax)	\n\t		movaps	%%xmm4,0x1f0(%%rax)	\n\t"\
 			:					// outputs: none
 			: [__r1] "m" (r1)	// All inputs from memory addresses here
-			: "rax","xmm0","xmm1","xmm2"	// Clobbered registers
+			: "memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5"	// Clobbered registers
 		);
 
-	  #endif
+	  #endif	/* MSVC/GCC */
 
-	#endif
+	#endif	/* inlineSquare */
 
-	#if 0//DEBUG_SSE2
-		fprintf(stderr, "Outputs B^2:\n");
-		fprintf(stderr, "radix16_dyadic_square: R1:= %20.5f, %20.5f\n",r1 ->re,r2 ->re);
-		fprintf(stderr, "radix16_dyadic_square: R17= %20.5f, %20.5f\n",r17->re,r18->re);
-		fprintf(stderr, "radix16_dyadic_square: R9:= %20.5f, %20.5f\n",r9 ->re,r10->re);
-		fprintf(stderr, "radix16_dyadic_square: R25= %20.5f, %20.5f\n",r25->re,r26->re);
-		fprintf(stderr, "radix16_dyadic_square: R5:= %20.5f, %20.5f\n",r5 ->re,r6 ->re);
-		fprintf(stderr, "radix16_dyadic_square: R21= %20.5f, %20.5f\n",r21->re,r22->re);
-		fprintf(stderr, "radix16_dyadic_square: R13= %20.5f, %20.5f\n",r13->re,r14->re);
-		fprintf(stderr, "radix16_dyadic_square: R29= %20.5f, %20.5f\n",r29->re,r30->re);
-		fprintf(stderr, "radix16_dyadic_square: R3:= %20.5f, %20.5f\n",r3 ->re,r4 ->re);
-		fprintf(stderr, "radix16_dyadic_square: R19= %20.5f, %20.5f\n",r19->re,r20->re);
-		fprintf(stderr, "radix16_dyadic_square: R11= %20.5f, %20.5f\n",r11->re,r12->re);
-		fprintf(stderr, "radix16_dyadic_square: R27= %20.5f, %20.5f\n",r27->re,r28->re);
-		fprintf(stderr, "radix16_dyadic_square: R7:= %20.5f, %20.5f\n",r7 ->re,r8 ->re);
-		fprintf(stderr, "radix16_dyadic_square: R23= %20.5f, %20.5f\n",r23->re,r24->re);
-		fprintf(stderr, "radix16_dyadic_square: R15= %20.5f, %20.5f\n",r15->re,r16->re);
-		fprintf(stderr, "radix16_dyadic_square: R31= %20.5f, %20.5f\n",r31->re,r32->re);
+	#ifdef DEBUG_SSE2 && !defined(inlineSquare)
+		fprintf(stderr, "DIF/square Outputs:\n");
+		fprintf(stderr, "radix16_dyadic_square: R1 = %20.5f, %20.5f\n",r1 ->re,r1 ->im);
+		fprintf(stderr, "radix16_dyadic_square: R2 = %20.5f, %20.5f\n",r2 ->re,r2 ->im);
+		fprintf(stderr, "radix16_dyadic_square: R3 = %20.5f, %20.5f\n",r3 ->re,r3 ->im);
+		fprintf(stderr, "radix16_dyadic_square: R4 = %20.5f, %20.5f\n",r4 ->re,r4 ->im);
+		fprintf(stderr, "radix16_dyadic_square: R5 = %20.5f, %20.5f\n",r5 ->re,r5 ->im);
+		fprintf(stderr, "radix16_dyadic_square: R6 = %20.5f, %20.5f\n",r6 ->re,r6 ->im);
+		fprintf(stderr, "radix16_dyadic_square: R7 = %20.5f, %20.5f\n",r7 ->re,r7 ->im);
+		fprintf(stderr, "radix16_dyadic_square: R8 = %20.5f, %20.5f\n",r8 ->re,r8 ->im);
+		fprintf(stderr, "radix16_dyadic_square: R9 = %20.5f, %20.5f\n",r9 ->re,r9 ->im);
+		fprintf(stderr, "radix16_dyadic_square: R10= %20.5f, %20.5f\n",r10->re,r10->im);
+		fprintf(stderr, "radix16_dyadic_square: R11= %20.5f, %20.5f\n",r11->re,r11->im);
+		fprintf(stderr, "radix16_dyadic_square: R12= %20.5f, %20.5f\n",r12->re,r12->im);
+		fprintf(stderr, "radix16_dyadic_square: R13= %20.5f, %20.5f\n",r13->re,r13->im);
+		fprintf(stderr, "radix16_dyadic_square: R14= %20.5f, %20.5f\n",r14->re,r14->im);
+		fprintf(stderr, "radix16_dyadic_square: R15= %20.5f, %20.5f\n",r15->re,r15->im);
+		fprintf(stderr, "radix16_dyadic_square: R16= %20.5f, %20.5f\n",r16->re,r16->im);
+		fprintf(stderr, "radix16_dyadic_square: R17= %20.5f, %20.5f\n",r17->re,r17->im);
+		fprintf(stderr, "radix16_dyadic_square: R18= %20.5f, %20.5f\n",r18->re,r18->im);
+		fprintf(stderr, "radix16_dyadic_square: R19= %20.5f, %20.5f\n",r19->re,r19->im);
+		fprintf(stderr, "radix16_dyadic_square: R20= %20.5f, %20.5f\n",r20->re,r20->im);
+		fprintf(stderr, "radix16_dyadic_square: R21= %20.5f, %20.5f\n",r21->re,r21->im);
+		fprintf(stderr, "radix16_dyadic_square: R22= %20.5f, %20.5f\n",r22->re,r22->im);
+		fprintf(stderr, "radix16_dyadic_square: R23= %20.5f, %20.5f\n",r23->re,r23->im);
+		fprintf(stderr, "radix16_dyadic_square: R24= %20.5f, %20.5f\n",r24->re,r24->im);
+		fprintf(stderr, "radix16_dyadic_square: R25= %20.5f, %20.5f\n",r25->re,r25->im);
+		fprintf(stderr, "radix16_dyadic_square: R26= %20.5f, %20.5f\n",r26->re,r26->im);
+		fprintf(stderr, "radix16_dyadic_square: R27= %20.5f, %20.5f\n",r27->re,r27->im);
+		fprintf(stderr, "radix16_dyadic_square: R28= %20.5f, %20.5f\n",r28->re,r28->im);
+		fprintf(stderr, "radix16_dyadic_square: R29= %20.5f, %20.5f\n",r29->re,r29->im);
+		fprintf(stderr, "radix16_dyadic_square: R30= %20.5f, %20.5f\n",r30->re,r30->im);
+		fprintf(stderr, "radix16_dyadic_square: R31= %20.5f, %20.5f\n",r31->re,r31->im);
+		fprintf(stderr, "radix16_dyadic_square: R32= %20.5f, %20.5f\n",r32->re,r32->im);
 		fprintf(stderr, "\n");
 		exit(0);
 	#endif
@@ -1780,7 +1825,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	/*************************************************************/
 	/*                  1st set of inputs:                       */
 	/*************************************************************/
-#if 0
+	  #ifndef inlineSquare	// defined(inlineSquare) means we rolled initial radix-4 DIT pass in with final radix-4 DIF and squaring step.
 	/*...Block 1: */
 		/* eax,ebx,ecx,edx = r1,r17,r9,r25: */
 		__asm	mov eax, r1
@@ -1819,7 +1864,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		__asm	add edx, 0x040
 		/* DIT radix-4 subconvolution, sans twiddles.	Cost: 16 MOVapd, 20 ADD/SUBpd,  0 MULpd */
 		SSE2_RADIX4_DIT_IN_PLACE_B()
-#endif
+	  #endif
 	/****************************************************************************************************
 	!...and now do four more radix-4 transforms, including the internal and external twiddle factors.   !
 	!   Write even-index 16-byte output pairs to a[j1], odd-index to a[j2], unpack same as on inputs.   !
@@ -2361,11 +2406,13 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		__asm	movaps	[ebx+0xf0],xmm6	/* a[jp+p12] */
 		__asm	movaps	[ebx+0xe0],xmm0	/* a[jt+p12] */
 
-	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
+	#else	/* GCC-style inline ASM: */
 
 		SSE2_RADIX16_WRAPPER_DIT(add0,add1,r1,r9,r17,r25,isrt2,cc0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15)
 
 	#endif
+
+  #endif	// FULLY_FUSED
 
 #else	/* if(!USE_SSE2) */
 
@@ -2437,8 +2484,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		rt =t31;	t31=t27+t32;t27=t27-t32;
 					t32=t28-rt;	t28=t28+rt;
 
-	#if 0//DEBUG_SSE2
-		fprintf(stderr, "Outputs A:\n");
+	#ifdef DEBUG_SSE2
+		fprintf(stderr, "DIF Outputs A:\n");
 		fprintf(stderr, "radix16_dyadic_square: t1:= %20.5f, %20.5f\n",t1 ,t2 );
 		fprintf(stderr, "radix16_dyadic_square: t3:= %20.5f, %20.5f\n",t3 ,t4 );
 		fprintf(stderr, "radix16_dyadic_square: t5:= %20.5f, %20.5f\n",t5 ,t6 );
@@ -2528,8 +2575,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		aj1p14r=t15-t32;	aj1p14i=t16+t31;
 		aj1p15r=t15+t32;	aj1p15i=t16-t31;
 
-	#if 0//DEBUG_SSE2
-		fprintf(stderr, "Outputs A:\n");
+	#ifdef DEBUG_SSE2
+		fprintf(stderr, "DIF Outputs:\n");
 		fprintf(stderr, "radix16_dyadic_square: aj1p0 = %20.5f, %20.5f\n",aj1p0r ,aj1p0i );
 		fprintf(stderr, "radix16_dyadic_square: aj1p1 = %20.5f, %20.5f\n",aj1p1r ,aj1p1i );
 		fprintf(stderr, "radix16_dyadic_square: aj1p2 = %20.5f, %20.5f\n",aj1p2r ,aj1p2i );
@@ -2570,8 +2617,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	#endif
 	/*...And do an inverse DIT radix-16 pass on the squared-data blocks. */
 
-	#if 0// DEBUG_SSE2
-		fprintf(stderr, "Outputs A^2:\n");
+	#ifdef DEBUG_SSE2
+		fprintf(stderr, "Outputs^2:\n");
 		fprintf(stderr, "radix16_dyadic_square: aj1p0 = %20.5f, %20.5f\n",aj1p0r ,aj1p0i );
 		fprintf(stderr, "radix16_dyadic_square: aj1p1 = %20.5f, %20.5f\n",aj1p1r ,aj1p1i );
 		fprintf(stderr, "radix16_dyadic_square: aj1p2 = %20.5f, %20.5f\n",aj1p2r ,aj1p2i );
@@ -2595,7 +2642,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	#if PFETCH
 	add0 = &a[j1+32];
 	#endif
-	/*   gather the needed data (16 64-bit complex, i.e. 32 64-bit reals) and do the first set of four length-4 IDIT transforms... */
+	/*   gather the needed data (16 64-bit complex, i.e. 32 64-bit reals) and do the first set of four length-4 iDIT transforms... */
 
 	/*...Block 1: */
 	#if PFETCH
@@ -2789,6 +2836,23 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		exit(0);
 	#endif
 
+#if FFT_DEBUG
+	if(NTHREADS == 1 || thr_id == TARG_THREAD_ID) {
+		ASSERT(HERE, dbg_file != 0x0, "dbg_file == 0x0!");
+		fprintf(dbg_file, "Thread %d: j1 = %d, Dyadic-square Outputs:\n",thr_id,j1);
+		for(iloop = 0; iloop < 64; iloop += 4)
+		{
+		#ifdef USE_SSE2
+			fprintf(dbg_file, "A_out[%2d] = %20.5f[0x%16llX], %20.5f[0x%16llX]\n",iloop,a[j1+iloop+0],a+j1+iloop+0,a[j1+iloop+2],a+j1+iloop+2);
+			fprintf(dbg_file, "A_out[%2d] = %20.5f[0x%16llX], %20.5f[0x%16llX]\n",iloop,a[j1+iloop+1],a+j1+iloop+1,a[j1+iloop+3],a+j1+iloop+3);
+		#else
+			fprintf(dbg_file, "A_out[%2d] = %20.5f[0x%16llX], %20.5f[0x%16llX]\n",iloop,a[j1+iloop+0],a+j1+iloop+0,a[j1+iloop+1],a+j1+iloop+1);
+			fprintf(dbg_file, "A_out[%2d] = %20.5f[0x%16llX], %20.5f[0x%16llX]\n",iloop,a[j1+iloop+2],a+j1+iloop+2,a[j1+iloop+3],a+j1+iloop+3);
+		#endif
+		}
 	}
+#endif
+
+	}	/* endfor() */
 }
 

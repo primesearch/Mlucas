@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2012 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -28,6 +28,14 @@
 
 #include "imul_macro0.h"
 
+#undef YES_ASM
+#if(defined(CPU_IS_X86_64) && defined(COMPILER_TYPE_GCC) && (OS_BITS == 64))
+	#define YES_ASM
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* Macros for 96/128/160/192/256-bit unsigned integer add & subtract. No data type checking
 or checking for carry/borrow out of the high word is performed, i.e. arithmetic
@@ -36,9 +44,6 @@ we alias 96/160-bit ops to the analogous 128/192-bit op for mnemonic convenience
 in others (esp. multiply) the 96/160-bit variant
 genuinely takes advantage of the fact that operands are 96/160 bits long in a fashion
 that is advantageous on at least an appreciable set of CPUs.
-
-In all cases we assume the underlying structs are aligned on 64-bit boundaries,
-e.g. uint96s are really uint128s with upper 32 bits zero, and so forth.
 */
 
 /* Multiword Add: */
@@ -51,10 +56,7 @@ e.g. uint96s are really uint128s with upper 32 bits zero, and so forth.
 }
 #define ADD96(__x, __y, __sum)\
 {\
-	DBG_ASSERT(HERE, (__x.d1 >> 32) == 0,"ADD96: (__x.d1 >> 32) == 0");\
-	DBG_ASSERT(HERE, (__y.d1 >> 32) == 0,"ADD96: (__y.d1 >> 32) == 0");\
 	ADD128(__x, __y, __sum);\
-	__sum.d1 &= 0x00000000ffffffff;	/* In case of add need to take care to get proper mod-2^96 result */\
 }
 
 #define ADD192(__x, __y, __sum)\
@@ -68,6 +70,19 @@ e.g. uint96s are really uint128s with upper 32 bits zero, and so forth.
 	/* Need a separate add-and-overflow check for the carry out of the low word: */\
 	__sum.d1 += __cy0;\
 	__sum.d2 += (__sum.d1 < __cy0);\
+}
+
+#define ADD192_PTR(__x, __y, __sum)\
+{\
+	uint64 __s,__t, __cy0;	/* Need these in case any or all of x, y, sum point to the same address. */\
+	__s      = __x->d0;\
+	__t      = __x->d1;\
+	__sum->d0 = __x->d0 + __y->d0;	__cy0 = (__sum->d0 < __s);\
+	__sum->d1 = __x->d1 + __y->d1;\
+	__sum->d2 = __x->d2 + __y->d2 + (__sum->d1 < __t);\
+	/* Need a separate add-and-overflow check for the carry out of the low word: */\
+	__sum->d1 += __cy0;\
+	__sum->d2 += (__sum->d1 < __cy0);\
 }
 
 #define ADD160(__x, __y, __sum)\
@@ -101,6 +116,29 @@ e.g. uint96s are really uint128s with upper 32 bits zero, and so forth.
 	__sum.d3 = __x.d3 + __y.d3 + __cy;		\
 }
 
+#define ADD256_PTR(__x, __y, __sum)\
+{\
+	uint64 __tmp, __cy;						\
+											\
+	__tmp = __x->d0+ __y->d0;					\
+	__cy  = (__tmp < __y->d0);				\
+	__sum->d0 = __tmp;						\
+											\
+	__tmp = __x->d1 + __cy;					\
+	__cy  = (__tmp < __x->d1);				\
+	__tmp = __tmp + __y->d1;					\
+	__cy += (__tmp < __y->d1);				\
+	__sum->d1 = __tmp;						\
+											\
+	__tmp = __x->d2 + __cy;					\
+	__cy  = (__tmp < __x->d2);				\
+	__tmp = __tmp + __y->d2;					\
+	__cy += (__tmp < __y->d2);				\
+	__sum->d2 = __tmp;						\
+											\
+	__sum->d3 = __x->d3 + __y->d3 + __cy;		\
+}
+
 /* Subtract: */
 #define SUB128(__x, __y, __dif)\
 {\
@@ -111,10 +149,7 @@ e.g. uint96s are really uint128s with upper 32 bits zero, and so forth.
 }
 #define SUB96(__x, __y, __dif)\
 {\
-	DBG_ASSERT(HERE, (__x.d1 >> 32) == 0,"SUB96: (__x.d1 >> 32) == 0");\
-	DBG_ASSERT(HERE, (__y.d1 >> 32) == 0,"SUB96: (__y.d1 >> 32) == 0");\
 	SUB128(__x, __y, __dif);\
-	__dif.d1 &= 0x00000000ffffffff;	/* In case of add need to take care to get proper mod-2^96 result */\
 }
 
 #define SUB128B(__xhi, __xlo, __y, __dif)\
@@ -126,10 +161,7 @@ e.g. uint96s are really uint128s with upper 32 bits zero, and so forth.
 }
 #define SUB96B(__xhi, __xlo, __y, __dif)\
 {\
-	DBG_ASSERT(HERE, (__xhi  >> 32) == 0,"SUB96B: (__xhi  >> 32) == 0");\
-	DBG_ASSERT(HERE, (__y.d1 >> 32) == 0,"SUB96B: (__y.d1 >> 32) == 0");\
 	SUB128B(__xhi, __xlo, __y, __dif);\
-	__dif.d1 &= 0x00000000ffffffff;	/* In case of add need to take care to get proper mod-2^96 result */\
 }
 
 #define SUB128C(__x, __yhi, __ylo, __dif)\
@@ -141,10 +173,7 @@ e.g. uint96s are really uint128s with upper 32 bits zero, and so forth.
 }
 #define SUB96C(__x, __yhi, __ylo, __dif)\
 {\
-	DBG_ASSERT(HERE, (__x.d1 >> 32) == 0,"SUB96C: (__x.d1 >> 32) == 0");\
-	DBG_ASSERT(HERE, (__yhi  >> 32) == 0,"SUB96C: (__yhi  >> 32) == 0");\
 	SUB128C(__x, __yhi, __ylo, __dif);\
-	__dif.d1 &= 0x00000000ffffffff;	/* In case of add need to take care to get proper mod-2^96 result */\
 }
 
 #define SUB192(__x, __y, __dif)\
@@ -198,13 +227,13 @@ e.g. uint96s are really uint128s with upper 32 bits zero, and so forth.
 /* Macros for 96/128/160/192/256-bit unsigned integer compare: */
 /* Unsigned < returns 1 if x < y, 0 otherwise: */
 #define	CMPULT128(__x, __y)				((uint64)__x.d1 < (uint64)__y.d1 || ((uint64)__x.d1 == (uint64)__y.d1 && (uint64)__x.d0 < (uint64)__y.d0))
-#define	CMPULT96(__x, __y)				CMPULT128(__x, __y)
+#define	CMPULT96(__x, __y)				((uint32)__x.d1 < (uint32)__y.d1 || ((uint32)__x.d1 == (uint32)__y.d1 && (uint64)__x.d0 < (uint64)__y.d0))
 
-#define	CMPULT128B(__xhi, __xlo, __y)	((uint64)__xhi < (uint64)__y.d1 || ((uint64)__xhi == (uint64)__y.d1 && (uint64)__xlo < (uint64)__y.d0))
-#define	CMPULT96B(__xhi, __xlo, __y)	CMPULT128B(__xhi, __xlo, __y)
+#define	CMPULT128B(__xhi, __xlo, __y)	((uint32)__xhi < (uint32)__y.d1 || ((uint32)__xhi == (uint32)__y.d1 && (uint64)__xlo < (uint64)__y.d0))
+#define	CMPULT96B(__xhi, __xlo, __y)	((uint32)__xhi < (uint32)__y.d1 || ((uint32)__xhi == (uint32)__y.d1 && (uint64)__xlo < (uint64)__y.d0))
 
-#define	CMPULT128C(__x, __yhi, __ylo)	((uint64)__x.d1 < (uint64)__yhi || ((uint64)__x.d1 == (uint64)__yhi && (uint64)__x.d0 < (uint64)__ylo))
-#define	CMPULT96C(__x, __yhi, __ylo)	CMPULT128C(__x, __yhi, __ylo)
+#define	CMPULT128C(__x, __yhi, __ylo)	((uint32)__x.d1 < (uint32)__yhi || ((uint32)__x.d1 == (uint32)__yhi && (uint64)__x.d0 < (uint64)__ylo))
+#define	CMPULT96C(__x, __yhi, __ylo)	((uint32)__x.d1 < (uint32)__yhi || ((uint32)__x.d1 == (uint32)__yhi && (uint64)__x.d0 < (uint64)__ylo))
 
 #define	CMPULT192(__x, __y)				((uint64)__x.d2 < (uint64)__y.d2 || ((uint64)__x.d2 == (uint64)__y.d2 && (uint64)__x.d1 < (uint64)__y.d1) || ((uint64)__x.d2 == (uint64)__y.d2 && (uint64)__x.d1 == (uint64)__y.d1 && (uint64)__x.d0 < (uint64)__y.d0))
 #define	CMPULT160(__x, __y)				CMPULT192(__x, __y)
@@ -213,13 +242,13 @@ e.g. uint96s are really uint128s with upper 32 bits zero, and so forth.
 
 /* Unsigned > returns 1 if x > y, 0 otherwise: */
 #define CMPUGT128(__x, __y)				CMPULT128(__y, __x)
-#define CMPUGT96(__x, __y)				CMPULT128(__y, __x)
+#define CMPUGT96(__x, __y)				CMPULT96(__y, __x)
 
 #define	CMPUGT128B(__xhi, __xlo, __y)	CMPULT128C(__y, __xhi, __xlo)
-#define	CMPUGT96B(__xhi, __xlo, __y)	CMPULT128C(__y, __xhi, __xlo)
+#define	CMPUGT96B(__xhi, __xlo, __y)	CMPULT96C(__y, __xhi, __xlo)
 
 #define	CMPUGT128C(__x, __yhi, __ylo)	CMPULT128B(__yhi, __ylo, __x)
-#define	CMPUGT96C(__x, __yhi, __ylo)	CMPULT128B(__yhi, __ylo, __x)
+#define	CMPUGT96C(__x, __yhi, __ylo)	CMPULT96B(__yhi, __ylo, __x)
 
 #define	CMPUGT192(__x, __y)				CMPULT192(__y, __x)
 #define	CMPUGT160(__x, __y)				CMPULT192(__y, __x)
@@ -228,7 +257,7 @@ e.g. uint96s are really uint128s with upper 32 bits zero, and so forth.
 
 /* Unsigned <= returns 1 if x <= y, 0 otherwise: */
 #define	CMPULE128(__x, __y)				!CMPUGT128(__x, __y)
-#define	CMPULE96(__x, __y)				CMPULE128(__x, __y)
+#define	CMPULE96(__x, __y)				!CMPUGT96(__x, __y)
 
 #define	CMPULE128B(__xhi, __xlo, __y)	!CMPUGT128B(__xhi, __xlo, __y)
 
@@ -239,7 +268,7 @@ e.g. uint96s are really uint128s with upper 32 bits zero, and so forth.
 
 /* Unsigned >= returns 1 if x >= y, 0 otherwise: */
 #define	CMPUGE128(__x, __y)				!CMPULT128(__x, __y)
-#define	CMPUGE96(__x, __y)				CMPUGE128(__x, __y)
+#define	CMPUGE96(__x, __y)				!CMPULT96(__x, __y)
 
 #define	CMPUGE128B(__xhi, __xlo, __y)	!CMPULT128B(__xhi, __xlo, __y)
 
@@ -259,6 +288,10 @@ e.g. uint96s are really uint128s with upper 32 bits zero, and so forth.
 
 #define	CMPEQ256(__x, __y)				(__x.d3 == __y.d3 && __x.d2 == __y.d2 && __x.d1 == __y.d1 && __x.d0 == __y.d0)
 
+/* Binary predicates for use of stdlib qsort(): Only support unsigned for multiword ints (for now): */
+int ncmp_uint128(const void * a, const void * b);
+int ncmp_uint192(const void * a, const void * b);
+int ncmp_uint256(const void * a, const void * b);
 
 /*
 Macros for 96/128/160/192/256-bit unsigned integer shift. These are constructed so the
@@ -293,9 +326,33 @@ If the shift count (__n) is >= the width of the integer type, 0 is returned.
 }
 #define LSHIFT96(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, ((uint64)__x.d1 >> 32) == 0,"LSHIFT96: ((uint64)__x.d1 >> 32) == 0");\
-	LSHIFT128(__x,__n, __y);\
-	__y.d1 &= 0x00000000ffffffff;\
+	DBG_ASSERT(HERE, (int64)__n >= 0,"LSHIFT96: (int64)__n >= 0");\
+	/* Need to handle zero shift count separately: */\
+	if(__n == 0)\
+	{\
+		__y.d1 = ((uint64)__x.d1);\
+		__y.d0 = ((uint64)__x.d0);\
+	}\
+	else if(__n < 32)\
+	{\
+		__y.d1 = ((uint32)__x.d1 << __n) + (uint32)((uint64)__x.d0 >> (64-__n));\
+		__y.d0 = ((uint64)__x.d0 << __n);\
+	}\
+	else if(__n < 64)\
+	{\
+		__y.d1 =                           (uint32)((uint64)__x.d0 >> (64-__n));\
+		__y.d0 = ((uint64)__x.d0 << __n);\
+	}\
+	else if(__n < 96)\
+	{\
+		__y.d1 = (uint32)((uint64)__x.d0 << (__n-64));\
+		__y.d0 = (uint64)0;\
+	}\
+	else\
+	{\
+		__y.d1 = (uint32)0;\
+		__y.d0 = (uint64)0;\
+	}\
 }
 
 #define LSHIFT192(__x, __n, __y)\
@@ -437,9 +494,33 @@ If the shift count (__n) is >= the width of the integer type, 0 is returned.
 }
 #define RSHIFT96(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, ((uint64)__x.d1 >> 32) == 0,"RSHIFT96: ((uint64)__x.d1 >> 32) == 0");\
-	RSHIFT128(__x,__n, __y);\
-	DBG_ASSERT(HERE, (uint64)__y.d1 <= (uint64)__x.d1,"RSHIFT96: (uint64)__y.d1 <= (uint64)__x.d1");\
+	DBG_ASSERT(HERE, (int64)__n >= 0,"RSHIFT96: (int64)__n >= 0");\
+	/* Need to handle zero shift count separately: */\
+	if(__n == 0)\
+	{\
+		__y.d0 = ((uint64)__x.d0);\
+		__y.d1 = ((uint32)__x.d1);\
+	}\
+	else if(__n < 32)\
+	{\
+		__y.d0 = ((uint64)__x.d0 >> __n) + ((uint64)__x.d1 << (64-__n));\
+		__y.d1 = ((uint32)__x.d1 >> __n);\
+	}\
+	else if(__n < 64)\
+	{\
+		__y.d0 = ((uint64)__x.d0 >> __n) + ((uint64)__x.d1 << (64-__n));\
+		__y.d1 = (uint32)0;\
+	}\
+	else if(__n < 96)\
+	{\
+		__y.d0 = ((uint64)__x.d1 >> (__n-64));\
+		__y.d1 = (uint32)0;\
+	}\
+	else\
+	{\
+		__y.d0 = (uint64)0;\
+		__y.d1 = (uint32)0;\
+	}\
 }
 
 #define RSHIFT192(__x, __n, __y)\
@@ -563,9 +644,10 @@ If the shift count (__n) is >= the width of the integer type, 0 is returned.
 }
 #define LSHIFT_FAST96(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, ((uint64)__x.d1 >> 32) == 0,"LSHIFT_FAST96: ((uint64)__x.d1 >> 32) == 0");\
-	LSHIFT_FAST128(__x,__n, __y);\
-	__y.d1 &= 0x00000000ffffffff;\
+	DBG_ASSERT(HERE, (int64)__n >  0,"LSHIFT96: (int64)__n >  0");\
+	DBG_ASSERT(HERE, (int64)__n < 32,"LSHIFT96: (int64)__n < 32");\
+	__y.d1 = ((uint32)__x.d1 << __n) + (uint32)((uint64)__x.d0 >> (64-__n));\
+	__y.d0 = ((uint64)__x.d0 << __n);\
 }
 
 #define LSHIFT_FAST192(__x, __n, __y)\
@@ -603,9 +685,10 @@ If the shift count (__n) is >= the width of the integer type, 0 is returned.
 }
 #define RSHIFT_FAST96(__x, __n, __y)\
 {\
-	DBG_ASSERT(HERE, ((uint64)__x.d1 >> 32) == 0,"RSHIFT_FAST96: ((uint64)__x.d1 >> 32) == 0");\
-	RSHIFT_FAST128(__x,__n, __y);\
-	__y.d1 &= 0x00000000ffffffff;\
+	DBG_ASSERT(HERE, (int64)__n >  0,"RSHIFT96: (int64)__n >  0");\
+	DBG_ASSERT(HERE, (int64)__n < 32,"RSHIFT96: (int64)__n < 32");\
+	__y.d0 = ((uint64)__x.d0 >> __n) + ((uint64)__x.d1 << (64-__n));\
+	__y.d1 = ((uint32)__x.d1 >> __n);\
 }
 
 #define RSHIFT_FAST192(__x, __n, __y)\
@@ -634,15 +717,142 @@ If the shift count (__n) is >= the width of the integer type, 0 is returned.
 }
 
 
-/* Macros for 96/128/160/192-bit unsigned integer leading-zeros counting. For > 192-bit, call mi64_leadz instead: */
-#define LEADZ128(__x)	( leadz64(__x.d1) + ((-(sint64)(__x.d1 == 0)) && leadz64(__x.d0)) )
-#define LEADZ96(__x)	LEADZ128(__x)
+/* Macros for 96/128/160/192-bit unsigned integer leading-zeros counting. For > 192-bit, call mi64_leadz instead.
+Cast the result of the high-part-equlas-zero test to a singed 32-bit (-1) because leadz* returns a 32-bit value for inputs of all sizes: */
+#define LEADZ128(__x)	( leadz64(__x.d1) + ((-(sint32)(__x.d1 == 0)) && leadz64(__x.d0)) )
+#define LEADZ96(__x)	( leadz32(__x.d1) + ((-(sint32)(__x.d1 == 0)) && leadz64(__x.d0)) )
 
-#define LEADZ192(__x)	( leadz64(__x.d2) + ((-(sint64)(__x.d2 == 0)) && leadz64(__x.d1))+ ((-(sint64)(__x.d2 == 0 && __x.d1 == 0)) && leadz64(__x.d0)) )
+#define LEADZ192(__x)	( leadz64(__x.d2) + ((-(sint32)(__x.d2 == 0)) && leadz64(__x.d1))+ ((-(sint32)(__x.d2 == 0 && __x.d1 == 0)) && leadz64(__x.d0)) )
 #define LEADZ160(__x)	LEADZ192(__x)
 
 /* For larger operands it's more convenient to use a conditional + leadz64: */
 #define LEADZ256(__x)	leadz256(__x)
+
+/*** Special pointer-based versions of key 96-bit macros, for the pure-ASM int64 code *****/
+#define	CMPULT96_PTR(__x, __y)	((uint32)__x->d1 < (uint32)__y->d1 || ((uint32)__x->d1 == (uint32)__y->d1 && (uint64)__x->d0 < (uint64)__y->d0))
+#define CMPUGT96_PTR(__x, __y)	CMPULT96_PTR(__y, __x)
+#define	CMPEQ96_PTR(__x, __y)	((uint32)__x->d1 == (uint32)__y->d1 && (uint64)__x->d0 == (uint64)__y->d0)
+
+#define RSHIFT_FAST96_PTR(__x, __n, __y)\
+{\
+	__y->d0 = ((uint64)__x->d0 >> __n) + ((uint64)__x->d1 << (64-__n));\
+	__y->d1 = ((uint32)__x->d1 >> __n);\
+}
+
+#define LSHIFT96_PTR(__x, __n, __y)\
+{\
+	DBG_ASSERT(HERE, (int64)__n >= 0,"LSHIFT96_PTR: (int64)__n >= 0");\
+	/* Need to handle zero shift count separately: */\
+	if(__n == 0)\
+	{\
+		__y->d1 = ((uint64)__x->d1);\
+		__y->d0 = ((uint64)__x->d0);\
+	}\
+	else if(__n < 32)\
+	{\
+		__y->d1 = ((uint32)__x->d1 << __n) + (uint32)((uint64)__x->d0 >> (64-__n));\
+		__y->d0 = ((uint64)__x->d0 << __n);\
+	}\
+	else if(__n < 64)\
+	{\
+		__y->d1 =                           (uint32)((uint64)__x->d0 >> (64-__n));\
+		__y->d0 = ((uint64)__x->d0 << __n);\
+	}\
+	else if(__n < 96)\
+	{\
+		__y->d1 = (uint32)((uint64)__x->d0 << (__n-64));\
+		__y->d0 = (uint64)0;\
+	}\
+	else\
+	{\
+		__y->d1 = (uint32)0;\
+		__y->d0 = (uint64)0;\
+	}\
+}
+
+#define ADD96_PTR(__x, __y, __sum)\
+{\
+	uint64 __t;	/* Need this in case any or all of x, y, sum point to the same address. */\
+	__t       = __x->d0;\
+	__sum->d0 = __x->d0 + __y->d0;\
+	__sum->d1 = __x->d1 + __y->d1 + (__sum->d0 < __t); /* Overflow into high word is checked here. */\
+}
+
+#define SUB96_PTR(__x, __y, __dif)\
+{\
+	uint64 __t;	/* Need this in case any or all of x, y, dif point to the same address. */\
+	__t       = __x->d0;\
+	__dif->d0 = __x->d0 - __y->d0;\
+	__dif->d1 = __x->d1 - __y->d1 - (__dif->d0 > __t); /* Borrow from high word is checked here. */\
+}
+
+
+#define MULH96_PTR_q4(\
+  __x0, __y0, __hi0\
+, __x1, __y1, __hi1\
+, __x2, __y2, __hi2\
+, __x3, __y3, __hi3)\
+{\
+	uint32 __l32_0, __h32_0;\
+	uint32 __l32_1, __h32_1;\
+	uint32 __l32_2, __h32_2;\
+	uint32 __l32_3, __h32_3;\
+	uint64 __a0,__b0,__c0,__d0,__m0,__h0;\
+	uint64 __a1,__b1,__c1,__d1,__m1,__h1;\
+	uint64 __a2,__b2,__c2,__d2,__m2,__h2;\
+	uint64 __a3,__b3,__c3,__d3,__m3,__h3;\
+	\
+	MUL_LOHI32(__x0->d1, __y0->d1, __l32_0, __h32_0);\
+	MUL_LOHI32(__x1->d1, __y1->d1, __l32_1, __h32_1);\
+	MUL_LOHI32(__x2->d1, __y2->d1, __l32_2, __h32_2);\
+	MUL_LOHI32(__x3->d1, __y3->d1, __l32_3, __h32_3);\
+	\
+	__h0 = __l32_0 + ((uint64)__h32_0 << 32);\
+	__h1 = __l32_1 + ((uint64)__h32_1 << 32);\
+	__h2 = __l32_2 + ((uint64)__h32_2 << 32);\
+	__h3 = __l32_3 + ((uint64)__h32_3 << 32);\
+	\
+	MULH64(__x0->d0,__y0->d0,       __m0);\
+	MULH64(__x1->d0,__y1->d0,       __m1);\
+	MULH64(__x2->d0,__y2->d0,       __m2);\
+	MULH64(__x3->d0,__y3->d0,       __m3);\
+	\
+	MUL64x32(__x0->d0,__y0->d1, __a0, __b0);\
+	MUL64x32(__x1->d0,__y1->d1, __a1, __b1);\
+	MUL64x32(__x2->d0,__y2->d1, __a2, __b2);\
+	MUL64x32(__x3->d0,__y3->d1, __a3, __b3);\
+	\
+	MUL64x32(__y0->d0,__x0->d1, __c0, __d0);\
+	MUL64x32(__y1->d0,__x1->d1, __c1, __d1);\
+	MUL64x32(__y2->d0,__x2->d1, __c2, __d2);\
+	MUL64x32(__y3->d0,__x3->d1, __c3, __d3);\
+	\
+	__m0 += __a0;\
+	__m1 += __a1;\
+	__m2 += __a2;\
+	__m3 += __a3;\
+	\
+	__h0 += __b0 + (__m0 < __a0);\
+	__h1 += __b1 + (__m1 < __a1);\
+	__h2 += __b2 + (__m2 < __a2);\
+	__h3 += __b3 + (__m3 < __a3);\
+	\
+	__m0 += __c0;\
+	__m1 += __c1;\
+	__m2 += __c2;\
+	__m3 += __c3;\
+	\
+	__h0 += __d0 + (__m0 < __c0);\
+	__h1 += __d1 + (__m1 < __c1);\
+	__h2 += __d2 + (__m2 < __c2);\
+	__h3 += __d3 + (__m3 < __c3);\
+	\
+	/* Now put upper half of the result into __hi: */\
+	__hi0->d0 = (__m0>>32) + (__h0<<32);	__hi0->d1 = (uint32)(__h0>>32);\
+	__hi1->d0 = (__m1>>32) + (__h1<<32);	__hi1->d1 = (uint32)(__h1>>32);\
+	__hi2->d0 = (__m2>>32) + (__h2<<32);	__hi2->d1 = (uint32)(__h2>>32);\
+	__hi3->d0 = (__m3>>32) + (__h3<<32);	__hi3->d1 = (uint32)(__h3>>32);\
+}
 
 
 /****************************************************************************************************************************
@@ -776,25 +986,25 @@ On Alpha, this needs a total of 5 MUL instructions and 9 ALU ops.
 
     #define SQR_LOHI96(__x, __lo, __hi)\
     {\
-		uint64 __l,__m,__h,__a,__b,__tt;\
-		\
+		uint64 __l,__m,__h,__a,__b;\
+		uint32 __tt = __x.d1, __hl32,__hh32;\
 		DBG_ASSERT(HERE, (__x.d1 >> 32) == 0,"SQR_LOHI96: (__x.d1 >> 32) == 0");\
-		__tt  = __x.d1;\
-		__h   = __tt*__tt;\
-		SQR_LOHI64(__x.d0,     __l, __m);\
 		MUL64x32(__x.d0,__tt, __a, __b);\
+		SQR_LOHI64(__x.d0,     __l, __m);\
+		MUL_LOHI32(__tt,__tt,__hl32,__hh32);\
 		__b = (__b << 1) + (__a >> 63);	__a <<= 1;	/* Double the cross term */\
+		__h = (uint64)(__hl32) + ((uint64)__hh32 << 32);\
 		__m += __a;\
 		__h += __b + (__m < __a); /* Overflow into high word is checked here. */\
 		/* Now split the result between __lo and __hi: */\
-		__lo.d0 =  __l;						__lo.d1 =  __m & 0x00000000ffffffff;\
+		__lo.d0 =  __l;						__lo.d1 = (uint32)__m;\
 		__hi.d0 = (__m>>32) + (__h<<32);	__hi.d1 = (__h>>32);\
     }
 
     /* 4-operand-pipelined version: designed so low half of output may be returned
     in input argument x, if x and lo happen to point to the same addresses:
     */
-  #if 0/*(defined(CPU_TYPE_IA64))*/
+  #if 0/*(defined(CPU_IS_IA64))*/
     /* On Itanium, take advantage of fused integer mul/add: */
     #define SQR_LOHI96_q4(\
       __x0, __lo0, __hi0\
@@ -815,20 +1025,20 @@ On Alpha, this needs a total of 5 MUL instructions and 9 ALU ops.
 		SQR_LOHI    (__x2.d0,                             __a2 ,     __b2 );\
 		SQR_LOHI    (__x3.d0,                             __a3 ,     __b3 );\
 		\
-		MUL_LOHI64_ADD(__x0.d0, __x0.d1 << 1,     __b0,     __b0 , __hi0.d0 );\
-		MUL_LOHI64_ADD(__x1.d0, __x1.d1 << 1,     __b1,     __b1 , __hi1.d0 );\
-		MUL_LOHI64_ADD(__x2.d0, __x2.d1 << 1,     __b2,     __b2 , __hi2.d0 );\
-		MUL_LOHI64_ADD(__x3.d0, __x3.d1 << 1,     __b3,     __b3 , __hi3.d0 );\
+		MUL_LOHI64_ADD(__x0.d0, (uint64)__x0.d1 << 1,     __b0,     __b0 , __hi0.d0 );\
+		MUL_LOHI64_ADD(__x1.d0, (uint64)__x1.d1 << 1,     __b1,     __b1 , __hi1.d0 );\
+		MUL_LOHI64_ADD(__x2.d0, (uint64)__x2.d1 << 1,     __b2,     __b2 , __hi2.d0 );\
+		MUL_LOHI64_ADD(__x3.d0, (uint64)__x3.d1 << 1,     __b3,     __b3 , __hi3.d0 );\
 		/* Delay assignment of lo.d0 terms until here, in case x & lo are the same: */\
 		__lo0.d0 = __a0;\
 		__lo1.d0 = __a1;\
 		__lo2.d0 = __a2;\
 		__lo3.d0 = __a3;\
 		\
-		__hi0.d0 += __x0.d1*__x0.d1;\
-		__hi1.d0 += __x1.d1*__x1.d1;\
-		__hi2.d0 += __x2.d1*__x2.d1;\
-		__hi3.d0 += __x3.d1*__x3.d1;\
+		__hi0.d0 += (uint64)__x0.d1*(uint64)__x0.d1;\
+		__hi1.d0 += (uint64)__x1.d1*(uint64)__x1.d1;\
+		__hi2.d0 += (uint64)__x2.d1*(uint64)__x2.d1;\
+		__hi3.d0 += (uint64)__x3.d1*(uint64)__x3.d1;\
 		\
 		__lo0.d1 = __b0 & 0x00000000ffffffff;\
 		__lo1.d1 = __b1 & 0x00000000ffffffff;\
@@ -881,20 +1091,20 @@ On Alpha, this needs a total of 5 MUL instructions and 9 ALU ops.
 		SQR_LOHI64(__x2.d0,                    __a2 ,     __b2 );\
 		SQR_LOHI64(__x3.d0,                    __a3 ,     __b3 );\
 		\
-		MUL_LOHI64(__x0.d0, __x0.d1 << 1 ,     __s0 ,    __hi0.d0 );\
-		MUL_LOHI64(__x1.d0, __x1.d1 << 1 ,     __s1 ,    __hi1.d0 );\
-		MUL_LOHI64(__x2.d0, __x2.d1 << 1 ,     __s2 ,    __hi2.d0 );\
-		MUL_LOHI64(__x3.d0, __x3.d1 << 1 ,     __s3 ,    __hi3.d0 );\
+		MUL_LOHI64(__x0.d0, (uint64)__x0.d1 << 1 ,     __s0 ,    __hi0.d0 );\
+		MUL_LOHI64(__x1.d0, (uint64)__x1.d1 << 1 ,     __s1 ,    __hi1.d0 );\
+		MUL_LOHI64(__x2.d0, (uint64)__x2.d1 << 1 ,     __s2 ,    __hi2.d0 );\
+		MUL_LOHI64(__x3.d0, (uint64)__x3.d1 << 1 ,     __s3 ,    __hi3.d0 );\
 		/* Delay assignment of lo.d0 terms until here, in case x & lo are the same: */\
 		__lo0.d0 = __a0;\
 		__lo1.d0 = __a1;\
 		__lo2.d0 = __a2;\
 		__lo3.d0 = __a3;\
 		\
-		__hi0.d0+= __x0.d1*__x0.d1;\
-		__hi1.d0+= __x1.d1*__x1.d1;\
-		__hi2.d0+= __x2.d1*__x2.d1;\
-		__hi3.d0+= __x3.d1*__x3.d1;\
+		__hi0.d0+= (uint64)__x0.d1*(uint64)__x0.d1;\
+		__hi1.d0+= (uint64)__x1.d1*(uint64)__x1.d1;\
+		__hi2.d0+= (uint64)__x2.d1*(uint64)__x2.d1;\
+		__hi3.d0+= (uint64)__x3.d1*(uint64)__x3.d1;\
 		\
 		/* __a + 2^64*__b now stores 2*a*b, so only need to add once: */\
 		__b0 = __b0 + __s0;	__hi0.d0 += (__b0 < __s0);\
@@ -943,66 +1153,59 @@ On Alpha, this needs a total of 5 MUL instructions and 9 ALU ops.
     , __x2, __lo2, __hi2\
     , __x3, __lo3, __hi3)\
     {\
-		uint64	__a0,__a1,__a2,__a3,\
-				__b0,__b1,__b2,__b3,\
-				__s0,__s1,__s2,__s3;\
+		uint64 __l0,__m0,__h0,__a0,__b0;\
+		uint64 __l1,__m1,__h1,__a1,__b1;\
+		uint64 __l2,__m2,__h2,__a2,__b2;\
+		uint64 __l3,__m3,__h3,__a3,__b3;\
+		uint32 __tt0 = (uint32)__x0.d1, __hl32_0,__hh32_0;\
+		uint32 __tt1 = (uint32)__x1.d1, __hl32_1,__hh32_1;\
+		uint32 __tt2 = (uint32)__x2.d1, __hl32_2,__hh32_2;\
+		uint32 __tt3 = (uint32)__x3.d1, __hl32_3,__hh32_3;\
 		\
-		DBG_ASSERT(HERE, (__x0.d1 >> 32) == 0,"SQR_LOHI96_q4: (__x0.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x1.d1 >> 32) == 0,"SQR_LOHI96_q4: (__x1.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x2.d1 >> 32) == 0,"SQR_LOHI96_q4: (__x2.d1 >> 32) == 0");\
-		DBG_ASSERT(HERE, (__x3.d1 >> 32) == 0,"SQR_LOHI96_q4: (__x3.d1 >> 32) == 0");\
+		MUL64x32(__x0.d0,__tt0, __a0, __b0);\
+		MUL64x32(__x1.d0,__tt1, __a1, __b1);\
+		MUL64x32(__x2.d0,__tt2, __a2, __b2);\
+		MUL64x32(__x3.d0,__tt3, __a3, __b3);\
 		\
-		SQR_LOHI64(__x0.d0,              __a0 ,     __b0 );\
-		SQR_LOHI64(__x1.d0,              __a1 ,     __b1 );\
-		SQR_LOHI64(__x2.d0,              __a2 ,     __b2 );\
-		SQR_LOHI64(__x3.d0,              __a3 ,     __b3 );\
+		SQR_LOHI64(__x0.d0,     __l0, __m0);\
+		SQR_LOHI64(__x1.d0,     __l1, __m1);\
+		SQR_LOHI64(__x2.d0,     __l2, __m2);\
+		SQR_LOHI64(__x3.d0,     __l3, __m3);\
 		\
-		MUL64x32(__x0.d0, __x0.d1,     __s0 , __hi0.d0 );\
-		MUL64x32(__x1.d0, __x1.d1,     __s1 , __hi1.d0 );\
-		MUL64x32(__x2.d0, __x2.d1,     __s2 , __hi2.d0 );\
-		MUL64x32(__x3.d0, __x3.d1,     __s3 , __hi3.d0 );\
+		MUL_LOHI32(__tt0,__tt0,__hl32_0,__hh32_0);\
+		MUL_LOHI32(__tt1,__tt1,__hl32_1,__hh32_1);\
+		MUL_LOHI32(__tt2,__tt2,__hl32_2,__hh32_2);\
+		MUL_LOHI32(__tt3,__tt3,__hl32_3,__hh32_3);\
+		/* Double the cross term */\
+		__b0 = (__b0 << 1) + (__a0 >> 63);	__a0 <<= 1;\
+		__b1 = (__b1 << 1) + (__a1 >> 63);	__a1 <<= 1;\
+		__b2 = (__b2 << 1) + (__a2 >> 63);	__a2 <<= 1;\
+		__b3 = (__b3 << 1) + (__a3 >> 63);	__a3 <<= 1;\
 		\
-		/* Double the cross product term: */\
-		__hi0.d0 = (__hi0.d0 << 1) + (__s0 >> 63);\
-		__hi1.d0 = (__hi1.d0 << 1) + (__s1 >> 63);\
-		__hi2.d0 = (__hi2.d0 << 1) + (__s2 >> 63);\
-		__hi3.d0 = (__hi3.d0 << 1) + (__s3 >> 63);\
+		__h0 = (uint64)(__hl32_0) + ((uint64)__hh32_0 << 32);\
+		__h1 = (uint64)(__hl32_1) + ((uint64)__hh32_1 << 32);\
+		__h2 = (uint64)(__hl32_2) + ((uint64)__hh32_2 << 32);\
+		__h3 = (uint64)(__hl32_3) + ((uint64)__hh32_3 << 32);\
 		\
-		__s0 <<= 1;\
-		__s1 <<= 1;\
-		__s2 <<= 1;\
-		__s3 <<= 1;\
-		/* Delay assignment of lo.d0 terms until here, in case x & lo are the same: */\
-		__lo0.d0 = __a0;\
-		__lo1.d0 = __a1;\
-		__lo2.d0 = __a2;\
-		__lo3.d0 = __a3;\
+		__m0 += __a0;\
+		__m1 += __a1;\
+		__m2 += __a2;\
+		__m3 += __a3;\
+		/* Overflow into high word is checked here. */\
+		__h0 += __b0 + (__m0 < __a0);\
+		__h1 += __b1 + (__m1 < __a1);\
+		__h2 += __b2 + (__m2 < __a2);\
+		__h3 += __b3 + (__m3 < __a3);\
+		/* Now split the result between __lo and __hi: */\
+		__lo0.d0 =  __l0;					__lo0.d1 = (uint32)__m0;\
+		__lo1.d0 =  __l1;					__lo1.d1 = (uint32)__m1;\
+		__lo2.d0 =  __l2;					__lo2.d1 = (uint32)__m2;\
+		__lo3.d0 =  __l3;					__lo3.d1 = (uint32)__m3;\
 		\
-		__hi0.d0+= __x0.d1*__x0.d1;\
-		__hi1.d0+= __x1.d1*__x1.d1;\
-		__hi2.d0+= __x2.d1*__x2.d1;\
-		__hi3.d0+= __x3.d1*__x3.d1;\
-		\
-		/* __a + 2^64*__b now stores 2*a*b, so only need to add once: */\
-		__b0 = __b0 + __s0;	__hi0.d0 += (__b0 < __s0);\
-		__b1 = __b1 + __s1;	__hi1.d0 += (__b1 < __s1);\
-		__b2 = __b2 + __s2;	__hi2.d0 += (__b2 < __s2);\
-		__b3 = __b3 + __s3;	__hi3.d0 += (__b3 < __s3);\
-		\
-		__lo0.d1 = __b0 & 0x00000000ffffffff;\
-		__lo1.d1 = __b1 & 0x00000000ffffffff;\
-		__lo2.d1 = __b2 & 0x00000000ffffffff;\
-		__lo3.d1 = __b3 & 0x00000000ffffffff;\
-		\
-		__hi0.d1 = (__hi0.d0 >> 32);\
-		__hi1.d1 = (__hi1.d0 >> 32);\
-		__hi2.d1 = (__hi2.d0 >> 32);\
-		__hi3.d1 = (__hi3.d0 >> 32);\
-		\
-		__hi0.d0 = (__hi0.d0 << 32) + (__b0 >> 32);\
-		__hi1.d0 = (__hi1.d0 << 32) + (__b1 >> 32);\
-		__hi2.d0 = (__hi2.d0 << 32) + (__b2 >> 32);\
-		__hi3.d0 = (__hi3.d0 << 32) + (__b3 >> 32);\
+		__hi0.d0 = (__m0>>32) + (__h0<<32);	__hi0.d1 = (__h0>>32);\
+		__hi1.d0 = (__m1>>32) + (__h1<<32);	__hi1.d1 = (__h1>>32);\
+		__hi2.d0 = (__m2>>32) + (__h2<<32);	__hi2.d1 = (__h2>>32);\
+		__hi3.d0 = (__m3>>32) + (__h3<<32);	__hi3.d1 = (__h3>>32);\
     }
 
 	/* Special version for x < 2^95: */
@@ -1037,10 +1240,10 @@ On Alpha, this needs a total of 5 MUL instructions and 9 ALU ops.
 		__lo2.d0 = __a2;\
 		__lo3.d0 = __a3;\
 		\
-		__hi0.d0+= __x0.d1*__x0.d1;\
-		__hi1.d0+= __x1.d1*__x1.d1;\
-		__hi2.d0+= __x2.d1*__x2.d1;\
-		__hi3.d0+= __x3.d1*__x3.d1;\
+		__hi0.d0+= (uint64)__x0.d1*(uint64)__x0.d1;\
+		__hi1.d0+= (uint64)__x1.d1*(uint64)__x1.d1;\
+		__hi2.d0+= (uint64)__x2.d1*(uint64)__x2.d1;\
+		__hi3.d0+= (uint64)__x3.d1*(uint64)__x3.d1;\
 		\
 		/* __a + 2^64*__b now stores 2*a*b, so only need to add once: */\
 		__b0 = __b0 + __s0;	__hi0.d0 += (__b0 < __s0);\
@@ -1068,7 +1271,7 @@ On Alpha, this needs a total of 5 MUL instructions and 9 ALU ops.
     /* 8-operand-pipelined version: designed so low half of output may be returned
     in input argument x, if x and lo happen to point to the same addresses:
     */
-  #if 0/*(defined(CPU_TYPE_IA64))*/
+  #if 0/*(defined(CPU_IS_IA64))*/
     /* On Itanium, take advantage of fused integer mul/add: */
     #define SQR_LOHI96_q8(\
       __x0, __lo0, __hi0\
@@ -1101,14 +1304,14 @@ On Alpha, this needs a total of 5 MUL instructions and 9 ALU ops.
 		SQR_LOHI    (__x6.d0,                             __a6 ,     __b6 );\
 		SQR_LOHI    (__x7.d0,                             __a7 ,     __b7 );\
 		\
-		MUL_LOHI64_ADD(__x0.d0, __x0.d1 << 1,     __b0,     __b0 , __hi0.d0 );\
-		MUL_LOHI64_ADD(__x1.d0, __x1.d1 << 1,     __b1,     __b1 , __hi1.d0 );\
-		MUL_LOHI64_ADD(__x2.d0, __x2.d1 << 1,     __b2,     __b2 , __hi2.d0 );\
-		MUL_LOHI64_ADD(__x3.d0, __x3.d1 << 1,     __b3,     __b3 , __hi3.d0 );\
-		MUL_LOHI64_ADD(__x4.d0, __x4.d1 << 1,     __b4,     __b4 , __hi4.d0 );\
-		MUL_LOHI64_ADD(__x5.d0, __x5.d1 << 1,     __b5,     __b5 , __hi5.d0 );\
-		MUL_LOHI64_ADD(__x6.d0, __x6.d1 << 1,     __b6,     __b6 , __hi6.d0 );\
-		MUL_LOHI64_ADD(__x7.d0, __x7.d1 << 1,     __b7,     __b7 , __hi7.d0 );\
+		MUL_LOHI64_ADD(__x0.d0, (uint64)__x0.d1 << 1,     __b0,     __b0 , __hi0.d0 );\
+		MUL_LOHI64_ADD(__x1.d0, (uint64)__x1.d1 << 1,     __b1,     __b1 , __hi1.d0 );\
+		MUL_LOHI64_ADD(__x2.d0, (uint64)__x2.d1 << 1,     __b2,     __b2 , __hi2.d0 );\
+		MUL_LOHI64_ADD(__x3.d0, (uint64)__x3.d1 << 1,     __b3,     __b3 , __hi3.d0 );\
+		MUL_LOHI64_ADD(__x4.d0, (uint64)__x4.d1 << 1,     __b4,     __b4 , __hi4.d0 );\
+		MUL_LOHI64_ADD(__x5.d0, (uint64)__x5.d1 << 1,     __b5,     __b5 , __hi5.d0 );\
+		MUL_LOHI64_ADD(__x6.d0, (uint64)__x6.d1 << 1,     __b6,     __b6 , __hi6.d0 );\
+		MUL_LOHI64_ADD(__x7.d0, (uint64)__x7.d1 << 1,     __b7,     __b7 , __hi7.d0 );\
 		/* Delay assignment of lo.d0 terms until here, in case x & lo are the same: */\
 		__lo0.d0 = __a0;\
 		__lo1.d0 = __a1;\
@@ -1119,14 +1322,14 @@ On Alpha, this needs a total of 5 MUL instructions and 9 ALU ops.
 		__lo6.d0 = __a6;\
 		__lo7.d0 = __a7;\
 		\
-		__hi0.d0 += __x0.d1*__x0.d1;\
-		__hi1.d0 += __x1.d1*__x1.d1;\
-		__hi2.d0 += __x2.d1*__x2.d1;\
-		__hi3.d0 += __x3.d1*__x3.d1;\
-		__hi4.d0 += __x4.d1*__x4.d1;\
-		__hi5.d0 += __x5.d1*__x5.d1;\
-		__hi6.d0 += __x6.d1*__x6.d1;\
-		__hi7.d0 += __x7.d1*__x7.d1;\
+		__hi0.d0 += (uint64)__x0.d1*(uint64)__x0.d1;\
+		__hi1.d0 += (uint64)__x1.d1*(uint64)__x1.d1;\
+		__hi2.d0 += (uint64)__x2.d1*(uint64)__x2.d1;\
+		__hi3.d0 += (uint64)__x3.d1*(uint64)__x3.d1;\
+		__hi4.d0 += (uint64)__x4.d1*(uint64)__x4.d1;\
+		__hi5.d0 += (uint64)__x5.d1*(uint64)__x5.d1;\
+		__hi6.d0 += (uint64)__x6.d1*(uint64)__x6.d1;\
+		__hi7.d0 += (uint64)__x7.d1*(uint64)__x7.d1;\
 		\
 		__lo0.d1 = __b0 & 0x00000000ffffffff;\
 		__lo1.d1 = __b1 & 0x00000000ffffffff;\
@@ -1211,14 +1414,14 @@ On Alpha, this needs a total of 5 MUL instructions and 9 ALU ops.
 		SQR_LOHI64(__x6.d0,                    __a6 ,     __b6 );\
 		SQR_LOHI64(__x7.d0,                    __a7 ,     __b7 );\
 		\
-		MUL_LOHI64(__x0.d0, __x0.d1 << 1 ,     __s0 , __hi0.d0 );\
-		MUL_LOHI64(__x1.d0, __x1.d1 << 1 ,     __s1 , __hi1.d0 );\
-		MUL_LOHI64(__x2.d0, __x2.d1 << 1 ,     __s2 , __hi2.d0 );\
-		MUL_LOHI64(__x3.d0, __x3.d1 << 1 ,     __s3 , __hi3.d0 );\
-		MUL_LOHI64(__x4.d0, __x4.d1 << 1 ,     __s4 , __hi4.d0 );\
-		MUL_LOHI64(__x5.d0, __x5.d1 << 1 ,     __s5 , __hi5.d0 );\
-		MUL_LOHI64(__x6.d0, __x6.d1 << 1 ,     __s6 , __hi6.d0 );\
-		MUL_LOHI64(__x7.d0, __x7.d1 << 1 ,     __s7 , __hi7.d0 );\
+		MUL_LOHI64(__x0.d0, (uint64)__x0.d1 << 1 ,     __s0 , __hi0.d0 );\
+		MUL_LOHI64(__x1.d0, (uint64)__x1.d1 << 1 ,     __s1 , __hi1.d0 );\
+		MUL_LOHI64(__x2.d0, (uint64)__x2.d1 << 1 ,     __s2 , __hi2.d0 );\
+		MUL_LOHI64(__x3.d0, (uint64)__x3.d1 << 1 ,     __s3 , __hi3.d0 );\
+		MUL_LOHI64(__x4.d0, (uint64)__x4.d1 << 1 ,     __s4 , __hi4.d0 );\
+		MUL_LOHI64(__x5.d0, (uint64)__x5.d1 << 1 ,     __s5 , __hi5.d0 );\
+		MUL_LOHI64(__x6.d0, (uint64)__x6.d1 << 1 ,     __s6 , __hi6.d0 );\
+		MUL_LOHI64(__x7.d0, (uint64)__x7.d1 << 1 ,     __s7 , __hi7.d0 );\
 		/* Delay assignment of lo.d0 terms until here, in case x & lo are the same: */\
 		__lo0.d0 = __a0;\
 		__lo1.d0 = __a1;\
@@ -1229,14 +1432,14 @@ On Alpha, this needs a total of 5 MUL instructions and 9 ALU ops.
 		__lo6.d0 = __a6;\
 		__lo7.d0 = __a7;\
 		\
-		__hi0.d0+= __x0.d1*__x0.d1;\
-		__hi1.d0+= __x1.d1*__x1.d1;\
-		__hi2.d0+= __x2.d1*__x2.d1;\
-		__hi3.d0+= __x3.d1*__x3.d1;\
-		__hi4.d0+= __x4.d1*__x4.d1;\
-		__hi5.d0+= __x5.d1*__x5.d1;\
-		__hi6.d0+= __x6.d1*__x6.d1;\
-		__hi7.d0+= __x7.d1*__x7.d1;\
+		__hi0.d0+= (uint64)__x0.d1*(uint64)__x0.d1;\
+		__hi1.d0+= (uint64)__x1.d1*(uint64)__x1.d1;\
+		__hi2.d0+= (uint64)__x2.d1*(uint64)__x2.d1;\
+		__hi3.d0+= (uint64)__x3.d1*(uint64)__x3.d1;\
+		__hi4.d0+= (uint64)__x4.d1*(uint64)__x4.d1;\
+		__hi5.d0+= (uint64)__x5.d1*(uint64)__x5.d1;\
+		__hi6.d0+= (uint64)__x6.d1*(uint64)__x6.d1;\
+		__hi7.d0+= (uint64)__x7.d1*(uint64)__x7.d1;\
 		\
 		/* __a + 2^64*__b now stores 2*a*b, so only need to add once: */\
 		__b0 = __b0 + __s0;	__hi0.d0 += (__b0 < __s0);\
@@ -1371,14 +1574,14 @@ On Alpha, this needs a total of 5 MUL instructions and 9 ALU ops.
 		__lo6.d0 = __a6;\
 		__lo7.d0 = __a7;\
 		\
-		__hi0.d0+= __x0.d1*__x0.d1;\
-		__hi1.d0+= __x1.d1*__x1.d1;\
-		__hi2.d0+= __x2.d1*__x2.d1;\
-		__hi3.d0+= __x3.d1*__x3.d1;\
-		__hi4.d0+= __x4.d1*__x4.d1;\
-		__hi5.d0+= __x5.d1*__x5.d1;\
-		__hi6.d0+= __x6.d1*__x6.d1;\
-		__hi7.d0+= __x7.d1*__x7.d1;\
+		__hi0.d0+= (uint64)__x0.d1*(uint64)__x0.d1;\
+		__hi1.d0+= (uint64)__x1.d1*(uint64)__x1.d1;\
+		__hi2.d0+= (uint64)__x2.d1*(uint64)__x2.d1;\
+		__hi3.d0+= (uint64)__x3.d1*(uint64)__x3.d1;\
+		__hi4.d0+= (uint64)__x4.d1*(uint64)__x4.d1;\
+		__hi5.d0+= (uint64)__x5.d1*(uint64)__x5.d1;\
+		__hi6.d0+= (uint64)__x6.d1*(uint64)__x6.d1;\
+		__hi7.d0+= (uint64)__x7.d1*(uint64)__x7.d1;\
 		\
 		/* __a + 2^64*__b now stores 2*a*b, so only need to add once: */\
 		__b0 = __b0 + __s0;	__hi0.d0 += (__b0 < __s0);\
@@ -1470,14 +1673,14 @@ On Alpha, this needs a total of 5 MUL instructions and 9 ALU ops.
 		__lo6.d0 = __a6;\
 		__lo7.d0 = __a7;\
 		\
-		__hi0.d0+= __x0.d1*__x0.d1;\
-		__hi1.d0+= __x1.d1*__x1.d1;\
-		__hi2.d0+= __x2.d1*__x2.d1;\
-		__hi3.d0+= __x3.d1*__x3.d1;\
-		__hi4.d0+= __x4.d1*__x4.d1;\
-		__hi5.d0+= __x5.d1*__x5.d1;\
-		__hi6.d0+= __x6.d1*__x6.d1;\
-		__hi7.d0+= __x7.d1*__x7.d1;\
+		__hi0.d0+= (uint64)__x0.d1*(uint64)__x0.d1;\
+		__hi1.d0+= (uint64)__x1.d1*(uint64)__x1.d1;\
+		__hi2.d0+= (uint64)__x2.d1*(uint64)__x2.d1;\
+		__hi3.d0+= (uint64)__x3.d1*(uint64)__x3.d1;\
+		__hi4.d0+= (uint64)__x4.d1*(uint64)__x4.d1;\
+		__hi5.d0+= (uint64)__x5.d1*(uint64)__x5.d1;\
+		__hi6.d0+= (uint64)__x6.d1*(uint64)__x6.d1;\
+		__hi7.d0+= (uint64)__x7.d1*(uint64)__x7.d1;\
 		\
 		/* __a + 2^64*__b now stores 2*a*b, so only need to add once: */\
 		__b0 = __b0 + __s0;	__hi0.d0 += (__b0 < __s0);\
@@ -1928,6 +2131,10 @@ to get the 16x64==>80-bit intermediate products.
     , __x2, __y2, __hi2\
     , __x3, __y3, __hi3)\
     {\
+    	uint32 __l32_0, __h32_0;\
+    	uint32 __l32_1, __h32_1;\
+    	uint32 __l32_2, __h32_2;\
+    	uint32 __l32_3, __h32_3;\
 		uint64 __a0,__b0,__c0,__d0,__m0,__h0;\
 		uint64 __a1,__b1,__c1,__d1,__m1,__h1;\
 		uint64 __a2,__b2,__c2,__d2,__m2,__h2;\
@@ -1943,10 +2150,15 @@ to get the 16x64==>80-bit intermediate products.
 		DBG_ASSERT(HERE, (__y2.d1 >> 32) == 0,"MULH96_q4: (__y2.d1 >> 32) == 0");\
 		DBG_ASSERT(HERE, (__y3.d1 >> 32) == 0,"MULH96_q4: (__y3.d1 >> 32) == 0");\
 		\
-		__h0 = __x0.d1 * __y0.d1;\
-		__h1 = __x1.d1 * __y1.d1;\
-		__h2 = __x2.d1 * __y2.d1;\
-		__h3 = __x3.d1 * __y3.d1;\
+		MUL_LOHI32(__x0.d1, __y0.d1, __l32_0, __h32_0);\
+		MUL_LOHI32(__x1.d1, __y1.d1, __l32_1, __h32_1);\
+		MUL_LOHI32(__x2.d1, __y2.d1, __l32_2, __h32_2);\
+		MUL_LOHI32(__x3.d1, __y3.d1, __l32_3, __h32_3);\
+		\
+		__h0 = __l32_0 + ((uint64)__h32_0 << 32);\
+		__h1 = __l32_1 + ((uint64)__h32_1 << 32);\
+		__h2 = __l32_2 + ((uint64)__h32_2 << 32);\
+		__h3 = __l32_3 + ((uint64)__h32_3 << 32);\
 		\
 		MULH64(__x0.d0,__y0.d0,       __m0);\
 		MULH64(__x1.d0,__y1.d0,       __m1);\
@@ -2030,14 +2242,14 @@ to get the 16x64==>80-bit intermediate products.
 		DBG_ASSERT(HERE, (__y6.d1 >> 32) == 0,"MULH96_q8: (__y6.d1 >> 32) == 0");\
 		DBG_ASSERT(HERE, (__y7.d1 >> 32) == 0,"MULH96_q8: (__y7.d1 >> 32) == 0");\
 		\
-		__h0 = __x0.d1 * __y0.d1;\
-		__h1 = __x1.d1 * __y1.d1;\
-		__h2 = __x2.d1 * __y2.d1;\
-		__h3 = __x3.d1 * __y3.d1;\
-		__h4 = __x4.d1 * __y4.d1;\
-		__h5 = __x5.d1 * __y5.d1;\
-		__h6 = __x6.d1 * __y6.d1;\
-		__h7 = __x7.d1 * __y7.d1;\
+		__h0 = (uint64)__x0.d1*(uint64)__y0.d1;\
+		__h1 = (uint64)__x1.d1*(uint64)__y1.d1;\
+		__h2 = (uint64)__x2.d1*(uint64)__y2.d1;\
+		__h3 = (uint64)__x3.d1*(uint64)__y3.d1;\
+		__h4 = (uint64)__x4.d1*(uint64)__y4.d1;\
+		__h5 = (uint64)__x5.d1*(uint64)__y5.d1;\
+		__h6 = (uint64)__x6.d1*(uint64)__y6.d1;\
+		__h7 = (uint64)__x7.d1*(uint64)__y7.d1;\
 		\
 		MULH64(__x0.d0,__y0.d0,       __m0);\
 		MULH64(__x1.d0,__y1.d0,       __m1);\
@@ -2266,7 +2478,7 @@ for the 127-bit version.
 		__hi.d0 =  __w2;	__hi.d1 = __w3;\
     }
 
-  #if 0/*(defined(CPU_TYPE_IA64))*/
+  #if 0/*(defined(CPU_IS_IA64))*/
     /* On Itanium, take advantage of fused integer mul/add: */
     #define SQR_LOHI127(__x, __lo, __hi)\
     {\
@@ -2300,7 +2512,7 @@ for the 127-bit version.
     /* 4-operand-pipelined version: designed so low 128 bits of output may be returned
     in input arguments, if x and lo happen to point to the same addresses:
     */
-  #if 0/*(defined(CPU_TYPE_IA64))*/
+  #if 0/*(defined(CPU_IS_IA64))*/
     /* On Itanium, take advantage of fused integer mul/add: */
     #define SQR_LOHI128_q4(\
       __x0, __lo0, __hi0\
@@ -2320,10 +2532,10 @@ for the 127-bit version.
 		SQR_LOHI64(__x2.d0,        __wa2, __wb2);\
 		SQR_LOHI64(__x3.d0,        __wa3, __wb3);\
 		\
-		MUL_LOHI64(__x0.d0,__x0.d1, __a0 , __b0);\
-		MUL_LOHI64(__x1.d0,__x1.d1, __a1 , __b1);\
-		MUL_LOHI64(__x2.d0,__x2.d1, __a2 , __b2);\
-		MUL_LOHI64(__x3.d0,__x3.d1, __a3 , __b3);\
+		MUL_LOHI64(__x0.d0,(uint64)__x0.d1, __a0 , __b0);\
+		MUL_LOHI64(__x1.d0,(uint64)__x1.d1, __a1 , __b1);\
+		MUL_LOHI64(__x2.d0,(uint64)__x2.d1, __a2 , __b2);\
+		MUL_LOHI64(__x3.d0,(uint64)__x3.d1, __a3 , __b3);\
 		/* Left-shift both halves of this last 128-bit product one place to effect the mul-by-2: */\
 		__hi0.d1 = __b0 >> 63;	__b0 = (__b0 << 1) + (__a0 >> 63);	__a0 <<= 1;\
 		__hi1.d1 = __b1 >> 63;	__b1 = (__b1 << 1) + (__a1 >> 63);	__a1 <<= 1;\
@@ -2392,7 +2604,7 @@ for the 127-bit version.
     }
   #endif
 
-  #if 0/*(defined(CPU_TYPE_IA64))*/
+  #if 0/*(defined(CPU_IS_IA64))*/
     /* On Itanium, take advantage of fused integer mul/add: */
     #define SQR_LOHI127_q4(\
       __x0, __lo0, __hi0\
@@ -2471,7 +2683,7 @@ for the 127-bit version.
     /* 8-operand-pipelined version: designed so low 128 bits of output may be returned
     in input arguments, if x and lo happen to point to the same addresses:
     */
-  #if 0/*(defined(CPU_TYPE_IA64))*/
+  #if 0/*(defined(CPU_IS_IA64))*/
     /* On Itanium, take advantage of fused integer mul/add: */
     #define SQR_LOHI128_q8(\
       __x0, __lo0, __hi0\
@@ -2615,7 +2827,7 @@ for the 127-bit version.
     }
   #endif
 
-  #if 0/*(defined(CPU_TYPE_IA64))*/
+  #if 0/*(defined(CPU_IS_IA64))*/
     /* On Itanium, take advantage of fused integer mul/add: */
     #define SQR_LOHI127_q8(\
       __x0, __lo0, __hi0\
@@ -2833,7 +3045,7 @@ On Alpha, this needs a total of 5 MUL instructions and 5 ALU ops.
 
 #else
 
-  #if 0	/*(defined(CPU_TYPE_IA64))*/
+  #if 0	/*(defined(CPU_IS_IA64))*/
     /* On Itanium, take advantage of fused integer mul/add: */
     #define SQR_LOHI128_96(__x, __lo128, __hi64)\
     {\
@@ -2866,7 +3078,7 @@ On Alpha, this needs a total of 5 MUL instructions and 5 ALU ops.
     /* 8-operand-pipelined version: designed so low 128 bits of output may be returned
     in input arguments, if x and lo happen to point to the same addresses:
     */
-  #if 0/*(defined(CPU_TYPE_IA64))*/
+  #if 0/*(defined(CPU_IS_IA64))*/
     /* On Itanium, take advantage of fused integer mul/add: */
     #define SQR_LOHI128_96_q4(\
       __x0, __lo0, __hi0\
@@ -2897,10 +3109,10 @@ On Alpha, this needs a total of 5 MUL instructions and 5 ALU ops.
 		__lo2.d0 = __a2;\
 		__lo3.d0 = __a3;\
 		\
-		__hi0 += __x0.d1*__x0.d1;\
-		__hi1 += __x1.d1*__x1.d1;\
-		__hi2 += __x2.d1*__x2.d1;\
-		__hi3 += __x3.d1*__x3.d1;\
+		__hi0 += (uint64)__x0.d1*(uint64)__x0.d1;\
+		__hi1 += (uint64)__x1.d1*(uint64)__x1.d1;\
+		__hi2 += (uint64)__x2.d1*(uint64)__x2.d1;\
+		__hi3 += (uint64)__x3.d1*(uint64)__x3.d1;\
 		/* Delay assignment of lo.d1 terms until here, in case x & lo are the same: */\
 		__lo0.d1 = __b0;\
 		__lo1.d1 = __b1;\
@@ -2953,10 +3165,10 @@ On Alpha, this needs a total of 5 MUL instructions and 5 ALU ops.
 		__lo2.d0 = __a2;\
 		__lo3.d0 = __a3;\
 		\
-		__hi0   += __x0.d1*__x0.d1;\
-		__hi1   += __x1.d1*__x1.d1;\
-		__hi2   += __x2.d1*__x2.d1;\
-		__hi3   += __x3.d1*__x3.d1;\
+		__hi0   += (uint64)__x0.d1*(uint64)__x0.d1;\
+		__hi1   += (uint64)__x1.d1*(uint64)__x1.d1;\
+		__hi2   += (uint64)__x2.d1*(uint64)__x2.d1;\
+		__hi3   += (uint64)__x3.d1*(uint64)__x3.d1;\
 		\
 		/* __a + 2^64*__b now stores 2*a*b, so only need to add once: */\
 		__lo0.d1 = __b0 + __s0;	__hi0 += (__lo0.d1 < __b0);\
@@ -3024,10 +3236,10 @@ On Alpha, this needs a total of 5 MUL instructions and 5 ALU ops.
 		__lo2.d0 = __a2;\
 		__lo3.d0 = __a3;\
 		\
-		__hi0   += __x0.d1*__x0.d1;\
-		__hi1   += __x1.d1*__x1.d1;\
-		__hi2   += __x2.d1*__x2.d1;\
-		__hi3   += __x3.d1*__x3.d1;\
+		__hi0   += (uint64)__x0.d1*(uint64)__x0.d1;\
+		__hi1   += (uint64)__x1.d1*(uint64)__x1.d1;\
+		__hi2   += (uint64)__x2.d1*(uint64)__x2.d1;\
+		__hi3   += (uint64)__x3.d1*(uint64)__x3.d1;\
 		\
 		/* __a + 2^64*__b now stores 2*a*b, so only need to add once: */\
 		__lo0.d1 = __b0 + __s0;	__hi0 += (__lo0.d1 < __b0);\
@@ -3068,10 +3280,10 @@ On Alpha, this needs a total of 5 MUL instructions and 5 ALU ops.
 		__lo2.d0 = __a2;\
 		__lo3.d0 = __a3;\
 		\
-		__hi0   += __x0.d1*__x0.d1;\
-		__hi1   += __x1.d1*__x1.d1;\
-		__hi2   += __x2.d1*__x2.d1;\
-		__hi3   += __x3.d1*__x3.d1;\
+		__hi0   += (uint64)__x0.d1*(uint64)__x0.d1;\
+		__hi1   += (uint64)__x1.d1*(uint64)__x1.d1;\
+		__hi2   += (uint64)__x2.d1*(uint64)__x2.d1;\
+		__hi3   += (uint64)__x3.d1*(uint64)__x3.d1;\
 		\
 		/* __a + 2^64*__b now stores 2*a*b, so only need to add once: */\
 		__lo0.d1 = __b0 + __s0;	__hi0 += (__lo0.d1 < __b0);\
@@ -3084,7 +3296,7 @@ On Alpha, this needs a total of 5 MUL instructions and 5 ALU ops.
     /* 8-operand-pipelined version: designed so low 128 bits of output may be returned
     in input arguments, if x and lo happen to point to the same addresses:
     */
-  #if 0/*(defined(CPU_TYPE_IA64))*/
+  #if 0/*(defined(CPU_IS_IA64))*/
     /* On Itanium, take advantage of fused integer mul/add: */
     #define SQR_LOHI128_96_q8(\
       __x0, __lo0, __hi0\
@@ -3135,14 +3347,14 @@ On Alpha, this needs a total of 5 MUL instructions and 5 ALU ops.
 		__lo6.d0 = __a6;\
 		__lo7.d0 = __a7;\
 		\
-		__hi0 += __x0.d1*__x0.d1;\
-		__hi1 += __x1.d1*__x1.d1;\
-		__hi2 += __x2.d1*__x2.d1;\
-		__hi3 += __x3.d1*__x3.d1;\
-		__hi4 += __x4.d1*__x4.d1;\
-		__hi5 += __x5.d1*__x5.d1;\
-		__hi6 += __x6.d1*__x6.d1;\
-		__hi7 += __x7.d1*__x7.d1;\
+		__hi0 += (uint64)__x0.d1*(uint64)__x0.d1;\
+		__hi1 += (uint64)__x1.d1*(uint64)__x1.d1;\
+		__hi2 += (uint64)__x2.d1*(uint64)__x2.d1;\
+		__hi3 += (uint64)__x3.d1*(uint64)__x3.d1;\
+		__hi4 += (uint64)__x4.d1*(uint64)__x4.d1;\
+		__hi5 += (uint64)__x5.d1*(uint64)__x5.d1;\
+		__hi6 += (uint64)__x6.d1*(uint64)__x6.d1;\
+		__hi7 += (uint64)__x7.d1*(uint64)__x7.d1;\
 		/* Delay assignment of lo.d1 terms until here, in case x & lo are the same: */\
 		__lo0.d1 = __b0;\
 		__lo1.d1 = __b1;\
@@ -3227,14 +3439,14 @@ On Alpha, this needs a total of 5 MUL instructions and 5 ALU ops.
 		__lo6.d0 = __a6;\
 		__lo7.d0 = __a7;\
 		\
-		__hi0   += __x0.d1*__x0.d1;\
-		__hi1   += __x1.d1*__x1.d1;\
-		__hi2   += __x2.d1*__x2.d1;\
-		__hi3   += __x3.d1*__x3.d1;\
-		__hi4   += __x4.d1*__x4.d1;\
-		__hi5   += __x5.d1*__x5.d1;\
-		__hi6   += __x6.d1*__x6.d1;\
-		__hi7   += __x7.d1*__x7.d1;\
+		__hi0   += (uint64)__x0.d1*(uint64)__x0.d1;\
+		__hi1   += (uint64)__x1.d1*(uint64)__x1.d1;\
+		__hi2   += (uint64)__x2.d1*(uint64)__x2.d1;\
+		__hi3   += (uint64)__x3.d1*(uint64)__x3.d1;\
+		__hi4   += (uint64)__x4.d1*(uint64)__x4.d1;\
+		__hi5   += (uint64)__x5.d1*(uint64)__x5.d1;\
+		__hi6   += (uint64)__x6.d1*(uint64)__x6.d1;\
+		__hi7   += (uint64)__x7.d1*(uint64)__x7.d1;\
 		\
 		/* __a + 2^64*__b now stores 2*a*b, so only need to add once: */\
 		__lo0.d1 = __b0 + __s0;	__hi0 += (__lo0.d1 < __b0);\
@@ -3342,14 +3554,14 @@ On Alpha, this needs a total of 5 MUL instructions and 5 ALU ops.
 		__lo6.d0 = __a6;\
 		__lo7.d0 = __a7;\
 		\
-		__hi0   += __x0.d1*__x0.d1;\
-		__hi1   += __x1.d1*__x1.d1;\
-		__hi2   += __x2.d1*__x2.d1;\
-		__hi3   += __x3.d1*__x3.d1;\
-		__hi4   += __x4.d1*__x4.d1;\
-		__hi5   += __x5.d1*__x5.d1;\
-		__hi6   += __x6.d1*__x6.d1;\
-		__hi7   += __x7.d1*__x7.d1;\
+		__hi0   += (uint64)__x0.d1*(uint64)__x0.d1;\
+		__hi1   += (uint64)__x1.d1*(uint64)__x1.d1;\
+		__hi2   += (uint64)__x2.d1*(uint64)__x2.d1;\
+		__hi3   += (uint64)__x3.d1*(uint64)__x3.d1;\
+		__hi4   += (uint64)__x4.d1*(uint64)__x4.d1;\
+		__hi5   += (uint64)__x5.d1*(uint64)__x5.d1;\
+		__hi6   += (uint64)__x6.d1*(uint64)__x6.d1;\
+		__hi7   += (uint64)__x7.d1*(uint64)__x7.d1;\
 		\
 		/* __a + 2^64*__b now stores 2*a*b, so only need to add once: */\
 		__lo0.d1 = __b0 + __s0;	__hi0 += (__lo0.d1 < __b0);\
@@ -3414,14 +3626,14 @@ On Alpha, this needs a total of 5 MUL instructions and 5 ALU ops.
 		__lo6.d0 = __a6;\
 		__lo7.d0 = __a7;\
 		\
-		__hi0   += __x0.d1*__x0.d1;\
-		__hi1   += __x1.d1*__x1.d1;\
-		__hi2   += __x2.d1*__x2.d1;\
-		__hi3   += __x3.d1*__x3.d1;\
-		__hi4   += __x4.d1*__x4.d1;\
-		__hi5   += __x5.d1*__x5.d1;\
-		__hi6   += __x6.d1*__x6.d1;\
-		__hi7   += __x7.d1*__x7.d1;\
+		__hi0   += (uint64)__x0.d1*(uint64)__x0.d1;\
+		__hi1   += (uint64)__x1.d1*(uint64)__x1.d1;\
+		__hi2   += (uint64)__x2.d1*(uint64)__x2.d1;\
+		__hi3   += (uint64)__x3.d1*(uint64)__x3.d1;\
+		__hi4   += (uint64)__x4.d1*(uint64)__x4.d1;\
+		__hi5   += (uint64)__x5.d1*(uint64)__x5.d1;\
+		__hi6   += (uint64)__x6.d1*(uint64)__x6.d1;\
+		__hi7   += (uint64)__x7.d1*(uint64)__x7.d1;\
 		\
 		/* __a + 2^64*__b now stores 2*a*b, so only need to add once: */\
 		__lo0.d1 = __b0 + __s0;	__hi0 += (__lo0.d1 < __b0);\
@@ -6079,7 +6291,42 @@ On Alpha, this needs a total of 12 MUL instructions and 42 ALU ops.
 		__lo.d0 = __w0; __lo.d1 = __w1; __lo.d2 = __w2; __hi.d0 = __w3;	__hi.d1 = __w4;	__hi.d2 = __w5;\
     }
 
+    #define SQR_LOHI192_q4(\
+      __x0, __lo0, __hi0\
+    , __x1, __lo1, __hi1\
+    , __x2, __lo2, __hi2\
+    , __x3, __lo3, __hi3)\
+    {\
+    	SQR_LOHI192(__x0, __lo0, __hi0);\
+    	SQR_LOHI192(__x1, __lo1, __hi1);\
+    	SQR_LOHI192(__x2, __lo2, __hi2);\
+    	SQR_LOHI192(__x3, __lo3, __hi3);\
+	}
+
+    /* 8-operand-pipelined version: */
+    #define SQR_LOHI192_q8(\
+      __x0, __lo0, __hi0\
+    , __x1, __lo1, __hi1\
+    , __x2, __lo2, __hi2\
+    , __x3, __lo3, __hi3\
+    , __x4, __lo4, __hi4\
+    , __x5, __lo5, __hi5\
+    , __x6, __lo6, __hi6\
+    , __x7, __lo7, __hi7)\
+    {\
+    	SQR_LOHI192(__x0, __lo0, __hi0);\
+    	SQR_LOHI192(__x1, __lo1, __hi1);\
+    	SQR_LOHI192(__x2, __lo2, __hi2);\
+    	SQR_LOHI192(__x3, __lo3, __hi3);\
+    	SQR_LOHI192(__x4, __lo4, __hi4);\
+    	SQR_LOHI192(__x5, __lo5, __hi5);\
+    	SQR_LOHI192(__x6, __lo6, __hi6);\
+    	SQR_LOHI192(__x7, __lo7, __hi7);\
+	}
+
 #else
+
+  #if 0	// In generic-C mode, prefer faster arrangement of this below
 
     #define SQR_LOHI192(__x, __lo, __hi)\
     {\
@@ -6128,6 +6375,93 @@ On Alpha, this needs a total of 12 MUL instructions and 42 ALU ops.
 		/* Now split the result between __lo and __hi: */\
 		__lo.d0 = __w0; __lo.d1 = __w1; __lo.d2 = __w2; __hi.d0 = __w3;	__hi.d1 = __w4;	__hi.d2 = __w5;\
     }
+
+  #elif(!defined(YES_ASM))	// Standard-C version #2:
+
+    #define SQR_LOHI192(__x, __lo, __hi)\
+    {\
+		uint64 __w0, __w1, __w2, __w3, __w4, __w5, __a,__b,__e,__f,__i,__j;\
+		/* Arrange MUL results in layers, like so: */\
+		/* w5:w4:w3:w2:w1:w0 = x2*x2 | x1*x1 | x0*x0 */\
+		/*    _j:_i:_b:_a    =     x2*x1    x1*x0    */\
+		/*       _f:_e       =         x0*x2         */\
+		/* Evaluate the cross-terms first, then right-shift those 1 place while we compute the w0-w5 terms: */\
+		MUL_LOHI64(__x.d0,__x.d1, __a , __b );	/*   x0*x1 */\
+		MUL_LOHI64(__x.d0,__x.d2, __e , __f );	/*   x0*x2 */\
+		MUL_LOHI64(__x.d1,__x.d2, __i , __j );	/*   x1*x2 */\
+		/* Add last pair (bottom layer) cross terms: */\
+		__b += __e;	__i += __f + (__b < __e);	/* f is a UMULH output, so f + CY cannot overflow */\
+		__hi.d2 = ((int64)__j < 0);\
+		/* Interleave left-shift of the 4-word result with squaring MULs: */\
+		/*** I wish I could say that interleaving the MULs and ALU stuff gives a speedup, but on x86_64 I get same speed if I do */\
+		/* all the MULs right at the start ... likely the microcode engine ends up giving similarly runtime-restructured code. ***/\
+		SQR_LOHI64(__x.d0,        __w0, __w1);	__lo.d0 = __w0;	/*   x0^2  */\
+		__j = (__j << 1) + ((int64)__i < 0);\
+		__i = (__i << 1) + ((int64)__b < 0);\
+		SQR_LOHI64(__x.d1,        __w2, __w3);	/*   x1^2  */\
+		__b = (__b << 1) + ((int64)__a < 0);\
+		__a = (__a << 1);\
+		SQR_LOHI64(__x.d2,        __w4, __w5);	/*   x2^2  */\
+		/* Final add/carry step: */\
+		__w1 += __a;\
+		__w2 += __b + (__w1 < __a);	__lo.d1 = __w1;\
+		__w3 += __i + (__w2 < __b);	__lo.d2 = __w2;\
+		__w4 += __j + (__w3 < __i);	__hi.d0 = __w3;\
+	__hi.d2 += __w5 + (__w4 < __j);	__hi.d1 = __w4;\
+		/* Result now split between __lo and __hi. Cost: 15 ADD, 4 SHL, 9 CMP, versus original-arrangement */\
+		/* cost of 25 ADD, 13 CMP. On x86_64 get ~6% overall savings (i.e. this routine probably ~20% faster) */\
+    }
+
+  #elif 1	// x86_64 ASM version (non-SSE):
+
+	/* x86_64 ASM implementation of the 192-bit SQR_LOHI macros: */
+    #define SQR_LOHI192(__x, __lo, __hi)\
+    {\
+	__asm__ volatile (\
+		/* Evaluate the cross-terms first, then right-shift those 1 place while we compute the w0-w5 terms: */\
+	"movq	%[__x0],%%rax	\n\t	mulq	%[__x1]	\n\t	movq	%%rax,%%r11	\n\t	movq	%%rdx,%%r12	\n\t"/* _a:_b = x0*x1 */\
+	"movq	%[__x0],%%rax	\n\t	mulq	%[__x2]	\n\t	movq	%%rax,%%rdi	\n\t	movq	%%rdx,%%r13	\n\t"/* _e:_f = x0*x2 */\
+	"movq	%[__x1],%%rax	\n\t	mulq	%[__x2]	\n\t		movq %%rdx,%%r14  \n\t	movq	%%rdx,%%r15	\n\t"/* _i:_j = x1*x2; leave _i in rax, make 2 copies of rdx */\
+		/* Add last pair (bottom layer) cross terms: */\
+		"addq	%%rdi,%%r12		\n\t"/* _b += _e */\
+		"adcq	%%rax,%%r13		\n\t"/*	_i += _f + (_b < _e); _f is a UMULH output, so f + CY cannot overflow */\
+		"shrq	$63,%%r15		\n\t"/* _w5 = (_j >> 63) */\
+		/* Interleave left-shift of the 4-word result with squaring MULs: */\
+	"movq	%[__x0],%%rax	\n\t	mulq	%%rax	\n\t	movq	%%rax,%[__lo0] \n\t	movq	%%rdx,%%r10	\n\t"/* w0:w1 = x0^2 */\
+		"shldq	$1,%%r13,%%r14	\n\t"/* _j = (_j << 1) + ((int64)_i < 0) */\
+		"shldq	$1,%%r12,%%r13	\n\t"/* _i = (_i << 1) + ((int64)_b < 0) */\
+	"movq	%[__x1],%%rax	\n\t	mulq	%%rax	\n\t	movq	%%rax,%%rbx	\n\t	movq	%%rdx,%%rdi	\n\t"/* w2:w3 = x1^2 */\
+		"shldq	$1,%%r11,%%r12	\n\t"/* _b = (_b << 1) + ((int64)_a < 0) */\
+		"shlq	$1      ,%%r11	\n\t"/* _a = (_a << 1) */\
+	"movq	%[__x2],%%rax	\n\t	mulq	%%rax	\n\t"/* w4:rdx = x2^2; rdx will get added to w5 below */\
+		"addq	%%r10,%%r11		\n\t"/* _w1 += _a */\
+		"adcq	%%rbx,%%r12		\n\t	movq	%%r11,%[__lo1] \n\t"/*	_w2 += _b +  (_w1 < _a);	_lo.d1 = _w1 */\
+		"adcq	%%rdi,%%r13		\n\t	movq	%%r12,%[__lo2] \n\t"/*	_w3 += _i +  (_w2 < _b);	_lo.d2 = _w2 */\
+		"adcq	%%rax,%%r14		\n\t	movq	%%r13,%[__hi0] \n\t"/*	_w4 += _j +  (_w3 < _i);	_hi.d0 = _w3 */\
+		"adcq	%%rdx,%%r15		\n\t	movq	%%r14,%[__hi1] \n\t"/*	_w5 += rdx + (_w4 < _j);	_hi.d1 = _w4 */\
+	"movq	%%r15,%[__hi2]	\n\t"/* _hi.d2 = _w5 */\
+		: [__lo0] "=m" (__lo.d0)	/* This macro would only compile clean with outputs like so ...  "g" form below gives "hi.d0-2 uninitialized" warnings */\
+		 ,[__lo1] "=m" (__lo.d1)	\
+		 ,[__lo2] "=m" (__lo.d2)	\
+		 ,[__hi0] "=m" (__hi.d0)	\
+		 ,[__hi1] "=m" (__hi.d1)	\
+		 ,[__hi2] "=m" (__hi.d2)	\
+		: [__x0] "g" (__x.d0)	/* Inputs from memory/register here */\
+		 ,[__x1] "g" (__x.d1)	\
+		 ,[__x2] "g" (__x.d2)	\
+		: "cc","memory","rax","rbx","rdx","rdi","r10","r11","r12","r13","r14","r15"	/* Clobbered registers [all but rcx] */\
+	);\
+	}
+
+	/*
+	To-Do: Try combining scalar MUL and SSE packed-quadword ADD/CMP:
+	P[ADD|SUB]Q
+	PCMP[EQ|GT]Q - Note only == and > supported, others must be synthesized from these. True = 0xffff...ffff --> subtract-to-carry
+	PUNPCK[H|L]QDQ
+	UNPCK[H|L]PD — Redundant Unpack, formally defined for doubles
+	*/
+
+  #endif	// YES_ASM
 
   #if 0
     /* 4-operand-pipelined version: */
@@ -6211,16 +6545,16 @@ On Alpha, this needs a total of 12 MUL instructions and 42 ALU ops.
 		__wC3 += __e3;	__cyD3 += (__wC3 < __e3);	__wD3 += __f3;	__cyE3  = (__wD3 < __f3);	__wC3 += __e3;	__cyD3 += (__wC3 < __e3);	__wD3 += __f3;	__cyE3 += (__wD3 < __f3);\
 		\
 		/* Add x1*y2 twice to w2-5: */\
-		__wD0 += __i0;	__cyE0 += (__wD0 < __i0);	__wE0 += __j0;	__cyF0  = (__wE0 < __j0);	__wD0 += __i0;	__cyE += (__wD0 < __i0);	__wE0 += __j0;	__cyF0 += (__wE0 < __j0);\
-		__wD1 += __i1;	__cyE1 += (__wD1 < __i1);	__wE1 += __j1;	__cyF1  = (__wE1 < __j1);	__wD1 += __i1;	__cyE += (__wD1 < __i1);	__wE1 += __j1;	__cyF1 += (__wE1 < __j1);\
-		__wD2 += __i2;	__cyE2 += (__wD2 < __i2);	__wE2 += __j2;	__cyF2  = (__wE2 < __j2);	__wD2 += __i2;	__cyE += (__wD2 < __i2);	__wE2 += __j2;	__cyF2 += (__wE2 < __j2);\
-		__wD3 += __i3;	__cyE3 += (__wD3 < __i3);	__wE3 += __j3;	__cyF3  = (__wE3 < __j3);	__wD3 += __i3;	__cyE += (__wD3 < __i3);	__wE3 += __j3;	__cyF3 += (__wE3 < __j3);\
+		__wD0 += __i0;	__cyE0 += (__wD0 < __i0);	__wE0 += __j0;	__cyF0  = (__wE0 < __j0);	__wD0 += __i0;	__cyE0 += (__wD0 < __i0);	__wE0 += __j0;	__cyF0 += (__wE0 < __j0);\
+		__wD1 += __i1;	__cyE1 += (__wD1 < __i1);	__wE1 += __j1;	__cyF1  = (__wE1 < __j1);	__wD1 += __i1;	__cyE1 += (__wD1 < __i1);	__wE1 += __j1;	__cyF1 += (__wE1 < __j1);\
+		__wD2 += __i2;	__cyE2 += (__wD2 < __i2);	__wE2 += __j2;	__cyF2  = (__wE2 < __j2);	__wD2 += __i2;	__cyE2 += (__wD2 < __i2);	__wE2 += __j2;	__cyF2 += (__wE2 < __j2);\
+		__wD3 += __i3;	__cyE3 += (__wD3 < __i3);	__wE3 += __j3;	__cyF3  = (__wE3 < __j3);	__wD3 += __i3;	__cyE3 += (__wD3 < __i3);	__wE3 += __j3;	__cyF3 += (__wE3 < __j3);\
 		\
 		/* Now process carries: */\
-		__wC0 += __cyC0;	__cyD0 += (__wC0 < __cyC0);	__wD0 += __cyD;	__cyE0 += (__wD0 < __cyD0);	__wE0 += __cyE0;	__cyF0 += (__wE0 < __cyE0);	__wF0 += __cyF0;\
-		__wC1 += __cyC1;	__cyD1 += (__wC1 < __cyC1);	__wD1 += __cyD;	__cyE1 += (__wD1 < __cyD1);	__wE1 += __cyE1;	__cyF1 += (__wE1 < __cyE1);	__wF1 += __cyF1;\
-		__wC2 += __cyC2;	__cyD2 += (__wC2 < __cyC2);	__wD2 += __cyD;	__cyE2 += (__wD2 < __cyD2);	__wE2 += __cyE2;	__cyF2 += (__wE2 < __cyE2);	__wF2 += __cyF2;\
-		__wC3 += __cyC3;	__cyD3 += (__wC3 < __cyC3);	__wD3 += __cyD;	__cyE3 += (__wD3 < __cyD3);	__wE3 += __cyE3;	__cyF3 += (__wE3 < __cyE3);	__wF3 += __cyF3;\
+		__wC0 += __cyC0;	__cyD0 += (__wC0 < __cyC0);	__wD0 += __cyD0;	__cyE0 += (__wD0 < __cyD0);	__wE0 += __cyE0;	__cyF0 += (__wE0 < __cyE0);	__wF0 += __cyF0;\
+		__wC1 += __cyC1;	__cyD1 += (__wC1 < __cyC1);	__wD1 += __cyD1;	__cyE1 += (__wD1 < __cyD1);	__wE1 += __cyE1;	__cyF1 += (__wE1 < __cyE1);	__wF1 += __cyF1;\
+		__wC2 += __cyC2;	__cyD2 += (__wC2 < __cyC2);	__wD2 += __cyD2;	__cyE2 += (__wD2 < __cyD2);	__wE2 += __cyE2;	__cyF2 += (__wE2 < __cyE2);	__wF2 += __cyF2;\
+		__wC3 += __cyC3;	__cyD3 += (__wC3 < __cyC3);	__wD3 += __cyD3;	__cyE3 += (__wD3 < __cyD3);	__wE3 += __cyE3;	__cyF3 += (__wE3 < __cyE3);	__wF3 += __cyF3;\
 		\
 		/* Now split the result between __lo and __hi: */\
 		__lo0.d0 = __wA0; __lo0.d1 = __wB0; __lo0.d2 = __wC0; __hi0.d0 = __wD0;	__hi0.d1 = __wE0;	__hi0.d2 = __wF0;\
@@ -6368,24 +6702,24 @@ On Alpha, this needs a total of 12 MUL instructions and 42 ALU ops.
 		__wC7 += __e7;	__cyD7 += (__wC7 < __e7);	__wD7 += __f7;	__cyE7  = (__wD7 < __f7);	__wC7 += __e7;	__cyD7 += (__wC7 < __e7);	__wD7 += __f7;	__cyE7 += (__wD7 < __f7);\
 		\
 		/* Add x1*y2 twice to w3-5: */\
-		__wD0 += __i0;	__cyE0 += (__wD0 < __i0);	__wE0 += __j0;	__cyF0  = (__wE0 < __j0);	__wD0 += __i0;	__cyE += (__wD0 < __i0);	__wE0 += __j0;	__cyF0 += (__wE0 < __j0);\
-		__wD1 += __i1;	__cyE1 += (__wD1 < __i1);	__wE1 += __j1;	__cyF1  = (__wE1 < __j1);	__wD1 += __i1;	__cyE += (__wD1 < __i1);	__wE1 += __j1;	__cyF1 += (__wE1 < __j1);\
-		__wD2 += __i2;	__cyE2 += (__wD2 < __i2);	__wE2 += __j2;	__cyF2  = (__wE2 < __j2);	__wD2 += __i2;	__cyE += (__wD2 < __i2);	__wE2 += __j2;	__cyF2 += (__wE2 < __j2);\
-		__wD3 += __i3;	__cyE3 += (__wD3 < __i3);	__wE3 += __j3;	__cyF3  = (__wE3 < __j3);	__wD3 += __i3;	__cyE += (__wD3 < __i3);	__wE3 += __j3;	__cyF3 += (__wE3 < __j3);\
-		__wD4 += __i4;	__cyE4 += (__wD4 < __i4);	__wE4 += __j4;	__cyF4  = (__wE4 < __j4);	__wD4 += __i4;	__cyE += (__wD4 < __i4);	__wE4 += __j4;	__cyF4 += (__wE4 < __j4);\
-		__wD5 += __i5;	__cyE5 += (__wD5 < __i5);	__wE5 += __j5;	__cyF5  = (__wE5 < __j5);	__wD5 += __i5;	__cyE += (__wD5 < __i5);	__wE5 += __j5;	__cyF5 += (__wE5 < __j5);\
-		__wD6 += __i6;	__cyE6 += (__wD6 < __i6);	__wE6 += __j6;	__cyF6  = (__wE6 < __j6);	__wD6 += __i6;	__cyE += (__wD6 < __i6);	__wE6 += __j6;	__cyF6 += (__wE6 < __j6);\
-		__wD7 += __i7;	__cyE7 += (__wD7 < __i7);	__wE7 += __j7;	__cyF7  = (__wE7 < __j7);	__wD7 += __i7;	__cyE += (__wD7 < __i7);	__wE7 += __j7;	__cyF7 += (__wE7 < __j7);\
+		__wD0 += __i0;	__cyE0 += (__wD0 < __i0);	__wE0 += __j0;	__cyF0  = (__wE0 < __j0);	__wD0 += __i0;	__cyE0 += (__wD0 < __i0);	__wE0 += __j0;	__cyF0 += (__wE0 < __j0);\
+		__wD1 += __i1;	__cyE1 += (__wD1 < __i1);	__wE1 += __j1;	__cyF1  = (__wE1 < __j1);	__wD1 += __i1;	__cyE1 += (__wD1 < __i1);	__wE1 += __j1;	__cyF1 += (__wE1 < __j1);\
+		__wD2 += __i2;	__cyE2 += (__wD2 < __i2);	__wE2 += __j2;	__cyF2  = (__wE2 < __j2);	__wD2 += __i2;	__cyE2 += (__wD2 < __i2);	__wE2 += __j2;	__cyF2 += (__wE2 < __j2);\
+		__wD3 += __i3;	__cyE3 += (__wD3 < __i3);	__wE3 += __j3;	__cyF3  = (__wE3 < __j3);	__wD3 += __i3;	__cyE3 += (__wD3 < __i3);	__wE3 += __j3;	__cyF3 += (__wE3 < __j3);\
+		__wD4 += __i4;	__cyE4 += (__wD4 < __i4);	__wE4 += __j4;	__cyF4  = (__wE4 < __j4);	__wD4 += __i4;	__cyE4 += (__wD4 < __i4);	__wE4 += __j4;	__cyF4 += (__wE4 < __j4);\
+		__wD5 += __i5;	__cyE5 += (__wD5 < __i5);	__wE5 += __j5;	__cyF5  = (__wE5 < __j5);	__wD5 += __i5;	__cyE5 += (__wD5 < __i5);	__wE5 += __j5;	__cyF5 += (__wE5 < __j5);\
+		__wD6 += __i6;	__cyE6 += (__wD6 < __i6);	__wE6 += __j6;	__cyF6  = (__wE6 < __j6);	__wD6 += __i6;	__cyE6 += (__wD6 < __i6);	__wE6 += __j6;	__cyF6 += (__wE6 < __j6);\
+		__wD7 += __i7;	__cyE7 += (__wD7 < __i7);	__wE7 += __j7;	__cyF7  = (__wE7 < __j7);	__wD7 += __i7;	__cyE7 += (__wD7 < __i7);	__wE7 += __j7;	__cyF7 += (__wE7 < __j7);\
 		\
 		/* Now process carries: */\
-		__wC0 += __cyC0;	__cyD0 += (__wC0 < __cyC0);	__wD0 += __cyD;	__cyE0 += (__wD0 < __cyD0);	__wE0 += __cyE0;	__cyF0 += (__wE0 < __cyE0);	__wF0 += __cyF0;\
-		__wC1 += __cyC1;	__cyD1 += (__wC1 < __cyC1);	__wD1 += __cyD;	__cyE1 += (__wD1 < __cyD1);	__wE1 += __cyE1;	__cyF1 += (__wE1 < __cyE1);	__wF1 += __cyF1;\
-		__wC2 += __cyC2;	__cyD2 += (__wC2 < __cyC2);	__wD2 += __cyD;	__cyE2 += (__wD2 < __cyD2);	__wE2 += __cyE2;	__cyF2 += (__wE2 < __cyE2);	__wF2 += __cyF2;\
-		__wC3 += __cyC3;	__cyD3 += (__wC3 < __cyC3);	__wD3 += __cyD;	__cyE3 += (__wD3 < __cyD3);	__wE3 += __cyE3;	__cyF3 += (__wE3 < __cyE3);	__wF3 += __cyF3;\
-		__wC4 += __cyC4;	__cyD4 += (__wC4 < __cyC4);	__wD4 += __cyD;	__cyE4 += (__wD4 < __cyD4);	__wE4 += __cyE4;	__cyF4 += (__wE4 < __cyE4);	__wF4 += __cyF4;\
-		__wC5 += __cyC5;	__cyD5 += (__wC5 < __cyC5);	__wD5 += __cyD;	__cyE5 += (__wD5 < __cyD5);	__wE5 += __cyE5;	__cyF5 += (__wE5 < __cyE5);	__wF5 += __cyF5;\
-		__wC6 += __cyC6;	__cyD6 += (__wC6 < __cyC6);	__wD6 += __cyD;	__cyE6 += (__wD6 < __cyD6);	__wE6 += __cyE6;	__cyF6 += (__wE6 < __cyE6);	__wF6 += __cyF6;\
-		__wC7 += __cyC7;	__cyD7 += (__wC7 < __cyC7);	__wD7 += __cyD;	__cyE7 += (__wD7 < __cyD7);	__wE7 += __cyE7;	__cyF7 += (__wE7 < __cyE7);	__wF7 += __cyF7;\
+		__wC0 += __cyC0;	__cyD0 += (__wC0 < __cyC0);	__wD0 += __cyD0;	__cyE0 += (__wD0 < __cyD0);	__wE0 += __cyE0;	__cyF0 += (__wE0 < __cyE0);	__wF0 += __cyF0;\
+		__wC1 += __cyC1;	__cyD1 += (__wC1 < __cyC1);	__wD1 += __cyD1;	__cyE1 += (__wD1 < __cyD1);	__wE1 += __cyE1;	__cyF1 += (__wE1 < __cyE1);	__wF1 += __cyF1;\
+		__wC2 += __cyC2;	__cyD2 += (__wC2 < __cyC2);	__wD2 += __cyD2;	__cyE2 += (__wD2 < __cyD2);	__wE2 += __cyE2;	__cyF2 += (__wE2 < __cyE2);	__wF2 += __cyF2;\
+		__wC3 += __cyC3;	__cyD3 += (__wC3 < __cyC3);	__wD3 += __cyD3;	__cyE3 += (__wD3 < __cyD3);	__wE3 += __cyE3;	__cyF3 += (__wE3 < __cyE3);	__wF3 += __cyF3;\
+		__wC4 += __cyC4;	__cyD4 += (__wC4 < __cyC4);	__wD4 += __cyD4;	__cyE4 += (__wD4 < __cyD4);	__wE4 += __cyE4;	__cyF4 += (__wE4 < __cyE4);	__wF4 += __cyF4;\
+		__wC5 += __cyC5;	__cyD5 += (__wC5 < __cyC5);	__wD5 += __cyD5;	__cyE5 += (__wD5 < __cyD5);	__wE5 += __cyE5;	__cyF5 += (__wE5 < __cyE5);	__wF5 += __cyF5;\
+		__wC6 += __cyC6;	__cyD6 += (__wC6 < __cyC6);	__wD6 += __cyD6;	__cyE6 += (__wD6 < __cyD6);	__wE6 += __cyE6;	__cyF6 += (__wE6 < __cyE6);	__wF6 += __cyF6;\
+		__wC7 += __cyC7;	__cyD7 += (__wC7 < __cyC7);	__wD7 += __cyD7;	__cyE7 += (__wD7 < __cyD7);	__wE7 += __cyE7;	__cyF7 += (__wE7 < __cyE7);	__wF7 += __cyF7;\
 		\
 		/* Now split the result between __lo and __hi: */\
 		__lo0.d0 = __wA0; __lo0.d1 = __wB0; __lo0.d2 = __wC0; __hi0.d0 = __wD0;	__hi0.d1 = __wE0;	__hi0.d2 = __wF0;\
@@ -6489,36 +6823,61 @@ On Alpha, this needs a total of  9 MUL instructions and 10 ALU ops.
 
 #else
 
+  #if defined(YES_ASM)
+
+	/* x86_64 ASM implementation of the 192-bit MUL macros: */
+    #define MULL192(__x, __y, __lo)\
+    {\
+	__asm__ volatile (\
+	"movq	%[__x0],%%rax	\n\t	mulq	%[__y0]	\n\t	movq	%%rax,%%r10	\n\t	movq	%%rdx,%%r11	\n\t"/* w0:w1 = x0*y0\ */\
+	"movq	%[__x1],%%r12	\n\t	imulq	%[__y1],%%r12	\n\t"/* w2 = (x1*y1).lo */\
+	"movq	%[__x0],%%rax	\n\t	mulq	%[__y1]	\n\t"/* _a:_b = x0*y1 */\
+		"addq	%%rax,%%r11		\n\t"/* __w1 += __a */\
+		"adcq	%%rdx,%%r12		\n\t"/* __w2 += __b + (__w1 < __a) */\
+	"movq	%[__x1],%%rax	\n\t	mulq	%[__y0]	\n\t"/* _c:_d = x1*y0 */\
+		"addq	%%rax,%%r11		\n\t"/* __w1 += __c */\
+		"adcq	%%rdx,%%r12		\n\t"/* __w2 += __d + (__w1 < __c) */\
+	"movq	%%r11,%[__lo1]	\n\t"/* __lo.d1 = __w1 */\
+	"movq	%[__x0],%%rdi	\n\t	imulq	%[__y2],%%rdi	\n\t"/* _e = (x0*y2).lo */\
+		"addq	%%rdi,%%r12		\n\t"/* __w2 += __e */\
+	"movq	%[__x2],%%rdi	\n\t	imulq	%[__y0],%%rdi	\n\t"/* _g = (x2*y0).lo */\
+		"addq	%%rdi,%%r12		\n\t"/* __w2 += __g */\
+	"movq	%%r10,%[__lo0]	\n\t"/* __lo.d0 = __w0; must wait until end because MULL designed for in-place capability, i.e. lo0 may overlap x0 or y0 */\
+	"movq	%%r12,%[__lo2]	\n\t"/* __lo.d2 = __w2 */\
+		: [__lo0] "=m" (__lo.d0)	/* Outputs are 3 low words of 6-word product */\
+		 ,[__lo1] "=m" (__lo.d1)	\
+		 ,[__lo2] "=m" (__lo.d2)	\
+		: [__x0] "m" (__x.d0)	/* Inputs from memory/register here */\
+		 ,[__x1] "m" (__x.d1)	\
+		 ,[__x2] "m" (__x.d2)	\
+		 ,[__y0] "m" (__y.d0)	\
+		 ,[__y1] "m" (__y.d1)	\
+		 ,[__y2] "m" (__y.d2)	\
+		: "cc","memory","rax","rdx","rdi","r10","r11","r12"	/* Clobbered registers [all but rcx,rsi,r8-9,r13-15] */\
+	);\
+	}
+
+  #else
+
     #define MULL192(__x, __y, __lo)\
     {\
 		uint64 __w0,__w1,__w2,__a,__b,__c,__d,__e,__g;\
 		\
-		MUL_LOHI64(__x.d0,__y.d0, __w0, __w1);	/*   x0*y0 */\
+		MUL_LOHI64(__x.d0,__y.d0, __w0, __w1);	/*   x0*y0 - Use a tmp for low output word to allow in-placeness */\
 		__w2 =   __x.d1*__y.d1            ;	/*   x1*y1 */\
-		\
 		MUL_LOHI64(__x.d0,__y.d1, __a , __b );	/*   x0*y1 */\
 		MUL_LOHI64(__x.d1,__y.d0, __c , __d );	/*   x1*y0 */\
-		\
 		__e  =   __x.d0*__y.d2            ;	/*   x0*y2 */\
 		__g  =   __x.d2*__y.d0            ;	/*   x2*y0 */\
-		\
-		/* Now add cross terms: */\
-		/* Add x0*y1 to w1-3: */\
-		__w1 += __a;	__w2 += (__w1 < __a);\
-		__w2 += __b;\
-		\
-		/* Add x1*y0 to w1-3: */\
-		__w1 += __c;	__w2 += (__w1 < __c);\
-		__w2 += __d;\
-		\
-		/* Add x0*y2 to w2-4: */\
-		__w2 += __e;\
-		\
-		/* Add x2*y0 to w2-4: */\
-		__w2 += __g;\
-		\
-		__lo.d0 = __w0; __lo.d1 = __w1; __lo.d2 = __w2;\
+		/* Add x0*y1 to w1-2: */\
+		__w1 += __a;	__w2 += (__w1 < __a) + __b;	/* Add CY + __b directly into w2 since __b is a UMULH output, i.e. (CY + __b) < 2^64 */\
+		/* Add x1*y0 to w1-2: */\
+		__w1 += __c;	__w2 += (__w1 < __c) + __d;\
+		/* Add mull(x0,y2) + mull(x2,y0)to w2: */\
+		__lo.d0 = __w0; __lo.d1 = __w1; __lo.d2 = __w2 + __e + __g;\
     }
+
+  #endif // YES_ASM
 
     /* 4-operand-pipelined version: */
     #define MULL192_q4(\
@@ -6587,11 +6946,11 @@ On Alpha, this needs a total of:
 	                     from the lower-order terms. (Savings probably not worth it).
 
 ! 01/23/2004: I thought I would generally be able to neglect all the w0 and w1 terms,
-! but I almost immediately ran into the following case: which occurs while checking
-! the known factor of M1283:
+! but I almost immediately ran into the following case: which occurs during the mod-inverse
+! computation preceding the modpow loop used in checking the known factor of M1283:
 !
-! X =                   14*2^128 +  3291757557782450881*2^64 +  3893270457587058239
-! Y = 14334090244500356821*2^128 + 14839649155872891980*2^64 + 12743646208794279936 .
+! X =                  14*2^128 +  3291757557782450881*2^64 +  3893270457587058239
+! Y = 2610710867498977111*2^128 + 18111005741868530922*2^64 + 10462639744819210687 .
 !
 ! This occurs during the following sequence just prior to entering the for-loop:
 !
@@ -6605,14 +6964,49 @@ On Alpha, this needs a total of:
 ! i.e. all zeros in the current word, with a carry into the next-higher word. We thus need to be
 ! really careful in calculating carries - can't take shortcuts and ignore the w0 and w1 outputs.
 ! For the above example, if neglect w0 and w1, wind up with w2 = 18446744073709551615 = 2^64 - 1
-! and w3 = 2846153632803221901, rather than the true w2 = 0 and w3 = 2846153632803221902.
+! and carry into the upper half = 1, rather than the true w2 = 0 and carry = 2.
+
+n = 147
+n++; p = 2^n-1; for (i = 1, 1000, if (isprime(p+2*i), print(p+2*i)))
+
+./Mfactor -kmax 1000000 -m 
+
+lg p	p											factor k	pass
+----	----------------------------------------	--------	----
+128			 340282366920938463463374607431768211841	       4	1
+129			 680564733841876926926749214863536422987	 6555772	13
+130			1361129467683753853853498429727072846803	       1	0
+131			2722258935367507707706996859454145692553	    1767	7
+132			5444517870735015415413993718908291383419	     297	14
+133		   10889035741470030830827987437816582767771	420,9904	15,1
+134		   21778071482940061661655974875633165533913	      47	11
+135		   43556142965880123323311949751266331067181	       4	1
+136		   87112285931760246646623899502532662134269	 2657592	1
+137		  174224571863520493293247799005065324267283	 1172021	9
+138		  348449143727040986586495598010130648531089	  255904	0
+139		  696898287454081973172991196020261297062043	 2901633	7
+140		 1393796574908163946345982392040522594124799	 2532965	0
+141		 2787593149816327892691964784081045188248599	  124200	15
+142		 5575186299632655785383929568162090376498137	       3	0
+143		11150372599265311570767859136324180752990493	52567,31275	1,3
+144		22300745198530623141535718272648361505982037	   24063	0
+145		44601490397061246283071436545296723011960969	     440	3
+146		89202980794122492566142873090593446023922217	      39	9
+147	   178405961588244985132285746181186892047844053	       3	0
+
 !
-! However, this kind of thing is only likely to happen in the one q*(qinv << shift) multiply
-! that we do just prior to entering the modmul-based powering loop. So we could define two
-! versions of the MULH routine: an exact one which will be used only for the initial mul,
-! and one which approximates the (presumably quasirandom) lower bits of the mul so as to get
-! the proper carry into the upper half with very high probability, which we use everywhere else.
-! ****TODO???****
+! However, this kind of thing is only likely to happen in the mod-inverse computation and the
+! q*(qinv << shift) multiply that we do just prior to entering the modmul-based powering loop, to save
+! one full-cost modmul. So we define two versions of the MULH routine: an exact one which will be used
+! only for the initial mul, and one which approximates the (presumably quasirandom) lower bits of the mul
+! so as to get the proper carry into the upper half with very high probability, which we use everywhere else.
+! **** The fast variant should only ever be used with spot-checking enabled *****
+
+08/13/2012: Addendum: In the context of the Montgomery-mul mod-inverse computation we know the
+low-half product terms should sum to unity, that is, the above w2 "carry layer" terms, if computed
+exactly with carryins from the lower-order products, should sum to 0 (mod 2^64). Thus since the
+truncated-carry-layer approximation gives w2 = 2^64 -1, we know that we missed a carry here, and
+simply add 1 to the approximate-computed carry to obtain the correct result.
 */
 #ifdef MUL_LOHI64_SUBROUTINE
 
@@ -6669,38 +7063,100 @@ On Alpha, this needs a total of:
 		__hi.d0 = __w3;	__hi.d1 = __w4;	__hi.d2 = __w5;\
     }
 
-    /* 4-operand-pipelined version: */
-    #define MULH192_q4(\
-      __x0, __y0, __hi0\
-    , __x1, __y1, __hi1\
-    , __x2, __y2, __hi2\
-    , __x3, __y3, __hi3)\
-    {\
-    	MULH192(__x0, __y0, __hi0);\
-    	MULH192(__x1, __y1, __hi1);\
-    	MULH192(__x2, __y2, __hi2);\
-    	MULH192(__x3, __y3, __hi3);\
-	}
+  #if 0
 
-    /* 8-operand-pipelined version: */
-    #define MULH192_q8(\
-      __x0, __y0, __hi0\
-    , __x1, __y1, __hi1\
-    , __x2, __y2, __hi2\
-    , __x3, __y3, __hi3\
-    , __x4, __y4, __hi4\
-    , __x5, __y5, __hi5\
-    , __x6, __y6, __hi6\
-    , __x7, __y7, __hi7)\
+    #define MULH192_FAST(__x, __y, __hi)	MULH192(__x, __y, __hi)\
+
+  #elif defined(YES_ASM)
+
+    #define MULH192_FAST(__x, __y, __hi)\
     {\
-    	MULH192(__x0, __y0, __hi0);\
-    	MULH192(__x1, __y1, __hi1);\
-    	MULH192(__x2, __y2, __hi2);\
-    	MULH192(__x3, __y3, __hi3);\
-    	MULH192(__x4, __y4, __hi4);\
-    	MULH192(__x5, __y5, __hi5);\
-    	MULH192(__x6, __y6, __hi6);\
-    	MULH192(__x7, __y7, __hi7);\
+		uint64 __w2,__w3, __w4, __w5,__cy3,__cy4,__cy5,__bd_lo,__e,__f,__g,__h,__i,__j,__k,__l;\
+		double __fprod, __scale = TWO64FLINV*TWO64FLINV;\
+		\
+		/* Compute (x0*y1 + x1*y0)>>64 via floating-double approximation: */\
+		__fprod = ((double)__x.d0*(double)__y.d1 + (double)__y.d0*(double)__x.d1)*__scale;\
+		MUL_LOHI64(__x.d1,__y.d1,&__w2,&__w3);	/*   x1*y1 */\
+		__cy3 = (uint64)__fprod;	/* Contribution to __cy3 of the above floating-point-approximated terms */\
+		__fprod = (__fprod - (double)__cy3)*TWO64FLOAT;	/*** To-Do: Speed these float <--> int conversions ***/\
+		__bd_lo = (uint64)__fprod;\
+		/* Now start adding cross terms: */\
+		__w2 += __bd_lo;__cy3 += (__w2 < __bd_lo);\
+		MUL_LOHI64(__x.d0,__y.d2,&__e ,&__f );	/*   x0*y2 */\
+		__w2 += __e;	__cy3 += (__w2 < __e);\
+		MUL_LOHI64(__x.d2,__y.d0,&__g ,&__h );	/*   x2*y0 */\
+		__w3 += __f;	__cy4  = (__w3 < __f);\
+		MUL_LOHI64(__x.d1,__y.d2,&__i ,&__j );	/*   x1*y2 */\
+		__w2 += __g;	__cy3 += (__w2 < __g);\
+		MUL_LOHI64(__x.d2,__y.d2,&__w4,&__w5);	/*   x2*y2 */\
+		__w3 += __h;	__cy4 += (__w3 < __h);\
+		MUL_LOHI64(__x.d2,__y.d1,&__k ,&__l );	/*   x2*y1 */\
+		__w3 += __i;	__cy4 += (__w3 < __i);\
+		__w4 += __j;	__cy5  = (__w4 < __j);\
+		__w3 += __k;	__cy4 += (__w3 < __k);\
+		__w4 += __l;	__cy5 += (__w4 < __l);\
+		/* Now process last set of carries: */\
+		__w3 += __cy3;	__cy4 += (__w3 < __cy3);\
+		__w4 += __cy4;	__cy5 += (__w4 < __cy4);\
+		__w5 += __cy5;\
+		\
+		__hi.d0 = __w3;	__hi.d1 = __w4;	__hi.d2 = __w5;\
+    }
+
+  #endif
+
+	/* Lower-half-approximated version of carry-approximated MULH192, for use in my bit-doubling fast modular inversion
+	scheme for computing the Montgomery-mul mod-inverse. Here we know the carry out of the low-half terms = 0,
+	so don't even try to compute it, either exactly or approximately. That is, compute the terms of the multiply
+	rhombus, with zero carryin to w2, and caller supplying the expected value of w2 for purpose of error correction:
+
+		w2 = (x0*y1 + x1*y0).hi + (x0*y2 + x1*y1 + x2*y0).lo
+		w3 =                      (x0*y2 + x1*y1 + x2*y0).hi + (x2*y1 + x1*y2).lo
+		w4 =                                                   (x2*y1 + x1*y2).hi + (x2*y2).lo
+		w5 =                                                                      + (x2*y2).hi .
+
+	Use floating-double approximation of the (x0*y1 + x1*y0).hi term; on x86 the (x0*y2 + x1*y1 + x2*y0).lo is essentially
+	free because the MUL instruction needed for exact computation of the .hi halves also produces the low halves, we just
+	need to add those with carry.
+
+	At this length the truncated-rhombus version doesn't save us much work - 2 slow MUL_LOHI64s get replaced by 5 fast FMULs -
+	but is important for proof-of-concept purposes.
+	*/
+    #define MULH192_TRUNC(__x, __y, __w2_exact, __hi)\
+    {\
+		uint64 __w2,__w3, __w4, __w5,__cy3,__cy4,__cy5,__bd_lo,__e,__f,__g,__h,__i,__j,__k,__l;\
+		double __fprod, __scale = TWO64FLINV*TWO64FLINV;\
+		\
+		/* Compute (x0*y1 + x1*y0)>>64 via floating-double approximation: */\
+		__fprod = ((double)__x.d0*(double)__y.d1 + (double)__y.d0*(double)__x.d1)*__scale;\
+		MUL_LOHI64(__x.d1,__y.d1,&__w2,&__w3);	/*   x1*y1 */\
+		__cy3 = (uint64)__fprod;	/* Contribution to __cy3 of the above floating-point-approximated terms */\
+		__fprod = (__fprod - (double)__cy3)*TWO64FLOAT;	/*** To-Do: Speed these float <--> int conversions ***/\
+		__bd_lo = (uint64)__fprod;\
+		/* Now start adding cross terms: */\
+		__w2 += __bd_lo;__cy3 += (__w2 < __bd_lo);\
+		MUL_LOHI64(__x.d0,__y.d2,&__e ,&__f );	/*   x0*y2 */\
+		__w2 += __e;	__cy3 += (__w2 < __e);\
+		MUL_LOHI64(__x.d2,__y.d0,&__g ,&__h );	/*   x2*y0 */\
+		__w3 += __f;	__cy4  = (__w3 < __f);\
+		MUL_LOHI64(__x.d1,__y.d2,&__i ,&__j );	/*   x1*y2 */\
+		__w2 += __g;	__cy3 += (__w2 < __g);\
+	/* If result is close to but < [expected value], know that carry-layer approximation dropped a carry: */\
+	__cy3 += ((int64)(__w2 - __w2_exact) < 0);\
+		\
+		MUL_LOHI64(__x.d2,__y.d2,&__w4,&__w5);	/*   x2*y2 */\
+		__w3 += __h;	__cy4 += (__w3 < __h);\
+		MUL_LOHI64(__x.d2,__y.d1,&__k ,&__l );	/*   x2*y1 */\
+		__w3 += __i;	__cy4 += (__w3 < __i);\
+		__w4 += __j;	__cy5  = (__w4 < __j);\
+		__w3 += __k;	__cy4 += (__w3 < __k);\
+		__w4 += __l;	__cy5 += (__w4 < __l);\
+		/* Now process last set of carries: */\
+		__w3 += __cy3;	__cy4 += (__w3 < __cy3);\
+		__w4 += __cy4;	__cy5 += (__w4 < __cy4);\
+		__w5 += __cy5;\
+		\
+		__hi.d0 = __w3;	__hi.d1 = __w4;	__hi.d2 = __w5;\
 	}
 
 #else
@@ -6757,6 +7213,149 @@ On Alpha, this needs a total of:
 		__hi.d0 = __w3;	__hi.d1 = __w4;	__hi.d2 = __w5;\
     }
 
+  #if 0
+
+    #define MULH192_FAST(__x, __y, __hi)	MULH192(__x, __y, __hi)\
+
+  #elif defined(YES_ASM)
+
+	/* x86_64 ASM implementation of the 192-bit MULH macro: */
+    #define MULH192_FAST(__x, __y, __hi)\
+    {\
+	__asm__ volatile (\
+		"xorq   %%rbx, %%rbx    \n\t"/* Tie rbx = 0 ... the 'b' is for 'bupkus' :) */\
+		"xorq	%%r8 ,%%r8 		\n\t"/* cy3 = 0 */\
+		"xorq	%%r9 ,%%r9 		\n\t"/* cy4 = 0 */\
+		/* Compute (x0*y1 + x1*y0): */\
+	"movq	%[__x0],%%rax	\n\t	mulq	%[__y1]	\n\t	movq	%%rdx,%%rdi	\n\t"/* rdi = MULH64(x0,y1) */\
+	"movq	%[__x1],%%rax	\n\t	mulq	%[__y0]	\n\t	movq	%%rdx,%%rsi	\n\t"/* rsi = MULH64(x1,y0) */\
+		"addq	%%rsi,%%rdi		\n\t"/* bd_lo in rdi */\
+		"adcq	%%rbx,%%r8 		\n\t"/* cy3 = (x0*y1 + x1*y0).hi */\
+	"movq	%[__x1],%%rax	\n\t	mulq	%[__y1]	\n\t	movq	%%rax,%%r12	\n\t	movq	%%rdx,%%r13	\n\t"/* w2:w3 = x1*y1 */\
+		/* Now start adding cross terms: */\
+		"addq	%%rdi,%%r12		\n\t"/* __w2 += __bd_lo */\
+		"adcq	%%rbx,%%r8 		\n\t"/* __cy3 += (__w2 < __bd_lo) */\
+	"movq	%[__x0],%%rax	\n\t	mulq	%[__y2]	\n\t"/* _e:_f = x0*y2 */\
+		"addq	%%rax,%%r12		\n\t"/* __w2 += __e */\
+		"adcq	%%rbx,%%r8 		\n\t"/* __cy3 += (__w2 < __e) */\
+		"addq	%%rdx,%%r13		\n\t"/* __w3 += __f */\
+		"adcq	%%rbx,%%r9 		\n\t"/* __cy4 += (__w3 < __f) */\
+	"movq	%[__x2],%%rax	\n\t	mulq	%[__y0]	\n\t"/* _g:_h = x2*y0 */\
+		"addq	%%rax,%%r12		\n\t"/* __w2 += __g */\
+		"adcq	%%rbx,%%r8 		\n\t"/* __cy3 += (__w2 < __g) */\
+		"addq	%%rdx,%%r13		\n\t"/* __w3 += __h */\
+		"adcq	%%rbx,%%r9 		\n\t"/* __cy4 += (__w3 < __h) */\
+	"movq	%[__x2],%%rax	\n\t	mulq	%[__y2]	\n\t	movq	%%rax,%%r14	\n\t	movq	%%rdx,%%r15	\n\t"/* w4:w5 = x2*y2 */\
+	"movq	%[__x1],%%rax	\n\t	mulq	%[__y2]	\n\t"/* _i:_j = x1*y2 */\
+		"addq	%%rax,%%r13		\n\t"/* __w3 += __i */\
+		"adcq	%%rbx,%%r9 		\n\t"/* __cy4 += (__w3 < __i) */\
+		"addq	%%rdx,%%r14		\n\t"/* __w4 += __j */\
+		"adcq	%%rbx,%%r15		\n\t"/* __cy5 += (__w4 < __j); simply add directly into w5 */\
+	"movq	%[__x2],%%rax	\n\t	mulq	%[__y1]	\n\t"/* _k:_l = x2*y1 */\
+		"addq	%%rax,%%r13		\n\t"/* __w3 += __k */\
+		"adcq	%%rbx,%%r9 		\n\t"/* __cy4 += (__w3 < __k) */\
+		"addq	%%rdx,%%r14		\n\t"/* __w4 += __l */\
+		"adcq	%%rbx,%%r15		\n\t"/* __cy5 += (__w4 < __l); simply add directly into w5 */\
+		/* Now process last set of carries: */\
+		"addq	%%r8 ,%%r13		\n\t"/* __w3 += __cy3 */\
+		"adcq	%%rbx,%%r9 		\n\t"/* __cy4 += (__w3 < __cy3) */\
+		"addq	%%r9 ,%%r14		\n\t"/* __w4 += __cy4 */\
+		"adcq	%%rbx,%%r15		\n\t"/* __cy5 += (__w4 < __cy4); simply add directly into w5 */\
+		\
+		"movq	%%r13,%[__hi0]	\n\t"/* __hi.d0 = __w3 */\
+		"movq	%%r14,%[__hi1]	\n\t"/* __hi.d1 = __w4 */\
+		"movq	%%r15,%[__hi2]	\n\t"/* __hi.d2 = __w5 */\
+		: /* outputs: none */\
+		: [__x0] "g" (__x.d0)	/* All inputs from memory/register here */\
+		 ,[__x1] "g" (__x.d1)	\
+		 ,[__x2] "g" (__x.d2)	\
+		 ,[__y0] "g" (__y.d0)	\
+		 ,[__y1] "g" (__y.d1)	\
+		 ,[__y2] "g" (__y.d2)	\
+		 ,[__hi0] "g" (__hi.d0)	\
+		 ,[__hi1] "g" (__hi.d1)	\
+		 ,[__hi2] "g" (__hi.d2)	\
+		: "cc","memory","rax","rbx","rdx","rdi","rsi","r8","r9","r12","r13","r14","r15"	/* Clobbered registers [all but rcx,rsi,r10,r11] */\
+	);\
+	}
+
+  #else
+
+    #define MULH192_FAST(__x, __y, __hi)\
+    {\
+		uint64 __w2,__w3, __w4, __w5,__cy3,__cy4,__cy5,__bd_lo,__e,__f,__g,__h,__i,__j,__k,__l;\
+		double __fprod, __scale = TWO64FLINV*TWO64FLINV;\
+		\
+		/* Compute (x0*y1 + x1*y0)>>64 via floating-double approximation: */\
+		__fprod = ((double)__x.d0*(double)__y.d1 + (double)__y.d0*(double)__x.d1)*__scale;\
+		MUL_LOHI64(__x.d1,__y.d1, __w2, __w3);	/*   x1*y1 */\
+		__cy3 = (uint64)__fprod;	/* Contribution to __cy3 of the above floating-point-approximated terms */\
+		__fprod = (__fprod - (double)__cy3)*TWO64FLOAT;	/*** To-Do: Speed these float <--> int conversions ***/\
+		__bd_lo = (uint64)__fprod;\
+		/* Now start adding cross terms: */\
+		__w2 += __bd_lo;__cy3 += (__w2 < __bd_lo);\
+		MUL_LOHI64(__x.d0,__y.d2, __e , __f );	/*   x0*y2 */\
+		__w2 += __e;	__cy3 += (__w2 < __e);\
+		MUL_LOHI64(__x.d2,__y.d0, __g , __h );	/*   x2*y0 */\
+		__w3 += __f;	__cy4  = (__w3 < __f);\
+		MUL_LOHI64(__x.d1,__y.d2, __i , __j );	/*   x1*y2 */\
+		__w2 += __g;	__cy3 += (__w2 < __g);\
+		MUL_LOHI64(__x.d2,__y.d2, __w4, __w5);	/*   x2*y2 */\
+		__w3 += __h;	__cy4 += (__w3 < __h);\
+		MUL_LOHI64(__x.d2,__y.d1, __k , __l );	/*   x2*y1 */\
+		__w3 += __i;	__cy4 += (__w3 < __i);\
+		__w4 += __j;	__cy5  = (__w4 < __j);\
+		__w3 += __k;	__cy4 += (__w3 < __k);\
+		__w4 += __l;	__cy5 += (__w4 < __l);\
+		/* Now process last set of carries: */\
+		__w3 += __cy3;	__cy4 += (__w3 < __cy3);\
+		__w4 += __cy4;	__cy5 += (__w4 < __cy4);\
+		__w5 += __cy5;\
+		\
+		__hi.d0 = __w3;	__hi.d1 = __w4;	__hi.d2 = __w5;\
+    }
+
+#endif
+
+    #define MULH192_TRUNC(__x, __y, __w2_exact, __hi)\
+    {\
+		uint64 __w2,__w3, __w4, __w5,__cy3,__cy4,__cy5,__bd_lo,__e,__f,__g,__h,__i,__j,__k,__l;\
+		double __fprod, __scale = TWO64FLINV*TWO64FLINV;\
+		\
+		/* Compute (x0*y1 + x1*y0)>>64 via floating-double approximation: */\
+		__fprod = ((double)__x.d0*(double)__y.d1 + (double)__y.d0*(double)__x.d1)*__scale;\
+		MUL_LOHI64(__x.d1,__y.d1, __w2, __w3);	/*   x1*y1 */\
+		__cy3 = (uint64)__fprod;	/* Contribution to __cy3 of the above floating-point-approximated terms */\
+		__fprod = (__fprod - (double)__cy3)*TWO64FLOAT;	/*** To-Do: Speed these float <--> int conversions ***/\
+		__bd_lo = (uint64)__fprod;\
+		/* Now start adding cross terms: */\
+		__w2 += __bd_lo;__cy3 += (__w2 < __bd_lo);\
+		MUL_LOHI64(__x.d0,__y.d2, __e , __f );	/*   x0*y2 */\
+		__w2 += __e;	__cy3 += (__w2 < __e);\
+		MUL_LOHI64(__x.d2,__y.d0, __g , __h );	/*   x2*y0 */\
+		__w3 += __f;	__cy4  = (__w3 < __f);\
+		MUL_LOHI64(__x.d1,__y.d2, __i , __j );	/*   x1*y2 */\
+		__w2 += __g;	__cy3 += (__w2 < __g);\
+	/* If result is close to but < [expected value], know that carry-layer approximation dropped a carry: */\
+	__cy3 += ((int64)(__w2 - __w2_exact) < 0);\
+		\
+		MUL_LOHI64(__x.d2,__y.d2, __w4, __w5);	/*   x2*y2 */\
+		__w3 += __h;	__cy4 += (__w3 < __h);\
+		MUL_LOHI64(__x.d2,__y.d1, __k , __l );	/*   x2*y1 */\
+		__w3 += __i;	__cy4 += (__w3 < __i);\
+		__w4 += __j;	__cy5  = (__w4 < __j);\
+		__w3 += __k;	__cy4 += (__w3 < __k);\
+		__w4 += __l;	__cy5 += (__w4 < __l);\
+		/* Now process last set of carries: */\
+		__w3 += __cy3;	__cy4 += (__w3 < __cy3);\
+		__w4 += __cy4;	__cy5 += (__w4 < __cy4);\
+		__w5 += __cy5;\
+		\
+		__hi.d0 = __w3;	__hi.d1 = __w4;	__hi.d2 = __w5;\
+    }
+
+#endif
+
     /* 4-operand-pipelined version: */
     #define MULH192_q4(\
       __x0, __y0, __hi0\
@@ -6764,10 +7363,10 @@ On Alpha, this needs a total of:
     , __x2, __y2, __hi2\
     , __x3, __y3, __hi3)\
     {\
-    	MULH192(__x0, __y0, __hi0);\
-    	MULH192(__x1, __y1, __hi1);\
-    	MULH192(__x2, __y2, __hi2);\
-    	MULH192(__x3, __y3, __hi3);\
+    	MULH192_FAST(__x0, __y0, __hi0);\
+    	MULH192_FAST(__x1, __y1, __hi1);\
+    	MULH192_FAST(__x2, __y2, __hi2);\
+    	MULH192_FAST(__x3, __y3, __hi3);\
 	}
 
     /* 8-operand-pipelined version: */
@@ -6781,16 +7380,18 @@ On Alpha, this needs a total of:
     , __x6, __y6, __hi6\
     , __x7, __y7, __hi7)\
     {\
-    	MULH192(__x0, __y0, __hi0);\
-    	MULH192(__x1, __y1, __hi1);\
-    	MULH192(__x2, __y2, __hi2);\
-    	MULH192(__x3, __y3, __hi3);\
-    	MULH192(__x4, __y4, __hi4);\
-    	MULH192(__x5, __y5, __hi5);\
-    	MULH192(__x6, __y6, __hi6);\
-    	MULH192(__x7, __y7, __hi7);\
+    	MULH192_FAST(__x0, __y0, __hi0);\
+    	MULH192_FAST(__x1, __y1, __hi1);\
+    	MULH192_FAST(__x2, __y2, __hi2);\
+    	MULH192_FAST(__x3, __y3, __hi3);\
+    	MULH192_FAST(__x4, __y4, __hi4);\
+    	MULH192_FAST(__x5, __y5, __hi5);\
+    	MULH192_FAST(__x6, __y6, __hi6);\
+    	MULH192_FAST(__x7, __y7, __hi7);\
 	}
 
+#ifdef __cplusplus
+}
 #endif
 
 #endif	/* imul_macro1_h_included */

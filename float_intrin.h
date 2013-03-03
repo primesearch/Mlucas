@@ -68,7 +68,7 @@ For now we prefer to define the following 2 in non-macro form in util.c:
 
 /* Specific include files and/or ASM macros for various platforms: */
 /* PowerPC: */
-#if(defined(CPU_TYPE_PPC))
+#if(defined(CPU_IS_PPC))
 
   #if 0	// ppc_intrinsics.h not currently used in the code - this is test-include code for possible future use only.
 
@@ -151,7 +151,7 @@ For now we prefer to define the following 2 in non-macro form in util.c:
   #endif
 
 /* Itanium: */
-#elif(defined(CPU_TYPE_IA64))
+#elif(defined(CPU_IS_IA64))
 
 	/* Use ASM macros to access the needed hardware functions: */
 	/* double-precision |a| : */

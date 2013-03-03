@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2012 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -20,12 +20,6 @@
 *                                                                              *
 *******************************************************************************/
 
-/*
-Wide integer multiply macros, with ASM fragments to access efficient non-standard-C
-machine instructions wherever feasible. Also includes macros for wide-integer add,
-subtract, < > <= == comparison, and bitwise logical shift.
-*/
-
 /****************************************************************************
  * We now include this header file if it was not included before.
  ****************************************************************************/
@@ -35,11 +29,19 @@ subtract, < > <= == comparison, and bitwise logical shift.
 #include "types.h"
 #include "util.h"
 
+/*
+Wide integer multiply macros, with ASM fragments to access efficient non-standard-C
+machine instructions wherever feasible. Also includes macros for wide-integer add,
+subtract, < > <= == comparison, and bitwise logical shift.
+*/
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #undef	MAX_IMUL_WORDS
 #define MAX_IMUL_WORDS	4	/* Max. # of 64-bit words allowed for multiplicands;
 							   64 x this should match the bit count of the largest MUL macro. */
-
-char char_buf[64];
 
 /*****************************************************/
 /*                    256 x 256                      */
@@ -743,6 +745,10 @@ On Alpha, this needs a total of 32 MUL, 82 ALU ops.
 		MULH256(__x6, __y6, __hi6);\
 		MULH256(__x7, __y7, __hi7);\
 	}
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif	/* imul_macro256_h_included */
 

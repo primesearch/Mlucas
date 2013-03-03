@@ -47,7 +47,7 @@
 In the Fermat-mod negacyclic-DWT carry scheme, real & imaginary parts
 are carried separately due to the right-angle transform:
 */
-#define fermat_carry_norm_pow2_errcheck(x,y,cx,cy,idx_offset)\
+#define fermat_carry_norm_pow2_errcheck(x,y,cx,cy,idx_offset,NRTM1,NRT_BITS)\
 {\
 	/* Multiply the current transform output by any scale factor: */\
 		x *= scale;\
@@ -78,7 +78,7 @@ are carried separately due to the right-angle transform:
 		y = rt*wt_im + it*wt_re;\
 }
 
-#define fermat_carry_norm_pow2_nocheck(x,y,cx,cy,idx_offset)\
+#define fermat_carry_norm_pow2_nocheck(x,y,cx,cy,idx_offset,NRTM1,NRT_BITS)\
 {\
 	/* Multiply the current transform output by any scale factor: */\
 		x *= scale;\
@@ -109,7 +109,7 @@ are carried separately due to the right-angle transform:
 Non-power-of-2 runlengths combine the acyclic sincos weights
 with the Mersenne-mod-style IBDWT roots-of-2 weights:
 */
-#define fermat_carry_norm_errcheck(x,y,cx,cy,ii,bjmodn,idx_offset)\
+#define fermat_carry_norm_errcheck(x,y,cx,cy,ii,bjmodn,idx_offset,NRTM1,NRT_BITS)\
 {\
 	/* For Fermat-mod case, combine inverse weight (same for real and imaginary */\
 	/* parts of the output) with inverse-FFT scale factor: */\
@@ -167,7 +167,7 @@ printf("WARN: frac = %10.8f occurred in Im(a) at j = %10d\n",frac,j);\
 		y *= wt;\
 }
 
-#define fermat_carry_norm_nocheck(x,y,cx,cy,ii,bjmodn,idx_offset)\
+#define fermat_carry_norm_nocheck(x,y,cx,cy,ii,bjmodn,idx_offset,NRTM1,NRT_BITS)\
 {\
 	/* For Fermat-mod case, combine inverse weight (same for real and imaginary */\
 	/* parts of the output) with inverse-FFT scale factor: */\
@@ -207,70 +207,983 @@ bjmodn += ( ((int)i-1) & n);		/*       add 0 if a bigword,   N if a smallword */
 		y *= wt;\
 }
 
-/*************************************************************/
-/**************** MERSENNE-MOD CARRY MACROS ******************/
-/*************************************************************/
+		/*
+		Non-power-of-2 runlengths combine the acyclic sincos weights
+		with the Mersenne-mod-style IBDWT roots-of-2 weights. Compare this sleeker version - which takes advantage of
+		the short-cyclic nature of the Fermat-mod IBDWT weights and bases - with the original non-B one in carry.h:
+		*/
+		#define fermat_carry_norm_errcheckB(x,y,cx,cy,i,idx_offset,NRTM1,NRT_BITS)\
+		{\
+			/* For Fermat-mod case, combine inverse weight (same for real and imaginary */\
+			/* parts of the output) with inverse-FFT scale factor: */\
+				wt    = wt_arr   [i];\
+				wtinv = wtinv_arr[i];\
+				x *= wtinv;\
+				y *= wtinv;\
+			/* Get the needed Nth root of -1: */\
+				l = ((j + idx_offset) >> 1);\
+				k1=(l & NRTM1);\
+				k2=(l >> NRT_BITS);\
+				temp=rn0[k1].re;		wt_im=rn0[k1].im;\
+				rt  =rn1[k2].re;		it   =rn1[k2].im;\
+				wt_re =temp*rt-wt_im*it;wt_im =temp*it+wt_im*rt;\
+			/* Inverse root is (wt_re, -wt_im): */\
+				rt = x*wt_re + y*wt_im + cx;\
+				it = y*wt_re - x*wt_im + cy;\
+				bs    = bs_arr   [i];\
+				bsinv = bsinv_arr[i];\
+				temp = DNINT(rt);\
+				frac = fabs(rt - temp);\
+			if(frac > maxerr) maxerr=frac;\
+				cx = DNINT(temp*bsinv);\
+				rt = temp-cx*bs;\
+				temp = DNINT(it);\
+				frac = fabs(it - temp);\
+			if(frac > maxerr) maxerr=frac;\
+				cy = DNINT(temp*bsinv);\
+				it = temp-cy*bs;\
+			/* Forward root is (wt_re, +wt_im): */\
+				x = rt*wt_re - it*wt_im;\
+				y = rt*wt_im + it*wt_re;\
+			/* Forward IBDWT weight: */\
+				x *= wt;\
+				y *= wt;\
+		}
 
-/* These are versions specialized for power-of-2 runlengths: */
+#define cmplx_carry_norm_pow2_errcheck0(x,y,cy,bjmodn)\
+{\
+		wtA=wt1[col];\
+		wtB=wt1[co2];\
+		wtC=wt1[co3];\
+		wt   =wtl*wtA;\
+		wtinv=wtn*wtB;\
+/*		i =((uint32)(sw - bjmodn) >> 31);Don't want this for set 0. */\
+		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
+		wt   =wt   *one_half[m];\
+		wtinv=wtinv*one_half[m2];\
+		\
+		x = cy+ x*wtinv;\
+		temp = DNINT(x);				check_nint(temp, x);\
+		frac = fabs(x-temp);\
+		if(frac > maxerr) maxerr=frac;\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		x = (temp-cy*base[i])*wt;\
+		\
+	  bjmodn = (bjmodn + bw) & nm1;\
+		\
+		wt   =wtlp1*wtA;\
+		wtinv=wtnm1*wtC;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
+		wt   =wt   *one_half[m];\
+		wtinv=wtinv*one_half[m2];\
+		\
+		y = cy+ y*wtinv;\
+		temp = DNINT(y);				check_nint(temp, y);\
+		frac = fabs(y-temp);\
+		if(frac > maxerr) maxerr=frac;\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		y = (temp-cy*base[i])*wt;\
+		\
+	  bjmodn = (bjmodn + bw) & nm1;\
+}
+
+#define cmplx_carry_norm_pow2_errcheck(x,y,cy,bjmodn,set)\
+{\
+		wtA=wt1[col+set];\
+		wtB=wt1[co2-set];\
+		wtC=wt1[co3-set];\
+		wt   =wtl*wtA;\
+		wtinv=wtn*wtB;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
+		wt   =wt   *one_half[m];\
+		wtinv=wtinv*one_half[m2];\
+		\
+		x = cy+ x*wtinv;\
+		temp = DNINT(x);				check_nint(temp, x);\
+		frac = fabs(x-temp);\
+		if(frac > maxerr) maxerr=frac;\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		x = (temp-cy*base[i])*wt;\
+		\
+	  bjmodn = (bjmodn + bw) & nm1;\
+		\
+		wt   =wtlp1*wtA;\
+		wtinv=wtnm1*wtC;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
+		wt   =wt   *one_half[m];\
+		wtinv=wtinv*one_half[m2];\
+		\
+		y = cy+ y*wtinv;\
+		temp = DNINT(y);				check_nint(temp, y);\
+		frac = fabs(y-temp);\
+		if(frac > maxerr) maxerr=frac;\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		y = (temp-cy*base[i])*wt;\
+		\
+	  bjmodn = (bjmodn + bw) & nm1;\
+}
+
+#define cmplx_carry_norm_pow2_nocheck0(x,y,cy,bjmodn)\
+{\
+		wtA=wt1[col];\
+		wtB=wt1[co2];\
+		wtC=wt1[co3];\
+		wt   =wtl*wtA;\
+		wtinv=wtn*wtB;\
+/*		i =((uint32)(sw - bjmodn) >> 31);Don't want this for set 0. */\
+		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
+		wt   =wt   *one_half[m];\
+		wtinv=wtinv*one_half[m2];\
+/*\
+if(j==0)printf("B: col,co2,co3 = %d %d %d\n",col,co2,co3);\
+if(j==0)printf("B: x, y, cy = %20.15f %20.15f %20.15f\n",x,y,cy);\
+if(j==0)printf("B: wt,inv = %20.15f %20.15f\n",wt,wtinv);\
+*/\
+		\
+		x = cy+ x*wtinv;\
+		temp = DNINT(x);				check_nint(temp, x);\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		x = (temp-cy*base[i])*wt;\
+		\
+	  bjmodn = (bjmodn + bw) & nm1;\
+		\
+		wt   =wtlp1*wtA;\
+		wtinv=wtnm1*wtC;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
+		wt   =wt   *one_half[m];\
+		wtinv=wtinv*one_half[m2];\
+		\
+		y = cy+ y*wtinv;\
+		temp = DNINT(y);				check_nint(temp, y);\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		y = (temp-cy*base[i])*wt;\
+		\
+	  bjmodn = (bjmodn + bw) & nm1;\
+/*\
+if(j==0)printf("B:~x,~y,~cy = %20.15f %20.15f %20.15f\n",x,y,cy);\
+*/\
+}
+
+#define cmplx_carry_norm_pow2_nocheck(x,y,cy,bjmodn,set)\
+{\
+		wtA=wt1[col+set];\
+		wtB=wt1[co2-set];\
+		wtC=wt1[co3-set];\
+		wt   =wtl*wtA;\
+		wtinv=wtn*wtB;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
+		wt   =wt   *one_half[m];\
+		wtinv=wtinv*one_half[m2];\
+/*\
+if(j==0)printf("B: set = %d\n",set);\
+if(j==0)printf("B: x, y, cy = %20.15f %20.15f %20.15f\n",x,y,cy);\
+if(j==0)printf("B: wt,inv = %20.15f %20.15f\n",wt,wtinv);\
+*/\
+		\
+		x = cy+ x*wtinv;\
+		temp = DNINT(x);				check_nint(temp, x);\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		x = (temp-cy*base[i])*wt;\
+		\
+	  bjmodn = (bjmodn + bw) & nm1;\
+		\
+		wt   =wtlp1*wtA;\
+		wtinv=wtnm1*wtC;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
+		wt   =wt   *one_half[m];\
+		wtinv=wtinv*one_half[m2];\
+		\
+		y = cy+ y*wtinv;\
+		temp = DNINT(y);				check_nint(temp, y);\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		y = (temp-cy*base[i])*wt;\
+		\
+	  bjmodn = (bjmodn + bw) & nm1;\
+/*\
+if(j==0)printf("B:~x,~y,~cy = %20.15f %20.15f %20.15f\n",x,y,cy);\
+*/\
+}
+
+
+/*
+Non-power-of-2 runlengths:
+*/
+#define cmplx_carry_norm_errcheck0(x,y,cy,bjmodn)\
+{\
+		wtA=wt1[col];\
+		wtB=wt1[co2];\
+		wtC=wt1[co3];\
+		wt   =wtl*wtA;\
+		wtinv=wtn*wtB;\
+/*		i =((uint32)(sw - bjmodn) >> 31);Don't want this for set 0. */\
+		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
+		wt   =wt   *one_half[m];\
+		wtinv=wtinv*one_half[m2];\
+		\
+		x = cy+ x*wtinv;\
+		temp = DNINT(x);				check_nint(temp, x);\
+		frac = fabs(x-temp);\
+		if(frac > maxerr) maxerr=frac;\
+/*\
+if(frac > 0.1)\
+printf("WARN: frac = %10.8f occurred in Re(a[%2u]) at j = %10d\n",frac,j,0);\
+*/\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		x = (temp-cy*base[i])*wt;\
+		\
+	  bjmodn -= sw;\
+	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
+		\
+		wt   =wtlp1*wtA;\
+		wtinv=wtnm1*wtC;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
+		wt   =wt   *one_half[m];\
+		wtinv=wtinv*one_half[m2];\
+		\
+		y = cy+ y*wtinv;\
+		temp = DNINT(y);				check_nint(temp, y);\
+		frac = fabs(y-temp);\
+		if(frac > maxerr) maxerr=frac;\
+/*\
+if(frac > 0.1)\
+printf("WARN: frac = %10.8f occurred in Im(a[%2u]) at j = %10d\n",frac,j,0);\
+*/\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		y = (temp-cy*base[i])*wt;\
+		\
+	  bjmodn -= sw;\
+	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
+}
+
+#define cmplx_carry_norm_errcheck(x,y,cy,bjmodn,set)\
+{\
+		wtA=wt1[col+set];\
+		wtB=wt1[co2-set];\
+		wtC=wt1[co3-set];\
+		wt   =wtl*wtA;\
+		wtinv=wtn*wtB;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
+		wt   =wt   *one_half[m];\
+		wtinv=wtinv*one_half[m2];\
+		\
+		x = cy+ x*wtinv;\
+		temp = DNINT(x);				check_nint(temp, x);\
+		frac = fabs(x-temp);\
+		if(frac > maxerr) maxerr=frac;\
+/*\
+if(frac > 0.1)\
+printf("WARN: frac = %10.8f occurred in Re(a[%2u]) at j = %10d\n",frac,j,set);\
+*/\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		x = (temp-cy*base[i])*wt;\
+		\
+	  bjmodn -= sw;\
+	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
+		\
+		wt   =wtlp1*wtA;\
+		wtinv=wtnm1*wtC;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
+		wt   =wt   *one_half[m];\
+		wtinv=wtinv*one_half[m2];\
+		\
+		y = cy+ y*wtinv;\
+		temp = DNINT(y);				check_nint(temp, y);\
+		frac = fabs(y-temp);\
+		if(frac > maxerr) maxerr=frac;\
+/*\
+if(frac > 0.1)\
+printf("WARN: frac = %10.8f occurred in Im(a[%2u]) at j = %10d\n",frac,j,set);\
+*/\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		y = (temp-cy*base[i])*wt;\
+		\
+	  bjmodn -= sw;\
+	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
+}
+
+/* A version with a slightly different sequencing, attempting to achieve better pipelining: */
+#define cmplx_carry_norm_errcheckB(x,y,cy,bjmodn,set)\
+{\
+		x *= wtn;\
+		y *= wtnm1;\
+		wtA=wt1[col+set];\
+		wtB=wt1[co2-set];	x *= wtB;\
+		wtC=wt1[co3-set];	y *= wtC;\
+		wt   =wtl*wtA;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
+		wt =     wt*one_half[m];\
+		x  = cy + x*one_half[m2];\
+		temp = DNINT(x);				check_nint(temp, x);\
+		frac = fabs(x-temp);\
+		if(frac > maxerr) maxerr=frac;\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		x = (temp-cy*base[i])*wt;\
+		\
+	  bjmodn -= sw;\
+	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
+		\
+		wt   =wtlp1*wtA;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
+		wt =     wt*one_half[m];\
+		y  = cy + y*one_half[m2];\
+		temp = DNINT(y);				check_nint(temp, y);\
+		frac = fabs(y-temp);\
+		if(frac > maxerr) maxerr=frac;\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		y = (temp-cy*base[i])*wt;\
+		\
+	  bjmodn -= sw;\
+	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
+}
+
+#define cmplx_carry_norm_nocheck0(x,y,cy,bjmodn)\
+{\
+		wtA=wt1[col];\
+		wtB=wt1[co2];\
+		wtC=wt1[co3];\
+		wt   =wtl*wtA;\
+		wtinv=wtn*wtB;\
+/*		i =((uint32)(sw - bjmodn) >> 31);Don't want this for set 0. */\
+		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
+		wt   =wt   *one_half[m];\
+		wtinv=wtinv*one_half[m2];\
+		\
+		x = cy+ x*wtinv;\
+		temp = DNINT(x);				check_nint(temp, x);\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		x = (temp-cy*base[i])*wt;\
+		\
+	  bjmodn -= sw;					/* result >= 0 if a bigword, < 0 if a smallword */\
+	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
+		\
+		wt   =wtlp1*wtA;\
+		wtinv=wtnm1*wtC;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
+		wt   =wt   *one_half[m];\
+		wtinv=wtinv*one_half[m2];\
+		\
+		y = cy+ y*wtinv;\
+		temp = DNINT(y);				check_nint(temp, y);\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		y = (temp-cy*base[i])*wt;\
+		\
+	  bjmodn -= sw;					/* result >= 0 if a bigword, < 0 if a smallword */\
+	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
+}
+
+#define cmplx_carry_norm_nocheck(x,y,cy,bjmodn,set)\
+{\
+		wtA=wt1[col+set];\
+		wtB=wt1[co2-set];\
+		wtC=wt1[co3-set];\
+		wt   =wtl*wtA;\
+		wtinv=wtn*wtB;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
+		wt   =wt   *one_half[m];\
+		wtinv=wtinv*one_half[m2];\
+		\
+		x = cy+ x*wtinv;\
+		temp = DNINT(x);				check_nint(temp, x);\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		x = (temp-cy*base[i])*wt;\
+		\
+		bjmodn -= sw;					/* result >= 0 if a bigword, < 0 if a smallword */\
+	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
+		\
+		wt   =wtlp1*wtA;\
+		wtinv=wtnm1*wtC;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
+		wt   =wt   *one_half[m];\
+		wtinv=wtinv*one_half[m2];\
+		\
+		y = cy+ y*wtinv;\
+		temp = DNINT(y);				check_nint(temp, y);\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		y = (temp-cy*base[i])*wt;\
+		\
+		bjmodn -= sw;					/* result >= 0 if a bigword, < 0 if a smallword */\
+	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
+}
+
+
+/*** Integer-based carry macros (not currently used, as they're slow): ***/
+
+#define Icmplx_carry_norm_errcheck0(x,y,cy,bjmodn)\
+{\
+const uint64 himask= ((uint64)1)<<63,\
+    	     two52 = ((uint64)1)<<52,\
+    	     ones  = ((uint64)((int64)-1)),\
+		 mmask = ones>>12;\
+const uint32 swbits = p/n;        /* Number of bits in a smallword. */\
+uint64 ix,ifrac,ifracmax = 0;\
+ int64 sign,mant,word,topbit;\
+uint32 dexp,bits;\
+ int32 shift;\
+\
+		wtA=wt1[col];\
+		wtB=wt1[co2];\
+		wtC=wt1[co3];\
+		wt   =wtl*wtA;\
+		wtinv=wtn*wtB;\
+		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
+		wt   =wt   *one_half[m];\
+		wtinv=wtinv*one_half[m2];\
+		\
+/*if(j1==0)printf("x0,cy,wtinv = %20.15e  %20.15e  %20.15e\n",x,cy,wtinv);*/\
+		x = cy+ x*wtinv;\
+bits  = swbits + i;\
+ix    = *((uint64 *)&x);\
+sign  = ix & himask;\
+mant  = ix & mmask;\
+dexp  = (ix-sign)>>52;\
+shift = 1074 - dexp;\
+/*if(j1==0)printf("0xmant,shift,bits = %20llX  %10d  %10u\n",mant,shift,bits);*/\
+if(shift<0)printf("WARN: j1 = %10d  %20.15e gives negative shift count = %10d\n",j1,x,shift);\
+if(shift < 52)\
+{\
+sign>>=63;  /* Signed arithmetic left-shift here, i.e. get -1 if float had sign bit set. */\
+ifrac = mant << (63-shift);\
+if(ifrac > ifracmax) ifracmax=ifrac;\
+mant += ((uint64)1)<<shift;\
+mant  = (mant+two52)>>(shift+1);\
+/*if(j1==0)printf("A: 0xmant = %20llX\n",mant);*/\
+mant -= (mant & sign)<<1;\
+/*if(j1==0)printf("B: 0xmant = %20llX\n",mant);*/\
+word  = mant & (~(ones << bits));\
+/*if(j1==0)printf("C: 0xword = %20llX\n",word);*/\
+topbit= word >> (bits - 1);\
+/*if(j1==0)printf("D: 0xtbit = %20llX\n",topbit);*/\
+word -= topbit << bits;\
+/*if(j1==0)printf("E: 0xword = %20llX\n",word);*/\
+x     = wt*(double)word;\
+cy    = (double)( (mant >> bits) + topbit );\
+/*if(j1==0)printf("%20.4f  %20.4f\n",x,cy);*/\
+}\
+else\
+{\
+  x = 0; cy = 0;\
+}\
+		/*\
+		temp = (x + RND_A) - RND_B;\
+		frac = fabs(x-temp);\
+		if(frac > maxerr) maxerr=frac;\
+		cy   = (temp*baseinv[i] + RND_A) - RND_B;\
+		x = (temp-cy*base[i])*wt;\
+		*/\
+	  bjmodn -= sw;\
+	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
+		\
+		wt   =wtlp1*wtA;\
+		wtinv=wtnm1*wtC;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
+		wt   =wt   *one_half[m];\
+		wtinv=wtinv*one_half[m2];\
+		\
+/*if(j1==0)printf("y0,cy,wtinv = %20.15e  %20.15e  %20.15e\n",y,cy,wtinv);*/\
+		y = cy+ y*wtinv;\
+bits  = swbits + i;\
+ix    = *((uint64 *)&y);\
+sign  = ix & himask;\
+mant  = ix & mmask;\
+dexp  = (ix-sign)>>52;\
+shift = 1074 - dexp;\
+if(shift<0)printf("WARN: j1 = %10d  %20.15e gives negative shift count = %10d\n",j1,y,shift);\
+if(shift < 52)\
+{\
+sign>>=63;  /* Signed arithmetic left-shift here, i.e. get -1 if float had sign bit set. */\
+ifrac = mant << (63-shift);\
+if(ifrac > ifracmax) ifracmax=ifrac;\
+mant += ((uint64)1)<<shift;\
+mant  = (mant+two52)>>(shift+1);\
+mant -= (mant & sign)<<1;\
+word  = mant & (~(ones << bits));\
+topbit= word >> (bits - 1);\
+word -= topbit << bits;\
+y     = wt*(double)word;\
+cy    = (double)( (mant >> bits) + topbit );\
+/*if(j1==0)printf("%20.4f  %20.4f\n",y,cy);*/\
+}\
+else\
+{\
+  y = 0; cy = 0;\
+}\
+		/*\
+		temp = (y + RND_A) - RND_B;\
+		frac = fabs(y-temp);\
+		if(frac > maxerr) maxerr=frac;\
+		cy   = (temp*baseinv[i] + RND_A) - RND_B;\
+		y = (temp-cy*base[i])*wt;\
+		*/\
+	  bjmodn -= sw;\
+	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
+}
+
+#define Icmplx_carry_norm_errcheck(x,y,cy,bjmodn,set)\
+{\
+		wtA=wt1[col+set];\
+		wtB=wt1[co2-set];\
+		wtC=wt1[co3-set];\
+		wt   =wtl*wtA;\
+		wtinv=wtn*wtB;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
+		wt   =wt   *one_half[m];\
+		wtinv=wtinv*one_half[m2];\
+		\
+		x = cy+ x*wtinv;\
+bits  = swbits + i;\
+ix    = *((uint64 *)&x);\
+sign  = ix & himask;\
+mant  = ix & mmask;\
+dexp  = (ix-sign)>>52;\
+shift = 1074 - dexp;\
+if(shift<0)printf("WARN: j1 = %10d  %20.15e gives negative shift count = %10d\n",j1,x,shift);\
+if(shift < 52)\
+{\
+sign>>=63;  /* Signed arithmetic left-shift here, i.e. get -1 if float had sign bit set. */\
+ifrac = mant << (63-shift);\
+if(ifrac > ifracmax) ifracmax=ifrac;\
+mant += ((uint64)1)<<shift;\
+mant  = (mant+two52)>>(shift+1);\
+mant -= (mant & sign)<<1;\
+word  = mant & (~(ones << bits));\
+topbit= word >> (bits - 1);\
+word -= topbit << bits;\
+x     = wt*(double)word;\
+cy    = (double)( (mant >> bits) + topbit );\
+}\
+else\
+{\
+  x = 0; cy = 0;\
+}\
+		/*\
+		temp = (x + RND_A) - RND_B;\
+		frac = fabs(x-temp);\
+		if(frac > maxerr) maxerr=frac;\
+		cy   = (temp*baseinv[i] + RND_A) - RND_B;\
+		x = (temp-cy*base[i])*wt;\
+		*/\
+	  bjmodn -= sw;\
+	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
+		\
+		wt   =wtlp1*wtA;\
+		wtinv=wtnm1*wtC;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
+		wt   =wt   *one_half[m];\
+		wtinv=wtinv*one_half[m2];\
+		\
+		y = cy+ y*wtinv;\
+bits  = swbits + i;\
+ix    = *((uint64 *)&y);\
+sign  = ix & himask;\
+mant  = ix & mmask;\
+dexp  = (ix-sign)>>52;\
+shift = 1074 - dexp;\
+if(shift<0)printf("WARN: j1 = %10d  %20.15e gives negative shift count = %10d\n",j1,y,shift);\
+if(shift < 52)\
+{\
+sign>>=63;  /* Signed arithmetic left-shift here, i.e. get -1 if float had sign bit set. */\
+ifrac = mant << (63-shift);\
+if(ifrac > ifracmax) ifracmax=ifrac;\
+mant += ((uint64)1)<<shift;\
+mant  = (mant+two52)>>(shift+1);\
+mant -= (mant & sign)<<1;\
+word  = mant & (~(ones << bits));\
+topbit= word >> (bits - 1);\
+word -= topbit << bits;\
+y     = wt*(double)word;\
+cy    = (double)( (mant >> bits) + topbit );\
+}\
+else\
+{\
+  y = 0; cy = 0;\
+}\
+		/*\
+		temp = (y + RND_A) - RND_B;\
+		frac = fabs(y-temp);\
+		if(frac > maxerr) maxerr=frac;\
+		cy   = (temp*baseinv[i] + RND_A) - RND_B;\
+		y = (temp-cy*base[i])*wt;\
+		*/\
+	  bjmodn -= sw;\
+	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
+}
+
+
+	/******************************************************************************************/
+	/*************** SSE2 implementation of the key carry macros ******************************/
+	/******************************************************************************************/
 
 #ifdef USE_SSE2
 
-/* SSE2 version assumes the following:
-
-	- x and y are in xmm0 and xmm1 on entry, xmm2 and xmm3 hold the next-higher words in the chain, i.e. xmm0-3 are reserved;
-	- wtA address [assumed 16-byte aligned] points to wtA[col], i.e. the low word of the resulting xmm load = set=0 array location
-	- wtA,B addresses [unaligned] point to wtB,C[c02,co3-1]   , i.e. the hi  word of the resulting xmm load = set=0 array location
-		[that means we need an unaligned load and a shufpd to swap lo,hi prior to using]
-	- All four of the 32-bit address registers eax,ebx,ecx,edx are available;
-	- Doubled rnd_const is in memloc half_arr-1;
-	- Doubled wtl,wtn,wtlp1,wtnm1 pairs are in memlocs half_arr+16,17,18,19, respectively.
-
-The SSE2 version processes 4 complex data per macro invocation, e.g. carries among
-
-	j:			re0->im0->re1->im1
-	j+stride:	re0->im0->re1->im1
-
-In other words we replace 2 passes through the non-SSE2 sequence [e.g for radix = 16]:
-
-   cmplx_carry_norm_pow2_errcheck0(a1p0r,a1p0i,cy_r0,bjmodn0    );
-	cmplx_carry_norm_pow2_errcheck(a1p1r,a1p1i,cy_r1,bjmodn1,0x1);
-	cmplx_carry_norm_pow2_errcheck(a1p2r,a1p2i,cy_r2,bjmodn2,0x2);
-	cmplx_carry_norm_pow2_errcheck(a1p3r,a1p3i,cy_r3,bjmodn3,0x3);
-	cmplx_carry_norm_pow2_errcheck(a1p4r,a1p4i,cy_r4,bjmodn4,0x4);
-	cmplx_carry_norm_pow2_errcheck(a1p5r,a1p5i,cy_r5,bjmodn5,0x5);
-	cmplx_carry_norm_pow2_errcheck(a1p6r,a1p6i,cy_r6,bjmodn6,0x6);
-	cmplx_carry_norm_pow2_errcheck(a1p7r,a1p7i,cy_r7,bjmodn7,0x7);
-	cmplx_carry_norm_pow2_errcheck(a1p8r,a1p8i,cy_r8,bjmodn8,0x8);
-	cmplx_carry_norm_pow2_errcheck(a1p9r,a1p9i,cy_r9,bjmodn9,0x9);
-	cmplx_carry_norm_pow2_errcheck(a1pAr,a1pAi,cy_rA,bjmodnA,0xA);
-	cmplx_carry_norm_pow2_errcheck(a1pBr,a1pBi,cy_rB,bjmodnB,0xB);
-	cmplx_carry_norm_pow2_errcheck(a1pCr,a1pCi,cy_rC,bjmodnC,0xC);
-	cmplx_carry_norm_pow2_errcheck(a1pDr,a1pDi,cy_rD,bjmodnD,0xD);
-	cmplx_carry_norm_pow2_errcheck(a1pEr,a1pEi,cy_rE,bjmodnE,0xE);
-	cmplx_carry_norm_pow2_errcheck(a1pFr,a1pFi,cy_rF,bjmodnF,0xF);
-
-With one pass through the SSE2ified versions of the above macros:
-
-	SSE2_cmplx_carry_norm_pow2_errcheck0(r1 ,add0,add1,add2,cy_r01,bjmodn0,bjmodn1);
-	SSE2_cmplx_carry_norm_pow2_errcheck (r5 ,add0,add1,add2,cy_r23,bjmodn2,bjmodn3);
-	SSE2_cmplx_carry_norm_pow2_errcheck (r9 ,add0,add1,add2,cy_r45,bjmodn4,bjmodn5);
-	SSE2_cmplx_carry_norm_pow2_errcheck (r13,add0,add1,add2,cy_r67,bjmodn6,bjmodn7);
-	SSE2_cmplx_carry_norm_pow2_errcheck (r17,add0,add1,add2,cy_r89,bjmodn8,bjmodn9);
-	SSE2_cmplx_carry_norm_pow2_errcheck (r21,add0,add1,add2,cy_rAB,bjmodnA,bjmodnB);
-	SSE2_cmplx_carry_norm_pow2_errcheck (r25,add0,add1,add2,cy_rCD,bjmodnC,bjmodnD);
-	SSE2_cmplx_carry_norm_pow2_errcheck (r29,add0,add1,add2,cy_rEF,bjmodnE,bjmodnF);
-	[address-calc stuff]
-	SSE2_cmplx_carry_norm_pow2_errcheck2(r1 ,add0,add1     ,cy_r01,bjmodn0,bjmodn1);
-	SSE2_cmplx_carry_norm_pow2_errcheck2(r5 ,add0,add1     ,cy_r23,bjmodn2,bjmodn3);
-	SSE2_cmplx_carry_norm_pow2_errcheck2(r9 ,add0,add1     ,cy_r45,bjmodn4,bjmodn5);
-	SSE2_cmplx_carry_norm_pow2_errcheck2(r13,add0,add1     ,cy_r67,bjmodn6,bjmodn7);
-	SSE2_cmplx_carry_norm_pow2_errcheck2(r17,add0,add1     ,cy_r89,bjmodn8,bjmodn9);
-	SSE2_cmplx_carry_norm_pow2_errcheck2(r21,add0,add1     ,cy_rAB,bjmodnA,bjmodnB);
-	SSE2_cmplx_carry_norm_pow2_errcheck2(r25,add0,add1     ,cy_rCD,bjmodnC,bjmodnD);
-	SSE2_cmplx_carry_norm_pow2_errcheck2(r29,add0,add1     ,cy_rEF,bjmodnE,bjmodnF);
-*/
 	#if defined(COMPILER_TYPE_MSVC)	/* MSVC-style inline ASM: */
 
+		/*
+		In the Fermat-mod negacyclic-DWT carry scheme, real & imaginary parts
+		are carried separately due to the right-angle transform:
+		*/
+		#define SSE2_fermat_carry_norm_pow2_errcheck(__data,__cy,__idx_offset,__idx_incr,__NRTM1,__NRT_BITS)\
+		{\
+			__asm	mov		esi, __idx_offset	/* esi stores [j + idx_offset], idx_offset starts = 0, gets incremented by idx_incr each macro invocation */\
+			__asm	mov		ecx, __NRT_BITS	\
+			__asm	mov		eax, esi	/* j + idx_offset */	\
+			__asm	shr		eax, 1	/* l = ((j + idx_offset) >> 1) */	\
+			__asm	mov		ebx, eax	\
+			__asm	and		eax, __NRTM1		/* k1 = (l & __NRTM1) */	\
+			__asm	shr		ebx, cl	/* k2=(l >> __NRT_BITS) */	\
+			__asm	shl		eax, 4	/* 16 bytes for array-of-complex */	\
+			__asm	shl		ebx, 4	/* 16 bytes for array-of-complex */	\
+			__asm	add		eax, add1	/* rn0[k1] */	\
+			__asm	add		ebx, add2	/* rn1[k2] */	\
+			__asm	movaps	xmm0,[eax]	/* [c0,s0] */	\
+			__asm	movaps	xmm1,[ebx]	/* [x0,y0] */	\
+			__asm	mov		eax, esi	\
+			__asm	movaps	xmm2,xmm1	/* [x0,y0] copy */	\
+			__asm	shufpd	xmm2,xmm2,1	/* [y0,x0] (swap re <--> im) */	\
+			__asm	mulpd	xmm1,xmm0	/* [c0.x0,s0.y0] */	\
+			__asm	mulpd	xmm2,xmm0	/* [c0.y0,s0.x0] 1,2 used */	\
+			/* Get next root for interleaving with the first: */	\
+			__asm	add		eax, 2	\
+			__asm	shr		eax, 1	/* l = ((j + idx_offset) >> 1) */	\
+			__asm	mov		ebx, eax	\
+			__asm	and		eax, __NRTM1		/* k1 = (l & __NRTM1) */	\
+			__asm	shr		ebx, cl	/* k2=(l >> __NRT_BITS) */	\
+			__asm	shl		eax, 4	/* 16 bytes for array-of-complex */	\
+			__asm	shl		ebx, 4	/* 16 bytes for array-of-complex */	\
+			__asm	add		eax, add1	/* rn0[k1] */	\
+			__asm	add		ebx, add2	/* rn1[k2] */	\
+			__asm	movaps	xmm0,[eax]	/* [c1,s1] */	\
+			__asm	movaps	xmm3,[ebx]	/* [x1,y1] 0-3 used*/	\
+			__asm	mov		eax, esi	\
+			__asm	movaps	xmm4,xmm3	/* [x1,y1] copy */	\
+			__asm	shufpd	xmm4,xmm4,1	/* [y1,x1] (swap re <--> im) */	\
+			__asm	mulpd	xmm3,xmm0	/* [c1.x1,s1.y1] */	\
+			__asm	mulpd	xmm4,xmm0	/* [c1.y1,s1.x1] 1-4 used */	\
+			__asm	movaps	xmm0,xmm1	/* xmm0 <- copy [c0.x0,s0.y0] */	\
+			__asm	unpcklpd	xmm0,xmm3	/* [c0.x0,c1.x1] */	\
+			__asm	unpckhpd	xmm1,xmm3	/* [s0.y0,s1.y1], 0-2,4 used */	\
+			__asm	subpd	xmm0,xmm1	/* XMM0 = [wt_r0,wt_r1] 0,2,4 used */	\
+			__asm	movaps	xmm1,xmm2	/* xmm1 <- copy [c0.y0,s0.x0] 0-2,4 used */	\
+			__asm	unpcklpd	xmm1,xmm4	/* [c0.y0,c1.y1] */	\
+			__asm	unpckhpd	xmm2,xmm4	/* [s0.x0,s1.x1] */	\
+			__asm	addpd	xmm1,xmm2	/* XMM1 = [wt_i0,wt_i1] 0-1 used */	\
+			/* half_arr[0,1,2,3] = [base*2, baseinv*2,wt_re*2,wt_im*2] */	\
+			__asm	mov		ecx, half_arr	/* No longer need __NRT_BITS, so reuse ecx */	\
+			/* Multiply the complex transform output [x,y] = [re,im] by any scale factor: [x,y] *= scale: */	\
+			__asm	mov		edx, __data	\
+			__asm	movaps	xmm4,[edx     ] /* x = [a.re,b.re] */	\
+			__asm	movaps	xmm2,[edx+0x10]	/* y = [a.im,b.im] */	\
+			__asm	movaps	xmm5,[ecx+0x20]	/* [scale,scale] */	\
+			__asm	mulpd	xmm4,xmm5	\
+			__asm	mulpd	xmm2,xmm5	\
+			__asm	movaps	xmm5,xmm4	/* x copy */	\
+			__asm	movaps	xmm3,xmm2	/* y copy */	\
+			/* Inverse weight is (wt_re, -wt_im): */	\
+			__asm	mulpd	xmm4,xmm0	/* [x     ]*wt_re */	\
+			__asm	mulpd	xmm3,xmm1	/* [y copy]*wt_im */	\
+			__asm	mulpd	xmm2,xmm0	/* [y     ]*wt_re */	\
+			__asm	mulpd	xmm5,xmm1	/* [x copy]*wt_im */	\
+			__asm	addpd	xmm4,xmm3	/* [a.re,b.re] = x*wt_re + y*wt_im */	\
+			__asm	subpd	xmm2,xmm5	/* [a.im,b.im] = y*wt_re - x*wt_im */	\
+			__asm	mov		ebx, __cy	\
+			__asm	movaps	xmm5,xmm4	/* [a.re,b.re] copy */	\
+			__asm	shufpd	xmm4,xmm2,0	/* XMM4 = x = [a.re,a.im] */	\
+			__asm	shufpd	xmm5,xmm2,3	/* XMM5 = y = [b.re,b.im] 0,1,4,5 uaed */	\
+			/* normalize a-pair, compute carryout, compute ROE: */	\
+			__asm	addpd	xmm4,[ebx]	/* [a.re,a.im] + [cx,cy] */	\
+			__asm	movaps	xmm6,[ecx-0x20]		/* XMM6 = maxerr */	\
+			__asm	movaps	xmm7,[ecx-0x10]		/* XMM7 = rnd_const */	\
+			__asm	movaps	xmm2,xmm4			/* copy x */	\
+			__asm	addpd	xmm4,xmm7	\
+			__asm	subpd	xmm4,xmm7			/* temp = DNINT(x) */	\
+			__asm	mov		eax, sign_mask	\
+			__asm	subpd	xmm2,xmm4			/* frac = [x - temp] */	\
+			__asm	andpd	xmm2,[eax]			/* frac = fabs(frac) */	\
+			__asm	maxpd	xmm2,xmm6		/* if(frac > maxerr) maxerr=frac */	\
+			__asm	movaps	xmm6,xmm2		/* Note serialization here! */	\
+			__asm	movaps	xmm2,xmm4			/* cpy temp */	\
+			__asm	mulpd	xmm2,[ecx+0x10]		/* temp*baseinv[0] */	\
+			__asm	addpd	xmm2,xmm7	\
+			__asm	subpd	xmm2,xmm7			/* [cx,cy] = DNINT(temp*baseinv[0]) */	\
+			__asm	movaps	xmm3,xmm2			/* cpy [cx,cy] */	\
+			__asm	mulpd	xmm3,[ecx     ]		/* [cx,cy]*base[0] */	\
+			__asm	subpd	xmm4,xmm3			/* XMM4 = [a.re,a.im] = temp-[cx,cy]*base[0] */	\
+			/* Now do b-pair: [b.re,b.im] in xmm5, carry in xmm2, xmm3 free, wt_[re,im] in xmmA,B, xmm6 free, rnd_const in xmm7: */	\
+			__asm	addpd	xmm5,xmm2	/* [b.re,b.im] + [cx,cy] */	\
+			__asm	movaps	xmm2,xmm5			/* copy y */	\
+			__asm	addpd	xmm5,xmm7	\
+			__asm	subpd	xmm5,xmm7			/* temp = DNINT(y) */	\
+			__asm	subpd	xmm2,xmm5			/* frac = [y - temp] */	\
+			__asm	andpd	xmm2,[eax]			/* frac = fabs(frac) */	\
+			__asm	maxpd	xmm2,xmm6		/* if(frac > maxerr) maxerr=frac */	\
+			__asm	movaps	xmm6,xmm2		/* Note serialization here! */	\
+			__asm	movaps	xmm2,xmm5			/* cpy temp */	\
+			__asm	mulpd	xmm2,[ecx+0x10]		/* temp*baseinv[0] */	\
+			__asm	addpd	xmm2,xmm7	\
+			__asm	subpd	xmm2,xmm7			/* [cx,cy] = DNINT(temp*baseinv[0]) */	\
+			__asm	movaps	xmm3,xmm2			/* cpy [cx,cy] */	\
+			__asm	mulpd	xmm3,[ecx     ]		/* [cx,cy]*base[0] */	\
+			__asm	subpd	xmm5,xmm3			/* XMM5 = [b.re,b.im] = temp-[cx,cy]*base[0] */	\
+			__asm	movaps	[ebx],xmm2			/* store cy_out */	\
+			__asm	movaps	xmm2,xmm4	/* [a.re,a.im] copy */	\
+			__asm	shufpd	xmm4,xmm5,0	/* x = [a.re,b.re] */	\
+			__asm	shufpd	xmm2,xmm5,3	/* y = [a.im,b.im] */	\
+			__asm	movaps	xmm5,xmm4	/* x copy */	\
+			__asm	movaps	xmm3,xmm2	/* y copy */	\
+			__asm	movaps	[ecx-0x20],xmm6		/* Store maxerr */	\
+			/* Forward weight is (wt_re, +wt_im): */	\
+			__asm	mulpd	xmm4,xmm0	/* [x     ]*wt_re */	\
+			__asm	mulpd	xmm3,xmm1	/* [y copy]*wt_im */	\
+			__asm	mulpd	xmm2,xmm0	/* [y     ]*wt_re */	\
+			__asm	mulpd	xmm5,xmm1	/* [x copy]*wt_im */	\
+			__asm	subpd	xmm4,xmm3	/* rt = x*wt_re - y*wt_im */	\
+			__asm	addpd	xmm5,xmm2	/* it = x*wt_im + y*wt_re */	\
+			__asm	movaps	[edx     ],xmm4 /* store rt = ~[a.re,b.re] */	\
+			__asm	movaps	[edx+0x10],xmm5	/* store it = ~[a.im,b.im] */	\
+			/* Prepare for next pair of complex data: */	\
+			__asm	add		esi, __idx_incr	/* idx_offset += idx_incr */	\
+			__asm	mov		__idx_offset, esi		\
+		}
+
+		#define SSE2_fermat_carry_norm_errcheck(__data,__cy,__idx_offset,__idx_incr,__odd_radix,__offset0,__offset1,__NRTM1,__NRT_BITS)\
+		{\
+			__asm	mov		esi, __idx_offset	/* esi stores [j + idx_offset], idx_offset starts = 0, gets incremented by idx_incr each macro invocation */\
+			__asm	mov		edi, __odd_radix	/* [1,2,3]*odd_radix are the index offsets to the wtinv, base, and base_inv values, respectively. */\
+			__asm	mov		ecx, __NRT_BITS	\
+			__asm	mov		eax, esi	/* j + idx_offset */	\
+			__asm	shr		eax, 1	/* l = ((j + idx_offset) >> 1) */	\
+			__asm	mov		ebx, eax	\
+			__asm	and		eax, __NRTM1		/* k1 = (l & __NRTM1) */	\
+			__asm	shr		ebx, cl	/* k2=(l >> __NRT_BITS) */	\
+			__asm	shl		eax, 4	/* 16 bytes for array-of-complex */	\
+			__asm	shl		ebx, 4	/* 16 bytes for array-of-complex */	\
+			__asm	shl		edi, 4	/* 16 bytes for array-of-complex */	\
+			__asm	add		eax, add1	/* rn0[k1] */	\
+			__asm	add		ebx, add2	/* rn1[k2] */	\
+			__asm	movaps	xmm0,[eax]	/* [c0,s0] */	\
+			__asm	movaps	xmm1,[ebx]	/* [x0,y0] */	\
+			__asm	mov		eax, esi	\
+			__asm	movaps	xmm2,xmm1	/* [x0,y0] copy */	\
+			__asm	shufpd	xmm2,xmm2,1	/* [y0,x0] (swap re <--> im) */	\
+			__asm	mulpd	xmm1,xmm0	/* [c0.x0,s0.y0] */	\
+			__asm	mulpd	xmm2,xmm0	/* [c0.y0,s0.x0] 1,2 used */	\
+			/* Get next root for interleaving with the first: */	\
+			__asm	add		eax, 2	\
+			__asm	shr		eax, 1	/* l = ((j + idx_offset) >> 1) */	\
+			__asm	mov		ebx, eax	\
+			__asm	and		eax, __NRTM1		/* k1 = (l & __NRTM1) */	\
+			__asm	shr		ebx, cl	/* k2=(l >> __NRT_BITS) */	\
+			__asm	shl		eax, 4	/* 16 bytes for array-of-complex */	\
+			__asm	shl		ebx, 4	/* 16 bytes for array-of-complex */	\
+			__asm	add		eax, add1	/* rn0[k1] */	\
+			__asm	add		ebx, add2	/* rn1[k2] */	\
+			__asm	movaps	xmm0,[eax]	/* [c1,s1] */	\
+			__asm	movaps	xmm3,[ebx]	/* [x1,y1] 0-3 used*/	\
+			__asm	mov		eax, esi	\
+			__asm	movaps	xmm4,xmm3	/* [x1,y1] copy */	\
+			__asm	shufpd	xmm4,xmm4,1	/* [y1,x1] (swap re <--> im) */	\
+			__asm	mulpd	xmm3,xmm0	/* [c1.x1,s1.y1] */	\
+			__asm	mulpd	xmm4,xmm0	/* [c1.y1,s1.x1] 1-4 used */	\
+			__asm	movaps	xmm0,xmm1	/* xmm0 <- copy [c0.x0,s0.y0] */	\
+			__asm	unpcklpd	xmm0,xmm3	/* [c0.x0,c1.x1] */	\
+			__asm	unpckhpd	xmm1,xmm3	/* [s0.y0,s1.y1], 0-2,4 used */	\
+			__asm	subpd	xmm0,xmm1	/* XMM0 = [wt_r0,wt_r1] 0,2,4 used */	\
+			__asm	movaps	xmm1,xmm2	/* xmm1 <- copy [c0.y0,s0.x0] 0-2,4 used */	\
+			__asm	unpcklpd	xmm1,xmm4	/* [c0.y0,c1.y1] */	\
+			__asm	unpckhpd	xmm2,xmm4	/* [s0.x0,s1.x1] */	\
+			__asm	addpd	xmm1,xmm2	/* XMM1 = [wt_i0,wt_i1] 0-1 used */	\
+			/* half_arr[0,1,2,3] = [base*2, baseinv*2,wt_re*2,wt_im*2] */	\
+			__asm	mov		ecx, half_arr	/* No longer need __NRT_BITS, so reuse ecx */	\
+			/* Multiply the complex transform output [x,y] = [re,im] by the inverse IBDWT weight, which includes the scale factor: [x,y] *= wtinv: */	\
+			__asm	mov		edx, __data	\
+			__asm	movaps	xmm4,[edx     ] /* x = [a.re,b.re] */	\
+			__asm	movaps	xmm2,[edx+0x10]	/* y = [a.im,b.im] */	\
+			__asm	add		ecx, __offset0	\
+			__asm	movaps	xmm5,[ecx+edi]	/* [wtinv0,wtinv1] */	\
+			__asm	sub		ecx, __offset0	\
+			__asm	mulpd	xmm4,xmm5	\
+			__asm	mulpd	xmm2,xmm5	\
+			__asm	movaps	xmm5,xmm4	/* x copy */	\
+			__asm	movaps	xmm3,xmm2	/* y copy */	\
+			/* Inverse weight is (wt_re, -wt_im): */	\
+			__asm	mulpd	xmm4,xmm0	/* [x     ]*wt_re */	\
+			__asm	mulpd	xmm3,xmm1	/* [y copy]*wt_im */	\
+			__asm	mulpd	xmm2,xmm0	/* [y     ]*wt_re */	\
+			__asm	mulpd	xmm5,xmm1	/* [x copy]*wt_im */	\
+			__asm	addpd	xmm4,xmm3	/* [a.re,b.re] = x*wt_re + y*wt_im */	\
+			__asm	subpd	xmm2,xmm5	/* [a.im,b.im] = y*wt_re - x*wt_im */	\
+			__asm	mov		ebx, __cy	\
+			__asm	movaps	xmm5,xmm4	/* [a.re,b.re] copy */	\
+			__asm	shufpd	xmm4,xmm2,0	/* XMM4 = x = [a.re,a.im] */	\
+			__asm	shufpd	xmm5,xmm2,3	/* XMM5 = y = [b.re,b.im] 0,1,4,5 uaed */	\
+			/* normalize a-pair, compute carryout, compute ROE: */	\
+			__asm	addpd	xmm4,[ebx]	/* [a.re,a.im] + [cx,cy] */	\
+			__asm	movaps	xmm6,[ecx-0x20]		/* XMM6 = maxerr */	\
+			__asm	movaps	xmm7,[ecx-0x10]		/* XMM7 = rnd_const */	\
+			__asm	add		ecx, __offset0	\
+			__asm	movaps	xmm2,xmm4			/* copy x */	\
+			__asm	shl		edi, 1	\
+			__asm	addpd	xmm4,xmm7	\
+			__asm	subpd	xmm4,xmm7			/* temp = DNINT(x) */	\
+			__asm	mov		eax, sign_mask	\
+			__asm	subpd	xmm2,xmm4			/* frac = [x - temp] */	\
+			__asm	andpd	xmm2,[eax]			/* frac = fabs(frac) */	\
+			__asm	maxpd	xmm2,xmm6		/* if(frac > maxerr) maxerr=frac */	\
+			__asm	movaps	xmm6,xmm2		/* Note serialization here! */	\
+			__asm	add		ecx, edi	\
+			__asm	shr		edi, 1	\
+			__asm	movaps	xmm2,xmm4			/* cpy temp */	\
+			__asm	mulpd	xmm2,[ecx+edi]	/* temp*baseinv[0] */	\
+			__asm	addpd	xmm2,xmm7	\
+			__asm	subpd	xmm2,xmm7			/* [cx,cy] = DNINT(temp*baseinv[0]) */	\
+			__asm	movaps	xmm3,xmm2			/* cpy [cx,cy] */	\
+			__asm	mulpd	xmm3,[ecx    ]	/* [cx,cy]*base[0] */	\
+			__asm	sub		ecx, __offset0	\
+			__asm	subpd	xmm4,xmm3			/* XMM4 = [a.re,a.im] = temp-[cx,cy]*base[0] */	\
+			/* Now do b-pair: [b.re,b.im] in xmm5, carry in xmm2, xmm3 free, wt_[re,im] in xmmA,B, xmm6 free, rnd_const in xmm7: */	\
+			__asm	addpd	xmm5,xmm2	/* [b.re,b.im] + [cx,cy] */	\
+			__asm	movaps	xmm2,xmm5			/* copy y */	\
+			__asm	addpd	xmm5,xmm7	\
+			__asm	subpd	xmm5,xmm7			/* temp = DNINT(y) */	\
+			__asm	subpd	xmm2,xmm5			/* frac = [y - temp] */	\
+			__asm	andpd	xmm2,[eax]			/* frac = fabs(frac) */	\
+			__asm	maxpd	xmm2,xmm6		/* if(frac > maxerr) maxerr=frac */	\
+			__asm	movaps	xmm6,xmm2		/* Note serialization here! */	\
+			__asm	movaps	xmm2,xmm5			/* cpy temp */	\
+			__asm	add		ecx, __offset1	\
+			__asm	mulpd	xmm2,[ecx+edi]	/* temp*baseinv[1] */	\
+			__asm	addpd	xmm2,xmm7	\
+			__asm	subpd	xmm2,xmm7			/* [cx,cy] = DNINT(temp*baseinv[1]) */	\
+			__asm	shl		edi, 1			/* prepare to re-subtract 2*odd_radix from local-store pointer */\
+			__asm	movaps	xmm3,xmm2			/* cpy [cx,cy] */	\
+			__asm	mulpd	xmm3,[ecx    ]	/* [cx,cy]*base[1] */	\
+			__asm	sub		ecx, __offset1	\
+			__asm	subpd	xmm5,xmm3			/* XMM5 = [b.re,b.im] = temp-[cx,cy]*base[1] */	\
+			__asm	movaps	[ebx],xmm2			/* store cy_out */	\
+			__asm	movaps	xmm2,xmm4	/* [a.re,a.im] copy */	\
+			__asm	shufpd	xmm4,xmm5,0	/* x = [a.re,b.re] */	\
+			__asm	shufpd	xmm2,xmm5,3	/* y = [a.im,b.im] */	\
+			__asm	movaps	xmm5,xmm4	/* x copy */	\
+			__asm	movaps	xmm3,xmm2	/* y copy */	\
+			/* Forward acyclic-convo weight is (wt_re, +wt_im): */	\
+			__asm	sub		ecx, edi	\
+			__asm	mulpd	xmm4,xmm0	/* [x     ]*wt_re */	\
+			__asm	mulpd	xmm3,xmm1	/* [y copy]*wt_im */	\
+			__asm	movaps	[ecx-0x20],xmm6		/* Store maxerr */	\
+			__asm	add		ecx, __offset0	\
+			__asm	mulpd	xmm2,xmm0	/* [y     ]*wt_re */	\
+			__asm	mulpd	xmm5,xmm1	/* [x copy]*wt_im */	\
+			__asm	movaps	xmm0,[ecx]	/* [wt0,wt1] */	\
+			__asm	subpd	xmm4,xmm3	/* rt = x*wt_re - y*wt_im */	\
+			__asm	addpd	xmm5,xmm2	/* it = x*wt_im + y*wt_re */	\
+			/* Forward IBDWT weight: */\
+			__asm	mulpd	xmm4,xmm0	\
+			__asm	mulpd	xmm5,xmm0	\
+			__asm	movaps	[edx     ],xmm4 /* store rt = ~[a.re,b.re] */	\
+			__asm	movaps	[edx+0x10],xmm5	/* store it = ~[a.im,b.im] */	\
+			/* Prepare for next pair of complex data: */	\
+			__asm	add		esi, __idx_incr	/* idx_offset += idx_incr */	\
+			__asm	mov		__idx_offset, esi		\
+		}
+
+	/*************************************************************/
+	/**************** MERSENNE-MOD CARRY MACROS ******************/
+	/*************************************************************/
+
+	/* These are versions specialized for power-of-2 runlengths: */
+
+	/* SSE2 version assumes the following:
+
+		- x and y are in xmm0 and xmm1 on entry, xmm2 and xmm3 hold the next-higher words in the chain, i.e. xmm0-3 are reserved;
+		- wtA address [assumed 16-byte aligned] points to wtA[col], i.e. the low word of the resulting xmm load = set=0 array location
+		- wtA,B addresses [unaligned] point to wtB,C[c02,co3-1]   , i.e. the hi  word of the resulting xmm load = set=0 array location
+			[that means we need an unaligned load and a shufpd to swap lo,hi prior to using]
+		- All four of the 32-bit address registers eax,ebx,ecx,edx are available;
+		- Doubled rnd_const is in memloc half_arr-1;
+		- Doubled wtl,wtn,wtlp1,wtnm1 pairs are in memlocs half_arr+16,17,18,19, respectively.
+
+	The SSE2 version processes 4 complex data per macro invocation, e.g. carries among
+
+		j:			re0->im0->re1->im1
+		j+stride:	re0->im0->re1->im1
+
+	In other words we replace 2 passes through the non-SSE2 sequence [e.g for radix = 16]:
+
+	   cmplx_carry_norm_pow2_errcheck0(a1p0r,a1p0i,cy_r0,bjmodn0    );
+		cmplx_carry_norm_pow2_errcheck(a1p1r,a1p1i,cy_r1,bjmodn1,0x1);
+		cmplx_carry_norm_pow2_errcheck(a1p2r,a1p2i,cy_r2,bjmodn2,0x2);
+		cmplx_carry_norm_pow2_errcheck(a1p3r,a1p3i,cy_r3,bjmodn3,0x3);
+		cmplx_carry_norm_pow2_errcheck(a1p4r,a1p4i,cy_r4,bjmodn4,0x4);
+		cmplx_carry_norm_pow2_errcheck(a1p5r,a1p5i,cy_r5,bjmodn5,0x5);
+		cmplx_carry_norm_pow2_errcheck(a1p6r,a1p6i,cy_r6,bjmodn6,0x6);
+		cmplx_carry_norm_pow2_errcheck(a1p7r,a1p7i,cy_r7,bjmodn7,0x7);
+		cmplx_carry_norm_pow2_errcheck(a1p8r,a1p8i,cy_r8,bjmodn8,0x8);
+		cmplx_carry_norm_pow2_errcheck(a1p9r,a1p9i,cy_r9,bjmodn9,0x9);
+		cmplx_carry_norm_pow2_errcheck(a1pAr,a1pAi,cy_rA,bjmodnA,0xA);
+		cmplx_carry_norm_pow2_errcheck(a1pBr,a1pBi,cy_rB,bjmodnB,0xB);
+		cmplx_carry_norm_pow2_errcheck(a1pCr,a1pCi,cy_rC,bjmodnC,0xC);
+		cmplx_carry_norm_pow2_errcheck(a1pDr,a1pDi,cy_rD,bjmodnD,0xD);
+		cmplx_carry_norm_pow2_errcheck(a1pEr,a1pEi,cy_rE,bjmodnE,0xE);
+		cmplx_carry_norm_pow2_errcheck(a1pFr,a1pFi,cy_rF,bjmodnF,0xF);
+
+	With one pass through the SSE2ified versions of the above macros:
+
+		SSE2_cmplx_carry_norm_pow2_errcheck0(r1 ,add0,add1,add2,cy_r01,bjmodn0,bjmodn1);
+		SSE2_cmplx_carry_norm_pow2_errcheck (r5 ,add0,add1,add2,cy_r23,bjmodn2,bjmodn3);
+		SSE2_cmplx_carry_norm_pow2_errcheck (r9 ,add0,add1,add2,cy_r45,bjmodn4,bjmodn5);
+		SSE2_cmplx_carry_norm_pow2_errcheck (r13,add0,add1,add2,cy_r67,bjmodn6,bjmodn7);
+		SSE2_cmplx_carry_norm_pow2_errcheck (r17,add0,add1,add2,cy_r89,bjmodn8,bjmodn9);
+		SSE2_cmplx_carry_norm_pow2_errcheck (r21,add0,add1,add2,cy_rAB,bjmodnA,bjmodnB);
+		SSE2_cmplx_carry_norm_pow2_errcheck (r25,add0,add1,add2,cy_rCD,bjmodnC,bjmodnD);
+		SSE2_cmplx_carry_norm_pow2_errcheck (r29,add0,add1,add2,cy_rEF,bjmodnE,bjmodnF);
+		[address-calc stuff]
+		SSE2_cmplx_carry_norm_pow2_errcheck2(r1 ,add0,add1     ,cy_r01,bjmodn0,bjmodn1);
+		SSE2_cmplx_carry_norm_pow2_errcheck2(r5 ,add0,add1     ,cy_r23,bjmodn2,bjmodn3);
+		SSE2_cmplx_carry_norm_pow2_errcheck2(r9 ,add0,add1     ,cy_r45,bjmodn4,bjmodn5);
+		SSE2_cmplx_carry_norm_pow2_errcheck2(r13,add0,add1     ,cy_r67,bjmodn6,bjmodn7);
+		SSE2_cmplx_carry_norm_pow2_errcheck2(r17,add0,add1     ,cy_r89,bjmodn8,bjmodn9);
+		SSE2_cmplx_carry_norm_pow2_errcheck2(r21,add0,add1     ,cy_rAB,bjmodnA,bjmodnB);
+		SSE2_cmplx_carry_norm_pow2_errcheck2(r25,add0,add1     ,cy_rCD,bjmodnC,bjmodnD);
+		SSE2_cmplx_carry_norm_pow2_errcheck2(r29,add0,add1     ,cy_rEF,bjmodnE,bjmodnF);
+	*/
 		#define SSE2_cmplx_carry_norm_pow2_errcheck0(__data,__wtA,__wtB,__wtC,__cy,__bjmod_0,__bjmod_1)\
 		{\
 		/***************Unpack the data:*************************/\
@@ -4911,603 +5824,5 @@ With one pass through the SSE2ified versions of the above macros:
 	#endif	/* MSVC or GCC */
 
 #endif	/* USE_SSE2 */
-
-#define cmplx_carry_norm_pow2_errcheck0(x,y,cy,bjmodn)\
-{\
-		wtA=wt1[col];\
-		wtB=wt1[co2];\
-		wtC=wt1[co3];\
-		wt   =wtl*wtA;\
-		wtinv=wtn*wtB;\
-/*		i =((uint32)(sw - bjmodn) >> 31);Don't want this for set 0. */\
-		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		\
-		x = cy+ x*wtinv;\
-		temp = DNINT(x);				check_nint(temp, x);\
-		frac = fabs(x-temp);\
-		if(frac > maxerr) maxerr=frac;\
-		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
-		x = (temp-cy*base[i])*wt;\
-		\
-	  bjmodn = (bjmodn + bw) & nm1;\
-		\
-		wt   =wtlp1*wtA;\
-		wtinv=wtnm1*wtC;\
-		i =((uint32)(sw - bjmodn) >> 31);\
-		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		\
-		y = cy+ y*wtinv;\
-		temp = DNINT(y);				check_nint(temp, y);\
-		frac = fabs(y-temp);\
-		if(frac > maxerr) maxerr=frac;\
-		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
-		y = (temp-cy*base[i])*wt;\
-		\
-	  bjmodn = (bjmodn + bw) & nm1;\
-}
-
-#define cmplx_carry_norm_pow2_errcheck(x,y,cy,bjmodn,set)\
-{\
-		wtA=wt1[col+set];\
-		wtB=wt1[co2-set];\
-		wtC=wt1[co3-set];\
-		wt   =wtl*wtA;\
-		wtinv=wtn*wtB;\
-		i =((uint32)(sw - bjmodn) >> 31);\
-		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		\
-		x = cy+ x*wtinv;\
-		temp = DNINT(x);				check_nint(temp, x);\
-		frac = fabs(x-temp);\
-		if(frac > maxerr) maxerr=frac;\
-		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
-		x = (temp-cy*base[i])*wt;\
-		\
-	  bjmodn = (bjmodn + bw) & nm1;\
-		\
-		wt   =wtlp1*wtA;\
-		wtinv=wtnm1*wtC;\
-		i =((uint32)(sw - bjmodn) >> 31);\
-		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		\
-		y = cy+ y*wtinv;\
-		temp = DNINT(y);				check_nint(temp, y);\
-		frac = fabs(y-temp);\
-		if(frac > maxerr) maxerr=frac;\
-		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
-		y = (temp-cy*base[i])*wt;\
-		\
-	  bjmodn = (bjmodn + bw) & nm1;\
-}
-
-#define cmplx_carry_norm_pow2_nocheck0(x,y,cy,bjmodn)\
-{\
-		wtA=wt1[col];\
-		wtB=wt1[co2];\
-		wtC=wt1[co3];\
-		wt   =wtl*wtA;\
-		wtinv=wtn*wtB;\
-/*		i =((uint32)(sw - bjmodn) >> 31);Don't want this for set 0. */\
-		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-/*\
-if(j==0)printf("B: col,co2,co3 = %d %d %d\n",col,co2,co3);\
-if(j==0)printf("B: x, y, cy = %20.15f %20.15f %20.15f\n",x,y,cy);\
-if(j==0)printf("B: wt,inv = %20.15f %20.15f\n",wt,wtinv);\
-*/\
-		\
-		x = cy+ x*wtinv;\
-		temp = DNINT(x);				check_nint(temp, x);\
-		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
-		x = (temp-cy*base[i])*wt;\
-		\
-	  bjmodn = (bjmodn + bw) & nm1;\
-		\
-		wt   =wtlp1*wtA;\
-		wtinv=wtnm1*wtC;\
-		i =((uint32)(sw - bjmodn) >> 31);\
-		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		\
-		y = cy+ y*wtinv;\
-		temp = DNINT(y);				check_nint(temp, y);\
-		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
-		y = (temp-cy*base[i])*wt;\
-		\
-	  bjmodn = (bjmodn + bw) & nm1;\
-/*\
-if(j==0)printf("B:~x,~y,~cy = %20.15f %20.15f %20.15f\n",x,y,cy);\
-*/\
-}
-
-#define cmplx_carry_norm_pow2_nocheck(x,y,cy,bjmodn,set)\
-{\
-		wtA=wt1[col+set];\
-		wtB=wt1[co2-set];\
-		wtC=wt1[co3-set];\
-		wt   =wtl*wtA;\
-		wtinv=wtn*wtB;\
-		i =((uint32)(sw - bjmodn) >> 31);\
-		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-/*\
-if(j==0)printf("B: set = %d\n",set);\
-if(j==0)printf("B: x, y, cy = %20.15f %20.15f %20.15f\n",x,y,cy);\
-if(j==0)printf("B: wt,inv = %20.15f %20.15f\n",wt,wtinv);\
-*/\
-		\
-		x = cy+ x*wtinv;\
-		temp = DNINT(x);				check_nint(temp, x);\
-		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
-		x = (temp-cy*base[i])*wt;\
-		\
-	  bjmodn = (bjmodn + bw) & nm1;\
-		\
-		wt   =wtlp1*wtA;\
-		wtinv=wtnm1*wtC;\
-		i =((uint32)(sw - bjmodn) >> 31);\
-		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		\
-		y = cy+ y*wtinv;\
-		temp = DNINT(y);				check_nint(temp, y);\
-		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
-		y = (temp-cy*base[i])*wt;\
-		\
-	  bjmodn = (bjmodn + bw) & nm1;\
-/*\
-if(j==0)printf("B:~x,~y,~cy = %20.15f %20.15f %20.15f\n",x,y,cy);\
-*/\
-}
-
-
-/*
-Non-power-of-2 runlengths:
-*/
-#define cmplx_carry_norm_errcheck0(x,y,cy,bjmodn)\
-{\
-		wtA=wt1[col];\
-		wtB=wt1[co2];\
-		wtC=wt1[co3];\
-		wt   =wtl*wtA;\
-		wtinv=wtn*wtB;\
-/*		i =((uint32)(sw - bjmodn) >> 31);Don't want this for set 0. */\
-		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		\
-		x = cy+ x*wtinv;\
-		temp = DNINT(x);				check_nint(temp, x);\
-		frac = fabs(x-temp);\
-		if(frac > maxerr) maxerr=frac;\
-/*\
-if(frac > 0.1)\
-printf("WARN: frac = %10.8f occurred in Re(a[%2u]) at j = %10d\n",frac,j,0);\
-*/\
-		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
-		x = (temp-cy*base[i])*wt;\
-		\
-	  bjmodn -= sw;\
-	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
-		\
-		wt   =wtlp1*wtA;\
-		wtinv=wtnm1*wtC;\
-		i =((uint32)(sw - bjmodn) >> 31);\
-		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		\
-		y = cy+ y*wtinv;\
-		temp = DNINT(y);				check_nint(temp, y);\
-		frac = fabs(y-temp);\
-		if(frac > maxerr) maxerr=frac;\
-/*\
-if(frac > 0.1)\
-printf("WARN: frac = %10.8f occurred in Im(a[%2u]) at j = %10d\n",frac,j,0);\
-*/\
-		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
-		y = (temp-cy*base[i])*wt;\
-		\
-	  bjmodn -= sw;\
-	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
-}
-
-#define cmplx_carry_norm_errcheck(x,y,cy,bjmodn,set)\
-{\
-		wtA=wt1[col+set];\
-		wtB=wt1[co2-set];\
-		wtC=wt1[co3-set];\
-		wt   =wtl*wtA;\
-		wtinv=wtn*wtB;\
-		i =((uint32)(sw - bjmodn) >> 31);\
-		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		\
-		x = cy+ x*wtinv;\
-		temp = DNINT(x);				check_nint(temp, x);\
-		frac = fabs(x-temp);\
-		if(frac > maxerr) maxerr=frac;\
-/*\
-if(frac > 0.1)\
-printf("WARN: frac = %10.8f occurred in Re(a[%2u]) at j = %10d\n",frac,j,set);\
-*/\
-		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
-		x = (temp-cy*base[i])*wt;\
-		\
-	  bjmodn -= sw;\
-	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
-		\
-		wt   =wtlp1*wtA;\
-		wtinv=wtnm1*wtC;\
-		i =((uint32)(sw - bjmodn) >> 31);\
-		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		\
-		y = cy+ y*wtinv;\
-		temp = DNINT(y);				check_nint(temp, y);\
-		frac = fabs(y-temp);\
-		if(frac > maxerr) maxerr=frac;\
-/*\
-if(frac > 0.1)\
-printf("WARN: frac = %10.8f occurred in Im(a[%2u]) at j = %10d\n",frac,j,set);\
-*/\
-		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
-		y = (temp-cy*base[i])*wt;\
-		\
-	  bjmodn -= sw;\
-	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
-}
-
-/* A version with a slightly different sequencing, attempting to achieve better pipelining: */
-#define cmplx_carry_norm_errcheckB(x,y,cy,bjmodn,set)\
-{\
-		x *= wtn;\
-		y *= wtnm1;\
-		wtA=wt1[col+set];\
-		wtB=wt1[co2-set];	x *= wtB;\
-		wtC=wt1[co3-set];	y *= wtC;\
-		wt   =wtl*wtA;\
-		i =((uint32)(sw - bjmodn) >> 31);\
-		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
-		wt =     wt*one_half[m];\
-		x  = cy + x*one_half[m2];\
-		temp = DNINT(x);				check_nint(temp, x);\
-		frac = fabs(x-temp);\
-		if(frac > maxerr) maxerr=frac;\
-		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
-		x = (temp-cy*base[i])*wt;\
-		\
-	  bjmodn -= sw;\
-	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
-		\
-		wt   =wtlp1*wtA;\
-		i =((uint32)(sw - bjmodn) >> 31);\
-		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
-		wt =     wt*one_half[m];\
-		y  = cy + y*one_half[m2];\
-		temp = DNINT(y);				check_nint(temp, y);\
-		frac = fabs(y-temp);\
-		if(frac > maxerr) maxerr=frac;\
-		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
-		y = (temp-cy*base[i])*wt;\
-		\
-	  bjmodn -= sw;\
-	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
-}
-
-#define cmplx_carry_norm_nocheck0(x,y,cy,bjmodn)\
-{\
-		wtA=wt1[col];\
-		wtB=wt1[co2];\
-		wtC=wt1[co3];\
-		wt   =wtl*wtA;\
-		wtinv=wtn*wtB;\
-/*		i =((uint32)(sw - bjmodn) >> 31);Don't want this for set 0. */\
-		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		\
-		x = cy+ x*wtinv;\
-		temp = DNINT(x);				check_nint(temp, x);\
-		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
-		x = (temp-cy*base[i])*wt;\
-		\
-	  bjmodn -= sw;					/* result >= 0 if a bigword, < 0 if a smallword */\
-	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
-		\
-		wt   =wtlp1*wtA;\
-		wtinv=wtnm1*wtC;\
-		i =((uint32)(sw - bjmodn) >> 31);\
-		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		\
-		y = cy+ y*wtinv;\
-		temp = DNINT(y);				check_nint(temp, y);\
-		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
-		y = (temp-cy*base[i])*wt;\
-		\
-	  bjmodn -= sw;					/* result >= 0 if a bigword, < 0 if a smallword */\
-	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
-}
-
-#define cmplx_carry_norm_nocheck(x,y,cy,bjmodn,set)\
-{\
-		wtA=wt1[col+set];\
-		wtB=wt1[co2-set];\
-		wtC=wt1[co3-set];\
-		wt   =wtl*wtA;\
-		wtinv=wtn*wtB;\
-		i =((uint32)(sw - bjmodn) >> 31);\
-		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		\
-		x = cy+ x*wtinv;\
-		temp = DNINT(x);				check_nint(temp, x);\
-		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
-		x = (temp-cy*base[i])*wt;\
-		\
-		bjmodn -= sw;					/* result >= 0 if a bigword, < 0 if a smallword */\
-	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
-		\
-		wt   =wtlp1*wtA;\
-		wtinv=wtnm1*wtC;\
-		i =((uint32)(sw - bjmodn) >> 31);\
-		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		\
-		y = cy+ y*wtinv;\
-		temp = DNINT(y);				check_nint(temp, y);\
-		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
-		y = (temp-cy*base[i])*wt;\
-		\
-		bjmodn -= sw;					/* result >= 0 if a bigword, < 0 if a smallword */\
-	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
-}
-
-
-/*** Integer-based carry macros (not currently used, as they're slow): ***/
-
-#define Icmplx_carry_norm_errcheck0(x,y,cy,bjmodn)\
-{\
-const uint64 himask= ((uint64)1)<<63,\
-    	     two52 = ((uint64)1)<<52,\
-    	     ones  = ((uint64)((int64)-1)),\
-		 mmask = ones>>12;\
-const uint32 swbits = p/n;        /* Number of bits in a smallword. */\
-uint64 ix,ifrac,ifracmax = 0;\
- int64 sign,mant,word,topbit;\
-uint32 dexp,bits;\
- int32 shift;\
-\
-		wtA=wt1[col];\
-		wtB=wt1[co2];\
-		wtC=wt1[co3];\
-		wt   =wtl*wtA;\
-		wtinv=wtn*wtB;\
-		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		\
-/*if(j1==0)printf("x0,cy,wtinv = %20.15e  %20.15e  %20.15e\n",x,cy,wtinv);*/\
-		x = cy+ x*wtinv;\
-bits  = swbits + i;\
-ix    = *((uint64 *)&x);\
-sign  = ix & himask;\
-mant  = ix & mmask;\
-dexp  = (ix-sign)>>52;\
-shift = 1074 - dexp;\
-/*if(j1==0)printf("0xmant,shift,bits = %20llX  %10d  %10u\n",mant,shift,bits);*/\
-if(shift<0)printf("WARN: j1 = %10d  %20.15e gives negative shift count = %10d\n",j1,x,shift);\
-if(shift < 52)\
-{\
-sign>>=63;  /* Signed arithmetic left-shift here, i.e. get -1 if float had sign bit set. */\
-ifrac = mant << (63-shift);\
-if(ifrac > ifracmax) ifracmax=ifrac;\
-mant += ((uint64)1)<<shift;\
-mant  = (mant+two52)>>(shift+1);\
-/*if(j1==0)printf("A: 0xmant = %20llX\n",mant);*/\
-mant -= (mant & sign)<<1;\
-/*if(j1==0)printf("B: 0xmant = %20llX\n",mant);*/\
-word  = mant & (~(ones << bits));\
-/*if(j1==0)printf("C: 0xword = %20llX\n",word);*/\
-topbit= word >> (bits - 1);\
-/*if(j1==0)printf("D: 0xtbit = %20llX\n",topbit);*/\
-word -= topbit << bits;\
-/*if(j1==0)printf("E: 0xword = %20llX\n",word);*/\
-x     = wt*(double)word;\
-cy    = (double)( (mant >> bits) + topbit );\
-/*if(j1==0)printf("%20.4f  %20.4f\n",x,cy);*/\
-}\
-else\
-{\
-  x = 0; cy = 0;\
-}\
-		/*\
-		temp = (x + RND_A) - RND_B;\
-		frac = fabs(x-temp);\
-		if(frac > maxerr) maxerr=frac;\
-		cy   = (temp*baseinv[i] + RND_A) - RND_B;\
-		x = (temp-cy*base[i])*wt;\
-		*/\
-	  bjmodn -= sw;\
-	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
-		\
-		wt   =wtlp1*wtA;\
-		wtinv=wtnm1*wtC;\
-		i =((uint32)(sw - bjmodn) >> 31);\
-		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		\
-/*if(j1==0)printf("y0,cy,wtinv = %20.15e  %20.15e  %20.15e\n",y,cy,wtinv);*/\
-		y = cy+ y*wtinv;\
-bits  = swbits + i;\
-ix    = *((uint64 *)&y);\
-sign  = ix & himask;\
-mant  = ix & mmask;\
-dexp  = (ix-sign)>>52;\
-shift = 1074 - dexp;\
-if(shift<0)printf("WARN: j1 = %10d  %20.15e gives negative shift count = %10d\n",j1,y,shift);\
-if(shift < 52)\
-{\
-sign>>=63;  /* Signed arithmetic left-shift here, i.e. get -1 if float had sign bit set. */\
-ifrac = mant << (63-shift);\
-if(ifrac > ifracmax) ifracmax=ifrac;\
-mant += ((uint64)1)<<shift;\
-mant  = (mant+two52)>>(shift+1);\
-mant -= (mant & sign)<<1;\
-word  = mant & (~(ones << bits));\
-topbit= word >> (bits - 1);\
-word -= topbit << bits;\
-y     = wt*(double)word;\
-cy    = (double)( (mant >> bits) + topbit );\
-/*if(j1==0)printf("%20.4f  %20.4f\n",y,cy);*/\
-}\
-else\
-{\
-  y = 0; cy = 0;\
-}\
-		/*\
-		temp = (y + RND_A) - RND_B;\
-		frac = fabs(y-temp);\
-		if(frac > maxerr) maxerr=frac;\
-		cy   = (temp*baseinv[i] + RND_A) - RND_B;\
-		y = (temp-cy*base[i])*wt;\
-		*/\
-	  bjmodn -= sw;\
-	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
-}
-
-#define Icmplx_carry_norm_errcheck(x,y,cy,bjmodn,set)\
-{\
-		wtA=wt1[col+set];\
-		wtB=wt1[co2-set];\
-		wtC=wt1[co3-set];\
-		wt   =wtl*wtA;\
-		wtinv=wtn*wtB;\
-		i =((uint32)(sw - bjmodn) >> 31);\
-		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		\
-		x = cy+ x*wtinv;\
-bits  = swbits + i;\
-ix    = *((uint64 *)&x);\
-sign  = ix & himask;\
-mant  = ix & mmask;\
-dexp  = (ix-sign)>>52;\
-shift = 1074 - dexp;\
-if(shift<0)printf("WARN: j1 = %10d  %20.15e gives negative shift count = %10d\n",j1,x,shift);\
-if(shift < 52)\
-{\
-sign>>=63;  /* Signed arithmetic left-shift here, i.e. get -1 if float had sign bit set. */\
-ifrac = mant << (63-shift);\
-if(ifrac > ifracmax) ifracmax=ifrac;\
-mant += ((uint64)1)<<shift;\
-mant  = (mant+two52)>>(shift+1);\
-mant -= (mant & sign)<<1;\
-word  = mant & (~(ones << bits));\
-topbit= word >> (bits - 1);\
-word -= topbit << bits;\
-x     = wt*(double)word;\
-cy    = (double)( (mant >> bits) + topbit );\
-}\
-else\
-{\
-  x = 0; cy = 0;\
-}\
-		/*\
-		temp = (x + RND_A) - RND_B;\
-		frac = fabs(x-temp);\
-		if(frac > maxerr) maxerr=frac;\
-		cy   = (temp*baseinv[i] + RND_A) - RND_B;\
-		x = (temp-cy*base[i])*wt;\
-		*/\
-	  bjmodn -= sw;\
-	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
-		\
-		wt   =wtlp1*wtA;\
-		wtinv=wtnm1*wtC;\
-		i =((uint32)(sw - bjmodn) >> 31);\
-		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		\
-		y = cy+ y*wtinv;\
-bits  = swbits + i;\
-ix    = *((uint64 *)&y);\
-sign  = ix & himask;\
-mant  = ix & mmask;\
-dexp  = (ix-sign)>>52;\
-shift = 1074 - dexp;\
-if(shift<0)printf("WARN: j1 = %10d  %20.15e gives negative shift count = %10d\n",j1,y,shift);\
-if(shift < 52)\
-{\
-sign>>=63;  /* Signed arithmetic left-shift here, i.e. get -1 if float had sign bit set. */\
-ifrac = mant << (63-shift);\
-if(ifrac > ifracmax) ifracmax=ifrac;\
-mant += ((uint64)1)<<shift;\
-mant  = (mant+two52)>>(shift+1);\
-mant -= (mant & sign)<<1;\
-word  = mant & (~(ones << bits));\
-topbit= word >> (bits - 1);\
-word -= topbit << bits;\
-y     = wt*(double)word;\
-cy    = (double)( (mant >> bits) + topbit );\
-}\
-else\
-{\
-  y = 0; cy = 0;\
-}\
-		/*\
-		temp = (y + RND_A) - RND_B;\
-		frac = fabs(y-temp);\
-		if(frac > maxerr) maxerr=frac;\
-		cy   = (temp*baseinv[i] + RND_A) - RND_B;\
-		y = (temp-cy*base[i])*wt;\
-		*/\
-	  bjmodn -= sw;\
-	  bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
-}
-
 
 #endif	/* carry_h_included */

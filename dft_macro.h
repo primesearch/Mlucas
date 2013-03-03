@@ -34,6 +34,7 @@
 
 /* Totals: 12 FADD, 4 FMUL	*/
 #define RADIX_03_DFT(\
+	__s,__c3m1,\
 	__Ar0,__Ai0,\
 	__Ar1,__Ai1,\
 	__Ar2,__Ai2,\
@@ -42,21 +43,21 @@
 	__tr2,__ti2,\
 	__Br0,__Bi0,\
 	__Br1,__Bi1,\
-	__Br2,__Bi2,\
-	__rt,__it)\
+	__Br2,__Bi2)\
 {\
-	__rt  =__Ar2;					__it  =__Ai2;			\
-	__tr2 =__Ar1 - __rt;			__ti2 =__Ai1 - __it;	\
-	__tr1 =__Ar1 + __rt;			__ti1 =__Ai1 + __it;	\
+	__tr0 =__Ar2;					__ti0 =__Ai2;			\
+	__tr2 =__Ar1 - __tr0;			__ti2 =__Ai1 - __ti0;	\
+	__tr1 =__Ar1 + __tr0;			__ti1 =__Ai1 + __ti0;	\
 	__Br0 =__Ar0 + __tr1;			__Bi0 =__Ai0 + __ti1;	\
-	__Br1 =__Br0 + __tr1*c3m1;		__Bi1 =__Bi0 + __ti1*c3m1;\
-	__rt  =c*__tr2;					__it  =c*__ti2;			\
-	__Br2 =__Br1 + __it;			__Bi2 =__Bi1 - __rt;	\
-	__Br1 =__Br1 - __it;			__Bi1 =__Bi1 + __rt;	\
+	__Br1 =__Br0 + __tr1*__c3m1;	__Bi1 =__Bi0 + __ti1*__c3m1;\
+	__tr0 =__s*__tr2;				__ti0 =__s*__ti2;			\
+	__Br2 =__Br1 + __ti0;			__Bi2 =__Bi1 - __tr0;	\
+	__Br1 =__Br1 - __ti0;			__Bi1 =__Bi1 + __tr0;	\
 }
 
 /* Totals: 12 FADD, 4 FMUL	*/
 #define RADIX_03_DFT_PFETCH(\
+	__s,__c3m1,\
 	__Ar0,__Ai0,\
 	__Ar1,__Ai1,\
 	__Ar2,__Ai2,\
@@ -66,20 +67,19 @@
 	__Br0,__Bi0,\
 	__Br1,__Bi1,\
 	__Br2,__Bi2,\
-	__rt,__it,\
 	__add_offset)\
 {\
-	__rt  =__Ar2;					__it  =__Ai2;			\
-	__tr2 =__Ar1 - __rt;			__ti2 =__Ai1 - __it;	\
-	__tr1 =__Ar1 + __rt;			__ti1 =__Ai1 + __it;	\
+	__tr0 =__Ar2;					__ti0 =__Ai2;			\
+	__tr2 =__Ar1 - __tr0;			__ti2 =__Ai1 - __ti0;	\
+	__tr1 =__Ar1 + __tr0;			__ti1 =__Ai1 + __ti0;	\
 	__Br0 =__Ar0 + __tr1;			__Bi0 =__Ai0 + __ti1;	\
-	__Br1 =__Br0 + __tr1*c3m1;		__Bi1 =__Bi0 + __ti1*c3m1;\
+	__Br1 =__Br0 + __tr1*__c3m1;	__Bi1 =__Bi0 + __ti1*__c3m1;\
 	\
 	addr = add0 + __add_offset;	prefetch_p_doubles(addr);	\
 	\
-	__rt  =c*__tr2;					__it  =c*__ti2;			\
-	__Br2 =__Br1 + __it;			__Bi2 =__Bi1 - __rt;	\
-	__Br1 =__Br1 - __it;			__Bi1 =__Bi1 + __rt;	\
+	__tr0 =__s*__tr2;				__ti0 =__s*__ti2;			\
+	__Br2 =__Br1 + __ti0;			__Bi2 =__Bi1 - __tr0;	\
+	__Br1 =__Br1 - __ti0;			__Bi1 =__Bi1 + __tr0;	\
 }
 
 /****** RADIX = 4: ******/
@@ -978,6 +978,102 @@ let y0 = (x1-x10) = t21,22, y4 = (x9-x2) = -t19,20, y2 = (x3-x8) = t17,18, y3 = 
 
 /****** RADIX = 13: ******/
 
+/* This version implements a straight tangent-based radix-13 DFT and only tries to minimize the number
+of temporaries used in each of the major phases, with view toward a 16-register-optimized version.
+(That is why we do the x and y-pieces side-by-side).
+For an 8-register-optimized version which moreover mimics x86-style destructive (2-input, one overwritten with output)
+register arithmetic, see the RADIX_13_XYZ version of the same macro in radix13_ditN_cy_dif1.c .
+
+Output ordering is as for DIF, so for DIT caller must reverse order of last 12 B-output args.
+
+ASSUMES that the needed DC and DS-constants have been defined in the calling routine via inclusion of the radix13.h header file..
+*/
+#define RADIX_13_DFT(__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__Aar,__Aai,__Abr,__Abi,__Acr,__Aci\
+					,__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__Bar,__Bai,__Bbr,__Bbi,__Bcr,__Bci\
+					)\
+{\
+	double xr0, xi0, xr1, xi1, xr2, xi2, xr3, xi3, xr4, xi4, xr5, xi5, xr6, xi6, xr7, xi7;\
+	double yr1, yi1, yr2, yi2, yr3, yi3, yr4, yi4, yr5, yi5, yr6, yi6;\
+\
+		xr7 = __A6r + __A7r;			xi7 = __A6i + __A7i;		\
+		xr5 = __A5r + __A8r;			xi5 = __A5i + __A8i;		\
+		xr4 = __A4r + __A9r;			xi4 = __A4i + __A9i;		\
+		xr6 = __A3r + __Aar;			xi6 = __A3i + __Aai;		\
+		xr3 = __A2r + __Abr;			xi3 = __A2i + __Abi;		\
+		xr1 = __A1r + __Acr;			xi1 = __A1i + __Aci;		\
+\
+		yr1 = __A1r - __Acr;			yi1 = __A1i - __Aci;		\
+		yr2 = __A2r - __Abr;			yi2 = __A2i - __Abi;		\
+		yr5 = __A3r - __Aar;			yi5 = __A3i - __Aai;		\
+		yr3 = __A4r - __A9r;			yi3 = __A4i - __A9i;		\
+		yr4 = __A5r - __A8r;			yi4 = __A5i - __A8i;		\
+		yr6 = __A6r - __A7r;			yi6 = __A6i - __A7i;		\
+\
+/* x-terms need 8 registers for each side: */\
+		xr2 = xr1+xr5;					xi2 = xi1+xi5;\
+		xr5 = xr1-xr5;					xi5 = xi1-xi5;\
+		xr0 = xr3+xr6;					xi0 = xi3+xi6;\
+		xr6 = xr3-xr6;					xi6 = xi3-xi6;\
+		xr3 = xr4+xr7;					xi3 = xi4+xi7;\
+		xr7 = xr4-xr7;					xi7 = xi4-xi7;\
+		xr1 = xr2+xr0+xr3;				xi1 = xi2+xi0+xi3;\
+		xr4 = __A0r+xr1;				xi4 = __A0i+xi1;\
+		__B0r = xr4;					__B0i = xi4;\
+		xr4 +=    DC1*xr1;				xi4 +=    DC1*xi1;\
+		xr1 = xr4+DC2*xr2+DC3*xr0;		xi1 = xi4+DC2*xi2+DC3*xi0;\
+		xr2 = xr4+DC2*xr3+DC3*xr2;		xi2 = xi4+DC2*xi3+DC3*xi2;\
+		xr0 = xr4+DC2*xr0+DC3*xr3;		xi0 = xi4+DC2*xi0+DC3*xi3;\
+		xr4 = DC4*xr5+DC5*xr6+DC6*xr7;	xi4 = DC4*xi5+DC5*xi6+DC6*xi7;\
+		xr3 = DC4*xr6+DC5*xr7-DC6*xr5;	xi3 = DC4*xi6+DC5*xi7-DC6*xi5;\
+		xr7 = DC4*xr7-DC5*xr5-DC6*xr6;	xi7 = DC4*xi7-DC5*xi5-DC6*xi6;\
+		xr5 = xr0+xr4;					xi5 = xi0+xi4;\
+		xr0 = xr0-xr4;					xi0 = xi0-xi4;\
+		xr6 = xr2+xr3;					xi6 = xi2+xi3;\
+		xr2 = xr2-xr3;					xi2 = xi2-xi3;\
+		xr3 = xr1+xr7;					xi3 = xi1+xi7;\
+		xr7 = xr1-xr7;					xi7 = xi1-xi7;\
+/* x4,1 free...now do y-terms: */\
+		xr4 = yr1-yr3+yr5;				xi4 = yi1-yi3+yi5;\
+		yr1 = yr1+yr3;					yi1 = yi1+yi3;\
+		yr5 = yr3+yr5;		 			yi5 = yi3+yi5;\
+		yr3 = yr2+yr4+yr6;				yi3 = yi2+yi4+yi6;\
+		yr2 = yr2-yr4;					yi2 = yi2-yi4;\
+		yr4 = yr6-yr4;		 			yi4 = yi6-yi4;\
+		xr1 = DS1*xr4+DS2*yr3;			xi1 = DS1*xi4+DS2*yi3;\
+/* Need to use one output as a temporary here if have just 8 registers: */\
+		__B1i = DS1*yr3-DS2*xr4;		__B1r = DS1*yi3-DS2*xi4;\
+		yr3 = yr1+yr2;		 			yi3 = yi1+yi2;\
+		yr6 = yr5+yr4;					yi6 = yi5+yi4;\
+		xr4 = DS3*yr3-DS6*yr6;			xi4 = DS3*yi3-DS6*yi6;\
+		yr3 = DS9*yr3-DS3*yr6;			yi3 = DS9*yi3-DS3*yi6;\
+		yr6 = xr4+DS4*yr2-DS7*yr4;		yi6 = xi4+DS4*yi2-DS7*yi4;\
+		yr2 = yr3+DSa*yr2-DS4*yr4;		yi2 = yi3+DSa*yi2-DS4*yi4;\
+		yr4 = xr4+DS5*yr1-DS8*yr5;		yi4 = xi4+DS5*yi1-DS8*yi5;\
+		yr3 = yr3+DSb*yr1-DS5*yr5;		yi3 = yi3+DSb*yi1-DS5*yi5;\
+		xr4 = __B1i;					xi4 = __B1r;\
+		yr5 = xr1+yr6;					yi5 = xi1+yi6;\
+		yr6 = yr6-xr1-yr2;				yi6 = yi6-xi1-yi2;\
+		yr2 = xr1-yr2;					yi2 = xi1-yi2;\
+		yr1 = xr4+yr4;					yi1 = xi4+yi4;\
+		yr4 = yr4-xr4-yr3;				yi4 = yi4-xi4-yi3;\
+		xr4 = xr4-yr3;					xi4 = xi4-yi3;\
+/* In ASM, do xr and yi-terms and combine to get real parts of outputs,\
+   then do xi and yr-terms and combine to get imaginary parts: */\
+		__B1r = xr7-xi4;				__B1i = xi7+xr4;\
+		__Bcr = xr7+xi4;	 			__Bci = xi7-xr4;\
+		__B2r = xr2-yi2;	 			__B2i = xi2+yr2;\
+		__Bbr = xr2+yi2;				__Bbi = xi2-yr2;\
+		__B3r = xr6-yi1;	 			__B3i = xi6+yr1;\
+		__Bar = xr6+yi1;				__Bai = xi6-yr1;\
+		__B4r = xr0-yi4;	 			__B4i = xi0+yr4;\
+		__B9r = xr0+yi4;				__B9i = xi0-yr4;\
+		__B5r = xr3+yi6;				__B5i = xi3-yr6;\
+		__B8r = xr3-yi6;				__B8i = xi3+yr6;\
+		__B6r = xr5-yi5;				__B6i = xi5+yr5;\
+		__B7r = xr5+yi5;				__B7i = xi5-yr5;\
+/* Totals: 164 FADD, 64 FMUL. */\
+}
+
 /****** RADIX = 15: ******/
 
 /* Totals: 162 FADD, 50 FMUL	*/
@@ -1029,143 +1125,145 @@ let y0 = (x1-x10) = t21,22, y4 = (x9-x2) = -t19,20, y2 = (x3-x8) = t17,18, y3 = 
 	__Br14,__Bi14,\
 	__rt,__it)\
 {\
+/* Default input order for a twiddleless radix-15 DIF (cf.radix15_dif_pass1()) is [0,10,5,12,7,2,9,4,14,6,1,11,3,13,8]. */\
 /*...gather the needed data (15 64-bit complex, i.e. 30 64-bit reals) and do 3 radix-5 transforms...*/\
-/*...Block 1:	*/							\
-	__tr00 = __Ar00;		__ti00 = __Ai00;		\
-	__tr01 = __Ar03;		__ti01 = __Ai03;		\
-	__rt   = __Ar12;		__it   = __Ai12;		\
-	__tr03 = __tr01-__rt;		__ti03 = __ti01-__it;		\
-	__tr01 = __tr01+__rt;		__ti01 = __ti01+__it;		\
-	__tr02 = __Ar06;		__ti02 = __Ai06;		\
-	__rt   = __Ar09;		__it   = __Ai09;		\
-	__tr04 = __tr02-__rt;		__ti04 = __ti02-__it;		\
-	__tr02 = __tr02+__rt;		__ti02 = __ti02+__it;		\
+/*...Block 1: Swap inputs as 03 <-> 12, 06 <-> 09: */\
+	__tr00 = __Ar00;				__ti00 = __Ai00;		\
+	__tr01 = __Ar12;				__ti01 = __Ai12;		\
+	__rt   = __Ar03;				__it   = __Ai03;		\
+	__tr03 = __tr01-__rt;			__ti03 = __ti01-__it;		\
+	__tr01 = __tr01+__rt;			__ti01 = __ti01+__it;		\
+	__tr02 = __Ar09;				__ti02 = __Ai09;		\
+	__rt   = __Ar06;				__it   = __Ai06;		\
+	__tr04 = __tr02-__rt;			__ti04 = __ti02-__it;		\
+	__tr02 = __tr02+__rt;			__ti02 = __ti02+__it;		\
 									\
-	__rt   = __tr01+__tr02;		__it   = __ti01+__ti02;		\
-	__tr00 = __tr00+__rt;		__ti00 = __ti00+__it;		\
-	__rt   = __tr00+cn1*__rt;	__it   = __ti00+cn1*__it;	\
+	__rt   = __tr01+__tr02;			__it   = __ti01+__ti02;		\
+	__tr00 = __tr00+__rt;			__ti00 = __ti00+__it;		\
+	__rt   = __tr00+cn1*__rt;		__it   = __ti00+cn1*__it;	\
 	__tr02 = cn2*(__tr01-__tr02);	__ti02 = cn2*(__ti01-__ti02);	\
-	__tr01 = __rt+__tr02;		__ti01 = __it+__ti02;		\
-	__tr02 = __rt-__tr02;		__ti02 = __it-__ti02;		\
+	__tr01 = __rt+__tr02;			__ti01 = __it+__ti02;		\
+	__tr02 = __rt-__tr02;			__ti02 = __it-__ti02;		\
 	__rt   = ss3*(__tr03-__tr04);	__it   = ss3*(__ti03-__ti04);	\
-	__tr04 = __rt+sn1*__tr04;	__ti04 = __it+sn1*__ti04;	\
-	__tr03 = __rt-sn2*__tr03;	__ti03 = __it-sn2*__ti03;	\
-	__rt   = __tr04;		__it   = __ti04;		\
-	__tr04 = __tr01+__it;		__ti04 = __ti01-__rt;		/*<==prefer these to be stored in __tr,i04 */\
-	__tr01 = __tr01-__it;		__ti01 = __ti01+__rt;		\
-	__rt   = __tr03;		__it   = __ti03;		\
-	__tr03 = __tr02+__it;		__ti03 = __ti02-__rt;		/*<==prefer these to be stored in __tr,i03 */\
-	__tr02 = __tr02-__it;		__ti02 = __ti02+__rt;		\
+	__tr04 = __rt+sn1*__tr04;		__ti04 = __it+sn1*__ti04;	\
+	__tr03 = __rt-sn2*__tr03;		__ti03 = __it-sn2*__ti03;	\
+	__rt   = __tr04;				__it   = __ti04;		\
+	__tr04 = __tr01+__it;			__ti04 = __ti01-__rt;		/*<==prefer these to be stored in __tr,i04 */\
+	__tr01 = __tr01-__it;			__ti01 = __ti01+__rt;		\
+	__rt   = __tr03;				__it   = __ti03;		\
+	__tr03 = __tr02+__it;			__ti03 = __ti02-__rt;		/*<==prefer these to be stored in __tr,i03 */\
+	__tr02 = __tr02-__it;			__ti02 = __ti02+__rt;		\
 									\
-/*...Block 2:	*/							\
-	__tr05 = __Ar01;		__ti05 = __Ai01;		\
-	__tr06 = __Ar04;		__ti06 = __Ai04;		\
-	__rt   = __Ar13;		__it   = __Ai13;		\
-	__tr08 = __tr06 -__rt;		__ti08 = __ti06 -__it;		\
-	__tr06 = __tr06 +__rt;		__ti06 = __ti06 +__it;		\
-	__tr07 = __Ar07;		__ti07 = __Ai07;		\
-	__rt   = __Ar10;		__it   = __Ai10;		\
-	__tr09 = __tr07 -__rt;		__ti09 = __ti07 -__it;		\
-	__tr07 = __tr07 +__rt;		__ti07 = __ti07 +__it;		\
+/*...Block 2: Swap inputs as 01 <-> 10, 04 <-> 07: */\
+	__tr05 = __Ar10;				__ti05 = __Ai10;		\
+	__tr06 = __Ar07;				__ti06 = __Ai07;		\
+	__rt   = __Ar13;				__it   = __Ai13;		\
+	__tr08 = __tr06 -__rt;			__ti08 = __ti06 -__it;		\
+	__tr06 = __tr06 +__rt;			__ti06 = __ti06 +__it;		\
+	__tr07 = __Ar04;				__ti07 = __Ai04;		\
+	__rt   = __Ar01;				__it   = __Ai01;		\
+	__tr09 = __tr07 -__rt;			__ti09 = __ti07 -__it;		\
+	__tr07 = __tr07 +__rt;			__ti07 = __ti07 +__it;		\
 									\
-	__rt   = __tr06+__tr07;		__it   = __ti06+__ti07;		\
-	__tr05 = __tr05+__rt;		__ti05 = __ti05+__it;		\
-	__rt   = __tr05+cn1*__rt;	__it   = __ti05+cn1*__it;	\
+	__rt   = __tr06+__tr07;			__it   = __ti06+__ti07;		\
+	__tr05 = __tr05+__rt;			__ti05 = __ti05+__it;		\
+	__rt   = __tr05+cn1*__rt;		__it   = __ti05+cn1*__it;	\
 	__tr07 = cn2*(__tr06-__tr07);	__ti07 = cn2*(__ti06-__ti07);	\
-	__tr06 = __rt+__tr07;		__ti06 = __it+__ti07;		\
-	__tr07 = __rt-__tr07;		__ti07 = __it-__ti07;		\
+	__tr06 = __rt+__tr07;			__ti06 = __it+__ti07;		\
+	__tr07 = __rt-__tr07;			__ti07 = __it-__ti07;		\
 	__rt   = ss3*(__tr08-__tr09);	__it   = ss3*(__ti08-__ti09);	\
-	__tr09 = __rt+sn1*__tr09;	__ti09 = __it+sn1*__ti09;	\
-	__tr08 = __rt-sn2*__tr08;	__ti08 = __it-sn2*__ti08;	\
-	__rt   = __tr09;		__it   = __ti09;		\
-	__tr09 = __tr06+__it;		__ti09 = __ti06-__rt;		\
-	__tr06 = __tr06-__it;		__ti06 = __ti06+__rt;		\
-	__rt   = __tr08;		__it   = __ti08;		\
-	__tr08 = __tr07+__it;		__ti08 = __ti07-__rt;		\
-	__tr07 = __tr07-__it;		__ti07 = __ti07+__rt;		\
+	__tr09 = __rt+sn1*__tr09;		__ti09 = __it+sn1*__ti09;	\
+	__tr08 = __rt-sn2*__tr08;		__ti08 = __it-sn2*__ti08;	\
+	__rt   = __tr09;				__it   = __ti09;		\
+	__tr09 = __tr06+__it;			__ti09 = __ti06-__rt;		\
+	__tr06 = __tr06-__it;			__ti06 = __ti06+__rt;		\
+	__rt   = __tr08;				__it   = __ti08;		\
+	__tr08 = __tr07+__it;			__ti08 = __ti07-__rt;		\
+	__tr07 = __tr07-__it;			__ti07 = __ti07+__rt;		\
 									\
-/*...Block 3:	*/							\
-	__tr10 = __Ar02;		__ti10 = __Ai02;		\
-	__tr11 = __Ar05;		__ti11 = __Ai05;		\
-	__rt   = __Ar14;		__it   = __Ai14;		\
-	__tr13 = __tr11 -__rt;		__ti13 = __ti11 -__it;		\
-	__tr11 = __tr11 +__rt;		__ti11 = __ti11 +__it;		\
-	__tr12 = __Ar08;		__ti12 = __Ai08;		\
-	__rt   = __Ar11;		__it   = __Ai11;		\
-	__tr14 = __tr12 -__rt;		__ti14 = __ti12 -__it;		\
-	__tr12 = __tr12 +__rt;		__ti12 = __ti12 +__it;		\
+/*...Block 3: Swap inputs as 02 <-> 05, 08 <-> 14: */\
+	__tr10 = __Ar05;				__ti10 = __Ai05;		\
+	__tr11 = __Ar02;				__ti11 = __Ai02;		\
+	__rt   = __Ar08;				__it   = __Ai08;		\
+	__tr13 = __tr11 -__rt;			__ti13 = __ti11 -__it;		\
+	__tr11 = __tr11 +__rt;			__ti11 = __ti11 +__it;		\
+	__tr12 = __Ar14;				__ti12 = __Ai14;		\
+	__rt   = __Ar11;				__it   = __Ai11;		\
+	__tr14 = __tr12 -__rt;			__ti14 = __ti12 -__it;		\
+	__tr12 = __tr12 +__rt;			__ti12 = __ti12 +__it;		\
 									\
-	__rt   = __tr11+__tr12;		__it   = __ti11+__ti12;		\
-	__tr10 = __tr10+__rt;		__ti10 = __ti10+__it;		\
-	__rt   = __tr10+cn1*__rt;	__it   = __ti10+cn1*__it;	\
+	__rt   = __tr11+__tr12;			__it   = __ti11+__ti12;		\
+	__tr10 = __tr10+__rt;			__ti10 = __ti10+__it;		\
+	__rt   = __tr10+cn1*__rt;		__it   = __ti10+cn1*__it;	\
 	__tr12 = cn2*(__tr11-__tr12);	__ti12 = cn2*(__ti11-__ti12);	\
-	__tr11 = __rt+__tr12;		__ti11 = __it+__ti12;		\
-	__tr12 = __rt-__tr12;		__ti12 = __it-__ti12;		\
+	__tr11 = __rt+__tr12;			__ti11 = __it+__ti12;		\
+	__tr12 = __rt-__tr12;			__ti12 = __it-__ti12;		\
 	__rt   = ss3*(__tr13-__tr14);	__it   = ss3*(__ti13-__ti14);	\
-	__tr14 = __rt+sn1*__tr14;	__ti14 = __it+sn1*__ti14;	\
-	__tr13 = __rt-sn2*__tr13;	__ti13 = __it-sn2*__ti13;	\
-	__rt   = __tr14;		__it   = __ti14;		\
-	__tr14 = __tr11+__it;		__ti14 = __ti11-__rt;		\
-	__tr11 = __tr11-__it;		__ti11 = __ti11+__rt;		\
-	__rt   = __tr13;		__it   = __ti13;		\
-	__tr13 = __tr12+__it;		__ti13 = __ti12-__rt;		\
-	__tr12 = __tr12-__it;		__ti12 = __ti12+__rt;		\
+	__tr14 = __rt+sn1*__tr14;		__ti14 = __it+sn1*__ti14;	\
+	__tr13 = __rt-sn2*__tr13;		__ti13 = __it-sn2*__ti13;	\
+	__rt   = __tr14;				__it   = __ti14;		\
+	__tr14 = __tr11+__it;			__ti14 = __ti11-__rt;		\
+	__tr11 = __tr11-__it;			__ti11 = __ti11+__rt;		\
+	__rt   = __tr13;				__it   = __ti13;		\
+	__tr13 = __tr12+__it;			__ti13 = __ti12-__rt;		\
+	__tr12 = __tr12-__it;			__ti12 = __ti12+__rt;		\
 									\
-/*...and now do five radix-3 transforms:	*/			\
-/*...Block 1:	*/							\
-	__rt   = __tr10;		__it   = __ti10;		\
-	__tr10 = __tr05-__rt;		__ti10 = __ti05-__it;		\
-	__tr05 = __tr05+__rt;		__ti05 = __ti05+__it;		\
-	__tr00 = __tr00+__tr05;		__ti00 = __ti00+__ti05;		\
-	__Br00 = __tr00;		__Bi00 = __ti00;		\
+/*...and now do five radix-3 transforms.	\
+	The required output permutation is [0,1,2,13,14,12,9,10,11,8,6,7,4,5,3]. */\
+/*...Block 1:	*/					\
+	__rt   = __tr10;				__it   = __ti10;		\
+	__tr10 = __tr05-__rt;			__ti10 = __ti05-__it;		\
+	__tr05 = __tr05+__rt;			__ti05 = __ti05+__it;		\
+	__tr00 = __tr00+__tr05;			__ti00 = __ti00+__ti05;		\
+	__Br00 = __tr00;				__Bi00 = __ti00;		\
 	__tr05 = __tr00+c3m1*__tr05;	__ti05 = __ti00+c3m1*__ti05;	\
-	__rt   = s*__tr10;		__it   = s*__ti10;		\
-	__Br01 = __tr05-__it;		__Bi01 = __ti05+__rt;		\
-	__Br02 = __tr05+__it;		__Bi02 = __ti05-__rt;		\
+	__rt   = s*__tr10;				__it   = s*__ti10;		\
+	__Br01 = __tr05-__it;			__Bi01 = __ti05+__rt;		\
+	__Br02 = __tr05+__it;			__Bi02 = __ti05-__rt;		\
 									\
-/*...Block 2:	*/							\
-	__rt   = __tr11;		__it   = __ti11;		\
-	__tr11 = __tr06-__rt;		__ti11 = __ti06-__it;		\
-	__tr06 = __tr06+__rt;		__ti06 = __ti06+__it;		\
-	__tr01 = __tr01+__tr06;		__ti01 = __ti01+__ti06;		\
-	__Br03 = __tr01;		__Bi03 = __ti01;		\
+/*...Block 2:	*/					\
+	__rt   = __tr11;				__it   = __ti11;		\
+	__tr11 = __tr06-__rt;			__ti11 = __ti06-__it;		\
+	__tr06 = __tr06+__rt;			__ti06 = __ti06+__it;		\
+	__tr01 = __tr01+__tr06;			__ti01 = __ti01+__ti06;		\
+	__Br13 = __tr01;				__Bi13 = __ti01;		\
 	__tr06 = __tr01+c3m1*__tr06;	__ti06 = __ti01+c3m1*__ti06;	\
-	__rt   = s*__tr11;		__it   = s*__ti11;		\
-	__Br04 = __tr06-__it;		__Bi04 = __ti06+__rt;		\
-	__Br05 = __tr06+__it;		__Bi05 = __ti06-__rt;		\
+	__rt   = s*__tr11;				__it   = s*__ti11;		\
+	__Br14 = __tr06-__it;			__Bi14 = __ti06+__rt;		\
+	__Br12 = __tr06+__it;			__Bi12 = __ti06-__rt;		\
 									\
-/*...Block 3:	*/							\
-	__rt   = __tr12;		__it   = __ti12;		\
-	__tr12 = __tr07-__rt;		__ti12 = __ti07-__it;		\
-	__tr07 = __tr07+__rt;		__ti07 = __ti07+__it;		\
-	__tr02 = __tr02+__tr07;		__ti02 = __ti02+__ti07;		\
-	__Br06 = __tr02;		__Bi06 = __ti02;		\
+/*...Block 3:	*/					\
+	__rt   = __tr12;				__it   = __ti12;		\
+	__tr12 = __tr07-__rt;			__ti12 = __ti07-__it;		\
+	__tr07 = __tr07+__rt;			__ti07 = __ti07+__it;		\
+	__tr02 = __tr02+__tr07;			__ti02 = __ti02+__ti07;		\
+	__Br09 = __tr02;				__Bi09 = __ti02;		\
 	__tr07 = __tr02+c3m1*__tr07;	__ti07 = __ti02+c3m1*__ti07;	\
-	__rt   = s*__tr12;		__it   = s*__ti12;		\
-	__Br07 = __tr07-__it;		__Bi07 = __ti07+__rt;		\
-	__Br08 = __tr07+__it;		__Bi08 = __ti07-__rt;		\
+	__rt   = s*__tr12;				__it   = s*__ti12;		\
+	__Br10 = __tr07-__it;			__Bi10 = __ti07+__rt;		\
+	__Br11 = __tr07+__it;			__Bi11 = __ti07-__rt;		\
 									\
-/*...Block 4:	*/							\
-	__rt   = __tr13;		__it   = __ti13;		\
-	__tr13 = __tr08-__rt;		__ti13 = __ti08-__it;		\
-	__tr08 = __tr08+__rt;		__ti08 = __ti08+__it;		\
-	__tr03 = __tr03+__tr08;		__ti03 = __ti03+__ti08;		\
-	__Br09 = __tr03;		__Bi09 = __ti03;		\
+/*...Block 4:	*/					\
+	__rt   = __tr13;				__it   = __ti13;		\
+	__tr13 = __tr08-__rt;			__ti13 = __ti08-__it;		\
+	__tr08 = __tr08+__rt;			__ti08 = __ti08+__it;		\
+	__tr03 = __tr03+__tr08;			__ti03 = __ti03+__ti08;		\
+	__Br08 = __tr03;				__Bi08 = __ti03;		\
 	__tr08 = __tr03+c3m1*__tr08;	__ti08 = __ti03+c3m1*__ti08;	\
-	__rt   = s*__tr13;		__it   = s*__ti13;		\
-	__Br10 = __tr08-__it;		__Bi10 = __ti08+__rt;		\
-	__Br11 = __tr08+__it;		__Bi11 = __ti08-__rt;		\
+	__rt   = s*__tr13;				__it   = s*__ti13;		\
+	__Br06 = __tr08-__it;			__Bi06 = __ti08+__rt;		\
+	__Br07 = __tr08+__it;			__Bi07 = __ti08-__rt;		\
 									\
-/*...Block 5:	*/							\
-	__rt   = __tr14;		__it   = __ti14;		\
-	__tr14 = __tr09-__rt;		__ti14 = __ti09-__it;		\
-	__tr09 = __tr09+__rt;		__ti09 = __ti09+__it;		\
-	__tr04 = __tr04+__tr09;		__ti04 = __ti04+__ti09;		\
-	__Br12 = __tr04;		__Bi12 = __ti04;		\
+/*...Block 5:	*/					\
+	__rt   = __tr14;				__it   = __ti14;		\
+	__tr14 = __tr09-__rt;			__ti14 = __ti09-__it;		\
+	__tr09 = __tr09+__rt;			__ti09 = __ti09+__it;		\
+	__tr04 = __tr04+__tr09;			__ti04 = __ti04+__ti09;		\
+	__Br04 = __tr04;				__Bi04 = __ti04;		\
 	__tr09 = __tr04+c3m1*__tr09;	__ti09 = __ti04+c3m1*__ti09;	\
-	__rt   = s*__tr14;		__it   = s*__ti14;		\
-	__Br13 = __tr09-__it;		__Bi13 = __ti09+__rt;		\
-	__Br14 = __tr09+__it;		__Bi14 = __ti09-__rt;		\
+	__rt   = s*__tr14;				__it   = s*__ti14;		\
+	__Br05 = __tr09-__it;			__Bi05 = __ti09+__rt;		\
+	__Br03 = __tr09+__it;			__Bi03 = __ti09-__rt;		\
 }
 
 /* Totals: 162 FADD, 50 FMUL	*/
@@ -1217,11 +1315,12 @@ let y0 = (x1-x10) = t21,22, y4 = (x9-x2) = -t19,20, y2 = (x3-x8) = t17,18, y3 = 
 	__Br14,__Bi14,\
 	__rt,__it)\
 {\
+/* Default input order for a twiddleless radix-15 DIT (cf.radix15_dit_pass1()) is [0,2,1,8,7,6,13,12,14,4,3,5,9,11,10]. */\
 /*...gather the needed data (15 64-bit complex, i.e. 30 64-bit reals) and do 5 radix-3 transforms...*/\
-/*...Block 1:	*/								\
+/*...Block 1: Swap inputs 01 <-> 02: */\
 	    __tr00 = __Ar00;				__ti00 = __Ai00;		\
-	    __tr01 = __Ar01;				__ti01 = __Ai01;		\
-	    __rt   = __Ar02;				__it   = __Ai02;		\
+	    __tr01 = __Ar02;				__ti01 = __Ai02;		\
+	    __rt   = __Ar01;				__it   = __Ai01;		\
 	    __tr02 = __tr01-__rt;			__ti02 = __ti01-__it;		\
 	    __tr01 = __tr01+__rt;			__ti01 = __ti01+__it;		\
 	    __tr00 = __tr00+__tr01;			__ti00 = __ti00+__ti01;		\
@@ -1230,10 +1329,10 @@ let y0 = (x1-x10) = t21,22, y4 = (x9-x2) = -t19,20, y2 = (x3-x8) = t17,18, y3 = 
 	    __tr02 = __tr01-__it;			__ti02 = __ti01+__rt;		\
 	    __tr01 = __tr01+__it;			__ti01 = __ti01-__rt;		\
 										\
-/*...Block 2:	*/								\
-	    __tr03 = __Ar03;				__ti03 = __Ai03;		\
-	    __tr04 = __Ar04;				__ti04 = __Ai04;		\
-	    __rt   = __Ar05;				__it   = __Ai05;		\
+/*...Block 2: Swap inputs 3,4,5 -> 8,7,6: */\
+	    __tr03 = __Ar08;				__ti03 = __Ai08;		\
+	    __tr04 = __Ar07;				__ti04 = __Ai07;		\
+	    __rt   = __Ar06;				__it   = __Ai06;		\
 	    __tr05 = __tr04-__rt;			__ti05 = __ti04-__it;		\
 	    __tr04 = __tr04+__rt;			__ti04 = __ti04+__it;		\
 	    __tr03 = __tr03+__tr04;			__ti03 = __ti03+__ti04;		\
@@ -1242,10 +1341,10 @@ let y0 = (x1-x10) = t21,22, y4 = (x9-x2) = -t19,20, y2 = (x3-x8) = t17,18, y3 = 
 	    __tr05 = __tr04-__it;			__ti05 = __ti04+__rt;		\
 	    __tr04 = __tr04+__it;			__ti04 = __ti04-__rt;		\
 										\
-/*...Block 3:	*/								\
-	    __tr06 = __Ar06;				__ti06 = __Ai06;		\
-	    __tr07 = __Ar07;				__ti07 = __Ai07;		\
-	    __rt   = __Ar08;				__it   = __Ai08;		\
+/*...Block 3: Swap inputs 6,7,8 -> 13,12,14: */\
+	    __tr06 = __Ar13;				__ti06 = __Ai13;		\
+	    __tr07 = __Ar12;				__ti07 = __Ai12;		\
+	    __rt   = __Ar14;				__it   = __Ai14;		\
 	    __tr08 = __tr07-__rt;			__ti08 = __ti07-__it;		\
 	    __tr07 = __tr07+__rt;			__ti07 = __ti07+__it;		\
 	    __tr06 = __tr06+__tr07;			__ti06 = __ti06+__ti07;		\
@@ -1254,10 +1353,10 @@ let y0 = (x1-x10) = t21,22, y4 = (x9-x2) = -t19,20, y2 = (x3-x8) = t17,18, y3 = 
 	    __tr08 = __tr07-__it;			__ti08 = __ti07+__rt;		\
 	    __tr07 = __tr07+__it;			__ti07 = __ti07-__rt;		\
 										\
-/*...Block 4:	*/								\
-	    __tr09 = __Ar09;				__ti09 = __Ai09;		\
-	    __tr10 = __Ar10;				__ti10 = __Ai10;		\
-	    __rt   = __Ar11;				__it   = __Ai11;		\
+/*...Block 4: Swap inputs 9,10,11 -> 4,3,5: */\
+	    __tr09 = __Ar04;				__ti09 = __Ai04;		\
+	    __tr10 = __Ar03;				__ti10 = __Ai03;		\
+	    __rt   = __Ar05;				__it   = __Ai05;		\
 	    __tr11 = __tr10-__rt;			__ti11 = __ti10-__it;		\
 	    __tr10 = __tr10+__rt;			__ti10 = __ti10+__it;		\
 	    __tr09 = __tr09+__tr10;			__ti09 = __ti09+__ti10;		\
@@ -1266,10 +1365,10 @@ let y0 = (x1-x10) = t21,22, y4 = (x9-x2) = -t19,20, y2 = (x3-x8) = t17,18, y3 = 
 	    __tr11 = __tr10-__it;			__ti11 = __ti10+__rt;		\
 	    __tr10 = __tr10+__it;			__ti10 = __ti10-__rt;		\
 										\
-/*...Block 5:	*/								\
-	    __tr12 = __Ar12;				__ti12 = __Ai12;		\
-	    __tr13 = __Ar13;				__ti13 = __Ai13;		\
-	    __rt   = __Ar14;				__it   = __Ai14;		\
+/*...Block 2: Swap inputs 12,13,14 -> 9,11,10: */\
+	    __tr12 = __Ar09;				__ti12 = __Ai09;		\
+	    __tr13 = __Ar11;				__ti13 = __Ai11;		\
+	    __rt   = __Ar10;				__it   = __Ai10;		\
 	    __tr14 = __tr13-__rt;			__ti14 = __ti13-__it;		\
 	    __tr13 = __tr13+__rt;			__ti13 = __ti13+__it;		\
 	    __tr12 = __tr12+__tr13;			__ti12 = __ti12+__ti13;		\
@@ -1278,8 +1377,9 @@ let y0 = (x1-x10) = t21,22, y4 = (x9-x2) = -t19,20, y2 = (x3-x8) = t17,18, y3 = 
 	    __tr14 = __tr13-__it;			__ti14 = __ti13+__rt;		\
 	    __tr13 = __tr13+__it;			__ti13 = __ti13-__rt;		\
 										\
-/*...and now do three radix-5 transforms:	*/				\
-/*...Block 1:	*/\
+/*...and now do three radix-5 transforms.	\
+	The required output permutation is [0,5,10,9,14,4,3,8,13,12,2,7,6,11,1]. */\
+/*...Block 1: output permutation is 0,9,3,12,6 */\
 	    __rt   = __tr12;				__it   = __ti12;		\
 	    __tr12 = __tr03-__rt;			__ti12 = __ti03-__it;		\
 	    __tr03 = __tr03+__rt;			__ti03 = __ti03+__it;		\
@@ -1298,12 +1398,12 @@ let y0 = (x1-x10) = t21,22, y4 = (x9-x2) = -t19,20, y2 = (x3-x8) = t17,18, y3 = 
 	    __tr12 = __rt+sn2*__tr12;		__ti12 = __it+sn2*__ti12;	\
 										\
 	    __Br00 = __tr00;				__Bi00 = __ti00;		\
-	    __Br03 = __tr03-__ti09;			__Bi03 = __ti03+__tr09;		\
-	    __Br06 = __tr06-__ti12;			__Bi06 = __ti06+__tr12;		\
-	    __Br09 = __tr06+__ti12;			__Bi09 = __ti06-__tr12;		\
-	    __Br12 = __tr03+__ti09;			__Bi12 = __ti03-__tr09;		\
+	    __Br09 = __tr03-__ti09;			__Bi09 = __ti03+__tr09;		\
+	    __Br03 = __tr06-__ti12;			__Bi03 = __ti06+__tr12;		\
+	    __Br12 = __tr06+__ti12;			__Bi12 = __ti06-__tr12;		\
+	    __Br06 = __tr03+__ti09;			__Bi06 = __ti03-__tr09;		\
 										\
-/*...Block 2:	*/\
+/*...Block 2: output permutation is 5,14,8,2,11 */\
 	    __rt   = __tr13;				__it   = __ti13;		\
 	    __tr13 = __tr04-__rt;			__ti13 = __ti04-__it;		\
 	    __tr04 = __tr04+__rt;			__ti04 = __ti04+__it;		\
@@ -1321,13 +1421,13 @@ let y0 = (x1-x10) = t21,22, y4 = (x9-x2) = -t19,20, y2 = (x3-x8) = t17,18, y3 = 
 	    __tr10 = __rt-sn1*__tr10;		__ti10 = __it-sn1*__ti10;	\
 	    __tr13 = __rt+sn2*__tr13;		__ti13 = __it+sn2*__ti13;	\
 										\
-	    __Br01 = __tr01;				__Bi01 = __ti01;		\
-	    __Br04 = __tr04-__ti10;			__Bi04 = __ti04+__tr10;		\
-	    __Br07 = __tr07-__ti13;			__Bi07 = __ti07+__tr13;		\
-	    __Br10 = __tr07+__ti13;			__Bi10 = __ti07-__tr13;		\
-	    __Br13 = __tr04+__ti10;			__Bi13 = __ti04-__tr10;		\
+	    __Br05 = __tr01;				__Bi05 = __ti01;		\
+	    __Br14 = __tr04-__ti10;			__Bi14 = __ti04+__tr10;		\
+	    __Br08 = __tr07-__ti13;			__Bi08 = __ti07+__tr13;		\
+	    __Br02 = __tr07+__ti13;			__Bi02 = __ti07-__tr13;		\
+	    __Br11 = __tr04+__ti10;			__Bi11 = __ti04-__tr10;		\
 										\
-/*...Block 3:	*/\
+/*...Block 3: output permutation is 10,4,13,7,1 */\
 	    __rt   = __tr14;				__it   = __ti14;		\
 	    __tr14 = __tr05-__rt;			__ti14 = __ti05-__it;		\
 	    __tr05 = __tr05+__rt;			__ti05 = __ti05+__it;		\
@@ -1345,11 +1445,11 @@ let y0 = (x1-x10) = t21,22, y4 = (x9-x2) = -t19,20, y2 = (x3-x8) = t17,18, y3 = 
 	    __tr11 = __rt-sn1*__tr11;		__ti11 = __it-sn1*__ti11;	\
 	    __tr14 = __rt+sn2*__tr14;		__ti14 = __it+sn2*__ti14;	\
 										\
-	    __Br02 = __tr02;				__Bi02 = __ti02;		\
-	    __Br05 = __tr05-__ti11;			__Bi05 = __ti05+__tr11;		\
-	    __Br08 = __tr08-__ti14;			__Bi08 = __ti08+__tr14;		\
-	    __Br11 = __tr08+__ti14;			__Bi11 = __ti08-__tr14;		\
-	    __Br14 = __tr05+__ti11;			__Bi14 = __ti05-__tr11;		\
+	    __Br10 = __tr02;				__Bi10 = __ti02;		\
+	    __Br04 = __tr05-__ti11;			__Bi04 = __ti05+__tr11;		\
+	    __Br13 = __tr08-__ti14;			__Bi13 = __ti08+__tr14;		\
+	    __Br07 = __tr08+__ti14;			__Bi07 = __ti08-__tr14;		\
+	    __Br01 = __tr05+__ti11;			__Bi01 = __ti05-__tr11;		\
 }
 
 /* Totals: 144 FADD, 24 FMUL	*/
@@ -1670,6 +1770,703 @@ let y0 = (x1-x10) = t21,22, y4 = (x9-x2) = -t19,20, y2 = (x3-x8) = t17,18, y3 = 
 	\
 	__B7r=__t15+__t32;			__B7i =__t16-__t31;	/* mpy by E^-4 = -I is inlined here...	*/\
 	__BFr=__t15-__t32;			__BFi =__t16+__t31;\
+}
+
+/************** RADIX-32 DIF/DIT: *****************************/
+/* Totals: 376 FADD, 88 FMUL	*/
+/* Because of the way the original (non-macro-ized) code was written, it's convenient to index the A-inputs in terms
+of 4 length-8 blocks with octal indices, and the B-outputs in terms of 2 length-16 blocks with hexadecimal indices.
+MSVC allows a maximum of 'only' 127 macro args (which is probably a good thing), so unlike the smaller-radix DFT
+macros which use actual array-indexed terms as args, here we use pointers to the real part of each complex arg:
+*/
+#define RADIX_32_DIF(\
+	__A,__idx,	/*  Inputs: Base address plus 32 (index) offsets */\
+	__B,__odx	/* Outputs: Base address plus 32 (index) offsets */\
+)\
+{\
+	double __rt,__it\
+		,__t00,__t01,__t02,__t03,__t04,__t05,__t06,__t07,__t08,__t09,__t0A,__t0B,__t0C,__t0D,__t0E,__t0F\
+		,__t10,__t11,__t12,__t13,__t14,__t15,__t16,__t17,__t18,__t19,__t1A,__t1B,__t1C,__t1D,__t1E,__t1F\
+		,__t20,__t21,__t22,__t23,__t24,__t25,__t26,__t27,__t28,__t29,__t2A,__t2B,__t2C,__t2D,__t2E,__t2F\
+		,__t30,__t31,__t32,__t33,__t34,__t35,__t36,__t37,__t38,__t39,__t3A,__t3B,__t3C,__t3D,__t3E,__t3F;\
+	double *Aim = __A + RE_IM_STRIDE, *Bim = __B + RE_IM_STRIDE;\
+	/* Gather the needed data (32 64-bit complex, i.e. 64 64-bit reals) and do the first set of four length-8 transforms...	*/\
+	/* Each complex radix-8 subtransform needs 52 ADD, 4 MUL (not counting load/store/address-compute):	*/\
+	/*...Block 1:	*/\
+		__t00=*(__A+__idx[0x00]);			__t01=*(Aim+__idx[0x00]);\
+		__rt =*(__A+__idx[0x10]);			__it =*(Aim+__idx[0x10]);\
+		__t02=__t00-__rt;					__t03=__t01-__it;\
+		__t00=__t00+__rt;					__t01=__t01+__it;\
+\
+		__t04=*(__A+__idx[0x08]);			__t05=*(Aim+__idx[0x08]);\
+		__rt =*(__A+__idx[0x18]);			__it =*(Aim+__idx[0x18]);\
+		__t06=__t04-__rt;					__t07=__t05-__it;\
+		__t04=__t04+__rt;					__t05=__t05+__it;\
+\
+		__rt =__t04;						__it =__t05;\
+		__t04=__t00-__rt;					__t05=__t01-__it;\
+		__t00=__t00+__rt;					__t01=__t01+__it;\
+\
+		__rt =__t06;						__it =__t07;\
+		__t06=__t02+__it;					__t07=__t03-__rt;\
+		__t02=__t02-__it;					__t03=__t03+__rt;\
+\
+		__t08=*(__A+__idx[0x04]);			__t09=*(Aim+__idx[0x04]);\
+		__rt =*(__A+__idx[0x14]);			__it =*(Aim+__idx[0x14]);\
+		__t0A=__t08-__rt;					__t0B=__t09-__it;\
+		__t08=__t08+__rt;					__t09=__t09+__it;\
+\
+		__t0C=*(__A+__idx[0x0C]);			__t0D=*(Aim+__idx[0x0C]);\
+		__rt =*(__A+__idx[0x1C]);			__it =*(Aim+__idx[0x1C]);\
+		__t0E=__t0C-__rt;					__t0F=__t0D-__it;\
+		__t0C=__t0C+__rt;					__t0D=__t0D+__it;\
+\
+		__rt =__t0C;						__it =__t0D;\
+		__t0C=__t08-__rt;					__t0D=__t09-__it;\
+		__t08=__t08+__rt;					__t09=__t09+__it;\
+\
+		__rt =__t0E;						__it =__t0F;\
+		__t0E=__t0A+__it;					__t0F=__t0B-__rt;\
+		__t0A=__t0A-__it;					__t0B=__t0B+__rt;\
+\
+		__rt =__t08;						__it =__t09;\
+		__t08=__t00-__rt;					__t09=__t01-__it;\
+		__t00=__t00+__rt;					__t01=__t01+__it;\
+\
+		__rt =__t0C;						__it =__t0D;\
+		__t0C=__t04+__it;					__t0D=__t05-__rt;\
+		__t04=__t04-__it;					__t05=__t05+__rt;\
+\
+		__rt =(__t0A-__t0B)*ISRT2;			__it =(__t0A+__t0B)*ISRT2;\
+		__t0A=__t02-__rt;					__t0B=__t03-__it;\
+		__t02=__t02+__rt;					__t03=__t03+__it;\
+\
+		__rt =(__t0E+__t0F)*ISRT2;			__it =(__t0F-__t0E)*ISRT2;\
+		__t0E=__t06+__rt;					__t0F=__t07+__it;\
+		__t06=__t06-__rt;					__t07=__t07-__it;\
+\
+	/*...Block 2:;*/\
+		__t10=*(__A+__idx[0x02]);			__t11=*(Aim+__idx[0x02]);\
+		__rt =*(__A+__idx[0x12]);			__it =*(Aim+__idx[0x12]);\
+		__t12=__t10-__rt;					__t13=__t11-__it;\
+		__t10=__t10+__rt;					__t11=__t11+__it;\
+\
+		__t14=*(__A+__idx[0x0A]);			__t15=*(Aim+__idx[0x0A]);\
+		__rt =*(__A+__idx[0x1A]);			__it =*(Aim+__idx[0x1A]);\
+		__t16=__t14-__rt;					__t17=__t15-__it;\
+		__t14=__t14+__rt;					__t15=__t15+__it;\
+\
+		__rt =__t14;						__it =__t15;\
+		__t14=__t10-__rt;					__t15=__t11-__it;\
+		__t10=__t10+__rt;					__t11=__t11+__it;\
+\
+		__rt =__t16;						__it =__t17;\
+		__t16=__t12+__it;					__t17=__t13-__rt;\
+		__t12=__t12-__it;					__t13=__t13+__rt;\
+\
+		__t18=*(__A+__idx[0x06]);			__t19=*(Aim+__idx[0x06]);\
+		__rt =*(__A+__idx[0x16]);			__it =*(Aim+__idx[0x16]);\
+		__t1A=__t18-__rt;					__t1B=__t19-__it;\
+		__t18=__t18+__rt;					__t19=__t19+__it;\
+\
+		__t1C=*(__A+__idx[0x0E]);			__t1D=*(Aim+__idx[0x0E]);\
+		__rt =*(__A+__idx[0x1E]);			__it =*(Aim+__idx[0x1E]);\
+		__t1E=__t1C-__rt;					__t1F=__t1D-__it;\
+		__t1C=__t1C+__rt;					__t1D=__t1D+__it;\
+\
+		__rt =__t1C;						__it =__t1D;\
+		__t1C=__t18-__rt;					__t1D=__t19-__it;\
+		__t18=__t18+__rt;					__t19=__t19+__it;\
+\
+		__rt =__t1E;						__it =__t1F;\
+		__t1E=__t1A+__it;					__t1F=__t1B-__rt;\
+		__t1A=__t1A-__it;					__t1B=__t1B+__rt;\
+\
+		__rt =__t18;						__it =__t19;\
+		__t18=__t10-__rt;					__t19=__t11-__it;\
+		__t10=__t10+__rt;					__t11=__t11+__it;\
+\
+		__rt =__t1C;						__it =__t1D;\
+		__t1C=__t14+__it;					__t1D=__t15-__rt;\
+		__t14=__t14-__it;					__t15=__t15+__rt;\
+\
+		__rt =(__t1A-__t1B)*ISRT2;			__it =(__t1A+__t1B)*ISRT2;\
+		__t1A=__t12-__rt;					__t1B=__t13-__it;\
+		__t12=__t12+__rt;					__t13=__t13+__it;\
+\
+		__rt =(__t1E+__t1F)*ISRT2;			__it =(__t1F-__t1E)*ISRT2;\
+		__t1E=__t16+__rt;					__t1F=__t17+__it;\
+		__t16=__t16-__rt;					__t17=__t17-__it;\
+\
+	/*...Block 3:	*/\
+		__t20=*(__A+__idx[0x01]);			__t21=*(Aim+__idx[0x01]);\
+		__rt =*(__A+__idx[0x11]);			__it =*(Aim+__idx[0x11]);\
+		__t22=__t20-__rt;					__t23=__t21-__it;\
+		__t20=__t20+__rt;					__t21=__t21+__it;\
+\
+		__t24=*(__A+__idx[0x09]);			__t25=*(Aim+__idx[0x09]);\
+		__rt =*(__A+__idx[0x19]);			__it =*(Aim+__idx[0x19]);\
+		__t26=__t24-__rt;					__t27=__t25-__it;\
+		__t24=__t24+__rt;					__t25=__t25+__it;\
+\
+		__rt =__t24;						__it =__t25;\
+		__t24=__t20-__rt;					__t25=__t21-__it;\
+		__t20=__t20+__rt;					__t21=__t21+__it;\
+\
+		__rt =__t26;						__it =__t27;\
+		__t26=__t22+__it;					__t27=__t23-__rt;\
+		__t22=__t22-__it;					__t23=__t23+__rt;\
+\
+		__t28=*(__A+__idx[0x05]);			__t29=*(Aim+__idx[0x05]);\
+		__rt =*(__A+__idx[0x15]);			__it =*(Aim+__idx[0x15]);\
+		__t2A=__t28-__rt;					__t2B=__t29-__it;\
+		__t28=__t28+__rt;					__t29=__t29+__it;\
+\
+		__t2C=*(__A+__idx[0x0D]);			__t2D=*(Aim+__idx[0x0D]);\
+		__rt =*(__A+__idx[0x1D]);			__it =*(Aim+__idx[0x1D]);\
+		__t2E=__t2C-__rt;					__t2F=__t2D-__it;\
+		__t2C=__t2C+__rt;					__t2D=__t2D+__it;\
+\
+		__rt =__t2C;						__it =__t2D;\
+		__t2C=__t28-__rt;					__t2D=__t29-__it;\
+		__t28=__t28+__rt;					__t29=__t29+__it;\
+\
+		__rt =__t2E;						__it =__t2F;\
+		__t2E=__t2A+__it;					__t2F=__t2B-__rt;\
+		__t2A=__t2A-__it;					__t2B=__t2B+__rt;\
+\
+		__rt =__t28;						__it =__t29;\
+		__t28=__t20-__rt;					__t29=__t21-__it;\
+		__t20=__t20+__rt;					__t21=__t21+__it;\
+\
+		__rt =__t2C;						__it =__t2D;\
+		__t2C=__t24+__it;					__t2D=__t25-__rt;\
+		__t24=__t24-__it;					__t25=__t25+__rt;\
+\
+		__rt =(__t2A-__t2B)*ISRT2;			__it =(__t2A+__t2B)*ISRT2;\
+		__t2A=__t22-__rt;					__t2B=__t23-__it;\
+		__t22=__t22+__rt;					__t23=__t23+__it;\
+\
+		__rt =(__t2E+__t2F)*ISRT2;			__it =(__t2F-__t2E)*ISRT2;\
+		__t2E=__t26+__rt;					__t2F=__t27+__it;\
+		__t26=__t26-__rt;					__t27=__t27-__it;\
+\
+	/*...Block 4:	*/\
+		__t30=*(__A+__idx[0x03]);			__t31=*(Aim+__idx[0x03]);\
+		__rt =*(__A+__idx[0x13]);			__it =*(Aim+__idx[0x13]);\
+		__t32=__t30-__rt;					__t33=__t31-__it;\
+		__t30=__t30+__rt;					__t31=__t31+__it;\
+\
+		__t34=*(__A+__idx[0x0B]);			__t35=*(Aim+__idx[0x0B]);\
+		__rt =*(__A+__idx[0x1B]);			__it =*(Aim+__idx[0x1B]);\
+		__t36=__t34-__rt;					__t37=__t35-__it;\
+		__t34=__t34+__rt;					__t35=__t35+__it;\
+\
+		__rt =__t34;						__it =__t35;\
+		__t34=__t30-__rt;					__t35=__t31-__it;\
+		__t30=__t30+__rt;					__t31=__t31+__it;\
+\
+		__rt =__t36;						__it =__t37;\
+		__t36=__t32+__it;					__t37=__t33-__rt;\
+		__t32=__t32-__it;					__t33=__t33+__rt;\
+\
+		__t38=*(__A+__idx[0x07]);			__t39=*(Aim+__idx[0x07]);\
+		__rt =*(__A+__idx[0x17]);			__it =*(Aim+__idx[0x17]);\
+		__t3A=__t38-__rt;					__t3B=__t39-__it;\
+		__t38=__t38+__rt;					__t39=__t39+__it;\
+\
+		__t3C=*(__A+__idx[0x0F]);			__t3D=*(Aim+__idx[0x0F]);\
+		__rt =*(__A+__idx[0x1F]);			__it =*(Aim+__idx[0x1F]);\
+		__t3E=__t3C-__rt;					__t3F=__t3D-__it;\
+		__t3C=__t3C+__rt;					__t3D=__t3D+__it;\
+\
+		__rt =__t3C;						__it =__t3D;\
+		__t3C=__t38-__rt;					__t3D=__t39-__it;\
+		__t38=__t38+__rt;					__t39=__t39+__it;\
+\
+		__rt =__t3E;						__it =__t3F;\
+		__t3E=__t3A+__it;					__t3F=__t3B-__rt;\
+		__t3A=__t3A-__it;					__t3B=__t3B+__rt;\
+\
+		__rt =__t38;						__it =__t39;\
+		__t38=__t30-__rt;					__t39=__t31-__it;\
+		__t30=__t30+__rt;					__t31=__t31+__it;\
+\
+		__rt =__t3C;						__it =__t3D;\
+		__t3C=__t34+__it;					__t3D=__t35-__rt;\
+		__t34=__t34-__it;					__t35=__t35+__rt;\
+\
+		__rt =(__t3A-__t3B)*ISRT2;			__it =(__t3A+__t3B)*ISRT2;\
+		__t3A=__t32-__rt;					__t3B=__t33-__it;\
+		__t32=__t32+__rt;					__t33=__t33+__it;\
+\
+		__rt =(__t3E+__t3F)*ISRT2;			__it =(__t3F-__t3E)*ISRT2;\
+		__t3E=__t36+__rt;					__t3F=__t37+__it;\
+		__t36=__t36-__rt;					__t37=__t37-__it;\
+\
+	/*...and now do eight radix-4 transforms, including the internal twiddle factors:	*/\
+	/* Totals for the eight radix-4: 168 ADD, 72 MUL: */\
+	/*...Block 1: __t00,__t10,__t20,__t30	*/\
+		__rt =__t10;	__t10=__t00-__rt;	__t00=__t00+__rt;\
+		__it =__t11;	__t11=__t01-__it;	__t01=__t01+__it;\
+\
+		__rt =__t30;	__t30=__t20-__rt;	__t20=__t20+__rt;\
+		__it =__t31;	__t31=__t21-__it;	__t21=__t21+__it;\
+	/* 16 ADD, 0 MUL: */\
+		*(__B+__odx[0x00])=__t00+__t20;		*(Bim+__odx[0x00])=__t01+__t21;\
+		*(__B+__odx[0x01])=__t00-__t20;		*(Bim+__odx[0x01])=__t01-__t21;\
+		*(__B+__odx[0x02])=__t10-__t31;		*(Bim+__odx[0x02])=__t11+__t30;\
+		*(__B+__odx[0x03])=__t10+__t31;		*(Bim+__odx[0x03])=__t11-__t30;\
+\
+	/*...Block 5: __t08,__t18,__t28,__t38	*/\
+		__rt =__t18;\
+		__t18=__t08+__t19;					__t08=__t08-__t19;\
+		__t19=__t09-__rt;					__t09=__t09+__rt;\
+\
+		__rt =(__t28-__t29)*ISRT2;			__t29=(__t28+__t29)*ISRT2;	__t28=__rt;\
+		__rt =(__t39+__t38)*ISRT2;			__it =(__t39-__t38)*ISRT2;\
+		__t38=__t28+__rt;					__t28=__t28-__rt;\
+		__t39=__t29+__it;					__t29=__t29-__it;\
+	/* 20 ADD, 4 MUL: */\
+		*(__B+__odx[0x04])=__t08+__t28;		*(Bim+__odx[0x04])=__t09+__t29;\
+		*(__B+__odx[0x05])=__t08-__t28;		*(Bim+__odx[0x05])=__t09-__t29;\
+		*(__B+__odx[0x06])=__t18-__t39;		*(Bim+__odx[0x06])=__t19+__t38;\
+		*(__B+__odx[0x07])=__t18+__t39;		*(Bim+__odx[0x07])=__t19-__t38;\
+\
+	/*...Block 3: __t04,__t14,__t24,__t34	*/\
+		__rt =(__t14-__t15)*ISRT2;			__it =(__t14+__t15)*ISRT2;\
+		__t14=__t04-__rt;					__t04=__t04+__rt;\
+		__t15=__t05-__it;					__t05=__t05+__it;\
+\
+		__rt =__t24*c - __t25*s;			__t25=__t25*c + __t24*s;	__t24=__rt;\
+		__rt =__t34*s - __t35*c;			__it =__t35*s + __t34*c;\
+		__t34=__t24-__rt;					__t24=__t24+__rt;\
+		__t35=__t25-__it;					__t25=__t25+__it;\
+	/* 22 ADD, 10 MUL: */\
+		*(__B+__odx[0x08])=__t04+__t24;		*(Bim+__odx[0x08])=__t05+__t25;\
+		*(__B+__odx[0x09])=__t04-__t24;		*(Bim+__odx[0x09])=__t05-__t25;\
+		*(__B+__odx[0x0A])=__t14-__t35;		*(Bim+__odx[0x0A])=__t15+__t34;\
+		*(__B+__odx[0x0B])=__t14+__t35;		*(Bim+__odx[0x0B])=__t15-__t34;\
+\
+	/*...Block 7: __t0C,__t1C,__t2C,__t3C	*/\
+		__rt =(__t1D+__t1C)*ISRT2;			__it =(__t1D-__t1C)*ISRT2;\
+		__t1C=__t0C+__rt;					__t0C=__t0C-__rt;\
+		__t1D=__t0D+__it;					__t0D=__t0D-__it;\
+\
+		__rt =__t2C*s - __t2D*c;			__t2D=__t2D*s + __t2C*c;	__t2C=__rt;\
+		__rt =__t3C*c - __t3D*s;			__it =__t3D*c + __t3C*s;\
+		__t3C=__t2C+__rt;					__t2C=__t2C-__rt;\
+		__t3D=__t2D+__it;					__t2D=__t2D-__it;\
+	/* 22 ADD, 10 MUL: */\
+		*(__B+__odx[0x0C])=__t0C+__t2C;		*(Bim+__odx[0x0C])=__t0D+__t2D;\
+		*(__B+__odx[0x0D])=__t0C-__t2C;		*(Bim+__odx[0x0D])=__t0D-__t2D;\
+		*(__B+__odx[0x0E])=__t1C-__t3D;		*(Bim+__odx[0x0E])=__t1D+__t3C;\
+		*(__B+__odx[0x0F])=__t1C+__t3D;		*(Bim+__odx[0x0F])=__t1D-__t3C;\
+\
+	/*...Block 2: __t02,__t12,__t22,__t32	*/\
+		__rt =__t12*c - __t13*s;			__it =__t13*c + __t12*s;\
+		__t12=__t02-__rt;					__t02=__t02+__rt;\
+		__t13=__t03-__it;					__t03=__t03+__it;\
+\
+		__rt =__t22*c32_1 - __t23*s32_1;	__t23=__t23*c32_1 + __t22*s32_1;	__t22=__rt;\
+		__rt =__t32*c32_3 - __t33*s32_3;	__it =__t33*c32_3 + __t32*s32_3;\
+		__t32=__t22-__rt;					__t22=__t22+__rt;\
+		__t33=__t23-__it;					__t23=__t23+__it;\
+	/* 22 ADD, 12 MUL: */\
+		*(__B+__odx[0x10])=__t02+__t22;		*(Bim+__odx[0x10])=__t03+__t23;\
+		*(__B+__odx[0x11])=__t02-__t22;		*(Bim+__odx[0x11])=__t03-__t23;\
+		*(__B+__odx[0x12])=__t12-__t33;		*(Bim+__odx[0x12])=__t13+__t32;\
+		*(__B+__odx[0x13])=__t12+__t33;		*(Bim+__odx[0x13])=__t13-__t32;\
+\
+	/*...Block 6: __t0A,__t1A,__t2A,__t3A	*/\
+		__rt =__t1A*s + __t1B*c;			__it =__t1B*s - __t1A*c;\
+		__t1A=__t0A+__rt;					__t0A=__t0A-__rt;\
+		__t1B=__t0B+__it;					__t0B=__t0B-__it;\
+\
+		__rt =__t2A*s32_3 - __t2B*c32_3;	__t2B=__t2B*s32_3 + __t2A*c32_3;	__t2A=__rt;\
+		__rt =__t3A*c32_1 + __t3B*s32_1;	__it =__t3B*c32_1 - __t3A*s32_1;\
+		__t3A=__t2A+__rt;					__t2A=__t2A-__rt;\
+		__t3B=__t2B+__it;					__t2B=__t2B-__it;\
+	/* 22 ADD, 12 MUL: */\
+		*(__B+__odx[0x14])=__t0A+__t2A;		*(Bim+__odx[0x14])=__t0B+__t2B;\
+		*(__B+__odx[0x15])=__t0A-__t2A;		*(Bim+__odx[0x15])=__t0B-__t2B;\
+		*(__B+__odx[0x16])=__t1A-__t3B;		*(Bim+__odx[0x16])=__t1B+__t3A;\
+		*(__B+__odx[0x17])=__t1A+__t3B;		*(Bim+__odx[0x17])=__t1B-__t3A;\
+\
+	/*...Block 4: __t06,__t16,__t26,__t36	*/\
+		__rt =__t16*s - __t17*c;			__it =__t17*s + __t16*c;\
+		__t16=__t06-__rt;					__t06=__t06+__rt;\
+		__t17=__t07-__it;					__t07=__t07+__it;\
+\
+		__rt =__t26*c32_3 - __t27*s32_3;	__t27=__t27*c32_3 + __t26*s32_3;	__t26=__rt;\
+		__rt =__t36*s32_1 + __t37*c32_1;	__it =__t37*s32_1 - __t36*c32_1;\
+		__t36=__t26+__rt;					__t26=__t26-__rt;\
+		__t37=__t27+__it;					__t27=__t27-__it;\
+	/* 22 ADD, 12 MUL: */\
+		*(__B+__odx[0x18])=__t06+__t26;		*(Bim+__odx[0x18])=__t07+__t27;\
+		*(__B+__odx[0x19])=__t06-__t26;		*(Bim+__odx[0x19])=__t07-__t27;\
+		*(__B+__odx[0x1A])=__t16-__t37;		*(Bim+__odx[0x1A])=__t17+__t36;\
+		*(__B+__odx[0x1B])=__t16+__t37;		*(Bim+__odx[0x1B])=__t17-__t36;\
+\
+	/*...Block 8: __t0E,__t1E,__t2E,__t3E	*/\
+		__rt =__t1E*c + __t1F*s;			__it =__t1F*c - __t1E*s;\
+		__t1E=__t0E+__rt;					__t0E=__t0E-__rt;\
+		__t1F=__t0F+__it;					__t0F=__t0F-__it;\
+\
+		__rt =__t2E*s32_1 - __t2F*c32_1;	__t2F=__t2F*s32_1 + __t2E*c32_1;	__t2E=__rt;\
+		__rt =__t3E*s32_3 - __t3F*c32_3;	__it =__t3F*s32_3 + __t3E*c32_3;\
+		__t3E=__t2E+__rt;					__t2E=__t2E-__rt;\
+		__t3F=__t2F+__it;					__t2F=__t2F-__it;\
+	/* 22 ADD, 12 MUL: */\
+		*(__B+__odx[0x1C])=__t0E+__t2E;		*(Bim+__odx[0x1C])=__t0F+__t2F;\
+		*(__B+__odx[0x1D])=__t0E-__t2E;		*(Bim+__odx[0x1D])=__t0F-__t2F;\
+		*(__B+__odx[0x1E])=__t1E-__t3F;		*(Bim+__odx[0x1E])=__t1F+__t3E;\
+		*(__B+__odx[0x1F])=__t1E+__t3F;		*(Bim+__odx[0x1F])=__t1F-__t3E;\
+}
+
+#define RADIX_32_DIT(\
+	__A,__idx,	/*  Inputs: Base address plus 32 (index) offsets */\
+	__B,__odx	/* Outputs: Base address plus 32 (index) offsets */\
+)\
+{\
+	double __rt,__it\
+		,__t00,__t01,__t02,__t03,__t04,__t05,__t06,__t07,__t08,__t09,__t0A,__t0B,__t0C,__t0D,__t0E,__t0F\
+		,__t10,__t11,__t12,__t13,__t14,__t15,__t16,__t17,__t18,__t19,__t1A,__t1B,__t1C,__t1D,__t1E,__t1F\
+		,__t20,__t21,__t22,__t23,__t24,__t25,__t26,__t27,__t28,__t29,__t2A,__t2B,__t2C,__t2D,__t2E,__t2F\
+		,__t30,__t31,__t32,__t33,__t34,__t35,__t36,__t37,__t38,__t39,__t3A,__t3B,__t3C,__t3D,__t3E,__t3F;\
+	double *Aim = __A + RE_IM_STRIDE, *Bim = __B + RE_IM_STRIDE;\
+	/* Gather the needed data (32 64-bit complex, i.e. 64 64-bit reals) and do the first set of four length-8 transforms...	*/\
+	/* Each complex radix-8 subtransform needs 52 ADD, 4 MUL (not counting load/store/address-compute):	*/\
+	/*...Block 1:	*/\
+		__t00=*(__A+__idx[0x00]);			__t01=*(Aim+__idx[0x00]);\
+		__rt =*(__A+__idx[0x01]);			__it =*(Aim+__idx[0x01]);\
+		__t02=__t00-__rt;					__t03=__t01-__it;\
+		__t00=__t00+__rt;					__t01=__t01+__it;\
+\
+		__t04=*(__A+__idx[0x02]);			__t05=*(Aim+__idx[0x02]);\
+		__rt =*(__A+__idx[0x03]);			__it =*(Aim+__idx[0x03]);\
+		__t06=__t04-__rt;					__t07=__t05-__it;\
+		__t04=__t04+__rt;					__t05=__t05+__it;\
+\
+		__rt =__t04;						__it =__t05;\
+		__t04=__t00-__rt;					__t05=__t01-__it;\
+		__t00=__t00+__rt;					__t01=__t01+__it;\
+\
+		__rt =__t06;						__it =__t07;\
+		__t06=__t02-__it;					__t07=__t03+__rt;\
+		__t02=__t02+__it;					__t03=__t03-__rt;\
+\
+		__t08=*(__A+__idx[0x04]);			__t09=*(Aim+__idx[0x04]);\
+		__rt =*(__A+__idx[0x05]);			__it =*(Aim+__idx[0x05]);\
+		__t0A=__t08-__rt;					__t0B=__t09-__it;\
+		__t08=__t08+__rt;					__t09=__t09+__it;\
+\
+		__t0C=*(__A+__idx[0x06]);			__t0D=*(Aim+__idx[0x06]);\
+		__rt =*(__A+__idx[0x07]);			__it =*(Aim+__idx[0x07]);\
+		__t0E=__t0C-__rt;					__t0F=__t0D-__it;\
+		__t0C=__t0C+__rt;					__t0D=__t0D+__it;\
+\
+		__rt =__t0C;						__it =__t0D;\
+		__t0C=__t08-__rt;					__t0D=__t09-__it;\
+		__t08=__t08+__rt;					__t09=__t09+__it;\
+\
+		__rt =__t0E;						__it =__t0F;\
+		__t0E=__t0A-__it;					__t0F=__t0B+__rt;\
+		__t0A=__t0A+__it;					__t0B=__t0B-__rt;\
+\
+		__rt =__t08;						__it =__t09;\
+		__t08=__t00-__rt;					__t09=__t01-__it;\
+		__t00=__t00+__rt;					__t01=__t01+__it;\
+\
+		__rt =__t0C;						__it =__t0D;\
+		__t0C=__t04-__it;					__t0D=__t05+__rt;\
+		__t04=__t04+__it;					__t05=__t05-__rt;\
+\
+		__rt =(__t0A+__t0B)*ISRT2;			__it =(__t0A-__t0B)*ISRT2;\
+		__t0A=__t02-__rt;					__t0B=__t03+__it;\
+		__t02=__t02+__rt;					__t03=__t03-__it;\
+\
+		__rt =(__t0E-__t0F)*ISRT2;			__it =(__t0F+__t0E)*ISRT2;\
+		__t0E=__t06+__rt;					__t0F=__t07+__it;\
+		__t06=__t06-__rt;					__t07=__t07-__it;\
+\
+	/*...Block 2:;*/\
+		__t10=*(__A+__idx[0x08]);			__t11=*(Aim+__idx[0x08]);\
+		__rt =*(__A+__idx[0x09]);			__it =*(Aim+__idx[0x09]);\
+		__t12=__t10-__rt;					__t13=__t11-__it;\
+		__t10=__t10+__rt;					__t11=__t11+__it;\
+\
+		__t14=*(__A+__idx[0x0A]);			__t15=*(Aim+__idx[0x0A]);\
+		__rt =*(__A+__idx[0x0B]);			__it =*(Aim+__idx[0x0B]);\
+		__t16=__t14-__rt;					__t17=__t15-__it;\
+		__t14=__t14+__rt;					__t15=__t15+__it;\
+\
+		__rt =__t14;						__it =__t15;\
+		__t14=__t10-__rt;					__t15=__t11-__it;\
+		__t10=__t10+__rt;					__t11=__t11+__it;\
+\
+		__rt =__t16;						__it =__t17;\
+		__t16=__t12-__it;					__t17=__t13+__rt;\
+		__t12=__t12+__it;					__t13=__t13-__rt;\
+\
+		__t18=*(__A+__idx[0x0C]);			__t19=*(Aim+__idx[0x0C]);\
+		__rt =*(__A+__idx[0x0D]);			__it =*(Aim+__idx[0x0D]);\
+		__t1A=__t18-__rt;					__t1B=__t19-__it;\
+		__t18=__t18+__rt;					__t19=__t19+__it;\
+\
+		__t1C=*(__A+__idx[0x0E]);			__t1D=*(Aim+__idx[0x0E]);\
+		__rt =*(__A+__idx[0x0F]);			__it =*(Aim+__idx[0x0F]);\
+		__t1E=__t1C-__rt;					__t1F=__t1D-__it;\
+		__t1C=__t1C+__rt;					__t1D=__t1D+__it;\
+\
+		__rt =__t1C;						__it =__t1D;\
+		__t1C=__t18-__rt;					__t1D=__t19-__it;\
+		__t18=__t18+__rt;					__t19=__t19+__it;\
+\
+		__rt =__t1E;						__it =__t1F;\
+		__t1E=__t1A-__it;					__t1F=__t1B+__rt;\
+		__t1A=__t1A+__it;					__t1B=__t1B-__rt;\
+\
+		__rt =__t18;						__it =__t19;\
+		__t18=__t10-__rt;					__t19=__t11-__it;\
+		__t10=__t10+__rt;					__t11=__t11+__it;\
+\
+		__rt =__t1C;						__it =__t1D;\
+		__t1C=__t14-__it;					__t1D=__t15+__rt;\
+		__t14=__t14+__it;					__t15=__t15-__rt;\
+\
+		__rt =(__t1A+__t1B)*ISRT2;			__it =(__t1A-__t1B)*ISRT2;\
+		__t1A=__t12-__rt;					__t1B=__t13+__it;\
+		__t12=__t12+__rt;					__t13=__t13-__it;\
+\
+		__rt =(__t1E-__t1F)*ISRT2;			__it =(__t1F+__t1E)*ISRT2;\
+		__t1E=__t16+__rt;					__t1F=__t17+__it;\
+		__t16=__t16-__rt;					__t17=__t17-__it;\
+\
+	/*...Block 3:	*/\
+		__t20=*(__A+__idx[0x10]);			__t21=*(Aim+__idx[0x10]);\
+		__rt =*(__A+__idx[0x11]);			__it =*(Aim+__idx[0x11]);\
+		__t22=__t20-__rt;					__t23=__t21-__it;\
+		__t20=__t20+__rt;					__t21=__t21+__it;\
+\
+		__t24=*(__A+__idx[0x12]);			__t25=*(Aim+__idx[0x12]);\
+		__rt =*(__A+__idx[0x13]);			__it =*(Aim+__idx[0x13]);\
+		__t26=__t24-__rt;					__t27=__t25-__it;\
+		__t24=__t24+__rt;					__t25=__t25+__it;\
+\
+		__rt =__t24;						__it =__t25;\
+		__t24=__t20-__rt;					__t25=__t21-__it;\
+		__t20=__t20+__rt;					__t21=__t21+__it;\
+\
+		__rt =__t26;						__it =__t27;\
+		__t26=__t22-__it;					__t27=__t23+__rt;\
+		__t22=__t22+__it;					__t23=__t23-__rt;\
+\
+		__t28=*(__A+__idx[0x14]);			__t29=*(Aim+__idx[0x14]);\
+		__rt =*(__A+__idx[0x15]);			__it =*(Aim+__idx[0x15]);\
+		__t2A=__t28-__rt;					__t2B=__t29-__it;\
+		__t28=__t28+__rt;					__t29=__t29+__it;\
+\
+		__t2C=*(__A+__idx[0x16]);			__t2D=*(Aim+__idx[0x16]);\
+		__rt =*(__A+__idx[0x17]);			__it =*(Aim+__idx[0x17]);\
+		__t2E=__t2C-__rt;					__t2F=__t2D-__it;\
+		__t2C=__t2C+__rt;					__t2D=__t2D+__it;\
+\
+		__rt =__t2C;						__it =__t2D;\
+		__t2C=__t28-__rt;					__t2D=__t29-__it;\
+		__t28=__t28+__rt;					__t29=__t29+__it;\
+\
+		__rt =__t2E;						__it =__t2F;\
+		__t2E=__t2A-__it;					__t2F=__t2B+__rt;\
+		__t2A=__t2A+__it;					__t2B=__t2B-__rt;\
+\
+		__rt =__t28;						__it =__t29;\
+		__t28=__t20-__rt;					__t29=__t21-__it;\
+		__t20=__t20+__rt;					__t21=__t21+__it;\
+\
+		__rt =__t2C;						__it =__t2D;\
+		__t2C=__t24-__it;					__t2D=__t25+__rt;\
+		__t24=__t24+__it;					__t25=__t25-__rt;\
+\
+		__rt =(__t2A+__t2B)*ISRT2;			__it =(__t2A-__t2B)*ISRT2;\
+		__t2A=__t22-__rt;					__t2B=__t23+__it;\
+		__t22=__t22+__rt;					__t23=__t23-__it;\
+\
+		__rt =(__t2E-__t2F)*ISRT2;			__it =(__t2F+__t2E)*ISRT2;\
+		__t2E=__t26+__rt;					__t2F=__t27+__it;\
+		__t26=__t26-__rt;					__t27=__t27-__it;\
+\
+	/*...Block 4:	*/\
+		__t30=*(__A+__idx[0x18]);			__t31=*(Aim+__idx[0x18]);\
+		__rt =*(__A+__idx[0x19]);			__it =*(Aim+__idx[0x19]);\
+		__t32=__t30-__rt;					__t33=__t31-__it;\
+		__t30=__t30+__rt;					__t31=__t31+__it;\
+\
+		__t34=*(__A+__idx[0x1A]);			__t35=*(Aim+__idx[0x1A]);\
+		__rt =*(__A+__idx[0x1B]);			__it =*(Aim+__idx[0x1B]);\
+		__t36=__t34-__rt;					__t37=__t35-__it;\
+		__t34=__t34+__rt;					__t35=__t35+__it;\
+\
+		__rt =__t34;						__it =__t35;\
+		__t34=__t30-__rt;					__t35=__t31-__it;\
+		__t30=__t30+__rt;					__t31=__t31+__it;\
+\
+		__rt =__t36;						__it =__t37;\
+		__t36=__t32-__it;					__t37=__t33+__rt;\
+		__t32=__t32+__it;					__t33=__t33-__rt;\
+\
+		__t38=*(__A+__idx[0x1C]);			__t39=*(Aim+__idx[0x1C]);\
+		__rt =*(__A+__idx[0x1D]);			__it =*(Aim+__idx[0x1D]);\
+		__t3A=__t38-__rt;					__t3B=__t39-__it;\
+		__t38=__t38+__rt;					__t39=__t39+__it;\
+\
+		__t3C=*(__A+__idx[0x1E]);			__t3D=*(Aim+__idx[0x1E]);\
+		__rt =*(__A+__idx[0x1F]);			__it =*(Aim+__idx[0x1F]);\
+		__t3E=__t3C-__rt;					__t3F=__t3D-__it;\
+		__t3C=__t3C+__rt;					__t3D=__t3D+__it;\
+\
+		__rt =__t3C;						__it =__t3D;\
+		__t3C=__t38-__rt;					__t3D=__t39-__it;\
+		__t38=__t38+__rt;					__t39=__t39+__it;\
+\
+		__rt =__t3E;						__it =__t3F;\
+		__t3E=__t3A-__it;					__t3F=__t3B+__rt;\
+		__t3A=__t3A+__it;					__t3B=__t3B-__rt;\
+\
+		__rt =__t38;						__it =__t39;\
+		__t38=__t30-__rt;					__t39=__t31-__it;\
+		__t30=__t30+__rt;					__t31=__t31+__it;\
+\
+		__rt =__t3C;						__it =__t3D;\
+		__t3C=__t34-__it;					__t3D=__t35+__rt;\
+		__t34=__t34+__it;					__t35=__t35-__rt;\
+\
+		__rt =(__t3A+__t3B)*ISRT2;			__it =(__t3A-__t3B)*ISRT2;\
+		__t3A=__t32-__rt;					__t3B=__t33+__it;\
+		__t32=__t32+__rt;					__t33=__t33-__it;\
+\
+		__rt =(__t3E-__t3F)*ISRT2;			__it =(__t3F+__t3E)*ISRT2;\
+		__t3E=__t36+__rt;					__t3F=__t37+__it;\
+		__t36=__t36-__rt;					__t37=__t37-__it;\
+\
+	/*...and now do eight radix-4 transforms, including the internal twiddle factors:	*/\
+	/* Totals for the eight radix-4: 168 ADD, 72 MUL: */\
+	/*...Block 1: __t00,__t10,__t20,__t30	*/\
+		__rt =__t10;	__t10=__t00-__rt;	__t00=__t00+__rt;\
+		__it =__t11;	__t11=__t01-__it;	__t01=__t01+__it;\
+\
+		__rt =__t30;	__t30=__t20-__rt;	__t20=__t20+__rt;\
+		__it =__t31;	__t31=__t21-__it;	__t21=__t21+__it;\
+	/* 16 ADD, 0 MUL: */\
+		*(__B+__odx[0x00])=__t00+__t20;			*(Bim+__odx[0x00])=__t01+__t21;\
+		*(__B+__odx[0x10])=__t00-__t20;			*(Bim+__odx[0x10])=__t01-__t21;\
+		*(__B+__odx[0x08])=__t10+__t31;			*(Bim+__odx[0x08])=__t11-__t30;\
+		*(__B+__odx[0x18])=__t10-__t31;			*(Bim+__odx[0x18])=__t11+__t30;\
+\
+	/*...Block 5: __t08,__t18,__t28,__t38	*/\
+		__rt =__t18;\
+		__t18=__t08-__t19;					__t08=__t08+__t19;\
+		__t19=__t09+__rt;					__t09=__t09-__rt;\
+\
+		__rt =(__t29+__t28)*ISRT2;			__t29=(__t29-__t28)*ISRT2;	__t28=__rt;\
+		__rt =(__t38-__t39)*ISRT2;			__it =(__t38+__t39)*ISRT2;\
+		__t38=__t28+__rt;					__t28=__t28-__rt;\
+		__t39=__t29+__it;					__t29=__t29-__it;\
+	/* 20 ADD, 4 MUL: */\
+		*(__B+__odx[0x04])=__t08+__t28;			*(Bim+__odx[0x04])=__t09+__t29;\
+		*(__B+__odx[0x14])=__t08-__t28;			*(Bim+__odx[0x14])=__t09-__t29;\
+		*(__B+__odx[0x0C])=__t18+__t39;			*(Bim+__odx[0x0C])=__t19-__t38;\
+		*(__B+__odx[0x1C])=__t18-__t39;			*(Bim+__odx[0x1C])=__t19+__t38;\
+\
+	/*...Block 3: __t04,__t14,__t24,__t34	*/\
+		__rt =(__t15+__t14)*ISRT2;			__it =(__t15-__t14)*ISRT2;\
+		__t14=__t04-__rt;					__t04=__t04+__rt;\
+		__t15=__t05-__it;					__t05=__t05+__it;\
+\
+		__rt =__t24*c + __t25*s;			__t25=__t25*c - __t24*s;	__t24=__rt;\
+		__rt =__t34*s + __t35*c;			__it =__t35*s - __t34*c;\
+		__t34=__t24-__rt;					__t24=__t24+__rt;\
+		__t35=__t25-__it;					__t25=__t25+__it;\
+	/* 22 ADD, 10 MUL: */\
+		*(__B+__odx[0x02])=__t04+__t24;			*(Bim+__odx[0x02])=__t05+__t25;\
+		*(__B+__odx[0x12])=__t04-__t24;			*(Bim+__odx[0x12])=__t05-__t25;\
+		*(__B+__odx[0x0A])=__t14+__t35;			*(Bim+__odx[0x0A])=__t15-__t34;\
+		*(__B+__odx[0x1A])=__t14-__t35;			*(Bim+__odx[0x1A])=__t15+__t34;\
+\
+	/*...Block 7: __t0C,__t1C,__t2C,__t3C	*/\
+		__rt =(__t1C-__t1D)*ISRT2;			__it =(__t1C+__t1D)*ISRT2;\
+		__t1C=__t0C+__rt;					__t0C=__t0C-__rt;\
+		__t1D=__t0D+__it;					__t0D=__t0D-__it;\
+\
+		__rt =__t2C*s + __t2D*c;			__t2D=__t2D*s - __t2C*c;	__t2C=__rt;\
+		__rt =__t3C*c + __t3D*s;			__it =__t3D*c - __t3C*s;\
+		__t3C=__t2C+__rt;					__t2C=__t2C-__rt;\
+		__t3D=__t2D+__it;					__t2D=__t2D-__it;\
+	/* 22 ADD, 10 MUL: */\
+		*(__B+__odx[0x06])=__t0C+__t2C;			*(Bim+__odx[0x06])=__t0D+__t2D;\
+		*(__B+__odx[0x16])=__t0C-__t2C;			*(Bim+__odx[0x16])=__t0D-__t2D;\
+		*(__B+__odx[0x0E])=__t1C+__t3D;			*(Bim+__odx[0x0E])=__t1D-__t3C;\
+		*(__B+__odx[0x1E])=__t1C-__t3D;			*(Bim+__odx[0x1E])=__t1D+__t3C;\
+\
+	/*...Block 2: __t02,__t12,__t22,__t32	*/\
+		__rt =__t12*c + __t13*s;			__it =__t13*c - __t12*s;\
+		__t12=__t02-__rt;					__t02=__t02+__rt;\
+		__t13=__t03-__it;					__t03=__t03+__it;\
+\
+		__rt =__t22*c32_1 + __t23*s32_1;	__t23=__t23*c32_1 - __t22*s32_1;	__t22=__rt;\
+		__rt =__t32*c32_3 + __t33*s32_3;	__it =__t33*c32_3 - __t32*s32_3;\
+		__t32=__t22-__rt;					__t22=__t22+__rt;\
+		__t33=__t23-__it;					__t23=__t23+__it;\
+	/* 22 ADD, 12 MUL: */\
+		*(__B+__odx[0x01])=__t02+__t22;			*(Bim+__odx[0x01])=__t03+__t23;\
+		*(__B+__odx[0x11])=__t02-__t22;			*(Bim+__odx[0x11])=__t03-__t23;\
+		*(__B+__odx[0x09])=__t12+__t33;			*(Bim+__odx[0x09])=__t13-__t32;\
+		*(__B+__odx[0x19])=__t12-__t33;			*(Bim+__odx[0x19])=__t13+__t32;\
+\
+	/*...Block 6: __t0A,__t1A,__t2A,__t3A	*/\
+		__rt =__t1A*s - __t1B*c;			__it =__t1B*s + __t1A*c;\
+		__t1A=__t0A+__rt;					__t0A=__t0A-__rt;\
+		__t1B=__t0B+__it;					__t0B=__t0B-__it;\
+\
+		__rt =__t2A*s32_3 + __t2B*c32_3;	__t2B=__t2B*s32_3 - __t2A*c32_3;	__t2A=__rt;\
+		__rt =__t3A*c32_1 - __t3B*s32_1;	__it =__t3B*c32_1 + __t3A*s32_1;\
+		__t3A=__t2A+__rt;					__t2A=__t2A-__rt;\
+		__t3B=__t2B+__it;					__t2B=__t2B-__it;\
+	/* 22 ADD, 12 MUL: */\
+		*(__B+__odx[0x05])=__t0A+__t2A;			*(Bim+__odx[0x05])=__t0B+__t2B;\
+		*(__B+__odx[0x15])=__t0A-__t2A;			*(Bim+__odx[0x15])=__t0B-__t2B;\
+		*(__B+__odx[0x0D])=__t1A+__t3B;			*(Bim+__odx[0x0D])=__t1B-__t3A;\
+		*(__B+__odx[0x1D])=__t1A-__t3B;			*(Bim+__odx[0x1D])=__t1B+__t3A;\
+\
+	/*...Block 4: __t06,__t16,__t26,__t36	*/\
+		__rt =__t16*s + __t17*c;			__it =__t17*s - __t16*c;\
+		__t16=__t06-__rt;					__t06=__t06+__rt;\
+		__t17=__t07-__it;					__t07=__t07+__it;\
+\
+		__rt =__t26*c32_3 + __t27*s32_3;	__t27=__t27*c32_3 - __t26*s32_3;	__t26=__rt;\
+		__rt =__t36*s32_1 - __t37*c32_1;	__it =__t37*s32_1 + __t36*c32_1;\
+		__t36=__t26+__rt;					__t26=__t26-__rt;\
+		__t37=__t27+__it;					__t27=__t27-__it;\
+	/* 22 ADD, 12 MUL: */\
+		*(__B+__odx[0x03])=__t06+__t26;			*(Bim+__odx[0x03])=__t07+__t27;\
+		*(__B+__odx[0x13])=__t06-__t26;			*(Bim+__odx[0x13])=__t07-__t27;\
+		*(__B+__odx[0x0B])=__t16+__t37;			*(Bim+__odx[0x0B])=__t17-__t36;\
+		*(__B+__odx[0x1B])=__t16-__t37;			*(Bim+__odx[0x1B])=__t17+__t36;\
+\
+	/*...Block 8: __t0E,__t1E,__t2E,__t3E	*/\
+		__rt =__t1E*c - __t1F*s;			__it =__t1F*c + __t1E*s;\
+		__t1E=__t0E+__rt;					__t0E=__t0E-__rt;\
+		__t1F=__t0F+__it;					__t0F=__t0F-__it;\
+\
+		__rt =__t2E*s32_1 + __t2F*c32_1;	__t2F=__t2F*s32_1 - __t2E*c32_1;	__t2E=__rt;\
+		__rt =__t3E*s32_3 + __t3F*c32_3;	__it =__t3F*s32_3 - __t3E*c32_3;\
+		__t3E=__t2E+__rt;					__t2E=__t2E-__rt;\
+		__t3F=__t2F+__it;					__t2F=__t2F-__it;\
+	/* 22 ADD, 12 MUL: */\
+		*(__B+__odx[0x07])=__t0E+__t2E;			*(Bim+__odx[0x07])=__t0F+__t2F;\
+		*(__B+__odx[0x17])=__t0E-__t2E;			*(Bim+__odx[0x17])=__t0F-__t2F;\
+		*(__B+__odx[0x0F])=__t1E+__t3F;			*(Bim+__odx[0x0F])=__t1F-__t3E;\
+		*(__B+__odx[0x1F])=__t1E-__t3F;			*(Bim+__odx[0x1F])=__t1F+__t3E;\
 }
 
 #endif	/* #ifndef dft_macro_included */

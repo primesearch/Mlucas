@@ -33,7 +33,7 @@
 #undef	PFETCH
 
 /* Pentium3 family, Gnu C or C++ compiler */
-#if(defined(CPU_TYPE_IA32) && (defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC) ) )
+#if(defined(CPU_IS_X86) && (defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC) ) )
 
 	# define PFETCH 1
 
@@ -44,7 +44,7 @@
 	# define prefetch_p_doubles(_pd)	__asm__ volatile ("prefetchnta (%0)": :"r"(_pd+2));
 
 /* Pentium3 family, Metrowerks CodeWarrior C compiler: */
-#elif(defined(CPU_TYPE_IA32) && defined(COMPILER_TYPE_MWERKS))
+#elif(defined(CPU_IS_X86) && defined(COMPILER_TYPE_MWERKS))
 
 	# define PFETCH 1
 
@@ -63,7 +63,7 @@
 Note that MSVC doesn't like the argument to the macro to be an arithmetic expression, i.e. need _pd
 to point to a simple pointer variable:
 */
-#elif(defined(CPU_TYPE_IA32) && defined(COMPILER_TYPE_MSVC))
+#elif(defined(CPU_IS_X86) && defined(COMPILER_TYPE_MSVC))
 
   #ifdef MULTITHREAD
 	# define PFETCH 0	/* "error C3011: inline assembly not allowed directly within a parallel region" - Gee, thanks, MSFT. */
@@ -86,7 +86,7 @@ to point to a simple pointer variable:
   #endif
 
 /* AMD64/Solaris, Sun C compiler */
-#elif(defined(CPU_TYPE_AMD64) && defined(COMPILER_TYPE_SUNC))
+#elif(defined(CPU_IS_X86_64) && defined(CPU_SUBTYPE_AMD64) && defined(COMPILER_TYPE_SUNC))
 
     # define PFETCH 1
 
@@ -99,13 +99,13 @@ to point to a simple pointer variable:
 /* X86 family, Intel C compiler (ICC v7 or above). We need to put this
 before the COMPILER_TYPE_GCC case because, bizarrely, ICC also #defines __GNUC__ .
 */
-#elif((defined(CPU_TYPE_IA32) || defined(CPU_TYPE_IA64) || defined(CPU_TYPE_AMD64)) && defined(COMPILER_TYPE_ICC))
+#elif((defined(CPU_IS_X86) || defined(CPU_IS_IA64) || defined(CPU_IS_X86_64)) && defined(COMPILER_TYPE_ICC))
 
 	# define CACHE_LINE_INTS    16
 	# define CACHE_LINE_DOUBLES  8
 	# define CACHE_LINE_COMPLEX  4
 
-	#if(defined(CPU_TYPE_IA64))
+	#if(defined(CPU_IS_IA64))
 		#define PFETCH 1
 		#define prefetch_p_doubles(_pd)		__lfetch(0x01, _pd + 64)
 	#else
@@ -130,7 +130,7 @@ before the COMPILER_TYPE_GCC case because, bizarrely, ICC also #defines __GNUC__
 	#endif
 
 /* AMD64 family, Gnu C or C++ compiler */
-#elif(defined(CPU_TYPE_AMD64) && defined(COMPILER_TYPE_GCC))
+#elif(defined(CPU_IS_X86_64) && defined(CPU_SUBTYPE_AMD64) && defined(COMPILER_TYPE_GCC))
 
 	# define PFETCH 1
 
@@ -141,7 +141,7 @@ before the COMPILER_TYPE_GCC case because, bizarrely, ICC also #defines __GNUC__
 	# define prefetch_p_doubles(_pd)	__asm__ volatile ("prefetchw (%0)": :"r"(_pd+2));
 
 /* AMD64 family, MSVC */
-#elif(defined(CPU_TYPE_AMD64) && defined(COMPILER_TYPE_MSVC))
+#elif(defined(CPU_IS_X86_64) && defined(CPU_SUBTYPE_AMD64) && defined(COMPILER_TYPE_MSVC))
 
 # define PFETCH 1
 
@@ -161,9 +161,9 @@ before the COMPILER_TYPE_GCC case because, bizarrely, ICC also #defines __GNUC__
 
 /* AMD Athlon/Duron family, Metrowerks CodeWarrior C compiler */
 /* Since the x86 prefetch seems to work as well as any of the Athlon-specific ones, skip this for now. */
-#elif(defined(CPU_TYPE_AMD) && defined(COMPILER_TYPE_MWERKS))
+#elif(defined(CPU_IS_AMD) && defined(COMPILER_TYPE_MWERKS))
 
-	#error	Prefetch for CPU_TYPE_AMD currently not supported!
+	#error	Prefetch for CPU_IS_AMD currently not supported!
 
 	# define PFETCH 1
 
@@ -178,7 +178,7 @@ before the COMPILER_TYPE_GCC case because, bizarrely, ICC also #defines __GNUC__
 	}
 
 /* IA-64 (Itanium), HP C or C++ compiler for HPUX: */
-#elif(defined(CPU_TYPE_IA64) && defined(COMPILER_TYPE_HPC))
+#elif(defined(CPU_IS_IA64) && defined(COMPILER_TYPE_HPC))
 
 	# define CACHE_LINE_INTS    16
 	# define CACHE_LINE_DOUBLES  8
@@ -240,7 +240,7 @@ before the COMPILER_TYPE_GCC case because, bizarrely, ICC also #defines __GNUC__
 /* IA-64 (Itanium), Gnu C or C++ compiler. We need to put this
 after the IA64/ICC case because, bizarrely, ICC also #defines __GNUC__ .
 */
-#elif(defined(CPU_TYPE_IA64) && defined(COMPILER_TYPE_GCC))
+#elif(defined(CPU_IS_IA64) && defined(COMPILER_TYPE_GCC))
 
 	# define PFETCH 1
 
@@ -251,7 +251,7 @@ after the IA64/ICC case because, bizarrely, ICC also #defines __GNUC__ .
 	# define prefetch_p_doubles(_pd)	__asm__ volatile ("lfetch.nt2 [%0]": :"r"(_pd+2));
 
 /* PowerPC, Apple/Gnu C or IBM XLC compiler: */
-#elif(defined(CPU_TYPE_PPC) && (defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_XLC)))
+#elif(defined(CPU_IS_PPC) && (defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_XLC)))
 
 	# define PFETCH 1
 
@@ -263,7 +263,7 @@ after the IA64/ICC case because, bizarrely, ICC also #defines __GNUC__ .
 	# define prefetch_p_doubles(_pd)	__asm__ volatile ("dcbt  0,%1": :"r"(_pd), "r"(CACHE_LINE_DOUBLES << 3));
 
 /* PowerPC, Metrowerks CodeWarrior or MSVC compiler */
-#elif(defined(CPU_TYPE_PPC) && (defined(COMPILER_TYPE_MWERKS) || defined(COMPILER_TYPE_MSVC)))
+#elif(defined(CPU_IS_PPC) && (defined(COMPILER_TYPE_MWERKS) || defined(COMPILER_TYPE_MSVC)))
 
 	# define PFETCH 1
 
@@ -275,7 +275,7 @@ after the IA64/ICC case because, bizarrely, ICC also #defines __GNUC__ .
 	# define prefetch_p_doubles(_pd)	__dcbt(_pd,CACHE_LINE_DOUBLES << 3);
 
 /* Alpha system, DEC/Compaq C compiler */
-#elif(defined(CPU_TYPE_ALFA) && defined(COMPILER_TYPE_DECC))
+#elif(defined(CPU_IS_ALFA) && defined(COMPILER_TYPE_DECC))
 
 	# define PFETCH 1
 
@@ -287,7 +287,7 @@ after the IA64/ICC case because, bizarrely, ICC also #defines __GNUC__ .
 	# define prefetch_p_doubles(_pd)	asm("ldt %f31,32(%a0)",(_pd));
 
 /* Alpha system, Gnu C or C++ compiler */
-#elif(defined(CPU_TYPE_ALFA) && defined(COMPILER_TYPE_GCC))
+#elif(defined(CPU_IS_ALFA) && defined(COMPILER_TYPE_GCC))
 
 	# define PFETCH 1
 
@@ -310,7 +310,7 @@ after the IA64/ICC case because, bizarrely, ICC also #defines __GNUC__ .
 */
 
 /* Ultrasparc v8 and above, Sunpro compiler: */
-#elif(defined(CPU_TYPE_SPARC) && defined(COMPILER_TYPE_SUNC))
+#elif(defined(CPU_IS_SPARC) && defined(COMPILER_TYPE_SUNC))
 
   #if(defined(__SUN_PREFETCH))
 
@@ -337,7 +337,7 @@ after the IA64/ICC case because, bizarrely, ICC also #defines __GNUC__ .
   #endif
 
 /* Ultrasparc pre-v8 (no prefetch instruction per se), GNU C or C++ compiler */
-#elif(defined(CPU_TYPE_SPARC) && defined(CPU_SUBTYPE_SPARC1) && defined(COMPILER_TYPE_GCC))
+#elif(defined(CPU_IS_SPARC) && defined(CPU_SUBTYPE_SPARC1) && defined(COMPILER_TYPE_GCC))
 
 	# define PFETCH 1
 
@@ -348,7 +348,7 @@ after the IA64/ICC case because, bizarrely, ICC also #defines __GNUC__ .
 	# define prefetch_p_doubles(_pd)	__asm__ volatile ("ldd [%0+16],%%f30": :"r"(_pd      ):"%f30");
 
 /* Ultrasparc v8+, GNU C or C++ compiler */
-#elif(defined(CPU_TYPE_SPARC) && defined(CPU_SUBTYPE_SPARC2) && defined(COMPILER_TYPE_GCC))
+#elif(defined(CPU_IS_SPARC) && defined(CPU_SUBTYPE_SPARC2) && defined(COMPILER_TYPE_GCC))
 
 	# define PFETCH 1
 
@@ -420,7 +420,7 @@ after the IA64/ICC case because, bizarrely, ICC also #defines __GNUC__ .
 	Even when all the TLB and prefetch features are working, you are still limited by the memory bandwidth of the system.  The top
 	bandwidth may be reduced by failing to load all the memory slots in some PA-RISC systems.  The memory controller depends on having all slots loaded to get the best bank interleaving.
 */
-#elif(defined(CPU_TYPE_HPPA))
+#elif(defined(CPU_IS_HPPA))
 
 	# define CACHE_LINE_INTS	0
 	# define CACHE_LINE_DOUBLES	0
@@ -430,7 +430,7 @@ after the IA64/ICC case because, bizarrely, ICC also #defines __GNUC__ .
 	# define prefetch_p_doubles(_pd)	/* NO-OP! */
 
 /* IBM Power: */
-#elif(defined(CPU_TYPE_POWER))
+#elif(defined(CPU_IS_POWER))
 
 	# define CACHE_LINE_INTS	0
 	# define CACHE_LINE_DOUBLES	0

@@ -47,7 +47,7 @@
 In the Fermat-mod negacyclic-DWT carry scheme, real & imaginary parts
 are carried separately due to the right-angle transform:
 */
-#define DBG_fermat_carry_norm_pow2_errcheck(x,y,cx,cy,idx_offset)\
+#define DBG_fermat_carry_norm_pow2_errcheck(x,y,cx,cy,idx_offset,NRTM1,NRT_BITS)\
 {\
 	/* Multiply the current transform output by any scale factor: */\
 		x *= scale;\
@@ -78,7 +78,7 @@ are carried separately due to the right-angle transform:
 		y = rt*wt_im + it*wt_re;\
 }
 
-#define DBG_fermat_carry_norm_pow2_nocheck(x,y,cx,cy,idx_offset)\
+#define DBG_fermat_carry_norm_pow2_nocheck(x,y,cx,cy,idx_offset,NRTM1,NRT_BITS)\
 {\
 	/* Multiply the current transform output by any scale factor: */\
 		x *= scale;\
@@ -109,7 +109,7 @@ are carried separately due to the right-angle transform:
 Non-power-of-2 runlengths combine the acyclic sincos weights
 with the Mersenne-mod-style IBDWT roots-of-2 weights:
 */
-#define DBG_fermat_carry_norm_errcheck(x,y,cx,cy,ii,bjmodn,idx_offset)\
+#define DBG_fermat_carry_norm_errcheck(x,y,cx,cy,ii,bjmodn,idx_offset,NRTM1,NRT_BITS)\
 {\
 	/* For Fermat-mod case, combine inverse weight (same for real and imaginary */\
 	/* parts of the output) with inverse-FFT scale factor: */\
@@ -167,7 +167,7 @@ printf("WARN: frac = %10.8f occurred in Im(a) at j = %10d\n",frac,j);\
 		y *= wt;\
 }
 
-#define DBG_fermat_carry_norm_nocheck(x,y,cx,cy,ii,bjmodn,idx_offset)\
+#define DBG_fermat_carry_norm_nocheck(x,y,cx,cy,ii,bjmodn,idx_offset,NRTM1,NRT_BITS)\
 {\
 	/* For Fermat-mod case, combine inverse weight (same for real and imaginary */\
 	/* parts of the output) with inverse-FFT scale factor: */\

@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -33,7 +33,7 @@
 
 /***************/
 
-int radix7_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[], double base[], double baseinv[], int iter, double *fracmax, uint64 p)
+int radix7_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[],double base[], double baseinv[], int iter, double *fracmax, uint64 p)
 {
 /*
 !...Acronym: DWT = Discrete Weighted Transform, DIT = Decimation In Time, DIF = Decimation In Frequency
@@ -396,13 +396,13 @@ for(outer=0; outer <= 1; outer++)
 		}
 		else
 		{
-			fermat_carry_norm_errcheck (a1p0r,a1p0i,cy_r0,cy_i0,ii0,bjmodn0,0x0*n7);
-			fermat_carry_norm_errcheck (a1p1r,a1p1i,cy_r1,cy_i1,ii1,bjmodn1,0x1*n7);
-			fermat_carry_norm_errcheck (a1p2r,a1p2i,cy_r2,cy_i2,ii2,bjmodn2,0x2*n7);
-			fermat_carry_norm_errcheck (a1p3r,a1p3i,cy_r3,cy_i3,ii3,bjmodn3,0x3*n7);
-			fermat_carry_norm_errcheck (a1p4r,a1p4i,cy_r4,cy_i4,ii4,bjmodn4,0x4*n7);
-			fermat_carry_norm_errcheck (a1p5r,a1p5i,cy_r5,cy_i5,ii5,bjmodn5,0x5*n7);
-			fermat_carry_norm_errcheck (a1p6r,a1p6i,cy_r6,cy_i6,ii6,bjmodn6,0x6*n7);
+			fermat_carry_norm_errcheck (a1p0r,a1p0i,cy_r0,cy_i0,ii0,bjmodn0,0x0*n7,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck (a1p1r,a1p1i,cy_r1,cy_i1,ii1,bjmodn1,0x1*n7,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck (a1p2r,a1p2i,cy_r2,cy_i2,ii2,bjmodn2,0x2*n7,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck (a1p3r,a1p3i,cy_r3,cy_i3,ii3,bjmodn3,0x3*n7,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck (a1p4r,a1p4i,cy_r4,cy_i4,ii4,bjmodn4,0x4*n7,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck (a1p5r,a1p5i,cy_r5,cy_i5,ii5,bjmodn5,0x5*n7,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck (a1p6r,a1p6i,cy_r6,cy_i6,ii6,bjmodn6,0x6*n7,NRTM1,NRT_BITS);
 		}
 
 /*...The radix-7 DIF pass is here:	*/
@@ -610,7 +610,7 @@ printf("carries = %10d %10d %10d %10d %10d %10d %10d\n",(int)cy_r0,(int)cy_r1,(i
 
 /***************/
 
-int radix7_ditN_cy_dif1_nochk(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[], double base[], double baseinv[], int iter                 , uint64 p)
+int radix7_ditN_cy_dif1_nochk(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[],double base[], double baseinv[], int iter                 , uint64 p)
 {
 /*
 !...Acronym: DWT = Discrete Weighted Transform, DIT = Decimation In Time, DIF = Decimation In Frequency
@@ -930,13 +930,13 @@ for(outer=0; outer <= 1; outer++)
 		}
 		else
 		{
-			fermat_carry_norm_nocheck (a1p0r,a1p0i,cy_r0,cy_i0,ii0,bjmodn0,0x0*n7);
-			fermat_carry_norm_nocheck (a1p1r,a1p1i,cy_r1,cy_i1,ii1,bjmodn1,0x1*n7);
-			fermat_carry_norm_nocheck (a1p2r,a1p2i,cy_r2,cy_i2,ii2,bjmodn2,0x2*n7);
-			fermat_carry_norm_nocheck (a1p3r,a1p3i,cy_r3,cy_i3,ii3,bjmodn3,0x3*n7);
-			fermat_carry_norm_nocheck (a1p4r,a1p4i,cy_r4,cy_i4,ii4,bjmodn4,0x4*n7);
-			fermat_carry_norm_nocheck (a1p5r,a1p5i,cy_r5,cy_i5,ii5,bjmodn5,0x5*n7);
-			fermat_carry_norm_nocheck (a1p6r,a1p6i,cy_r6,cy_i6,ii6,bjmodn6,0x6*n7);
+			fermat_carry_norm_nocheck (a1p0r,a1p0i,cy_r0,cy_i0,ii0,bjmodn0,0x0*n7,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck (a1p1r,a1p1i,cy_r1,cy_i1,ii1,bjmodn1,0x1*n7,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck (a1p2r,a1p2i,cy_r2,cy_i2,ii2,bjmodn2,0x2*n7,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck (a1p3r,a1p3i,cy_r3,cy_i3,ii3,bjmodn3,0x3*n7,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck (a1p4r,a1p4i,cy_r4,cy_i4,ii4,bjmodn4,0x4*n7,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck (a1p5r,a1p5i,cy_r5,cy_i5,ii5,bjmodn5,0x5*n7,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck (a1p6r,a1p6i,cy_r6,cy_i6,ii6,bjmodn6,0x6*n7,NRTM1,NRT_BITS);
 		}
 
 /*...The radix-7 DIF pass is here:	*/

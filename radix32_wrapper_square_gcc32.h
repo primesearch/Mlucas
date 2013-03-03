@@ -1623,7 +1623,7 @@
 	);\
 	}
 
-	#define SSE2_RADIX32_WRAPPER_DIT(Xadd0,Xadd1,Xadd2,Xisrt2,Xr00,Xr08,Xr10,Xr20,Xr28,Xr30,Xc00,Xc01,Xc02,Xc03,Xc04,Xc05,Xc06,Xc07,Xc08,Xc0A,Xc0C,Xc0E,Xc10,Xc12,Xc14,Xc16,Xc18,Xc1A,Xc1C,Xc1E)\
+	#define SSE2_RADIX32_WRAPPER_DIT(Xadd0,Xadd1,Xisrt2,Xr00,Xr08,Xr10,Xr20,Xr28,Xr30,Xc00,Xc01,Xc02,Xc03,Xc04,Xc05,Xc06,Xc07,Xc08,Xc0A,Xc0C,Xc0E,Xc10,Xc12,Xc14,Xc16,Xc18,Xc1A,Xc1C,Xc1E)\
 	{\
 	__asm__ volatile (\
 		"/************************************************************************/\n\t"\
@@ -1631,7 +1631,7 @@
 		"/************************************************************************/\n\t"\
 		"/*...Block 1: */\n\t"\
 		"movl		%[__isrt2]		,%%esi\n\t"\
-		"movl		%[__add2]		,%%eax\n\t"\
+		"movl		%[__r00]		,%%eax\n\t"\
 		"movl		%%eax		,%%ebx\n\t"\
 		"movl		%%eax		,%%ecx\n\t"\
 		"movl		%%eax		,%%edx\n\t"\
@@ -3174,7 +3174,6 @@
 		:					/* outputs: none */\
 		: [__add0 ] "m" (Xadd0)	/* All inputs from memory addresses here */\
 		 ,[__add1] "m" (Xadd1)\
-		 ,[__add2] "m" (Xadd2)\
 		 ,[__isrt2] "m" (Xisrt2)\
 		 ,[__r00] "m" (Xr00)\
 		 ,[__r08] "m" (Xr08)\

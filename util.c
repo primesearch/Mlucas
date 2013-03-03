@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2012 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -23,6 +23,79 @@
 #include "util.h"
 #include "imul_macro.h"
 
+#undef X64_ASM
+#if(defined(CPU_IS_X86_64) && defined(COMPILER_TYPE_GCC) && (OS_BITS == 64))
+	#define X64_ASM
+	#if FP_MANTISSA_BITS_DOUBLE != 64
+		#error x86_64 asm requires FP_MANTISSA_BITS_DOUBLE == 64!
+	#endif
+#endif
+
+#ifdef USE_GPU
+	#include "gpu_iface.h"
+
+	// Simple vector-add test function:
+	__global__ void VecAdd(float* A, float* B, float* C, int N)
+	{
+		int i = blockDim.x * blockIdx.x + threadIdx.x;
+		// Uncomment the if() to Print basic info about threads ... keep I/O reasonable by only
+		// doing so for the first 10 of each batch of 2^18:
+
+		if(i%0x3ffff < 10) {
+			printf("GPU block %d[dim %d], thread %d ==> seq-thread %d ... \n", blockIdx.x, blockDim.x, threadIdx.x, i);
+		}
+
+		if (i < N)
+		C[i] = A[i] + B[i];
+	}
+
+	// Host code for the VecAdd test:
+	void cudaVecAddTest()
+	{
+		int i, N = 1024*1024;
+		size_t size = N * sizeof(float);
+		// Allocate input vectors h_A and h_B in host memory
+		float* h_A = (float*)malloc(size);
+		float* h_B = (float*)malloc(size);
+		float* h_C = (float*)malloc(size);
+		// Initialize input vectors
+		for(i = 0; i < N; ++i) {
+			*(h_A+i) = i;
+			*(h_B+i) = i*0.1;
+		}
+		// Allocate vectors in device memory
+		float* d_A;
+		cudaMalloc(&d_A, size);
+		float* d_B;
+		cudaMalloc(&d_B, size);
+		float* d_C;
+		cudaMalloc(&d_C, size);
+		// Copy vectors from host memory to device memory
+		cudaMemcpy(d_A, h_A, size, cudaMemcpyHostToDevice);
+		cudaMemcpy(d_B, h_B, size, cudaMemcpyHostToDevice);
+		// Invoke kernel
+		int threadsPerBlock = 256;
+		int blocksPerGrid = (N + threadsPerBlock - 1) / threadsPerBlock;
+		VecAdd<<<blocksPerGrid, threadsPerBlock>>>(d_A, d_B, d_C, N);
+		// Copy result from device memory to host memory
+		// h_C contains the result in host memory
+		cudaMemcpy(h_C, d_C, size, cudaMemcpyDeviceToHost);
+		// Free device memory
+		cudaFree(d_A);
+		cudaFree(d_B);
+		cudaFree(d_C);
+		// Debug-print results sample:
+		for(i = 0; i < 10; ++i) {
+			printf("i = %d: Sum = %10.2f\n", i, *(h_C+i));
+		}
+		printf("...\n");
+		for(i = 10; i > 0; --i) {
+			printf("i = %d: Sum = %10.2f\n", N-i, *(h_C+N-i));
+		}
+	}
+
+#endif
+
 #undef PLATFORM_SKIP_RND_CONST_ENFORCEMENT
 
 /*********************************************************************************/
@@ -39,12 +112,16 @@ const int CHAROFFSET = '0';
 double RND_A, RND_B;	/* Used for fast NINT emulation; set in util.c. */
 
 double             TWO13FLINV;	/* (double)2^13 inverse */
+double TWO25FLOAT, TWO25FLINV;	/* (double)2^25 and inverse */
 double TWO26FLOAT, TWO26FLINV;	/* (double)2^26 and inverse */
+double TWO32FLOAT, TWO32FLINV;	/* (double)2^32 and inverse */
+double TWO48FLOAT, TWO48FLINV;	/* (double)2^48 and inverse */
 double TWO50FLOAT, TWO50FLINV;	/* (double)2^50 and inverse */
 double TWO51FLOAT, TWO51FLINV;	/* (double)2^51 and inverse */
 double TWO52FLOAT, TWO52FLINV;	/* (double)2^52 and inverse */
 double TWO53FLOAT, TWO53FLINV;	/* (double)2^53 and inverse */
 double TWO54FLOAT;	/* (double)2^54 */
+double TWO63FLOAT;	/* (double)2^63 */
 double TWO64FLOAT, TWO64FLINV;	/* (double)2^64 and inverse */
 
 int32 DAT_BITS, PAD_BITS;	/* Array padding parameters */
@@ -207,6 +284,9 @@ int		file_valid_for_write(FILE*fp)
 /* Print key platform info, (on x86) set FPU mode, do some basic self-tests: */
 void host_init(void)
 {
+#ifdef MULTITHREAD
+	int ncpu, nthr;
+#endif
 	double dbl;
 	print_host_info();
 	set_x87_fpu_params(FPU_64RND);
@@ -216,19 +296,21 @@ void host_init(void)
 	printf("INFO: testing IMUL routines...\n");
 	ASSERT(HERE, test_mul() == 0, "test_mul() returns nonzero!");
 
-	/* Check qfloat routines (this call is also needed to init various qfloat global constants): */
-	printf("INFO: testing qfloat routines...\n");
-	qtest();
-
-	/* Use qfloat routines to set the global floating-point constant 1/sqrt(2): */
-	ISRT2 = qfdbl(qfmul_pow2(QSQRT2, -1));		/* 1/sqrt2	*/
-
 	/* Various useful precomputed powers of 2 in floating-double form: */
+	TWO25FLOAT = (double)0x02000000;
+	TWO25FLINV = 1.0/TWO25FLOAT;
+
 	TWO26FLOAT = (double)0x04000000;
 	TWO26FLINV = 1.0/TWO26FLOAT;
 	dbl = qfdbl(qfmul_pow2(QONE, -26));
 	ASSERT(HERE, TWO26FLINV == dbl, "TWO26FLINV!");
 	TWO13FLINV = qfdbl(qfmul_pow2(QONE, -13));
+
+	TWO32FLOAT = (double)2.0*0x80000000;
+	TWO32FLINV = 1.0/TWO32FLOAT;
+
+	TWO48FLOAT = (double)1.0*0x01000000*0x01000000;
+	TWO48FLINV = 1.0/TWO48FLOAT;
 
 	TWO50FLOAT = (double)1.0*0x01000000*0x04000000;
 	TWO50FLINV = 1.0/TWO50FLOAT;
@@ -244,10 +326,37 @@ void host_init(void)
 
 	TWO54FLOAT = (double)1.0*0x08000000*0x08000000;	/* (double)2^54 */
 
+	TWO63FLOAT = (double)2.0*0x80000000*0x80000000;
+
 	TWO64FLOAT = (double)4.0*0x80000000*0x80000000;
 	TWO64FLINV = 1.0/TWO64FLOAT;
 
-#ifndef USE_SSE2
+	/* Check qfloat routines (this call is also needed to init various qfloat global constants): */
+	printf("INFO: testing qfloat routines...\n");
+	qtest();	// 09/23/2012: Move to after above float-consts-inits because of the qfloat/mi64 routines which use those consts.
+
+	/* Use qfloat routines to set the global floating-point constant 1/sqrt(2): */
+	ISRT2 = qfdbl(qfmul_pow2(QSQRT2, -1));		/* 1/sqrt2	*/
+
+#ifdef MULTITHREAD
+
+  #ifndef USE_PTHREAD
+	#error PTHREAD define barfed - Did you include e.g. '-pthread' in your compile flags?
+  #endif
+
+	/* Test Multithreading: */
+	ncpu = get_num_cores();
+	nthr = 2*ncpu;
+	printf("INFO: System has %d available processor cores.\n", ncpu);
+
+  #if 0	// simple pthreading self-test:
+	printf("INFO: Testing Multithreading support with %d threads...\n", nthr);
+	// Toggle boolean 2nd arg here to enable verbose mode:
+	ASSERT(HERE, test_pthreads(nthr,FALSE) == 0, "test_pthreads() returns nonzero!");
+  #endif
+#endif
+
+#if 1// USE_SSE2
 //	test_fft_radix();
 //	exit(0);
 #endif
@@ -257,13 +366,44 @@ void host_init(void)
 
 void print_host_info(void)
 {
+#ifdef USE_GPU
+	gpu_config_t gpu_config;
+	gpu_info_t ginfo;
+	int32 igpu;
+
+	gpu_init(&gpu_config);
+	if (gpu_config.num_gpu > 0) {
+		printf("Detected %u CUDA-enabled GPU devices.\n", gpu_config.num_gpu);
+		for(igpu = 0; igpu < gpu_config.num_gpu; ++igpu) {
+			ginfo = gpu_config.gpu_info[igpu];
+			printf("GPU #%u: %s v%u.%u\n", igpu, ginfo.name, ginfo.major, ginfo.minor);
+			printf("clock_speed = %u MHz\n", ginfo.clockRate/1000);
+			printf("num_compute_units = %u\n", ginfo.multiProcessorCount);
+			printf("constant_mem_size = %u\n", ginfo.totalConstMem);
+			printf("shared_mem_size = %u\n", ginfo.sharedMemPerBlock);
+			printf("global_mem_size = %u\n", ginfo.totalGlobalMem);
+			printf("registers_per_block = %u\n", ginfo.regsPerBlock);
+			printf("max_threads_per_block = %u\n", ginfo.maxThreadsPerBlock);
+			printf("can_overlap = %u\n", ginfo.deviceOverlap);
+			printf("warp_size = %u\n", ginfo.warpSize);
+			printf("max_thread_dim[3] = [%u,%u,%u]\n", ginfo.maxThreadsDim[0], ginfo.maxThreadsDim[1], ginfo.maxThreadsDim[2]);
+			printf("max_grid_size[3] = [%u,%u,%u]\n", ginfo.maxGridSize[0], ginfo.maxGridSize[1], ginfo.maxGridSize[2]);
+		}
+	} else {
+		printf("ERROR: No CUDA-enabled GPUs found\n");
+		exit(-1);
+	}
+	cudaVecAddTest();
+
+#endif
+
 #if EWM_DEBUG
 	printf("INFO: Program compiled with debugging diagnostics ON.\n");
 #endif
 
 	printf("CPU Family = %s, OS = %s, %2d-bit Version, compiled with %s, Version %s.\n", CPU_NAME, OS_NAME, OS_BITS, COMPILER_NAME, COMPILER_VERSION);
 
-#if(defined(CPU_TYPE_IA32) || defined(CPU_TYPE_AMD64) || defined(CPU_TYPE_X86_64))
+#if(defined(CPU_IS_X86) || defined(CPU_IS_X86_64) || defined(CPU_IS_X86_64))
 
 //	get_cpu();
 
@@ -278,7 +418,7 @@ void print_host_info(void)
 
 	if(has_sse3())
 	{
-		printf("INFO: CPU supports SSE3 instruction set.\n");
+		printf("INFO: Build uses SSE3 instruction set.\n");
 		ASSERT(HERE, has_sse2(), "SSE3, but not SSE2 support detected on this CPU! Check get_cpuid functionality.");
 	}
 	else if(has_sse2())
@@ -292,21 +432,25 @@ void print_host_info(void)
 
   #elif(defined(USE_SSE2))
 
-	if(has_sse3())
-		printf("INFO: CPU supports SSE3 instruction set, but only USE_SSE2 used in current Mlucas version.\n");
-	else if(has_sse2())
-		printf("INFO: CPU supports SSE2 instruction set.\n");
+	if(has_sse2())
+	{
+		printf("INFO: Build uses SSE2 instruction set.\n");
+	}
+	else if(has_sse3())
+	{
+		ASSERT(HERE, 0, "SSE3, but not SSE2 support detected on this CPU! Check get_cpuid functionality.");
+	}
 	else
 	{
-		ASSERT(HERE, 0, "#define USE_SSE2 invoked but no SSE2 support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
+		ASSERT(HERE, 0, "#define USE_SSE2 invoked but no SSE2/3 support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
 	}
 
   #else
 
 	if(has_sse3())
-		printf("Info: CPU supports SSE2/3 instruction set, but USE_SSE2/3 not invoked for build.\n");
+		printf("Info: CPU supports SSE3 instruction set, but using scalar floating-point build.\n");
 	else if(has_sse2())
-		printf("Info: CPU supports SSE2 instruction set, but USE_SSE2 not invoked for build.\n");
+		printf("Info: CPU supports SSE2 instruction set, but using scalar floating-point build.\n");
 
   #endif
 
@@ -422,22 +566,42 @@ For the purpose of completeness, the other FPU control bits are as follows
 */
 void set_x87_fpu_params(unsigned short FPU_MODE)
 {
-	#ifdef CPU_TYPE_IA64
-		int64 FPUCTRL;
-	#else
-		unsigned short FPUCTRL;
-	#endif
+	/* SSE FPU control word support: */
+#ifdef USE_SSE2
+	int oldMXCSR, newMXCSR;
+#endif
+#ifdef CPU_IS_IA64
+	int64 FPUCTRL;
+#else
+	unsigned short FPUCTRL;
+#endif
 
 	ASSERT(HERE, (FPU_64RND == FPU_MODE) || (FPU_64CHOP == 0x0f7f), "Illegal value of FPU_MODE");
+
+#ifdef USE_SSE2
+	#ifdef COMPILER_TYPE_MSVC
+
+		__asm	stmxcsr oldMXCSR
+		newMXCSR = oldMXCSR | 0x8040; // set DAZ and FZ bits
+		__asm ldmxcsr newMXCSR
+
+	#elif(defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
+
+		__asm__ volatile ("stmxcsr %0" : "=m" (oldMXCSR) );
+		newMXCSR = oldMXCSR | 0x8040; // set DAZ and FZ bits
+		__asm__ volatile ("fldcw %0" :: "m" (newMXCSR) );
+
+	#endif
+#endif
 
 	/* Copy the FPU control word set by the compiler to a local variable
 	(mainly so can see what the compiler sets), then overwrite with one of the above:
 	*/
-#if(defined(COMPILER_TYPE_ICC) && defined(CPU_TYPE_IA32))
+#if(defined(COMPILER_TYPE_ICC) && defined(CPU_IS_X86))
 	/**/
-#elif(FP_MANTISSA_BITS_DOUBLE == 64)/* (defined(CPU_TYPE_IA32) || defined(CPU_TYPE_IA64))) */
+#elif(FP_MANTISSA_BITS_DOUBLE == 64)/* (defined(CPU_IS_X86) || defined(CPU_IS_IA64))) */
 
-	#ifdef CPU_TYPE_IA64
+	#ifdef CPU_IS_IA64
 
 		#ifndef COMPILER_TYPE_ICC
 			#error unsupported compiler type for ia64!
@@ -486,7 +650,7 @@ void set_x87_fpu_params(unsigned short FPU_MODE)
 			__asm__ volatile ("fldcw %0" :: "m" (FPUCTRL) );
 		#endif
 
-	#endif	/* endif(CPU_TYPE_IA32...) */
+	#endif	/* endif(CPU_IS_X86...) */
 
 #endif	/* endif(FP_MANTISSA_BITS_DOUBLE) */
 }
@@ -549,7 +713,7 @@ void check_nbits_in_types(void)
     ASSERT(HERE, sizeof(uint32) == 4          , "sizeof(uint32) != 4          ");
     ASSERT(HERE, sizeof( int64) == 8          , "sizeof( int64) != 8          ");
     ASSERT(HERE, sizeof(uint64) == 8          , "sizeof(uint64) != 8          ");
-    ASSERT(HERE, sizeof(long) == sizeof(void*), "sizeof(long) != sizeof(void*)");    /* ALIGN_DOUBLES assumes this. */
+    ASSERT(HERE, sizeof(uint64) >= sizeof(void*), "sizeof(long long) != sizeof(void*)");    /* ALIGN_DOUBLES assumes this. */
 
 /* AltiVec vector types: */
 #if(CPU_HAS_ALTIVEC || CPU_IS_CELL)
@@ -607,21 +771,22 @@ have the same value and optimizing the +RND_A-RND_B sequences below away:
 
 #ifdef PLATFORM_SKIP_RND_CONST_ENFORCEMENT
 
-	sprintf(cbuf,"in check_nbits_in_types: RND_A = %20.3f, pi  = %20.3f,  DNINT(pi ) = %20.3f\n", RND_A, tpi, DNINT(tpi));
-	if(DNINT(tpi) != 3.0)
+	sprintf(cbuf,"in check_nbits_in_types: RND_A = %20.3f, pi  = %20.3f,  DNINT(pi ) = %20.3f\n", RND_A, tpi, (double)DNINT(tpi));
+	if((double)DNINT(tpi) != 3.0) {
 		DBG_WARN(HERE, cbuf, "", TRUE);
-
-	sprintf(cbuf,"in check_nbits_in_types: RND_A = %20.3f, ln2 = %20.3f,  DNINT(ln2) = %20.3f\n", RND_A, ln2, DNINT(ln2));
-	if(DNINT(ln2) != 1.0)
+	}
+	sprintf(cbuf,"in check_nbits_in_types: RND_A = %20.3f, ln2 = %20.3f,  DNINT(ln2) = %20.3f\n", RND_A, ln2, (double)DNINT(ln2));
+	if((double)DNINT(ln2) != 1.0) {
 		DBG_WARN(HERE, cbuf, "", TRUE);
+	}
 
 #else
 
-	sprintf(cbuf,"in check_nbits_in_types: RND_A = %20.3f, pi  = %20.3f,  DNINT(pi ) = %20.3f\n", RND_A, tpi, DNINT(tpi));
-	ASSERT(HERE, DNINT(tpi) == 3.0, cbuf);
+	sprintf(cbuf,"in check_nbits_in_types: RND_A = %20.3f, pi  = %20.3f,  DNINT(pi ) = %20.3f\n", RND_A, tpi, (double)DNINT(tpi));
+	ASSERT(HERE, (double)DNINT(tpi) == 3.0, cbuf);
 
-	sprintf(cbuf,"in check_nbits_in_types: RND_A = %20.3f, ln2 = %20.3f,  DNINT(ln2) = %20.3f\n", RND_A, ln2, DNINT(ln2));
-	ASSERT(HERE, DNINT(ln2) == 1.0, cbuf);
+	sprintf(cbuf,"in check_nbits_in_types: RND_A = %20.3f, ln2 = %20.3f,  DNINT(ln2) = %20.3f\n", RND_A, ln2, (double)DNINT(ln2));
+	ASSERT(HERE, (double)DNINT(ln2) == 1.0, cbuf);
 
 #endif
 
@@ -650,8 +815,8 @@ ASSERT(HERE, ((uint64)FFT_MUL_BASE >> 16) == 1, "util.c: FFT_MUL_BASE != 2^16");
 	ftmp = finvest(0.5, 53);	ASSERT(HERE, fabs(ftmp - 2.000000000000000) < 1e-14, "Unacceptable level of error in finvest() call!");
 	ftmp = finvest(.75, 53);	ASSERT(HERE, fabs(ftmp - 1.333333333333333) < 1e-14, "Unacceptable level of error in finvest() call!");
 	/* Try some large and small inputs: */
-	ftmp = finvest(3.141592653589793e+15, 53);	ASSERT(HERE, fabs(ftmp - 3.183098861837907e-16) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
-	ftmp = finvest(3.183098861837907e-16, 53);	ASSERT(HERE, fabs(ftmp - 3.141592653589793e+15) < 1e+00, "Unacceptable level of error in fisqrtest() call!");
+	ftmp = finvest(3.141592653589793e+15, 53);	ASSERT(HERE, fabs(ftmp - 3.183098861837907e-16) < 1e-14, "Unacceptable level of error in finvest() call!");
+	ftmp = finvest(3.183098861837907e-16, 53);	ASSERT(HERE, fabs(ftmp - 3.141592653589793e+15) < 1e+00, "Unacceptable level of error in finvest() call!");
 
 	ftmp = fisqrtest(1.5,  8);	ASSERT(HERE, fabs(ftmp - 0.816496580927726) < 1e-3 , "Unacceptable level of error in fisqrtest() call!");
 	ftmp = fisqrtest(1.5, 53);	ASSERT(HERE, fabs(ftmp - 0.816496580927726) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
@@ -733,8 +898,7 @@ double 	errprint_sincos(double *x, double *y, double theta)
 
 	tmp = cos(theta);
 	adiff = fabs(*x - tmp);
-	if(adiff > maxdiff);
-		maxdiff = adiff;
+	if(adiff > maxdiff) maxdiff = adiff;
 	if(adiff > 1e-10)
 	{
 		fprintf(stderr, "WARNING: real*16 sine error : theta = %20.15f, long double = %20.15f, double = %20.15f", theta,*x,tmp);
@@ -748,8 +912,7 @@ double 	errprint_sincos(double *x, double *y, double theta)
 
 	tmp = sin(theta);
 	adiff = fabs(*y - tmp);
-	if(adiff > maxdiff);
-		maxdiff = adiff;
+	if(adiff > maxdiff) maxdiff = adiff;
 	if(adiff > 1e-10)
 	{
 		fprintf(stderr, "WARNING: real*16 sine error : theta = %20.15f, long double = %20.15f, double = %20.15f", theta,*y,tmp);
@@ -760,7 +923,6 @@ double 	errprint_sincos(double *x, double *y, double theta)
 		fprintf(stderr, "\n");
 	#endif
 	}
-
 	return adiff;
 }
 
@@ -768,52 +930,40 @@ double 	errprint_sincos(double *x, double *y, double theta)
 /******* INFO, WARN ASSERT ********/
 /**********************************/
 
-void DEBUG_INFO(long line, char*file, char*info_string, char*info_file, int copy2stderr)
+void INFO(long line, char*file, char*info_string, char*info_file, int copy2stderr)
 {
 	FILE *fp = 0x0;
-
-	if(STRNEQ(info_file, ""))
-	{
+	if(STRNEQ(info_file, "")) {
 		fp = fopen(info_file,"a");
-		if(!fp)
-			fprintf(stderr,"WARNING: unable to open file %s in call to DEBUG_INFO.\n", info_file);
+		if(!fp) fprintf(stderr,"WARNING: unable to open file %s in call to DEBUG_INFO.\n", info_file);
 	}
 
-	if(fp)
-	{
+	if(fp) {
 		fprintf(fp,"INFO: At line %lu of file %s:\n", line, file);
 		fprintf(fp,"%s\n", info_string);
 		fclose(fp); fp = 0x0;
 	}
 
-	if(copy2stderr || !fp)
-	{
+	if(copy2stderr || !fp) {
 		fprintf(stderr,"INFO: At line %lu of file %s:\n", line, file);
 		fprintf(stderr,"%s\n", info_string);
 		fflush(stderr);
 	}
 }
 
-void DEBUG_WARN(long line, char*file, char*warn_string, char*warn_file, int copy2stderr)
+void WARN(long line, char*file, char*warn_string, char*warn_file, int copy2stderr)
 {
 	FILE *fp = 0x0;
-
-	if(STRNEQ(warn_file, ""))
-	{
+	if(STRNEQ(warn_file, "")) {
 		fp = fopen(warn_file,"a");
-		if(!fp)
-			fprintf(stderr,"WARNING: unable to open file %s in call to DBG_WARN.\n", warn_file);
+		if(!fp) fprintf(stderr,"WARNING: unable to open file %s in call to DBG_WARN.\n", warn_file);
 	}
-
-	if(fp)
-	{
+	if(fp) {
 		fprintf(fp,"WARN: At line %lu of file %s:\n", line, file);
 		fprintf(fp,"%s\n", warn_string);
 		fclose(fp); fp = 0x0;
 	}
-
-	if(copy2stderr || !fp)
-	{
+	if(copy2stderr || !fp) {
 		fprintf(stderr,"WARN: At line %lu of file %s:\n", line, file);
 		fprintf(stderr,"%s\n", warn_string);
 		fflush(stderr);
@@ -854,7 +1004,8 @@ void ASSERT(long line, char*file, int expr, char*assert_string)
 
 /***************/
 
-void	WARN(char *typelist, ...)
+/* ewm: Not sure what I intended this for... */
+void	VAR_WARN(char *typelist, ...)
 {
 	char *c;
 	 int32 ival;
@@ -904,6 +1055,7 @@ int leadz(int x)
 uint32 trailz32(uint32 x)
 {
 	uint32 i;
+	if(x == 0) return 32;
 	for(i = 1; i < 32; i++)
 	{
 		if(x & 1)break;
@@ -914,13 +1066,30 @@ uint32 trailz32(uint32 x)
 
 uint32 trailz64(uint64 x)
 {
+	if(x == 0) return 64;
+#ifdef X64_ASM
+	int bpos;
+	__asm__ volatile (\
+		"bsfq %[__x],%%rax		\n\t"\
+		"movl %%eax,%[__bpos]	\n\t"\
+		:	/* outputs: none */\
+		: [__x] "m" (x)	/* All inputs from memory addresses here */\
+		 ,[__bpos] "m" (bpos)	\
+		: "cc","memory","rax"	/* Clobbered registers */\
+		);
+	return bpos;
+#else
 	uint32 i;
+	const uint64 one64 = 1;
 	for(i = 1; i < 64; i++)
 	{
-		if(x & 0x0000000000000001)break;
+		if(x & one64) {
+			break;
+		}
 		x >>= 1;
 	}
 	return(i-1);
+#endif
 }
 
 
@@ -994,11 +1163,23 @@ uint32 leadz32(uint32 i)
 
 uint32 leadz64(uint64 i)
 {
-	uint32 lz, k, shift;
-	uint64 ones_mask = 0xFFFFFFFFFFFFFFFFull;
+	uint32 lz;
 	if(i == 0) return 64;
 	if(( int64)i < 0) return 0;
-
+#ifdef X64_ASM
+	int bpos;
+	__asm__ volatile (\
+		"bsrq %[__i],%%rax		\n\t"\
+		"movl %%eax,%[__bpos]	\n\t"\
+		:	/* outputs: none */\
+		: [__i] "m" (i)	/* All inputs from memory addresses here */\
+		 ,[__bpos] "m" (bpos)	\
+		: "cc","memory","rax"	/* Clobbered registers */\
+		);
+	lz = (63 - bpos);	// BSR returns *index* of leftmost set bit, must subtract from (#bits - 1) to get #lz.
+#else
+	uint32 k, shift;
+	uint64 ones_mask = 0xFFFFFFFFFFFFFFFFull;
 	lz    =  0;
 	shift = 32;
 	k     = 32;
@@ -1016,10 +1197,9 @@ uint32 leadz64(uint64 i)
 			shift += k;
 		}
 	}
-
 	DBG_ASSERT(HERE, ( (i << lz) >> lz == i ),"ERROR A in leadz64");
 	DBG_ASSERT(HERE, ( i >> (64-lz)    == 0 ),"ERROR B in leadz64");
-
+#endif
 	return lz;
 }
 
@@ -1104,9 +1284,21 @@ uint32 isPow4(uint32 i32)
 /* Population count: Returns the number of set bits in a 32-bit int.
    Optimized for the case where the low-order bits are those most-likely to be set.
 */
-uint32 popCount(uint32 num)
+uint32 popcount32(uint32 num)
 {
 	uint32 numones = 0;
+	while(num)
+	{
+		if(num & 1)
+			numones++;
+		num >>= 1;
+	}
+	return numones;
+}
+
+uint64 popcount64(uint64 num)
+{
+	uint64 numones = 0;
 	while(num)
 	{
 		if(num & 1)
@@ -1136,25 +1328,36 @@ uint64 ibits64(uint64 i, uint32 beg, uint32 nbits)
 
 /***************/
 
-/* Return result of copying (nbits) bits of a 64-bit integer x, starting at bit
-(src_bit_start) into a target 64-bit integer y, starting at bit (tgt_bit_start).
-The syntax mirrors that of the Fortran-90 MVBITS library function.
-If bit-index parameters are not in [0,63], result will be unpredictable.
-*                Example:         23                    41                      0 */
+/* Return (nbits) bits of a 64-bit integer x, starting at bit
+(src_bit_start) in a target 64-bit integer y (the return value), starting at bit (tgt_bit_start).
+Entire bit-copy range must lie within bits <0:63> of source operand; any bits which
+'overhang' the end of the destination operand are discarded.
+If bit-index parameters are illegal, asserts.
+*/
+uint64	getbits64(uint64 x, uint32 src_bit_start, uint32 nbits, uint32 tgt_bit_start)
+{
+	const uint64 ones_mask = 0xFFFFFFFFFFFFFFFFull;
+	uint64 mask;
+	ASSERT(HERE, (nbits <= 64) && (src_bit_start+nbits <= 64) && (tgt_bit_start < 64), "Illegal bit-index parameters!");
+	if(nbits == 0) return 0;
+	mask = (ones_mask >> (64-nbits));
+	return ((x >> src_bit_start) & mask) << tgt_bit_start;
+}
+
+/* Alternate version of getbits64, here splicing the requested bit into an argument, leaving the surrounding bits unchanged.
+The syntax of this version mirrors that of the Fortran-90 MVBITS library function.
+*/
 void	mvbits64(uint64 x, uint32 src_bit_start, uint32 nbits, uint64*y, uint32 tgt_bit_start)
 {
-	uint64 ones_mask = 0xFFFFFFFFFFFFFFFFull;
+	const uint64 ones_mask = 0xFFFFFFFFFFFFFFFFull;
 	uint64 mask;
-	DBG_ASSERT(HERE, nbits <= 64, "util.c/mvbits64: nbits out or range\n");
-	DBG_ASSERT(HERE, src_bit_start < 64, "util.c/mvbits64: src_bit_start out or range\n");
-	DBG_ASSERT(HERE, tgt_bit_start < 64, "util.c/mvbits64: tgt_bit_start out or range\n");
+	ASSERT(HERE, (nbits <= 64) && (src_bit_start+nbits <= 64) && (tgt_bit_start < 64), "Illegal bit-index parameters!");
 	if(nbits == 0) return;
-	mask = (ones_mask >> ((64-nbits)&63));	/* mask = 0x000001ffffffffff */
+	mask = (ones_mask >> (64-nbits));
 	/* Zero out the target bits: */
-	*y &= ~(mask << tgt_bit_start);			/*   y &= 0xfffffe0000000000 */
+	*y &= ~(mask << tgt_bit_start);
 	/* Copy the source bits into the gap: */
 	*y += ((x >> src_bit_start) & mask) << tgt_bit_start;
-	return;
 }
 
 /***************/
@@ -1187,10 +1390,92 @@ int isPRP(uint32 p)
 
 /*******************/
 
-/* Calculate 2^p mod q for p, q 32-bit unsigned ints. This can be used (among
+/* Calculate 2^-p mod q for p, q 32-bit unsigned ints. This can be used (among
 other things) to effect a fast Fermat base-2 pseudoprime test, by calling with q = p-1.
 */
-int twopmodq32(uint32 p, uint32 q)
+uint32 twompmodq32(uint32 p, uint32 q)	// 2^-p % q
+{
+	 int32 j;
+	uint32 lead5, pshift, qhalf, qinv, zshift, start_index, x, lo, hi;
+
+	ASSERT(HERE, (q&1) == 1, "twopmodq32: even modulus!");
+	qhalf = q >> 1;	/* = (q-1)/2, since q odd. */
+
+	pshift = p + 32;
+	if(pshift < p)	/* Need special-casing for p just below 2^32  - the primes 2^32-(5,17) are good testcases here. */
+	{
+		j = -1;	/* leadz32(pshift) for 33-bit pshift goes negative */
+		/* Extract leftmost 5 bits of pshift: */
+		lead5 = 16 + (pshift >> 28);
+	}
+	else
+	{
+		/* Find number of leading zeros in p, use it to find the position of the leftmost ones bit: */
+		j = leadz32(pshift);
+		/* Extract leftmost 5 bits of pshift: */
+		lead5 = ((pshift<<j) >> 27);
+	}
+
+	start_index = 32-j-5;	/* Leftward bit at which to start the l-r binary powering, assuming
+							the leftmost 5 bits have already been processed via a shift (see next). */
+
+	zshift = 31 - lead5;
+	zshift <<= 1;		/* Doubling the shift count here takes cares of the first SQR_LOHI */
+	pshift = ~pshift;	/* Overflow doesn't matter here, as long as we got the leading 5 bits of pshift right. */
+
+	qinv = (q+q+q) ^ (uint32)2;	/* Overflow doesn't matter here, since we only care about the low 2 bits of 3*q. */
+
+	qinv = qinv*((uint32)2 - q*qinv);
+	qinv = qinv*((uint32)2 - q*qinv);
+	qinv = qinv*((uint32)2 - q*qinv);
+
+	/* Since zstart is a power of two < 2^32, use a streamlined code sequence for the first iteration: */
+	j = start_index-1;
+
+	/* For 64-bit hardware, Make sure we get a 32-bit shift result here by ANDing with 2^32-1: */
+	lo = (qinv << zshift) & (uint32)0xffffffff;
+	/* Emulate MULH64 here by getting full 64-bit product and right-shifting: */
+	lo = (uint32)(((uint64)q * (uint64)lo) >> 32);
+	x  = q - lo;
+
+	if((pshift >> j) & (uint32)1)
+	{
+		DBG_ASSERT(HERE, x < q,"util.c: x < q");
+		/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
+		if(x > qhalf) {
+			x += x;
+			x -= q;
+		} else {
+			x += x;
+		}
+	}
+
+	for(j = start_index-2; j >= 0; j--)
+	{
+		/* SQR_LOHI64(x,lo,hi): */
+	#ifdef MUL_LOHI32_SUBROUTINE
+		MUL_LOHI32(x,x, lo,hi);
+		lo *= qinv;
+		lo = __MULH32(q, lo);
+	#else
+		MUL_LOHI32(x,x, lo,hi);
+		lo *= qinv;
+		MULH32(q,lo, lo);
+	#endif
+
+		/* Branchless version is much faster: */
+		x = hi - lo + ((-(hi < lo)) & q);
+
+		if((pshift >> j) & (uint32)1)
+		{
+			x = x + x - ((-(x > qhalf)) & q);
+		}
+	}
+	/*...Double and return.	These are specialized for the case where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2. */
+	return(x + x - ((-(x > qhalf)) & q));
+}
+
+int twopmodq32(uint32 p, uint32 q)	// (2^-p % q) == 0
 {
 	 int32 j;
 	uint32 lead5, pshift, qhalf, qinv, zshift, start_index, x, lo, hi;
@@ -1323,7 +1608,6 @@ int twopmodq32_x8(uint32 q0, uint32 q1, uint32 q2, uint32 q3, uint32 q4, uint32 
 {
 	int retval = 0;
 	 int32 j;
-	uint64 t;
 	uint32 start_index;
 	uint32 lead0, pshift0, qinv0, zshift0, x0, lo0, hi0, qhalf0;
 	uint32 lead1, pshift1, qinv1, zshift1, x1, lo1, hi1, qhalf1;
@@ -1765,34 +2049,27 @@ uint128 xmody128(uint128 x, uint128 y)
 /*
 Function to reduce x modulo y, where x and y are both 192-bit unsigned integers.
 Algorithm is simple-but-slow bitwise shift-and-subtract scheme.
+Returns remainder x mod y; quotient returned in optional pointer argument q.
 */
 
-uint192 xmody192(uint192 x, uint192 y)
+uint192 xmody192(const uint192 x, const uint192 y, uint192*quot)
 {
 	uint32 lzx, lzy, nshiftl;
-	uint192 t;
+	uint192 r = x, qsh = ONE192, t;
 
 	/* In preparation for x%y, Find the # of leading zeros in x and y. */
-	     if(x.d2)
-		lzx = leadz64(x.d2);
-	else if(x.d1)
-		lzx = leadz64(x.d1) + 64;
-	else
-		lzx = leadz64(x.d0) + 128;
-
-	     if(y.d2)
-		lzy = leadz64(y.d2);
-	else if(y.d1)
-		lzy = leadz64(y.d1) + 64;
-	else
-		lzy = leadz64(y.d0) + 128;
+	lzx = leadz192(x);
+	lzy = leadz192(y);
 
 	/* X < Y: return unmodified X. */
 	if(lzx > lzy)
-		return x;
+		return r;
 
 	nshiftl = lzy - lzx;
-
+	if(quot) {
+		LSHIFT192(qsh, nshiftl, qsh);	// quotient gets built up from sum of left-shifted binary ones.
+		quot->d0 = quot->d1 = quot->d2 = 0ull;
+	}
 /*
 printf("x =%20" LLU "*2^128 + %20" LLU "*2^64 + %20" LLU "\n", x.d2, x.d1, x.d0);
 printf("y =%20" LLU "*2^128 + %20" LLU "*2^64 + %20" LLU "\n", y.d2, y.d1, y.d0);
@@ -1804,54 +2081,84 @@ printf("nshiftl = %u\n", nshiftl);
 		LSHIFT192(y, nshiftl, t);
 /*printf("y<<%u=" LLU "*2^128 + %20" LLU "*2^64 + %20" LLU "\n", nshiftl, t.d2, t.d1, t.d0); */
 
-		if(CMPULT192(t, x))
+		if(CMPULT192(t, r))
 		{
-			SUB192(x, t, x);
-/*printf("x*=%20" LLU "*2^128 + %20" LLU "*2^64 + %20" LLU "\n", x.d2, x.d1, x.d0); */
+			SUB192(r, t, r);
+			if(quot) {
+				ADD192_PTR(quot, (&qsh), quot);
+			}
+/*printf("r*=%20" LLU "*2^128 + %20" LLU "*2^64 + %20" LLU "\n", r.d2, r.d1, r.d0); */
 		}
 
 		/* Right-shift t one place: */
 		--nshiftl;
+		if(quot) {
+			RSHIFT_FAST192(qsh, 1, qsh);
+		}
 	}
 	/* Must ensure that this gets done once even if lzx == lzy: */
-	if(CMPULT192(y, x))
-		SUB192(x, y, x);
-
-	return x;
+	if(CMPULT192(y, r)) {
+		SUB192(r, y, r);
+		if(quot) {
+			ADD192_PTR(quot, (&qsh), quot);
+		}
+	}
+	return r;
 }
 
 /***********************************************************************************/
 /*
 Function to reduce x modulo y, where x and y are both 256-bit unsigned integers.
 Algorithm is simple-but-slow bitwise shift-and-subtract scheme.
+Returns remainder x mod y; quotient returned in optional pointer argument q.
 */
 
-uint256 xmody256(uint256 x, uint256 y)
+uint256 xmody256(const uint256 x, const uint256 y, uint256*quot)
 {
 	uint32 lzx, lzy, nshiftl;
-	uint256 t;
+	uint256 r = x, qsh = ONE256, t;
 
 	/* In preparation for x%y, Find the # of leading zeros in x and y. */
-	lzx = LEADZ256(x);
-	lzy = LEADZ256(y);
+	lzx = leadz256(x);
+	lzy = leadz256(y);
+
+	/* X < Y: return unmodified X. */
+	if(lzx > lzy)
+		return r;
 
 	nshiftl = lzy - lzx;
+	if(quot) {
+		LSHIFT256(qsh, nshiftl, qsh);	// quotient gets built up from sum of left-shifted binary ones.
+		quot->d0 = quot->d1 = quot->d2 = quot->d3 = 0ull;
+	}
+
 	while(nshiftl)
 	{
 		/* Use t to store the left-shifted versions of y: */
 		LSHIFT256(y, nshiftl, t);
-		if(CMPULT256(t, x))
+
+		if(CMPULT256(t, r))
 		{
-			SUB256(x, t, x);
+			SUB256(r, t, r);
+			if(quot) {
+				ADD256_PTR(quot, (&qsh), quot);
+			}
 		}
+
 		/* Right-shift t one place: */
 		--nshiftl;
+		if(quot) {
+			RSHIFT_FAST256(qsh, 1, qsh);
+		}
 	}
 	/* Must ensure that this gets done once even if lzx == lzy: */
-	if(CMPULT256(y, x))
-		SUB256(x, y, x);
-
-	return x;
+	if(CMPULT256(y, r)) {
+		SUB256(r, y, r);
+		if(quot) {
+			ADD256_PTR(quot, (&qsh), quot);
+		}
+	}
+	return r;
 }
 
 
@@ -2205,6 +2512,22 @@ int	convert_uint128_base10_char(char char_buf[], uint128 q128)
 	return (int)MAX_DIGITS-n_dec_digits;
 }
 
+int	convert_uint96_base10_char(char char_buf[], uint96 q96)
+{
+	uint128 q128;
+	q128.d0 = q96.d0;
+	q128.d1 = (uint64)q96.d1;
+	return convert_uint128_base10_char(char_buf, q128);
+}
+
+int	convert_uint96ptr_base10_char(char char_buf[], uint96*q96)
+{
+	uint128 q128;
+	q128.d0 = q96->d0;
+	q128.d1 = (uint64)q96->d1;
+	return convert_uint128_base10_char(char_buf, q128);
+}
+
 /*
 Returns decimal character representation of a base-2^64 3-word unsigned int in char_buf,
 and the position of the leftmost nonzero digit (e.g. if the caller wants to print in
@@ -2283,7 +2606,7 @@ int	convert_uint256_base10_char(char char_buf[], uint256 q256)
 
 /********************/
 /* Basically a specialized version of the <stdlib.h> strtod function: */
-double	convert_base10_char_double (char*char_buf)
+double	convert_base10_char_double (const char*char_buf)
 {
 	uint64 curr_sum = (uint64)0;
 	double curr_mul = 0.0;
@@ -2366,7 +2689,7 @@ double	convert_base10_char_double (char*char_buf)
 
 /********************/
 /* Basically a 64-bit version of the <stdlib.h> strtoul function: */
-uint64 convert_base10_char_uint64 (char*char_buf)
+uint64 convert_base10_char_uint64 (const char*char_buf)
 {
 	uint64 curr_sum = (uint64)0;
 	uint32 i;
@@ -2422,7 +2745,16 @@ uint64 convert_base10_char_uint64 (char*char_buf)
 	return curr_sum;
 }
 
-uint128	convert_base10_char_uint128(char*char_buf)
+uint96	convert_base10_char_uint96 (const char*char_buf)
+{
+	uint96 rslt;
+	uint128 t128 = convert_base10_char_uint128(char_buf);
+	rslt.d0 = t128.d0;
+	rslt.d1 = (uint32)t128.d1;
+	return rslt;
+}
+
+uint128	convert_base10_char_uint128(const char*char_buf)
 {
 	const uint32 LEN_MAX = 2;
 	uint64 curr_sum[2] = {(uint64)0,(uint64)0};
@@ -2485,7 +2817,7 @@ uint128	convert_base10_char_uint128(char*char_buf)
 	return x128;
 }
 
-uint192	convert_base10_char_uint192(char*char_buf)
+uint192	convert_base10_char_uint192(const char*char_buf)
 {
 	const uint32 LEN_MAX = 3;
 	uint64 curr_sum[3] = {(uint64)0,(uint64)0,(uint64)0};
@@ -2549,7 +2881,7 @@ uint192	convert_base10_char_uint192(char*char_buf)
 	return x192;
 }
 
-uint256	convert_base10_char_uint256(char*char_buf)
+uint256	convert_base10_char_uint256(const char*char_buf)
 {
 	const uint32 LEN_MAX = 4;
 	uint64 curr_sum[4] = {(uint64)0,(uint64)0,(uint64)0,(uint64)0};
@@ -2835,7 +3167,289 @@ ftmp0 = ftmp;
 	return ftmp;
 }
 
-/***********************/
+/********** Testcode and utils for multithreading support *************/
+
+#ifdef MULTITHREAD
+
+  #if 0	// This works on MacOS, but is non-portable:
+
+	int get_num_cores(void)
+	{
+		/* get the number of CPUs from the system; 'man sysctl' for details */
+		int numCPU;	// Under OS X, this needs to be an int (size_t gave garbage results)
+		int mib[4];
+		size_t len = sizeof(numCPU);
+		/* set the mib for hw.ncpu */
+		mib[0] = CTL_HW;
+		mib[1] = HW_AVAILCPU;  // alternatively, try HW_NCPU;
+	
+		sysctl(mib, 2, &numCPU, &len, NULL, 0);
+	
+		if( numCPU < 1 )
+		{
+			mib[1] = HW_NCPU;
+			sysctl( mib, 2, &numCPU, &len, NULL, 0 );
+	
+			if( numCPU < 1 )
+			{
+				numCPU = 1;
+			}
+		}
+		return numCPU;
+	}
+
+  #else	// This is alleged to be Win/Linux portable: http://stackoverflow.com/questions/4586405/get-number-of-cpus-in-linux-using-c
+
+	#ifdef OS_TYPE_WINDOWS	// NB: Currently only support || builds unde Linux/GCC, but add Win stuff for possible future use
+
+		#include <windows.h>
+
+		#ifndef _SC_NPROCESSORS_ONLN
+			SYSTEM_INFO info;
+			GetSystemInfo(&info);
+			#define sysconf(a) info.dwNumberOfProcessors
+			#define _SC_NPROCESSORS_ONLN
+		#endif
+
+	#endif
+
+	int get_num_cores(void)
+	{
+		long nprocs = -1;
+		long nprocs_max = -1;
+
+	#ifdef _SC_NPROCESSORS_ONLN
+
+		nprocs = sysconf(_SC_NPROCESSORS_ONLN);
+		if(nprocs < 1) {
+			fprintf(stderr, "Could not determine number of CPUs online:\n%s\n", strerror (errno));
+			exit (EXIT_FAILURE);
+		}
+		nprocs_max = sysconf(_SC_NPROCESSORS_CONF);
+		if (nprocs_max < 1) {
+			fprintf(stderr, "Could not determine number of CPUs configured:\n%s\n", strerror (errno));
+			exit (EXIT_FAILURE);
+		}
+	//	printf ("%ld of %ld processors online\n",nprocs, nprocs_max);
+	//	exit (EXIT_SUCCESS);
+
+	#else
+
+		fprintf(stderr, "Could not determine number of CPUs");
+		exit (EXIT_FAILURE);
+
+	#endif
+
+		return nprocs;
+	}
+
+  #endif
+
+	// Simple struct to pass multiple args to the loop/join-test thread function:
+	struct do_loop_test_thread_data{
+		int tid;
+		int ibeg;
+		int iend;
+		int *retval;
+	};
+
+int test_pthreads(int nthreads, int verbose)
+{
+	// These are collected from a mish-mash of small code samples I used when initially playing with pthreads;
+	// collect all the variable decls at top of this function so this will build under strict ansi C style rules.
+	int i,ioffset,tid,j,retval[nthreads];
+	pthread_t thread[nthreads];
+	pthread_attr_t attr;
+	int rc;
+	void *status;
+	int ibig,iinc,isum;	/* ibig = #bigwords in loop-divided-by-threads sequence */
+	struct do_loop_test_thread_data tdat[nthreads];
+	pthread_t pth = pthread_self();
+    int        thr_id;         /* thread ID for a newly created thread */
+    pthread_t  p_thread;       /* thread's structure                     */
+    int        a = 1;  /* thread 1 identifying number            */
+    int        b = 2;  /* thread 2 identifying number            */
+	int ncpu = get_num_cores(), nshift, nextra;
+	printf("Mlucas running as system-created pthread %u, threading self-test will use %d user-created pthreads.\n", (int)pth, nthreads);
+	if(verbose) {
+		ASSERT(HERE, nthreads > 0,"Mlucas.c: nthreads > 0");
+		if(nthreads > ncpu) {
+			printf("WARN: Test using more threads[%d] than there are available CPUs[%d].\n", nthreads, ncpu);
+		}
+	}
+    /* create a pair of threads, each of which will execute a simple timing loop().
+	Uncomment the prints in the thread-called function to 'see' the threads executing: */
+    thr_id = pthread_create(&p_thread, NULL, ex_loop, (void*)&a);
+	/* Thread which prints a hello message - Note the stdout prints resulting from this
+	and the surrounding thread-tests may appear in any order, depending on system scheduling of the respective threads: */
+	j = pthread_create(&p_thread, NULL, PrintHello, (void *)&b);
+	if (j){
+		printf("ERROR; return code from pthread_create() is %d\n", j);
+		exit(-1);
+	}
+
+	/* Initialize and set thread detached attribute */
+	pthread_attr_init(&attr);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+
+	iinc = 10/nthreads;	/* base loop increment; the first [ibig] chunks get one added to this */
+	ibig = 10%nthreads;	/* This many of the [j] work chunks will have an extra unit */
+	isum = 0;
+	/* Populate the thead-specific data structs: */
+	for(i = 0; i < nthreads; ++i) {
+		tdat[i].tid = i;
+		tdat[i].ibeg = isum;
+		isum += iinc + (i < ibig);	/* loop increment for current work chunk */
+		tdat[i].iend = isum;
+		tdat[i].retval = &retval[i];
+		if(verbose) printf("INFO: Scheduling thread %d with ibeg = %d, iend = %d\n", i, tdat[i].ibeg, tdat[i].iend);
+	}
+	/* create nthreads new threads each of which will execute 'do_loop()' over some specified index subrange.
+	In order to match the threads executing at any given time to the available CPUs, divide the thread execution
+	into [nshift] 'work shifts', each with [ncpu] threads starting and completing their work before the next shift
+	comes online:
+	*/
+	isum = 0;
+	nshift = nthreads / ncpu;	// Number of shifts with one thread for each CPU
+	for(j = 0; j < nshift; ++j) {
+		ioffset = j*ncpu;
+		for(i = 0; i < ncpu; ++i) {
+			tid = i+ioffset;
+			rc = pthread_create(&thread[tid], &attr, do_loop, (void*)(&tdat[tid]));
+			if (rc) {
+				printf("ERROR; return code from pthread_create() is %d\n", rc);
+				exit(-1);
+			}
+		}
+		/* As each thread finishes, add its result into an accumulator in non-blocking fashion (i.e. no mutexes needed): */
+		/* Attempting to join returning threads returns error code ESRCH, 'No such process', if there is just one thread in the current team: */
+		if(ncpu > 1) {
+			for(i = 0; i < ncpu; ++i) {
+				tid = i+ioffset;
+				rc = pthread_join(thread[tid], &status);
+				if (rc) {
+					printf("ERROR; return code from pthread_join() is %d\n", rc);
+					exit(-1);
+				}
+				if(verbose) printf("Main: completed join with thread %d having a status of %d\n",tid,(int)status);
+				isum += retval[tid];
+			}
+		}
+	}
+	// Cleanup pass for cases where ncpu does not divide nthreads
+	nextra = (nthreads % ncpu);
+	if(nextra != 0) {
+		ioffset = j*ncpu;
+		for(i = 0; i < nextra; ++i) {
+			tid = i+ioffset;
+			rc = pthread_create(&thread[tid], &attr, do_loop, (void*)(&tdat[tid]));
+			if (rc) {
+				printf("ERROR; return code from pthread_create() is %d\n", rc);
+				exit(-1);
+			}
+		}
+		/* As each thread finishes, add its result into an accumulator in non-blocking fashion (i.e. no mutexes needed): */
+		if(ncpu > 1) {
+			for(i = 0; i < ncpu; ++i) {
+				tid = i+ioffset;
+				rc = pthread_join(thread[tid], &status);
+				if (rc) {
+					printf("ERROR; return code from pthread_join() is %d\n", rc);
+					exit(-1);
+				}
+				if(verbose) printf("Main: completed join with thread %d having a status of %d\n",tid,(int)status);
+				isum += retval[tid];
+			}
+		}
+	}
+	/* Free attribute and wait for the other threads */
+	pthread_attr_destroy(&attr);
+
+	// 10 sequential iters of test loop yield successive values -1452071552,1390824192,-61247360,-1513318912,1329576832,
+	// -122494720,-1574566272,1268329472,-1837420,-1635813632:
+	ASSERT(HERE, isum == -1635813632, "retval error!");
+    return 0;
+}
+
+// Small timing-delay loop test function for pthread stuff:
+void* ex_loop(void* data)
+{
+	int i;                      /* counter, to print numbers */
+	int j;                      /* counter, for delay        */
+//	int me = *((int*)data);     /* thread identifying number */
+	for (i=0; i<10; i++) {
+		for (j=0; j<500000; j++) /* delay loop */
+			;
+	//	printf("'%d' - Got '%d'\n", me, i);
+	}
+	/* terminate the thread */
+	pthread_exit(NULL);
+}
+
+// A little hello-world testcode for the pthread stuff:
+void *PrintHello(void *threadid)
+{
+	int tid;
+	tid = *((int*)threadid);
+//	printf("Hello World! It's me, thread #%ld!\n", tid);
+	pthread_exit(NULL);
+}
+
+void*
+do_loop(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+{
+	struct do_loop_test_thread_data* thread_arg = targ;
+	int i;                      /* counter, to print numbers */
+	int j;                      /* counter, for delay        */
+	int k = 0;	/* accumulator to keep gcc from otimizing away delay-multiply inside test loop */
+	ASSERT(HERE, thread_arg != 0x0, "do_loop test function for pthread-test needs live thread_arg pointer!");
+
+#if 0	// BSD thread affinity API barfs in my Mac builds
+	cpuset_t *cset;
+	pthread_t pth;
+	cpuid_t ci;
+	
+	cset = cpuset_create();
+	if (cset == NULL) {
+		ASSERT(HERE, 0, "cpuset_create");
+	}
+	ci = 0;
+	cpuset_set(ci, cset);
+	
+	pth = pthread_self();
+	error = pthread_setaffinity_np(pth, cpuset_size(cset), cset);
+	if (error) {
+		ASSERT(HERE, 0, "pthread_setaffinity_np");
+	}
+	cpuset_destroy(cset);
+#endif
+
+//	int me = thread_arg->tid;     /* thread identifying number */
+	for (i = thread_arg->ibeg; i < thread_arg->iend; i++)
+	{
+		for (j=0; j<100000000; j++) /* delay loop */
+		{
+			k += j*j;
+		}
+	//	printf("Thread '%d': i = %d, accum = %d\n", me, i, k);
+	}
+	*(thread_arg->retval) = k;
+	pthread_exit(NULL);
+}
+
+#endif
 
 /***********************/
+
+char*get_time_str(double tdiff)
+{
+	static char cbuf[STR_MAX_LEN];
+	tdiff /= CLOCKS_PER_SEC;	/* NB: CLOCKS_PER_SEC may be a phony value used to scale clock() ranges */
+	sprintf(cbuf, "%2d%1d:%1d%1d:%1d%1d.%1d%1d%1d"
+	,(int)tdiff/36000,((int)tdiff%36000)/3600
+	,((int)tdiff%3600)/600,((int)tdiff%600)/60
+	,((int)tdiff%60)/10,(int)tdiff%10
+	,(int)(10*(tdiff-(int)tdiff)),(int)(100*(tdiff-(int)tdiff))%10,(int)(1000*(tdiff-(int)tdiff))%10);
+	return cbuf;
+}
 

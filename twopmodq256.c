@@ -1,3 +1,25 @@
+/*******************************************************************************
+*                                                                              *
+*   (C) 1997-2012 by Ernst W. Mayer.                                           *
+*                                                                              *
+*  This program is free software; you can redistribute it and/or modify it     *
+*  under the terms of the GNU General Public License as published by the       *
+*  Free Software Foundation; either version 2 of the License, or (at your      *
+*  option) any later version.                                                  *
+*                                                                              *
+*  This program is distributed in the hope that it will be useful, but WITHOUT *
+*  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or       *
+*  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for   *
+*  more details.                                                               *
+*                                                                              *
+*  You should have received a copy of the GNU General Public License along     *
+*  with this program; see the file GPL.txt.  If not, you may view one at       *
+*  http://www.fsf.org/licenses/licenses.html, or obtain one by writing to the  *
+*  Free Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA     *
+*  02111-1307, USA.                                                            *
+*                                                                              *
+*******************************************************************************/
+
 #include "factor.h"
 #include "imul256_macro.h"
 
@@ -59,7 +81,7 @@ if(dbg)printf("twopmodq256:\n");
 		if(pshift.d3)
 		{
 			j = leadz64(pshift.d3);
-			/* Extract leftmost 8 bits of pshift and subtract from 192: */
+			/* Extract leftmost 8 bits of pshift and subtract from 256: */
 			lead8 = (((pshift.d3<<j) + (pshift.d2>>(64-j))) >> 56);
 			start_index = 256-j-8;
 		}
@@ -73,7 +95,7 @@ if(dbg)printf("twopmodq256:\n");
 		else if(pshift.d1)
 		{
 			j = leadz64(pshift.d1);
-			/* Extract leftmost 8 bits of pshift and subtract from 192: */
+			/* Extract leftmost 8 bits of pshift and subtract from 128: */
 			lead8 = (((pshift.d1<<j) + (pshift.d0>>(64-j))) >> 56);
 			start_index = 128-j-8;
 		}
@@ -134,6 +156,7 @@ if(dbg)printf("twopmodq256:\n");
 	}
 #endif
 	/* Since zstart is a power of two < 2^256, use a streamlined code sequence for the first iteration: */
+	ASSERT(HERE, start_index>=2, "twopmodq256 : start_index < 2!");
 	j = start_index-1;
 
 	/* MULL256(zstart,qinv,lo) simply amounts to a left-shift of the bits of qinv: */

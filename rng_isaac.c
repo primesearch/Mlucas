@@ -8,6 +8,8 @@ By Bob Jenkins, 1996.  Public Domain.
 #include <stdio.h>
 #include "rng_isaac.h"
 
+char cbuf[STR_MAX_LEN];
+
 /* externs declared in rng_isaac.h: */
 ub8 randrsl[RANDSIZ], randcnt;
 

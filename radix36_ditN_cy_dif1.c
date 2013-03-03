@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -22,10 +22,129 @@
 
 #include "Mlucas.h"
 
+#ifdef CTIME	// define at compile time to enable internal timing diagnostics
+	double dt_fwd, dt_inv, dt_cy, dt_tot;
+	clock_t clock1, clock2, clock3;
+#endif
+
 #ifdef USE_SSE2
 
-	#undef DEBUG_SSE2
-//	#define DEBUG_SSE2
+	const int radix36_creals_in_local_store = 216;
+
+  #ifdef USE_PTHREAD
+
+	#ifndef USE_SSE2
+		#error Pthreading only available in SSE2 mode!
+	#endif
+
+	// Use non-pooled simple spawn/rejoin thread-team model
+	#include "threadpool.h"
+
+	struct cy_thread_data_t{
+	// int data - if needed, pad to yield an even number of these:
+		int tid;
+		int ndivr;
+
+		int khi;
+		int i;
+		int jstart;
+		int jhi;
+		int col;
+		int co2;
+		int co3;
+		int sw;
+		int nwt;
+
+	// double data:
+		double maxerr;
+		double scale;
+
+	// pointer data:
+		double *arrdat;			/* Main data array */
+		double *wt0;
+		double *wt1;
+		int *si;
+		struct complex *r00;
+		struct complex *half_arr;
+
+		int bjmodn00;
+		int bjmodn01;
+		int bjmodn02;
+		int bjmodn03;
+		int bjmodn04;
+		int bjmodn05;
+		int bjmodn06;
+		int bjmodn07;
+		int bjmodn08;
+		int bjmodn09;
+		int bjmodn10;
+		int bjmodn11;
+		int bjmodn12;
+		int bjmodn13;
+		int bjmodn14;
+		int bjmodn15;
+		int bjmodn16;
+		int bjmodn17;
+		int bjmodn18;
+		int bjmodn19;
+		int bjmodn20;
+		int bjmodn21;
+		int bjmodn22;
+		int bjmodn23;
+		int bjmodn24;
+		int bjmodn25;
+		int bjmodn26;
+		int bjmodn27;
+		int bjmodn28;
+		int bjmodn29;
+		int bjmodn30;
+		int bjmodn31;
+		int bjmodn32;
+		int bjmodn33;
+		int bjmodn34;
+		int bjmodn35;
+		/* carries: */
+		double cy00;
+		double cy01;
+		double cy02;
+		double cy03;
+		double cy04;
+		double cy05;
+		double cy06;
+		double cy07;
+		double cy08;
+		double cy09;
+		double cy10;
+		double cy11;
+		double cy12;
+		double cy13;
+		double cy14;
+		double cy15;
+		double cy16;
+		double cy17;
+		double cy18;
+		double cy19;
+		double cy20;
+		double cy21;
+		double cy22;
+		double cy23;
+		double cy24;
+		double cy25;
+		double cy26;
+		double cy27;
+		double cy28;
+		double cy29;
+		double cy30;
+		double cy31;
+		double cy32;
+		double cy33;
+		double cy34;
+		double cy35;
+	};
+
+  #endif
+
+//	#define ERR_CHECK_ALL	/* #define this to do ROE checking of all convolution outputs, rather than just every 36th one */
 
 	#if defined(COMPILER_TYPE_MSVC)
 
@@ -62,7 +181,9 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !   See the documentation in mers_mod_square and radix16_dif_pass for further details on the array
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
-	int n36,i,j,jt,jp,j1,j2,jstart,jhi,full_pass,k1,k2,k,khi,l,outer;
+	const uint32 RADIX = 36;
+	const double crnd = 3.0*0x4000000*0x2000000;
+	int NDIVR,i,j,j1,j2,jt,jp,jstart,jhi,full_pass,k,khi,l,outer;
 	static uint64 psave=0;
 	static uint32 bw,sw,bjmodnini,p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19,p20,p21,p22,p23,p24,p25,p26,p27,p28,p29,p30,p31,p32,p33,p34,p35;
 	const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
@@ -95,9 +216,33 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 #ifdef USE_SSE2
 
-	int i0,i1,m0,m1,m3;	/* m2 already def'd for regular carry sequence */
-	double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7, *add8;	/* Addresses into array sections */
+  #if !(defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
+	#error SSE2 code not supported for this compiler!
+  #endif
+
+	static int cslots_in_local_store;
 	static struct complex *sc_arr = 0x0, *sc_ptr;
+	static uint64 *sm_ptr, *sign_mask, *sse_bw, *sse_sw, *sse_n;
+	uint64 tmp64;
+
+  #ifdef MULTITHREAD
+
+	#ifdef USE_PTHREAD
+		static struct complex *__r0;	// Base address for discrete per-thread local stores
+		static struct cy_thread_data_t *tdat = 0x0;
+		// Threadpool-based dispatch stuff:
+		static int main_work_units = 0, pool_work_units = 0;
+		static struct threadpool *tpool = 0x0;
+		static int task_is_blocking = TRUE;
+		static thread_control_t thread_control = {0,0,0};
+		// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
+		static task_control_t   task_control = {NULL, (void*)cy36_process_chunk, NULL, 0x0};
+	#endif
+
+  #else
+	double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7, *add8;	/* Addresses into array sections */
+  #endif
+
 	static struct complex *isrt2, *cc1, *ss1, *cc2, *ss2, *cc3m1, *ss3, *cc4, *ss4, *max_err, *sse2_rnd, *half_arr, *tmp;
 	static struct complex
 	 *r00,*r01,*r02,*r03,*r04,*r05,*r06,*r07,*r08,*r09,*r0a,*r0b,*r0c,*r0d,*r0e,*r0f,*r0g,*r0h
@@ -106,8 +251,6 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	,*r30,*r31,*r32,*r33,*r34,*r35,*r36,*r37,*r38,*r39,*r3a,*r3b,*r3c,*r3d,*r3e,*r3f,*r3g,*r3h
 	,*s1p00r,*s1p01r,*s1p02r,*s1p03r,*s1p04r,*s1p05r,*s1p06r,*s1p07r,*s1p08r,*s1p09r,*s1p10r,*s1p11r,*s1p12r,*s1p13r,*s1p14r,*s1p15r,*s1p16r,*s1p17r,*s1p18r,*s1p19r,*s1p20r,*s1p21r,*s1p22r,*s1p23r,*s1p24r,*s1p25r,*s1p26r,*s1p27r,*s1p28r,*s1p29r,*s1p30r,*s1p31r,*s1p32r,*s1p33r,*s1p34r,*s1p35r
 	,*s1p00i,*s1p01i,*s1p02i,*s1p03i,*s1p04i,*s1p05i,*s1p06i,*s1p07i,*s1p08i,*s1p09i,*s1p10i,*s1p11i,*s1p12i,*s1p13i,*s1p14i,*s1p15i,*s1p16i,*s1p17i,*s1p18i,*s1p19i,*s1p20i,*s1p21i,*s1p22i,*s1p23i,*s1p24i,*s1p25i,*s1p26i,*s1p27i,*s1p28i,*s1p29i,*s1p30i,*s1p31i,*s1p32i,*s1p33i,*s1p34i,*s1p35i;
-	static uint64 *sm_arr = 0x0, *sm_ptr, *sign_mask, *sse_bw, *sse_sw, *sse_n;
-	uint64 tmp64;
 	static int *bjmodn00,*bjmodn01,*bjmodn02,*bjmodn03,*bjmodn04,*bjmodn05,*bjmodn06,*bjmodn07,*bjmodn08,*bjmodn09,*bjmodn10,*bjmodn11,*bjmodn12,*bjmodn13,*bjmodn14,*bjmodn15,*bjmodn16,*bjmodn17,*bjmodn18,*bjmodn19,*bjmodn20,*bjmodn21,*bjmodn22,*bjmodn23,*bjmodn24,*bjmodn25,*bjmodn26,*bjmodn27,*bjmodn28,*bjmodn29,*bjmodn30,*bjmodn31,*bjmodn32,*bjmodn33,*bjmodn34,*bjmodn35;
 	static struct complex *cy_r00,*cy_r02,*cy_r04,*cy_r06,*cy_r08,*cy_r10,*cy_r12,*cy_r14,*cy_r16,*cy_r18,*cy_r20,*cy_r22,*cy_r24,*cy_r26,*cy_r28,*cy_r30,*cy_r32,*cy_r34;
 	static struct complex *cy_i00,*cy_i02,*cy_i04,*cy_i06,*cy_i08,*cy_i10,*cy_i12,*cy_i14,*cy_i16,*cy_i18,*cy_i20,*cy_i22,*cy_i24,*cy_i26,*cy_i28,*cy_i30,*cy_i32,*cy_i34;
@@ -135,13 +278,19 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	*_cy_r00 = 0x0,*_cy_r01 = 0x0,*_cy_r02 = 0x0,*_cy_r03 = 0x0,*_cy_r04 = 0x0,*_cy_r05 = 0x0,*_cy_r06 = 0x0,*_cy_r07 = 0x0,*_cy_r08 = 0x0,*_cy_r09 = 0x0,*_cy_r10 = 0x0,*_cy_r11 = 0x0,*_cy_r12 = 0x0,*_cy_r13 = 0x0,*_cy_r14 = 0x0,*_cy_r15 = 0x0,*_cy_r16 = 0x0,*_cy_r17 = 0x0,*_cy_r18 = 0x0,*_cy_r19 = 0x0,*_cy_r20 = 0x0,*_cy_r21 = 0x0,*_cy_r22 = 0x0,*_cy_r23 = 0x0,*_cy_r24 = 0x0,*_cy_r25 = 0x0,*_cy_r26 = 0x0,*_cy_r27 = 0x0,*_cy_r28 = 0x0,*_cy_r29 = 0x0,*_cy_r30 = 0x0,*_cy_r31 = 0x0,*_cy_r32 = 0x0,*_cy_r33 = 0x0,*_cy_r34 = 0x0,*_cy_r35 = 0x0,
 	*_cy_i00 = 0x0,*_cy_i01 = 0x0,*_cy_i02 = 0x0,*_cy_i03 = 0x0,*_cy_i04 = 0x0,*_cy_i05 = 0x0,*_cy_i06 = 0x0,*_cy_i07 = 0x0,*_cy_i08 = 0x0,*_cy_i09 = 0x0,*_cy_i10 = 0x0,*_cy_i11 = 0x0,*_cy_i12 = 0x0,*_cy_i13 = 0x0,*_cy_i14 = 0x0,*_cy_i15 = 0x0,*_cy_i16 = 0x0,*_cy_i17 = 0x0,*_cy_i18 = 0x0,*_cy_i19 = 0x0,*_cy_i20 = 0x0,*_cy_i21 = 0x0,*_cy_i22 = 0x0,*_cy_i23 = 0x0,*_cy_i24 = 0x0,*_cy_i25 = 0x0,*_cy_i26 = 0x0,*_cy_i27 = 0x0,*_cy_i28 = 0x0,*_cy_i29 = 0x0,*_cy_i30 = 0x0,*_cy_i31 = 0x0,*_cy_i32 = 0x0,*_cy_i33 = 0x0,*_cy_i34 = 0x0,*_cy_i35 = 0x0;
 
-/*...change n36 and n_div_wt to non-static to work around a gcc compiler bug. */
-	n36   = n/36;
-	n_div_nwt = n36 >> nwt_bits;
+#ifdef CTIME
+	const double ICPS = 1.0/CLOCKS_PER_SEC;
+	clock1 = clock();
+	dt_fwd = dt_inv = dt_cy = dt_tot = 0.0;
+#endif
 
-	if((n_div_nwt << nwt_bits) != n36)
+/*...change NDIVR and n_div_wt to non-static to work around a gcc compiler bug. */
+	NDIVR   = n/RADIX;
+	n_div_nwt = NDIVR >> nwt_bits;
+
+	if((n_div_nwt << nwt_bits) != NDIVR)
 	{
-		sprintf(cbuf,"FATAL: iter = %10d; NWT_BITS does not divide N/36 in radix36_ditN_cy_dif1.\n",iter);
+		sprintf(cbuf,"FATAL: iter = %10d; NWT_BITS does not divide N/RADIX in radix24_ditN_cy_dif1.\n",iter);
 		if(INTERACT)fprintf(stderr,"%s",cbuf);
 		fp = fopen(   OFILE,"a");
 		fq = fopen(STATFILE,"a");
@@ -162,6 +311,16 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	if(first_entry)
 	{
+		psave = p;
+		first_entry=FALSE;
+		radix_inv = qfdbl(qf_rational_quotient((int64)1, (int64)RADIX));
+		n2inv     = qfdbl(qf_rational_quotient((int64)1, (int64)(n/2)));
+
+		bw    = p%n;		/* Number of bigwords in the Crandall/Fagin mixed-radix representation = (Mersenne exponent) mod (vector length).	*/
+		sw    = n - bw;	/* Number of smallwords.	*/
+
+	#ifdef MULTITHREAD
+
 		/* #Chunks ||ized in carry step is ideally a power of 2, so use the smallest
 		power of 2 that is >= the value of the global NTHREADS (but still <= MAX_THREADS):
 		*/
@@ -172,48 +331,82 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			i = leadz32(NTHREADS);
 			CY_THREADS = (((uint32)NTHREADS << i) & 0x80000000) >> (i-1);
 		}
-		if(CY_THREADS > MAX_THREADS)
-			CY_THREADS = MAX_THREADS;
 
-		ASSERT(HERE, CY_THREADS >= NTHREADS,"radix36_ditN_cy_dif1.c: CY_THREADS < NTHREADS");
-		ASSERT(HERE, isPow2(CY_THREADS)    ,"radix36_ditN_cy_dif1.c: CY_THREADS not a power of 2!");
+		if(CY_THREADS > MAX_THREADS)
+		{
+		//	CY_THREADS = MAX_THREADS;
+			fprintf(stderr,"WARN: CY_THREADS = %d exceeds number of cores = %d\n", CY_THREADS, MAX_THREADS);
+		}
+		ASSERT(HERE, CY_THREADS >= NTHREADS,"CY_THREADS < NTHREADS");
+		ASSERT(HERE, isPow2(CY_THREADS)    ,"CY_THREADS not a power of 2!");
 		if(CY_THREADS > 1)
 		{
-			ASSERT(HERE, n36      %CY_THREADS == 0,"radix36_ditN_cy_dif1.c: n36      %CY_THREADS != 0");
-			ASSERT(HERE, n_div_nwt%CY_THREADS == 0,"radix36_ditN_cy_dif1.c: n_div_nwt%CY_THREADS != 0");
+			ASSERT(HERE, NDIVR    %CY_THREADS == 0,"NDIVR    %CY_THREADS != 0");
+			ASSERT(HERE, n_div_nwt%CY_THREADS == 0,"n_div_nwt%CY_THREADS != 0");
 		}
 
-	#ifdef MULTITHREAD
+	  #ifdef USE_PTHREAD
+
+		j = (uint32)sizeof(struct cy_thread_data_t);
+		if(0 != (j & 0xf)) {
+			printf("sizeof(cy_thread_data_t) = %x\n",j);
+			ASSERT(HERE, 0, "struct cy_thread_data_t not 16-byte size multiple!");
+		}
+		tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, sizeof(struct cy_thread_data_t));
+
+		// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
+		// so on that platform try to be clever and interleave main-thread and threadpool-work processing
+		#ifdef OS_TYPE_MACOSX
+
+			if(CY_THREADS > 1) {
+				main_work_units = CY_THREADS/2;
+				pool_work_units = CY_THREADS - main_work_units;
+				ASSERT(HERE, 0x0 != (tpool = threadpool_init(pool_work_units, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
+				printf("radix%d_ditN_cy_dif1: Init threadpool of %d threads\n", RADIX, pool_work_units);
+			} else {
+				main_work_units = 1;
+				printf("radix%d_ditN_cy_dif1: CY_THREADS = 1: Using main execution thread, no threadpool needed.\n", RADIX);
+			}
+
+		#else
+
+			pool_work_units = CY_THREADS;
+			ASSERT(HERE, 0x0 != (tpool = threadpool_init(CY_THREADS, MAX_THREADS, CY_THREADS, &thread_control)), "threadpool_init failed!");
+
+		#endif
+
 		fprintf(stderr,"Using %d threads in carry step\n", CY_THREADS);
+
+	  #endif
+
+	#else
+		CY_THREADS = 1;
 	#endif
-
-		psave = p;
-		first_entry=FALSE;
-		radix_inv = qfdbl(qf_rational_quotient((int64)1, (int64)36));
-		n2inv     = qfdbl(qf_rational_quotient((int64)1, (int64)(n/2)));
-
-		bw    = p%n;		/* Number of bigwords in the Crandall/Fagin mixed-radix representation = (Mersenne exponent) mod (vector length).	*/
-		sw    = n - bw;	/* Number of smallwords.	*/
 
 	#ifdef USE_SSE2
 
 		ASSERT(HERE, (MODULUS_TYPE == MODULUS_TYPE_MERSENNE), "SSE2 currently only supports Mersenne-mod!");
-		sc_arr = ALLOC_COMPLEX(sc_arr, 216);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		sc_ptr = ALIGN_COMPLEX(sc_arr);
-		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 		ASSERT(HERE, ((uint32)wt0    & 0x3f) == 0, "wt0[]  not 64-byte aligned!");
 		ASSERT(HERE, ((uint32)wt1    & 0x3f) == 0, "wt1[]  not 64-byte aligned!");
 
-		/* Size here is [8 + radix/2 + 4] 8-byte elements */
-		sm_arr = ALLOC_UINT64(sm_arr, 32);	if(!sm_arr){ sprintf(cbuf, "FATAL: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		sm_ptr = ALIGN_UINT64(sm_arr);
+		// Use double-complex type size (16 bytes) to alloc a block of local storage
+		// consisting of 88 dcomplex and (12+RADIX/2) uint64 element slots per thread
+		// (Add as many padding elts to the latter as needed to make it a multiple of 4):
+		cslots_in_local_store = radix36_creals_in_local_store + (((12+RADIX/2)/2 + 3) & ~0x3);
+		sc_arr = ALLOC_COMPLEX(sc_arr, cslots_in_local_store*CY_THREADS);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_ptr = ALIGN_COMPLEX(sc_arr);
+		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		sm_ptr = (uint64*)(sc_ptr + radix36_creals_in_local_store);
 		ASSERT(HERE, ((uint32)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
 
 	/* Use low 192 16-byte slots of sc_arr for r-and-s temporaries, next 7 for the nontrivial complex 16th roots,
 	next 36 for the doubled carry pairs, next 2 for ROE and RND_CONST, next 20 for the half_arr table lookup stuff,
 	plus at least 3 more slots to allow for 64-byte alignment of the array:
 	*/
-		tmp	= sc_ptr + 0x48;
+	#ifdef USE_PTHREAD
+		__r0 = sc_ptr;
+	#endif
+									tmp	= sc_ptr + 0x48;
 		r00	= sc_ptr + 0x00;		s1p00r = tmp + 0x00;	cc1		= tmp + 0x48;
 		r01	= sc_ptr + 0x01;		s1p00i = tmp + 0x01;	ss1		= tmp + 0x49;
 		r02	= sc_ptr + 0x02;		s1p01r = tmp + 0x02;	cc2		= tmp + 0x4a;
@@ -286,16 +479,16 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		r3f	= sc_ptr + 0x45;		s1p34i = tmp + 0x45;
 		r3g	= sc_ptr + 0x46;		s1p35r = tmp + 0x46;
 		r3h	= sc_ptr + 0x47;		s1p35i = tmp + 0x47;
+		ASSERT(HERE, (radix36_creals_in_local_store << 4) >= ((long)half_arr - (long)r00) + (20 << 4), "radix36_creals_in_local_store checksum failed!");
 
 		/* These remain fixed: */
-		cc1  ->re = c	;	cc1  ->im = c	;		ss1  ->re = s	;	ss1  ->im = s	;
-		cc2  ->re = c2  ;	cc2  ->im = c2  ;		ss2  ->re = s2  ;	ss2  ->im = s2  ;
-		cc3m1->re = c3m1;	cc3m1->im = c3m1;		ss3  ->re = s3  ;	ss3  ->im = s3  ;
-		cc4  ->re = c4  ;	cc4  ->im = c4  ;		ss4  ->re = s4  ;	ss4  ->im = s4  ;
+		cc1  ->re = cc1  ->im = c	;		ss1->re = ss1->im = s ;
+		cc2  ->re = cc2  ->im = c2  ;		ss2->re = ss2->im = s2;
+		cc3m1->re = cc3m1->im = c3m1;		ss3->re = ss3->im = s3;
+		cc4  ->re = cc4  ->im = c4  ;		ss4->re = ss4->im = s4;
 
 		/* SSE2 math = 53-mantissa-bit IEEE double-float: */
-		sse2_rnd->re = 3.0*0x4000000*0x2000000;
-		sse2_rnd->im = 3.0*0x4000000*0x2000000;
+		sse2_rnd->re = sse2_rnd->im = crnd;
 
 		/* SSE2 version of the one_half array - we have a 2-bit lookup, low bit is from the low word of the carry pair,
 		high bit from the high, i.e. based on this lookup index [listed with LSB at right], we have:
@@ -386,6 +579,27 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		*sse_n-- = tmp64;
 	#endif
 
+#ifdef USE_PTHREAD
+	/* Populate the elements of the thread-specific data structs which don't change after init: */
+	for(ithread = 0; ithread < CY_THREADS; ithread++)
+	{
+	// int data:
+		tdat[ithread].tid = ithread;
+		tdat[ithread].ndivr = NDIVR;
+
+		tdat[ithread].sw  = sw;
+		tdat[ithread].nwt = nwt;
+
+	// pointer data:
+		tdat[ithread].arrdat = a;			/* Main data array */
+		tdat[ithread].wt0 = wt0;
+		tdat[ithread].wt1 = wt1;
+		tdat[ithread].si  = si;
+		tdat[ithread].r00 = __r0 + ithread*cslots_in_local_store;
+		tdat[ithread].half_arr = (long)tdat[ithread].r00 + ((long)half_arr - (long)r00);
+	}
+#endif
+
 		bjmodn00 = (uint32*)(sm_ptr + 8);
 		bjmodn01 = bjmodn00 + 1;
 		bjmodn02 = bjmodn01 + 1;
@@ -423,10 +637,22 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		bjmodn34 = bjmodn33 + 1;
 		bjmodn35 = bjmodn34 + 1;
 
-	#endif
+	  #ifdef USE_PTHREAD
+		tmp = __r0 + cslots_in_local_store;
+		/* Init thread 1-CY_THREADS's local stores and pointers: */
+		for(i = 1; i < CY_THREADS; ++i) {
+			/* Only care about the constants for each thread here, but easier to just copy the entire thread0 local store: */
+			memcpy(tmp, __r0, cslots_in_local_store<<4);	// bytewise copy treats complex and uint64 subdata the same
+			tmp += cslots_in_local_store;
+		}
+	  #endif
+
+	#endif	// USE_SSE2
 
 		/*   constant index offsets for array load/stores are here.	*/
-		p01 = n36;
+		pini = NDIVR/CY_THREADS;
+		pini += ( (pini >> DAT_BITS) << PAD_BITS );
+		p01 = NDIVR;
 		p02 = p01 + p01;
 		p03 = p02 + p01;
 		p04 = p03 + p01;
@@ -597,124 +823,126 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		}
 
 		ptr_prod = (uint32)0;	/* Store bitmask for allocatable-array ptrs here, check vs 0 after all alloc calls finish */
-		_i       	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_i== 0x0);
-		_bjmodn00	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn00== 0x0);
-		_bjmodn01	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn01== 0x0);
-		_bjmodn02	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn02== 0x0);
-		_bjmodn03	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn03== 0x0);
-		_bjmodn04	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn04== 0x0);
-		_bjmodn05	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn05== 0x0);
-		_bjmodn06	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn06== 0x0);
-		_bjmodn07	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn07== 0x0);
-		_bjmodn08	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn08== 0x0);
-		_bjmodn09	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn09== 0x0);
-		_bjmodn10	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn10== 0x0);
-		_bjmodn11	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn11== 0x0);
-		_bjmodn12	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn12== 0x0);
-		_bjmodn13	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn13== 0x0);
-		_bjmodn14	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn14== 0x0);
-		_bjmodn15	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn15== 0x0);
-		_bjmodn16	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn16== 0x0);
-		_bjmodn17	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn17== 0x0);
-		_bjmodn18	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn18== 0x0);
-		_bjmodn19	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn19== 0x0);
-		_bjmodn20	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn20== 0x0);
-		_bjmodn21	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn21== 0x0);
-		_bjmodn22	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn22== 0x0);
-		_bjmodn23	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn23== 0x0);
-		_bjmodn24	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn24== 0x0);
-		_bjmodn25	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn25== 0x0);
-		_bjmodn26	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn26== 0x0);
-		_bjmodn27	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn27== 0x0);
-		_bjmodn28	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn28== 0x0);
-		_bjmodn29	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn29== 0x0);
-		_bjmodn30	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn30== 0x0);
-		_bjmodn31	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn31== 0x0);
-		_bjmodn32	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn32== 0x0);
-		_bjmodn33	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn33== 0x0);
-		_bjmodn34	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn34== 0x0);
-		_bjmodn35	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_bjmodn35== 0x0);
-		_jstart  	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_jstart  == 0x0);
-		_jhi     	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_jhi     == 0x0);
-		_col     	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_col     == 0x0);
-		_co2     	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_co2     == 0x0);
-		_co3     	= (int *)malloc(CY_THREADS*sizeof(int));	ptr_prod += (uint32)(_co3     == 0x0);
+		j = CY_THREADS*sizeof(int);
+		_i       	= (int *)malloc(j);	ptr_prod += (uint32)(_i== 0x0);
+		_bjmodn00	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn00== 0x0);
+		_bjmodn01	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn01== 0x0);
+		_bjmodn02	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn02== 0x0);
+		_bjmodn03	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn03== 0x0);
+		_bjmodn04	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn04== 0x0);
+		_bjmodn05	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn05== 0x0);
+		_bjmodn06	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn06== 0x0);
+		_bjmodn07	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn07== 0x0);
+		_bjmodn08	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn08== 0x0);
+		_bjmodn09	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn09== 0x0);
+		_bjmodn10	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn10== 0x0);
+		_bjmodn11	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn11== 0x0);
+		_bjmodn12	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn12== 0x0);
+		_bjmodn13	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn13== 0x0);
+		_bjmodn14	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn14== 0x0);
+		_bjmodn15	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn15== 0x0);
+		_bjmodn16	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn16== 0x0);
+		_bjmodn17	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn17== 0x0);
+		_bjmodn18	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn18== 0x0);
+		_bjmodn19	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn19== 0x0);
+		_bjmodn20	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn20== 0x0);
+		_bjmodn21	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn21== 0x0);
+		_bjmodn22	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn22== 0x0);
+		_bjmodn23	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn23== 0x0);
+		_bjmodn24	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn24== 0x0);
+		_bjmodn25	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn25== 0x0);
+		_bjmodn26	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn26== 0x0);
+		_bjmodn27	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn27== 0x0);
+		_bjmodn28	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn28== 0x0);
+		_bjmodn29	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn29== 0x0);
+		_bjmodn30	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn30== 0x0);
+		_bjmodn31	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn31== 0x0);
+		_bjmodn32	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn32== 0x0);
+		_bjmodn33	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn33== 0x0);
+		_bjmodn34	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn34== 0x0);
+		_bjmodn35	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn35== 0x0);
+		_jstart  	= (int *)malloc(j);	ptr_prod += (uint32)(_jstart  == 0x0);
+		_jhi     	= (int *)malloc(j);	ptr_prod += (uint32)(_jhi     == 0x0);
+		_col     	= (int *)malloc(j);	ptr_prod += (uint32)(_col     == 0x0);
+		_co2     	= (int *)malloc(j);	ptr_prod += (uint32)(_co2     == 0x0);
+		_co3     	= (int *)malloc(j);	ptr_prod += (uint32)(_co3     == 0x0);
 
-		_cy_r00	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r00== 0x0);
-		_cy_r01	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r01== 0x0);
-		_cy_r02	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r02== 0x0);
-		_cy_r03	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r03== 0x0);
-		_cy_r04	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r04== 0x0);
-		_cy_r05	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r05== 0x0);
-		_cy_r06	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r06== 0x0);
-		_cy_r07	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r07== 0x0);
-		_cy_r08	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r08== 0x0);
-		_cy_r09	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r09== 0x0);
-		_cy_r10	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r10== 0x0);
-		_cy_r11	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r11== 0x0);
-		_cy_r12	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r12== 0x0);
-		_cy_r13	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r13== 0x0);
-		_cy_r14	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r14== 0x0);
-		_cy_r15	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r15== 0x0);
-		_cy_r16	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r16== 0x0);
-		_cy_r17	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r17== 0x0);
-		_cy_r18	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r18== 0x0);
-		_cy_r19	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r19== 0x0);
-		_cy_r20	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r20== 0x0);
-		_cy_r21	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r21== 0x0);
-		_cy_r22	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r22== 0x0);
-		_cy_r23	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r23== 0x0);
-		_cy_r24	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r24== 0x0);
-		_cy_r25	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r25== 0x0);
-		_cy_r26	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r26== 0x0);
-		_cy_r27	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r27== 0x0);
-		_cy_r28	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r28== 0x0);
-		_cy_r29	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r29== 0x0);
-		_cy_r30	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r30== 0x0);
-		_cy_r31	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r31== 0x0);
-		_cy_r32	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r32== 0x0);
-		_cy_r33	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r33== 0x0);
-		_cy_r34	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r34== 0x0);
-		_cy_r35	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_r35== 0x0);
+		j = CY_THREADS*sizeof(double);
+		_cy_r00	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r00== 0x0);
+		_cy_r01	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r01== 0x0);
+		_cy_r02	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r02== 0x0);
+		_cy_r03	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r03== 0x0);
+		_cy_r04	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r04== 0x0);
+		_cy_r05	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r05== 0x0);
+		_cy_r06	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r06== 0x0);
+		_cy_r07	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r07== 0x0);
+		_cy_r08	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r08== 0x0);
+		_cy_r09	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r09== 0x0);
+		_cy_r10	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r10== 0x0);
+		_cy_r11	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r11== 0x0);
+		_cy_r12	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r12== 0x0);
+		_cy_r13	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r13== 0x0);
+		_cy_r14	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r14== 0x0);
+		_cy_r15	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r15== 0x0);
+		_cy_r16	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r16== 0x0);
+		_cy_r17	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r17== 0x0);
+		_cy_r18	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r18== 0x0);
+		_cy_r19	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r19== 0x0);
+		_cy_r20	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r20== 0x0);
+		_cy_r21	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r21== 0x0);
+		_cy_r22	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r22== 0x0);
+		_cy_r23	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r23== 0x0);
+		_cy_r24	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r24== 0x0);
+		_cy_r25	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r25== 0x0);
+		_cy_r26	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r26== 0x0);
+		_cy_r27	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r27== 0x0);
+		_cy_r28	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r28== 0x0);
+		_cy_r29	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r29== 0x0);
+		_cy_r30	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r30== 0x0);
+		_cy_r31	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r31== 0x0);
+		_cy_r32	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r32== 0x0);
+		_cy_r33	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r33== 0x0);
+		_cy_r34	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r34== 0x0);
+		_cy_r35	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r35== 0x0);
 
-		_cy_i00	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i00== 0x0);
-		_cy_i01	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i01== 0x0);
-		_cy_i02	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i02== 0x0);
-		_cy_i03	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i03== 0x0);
-		_cy_i04	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i04== 0x0);
-		_cy_i05	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i05== 0x0);
-		_cy_i06	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i06== 0x0);
-		_cy_i07	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i07== 0x0);
-		_cy_i08	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i08== 0x0);
-		_cy_i09	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i09== 0x0);
-		_cy_i10	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i10== 0x0);
-		_cy_i11	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i11== 0x0);
-		_cy_i12	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i12== 0x0);
-		_cy_i13	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i13== 0x0);
-		_cy_i14	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i14== 0x0);
-		_cy_i15	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i15== 0x0);
-		_cy_i16	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i16== 0x0);
-		_cy_i17	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i17== 0x0);
-		_cy_i18	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i18== 0x0);
-		_cy_i19	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i19== 0x0);
-		_cy_i20	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i20== 0x0);
-		_cy_i21	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i21== 0x0);
-		_cy_i22	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i22== 0x0);
-		_cy_i23	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i23== 0x0);
-		_cy_i24	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i24== 0x0);
-		_cy_i25	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i25== 0x0);
-		_cy_i26	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i26== 0x0);
-		_cy_i27	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i27== 0x0);
-		_cy_i28	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i28== 0x0);
-		_cy_i29	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i29== 0x0);
-		_cy_i30	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i30== 0x0);
-		_cy_i31	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i31== 0x0);
-		_cy_i32	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i32== 0x0);
-		_cy_i33	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i33== 0x0);
-		_cy_i34	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i34== 0x0);
-		_cy_i35	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_cy_i35== 0x0);
+		_cy_i00	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i00== 0x0);
+		_cy_i01	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i01== 0x0);
+		_cy_i02	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i02== 0x0);
+		_cy_i03	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i03== 0x0);
+		_cy_i04	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i04== 0x0);
+		_cy_i05	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i05== 0x0);
+		_cy_i06	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i06== 0x0);
+		_cy_i07	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i07== 0x0);
+		_cy_i08	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i08== 0x0);
+		_cy_i09	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i09== 0x0);
+		_cy_i10	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i10== 0x0);
+		_cy_i11	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i11== 0x0);
+		_cy_i12	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i12== 0x0);
+		_cy_i13	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i13== 0x0);
+		_cy_i14	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i14== 0x0);
+		_cy_i15	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i15== 0x0);
+		_cy_i16	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i16== 0x0);
+		_cy_i17	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i17== 0x0);
+		_cy_i18	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i18== 0x0);
+		_cy_i19	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i19== 0x0);
+		_cy_i20	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i20== 0x0);
+		_cy_i21	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i21== 0x0);
+		_cy_i22	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i22== 0x0);
+		_cy_i23	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i23== 0x0);
+		_cy_i24	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i24== 0x0);
+		_cy_i25	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i25== 0x0);
+		_cy_i26	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i26== 0x0);
+		_cy_i27	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i27== 0x0);
+		_cy_i28	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i28== 0x0);
+		_cy_i29	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i29== 0x0);
+		_cy_i30	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i30== 0x0);
+		_cy_i31	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i31== 0x0);
+		_cy_i32	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i32== 0x0);
+		_cy_i33	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i33== 0x0);
+		_cy_i34	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i34== 0x0);
+		_cy_i35	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i35== 0x0);
 
-		_maxerr	= (double *)malloc(CY_THREADS*sizeof(double));	ptr_prod += (uint32)(_maxerr== 0x0);
+		_maxerr	= (double *)malloc(j);	ptr_prod += (uint32)(_maxerr== 0x0);
 
 		ASSERT(HERE, ptr_prod == 0, "FATAL: unable to allocate one or more auxiliary arrays in radix36_ditN_cy_dif1.");
 
@@ -731,11 +959,11 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		*/
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 		{
-			jhi = n36/CY_THREADS;
+			jhi = NDIVR/CY_THREADS;
 		}
 		else
 		{
-			jhi = n36/CY_THREADS/2;
+			jhi = NDIVR/CY_THREADS/2;
 		}
 
 		for(j=0; j < jhi; j++)
@@ -752,7 +980,7 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		}
 		/* Check upper element against scalar value, as precomputed in single-thread mode: */
 		bjmodnini=0;
-		for(j=0; j < n36; j++)
+		for(j=0; j < jhi*CY_THREADS; j++)
 		{
 			bjmodnini -= sw; bjmodnini = bjmodnini + ( (-(int)((uint32)bjmodnini >> 31)) & n);
 		}
@@ -821,25 +1049,20 @@ for(outer=0; outer <= 1; outer++)
 {
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 	{
-		_i[0] = 1;		/* Pointer to the BASE and BASEINV arrays. If n does not divide p, lowest-order digit is always a bigword (_i[0] = 1).	*/
+		_i[0] = 1;		/* Pointer to the BASE and BASEINV arrays. lowest-order digit is always a bigword (_i[0] = 1).	*/
 
-		/*
-		Moved this inside the outer-loop, so on cleanup pass can use it to reset _col,_co2,_co3 starting values,
-		then simply overwrite it with 1 prior to starting the k-loop.
-		*/
 		khi = n_div_nwt/CY_THREADS;
-
 		for(ithread = 0; ithread < CY_THREADS; ithread++)
 		{
-			_jstart[ithread] = ithread*n36/CY_THREADS;
+			_jstart[ithread] = ithread*NDIVR/CY_THREADS;
 			if(!full_pass)
 				_jhi[ithread] = _jstart[ithread] + 7;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
 			else
 				_jhi[ithread] = _jstart[ithread] + nwt-1;
 
-			_col[ithread] = ithread*(khi*36);			/* col gets incremented by RADIX_VEC[0] on every pass through the k-loop */
-			_co2[ithread] = (n>>nwt_bits)-1+36 - _col[ithread];	/* co2 gets decremented by RADIX_VEC[0] on every pass through the k-loop */
-			_co3[ithread] = _co2[ithread]-36;			/* At the start of each new j-loop, co3=co2-RADIX_VEC[0]	*/
+			_col[ithread] = ithread*(khi*RADIX);			/* col gets incremented by RADIX_VEC[0] on every pass through the k-loop */
+			_co2[ithread] = (n>>nwt_bits)-1+RADIX - _col[ithread];	/* co2 gets decremented by RADIX_VEC[0] on every pass through the k-loop */
+			_co3[ithread] = _co2[ithread]-RADIX;			/* At the start of each new j-loop, co3=co2-RADIX_VEC[0]	*/
 		}
 	}
 	else
@@ -847,10 +1070,9 @@ for(outer=0; outer <= 1; outer++)
 		_i[0] = 0;		/* Pointer to the BASE and BASEINV arrays. If n divides p, lowest-order digit is always a smallword (_i[0] = 0).	*/
 
 		khi = 1;
-
 		for(ithread = 0; ithread < CY_THREADS; ithread++)
 		{
-			_jstart[ithread] = ithread*n36/CY_THREADS;
+			_jstart[ithread] = ithread*NDIVR/CY_THREADS;
 			/*
 			For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
 			*/
@@ -861,48 +1083,48 @@ for(outer=0; outer <= 1; outer++)
 		}
 
 		/* For Fermat-mod, IBDWT access patterns repeat with period NWT = {odd part of radix0},
-		so for even radix0's only really need that many bjmodn and ii's, but that would require
-		specialized carry macros that don't update ii and bjmodn - not worth the trouble.
+		so for even radix0 values still only need [radix0 >> trailz(radix0)] bjmodn and ii's:
 		*/
 		/* indices into IBDWT weights arrays (mod NWT) is here: */
 		ii00= 0;
-		ii01= (SW_DIV_N*n36/2) % nwt;
-		ii02= (ii01+ ii01) % nwt;
-		ii03= (ii02+ ii01) % nwt;
-		ii04= (ii03+ ii01) % nwt;
-		ii05= (ii04+ ii01) % nwt;
-		ii06= (ii05+ ii01) % nwt;
-		ii07= (ii06+ ii01) % nwt;
-		ii08= (ii07+ ii01) % nwt;
-		ii09= (ii08+ ii01) % nwt;
-		ii10= (ii09+ ii01) % nwt;
-		ii11= (ii10+ ii01) % nwt;
-		ii12= (ii11+ ii01) % nwt;
-		ii13= (ii12+ ii01) % nwt;
-		ii14= (ii13+ ii01) % nwt;
-		ii15= (ii14+ ii01) % nwt;
-		ii16= (ii15+ ii01) % nwt;
-		ii17= (ii16+ ii01) % nwt;
-		ii18= (ii17+ ii01) % nwt;
-		ii19= (ii18+ ii01) % nwt;
-		ii20= (ii19+ ii01) % nwt;
-		ii21= (ii20+ ii01) % nwt;
-		ii22= (ii21+ ii01) % nwt;
-		ii23= (ii22+ ii01) % nwt;
-		ii24= (ii23+ ii01) % nwt;
-		ii25= (ii24+ ii01) % nwt;
-		ii26= (ii25+ ii01) % nwt;
-		ii27= (ii26+ ii01) % nwt;
-		ii28= (ii27+ ii01) % nwt;
-		ii29= (ii28+ ii01) % nwt;
-		ii30= (ii29+ ii01) % nwt;
-		ii31= (ii30+ ii01) % nwt;
-		ii32= (ii31+ ii01) % nwt;
-		ii33= (ii32+ ii01) % nwt;
-		ii34= (ii33+ ii01) % nwt;
-		ii35= (ii34+ ii01) % nwt;
+		ii01= (SW_DIV_N*NDIVR/2) % nwt;
+		MOD_ADD32(ii01,ii01,nwt,ii02);
+		MOD_ADD32(ii02,ii01,nwt,ii03);
+		MOD_ADD32(ii03,ii01,nwt,ii04);
+		MOD_ADD32(ii04,ii01,nwt,ii05);
+		MOD_ADD32(ii05,ii01,nwt,ii06);
+		MOD_ADD32(ii06,ii01,nwt,ii07);
+		MOD_ADD32(ii07,ii01,nwt,ii08);
+		MOD_ADD32(ii08,ii01,nwt,ii09);
+		MOD_ADD32(ii09,ii01,nwt,ii10);
+		MOD_ADD32(ii10,ii01,nwt,ii11);
+		MOD_ADD32(ii11,ii01,nwt,ii12);
+		MOD_ADD32(ii12,ii01,nwt,ii13);
+		MOD_ADD32(ii13,ii01,nwt,ii14);
+		MOD_ADD32(ii14,ii01,nwt,ii15);
+		MOD_ADD32(ii15,ii01,nwt,ii16);
+		MOD_ADD32(ii16,ii01,nwt,ii17);
+		MOD_ADD32(ii17,ii01,nwt,ii18);
+		MOD_ADD32(ii18,ii01,nwt,ii19);
+		MOD_ADD32(ii19,ii01,nwt,ii20);
+		MOD_ADD32(ii20,ii01,nwt,ii21);
+		MOD_ADD32(ii21,ii01,nwt,ii22);
+		MOD_ADD32(ii22,ii01,nwt,ii23);
+		MOD_ADD32(ii23,ii01,nwt,ii24);
+		MOD_ADD32(ii24,ii01,nwt,ii25);
+		MOD_ADD32(ii25,ii01,nwt,ii26);
+		MOD_ADD32(ii26,ii01,nwt,ii27);
+		MOD_ADD32(ii27,ii01,nwt,ii28);
+		MOD_ADD32(ii28,ii01,nwt,ii29);
+		MOD_ADD32(ii29,ii01,nwt,ii30);
+		MOD_ADD32(ii30,ii01,nwt,ii31);
+		MOD_ADD32(ii31,ii01,nwt,ii32);
+		MOD_ADD32(ii32,ii01,nwt,ii33);
+		MOD_ADD32(ii33,ii01,nwt,ii34);
+		MOD_ADD32(ii34,ii01,nwt,ii35);
 	}
 
+	// In non-power-of-2-runlength case, both Mersenne and Fermat-mod share these next 2 loops:
 	if(CY_THREADS > 1)
 	{
 		for(ithread = 1; ithread < CY_THREADS; ithread++)
@@ -911,45 +1133,48 @@ for(outer=0; outer <= 1; outer++)
 		}
 	}
 
+	// Include 0-thread here ... bjmodn terms all 0 for that, but need jhi computed for all threads:
+	j = _bjmodnini[CY_THREADS];
 	for(ithread = 0; ithread < CY_THREADS; ithread++)
 	{
 		_bjmodn00[ithread] = _bjmodnini[ithread];
-		_bjmodn01[ithread] = _bjmodn00[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn01[ithread] = _bjmodn01[ithread] + ( (-(int)((uint32)_bjmodn01[ithread] >> 31)) & n);
-		_bjmodn02[ithread] = _bjmodn01[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn02[ithread] = _bjmodn02[ithread] + ( (-(int)((uint32)_bjmodn02[ithread] >> 31)) & n);
-		_bjmodn03[ithread] = _bjmodn02[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn03[ithread] = _bjmodn03[ithread] + ( (-(int)((uint32)_bjmodn03[ithread] >> 31)) & n);
-		_bjmodn04[ithread] = _bjmodn03[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn04[ithread] = _bjmodn04[ithread] + ( (-(int)((uint32)_bjmodn04[ithread] >> 31)) & n);
-		_bjmodn05[ithread] = _bjmodn04[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn05[ithread] = _bjmodn05[ithread] + ( (-(int)((uint32)_bjmodn05[ithread] >> 31)) & n);
-		_bjmodn06[ithread] = _bjmodn05[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn06[ithread] = _bjmodn06[ithread] + ( (-(int)((uint32)_bjmodn06[ithread] >> 31)) & n);
-		_bjmodn07[ithread] = _bjmodn06[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn07[ithread] = _bjmodn07[ithread] + ( (-(int)((uint32)_bjmodn07[ithread] >> 31)) & n);
-		_bjmodn08[ithread] = _bjmodn07[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn08[ithread] = _bjmodn08[ithread] + ( (-(int)((uint32)_bjmodn08[ithread] >> 31)) & n);
-		_bjmodn09[ithread] = _bjmodn08[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn09[ithread] = _bjmodn09[ithread] + ( (-(int)((uint32)_bjmodn09[ithread] >> 31)) & n);
-		_bjmodn10[ithread] = _bjmodn09[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn10[ithread] = _bjmodn10[ithread] + ( (-(int)((uint32)_bjmodn10[ithread] >> 31)) & n);
-		_bjmodn11[ithread] = _bjmodn10[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn11[ithread] = _bjmodn11[ithread] + ( (-(int)((uint32)_bjmodn11[ithread] >> 31)) & n);
-		_bjmodn12[ithread] = _bjmodn11[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn12[ithread] = _bjmodn12[ithread] + ( (-(int)((uint32)_bjmodn12[ithread] >> 31)) & n);
-		_bjmodn13[ithread] = _bjmodn12[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn13[ithread] = _bjmodn13[ithread] + ( (-(int)((uint32)_bjmodn13[ithread] >> 31)) & n);
-		_bjmodn14[ithread] = _bjmodn13[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn14[ithread] = _bjmodn14[ithread] + ( (-(int)((uint32)_bjmodn14[ithread] >> 31)) & n);
-		_bjmodn15[ithread] = _bjmodn14[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn15[ithread] = _bjmodn15[ithread] + ( (-(int)((uint32)_bjmodn15[ithread] >> 31)) & n);
-		_bjmodn16[ithread] = _bjmodn15[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn16[ithread] = _bjmodn16[ithread] + ( (-(int)((uint32)_bjmodn16[ithread] >> 31)) & n);
-		_bjmodn17[ithread] = _bjmodn16[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn17[ithread] = _bjmodn17[ithread] + ( (-(int)((uint32)_bjmodn17[ithread] >> 31)) & n);
-		_bjmodn18[ithread] = _bjmodn17[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn18[ithread] = _bjmodn18[ithread] + ( (-(int)((uint32)_bjmodn18[ithread] >> 31)) & n);
-		_bjmodn19[ithread] = _bjmodn18[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn19[ithread] = _bjmodn19[ithread] + ( (-(int)((uint32)_bjmodn19[ithread] >> 31)) & n);
-		_bjmodn20[ithread] = _bjmodn19[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn20[ithread] = _bjmodn20[ithread] + ( (-(int)((uint32)_bjmodn20[ithread] >> 31)) & n);
-		_bjmodn21[ithread] = _bjmodn20[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn21[ithread] = _bjmodn21[ithread] + ( (-(int)((uint32)_bjmodn21[ithread] >> 31)) & n);
-		_bjmodn22[ithread] = _bjmodn21[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn22[ithread] = _bjmodn22[ithread] + ( (-(int)((uint32)_bjmodn22[ithread] >> 31)) & n);
-		_bjmodn23[ithread] = _bjmodn22[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn23[ithread] = _bjmodn23[ithread] + ( (-(int)((uint32)_bjmodn23[ithread] >> 31)) & n);
-		_bjmodn24[ithread] = _bjmodn23[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn24[ithread] = _bjmodn24[ithread] + ( (-(int)((uint32)_bjmodn24[ithread] >> 31)) & n);
-		_bjmodn25[ithread] = _bjmodn24[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn25[ithread] = _bjmodn25[ithread] + ( (-(int)((uint32)_bjmodn25[ithread] >> 31)) & n);
-		_bjmodn26[ithread] = _bjmodn25[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn26[ithread] = _bjmodn26[ithread] + ( (-(int)((uint32)_bjmodn26[ithread] >> 31)) & n);
-		_bjmodn27[ithread] = _bjmodn26[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn27[ithread] = _bjmodn27[ithread] + ( (-(int)((uint32)_bjmodn27[ithread] >> 31)) & n);
-		_bjmodn28[ithread] = _bjmodn27[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn28[ithread] = _bjmodn28[ithread] + ( (-(int)((uint32)_bjmodn28[ithread] >> 31)) & n);
-		_bjmodn29[ithread] = _bjmodn28[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn29[ithread] = _bjmodn29[ithread] + ( (-(int)((uint32)_bjmodn29[ithread] >> 31)) & n);
-		_bjmodn30[ithread] = _bjmodn29[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn30[ithread] = _bjmodn30[ithread] + ( (-(int)((uint32)_bjmodn30[ithread] >> 31)) & n);
-		_bjmodn31[ithread] = _bjmodn30[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn31[ithread] = _bjmodn31[ithread] + ( (-(int)((uint32)_bjmodn31[ithread] >> 31)) & n);
-		_bjmodn32[ithread] = _bjmodn31[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn32[ithread] = _bjmodn32[ithread] + ( (-(int)((uint32)_bjmodn32[ithread] >> 31)) & n);
-		_bjmodn33[ithread] = _bjmodn32[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn33[ithread] = _bjmodn33[ithread] + ( (-(int)((uint32)_bjmodn33[ithread] >> 31)) & n);
-		_bjmodn34[ithread] = _bjmodn33[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn34[ithread] = _bjmodn34[ithread] + ( (-(int)((uint32)_bjmodn34[ithread] >> 31)) & n);
-		_bjmodn35[ithread] = _bjmodn34[ithread] + _bjmodnini[CY_THREADS] - n; _bjmodn35[ithread] = _bjmodn35[ithread] + ( (-(int)((uint32)_bjmodn35[ithread] >> 31)) & n);
+		MOD_ADD32(_bjmodn00[ithread], j, n, _bjmodn01[ithread]);
+		MOD_ADD32(_bjmodn01[ithread], j, n, _bjmodn02[ithread]);
+		MOD_ADD32(_bjmodn02[ithread], j, n, _bjmodn03[ithread]);
+		MOD_ADD32(_bjmodn03[ithread], j, n, _bjmodn04[ithread]);
+		MOD_ADD32(_bjmodn04[ithread], j, n, _bjmodn05[ithread]);
+		MOD_ADD32(_bjmodn05[ithread], j, n, _bjmodn06[ithread]);
+		MOD_ADD32(_bjmodn06[ithread], j, n, _bjmodn07[ithread]);
+		MOD_ADD32(_bjmodn07[ithread], j, n, _bjmodn08[ithread]);
+		MOD_ADD32(_bjmodn08[ithread], j, n, _bjmodn09[ithread]);
+		MOD_ADD32(_bjmodn09[ithread], j, n, _bjmodn10[ithread]);
+		MOD_ADD32(_bjmodn10[ithread], j, n, _bjmodn11[ithread]);
+		MOD_ADD32(_bjmodn11[ithread], j, n, _bjmodn12[ithread]);
+		MOD_ADD32(_bjmodn12[ithread], j, n, _bjmodn13[ithread]);
+		MOD_ADD32(_bjmodn13[ithread], j, n, _bjmodn14[ithread]);
+		MOD_ADD32(_bjmodn14[ithread], j, n, _bjmodn15[ithread]);
+		MOD_ADD32(_bjmodn15[ithread], j, n, _bjmodn16[ithread]);
+		MOD_ADD32(_bjmodn16[ithread], j, n, _bjmodn17[ithread]);
+		MOD_ADD32(_bjmodn17[ithread], j, n, _bjmodn18[ithread]);
+		MOD_ADD32(_bjmodn18[ithread], j, n, _bjmodn19[ithread]);
+		MOD_ADD32(_bjmodn19[ithread], j, n, _bjmodn20[ithread]);
+		MOD_ADD32(_bjmodn20[ithread], j, n, _bjmodn21[ithread]);
+		MOD_ADD32(_bjmodn21[ithread], j, n, _bjmodn22[ithread]);
+		MOD_ADD32(_bjmodn22[ithread], j, n, _bjmodn23[ithread]);
+		MOD_ADD32(_bjmodn23[ithread], j, n, _bjmodn24[ithread]);
+		MOD_ADD32(_bjmodn24[ithread], j, n, _bjmodn25[ithread]);
+		MOD_ADD32(_bjmodn25[ithread], j, n, _bjmodn26[ithread]);
+		MOD_ADD32(_bjmodn26[ithread], j, n, _bjmodn27[ithread]);
+		MOD_ADD32(_bjmodn27[ithread], j, n, _bjmodn28[ithread]);
+		MOD_ADD32(_bjmodn28[ithread], j, n, _bjmodn29[ithread]);
+		MOD_ADD32(_bjmodn29[ithread], j, n, _bjmodn30[ithread]);
+		MOD_ADD32(_bjmodn30[ithread], j, n, _bjmodn31[ithread]);
+		MOD_ADD32(_bjmodn31[ithread], j, n, _bjmodn32[ithread]);
+		MOD_ADD32(_bjmodn32[ithread], j, n, _bjmodn33[ithread]);
+		MOD_ADD32(_bjmodn33[ithread], j, n, _bjmodn34[ithread]);
+		MOD_ADD32(_bjmodn34[ithread], j, n, _bjmodn35[ithread]);
 
+		// Every (odd_radix)th bjmodn initializer needs to be forced-to-bigword in fermat-mod DWT case:
 		if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
 		{
 			/* Start this value off at N in Fermat-mod case, so (bjmodn >= sw) check in
@@ -973,11 +1198,130 @@ for(outer=0; outer <= 1; outer++)
 	}
 
 /* Needed to remove the prefetch-address vars add0 & add for this to compile properly: */
-#ifdef MULTITHREAD
+#ifdef USE_OMP
 	omp_set_num_threads(CY_THREADS);
 //#undef PFETCH
 	#pragma omp parallel for private(temp,frac,maxerr,i,j,j1,jstart,jhi,k,k1,k2,l,col,co2,co3,m,m2,n_minus_sil,n_minus_silp1,sinwt,sinwtm1,wtl,wtlp1,wtn,wtnm1,wt,wtinv,wtA,wtB,wtC,wt_re,wt_im,rt,it,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t0a,t0b,t0c,t0d,t0e,t0f,t0g,t0h,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t1a,t1b,t1c,t1d,t1e,t1f,t1g,t1h,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t2a,t2b,t2c,t2d,t2e,t2f,t2g,t2h,t30,t31,t32,t33,t34,t35,t36,t37,t38,t39,t3a,t3b,t3c,t3d,t3e,t3f,t3g,t3h,a1p00r,a1p01r,a1p02r,a1p03r,a1p04r,a1p05r,a1p06r,a1p07r,a1p08r,a1p09r,a1p10r,a1p11r,a1p12r,a1p13r,a1p14r,a1p15r,a1p16r,a1p17r,a1p18r,a1p19r,a1p20r,a1p21r,a1p22r,a1p23r,a1p24r,a1p25r,a1p26r,a1p27r,a1p28r,a1p29r,a1p30r,a1p31r,a1p32r,a1p33r,a1p34r,a1p35r,a1p00i,a1p01i,a1p02i,a1p03i,a1p04i,a1p05i,a1p06i,a1p07i,a1p08i,a1p09i,a1p10i,a1p11i,a1p12i,a1p13i,a1p14i,a1p15i,a1p16i,a1p17i,a1p18i,a1p19i,a1p20i,a1p21i,a1p22i,a1p23i,a1p24i,a1p25i,a1p26i,a1p27i,a1p28i,a1p29i,a1p30i,a1p31i,a1p32i,a1p33i,a1p34i,a1p35i,bjmodn00,bjmodn01,bjmodn02,bjmodn03,bjmodn04,bjmodn05,bjmodn06,bjmodn07,bjmodn08,bjmodn09,bjmodn10,bjmodn11,bjmodn12,bjmodn13,bjmodn14,bjmodn15,bjmodn16,bjmodn17,bjmodn18,bjmodn19,bjmodn20,bjmodn21,bjmodn22,bjmodn23,bjmodn24,bjmodn25,bjmodn26,bjmodn27,bjmodn28,bjmodn29,bjmodn30,bjmodn31,bjmodn32,bjmodn33,bjmodn34,bjmodn35,cy_r00,cy_r01,cy_r02,cy_r03,cy_r04,cy_r05,cy_r06,cy_r07,cy_r08,cy_r09,cy_r10,cy_r11,cy_r12,cy_r13,cy_r14,cy_r15,cy_r16,cy_r17,cy_r18,cy_r19,cy_r20,cy_r21,cy_r22,cy_r23,cy_r24,cy_r25,cy_r26,cy_r27,cy_r28,cy_r29,cy_r30,cy_r31,cy_r32,cy_r33,cy_r34,cy_r35,cy_i00,cy_i01,cy_i02,cy_i03,cy_i04,cy_i05,cy_i06,cy_i07,cy_i08,cy_i09,cy_i10,cy_i11,cy_i12,cy_i13,cy_i14,cy_i15,cy_i16,cy_i17,cy_i18,cy_i19,cy_i20,cy_i21,cy_i22,cy_i23,cy_i24,cy_i25,cy_i26,cy_i27,cy_i28,cy_i29,cy_i30,cy_i31,cy_i32,cy_i33,cy_i34,cy_i35) default(shared) schedule(static)
 #endif
+
+#ifdef USE_PTHREAD
+	/* Populate the thread-specific data structs - use the invariant terms as memchecks: */
+	for(ithread = 0; ithread < CY_THREADS; ithread++)
+	{
+	// int data:
+		ASSERT(HERE, tdat[ithread].tid == ithread, "thread-local memcheck fail!");
+		ASSERT(HERE, tdat[ithread].ndivr == NDIVR, "thread-local memcheck fail!");
+
+		tdat[ithread].khi    = khi;
+		tdat[ithread].i      = _i[ithread];	/* Pointer to the BASE and BASEINV arrays.	*/
+		tdat[ithread].jstart = _jstart[ithread];
+		tdat[ithread].jhi    = _jhi[ithread];
+
+		tdat[ithread].col = _col[ithread];
+		tdat[ithread].co2 = _co2[ithread];
+		tdat[ithread].co3 = _co3[ithread];
+		ASSERT(HERE, tdat[ithread].sw  == sw, "thread-local memcheck fail!");
+		ASSERT(HERE, tdat[ithread].nwt == nwt, "thread-local memcheck fail!");
+
+	// double data:
+		tdat[ithread].maxerr = _maxerr[ithread];
+		tdat[ithread].scale = scale;
+
+	// pointer data:
+		ASSERT(HERE, tdat[ithread].arrdat == a, "thread-local memcheck fail!");			/* Main data array */
+		ASSERT(HERE, tdat[ithread].wt0 == wt0, "thread-local memcheck fail!");
+		ASSERT(HERE, tdat[ithread].wt1 == wt1, "thread-local memcheck fail!");
+		ASSERT(HERE, tdat[ithread].si  == si, "thread-local memcheck fail!");
+		ASSERT(HERE, tdat[ithread].r00 == __r0 + ithread*cslots_in_local_store, "thread-local memcheck fail!");
+		tmp = tdat[ithread].half_arr;
+		ASSERT(HERE, ((tmp-1)->re == crnd && (tmp-1)->im == crnd), "thread-local memcheck failed!");
+		ASSERT(HERE, (tmp+10)->re * (tmp+14)->re == 1.0 && (tmp+10)->im * (tmp+14)->im == 1.0, "thread-local memcheck failed!");
+
+		tdat[ithread].bjmodn00 = _bjmodn00[ithread];
+		tdat[ithread].bjmodn01 = _bjmodn01[ithread];
+		tdat[ithread].bjmodn02 = _bjmodn02[ithread];
+		tdat[ithread].bjmodn03 = _bjmodn03[ithread];
+		tdat[ithread].bjmodn04 = _bjmodn04[ithread];
+		tdat[ithread].bjmodn05 = _bjmodn05[ithread];
+		tdat[ithread].bjmodn06 = _bjmodn06[ithread];
+		tdat[ithread].bjmodn07 = _bjmodn07[ithread];
+		tdat[ithread].bjmodn08 = _bjmodn08[ithread];
+		tdat[ithread].bjmodn09 = _bjmodn09[ithread];
+		tdat[ithread].bjmodn10 = _bjmodn10[ithread];
+		tdat[ithread].bjmodn11 = _bjmodn11[ithread];
+		tdat[ithread].bjmodn12 = _bjmodn12[ithread];
+		tdat[ithread].bjmodn13 = _bjmodn13[ithread];
+		tdat[ithread].bjmodn14 = _bjmodn14[ithread];
+		tdat[ithread].bjmodn15 = _bjmodn15[ithread];
+		tdat[ithread].bjmodn16 = _bjmodn16[ithread];
+		tdat[ithread].bjmodn17 = _bjmodn17[ithread];
+		tdat[ithread].bjmodn18 = _bjmodn18[ithread];
+		tdat[ithread].bjmodn19 = _bjmodn19[ithread];
+		tdat[ithread].bjmodn20 = _bjmodn20[ithread];
+		tdat[ithread].bjmodn21 = _bjmodn21[ithread];
+		tdat[ithread].bjmodn22 = _bjmodn22[ithread];
+		tdat[ithread].bjmodn23 = _bjmodn23[ithread];
+		tdat[ithread].bjmodn24 = _bjmodn24[ithread];
+		tdat[ithread].bjmodn25 = _bjmodn25[ithread];
+		tdat[ithread].bjmodn26 = _bjmodn26[ithread];
+		tdat[ithread].bjmodn27 = _bjmodn27[ithread];
+		tdat[ithread].bjmodn28 = _bjmodn28[ithread];
+		tdat[ithread].bjmodn29 = _bjmodn29[ithread];
+		tdat[ithread].bjmodn30 = _bjmodn30[ithread];
+		tdat[ithread].bjmodn31 = _bjmodn31[ithread];
+		tdat[ithread].bjmodn32 = _bjmodn32[ithread];
+		tdat[ithread].bjmodn33 = _bjmodn33[ithread];
+		tdat[ithread].bjmodn34 = _bjmodn34[ithread];
+		tdat[ithread].bjmodn35 = _bjmodn35[ithread];
+		/* init carries	*/
+		tdat[ithread].cy00 = _cy_r00[ithread];
+		tdat[ithread].cy01 = _cy_r01[ithread];
+		tdat[ithread].cy02 = _cy_r02[ithread];
+		tdat[ithread].cy03 = _cy_r03[ithread];
+		tdat[ithread].cy04 = _cy_r04[ithread];
+		tdat[ithread].cy05 = _cy_r05[ithread];
+		tdat[ithread].cy06 = _cy_r06[ithread];
+		tdat[ithread].cy07 = _cy_r07[ithread];
+		tdat[ithread].cy08 = _cy_r08[ithread];
+		tdat[ithread].cy09 = _cy_r09[ithread];
+		tdat[ithread].cy10 = _cy_r10[ithread];
+		tdat[ithread].cy11 = _cy_r11[ithread];
+		tdat[ithread].cy12 = _cy_r12[ithread];
+		tdat[ithread].cy13 = _cy_r13[ithread];
+		tdat[ithread].cy14 = _cy_r14[ithread];
+		tdat[ithread].cy15 = _cy_r15[ithread];
+		tdat[ithread].cy16 = _cy_r16[ithread];
+		tdat[ithread].cy17 = _cy_r17[ithread];
+		tdat[ithread].cy18 = _cy_r18[ithread];
+		tdat[ithread].cy19 = _cy_r19[ithread];
+		tdat[ithread].cy20 = _cy_r20[ithread];
+		tdat[ithread].cy21 = _cy_r21[ithread];
+		tdat[ithread].cy22 = _cy_r22[ithread];
+		tdat[ithread].cy23 = _cy_r23[ithread];
+		tdat[ithread].cy24 = _cy_r24[ithread];
+		tdat[ithread].cy25 = _cy_r25[ithread];
+		tdat[ithread].cy26 = _cy_r26[ithread];
+		tdat[ithread].cy27 = _cy_r27[ithread];
+		tdat[ithread].cy28 = _cy_r28[ithread];
+		tdat[ithread].cy29 = _cy_r29[ithread];
+		tdat[ithread].cy30 = _cy_r30[ithread];
+		tdat[ithread].cy31 = _cy_r31[ithread];
+		tdat[ithread].cy32 = _cy_r32[ithread];
+		tdat[ithread].cy33 = _cy_r33[ithread];
+		tdat[ithread].cy34 = _cy_r34[ithread];
+		tdat[ithread].cy35 = _cy_r35[ithread];
+	}
+#endif
+
+#ifdef USE_PTHREAD
+
+	// If also using main thread to do work units, that task-dispatch occurs after all the threadpool-task launches:
+	for(ithread = 0; ithread < pool_work_units; ithread++)
+	{
+		task_control.data = (void*)(&tdat[ithread]);
+		threadpool_add_task(tpool, &task_control, task_is_blocking);
+
+#else
 
     for(ithread = 0; ithread < CY_THREADS; ithread++)
     {
@@ -1174,52 +1518,12 @@ for(outer=0; outer <= 1; outer++)
 		#endif
 				j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 				j2 = j1+RE_IM_STRIDE;
-
-		#ifdef DEBUG_SSE2
-			rng_isaac_init(TRUE);
-			jt = j1;		jp = j2;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[00] = %24.5f, %24.5f\n",a[jt    ],a[jp    ]);
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[01] = %24.5f, %24.5f\n",a[jt+p01],a[jp+p01]);
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[02] = %24.5f, %24.5f\n",a[jt+p02],a[jp+p02]);
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[03] = %24.5f, %24.5f\n",a[jt+p03],a[jp+p03]);	jt += p04;	jp += p04;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[04] = %24.5f, %24.5f\n",a[jt    ],a[jp    ]);
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[05] = %24.5f, %24.5f\n",a[jt+p01],a[jp+p01]);
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[06] = %24.5f, %24.5f\n",a[jt+p02],a[jp+p02]);
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[07] = %24.5f, %24.5f\n",a[jt+p03],a[jp+p03]);	jt += p04;	jp += p04;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[08] = %24.5f, %24.5f\n",a[jt    ],a[jp    ]);
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[09] = %24.5f, %24.5f\n",a[jt+p01],a[jp+p01]);
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[10] = %24.5f, %24.5f\n",a[jt+p02],a[jp+p02]);
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[11] = %24.5f, %24.5f\n",a[jt+p03],a[jp+p03]);	jt += p04;	jp += p04;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[12] = %24.5f, %24.5f\n",a[jt    ],a[jp    ]);
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[13] = %24.5f, %24.5f\n",a[jt+p01],a[jp+p01]);
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[14] = %24.5f, %24.5f\n",a[jt+p02],a[jp+p02]);
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[15] = %24.5f, %24.5f\n",a[jt+p03],a[jp+p03]);	jt += p04;	jp += p04;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[16] = %24.5f, %24.5f\n",a[jt    ],a[jp    ]);
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[17] = %24.5f, %24.5f\n",a[jt+p01],a[jp+p01]);
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[18] = %24.5f, %24.5f\n",a[jt+p02],a[jp+p02]);
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[29] = %24.5f, %24.5f\n",a[jt+p03],a[jp+p03]);	jt += p04;	jp += p04;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[20] = %24.5f, %24.5f\n",a[jt    ],a[jp    ]);
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[21] = %24.5f, %24.5f\n",a[jt+p01],a[jp+p01]);
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[22] = %24.5f, %24.5f\n",a[jt+p02],a[jp+p02]);
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[23] = %24.5f, %24.5f\n",a[jt+p03],a[jp+p03]);	jt += p04;	jp += p04;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[24] = %24.5f, %24.5f\n",a[jt    ],a[jp    ]);
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[25] = %24.5f, %24.5f\n",a[jt+p01],a[jp+p01]);
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[26] = %24.5f, %24.5f\n",a[jt+p02],a[jp+p02]);
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[27] = %24.5f, %24.5f\n",a[jt+p03],a[jp+p03]);	jt += p04;	jp += p04;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[28] = %24.5f, %24.5f\n",a[jt    ],a[jp    ]);
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[29] = %24.5f, %24.5f\n",a[jt+p01],a[jp+p01]);
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[30] = %24.5f, %24.5f\n",a[jt+p02],a[jp+p02]);
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[31] = %24.5f, %24.5f\n",a[jt+p03],a[jp+p03]);	jt += p04;	jp += p04;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[32] = %24.5f, %24.5f\n",a[jt    ],a[jp    ]);
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[33] = %24.5f, %24.5f\n",a[jt+p01],a[jp+p01]);
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[34] = %24.5f, %24.5f\n",a[jt+p02],a[jp+p02]);
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	fprintf(stderr, "radix36_wrapper: A_in[35] = %24.5f, %24.5f\n",a[jt+p03],a[jp+p03]);	jt += p04;	jp += p04;
-			fprintf(stderr, "\n");
-		#endif
-
 		/*
 		!...gather the needed data (36 64-bit complex, i.e. 72 64-bit reals) and do a radix-36 DIT transform...
 		*/
+#ifdef CTIME
+	clock2 = clock();
+#endif
 		/*
 		Twiddleless version requires us to swap inputs as follows:
 		indices  0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35
@@ -1376,6 +1680,11 @@ for(outer=0; outer <= 1; outer++)
 
 		#endif
 
+#ifdef CTIME
+	clock3 = clock();
+	dt_fwd += (double)(clock3 - clock2);
+	clock2 = clock3;
+#endif
 	/*...Now do the carries. Since the outputs would
 		normally be getting dispatched to 36 separate blocks of the A-array, we need 36 separate carries.	*/
 
@@ -1408,6 +1717,7 @@ for(outer=0; outer <= 1; outer++)
 
 		  #if defined(COMPILER_TYPE_MSVC)
 
+			#ifdef ERR_CHECK_ALL
 				SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy_r00,cy_r02,bjmodn00);
 				SSE2_cmplx_carry_norm_errcheck1_2B(s1p04r,add1,add2,add3,cy_r04,cy_r06,bjmodn04);
 				SSE2_cmplx_carry_norm_errcheck1_2B(s1p08r,add1,add2,add3,cy_r08,cy_r10,bjmodn08);
@@ -1417,9 +1727,21 @@ for(outer=0; outer <= 1; outer++)
 				SSE2_cmplx_carry_norm_errcheck1_2B(s1p24r,add1,add2,add3,cy_r24,cy_r26,bjmodn24);
 				SSE2_cmplx_carry_norm_errcheck1_2B(s1p28r,add1,add2,add3,cy_r28,cy_r30,bjmodn28);
 				SSE2_cmplx_carry_norm_errcheck1_2B(s1p32r,add1,add2,add3,cy_r32,cy_r34,bjmodn32);
+			#else
+				SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy_r00,cy_r02,bjmodn00);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p04r,add1,add2,add3,cy_r04,cy_r06,bjmodn04);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p08r,add1,add2,add3,cy_r08,cy_r10,bjmodn08);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p12r,add1,add2,add3,cy_r12,cy_r14,bjmodn12);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p16r,add1,add2,add3,cy_r16,cy_r18,bjmodn16);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p20r,add1,add2,add3,cy_r20,cy_r22,bjmodn20);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p24r,add1,add2,add3,cy_r24,cy_r26,bjmodn24);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p28r,add1,add2,add3,cy_r28,cy_r30,bjmodn28);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p32r,add1,add2,add3,cy_r32,cy_r34,bjmodn32);
+			#endif
 
 		  #else	/* GCC-style inline ASM: */
 
+			#if ERR_CHECK_ALL
 				SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy_r00,cy_r02,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
 				SSE2_cmplx_carry_norm_errcheck1_2B(s1p04r,add1,add2,add3,cy_r04,cy_r06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
 				SSE2_cmplx_carry_norm_errcheck1_2B(s1p08r,add1,add2,add3,cy_r08,cy_r10,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
@@ -1429,16 +1751,25 @@ for(outer=0; outer <= 1; outer++)
 				SSE2_cmplx_carry_norm_errcheck1_2B(s1p24r,add1,add2,add3,cy_r24,cy_r26,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
 				SSE2_cmplx_carry_norm_errcheck1_2B(s1p28r,add1,add2,add3,cy_r28,cy_r30,bjmodn28,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
 				SSE2_cmplx_carry_norm_errcheck1_2B(s1p32r,add1,add2,add3,cy_r32,cy_r34,bjmodn32,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			#else
+				SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy_r00,cy_r02,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p04r,add1,add2,add3,cy_r04,cy_r06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p08r,add1,add2,add3,cy_r08,cy_r10,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p12r,add1,add2,add3,cy_r12,cy_r14,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p16r,add1,add2,add3,cy_r16,cy_r18,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p20r,add1,add2,add3,cy_r20,cy_r22,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p24r,add1,add2,add3,cy_r24,cy_r26,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p28r,add1,add2,add3,cy_r28,cy_r30,bjmodn28,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p32r,add1,add2,add3,cy_r32,cy_r34,bjmodn32,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			#endif
 
 				/* Bizarre - when I disabled the diagnostic prints above and below, the resulting GCC build immediately gave
 					fatal roundoff errors starting on iteration #5 - so insert the bogus [never taken] if() here as a workaround.
 					Equally bizarre, inserting the bogus if() *before* the 4 carry-macro calls above gave the correct result as well,
 					but ran fully 10% slower. Good old GCC...
+				Dec 2011: Suspect this was a side effect of my gcc asm macros not including cc/memory in the clobber list, because
+				the code now runs correctly without this hack ... but the code runs sign. faster with iy left in. So still "bizarre" but in a new way.
 				*/
-				if(j < 0)
-				{
-					fprintf(stderr, "Iter %3d\n",iter);
-				}
 
 		  #endif
 
@@ -1469,6 +1800,7 @@ for(outer=0; outer <= 1; outer++)
 
 		  #if defined(COMPILER_TYPE_MSVC)
 
+			#if ERR_CHECK_ALL
 				SSE2_cmplx_carry_norm_errcheck2_2B(s1p00r,add1,add2,     cy_r00,cy_r02,bjmodn00);
 				SSE2_cmplx_carry_norm_errcheck2_2B(s1p04r,add1,add2,     cy_r04,cy_r06,bjmodn04);
 				SSE2_cmplx_carry_norm_errcheck2_2B(s1p08r,add1,add2,     cy_r08,cy_r10,bjmodn08);
@@ -1478,9 +1810,20 @@ for(outer=0; outer <= 1; outer++)
 				SSE2_cmplx_carry_norm_errcheck2_2B(s1p24r,add1,add2,     cy_r24,cy_r26,bjmodn24);
 				SSE2_cmplx_carry_norm_errcheck2_2B(s1p28r,add1,add2,     cy_r28,cy_r30,bjmodn28);
 				SSE2_cmplx_carry_norm_errcheck2_2B(s1p32r,add1,add2,     cy_r32,cy_r34,bjmodn32);
+			#else
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p00r,add1,add2,     cy_r00,cy_r02,bjmodn00);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p04r,add1,add2,     cy_r04,cy_r06,bjmodn04);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p08r,add1,add2,     cy_r08,cy_r10,bjmodn08);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p12r,add1,add2,     cy_r12,cy_r14,bjmodn12);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p16r,add1,add2,     cy_r16,cy_r18,bjmodn16);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p20r,add1,add2,     cy_r20,cy_r22,bjmodn20);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p24r,add1,add2,     cy_r24,cy_r26,bjmodn24);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p28r,add1,add2,     cy_r28,cy_r30,bjmodn28);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p32r,add1,add2,     cy_r32,cy_r34,bjmodn32);
+			#endif
 
 		  #else	/* GCC-style inline ASM: */
-
+			#if ERR_CHECK_ALL
 				SSE2_cmplx_carry_norm_errcheck2_2B(s1p00r,add1,add2,     cy_r00,cy_r02,bjmodn00,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
 				SSE2_cmplx_carry_norm_errcheck2_2B(s1p04r,add1,add2,     cy_r04,cy_r06,bjmodn04,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
 				SSE2_cmplx_carry_norm_errcheck2_2B(s1p08r,add1,add2,     cy_r08,cy_r10,bjmodn08,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
@@ -1490,7 +1833,17 @@ for(outer=0; outer <= 1; outer++)
 				SSE2_cmplx_carry_norm_errcheck2_2B(s1p24r,add1,add2,     cy_r24,cy_r26,bjmodn24,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
 				SSE2_cmplx_carry_norm_errcheck2_2B(s1p28r,add1,add2,     cy_r28,cy_r30,bjmodn28,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
 				SSE2_cmplx_carry_norm_errcheck2_2B(s1p32r,add1,add2,     cy_r32,cy_r34,bjmodn32,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-
+			#else
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p00r,add1,add2,     cy_r00,cy_r02,bjmodn00,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p04r,add1,add2,     cy_r04,cy_r06,bjmodn04,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p08r,add1,add2,     cy_r08,cy_r10,bjmodn08,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p12r,add1,add2,     cy_r12,cy_r14,bjmodn12,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p16r,add1,add2,     cy_r16,cy_r18,bjmodn16,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p20r,add1,add2,     cy_r20,cy_r22,bjmodn20,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p24r,add1,add2,     cy_r24,cy_r26,bjmodn24,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p28r,add1,add2,     cy_r28,cy_r30,bjmodn28,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p32r,add1,add2,     cy_r32,cy_r34,bjmodn32,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			#endif
 		  #endif
 
 				i =((uint32)(sw - *bjmodn00) >> 31);	/* get ready for the next set...	*/
@@ -1545,88 +1898,53 @@ for(outer=0; outer <= 1; outer++)
 			else
 			{
 				ASSERT(HERE, 0, "Fermat-mod carries not yet supported for SSE2!");
-				fermat_carry_norm_errcheck(a1p00r,a1p00i,cy_r00,cy_i00,ii00,bjmodn00,0 *n36);
-				fermat_carry_norm_errcheck(a1p01r,a1p01i,cy_r01,cy_i01,ii01,bjmodn01,1 *n36);
-				fermat_carry_norm_errcheck(a1p02r,a1p02i,cy_r02,cy_i02,ii02,bjmodn02,2 *n36);
-				fermat_carry_norm_errcheck(a1p03r,a1p03i,cy_r03,cy_i03,ii03,bjmodn03,3 *n36);
-				fermat_carry_norm_errcheck(a1p04r,a1p04i,cy_r04,cy_i04,ii04,bjmodn04,4 *n36);
-				fermat_carry_norm_errcheck(a1p05r,a1p05i,cy_r05,cy_i05,ii05,bjmodn05,5 *n36);
-				fermat_carry_norm_errcheck(a1p06r,a1p06i,cy_r06,cy_i06,ii06,bjmodn06,6 *n36);
-				fermat_carry_norm_errcheck(a1p07r,a1p07i,cy_r07,cy_i07,ii07,bjmodn07,7 *n36);
-				fermat_carry_norm_errcheck(a1p08r,a1p08i,cy_r08,cy_i08,ii08,bjmodn08,8 *n36);
-				fermat_carry_norm_errcheck(a1p09r,a1p09i,cy_r09,cy_i09,ii09,bjmodn09,9 *n36);
-				fermat_carry_norm_errcheck(a1p10r,a1p10i,cy_r10,cy_i10,ii10,bjmodn10,10*n36);
-				fermat_carry_norm_errcheck(a1p11r,a1p11i,cy_r11,cy_i11,ii11,bjmodn11,11*n36);
-				fermat_carry_norm_errcheck(a1p12r,a1p12i,cy_r12,cy_i12,ii12,bjmodn12,12*n36);
-				fermat_carry_norm_errcheck(a1p13r,a1p13i,cy_r13,cy_i13,ii13,bjmodn13,13*n36);
-				fermat_carry_norm_errcheck(a1p14r,a1p14i,cy_r14,cy_i14,ii14,bjmodn14,14*n36);
-				fermat_carry_norm_errcheck(a1p15r,a1p15i,cy_r15,cy_i15,ii15,bjmodn15,15*n36);
-				fermat_carry_norm_errcheck(a1p16r,a1p16i,cy_r16,cy_i16,ii16,bjmodn16,16*n36);
-				fermat_carry_norm_errcheck(a1p17r,a1p17i,cy_r17,cy_i17,ii17,bjmodn17,17*n36);
-				fermat_carry_norm_errcheck(a1p18r,a1p18i,cy_r18,cy_i18,ii18,bjmodn18,18*n36);
-				fermat_carry_norm_errcheck(a1p19r,a1p19i,cy_r19,cy_i19,ii19,bjmodn19,19*n36);
-				fermat_carry_norm_errcheck(a1p20r,a1p20i,cy_r20,cy_i20,ii20,bjmodn20,20*n36);
-				fermat_carry_norm_errcheck(a1p21r,a1p21i,cy_r21,cy_i21,ii21,bjmodn21,21*n36);
-				fermat_carry_norm_errcheck(a1p22r,a1p22i,cy_r22,cy_i22,ii22,bjmodn22,22*n36);
-				fermat_carry_norm_errcheck(a1p23r,a1p23i,cy_r23,cy_i23,ii23,bjmodn23,23*n36);
-				fermat_carry_norm_errcheck(a1p24r,a1p24i,cy_r24,cy_i24,ii24,bjmodn24,24*n36);
-				fermat_carry_norm_errcheck(a1p25r,a1p25i,cy_r25,cy_i25,ii25,bjmodn25,25*n36);
-				fermat_carry_norm_errcheck(a1p26r,a1p26i,cy_r26,cy_i26,ii26,bjmodn26,26*n36);
-				fermat_carry_norm_errcheck(a1p27r,a1p27i,cy_r27,cy_i27,ii27,bjmodn27,27*n36);
-				fermat_carry_norm_errcheck(a1p28r,a1p28i,cy_r28,cy_i28,ii28,bjmodn28,28*n36);
-				fermat_carry_norm_errcheck(a1p29r,a1p29i,cy_r29,cy_i29,ii29,bjmodn29,29*n36);
-				fermat_carry_norm_errcheck(a1p30r,a1p30i,cy_r30,cy_i30,ii30,bjmodn30,30*n36);
-				fermat_carry_norm_errcheck(a1p31r,a1p31i,cy_r31,cy_i31,ii31,bjmodn31,31*n36);
-				fermat_carry_norm_errcheck(a1p32r,a1p32i,cy_r32,cy_i32,ii32,bjmodn32,32*n36);
-				fermat_carry_norm_errcheck(a1p33r,a1p33i,cy_r33,cy_i33,ii33,bjmodn33,33*n36);
-				fermat_carry_norm_errcheck(a1p34r,a1p34i,cy_r34,cy_i34,ii34,bjmodn34,34*n36);
-				fermat_carry_norm_errcheck(a1p35r,a1p35i,cy_r35,cy_i35,ii35,bjmodn35,35*n36);
+				fermat_carry_norm_errcheck(a1p00r,a1p00i,cy_r00,cy_i00,ii00,bjmodn00,0 *NDIVR);
+				fermat_carry_norm_errcheck(a1p01r,a1p01i,cy_r01,cy_i01,ii01,bjmodn01,1 *NDIVR);
+				fermat_carry_norm_errcheck(a1p02r,a1p02i,cy_r02,cy_i02,ii02,bjmodn02,2 *NDIVR);
+				fermat_carry_norm_errcheck(a1p03r,a1p03i,cy_r03,cy_i03,ii03,bjmodn03,3 *NDIVR);
+				fermat_carry_norm_errcheck(a1p04r,a1p04i,cy_r04,cy_i04,ii04,bjmodn04,4 *NDIVR);
+				fermat_carry_norm_errcheck(a1p05r,a1p05i,cy_r05,cy_i05,ii05,bjmodn05,5 *NDIVR);
+				fermat_carry_norm_errcheck(a1p06r,a1p06i,cy_r06,cy_i06,ii06,bjmodn06,6 *NDIVR);
+				fermat_carry_norm_errcheck(a1p07r,a1p07i,cy_r07,cy_i07,ii07,bjmodn07,7 *NDIVR);
+				fermat_carry_norm_errcheck(a1p08r,a1p08i,cy_r08,cy_i08,ii08,bjmodn08,8 *NDIVR);
+				fermat_carry_norm_errcheck(a1p09r,a1p09i,cy_r09,cy_i09,ii09,bjmodn09,9 *NDIVR);
+				fermat_carry_norm_errcheck(a1p10r,a1p10i,cy_r10,cy_i10,ii10,bjmodn10,10*NDIVR);
+				fermat_carry_norm_errcheck(a1p11r,a1p11i,cy_r11,cy_i11,ii11,bjmodn11,11*NDIVR);
+				fermat_carry_norm_errcheck(a1p12r,a1p12i,cy_r12,cy_i12,ii12,bjmodn12,12*NDIVR);
+				fermat_carry_norm_errcheck(a1p13r,a1p13i,cy_r13,cy_i13,ii13,bjmodn13,13*NDIVR);
+				fermat_carry_norm_errcheck(a1p14r,a1p14i,cy_r14,cy_i14,ii14,bjmodn14,14*NDIVR);
+				fermat_carry_norm_errcheck(a1p15r,a1p15i,cy_r15,cy_i15,ii15,bjmodn15,15*NDIVR);
+				fermat_carry_norm_errcheck(a1p16r,a1p16i,cy_r16,cy_i16,ii16,bjmodn16,16*NDIVR);
+				fermat_carry_norm_errcheck(a1p17r,a1p17i,cy_r17,cy_i17,ii17,bjmodn17,17*NDIVR);
+				fermat_carry_norm_errcheck(a1p18r,a1p18i,cy_r18,cy_i18,ii18,bjmodn18,18*NDIVR);
+				fermat_carry_norm_errcheck(a1p19r,a1p19i,cy_r19,cy_i19,ii19,bjmodn19,19*NDIVR);
+				fermat_carry_norm_errcheck(a1p20r,a1p20i,cy_r20,cy_i20,ii20,bjmodn20,20*NDIVR);
+				fermat_carry_norm_errcheck(a1p21r,a1p21i,cy_r21,cy_i21,ii21,bjmodn21,21*NDIVR);
+				fermat_carry_norm_errcheck(a1p22r,a1p22i,cy_r22,cy_i22,ii22,bjmodn22,22*NDIVR);
+				fermat_carry_norm_errcheck(a1p23r,a1p23i,cy_r23,cy_i23,ii23,bjmodn23,23*NDIVR);
+				fermat_carry_norm_errcheck(a1p24r,a1p24i,cy_r24,cy_i24,ii24,bjmodn24,24*NDIVR);
+				fermat_carry_norm_errcheck(a1p25r,a1p25i,cy_r25,cy_i25,ii25,bjmodn25,25*NDIVR);
+				fermat_carry_norm_errcheck(a1p26r,a1p26i,cy_r26,cy_i26,ii26,bjmodn26,26*NDIVR);
+				fermat_carry_norm_errcheck(a1p27r,a1p27i,cy_r27,cy_i27,ii27,bjmodn27,27*NDIVR);
+				fermat_carry_norm_errcheck(a1p28r,a1p28i,cy_r28,cy_i28,ii28,bjmodn28,28*NDIVR);
+				fermat_carry_norm_errcheck(a1p29r,a1p29i,cy_r29,cy_i29,ii29,bjmodn29,29*NDIVR);
+				fermat_carry_norm_errcheck(a1p30r,a1p30i,cy_r30,cy_i30,ii30,bjmodn30,30*NDIVR);
+				fermat_carry_norm_errcheck(a1p31r,a1p31i,cy_r31,cy_i31,ii31,bjmodn31,31*NDIVR);
+				fermat_carry_norm_errcheck(a1p32r,a1p32i,cy_r32,cy_i32,ii32,bjmodn32,32*NDIVR);
+				fermat_carry_norm_errcheck(a1p33r,a1p33i,cy_r33,cy_i33,ii33,bjmodn33,33*NDIVR);
+				fermat_carry_norm_errcheck(a1p34r,a1p34i,cy_r34,cy_i34,ii34,bjmodn34,34*NDIVR);
+				fermat_carry_norm_errcheck(a1p35r,a1p35i,cy_r35,cy_i35,ii35,bjmodn35,35*NDIVR);
 			}
 #endif
 
-			/*...The radix-36 DIF pass is here:	*/
+		/*...The radix-36 DIF pass is here:	*/
+#ifdef CTIME
+	clock3 = clock();
+	dt_cy += (double)(clock3 - clock2);
+	clock2 = clock3;
+#endif
 
 		#ifdef USE_SSE2
-
-		#if 0//DEBUG_SSE2
-			fprintf(stderr, "radix36_carry_out: s00= %20.5f, %20.5f\n",s1p00r->re,s1p00i->re);
-			fprintf(stderr, "radix36_carry_out: s01= %20.5f, %20.5f\n",s1p01r->re,s1p01i->re);
-			fprintf(stderr, "radix36_carry_out: s02= %20.5f, %20.5f\n",s1p02r->re,s1p02i->re);
-			fprintf(stderr, "radix36_carry_out: s03= %20.5f, %20.5f\n",s1p03r->re,s1p03i->re);
-			fprintf(stderr, "radix36_carry_out: s04= %20.5f, %20.5f\n",s1p04r->re,s1p04i->re);
-			fprintf(stderr, "radix36_carry_out: s05= %20.5f, %20.5f\n",s1p05r->re,s1p05i->re);
-			fprintf(stderr, "radix36_carry_out: s06= %20.5f, %20.5f\n",s1p06r->re,s1p06i->re);
-			fprintf(stderr, "radix36_carry_out: s07= %20.5f, %20.5f\n",s1p07r->re,s1p07i->re);
-			fprintf(stderr, "radix36_carry_out: s08= %20.5f, %20.5f\n",s1p08r->re,s1p08i->re);
-			fprintf(stderr, "radix36_carry_out: s09= %20.5f, %20.5f\n",s1p09r->re,s1p09i->re);
-			fprintf(stderr, "radix36_carry_out: s10= %20.5f, %20.5f\n",s1p10r->re,s1p10i->re);
-			fprintf(stderr, "radix36_carry_out: s11= %20.5f, %20.5f\n",s1p11r->re,s1p11i->re);
-			fprintf(stderr, "radix36_carry_out: s12= %20.5f, %20.5f\n",s1p12r->re,s1p12i->re);
-			fprintf(stderr, "radix36_carry_out: s13= %20.5f, %20.5f\n",s1p13r->re,s1p13i->re);
-			fprintf(stderr, "radix36_carry_out: s14= %20.5f, %20.5f\n",s1p14r->re,s1p14i->re);
-			fprintf(stderr, "radix36_carry_out: s15= %20.5f, %20.5f\n",s1p15r->re,s1p15i->re);
-			fprintf(stderr, "radix36_carry_out: s16= %20.5f, %20.5f\n",s1p16r->re,s1p16i->re);
-			fprintf(stderr, "radix36_carry_out: s17= %20.5f, %20.5f\n",s1p17r->re,s1p17i->re);
-			fprintf(stderr, "radix36_carry_out: s18= %20.5f, %20.5f\n",s1p18r->re,s1p18i->re);
-			fprintf(stderr, "radix36_carry_out: s19= %20.5f, %20.5f\n",s1p19r->re,s1p19i->re);
-			fprintf(stderr, "radix36_carry_out: s20= %20.5f, %20.5f\n",s1p20r->re,s1p20i->re);
-			fprintf(stderr, "radix36_carry_out: s21= %20.5f, %20.5f\n",s1p21r->re,s1p21i->re);
-			fprintf(stderr, "radix36_carry_out: s22= %20.5f, %20.5f\n",s1p22r->re,s1p22i->re);
-			fprintf(stderr, "radix36_carry_out: s23= %20.5f, %20.5f\n",s1p23r->re,s1p23i->re);
-			fprintf(stderr, "radix36_carry_out: s24= %20.5f, %20.5f\n",s1p24r->re,s1p24i->re);
-			fprintf(stderr, "radix36_carry_out: s25= %20.5f, %20.5f\n",s1p25r->re,s1p25i->re);
-			fprintf(stderr, "radix36_carry_out: s26= %20.5f, %20.5f\n",s1p26r->re,s1p26i->re);
-			fprintf(stderr, "radix36_carry_out: s27= %20.5f, %20.5f\n",s1p27r->re,s1p27i->re);
-			fprintf(stderr, "radix36_carry_out: s28= %20.5f, %20.5f\n",s1p28r->re,s1p28i->re);
-			fprintf(stderr, "radix36_carry_out: s29= %20.5f, %20.5f\n",s1p29r->re,s1p29i->re);
-			fprintf(stderr, "radix36_carry_out: s30= %20.5f, %20.5f\n",s1p30r->re,s1p30i->re);
-			fprintf(stderr, "radix36_carry_out: s31= %20.5f, %20.5f\n",s1p31r->re,s1p31i->re);
-			fprintf(stderr, "radix36_carry_out: s32= %20.5f, %20.5f\n",s1p32r->re,s1p32i->re);
-			fprintf(stderr, "radix36_carry_out: s33= %20.5f, %20.5f\n",s1p33r->re,s1p33i->re);
-			fprintf(stderr, "radix36_carry_out: s34= %20.5f, %20.5f\n",s1p34r->re,s1p34i->re);
-			fprintf(stderr, "radix36_carry_out: s35= %20.5f, %20.5f\n",s1p35r->re,s1p35i->re);
-			exit(0);
-		#endif
 
 		  #ifdef COMPILER_TYPE_MSVC
 
@@ -1746,90 +2064,6 @@ for(outer=0; outer <= 1; outer++)
 
 		  #endif
 
-		#if 0//DEBUG_SSE2
-			rng_isaac_init(TRUE);
-			jt = j1;		jp = j2;
-			fprintf(stderr, "radix36_wrapper: tmp[00] = %24.5f, %24.5f\n",r00->re,r01->re);
-			fprintf(stderr, "radix36_wrapper: tmp[01] = %24.5f, %24.5f\n",r02->re,r03->re);
-			fprintf(stderr, "radix36_wrapper: tmp[02] = %24.5f, %24.5f\n",r04->re,r05->re);
-			fprintf(stderr, "radix36_wrapper: tmp[03] = %24.5f, %24.5f\n",r06->re,r07->re);	jt += p04;	jp += p04;
-			fprintf(stderr, "radix36_wrapper: tmp[04] = %24.5f, %24.5f\n",r08->re,r09->re);
-			fprintf(stderr, "radix36_wrapper: tmp[05] = %24.5f, %24.5f\n",r0a->re,r0b->re);
-			fprintf(stderr, "radix36_wrapper: tmp[06] = %24.5f, %24.5f\n",r0c->re,r0d->re);
-			fprintf(stderr, "radix36_wrapper: tmp[07] = %24.5f, %24.5f\n",r0e->re,r0f->re);	jt += p04;	jp += p04;
-			fprintf(stderr, "radix36_wrapper: tmp[08] = %24.5f, %24.5f\n",r0g->re,r0h->re);
-			fprintf(stderr, "radix36_wrapper: tmp[09] = %24.5f, %24.5f\n",r10->re,r11->re);
-			fprintf(stderr, "radix36_wrapper: tmp[10] = %24.5f, %24.5f\n",r12->re,r13->re);
-			fprintf(stderr, "radix36_wrapper: tmp[11] = %24.5f, %24.5f\n",r14->re,r15->re);	jt += p04;	jp += p04;
-			fprintf(stderr, "radix36_wrapper: tmp[12] = %24.5f, %24.5f\n",r16->re,r17->re);
-			fprintf(stderr, "radix36_wrapper: tmp[13] = %24.5f, %24.5f\n",r18->re,r19->re);
-			fprintf(stderr, "radix36_wrapper: tmp[14] = %24.5f, %24.5f\n",r1a->re,r1b->re);
-			fprintf(stderr, "radix36_wrapper: tmp[15] = %24.5f, %24.5f\n",r1c->re,r1d->re);	jt += p04;	jp += p04;
-			fprintf(stderr, "radix36_wrapper: tmp[16] = %24.5f, %24.5f\n",r1e->re,r1f->re);
-			fprintf(stderr, "radix36_wrapper: tmp[17] = %24.5f, %24.5f\n",r1g->re,r1h->re);
-			fprintf(stderr, "radix36_wrapper: tmp[18] = %24.5f, %24.5f\n",r20->re,r21->re);
-			fprintf(stderr, "radix36_wrapper: tmp[29] = %24.5f, %24.5f\n",r22->re,r23->re);	jt += p04;	jp += p04;
-			fprintf(stderr, "radix36_wrapper: tmp[20] = %24.5f, %24.5f\n",r24->re,r25->re);
-			fprintf(stderr, "radix36_wrapper: tmp[21] = %24.5f, %24.5f\n",r26->re,r27->re);
-			fprintf(stderr, "radix36_wrapper: tmp[22] = %24.5f, %24.5f\n",r28->re,r29->re);
-			fprintf(stderr, "radix36_wrapper: tmp[23] = %24.5f, %24.5f\n",r2a->re,r2b->re);	jt += p04;	jp += p04;
-			fprintf(stderr, "radix36_wrapper: tmp[24] = %24.5f, %24.5f\n",r2c->re,r2d->re);
-			fprintf(stderr, "radix36_wrapper: tmp[25] = %24.5f, %24.5f\n",r2e->re,r2f->re);
-			fprintf(stderr, "radix36_wrapper: tmp[26] = %24.5f, %24.5f\n",r2g->re,r2h->re);
-			fprintf(stderr, "radix36_wrapper: tmp[27] = %24.5f, %24.5f\n",r30->re,r31->re);	jt += p04;	jp += p04;
-			fprintf(stderr, "radix36_wrapper: tmp[28] = %24.5f, %24.5f\n",r32->re,r33->re);
-			fprintf(stderr, "radix36_wrapper: tmp[29] = %24.5f, %24.5f\n",r34->re,r35->re);
-			fprintf(stderr, "radix36_wrapper: tmp[30] = %24.5f, %24.5f\n",r36->re,r37->re);
-			fprintf(stderr, "radix36_wrapper: tmp[31] = %24.5f, %24.5f\n",r38->re,r39->re);	jt += p04;	jp += p04;
-			fprintf(stderr, "radix36_wrapper: tmp[32] = %24.5f, %24.5f\n",r3a->re,r3b->re);
-			fprintf(stderr, "radix36_wrapper: tmp[33] = %24.5f, %24.5f\n",r3c->re,r3d->re);
-			fprintf(stderr, "radix36_wrapper: tmp[34] = %24.5f, %24.5f\n",r3e->re,r3f->re);
-			fprintf(stderr, "radix36_wrapper: tmp[35] = %24.5f, %24.5f\n",r3g->re,r3h->re);	jt += p04;	jp += p04;
-			exit(0);
-		#endif
-
-		#ifdef DEBUG_SSE2
-			rng_isaac_init(TRUE);
-			jt = j1;		jp = j2;
-			fprintf(stderr, "radix36_wrapper: A_out[00] = %24.5f, %24.5f\n",a[jt    ],a[jp    ]);
-			fprintf(stderr, "radix36_wrapper: A_out[01] = %24.5f, %24.5f\n",a[jt+p01],a[jp+p01]);
-			fprintf(stderr, "radix36_wrapper: A_out[02] = %24.5f, %24.5f\n",a[jt+p02],a[jp+p02]);
-			fprintf(stderr, "radix36_wrapper: A_out[03] = %24.5f, %24.5f\n",a[jt+p03],a[jp+p03]);	jt += p04;	jp += p04;
-			fprintf(stderr, "radix36_wrapper: A_out[04] = %24.5f, %24.5f\n",a[jt    ],a[jp    ]);
-			fprintf(stderr, "radix36_wrapper: A_out[05] = %24.5f, %24.5f\n",a[jt+p01],a[jp+p01]);
-			fprintf(stderr, "radix36_wrapper: A_out[06] = %24.5f, %24.5f\n",a[jt+p02],a[jp+p02]);
-			fprintf(stderr, "radix36_wrapper: A_out[07] = %24.5f, %24.5f\n",a[jt+p03],a[jp+p03]);	jt += p04;	jp += p04;
-			fprintf(stderr, "radix36_wrapper: A_out[08] = %24.5f, %24.5f\n",a[jt    ],a[jp    ]);
-			fprintf(stderr, "radix36_wrapper: A_out[09] = %24.5f, %24.5f\n",a[jt+p01],a[jp+p01]);
-			fprintf(stderr, "radix36_wrapper: A_out[10] = %24.5f, %24.5f\n",a[jt+p02],a[jp+p02]);
-			fprintf(stderr, "radix36_wrapper: A_out[11] = %24.5f, %24.5f\n",a[jt+p03],a[jp+p03]);	jt += p04;	jp += p04;
-			fprintf(stderr, "radix36_wrapper: A_out[12] = %24.5f, %24.5f\n",a[jt    ],a[jp    ]);
-			fprintf(stderr, "radix36_wrapper: A_out[13] = %24.5f, %24.5f\n",a[jt+p01],a[jp+p01]);
-			fprintf(stderr, "radix36_wrapper: A_out[14] = %24.5f, %24.5f\n",a[jt+p02],a[jp+p02]);
-			fprintf(stderr, "radix36_wrapper: A_out[15] = %24.5f, %24.5f\n",a[jt+p03],a[jp+p03]);	jt += p04;	jp += p04;
-			fprintf(stderr, "radix36_wrapper: A_out[16] = %24.5f, %24.5f\n",a[jt    ],a[jp    ]);
-			fprintf(stderr, "radix36_wrapper: A_out[17] = %24.5f, %24.5f\n",a[jt+p01],a[jp+p01]);
-			fprintf(stderr, "radix36_wrapper: A_out[18] = %24.5f, %24.5f\n",a[jt+p02],a[jp+p02]);
-			fprintf(stderr, "radix36_wrapper: A_out[29] = %24.5f, %24.5f\n",a[jt+p03],a[jp+p03]);	jt += p04;	jp += p04;
-			fprintf(stderr, "radix36_wrapper: A_out[20] = %24.5f, %24.5f\n",a[jt    ],a[jp    ]);
-			fprintf(stderr, "radix36_wrapper: A_out[21] = %24.5f, %24.5f\n",a[jt+p01],a[jp+p01]);
-			fprintf(stderr, "radix36_wrapper: A_out[22] = %24.5f, %24.5f\n",a[jt+p02],a[jp+p02]);
-			fprintf(stderr, "radix36_wrapper: A_out[23] = %24.5f, %24.5f\n",a[jt+p03],a[jp+p03]);	jt += p04;	jp += p04;
-			fprintf(stderr, "radix36_wrapper: A_out[24] = %24.5f, %24.5f\n",a[jt    ],a[jp    ]);
-			fprintf(stderr, "radix36_wrapper: A_out[25] = %24.5f, %24.5f\n",a[jt+p01],a[jp+p01]);
-			fprintf(stderr, "radix36_wrapper: A_out[26] = %24.5f, %24.5f\n",a[jt+p02],a[jp+p02]);
-			fprintf(stderr, "radix36_wrapper: A_out[27] = %24.5f, %24.5f\n",a[jt+p03],a[jp+p03]);	jt += p04;	jp += p04;
-			fprintf(stderr, "radix36_wrapper: A_out[28] = %24.5f, %24.5f\n",a[jt    ],a[jp    ]);
-			fprintf(stderr, "radix36_wrapper: A_out[29] = %24.5f, %24.5f\n",a[jt+p01],a[jp+p01]);
-			fprintf(stderr, "radix36_wrapper: A_out[30] = %24.5f, %24.5f\n",a[jt+p02],a[jp+p02]);
-			fprintf(stderr, "radix36_wrapper: A_out[31] = %24.5f, %24.5f\n",a[jt+p03],a[jp+p03]);	jt += p04;	jp += p04;
-			fprintf(stderr, "radix36_wrapper: A_out[32] = %24.5f, %24.5f\n",a[jt    ],a[jp    ]);
-			fprintf(stderr, "radix36_wrapper: A_out[33] = %24.5f, %24.5f\n",a[jt+p01],a[jp+p01]);
-			fprintf(stderr, "radix36_wrapper: A_out[34] = %24.5f, %24.5f\n",a[jt+p02],a[jp+p02]);
-			fprintf(stderr, "radix36_wrapper: A_out[35] = %24.5f, %24.5f\n",a[jt+p03],a[jp+p03]);	jt += p04;	jp += p04;
-			exit(0);
-		#endif
-
 		#else	/* !USE_SSE2 */
 
 			/*...gather the needed data (36 64-bit complex, i.e. 72 64-bit reals) and do 4 radix-9 transforms...*/
@@ -1852,6 +2086,12 @@ for(outer=0; outer <= 1; outer++)
 			RADIX_04_DIF(t0g,t0h,t1g,t1h,t2g,t2h,t3g,t3h,a[j1+p15],a[j2+p15],a[j1+p14],a[j2+p14],a[j1+p13],a[j2+p13],a[j1+p12],a[j2+p12],rt,it);
 
 		#endif
+
+#ifdef CTIME
+	clock3 = clock();
+	dt_inv += (double)(clock3 - clock2);
+	clock2 = clock3;
+#endif
 			}
 
 			if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
@@ -1859,8 +2099,8 @@ for(outer=0; outer <= 1; outer++)
 				jstart += nwt;
 				jhi    += nwt;
 
-				col += 36;
-				co3 -= 36;
+				col += RADIX;
+				co3 -= RADIX;
 			}
 		}	/* end for(k=1; k <= khi; k++) */
 
@@ -1954,9 +2194,84 @@ for(outer=0; outer <= 1; outer++)
 			_maxerr[ithread] = maxerr;
 		}
 
+  #endif	// #ifdef USE_PTHREAD
+
 	}	/******* END OF PARALLEL FOR-LOOP ********/
 
-	if(!full_pass)break;
+#ifdef USE_PTHREAD	// End of threadpool-based dispatch: Add a small wait-loop to ensure all threads complete
+
+  #ifdef OS_TYPE_MACOSX
+
+	/*** Main execution thread executes remaining chunks in serial fashion (but in || with the pool threads): ***/
+	for(j = 0; j < main_work_units; ++j)
+	{
+	//	printf("adding main task %d\n",j + pool_work_units);
+		ASSERT(HERE, 0x0 == cy36_process_chunk( (void*)(&tdat[j + pool_work_units]) ), "Main-thread task failure!");
+	}
+
+  #endif
+
+	struct timespec ns_time;
+	ns_time.tv_sec  = 0.0001;// (time_t)seconds
+	ns_time.tv_nsec = 0;	// (long)nanoseconds - At least allegedly, but under OS X it seems to be finer-grained than that
+
+	while(tpool && tpool->free_tasks_queue.num_tasks != pool_work_units) {
+		ASSERT(HERE, 0 == nanosleep(&ns_time, 0x0), "nanosleep fail!");
+	}
+//	printf("radix40_ditN_cy_dif1 end  ; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
+
+	/* Copy the thread-specific output carry data back to shared memory: */
+	for(ithread = 0; ithread < CY_THREADS; ithread++)
+	{
+		_maxerr[ithread] = tdat[ithread].maxerr;
+		if(maxerr < _maxerr[ithread]) {
+			maxerr = _maxerr[ithread];
+		}
+
+		_cy_r00[ithread] = tdat[ithread].cy00;
+		_cy_r01[ithread] = tdat[ithread].cy01;
+		_cy_r02[ithread] = tdat[ithread].cy02;
+		_cy_r03[ithread] = tdat[ithread].cy03;
+		_cy_r04[ithread] = tdat[ithread].cy04;
+		_cy_r05[ithread] = tdat[ithread].cy05;
+		_cy_r06[ithread] = tdat[ithread].cy06;
+		_cy_r07[ithread] = tdat[ithread].cy07;
+		_cy_r08[ithread] = tdat[ithread].cy08;
+		_cy_r09[ithread] = tdat[ithread].cy09;
+		_cy_r10[ithread] = tdat[ithread].cy10;
+		_cy_r11[ithread] = tdat[ithread].cy11;
+		_cy_r12[ithread] = tdat[ithread].cy12;
+		_cy_r13[ithread] = tdat[ithread].cy13;
+		_cy_r14[ithread] = tdat[ithread].cy14;
+		_cy_r15[ithread] = tdat[ithread].cy15;
+		_cy_r16[ithread] = tdat[ithread].cy16;
+		_cy_r17[ithread] = tdat[ithread].cy17;
+		_cy_r18[ithread] = tdat[ithread].cy18;
+		_cy_r19[ithread] = tdat[ithread].cy19;
+		_cy_r20[ithread] = tdat[ithread].cy20;
+		_cy_r21[ithread] = tdat[ithread].cy21;
+		_cy_r22[ithread] = tdat[ithread].cy22;
+		_cy_r23[ithread] = tdat[ithread].cy23;
+		_cy_r24[ithread] = tdat[ithread].cy24;
+		_cy_r25[ithread] = tdat[ithread].cy25;
+		_cy_r26[ithread] = tdat[ithread].cy26;
+		_cy_r27[ithread] = tdat[ithread].cy27;
+		_cy_r28[ithread] = tdat[ithread].cy28;
+		_cy_r29[ithread] = tdat[ithread].cy29;
+		_cy_r30[ithread] = tdat[ithread].cy30;
+		_cy_r31[ithread] = tdat[ithread].cy31;
+		_cy_r32[ithread] = tdat[ithread].cy32;
+		_cy_r33[ithread] = tdat[ithread].cy33;
+		_cy_r34[ithread] = tdat[ithread].cy34;
+		_cy_r35[ithread] = tdat[ithread].cy35;
+	}
+#endif
+
+	if(full_pass) {
+	//	printf("Iter = %d, maxerr = %20.15f\n",iter,maxerr);
+	} else {
+		break;
+	}
 
 	/*   Wraparound carry cleanup loop is here: ***
 	!
@@ -2259,6 +2574,12 @@ for(outer=0; outer <= 1; outer++)
 	}
 }	/* endfor(outer) */
 
+#ifdef CTIME
+	clock2 = clock();
+	dt_tot = (double)(clock2 - clock1);
+	printf("radix36_carry cycle times: total = %10.5f, fwd = %10.5f, inv = %10.5f, cy = %10.5f\n", dt_tot*ICPS, dt_fwd*ICPS, dt_inv*ICPS, dt_cy*ICPS);
+#endif
+
     t00 = 0;
     for(ithread = 0; ithread < CY_THREADS; ithread++)
     {
@@ -2301,7 +2622,7 @@ int	radix36_ditN_cy_dif1_nochk(double a[], int n, int nwt, int nwt_bits, double 
 !   See the documentation in mers_mod_square and radix16_dif_pass for further details on the array
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
-	int n36, bjmodn00,bjmodn01,bjmodn02,bjmodn03,bjmodn04,bjmodn05,bjmodn06,bjmodn07,bjmodn08,bjmodn09,bjmodn10,bjmodn11,bjmodn12,bjmodn13,bjmodn14,bjmodn15,bjmodn16,bjmodn17
+	int NDIVR, bjmodn00,bjmodn01,bjmodn02,bjmodn03,bjmodn04,bjmodn05,bjmodn06,bjmodn07,bjmodn08,bjmodn09,bjmodn10,bjmodn11,bjmodn12,bjmodn13,bjmodn14,bjmodn15,bjmodn16,bjmodn17
 		,bjmodn18,bjmodn19,bjmodn20,bjmodn21,bjmodn22,bjmodn23,bjmodn24,bjmodn25,bjmodn26,bjmodn27,bjmodn28,bjmodn29,bjmodn30,bjmodn31,bjmodn32,bjmodn33,bjmodn34,bjmodn35
 		,i,j,jt,jp,j1,j2,jstart,jhi,iroot,root_incr,k,khi,l,outer;
 	static uint64 psave=0;
@@ -2338,11 +2659,11 @@ int	radix36_ditN_cy_dif1_nochk(double a[], int n, int nwt, int nwt_bits, double 
 	int col,co2,co3,m,m2,n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	double wt,wtinv,wtl,wtlp1,wtn,wtnm1,wtA,wtB,wtC;
 
-/*...change n36 and n_div_wt to non-static to work around a gcc compiler bug. */
-	n36   = n/36;
-	n_div_nwt = n36 >> nwt_bits;
+/*...change NDIVR and n_div_wt to non-static to work around a gcc compiler bug. */
+	NDIVR   = n/36;
+	n_div_nwt = NDIVR >> nwt_bits;
 
-	if((n_div_nwt << nwt_bits) != n36)
+	if((n_div_nwt << nwt_bits) != NDIVR)
 	{
 		sprintf(cbuf,"FATAL: iter = %10d; NWT_BITS does not divide N/36 in radix36_ditN_cy_dif1_nochk.\n",iter);
 		if(INTERACT)fprintf(stderr,"%s",cbuf);
@@ -2375,7 +2696,7 @@ int	radix36_ditN_cy_dif1_nochk(double a[], int n, int nwt, int nwt_bits, double 
 
 /*   constant index offsets for array load/stores are here.	*/
 
-		p01 = n36;
+		p01 = NDIVR;
 		p02 = p01 + p01;
 		p03 = p02 + p01;
 		p04 = p03 + p01;
@@ -2448,7 +2769,7 @@ int	radix36_ditN_cy_dif1_nochk(double a[], int n, int nwt, int nwt_bits, double 
 		p35 = p35 + ( (p35 >> DAT_BITS) << PAD_BITS );
 
 		bjmodnini=0;
-		for(j=0; j < n36; j++)
+		for(j=0; j < NDIVR; j++)
 		{
 			bjmodnini -= sw; bjmodnini = bjmodnini + ( (-(int)((uint32)bjmodnini >> 31)) & n);
 		}
@@ -3716,7 +4037,7 @@ void radix36_dif_pass1(double a[], int n)
 !...Subroutine to perform an initial radix-36 complex DIF FFT pass on the data in the length-N real vector A.
 */
 	int j,jt,jp,j1,j2;
-	static int n36,first_entry=TRUE,p01,p02,p03,p04,p08,p12,p16,p20,p24,p28,p32;
+	static int NDIVR,first_entry=TRUE,p01,p02,p03,p04,p08,p12,p16,p20,p24,p28,p32;
 	static double	c   =  0.76604444311897803520,	/* cos(2*pi/9) */
 					s   =  0.64278760968653932631,	/* sin(2*pi/9) */
 					c2  =  0.17364817766693034887,	/* cos(2*u) */
@@ -3731,7 +4052,7 @@ void radix36_dif_pass1(double a[], int n)
 		,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t2a,t2b,t2c,t2d,t2e,t2f,t2g,t2h
 		,t30,t31,t32,t33,t34,t35,t36,t37,t38,t39,t3a,t3b,t3c,t3d,t3e,t3f,t3g,t3h;
 
-	if(!first_entry && (n/36) != n36)	/* New runlength?	*/
+	if(!first_entry && (n/36) != NDIVR)	/* New runlength?	*/
 	{
 		first_entry=TRUE;
 	}
@@ -3741,11 +4062,11 @@ void radix36_dif_pass1(double a[], int n)
 	if(first_entry)
 	{
 		first_entry=FALSE;
-		n36=n/36;
+		NDIVR=n/36;
 
 /*   constant index offsets for array load/stores are here.	*/
 
-		p01 = n36;
+		p01 = NDIVR;
 		p02 = p01 + p01;
 		p03 = p02 + p01;
 		p04 = p03 + p01;
@@ -3772,7 +4093,7 @@ void radix36_dif_pass1(double a[], int n)
 
 /*...The radix-36 pass is here.	*/
 
-    for(j=0; j < n36; j += 2)
+    for(j=0; j < NDIVR; j += 2)
     {
 	#ifdef USE_SSE2
 		j1 = (j & mask01) + br4[j&3];
@@ -3827,7 +4148,7 @@ void radix36_dit_pass1(double a[], int n)
 !   i.e. to reobtain the raw all-integer residue vector at the end of an iteration cycle.
 */
 	int j,jt,jp,j1,j2;
-	static int n36,first_entry=TRUE,p01,p02,p03,p04,p08,p12,p16,p20,p24,p28,p32;
+	static int NDIVR,first_entry=TRUE,p01,p02,p03,p04,p08,p12,p16,p20,p24,p28,p32;
 	static double	c   =  0.76604444311897803520,	/* cos(2*pi/9) */
 					s   =  0.64278760968653932631,	/* sin(2*pi/9) */
 					c2  =  0.17364817766693034887,	/* cos(2*u) */
@@ -3842,7 +4163,7 @@ void radix36_dit_pass1(double a[], int n)
 		,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t2a,t2b,t2c,t2d,t2e,t2f,t2g,t2h
 		,t30,t31,t32,t33,t34,t35,t36,t37,t38,t39,t3a,t3b,t3c,t3d,t3e,t3f,t3g,t3h;
 
-	if(!first_entry && (n/36) != n36)	/* New runlength?	*/
+	if(!first_entry && (n/36) != NDIVR)	/* New runlength?	*/
 	{
 		first_entry=TRUE;
 	}
@@ -3852,11 +4173,11 @@ void radix36_dit_pass1(double a[], int n)
 	if(first_entry)
 	{
 		first_entry=FALSE;
-		n36=n/36;
+		NDIVR=n/36;
 
 /*   constant index offsets for array load/stores are here.	*/
 
-		p01 = n36;
+		p01 = NDIVR;
 		p02 = p01 + p01;
 		p03 = p02 + p01;
 		p04 = p03 + p01;
@@ -3883,7 +4204,7 @@ void radix36_dit_pass1(double a[], int n)
 
 /*...The radix-36 pass is here.	*/
 
-      for(j=0; j < n36; j += 2)
+      for(j=0; j < NDIVR; j += 2)
       {
 	#ifdef USE_SSE2
 		j1 = (j & mask01) + br4[j&3];
@@ -3929,4 +4250,400 @@ void radix36_dit_pass1(double a[], int n)
 		/* Totals: 4*radix09 + 9*radix04 = 4*(68 FADD, 40 FMUL)	+ 9*(16 FADD, 0 FMUL) = 416 FADD, 160 FMUL	*/
 	}
 }
+
+/******************** Multithreaded function body: ***************************/
+
+#ifdef USE_PTHREAD
+
+	#ifndef USE_SSE2
+		#error pthreaded carry code requires SSE2-enabled build!
+	#endif
+	#ifndef COMPILER_TYPE_GCC
+		#error pthreaded carry code requires GCC build!
+	#endif
+
+	void* 
+	cy36_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+	{
+		const uint32 RADIX = 36;
+		const double crnd = 3.0*0x4000000*0x2000000;
+		int j,j1,j2,k;
+		int l,n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
+		double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
+		uint32 p01,p02,p03,p04,p08,p12,p16,p20,p24,p28,p32;
+		double *add0, *add1, *add2, *add3;	/* Addresses into array sections */
+		int *bjmodn00,*bjmodn01,*bjmodn02,*bjmodn03,*bjmodn04,*bjmodn05,*bjmodn06,*bjmodn07,*bjmodn08,*bjmodn09
+			,*bjmodn10,*bjmodn11,*bjmodn12,*bjmodn13,*bjmodn14,*bjmodn15,*bjmodn16,*bjmodn17,*bjmodn18,*bjmodn19
+			,*bjmodn20,*bjmodn21,*bjmodn22,*bjmodn23,*bjmodn24,*bjmodn25,*bjmodn26,*bjmodn27,*bjmodn28,*bjmodn29
+			,*bjmodn30,*bjmodn31,*bjmodn32,*bjmodn33,*bjmodn34,*bjmodn35;
+		struct complex *cc1, *max_err, *sse2_rnd, *half_arr, *tmp, *r00
+			,*s1p00r,*s1p04r,*s1p08r,*s1p12r,*s1p16r,*s1p20r,*s1p24r,*s1p28r,*s1p32r;
+		struct complex *cy00,*cy02,*cy04,*cy06,*cy08,*cy10,*cy12,*cy14,*cy16,*cy18,*cy20,*cy22,*cy24,*cy26,*cy28,*cy30,*cy32,*cy34;
+		uint64 *sign_mask, *sse_bw, *sse_sw, *sse_n;
+
+		struct cy_thread_data_t* thread_arg = targ;
+	// int data:
+		int NDIVR = thread_arg->ndivr;
+		int n = NDIVR*RADIX;
+		int khi    = thread_arg->khi;
+		int i      = thread_arg->i;	/* Pointer to the BASE and BASEINV arrays.	*/
+		int jstart = thread_arg->jstart;
+		int jhi    = thread_arg->jhi;
+		int col = thread_arg->col;
+		int co2 = thread_arg->co2;
+		int co3 = thread_arg->co3;
+		int sw  = thread_arg->sw;
+		int nwt = thread_arg->nwt;
+
+	// double data:
+		double maxerr = thread_arg->maxerr;
+		double scale = thread_arg->scale;
+
+	// pointer data:
+		double *a = thread_arg->arrdat;
+		double *wt0 = thread_arg->wt0;
+		double *wt1 = thread_arg->wt1;
+		int *si = thread_arg->si;
+
+		/*   constant index offsets for array load/stores are here.	*/
+		p01 = NDIVR;
+		p02 = p01 + p01;
+		p03 = p02 + p01;
+		p04 = p03 + p01;
+		p08 = p04 + p04;
+		p12 = p08 + p04;
+		p16 = p12 + p04;
+		p20 = p16 + p04;
+		p24 = p20 + p04;
+		p28 = p24 + p04;
+		p32 = p28 + p04;
+
+		p01 = p01 + ( (p01 >> DAT_BITS) << PAD_BITS );
+		p02 = p02 + ( (p02 >> DAT_BITS) << PAD_BITS );
+		p03 = p03 + ( (p03 >> DAT_BITS) << PAD_BITS );
+		p04 = p04 + ( (p04 >> DAT_BITS) << PAD_BITS );
+		p08 = p08 + ( (p08 >> DAT_BITS) << PAD_BITS );
+		p12 = p12 + ( (p12 >> DAT_BITS) << PAD_BITS );
+		p16 = p16 + ( (p16 >> DAT_BITS) << PAD_BITS );
+		p20 = p20 + ( (p20 >> DAT_BITS) << PAD_BITS );
+		p24 = p24 + ( (p24 >> DAT_BITS) << PAD_BITS );
+		p28 = p28 + ( (p28 >> DAT_BITS) << PAD_BITS );
+		p32 = p32 + ( (p32 >> DAT_BITS) << PAD_BITS );
+
+		r00	= thread_arg->r00;
+		tmp	= r00 + 0x48;
+		s1p00r = tmp + 0x00;
+		s1p04r = tmp + 0x08;
+		s1p08r = tmp + 0x10;
+		s1p12r = tmp + 0x18;
+		s1p16r = tmp + 0x20;
+		s1p20r = tmp + 0x28;
+		s1p24r = tmp + 0x30;
+		s1p28r = tmp + 0x38;
+		s1p32r = tmp + 0x40;
+		cc1		= tmp + 0x48;
+		cy00	= tmp + 0x50;
+		cy02	= tmp + 0x51;
+		cy04	= tmp + 0x52;
+		cy06	= tmp + 0x53;
+		cy08	= tmp + 0x54;
+		cy10	= tmp + 0x55;
+		cy12	= tmp + 0x56;
+		cy14	= tmp + 0x57;
+		cy16	= tmp + 0x58;
+		cy18	= tmp + 0x59;
+		cy20	= tmp + 0x5a;
+		cy22	= tmp + 0x5b;
+		cy24	= tmp + 0x5c;
+		cy26	= tmp + 0x5d;
+		cy28	= tmp + 0x5e;
+		cy30	= tmp + 0x5f;
+		cy32	= tmp + 0x60;
+		cy34	= tmp + 0x61;
+	/* For future Fermat-mod option:
+		cy_i00	= tmp + 0x62;
+		cy_i02	= tmp + 0x63;
+		cy_i04	= tmp + 0x64;
+		cy_i06	= tmp + 0x65;
+		cy_i08	= tmp + 0x66;
+		cy_i10	= tmp + 0x67;
+		cy_i12	= tmp + 0x68;
+		cy_i14	= tmp + 0x69;
+		cy_i16	= tmp + 0x6a;
+		cy_i18	= tmp + 0x6b;
+		cy_i20	= tmp + 0x6c;
+		cy_i22	= tmp + 0x6d;
+		cy_i24	= tmp + 0x6e;
+		cy_i26	= tmp + 0x6f;
+		cy_i28	= tmp + 0x70;
+		cy_i30	= tmp + 0x71;
+		cy_i32	= tmp + 0x72;
+		cy_i34	= tmp + 0x73;
+	*/
+		max_err = tmp + 0x74;
+		sse2_rnd= tmp + 0x75;
+		half_arr= tmp + 0x76;	/* This table needs 20x16 bytes */
+
+		ASSERT(HERE, (r00 == thread_arg->r00), "thread-local memcheck failed!");
+		ASSERT(HERE, (half_arr == thread_arg->half_arr), "thread-local memcheck failed!");
+		ASSERT(HERE, (sse2_rnd->re == crnd && sse2_rnd->im == crnd), "thread-local memcheck failed!");
+		ASSERT(HERE, (half_arr+10)->re * (half_arr+14)->re == 1.0 && (half_arr+10)->im * (half_arr+14)->im == 1.0, "thread-local memcheck failed!");
+
+		max_err->re = 0.0;	max_err->im = 0.0;
+
+		sign_mask = (uint64*)(r00 + radix36_creals_in_local_store);
+		sse_bw  = sign_mask + 2;
+		sse_sw  = sign_mask + 4;
+		sse_n   = sign_mask + 6;
+		bjmodn00 = (int*)(sign_mask + 8);
+		bjmodn01 = bjmodn00 +  1;
+		bjmodn02 = bjmodn00 +  2;
+		bjmodn03 = bjmodn00 +  3;
+		bjmodn04 = bjmodn00 +  4;
+		bjmodn05 = bjmodn00 +  5;
+		bjmodn06 = bjmodn00 +  6;
+		bjmodn07 = bjmodn00 +  7;
+		bjmodn08 = bjmodn00 +  8;
+		bjmodn09 = bjmodn00 +  9;
+		bjmodn10 = bjmodn00 + 10;
+		bjmodn11 = bjmodn00 + 11;
+		bjmodn12 = bjmodn00 + 12;
+		bjmodn13 = bjmodn00 + 13;
+		bjmodn14 = bjmodn00 + 14;
+		bjmodn15 = bjmodn00 + 15;
+		bjmodn16 = bjmodn00 + 16;
+		bjmodn17 = bjmodn00 + 17;
+		bjmodn18 = bjmodn00 + 18;
+		bjmodn19 = bjmodn00 + 19;
+		bjmodn20 = bjmodn00 + 20;
+		bjmodn21 = bjmodn00 + 21;
+		bjmodn22 = bjmodn00 + 22;
+		bjmodn23 = bjmodn00 + 23;
+		bjmodn24 = bjmodn00 + 24;
+		bjmodn25 = bjmodn00 + 25;
+		bjmodn26 = bjmodn00 + 26;
+		bjmodn27 = bjmodn00 + 27;
+		bjmodn28 = bjmodn00 + 28;
+		bjmodn29 = bjmodn00 + 29;
+		bjmodn30 = bjmodn00 + 30;
+		bjmodn31 = bjmodn00 + 31;
+		bjmodn32 = bjmodn00 + 32;
+		bjmodn33 = bjmodn00 + 33;
+		bjmodn34 = bjmodn00 + 34;
+		bjmodn35 = bjmodn00 + 35;
+
+		/* Init DWT-indices: */	/* init carries	*/
+		*bjmodn00 = thread_arg->bjmodn00;	cy00->re = thread_arg->cy00;
+		*bjmodn01 = thread_arg->bjmodn01;	cy00->im = thread_arg->cy01;
+		*bjmodn02 = thread_arg->bjmodn02;	cy02->re = thread_arg->cy02;
+		*bjmodn03 = thread_arg->bjmodn03;	cy02->im = thread_arg->cy03;
+		*bjmodn04 = thread_arg->bjmodn04;	cy04->re = thread_arg->cy04;
+		*bjmodn05 = thread_arg->bjmodn05;	cy04->im = thread_arg->cy05;
+		*bjmodn06 = thread_arg->bjmodn06;	cy06->re = thread_arg->cy06;
+		*bjmodn07 = thread_arg->bjmodn07;	cy06->im = thread_arg->cy07;
+		*bjmodn08 = thread_arg->bjmodn08;	cy08->re = thread_arg->cy08;
+		*bjmodn09 = thread_arg->bjmodn09;	cy08->im = thread_arg->cy09;
+		*bjmodn10 = thread_arg->bjmodn10;	cy10->re = thread_arg->cy10;
+		*bjmodn11 = thread_arg->bjmodn11;	cy10->im = thread_arg->cy11;
+		*bjmodn12 = thread_arg->bjmodn12;	cy12->re = thread_arg->cy12;
+		*bjmodn13 = thread_arg->bjmodn13;	cy12->im = thread_arg->cy13;
+		*bjmodn14 = thread_arg->bjmodn14;	cy14->re = thread_arg->cy14;
+		*bjmodn15 = thread_arg->bjmodn15;	cy14->im = thread_arg->cy15;
+		*bjmodn16 = thread_arg->bjmodn16;	cy16->re = thread_arg->cy16;
+		*bjmodn17 = thread_arg->bjmodn17;	cy16->im = thread_arg->cy17;
+		*bjmodn18 = thread_arg->bjmodn18;	cy18->re = thread_arg->cy18;
+		*bjmodn19 = thread_arg->bjmodn19;	cy18->im = thread_arg->cy19;
+		*bjmodn20 = thread_arg->bjmodn20;	cy20->re = thread_arg->cy20;
+		*bjmodn21 = thread_arg->bjmodn21;	cy20->im = thread_arg->cy21;
+		*bjmodn22 = thread_arg->bjmodn22;	cy22->re = thread_arg->cy22;
+		*bjmodn23 = thread_arg->bjmodn23;	cy22->im = thread_arg->cy23;
+		*bjmodn24 = thread_arg->bjmodn24;	cy24->re = thread_arg->cy24;
+		*bjmodn25 = thread_arg->bjmodn25;	cy24->im = thread_arg->cy25;
+		*bjmodn26 = thread_arg->bjmodn26;	cy26->re = thread_arg->cy26;
+		*bjmodn27 = thread_arg->bjmodn27;	cy26->im = thread_arg->cy27;
+		*bjmodn28 = thread_arg->bjmodn28;	cy28->re = thread_arg->cy28;
+		*bjmodn29 = thread_arg->bjmodn29;	cy28->im = thread_arg->cy29;
+		*bjmodn30 = thread_arg->bjmodn30;	cy30->re = thread_arg->cy30;
+		*bjmodn31 = thread_arg->bjmodn31;	cy30->im = thread_arg->cy31;
+		*bjmodn32 = thread_arg->bjmodn32;	cy32->re = thread_arg->cy32;
+		*bjmodn33 = thread_arg->bjmodn33;	cy32->im = thread_arg->cy33;
+		*bjmodn34 = thread_arg->bjmodn34;	cy34->re = thread_arg->cy34;
+		*bjmodn35 = thread_arg->bjmodn35;	cy34->im = thread_arg->cy35;
+
+		for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
+		{
+			for(j = jstart; j < jhi; j += 4)
+			{
+			/* In SSE2 mode, data are arranged in [re0,re1,im0,im1] quartets, not the usual [re0,im0],[re1,im1] pairs.
+			Thus we can still increment the j-index as if stepping through the residue array-of-doubles in strides of 2,
+			but to point to the proper real datum, we need to bit-reverse bits <0:1> of j, i.e. [0,1,2,3] ==> [0,2,1,3].
+			*/
+				j1 = (j & mask01) + br4[j&3];
+				j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+				j2 = j1+RE_IM_STRIDE;
+
+				/* GCC-style fully-inlined ASM (64-bit only): */
+
+				add0 = &a[j1    ];
+				SSE2_RADIX36_DIT_NOTWIDDLE(add0,p01,p02,p03,p04,p08,p12,p16,p20,p24,p28,p32,r00,s1p00r,cc1);
+
+				l= j & (nwt-1);
+				n_minus_sil   = n-si[l  ];
+				n_minus_silp1 = n-si[l+1];
+				sinwt   = si[nwt-l  ];
+				sinwtm1 = si[nwt-l-1];
+
+				wtl     =wt0[    l  ];
+				wtn     =wt0[nwt-l  ]*scale;	/* Include 1/(n/2) scale factor of inverse transform here...	*/
+				wtlp1   =wt0[    l+1];
+				wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
+
+				tmp = half_arr + 16;	/* ptr to local storage for the doubled wtl,wtn terms: */
+				tmp->re = wtl;		tmp->im = wtl;	++tmp;
+				tmp->re = wtn;		tmp->im = wtn;	++tmp;
+				tmp->re = wtlp1;	tmp->im = wtlp1;++tmp;
+				tmp->re = wtnm1;	tmp->im = wtnm1;
+
+				add1 = &wt1[col  ];	/* Don't use add0 here, to avoid need to reload main-array address */
+				add2 = &wt1[co2-1];
+				add3 = &wt1[co3-1];
+
+			  #ifdef ERR_CHECK_ALL
+				SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy00,cy02,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_errcheck1_2B(s1p04r,add1,add2,add3,cy04,cy06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_errcheck1_2B(s1p08r,add1,add2,add3,cy08,cy10,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_errcheck1_2B(s1p12r,add1,add2,add3,cy12,cy14,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_errcheck1_2B(s1p16r,add1,add2,add3,cy16,cy18,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_errcheck1_2B(s1p20r,add1,add2,add3,cy20,cy22,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_errcheck1_2B(s1p24r,add1,add2,add3,cy24,cy26,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_errcheck1_2B(s1p28r,add1,add2,add3,cy28,cy30,bjmodn28,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_errcheck1_2B(s1p32r,add1,add2,add3,cy32,cy34,bjmodn32,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			  #else
+				SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy00,cy02,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p04r,add1,add2,add3,cy04,cy06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p08r,add1,add2,add3,cy08,cy10,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p12r,add1,add2,add3,cy12,cy14,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p16r,add1,add2,add3,cy16,cy18,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p20r,add1,add2,add3,cy20,cy22,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p24r,add1,add2,add3,cy24,cy26,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p28r,add1,add2,add3,cy28,cy30,bjmodn28,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck1_2B (s1p32r,add1,add2,add3,cy32,cy34,bjmodn32,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			  #endif
+
+				l= (j+2) & (nwt-1);
+				n_minus_sil   = n-si[l  ];
+				n_minus_silp1 = n-si[l+1];
+				sinwt   = si[nwt-l  ];
+				sinwtm1 = si[nwt-l-1];
+
+				wtl     =wt0[    l  ];
+				wtn     =wt0[nwt-l  ]*scale;	/* Include 1/(n/2) scale factor of inverse transform here...	*/
+				wtlp1   =wt0[    l+1];
+				wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
+
+				tmp = half_arr + 16;	/* ptr to local storage for the doubled wtl,wtn terms: */
+				tmp->re = wtl;		tmp->im = wtl;	++tmp;
+				tmp->re = wtn;		tmp->im = wtn;	++tmp;
+				tmp->re = wtlp1;	tmp->im = wtlp1;++tmp;
+				tmp->re = wtnm1;	tmp->im = wtnm1;
+
+			/*	i =((uint32)(sw - *bjmodn0) >> 31);	Don't need this here, since no special index-0 macro in the set below */
+
+				co2 = co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
+							(and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).	*/
+
+				add1 = &wt1[col  ];
+				add2 = &wt1[co2-1];
+
+			  #ifdef ERR_CHECK_ALL
+				SSE2_cmplx_carry_norm_errcheck2_2B(s1p00r,add1,add2,     cy00,cy02,bjmodn00,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_errcheck2_2B(s1p04r,add1,add2,     cy04,cy06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_errcheck2_2B(s1p08r,add1,add2,     cy08,cy10,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_errcheck2_2B(s1p12r,add1,add2,     cy12,cy14,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_errcheck2_2B(s1p16r,add1,add2,     cy16,cy18,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_errcheck2_2B(s1p20r,add1,add2,     cy20,cy22,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_errcheck2_2B(s1p24r,add1,add2,     cy24,cy26,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_errcheck2_2B(s1p28r,add1,add2,     cy28,cy30,bjmodn28,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_errcheck2_2B(s1p32r,add1,add2,     cy32,cy34,bjmodn32,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			  #else
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p00r,add1,add2,     cy00,cy02,bjmodn00,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p04r,add1,add2,     cy04,cy06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p08r,add1,add2,     cy08,cy10,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p12r,add1,add2,     cy12,cy14,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p16r,add1,add2,     cy16,cy18,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p20r,add1,add2,     cy20,cy22,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p24r,add1,add2,     cy24,cy26,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p28r,add1,add2,     cy28,cy30,bjmodn28,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+				SSE2_cmplx_carry_norm_nocheck2_2B (s1p32r,add1,add2,     cy32,cy34,bjmodn32,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			  #endif
+
+				i =((uint32)(sw - *bjmodn00) >> 31);	/* get ready for the next set...	*/
+
+				/*...The radix-36 DIF pass is here:	*/
+
+				SSE2_RADIX36_DIF_NOTWIDDLE(add0,p01,p02,p03,p04,p08,p12,p16,p20,p24,p28,p32,r00,s1p00r,cc1);
+			
+			}	/* end for(j=_jstart; j < _jhi; j += 2) */
+
+			jstart += nwt;
+			jhi    += nwt;
+
+			col += RADIX;
+			co3 -= RADIX;
+		}	/* end for(k=1; k <= khi; k++) */
+
+		/* At end of each thread-processed work chunk, dump the
+		carryouts into their non-thread-private array slots:
+		*/
+		thread_arg->cy00 = cy00->re;
+		thread_arg->cy01 = cy00->im;
+		thread_arg->cy02 = cy02->re;
+		thread_arg->cy03 = cy02->im;
+		thread_arg->cy04 = cy04->re;
+		thread_arg->cy05 = cy04->im;
+		thread_arg->cy06 = cy06->re;
+		thread_arg->cy07 = cy06->im;
+		thread_arg->cy08 = cy08->re;
+		thread_arg->cy09 = cy08->im;
+		thread_arg->cy10 = cy10->re;
+		thread_arg->cy11 = cy10->im;
+		thread_arg->cy12 = cy12->re;
+		thread_arg->cy13 = cy12->im;
+		thread_arg->cy14 = cy14->re;
+		thread_arg->cy15 = cy14->im;
+		thread_arg->cy16 = cy16->re;
+		thread_arg->cy17 = cy16->im;
+		thread_arg->cy18 = cy18->re;
+		thread_arg->cy19 = cy18->im;
+		thread_arg->cy20 = cy20->re;
+		thread_arg->cy21 = cy20->im;
+		thread_arg->cy22 = cy22->re;
+		thread_arg->cy23 = cy22->im;
+		thread_arg->cy24 = cy24->re;
+		thread_arg->cy25 = cy24->im;
+		thread_arg->cy26 = cy26->re;
+		thread_arg->cy27 = cy26->im;
+		thread_arg->cy28 = cy28->re;
+		thread_arg->cy29 = cy28->im;
+		thread_arg->cy30 = cy30->re;
+		thread_arg->cy31 = cy30->im;
+		thread_arg->cy32 = cy32->re;
+		thread_arg->cy33 = cy32->im;
+		thread_arg->cy34 = cy34->re;
+		thread_arg->cy35 = cy34->im;
+
+		if(max_err->re > max_err->im)
+			maxerr = max_err->re;
+		else
+			maxerr = max_err->im;
+
+		/* Since will lose separate maxerr values when threads are merged, save them after each pass. */
+		if(thread_arg->maxerr < maxerr)
+		{
+			thread_arg->maxerr = maxerr;
+		}
+
+		return 0x0;
+	}
+#endif
 

@@ -1,3 +1,25 @@
+/*******************************************************************************
+*                                                                              *
+*   (C) 1997-2012 by Ernst W. Mayer.                                           *
+*                                                                              *
+*  This program is free software; you can redistribute it and/or modify it     *
+*  under the terms of the GNU General Public License as published by the       *
+*  Free Software Foundation; either version 2 of the License, or (at your      *
+*  option) any later version.                                                  *
+*                                                                              *
+*  This program is distributed in the hope that it will be useful, but WITHOUT *
+*  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or       *
+*  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for   *
+*  more details.                                                               *
+*                                                                              *
+*  You should have received a copy of the GNU General Public License along     *
+*  with this program; see the file GPL.txt.  If not, you may view one at       *
+*  http://www.fsf.org/licenses/licenses.html, or obtain one by writing to the  *
+*  Free Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA     *
+*  02111-1307, USA.                                                            *
+*                                                                              *
+*******************************************************************************/
+
 #include "factor.h"
 
 #if FAC_DEBUG
@@ -18,7 +40,7 @@ The key 3-operation sequence here is as follows:
 	MULL128(lo,qinv,lo);	// Inputs lo & qinv, and output (overwrites lo) have 128 bits
 	MULH128(q,lo,lo);	// Inputs  q &   lo, and output (overwrites lo) have 128 bits
 */
-uint128 twopmodq128(uint64 p, uint128 q)
+uint128 twopmodq128(uint128 p, uint128 q)
 {
 #if FAC_DEBUG
 	int dbg = (p == 0);
@@ -26,7 +48,7 @@ uint128 twopmodq128(uint64 p, uint128 q)
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 lo64;
 	uint128 qhalf, qinv, x, lo, hi;
-	static uint64 psave = 0, pshift;
+	static uint128 psave = {0ull,0ull}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
 
 #if FAC_DEBUG
@@ -35,33 +57,44 @@ if(dbg)printf("twopmodq128:\n");
 
 	RSHIFT_FAST128(q, 1, qhalf);	/* = (q-1)/2, since q odd. */
 
-	if(first_entry || p != psave)
+	if(first_entry || !CMPEQ128(p, psave))
 	{
 		first_entry = FALSE;
-		psave  = p;
-		pshift = p + 128;
-		/*
-		!    find number of leading zeros in p, use it to find the position of the leftmost
-		!    ones bit, and subtract 7 to account for the fact that we can do the powering for the leftmost
-		!    7 bits via a simple shift.
+		psave.d0 = p.d0;	psave.d1 = p.d1;
+		pshift.d0 = p.d0 + 128;	pshift.d1 = p.d1 + (pshift.d0 < 128);
+	/*
+	!    find number of leading zeros in p, use it to find the position of the leftmost
+	!    ones bit, and subtract 7 to account for the fact that we can do the powering for the leftmost
+	!    7 bits via a simple shift.
+	*/
+		/* Leftward bit at which to start the l-r binary powering, assuming
+		the leftmost 7 bits have already been processed via a shift.
+
+		Since 7 bits with leftmost bit = 1 is guaranteed
+		to be in [64,127], the shift count here is in [0, 63].
+		That means that zstart < 2^64. Together with the fact that
+		squaring a power of two gives another power of two, we can
+		simplify the modmul code sequence for the first iteration.
+		Every little bit counts (literally in this case :), right?
 		*/
-	#if 0
-		start_index = 64-leadz64(pshift)-7;	/* Leftward bit at which to start the l-r binary powering, assuming
-							 the leftmost 7 bits have already been processed via a shift (see next). */
-		zshift = 127-ibits64(pshift,start_index,7);	/* Since 7 bits with leftmost bit = 1 is guaranteed
-								to be in [64,127], the shift count here is in [0, 63].
-								That means that zstart < 2^64. Together with the fact that
-								squaring a power of two gives another power of two, we can
-								simplify the modmul code sequence for the first iteration.
-								Every little bit counts (literally in this case :), right? */
-	#else
-		j = leadz64(pshift);
-		start_index =  64-j-7;
-		zshift = 127 - ((pshift<<j) >> 57);
-	#endif
+		if(pshift.d1)
+		{
+			j = leadz64(pshift.d1);
+			start_index = 128-j-7;
+			/* Extract leftmost 7 bits of pshift and subtract from 127: */
+			zshift = 127 - (((pshift.d1<<j) + (pshift.d0>>(64-j))) >> 57);
+		}
+		else
+		{
+			j = leadz64(pshift.d0);
+			start_index =  64-j-7;
+			zshift = 127 - ((pshift.d0<<j) >> 57);
+		}
+
+
 		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
 
-		pshift = ~pshift;
+		pshift.d1 = ~pshift.d1;	pshift.d0 = ~pshift.d0;
 	}
 
 	/*
@@ -139,7 +172,7 @@ if(dbg)printf("twopmodq128:\n");
 	if(dbg) printf("x = %s\n", &char_buf[convert_uint128_base10_char(char_buf, x)]);
 #endif
 
-	if((pshift >> j) & (uint64)1)
+	if(TEST_BIT128(pshift, j))
 	{
 	#if FAC_DEBUG
 		ASSERT(HERE, CMPULT128(x, q), "twopmodq128 : CMPULT128(x,q)");
@@ -177,7 +210,7 @@ if(dbg)printf("twopmodq128:\n");
 if(dbg)printf("j = %2d, x = %s",j, &char_buf[convert_uint128_base10_char(char_buf, x)]);
 #endif
 
-		if((pshift >> j) & (uint64)1)
+		if(TEST_BIT128(pshift, j))
 		{
 		#if FAC_DEBUG
 			ASSERT(HERE, CMPULT128(x, q), "twopmodq128 : CMPULT128(x,q)");
@@ -210,14 +243,14 @@ if(dbg)printf("x0 = %s\n", &char_buf[convert_uint128_base10_char(char_buf, x)]);
 /*
 !...Function to find 2^(-p) mod q, where p and q are both 128-bit unsigned integers.
 */
-uint128 twopmodq128x2(uint64 *p, uint128 q)
+uint64 twopmodq128x2(uint64*checksum1, uint64*checksum2, uint64 *p_in, uint64 k)
 {
 #if FAC_DEBUG
 	int dbg = STREQ(&char_buf[convert_mi64_base10_char(char_buf, p, 2)], "0");
 #endif
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 lo64;
-	uint128 qhalf, qinv, x, lo, hi;
+	uint128 p, q, qhalf, qinv, x, lo, hi;
 	static uint128 psave = {0ull, 0ull}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
 
@@ -225,13 +258,20 @@ uint128 twopmodq128x2(uint64 *p, uint128 q)
 if(dbg)printf("twopmodq128x2:\n");
 #endif
 
+	p.d0 = p_in[0]; p.d1 = p_in[1];
+	// Use x as tmp to hold 2*p:
+	ADD128(p,p, x);
+	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x, k, (uint64 *)&q, 2), "q must be < 2^128!");
+	q.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
+	*checksum1 += q.d0;
+
 	RSHIFT_FAST128(q, 1, qhalf);	/* = (q-1)/2, since q odd. */
 
-	if(first_entry || !mi64_cmpeq(p, (uint64*)&psave, 2))
+	if(first_entry || !CMPEQ128(p, psave))
 	{
 		first_entry = FALSE;
-		psave.d0 = p[0];	psave.d1 = p[1];
-		pshift.d0 = p[0] + 128;	pshift.d1 = p[1] + (pshift.d0 < 128);
+		psave = p;
+		pshift.d0 = p_in[0] + 128;	pshift.d1 = p_in[1] + (pshift.d0 < 128);
 	/*
 	!    find number of leading zeros in p, use it to find the position of the leftmost
 	!    ones bit, and subtract 7 to account for the fact that we can do the powering for the leftmost
@@ -253,6 +293,7 @@ if(dbg)printf("twopmodq128x2:\n");
 			start_index = 128-j-7;
 			/* Extract leftmost 7 bits of pshift and subtract from 127: */
 			zshift = 127 - (((pshift.d1<<j) + (pshift.d0>>(64-j))) >> 57);
+			pshift.d1 = ~pshift.d1;
 		}
 		else
 		{
@@ -260,11 +301,9 @@ if(dbg)printf("twopmodq128x2:\n");
 			start_index =  64-j-7;
 			zshift = 127 - ((pshift.d0<<j) >> 57);
 		}
-
+		pshift.d0 = ~pshift.d0;
 
 		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
-
-		pshift.d1 = ~pshift.d1;	pshift.d0 = ~pshift.d0;
 	}
 
 	/*
@@ -406,15 +445,17 @@ if(dbg)printf("twopmodq128x2:\n");
 	if(dbg) printf("Final x*= %s\n", &char_buf[convert_uint128_base10_char(char_buf, x)]);
 #endif
 
-	return x;
+	*checksum2 += x.d0;
+	return (uint64)CMPEQ128(x, ONE128) ;
 }
 
 /*** 4-trial-factor version ***/
-uint64 twopmodq128_q4(uint128 p, uint128 q0, uint128 q1, uint128 q2, uint128 q3)
+uint64 twopmodq128_q4(uint64*checksum1, uint64*checksum2, uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 {
 	 int32 j;
-	uint64 lo64_0, lo64_1, lo64_2, lo64_3, r;
-	uint128 qinv0, qinv1, qinv2, qinv3
+	uint64 lo64_0, lo64_1, lo64_2, lo64_3, lead7, r;
+	uint128 p, q0, q1, q2, q3
+		, qinv0, qinv1, qinv2, qinv3
 		, qhalf0, qhalf1, qhalf2, qhalf3
 		, x0, x1, x2, x3
 		, lo0, lo1, lo2, lo3
@@ -422,43 +463,53 @@ uint64 twopmodq128_q4(uint128 p, uint128 q0, uint128 q1, uint128 q2, uint128 q3)
 	static uint128 psave = {0ull,0ull}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
 
+//=================
+	p.d0 = p_in[0]; p.d1 = p_in[1];
+	// Use x0 as tmp to hold 2*p:
+	ADD128(p,p, x0);
+	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k0, (uint64 *)&q0, 2), "q must be < 2^128!");
+	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k1, (uint64 *)&q1, 2), "q must be < 2^128!");
+	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k2, (uint64 *)&q2, 2), "q must be < 2^128!");
+	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k3, (uint64 *)&q3, 2), "q must be < 2^128!");
+
+	q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
+	q1.d0 += 1;
+	q2.d0 += 1;
+	q3.d0 += 1;
+
+	*checksum1 += q0.d0 + q1.d0 + q2.d0 + q3.d0;
+
+	if(first_entry || !CMPEQ128(p, psave))
+	{
+		first_entry = FALSE;
+		psave = p;
+		pshift.d0 = p_in[0] + 128;	pshift.d1 = p_in[1] + (pshift.d0 < 128);
+		/* Extract leftmost 7 bits of pshift and subtract from 128: */
+		if(pshift.d1)
+		{
+			j = leadz64(pshift.d1);
+			lead7 = (((pshift.d1<<j) + (pshift.d0>>(64-j))) >> 57);
+			start_index = 128-j-7;
+			pshift.d1 = ~pshift.d1;
+		}
+		else
+		{
+			j = leadz64(pshift.d0);
+			/* Extract leftmost 7 bits of pshift and subtract from 128: */
+			lead7 = ((pshift.d0<<j) >> 57);
+			start_index =  64-j-7;
+		}
+		pshift.d0 = ~pshift.d0;
+  		zshift = 127 - lead7;
+		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
+	}
+//=================
 	RSHIFT_FAST128(q0, 1, qhalf0);	/* = (q-1)/2, since q odd. */
 	RSHIFT_FAST128(q1, 1, qhalf1);
 	RSHIFT_FAST128(q2, 1, qhalf2);
 	RSHIFT_FAST128(q3, 1, qhalf3);
 
-	if(first_entry || !CMPEQ128(p, psave))
-	{
-		first_entry = FALSE;
-		psave  = p;
-		pshift.d0 = p.d0 + 128;	pshift.d1 = p.d1 + (pshift.d0 < 128);
-
-		if(pshift.d1)
-		{
-			j = leadz64(pshift.d1);
-			start_index = 128-j-7;
-			/* Extract leftmost 7 bits of pshift and subtract from 127: */
-			zshift = 127 - (((pshift.d1<<j) + (pshift.d0>>(64-j))) >> 57);
-		}
-		else
-		{
-			j = leadz64(pshift.d0);
-			start_index =  64-j-7;
-			zshift = 127 - ((pshift.d0<<j) >> 57);
-		}
-
-		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
-
-		pshift.d1 = ~pshift.d1;	pshift.d0 = ~pshift.d0;
-	}
-
-	/* q must be odd for Montgomery-style modmul to work: */
-#if FAC_DEBUG
-	ASSERT(HERE, (q0.d0 & (uint64)1) == 1, "twopmodq128_q4 : (q0.d0 & (uint64)1) == 1");
-	ASSERT(HERE, (q1.d0 & (uint64)1) == 1, "twopmodq128_q4 : (q1.d0 & (uint64)1) == 1");
-	ASSERT(HERE, (q2.d0 & (uint64)1) == 1, "twopmodq128_q4 : (q2.d0 & (uint64)1) == 1");
-	ASSERT(HERE, (q3.d0 & (uint64)1) == 1, "twopmodq128_q4 : (q3.d0 & (uint64)1) == 1");
-#endif
+	// Find modular inverse (mod 2^128) of q in preparation for modular multiply:
 	qinv0.d0 = (q0.d0 + q0.d0 + q0.d0) ^ (uint64)2;	qinv0.d1 = (uint64)0;
 	qinv1.d0 = (q1.d0 + q1.d0 + q1.d0) ^ (uint64)2;	qinv1.d1 = (uint64)0;
 	qinv2.d0 = (q2.d0 + q2.d0 + q2.d0) ^ (uint64)2;	qinv2.d1 = (uint64)0;
@@ -518,25 +569,12 @@ uint64 twopmodq128_q4(uint128 p, uint128 q0, uint128 q1, uint128 q2, uint128 q3)
 
 	if(TEST_BIT128(pshift, j))
 	{
-	#if FAC_DEBUG
-		ASSERT(HERE, CMPULT128(x0, q0), "twopmodq128_q4 : CMPULT128(x0, q0)");
-		ASSERT(HERE, CMPULT128(x1, q1), "twopmodq128_q4 : CMPULT128(x1, q1)");
-		ASSERT(HERE, CMPULT128(x2, q2), "twopmodq128_q4 : CMPULT128(x2, q2)");
-		ASSERT(HERE, CMPULT128(x3, q3), "twopmodq128_q4 : CMPULT128(x3, q3)");
-	#endif
 		/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 		if(CMPUGT128(x0, qhalf0)){ ADD128(x0, x0, x0); SUB128(x0, q0, x0); }else{ ADD128(x0, x0, x0); }
 		if(CMPUGT128(x1, qhalf1)){ ADD128(x1, x1, x1); SUB128(x1, q1, x1); }else{ ADD128(x1, x1, x1); }
 		if(CMPUGT128(x2, qhalf2)){ ADD128(x2, x2, x2); SUB128(x2, q2, x2); }else{ ADD128(x2, x2, x2); }
 		if(CMPUGT128(x3, qhalf3)){ ADD128(x3, x3, x3); SUB128(x3, q3, x3); }else{ ADD128(x3, x3, x3); }
 	}
-
-#if FAC_DEBUG
-	if(CMPULT128(q0, x0)){ sprintf(char_buf, "twopmodq128_q4 : (x0 = %s) >= (q0 = %s)", &str0[convert_uint128_base10_char(str0, x0)], &str1[convert_uint128_base10_char(str1, q0)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(CMPULT128(q1, x1)){ sprintf(char_buf, "twopmodq128_q4 : (x1 = %s) >= (q1 = %s)", &str0[convert_uint128_base10_char(str0, x1)], &str1[convert_uint128_base10_char(str1, q1)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(CMPULT128(q2, x2)){ sprintf(char_buf, "twopmodq128_q4 : (x2 = %s) >= (q2 = %s)", &str0[convert_uint128_base10_char(str0, x2)], &str1[convert_uint128_base10_char(str1, q2)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(CMPULT128(q3, x3)){ sprintf(char_buf, "twopmodq128_q4 : (x3 = %s) >= (q3 = %s)", &str0[convert_uint128_base10_char(str0, x3)], &str1[convert_uint128_base10_char(str1, q3)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-#endif
 
 	for(j = start_index-2; j >= 0; j--)
 	{
@@ -614,12 +652,6 @@ uint64 twopmodq128_q4(uint128 p, uint128 q0, uint128 q1, uint128 q2, uint128 q3)
 
 		if(TEST_BIT128(pshift, j))
 		{
-		#if FAC_DEBUG
-			ASSERT(HERE, CMPULT128(x0,q0), "twopmodq128_q4 : CMPULT128(x0,q0)");
-			ASSERT(HERE, CMPULT128(x1,q1), "twopmodq128_q4 : CMPULT128(x1,q1)");
-			ASSERT(HERE, CMPULT128(x2,q2), "twopmodq128_q4 : CMPULT128(x2,q2)");
-			ASSERT(HERE, CMPULT128(x3,q3), "twopmodq128_q4 : CMPULT128(x3,q3)");
-		#endif
 			/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 			if(CMPUGT128(x0, qhalf0)){ ADD128(x0, x0, x0); SUB128(x0, q0, x0); }else{ ADD128(x0, x0, x0); }
 			if(CMPUGT128(x1, qhalf1)){ ADD128(x1, x1, x1); SUB128(x1, q1, x1); }else{ ADD128(x1, x1, x1); }
@@ -641,23 +673,24 @@ uint64 twopmodq128_q4(uint128 p, uint128 q0, uint128 q1, uint128 q2, uint128 q3)
 	SUB128(x2, q2, x2);
 	SUB128(x3, q3, x3);
 
+	*checksum2 += x0.d0 + x1.d0 + x2.d0 + x3.d0;
+
+	/* Only do the full 128-bit (Xj== 1) check if the bottom 64 bits of Xj == 1: */
 	r = 0;
-	if(CMPEQ128(x0, ONE128)) r +=  1;
-	if(CMPEQ128(x1, ONE128)) r +=  2;
-	if(CMPEQ128(x2, ONE128)) r +=  4;
-	if(CMPEQ128(x3, ONE128)) r +=  8;
+	if(x0.d0 == 1) r += ((uint64)CMPEQ128(x0, ONE128) << 0);
+	if(x1.d0 == 1) r += ((uint64)CMPEQ128(x1, ONE128) << 1);
+	if(x2.d0 == 1) r += ((uint64)CMPEQ128(x2, ONE128) << 2);
+	if(x3.d0 == 1) r += ((uint64)CMPEQ128(x3, ONE128) << 3);
 	return(r);
 }
 
 /*** 8-trial-factor version ***/
-uint64 twopmodq128_q8(uint128 p, uint128 q0, uint128 q1, uint128 q2, uint128 q3, uint128 q4, uint128 q5, uint128 q6, uint128 q7)
+uint64 twopmodq128_q8(uint64*checksum1, uint64*checksum2, uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7)
 {
-#if FAC_DEBUG
-	int dbg = STREQ(&char_buf[convert_uint128_base10_char(char_buf, p)], "0");
-#endif
 	 int32 j;
-	uint64 lo64_0, lo64_1, lo64_2, lo64_3, lo64_4, lo64_5, lo64_6, lo64_7, r;
-	uint128 qinv0, qinv1, qinv2, qinv3, qinv4, qinv5, qinv6, qinv7
+	uint64 lo64_0, lo64_1, lo64_2, lo64_3, lo64_4, lo64_5, lo64_6, lo64_7, lead7, r;
+	uint128 p, q0, q1, q2, q3, q4, q5, q6, q7
+		,  qinv0, qinv1, qinv2, qinv3, qinv4, qinv5, qinv6, qinv7
 		, qhalf0, qhalf1, qhalf2, qhalf3, qhalf4, qhalf5, qhalf6, qhalf7
 		, x0, x1, x2, x3, x4, x5, x6, x7
 		, lo0, lo1, lo2, lo3, lo4, lo5, lo6, lo7
@@ -668,6 +701,56 @@ uint64 twopmodq128_q8(uint128 p, uint128 q0, uint128 q1, uint128 q2, uint128 q3,
 #if FAC_DEBUG
 if(dbg)printf("twopmodq128_q8:\n");
 #endif
+//=================
+	p.d0 = p_in[0]; p.d1 = p_in[1];
+	// Use x0 as tmp to hold 2*p:
+	ADD128(p,p, x0);
+	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k0, (uint64 *)&q0, 2), "q must be < 2^128!");
+	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k1, (uint64 *)&q1, 2), "q must be < 2^128!");
+	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k2, (uint64 *)&q2, 2), "q must be < 2^128!");
+	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k3, (uint64 *)&q3, 2), "q must be < 2^128!");
+	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k4, (uint64 *)&q4, 2), "q must be < 2^128!");
+	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k5, (uint64 *)&q5, 2), "q must be < 2^128!");
+	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k6, (uint64 *)&q6, 2), "q must be < 2^128!");
+	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k7, (uint64 *)&q7, 2), "q must be < 2^128!");
+
+	q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
+	q1.d0 += 1;
+	q2.d0 += 1;
+	q3.d0 += 1;
+	q4.d0 += 1;
+	q5.d0 += 1;
+	q6.d0 += 1;
+	q7.d0 += 1;
+
+	*checksum1 += q0.d0 + q1.d0 + q2.d0 + q3.d0 + q4.d0 + q5.d0 + q6.d0 + q7.d0;
+
+	if(first_entry || !CMPEQ128(p, psave))
+	{
+		first_entry = FALSE;
+		psave = p;
+		pshift.d0 = p_in[0] + 128;	pshift.d1 = p_in[1] + (pshift.d0 < 128);
+		/* Extract leftmost 7 bits of pshift and subtract from 128: */
+		if(pshift.d1)
+		{
+			j = leadz64(pshift.d1);
+			lead7 = (((pshift.d1<<j) + (pshift.d0>>(64-j))) >> 57);
+			start_index = 128-j-7;
+			pshift.d1 = ~pshift.d1;
+		}
+		else
+		{
+			j = leadz64(pshift.d0);
+			/* Extract leftmost 7 bits of pshift and subtract from 128: */
+			lead7 = ((pshift.d0<<j) >> 57);
+			start_index =  64-j-7;
+		}
+		pshift.d0 = ~pshift.d0;
+  		zshift = 127 - lead7;
+		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
+	}
+//=================
+
 	RSHIFT_FAST128(q0, 1, qhalf0);	/* = (q-1)/2, since q odd. */
 	RSHIFT_FAST128(q1, 1, qhalf1);
 	RSHIFT_FAST128(q2, 1, qhalf2);
@@ -677,45 +760,7 @@ if(dbg)printf("twopmodq128_q8:\n");
 	RSHIFT_FAST128(q6, 1, qhalf6);
 	RSHIFT_FAST128(q7, 1, qhalf7);
 
-	if(first_entry || !CMPEQ128(p, psave))
-	{
-		first_entry = FALSE;
-		psave  = p;
-		pshift.d0 = p.d0 + 128;	pshift.d1 = p.d1 + (pshift.d0 < 128);
-
-		if(pshift.d1)
-		{
-			j = leadz64(pshift.d1);
-			start_index = 128-j-7;
-			/* Extract leftmost 7 bits of pshift and subtract from 127: */
-			zshift = 127 - (((pshift.d1<<j) + (pshift.d0>>(64-j))) >> 57);
-		}
-		else
-		{
-			j = leadz64(pshift.d0);
-			start_index =  64-j-7;
-			zshift = 127 - ((pshift.d0<<j) >> 57);
-		}
-
-		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
-
-		pshift.d1 = ~pshift.d1;	pshift.d0 = ~pshift.d0;
-	}
-
-	/*
-	!    Find modular inverse (mod 2^128) of q in preparation for modular multiply.
-	*/
-	/* q must be odd for Montgomery-style modmul to work: */
-#if FAC_DEBUG
-	ASSERT(HERE, (q0.d0 & (uint64)1) == 1, "twopmodq128_q8 : (q0.d0 & (uint64)1) == 1");
-	ASSERT(HERE, (q1.d0 & (uint64)1) == 1, "twopmodq128_q8 : (q1.d0 & (uint64)1) == 1");
-	ASSERT(HERE, (q2.d0 & (uint64)1) == 1, "twopmodq128_q8 : (q2.d0 & (uint64)1) == 1");
-	ASSERT(HERE, (q3.d0 & (uint64)1) == 1, "twopmodq128_q8 : (q3.d0 & (uint64)1) == 1");
-	ASSERT(HERE, (q4.d0 & (uint64)1) == 1, "twopmodq128_q8 : (q4.d0 & (uint64)1) == 1");
-	ASSERT(HERE, (q5.d0 & (uint64)1) == 1, "twopmodq128_q8 : (q5.d0 & (uint64)1) == 1");
-	ASSERT(HERE, (q6.d0 & (uint64)1) == 1, "twopmodq128_q8 : (q6.d0 & (uint64)1) == 1");
-	ASSERT(HERE, (q7.d0 & (uint64)1) == 1, "twopmodq128_q8 : (q7.d0 & (uint64)1) == 1");
-#endif
+	// Find modular inverse (mod 2^128) of q in preparation for modular multiply:
 	qinv0.d0 = (q0.d0 + q0.d0 + q0.d0) ^ (uint64)2;	qinv0.d1 = (uint64)0;
 	qinv1.d0 = (q1.d0 + q1.d0 + q1.d0) ^ (uint64)2;	qinv1.d1 = (uint64)0;
 	qinv2.d0 = (q2.d0 + q2.d0 + q2.d0) ^ (uint64)2;	qinv2.d1 = (uint64)0;
@@ -812,16 +857,6 @@ if(dbg)printf("twopmodq128_q8:\n");
 
 	if(TEST_BIT128(pshift, j))
 	{
-	#if FAC_DEBUG
-		ASSERT(HERE, CMPULT128(x0, q0), "twopmodq128_q8 : CMPULT128(x0, q0)");
-		ASSERT(HERE, CMPULT128(x1, q1), "twopmodq128_q8 : CMPULT128(x1, q1)");
-		ASSERT(HERE, CMPULT128(x2, q2), "twopmodq128_q8 : CMPULT128(x2, q2)");
-		ASSERT(HERE, CMPULT128(x3, q3), "twopmodq128_q8 : CMPULT128(x3, q3)");
-		ASSERT(HERE, CMPULT128(x4, q4), "twopmodq128_q8 : CMPULT128(x4, q4)");
-		ASSERT(HERE, CMPULT128(x5, q5), "twopmodq128_q8 : CMPULT128(x5, q5)");
-		ASSERT(HERE, CMPULT128(x6, q6), "twopmodq128_q8 : CMPULT128(x6, q6)");
-		ASSERT(HERE, CMPULT128(x7, q7), "twopmodq128_q8 : CMPULT128(x7, q7)");
-	#endif
 		/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 		if(CMPUGT128(x0, qhalf0)){ ADD128(x0, x0, x0); SUB128(x0, q0, x0); }else{ ADD128(x0, x0, x0); }
 		if(CMPUGT128(x1, qhalf1)){ ADD128(x1, x1, x1); SUB128(x1, q1, x1); }else{ ADD128(x1, x1, x1); }
@@ -832,17 +867,6 @@ if(dbg)printf("twopmodq128_q8:\n");
 		if(CMPUGT128(x6, qhalf6)){ ADD128(x6, x6, x6); SUB128(x6, q6, x6); }else{ ADD128(x6, x6, x6); }
 		if(CMPUGT128(x7, qhalf7)){ ADD128(x7, x7, x7); SUB128(x7, q7, x7); }else{ ADD128(x7, x7, x7); }
 	}
-
-#if FAC_DEBUG
-	if(CMPULT128(q0, x0)){ sprintf(char_buf, "twopmodq128_q8 : (x0 = %s) >= (q0 = %s)", &str0[convert_uint128_base10_char(str0, x0)], &str1[convert_uint128_base10_char(str1, q0)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(CMPULT128(q1, x1)){ sprintf(char_buf, "twopmodq128_q8 : (x1 = %s) >= (q1 = %s)", &str0[convert_uint128_base10_char(str0, x1)], &str1[convert_uint128_base10_char(str1, q1)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(CMPULT128(q2, x2)){ sprintf(char_buf, "twopmodq128_q8 : (x2 = %s) >= (q2 = %s)", &str0[convert_uint128_base10_char(str0, x2)], &str1[convert_uint128_base10_char(str1, q2)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(CMPULT128(q3, x3)){ sprintf(char_buf, "twopmodq128_q8 : (x3 = %s) >= (q3 = %s)", &str0[convert_uint128_base10_char(str0, x3)], &str1[convert_uint128_base10_char(str1, q3)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(CMPULT128(q4, x4)){ sprintf(char_buf, "twopmodq128_q8 : (x4 = %s) >= (q4 = %s)", &str0[convert_uint128_base10_char(str0, x4)], &str1[convert_uint128_base10_char(str1, q4)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(CMPULT128(q5, x5)){ sprintf(char_buf, "twopmodq128_q8 : (x5 = %s) >= (q5 = %s)", &str0[convert_uint128_base10_char(str0, x5)], &str1[convert_uint128_base10_char(str1, q5)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(CMPULT128(q6, x6)){ sprintf(char_buf, "twopmodq128_q8 : (x6 = %s) >= (q6 = %s)", &str0[convert_uint128_base10_char(str0, x6)], &str1[convert_uint128_base10_char(str1, q6)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(CMPULT128(q7, x7)){ sprintf(char_buf, "twopmodq128_q8 : (x7 = %s) >= (q7 = %s)", &str0[convert_uint128_base10_char(str0, x7)], &str1[convert_uint128_base10_char(str1, q7)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-#endif
 
 	for(j = start_index-2; j >= 0; j--)
 	{
@@ -981,16 +1005,6 @@ if(dbg)printf("j = %2d, Res = %20llu + 2^64* %20llu",j,x0.d0,x0.d1);
 
 		if(TEST_BIT128(pshift, j))
 		{
-		#if FAC_DEBUG
-			ASSERT(HERE, CMPULT128(x0,q0), "twopmodq128_q8 : CMPULT128(x0,q0)");
-			ASSERT(HERE, CMPULT128(x1,q1), "twopmodq128_q8 : CMPULT128(x1,q1)");
-			ASSERT(HERE, CMPULT128(x2,q2), "twopmodq128_q8 : CMPULT128(x2,q2)");
-			ASSERT(HERE, CMPULT128(x3,q3), "twopmodq128_q8 : CMPULT128(x3,q3)");
-			ASSERT(HERE, CMPULT128(x4,q4), "twopmodq128_q8 : CMPULT128(x4,q4)");
-			ASSERT(HERE, CMPULT128(x5,q5), "twopmodq128_q8 : CMPULT128(x5,q5)");
-			ASSERT(HERE, CMPULT128(x6,q6), "twopmodq128_q8 : CMPULT128(x6,q6)");
-			ASSERT(HERE, CMPULT128(x7,q7), "twopmodq128_q8 : CMPULT128(x7,q7)");
-		#endif
 			/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 			if(CMPUGT128(x0, qhalf0)){ ADD128(x0, x0, x0); SUB128(x0, q0, x0); }else{ ADD128(x0, x0, x0); }
 			if(CMPUGT128(x1, qhalf1)){ ADD128(x1, x1, x1); SUB128(x1, q1, x1); }else{ ADD128(x1, x1, x1); }
@@ -1034,15 +1048,18 @@ if(dbg)printf("\n");
 if(dbg)printf("x0 = %20llu + 2^64* %20llu\n",x0.d0, x0.d1);
 #endif
 
+	*checksum2 += x0.d0 + x1.d0 + x2.d0 + x3.d0 + x4.d0 + x5.d0 + x6.d0 + x7.d0;
+
+	/* Only do the full 128-bit (Xj== 1) check if the bottom 64 bits of Xj == 1: */
 	r = 0;
-	if(CMPEQ128(x0, ONE128)) r +=  1;
-	if(CMPEQ128(x1, ONE128)) r +=  2;
-	if(CMPEQ128(x2, ONE128)) r +=  4;
-	if(CMPEQ128(x3, ONE128)) r +=  8;
-	if(CMPEQ128(x4, ONE128)) r += 16;
-	if(CMPEQ128(x5, ONE128)) r += 32;
-	if(CMPEQ128(x6, ONE128)) r += 64;
-	if(CMPEQ128(x7, ONE128)) r +=128;
+	if(x0.d0 == 1) r += ((uint64)CMPEQ128(x0, ONE128) << 0);
+	if(x1.d0 == 1) r += ((uint64)CMPEQ128(x1, ONE128) << 1);
+	if(x2.d0 == 1) r += ((uint64)CMPEQ128(x2, ONE128) << 2);
+	if(x3.d0 == 1) r += ((uint64)CMPEQ128(x3, ONE128) << 3);
+	if(x4.d0 == 1) r += ((uint64)CMPEQ128(x4, ONE128) << 4);
+	if(x5.d0 == 1) r += ((uint64)CMPEQ128(x5, ONE128) << 5);
+	if(x6.d0 == 1) r += ((uint64)CMPEQ128(x6, ONE128) << 6);
+	if(x7.d0 == 1) r += ((uint64)CMPEQ128(x7, ONE128) << 7);
 	return(r);
 }
 

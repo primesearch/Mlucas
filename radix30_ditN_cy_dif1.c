@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -54,8 +54,8 @@ int radix30_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	double rt,it
 	,u01,u02,u03,u04,u05,u06,u07,u08,u09,u10,u11,u12,u13,u14,u15,u16,u17,u18,u19,u20,u21,u22,u23,u24,u25,u26,u27,u28,u29,u30,u31,u32,u33,u34,u35,u36,u37,u38,u39,u40,u41,u42,u43,u44,u45,u46,u47,u48,u49,u50,u51,u52,u53,u54,u55,u56,u57,u58,u59,u60
 	,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29
-	,aj1p00r,aj1p01r,aj1p02r,aj1p03r,aj1p04r,aj1p05r,aj1p06r,aj1p07r,aj1p08r,aj1p09r,aj1p10r,aj1p11r,aj1p12r,aj1p13r,aj1p14r,aj1p15r,aj1p16r,aj1p17r,aj1p18r,aj1p19r,aj1p20r,aj1p21r,aj1p22r,aj1p23r,aj1p24r,aj1p25r,aj1p26r,aj1p27r,aj1p28r,aj1p29r
-	,aj1p00i,aj1p01i,aj1p02i,aj1p03i,aj1p04i,aj1p05i,aj1p06i,aj1p07i,aj1p08i,aj1p09i,aj1p10i,aj1p11i,aj1p12i,aj1p13i,aj1p14i,aj1p15i,aj1p16i,aj1p17i,aj1p18i,aj1p19i,aj1p20i,aj1p21i,aj1p22i,aj1p23i,aj1p24i,aj1p25i,aj1p26i,aj1p27i,aj1p28i,aj1p29i
+	,a1p00r,a1p01r,a1p02r,a1p03r,a1p04r,a1p05r,a1p06r,a1p07r,a1p08r,a1p09r,a1p10r,a1p11r,a1p12r,a1p13r,a1p14r,a1p15r,a1p16r,a1p17r,a1p18r,a1p19r,a1p20r,a1p21r,a1p22r,a1p23r,a1p24r,a1p25r,a1p26r,a1p27r,a1p28r,a1p29r
+	,a1p00i,a1p01i,a1p02i,a1p03i,a1p04i,a1p05i,a1p06i,a1p07i,a1p08i,a1p09i,a1p10i,a1p11i,a1p12i,a1p13i,a1p14i,a1p15i,a1p16i,a1p17i,a1p18i,a1p19i,a1p20i,a1p21i,a1p22i,a1p23i,a1p24i,a1p25i,a1p26i,a1p27i,a1p28i,a1p29i
 	,cy_r00,cy_r01,cy_r02,cy_r03,cy_r04,cy_r05,cy_r06,cy_r07,cy_r08,cy_r09,cy_r10,cy_r11,cy_r12,cy_r13,cy_r14,cy_r15,cy_r16,cy_r17,cy_r18,cy_r19,cy_r20,cy_r21,cy_r22,cy_r23,cy_r24,cy_r25,cy_r26,cy_r27,cy_r28,cy_r29
 	,cy_i00,cy_i01,cy_i02,cy_i03,cy_i04,cy_i05,cy_i06,cy_i07,cy_i08,cy_i09,cy_i10,cy_i11,cy_i12,cy_i13,cy_i14,cy_i15,cy_i16,cy_i17,cy_i18,cy_i19,cy_i20,cy_i21,cy_i22,cy_i23,cy_i24,cy_i25,cy_i26,cy_i27,cy_i28,cy_i29
 	,temp,frac,scale;
@@ -72,6 +72,9 @@ int radix30_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	double wt,wtinv,wtl,wtlp1,wtn,wtnm1,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
 	int ii00,ii01,ii02,ii03,ii04,ii05,ii06,ii07,ii08,ii09,ii10,ii11,ii12,ii13,ii14,ii15,ii16,ii17,ii18,ii19,ii20,ii21,ii22,ii23,ii24,ii25,ii26,ii27,ii28,ii29;	/* indices into weights arrays (mod NWT) */
 	double wt_re,wt_im;									/* Fermat-mod weights stuff */
+
+	// Init these to get rid of GCC "may be used uninitialized in this function" warnings:
+	col=co2=co3=ii00=ii01=ii02=ii03=ii04=ii05=ii06=ii07=ii08=ii09=ii10=ii11=ii12=ii13=ii14=ii15=ii16=ii17=ii18=ii19=ii20=ii21=ii22=ii23=ii24=ii25=ii26=ii27=ii28=ii29=-1;
 
 /*...change n30 and n_div_wt to non-static to work around a gcc compiler bug. */
 	n30   = n/30;
@@ -430,7 +433,7 @@ for(outer=0; outer <= 1; outer++)
 
 /*       ...and now do two radix-15 transforms.	*/
 
-/*...aj1p[0:28:2]r use u[1:57:4]; aj1p[0:28:2]i use u[2:58:4]	*/
+/*...a1p[0:28:2]r use u[1:57:4]; a1p[0:28:2]i use u[2:58:4]	*/
 
 /*   Gather the needed data (15 64-bit complex, i.e. 30 64-bit reals) and do five radix-3 transforms...	*/
 /*...Block 1:	*/
@@ -512,11 +515,11 @@ for(outer=0; outer <= 1; outer++)
 			t18= rt-sn1*t18;		t19= it-sn1*t19;
 			t24= rt+sn2*t24;		t25= it+sn2*t25;
 
-			aj1p00r=t00;		aj1p00i=t01;
-			aj1p06r=t06-t19;		aj1p06i=t07+t18;
-			aj1p12r=t12-t25;		aj1p12i=t13+t24;
-			aj1p18r=t12+t25;		aj1p18i=t13-t24;
-			aj1p24r=t06+t19;		aj1p24i=t07-t18;
+			a1p00r=t00;		a1p00i=t01;
+			a1p06r=t06-t19;		a1p06i=t07+t18;
+			a1p12r=t12-t25;		a1p12i=t13+t24;
+			a1p18r=t12+t25;		a1p18i=t13-t24;
+			a1p24r=t06+t19;		a1p24i=t07-t18;
 
 /*...Block 2:	*/
 			rt = t26;			it = t27;
@@ -536,11 +539,11 @@ for(outer=0; outer <= 1; outer++)
 			t20= rt-sn1*t20;		t21= it-sn1*t21;
 			t26= rt+sn2*t26;		t27= it+sn2*t27;
 
-			aj1p10r=t02;		aj1p10i=t03;
-			aj1p16r=t08-t21;		aj1p16i=t09+t20;
-			aj1p22r=t14-t27;		aj1p22i=t15+t26;
-			aj1p28r=t14+t27;		aj1p28i=t15-t26;
-			aj1p04r=t08+t21;		aj1p04i=t09-t20;
+			a1p10r=t02;		a1p10i=t03;
+			a1p16r=t08-t21;		a1p16i=t09+t20;
+			a1p22r=t14-t27;		a1p22i=t15+t26;
+			a1p28r=t14+t27;		a1p28i=t15-t26;
+			a1p04r=t08+t21;		a1p04i=t09-t20;
 
 /*...Block 3:	*/
 			rt = t28;			it = t29;
@@ -560,13 +563,13 @@ for(outer=0; outer <= 1; outer++)
 			t22= rt-sn1*t22;		t23= it-sn1*t23;
 			t28= rt+sn2*t28;		t29= it+sn2*t29;
 
-			aj1p20r=t04;		aj1p20i=t05;
-			aj1p26r=t10-t23;		aj1p26i=t11+t22;
-			aj1p02r=t16-t29;		aj1p02i=t17+t28;
-			aj1p08r=t16+t29;		aj1p08i=t17-t28;
-			aj1p14r=t10+t23;		aj1p14i=t11-t22;
+			a1p20r=t04;		a1p20i=t05;
+			a1p26r=t10-t23;		a1p26i=t11+t22;
+			a1p02r=t16-t29;		a1p02i=t17+t28;
+			a1p08r=t16+t29;		a1p08i=t17-t28;
+			a1p14r=t10+t23;		a1p14i=t11-t22;
 
-/*...aj1p[1:29:2]r use u[3:59:4]; aj1p[1:29:2ii use u[4:60:4]	*/
+/*...a1p[1:29:2]r use u[3:59:4]; a1p[1:29:2ii use u[4:60:4]	*/
 
 /*   Gather the needed data (15 64-bit complex, i.e. 30 64-bit reals) and do five radix-3 transforms...	*/
 /*...Block 1:	*/
@@ -648,11 +651,11 @@ for(outer=0; outer <= 1; outer++)
 			t18= rt-sn1*t18;		t19= it-sn1*t19;
 			t24= rt+sn2*t24;		t25= it+sn2*t25;
 
-			aj1p15r=t00;		aj1p15i=t01;
-			aj1p21r=t06-t19;		aj1p21i=t07+t18;
-			aj1p27r=t12-t25;		aj1p27i=t13+t24;
-			aj1p03r=t12+t25;		aj1p03i=t13-t24;
-			aj1p09r=t06+t19;		aj1p09i=t07-t18;
+			a1p15r=t00;		a1p15i=t01;
+			a1p21r=t06-t19;		a1p21i=t07+t18;
+			a1p27r=t12-t25;		a1p27i=t13+t24;
+			a1p03r=t12+t25;		a1p03i=t13-t24;
+			a1p09r=t06+t19;		a1p09i=t07-t18;
 
 /*...Block 2:	*/
 			rt = t26;			it = t27;
@@ -672,11 +675,11 @@ for(outer=0; outer <= 1; outer++)
 			t20= rt-sn1*t20;		t21= it-sn1*t21;
 			t26= rt+sn2*t26;		t27= it+sn2*t27;
 
-			aj1p25r=t02;		aj1p25i=t03;
-			aj1p01r=t08-t21;		aj1p01i=t09+t20;
-			aj1p07r=t14-t27;		aj1p07i=t15+t26;
-			aj1p13r=t14+t27;		aj1p13i=t15-t26;
-			aj1p19r=t08+t21;		aj1p19i=t09-t20;
+			a1p25r=t02;		a1p25i=t03;
+			a1p01r=t08-t21;		a1p01i=t09+t20;
+			a1p07r=t14-t27;		a1p07i=t15+t26;
+			a1p13r=t14+t27;		a1p13i=t15-t26;
+			a1p19r=t08+t21;		a1p19i=t09-t20;
 
 /*...Block 3:	*/
 			rt = t28;			it = t29;
@@ -696,11 +699,11 @@ for(outer=0; outer <= 1; outer++)
 			t22= rt-sn1*t22;		t23= it-sn1*t23;
 			t28= rt+sn2*t28;		t29= it+sn2*t29;
 
-			aj1p05r=t04;		aj1p05i=t05;
-			aj1p11r=t10-t23;		aj1p11i=t11+t22;
-			aj1p17r=t16-t29;		aj1p17i=t17+t28;
-			aj1p23r=t16+t29;		aj1p23i=t17-t28;
-			aj1p29r=t10+t23;		aj1p29i=t11-t22;
+			a1p05r=t04;		a1p05i=t05;
+			a1p11r=t10-t23;		a1p11i=t11+t22;
+			a1p17r=t16-t29;		a1p17i=t17+t28;
+			a1p23r=t16+t29;		a1p23i=t17-t28;
+			a1p29r=t10+t23;		a1p29i=t11-t22;
 
 /*...Now do the carries. Since the outputs would
     normally be getting dispatched to 30 separate blocks of the A-array, we need 30 separate carries.	*/
@@ -719,73 +722,74 @@ for(outer=0; outer <= 1; outer++)
 			wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
 			/*...set0 is slightly different from others:	*/
-			 cmplx_carry_norm_errcheck0(aj1p00r,aj1p00i,cy_r00,bjmodn00   );
-			cmplx_carry_norm_errcheck(aj1p01r,aj1p01i,cy_r01,bjmodn01,1 );
-			cmplx_carry_norm_errcheck(aj1p02r,aj1p02i,cy_r02,bjmodn02,2 );
-			cmplx_carry_norm_errcheck(aj1p03r,aj1p03i,cy_r03,bjmodn03,3 );
-			cmplx_carry_norm_errcheck(aj1p04r,aj1p04i,cy_r04,bjmodn04,4 );
-			cmplx_carry_norm_errcheck(aj1p05r,aj1p05i,cy_r05,bjmodn05,5 );
-			cmplx_carry_norm_errcheck(aj1p06r,aj1p06i,cy_r06,bjmodn06,6 );
-			cmplx_carry_norm_errcheck(aj1p07r,aj1p07i,cy_r07,bjmodn07,7 );
-			cmplx_carry_norm_errcheck(aj1p08r,aj1p08i,cy_r08,bjmodn08,8 );
-			cmplx_carry_norm_errcheck(aj1p09r,aj1p09i,cy_r09,bjmodn09,9 );
-			cmplx_carry_norm_errcheck(aj1p10r,aj1p10i,cy_r10,bjmodn10,10);
-			cmplx_carry_norm_errcheck(aj1p11r,aj1p11i,cy_r11,bjmodn11,11);
-			cmplx_carry_norm_errcheck(aj1p12r,aj1p12i,cy_r12,bjmodn12,12);
-			cmplx_carry_norm_errcheck(aj1p13r,aj1p13i,cy_r13,bjmodn13,13);
-			cmplx_carry_norm_errcheck(aj1p14r,aj1p14i,cy_r14,bjmodn14,14);
-			cmplx_carry_norm_errcheck(aj1p15r,aj1p15i,cy_r15,bjmodn15,15);
-			cmplx_carry_norm_errcheck(aj1p16r,aj1p16i,cy_r16,bjmodn16,16);
-			cmplx_carry_norm_errcheck(aj1p17r,aj1p17i,cy_r17,bjmodn17,17);
-			cmplx_carry_norm_errcheck(aj1p18r,aj1p18i,cy_r18,bjmodn18,18);
-			cmplx_carry_norm_errcheck(aj1p19r,aj1p19i,cy_r19,bjmodn19,19);
-			cmplx_carry_norm_errcheck(aj1p20r,aj1p20i,cy_r20,bjmodn20,20);
-			cmplx_carry_norm_errcheck(aj1p21r,aj1p21i,cy_r21,bjmodn21,21);
-			cmplx_carry_norm_errcheck(aj1p22r,aj1p22i,cy_r22,bjmodn22,22);
-			cmplx_carry_norm_errcheck(aj1p23r,aj1p23i,cy_r23,bjmodn23,23);
-			cmplx_carry_norm_errcheck(aj1p24r,aj1p24i,cy_r24,bjmodn24,24);
-			cmplx_carry_norm_errcheck(aj1p25r,aj1p25i,cy_r25,bjmodn25,25);
-			cmplx_carry_norm_errcheck(aj1p26r,aj1p26i,cy_r26,bjmodn26,26);
-			cmplx_carry_norm_errcheck(aj1p27r,aj1p27i,cy_r27,bjmodn27,27);
-			cmplx_carry_norm_errcheck(aj1p28r,aj1p28i,cy_r28,bjmodn28,28);
-			cmplx_carry_norm_errcheck(aj1p29r,aj1p29i,cy_r29,bjmodn29,29);
+		   cmplx_carry_norm_errcheck0(a1p00r,a1p00i,cy_r00,bjmodn00   );
+			cmplx_carry_norm_errcheck(a1p01r,a1p01i,cy_r01,bjmodn01,1 );
+			cmplx_carry_norm_errcheck(a1p02r,a1p02i,cy_r02,bjmodn02,2 );
+			cmplx_carry_norm_errcheck(a1p03r,a1p03i,cy_r03,bjmodn03,3 );
+			cmplx_carry_norm_errcheck(a1p04r,a1p04i,cy_r04,bjmodn04,4 );
+			cmplx_carry_norm_errcheck(a1p05r,a1p05i,cy_r05,bjmodn05,5 );
+			cmplx_carry_norm_errcheck(a1p06r,a1p06i,cy_r06,bjmodn06,6 );
+			cmplx_carry_norm_errcheck(a1p07r,a1p07i,cy_r07,bjmodn07,7 );
+			cmplx_carry_norm_errcheck(a1p08r,a1p08i,cy_r08,bjmodn08,8 );
+			cmplx_carry_norm_errcheck(a1p09r,a1p09i,cy_r09,bjmodn09,9 );
+			cmplx_carry_norm_errcheck(a1p10r,a1p10i,cy_r10,bjmodn10,10);
+			cmplx_carry_norm_errcheck(a1p11r,a1p11i,cy_r11,bjmodn11,11);
+			cmplx_carry_norm_errcheck(a1p12r,a1p12i,cy_r12,bjmodn12,12);
+			cmplx_carry_norm_errcheck(a1p13r,a1p13i,cy_r13,bjmodn13,13);
+			cmplx_carry_norm_errcheck(a1p14r,a1p14i,cy_r14,bjmodn14,14);
+			cmplx_carry_norm_errcheck(a1p15r,a1p15i,cy_r15,bjmodn15,15);
+			cmplx_carry_norm_errcheck(a1p16r,a1p16i,cy_r16,bjmodn16,16);
+			cmplx_carry_norm_errcheck(a1p17r,a1p17i,cy_r17,bjmodn17,17);
+			cmplx_carry_norm_errcheck(a1p18r,a1p18i,cy_r18,bjmodn18,18);
+			cmplx_carry_norm_errcheck(a1p19r,a1p19i,cy_r19,bjmodn19,19);
+			cmplx_carry_norm_errcheck(a1p20r,a1p20i,cy_r20,bjmodn20,20);
+			cmplx_carry_norm_errcheck(a1p21r,a1p21i,cy_r21,bjmodn21,21);
+			cmplx_carry_norm_errcheck(a1p22r,a1p22i,cy_r22,bjmodn22,22);
+			cmplx_carry_norm_errcheck(a1p23r,a1p23i,cy_r23,bjmodn23,23);
+			cmplx_carry_norm_errcheck(a1p24r,a1p24i,cy_r24,bjmodn24,24);
+			cmplx_carry_norm_errcheck(a1p25r,a1p25i,cy_r25,bjmodn25,25);
+			cmplx_carry_norm_errcheck(a1p26r,a1p26i,cy_r26,bjmodn26,26);
+			cmplx_carry_norm_errcheck(a1p27r,a1p27i,cy_r27,bjmodn27,27);
+			cmplx_carry_norm_errcheck(a1p28r,a1p28i,cy_r28,bjmodn28,28);
+			cmplx_carry_norm_errcheck(a1p29r,a1p29i,cy_r29,bjmodn29,29);
 
 			i =((uint32)(sw - bjmodn00) >> 31);	/* get ready for the next set...	*/
 			co2=co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 					 and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).	*/
+
 		}
 		else
 		{
-			fermat_carry_norm_errcheck(aj1p00r,aj1p00i,cy_r00,cy_i00,ii00,bjmodn00,0 *n30);
-			fermat_carry_norm_errcheck(aj1p01r,aj1p01i,cy_r01,cy_i01,ii01,bjmodn01,1 *n30);
-			fermat_carry_norm_errcheck(aj1p02r,aj1p02i,cy_r02,cy_i02,ii02,bjmodn02,2 *n30);
-			fermat_carry_norm_errcheck(aj1p03r,aj1p03i,cy_r03,cy_i03,ii03,bjmodn03,3 *n30);
-			fermat_carry_norm_errcheck(aj1p04r,aj1p04i,cy_r04,cy_i04,ii04,bjmodn04,4 *n30);
-			fermat_carry_norm_errcheck(aj1p05r,aj1p05i,cy_r05,cy_i05,ii05,bjmodn05,5 *n30);
-			fermat_carry_norm_errcheck(aj1p06r,aj1p06i,cy_r06,cy_i06,ii06,bjmodn06,6 *n30);
-			fermat_carry_norm_errcheck(aj1p07r,aj1p07i,cy_r07,cy_i07,ii07,bjmodn07,7 *n30);
-			fermat_carry_norm_errcheck(aj1p08r,aj1p08i,cy_r08,cy_i08,ii08,bjmodn08,8 *n30);
-			fermat_carry_norm_errcheck(aj1p09r,aj1p09i,cy_r09,cy_i09,ii09,bjmodn09,9 *n30);
-			fermat_carry_norm_errcheck(aj1p10r,aj1p10i,cy_r10,cy_i10,ii10,bjmodn10,10*n30);
-			fermat_carry_norm_errcheck(aj1p11r,aj1p11i,cy_r11,cy_i11,ii11,bjmodn11,11*n30);
-			fermat_carry_norm_errcheck(aj1p12r,aj1p12i,cy_r12,cy_i12,ii12,bjmodn12,12*n30);
-			fermat_carry_norm_errcheck(aj1p13r,aj1p13i,cy_r13,cy_i13,ii13,bjmodn13,13*n30);
-			fermat_carry_norm_errcheck(aj1p14r,aj1p14i,cy_r14,cy_i14,ii14,bjmodn14,14*n30);
-			fermat_carry_norm_errcheck(aj1p15r,aj1p15i,cy_r15,cy_i15,ii15,bjmodn15,15*n30);
-			fermat_carry_norm_errcheck(aj1p16r,aj1p16i,cy_r16,cy_i16,ii16,bjmodn16,16*n30);
-			fermat_carry_norm_errcheck(aj1p17r,aj1p17i,cy_r17,cy_i17,ii17,bjmodn17,17*n30);
-			fermat_carry_norm_errcheck(aj1p18r,aj1p18i,cy_r18,cy_i18,ii18,bjmodn18,18*n30);
-			fermat_carry_norm_errcheck(aj1p19r,aj1p19i,cy_r19,cy_i19,ii19,bjmodn19,19*n30);
-			fermat_carry_norm_errcheck(aj1p20r,aj1p20i,cy_r20,cy_i20,ii20,bjmodn20,20*n30);
-			fermat_carry_norm_errcheck(aj1p21r,aj1p21i,cy_r21,cy_i21,ii21,bjmodn21,21*n30);
-			fermat_carry_norm_errcheck(aj1p22r,aj1p22i,cy_r22,cy_i22,ii22,bjmodn22,22*n30);
-			fermat_carry_norm_errcheck(aj1p23r,aj1p23i,cy_r23,cy_i23,ii23,bjmodn23,23*n30);
-			fermat_carry_norm_errcheck(aj1p24r,aj1p24i,cy_r24,cy_i24,ii24,bjmodn24,24*n30);
-			fermat_carry_norm_errcheck(aj1p25r,aj1p25i,cy_r25,cy_i25,ii25,bjmodn25,25*n30);
-			fermat_carry_norm_errcheck(aj1p26r,aj1p26i,cy_r26,cy_i26,ii26,bjmodn26,26*n30);
-			fermat_carry_norm_errcheck(aj1p27r,aj1p27i,cy_r27,cy_i27,ii27,bjmodn27,27*n30);
-			fermat_carry_norm_errcheck(aj1p28r,aj1p28i,cy_r28,cy_i28,ii28,bjmodn28,28*n30);
-			fermat_carry_norm_errcheck(aj1p29r,aj1p29i,cy_r29,cy_i29,ii29,bjmodn29,29*n30);
+			fermat_carry_norm_errcheck(a1p00r,a1p00i,cy_r00,cy_i00,ii00,bjmodn00,0 *n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p01r,a1p01i,cy_r01,cy_i01,ii01,bjmodn01,1 *n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p02r,a1p02i,cy_r02,cy_i02,ii02,bjmodn02,2 *n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p03r,a1p03i,cy_r03,cy_i03,ii03,bjmodn03,3 *n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p04r,a1p04i,cy_r04,cy_i04,ii04,bjmodn04,4 *n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p05r,a1p05i,cy_r05,cy_i05,ii05,bjmodn05,5 *n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p06r,a1p06i,cy_r06,cy_i06,ii06,bjmodn06,6 *n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p07r,a1p07i,cy_r07,cy_i07,ii07,bjmodn07,7 *n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p08r,a1p08i,cy_r08,cy_i08,ii08,bjmodn08,8 *n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p09r,a1p09i,cy_r09,cy_i09,ii09,bjmodn09,9 *n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p10r,a1p10i,cy_r10,cy_i10,ii10,bjmodn10,10*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p11r,a1p11i,cy_r11,cy_i11,ii11,bjmodn11,11*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p12r,a1p12i,cy_r12,cy_i12,ii12,bjmodn12,12*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p13r,a1p13i,cy_r13,cy_i13,ii13,bjmodn13,13*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p14r,a1p14i,cy_r14,cy_i14,ii14,bjmodn14,14*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p15r,a1p15i,cy_r15,cy_i15,ii15,bjmodn15,15*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p16r,a1p16i,cy_r16,cy_i16,ii16,bjmodn16,16*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p17r,a1p17i,cy_r17,cy_i17,ii17,bjmodn17,17*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p18r,a1p18i,cy_r18,cy_i18,ii18,bjmodn18,18*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p19r,a1p19i,cy_r19,cy_i19,ii19,bjmodn19,19*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p20r,a1p20i,cy_r20,cy_i20,ii20,bjmodn20,20*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p21r,a1p21i,cy_r21,cy_i21,ii21,bjmodn21,21*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p22r,a1p22i,cy_r22,cy_i22,ii22,bjmodn22,22*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p23r,a1p23i,cy_r23,cy_i23,ii23,bjmodn23,23*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p24r,a1p24i,cy_r24,cy_i24,ii24,bjmodn24,24*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p25r,a1p25i,cy_r25,cy_i25,ii25,bjmodn25,25*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p26r,a1p26i,cy_r26,cy_i26,ii26,bjmodn26,26*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p27r,a1p27i,cy_r27,cy_i27,ii27,bjmodn27,27*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p28r,a1p28i,cy_r28,cy_i28,ii28,bjmodn28,28*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a1p29r,a1p29i,cy_r29,cy_i29,ii29,bjmodn29,29*n30,NRTM1,NRT_BITS);
 		}
 
 /*...The radix-30 DIF pass is here:	*/
@@ -794,16 +798,16 @@ for(outer=0; outer <= 1; outer++)
 	prefetch_p_doubles(add0);
 	#endif
 
-	/*...First radix-15 block uses aj1p[0:28:2] as inputs:	*/
+	/*...First radix-15 block uses a1p[0:28:2] as inputs:	*/
 	/*   Gather the needed data (15 64-bit complex, i.e. 30 64-bit reals) and do three length-5 transforms...	*/
 	/*...Block 1:	*/
-			t00=aj1p00r;			t01=aj1p00i;	/* permuted versions of p00,24,06,18,12 */
-			t02=aj1p06r;			t03=aj1p06i;
-			rt =aj1p24r;			it =aj1p24i;
+			t00=a1p00r;			t01=a1p00i;	/* permuted versions of p00,24,06,18,12 */
+			t02=a1p06r;			t03=a1p06i;
+			rt =a1p24r;			it =a1p24i;
 			t06=t02-rt;			t07=t03-it;
 			t02=t02+rt;			t03=t03+it;
-			t04=aj1p12r;			t05=aj1p12i;
-			rt =aj1p18r;			it =aj1p18i;
+			t04=a1p12r;			t05=a1p12i;
+			rt =a1p18r;			it =a1p18i;
 			t08=t04-rt;			t09=t05-it;
 			t04=t04+rt;			t05=t05+it;
 	#if PFETCH
@@ -835,13 +839,13 @@ for(outer=0; outer <= 1; outer++)
 	#endif
 
 	/*...Block 2:	*/
-			t10=aj1p10r;			t11=aj1p10i;	/* permuted versions of p20,14,26,08,02 */
-			t12=aj1p16r;			t13=aj1p16i;
-			rt =aj1p04r;			it =aj1p04i;
+			t10=a1p10r;			t11=a1p10i;	/* permuted versions of p20,14,26,08,02 */
+			t12=a1p16r;			t13=a1p16i;
+			rt =a1p04r;			it =a1p04i;
 			t16=t12-rt;			t17=t13-it;
 			t12=t12+rt;			t13=t13+it;
-			t14=aj1p22r;			t15=aj1p22i;
-			rt =aj1p28r;			it =aj1p28i;
+			t14=a1p22r;			t15=a1p22i;
+			rt =a1p28r;			it =a1p28i;
 			t18=t14-rt;			t19=t15-it;
 			t14=t14+rt;			t15=t15+it;
 	#if PFETCH
@@ -873,13 +877,13 @@ for(outer=0; outer <= 1; outer++)
 	#endif
 
 	/*...Block 3:	*/
-			t20=aj1p20r;			t21=aj1p20i;	/* permuted versions of p10,04,16,28,22 */
-			t22=aj1p26r;			t23=aj1p26i;
-			rt =aj1p14r;			it =aj1p14i;
+			t20=a1p20r;			t21=a1p20i;	/* permuted versions of p10,04,16,28,22 */
+			t22=a1p26r;			t23=a1p26i;
+			rt =a1p14r;			it =a1p14i;
 			t26=t22-rt;			t27=t23-it;
 			t22=t22+rt;			t23=t23+it;
-			t24=aj1p02r;			t25=aj1p02i;
-			rt =aj1p08r;			it =aj1p08i;
+			t24=a1p02r;			t25=a1p02i;
+			rt =a1p08r;			it =a1p08i;
 			t28=t24-rt;			t29=t25-it;
 			t24=t24+rt;			t25=t25+it;
 	#if PFETCH
@@ -916,11 +920,11 @@ for(outer=0; outer <= 1; outer++)
 			t20=t10-rt;			t21=t11-it;
 			t10=t10+rt;			t11=t11+it;
 			t00=t00+t10;			t01=t01+t11;
-			aj1p00r=t00;			aj1p00i=t01;
+			a1p00r=t00;			a1p00i=t01;
 			t10=t00+c3m1*t10;		t11=t01+c3m1*t11;
 			rt =s*t20;			it =s*t21;
-			aj1p02r=t10-it;		aj1p02i=t11+rt;
-			aj1p04r=t10+it;		aj1p04i=t11-rt;
+			a1p02r=t10-it;		a1p02i=t11+rt;
+			a1p04r=t10+it;		a1p04i=t11-rt;
 	#if PFETCH
 	addr = add0+p10;
 	prefetch_p_doubles(addr);
@@ -931,11 +935,11 @@ for(outer=0; outer <= 1; outer++)
 			t22=t12-rt;			t23=t13-it;
 			t12=t12+rt;			t13=t13+it;
 			t02=t02+t12;			t03=t03+t13;
-			aj1p26r=t02;			aj1p26i=t03;
+			a1p26r=t02;			a1p26i=t03;
 			t12=t02+c3m1*t12;		t13=t03+c3m1*t13;
 			rt =s*t22;			it =s*t23;
-			aj1p28r=t12-it;		aj1p28i=t13+rt;
-			aj1p24r=t12+it;		aj1p24i=t13-rt;
+			a1p28r=t12-it;		a1p28i=t13+rt;
+			a1p24r=t12+it;		a1p24i=t13-rt;
 	#if PFETCH
 	addr = add0+p11;
 	prefetch_p_doubles(addr);
@@ -946,11 +950,11 @@ for(outer=0; outer <= 1; outer++)
 			t24=t14-rt;			t25=t15-it;
 			t14=t14+rt;			t15=t15+it;
 			t04=t04+t14;			t05=t05+t15;
-			aj1p18r=t04;			aj1p18i=t05;
+			a1p18r=t04;			a1p18i=t05;
 			t14=t04+c3m1*t14;		t15=t05+c3m1*t15;
 			rt =s*t24;			it =s*t25;
-			aj1p20r=t14-it;		aj1p20i=t15+rt;
-			aj1p22r=t14+it;		aj1p22i=t15-rt;
+			a1p20r=t14-it;		a1p20i=t15+rt;
+			a1p22r=t14+it;		a1p22i=t15-rt;
 	#if PFETCH
 	addr = add0+p12;
 	prefetch_p_doubles(addr);
@@ -961,11 +965,11 @@ for(outer=0; outer <= 1; outer++)
 			t26=t16-rt;			t27=t17-it;
 			t16=t16+rt;			t17=t17+it;
 			t06=t06+t16;			t07=t07+t17;
-			aj1p16r=t06;			aj1p16i=t07;
+			a1p16r=t06;			a1p16i=t07;
 			t16=t06+c3m1*t16;		t17=t07+c3m1*t17;
 			rt =s*t26;			it =s*t27;
-			aj1p12r=t16-it;		aj1p12i=t17+rt;
-			aj1p14r=t16+it;		aj1p14i=t17-rt;
+			a1p12r=t16-it;		a1p12i=t17+rt;
+			a1p14r=t16+it;		a1p14i=t17-rt;
 	#if PFETCH
 	addr = add0+p13;
 	prefetch_p_doubles(addr);
@@ -976,26 +980,26 @@ for(outer=0; outer <= 1; outer++)
 			t28=t18-rt;			t29=t19-it;
 			t18=t18+rt;			t19=t19+it;
 			t08=t08+t18;			t09=t09+t19;
-			aj1p08r=t08;			aj1p08i=t09;
+			a1p08r=t08;			a1p08i=t09;
 			t18=t08+c3m1*t18;		t19=t09+c3m1*t19;
 			rt =s*t28;			it =s*t29;
-			aj1p10r=t18-it;		aj1p10i=t19+rt;
-			aj1p06r=t18+it;		aj1p06i=t19-rt;
+			a1p10r=t18-it;		a1p10i=t19+rt;
+			a1p06r=t18+it;		a1p06i=t19-rt;
 	#if PFETCH
 	addr = add0+p14;
 	prefetch_p_doubles(addr);
 	#endif
 
-	/*...Second radix-15 block uses aj1p[1:29:2] as inputs:	*/
+	/*...Second radix-15 block uses a1p[1:29:2] as inputs:	*/
 	/*   Gather the needed data (15 64-bit complex, i.e. 30 64-bit reals) and do three length-5 transforms...	*/
 	/*...Block 1:	*/
-			t00=aj1p15r;			t01=aj1p15i;	/* permuted versions of p01,25,07,19,13 */
-			t02=aj1p21r;			t03=aj1p21i;
-			rt =aj1p09r;			it =aj1p09i;
+			t00=a1p15r;			t01=a1p15i;	/* permuted versions of p01,25,07,19,13 */
+			t02=a1p21r;			t03=a1p21i;
+			rt =a1p09r;			it =a1p09i;
 			t06=t02-rt;			t07=t03-it;
 			t02=t02+rt;			t03=t03+it;
-			t04=aj1p27r;			t05=aj1p27i;
-			rt =aj1p03r;			it =aj1p03i;
+			t04=a1p27r;			t05=a1p27i;
+			rt =a1p03r;			it =a1p03i;
 			t08=t04-rt;			t09=t05-it;
 			t04=t04+rt;			t05=t05+it;
 	#if PFETCH
@@ -1027,13 +1031,13 @@ for(outer=0; outer <= 1; outer++)
 	#endif
 
 	/*...Block 2:	*/
-			t10=aj1p25r;			t11=aj1p25i;	/* permuted versions of p21,15,27,09,03 */
-			t12=aj1p01r;			t13=aj1p01i;
-			rt =aj1p19r;			it =aj1p19i;
+			t10=a1p25r;			t11=a1p25i;	/* permuted versions of p21,15,27,09,03 */
+			t12=a1p01r;			t13=a1p01i;
+			rt =a1p19r;			it =a1p19i;
 			t16=t12-rt;			t17=t13-it;
 			t12=t12+rt;			t13=t13+it;
-			t14=aj1p07r;			t15=aj1p07i;
-			rt =aj1p13r;			it =aj1p13i;
+			t14=a1p07r;			t15=a1p07i;
+			rt =a1p13r;			it =a1p13i;
 			t18=t14-rt;			t19=t15-it;
 			t14=t14+rt;			t15=t15+it;
 	#if PFETCH
@@ -1065,13 +1069,13 @@ for(outer=0; outer <= 1; outer++)
 	#endif
 
 	/*...Block 3:	*/
-			t20=aj1p05r;			t21=aj1p05i;	/* permuted versions of p11,05,17,29,23 */
-			t22=aj1p11r;			t23=aj1p11i;
-			rt =aj1p29r;			it =aj1p29i;
+			t20=a1p05r;			t21=a1p05i;	/* permuted versions of p11,05,17,29,23 */
+			t22=a1p11r;			t23=a1p11i;
+			rt =a1p29r;			it =a1p29i;
 			t26=t22-rt;			t27=t23-it;
 			t22=t22+rt;			t23=t23+it;
-			t24=aj1p17r;			t25=aj1p17i;
-			rt =aj1p23r;			it =aj1p23i;
+			t24=a1p17r;			t25=a1p17i;
+			rt =a1p23r;			it =a1p23i;
 			t28=t24-rt;			t29=t25-it;
 			t24=t24+rt;			t25=t25+it;
 	#if PFETCH
@@ -1108,11 +1112,11 @@ for(outer=0; outer <= 1; outer++)
 			t20=t10-rt;			t21=t11-it;
 			t10=t10+rt;			t11=t11+it;
 			t00=t00+t10;			t01=t01+t11;
-			aj1p01r=t00;			aj1p01i=t01;
+			a1p01r=t00;			a1p01i=t01;
 			t10=t00+c3m1*t10;		t11=t01+c3m1*t11;
 			rt =s*t20;			it =s*t21;
-			aj1p03r=t10-it;		aj1p03i=t11+rt;
-			aj1p05r=t10+it;		aj1p05i=t11-rt;
+			a1p03r=t10-it;		a1p03i=t11+rt;
+			a1p05r=t10+it;		a1p05i=t11-rt;
 	#if PFETCH
 	addr = add0+p24;
 	prefetch_p_doubles(addr);
@@ -1123,11 +1127,11 @@ for(outer=0; outer <= 1; outer++)
 			t22=t12-rt;			t23=t13-it;
 			t12=t12+rt;			t13=t13+it;
 			t02=t02+t12;			t03=t03+t13;
-			aj1p27r=t02;			aj1p27i=t03;
+			a1p27r=t02;			a1p27i=t03;
 			t12=t02+c3m1*t12;		t13=t03+c3m1*t13;
 			rt =s*t22;			it =s*t23;
-			aj1p29r=t12-it;		aj1p29i=t13+rt;
-			aj1p25r=t12+it;		aj1p25i=t13-rt;
+			a1p29r=t12-it;		a1p29i=t13+rt;
+			a1p25r=t12+it;		a1p25i=t13-rt;
 	#if PFETCH
 	addr = add0+p25;
 	prefetch_p_doubles(addr);
@@ -1138,11 +1142,11 @@ for(outer=0; outer <= 1; outer++)
 			t24=t14-rt;			t25=t15-it;
 			t14=t14+rt;			t15=t15+it;
 			t04=t04+t14;			t05=t05+t15;
-			aj1p19r=t04;			aj1p19i=t05;
+			a1p19r=t04;			a1p19i=t05;
 			t14=t04+c3m1*t14;		t15=t05+c3m1*t15;
 			rt =s*t24;			it =s*t25;
-			aj1p21r=t14-it;		aj1p21i=t15+rt;
-			aj1p23r=t14+it;		aj1p23i=t15-rt;
+			a1p21r=t14-it;		a1p21i=t15+rt;
+			a1p23r=t14+it;		a1p23i=t15-rt;
 	#if PFETCH
 	addr = add0+p26;
 	prefetch_p_doubles(addr);
@@ -1153,11 +1157,11 @@ for(outer=0; outer <= 1; outer++)
 			t26=t16-rt;			t27=t17-it;
 			t16=t16+rt;			t17=t17+it;
 			t06=t06+t16;			t07=t07+t17;
-			aj1p17r=t06;			aj1p17i=t07;
+			a1p17r=t06;			a1p17i=t07;
 			t16=t06+c3m1*t16;		t17=t07+c3m1*t17;
 			rt =s*t26;			it =s*t27;
-			aj1p13r=t16-it;		aj1p13i=t17+rt;
-			aj1p15r=t16+it;		aj1p15i=t17-rt;
+			a1p13r=t16-it;		a1p13i=t17+rt;
+			a1p15r=t16+it;		a1p15i=t17-rt;
 	#if PFETCH
 	addr = add0+p27;
 	prefetch_p_doubles(addr);
@@ -1168,11 +1172,11 @@ for(outer=0; outer <= 1; outer++)
 			t28=t18-rt;			t29=t19-it;
 			t18=t18+rt;			t19=t19+it;
 			t08=t08+t18;			t09=t09+t19;
-			aj1p09r=t08;			aj1p09i=t09;
+			a1p09r=t08;			a1p09i=t09;
 			t18=t08+c3m1*t18;		t19=t09+c3m1*t19;
 			rt =s*t28;			it =s*t29;
-			aj1p11r=t18-it;		aj1p11i=t19+rt;
-			aj1p07r=t18+it;		aj1p07i=t19-rt;
+			a1p11r=t18-it;		a1p11i=t19+rt;
+			a1p07r=t18+it;		a1p07i=t19-rt;
 	#if PFETCH
 	addr = add0+p28;
 	prefetch_p_doubles(addr);
@@ -1180,53 +1184,53 @@ for(outer=0; outer <= 1; outer++)
 
 	/*...and now do 15 radix-2 transforms:	*/
 
-			a[j1    ]=aj1p00r+aj1p01r;	a[j2    ]=aj1p00i+aj1p01i;
-			a[j1+p01]=aj1p00r-aj1p01r;	a[j2+p01]=aj1p00i-aj1p01i;
+			a[j1    ]=a1p00r+a1p01r;	a[j2    ]=a1p00i+a1p01i;
+			a[j1+p01]=a1p00r-a1p01r;	a[j2+p01]=a1p00i-a1p01i;
 
-			a[j1+p04]=aj1p02r+aj1p03r;	a[j2+p04]=aj1p02i+aj1p03i;
-			a[j1+p05]=aj1p02r-aj1p03r;	a[j2+p05]=aj1p02i-aj1p03i;
+			a[j1+p04]=a1p02r+a1p03r;	a[j2+p04]=a1p02i+a1p03i;
+			a[j1+p05]=a1p02r-a1p03r;	a[j2+p05]=a1p02i-a1p03i;
 
-			a[j1+p03]=aj1p04r+aj1p05r;	a[j2+p03]=aj1p04i+aj1p05i;
-			a[j1+p02]=aj1p04r-aj1p05r;	a[j2+p02]=aj1p04i-aj1p05i;
+			a[j1+p03]=a1p04r+a1p05r;	a[j2+p03]=a1p04i+a1p05i;
+			a[j1+p02]=a1p04r-a1p05r;	a[j2+p02]=a1p04i-a1p05i;
 
-			a[j1+p28]=aj1p06r+aj1p07r;	a[j2+p28]=aj1p06i+aj1p07i;
-			a[j1+p29]=aj1p06r-aj1p07r;	a[j2+p29]=aj1p06i-aj1p07i;
+			a[j1+p28]=a1p06r+a1p07r;	a[j2+p28]=a1p06i+a1p07i;
+			a[j1+p29]=a1p06r-a1p07r;	a[j2+p29]=a1p06i-a1p07i;
 
-			a[j1+p27]=aj1p08r+aj1p09r;	a[j2+p27]=aj1p08i+aj1p09i;
-			a[j1+p26]=aj1p08r-aj1p09r;	a[j2+p26]=aj1p08i-aj1p09i;
+			a[j1+p27]=a1p08r+a1p09r;	a[j2+p27]=a1p08i+a1p09i;
+			a[j1+p26]=a1p08r-a1p09r;	a[j2+p26]=a1p08i-a1p09i;
 
-			a[j1+p24]=aj1p10r+aj1p11r;	a[j2+p24]=aj1p10i+aj1p11i;
-			a[j1+p25]=aj1p10r-aj1p11r;	a[j2+p25]=aj1p10i-aj1p11i;
+			a[j1+p24]=a1p10r+a1p11r;	a[j2+p24]=a1p10i+a1p11i;
+			a[j1+p25]=a1p10r-a1p11r;	a[j2+p25]=a1p10i-a1p11i;
 
-			a[j1+p23]=aj1p12r+aj1p13r;	a[j2+p23]=aj1p12i+aj1p13i;
-			a[j1+p22]=aj1p12r-aj1p13r;	a[j2+p22]=aj1p12i-aj1p13i;
+			a[j1+p23]=a1p12r+a1p13r;	a[j2+p23]=a1p12i+a1p13i;
+			a[j1+p22]=a1p12r-a1p13r;	a[j2+p22]=a1p12i-a1p13i;
 	#if PFETCH
 	addr = add0+p29;
 	prefetch_p_doubles(addr);
 	#endif
-			a[j1+p20]=aj1p14r+aj1p15r;	a[j2+p20]=aj1p14i+aj1p15i;
-			a[j1+p21]=aj1p14r-aj1p15r;	a[j2+p21]=aj1p14i-aj1p15i;
+			a[j1+p20]=a1p14r+a1p15r;	a[j2+p20]=a1p14i+a1p15i;
+			a[j1+p21]=a1p14r-a1p15r;	a[j2+p21]=a1p14i-a1p15i;
 
-			a[j1+p19]=aj1p16r+aj1p17r;	a[j2+p19]=aj1p16i+aj1p17i;
-			a[j1+p18]=aj1p16r-aj1p17r;	a[j2+p18]=aj1p16i-aj1p17i;
+			a[j1+p19]=a1p16r+a1p17r;	a[j2+p19]=a1p16i+a1p17i;
+			a[j1+p18]=a1p16r-a1p17r;	a[j2+p18]=a1p16i-a1p17i;
 
-			a[j1+p16]=aj1p18r+aj1p19r;	a[j2+p16]=aj1p18i+aj1p19i;
-			a[j1+p17]=aj1p18r-aj1p19r;	a[j2+p17]=aj1p18i-aj1p19i;
+			a[j1+p16]=a1p18r+a1p19r;	a[j2+p16]=a1p18i+a1p19i;
+			a[j1+p17]=a1p18r-a1p19r;	a[j2+p17]=a1p18i-a1p19i;
 
-			a[j1+p15]=aj1p20r+aj1p21r;	a[j2+p15]=aj1p20i+aj1p21i;
-			a[j1+p14]=aj1p20r-aj1p21r;	a[j2+p14]=aj1p20i-aj1p21i;
+			a[j1+p15]=a1p20r+a1p21r;	a[j2+p15]=a1p20i+a1p21i;
+			a[j1+p14]=a1p20r-a1p21r;	a[j2+p14]=a1p20i-a1p21i;
 
-			a[j1+p12]=aj1p22r+aj1p23r;	a[j2+p12]=aj1p22i+aj1p23i;
-			a[j1+p13]=aj1p22r-aj1p23r;	a[j2+p13]=aj1p22i-aj1p23i;
+			a[j1+p12]=a1p22r+a1p23r;	a[j2+p12]=a1p22i+a1p23i;
+			a[j1+p13]=a1p22r-a1p23r;	a[j2+p13]=a1p22i-a1p23i;
 
-			a[j1+p11]=aj1p24r+aj1p25r;	a[j2+p11]=aj1p24i+aj1p25i;
-			a[j1+p10]=aj1p24r-aj1p25r;	a[j2+p10]=aj1p24i-aj1p25i;
+			a[j1+p11]=a1p24r+a1p25r;	a[j2+p11]=a1p24i+a1p25i;
+			a[j1+p10]=a1p24r-a1p25r;	a[j2+p10]=a1p24i-a1p25i;
 
-			a[j1+p08]=aj1p26r+aj1p27r;	a[j2+p08]=aj1p26i+aj1p27i;
-			a[j1+p09]=aj1p26r-aj1p27r;	a[j2+p09]=aj1p26i-aj1p27i;
+			a[j1+p08]=a1p26r+a1p27r;	a[j2+p08]=a1p26i+a1p27i;
+			a[j1+p09]=a1p26r-a1p27r;	a[j2+p09]=a1p26i-a1p27i;
 
-			a[j1+p07]=aj1p28r+aj1p29r;	a[j2+p07]=aj1p28i+aj1p29i;
-			a[j1+p06]=aj1p28r-aj1p29r;	a[j2+p06]=aj1p28i-aj1p29i;
+			a[j1+p07]=a1p28r+a1p29r;	a[j2+p07]=a1p28i+a1p29i;
+			a[j1+p06]=a1p28r-a1p29r;	a[j2+p06]=a1p28i-a1p29i;
 
 			iroot += root_incr;		/* increment sincos index.	*/
 		}
@@ -1423,8 +1427,8 @@ int radix30_ditN_cy_dif1_nochk(double a[], int n, int nwt, int nwt_bits, double 
 	double rt,it
 	,u01,u02,u03,u04,u05,u06,u07,u08,u09,u10,u11,u12,u13,u14,u15,u16,u17,u18,u19,u20,u21,u22,u23,u24,u25,u26,u27,u28,u29,u30,u31,u32,u33,u34,u35,u36,u37,u38,u39,u40,u41,u42,u43,u44,u45,u46,u47,u48,u49,u50,u51,u52,u53,u54,u55,u56,u57,u58,u59,u60
 	,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29
-	,aj1p00r,aj1p01r,aj1p02r,aj1p03r,aj1p04r,aj1p05r,aj1p06r,aj1p07r,aj1p08r,aj1p09r,aj1p10r,aj1p11r,aj1p12r,aj1p13r,aj1p14r,aj1p15r,aj1p16r,aj1p17r,aj1p18r,aj1p19r,aj1p20r,aj1p21r,aj1p22r,aj1p23r,aj1p24r,aj1p25r,aj1p26r,aj1p27r,aj1p28r,aj1p29r
-	,aj1p00i,aj1p01i,aj1p02i,aj1p03i,aj1p04i,aj1p05i,aj1p06i,aj1p07i,aj1p08i,aj1p09i,aj1p10i,aj1p11i,aj1p12i,aj1p13i,aj1p14i,aj1p15i,aj1p16i,aj1p17i,aj1p18i,aj1p19i,aj1p20i,aj1p21i,aj1p22i,aj1p23i,aj1p24i,aj1p25i,aj1p26i,aj1p27i,aj1p28i,aj1p29i
+	,a1p00r,a1p01r,a1p02r,a1p03r,a1p04r,a1p05r,a1p06r,a1p07r,a1p08r,a1p09r,a1p10r,a1p11r,a1p12r,a1p13r,a1p14r,a1p15r,a1p16r,a1p17r,a1p18r,a1p19r,a1p20r,a1p21r,a1p22r,a1p23r,a1p24r,a1p25r,a1p26r,a1p27r,a1p28r,a1p29r
+	,a1p00i,a1p01i,a1p02i,a1p03i,a1p04i,a1p05i,a1p06i,a1p07i,a1p08i,a1p09i,a1p10i,a1p11i,a1p12i,a1p13i,a1p14i,a1p15i,a1p16i,a1p17i,a1p18i,a1p19i,a1p20i,a1p21i,a1p22i,a1p23i,a1p24i,a1p25i,a1p26i,a1p27i,a1p28i,a1p29i
 	,cy_r00,cy_r01,cy_r02,cy_r03,cy_r04,cy_r05,cy_r06,cy_r07,cy_r08,cy_r09,cy_r10,cy_r11,cy_r12,cy_r13,cy_r14,cy_r15,cy_r16,cy_r17,cy_r18,cy_r19,cy_r20,cy_r21,cy_r22,cy_r23,cy_r24,cy_r25,cy_r26,cy_r27,cy_r28,cy_r29
 	,cy_i00,cy_i01,cy_i02,cy_i03,cy_i04,cy_i05,cy_i06,cy_i07,cy_i08,cy_i09,cy_i10,cy_i11,cy_i12,cy_i13,cy_i14,cy_i15,cy_i16,cy_i17,cy_i18,cy_i19,cy_i20,cy_i21,cy_i22,cy_i23,cy_i24,cy_i25,cy_i26,cy_i27,cy_i28,cy_i29
 	,temp,scale;
@@ -1441,6 +1445,9 @@ int radix30_ditN_cy_dif1_nochk(double a[], int n, int nwt, int nwt_bits, double 
 	double wt,wtinv,wtl,wtlp1,wtn,wtnm1,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
 	int ii00,ii01,ii02,ii03,ii04,ii05,ii06,ii07,ii08,ii09,ii10,ii11,ii12,ii13,ii14,ii15,ii16,ii17,ii18,ii19,ii20,ii21,ii22,ii23,ii24,ii25,ii26,ii27,ii28,ii29;	/* indices into weights arrays (mod NWT) */
 	double wt_re,wt_im;									/* Fermat-mod weights stuff */
+
+	// Init these to get rid of GCC "may be used uninitialized in this function" warnings:
+	col=co2=co3=ii00=ii01=ii02=ii03=ii04=ii05=ii06=ii07=ii08=ii09=ii10=ii11=ii12=ii13=ii14=ii15=ii16=ii17=ii18=ii19=ii20=ii21=ii22=ii23=ii24=ii25=ii26=ii27=ii28=ii29=-1;
 
 /*...change n30 and n_div_wt to non-static to work around a gcc compiler bug. */
 	n30   = n/30;
@@ -1797,7 +1804,7 @@ for(outer=0; outer <= 1; outer++)
 
 /*       ...and now do two radix-15 transforms.	*/
 
-/*...aj1p[0:28:2]r use u[1:57:4]; aj1p[0:28:2]i use u[2:58:4]	*/
+/*...a1p[0:28:2]r use u[1:57:4]; a1p[0:28:2]i use u[2:58:4]	*/
 
 /*   Gather the needed data (15 64-bit complex, i.e. 30 64-bit reals) and do five radix-3 transforms...	*/
 /*...Block 1:	*/
@@ -1879,11 +1886,11 @@ for(outer=0; outer <= 1; outer++)
 			t18= rt-sn1*t18;		t19= it-sn1*t19;
 			t24= rt+sn2*t24;		t25= it+sn2*t25;
 
-			aj1p00r=t00;		aj1p00i=t01;
-			aj1p06r=t06-t19;		aj1p06i=t07+t18;
-			aj1p12r=t12-t25;		aj1p12i=t13+t24;
-			aj1p18r=t12+t25;		aj1p18i=t13-t24;
-			aj1p24r=t06+t19;		aj1p24i=t07-t18;
+			a1p00r=t00;		a1p00i=t01;
+			a1p06r=t06-t19;		a1p06i=t07+t18;
+			a1p12r=t12-t25;		a1p12i=t13+t24;
+			a1p18r=t12+t25;		a1p18i=t13-t24;
+			a1p24r=t06+t19;		a1p24i=t07-t18;
 
 /*...Block 2:	*/
 			rt = t26;			it = t27;
@@ -1903,11 +1910,11 @@ for(outer=0; outer <= 1; outer++)
 			t20= rt-sn1*t20;		t21= it-sn1*t21;
 			t26= rt+sn2*t26;		t27= it+sn2*t27;
 
-			aj1p10r=t02;		aj1p10i=t03;
-			aj1p16r=t08-t21;		aj1p16i=t09+t20;
-			aj1p22r=t14-t27;		aj1p22i=t15+t26;
-			aj1p28r=t14+t27;		aj1p28i=t15-t26;
-			aj1p04r=t08+t21;		aj1p04i=t09-t20;
+			a1p10r=t02;		a1p10i=t03;
+			a1p16r=t08-t21;		a1p16i=t09+t20;
+			a1p22r=t14-t27;		a1p22i=t15+t26;
+			a1p28r=t14+t27;		a1p28i=t15-t26;
+			a1p04r=t08+t21;		a1p04i=t09-t20;
 
 /*...Block 3:	*/
 			rt = t28;			it = t29;
@@ -1927,13 +1934,13 @@ for(outer=0; outer <= 1; outer++)
 			t22= rt-sn1*t22;		t23= it-sn1*t23;
 			t28= rt+sn2*t28;		t29= it+sn2*t29;
 
-			aj1p20r=t04;		aj1p20i=t05;
-			aj1p26r=t10-t23;		aj1p26i=t11+t22;
-			aj1p02r=t16-t29;		aj1p02i=t17+t28;
-			aj1p08r=t16+t29;		aj1p08i=t17-t28;
-			aj1p14r=t10+t23;		aj1p14i=t11-t22;
+			a1p20r=t04;		a1p20i=t05;
+			a1p26r=t10-t23;		a1p26i=t11+t22;
+			a1p02r=t16-t29;		a1p02i=t17+t28;
+			a1p08r=t16+t29;		a1p08i=t17-t28;
+			a1p14r=t10+t23;		a1p14i=t11-t22;
 
-/*...aj1p[1:29:2]r use u[3:59:4]; aj1p[1:29:2ii use u[4:60:4]	*/
+/*...a1p[1:29:2]r use u[3:59:4]; a1p[1:29:2ii use u[4:60:4]	*/
 
 /*   Gather the needed data (15 64-bit complex, i.e. 30 64-bit reals) and do five radix-3 transforms...	*/
 /*...Block 1:	*/
@@ -2015,11 +2022,11 @@ for(outer=0; outer <= 1; outer++)
 			t18= rt-sn1*t18;		t19= it-sn1*t19;
 			t24= rt+sn2*t24;		t25= it+sn2*t25;
 
-			aj1p15r=t00;		aj1p15i=t01;
-			aj1p21r=t06-t19;		aj1p21i=t07+t18;
-			aj1p27r=t12-t25;		aj1p27i=t13+t24;
-			aj1p03r=t12+t25;		aj1p03i=t13-t24;
-			aj1p09r=t06+t19;		aj1p09i=t07-t18;
+			a1p15r=t00;		a1p15i=t01;
+			a1p21r=t06-t19;		a1p21i=t07+t18;
+			a1p27r=t12-t25;		a1p27i=t13+t24;
+			a1p03r=t12+t25;		a1p03i=t13-t24;
+			a1p09r=t06+t19;		a1p09i=t07-t18;
 
 /*...Block 2:	*/
 			rt = t26;			it = t27;
@@ -2039,11 +2046,11 @@ for(outer=0; outer <= 1; outer++)
 			t20= rt-sn1*t20;		t21= it-sn1*t21;
 			t26= rt+sn2*t26;		t27= it+sn2*t27;
 
-			aj1p25r=t02;		aj1p25i=t03;
-			aj1p01r=t08-t21;		aj1p01i=t09+t20;
-			aj1p07r=t14-t27;		aj1p07i=t15+t26;
-			aj1p13r=t14+t27;		aj1p13i=t15-t26;
-			aj1p19r=t08+t21;		aj1p19i=t09-t20;
+			a1p25r=t02;		a1p25i=t03;
+			a1p01r=t08-t21;		a1p01i=t09+t20;
+			a1p07r=t14-t27;		a1p07i=t15+t26;
+			a1p13r=t14+t27;		a1p13i=t15-t26;
+			a1p19r=t08+t21;		a1p19i=t09-t20;
 
 /*...Block 3:	*/
 			rt = t28;			it = t29;
@@ -2063,11 +2070,11 @@ for(outer=0; outer <= 1; outer++)
 			t22= rt-sn1*t22;		t23= it-sn1*t23;
 			t28= rt+sn2*t28;		t29= it+sn2*t29;
 
-			aj1p05r=t04;		aj1p05i=t05;
-			aj1p11r=t10-t23;		aj1p11i=t11+t22;
-			aj1p17r=t16-t29;		aj1p17i=t17+t28;
-			aj1p23r=t16+t29;		aj1p23i=t17-t28;
-			aj1p29r=t10+t23;		aj1p29i=t11-t22;
+			a1p05r=t04;		a1p05i=t05;
+			a1p11r=t10-t23;		a1p11i=t11+t22;
+			a1p17r=t16-t29;		a1p17i=t17+t28;
+			a1p23r=t16+t29;		a1p23i=t17-t28;
+			a1p29r=t10+t23;		a1p29i=t11-t22;
 
 /*...Now do the carries. Since the outputs would
     normally be getting dispatched to 30 separate blocks of the A-array, we need 30 separate carries.	*/
@@ -2086,36 +2093,36 @@ for(outer=0; outer <= 1; outer++)
 			wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
 			/*...set0 is slightly different from others:	*/
-			 cmplx_carry_norm_nocheck0(aj1p00r,aj1p00i,cy_r00,bjmodn00   );
-			cmplx_carry_norm_nocheck(aj1p01r,aj1p01i,cy_r01,bjmodn01,1 );
-			cmplx_carry_norm_nocheck(aj1p02r,aj1p02i,cy_r02,bjmodn02,2 );
-			cmplx_carry_norm_nocheck(aj1p03r,aj1p03i,cy_r03,bjmodn03,3 );
-			cmplx_carry_norm_nocheck(aj1p04r,aj1p04i,cy_r04,bjmodn04,4 );
-			cmplx_carry_norm_nocheck(aj1p05r,aj1p05i,cy_r05,bjmodn05,5 );
-			cmplx_carry_norm_nocheck(aj1p06r,aj1p06i,cy_r06,bjmodn06,6 );
-			cmplx_carry_norm_nocheck(aj1p07r,aj1p07i,cy_r07,bjmodn07,7 );
-			cmplx_carry_norm_nocheck(aj1p08r,aj1p08i,cy_r08,bjmodn08,8 );
-			cmplx_carry_norm_nocheck(aj1p09r,aj1p09i,cy_r09,bjmodn09,9 );
-			cmplx_carry_norm_nocheck(aj1p10r,aj1p10i,cy_r10,bjmodn10,10);
-			cmplx_carry_norm_nocheck(aj1p11r,aj1p11i,cy_r11,bjmodn11,11);
-			cmplx_carry_norm_nocheck(aj1p12r,aj1p12i,cy_r12,bjmodn12,12);
-			cmplx_carry_norm_nocheck(aj1p13r,aj1p13i,cy_r13,bjmodn13,13);
-			cmplx_carry_norm_nocheck(aj1p14r,aj1p14i,cy_r14,bjmodn14,14);
-			cmplx_carry_norm_nocheck(aj1p15r,aj1p15i,cy_r15,bjmodn15,15);
-			cmplx_carry_norm_nocheck(aj1p16r,aj1p16i,cy_r16,bjmodn16,16);
-			cmplx_carry_norm_nocheck(aj1p17r,aj1p17i,cy_r17,bjmodn17,17);
-			cmplx_carry_norm_nocheck(aj1p18r,aj1p18i,cy_r18,bjmodn18,18);
-			cmplx_carry_norm_nocheck(aj1p19r,aj1p19i,cy_r19,bjmodn19,19);
-			cmplx_carry_norm_nocheck(aj1p20r,aj1p20i,cy_r20,bjmodn20,20);
-			cmplx_carry_norm_nocheck(aj1p21r,aj1p21i,cy_r21,bjmodn21,21);
-			cmplx_carry_norm_nocheck(aj1p22r,aj1p22i,cy_r22,bjmodn22,22);
-			cmplx_carry_norm_nocheck(aj1p23r,aj1p23i,cy_r23,bjmodn23,23);
-			cmplx_carry_norm_nocheck(aj1p24r,aj1p24i,cy_r24,bjmodn24,24);
-			cmplx_carry_norm_nocheck(aj1p25r,aj1p25i,cy_r25,bjmodn25,25);
-			cmplx_carry_norm_nocheck(aj1p26r,aj1p26i,cy_r26,bjmodn26,26);
-			cmplx_carry_norm_nocheck(aj1p27r,aj1p27i,cy_r27,bjmodn27,27);
-			cmplx_carry_norm_nocheck(aj1p28r,aj1p28i,cy_r28,bjmodn28,28);
-			cmplx_carry_norm_nocheck(aj1p29r,aj1p29i,cy_r29,bjmodn29,29);
+			 cmplx_carry_norm_nocheck0(a1p00r,a1p00i,cy_r00,bjmodn00   );
+			cmplx_carry_norm_nocheck(a1p01r,a1p01i,cy_r01,bjmodn01,1 );
+			cmplx_carry_norm_nocheck(a1p02r,a1p02i,cy_r02,bjmodn02,2 );
+			cmplx_carry_norm_nocheck(a1p03r,a1p03i,cy_r03,bjmodn03,3 );
+			cmplx_carry_norm_nocheck(a1p04r,a1p04i,cy_r04,bjmodn04,4 );
+			cmplx_carry_norm_nocheck(a1p05r,a1p05i,cy_r05,bjmodn05,5 );
+			cmplx_carry_norm_nocheck(a1p06r,a1p06i,cy_r06,bjmodn06,6 );
+			cmplx_carry_norm_nocheck(a1p07r,a1p07i,cy_r07,bjmodn07,7 );
+			cmplx_carry_norm_nocheck(a1p08r,a1p08i,cy_r08,bjmodn08,8 );
+			cmplx_carry_norm_nocheck(a1p09r,a1p09i,cy_r09,bjmodn09,9 );
+			cmplx_carry_norm_nocheck(a1p10r,a1p10i,cy_r10,bjmodn10,10);
+			cmplx_carry_norm_nocheck(a1p11r,a1p11i,cy_r11,bjmodn11,11);
+			cmplx_carry_norm_nocheck(a1p12r,a1p12i,cy_r12,bjmodn12,12);
+			cmplx_carry_norm_nocheck(a1p13r,a1p13i,cy_r13,bjmodn13,13);
+			cmplx_carry_norm_nocheck(a1p14r,a1p14i,cy_r14,bjmodn14,14);
+			cmplx_carry_norm_nocheck(a1p15r,a1p15i,cy_r15,bjmodn15,15);
+			cmplx_carry_norm_nocheck(a1p16r,a1p16i,cy_r16,bjmodn16,16);
+			cmplx_carry_norm_nocheck(a1p17r,a1p17i,cy_r17,bjmodn17,17);
+			cmplx_carry_norm_nocheck(a1p18r,a1p18i,cy_r18,bjmodn18,18);
+			cmplx_carry_norm_nocheck(a1p19r,a1p19i,cy_r19,bjmodn19,19);
+			cmplx_carry_norm_nocheck(a1p20r,a1p20i,cy_r20,bjmodn20,20);
+			cmplx_carry_norm_nocheck(a1p21r,a1p21i,cy_r21,bjmodn21,21);
+			cmplx_carry_norm_nocheck(a1p22r,a1p22i,cy_r22,bjmodn22,22);
+			cmplx_carry_norm_nocheck(a1p23r,a1p23i,cy_r23,bjmodn23,23);
+			cmplx_carry_norm_nocheck(a1p24r,a1p24i,cy_r24,bjmodn24,24);
+			cmplx_carry_norm_nocheck(a1p25r,a1p25i,cy_r25,bjmodn25,25);
+			cmplx_carry_norm_nocheck(a1p26r,a1p26i,cy_r26,bjmodn26,26);
+			cmplx_carry_norm_nocheck(a1p27r,a1p27i,cy_r27,bjmodn27,27);
+			cmplx_carry_norm_nocheck(a1p28r,a1p28i,cy_r28,bjmodn28,28);
+			cmplx_carry_norm_nocheck(a1p29r,a1p29i,cy_r29,bjmodn29,29);
 
 			i =((uint32)(sw - bjmodn00) >> 31);	/* get ready for the next set...	*/
 			co2=co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
@@ -2123,36 +2130,36 @@ for(outer=0; outer <= 1; outer++)
 		}
 		else
 		{
-			fermat_carry_norm_nocheck(aj1p00r,aj1p00i,cy_r00,cy_i00,ii00,bjmodn00,0 *n30);
-			fermat_carry_norm_nocheck(aj1p01r,aj1p01i,cy_r01,cy_i01,ii01,bjmodn01,1 *n30);
-			fermat_carry_norm_nocheck(aj1p02r,aj1p02i,cy_r02,cy_i02,ii02,bjmodn02,2 *n30);
-			fermat_carry_norm_nocheck(aj1p03r,aj1p03i,cy_r03,cy_i03,ii03,bjmodn03,3 *n30);
-			fermat_carry_norm_nocheck(aj1p04r,aj1p04i,cy_r04,cy_i04,ii04,bjmodn04,4 *n30);
-			fermat_carry_norm_nocheck(aj1p05r,aj1p05i,cy_r05,cy_i05,ii05,bjmodn05,5 *n30);
-			fermat_carry_norm_nocheck(aj1p06r,aj1p06i,cy_r06,cy_i06,ii06,bjmodn06,6 *n30);
-			fermat_carry_norm_nocheck(aj1p07r,aj1p07i,cy_r07,cy_i07,ii07,bjmodn07,7 *n30);
-			fermat_carry_norm_nocheck(aj1p08r,aj1p08i,cy_r08,cy_i08,ii08,bjmodn08,8 *n30);
-			fermat_carry_norm_nocheck(aj1p09r,aj1p09i,cy_r09,cy_i09,ii09,bjmodn09,9 *n30);
-			fermat_carry_norm_nocheck(aj1p10r,aj1p10i,cy_r10,cy_i10,ii10,bjmodn10,10*n30);
-			fermat_carry_norm_nocheck(aj1p11r,aj1p11i,cy_r11,cy_i11,ii11,bjmodn11,11*n30);
-			fermat_carry_norm_nocheck(aj1p12r,aj1p12i,cy_r12,cy_i12,ii12,bjmodn12,12*n30);
-			fermat_carry_norm_nocheck(aj1p13r,aj1p13i,cy_r13,cy_i13,ii13,bjmodn13,13*n30);
-			fermat_carry_norm_nocheck(aj1p14r,aj1p14i,cy_r14,cy_i14,ii14,bjmodn14,14*n30);
-			fermat_carry_norm_nocheck(aj1p15r,aj1p15i,cy_r15,cy_i15,ii15,bjmodn15,15*n30);
-			fermat_carry_norm_nocheck(aj1p16r,aj1p16i,cy_r16,cy_i16,ii16,bjmodn16,16*n30);
-			fermat_carry_norm_nocheck(aj1p17r,aj1p17i,cy_r17,cy_i17,ii17,bjmodn17,17*n30);
-			fermat_carry_norm_nocheck(aj1p18r,aj1p18i,cy_r18,cy_i18,ii18,bjmodn18,18*n30);
-			fermat_carry_norm_nocheck(aj1p19r,aj1p19i,cy_r19,cy_i19,ii19,bjmodn19,19*n30);
-			fermat_carry_norm_nocheck(aj1p20r,aj1p20i,cy_r20,cy_i20,ii20,bjmodn20,20*n30);
-			fermat_carry_norm_nocheck(aj1p21r,aj1p21i,cy_r21,cy_i21,ii21,bjmodn21,21*n30);
-			fermat_carry_norm_nocheck(aj1p22r,aj1p22i,cy_r22,cy_i22,ii22,bjmodn22,22*n30);
-			fermat_carry_norm_nocheck(aj1p23r,aj1p23i,cy_r23,cy_i23,ii23,bjmodn23,23*n30);
-			fermat_carry_norm_nocheck(aj1p24r,aj1p24i,cy_r24,cy_i24,ii24,bjmodn24,24*n30);
-			fermat_carry_norm_nocheck(aj1p25r,aj1p25i,cy_r25,cy_i25,ii25,bjmodn25,25*n30);
-			fermat_carry_norm_nocheck(aj1p26r,aj1p26i,cy_r26,cy_i26,ii26,bjmodn26,26*n30);
-			fermat_carry_norm_nocheck(aj1p27r,aj1p27i,cy_r27,cy_i27,ii27,bjmodn27,27*n30);
-			fermat_carry_norm_nocheck(aj1p28r,aj1p28i,cy_r28,cy_i28,ii28,bjmodn28,28*n30);
-			fermat_carry_norm_nocheck(aj1p29r,aj1p29i,cy_r29,cy_i29,ii29,bjmodn29,29*n30);
+			fermat_carry_norm_nocheck(a1p00r,a1p00i,cy_r00,cy_i00,ii00,bjmodn00,0 *n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p01r,a1p01i,cy_r01,cy_i01,ii01,bjmodn01,1 *n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p02r,a1p02i,cy_r02,cy_i02,ii02,bjmodn02,2 *n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p03r,a1p03i,cy_r03,cy_i03,ii03,bjmodn03,3 *n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p04r,a1p04i,cy_r04,cy_i04,ii04,bjmodn04,4 *n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p05r,a1p05i,cy_r05,cy_i05,ii05,bjmodn05,5 *n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p06r,a1p06i,cy_r06,cy_i06,ii06,bjmodn06,6 *n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p07r,a1p07i,cy_r07,cy_i07,ii07,bjmodn07,7 *n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p08r,a1p08i,cy_r08,cy_i08,ii08,bjmodn08,8 *n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p09r,a1p09i,cy_r09,cy_i09,ii09,bjmodn09,9 *n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p10r,a1p10i,cy_r10,cy_i10,ii10,bjmodn10,10*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p11r,a1p11i,cy_r11,cy_i11,ii11,bjmodn11,11*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p12r,a1p12i,cy_r12,cy_i12,ii12,bjmodn12,12*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p13r,a1p13i,cy_r13,cy_i13,ii13,bjmodn13,13*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p14r,a1p14i,cy_r14,cy_i14,ii14,bjmodn14,14*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p15r,a1p15i,cy_r15,cy_i15,ii15,bjmodn15,15*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p16r,a1p16i,cy_r16,cy_i16,ii16,bjmodn16,16*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p17r,a1p17i,cy_r17,cy_i17,ii17,bjmodn17,17*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p18r,a1p18i,cy_r18,cy_i18,ii18,bjmodn18,18*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p19r,a1p19i,cy_r19,cy_i19,ii19,bjmodn19,19*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p20r,a1p20i,cy_r20,cy_i20,ii20,bjmodn20,20*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p21r,a1p21i,cy_r21,cy_i21,ii21,bjmodn21,21*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p22r,a1p22i,cy_r22,cy_i22,ii22,bjmodn22,22*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p23r,a1p23i,cy_r23,cy_i23,ii23,bjmodn23,23*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p24r,a1p24i,cy_r24,cy_i24,ii24,bjmodn24,24*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p25r,a1p25i,cy_r25,cy_i25,ii25,bjmodn25,25*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p26r,a1p26i,cy_r26,cy_i26,ii26,bjmodn26,26*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p27r,a1p27i,cy_r27,cy_i27,ii27,bjmodn27,27*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p28r,a1p28i,cy_r28,cy_i28,ii28,bjmodn28,28*n30,NRTM1,NRT_BITS);
+			fermat_carry_norm_nocheck(a1p29r,a1p29i,cy_r29,cy_i29,ii29,bjmodn29,29*n30,NRTM1,NRT_BITS);
 		}
 
 /*...The radix-30 DIF pass is here:	*/
@@ -2161,16 +2168,16 @@ add0 = &a[j1];
 prefetch_p_doubles(add0);
 #endif
 
-/*...First radix-15 block uses aj1p[0:28:2] as inputs:	*/
+/*...First radix-15 block uses a1p[0:28:2] as inputs:	*/
 /*   Gather the needed data (15 64-bit complex, i.e. 30 64-bit reals) and do three length-5 transforms...	*/
 /*...Block 1:	*/
-		t00=aj1p00r;			t01=aj1p00i;	/* permuted versions of p00,24,06,18,12 */
-		t02=aj1p06r;			t03=aj1p06i;
-		rt =aj1p24r;			it =aj1p24i;
+		t00=a1p00r;			t01=a1p00i;	/* permuted versions of p00,24,06,18,12 */
+		t02=a1p06r;			t03=a1p06i;
+		rt =a1p24r;			it =a1p24i;
 		t06=t02-rt;			t07=t03-it;
 		t02=t02+rt;			t03=t03+it;
-		t04=aj1p12r;			t05=aj1p12i;
-		rt =aj1p18r;			it =aj1p18i;
+		t04=a1p12r;			t05=a1p12i;
+		rt =a1p18r;			it =a1p18i;
 		t08=t04-rt;			t09=t05-it;
 		t04=t04+rt;			t05=t05+it;
 #if PFETCH
@@ -2202,13 +2209,13 @@ prefetch_p_doubles(addr);
 #endif
 
 /*...Block 2:	*/
-		t10=aj1p10r;			t11=aj1p10i;	/* permuted versions of p20,14,26,08,02 */
-		t12=aj1p16r;			t13=aj1p16i;
-		rt =aj1p04r;			it =aj1p04i;
+		t10=a1p10r;			t11=a1p10i;	/* permuted versions of p20,14,26,08,02 */
+		t12=a1p16r;			t13=a1p16i;
+		rt =a1p04r;			it =a1p04i;
 		t16=t12-rt;			t17=t13-it;
 		t12=t12+rt;			t13=t13+it;
-		t14=aj1p22r;			t15=aj1p22i;
-		rt =aj1p28r;			it =aj1p28i;
+		t14=a1p22r;			t15=a1p22i;
+		rt =a1p28r;			it =a1p28i;
 		t18=t14-rt;			t19=t15-it;
 		t14=t14+rt;			t15=t15+it;
 #if PFETCH
@@ -2240,13 +2247,13 @@ prefetch_p_doubles(addr);
 #endif
 
 /*...Block 3:	*/
-		t20=aj1p20r;			t21=aj1p20i;	/* permuted versions of p10,04,16,28,22 */
-		t22=aj1p26r;			t23=aj1p26i;
-		rt =aj1p14r;			it =aj1p14i;
+		t20=a1p20r;			t21=a1p20i;	/* permuted versions of p10,04,16,28,22 */
+		t22=a1p26r;			t23=a1p26i;
+		rt =a1p14r;			it =a1p14i;
 		t26=t22-rt;			t27=t23-it;
 		t22=t22+rt;			t23=t23+it;
-		t24=aj1p02r;			t25=aj1p02i;
-		rt =aj1p08r;			it =aj1p08i;
+		t24=a1p02r;			t25=a1p02i;
+		rt =a1p08r;			it =a1p08i;
 		t28=t24-rt;			t29=t25-it;
 		t24=t24+rt;			t25=t25+it;
 #if PFETCH
@@ -2283,11 +2290,11 @@ prefetch_p_doubles(addr);
 		t20=t10-rt;			t21=t11-it;
 		t10=t10+rt;			t11=t11+it;
 		t00=t00+t10;			t01=t01+t11;
-		aj1p00r=t00;			aj1p00i=t01;
+		a1p00r=t00;			a1p00i=t01;
 		t10=t00+c3m1*t10;		t11=t01+c3m1*t11;
 		rt =s*t20;			it =s*t21;
-		aj1p02r=t10-it;		aj1p02i=t11+rt;
-		aj1p04r=t10+it;		aj1p04i=t11-rt;
+		a1p02r=t10-it;		a1p02i=t11+rt;
+		a1p04r=t10+it;		a1p04i=t11-rt;
 #if PFETCH
 addr = add0+p10;
 prefetch_p_doubles(addr);
@@ -2298,11 +2305,11 @@ prefetch_p_doubles(addr);
 		t22=t12-rt;			t23=t13-it;
 		t12=t12+rt;			t13=t13+it;
 		t02=t02+t12;			t03=t03+t13;
-		aj1p26r=t02;			aj1p26i=t03;
+		a1p26r=t02;			a1p26i=t03;
 		t12=t02+c3m1*t12;		t13=t03+c3m1*t13;
 		rt =s*t22;			it =s*t23;
-		aj1p28r=t12-it;		aj1p28i=t13+rt;
-		aj1p24r=t12+it;		aj1p24i=t13-rt;
+		a1p28r=t12-it;		a1p28i=t13+rt;
+		a1p24r=t12+it;		a1p24i=t13-rt;
 #if PFETCH
 addr = add0+p11;
 prefetch_p_doubles(addr);
@@ -2313,11 +2320,11 @@ prefetch_p_doubles(addr);
 		t24=t14-rt;			t25=t15-it;
 		t14=t14+rt;			t15=t15+it;
 		t04=t04+t14;			t05=t05+t15;
-		aj1p18r=t04;			aj1p18i=t05;
+		a1p18r=t04;			a1p18i=t05;
 		t14=t04+c3m1*t14;		t15=t05+c3m1*t15;
 		rt =s*t24;			it =s*t25;
-		aj1p20r=t14-it;		aj1p20i=t15+rt;
-		aj1p22r=t14+it;		aj1p22i=t15-rt;
+		a1p20r=t14-it;		a1p20i=t15+rt;
+		a1p22r=t14+it;		a1p22i=t15-rt;
 #if PFETCH
 addr = add0+p12;
 prefetch_p_doubles(addr);
@@ -2328,11 +2335,11 @@ prefetch_p_doubles(addr);
 		t26=t16-rt;			t27=t17-it;
 		t16=t16+rt;			t17=t17+it;
 		t06=t06+t16;			t07=t07+t17;
-		aj1p16r=t06;			aj1p16i=t07;
+		a1p16r=t06;			a1p16i=t07;
 		t16=t06+c3m1*t16;		t17=t07+c3m1*t17;
 		rt =s*t26;			it =s*t27;
-		aj1p12r=t16-it;		aj1p12i=t17+rt;
-		aj1p14r=t16+it;		aj1p14i=t17-rt;
+		a1p12r=t16-it;		a1p12i=t17+rt;
+		a1p14r=t16+it;		a1p14i=t17-rt;
 #if PFETCH
 addr = add0+p13;
 prefetch_p_doubles(addr);
@@ -2343,26 +2350,26 @@ prefetch_p_doubles(addr);
 		t28=t18-rt;			t29=t19-it;
 		t18=t18+rt;			t19=t19+it;
 		t08=t08+t18;			t09=t09+t19;
-		aj1p08r=t08;			aj1p08i=t09;
+		a1p08r=t08;			a1p08i=t09;
 		t18=t08+c3m1*t18;		t19=t09+c3m1*t19;
 		rt =s*t28;			it =s*t29;
-		aj1p10r=t18-it;		aj1p10i=t19+rt;
-		aj1p06r=t18+it;		aj1p06i=t19-rt;
+		a1p10r=t18-it;		a1p10i=t19+rt;
+		a1p06r=t18+it;		a1p06i=t19-rt;
 #if PFETCH
 addr = add0+p14;
 prefetch_p_doubles(addr);
 #endif
 
-/*...Second radix-15 block uses aj1p[1:29:2] as inputs:	*/
+/*...Second radix-15 block uses a1p[1:29:2] as inputs:	*/
 /*   Gather the needed data (15 64-bit complex, i.e. 30 64-bit reals) and do three length-5 transforms...	*/
 /*...Block 1:	*/
-		t00=aj1p15r;			t01=aj1p15i;	/* permuted versions of p01,25,07,19,13 */
-		t02=aj1p21r;			t03=aj1p21i;
-		rt =aj1p09r;			it =aj1p09i;
+		t00=a1p15r;			t01=a1p15i;	/* permuted versions of p01,25,07,19,13 */
+		t02=a1p21r;			t03=a1p21i;
+		rt =a1p09r;			it =a1p09i;
 		t06=t02-rt;			t07=t03-it;
 		t02=t02+rt;			t03=t03+it;
-		t04=aj1p27r;			t05=aj1p27i;
-		rt =aj1p03r;			it =aj1p03i;
+		t04=a1p27r;			t05=a1p27i;
+		rt =a1p03r;			it =a1p03i;
 		t08=t04-rt;			t09=t05-it;
 		t04=t04+rt;			t05=t05+it;
 #if PFETCH
@@ -2394,13 +2401,13 @@ prefetch_p_doubles(addr);
 #endif
 
 /*...Block 2:	*/
-		t10=aj1p25r;			t11=aj1p25i;	/* permuted versions of p21,15,27,09,03 */
-		t12=aj1p01r;			t13=aj1p01i;
-		rt =aj1p19r;			it =aj1p19i;
+		t10=a1p25r;			t11=a1p25i;	/* permuted versions of p21,15,27,09,03 */
+		t12=a1p01r;			t13=a1p01i;
+		rt =a1p19r;			it =a1p19i;
 		t16=t12-rt;			t17=t13-it;
 		t12=t12+rt;			t13=t13+it;
-		t14=aj1p07r;			t15=aj1p07i;
-		rt =aj1p13r;			it =aj1p13i;
+		t14=a1p07r;			t15=a1p07i;
+		rt =a1p13r;			it =a1p13i;
 		t18=t14-rt;			t19=t15-it;
 		t14=t14+rt;			t15=t15+it;
 #if PFETCH
@@ -2432,13 +2439,13 @@ prefetch_p_doubles(addr);
 #endif
 
 /*...Block 3:	*/
-		t20=aj1p05r;			t21=aj1p05i;	/* permuted versions of p11,05,17,29,23 */
-		t22=aj1p11r;			t23=aj1p11i;
-		rt =aj1p29r;			it =aj1p29i;
+		t20=a1p05r;			t21=a1p05i;	/* permuted versions of p11,05,17,29,23 */
+		t22=a1p11r;			t23=a1p11i;
+		rt =a1p29r;			it =a1p29i;
 		t26=t22-rt;			t27=t23-it;
 		t22=t22+rt;			t23=t23+it;
-		t24=aj1p17r;			t25=aj1p17i;
-		rt =aj1p23r;			it =aj1p23i;
+		t24=a1p17r;			t25=a1p17i;
+		rt =a1p23r;			it =a1p23i;
 		t28=t24-rt;			t29=t25-it;
 		t24=t24+rt;			t25=t25+it;
 #if PFETCH
@@ -2475,11 +2482,11 @@ prefetch_p_doubles(addr);
 		t20=t10-rt;			t21=t11-it;
 		t10=t10+rt;			t11=t11+it;
 		t00=t00+t10;			t01=t01+t11;
-		aj1p01r=t00;			aj1p01i=t01;
+		a1p01r=t00;			a1p01i=t01;
 		t10=t00+c3m1*t10;		t11=t01+c3m1*t11;
 		rt =s*t20;			it =s*t21;
-		aj1p03r=t10-it;		aj1p03i=t11+rt;
-		aj1p05r=t10+it;		aj1p05i=t11-rt;
+		a1p03r=t10-it;		a1p03i=t11+rt;
+		a1p05r=t10+it;		a1p05i=t11-rt;
 #if PFETCH
 addr = add0+p24;
 prefetch_p_doubles(addr);
@@ -2490,11 +2497,11 @@ prefetch_p_doubles(addr);
 		t22=t12-rt;			t23=t13-it;
 		t12=t12+rt;			t13=t13+it;
 		t02=t02+t12;			t03=t03+t13;
-		aj1p27r=t02;			aj1p27i=t03;
+		a1p27r=t02;			a1p27i=t03;
 		t12=t02+c3m1*t12;		t13=t03+c3m1*t13;
 		rt =s*t22;			it =s*t23;
-		aj1p29r=t12-it;		aj1p29i=t13+rt;
-		aj1p25r=t12+it;		aj1p25i=t13-rt;
+		a1p29r=t12-it;		a1p29i=t13+rt;
+		a1p25r=t12+it;		a1p25i=t13-rt;
 #if PFETCH
 addr = add0+p25;
 prefetch_p_doubles(addr);
@@ -2505,11 +2512,11 @@ prefetch_p_doubles(addr);
 		t24=t14-rt;			t25=t15-it;
 		t14=t14+rt;			t15=t15+it;
 		t04=t04+t14;			t05=t05+t15;
-		aj1p19r=t04;			aj1p19i=t05;
+		a1p19r=t04;			a1p19i=t05;
 		t14=t04+c3m1*t14;		t15=t05+c3m1*t15;
 		rt =s*t24;			it =s*t25;
-		aj1p21r=t14-it;		aj1p21i=t15+rt;
-		aj1p23r=t14+it;		aj1p23i=t15-rt;
+		a1p21r=t14-it;		a1p21i=t15+rt;
+		a1p23r=t14+it;		a1p23i=t15-rt;
 #if PFETCH
 addr = add0+p26;
 prefetch_p_doubles(addr);
@@ -2520,11 +2527,11 @@ prefetch_p_doubles(addr);
 		t26=t16-rt;			t27=t17-it;
 		t16=t16+rt;			t17=t17+it;
 		t06=t06+t16;			t07=t07+t17;
-		aj1p17r=t06;			aj1p17i=t07;
+		a1p17r=t06;			a1p17i=t07;
 		t16=t06+c3m1*t16;		t17=t07+c3m1*t17;
 		rt =s*t26;			it =s*t27;
-		aj1p13r=t16-it;		aj1p13i=t17+rt;
-		aj1p15r=t16+it;		aj1p15i=t17-rt;
+		a1p13r=t16-it;		a1p13i=t17+rt;
+		a1p15r=t16+it;		a1p15i=t17-rt;
 #if PFETCH
 addr = add0+p27;
 prefetch_p_doubles(addr);
@@ -2535,11 +2542,11 @@ prefetch_p_doubles(addr);
 		t28=t18-rt;			t29=t19-it;
 		t18=t18+rt;			t19=t19+it;
 		t08=t08+t18;			t09=t09+t19;
-		aj1p09r=t08;			aj1p09i=t09;
+		a1p09r=t08;			a1p09i=t09;
 		t18=t08+c3m1*t18;		t19=t09+c3m1*t19;
 		rt =s*t28;			it =s*t29;
-		aj1p11r=t18-it;		aj1p11i=t19+rt;
-		aj1p07r=t18+it;		aj1p07i=t19-rt;
+		a1p11r=t18-it;		a1p11i=t19+rt;
+		a1p07r=t18+it;		a1p07i=t19-rt;
 #if PFETCH
 addr = add0+p28;
 prefetch_p_doubles(addr);
@@ -2547,53 +2554,53 @@ prefetch_p_doubles(addr);
 
 /*...and now do 15 radix-2 transforms:	*/
 
-		a[j1    ]=aj1p00r+aj1p01r;	a[j2    ]=aj1p00i+aj1p01i;
-		a[j1+p01]=aj1p00r-aj1p01r;	a[j2+p01]=aj1p00i-aj1p01i;
+		a[j1    ]=a1p00r+a1p01r;	a[j2    ]=a1p00i+a1p01i;
+		a[j1+p01]=a1p00r-a1p01r;	a[j2+p01]=a1p00i-a1p01i;
 
-		a[j1+p04]=aj1p02r+aj1p03r;	a[j2+p04]=aj1p02i+aj1p03i;
-		a[j1+p05]=aj1p02r-aj1p03r;	a[j2+p05]=aj1p02i-aj1p03i;
+		a[j1+p04]=a1p02r+a1p03r;	a[j2+p04]=a1p02i+a1p03i;
+		a[j1+p05]=a1p02r-a1p03r;	a[j2+p05]=a1p02i-a1p03i;
 
-		a[j1+p03]=aj1p04r+aj1p05r;	a[j2+p03]=aj1p04i+aj1p05i;
-		a[j1+p02]=aj1p04r-aj1p05r;	a[j2+p02]=aj1p04i-aj1p05i;
+		a[j1+p03]=a1p04r+a1p05r;	a[j2+p03]=a1p04i+a1p05i;
+		a[j1+p02]=a1p04r-a1p05r;	a[j2+p02]=a1p04i-a1p05i;
 
-		a[j1+p28]=aj1p06r+aj1p07r;	a[j2+p28]=aj1p06i+aj1p07i;
-		a[j1+p29]=aj1p06r-aj1p07r;	a[j2+p29]=aj1p06i-aj1p07i;
+		a[j1+p28]=a1p06r+a1p07r;	a[j2+p28]=a1p06i+a1p07i;
+		a[j1+p29]=a1p06r-a1p07r;	a[j2+p29]=a1p06i-a1p07i;
 
-		a[j1+p27]=aj1p08r+aj1p09r;	a[j2+p27]=aj1p08i+aj1p09i;
-		a[j1+p26]=aj1p08r-aj1p09r;	a[j2+p26]=aj1p08i-aj1p09i;
+		a[j1+p27]=a1p08r+a1p09r;	a[j2+p27]=a1p08i+a1p09i;
+		a[j1+p26]=a1p08r-a1p09r;	a[j2+p26]=a1p08i-a1p09i;
 
-		a[j1+p24]=aj1p10r+aj1p11r;	a[j2+p24]=aj1p10i+aj1p11i;
-		a[j1+p25]=aj1p10r-aj1p11r;	a[j2+p25]=aj1p10i-aj1p11i;
+		a[j1+p24]=a1p10r+a1p11r;	a[j2+p24]=a1p10i+a1p11i;
+		a[j1+p25]=a1p10r-a1p11r;	a[j2+p25]=a1p10i-a1p11i;
 
-		a[j1+p23]=aj1p12r+aj1p13r;	a[j2+p23]=aj1p12i+aj1p13i;
-		a[j1+p22]=aj1p12r-aj1p13r;	a[j2+p22]=aj1p12i-aj1p13i;
+		a[j1+p23]=a1p12r+a1p13r;	a[j2+p23]=a1p12i+a1p13i;
+		a[j1+p22]=a1p12r-a1p13r;	a[j2+p22]=a1p12i-a1p13i;
 #if PFETCH
 addr = add0+p29;
 prefetch_p_doubles(addr);
 #endif
-		a[j1+p20]=aj1p14r+aj1p15r;	a[j2+p20]=aj1p14i+aj1p15i;
-		a[j1+p21]=aj1p14r-aj1p15r;	a[j2+p21]=aj1p14i-aj1p15i;
+		a[j1+p20]=a1p14r+a1p15r;	a[j2+p20]=a1p14i+a1p15i;
+		a[j1+p21]=a1p14r-a1p15r;	a[j2+p21]=a1p14i-a1p15i;
 
-		a[j1+p19]=aj1p16r+aj1p17r;	a[j2+p19]=aj1p16i+aj1p17i;
-		a[j1+p18]=aj1p16r-aj1p17r;	a[j2+p18]=aj1p16i-aj1p17i;
+		a[j1+p19]=a1p16r+a1p17r;	a[j2+p19]=a1p16i+a1p17i;
+		a[j1+p18]=a1p16r-a1p17r;	a[j2+p18]=a1p16i-a1p17i;
 
-		a[j1+p16]=aj1p18r+aj1p19r;	a[j2+p16]=aj1p18i+aj1p19i;
-		a[j1+p17]=aj1p18r-aj1p19r;	a[j2+p17]=aj1p18i-aj1p19i;
+		a[j1+p16]=a1p18r+a1p19r;	a[j2+p16]=a1p18i+a1p19i;
+		a[j1+p17]=a1p18r-a1p19r;	a[j2+p17]=a1p18i-a1p19i;
 
-		a[j1+p15]=aj1p20r+aj1p21r;	a[j2+p15]=aj1p20i+aj1p21i;
-		a[j1+p14]=aj1p20r-aj1p21r;	a[j2+p14]=aj1p20i-aj1p21i;
+		a[j1+p15]=a1p20r+a1p21r;	a[j2+p15]=a1p20i+a1p21i;
+		a[j1+p14]=a1p20r-a1p21r;	a[j2+p14]=a1p20i-a1p21i;
 
-		a[j1+p12]=aj1p22r+aj1p23r;	a[j2+p12]=aj1p22i+aj1p23i;
-		a[j1+p13]=aj1p22r-aj1p23r;	a[j2+p13]=aj1p22i-aj1p23i;
+		a[j1+p12]=a1p22r+a1p23r;	a[j2+p12]=a1p22i+a1p23i;
+		a[j1+p13]=a1p22r-a1p23r;	a[j2+p13]=a1p22i-a1p23i;
 
-		a[j1+p11]=aj1p24r+aj1p25r;	a[j2+p11]=aj1p24i+aj1p25i;
-		a[j1+p10]=aj1p24r-aj1p25r;	a[j2+p10]=aj1p24i-aj1p25i;
+		a[j1+p11]=a1p24r+a1p25r;	a[j2+p11]=a1p24i+a1p25i;
+		a[j1+p10]=a1p24r-a1p25r;	a[j2+p10]=a1p24i-a1p25i;
 
-		a[j1+p08]=aj1p26r+aj1p27r;	a[j2+p08]=aj1p26i+aj1p27i;
-		a[j1+p09]=aj1p26r-aj1p27r;	a[j2+p09]=aj1p26i-aj1p27i;
+		a[j1+p08]=a1p26r+a1p27r;	a[j2+p08]=a1p26i+a1p27i;
+		a[j1+p09]=a1p26r-a1p27r;	a[j2+p09]=a1p26i-a1p27i;
 
-		a[j1+p07]=aj1p28r+aj1p29r;	a[j2+p07]=aj1p28i+aj1p29i;
-		a[j1+p06]=aj1p28r-aj1p29r;	a[j2+p06]=aj1p28i-aj1p29i;
+		a[j1+p07]=a1p28r+a1p29r;	a[j2+p07]=a1p28i+a1p29i;
+		a[j1+p06]=a1p28r-a1p29r;	a[j2+p06]=a1p28i-a1p29i;
 
 		iroot += root_incr;		/* increment sincos index.	*/
 		}
@@ -2783,8 +2790,8 @@ void radix30_dif_pass1(double a[], int n)
 					sn2 =  0.36327126400268044292;	/* [sin(u)-sin(2u)] */
 	double rt,it
 	,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29
-	,aj1p00r,aj1p01r,aj1p02r,aj1p03r,aj1p04r,aj1p05r,aj1p06r,aj1p07r,aj1p08r,aj1p09r,aj1p10r,aj1p11r,aj1p12r,aj1p13r,aj1p14r,aj1p15r,aj1p16r,aj1p17r,aj1p18r,aj1p19r,aj1p20r,aj1p21r,aj1p22r,aj1p23r,aj1p24r,aj1p25r,aj1p26r,aj1p27r,aj1p28r,aj1p29r
-	,aj1p00i,aj1p01i,aj1p02i,aj1p03i,aj1p04i,aj1p05i,aj1p06i,aj1p07i,aj1p08i,aj1p09i,aj1p10i,aj1p11i,aj1p12i,aj1p13i,aj1p14i,aj1p15i,aj1p16i,aj1p17i,aj1p18i,aj1p19i,aj1p20i,aj1p21i,aj1p22i,aj1p23i,aj1p24i,aj1p25i,aj1p26i,aj1p27i,aj1p28i,aj1p29i;
+	,a1p00r,a1p01r,a1p02r,a1p03r,a1p04r,a1p05r,a1p06r,a1p07r,a1p08r,a1p09r,a1p10r,a1p11r,a1p12r,a1p13r,a1p14r,a1p15r,a1p16r,a1p17r,a1p18r,a1p19r,a1p20r,a1p21r,a1p22r,a1p23r,a1p24r,a1p25r,a1p26r,a1p27r,a1p28r,a1p29r
+	,a1p00i,a1p01i,a1p02i,a1p03i,a1p04i,a1p05i,a1p06i,a1p07i,a1p08i,a1p09i,a1p10i,a1p11i,a1p12i,a1p13i,a1p14i,a1p15i,a1p16i,a1p17i,a1p18i,a1p19i,a1p20i,a1p21i,a1p22i,a1p23i,a1p24i,a1p25i,a1p26i,a1p27i,a1p28i,a1p29i;
 
 	if(!first_entry && (n/30) != n30)	/* New runlength?	*/
 	{
@@ -2881,121 +2888,119 @@ void radix30_dif_pass1(double a[], int n)
 		  => 0,15,28,13,26,11,24, 9,22, 7,20, 5,18, 3,16, 1,14,29,12,27,10,25, 8,23, 6,21, 4,19, 2,17 modulo 30.
 	I.e. start out with first 15-vector of indices {0,2,4,6,8,10,12,14,16,18,20,22,24,26,28},
 	permute those according to {0, 2, 4, 6, 8,10,12,14,16,18,20,22,24,26,28}*29%30 => {0,28,26,24,22,20,18,16,14,12,10, 8, 6, 4, 2},
-	then each is head of a length-2 list of indices with decrement 15.
+	then each is head of a length-2 list of indices with decrement 15:
 
-	Since the unpermuted input order for a radix-15 DIF is as shown in the leftmost column below, we multiply these
-	indices by 2 to get the default even-index ordering, add one to those to get the default even-index ordering,
-	and then subject the elements of both sets of indices to the above permutation:
+		EVEN	[00,28,26,24,22,20,18,16,14,12,10,08,06,04,02]
 
-					 defaults:                      permuted:
-		00        00				 01					00				 15
-		10        20				 21					10				 25
-		05        10				 11					20				 05
-		12        24				 25					06				 21
-		07        14				 15					16				 01
-		02        04				 05					26				 11
-		09        18				 19					12				 27
-		04 x 2 => 08	+ 1 => 09	 even=> 22	odd => 07
-		14        28				 29					02				 17
-		06        12				 13					18				 03
-		01        02				 03					28				 13
-		11        22				 23					08				 23
-		03        06				 07					24				 09
-		13        26				 27					04				 19
-		08        16				 17					14				 29
+		ODD		[15,13,11,09,07,05,03,01,29,27,25,23,21,19,17]
 
-		The output permutations for the radix-15 DIFs are
-
-		00    00	01    01
-		02    02	03    03
-		04    04	05    05
-		06    26	07    27
-		08    28	09    29
-		10    24	11    25
-		12    18	13    19
-		14 => 20	15 => 21
-		16    22	17    23
-		18    16	19    17
-		20    12	21    13
-		22    14	23    15
-		24    08	25    09
-		26    10	27    11
-		28    06	29    07, i.e. the odd-element permutation mirrors the even-element one.
+	The output permutations are inlined below.
 	*/
 	#if 1
 	/*...gather the needed data (30 64-bit complex, i.e. 60 64-bit reals) and do 2 radix-15 DIF transforms...*/
-						 /*                                                                                                                                                       inputs                                                                                                                                                                        */ /*                                                 intermediates                                           */ /*                                                                                                                                                      outputs                                                                                                                                                  */
 		RADIX_15_DIF(\
 		a[j1    ],a[j2    ],\
-		a[j1+p10],a[j2+p10],\
-		a[j1+p20],a[j2+p20],\
-		a[j1+p06],a[j2+p06],\
-		a[j1+p16],a[j2+p16],\
-		a[j1+p26],a[j2+p26],\
-		a[j1+p12],a[j2+p12],\
-		a[j1+p22],a[j2+p22],\
-		a[j1+p02],a[j2+p02],\
-		a[j1+p18],a[j2+p18],\
 		a[j1+p28],a[j2+p28],\
-		a[j1+p08],a[j2+p08],\
+		a[j1+p26],a[j2+p26],\
 		a[j1+p24],a[j2+p24],\
-		a[j1+p04],a[j2+p04],\
+		a[j1+p22],a[j2+p22],\
+		a[j1+p20],a[j2+p20],\
+		a[j1+p18],a[j2+p18],\
+		a[j1+p16],a[j2+p16],\
 		a[j1+p14],a[j2+p14],\
+		a[j1+p12],a[j2+p12],\
+		a[j1+p10],a[j2+p10],\
+		a[j1+p08],a[j2+p08],\
+		a[j1+p06],a[j2+p06],\
+		a[j1+p04],a[j2+p04],\
+		a[j1+p02],a[j2+p02],\
 		t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,\
-		aj1p00r,aj1p00i,\
-		aj1p02r,aj1p02i,\
-		aj1p04r,aj1p04i,\
-		aj1p26r,aj1p26i,\
-		aj1p28r,aj1p28i,\
-		aj1p24r,aj1p24i,\
-		aj1p18r,aj1p18i,\
-		aj1p20r,aj1p20i,\
-		aj1p22r,aj1p22i,\
-		aj1p16r,aj1p16i,\
-		aj1p12r,aj1p12i,\
-		aj1p14r,aj1p14i,\
-		aj1p08r,aj1p08i,\
-		aj1p10r,aj1p10i,\
-		aj1p06r,aj1p06i,\
+		a1p00r,a1p00i,\
+		a1p02r,a1p02i,\
+		a1p04r,a1p04i,\
+		a1p26r,a1p26i,\
+		a1p28r,a1p28i,\
+		a1p24r,a1p24i,\
+		a1p18r,a1p18i,\
+		a1p20r,a1p20i,\
+		a1p22r,a1p22i,\
+		a1p16r,a1p16i,\
+		a1p12r,a1p12i,\
+		a1p14r,a1p14i,\
+		a1p08r,a1p08i,\
+		a1p10r,a1p10i,\
+		a1p06r,a1p06i,\
 		rt,it);
 
 		RADIX_15_DIF(\
 		a[j1+p15],a[j2+p15],\
-		a[j1+p25],a[j2+p25],\
-		a[j1+p05],a[j2+p05],\
-		a[j1+p21],a[j2+p21],\
-		a[j1+p01],a[j2+p01],\
-		a[j1+p11],a[j2+p11],\
-		a[j1+p27],a[j2+p27],\
-		a[j1+p07],a[j2+p07],\
-		a[j1+p17],a[j2+p17],\
-		a[j1+p03],a[j2+p03],\
 		a[j1+p13],a[j2+p13],\
-		a[j1+p23],a[j2+p23],\
+		a[j1+p11],a[j2+p11],\
 		a[j1+p09],a[j2+p09],\
-		a[j1+p19],a[j2+p19],\
+		a[j1+p07],a[j2+p07],\
+		a[j1+p05],a[j2+p05],\
+		a[j1+p03],a[j2+p03],\
+		a[j1+p01],a[j2+p01],\
 		a[j1+p29],a[j2+p29],\
+		a[j1+p27],a[j2+p27],\
+		a[j1+p25],a[j2+p25],\
+		a[j1+p23],a[j2+p23],\
+		a[j1+p21],a[j2+p21],\
+		a[j1+p19],a[j2+p19],\
+		a[j1+p17],a[j2+p17],\
 		t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,\
-		aj1p01r,aj1p01i,\
-		aj1p03r,aj1p03i,\
-		aj1p05r,aj1p05i,\
-		aj1p27r,aj1p27i,\
-		aj1p29r,aj1p29i,\
-		aj1p25r,aj1p25i,\
-		aj1p19r,aj1p19i,\
-		aj1p21r,aj1p21i,\
-		aj1p23r,aj1p23i,\
-		aj1p17r,aj1p17i,\
-		aj1p13r,aj1p13i,\
-		aj1p15r,aj1p15i,\
-		aj1p09r,aj1p09i,\
-		aj1p11r,aj1p11i,\
-		aj1p07r,aj1p07i,\
+		a1p01r,a1p01i,\
+		a1p03r,a1p03i,\
+		a1p05r,a1p05i,\
+		a1p27r,a1p27i,\
+		a1p29r,a1p29i,\
+		a1p25r,a1p25i,\
+		a1p19r,a1p19i,\
+		a1p21r,a1p21i,\
+		a1p23r,a1p23i,\
+		a1p17r,a1p17i,\
+		a1p13r,a1p13i,\
+		a1p15r,a1p15i,\
+		a1p09r,a1p09i,\
+		a1p11r,a1p11i,\
+		a1p07r,a1p07i,\
 		rt,it);
 
+/*...and now do 15 radix-2 transforms:	*/
+
+		a[j1    ]=a1p00r+a1p01r;	a[j2    ]=a1p00i+a1p01i;
+		a[j1+p01]=a1p00r-a1p01r;	a[j2+p01]=a1p00i-a1p01i;
+		a[j1+p04]=a1p02r+a1p03r;	a[j2+p04]=a1p02i+a1p03i;
+		a[j1+p05]=a1p02r-a1p03r;	a[j2+p05]=a1p02i-a1p03i;
+		a[j1+p03]=a1p04r+a1p05r;	a[j2+p03]=a1p04i+a1p05i;
+		a[j1+p02]=a1p04r-a1p05r;	a[j2+p02]=a1p04i-a1p05i;
+		a[j1+p07]=a1p06r+a1p07r;	a[j2+p07]=a1p06i+a1p07i;
+		a[j1+p06]=a1p06r-a1p07r;	a[j2+p06]=a1p06i-a1p07i;
+		a[j1+p11]=a1p08r+a1p09r;	a[j2+p11]=a1p08i+a1p09i;
+		a[j1+p10]=a1p08r-a1p09r;	a[j2+p10]=a1p08i-a1p09i;
+		a[j1+p08]=a1p10r+a1p11r;	a[j2+p08]=a1p10i+a1p11i;
+		a[j1+p09]=a1p10r-a1p11r;	a[j2+p09]=a1p10i-a1p11i;
+		a[j1+p15]=a1p12r+a1p13r;	a[j2+p15]=a1p12i+a1p13i;
+		a[j1+p14]=a1p12r-a1p13r;	a[j2+p14]=a1p12i-a1p13i;
+		a[j1+p12]=a1p14r+a1p15r;	a[j2+p12]=a1p14i+a1p15i;
+		a[j1+p13]=a1p14r-a1p15r;	a[j2+p13]=a1p14i-a1p15i;
+		a[j1+p16]=a1p16r+a1p17r;	a[j2+p16]=a1p16i+a1p17i;
+		a[j1+p17]=a1p16r-a1p17r;	a[j2+p17]=a1p16i-a1p17i;
+		a[j1+p23]=a1p18r+a1p19r;	a[j2+p23]=a1p18i+a1p19i;
+		a[j1+p22]=a1p18r-a1p19r;	a[j2+p22]=a1p18i-a1p19i;
+		a[j1+p20]=a1p20r+a1p21r;	a[j2+p20]=a1p20i+a1p21i;
+		a[j1+p21]=a1p20r-a1p21r;	a[j2+p21]=a1p20i-a1p21i;
+		a[j1+p19]=a1p22r+a1p23r;	a[j2+p19]=a1p22i+a1p23i;
+		a[j1+p18]=a1p22r-a1p23r;	a[j2+p18]=a1p22i-a1p23i;
+		a[j1+p24]=a1p24r+a1p25r;	a[j2+p24]=a1p24i+a1p25i;
+		a[j1+p25]=a1p24r-a1p25r;	a[j2+p25]=a1p24i-a1p25i;
+		a[j1+p28]=a1p26r+a1p27r;	a[j2+p28]=a1p26i+a1p27i;
+		a[j1+p29]=a1p26r-a1p27r;	a[j2+p29]=a1p26i-a1p27i;
+		a[j1+p27]=a1p28r+a1p29r;	a[j2+p27]=a1p28i+a1p29i;
+		a[j1+p26]=a1p28r-a1p29r;	a[j2+p26]=a1p28i-a1p29i;
 	#else
 
-/*...First radix-15 block uses aj1p[0:28:2] as inputs:	*/
+/*...First radix-15 block uses a1p[0:28:2] as inputs:	*/
 /*   Gather the needed data (15 64-bit complex, i.e. 30 64-bit reals) and do three length-5 transforms...	*/
 /*...Block 1:	*/
 		t00=a[j1    ];		t01=a[j2    ];	/* permuted versions of p00,24,06,18,12 */
@@ -3084,57 +3089,57 @@ void radix30_dif_pass1(double a[], int n)
 		t20=t10-rt;			t21=t11-it;
 		t10=t10+rt;			t11=t11+it;
 		t00=t00+t10;			t01=t01+t11;
-		aj1p00r=t00;			aj1p00i=t01;
+		a1p00r=t00;			a1p00i=t01;
 		t10=t00+c3m1*t10;		t11=t01+c3m1*t11;
 		rt =s*t20;			it =s*t21;
-		aj1p02r=t10-it;		aj1p02i=t11+rt;
-		aj1p04r=t10+it;		aj1p04i=t11-rt;
+		a1p02r=t10-it;		a1p02i=t11+rt;
+		a1p04r=t10+it;		a1p04i=t11-rt;
 
 /*...Block 2:	*/
 		rt =t22;			it =t23;
 		t22=t12-rt;			t23=t13-it;
 		t12=t12+rt;			t13=t13+it;
 		t02=t02+t12;			t03=t03+t13;
-		aj1p26r=t02;			aj1p26i=t03;
+		a1p26r=t02;			a1p26i=t03;
 		t12=t02+c3m1*t12;		t13=t03+c3m1*t13;
 		rt =s*t22;			it =s*t23;
-		aj1p28r=t12-it;		aj1p28i=t13+rt;
-		aj1p24r=t12+it;		aj1p24i=t13-rt;
+		a1p28r=t12-it;		a1p28i=t13+rt;
+		a1p24r=t12+it;		a1p24i=t13-rt;
 
 /*...Block 3:	*/
 		rt =t24;			it =t25;
 		t24=t14-rt;			t25=t15-it;
 		t14=t14+rt;			t15=t15+it;
 		t04=t04+t14;			t05=t05+t15;
-		aj1p18r=t04;			aj1p18i=t05;
+		a1p18r=t04;			a1p18i=t05;
 		t14=t04+c3m1*t14;		t15=t05+c3m1*t15;
 		rt =s*t24;			it =s*t25;
-		aj1p20r=t14-it;		aj1p20i=t15+rt;
-		aj1p22r=t14+it;		aj1p22i=t15-rt;
+		a1p20r=t14-it;		a1p20i=t15+rt;
+		a1p22r=t14+it;		a1p22i=t15-rt;
 
 /*...Block 4:	*/
 		rt =t26;			it =t27;
 		t26=t16-rt;			t27=t17-it;
 		t16=t16+rt;			t17=t17+it;
 		t06=t06+t16;			t07=t07+t17;
-		aj1p16r=t06;			aj1p16i=t07;
+		a1p16r=t06;			a1p16i=t07;
 		t16=t06+c3m1*t16;		t17=t07+c3m1*t17;
 		rt =s*t26;			it =s*t27;
-		aj1p12r=t16-it;		aj1p12i=t17+rt;
-		aj1p14r=t16+it;		aj1p14i=t17-rt;
+		a1p12r=t16-it;		a1p12i=t17+rt;
+		a1p14r=t16+it;		a1p14i=t17-rt;
 
 /*...Block 5:	*/
 		rt =t28;			it =t29;
 		t28=t18-rt;			t29=t19-it;
 		t18=t18+rt;			t19=t19+it;
 		t08=t08+t18;			t09=t09+t19;
-		aj1p08r=t08;			aj1p08i=t09;
+		a1p08r=t08;			a1p08i=t09;
 		t18=t08+c3m1*t18;		t19=t09+c3m1*t19;
 		rt =s*t28;			it =s*t29;
-		aj1p10r=t18-it;		aj1p10i=t19+rt;
-		aj1p06r=t18+it;		aj1p06i=t19-rt;
+		a1p10r=t18-it;		a1p10i=t19+rt;
+		a1p06r=t18+it;		a1p06i=t19-rt;
 
-/*...Second radix-15 block uses aj1p[1:29:2] as inputs:	*/
+/*...Second radix-15 block uses a1p[1:29:2] as inputs:	*/
 /*   Gather the needed data (15 64-bit complex, i.e. 30 64-bit reals) and do three length-5 transforms...	*/
 /*...Block 1:	*/
 		t00=a[j1+p15];		t01=a[j2+p15];	/* permuted versions of p01,25,07,19,13 */
@@ -3223,138 +3228,105 @@ void radix30_dif_pass1(double a[], int n)
 		t20=t10-rt;			t21=t11-it;
 		t10=t10+rt;			t11=t11+it;
 		t00=t00+t10;			t01=t01+t11;
-		aj1p01r=t00;			aj1p01i=t01;
+		a1p01r=t00;			a1p01i=t01;
 		t10=t00+c3m1*t10;		t11=t01+c3m1*t11;
 		rt =s*t20;			it =s*t21;
-		aj1p03r=t10-it;		aj1p03i=t11+rt;
-		aj1p05r=t10+it;		aj1p05i=t11-rt;
+		a1p03r=t10-it;		a1p03i=t11+rt;
+		a1p05r=t10+it;		a1p05i=t11-rt;
 
 /*...Block 2:	*/
 		rt =t22;			it =t23;
 		t22=t12-rt;			t23=t13-it;
 		t12=t12+rt;			t13=t13+it;
 		t02=t02+t12;			t03=t03+t13;
-		aj1p27r=t02;			aj1p27i=t03;
+		a1p27r=t02;			a1p27i=t03;
 		t12=t02+c3m1*t12;		t13=t03+c3m1*t13;
 		rt =s*t22;			it =s*t23;
-		aj1p29r=t12-it;		aj1p29i=t13+rt;
-		aj1p25r=t12+it;		aj1p25i=t13-rt;
+		a1p29r=t12-it;		a1p29i=t13+rt;
+		a1p25r=t12+it;		a1p25i=t13-rt;
 
 /*...Block 3:	*/
 		rt =t24;			it =t25;
 		t24=t14-rt;			t25=t15-it;
 		t14=t14+rt;			t15=t15+it;
 		t04=t04+t14;			t05=t05+t15;
-		aj1p19r=t04;			aj1p19i=t05;
+		a1p19r=t04;			a1p19i=t05;
 		t14=t04+c3m1*t14;		t15=t05+c3m1*t15;
 		rt =s*t24;			it =s*t25;
-		aj1p21r=t14-it;		aj1p21i=t15+rt;
-		aj1p23r=t14+it;		aj1p23i=t15-rt;
+		a1p21r=t14-it;		a1p21i=t15+rt;
+		a1p23r=t14+it;		a1p23i=t15-rt;
 
 /*...Block 4:	*/
 		rt =t26;			it =t27;
 		t26=t16-rt;			t27=t17-it;
 		t16=t16+rt;			t17=t17+it;
 		t06=t06+t16;			t07=t07+t17;
-		aj1p17r=t06;			aj1p17i=t07;
+		a1p17r=t06;			a1p17i=t07;
 		t16=t06+c3m1*t16;		t17=t07+c3m1*t17;
 		rt =s*t26;			it =s*t27;
-		aj1p13r=t16-it;		aj1p13i=t17+rt;
-		aj1p15r=t16+it;		aj1p15i=t17-rt;
+		a1p13r=t16-it;		a1p13i=t17+rt;
+		a1p15r=t16+it;		a1p15i=t17-rt;
 
 /*...Block 5:	*/
 		rt =t28;			it =t29;
 		t28=t18-rt;			t29=t19-it;
 		t18=t18+rt;			t19=t19+it;
 		t08=t08+t18;			t09=t09+t19;
-		aj1p09r=t08;			aj1p09i=t09;
+		a1p09r=t08;			a1p09i=t09;
 		t18=t08+c3m1*t18;		t19=t09+c3m1*t19;
 		rt =s*t28;			it =s*t29;
-		aj1p11r=t18-it;		aj1p11i=t19+rt;
-		aj1p07r=t18+it;		aj1p07i=t19-rt;
-#endif
+		a1p11r=t18-it;		a1p11i=t19+rt;
+		a1p07r=t18+it;		a1p07i=t19-rt;
+
 /*...and now do 15 radix-2 transforms:	*/
 
-		a[j1    ]=aj1p00r+aj1p01r;	a[j2    ]=aj1p00i+aj1p01i;
-		a[j1+p01]=aj1p00r-aj1p01r;	a[j2+p01]=aj1p00i-aj1p01i;
+		a[j1    ]=a1p00r+a1p01r;	a[j2    ]=a1p00i+a1p01i;
+		a[j1+p01]=a1p00r-a1p01r;	a[j2+p01]=a1p00i-a1p01i;
 
-		a[j1+p04]=aj1p02r+aj1p03r;	a[j2+p04]=aj1p02i+aj1p03i;
-		a[j1+p05]=aj1p02r-aj1p03r;	a[j2+p05]=aj1p02i-aj1p03i;
+		a[j1+p04]=a1p02r+a1p03r;	a[j2+p04]=a1p02i+a1p03i;
+		a[j1+p05]=a1p02r-a1p03r;	a[j2+p05]=a1p02i-a1p03i;
 
-		a[j1+p03]=aj1p04r+aj1p05r;	a[j2+p03]=aj1p04i+aj1p05i;
-		a[j1+p02]=aj1p04r-aj1p05r;	a[j2+p02]=aj1p04i-aj1p05i;
+		a[j1+p03]=a1p04r+a1p05r;	a[j2+p03]=a1p04i+a1p05i;
+		a[j1+p02]=a1p04r-a1p05r;	a[j2+p02]=a1p04i-a1p05i;
 
-		a[j1+p28]=aj1p06r+aj1p07r;	a[j2+p28]=aj1p06i+aj1p07i;
-		a[j1+p29]=aj1p06r-aj1p07r;	a[j2+p29]=aj1p06i-aj1p07i;
+		a[j1+p28]=a1p06r+a1p07r;	a[j2+p28]=a1p06i+a1p07i;
+		a[j1+p29]=a1p06r-a1p07r;	a[j2+p29]=a1p06i-a1p07i;
 
-		a[j1+p27]=aj1p08r+aj1p09r;	a[j2+p27]=aj1p08i+aj1p09i;
-		a[j1+p26]=aj1p08r-aj1p09r;	a[j2+p26]=aj1p08i-aj1p09i;
+		a[j1+p27]=a1p08r+a1p09r;	a[j2+p27]=a1p08i+a1p09i;
+		a[j1+p26]=a1p08r-a1p09r;	a[j2+p26]=a1p08i-a1p09i;
 
-		a[j1+p24]=aj1p10r+aj1p11r;	a[j2+p24]=aj1p10i+aj1p11i;
-		a[j1+p25]=aj1p10r-aj1p11r;	a[j2+p25]=aj1p10i-aj1p11i;
+		a[j1+p24]=a1p10r+a1p11r;	a[j2+p24]=a1p10i+a1p11i;
+		a[j1+p25]=a1p10r-a1p11r;	a[j2+p25]=a1p10i-a1p11i;
 
-		a[j1+p23]=aj1p12r+aj1p13r;	a[j2+p23]=aj1p12i+aj1p13i;
-		a[j1+p22]=aj1p12r-aj1p13r;	a[j2+p22]=aj1p12i-aj1p13i;
+		a[j1+p23]=a1p12r+a1p13r;	a[j2+p23]=a1p12i+a1p13i;
+		a[j1+p22]=a1p12r-a1p13r;	a[j2+p22]=a1p12i-a1p13i;
 
-		a[j1+p20]=aj1p14r+aj1p15r;	a[j2+p20]=aj1p14i+aj1p15i;
-		a[j1+p21]=aj1p14r-aj1p15r;	a[j2+p21]=aj1p14i-aj1p15i;
+		a[j1+p20]=a1p14r+a1p15r;	a[j2+p20]=a1p14i+a1p15i;
+		a[j1+p21]=a1p14r-a1p15r;	a[j2+p21]=a1p14i-a1p15i;
 
-		a[j1+p19]=aj1p16r+aj1p17r;	a[j2+p19]=aj1p16i+aj1p17i;
-		a[j1+p18]=aj1p16r-aj1p17r;	a[j2+p18]=aj1p16i-aj1p17i;
+		a[j1+p19]=a1p16r+a1p17r;	a[j2+p19]=a1p16i+a1p17i;
+		a[j1+p18]=a1p16r-a1p17r;	a[j2+p18]=a1p16i-a1p17i;
 
-		a[j1+p16]=aj1p18r+aj1p19r;	a[j2+p16]=aj1p18i+aj1p19i;
-		a[j1+p17]=aj1p18r-aj1p19r;	a[j2+p17]=aj1p18i-aj1p19i;
+		a[j1+p16]=a1p18r+a1p19r;	a[j2+p16]=a1p18i+a1p19i;
+		a[j1+p17]=a1p18r-a1p19r;	a[j2+p17]=a1p18i-a1p19i;
 
-		a[j1+p15]=aj1p20r+aj1p21r;	a[j2+p15]=aj1p20i+aj1p21i;
-		a[j1+p14]=aj1p20r-aj1p21r;	a[j2+p14]=aj1p20i-aj1p21i;
+		a[j1+p15]=a1p20r+a1p21r;	a[j2+p15]=a1p20i+a1p21i;
+		a[j1+p14]=a1p20r-a1p21r;	a[j2+p14]=a1p20i-a1p21i;
 
-		a[j1+p12]=aj1p22r+aj1p23r;	a[j2+p12]=aj1p22i+aj1p23i;
-		a[j1+p13]=aj1p22r-aj1p23r;	a[j2+p13]=aj1p22i-aj1p23i;
+		a[j1+p12]=a1p22r+a1p23r;	a[j2+p12]=a1p22i+a1p23i;
+		a[j1+p13]=a1p22r-a1p23r;	a[j2+p13]=a1p22i-a1p23i;
 
-		a[j1+p11]=aj1p24r+aj1p25r;	a[j2+p11]=aj1p24i+aj1p25i;
-		a[j1+p10]=aj1p24r-aj1p25r;	a[j2+p10]=aj1p24i-aj1p25i;
+		a[j1+p11]=a1p24r+a1p25r;	a[j2+p11]=a1p24i+a1p25i;
+		a[j1+p10]=a1p24r-a1p25r;	a[j2+p10]=a1p24i-a1p25i;
 
-		a[j1+p08]=aj1p26r+aj1p27r;	a[j2+p08]=aj1p26i+aj1p27i;
-		a[j1+p09]=aj1p26r-aj1p27r;	a[j2+p09]=aj1p26i-aj1p27i;
+		a[j1+p08]=a1p26r+a1p27r;	a[j2+p08]=a1p26i+a1p27i;
+		a[j1+p09]=a1p26r-a1p27r;	a[j2+p09]=a1p26i-a1p27i;
 
-		a[j1+p07]=aj1p28r+aj1p29r;	a[j2+p07]=aj1p28i+aj1p29i;
-		a[j1+p06]=aj1p28r-aj1p29r;	a[j2+p06]=aj1p28i-aj1p29i;
-
+		a[j1+p07]=a1p28r+a1p29r;	a[j2+p07]=a1p28i+a1p29i;
+		a[j1+p06]=a1p28r-a1p29r;	a[j2+p06]=a1p28i-a1p29i;
+#endif
 	}
 }
-
-/*
-   0 (   0)  158.0000000000   137.0000000000   158.0000000000   137.0000000000
-   1 (  15)  -20.0000000000   -17.0000000000   -20.0000000000   -17.0000000000
-   2 (   5)    8.3301270189   -21.1602540378     8.3301270189   -21.1602540378
-   3 (  20)  -17.4544826719   -15.4282032303   -17.4544826719   -15.4282032303
-   4 (  10)   15.4544826719    -1.5717967697    15.4544826719    -1.5717967697
-   5 (  25)   -0.3301270189    -3.8397459622    -0.3301270189    -3.8397459622
-   6 (   1)   -0.2883266619     6.6094735123    -0.2883266619     6.6094735123
-   7 (  16)   27.1907085172    -7.8935291601    27.1907085172    -7.8935291601
-   8 (   6)   -5.0087157537    -8.8801709017    -5.0087157537    -8.8801709017
-   9 (  21)  -20.8917347947     7.7667801618   -20.8917347947     7.7667801618
-  10 (  11)  -29.9451774937    11.5712225269   -29.9451774937    11.5712225269
-  11 (  26)   -2.3694976636    11.5412766032    -2.3694976636    11.5412766032
-  12 (   2)  -22.1010144017    -0.9453620528   -22.1010144017    -0.9453620528
-  13 (  17)  -19.7743604947   -15.9181395115   -19.7743604947   -15.9181395115
-  14 (   7)  -14.8951752780    -2.9688956256   -14.8951752780    -2.9688956256
-  15 (  22)   -6.3012578888    15.6335361638    -6.3012578888    15.6335361638
-  16 (  12)    2.9562196218     1.8963172526     2.9562196218     1.8963172526
-  17 (  27)   13.3892837906    -3.3006789387    13.3892837906    -3.3006789387
-  18 (   3)    4.4992600294   -17.4075249938     4.4992600294   -17.4075249938
-  19 (  18)  -37.6086954643    19.4643625224   -37.6086954643    19.4643625224
-  20 (   8)   -2.2690558823   -28.3640806912    -2.2690558823   -28.3640806912
-  21 (  23)   13.9718111425   -21.4823534148    13.9718111425   -21.4823534148
-  22 (  13)   -9.3580034598    11.8283688893    -9.3580034598    11.8283688893
-  23 (  28)    3.5335607578    -9.2683653298     3.5335607578    -9.2683653298
-  24 (   4)   20.4333950744   -19.3998449042    20.4333950744   -19.3998449042
-  25 (  19)   -5.7982405624    24.1720693753    -5.7982405624    24.1720693753
-  26 (   9)    3.0031909747   -15.0585762293     3.0031909747   -15.0585762293
-  27 (  24)    1.6611915962   -14.4805088732     1.6611915962   -14.4805088732
-  28 (  14)   43.8831614870    10.6963693711    43.8831614870    10.6963693711
-  29 (  29)  -11.9125271920    -3.8117457520   -11.9125271920    -3.8117457520
-*/
 
 /***************/
 
@@ -3561,7 +3533,7 @@ void radix30_dit_pass1(double a[], int n)
 
 /*       ...and now do two radix-15 transforms.	*/
 
-	/*...aj1p[0:28:2]r use u[1:57:4]; aj1p[0:28:2]i use u[2:58:4]	*/
+	/*...a1p[0:28:2]r use u[1:57:4]; a1p[0:28:2]i use u[2:58:4]	*/
 
 	/*   Gather the needed data (15 64-bit complex, i.e. 30 64-bit reals) and do five radix-3 transforms...	*/
 	/*...Block 1:	*/
@@ -3697,7 +3669,7 @@ void radix30_dit_pass1(double a[], int n)
 		a[j1+p08]=t16+t29;		a[j2+p08]=t17-t28;
 		a[j1+p14]=t10+t23;		a[j2+p14]=t11-t22;
 
-	/*...aj1p[1:29:2]r use u[3:59:4]; aj1p[1:29:2]i use u[4:60:4]	*/
+	/*...a1p[1:29:2]r use u[3:59:4]; a1p[1:29:2]i use u[4:60:4]	*/
 
 	/*   Gather the needed data (15 64-bit complex, i.e. 30 64-bit reals) and do five radix-3 transforms...	*/
 	/*...Block 1:	*/

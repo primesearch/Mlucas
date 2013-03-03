@@ -755,6 +755,9 @@ for(outer=0; outer <= 1; outer++)
 	/*printf("Using %d threads in carry step\n", NTHREADS);*/
 
 /* Needed to remove the prefetch-address vars add0 & add for this to compile properly: */
+#ifndef USE_OMP
+	#error Current code is OMP-only!
+#endif
 omp_set_num_threads(NTHREADS);
 #pragma omp parallel for private(i,j,j1,k,l,col,co2,co3,m,m2,n_minus_sil,n_minus_silp1,sinwt,sinwtm1,wtl,wtlp1,wtn,wtnm1,wt,wtinv,wtA,wtB,wtC,rt,it,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,a1p0r,a1p1r,a1p2r,a1p3r,a1p4r,a1p5r,a1p6r,a1p7r,a1p8r,a1p9r,a1p0i,a1p1i,a1p2i,a1p3i,a1p4i,a1p5i,a1p6i,a1p7i,a1p8i,a1p9i,temp) default(shared) schedule(dynamic)
 

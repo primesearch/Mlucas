@@ -26,6 +26,297 @@
 #ifndef carry_gcc_h_included
 #define carry_gcc_h_included
 
+	/************** See the Visual-studio-style 32-bit analogs of these in carry.h for commented versions: **********/
+
+	/*************************************************************/
+	/**************** FERMAT  -MOD CARRY MACROS ******************/
+	/*************************************************************/
+
+	#define SSE2_fermat_carry_norm_pow2_errcheck(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xhalf_arr,Xsign_mask,Xadd1,Xadd2)\
+	{\
+	__asm__ volatile (\
+		"movl	%[__idx_offset],%%esi	\n\t"\
+		"movl		%[__nrt_bits],%%ecx	\n\t"\
+		"movl		%%esi,%%eax			\n\t"\
+		"shrl		$1,%%eax			\n\t"\
+		"movl		%%eax,%%ebx			\n\t"\
+		"andl		%[__nrtm1],%%eax	\n\t"\
+		"shrl		%%cl,%%ebx			\n\t"\
+		"shll		$4,%%eax			\n\t"\
+		"shll		$4,%%ebx			\n\t"\
+		"addl		%[__add1],%%eax		\n\t"\
+		"addl		%[__add2],%%ebx		\n\t"\
+		"movaps		(%%eax),%%xmm0		\n\t"\
+		"movaps		(%%ebx),%%xmm1		\n\t"\
+		"movl		%%esi,%%eax			\n\t"\
+		"movaps		%%xmm1,%%xmm2		\n\t"\
+		"shufpd	$1,	%%xmm2,%%xmm2		\n\t"\
+		"mulpd		%%xmm0,%%xmm1		\n\t"\
+		"mulpd		%%xmm0,%%xmm2		\n\t"\
+		"addl		$2,%%eax			\n\t"\
+		"shrl		$1,%%eax			\n\t"\
+		"movl		%%eax,%%ebx			\n\t"\
+		"andl		%[__nrtm1],%%eax	\n\t"\
+		"shrl		%%cl,%%ebx			\n\t"\
+		"shll		$4,%%eax			\n\t"\
+		"shll		$4,%%ebx			\n\t"\
+		"addl		%[__add1],%%eax		\n\t"\
+		"addl		%[__add2],%%ebx		\n\t"\
+		"movaps		(%%eax),%%xmm0		\n\t"\
+		"movaps		(%%ebx),%%xmm3		\n\t"\
+		"movl		%%esi,%%eax			\n\t"\
+		"movaps		%%xmm3,%%xmm4		\n\t"\
+		"shufpd	$1,	%%xmm4,%%xmm4		\n\t"\
+		"mulpd		%%xmm0,%%xmm3		\n\t"\
+		"mulpd		%%xmm0,%%xmm4		\n\t"\
+		"movaps		%%xmm1,%%xmm0		\n\t"\
+		"unpcklpd	%%xmm3,%%xmm0		\n\t"\
+		"unpckhpd	%%xmm3,%%xmm1		\n\t"\
+		"subpd		%%xmm1,%%xmm0		\n\t"\
+		"movaps		%%xmm2,%%xmm1		\n\t"\
+		"unpcklpd	%%xmm4,%%xmm1		\n\t"\
+		"unpckhpd	%%xmm4,%%xmm2		\n\t"\
+		"addpd		%%xmm2,%%xmm1		\n\t"\
+		"movl		%[__half_arr],%%ecx	\n\t"\
+		"movl		%[__data],%%edx		\n\t"\
+		"movaps		     (%%edx),%%xmm4	\n\t"\
+		"movaps		 0x10(%%edx),%%xmm2	\n\t"\
+		"movaps		0x020(%%ecx),%%xmm5	\n\t"\
+		"mulpd		%%xmm5,%%xmm4		\n\t"\
+		"mulpd		%%xmm5,%%xmm2		\n\t"\
+		"movaps		%%xmm4,%%xmm5		\n\t"\
+		"movaps		%%xmm2,%%xmm3		\n\t"\
+		"mulpd		%%xmm0,%%xmm4		\n\t"\
+		"mulpd		%%xmm1,%%xmm3		\n\t"\
+		"mulpd		%%xmm0,%%xmm2		\n\t"\
+		"mulpd		%%xmm1,%%xmm5		\n\t"\
+		"addpd		%%xmm3,%%xmm4		\n\t"\
+		"subpd		%%xmm5,%%xmm2		\n\t"\
+		"movl		%[__cy],%%ebx		\n\t"\
+		"movaps		%%xmm4,%%xmm5		\n\t"\
+		"shufpd	$0,	%%xmm2,%%xmm4		\n\t"\
+		"shufpd	$3,	%%xmm2,%%xmm5		\n\t"\
+		"addpd		     (%%ebx),%%xmm4	\n\t"\
+		"movaps		-0x20(%%ecx),%%xmm6	\n\t"\
+		"movaps		-0x10(%%ecx),%%xmm7	\n\t"\
+		"movaps		%%xmm4,%%xmm2		\n\t"\
+		"addpd		%%xmm7,%%xmm4		\n\t"\
+		"subpd		%%xmm7,%%xmm4		\n\t"\
+		"movl		%[__sign_mask],%%eax\n\t"\
+		"subpd		%%xmm4,%%xmm2		\n\t"\
+		"andpd		     (%%eax),%%xmm2	\n\t"\
+		"maxpd		%%xmm6,%%xmm2		\n\t"\
+		"movaps		%%xmm2,%%xmm6		\n\t"\
+		"movaps		%%xmm4,%%xmm2		\n\t"\
+		"mulpd		0x10(%%ecx),%%xmm2	\n\t"\
+		"addpd		%%xmm7,%%xmm2		\n\t"\
+		"subpd		%%xmm7,%%xmm2		\n\t"\
+		"movaps		%%xmm2,%%xmm3		\n\t"\
+		"mulpd		    (%%ecx),%%xmm3	\n\t"\
+		"subpd		%%xmm3,%%xmm4		\n\t"\
+		"addpd		%%xmm2,%%xmm5		\n\t"\
+		"movaps		%%xmm5,%%xmm2		\n\t"\
+		"addpd		%%xmm7,%%xmm5		\n\t"\
+		"subpd		%%xmm7,%%xmm5		\n\t"\
+		"subpd		%%xmm5,%%xmm2		\n\t"\
+		"andpd		     (%%eax),%%xmm2	\n\t"\
+		"maxpd		%%xmm6,%%xmm2		\n\t"\
+		"movaps		%%xmm2,%%xmm6		\n\t"\
+		"movaps		%%xmm5,%%xmm2		\n\t"\
+		"mulpd		 0x10(%%ecx),%%xmm2	\n\t"\
+		"addpd		%%xmm7,%%xmm2		\n\t"\
+		"subpd		%%xmm7,%%xmm2		\n\t"\
+		"movaps		%%xmm2,%%xmm3		\n\t"\
+		"mulpd		     (%%ecx),%%xmm3	\n\t"\
+		"subpd		%%xmm3,%%xmm5		\n\t"\
+		"movaps		%%xmm2,(%%ebx)		\n\t"\
+		"movaps		%%xmm4,%%xmm2		\n\t"\
+		"shufpd	$0,	%%xmm5,%%xmm4		\n\t"\
+		"shufpd	$3,	%%xmm5,%%xmm2		\n\t"\
+		"movaps		%%xmm4,%%xmm5		\n\t"\
+		"movaps		%%xmm2,%%xmm3		\n\t"\
+		"movaps		%%xmm6,-0x20(%%ecx)	\n\t"\
+		"mulpd		%%xmm0,%%xmm4		\n\t"\
+		"mulpd		%%xmm1,%%xmm3		\n\t"\
+		"mulpd		%%xmm0,%%xmm2		\n\t"\
+		"mulpd		%%xmm1,%%xmm5		\n\t"\
+		"subpd		%%xmm3,%%xmm4		\n\t"\
+		"addpd		%%xmm2,%%xmm5		\n\t"\
+		"movaps		%%xmm4,    (%%edx)	\n\t"\
+		"movaps		%%xmm5,0x10(%%edx)	\n\t"\
+		"addl	%[__idx_incr],%%esi		\n\t"\
+		"movl	%%esi, %[__idx_offset]	/* Store incremented idx_offset */	\n\t"\
+	:						/* outputs: none */\
+	:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
+	,	[__cy]			"m" (Xcy)\
+	,	[__nrt_bits]	"m" (Xnrt_bits)\
+	,	[__nrtm1]		"m" (Xnrtm1)\
+	,	[__idx_offset]	"m" (Xidx_offset)\
+	,	[__idx_incr]	"m" (Xidx_incr)\
+	,	[__half_arr]	"m" (Xhalf_arr)\
+	,	[__sign_mask]	"m" (Xsign_mask)\
+	,	[__add1]		"m" (Xadd1)\
+	,	[__add2]		"m" (Xadd2)\
+		: "cl","eax","ebx","ecx","edx","esi","edi"	/* Clobbered registers */\
+	);\
+	}
+
+	#define SSE2_fermat_carry_norm_errcheck(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xodd_radix,Xhalf_arr,Xsign_mask,Xadd1,Xadd2,Xoffset0,Xoffset1)\
+	{\
+	__asm__ volatile (\
+		"movl	%[__idx_offset],%%esi	\n\t"\
+		"movl %[__odd_radix],%%edi	\n\t"\
+		"movl	%[__nrt_bits],%%ecx		\n\t"\
+		"movl		%%esi,%%eax			\n\t"\
+		"shrl		$1,%%eax			\n\t"\
+		"movl		%%eax,%%ebx			\n\t"\
+		"andl		%[__nrtm1],%%eax	\n\t"\
+		"shrl		%%cl,%%ebx			\n\t"\
+		"shll		$4,%%eax			\n\t"\
+		"shll		$4,%%ebx			\n\t"\
+		"shll		$4,%%edi			\n\t"\
+		"addl		%[__add1],%%eax		\n\t"\
+		"addl		%[__add2],%%ebx		\n\t"\
+		"movaps		(%%eax),%%xmm0		\n\t"\
+		"movaps		(%%ebx),%%xmm1		\n\t"\
+		"movl		%%esi,%%eax			\n\t"\
+		"movaps		%%xmm1,%%xmm2		\n\t"\
+		"shufpd	$1,	%%xmm2,%%xmm2		\n\t"\
+		"mulpd		%%xmm0,%%xmm1		\n\t"\
+		"mulpd		%%xmm0,%%xmm2		\n\t"\
+		"addl		$2,%%eax			\n\t"\
+		"shrl		$1,%%eax			\n\t"\
+		"movl		%%eax,%%ebx			\n\t"\
+		"andl		%[__nrtm1],%%eax	\n\t"\
+		"shrl		%%cl,%%ebx			\n\t"\
+		"shll		$4,%%eax			\n\t"\
+		"shll		$4,%%ebx			\n\t"\
+		"addl		%[__add1],%%eax		\n\t"\
+		"addl		%[__add2],%%ebx		\n\t"\
+		"movaps		(%%eax),%%xmm0		\n\t"\
+		"movaps		(%%ebx),%%xmm3		\n\t"\
+		"movl		%%esi,%%eax			\n\t"\
+		"movaps		%%xmm3,%%xmm4		\n\t"\
+		"shufpd	$1,	%%xmm4,%%xmm4		\n\t"\
+		"mulpd		%%xmm0,%%xmm3		\n\t"\
+		"mulpd		%%xmm0,%%xmm4		\n\t"\
+		"movaps		%%xmm1,%%xmm0		\n\t"\
+		"unpcklpd	%%xmm3,%%xmm0		\n\t"\
+		"unpckhpd	%%xmm3,%%xmm1		\n\t"\
+		"subpd		%%xmm1,%%xmm0		\n\t"\
+		"movaps		%%xmm2,%%xmm1		\n\t"\
+		"unpcklpd	%%xmm4,%%xmm1		\n\t"\
+		"unpckhpd	%%xmm4,%%xmm2		\n\t"\
+		"addpd		%%xmm2,%%xmm1		\n\t"\
+		"movl		%[__half_arr],%%ecx	\n\t"\
+		"movl		%[__data],%%edx		\n\t"\
+		"movaps		     (%%edx),%%xmm4	\n\t"\
+		"movaps		 0x10(%%edx),%%xmm2	\n\t"\
+		"addl		%[__offset0],%%ecx	\n\t"\
+		"/* movaps	(%%ecx,%%edi),%%xmm5	*/\n\t"\
+		"addl	%%ecx,%%edi	\n\t"\
+		"movaps	(%%ecx),%%xmm5	\n\t"\
+		"subl	%%ecx,%%edi	\n\t"\
+		"subl		%[__offset0],%%ecx	\n\t"\
+		"mulpd		%%xmm5,%%xmm4		\n\t"\
+		"mulpd		%%xmm5,%%xmm2		\n\t"\
+		"movaps		%%xmm4,%%xmm5		\n\t"\
+		"movaps		%%xmm2,%%xmm3		\n\t"\
+		"mulpd		%%xmm0,%%xmm4		\n\t"\
+		"mulpd		%%xmm1,%%xmm3		\n\t"\
+		"mulpd		%%xmm0,%%xmm2		\n\t"\
+		"mulpd		%%xmm1,%%xmm5		\n\t"\
+		"addpd		%%xmm3,%%xmm4		\n\t"\
+		"subpd		%%xmm5,%%xmm2		\n\t"\
+		"movl		%[__cy],%%ebx		\n\t"\
+		"movaps		%%xmm4,%%xmm5		\n\t"\
+		"shufpd	$0,	%%xmm2,%%xmm4		\n\t"\
+		"shufpd	$3,	%%xmm2,%%xmm5		\n\t"\
+		"addpd		     (%%ebx),%%xmm4	\n\t"\
+		"movaps		-0x20(%%ecx),%%xmm6	\n\t"\
+		"movaps		-0x10(%%ecx),%%xmm7	\n\t"\
+		"addl	   %[__offset0],%%ecx	\n\t"\
+		"movaps		%%xmm4,%%xmm2		\n\t"\
+		"shll	   $1,%%edi				\n\t"\
+		"addpd		%%xmm7,%%xmm4		\n\t"\
+		"subpd		%%xmm7,%%xmm4		\n\t"\
+		"movl		%[__sign_mask],%%eax\n\t"\
+		"subpd		%%xmm4,%%xmm2		\n\t"\
+		"andpd		(%%eax),%%xmm2		\n\t"\
+		"maxpd		%%xmm6,%%xmm2		\n\t"\
+		"movaps		%%xmm2,%%xmm6		\n\t"\
+		"addl		%%edi,%%ecx			\n\t"\
+		"shrl		$1,%%edi			\n\t"\
+		"movaps		%%xmm4,%%xmm2		\n\t"\
+		"mulpd  (%%ecx,%%edi),%%xmm2	\n\t"\
+		"addpd		%%xmm7,%%xmm2		\n\t"\
+		"subpd		%%xmm7,%%xmm2		\n\t"\
+		"movaps		%%xmm2,%%xmm3		\n\t"\
+		"mulpd		(%%ecx),%%xmm3		\n\t"\
+		"subl		%[__offset0],%%ecx	\n\t"\
+		"subpd		%%xmm3,%%xmm4		\n\t"\
+		"addpd		%%xmm2,%%xmm5		\n\t"\
+		"movaps		%%xmm5,%%xmm2		\n\t"\
+		"addpd		%%xmm7,%%xmm5		\n\t"\
+		"subpd		%%xmm7,%%xmm5		\n\t"\
+		"subpd		%%xmm5,%%xmm2		\n\t"\
+		"andpd		(%%eax),%%xmm2		\n\t"\
+		"maxpd		%%xmm6,%%xmm2		\n\t"\
+		"movaps		%%xmm2,%%xmm6		\n\t"\
+		"movaps		%%xmm5,%%xmm2		\n\t"\
+		"addl		%[__offset1],%%ecx	\n\t"\
+		"mulpd  (%%ecx,%%edi),%%xmm2	\n\t"\
+		"addpd		%%xmm7,%%xmm2		\n\t"\
+		"subpd		%%xmm7,%%xmm2		\n\t"\
+		"shll		$1,%%edi			\n\t"\
+		"movaps		%%xmm2,%%xmm3		\n\t"\
+		"mulpd		(%%ecx),%%xmm3		\n\t"\
+		"subl		%[__offset1],%%ecx	\n\t"\
+		"subpd		%%xmm3,%%xmm5		\n\t"\
+		"movaps		%%xmm2,(%%ebx)		\n\t"\
+		"movaps		%%xmm4,%%xmm2		\n\t"\
+		"shufpd	$0,	%%xmm5,%%xmm4		\n\t"\
+		"shufpd	$3,	%%xmm5,%%xmm2		\n\t"\
+		"movaps		%%xmm4,%%xmm5		\n\t"\
+		"movaps		%%xmm2,%%xmm3		\n\t"\
+		"subl		%%edi,%%ecx			\n\t"\
+		"mulpd		%%xmm0,%%xmm4		\n\t"\
+		"mulpd		%%xmm1,%%xmm3		\n\t"\
+		"movaps	 	%%xmm6,-0x20(%%ecx)	\n\t"\
+		"addl		%[__offset0],%%ecx	\n\t"\
+		"mulpd		%%xmm0,%%xmm2		\n\t"\
+		"mulpd		%%xmm1,%%xmm5		\n\t"\
+		"movaps		(%%ecx),%%xmm0		\n\t"\
+		"subpd		%%xmm3,%%xmm4		\n\t"\
+		"addpd		%%xmm2,%%xmm5		\n\t"\
+		"mulpd		%%xmm0,%%xmm4		\n\t"\
+		"mulpd		%%xmm0,%%xmm5		\n\t"\
+		"movaps		%%xmm4,    (%%edx)	\n\t"\
+		"movaps		%%xmm5,0x10(%%edx)	\n\t"\
+		"addl	%[__idx_incr],%%esi		\n\t"\
+		"movl	%%esi, %[__idx_offset]	/* Store incremented idx_offset */	\n\t"\
+	:						/* outputs: none */\
+	:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
+	,	[__cy]			"m" (Xcy)\
+	,	[__nrt_bits]	"m" (Xnrt_bits)\
+	,	[__nrtm1]		"m" (Xnrtm1)\
+	,	[__idx_offset]	"m" (Xidx_offset)\
+	,	[__idx_incr]	"m" (Xidx_incr)\
+	,	[__odd_radix]   "m" (Xodd_radix)\
+	,	[__half_arr]	"m" (Xhalf_arr)\
+	,	[__sign_mask]	"m" (Xsign_mask)\
+	,	[__add1]		"m" (Xadd1)\
+	,	[__add2]		"m" (Xadd2)\
+	,	[__offset0]		"m" (Xoffset0)\
+	,	[__offset1]		"m" (Xoffset1)\
+		: "cl","eax","ebx","ecx","edx","esi","edi"   /* Clobbered registers */\
+	);\
+	}
+
+	/*************************************************************/
+	/**************** MERSENNE-MOD CARRY MACROS ******************/
+	/*************************************************************/
+
 	/********* Packed 32-bit-int version of SSE2_cmplx_carry_norm_pow2_errcheck0_2x:***********/
 	#define SSE2_cmplx_carry_norm_pow2_errcheck0_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw)\
 	{\

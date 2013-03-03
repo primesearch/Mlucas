@@ -96,135 +96,83 @@
 #elif(defined(sun))	/* 20 Nov 2006: removed " && defined(sparc)" from here, since Solaris now runs on other platforms, e.g. AMD64 */
 	#define	OS_TYPE
 	#define	OS_TYPE_SUN
+#else
+	#error Unable to determine OS type!
 #endif
 
-/* See if can use the value of __LONG_MAX__ in limits.h to quickly and portably determine whether it's 32-bit or 64-it OS.
-Currently this is needed only for the SSE2 GCC-style assembly code, so wrap it in an appropriate #define:
-*/
-//#if defined(USE_SSE2) && defined(COMPILER_TYPE_GCC)
+// Posix-compliant OS?
+#undef OS_POSIX_COMPLIANT
+#ifndef OS_TYPE_WINDOWS
+	#define OS_POSIX_COMPLIANT
+#endif
 
-	#undef	OS_BITS
-
-	/* Syntax here is GCC and SunStudio/MSVC, respectively: */
-	#if !defined(__LONG_MAX__) && !defined(LONG_MAX)
-		#include <limits.h>
-	#endif
-
-	#if !defined(__LONG_MAX__) &&  defined(LONG_MAX)
-		#define __LONG_MAX__  LONG_MAX
-	#endif
-
-	#ifdef __LONG_MAX__
-		#if __LONG_MAX__ == 2147483647L
-			#define OS_BITS 32
-		#elif __LONG_MAX__ == 9223372036854775807L
-			#define OS_BITS 64
-		#else
-			#error  __LONG_MAX__ defined but value unrecognized!
-		#endif
-	#else
-		#if(sizeof(long) == 4)
-			#define OS_BITS 32
-		#elif(sizeof(long) == 8)
-			#define OS_BITS 64
-		#else
-			#error  Value of sizeof(long) not recognized!
-		#endif
-	#endif
-
-	#ifndef OS_BITS
-		#error platform.h: failed to properly set OS_BITS!
-	#endif
-/*
-	#if OS_BITS == 32
-		#error 32-bit OS detected
-	#elif OS_BITS == 64
-		#error 64-bit OS detected
-	#endif
-*/
-//#endif
-
-/* Multihreading support. */
-extern int MAX_THREADS;
-extern int NTHREADS;
+#undef	OS_BITS
 
 #undef MULTITHREAD	/* Master #define controlling multithreaded mode -- enable by invoking USE_THREADS
 					and the appropriate compiler options (e.g. -openmp; compiler-dependent) at build time. */
-
-#if defined(USE_THREADS)
-
-	#include <omp.h>
-	/* Found OpenMP header? The predefines here are for Linux, Sun Studio and Windows/MSVC, respectively: */
-	#if(defined(__OMP_H) || defined(_OPENMP) || defined(_OMPAPI))
-		#define MULTITHREAD
-	#else
-		#error OpenMP header <omp.h> not detected - Platform may not provide multithreading support.
-	#endif
-
-#endif
 
 /*
 Locally defined CPU types - undef these here to prevent namespace collisions.
 Each of the above CPUs typically comes in multiple flavors: try to restrict
 our list here to the salient ones, that actually need to be differentiated
 based on different key capabilities. Default CPU subtypes are as indicated.
-
-More than one of the subtypes may be def'd simultaneously, e.g. for CPU_TYPE_PPC we
-might have CPU_SUBTYPE_PPC32 and CPU_HAS_ALTIVEC def'd simultaneously (for G4, not G3).
-Mutual exclusivity of subtypes is implied via their being listed in one block, e.g.
-(again using the PowerPC as an example) CPU_SUBTYPE_PPC32 and CPU_SUBTYPE_PPC64
-are mutually incompatible.
 */
+#undef	CPU_TYPE
 #undef	CPU_NAME
 #undef	CPU_SUBTYPE_NAME
-#undef	CPU_TYPE
-#undef	CPU_SUBTYPE
-#undef	CPU_TYPE_UNKNOWN
+
+#undef	CPU_IS_UNKNOWN
 	#undef	CPU_SUBTYPE_UNKNOWN
-#undef	CPU_TYPE_ALFA
+
+#undef	CPU_IS_ALFA
 	#undef	CPU_SUBTYPE_EV4
 	#undef	CPU_SUBTYPE_EV5
 	#undef	CPU_SUBTYPE_EV6
-#undef	CPU_TYPE_MIPS
+
+#undef	CPU_IS_MIPS
 	#undef	CPU_SUBTYPE_PRE_R10K
 	#undef	CPU_SUBTYPE_R10K
 	#undef	CPU_SUBTYPE_R12K
 	#undef	CPU_SUBTYPE_R15K
-#undef	CPU_TYPE_SPARC
+
+#undef	CPU_IS_SPARC
 	#undef	CPU_SUBTYPE_ULTRA1
 	#undef	CPU_SUBTYPE_ULTRA2
 	#undef	CPU_SUBTYPE_ULTRA3
-#undef	CPU_TYPE_PPC
+
+#undef	CPU_IS_PPC
 	#undef	CPU_SUBTYPE_PPC32
 	#undef	CPU_SUBTYPE_PPC64	/* This is the main differentiator we need for now,
 								i.e. 64-bit or not? Separate check of AltiVec-or-not
 								differentiates between G3 and G4 (both of which are PPC32). */
-#undef	CPU_TYPE_IA32
+#undef	CPU_IS_X86
 	#undef	CPU_SUBTYPE_CLASSIC
 	#undef	CPU_SUBTYPE_PPRO
 	#undef	CPU_SUBTYPE_P2
 	#undef	CPU_SUBTYPE_P3
 	#undef	CPU_SUBTYPE_P4
-#undef	CPU_TYPE_IA64
-	#undef	CPU_SUBTYPE_IT1
-	#undef	CPU_SUBTYPE_IT2
-	#undef	CPU_TYPE_X86_64
 
-#undef	CPU_TYPE_AMD32
-#undef	CPU_TYPE_AMD64
+#undef	CPU_IS_X86_64
+	#undef	CPU_SUBTYPE_AMD32
+	#undef	CPU_SUBTYPE_AMD64
 /* DO WE NEED ANY OF THESE?
 	#undef	CPU_SUBTYPE_K7
 	#undef	CPU_SUBTYPE_K8
 	#undef	CPU_SUBTYPE_OPTERON
 */
-#undef	CPU_TYPE_POWER
-#undef	CPU_TYPE_POWER
+
+#undef	CPU_IS_IA64	// Itanium
+	#undef	CPU_SUBTYPE_IT1
+	#undef	CPU_SUBTYPE_IT2
+
+#undef	CPU_IS_POWER
 	#undef	CPU_SUBTYPE_POWER1
 	#undef	CPU_SUBTYPE_POWER2
 	#undef	CPU_SUBTYPE_POWER3
 	#undef	CPU_SUBTYPE_POWER4
 	#undef	CPU_SUBTYPE_POWER5
-#undef	CPU_TYPE_HPPA
+
+#undef	CPU_IS_HPPA
 	#undef	CPU_SUBTYPE_PA1
 	#undef	CPU_SUBTYPE_PA2
 
@@ -279,7 +227,7 @@ are mutually incompatible.
 	#endif
 
 	#define CPU_TYPE
-	#define CPU_TYPE_IA32
+	#define CPU_IS_X86
 	#define	INTEGER_MUL_32
 
 	/* Sun C compiler - needs '-xarch=amd64' compiler flag in order for __amd64 to be def'd: */
@@ -315,7 +263,7 @@ are mutually incompatible.
 	#endif
 
 	#define CPU_TYPE
-	#define CPU_TYPE_AMD64
+	#define CPU_IS_X86_64
 
 	#define MULH64_FAST
 	#define	HARDWARE_FMADD
@@ -354,7 +302,7 @@ are mutually incompatible.
 	#endif
 
 	#define CPU_TYPE
-	#define CPU_TYPE_IA32
+	#define CPU_IS_X86
 	#define	INTEGER_MUL_32
 
 	/* Intel C compiler: */
@@ -368,9 +316,6 @@ are mutually incompatible.
 			#error Failed to include <emmintrin.h> header file!
 		#endif
 
-		#if(defined (__linux__))
-			#include <sched.h>		/* Needed to set CPU affinity in multithreaded mode */
-		#endif
 		/*
 		Various header files containing ICC intrinsics for IA32:
 		we include individual ones of these as needed by the various
@@ -378,7 +323,7 @@ are mutually incompatible.
 		#include <dvec.h>					* SSE 2 intrinsics for Class Libraries												*
 		#include <fvec.h>					* SSE intrinsics for Class Libraries												*
 		#include <ia32intrin.h>				* Miscellaneous IA-32 intrinsics.													*
-		#include <ivec.h>					* MMXÃ´ instructions intrinsics for Class Libraries									*
+		#include <ivec.h>					* MMX™ instructions intrinsics for Class Libraries									*
 		#include <mathf.h>					* Principal header file for legacy Intel Math Library								*
 		#include <mathimf.h>				* Principal header file for current Intel Math Library								*
 		#include <mmintrin.h>				* Intrinsics for MMX instructions													*
@@ -416,7 +361,7 @@ are mutually incompatible.
 	#endif
 
 	#define CPU_TYPE
-	#define CPU_TYPE_IA64
+	#define CPU_IS_IA64
 
 	#define MULH64_FAST
 	#define	HARDWARE_FMADD
@@ -445,9 +390,6 @@ are mutually incompatible.
 		#include <ia64intrin.h>	/* Needed for access to e.g. _m64_xmahu intrinsic */
 		#include <xmmintrin.h>	/* Principal header file for Streaming SIMD Extensions intrinsics - we need it for the _MM_HINT predefines used in prefetch.h */
 
-		#if(defined (__linux__))
-			#include <sched.h>		/* Needed to set CPU affinity in multithreaded mode */
-		#endif
 		/*
 		Various header files containing ICC intrinsics for IA64:
 		we include individual ones of these as needed by the various
@@ -456,9 +398,9 @@ are mutually incompatible.
 		#include <fvec.h>					* SSE intrinsics for Class Libraries											*
 		#include <ia64intrin.h>				* Miscellaneous IA-64 intrinsics.												*
 		#include <ia64regs.h>				* Header file for registers on Itanium-based systems							*
-		#include <ivec.h>					* MMXÃ´ instructions intrinsics for Class Libraries								*
+		#include <ivec.h>					* MMX™ instructions intrinsics for Class Libraries								*
 		#include <mathimf.h>				* Principal header file for current Intel Math Library							*
-		#include <mmclass.h>				* Principal header files for MMXÃ´ instructions with Class Libraries				*
+		#include <mmclass.h>				* Principal header files for MMX™ instructions with Class Libraries				*
 		#include <mmintrin.h>				* Intrinsics for MMX instructions												*
 		#include <omp.h>					* Principal header file OpenMP*													*
 		#include <sse2mmx.h>				* Emulated versions of 128-bit SSE2 intrinsics (for P3 and Itanium)					*
@@ -479,7 +421,7 @@ are mutually incompatible.
 	#define	OS_TYPE
 	#define	OS_TYPE_HPUX
 	#define CPU_TYPE
-	#define CPU_TYPE_HPPA
+	#define CPU_IS_HPPA
 	#define COMPILER_TYPE
 	#define COMPILER_TYPE_HPC
 
@@ -492,7 +434,7 @@ We Deliberately put this #elif ahead of the PowerPC one because the Power/AIX co
 	#endif
 
 	#define CPU_TYPE
-	#define CPU_TYPE_POWER
+	#define CPU_IS_POWER
 
 	#define	HARDWARE_FMADD
 
@@ -521,7 +463,7 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 #elif(defined(__ppc__) || defined(__powerpc__) || defined(__PPC__) || defined(__powerc) || defined(__ppc64__))
 
 	#define CPU_TYPE
-	#define CPU_TYPE_PPC
+	#define CPU_IS_PPC
 
 	#define	HARDWARE_FMADD
 
@@ -581,7 +523,7 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 	#endif
 
 	#define CPU_TYPE
-	#define CPU_TYPE_ALFA
+	#define CPU_IS_ALFA
 
 	#define MULH64_FAST
 
@@ -639,7 +581,7 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 #elif(defined(__sparc))
 
 	#define CPU_TYPE
-	#define CPU_TYPE_SPARC
+	#define CPU_IS_SPARC
 
 	#define MUL64_SUCKS
 
@@ -672,7 +614,7 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 	#define OS_TYPE
 	#define OS_TYPE_UNKNOWN
 	#define CPU_TYPE
-	#define CPU_TYPE_UNKNOWN
+	#define CPU_IS_UNKNOWN
 	#define COMPILER_TYPE
 	#define COMPILER_TYPE_UNKNOWN
 #endif
@@ -764,84 +706,219 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 	#define OS_VERSION "[Unknown]"
 #endif
 
-#if defined(USE_SSE2) && defined(COMPILER_TYPE_GCC)
+#ifdef USE_SSE2
+
+  #if defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
+
 	#ifndef OS_BITS
 		#error	Unable to determine if OS is 32-bit or 64-bit!
 	#endif
+
+	// For SSE2/GCC, double-check the value of OS_BITS against various int-type compiler intrinsics:
+	#ifdef COMPILER_TYPE_GCC
+
+	  #undef OS_BIT2
+
+	  /* If GCC version predefines __SIZEOF_POINTER__, that is most reliable (the LONG_MAX-based test below failed under mingw64 because that defined LONG_MAX and LONG_LONG_MAX differently in 64-bit mode: */
+	  #ifdef __SIZEOF_POINTER__
+
+		#if __SIZEOF_POINTER__ == 4
+			#define OS_BIT2 32
+		#elif __SIZEOF_POINTER__ == 8
+			#define OS_BIT2 64
+		#else
+			#error __SIZEOF_POINTER__ defined but returns unrecognized value! Use gcc -dM -E < /dev/null | grep __SIZEOF_POINTER__ to examine.
+		#endif
+
+	  /* Otherwise see if can use the value of __LONG_MAX__ in limits.h to quickly and portably determine whether it's 32-bit or 64-it OS: */
+	  #else
+		/* Syntax here is GCC and SunStudio/MSVC, respectively: */
+		#if !defined(__LONG_MAX__) && !defined(LONG_MAX)
+			#include <limits.h>
+		#endif
+
+		#if !defined(__LONG_MAX__) &&  defined(LONG_MAX)
+			#define __LONG_MAX__  LONG_MAX
+		#endif
+
+		#ifdef __LONG_MAX__
+			#if __LONG_MAX__ == 2147483647L
+				#define OS_BIT2 32
+			#elif __LONG_MAX__ == 9223372036854775807L
+				#define OS_BIT2 64
+			#else
+				#error  __LONG_MAX__ defined but value unrecognized!
+			#endif
+		#else
+			#error platform.h: failed to properly set OS_BIT2 for SSE2/GCC build!
+		#endif
+
+	  #endif
+
+	  #if OS_BITS != OS_BIT2
+		#error OS_BITS != OS_BIT2 for SSE2/GCC build!
+	  #endif
+
+	#endif
+
+	/* Uncomment this block for compile-time printout of OS_BITS:
+	#if OS_BITS == 32
+		#error 32-bit OS detected
+	#elif OS_BITS == 64
+		#error 64-bit OS detected
+	#endif
+	*/
+
+  #else
+
+	#error SSE2 code not supported for this compiler!
+
+  #endif
+
 #endif
 
-#if(defined(CPU_TYPE_ALFA))
+/* Multihreading support. */
+extern int MAX_THREADS;
+extern int NTHREADS;
+
+// Needed to add the GCC flag here, otherwise MSVC tries to #include headers, etc even if USE_THREADS not defined:
+#ifdef USE_THREADS
+
+  #if defined(COMPILER_TYPE_GCC) && defined(OS_POSIX_COMPLIANT)
+
+	// OpenMP requires USE_OMP to be def'd in addition to USE_THREADS:
+	#ifdef USE_OMP
+	
+		// Found OpenMP header? The predefines here are for Linux, Sun Studio and Windows/MSVC, respectively:
+		#include <omp.h>
+		#if(defined(__OMP_H) || defined(_OPENMP) || defined(_OMPAPI))
+			#define MULTITHREAD
+			#define USE_OMP
+		#else
+			#error OpenMP header <omp.h> not detected - Platform may not provide OpenMP multithreading support.
+		#endif
+
+	#else	// Default is to use pthreads:
+
+		/* Online docs [e.g. http://www.kernel.org/doc/man-pages/online/pages/man2/sched_setaffinity.2.html]
+		tell us that in order to access macros for `cpu_set', we must #define _GNU_SOURCE before including <sched.h>.
+		However, whether I define the above or not, on my distro (Fedora v16), I get these compile-time warnings
+		indicating that the affinity stuff is not being included:
+		
+			"warning: implicit declaration of function ÔCPU_ZEROÕ", etc.
+
+		Some sleuthing reveals that (at least in my distro) sched.h #includes <features.h>,
+		and the latter header then defines __USE_GNU if _GNU_SOURCE is defined.
+		In other words, #define _GNU_SOURCE simply causes __USE_GNU to also get defined.
+		Or at least it should, but my above-quoted build diagnostics indicate otherwise.
+		Even more bizarrely, when (in addition to defining just before including sched.h
+		in my threading-related header file) I add -D_GNU_SOURCE to my compile command line,
+		now all of a sudden the compiler sees both definitions and says
+		
+			platform.h:804:0: warning: "_GNU_SOURCE" redefined [enabled by default]
+			<command-line>:0:0: note: this is the location of the previous definition
+		
+		...and the "implicit" warnings disppear. Anyway, add that one to the build-related mental "WTF?" bin
+		and just #define __USE_GNU instead.
+		*/
+		#define __USE_GNU
+		#include <sched.h>
+
+		#include <sys/sysctl.h>
+		#include <unistd.h>	// Needed for Posix sleep() command, among other things
+		#ifdef OS_TYPE_LINUX
+
+			// These additional Linux-only includes make sure __NR_gettid, used in our syscall-based get-thread-ID, is defined:
+			#include <linux/unistd.h>
+			#include <asm/unistd.h>
+
+		#elif defined(OS_TYPE_MACOSX)
+
+			// Mac OS X affinity API is via these:
+			#include <mach/thread_policy.h>
+			#include <mach/mach.h>
+			// Gah - the osx mach/*h header tree sets its version of various CPU_IS_*** #defs,
+			// incl. CPU_IS_SPARC, which then causes FP_MANTISSA_BITS_DOUBLE to get set to 53
+			// rather the x86_64-required 64 ... that caused me to rename CPU_IS_* to CPU_IS_*.
+		#endif
+
+		#include <pthread.h>
+		// Found pthread header?
+		#if(defined(_PTHREAD_H))
+			#define MULTITHREAD
+			#define USE_PTHREAD
+		#else
+			#error Pthreads header <pthread.h> not detected - Platform may not provide multithreading support.
+		#endif
+
+	  #endif	// OpenMP or Pthread
+
+	#else
+
+		#error Multithreading currently only supported for Linux/GCC builds!
+
+	#endif
+
+#endif
+
+#if defined(CPU_IS_ALFA)
   #if CPU_DEBUG
 	#error	CPU_NAME "Alpha"
   #else
 	#define	CPU_NAME "Alpha"
   #endif
-#elif(defined(CPU_TYPE_MIPS))
+#elif defined(CPU_IS_MIPS)
   #if CPU_DEBUG
 	#error	CPU_NAME "Mips"
   #else
 	#define	CPU_NAME "Mips"
   #endif
-#elif(defined(CPU_TYPE_SPARC))
+#elif defined(CPU_IS_SPARC)
   #if CPU_DEBUG
 	#error	CPU_NAME "Sparc"
   #else
 	#define	CPU_NAME "Sparc"
   #endif
-#elif(defined(CPU_TYPE_PPC))
+#elif defined(CPU_IS_PPC)
   #if CPU_DEBUG
 	#error	CPU_NAME "PowerPC"
   #else
 	#define	CPU_NAME "PowerPC"
   #endif
-#elif(defined(CPU_TYPE_IA32))
+#elif defined(CPU_IS_X86)
   #if CPU_DEBUG
-	#error	CPU_NAME "Pentium"
+	#error	CPU_NAME "x86"
   #else
-	#define	CPU_NAME "Pentium"
+	#define	CPU_NAME "x86"
 	#define	FP_MANTISSA_BITS_DOUBLE	64
   #endif
-#elif(defined(CPU_TYPE_AMD))
+#elif defined(CPU_IS_X86_64)
   #if CPU_DEBUG
-	#error	CPU_NAME "AMD"
+	#error	CPU_NAME "x86_64"
   #else
-	#define	CPU_NAME "AMD"
+	#define	CPU_NAME "x86_64"
 	#define	FP_MANTISSA_BITS_DOUBLE	64
   #endif
-#elif(defined(CPU_TYPE_AMD64))
-  #if CPU_DEBUG
-	#error	CPU_NAME "AMD64"
-  #else
-	#define	CPU_NAME "AMD64"
-	#define	FP_MANTISSA_BITS_DOUBLE	64
-  #endif
-#elif(defined(CPU_TYPE_X86_64))
-  #if CPU_DEBUG
-	#error	CPU_NAME "x86-64"
-  #else
-	#define	CPU_NAME "x86-64"
-	#define	FP_MANTISSA_BITS_DOUBLE	64
-  #endif
-#elif(defined(CPU_TYPE_POWER))
+#elif defined(CPU_IS_POWER)
   #if CPU_DEBUG
 	#error	CPU_NAME "Power"
   #else
 	#define	CPU_NAME "Power"
   #endif
-#elif(defined(CPU_TYPE_HPPA))
+#elif defined(CPU_IS_HPPA)
   #if CPU_DEBUG
 	#error	CPU_NAME "HPPA"
   #else
 	#define	CPU_NAME "HPPA"
   #endif
-#elif(defined(CPU_TYPE_IA64))
+#elif defined(CPU_IS_IA64)
   #if CPU_DEBUG
 	#error	CPU_NAME "Itanium"
   #else
 	#define	CPU_NAME "Itanium"
 	#define	FP_MANTISSA_BITS_DOUBLE	64
   #endif
-#elif(defined(CPU_TYPE_UNKNOWN))
+#elif defined(CPU_IS_UNKNOWN)
   #if CPU_DEBUG
 	#error	CPU_NAME "Unknown"
   #else
@@ -944,4 +1021,80 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 #endif
 
 #endif	/* platform_h_included */
+
+/* List of headers used by Mprime, by way of reference:
+
+	From: 	George Woltman <woltman@alum.mit.edu>
+	Subject: 	Re: thread affinity
+	Date: 	November 5, 2012 8:10:10 PM PST
+	To: 	E. Mayer <ewmayer@aol.com>
+
+	[snip of some thread-affinity-related stuff]
+
+	The last mprime built for the Mac included these libs:
+	
+	LIBS   = ../gwnum/release/gwnum.a -lm -lpthread -lcurl -lIOKit -framework CoreFoundation -lstdc++
+	
+	and in case CPU_SET etc are macros, I include these files at compile time:
+	
+	// Include files needed by all ports
+	#include "prime.h"
+	#include <ctype.h>
+	#include <fcntl.h>
+	#include <math.h>
+	#include <memory.h>
+	#include <signal.h>
+	#include <stdio.h>
+	#include <stdlib.h>
+	#include <string.h>
+	#include <sys/stat.h>
+	
+	// Required Linux files
+	#ifdef __linux__
+	#include <dirent.h>
+	#include <unistd.h>
+	#include <linux/unistd.h>
+	#include <asm/unistd.h>
+	#define __USE_GNU
+	#include <sched.h>
+	#include <sys/resource.h>
+	#include <sys/sysinfo.h>
+	#include <sys/time.h>
+	#include <sys/timeb.h>
+	#endif
+	
+	// Required Mac OS X files
+	#ifdef __APPLE__
+	#include <dirent.h>
+	#include <pthread.h>
+	#include <sched.h>
+	#include <unistd.h>
+	#include <sys/types.h>
+	#include <sys/resource.h>
+	#include <sys/sysctl.h>
+	#include <sys/time.h>
+	#include <sys/timeb.h>
+	#include <CoreFoundation/CoreFoundation.h>
+	#include <IOKit/ps/IOPowerSources.h>
+	#include <IOKit/ps/IOPSKeys.h>
+	#endif
+	
+	// Required FreeBSD files
+	#ifdef __FreeBSD__
+	#include <dirent.h>
+	#include <pthread.h>
+	#include <sched.h>
+	#include <unistd.h>
+	#include <sys/param.h>
+	#include <sys/cpuset.h>
+	#include <sys/resource.h>
+	#include <sys/sysctl.h>
+	#include <sys/types.h>
+	#include <sys/time.h>
+	#include <sys/timeb.h>
+	#endif
+	 
+	Hope that helps,
+	George
+*/
 

@@ -1,3 +1,25 @@
+/*******************************************************************************
+*                                                                              *
+*   (C) 1997-2012 by Ernst W. Mayer.                                           *
+*                                                                              *
+*  This program is free software; you can redistribute it and/or modify it     *
+*  under the terms of the GNU General Public License as published by the       *
+*  Free Software Foundation; either version 2 of the License, or (at your      *
+*  option) any later version.                                                  *
+*                                                                              *
+*  This program is distributed in the hope that it will be useful, but WITHOUT *
+*  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or       *
+*  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for   *
+*  more details.                                                               *
+*                                                                              *
+*  You should have received a copy of the GNU General Public License along     *
+*  with this program; see the file GPL.txt.  If not, you may view one at       *
+*  http://www.fsf.org/licenses/licenses.html, or obtain one by writing to the  *
+*  Free Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA     *
+*  02111-1307, USA.                                                            *
+*                                                                              *
+*******************************************************************************/
+
 #include "factor.h"
 
 #if FAC_DEBUG
@@ -19,7 +41,7 @@ The key 3-operation sequence here is as follows:
 	MULL160(lo,qinv,lo);
 	MULH160(q,lo,t);
 */
-uint160 twopmodq160(uint160 p, uint160 q)
+uint64 twopmodq160(uint64*checksum1, uint64*checksum2, uint64 *p_in, uint64 k)
 {
 #if FAC_DEBUG
 	int dbg = STREQ(&char_buf[convert_uint192_base10_char(char_buf, p)], "0");
@@ -27,13 +49,18 @@ uint160 twopmodq160(uint160 p, uint160 q)
 #endif
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 lead8, lo64;
-	uint160 qhalf, qinv, x, lo, hi;
+	uint160 p = {p_in[0],p_in[1],p_in[2]}, q, qhalf, qinv, x, lo, hi;
 	static uint160 psave = {0ull,0ull,0ull}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
 
 #if FAC_DEBUG
 if(dbg)printf("twopmodq160:\n");
 #endif
+	ASSERT(HERE, (p.d2 == 0) && (p.d1 >> 63) == 0, "p must be < 2^127!");
+	ADD128(p,p, q);
+	q.d2 = mi64_mul_scalar((uint64 *)&q, k, (uint64 *)&q, 2);
+	q.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
+	*checksum1 += q.d0;
 
 	RSHIFT_FAST160(q, 1, qhalf);	/* = (q-1)/2, since q odd. */
 
@@ -269,6 +296,7 @@ if(dbg) printf("2x= %s\n", &char_buf[convert_uint192_base10_char(char_buf, x)]);
 	if(dbg) printf("Final x-q=%s\n", &char_buf[convert_uint192_base10_char(char_buf, x)]);
 #endif
 
-	return x;
+	*checksum2 += x.d0;
+	return (uint64)CMPEQ160(x, ONE160) ;
 }
 

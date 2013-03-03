@@ -22,7 +22,7 @@
 
 #include "util.h"
 
-#if(defined(CPU_TYPE_IA32) || defined(CPU_TYPE_AMD64) || defined(CPU_TYPE_X86_64))
+#if(defined(CPU_IS_X86) || defined(CPU_IS_IA64) || defined(CPU_IS_X86_64))
 
 	/* cpuid(func,ax,bx,cx,dx) macro: put whatever function number you want in for func,
 	and put in 4 32-bit ints to store the output values of eax, ebx, ecx, and edx, respectively.
@@ -335,7 +335,7 @@
 		uint32 i,j,shift;
 		uint32 a,b,c,d;
 		/* Need 12+3*16 char for extended cpuid, add 4 more for terminator and " : " padding */
-		char cpu_str[64] = "0123456789ab : f0123456789abcdef0123456789abcdef0123456789abcdef";
+		char cpu_str[65] = "0123456789ab : f0123456789abcdef0123456789abcdef0123456789abcdef";
 
 		CPUID(0,a,b,c,d);
 		for(i = 0; i < 4; i++)
