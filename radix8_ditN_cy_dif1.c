@@ -360,19 +360,7 @@ for(outer=0; outer <= 1; outer++)
     if(root_incr==0)
     {
 		khi = 1;
-	#if FFT_DEBUG
-		fprintf(dbg_file, "radix8_ditN_cy_dif1: Cleanup Pass:\n", n);
-	#endif
 	}
-
-/* Needed to remove the prefetch-address vars add0 & add for this to compile properly: */
-#ifdef USE_OMP
-  omp_set_num_threads(CY_THREADS);
-
-//	#pragma omp parallel for private(add0,add,i,iroot,j,j1,jstart,jhi,k,k1,k2,l,col,co2,co3,m,m2,n_minus_sil,n_minus_silp1,sinwt,sinwtm1,wtl,wtlp1,wtn,wtnm1,wt,wtinv,wtA,wtB,wtC,wt_re,wt_im,maxerr,rt,it,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,a1p0r,a1p1r,a1p2r,a1p3r,a1p4r,a1p5r,a1p6r,a1p7r,a1p0i,a1p1i,a1p2i,a1p3i,a1p4i,a1p5i,a1p6i,a1p7i,temp,frac,bjmodn0,bjmodn1,bjmodn2,bjmodn3,bjmodn4,bjmodn5,bjmodn6,bjmodn7,cy_r0,cy_r1,cy_r2,cy_r3,cy_r4,cy_r5,cy_r6,cy_r7,cy_i0,cy_i1,cy_i2,cy_i3,cy_i4,cy_i5,cy_i6,cy_i7) default(shared) schedule(dynamic)
-//#undef PFETCH
-	#pragma omp parallel for private(         i,iroot,j,j1,jstart,jhi,k,k1,k2,l,col,co2,co3,m,m2,n_minus_sil,n_minus_silp1,sinwt,sinwtm1,wtl,wtlp1,wtn,wtnm1,wt,wtinv,wtA,wtB,wtC,wt_re,wt_im,maxerr,rt,it,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,a1p0r,a1p1r,a1p2r,a1p3r,a1p4r,a1p5r,a1p6r,a1p7r,a1p0i,a1p1i,a1p2i,a1p3i,a1p4i,a1p5i,a1p6i,a1p7i,temp,frac,bjmodn0,bjmodn1,bjmodn2,bjmodn3,bjmodn4,bjmodn5,bjmodn6,bjmodn7,cy_r0,cy_r1,cy_r2,cy_r3,cy_r4,cy_r5,cy_r6,cy_r7,cy_i0,cy_i1,cy_i2,cy_i3,cy_i4,cy_i5,cy_i6,cy_i7) default(shared) schedule(static)
-#endif
 
     for(ithread = 0; ithread < CY_THREADS; ithread++)
     {
@@ -1068,19 +1056,7 @@ for(outer=0; outer <= 1; outer++)
     if(root_incr==0)
     {
 		khi = 1;
-	#if FFT_DEBUG
-		fprintf(dbg_file, "radix8_ditN_cy_dif1_nochk: Cleanup Pass:\n", n);
-	#endif
 	}
-
-/* Needed to remove the prefetch-address vars add0 & add for this to compile properly: */
-#ifdef USE_OMP
-  omp_set_num_threads(CY_THREADS);
-
-//	#pragma omp parallel for private(add0,add,i,iroot,j,j1,jstart,jhi,k,k1,k2,l,col,co2,co3,m,m2,n_minus_sil,n_minus_silp1,sinwt,sinwtm1,wtl,wtlp1,wtn,wtnm1,wt,wtinv,wtA,wtB,wtC,wt_re,wt_im,rt,it,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,a1p0r,a1p1r,a1p2r,a1p3r,a1p4r,a1p5r,a1p6r,a1p7r,a1p0i,a1p1i,a1p2i,a1p3i,a1p4i,a1p5i,a1p6i,a1p7i,temp,bjmodn0,bjmodn1,bjmodn2,bjmodn3,bjmodn4,bjmodn5,bjmodn6,bjmodn7,cy_r0,cy_r1,cy_r2,cy_r3,cy_r4,cy_r5,cy_r6,cy_r7,cy_i0,cy_i1,cy_i2,cy_i3,cy_i4,cy_i5,cy_i6,cy_i7) default(shared) schedule(dynamic)
-//#undef PFETCH
-	#pragma omp parallel for private(         i,iroot,j,j1,jstart,jhi,k,k1,k2,l,col,co2,co3,m,m2,n_minus_sil,n_minus_silp1,sinwt,sinwtm1,wtl,wtlp1,wtn,wtnm1,wt,wtinv,wtA,wtB,wtC,wt_re,wt_im,rt,it,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,a1p0r,a1p1r,a1p2r,a1p3r,a1p4r,a1p5r,a1p6r,a1p7r,a1p0i,a1p1i,a1p2i,a1p3i,a1p4i,a1p5i,a1p6i,a1p7i,temp,bjmodn0,bjmodn1,bjmodn2,bjmodn3,bjmodn4,bjmodn5,bjmodn6,bjmodn7,cy_r0,cy_r1,cy_r2,cy_r3,cy_r4,cy_r5,cy_r6,cy_r7,cy_i0,cy_i1,cy_i2,cy_i3,cy_i4,cy_i5,cy_i6,cy_i7) default(shared) schedule(static)
-#endif
 
     for(ithread = 0; ithread < CY_THREADS; ithread++)
     {
@@ -2000,12 +1976,6 @@ void radix8_dif_pass1(double a[], int n)
 		a[j1+p7]=t7+rt;		a[j2+p7]=t8+it;
 	}
 
-#undef FFT_DEBUG
-#define FFT_DEBUG	0
-#if FFT_DEBUG
-	sprintf(cbuf, "After Radix-8 DIF Pass 1:\n");
-	write_fft_debug_data(a,0,n);
-#endif
 }
 
 /***************/

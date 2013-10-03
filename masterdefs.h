@@ -68,12 +68,14 @@ in util.c), otherwise alias the entire 4-argument DBG_ASSERT invocation to "Boli
 #define FFT_DEBUG	0
 
 /* Numeric value controlling how many real*8 array slots separate Re and Im elements of the same complex datum
-in the vector that gets FFTed. This is to ease SSE2 support. Default is 1, with SSE2 invoked, it's 2: */
+in the vector that gets FFTed. This is to ease SIMD support. Default is 1, SSE2 = 2, AVX = 4: */
 #undef  RE_IM_STRIDE
-#ifndef USE_SSE2
-	#define RE_IM_STRIDE	1
-#else
+#ifdef USE_AVX	// AVX and AVX2 both use 256-bit registers
+	#define RE_IM_STRIDE	4
+#elif defined(USE_SSE2)
 	#define RE_IM_STRIDE	2
+#else
+	#define RE_IM_STRIDE	1
 #endif
 
 #undef  NOBRANCH

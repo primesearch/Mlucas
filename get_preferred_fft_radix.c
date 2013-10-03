@@ -86,9 +86,6 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 	double tbest = 0, tcurr;
 	char *char_addr;
 
-	/* For safety's sake, prevent caller from directly overwriting the RADIX_SET global: */
-	ASSERT(HERE, RADIX_VEC != 0x0, "get_preferred_fft_radix: invalid pointer for RADIX_VEC array!");
-
 	/* FFT-radix configuration file is named mlucas.cfg or fermat.cfg,
 	depending on whether Mersenne or Fermat number test is being done:
 	*/

@@ -126,6 +126,7 @@ uint32 qfcmpgt		(const struct qfloat q1, struct qfloat q2);
 uint32 qfcmple		(const struct qfloat q1, struct qfloat q2);
 uint32 qfcmpge		(const struct qfloat q1, struct qfloat q2);
 // qfloat --> double / long-double conversions:
+uint64 qfdbl_as_uint64(const struct qfloat q);
 double qfdbl		(const struct qfloat q);
 long double qfldbl	(const struct qfloat q);
 // double / long-double --> qfloat conversions:

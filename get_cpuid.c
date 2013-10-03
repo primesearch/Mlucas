@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -34,6 +34,11 @@
 
   #if(defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
 
+	// xgetbv(ax,dx) macro: Needed for AVX support detection for OS being used: Set ecx = 0, see if xgetbv sets bits 1:2 of eax:
+	#define XGETBV(func,ax,dx)\
+		__asm__ __volatile__ ("xgetbv":\
+	"=a" (ax), "=d" (dx) : "c" (func));
+
 	#define CPUID(func,ax,bx,cx,dx)\
 		__asm__ __volatile__ ("cpuid":\
 	"=a" (ax), "=b" (bx), "=c" (cx), "=d" (dx) : "a" (func));
@@ -53,8 +58,15 @@
 
   #elif(defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_ICC))
 
-	/* For MSVC and ICC, Replace with fancier call based on __cpuid intrisic: */
-#if 0
+	#define XGETBV(func,a,d)\
+	{\
+		__asm	mov	ecx, func\
+		__asm	xgetbv\
+		__asm	mov	a, eax\
+		__asm	mov	d, edx\
+	}
+
+	/* For MSVC and ICC, Replace the simple mov-based macro with fancier call based on __cpuid intrisic:
 	#define CPUID(func,a,b,c,d)\
 	{\
 		__asm	mov	eax, func\
@@ -64,7 +76,7 @@
 		__asm	mov	c, ecx\
 		__asm	mov	d, edx\
 	}
-#endif
+	*/
 
 	#include <intrin.h>
 
@@ -326,6 +338,7 @@
 
 /*	#error get_cpuid() only supported for ia32 under GCC, MSVC, and Intel C!	*/
 	#define CPUID(x,a,b,c,d)	/* */
+	#define XGETBV(a,d)			/* */
 
   #endif
 
@@ -417,6 +430,40 @@
 		else
 			return 0;
 	}
+
+  #ifdef USE_AVX	// Need to wrap these in a #ifdef since XGETBV instruction not supported by pre-AVX CPU/OS combos.
+
+	/* AVX requires us to check both CPU support and OS register-state-save support, which are
+	encoded in bit 28 and 27, respectively, of ECX returned by calling CPUID with input EAX = 1: */
+	uint32	has_avx()
+	{
+		uint32 a,b,c,d;
+		CPUID(1,a,b,c,d);
+
+		if(c & 0x18000000) {			// CPU supports AVX?
+			XGETBV(0,a,d);
+			return (a & 0x6) == 0x6;	//  OS supports AVX?
+		} else {
+			return 0;
+		}
+	}
+
+	/* AVX2 requires us to check both AVX and FMA support, the former of which described in has_avx() and
+	the latter of which is encoded in bit 12 of ECX returned by calling CPUID with input EAX = 1: */
+	uint32	has_avx2()
+	{
+		uint32 a,b,c,d;
+		CPUID(1,a,b,c,d);
+
+		if(c & 0x18001000) {			// CPU supports AVX+FMA?
+			XGETBV(0,a,d);
+			return (a & 0x6) == 0x6;	//  OS supports AVX?
+		} else {
+			return 0;
+		}
+	}
+
+  #endif	// USE_AVX?
 
 #endif
 

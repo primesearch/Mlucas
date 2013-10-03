@@ -22,12 +22,6 @@
 
 #include "Mlucas.h"
 
-#undef FFT_DEBUG
-#define FFT_DEBUG	0
-
-#undef DWT_DEBUG
-#define DWT_DEBUG	0
-
 #undef RTIME
 #undef CTIME
 
@@ -130,7 +124,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	int bimodn,simodn;					/* Mnemonic: BIMODN stands for "B times I mod N", nothing to do with bimodal.	*/
 	int i,ii,ierr,iter,j,jhi,k,l,m,mm,k2,m2,l1,l2,l2_start,blocklen,blocklen_sum,outer;
 	static uint64 psave=0;
-	static uint32 nsave=0;
+	static uint32 nsave=0, new_runlength=0;
 	static uint32 nwt,nwt_bits,bw,sw,bits_small;
 	const  double one_half[3] = {1.0, 0.5, 0.25};		/* Needed for small-weights-tables scheme */
 	static double base[2],baseinv[2],radix_inv;
@@ -176,7 +170,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 
 #endif
 
-	radix_vec0 = RADIX_VEC[0];	nchunks = radix_vec0>>1;
+	radix_vec0 = RADIX_VEC[0];
+	nchunks = radix_vec0>>1;
 	ASSERT(HERE, TRANSFORM_TYPE == REAL_WRAPPER, "mers_mod_square: Incorrect TRANSFORM_TYPE!");
 
 /*...initialize things upon first entry */
@@ -184,7 +179,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	/*...If a new exponent, runlength or radix set, deallocate any already-allocated
 	allocatable arrays and set first_entry to true:	*/
 
-	if(p != psave || n != nsave) first_entry=TRUE;
+	if(n != nsave) new_runlength = TRUE;
+	if(p != psave || new_runlength) first_entry=TRUE;
 
 	for(i = 0; i < 10; i++)
 	{
@@ -470,22 +466,22 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		case 44 :
 			nradices_radix0 = 3;
 			radix_prim[l++] =11; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
-		case 52 :
-			nradices_radix0 = 3;
-			radix_prim[l++] =13; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
-		case 60 :
-			nradices_radix0 = 4;
-			radix_prim[l++] = 5; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
-		/*
 		case 48 :
 			nradices_radix0 = 5;
 			radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 52 :
+			nradices_radix0 = 3;
+			radix_prim[l++] =13; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 56 :
 			nradices_radix0 = 4;
 			radix_prim[l++] = 7; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 60 :
+			nradices_radix0 = 4;
+			radix_prim[l++] = 5; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 64 :
 			nradices_radix0 = 6;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		/*
 		case 72 :
 			nradices_radix0 = 5;
 			radix_prim[l++] = 3; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
@@ -1220,6 +1216,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 
 		ASSERT(HERE, MAX_THREADS == get_num_cores(), "MAX_THREADS not set or incorrectly set!");
 
+		if(nchunks % NTHREADS != 0) fprintf(stderr,"mers_mod_square: radix_vec0/2 not exactly divisible by NTHREADS - This will hurt performance.\n");
+
 		// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
 		// so on that platform try to be clever and interleave main-thread and threadpool-work processing
 		#ifdef OS_TYPE_MACOSX
@@ -1247,10 +1245,17 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	#endif
 	}
 
-	/* Only need to init SIMD-related local storage and data at start of run, irrespective of FFT length. This set of init-mode
-	calls needs to go below above init-block because several of the inits need the primitive-radix data to have been inited:
+	/* 	This set of init-mode calls needs to go below above init-block because several
+	of the inits need the primitive-radix data to have been inited.
 	*/
-	if(init_sse2 == FALSE) {
+	if(new_runlength && init_sse2) {	// Pvsly inited SSE2 local storage, but now have new runlength
+		init_sse2 = nchunks;	// Use *value* of init_sse2 to store #threads
+		thr_id = -1;
+		/* The dyadic-square routines need a few more params passed in init-mode than do the standalone FFT-pass routines: */
+		radix16_wrapper_square(0x0, arr_scratch, n, radix_vec0, 0x0, 0x0, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id);
+		radix32_wrapper_square(0x0, arr_scratch, n, radix_vec0, 0x0, 0x0, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id);
+	}
+	if(init_sse2 == FALSE || (init_sse2 < nchunks)) {		// New run, or need to up #threads in local-store inits
 	//	init_sse2 = TRUE;
 		init_sse2 = nchunks;	// Use *value* of init_sse2 to store #threads
 		thr_id = -1;
@@ -1259,13 +1264,14 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		radix32_dif_pass(0x0, 0, 0x0, 0x0, 0, 0, 0x0, init_sse2, thr_id);
 
 		/* The dyadic-square routines need a few more params passed in init-mode than do the standalone FFT-pass routines: */
-		radix16_wrapper_square(0x0, arr_scratch, n, nchunks, 0x0, 0x0, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id);
-		radix32_wrapper_square(0x0, arr_scratch, n, nchunks, 0x0, 0x0, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id);
+		radix16_wrapper_square(0x0, arr_scratch, n, radix_vec0, 0x0, 0x0, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id);
+		radix32_wrapper_square(0x0, arr_scratch, n, radix_vec0, 0x0, 0x0, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id);
 
 		radix8_dit_pass (0x0, 0, 0x0, 0x0, 0, 0, 0x0, init_sse2, thr_id);
 		radix16_dit_pass(0x0, 0, 0x0, 0x0, 0, 0, 0x0, init_sse2, thr_id);
 		radix32_dit_pass(0x0, 0, 0x0, 0x0, 0, 0, 0x0, init_sse2, thr_id);
 	}
+	new_runlength = FALSE;
 
 	/* end of initialization sequence.	*/
 
@@ -1562,58 +1568,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	dt_fwd = dt_inv = dt_sqr = 0.0;
 #endif
 
-/*...At the start of each iteration cycle, need to forward weight the array of integer residue digits...	*/
+/*...At the start of each iteration cycle, need to forward-weight the array of integer residue digits...	*/
 
-/* This is a workaround for yet another DEC/Compaq TruUnix 4.0 bug - in this case, the
-4.0 C compiler causes one of the elements of the A-array to be set to some small multiple
-of machine epsilon, rather tha to zero. */
-/*
-if(ilo == 0)
-{
-fprintf(stderr,"test loop...\n");
-	for(i=1; i < n; i++)	* Expect a[0] to be nonzero, so skip it. *
-	{
-		j = i + ((i >> DAT_BITS) << PAD_BITS );
-		if(a[j] != 0.0)
-		{
-			 fprintf(stderr,"warning: nonzero a[%8d] = %25.16e\n",j,a[j]);
-			 a[j] = 0.0;
-		}
-	}
-fprintf(stderr,"done.\n");
-}
-*/
-#if FFT_DEBUG
-	sprintf(cbuf, "RT0 vector:\n");
-	write_fft_debug_data((double *)rt0,0,2*nwt);
-
-	sprintf(cbuf, "RT1 vector:\n");
-	write_fft_debug_data((double *)rt1,0,n/nwt);
-
-	sprintf(cbuf, "WT0 vector:\n");
-	write_fft_debug_data((double *)wt0,0,nwt+1);
-
-	sprintf(cbuf, "WT1 vector:\n");
-	write_fft_debug_data((double *)wt1,0,n/nwt+radix_vec0);
-
-	rng_isaac_init(TRUE);	/* init RNG */
-	for(i=0; i < n; i++)
-	{
-		j = i + ((i >> DAT_BITS) << PAD_BITS );
-	#ifdef USE_SSE2
-		j = (j & mask01) + br4[j&3];
-	#endif
-		a[j] = (double)((int)(100.0*rng_isaac_rand_double_norm_pm1()));
-	}
-
-	sprintf(cbuf, "Initial data vector:\n");
-	write_fft_debug_data(a,0,n);
-#endif
-
-#if DWT_DEBUG
-	printf("n = %d, bw = %d, sw =%d\n",n,bw,sw);
-	ASSERT(HERE, n == (bw+sw), "(bw+sw) == n check failed!");
-#endif
 	simodn = 0;
 	bimodn = 0;
 	ii     = 1;		/* Pointer to the BASE and BASEINV arrays. If n does not divide p, lowest-order digit is always a bigword (ii = 1).	*/
@@ -1634,11 +1590,6 @@ fprintf(stderr,"done.\n");
 		wtinv = wt0[nwt-l]*tmp[k2]*one_half[m2]*radix_inv;
 		ASSERT(HERE, (double)((int32)a[j]) == a[j],"mers_mod_square.c: Input a[j] noninteger!");
 		fracmax = fabs( wt*wtinv*radix_vec0 - 1.0 );
-	#if DWT_DEBUG
-		if(i < 10) {
-			printf("Input a[%d] = %10.2f, wt = %20.15f, wtinv = %20.15f, wterr = %20.10e, base[%d] = %8.0f\n",i,a[j],wt,wtinv*radix_vec0,fracmax,ii,base[ii]);
-		}
-	#endif
 		ASSERT(HERE, fracmax < 1e-10, "wt*wtinv check failed!");
 		a[j] *= wt;
 		simodn += sw;
@@ -1703,17 +1654,17 @@ fprintf(stderr,"done.\n");
 		radix40_dif_pass1(a,n); break;
 	case 44 :
 		radix44_dif_pass1(a,n); break;
-	case 52 :
-		radix52_dif_pass1(a,n); break;
-	case 60 :
-		radix60_dif_pass1(a,n); break;
-	/*
 	case 48 :
 		radix48_dif_pass1(a,n); break;
+	case 52 :
+		radix52_dif_pass1(a,n); break;
 	case 56 :
 		radix56_dif_pass1(a,n); break;
+	case 60 :
+		radix60_dif_pass1(a,n); break;
 	case 64 :
 		radix64_dif_pass1(a,n); break;
+	/*
 	case 72 :
 		radix72_dif_pass1(a,n); break;
 	case 80 :
@@ -1736,11 +1687,6 @@ fprintf(stderr,"done.\n");
 		fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 	}
 
-#if FFT_DEBUG
-	sprintf(cbuf, "After radix[%2d]_dif_pass1:\n",radix_vec0);
-	write_fft_debug_data(a,0,n);
-#endif
-
 /**********************************************************************/
 
 	/* Main iteration loop is here. Do forward-FFT/pointwise-square/inverse-FFT, inverse weighting,
@@ -1762,7 +1708,7 @@ fprintf(stderr,"done.\n");
 		num_chunks[i] = 0;
 	}
   #else
-	#error MULTITHREAD defined but neit her USE_OMP nor USE_PTHREAD def'd - Please recheck thread-related defines in platform.h file.
+	#error MULTITHREAD defined but neither USE_OMP nor USE_PTHREAD defined - Please recheck thread-related defines in platform.h file.
   #endif
 
   #if DBG_THREADS
@@ -1773,11 +1719,7 @@ fprintf(stderr,"done.\n");
 
 	for(iter=ilo+1; iter <= ihi; iter++)
 	{
-	
-	#if DEBUG
-		fprintf(stderr,"Iter = %d\n",iter);
-	#endif
-	/*...perform the FFT-based squaring:
+		/*...perform the FFT-based squaring:
 		 Do last S-1 of S forward decimation-in-frequency transform passes.	*/
 	
 		/* Process (radix0/2) pairs of same-sized data blocks.
@@ -1790,14 +1732,12 @@ fprintf(stderr,"done.\n");
 
   #ifdef USE_PTHREAD
 
-	/* create radix_vec0/2 new threads each of which will execute 'mers_process_chunk()' over some specified index subrange.
-	In order to match the threads executing at any given time to the available CPUs, divide the thread execution
-	into [NTHREADS] 'work shifts' ( <= #CPus), each with its threads starting and completing their work before the next shift
-	comes online:
+	/* create nchunks = radix_vec0/2 new threads each of which will execute 'mers_process_chunk()' over some specified index
+	subrange. In order to match the threads executing at any given time to the available CPUs, divide the thread execution into
+	[NTHREADS] 'work shifts' ( <= #CPus), each with its threads starting and completing their work before the next shift begins:
 	*/
-	ASSERT(HERE, (radix_vec0>>1)%NTHREADS == 0, "mers_mod_square: radix_vec0/2 must be exactly divisible by NTHREADS");
-
-	if(NTHREADS > 0) {	/******* Change 0 --> to test thread-team/join overhead ******/
+	if(NTHREADS > 0)	/******* Change 0 --> to test thread-team/join overhead ******/
+	{
 		isum = 0;
 
 	// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
@@ -1869,24 +1809,6 @@ fprintf(stderr,"done.\n");
 		}
 	}
 
-  #else	// OpenMP work-sharing is via pragmas, so the #else block here encompasses both unthreaded and OpenMP-multithreaded builds:
-
-	#pragma omp parallel for default(shared) schedule(static)
-
-/* Options:
-	#pragma omp for schedule(static)
-	#pragma omp for schedule(static) wait/nowait
-	#pragma omp for schedule(dynamic)
-*/
-    for(ii = 0; ii < radix_vec0; ii += 2)
-    {
-	#if DBG_THREADS
-	/*	if(iter == ilo+1) fprintf(stderr,"Thread %3d : ii = %d\n", omp_get_thread_num(), ii); */
-		++num_chunks[omp_get_thread_num()];
-	#endif
-		mers_process_chunk(a,arr_scratch,n,rt0,rt1,index,block_index,ii,nradices_prim,radix_prim,ws_i,ws_j1,ws_j2,ws_j2_start,ws_k,ws_m,ws_blocklen,ws_blocklen_sum);
-    }	/* End of ii-loop. */
-
   #endif
 
 #else
@@ -1956,10 +1878,16 @@ fprintf(stderr,"done.\n");
 				ierr = radix40_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
 			case 44 :
 				ierr = radix44_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
+			case 48 :
+				ierr = radix48_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
 			case 52 :
 				ierr = radix52_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
+			case 56 :
+				ierr = radix56_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
 			case 60 :
 				ierr = radix60_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 64 :
+				ierr = radix64_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
 			default :
 				sprintf(cbuf,"FATAL: radix %d not available for ditN_cy_dif1. Halting...\n",radix_vec0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 		}
@@ -1992,7 +1920,9 @@ fprintf(stderr,"done.\n");
 			case 15 :
 				ierr = radix15_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,         p); break;
 			case 16 :
-				ierr = radix16_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,         p); break;
+				ierr = radix16_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			// Mersenne-mod version of the nochk radix-16 carry routine broken-due-to-cause unknown (perhaps related to my carry-vector experiment here):
+			//	ierr = radix16_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,         p); break;
 			case 18 :
 				ierr = radix18_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,         p); break;
 			case 20 :
@@ -2015,20 +1945,21 @@ fprintf(stderr,"done.\n");
 				ierr = radix40_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
 			case 44 :
 				ierr = radix44_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
+			case 48 :
+				ierr = radix48_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
 			case 52 :
 				ierr = radix52_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
+			case 56 :
+				ierr = radix56_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
 			case 60 :
 				ierr = radix60_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 64 :
+				ierr = radix64_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
 			default :
 				sprintf(cbuf,"FATAL: radix %d not available for ditN_cy_dif1_nochk. Halting...\n",radix_vec0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 		}
 	}
 #endif	/* #ifndef USE_SSE2 */
-
-#if FFT_DEBUG
-	sprintf(cbuf, "After radix[%2d]_ditN_cy_dif1:\n",radix_vec0);
-	write_fft_debug_data(a,0,n);
-#endif
 
 	/* Nonzero remaining carries are instantly fatal: */
 	if(ierr)
@@ -2105,10 +2036,6 @@ fprintf(stderr,"done.\n");
 	clock1 = clock2;
 #endif
 
-#if FFT_DEBUG
-	exit(0);
-#endif
-
 }	/* End of main loop	*/
 
 #ifdef RTIME
@@ -2181,17 +2108,17 @@ fprintf(stderr,"done.\n");
 			radix40_dit_pass1(a,n); break;
 		case 44 :
 			radix44_dit_pass1(a,n); break;
-		case 52 :
-			radix52_dit_pass1(a,n); break;
-		case 60 :
-			radix60_dit_pass1(a,n); break;
-	/*
 		case 48 :
 			radix48_dit_pass1(a,n); break;
+		case 52 :
+			radix52_dit_pass1(a,n); break;
 		case 56 :
 			radix56_dit_pass1(a,n); break;
+		case 60 :
+			radix60_dit_pass1(a,n); break;
 		case 64 :
 			radix64_dit_pass1(a,n); break;
+	/*
 		case 72 :
 			radix72_dit_pass1(a,n); break;
 		case 80 :
@@ -2219,10 +2146,14 @@ fprintf(stderr,"done.\n");
 	ii     = 1;		/* Pointer to the BASE and BASEINV arrays. If n does not divide p, lowest-order digit is always a bigword (ii = 1).	*/
 	for(i=0; i < n; i++)
 	{
-		j = i + ((i >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-	#ifdef USE_SSE2
-		j = (j & mask01) + br4[j&3];
+	#ifdef USE_AVX
+		j = (i & mask02) + br8[i&7];
+	#elif defined(USE_SSE2)
+		j = (i & mask01) + br4[i&3];
+	#else
+		j = i;
 	#endif
+		j = j + ( (j>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 
 		l = i & (nwt-1);
 		k2= (n-i) >> nwt_bits;
@@ -2239,7 +2170,13 @@ fprintf(stderr,"done.\n");
 		if(frac_fp > max_fp)
 			max_fp = frac_fp;
 		if(fabs(2*a[j]) > base[ii]) {
-			printf("Output a[%d] = %20.5f out of range: base[%d] = %15.0f\n",i,a[j],ii,base[ii]);
+		#ifdef USE_AVX
+			printf("Output a[i = %d, j = %d, jpad = %d] = %20.5f out of range: base[%d] = %15.0f\n",i,(i & mask02) + br8[i&7],j,a[j],ii,base[ii]);
+		#elif defined(USE_SSE2)
+			printf("Output a[i = %d, j = %d, jpad = %d] = %20.5f out of range: base[%d] = %15.0f\n",i,(i & mask01) + br4[i&3],j,a[j],ii,base[ii]);
+		#else
+			printf("Output a[i = %d, jpad = %d] = %20.5f out of range: base[%d] = %15.0f\n",i,j,a[j],ii,base[ii]);
+		#endif
 			ASSERT(HERE, 0, "Output out of range!");
 		}
 		bimodn += bw;
@@ -2307,11 +2244,6 @@ void mers_process_chunk  (double a[], int arr_scratch[], int n, struct complex r
     int i,incr,istart,j,jhi,jstart,k,koffset,l,mm;
 	int init_sse2 = FALSE;	// Init-calls to various radix-pass routines presumed done prior to entry into this routine
 
-#if FFT_DEBUG
-	int l0,ilo,ihi;
-	int l1,klo,khi;
-#endif
-
 	/* If radix0 odd and i = 0, process just one block of data, otherwise do two: */
 	if(ii == 0 && (radix_vec0 & 1))
 		jhi = 1;
@@ -2328,23 +2260,6 @@ void mers_process_chunk  (double a[], int arr_scratch[], int n, struct complex r
 
 		istart = l*incr;	/* Starting location of current data-block-to-be-processed within A-array. */
 		jstart = istart + ((istart >> DAT_BITS) << PAD_BITS );
-
-	#if FFT_DEBUG
-		if(j==0)
-		{
-			l0 = l;
-			sprintf(cbuf, "On entry to mers_process_chunk: block %d:\n",l0);
-			ilo = istart;	ihi = istart+incr;
-			write_fft_debug_data(a,ilo,ihi);
-		}
-		else
-		{
-			l1 = l;
-			sprintf(cbuf, "On entry to mers_process_chunk: block %d:\n",l1);
-			klo = istart;	khi = istart+incr;
-			write_fft_debug_data(a,klo,khi);
-		}
-	#endif
 
 #ifdef CTIME
 	clock_supp = clock();
@@ -2377,13 +2292,6 @@ void mers_process_chunk  (double a[], int arr_scratch[], int n, struct complex r
 #endif
 
 	}	/* end j-loop */
-
-#if FFT_DEBUG
-	sprintf(cbuf, "After radix_dif_pass: block %d:\n",l0);
-	write_fft_debug_data(a,ilo,ihi);
-	sprintf(cbuf, "After radix_dif_pass: block %d:\n",l1);
-	write_fft_debug_data(a,klo,khi);
-#endif
 
 	/*...Final DIF pass, wrapper/squaring and initial DIT pass are all done in-place.
 	This combines data from both the l1 and l2-block, except in the case ii = 0
@@ -2419,13 +2327,6 @@ void mers_process_chunk  (double a[], int arr_scratch[], int n, struct complex r
 
 #ifdef CTIME
 	dt_sqr += (double)(clock() - clock_supp);
-#endif
-
-#if FFT_DEBUG
-	sprintf(cbuf, "After radix[%1d = %2d]_wrapper_square: block %d:\n",i,RADIX_VEC[NRADICES-1],l0);
-	write_fft_debug_data(a,ilo,ihi);
-	sprintf(cbuf, "After radix[%1d = %2d]_wrapper_square: block %d:\n",i,RADIX_VEC[NRADICES-1],l1);
-	write_fft_debug_data(a,klo,khi);
 #endif
 
 	/*...Rest of inverse decimation-in-time (DIT) transform. Note that during IFFT we process the radices in reverse
@@ -2493,13 +2394,6 @@ void mers_process_chunk  (double a[], int arr_scratch[], int n, struct complex r
 #endif
 
 	}	/* end j-loop */
-
-#if FFT_DEBUG
-	sprintf(cbuf, "After radix_dit_pass: block %d:\n",l0);
-	write_fft_debug_data(a,ilo,ihi);
-	sprintf(cbuf, "After radix_dit_pass: block %d:\n",l1);
-	write_fft_debug_data(a,klo,khi);
-#endif
 
 #ifdef MULTITHREAD
 

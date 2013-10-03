@@ -27,12 +27,13 @@
 
 #ifdef USE_SSE2
 
+	#if(HIACC != 1)
+		#error SIMD Mode requires HIACC flag to be set!
+	#endif
+
 	#ifdef COMPILER_TYPE_MSVC
 		#include "sse2_macro.h"
 	#endif
-
-	#undef DEBUG_SSE2
-//	#define DEBUG_SSE2
 
 	#if defined(COMPILER_TYPE_MSVC)
 
@@ -318,6 +319,7 @@
 void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr, int init_sse2, int thr_id)
 {
 	static int max_threads = 0;
+	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 	int i,j,j1,j2,jlo,jhi,m,iroot_prim,iroot,k1,k2;
 	int p01,p02,p03,p04,p08,p0C,p10,p14,p18,p1C;
 	const double c = 0.92387953251128675613, s     = 0.38268343236508977173	/* exp[  i*(twopi/16)]	*/
@@ -331,21 +333,21 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 	#error SSE2 code not supported for this compiler!
   #endif
 
-	static struct complex *sc_arr = 0x0, *sc_ptr;
+	static vec_dbl *sc_arr = 0x0, *sc_ptr;
 	double *add0;	/* Addresses into array sections */
 #ifdef COMPILER_TYPE_MSVC
 	double *add1, *add2, *add3, *add4, *add5, *add6, *add7;
 #endif
-	struct complex *c_tmp,*s_tmp;
+	vec_dbl *c_tmp,*s_tmp;
 
   #ifdef MULTITHREAD
-	static struct complex *__r0;					// Base address for discrete per-thread local stores
+	static vec_dbl *__r0;					// Base address for discrete per-thread local stores
 	// In || mode, only above base-pointer (shared by all threads) is static:
-	struct complex *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *two, *r00;
+	vec_dbl *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *two, *r00;
   #elif defined(COMPILER_TYPE_GCC)
-	static struct complex *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *two, *r00;
+	static vec_dbl *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *two, *r00;
   #else
-	static struct complex *isrt2, *two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3
+	static vec_dbl *isrt2, *two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3
 		,*c00,*c01,*c02,*c03,*c04,*c05,*c06,*c07,*c08,*c09,*c0A,*c0B,*c0C,*c0D,*c0E,*c0F
 		,*c10,*c11,*c12,*c13,*c14,*c15,*c16,*c17,*c18,*c19,*c1A,*c1B,*c1C,*c1D,*c1E,*c1F
 		,*s00,*s01,*s02,*s03,*s04,*s05,*s06,*s07,*s08,*s09,*s0A,*s0B,*s0C,*s0D,*s0E,*s0F
@@ -378,17 +380,16 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 	switch to a special-init-mode-call paradigm, in which the function is inited once (for as many threads as needed)
 	prior to being executed:
 	*/
-	if(init_sse2 && !sc_ptr)	// Just check (init_sse2 != 0) here, to allow the *value* of init_sse2 to store #threads
+	if(init_sse2)	// Just check (init_sse2 != 0) here, to allow the *value* of init_sse2 to store #threads
 	{
 		max_threads = init_sse2;
 	#ifndef COMPILER_TYPE_GCC
 		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 	#endif
 		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
-		ASSERT(HERE, sc_arr == 0x0, "Init-mode call conflicts with already-malloc'ed local storage!");
 		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
-		sc_arr = ALLOC_COMPLEX(sc_arr, 0x90*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		sc_ptr = ALIGN_COMPLEX(sc_arr);
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x90*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 64 16-byte slots of sc_arr for temporaries, next 7 for the nontrivial complex 32nd roots,
@@ -407,11 +408,10 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 			two   = sc_ptr + 0x87;
 			for(i = 0; i < max_threads; ++i) {
 				/* These remain fixed within each per-thread local store: */
-				isrt2->re = ISRT2;	isrt2->im = ISRT2;
-				cc0  ->re = c	;	cc0  ->im = c	;		ss0  ->re = s	;	ss0  ->im = s	;
-				cc1  ->re = c32_1;	cc1  ->im = c32_1;		ss1  ->re = s32_1;	ss1  ->im = s32_1;
-				cc3  ->re = c32_3;	cc3  ->im = c32_3;		ss3  ->re = s32_3;	ss3  ->im = s32_3;
-				two  ->re = 2.0;	two  ->im = 2.0;
+				VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(two, 2.0  );
+				VEC_DBL_INIT(cc0  , c    );		VEC_DBL_INIT(ss0, s    );
+				VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1, s32_1);
+				VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3, s32_3);
 				/* Move on to next thread's local store */
 				isrt2 += 0x90;
 				cc0   += 0x90;
@@ -433,10 +433,10 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 			ss3	  = sc_ptr + 0x46;
 			two   = sc_ptr + 0x87;
 			/* These remain fixed: */
-			isrt2->re = ISRT2;	isrt2->im = ISRT2;		two->re   = 2.0;	two->im   = 2.0;
-			cc0  ->re = c	;	cc0  ->im = c	;		ss0  ->re = s	;	ss0  ->im = s	;
-			cc1  ->re = c32_1;	cc1  ->im = c32_1;		ss1  ->re = s32_1;	ss1  ->im = s32_1;
-			cc3  ->re = c32_3;	cc3  ->im = c32_3;		ss3  ->re = s32_3;	ss3  ->im = s32_3;
+			VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(two, 2.0  );
+			VEC_DBL_INIT(cc0  , c    );		VEC_DBL_INIT(ss0, s    );
+			VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1, s32_1);
+			VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3, s32_3);
 		#else
 	//	} else {
 			r00		= sc_ptr + 0x00;	c00		= sc_ptr + 0x47;
@@ -511,10 +511,10 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 			cc3		= sc_ptr + 0x45;
 			ss3		= sc_ptr + 0x46;
 			/* These remain fixed: */
-			isrt2->re = ISRT2;	isrt2->im = ISRT2;		two->re   = 2.0;	two->im   = 2.0;
-			cc0  ->re = c	;	cc0  ->im = c	;		ss0  ->re = s	;	ss0  ->im = s	;
-			cc1  ->re = c32_1;	cc1  ->im = c32_1;		ss1  ->re = s32_1;	ss1  ->im = s32_1;
-			cc3  ->re = c32_3;	cc3  ->im = c32_3;		ss3  ->re = s32_3;	ss3  ->im = s32_3;
+			VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(two, 2.0  );
+			VEC_DBL_INIT(cc0  , c    );		VEC_DBL_INIT(ss0, s    );
+			VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1, s32_1);
+			VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3, s32_3);
 		#endif
 	//	}
 		return;
@@ -574,8 +574,9 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		(cc0,ss0) + 0x[06,26,16,36|0e,2e,1e,3e|0a,2a,1a,3a|12,32,22,42|08,28,18,38|10,30,20,40|0c,2c,1c,3c|14,34,24,44].
 		*/
 		c_tmp = cc0 + 0x06; s_tmp = c_tmp+1;	/* c0,s0 */
-		c_tmp->re = c_tmp->im = 1.0;
-		s_tmp->re = s_tmp->im = 0.0;
+		rt = 1.0; it = 0.0;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#endif
 
 		k1=(i & NRTM1);
@@ -586,8 +587,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x26; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c01=rt;		s01=it;
 	#endif
@@ -600,8 +601,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x16; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c02=rt;		s02=it;
 	#endif
@@ -614,8 +615,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x36; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c03=rt;		s03=it;
 	#endif
@@ -628,8 +629,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x0e; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c04=rt;		s04=it;
 	#endif
@@ -642,8 +643,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x2e; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c05=rt;		s05=it;
 	#endif
@@ -656,8 +657,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x1e; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c06=rt;		s06=it;
 	#endif
@@ -670,8 +671,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x3e; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c07=rt;		s07=it;
 	#endif
@@ -684,8 +685,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x0a; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c08=rt;		s08=it;
 	#endif
@@ -698,8 +699,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x2a; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c09=rt;		s09=it;
 	#endif
@@ -712,8 +713,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x1a; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c0A=rt;		s0A=it;
 	#endif
@@ -726,8 +727,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x3a; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c0B=rt;		s0B=it;
 	#endif
@@ -740,8 +741,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x12; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c0C=rt;		s0C=it;
 	#endif
@@ -754,8 +755,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x32; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c0D=rt;		s0D=it;
 	#endif
@@ -768,8 +769,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x22; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c0E=rt;		s0E=it;
 	#endif
@@ -782,8 +783,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x42; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c0F=rt;		s0F=it;
 	#endif
@@ -796,8 +797,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x08; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c10=rt;		s10=it;
 	#endif
@@ -810,8 +811,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x28; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c11=rt;		s11=it;
 	#endif
@@ -824,8 +825,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x18; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c12=rt;		s12=it;
 	#endif
@@ -838,8 +839,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x38; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c13=rt;		s13=it;
 	#endif
@@ -852,8 +853,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x10; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c14=rt;		s14=it;
 	#endif
@@ -866,8 +867,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x30; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c15=rt;		s15=it;
 	#endif
@@ -880,8 +881,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x20; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c16=rt;		s16=it;
 	#endif
@@ -894,8 +895,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x40; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c17=rt;		s17=it;
 	#endif
@@ -908,8 +909,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x0c; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c18=rt;		s18=it;
 	#endif
@@ -922,8 +923,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x2c; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c19=rt;		s19=it;
 	#endif
@@ -936,8 +937,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x1c; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c1A=rt;		s1A=it;
 	#endif
@@ -950,8 +951,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x3c; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c1B=rt;		s1B=it;
 	#endif
@@ -964,8 +965,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x14; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c1C=rt;		s1C=it;
 	#endif
@@ -978,8 +979,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x34; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c1D=rt;		s1D=it;
 	#endif
@@ -992,8 +993,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x24; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c1E=rt;		s1E=it;
 	#endif
@@ -1006,8 +1007,8 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x44; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c1F=rt;		s1F=it;
 	#endif
@@ -1107,107 +1108,21 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 	  jlo = m*incr;
 	  jhi = jlo+(incr >> 5);
 
-	#ifdef USE_SSE2
-	  for(j=jlo; j < jhi; j += 4)
+	/* In SIMD mode, data are arranged in [re_0,...,re_n-1,im_0,...,im_n-1] groups, not the usual [re_0,im_0],...,[re_n-1,im_n-1] pairs.
+	Thus we can still increment the j-index as if stepping through the residue array-of-doubles in strides of 2,
+	but to point to the proper real datum, we need to index-map e.g. [0,1,2,3] ==> [0,2,1,3] in 2-way SIMD mode.
+	(But only ever need to explicitly do this in debug mode).
+	*/
+	  for(j = jlo; j < jhi; j += stride)
 	  {
-		/* In SSE2 mode, data are arranged in [re0,re1,im0,im1] quartets, not the usual [re0,im0],[re1,im1] pairs.
-		Thus we can still increment the j-index as if stepping through the residue array-of-doubles in strides of 2,
-		but to point to the proper real datum, we need to bit-reverse bits <0:1> of j, i.e. [0,1,2,3] ==> [0,2,1,3].
-		*/
-		j1 = (j & mask01) + br4[j&3];
-	#elif defined(USE_SSE2)	/* This allows us to use #if 0 above and disable sse2-based *computation*, while still using sse2-style data layout */
-	  for(j=jlo; j < jhi; j += 2)
-	  {
-		j1 = (j & mask01) + br4[j&3];
-	#else
-	  for(j=jlo; j < jhi; j += 2)
-	  {
-		j1 =  j;
-	#endif
+		j1 = j;
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-		j2 = j1+RE_IM_STRIDE;
+		j2 = j1 + RE_IM_STRIDE;
 
 #ifdef USE_SSE2
 
 	/*       gather the needed data (32 64-bit complex, i.e. 64 64-bit reals) and do the first set of four length-8 transforms...
 			 We process the sincos data in bit-reversed order.	*/
-
-	#if 0//DEBUG_SSE2
-		if(s01->re != 0.0)
-		{
-			rng_isaac_init(TRUE);
-			jt = j1;		jp = j2;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	jt = j1 + p04;	jp = j2 + p04;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	jt = j1 + p08;	jp = j2 + p08;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	jt = j1 + p0C;	jp = j2 + p0C;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	jt = j1 + p10;	jp = j2 + p10;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	jt = j1 + p14;	jp = j2 + p14;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	jt = j1 + p18;	jp = j2 + p18;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	jt = j1 + p1C;	jp = j2 + p1C;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-
-			jt = j1; jp = j2;
-			fprintf(stderr, "radix32_dif_pass: a:00 = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dif_pass: a:02 = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dif_pass: a:04 = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dif_pass: a:06 = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);	jt = j1 + p04;	jp = j2 + p04;
-			fprintf(stderr, "radix32_dif_pass: a:08 = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dif_pass: a:0A = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dif_pass: a:0C = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dif_pass: a:0E = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);	jt = j1 + p08;	jp = j2 + p08;
-
-			fprintf(stderr, "radix32_dif_pass: a:10 = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dif_pass: a:12 = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dif_pass: a:14 = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dif_pass: a:16 = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);	jt = j1 + p0C;	jp = j2 + p0C;
-			fprintf(stderr, "radix32_dif_pass: a:18 = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dif_pass: a:1A = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dif_pass: a:1C = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dif_pass: a:1E = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);	jt = j1 + p10;	jp = j2 + p10;
-
-			fprintf(stderr, "radix32_dif_pass: a:20 = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dif_pass: a:22 = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dif_pass: a:24 = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dif_pass: a:26 = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);	jt = j1 + p14;	jp = j2 + p14;
-			fprintf(stderr, "radix32_dif_pass: a:28 = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dif_pass: a:2A = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dif_pass: a:2C = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dif_pass: a:2E = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);	jt = j1 + p18;	jp = j2 + p18;
-
-			fprintf(stderr, "radix32_dif_pass: a:30 = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dif_pass: a:32 = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dif_pass: a:34 = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dif_pass: a:36 = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);	jt = j1 + p1C;	jp = j2 + p1C;
-			fprintf(stderr, "radix32_dif_pass: a:38 = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dif_pass: a:3A = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dif_pass: a:3C = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dif_pass: a:0E = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);
-		}
-	#endif
 
 	#ifdef COMPILER_TYPE_MSVC
 
@@ -1966,51 +1881,9 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		add0 = &a[j1];
 		SSE2_RADIX32_DIF_TWIDDLE(add0,p01,p02,p03,p04,p08,p0C,p10,p18,r00)
 
-	#endif
+	#endif	// MSVC or GCC?
 
-	#if 0//DEBUG_SSE2
-		if(s01->re != 0.0)
-		{
-			fprintf(stderr, "radix32_dif_pass: r00 = %20.5f, %20.5f\n", r00->re, r01->re);
-			fprintf(stderr, "radix32_dif_pass: r02 = %20.5f, %20.5f\n", r02->re, r03->re);
-			fprintf(stderr, "radix32_dif_pass: r04 = %20.5f, %20.5f\n", r04->re, r05->re);
-			fprintf(stderr, "radix32_dif_pass: r06 = %20.5f, %20.5f\n", r06->re, r07->re);
-			fprintf(stderr, "radix32_dif_pass: r08 = %20.5f, %20.5f\n", r08->re, r09->re);
-			fprintf(stderr, "radix32_dif_pass: r0A = %20.5f, %20.5f\n", r0A->re, r0B->re);
-			fprintf(stderr, "radix32_dif_pass: r0C = %20.5f, %20.5f\n", r0C->re, r0D->re);
-			fprintf(stderr, "radix32_dif_pass: r0E = %20.5f, %20.5f\n", r0E->re, r0F->re);
-
-			fprintf(stderr, "radix32_dif_pass: r10 = %20.5f, %20.5f\n", r10->re, r11->re);
-			fprintf(stderr, "radix32_dif_pass: r12 = %20.5f, %20.5f\n", r12->re, r13->re);
-			fprintf(stderr, "radix32_dif_pass: r14 = %20.5f, %20.5f\n", r14->re, r15->re);
-			fprintf(stderr, "radix32_dif_pass: r16 = %20.5f, %20.5f\n", r16->re, r17->re);
-			fprintf(stderr, "radix32_dif_pass: r18 = %20.5f, %20.5f\n", r18->re, r19->re);
-			fprintf(stderr, "radix32_dif_pass: r1A = %20.5f, %20.5f\n", r1A->re, r1B->re);
-			fprintf(stderr, "radix32_dif_pass: r1C = %20.5f, %20.5f\n", r1C->re, r1D->re);
-			fprintf(stderr, "radix32_dif_pass: r1E = %20.5f, %20.5f\n", r1E->re, r1F->re);
-
-			fprintf(stderr, "radix32_dif_pass: r20 = %20.5f, %20.5f\n", r20->re, r21->re);
-			fprintf(stderr, "radix32_dif_pass: r22 = %20.5f, %20.5f\n", r22->re, r23->re);
-			fprintf(stderr, "radix32_dif_pass: r24 = %20.5f, %20.5f\n", r24->re, r25->re);
-			fprintf(stderr, "radix32_dif_pass: r26 = %20.5f, %20.5f\n", r26->re, r27->re);
-			fprintf(stderr, "radix32_dif_pass: r28 = %20.5f, %20.5f\n", r28->re, r29->re);
-			fprintf(stderr, "radix32_dif_pass: r2A = %20.5f, %20.5f\n", r2A->re, r2B->re);
-			fprintf(stderr, "radix32_dif_pass: r2C = %20.5f, %20.5f\n", r2C->re, r2D->re);
-			fprintf(stderr, "radix32_dif_pass: r2E = %20.5f, %20.5f\n", r2E->re, r2F->re);
-
-			fprintf(stderr, "radix32_dif_pass: r30 = %20.5f, %20.5f\n", r30->re, r31->re);
-			fprintf(stderr, "radix32_dif_pass: r32 = %20.5f, %20.5f\n", r32->re, r33->re);
-			fprintf(stderr, "radix32_dif_pass: r34 = %20.5f, %20.5f\n", r34->re, r35->re);
-			fprintf(stderr, "radix32_dif_pass: r36 = %20.5f, %20.5f\n", r36->re, r37->re);
-			fprintf(stderr, "radix32_dif_pass: r38 = %20.5f, %20.5f\n", r38->re, r39->re);
-			fprintf(stderr, "radix32_dif_pass: r3A = %20.5f, %20.5f\n", r3A->re, r3B->re);
-			fprintf(stderr, "radix32_dif_pass: r3C = %20.5f, %20.5f\n", r3C->re, r3D->re);
-			fprintf(stderr, "radix32_dif_pass: r0E = %20.5f, %20.5f\n", r0E->re, r0F->re);
-			exit(0);
-		}
-	#endif
-
-#else
+#else	// !USE_SEE2: Scalar (Non-SIMD) code:
 
 	/*       gather the needed data (32 64-bit complex, i.e. 64 64-bit reals) and do the first set of four length-8 transforms...
 			 We process the sincos data in bit-reversed order.	*/
@@ -2559,7 +2432,7 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 #endif	/* USE_SSE2 */
 
-	  }	/* endfor(j=jlo; j < jhi; j += 4) */
+	  }	/* endfor(j=jlo; j < jhi; ...) */
 
 	  /*jlo=jlo+incr; jhi=jhi+incr; See my note about OpenMP above. */
 
@@ -2575,6 +2448,7 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr, int init_sse2, int thr_id)
 {
 	static int max_threads = 0;
+	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 	int i,j,j1,j2,jlo,jhi,m,iroot_prim,iroot,k1,k2;
 	int p01,p02,p03,p04,p05,p06,p07,p08,p10,p18;
 	const double c = 0.92387953251128675613, s     = 0.38268343236508977173	/* exp[  i*(twopi/16)]	*/
@@ -2588,21 +2462,21 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 	#error SSE2 code not supported for this compiler!
   #endif
 
-	static struct complex *sc_arr = 0x0, *sc_ptr;
+	static vec_dbl *sc_arr = 0x0, *sc_ptr;
 	double *add0;	/* Addresses into array sections */
 #ifdef COMPILER_TYPE_MSVC
 	double *add1, *add2, *add3, *add4, *add5, *add6, *add7;
 #endif
-	struct complex *c_tmp,*s_tmp;
+	vec_dbl *c_tmp,*s_tmp;
 
   #ifdef MULTITHREAD
-	static struct complex *__r0;	/* Base address for discrete per-thread local stores */
+	static vec_dbl *__r0;	/* Base address for discrete per-thread local stores */
 	// In || mode, only above base-pointer (shared by all threads) is static:
-	struct complex *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *two
+	vec_dbl *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *two
 		,*r00,*r02,*r04,*r06,*r08,*r0A,*r0C,*r0E
 		,*r10,*r12,*r14,*r16,*r18,*r1A,*r1C,*r1E,*r20,*r30;
   #else
-	static struct complex *isrt2, *two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3
+	static vec_dbl *isrt2, *two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3
 		,*c00,*c01,*c02,*c03,*c04,*c05,*c06,*c07,*c08,*c09,*c0A,*c0B,*c0C,*c0D,*c0E,*c0F
 		,*c10,*c11,*c12,*c13,*c14,*c15,*c16,*c17,*c18,*c19,*c1A,*c1B,*c1C,*c1D,*c1E,*c1F
 		,*s00,*s01,*s02,*s03,*s04,*s05,*s06,*s07,*s08,*s09,*s0A,*s0B,*s0C,*s0D,*s0E,*s0F
@@ -2635,17 +2509,16 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 	switch to a special-init-mode-call paradigm, in which the function is inited once (for as many threads as needed)
 	prior to being executed:
 	*/
-	if(init_sse2 && !sc_ptr)	// Just check (init_sse2 != 0) here, to allow the *value* of init_sse2 to store #threads
+	if(init_sse2)	// Just check (init_sse2 != 0) here, to allow the *value* of init_sse2 to store #threads
 	{
 		max_threads = init_sse2;
 	#ifndef COMPILER_TYPE_GCC
 		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 	#endif
 		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
-		ASSERT(HERE, sc_arr == 0x0, "Init-mode call conflicts with already-malloc'ed local storage!");
 		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
-		sc_arr = ALLOC_COMPLEX(sc_arr, 0x90*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		sc_ptr = ALIGN_COMPLEX(sc_arr);
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x90*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 64 16-byte slots of sc_arr for temporaries, next 7 for the nontrivial complex 32nd roots,
@@ -2664,11 +2537,10 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 			two   = sc_ptr + 0x87;
 			for(i = 0; i < max_threads; ++i) {
 				/* These remain fixed within each per-thread local store: */
-				isrt2->re = ISRT2;	isrt2->im = ISRT2;
-				cc0  ->re = c	;	cc0  ->im = c	;		ss0  ->re = s	;	ss0  ->im = s	;
-				cc1  ->re = c32_1;	cc1  ->im = c32_1;		ss1  ->re = s32_1;	ss1  ->im = s32_1;
-				cc3  ->re = c32_3;	cc3  ->im = c32_3;		ss3  ->re = s32_3;	ss3  ->im = s32_3;
-				two  ->re = 2.0;	two  ->im = 2.0;
+				VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(two, 2.0  );
+				VEC_DBL_INIT(cc0  , c    );		VEC_DBL_INIT(ss0, s    );
+				VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1, s32_1);
+				VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3, s32_3);
 				/* Move on to next thread's local store */
 				isrt2 += 0x90;
 				cc0   += 0x90;
@@ -2754,10 +2626,10 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 			ss3		= sc_ptr + 0x46;
 
 			/* These remain fixed: */
-			isrt2->re = ISRT2;	isrt2->im = ISRT2;		two->re   = 2.0;	two->im   = 2.0;
-			cc0  ->re = c	;	cc0  ->im = c	;		ss0  ->re = s	;	ss0  ->im = s	;
-			cc1  ->re = c32_1;	cc1  ->im = c32_1;		ss1  ->re = s32_1;	ss1  ->im = s32_1;
-			cc3  ->re = c32_3;	cc3  ->im = c32_3;		ss3  ->re = s32_3;	ss3  ->im = s32_3;
+			VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(two, 2.0  );
+			VEC_DBL_INIT(cc0  , c    );		VEC_DBL_INIT(ss0, s    );
+			VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1, s32_1);
+			VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3, s32_3);
 		#endif
 	//	}
 		return;
@@ -2834,8 +2706,9 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 	*** NOTE: This is the same pattern as for DIF version, but with the middle 2 roots octets [08-40] and [0a-42] swapped ***
 		*/
 		c_tmp = cc0 + 0x06; s_tmp = c_tmp+1;	/* c0,s0 */
-		c_tmp->re = c_tmp->im = 1.0;
-		s_tmp->re = s_tmp->im = 0.0;
+		rt = 1.0; it = 0.0;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#endif
 
 		k1=(i & NRTM1);
@@ -2846,8 +2719,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x26; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c01=rt;		s01=it;
 	#endif
@@ -2860,8 +2733,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x16; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c02=rt;		s02=it;
 	#endif
@@ -2874,8 +2747,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x36; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c03=rt;		s03=it;
 	#endif
@@ -2888,8 +2761,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x0e; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c04=rt;		s04=it;
 	#endif
@@ -2902,8 +2775,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x2e; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c05=rt;		s05=it;
 	#endif
@@ -2916,8 +2789,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x1e; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c06=rt;		s06=it;
 	#endif
@@ -2930,8 +2803,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x3e; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c07=rt;		s07=it;
 	#endif
@@ -2944,8 +2817,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x08; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c08=rt;		s08=it;
 	#endif
@@ -2958,8 +2831,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x28; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c09=rt;		s09=it;
 	#endif
@@ -2972,8 +2845,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x18; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c0A=rt;		s0A=it;
 	#endif
@@ -2986,8 +2859,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x38; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c0B=rt;		s0B=it;
 	#endif
@@ -3000,8 +2873,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x10; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c0C=rt;		s0C=it;
 	#endif
@@ -3014,8 +2887,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x30; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c0D=rt;		s0D=it;
 	#endif
@@ -3028,8 +2901,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x20; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c0E=rt;		s0E=it;
 	#endif
@@ -3042,8 +2915,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x40; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c0F=rt;		s0F=it;
 	#endif
@@ -3056,8 +2929,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x0a; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c10=rt;		s10=it;
 	#endif
@@ -3070,8 +2943,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x2a; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c11=rt;		s11=it;
 	#endif
@@ -3084,8 +2957,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x1a; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c12=rt;		s12=it;
 	#endif
@@ -3098,8 +2971,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x3a; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c13=rt;		s13=it;
 	#endif
@@ -3112,8 +2985,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x12; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c14=rt;		s14=it;
 	#endif
@@ -3126,8 +2999,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x32; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c15=rt;		s15=it;
 	#endif
@@ -3140,8 +3013,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x22; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c16=rt;		s16=it;
 	#endif
@@ -3154,8 +3027,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x42; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c17=rt;		s17=it;
 	#endif
@@ -3168,8 +3041,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x0c; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c18=rt;		s18=it;
 	#endif
@@ -3182,8 +3055,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x2c; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c19=rt;		s19=it;
 	#endif
@@ -3196,8 +3069,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x1c; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c1A=rt;		s1A=it;
 	#endif
@@ -3210,8 +3083,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x3c; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c1B=rt;		s1B=it;
 	#endif
@@ -3224,8 +3097,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x14; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c1C=rt;		s1C=it;
 	#endif
@@ -3238,8 +3111,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x34; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c1D=rt;		s1D=it;
 	#endif
@@ -3252,8 +3125,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x24; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c1E=rt;		s1E=it;
 	#endif
@@ -3266,8 +3139,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x44; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#else
 		c1F=rt;		s1F=it;
 	#endif
@@ -3368,101 +3241,18 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 	  jlo = m*incr;
 	  jhi = jlo+(incr >> 5);
 
-	#ifdef USE_SSE2
-	  for(j=jlo; j < jhi; j += 4)
+	/* In SIMD mode, data are arranged in [re_0,...,re_n-1,im_0,...,im_n-1] groups, not the usual [re_0,im_0],...,[re_n-1,im_n-1] pairs.
+	Thus we can still increment the j-index as if stepping through the residue array-of-doubles in strides of 2,
+	but to point to the proper real datum, we need to index-map e.g. [0,1,2,3] ==> [0,2,1,3] in 2-way SIMD mode.
+	(But only ever need to explicitly do this in debug mode).
+	*/
+	  for(j = jlo; j < jhi; j += stride)
 	  {
-		/* In SSE2 mode, data are arranged in [re0,re1,im0,im1] quartets, not the usual [re0,im0],[re1,im1] pairs.
-		Thus we can still increment the j-index as if stepping through the residue array-of-doubles in strides of 2,
-		but to point to the proper real datum, we need to bit-reverse bits <0:1> of j, i.e. [0,1,2,3] ==> [0,2,1,3].
-		*/
-		j1 = (j & mask01) + br4[j&3];
-	#elif defined(USE_SSE2)	/* This allows us to use #if 0 above and disable sse2-based *computation*, while still using sse2-style data layout */
-	  for(j=jlo; j < jhi; j += 2)
-	  {
-		j1 = (j & mask01) + br4[j&3];
-	#else
-	  for(j=jlo; j < jhi; j += 2)
-	  {
-		j1 =  j;
-	#endif
+		j1 = j;
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		j2 = j1+RE_IM_STRIDE;
 
 #ifdef USE_SSE2
-
-	#ifdef DEBUG_SSE2
-		if(s01->re != 0.0)
-		{
-			rng_isaac_init(TRUE);
-			jt = j1;		jp = j2;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	jt = jt + p04;	jp = jp + p04;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	jt = j1 + p08;	jp = j2 + p08;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	jt = jt + p04;	jp = jp + p04;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	jt = j1 + p10;	jp = j2 + p10;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	jt = jt + p04;	jp = jp + p04;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	jt = j1 + p18;	jp = j2 + p18;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	jt = jt + p04;	jp = jp + p04;
-			a[jt    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp    ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p01] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p02] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[jt+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp+p03] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-
-			jt = j1; jp = j2;
-			fprintf(stderr, "radix32_dit_pass: a_in[00] = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dit_pass: a_in[02] = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dit_pass: a_in[04] = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dit_pass: a_in[06] = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);	jt = jt + p04;	jp = jp + p04;
-			fprintf(stderr, "radix32_dit_pass: a_in[08] = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dit_pass: a_in[0A] = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dit_pass: a_in[0C] = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dit_pass: a_in[0E] = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);	jt = j1 + p08;	jp = j2 + p08;
-			fprintf(stderr, "radix32_dit_pass: a_in[10] = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dit_pass: a_in[12] = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dit_pass: a_in[14] = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dit_pass: a_in[16] = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);	jt = jt + p04;	jp = jp + p04;
-			fprintf(stderr, "radix32_dit_pass: a_in[18] = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dit_pass: a_in[1A] = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dit_pass: a_in[1C] = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dit_pass: a_in[1E] = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);	jt = j1 + p10;	jp = j2 + p10;
-			fprintf(stderr, "radix32_dit_pass: a_in[20] = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dit_pass: a_in[22] = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dit_pass: a_in[24] = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dit_pass: a_in[26] = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);	jt = jt + p04;	jp = jp + p04;
-			fprintf(stderr, "radix32_dit_pass: a_in[28] = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dit_pass: a_in[2A] = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dit_pass: a_in[2C] = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dit_pass: a_in[2E] = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);	jt = j1 + p18;	jp = j2 + p18;
-			fprintf(stderr, "radix32_dit_pass: a_in[30] = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dit_pass: a_in[32] = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dit_pass: a_in[34] = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dit_pass: a_in[36] = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);	jt = jt + p04;	jp = jp + p04;
-			fprintf(stderr, "radix32_dit_pass: a_in[38] = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dit_pass: a_in[3A] = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dit_pass: a_in[3C] = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dit_pass: a_in[0E] = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);
-		}
-	#endif
 
 	/*       gather the needed data (32 64-bit complex, i.e. 64 64-bit reals) and do the first set of four length-8 transforms...
 			 We process the sincos data in bit-reversed order.	*/
@@ -4231,46 +4021,6 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 	#endif
 
-	#ifdef DEBUG_SSE2
-		if(s01->re != 0.0)
-		{
-			jt = j1; jp = j2;
-			fprintf(stderr, "radix32_dit_pass: a_out[00] = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dit_pass: a_out[02] = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dit_pass: a_out[04] = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dit_pass: a_out[06] = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);	jt = jt + p04;	jp = jp + p04;
-			fprintf(stderr, "radix32_dit_pass: a_out[08] = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dit_pass: a_out[0A] = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dit_pass: a_out[0C] = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dit_pass: a_out[0E] = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);	jt = j1 + p08;	jp = j2 + p08;
-			fprintf(stderr, "radix32_dit_pass: a_out[10] = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dit_pass: a_out[12] = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dit_pass: a_out[14] = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dit_pass: a_out[16] = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);	jt = jt + p04;	jp = jp + p04;
-			fprintf(stderr, "radix32_dit_pass: a_out[18] = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dit_pass: a_out[1A] = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dit_pass: a_out[1C] = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dit_pass: a_out[1E] = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);	jt = j1 + p10;	jp = j2 + p10;
-			fprintf(stderr, "radix32_dit_pass: a_out[20] = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dit_pass: a_out[22] = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dit_pass: a_out[24] = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dit_pass: a_out[26] = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);	jt = jt + p04;	jp = jp + p04;
-			fprintf(stderr, "radix32_dit_pass: a_out[28] = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dit_pass: a_out[2A] = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dit_pass: a_out[2C] = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dit_pass: a_out[2E] = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);	jt = j1 + p18;	jp = j2 + p18;
-			fprintf(stderr, "radix32_dit_pass: a_out[30] = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dit_pass: a_out[32] = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dit_pass: a_out[34] = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dit_pass: a_out[36] = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);	jt = jt + p04;	jp = jp + p04;
-			fprintf(stderr, "radix32_dit_pass: a_out[38] = %20.5f, %20.5f\n", a[jt    ], a[jp    ]);
-			fprintf(stderr, "radix32_dit_pass: a_out[3A] = %20.5f, %20.5f\n", a[jt+p01], a[jp+p01]);
-			fprintf(stderr, "radix32_dit_pass: a_out[3C] = %20.5f, %20.5f\n", a[jt+p02], a[jp+p02]);
-			fprintf(stderr, "radix32_dit_pass: a_out[0E] = %20.5f, %20.5f\n", a[jt+p03], a[jp+p03]);
-			exit(0);
-		}
-	#endif
-
 #else	/* USE_SSE2 */
 
 	/*       gather the needed data (32 64-bit complex, i.e. 64 64-bit reals) and do the first set of four length-8 transforms...
@@ -4856,6 +4606,5 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 	  /*jlo=jlo+incr; jhi=jhi+incr; See my note about OpenMP above. */
 
 	}	/* endfor(m=0; m < nloops; m++) */
-
 }
 

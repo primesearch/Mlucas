@@ -158,9 +158,17 @@ representation of N, specifically for the following currently-supported modulus 
 extern char ESTRING[STR_MAX_LEN];	/* Exponent in string form */
 extern char PSTRING[STR_MAX_LEN];	/* Number being tested in string form, typically estring concatenated with several other descriptors, e.g. strcat("M",estring) for Mersennes */
 
-#ifdef USE_SSE2
-	extern const uint32 mask01, br4[4];	/* length-4 bit-reversal array */
+#ifdef USE_AVX	// AVX and AVX2 both use 256-bit registers
+	extern const uint32 mask02,
+		br8[8],		// length-8 index-scramble array for mapping from scalar-complex to AVX (re,re,re,re,im,im,im,im)
+		brinv8[8];	// length-8 index-unscramble array: br[brinv[i]] = brinv[br[i]] = i .
 #endif
+#ifdef USE_SSE2
+	extern const uint32 mask01,
+		br4[4];	// length-4 index-scramble array for mapping from scalar-complex (re,im,re,im) to SSE2 (re,re,im,im)
+				// For length-4 this is its own inverse.
+#endif
+
 extern const int hex_chars[16];
 extern char cbuf[STR_MAX_LEN];
 extern char in_line[STR_MAX_LEN];
@@ -270,6 +278,13 @@ extern int32 DAT_BITS, PAD_BITS;
 			*/
 
 #define PAD_BITS_DEF ( 2u)	/* Number of 8-byte padding slots in each contiguous-data block = 2^padbits. */
+
+// In SIMD mode, number of padding elements between data blocks must be a multiple of SIMD vector-double count:
+#ifdef USE_SSE2	// AVX and AVX2 both use 256-bit registers; SSE uses 128-bit
+	#if ((1 << PAD_BITS_DEF) % RE_IM_STRIDE)
+		#error (PAD_BITS_DEF != RE_IM_STRIDE) in Mdata.h
+	#endif
+#endif
 
 /* Constant used to effect speedy NINT(x) = (x + RND) - RND.
 !* We define two separate versions of the same constant to keep the compiler from

@@ -240,7 +240,7 @@ Designed so any or all of A, B, C may point to the same memory location. */
 }
 
 /* Pairs-of-doubles structs: we'd like to give these all a GCC-style
-"_attribute__ ((aligned (16)))" alignment flag, but as that's not portable,
+"__attribute__ ((aligned (16)))" alignment flag, but as that's not portable,
 we hope other compilers will be smart enough to properly align these
 without external prompting.
 
@@ -254,26 +254,29 @@ There will likely be significant overlap in the low-level functionality
 (e.g. SSE2 intrinsics and data types) used by these 2 classes of macros;
 which is why we union-ize the 128-bit structs storing the relevant data.
 */
-#if 0	/*	#ifdef COMPILER_TYPE_GCC	*/
+#ifdef COMPILER_TYPE_GCC
 
 	#undef complex
 	struct complex{
 		double re;
 		double im;
-	} _attribute__ ((aligned (16)));	/* Gives 'error: parse error before '(' token' */
+	} __attribute__ ((aligned (16)));
 
-	#undef lohi_double_pair
-	struct lohi_double_pair
+	#undef double2
+	struct double2
 	{
-		double lo;
-		double hi;
-	} _attribute__ ((aligned (16)));
+		double d0;
+		double d1;
+	} __attribute__ ((aligned (16)));
 
-	#undef ddouble
-	struct ddouble
+	#undef double4
+	struct double4
 	{
-		double d[2];
-	} _attribute__ ((aligned (16)));
+		double d0;
+		double d1;
+		double d2;
+		double d3;
+	} __attribute__ ((aligned (32)));
 
 #else
 
@@ -283,28 +286,41 @@ which is why we union-ize the 128-bit structs storing the relevant data.
 		double im;
 	};
 
-	#undef lohi_double_pair
-	struct lohi_double_pair
+	#undef double2
+	struct double2
 	{
-		double lo;
-		double hi;
+		double d0;
+		double d1;
 	};
 
-	#undef ddouble
-	struct ddouble
+	#undef double4
+	struct double4
 	{
-		double d[2];
+		double d0;
+		double d1;
+		double d2;
+		double d3;
 	};
 
 #endif
 
-/* Unionize the paired doubles! Complex couples of the world unite, and stuff... */
-union vec_double
-{
-	struct complex			 cmplx;
-	struct lohi_double_pair lo_hi;
-	struct ddouble			 dd;
-};
+#ifdef USE_AVX	// AVX and AVX2 both use 256-bit registers
+
+	typedef struct double4	vec_dbl;
+	// Basic macro used to assign same double initializer (val) to all subfields of a vec_dbl:
+	#define VEC_DBL_INIT(vdbl_ptr, val)	( (vdbl_ptr)->d0 = (vdbl_ptr)->d1 = (vdbl_ptr)->d2 = (vdbl_ptr)->d3 = val )
+
+#elif defined(USE_SSE2)
+
+	typedef struct double2	vec_dbl;
+	// Basic macro used to assign same double initializer (val) to all subfields of a vec_dbl:
+	#define VEC_DBL_INIT(vdbl_ptr, val)	( vdbl_ptr->d0 = vdbl_ptr->d1 = val )
+
+#else	// In non-SIMD mode simply alias-to-double to obviate need for wrapping every declaration in #define USE_SSE2:
+
+	typedef double	vec_dbl;
+
+#endif
 
 /* 128-bit vector data types for AltiVec, Cell and SSE2/3:
 Alas, we can't use the above typedefs here, i.e. "vector uint32" won't work:
@@ -391,14 +407,50 @@ union  union192{
 #undef unio192
 typedef	union union192		unio192;
 
-/* 256-bit ints: */
+/* 128-bit meta-int consisting of 4 uint32s: */
+#undef uint32x4
+#ifdef COMPILER_TYPE_GCC
+
+	struct uint32x4{
+		uint32 d0;
+		uint32 d1;
+		uint32 d2;
+		uint32 d3;
+	} __attribute__ ((aligned (16)));
+
+#else
+
+	struct uint32x4{
+		uint32 d0;
+		uint32 d1;
+		uint32 d2;
+		uint32 d3;
+	};
+
+#endif
+// *** Don't use the above to define a uint128 since we already use 64x2 struct for that ***
+
+/* 256-bit int consisting of 4 uint32s: */
 #undef uint64x4
-struct uint64x4{
-	uint64 d0;
-	uint64 d1;
-	uint64 d2;
-	uint64 d3;
-};
+#ifdef COMPILER_TYPE_GCC
+
+	struct uint64x4{
+		uint64 d0;
+		uint64 d1;
+		uint64 d2;
+		uint64 d3;
+	} __attribute__ ((aligned (32)));
+
+#else
+
+	struct uint64x4{
+		uint64 d0;
+		uint64 d1;
+		uint64 d2;
+		uint64 d3;
+	};
+
+#endif
 
 #undef uint256
 typedef	struct uint64x4		uint256;

@@ -25,13 +25,6 @@
 *********************************************************************************/
 #include "Mlucas.h"
 
-#ifdef USE_SSE2
-
-	#undef DEBUG_SSE2
-//	#define DEBUG_SSE2
-
-#endif
-
 int	is_hex_string(char*s, int len);
 
 /*** DEBUG ***/
@@ -45,9 +38,6 @@ void	write_ppm1_savefiles(uint64 p, FILE*fp, uint32 ihi, uint8 arr_tmp[], uint64
 #ifndef imul_macro_h_included
 	#error imul_macro.h file not included in build!
 #endif
-
-/* Set = 1 to enable various debug diagnostics: */
-#define MLUCAS_MAIN_DEBUG	0
 
 /* 7 Jun 2007: Better to force the builder to invoke these (or not) via compile flag:
 #define INCLUDE_TF	// Set to activate trial-factoring code inclusion
@@ -77,9 +67,18 @@ int ITERS_BETWEEN_CHECKPOINTS;	/* number of iterations between checkpoints */
 
 char ESTRING[STR_MAX_LEN];	/* Exponent in string form */
 char PSTRING[STR_MAX_LEN];	/* Number being tested in string form, typically estring concatenated with several other descriptors, e.g. strcat("M",estring) */
-#ifdef USE_SSE2
-	const uint32 mask01 = 0xfffffffc, br4[4]={0,2,1,3};	/* length-4 bit-reversal array */
+
+#ifdef USE_AVX	// AVX and AVX2 both use 256-bit registers
+	const uint32 mask02 = 0xfffffff8,
+		br8[8]    = {0,4,1,5,2,6,3,7},	// length-8 index-scramble array for mapping from scalar-complex to AVX (re,re,re,re,im,im,im,im)
+		brinv8[8] = {0,2,4,6,1,3,5,7};	// length-8 index-unscramble array: br[brinv[i]] = brinv[br[i]] = i .
 #endif
+#ifdef USE_SSE2
+	const uint32 mask01 = 0xfffffffc,
+		br4[4]    = {0,2,1,3};	// length-4 index-scramble array for mapping from scalar-complex (re,im,re,im) to SSE2 (re,re,im,im)
+								// For length-4 this is its own inverse.
+#endif
+
 const int hex_chars[16] = {'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'};
 char cbuf[STR_MAX_LEN];
 char in_line[STR_MAX_LEN];
@@ -211,14 +210,6 @@ uint32 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
 !  * Jason Papadopoulos - for his valuable perspectives regarding FFT machine
 !    implementations and algorithmic optimization for various machine architectures.
 !
-!  * Rob Giltrap and Tom Duell of Sun Microsystems - For parallel build & test on the latest
-!    SPARChitectures, and for the parallel verify runs of M45,46,47.
-!
-!  * Ed Haletky, John Henning and Greg Gaertner (Digital Equipment Corp.) - EH for
-!       patiently answering N ( >> 1) questions regarding the Alpha architecture,
-!    JH and GG for helping to shape the embryonic version of the program submitted for
-!       the SPEC98 benchmark search.
-!
 !  * Guillermo Ballester Valor - for many interesting discussions on optimization
 !       and useful suggestions for improving the code.
 !
@@ -286,7 +277,7 @@ uint32	ernstMain
 
 	const uint32 knowns[] = {2,3,5,7,13,17,19,31,61,89,107,127,521,607,1279,2203,2281,3217,4253,4423,9689,9941
 		,11213,19937,21701,23209,44497,86243,110503,132049,216091,756839,859433,1257787,1398269,2976221,3021377,6972593
-		,13466917,20996011,24036583,25964951,30402457,32582657,37156667,42643801,43112609,0x0};
+		,13466917,20996011,24036583,25964951,30402457,32582657,37156667,42643801,43112609,57885161,0x0};
 
 /*...What a bunch of characters...	*/
 	char hex_res[17];
@@ -308,10 +299,6 @@ uint32	ernstMain
 /*...allocatable data arrays...	*/
 	static int32 nalloc = 0, *arrtmp = 0x0;
 	static double *a = 0x0, *a_ptmp = 0x0;
-#if MLUCAS_MAIN_DEBUG
-	double *b = 0x0, *b_ptmp = 0x0;
-#endif
-
 	double final_res_offset;
 
 /*...time-related stuff. clock_t is typically an int (signed 32-bit)
@@ -396,9 +383,7 @@ in an nthreads.ini file : */
 	if(!NTHREADS)
 	{
 		NTHREADS = MAX_THREADS;
-		sprintf(cbuf, "Using NTHREADS = #CPUs = %d.\n", NTHREADS);
-		                               fprintf(stderr,"%s",cbuf);
-		fp = fopen(OFILE,"a"); if(fp){ fprintf(    fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
+		fprintf(stderr,"Using NTHREADS = #CPUs = %d.\n", NTHREADS);
 	}
 
   #if 0//defined(USE_PTHREAD) && defined(OS_TYPE_MACOSX)
@@ -1350,18 +1335,6 @@ READ_RESTART_FILE:
 
 		memset(a, 0, npad*sizeof(double));
 		a[0] = iseed;
-
-	#ifdef DEBUG_SSE2
-		rng_isaac_init(TRUE);
-		fprintf(stderr, "Randomized inputs:\n");
-		for(i=0; i < n; i+=2)
-		{
-			j = i + ( (i >> DAT_BITS) << PAD_BITS );
-			a[j  ] = (double)(rng_isaac_rand() & 0x00000000000FFFFFull);
-			a[j+1] = (double)(rng_isaac_rand() & 0x00000000000FFFFFull);
-			if(i < 40)fprintf(stderr, "a[%2d] = %20.5f, %20.5f\n",j,a[j  ],a[j+1]);
-		}
-	#endif
 	}
 
 	if(restart)
@@ -1396,12 +1369,6 @@ READ_RESTART_FILE:
 		ASSERT(HERE, (int)maxiter > 0,"Mlucas.c: (int)maxiter > 0");
 		if(ihi > maxiter) ihi=maxiter;
 
-#if MLUCAS_MAIN_DEBUG
-	ASSERT(HERE, ilo == 0,"Mlucas.c: MLUCAS_MAIN_DEBUG requires ilo == 0!");
-	if(ilo == 0)
-		ihi = 100;
-#endif
-
 		/* Here's the big one - (ITERS_BETWEEN_CHECKPOINTS) squaring steps.
 		XYZ_mod_square returns 0 if no errors detected during this iteration cycle.
 
@@ -1422,43 +1389,6 @@ READ_RESTART_FILE:
 			if(ierr)
 				goto GET_NEXT_ASSIGNMENT;
 		}
-
-/*******************************************************/
-/*** DEBUG: test out the convert_res...() functions: ***/
-#if 0 && MLUCAS_MAIN_DEBUG
-	free((void *)b_ptmp); b_ptmp=0x0; b=0x0;
-	b_ptmp = ALLOC_DOUBLE(b_ptmp, nalloc);	if(!b_ptmp){ sprintf(cbuf, "FATAL: unable to allocate array B in main.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-	b      = ALIGN_DOUBLE(b_ptmp);
-	for(i=0; i < n; i++)
-	{
-		j = i + ( (i >> DAT_BITS) << PAD_BITS );
-		b[j] = a[j];
-	}
-	Res64 = res64(a, n, p,&nbits,hex_res);
-			resSH(a, n, p, &Res35m1, &Res36m1);
-	sum0 = Res64; sum1 = Res35m1; sum2 = Res36m1;
-
-	convert_res_FP_bytewise(a, (uint8*)arrtmp, n, p, &Res64, &Res35m1, &Res36m1);
-	ASSERT(HERE, sum0 == Res64  , "Res64   returned by convert_res_FP_bytewise differs from res64()!");
-	ASSERT(HERE, sum1 == Res35m1, "Res35m1 returned by convert_res_FP_bytewise differs from resSH()!");
-	ASSERT(HERE, sum2 == Res36m1, "Res36m1 returned by convert_res_FP_bytewise differs from resSH()!");
-	convert_res_bytewise_FP((uint8*)arrtmp, a, n, p, Res64, Res35m1, Res36m1);
-	for(i=0; i < n; i++)
-	{
-		j = i + ( (i >> DAT_BITS) << PAD_BITS );
-		if(a[j] != b[j])
-		{
-			/* NOTE: it's OK to have one specific of difference here: a[j] and b[j] each has magnitude
-			equal to base/2, but of opposite sign - this results from the quasirandom up/down rounding
-			behavior of our fast-round macro when the fractional part of the quantity being rounded
-			is exactly 0.5. in this case the next-higher digits will also differ, by either +-1.
-			*/
-			sprintf(cbuf, "In convert_res test loop: I = %d, A[I] != B[I], %20.10f, %20.10f",i,a[i],b[i]);
-			WARN(HERE, cbuf, "", 0);
-		}
-	}
-#endif
-/*******************************************************/
 
 		/*...Done?	*/
 		if(INTERACT) break;	/* C version uses zero-offset iteration counter. */
@@ -1556,14 +1486,6 @@ READ_RESTART_FILE:
 	/* If Selftest mode... */
 	if(INTERACT)
 	{
-	/********* DEBUG: write full-length hex residue to file: **********/
-	#if 0 && MLUCAS_MAIN_DEBUG
-		fp = fopen("foo.txt","w");
-		ASSERT(HERE, fp != 0x0,"Mlucas.c: fp != 0x0");
-		hex_res_printtofile(a, n, p, timing_test_iters, fp);
-	#endif
-	/******************************************************************/
-
 		fprintf(stderr, "%u iterations of %s with FFT length %u = %u K\n",timing_test_iters,PSTRING,n,kblocks);
 
 		/* If Fermat number, make sure exponent a power of 2: */
@@ -1772,14 +1694,6 @@ READ_RESTART_FILE:
 		Copy all the currently assigned exponents (except the first) from the worktodo.ini file to a temporary file...
 	*/
 GET_NEXT_ASSIGNMENT:
-
-/********* DEBUG: write full-length hex residue to file: **********/
-#if 0 && MLUCAS_MAIN_DEBUG
-	fp = fopen("foo.txt","w");
-	ASSERT(HERE, fp != 0x0,"Mlucas.c: fp != 0x0");
-	hex_res_printtofile(a, n, p, timing_test_iters, fp);
-#endif
-/******************************************************************/
 
 	if(!INTERACT)
 	{
@@ -2042,12 +1956,15 @@ uint64 	res64(double a[], int n, const uint64 p, int *nbits, char *hex_res)
 
 	for(j=n-1; j >= 0; j -= TRANSFORM_TYPE)
 	{
-	#ifdef USE_SSE2
+	#ifdef USE_AVX
+		j1 = (j & mask02) + br8[j&7];
+	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
-		j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 	#else
-		j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+		j1 = j;
 	#endif
+		j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+
 		if(a[j1] != 0.0)
 		{
 			if(a[j1] < 0.0)
@@ -2079,12 +1996,14 @@ uint64 	res64(double a[], int n, const uint64 p, int *nbits, char *hex_res)
 
 		for(j=0; j < n; j++)
 		{
-		#ifdef USE_SSE2
+		#ifdef USE_AVX
+			j1 = (j & mask02) + br8[j&7];
+		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
-			j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 		#else
-			j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+			j1 = j;
 		#endif
+			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 
 			itmp = (int64)(a[j1] + cy);	/* current digit in int64 form, subtracting any borrow from the previous digit.	*/
 			if(itmp < 0)			/* If current digit < 0, add the current base and set carry into next-higher digit = -1	*/
@@ -2112,12 +2031,14 @@ uint64 	res64(double a[], int n, const uint64 p, int *nbits, char *hex_res)
 
 		for(j=0; j < n; j += 2)
 		{
-		#ifdef USE_SSE2
+		#ifdef USE_AVX
+			j1 = (j & mask02) + br8[j&7];
+		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
-			j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 		#else
-			j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+			j1 = j;
 		#endif
+			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 
 			ii = (bimodn > sw);					/*       i = 1 if a bigword,   0 if a smallword */
 			bimodn -= sw;						/* result >= 0 if a bigword, < 0 if a smallword */
@@ -2230,12 +2151,15 @@ int bs_count[2];
 
 	for(j=n-1; j >= 0; j -= TRANSFORM_TYPE)
 	{
-	#ifdef USE_SSE2
+	#ifdef USE_AVX
+		j1 = (j & mask02) + br8[j&7];
+	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
-		j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 	#else
-		j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+		j1 = j;
 	#endif
+		j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+
 		if(a[j1]!= 0.0)
 		{
 			if(a[j1]< 0.0)
@@ -2270,12 +2194,14 @@ int bs_count[2];
 
 		for(j = 0; j < n; j++)
 		{
-		#ifdef USE_SSE2
+		#ifdef USE_AVX
+			j1 = (j & mask02) + br8[j&7];
+		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
-			j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 		#else
-			j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+			j1 = j;
 		#endif
+			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 
 			itmp = (int64)(a[j1]+ cy);	/* current digit in int64 form, subtracting any borrow from the previous digit.	*/
 			if(itmp < 0)			/* If current digit < 0, add the current base and set carry into next-higher digit = -1	*/
@@ -2332,12 +2258,15 @@ bs_count[0] = bs_count[1] = 0;
 		bimodn = n;
 		for(j = pass; j < n; j += 2)
 		{
-		#ifdef USE_SSE2
+		#ifdef USE_AVX
+			j1 = (j & mask02) + br8[j&7];
+		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
-		    j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 		#else
-		    j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+			j1 = j;
 		#endif
+			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+
 			ii = (bimodn > sw);					/*       i = 1 if a bigword,   0 if a smallword */
 ++bs_count[ii];
 			bimodn -= sw;						/* result >= 0 if a bigword, < 0 if a smallword */
@@ -2484,12 +2413,15 @@ void 	hex_res_printtofile(double a[], int n, const uint64 p, int timing_test_ite
 
 	for(j=n-1; j >= 0; j -= TRANSFORM_TYPE)
 	{
-	#ifdef USE_SSE2
+	#ifdef USE_AVX
+		j1 = (j & mask02) + br8[j&7];
+	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
-		j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 	#else
-		j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+		j1 = j;
 	#endif
+		j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+
 		if(a[j1]!= 0.0)
 		{
 			if(a[j1]< 0.0)
@@ -2528,12 +2460,14 @@ void 	hex_res_printtofile(double a[], int n, const uint64 p, int timing_test_ite
 
 		for(j = 0; j < n; j++)
 		{
-		#ifdef USE_SSE2
+		#ifdef USE_AVX
+			j1 = (j & mask02) + br8[j&7];
+		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
-			j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 		#else
-			j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+			j1 = j;
 		#endif
+			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 
 			itmp = (int64)(a[j1]+ cy);	/* current digit in int64 form, subtracting any borrow from the previous digit.	*/
 			if(itmp < 0)			/* If current digit < 0, add the current base and set carry into next-higher digit = -1	*/
@@ -2577,12 +2511,14 @@ void 	hex_res_printtofile(double a[], int n, const uint64 p, int timing_test_ite
 
 		for(j = pass; j < n; j += 2)
 		{
-		#ifdef USE_SSE2
+		#ifdef USE_AVX
+			j1 = (j & mask02) + br8[j&7];
+		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
-			j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 		#else
-			j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+			j1 = j;
 		#endif
+			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 
 ii = (bimodn > sw);					/*       i = 1 if a bigword,   0 if a smallword */
 bimodn -= sw;						/* result >= 0 if a bigword, < 0 if a smallword */
@@ -2656,7 +2592,13 @@ int 	main(int argc, char *argv[])
 	uint32	iters = 0, k = 0, maxFFT, expo = 0, findex = 0;
 	double	darg;
 	int		new_cfg = FALSE;
-	int		i, iarg = 0, idum, lo, hi, start = -1, finish = -1, nargs, errCheck = 0, scrnFlag, modType = 0, testType = 0, selfTest = 0, userSetExponent = 0, xNum = 0;
+	int		i, iarg = 0, idum, lo, hi, start = -1, finish = -1, nargs, scrnFlag, modType = 0, testType = 0, selfTest = 0, userSetExponent = 0, xNum = 0;
+	// Force errCheck-always-on in || mode, since we only multithreaded the err-checking versions of the carry routines:
+#ifdef MULTITHREAD
+	int errCheck = 1;
+#else
+	int errCheck = 0;
+#endif
 	int		quick_self_test = 0;
 	int		radset = -1;
 	double	runtime, runtime_best, tdiff;
@@ -2664,11 +2606,11 @@ int 	main(int argc, char *argv[])
 	int		radix_set, radix_best;
 
 	/* Number of distinct FFT lengths supported for self-tests: */
-	#define numTest				118	// = sum of all the subranges below
+	#define numTest				120	// = sum of all the subranges below
 	/* Number of FFT lengths in the various subranges of the full self-test suite: */
 	#define numTiny 			32
 	#define numSmall			22
-	#define numMedium			16
+	#define numMedium			18
 	#define numLarge			 9
 	#define numHuge				 9
 	#define numEgregious		15
@@ -2700,6 +2642,22 @@ int 	main(int argc, char *argv[])
 
 	The first letter of the descriptoor for each size range serves as a menmonic for the -[*] option which runs the self-tests
 	for that range, e.g. -s runs the [Small] range, -e the [Egregious], etc.
+
+	HERE IS THE PROCEDURE FOR ADDING A BEW ENTRY TO THE EXPONENT/RESIDUE TABLE BELOW:
+
+	1. Increment the num**** entry above corr. to the self-test subset which is being augmented; also ++numTest;
+
+	2. Go to get_fft_radices.c and use the PARI code in the commentary immediately below given_N_get_maxP()
+		to determine maxP for the new runlength;
+
+	3. Use PARI isprime() to find the largest prime <= maxP;
+
+	4. Run 100 and 1000-iteration self-tests at the next-higher runlength already appearing in the self-test table;
+
+	5. Use the results - specifically the hexadecimal Res64 and the mod 2^35-1 and mod 2^36-1 SH residues - for the
+		2 runs to create a table entry for the new runlength;
+
+	6. Rebuild this file, re-link and repeat the 2 self-tests on the exponent in the new table row, at the new runlength.
 	*/
 	struct testMers MersVec[numTest+1] =
 	{
@@ -2788,6 +2746,8 @@ Assertion failed: Output out of range!
 		{   160,   3253153u, { {0x9AFD3618C164D1B4ull, 16551334620ull, 55616214582ull}, {0x1493A70897A8D058ull, 34082962858ull, 60773088284ull} } },
 		{   176,   3571153u, { {0xA016F25779902477ull, 21500047857ull,  9150810891ull}, {0x8E6F248EC96445FFull, 22443629034ull, 16625023722ull} } },
 		{   192,   3888509u, { {0x71E61322CCFB396Cull, 29259839105ull, 50741070790ull}, {0x3CEDB241702D2907ull,  6177258458ull, 21951191321ull} } },
+		{   208,   4205303u, { {0xC08562DA75132764ull,  7099101614ull, 36784779697ull}, {0xAD381B4FE91D46FDull,  7173420823ull, 51721175527ull} } },
+		{   240,   4837331u, { {0xB0D0E72B7C87C174ull, 15439682274ull, 46315054895ull}, {0x3AA14E0E90D16317ull,  5730133308ull, 50944347816ull} } },
 		{   224,   4521557u, { {0xE68210464F96D6A6ull, 20442129364ull, 11338970081ull}, {0x3B06B74F5D4C0E35ull,  7526060994ull, 28782225212ull} } },
 		{   256,   5152643u, { {0x074879D86679CB5Bull,  1208548964ull, 48525653083ull}, {0x98AF5E14C824A252ull,   783196824ull,  6594302302ull} } },
 		{   288,   5782013u, { {0x9869BE81D9AB1564ull, 15509103769ull, 49640026911ull}, {0x7C998719C6001318ull, 23749848147ull, 19853218689ull} } },
@@ -3031,25 +2991,6 @@ else
 	ASSERT(HERE, (FermVec[numFerm-1].fftLength != 0) &&  (MersVec[numTest].fftLength == 0), "numTest != FermVec allocated size!");
 }
 
-/***DEBUG*** Try writing a 32-bit int using various versions of fwrite and fprintf... */
-#if 0
-	i=3131569853;
-
-	fp = fopen("foo.txt", "wb");
-	if(fwrite(&i, sizeof(int), 1, fp) != 1)
-		ASSERT(HERE,0,"");
-	fclose(fp);	fp = 0x0;
-
-	fp = fopen("foo.txt", "rb");
-	if( fread(&j, sizeof(int), 1, fp) != 1)
-		ASSERT(HERE,0,"");
-	fclose(fp);	fp = 0x0;
-
-	if(i != j)
-		ASSERT(HERE,0,"");
-#endif
-/************/
-
 	/*...check that various data types are of the assumed length
 	and do some other basic sanity checks:
 	*/
@@ -3253,10 +3194,13 @@ else
 			iters = (uint32)iarg;
 		}
 
+	// Force errCheck-always-on in || mode, since we only multithreaded the err-checking versions of the carry routines:
+	#ifndef MULTITHREAD
 		else if(STREQ(stFlag, "-rocheck"))
 		{
 			errCheck = 1;
 		}
+	#endif
 
 		else if(STREQ(stFlag, "-fftlen"))
 		{
@@ -4178,12 +4122,14 @@ int 	convert_LL_savefiles(uint64 psave, FILE*fp, uint32*ilo, uint32 ndim, int32 
 		sum2=0.0;
 		for(j=0; j < n; j++)	/* ...then move elements of residue into their normal doubles slots.	*/
 		{
-		#ifdef USE_SSE2
+		#ifdef USE_AVX
+			j1 = (j & mask02) + br8[j&7];
+		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
-		    j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 		#else
-		    j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+			j1 = j;
 		#endif
+			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 
 			a[j1]= arr_tmp[i];
 			sum2 += a[j1];
@@ -4323,7 +4269,7 @@ int	read_ppm1_savefiles(uint64 p, FILE*fp, uint32*ilo, uint8 arr_tmp[], uint64*R
 	if((i = fgetc(fp)) != TEST_TYPE)
 	{
 		sprintf(cbuf, "read_ppm1_savefiles: TEST_TYPE != fgetc(fp)\n");
-		return FALSE;
+	//	return FALSE;
 	}
 	/* m: */
 	if((i = fgetc(fp)) != MODULUS_TYPE)
@@ -4598,12 +4544,14 @@ int 	convert_res_bytewise_FP(const uint8 arr_tmp[], double a[], int n, const uin
 
 		for(j = 0; j < n; j++)
 		{
-		#ifdef USE_SSE2
+		#ifdef USE_AVX
+			j1 = (j & mask02) + br8[j&7];
+		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
-		    j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 		#else
-		    j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+			j1 = j;
 		#endif
+			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 
 			/* If rbits (# of bits left in current 64-bit window of the bytewise residue)
 			is less than bits[ii] (number we need to fill the current digit of a[]), write
@@ -4672,12 +4620,14 @@ int 	convert_res_bytewise_FP(const uint8 arr_tmp[], double a[], int n, const uin
 
 		for(j = pass; j < n; j += 2)
 		{
-		#ifdef USE_SSE2
+		#ifdef USE_AVX
+			j1 = (j & mask02) + br8[j&7];
+		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
-		    j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 		#else
-		    j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+			j1 = j;
 		#endif
+			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 
 			ii = (bimodn > sw);					/*       i = 1 if a bigword,   0 if a smallword */
 			bimodn -= sw;						/* result >= 0 if a bigword, < 0 if a smallword */
@@ -4883,12 +4833,15 @@ void	convert_res_FP_bytewise(const double a[], uint8 arr_tmp[], int n, const uin
 
 	for(j=n-1; j >= 0; j -= TRANSFORM_TYPE)
 	{
-	#ifdef USE_SSE2
+	#ifdef USE_AVX
+		j1 = (j & mask02) + br8[j&7];
+	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
-	    j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 	#else
-	    j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+		j1 = j;
 	#endif
+		j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+
 		if(a[j1]!= 0.0)
 		{
 			if(a[j1]< 0.0)
@@ -4928,12 +4881,14 @@ void	convert_res_FP_bytewise(const double a[], uint8 arr_tmp[], int n, const uin
 
 		for(j = 0; j < n; j++)
 		{
-		#ifdef USE_SSE2
+		#ifdef USE_AVX
+			j1 = (j & mask02) + br8[j&7];
+		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
-		    j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 		#else
-		    j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+			j1 = j;
 		#endif
+			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 
 			itmp = (int64)(a[j1]+ cy);	/* current digit in int64 form, subtracting any borrow from the previous digit.	*/
 			if(itmp < 0)			/* If current digit < 0, add the current base and set carry into next-higher digit = -1	*/
@@ -5006,12 +4961,14 @@ void	convert_res_FP_bytewise(const double a[], uint8 arr_tmp[], int n, const uin
 
 		for(j = pass; j < n; j += 2)
 		{
-		#ifdef USE_SSE2
+		#ifdef USE_AVX
+			j1 = (j & mask02) + br8[j&7];
+		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
-		    j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 		#else
-		    j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+			j1 = j;
 		#endif
+			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 
 			ii = (bimodn > sw);					/*       i = 1 if a bigword,   0 if a smallword */
 			bimodn -= sw;						/* result >= 0 if a bigword, < 0 if a smallword */
@@ -5207,12 +5164,14 @@ void write_fft_debug_data(double a[], int jlo, int jhi)
 
     for(j=jlo; j < jhi; j += 2)
     {
-	#ifdef USE_SSE2
+	#ifdef USE_AVX
+		j1 = (j & mask02) + br8[j&7];
+	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
-	    j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 	#else
-	    j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+		j1 = j;
 	#endif
+		j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 
 		fprintf(dbg_file, "j = %8u : %20.5f  %20.5f\n", j, a[j1], a[j1+RE_IM_STRIDE]);
 	}

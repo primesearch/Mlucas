@@ -61,6 +61,8 @@ void	get_cpu(void);
 uint32	has_sse  (void);
 uint32	has_sse2 (void);
 uint32	has_sse3 (void);
+uint32	has_avx  (void);
+uint32	has_avx2 (void);
 void	cpu_details(void);
 
 void	print_host_info(void);

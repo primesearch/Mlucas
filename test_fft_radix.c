@@ -1,8 +1,15 @@
+/* To test a particular DFT routine:
+1. Edit this file to set the desired DFT params [RADIX and TEST_TYPE] and compile it via 'gcc -c test_fft_radix.c';
+2. Compile util.c via 'gcc -c -DTEST_FFT_RADIX util.c' [Note: If -DUSE_THREADS was used for other sources, need to use it here, too];
+3. Link into an Mlucas binary and run-as-if-timing-test-at-any-desired-length to test the DFT.
+*/
+
 #include "Mlucas.h"
 
-#define radix	24
+#define RADIX	28
 
-#define TEST_TYPE 1	// 0 = DIF, 1 = DIT, 2 = BOTH
+#define TEST_TYPE	2	// 0 = DIF, 1 = DIT-but-just-show-input-index-scramblings-needed, 2 = DIT,
+						// 3 = DIF+DIT (which should return the original inputs after dividing by N)
 
 void matmul_double (double **, double *, double *, int, int);
 void matmul_complex(struct complex **, struct complex *, struct complex *, int, int);
@@ -13,7 +20,7 @@ double ISRT2 = .70710678118654752440;
 
 void test_fft_radix(void)
 {
-	double iradix = 1.0/radix;
+	double iradix = 1.0/RADIX;
 	int rmul = 2*RE_IM_STRIDE;
 	int i,j,k,l,nradices, *index = 0x0, nerr = 0, pow2, podd;
 	int radix_prim[10];
@@ -69,7 +76,7 @@ void test_fft_radix(void)
 	5,0,4,7,1,2,3,7,1,3,7,8,6,9,6,0,9,5,6,3,6,4,3,7,1,9,1,7,2,8,7,4,6,7,7,6,4,6,5,7,5,7,3,9,6,2,4,1,3,8,9,0,8,6,5,8,3,2,6,4,5,9,9,5,
 	8,1,3,3,9,0,4,7,8,0,2,7,5,9,0,0,9,9,4,6,5,7,6,4,0,7,8,9,5,1,2,6,9,4,6,8,3,9,8,3,5,2,5,9,5,7,0,9,8,2,5,8,2,2,6,2,0,5,2,2,4,8,9,4};
 
-	const char* test_info_str[] = {"DIF","DIT","Combined DIF+DIT"};
+	const char* test_info_str[] = {"DIF","DIT (but only show index-scramblings)","DIT","Combined DIF+DIT"};
 	double *a = 0x0, *b = 0x0, *arrtmp = 0x0, *ptmp = 0x0;
 	struct complex *ac, *bc;
 	struct complex **mat = 0x0, **matp = 0x0, **ctmpp = 0x0, *ctmp = 0x0;
@@ -77,42 +84,42 @@ void test_fft_radix(void)
 	double theta, twopi = 6.2831853071795864769;
 
 	/********* allocate all radix-dependent arrays dynamically: ********/
-	index        = ALLOC_INT(index       , radix);
-	dit_scramble = ALLOC_INT(dit_scramble, radix);
-	/* double a[rmul*radix], b[rmul*radix], arrtmp[rmul*radix]: */
-	ptmp = ALLOC_DOUBLE(ptmp, rmul*radix);	ASSERT(HERE, (ptmp != 0x0), "FATAL: unable to allocate array A in test_fft_radix.\n");
+	index        = ALLOC_INT(index       , RADIX);
+	dit_scramble = ALLOC_INT(dit_scramble, RADIX);
+	/* double a[rmul*RADIX], b[rmul*RADIX], arrtmp[rmul*RADIX]: */
+	ptmp = ALLOC_DOUBLE(ptmp, rmul*RADIX);	ASSERT(HERE, (ptmp != 0x0), "FATAL: unable to allocate array A in test_fft_radix.\n");
 	a    = ALIGN_DOUBLE(ptmp);	ptmp = 0x0;
 	ac = (struct complex *)a;
 	ASSERT(HERE, ((long)((void *)a) & 63) == 0x0,"test_fft_radix: A[] not aligned on 64-byte boundary!");
-	ptmp = ALLOC_DOUBLE(ptmp, rmul*radix);	ASSERT(HERE, (ptmp != 0x0), "FATAL: unable to allocate array B in test_fft_radix.\n");
+	ptmp = ALLOC_DOUBLE(ptmp, rmul*RADIX);	ASSERT(HERE, (ptmp != 0x0), "FATAL: unable to allocate array B in test_fft_radix.\n");
 	b    = ALIGN_DOUBLE(ptmp);	ptmp = 0x0;
 	ASSERT(HERE, ((long)((void *)b) & 63) == 0x0,"test_fft_radix: B[] not aligned on 64-byte boundary!");
 	bc = (struct complex *)b;
-	ptmp = ALLOC_DOUBLE(ptmp, rmul*radix);	ASSERT(HERE, (ptmp != 0x0), "FATAL: unable to allocate array A_ptmp in test_fft_radix.\n");
+	ptmp = ALLOC_DOUBLE(ptmp, rmul*RADIX);	ASSERT(HERE, (ptmp != 0x0), "FATAL: unable to allocate array A_ptmp in test_fft_radix.\n");
 	arrtmp = ALIGN_DOUBLE(ptmp);	ptmp = 0x0;
 	ASSERT(HERE, ((long)((void *)arrtmp) & 63) == 0x0,"test_fft_radix: arrtmp[] not aligned on 64-byte boundary!");
-	/* struct complex mat[radix][radix], *matp[radix]: */
-	ctmpp = ALLOC_POINTER(ctmpp,struct complex*, radix);	ASSERT(HERE, (ctmpp != 0x0), "FATAL: unable to allocate array MATP in test_fft_radix.\n");
+	/* struct complex mat[radix][RADIX], *matp[RADIX]: */
+	ctmpp = ALLOC_POINTER(ctmpp,struct complex*, RADIX);	ASSERT(HERE, (ctmpp != 0x0), "FATAL: unable to allocate array MATP in test_fft_radix.\n");
 	matp  = ALIGN_POINTER(ctmpp,struct complex*);
-	ctmpp = ALLOC_POINTER(ctmpp,struct complex*, radix);	ASSERT(HERE, (ctmpp != 0x0), "FATAL: unable to allocate array MAT[][] in test_fft_radix.\n");
+	ctmpp = ALLOC_POINTER(ctmpp,struct complex*, RADIX);	ASSERT(HERE, (ctmpp != 0x0), "FATAL: unable to allocate array MAT[][] in test_fft_radix.\n");
 	mat   = ALIGN_POINTER(ctmpp,struct complex*);
-	for(i = 0; i < radix; ++i) {
-		ctmp = ALLOC_COMPLEX(ctmp, radix);	ASSERT(HERE, (ctmp != 0x0), "FATAL: unable to allocate array Ctmp in test_fft_radix.\n");
+	for(i = 0; i < RADIX; ++i) {
+		ctmp = ALLOC_COMPLEX(ctmp, RADIX);	ASSERT(HERE, (ctmp != 0x0), "FATAL: unable to allocate array Ctmp in test_fft_radix.\n");
 		mat[i] = ALIGN_COMPLEX(ctmp);
 		ctmp = 0x0;	/* Must re-init pointer so the realloc used by the ALLOC macro allocates new fresh memory for each row */
 	}
 
-	fprintf(stderr, "test_fft_radix: Testing radix-%d %s dft:\n", radix, test_info_str[TEST_TYPE]);
+	fprintf(stderr, "test_fft_radix: Testing radix-%d %s dft:\n", RADIX, test_info_str[TEST_TYPE]);
 
-	ASSERT(HERE, ((radix >> trailz32(radix)) < 32), "test_fft_radix: Illegal radix; must be odd*2^n with odd < 16");
+	/* Power-of-2 component of the DFT length: */
+	pow2 = 1 << trailz32(RADIX);
+	podd = RADIX >> trailz32(RADIX);
+	ASSERT(HERE, RADIX == pow2*podd, "Radix decomposition failed!");
+	ASSERT(HERE, (podd < 32), "test_fft_radix: Illegal radix; must be odd*2^n with odd < 16");
 	/* These may not have been init'ed yet, so do it here: */
 	DAT_BITS = DAT_BITS_DEF;
 	PAD_BITS = PAD_BITS_DEF;
 
-	/* Power-of-2 component of the DFT length: */
-	pow2 = 1 << trailz32(radix);
-	podd = radix >> trailz32(radix);
-	ASSERT(HERE, radix == pow2*podd, "Radix decomposition failed!");
 	/* Init dit_scramble array: This is the input permutation applied to DIT inputs, in top of the bit-reversal reordering: */
 	k = 0;	/* Current perm index */
 	l = 0;	/* Current perm value */
@@ -121,36 +128,37 @@ void test_fft_radix(void)
 		for(j = 0; j < podd; ++j)
 		{
 			dit_scramble[k++] = l;
-			l = (l - pow2)%radix;	if(l < 0) { l += radix; }
+			l = (l - pow2)%RADIX;	if(l < 0) { l += RADIX; }
 		}
-		l = (l - podd)%radix;	if(l < 0) { l += radix; }
+		l = (l - podd)%RADIX;	if(l < 0) { l += RADIX; }
 	}
 
 	/* Init data array in scalar-layout mode for reference matrix-multiply-DFT computation: */
 	t0 = t1 = 0.;
-	for(i = 0; i < radix ; i++)
+	for(i = 0; i < RADIX ; i++)
 	{
-		a[2*i  ] = ref[2*i  ];
-		a[2*i+1] = ref[2*i+1];
+		a[2*i  ] = ref[2*i  ];	t0 += ref[2*i  ];
+		a[2*i+1] = ref[2*i+1];	t1 += ref[2*i+1];
 	}
-/*printf("sum[Re,Im] = %15.5f  %15.5f\n",t0,t1);*/
+	printf("DC signal components: sum[Re,Im] = %15.5f  %15.5f\n",t0,t1);
+
 	/* Init DFT matrix */
-	for(i = 0; i < radix; i++)
+	for(i = 0; i < RADIX; i++)
 	{
-		theta = i*twopi/radix;
-		for(j = 0; j < radix; j++)
+		theta = i*twopi/RADIX;
+		for(j = 0; j < RADIX; j++)
 		{
 			mat[i][j].re = cos(j*theta);
 			mat[i][j].im = sin(j*theta);
 	/*printf("mat[%4d][%4d] = %15.10f  %15.10f\n",i,j, mat[i][j].re, mat[i][j].im);*/
 		}
 	}
-	matmul_complex(mat,ac,bc,radix,radix);
+	matmul_complex(mat,ac,bc,RADIX,RADIX);
 
 	/* In SSE2 mode re-Init data array, using [re,re,im,im] data layout: */
 #ifdef USE_SSE2
 	ASSERT(HERE, rmul == 4, "!");
-	for(i = 0; i < radix ; i++)
+	for(i = 0; i < RADIX ; i++)
 	{
 		a[ 2*i   *RE_IM_STRIDE  ] = ref[2*i  ];
 		a[ 2*i   *RE_IM_STRIDE+1] = ref[2*i  ];
@@ -160,8 +168,8 @@ void test_fft_radix(void)
 #endif
 
 	// If doing a DIF followed by a DIT, save a copy of the original data:
-#if TEST_TYPE == 2
-	for(i = 0; i < radix ; i++)
+#if TEST_TYPE == 3
+	for(i = 0; i < RADIX ; i++)
 	{
 		arrtmp[2*i  ] = ref[2*i  ];
 		arrtmp[2*i+1] = ref[2*i+1];
@@ -172,7 +180,7 @@ void test_fft_radix(void)
 
 	l =0;
 
-	switch(radix){
+	switch(RADIX){
 	case 2 :
 		nradices = 1;
 		radix_prim[l++] = 2; break;
@@ -297,12 +305,12 @@ void test_fft_radix(void)
 		nradices = 6;
 		radix_prim[l++] =31; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 	default :
-		printf("FATAL: radix %d not available. Halting...\n",radix); exit(EXIT_FAILURE);
+		printf("FATAL: radix %d not available. Halting...\n",RADIX); exit(EXIT_FAILURE);
 	}
 
-/*...Allocate and initialize an index array containing (radix) indices...	*/
+/*...Allocate and initialize an index array containing (RADIX) indices...	*/
 
-	for(i=0; i < radix; i++)
+	for(i=0; i < RADIX; i++)
 	{
 		index[i]=i;
 	}
@@ -317,10 +325,10 @@ void test_fft_radix(void)
 		 if the radix-15 pass implementation does 5 radix-3 DFTs, followed by 3 radix-5 DFTs, then we send (3,5)
 		 as the corresponding reverse-ordered prime radices to the bit-reversal routine, not (5,3).	*/
 
-	bit_reverse_int(&index[0],radix,nradices,&radix_prim[nradices-1],-1,(int *)0x0);
+	bit_reverse_int(&index[0],RADIX,nradices,&radix_prim[nradices-1],-1,(int *)0x0);
 /*
 	printf("bit-reversal index array = [");
-	for(i=0; i < radix; i++)
+	for(i=0; i < RADIX; i++)
 	{
 		printf(" %d",index[i]);
 	}
@@ -330,121 +338,132 @@ void test_fft_radix(void)
 	if(TEST_TYPE > 0)
 	{
 		printf("DIT input-scramble array = [");
-		for(i=0; i < radix; i++)
+		for(i=0; i < RADIX; i++)
 		{
-			printf(" %d",dit_scramble[i]);
+			printf("%3d,",dit_scramble[i]);
+		}
+		printf("]\n\n");
+
+		printf("Bit-reversal array = [");
+		for(i=0; i < RADIX; i++)
+		{
+			j = index[i];
+			printf("%3d,",j);
 		}
 		printf("]\n\n");
 
 		printf("DIT input-scramble + bit-reversal array = [");
-		for(i=0; i < radix; i++)
+		for(i=0; i < RADIX; i++)
 		{
 			j = dit_scramble[index[i]];
-			printf(" %d",j);
+			printf("%3d,",j);
 		}
 		printf("]\n\n");
 
 		/* Now find the location of each j-valued element above in the bit-reversal vector ... the *location* in that vector equals the final scrambled-DIT-input index: */
 		printf("Combined DIT input-scramble array = [");
-		for(i=0; i < radix; i++)
+		for(i=0; i < RADIX; i++)
 		{
 			j = dit_scramble[index[i]];
-			for(k = 0; k < radix; ++k)
+			for(k = 0; k < RADIX; ++k)
 			{
 				if(j == index[k])
 				{
-					printf(" %d",k);
+					printf("%3d,",k);
 					break;
 				}
 			}
 		}
 		printf("]\n\n");
 	}
+#if TEST_TYPE == 1
+	exit(0);
+#endif
 
-#if TEST_TYPE == 0 || TEST_TYPE == 2
+#if TEST_TYPE == 0 || TEST_TYPE == 3
 
-	#if radix == 2
-		radix2_dif_pass1 (a,rmul*radix);
-	#elif radix == 3
-		radix3_dif_pass1 (a,rmul*radix);
-	#elif radix == 4
-		radix4_dif_pass1 (a,rmul*radix);
-	#elif radix == 5
-		radix5_dif_pass1 (a,rmul*radix);
-	#elif radix == 6
-		radix6_dif_pass1 (a,rmul*radix);
-	#elif radix == 7
-		radix7_dif_pass1 (a,rmul*radix);
-	#elif radix == 8
-		radix8_dif_pass1 (a,rmul*radix);
-	#elif radix == 9
-		radix9_dif_pass1 (a,rmul*radix);
-	#elif radix == 10
-		radix10_dif_pass1 (a,rmul*radix);
-	#elif radix == 11
-		radix11_dif_pass1 (a,rmul*radix);
-	#elif radix == 12
-		radix12_dif_pass1 (a,rmul*radix);
-	#elif radix == 13
-		radix13_dif_pass1 (a,rmul*radix);
-	#elif radix == 14
-		radix14_dif_pass1 (a,rmul*radix);
-	#elif radix == 15
-		radix15_dif_pass1 (a,rmul*radix);
-	#elif radix == 16
-		radix16_dif_pass1 (a,rmul*radix);
-	#elif radix == 18
-		radix18_dif_pass1 (a,rmul*radix);
-	#elif radix == 20
-		radix20_dif_pass1 (a,rmul*radix);
-	#elif radix == 22
-		radix22_dif_pass1 (a,rmul*radix);
-	#elif radix == 24
-		radix24_dif_pass1 (a,rmul*radix);
-	#elif radix == 26
-		radix26_dif_pass1 (a,rmul*radix);
-	#elif radix == 28
-		radix28_dif_pass1 (a,rmul*radix);
-	#elif radix == 30
-		radix30_dif_pass1 (a,rmul*radix);
-	#elif radix == 31
-		radix31_dif_pass1 (a,rmul*radix);
-	#elif radix == 32
-		radix32_dif_pass1 (a,rmul*radix);
-	#elif radix == 36
-		radix36_dif_pass1 (a,rmul*radix);
-	#elif radix == 40
-		radix40_dif_pass1 (a,rmul*radix);
-	#elif radix == 44
-		radix44_dif_pass1 (a,rmul*radix);
-	#elif radix == 48
-		radix48_dif_pass1 (a,rmul*radix);
-	#elif radix == 52
-		radix52_dif_pass1 (a,rmul*radix);
-	#elif radix == 56
-		radix56_dif_pass1 (a,rmul*radix);
-	#elif radix == 60
-		radix60_dif_pass1 (a,rmul*radix);
-	#elif radix == 64
-		radix64_dif_pass1 (a,rmul*radix);
-	#elif radix == 72
-		radix72_dif_pass1 (a,rmul*radix);
-	#elif radix == 80
-		radix80_dif_pass1 (a,rmul*radix);
-	#elif radix == 88
-		radix88_dif_pass1 (a,rmul*radix);
-	#elif radix == 96
-		radix96_dif_pass1 (a,rmul*radix);
-	#elif radix ==104
-		radix104_dif_pass1(a,rmul*radix);
-	#elif radix ==112
-		radix112_dif_pass1(a,rmul*radix);
-	#elif radix ==120
-		radix120_dif_pass1(a,rmul*radix);
-	#elif radix ==128
-		radix128_dif_pass1(a,rmul*radix);
-	#elif radix ==992
-		radix31x32_dif_pass1(a,rmul*radix);
+	#if RADIX == 2
+		radix2_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 3
+		radix3_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 4
+		radix4_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 5
+		radix5_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 6
+		radix6_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 7
+		radix7_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 8
+		radix8_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 9
+		radix9_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 10
+		radix10_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 11
+		radix11_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 12
+		radix12_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 13
+		radix13_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 14
+		radix14_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 15
+		radix15_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 16
+		radix16_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 18
+		radix18_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 20
+		radix20_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 22
+		radix22_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 24
+		radix24_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 26
+		radix26_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 28
+		radix28_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 30
+		radix30_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 31
+		radix31_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 32
+		radix32_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 36
+		radix36_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 40
+		radix40_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 44
+		radix44_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 48
+		radix48_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 52
+		radix52_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 56
+		radix56_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 60
+		radix60_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 64
+		radix64_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 72
+		radix72_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 80
+		radix80_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 88
+		radix88_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX == 96
+		radix96_dif_pass1 (a,rmul*RADIX);
+	#elif RADIX ==104
+		radix104_dif_pass1(a,rmul*RADIX);
+	#elif RADIX ==112
+		radix112_dif_pass1(a,rmul*RADIX);
+	#elif RADIX ==120
+		radix120_dif_pass1(a,rmul*RADIX);
+	#elif RADIX ==128
+		radix128_dif_pass1(a,rmul*RADIX);
+	#elif RADIX ==992
+		radix31x32_dif_pass1(a,rmul*RADIX);
 	#endif
 
 #endif
@@ -452,7 +471,13 @@ void test_fft_radix(void)
 #if TEST_TYPE == 0
 
 	nerr = 0;
-	for(i = 0; i < radix ; i++)
+	printf("To deduce the required output-idx ordering, sort Actual-outputs data by left col-of-real-parts, move\n");
+	printf("resulting [re,im,i] block to file, repeat procedure for Expected-outputs, then compare the two files.\n");
+	printf("If they differ only in their respective rcol indices, those two cols give the required index mapping.\n");
+	printf("\n");
+	printf("         Actual outputs:             i          Expected outputs:            i BR oidx:\n");
+	printf(" -------------------------------   ---   -------------------------------   --- -------\n");
+	for(i = 0; i < RADIX ; i++)
 	{
 		j = index[i];
 	#ifdef USE_SSE2
@@ -462,12 +487,12 @@ void test_fft_radix(void)
 		abserr = CABS(err_r, err_i);
 		if(abserr < 0.00001)
 		{
-			printf("%4d (%4d) %15.10f  %15.10f  %15.10f  %15.10f\n",i,j,a[2*i*RE_IM_STRIDE],a[(2*i+1)*RE_IM_STRIDE],b[2*j  ],b[2*j+1]);
+			printf("%15.10f  %15.10f  %4d  %15.10f  %15.10f  %4d  (%4d)\n",a[2*i*RE_IM_STRIDE],a[(2*i+1)*RE_IM_STRIDE],i,b[2*j  ],b[2*j+1],i,j);
 		}
 		else
 		{
 			++nerr;
-			printf("%4d (%4d) %15.10f  %15.10f  %15.10f  %15.10f, ERR= %15.10e\n",i,j,a[2*i*RE_IM_STRIDE],a[(2*i+1)*RE_IM_STRIDE],b[2*j  ],b[2*j+1], abserr);
+			printf("%15.10f  %15.10f  %4d  %15.10f  %15.10f  %4d  (%4d), ERR= %15.10e\n",a[2*i*RE_IM_STRIDE],a[(2*i+1)*RE_IM_STRIDE],i,b[2*j  ],b[2*j+1],i,j, abserr);
 		}
 		/*
 		j=i;
@@ -479,12 +504,12 @@ void test_fft_radix(void)
 
 #endif
 
-#if TEST_TYPE == 1
+#if TEST_TYPE == 2
 
 	// Bit-reverse the inputs to the transform...
   #ifdef USE_SSE2
 	t0 = t1 = t2 = t3 = 0.;
-	for(i = 0; i < radix ; i++)
+	for(i = 0; i < RADIX ; i++)
 	{
 		j = index[i];
 		arrtmp[ 2*i   *RE_IM_STRIDE  ] = a[2*j*RE_IM_STRIDE  ];
@@ -499,20 +524,20 @@ void test_fft_radix(void)
 	}
 /*printf("sum[Re,Im] = %15.5f  %15.5f\n",t0,t2);*/
 	ASSERT(HERE, t0==t1 && t2==t3, "!");
-	for(i = 0; i < rmul*radix ; i+=2)
+	for(i = 0; i < rmul*RADIX ; i+=2)
 	{
 		a[i  ] = arrtmp[i  ];
 		a[i+1] = arrtmp[i+1];
 		ASSERT(HERE, a[i  ] == a[i+1], "!");
 	}
   #else
-	for(i = 0; i < radix ; i++)
+	for(i = 0; i < RADIX ; i++)
 	{
 		j = index[i];
 		arrtmp[2*i  ] = a[2*j  ];
 		arrtmp[2*i+1] =-a[2*j+1];
 	}
-	for(i = 0; i < rmul*radix ; i++)
+	for(i = 0; i < rmul*RADIX ; i++)
 	{
 		a[i] = arrtmp[i];
 	}
@@ -522,96 +547,102 @@ void test_fft_radix(void)
 
 #if TEST_TYPE > 0
 
-	#if radix == 2
-		radix2_dit_pass1 (a,rmul*radix);
-	#elif radix == 3
-		radix3_dit_pass1 (a,rmul*radix);
-	#elif radix == 4
-		radix4_dit_pass1 (a,rmul*radix);
-	#elif radix == 5
-		radix5_dit_pass1 (a,rmul*radix);
-	#elif radix == 6
-		radix6_dit_pass1 (a,rmul*radix);
-	#elif radix == 7
-		radix7_dit_pass1 (a,rmul*radix);
-	#elif radix == 8
-		radix8_dit_pass1 (a,rmul*radix);
-	#elif radix == 9
-		radix9_dit_pass1 (a,rmul*radix);
-	#elif radix == 10
-		radix10_dit_pass1 (a,rmul*radix);
-	#elif radix == 11
-		radix11_dit_pass1 (a,rmul*radix);
-	#elif radix == 12
-		radix12_dit_pass1 (a,rmul*radix);
-	#elif radix == 13
-		radix13_dit_pass1 (a,rmul*radix);
-	#elif radix == 14
-		radix14_dit_pass1 (a,rmul*radix);
-	#elif radix == 15
-		radix15_dit_pass1 (a,rmul*radix);
-	#elif radix == 16
-		radix16_dit_pass1 (a,rmul*radix);
-	#elif radix == 18
-		radix18_dit_pass1 (a,rmul*radix);
-	#elif radix == 20
-		radix20_dit_pass1 (a,rmul*radix);
-	#elif radix == 22
-		radix22_dit_pass1 (a,rmul*radix);
-	#elif radix == 24
-		radix24_dit_pass1 (a,rmul*radix);
-	#elif radix == 26
-		radix26_dit_pass1 (a,rmul*radix);
-	#elif radix == 28
-		radix28_dit_pass1 (a,rmul*radix);
-	#elif radix == 30
-		radix30_dit_pass1 (a,rmul*radix);
-	#elif radix == 31
-		radix31_dit_pass1 (a,rmul*radix);
-	#elif radix == 32
-		radix32_dit_pass1 (a,rmul*radix);
-	#elif radix == 36
-		radix36_dit_pass1 (a,rmul*radix);
-	#elif radix == 40
-		radix40_dit_pass1 (a,rmul*radix);
-	#elif radix == 44
-		radix44_dit_pass1 (a,rmul*radix);
-	#elif radix == 48
-		radix48_dit_pass1 (a,rmul*radix);
-	#elif radix == 52
-		radix52_dit_pass1 (a,rmul*radix);
-	#elif radix == 56
-		radix56_dit_pass1 (a,rmul*radix);
-	#elif radix == 60
-		radix60_dit_pass1 (a,rmul*radix);
-	#elif radix == 64
-		radix64_dit_pass1 (a,rmul*radix);
-	#elif radix == 72
-		radix72_dit_pass1 (a,rmul*radix);
-	#elif radix == 80
-		radix80_dit_pass1 (a,rmul*radix);
-	#elif radix == 88
-		radix88_dit_pass1 (a,rmul*radix);
-	#elif radix == 96
-		radix96_dit_pass1 (a,rmul*radix);
-	#elif radix ==104
-		radix104_dit_pass1(a,rmul*radix);
-	#elif radix ==112
-		radix112_dit_pass1(a,rmul*radix);
-	#elif radix ==120
-		radix120_dit_pass1(a,rmul*radix);
-	#elif radix ==128
-		radix128_dit_pass1(a,rmul*radix);
-	#elif radix ==992
-		radix31x32_dit_pass1(a,rmul*radix);
+	#if RADIX == 2
+		radix2_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 3
+		radix3_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 4
+		radix4_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 5
+		radix5_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 6
+		radix6_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 7
+		radix7_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 8
+		radix8_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 9
+		radix9_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 10
+		radix10_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 11
+		radix11_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 12
+		radix12_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 13
+		radix13_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 14
+		radix14_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 15
+		radix15_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 16
+		radix16_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 18
+		radix18_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 20
+		radix20_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 22
+		radix22_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 24
+		radix24_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 26
+		radix26_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 28
+		radix28_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 30
+		radix30_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 31
+		radix31_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 32
+		radix32_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 36
+		radix36_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 40
+		radix40_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 44
+		radix44_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 48
+		radix48_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 52
+		radix52_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 56
+		radix56_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 60
+		radix60_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 64
+		radix64_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 72
+		radix72_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 80
+		radix80_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 88
+		radix88_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX == 96
+		radix96_dit_pass1 (a,rmul*RADIX);
+	#elif RADIX ==104
+		radix104_dit_pass1(a,rmul*RADIX);
+	#elif RADIX ==112
+		radix112_dit_pass1(a,rmul*RADIX);
+	#elif RADIX ==120
+		radix120_dit_pass1(a,rmul*RADIX);
+	#elif RADIX ==128
+		radix128_dit_pass1(a,rmul*RADIX);
+	#elif RADIX ==992
+		radix31x32_dit_pass1(a,rmul*RADIX);
 	#endif
 
 #endif
 
-#if TEST_TYPE == 1
+#if TEST_TYPE == 2
 
 	nerr = 0;
-	for(i = 0; i < radix ; i++)
+	printf("To deduce the required output-idx ordering, sort Actual-outputs data by left col-of-real-parts, move\n");
+	printf("resulting [re,im,i] block to file, repeat procedure for Expected-outputs, then compare the two files.\n");
+	printf("If they differ only in their respective rcol indices, those two cols give the required index mapping.\n");
+	printf("\n");
+	printf("         Actual outputs:             i          Expected outputs:            i\n");
+	printf(" -------------------------------   ---   -------------------------------   ---\n");
+	for(i = 0; i < RADIX ; i++)
 	{
 	#ifdef USE_SSE2
 		t0 = a[2*i*RE_IM_STRIDE  ];
@@ -628,12 +659,12 @@ void test_fft_radix(void)
 		abserr = CABS(err_r, err_i);
 		if(abserr < 0.00001)
 		{
-			printf("%4d %15.10f  %15.10f  %15.10f  %15.10f\n",i,t0,t2,b[2*i  ],-b[2*i+1]);
+			printf("%15.10f  %15.10f  %4d  %15.10f  %15.10f  %4d\n",t0,t2,i,b[2*i  ],-b[2*i+1],i);
 		}
 		else
 		{
 			++nerr;
-			printf("%4d %15.10f  %15.10f  %15.10f  %15.10f, ERR= %15.10e\n",i,t0,t2,b[2*i  ],b[2*i+1], abserr);
+			printf("%15.10f  %15.10f  %4d  %15.10f  %15.10f  %4d, ERR= %15.10e\n",t0,t2,i,b[2*i  ],-b[2*i+1],i, abserr);
 		}
 	}
 	printf("\n");
@@ -641,11 +672,11 @@ void test_fft_radix(void)
 
 #endif
 
-#if TEST_TYPE == 2
+#if TEST_TYPE == 3
 
 	nerr = 0;
 	avgerr = maxerr = 0.0;
-	for(i = 0; i < radix ; i++)
+	for(i = 0; i < RADIX ; i++)
 	{
 	#ifdef USE_SSE2
 		ASSERT(HERE, a[2*i*RE_IM_STRIDE] == a[2*i*RE_IM_STRIDE+1] && a[(2*i+1)*RE_IM_STRIDE] == a[(2*i+1)*RE_IM_STRIDE+1], "1/2 components of SSE2-pack mismatch!");
@@ -655,10 +686,14 @@ void test_fft_radix(void)
 		abserr = CABS(err_r, err_i);
 		avgerr += abserr;
 		maxerr = MAX(maxerr, abserr);
-		printf("%4d  %25.15f  %25.15f, ERR= %15.10e\n",i,a[2*i*RE_IM_STRIDE], a[(2*i+1)*RE_IM_STRIDE], CABS(err_r, err_i));
-		if(abserr > 0.00001)
+		if(abserr < 0.00001)
+		{
+			printf("%4d  %25.15f  %25.15f\n",i,a[2*i*RE_IM_STRIDE], a[(2*i+1)*RE_IM_STRIDE]);
+		}
+		else
 		{
 			++nerr;
+			printf("%4d  %25.15f  %25.15f, ERR= %15.10e\n",i,a[2*i*RE_IM_STRIDE], a[(2*i+1)*RE_IM_STRIDE], CABS(err_r, err_i));
 		}
 	}
 	avgerr *= iradix;

@@ -22,12 +22,6 @@
 
 #include "Mlucas.h"
 
-#undef FFT_DEBUG
-#define FFT_DEBUG	0
-
-	#undef DEBUG_SSE2
-//	#define DEBUG_SSE2
-
 #ifdef USE_SSE2
 
 	#include "sse2_macro.h"
@@ -62,7 +56,7 @@ void radix32_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 {
 
 /*
-!   NOTE: In the following commentary, N refers to the COMPLEX vector length (N2 in the code),
+!   NOTE: In the following commentary, N refers to the VEC_DBL vector length (N2 in the code),
 !   which is half the real vector length.
 !
 !...Acronyms:   DIT = Decimation In Time
@@ -82,7 +76,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	       int index0_idx=-1, index1_idx=-1;
 	static int index0_mod=-1, index1_mod=-1;
 	int nradices_prim_radix0;
-
+	const int stride = (int)RE_IM_STRIDE << 5;	// 32*RE_IM_STRIDE; works for any power of 2 SIMD packing number
 	int i,j,j1,j2,l,iroot,k1,k2,ndivrad0;
 	const double c = 0.92387953251128675613, s     = 0.38268343236508977173	/* exp[  i*(twopi/16)]	*/
 			,c32_1 = 0.98078528040323044912, s32_1 = 0.19509032201612826784	/* exp(  i*twopi/32), the radix-32 fundamental sincos datum	*/
@@ -96,24 +90,25 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	#error SSE2 code not supported for this compiler!
   #endif
 
-	static struct complex *sc_arr = 0x0, *sc_ptr;
+	static vec_dbl *sc_arr = 0x0, *sc_ptr;
 	double *add0, *add1;	/* Addresses into array sections */
-	struct complex *c_tmp,*s_tmp;
+  #ifdef USE_AVX
+	double *add2, *add3;
+  #endif
+	vec_dbl *c_tmp,*s_tmp;
 
   #ifdef MULTITHREAD
-	static struct complex *__r0;	/* Base address for discrete per-thread local stores */
+	static vec_dbl *__r0;	/* Base address for discrete per-thread local stores */
 	// In || mode, only above base-pointer (shared by all threads) is static:
-	struct complex *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *forth, *two
+	vec_dbl *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *forth, *two
 		,*c00,*c01,*c02,*c03,*c04,*c05,*c06,*c07,*c08,*c09,*c0A,*c0B,*c0C,*c0D,*c0E,*c0F
 		,*c10,*c11,*c12,*c13,*c14,*c15,*c16,*c17,*c18,*c19,*c1A,*c1B,*c1C,*c1D,*c1E,*c1F
 		,*r00,*r08,*r10,*r20,*r28,*r30;
   #else
-	static struct complex *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *forth, *two
+	static vec_dbl *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *forth, *two
 		, *tmp0, *tmp1, *tmp2, *tmp3, *tmp4, *tmp5, *tmp6, *tmp7
 		,*c00,*c01,*c02,*c03,*c04,*c05,*c06,*c07,*c08,*c09,*c0A,*c0B,*c0C,*c0D,*c0E,*c0F
 		,*c10,*c11,*c12,*c13,*c14,*c15,*c16,*c17,*c18,*c19,*c1A,*c1B,*c1C,*c1D,*c1E,*c1F
-		,*s00,*s01,*s02,*s03,*s04,*s05,*s06,*s07,*s08,*s09,*s0A,*s0B,*s0C,*s0D,*s0E,*s0F
-		,*s10,*s11,*s12,*s13,*s14,*s15,*s16,*s17,*s18,*s19,*s1A,*s1B,*s1C,*s1D,*s1E,*s1F
 		,*r00,*r01,*r02,*r03,*r04,*r05,*r06,*r07,*r08,*r09,*r0A,*r0B,*r0C,*r0D,*r0E,*r0F
 		,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r1A,*r1B,*r1C,*r1D,*r1E,*r1F
 		,*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r2A,*r2B,*r2C,*r2D,*r2E,*r2F
@@ -138,10 +133,6 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	,a1p00i,a1p01i,a1p02i,a1p03i,a1p04i,a1p05i,a1p06i,a1p07i,a1p08i,a1p09i,a1p0Ai,a1p0Bi,a1p0Ci,a1p0Di,a1p0Ei,a1p0Fi
 	,a1p10i,a1p11i,a1p12i,a1p13i,a1p14i,a1p15i,a1p16i,a1p17i,a1p18i,a1p19i,a1p1Ai,a1p1Bi,a1p1Ci,a1p1Di,a1p1Ei,a1p1Fi;
 
-#endif
-
-#if FFT_DEBUG || defined(DEBUG_SSE2)
-	int iloop;
 #endif
 
 /*...If a new runlength or first-pass radix, it is assumed this function has been first-called with init_sse2 = true to
@@ -171,8 +162,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	#ifdef USE_SSE2
 		ASSERT(HERE, sc_arr == 0x0, "Init-mode call conflicts with already-malloc'ed local storage!");
 		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
-		sc_arr = ALLOC_COMPLEX(sc_arr, 0x94*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		sc_ptr = ALIGN_COMPLEX(sc_arr);
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x94*max_threads + 100);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 32 16-byte slots of sc_arr for temporaries, next 8 for scratch, next 7 for the nontrivial complex 16th roots,
@@ -192,12 +183,12 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			two   = sc_ptr + 0x90;
 			for(i = 0; i < max_threads; ++i) {
 				/* These remain fixed within each per-thread local store: */
-				isrt2->re = ISRT2;	isrt2->im = ISRT2;
-				cc0  ->re = c	;	cc0  ->im = c	;		ss0  ->re = s	;	ss0  ->im = s	;
-				cc1  ->re = c32_1;	cc1  ->im = c32_1;		ss1  ->re = s32_1;	ss1  ->im = s32_1;
-				cc3  ->re = c32_3;	cc3  ->im = c32_3;		ss3  ->re = s32_3;	ss3  ->im = s32_3;
-				forth->re = 0.25;	forth->im = 0.25;
-				two  ->re = 2.0;	two  ->im = 2.0;
+				VEC_DBL_INIT(isrt2, ISRT2);
+				VEC_DBL_INIT(cc0  , c	 );		VEC_DBL_INIT(ss0 , s	);
+				VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1 , s32_1);
+				VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3 , s32_3);
+				VEC_DBL_INIT(forth, 0.25 );
+				VEC_DBL_INIT(two  , 2.0  );
 				/* Move on to next thread's local store */
 				isrt2 += 0x94;
 				cc0   += 0x94;
@@ -219,78 +210,78 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			r05		= sc_ptr + 0x05;	cc3		= sc_ptr + 0x4d;
 			r06		= sc_ptr + 0x06;	ss3		= sc_ptr + 0x4e;
 			r07		= sc_ptr + 0x07;	c00		= sc_ptr + 0x4f;
-			r08		= sc_ptr + 0x08;	s00		= sc_ptr + 0x50;
+			r08		= sc_ptr + 0x08;//	s00		= sc_ptr + 0x50;
 			r09		= sc_ptr + 0x09;	c10		= sc_ptr + 0x51;
-			r0A		= sc_ptr + 0x0a;	s10		= sc_ptr + 0x52;
+			r0A		= sc_ptr + 0x0a;//	s10		= sc_ptr + 0x52;
 			r0B		= sc_ptr + 0x0b;	c08		= sc_ptr + 0x53;
-			r0C		= sc_ptr + 0x0c;	s08		= sc_ptr + 0x54;
+			r0C		= sc_ptr + 0x0c;//	s08		= sc_ptr + 0x54;
 			r0D		= sc_ptr + 0x0d;	c18		= sc_ptr + 0x55;
-			r0E		= sc_ptr + 0x0e;	s18		= sc_ptr + 0x56;
+			r0E		= sc_ptr + 0x0e;//	s18		= sc_ptr + 0x56;
 			r0F		= sc_ptr + 0x0f;	c04		= sc_ptr + 0x57;
-			r10		= sc_ptr + 0x10;	s04		= sc_ptr + 0x58;
+			r10		= sc_ptr + 0x10;//	s04		= sc_ptr + 0x58;
 			r11		= sc_ptr + 0x11;	c14		= sc_ptr + 0x59;
-			r12		= sc_ptr + 0x12;	s14		= sc_ptr + 0x5a;
+			r12		= sc_ptr + 0x12;//	s14		= sc_ptr + 0x5a;
 			r13		= sc_ptr + 0x13;	c0C		= sc_ptr + 0x5b;
-			r14		= sc_ptr + 0x14;	s0C		= sc_ptr + 0x5c;
+			r14		= sc_ptr + 0x14;//	s0C		= sc_ptr + 0x5c;
 			r15		= sc_ptr + 0x15;	c1C		= sc_ptr + 0x5d;
-			r16		= sc_ptr + 0x16;	s1C		= sc_ptr + 0x5e;
+			r16		= sc_ptr + 0x16;//	s1C		= sc_ptr + 0x5e;
 			r17		= sc_ptr + 0x17;	c02		= sc_ptr + 0x5f;
-			r18		= sc_ptr + 0x18;	s02		= sc_ptr + 0x60;
+			r18		= sc_ptr + 0x18;//	s02		= sc_ptr + 0x60;
 			r19		= sc_ptr + 0x19;	c12		= sc_ptr + 0x61;
-			r1A		= sc_ptr + 0x1a;	s12		= sc_ptr + 0x62;
+			r1A		= sc_ptr + 0x1a;//	s12		= sc_ptr + 0x62;
 			r1B		= sc_ptr + 0x1b;	c0A		= sc_ptr + 0x63;
-			r1C		= sc_ptr + 0x1c;	s0A		= sc_ptr + 0x64;
+			r1C		= sc_ptr + 0x1c;//	s0A		= sc_ptr + 0x64;
 			r1D		= sc_ptr + 0x1d;	c1A		= sc_ptr + 0x65;
-			r1E		= sc_ptr + 0x1e;	s1A		= sc_ptr + 0x66;
+			r1E		= sc_ptr + 0x1e;//	s1A		= sc_ptr + 0x66;
 			r1F		= sc_ptr + 0x1f;	c06		= sc_ptr + 0x67;
-			r20		= sc_ptr + 0x20;	s06		= sc_ptr + 0x68;
+			r20		= sc_ptr + 0x20;//	s06		= sc_ptr + 0x68;
 			r21		= sc_ptr + 0x21;	c16		= sc_ptr + 0x69;
-			r22		= sc_ptr + 0x22;	s16		= sc_ptr + 0x6a;
+			r22		= sc_ptr + 0x22;//	s16		= sc_ptr + 0x6a;
 			r23		= sc_ptr + 0x23;	c0E		= sc_ptr + 0x6b;
-			r24		= sc_ptr + 0x24;	s0E		= sc_ptr + 0x6c;
+			r24		= sc_ptr + 0x24;//	s0E		= sc_ptr + 0x6c;
 			r25		= sc_ptr + 0x25;	c1E		= sc_ptr + 0x6d;
-			r26		= sc_ptr + 0x26;	s1E		= sc_ptr + 0x6e;
+			r26		= sc_ptr + 0x26;//	s1E		= sc_ptr + 0x6e;
 			r27		= sc_ptr + 0x27;	c01		= sc_ptr + 0x6f;
-			r28		= sc_ptr + 0x28;	s01		= sc_ptr + 0x70;
+			r28		= sc_ptr + 0x28;//	s01		= sc_ptr + 0x70;
 			r29		= sc_ptr + 0x29;	c11		= sc_ptr + 0x71;
-			r2A		= sc_ptr + 0x2a;	s11		= sc_ptr + 0x72;
+			r2A		= sc_ptr + 0x2a;//	s11		= sc_ptr + 0x72;
 			r2B		= sc_ptr + 0x2b;	c09		= sc_ptr + 0x73;
-			r2C		= sc_ptr + 0x2c;	s09		= sc_ptr + 0x74;
+			r2C		= sc_ptr + 0x2c;//	s09		= sc_ptr + 0x74;
 			r2D		= sc_ptr + 0x2d;	c19		= sc_ptr + 0x75;
-			r2E		= sc_ptr + 0x2e;	s19		= sc_ptr + 0x76;
+			r2E		= sc_ptr + 0x2e;//	s19		= sc_ptr + 0x76;
 			r2F		= sc_ptr + 0x2f;	c05		= sc_ptr + 0x77;
-			r30		= sc_ptr + 0x30;	s05		= sc_ptr + 0x78;
+			r30		= sc_ptr + 0x30;//	s05		= sc_ptr + 0x78;
 			r31		= sc_ptr + 0x31;	c15		= sc_ptr + 0x79;
-			r32		= sc_ptr + 0x32;	s15		= sc_ptr + 0x7a;
+			r32		= sc_ptr + 0x32;//	s15		= sc_ptr + 0x7a;
 			r33		= sc_ptr + 0x33;	c0D		= sc_ptr + 0x7b;
-			r34		= sc_ptr + 0x34;	s0D		= sc_ptr + 0x7c;
+			r34		= sc_ptr + 0x34;//	s0D		= sc_ptr + 0x7c;
 			r35		= sc_ptr + 0x35;	c1D		= sc_ptr + 0x7d;
-			r36		= sc_ptr + 0x36;	s1D		= sc_ptr + 0x7e;
+			r36		= sc_ptr + 0x36;//	s1D		= sc_ptr + 0x7e;
 			r37		= sc_ptr + 0x37;	c03		= sc_ptr + 0x7f;
-			r38		= sc_ptr + 0x38;	s03		= sc_ptr + 0x80;
+			r38		= sc_ptr + 0x38;//	s03		= sc_ptr + 0x80;
 			r39		= sc_ptr + 0x39;	c13		= sc_ptr + 0x81;
-			r3A		= sc_ptr + 0x3a;	s13		= sc_ptr + 0x82;
+			r3A		= sc_ptr + 0x3a;//	s13		= sc_ptr + 0x82;
 			r3B		= sc_ptr + 0x3b;	c0B		= sc_ptr + 0x83;
-			r3C		= sc_ptr + 0x3c;	s0B		= sc_ptr + 0x84;
+			r3C		= sc_ptr + 0x3c;//	s0B		= sc_ptr + 0x84;
 			r3D		= sc_ptr + 0x3d;	c1B		= sc_ptr + 0x85;
-			r3E		= sc_ptr + 0x3e;	s1B		= sc_ptr + 0x86;
+			r3E		= sc_ptr + 0x3e;//	s1B		= sc_ptr + 0x86;
 			r3F		= sc_ptr + 0x3f;	c07		= sc_ptr + 0x87;
-			tmp0	= sc_ptr + 0x40;	s07		= sc_ptr + 0x88;
+			tmp0	= sc_ptr + 0x40;//	s07		= sc_ptr + 0x88;
 			tmp1	= sc_ptr + 0x41;	c17		= sc_ptr + 0x89;
-			tmp2	= sc_ptr + 0x42;	s17		= sc_ptr + 0x8a;
+			tmp2	= sc_ptr + 0x42;//	s17		= sc_ptr + 0x8a;
 			tmp3	= sc_ptr + 0x43;	c0F		= sc_ptr + 0x8b;
-			tmp4	= sc_ptr + 0x44;	s0F		= sc_ptr + 0x8c;
+			tmp4	= sc_ptr + 0x44;//	s0F		= sc_ptr + 0x8c;
 			tmp5	= sc_ptr + 0x45;	c1F		= sc_ptr + 0x8d;
-			tmp6	= sc_ptr + 0x46;	s1F		= sc_ptr + 0x8e;
+			tmp6	= sc_ptr + 0x46;//	s1F		= sc_ptr + 0x8e;
 			tmp7	= sc_ptr + 0x47;	forth	= sc_ptr + 0x8f;
 										two     = sc_ptr + 0x90;
 			/* These remain fixed: */
-			forth->re = 0.25;	forth->im = 0.25;
-			isrt2->re = ISRT2;	isrt2->im = ISRT2;
-			two  ->re = 2.0;	two  ->im = 2.0;
-			cc0  ->re = c	;	cc0  ->im = c	;		ss0  ->re = s	;	ss0  ->im = s	;
-			cc1  ->re = c32_1;	cc1  ->im = c32_1;		ss1  ->re = s32_1;	ss1  ->im = s32_1;
-			cc3  ->re = c32_3;	cc3  ->im = c32_3;		ss3  ->re = s32_3;	ss3  ->im = s32_3;
+			VEC_DBL_INIT(isrt2, ISRT2);
+			VEC_DBL_INIT(cc0  , c	 );		VEC_DBL_INIT(ss0 , s	);
+			VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1 , s32_1);
+			VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3 , s32_3);
+			VEC_DBL_INIT(forth, 0.25 );
+			VEC_DBL_INIT(two  , 2.0  );
 		#endif
 	//	}
 	#endif
@@ -349,6 +340,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	/* If multithreaded, set the local-store pointers needed for the current thread; */
 #ifdef MULTITHREAD
 	ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+  #ifdef USE_SSE2
 	r00 = __r0 + thr_id*0x94;
 	r08   = r00 + 0x08;
 	r10   = r00 + 0x10;
@@ -397,6 +389,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	c1B	  = r00 + 0x85;
 	c1D	  = r00 + 0x7d;
 	c1F	  = r00 + 0x8d;
+  #endif
 #endif
 
 	/*...If a new runlength, should not get to this point: */
@@ -410,16 +403,20 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	index0_idx = ii;
 	index1_idx = 0;
 
-	#ifdef USE_SSE2
-	for(j = 0; j < ndivrad0; j +=128)
+#ifdef USE_AVX
+	for(j = 0; j < ndivrad0; j += 256)
+	{
+	    j1 =j + ( (j >> DAT_BITS) << PAD_BITS );
+#elif defined(USE_SSE2)
+	for(j = 0; j < ndivrad0; j += 128)
 	{
 		j1 = (j & mask01) + br4[j&3];
 	    j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
-	#else
+#else
 	for(j = 0; j < ndivrad0; j += 64)
 	{
 	    j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-	#endif
+#endif
 		j2 = j1+RE_IM_STRIDE;
 	/*
 		iroot = index[k];
@@ -427,11 +424,10 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		k = k + 1;	// increment sincos array index
 	*/
 		iroot = index0[index0_idx] + index1[index1_idx];
-	/* fprintf(stderr, "idx0 = %d, idx1 = %d, irootA = %d\n",index0_idx,index1_idx,iroot); */
 		if(++index1_idx >= index1_mod)
 		{
 			index1_idx -= index1_mod;
-		/*	ASSERT(HERE, index0_idx < index0_mod,"radix32_dyadic_square.c: index0_idx < index0_mod");	*/
+		ASSERT(HERE, index0_idx < index0_mod,"radix32_dyadic_square.c: index0_idx < index0_mod");
 			++index0_idx;
 		}
 
@@ -447,8 +443,9 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		    (cc0,ss0) + 0x[06,26,16,36,3e,22,30,14]:
 		*/
 		c_tmp = cc0 + 0x06; s_tmp = c_tmp+1;	/* c0,s0 */
-		c_tmp->re=1.;	s_tmp->re=0.;
-		c_tmp->im=1.;	s_tmp->im=0.;
+		rt = 1.0; it = 0.0;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
 	#endif
 
 		k1=(l & NRTM1);
@@ -459,7 +456,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x26; s_tmp = c_tmp+1;
-		c_tmp->re=rt;	s_tmp->re=it;	/* For all but the trivial 0th root, re and im parts in SSE2 mode use a separate set of roots, im-parts done below */
+		c_tmp->d0=rt;	s_tmp->d0=it;	/* For all but the trivial 0th root, re and im parts in SSE2 mode use a separate set of roots, im-parts done below */
 	#else
 		c01 =rt;	s01 =it;
 	#endif
@@ -472,7 +469,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x16; s_tmp = c_tmp+1;
-		c_tmp->re=rt;	s_tmp->re=it;
+		c_tmp->d0=rt;	s_tmp->d0=it;
 	#else
 		c02 =rt;	s02 =it;
 	#endif
@@ -486,7 +483,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x36; s_tmp = c_tmp+1;
-		c_tmp->re=rt;	s_tmp->re=it;
+		c_tmp->d0=rt;	s_tmp->d0=it;
 	#else
 		c03 =rt;	s03 =it;
 	#endif
@@ -499,7 +496,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x3e; s_tmp = c_tmp+1;
-		c_tmp->re=rt;	s_tmp->re=it;
+		c_tmp->d0=rt;	s_tmp->d0=it;
 	#else
 		c07 =rt;	s07 =it;
 	#endif
@@ -512,7 +509,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x22; s_tmp = c_tmp+1;
-		c_tmp->re=rt;	s_tmp->re=it;
+		c_tmp->d0=rt;	s_tmp->d0=it;
 	#else
 		c0E =rt;	s0E =it;
 	#endif
@@ -525,7 +522,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x30; s_tmp = c_tmp+1;
-		c_tmp->re=rt;	s_tmp->re=it;
+		c_tmp->d0=rt;	s_tmp->d0=it;
 	#else
 		c15 =rt;	s15 =it;
 	#endif
@@ -537,20 +534,19 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x14; s_tmp = c_tmp+1;
-		c_tmp->re=rt;	s_tmp->re=it;
+		c_tmp->d0=rt;	s_tmp->d0=it;
 	#else
 		c1C =rt;	s1C =it;
 	#endif
 
 	/* In SSE2 mode, also need next set of sincoa to put into "Imaginary" slots: */
 	#ifdef USE_SSE2
-
+		// 2nd set:
 		iroot = index0[index0_idx] + index1[index1_idx];
-	/* fprintf(stderr, "idx0 = %d, idx1 = %d, irootB = %d\n",index0_idx,index1_idx,iroot); */
 		if(++index1_idx >= index1_mod)
 		{
 			index1_idx -= index1_mod;
-		/*	ASSERT(HERE, index0_idx < index0_mod,"radix16_dyadic_square.c: index0_idx < index0_mod");	*/
+		ASSERT(HERE, index0_idx < index0_mod,"radix32_dyadic_square.c: index0_idx < index0_mod");
 			++index0_idx;
 		}
 
@@ -563,7 +559,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x26; s_tmp = c_tmp+1;	/* c1,s1 */
-		c_tmp->im=rt;	s_tmp->im=it;
+		c_tmp->d1=rt;	s_tmp->d1=it;
 
 	    k1=(l & NRTM1);
 	    k2=(l >> NRT_BITS);
@@ -572,7 +568,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x16; s_tmp = c_tmp+1;	/* c2,s2 */
-		c_tmp->im=rt;	s_tmp->im=it;
+		c_tmp->d1=rt;	s_tmp->d1=it;
 
 	    k1=(l & NRTM1);
 	    k2=(l >> NRT_BITS);
@@ -582,7 +578,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x36; s_tmp = c_tmp+1;	/* c3,s3 */
-		c_tmp->im=rt;	s_tmp->im=it;
+		c_tmp->d1=rt;	s_tmp->d1=it;
 
 	    k1=(l & NRTM1);
 	    k2=(l >> NRT_BITS);
@@ -591,7 +587,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x3e; s_tmp = c_tmp+1;	/* c7,s7 */
-		c_tmp->im=rt;	s_tmp->im=it;
+		c_tmp->d1=rt;	s_tmp->d1=it;
 
 	    k1=(l & NRTM1);
 	    k2=(l >> NRT_BITS);
@@ -600,7 +596,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x22; s_tmp = c_tmp+1;	/* c14,s14 */
-		c_tmp->im=rt;	s_tmp->im=it;
+		c_tmp->d1=rt;	s_tmp->d1=it;
 
 	    k1=(l & NRTM1);
 	    k2=(l >> NRT_BITS);
@@ -609,7 +605,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x30; s_tmp = c_tmp+1;	/* c21,s21 */
-		c_tmp->im=rt;	s_tmp->im=it;
+		c_tmp->d1=rt;	s_tmp->d1=it;
 
 	    k1=(l & NRTM1);
 	    k2=(l >> NRT_BITS);
@@ -617,8 +613,161 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x14; s_tmp = c_tmp+1;	/* c28,s28 */
-		c_tmp->im=rt;	s_tmp->im=it;
+		c_tmp->d1=rt;	s_tmp->d1=it;
 
+	  /* In AVX mode, also need next 2 sets of sincos: */
+	  #ifdef USE_AVX
+	    // 3rd set (of 4):
+		iroot = index0[index0_idx] + index1[index1_idx];
+		if(++index1_idx >= index1_mod)
+		{
+			index1_idx -= index1_mod;
+		ASSERT(HERE, index0_idx < index0_mod,"radix32_dyadic_square.c: index0_idx < index0_mod");
+			++index0_idx;
+		}
+
+		l = iroot;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;			/* 2*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x26; s_tmp = c_tmp+1;	/* c1,s1 */
+		c_tmp->d2=rt;	s_tmp->d2=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 3*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x16; s_tmp = c_tmp+1;	/* c2,s2 */
+		c_tmp->d2=rt;	s_tmp->d2=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += 4*iroot;			/* 7*iroot	*/
+	    iroot = l;				/* 7*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x36; s_tmp = c_tmp+1;	/* c3,s3 */
+		c_tmp->d2=rt;	s_tmp->d2=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 14*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x3e; s_tmp = c_tmp+1;	/* c7,s7 */
+		c_tmp->d2=rt;	s_tmp->d2=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 21*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x22; s_tmp = c_tmp+1;	/* c14,s14 */
+		c_tmp->d2=rt;	s_tmp->d2=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 28*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x30; s_tmp = c_tmp+1;	/* c21,s21 */
+		c_tmp->d2=rt;	s_tmp->d2=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x14; s_tmp = c_tmp+1;	/* c28,s28 */
+		c_tmp->d2=rt;	s_tmp->d2=it;
+
+	    // 4th set (of 4):
+		iroot = index0[index0_idx] + index1[index1_idx];
+		if(++index1_idx >= index1_mod)
+		{
+			index1_idx -= index1_mod;
+		ASSERT(HERE, index0_idx < index0_mod,"radix32_dyadic_square.c: index0_idx < index0_mod");
+			++index0_idx;
+		}
+
+		l = iroot;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;			/* 2*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x26; s_tmp = c_tmp+1;	/* c1,s1 */
+		c_tmp->d3=rt;	s_tmp->d3=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 3*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x16; s_tmp = c_tmp+1;	/* c2,s2 */
+		c_tmp->d3=rt;	s_tmp->d3=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += 4*iroot;			/* 7*iroot	*/
+	    iroot = l;				/* 7*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x36; s_tmp = c_tmp+1;	/* c3,s3 */
+		c_tmp->d3=rt;	s_tmp->d3=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 14*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x3e; s_tmp = c_tmp+1;	/* c7,s7 */
+		c_tmp->d3=rt;	s_tmp->d3=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 21*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x22; s_tmp = c_tmp+1;	/* c14,s14 */
+		c_tmp->d3=rt;	s_tmp->d3=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 28*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x30; s_tmp = c_tmp+1;	/* c21,s21 */
+		c_tmp->d3=rt;	s_tmp->d3=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x14; s_tmp = c_tmp+1;	/* c28,s28 */
+		c_tmp->d3=rt;	s_tmp->d3=it;
+
+	  #endif	// AVX?
+
+		// Now generate the remaining roots from the smaller "seed set":
 		SSE2_CMUL_EXPO(c01,c07,c06,c08)
 		SSE2_CMUL_EXPO(c02,c07,c05,c09)
 		SSE2_CMUL_EXPO(c03,c07,c04,c0A)
@@ -677,63 +826,19 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	    c19=t00+t03; s19=t01-t02; c1F=t00-t03; s1F=t01+t02;
 	#endif
 
-	#ifdef DEBUG_SSE2
-		rng_isaac_init(TRUE);
-		for(iloop = 0; iloop <128; iloop += 4)
-		{
-		#ifdef USE_SSE2
-			a[j1+iloop  ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[j1+iloop+2] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[j1+iloop+1] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[j1+iloop+3] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			fprintf(stderr, "A_in[%2d] = %20.5f, %20.5f\n",iloop,a[j1+iloop+0],a[j1+iloop+2]);
-			fprintf(stderr, "A_in[%2d] = %20.5f, %20.5f\n",iloop,a[j1+iloop+1],a[j1+iloop+3]);
-		#else
-			a[j1+iloop  ] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[j1+iloop+1] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[j1+iloop+2] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[j1+iloop+3] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			fprintf(stderr, "A_in[%2d] = %20.5f, %20.5f\n",iloop,a[j1+iloop+0],a[j1+iloop+1]);
-			fprintf(stderr, "A_in[%2d] = %20.5f, %20.5f\n",iloop,a[j1+iloop+2],a[j1+iloop+3]);
-		#endif
-		}
-	#endif
-
-#if FFT_DEBUG
-
-fprintf(dbg_file, "NTHREADS = %d, Thread %d: Dyadic-square:\n",NTHREADS,thr_id);
-
-	c_tmp = isrt2;
-	for(iloop = 0; iloop <= 72; iloop++, c_tmp++)
-	{
-		fprintf(dbg_file, "sincos[%2d] = %20.5f, %20.5f\n",iloop,c_tmp->re,c_tmp->im);
-	}
-//	exit(0);
-
-	if(NTHREADS == 1 || thr_id == TARG_THREAD_ID) {
-		ASSERT(HERE, dbg_file != 0x0, "dbg_file == 0x0!");
-		fprintf(dbg_file, "Thread %d: j1 = %d, Dyadic-square Inputs:\n",thr_id,j1);
-		for(iloop = 0; iloop <128; iloop += 4)
-		{
-		#ifdef USE_SSE2
-			fprintf(dbg_file, "A_in[%2d] = %20.5f[0x%16llX], %20.5f[0x%16llX]\n",iloop,a[j1+iloop+0],a+j1+iloop+0,a[j1+iloop+2],a+j1+iloop+2);
-			fprintf(dbg_file, "A_in[%2d] = %20.5f[0x%16llX], %20.5f[0x%16llX]\n",iloop,a[j1+iloop+1],a+j1+iloop+1,a[j1+iloop+3],a+j1+iloop+3);
-		#else
-			fprintf(dbg_file, "A_in[%2d] = %20.5f[0x%16llX], %20.5f[0x%16llX]\n",iloop,a[j1+iloop+0],a+j1+iloop+0,a[j1+iloop+1],a+j1+iloop+1);
-			fprintf(dbg_file, "A_in[%2d] = %20.5f[0x%16llX], %20.5f[0x%16llX]\n",iloop,a[j1+iloop+2],a+j1+iloop+2,a[j1+iloop+3],a+j1+iloop+3);
-		#endif
-		}
-	}
-#endif
-
 /*       gather the needed data (32 64-bit complex, i.e. 64 64-bit reals) and do the first set of four length-8 transforms...
          We process the sincos data in bit-reversed order.	*/
 
-#ifdef USE_SSE2
+	// See the radix-16 analog of this routine for details about the SSE2 and AVX data layouts
+
+#if defined(USE_SSE2)	// SSE2 and AVX share same code flow, just with different versions of the ASM compute macros
 
 		add0 = &a[j1];
-		add1 = &a[j1+64];
-		ASSERT(HERE, (j1+64) == (j+64) + ( ((j+64) >> DAT_BITS) << PAD_BITS ) , "add1 calculation violates padded index rules!");
+		add1 = &a[j1+stride];
+	//	printf("stride = %d, add0,1 = %llX, %llX, diff = %llX\n",stride,(int64)add0,(int64)add1, (int64)add1-(int64)add0);	exit(0);
+
+		ASSERT(HERE, (j1+stride) == (j+stride) + ( ((j+stride) >> DAT_BITS) << PAD_BITS ) , "add1 calculation violates padded index rules!");
+
 	#ifdef COMPILER_TYPE_MSVC
 
 	/*...Block 0:	*/
@@ -1274,79 +1379,21 @@ fprintf(dbg_file, "NTHREADS = %d, Thread %d: Dyadic-square:\n",NTHREADS,thr_id);
 
 	#else	/* GCC-style inline ASM: */
 
-		SSE2_RADIX32_WRAPPER_DIF(add0,add1,r00,r10,r20,r30,isrt2,cc0,c00,c01,c02,c03,c05,c07)
+	  #ifdef USE_AVX	// The generic pre-dyadic-square macro needs 4 main-array addresses in AVX mode
+	  					// because (add1-add0) and (add3-add2) have opposite signs for fermat and mersenne-mod:
 
-	#endif
+		// process 4 main-array blocks of 8 vec_dbl = 8 x 4 = 32 doubles each in AVX mode
+		add1 = add0 +  64;
+		add2 = add0 + 128;
+		add3 = add0 + 192;
+		SSE2_RADIX32_WRAPPER_DIF(add0,add1,add2,add3,r00,r10,r20,r30,isrt2,cc0,c00,c01,c02,c03,c05,c07)
 
-	#ifdef DEBUG_SSE2
-		fprintf(stderr, "Outputs B:\n");
-		fprintf(stderr, "a1p00 = %20.5f, %20.5f\n",r00->re,r01->re);
-		fprintf(stderr, "a1p01 = %20.5f, %20.5f\n",r20->re,r21->re);
-		fprintf(stderr, "a1p02 = %20.5f, %20.5f\n",r10->re,r11->re);
-		fprintf(stderr, "a1p03 = %20.5f, %20.5f\n",r30->re,r31->re);
-		fprintf(stderr, "a1p04 = %20.5f, %20.5f\n",r08->re,r09->re);
-		fprintf(stderr, "a1p05 = %20.5f, %20.5f\n",r28->re,r29->re);
-		fprintf(stderr, "a1p06 = %20.5f, %20.5f\n",r18->re,r19->re);
-		fprintf(stderr, "a1p07 = %20.5f, %20.5f\n",r38->re,r39->re);
-		fprintf(stderr, "a1p08 = %20.5f, %20.5f\n",r04->re,r05->re);
-		fprintf(stderr, "a1p09 = %20.5f, %20.5f\n",r24->re,r25->re);
-		fprintf(stderr, "a1p0A = %20.5f, %20.5f\n",r14->re,r15->re);
-		fprintf(stderr, "a1p0B = %20.5f, %20.5f\n",r34->re,r35->re);
-		fprintf(stderr, "a1p0C = %20.5f, %20.5f\n",r0C->re,r0D->re);
-		fprintf(stderr, "a1p0D = %20.5f, %20.5f\n",r2C->re,r2D->re);
-		fprintf(stderr, "a1p0E = %20.5f, %20.5f\n",r1C->re,r1D->re);
-		fprintf(stderr, "a1p0F = %20.5f, %20.5f\n",r3C->re,r3D->re);
-		fprintf(stderr, "a1p10 = %20.5f, %20.5f\n",r02->re,r03->re);
-		fprintf(stderr, "a1p11 = %20.5f, %20.5f\n",r22->re,r23->re);
-		fprintf(stderr, "a1p12 = %20.5f, %20.5f\n",r12->re,r13->re);
-		fprintf(stderr, "a1p13 = %20.5f, %20.5f\n",r32->re,r33->re);
-		fprintf(stderr, "a1p14 = %20.5f, %20.5f\n",r0A->re,r0B->re);
-		fprintf(stderr, "a1p15 = %20.5f, %20.5f\n",r2A->re,r2B->re);
-		fprintf(stderr, "a1p16 = %20.5f, %20.5f\n",r1A->re,r1B->re);
-		fprintf(stderr, "a1p17 = %20.5f, %20.5f\n",r3A->re,r3B->re);
-		fprintf(stderr, "a1p18 = %20.5f, %20.5f\n",r06->re,r07->re);
-		fprintf(stderr, "a1p19 = %20.5f, %20.5f\n",r26->re,r27->re);
-		fprintf(stderr, "a1p1A = %20.5f, %20.5f\n",r16->re,r17->re);
-		fprintf(stderr, "a1p1B = %20.5f, %20.5f\n",r36->re,r37->re);
-		fprintf(stderr, "a1p1C = %20.5f, %20.5f\n",r0E->re,r0F->re);
-		fprintf(stderr, "a1p1D = %20.5f, %20.5f\n",r2E->re,r2F->re);
-		fprintf(stderr, "a1p1E = %20.5f, %20.5f\n",r1E->re,r1F->re);
-		fprintf(stderr, "a1p1F = %20.5f, %20.5f\n",r3E->re,r3F->re);
-		fprintf(stderr, "Outputs B:\n");
-		fprintf(stderr, "a1p00 = %20.5f, %20.5f\n",r00->im,r01->im);
-		fprintf(stderr, "a1p01 = %20.5f, %20.5f\n",r20->im,r21->im);
-		fprintf(stderr, "a1p02 = %20.5f, %20.5f\n",r10->im,r11->im);
-		fprintf(stderr, "a1p03 = %20.5f, %20.5f\n",r30->im,r31->im);
-		fprintf(stderr, "a1p04 = %20.5f, %20.5f\n",r08->im,r09->im);
-		fprintf(stderr, "a1p05 = %20.5f, %20.5f\n",r28->im,r29->im);
-		fprintf(stderr, "a1p06 = %20.5f, %20.5f\n",r18->im,r19->im);
-		fprintf(stderr, "a1p07 = %20.5f, %20.5f\n",r38->im,r39->im);
-		fprintf(stderr, "a1p08 = %20.5f, %20.5f\n",r04->im,r05->im);
-		fprintf(stderr, "a1p09 = %20.5f, %20.5f\n",r24->im,r25->im);
-		fprintf(stderr, "a1p0A = %20.5f, %20.5f\n",r14->im,r15->im);
-		fprintf(stderr, "a1p0B = %20.5f, %20.5f\n",r34->im,r35->im);
-		fprintf(stderr, "a1p0C = %20.5f, %20.5f\n",r0C->im,r0D->im);
-		fprintf(stderr, "a1p0D = %20.5f, %20.5f\n",r2C->im,r2D->im);
-		fprintf(stderr, "a1p0E = %20.5f, %20.5f\n",r1C->im,r1D->im);
-		fprintf(stderr, "a1p0F = %20.5f, %20.5f\n",r3C->im,r3D->im);
-		fprintf(stderr, "a1p10 = %20.5f, %20.5f\n",r02->im,r03->im);
-		fprintf(stderr, "a1p11 = %20.5f, %20.5f\n",r22->im,r23->im);
-		fprintf(stderr, "a1p12 = %20.5f, %20.5f\n",r12->im,r13->im);
-		fprintf(stderr, "a1p13 = %20.5f, %20.5f\n",r32->im,r33->im);
-		fprintf(stderr, "a1p14 = %20.5f, %20.5f\n",r0A->im,r0B->im);
-		fprintf(stderr, "a1p15 = %20.5f, %20.5f\n",r2A->im,r2B->im);
-		fprintf(stderr, "a1p16 = %20.5f, %20.5f\n",r1A->im,r1B->im);
-		fprintf(stderr, "a1p17 = %20.5f, %20.5f\n",r3A->im,r3B->im);
-		fprintf(stderr, "a1p18 = %20.5f, %20.5f\n",r06->im,r07->im);
-		fprintf(stderr, "a1p19 = %20.5f, %20.5f\n",r26->im,r27->im);
-		fprintf(stderr, "a1p1A = %20.5f, %20.5f\n",r16->im,r17->im);
-		fprintf(stderr, "a1p1B = %20.5f, %20.5f\n",r36->im,r37->im);
-		fprintf(stderr, "a1p1C = %20.5f, %20.5f\n",r0E->im,r0F->im);
-		fprintf(stderr, "a1p1D = %20.5f, %20.5f\n",r2E->im,r2F->im);
-		fprintf(stderr, "a1p1E = %20.5f, %20.5f\n",r1E->im,r1F->im);
-		fprintf(stderr, "a1p1F = %20.5f, %20.5f\n",r3E->im,r3F->im);
-		fprintf(stderr, "\n");
-		//exit(0);
+	  #else	// SSE2:
+
+		SSE2_RADIX32_WRAPPER_DIF(add0,add1,          r00,r10,r20,r30,isrt2,cc0,c00,c01,c02,c03,c05,c07)
+
+	  #endif
+
 	#endif
 
 	#ifdef COMPILER_TYPE_MSVC
@@ -1718,6 +1765,193 @@ fprintf(dbg_file, "NTHREADS = %d, Thread %d: Dyadic-square:\n",NTHREADS,thr_id);
 
 	  #else
 
+		#ifdef USE_AVX
+		
+		__asm__ volatile (\
+			"movq	%[__r00],%%rax			\n\t"\
+			"/* z0^2: */					\n\t	/* z0^2: */				\n\t"\
+			"vmovaps	     (%%rax),%%ymm0	\n\t	vmovaps	0x400(%%rax),%%ymm3	\n\t"\
+			"vmovaps	0x020(%%rax),%%ymm1	\n\t	vmovaps	0x420(%%rax),%%ymm4	\n\t"\
+			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmulpd	     (%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x400(%%rax),%%ymm4,%%ymm4		\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm3,0x400(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm4,0x420(%%rax)	\n\t"\
+			"/* z1^2: */					\n\t	/* z1^2: */				\n\t"\
+			"vmovaps	0x040(%%rax),%%ymm0	\n\t	vmovaps	0x440(%%rax),%%ymm3	\n\t"\
+			"vmovaps	0x060(%%rax),%%ymm1	\n\t	vmovaps	0x460(%%rax),%%ymm4	\n\t"\
+			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmulpd	0x040(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x440(%%rax),%%ymm4,%%ymm4		\n\t"\
+			"vmovaps	%%ymm0,0x040(%%rax)	\n\t	vmovaps	%%ymm3,0x440(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x060(%%rax)	\n\t	vmovaps	%%ymm4,0x460(%%rax)	\n\t"\
+			"/* z2^2: */					\n\t	/* z2^2: */				\n\t"\
+			"vmovaps	0x080(%%rax),%%ymm0	\n\t	vmovaps	0x480(%%rax),%%ymm3	\n\t"\
+			"vmovaps	0x0a0(%%rax),%%ymm1	\n\t	vmovaps	0x4a0(%%rax),%%ymm4	\n\t"\
+			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmulpd	0x080(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x480(%%rax),%%ymm4,%%ymm4		\n\t"\
+			"vmovaps	%%ymm0,0x080(%%rax)	\n\t	vmovaps	%%ymm3,0x480(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x0a0(%%rax)	\n\t	vmovaps	%%ymm4,0x4a0(%%rax)	\n\t"\
+			"/* z3^2: */					\n\t	/* z3^2: */				\n\t"\
+			"vmovaps	0x0c0(%%rax),%%ymm0	\n\t	vmovaps	0x4c0(%%rax),%%ymm3	\n\t"\
+			"vmovaps	0x0e0(%%rax),%%ymm1	\n\t	vmovaps	0x4e0(%%rax),%%ymm4	\n\t"\
+			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmulpd	0x0c0(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x4c0(%%rax),%%ymm4,%%ymm4		\n\t"\
+			"vmovaps	%%ymm0,0x0c0(%%rax)	\n\t	vmovaps	%%ymm3,0x4c0(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x0e0(%%rax)	\n\t	vmovaps	%%ymm4,0x4e0(%%rax)	\n\t"\
+			"/* z4^2: */					\n\t	/* z4^2: */				\n\t"\
+			"vmovaps	0x100(%%rax),%%ymm0	\n\t	vmovaps	0x500(%%rax),%%ymm3	\n\t"\
+			"vmovaps	0x120(%%rax),%%ymm1	\n\t	vmovaps	0x520(%%rax),%%ymm4	\n\t"\
+			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmulpd	0x100(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x500(%%rax),%%ymm4,%%ymm4		\n\t"\
+			"vmovaps	%%ymm0,0x100(%%rax)	\n\t	vmovaps	%%ymm3,0x500(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x120(%%rax)	\n\t	vmovaps	%%ymm4,0x520(%%rax)	\n\t"\
+			"/* z5^2: */					\n\t	/* z5^2: */				\n\t"\
+			"vmovaps	0x140(%%rax),%%ymm0	\n\t	vmovaps	0x540(%%rax),%%ymm3	\n\t"\
+			"vmovaps	0x160(%%rax),%%ymm1	\n\t	vmovaps	0x560(%%rax),%%ymm4	\n\t"\
+			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmulpd	0x140(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x540(%%rax),%%ymm4,%%ymm4		\n\t"\
+			"vmovaps	%%ymm0,0x140(%%rax)	\n\t	vmovaps	%%ymm3,0x540(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x160(%%rax)	\n\t	vmovaps	%%ymm4,0x560(%%rax)	\n\t"\
+			"/* z6^2: */					\n\t	/* z6^2: */				\n\t"\
+			"vmovaps	0x180(%%rax),%%ymm0	\n\t	vmovaps	0x580(%%rax),%%ymm3	\n\t"\
+			"vmovaps	0x1a0(%%rax),%%ymm1	\n\t	vmovaps	0x5a0(%%rax),%%ymm4	\n\t"\
+			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmulpd	0x180(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x580(%%rax),%%ymm4,%%ymm4		\n\t"\
+			"vmovaps	%%ymm0,0x180(%%rax)	\n\t	vmovaps	%%ymm3,0x580(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x1a0(%%rax)	\n\t	vmovaps	%%ymm4,0x5a0(%%rax)	\n\t"\
+			"/* z7^2: */					\n\t	/* z7^2: */				\n\t"\
+			"vmovaps	0x1c0(%%rax),%%ymm0	\n\t	vmovaps	0x5c0(%%rax),%%ymm3	\n\t"\
+			"vmovaps	0x1e0(%%rax),%%ymm1	\n\t	vmovaps	0x5e0(%%rax),%%ymm4	\n\t"\
+			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmulpd	0x1c0(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x5c0(%%rax),%%ymm4,%%ymm4		\n\t"\
+			"vmovaps	%%ymm0,0x1c0(%%rax)	\n\t	vmovaps	%%ymm3,0x5c0(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x1e0(%%rax)	\n\t	vmovaps	%%ymm4,0x5e0(%%rax)	\n\t"\
+			"/* z8^2: */					\n\t	/* z8^2: */				\n\t"\
+			"vmovaps	0x200(%%rax),%%ymm0	\n\t	vmovaps	0x600(%%rax),%%ymm3	\n\t"\
+			"vmovaps	0x220(%%rax),%%ymm1	\n\t	vmovaps	0x620(%%rax),%%ymm4	\n\t"\
+			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmulpd	0x200(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x600(%%rax),%%ymm4,%%ymm4		\n\t"\
+			"vmovaps	%%ymm0,0x200(%%rax)	\n\t	vmovaps	%%ymm3,0x600(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x220(%%rax)	\n\t	vmovaps	%%ymm4,0x620(%%rax)	\n\t"\
+			"/* z9^2: */					\n\t	/* z9^2: */				\n\t"\
+			"vmovaps	0x240(%%rax),%%ymm0	\n\t	vmovaps	0x640(%%rax),%%ymm3	\n\t"\
+			"vmovaps	0x260(%%rax),%%ymm1	\n\t	vmovaps	0x660(%%rax),%%ymm4	\n\t"\
+			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmulpd	0x240(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x640(%%rax),%%ymm4,%%ymm4		\n\t"\
+			"vmovaps	%%ymm0,0x240(%%rax)	\n\t	vmovaps	%%ymm3,0x640(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x260(%%rax)	\n\t	vmovaps	%%ymm4,0x660(%%rax)	\n\t"\
+			"/* zA^2: */					\n\t	/* zA^2: */				\n\t"\
+			"vmovaps	0x280(%%rax),%%ymm0	\n\t	vmovaps	0x680(%%rax),%%ymm3	\n\t"\
+			"vmovaps	0x2a0(%%rax),%%ymm1	\n\t	vmovaps	0x6a0(%%rax),%%ymm4	\n\t"\
+			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmulpd	0x280(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x680(%%rax),%%ymm4,%%ymm4		\n\t"\
+			"vmovaps	%%ymm0,0x280(%%rax)	\n\t	vmovaps	%%ymm3,0x680(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x2a0(%%rax)	\n\t	vmovaps	%%ymm4,0x6a0(%%rax)	\n\t"\
+			"/* zB^2: */					\n\t	/* zB^2: */				\n\t"\
+			"vmovaps	0x2c0(%%rax),%%ymm0	\n\t	vmovaps	0x6c0(%%rax),%%ymm3	\n\t"\
+			"vmovaps	0x2e0(%%rax),%%ymm1	\n\t	vmovaps	0x6e0(%%rax),%%ymm4	\n\t"\
+			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmulpd	0x2c0(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x6c0(%%rax),%%ymm4,%%ymm4		\n\t"\
+			"vmovaps	%%ymm0,0x2c0(%%rax)	\n\t	vmovaps	%%ymm3,0x6c0(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x2e0(%%rax)	\n\t	vmovaps	%%ymm4,0x6e0(%%rax)	\n\t"\
+			"/* zC^2: */					\n\t	/* zC^2: */				\n\t"\
+			"vmovaps	0x300(%%rax),%%ymm0	\n\t	vmovaps	0x700(%%rax),%%ymm3	\n\t"\
+			"vmovaps	0x320(%%rax),%%ymm1	\n\t	vmovaps	0x720(%%rax),%%ymm4	\n\t"\
+			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmulpd	0x300(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x700(%%rax),%%ymm4,%%ymm4		\n\t"\
+			"vmovaps	%%ymm0,0x300(%%rax)	\n\t	vmovaps	%%ymm3,0x700(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x320(%%rax)	\n\t	vmovaps	%%ymm4,0x720(%%rax)	\n\t"\
+			"/* zD^2: */					\n\t	/* zD^2: */				\n\t"\
+			"vmovaps	0x340(%%rax),%%ymm0	\n\t	vmovaps	0x740(%%rax),%%ymm3	\n\t"\
+			"vmovaps	0x360(%%rax),%%ymm1	\n\t	vmovaps	0x760(%%rax),%%ymm4	\n\t"\
+			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmulpd	0x340(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x740(%%rax),%%ymm4,%%ymm4		\n\t"\
+			"vmovaps	%%ymm0,0x340(%%rax)	\n\t	vmovaps	%%ymm3,0x740(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x360(%%rax)	\n\t	vmovaps	%%ymm4,0x760(%%rax)	\n\t"\
+			"/* zE^2: */					\n\t	/* zE^2: */				\n\t"\
+			"vmovaps	0x380(%%rax),%%ymm0	\n\t	vmovaps	0x780(%%rax),%%ymm3	\n\t"\
+			"vmovaps	0x3a0(%%rax),%%ymm1	\n\t	vmovaps	0x7a0(%%rax),%%ymm4	\n\t"\
+			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmulpd	0x380(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x780(%%rax),%%ymm4,%%ymm4		\n\t"\
+			"vmovaps	%%ymm0,0x380(%%rax)	\n\t	vmovaps	%%ymm3,0x780(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x3a0(%%rax)	\n\t	vmovaps	%%ymm4,0x7a0(%%rax)	\n\t"\
+			"/* zF^2: */					\n\t	/* zF^2: */				\n\t"\
+			"vmovaps	0x3c0(%%rax),%%ymm0	\n\t	vmovaps	0x7c0(%%rax),%%ymm3	\n\t"\
+			"vmovaps	0x3e0(%%rax),%%ymm1	\n\t	vmovaps	0x7e0(%%rax),%%ymm4	\n\t"\
+			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmulpd	0x3c0(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x7c0(%%rax),%%ymm4,%%ymm4		\n\t"\
+			"vmovaps	%%ymm0,0x3c0(%%rax)	\n\t	vmovaps	%%ymm3,0x7c0(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x3e0(%%rax)	\n\t	vmovaps	%%ymm4,0x7e0(%%rax)	\n\t"\
+			:					// outputs: none
+			: [__r00] "m" (r00)	// All inputs from memory addresses here
+			: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5"	// Clobbered registers
+		);
+
+		#elif defined(USE_SSE2)
+
 		__asm__ volatile (\
 			"movq	%[__r00],%%rax		\n\t"\
 			"/* z0^2: */				\n\t	/* z0^2: */				\n\t"\
@@ -1901,7 +2135,9 @@ fprintf(dbg_file, "NTHREADS = %d, Thread %d: Dyadic-square:\n",NTHREADS,thr_id);
 			: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5"	// Clobbered registers
 		);
 
-	  #endif
+	   #endif	// AVX?
+
+	  #endif	// 32 or 64-it GCC?
 
 	#endif
 
@@ -3119,7 +3355,16 @@ fprintf(dbg_file, "NTHREADS = %d, Thread %d: Dyadic-square:\n",NTHREADS,thr_id);
 
 	#else	/* GCC-style inline ASM: */
 
-			SSE2_RADIX32_WRAPPER_DIT(add0,add1,isrt2,r00,r08,r10,r20,r28,r30,c00,c01,c02,c03,c04,c05,c06,c07,c08,c0A,c0C,c0E,c10,c12,c14,c16,c18,c1A,c1C,c1E)
+	  #ifdef USE_AVX
+
+		SSE2_RADIX32_WRAPPER_DIT(add0,add1,add2,add3,isrt2,r00,r08,r10,r20,r28,r30,c01,c02,c04,c06,c08,c0A,c0C,c0E,c10,c12,c14,c16,c18,c1A,c1C,c1E)
+
+
+	  #else	// SSE2:
+
+		SSE2_RADIX32_WRAPPER_DIT(add0,add1,          isrt2,r00,r08,r10,r20,r28,r30,c01,c02,c04,c06,c08,c0A,c0C,c0E,c10,c12,c14,c16,c18,c1A,c1C,c1E)
+
+	  #endif
 
 	#endif
 
@@ -3471,44 +3716,6 @@ fprintf(dbg_file, "NTHREADS = %d, Thread %d: Dyadic-square:\n",NTHREADS,thr_id);
 
 			a1p1Er = t1E-t3F;		a1p1Ei = t1F+t3E;
 			a1p1Fr = t1E+t3F;		a1p1Fi = t1F-t3E;
-
-	#ifdef DEBUG_SSE2
-		fprintf(stderr, "Outputs A:\n");
-		fprintf(stderr, "a1p00 = %20.5f, %20.5f\n",a1p00r,a1p00i);
-		fprintf(stderr, "a1p01 = %20.5f, %20.5f\n",a1p01r,a1p01i);
-		fprintf(stderr, "a1p02 = %20.5f, %20.5f\n",a1p02r,a1p02i);
-		fprintf(stderr, "a1p03 = %20.5f, %20.5f\n",a1p03r,a1p03i);
-		fprintf(stderr, "a1p04 = %20.5f, %20.5f\n",a1p04r,a1p04i);
-		fprintf(stderr, "a1p05 = %20.5f, %20.5f\n",a1p05r,a1p05i);
-		fprintf(stderr, "a1p06 = %20.5f, %20.5f\n",a1p06r,a1p06i);
-		fprintf(stderr, "a1p07 = %20.5f, %20.5f\n",a1p07r,a1p07i);
-		fprintf(stderr, "a1p08 = %20.5f, %20.5f\n",a1p08r,a1p08i);
-		fprintf(stderr, "a1p09 = %20.5f, %20.5f\n",a1p09r,a1p09i);
-		fprintf(stderr, "a1p0A = %20.5f, %20.5f\n",a1p0Ar,a1p0Ai);
-		fprintf(stderr, "a1p0B = %20.5f, %20.5f\n",a1p0Br,a1p0Bi);
-		fprintf(stderr, "a1p0C = %20.5f, %20.5f\n",a1p0Cr,a1p0Ci);
-		fprintf(stderr, "a1p0D = %20.5f, %20.5f\n",a1p0Dr,a1p0Di);
-		fprintf(stderr, "a1p0E = %20.5f, %20.5f\n",a1p0Er,a1p0Ei);
-		fprintf(stderr, "a1p0F = %20.5f, %20.5f\n",a1p0Fr,a1p0Fi);
-		fprintf(stderr, "a1p10 = %20.5f, %20.5f\n",a1p10r,a1p10i);
-		fprintf(stderr, "a1p11 = %20.5f, %20.5f\n",a1p11r,a1p11i);
-		fprintf(stderr, "a1p12 = %20.5f, %20.5f\n",a1p12r,a1p12i);
-		fprintf(stderr, "a1p13 = %20.5f, %20.5f\n",a1p13r,a1p13i);
-		fprintf(stderr, "a1p14 = %20.5f, %20.5f\n",a1p14r,a1p14i);
-		fprintf(stderr, "a1p15 = %20.5f, %20.5f\n",a1p15r,a1p15i);
-		fprintf(stderr, "a1p16 = %20.5f, %20.5f\n",a1p16r,a1p16i);
-		fprintf(stderr, "a1p17 = %20.5f, %20.5f\n",a1p17r,a1p17i);
-		fprintf(stderr, "a1p18 = %20.5f, %20.5f\n",a1p18r,a1p18i);
-		fprintf(stderr, "a1p19 = %20.5f, %20.5f\n",a1p19r,a1p19i);
-		fprintf(stderr, "a1p1A = %20.5f, %20.5f\n",a1p1Ar,a1p1Ai);
-		fprintf(stderr, "a1p1B = %20.5f, %20.5f\n",a1p1Br,a1p1Bi);
-		fprintf(stderr, "a1p1C = %20.5f, %20.5f\n",a1p1Cr,a1p1Ci);
-		fprintf(stderr, "a1p1D = %20.5f, %20.5f\n",a1p1Dr,a1p1Di);
-		fprintf(stderr, "a1p1E = %20.5f, %20.5f\n",a1p1Er,a1p1Ei);
-		fprintf(stderr, "a1p1F = %20.5f, %20.5f\n",a1p1Fr,a1p1Fi);
-		fprintf(stderr, "\n");
-		//exit(0);
-	#endif
 
 /*...Dyadic square of the forward FFT outputs: */
 
@@ -3976,44 +4183,7 @@ add0 += 4;
 
 #endif	/* USE_SSE2 */
 
-	#ifdef DEBUG_SSE2
-	  #ifdef USE_SSE2
-		for(iloop =j1; iloop < j1+128; iloop += 4)
-		{
-			fprintf(dbg_file, "[%d] = %23.1f, %23.1f\n",iloop,a[iloop+0],a[iloop+2]);
-			fprintf(dbg_file, "[%d] = %23.1f, %23.1f\n",iloop,a[iloop+1],a[iloop+3]);
-		}
-		exit(0);
-	  #else
-		for(iloop =j1; iloop < j1+64; iloop += 4)
-		{
-			fprintf(dbg_file, "[%d] = %23.1f, %23.1f\n",iloop,a[iloop+0],a[iloop+1]);
-			fprintf(dbg_file, "[%d] = %23.1f, %23.1f\n",iloop,a[iloop+2],a[iloop+3]);
-		}
-		if(j >= 64)	/* Need to do 2 loop passes in scalar mode */
-		{
-			exit(0);
-		}
-	  #endif
-	#endif
-
-#if FFT_DEBUG
-	if(NTHREADS == 1 || thr_id == TARG_THREAD_ID) {
-		ASSERT(HERE, dbg_file != 0x0, "dbg_file == 0x0!");
-		fprintf(dbg_file, "Thread %d: j1 = %d, Dyadic-square Outputs:\n",thr_id,j1);
-		for(iloop = 0; iloop <128; iloop += 4)
-		{
-		#ifdef USE_SSE2
-			fprintf(dbg_file, "A_out[%2d] = %20.5f[0x%16llX], %20.5f[0x%16llX]\n",iloop,a[j1+iloop+0],a+j1+iloop+0,a[j1+iloop+2],a+j1+iloop+2);
-			fprintf(dbg_file, "A_out[%2d] = %20.5f[0x%16llX], %20.5f[0x%16llX]\n",iloop,a[j1+iloop+1],a+j1+iloop+1,a[j1+iloop+3],a+j1+iloop+3);
-		#else
-			fprintf(dbg_file, "A_out[%2d] = %20.5f[0x%16llX], %20.5f[0x%16llX]\n",iloop,a[j1+iloop+0],a+j1+iloop+0,a[j1+iloop+1],a+j1+iloop+1);
-			fprintf(dbg_file, "A_out[%2d] = %20.5f[0x%16llX], %20.5f[0x%16llX]\n",iloop,a[j1+iloop+2],a+j1+iloop+2,a[j1+iloop+3],a+j1+iloop+3);
-		#endif
-		}
-	}
-#endif
-
 	}	/* endfor() */
+
 }
 

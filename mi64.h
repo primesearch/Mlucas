@@ -84,7 +84,9 @@ uint32	mi64_getlen				(const uint64 x[], uint32 len);
 void	mi64_setlen				(uint64 x[], uint32 oldlen, uint32 newlen);
 
 /* add/subtract (vector +- vector) : */
+uint64	mi64_add_ref			(const uint64 x[], const uint64 y[], uint64 z[], uint32 len);
 uint64	mi64_add				(const uint64 x[], const uint64 y[], uint64 z[], uint32 len);
+uint64	mi64_sub_ref			(const uint64 x[], const uint64 y[], uint64 z[], uint32 len);
 uint64	mi64_sub				(const uint64 x[], const uint64 y[], uint64 z[], uint32 len);
 
 /* arithmetic and logical negation: */
@@ -139,9 +141,14 @@ uint32	mi64_div_y32			(uint64 x[], uint32 y, uint64 q[], uint32 len);
 
 /* Basic I/O routines: */
 /* This is an arbitrary-string-length core routine which can be called directly, requires caller to supply allocated-length of input string: */
-int	__convert_mi64_base10_char(char char_buf[], uint32 n_alloc_chars, const uint64 x[], uint32 len);
+int	__convert_mi64_base10_char(char char_buf[], uint32 n_alloc_chars, const uint64 x[], uint32 len, uint32 wrap_every);
 /* This is a wrapper for the above, which uses default string allocated-length = STR_MAX_LEN: */
-int		convert_mi64_base10_char(char char_buf[], const uint64 x[], uint32 len);
+int	  convert_mi64_base10_char(char char_buf[], const uint64 x[], uint32 len, uint32 wrap_every);
+
+// Leading-zero-printing analog of the above 2 functions:
+int	__convert_mi64_base10_char_print_lead0(char char_buf[], uint32 n_alloc_chars, const uint64 x[], uint32 len, uint32 ndigit, uint32 wrap_every);
+int	  convert_mi64_base10_char_print_lead0(char char_buf[], const uint64 x[], uint32 len, uint32 ndigit, uint32 wrap_every);
+
 uint64 *convert_base10_char_mi64(const char*char_buf, uint32 *len);
 
 /* Modular powering: returns 1 if 2^p == 1 (mod q), and (optionally) returns the full residue in res[]. k is Mersenne-factor-specific index, used only for debugging: */
@@ -213,8 +220,9 @@ uint32	mi64_twopmodq_qmmp		(const uint64 p, const uint64 k, uint64*res);
 // And the multiword analogs of the above:
 
 	/* x = input vector, lo:hi = scratch vecs, q = modulus, qinv = radix-inverse of q, z = output vec, n = #words in x/lo/hi/q/qinv */
-	#define MONT_SQR_N(__x,__lo,__hi,__q,__qinv, __z,__n)\
+	#define MONT_SQR_N(__x,__lo,__q,__qinv, __z,__n)\
 	{\
+		uint64 *__hi = __lo + __n;	/* Assume user has set aside enough storage in __lo for full double-wide product */\
 		mi64_sqr_vector(__x,__lo,__n);					/* lo:hi = SQR_LOHI(x) */\
 		mi64_mul_vector_lo_half(__lo,__qinv,__lo,__n);	/* lo =  MULL(lo,qinv) */\
 		mi64_mul_vector_hi_half(__lo,__q   ,__lo,__n);	/* lo = UMULH(lo,q   ) */\
@@ -224,8 +232,9 @@ uint32	mi64_twopmodq_qmmp		(const uint64 p, const uint64 k, uint64*res);
 	}
 
 	/* Same as SQR but here have 2 distinct multiplicand-input vectors x and y: */
-	#define MONT_MUL_N(__x,__y,__lo,__hi,__q,__qinv, __z,__n)\
+	#define MONT_MUL_N(__x,__y,__lo,__q,__qinv, __z,__n)\
 	{\
+		uint64 *__hi = __lo + __n;	/* Assume user has set aside enough storage in __lo for full double-wide product */\
 		uint32 pdim;				\
 		mi64_mul_vector(__x,__n,__y,__n,__lo,&pdim);	/* lo:hi = MUL_LOHI(x,y) */\
 		mi64_mul_vector_lo_half(__lo,__qinv,__lo,__n);	/* lo =  MULL(lo,qinv) */\
@@ -240,11 +249,150 @@ uint32	mi64_twopmodq_qmmp		(const uint64 p, const uint64 k, uint64*res);
 	{\
 		mi64_mul_vector_lo_half(__x,__qinv,__z,__n);	/* z =  MULL(x,qinv) */\
 		mi64_mul_vector_hi_half(__z,__q   ,__z,__n);	/* z = UMULH(z,q   ) */\
-		if(!mi64_iszero(__z,__n)) {		/* did we have a borrow from (hi-lo)? */\
-			mi64_add(__z,__q,__z,__n);	/* (since hi = 0 just check (lo != 0) */\
+		if(!mi64_iszero(__z,__n)) {		/* did we have a borrow from (hi-lo)? Since hi == 0 here, that means (lo != 0)? */\
+			mi64_sub(__q,__z,__z,__n);	\
 		}\
 	}
 
+
+#define mi64_mul_4word(__x, __y, __out)\
+{\
+	uint64 __w0, __w1, __w2, __w3, __w4, __w5, __w6, __w7\
+					,__cy2,__cy3,__cy4,__cy5,__cy6,__cy7\
+	,__a,__b,__c,__d,__e,__f,__g,__h,__i,__j,__k,__l\
+	,__m,__n,__o,__p,__q,__r,__s,__t,__u,__v,__w,__z;\
+	\
+	MUL_LOHI64(__x[0],__y[0], __w0, __w1);	/*   x0*y0 */\
+	MUL_LOHI64(__x[1],__y[1], __w2, __w3);	/*   x1*y1 */\
+	MUL_LOHI64(__x[2],__y[2], __w4, __w5);	/*   x2*y2 */\
+	MUL_LOHI64(__x[3],__y[3], __w6, __w7);	/*   x3*y3 */\
+	\
+	MUL_LOHI64(__x[0],__y[1], __a , __b );	/*   x0*y1 */\
+	MUL_LOHI64(__x[1],__y[0], __c , __d );	/*   x1*y0 */\
+	\
+	MUL_LOHI64(__x[0],__y[2], __e , __f );	/*   x0*y2 */\
+	MUL_LOHI64(__x[2],__y[0], __g , __h );	/*   x2*y0 */\
+	\
+	MUL_LOHI64(__x[0],__y[3], __i , __j );	/*   x0*y3 */\
+	MUL_LOHI64(__x[1],__y[2], __k , __l );	/*   x1*y2 */\
+	MUL_LOHI64(__x[2],__y[1], __m , __n );	/*   x2*y1 */\
+	MUL_LOHI64(__x[3],__y[0], __o , __p );	/*   x3*y0 */\
+	\
+	MUL_LOHI64(__x[1],__y[3], __q , __r );	/*   x1*y3 */\
+	MUL_LOHI64(__x[3],__y[1], __s , __t );	/*   x3*y1 */\
+	\
+	MUL_LOHI64(__x[2],__y[3], __u , __v );	/*   x2*y3 */\
+	MUL_LOHI64(__x[3],__y[2], __w , __z );	/*   x3*y2 */\
+	\
+	/* Now add cross terms: */\
+	/* Add x0*y1 to w1-2: */\
+	__w1 += __a;	__cy2  = (__w1 < __a);\
+	__w2 += __b;	__cy3  = (__w2 < __b);\
+	\
+	/* Add x1*y0 to w1-2: */\
+	__w1 += __c;	__cy2 += (__w1 < __c);\
+	__w2 += __d;	__cy3 += (__w2 < __d);\
+	\
+	/* Add x0*y2 to w2-3: */\
+	__w2 += __e;	__cy3 += (__w2 < __e);\
+	__w3 += __f;	__cy4  = (__w3 < __f);\
+	\
+	/* Add x2*y0 to w2-3: */\
+	__w2 += __g;	__cy3 += (__w2 < __g);\
+	__w3 += __h;	__cy4 += (__w3 < __h);\
+	\
+	/* Add x0*y3 to w3-4: */\
+	__w3 += __i;	__cy4 += (__w3 < __i);\
+	__w4 += __j;	__cy5  = (__w4 < __j);\
+	\
+	/* Add x1*y2 to w3-4: */\
+	__w3 += __k;	__cy4 += (__w3 < __k);\
+	__w4 += __l;	__cy5 += (__w4 < __l);\
+	\
+	/* Add x2*y1 to w3-4: */\
+	__w3 += __m;	__cy4 += (__w3 < __m);\
+	__w4 += __n;	__cy5 += (__w4 < __n);\
+	\
+	/* Add x3*y0 to w3-4: */\
+	__w3 += __o;	__cy4 += (__w3 < __o);\
+	__w4 += __p;	__cy5 += (__w4 < __p);\
+	\
+	/* Add x1*y3 to w4-5: */\
+	__w4 += __q;	__cy5 += (__w4 < __q);\
+	__w5 += __r;	__cy6  = (__w5 < __r);\
+	\
+	/* Add x3*y1 to w4-5: */\
+	__w4 += __s;	__cy5 += (__w4 < __s);\
+	__w5 += __t;	__cy6 += (__w5 < __t);\
+	\
+	/* Add x2*y3 to w5-6: */\
+	__w5 += __u;	__cy6 += (__w5 < __u);\
+	__w6 += __v;	__cy7  = (__w6 < __v);\
+	\
+	/* Add x3*y2 to w5-6: */\
+	__w5 += __w;	__cy6 += (__w5 < __w);\
+	__w6 += __z;	__cy7 += (__w6 < __z);\
+	\
+	/* Now process carries: */\
+	__w2 += __cy2;	__cy3 += (__w2 < __cy2);\
+	__w3 += __cy3;	__cy4 += (__w3 < __cy3);\
+	__w4 += __cy4;	__cy5 += (__w4 < __cy4);\
+	__w5 += __cy5;	__cy6 += (__w5 < __cy5);\
+	__w6 += __cy6;	__cy7 += (__w6 < __cy6);\
+	__w7 += __cy7;\
+	\
+	/* Now split the result between __lo and __hi: */\
+	__out[0] = __w0; __out[1] = __w1; __out[2] = __w2; __out[3] = __w3;\
+	__out[4] = __w4; __out[5] = __w5; __out[6] = __w6; __out[7] = __w7;\
+}
+
+#define mi64_mul_lo_half_4word(__x, __y, __lo)\
+{\
+	uint64 __w0, __w1, __w2, __w3\
+					,__cy2,__cy3\
+	,__a,__b,__c,__d,__e,__f,__g,__h,__i,__j,__k,__l;\
+	\
+	MUL_LOHI64(__x[0],__y[0], __w0, __w1);	/*   x0*y0 */\
+	MUL_LOHI64(__x[1],__y[1], __w2, __w3);	/*   x1*y1 */\
+	\
+	MUL_LOHI64(__x[0],__y[1], __a , __b );	/*   x0*y1 */\
+	MUL_LOHI64(__x[1],__y[0], __c , __d );	/*   x1*y0 */\
+	\
+	MUL_LOHI64(__x[0],__y[2], __e , __f );	/*   x0*y2 */\
+	MUL_LOHI64(__x[2],__y[0], __g , __h );	/*   x2*y0 */\
+	\
+	__i = __x[0]*__y[3];				/* (x0*y3).lo */\
+	__j = __x[1]*__y[2];				/* (x1*y2).lo */\
+	__k = __x[2]*__y[1];				/* (x2*y1).lo */\
+	__l = __x[3]*__y[0];				/* (x3*y0).lo */\
+	\
+	/* Now add cross terms: */\
+	/* Add x0*y1 to w1-2: */\
+	__w1 += __a;	__cy2  = (__w1 < __a);\
+	__w2 += __b;	__cy3  = (__w2 < __b);\
+	\
+	/* Add x1*y0 to w1-2: */\
+	__w1 += __c;	__cy2 += (__w1 < __c);\
+	__w2 += __d;	__cy3 += (__w2 < __d);\
+	\
+	/* Add x0*y2 to w2-3: */\
+	__w2 += __e;	__cy3 += (__w2 < __e);\
+	__w3 += __f;\
+	\
+	/* Add x2*y0 to w2-3: */\
+	__w2 += __g;	__cy3 += (__w2 < __g);\
+	__w3 += __h;\
+	\
+	/* Add (x0*y3 + x1*y2 + x2*y1 + x3*y0).lo to w3: */\
+	__w3 += __i+__j+__k+__l;\
+	\
+	/* Now process carries: */\
+	__w2 += __cy2;	__cy3 += (__w2 < __cy2);\
+	__w3 += __cy3;\
+	\
+	/* Now return the result in __lo: */\
+	__lo[0] = __w0; __lo[1] = __w1; __lo[2] = __w2; __lo[3] = __w3;\
+}
 
 #ifdef __cplusplus
 }

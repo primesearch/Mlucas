@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -25,6 +25,774 @@
 *******************************************************************************/
 #ifndef radix20_ditN_cy_dif1_gcc_h_included
 #define radix20_ditN_cy_dif1_gcc_h_included
+
+  #ifdef USE_AVX
+
+	#define	SSE2_RADIX20_DIT_NOTWIDDLE(Xadd0,Xp01,Xp04,Xr00,Xr10,Xr20,Xr30,Xcc1,Xa0,Xa1,Xa2,Xa3,Xa4,Xb0,Xb1,Xb2,Xb3,Xb4,Xc0,Xc1,Xc2,Xc3,Xc4,Xd0,Xd1,Xd2,Xd3,Xd4)\
+	{\
+	__asm__ volatile (\
+		"/* Outputs in SSE2 modes are temps 2*5*16 = 10*16 = 0x140 bytes apart: */\n\t"\
+		"/*	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE_C(abcd,r00)	*/		/*	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE_C(dcba,r02)	*/\n\t"\
+		"movq	%[__add0],%%rax	/* Use eax as base address */	\n\t	movq	$0x140,%%rdi		\n\t"\
+		"/*	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE_C(abcd,r00)	*/		\n\t	movslq	%[__p04],%%r8 		\n\t"\
+		"movq	%%rax	,%%rdx									\n\t	shlq	$3,%%r8 			\n\t"\
+		"movslq	%[__p01],%%rsi									\n\t	movq	$0xa00,%%r9 		\n\t"\
+		"shlq	$3,%%rsi										\n\t	movq	%%r8 ,%%r10			\n\t"\
+		"addq	%%rsi,%%rdx										\n\t	movq	%%r8 ,%%r11			\n\t"\
+		"movq	%%rdx,%%rbx		/* add1 = add0+p01 */			\n\t	movq	%%r8 ,%%r12			\n\t"\
+		"addq	%%rsi,%%rdx										\n\t	movq	%%r8 ,%%r13			\n\t"\
+		"movq	%%rdx,%%rcx		/* add3 = add0+p02 */			\n\t	addq	%%rax,%%r10		/* &a[j1+p04] */\n\t"\
+		"addq	%%rsi,%%rdx		/* add2 = add0+p03 */			\n\t	addq	%%rbx,%%r11			\n\t"\
+		"vmovaps	0x20(%%rax),%%ymm3							\n\t	movq	%[__r00],%%rsi		\n\t"\
+		"vmovaps	    (%%rax),%%ymm2							\n\t	addq	%%rcx,%%r12			\n\t"\
+		"vmovaps	    (%%rbx),%%ymm0							\n\t	addq	%%rdx,%%r13			\n\t"\
+		"vmovaps	0x20(%%rbx),%%ymm1							\n\t	addq	%%rsi,%%r9	/* two */	\n\t"\
+		"vmovaps	    (%%rcx),%%ymm6							\n\t	vmovaps	0x20(%%r13),%%ymm11	\n\t"\
+		"vmovaps	0x20(%%rcx),%%ymm7							\n\t	vmovaps	    (%%r13),%%ymm10	\n\t"\
+		"vmovaps	0x20(%%rdx),%%ymm5							\n\t	vmovaps	    (%%r12),%%ymm8 	\n\t"\
+		"vmovaps	    (%%rdx),%%ymm4							\n\t	vmovaps	0x20(%%r12),%%ymm9 	\n\t"\
+		"vsubpd	%%ymm0,%%ymm2,%%ymm2							\n\t	vmovaps	    (%%r11),%%ymm14	\n\t"\
+		"vsubpd	%%ymm4,%%ymm6,%%ymm6							\n\t	vmovaps	0x20(%%r11),%%ymm15	\n\t"\
+		"vsubpd	%%ymm1,%%ymm3,%%ymm3							\n\t	vmovaps	0x20(%%r10),%%ymm13	\n\t"\
+		"vsubpd	%%ymm5,%%ymm7,%%ymm7							\n\t	vmovaps	    (%%r10),%%ymm12	\n\t"\
+		"vmulpd	(%%r9),%%ymm0,%%ymm0							\n\t	vsubpd	%%ymm8 ,%%ymm10,%%ymm10		\n\t"\
+		"vmulpd	(%%r9),%%ymm4,%%ymm4							\n\t	vsubpd	%%ymm12,%%ymm14,%%ymm14		\n\t"\
+		"vmulpd	(%%r9),%%ymm1,%%ymm1							\n\t	vsubpd	%%ymm9 ,%%ymm11,%%ymm11		\n\t"\
+		"vmulpd	(%%r9),%%ymm5,%%ymm5							\n\t	vsubpd	%%ymm13,%%ymm15,%%ymm15		\n\t"\
+		"vaddpd	%%ymm2,%%ymm0,%%ymm0							\n\t	vmulpd	(%%r9) ,%%ymm8 ,%%ymm8 		\n\t"\
+		"vaddpd	%%ymm6,%%ymm4,%%ymm4							\n\t	vmulpd	(%%r9) ,%%ymm12,%%ymm12		\n\t"\
+		"vaddpd	%%ymm3,%%ymm1,%%ymm1							\n\t	vmulpd	(%%r9) ,%%ymm9 ,%%ymm9 		\n\t"\
+		"vaddpd	%%ymm7,%%ymm5,%%ymm5							\n\t	vmulpd	(%%r9) ,%%ymm13,%%ymm13		\n\t"\
+		"/* Finish radix-4 butterfly: */\n\t	addq	%%rsi,%%rdi	\n\t"\
+		"vsubpd	%%ymm4,%%ymm0,%%ymm0							\n\t	vaddpd	%%ymm10,%%ymm8 ,%%ymm8 		\n\t"\
+		"vsubpd	%%ymm7,%%ymm2,%%ymm2							\n\t	vaddpd	%%ymm14,%%ymm12,%%ymm12		\n\t"\
+		"vsubpd	%%ymm5,%%ymm1,%%ymm1							\n\t	vaddpd	%%ymm11,%%ymm9 ,%%ymm9 		\n\t"\
+		"vsubpd	%%ymm6,%%ymm3,%%ymm3							\n\t	vaddpd	%%ymm15,%%ymm13,%%ymm13		\n\t"\
+		"vmovaps	%%ymm0,0x280(%%rsi)							\n\t	vsubpd	%%ymm12,%%ymm8 ,%%ymm8 		\n\t"\
+		"vmovaps	%%ymm2,     (%%rdi)							\n\t	vsubpd	%%ymm15,%%ymm10,%%ymm10		\n\t"\
+		"vmovaps	%%ymm1,0x2a0(%%rsi)							\n\t	vsubpd	%%ymm13,%%ymm9 ,%%ymm9 		\n\t"\
+		"vmovaps	%%ymm3,0x2a0(%%rdi)							\n\t	vsubpd	%%ymm14,%%ymm11,%%ymm11		\n\t"\
+		"vaddpd	%%ymm4,%%ymm4,%%ymm4							\n\t	vmovaps	%%ymm8 ,0x2c0(%%rsi)	\n\t"\
+		"vaddpd	%%ymm7,%%ymm7,%%ymm7							\n\t	vmovaps	%%ymm10,0x2c0(%%rdi)	\n\t"\
+		"vaddpd	%%ymm5,%%ymm5,%%ymm5							\n\t	vmovaps	%%ymm9 ,0x2e0(%%rsi)	\n\t"\
+		"vaddpd	%%ymm6,%%ymm6,%%ymm6							\n\t	vmovaps	%%ymm11,0x060(%%rdi)	\n\t"\
+		"vaddpd	%%ymm0,%%ymm4,%%ymm4							\n\t	vmulpd	(%%r9) ,%%ymm12,%%ymm12		\n\t"\
+		"vaddpd	%%ymm2,%%ymm7,%%ymm7							\n\t	vmulpd	(%%r9) ,%%ymm15,%%ymm15		\n\t"\
+		"vaddpd	%%ymm1,%%ymm5,%%ymm5							\n\t	vmulpd	(%%r9) ,%%ymm13,%%ymm13		\n\t"\
+		"vaddpd	%%ymm3,%%ymm6,%%ymm6							\n\t	vmulpd	(%%r9) ,%%ymm14,%%ymm14		\n\t"\
+		"vmovaps	%%ymm4,     (%%rsi)							\n\t	vaddpd	%%ymm8 ,%%ymm12,%%ymm12		\n\t"\
+		"vmovaps	%%ymm7,0x280(%%rdi)							\n\t	vaddpd	%%ymm10,%%ymm15,%%ymm15		\n\t"\
+		"vmovaps	%%ymm5,0x020(%%rsi)							\n\t	vaddpd	%%ymm9 ,%%ymm13,%%ymm13		\n\t"\
+		"vmovaps	%%ymm6,0x020(%%rdi)							\n\t	vaddpd	%%ymm11,%%ymm14,%%ymm14		\n\t"\
+		"addq	%%r8 ,%%r8 		/* p08 */	\n\t"\
+		"addq	%%r8 ,%%rax		/* &a[j1+p08] */				\n\t	vmovaps	%%ymm12,0x040(%%rsi)	\n\t"\
+		"addq	%%r8 ,%%rbx										\n\t	vmovaps	%%ymm15,0x040(%%rdi)	\n\t"\
+		"addq	%%r8 ,%%rcx										\n\t	vmovaps	%%ymm13,0x060(%%rsi)	\n\t"\
+		"addq	%%r8 ,%%rdx										\n\t	vmovaps	%%ymm14,0x2e0(%%rdi)	\n\t"\
+		"/*	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE_C(bacd,r04)	*/		\n\t	/*	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE_C(cdab,r06)	*/\n\t"\
+		"vmovaps	0x20(%%rbx),%%ymm3							\n\t	addq	%%r8 ,%%r10		/* &a[j1+p12] */\n\t"\
+		"vmovaps	    (%%rbx),%%ymm2							\n\t	addq	%%r8 ,%%r11			\n\t"\
+		"vmovaps	    (%%rax),%%ymm0							\n\t	addq	%%r8 ,%%r12			\n\t"\
+		"vmovaps	0x20(%%rax),%%ymm1							\n\t	addq	%%r8 ,%%r13			\n\t"\
+		"vmovaps	    (%%rcx),%%ymm6							\n\t	vmovaps	0x20(%%r12),%%ymm11	\n\t"\
+		"vmovaps	0x20(%%rcx),%%ymm7							\n\t	vmovaps	    (%%r12),%%ymm10	\n\t"\
+		"vmovaps	0x20(%%rdx),%%ymm5							\n\t	vmovaps	    (%%r13),%%ymm8 	\n\t"\
+		"vmovaps	    (%%rdx),%%ymm4							\n\t	vmovaps	0x20(%%r13),%%ymm9 	\n\t"\
+		"vsubpd	%%ymm0,%%ymm2,%%ymm2							\n\t	vmovaps	    (%%r10),%%ymm14	\n\t"\
+		"vsubpd	%%ymm4,%%ymm6,%%ymm6							\n\t	vmovaps	0x20(%%r10),%%ymm15	\n\t"\
+		"vsubpd	%%ymm1,%%ymm3,%%ymm3							\n\t	vmovaps	0x20(%%r11),%%ymm13	\n\t"\
+		"vsubpd	%%ymm5,%%ymm7,%%ymm7							\n\t	vmovaps	    (%%r11),%%ymm12	\n\t"\
+		"vmulpd	(%%r9),%%ymm0,%%ymm0							\n\t	vsubpd	%%ymm8 ,%%ymm10,%%ymm10		\n\t"\
+		"vmulpd	(%%r9),%%ymm4,%%ymm4							\n\t	vsubpd	%%ymm12,%%ymm14,%%ymm14		\n\t"\
+		"vmulpd	(%%r9),%%ymm1,%%ymm1							\n\t	vsubpd	%%ymm9 ,%%ymm11,%%ymm11		\n\t"\
+		"vmulpd	(%%r9),%%ymm5,%%ymm5							\n\t	vsubpd	%%ymm13,%%ymm15,%%ymm15		\n\t"\
+		"vaddpd	%%ymm2,%%ymm0,%%ymm0							\n\t	vmulpd	(%%r9) ,%%ymm8 ,%%ymm8 		\n\t"\
+		"vaddpd	%%ymm6,%%ymm4,%%ymm4							\n\t	vmulpd	(%%r9) ,%%ymm12,%%ymm12		\n\t"\
+		"vaddpd	%%ymm3,%%ymm1,%%ymm1							\n\t	vmulpd	(%%r9) ,%%ymm9 ,%%ymm9 		\n\t"\
+		"vaddpd	%%ymm7,%%ymm5,%%ymm5							\n\t	vmulpd	(%%r9) ,%%ymm13,%%ymm13		\n\t"\
+		"/* Finish radix-4 butterfly: */						\n\t	vaddpd	%%ymm10,%%ymm8 ,%%ymm8 		\n\t"\
+		"addq	$0x080,%%rsi	/* r04 */						\n\t	vaddpd	%%ymm14,%%ymm12,%%ymm12		\n\t"\
+		"vsubpd	%%ymm4,%%ymm0,%%ymm0							\n\t	vaddpd	%%ymm11,%%ymm9 ,%%ymm9 		\n\t"\
+		"vsubpd	%%ymm7,%%ymm2,%%ymm2							\n\t	vaddpd	%%ymm15,%%ymm13,%%ymm13		\n\t"\
+		"vsubpd	%%ymm5,%%ymm1,%%ymm1							\n\t	/* Finish radix-4 butterfly: */\n\t"\
+		"vsubpd	%%ymm6,%%ymm3,%%ymm3							\n\t	addq	$0x080,%%rdi		\n\t"\
+		"vmovaps	%%ymm0,0x280(%%rsi)							\n\t	vsubpd	%%ymm12,%%ymm8 ,%%ymm8 		\n\t"\
+		"vmovaps	%%ymm2,0x280(%%rdi)							\n\t	vsubpd	%%ymm15,%%ymm10,%%ymm10		\n\t"\
+		"vmovaps	%%ymm1,0x2a0(%%rsi)							\n\t	vsubpd	%%ymm13,%%ymm9 ,%%ymm9 		\n\t"\
+		"vmovaps	%%ymm3,0x020(%%rdi)							\n\t	vsubpd	%%ymm14,%%ymm11,%%ymm11		\n\t"\
+		"vaddpd	%%ymm4,%%ymm4,%%ymm4							\n\t	vmovaps	%%ymm8 ,0x2c0(%%rsi)	\n\t"\
+		"vaddpd	%%ymm7,%%ymm7,%%ymm7							\n\t	vmovaps	%%ymm10,0x2c0(%%rdi)	\n\t"\
+		"vaddpd	%%ymm5,%%ymm5,%%ymm5							\n\t	vmovaps	%%ymm9 ,0x2e0(%%rsi)	\n\t"\
+		"vaddpd	%%ymm6,%%ymm6,%%ymm6							\n\t	vmovaps	%%ymm11,0x060(%%rdi)	\n\t"\
+		"vaddpd	%%ymm0,%%ymm4,%%ymm4							\n\t	vmulpd	(%%r9) ,%%ymm12,%%ymm12		\n\t"\
+		"vaddpd	%%ymm2,%%ymm7,%%ymm7							\n\t	vmulpd	(%%r9) ,%%ymm15,%%ymm15		\n\t"\
+		"vaddpd	%%ymm1,%%ymm5,%%ymm5							\n\t	vmulpd	(%%r9) ,%%ymm13,%%ymm13		\n\t"\
+		"vaddpd	%%ymm3,%%ymm6,%%ymm6							\n\t	vmulpd	(%%r9) ,%%ymm14,%%ymm14		\n\t"\
+		"vmovaps	%%ymm4,     (%%rsi)							\n\t	vaddpd	%%ymm8 ,%%ymm12,%%ymm12		\n\t"\
+		"vmovaps	%%ymm7,     (%%rdi)							\n\t	vaddpd	%%ymm10,%%ymm15,%%ymm15		\n\t"\
+		"vmovaps	%%ymm5,0x020(%%rsi)							\n\t	vaddpd	%%ymm9 ,%%ymm13,%%ymm13		\n\t"\
+		"vmovaps	%%ymm6,0x2a0(%%rdi)							\n\t	vaddpd	%%ymm11,%%ymm14,%%ymm14		\n\t"\
+		"														\n\t	vmovaps	%%ymm12,0x040(%%rsi)	\n\t"\
+		"														\n\t	vmovaps	%%ymm15,0x040(%%rdi)	\n\t"\
+		"														\n\t	vmovaps	%%ymm13,0x060(%%rsi)	\n\t"\
+		"														\n\t	vmovaps	%%ymm14,0x2e0(%%rdi)	\n\t"\
+		"/*	add0,1,2,3 = &a[j1+p16]+p0,1,3,2 */\n\t"\
+		"addq	%%r8 ,%%rax		/* &a[j1+p16] */\n\t"\
+		"addq	%%r8 ,%%rbx			\n\t"\
+		"addq	%%r8 ,%%rcx			\n\t"\
+		"addq	%%r8 ,%%rdx			\n\t"\
+		"/*	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE_C(abdc,r08)	*/\n\t"\
+		"vmovaps	0x20(%%rax),%%ymm3	\n\t"\
+		"vmovaps	    (%%rax),%%ymm2	\n\t"\
+		"vmovaps	    (%%rbx),%%ymm0	\n\t"\
+		"vmovaps	0x20(%%rbx),%%ymm1	\n\t"\
+		"vmovaps	    (%%rdx),%%ymm6	\n\t"\
+		"vmovaps	0x20(%%rdx),%%ymm7	\n\t"\
+		"vmovaps	0x20(%%rcx),%%ymm5	\n\t"\
+		"vmovaps	    (%%rcx),%%ymm4	\n\t"\
+		"addq	$0x080,%%rsi	/* r08 */\n\t"\
+		"vsubpd	%%ymm0,%%ymm2,%%ymm2		\n\t"\
+		"vsubpd	%%ymm4,%%ymm6,%%ymm6		\n\t"\
+		"vsubpd	%%ymm1,%%ymm3,%%ymm3		\n\t"\
+		"vsubpd	%%ymm5,%%ymm7,%%ymm7		\n\t"\
+		"vaddpd	%%ymm0,%%ymm0,%%ymm0		\n\t"\
+		"vaddpd	%%ymm4,%%ymm4,%%ymm4		\n\t"\
+		"vaddpd	%%ymm1,%%ymm1,%%ymm1		\n\t"\
+		"vaddpd	%%ymm5,%%ymm5,%%ymm5							\n\t	movq	%%r9,%%r14	/* two */\n\t"\
+		"vaddpd	%%ymm2,%%ymm0,%%ymm0		\n\t"\
+		"vaddpd	%%ymm6,%%ymm4,%%ymm4		\n\t"\
+		"vaddpd	%%ymm3,%%ymm1,%%ymm1							\n\t/*** This needs to read r18 *after* the last radix-4 writes it! ***/\n\t"\
+		"vaddpd	%%ymm7,%%ymm5,%%ymm5							\n\t/* Radix-5 DFT uses adjacent temps, i.e. stride = 2*16 bytes: */\n\t"\
+		"/* Finish radix-4 butterfly: */						\n\t/*	SSE2_RADIX_05_DFT_0TWIDDLE(r10,r12,r14,r16,r18,cc1,Xb0,Xb1,Xb2,Xb3,Xb4)	*/\n\t"\
+		"addq	$0x080,%%rdi	/* r18 */						\n\t	movq	%[__r10],%%r8 		\n\t"\
+		"vsubpd	%%ymm4,%%ymm0,%%ymm0							\n\t	movq	%%r8 ,%%r10			\n\t"\
+		"vsubpd	%%ymm7,%%ymm2,%%ymm2							\n\t	movq	%%r8 ,%%r11			\n\t"\
+		"vsubpd	%%ymm5,%%ymm1,%%ymm1							\n\t	movq	%%r8 ,%%r12			\n\t"\
+		"vsubpd	%%ymm6,%%ymm3,%%ymm3							\n\t/*	movq	%%r8 ,%%r13		*/	\n\t"\
+		"vmovaps	%%ymm0,0x280(%%rsi)	/* r28.r */				\n\t	addq	$0x040,%%r10		\n\t"\
+		"vmovaps	%%ymm2,0x280(%%rdi)	/* r38.r */				\n\t	addq	$0x080,%%r11		\n\t"\
+		"vmovaps	%%ymm1,0x2a0(%%rsi)	/* r28.i */				\n\t	addq	$0x0c0,%%r12		\n\t"\
+		"/*vaps	%%ymm3,0x020(%%rdi)	** r18.i */					\n\t/*	addq	$0x100,%%r13	*/	\n\t"\
+		"vaddpd	%%ymm4,%%ymm4,%%ymm4							\n\t	movq	%[__b0],%%r9 		\n\t"\
+		"vaddpd	%%ymm7,%%ymm7,%%ymm7							\n\t	vmovaps	    (%%r10),%%ymm8 	\n\t"\
+		"vaddpd	%%ymm5,%%ymm5,%%ymm5							\n\t	vmovaps	0x20(%%r10),%%ymm9 	\n\t"\
+		"vaddpd	%%ymm6,%%ymm6,%%ymm6							\n\t	vmovaps	    (%%r11),%%ymm10	\n\t"\
+		"vaddpd	%%ymm0,%%ymm4,%%ymm4							\n\t	vmovaps	0x20(%%r11),%%ymm11	\n\t"\
+		"vaddpd	%%ymm2,%%ymm7,%%ymm7							\n\t	vmovaps	    (%%r12),%%ymm12	\n\t"\
+		"vaddpd	%%ymm1,%%ymm5,%%ymm5							\n\t	vmovaps	0x20(%%r12),%%ymm13	\n\t"\
+		"vaddpd	%%ymm3,%%ymm6,%%ymm6							\n\t/*	vmovaps	    (%%r13),%%ymm14	// r18.r */\n\t"\
+		"/*vaps	%%ymm4,     (%%rsi)	// r08.r */					\n\t/*	vmovaps	0x20(%%r13),%%ymm15	// r18.i */\n\t"\
+		"/*vaps	%%ymm7,     (%%rdi)	// r18.r */					\n\t	vsubpd	%%ymm7 ,%%ymm8 ,%%ymm8 		\n\t"\
+		"/*vaps	%%ymm5,0x020(%%rsi)	// r08.i */					\n\t	vsubpd	%%ymm3 ,%%ymm9 ,%%ymm9 		\n\t"\
+		"vmovaps	%%ymm6,0x2a0(%%rdi)	/* r38.i */				\n\t	vaddpd	%%ymm7 ,%%ymm7 ,%%ymm7 		\n\t"\
+		"														\n\t	vaddpd	%%ymm3 ,%%ymm3 ,%%ymm3 		\n\t"\
+		"/*	SSE2_RADIX_05_DFT_0TWIDDLE(r00...)	*/				\n\t	vaddpd	%%ymm8 ,%%ymm7 ,%%ymm7 		\n\t"\
+		"movq	%[__r00],%%rsi									\n\t	vaddpd	%%ymm9 ,%%ymm3 ,%%ymm3 		\n\t"\
+		"movq	%%rsi,%%rax										\n\t	vsubpd	%%ymm12,%%ymm10,%%ymm10		\n\t	vmovaps	%%ymm7 ,%%ymm14		\n\t"\
+		"movq	%%rsi,%%rbx										\n\t	vsubpd	%%ymm13,%%ymm11,%%ymm11		\n\t	vmovaps	%%ymm3 ,%%ymm15		\n\t"\
+		"movq	%%rsi,%%rcx		\n\t	vmovaps	%%ymm4 ,%%ymm6	\n\t	vaddpd	%%ymm12,%%ymm12,%%ymm12		\n\t"\
+		"/*vq	%%rsi,%%rdx	*/	\n\t	vmovaps	%%ymm5 ,%%ymm7	\n\t	vaddpd	%%ymm13,%%ymm13,%%ymm13		\n\t"\
+		"addq	$0x040,%%rax									\n\t	vaddpd	%%ymm10,%%ymm12,%%ymm12		\n\t"\
+		"addq	$0x080,%%rbx									\n\t	vaddpd	%%ymm11,%%ymm13,%%ymm13		\n\t"\
+		"addq	$0x0c0,%%rcx									\n\t	movq	%[__cc1],%%r10		\n\t"\
+		"/*dq	$0x100,%%rdx	*/								\n\t	vsubpd	%%ymm12,%%ymm14,%%ymm14		\n\t"\
+		"movq	%[__a0],%%rdi									\n\t	vsubpd	%%ymm13,%%ymm15,%%ymm15		\n\t"\
+		"vmovaps	    (%%rax),%%ymm0							\n\t	vaddpd	%%ymm12,%%ymm12,%%ymm12		\n\t"\
+		"vmovaps	0x20(%%rax),%%ymm1							\n\t	vaddpd	%%ymm13,%%ymm13,%%ymm13		\n\t"\
+		"vmovaps	    (%%rbx),%%ymm2							\n\t	vaddpd	%%ymm14,%%ymm12,%%ymm12		\n\t"\
+		"vmovaps	0x20(%%rbx),%%ymm3							\n\t	vaddpd	%%ymm15,%%ymm13,%%ymm13		\n\t"\
+		"vmovaps	    (%%rcx),%%ymm4							\n\t	vaddpd	    (%%r8 ),%%ymm12,%%ymm12	\n\t"\
+		"vmovaps	0x20(%%rcx),%%ymm5							\n\t	vaddpd	0x20(%%r8 ),%%ymm13,%%ymm13	\n\t"\
+		"/*vaps	    (%%rdx),%%ymm6	// r08.r */					\n\t	vmovaps	%%ymm12,    (%%r9 )	\n\t"\
+		"/*vaps	0x20(%%rdx),%%ymm7	// r08.i */					\n\t	vmovaps	%%ymm13,0x20(%%r9 )	\n\t"\
+		"vsubpd	%%ymm6,%%ymm0,%%ymm0							\n\t	vmulpd	0x20(%%r10),%%ymm14,%%ymm14	\n\t"\
+		"vsubpd	%%ymm7,%%ymm1,%%ymm1							\n\t	vmulpd	0x20(%%r10),%%ymm15,%%ymm15	\n\t"\
+		"vaddpd	%%ymm6,%%ymm6,%%ymm6							\n\t	vsubpd	    (%%r8 ),%%ymm12,%%ymm12	\n\t"\
+		"vaddpd	%%ymm7,%%ymm7,%%ymm7							\n\t	vsubpd	0x20(%%r8 ),%%ymm13,%%ymm13	\n\t"\
+		"vaddpd	%%ymm0,%%ymm6,%%ymm6							\n\t	vmulpd	    (%%r10),%%ymm12,%%ymm12	\n\t"\
+		"vaddpd	%%ymm1,%%ymm7,%%ymm7							\n\t	vmulpd	    (%%r10),%%ymm13,%%ymm13	\n\t"\
+		"vsubpd	%%ymm4,%%ymm2,%%ymm2							\n\t	vaddpd	    (%%r9 ),%%ymm12,%%ymm12	\n\t"\
+		"vsubpd	%%ymm5,%%ymm3,%%ymm3							\n\t	vaddpd	0x20(%%r9 ),%%ymm13,%%ymm13	\n\t"\
+		"vmulpd	(%%r14),%%ymm4,%%ymm4							\n\t	vsubpd	%%ymm14,%%ymm12,%%ymm12		\n\t"\
+		"vmulpd	(%%r14),%%ymm5,%%ymm5							\n\t	vsubpd	%%ymm15,%%ymm13,%%ymm13		\n\t"\
+		"vaddpd	%%ymm2,%%ymm4,%%ymm4							\n\t	vmulpd	(%%r14),%%ymm14,%%ymm14		\n\t"\
+		"vaddpd	%%ymm3,%%ymm5,%%ymm5							\n\t	vmulpd	(%%r14),%%ymm15,%%ymm15		\n\t"\
+		"movq	%[__cc1],%%rax									\n\t	vaddpd	%%ymm12,%%ymm14,%%ymm14		\n\t"\
+		"vsubpd	%%ymm4,%%ymm6,%%ymm6							\n\t	vaddpd	%%ymm13,%%ymm15,%%ymm15		\n\t"\
+		"vsubpd	%%ymm5,%%ymm7,%%ymm7							\n\t	vmovaps	%%ymm12,    (%%r8 )	\n\t"\
+		"vaddpd	%%ymm4,%%ymm4,%%ymm4							\n\t	vmovaps	%%ymm13,0x20(%%r8 )	\n\t"\
+		"vaddpd	%%ymm5,%%ymm5,%%ymm5							\n\t	vmovaps	%%ymm8 ,%%ymm12		\n\t"\
+		"vaddpd	%%ymm6,%%ymm4,%%ymm4							\n\t	vmovaps	%%ymm9 ,%%ymm13		\n\t"\
+		"vaddpd	%%ymm7,%%ymm5,%%ymm5							\n\t	vsubpd	%%ymm10,%%ymm8 ,%%ymm8 		\n\t"\
+		"vaddpd	    (%%rsi),%%ymm4,%%ymm4						\n\t	vsubpd	%%ymm11,%%ymm9 ,%%ymm9 		\n\t"\
+		"vaddpd	0x20(%%rsi),%%ymm5,%%ymm5						\n\t	vmulpd	0x40(%%r10),%%ymm8 ,%%ymm8 	\n\t"\
+		"vmovaps	%%ymm4,    (%%rdi)							\n\t	vmulpd	0x40(%%r10),%%ymm9 ,%%ymm9 	\n\t"\
+		"vmovaps	%%ymm5,0x20(%%rdi)							\n\t	vmulpd	0x60(%%r10),%%ymm10,%%ymm10	\n\t"\
+		"vmulpd	0x20(%%rax),%%ymm6,%%ymm6						\n\t	vmulpd	0x60(%%r10),%%ymm11,%%ymm11	\n\t"\
+		"vmulpd	0x20(%%rax),%%ymm7,%%ymm7						\n\t	vmulpd	0x80(%%r10),%%ymm12,%%ymm12	\n\t"\
+		"vsubpd	    (%%rsi),%%ymm4,%%ymm4						\n\t	vmulpd	0x80(%%r10),%%ymm13,%%ymm13	\n\t"\
+		"vsubpd	0x20(%%rsi),%%ymm5,%%ymm5						\n\t	vaddpd	%%ymm8 ,%%ymm10,%%ymm10		\n\t"\
+		"vmulpd	    (%%rax),%%ymm4,%%ymm4						\n\t	vaddpd	%%ymm9 ,%%ymm11,%%ymm11		\n\t"\
+		"vmulpd	    (%%rax),%%ymm5,%%ymm5						\n\t	vsubpd	%%ymm12,%%ymm8 ,%%ymm8 		\n\t"\
+		"vaddpd	    (%%rdi),%%ymm4,%%ymm4						\n\t	vsubpd	%%ymm13,%%ymm9 ,%%ymm9 		\n\t"\
+		"vaddpd	0x20(%%rdi),%%ymm5,%%ymm5						\n\t	vmovaps	    (%%r8 ),%%ymm12	\n\t"\
+		"vsubpd	%%ymm6,%%ymm4,%%ymm4							\n\t	vmovaps	0x20(%%r8 ),%%ymm13	\n\t"\
+		"vsubpd	%%ymm7,%%ymm5,%%ymm5							\n\t	movq	%[__b1],%%r10		\n\t"\
+		"vmulpd	(%%r14),%%ymm6,%%ymm6							\n\t	vsubpd	%%ymm11,%%ymm14,%%ymm14		\n\t"\
+		"vmulpd	(%%r14),%%ymm7,%%ymm7							\n\t	vsubpd	%%ymm10,%%ymm15,%%ymm15		\n\t"\
+		"vaddpd	%%ymm4,%%ymm6,%%ymm6							\n\t	vmulpd	(%%r14),%%ymm11,%%ymm11		\n\t"\
+		"vaddpd	%%ymm5,%%ymm7,%%ymm7							\n\t	vmulpd	(%%r14),%%ymm10,%%ymm10		\n\t"\
+		"vmovaps	%%ymm4,    (%%rsi)							\n\t	movq	%[__b4],%%r13		\n\t"\
+		"vmovaps	%%ymm5,0x20(%%rsi)							\n\t	vmovaps	%%ymm14,    (%%r10)	\n\t"\
+		"vmovaps	%%ymm0,%%ymm4								\n\t	vmovaps	%%ymm15,0x20(%%r13)	\n\t"\
+		"vmovaps	%%ymm1,%%ymm5								\n\t	vaddpd	%%ymm14,%%ymm11,%%ymm11		\n\t"\
+		"vsubpd	%%ymm2,%%ymm0,%%ymm0							\n\t	vaddpd	%%ymm15,%%ymm10,%%ymm10		\n\t"\
+		"vsubpd	%%ymm3,%%ymm1,%%ymm1							\n\t	vmovaps	%%ymm11,    (%%r13)	\n\t"\
+		"vmulpd	0x40(%%rax),%%ymm0,%%ymm0						\n\t	vmovaps	%%ymm10,0x20(%%r10)	\n\t"\
+		"vmulpd	0x40(%%rax),%%ymm1,%%ymm1						\n\t	movq	%[__b2],%%r11		\n\t"\
+		"vmulpd	0x60(%%rax),%%ymm2,%%ymm2						\n\t	movq	%[__b3],%%r12		\n\t"\
+		"vmulpd	0x60(%%rax),%%ymm3,%%ymm3						\n\t	\n\t"\
+		"vmulpd	0x80(%%rax),%%ymm4,%%ymm4						\n\t	vsubpd	%%ymm9 ,%%ymm12,%%ymm12		\n\t"\
+		"vmulpd	0x80(%%rax),%%ymm5,%%ymm5						\n\t	vsubpd	%%ymm8 ,%%ymm13,%%ymm13		\n\t"\
+		"vaddpd	%%ymm0,%%ymm2,%%ymm2							\n\t	vmulpd	(%%r14),%%ymm9 ,%%ymm9 		\n\t"\
+		"vaddpd	%%ymm1,%%ymm3,%%ymm3							\n\t	vmulpd	(%%r14),%%ymm8 ,%%ymm8 		\n\t"\
+		"vsubpd	%%ymm4,%%ymm0,%%ymm0							\n\t	vmovaps	%%ymm12,    (%%r11)	\n\t"\
+		"vsubpd	%%ymm5,%%ymm1,%%ymm1							\n\t	vmovaps	%%ymm13,0x20(%%r12)	\n\t"\
+		"vmovaps	    (%%rsi),%%ymm4							\n\t	vaddpd	%%ymm12,%%ymm9 ,%%ymm9 		\n\t"\
+		"vmovaps	0x20(%%rsi),%%ymm5							\n\t	vaddpd	%%ymm13,%%ymm8 ,%%ymm8 		\n\t"\
+		"movq	%[__a1],%%rax									\n\t	vmovaps	%%ymm9 ,    (%%r12)	\n\t"\
+		"movq	%[__a4],%%rdx									\n\t	vmovaps	%%ymm8 ,0x20(%%r11)	\n\t"\
+		"vsubpd	%%ymm3,%%ymm6,%%ymm6							\n\t	/*	SSE2_RADIX_05_DFT_0TWIDDLE(r30)	*/\n\t"\
+		"vsubpd	%%ymm2,%%ymm7,%%ymm7							\n\t	movq	%[__r30],%%r8 		\n\t"\
+		"vaddpd	%%ymm3,%%ymm3,%%ymm3							\n\t	movq	%%r8 ,%%r10			\n\t"\
+		"vaddpd	%%ymm2,%%ymm2,%%ymm2							\n\t	movq	%%r8 ,%%r11			\n\t"\
+		"vmovaps	%%ymm6,    (%%rax)							\n\t	movq	%%r8 ,%%r12			\n\t"\
+		"vmovaps	%%ymm7,0x20(%%rdx)							\n\t	movq	%%r8 ,%%r13			\n\t"\
+		"vaddpd	%%ymm6,%%ymm3,%%ymm3							\n\t	addq	$0x040,%%r10		\n\t"\
+		"vaddpd	%%ymm7,%%ymm2,%%ymm2							\n\t	addq	$0x080,%%r11		\n\t"\
+		"vmovaps	%%ymm3,    (%%rdx)							\n\t	addq	$0x0c0,%%r12		\n\t"\
+		"vmovaps	%%ymm2,0x20(%%rax)							\n\t	addq	$0x100,%%r13		\n\t"\
+		"movq	%[__a2],%%rbx									\n\t	movq	%[__d0],%%r9 		\n\t"\
+		"movq	%[__a3],%%rcx									\n\t	vmovaps	    (%%r10),%%ymm8 	\n\t"\
+		"vsubpd	%%ymm1,%%ymm4,%%ymm4							\n\t	vmovaps	0x20(%%r10),%%ymm9 	\n\t"\
+		"vsubpd	%%ymm0,%%ymm5,%%ymm5							\n\t	vmovaps	    (%%r11),%%ymm10	\n\t"\
+		"vaddpd	%%ymm1,%%ymm1,%%ymm1							\n\t	vmovaps	0x20(%%r11),%%ymm11	\n\t"\
+		"vaddpd	%%ymm0,%%ymm0,%%ymm0							\n\t	vmovaps	    (%%r12),%%ymm12	\n\t"\
+		"vmovaps	%%ymm4,    (%%rbx)							\n\t	vmovaps	0x20(%%r12),%%ymm13	\n\t"\
+		"vmovaps	%%ymm5,0x20(%%rcx)							\n\t	vmovaps	    (%%r13),%%ymm14	\n\t"\
+		"vaddpd	%%ymm4,%%ymm1,%%ymm1							\n\t	vmovaps	0x20(%%r13),%%ymm15	\n\t"\
+		"vaddpd	%%ymm5,%%ymm0,%%ymm0							\n\t	vsubpd	%%ymm14,%%ymm8 ,%%ymm8 		\n\t"\
+		"vmovaps	%%ymm1,    (%%rcx)							\n\t	vsubpd	%%ymm15,%%ymm9 ,%%ymm9 		\n\t"\
+		"vmovaps	%%ymm0,0x20(%%rbx)							\n\t	vaddpd	%%ymm14,%%ymm14,%%ymm14		\n\t"\
+		"														\n\t	vaddpd	%%ymm15,%%ymm15,%%ymm15		\n\t"\
+		"/*	SSE2_RADIX_05_DFT_0TWIDDLE(r20)	*/					\n\t	vaddpd	%%ymm8 ,%%ymm14,%%ymm14		\n\t"\
+		"movq	%[__r20],%%rsi									\n\t	vaddpd	%%ymm9 ,%%ymm15,%%ymm15		\n\t"\
+		"movq	%%rsi,%%rax										\n\t	vsubpd	%%ymm12,%%ymm10,%%ymm10		\n\t"\
+		"movq	%%rsi,%%rbx										\n\t	vsubpd	%%ymm13,%%ymm11,%%ymm11		\n\t"\
+		"movq	%%rsi,%%rcx										\n\t	vaddpd	%%ymm12,%%ymm12,%%ymm12		\n\t"\
+		"movq	%%rsi,%%rdx										\n\t	vaddpd	%%ymm13,%%ymm13,%%ymm13		\n\t"\
+		"addq	$0x040,%%rax									\n\t	vaddpd	%%ymm10,%%ymm12,%%ymm12		\n\t"\
+		"addq	$0x080,%%rbx									\n\t	vaddpd	%%ymm11,%%ymm13,%%ymm13		\n\t"\
+		"addq	$0x0c0,%%rcx									\n\t	movq	%[__cc1],%%r10		\n\t"\
+		"addq	$0x100,%%rdx									\n\t	vsubpd	%%ymm12,%%ymm14,%%ymm14		\n\t"\
+		"movq	%[__c0],%%rdi									\n\t	vsubpd	%%ymm13,%%ymm15,%%ymm15		\n\t"\
+		"vmovaps	    (%%rax),%%ymm0							\n\t	vaddpd	%%ymm12,%%ymm12,%%ymm12		\n\t"\
+		"vmovaps	0x20(%%rax),%%ymm1							\n\t	vaddpd	%%ymm13,%%ymm13,%%ymm13		\n\t"\
+		"vmovaps	    (%%rbx),%%ymm2							\n\t	vaddpd	%%ymm14,%%ymm12,%%ymm12		\n\t"\
+		"vmovaps	0x20(%%rbx),%%ymm3							\n\t	vaddpd	%%ymm15,%%ymm13,%%ymm13		\n\t"\
+		"vmovaps	    (%%rcx),%%ymm4							\n\t	vaddpd	    (%%r8 ),%%ymm12,%%ymm12	\n\t"\
+		"vmovaps	0x20(%%rcx),%%ymm5							\n\t	vaddpd	0x20(%%r8 ),%%ymm13,%%ymm13	\n\t"\
+		"vmovaps	    (%%rdx),%%ymm6							\n\t	vmovaps	%%ymm12,    (%%r9 )	\n\t"\
+		"vmovaps	0x20(%%rdx),%%ymm7							\n\t	vmovaps	%%ymm13,0x20(%%r9 )	\n\t"\
+		"vsubpd	%%ymm6,%%ymm0,%%ymm0							\n\t	vmulpd	0x20(%%r10),%%ymm14,%%ymm14	\n\t"\
+		"vsubpd	%%ymm7,%%ymm1,%%ymm1							\n\t	vmulpd	0x20(%%r10),%%ymm15,%%ymm15	\n\t"\
+		"vmulpd	(%%r14),%%ymm6,%%ymm6							\n\t	vsubpd	    (%%r8 ),%%ymm12,%%ymm12	\n\t"\
+		"vmulpd	(%%r14),%%ymm7,%%ymm7							\n\t	vsubpd	0x20(%%r8 ),%%ymm13,%%ymm13	\n\t"\
+		"vaddpd	%%ymm0,%%ymm6,%%ymm6							\n\t	vmulpd	    (%%r10),%%ymm12,%%ymm12	\n\t"\
+		"vaddpd	%%ymm1,%%ymm7,%%ymm7							\n\t	vmulpd	    (%%r10),%%ymm13,%%ymm13	\n\t"\
+		"vsubpd	%%ymm4,%%ymm2,%%ymm2							\n\t	vaddpd	    (%%r9 ),%%ymm12,%%ymm12	\n\t"\
+		"vsubpd	%%ymm5,%%ymm3,%%ymm3							\n\t	vaddpd	0x20(%%r9 ),%%ymm13,%%ymm13	\n\t"\
+		"vmulpd	(%%r14),%%ymm4,%%ymm4							\n\t	vsubpd	%%ymm14,%%ymm12,%%ymm12		\n\t"\
+		"vmulpd	(%%r14),%%ymm5,%%ymm5							\n\t	vsubpd	%%ymm15,%%ymm13,%%ymm13		\n\t"\
+		"vaddpd	%%ymm2,%%ymm4,%%ymm4							\n\t	vmulpd	(%%r14),%%ymm14,%%ymm14		\n\t"\
+		"vaddpd	%%ymm3,%%ymm5,%%ymm5							\n\t	vmulpd	(%%r14),%%ymm15,%%ymm15		\n\t"\
+		"movq	%[__cc1],%%rax									\n\t	vaddpd	%%ymm12,%%ymm14,%%ymm14		\n\t"\
+		"vsubpd	%%ymm4,%%ymm6,%%ymm6							\n\t	vaddpd	%%ymm13,%%ymm15,%%ymm15		\n\t"\
+		"vsubpd	%%ymm5,%%ymm7,%%ymm7							\n\t	vmovaps	%%ymm12,    (%%r8 )	\n\t"\
+		"vaddpd	%%ymm4,%%ymm4,%%ymm4							\n\t	vmovaps	%%ymm13,0x20(%%r8 )	\n\t"\
+		"vaddpd	%%ymm5,%%ymm5,%%ymm5							\n\t	vmovaps	%%ymm8 ,%%ymm12		\n\t"\
+		"vaddpd	%%ymm6,%%ymm4,%%ymm4							\n\t	vmovaps	%%ymm9 ,%%ymm13		\n\t"\
+		"vaddpd	%%ymm7,%%ymm5,%%ymm5							\n\t	vsubpd	%%ymm10,%%ymm8 ,%%ymm8 		\n\t"\
+		"vaddpd		(%%rsi),%%ymm4,%%ymm4						\n\t	vsubpd	%%ymm11,%%ymm9 ,%%ymm9 		\n\t"\
+		"vaddpd	0x20(%%rsi),%%ymm5,%%ymm5						\n\t	vmulpd	0x40(%%r10),%%ymm8 ,%%ymm8 	\n\t"\
+		"vmovaps	%%ymm4,    (%%rdi)							\n\t	vmulpd	0x40(%%r10),%%ymm9 ,%%ymm9 	\n\t"\
+		"vmovaps	%%ymm5,0x20(%%rdi)							\n\t	vmulpd	0x60(%%r10),%%ymm10,%%ymm10	\n\t"\
+		"vmulpd	0x20(%%rax),%%ymm6,%%ymm6						\n\t	vmulpd	0x60(%%r10),%%ymm11,%%ymm11	\n\t"\
+		"vmulpd	0x20(%%rax),%%ymm7,%%ymm7						\n\t	vmulpd	0x80(%%r10),%%ymm12,%%ymm12	\n\t"\
+		"vsubpd		(%%rsi),%%ymm4,%%ymm4						\n\t	vmulpd	0x80(%%r10),%%ymm13,%%ymm13	\n\t"\
+		"vsubpd	0x20(%%rsi),%%ymm5,%%ymm5						\n\t	vaddpd	%%ymm8 ,%%ymm10,%%ymm10		\n\t"\
+		"vmulpd		(%%rax),%%ymm4,%%ymm4						\n\t	vaddpd	%%ymm9 ,%%ymm11,%%ymm11		\n\t"\
+		"vmulpd		(%%rax),%%ymm5,%%ymm5						\n\t	vsubpd	%%ymm12,%%ymm8 ,%%ymm8 		\n\t"\
+		"vaddpd		(%%rdi),%%ymm4,%%ymm4						\n\t	vsubpd	%%ymm13,%%ymm9 ,%%ymm9 		\n\t"\
+		"vaddpd	0x20(%%rdi),%%ymm5,%%ymm5						\n\t	vmovaps	    (%%r8 ),%%ymm12	\n\t"\
+		"vsubpd	%%ymm6,%%ymm4,%%ymm4							\n\t	vmovaps	0x20(%%r8 ),%%ymm13	\n\t"\
+		"vsubpd	%%ymm7,%%ymm5,%%ymm5							\n\t	movq	%[__d1],%%r10		\n\t"\
+		"vmulpd	(%%r14),%%ymm6,%%ymm6							\n\t	vsubpd	%%ymm11,%%ymm14,%%ymm14		\n\t"\
+		"vmulpd	(%%r14),%%ymm7,%%ymm7							\n\t	vsubpd	%%ymm10,%%ymm15,%%ymm15		\n\t"\
+		"vaddpd	%%ymm4,%%ymm6,%%ymm6							\n\t	vmulpd	(%%r14),%%ymm11,%%ymm11		\n\t"\
+		"vaddpd	%%ymm5,%%ymm7,%%ymm7							\n\t	vmulpd	(%%r14),%%ymm10,%%ymm10		\n\t"\
+		"vmovaps	%%ymm4,    (%%rsi)							\n\t	movq	%[__d4],%%r13		\n\t"\
+		"vmovaps	%%ymm5,0x20(%%rsi)							\n\t	vmovaps	%%ymm14,    (%%r10)	\n\t"\
+		"vmovaps	%%ymm0,%%ymm4								\n\t	vmovaps	%%ymm15,0x20(%%r13)	\n\t"\
+		"vmovaps	%%ymm1,%%ymm5								\n\t	vaddpd	%%ymm14,%%ymm11,%%ymm11		\n\t"\
+		"vsubpd	%%ymm2,%%ymm0,%%ymm0							\n\t	vaddpd	%%ymm15,%%ymm10,%%ymm10		\n\t"\
+		"vsubpd	%%ymm3,%%ymm1,%%ymm1							\n\t	vmovaps	%%ymm11,    (%%r13)	\n\t"\
+		"vmulpd	0x40(%%rax),%%ymm0,%%ymm0						\n\t	vmovaps	%%ymm10,0x20(%%r10)	\n\t"\
+		"vmulpd	0x40(%%rax),%%ymm1,%%ymm1						\n\t	movq	%[__d2],%%r11		\n\t"\
+		"vmulpd	0x60(%%rax),%%ymm2,%%ymm2						\n\t	movq	%[__d3],%%r12		\n\t"\
+		"vmulpd	0x60(%%rax),%%ymm3,%%ymm3						\n\t	vsubpd	%%ymm9 ,%%ymm12,%%ymm12		\n\t"\
+		"vmulpd	0x80(%%rax),%%ymm4,%%ymm4						\n\t	vsubpd	%%ymm8 ,%%ymm13,%%ymm13		\n\t"\
+		"vmulpd	0x80(%%rax),%%ymm5,%%ymm5						\n\t	\n\t"\
+		"vaddpd	%%ymm0,%%ymm2,%%ymm2							\n\t	vmulpd	(%%r14),%%ymm9 ,%%ymm9 		\n\t"\
+		"vaddpd	%%ymm1,%%ymm3,%%ymm3							\n\t	vmulpd	(%%r14),%%ymm8 ,%%ymm8 		\n\t"\
+		"vsubpd	%%ymm4,%%ymm0,%%ymm0							\n\t	vmovaps	%%ymm12,    (%%r11)	\n\t"\
+		"vsubpd	%%ymm5,%%ymm1,%%ymm1							\n\t	vmovaps	%%ymm13,0x20(%%r12)	\n\t"\
+		"vmovaps	    (%%rsi),%%ymm4							\n\t	vaddpd	%%ymm12,%%ymm9 ,%%ymm9 		\n\t"\
+		"vmovaps	0x20(%%rsi),%%ymm5							\n\t	vaddpd	%%ymm13,%%ymm8 ,%%ymm8 		\n\t"\
+		"movq	%[__c1],%%rax									\n\t	vmovaps	%%ymm9 ,    (%%r12)	\n\t"\
+		"movq	%[__c4],%%rdx									\n\t	vmovaps	%%ymm8 ,0x20(%%r11)	\n\t"\
+		"vsubpd	%%ymm3,%%ymm6,%%ymm6							\n\t"\
+		"vsubpd	%%ymm2,%%ymm7,%%ymm7							\n\t"\
+		"vaddpd	%%ymm3,%%ymm3,%%ymm3							\n\t"\
+		"vaddpd	%%ymm2,%%ymm2,%%ymm2							\n\t"\
+		"vmovaps	%%ymm6,    (%%rax)							\n\t"\
+		"vmovaps	%%ymm7,0x20(%%rdx)							\n\t"\
+		"vaddpd	%%ymm6,%%ymm3,%%ymm3							\n\t"\
+		"vaddpd	%%ymm7,%%ymm2,%%ymm2							\n\t"\
+		"vmovaps	%%ymm3,    (%%rdx)							\n\t"\
+		"vmovaps	%%ymm2,0x20(%%rax)							\n\t"\
+		"movq	%[__c2],%%rbx									\n\t"\
+		"movq	%[__c3],%%rcx									\n\t"\
+		"vsubpd	%%ymm1,%%ymm4,%%ymm4							\n\t"\
+		"vsubpd	%%ymm0,%%ymm5,%%ymm5							\n\t"\
+		"vaddpd	%%ymm1,%%ymm1,%%ymm1							\n\t"\
+		"vaddpd	%%ymm0,%%ymm0,%%ymm0							\n\t"\
+		"vmovaps	%%ymm4,    (%%rbx)							\n\t"\
+		"vmovaps	%%ymm5,0x20(%%rcx)							\n\t"\
+		"vaddpd	%%ymm4,%%ymm1,%%ymm1							\n\t"\
+		"vaddpd	%%ymm5,%%ymm0,%%ymm0							\n\t"\
+		"vmovaps	%%ymm1,    (%%rcx)							\n\t"\
+		"vmovaps	%%ymm0,0x20(%%rbx)							\n\t"\
+		:					/* outputs: none */\
+		: [__add0] "m" (Xadd0)	/* All inputs from memory addresses here */\
+		,[__p01] "m" (Xp01)\
+		,[__p04] "m" (Xp04)\
+		,[__r00] "m" (Xr00)\
+		,[__r10] "m" (Xr10)\
+		,[__r20] "m" (Xr20)\
+		,[__r30] "m" (Xr30)\
+		,[__cc1] "m" (Xcc1)\
+		,[__a0] "m" (Xa0)\
+		,[__a1] "m" (Xa1)\
+		,[__a2] "m" (Xa2)\
+		,[__a3] "m" (Xa3)\
+		,[__a4] "m" (Xa4)\
+		,[__b0] "m" (Xb0)\
+		,[__b1] "m" (Xb1)\
+		,[__b2] "m" (Xb2)\
+		,[__b3] "m" (Xb3)\
+		,[__b4] "m" (Xb4)\
+		,[__c0] "m" (Xc0)\
+		,[__c1] "m" (Xc1)\
+		,[__c2] "m" (Xc2)\
+		,[__c3] "m" (Xc3)\
+		,[__c4] "m" (Xc4)\
+		,[__d0] "m" (Xd0)\
+		,[__d1] "m" (Xd1)\
+		,[__d2] "m" (Xd2)\
+		,[__d3] "m" (Xd3)\
+		,[__d4] "m" (Xd4)\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r8","r9","r10","r11","r12","r13","r14","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+	);\
+	}
+
+
+	#define	SSE2_RADIX20_DIF_NOTWIDDLE(Xadd0,Xp01,Xp04,Xp08,Xp16,Xa0,Xa1,Xa2,Xa3,Xa4,Xb0,Xb1,Xb2,Xb3,Xb4,Xc0,Xc1,Xc2,Xc3,Xc4,Xd0,Xd1,Xd2,Xd3,Xd4,Xcc1,Xr00,Xr10,Xr20,Xr30)\
+	{\
+	__asm__ volatile (\
+		"/*	SSE2_RADIX_05_DFT_0TWIDDLE(Xa0,r00*/\n\t"\
+		"movq	%[__r00],%%rdi					\n\t"\
+		"movq	%[__a0],%%rsi					\n\t"\
+		"movq	%[__a1],%%rax					\n\t	movq	$0xa00,%%r14		\n\t"\
+		"movq	%[__a2],%%rbx					\n\t"\
+		"movq	%[__a3],%%rcx					\n\t"\
+		"movq	%[__a4],%%rdx					\n\t	addq	%%rdi,%%r14	/* two */\n\t"\
+		"vmovaps	    (%%rax),%%ymm0			\n\t"\
+		"vmovaps	0x20(%%rax),%%ymm1			\n\t	/*	SSE2_RADIX_05_DFT_0TWIDDLE(Xc0,r20)	*/\n\t"\
+		"vmovaps	    (%%rbx),%%ymm2			\n\t	movq	%[__c0],%%r9 		\n\t"\
+		"vmovaps	0x20(%%rbx),%%ymm3			\n\t	movq	%[__c1],%%r10		\n\t"\
+		"vmovaps	    (%%rcx),%%ymm4			\n\t	movq	%[__c2],%%r11		\n\t"\
+		"vmovaps	0x20(%%rcx),%%ymm5			\n\t	movq	%[__c3],%%r12		\n\t"\
+		"vmovaps	    (%%rdx),%%ymm6			\n\t	movq	%[__c4],%%r13		\n\t"\
+		"vmovaps	0x20(%%rdx),%%ymm7			\n\t	movq	%[__r20],%%r8 		\n\t"\
+		"vsubpd	%%ymm6,%%ymm0,%%ymm0			\n\t	vmovaps	    (%%r10),%%ymm8 	\n\t"\
+		"vsubpd	%%ymm7,%%ymm1,%%ymm1			\n\t	vmovaps	0x20(%%r10),%%ymm9 	\n\t"\
+		"vaddpd	%%ymm6,%%ymm6,%%ymm6			\n\t	vmovaps	    (%%r11),%%ymm10	\n\t"\
+		"vaddpd	%%ymm7,%%ymm7,%%ymm7			\n\t	vmovaps	0x20(%%r11),%%ymm11	\n\t"\
+		"vaddpd	%%ymm0,%%ymm6,%%ymm6			\n\t	vmovaps	    (%%r12),%%ymm12	\n\t"\
+		"vaddpd	%%ymm1,%%ymm7,%%ymm7			\n\t	vmovaps	0x20(%%r12),%%ymm13	\n\t"\
+		"vsubpd	%%ymm4,%%ymm2,%%ymm2			\n\t	vmovaps	    (%%r13),%%ymm14	\n\t"\
+		"vsubpd	%%ymm5,%%ymm3,%%ymm3			\n\t	vmovaps	0x20(%%r13),%%ymm15	\n\t"\
+		"vmulpd	(%%r14),%%ymm4,%%ymm4			\n\t	vsubpd	%%ymm14,%%ymm8 ,%%ymm8 		\n\t"\
+		"vmulpd	(%%r14),%%ymm5,%%ymm5			\n\t	vsubpd	%%ymm15,%%ymm9 ,%%ymm9 		\n\t"\
+		"vaddpd	%%ymm2,%%ymm4,%%ymm4			\n\t	vmulpd	(%%r14),%%ymm14,%%ymm14		\n\t"\
+		"vaddpd	%%ymm3,%%ymm5,%%ymm5			\n\t	vmulpd	(%%r14),%%ymm15,%%ymm15		\n\t"\
+		"movq	%[__cc1],%%rax					\n\t	vaddpd	%%ymm8 ,%%ymm14,%%ymm14		\n\t"\
+		"vsubpd	%%ymm4,%%ymm6,%%ymm6			\n\t	vaddpd	%%ymm9 ,%%ymm15,%%ymm15		\n\t"\
+		"vsubpd	%%ymm5,%%ymm7,%%ymm7			\n\t	vsubpd	%%ymm12,%%ymm10,%%ymm10		\n\t"\
+		"vmulpd	(%%r14),%%ymm4,%%ymm4			\n\t	vsubpd	%%ymm13,%%ymm11,%%ymm11		\n\t"\
+		"vmulpd	(%%r14),%%ymm5,%%ymm5			\n\t	movq	%[__cc1],%%r10		\n\t"\
+		"vaddpd	%%ymm6,%%ymm4,%%ymm4			\n\t	vmulpd	(%%r14),%%ymm12,%%ymm12		\n\t"\
+		"vaddpd	%%ymm7,%%ymm5,%%ymm5			\n\t	vmulpd	(%%r14),%%ymm13,%%ymm13		\n\t"\
+		"vaddpd	    (%%rsi),%%ymm4,%%ymm4		\n\t	vaddpd	%%ymm10,%%ymm12,%%ymm12		\n\t"\
+		"vaddpd	0x20(%%rsi),%%ymm5,%%ymm5		\n\t	vaddpd	%%ymm11,%%ymm13,%%ymm13		\n\t"\
+		"vmovaps	%%ymm4,    (%%rdi)			\n\t	vsubpd	%%ymm12,%%ymm14,%%ymm14		\n\t"\
+		"vmovaps	%%ymm5,0x20(%%rdi)			\n\t	vsubpd	%%ymm13,%%ymm15,%%ymm15		\n\t"\
+		"vmulpd	0x20(%%rax),%%ymm6,%%ymm6		\n\t	vaddpd	%%ymm12,%%ymm12,%%ymm12		\n\t"\
+		"vmulpd	0x20(%%rax),%%ymm7,%%ymm7		\n\t	vaddpd	%%ymm13,%%ymm13,%%ymm13		\n\t"\
+		"vsubpd		(%%rsi),%%ymm4,%%ymm4		\n\t	vaddpd	%%ymm14,%%ymm12,%%ymm12		\n\t"\
+		"vsubpd	0x20(%%rsi),%%ymm5,%%ymm5		\n\t	vaddpd	%%ymm15,%%ymm13,%%ymm13		\n\t"\
+		"vmulpd		(%%rax),%%ymm4,%%ymm4		\n\t	vaddpd	    (%%r9 ),%%ymm12,%%ymm12	\n\t"\
+		"vmulpd		(%%rax),%%ymm5,%%ymm5		\n\t	vaddpd	0x20(%%r9 ),%%ymm13,%%ymm13	\n\t"\
+		"vaddpd		(%%rdi),%%ymm4,%%ymm4		\n\t	vmovaps	%%ymm12,    (%%r8 )	\n\t"\
+		"vaddpd	0x20(%%rdi),%%ymm5,%%ymm5		\n\t	vmovaps	%%ymm13,0x20(%%r8 )	\n\t"\
+		"vsubpd	%%ymm6,%%ymm4,%%ymm4			\n\t	vmulpd	0x20(%%r10),%%ymm14,%%ymm14	\n\t"\
+		"vsubpd	%%ymm7,%%ymm5,%%ymm5			\n\t	vmulpd	0x20(%%r10),%%ymm15,%%ymm15	\n\t"\
+		"vmulpd	(%%r14),%%ymm6,%%ymm6			\n\t	vsubpd	    (%%r9 ),%%ymm12,%%ymm12	\n\t"\
+		"vmulpd	(%%r14),%%ymm7,%%ymm7			\n\t	vsubpd	0x20(%%r9 ),%%ymm13,%%ymm13	\n\t"\
+		"vaddpd	%%ymm4,%%ymm6,%%ymm6			\n\t	vmulpd	    (%%r10),%%ymm12,%%ymm12	\n\t"\
+		"vaddpd	%%ymm5,%%ymm7,%%ymm7			\n\t	vmulpd	    (%%r10),%%ymm13,%%ymm13	\n\t"\
+		"vmovaps	%%ymm4,    (%%rsi)			\n\t	vaddpd	    (%%r8 ),%%ymm12,%%ymm12	\n\t"\
+		"vmovaps	%%ymm5,0x20(%%rsi)			\n\t	vaddpd	0x20(%%r8 ),%%ymm13,%%ymm13	\n\t"\
+		"vmovaps	%%ymm0,%%ymm4				\n\t	vsubpd	%%ymm14,%%ymm12,%%ymm12		\n\t"\
+		"vmovaps	%%ymm1,%%ymm5				\n\t	vsubpd	%%ymm15,%%ymm13,%%ymm13		\n\t"\
+		"vsubpd	%%ymm2,%%ymm0,%%ymm0			\n\t	vmulpd	(%%r14),%%ymm14,%%ymm14		\n\t"\
+		"vsubpd	%%ymm3,%%ymm1,%%ymm1			\n\t	vmulpd	(%%r14),%%ymm15,%%ymm15		\n\t"\
+		"vmulpd	0x40(%%rax),%%ymm0,%%ymm0		\n\t	vaddpd	%%ymm12,%%ymm14,%%ymm14		\n\t"\
+		"vmulpd	0x40(%%rax),%%ymm1,%%ymm1		\n\t	vaddpd	%%ymm13,%%ymm15,%%ymm15		\n\t"\
+		"vmulpd	0x60(%%rax),%%ymm2,%%ymm2		\n\t	vmovaps	%%ymm12,    (%%r9 )	\n\t"\
+		"vmulpd	0x60(%%rax),%%ymm3,%%ymm3		\n\t	vmovaps	%%ymm13,0x20(%%r9 )	\n\t"\
+		"vmulpd	0x80(%%rax),%%ymm4,%%ymm4		\n\t	vmovaps	%%ymm8 ,%%ymm12		\n\t"\
+		"vmulpd	0x80(%%rax),%%ymm5,%%ymm5		\n\t	vmovaps	%%ymm9 ,%%ymm13		\n\t"\
+		"vaddpd	%%ymm0,%%ymm2,%%ymm2			\n\t	vsubpd	%%ymm10,%%ymm8 ,%%ymm8 		\n\t"\
+		"vaddpd	%%ymm1,%%ymm3,%%ymm3			\n\t	vsubpd	%%ymm11,%%ymm9 ,%%ymm9 		\n\t"\
+		"vsubpd	%%ymm4,%%ymm0,%%ymm0			\n\t	vmulpd	0x40(%%r10),%%ymm8 ,%%ymm8 	\n\t"\
+		"vsubpd	%%ymm5,%%ymm1,%%ymm1			\n\t	vmulpd	0x40(%%r10),%%ymm9 ,%%ymm9 	\n\t"\
+		"vmovaps	    (%%rsi),%%ymm4			\n\t	vmulpd	0x60(%%r10),%%ymm10,%%ymm10	\n\t"\
+		"vmovaps	0x20(%%rsi),%%ymm5			\n\t	vmulpd	0x60(%%r10),%%ymm11,%%ymm11	\n\t"\
+		"vsubpd	%%ymm3,%%ymm6,%%ymm6			\n\t	vmulpd	0x80(%%r10),%%ymm12,%%ymm12	\n\t"\
+		"vsubpd	%%ymm2,%%ymm7,%%ymm7			\n\t	vmulpd	0x80(%%r10),%%ymm13,%%ymm13	\n\t"\
+		"vaddpd	%%ymm3,%%ymm3,%%ymm3			\n\t	vaddpd	%%ymm8 ,%%ymm10,%%ymm10		\n\t"\
+		"vaddpd	%%ymm2,%%ymm2,%%ymm2			\n\t	vaddpd	%%ymm9 ,%%ymm11,%%ymm11		\n\t"\
+		"vmovaps	%%ymm6,0x040(%%rdi)			\n\t	vsubpd	%%ymm12,%%ymm8 ,%%ymm8 		\n\t"\
+		"vmovaps	%%ymm7,0x0e0(%%rdi)			\n\t	vsubpd	%%ymm13,%%ymm9 ,%%ymm9 		\n\t"\
+		"vaddpd	%%ymm6,%%ymm3,%%ymm3			\n\t	vmovaps	    (%%r9 ),%%ymm12	\n\t"\
+		"vaddpd	%%ymm7,%%ymm2,%%ymm2			\n\t	vmovaps	0x20(%%r9 ),%%ymm13	\n\t"\
+		"vmovaps	%%ymm3,0x0c0(%%rdi)			\n\t	vsubpd	%%ymm11,%%ymm14,%%ymm14		\n\t"\
+		"vmovaps	%%ymm2,0x060(%%rdi)			\n\t	vsubpd	%%ymm10,%%ymm15,%%ymm15		\n\t"\
+		"vsubpd	%%ymm1,%%ymm4,%%ymm4			\n\t	vaddpd	%%ymm11,%%ymm11,%%ymm11		\n\t"\
+		"vsubpd	%%ymm0,%%ymm5,%%ymm5			\n\t	vaddpd	%%ymm10,%%ymm10,%%ymm10		\n\t"\
+		"vaddpd	%%ymm1,%%ymm1,%%ymm1			\n\t	vmovaps	%%ymm14,0x040(%%r8 )\n\t"\
+		"vaddpd	%%ymm0,%%ymm0,%%ymm0			\n\t	vmovaps	%%ymm15,0x0e0(%%r8 )\n\t"\
+		"vmovaps	%%ymm4,0x080(%%rdi)			\n\t	vaddpd	%%ymm14,%%ymm11,%%ymm11		\n\t"\
+		"vmovaps	%%ymm5,0x120(%%rdi)			\n\t	vaddpd	%%ymm15,%%ymm10,%%ymm10		\n\t"\
+		"vaddpd	%%ymm4,%%ymm1,%%ymm1			\n\t	vmovaps	%%ymm11,0x0c0(%%r8 )\n\t"\
+		"vaddpd	%%ymm5,%%ymm0,%%ymm0			\n\t	vmovaps	%%ymm10,0x060(%%r8 )\n\t"\
+		"vmovaps	%%ymm1,0x100(%%rdi)			\n\t	vsubpd	%%ymm9 ,%%ymm12,%%ymm12		\n\t"\
+		"vmovaps	%%ymm0,0x0a0(%%rdi)			\n\t	vsubpd	%%ymm8 ,%%ymm13,%%ymm13		\n\t"\
+		"										\n\t	vaddpd	%%ymm9 ,%%ymm9 ,%%ymm9 		\n\t"\
+		"/*	SSE2_RADIX_05_DFT_0TWIDDLE(Xb0,r10*/\n\t	vaddpd	%%ymm8 ,%%ymm8 ,%%ymm8 		\n\t"\
+		"movq	%[__b0],%%rsi					\n\t	vmovaps	%%ymm12,0x080(%%r8 )\n\t"\
+		"movq	%[__b1],%%rax					\n\t	vmovaps	%%ymm13,0x120(%%r8 )\n\t"\
+		"movq	%[__b2],%%rbx					\n\t	vaddpd	%%ymm12,%%ymm9 ,%%ymm9 		\n\t"\
+		"movq	%[__b3],%%rcx					\n\t	vaddpd	%%ymm13,%%ymm8 ,%%ymm8 		\n\t"\
+		"movq	%[__b4],%%rdx					\n\t	vmovaps	%%ymm9 ,0x100(%%r8 )\n\t"\
+		"movq	%[__r10],%%rdi					\n\t	vmovaps	%%ymm8 ,0x0a0(%%r8 )\n\t"\
+		"vmovaps	    (%%rax),%%ymm0			\n\t	\n\t"\
+		"vmovaps	0x20(%%rax),%%ymm1			\n\t	/*	SSE2_RADIX_05_DFT_0TWIDDLE(Xd0,r30)	*/\n\t"\
+		"vmovaps	    (%%rbx),%%ymm2			\n\t	movq	%[__d0],%%r9 		\n\t"\
+		"vmovaps	0x20(%%rbx),%%ymm3			\n\t	movq	%[__d1],%%r10		\n\t"\
+		"vmovaps	    (%%rcx),%%ymm4			\n\t	movq	%[__d2],%%r11		\n\t"\
+		"vmovaps	0x20(%%rcx),%%ymm5			\n\t	movq	%[__d3],%%r12		\n\t"\
+		"vmovaps	    (%%rdx),%%ymm6			\n\t	movq	%[__d4],%%r13		\n\t"\
+		"vmovaps	0x20(%%rdx),%%ymm7			\n\t	movq	%[__r30],%%r8 		\n\t"\
+		"vsubpd	%%ymm6,%%ymm0,%%ymm0			\n\t	vmovaps	    (%%r10),%%ymm8 	\n\t"\
+		"vsubpd	%%ymm7,%%ymm1,%%ymm1			\n\t	vmovaps	0x20(%%r10),%%ymm9 	\n\t"\
+		"vaddpd	%%ymm6,%%ymm6,%%ymm6			\n\t	vmovaps	    (%%r11),%%ymm10	\n\t"\
+		"vaddpd	%%ymm7,%%ymm7,%%ymm7			\n\t	vmovaps	0x20(%%r11),%%ymm11	\n\t"\
+		"vaddpd	%%ymm0,%%ymm6,%%ymm6			\n\t	vmovaps	    (%%r12),%%ymm12	\n\t"\
+		"vaddpd	%%ymm1,%%ymm7,%%ymm7			\n\t	vmovaps	0x20(%%r12),%%ymm13	\n\t"\
+		"vsubpd	%%ymm4,%%ymm2,%%ymm2			\n\t	vmovaps	    (%%r13),%%ymm14	\n\t"\
+		"vsubpd	%%ymm5,%%ymm3,%%ymm3			\n\t	vmovaps	0x20(%%r13),%%ymm15	\n\t"\
+		"vmulpd	(%%r14),%%ymm4,%%ymm4			\n\t	vsubpd	%%ymm14,%%ymm8 ,%%ymm8 		\n\t"\
+		"vmulpd	(%%r14),%%ymm5,%%ymm5			\n\t	vsubpd	%%ymm15,%%ymm9 ,%%ymm9 		\n\t"\
+		"vaddpd	%%ymm2,%%ymm4,%%ymm4			\n\t	vmulpd	(%%r14),%%ymm14,%%ymm14		\n\t"\
+		"vaddpd	%%ymm3,%%ymm5,%%ymm5			\n\t	vmulpd	(%%r14),%%ymm15,%%ymm15		\n\t"\
+		"movq	%[__cc1],%%rax					\n\t	vaddpd	%%ymm8 ,%%ymm14,%%ymm14		\n\t"\
+		"vsubpd	%%ymm4,%%ymm6,%%ymm6			\n\t	vaddpd	%%ymm9 ,%%ymm15,%%ymm15		\n\t"\
+		"vsubpd	%%ymm5,%%ymm7,%%ymm7			\n\t	vsubpd	%%ymm12,%%ymm10,%%ymm10		\n\t"\
+		"vmulpd	(%%r14),%%ymm4,%%ymm4			\n\t	vsubpd	%%ymm13,%%ymm11,%%ymm11		\n\t"\
+		"vmulpd	(%%r14),%%ymm5,%%ymm5			\n\t	movq	%[__cc1],%%r10		\n\t"\
+		"vaddpd	%%ymm6,%%ymm4,%%ymm4			\n\t	vmulpd	(%%r14),%%ymm12,%%ymm12		\n\t"\
+		"vaddpd	%%ymm7,%%ymm5,%%ymm5			\n\t	vmulpd	(%%r14),%%ymm13,%%ymm13		\n\t"\
+		"vaddpd	    (%%rsi),%%ymm4,%%ymm4		\n\t	vaddpd	%%ymm10,%%ymm12,%%ymm12		\n\t"\
+		"vaddpd	0x20(%%rsi),%%ymm5,%%ymm5		\n\t	vaddpd	%%ymm11,%%ymm13,%%ymm13		\n\t"\
+		"vmovaps	%%ymm4,    (%%rdi)			\n\t	vsubpd	%%ymm12,%%ymm14,%%ymm14		\n\t"\
+		"vmovaps	%%ymm5,0x20(%%rdi)			\n\t	vsubpd	%%ymm13,%%ymm15,%%ymm15		\n\t"\
+		"vmulpd	0x20(%%rax),%%ymm6,%%ymm6		\n\t	vaddpd	%%ymm12,%%ymm12,%%ymm12		\n\t"\
+		"vmulpd	0x20(%%rax),%%ymm7,%%ymm7		\n\t	vaddpd	%%ymm13,%%ymm13,%%ymm13		\n\t"\
+		"vsubpd		(%%rsi),%%ymm4,%%ymm4		\n\t	vaddpd	%%ymm14,%%ymm12,%%ymm12		\n\t"\
+		"vsubpd	0x20(%%rsi),%%ymm5,%%ymm5		\n\t	vaddpd	%%ymm15,%%ymm13,%%ymm13		\n\t"\
+		"vmulpd		(%%rax),%%ymm4,%%ymm4		\n\t	vaddpd	    (%%r9 ),%%ymm12,%%ymm12	\n\t"\
+		"vmulpd		(%%rax),%%ymm5,%%ymm5		\n\t	vaddpd	0x20(%%r9 ),%%ymm13,%%ymm13	\n\t"\
+		"vaddpd		(%%rdi),%%ymm4,%%ymm4		\n\t	vmovaps	%%ymm12,    (%%r8 )	\n\t"\
+		"vaddpd	0x20(%%rdi),%%ymm5,%%ymm5		\n\t	vmovaps	%%ymm13,0x20(%%r8 )	\n\t"\
+		"vsubpd	%%ymm6,%%ymm4,%%ymm4			\n\t	vmulpd	0x20(%%r10),%%ymm14,%%ymm14	\n\t"\
+		"vsubpd	%%ymm7,%%ymm5,%%ymm5			\n\t	vmulpd	0x20(%%r10),%%ymm15,%%ymm15	\n\t"\
+		"vmulpd	(%%r14),%%ymm6,%%ymm6			\n\t	vsubpd	    (%%r9 ),%%ymm12,%%ymm12	\n\t"\
+		"vmulpd	(%%r14),%%ymm7,%%ymm7			\n\t	vsubpd	0x20(%%r9 ),%%ymm13,%%ymm13	\n\t"\
+		"vaddpd	%%ymm4,%%ymm6,%%ymm6			\n\t	vmulpd	    (%%r10),%%ymm12,%%ymm12	\n\t"\
+		"vaddpd	%%ymm5,%%ymm7,%%ymm7			\n\t	vmulpd	    (%%r10),%%ymm13,%%ymm13	\n\t"\
+		"vmovaps	%%ymm4,    (%%rsi)			\n\t	vaddpd	    (%%r8 ),%%ymm12,%%ymm12	\n\t"\
+		"vmovaps	%%ymm5,0x20(%%rsi)			\n\t	vaddpd	0x20(%%r8 ),%%ymm13,%%ymm13	\n\t"\
+		"vmovaps	%%ymm0,%%ymm4				\n\t	vsubpd	%%ymm14,%%ymm12,%%ymm12		\n\t"\
+		"vmovaps	%%ymm1,%%ymm5				\n\t	vsubpd	%%ymm15,%%ymm13,%%ymm13		\n\t"\
+		"vsubpd	%%ymm2,%%ymm0,%%ymm0			\n\t	vmulpd	(%%r14),%%ymm14,%%ymm14		\n\t"\
+		"vsubpd	%%ymm3,%%ymm1,%%ymm1			\n\t	vmulpd	(%%r14),%%ymm15,%%ymm15		\n\t"\
+		"vmulpd	0x40(%%rax),%%ymm0,%%ymm0		\n\t	vaddpd	%%ymm12,%%ymm14,%%ymm14		\n\t"\
+		"vmulpd	0x40(%%rax),%%ymm1,%%ymm1		\n\t	vaddpd	%%ymm13,%%ymm15,%%ymm15		\n\t"\
+		"vmulpd	0x60(%%rax),%%ymm2,%%ymm2		\n\t	vmovaps	%%ymm12,    (%%r9 )	\n\t"\
+		"vmulpd	0x60(%%rax),%%ymm3,%%ymm3		\n\t	vmovaps	%%ymm13,0x20(%%r9 )	\n\t"\
+		"vmulpd	0x80(%%rax),%%ymm4,%%ymm4		\n\t	vmovaps	%%ymm8 ,%%ymm12		\n\t"\
+		"vmulpd	0x80(%%rax),%%ymm5,%%ymm5		\n\t	vmovaps	%%ymm9 ,%%ymm13		\n\t"\
+		"vaddpd	%%ymm0,%%ymm2,%%ymm2			\n\t	vsubpd	%%ymm10,%%ymm8 ,%%ymm8 		\n\t"\
+		"vaddpd	%%ymm1,%%ymm3,%%ymm3			\n\t	vsubpd	%%ymm11,%%ymm9 ,%%ymm9 		\n\t"\
+		"vsubpd	%%ymm4,%%ymm0,%%ymm0			\n\t	vmulpd	0x40(%%r10),%%ymm8 ,%%ymm8 	\n\t"\
+		"vsubpd	%%ymm5,%%ymm1,%%ymm1			\n\t	vmulpd	0x40(%%r10),%%ymm9 ,%%ymm9 	\n\t"\
+		"vmovaps	    (%%rsi),%%ymm4			\n\t	vmulpd	0x60(%%r10),%%ymm10,%%ymm10	\n\t"\
+		"vmovaps	0x20(%%rsi),%%ymm5			\n\t	vmulpd	0x60(%%r10),%%ymm11,%%ymm11	\n\t"\
+		"vsubpd	%%ymm3,%%ymm6,%%ymm6			\n\t	vmulpd	0x80(%%r10),%%ymm12,%%ymm12	\n\t"\
+		"vsubpd	%%ymm2,%%ymm7,%%ymm7			\n\t	vmulpd	0x80(%%r10),%%ymm13,%%ymm13	\n\t"\
+		"vaddpd	%%ymm3,%%ymm3,%%ymm3			\n\t	vaddpd	%%ymm8 ,%%ymm10,%%ymm10		\n\t"\
+		"vaddpd	%%ymm2,%%ymm2,%%ymm2			\n\t	vaddpd	%%ymm9 ,%%ymm11,%%ymm11		\n\t"\
+		"vmovaps	%%ymm6,0x040(%%rdi)			\n\t	vsubpd	%%ymm12,%%ymm8 ,%%ymm8 		\n\t"\
+		"vmovaps	%%ymm7,0x0e0(%%rdi)			\n\t	vsubpd	%%ymm13,%%ymm9 ,%%ymm9 		\n\t"\
+		"vaddpd	%%ymm6,%%ymm3,%%ymm3			\n\t	vmovaps	    (%%r9 ),%%ymm12	\n\t"\
+		"vaddpd	%%ymm7,%%ymm2,%%ymm2			\n\t	vmovaps	0x20(%%r9 ),%%ymm13	\n\t"\
+		"vmovaps	%%ymm3,0x0c0(%%rdi)			\n\t	vsubpd	%%ymm11,%%ymm14,%%ymm14		\n\t"\
+		"vmovaps	%%ymm2,0x060(%%rdi)			\n\t	vsubpd	%%ymm10,%%ymm15,%%ymm15		\n\t"\
+		"vsubpd	%%ymm1,%%ymm4,%%ymm4			\n\t	vaddpd	%%ymm11,%%ymm11,%%ymm11		\n\t"\
+		"vsubpd	%%ymm0,%%ymm5,%%ymm5			\n\t	vaddpd	%%ymm10,%%ymm10,%%ymm10		\n\t"\
+		"vaddpd	%%ymm1,%%ymm1,%%ymm1			\n\t	vmovaps	%%ymm14,0x040(%%r8 )\n\t"\
+		"vaddpd	%%ymm0,%%ymm0,%%ymm0			\n\t	vmovaps	%%ymm15,0x0e0(%%r8 )\n\t"\
+		"vmovaps	%%ymm4,0x080(%%rdi)			\n\t	vaddpd	%%ymm14,%%ymm11,%%ymm11		\n\t"\
+		"vmovaps	%%ymm5,0x120(%%rdi)			\n\t	vaddpd	%%ymm15,%%ymm10,%%ymm10		\n\t"\
+		"vaddpd	%%ymm4,%%ymm1,%%ymm1			\n\t	vmovaps	%%ymm11,0x0c0(%%r8 )\n\t"\
+		"vaddpd	%%ymm5,%%ymm0,%%ymm0			\n\t	vmovaps	%%ymm10,0x060(%%r8 )\n\t"\
+		"vmovaps	%%ymm1,0x100(%%rdi)			\n\t	vsubpd	%%ymm9 ,%%ymm12,%%ymm12		\n\t"\
+		"vmovaps	%%ymm0,0x0a0(%%rdi)			\n\t	vsubpd	%%ymm8 ,%%ymm13,%%ymm13		\n\t"\
+		"										\n\t	vaddpd	%%ymm9 ,%%ymm9 ,%%ymm9 		\n\t"\
+		"movq	%[__add0],%%rax					\n\t	vaddpd	%%ymm8 ,%%ymm8 ,%%ymm8 		\n\t"\
+		"movq	%[__add0],%%rdx					\n\t	vmovaps	%%ymm12,0x080(%%r8 )\n\t"\
+		"movslq	%[__p01],%%rsi					\n\t	vmovaps	%%ymm13,0x120(%%r8 )\n\t"\
+		"shlq	$3,%%rsi						\n\t	vaddpd	%%ymm12,%%ymm9 ,%%ymm9 		\n\t"\
+		"addq	%%rsi,%%rdx						\n\t	vaddpd	%%ymm13,%%ymm8 ,%%ymm8 		\n\t"\
+		"movq	%%rdx,%%rbx						\n\t	vmovaps	%%ymm9 ,0x100(%%r8 )\n\t"\
+		"addq	%%rsi,%%rdx						\n\t	vmovaps	%%ymm8 ,0x0a0(%%r8 )\n\t"\
+		"movq	%%rdx,%%rcx						\n\t	\n\t"\
+		"addq	%%rsi,%%rdx						\n\t	movq	%[__r00],%%rdi		\n\t"\
+		"movslq	%[__p04],%%r8 					\n\t	movslq	%[__p16],%%r10		\n\t"\
+		"shlq	$3,%%r8 						\n\t	shlq	$3,%%r10			\n\t"\
+		"/*	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE_C(r00,abdc) */\n\t"\
+		"movq	$0x140,%%rsi					\n\t	/*	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE_C(r02,abdc) */\n\t"\
+		"addq	%%rdi,%%rsi						\n\t	movq	%%r10,%%r11				\n\t"\
+		"vmovaps	     (%%rdi),%%ymm4			\n\t	movq	%%r10,%%r12				\n\t"\
+		"vmovaps	     (%%rsi),%%ymm6			\n\t	movq	%%r10,%%r13				\n\t"\
+		"vmovaps	0x020(%%rdi),%%ymm5			\n\t	addq	%%rax,%%r10		/* &a[j1+p16] */\n\t"\
+		"vmovaps	0x020(%%rsi),%%ymm7			\n\t	addq	%%rbx,%%r11				\n\t"\
+		"vmovaps	0x280(%%rdi),%%ymm0			\n\t	addq	%%rcx,%%r12				\n\t"\
+		"vmovaps	0x280(%%rsi),%%ymm2			\n\t	addq	%%rdx,%%r13				\n\t"\
+		"vmovaps	0x2a0(%%rdi),%%ymm1			\n\t	addq	$0x40,%%rdi		/* r02 */	\n\t"\
+		"vmovaps	0x2a0(%%rsi),%%ymm3			\n\t	addq	$0x40,%%rsi				\n\t"\
+		"vsubpd	%%ymm0,%%ymm4,%%ymm4			\n\t	vmovaps	     (%%rdi),%%ymm12	\n\t"\
+		"vsubpd	%%ymm2,%%ymm6,%%ymm6			\n\t	vmovaps	     (%%rsi),%%ymm14	\n\t"\
+		"vsubpd	%%ymm1,%%ymm5,%%ymm5			\n\t	vmovaps	0x020(%%rdi),%%ymm13	\n\t"\
+		"vsubpd	%%ymm3,%%ymm7,%%ymm7			\n\t	vmovaps	0x020(%%rsi),%%ymm15	\n\t"\
+		"vaddpd	%%ymm0,%%ymm0,%%ymm0			\n\t	vmovaps	0x280(%%rdi),%%ymm8 	\n\t"\
+		"vaddpd	%%ymm2,%%ymm2,%%ymm2			\n\t	vmovaps	0x280(%%rsi),%%ymm10	\n\t"\
+		"vaddpd	%%ymm1,%%ymm1,%%ymm1			\n\t	vmovaps	0x2a0(%%rdi),%%ymm9 	\n\t"\
+		"vaddpd	%%ymm3,%%ymm3,%%ymm3			\n\t	vmovaps	0x2a0(%%rsi),%%ymm11	\n\t"\
+		"vaddpd	%%ymm4,%%ymm0,%%ymm0			\n\t	vsubpd	%%ymm8 ,%%ymm12,%%ymm12			\n\t"\
+		"vaddpd	%%ymm6,%%ymm2,%%ymm2			\n\t	vsubpd	%%ymm10,%%ymm14,%%ymm14			\n\t"\
+		"vaddpd	%%ymm5,%%ymm1,%%ymm1			\n\t	vsubpd	%%ymm9 ,%%ymm13,%%ymm13			\n\t"\
+		"vaddpd	%%ymm7,%%ymm3,%%ymm3			\n\t	vsubpd	%%ymm11,%%ymm15,%%ymm15			\n\t"\
+		"/* Finish radix-4 butterfly: */		\n\t	vmulpd	(%%r14),%%ymm8 ,%%ymm8 			\n\t"\
+		"vsubpd	%%ymm2,%%ymm0,%%ymm0			\n\t	vmulpd	(%%r14),%%ymm10,%%ymm10			\n\t"\
+		"vsubpd	%%ymm7,%%ymm4,%%ymm4			\n\t	vmulpd	(%%r14),%%ymm9 ,%%ymm9 			\n\t"\
+		"vsubpd	%%ymm3,%%ymm1,%%ymm1			\n\t	vmulpd	(%%r14),%%ymm11,%%ymm11			\n\t"\
+		"vsubpd	%%ymm6,%%ymm5,%%ymm5			\n\t	vaddpd	%%ymm12,%%ymm8 ,%%ymm8 			\n\t"\
+		"vmovaps	%%ymm0,     (%%rbx)			\n\t	vaddpd	%%ymm14,%%ymm10,%%ymm10			\n\t"\
+		"vmovaps	%%ymm4,     (%%rdx)			\n\t	vaddpd	%%ymm13,%%ymm9 ,%%ymm9 			\n\t"\
+		"vmovaps	%%ymm1,0x020(%%rbx)			\n\t	vaddpd	%%ymm15,%%ymm11,%%ymm11			\n\t"\
+		"vmovaps	%%ymm5,0x020(%%rcx)			\n\t	/* Finish radix-4 butterfly and store results into main-array slots: */\n\t"\
+		"vmulpd	(%%r14),%%ymm2,%%ymm2			\n\t	vsubpd	%%ymm10,%%ymm8 ,%%ymm8 			\n\t"\
+		"vmulpd	(%%r14),%%ymm7,%%ymm7			\n\t	vsubpd	%%ymm15,%%ymm12,%%ymm12			\n\t"\
+		"vmulpd	(%%r14),%%ymm3,%%ymm3			\n\t	vsubpd	%%ymm11,%%ymm9 ,%%ymm9 			\n\t"\
+		"vmulpd	(%%r14),%%ymm6,%%ymm6			\n\t	vsubpd	%%ymm14,%%ymm13,%%ymm13			\n\t"\
+		"vaddpd	%%ymm0,%%ymm2,%%ymm2			\n\t	vmovaps	%%ymm8 ,     (%%r11)	\n\t"\
+		"vaddpd	%%ymm4,%%ymm7,%%ymm7			\n\t	vmovaps	%%ymm12,     (%%r13)	\n\t"\
+		"vaddpd	%%ymm1,%%ymm3,%%ymm3			\n\t	vmovaps	%%ymm9 ,0x020(%%r11)	\n\t"\
+		"vaddpd	%%ymm5,%%ymm6,%%ymm6			\n\t	vmovaps	%%ymm13,0x020(%%r12)	\n\t"\
+		"vmovaps	%%ymm2,     (%%rax)			\n\t	vaddpd	%%ymm10,%%ymm10,%%ymm10			\n\t"\
+		"vmovaps	%%ymm7,     (%%rcx)			\n\t	vaddpd	%%ymm15,%%ymm15,%%ymm15			\n\t"\
+		"vmovaps	%%ymm3,0x020(%%rax)			\n\t	vaddpd	%%ymm11,%%ymm11,%%ymm11			\n\t"\
+		"vmovaps	%%ymm6,0x020(%%rdx)			\n\t	vaddpd	%%ymm14,%%ymm14,%%ymm14			\n\t"\
+		"										\n\t	vaddpd	%%ymm8 ,%%ymm10,%%ymm10			\n\t"\
+		"/*	add0,1,2,3 = &a[j1+p04]+p3,2,1,0 */	\n\t	vaddpd	%%ymm12,%%ymm15,%%ymm15			\n\t"\
+		"addq	%%r8 ,%%rax		/* &a[j1+p04] */\n\t	vaddpd	%%ymm9 ,%%ymm11,%%ymm11			\n\t"\
+		"addq	%%r8 ,%%rbx						\n\t	vaddpd	%%ymm13,%%ymm14,%%ymm14			\n\t"\
+		"addq	%%r8 ,%%rcx						\n\t	vmovaps	%%ymm10,     (%%r10)	\n\t"\
+		"addq	%%r8 ,%%rdx						\n\t	vmovaps	%%ymm15,     (%%r12)	\n\t"\
+		"/*	RADIX4_DIF_0TWIDDLE_STRIDE_C(r06) */\n\t	vmovaps	%%ymm11,0x020(%%r10)	\n\t"\
+		"addq	$0x80,%%rdi	/* r06 */			\n\t	vmovaps	%%ymm14,0x020(%%r13)	\n\t"\
+		"addq	$0x80,%%rsi						\n\t	\n\t"\
+		"vmovaps	     (%%rdi),%%ymm4			\n\t	/* add0,1,2,3 = &a[j1+p12]+p2,3,0,1 */\n\t"\
+		"vmovaps	     (%%rsi),%%ymm6			\n\t	subq	%%r8 ,%%r10		/* &a[j1+p12] */\n\t"\
+		"vmovaps	0x020(%%rdi),%%ymm5			\n\t	subq	%%r8 ,%%r11				\n\t"\
+		"vmovaps	0x020(%%rsi),%%ymm7			\n\t	subq	%%r8 ,%%r12				\n\t"\
+		"vmovaps	0x280(%%rdi),%%ymm0			\n\t	subq	%%r8 ,%%r13				\n\t"\
+		"vmovaps	0x280(%%rsi),%%ymm2			\n\t	/*	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE_C(r04,cdab) */\n\t"\
+		"vmovaps	0x2a0(%%rdi),%%ymm1			\n\t	subq	$0x40,%%rdi		/* r04 */	\n\t"\
+		"vmovaps	0x2a0(%%rsi),%%ymm3			\n\t	subq	$0x40,%%rsi				\n\t"\
+		"vsubpd	%%ymm0,%%ymm4,%%ymm4			\n\t	vmovaps	     (%%rdi),%%ymm12	\n\t"\
+		"vsubpd	%%ymm2,%%ymm6,%%ymm6			\n\t	vmovaps	     (%%rsi),%%ymm14	\n\t"\
+		"vsubpd	%%ymm1,%%ymm5,%%ymm5			\n\t	vmovaps	0x020(%%rdi),%%ymm13	\n\t"\
+		"vsubpd	%%ymm3,%%ymm7,%%ymm7			\n\t	vmovaps	0x020(%%rsi),%%ymm15	\n\t"\
+		"vaddpd	%%ymm0,%%ymm0,%%ymm0			\n\t	vmovaps	0x280(%%rdi),%%ymm8 	\n\t"\
+		"vaddpd	%%ymm2,%%ymm2,%%ymm2			\n\t	vmovaps	0x280(%%rsi),%%ymm10	\n\t"\
+		"vaddpd	%%ymm1,%%ymm1,%%ymm1			\n\t	vmovaps	0x2a0(%%rdi),%%ymm9 	\n\t"\
+		"vaddpd	%%ymm3,%%ymm3,%%ymm3			\n\t	vmovaps	0x2a0(%%rsi),%%ymm11	\n\t"\
+		"vaddpd	%%ymm4,%%ymm0,%%ymm0			\n\t	vsubpd	%%ymm8 ,%%ymm12,%%ymm12			\n\t"\
+		"vaddpd	%%ymm6,%%ymm2,%%ymm2			\n\t	vsubpd	%%ymm10,%%ymm14,%%ymm14			\n\t"\
+		"vaddpd	%%ymm5,%%ymm1,%%ymm1			\n\t	vsubpd	%%ymm9 ,%%ymm13,%%ymm13			\n\t"\
+		"vaddpd	%%ymm7,%%ymm3,%%ymm3			\n\t	vsubpd	%%ymm11,%%ymm15,%%ymm15			\n\t"\
+		"/* Finish radix-4 butterfly: */		\n\t	vmulpd	(%%r14),%%ymm8 ,%%ymm8 			\n\t"\
+		"vsubpd	%%ymm2,%%ymm0,%%ymm0			\n\t	vmulpd	(%%r14),%%ymm10,%%ymm10			\n\t"\
+		"vsubpd	%%ymm7,%%ymm4,%%ymm4			\n\t	vmulpd	(%%r14),%%ymm9 ,%%ymm9 			\n\t"\
+		"vsubpd	%%ymm3,%%ymm1,%%ymm1			\n\t	vmulpd	(%%r14),%%ymm11,%%ymm11			\n\t"\
+		"vsubpd	%%ymm6,%%ymm5,%%ymm5			\n\t	vaddpd	%%ymm12,%%ymm8 ,%%ymm8 			\n\t"\
+		"vmovaps	%%ymm0,     (%%rcx)			\n\t	vaddpd	%%ymm14,%%ymm10,%%ymm10			\n\t"\
+		"vmovaps	%%ymm4,     (%%rbx)			\n\t	vaddpd	%%ymm13,%%ymm9 ,%%ymm9 			\n\t"\
+		"vmovaps	%%ymm1,0x020(%%rcx)			\n\t	vaddpd	%%ymm15,%%ymm11,%%ymm11			\n\t"\
+		"vmovaps	%%ymm5,0x020(%%rax)			\n\t	/* Finish radix-4 butterfly and store results into main-array slots: */\n\t"\
+		"vmulpd	(%%r14),%%ymm2,%%ymm2			\n\t	vsubpd	%%ymm10,%%ymm8 ,%%ymm8 			\n\t"\
+		"vmulpd	(%%r14),%%ymm7,%%ymm7			\n\t	vsubpd	%%ymm15,%%ymm12,%%ymm12			\n\t"\
+		"vmulpd	(%%r14),%%ymm3,%%ymm3			\n\t	vsubpd	%%ymm11,%%ymm9 ,%%ymm9 			\n\t"\
+		"vmulpd	(%%r14),%%ymm6,%%ymm6			\n\t	vsubpd	%%ymm14,%%ymm13,%%ymm13			\n\t"\
+		"vaddpd	%%ymm0,%%ymm2,%%ymm2			\n\t	vmovaps	%%ymm8 ,     (%%r13)	\n\t"\
+		"vaddpd	%%ymm4,%%ymm7,%%ymm7			\n\t	vmovaps	%%ymm12,     (%%r10)	\n\t"\
+		"vaddpd	%%ymm1,%%ymm3,%%ymm3			\n\t	vmovaps	%%ymm9 ,0x020(%%r13)	\n\t"\
+		"vaddpd	%%ymm5,%%ymm6,%%ymm6			\n\t	vmovaps	%%ymm13,0x020(%%r11)	\n\t"\
+		"vmovaps	%%ymm2,     (%%rdx)			\n\t	vaddpd	%%ymm10,%%ymm10,%%ymm10			\n\t"\
+		"vmovaps	%%ymm7,     (%%rax)			\n\t	vaddpd	%%ymm15,%%ymm15,%%ymm15			\n\t"\
+		"vmovaps	%%ymm3,0x020(%%rdx)			\n\t	vaddpd	%%ymm11,%%ymm11,%%ymm11			\n\t"\
+		"vmovaps	%%ymm6,0x020(%%rbx)			\n\t	vaddpd	%%ymm14,%%ymm14,%%ymm14			\n\t"\
+		"										\n\t	vaddpd	%%ymm8 ,%%ymm10,%%ymm10			\n\t"\
+		"/*	add0,1,2,3 = &a[j1+p08]+p1,0,2,3 */	\n\t	vaddpd	%%ymm12,%%ymm15,%%ymm15			\n\t"\
+		"addq	%%r8 ,%%rax		/* &a[j1+p08] */\n\t	vaddpd	%%ymm9 ,%%ymm11,%%ymm11			\n\t"\
+		"addq	%%r8 ,%%rbx						\n\t	vaddpd	%%ymm13,%%ymm14,%%ymm14			\n\t"\
+		"addq	%%r8 ,%%rcx						\n\t	vmovaps	%%ymm10,     (%%r12)	\n\t"\
+		"addq	%%r8 ,%%rdx						\n\t	vmovaps	%%ymm15,     (%%r11)	\n\t"\
+		"/*	RADIX4_DIF_0TWIDDLE_STRIDE_C(r08) */\n\t	vmovaps	%%ymm11,0x020(%%r12)	\n\t"\
+		"addq	$0x80,%%rdi	/* r08 */			\n\t	vmovaps	%%ymm14,0x020(%%r10)	\n\t"\
+		"addq	$0x80,%%rsi						\n\t"\
+		"vmovaps	     (%%rdi),%%ymm4			\n\t"\
+		"vmovaps	     (%%rsi),%%ymm6			\n\t"\
+		"vmovaps	0x020(%%rdi),%%ymm5			\n\t"\
+		"vmovaps	0x020(%%rsi),%%ymm7			\n\t"\
+		"vmovaps	0x280(%%rdi),%%ymm0			\n\t"\
+		"vmovaps	0x280(%%rsi),%%ymm2			\n\t"\
+		"vmovaps	0x2a0(%%rdi),%%ymm1			\n\t"\
+		"vmovaps	0x2a0(%%rsi),%%ymm3			\n\t"\
+		"vsubpd	%%ymm0,%%ymm4,%%ymm4			\n\t"\
+		"vsubpd	%%ymm2,%%ymm6,%%ymm6			\n\t"\
+		"vsubpd	%%ymm1,%%ymm5,%%ymm5			\n\t"\
+		"vsubpd	%%ymm3,%%ymm7,%%ymm7			\n\t"\
+		"vaddpd	%%ymm0,%%ymm0,%%ymm0			\n\t"\
+		"vaddpd	%%ymm2,%%ymm2,%%ymm2			\n\t"\
+		"vaddpd	%%ymm1,%%ymm1,%%ymm1			\n\t"\
+		"vaddpd	%%ymm3,%%ymm3,%%ymm3			\n\t"\
+		"vaddpd	%%ymm4,%%ymm0,%%ymm0			\n\t"\
+		"vaddpd	%%ymm6,%%ymm2,%%ymm2			\n\t"\
+		"vaddpd	%%ymm5,%%ymm1,%%ymm1			\n\t"\
+		"vaddpd	%%ymm7,%%ymm3,%%ymm3			\n\t"\
+		"/* Finish radix-4 butterfly: */		\n\t"\
+		"vsubpd	%%ymm2,%%ymm0,%%ymm0			\n\t"\
+		"vsubpd	%%ymm7,%%ymm4,%%ymm4			\n\t"\
+		"vsubpd	%%ymm3,%%ymm1,%%ymm1			\n\t"\
+		"vsubpd	%%ymm6,%%ymm5,%%ymm5			\n\t"\
+		"vmovaps	%%ymm0,     (%%rax)			\n\t"\
+		"vmovaps	%%ymm4,     (%%rcx)			\n\t"\
+		"vmovaps	%%ymm1,0x020(%%rax)			\n\t"\
+		"vmovaps	%%ymm5,0x020(%%rdx)			\n\t"\
+		"vaddpd	%%ymm2,%%ymm2,%%ymm2			\n\t"\
+		"vaddpd	%%ymm7,%%ymm7,%%ymm7			\n\t"\
+		"vaddpd	%%ymm3,%%ymm3,%%ymm3			\n\t"\
+		"vaddpd	%%ymm6,%%ymm6,%%ymm6			\n\t"\
+		"vaddpd	%%ymm0,%%ymm2,%%ymm2			\n\t"\
+		"vaddpd	%%ymm4,%%ymm7,%%ymm7			\n\t"\
+		"vaddpd	%%ymm1,%%ymm3,%%ymm3			\n\t"\
+		"vaddpd	%%ymm5,%%ymm6,%%ymm6			\n\t"\
+		"vmovaps	%%ymm2,     (%%rbx)			\n\t"\
+		"vmovaps	%%ymm7,     (%%rdx)			\n\t"\
+		"vmovaps	%%ymm3,0x020(%%rbx)			\n\t"\
+		"vmovaps	%%ymm6,0x020(%%rcx)			\n\t"\
+		:					/* outputs: none */\
+		: [__add0] "m" (Xadd0)	/* All inputs from memory addresses here */\
+		 ,[__p01] "m" (Xp01)\
+		 ,[__p04] "m" (Xp04)\
+		 ,[__p08] "m" (Xp08)\
+		 ,[__p16] "m" (Xp16)\
+		 ,[__a0] "m" (Xa0)\
+		 ,[__a1] "m" (Xa1)\
+		 ,[__a2] "m" (Xa2)\
+		 ,[__a3] "m" (Xa3)\
+		 ,[__a4] "m" (Xa4)\
+		 ,[__b0] "m" (Xb0)\
+		 ,[__b1] "m" (Xb1)\
+		 ,[__b2] "m" (Xb2)\
+		 ,[__b3] "m" (Xb3)\
+		 ,[__b4] "m" (Xb4)\
+		 ,[__c0] "m" (Xc0)\
+		 ,[__c1] "m" (Xc1)\
+		 ,[__c2] "m" (Xc2)\
+		 ,[__c3] "m" (Xc3)\
+		 ,[__c4] "m" (Xc4)\
+		 ,[__d0] "m" (Xd0)\
+		 ,[__d1] "m" (Xd1)\
+		 ,[__d2] "m" (Xd2)\
+		 ,[__d3] "m" (Xd3)\
+		 ,[__d4] "m" (Xd4)\
+		 ,[__cc1] "m" (Xcc1)\
+		 ,[__r00] "m" (Xr00)\
+		 ,[__r10] "m" (Xr10)\
+		 ,[__r20] "m" (Xr20)\
+		 ,[__r30] "m" (Xr30)\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r8","r9","r10","r11","r12","r13","r14","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+	);\
+	}
+
+  #else
 
 	#define	SSE2_RADIX20_DIT_NOTWIDDLE(Xadd0,Xp01,Xp04,Xr00,Xr10,Xr20,Xr30,Xcc1,Xa0,Xa1,Xa2,Xa3,Xa4,Xb0,Xb1,Xb2,Xb3,Xb4,Xc0,Xc1,Xc2,Xc3,Xc4,Xd0,Xd1,Xd2,Xd3,Xd4)\
 	{\
@@ -410,7 +1178,7 @@
 		 ,[__d2] "m" (Xd2)\
 		 ,[__d3] "m" (Xd3)\
 		 ,[__d4] "m" (Xd4)\
-		: "rax","rbx","rcx","rdx","rdi","rsi","r8","r9","r10","r11","r12","r13","r14","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r8","r9","r10","r11","r12","r13","r14","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
@@ -787,9 +1555,11 @@
 		 ,[__r10] "m" (Xr10)\
 		 ,[__r20] "m" (Xr20)\
 		 ,[__r30] "m" (Xr30)\
-		: "rax","rbx","rcx","rdx","rdi","rsi","r8","r9","r10","r11","r12","r13","r14","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r8","r9","r10","r11","r12","r13","r14","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
+
+  #endif	// AVX/SSE2 toggle
 
 #endif	/* radix20_ditN_cy_dif1_gcc_h_included */
 

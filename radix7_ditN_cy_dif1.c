@@ -26,9 +26,6 @@
 
 	#include "sse2_macro.h"
 
-	#undef DEBUG_SSE2
-//	#define DEBUG_SSE2
-
 #endif
 
 /***************/
@@ -91,6 +88,9 @@ int radix7_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], 
 	double wt,wtinv,wtl,wtlp1,wtn,wtnm1,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
 	int ii0,ii1,ii2,ii3,ii4,ii5,ii6;					/* indices into weights arrays (mod NWT) */
 	double wt_re,wt_im;									/* Fermat-mod weights stuff */
+
+	// Init these to get rid of GCC "may be used uninitialized in this function" warnings:
+	col=co2=co3=ii0=ii1=ii2=ii3=ii4=ii5=ii6=0;
 
 /*...change n7 and n_div_wt to non-static to work around a gcc compiler bug. */
 	n7   = n/7;
@@ -244,24 +244,6 @@ for(outer=0; outer <= 1; outer++)
 
 	for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	{
-	#ifdef DEBUG_SSE2
-		j  = jstart;
-		rng_isaac_init(TRUE);
-	  #ifdef USE_SSE2
-		j1 = (j & mask01) + br4[j&3];
-	  #else
-		j1 =  j;
-	  #endif
-		j2 = j1+RE_IM_STRIDE;
-		a[j1   ] = 1024.0*1024.0*1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[j2   ] = 1024.0*1024.0*1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-		a[j1+p1] = 1024.0*1024.0*1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[j2+p1] = 1024.0*1024.0*1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-		a[j1+p2] = 1024.0*1024.0*1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[j2+p2] = 1024.0*1024.0*1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-		a[j1+p3] = 1024.0*1024.0*1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[j2+p3] = 1024.0*1024.0*1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-		a[j1+p4] = 1024.0*1024.0*1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[j2+p1] = 1024.0*1024.0*1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-		a[j1+p5] = 1024.0*1024.0*1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[j2+p2] = 1024.0*1024.0*1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-		a[j1+p6] = 1024.0*1024.0*1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[j2+p3] = 1024.0*1024.0*1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-	#endif
-
 	  for(j=jstart; j<jhi; j += 2)	/* Each inner loop execution processes (radix(1)*nwt) array data.	*/
 	  {
 	#ifdef USE_SSE2
@@ -276,7 +258,7 @@ for(outer=0; outer <= 1; outer++)
 	// We have just a single radix-7 DFT macro, which matches the DIF - for DIT must flip order of the last 6 outputs:
 	RADIX_07_DFT(a[j1],a[j2],a[j1+p1],a[j2+p1],a[j1+p2],a[j2+p2],a[j1+p3],a[j2+p3],a[j1+p4],a[j2+p4],a[j1+p5],a[j2+p5],a[j1+p6],a[j2+p6],t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,a1p0r,a1p0i,a1p6r,a1p6i,a1p5r,a1p5i,a1p4r,a1p4i,a1p3r,a1p3i,a1p2r,a1p2i,a1p1r,a1p1i,cc1,ss1,cc2,ss2,cc3,ss3,rt,it,re,im)
 
-//	RADIX_07_DFT_NUSSBAUMER(a[j1],a[j2],a[j1+p1],a[j2+p1],a[j1+p2],a[j2+p2],a[j1+p3],a[j2+p3],a[j1+p4],a[j2+p4],a[j1+p5],a[j2+p5],a[j1+p6],a[j2+p6],t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,a1p0r,a1p0i,a1p6r,a1p6i,a1p5r,a1p5i,a1p4r,a1p4i,a1p3r,a1p3i,a1p2r,a1p2i,a1p1r,a1p1i,cx0,sx0,cx1,sx1,cx2,sx2,cx3,sx3,rt,it)
+//	RADIX_07_DFT_NUSS(a[j1],a[j2],a[j1+p1],a[j2+p1],a[j1+p2],a[j2+p2],a[j1+p3],a[j2+p3],a[j1+p4],a[j2+p4],a[j1+p5],a[j2+p5],a[j1+p6],a[j2+p6],t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,a1p0r,a1p0i,a1p6r,a1p6i,a1p5r,a1p5i,a1p4r,a1p4i,a1p3r,a1p3i,a1p2r,a1p2i,a1p1r,a1p1i,cx0,sx0,cx1,sx1,cx2,sx2,cx3,sx3,rt,it)
 
 #else
 
@@ -352,17 +334,6 @@ for(outer=0; outer <= 1; outer++)
 		a1p5r =t3-t10;					a1p5i =t4+t9;
 		a1p6r =t1-t8;					a1p6i =t2+t7;
 	#endif
-#endif
-
-#ifdef DEBUG_SSE2
-	fprintf(stderr, "radix7_ditN_cy_dif1 DIT7 outputB:\n");
-	fprintf(stderr, "a1p0: %20.5f, %20.5f\n",a1p0r,a1p0i);
-	fprintf(stderr, "a1p1: %20.5f, %20.5f\n",a1p1r,a1p1i);
-	fprintf(stderr, "a1p2: %20.5f, %20.5f\n",a1p2r,a1p2i);
-	fprintf(stderr, "a1p3: %20.5f, %20.5f\n",a1p3r,a1p3i);
-	fprintf(stderr, "a1p4: %20.5f, %20.5f\n",a1p4r,a1p4i);
-	fprintf(stderr, "a1p5: %20.5f, %20.5f\n",a1p5r,a1p5i);
-	fprintf(stderr, "a1p6: %20.5f, %20.5f\n",a1p6r,a1p6i);
 #endif
 
 /*...and combine those to complete the radix-7 transform and do the carries. Since the outputs would
@@ -667,6 +638,9 @@ int radix7_ditN_cy_dif1_nochk(double a[], int n, int nwt, int nwt_bits, double w
 	double wt,wtinv,wtl,wtlp1,wtn,wtnm1,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
 	int ii0,ii1,ii2,ii3,ii4,ii5,ii6;					/* indices into weights arrays (mod NWT) */
 	double wt_re,wt_im;									/* Fermat-mod weights stuff */
+
+	// Init these to get rid of GCC "may be used uninitialized in this function" warnings:
+	col=co2=co3=ii0=ii1=ii2=ii3=ii4=ii5=ii6=0;
 
 /*...change n7 and n_div_wt to non-static to work around a gcc compiler bug. */
 	n7   = n/7;

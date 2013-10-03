@@ -22,20 +22,53 @@
 
 #include "Mlucas.h"
 
-#ifdef CTIME	// define at compile time to enable internal timing diagnostics
-	double dt_fwd, dt_inv, dt_cy, dt_tot;
-	clock_t clock1, clock2, clock3;
+#ifdef MULTITHREAD
+	#ifndef USE_PTHREAD
+		#error Pthreads is only thread model currently supported!
+	#endif
 #endif
+
+#define ERR_CHECK_ALL	/* #define this to do ROE checking of all convolution outputs, rather than just every 36th one */
+#if defined(USE_AVX) && !defined(ERR_CHECK_ALL)
+	#error ERR_CHECK_ALL *required* for AVX-mode builds!
+#endif
+
+#define EPS 1e-10
 
 #ifdef USE_SSE2
 
-	const int radix36_creals_in_local_store = 216;
+  // For Mersenne-mod we need (16 [SSE2] or 64 [AVX]) + 4 added slots for the half_arr lookup tables.
+  // Add relevant number (half_arr_offset36 + RADIX) to get required value of radix36_creals_in_local_store:
+  #ifdef USE_AVX
+	const int half_arr_offset36 = 172;	// + RADIX = 208; Used for thread local-storage-integrity checking
+	const int radix36_creals_in_local_store = 276;	// += 68 and round up to nearest multiple of 4
+  #else
+	const int half_arr_offset36 = 190;	// + RADIX = 226; Used for thread local-storage-integrity checking
+	const int radix36_creals_in_local_store = 248;	// += 20 and round up to nearest multiple of 4
+  #endif			// Note the #carries is RADIX/2 greater for SSE2 here as with Fermat-mod-enabled radices, because
+					// we want to remind ourselves that radix-36 will need to be Fermat-enabled once we push beyond ~F33
 
-  #ifdef USE_PTHREAD
+	#if defined(COMPILER_TYPE_MSVC)
 
-	#ifndef USE_SSE2
-		#error Pthreading only available in SSE2 mode!
+		#include "sse2_macro.h"
+
+	#else	/* GCC-style inline ASM: */
+
+		#if OS_BITS == 32
+
+			#include "radix36_ditN_cy_dif1_gcc32.h"
+
+		#else
+
+			#include "radix36_ditN_cy_dif1_gcc64.h"
+
+		#endif
+
 	#endif
+
+#endif
+
+#ifdef USE_PTHREAD
 
 	// Use non-pooled simple spawn/rejoin thread-team model
 	#include "threadpool.h"
@@ -64,8 +97,8 @@
 		double *wt0;
 		double *wt1;
 		int *si;
-		struct complex *r00;
-		struct complex *half_arr;
+		vec_dbl *r00;
+		vec_dbl *half_arr;
 
 		int bjmodn00;
 		int bjmodn01;
@@ -142,28 +175,6 @@
 		double cy35;
 	};
 
-  #endif
-
-//	#define ERR_CHECK_ALL	/* #define this to do ROE checking of all convolution outputs, rather than just every 36th one */
-
-	#if defined(COMPILER_TYPE_MSVC)
-
-		#include "sse2_macro.h"
-
-	#else	/* GCC-style inline ASM: */
-
-		#if OS_BITS == 32
-
-			#include "radix36_ditN_cy_dif1_gcc32.h"
-
-		#else
-
-			#include "radix36_ditN_cy_dif1_gcc64.h"
-
-		#endif
-
-	#endif
-
 #endif
 
 /**************/
@@ -182,12 +193,21 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	const uint32 RADIX = 36;
-	const double crnd = 3.0*0x4000000*0x2000000;
-	int NDIVR,i,j,j1,j2,jt,jp,jstart,jhi,full_pass,k,khi,l,outer;
+	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
+#ifdef USE_SSE2
+	const int sz_vd = sizeof(vec_dbl);
+	// lg(sizeof(vec_dbl)):
+  #ifdef USE_AVX
+	const int l2_sz_vd = 5;
+  #else
+	const int l2_sz_vd = 4;
+  #endif
+#endif
+	int NDIVR,i,j,j1,j2,jstart,jhi,full_pass,k,khi,l,outer,nbytes;
 	static uint64 psave=0;
 	static uint32 bw,sw,bjmodnini,p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19,p20,p21,p22,p23,p24,p25,p26,p27,p28,p29,p30,p31,p32,p33,p34,p35;
-	const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
-	static double	c   =  0.76604444311897803520,	/* cos(2*pi/9) */
+#if defined(USE_SSE2) || !defined(MULTITHREAD)
+	const double	c   =  0.76604444311897803520,	/* cos(2*pi/9) */
 					s   =  0.64278760968653932631,	/* sin(2*pi/9) */
 					c2  =  0.17364817766693034887,	/* cos(2*u) */
 					s2  =  0.98480775301220805936,	/* sin(2*u) */
@@ -195,23 +215,27 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 					s3  =  0.86602540378443864677,	/* sin(3*u) */
 					c4  = -0.93969262078590838404,	/* cos(4*u) */
 					s4  =  0.34202014332566873307;	/* sin(4*u) */
+#endif
 	static double radix_inv, n2inv;
-	double rt,it,re
+	double re
 		,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t0a,t0b,t0c,t0d,t0e,t0f,t0g,t0h
 		,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t1a,t1b,t1c,t1d,t1e,t1f,t1g,t1h
 		,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t2a,t2b,t2c,t2d,t2e,t2f,t2g,t2h
 		,t30,t31,t32,t33,t34,t35,t36,t37,t38,t39,t3a,t3b,t3c,t3d,t3e,t3f,t3g,t3h
-		,temp,frac,scale;
-	double maxerr = 0.0;
-
+		,scale;
+	double dtmp, maxerr = 0.0;
 	int err;
 	static int first_entry=TRUE;
 
 /*...stuff for the reduced-length DWT weights array is here:	*/
 	int n_div_nwt;
-	int col,co2,co3,m,m2,n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
-	double wtl,wtlp1,wtn,wtnm1;
-	double wt_re,wt_im;									/* Fermat-mod weights stuff */
+	int col,co2,co3,m,m2;
+  #ifdef USE_AVX
+	static struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+  #else
+	int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
+	double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
+  #endif
 	int ii00,ii01,ii02,ii03,ii04,ii05,ii06,ii07,ii08,ii09,ii10,ii11,ii12,ii13,ii14,ii15,ii16,ii17,ii18,ii19,ii20,ii21,ii22,ii23,ii24,ii25,ii26,ii27,ii28,ii29,ii30,ii31,ii32,ii33,ii34,ii35;	/* indices into weights arrays (mod NWT) */
 
 #ifdef USE_SSE2
@@ -221,49 +245,63 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
   #endif
 
 	static int cslots_in_local_store;
-	static struct complex *sc_arr = 0x0, *sc_ptr;
+	static vec_dbl *sc_arr = 0x0, *sc_ptr;
 	static uint64 *sm_ptr, *sign_mask, *sse_bw, *sse_sw, *sse_n;
 	uint64 tmp64;
 
   #ifdef MULTITHREAD
-
-	#ifdef USE_PTHREAD
-		static struct complex *__r0;	// Base address for discrete per-thread local stores
-		static struct cy_thread_data_t *tdat = 0x0;
-		// Threadpool-based dispatch stuff:
-		static int main_work_units = 0, pool_work_units = 0;
-		static struct threadpool *tpool = 0x0;
-		static int task_is_blocking = TRUE;
-		static thread_control_t thread_control = {0,0,0};
-		// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
-		static task_control_t   task_control = {NULL, (void*)cy36_process_chunk, NULL, 0x0};
-	#endif
-
+	static vec_dbl *__r0;	// Base address for discrete per-thread local stores
   #else
 	double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7, *add8;	/* Addresses into array sections */
   #endif
 
-	static struct complex *isrt2, *cc1, *ss1, *cc2, *ss2, *cc3m1, *ss3, *cc4, *ss4, *max_err, *sse2_rnd, *half_arr, *tmp;
-	static struct complex
-	 *r00,*r01,*r02,*r03,*r04,*r05,*r06,*r07,*r08,*r09,*r0a,*r0b,*r0c,*r0d,*r0e,*r0f,*r0g,*r0h
-	,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r1a,*r1b,*r1c,*r1d,*r1e,*r1f,*r1g,*r1h
-	,*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r2a,*r2b,*r2c,*r2d,*r2e,*r2f,*r2g,*r2h
-	,*r30,*r31,*r32,*r33,*r34,*r35,*r36,*r37,*r38,*r39,*r3a,*r3b,*r3c,*r3d,*r3e,*r3f,*r3g,*r3h
-	,*s1p00r,*s1p01r,*s1p02r,*s1p03r,*s1p04r,*s1p05r,*s1p06r,*s1p07r,*s1p08r,*s1p09r,*s1p10r,*s1p11r,*s1p12r,*s1p13r,*s1p14r,*s1p15r,*s1p16r,*s1p17r,*s1p18r,*s1p19r,*s1p20r,*s1p21r,*s1p22r,*s1p23r,*s1p24r,*s1p25r,*s1p26r,*s1p27r,*s1p28r,*s1p29r,*s1p30r,*s1p31r,*s1p32r,*s1p33r,*s1p34r,*s1p35r
-	,*s1p00i,*s1p01i,*s1p02i,*s1p03i,*s1p04i,*s1p05i,*s1p06i,*s1p07i,*s1p08i,*s1p09i,*s1p10i,*s1p11i,*s1p12i,*s1p13i,*s1p14i,*s1p15i,*s1p16i,*s1p17i,*s1p18i,*s1p19i,*s1p20i,*s1p21i,*s1p22i,*s1p23i,*s1p24i,*s1p25i,*s1p26i,*s1p27i,*s1p28i,*s1p29i,*s1p30i,*s1p31i,*s1p32i,*s1p33i,*s1p34i,*s1p35i;
-	static int *bjmodn00,*bjmodn01,*bjmodn02,*bjmodn03,*bjmodn04,*bjmodn05,*bjmodn06,*bjmodn07,*bjmodn08,*bjmodn09,*bjmodn10,*bjmodn11,*bjmodn12,*bjmodn13,*bjmodn14,*bjmodn15,*bjmodn16,*bjmodn17,*bjmodn18,*bjmodn19,*bjmodn20,*bjmodn21,*bjmodn22,*bjmodn23,*bjmodn24,*bjmodn25,*bjmodn26,*bjmodn27,*bjmodn28,*bjmodn29,*bjmodn30,*bjmodn31,*bjmodn32,*bjmodn33,*bjmodn34,*bjmodn35;
-	static struct complex *cy_r00,*cy_r02,*cy_r04,*cy_r06,*cy_r08,*cy_r10,*cy_r12,*cy_r14,*cy_r16,*cy_r18,*cy_r20,*cy_r22,*cy_r24,*cy_r26,*cy_r28,*cy_r30,*cy_r32,*cy_r34;
-	static struct complex *cy_i00,*cy_i02,*cy_i04,*cy_i06,*cy_i08,*cy_i10,*cy_i12,*cy_i14,*cy_i16,*cy_i18,*cy_i20,*cy_i22,*cy_i24,*cy_i26,*cy_i28,*cy_i30,*cy_i32,*cy_i34;
+	const double crnd = 3.0*0x4000000*0x2000000;
+	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
+	static vec_dbl *cc1, *ss1, *cc2, *ss2, *cc3m1, *ss3, *cc4, *ss4, *max_err, *sse2_rnd, *half_arr, *tmp,*tm2;
+	static vec_dbl
+		 *r00,*r02,*r04,*r06,*r08,*r0a,*r0c,*r0e,*r0g
+		,*r10,*r12,*r14,*r16,*r18,*r1a,*r1c,*r1e,*r1g
+		,*r20,*r22,*r24,*r26,*r28,*r2a,*r2c,*r2e,*r2g
+		,*r30,*r32,*r34,*r36,*r38,*r3a,*r3c,*r3e,*r3g
+		,*s1p00r,*s1p01r,*s1p02r,*s1p03r,*s1p04r,*s1p05r,*s1p06r,*s1p07r,*s1p08r,*s1p09r,*s1p10r,*s1p11r,*s1p12r,*s1p13r,*s1p14r,*s1p15r,*s1p16r,*s1p17r
+		,*s1p18r,*s1p19r,*s1p20r,*s1p21r,*s1p22r,*s1p23r,*s1p24r,*s1p25r,*s1p26r,*s1p27r,*s1p28r,*s1p29r,*s1p30r,*s1p31r,*s1p32r,*s1p33r,*s1p34r,*s1p35r;
+	static int
+		 *bjmodn00,*bjmodn01,*bjmodn02,*bjmodn03,*bjmodn04,*bjmodn05,*bjmodn06,*bjmodn07,*bjmodn08,*bjmodn09,*bjmodn10,*bjmodn11,*bjmodn12,*bjmodn13,*bjmodn14,*bjmodn15,*bjmodn16,*bjmodn17
+		,*bjmodn18,*bjmodn19,*bjmodn20,*bjmodn21,*bjmodn22,*bjmodn23,*bjmodn24,*bjmodn25,*bjmodn26,*bjmodn27,*bjmodn28,*bjmodn29,*bjmodn30,*bjmodn31,*bjmodn32,*bjmodn33,*bjmodn34,*bjmodn35;
+	static vec_dbl
+		*cy_r00,*cy_r04,*cy_r08,*cy_r12,*cy_r16,*cy_r20,*cy_r24,*cy_r28,*cy_r32,
+		*cy_i00,*cy_i04,*cy_i08,*cy_i12,*cy_i16,*cy_i20,*cy_i24,*cy_i28,*cy_i32;
+  #ifndef USE_AVX
+	static vec_dbl
+		*cy_r02,*cy_r06,*cy_r10,*cy_r14,*cy_r18,*cy_r22,*cy_r26,*cy_r30,*cy_r34,
+		*cy_i02,*cy_i06,*cy_i10,*cy_i14,*cy_i18,*cy_i22,*cy_i26,*cy_i30,*cy_i34;
+  #endif
 
-#else
+#endif
 
-	double wt,wtinv,wtA,wtB,wtC;
+#ifdef MULTITHREAD
+
+	static struct cy_thread_data_t *tdat = 0x0;
+	// Threadpool-based dispatch stuff:
+	static int main_work_units = 0, pool_work_units = 0;
+	static struct threadpool *tpool = 0x0;
+	static int task_is_blocking = TRUE;
+	static thread_control_t thread_control = {0,0,0};
+	// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
+	static task_control_t   task_control = {NULL, (void*)cy36_process_chunk, NULL, 0x0};
+
+#elif !defined(USE_SSE2)
+
+	// Vars needed in scalar mode only:
+	const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
+	int jt,jp;
+	double wt,wtinv,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
 	int bjmodn00,bjmodn01,bjmodn02,bjmodn03,bjmodn04,bjmodn05,bjmodn06,bjmodn07,bjmodn08,bjmodn09,bjmodn10,bjmodn11,bjmodn12,bjmodn13,bjmodn14,bjmodn15,bjmodn16,bjmodn17,bjmodn18,bjmodn19,bjmodn20,bjmodn21,bjmodn22,bjmodn23,bjmodn24,bjmodn25,bjmodn26,bjmodn27,bjmodn28,bjmodn29,bjmodn30,bjmodn31,bjmodn32,bjmodn33,bjmodn34,bjmodn35;
-	double
-	 a1p00r,a1p01r,a1p02r,a1p03r,a1p04r,a1p05r,a1p06r,a1p07r,a1p08r,a1p09r,a1p10r,a1p11r,a1p12r,a1p13r,a1p14r,a1p15r,a1p16r,a1p17r,a1p18r,a1p19r,a1p20r,a1p21r,a1p22r,a1p23r,a1p24r,a1p25r,a1p26r,a1p27r,a1p28r,a1p29r,a1p30r,a1p31r,a1p32r,a1p33r,a1p34r,a1p35r
-	,a1p00i,a1p01i,a1p02i,a1p03i,a1p04i,a1p05i,a1p06i,a1p07i,a1p08i,a1p09i,a1p10i,a1p11i,a1p12i,a1p13i,a1p14i,a1p15i,a1p16i,a1p17i,a1p18i,a1p19i,a1p20i,a1p21i,a1p22i,a1p23i,a1p24i,a1p25i,a1p26i,a1p27i,a1p28i,a1p29i,a1p30i,a1p31i,a1p32i,a1p33i,a1p34i,a1p35i
-	,cy_r00,cy_r01,cy_r02,cy_r03,cy_r04,cy_r05,cy_r06,cy_r07,cy_r08,cy_r09,cy_r10,cy_r11,cy_r12,cy_r13,cy_r14,cy_r15,cy_r16,cy_r17,cy_r18,cy_r19,cy_r20,cy_r21,cy_r22,cy_r23,cy_r24,cy_r25,cy_r26,cy_r27,cy_r28,cy_r29,cy_r30,cy_r31,cy_r32,cy_r33,cy_r34,cy_r35
-	,cy_i00,cy_i01,cy_i02,cy_i03,cy_i04,cy_i05,cy_i06,cy_i07,cy_i08,cy_i09,cy_i10,cy_i11,cy_i12,cy_i13,cy_i14,cy_i15,cy_i16,cy_i17,cy_i18,cy_i19,cy_i20,cy_i21,cy_i22,cy_i23,cy_i24,cy_i25,cy_i26,cy_i27,cy_i28,cy_i29,cy_i30,cy_i31,cy_i32,cy_i33,cy_i34,cy_i35;
+	double rt,it,temp,frac
+		,a1p00r,a1p01r,a1p02r,a1p03r,a1p04r,a1p05r,a1p06r,a1p07r,a1p08r,a1p09r,a1p10r,a1p11r,a1p12r,a1p13r,a1p14r,a1p15r,a1p16r,a1p17r,a1p18r,a1p19r,a1p20r,a1p21r,a1p22r,a1p23r,a1p24r,a1p25r,a1p26r,a1p27r,a1p28r,a1p29r,a1p30r,a1p31r,a1p32r,a1p33r,a1p34r,a1p35r
+		,a1p00i,a1p01i,a1p02i,a1p03i,a1p04i,a1p05i,a1p06i,a1p07i,a1p08i,a1p09i,a1p10i,a1p11i,a1p12i,a1p13i,a1p14i,a1p15i,a1p16i,a1p17i,a1p18i,a1p19i,a1p20i,a1p21i,a1p22i,a1p23i,a1p24i,a1p25i,a1p26i,a1p27i,a1p28i,a1p29i,a1p30i,a1p31i,a1p32i,a1p33i,a1p34i,a1p35i
+		,cy_r00,cy_r01,cy_r02,cy_r03,cy_r04,cy_r05,cy_r06,cy_r07,cy_r08,cy_r09,cy_r10,cy_r11,cy_r12,cy_r13,cy_r14,cy_r15,cy_r16,cy_r17,cy_r18,cy_r19,cy_r20,cy_r21,cy_r22,cy_r23,cy_r24,cy_r25,cy_r26,cy_r27,cy_r28,cy_r29,cy_r30,cy_r31,cy_r32,cy_r33,cy_r34,cy_r35
+		,cy_i00,cy_i01,cy_i02,cy_i03,cy_i04,cy_i05,cy_i06,cy_i07,cy_i08,cy_i09,cy_i10,cy_i11,cy_i12,cy_i13,cy_i14,cy_i15,cy_i16,cy_i17,cy_i18,cy_i19,cy_i20,cy_i21,cy_i22,cy_i23,cy_i24,cy_i25,cy_i26,cy_i27,cy_i28,cy_i29,cy_i30,cy_i31,cy_i32,cy_i33,cy_i34,cy_i35;
 
 #endif
 
@@ -277,12 +315,6 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	static double *_maxerr = 0x0,
 	*_cy_r00 = 0x0,*_cy_r01 = 0x0,*_cy_r02 = 0x0,*_cy_r03 = 0x0,*_cy_r04 = 0x0,*_cy_r05 = 0x0,*_cy_r06 = 0x0,*_cy_r07 = 0x0,*_cy_r08 = 0x0,*_cy_r09 = 0x0,*_cy_r10 = 0x0,*_cy_r11 = 0x0,*_cy_r12 = 0x0,*_cy_r13 = 0x0,*_cy_r14 = 0x0,*_cy_r15 = 0x0,*_cy_r16 = 0x0,*_cy_r17 = 0x0,*_cy_r18 = 0x0,*_cy_r19 = 0x0,*_cy_r20 = 0x0,*_cy_r21 = 0x0,*_cy_r22 = 0x0,*_cy_r23 = 0x0,*_cy_r24 = 0x0,*_cy_r25 = 0x0,*_cy_r26 = 0x0,*_cy_r27 = 0x0,*_cy_r28 = 0x0,*_cy_r29 = 0x0,*_cy_r30 = 0x0,*_cy_r31 = 0x0,*_cy_r32 = 0x0,*_cy_r33 = 0x0,*_cy_r34 = 0x0,*_cy_r35 = 0x0,
 	*_cy_i00 = 0x0,*_cy_i01 = 0x0,*_cy_i02 = 0x0,*_cy_i03 = 0x0,*_cy_i04 = 0x0,*_cy_i05 = 0x0,*_cy_i06 = 0x0,*_cy_i07 = 0x0,*_cy_i08 = 0x0,*_cy_i09 = 0x0,*_cy_i10 = 0x0,*_cy_i11 = 0x0,*_cy_i12 = 0x0,*_cy_i13 = 0x0,*_cy_i14 = 0x0,*_cy_i15 = 0x0,*_cy_i16 = 0x0,*_cy_i17 = 0x0,*_cy_i18 = 0x0,*_cy_i19 = 0x0,*_cy_i20 = 0x0,*_cy_i21 = 0x0,*_cy_i22 = 0x0,*_cy_i23 = 0x0,*_cy_i24 = 0x0,*_cy_i25 = 0x0,*_cy_i26 = 0x0,*_cy_i27 = 0x0,*_cy_i28 = 0x0,*_cy_i29 = 0x0,*_cy_i30 = 0x0,*_cy_i31 = 0x0,*_cy_i32 = 0x0,*_cy_i33 = 0x0,*_cy_i34 = 0x0,*_cy_i35 = 0x0;
-
-#ifdef CTIME
-	const double ICPS = 1.0/CLOCKS_PER_SEC;
-	clock1 = clock();
-	dt_fwd = dt_inv = dt_cy = dt_tot = 0.0;
-#endif
 
 /*...change NDIVR and n_div_wt to non-static to work around a gcc compiler bug. */
 	NDIVR   = n/RADIX;
@@ -383,6 +415,25 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		CY_THREADS = 1;
 	#endif
 
+	#ifdef USE_PTHREAD
+		/* Populate the elements of the thread-specific data structs which don't change after init: */
+		for(ithread = 0; ithread < CY_THREADS; ithread++)
+		{
+		// int data:
+			tdat[ithread].tid = ithread;
+			tdat[ithread].ndivr = NDIVR;
+
+			tdat[ithread].sw  = sw;
+			tdat[ithread].nwt = nwt;
+
+		// pointer data:
+			tdat[ithread].arrdat = a;			/* Main data array */
+			tdat[ithread].wt0 = wt0;
+			tdat[ithread].wt1 = wt1;
+			tdat[ithread].si  = si;
+		}
+	#endif
+
 	#ifdef USE_SSE2
 
 		ASSERT(HERE, (MODULUS_TYPE == MODULUS_TYPE_MERSENNE), "SSE2 currently only supports Mersenne-mod!");
@@ -393,102 +444,121 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		// consisting of 88 dcomplex and (12+RADIX/2) uint64 element slots per thread
 		// (Add as many padding elts to the latter as needed to make it a multiple of 4):
 		cslots_in_local_store = radix36_creals_in_local_store + (((12+RADIX/2)/2 + 3) & ~0x3);
-		sc_arr = ALLOC_COMPLEX(sc_arr, cslots_in_local_store*CY_THREADS);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		sc_ptr = ALIGN_COMPLEX(sc_arr);
+		sc_arr = ALLOC_VEC_DBL(sc_arr, cslots_in_local_store*CY_THREADS);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 		sm_ptr = (uint64*)(sc_ptr + radix36_creals_in_local_store);
 		ASSERT(HERE, ((uint32)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
 
 	/* Use low 192 16-byte slots of sc_arr for r-and-s temporaries, next 7 for the nontrivial complex 16th roots,
-	next 36 for the doubled carry pairs, next 2 for ROE and RND_CONST, next 20 for the half_arr table lookup stuff,
+	next 36 for the doubled carry pairs, next 2 for ROE and RND_CONST, next 20 for the   table lookup stuff,
 	plus at least 3 more slots to allow for 64-byte alignment of the array:
 	*/
 	#ifdef USE_PTHREAD
 		__r0 = sc_ptr;
 	#endif
+	#ifdef USE_AVX
 									tmp	= sc_ptr + 0x48;
-		r00	= sc_ptr + 0x00;		s1p00r = tmp + 0x00;	cc1		= tmp + 0x48;
-		r01	= sc_ptr + 0x01;		s1p00i = tmp + 0x01;	ss1		= tmp + 0x49;
-		r02	= sc_ptr + 0x02;		s1p01r = tmp + 0x02;	cc2		= tmp + 0x4a;
-		r03	= sc_ptr + 0x03;		s1p01i = tmp + 0x03;	ss2		= tmp + 0x4b;
-		r04	= sc_ptr + 0x04;		s1p02r = tmp + 0x04;	cc3m1	= tmp + 0x4c;
-		r05	= sc_ptr + 0x05;		s1p02i = tmp + 0x05;	ss3		= tmp + 0x4d;
-		r06	= sc_ptr + 0x06;		s1p03r = tmp + 0x06;	cc4		= tmp + 0x4e;
-		r07	= sc_ptr + 0x07;		s1p03i = tmp + 0x07;	ss4		= tmp + 0x4f;
+		r00	= sc_ptr + 0x00;		s1p00r = tmp + 0x00;	cc1		= tmp + 0x48;	ss1		= tmp + 0x49;
+		r02	= sc_ptr + 0x02;		s1p01r = tmp + 0x02;	cc2		= tmp + 0x4a;	ss2		= tmp + 0x4b;
+		r04	= sc_ptr + 0x04;		s1p02r = tmp + 0x04;	cc3m1	= tmp + 0x4c;	ss3		= tmp + 0x4d;
+		r06	= sc_ptr + 0x06;		s1p03r = tmp + 0x06;	cc4		= tmp + 0x4e;	ss4		= tmp + 0x4f;
 		r08	= sc_ptr + 0x08;		s1p04r = tmp + 0x08;	cy_r00	= tmp + 0x50;
-		r09	= sc_ptr + 0x09;		s1p04i = tmp + 0x09;	cy_r02	= tmp + 0x51;
-		r0a	= sc_ptr + 0x0a;		s1p05r = tmp + 0x0a;	cy_r04	= tmp + 0x52;
-		r0b	= sc_ptr + 0x0b;		s1p05i = tmp + 0x0b;	cy_r06	= tmp + 0x53;
-		r0c	= sc_ptr + 0x0c;		s1p06r = tmp + 0x0c;	cy_r08	= tmp + 0x54;
-		r0d	= sc_ptr + 0x0d;		s1p06i = tmp + 0x0d;	cy_r10	= tmp + 0x55;
-		r0e	= sc_ptr + 0x0e;		s1p07r = tmp + 0x0e;	cy_r12	= tmp + 0x56;
-		r0f	= sc_ptr + 0x0f;		s1p07i = tmp + 0x0f;	cy_r14	= tmp + 0x57;
-		r0g	= sc_ptr + 0x10;		s1p08r = tmp + 0x10;	cy_r16	= tmp + 0x58;
-		r0h	= sc_ptr + 0x11;		s1p08i = tmp + 0x11;	cy_r18	= tmp + 0x59;
-		r10	= sc_ptr + 0x12;		s1p09r = tmp + 0x12;	cy_r20	= tmp + 0x5a;
-		r11	= sc_ptr + 0x13;		s1p09i = tmp + 0x13;	cy_r22	= tmp + 0x5b;
-		r12	= sc_ptr + 0x14;		s1p10r = tmp + 0x14;	cy_r24	= tmp + 0x5c;
-		r13	= sc_ptr + 0x15;		s1p10i = tmp + 0x15;	cy_r26	= tmp + 0x5d;
-		r14	= sc_ptr + 0x16;		s1p11r = tmp + 0x16;	cy_r28	= tmp + 0x5e;
-		r15	= sc_ptr + 0x17;		s1p11i = tmp + 0x17;	cy_r30	= tmp + 0x5f;
-		r16	= sc_ptr + 0x18;		s1p12r = tmp + 0x18;	cy_r32	= tmp + 0x60;
-		r17	= sc_ptr + 0x19;		s1p12i = tmp + 0x19;	cy_r34	= tmp + 0x61;
-		r18	= sc_ptr + 0x1a;		s1p13r = tmp + 0x1a;	cy_i00	= tmp + 0x62;
-		r19	= sc_ptr + 0x1b;		s1p13i = tmp + 0x1b;	cy_i02	= tmp + 0x63;
-		r1a	= sc_ptr + 0x1c;		s1p14r = tmp + 0x1c;	cy_i04	= tmp + 0x64;
-		r1b	= sc_ptr + 0x1d;		s1p14i = tmp + 0x1d;	cy_i06	= tmp + 0x65;
-		r1c	= sc_ptr + 0x1e;		s1p15r = tmp + 0x1e;	cy_i08	= tmp + 0x66;
-		r1d	= sc_ptr + 0x1f;		s1p15i = tmp + 0x1f;	cy_i10	= tmp + 0x67;
-		r1e	= sc_ptr + 0x20;		s1p16r = tmp + 0x20;	cy_i12	= tmp + 0x68;
-		r1f	= sc_ptr + 0x21;		s1p16i = tmp + 0x21;	cy_i14	= tmp + 0x69;
-		r1g	= sc_ptr + 0x22;		s1p17r = tmp + 0x22;	cy_i16	= tmp + 0x6a;
-		r1h	= sc_ptr + 0x23;		s1p17i = tmp + 0x23;	cy_i18	= tmp + 0x6b;
-		r20	= sc_ptr + 0x24;		s1p18r = tmp + 0x24;	cy_i20	= tmp + 0x6c;
-		r21	= sc_ptr + 0x25;		s1p18i = tmp + 0x25;	cy_i22	= tmp + 0x6d;
-		r22	= sc_ptr + 0x26;		s1p19r = tmp + 0x26;	cy_i24	= tmp + 0x6e;
-		r23	= sc_ptr + 0x27;		s1p19i = tmp + 0x27;	cy_i26	= tmp + 0x6f;
-		r24	= sc_ptr + 0x28;		s1p20r = tmp + 0x28;	cy_i28	= tmp + 0x70;
-		r25	= sc_ptr + 0x29;		s1p20i = tmp + 0x29;	cy_i30	= tmp + 0x71;
-		r26	= sc_ptr + 0x2a;		s1p21r = tmp + 0x2a;	cy_i32	= tmp + 0x72;
-		r27	= sc_ptr + 0x2b;		s1p21i = tmp + 0x2b;	cy_i34	= tmp + 0x73;
-		r28	= sc_ptr + 0x2c;		s1p22r = tmp + 0x2c;	max_err = tmp + 0x74;
-		r29	= sc_ptr + 0x2d;		s1p22i = tmp + 0x2d;	sse2_rnd= tmp + 0x75;
-		r2a	= sc_ptr + 0x2e;		s1p23r = tmp + 0x2e;	half_arr= tmp + 0x76;	/* This table needs 20x16 bytes */
-		r2b	= sc_ptr + 0x2f;		s1p23i = tmp + 0x2f;
-		r2c	= sc_ptr + 0x30;		s1p24r = tmp + 0x30;
-		r2d	= sc_ptr + 0x31;		s1p24i = tmp + 0x31;
-		r2e	= sc_ptr + 0x32;		s1p25r = tmp + 0x32;
-		r2f	= sc_ptr + 0x33;		s1p25i = tmp + 0x33;
+		r0a	= sc_ptr + 0x0a;		s1p05r = tmp + 0x0a;	cy_r04	= tmp + 0x51;
+		r0c	= sc_ptr + 0x0c;		s1p06r = tmp + 0x0c;	cy_r08	= tmp + 0x52;
+		r0e	= sc_ptr + 0x0e;		s1p07r = tmp + 0x0e;	cy_r12	= tmp + 0x53;
+		r0g	= sc_ptr + 0x10;		s1p08r = tmp + 0x10;	cy_r16	= tmp + 0x54;
+		r10	= sc_ptr + 0x12;		s1p09r = tmp + 0x12;	cy_r20	= tmp + 0x55;
+		r12	= sc_ptr + 0x14;		s1p10r = tmp + 0x14;	cy_r24	= tmp + 0x56;
+		r14	= sc_ptr + 0x16;		s1p11r = tmp + 0x16;	cy_r28	= tmp + 0x57;
+		r16	= sc_ptr + 0x18;		s1p12r = tmp + 0x18;	cy_r32	= tmp + 0x58;
+		r18	= sc_ptr + 0x1a;		s1p13r = tmp + 0x1a;	cy_i00	= tmp + 0x59;
+		r1a	= sc_ptr + 0x1c;		s1p14r = tmp + 0x1c;	cy_i04	= tmp + 0x5a;
+		r1c	= sc_ptr + 0x1e;		s1p15r = tmp + 0x1e;	cy_i08	= tmp + 0x5b;
+		r1e	= sc_ptr + 0x20;		s1p16r = tmp + 0x20;	cy_i12	= tmp + 0x5c;
+		r1g	= sc_ptr + 0x22;		s1p17r = tmp + 0x22;	cy_i16	= tmp + 0x5d;
+		r20	= sc_ptr + 0x24;		s1p18r = tmp + 0x24;	cy_i20	= tmp + 0x5e;
+		r22	= sc_ptr + 0x26;		s1p19r = tmp + 0x26;	cy_i24	= tmp + 0x5f;
+		r24	= sc_ptr + 0x28;		s1p20r = tmp + 0x28;	cy_i28	= tmp + 0x60;
+		r26	= sc_ptr + 0x2a;		s1p21r = tmp + 0x2a;	cy_i32	= tmp + 0x61;
+		r28	= sc_ptr + 0x2c;		s1p22r = tmp + 0x2c;	max_err = tmp + 0x62;
+		r2a	= sc_ptr + 0x2e;		s1p23r = tmp + 0x2e;	sse2_rnd= tmp + 0x63;
+		r2c	= sc_ptr + 0x30;		s1p24r = tmp + 0x30;	half_arr= tmp + 0x64;	/* This table needs 20 * sizeof(vec_dbl) bytes */
+		r2e	= sc_ptr + 0x32;		s1p25r = tmp + 0x32;	// half_arr = sc_ptr + 0xac; This is where the value of half_arr_offset36 comes from
 		r2g	= sc_ptr + 0x34;		s1p26r = tmp + 0x34;
-		r2h	= sc_ptr + 0x35;		s1p26i = tmp + 0x35;
 		r30	= sc_ptr + 0x36;		s1p27r = tmp + 0x36;
-		r31	= sc_ptr + 0x37;		s1p27i = tmp + 0x37;
 		r32	= sc_ptr + 0x38;		s1p28r = tmp + 0x38;
-		r33	= sc_ptr + 0x39;		s1p28i = tmp + 0x39;
 		r34	= sc_ptr + 0x3a;		s1p29r = tmp + 0x3a;
-		r35	= sc_ptr + 0x3b;		s1p29i = tmp + 0x3b;
 		r36	= sc_ptr + 0x3c;		s1p30r = tmp + 0x3c;
-		r37	= sc_ptr + 0x3d;		s1p30i = tmp + 0x3d;
 		r38	= sc_ptr + 0x3e;		s1p31r = tmp + 0x3e;
-		r39	= sc_ptr + 0x3f;		s1p31i = tmp + 0x3f;
 		r3a	= sc_ptr + 0x40;		s1p32r = tmp + 0x40;
-		r3b	= sc_ptr + 0x41;		s1p32i = tmp + 0x41;
 		r3c	= sc_ptr + 0x42;		s1p33r = tmp + 0x42;
-		r3d	= sc_ptr + 0x43;		s1p33i = tmp + 0x43;
 		r3e	= sc_ptr + 0x44;		s1p34r = tmp + 0x44;
-		r3f	= sc_ptr + 0x45;		s1p34i = tmp + 0x45;
 		r3g	= sc_ptr + 0x46;		s1p35r = tmp + 0x46;
-		r3h	= sc_ptr + 0x47;		s1p35i = tmp + 0x47;
-		ASSERT(HERE, (radix36_creals_in_local_store << 4) >= ((long)half_arr - (long)r00) + (20 << 4), "radix36_creals_in_local_store checksum failed!");
+	#else
+									tmp	= sc_ptr + 0x48;
+		r00	= sc_ptr + 0x00;		s1p00r = tmp + 0x00;	cc1		= tmp + 0x48;	ss1		= tmp + 0x49;
+		r02	= sc_ptr + 0x02;		s1p01r = tmp + 0x02;	cc2		= tmp + 0x4a;	ss2		= tmp + 0x4b;
+		r04	= sc_ptr + 0x04;		s1p02r = tmp + 0x04;	cc3m1	= tmp + 0x4c;	ss3		= tmp + 0x4d;
+		r06	= sc_ptr + 0x06;		s1p03r = tmp + 0x06;	cc4		= tmp + 0x4e;	ss4		= tmp + 0x4f;
+		r08	= sc_ptr + 0x08;		s1p04r = tmp + 0x08;	cy_r00	= tmp + 0x50;	cy_r02	= tmp + 0x51;
+		r0a	= sc_ptr + 0x0a;		s1p05r = tmp + 0x0a;	cy_r04	= tmp + 0x52;	cy_r06	= tmp + 0x53;
+		r0c	= sc_ptr + 0x0c;		s1p06r = tmp + 0x0c;	cy_r08	= tmp + 0x54;	cy_r10	= tmp + 0x55;
+		r0e	= sc_ptr + 0x0e;		s1p07r = tmp + 0x0e;	cy_r12	= tmp + 0x56;	cy_r14	= tmp + 0x57;
+		r0g	= sc_ptr + 0x10;		s1p08r = tmp + 0x10;	cy_r16	= tmp + 0x58;	cy_r18	= tmp + 0x59;
+		r10	= sc_ptr + 0x12;		s1p09r = tmp + 0x12;	cy_r20	= tmp + 0x5a;	cy_r22	= tmp + 0x5b;
+		r12	= sc_ptr + 0x14;		s1p10r = tmp + 0x14;	cy_r24	= tmp + 0x5c;	cy_r26	= tmp + 0x5d;
+		r14	= sc_ptr + 0x16;		s1p11r = tmp + 0x16;	cy_r28	= tmp + 0x5e;	cy_r30	= tmp + 0x5f;
+		r16	= sc_ptr + 0x18;		s1p12r = tmp + 0x18;	cy_r32	= tmp + 0x60;	cy_r34	= tmp + 0x61;
+		r18	= sc_ptr + 0x1a;		s1p13r = tmp + 0x1a;	cy_i00	= tmp + 0x62;	cy_i02	= tmp + 0x63;
+		r1a	= sc_ptr + 0x1c;		s1p14r = tmp + 0x1c;	cy_i04	= tmp + 0x64;	cy_i06	= tmp + 0x65;
+		r1c	= sc_ptr + 0x1e;		s1p15r = tmp + 0x1e;	cy_i08	= tmp + 0x66;	cy_i10	= tmp + 0x67;
+		r1e	= sc_ptr + 0x20;		s1p16r = tmp + 0x20;	cy_i12	= tmp + 0x68;	cy_i14	= tmp + 0x69;
+		r1g	= sc_ptr + 0x22;		s1p17r = tmp + 0x22;	cy_i16	= tmp + 0x6a;	cy_i18	= tmp + 0x6b;
+		r20	= sc_ptr + 0x24;		s1p18r = tmp + 0x24;	cy_i20	= tmp + 0x6c;	cy_i22	= tmp + 0x6d;
+		r22	= sc_ptr + 0x26;		s1p19r = tmp + 0x26;	cy_i24	= tmp + 0x6e;	cy_i26	= tmp + 0x6f;
+		r24	= sc_ptr + 0x28;		s1p20r = tmp + 0x28;	cy_i28	= tmp + 0x70;	cy_i30	= tmp + 0x71;
+		r26	= sc_ptr + 0x2a;		s1p21r = tmp + 0x2a;	cy_i32	= tmp + 0x72;	cy_i34	= tmp + 0x73;
+		r28	= sc_ptr + 0x2c;		s1p22r = tmp + 0x2c;	max_err = tmp + 0x74;
+		r2a	= sc_ptr + 0x2e;		s1p23r = tmp + 0x2e;	sse2_rnd= tmp + 0x75;
+		r2c	= sc_ptr + 0x30;		s1p24r = tmp + 0x30;	half_arr= tmp + 0x76;	/* This table needs 20 * sizeof(vec_dbl) bytes */
+		r2e	= sc_ptr + 0x32;		s1p25r = tmp + 0x32;	//  half_arr = sc_ptr + 0xbe; This is where the value of half_arr_offset36 comes from
+		r2g	= sc_ptr + 0x34;		s1p26r = tmp + 0x34;
+		r30	= sc_ptr + 0x36;		s1p27r = tmp + 0x36;
+		r32	= sc_ptr + 0x38;		s1p28r = tmp + 0x38;
+		r34	= sc_ptr + 0x3a;		s1p29r = tmp + 0x3a;
+		r36	= sc_ptr + 0x3c;		s1p30r = tmp + 0x3c;
+		r38	= sc_ptr + 0x3e;		s1p31r = tmp + 0x3e;
+		r3a	= sc_ptr + 0x40;		s1p32r = tmp + 0x40;
+		r3c	= sc_ptr + 0x42;		s1p33r = tmp + 0x42;
+		r3e	= sc_ptr + 0x44;		s1p34r = tmp + 0x44;
+		r3g	= sc_ptr + 0x46;		s1p35r = tmp + 0x46;
+	#endif
+		ASSERT(HERE, (radix36_creals_in_local_store << l2_sz_vd) >= ((long)half_arr - (long)r00) + (20 << l2_sz_vd), "radix36_creals_in_local_store checksum failed!");
 
 		/* These remain fixed: */
-		cc1  ->re = cc1  ->im = c	;		ss1->re = ss1->im = s ;
-		cc2  ->re = cc2  ->im = c2  ;		ss2->re = ss2->im = s2;
-		cc3m1->re = cc3m1->im = c3m1;		ss3->re = ss3->im = s3;
-		cc4  ->re = cc4  ->im = c4  ;		ss4->re = ss4->im = s4;
-
+		VEC_DBL_INIT(cc1  , c	);		VEC_DBL_INIT(ss1, s );
+		VEC_DBL_INIT(cc2  , c2  );		VEC_DBL_INIT(ss2, s2);
+		VEC_DBL_INIT(cc3m1, c3m1);		VEC_DBL_INIT(ss3, s3);
+		VEC_DBL_INIT(cc4  , c4  );		VEC_DBL_INIT(ss4, s4);
 		/* SSE2 math = 53-mantissa-bit IEEE double-float: */
-		sse2_rnd->re = sse2_rnd->im = crnd;
+		VEC_DBL_INIT(sse2_rnd, crnd);
+
+		// Propagate the above consts to the remaining threads:
+		nbytes = (int)ss4 - (int)cc1 + sz_vd;	// #bytes in above sincos block of data
+		tmp = cc1;
+		tm2 = tmp + cslots_in_local_store;
+		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
+			memcpy(tm2, tmp, nbytes);
+			tmp = tm2;		tm2 += cslots_in_local_store;
+		}
+		nbytes = sz_vd;	// sse2_rnd is a solo (in the SIMD-vector) datum
+		tmp = sse2_rnd;
+		tm2 = tmp + cslots_in_local_store;
+		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
+			memcpy(tm2, tmp, nbytes);
+			tmp = tm2;		tm2 += cslots_in_local_store;
+		}
 
 		/* SSE2 version of the one_half array - we have a 2-bit lookup, low bit is from the low word of the carry pair,
 		high bit from the high, i.e. based on this lookup index [listed with LSB at right], we have:
@@ -511,96 +581,166 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		We also allocate a further 4 16-byte slots [uninitialized] for storage of the wtl,wtn,wtlp1,wtnm1 locals.
 		*/
 		tmp = half_arr;
+
+	#ifdef USE_AVX
 		/* Forward-weight multipliers: */
-		tmp->re = 1.0;	tmp->im = 1.0;	++tmp;
-		tmp->re = .50;	tmp->im = 1.0;	++tmp;
-		tmp->re = 1.0;	tmp->im = .50;	++tmp;
-		tmp->re = .50;	tmp->im = .50;	++tmp;
-		/* Inverse-weight multipliers: */
-		tmp->re = .50;	tmp->im = .50;	++tmp;
-		tmp->re = .25;	tmp->im = .50;	++tmp;
-		tmp->re = .50;	tmp->im = .25;	++tmp;
-		tmp->re = .25;	tmp->im = .25;	++tmp;
+		tmp->d0 = 1.0;	tmp->d1 = 1.0;	tmp->d2 = 1.0;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = 1.0;	tmp->d2 = 1.0;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = 1.0;	tmp->d1 = .50;	tmp->d2 = 1.0;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = 1.0;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = 1.0;	tmp->d1 = 1.0;	tmp->d2 = .50;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = 1.0;	tmp->d2 = .50;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = 1.0;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = 1.0;	tmp->d1 = 1.0;	tmp->d2 = 1.0;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = 1.0;	tmp->d2 = 1.0;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = 1.0;	tmp->d1 = .50;	tmp->d2 = 1.0;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = 1.0;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = 1.0;	tmp->d1 = 1.0;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = 1.0;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = 1.0;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;
+		/* Inverse-weight multipliers (only needed for mersenne-mod): */
+		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .25;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .25;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .25;	tmp->d1 = .25;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = .25;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .25;	tmp->d1 = .50;	tmp->d2 = .25;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .25;	tmp->d2 = .25;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .25;	tmp->d1 = .25;	tmp->d2 = .25;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = .25;	++tmp;
+		tmp->d0 = .25;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = .25;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .25;	tmp->d2 = .50;	tmp->d3 = .25;	++tmp;
+		tmp->d0 = .25;	tmp->d1 = .25;	tmp->d2 = .50;	tmp->d3 = .25;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = .25;	tmp->d3 = .25;	++tmp;
+		tmp->d0 = .25;	tmp->d1 = .50;	tmp->d2 = .25;	tmp->d3 = .25;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .25;	tmp->d2 = .25;	tmp->d3 = .25;	++tmp;
+		tmp->d0 = .25;	tmp->d1 = .25;	tmp->d2 = .25;	tmp->d3 = .25;	++tmp;
 		/* Forward-base[] multipliers: */
-		tmp->re = base   [0];	tmp->im = base   [0];	++tmp;
-		tmp->re = base   [1];	tmp->im = base   [0];	++tmp;
-		tmp->re = base   [0];	tmp->im = base   [1];	++tmp;
-		tmp->re = base   [1];	tmp->im = base   [1];	++tmp;
+		tmp->d0 = base   [0];	tmp->d1 = base   [0];	tmp->d2 = base   [0];	tmp->d3 = base   [0];	++tmp;
+		tmp->d0 = base   [1];	tmp->d1 = base   [0];	tmp->d2 = base   [0];	tmp->d3 = base   [0];	++tmp;
+		tmp->d0 = base   [0];	tmp->d1 = base   [1];	tmp->d2 = base   [0];	tmp->d3 = base   [0];	++tmp;
+		tmp->d0 = base   [1];	tmp->d1 = base   [1];	tmp->d2 = base   [0];	tmp->d3 = base   [0];	++tmp;
+		tmp->d0 = base   [0];	tmp->d1 = base   [0];	tmp->d2 = base   [1];	tmp->d3 = base   [0];	++tmp;
+		tmp->d0 = base   [1];	tmp->d1 = base   [0];	tmp->d2 = base   [1];	tmp->d3 = base   [0];	++tmp;
+		tmp->d0 = base   [0];	tmp->d1 = base   [1];	tmp->d2 = base   [1];	tmp->d3 = base   [0];	++tmp;
+		tmp->d0 = base   [1];	tmp->d1 = base   [1];	tmp->d2 = base   [1];	tmp->d3 = base   [0];	++tmp;
+		tmp->d0 = base   [0];	tmp->d1 = base   [0];	tmp->d2 = base   [0];	tmp->d3 = base   [1];	++tmp;
+		tmp->d0 = base   [1];	tmp->d1 = base   [0];	tmp->d2 = base   [0];	tmp->d3 = base   [1];	++tmp;
+		tmp->d0 = base   [0];	tmp->d1 = base   [1];	tmp->d2 = base   [0];	tmp->d3 = base   [1];	++tmp;
+		tmp->d0 = base   [1];	tmp->d1 = base   [1];	tmp->d2 = base   [0];	tmp->d3 = base   [1];	++tmp;
+		tmp->d0 = base   [0];	tmp->d1 = base   [0];	tmp->d2 = base   [1];	tmp->d3 = base   [1];	++tmp;
+		tmp->d0 = base   [1];	tmp->d1 = base   [0];	tmp->d2 = base   [1];	tmp->d3 = base   [1];	++tmp;
+		tmp->d0 = base   [0];	tmp->d1 = base   [1];	tmp->d2 = base   [1];	tmp->d3 = base   [1];	++tmp;
+		tmp->d0 = base   [1];	tmp->d1 = base   [1];	tmp->d2 = base   [1];	tmp->d3 = base   [1];	++tmp;
 		/* Inverse-base[] multipliers: */
-		tmp->re = baseinv[0];	tmp->im = baseinv[0];	++tmp;
-		tmp->re = baseinv[1];	tmp->im = baseinv[0];	++tmp;
-		tmp->re = baseinv[0];	tmp->im = baseinv[1];	++tmp;
-		tmp->re = baseinv[1];	tmp->im = baseinv[1];	++tmp;
+		tmp->d0 = baseinv[0];	tmp->d1 = baseinv[0];	tmp->d2 = baseinv[0];	tmp->d3 = baseinv[0];	++tmp;
+		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[0];	tmp->d2 = baseinv[0];	tmp->d3 = baseinv[0];	++tmp;
+		tmp->d0 = baseinv[0];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[0];	tmp->d3 = baseinv[0];	++tmp;
+		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[0];	tmp->d3 = baseinv[0];	++tmp;
+		tmp->d0 = baseinv[0];	tmp->d1 = baseinv[0];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[0];	++tmp;
+		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[0];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[0];	++tmp;
+		tmp->d0 = baseinv[0];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[0];	++tmp;
+		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[0];	++tmp;
+		tmp->d0 = baseinv[0];	tmp->d1 = baseinv[0];	tmp->d2 = baseinv[0];	tmp->d3 = baseinv[1];	++tmp;
+		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[0];	tmp->d2 = baseinv[0];	tmp->d3 = baseinv[1];	++tmp;
+		tmp->d0 = baseinv[0];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[0];	tmp->d3 = baseinv[1];	++tmp;
+		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[0];	tmp->d3 = baseinv[1];	++tmp;
+		tmp->d0 = baseinv[0];	tmp->d1 = baseinv[0];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
+		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[0];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
+		tmp->d0 = baseinv[0];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
+		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
+
+		nbytes = 64 << l2_sz_vd;
+
+	#elif defined(USE_SSE2)
+
+		ctmp = (struct complex *)tmp;
+		/* Forward-weight multipliers: */
+		ctmp->re = 1.0;	ctmp->im = 1.0;	++ctmp;
+		ctmp->re = .50;	ctmp->im = 1.0;	++ctmp;
+		ctmp->re = 1.0;	ctmp->im = .50;	++ctmp;
+		ctmp->re = .50;	ctmp->im = .50;	++ctmp;
+		/* Inverse-weight multipliers (only needed for mersenne-mod): */
+		ctmp->re = .50;	ctmp->im = .50;	++ctmp;
+		ctmp->re = .25;	ctmp->im = .50;	++ctmp;
+		ctmp->re = .50;	ctmp->im = .25;	++ctmp;
+		ctmp->re = .25;	ctmp->im = .25;	++ctmp;
+		/* Forward-base[] multipliers: */
+		ctmp->re = base   [0];	ctmp->im = base   [0];	++ctmp;
+		ctmp->re = base   [1];	ctmp->im = base   [0];	++ctmp;
+		ctmp->re = base   [0];	ctmp->im = base   [1];	++ctmp;
+		ctmp->re = base   [1];	ctmp->im = base   [1];	++ctmp;
+		/* Inverse-base[] multipliers: */
+		ctmp->re = baseinv[0];	ctmp->im = baseinv[0];	++ctmp;
+		ctmp->re = baseinv[1];	ctmp->im = baseinv[0];	++ctmp;
+		ctmp->re = baseinv[0];	ctmp->im = baseinv[1];	++ctmp;
+		ctmp->re = baseinv[1];	ctmp->im = baseinv[1];	++ctmp;
+
+		nbytes = 16 << l2_sz_vd;
+
+	#endif
+
+		// Propagate the above consts to the remaining threads:
+		tmp = half_arr;
+		tm2 = tmp + cslots_in_local_store;
+		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
+			memcpy(tm2, tmp, nbytes);
+			tmp = tm2;		tm2 += cslots_in_local_store;
+		}
 
 		/* Floating-point sign mask used for FABS on packed doubles: */
 		sign_mask = sm_ptr;
-		*sign_mask++ = (uint64)0x7FFFFFFFFFFFFFFFull;
-		*sign_mask-- = (uint64)0x7FFFFFFFFFFFFFFFull;
+		for(i = 0; i < RE_IM_STRIDE; ++i) {
+			*(sign_mask+i) = (uint64)0x7FFFFFFFFFFFFFFFull;
+		}
 
-	#if 0
-		// Set up the quadrupled-32-bit-int SSE constants used by the carry macros:
-		sse_bw  = sm_ptr + 2;
-		__asm	mov	eax, bw
-		__asm	mov	ebx, sse_bw
-		__asm	movd	xmm0,eax	/* Move actual *value* of reg eax into low 32 bits of xmm0 */
-		__asm	pshufd	xmm0,xmm0,0	/* Broadcast low 32 bits of xmm0 to all 4 slots of xmm0 */
-		__asm	movaps	[ebx],xmm0
-
-		sse_sw  = sm_ptr + 4;
-		__asm	lea	eax, sw
-		__asm	mov	ebx, sse_sw
-		__asm	movd	xmm0,[eax]	/* Variant 2: Move contents of address pointed to by reg eax into low 32 bits of xmm0 */
-		__asm	pshufd	xmm0,xmm0,0	/* Broadcast low 32 bits of xmm0 to all 4 slots of xmm0 */
-		__asm	movaps	[ebx],xmm0
-
-		sse_n   = sm_ptr + 6;
-		__asm	lea	eax, n
-		__asm	mov	ebx, sse_n
-		__asm	movd	xmm0,[eax]
-		__asm	pshufd	xmm0,xmm0,0	// Broadcast low 32 bits of xmm0 to all 4 slots of xmm0
-		__asm	movaps	[ebx],xmm0
-	#else
-		sse_bw  = sm_ptr + 2;
+		// Set up the SIMD-tupled-32-bit-int SSE constants used by the carry macros:
+		sse_bw  = sm_ptr + RE_IM_STRIDE;	// (#doubles in a SIMD complex) x 32-bits = RE_IM_STRIDE x 64-bits
 		tmp64 = (uint64)bw;
 		tmp64 = tmp64 + (tmp64 << 32);
-		*sse_bw++ = tmp64;
-		*sse_bw-- = tmp64;
+		for(i = 0; i < RE_IM_STRIDE; ++i) {
+			*(sse_bw+i) = tmp64;
+		}
 
-		sse_sw  = sm_ptr + 4;
+		sse_sw  = sse_bw + RE_IM_STRIDE;
 		tmp64 = (uint64)sw;
 		tmp64 = tmp64 + (tmp64 << 32);
-		*sse_sw++ = tmp64;
-		*sse_sw-- = tmp64;
+		for(i = 0; i < RE_IM_STRIDE; ++i) {
+			*(sse_sw+i) = tmp64;
+		}
 
-		sse_n   = sm_ptr + 6;
+		sse_n   = sse_sw + RE_IM_STRIDE;
 		tmp64 = (uint64)n;
 		tmp64 = tmp64 + (tmp64 << 32);
-		*sse_n++ = tmp64;
-		*sse_n-- = tmp64;
+		for(i = 0; i < RE_IM_STRIDE; ++i) {
+			*(sse_n +i) = tmp64;
+		}
+
+		nbytes = 4 << l2_sz_vd;
+
+	#ifdef USE_AVX
+		n_minus_sil   = (struct uint32x4 *)sse_n + 1;
+		n_minus_silp1 = (struct uint32x4 *)sse_n + 2;
+		sinwt         = (struct uint32x4 *)sse_n + 3;
+		sinwtm1       = (struct uint32x4 *)sse_n + 4;
+		nbytes += 64;;
 	#endif
 
-#ifdef USE_PTHREAD
-	/* Populate the elements of the thread-specific data structs which don't change after init: */
-	for(ithread = 0; ithread < CY_THREADS; ithread++)
-	{
-	// int data:
-		tdat[ithread].tid = ithread;
-		tdat[ithread].ndivr = NDIVR;
+		// Propagate the above consts to the remaining threads:
+		tmp = (vec_dbl *)sm_ptr;
+		tm2 = tmp + cslots_in_local_store;
+		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
+			memcpy(tm2, tmp, nbytes);
+			tmp = tm2;		tm2 += cslots_in_local_store;
+		}
 
-		tdat[ithread].sw  = sw;
-		tdat[ithread].nwt = nwt;
-
-	// pointer data:
-		tdat[ithread].arrdat = a;			/* Main data array */
-		tdat[ithread].wt0 = wt0;
-		tdat[ithread].wt1 = wt1;
-		tdat[ithread].si  = si;
-		tdat[ithread].r00 = __r0 + ithread*cslots_in_local_store;
-		tdat[ithread].half_arr = (long)tdat[ithread].r00 + ((long)half_arr - (long)r00);
-	}
-#endif
-
-		bjmodn00 = (uint32*)(sm_ptr + 8);
+	#ifdef USE_AVX
+		bjmodn00 = (int*)(sinwtm1 + RE_IM_STRIDE);
+	#else
+		bjmodn00 = (int*)(sse_n   + RE_IM_STRIDE);
+	#endif
 		bjmodn01 = bjmodn00 + 1;
 		bjmodn02 = bjmodn01 + 1;
 		bjmodn03 = bjmodn02 + 1;
@@ -637,17 +777,21 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		bjmodn34 = bjmodn33 + 1;
 		bjmodn35 = bjmodn34 + 1;
 
-	  #ifdef USE_PTHREAD
-		tmp = __r0 + cslots_in_local_store;
-		/* Init thread 1-CY_THREADS's local stores and pointers: */
-		for(i = 1; i < CY_THREADS; ++i) {
-			/* Only care about the constants for each thread here, but easier to just copy the entire thread0 local store: */
-			memcpy(tmp, __r0, cslots_in_local_store<<4);	// bytewise copy treats complex and uint64 subdata the same
-			tmp += cslots_in_local_store;
-		}
-	  #endif
-
 	#endif	// USE_SSE2
+
+	#ifdef USE_PTHREAD
+		/* Populate the elements of the thread-specific data structs which don't change after init: */
+		for(ithread = 0; ithread < CY_THREADS; ithread++)
+		{
+		#ifdef USE_SSE2
+			tdat[ithread].r00 = __r0 + ithread*cslots_in_local_store;
+			tdat[ithread].half_arr = (long)tdat[ithread].r00 + ((long)half_arr - (long)r00);
+		#else	// In scalar mode use these 2 ptrs to pass the base & baseinv arrays:
+			tdat[ithread].r00      = (vec_dbl *)base;
+			tdat[ithread].half_arr = (vec_dbl *)baseinv;
+		#endif	// USE_SSE2
+		}
+	#endif
 
 		/*   constant index offsets for array load/stores are here.	*/
 		pini = NDIVR/CY_THREADS;
@@ -1040,10 +1184,10 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	full_pass = 1;	/* set = 1 for normal carry pass, = 0 for wrapper pass	*/
 	scale = n2inv;	/* init inverse-weight scale factor  (set = 2/n for normal carry pass, = 1 for wrapper pass)	*/
 
-    for(ithread = 0; ithread < CY_THREADS; ithread++)
-    {
+	for(ithread = 0; ithread < CY_THREADS; ithread++)
+	{
 		_maxerr[ithread] = 0.0;
-    }
+	}
 
 for(outer=0; outer <= 1; outer++)
 {
@@ -1188,21 +1332,22 @@ for(outer=0; outer <= 1; outer++)
 		}
 	}
 
-    /* Move this cleanup-pass-specific khi setting here, since need regular-pass khi value for above inits: */
-    if(!full_pass)
-    {
-		khi = 1;
-	#if FFT_DEBUG
-		fprintf(dbg_file, "radix36_ditN_cy_dif1: Cleanup Pass:\n", n);
-	#endif
+#if defined(USE_SSE2) && defined(USE_PTHREAD)
+
+	tmp = max_err;	VEC_DBL_INIT(tmp, 0.0);
+	tm2 = tmp + cslots_in_local_store;
+	for(ithread = 1; ithread < CY_THREADS; ++ithread) {
+		memcpy(tm2, tmp, sz_vd);
+		tmp = tm2;		tm2 += cslots_in_local_store;
 	}
 
-/* Needed to remove the prefetch-address vars add0 & add for this to compile properly: */
-#ifdef USE_OMP
-	omp_set_num_threads(CY_THREADS);
-//#undef PFETCH
-	#pragma omp parallel for private(temp,frac,maxerr,i,j,j1,jstart,jhi,k,k1,k2,l,col,co2,co3,m,m2,n_minus_sil,n_minus_silp1,sinwt,sinwtm1,wtl,wtlp1,wtn,wtnm1,wt,wtinv,wtA,wtB,wtC,wt_re,wt_im,rt,it,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t0a,t0b,t0c,t0d,t0e,t0f,t0g,t0h,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t1a,t1b,t1c,t1d,t1e,t1f,t1g,t1h,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t2a,t2b,t2c,t2d,t2e,t2f,t2g,t2h,t30,t31,t32,t33,t34,t35,t36,t37,t38,t39,t3a,t3b,t3c,t3d,t3e,t3f,t3g,t3h,a1p00r,a1p01r,a1p02r,a1p03r,a1p04r,a1p05r,a1p06r,a1p07r,a1p08r,a1p09r,a1p10r,a1p11r,a1p12r,a1p13r,a1p14r,a1p15r,a1p16r,a1p17r,a1p18r,a1p19r,a1p20r,a1p21r,a1p22r,a1p23r,a1p24r,a1p25r,a1p26r,a1p27r,a1p28r,a1p29r,a1p30r,a1p31r,a1p32r,a1p33r,a1p34r,a1p35r,a1p00i,a1p01i,a1p02i,a1p03i,a1p04i,a1p05i,a1p06i,a1p07i,a1p08i,a1p09i,a1p10i,a1p11i,a1p12i,a1p13i,a1p14i,a1p15i,a1p16i,a1p17i,a1p18i,a1p19i,a1p20i,a1p21i,a1p22i,a1p23i,a1p24i,a1p25i,a1p26i,a1p27i,a1p28i,a1p29i,a1p30i,a1p31i,a1p32i,a1p33i,a1p34i,a1p35i,bjmodn00,bjmodn01,bjmodn02,bjmodn03,bjmodn04,bjmodn05,bjmodn06,bjmodn07,bjmodn08,bjmodn09,bjmodn10,bjmodn11,bjmodn12,bjmodn13,bjmodn14,bjmodn15,bjmodn16,bjmodn17,bjmodn18,bjmodn19,bjmodn20,bjmodn21,bjmodn22,bjmodn23,bjmodn24,bjmodn25,bjmodn26,bjmodn27,bjmodn28,bjmodn29,bjmodn30,bjmodn31,bjmodn32,bjmodn33,bjmodn34,bjmodn35,cy_r00,cy_r01,cy_r02,cy_r03,cy_r04,cy_r05,cy_r06,cy_r07,cy_r08,cy_r09,cy_r10,cy_r11,cy_r12,cy_r13,cy_r14,cy_r15,cy_r16,cy_r17,cy_r18,cy_r19,cy_r20,cy_r21,cy_r22,cy_r23,cy_r24,cy_r25,cy_r26,cy_r27,cy_r28,cy_r29,cy_r30,cy_r31,cy_r32,cy_r33,cy_r34,cy_r35,cy_i00,cy_i01,cy_i02,cy_i03,cy_i04,cy_i05,cy_i06,cy_i07,cy_i08,cy_i09,cy_i10,cy_i11,cy_i12,cy_i13,cy_i14,cy_i15,cy_i16,cy_i17,cy_i18,cy_i19,cy_i20,cy_i21,cy_i22,cy_i23,cy_i24,cy_i25,cy_i26,cy_i27,cy_i28,cy_i29,cy_i30,cy_i31,cy_i32,cy_i33,cy_i34,cy_i35) default(shared) schedule(static)
-#endif
+#endif	// USE_PTHREAD
+
+	/* Move this cleanup-pass-specific khi setting here, since need regular-pass khi value for above inits: */
+	if(!full_pass)
+	{
+		khi = 1;
+	}
 
 #ifdef USE_PTHREAD
 	/* Populate the thread-specific data structs - use the invariant terms as memchecks: */
@@ -1232,11 +1377,19 @@ for(outer=0; outer <= 1; outer++)
 		ASSERT(HERE, tdat[ithread].wt0 == wt0, "thread-local memcheck fail!");
 		ASSERT(HERE, tdat[ithread].wt1 == wt1, "thread-local memcheck fail!");
 		ASSERT(HERE, tdat[ithread].si  == si, "thread-local memcheck fail!");
+	#ifdef USE_SSE2
 		ASSERT(HERE, tdat[ithread].r00 == __r0 + ithread*cslots_in_local_store, "thread-local memcheck fail!");
 		tmp = tdat[ithread].half_arr;
-		ASSERT(HERE, ((tmp-1)->re == crnd && (tmp-1)->im == crnd), "thread-local memcheck failed!");
-		ASSERT(HERE, (tmp+10)->re * (tmp+14)->re == 1.0 && (tmp+10)->im * (tmp+14)->im == 1.0, "thread-local memcheck failed!");
-
+		ASSERT(HERE, ((tmp-1)->d0 == crnd && (tmp-1)->d1 == crnd), "thread-local memcheck failed!");
+	  #ifdef USE_AVX
+		// Grab some elt of base-data [offset by, say, +32] and mpy by its inverse [+16 further]
+		dtmp = (tmp+40)->d0 * (tmp+56)->d0;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+		dtmp = (tmp+40)->d1 * (tmp+56)->d1;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+	  #else	// SSE2:
+		dtmp = (tmp+10)->d0 * (tmp+14)->d0;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+		dtmp = (tmp+10)->d1 * (tmp+14)->d1;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+	  #endif
+	#endif
 		tdat[ithread].bjmodn00 = _bjmodn00[ithread];
 		tdat[ithread].bjmodn01 = _bjmodn01[ithread];
 		tdat[ithread].bjmodn02 = _bjmodn02[ithread];
@@ -1323,13 +1476,13 @@ for(outer=0; outer <= 1; outer++)
 
 #else
 
-    for(ithread = 0; ithread < CY_THREADS; ithread++)
-    {
+	for(ithread = 0; ithread < CY_THREADS; ithread++)
+	{
 		/***** DEC/HP CC doesn't properly copy init value of maxerr = 0 into threads,
 		so need to set once again explicitly for each: *****/
 		maxerr = 0.0;
 	#ifdef USE_SSE2
-		max_err->re = 0.0;	max_err->im = 0.0;
+	//	VEC_DBL_INIT(max_err, 0.0);	*** must do this in conjunction with thread-local-data-copy
 	#endif
 
 		i      = _i[ithread];	/* Pointer to the BASE and BASEINV arrays.	*/
@@ -1417,113 +1570,191 @@ for(outer=0; outer <= 1; outer++)
 			bjmodn34 = _bjmodn34[ithread];
 			bjmodn35 = _bjmodn35[ithread];
 		#endif
+			/* init carries	*/
+		#ifdef USE_AVX	// AVX and AVX2 both use 256-bit registers
+			cy_r00->d0 = _cy_r00[ithread];	cy_r00->d1 = _cy_r01[ithread];	cy_r00->d2 = _cy_r02[ithread];	cy_r00->d3 = _cy_r03[ithread];
+			cy_r04->d0 = _cy_r04[ithread];	cy_r04->d1 = _cy_r05[ithread];	cy_r04->d2 = _cy_r06[ithread];	cy_r04->d3 = _cy_r07[ithread];
+			cy_r08->d0 = _cy_r08[ithread];	cy_r08->d1 = _cy_r09[ithread];	cy_r08->d2 = _cy_r10[ithread];	cy_r08->d3 = _cy_r11[ithread];
+			cy_r12->d0 = _cy_r12[ithread];	cy_r12->d1 = _cy_r13[ithread];	cy_r12->d2 = _cy_r14[ithread];	cy_r12->d3 = _cy_r15[ithread];
+			cy_r16->d0 = _cy_r16[ithread];	cy_r16->d1 = _cy_r17[ithread];	cy_r16->d2 = _cy_r18[ithread];	cy_r16->d3 = _cy_r19[ithread];
+			cy_r20->d0 = _cy_r20[ithread];	cy_r20->d1 = _cy_r21[ithread];	cy_r20->d2 = _cy_r22[ithread];	cy_r20->d3 = _cy_r23[ithread];
+			cy_r24->d0 = _cy_r24[ithread];	cy_r24->d1 = _cy_r25[ithread];	cy_r24->d2 = _cy_r26[ithread];	cy_r24->d3 = _cy_r27[ithread];
+			cy_r28->d0 = _cy_r28[ithread];	cy_r28->d1 = _cy_r29[ithread];	cy_r28->d2 = _cy_r30[ithread];	cy_r28->d3 = _cy_r31[ithread];
+			cy_r32->d0 = _cy_r32[ithread];	cy_r32->d1 = _cy_r33[ithread];	cy_r32->d2 = _cy_r34[ithread];	cy_r32->d3 = _cy_r35[ithread];
+		#elif defined(USE_SSE2)
+			cy_r00->d0 = _cy_r00[ithread];	cy_r00->d1 = _cy_r01[ithread];
+			cy_r02->d0 = _cy_r02[ithread];	cy_r02->d1 = _cy_r03[ithread];
+			cy_r04->d0 = _cy_r04[ithread];	cy_r04->d1 = _cy_r05[ithread];
+			cy_r06->d0 = _cy_r06[ithread];	cy_r06->d1 = _cy_r07[ithread];
+			cy_r08->d0 = _cy_r08[ithread];	cy_r08->d1 = _cy_r09[ithread];
+			cy_r10->d0 = _cy_r10[ithread];	cy_r10->d1 = _cy_r11[ithread];
+			cy_r12->d0 = _cy_r12[ithread];	cy_r12->d1 = _cy_r13[ithread];
+			cy_r14->d0 = _cy_r14[ithread];	cy_r14->d1 = _cy_r15[ithread];
+			cy_r16->d0 = _cy_r16[ithread];	cy_r16->d1 = _cy_r17[ithread];
+			cy_r18->d0 = _cy_r18[ithread];	cy_r18->d1 = _cy_r19[ithread];
+			cy_r20->d0 = _cy_r20[ithread];	cy_r20->d1 = _cy_r21[ithread];
+			cy_r22->d0 = _cy_r22[ithread];	cy_r22->d1 = _cy_r23[ithread];
+			cy_r24->d0 = _cy_r24[ithread];	cy_r24->d1 = _cy_r25[ithread];
+			cy_r26->d0 = _cy_r26[ithread];	cy_r26->d1 = _cy_r27[ithread];
+			cy_r28->d0 = _cy_r28[ithread];	cy_r28->d1 = _cy_r29[ithread];
+			cy_r30->d0 = _cy_r30[ithread];	cy_r30->d1 = _cy_r31[ithread];
+			cy_r32->d0 = _cy_r32[ithread];	cy_r32->d1 = _cy_r33[ithread];
+			cy_r34->d0 = _cy_r34[ithread];	cy_r34->d1 = _cy_r35[ithread];
+		#else
+			cy_r00 = _cy_r00[ithread];
+			cy_r01 = _cy_r01[ithread];
+			cy_r02 = _cy_r02[ithread];
+			cy_r03 = _cy_r03[ithread];
+			cy_r04 = _cy_r04[ithread];
+			cy_r05 = _cy_r05[ithread];
+			cy_r06 = _cy_r06[ithread];
+			cy_r07 = _cy_r07[ithread];
+			cy_r08 = _cy_r08[ithread];
+			cy_r09 = _cy_r09[ithread];
+			cy_r10 = _cy_r10[ithread];
+			cy_r11 = _cy_r11[ithread];
+			cy_r12 = _cy_r12[ithread];
+			cy_r13 = _cy_r13[ithread];
+			cy_r14 = _cy_r14[ithread];
+			cy_r15 = _cy_r15[ithread];
+			cy_r16 = _cy_r16[ithread];
+			cy_r17 = _cy_r17[ithread];
+			cy_r18 = _cy_r18[ithread];
+			cy_r19 = _cy_r19[ithread];
+			cy_r20 = _cy_r20[ithread];
+			cy_r21 = _cy_r21[ithread];
+			cy_r22 = _cy_r22[ithread];
+			cy_r23 = _cy_r23[ithread];
+			cy_r24 = _cy_r24[ithread];
+			cy_r25 = _cy_r25[ithread];
+			cy_r26 = _cy_r26[ithread];
+			cy_r27 = _cy_r27[ithread];
+			cy_r28 = _cy_r28[ithread];
+			cy_r29 = _cy_r29[ithread];
+			cy_r30 = _cy_r30[ithread];
+			cy_r31 = _cy_r31[ithread];
+			cy_r32 = _cy_r32[ithread];
+			cy_r33 = _cy_r33[ithread];
+			cy_r34 = _cy_r34[ithread];
+			cy_r35 = _cy_r35[ithread];
+		#endif
 		}
+		else	/* Fermat-mod uses "double helix" carry scheme - 2 separate sets of real/imaginary carries for right-angle transform, plus "twisted" wraparound step. */
+		{
+			/* init carries	*/
+		#ifdef USE_AVX	// AVX and AVX2 both use 256-bit registers
+			cy_r00->d0 = _cy_r00[ithread];	cy_r00->d1 = _cy_r01[ithread];	cy_r00->d2 = _cy_r02[ithread];	cy_r00->d3 = _cy_r03[ithread];
+			cy_r04->d0 = _cy_r04[ithread];	cy_r04->d1 = _cy_r05[ithread];	cy_r04->d2 = _cy_r06[ithread];	cy_r04->d3 = _cy_r07[ithread];
+			cy_r08->d0 = _cy_r08[ithread];	cy_r08->d1 = _cy_r09[ithread];	cy_r08->d2 = _cy_r10[ithread];	cy_r08->d3 = _cy_r11[ithread];
+			cy_r12->d0 = _cy_r12[ithread];	cy_r12->d1 = _cy_r13[ithread];	cy_r12->d2 = _cy_r14[ithread];	cy_r12->d3 = _cy_r15[ithread];
+			cy_r16->d0 = _cy_r16[ithread];	cy_r16->d1 = _cy_r17[ithread];	cy_r16->d2 = _cy_r18[ithread];	cy_r16->d3 = _cy_r19[ithread];
+			cy_r20->d0 = _cy_r20[ithread];	cy_r20->d1 = _cy_r21[ithread];	cy_r20->d2 = _cy_r22[ithread];	cy_r20->d3 = _cy_r23[ithread];
+			cy_r24->d0 = _cy_r24[ithread];	cy_r24->d1 = _cy_r25[ithread];	cy_r24->d2 = _cy_r26[ithread];	cy_r24->d3 = _cy_r27[ithread];
+			cy_r28->d0 = _cy_r28[ithread];	cy_r28->d1 = _cy_r29[ithread];	cy_r28->d2 = _cy_r30[ithread];	cy_r28->d3 = _cy_r31[ithread];
+			cy_r32->d0 = _cy_r32[ithread];	cy_r32->d1 = _cy_r33[ithread];	cy_r32->d2 = _cy_r34[ithread];	cy_r32->d3 = _cy_r35[ithread];
 
-	#ifdef USE_SSE2
-		/* init carries	*/
-		cy_r00->re = _cy_r00[ithread];	cy_i00->re = _cy_i00[ithread];
-		cy_r00->im = _cy_r01[ithread];	cy_i00->im = _cy_i01[ithread];
-		cy_r02->re = _cy_r02[ithread];	cy_i02->re = _cy_i02[ithread];
-		cy_r02->im = _cy_r03[ithread];	cy_i02->im = _cy_i03[ithread];
-		cy_r04->re = _cy_r04[ithread];	cy_i04->re = _cy_i04[ithread];
-		cy_r04->im = _cy_r05[ithread];	cy_i04->im = _cy_i05[ithread];
-		cy_r06->re = _cy_r06[ithread];	cy_i06->re = _cy_i06[ithread];
-		cy_r06->im = _cy_r07[ithread];	cy_i06->im = _cy_i07[ithread];
-		cy_r08->re = _cy_r08[ithread];	cy_i08->re = _cy_i08[ithread];
-		cy_r08->im = _cy_r09[ithread];	cy_i08->im = _cy_i09[ithread];
-		cy_r10->re = _cy_r10[ithread];	cy_i10->re = _cy_i10[ithread];
-		cy_r10->im = _cy_r11[ithread];	cy_i10->im = _cy_i11[ithread];
-		cy_r12->re = _cy_r12[ithread];	cy_i12->re = _cy_i12[ithread];
-		cy_r12->im = _cy_r13[ithread];	cy_i12->im = _cy_i13[ithread];
-		cy_r14->re = _cy_r14[ithread];	cy_i14->re = _cy_i14[ithread];
-		cy_r14->im = _cy_r15[ithread];	cy_i14->im = _cy_i15[ithread];
-		cy_r16->re = _cy_r16[ithread];	cy_i16->re = _cy_i16[ithread];
-		cy_r16->im = _cy_r17[ithread];	cy_i16->im = _cy_i17[ithread];
-		cy_r18->re = _cy_r18[ithread];	cy_i18->re = _cy_i18[ithread];
-		cy_r18->im = _cy_r19[ithread];	cy_i18->im = _cy_i19[ithread];
-		cy_r20->re = _cy_r20[ithread];	cy_i20->re = _cy_i20[ithread];
-		cy_r20->im = _cy_r21[ithread];	cy_i20->im = _cy_i21[ithread];
-		cy_r22->re = _cy_r22[ithread];	cy_i22->re = _cy_i22[ithread];
-		cy_r22->im = _cy_r23[ithread];	cy_i22->im = _cy_i23[ithread];
-		cy_r24->re = _cy_r24[ithread];	cy_i24->re = _cy_i24[ithread];
-		cy_r24->im = _cy_r25[ithread];	cy_i24->im = _cy_i25[ithread];
-		cy_r26->re = _cy_r26[ithread];	cy_i26->re = _cy_i26[ithread];
-		cy_r26->im = _cy_r27[ithread];	cy_i26->im = _cy_i27[ithread];
-		cy_r28->re = _cy_r28[ithread];	cy_i28->re = _cy_i28[ithread];
-		cy_r28->im = _cy_r29[ithread];	cy_i28->im = _cy_i29[ithread];
-		cy_r30->re = _cy_r30[ithread];	cy_i30->re = _cy_i30[ithread];
-		cy_r30->im = _cy_r31[ithread];	cy_i30->im = _cy_i31[ithread];
-		cy_r32->re = _cy_r32[ithread];	cy_i32->re = _cy_i32[ithread];
-		cy_r32->im = _cy_r33[ithread];	cy_i32->im = _cy_i33[ithread];
-		cy_r34->re = _cy_r34[ithread];	cy_i34->re = _cy_i34[ithread];
-		cy_r34->im = _cy_r35[ithread];	cy_i34->im = _cy_i35[ithread];
-	#else
-		/* init carries	*/
-		cy_r00 = _cy_r00[ithread];	cy_i00 = _cy_i00[ithread];
-		cy_r01 = _cy_r01[ithread];	cy_i01 = _cy_i01[ithread];
-		cy_r02 = _cy_r02[ithread];	cy_i02 = _cy_i02[ithread];
-		cy_r03 = _cy_r03[ithread];	cy_i03 = _cy_i03[ithread];
-		cy_r04 = _cy_r04[ithread];	cy_i04 = _cy_i04[ithread];
-		cy_r05 = _cy_r05[ithread];	cy_i05 = _cy_i05[ithread];
-		cy_r06 = _cy_r06[ithread];	cy_i06 = _cy_i06[ithread];
-		cy_r07 = _cy_r07[ithread];	cy_i07 = _cy_i07[ithread];
-		cy_r08 = _cy_r08[ithread];	cy_i08 = _cy_i08[ithread];
-		cy_r09 = _cy_r09[ithread];	cy_i09 = _cy_i09[ithread];
-		cy_r10 = _cy_r10[ithread];	cy_i10 = _cy_i10[ithread];
-		cy_r11 = _cy_r11[ithread];	cy_i11 = _cy_i11[ithread];
-		cy_r12 = _cy_r12[ithread];	cy_i12 = _cy_i12[ithread];
-		cy_r13 = _cy_r13[ithread];	cy_i13 = _cy_i13[ithread];
-		cy_r14 = _cy_r14[ithread];	cy_i14 = _cy_i14[ithread];
-		cy_r15 = _cy_r15[ithread];	cy_i15 = _cy_i15[ithread];
-		cy_r16 = _cy_r16[ithread];	cy_i16 = _cy_i16[ithread];
-		cy_r17 = _cy_r17[ithread];	cy_i17 = _cy_i17[ithread];
-		cy_r18 = _cy_r18[ithread];	cy_i18 = _cy_i18[ithread];
-		cy_r19 = _cy_r19[ithread];	cy_i19 = _cy_i19[ithread];
-		cy_r20 = _cy_r20[ithread];	cy_i20 = _cy_i20[ithread];
-		cy_r21 = _cy_r21[ithread];	cy_i21 = _cy_i21[ithread];
-		cy_r22 = _cy_r22[ithread];	cy_i22 = _cy_i22[ithread];
-		cy_r23 = _cy_r23[ithread];	cy_i23 = _cy_i23[ithread];
-		cy_r24 = _cy_r24[ithread];	cy_i24 = _cy_i24[ithread];
-		cy_r25 = _cy_r25[ithread];	cy_i25 = _cy_i25[ithread];
-		cy_r26 = _cy_r26[ithread];	cy_i26 = _cy_i26[ithread];
-		cy_r27 = _cy_r27[ithread];	cy_i27 = _cy_i27[ithread];
-		cy_r28 = _cy_r28[ithread];	cy_i28 = _cy_i28[ithread];
-		cy_r29 = _cy_r29[ithread];	cy_i29 = _cy_i29[ithread];
-		cy_r30 = _cy_r30[ithread];	cy_i30 = _cy_i30[ithread];
-		cy_r31 = _cy_r31[ithread];	cy_i31 = _cy_i31[ithread];
-		cy_r32 = _cy_r32[ithread];	cy_i32 = _cy_i32[ithread];
-		cy_r33 = _cy_r33[ithread];	cy_i33 = _cy_i33[ithread];
-		cy_r34 = _cy_r34[ithread];	cy_i34 = _cy_i34[ithread];
-		cy_r35 = _cy_r35[ithread];	cy_i35 = _cy_i35[ithread];
-	#endif
+			cy_i00->d0 = _cy_i00[ithread];	cy_i00->d1 = _cy_i01[ithread];	cy_i00->d2 = _cy_i02[ithread];	cy_i00->d3 = _cy_i03[ithread];
+			cy_i04->d0 = _cy_i04[ithread];	cy_i04->d1 = _cy_i05[ithread];	cy_i04->d2 = _cy_i06[ithread];	cy_i04->d3 = _cy_i07[ithread];
+			cy_i08->d0 = _cy_i08[ithread];	cy_i08->d1 = _cy_i09[ithread];	cy_i08->d2 = _cy_i10[ithread];	cy_i08->d3 = _cy_i11[ithread];
+			cy_i12->d0 = _cy_i12[ithread];	cy_i12->d1 = _cy_i13[ithread];	cy_i12->d2 = _cy_i14[ithread];	cy_i12->d3 = _cy_i15[ithread];
+			cy_i16->d0 = _cy_i16[ithread];	cy_i16->d1 = _cy_i17[ithread];	cy_i16->d2 = _cy_i18[ithread];	cy_i16->d3 = _cy_i19[ithread];
+			cy_i20->d0 = _cy_i20[ithread];	cy_i20->d1 = _cy_i21[ithread];	cy_i20->d2 = _cy_i22[ithread];	cy_i20->d3 = _cy_i23[ithread];
+			cy_i24->d0 = _cy_i24[ithread];	cy_i24->d1 = _cy_i25[ithread];	cy_i24->d2 = _cy_i26[ithread];	cy_i24->d3 = _cy_i27[ithread];
+			cy_i28->d0 = _cy_i28[ithread];	cy_i28->d1 = _cy_i29[ithread];	cy_i28->d2 = _cy_i30[ithread];	cy_i28->d3 = _cy_i31[ithread];
+			cy_i32->d0 = _cy_i32[ithread];	cy_i32->d1 = _cy_i33[ithread];	cy_i32->d2 = _cy_i34[ithread];	cy_i32->d3 = _cy_i35[ithread];
+		#elif defined(USE_SSE2)
+			// Carry pattern for Fermat-mod in SSE2 mode is kinda funky:
+			cy_r00->d0 = _cy_r00[ithread];;	cy_r00->d1 = _cy_i00[ithread];;
+			cy_r02->d0 = _cy_r01[ithread];;	cy_r02->d1 = _cy_i01[ithread];;
+			cy_r04->d0 = _cy_r02[ithread];;	cy_r04->d1 = _cy_i02[ithread];;
+			cy_r06->d0 = _cy_r03[ithread];;	cy_r06->d1 = _cy_i03[ithread];;
+			cy_r08->d0 = _cy_r04[ithread];;	cy_r08->d1 = _cy_i04[ithread];;
+			cy_r10->d0 = _cy_r05[ithread];;	cy_r10->d1 = _cy_i05[ithread];;
+			cy_r12->d0 = _cy_r06[ithread];;	cy_r12->d1 = _cy_i06[ithread];;
+			cy_r14->d0 = _cy_r07[ithread];;	cy_r14->d1 = _cy_i07[ithread];;
+			cy_r16->d0 = _cy_r08[ithread];;	cy_r16->d1 = _cy_i08[ithread];;
+			cy_r18->d0 = _cy_r09[ithread];;	cy_r18->d1 = _cy_i09[ithread];;
+			cy_r20->d0 = _cy_r10[ithread];;	cy_r20->d1 = _cy_i10[ithread];;
+			cy_r22->d0 = _cy_r11[ithread];;	cy_r22->d1 = _cy_i11[ithread];;
+			cy_r24->d0 = _cy_r12[ithread];;	cy_r24->d1 = _cy_i12[ithread];;
+			cy_r26->d0 = _cy_r13[ithread];;	cy_r26->d1 = _cy_i13[ithread];;
+			cy_r28->d0 = _cy_r14[ithread];;	cy_r28->d1 = _cy_i14[ithread];;
+			cy_r30->d0 = _cy_r15[ithread];;	cy_r30->d1 = _cy_i15[ithread];;
+			cy_r32->d0 = _cy_r16[ithread];;	cy_r32->d1 = _cy_i16[ithread];;
+			cy_r34->d0 = _cy_r17[ithread];;	cy_r34->d1 = _cy_i17[ithread];;
+			cy_i00->d0 = _cy_r18[ithread];;	cy_i00->d1 = _cy_i18[ithread];;
+			cy_i02->d0 = _cy_r19[ithread];;	cy_i02->d1 = _cy_i19[ithread];;
+			cy_i04->d0 = _cy_r20[ithread];;	cy_i04->d1 = _cy_i20[ithread];;
+			cy_i06->d0 = _cy_r21[ithread];;	cy_i06->d1 = _cy_i21[ithread];;
+			cy_i08->d0 = _cy_r22[ithread];;	cy_i08->d1 = _cy_i22[ithread];;
+			cy_i10->d0 = _cy_r23[ithread];;	cy_i10->d1 = _cy_i23[ithread];;
+			cy_i12->d0 = _cy_r24[ithread];;	cy_i12->d1 = _cy_i24[ithread];;
+			cy_i14->d0 = _cy_r25[ithread];;	cy_i14->d1 = _cy_i25[ithread];;
+			cy_i16->d0 = _cy_r26[ithread];;	cy_i16->d1 = _cy_i26[ithread];;
+			cy_i18->d0 = _cy_r27[ithread];;	cy_i18->d1 = _cy_i27[ithread];;
+			cy_i20->d0 = _cy_r28[ithread];;	cy_i20->d1 = _cy_i28[ithread];;
+			cy_i22->d0 = _cy_r29[ithread];;	cy_i22->d1 = _cy_i29[ithread];;
+			cy_i24->d0 = _cy_r30[ithread];;	cy_i24->d1 = _cy_i30[ithread];;
+			cy_i26->d0 = _cy_r31[ithread];;	cy_i26->d1 = _cy_i31[ithread];;
+			cy_i28->d0 = _cy_r32[ithread];;	cy_i28->d1 = _cy_i32[ithread];;
+			cy_i30->d0 = _cy_r33[ithread];;	cy_i30->d1 = _cy_i33[ithread];;
+			cy_i32->d0 = _cy_r34[ithread];;	cy_i32->d1 = _cy_i34[ithread];;
+			cy_i34->d0 = _cy_r35[ithread];;	cy_i34->d1 = _cy_i35[ithread];;
+		#else
+			cy_r00 = _cy_r00[ithread];	cy_i00 = _cy_i00[ithread];
+			cy_r01 = _cy_r01[ithread];	cy_i01 = _cy_i01[ithread];
+			cy_r02 = _cy_r02[ithread];	cy_i02 = _cy_i02[ithread];
+			cy_r03 = _cy_r03[ithread];	cy_i03 = _cy_i03[ithread];
+			cy_r04 = _cy_r04[ithread];	cy_i04 = _cy_i04[ithread];
+			cy_r05 = _cy_r05[ithread];	cy_i05 = _cy_i05[ithread];
+			cy_r06 = _cy_r06[ithread];	cy_i06 = _cy_i06[ithread];
+			cy_r07 = _cy_r07[ithread];	cy_i07 = _cy_i07[ithread];
+			cy_r08 = _cy_r08[ithread];	cy_i08 = _cy_i08[ithread];
+			cy_r09 = _cy_r09[ithread];	cy_i09 = _cy_i09[ithread];
+			cy_r10 = _cy_r10[ithread];	cy_i10 = _cy_i10[ithread];
+			cy_r11 = _cy_r11[ithread];	cy_i11 = _cy_i11[ithread];
+			cy_r12 = _cy_r12[ithread];	cy_i12 = _cy_i12[ithread];
+			cy_r13 = _cy_r13[ithread];	cy_i13 = _cy_i13[ithread];
+			cy_r14 = _cy_r14[ithread];	cy_i14 = _cy_i14[ithread];
+			cy_r15 = _cy_r15[ithread];	cy_i15 = _cy_i15[ithread];
+			cy_r16 = _cy_r16[ithread];	cy_i16 = _cy_i16[ithread];
+			cy_r17 = _cy_r17[ithread];	cy_i17 = _cy_i17[ithread];
+			cy_r18 = _cy_r18[ithread];	cy_i18 = _cy_i18[ithread];
+			cy_r19 = _cy_r19[ithread];	cy_i19 = _cy_i19[ithread];
+			cy_r20 = _cy_r20[ithread];	cy_i20 = _cy_i20[ithread];
+			cy_r21 = _cy_r21[ithread];	cy_i21 = _cy_i21[ithread];
+			cy_r22 = _cy_r22[ithread];	cy_i22 = _cy_i22[ithread];
+			cy_r23 = _cy_r23[ithread];	cy_i23 = _cy_i23[ithread];
+			cy_r24 = _cy_r24[ithread];	cy_i24 = _cy_i24[ithread];
+			cy_r25 = _cy_r25[ithread];	cy_i25 = _cy_i25[ithread];
+			cy_r26 = _cy_r26[ithread];	cy_i26 = _cy_i26[ithread];
+			cy_r27 = _cy_r27[ithread];	cy_i27 = _cy_i27[ithread];
+			cy_r28 = _cy_r28[ithread];	cy_i28 = _cy_i28[ithread];
+			cy_r29 = _cy_r29[ithread];	cy_i29 = _cy_i29[ithread];
+			cy_r30 = _cy_r30[ithread];	cy_i30 = _cy_i30[ithread];
+			cy_r31 = _cy_r31[ithread];	cy_i31 = _cy_i31[ithread];
+			cy_r32 = _cy_r32[ithread];	cy_i32 = _cy_i32[ithread];
+			cy_r33 = _cy_r33[ithread];	cy_i33 = _cy_i33[ithread];
+			cy_r34 = _cy_r34[ithread];	cy_i34 = _cy_i34[ithread];
+			cy_r35 = _cy_r35[ithread];	cy_i35 = _cy_i35[ithread];
+		#endif
+		}
 
 		for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		{
-		#ifdef USE_SSE2
-			for(j = jstart; j < jhi; j += 4)
-			{
-			/* In SSE2 mode, data are arranged in [re0,re1,im0,im1] quartets, not the usual [re0,im0],[re1,im1] pairs.
+			/* In SIMD mode, data are arranged in [re_0,...,re_n-1,im_0,...,im_n-1] groups, not the usual [re_0,im_0],...,[re_n-1,im_n-1] pairs.
 			Thus we can still increment the j-index as if stepping through the residue array-of-doubles in strides of 2,
-			but to point to the proper real datum, we need to bit-reverse bits <0:1> of j, i.e. [0,1,2,3] ==> [0,2,1,3].
+			but to point to the proper real datum, we need to index-map e.g. [0,1,2,3] ==> [0,2,1,3] in 2-way SIMD mode.
+			(But only ever need to explicitly do this in debug mode).
 			*/
-				j1 = (j & mask01) + br4[j&3];
-		#elif defined(USE_SSE2)	/* This allows us to use #if 0 above and disable sse2-based *computation*, while still using sse2-style data layout */
-			for(j = jstart; j < jhi; j += 2)	/* Each inner loop execution processes (radix(1)*nwt) array data.	*/
-			{
-				j1 = (j & mask01) + br4[j&3];
-		#else
-			for(j = jstart; j < jhi; j += 2)	/* Each inner loop execution processes (radix(1)*nwt) array data.	*/
+			for(j = jstart; j < jhi; j += stride)
 			{
 				j1 =  j;
-		#endif
 				j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-				j2 = j1+RE_IM_STRIDE;
+				j2 = j1 + RE_IM_STRIDE;
 		/*
 		!...gather the needed data (36 64-bit complex, i.e. 72 64-bit reals) and do a radix-36 DIT transform...
 		*/
-#ifdef CTIME
-	clock2 = clock();
-#endif
 		/*
 		Twiddleless version requires us to swap inputs as follows:
 		indices  0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35
@@ -1680,269 +1911,329 @@ for(outer=0; outer <= 1; outer++)
 
 		#endif
 
-#ifdef CTIME
-	clock3 = clock();
-	dt_fwd += (double)(clock3 - clock2);
-	clock2 = clock3;
-#endif
 	/*...Now do the carries. Since the outputs would
 		normally be getting dispatched to 36 separate blocks of the A-array, we need 36 separate carries.	*/
 
-//		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
-//		{
-#if 1
-				l= j & (nwt-1);
-				n_minus_sil   = n-si[l  ];
-				n_minus_silp1 = n-si[l+1];
-				sinwt   = si[nwt-l  ];
-				sinwtm1 = si[nwt-l-1];
+	// Placeholder for future Fermat-mod stuff
+	//	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
+	//	{
+		#ifdef USE_AVX
 
-				wtl     =wt0[    l  ];
-				wtn     =wt0[nwt-l  ]*scale;	/* Include 1/(n/2) scale factor of inverse transform here...	*/
-				wtlp1   =wt0[    l+1];
-				wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
+			add1 = &wt1[col  ];
+			add2 = &wt1[co2-1];
+			add3 = &wt1[co3-1];
 
-		/************ See the radix16_ditN_cy_dif1 routine for details on how the SSE2 carry stuff works **********/
-		#ifdef USE_SSE2
+			l= j & (nwt-1);						tmp = half_arr + 64;	/* ptr to local storage for the doubled wtl,wtn terms: */
+			n_minus_sil  ->d0 = n-si[l  ];		tmp->d0 = wt0[    l  ];
+			n_minus_silp1->d0 = n-si[l+1];		tmp->d1 = wt0[nwt-l  ]*scale;
+			sinwt        ->d0 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
+			sinwtm1      ->d0 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
 
-				tmp = half_arr + 16;	/* ptr to local storage for the doubled wtl,wtn terms: */
-				tmp->re = wtl;		tmp->im = wtl;	++tmp;
-				tmp->re = wtn;		tmp->im = wtn;	++tmp;
-				tmp->re = wtlp1;	tmp->im = wtlp1;++tmp;
-				tmp->re = wtnm1;	tmp->im = wtnm1;
+			l= (j+2) & (nwt-1);					++tmp;	/* Get ready for next 4 weights-related doubles... */
+			n_minus_sil  ->d1 = n-si[l  ];		tmp->d0 = wt0[    l  ];
+			n_minus_silp1->d1 = n-si[l+1];		tmp->d1 = wt0[nwt-l  ]*scale;
+			sinwt        ->d1 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
+			sinwtm1      ->d1 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
 
-				add1 = &wt1[col  ];	/* Don't use add0 here, to avoid need to reload main-array address */
-				add2 = &wt1[co2-1];
-				add3 = &wt1[co3-1];
+			l= (j+4) & (nwt-1);					++tmp;	/* Get ready for next 4 weights-related doubles... */
+			n_minus_sil  ->d2 = n-si[l  ];		tmp->d0 = wt0[    l  ];
+			n_minus_silp1->d2 = n-si[l+1];		tmp->d1 = wt0[nwt-l  ]*scale;
+			sinwt        ->d2 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
+			sinwtm1      ->d2 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
 
-		  #if defined(COMPILER_TYPE_MSVC)
+			l= (j+6) & (nwt-1);					++tmp;	/* Get ready for next 4 weights-related doubles... */
+			n_minus_sil  ->d3 = n-si[l  ];		tmp->d0 = wt0[    l  ];
+			n_minus_silp1->d3 = n-si[l+1];		tmp->d1 = wt0[nwt-l  ]*scale;
+			sinwt        ->d3 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
+			sinwtm1      ->d3 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
 
-			#ifdef ERR_CHECK_ALL
-				SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy_r00,cy_r02,bjmodn00);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p04r,add1,add2,add3,cy_r04,cy_r06,bjmodn04);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p08r,add1,add2,add3,cy_r08,cy_r10,bjmodn08);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p12r,add1,add2,add3,cy_r12,cy_r14,bjmodn12);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p16r,add1,add2,add3,cy_r16,cy_r18,bjmodn16);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p20r,add1,add2,add3,cy_r20,cy_r22,bjmodn20);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p24r,add1,add2,add3,cy_r24,cy_r26,bjmodn24);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p28r,add1,add2,add3,cy_r28,cy_r30,bjmodn28);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p32r,add1,add2,add3,cy_r32,cy_r34,bjmodn32);
-			#else
-				SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy_r00,cy_r02,bjmodn00);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p04r,add1,add2,add3,cy_r04,cy_r06,bjmodn04);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p08r,add1,add2,add3,cy_r08,cy_r10,bjmodn08);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p12r,add1,add2,add3,cy_r12,cy_r14,bjmodn12);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p16r,add1,add2,add3,cy_r16,cy_r18,bjmodn16);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p20r,add1,add2,add3,cy_r20,cy_r22,bjmodn20);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p24r,add1,add2,add3,cy_r24,cy_r26,bjmodn24);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p28r,add1,add2,add3,cy_r28,cy_r30,bjmodn28);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p32r,add1,add2,add3,cy_r32,cy_r34,bjmodn32);
-			#endif
+			AVX_cmplx_carry_norm_errcheck0_X4(s1p00r,add1,add2,add3,cy_r00,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			AVX_cmplx_carry_norm_errcheck1_X4(s1p04r,add1,add2,add3,cy_r04,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			AVX_cmplx_carry_norm_errcheck1_X4(s1p08r,add1,add2,add3,cy_r08,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			AVX_cmplx_carry_norm_errcheck1_X4(s1p12r,add1,add2,add3,cy_r12,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			AVX_cmplx_carry_norm_errcheck1_X4(s1p16r,add1,add2,add3,cy_r16,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			AVX_cmplx_carry_norm_errcheck1_X4(s1p20r,add1,add2,add3,cy_r20,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			AVX_cmplx_carry_norm_errcheck1_X4(s1p24r,add1,add2,add3,cy_r24,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			AVX_cmplx_carry_norm_errcheck1_X4(s1p28r,add1,add2,add3,cy_r28,bjmodn28,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			AVX_cmplx_carry_norm_errcheck1_X4(s1p32r,add1,add2,add3,cy_r32,bjmodn32,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
 
-		  #else	/* GCC-style inline ASM: */
+			co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
+						// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
 
-			#if ERR_CHECK_ALL
-				SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy_r00,cy_r02,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p04r,add1,add2,add3,cy_r04,cy_r06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p08r,add1,add2,add3,cy_r08,cy_r10,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p12r,add1,add2,add3,cy_r12,cy_r14,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p16r,add1,add2,add3,cy_r16,cy_r18,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p20r,add1,add2,add3,cy_r20,cy_r22,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p24r,add1,add2,add3,cy_r24,cy_r26,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p28r,add1,add2,add3,cy_r28,cy_r30,bjmodn28,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p32r,add1,add2,add3,cy_r32,cy_r34,bjmodn32,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-			#else
-				SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy_r00,cy_r02,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p04r,add1,add2,add3,cy_r04,cy_r06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p08r,add1,add2,add3,cy_r08,cy_r10,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p12r,add1,add2,add3,cy_r12,cy_r14,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p16r,add1,add2,add3,cy_r16,cy_r18,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p20r,add1,add2,add3,cy_r20,cy_r22,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p24r,add1,add2,add3,cy_r24,cy_r26,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p28r,add1,add2,add3,cy_r28,cy_r30,bjmodn28,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p32r,add1,add2,add3,cy_r32,cy_r34,bjmodn32,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-			#endif
+			i =((uint32)(sw - *bjmodn00) >> 31);	/* get ready for the next set...	*/
 
-				/* Bizarre - when I disabled the diagnostic prints above and below, the resulting GCC build immediately gave
-					fatal roundoff errors starting on iteration #5 - so insert the bogus [never taken] if() here as a workaround.
-					Equally bizarre, inserting the bogus if() *before* the 4 carry-macro calls above gave the correct result as well,
-					but ran fully 10% slower. Good old GCC...
-				Dec 2011: Suspect this was a side effect of my gcc asm macros not including cc/memory in the clobber list, because
-				the code now runs correctly without this hack ... but the code runs sign. faster with iy left in. So still "bizarre" but in a new way.
-				*/
+		#elif defined(USE_SSE2)
 
-		  #endif
+			l= j & (nwt-1);
+			n_minus_sil   = n-si[l  ];
+			n_minus_silp1 = n-si[l+1];
+			sinwt   = si[nwt-l  ];
+			sinwtm1 = si[nwt-l-1];
 
-				l= (j+2) & (nwt-1);			/* We want (S*J mod N) - SI(L) for all 16 carries, so precompute	*/
-				n_minus_sil   = n-si[l  ];		/* N - SI(L) and for each J, find N - (B*J mod N) - SI(L)		*/
-				n_minus_silp1 = n-si[l+1];		/* For the inverse weight, want (S*(N - J) mod N) - SI(NWT - L) =	*/
-				sinwt   = si[nwt-l  ];		/*	= N - (S*J mod N) - SI(NWT - L) = (B*J mod N) - SI(NWT - L).	*/
-				sinwtm1 = si[nwt-l-1];
+			wtl     =wt0[    l  ];
+			wtn     =wt0[nwt-l  ]*scale;	/* Include 1/(n/2) scale factor of inverse transform here...	*/
+			wtlp1   =wt0[    l+1];
+			wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
-				wtl     =wt0[    l  ];
-				wtn     =wt0[nwt-l  ]*scale;	/* Include 1/(n/2) scale factor of inverse transform here...	*/
-				wtlp1   =wt0[    l+1];
-				wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
+			/************ See the radix16_ditN_cy_dif1 routine for details on how the SSE2 carry stuff works **********/
 
-				tmp = half_arr + 16;	/* ptr to local storage for the doubled wtl,wtn terms: */
-				tmp->re = wtl;		tmp->im = wtl;	++tmp;
-				tmp->re = wtn;		tmp->im = wtn;	++tmp;
-				tmp->re = wtlp1;	tmp->im = wtlp1;++tmp;
-				tmp->re = wtnm1;	tmp->im = wtnm1;
+			ctmp = (struct complex *)half_arr + 16;	/* ptr to local storage for the doubled wtl,wtn terms: */
+			ctmp->re = wtl;		ctmp->im = wtl;	++ctmp;
+			ctmp->re = wtn;		ctmp->im = wtn;	++ctmp;
+			ctmp->re = wtlp1;	ctmp->im = wtlp1;++ctmp;
+			ctmp->re = wtnm1;	ctmp->im = wtnm1;
 
-			/*	i =((uint32)(sw - *bjmodn0) >> 31);	Don't need this here, since no special index-0 macro in the set below */
-
-				co2 = co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
-							(and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).	*/
-
-				add1 = &wt1[col  ];
-				add2 = &wt1[co2-1];
+			add1 = &wt1[col  ];	/* Don't use add0 here, to avoid need to reload main-array address */
+			add2 = &wt1[co2-1];
+			add3 = &wt1[co3-1];
 
 		  #if defined(COMPILER_TYPE_MSVC)
 
-			#if ERR_CHECK_ALL
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p00r,add1,add2,     cy_r00,cy_r02,bjmodn00);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p04r,add1,add2,     cy_r04,cy_r06,bjmodn04);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p08r,add1,add2,     cy_r08,cy_r10,bjmodn08);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p12r,add1,add2,     cy_r12,cy_r14,bjmodn12);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p16r,add1,add2,     cy_r16,cy_r18,bjmodn16);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p20r,add1,add2,     cy_r20,cy_r22,bjmodn20);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p24r,add1,add2,     cy_r24,cy_r26,bjmodn24);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p28r,add1,add2,     cy_r28,cy_r30,bjmodn28);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p32r,add1,add2,     cy_r32,cy_r34,bjmodn32);
-			#else
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p00r,add1,add2,     cy_r00,cy_r02,bjmodn00);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p04r,add1,add2,     cy_r04,cy_r06,bjmodn04);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p08r,add1,add2,     cy_r08,cy_r10,bjmodn08);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p12r,add1,add2,     cy_r12,cy_r14,bjmodn12);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p16r,add1,add2,     cy_r16,cy_r18,bjmodn16);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p20r,add1,add2,     cy_r20,cy_r22,bjmodn20);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p24r,add1,add2,     cy_r24,cy_r26,bjmodn24);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p28r,add1,add2,     cy_r28,cy_r30,bjmodn28);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p32r,add1,add2,     cy_r32,cy_r34,bjmodn32);
-			#endif
+		   #ifdef ERR_CHECK_ALL
+			SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy_r00,cy_r02,bjmodn00);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p04r,add1,add2,add3,cy_r04,cy_r06,bjmodn04);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p08r,add1,add2,add3,cy_r08,cy_r10,bjmodn08);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p12r,add1,add2,add3,cy_r12,cy_r14,bjmodn12);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p16r,add1,add2,add3,cy_r16,cy_r18,bjmodn16);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p20r,add1,add2,add3,cy_r20,cy_r22,bjmodn20);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p24r,add1,add2,add3,cy_r24,cy_r26,bjmodn24);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p28r,add1,add2,add3,cy_r28,cy_r30,bjmodn28);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p32r,add1,add2,add3,cy_r32,cy_r34,bjmodn32);
+		   #else
+			SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy_r00,cy_r02,bjmodn00);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p04r,add1,add2,add3,cy_r04,cy_r06,bjmodn04);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p08r,add1,add2,add3,cy_r08,cy_r10,bjmodn08);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p12r,add1,add2,add3,cy_r12,cy_r14,bjmodn12);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p16r,add1,add2,add3,cy_r16,cy_r18,bjmodn16);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p20r,add1,add2,add3,cy_r20,cy_r22,bjmodn20);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p24r,add1,add2,add3,cy_r24,cy_r26,bjmodn24);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p28r,add1,add2,add3,cy_r28,cy_r30,bjmodn28);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p32r,add1,add2,add3,cy_r32,cy_r34,bjmodn32);
+		   #endif
 
 		  #else	/* GCC-style inline ASM: */
-			#if ERR_CHECK_ALL
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p00r,add1,add2,     cy_r00,cy_r02,bjmodn00,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p04r,add1,add2,     cy_r04,cy_r06,bjmodn04,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p08r,add1,add2,     cy_r08,cy_r10,bjmodn08,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p12r,add1,add2,     cy_r12,cy_r14,bjmodn12,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p16r,add1,add2,     cy_r16,cy_r18,bjmodn16,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p20r,add1,add2,     cy_r20,cy_r22,bjmodn20,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p24r,add1,add2,     cy_r24,cy_r26,bjmodn24,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p28r,add1,add2,     cy_r28,cy_r30,bjmodn28,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p32r,add1,add2,     cy_r32,cy_r34,bjmodn32,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-			#else
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p00r,add1,add2,     cy_r00,cy_r02,bjmodn00,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p04r,add1,add2,     cy_r04,cy_r06,bjmodn04,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p08r,add1,add2,     cy_r08,cy_r10,bjmodn08,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p12r,add1,add2,     cy_r12,cy_r14,bjmodn12,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p16r,add1,add2,     cy_r16,cy_r18,bjmodn16,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p20r,add1,add2,     cy_r20,cy_r22,bjmodn20,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p24r,add1,add2,     cy_r24,cy_r26,bjmodn24,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p28r,add1,add2,     cy_r28,cy_r30,bjmodn28,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p32r,add1,add2,     cy_r32,cy_r34,bjmodn32,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-			#endif
+
+		   #ifdef ERR_CHECK_ALL
+			SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy_r00,cy_r02,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p04r,add1,add2,add3,cy_r04,cy_r06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p08r,add1,add2,add3,cy_r08,cy_r10,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p12r,add1,add2,add3,cy_r12,cy_r14,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p16r,add1,add2,add3,cy_r16,cy_r18,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p20r,add1,add2,add3,cy_r20,cy_r22,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p24r,add1,add2,add3,cy_r24,cy_r26,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p28r,add1,add2,add3,cy_r28,cy_r30,bjmodn28,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p32r,add1,add2,add3,cy_r32,cy_r34,bjmodn32,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		   #else
+			SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy_r00,cy_r02,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p04r,add1,add2,add3,cy_r04,cy_r06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p08r,add1,add2,add3,cy_r08,cy_r10,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p12r,add1,add2,add3,cy_r12,cy_r14,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p16r,add1,add2,add3,cy_r16,cy_r18,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p20r,add1,add2,add3,cy_r20,cy_r22,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p24r,add1,add2,add3,cy_r24,cy_r26,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p28r,add1,add2,add3,cy_r28,cy_r30,bjmodn28,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p32r,add1,add2,add3,cy_r32,cy_r34,bjmodn32,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		   #endif
+
+			/* Bizarre - when I disabled the diagnostic prints above and below, the resulting GCC build immediately gave
+				fatal roundoff errors starting on iteration #5 - so insert the bogus [never taken] if() here as a workaround.
+				Equally bizarre, inserting the bogus if() *before* the 4 carry-macro calls above gave the correct result as well,
+				but ran fully 10% slower. Good old GCC...
+			Dec 2011: Suspect this was a side effect of my gcc asm macros not including cc/memory in the clobber list, because
+			the code now runs correctly without this hack ... but the code runs sign. faster with iy left in. So still "bizarre" but in a new way.
+			*/
+
 		  #endif
 
-				i =((uint32)(sw - *bjmodn00) >> 31);	/* get ready for the next set...	*/
+			l= (j+2) & (nwt-1);			/* We want (S*J mod N) - SI(L) for all 16 carries, so precompute	*/
+			n_minus_sil   = n-si[l  ];		/* N - SI(L) and for each J, find N - (B*J mod N) - SI(L)		*/
+			n_minus_silp1 = n-si[l+1];		/* For the inverse weight, want (S*(N - J) mod N) - SI(NWT - L) =	*/
+			sinwt   = si[nwt-l  ];		/*	= N - (S*J mod N) - SI(NWT - L) = (B*J mod N) - SI(NWT - L).	*/
+			sinwtm1 = si[nwt-l-1];
 
-		#else	/* #ifdef USE_SSE2 */
+			wtl     =wt0[    l  ];
+			wtn     =wt0[nwt-l  ]*scale;	/* Include 1/(n/2) scale factor of inverse transform here...	*/
+			wtlp1   =wt0[    l+1];
+			wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
-				/*...set0 is slightly different from others:	*/
-			   cmplx_carry_norm_errcheck0(a1p00r,a1p00i,cy_r00,bjmodn00   );
-				cmplx_carry_norm_errcheck(a1p01r,a1p01i,cy_r01,bjmodn01,1 );
-				cmplx_carry_norm_errcheck(a1p02r,a1p02i,cy_r02,bjmodn02,2 );
-				cmplx_carry_norm_errcheck(a1p03r,a1p03i,cy_r03,bjmodn03,3 );
-				cmplx_carry_norm_errcheck(a1p04r,a1p04i,cy_r04,bjmodn04,4 );
-				cmplx_carry_norm_errcheck(a1p05r,a1p05i,cy_r05,bjmodn05,5 );
-				cmplx_carry_norm_errcheck(a1p06r,a1p06i,cy_r06,bjmodn06,6 );
-				cmplx_carry_norm_errcheck(a1p07r,a1p07i,cy_r07,bjmodn07,7 );
-				cmplx_carry_norm_errcheck(a1p08r,a1p08i,cy_r08,bjmodn08,8 );
-				cmplx_carry_norm_errcheck(a1p09r,a1p09i,cy_r09,bjmodn09,9 );
-				cmplx_carry_norm_errcheck(a1p10r,a1p10i,cy_r10,bjmodn10,10);
-				cmplx_carry_norm_errcheck(a1p11r,a1p11i,cy_r11,bjmodn11,11);
-				cmplx_carry_norm_errcheck(a1p12r,a1p12i,cy_r12,bjmodn12,12);
-				cmplx_carry_norm_errcheck(a1p13r,a1p13i,cy_r13,bjmodn13,13);
-				cmplx_carry_norm_errcheck(a1p14r,a1p14i,cy_r14,bjmodn14,14);
-				cmplx_carry_norm_errcheck(a1p15r,a1p15i,cy_r15,bjmodn15,15);
-				cmplx_carry_norm_errcheck(a1p16r,a1p16i,cy_r16,bjmodn16,16);
-				cmplx_carry_norm_errcheck(a1p17r,a1p17i,cy_r17,bjmodn17,17);
-				cmplx_carry_norm_errcheck(a1p18r,a1p18i,cy_r18,bjmodn18,18);
-				cmplx_carry_norm_errcheck(a1p19r,a1p19i,cy_r19,bjmodn19,19);
-				cmplx_carry_norm_errcheck(a1p20r,a1p20i,cy_r20,bjmodn20,20);
-				cmplx_carry_norm_errcheck(a1p21r,a1p21i,cy_r21,bjmodn21,21);
-				cmplx_carry_norm_errcheck(a1p22r,a1p22i,cy_r22,bjmodn22,22);
-				cmplx_carry_norm_errcheck(a1p23r,a1p23i,cy_r23,bjmodn23,23);
-				cmplx_carry_norm_errcheck(a1p24r,a1p24i,cy_r24,bjmodn24,24);
-				cmplx_carry_norm_errcheck(a1p25r,a1p25i,cy_r25,bjmodn25,25);
-				cmplx_carry_norm_errcheck(a1p26r,a1p26i,cy_r26,bjmodn26,26);
-				cmplx_carry_norm_errcheck(a1p27r,a1p27i,cy_r27,bjmodn27,27);
-				cmplx_carry_norm_errcheck(a1p28r,a1p28i,cy_r28,bjmodn28,28);
-				cmplx_carry_norm_errcheck(a1p29r,a1p29i,cy_r29,bjmodn29,29);
-				cmplx_carry_norm_errcheck(a1p30r,a1p30i,cy_r30,bjmodn30,30);
-				cmplx_carry_norm_errcheck(a1p31r,a1p31i,cy_r31,bjmodn31,31);
-				cmplx_carry_norm_errcheck(a1p32r,a1p32i,cy_r32,bjmodn32,32);
-				cmplx_carry_norm_errcheck(a1p33r,a1p33i,cy_r33,bjmodn33,33);
-				cmplx_carry_norm_errcheck(a1p34r,a1p34i,cy_r34,bjmodn34,34);
-				cmplx_carry_norm_errcheck(a1p35r,a1p35i,cy_r35,bjmodn35,35);
+			ctmp = (struct complex *)half_arr + 16;	/* ptr to local storage for the doubled wtl,wtn terms: */
+			ctmp->re = wtl;		ctmp->im = wtl;	++ctmp;
+			ctmp->re = wtn;		ctmp->im = wtn;	++ctmp;
+			ctmp->re = wtlp1;	ctmp->im = wtlp1;++ctmp;
+			ctmp->re = wtnm1;	ctmp->im = wtnm1;
 
-				i =((uint32)(sw - bjmodn00) >> 31);	/* get ready for the next set...	*/
-				co2=co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
-					 and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).	*/
+		/*	i =((uint32)(sw - *bjmodn0) >> 31);	Don't need this here, since no special index-0 macro in the set below */
+
+			co2 = co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
+						(and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).	*/
+
+			add1 = &wt1[col  ];
+			add2 = &wt1[co2-1];
+
+		  #if defined(COMPILER_TYPE_MSVC)
+
+		   #ifdef ERR_CHECK_ALL
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p00r,add1,add2,     cy_r00,cy_r02,bjmodn00);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p04r,add1,add2,     cy_r04,cy_r06,bjmodn04);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p08r,add1,add2,     cy_r08,cy_r10,bjmodn08);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p12r,add1,add2,     cy_r12,cy_r14,bjmodn12);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p16r,add1,add2,     cy_r16,cy_r18,bjmodn16);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p20r,add1,add2,     cy_r20,cy_r22,bjmodn20);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p24r,add1,add2,     cy_r24,cy_r26,bjmodn24);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p28r,add1,add2,     cy_r28,cy_r30,bjmodn28);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p32r,add1,add2,     cy_r32,cy_r34,bjmodn32);
+		   #else
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p00r,add1,add2,     cy_r00,cy_r02,bjmodn00);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p04r,add1,add2,     cy_r04,cy_r06,bjmodn04);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p08r,add1,add2,     cy_r08,cy_r10,bjmodn08);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p12r,add1,add2,     cy_r12,cy_r14,bjmodn12);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p16r,add1,add2,     cy_r16,cy_r18,bjmodn16);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p20r,add1,add2,     cy_r20,cy_r22,bjmodn20);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p24r,add1,add2,     cy_r24,cy_r26,bjmodn24);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p28r,add1,add2,     cy_r28,cy_r30,bjmodn28);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p32r,add1,add2,     cy_r32,cy_r34,bjmodn32);
+		   #endif
+
+		  #else	/* GCC-style inline ASM: */
+
+		   #ifdef ERR_CHECK_ALL
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p00r,add1,add2,     cy_r00,cy_r02,bjmodn00,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p04r,add1,add2,     cy_r04,cy_r06,bjmodn04,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p08r,add1,add2,     cy_r08,cy_r10,bjmodn08,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p12r,add1,add2,     cy_r12,cy_r14,bjmodn12,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p16r,add1,add2,     cy_r16,cy_r18,bjmodn16,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p20r,add1,add2,     cy_r20,cy_r22,bjmodn20,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p24r,add1,add2,     cy_r24,cy_r26,bjmodn24,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p28r,add1,add2,     cy_r28,cy_r30,bjmodn28,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p32r,add1,add2,     cy_r32,cy_r34,bjmodn32,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		   #else
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p00r,add1,add2,     cy_r00,cy_r02,bjmodn00,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p04r,add1,add2,     cy_r04,cy_r06,bjmodn04,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p08r,add1,add2,     cy_r08,cy_r10,bjmodn08,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p12r,add1,add2,     cy_r12,cy_r14,bjmodn12,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p16r,add1,add2,     cy_r16,cy_r18,bjmodn16,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p20r,add1,add2,     cy_r20,cy_r22,bjmodn20,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p24r,add1,add2,     cy_r24,cy_r26,bjmodn24,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p28r,add1,add2,     cy_r28,cy_r30,bjmodn28,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p32r,add1,add2,     cy_r32,cy_r34,bjmodn32,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		   #endif
+
+		  #endif
+
+			i =((uint32)(sw - *bjmodn00) >> 31);	/* get ready for the next set...	*/
+
+		#else	// Scalar-double mode:
+
+			l= j & (nwt-1);
+			n_minus_sil   = n-si[l  ];
+			n_minus_silp1 = n-si[l+1];
+			sinwt   = si[nwt-l  ];
+			sinwtm1 = si[nwt-l-1];
+
+			wtl     =wt0[    l  ];
+			wtn     =wt0[nwt-l  ]*scale;	/* Include 1/(n/2) scale factor of inverse transform here...	*/
+			wtlp1   =wt0[    l+1];
+			wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
+
+			/*...set0 is slightly different from others:	*/
+		   cmplx_carry_norm_errcheck0(a1p00r,a1p00i,cy_r00,bjmodn00   );
+			cmplx_carry_norm_errcheck(a1p01r,a1p01i,cy_r01,bjmodn01,1 );
+			cmplx_carry_norm_errcheck(a1p02r,a1p02i,cy_r02,bjmodn02,2 );
+			cmplx_carry_norm_errcheck(a1p03r,a1p03i,cy_r03,bjmodn03,3 );
+			cmplx_carry_norm_errcheck(a1p04r,a1p04i,cy_r04,bjmodn04,4 );
+			cmplx_carry_norm_errcheck(a1p05r,a1p05i,cy_r05,bjmodn05,5 );
+			cmplx_carry_norm_errcheck(a1p06r,a1p06i,cy_r06,bjmodn06,6 );
+			cmplx_carry_norm_errcheck(a1p07r,a1p07i,cy_r07,bjmodn07,7 );
+			cmplx_carry_norm_errcheck(a1p08r,a1p08i,cy_r08,bjmodn08,8 );
+			cmplx_carry_norm_errcheck(a1p09r,a1p09i,cy_r09,bjmodn09,9 );
+			cmplx_carry_norm_errcheck(a1p10r,a1p10i,cy_r10,bjmodn10,10);
+			cmplx_carry_norm_errcheck(a1p11r,a1p11i,cy_r11,bjmodn11,11);
+			cmplx_carry_norm_errcheck(a1p12r,a1p12i,cy_r12,bjmodn12,12);
+			cmplx_carry_norm_errcheck(a1p13r,a1p13i,cy_r13,bjmodn13,13);
+			cmplx_carry_norm_errcheck(a1p14r,a1p14i,cy_r14,bjmodn14,14);
+			cmplx_carry_norm_errcheck(a1p15r,a1p15i,cy_r15,bjmodn15,15);
+			cmplx_carry_norm_errcheck(a1p16r,a1p16i,cy_r16,bjmodn16,16);
+			cmplx_carry_norm_errcheck(a1p17r,a1p17i,cy_r17,bjmodn17,17);
+			cmplx_carry_norm_errcheck(a1p18r,a1p18i,cy_r18,bjmodn18,18);
+			cmplx_carry_norm_errcheck(a1p19r,a1p19i,cy_r19,bjmodn19,19);
+			cmplx_carry_norm_errcheck(a1p20r,a1p20i,cy_r20,bjmodn20,20);
+			cmplx_carry_norm_errcheck(a1p21r,a1p21i,cy_r21,bjmodn21,21);
+			cmplx_carry_norm_errcheck(a1p22r,a1p22i,cy_r22,bjmodn22,22);
+			cmplx_carry_norm_errcheck(a1p23r,a1p23i,cy_r23,bjmodn23,23);
+			cmplx_carry_norm_errcheck(a1p24r,a1p24i,cy_r24,bjmodn24,24);
+			cmplx_carry_norm_errcheck(a1p25r,a1p25i,cy_r25,bjmodn25,25);
+			cmplx_carry_norm_errcheck(a1p26r,a1p26i,cy_r26,bjmodn26,26);
+			cmplx_carry_norm_errcheck(a1p27r,a1p27i,cy_r27,bjmodn27,27);
+			cmplx_carry_norm_errcheck(a1p28r,a1p28i,cy_r28,bjmodn28,28);
+			cmplx_carry_norm_errcheck(a1p29r,a1p29i,cy_r29,bjmodn29,29);
+			cmplx_carry_norm_errcheck(a1p30r,a1p30i,cy_r30,bjmodn30,30);
+			cmplx_carry_norm_errcheck(a1p31r,a1p31i,cy_r31,bjmodn31,31);
+			cmplx_carry_norm_errcheck(a1p32r,a1p32i,cy_r32,bjmodn32,32);
+			cmplx_carry_norm_errcheck(a1p33r,a1p33i,cy_r33,bjmodn33,33);
+			cmplx_carry_norm_errcheck(a1p34r,a1p34i,cy_r34,bjmodn34,34);
+			cmplx_carry_norm_errcheck(a1p35r,a1p35i,cy_r35,bjmodn35,35);
+
+			i =((uint32)(sw - bjmodn00) >> 31);	/* get ready for the next set...	*/
+			co2=co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
+				 and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).	*/
+
+		#endif	// USE_AVX?
+
+	//	}
+	//	else	/* MODULUS_TYPE_FERMAT */
+	//	{
+
+		#ifdef USE_AVX
+
+
+		#elif defined(USE_SSE2)
+
+
+		#elif 0	// Scalar-double mode:
+
+			ASSERT(HERE, 0, "Fermat-mod carries not yet supported for SSE2!");
+			fermat_carry_norm_errcheck(a1p00r,a1p00i,cy_r00,cy_i00,ii00,bjmodn00,0 *NDIVR);
+			fermat_carry_norm_errcheck(a1p01r,a1p01i,cy_r01,cy_i01,ii01,bjmodn01,1 *NDIVR);
+			fermat_carry_norm_errcheck(a1p02r,a1p02i,cy_r02,cy_i02,ii02,bjmodn02,2 *NDIVR);
+			fermat_carry_norm_errcheck(a1p03r,a1p03i,cy_r03,cy_i03,ii03,bjmodn03,3 *NDIVR);
+			fermat_carry_norm_errcheck(a1p04r,a1p04i,cy_r04,cy_i04,ii04,bjmodn04,4 *NDIVR);
+			fermat_carry_norm_errcheck(a1p05r,a1p05i,cy_r05,cy_i05,ii05,bjmodn05,5 *NDIVR);
+			fermat_carry_norm_errcheck(a1p06r,a1p06i,cy_r06,cy_i06,ii06,bjmodn06,6 *NDIVR);
+			fermat_carry_norm_errcheck(a1p07r,a1p07i,cy_r07,cy_i07,ii07,bjmodn07,7 *NDIVR);
+			fermat_carry_norm_errcheck(a1p08r,a1p08i,cy_r08,cy_i08,ii08,bjmodn08,8 *NDIVR);
+			fermat_carry_norm_errcheck(a1p09r,a1p09i,cy_r09,cy_i09,ii09,bjmodn09,9 *NDIVR);
+			fermat_carry_norm_errcheck(a1p10r,a1p10i,cy_r10,cy_i10,ii10,bjmodn10,10*NDIVR);
+			fermat_carry_norm_errcheck(a1p11r,a1p11i,cy_r11,cy_i11,ii11,bjmodn11,11*NDIVR);
+			fermat_carry_norm_errcheck(a1p12r,a1p12i,cy_r12,cy_i12,ii12,bjmodn12,12*NDIVR);
+			fermat_carry_norm_errcheck(a1p13r,a1p13i,cy_r13,cy_i13,ii13,bjmodn13,13*NDIVR);
+			fermat_carry_norm_errcheck(a1p14r,a1p14i,cy_r14,cy_i14,ii14,bjmodn14,14*NDIVR);
+			fermat_carry_norm_errcheck(a1p15r,a1p15i,cy_r15,cy_i15,ii15,bjmodn15,15*NDIVR);
+			fermat_carry_norm_errcheck(a1p16r,a1p16i,cy_r16,cy_i16,ii16,bjmodn16,16*NDIVR);
+			fermat_carry_norm_errcheck(a1p17r,a1p17i,cy_r17,cy_i17,ii17,bjmodn17,17*NDIVR);
+			fermat_carry_norm_errcheck(a1p18r,a1p18i,cy_r18,cy_i18,ii18,bjmodn18,18*NDIVR);
+			fermat_carry_norm_errcheck(a1p19r,a1p19i,cy_r19,cy_i19,ii19,bjmodn19,19*NDIVR);
+			fermat_carry_norm_errcheck(a1p20r,a1p20i,cy_r20,cy_i20,ii20,bjmodn20,20*NDIVR);
+			fermat_carry_norm_errcheck(a1p21r,a1p21i,cy_r21,cy_i21,ii21,bjmodn21,21*NDIVR);
+			fermat_carry_norm_errcheck(a1p22r,a1p22i,cy_r22,cy_i22,ii22,bjmodn22,22*NDIVR);
+			fermat_carry_norm_errcheck(a1p23r,a1p23i,cy_r23,cy_i23,ii23,bjmodn23,23*NDIVR);
+			fermat_carry_norm_errcheck(a1p24r,a1p24i,cy_r24,cy_i24,ii24,bjmodn24,24*NDIVR);
+			fermat_carry_norm_errcheck(a1p25r,a1p25i,cy_r25,cy_i25,ii25,bjmodn25,25*NDIVR);
+			fermat_carry_norm_errcheck(a1p26r,a1p26i,cy_r26,cy_i26,ii26,bjmodn26,26*NDIVR);
+			fermat_carry_norm_errcheck(a1p27r,a1p27i,cy_r27,cy_i27,ii27,bjmodn27,27*NDIVR);
+			fermat_carry_norm_errcheck(a1p28r,a1p28i,cy_r28,cy_i28,ii28,bjmodn28,28*NDIVR);
+			fermat_carry_norm_errcheck(a1p29r,a1p29i,cy_r29,cy_i29,ii29,bjmodn29,29*NDIVR);
+			fermat_carry_norm_errcheck(a1p30r,a1p30i,cy_r30,cy_i30,ii30,bjmodn30,30*NDIVR);
+			fermat_carry_norm_errcheck(a1p31r,a1p31i,cy_r31,cy_i31,ii31,bjmodn31,31*NDIVR);
+			fermat_carry_norm_errcheck(a1p32r,a1p32i,cy_r32,cy_i32,ii32,bjmodn32,32*NDIVR);
+			fermat_carry_norm_errcheck(a1p33r,a1p33i,cy_r33,cy_i33,ii33,bjmodn33,33*NDIVR);
+			fermat_carry_norm_errcheck(a1p34r,a1p34i,cy_r34,cy_i34,ii34,bjmodn34,34*NDIVR);
+			fermat_carry_norm_errcheck(a1p35r,a1p35i,cy_r35,cy_i35,ii35,bjmodn35,35*NDIVR);
 
 		#endif	/* #ifdef USE_SSE2 */
-#elif 0
-			}
-			else
-			{
-				ASSERT(HERE, 0, "Fermat-mod carries not yet supported for SSE2!");
-				fermat_carry_norm_errcheck(a1p00r,a1p00i,cy_r00,cy_i00,ii00,bjmodn00,0 *NDIVR);
-				fermat_carry_norm_errcheck(a1p01r,a1p01i,cy_r01,cy_i01,ii01,bjmodn01,1 *NDIVR);
-				fermat_carry_norm_errcheck(a1p02r,a1p02i,cy_r02,cy_i02,ii02,bjmodn02,2 *NDIVR);
-				fermat_carry_norm_errcheck(a1p03r,a1p03i,cy_r03,cy_i03,ii03,bjmodn03,3 *NDIVR);
-				fermat_carry_norm_errcheck(a1p04r,a1p04i,cy_r04,cy_i04,ii04,bjmodn04,4 *NDIVR);
-				fermat_carry_norm_errcheck(a1p05r,a1p05i,cy_r05,cy_i05,ii05,bjmodn05,5 *NDIVR);
-				fermat_carry_norm_errcheck(a1p06r,a1p06i,cy_r06,cy_i06,ii06,bjmodn06,6 *NDIVR);
-				fermat_carry_norm_errcheck(a1p07r,a1p07i,cy_r07,cy_i07,ii07,bjmodn07,7 *NDIVR);
-				fermat_carry_norm_errcheck(a1p08r,a1p08i,cy_r08,cy_i08,ii08,bjmodn08,8 *NDIVR);
-				fermat_carry_norm_errcheck(a1p09r,a1p09i,cy_r09,cy_i09,ii09,bjmodn09,9 *NDIVR);
-				fermat_carry_norm_errcheck(a1p10r,a1p10i,cy_r10,cy_i10,ii10,bjmodn10,10*NDIVR);
-				fermat_carry_norm_errcheck(a1p11r,a1p11i,cy_r11,cy_i11,ii11,bjmodn11,11*NDIVR);
-				fermat_carry_norm_errcheck(a1p12r,a1p12i,cy_r12,cy_i12,ii12,bjmodn12,12*NDIVR);
-				fermat_carry_norm_errcheck(a1p13r,a1p13i,cy_r13,cy_i13,ii13,bjmodn13,13*NDIVR);
-				fermat_carry_norm_errcheck(a1p14r,a1p14i,cy_r14,cy_i14,ii14,bjmodn14,14*NDIVR);
-				fermat_carry_norm_errcheck(a1p15r,a1p15i,cy_r15,cy_i15,ii15,bjmodn15,15*NDIVR);
-				fermat_carry_norm_errcheck(a1p16r,a1p16i,cy_r16,cy_i16,ii16,bjmodn16,16*NDIVR);
-				fermat_carry_norm_errcheck(a1p17r,a1p17i,cy_r17,cy_i17,ii17,bjmodn17,17*NDIVR);
-				fermat_carry_norm_errcheck(a1p18r,a1p18i,cy_r18,cy_i18,ii18,bjmodn18,18*NDIVR);
-				fermat_carry_norm_errcheck(a1p19r,a1p19i,cy_r19,cy_i19,ii19,bjmodn19,19*NDIVR);
-				fermat_carry_norm_errcheck(a1p20r,a1p20i,cy_r20,cy_i20,ii20,bjmodn20,20*NDIVR);
-				fermat_carry_norm_errcheck(a1p21r,a1p21i,cy_r21,cy_i21,ii21,bjmodn21,21*NDIVR);
-				fermat_carry_norm_errcheck(a1p22r,a1p22i,cy_r22,cy_i22,ii22,bjmodn22,22*NDIVR);
-				fermat_carry_norm_errcheck(a1p23r,a1p23i,cy_r23,cy_i23,ii23,bjmodn23,23*NDIVR);
-				fermat_carry_norm_errcheck(a1p24r,a1p24i,cy_r24,cy_i24,ii24,bjmodn24,24*NDIVR);
-				fermat_carry_norm_errcheck(a1p25r,a1p25i,cy_r25,cy_i25,ii25,bjmodn25,25*NDIVR);
-				fermat_carry_norm_errcheck(a1p26r,a1p26i,cy_r26,cy_i26,ii26,bjmodn26,26*NDIVR);
-				fermat_carry_norm_errcheck(a1p27r,a1p27i,cy_r27,cy_i27,ii27,bjmodn27,27*NDIVR);
-				fermat_carry_norm_errcheck(a1p28r,a1p28i,cy_r28,cy_i28,ii28,bjmodn28,28*NDIVR);
-				fermat_carry_norm_errcheck(a1p29r,a1p29i,cy_r29,cy_i29,ii29,bjmodn29,29*NDIVR);
-				fermat_carry_norm_errcheck(a1p30r,a1p30i,cy_r30,cy_i30,ii30,bjmodn30,30*NDIVR);
-				fermat_carry_norm_errcheck(a1p31r,a1p31i,cy_r31,cy_i31,ii31,bjmodn31,31*NDIVR);
-				fermat_carry_norm_errcheck(a1p32r,a1p32i,cy_r32,cy_i32,ii32,bjmodn32,32*NDIVR);
-				fermat_carry_norm_errcheck(a1p33r,a1p33i,cy_r33,cy_i33,ii33,bjmodn33,33*NDIVR);
-				fermat_carry_norm_errcheck(a1p34r,a1p34i,cy_r34,cy_i34,ii34,bjmodn34,34*NDIVR);
-				fermat_carry_norm_errcheck(a1p35r,a1p35i,cy_r35,cy_i35,ii35,bjmodn35,35*NDIVR);
-			}
-#endif
+
+	//	}	/* if(MODULUS_TYPE == ...) */
 
 		/*...The radix-36 DIF pass is here:	*/
-#ifdef CTIME
-	clock3 = clock();
-	dt_cy += (double)(clock3 - clock2);
-	clock2 = clock3;
-#endif
 
 		#ifdef USE_SSE2
 
@@ -2087,11 +2378,6 @@ for(outer=0; outer <= 1; outer++)
 
 		#endif
 
-#ifdef CTIME
-	clock3 = clock();
-	dt_inv += (double)(clock3 - clock2);
-	clock2 = clock3;
-#endif
 			}
 
 			if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
@@ -2107,86 +2393,179 @@ for(outer=0; outer <= 1; outer++)
 		/* At end of each thread-processed work chunk, dump the
 		carryouts into their non-thread-private array slots:
 		*/
-	#ifdef USE_SSE2
-		_cy_r00[ithread] = cy_r00->re;	_cy_i00[ithread] = cy_i00->re;
-		_cy_r01[ithread] = cy_r00->im;	_cy_i01[ithread] = cy_i00->im;
-		_cy_r02[ithread] = cy_r02->re;	_cy_i02[ithread] = cy_i02->re;
-		_cy_r03[ithread] = cy_r02->im;	_cy_i03[ithread] = cy_i02->im;
-		_cy_r04[ithread] = cy_r04->re;	_cy_i04[ithread] = cy_i04->re;
-		_cy_r05[ithread] = cy_r04->im;	_cy_i05[ithread] = cy_i04->im;
-		_cy_r06[ithread] = cy_r06->re;	_cy_i06[ithread] = cy_i06->re;
-		_cy_r07[ithread] = cy_r06->im;	_cy_i07[ithread] = cy_i06->im;
-		_cy_r08[ithread] = cy_r08->re;	_cy_i08[ithread] = cy_i08->re;
-		_cy_r09[ithread] = cy_r08->im;	_cy_i09[ithread] = cy_i08->im;
-		_cy_r10[ithread] = cy_r10->re;	_cy_i10[ithread] = cy_i10->re;
-		_cy_r11[ithread] = cy_r10->im;	_cy_i11[ithread] = cy_i10->im;
-		_cy_r12[ithread] = cy_r12->re;	_cy_i12[ithread] = cy_i12->re;
-		_cy_r13[ithread] = cy_r12->im;	_cy_i13[ithread] = cy_i12->im;
-		_cy_r14[ithread] = cy_r14->re;	_cy_i14[ithread] = cy_i14->re;
-		_cy_r15[ithread] = cy_r14->im;	_cy_i15[ithread] = cy_i14->im;
-		_cy_r16[ithread] = cy_r16->re;	_cy_i16[ithread] = cy_i16->re;
-		_cy_r17[ithread] = cy_r16->im;	_cy_i17[ithread] = cy_i16->im;
-		_cy_r18[ithread] = cy_r18->re;	_cy_i18[ithread] = cy_i18->re;
-		_cy_r19[ithread] = cy_r18->im;	_cy_i19[ithread] = cy_i18->im;
-		_cy_r20[ithread] = cy_r20->re;	_cy_i20[ithread] = cy_i20->re;
-		_cy_r21[ithread] = cy_r20->im;	_cy_i21[ithread] = cy_i20->im;
-		_cy_r22[ithread] = cy_r22->re;	_cy_i22[ithread] = cy_i22->re;
-		_cy_r23[ithread] = cy_r22->im;	_cy_i23[ithread] = cy_i22->im;
-		_cy_r24[ithread] = cy_r24->re;	_cy_i24[ithread] = cy_i24->re;
-		_cy_r25[ithread] = cy_r24->im;	_cy_i25[ithread] = cy_i24->im;
-		_cy_r26[ithread] = cy_r26->re;	_cy_i26[ithread] = cy_i26->re;
-		_cy_r27[ithread] = cy_r26->im;	_cy_i27[ithread] = cy_i26->im;
-		_cy_r28[ithread] = cy_r28->re;	_cy_i28[ithread] = cy_i28->re;
-		_cy_r29[ithread] = cy_r28->im;	_cy_i29[ithread] = cy_i28->im;
-		_cy_r30[ithread] = cy_r30->re;	_cy_i30[ithread] = cy_i30->re;
-		_cy_r31[ithread] = cy_r30->im;	_cy_i31[ithread] = cy_i30->im;
-		_cy_r32[ithread] = cy_r32->re;	_cy_i32[ithread] = cy_i32->re;
-		_cy_r33[ithread] = cy_r32->im;	_cy_i33[ithread] = cy_i32->im;
-		_cy_r34[ithread] = cy_r34->re;	_cy_i34[ithread] = cy_i34->re;
-		_cy_r35[ithread] = cy_r34->im;	_cy_i35[ithread] = cy_i34->im;
-
-		if(max_err->re > max_err->im)
-			maxerr = max_err->re;
+		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
+		{
+		#ifdef USE_AVX	// AVX and AVX2 both use 256-bit registers
+			_cy_r00[ithread] = cy_r00->d0;	_cy_r01[ithread] = cy_r00->d1;	_cy_r02[ithread] = cy_r00->d2;	_cy_r03[ithread] = cy_r00->d3;
+			_cy_r04[ithread] = cy_r04->d0;	_cy_r05[ithread] = cy_r04->d1;	_cy_r06[ithread] = cy_r04->d2;	_cy_r07[ithread] = cy_r04->d3;
+			_cy_r08[ithread] = cy_r08->d0;	_cy_r09[ithread] = cy_r08->d1;	_cy_r10[ithread] = cy_r08->d2;	_cy_r11[ithread] = cy_r08->d3;
+			_cy_r12[ithread] = cy_r12->d0;	_cy_r13[ithread] = cy_r12->d1;	_cy_r14[ithread] = cy_r12->d2;	_cy_r15[ithread] = cy_r12->d3;
+			_cy_r16[ithread] = cy_r16->d0;	_cy_r17[ithread] = cy_r16->d1;	_cy_r18[ithread] = cy_r16->d2;	_cy_r19[ithread] = cy_r16->d3;
+			_cy_r20[ithread] = cy_r20->d0;	_cy_r21[ithread] = cy_r20->d1;	_cy_r22[ithread] = cy_r20->d2;	_cy_r23[ithread] = cy_r20->d3;
+			_cy_r24[ithread] = cy_r24->d0;	_cy_r25[ithread] = cy_r24->d1;	_cy_r26[ithread] = cy_r24->d2;	_cy_r27[ithread] = cy_r24->d3;
+			_cy_r28[ithread] = cy_r28->d0;	_cy_r29[ithread] = cy_r28->d1;	_cy_r30[ithread] = cy_r28->d2;	_cy_r31[ithread] = cy_r28->d3;
+			_cy_r32[ithread] = cy_r32->d0;	_cy_r33[ithread] = cy_r32->d1;	_cy_r34[ithread] = cy_r32->d2;	_cy_r35[ithread] = cy_r32->d3;
+			maxerr = MAX( MAX(max_err->d0,max_err->d1) , MAX(max_err->d2,max_err->d3) );
+		#elif defined(USE_SSE2)
+			_cy_r00[ithread] = cy_r00->d0;	_cy_r01[ithread] = cy_r00->d1;
+			_cy_r02[ithread] = cy_r02->d0;	_cy_r03[ithread] = cy_r02->d1;
+			_cy_r04[ithread] = cy_r04->d0;	_cy_r05[ithread] = cy_r04->d1;
+			_cy_r06[ithread] = cy_r06->d0;	_cy_r07[ithread] = cy_r06->d1;
+			_cy_r08[ithread] = cy_r08->d0;	_cy_r09[ithread] = cy_r08->d1;
+			_cy_r10[ithread] = cy_r10->d0;	_cy_r11[ithread] = cy_r10->d1;
+			_cy_r12[ithread] = cy_r12->d0;	_cy_r13[ithread] = cy_r12->d1;
+			_cy_r14[ithread] = cy_r14->d0;	_cy_r15[ithread] = cy_r14->d1;
+			_cy_r16[ithread] = cy_r16->d0;	_cy_r17[ithread] = cy_r16->d1;
+			_cy_r18[ithread] = cy_r18->d0;	_cy_r19[ithread] = cy_r18->d1;
+			_cy_r20[ithread] = cy_r20->d0;	_cy_r21[ithread] = cy_r20->d1;
+			_cy_r22[ithread] = cy_r22->d0;	_cy_r23[ithread] = cy_r22->d1;
+			_cy_r24[ithread] = cy_r24->d0;	_cy_r25[ithread] = cy_r24->d1;
+			_cy_r26[ithread] = cy_r26->d0;	_cy_r27[ithread] = cy_r26->d1;
+			_cy_r28[ithread] = cy_r28->d0;	_cy_r29[ithread] = cy_r28->d1;
+			_cy_r30[ithread] = cy_r30->d0;	_cy_r31[ithread] = cy_r30->d1;
+			_cy_r32[ithread] = cy_r32->d0;	_cy_r33[ithread] = cy_r32->d1;
+			_cy_r34[ithread] = cy_r34->d0;	_cy_r35[ithread] = cy_r34->d1;
+			maxerr = MAX(max_err->d0,max_err->d1);
+		#else
+			_cy_r00[ithread] = cy_r00;
+			_cy_r01[ithread] = cy_r01;
+			_cy_r02[ithread] = cy_r02;
+			_cy_r03[ithread] = cy_r03;
+			_cy_r04[ithread] = cy_r04;
+			_cy_r05[ithread] = cy_r05;
+			_cy_r06[ithread] = cy_r06;
+			_cy_r07[ithread] = cy_r07;
+			_cy_r08[ithread] = cy_r08;
+			_cy_r09[ithread] = cy_r09;
+			_cy_r10[ithread] = cy_r10;
+			_cy_r11[ithread] = cy_r11;
+			_cy_r12[ithread] = cy_r12;
+			_cy_r13[ithread] = cy_r13;
+			_cy_r14[ithread] = cy_r14;
+			_cy_r15[ithread] = cy_r15;
+			_cy_r16[ithread] = cy_r16;
+			_cy_r17[ithread] = cy_r17;
+			_cy_r18[ithread] = cy_r18;
+			_cy_r19[ithread] = cy_r19;
+			_cy_r20[ithread] = cy_r20;
+			_cy_r21[ithread] = cy_r21;
+			_cy_r22[ithread] = cy_r22;
+			_cy_r23[ithread] = cy_r23;
+			_cy_r24[ithread] = cy_r24;
+			_cy_r25[ithread] = cy_r25;
+			_cy_r26[ithread] = cy_r26;
+			_cy_r27[ithread] = cy_r27;
+			_cy_r28[ithread] = cy_r28;
+			_cy_r29[ithread] = cy_r29;
+			_cy_r30[ithread] = cy_r30;
+			_cy_r31[ithread] = cy_r31;
+			_cy_r32[ithread] = cy_r32;
+			_cy_r33[ithread] = cy_r33;
+			_cy_r34[ithread] = cy_r34;
+			_cy_r35[ithread] = cy_r35;
+		#endif
+		}
 		else
-			maxerr = max_err->im;
-	#else
-		_cy_r00[ithread] = cy_r00;	_cy_i00[ithread] = cy_i00;
-		_cy_r01[ithread] = cy_r01;	_cy_i01[ithread] = cy_i01;
-		_cy_r02[ithread] = cy_r02;	_cy_i02[ithread] = cy_i02;
-		_cy_r03[ithread] = cy_r03;	_cy_i03[ithread] = cy_i03;
-		_cy_r04[ithread] = cy_r04;	_cy_i04[ithread] = cy_i04;
-		_cy_r05[ithread] = cy_r05;	_cy_i05[ithread] = cy_i05;
-		_cy_r06[ithread] = cy_r06;	_cy_i06[ithread] = cy_i06;
-		_cy_r07[ithread] = cy_r07;	_cy_i07[ithread] = cy_i07;
-		_cy_r08[ithread] = cy_r08;	_cy_i08[ithread] = cy_i08;
-		_cy_r09[ithread] = cy_r09;	_cy_i09[ithread] = cy_i09;
-		_cy_r10[ithread] = cy_r10;	_cy_i10[ithread] = cy_i10;
-		_cy_r11[ithread] = cy_r11;	_cy_i11[ithread] = cy_i11;
-		_cy_r12[ithread] = cy_r12;	_cy_i12[ithread] = cy_i12;
-		_cy_r13[ithread] = cy_r13;	_cy_i13[ithread] = cy_i13;
-		_cy_r14[ithread] = cy_r14;	_cy_i14[ithread] = cy_i14;
-		_cy_r15[ithread] = cy_r15;	_cy_i15[ithread] = cy_i15;
-		_cy_r16[ithread] = cy_r16;	_cy_i16[ithread] = cy_i16;
-		_cy_r17[ithread] = cy_r17;	_cy_i17[ithread] = cy_i17;
-		_cy_r18[ithread] = cy_r18;	_cy_i18[ithread] = cy_i18;
-		_cy_r19[ithread] = cy_r19;	_cy_i19[ithread] = cy_i19;
-		_cy_r20[ithread] = cy_r20;	_cy_i20[ithread] = cy_i20;
-		_cy_r21[ithread] = cy_r21;	_cy_i21[ithread] = cy_i21;
-		_cy_r22[ithread] = cy_r22;	_cy_i22[ithread] = cy_i22;
-		_cy_r23[ithread] = cy_r23;	_cy_i23[ithread] = cy_i23;
-		_cy_r24[ithread] = cy_r24;	_cy_i24[ithread] = cy_i24;
-		_cy_r25[ithread] = cy_r25;	_cy_i25[ithread] = cy_i25;
-		_cy_r26[ithread] = cy_r26;	_cy_i26[ithread] = cy_i26;
-		_cy_r27[ithread] = cy_r27;	_cy_i27[ithread] = cy_i27;
-		_cy_r28[ithread] = cy_r28;	_cy_i28[ithread] = cy_i28;
-		_cy_r29[ithread] = cy_r29;	_cy_i29[ithread] = cy_i29;
-		_cy_r30[ithread] = cy_r30;	_cy_i30[ithread] = cy_i30;
-		_cy_r31[ithread] = cy_r31;	_cy_i31[ithread] = cy_i31;
-		_cy_r32[ithread] = cy_r32;	_cy_i32[ithread] = cy_i32;
-		_cy_r33[ithread] = cy_r33;	_cy_i33[ithread] = cy_i33;
-		_cy_r34[ithread] = cy_r34;	_cy_i34[ithread] = cy_i34;
-		_cy_r35[ithread] = cy_r35;	_cy_i35[ithread] = cy_i35;
-	#endif
+		{
+		#ifdef USE_AVX	// AVX and AVX2 both use 256-bit registers
+			_cy_r00[ithread] = cy_r00->d0;	_cy_r01[ithread] = cy_r00->d1;	_cy_r02[ithread] = cy_r00->d2;	_cy_r03[ithread] = cy_r00->d3;
+			_cy_r04[ithread] = cy_r04->d0;	_cy_r05[ithread] = cy_r04->d1;	_cy_r06[ithread] = cy_r04->d2;	_cy_r07[ithread] = cy_r04->d3;
+			_cy_r08[ithread] = cy_r08->d0;	_cy_r09[ithread] = cy_r08->d1;	_cy_r10[ithread] = cy_r08->d2;	_cy_r11[ithread] = cy_r08->d3;
+			_cy_r12[ithread] = cy_r12->d0;	_cy_r13[ithread] = cy_r12->d1;	_cy_r14[ithread] = cy_r12->d2;	_cy_r15[ithread] = cy_r12->d3;
+			_cy_r16[ithread] = cy_r16->d0;	_cy_r17[ithread] = cy_r16->d1;	_cy_r18[ithread] = cy_r16->d2;	_cy_r19[ithread] = cy_r16->d3;
+			_cy_r20[ithread] = cy_r20->d0;	_cy_r21[ithread] = cy_r20->d1;	_cy_r22[ithread] = cy_r20->d2;	_cy_r23[ithread] = cy_r20->d3;
+			_cy_r24[ithread] = cy_r24->d0;	_cy_r25[ithread] = cy_r24->d1;	_cy_r26[ithread] = cy_r24->d2;	_cy_r27[ithread] = cy_r24->d3;
+			_cy_r28[ithread] = cy_r28->d0;	_cy_r29[ithread] = cy_r28->d1;	_cy_r30[ithread] = cy_r28->d2;	_cy_r31[ithread] = cy_r28->d3;
+			_cy_r32[ithread] = cy_r32->d0;	_cy_r33[ithread] = cy_r32->d1;	_cy_r34[ithread] = cy_r32->d2;	_cy_r35[ithread] = cy_r32->d3;
+
+			_cy_i00[ithread] = cy_i00->d0;	_cy_i01[ithread] = cy_i00->d1;	_cy_i02[ithread] = cy_i00->d2;	_cy_i03[ithread] = cy_i00->d3;
+			_cy_i04[ithread] = cy_i04->d0;	_cy_i05[ithread] = cy_i04->d1;	_cy_i06[ithread] = cy_i04->d2;	_cy_i07[ithread] = cy_i04->d3;
+			_cy_i08[ithread] = cy_i08->d0;	_cy_i09[ithread] = cy_i08->d1;	_cy_i10[ithread] = cy_i08->d2;	_cy_i11[ithread] = cy_i08->d3;
+			_cy_i12[ithread] = cy_i12->d0;	_cy_i13[ithread] = cy_i12->d1;	_cy_i14[ithread] = cy_i12->d2;	_cy_i15[ithread] = cy_i12->d3;
+			_cy_i16[ithread] = cy_i16->d0;	_cy_i17[ithread] = cy_i16->d1;	_cy_i18[ithread] = cy_i16->d2;	_cy_i19[ithread] = cy_i16->d3;
+			_cy_i20[ithread] = cy_i20->d0;	_cy_i21[ithread] = cy_i20->d1;	_cy_i22[ithread] = cy_i20->d2;	_cy_i23[ithread] = cy_i20->d3;
+			_cy_i24[ithread] = cy_i24->d0;	_cy_i25[ithread] = cy_i24->d1;	_cy_i26[ithread] = cy_i24->d2;	_cy_i27[ithread] = cy_i24->d3;
+			_cy_i28[ithread] = cy_i28->d0;	_cy_i29[ithread] = cy_i28->d1;	_cy_i30[ithread] = cy_i28->d2;	_cy_i31[ithread] = cy_i28->d3;
+			_cy_i32[ithread] = cy_i32->d0;	_cy_i33[ithread] = cy_i32->d1;	_cy_i34[ithread] = cy_i32->d2;	_cy_i35[ithread] = cy_i32->d3;
+			maxerr = MAX( MAX(max_err->d0,max_err->d1) , MAX(max_err->d2,max_err->d3) );
+		#elif defined(USE_SSE2)
+			// Carry pattern for Fermat-mod in SSE2 mode is kinda funky:
+			cy_r00->d0 = _cy_r00[ithread];;	cy_r00->d1 = _cy_i00[ithread];;
+			cy_r02->d0 = _cy_r01[ithread];;	cy_r02->d1 = _cy_i01[ithread];;
+			cy_r04->d0 = _cy_r02[ithread];;	cy_r04->d1 = _cy_i02[ithread];;
+			cy_r06->d0 = _cy_r03[ithread];;	cy_r06->d1 = _cy_i03[ithread];;
+			cy_r08->d0 = _cy_r04[ithread];;	cy_r08->d1 = _cy_i04[ithread];;
+			cy_r10->d0 = _cy_r05[ithread];;	cy_r10->d1 = _cy_i05[ithread];;
+			cy_r12->d0 = _cy_r06[ithread];;	cy_r12->d1 = _cy_i06[ithread];;
+			cy_r14->d0 = _cy_r07[ithread];;	cy_r14->d1 = _cy_i07[ithread];;
+			cy_r16->d0 = _cy_r08[ithread];;	cy_r16->d1 = _cy_i08[ithread];;
+			cy_r18->d0 = _cy_r09[ithread];;	cy_r18->d1 = _cy_i09[ithread];;
+			cy_r20->d0 = _cy_r10[ithread];;	cy_r20->d1 = _cy_i10[ithread];;
+			cy_r22->d0 = _cy_r11[ithread];;	cy_r22->d1 = _cy_i11[ithread];;
+			cy_r24->d0 = _cy_r12[ithread];;	cy_r24->d1 = _cy_i12[ithread];;
+			cy_r26->d0 = _cy_r13[ithread];;	cy_r26->d1 = _cy_i13[ithread];;
+			cy_r28->d0 = _cy_r14[ithread];;	cy_r28->d1 = _cy_i14[ithread];;
+			cy_r30->d0 = _cy_r15[ithread];;	cy_r30->d1 = _cy_i15[ithread];;
+			cy_r32->d0 = _cy_r16[ithread];;	cy_r32->d1 = _cy_i16[ithread];;
+			cy_r34->d0 = _cy_r17[ithread];;	cy_r34->d1 = _cy_i17[ithread];;
+			cy_i00->d0 = _cy_r18[ithread];;	cy_i00->d1 = _cy_i18[ithread];;
+			cy_i02->d0 = _cy_r19[ithread];;	cy_i02->d1 = _cy_i19[ithread];;
+			cy_i04->d0 = _cy_r20[ithread];;	cy_i04->d1 = _cy_i20[ithread];;
+			cy_i06->d0 = _cy_r21[ithread];;	cy_i06->d1 = _cy_i21[ithread];;
+			cy_i08->d0 = _cy_r22[ithread];;	cy_i08->d1 = _cy_i22[ithread];;
+			cy_i10->d0 = _cy_r23[ithread];;	cy_i10->d1 = _cy_i23[ithread];;
+			cy_i12->d0 = _cy_r24[ithread];;	cy_i12->d1 = _cy_i24[ithread];;
+			cy_i14->d0 = _cy_r25[ithread];;	cy_i14->d1 = _cy_i25[ithread];;
+			cy_i16->d0 = _cy_r26[ithread];;	cy_i16->d1 = _cy_i26[ithread];;
+			cy_i18->d0 = _cy_r27[ithread];;	cy_i18->d1 = _cy_i27[ithread];;
+			cy_i20->d0 = _cy_r28[ithread];;	cy_i20->d1 = _cy_i28[ithread];;
+			cy_i22->d0 = _cy_r29[ithread];;	cy_i22->d1 = _cy_i29[ithread];;
+			cy_i24->d0 = _cy_r30[ithread];;	cy_i24->d1 = _cy_i30[ithread];;
+			cy_i26->d0 = _cy_r31[ithread];;	cy_i26->d1 = _cy_i31[ithread];;
+			cy_i28->d0 = _cy_r32[ithread];;	cy_i28->d1 = _cy_i32[ithread];;
+			cy_i30->d0 = _cy_r33[ithread];;	cy_i30->d1 = _cy_i33[ithread];;
+			cy_i32->d0 = _cy_r34[ithread];;	cy_i32->d1 = _cy_i34[ithread];;
+			cy_i34->d0 = _cy_r35[ithread];;	cy_i34->d1 = _cy_i35[ithread];;
+			maxerr = MAX(max_err->d0,max_err->d1);
+		#else
+			_cy_r00[ithread] = cy_r00;	_cy_i00[ithread] = cy_i00;
+			_cy_r01[ithread] = cy_r01;	_cy_i01[ithread] = cy_i01;
+			_cy_r02[ithread] = cy_r02;	_cy_i02[ithread] = cy_i02;
+			_cy_r03[ithread] = cy_r03;	_cy_i03[ithread] = cy_i03;
+			_cy_r04[ithread] = cy_r04;	_cy_i04[ithread] = cy_i04;
+			_cy_r05[ithread] = cy_r05;	_cy_i05[ithread] = cy_i05;
+			_cy_r06[ithread] = cy_r06;	_cy_i06[ithread] = cy_i06;
+			_cy_r07[ithread] = cy_r07;	_cy_i07[ithread] = cy_i07;
+			_cy_r08[ithread] = cy_r08;	_cy_i08[ithread] = cy_i08;
+			_cy_r09[ithread] = cy_r09;	_cy_i09[ithread] = cy_i09;
+			_cy_r10[ithread] = cy_r10;	_cy_i10[ithread] = cy_i10;
+			_cy_r11[ithread] = cy_r11;	_cy_i11[ithread] = cy_i11;
+			_cy_r12[ithread] = cy_r12;	_cy_i12[ithread] = cy_i12;
+			_cy_r13[ithread] = cy_r13;	_cy_i13[ithread] = cy_i13;
+			_cy_r14[ithread] = cy_r14;	_cy_i14[ithread] = cy_i14;
+			_cy_r15[ithread] = cy_r15;	_cy_i15[ithread] = cy_i15;
+			_cy_r16[ithread] = cy_r16;	_cy_i16[ithread] = cy_i16;
+			_cy_r17[ithread] = cy_r17;	_cy_i17[ithread] = cy_i17;
+			_cy_r18[ithread] = cy_r18;	_cy_i18[ithread] = cy_i18;
+			_cy_r19[ithread] = cy_r19;	_cy_i19[ithread] = cy_i19;
+			_cy_r20[ithread] = cy_r20;	_cy_i20[ithread] = cy_i20;
+			_cy_r21[ithread] = cy_r21;	_cy_i21[ithread] = cy_i21;
+			_cy_r22[ithread] = cy_r22;	_cy_i22[ithread] = cy_i22;
+			_cy_r23[ithread] = cy_r23;	_cy_i23[ithread] = cy_i23;
+			_cy_r24[ithread] = cy_r24;	_cy_i24[ithread] = cy_i24;
+			_cy_r25[ithread] = cy_r25;	_cy_i25[ithread] = cy_i25;
+			_cy_r26[ithread] = cy_r26;	_cy_i26[ithread] = cy_i26;
+			_cy_r27[ithread] = cy_r27;	_cy_i27[ithread] = cy_i27;
+			_cy_r28[ithread] = cy_r28;	_cy_i28[ithread] = cy_i28;
+			_cy_r29[ithread] = cy_r29;	_cy_i29[ithread] = cy_i29;
+			_cy_r30[ithread] = cy_r30;	_cy_i30[ithread] = cy_i30;
+			_cy_r31[ithread] = cy_r31;	_cy_i31[ithread] = cy_i31;
+			_cy_r32[ithread] = cy_r32;	_cy_i32[ithread] = cy_i32;
+			_cy_r33[ithread] = cy_r33;	_cy_i33[ithread] = cy_i33;
+			_cy_r34[ithread] = cy_r34;	_cy_i34[ithread] = cy_i34;
+			_cy_r35[ithread] = cy_r35;	_cy_i35[ithread] = cy_i35;
+		#endif
+		}
 
 		/* Since will lose separate maxerr values when threads are merged, save them after each pass. */
 		if(_maxerr[ithread] < maxerr)
@@ -2530,8 +2909,8 @@ for(outer=0; outer <= 1; outer++)
 		j_jhi = 7;
 	}
 
-    for(ithread = 0; ithread < CY_THREADS; ithread++)
-    {
+	for(ithread = 0; ithread < CY_THREADS; ithread++)
+	{
 		for(j = ithread*pini; j <= ithread*pini + j_jhi; j++)
 		{
 			a[j    ] *= radix_inv;
@@ -2574,21 +2953,15 @@ for(outer=0; outer <= 1; outer++)
 	}
 }	/* endfor(outer) */
 
-#ifdef CTIME
-	clock2 = clock();
-	dt_tot = (double)(clock2 - clock1);
-	printf("radix36_carry cycle times: total = %10.5f, fwd = %10.5f, inv = %10.5f, cy = %10.5f\n", dt_tot*ICPS, dt_fwd*ICPS, dt_inv*ICPS, dt_cy*ICPS);
-#endif
-
-    t00 = 0;
-    for(ithread = 0; ithread < CY_THREADS; ithread++)
-    {
+	t00 = 0;
+	for(ithread = 0; ithread < CY_THREADS; ithread++)
+	{
 		t00 += fabs(_cy_r00[0])+fabs(_cy_r01[0])+fabs(_cy_r02[0])+fabs(_cy_r03[0])+fabs(_cy_r04[0])+fabs(_cy_r05[0])+fabs(_cy_r06[0])+fabs(_cy_r07[0])+fabs(_cy_r08[0])+fabs(_cy_r09[0])+fabs(_cy_r10[0])+fabs(_cy_r11[0])+fabs(_cy_r12[0])+fabs(_cy_r13[0])+fabs(_cy_r14[0])+fabs(_cy_r15[0])+fabs(_cy_r16[0])+fabs(_cy_r17[0])+fabs(_cy_r18[0])+fabs(_cy_r19[0])+fabs(_cy_r20[0])+fabs(_cy_r21[0])+fabs(_cy_r22[0])+fabs(_cy_r23[0])+fabs(_cy_r24[0])+fabs(_cy_r25[0])+fabs(_cy_r26[0])+fabs(_cy_r27[0])+fabs(_cy_r28[0])+fabs(_cy_r29[0])+fabs(_cy_r30[0])+fabs(_cy_r31[0])+fabs(_cy_r32[0])+fabs(_cy_r33[0])+fabs(_cy_r34[0])+fabs(_cy_r35[0]);
 		t00 += fabs(_cy_i00[0])+fabs(_cy_i01[0])+fabs(_cy_i02[0])+fabs(_cy_i03[0])+fabs(_cy_i04[0])+fabs(_cy_i05[0])+fabs(_cy_i06[0])+fabs(_cy_i07[0])+fabs(_cy_i08[0])+fabs(_cy_i09[0])+fabs(_cy_i10[0])+fabs(_cy_i11[0])+fabs(_cy_i12[0])+fabs(_cy_i13[0])+fabs(_cy_i14[0])+fabs(_cy_i15[0])+fabs(_cy_i16[0])+fabs(_cy_i17[0])+fabs(_cy_i18[0])+fabs(_cy_i19[0])+fabs(_cy_i20[0])+fabs(_cy_i21[0])+fabs(_cy_i22[0])+fabs(_cy_i23[0])+fabs(_cy_i24[0])+fabs(_cy_i25[0])+fabs(_cy_i26[0])+fabs(_cy_i27[0])+fabs(_cy_i28[0])+fabs(_cy_i29[0])+fabs(_cy_i30[0])+fabs(_cy_i31[0])+fabs(_cy_i32[0])+fabs(_cy_i33[0])+fabs(_cy_i34[0])+fabs(_cy_i35[0]);
 
 		if(*fracmax < _maxerr[ithread])
 			*fracmax = _maxerr[ithread];
-    }
+	}
 
 	if(t00 != 0.0)
 	{
@@ -3335,7 +3708,7 @@ for(outer=0; outer <= 1; outer++)
 	#endif
 
 /*...Now do the carries. Since the outputs would
-    normally be getting dispatched to 36 separate blocks of the A-array, we need 36 separate carries.	*/
+	normally be getting dispatched to 36 separate blocks of the A-array, we need 36 separate carries.	*/
 
 			l= j & (nwt-1);
 			n_minus_sil   = n-si[l  ];
@@ -4093,14 +4466,16 @@ void radix36_dif_pass1(double a[], int n)
 
 /*...The radix-36 pass is here.	*/
 
-    for(j=0; j < NDIVR; j += 2)
-    {
-	#ifdef USE_SSE2
+	for(j=0; j < NDIVR; j += 2)
+	{
+	#ifdef USE_AVX
+		j1 = (j & mask02) + br8[j&7];
+	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
-		j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 	#else
-		j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+		j1 = j;
 	#endif
+		j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		j2 = j1+RE_IM_STRIDE;
 
 		/*...gather the needed data (36 64-bit complex, i.e. 72 64-bit reals) and do 4 radix-9 transforms...*/
@@ -4204,15 +4579,18 @@ void radix36_dit_pass1(double a[], int n)
 
 /*...The radix-36 pass is here.	*/
 
-      for(j=0; j < NDIVR; j += 2)
-      {
-	#ifdef USE_SSE2
+	  for(j=0; j < NDIVR; j += 2)
+	  {
+	#ifdef USE_AVX
+		j1 = (j & mask02) + br8[j&7];
+	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
-		j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
 	#else
-		j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+		j1 = j;
 	#endif
+		j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		j2 = j1+RE_IM_STRIDE;
+
 	/*
 	Twiddleless version uses same linear-index-vector-form permutation as in DIF:
 
@@ -4255,9 +4633,6 @@ void radix36_dit_pass1(double a[], int n)
 
 #ifdef USE_PTHREAD
 
-	#ifndef USE_SSE2
-		#error pthreaded carry code requires SSE2-enabled build!
-	#endif
 	#ifndef COMPILER_TYPE_GCC
 		#error pthreaded carry code requires GCC build!
 	#endif
@@ -4266,20 +4641,62 @@ void radix36_dit_pass1(double a[], int n)
 	cy36_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
 		const uint32 RADIX = 36;
-		const double crnd = 3.0*0x4000000*0x2000000;
-		int j,j1,j2,k;
-		int l,n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
+		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
+		int j,j1,j2,k,l;
 		double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
+	#ifdef USE_AVX
+		struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+	#else
+		int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
+	#endif
+
+	#ifdef USE_SSE2
+
 		uint32 p01,p02,p03,p04,p08,p12,p16,p20,p24,p28,p32;
+		const double crnd = 3.0*0x4000000*0x2000000;
+		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 		double *add0, *add1, *add2, *add3;	/* Addresses into array sections */
-		int *bjmodn00,*bjmodn01,*bjmodn02,*bjmodn03,*bjmodn04,*bjmodn05,*bjmodn06,*bjmodn07,*bjmodn08,*bjmodn09
-			,*bjmodn10,*bjmodn11,*bjmodn12,*bjmodn13,*bjmodn14,*bjmodn15,*bjmodn16,*bjmodn17,*bjmodn18,*bjmodn19
-			,*bjmodn20,*bjmodn21,*bjmodn22,*bjmodn23,*bjmodn24,*bjmodn25,*bjmodn26,*bjmodn27,*bjmodn28,*bjmodn29
-			,*bjmodn30,*bjmodn31,*bjmodn32,*bjmodn33,*bjmodn34,*bjmodn35;
-		struct complex *cc1, *max_err, *sse2_rnd, *half_arr, *tmp, *r00
+		int *bjmodn00,*bjmodn01,*bjmodn02,*bjmodn03,*bjmodn04,*bjmodn05,*bjmodn06,*bjmodn07,*bjmodn08,*bjmodn09,
+			*bjmodn10,*bjmodn11,*bjmodn12,*bjmodn13,*bjmodn14,*bjmodn15,*bjmodn16,*bjmodn17,*bjmodn18,*bjmodn19,
+			*bjmodn20,*bjmodn21,*bjmodn22,*bjmodn23,*bjmodn24,*bjmodn25,*bjmodn26,*bjmodn27,*bjmodn28,*bjmodn29,
+			*bjmodn30,*bjmodn31,*bjmodn32,*bjmodn33,*bjmodn34,*bjmodn35;
+		vec_dbl *cc1, *max_err, *sse2_rnd, *half_arr, *tmp, *r00
 			,*s1p00r,*s1p04r,*s1p08r,*s1p12r,*s1p16r,*s1p20r,*s1p24r,*s1p28r,*s1p32r;
-		struct complex *cy00,*cy02,*cy04,*cy06,*cy08,*cy10,*cy12,*cy14,*cy16,*cy18,*cy20,*cy22,*cy24,*cy26,*cy28,*cy30,*cy32,*cy34;
+		vec_dbl
+			*cy00,*cy04,*cy08,*cy12,*cy16,*cy20,*cy24,*cy28,*cy32;
+	  #ifndef USE_AVX
+		vec_dbl
+			*cy02,*cy06,*cy10,*cy14,*cy18,*cy22,*cy26,*cy30,*cy34;
+	  #endif
+		double dtmp;
 		uint64 *sign_mask, *sse_bw, *sse_sw, *sse_n;
+
+	#else
+
+		const double	c   =  0.76604444311897803520,	/* cos(2*pi/9) */
+						s   =  0.64278760968653932631,	/* sin(2*pi/9) */
+						c2  =  0.17364817766693034887,	/* cos(2*u) */
+						s2  =  0.98480775301220805936,	/* sin(2*u) */
+						c3m1= -1.50000000000000000000,	/* cos(3*u)-1 */
+						s3  =  0.86602540378443864677,	/* sin(3*u) */
+						c4  = -0.93969262078590838404,	/* cos(4*u) */
+						s4  =  0.34202014332566873307;	/* sin(4*u) */
+		uint32 p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19,p20,p21,p22,p23,p24,p25,p26,p27,p28,p29,p30,p31,p32,p33,p34,p35;
+		double *base, *baseinv;
+		const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
+		int m,m2;
+		double wt,wtinv,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
+		double rt,it,temp,frac
+			,a1p00r,a1p01r,a1p02r,a1p03r,a1p04r,a1p05r,a1p06r,a1p07r,a1p08r,a1p09r,a1p10r,a1p11r,a1p12r,a1p13r,a1p14r,a1p15r,a1p16r,a1p17r,a1p18r,a1p19r,a1p20r,a1p21r,a1p22r,a1p23r,a1p24r,a1p25r,a1p26r,a1p27r,a1p28r,a1p29r,a1p30r,a1p31r,a1p32r,a1p33r,a1p34r,a1p35r
+			,a1p00i,a1p01i,a1p02i,a1p03i,a1p04i,a1p05i,a1p06i,a1p07i,a1p08i,a1p09i,a1p10i,a1p11i,a1p12i,a1p13i,a1p14i,a1p15i,a1p16i,a1p17i,a1p18i,a1p19i,a1p20i,a1p21i,a1p22i,a1p23i,a1p24i,a1p25i,a1p26i,a1p27i,a1p28i,a1p29i,a1p30i,a1p31i,a1p32i,a1p33i,a1p34i,a1p35i
+			,cy00,cy01,cy02,cy03,cy04,cy05,cy06,cy07,cy08,cy09,cy10,cy11,cy12,cy13,cy14,cy15,cy16,cy17,cy18,cy19,cy20,cy21,cy22,cy23,cy24,cy25,cy26,cy27,cy28,cy29,cy30,cy31,cy32,cy33,cy34,cy35
+			,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t0a,t0b,t0c,t0d,t0e,t0f,t0g,t0h
+			,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t1a,t1b,t1c,t1d,t1e,t1f,t1g,t1h
+			,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t2a,t2b,t2c,t2d,t2e,t2f,t2g,t2h
+			,t30,t31,t32,t33,t34,t35,t36,t37,t38,t39,t3a,t3b,t3c,t3d,t3e,t3f,t3g,t3h;
+		int bjmodn00,bjmodn01,bjmodn02,bjmodn03,bjmodn04,bjmodn05,bjmodn06,bjmodn07,bjmodn08,bjmodn09,bjmodn10,bjmodn11,bjmodn12,bjmodn13,bjmodn14,bjmodn15,bjmodn16,bjmodn17,bjmodn18,bjmodn19,bjmodn20,bjmodn21,bjmodn22,bjmodn23,bjmodn24,bjmodn25,bjmodn26,bjmodn27,bjmodn28,bjmodn29,bjmodn30,bjmodn31,bjmodn32,bjmodn33,bjmodn34,bjmodn35;
+
+	#endif
 
 		struct cy_thread_data_t* thread_arg = targ;
 	// int data:
@@ -4305,6 +4722,7 @@ void radix36_dit_pass1(double a[], int n)
 		double *wt1 = thread_arg->wt1;
 		int *si = thread_arg->si;
 
+	#ifdef USE_SSE2
 		/*   constant index offsets for array load/stores are here.	*/
 		p01 = NDIVR;
 		p02 = p01 + p01;
@@ -4330,7 +4748,7 @@ void radix36_dit_pass1(double a[], int n)
 		p28 = p28 + ( (p28 >> DAT_BITS) << PAD_BITS );
 		p32 = p32 + ( (p32 >> DAT_BITS) << PAD_BITS );
 
-		r00	= thread_arg->r00;
+		r00 = thread_arg->r00;	// declared above
 		tmp	= r00 + 0x48;
 		s1p00r = tmp + 0x00;
 		s1p04r = tmp + 0x08;
@@ -4342,60 +4760,83 @@ void radix36_dit_pass1(double a[], int n)
 		s1p28r = tmp + 0x38;
 		s1p32r = tmp + 0x40;
 		cc1		= tmp + 0x48;
+	  #ifdef USE_AVX
 		cy00	= tmp + 0x50;
-		cy02	= tmp + 0x51;
-		cy04	= tmp + 0x52;
-		cy06	= tmp + 0x53;
-		cy08	= tmp + 0x54;
-		cy10	= tmp + 0x55;
-		cy12	= tmp + 0x56;
-		cy14	= tmp + 0x57;
-		cy16	= tmp + 0x58;
-		cy18	= tmp + 0x59;
-		cy20	= tmp + 0x5a;
-		cy22	= tmp + 0x5b;
-		cy24	= tmp + 0x5c;
-		cy26	= tmp + 0x5d;
-		cy28	= tmp + 0x5e;
-		cy30	= tmp + 0x5f;
-		cy32	= tmp + 0x60;
-		cy34	= tmp + 0x61;
-	/* For future Fermat-mod option:
-		cy_i00	= tmp + 0x62;
-		cy_i02	= tmp + 0x63;
-		cy_i04	= tmp + 0x64;
-		cy_i06	= tmp + 0x65;
-		cy_i08	= tmp + 0x66;
-		cy_i10	= tmp + 0x67;
-		cy_i12	= tmp + 0x68;
-		cy_i14	= tmp + 0x69;
-		cy_i16	= tmp + 0x6a;
-		cy_i18	= tmp + 0x6b;
-		cy_i20	= tmp + 0x6c;
-		cy_i22	= tmp + 0x6d;
-		cy_i24	= tmp + 0x6e;
-		cy_i26	= tmp + 0x6f;
-		cy_i28	= tmp + 0x70;
-		cy_i30	= tmp + 0x71;
-		cy_i32	= tmp + 0x72;
-		cy_i34	= tmp + 0x73;
-	*/
+		cy04	= tmp + 0x51;
+		cy08	= tmp + 0x52;
+		cy12	= tmp + 0x53;
+		cy16	= tmp + 0x54;
+		cy20	= tmp + 0x55;
+		cy24	= tmp + 0x56;
+		cy28	= tmp + 0x57;
+		cy32	= tmp + 0x58;
+		// For future Fermat-mod option:
+	//	cy_i00	= tmp + 0x59;
+	//	cy_i04	= tmp + 0x5a;
+	//	cy_i08	= tmp + 0x5b;
+	//	cy_i12	= tmp + 0x5c;
+	//	cy_i16	= tmp + 0x5d;
+	//	cy_i20	= tmp + 0x5e;
+	//	cy_i24	= tmp + 0x5f;
+	//	cy_i28	= tmp + 0x60;
+	//	cy_i32	= tmp + 0x61;
+		max_err = tmp + 0x62;
+		sse2_rnd= tmp + 0x63;
+		half_arr= tmp + 0x64;	/* This table needs 20 * sizeof(vec_dbl) bytes */
+					//  ^^^^ This is where the value of half_arr_offset36 comes from
+	  #else
+								// For future Fermat-mod option:
+		cy00	= tmp + 0x50;	//	cy_i00	= tmp + 0x62;
+		cy02	= tmp + 0x51;	//	cy_i02	= tmp + 0x63;
+		cy04	= tmp + 0x52;	//	cy_i04	= tmp + 0x64;
+		cy06	= tmp + 0x53;	//	cy_i06	= tmp + 0x65;
+		cy08	= tmp + 0x54;	//	cy_i08	= tmp + 0x66;
+		cy10	= tmp + 0x55;	//	cy_i10	= tmp + 0x67;
+		cy12	= tmp + 0x56;	//	cy_i12	= tmp + 0x68;
+		cy14	= tmp + 0x57;	//	cy_i14	= tmp + 0x69;
+		cy16	= tmp + 0x58;	//	cy_i16	= tmp + 0x6a;
+		cy18	= tmp + 0x59;	//	cy_i18	= tmp + 0x6b;
+		cy20	= tmp + 0x5a;	//	cy_i20	= tmp + 0x6c;
+		cy22	= tmp + 0x5b;	//	cy_i22	= tmp + 0x6d;
+		cy24	= tmp + 0x5c;	//	cy_i24	= tmp + 0x6e;
+		cy26	= tmp + 0x5d;	//	cy_i26	= tmp + 0x6f;
+		cy28	= tmp + 0x5e;	//	cy_i28	= tmp + 0x70;
+		cy30	= tmp + 0x5f;	//	cy_i30	= tmp + 0x71;
+		cy32	= tmp + 0x60;	//	cy_i32	= tmp + 0x72;
+		cy34	= tmp + 0x61;	//	cy_i34	= tmp + 0x73;
 		max_err = tmp + 0x74;
 		sse2_rnd= tmp + 0x75;
 		half_arr= tmp + 0x76;	/* This table needs 20x16 bytes */
-
+	  #endif
 		ASSERT(HERE, (r00 == thread_arg->r00), "thread-local memcheck failed!");
 		ASSERT(HERE, (half_arr == thread_arg->half_arr), "thread-local memcheck failed!");
-		ASSERT(HERE, (sse2_rnd->re == crnd && sse2_rnd->im == crnd), "thread-local memcheck failed!");
-		ASSERT(HERE, (half_arr+10)->re * (half_arr+14)->re == 1.0 && (half_arr+10)->im * (half_arr+14)->im == 1.0, "thread-local memcheck failed!");
+		ASSERT(HERE, (sse2_rnd->d0 == crnd && sse2_rnd->d1 == crnd), "thread-local memcheck failed!");
+		tmp = half_arr;
+	  #ifdef USE_AVX
+		// Grab some elt of base-data [offset by, say, +32] and mpy by its inverse [+16 further]
+		dtmp = (tmp+40)->d0 * (tmp+56)->d0;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+		dtmp = (tmp+40)->d1 * (tmp+56)->d1;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+	  #else	// SSE2:
+		dtmp = (tmp+10)->d0 * (tmp+14)->d0;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+		dtmp = (tmp+10)->d1 * (tmp+14)->d1;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+	  #endif
 
-		max_err->re = 0.0;	max_err->im = 0.0;
+		VEC_DBL_INIT(max_err, 0.0);
 
 		sign_mask = (uint64*)(r00 + radix36_creals_in_local_store);
-		sse_bw  = sign_mask + 2;
-		sse_sw  = sign_mask + 4;
-		sse_n   = sign_mask + 6;
-		bjmodn00 = (int*)(sign_mask + 8);
+		sse_bw  = sign_mask + RE_IM_STRIDE;	// (  #doubles in a SIMD complex) x 32-bits = RE_IM_STRIDE x 64-bits
+		sse_sw  = sse_bw    + RE_IM_STRIDE;
+		sse_n   = sse_sw    + RE_IM_STRIDE;
+	  #ifdef USE_AVX
+		n_minus_sil   = (struct uint32x4 *)sse_n + 1;
+		n_minus_silp1 = (struct uint32x4 *)sse_n + 2;
+		sinwt         = (struct uint32x4 *)sse_n + 3;
+		sinwtm1       = (struct uint32x4 *)sse_n + 4;
+
+		bjmodn00 = (int*)(sinwtm1 + RE_IM_STRIDE);
+	  #else
+		bjmodn00 = (int*)(sse_n + RE_IM_STRIDE);
+	  #endif
 		bjmodn01 = bjmodn00 +  1;
 		bjmodn02 = bjmodn00 +  2;
 		bjmodn03 = bjmodn00 +  3;
@@ -4431,61 +4872,379 @@ void radix36_dit_pass1(double a[], int n)
 		bjmodn33 = bjmodn00 + 33;
 		bjmodn34 = bjmodn00 + 34;
 		bjmodn35 = bjmodn00 + 35;
+	#else
 
-		/* Init DWT-indices: */	/* init carries	*/
-		*bjmodn00 = thread_arg->bjmodn00;	cy00->re = thread_arg->cy00;
-		*bjmodn01 = thread_arg->bjmodn01;	cy00->im = thread_arg->cy01;
-		*bjmodn02 = thread_arg->bjmodn02;	cy02->re = thread_arg->cy02;
-		*bjmodn03 = thread_arg->bjmodn03;	cy02->im = thread_arg->cy03;
-		*bjmodn04 = thread_arg->bjmodn04;	cy04->re = thread_arg->cy04;
-		*bjmodn05 = thread_arg->bjmodn05;	cy04->im = thread_arg->cy05;
-		*bjmodn06 = thread_arg->bjmodn06;	cy06->re = thread_arg->cy06;
-		*bjmodn07 = thread_arg->bjmodn07;	cy06->im = thread_arg->cy07;
-		*bjmodn08 = thread_arg->bjmodn08;	cy08->re = thread_arg->cy08;
-		*bjmodn09 = thread_arg->bjmodn09;	cy08->im = thread_arg->cy09;
-		*bjmodn10 = thread_arg->bjmodn10;	cy10->re = thread_arg->cy10;
-		*bjmodn11 = thread_arg->bjmodn11;	cy10->im = thread_arg->cy11;
-		*bjmodn12 = thread_arg->bjmodn12;	cy12->re = thread_arg->cy12;
-		*bjmodn13 = thread_arg->bjmodn13;	cy12->im = thread_arg->cy13;
-		*bjmodn14 = thread_arg->bjmodn14;	cy14->re = thread_arg->cy14;
-		*bjmodn15 = thread_arg->bjmodn15;	cy14->im = thread_arg->cy15;
-		*bjmodn16 = thread_arg->bjmodn16;	cy16->re = thread_arg->cy16;
-		*bjmodn17 = thread_arg->bjmodn17;	cy16->im = thread_arg->cy17;
-		*bjmodn18 = thread_arg->bjmodn18;	cy18->re = thread_arg->cy18;
-		*bjmodn19 = thread_arg->bjmodn19;	cy18->im = thread_arg->cy19;
-		*bjmodn20 = thread_arg->bjmodn20;	cy20->re = thread_arg->cy20;
-		*bjmodn21 = thread_arg->bjmodn21;	cy20->im = thread_arg->cy21;
-		*bjmodn22 = thread_arg->bjmodn22;	cy22->re = thread_arg->cy22;
-		*bjmodn23 = thread_arg->bjmodn23;	cy22->im = thread_arg->cy23;
-		*bjmodn24 = thread_arg->bjmodn24;	cy24->re = thread_arg->cy24;
-		*bjmodn25 = thread_arg->bjmodn25;	cy24->im = thread_arg->cy25;
-		*bjmodn26 = thread_arg->bjmodn26;	cy26->re = thread_arg->cy26;
-		*bjmodn27 = thread_arg->bjmodn27;	cy26->im = thread_arg->cy27;
-		*bjmodn28 = thread_arg->bjmodn28;	cy28->re = thread_arg->cy28;
-		*bjmodn29 = thread_arg->bjmodn29;	cy28->im = thread_arg->cy29;
-		*bjmodn30 = thread_arg->bjmodn30;	cy30->re = thread_arg->cy30;
-		*bjmodn31 = thread_arg->bjmodn31;	cy30->im = thread_arg->cy31;
-		*bjmodn32 = thread_arg->bjmodn32;	cy32->re = thread_arg->cy32;
-		*bjmodn33 = thread_arg->bjmodn33;	cy32->im = thread_arg->cy33;
-		*bjmodn34 = thread_arg->bjmodn34;	cy34->re = thread_arg->cy34;
-		*bjmodn35 = thread_arg->bjmodn35;	cy34->im = thread_arg->cy35;
+		/*   constant index offsets for array load/stores are here.	*/
+		p01 = NDIVR;
+		p02 = p01 + p01;
+		p03 = p02 + p01;
+		p04 = p03 + p01;
+		p05 = p04 + p01;
+		p06 = p05 + p01;
+		p07 = p06 + p01;
+		p08 = p07 + p01;
+		p09 = p08 + p01;
+		p10 = p09 + p01;
+		p11 = p10 + p01;
+		p12 = p11 + p01;
+		p13 = p12 + p01;
+		p14 = p13 + p01;
+		p15 = p14 + p01;
+		p16 = p15 + p01;
+		p17 = p16 + p01;
+		p18 = p17 + p01;
+		p19 = p18 + p01;
+		p20 = p19 + p01;
+		p21 = p20 + p01;
+		p22 = p21 + p01;
+		p23 = p22 + p01;
+		p24 = p23 + p01;
+		p25 = p24 + p01;
+		p26 = p25 + p01;
+		p27 = p26 + p01;
+		p28 = p27 + p01;
+		p29 = p28 + p01;
+		p30 = p29 + p01;
+		p31 = p30 + p01;
+		p32 = p31 + p01;
+		p33 = p32 + p01;
+		p34 = p33 + p01;
+		p35 = p34 + p01;
+
+		p01 = p01 + ( (p01 >> DAT_BITS) << PAD_BITS );
+		p02 = p02 + ( (p02 >> DAT_BITS) << PAD_BITS );
+		p03 = p03 + ( (p03 >> DAT_BITS) << PAD_BITS );
+		p04 = p04 + ( (p04 >> DAT_BITS) << PAD_BITS );
+		p05 = p05 + ( (p05 >> DAT_BITS) << PAD_BITS );
+		p06 = p06 + ( (p06 >> DAT_BITS) << PAD_BITS );
+		p07 = p07 + ( (p07 >> DAT_BITS) << PAD_BITS );
+		p08 = p08 + ( (p08 >> DAT_BITS) << PAD_BITS );
+		p09 = p09 + ( (p09 >> DAT_BITS) << PAD_BITS );
+		p10 = p10 + ( (p10 >> DAT_BITS) << PAD_BITS );
+		p11 = p11 + ( (p11 >> DAT_BITS) << PAD_BITS );
+		p12 = p12 + ( (p12 >> DAT_BITS) << PAD_BITS );
+		p13 = p13 + ( (p13 >> DAT_BITS) << PAD_BITS );
+		p14 = p14 + ( (p14 >> DAT_BITS) << PAD_BITS );
+		p15 = p15 + ( (p15 >> DAT_BITS) << PAD_BITS );
+		p16 = p16 + ( (p16 >> DAT_BITS) << PAD_BITS );
+		p17 = p17 + ( (p17 >> DAT_BITS) << PAD_BITS );
+		p18 = p18 + ( (p18 >> DAT_BITS) << PAD_BITS );
+		p19 = p19 + ( (p19 >> DAT_BITS) << PAD_BITS );
+		p20 = p20 + ( (p20 >> DAT_BITS) << PAD_BITS );
+		p21 = p21 + ( (p21 >> DAT_BITS) << PAD_BITS );
+		p22 = p22 + ( (p22 >> DAT_BITS) << PAD_BITS );
+		p23 = p23 + ( (p23 >> DAT_BITS) << PAD_BITS );
+		p24 = p24 + ( (p24 >> DAT_BITS) << PAD_BITS );
+		p25 = p25 + ( (p25 >> DAT_BITS) << PAD_BITS );
+		p26 = p26 + ( (p26 >> DAT_BITS) << PAD_BITS );
+		p27 = p27 + ( (p27 >> DAT_BITS) << PAD_BITS );
+		p28 = p28 + ( (p28 >> DAT_BITS) << PAD_BITS );
+		p29 = p29 + ( (p29 >> DAT_BITS) << PAD_BITS );
+		p30 = p30 + ( (p30 >> DAT_BITS) << PAD_BITS );
+		p31 = p31 + ( (p31 >> DAT_BITS) << PAD_BITS );
+		p32 = p32 + ( (p32 >> DAT_BITS) << PAD_BITS );
+		p33 = p33 + ( (p33 >> DAT_BITS) << PAD_BITS );
+		p34 = p34 + ( (p34 >> DAT_BITS) << PAD_BITS );
+		p35 = p35 + ( (p35 >> DAT_BITS) << PAD_BITS );
+
+		// In scalar mode use these 2 ptrs to pass the base & baseinv arrays:
+		base    = (double *)thread_arg->r00     ;
+		baseinv = (double *)thread_arg->half_arr;
+
+	#endif	// USE_SSE2 ?
+
+		/* init carries	*/					/* Init DWT-indices: */
+	#ifdef USE_AVX
+		cy00->d0 = thread_arg->cy00;		*bjmodn00 = thread_arg->bjmodn00;
+		cy00->d1 = thread_arg->cy01;		*bjmodn01 = thread_arg->bjmodn01;
+		cy00->d2 = thread_arg->cy02;		*bjmodn02 = thread_arg->bjmodn02;
+		cy00->d3 = thread_arg->cy03;		*bjmodn03 = thread_arg->bjmodn03;
+		cy04->d0 = thread_arg->cy04;		*bjmodn04 = thread_arg->bjmodn04;
+		cy04->d1 = thread_arg->cy05;		*bjmodn05 = thread_arg->bjmodn05;
+		cy04->d2 = thread_arg->cy06;		*bjmodn06 = thread_arg->bjmodn06;
+		cy04->d3 = thread_arg->cy07;		*bjmodn07 = thread_arg->bjmodn07;
+		cy08->d0 = thread_arg->cy08;		*bjmodn08 = thread_arg->bjmodn08;
+		cy08->d1 = thread_arg->cy09;		*bjmodn09 = thread_arg->bjmodn09;
+		cy08->d2 = thread_arg->cy10;		*bjmodn10 = thread_arg->bjmodn10;
+		cy08->d3 = thread_arg->cy11;		*bjmodn11 = thread_arg->bjmodn11;
+		cy12->d0 = thread_arg->cy12;		*bjmodn12 = thread_arg->bjmodn12;
+		cy12->d1 = thread_arg->cy13;		*bjmodn13 = thread_arg->bjmodn13;
+		cy12->d2 = thread_arg->cy14;		*bjmodn14 = thread_arg->bjmodn14;
+		cy12->d3 = thread_arg->cy15;		*bjmodn15 = thread_arg->bjmodn15;
+		cy16->d0 = thread_arg->cy16;		*bjmodn16 = thread_arg->bjmodn16;
+		cy16->d1 = thread_arg->cy17;		*bjmodn17 = thread_arg->bjmodn17;
+		cy16->d2 = thread_arg->cy18;		*bjmodn18 = thread_arg->bjmodn18;
+		cy16->d3 = thread_arg->cy19;		*bjmodn19 = thread_arg->bjmodn19;
+		cy20->d0 = thread_arg->cy20;		*bjmodn20 = thread_arg->bjmodn20;
+		cy20->d1 = thread_arg->cy21;		*bjmodn21 = thread_arg->bjmodn21;
+		cy20->d2 = thread_arg->cy22;		*bjmodn22 = thread_arg->bjmodn22;
+		cy20->d3 = thread_arg->cy23;		*bjmodn23 = thread_arg->bjmodn23;
+		cy24->d0 = thread_arg->cy24;		*bjmodn24 = thread_arg->bjmodn24;
+		cy24->d1 = thread_arg->cy25;		*bjmodn25 = thread_arg->bjmodn25;
+		cy24->d2 = thread_arg->cy26;		*bjmodn26 = thread_arg->bjmodn26;
+		cy24->d3 = thread_arg->cy27;		*bjmodn27 = thread_arg->bjmodn27;
+		cy28->d0 = thread_arg->cy28;		*bjmodn28 = thread_arg->bjmodn28;
+		cy28->d1 = thread_arg->cy29;		*bjmodn29 = thread_arg->bjmodn29;
+		cy28->d2 = thread_arg->cy30;		*bjmodn30 = thread_arg->bjmodn30;
+		cy28->d3 = thread_arg->cy31;		*bjmodn31 = thread_arg->bjmodn31;
+		cy32->d0 = thread_arg->cy32;		*bjmodn32 = thread_arg->bjmodn32;
+		cy32->d1 = thread_arg->cy33;		*bjmodn33 = thread_arg->bjmodn33;
+		cy32->d2 = thread_arg->cy34;		*bjmodn34 = thread_arg->bjmodn34;
+		cy32->d3 = thread_arg->cy35;		*bjmodn35 = thread_arg->bjmodn35;
+
+	#elif defined(USE_SSE2)
+
+		cy00->d0 = thread_arg->cy00;		*bjmodn00 = thread_arg->bjmodn00;
+		cy00->d1 = thread_arg->cy01;		*bjmodn01 = thread_arg->bjmodn01;
+		cy02->d0 = thread_arg->cy02;		*bjmodn02 = thread_arg->bjmodn02;
+		cy02->d1 = thread_arg->cy03;		*bjmodn03 = thread_arg->bjmodn03;
+		cy04->d0 = thread_arg->cy04;		*bjmodn04 = thread_arg->bjmodn04;
+		cy04->d1 = thread_arg->cy05;		*bjmodn05 = thread_arg->bjmodn05;
+		cy06->d0 = thread_arg->cy06;		*bjmodn06 = thread_arg->bjmodn06;
+		cy06->d1 = thread_arg->cy07;		*bjmodn07 = thread_arg->bjmodn07;
+		cy08->d0 = thread_arg->cy08;		*bjmodn08 = thread_arg->bjmodn08;
+		cy08->d1 = thread_arg->cy09;		*bjmodn09 = thread_arg->bjmodn09;
+		cy10->d0 = thread_arg->cy10;		*bjmodn10 = thread_arg->bjmodn10;
+		cy10->d1 = thread_arg->cy11;		*bjmodn11 = thread_arg->bjmodn11;
+		cy12->d0 = thread_arg->cy12;		*bjmodn12 = thread_arg->bjmodn12;
+		cy12->d1 = thread_arg->cy13;		*bjmodn13 = thread_arg->bjmodn13;
+		cy14->d0 = thread_arg->cy14;		*bjmodn14 = thread_arg->bjmodn14;
+		cy14->d1 = thread_arg->cy15;		*bjmodn15 = thread_arg->bjmodn15;
+		cy16->d0 = thread_arg->cy16;		*bjmodn16 = thread_arg->bjmodn16;
+		cy16->d1 = thread_arg->cy17;		*bjmodn17 = thread_arg->bjmodn17;
+		cy18->d0 = thread_arg->cy18;		*bjmodn18 = thread_arg->bjmodn18;
+		cy18->d1 = thread_arg->cy19;		*bjmodn19 = thread_arg->bjmodn19;
+		cy20->d0 = thread_arg->cy20;		*bjmodn20 = thread_arg->bjmodn20;
+		cy20->d1 = thread_arg->cy21;		*bjmodn21 = thread_arg->bjmodn21;
+		cy22->d0 = thread_arg->cy22;		*bjmodn22 = thread_arg->bjmodn22;
+		cy22->d1 = thread_arg->cy23;		*bjmodn23 = thread_arg->bjmodn23;
+		cy24->d0 = thread_arg->cy24;		*bjmodn24 = thread_arg->bjmodn24;
+		cy24->d1 = thread_arg->cy25;		*bjmodn25 = thread_arg->bjmodn25;
+		cy26->d0 = thread_arg->cy26;		*bjmodn26 = thread_arg->bjmodn26;
+		cy26->d1 = thread_arg->cy27;		*bjmodn27 = thread_arg->bjmodn27;
+		cy28->d0 = thread_arg->cy28;		*bjmodn28 = thread_arg->bjmodn28;
+		cy28->d1 = thread_arg->cy29;		*bjmodn29 = thread_arg->bjmodn29;
+		cy30->d0 = thread_arg->cy30;		*bjmodn30 = thread_arg->bjmodn30;
+		cy30->d1 = thread_arg->cy31;		*bjmodn31 = thread_arg->bjmodn31;
+		cy32->d0 = thread_arg->cy32;		*bjmodn32 = thread_arg->bjmodn32;
+		cy32->d1 = thread_arg->cy33;		*bjmodn33 = thread_arg->bjmodn33;
+		cy34->d0 = thread_arg->cy34;		*bjmodn34 = thread_arg->bjmodn34;
+		cy34->d1 = thread_arg->cy35;		*bjmodn35 = thread_arg->bjmodn35;
+
+	#else
+
+		cy00 = thread_arg->cy00;		bjmodn00 = thread_arg->bjmodn00;
+		cy01 = thread_arg->cy01;		bjmodn01 = thread_arg->bjmodn01;
+		cy02 = thread_arg->cy02;		bjmodn02 = thread_arg->bjmodn02;
+		cy03 = thread_arg->cy03;		bjmodn03 = thread_arg->bjmodn03;
+		cy04 = thread_arg->cy04;		bjmodn04 = thread_arg->bjmodn04;
+		cy05 = thread_arg->cy05;		bjmodn05 = thread_arg->bjmodn05;
+		cy06 = thread_arg->cy06;		bjmodn06 = thread_arg->bjmodn06;
+		cy07 = thread_arg->cy07;		bjmodn07 = thread_arg->bjmodn07;
+		cy08 = thread_arg->cy08;		bjmodn08 = thread_arg->bjmodn08;
+		cy09 = thread_arg->cy09;		bjmodn09 = thread_arg->bjmodn09;
+		cy10 = thread_arg->cy10;		bjmodn10 = thread_arg->bjmodn10;
+		cy11 = thread_arg->cy11;		bjmodn11 = thread_arg->bjmodn11;
+		cy12 = thread_arg->cy12;		bjmodn12 = thread_arg->bjmodn12;
+		cy13 = thread_arg->cy13;		bjmodn13 = thread_arg->bjmodn13;
+		cy14 = thread_arg->cy14;		bjmodn14 = thread_arg->bjmodn14;
+		cy15 = thread_arg->cy15;		bjmodn15 = thread_arg->bjmodn15;
+		cy16 = thread_arg->cy16;		bjmodn16 = thread_arg->bjmodn16;
+		cy17 = thread_arg->cy17;		bjmodn17 = thread_arg->bjmodn17;
+		cy18 = thread_arg->cy18;		bjmodn18 = thread_arg->bjmodn18;
+		cy19 = thread_arg->cy19;		bjmodn19 = thread_arg->bjmodn19;
+		cy20 = thread_arg->cy20;		bjmodn20 = thread_arg->bjmodn20;
+		cy21 = thread_arg->cy21;		bjmodn21 = thread_arg->bjmodn21;
+		cy22 = thread_arg->cy22;		bjmodn22 = thread_arg->bjmodn22;
+		cy23 = thread_arg->cy23;		bjmodn23 = thread_arg->bjmodn23;
+		cy24 = thread_arg->cy24;		bjmodn24 = thread_arg->bjmodn24;
+		cy25 = thread_arg->cy25;		bjmodn25 = thread_arg->bjmodn25;
+		cy26 = thread_arg->cy26;		bjmodn26 = thread_arg->bjmodn26;
+		cy27 = thread_arg->cy27;		bjmodn27 = thread_arg->bjmodn27;
+		cy28 = thread_arg->cy28;		bjmodn28 = thread_arg->bjmodn28;
+		cy29 = thread_arg->cy29;		bjmodn29 = thread_arg->bjmodn29;
+		cy30 = thread_arg->cy30;		bjmodn30 = thread_arg->bjmodn30;
+		cy31 = thread_arg->cy31;		bjmodn31 = thread_arg->bjmodn31;
+		cy32 = thread_arg->cy32;		bjmodn32 = thread_arg->bjmodn32;
+		cy33 = thread_arg->cy33;		bjmodn33 = thread_arg->bjmodn33;
+		cy34 = thread_arg->cy34;		bjmodn34 = thread_arg->bjmodn34;
+		cy35 = thread_arg->cy35;		bjmodn35 = thread_arg->bjmodn35;
+
+	#endif
 
 		for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		{
-			for(j = jstart; j < jhi; j += 4)
+			for(j = jstart; j < jhi; j += stride)	// Stride = 4 reals for SSE2, 8 for AVX
 			{
-			/* In SSE2 mode, data are arranged in [re0,re1,im0,im1] quartets, not the usual [re0,im0],[re1,im1] pairs.
-			Thus we can still increment the j-index as if stepping through the residue array-of-doubles in strides of 2,
-			but to point to the proper real datum, we need to bit-reverse bits <0:1> of j, i.e. [0,1,2,3] ==> [0,2,1,3].
-			*/
-				j1 = (j & mask01) + br4[j&3];
-				j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+				j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 				j2 = j1+RE_IM_STRIDE;
 
-				/* GCC-style fully-inlined ASM (64-bit only): */
+			#ifdef USE_SSE2
 
 				add0 = &a[j1    ];
 				SSE2_RADIX36_DIT_NOTWIDDLE(add0,p01,p02,p03,p04,p08,p12,p16,p20,p24,p28,p32,r00,s1p00r,cc1);
+
+			#else	/* !USE_SSE2 */
+
+				RADIX_04_DIT(a[j1    ],a[j2    ],a[j1+p01],a[j2+p01],a[j1+p03],a[j2+p03],a[j1+p02],a[j2+p02],t00,t01,t10,t11,t20,t21,t30,t31,rt,it);
+				RADIX_04_DIT(a[j1+p09],a[j2+p09],a[j1+p08],a[j2+p08],a[j1+p10],a[j2+p10],a[j1+p11],a[j2+p11],t02,t03,t12,t13,t22,t23,t32,t33,rt,it);
+				RADIX_04_DIT(a[j1+p06],a[j2+p06],a[j1+p07],a[j2+p07],a[j1+p04],a[j2+p04],a[j1+p05],a[j2+p05],t04,t05,t14,t15,t24,t25,t34,t35,rt,it);
+				RADIX_04_DIT(a[j1+p31],a[j2+p31],a[j1+p30],a[j2+p30],a[j1+p29],a[j2+p29],a[j1+p28],a[j2+p28],t06,t07,t16,t17,t26,t27,t36,t37,rt,it);
+				RADIX_04_DIT(a[j1+p25],a[j2+p25],a[j1+p24],a[j2+p24],a[j1+p26],a[j2+p26],a[j1+p27],a[j2+p27],t08,t09,t18,t19,t28,t29,t38,t39,rt,it);
+				RADIX_04_DIT(a[j1+p32],a[j2+p32],a[j1+p33],a[j2+p33],a[j1+p35],a[j2+p35],a[j1+p34],a[j2+p34],t0a,t0b,t1a,t1b,t2a,t2b,t3a,t3b,rt,it);
+				RADIX_04_DIT(a[j1+p15],a[j2+p15],a[j1+p14],a[j2+p14],a[j1+p13],a[j2+p13],a[j1+p12],a[j2+p12],t0c,t0d,t1c,t1d,t2c,t2d,t3c,t3d,rt,it);
+				RADIX_04_DIT(a[j1+p22],a[j2+p22],a[j1+p23],a[j2+p23],a[j1+p20],a[j2+p20],a[j1+p21],a[j2+p21],t0e,t0f,t1e,t1f,t2e,t2f,t3e,t3f,rt,it);
+				RADIX_04_DIT(a[j1+p16],a[j2+p16],a[j1+p17],a[j2+p17],a[j1+p19],a[j2+p19],a[j1+p18],a[j2+p18],t0g,t0h,t1g,t1h,t2g,t2h,t3g,t3h,rt,it);
+
+				RADIX_09_DIT(t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t0a,t0b,t0c,t0d,t0e,t0f,t0g,t0h,a1p00r,a1p00i,a1p32r,a1p32i,a1p28r,a1p28i,a1p24r,a1p24i,a1p20r,a1p20i,a1p16r,a1p16i,a1p12r,a1p12i,a1p08r,a1p08i,a1p04r,a1p04i,rt,it,temp);
+				RADIX_09_DIT(t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t1a,t1b,t1c,t1d,t1e,t1f,t1g,t1h,a1p27r,a1p27i,a1p23r,a1p23i,a1p19r,a1p19i,a1p15r,a1p15i,a1p11r,a1p11i,a1p07r,a1p07i,a1p03r,a1p03i,a1p35r,a1p35i,a1p31r,a1p31i,rt,it,temp);
+				RADIX_09_DIT(t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t2a,t2b,t2c,t2d,t2e,t2f,t2g,t2h,a1p18r,a1p18i,a1p14r,a1p14i,a1p10r,a1p10i,a1p06r,a1p06i,a1p02r,a1p02i,a1p34r,a1p34i,a1p30r,a1p30i,a1p26r,a1p26i,a1p22r,a1p22i,rt,it,temp);
+				RADIX_09_DIT(t30,t31,t32,t33,t34,t35,t36,t37,t38,t39,t3a,t3b,t3c,t3d,t3e,t3f,t3g,t3h,a1p09r,a1p09i,a1p05r,a1p05i,a1p01r,a1p01i,a1p33r,a1p33i,a1p29r,a1p29i,a1p25r,a1p25i,a1p21r,a1p21i,a1p17r,a1p17i,a1p13r,a1p13i,rt,it,temp);
+
+			#endif
+
+		#ifdef USE_AVX
+
+			add1 = &wt1[col  ];
+			add2 = &wt1[co2-1];
+			add3 = &wt1[co3-1];
+
+			l= j & (nwt-1);						tmp = half_arr + 64;	/* ptr to local storage for the doubled wtl,wtn terms: */
+			n_minus_sil  ->d0 = n-si[l  ];		tmp->d0 = wt0[    l  ];
+			n_minus_silp1->d0 = n-si[l+1];		tmp->d1 = wt0[nwt-l  ]*scale;
+			sinwt        ->d0 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
+			sinwtm1      ->d0 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
+
+			l= (j+2) & (nwt-1);					++tmp;	/* Get ready for next 4 weights-related doubles... */
+			n_minus_sil  ->d1 = n-si[l  ];		tmp->d0 = wt0[    l  ];
+			n_minus_silp1->d1 = n-si[l+1];		tmp->d1 = wt0[nwt-l  ]*scale;
+			sinwt        ->d1 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
+			sinwtm1      ->d1 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
+
+			l= (j+4) & (nwt-1);					++tmp;	/* Get ready for next 4 weights-related doubles... */
+			n_minus_sil  ->d2 = n-si[l  ];		tmp->d0 = wt0[    l  ];
+			n_minus_silp1->d2 = n-si[l+1];		tmp->d1 = wt0[nwt-l  ]*scale;
+			sinwt        ->d2 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
+			sinwtm1      ->d2 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
+
+			l= (j+6) & (nwt-1);					++tmp;	/* Get ready for next 4 weights-related doubles... */
+			n_minus_sil  ->d3 = n-si[l  ];		tmp->d0 = wt0[    l  ];
+			n_minus_silp1->d3 = n-si[l+1];		tmp->d1 = wt0[nwt-l  ]*scale;
+			sinwt        ->d3 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
+			sinwtm1      ->d3 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
+
+			AVX_cmplx_carry_norm_errcheck0_X4(s1p00r,add1,add2,add3,cy00,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			AVX_cmplx_carry_norm_errcheck1_X4(s1p04r,add1,add2,add3,cy04,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			AVX_cmplx_carry_norm_errcheck1_X4(s1p08r,add1,add2,add3,cy08,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			AVX_cmplx_carry_norm_errcheck1_X4(s1p12r,add1,add2,add3,cy12,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			AVX_cmplx_carry_norm_errcheck1_X4(s1p16r,add1,add2,add3,cy16,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			AVX_cmplx_carry_norm_errcheck1_X4(s1p20r,add1,add2,add3,cy20,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			AVX_cmplx_carry_norm_errcheck1_X4(s1p24r,add1,add2,add3,cy24,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			AVX_cmplx_carry_norm_errcheck1_X4(s1p28r,add1,add2,add3,cy28,bjmodn28,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			AVX_cmplx_carry_norm_errcheck1_X4(s1p32r,add1,add2,add3,cy32,bjmodn32,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+
+			co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
+						// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
+
+			i =((uint32)(sw - *bjmodn00) >> 31);	/* get ready for the next set...	*/
+
+		#elif defined(USE_SSE2)
+
+			l= j & (nwt-1);
+			n_minus_sil   = n-si[l  ];
+			n_minus_silp1 = n-si[l+1];
+			sinwt   = si[nwt-l  ];
+			sinwtm1 = si[nwt-l-1];
+
+			wtl     =wt0[    l  ];
+			wtn     =wt0[nwt-l  ]*scale;	/* Include 1/(n/2) scale factor of inverse transform here...	*/
+			wtlp1   =wt0[    l+1];
+			wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
+
+			/************ See the radix16_ditN_cy_dif1 routine for details on how the SSE2 carry stuff works **********/
+
+			ctmp = (struct complex *)half_arr + 16;	/* ptr to local storage for the doubled wtl,wtn terms: */
+			ctmp->re = wtl;		ctmp->im = wtl;	++ctmp;
+			ctmp->re = wtn;		ctmp->im = wtn;	++ctmp;
+			ctmp->re = wtlp1;	ctmp->im = wtlp1;++ctmp;
+			ctmp->re = wtnm1;	ctmp->im = wtnm1;
+
+			add1 = &wt1[col  ];	/* Don't use add0 here, to avoid need to reload main-array address */
+			add2 = &wt1[co2-1];
+			add3 = &wt1[co3-1];
+
+		   #ifdef ERR_CHECK_ALL
+			SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy00,cy02,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p04r,add1,add2,add3,cy04,cy06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p08r,add1,add2,add3,cy08,cy10,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p12r,add1,add2,add3,cy12,cy14,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p16r,add1,add2,add3,cy16,cy18,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p20r,add1,add2,add3,cy20,cy22,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p24r,add1,add2,add3,cy24,cy26,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p28r,add1,add2,add3,cy28,cy30,bjmodn28,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck1_2B(s1p32r,add1,add2,add3,cy32,cy34,bjmodn32,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		   #else
+			SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy00,cy02,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p04r,add1,add2,add3,cy04,cy06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p08r,add1,add2,add3,cy08,cy10,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p12r,add1,add2,add3,cy12,cy14,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p16r,add1,add2,add3,cy16,cy18,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p20r,add1,add2,add3,cy20,cy22,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p24r,add1,add2,add3,cy24,cy26,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p28r,add1,add2,add3,cy28,cy30,bjmodn28,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck1_2B (s1p32r,add1,add2,add3,cy32,cy34,bjmodn32,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		   #endif
+
+			l= (j+2) & (nwt-1);			/* We want (S*J mod N) - SI(L) for all 16 carries, so precompute	*/
+			n_minus_sil   = n-si[l  ];		/* N - SI(L) and for each J, find N - (B*J mod N) - SI(L)		*/
+			n_minus_silp1 = n-si[l+1];		/* For the inverse weight, want (S*(N - J) mod N) - SI(NWT - L) =	*/
+			sinwt   = si[nwt-l  ];		/*	= N - (S*J mod N) - SI(NWT - L) = (B*J mod N) - SI(NWT - L).	*/
+			sinwtm1 = si[nwt-l-1];
+
+			wtl     =wt0[    l  ];
+			wtn     =wt0[nwt-l  ]*scale;	/* Include 1/(n/2) scale factor of inverse transform here...	*/
+			wtlp1   =wt0[    l+1];
+			wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
+
+			ctmp = (struct complex *)half_arr + 16;	/* ptr to local storage for the doubled wtl,wtn terms: */
+			ctmp->re = wtl;		ctmp->im = wtl;	++ctmp;
+			ctmp->re = wtn;		ctmp->im = wtn;	++ctmp;
+			ctmp->re = wtlp1;	ctmp->im = wtlp1;++ctmp;
+			ctmp->re = wtnm1;	ctmp->im = wtnm1;
+
+		/*	i =((uint32)(sw - *bjmodn0) >> 31);	Don't need this here, since no special index-0 macro in the set below */
+
+			co2 = co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
+						(and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).	*/
+
+			add1 = &wt1[col  ];
+			add2 = &wt1[co2-1];
+
+		   #ifdef ERR_CHECK_ALL
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p00r,add1,add2,     cy00,cy02,bjmodn00,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p04r,add1,add2,     cy04,cy06,bjmodn04,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p08r,add1,add2,     cy08,cy10,bjmodn08,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p12r,add1,add2,     cy12,cy14,bjmodn12,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p16r,add1,add2,     cy16,cy18,bjmodn16,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p20r,add1,add2,     cy20,cy22,bjmodn20,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p24r,add1,add2,     cy24,cy26,bjmodn24,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p28r,add1,add2,     cy28,cy30,bjmodn28,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_errcheck2_2B(s1p32r,add1,add2,     cy32,cy34,bjmodn32,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		   #else
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p00r,add1,add2,     cy00,cy02,bjmodn00,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p04r,add1,add2,     cy04,cy06,bjmodn04,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p08r,add1,add2,     cy08,cy10,bjmodn08,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p12r,add1,add2,     cy12,cy14,bjmodn12,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p16r,add1,add2,     cy16,cy18,bjmodn16,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p20r,add1,add2,     cy20,cy22,bjmodn20,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p24r,add1,add2,     cy24,cy26,bjmodn24,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p28r,add1,add2,     cy28,cy30,bjmodn28,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			SSE2_cmplx_carry_norm_nocheck2_2B (s1p32r,add1,add2,     cy32,cy34,bjmodn32,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		   #endif
+
+			i =((uint32)(sw - *bjmodn00) >> 31);	/* get ready for the next set...	*/
+
+			#else	// Scalar-double mode:
 
 				l= j & (nwt-1);
 				n_minus_sil   = n-si[l  ];
@@ -4498,91 +5257,74 @@ void radix36_dit_pass1(double a[], int n)
 				wtlp1   =wt0[    l+1];
 				wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
-				tmp = half_arr + 16;	/* ptr to local storage for the doubled wtl,wtn terms: */
-				tmp->re = wtl;		tmp->im = wtl;	++tmp;
-				tmp->re = wtn;		tmp->im = wtn;	++tmp;
-				tmp->re = wtlp1;	tmp->im = wtlp1;++tmp;
-				tmp->re = wtnm1;	tmp->im = wtnm1;
+				/*...set0 is slightly different from others:	*/
+			   cmplx_carry_norm_errcheck0(a1p00r,a1p00i,cy00,bjmodn00   );
+				cmplx_carry_norm_errcheck(a1p01r,a1p01i,cy01,bjmodn01,1 );
+				cmplx_carry_norm_errcheck(a1p02r,a1p02i,cy02,bjmodn02,2 );
+				cmplx_carry_norm_errcheck(a1p03r,a1p03i,cy03,bjmodn03,3 );
+				cmplx_carry_norm_errcheck(a1p04r,a1p04i,cy04,bjmodn04,4 );
+				cmplx_carry_norm_errcheck(a1p05r,a1p05i,cy05,bjmodn05,5 );
+				cmplx_carry_norm_errcheck(a1p06r,a1p06i,cy06,bjmodn06,6 );
+				cmplx_carry_norm_errcheck(a1p07r,a1p07i,cy07,bjmodn07,7 );
+				cmplx_carry_norm_errcheck(a1p08r,a1p08i,cy08,bjmodn08,8 );
+				cmplx_carry_norm_errcheck(a1p09r,a1p09i,cy09,bjmodn09,9 );
+				cmplx_carry_norm_errcheck(a1p10r,a1p10i,cy10,bjmodn10,10);
+				cmplx_carry_norm_errcheck(a1p11r,a1p11i,cy11,bjmodn11,11);
+				cmplx_carry_norm_errcheck(a1p12r,a1p12i,cy12,bjmodn12,12);
+				cmplx_carry_norm_errcheck(a1p13r,a1p13i,cy13,bjmodn13,13);
+				cmplx_carry_norm_errcheck(a1p14r,a1p14i,cy14,bjmodn14,14);
+				cmplx_carry_norm_errcheck(a1p15r,a1p15i,cy15,bjmodn15,15);
+				cmplx_carry_norm_errcheck(a1p16r,a1p16i,cy16,bjmodn16,16);
+				cmplx_carry_norm_errcheck(a1p17r,a1p17i,cy17,bjmodn17,17);
+				cmplx_carry_norm_errcheck(a1p18r,a1p18i,cy18,bjmodn18,18);
+				cmplx_carry_norm_errcheck(a1p19r,a1p19i,cy19,bjmodn19,19);
+				cmplx_carry_norm_errcheck(a1p20r,a1p20i,cy20,bjmodn20,20);
+				cmplx_carry_norm_errcheck(a1p21r,a1p21i,cy21,bjmodn21,21);
+				cmplx_carry_norm_errcheck(a1p22r,a1p22i,cy22,bjmodn22,22);
+				cmplx_carry_norm_errcheck(a1p23r,a1p23i,cy23,bjmodn23,23);
+				cmplx_carry_norm_errcheck(a1p24r,a1p24i,cy24,bjmodn24,24);
+				cmplx_carry_norm_errcheck(a1p25r,a1p25i,cy25,bjmodn25,25);
+				cmplx_carry_norm_errcheck(a1p26r,a1p26i,cy26,bjmodn26,26);
+				cmplx_carry_norm_errcheck(a1p27r,a1p27i,cy27,bjmodn27,27);
+				cmplx_carry_norm_errcheck(a1p28r,a1p28i,cy28,bjmodn28,28);
+				cmplx_carry_norm_errcheck(a1p29r,a1p29i,cy29,bjmodn29,29);
+				cmplx_carry_norm_errcheck(a1p30r,a1p30i,cy30,bjmodn30,30);
+				cmplx_carry_norm_errcheck(a1p31r,a1p31i,cy31,bjmodn31,31);
+				cmplx_carry_norm_errcheck(a1p32r,a1p32i,cy32,bjmodn32,32);
+				cmplx_carry_norm_errcheck(a1p33r,a1p33i,cy33,bjmodn33,33);
+				cmplx_carry_norm_errcheck(a1p34r,a1p34i,cy34,bjmodn34,34);
+				cmplx_carry_norm_errcheck(a1p35r,a1p35i,cy35,bjmodn35,35);
 
-				add1 = &wt1[col  ];	/* Don't use add0 here, to avoid need to reload main-array address */
-				add2 = &wt1[co2-1];
-				add3 = &wt1[co3-1];
+				i =((uint32)(sw - bjmodn00) >> 31);	/* get ready for the next set...	*/
+				co2=co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
+					 and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).	*/
 
-			  #ifdef ERR_CHECK_ALL
-				SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy00,cy02,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p04r,add1,add2,add3,cy04,cy06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p08r,add1,add2,add3,cy08,cy10,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p12r,add1,add2,add3,cy12,cy14,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p16r,add1,add2,add3,cy16,cy18,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p20r,add1,add2,add3,cy20,cy22,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p24r,add1,add2,add3,cy24,cy26,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p28r,add1,add2,add3,cy28,cy30,bjmodn28,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck1_2B(s1p32r,add1,add2,add3,cy32,cy34,bjmodn32,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-			  #else
-				SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy00,cy02,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p04r,add1,add2,add3,cy04,cy06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p08r,add1,add2,add3,cy08,cy10,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p12r,add1,add2,add3,cy12,cy14,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p16r,add1,add2,add3,cy16,cy18,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p20r,add1,add2,add3,cy20,cy22,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p24r,add1,add2,add3,cy24,cy26,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p28r,add1,add2,add3,cy28,cy30,bjmodn28,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck1_2B (s1p32r,add1,add2,add3,cy32,cy34,bjmodn32,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-			  #endif
-
-				l= (j+2) & (nwt-1);
-				n_minus_sil   = n-si[l  ];
-				n_minus_silp1 = n-si[l+1];
-				sinwt   = si[nwt-l  ];
-				sinwtm1 = si[nwt-l-1];
-
-				wtl     =wt0[    l  ];
-				wtn     =wt0[nwt-l  ]*scale;	/* Include 1/(n/2) scale factor of inverse transform here...	*/
-				wtlp1   =wt0[    l+1];
-				wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
-
-				tmp = half_arr + 16;	/* ptr to local storage for the doubled wtl,wtn terms: */
-				tmp->re = wtl;		tmp->im = wtl;	++tmp;
-				tmp->re = wtn;		tmp->im = wtn;	++tmp;
-				tmp->re = wtlp1;	tmp->im = wtlp1;++tmp;
-				tmp->re = wtnm1;	tmp->im = wtnm1;
-
-			/*	i =((uint32)(sw - *bjmodn0) >> 31);	Don't need this here, since no special index-0 macro in the set below */
-
-				co2 = co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
-							(and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).	*/
-
-				add1 = &wt1[col  ];
-				add2 = &wt1[co2-1];
-
-			  #ifdef ERR_CHECK_ALL
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p00r,add1,add2,     cy00,cy02,bjmodn00,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p04r,add1,add2,     cy04,cy06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p08r,add1,add2,     cy08,cy10,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p12r,add1,add2,     cy12,cy14,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p16r,add1,add2,     cy16,cy18,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p20r,add1,add2,     cy20,cy22,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p24r,add1,add2,     cy24,cy26,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p28r,add1,add2,     cy28,cy30,bjmodn28,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_errcheck2_2B(s1p32r,add1,add2,     cy32,cy34,bjmodn32,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-			  #else
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p00r,add1,add2,     cy00,cy02,bjmodn00,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p04r,add1,add2,     cy04,cy06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p08r,add1,add2,     cy08,cy10,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p12r,add1,add2,     cy12,cy14,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p16r,add1,add2,     cy16,cy18,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p20r,add1,add2,     cy20,cy22,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p24r,add1,add2,     cy24,cy26,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p28r,add1,add2,     cy28,cy30,bjmodn28,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-				SSE2_cmplx_carry_norm_nocheck2_2B (s1p32r,add1,add2,     cy32,cy34,bjmodn32,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-			  #endif
-
-				i =((uint32)(sw - *bjmodn00) >> 31);	/* get ready for the next set...	*/
+			#endif	// USE_AVX?
 
 				/*...The radix-36 DIF pass is here:	*/
 
+			#ifdef USE_SSE2
+
 				SSE2_RADIX36_DIF_NOTWIDDLE(add0,p01,p02,p03,p04,p08,p12,p16,p20,p24,p28,p32,r00,s1p00r,cc1);
-			
+
+			#else	/* !USE_SSE2 */
+
+				RADIX_09_DIF(a1p00r,a1p00i,a1p32r,a1p32i,a1p28r,a1p28i,a1p24r,a1p24i,a1p20r,a1p20i,a1p16r,a1p16i,a1p12r,a1p12i,a1p08r,a1p08i,a1p04r,a1p04i,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t0a,t0b,t0c,t0d,t0e,t0f,t0g,t0h,rt,it,temp);
+				RADIX_09_DIF(a1p27r,a1p27i,a1p23r,a1p23i,a1p19r,a1p19i,a1p15r,a1p15i,a1p11r,a1p11i,a1p07r,a1p07i,a1p03r,a1p03i,a1p35r,a1p35i,a1p31r,a1p31i,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t1a,t1b,t1c,t1d,t1e,t1f,t1g,t1h,rt,it,temp);
+				RADIX_09_DIF(a1p18r,a1p18i,a1p14r,a1p14i,a1p10r,a1p10i,a1p06r,a1p06i,a1p02r,a1p02i,a1p34r,a1p34i,a1p30r,a1p30i,a1p26r,a1p26i,a1p22r,a1p22i,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t2a,t2b,t2c,t2d,t2e,t2f,t2g,t2h,rt,it,temp);
+				RADIX_09_DIF(a1p09r,a1p09i,a1p05r,a1p05i,a1p01r,a1p01i,a1p33r,a1p33i,a1p29r,a1p29i,a1p25r,a1p25i,a1p21r,a1p21i,a1p17r,a1p17i,a1p13r,a1p13i,t30,t31,t32,t33,t34,t35,t36,t37,t38,t39,t3a,t3b,t3c,t3d,t3e,t3f,t3g,t3h,rt,it,temp);
+
+				RADIX_04_DIF(t00,t01,t10,t11,t20,t21,t30,t31,a[j1    ],a[j2    ],a[j1+p01],a[j2+p01],a[j1+p03],a[j2+p03],a[j1+p02],a[j2+p02],rt,it);
+				RADIX_04_DIF(t02,t03,t12,t13,t22,t23,t32,t33,a[j1+p32],a[j2+p32],a[j1+p33],a[j2+p33],a[j1+p35],a[j2+p35],a[j1+p34],a[j2+p34],rt,it);
+				RADIX_04_DIF(t04,t05,t14,t15,t24,t25,t34,t35,a[j1+p22],a[j2+p22],a[j1+p23],a[j2+p23],a[j1+p20],a[j2+p20],a[j1+p21],a[j2+p21],rt,it);
+				RADIX_04_DIF(t06,t07,t16,t17,t26,t27,t36,t37,a[j1+p09],a[j2+p09],a[j1+p08],a[j2+p08],a[j1+p10],a[j2+p10],a[j1+p11],a[j2+p11],rt,it);
+				RADIX_04_DIF(t08,t09,t18,t19,t28,t29,t38,t39,a[j1+p31],a[j2+p31],a[j1+p30],a[j2+p30],a[j1+p29],a[j2+p29],a[j1+p28],a[j2+p28],rt,it);
+				RADIX_04_DIF(t0a,t0b,t1a,t1b,t2a,t2b,t3a,t3b,a[j1+p16],a[j2+p16],a[j1+p17],a[j2+p17],a[j1+p19],a[j2+p19],a[j1+p18],a[j2+p18],rt,it);
+				RADIX_04_DIF(t0c,t0d,t1c,t1d,t2c,t2d,t3c,t3d,a[j1+p06],a[j2+p06],a[j1+p07],a[j2+p07],a[j1+p04],a[j2+p04],a[j1+p05],a[j2+p05],rt,it);
+				RADIX_04_DIF(t0e,t0f,t1e,t1f,t2e,t2f,t3e,t3f,a[j1+p25],a[j2+p25],a[j1+p24],a[j2+p24],a[j1+p26],a[j2+p26],a[j1+p27],a[j2+p27],rt,it);
+				RADIX_04_DIF(t0g,t0h,t1g,t1h,t2g,t2h,t3g,t3h,a[j1+p15],a[j2+p15],a[j1+p14],a[j2+p14],a[j1+p13],a[j2+p13],a[j1+p12],a[j2+p12],rt,it);
+
+			#endif
 			}	/* end for(j=_jstart; j < _jhi; j += 2) */
 
 			jstart += nwt;
@@ -4595,47 +5337,126 @@ void radix36_dit_pass1(double a[], int n)
 		/* At end of each thread-processed work chunk, dump the
 		carryouts into their non-thread-private array slots:
 		*/
-		thread_arg->cy00 = cy00->re;
-		thread_arg->cy01 = cy00->im;
-		thread_arg->cy02 = cy02->re;
-		thread_arg->cy03 = cy02->im;
-		thread_arg->cy04 = cy04->re;
-		thread_arg->cy05 = cy04->im;
-		thread_arg->cy06 = cy06->re;
-		thread_arg->cy07 = cy06->im;
-		thread_arg->cy08 = cy08->re;
-		thread_arg->cy09 = cy08->im;
-		thread_arg->cy10 = cy10->re;
-		thread_arg->cy11 = cy10->im;
-		thread_arg->cy12 = cy12->re;
-		thread_arg->cy13 = cy12->im;
-		thread_arg->cy14 = cy14->re;
-		thread_arg->cy15 = cy14->im;
-		thread_arg->cy16 = cy16->re;
-		thread_arg->cy17 = cy16->im;
-		thread_arg->cy18 = cy18->re;
-		thread_arg->cy19 = cy18->im;
-		thread_arg->cy20 = cy20->re;
-		thread_arg->cy21 = cy20->im;
-		thread_arg->cy22 = cy22->re;
-		thread_arg->cy23 = cy22->im;
-		thread_arg->cy24 = cy24->re;
-		thread_arg->cy25 = cy24->im;
-		thread_arg->cy26 = cy26->re;
-		thread_arg->cy27 = cy26->im;
-		thread_arg->cy28 = cy28->re;
-		thread_arg->cy29 = cy28->im;
-		thread_arg->cy30 = cy30->re;
-		thread_arg->cy31 = cy30->im;
-		thread_arg->cy32 = cy32->re;
-		thread_arg->cy33 = cy32->im;
-		thread_arg->cy34 = cy34->re;
-		thread_arg->cy35 = cy34->im;
+	#ifdef USE_AVX
 
-		if(max_err->re > max_err->im)
-			maxerr = max_err->re;
-		else
-			maxerr = max_err->im;
+		thread_arg->cy00 = cy00->d0;
+		thread_arg->cy01 = cy00->d1;
+		thread_arg->cy02 = cy00->d2;
+		thread_arg->cy03 = cy00->d3;
+		thread_arg->cy04 = cy04->d0;
+		thread_arg->cy05 = cy04->d1;
+		thread_arg->cy06 = cy04->d2;
+		thread_arg->cy07 = cy04->d3;
+		thread_arg->cy08 = cy08->d0;
+		thread_arg->cy09 = cy08->d1;
+		thread_arg->cy10 = cy08->d2;
+		thread_arg->cy11 = cy08->d3;
+		thread_arg->cy12 = cy12->d0;
+		thread_arg->cy13 = cy12->d1;
+		thread_arg->cy14 = cy12->d2;
+		thread_arg->cy15 = cy12->d3;
+		thread_arg->cy16 = cy16->d0;
+		thread_arg->cy17 = cy16->d1;
+		thread_arg->cy18 = cy16->d2;
+		thread_arg->cy19 = cy16->d3;
+		thread_arg->cy20 = cy20->d0;
+		thread_arg->cy21 = cy20->d1;
+		thread_arg->cy22 = cy20->d2;
+		thread_arg->cy23 = cy20->d3;
+		thread_arg->cy24 = cy24->d0;
+		thread_arg->cy25 = cy24->d1;
+		thread_arg->cy26 = cy24->d2;
+		thread_arg->cy27 = cy24->d3;
+		thread_arg->cy28 = cy28->d0;
+		thread_arg->cy29 = cy28->d1;
+		thread_arg->cy30 = cy28->d2;
+		thread_arg->cy31 = cy28->d3;
+		thread_arg->cy32 = cy32->d0;
+		thread_arg->cy33 = cy32->d1;
+		thread_arg->cy34 = cy32->d2;
+		thread_arg->cy35 = cy32->d3;
+		maxerr = MAX( MAX(max_err->d0,max_err->d1) , MAX(max_err->d2,max_err->d3) );
+
+	#elif defined(USE_SSE2)
+
+		thread_arg->cy00 = cy00->d0;
+		thread_arg->cy01 = cy00->d1;
+		thread_arg->cy02 = cy02->d0;
+		thread_arg->cy03 = cy02->d1;
+		thread_arg->cy04 = cy04->d0;
+		thread_arg->cy05 = cy04->d1;
+		thread_arg->cy06 = cy06->d0;
+		thread_arg->cy07 = cy06->d1;
+		thread_arg->cy08 = cy08->d0;
+		thread_arg->cy09 = cy08->d1;
+		thread_arg->cy10 = cy10->d0;
+		thread_arg->cy11 = cy10->d1;
+		thread_arg->cy12 = cy12->d0;
+		thread_arg->cy13 = cy12->d1;
+		thread_arg->cy14 = cy14->d0;
+		thread_arg->cy15 = cy14->d1;
+		thread_arg->cy16 = cy16->d0;
+		thread_arg->cy17 = cy16->d1;
+		thread_arg->cy18 = cy18->d0;
+		thread_arg->cy19 = cy18->d1;
+		thread_arg->cy20 = cy20->d0;
+		thread_arg->cy21 = cy20->d1;
+		thread_arg->cy22 = cy22->d0;
+		thread_arg->cy23 = cy22->d1;
+		thread_arg->cy24 = cy24->d0;
+		thread_arg->cy25 = cy24->d1;
+		thread_arg->cy26 = cy26->d0;
+		thread_arg->cy27 = cy26->d1;
+		thread_arg->cy28 = cy28->d0;
+		thread_arg->cy29 = cy28->d1;
+		thread_arg->cy30 = cy30->d0;
+		thread_arg->cy31 = cy30->d1;
+		thread_arg->cy32 = cy32->d0;
+		thread_arg->cy33 = cy32->d1;
+		thread_arg->cy34 = cy34->d0;
+		thread_arg->cy35 = cy34->d1;
+		maxerr = MAX(max_err->d0,max_err->d1);
+
+	#else
+
+		thread_arg->cy00 = cy00;
+		thread_arg->cy01 = cy01;
+		thread_arg->cy02 = cy02;
+		thread_arg->cy03 = cy03;
+		thread_arg->cy04 = cy04;
+		thread_arg->cy05 = cy05;
+		thread_arg->cy06 = cy06;
+		thread_arg->cy07 = cy07;
+		thread_arg->cy08 = cy08;
+		thread_arg->cy09 = cy09;
+		thread_arg->cy10 = cy10;
+		thread_arg->cy11 = cy11;
+		thread_arg->cy12 = cy12;
+		thread_arg->cy13 = cy13;
+		thread_arg->cy14 = cy14;
+		thread_arg->cy15 = cy15;
+		thread_arg->cy16 = cy16;
+		thread_arg->cy17 = cy17;
+		thread_arg->cy18 = cy18;
+		thread_arg->cy19 = cy19;
+		thread_arg->cy20 = cy20;
+		thread_arg->cy21 = cy21;
+		thread_arg->cy22 = cy22;
+		thread_arg->cy23 = cy23;
+		thread_arg->cy24 = cy24;
+		thread_arg->cy25 = cy25;
+		thread_arg->cy26 = cy26;
+		thread_arg->cy27 = cy27;
+		thread_arg->cy28 = cy28;
+		thread_arg->cy29 = cy29;
+		thread_arg->cy30 = cy30;
+		thread_arg->cy31 = cy31;
+		thread_arg->cy32 = cy32;
+		thread_arg->cy33 = cy33;
+		thread_arg->cy34 = cy34;
+		thread_arg->cy35 = cy35;
+
+	#endif	// SSE2 or AVX?
 
 		/* Since will lose separate maxerr values when threads are merged, save them after each pass. */
 		if(thread_arg->maxerr < maxerr)

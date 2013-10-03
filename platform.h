@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -176,26 +176,36 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 	#undef	CPU_SUBTYPE_PA1
 	#undef	CPU_SUBTYPE_PA2
 
-/* SIMD COPROCESSOR AND MULTIMEDIA EXTENSION FLAGS:
-   AltiVec is shared among several CPU families (e.g. PowerPC and IBM Power)
-   AS IS MMX (Pentium and IA64) so don't attach them to any specific CPU type:
-*/
-#undef	CPU_HAS_SSE1
-#undef	CPU_HAS_SSE2
-#undef	CPU_HAS_SSE3
-#undef	CPU_HAS_ALTIVEC
-	/* According to the Motorola AltiVec PIM, any AVec-enabled compiler predefines:
-	#if(defined(__VEC__) && (__VEC__ == 10205))
-	*/
-	/* On the G5/Mac OS X, __VEC__ == 10206, and __ALTIVEC__ is defined -
-	probably better to use the latter #define to identify AVec on PowerPC chips:
-	*/
-	#if(defined(__ALTIVEC__))
-		#define	CPU_HAS_ALTIVEC		1
-	#endif
-#undef	CPU_HAS_MMX
-#undef	CPU_HAS_CELL
+// SIMD-functionality-related flags: We currently only care about the x86 family SSE2 / AVX / AVX2 instruction sets.
+// We define these in a "grandfathered-in" fashion, i.e. each higher-functionality flag (= higher up in our descending-ordering)
+// will automatically turn on the lower ones, e.g. AVX2 enables both AVX and SSE2. This is because we code things such that
+// SIMD-enabled #ifdefs wrap variable defs shared by all these specific SIMD ISAs, but e.g. for AVX/AVX2 the vec_dbl type
+// encodes a 4-double struct, whereas for SSE2, vec_dbl is a 2-double struct. In places where we really need to invoke
+// separate code sections based on these #defs, we check them in inverse order, i.e. highest first. That way if e.g.
+// AVX2, AVX and SSE2 have different versions of a common-named arithmetic macro, the fact that all > 1 of these #defines
+// are enabled yields no conflict, since the highest-level one wins, as it were:
 
+// We don't allow the user to set more than one of these defines:
+#ifdef USE_AVX2
+	#if defined(USE_AVX) || defined(USE_SSE2)
+		#error Only one of USE_SSE2 / USE_AVX / USE_AVX2 may be defined at compile time!
+	#endif
+
+	#define USE_AVX
+	#define	USE_SSE2
+
+#elif defined(USE_AVX)
+	#if defined(USE_AVX2) || defined(USE_SSE2)
+		#error Only one of USE_SSE2 / USE_AVX / USE_AVX2 may be defined at compile time!
+	#endif
+
+	#define	USE_SSE2
+
+#elif defined(USE_SSE2)
+	#if defined(USE_AVX2) || defined(USE_AVX)
+		#error Only one of USE_SSE2 / USE_AVX / USE_AVX2 may be defined at compile time!
+	#endif
+#endif
 
 /* Locally defined Compiler types and versions: */
 #undef	COMPILER_NAME
@@ -272,7 +282,8 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 	#if(defined(__SUNPRO_C))
 		#define COMPILER_TYPE
 		#define COMPILER_TYPE_SUNC
-	/* Gnu C compiler */
+	// Gnu C compiler: Note this gets triggered as desired for llvm/clang, but for that we use non-GCC flags
+	// to set COMPILER_NAME to reflect that while the compiler is gcc-compatible, it is not gcc:
 	#elif(defined(__GNUC__) || defined(__GNUG__))
 		#define COMPILER_TYPE
 		#define COMPILER_TYPE_GCC
@@ -931,14 +942,25 @@ extern int NTHREADS;
 #endif
 
 #if(defined(COMPILER_TYPE_GCC))
-  #if CMPLR_DEBUG
-	#error	COMPILER_NAME "Gnu C"
+  #ifdef __clang__
+   #if CMPLR_DEBUG
+	#error	COMPILER_NAME "Gnu-C-compatible [llvm/clang]"
+   #else
+	#define COMPILER_NAME "Gnu-C-compatible [llvm/clang]"
+   #endif
+	#ifdef	__clang_version__
+		#define	COMPILER_VERSION	__clang_version__
+	#endif
   #else
-	#define COMPILER_NAME "Gnu C"
-  #endif
+   #if CMPLR_DEBUG
+	#error	COMPILER_NAME "Gnu C [or other compatible]"
+   #else
+	#define COMPILER_NAME "Gnu C [or other compatible]"
+   #endif
 	#ifdef	__VERSION__
 		#define	COMPILER_VERSION	__VERSION__
 	#endif
+  #endif
 #elif(defined(COMPILER_TYPE_MWERKS))
   #if CMPLR_DEBUG
 	#error	COMPILER_NAME "Metrowerks Codewarrior"
@@ -1018,6 +1040,12 @@ extern int NTHREADS;
 
 #ifndef COMPILER_VERSION
 	#define COMPILER_VERSION "[Unknown]"
+#endif
+
+#ifdef USE_AVX
+	#ifndef COMPILER_TYPE_GCC
+		#error AVX builds currently only supported under GCC!
+	#endif
 #endif
 
 #endif	/* platform_h_included */

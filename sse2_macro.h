@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -400,6 +400,43 @@
 			__asm	movaps	[out0+0x010],xmm5	/* <- ~t2 */			__asm	movaps	[out3+0x010],xmm6	/* <- ~t8 */\
 		}
 
+		/* DIT radix-4 subconvolution, sans twiddles, inputs in __i0-3, outputs in __o0-3, possibly coincident with inputs: */
+		#define SSE2_RADIX4_DIT_0TWIDDLE_STRIDE_E(__i0,__i1,__i2,__i3, __o0,__o1,__o2,__o3)\
+		{\
+			__asm	mov	eax, __i0\
+			__asm	mov	ebx, __i1\
+			__asm	mov	ecx, __i2\
+			__asm	mov	edx, __i3\
+			\
+			__asm	movaps	xmm0,[eax     ]	/* a[jt   ] */				__asm	movaps	xmm4,[ecx     ]	/* a[jt+p2] */\
+			__asm	movaps	xmm1,[eax+0x10]	/* a[jp   ] */				__asm	movaps	xmm5,[ecx+0x10]	/* a[jp+p2] */\
+			__asm	movaps	xmm2,xmm0		/* xmm2 <- cpy a[jt   ] */	__asm	movaps	xmm6,xmm4		/* xmm4 <- cpy a[jt+p2] */\
+			__asm	movaps	xmm3,xmm1		/* xmm3 <- cpy a[jp   ] */	__asm	movaps	xmm7,xmm5		/* xmm5 <- cpy a[jp+p2] */\
+			\
+			__asm	addpd	xmm0,[ebx     ]	/* t1 */					__asm	addpd	xmm4,[edx     ]	/* t5 */\
+			__asm	addpd	xmm1,[ebx+0x10]	/* t2 */					__asm	addpd	xmm5,[edx+0x10]	/* t6 */\
+			__asm	subpd	xmm2,[ebx     ]	/* t3 */					__asm	subpd	xmm6,[edx     ]	/* t7 */\
+			__asm	subpd	xmm3,[ebx+0x10]	/* t4 */					__asm	subpd	xmm7,[edx+0x10]	/* t8 */\
+			\
+			/* Finish radix-4 butterfly and store results into output-array slots: */\
+			\
+			__asm	mov	eax, __o0\
+			__asm	mov	ebx, __o1\
+			__asm	mov	ecx, __o2\
+			__asm	mov	edx, __o3\
+			\
+			__asm	subpd	xmm0,xmm4	/* ~t5 <- t1 -t5 */				__asm	subpd	xmm2,xmm7	/* ~t7 <- t3 -t8 */\
+			__asm	subpd	xmm1,xmm5	/* ~t6 <- t2 -t6 */				__asm	subpd	xmm3,xmm6	/* ~t4 <- t4 -t7 */\
+			__asm	movaps	[ecx      ],xmm0	/* <- ~t5 */			__asm	movaps	[edx      ],xmm2	/* <- ~t7 */\
+			__asm	movaps	[ecx+0x010],xmm1	/* <- ~t6 */			__asm	movaps	[ebx+0x010],xmm3	/* <- ~t4 */\
+			__asm	addpd	xmm4,xmm4	/*          2*t5 */				__asm	addpd	xmm7,xmm7	/*          2*t8 */\
+			__asm	addpd	xmm5,xmm5	/*          2*t6 */				__asm	addpd	xmm6,xmm6	/*          2*t7 */\
+			__asm	addpd	xmm4,xmm0	/* ~t1 <- t1 +t5 */				__asm	addpd	xmm7,xmm2	/* ~t3 <- t3 +t8 */\
+			__asm	addpd	xmm5,xmm1	/* ~t2 <- t2 +t6 */				__asm	addpd	xmm6,xmm3	/* ~t8 <- t4 +t7 */\
+			__asm	movaps	[eax      ],xmm4	/* <- ~t1 */			__asm	movaps	[ebx      ],xmm7	/* <- ~t3 */\
+			__asm	movaps	[eax+0x010],xmm5	/* <- ~t2 */			__asm	movaps	[edx+0x010],xmm6	/* <- ~t8 */\
+		}
+
 		/*******************************************************************************************************/
 		/***************************** DIF versions of the radix-4 DFT macros: *********************************/
 		/*******************************************************************************************************/
@@ -546,6 +583,43 @@
 			__asm	addpd	xmm3,xmm1	/* ~t2 <- t2 +t4 */				__asm	addpd	xmm6,xmm5	/* ~t6 <- t6 +t7 */\
 			__asm	movaps	[out0      ],xmm2	/* <- ~t1 */			__asm	movaps	[out3      ],xmm7	/* <- ~t7 */\
 			__asm	movaps	[out0+0x010],xmm3	/* <- ~t2 */			__asm	movaps	[out2+0x010],xmm6	/* <- ~t6 */\
+		}
+
+		/* DIF radix-4 subconvolution, sans twiddles, inputs in __i0-3, outputs in __o0-3, possibly coincident with inputs: */
+		#define SSE2_RADIX4_DIF_0TWIDDLE_STRIDE_E(__i0,__i1,__i2,__i3, __o0,__o1,__o2,__o3)\
+		{\
+			__asm	mov	eax, __i0\
+			__asm	mov	ebx, __i1\
+			__asm	mov	ecx, __i2\
+			__asm	mov	edx, __i3\
+			\
+			__asm	movaps	xmm0,[eax     ]	/* a[jt   ] */				__asm	movaps	xmm4,[ebx     ]	/* a[jt+p1] */\
+			__asm	movaps	xmm1,[eax+0x10]	/* a[jp   ] */				__asm	movaps	xmm5,[ebx+0x10]	/* a[jp+p1] */\
+			__asm	movaps	xmm2,xmm0		/* xmm2 <- cpy a[jt   ] */	__asm	movaps	xmm6,xmm4		/* xmm4 <- cpy a[jt+p1] */\
+			__asm	movaps	xmm3,xmm1		/* xmm3 <- cpy a[jp   ] */	__asm	movaps	xmm7,xmm5		/* xmm5 <- cpy a[jp+p1] */\
+			\
+			__asm	addpd	xmm0,[ecx     ]	/* t1 */					__asm	addpd	xmm4,[edx     ]	/* t5 */\
+			__asm	addpd	xmm1,[ecx+0x10]	/* t2 */					__asm	addpd	xmm5,[edx+0x10]	/* t6 */\
+			__asm	subpd	xmm2,[ecx     ]	/* t3 */					__asm	subpd	xmm6,[edx     ]	/* t7 */\
+			__asm	subpd	xmm3,[ecx+0x10]	/* t4 */					__asm	subpd	xmm7,[edx+0x10]	/* t8 */\
+			\
+			/* Finish radix-4 butterfly and store results into output-array slots: */\
+			\
+			__asm	mov	eax, __o0\
+			__asm	mov	ebx, __o1\
+			__asm	mov	ecx, __o2\
+			__asm	mov	edx, __o3\
+			\
+			__asm	subpd	xmm0,xmm4	/* ~t5 <- t1 -t5 */				__asm	subpd	xmm2,xmm7	/* ~t7 <- t3 -t8 */\
+			__asm	subpd	xmm1,xmm5	/* ~t6 <- t2 -t6 */				__asm	subpd	xmm3,xmm6	/* ~t4 <- t4 -t7 */\
+			__asm	movaps	[ebx      ],xmm0	/* <- ~t5 */			__asm	movaps	[ecx      ],xmm2	/* <- ~t7 */\
+			__asm	movaps	[ebx+0x010],xmm1	/* <- ~t6 */			__asm	movaps	[edx+0x010],xmm3	/* <- ~t4 */\
+			__asm	addpd	xmm4,xmm4	/*          2*t5 */				__asm	addpd	xmm7,xmm7	/*          2*t8 */\
+			__asm	addpd	xmm5,xmm5	/*          2*t6 */				__asm	addpd	xmm6,xmm6	/*          2*t7 */\
+			__asm	addpd	xmm4,xmm0	/* ~t1 <- t1 +t5 */				__asm	addpd	xmm7,xmm2	/* ~t3 <- t3 +t8 */\
+			__asm	addpd	xmm5,xmm1	/* ~t2 <- t2 +t6 */				__asm	addpd	xmm6,xmm3	/* ~t8 <- t4 +t7 */\
+			__asm	movaps	[eax      ],xmm4	/* <- ~t1 */			__asm	movaps	[edx      ],xmm7	/* <- ~t3 */\
+			__asm	movaps	[eax+0x010],xmm5	/* <- ~t2 */			__asm	movaps	[ecx+0x010],xmm6	/* <- ~t8 */\
 		}
 
 		/* The SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO variant means that we munge the second set of 4 output as follows:
@@ -3407,6 +3481,7 @@
 			/******** [~1/4 the cost of a radix-16 DIF or DIT pass] *******/\
 		}
 
+	/******************************************************************************************************************************************/
 
 		/*...Radix-5 DFT: Inputs enter in memory locations __i0,__i1,__i2,__i3,__i4, assumed disjoint with inputs: */\
 		#define SSE2_RADIX_05_DFT_0TWIDDLE(__i0,__i1,__i2,__i3,__i4, __c1, __o0,__o1,__o2,__o3,__o4)\
@@ -3538,6 +3613,205 @@
 			__asm	addpd	xmm0,xmm5		/* y2i = Bi2 + Br4 */\
 			__asm	movaps	[ecx     ],xmm1	/* Write y3r */\
 			__asm	movaps	[ebx+0x10],xmm0	/* Write y2i */\
+		}
+
+	/******************************************************************************************************************************************/
+
+		/*...Radix-7 DFT: Inputs in memory locations __i0-6, outputs go into memory locations __o0-6, possibly coincident with inputs:\ */\
+		#define SSE2_RADIX_07_DFT(__i0,__i1,__i2,__i3,__i4,__i5,__i6, __cc, __o0,__o1,__o2,__o3,__o4,__o5,__o6)\
+		{\
+		/*\
+			t1r=A1r+A6r;	\
+			t6r=A1r-A6r;	\
+							\
+			t2r=A2r+A5r;	\
+			t5r=A2r-A5r;	\
+							\
+			t3r=A3r+A4r;	\
+			t4r=A3r-A4r;	\
+		*/\
+			__asm	mov	eax, __i1	\
+			__asm	mov	ebx, __i2	\
+			__asm	mov	ecx, __i3	\
+			__asm	mov	edx, __i4	\
+			__asm	mov	esi, __i5	\
+			__asm	mov	edi, __i6	\
+			__asm	movaps	xmm6,[eax     ]	/* A1r */\
+			__asm	movaps	xmm1,[edi     ]	/* A6r */\
+			__asm	movaps	xmm5,[ebx     ]	/* A2r */\
+			__asm	movaps	xmm2,[esi     ]	/* A5r */\
+			__asm	movaps	xmm4,[ecx     ]	/* A3r */\
+			__asm	movaps	xmm3,[edx     ]	/* A4r */\
+			\
+			__asm	mov	ebx, __i0	\
+			__asm	subpd	xmm6,xmm1	/* t6r = A1r-A6r */\
+			__asm	addpd	xmm1,xmm1	/*         2*A6r */\
+			__asm	addpd	xmm1,xmm6	/* t1r = A1r+A6r */\
+			\
+			__asm	subpd	xmm5,xmm2	/* t5r = A2r-A5r */\
+			__asm	addpd	xmm2,xmm2	/*         2*A5r */\
+			__asm	addpd	xmm2,xmm5	/* t2r = A2r+A5r */\
+			\
+			__asm	movaps	xmm0,[ebx     ]	/* Ar0 */\
+			__asm	subpd	xmm4,xmm3	/* t4r = A3r-A4r */\
+			__asm	addpd	xmm3,xmm3	/*         2*A4r */\
+			__asm	addpd	xmm3,xmm4	/* t3r = A3r+A4r */\
+		/*\
+			rt  = t1r+t2r+t3r;	\
+			B0r = rt + A0r;		\
+			t0r = rt*cx0 + A0r;			t3r=(t6r-t4r+t5r)*sx0;	\
+			t1r = t1r-t2r;				t6r= t6r-t5r;			\
+			t2r = t3r-t2r;				t5r= t4r+t5r;			\
+			t3r =(t1r+t2r)*cx3;			t4r=(t5r-t6r)*sx3;		\
+			t1r = t1r*cx1;				t6r= t6r*sx1;			\
+			t2r = t2r*cx2;				t5r= t5r*sx2;			\
+			tt  = t1r-t3r;				t6r= t4r+t6r;			\
+			t2r = t2r-t3r;				t5r= t4r-t5r;			\
+																\
+			t1r= t0r- tt-t2r;			t4r= t3r-t6r-t5r;		\
+			t2r= t0r+t2r;				t5r= t3r+t5r;			\
+			t0r= t0r+ tt;				t3r= t3r+t6r;			\
+		*/\
+			__asm	mov	ecx, __o0	/* Assume that this might be the same address as any of i0-i6 */\
+			__asm	mov	esi, __cc	\
+			__asm	movaps	[esi+0x80],xmm0	/* cpy t0 into scratch sincos slot */	__asm	movaps	[esi+0x90],xmm6	/* cpy t6 into scratch sincos slot */	\
+			__asm	addpd	xmm0,xmm1	/*~A0 = A0+t1 */							__asm	movaps	xmm7,xmm5	/* cpy t5 */			\
+			__asm	addpd	xmm3,xmm2	/*~t3 = t3+t2 */							__asm	subpd	xmm5,xmm4	/*~t5 = t5-t4 */		\
+			__asm	subpd	xmm1,xmm2	/*~t1 = t1-t2 */							__asm	subpd	xmm6,xmm7	/*~t6 = t6-t5 */		\
+			__asm	addpd	xmm2,xmm2	/* 2*t2 */									__asm	addpd	xmm4,xmm7	/*~t5 = t4+t5 */		\
+			__asm	addpd	xmm0,xmm3	/* B0 */									__asm	addpd	xmm5,[esi+0x90]	/* t3 = [t5-t4]+t6 */	\
+			__asm	subpd	xmm3,xmm2	/*~t2 =  [t2+t3] - 2*t2 = t3-t2 */			__asm	movaps	xmm7,xmm4	/* cpy t5 */			\
+			__asm	movaps	[ecx     ],xmm0	/* <-B0, xmm0 FREE */					__asm	subpd	xmm4,xmm6	/* t4 = ~t5-~t6 */		\
+			__asm	movaps	xmm2,xmm1	/* cpy ~t1 */																	\
+			__asm	subpd	xmm0,[esi+0x80]	/* r = B0 - t0 */						__asm	mulpd	xmm5,[esi+0x10]	/*~t3 = t3*sx0 */	\
+			__asm	addpd	xmm2,xmm3	/* ~t1+~t2 */																	\
+			__asm	mulpd	xmm3,[esi+0x40]	/* t2 = t2*cx2 */						__asm	mulpd	xmm4,[esi+0x70]	/*~t4 = t4*sx3 */	\
+			__asm	mulpd	xmm1,[esi+0x20]	/* t1 = t1*cx1 */						__asm	mulpd	xmm6,[esi+0x30]	/*~t6 = t6*sx1 */	\
+			__asm	mulpd	xmm0,[esi]     	/* ~r = r*(cx0-1) */					__asm	mulpd	xmm7,[esi+0x50]	/*~t5 = t5*sx2 */	\
+			__asm	mulpd	xmm2,[esi+0x60]	/* t3 =(t1+t2)*cx3 */																		\
+			__asm	addpd	xmm0,[ecx     ]	/* t0 =~r + B0 */						__asm	addpd	xmm6,xmm4	/*~t6 = t4+t6 */		\
+			__asm	subpd	xmm1,xmm2	/* tt = t1-t3 */							__asm	subpd	xmm4,xmm7	/*~t5 = t4-t5, xmm7 FREE */\
+			__asm	subpd	xmm3,xmm2	/* t2 = t2-t3, xmm2 FREE */					\
+			__asm	mov	eax, __o1													\
+			__asm	mov	ebx, __o2													\
+			__asm	mov	ecx, __o3													\
+			__asm	mov	edx, __o4													\
+			__asm	mov	esi, __o5													\
+			__asm	mov	edi, __o6													\
+			__asm	movaps	xmm2,xmm0	/* cpy t0 */								__asm	movaps	xmm7,xmm5	/* cpy t3 */		\
+			__asm	addpd	xmm0,xmm1	/*~t0 = t0+tt */							__asm	addpd	xmm5,xmm6	/*~t3 = t3+t6 */	\
+			__asm	addpd	xmm1,xmm3	/*~tt = tt+t2 */							__asm	addpd	xmm6,xmm4	/*      t6+t5 */	\
+			__asm	addpd	xmm3,xmm2	/*~t2 = t2+t0 */							__asm	addpd	xmm4,xmm7	/*~t5 = t5+t3 */	\
+			__asm	subpd	xmm2,xmm1	/*~t1 = t0-tt-t2 */							__asm	subpd	xmm7,xmm6	/*~t4 = t3-t6-t5 */	\
+			__asm	movaps	[eax     ],xmm0	/* B1 <- t0 */							__asm	movaps	[edi     ],xmm5	/* B6 <- t3 */	\
+			__asm	movaps	[ebx     ],xmm2	/* B2 <- t1 */							__asm	movaps	[esi     ],xmm7	/* B5 <- t4 */	\
+			__asm	movaps	[ecx     ],xmm3	/* B3 <- t2 */							__asm	movaps	[edx     ],xmm4	/* B4 <- t5 */	\
+			\
+		/************************** Imaginary Parts: ******************************************/\
+			\
+			__asm	mov	eax, __i1	\
+			__asm	mov	ebx, __i2	\
+			__asm	mov	ecx, __i3	\
+			__asm	mov	edx, __i4	\
+			__asm	mov	esi, __i5	\
+			__asm	mov	edi, __i6	\
+			__asm	movaps	xmm6,[eax+0x10]	/* A1i */\
+			__asm	movaps	xmm1,[edi+0x10]	/* A6i */\
+			__asm	movaps	xmm5,[ebx+0x10]	/* A2i */\
+			__asm	movaps	xmm2,[esi+0x10]	/* A5i */\
+			__asm	movaps	xmm4,[ecx+0x10]	/* A3i */\
+			__asm	movaps	xmm3,[edx+0x10]	/* A4i */\
+			\
+			__asm	mov	ebx, __i0	\
+			__asm	subpd	xmm6,xmm1	/* t6i = A1i-A6i */\
+			__asm	addpd	xmm1,xmm1	/*         2*A6i */\
+			__asm	addpd	xmm1,xmm6	/* t1i = A1i+A6i */\
+			\
+			__asm	subpd	xmm5,xmm2	/* t5i = A2i-A5i */\
+			__asm	addpd	xmm2,xmm2	/*         2*A5i */\
+			__asm	addpd	xmm2,xmm5	/* t2i = A2i+A5i */\
+			\
+			__asm	movaps	xmm0,[ebx+0x10]	/* Ai0 */\
+			__asm	subpd	xmm4,xmm3	/* t4i = A3i-A4i */\
+			__asm	addpd	xmm3,xmm3	/*         2*A4i */\
+			__asm	addpd	xmm3,xmm4	/* t3i = A3i+A4i */\
+		/*\
+			it  = t1i+t2i+t3i;	\
+			B0i = it + A0i;		\
+			t0i = it*cx0 + A0i;			t3i=(t6i-t4i+t5i)*sx0;	\
+			t1i = t1i-t2i;				t6i= t6i-t5i;			\
+			t2i = t2i-t3i;				t5i= t4i+t5i;			\
+			t3i =(t1i-t2i)*cx3;			t4i=(t5i-t6i)*sx3;		\
+			t1i = t1i*cx1;				t6i= t6i*sx1;			\
+			t2i = t2i*cx2;				t5i= t5i*sx2;			\
+			it  = t1i-t3i;				t6i= t4i+t6i;			\
+			t2i = t2i-t3i;				t5i= t4i-t5i;			\
+																\
+			t1i= t0i- it-t2i;			t4i= t3i-t6i-t5i;		\
+			t2i= t0i+t2i;				t5i= t3i+t5i;			\
+			t0i= t0i+ it;				t3i= t3i+t6i;			\
+		*/\
+			__asm	mov	ecx, __o0	\
+			__asm	mov	esi, __cc	\
+			__asm	movaps	[esi+0x80],xmm0	/* cpy t0 into scratch sincos slot */	__asm	movaps	[esi+0x90],xmm6	/* cpy t6 into scratch sincos slot */	\
+			__asm	addpd	xmm0,xmm1	/*~A0 = A0+t1 */							__asm	movaps	xmm7,xmm5	/* cpy t5 */			\
+			__asm	addpd	xmm3,xmm2	/*~t3 = t3+t2 */							__asm	subpd	xmm5,xmm4	/*~t5 = t5-t4 */		\
+			__asm	subpd	xmm1,xmm2	/*~t1 = t1-t2 */							__asm	subpd	xmm6,xmm7	/*~t6 = t6-t5 */		\
+			__asm	addpd	xmm2,xmm2	/* 2*t2 */									__asm	addpd	xmm4,xmm7	/*~t5 = t4+t5 */		\
+			__asm	addpd	xmm0,xmm3	/* B0 */									__asm	addpd	xmm5,[esi+0x90]	/* t3 = [t5-t4]+t6 */	\
+			__asm	subpd	xmm3,xmm2	/*~t2 =  [t2+t3] - 2*t2 = t3-t2 */			__asm	movaps	xmm7,xmm4	/* cpy t5 */			\
+			__asm	movaps	[ecx+0x10],xmm0	/* <-B0, xmm0 FREE */					__asm	subpd	xmm4,xmm6	/* t4 = ~t5-~t6 */		\
+			__asm	movaps	xmm2,xmm1	/* cpy ~t1 */																	\
+			__asm	subpd	xmm0,[esi+0x80]	/* r = B0 - t0 */						__asm	mulpd	xmm5,[esi+0x10]	/*~t3 = t3*sx0 */	\
+			__asm	addpd	xmm2,xmm3	/* ~t1+~t2 */																	\
+			__asm	mulpd	xmm3,[esi+0x40]	/* t2 = t2*cx2 */						__asm	mulpd	xmm4,[esi+0x70]	/*~t4 = t4*sx3 */	\
+			__asm	mulpd	xmm1,[esi+0x20]	/* t1 = t1*cx1 */						__asm	mulpd	xmm6,[esi+0x30]	/*~t6 = t6*sx1 */	\
+			__asm	mulpd	xmm0,[esi]     	/* ~r = r*(cx0-1) */					__asm	mulpd	xmm7,[esi+0x50]	/*~t5 = t5*sx2 */	\
+			__asm	mulpd	xmm2,[esi+0x60]	/* t3 =(t1+t2)*cx3 */																		\
+			__asm	addpd	xmm0,[ecx+0x10]	/* t0 =~r + B0 */						__asm	addpd	xmm6,xmm4	/*~t6 = t4+t6 */		\
+			__asm	subpd	xmm1,xmm2	/* tt = t1-t3 */							__asm	subpd	xmm4,xmm7	/*~t5 = t4-t5, xmm7 FREE */\
+			__asm	subpd	xmm3,xmm2	/* t2 = t2-t3, xmm2 FREE */					\
+			__asm	mov	eax, __o1													\
+			__asm	mov	ebx, __o2													\
+			__asm	mov	ecx, __o3													\
+			__asm	movaps	xmm2,xmm0	/* cpy t0 */								__asm	movaps	xmm7,xmm5	/* cpy t3 */		\
+			__asm	addpd	xmm0,xmm1	/*~t0 = t0+tt */							__asm	addpd	xmm5,xmm6	/*~t3 = t3+t6 */	\
+			__asm	addpd	xmm1,xmm3	/*~tt = tt+t2 */							__asm	addpd	xmm6,xmm4	/*      t6+t5 */	\
+			__asm	addpd	xmm3,xmm2	/*~t2 = t2+t0 */							__asm	addpd	xmm4,xmm7	/*~t5 = t5+t3 */	\
+			__asm	subpd	xmm2,xmm1	/*~t1 = t0-tt-t2, xmm1 FREE */				__asm	subpd	xmm7,xmm6	/*~t4 = t3-t6-t5, xmm6 FREE */	\
+		/*\
+			B1r =t0r-t3i;					B1i*=t0i+t3r;\
+			B2r =t1r-t4i;					B2i*=t1i+t4r;\
+			B3r*=t2r+t5i;					B3i =t2i-t5r;\
+			B4r*=t2r-t5i;					B4i =t2i+t5r;\
+			B5r =t1r+t4i;					B5i*=t1i-t4r;\
+			B6r =t0r+t3i;					B6i*=t0i-t3r;\
+		*/\
+			__asm	mov	edx, __o4\
+			__asm	mov	esi, __o5\
+			__asm	mov	edi, __o6\
+			/* xmm1,6 FREE */\
+			__asm	movaps	xmm1,[eax     ]	/* t0r */					__asm	movaps	xmm6,[edi     ]	/* t3r */					\
+			__asm	subpd	xmm1,xmm5	/* B1r =t0r-t3i */				__asm	subpd	xmm0,xmm6	/* B6i =t0i-t3r */				\
+			__asm	addpd	xmm5,xmm5	/*        2*t3i */				__asm	addpd	xmm6,xmm6	/*        2*t3r */				\
+			__asm	addpd	xmm5,xmm1	/* B6r =t0r+t3i */				__asm	addpd	xmm6,xmm0	/* B1i =t0i+t3r */				\
+			__asm	movaps	[eax     ],xmm1	/* <-B1r */					__asm	movaps	[edi+0x10],xmm0	/* <-B6i */		\
+			__asm	movaps	[edi     ],xmm5	/* <-B6r */					__asm	movaps	[eax+0x10],xmm6	/* <-B1i */		\
+			\
+			__asm	movaps	xmm1,[ebx     ]	/* t1r */					__asm	movaps	xmm6,[esi     ]	/* t4r */					\
+			__asm	subpd	xmm1,xmm7	/* B2r =t1r-t4i */				__asm	subpd	xmm2,xmm6	/* B5i =t1i-t4r */				\
+			__asm	addpd	xmm7,xmm7	/*        2*t4i */				__asm	addpd	xmm6,xmm6	/*        2*t4r */				\
+			__asm	addpd	xmm7,xmm1	/* B5r =t1r+t4i */				__asm	addpd	xmm6,xmm2	/* B2i =t1i+t4r */				\
+			__asm	movaps	[ebx     ],xmm1	/* <-B2r */					__asm	movaps	[esi+0x10],xmm2	/* <-B5i */		\
+			__asm	movaps	[esi     ],xmm7	/* <-B5r*/					__asm	movaps	[ebx+0x10],xmm6	/* <-B2i */		\
+			\
+			/* Note the order reversal on this pair of outputs: */\
+			__asm	movaps	xmm0,[ecx     ]	/* t2r */					__asm	movaps	xmm5,[edx     ]	/* t5r */					\
+			__asm	subpd	xmm0,xmm4	/* B4r =t2r-t5i */				__asm	subpd	xmm3,xmm5	/* B3i =t2i-t5r */				\
+			__asm	addpd	xmm4,xmm4	/*        2*t5i */				__asm	addpd	xmm5,xmm5	/*        2*t5r */				\
+			__asm	addpd	xmm4,xmm0	/* B3r =t2r+t5i */				__asm	addpd	xmm5,xmm3	/* B4i =t2i+t5r */				\
+			__asm	movaps	[edx     ],xmm0	/* <-B4r */					__asm	movaps	[ecx+0x10],xmm3	/* <-B3i */		\
+			__asm	movaps	[ecx     ],xmm4	/* <-B3r*/					__asm	movaps	[edx+0x10],xmm5	/* <-B4i */		\
 		}
 
 	/******************************************************************************************************************************************/

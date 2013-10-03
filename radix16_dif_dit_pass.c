@@ -24,6 +24,11 @@
 
 /* Use for testing higher-accuracy version of the twiddles computation */
 #define HIACC 1
+#define EPS	1e-10
+
+#ifndef PFETCH_DIST
+	#define PFETCH_DIST	8
+#endif
 
 #ifdef USE_SSE2
 
@@ -34,9 +39,6 @@
 	#ifdef COMPILER_TYPE_MSVC
 		#include "sse2_macro.h"
 	#endif
-
-	#undef DEBUG_SSE2
-//	#define DEBUG_SSE2
 
 /*	Recipe for MSVC --> GCC inline ASM conversion:
 
@@ -101,12 +103,29 @@ Additional Notes:
 */
 void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr, int init_sse2, int thr_id)
 {
+	const int RADIX = 16;
+	const int pfetch_dist = PFETCH_DIST;
+	int pfetch_addr;
 	static int max_threads = 0;
-	const double c = 0.9238795325112867561281831, s = 0.3826834323650897717284599;	/* exp[i*(twopi/16)]*/
+	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride (doubles) = 2*RE_IM_STRIDE
+	// lg(stride):
+  #ifdef USE_AVX
+	const int l2_stride = 3;	// 8 doubles at a time
+  #elif defined(USE_SSE2)
+	const int l2_stride = 2;	// 4 doubles at a time
+  #else
+	const int l2_stride = 1;	// 2 doubles at a time in scalar [non-SIMD] mode
+  #endif
+
+	static double c = 0.9238795325112867561281831, s = 0.3826834323650897717284599;	/* exp[i*(twopi/16)]*/
+#ifdef USE_AVX2	// FMA-based DFT in AVX2 mode needs the tangent
+	static double tan = 0.41421356237309504879;
+#endif
 	int i,j,j1,j2,jlo,jhi,m,iroot_prim,iroot,k1,k2;
 	int p1,p2,p3,p4,p8,p12;
-	double rt,it;
+	double rt,it,dtmp;
 	double re0,im0,re1,im1;
+	uint64 tmp64;
 
 #ifdef USE_SSE2
 
@@ -114,22 +133,22 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 	#error SSE2 code not supported for this compiler!
   #endif
 
-	static struct complex *sc_arr = 0x0, *sc_ptr;
-	double *add0;	/* Addresses into array sections */
+	static vec_dbl *sc_arr = 0x0, *sc_ptr;
+	double *add0, *add1, *add2;	/* Addresses into array sections */
 #ifdef COMPILER_TYPE_MSVC
-	double *add1, *add2, *add3;
+	double *add3;
 #endif
-	struct complex *c_tmp,*s_tmp;
+	vec_dbl *c_tmp,*s_tmp;
 
   #ifdef MULTITHREAD
-	static struct complex *__r0;					// Base address for discrete per-thread local stores
-	struct complex *cc0, *ss0, *isrt2, *two, *r1;	// In || mode, only above base-pointer (shared by all threads) is static:
+	static vec_dbl *__r0;					// Base address for discrete per-thread local stores
+	vec_dbl *cc0, *ss0, *isrt2, *two, *r1;	// In || mode, only above base-pointer (shared by all threads) is static:
   #elif defined(COMPILER_TYPE_GCC)
-	static struct complex *cc0, *ss0, *isrt2, *two, *r1;
+	static vec_dbl *cc0, *ss0, *isrt2, *two, *r1;
   #else
-	static struct complex *cc0, *ss0, *isrt2, *two;
-	static struct complex *c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15,*s0,*s1,*s2,*s3,*s4,*s5,*s6,*s7,*s8,*s9,*s10,*s11,*s12,*s13,*s14,*s15;
-	static struct complex *r1,*r2,*r3,*r4,*r5,*r6,*r7,*r8,*r9,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r30,*r31,*r32;
+	static vec_dbl *cc0, *ss0, *isrt2, *two;
+	static vec_dbl *c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15,*s0,*s1,*s2,*s3,*s4,*s5,*s6,*s7,*s8,*s9,*s10,*s11,*s12,*s13,*s14,*s15;
+	static vec_dbl *r1,*r2,*r3,*r4,*r5,*r6,*r7,*r8,*r9,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r30,*r31,*r32;
   #endif
 
 #else
@@ -148,17 +167,17 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 	switch to a special-init-mode-call paradigm, in which the function is inited once (for as many threads as needed)
 	prior to being executed:
 	*/
-	if(init_sse2 && !sc_ptr)	// Just check (init_sse2 != 0) here, to allow the *value* of init_sse2 to store #threads
+	if(init_sse2)	// Just check (init_sse2 != 0) here, to allow the *value* of init_sse2 to store #threads
 	{
+		fprintf(stderr, "radix16_dif_dit_pass pfetch_dist = %d\n", pfetch_dist);
 		max_threads = init_sse2;
 	#ifndef COMPILER_TYPE_GCC
 		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 	#endif
 		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
-		ASSERT(HERE, sc_arr == 0x0, "Init-mode call conflicts with already-malloc'ed local storage!");
 		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
-		sc_arr = ALLOC_COMPLEX(sc_arr, 72*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		sc_ptr = ALIGN_COMPLEX(sc_arr);
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 72*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 32 16-byte slots of sc_arr for temporaries, next 3 for the nontrivial complex 16th roots,
@@ -173,68 +192,87 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 			two   = sc_ptr + 0x43;
 			for(i = 0; i < max_threads; ++i) {
 				/* These remain fixed within each per-thread local store: */
-				isrt2->re = ISRT2;	isrt2->im = ISRT2;
-				two  ->re = 2.0;	two  ->im = 2.0;
-				cc0  ->re = c	;	cc0  ->im = c	;
-				ss0  ->re = s	;	ss0  ->im = s	;
+				VEC_DBL_INIT(isrt2, ISRT2);
+			  #ifdef USE_AVX2
+				VEC_DBL_INIT(two  , 1.0);	// Yeah, I *know" "it's a misnomer" :)
+				// cc0,ss0 inited below for AVX2
+			  #else
+				VEC_DBL_INIT(two  , 2.0);
+				VEC_DBL_INIT(cc0  , c);
+				VEC_DBL_INIT(ss0  , s);
+			  #endif
 				isrt2 += 72;	/* Move on to next thread's local store */
 				cc0   += 72;
 				ss0   += 72;
 				two   += 72;
 			}
+
 		#elif defined(COMPILER_TYPE_GCC)
+
 			r1  = sc_ptr + 0x00;	  isrt2 = sc_ptr + 0x20;
 										cc0 = sc_ptr + 0x21;
 										ss0 = sc_ptr + 0x22;
 										two = sc_ptr + 0x43;
 			/* These remain fixed: */
-			isrt2->re = ISRT2;	isrt2->im = ISRT2;
-			two  ->re = 2.0;	two  ->im = 2.0;
-			cc0  ->re = c	;	cc0  ->im = c	;
-			ss0  ->re = s	;	ss0  ->im = s	;
+			VEC_DBL_INIT(isrt2, ISRT2);
+		  #ifdef USE_AVX2
+			VEC_DBL_INIT(two  , 1.0);
+			// cc0,ss0 inited below for AVX2
+		  #else
+			VEC_DBL_INIT(two  , 2.0);
+			VEC_DBL_INIT(cc0  , c);
+			VEC_DBL_INIT(ss0  , s);
+		  #endif
+
 		#else
 	//	} else {
-			r1  = sc_ptr + 0x00;	  isrt2 = sc_ptr + 0x20;
-			r2  = sc_ptr + 0x01;		cc0 = sc_ptr + 0x21;
-			r3  = sc_ptr + 0x02;		ss0 = sc_ptr + 0x22;
-			r4  = sc_ptr + 0x03;		c0  = sc_ptr + 0x23;
-			r5  = sc_ptr + 0x04;		s0  = sc_ptr + 0x24;
-			r6  = sc_ptr + 0x05;		c8  = sc_ptr + 0x25;
-			r7  = sc_ptr + 0x06;		s8  = sc_ptr + 0x26;
-			r8  = sc_ptr + 0x07;		c4  = sc_ptr + 0x27;
-			r9  = sc_ptr + 0x08;		s4  = sc_ptr + 0x28;
-			r10 = sc_ptr + 0x09;		c12 = sc_ptr + 0x29;
-			r11 = sc_ptr + 0x0a;		s12 = sc_ptr + 0x2a;
-			r12 = sc_ptr + 0x0b;		c2  = sc_ptr + 0x2b;
-			r13 = sc_ptr + 0x0c;		s2  = sc_ptr + 0x2c;
-			r14 = sc_ptr + 0x0d;		c10 = sc_ptr + 0x2d;
-			r15 = sc_ptr + 0x0e;		s10 = sc_ptr + 0x2e;
-			r16 = sc_ptr + 0x0f;		c6  = sc_ptr + 0x2f;
-			r17 = sc_ptr + 0x10;		s6  = sc_ptr + 0x30;
-			r18 = sc_ptr + 0x11;		c14 = sc_ptr + 0x31;
-			r19 = sc_ptr + 0x12;		s14 = sc_ptr + 0x32;
-			r20 = sc_ptr + 0x13;		c1  = sc_ptr + 0x33;
-			r21 = sc_ptr + 0x14;		s1  = sc_ptr + 0x34;
-			r22 = sc_ptr + 0x15;		c9  = sc_ptr + 0x35;
-			r23 = sc_ptr + 0x16;		s9  = sc_ptr + 0x36;
-			r24 = sc_ptr + 0x17;		c5  = sc_ptr + 0x37;
-			r25 = sc_ptr + 0x18;		s5  = sc_ptr + 0x38;
-			r26 = sc_ptr + 0x19;		c13 = sc_ptr + 0x39;
-			r27 = sc_ptr + 0x1a;		s13 = sc_ptr + 0x3a;
-			r28 = sc_ptr + 0x1b;		c3  = sc_ptr + 0x3b;
-			r29 = sc_ptr + 0x1c;		s3  = sc_ptr + 0x3c;
-			r30 = sc_ptr + 0x1d;		c11 = sc_ptr + 0x3d;
-			r31 = sc_ptr + 0x1e;		s11 = sc_ptr + 0x3e;
-			r32 = sc_ptr + 0x1f;		c7  = sc_ptr + 0x3f;
-										s7  = sc_ptr + 0x40;
-										c15 = sc_ptr + 0x41;
-										s15 = sc_ptr + 0x42;
-										two = sc_ptr + 0x43;
+																// In AVX2 mode, the 34 sincos terms between isrt2 and two will be inited
+																// as before but will end up containing derived quantitiess as shown below.
+			r1  = sc_ptr + 0x00;	  isrt2 = sc_ptr + 0x20;	// The derived-term naming reflects that in the RADIX_16_DIF_FMA macro in dft_macro.h:
+			r2  = sc_ptr + 0x01;		cc0 = sc_ptr + 0x21;	// __c1_c = c1*__c
+			r3  = sc_ptr + 0x02;		ss0 = sc_ptr + 0x22;	// __sc = __s/__c	[note this const across all blocks]
+			r4  = sc_ptr + 0x03;		c0  = sc_ptr + 0x23;	// __c1i2 = c1*ISRT2
+			r5  = sc_ptr + 0x04;		s0  = sc_ptr + 0x24;	// __c2i2 = c2*ISRT2
+			r6  = sc_ptr + 0x05;		c8  = sc_ptr + 0x25;	// __c8 [unchanged]
+			r7  = sc_ptr + 0x06;		s8  = sc_ptr + 0x26;	// __r8 = s8 /c8 
+			r8  = sc_ptr + 0x07;		c4  = sc_ptr + 0x27;	// __c4 [unchanged]
+			r9  = sc_ptr + 0x08;		s4  = sc_ptr + 0x28;	// __r4 = s4 /c4 
+			r10 = sc_ptr + 0x09;		c12 = sc_ptr + 0x29;	// __cC4 = __cC/__c4
+			r11 = sc_ptr + 0x0a;		s12 = sc_ptr + 0x2a;	// __rC = s12/c12
+			r12 = sc_ptr + 0x0b;		c2  = sc_ptr + 0x2b;	// __c2 [unchanged]
+			r13 = sc_ptr + 0x0c;		s2  = sc_ptr + 0x2c;	// __r2 = s2 /c2 
+			r14 = sc_ptr + 0x0d;		c10 = sc_ptr + 0x2d;	// __cA2 = __cA/__c2
+			r15 = sc_ptr + 0x0e;		s10 = sc_ptr + 0x2e;	// __rA = s10/c10
+			r16 = sc_ptr + 0x0f;		c6  = sc_ptr + 0x2f;	// __c62 = __c6/__c2
+			r17 = sc_ptr + 0x10;		s6  = sc_ptr + 0x30;	// __r6 = s6 /c6 
+			r18 = sc_ptr + 0x11;		c14 = sc_ptr + 0x31;	// __cE6 = __cE/__c6
+			r19 = sc_ptr + 0x12;		s14 = sc_ptr + 0x32;	// __rE = s14/c14
+			r20 = sc_ptr + 0x13;		c1  = sc_ptr + 0x33;	// __c1 [unchanged]
+			r21 = sc_ptr + 0x14;		s1  = sc_ptr + 0x34;	// __r1 = s1 /c1 
+			r22 = sc_ptr + 0x15;		c9  = sc_ptr + 0x35;	// __c91 = __c9/__c1
+			r23 = sc_ptr + 0x16;		s9  = sc_ptr + 0x36;	// __r9 = s9 /c9 
+			r24 = sc_ptr + 0x17;		c5  = sc_ptr + 0x37;	// __c51 = __c5/__c1
+			r25 = sc_ptr + 0x18;		s5  = sc_ptr + 0x38;	// __r5 = s5 /c5 
+			r26 = sc_ptr + 0x19;		c13 = sc_ptr + 0x39;	// __cD5 = __cD/__c5
+			r27 = sc_ptr + 0x1a;		s13 = sc_ptr + 0x3a;	// __rD = s13/c13
+			r28 = sc_ptr + 0x1b;		c3  = sc_ptr + 0x3b;	// __c31 = __c3/__c1
+			r29 = sc_ptr + 0x1c;		s3  = sc_ptr + 0x3c;	// __r3 = s3 /c3 
+			r30 = sc_ptr + 0x1d;		c11 = sc_ptr + 0x3d;	// __cB3 = __cB/__c3
+			r31 = sc_ptr + 0x1e;		s11 = sc_ptr + 0x3e;	// __rB = s11/c11
+			r32 = sc_ptr + 0x1f;		c7  = sc_ptr + 0x3f;	// __c73 = __c7/__c3
+										s7  = sc_ptr + 0x40;	// __r7 = s7 /c7 
+										c15 = sc_ptr + 0x41;	// __cF7 = __cF/__c7
+										s15 = sc_ptr + 0x42;	// __rF = s15/c15
+										two = sc_ptr + 0x43;	// Holds 1.0 in AVX2 modeThese will need to be computed afresh for each new set of roots of unity, obviously.
 			/* These remain fixed: */
-			isrt2->re = ISRT2;	isrt2->im = ISRT2;
-			two  ->re = 2.0;	two  ->im = 2.0;
-			cc0  ->re = c	;	cc0  ->im = c	;
-			ss0  ->re = s	;	ss0  ->im = s	;
+			VEC_DBL_INIT(isrt2, ISRT2);
+		  #ifdef USE_AVX2
+			#error AVX2 build not supported for non-GCC-compliant compilers!
+		  #else
+			VEC_DBL_INIT(two  , 2.0);
+			VEC_DBL_INIT(cc0  , c);
+			VEC_DBL_INIT(ss0  , s);
+		  #endif
 		#endif
 	//	}
 		return;
@@ -246,6 +284,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		r1 = __r0 + thr_id*72;
 		isrt2 = r1 + 0x20;
 		cc0   = r1 + 0x21;
+		two   = r1 + 0x43;
 	#endif
 
 #endif
@@ -293,6 +332,11 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 	p4 = p4 + ( (p4 >> DAT_BITS) << PAD_BITS );
 	p8 = p8 + ( (p8 >> DAT_BITS) << PAD_BITS );
 	p12= p12+ ( (p12>> DAT_BITS) << PAD_BITS );
+	// Make sure to at least one-time pre-test any index arithmetic assumptions used to save cycles in the loop
+	// body (both C and AS). Since such checks may be runlength-dependent, need to be cheap enough to leave on
+	// all the time, as here where we do them just once prior to entering the processing loop. Since DIF and DIT
+	// encounter the same sets or index strides (albeit in opposite order), can split such tests between them:
+//	ASSERT(HERE, p2  == p1+p1, "radix16_dif_pass: p2  != p1+p1!");	<*** The failure of this assertion led me to find the dependence on it in my new AVX2/FMA-based DIT macro ***
 
 	iroot_prim=(incr >> 5);		/* (incr/2)/radix_now */
 
@@ -308,14 +352,42 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
    since we only compute each set of twiddles once and re-use it for many data blocks.
 */
 #if HIACC
-	#ifdef USE_SSE2
-		/* Due to roots-locality considerations, roots (c,s)[0-15] are offset w.r.to the thread-local ptr pair as
-		(cc0,ss0) + 0x[2,12,a,1a,6,16,e,1e,4,14,c,1c,8,18,10,20]:
+
+	// In AVX2/FMA mode, since we need to replace most of the raw sincos data with derived ones,
+	// simply place one copy of each computed double in a double-sized slot of the local memory.
+	// We will be using AVX2/FMA-based Newtonian iterative inversion on the 16 doubles whose
+	// multiplicative inverse is needed (the real part of the basic root of unity c and of the
+	// 15 complex twiddles, c1-15), so store those in packed form in 4 AVX-register-sized
+	// contiguous memory locations, and the others in a separate chunk of memory. After the
+	// vector-iterative inversion we'll need to combine the 2 sets of data and place (in quadruplicate)
+	// into their final SIMD-suitable memory slots.
+	#ifdef USE_AVX2
+
+		add0 = (double *)cc0;	// add0 points to 16 cos-data-to-be-inverted; Need a double-ptr on lhs here
+		add1 = add0 + 16;	// add1 points to block of memory temporarily used to store the corresponding sine data
+		add2 = add0 + 32;	// add2 points to block of memory temporarily used to store the 11 [0-padded to 12]
+							//	cosine data which need to be divided by other cosines (i.e. multiplied by inverses)
+		/* The add2-addressed cosine ratios are arranged in 3 YMM-register/memory-sized slots like so;
+		  once we have filled 4 YYMs with inverses 1/[c3,c1-15] and used those to get the 16 tangents (1st set = 1/c3
+		  and discarded) we will do as described in the right column to set up for the cosine-ratios computation:
+		
+			double __c31 = __c3/__c1;
+			double __c51 = __c5/__c1;
+			double __c62 = __c6/__c2;
+			[0 pad]						shuffle YMM with 1/[c3,c1,c2,c3] to get 1/[c1,c1,c2,c3], then *= [c3,c5,c6,0]
+		
+			double __c73 = __c7/__c3;
+			double __c91 = __c9/__c1;
+			double __cA2 = __cA/__c2;
+			double __cB3 = __cB/__c3;	initialize YMM with 1/[c3,c1,c2,c3], then *= [c7,c9,cA,cB]
+		
+			double __cC4 = __cC/__c4;
+			double __cD5 = __cD/__c5;
+			double __cE6 = __cE/__c6;
+			double __cF7 = __cF/__c7;	Multiply YMM with 1/[c4-7] *= [cC-F]
 		*/
-		c_tmp = cc0 + 0x02; s_tmp = c_tmp+1;	/* c0,s0 */
-		c_tmp->re = c_tmp->im = 1.0;
-		s_tmp->re = s_tmp->im = 0.0;
-	#endif
+		*add0++ = 0.0;	// Since tan0 defined as const, use this pair of double slots to hold 1/c3 (via c3,1 on input, then invert c3 and multiply
+		*add1++ = 1.0;	// them together), which extra 1/c3 copy saves some really awkward permuting, at least in terms of the idiotic x86 ISA.
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -323,13 +395,8 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c_tmp = cc0 + 0x12; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
-		c1 =rt;		s1 =it;
-	#endif
+		*add0++ = rt;	// c1, for inversion
+		*add1++ = it;	// s1  slot will hold __r1 = s1 /c1 
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -337,13 +404,8 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c_tmp = cc0 + 0xa; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
-		c2 =rt;		s2 =it;
-	#endif
+		*add0++ = rt;	// c2, for inversion
+		*add1++ = it;	// s2  slot will hold __r2 = s2 /c2 
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -351,27 +413,17 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c_tmp = cc0 + 0x1a; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
-		c3 =rt;		s3 =it;
-	#endif
-
+		*(add0-3) = *add0++ = rt;	// c3, for inversion ... place extra copy in 0-slot as described above
+		*add1++ = it;	// s3  slot will hold __r3 = s3 /c3 
+		*add2++ = rt;	// c3, will get multiplied by 1/c1 to yield __c31
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
 		i += iroot;			/* 5*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c_tmp = cc0 + 0x6; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
-		c4 =rt;		s4 =it;
-	#endif
+		*add0++ = rt;	// c4, for inversion
+		*add1++ = it;	// s4  slot will hold __r4 = s4 /c4 
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -379,55 +431,36 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c_tmp = cc0 + 0x16; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
-		c5 =rt;		s5 =it;
-	#endif
-
+		*add0++ = rt;	// c5, for inversion
+		*add1++ = it;	// s5  slot will hold __r5 = s5 /c5 
+		*add2++ = rt;	// c5, will get multiplied by 1/c1 to yield __c51
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
 		i += iroot;			/* 7*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c_tmp = cc0 + 0xe; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
-		c6 =rt;		s6 =it;
-	#endif
-
+		*add0++ = rt;	// c6, for inversion
+		*add1++ = it;	// s6  slot will hold __r6 = s6 /c6 
+		*add2++ = rt;	// c6, will get multiplied by 1/c2 to yield __c62
+		*add2++ = 0.0;	// 0-pad will get multiplied by 1/c3 term, remains 0-pad.
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
 		i += iroot;			/* 8*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c_tmp = cc0 + 0x1e; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
-		c7 =rt;		s7 =it;
-	#endif
-
+		*add0++ = rt;	// c7, for inversion
+		*add1++ = it;	// s7  slot will hold __r7 = s7 /c7 
+		*add2++ = rt;	// c7, will get multiplied by 1/c3 to yield __c73
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
 		i += iroot;			/* 9*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c_tmp = cc0 + 0x4; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
-		c8 =rt;		s8 =it;
-	#endif
+		*add0++ = rt;	// c8, for inversion
+		*add1++ = it;	// s8  slot will hold __r8 = s8 /c8 
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -435,13 +468,307 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
+		*add0++ = rt;	// c9, for inversion
+		*add1++ = it;	// s9  slot will hold __r9 = s9 /c9 
+		*add2++ = rt;	// c9, will get multiplied by 1/c1 to yield __c91
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/*11*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		*add0++ = rt;	// c10, for inversion
+		*add1++ = it;	// s10 slot will hold __rA = s10/c10
+		*add2++ = rt;	// cA, will get multiplied by 1/c2 to yield __cA2
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/*12*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		*add0++ = rt;	// c11, for inversion
+		*add1++ = it;	// s11 slot will hold __rB = s11/c11
+		*add2++ = rt;	// cB, will get multiplied by 1/c3 to yield __cB3
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/*13*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		*add0++ = rt;	// c12, for inversion
+		*add1++ = it;	// s12 slot will hold __rC = s12/c12
+		*add2++ = rt;	// cC, will get multiplied by 1/c4 to yield __cC4
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/*14*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		*add0++ = rt;	// c13, for inversion
+		*add1++ = it;	// s13 slot will hold __rD = s13/c13
+		*add2++ = rt;	// cD, will get multiplied by 1/c5 to yield __cD5
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/*15*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		*add0++ = rt;	// c14, for inversion
+		*add1++ = it;	// s14 slot will hold __rE = s14/c14
+		*add2++ = rt;	// cE, will get multiplied by 1/c6 to yield __cE6
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		*add0++ = rt;	// c15, for inversion
+		*add1++ = it;	// s15 slot will hold __rF = s15/c15
+		*add2++ = rt;	// cF, will get multiplied by 1/c7 to yield __cF7
+
+		// This places us at add0 == c8 and add1 = c12.
+		ASSERT(HERE, add0 == (double *)cc0+16 && add1 == (double *)cc0+32 && add2 == (double *)cc0+44, "add0,1,2 checksum failed in AVX2 sincos inits!");
+		/*
+		At this point, the 11 ymm-sized [32-byte] chunks starting at &cc0 contain the following scalar-double data:
+		
+		0:	c3,c1-3
+		1:	c4-7
+		2:	c8-11
+		3:	c12-c15
+		4:	1.0,s1-3
+		5:	s4-7
+		6:	s8-11
+		7:	s12-s15
+		8:	c3,5,6,[0-pad]
+		9:	c7,9-B
+		A:	cC-F
+		*/
+
+		// Now send the cosine terms to the inversion routine, which also does the combine-and-populate-SIMD-slots step.
+	  #ifdef DFT_V2	// Toggle between 2 versions
+
+		RADIX16_COMPUTE_FMA_SINCOS_DIF_2(cc0,two);
+		add0 = (double *)cc0;
+
+		/* Scalar data starting at add0 = cc0 laid out as below:
+
+		a[0x00,0x01,0x02,0x03]: add0 + 0x[  0,  8, 10, 18]: [c3 ,c1 ,c2 ,c3 ] Cosines:
+		a[0x04,0x05,0x06,0x07]: add0 + 0x[ 20, 28, 30, 38]: [c4 ,c5 ,c6 ,c7 ]
+		a[0x08,0x09,0x0a,0x0b]: add0 + 0x[ 40, 48, 50, 58]: [c8 ,c9 ,cA ,cB ]
+		a[0x0c,0x0d,0x0e,0x0f]: add0 + 0x[ 60, 68, 70, 78]: [cC ,cD ,cE ,cF ]
+		a[0x10,0x11,0x12,0x13]: add0 + 0x[ 80, 88, 90, 98]: [-- ,r1 ,r2 ,r3 ] Tangents:
+		a[0x14,0x15,0x16,0x17]: add0 + 0x[ a0, a8, b0, b8]: [r4 ,r5 ,r6 ,r7 ]
+		a[0x18,0x19,0x1a,0x1b]: add0 + 0x[ c0, c8, d0, d8]: [r8 ,r9 ,rA ,rB ]
+		a[0x1c,0x1d,0x1e,0x1f]: add0 + 0x[ e0, e8, f0, f8]: [rC ,rD ,rE ,rF ]
+		a[0x20,0x21,0x22,0x23]: add0 + 0x[100,108,110,118]: [c31,c51,c62,  0] Cosine ratios:
+		a[0x24,0x25,0x26,0x27]: add0 + 0x[120,128,130,138]: [c73,c91,cA2,cB3]
+		a[0x28,0x29,0x2a,0x2b]: add0 + 0x[140,148,150,158]: [cC4,cD5,cE6,cF7]
+
+		Ensuing C code massages the above into a scalar-data analog of the 4-copy layout.
+		*/
+		// put all overwrites-of-no-longer-needed data first, to minimize conflicts later.
+		// Data which will not be used in the FMA-based radix-16 DIF are at indices 0x[0,3,5-7,9-15,16]:
+		// Arrange the rest so RHS (read-elt) indices are ascending, then manually move
+		// up those which overwrite indices appearing further down in the RHS:
+		add0[0x00] = add0[0x01];	// c1, copy to *= __c
+		add0[0x03] = add0[0x02];	// c2, copy to *= ISRT2
+		add0[0x0a] = add0[0x02];	// copy c2 to final loc before overwriting
+		add0[0x02] = add0[0x01];	// c1, copy to *= ISRT2
+		add0[0x01] = tan;
+		add0[0x06] = add0[0x04];	// c4 	
+		add0[0x04] = add0[0x08];	// c8	
+		add0[0x05] = add0[0x18];	// r8
+		add0[0x07] = add0[0x14];	// r4
+		add0[0x08] = add0[0x28];	// cC4	
+		add0[0x09] = add0[0x1c];	// rC
+		add0[0x0b] = add0[0x12];	// r2
+		add0[0x0c] = add0[0x26];	// cA2	
+		add0[0x0d] = add0[0x1a];	// rA
+		add0[0x0e] = add0[0x22];	// c62	
+		add0[0x0f] = add0[0x16];	// r6
+		add0[0x10] = add0[0x2a];	// cE6			
+		add0[0x16] = add0[0x21];	// c51	
+		add0[0x21] = add0[0x1f];	// rF
+		add0[0x1f] = add0[0x17];	// r7
+		add0[0x17] = add0[0x15];	// r5
+		add0[0x15] = add0[0x19];	// r9
+		add0[0x19] = add0[0x1d];	// rD
+		add0[0x1d] = add0[0x1b];	// rB
+		add0[0x1b] = add0[0x13];	// r3
+		add0[0x13] = add0[0x11];	// r1
+		add0[0x11] = add0[0x1e];	// rE
+		add0[0x12] = add0[0x00];	// c1 now in [0]
+		add0[0x14] = add0[0x25];	// c91	
+		add0[0x18] = add0[0x29];	// cD5	
+		add0[0x1a] = add0[0x20];	// c31	
+		add0[0x1c] = add0[0x27];	// cB3	
+		add0[0x1e] = add0[0x24];	// c73	
+		add0[0x20] = add0[0x2b];	// cF7	
+		// Now mpy elts in slots 0,2,3 by __c, ISRT2, ISRT2, respectively:
+		add0[0x00] *= c;
+		add0[0x02] *= ISRT2;
+		add0[0x03] *= ISRT2;
+		// And stick a 1.0 at the end of the above block-of-doubles:
+		add0[0x22] = 1.0;
+
+		/* Yielding the following layout-of-scalar-doubles, with data above index 0x22 unused in the DIF DFT:
+
+		a[0x00,0x01,0x02,0x03]: add0 + 0x[  0,  8, 10, 18]: [c1*c,s/c,c1*ISRT2,c2*ISRT2]
+		a[0x04,0x05,0x06,0x07]: add0 + 0x[ 20, 28, 30, 38]: [c8 ,r8 ,c4 ,r4 ]
+		a[0x08,0x09,0x0a,0x0b]: add0 + 0x[ 40, 48, 50, 58]: [cC4,rC ,c2 ,r2 ]
+		a[0x0c,0x0d,0x0e,0x0f]: add0 + 0x[ 60, 68, 70, 78]: [cA2,rA ,c62,r6 ]
+		a[0x10,0x11,0x12,0x13]: add0 + 0x[ 80, 88, 90, 98]: [cE6,rE ,c1 ,r1 ]
+		a[0x14,0x15,0x16,0x17]: add0 + 0x[ a0, a8, b0, b8]: [c91,r9 ,c51,r5 ]
+		a[0x18,0x19,0x1a,0x1b]: add0 + 0x[ c0, c8, d0, d8]: [cD5,rD ,c31,r3 ]
+		a[0x1c,0x1d,0x1e,0x1f]: add0 + 0x[ e0, e8, f0, f8]: [cB3,rB ,c73,r7 ]
+		a[0x20,0x21,0x22,0x23]: add0 + 0x[100,108,110,118]: [cF7,rF ,1.0,  0]
+		a[0x24,0x25,0x26,0x27]: add0 + 0x[120,128,130,138]: [c73,c91,cA2,cB3]
+		a[0x28,0x29,0x2a,0x2b]: add0 + 0x[140,148,150,158]: [cC4,cD5,cE6,cF7]
+		*/
+	  #else	// Make DFT_V1 the default here:
+
+		add0 = &c; add1 = &tan;	// GCC/Clang don't allow address-taking inlined in arglist of macros, so do it here
+		RADIX16_COMPUTE_FMA_SINCOS_DIF(cc0,two,add0,add1);
+
+	  #endif
+
+	#else	// AVX2 = False:
+
+	  #ifdef USE_SSE2
+		/* Due to roots-locality considerations, roots (c,s)[0-15] are offset w.r.to the thread-local ptr pair as
+		(cc0,ss0) + 0x[2,12,a,1a,6,16,e,1e,4,14,c,1c,8,18,10,20]:
+		*/
+		c_tmp = cc0 + 0x02; s_tmp = c_tmp+1;	/* c0,s0 */
+		rt = 1.0; it = 0.0;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/* 2*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0x12; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c1 =rt;		s1 =it;
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/* 3*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0xa; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c2 =rt;		s2 =it;
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/* 4*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0x1a; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c3 =rt;		s3 =it;
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/* 5*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0x6; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c4 =rt;		s4 =it;
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/* 6*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0x16; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c5 =rt;		s5 =it;
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/* 7*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0xe; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c6 =rt;		s6 =it;
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/* 8*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0x1e; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c7 =rt;		s7 =it;
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/* 9*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0x4; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c8 =rt;		s8 =it;
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/*10*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
 		c_tmp = cc0 + 0x14; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
 		c9 =rt;		s9 =it;
-	#endif
+	  #endif
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -449,13 +776,13 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
+	  #ifdef USE_SSE2
 		c_tmp = cc0 + 0xc; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
 		c10=rt;		s10=it;
-	#endif
+	  #endif
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -463,13 +790,13 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
+	  #ifdef USE_SSE2
 		c_tmp = cc0 + 0x1c; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
 		c11=rt;		s11=it;
-	#endif
+	  #endif
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -477,13 +804,13 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
+	  #ifdef USE_SSE2
 		c_tmp = cc0 + 0x8; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
 		c12=rt;		s12=it;
-	#endif
+	  #endif
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -491,13 +818,13 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
+	  #ifdef USE_SSE2
 		c_tmp = cc0 + 0x18; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
 		c13=rt;		s13=it;
-	#endif
+	  #endif
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -505,26 +832,28 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
+	  #ifdef USE_SSE2
 		c_tmp = cc0 + 0x10; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
 		c14=rt;		s14=it;
-	#endif
+	  #endif
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
+	  #ifdef USE_SSE2
 		c_tmp = cc0 + 0x20; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
 		c15=rt;		s15=it;
-	#endif
+	  #endif
+
+	#endif	// USE_AVX2?
 
 #else
 		k1=(i & NRTM1);
@@ -584,38 +913,21 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 	  jlo = m*incr;
 	  jhi = jlo+(incr >> 4);
 
-	#ifdef USE_SSE2
-	  for(j=jlo; j < jhi; j += 4)
+	/* In SIMD mode, data are arranged in [re_0,...,re_n-1,im_0,...,im_n-1] groups, not the usual [re_0,im_0],...,[re_n-1,im_n-1] pairs.
+	Thus we can still increment the j-index as if stepping through the residue array-of-doubles in strides of 2,
+	but to point to the proper real datum, we need to index-map e.g. [0,1,2,3] ==> [0,2,1,3] in 2-way SIMD mode.
+	(But only ever need to explicitly do this in debug mode).
+	*/
+	  for(j = jlo; j < jhi; j += stride)
 	  {
-		/* In SSE2 mode, data are arranged in [re0,re1,im0,im1] quartets, not the usual [re0,im0],[re1,im1] pairs.
-		Thus we can still increment the j-index as if stepping through the residue array-of-doubles in strides of 2,
-		but to point to the proper real datum, we need to bit-reverse bits <0:1> of j, i.e. [0,1,2,3] ==> [0,2,1,3].
-		*/
-		j1 = (j & mask01) + br4[j&3];
-	#elif defined(USE_SSE2)	/* This allows us to use #if 0 above and disable sse2-based *computation*, while still using sse2-style data layout */
-	  for(j=jlo; j < jhi; j += 2)
-	  {
-		j1 = (j & mask01) + br4[j&3];
-	#else
-	  for(j=jlo; j < jhi; j += 2)
-	  {
-		j1 =  j;
-	#endif
+		j1 = j;
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-		j2 = j1+RE_IM_STRIDE;
+		j2 = j1 + RE_IM_STRIDE;
+		pfetch_addr = p1*((j >> l2_stride) & 0x3);	// cycle prefetch-offset-address among p0,1,2,3
+			// These get added to the base addresses p0,4,8,12 in thr DFT macros, thus every 4 loop
+			// executions we have covered prefetches from [current address] + [pfetch distance] + p0,1,2,...15 .
 
 #ifdef USE_SSE2
-
-	#ifdef DEBUG_SSE2
-		rng_isaac_init(TRUE);
-		jt = j1;		jp = j2;
-		for(i = 0; i < 16; i++)
-		{
-			a[jt] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			fprintf(stderr, "radix16_dif_pass: A_in[%2d] = %20.5f, %20.5f\n",i,a[jt],a[jp]);
-			jt += p1;	jp += p1;
-		}
-	#endif
 
 	#ifdef COMPILER_TYPE_MSVC
 
@@ -1062,32 +1374,38 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 		add0 = &a[j1];
-	//	SSE2_RADIX16_DIF_TWIDDLE(add0,p1,p2,p3,p4,p8,p12,r1,r3,r5,r7,r9,r17,r25,isrt2,cc0, c0, c1, c2, c3);
-		SSE2_RADIX16_DIF_TWIDDLE(add0,p1,p2,p3,p4,p8,p12,r1,isrt2);
-	#endif
 
-	#ifdef DEBUG_SSE2
-		jt = j1;		jp = j2;
-		fprintf(stderr, "radix16_dit: Aout[0] = %20.5f, %20.5f\n",a[jt   ],a[jp   ]);
-		fprintf(stderr, "radix16_dit: Aout[1] = %20.5f, %20.5f\n",a[jt+p1],a[jp+p1]);
-		fprintf(stderr, "radix16_dit: Aout[2] = %20.5f, %20.5f\n",a[jt+p2],a[jp+p2]);
-		fprintf(stderr, "radix16_dit: Aout[3] = %20.5f, %20.5f\n",a[jt+p3],a[jp+p3]);	jt = j1 + p4;	jp = j2 + p4;
-		fprintf(stderr, "radix16_dit: Aout[4] = %20.5f, %20.5f\n",a[jt   ],a[jp   ]);
-		fprintf(stderr, "radix16_dit: Aout[5] = %20.5f, %20.5f\n",a[jt+p1],a[jp+p1]);
-		fprintf(stderr, "radix16_dit: Aout[6] = %20.5f, %20.5f\n",a[jt+p2],a[jp+p2]);
-		fprintf(stderr, "radix16_dit: Aout[7] = %20.5f, %20.5f\n",a[jt+p3],a[jp+p3]);	jt = j1 + p8;	jp = j2 + p8;
-		fprintf(stderr, "radix16_dit: Aout[8] = %20.5f, %20.5f\n",a[jt   ],a[jp   ]);
-		fprintf(stderr, "radix16_dit: Aout[9] = %20.5f, %20.5f\n",a[jt+p1],a[jp+p1]);
-		fprintf(stderr, "radix16_dit: Aout[A] = %20.5f, %20.5f\n",a[jt+p2],a[jp+p2]);
-		fprintf(stderr, "radix16_dit: Aout[B] = %20.5f, %20.5f\n",a[jt+p3],a[jp+p3]);	jt = j1 + p12;	jp = j2 + p12;
-		fprintf(stderr, "radix16_dit: Aout[C] = %20.5f, %20.5f\n",a[jt   ],a[jp   ]);
-		fprintf(stderr, "radix16_dit: Aout[D] = %20.5f, %20.5f\n",a[jt+p1],a[jp+p1]);
-		fprintf(stderr, "radix16_dit: Aout[E] = %20.5f, %20.5f\n",a[jt+p2],a[jp+p2]);
-		fprintf(stderr, "radix16_dit: Aout[F] = %20.5f, %20.5f\n",a[jt+p3],a[jp+p3]);
-		exit(0);
+	  #ifdef USE_AVX2
+
+	   #ifdef DFT_V2	// Toggle between 2 versions
+
+		SSE2_RADIX16_DIF_TWIDDLE_2(add0,p1,p2,p3,p4,p8,p12,r1,  cc0,pfetch_addr,pfetch_dist);
+
+	   #else
+
+		SSE2_RADIX16_DIF_TWIDDLE  (add0,p1,p2,p3,p4,p8,p12,r1,isrt2,pfetch_addr,pfetch_dist);
+
+	   #endif
+
+	  // Play with prefetch in 64-bit AVX/SSE2 versions - once find reliable pfetch scheme, propagate to 32-bit SSE2 and AVX2 macros:
+	  #elif OS_BITS == 64
+		SSE2_RADIX16_DIF_TWIDDLE(add0,p1,p2,p3,p4,p8,p12,r1,isrt2,pfetch_addr,pfetch_dist);
+	  #else	// 32-bit SSE2:
+		SSE2_RADIX16_DIF_TWIDDLE(add0,p1,p2,p3,p4,p8,p12,r1,isrt2);
+	  #endif
+
 	#endif
 
 #else	/* USE_SSE2 */
+
+  #ifdef USE_SCALAR_DFT_MACRO	// Must define - or not - @compile time
+
+		// Test FMA-based DIF macro:
+		RADIX_16_DIF_FMA(a[j1    ],a[j2    ],a[j1+p1 ],a[j2+p1 ],a[j1+p2 ],a[j2+p2 ],a[j1+p3 ],a[j2+p3 ],a[j1+p4 ],a[j2+p4 ],a[j1+p4+p1 ],a[j2+p4+p1 ],a[j1+p4+p2 ],a[j2+p4+p2 ],a[j1+p4+p3 ],a[j2+p4+p3 ],a[j1+p8 ],a[j2+p8 ],a[j1+p8+p1 ],a[j2+p8+p1 ],a[j1+p8+p2],a[j2+p8+p2],a[j1+p8+p3],a[j2+p8+p3],a[j1+p12],a[j2+p12],a[j1+p12+p1],a[j2+p12+p1],a[j1+p12+p2],a[j2+p12+p2],a[j1+p12+p3],a[j2+p12+p3]
+						,a[j1    ],a[j2    ],a[j1+p1 ],a[j2+p1 ],a[j1+p2 ],a[j2+p2 ],a[j1+p3 ],a[j2+p3 ],a[j1+p4 ],a[j2+p4 ],a[j1+p4+p1 ],a[j2+p4+p1 ],a[j1+p4+p2 ],a[j2+p4+p2 ],a[j1+p4+p3 ],a[j2+p4+p3 ],a[j1+p8 ],a[j2+p8 ],a[j1+p8+p1 ],a[j2+p8+p1 ],a[j1+p8+p2],a[j2+p8+p2],a[j1+p8+p3],a[j2+p8+p3],a[j1+p12],a[j2+p12],a[j1+p12+p1],a[j2+p12+p1],a[j1+p12+p2],a[j2+p12+p2],a[j1+p12+p3],a[j2+p12+p3]
+						,c1,s1,c2,s2,c3,s3,c4,s4,c5,s5,c6,s6,c7,s7,c8,s8,c9,s9,c10,s10,c11,s11,c12,s12,c13,s13,c14,s14,c15,s15, c,s)
+
+  #else		// USE_SCALAR_DFT_MACRO = False
 
 	/* gather the needed data (8 64-bit complex, i.e. 16 64-bit reals) and do the first set of four length-4 transforms.
 	   We process the sincos data in bit-reversed order.	*/
@@ -1345,6 +1663,8 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		a[jt+p2 ]=t15-t32;	a[jp+p2 ]=t16+t31;	/* mpy by E^4=i is inlined here... */
 		a[jt+p3 ]=t15+t32;	a[jp+p3 ]=t16-t31;
 
+  #endif	// USE_SCALAR_DFT_MACRO ?
+
 #endif	/* USE_SSE2 */
 
 	  }	/* endfor(j=jlo; j < jhi; j += 4) */
@@ -1363,12 +1683,29 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 */
 void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr, int init_sse2, int thr_id)
 {
+	const int RADIX = 16;
+	const int pfetch_dist = PFETCH_DIST;
+	int pfetch_addr;
 	static int max_threads = 0;
+	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
+	// lg(stride):
+  #ifdef USE_AVX
+	const int l2_stride = 3;	// 8 doubles at a time
+  #elif defined(USE_SSE2)
+	const int l2_stride = 2;	// 4 doubles at a time
+  #else
+	const int l2_stride = 1;	// 2 doubles at a time in scalar [non-SIMD] mode
+  #endif
+
 	const double c = 0.9238795325112867561281831, s = 0.3826834323650897717284599;	/* exp[i*(twopi/16)]*/
+#ifdef USE_AVX2	// FMA-based DFT in AVX2 mode needs the tangent
+	static double tan = 0.41421356237309504879;
+#endif
 	int i,j,j1,j2,jlo,jhi,m,iroot_prim,iroot,k1,k2;
 	int p1,p2,p3,p4,p8,p12;
-	double rt,it;
+	double rt,it,dtmp;
 	double re0,im0,re1,im1;
+	uint64 tmp64;
 
 #ifdef USE_SSE2
 
@@ -1376,22 +1713,22 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 	#error SSE2 code not supported for this compiler!
   #endif
 
-	static struct complex *sc_arr = 0x0, *sc_ptr;
-	double *add0;	/* Addresses into array sections */
+	static vec_dbl *sc_arr = 0x0, *sc_ptr;
+	double *add0, *add1;	/* Addresses into array sections */
 #ifdef COMPILER_TYPE_MSVC
-	double *add1, *add2, *add3;
+	double *add2, *add3;
 #endif
-	struct complex *c_tmp,*s_tmp;
+	vec_dbl *c_tmp,*s_tmp;
 
   #ifdef MULTITHREAD
-	static struct complex *__r0;					// Base address for discrete per-thread local stores
-	struct complex *cc0, *ss0, *isrt2, *two, *r1;	// In || mode, only above base-pointer (shared by all threads) is static:
+	static vec_dbl *__r0;					// Base address for discrete per-thread local stores
+	vec_dbl *cc0, *ss0, *isrt2, *two, *r1;	// In || mode, only above base-pointer (shared by all threads) is static:
   #elif defined(COMPILER_TYPE_GCC)
-	static struct complex *cc0, *ss0, *isrt2, *two, *r1;
+	static vec_dbl *cc0, *ss0, *isrt2, *two, *r1;
   #else
-	static struct complex *cc0, *ss0, *isrt2, *two;
-	static struct complex *c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15,*s0,*s1,*s2,*s3,*s4,*s5,*s6,*s7,*s8,*s9,*s10,*s11,*s12,*s13,*s14,*s15;
-	static struct complex *r1,*r2,*r3,*r4,*r5,*r6,*r7,*r8,*r9,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r30,*r31,*r32;
+	static vec_dbl *cc0, *ss0, *isrt2, *two;
+	static vec_dbl *c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15,*s0,*s1,*s2,*s3,*s4,*s5,*s6,*s7,*s8,*s9,*s10,*s11,*s12,*s13,*s14,*s15;
+	static vec_dbl *r1,*r2,*r3,*r4,*r5,*r6,*r7,*r8,*r9,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r30,*r31,*r32;
   #endif
 
 #else
@@ -1414,17 +1751,16 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 	switch to a special-init-mode-call paradigm, in which the function is inited once (for as many threads as needed)
 	prior to being executed:
 	*/
-	if(init_sse2 && !sc_ptr)	// Just check (init_sse2 != 0) here, to allow the *value* of init_sse2 to store #threads
+	if(init_sse2)	// Just check (init_sse2 != 0) here, to allow the *value* of init_sse2 to store #threads
 	{
 		max_threads = init_sse2;
 	#ifndef COMPILER_TYPE_GCC
 		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 	#endif
 		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
-		ASSERT(HERE, sc_arr == 0x0, "Init-mode call conflicts with already-malloc'ed local storage!");
 		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
-		sc_arr = ALLOC_COMPLEX(sc_arr, 72*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		sc_ptr = ALIGN_COMPLEX(sc_arr);
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 72*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 32 16-byte slots of sc_arr for temporaries, next 3 for the nontrivial complex 16th roots,
@@ -1439,10 +1775,15 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 			two   = sc_ptr + 0x43;
 			for(i = 0; i < max_threads; ++i) {
 				/* These remain fixed within each per-thread local store: */
-				isrt2->re = ISRT2;	isrt2->im = ISRT2;
-				two  ->re = 2.0;	two  ->im = 2.0;
-				cc0  ->re = c	;	cc0  ->im = c	;
-				ss0  ->re = s	;	ss0  ->im = s	;
+				VEC_DBL_INIT(isrt2, ISRT2);
+			  #if defined(USE_AVX2) && (defined(DFT_V1) || defined(DFT_V2))
+				VEC_DBL_INIT(two  , 1.0);	// Yeah, I *know" "it's a misnomer" :)
+				// cc0,ss0 inited below for AVX2
+			  #else
+				VEC_DBL_INIT(two  , 2.0);
+				VEC_DBL_INIT(cc0  , c);
+				VEC_DBL_INIT(ss0  , s);
+			  #endif
 				isrt2 += 72;	/* Move on to next thread's local store */
 				cc0   += 72;
 				ss0   += 72;
@@ -1454,12 +1795,18 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 										ss0 = sc_ptr + 0x22;
 										two = sc_ptr + 0x43;
 			/* These remain fixed: */
-			isrt2->re = ISRT2;	isrt2->im = ISRT2;
-			two  ->re = 2.0;	two  ->im = 2.0;
-			cc0  ->re = c	;	cc0  ->im = c	;
-			ss0  ->re = s	;	ss0  ->im = s	;
+			VEC_DBL_INIT(isrt2, ISRT2);
+		  #ifdef USE_AVX2
+			VEC_DBL_INIT(two  , 1.0);	// Yeah, I *know" "it's a misnomer" :)
+			// cc0,ss0 inited below for AVX2
+		  #else
+			VEC_DBL_INIT(two  , 2.0);
+			VEC_DBL_INIT(cc0  , c);
+			VEC_DBL_INIT(ss0  , s);
+		  #endif
 		#else
-	//	} else {	/* DIT has roots-pair indices 4/8, 6/10, 5/9, 7/11 swapped w.r.to DIF: */
+	//	} else {					// DIT has roots-pair indices 4/8, 6/10, 5/9, 7/11 swapped w.r.to DIF.
+									// In AVX2 mode, the sine slots hold tangents, e.g. s4 holds s4/c4:
 			r1  = sc_ptr + 0x00;	  isrt2 = sc_ptr + 0x20;
 			r2  = sc_ptr + 0x01;		cc0 = sc_ptr + 0x21;
 			r3  = sc_ptr + 0x02;		ss0 = sc_ptr + 0x22;
@@ -1495,12 +1842,17 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 										s11 = sc_ptr + 0x40;
 										c15 = sc_ptr + 0x41;
 										s15 = sc_ptr + 0x42;
-										two = sc_ptr + 0x43;
+										two = sc_ptr + 0x43;	// Holds 1.0 in AVX2 mode
 			/* These remain fixed: */
-			isrt2->re = ISRT2;	isrt2->im = ISRT2;
-			two  ->re = 2.0;	two  ->im = 2.0;
-			cc0  ->re = c	;	cc0  ->im = c	;
-			ss0  ->re = s	;	ss0  ->im = s	;
+			VEC_DBL_INIT(isrt2, ISRT2);
+		  #ifdef USE_AVX2
+			VEC_DBL_INIT(two  , 1.0);	// Yeah, I *know" "it's a misnomer" :)
+			// cc0,ss0 inited below for AVX2
+		  #else
+			VEC_DBL_INIT(two  , 2.0);
+			VEC_DBL_INIT(cc0  , c);
+			VEC_DBL_INIT(ss0  , s);
+		  #endif
 		#endif
 	//	}
 		return;
@@ -1512,6 +1864,7 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		r1 = __r0 + thr_id*72;
 		isrt2 = r1 + 0x20;
 		cc0   = r1 + 0x21;
+		two   = r1 + 0x43;
 	#endif
 
 #endif
@@ -1522,13 +1875,17 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 	p4 = p3 +p1;
 	p8 = p4 +p4;
 	p12= p8 +p4;
-
 	p1 = p1 + ( (p1 >> DAT_BITS) << PAD_BITS );
 	p2 = p2 + ( (p2 >> DAT_BITS) << PAD_BITS );
 	p3 = p3 + ( (p3 >> DAT_BITS) << PAD_BITS );
 	p4 = p4 + ( (p4 >> DAT_BITS) << PAD_BITS );
 	p8 = p8 + ( (p8 >> DAT_BITS) << PAD_BITS );
 	p12= p12+ ( (p12>> DAT_BITS) << PAD_BITS );
+	// Make sure to at least one-time pre-test any index arithmetic assumptions used to save cycles in the loop
+	// body (both C and ASM). Since such checks may be runlength-dependent, need to be cheap enough to leave on
+	// all the time, as here where we do them just once prior to entering the processing loop. Since DIF and DIT
+	// encounter the same sets or index strides (albeit in opposite order), can split such tests between them:
+	ASSERT(HERE, p4  == p2+p2, "radix16_dit_pass: p4  != p2+p2!");
 	ASSERT(HERE, p8  == p4+p4, "radix16_dit_pass: p8  != p4+p4!");
 	ASSERT(HERE, p12 == p4+p8, "radix16_dit_pass: p12 != p4+p8!");
 
@@ -1546,14 +1903,21 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
    since we only compute each set of twiddles once and re-use it for many data blocks.
 */
 #if HIACC
-	#ifdef USE_SSE2
-		/* Due to roots-locality considerations, roots (c,s)[0-15] are offset w.r.to the thread-local ptr pair as
-		(cc0,ss0) + 0x[2,12,a,1a,4,14,c,1c,6,16,e,1e,8,18,10,20]; middle 2 quartet-offsets swapped [4,14,c,1c] <--> [6,16,e,1e] w.r.to DIF:
-		*/
-		c_tmp = cc0 + 0x02; s_tmp = c_tmp+1;	/* c0,s0 */
-		c_tmp->re = c_tmp->im = 1.0;
-		s_tmp->re = s_tmp->im = 0.0;
-	#endif
+
+	// In AVX2/FMA mode, since we need to replace most of the raw sincos data with derived ones,
+	// simply place one copy of each computed double in a double-sized slot of the local memory.
+	// We will be using AVX2/FMA-based Newtonian iterative inversion on the 16 doubles whose
+	// multiplicative inverse is needed (the real part of the basic root of unity c and of the
+	// 15 complex twiddles, c1-15), so store those in packed form in 4 AVX-register-sized
+	// contiguous memory locations, and the others in a separate chunk of memory. After the
+	// vector-iterative inversion we'll need to combine the 2 sets of data and place (in quadruplicate)
+	// into their final SIMD-suitable memory slots.
+	#if defined(USE_AVX2) && (defined(DFT_V1) || defined(DFT_V2))
+
+		add0 = (double *)cc0;	// add0 points to 16 cos-data-to-be-inverted; Need a double-ptr on lhs here
+		add1 = add0 + 16;		// add1 points to block of memory temporarily used to store the corresponding sine data
+		*add0++ = c;	// Since tan0 defined as const, we can init these directly, but init with c0,s0 anyway
+		*add1++ = s;	// and use result as a check onthe accuracy of the FMA-based Newton iterative inversion.
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -1561,13 +1925,8 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c_tmp = cc0 + 0x12; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
-		c1 =rt;		s1 =it;
-	#endif
+		*add0++ = rt;	// c1, for inversion
+		*add1++ = it;	// s1  slot will hold __r1 = s1 /c1 
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -1575,13 +1934,8 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c_tmp = cc0 + 0xa; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
-		c2 =rt;		s2 =it;
-	#endif
+		*add0++ = rt;	// c2, for inversion
+		*add1++ = it;	// s2  slot will hold __r2 = s2 /c2 
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -1589,13 +1943,8 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c_tmp = cc0 + 0x1a; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
-		c3 =rt;		s3 =it;
-	#endif
+		*add0++ = rt;	// c3, for inversion
+		*add1++ = it;	// s3  slot will hold __r3 = s3 /c3 
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -1603,13 +1952,8 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c_tmp = cc0 + 0x4; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
-		c4 =rt;		s4 =it;
-	#endif
+		*add0++ = rt;	// c4, for inversion
+		*add1++ = it;	// s4  slot will hold __r4 = s4 /c4 
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -1617,13 +1961,8 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c_tmp = cc0 + 0x14; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
-		c5 =rt;		s5 =it;
-	#endif
+		*add0++ = rt;	// c5, for inversion
+		*add1++ = it;	// s5  slot will hold __r5 = s5 /c5 
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -1631,13 +1970,8 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c_tmp = cc0 + 0xc; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
-		c6 =rt;		s6 =it;
-	#endif
+		*add0++ = rt;	// c6, for inversion
+		*add1++ = it;	// s6  slot will hold __r6 = s6 /c6 
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -1645,13 +1979,8 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c_tmp = cc0 + 0x1c; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
-		c7 =rt;		s7 =it;
-	#endif
+		*add0++ = rt;	// c7, for inversion
+		*add1++ = it;	// s7  slot will hold __r7 = s7 /c7 
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -1659,13 +1988,8 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c_tmp = cc0 + 0x6; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
-		c8 =rt;		s8 =it;
-	#endif
+		*add0++ = rt;	// c8, for inversion
+		*add1++ = it;	// s8  slot will hold __r8 = s8 /c8 
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -1673,13 +1997,8 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c_tmp = cc0 + 0x16; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
-		c9 =rt;		s9 =it;
-	#endif
+		*add0++ = rt;	// c9, for inversion
+		*add1++ = it;	// s9  slot will hold __r9 = s9 /c9 
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -1687,13 +2006,8 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c_tmp = cc0 + 0xe; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
-		c10=rt;		s10=it;
-	#endif
+		*add0++ = rt;	// c10, for inversion
+		*add1++ = it;	// s10 slot will hold __rA = s10/c10
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -1701,13 +2015,8 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c_tmp = cc0 + 0x1e; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
-		c11=rt;		s11=it;
-	#endif
+		*add0++ = rt;	// c11, for inversion
+		*add1++ = it;	// s11 slot will hold __rB = s11/c11
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -1715,13 +2024,8 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c_tmp = cc0 + 0x8; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
-		c12=rt;		s12=it;
-	#endif
+		*add0++ = rt;	// c12, for inversion
+		*add1++ = it;	// s12 slot will hold __rC = s12/c12
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -1729,13 +2033,8 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c_tmp = cc0 + 0x18; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
-		c13=rt;		s13=it;
-	#endif
+		*add0++ = rt;	// c13, for inversion
+		*add1++ = it;	// s13 slot will hold __rD = s13/c13
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
@@ -1743,26 +2042,281 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c_tmp = cc0 + 0x10; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
-		c14=rt;		s14=it;
-	#endif
+		*add0++ = rt;	// c14, for inversion
+		*add1++ = it;	// s14 slot will hold __rE = s14/c14
 
 		k1=(i & NRTM1);
 		k2=(i >> NRT_BITS);
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
+		*add0++ = rt;	// c15, for inversion
+		*add1++ = it;	// s15 slot will hold __rF = s15/c15
+
+		// This places us at add0 == c8 and add1 = c12.
+		ASSERT(HERE, add0 == (double *)cc0+16 && add1 == (double *)cc0+32, "add0,1 checksum failed in AVX2 DIT sincos inits!");
+		/*
+		At this point, the 8 ymm-sized [32-byte] chunks starting at &cc0 contain the following scalar-double data:
+		
+		0:	c,c1-3		4:	s,s1-3
+		1:	c4-7		5:	s4-7
+		2:	c8-B		6:	s8-B
+		3:	cC-F		7:	sC-F
+		*/
+
+		// Now send the cosine terms to the inversion routine, which also does the combine-and-populate-SIMD-slots step.
+	   #ifdef DFT_V1	// Toggle between 2 versions
+
+		RADIX16_COMPUTE_FMA_SINCOS_DIT(cc0,two);
+
+	   #elif defined(DFT_V2)
+
+		RADIX16_COMPUTE_FMA_SINCOS_DIT_2(cc0);
+		add0 = (double *)cc0;
+		add0[0x00] = c;
+		add0[0x10] = tan;
+		add0[0x20] = 1.0;
+		ASSERT(HERE, *(add0-1) == ISRT2, "Scalar ISRT2 bad!");
+		c_tmp = cc0 + 0x22;	// 1.0 x 4
+		ASSERT(HERE, c_tmp->d0 == 1.0 && c_tmp->d0 == c_tmp->d1 && c_tmp->d0 == c_tmp->d2 && c_tmp->d0 == c_tmp->d3, "1.0 x 4 mismatch!");
+
+		/* Scalar data starting at add0 = cc0 now laid out as below:
+
+		a[-0x4,-0x3,-0x2,-0x1]: add0 - 0x[ 20, 18, 10, 08]: [   ISRT2 x 4   ]
+		a[0x00,0x01,0x02,0x03]: add0 + 0x[  0,  8, 10, 18]: [__c,c1 ,c2 ,c3 ] Cosines:
+		a[0x04,0x05,0x06,0x07]: add0 + 0x[ 20, 28, 30, 38]: [c4 ,c5 ,c6 ,c7 ]
+		a[0x08,0x09,0x0a,0x0b]: add0 + 0x[ 40, 48, 50, 58]: [c8 ,c9 ,cA ,cB ]
+		a[0x0c,0x0d,0x0e,0x0f]: add0 + 0x[ 60, 68, 70, 78]: [cC ,cD ,cE ,cF ]
+		a[0x10,0x11,0x12,0x13]: add0 + 0x[ 80, 88, 90, 98]: [_sc,r1 ,r2 ,r3 ] Tangents:
+		a[0x14,0x15,0x16,0x17]: add0 + 0x[ a0, a8, b0, b8]: [r4 ,r5 ,r6 ,r7 ]
+		a[0x18,0x19,0x1a,0x1b]: add0 + 0x[ c0, c8, d0, d8]: [r8 ,r9 ,rA ,rB ]
+		a[0x1c,0x1d,0x1e,0x1f]: add0 + 0x[ e0, e8, f0, f8]: [rC ,rD ,rE ,rF ]
+		a[0x20]               : add0 + 0x[100]            : [1.0]
+		*/
+	  #endif
+
+	#else	// AVX2 = False:
+
+	  #ifdef USE_SSE2
+		/* Due to roots-locality considerations, roots (c,s)[0-15] are offset w.r.to the thread-local ptr pair as
+		(cc0,ss0) + 0x[2,12,a,1a,4,14,c,1c,6,16,e,1e,8,18,10,20]; middle 2 quartet-offsets swapped [4,14,c,1c] <--> [6,16,e,1e] w.r.to DIF:
+		*/
+		c_tmp = cc0 + 0x02; s_tmp = c_tmp+1;	/* c0,s0 */
+		rt = 1.0; it = 0.0;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/* 2*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0x12; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c1 =rt;		s1 =it;
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/* 3*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0xa; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c2 =rt;		s2 =it;
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/* 4*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0x1a; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c3 =rt;		s3 =it;
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/* 5*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0x4; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c4 =rt;		s4 =it;
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/* 6*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0x14; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c5 =rt;		s5 =it;
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/* 7*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0xc; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c6 =rt;		s6 =it;
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/* 8*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0x1c; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c7 =rt;		s7 =it;
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/* 9*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0x6; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c8 =rt;		s8 =it;
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/*10*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0x16; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c9 =rt;		s9 =it;
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/*11*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0xe; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c10=rt;		s10=it;
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/*12*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0x1e; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c11=rt;		s11=it;
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/*13*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0x8; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c12=rt;		s12=it;
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/*14*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0x18; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c13=rt;		s13=it;
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		i += iroot;			/*15*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0x10; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c14=rt;		s14=it;
+	  #endif
+
+		k1=(i & NRTM1);
+		k2=(i >> NRT_BITS);
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
 		c_tmp = cc0 + 0x20; s_tmp = c_tmp+1;
-		c_tmp->re = c_tmp->im = rt;
-		s_tmp->re = s_tmp->im = it;
-	#else
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
 		c15=rt;		s15=it;
-	#endif
+	  #endif
+
+	#endif	// USE_AVX2?
 
 #else
 		k1=(i & NRTM1);
@@ -1822,38 +2376,21 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 	  jlo = m*incr;
 	  jhi = jlo+(incr >> 4);
 
-	#ifdef USE_SSE2
-	  for(j=jlo; j < jhi; j += 4)
+	/* In SIMD mode, data are arranged in [re_0,...,re_n-1,im_0,...,im_n-1] groups, not the usual [re_0,im_0],...,[re_n-1,im_n-1] pairs.
+	Thus we can still increment the j-index as if stepping through the residue array-of-doubles in strides of 2,
+	but to point to the proper real datum, we need to index-map e.g. [0,1,2,3] ==> [0,2,1,3] in 2-way SIMD mode.
+	(But only ever need to explicitly do this in debug mode).
+	*/
+	  for(j = jlo; j < jhi; j += stride)
 	  {
-		/* In SSE2 mode, data are arranged in [re0,re1,im0,im1] quartets, not the usual [re0,im0],[re1,im1] pairs.
-		Thus we can still increment the j-index as if stepping through the residue array-of-doubles in strides of 2,
-		but to point to the proper real datum, we need to bit-reverse bits <0:1> of j, i.e. [0,1,2,3] ==> [0,2,1,3].
-		*/
-		j1 = (j & mask01) + br4[j&3];
-	#elif defined(USE_SSE2)	/* This allows us to use #if 0 above and disable sse2-based *computation*, while still using sse2-style data layout */
-	  for(j=jlo; j < jhi; j += 2)
-	  {
-		j1 = (j & mask01) + br4[j&3];
-	#else
-	  for(j=jlo; j < jhi; j += 2)
-	  {
-		j1 =  j;
-	#endif
+		j1 = j;
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-		j2 = j1+RE_IM_STRIDE;
+		j2 = j1 + RE_IM_STRIDE;
+		pfetch_addr = p1*((j >> l2_stride) & 0x3);	// cycle prefetch-offset-address among p0,1,2,3
+			// These get added to the base addresses p0,4,8,12 in thr DFT macros, thus every 4 loop
+			// executions we have covered prefetches from [current address] + [pfetch distance] + p0,1,2,...15 .
 
-#ifdef USE_SSE2
-
-	#ifdef DEBUG_SSE2
-		rng_isaac_init(TRUE);
-		jt = j1;		jp = j2;
-		for(i = 0; i < 16; i++)
-		{
-			a[jt] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();	a[jp] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			fprintf(stderr, "radix16_dit_pass: A_in[%2d] = %20.5f, %20.5f\n",i,a[jt],a[jp]);
-			jt += p1;	jp += p1;
-		}
-	#endif
+	#ifdef USE_SSE2
 
 	#ifdef COMPILER_TYPE_MSVC
 
@@ -2204,22 +2741,42 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
 		add0 = &a[j1];
-	//	SSE2_RADIX16_DIT_TWIDDLE(add0,p1,p2,p3,p4,p8,r1,r3,r5,r7,r9,r11,r13,r15,r17,r25,isrt2,cc0, c0, c1, c2, c3);
+
+	  #ifdef USE_AVX2
+
+	   #ifdef DFT_V1	// Toggle between 2 versions
+
+		SSE2_RADIX16_DIT_TWIDDLE_1(add0,p1,p2,p3,p4,p8,p12,r1,cc0,pfetch_addr,pfetch_dist);
+
+	   #elif defined(DFT_V2)
+
+		SSE2_RADIX16_DIT_TWIDDLE_2(add0,p1,p2,p3,p4,p8,p12,r1,cc0,pfetch_addr,pfetch_dist);
+
+	   #else	// Allow non-FMA as the default option for comparative timing purposes
+
+		SSE2_RADIX16_DIT_TWIDDLE(add0,p1,p2,p3,p4,p8,r1,isrt2,pfetch_addr,pfetch_dist);
+
+	   #endif
+
+	  // SSE2 code has different macro arglists for 32 and 64-bit modes:
+	  #elif OS_BITS == 64
 		SSE2_RADIX16_DIT_TWIDDLE(add0,p1,p2,p3,p4,p8,r1,isrt2);
+	  #else
+		SSE2_RADIX16_DIT_TWIDDLE(add0,p1,p2,p3,p4,p8,r1,r3,r5,r7,r9,r11,r13,r15,r17,r25,isrt2,cc0, c0, c1, c2, c3);
+	  #endif
 
-	#endif
-
-	#ifdef DEBUG_SSE2
-		jt = j1;		jp = j2;
-		for(i = 0; i < 16; i++)
-		{
-			fprintf(stderr, "radix16_dit_pass: Aout[%2d] = %20.5f, %20.5f\n",i,a[jt],a[jp]);
-			jt += p1;	jp += p1;
-		}
-		exit(0);
 	#endif
 
 #else	/* USE_SSE2 */
+
+  #ifdef USE_SCALAR_DFT_MACRO	// Must define - or not - @compile time
+
+		// Test FMA-based DIT macro:
+		RADIX_16_DIT_FMA(a[j1    ],a[j2    ],a[j1+p1 ],a[j2+p1 ],a[j1+p2 ],a[j2+p2 ],a[j1+p3 ],a[j2+p3 ],a[j1+p4 ],a[j2+p4 ],a[j1+p4+p1 ],a[j2+p4+p1 ],a[j1+p4+p2 ],a[j2+p4+p2 ],a[j1+p4+p3 ],a[j2+p4+p3 ],a[j1+p8 ],a[j2+p8 ],a[j1+p8+p1 ],a[j2+p8+p1 ],a[j1+p8+p2],a[j2+p8+p2],a[j1+p8+p3],a[j2+p8+p3],a[j1+p12],a[j2+p12],a[j1+p12+p1],a[j2+p12+p1],a[j1+p12+p2],a[j2+p12+p2],a[j1+p12+p3],a[j2+p12+p3]
+						,a[j1    ],a[j2    ],a[j1+p1 ],a[j2+p1 ],a[j1+p2 ],a[j2+p2 ],a[j1+p3 ],a[j2+p3 ],a[j1+p4 ],a[j2+p4 ],a[j1+p4+p1 ],a[j2+p4+p1 ],a[j1+p4+p2 ],a[j2+p4+p2 ],a[j1+p4+p3 ],a[j2+p4+p3 ],a[j1+p8 ],a[j2+p8 ],a[j1+p8+p1 ],a[j2+p8+p1 ],a[j1+p8+p2],a[j2+p8+p2],a[j1+p8+p3],a[j2+p8+p3],a[j1+p12],a[j2+p12],a[j1+p12+p1],a[j2+p12+p1],a[j1+p12+p2],a[j2+p12+p2],a[j1+p12+p3],a[j2+p12+p3]
+						,c1,s1,c2,s2,c3,s3,c4,s4,c5,s5,c6,s6,c7,s7,c8,s8,c9,s9,c10,s10,c11,s11,c12,s12,c13,s13,c14,s14,c15,s15, c,s)
+
+  #else		// USE_SCALAR_DFT_MACRO = False
 
 	/* gather the needed data (8 64-bit complex, i.e. 16 64-bit reals) and do the first set of four length-4 transforms.
 	   We process the sincos data in bit-reversed order.	*/
@@ -2491,6 +3048,9 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		t15	  =t15-t32;		t16		=t16+t31;
 		a[jt+p4 ]=rt *c7 +it *s7;	a[jp+p4 ]=it *c7 -rt *s7;
 		a[jt+p12]=t15*c15+t16*s15;	a[jp+p12]=t16*c15-t15*s15;
+
+  #endif	// USE_SCALAR_DFT_MACRO ?
+
 #endif	/* USE_SSE2 */
 
 	  }	/* endfor(j=jlo; j < jhi; j += 4) */

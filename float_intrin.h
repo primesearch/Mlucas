@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -198,11 +198,53 @@ For now we prefer to define the following 2 in non-macro form in util.c:
 
 	#define	__FABS(a)		((a) >= 0 ? (a) : (-a))
 	#define	__FNABS(a)		((a) >= 0 ? (-a) : (a))
+	// Fused-multiply-add|sub emulation:
 	#define	__FMADD(a,b,c)	 (a)*(b) + (c)
 	#define	__FMSUB(a,b,c)	 (a)*(b) - (c)
-	#define	__FNMADD(a,b,c)	-(a)*(b) - (c)
-	#define	__FNMSUB(a,b,c)	 (c) - (a)*(b)
+	// Negated-product versions of FMA/FMS:
+	#define	__FNMADD(a,b,c)	 (c) - (a)*(b)
+	#define	__FNMSUB(a,b,c)	-(a)*(b) - (c)
 	#define	__FSEL(a,b,c)	((a) >= 0 ? (b) : (c))
+
+	// Name aliases for FMA instructions:
+
+	// 0th quartet suitable for rvalues in 4-operand FMA4 syntax, as supported for SIMD math on SSE5-supporting AMD CPUs:
+	#define  FMA4(a,b,c)	__FMADD(a,b,c)
+	#define  FMS4(a,b,c)	__FMSUB(a,b,c)
+	#define FNMA4(a,b,c)	__FNMADD(a,b,c)
+	#define FNMS4(a,b,c)	__FNMSUB(a,b,c)
+
+	// Next 3 quartets emulate 3-operand FMA syntax available for SIMD math on AVX2-supporting Intel CPUs.
+	// Here we emulate GCC inline-asm syntax, i.e. FMA3(src2/mem2,src1,src0) : src0 = [result of FMA operation]
+	// thus the rightmost of the 3 inputs is overwritten with the result. Each quartet corr. to one of the 3
+	// distinct "flavors" of FMA, which differ in which 2 operands are multiplied together and which added.
+
+// 1. VFMADD132 src0, src1, src2/mem2 : src0 = src0*[src2/mem2] + src1	[note how 132-mnemonic = src-operand index order in RHS]
+//	i.e. uses the src0 multiplicand as both a source and as the destination, src1 is addend.
+/*** Note this differs from the Intel FMA3 ISA, which defines FMA132(c,a,b) as b = +- b.c +- a.
+	Thus when translating code prototyped using the 132-macros below, must swap rightmost 2 args [AT&T/GCC syntax]. ***/
+	#define  FMA132(c,a,b)	a =  __FMADD(a,c,b)	/*------------------------------------*/
+	#define  FMS132(c,a,b)	a =  __FMSUB(a,c,b)	/* Executive summary of this quartet: */
+	#define FNMA132(c,a,b)	a = __FNMADD(a,c,b)	/* a = +- a.c +- b                    */
+	#define FNMS132(c,a,b)	a = __FNMSUB(a,c,b)	/* -----------------------------------*/
+
+// 2. VFMADD213 src0, src1, src2/mem2 : src0 = src0*src1 + [src2/mem2]	[why not call this one ...123?]
+//	i.e. uses the src0 multiplicand as both a source and as the destination, [src2/mem2] is addend:
+	#define  FMA213(a,b,c)	a =  __FMADD(a,b,c)	/*------------------------------------*/
+	#define  FMS213(a,b,c)	a =  __FMSUB(a,b,c)	/* Executive summary of this quartet: */
+	#define FNMA213(a,b,c)	a = __FNMADD(a,b,c)	/* a = +- a.b +- c                    */
+	#define FNMS213(a,b,c)	a = __FNMSUB(a,b,c)	/* -----------------------------------*/
+
+// 3. VFMADD231 src0, src1, src2/mem2 : src0 = src1*[src2/mem2] + src0
+//	i.e. uses the src0 addend as both a source and as the destination:
+	#define  FMA231(c,b,a)	a =  __FMADD(b,c,a)	/*------------------------------------*/
+	#define  FMS231(c,b,a)	a =  __FMSUB(b,c,a)	/* Executive summary of this quartet: */
+	#define FNMA231(c,b,a)	a = __FNMADD(b,c,a)	/* a = +- b.c +- a                    */
+	#define FNMS231(c,b,a)	a = __FNMSUB(b,c,a)	/* -----------------------------------*/
+
+// In each case, the first 2 of the 3 input args are the multiplicands, and the rightmost digit in the 3-digit
+// instruction mnemonic indicates which of the 3 input args is overwritten, in right-to-left "Nth arg from the right"
+// fashion. In our notation above, it is always the 'a'-input which is overwritten.
 
 #endif	/* if(defined("your architecture here")) */
 

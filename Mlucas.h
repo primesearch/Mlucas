@@ -207,8 +207,19 @@ int 	fermat_mod_square	(double a[], int arr_scratch[], int n, int ilo, int ihi, 
 	void *cy36_process_chunk(void*targ);
 	void *cy40_process_chunk(void*targ);
 	void *cy44_process_chunk(void*targ);
+	void *cy48_process_chunk(void*targ);
 	void *cy52_process_chunk(void*targ);
+	void *cy56_process_chunk(void*targ);
 	void *cy60_process_chunk(void*targ);
+	void *cy64_process_chunk(void*targ);
+	void *cy72_process_chunk(void*targ);
+	void *cy80_process_chunk(void*targ);
+	void *cy88_process_chunk(void*targ);
+	void *cy96_process_chunk(void*targ);
+	void *cy104_process_chunk(void*targ);
+	void *cy112_process_chunk(void*targ);
+	void *cy120_process_chunk(void*targ);
+	void *cy128_process_chunk(void*targ);
 #else
 	void mers_process_chunk  (double a[], int arr_scratch[], int n, struct complex rt0[], struct complex rt1[], int index[], int block_index[], int ii, int nradices_prim, int radix_prim[], int ws_i[], int ws_j1[], int ws_j2[], int ws_j2_start[], int ws_k[], int ws_m[], int ws_blocklen[], int ws_blocklen_sum[]);
 	void fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex rt0[], struct complex rt1[], int index[],                    int ii, int nradices_prim, int radix_prim[]);
@@ -254,6 +265,11 @@ version, unless it's one of the later SSE2-only radices, in which at least parti
 	int	radix72_ditN_cy_dif1		(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[], double base[], double baseinv[], int iter, double *fracmax, uint64 p);
 	int	radix80_ditN_cy_dif1		(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[],                                             double base[], double baseinv[], int iter, double *fracmax, uint64 p);
 	int	radix88_ditN_cy_dif1		(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[],                                             double base[], double baseinv[], int iter, double *fracmax, uint64 p);
+	int	radix96_ditN_cy_dif1		(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[],                                             double base[], double baseinv[], int iter, double *fracmax, uint64 p);
+	int	radix104_ditN_cy_dif1		(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[],                                             double base[], double baseinv[], int iter, double *fracmax, uint64 p);
+	int	radix112_ditN_cy_dif1		(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[], double base[], double baseinv[], int iter, double *fracmax, uint64 p);
+	int	radix120_ditN_cy_dif1		(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[], double base[], double baseinv[], int iter, double *fracmax, uint64 p);
+	int	radix128_ditN_cy_dif1		(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[], double base[], double baseinv[], int iter, double *fracmax, uint64 p);
 
 	/* Only define 2nd version of carry routine[s] with ROE checking disabled in non-SSE2 mode, as SSE2 ROE checking is cheap.
 	For large radices (> 36) also define just a single (ROE-enabled) version of the carry routine and use it irrespective of the command-line ROE-check flag value: */

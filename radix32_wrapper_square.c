@@ -23,12 +23,9 @@
 #include "Mlucas.h"
 #include "pair_square.h"
 
-#if defined(USE_SSE2)
+#ifdef USE_SSE2
 
 	#include "sse2_macro.h"
-
-	#undef DEBUG_SSE2
-//	#define DEBUG_SSE2
 
 	#if defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)	/* GCC-style inline ASM: */
 
@@ -106,6 +103,11 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 !   has index pairs (j, N'(k)-j). Further details on this may be found below, under the
 !   heading "SOLVING THE CACHE FLOW PROBLEM...".
 */
+#ifdef USE_SSE2
+	const int stride = (int)RE_IM_STRIDE << 5;	// main-array loop stride = 64 for sse2, 128 for avx
+#else
+	const int stride = 64;	// In this particular routine, scalar mode has same stride as SSE2
+#endif
 	static int max_threads = 0;
 	static int nsave = 0;
 	static int *index = 0x0, *index_ptmp = 0x0;	/* N2/32-length Bit-reversal index array. */
@@ -116,20 +118,18 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 
 	int rdum,idum,j1pad,j2pad,kp,l,iroot,k1,k2;
 	int i,j1,j2,j2_start,k,m,blocklen,blocklen_sum;
-	static double    c     = 0.92387953251128675613, s     = 0.38268343236508977173	/* exp[  i*(twopi/16)]	*/
-			,c32_1 = 0.98078528040323044912, s32_1 = 0.19509032201612826784		/* exp(  i*twopi/32), the radix-32 fundamental sincos datum	*/
-			,c32_3 = 0.83146961230254523708, s32_3 = 0.55557023301960222473		/* exp(3*i*twopi/32)	*/
-			,c64_1 = 0.99518472667219688624, s64_1 = 0.09801714032956060199		/* exp(  i*twopi/64), the radix-64 fundamental sincos datum	*/
-			,c64_3 = 0.95694033573220886493, s64_3 = 0.29028467725446236763		/* exp(3*i*twopi/64)	*/
-			,c64_5 = 0.88192126434835502971, s64_5 = 0.47139673682599764855		/* exp(5*i*twopi/64)	*/
-			,c64_7 = 0.77301045336273696081, s64_7 = 0.63439328416364549821;	/* exp(7*i*twopi/64)	*/
+	const double c     = 0.92387953251128675613, s     = 0.38268343236508977173	/* exp[  i*(twopi/16)]	*/
+				,c32_1 = 0.98078528040323044912, s32_1 = 0.19509032201612826784		/* exp(  i*twopi/32), the radix-32 fundamental sincos datum	*/
+				,c32_3 = 0.83146961230254523708, s32_3 = 0.55557023301960222473;	/* exp(3*i*twopi/32)	*/
 	double rt,it,re = 0.0, im= 0.0;
 	double re0,im0,re1,im1;
-	double c21,c22,c23,c24,c25,c26,c27,c28,c29,c2A,c2B,c2C,c2D,c2E,c2F
-	,c30,c31,c32,c33,c34,c35,c36,c37,c38,c39,c3A,c3B,c3C,c3D,c3E,c3F
-	    ,s21,s22,s23,s24,s25,s26,s27,s28,s29,s2A,s2B,s2C,s2D,s2E,s2F
-	,s30,s31,s32,s33,s34,s35,s36,s37,s38,s39,s3A,s3B,s3C,s3D,s3E,s3F
-	,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t0A,t0B,t0C,t0D,t0E,t0F
+	// sincos for 1st set of scalar-mode inputs
+	double cA01,cA02,cA03,cA04,cA05,cA06,cA07,cA08,cA09,cA0A,cA0B,cA0C,cA0D,cA0E,cA0F,cA10,cA11,cA12,cA13,cA14,cA15,cA16,cA17,cA18,cA19,cA1A,cA1B,cA1C,cA1D,cA1E,cA1F
+	    ,sA01,sA02,sA03,sA04,sA05,sA06,sA07,sA08,sA09,sA0A,sA0B,sA0C,sA0D,sA0E,sA0F,sA10,sA11,sA12,sA13,sA14,sA15,sA16,sA17,sA18,sA19,sA1A,sA1B,sA1C,sA1D,sA1E,sA1F;
+	// sincos for 2nd set of scalar-mode inputs
+	double cB01,cB02,cB03,cB04,cB05,cB06,cB07,cB08,cB09,cB0A,cB0B,cB0C,cB0D,cB0E,cB0F,cB10,cB11,cB12,cB13,cB14,cB15,cB16,cB17,cB18,cB19,cB1A,cB1B,cB1C,cB1D,cB1E,cB1F
+	    ,sB01,sB02,sB03,sB04,sB05,sB06,sB07,sB08,sB09,sB0A,sB0B,sB0C,sB0D,sB0E,sB0F,sB10,sB11,sB12,sB13,sB14,sB15,sB16,sB17,sB18,sB19,sB1A,sB1B,sB1C,sB1D,sB1E,sB1F;
+	double t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t0A,t0B,t0C,t0D,t0E,t0F
 	,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t1A,t1B,t1C,t1D,t1E,t1F
 	,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t2A,t2B,t2C,t2D,t2E,t2F
 	,t30,t31,t32,t33,t34,t35,t36,t37,t38,t39,t3A,t3B,t3C,t3D,t3E,t3F
@@ -148,13 +148,19 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	#error SSE2 code not supported for this compiler!
   #endif
 
-	static struct complex *sc_arr = 0x0, *sc_ptr;
+	static vec_dbl *sc_arr = 0x0, *sc_ptr;
 	double *add0, *add1;	/* Addresses into array sections */
+  #ifdef USE_AVX
+	double *add2, *add3;
+	const int stridh = (stride>>1);
+  #endif
+	vec_dbl *c_tmp,*s_tmp;
+	vec_dbl *tmp;
 
   #ifdef MULTITHREAD
-	static struct complex *__r0;					// Base address for discrete per-thread local stores
+	static vec_dbl *__r0;					// Base address for discrete per-thread local stores
 	// In || mode, only above base-pointer (shared by all threads) is static:
-	struct complex *isrt2, *two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3
+	vec_dbl *isrt2, *two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3
 		, *forth, *tmp0, *tmp1, *tmp2, *tmp3, *tmp4, *tmp5, *tmp6, *tmp7
 		,*c00,*c01,*c02,*c03,*c04,*c05,*c06,*c07,*c08,*c09,*c0A,*c0B,*c0C,*c0D,*c0E,*c0F
 		,*c10,*c11,*c12,*c13,*c14,*c15,*c16,*c17,*c18,*c19,*c1A,*c1B,*c1C,*c1D,*c1E,*c1F
@@ -163,7 +169,7 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 		,*r20,*r22,*r24,*r26,*r28,*r2A,*r2C,*r2E
 		,*r30,*r32,*r34,*r36,*r38,*r3A,*r3C,*r3E;
   #elif defined(COMPILER_TYPE_GCC)	// Same list of ptrs as above, but now make them static:
-	static struct complex *isrt2, *two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3
+	static vec_dbl *isrt2, *two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3
 		, *forth, *tmp0, *tmp1, *tmp2, *tmp3, *tmp4, *tmp5, *tmp6, *tmp7
 		,*c00,*c01,*c02,*c03,*c04,*c05,*c06,*c07,*c08,*c09,*c0A,*c0B,*c0C,*c0D,*c0E,*c0F
 		,*c10,*c11,*c12,*c13,*c14,*c15,*c16,*c17,*c18,*c19,*c1A,*c1B,*c1C,*c1D,*c1E,*c1F
@@ -172,7 +178,7 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 		,*r20,*r22,*r24,*r26,*r28,*r2A,*r2C,*r2E
 		,*r30,*r32,*r34,*r36,*r38,*r3A,*r3C,*r3E;
   #else
-	static struct complex *isrt2, *two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3
+	static vec_dbl *isrt2, *two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3
 		, *forth, *tmp0, *tmp1, *tmp2, *tmp3, *tmp4, *tmp5, *tmp6, *tmp7
 		,*c00,*c01,*c02,*c03,*c04,*c05,*c06,*c07,*c08,*c09,*c0A,*c0B,*c0C,*c0D,*c0E,*c0F
 		,*c10,*c11,*c12,*c13,*c14,*c15,*c16,*c17,*c18,*c19,*c1A,*c1B,*c1C,*c1D,*c1E,*c1F
@@ -183,17 +189,6 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 		,*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r2A,*r2B,*r2C,*r2D,*r2E,*r2F
 		,*r30,*r31,*r32,*r33,*r34,*r35,*r36,*r37,*r38,*r39,*r3A,*r3B,*r3C,*r3D,*r3E,*r3F;
   #endif
-
-  #ifdef DEBUG_SSE2
-	int iloop;
-  #endif
-
-#else
-
-	double c01,c02,c03,c04,c05,c06,c07,c08,c09,c0A,c0B,c0C,c0D,c0E,c0F
-	,c10,c11,c12,c13,c14,c15,c16,c17,c18,c19,c1A,c1B,c1C,c1D,c1E,c1F
-	    ,s01,s02,s03,s04,s05,s06,s07,s08,s09,s0A,s0B,s0C,s0D,s0E,s0F
-	,s10,s11,s12,s13,s14,s15,s16,s17,s18,s19,s1A,s1B,s1C,s1D,s1E,s1F;
 
 #endif
 
@@ -223,38 +218,51 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 		nsave = n;
 
 	#ifdef USE_SSE2
-		ASSERT(HERE, sc_arr == 0x0, "Init-mode call conflicts with already-malloc'ed local storage!");
+
 		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
-		sc_arr = ALLOC_COMPLEX(sc_arr, 148*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		sc_ptr = ALIGN_COMPLEX(sc_arr);
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 148*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 64 16-byte slots of sc_arr for temporaries, next 8 for scratch, next 7 for the nontrivial complex 16th roots,
 	next 62 for the doubled sincos twiddles, plus one for the 1/4 constant and at least 4 more to allow for 64-byte alignment of the array.
+
+	*** NOTE ***: Offsets below must match those in radix32_dyadic_square,
+				since routines share DFT macros which use many literal byte offsets to reduce argument count.
 	*/
 		#ifdef MULTITHREAD
 			__r0  = sc_ptr;
 			isrt2 = sc_ptr + 0x48;
+			cc0	  = sc_ptr + 0x49;
+			ss0	  = sc_ptr + 0x4a;
+			cc1	  = sc_ptr + 0x4b;
+			ss1	  = sc_ptr + 0x4c;
+			cc3	  = sc_ptr + 0x4d;
+			ss3	  = sc_ptr + 0x4e;
 			forth = sc_ptr + 0x8f;
 			two   = sc_ptr + 0x90;
-			cc0   = sc_ptr + 0x49;	ss0   = sc_ptr + 0x4a;
-			cc1   = sc_ptr + 0x4b;	ss1   = sc_ptr + 0x4c;
-			cc3   = sc_ptr + 0x4d;	ss3   = sc_ptr + 0x4e;
 			for(i = 0; i < max_threads; ++i) {
 				/* These remain fixed within each per-thread local store: */
 				/* These remain fixed: */
-				isrt2->re = isrt2->im = ISRT2;
-				forth->re = forth->im = 0.25;
-				two  ->re = two  ->im = 2.0;
-				cc0  ->re = cc0  ->im = c	;		ss0  ->re = ss0  ->im = s	;
-				cc1  ->re = cc1  ->im = c32_1;		ss1  ->re = ss1  ->im = s32_1;
-				cc3  ->re = cc3  ->im = c32_3;		ss3  ->re = ss3  ->im = s32_3;
-				isrt2 += 148;	/* Move on to next thread's local store */
+				VEC_DBL_INIT(isrt2, ISRT2);
+				VEC_DBL_INIT(forth, 0.25);
+				VEC_DBL_INIT(two  , 2.0);
+				VEC_DBL_INIT(cc0  , c	);
+				VEC_DBL_INIT(ss0  , s	);
+				VEC_DBL_INIT(cc1  , c32_1);
+				VEC_DBL_INIT(ss1  , s32_1);
+				VEC_DBL_INIT(cc3  , c32_3);
+				VEC_DBL_INIT(ss3  , s32_3);
+				/* Move on to next thread's local store */
+				isrt2 += 148;
+				cc0   += 148;
+				ss0   += 148;
+				cc1   += 148;
+				ss1   += 148;
+				cc3   += 148;
+				ss3   += 148;
 				forth += 148;
 				two   += 148;
-				cc0   += 148;	ss0   += 148;
-				cc1   += 148;	ss1   += 148;
-				cc3   += 148;	ss3   += 148;
 			}
 		#elif defined(COMPILER_TYPE_GCC)
 			r00		= sc_ptr + 0x00;	isrt2	= sc_ptr + 0x48;
@@ -298,12 +306,15 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 			tmp6	= sc_ptr + 0x46;	forth	= sc_ptr + 0x8f;
 			tmp7	= sc_ptr + 0x47;	two     = sc_ptr + 0x90;
 			/* These remain fixed: */
-			isrt2->re = isrt2->im = ISRT2;
-			forth->re = forth->im = 0.25;
-			two  ->re = two  ->im = 2.0;
-			cc0->re = cc0->im = c	;	ss0->re = ss0->im = s	;
-			cc1->re = cc1->im = c32_1;	ss1->re = ss1->im = s32_1;
-			cc3->re = cc3->im = c32_3;	ss3->re = ss3->im = s32_3;
+			VEC_DBL_INIT(isrt2, ISRT2);
+			VEC_DBL_INIT(forth, 0.25);
+			VEC_DBL_INIT(two  , 2.0);
+			VEC_DBL_INIT(cc0  , c	);
+			VEC_DBL_INIT(ss0  , s	);
+			VEC_DBL_INIT(cc1  , c32_1);
+			VEC_DBL_INIT(ss1  , s32_1);
+			VEC_DBL_INIT(cc3  , c32_3);
+			VEC_DBL_INIT(ss3  , s32_3);
 		#else
 			r00		= sc_ptr + 0x00;	isrt2	= sc_ptr + 0x48;
 			r01		= sc_ptr + 0x01;	cc0		= sc_ptr + 0x49;
@@ -379,14 +390,17 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 			tmp7	= sc_ptr + 0x47;	forth	= sc_ptr + 0x8f;
 										two     = sc_ptr + 0x90;
 			/* These remain fixed: */
-			isrt2->re = isrt2->im = ISRT2;
-			forth->re = forth->im = 0.25;
-			two  ->re = two  ->im = 2.0;
-			cc0  ->re = cc0  ->im = c	;		ss0  ->re = ss0  ->im = s	;
-			cc1  ->re = cc1  ->im = c32_1;		ss1  ->re = ss1  ->im = s32_1;
-			cc3  ->re = cc3  ->im = c32_3;		ss3  ->re = ss3  ->im = s32_3;
-		#endif
-	
+			VEC_DBL_INIT(isrt2, ISRT2);
+			VEC_DBL_INIT(forth, 0.25);
+			VEC_DBL_INIT(two  , 2.0);
+			VEC_DBL_INIT(cc0  , c	);
+			VEC_DBL_INIT(ss0  , s	);
+			VEC_DBL_INIT(cc1  , c32_1);
+			VEC_DBL_INIT(ss1  , s32_1);
+			VEC_DBL_INIT(cc3  , c32_3);
+			VEC_DBL_INIT(ss3  , s32_3);
+		#endif	
+
 	#endif	// USE_SSE2
 
 		/*
@@ -483,7 +497,7 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	!   as is used for the the first of each of the two blocks of 32 complex FFT data.
 	*/
 		index_ptmp = ALLOC_INT(index_ptmp, N2/32);
-		if(!index_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array INDEX in radix32_wrapper_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		ASSERT(HERE, index_ptmp != 0,"FATAL: unable to allocate array INDEX!");
 		index      = ALIGN_INT(index_ptmp);
 	/*
 	!...Now rearrange FFT sincos indices using the main loop structure as a template.
@@ -522,7 +536,7 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 		  if(j2_start == n-64)break;
 
 		  blocklen_sum = blocklen_sum + blocklen;
-	if(!i) { sprintf(cbuf,"ERROR 10 in radix32_wrapper_square\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		  ASSERT(HERE, i != 0,"ERROR 10!");
 		  blocklen = (radix_prim[i-1]-1)*blocklen_sum;
 
 		  j2_start = j2_start+(blocklen<<2);
@@ -543,6 +557,7 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	/* If multithreaded, set the local-store pointers needed for the current thread; */
 #ifdef MULTITHREAD
 	ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+  #ifdef USE_SSE2
 	r00 = __r0 + thr_id*148; isrt2	= r00 + 0x48;
 	r02		= r00 + 0x02;	cc0		= r00 + 0x49;
 	r04		= r00 + 0x04;	cc1		= r00 + 0x4b;
@@ -583,6 +598,7 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	tmp5	= r00 + 0x45;
 	tmp6	= r00 + 0x46;	forth	= r00 + 0x8f;
 	tmp7	= r00 + 0x47;	two     = r00 + 0x90;
+  #endif
 #endif
 	/*...If a new runlength, should not get to this point: */
 	ASSERT(HERE, n == nsave,"n != nsave");
@@ -897,49 +913,589 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	blocklen     = ws_blocklen    ;
 	blocklen_sum = ws_blocklen_sum;
 
-	/* Separate out the special-case code needed for j1 == 0 and do in scalar mode
-	   in order to eliminate a conditional branch from the main loop:
+//	fprintf(stderr,"stride = %d\n",stride);
+//	fprintf(stderr,"On entry: j1,j2 = %u, %u, nradices_prim = %u, blocklen = %u\n",j1,j2,nradices_prim,blocklen);
+
+	/* If j1 == 0 we need to init the loop counters; otherwise, just jump
+	   right in and pick up where we left off on the previous pair of blocks:
 	*/
-	if(j1 == 0)
+	if(j1 > 0) {
+	//	fprintf(stderr,"Jumping into loop!\n");
+		goto jump_in;
+	}
+
+/*
+!...All but the first two radix-16 blocks are done on Mr. Henry Ford's assembly line. From there onward the blocklength
+!   will always be an integer multiple of 32, i.e. we can process each block using pairs of nonoverlapping blocks of 32
+!   complex data each, which is compatible to fusion with radix-32 pass routines.
+*/
+
+for(i = nradices_prim-6; i >= 0; i-- )	/* Main loop: lower bound = nradices_prim-radix_now. */
+{						/* Remember, radices get processed in reverse order here as in forward FFT. */
+
+#ifdef USE_AVX
+	for(m = 0; m < (blocklen-1)>>1; m += 32) /* In AVX mode, process two 32-element sets per loop execution, thus only execute the loop half as many times as for scalar/SSE2 case. */
+#else
+	for(m = 0; m < (blocklen-1)>>1; m += 16) /* Since we now process TWO 16-element sets per loop execution, only execute the loop half as many times as before. */
+#endif
 	{
-		/* 1st set of inputs: all sincos = unity. */
-		/* 2nd set of inputs: */
-		c21 = c64_1;	s21 = s64_1;
-		c22 = c32_1;	s22 = s32_1;
-		c23 = c64_3;	s23 = s64_3;
-		c24 = c    ;	s24 = s    ;
-		c25 = c64_5;	s25 = s64_5;
-		c26 = c32_3;	s26 = s32_3;
-		c27 = c64_7;	s27 = s64_7;
-		c28 = ISRT2;	s28 = ISRT2;
-		c29 = s64_7;	s29 = c64_7;
-		c2A = s32_3;	s2A = c32_3;
-		c2B = s64_5;	s2B = c64_5;
-		c2C = s    ;	s2C = c    ;
-		c2D = s64_3;	s2D = c64_3;
-		c2E = s32_1;	s2E = c32_1;
-		c2F = s64_1;	s2F = c64_1;
-		c30 = 0.0  ;	s30 = 1.0  ;
-		c31 =-c2F  ;	s31 = s2F  ;
-		c32 =-c2E  ;	s32 = s2E  ;
-		c33 =-c2D  ;	s33 = s2D  ;
-		c34 =-c2C  ;	s34 = s2C  ;
-		c35 =-c2B  ;	s35 = s2B  ;
-		c36 =-c2A  ;	s36 = s2A  ;
-		c37 =-c29  ;	s37 = s29  ;
-		c38 =-c28  ;	s38 = s28  ;
-		c39 =-c27  ;	s39 = s27  ;
-		c3A =-c26  ;	s3A = s26  ;
-		c3B =-c25  ;	s3B = s25  ;
-		c3C =-c24  ;	s3C = s24  ;
-		c3D =-c23  ;	s3D = s23  ;
-		c3E =-c22  ;	s3E = s22  ;
-		c3F =-c21  ;	s3F = s21  ;
+		if(j1 && j1*radix0%n == 0)
+		{
+		//	fprintf(stderr,"(j1 && j1*radix0 == 0 (mod n)) check hit: returning\n");
+			return;
+		}
+
+jump_in:	/* Entry point for all blocks but the first. */
 
 	  j1pad = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* floating padded-array 1st element index is here */
 	  j2pad = j2 + ( (j2 >> DAT_BITS) << PAD_BITS );	/* floating padded-array 2nd element index is here */
 
-		re=c21;	im=s21;		/* The j1 = 0 case is special... */
+	/*************************************************************/
+	/*                  1st set of sincos:                       */
+	/*************************************************************/
+		iroot = index[k++];
+		l = iroot;
+
+	#ifdef USE_SSE2
+		/* Due to roots-locality considerations, roots (c,s)[0-31] are offset w.r.to the thread-local ptr pair as
+
+		             c 00 10 08 18 04 14 0C 1C 02 12 0A 1A 06 16 0E 1E 01 11 09 19 05 15 0D 1D 03 13 0B 1B 07 17 0F 1F
+		(cc0,ss0) + 0x[06,08,0a,0c,0e,10,12,14,16,18,1a,1c,1e,20,22,24,26,28,2a,2c,2e,30,32,34,36,38,3a,3c,3e,40,42,44]
+
+		Here, due to the need to compute a new set of roots
+		for each set of inputs, we use a streamlined sequence which computes only the [0,1,2,3,7,E,15,1C]th roots with
+		maximal accuracy (i.e. using 2-table-multiply), then generates the remaining ones from those. Thus the needed
+		pointer offsets below are (cc0,ss0) + 0x[06,26,16,36,3e,22,30,14]:
+		*/
+	#endif
+
+	#ifdef USE_SSE2
+		c_tmp = cc0+0x06; s_tmp = c_tmp+1;	// c0,s0
+		VEC_DBL_INIT(c_tmp, 1.0);
+		VEC_DBL_INIT(s_tmp, 0.0);
+	#endif
+
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += iroot;		 /* 2*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	#ifdef USE_SSE2
+		c_tmp = cc0 + 0x26; s_tmp = c_tmp+1;	// [c,s]1
+		c_tmp->d0=rt;	s_tmp->d0=it;
+	#else
+		cA01 =rt;	sA01 =it;
+	#endif
+
+	re= rt;	im= it;	/* Save for the wrapper Step... */
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 3*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	#ifdef USE_SSE2
+		c_tmp = cc0 + 0x16; s_tmp = c_tmp+1;	// [c,s]2
+		c_tmp->d0=rt;	s_tmp->d0=it;
+	#else
+		cA02 =rt;	sA02 =it;
+	#endif
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += 4*iroot;			/* 7*iroot	*/
+	    iroot = l;				/* 7*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	#ifdef USE_SSE2
+		c_tmp = cc0 + 0x36; s_tmp = c_tmp+1;	// [c,s]3
+		c_tmp->d0=rt;	s_tmp->d0=it;
+	#else
+		cA03 =rt;	sA03 =it;
+	#endif
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 14*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	#ifdef USE_SSE2
+		c_tmp = cc0 + 0x3e; s_tmp = c_tmp+1;	// [c,s]7
+		c_tmp->d0=rt;	s_tmp->d0=it;
+	#else
+		cA07 =rt;	sA07 =it;
+	#endif
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 21*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	#ifdef USE_SSE2
+		c_tmp = cc0 + 0x22; s_tmp = c_tmp+1;	// [c,s]E
+		c_tmp->d0=rt;	s_tmp->d0=it;
+	#else
+		cA0E =rt;	sA0E =it;
+	#endif
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 28*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	#ifdef USE_SSE2
+		c_tmp = cc0 + 0x30; s_tmp = c_tmp+1;	// [c,s]15
+		c_tmp->d0=rt;	s_tmp->d0=it;
+	#else
+		cA15 =rt;	sA15 =it;
+	#endif
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	#ifdef USE_SSE2
+		c_tmp = cc0 + 0x14; s_tmp = c_tmp+1;	// [c,s]1C
+		c_tmp->d0=rt;	s_tmp->d0=it;
+	#else
+		cA1C =rt;	sA1C =it;
+
+		/*(c,s)4-10 (decimal indices), 4-0A (hexadecimal indices):	*/
+	    t00=cA01*cA07; t01=cA01*sA07; t02=sA01*cA07; t03=sA01*sA07;
+	    cA06=t00+t03; sA06=t01-t02; cA08=t00-t03; sA08=t01+t02;
+
+	    t00=cA02*cA07; t01=cA02*sA07; t02=sA02*cA07; t03=sA02*sA07;
+	    cA05=t00+t03; sA05=t01-t02; cA09=t00-t03; sA09=t01+t02;
+
+	    t00=cA03*cA07; t01=cA03*sA07; t02=sA03*cA07; t03=sA03*sA07;
+	    cA04=t00+t03; sA04=t01-t02; cA0A=t00-t03; sA0A=t01+t02;
+
+		/*(c,s)11-17 (decimal indices), 0B-11 (hexadecimal indices):;	*/
+	    t00=cA01*cA0E; t01=cA01*sA0E; t02=sA01*cA0E; t03=sA01*sA0E;
+	    cA0D=t00+t03; sA0D=t01-t02; cA0F=t00-t03; sA0F=t01+t02;
+
+	    t00=cA02*cA0E; t01=cA02*sA0E; t02=sA02*cA0E; t03=sA02*sA0E;
+	    cA0C=t00+t03; sA0C=t01-t02; cA10=t00-t03; sA10=t01+t02;
+
+	    t00=cA03*cA0E; t01=cA03*sA0E; t02=sA03*cA0E; t03=sA03*sA0E;
+	    cA0B=t00+t03; sA0B=t01-t02; cA11=t00-t03; sA11=t01+t02;
+
+		/*(c,s)18-24 (decimal indices), 12-18 (hexadecimal indices):	*/
+	    t00=cA01*cA15; t01=cA01*sA15; t02=sA01*cA15; t03=sA01*sA15;
+	    cA14=t00+t03; sA14=t01-t02; cA16=t00-t03; sA16=t01+t02;
+
+	    t00=cA02*cA15; t01=cA02*sA15; t02=sA02*cA15; t03=sA02*sA15;
+	    cA13=t00+t03; sA13=t01-t02; cA17=t00-t03; sA17=t01+t02;
+
+	    t00=cA03*cA15; t01=cA03*sA15; t02=sA03*cA15; t03=sA03*sA15;
+	    cA12=t00+t03; sA12=t01-t02; cA18=t00-t03; sA18=t01+t02;
+
+		/*(c,s)25-31 (decimal indices), 19-1F (hexadecimal indices):	*/
+	    t00=cA01*cA1C; t01=cA01*sA1C; t02=sA01*cA1C; t03=sA01*sA1C;
+	    cA1B=t00+t03; sA1B=t01-t02; cA1D=t00-t03; sA1D=t01+t02;
+
+	    t00=cA02*cA1C; t01=cA02*sA1C; t02=sA02*cA1C; t03=sA02*sA1C;
+	    cA1A=t00+t03; sA1A=t01-t02; cA1E=t00-t03; sA1E=t01+t02;
+
+	    t00=cA03*cA1C; t01=cA03*sA1C; t02=sA03*cA1C; t03=sA03*sA1C;
+	    cA19=t00+t03; sA19=t01-t02; cA1F=t00-t03; sA1F=t01+t02;
+	#endif
+
+	/*************************************************************/
+	/*                  2nd set of sincos:                       */
+	/*************************************************************/
+	    iroot = index[k++];
+	    l = iroot;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;			/* 2*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	#ifdef USE_SSE2
+		c_tmp = cc0 + 0x26; s_tmp = c_tmp+1;	// [c,s]1
+		c_tmp->d1=rt;	s_tmp->d1=it;
+	#else
+		cB01 =rt;	sB01 =it;
+	#endif
+
+	if(j1 == 0){ re= rt;	im= it; }   /* The j1 = 0 case is special... */
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 3*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	#ifdef USE_SSE2
+		c_tmp = cc0 + 0x16; s_tmp = c_tmp+1;	// [c,s]2
+		c_tmp->d1=rt;	s_tmp->d1=it;
+	#else
+		cB02 =rt;	sB02 =it;
+	#endif
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += 4*iroot;			/* 7*iroot	*/
+	    iroot = l;				/* 7*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	#ifdef USE_SSE2
+		c_tmp = cc0 + 0x36; s_tmp = c_tmp+1;	// [c,s]3
+		c_tmp->d1=rt;	s_tmp->d1=it;
+	#else
+		cB03 =rt;	sB03 =it;
+	#endif
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 14*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	#ifdef USE_SSE2
+		c_tmp = cc0 + 0x3e; s_tmp = c_tmp+1;	// [c,s]7
+		c_tmp->d1=rt;	s_tmp->d1=it;
+	#else
+		cB07 =rt;	sB07 =it;
+	#endif
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 21*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	#ifdef USE_SSE2
+		c_tmp = cc0 + 0x22; s_tmp = c_tmp+1;	// [c,s]E
+		c_tmp->d1=rt;	s_tmp->d1=it;
+	#else
+		cB0E =rt;	sB0E =it;
+	#endif
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 28*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	#ifdef USE_SSE2
+		c_tmp = cc0 + 0x30; s_tmp = c_tmp+1;	// [c,s]15
+		c_tmp->d1=rt;	s_tmp->d1=it;
+	#else
+		cB15 =rt;	sB15 =it;
+	#endif
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	#ifdef USE_SSE2
+		c_tmp = cc0 + 0x14; s_tmp = c_tmp+1;	// [c,s]1C
+		c_tmp->d1=rt;	s_tmp->d1=it;
+	#else
+		cB1C =rt;	sB1C =it;
+
+		/*(c,s)4-10 (decimal indices), 4-0A (hexadecimal indices):	*/
+	    t00=cB01*cB07; t01=cB01*sB07; t02=sB01*cB07; t03=sB01*sB07;
+	    cB06=t00+t03; sB06=t01-t02; cB08=t00-t03; sB08=t01+t02;
+
+	    t00=cB02*cB07; t01=cB02*sB07; t02=sB02*cB07; t03=sB02*sB07;
+	    cB05=t00+t03; sB05=t01-t02; cB09=t00-t03; sB09=t01+t02;
+
+	    t00=cB03*cB07; t01=cB03*sB07; t02=sB03*cB07; t03=sB03*sB07;
+	    cB04=t00+t03; sB04=t01-t02; cB0A=t00-t03; sB0A=t01+t02;
+
+		/*(c,s)11-17 (decimal indices), 0B-11 (hexadecimal indices):;	*/
+	    t00=cB01*cB0E; t01=cB01*sB0E; t02=sB01*cB0E; t03=sB01*sB0E;
+	    cB0D=t00+t03; sB0D=t01-t02; cB0F=t00-t03; sB0F=t01+t02;
+
+	    t00=cB02*cB0E; t01=cB02*sB0E; t02=sB02*cB0E; t03=sB02*sB0E;
+	    cB0C=t00+t03; sB0C=t01-t02; cB10=t00-t03; sB10=t01+t02;
+
+	    t00=cB03*cB0E; t01=cB03*sB0E; t02=sB03*cB0E; t03=sB03*sB0E;
+	    cB0B=t00+t03; sB0B=t01-t02; cB11=t00-t03; sB11=t01+t02;
+
+		/*(c,s)18-24 (decimal indices), 12-18 (hexadecimal indices):	*/
+	    t00=cB01*cB15; t01=cB01*sB15; t02=sB01*cB15; t03=sB01*sB15;
+	    cB14=t00+t03; sB14=t01-t02; cB16=t00-t03; sB16=t01+t02;
+
+	    t00=cB02*cB15; t01=cB02*sB15; t02=sB02*cB15; t03=sB02*sB15;
+	    cB13=t00+t03; sB13=t01-t02; cB17=t00-t03; sB17=t01+t02;
+
+	    t00=cB03*cB15; t01=cB03*sB15; t02=sB03*cB15; t03=sB03*sB15;
+	    cB12=t00+t03; sB12=t01-t02; cB18=t00-t03; sB18=t01+t02;
+
+		/*(c,s)25-31 (decimal indices), 19-1F (hexadecimal indices):	*/
+	    t00=cB01*cB1C; t01=cB01*sB1C; t02=sB01*cB1C; t03=sB01*sB1C;
+	    cB1B=t00+t03; sB1B=t01-t02; cB1D=t00-t03; sB1D=t01+t02;
+
+	    t00=cB02*cB1C; t01=cB02*sB1C; t02=sB02*cB1C; t03=sB02*sB1C;
+	    cB1A=t00+t03; sB1A=t01-t02; cB1E=t00-t03; sB1E=t01+t02;
+
+	    t00=cB03*cB1C; t01=cB03*sB1C; t02=sB03*cB1C; t03=sB03*sB1C;
+	    cB19=t00+t03; sB19=t01-t02; cB1F=t00-t03; sB1F=t01+t02;
+	#endif
+
+	#ifdef USE_AVX
+
+	  if(j1 > 128)	// Sincos data for the 2 starting scalar-mode data blocks get done in SSE2 mode, i.e. only using d0,d1
+	  {
+	/*************************************************************/
+	/*                  3rd set of sincos:                       */
+	/*************************************************************/
+		iroot = index[k++];
+		l = iroot;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;			/* 2*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x26; s_tmp = c_tmp+1;	// [c,s]1
+		c_tmp->d2=rt;	s_tmp->d2=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 3*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x16; s_tmp = c_tmp+1;	// [c,s]2
+		c_tmp->d2=rt;	s_tmp->d2=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += 4*iroot;			/* 7*iroot	*/
+	    iroot = l;				/* 7*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x36; s_tmp = c_tmp+1;	// [c,s]3
+		c_tmp->d2=rt;	s_tmp->d2=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 14*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x3e; s_tmp = c_tmp+1;	// [c,s]7
+		c_tmp->d2=rt;	s_tmp->d2=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 21*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x22; s_tmp = c_tmp+1;	// [c,s]E
+		c_tmp->d2=rt;	s_tmp->d2=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 28*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x30; s_tmp = c_tmp+1;	// [c,s]15
+		c_tmp->d2=rt;	s_tmp->d2=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x14; s_tmp = c_tmp+1;	// [c,s]1C
+		c_tmp->d2=rt;	s_tmp->d2=it;
+
+	/*************************************************************/
+	/*                  4th set of sincos:                       */
+	/*************************************************************/
+		iroot = index[k++];
+		l = iroot;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;			/* 2*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x26; s_tmp = c_tmp+1;	// [c,s]1
+		c_tmp->d3=rt;	s_tmp->d3=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 3*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x16; s_tmp = c_tmp+1;	// [c,s]2
+		c_tmp->d3=rt;	s_tmp->d3=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += 4*iroot;			/* 7*iroot	*/
+	    iroot = l;				/* 7*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x36; s_tmp = c_tmp+1;	// [c,s]3
+		c_tmp->d3=rt;	s_tmp->d3=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 14*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x3e; s_tmp = c_tmp+1;	// [c,s]7
+		c_tmp->d3=rt;	s_tmp->d3=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 21*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x22; s_tmp = c_tmp+1;	// [c,s]E
+		c_tmp->d3=rt;	s_tmp->d3=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+	    l += iroot;				/* 28*iroot	*/
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x30; s_tmp = c_tmp+1;	// [c,s]15
+		c_tmp->d3=rt;	s_tmp->d3=it;
+
+	    k1=(l & NRTM1);
+	    k2=(l >> NRT_BITS);
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		c_tmp = cc0 + 0x14; s_tmp = c_tmp+1;	// [c,s]1C
+		c_tmp->d3=rt;	s_tmp->d3=it;
+
+	  }	// endif(j1 > 128)
+
+	#endif	// USE_AVX ?
+
+	#ifdef USE_SSE2	// Both SSE2 and AVX share this:
+
+		SSE2_CMUL_EXPO(c01,c07,c06,c08)
+		SSE2_CMUL_EXPO(c02,c07,c05,c09)
+		SSE2_CMUL_EXPO(c03,c07,c04,c0A)
+
+		SSE2_CMUL_EXPO(c01,c0E,c0D,c0F)
+		SSE2_CMUL_EXPO(c02,c0E,c0C,c10)
+		SSE2_CMUL_EXPO(c03,c0E,c0B,c11)
+
+		SSE2_CMUL_EXPO(c01,c15,c14,c16)
+		SSE2_CMUL_EXPO(c02,c15,c13,c17)
+		SSE2_CMUL_EXPO(c03,c15,c12,c18)
+
+		SSE2_CMUL_EXPO(c01,c1C,c1B,c1D)
+		SSE2_CMUL_EXPO(c02,c1C,c1A,c1E)
+		SSE2_CMUL_EXPO(c03,c1C,c19,c1F)
+
+	  #ifdef USE_AVX	// The generic pre-dyadic-square macro needs 4 main-array addresses in AVX mode
+	  					// because (add1-add0) and (add3-add2) have opposite signs for fermat and mersenne-mod:
+
+		// process 4 main-array blocks of 8 vec_dbl = 8 x 4 = 32 doubles each in AVX mode
+		add0 = a + j1pad;
+		add1 = a + j2pad;
+		add2 = add0 + stridh;	// add2 = add0 + [32 doubles, equiv to 8 AVX registers]
+		add3 = add1 - stridh;	// Last 2 offsets run in descending order for Mers-mod
+
+	  #else	// SSE2:
+
+		add0 = a + j1pad;
+		add1 = a + j2pad;
+
+	  #endif
+
+	if(j1 <= 128)	// Use scalar code (with index offsets properly fiddled) for j1 == 0 case in SIMD mode
+	{
+		cA01 = c01->d0;	sA01 = (c01+1)->d0;
+		cA02 = c02->d0;	sA02 = (c02+1)->d0;
+		cA03 = c03->d0;	sA03 = (c03+1)->d0;
+		cA04 = c04->d0;	sA04 = (c04+1)->d0;
+		cA05 = c05->d0;	sA05 = (c05+1)->d0;
+		cA06 = c06->d0;	sA06 = (c06+1)->d0;
+		cA07 = c07->d0;	sA07 = (c07+1)->d0;
+		cA08 = c08->d0;	sA08 = (c08+1)->d0;
+		cA09 = c09->d0;	sA09 = (c09+1)->d0;
+		cA0A = c0A->d0;	sA0A = (c0A+1)->d0;
+		cA0B = c0B->d0;	sA0B = (c0B+1)->d0;
+		cA0C = c0C->d0;	sA0C = (c0C+1)->d0;
+		cA0D = c0D->d0;	sA0D = (c0D+1)->d0;
+		cA0E = c0E->d0;	sA0E = (c0E+1)->d0;
+		cA0F = c0F->d0;	sA0F = (c0F+1)->d0;
+		cA10 = c10->d0;	sA10 = (c10+1)->d0;
+		cA11 = c11->d0;	sA11 = (c11+1)->d0;
+		cA12 = c12->d0;	sA12 = (c12+1)->d0;
+		cA13 = c13->d0;	sA13 = (c13+1)->d0;
+		cA14 = c14->d0;	sA14 = (c14+1)->d0;
+		cA15 = c15->d0;	sA15 = (c15+1)->d0;
+		cA16 = c16->d0;	sA16 = (c16+1)->d0;
+		cA17 = c17->d0;	sA17 = (c17+1)->d0;
+		cA18 = c18->d0;	sA18 = (c18+1)->d0;
+		cA19 = c19->d0;	sA19 = (c19+1)->d0;
+		cA1A = c1A->d0;	sA1A = (c1A+1)->d0;
+		cA1B = c1B->d0;	sA1B = (c1B+1)->d0;
+		cA1C = c1C->d0;	sA1C = (c1C+1)->d0;
+		cA1D = c1D->d0;	sA1D = (c1D+1)->d0;
+		cA1E = c1E->d0;	sA1E = (c1E+1)->d0;
+		cA1F = c1F->d0;	sA1F = (c1F+1)->d0;
+	re= cA01;	im= sA01;	/* Save for the wrapper Step... */
+
+		cB01 = c01->d1;	sB01 = (c01+1)->d1;
+		cB02 = c02->d1;	sB02 = (c02+1)->d1;
+		cB03 = c03->d1;	sB03 = (c03+1)->d1;
+		cB04 = c04->d1;	sB04 = (c04+1)->d1;
+		cB05 = c05->d1;	sB05 = (c05+1)->d1;
+		cB06 = c06->d1;	sB06 = (c06+1)->d1;
+		cB07 = c07->d1;	sB07 = (c07+1)->d1;
+		cB08 = c08->d1;	sB08 = (c08+1)->d1;
+		cB09 = c09->d1;	sB09 = (c09+1)->d1;
+		cB0A = c0A->d1;	sB0A = (c0A+1)->d1;
+		cB0B = c0B->d1;	sB0B = (c0B+1)->d1;
+		cB0C = c0C->d1;	sB0C = (c0C+1)->d1;
+		cB0D = c0D->d1;	sB0D = (c0D+1)->d1;
+		cB0E = c0E->d1;	sB0E = (c0E+1)->d1;
+		cB0F = c0F->d1;	sB0F = (c0F+1)->d1;
+		cB10 = c10->d1;	sB10 = (c10+1)->d1;
+		cB11 = c11->d1;	sB11 = (c11+1)->d1;
+		cB12 = c12->d1;	sB12 = (c12+1)->d1;
+		cB13 = c13->d1;	sB13 = (c13+1)->d1;
+		cB14 = c14->d1;	sB14 = (c14+1)->d1;
+		cB15 = c15->d1;	sB15 = (c15+1)->d1;
+		cB16 = c16->d1;	sB16 = (c16+1)->d1;
+		cB17 = c17->d1;	sB17 = (c17+1)->d1;
+		cB18 = c18->d1;	sB18 = (c18+1)->d1;
+		cB19 = c19->d1;	sB19 = (c19+1)->d1;
+		cB1A = c1A->d1;	sB1A = (c1A+1)->d1;
+		cB1B = c1B->d1;	sB1B = (c1B+1)->d1;
+		cB1C = c1C->d1;	sB1C = (c1C+1)->d1;
+		cB1D = c1D->d1;	sB1D = (c1D+1)->d1;
+		cB1E = c1E->d1;	sB1E = (c1E+1)->d1;
+		cB1F = c1F->d1;	sB1F = (c1F+1)->d1;
+	if(j1 == 0){ re= cB01;	im= sB01; }   /* The j1 = 0 case is special... */
+
+	#endif
 
 	/*************************************************************/
 	/*                  1st set of inputs:                       */
@@ -949,13 +1505,13 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 		idum = j1pad+RE_IM_STRIDE;
 
 /*...Block 1:	*/
-	    t00=a[rdum   ];	t01=a[idum   ];
-	    rt =a[rdum+32];	it =a[idum+32];
+	    t00=a[rdum   ];							t01=a[idum   ];
+	    rt =a[rdum+32]*cA10 - a[idum+32]*sA10;	it =a[idum+32]*cA10 + a[rdum+32]*sA10;
 	    t02=t00-rt;		t03=t01-it;
 	    t00=t00+rt;		t01=t01+it;
 
-	    t04=a[rdum+16];	t05=a[idum+16];
-	    rt =a[rdum+48];	it =a[idum+48];
+	    t04=a[rdum+16]*cA08 - a[idum+16]*sA08;	t05=a[idum+16]*cA08 + a[rdum+16]*sA08;
+	    rt =a[rdum+48]*cA18 - a[idum+48]*sA18;	it =a[idum+48]*cA18 + a[rdum+48]*sA18;
 	    t06=t04-rt;		t07=t05-it;
 	    t04=t04+rt;		t05=t05+it;
 
@@ -967,13 +1523,13 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t06=t02+it;		t07=t03-rt;
 	    t02=t02-it;		t03=t03+rt;
 
-	    t08=a[rdum+8 ];	t09=a[idum+8 ];
-	    rt =a[rdum+40];	it =a[idum+40];
+	    t08=a[rdum+8 ]*cA04 - a[idum+8 ]*sA04;	t09=a[idum+8 ]*cA04 + a[rdum+8 ]*sA04;
+	    rt =a[rdum+40]*cA14 - a[idum+40]*sA14;	it =a[idum+40]*cA14 + a[rdum+40]*sA14;
 	    t0A=t08-rt;		t0B=t09-it;
 	    t08=t08+rt;		t09=t09+it;
 
-	    t0C=a[rdum+24];	t0D=a[idum+24];
-	    rt =a[rdum+56];	it =a[idum+56];
+	    t0C=a[rdum+24]*cA0C - a[idum+24]*sA0C;	t0D=a[idum+24]*cA0C + a[rdum+24]*sA0C;
+	    rt =a[rdum+56]*cA1C - a[idum+56]*sA1C;	it =a[idum+56]*cA1C + a[rdum+56]*sA1C;
 	    t0E=t0C-rt;		t0F=t0D-it;
 	    t0C=t0C+rt;		t0D=t0D+it;
 
@@ -1002,13 +1558,17 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t06=t06-rt;		t07=t07-it;
 
 /*...Block 2:	*/
-	    t10=a[rdum+4 ];	t11=a[idum+4 ];
-	    rt =a[rdum+36];	it =a[idum+36];
+	#ifdef USE_AVX
+		rdum -= 2;
+		idum -= 2;
+	#endif
+	    t10=a[rdum+4 ]*cA02 - a[idum+4 ]*sA02;	t11=a[idum+4 ]*cA02 + a[rdum+4 ]*sA02;
+	    rt =a[rdum+36]*cA12 - a[idum+36]*sA12;	it =a[idum+36]*cA12 + a[rdum+36]*sA12;
 	    t12=t10-rt;		t13=t11-it;
 	    t10=t10+rt;		t11=t11+it;
 
-	    t14=a[rdum+20];	t15=a[idum+20];
-	    rt =a[rdum+52];	it =a[idum+52];
+	    t14=a[rdum+20]*cA0A - a[idum+20]*sA0A;	t15=a[idum+20]*cA0A + a[rdum+20]*sA0A;
+	    rt =a[rdum+52]*cA1A - a[idum+52]*sA1A;	it =a[idum+52]*cA1A + a[rdum+52]*sA1A;
 	    t16=t14-rt;		t17=t15-it;
 	    t14=t14+rt;		t15=t15+it;
 
@@ -1020,13 +1580,13 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t16=t12+it;		t17=t13-rt;
 	    t12=t12-it;		t13=t13+rt;
 
-	    t18=a[rdum+12];	t19=a[idum+12];
-	    rt =a[rdum+44];	it =a[idum+44];
+	    t18=a[rdum+12]*cA06 - a[idum+12]*sA06;	t19=a[idum+12]*cA06 + a[rdum+12]*sA06;
+	    rt =a[rdum+44]*cA16 - a[idum+44]*sA16;	it =a[idum+44]*cA16 + a[rdum+44]*sA16;
 	    t1A=t18-rt;		t1B=t19-it;
 	    t18=t18+rt;		t19=t19+it;
 
-	    t1C=a[rdum+28];	t1D=a[idum+28];
-	    rt =a[rdum+60];	it =a[idum+60];
+	    t1C=a[rdum+28]*cA0E - a[idum+28]*sA0E;	t1D=a[idum+28]*cA0E + a[rdum+28]*sA0E;
+	    rt =a[rdum+60]*cA1E - a[idum+60]*sA1E;	it =a[idum+60]*cA1E + a[rdum+60]*sA1E;
 	    t1E=t1C-rt;		t1F=t1D-it;
 	    t1C=t1C+rt;		t1D=t1D+it;
 
@@ -1055,17 +1615,20 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t16=t16-rt;		t17=t17-it;
 
 /*...Block 3:	*/
-	#ifdef USE_SSE2
+	#ifdef USE_AVX
+		++rdum;
+		++idum;
+	#elif defined(USE_SSE2)
 		--rdum;
 		--idum;
 	#endif
-	    t20=a[rdum+2 ];	t21=a[idum+2 ];
-	    rt =a[rdum+34];	it =a[idum+34];
+	    t20=a[rdum+2 ]*cA01 - a[idum+2 ]*sA01;	t21=a[idum+2 ]*cA01 + a[rdum+2 ]*sA01;
+	    rt =a[rdum+34]*cA11 - a[idum+34]*sA11;	it =a[idum+34]*cA11 + a[rdum+34]*sA11;
 	    t22=t20-rt;		t23=t21-it;
 	    t20=t20+rt;		t21=t21+it;
 
-	    t24=a[rdum+18];	t25=a[idum+18];
-	    rt =a[rdum+50];	it =a[idum+50];
+	    t24=a[rdum+18]*cA09 - a[idum+18]*sA09;	t25=a[idum+18]*cA09 + a[rdum+18]*sA09;
+	    rt =a[rdum+50]*cA19 - a[idum+50]*sA19;	it =a[idum+50]*cA19 + a[rdum+50]*sA19;
 	    t26=t24-rt;		t27=t25-it;
 	    t24=t24+rt;		t25=t25+it;
 
@@ -1077,13 +1640,13 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t26=t22+it;		t27=t23-rt;
 	    t22=t22-it;		t23=t23+rt;
 
-	    t28=a[rdum+10];	t29=a[idum+10];
-	    rt =a[rdum+42];	it =a[idum+42];
+	    t28=a[rdum+10]*cA05 - a[idum+10]*sA05;	t29=a[idum+10]*cA05 + a[rdum+10]*sA05;
+	    rt =a[rdum+42]*cA15 - a[idum+42]*sA15;	it =a[idum+42]*cA15 + a[rdum+42]*sA15;
 	    t2A=t28-rt;		t2B=t29-it;
 	    t28=t28+rt;		t29=t29+it;
 
-	    t2C=a[rdum+26];	t2D=a[idum+26];
-	    rt =a[rdum+58];	it =a[idum+58];
+	    t2C=a[rdum+26]*cA0D - a[idum+26]*sA0D;	t2D=a[idum+26]*cA0D + a[rdum+26]*sA0D;
+	    rt =a[rdum+58]*cA1D - a[idum+58]*sA1D;	it =a[idum+58]*cA1D + a[rdum+58]*sA1D;
 	    t2E=t2C-rt;		t2F=t2D-it;
 	    t2C=t2C+rt;		t2D=t2D+it;
 
@@ -1112,13 +1675,17 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t26=t26-rt;		t27=t27-it;
 
 /*...Block 4:	*/
-	    t30=a[rdum+6 ];	t31=a[idum+6 ];
-	    rt =a[rdum+38];	it =a[idum+38];
+	#ifdef USE_AVX
+		rdum -= 2;
+		idum -= 2;
+	#endif
+	    t30=a[rdum+6 ]*cA03 - a[idum+6 ]*sA03;	t31=a[idum+6 ]*cA03 + a[rdum+6 ]*sA03;
+	    rt =a[rdum+38]*cA13 - a[idum+38]*sA13;	it =a[idum+38]*cA13 + a[rdum+38]*sA13;
 	    t32=t30-rt;		t33=t31-it;
 	    t30=t30+rt;		t31=t31+it;
 
-	    t34=a[rdum+22];	t35=a[idum+22];
-	    rt =a[rdum+54];	it =a[idum+54];
+	    t34=a[rdum+22]*cA0B - a[idum+22]*sA0B;	t35=a[idum+22]*cA0B + a[rdum+22]*sA0B;
+	    rt =a[rdum+54]*cA1B - a[idum+54]*sA1B;	it =a[idum+54]*cA1B + a[rdum+54]*sA1B;
 	    t36=t34-rt;		t37=t35-it;
 	    t34=t34+rt;		t35=t35+it;
 
@@ -1130,13 +1697,13 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t36=t32+it;		t37=t33-rt;
 	    t32=t32-it;		t33=t33+rt;
 
-	    t38=a[rdum+14];	t39=a[idum+14];
-	    rt =a[rdum+46];	it =a[idum+46];
+	    t38=a[rdum+14]*cA07 - a[idum+14]*sA07;	t39=a[idum+14]*cA07 + a[rdum+14]*sA07;
+	    rt =a[rdum+46]*cA17 - a[idum+46]*sA17;	it =a[idum+46]*cA17 + a[rdum+46]*sA17;
 	    t3A=t38-rt;		t3B=t39-it;
 	    t38=t38+rt;		t39=t39+it;
 
-	    t3C=a[rdum+30];	t3D=a[idum+30];
-	    rt =a[rdum+62];	it =a[idum+62];
+	    t3C=a[rdum+30]*cA0F - a[idum+30]*sA0F;	t3D=a[idum+30]*cA0F + a[rdum+30]*sA0F;
+	    rt =a[rdum+62]*cA1F - a[idum+62]*sA1F;	it =a[idum+62]*cA1F + a[rdum+62]*sA1F;
 	    t3E=t3C-rt;		t3F=t3D-it;
 	    t3C=t3C+rt;		t3D=t3D+it;
 
@@ -1164,16 +1731,7 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t3E=t36+rt;		t3F=t37+it;
 	    t36=t36-rt;		t37=t37-it;
 
-/*...and now do eight radix-4 transforms, including the internal twiddle factors:
-	1, exp(i* 1*twopi/32) =       ( c32_1, s32_1), exp(i* 2*twopi/32) =       ( c    , s    ), exp(i* 3*twopi/32) =       ( c32_3, s32_3) (for inputs to transform block 2),
-	1, exp(i* 2*twopi/32) =       ( c    , s    ), exp(i* 4*twopi/32) = ISRT2*( 1    , 1    ), exp(i* 3*twopi/32) =       ( s    , c    ) (for inputs to transform block 3),
-	1, exp(i* 3*twopi/32) =       ( c32_3, s32_3), exp(i* 6*twopi/32) =       ( s    , c    ), exp(i* 9*twopi/32) =       (-s32_1, c32_1) (for inputs to transform block 4),
-	1, exp(i* 4*twopi/32) = ISRT2*( 1    , 1    ), exp(i* 8*twopi/32) =       ( 0    , 1    ), exp(i*12*twopi/32) = ISRT2*(-1    , 1    ) (for inputs to transform block 5),
-	1, exp(i* 5*twopi/32) =       ( s32_3, c32_3), exp(i*10*twopi/32) =       (-s    , c    ), exp(i*15*twopi/32) =       (-c32_1, s32_1) (for inputs to transform block 6),
-	1, exp(i* 6*twopi/32) =       ( s    , c    ), exp(i*12*twopi/32) = ISRT2*(-1    , 1    ), exp(i*18*twopi/32) =       (-c    ,-s    ) (for inputs to transform block 7),
-	1, exp(i* 7*twopi/32) =       ( s32_1, c32_1), exp(i*14*twopi/32) =       (-c    , s    ), exp(i*21*twopi/32) =       (-s32_3,-c32_3) (for inputs to transform block 8),
-   and only the last 3 inputs to each of the radix-4 transforms 2 through 8 are multiplied by non-unity twiddles.
-   Within each block we process the 8 needed twiddles in bit-reversed order.	*/
+//...and now do eight radix-4 transforms, including the internal twiddle factors:
 
 /*...Block 1: t00,t10,t20,t30	*/
 	    rt =t10;	t10=t00-rt;	t00=t00+rt;
@@ -1308,12 +1866,12 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 
 /*...Block 1:	*/
 	    t00=a[rdum   ];				t01=a[idum   ];
-	    rt =a[rdum+32]*c30 - a[idum+32]*s30;	it =a[idum+32]*c30 + a[rdum+32]*s30;
+	    rt =a[rdum+32]*cB10 - a[idum+32]*sB10;	it =a[idum+32]*cB10 + a[rdum+32]*sB10;
 	    t02=t00-rt;		t03=t01-it;
 	    t00=t00+rt;		t01=t01+it;
 
-	    t04=a[rdum+16]*c28 - a[idum+16]*s28;	t05=a[idum+16]*c28 + a[rdum+16]*s28;
-	    rt =a[rdum+48]*c38 - a[idum+48]*s38;	it =a[idum+48]*c38 + a[rdum+48]*s38;
+	    t04=a[rdum+16]*cB08 - a[idum+16]*sB08;	t05=a[idum+16]*cB08 + a[rdum+16]*sB08;
+	    rt =a[rdum+48]*cB18 - a[idum+48]*sB18;	it =a[idum+48]*cB18 + a[rdum+48]*sB18;
 	    t06=t04-rt;		t07=t05-it;
 	    t04=t04+rt;		t05=t05+it;
 
@@ -1325,13 +1883,13 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t06=t02+it;		t07=t03-rt;
 	    t02=t02-it;		t03=t03+rt;
 
-	    t08=a[rdum+8 ]*c24 - a[idum+8 ]*s24;	t09=a[idum+8 ]*c24 + a[rdum+8 ]*s24;
-	    rt =a[rdum+40]*c34 - a[idum+40]*s34;	it =a[idum+40]*c34 + a[rdum+40]*s34;
+	    t08=a[rdum+8 ]*cB04 - a[idum+8 ]*sB04;	t09=a[idum+8 ]*cB04 + a[rdum+8 ]*sB04;
+	    rt =a[rdum+40]*cB14 - a[idum+40]*sB14;	it =a[idum+40]*cB14 + a[rdum+40]*sB14;
 	    t0A=t08-rt;		t0B=t09-it;
 	    t08=t08+rt;		t09=t09+it;
 
-	    t0C=a[rdum+24]*c2C - a[idum+24]*s2C;	t0D=a[idum+24]*c2C + a[rdum+24]*s2C;
-	    rt =a[rdum+56]*c3C - a[idum+56]*s3C;	it =a[idum+56]*c3C + a[rdum+56]*s3C;
+	    t0C=a[rdum+24]*cB0C - a[idum+24]*sB0C;	t0D=a[idum+24]*cB0C + a[rdum+24]*sB0C;
+	    rt =a[rdum+56]*cB1C - a[idum+56]*sB1C;	it =a[idum+56]*cB1C + a[rdum+56]*sB1C;
 	    t0E=t0C-rt;		t0F=t0D-it;
 	    t0C=t0C+rt;		t0D=t0D+it;
 
@@ -1360,13 +1918,17 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t06=t06-rt;		t07=t07-it;
 
 /*...Block 2:	*/
-	    t10=a[rdum+4 ]*c22 - a[idum+4 ]*s22;	t11=a[idum+4 ]*c22 + a[rdum+4 ]*s22;
-	    rt =a[rdum+36]*c32 - a[idum+36]*s32;	it =a[idum+36]*c32 + a[rdum+36]*s32;
+	#ifdef USE_AVX
+		rdum -= 2;
+		idum -= 2;
+	#endif
+	    t10=a[rdum+4 ]*cB02 - a[idum+4 ]*sB02;	t11=a[idum+4 ]*cB02 + a[rdum+4 ]*sB02;
+	    rt =a[rdum+36]*cB12 - a[idum+36]*sB12;	it =a[idum+36]*cB12 + a[rdum+36]*sB12;
 	    t12=t10-rt;		t13=t11-it;
 	    t10=t10+rt;		t11=t11+it;
 
-	    t14=a[rdum+20]*c2A - a[idum+20]*s2A;	t15=a[idum+20]*c2A + a[rdum+20]*s2A;
-	    rt =a[rdum+52]*c3A - a[idum+52]*s3A;	it =a[idum+52]*c3A + a[rdum+52]*s3A;
+	    t14=a[rdum+20]*cB0A - a[idum+20]*sB0A;	t15=a[idum+20]*cB0A + a[rdum+20]*sB0A;
+	    rt =a[rdum+52]*cB1A - a[idum+52]*sB1A;	it =a[idum+52]*cB1A + a[rdum+52]*sB1A;
 	    t16=t14-rt;		t17=t15-it;
 	    t14=t14+rt;		t15=t15+it;
 
@@ -1378,13 +1940,13 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t16=t12+it;		t17=t13-rt;
 	    t12=t12-it;		t13=t13+rt;
 
-	    t18=a[rdum+12]*c26 - a[idum+12]*s26;	t19=a[idum+12]*c26 + a[rdum+12]*s26;
-	    rt =a[rdum+44]*c36 - a[idum+44]*s36;	it =a[idum+44]*c36 + a[rdum+44]*s36;
+	    t18=a[rdum+12]*cB06 - a[idum+12]*sB06;	t19=a[idum+12]*cB06 + a[rdum+12]*sB06;
+	    rt =a[rdum+44]*cB16 - a[idum+44]*sB16;	it =a[idum+44]*cB16 + a[rdum+44]*sB16;
 	    t1A=t18-rt;		t1B=t19-it;
 	    t18=t18+rt;		t19=t19+it;
 
-	    t1C=a[rdum+28]*c2E - a[idum+28]*s2E;	t1D=a[idum+28]*c2E + a[rdum+28]*s2E;
-	    rt =a[rdum+60]*c3E - a[idum+60]*s3E;	it =a[idum+60]*c3E + a[rdum+60]*s3E;
+	    t1C=a[rdum+28]*cB0E - a[idum+28]*sB0E;	t1D=a[idum+28]*cB0E + a[rdum+28]*sB0E;
+	    rt =a[rdum+60]*cB1E - a[idum+60]*sB1E;	it =a[idum+60]*cB1E + a[rdum+60]*sB1E;
 	    t1E=t1C-rt;		t1F=t1D-it;
 	    t1C=t1C+rt;		t1D=t1D+it;
 
@@ -1413,17 +1975,20 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t16=t16-rt;		t17=t17-it;
 
 /*...Block 3:	*/
-	#ifdef USE_SSE2
+	#ifdef USE_AVX
+		++rdum;
+		++idum;
+	#elif defined(USE_SSE2)
 		--rdum;
 		--idum;
 	#endif
-	    t20=a[rdum+2 ]*c21 - a[idum+2 ]*s21;	t21=a[idum+2 ]*c21 + a[rdum+2 ]*s21;
-	    rt =a[rdum+34]*c31 - a[idum+34]*s31;	it =a[idum+34]*c31 + a[rdum+34]*s31;
+	    t20=a[rdum+2 ]*cB01 - a[idum+2 ]*sB01;	t21=a[idum+2 ]*cB01 + a[rdum+2 ]*sB01;
+	    rt =a[rdum+34]*cB11 - a[idum+34]*sB11;	it =a[idum+34]*cB11 + a[rdum+34]*sB11;
 	    t22=t20-rt;		t23=t21-it;
 	    t20=t20+rt;		t21=t21+it;
 
-	    t24=a[rdum+18]*c29 - a[idum+18]*s29;	t25=a[idum+18]*c29 + a[rdum+18]*s29;
-	    rt =a[rdum+50]*c39 - a[idum+50]*s39;	it =a[idum+50]*c39 + a[rdum+50]*s39;
+	    t24=a[rdum+18]*cB09 - a[idum+18]*sB09;	t25=a[idum+18]*cB09 + a[rdum+18]*sB09;
+	    rt =a[rdum+50]*cB19 - a[idum+50]*sB19;	it =a[idum+50]*cB19 + a[rdum+50]*sB19;
 	    t26=t24-rt;		t27=t25-it;
 	    t24=t24+rt;		t25=t25+it;
 
@@ -1435,13 +2000,13 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t26=t22+it;		t27=t23-rt;
 	    t22=t22-it;		t23=t23+rt;
 
-	    t28=a[rdum+10]*c25 - a[idum+10]*s25;	t29=a[idum+10]*c25 + a[rdum+10]*s25;
-	    rt =a[rdum+42]*c35 - a[idum+42]*s35;	it =a[idum+42]*c35 + a[rdum+42]*s35;
+	    t28=a[rdum+10]*cB05 - a[idum+10]*sB05;	t29=a[idum+10]*cB05 + a[rdum+10]*sB05;
+	    rt =a[rdum+42]*cB15 - a[idum+42]*sB15;	it =a[idum+42]*cB15 + a[rdum+42]*sB15;
 	    t2A=t28-rt;		t2B=t29-it;
 	    t28=t28+rt;		t29=t29+it;
 
-	    t2C=a[rdum+26]*c2D - a[idum+26]*s2D;	t2D=a[idum+26]*c2D + a[rdum+26]*s2D;
-	    rt =a[rdum+58]*c3D - a[idum+58]*s3D;	it =a[idum+58]*c3D + a[rdum+58]*s3D;
+	    t2C=a[rdum+26]*cB0D - a[idum+26]*sB0D;	t2D=a[idum+26]*cB0D + a[rdum+26]*sB0D;
+	    rt =a[rdum+58]*cB1D - a[idum+58]*sB1D;	it =a[idum+58]*cB1D + a[rdum+58]*sB1D;
 	    t2E=t2C-rt;		t2F=t2D-it;
 	    t2C=t2C+rt;		t2D=t2D+it;
 
@@ -1470,13 +2035,17 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t26=t26-rt;		t27=t27-it;
 
 /*...Block 4:	*/
-	    t30=a[rdum+6 ]*c23 - a[idum+6 ]*s23;	t31=a[idum+6 ]*c23 + a[rdum+6 ]*s23;
-	    rt =a[rdum+38]*c33 - a[idum+38]*s33;	it =a[idum+38]*c33 + a[rdum+38]*s33;
+	#ifdef USE_AVX
+		rdum -= 2;
+		idum -= 2;
+	#endif
+	    t30=a[rdum+6 ]*cB03 - a[idum+6 ]*sB03;	t31=a[idum+6 ]*cB03 + a[rdum+6 ]*sB03;
+	    rt =a[rdum+38]*cB13 - a[idum+38]*sB13;	it =a[idum+38]*cB13 + a[rdum+38]*sB13;
 	    t32=t30-rt;		t33=t31-it;
 	    t30=t30+rt;		t31=t31+it;
 
-	    t34=a[rdum+22]*c2B - a[idum+22]*s2B;	t35=a[idum+22]*c2B + a[rdum+22]*s2B;
-	    rt =a[rdum+54]*c3B - a[idum+54]*s3B;	it =a[idum+54]*c3B + a[rdum+54]*s3B;
+	    t34=a[rdum+22]*cB0B - a[idum+22]*sB0B;	t35=a[idum+22]*cB0B + a[rdum+22]*sB0B;
+	    rt =a[rdum+54]*cB1B - a[idum+54]*sB1B;	it =a[idum+54]*cB1B + a[rdum+54]*sB1B;
 	    t36=t34-rt;		t37=t35-it;
 	    t34=t34+rt;		t35=t35+it;
 
@@ -1488,13 +2057,13 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t36=t32+it;		t37=t33-rt;
 	    t32=t32-it;		t33=t33+rt;
 
-	    t38=a[rdum+14]*c27 - a[idum+14]*s27;	t39=a[idum+14]*c27 + a[rdum+14]*s27;
-	    rt =a[rdum+46]*c37 - a[idum+46]*s37;	it =a[idum+46]*c37 + a[rdum+46]*s37;
+	    t38=a[rdum+14]*cB07 - a[idum+14]*sB07;	t39=a[idum+14]*cB07 + a[rdum+14]*sB07;
+	    rt =a[rdum+46]*cB17 - a[idum+46]*sB17;	it =a[idum+46]*cB17 + a[rdum+46]*sB17;
 	    t3A=t38-rt;		t3B=t39-it;
 	    t38=t38+rt;		t39=t39+it;
 
-	    t3C=a[rdum+30]*c2F - a[idum+30]*s2F;	t3D=a[idum+30]*c2F + a[rdum+30]*s2F;
-	    rt =a[rdum+62]*c3F - a[idum+62]*s3F;	it =a[idum+62]*c3F + a[rdum+62]*s3F;
+	    t3C=a[rdum+30]*cB0F - a[idum+30]*sB0F;	t3D=a[idum+30]*cB0F + a[rdum+30]*sB0F;
+	    rt =a[rdum+62]*cB1F - a[idum+62]*sB1F;	it =a[idum+62]*cB1F + a[rdum+62]*sB1F;
 	    t3E=t3C-rt;		t3F=t3D-it;
 	    t3C=t3C+rt;		t3D=t3D+it;
 
@@ -1521,9 +2090,8 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    rt =(t3E+t3F)*ISRT2;it =(t3F-t3E)*ISRT2;
 	    t3E=t36+rt;		t3F=t37+it;
 	    t36=t36-rt;		t37=t37-it;
-/*
-!...and now do eight radix-4 transforms, including the internal twiddle factors:
-*/
+
+//...and now do eight radix-4 transforms, including the internal twiddle factors:
 
 /*...Block 1: t00,t10,t20,t30	*/
 	    rt =t10;	t10=t00-rt;	t00=t00+rt;
@@ -1652,6 +2220,8 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 /*...send the pairs of complex elements which are to be combined and sincos temporaries needed for the squaring to a
      small subroutine. The j1 = 0 case is again exceptional.	*/
 
+	  if(j1==0)    	/* NB: mustn't use re, im as temps in exe1-3 section, since those contain saved sincos data for exe4 block.	*/
+	  {
 /*...j=0 (for which I(0)=Re{H(0)}^2+i*Im{H(0)}^2) is done separately...	*/
 
 	    rt=a1p00r;
@@ -1750,6 +2320,48 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 
 	    pair_square(&a2p1Cr,&a2p1Ci,&a2p03r,&a2p03i, rt, it);
 	    pair_square(&a2p1Er,&a2p1Ei,&a2p01r,&a2p01i,-it, rt);
+	  }
+	  else
+	  {
+		t01=(re-im)*ISRT2;	t02=(re+im)*ISRT2;
+
+		re0=re*c;	im0=im*s;	re1=re*s;	im1=im*c;
+		t03=re0-im0;	t04=re1+im1;
+		t05=re1-im1;	t06=re0+im0;
+
+		re0=re*c32_1;	im0=im*s32_1;	re1=re*s32_1;	im1=im*c32_1;
+		t07=re0-im0;	t08=re1+im1;
+		t09=re1-im1;	t0A=re0+im0;
+
+		re0=re*c32_3;	im0=im*s32_3;	re1=re*s32_3;	im1=im*c32_3;
+		t0B=re1-im1;	t0C=re0+im0;
+		t0D=re0-im0;	t0E=re1+im1;
+
+		PAIR_SQUARE_4(a1p00r,a1p00i,a2p1Fr,a2p1Fi,a1p02r,a1p02i,a2p1Dr,a2p1Di, re, im
+					, a2p02r,a2p02i,a1p1Dr,a1p1Di,a2p00r,a2p00i,a1p1Fr,a1p1Fi,t09,t0A);
+
+		PAIR_SQUARE_4(a1p04r,a1p04i,a2p1Br,a2p1Bi,a1p06r,a1p06i,a2p19r,a2p19i,t01,t02
+					, a2p06r,a2p06i,a1p19r,a1p19i,a2p04r,a2p04i,a1p1Br,a1p1Bi,t0D,t0E);
+
+		PAIR_SQUARE_4(a1p08r,a1p08i,a2p17r,a2p17i,a1p0Ar,a1p0Ai,a2p15r,a2p15i,t03,t04
+					, a2p0Ar,a2p0Ai,a1p15r,a1p15i,a2p08r,a2p08i,a1p17r,a1p17i,t0B,t0C);
+
+		PAIR_SQUARE_4(a1p0Cr,a1p0Ci,a2p13r,a2p13i,a1p0Er,a1p0Ei,a2p11r,a2p11i,t05,t06
+					, a2p0Er,a2p0Ei,a1p11r,a1p11i,a2p0Cr,a2p0Ci,a1p13r,a1p13i,t07,t08);
+
+		PAIR_SQUARE_4(a1p10r,a1p10i,a2p0Fr,a2p0Fi,a1p12r,a1p12i,a2p0Dr,a2p0Di,t07,t08
+					, a2p12r,a2p12i,a1p0Dr,a1p0Di,a2p10r,a2p10i,a1p0Fr,a1p0Fi,t05,t06);
+
+		PAIR_SQUARE_4(a1p14r,a1p14i,a2p0Br,a2p0Bi,a1p16r,a1p16i,a2p09r,a2p09i,t0B,t0C
+					, a2p16r,a2p16i,a1p09r,a1p09i,a2p14r,a2p14i,a1p0Br,a1p0Bi,t03,t04);
+
+		PAIR_SQUARE_4(a1p18r,a1p18i,a2p07r,a2p07i,a1p1Ar,a1p1Ai,a2p05r,a2p05i,t0D,t0E
+					, a2p1Ar,a2p1Ai,a1p05r,a1p05i,a2p18r,a2p18i,a1p07r,a1p07i,t01,t02);
+
+		PAIR_SQUARE_4(a1p1Cr,a1p1Ci,a2p03r,a2p03i,a1p1Er,a1p1Ei,a2p01r,a2p01i,t09,t0A
+					, a2p1Er,a2p1Ei,a1p01r,a1p01i,a2p1Cr,a2p1Ci,a1p03r,a1p03i, re, im);
+
+	  }	/* endif(j1==0)	*/
 
 /*...And do an inverse DIT radix-32 pass on the squared-data blocks.	*/
 
@@ -1758,10 +2370,16 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	/*************************************************************/
 	    rdum = j1pad;
 	    idum = j1pad+RE_IM_STRIDE;
-
+#if PFETCH
+addr = &a[rdum+64];
+#endif
 /*   gather the needed data (32 64-bit complex, i.e. 64 64-bit reals) and do the first set of four length-8 IDIT transforms... */
 
 /*...Block 1: */
+#if PFETCH
+prefetch_p_doubles(addr);
+addr += 4;
+#endif
 	    t02=a1p00r-a1p01r;	t03=a1p00i-a1p01i;
 	    t00=a1p00r+a1p01r;	t01=a1p00i+a1p01i;
 
@@ -1789,7 +2407,12 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    rt =t0E;		it =t0F;
 	    t0E=t0A-it;		t0F=t0B+rt;
 	    t0A=t0A+it;		t0B=t0B-rt;
-
+#if PFETCH
+	#if(CACHE_LINE_DOUBLES == 4)
+	prefetch_p_doubles(addr);
+	#endif
+addr += 4;
+#endif
 	    rt =t08;		it =t09;
 	    t08=t00-rt;		t09=t01-it;
 	    t00=t00+rt;		t01=t01+it;
@@ -1807,6 +2430,10 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t06=t06-rt;		t07=t07-it;
 
 /*...Block 2:	*/
+#if PFETCH
+prefetch_p_doubles(addr);
+addr += 4;
+#endif
 	    t12=a1p08r-a1p09r;	t13=a1p08i-a1p09i;
 	    t10=a1p08r+a1p09r;	t11=a1p08i+a1p09i;
 
@@ -1834,7 +2461,12 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    rt =t1E;		it =t1F;
 	    t1E=t1A-it;		t1F=t1B+rt;
 	    t1A=t1A+it;		t1B=t1B-rt;
-
+#if PFETCH
+	#if(CACHE_LINE_DOUBLES == 4)
+	prefetch_p_doubles(addr);
+	#endif
+addr += 4;
+#endif
 	    rt =t18;		it =t19;
 	    t18=t10-rt;		t19=t11-it;
 	    t10=t10+rt;		t11=t11+it;
@@ -1852,6 +2484,10 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t16=t16-rt;		t17=t17-it;
 
 /*...Block 3:	*/
+#if PFETCH
+prefetch_p_doubles(addr);
+addr += 4;
+#endif
 	    t22=a1p10r-a1p11r;	t23=a1p10i-a1p11i;
 	    t20=a1p10r+a1p11r;	t21=a1p10i+a1p11i;
 
@@ -1879,7 +2515,12 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    rt =t2E;		it =t2F;
 	    t2E=t2A-it;		t2F=t2B+rt;
 	    t2A=t2A+it;		t2B=t2B-rt;
-
+#if PFETCH
+	#if(CACHE_LINE_DOUBLES == 4)
+	prefetch_p_doubles(addr);
+	#endif
+addr += 4;
+#endif
 	    rt =t28;		it =t29;
 	    t28=t20-rt;		t29=t21-it;
 	    t20=t20+rt;		t21=t21+it;
@@ -1897,6 +2538,10 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t26=t26-rt;		t27=t27-it;
 
 /*...Block 4:	*/
+#if PFETCH
+prefetch_p_doubles(addr);
+addr += 4;
+#endif
 	    t32=a1p18r-a1p19r;	t33=a1p18i-a1p19i;
 	    t30=a1p18r+a1p19r;	t31=a1p18i+a1p19i;
 
@@ -1924,7 +2569,12 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    rt =t3E;		it =t3F;
 	    t3E=t3A-it;		t3F=t3B+rt;
 	    t3A=t3A+it;		t3B=t3B-rt;
-
+#if PFETCH
+	#if(CACHE_LINE_DOUBLES == 4)
+	prefetch_p_doubles(addr);
+	#endif
+addr += 4;
+#endif
 	    rt =t38;		it =t39;
 	    t38=t30-rt;		t39=t31-it;
 	    t30=t30+rt;		t31=t31+it;
@@ -1941,17 +2591,13 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t3E=t36+rt;		t3F=t37+it;
 	    t36=t36-rt;		t37=t37-it;
 
-/*...and now do eight radix-4 transforms, including the internal twiddle factors:
-	1, exp(-i* 1*twopi/32) =       ( c32_1,-s32_1), exp(-i* 2*twopi/32) =       ( c    ,-s    ), exp(-i* 3*twopi/32) =       ( c32_3,-s32_3) (for inputs to transform block 2),
-	1, exp(-i* 2*twopi/32) =       ( c    ,-s    ), exp(-i* 4*twopi/32) = ISRT2*( 1    ,-1    ), exp(-i* 3*twopi/32) =       ( s    ,-c    ) (for inputs to transform block 3),
-	1, exp(-i* 3*twopi/32) =       ( c32_3,-s32_3), exp(-i* 6*twopi/32) =       ( s    ,-c    ), exp(-i* 9*twopi/32) =       (-s32_1,-c32_1) (for inputs to transform block 4),
-	1, exp(-i* 4*twopi/32) = ISRT2*( 1    ,-1    ), exp(-i* 8*twopi/32) =       ( 0    ,-1    ), exp(-i*12*twopi/32) = ISRT2*(-1    ,-1    ) (for inputs to transform block 5),
-	1, exp(-i* 5*twopi/32) =       ( s32_3,-c32_3), exp(-i*10*twopi/32) =       (-s    ,-c    ), exp(-i*15*twopi/32) =       (-c32_1,-s32_1) (for inputs to transform block 6),
-	1, exp(-i* 6*twopi/32) =       ( s    ,-c    ), exp(-i*12*twopi/32) = ISRT2*(-1    ,-1    ), exp(-i*18*twopi/32) =       (-c    , s    ) (for inputs to transform block 7),
-	1, exp(-i* 7*twopi/32) =       ( s32_1,-c32_1), exp(-i*14*twopi/32) =       (-c    ,-s    ), exp(-i*21*twopi/32) =       (-s32_3, c32_3) (for inputs to transform block 8),
-   and only the last 3 inputs to each of the radix-4 transforms 2 through 8 are multiplied by non-unity twiddles.	*/
+//...and now do eight radix-4 transforms, including the internal twiddle factors:
 
 /*...Block 1: t00,t10,t20,t30	*/
+#if PFETCH
+prefetch_p_doubles(addr);
+addr += 4;
+#endif
 	    rt =t10;	t10=t00-rt;	t00=t00+rt;
 	    it =t11;	t11=t01-it;	t01=t01+it;
 
@@ -1959,12 +2605,21 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    it =t31;	t31=t21-it;	t21=t21+it;
 
 	    a[rdum   ]=t00+t20;			a[idum   ]=t01+t21;
-	    a[rdum+32]=t00-t20;			a[idum+32]=t01-t21;
+	    t00       =t00-t20;			t01       =t01-t21;
+	    a[rdum+32]=t00*cA10+t01*sA10;	a[idum+32]=t01*cA10-t00*sA10;
 
-	    a[rdum+16]=t10+t31;			a[idum+16]=t11-t30;
-	    a[rdum+48]=t10-t31;			a[idum+48]=t11+t30;
+	    rt        =t10+t31;			it        =t11-t30;
+	    t10       =t10-t31;			t11       =t11+t30;
+	    a[rdum+16]=rt *cA08+it *sA08;	a[idum+16]=it *cA08-rt *sA08;
+	    a[rdum+48]=t10*cA18+t11*sA18;	a[idum+48]=t11*cA18-t10*sA18;
 
 /*...Block 5: t08,t18,t28,t38	*/
+#if PFETCH
+	#if(CACHE_LINE_DOUBLES == 4)
+	prefetch_p_doubles(addr);
+	#endif
+addr += 4;
+#endif
 	    rt =t18;	t18=t08-t19;	t08=t08+t19;
 					t19=t09+rt;		t09=t09-rt;
 
@@ -1973,13 +2628,25 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t38=t28+rt;					t28=t28-rt;
 	    t39=t29+it;					t29=t29-it;
 
-	    a[rdum+8 ]=t08+t28;			a[idum+8 ]=t09+t29;
-	    a[rdum+40]=t08-t28;			a[idum+40]=t09-t29;
+	    rt        =t08+t28;			it        =t09+t29;
+	    t08       =t08-t28;			t09       =t09-t29;
+	    a[rdum+8 ]=rt *cA04+it *sA04;	a[idum+8 ]=it *cA04-rt *sA04;
+	    a[rdum+40]=t08*cA14+t09*sA14;	a[idum+40]=t09*cA14-t08*sA14;
 
-	    a[rdum+24]=t18+t39;			a[idum+24]=t19-t38;
-	    a[rdum+56]=t18-t39;			a[idum+56]=t19+t38;
+	    rt        =t18+t39;			it        =t19-t38;
+	    t18       =t18-t39;			t19       =t19+t38;
+	    a[rdum+24]=rt *cA0C+it *sA0C;	a[idum+24]=it *cA0C-rt *sA0C;
+	    a[rdum+56]=t18*cA1C+t19*sA1C;	a[idum+56]=t19*cA1C-t18*sA1C;
 
 /*...Block 3: t04,t14,t24,t34	*/
+	#ifdef USE_AVX
+		rdum -= 2;
+		idum -= 2;
+	#endif
+#if PFETCH
+prefetch_p_doubles(addr);
+addr += 4;
+#endif
 	    rt =(t15+t14)*ISRT2;		it =(t15-t14)*ISRT2;
 	    t14=t04-rt;					t04=t04+rt;
 	    t15=t05-it;					t05=t05+it;
@@ -1989,13 +2656,23 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t34=t24-rt;					t24=t24+rt;
 	    t35=t25-it;					t25=t25+it;
 
-	    a[rdum+4 ]=t04+t24;			a[idum+4 ]=t05+t25;
-	    a[rdum+36]=t04-t24;			a[idum+36]=t05-t25;
+	    rt        =t04+t24;			it        =t05+t25;
+	    t04       =t04-t24;			t05       =t05-t25;
+	    a[rdum+4 ]=rt *cA02+it *sA02;	a[idum+4 ]=it *cA02-rt *sA02;
+	    a[rdum+36]=t04*cA12+t05*sA12;	a[idum+36]=t05*cA12-t04*sA12;
 
-	    a[rdum+20]=t14+t35;			a[idum+20]=t15-t34;
-	    a[rdum+52]=t14-t35;			a[idum+52]=t15+t34;
+	    rt        =t14+t35;			it        =t15-t34;
+	    t14       =t14-t35;			t15       =t15+t34;
+	    a[rdum+20]=rt *cA0A+it *sA0A;	a[idum+20]=it *cA0A-rt *sA0A;
+	    a[rdum+52]=t14*cA1A+t15*sA1A;	a[idum+52]=t15*cA1A-t14*sA1A;
 
 /*...Block 7: t0C,t1C,t2C,t3C	*/
+#if PFETCH
+	#if(CACHE_LINE_DOUBLES == 4)
+	prefetch_p_doubles(addr);
+	#endif
+addr += 4;
+#endif
 	    rt =(t1C-t1D)*ISRT2;		it =(t1C+t1D)*ISRT2;
 	    t1C=t0C+rt;					t0C=t0C-rt;
 	    t1D=t0D+it;					t0D=t0D-it;
@@ -2005,17 +2682,28 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t3C=t2C+rt;					t2C=t2C-rt;
 	    t3D=t2D+it;					t2D=t2D-it;
 
-	    a[rdum+12]=t0C+t2C;			a[idum+12]=t0D+t2D;
-	    a[rdum+44]=t0C-t2C;			a[idum+44]=t0D-t2D;
+	    rt        =t0C+t2C;			it        =t0D+t2D;
+	    t0C       =t0C-t2C;			t0D       =t0D-t2D;
+	    a[rdum+12]=rt *cA06+it *sA06;	a[idum+12]=it *cA06-rt *sA06;
+	    a[rdum+44]=t0C*cA16+t0D*sA16;	a[idum+44]=t0D*cA16-t0C*sA16;
 
-	    a[rdum+28]=t1C+t3D;			a[idum+28]=t1D-t3C;
-	    a[rdum+60]=t1C-t3D;			a[idum+60]=t1D+t3C;
+	    rt        =t1C+t3D;			it        =t1D-t3C;
+	    t1C       =t1C-t3D;			t1D       =t1D+t3C;
+	    a[rdum+28]=rt *cA0E+it *sA0E;	a[idum+28]=it *cA0E-rt *sA0E;
+	    a[rdum+60]=t1C*cA1E+t1D*sA1E;	a[idum+60]=t1D*cA1E-t1C*sA1E;
 
 /*...Block 2: t02,t12,t22,t32	*/
-	#ifdef USE_SSE2
+	#ifdef USE_AVX
+		++rdum;
+		++idum;
+	#elif defined(USE_SSE2)
 		--rdum;
 		--idum;
 	#endif
+#if PFETCH
+prefetch_p_doubles(addr);
+addr += 4;
+#endif
 	    rt =t12*c + t13*s;			it =t13*c - t12*s;
 	    t12=t02-rt;					t02=t02+rt;
 	    t13=t03-it;					t03=t03+it;
@@ -2025,13 +2713,23 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t32=t22-rt;					t22=t22+rt;
 	    t33=t23-it;					t23=t23+it;
 
-	    a[rdum+2 ]=t02+t22;			a[idum+2 ]=t03+t23;
-	    a[rdum+34]=t02-t22;			a[idum+34]=t03-t23;
+	    rt        =t02+t22;			it        =t03+t23;
+	    t02       =t02-t22;			t03       =t03-t23;
+	    a[rdum+2 ]=rt *cA01+it *sA01;	a[idum+2 ]=it *cA01-rt *sA01;
+	    a[rdum+34]=t02*cA11+t03*sA11;	a[idum+34]=t03*cA11-t02*sA11;
 
-	    a[rdum+18]=t12+t33;			a[idum+18]=t13-t32;
-	    a[rdum+50]=t12-t33;			a[idum+50]=t13+t32;
+	    rt        =t12+t33;			it        =t13-t32;
+	    t12       =t12-t33;			t13       =t13+t32;
+	    a[rdum+18]=rt *cA09+it *sA09;	a[idum+18]=it *cA09-rt *sA09;
+	    a[rdum+50]=t12*cA19+t13*sA19;	a[idum+50]=t13*cA19-t12*sA19;
 
 /*...Block 6: t0A,t1A,t2A,t3A	*/
+#if PFETCH
+	#if(CACHE_LINE_DOUBLES == 4)
+	prefetch_p_doubles(addr);
+	#endif
+addr += 4;
+#endif
 	    rt =t1A*s - t1B*c;			it =t1B*s + t1A*c;
 	    t1A=t0A+rt;					t0A =t0A-rt;
 	    t1B=t0B+it;					t0B =t0B-it;
@@ -2041,13 +2739,25 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t3A=t2A+rt;					t2A=t2A-rt;
 	    t3B=t2B+it;					t2B=t2B-it;
 
-	    a[rdum+10]=t0A+t2A;			a[idum+10]=t0B+t2B;
-	    a[rdum+42]=t0A-t2A;			a[idum+42]=t0B-t2B;
+	    rt        =t0A+t2A;			it        =t0B+t2B;
+	    t0A       =t0A-t2A;			t0B       =t0B-t2B;
+	    a[rdum+10]=rt *cA05+it *sA05;	a[idum+10]=it *cA05-rt *sA05;
+	    a[rdum+42]=t0A*cA15+t0B*sA15;	a[idum+42]=t0B*cA15-t0A*sA15;
 
-	    a[rdum+26]=t1A+t3B;			a[idum+26]=t1B-t3A;
-	    a[rdum+58]=t1A-t3B;			a[idum+58]=t1B+t3A;
+	    rt        =t1A+t3B;			it        =t1B-t3A;
+	    t1A       =t1A-t3B;			t1B       =t1B+t3A;
+	    a[rdum+26]=rt *cA0D+it *sA0D;	a[idum+26]=it *cA0D-rt *sA0D;
+	    a[rdum+58]=t1A*cA1D+t1B*sA1D;	a[idum+58]=t1B*cA1D-t1A*sA1D;
 
 /*...Block 4: t06,t16,t26,t36	*/
+	#ifdef USE_AVX
+		rdum -= 2;
+		idum -= 2;
+	#endif
+#if PFETCH
+prefetch_p_doubles(addr);
+addr += 4;
+#endif
 	    rt =t16*s + t17*c;			it =t17*s - t16*c;
 	    t16=t06-rt;					t06 =t06+rt;
 	    t17=t07-it;					t07 =t07+it;
@@ -2057,13 +2767,23 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t36=t26+rt;					t26=t26-rt;
 	    t37=t27+it;					t27=t27-it;
 
-	    a[rdum+6 ]=t06+t26;			a[idum+6 ]=t07+t27;
-	    a[rdum+38]=t06-t26;			a[idum+38]=t07-t27;
+	    rt        =t06+t26;			it        =t07+t27;
+	    t06       =t06-t26;			t07       =t07-t27;
+	    a[rdum+6 ]=rt *cA03+it *sA03;	a[idum+6 ]=it *cA03-rt *sA03;
+	    a[rdum+38]=t06*cA13+t07*sA13;	a[idum+38]=t07*cA13-t06*sA13;
 
-	    a[rdum+22]=t16+t37;			a[idum+22]=t17-t36;
-	    a[rdum+54]=t16-t37;			a[idum+54]=t17+t36;
+	    rt        =t16+t37;			it        =t17-t36;
+	    t16       =t16-t37;			t17       =t17+t36;
+	    a[rdum+22]=rt *cA0B+it *sA0B;	a[idum+22]=it *cA0B-rt *sA0B;
+	    a[rdum+54]=t16*cA1B+t17*sA1B;	a[idum+54]=t17*cA1B-t16*sA1B;
 
 /*...Block 8: t0E,t1E,t2E,t3E	*/
+#if PFETCH
+	#if(CACHE_LINE_DOUBLES == 4)
+	prefetch_p_doubles(addr);
+	#endif
+addr += 4;
+#endif
 	    rt =t1E*c - t1F*s;			it =t1F*c + t1E*s;
 	    t1E=t0E+rt;					t0E =t0E-rt;
 	    t1F=t0F+it;					t0F =t0F-it;
@@ -2073,18 +2793,29 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t3E=t2E+rt;					t2E=t2E-rt;
 	    t3F=t2F+it;					t2F=t2F-it;
 
-	    a[rdum+14]=t0E+t2E;			a[idum+14]=t0F+t2F;
-	    a[rdum+46]=t0E-t2E;			a[idum+46]=t0F-t2F;
+	    rt        =t0E+t2E;			it        =t0F+t2F;
+	    t0E       =t0E-t2E;			t0F       =t0F-t2F;
+	    a[rdum+14]=rt *cA07+it *sA07;	a[idum+14]=it *cA07-rt *sA07;
+	    a[rdum+46]=t0E*cA17+t0F*sA17;	a[idum+46]=t0F*cA17-t0E*sA17;
 
-	    a[rdum+30]=t1E+t3F;			a[idum+30]=t1F-t3E;
-	    a[rdum+62]=t1E-t3F;			a[idum+62]=t1F+t3E;
+	    rt        =t1E+t3F;			it        =t1F-t3E;
+	    t1E       =t1E-t3F;			t1F       =t1F+t3E;
+	    a[rdum+30]=rt *cA0F+it *sA0F;	a[idum+30]=it *cA0F-rt *sA0F;
+	    a[rdum+62]=t1E*cA1F+t1F*sA1F;	a[idum+62]=t1F*cA1F-t1E*sA1F;
 
 	/*************************************************************/
 	/*                  2nd set of inputs:                       */
 	/*************************************************************/
 	    rdum = j2pad;
 	    idum = j2pad+RE_IM_STRIDE;
-
+#if PFETCH
+addr = &a[rdum-64];
+#endif
+/*...Block 1: */
+#if PFETCH
+prefetch_p_doubles(addr);
+addr += 4;
+#endif
 /*...Block 1:	*/
 	    t02=a2p00r-a2p01r;	t03=a2p00i-a2p01i;
 	    t00=a2p00r+a2p01r;	t01=a2p00i+a2p01i;
@@ -2113,7 +2844,12 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    rt =t0E;		it =t0F;
 	    t0E=t0A-it;		t0F=t0B+rt;
 	    t0A=t0A+it;		t0B=t0B-rt;
-
+#if PFETCH
+	#if(CACHE_LINE_DOUBLES == 4)
+	prefetch_p_doubles(addr);
+	#endif
+addr += 4;
+#endif
 	    rt =t08;		it =t09;
 	    t08=t00-rt;		t09=t01-it;
 	    t00=t00+rt;		t01=t01+it;
@@ -2131,6 +2867,10 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t06=t06-rt;		t07=t07-it;
 
 /*...Block 2:	*/
+#if PFETCH
+prefetch_p_doubles(addr);
+addr += 4;
+#endif
 	    t12=a2p08r-a2p09r;	t13=a2p08i-a2p09i;
 	    t10=a2p08r+a2p09r;	t11=a2p08i+a2p09i;
 
@@ -2158,7 +2898,12 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    rt =t1E;		it =t1F;
 	    t1E=t1A-it;		t1F=t1B+rt;
 	    t1A=t1A+it;		t1B=t1B-rt;
-
+#if PFETCH
+	#if(CACHE_LINE_DOUBLES == 4)
+	prefetch_p_doubles(addr);
+	#endif
+addr += 4;
+#endif
 	    rt =t18;		it =t19;
 	    t18=t10-rt;		t19=t11-it;
 	    t10=t10+rt;		t11=t11+it;
@@ -2176,6 +2921,10 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t16=t16-rt;		t17=t17-it;
 
 /*...Block 3:	*/
+#if PFETCH
+prefetch_p_doubles(addr);
+addr += 4;
+#endif
 	    t22=a2p10r-a2p11r;	t23=a2p10i-a2p11i;
 	    t20=a2p10r+a2p11r;	t21=a2p10i+a2p11i;
 
@@ -2203,7 +2952,12 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    rt =t2E;		it =t2F;
 	    t2E=t2A-it;		t2F=t2B+rt;
 	    t2A=t2A+it;		t2B=t2B-rt;
-
+#if PFETCH
+	#if(CACHE_LINE_DOUBLES == 4)
+	prefetch_p_doubles(addr);
+	#endif
+addr += 4;
+#endif
 	    rt =t28;		it =t29;
 	    t28=t20-rt;		t29=t21-it;
 	    t20=t20+rt;		t21=t21+it;
@@ -2221,6 +2975,10 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t26=t26-rt;		t27=t27-it;
 
 /*...Block 4:	*/
+#if PFETCH
+prefetch_p_doubles(addr);
+addr += 4;
+#endif
 	    t32=a2p18r-a2p19r;	t33=a2p18i-a2p19i;
 	    t30=a2p18r+a2p19r;	t31=a2p18i+a2p19i;
 
@@ -2248,7 +3006,12 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    rt =t3E;		it =t3F;
 	    t3E=t3A-it;		t3F=t3B+rt;
 	    t3A=t3A+it;		t3B=t3B-rt;
-
+#if PFETCH
+	#if(CACHE_LINE_DOUBLES == 4)
+	prefetch_p_doubles(addr);
+	#endif
+addr += 4;
+#endif
 	    rt =t38;		it =t39;
 	    t38=t30-rt;		t39=t31-it;
 	    t30=t30+rt;		t31=t31+it;
@@ -2265,10 +3028,13 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	    t3E=t36+rt;		t3F=t37+it;
 	    t36=t36-rt;		t37=t37-it;
 
-/*
-!...and now do eight radix-4 transforms, including the internal twiddle factors:
-*/
+//...and now do eight radix-4 transforms, including the internal twiddle factors:
+
 /*...Block 1: t00,t10,t20,t30	*/
+#if PFETCH
+prefetch_p_doubles(addr);
+addr += 4;
+#endif
 	    rt =t10;	t10=t00-rt;	t00=t00+rt;
 	    it =t11;	t11=t01-it;	t01=t01+it;
 
@@ -2277,14 +3043,20 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 
 	    a[rdum   ]=t00+t20;			a[idum   ]=t01+t21;
 	    t00       =t00-t20;			t01       =t01-t21;
-	    a[rdum+32]=t00*c30+t01*s30;	a[idum+32]=t01*c30-t00*s30;
+	    a[rdum+32]=t00*cB10+t01*sB10;	a[idum+32]=t01*cB10-t00*sB10;
 
 	    rt        =t10+t31;			it        =t11-t30;
 	    t10       =t10-t31;			t11       =t11+t30;
-	    a[rdum+16]=rt *c28+it *s28;	a[idum+16]=it *c28-rt *s28;
-	    a[rdum+48]=t10*c38+t11*s38;	a[idum+48]=t11*c38-t10*s38;
+	    a[rdum+16]=rt *cB08+it *sB08;	a[idum+16]=it *cB08-rt *sB08;
+	    a[rdum+48]=t10*cB18+t11*sB18;	a[idum+48]=t11*cB18-t10*sB18;
 
 /*...Block 5: t08,t18,t28,t38	*/
+#if PFETCH
+	#if(CACHE_LINE_DOUBLES == 4)
+	prefetch_p_doubles(addr);
+	#endif
+addr += 4;
+#endif
 	    rt =t18;	t18=t08-t19;	t08=t08+t19;
 					t19=t09+rt;		t09=t09-rt;
 
@@ -2295,15 +3067,23 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 
 	    rt        =t08+t28;			it        =t09+t29;
 	    t08       =t08-t28;			t09       =t09-t29;
-	    a[rdum+8 ]=rt *c24+it *s24;	a[idum+8 ]=it *c24-rt *s24;
-	    a[rdum+40]=t08*c34+t09*s34;	a[idum+40]=t09*c34-t08*s34;
+	    a[rdum+8 ]=rt *cB04+it *sB04;	a[idum+8 ]=it *cB04-rt *sB04;
+	    a[rdum+40]=t08*cB14+t09*sB14;	a[idum+40]=t09*cB14-t08*sB14;
 
 	    rt        =t18+t39;			it        =t19-t38;
 	    t18       =t18-t39;			t19       =t19+t38;
-	    a[rdum+24]=rt *c2C+it *s2C;	a[idum+24]=it *c2C-rt *s2C;
-	    a[rdum+56]=t18*c3C+t19*s3C;	a[idum+56]=t19*c3C-t18*s3C;
+	    a[rdum+24]=rt *cB0C+it *sB0C;	a[idum+24]=it *cB0C-rt *sB0C;
+	    a[rdum+56]=t18*cB1C+t19*sB1C;	a[idum+56]=t19*cB1C-t18*sB1C;
 
 /*...Block 3: t04,t14,t24,t34	*/
+	#ifdef USE_AVX
+		rdum -= 2;
+		idum -= 2;
+	#endif
+#if PFETCH
+prefetch_p_doubles(addr);
+addr += 4;
+#endif
 	    rt =(t15+t14)*ISRT2;		it =(t15-t14)*ISRT2;
 	    t14=t04-rt;					t04=t04+rt;
 	    t15=t05-it;					t05=t05+it;
@@ -2315,15 +3095,21 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 
 	    rt        =t04+t24;			it        =t05+t25;
 	    t04       =t04-t24;			t05       =t05-t25;
-	    a[rdum+4 ]=rt *c22+it *s22;	a[idum+4 ]=it *c22-rt *s22;
-	    a[rdum+36]=t04*c32+t05*s32;	a[idum+36]=t05*c32-t04*s32;
+	    a[rdum+4 ]=rt *cB02+it *sB02;	a[idum+4 ]=it *cB02-rt *sB02;
+	    a[rdum+36]=t04*cB12+t05*sB12;	a[idum+36]=t05*cB12-t04*sB12;
 
 	    rt        =t14+t35;			it        =t15-t34;
 	    t14       =t14-t35;			t15       =t15+t34;
-	    a[rdum+20]=rt *c2A+it *s2A;	a[idum+20]=it *c2A-rt *s2A;
-	    a[rdum+52]=t14*c3A+t15*s3A;	a[idum+52]=t15*c3A-t14*s3A;
+	    a[rdum+20]=rt *cB0A+it *sB0A;	a[idum+20]=it *cB0A-rt *sB0A;
+	    a[rdum+52]=t14*cB1A+t15*sB1A;	a[idum+52]=t15*cB1A-t14*sB1A;
 
 /*...Block 7: t0C,t1C,t2C,t3C	*/
+#if PFETCH
+	#if(CACHE_LINE_DOUBLES == 4)
+	prefetch_p_doubles(addr);
+	#endif
+addr += 4;
+#endif
 	    rt =(t1C-t1D)*ISRT2;		it =(t1C+t1D)*ISRT2;
 	    t1C=t0C+rt;					t0C=t0C-rt;
 	    t1D=t0D+it;					t0D=t0D-it;
@@ -2335,19 +3121,26 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 
 	    rt        =t0C+t2C;			it        =t0D+t2D;
 	    t0C       =t0C-t2C;			t0D       =t0D-t2D;
-	    a[rdum+12]=rt *c26+it *s26;	a[idum+12]=it *c26-rt *s26;
-	    a[rdum+44]=t0C*c36+t0D*s36;	a[idum+44]=t0D*c36-t0C*s36;
+	    a[rdum+12]=rt *cB06+it *sB06;	a[idum+12]=it *cB06-rt *sB06;
+	    a[rdum+44]=t0C*cB16+t0D*sB16;	a[idum+44]=t0D*cB16-t0C*sB16;
 
 	    rt        =t1C+t3D;			it        =t1D-t3C;
 	    t1C       =t1C-t3D;			t1D       =t1D+t3C;
-	    a[rdum+28]=rt *c2E+it *s2E;	a[idum+28]=it *c2E-rt *s2E;
-	    a[rdum+60]=t1C*c3E+t1D*s3E;	a[idum+60]=t1D*c3E-t1C*s3E;
+	    a[rdum+28]=rt *cB0E+it *sB0E;	a[idum+28]=it *cB0E-rt *sB0E;
+	    a[rdum+60]=t1C*cB1E+t1D*sB1E;	a[idum+60]=t1D*cB1E-t1C*sB1E;
 
 /*...Block 2: t02,t12,t22,t32	*/
-	#ifdef USE_SSE2
+	#ifdef USE_AVX
+		++rdum;
+		++idum;
+	#elif defined(USE_SSE2)
 		--rdum;
 		--idum;
 	#endif
+#if PFETCH
+prefetch_p_doubles(addr);
+addr += 4;
+#endif
 	    rt =t12*c + t13*s;			it =t13*c - t12*s;
 	    t12=t02-rt;					t02=t02+rt;
 	    t13=t03-it;					t03=t03+it;
@@ -2359,15 +3152,21 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 
 	    rt        =t02+t22;			it        =t03+t23;
 	    t02       =t02-t22;			t03       =t03-t23;
-	    a[rdum+2 ]=rt *c21+it *s21;	a[idum+2 ]=it *c21-rt *s21;
-	    a[rdum+34]=t02*c31+t03*s31;	a[idum+34]=t03*c31-t02*s31;
+	    a[rdum+2 ]=rt *cB01+it *sB01;	a[idum+2 ]=it *cB01-rt *sB01;
+	    a[rdum+34]=t02*cB11+t03*sB11;	a[idum+34]=t03*cB11-t02*sB11;
 
 	    rt        =t12+t33;			it        =t13-t32;
 	    t12       =t12-t33;			t13       =t13+t32;
-	    a[rdum+18]=rt *c29+it *s29;	a[idum+18]=it *c29-rt *s29;
-	    a[rdum+50]=t12*c39+t13*s39;	a[idum+50]=t13*c39-t12*s39;
+	    a[rdum+18]=rt *cB09+it *sB09;	a[idum+18]=it *cB09-rt *sB09;
+	    a[rdum+50]=t12*cB19+t13*sB19;	a[idum+50]=t13*cB19-t12*sB19;
 
 /*...Block 6: t0A,t1A,t2A,t3A	*/
+#if PFETCH
+	#if(CACHE_LINE_DOUBLES == 4)
+	prefetch_p_doubles(addr);
+	#endif
+addr += 4;
+#endif
 	    rt =t1A*s - t1B*c;			it =t1B*s + t1A*c;
 	    t1A=t0A+rt;					t0A =t0A-rt;
 	    t1B=t0B+it;					t0B =t0B-it;
@@ -2379,15 +3178,23 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 
 	    rt        =t0A+t2A;			it        =t0B+t2B;
 	    t0A       =t0A-t2A;			t0B       =t0B-t2B;
-	    a[rdum+10]=rt *c25+it *s25;	a[idum+10]=it *c25-rt *s25;
-	    a[rdum+42]=t0A*c35+t0B*s35;	a[idum+42]=t0B*c35-t0A*s35;
+	    a[rdum+10]=rt *cB05+it *sB05;	a[idum+10]=it *cB05-rt *sB05;
+	    a[rdum+42]=t0A*cB15+t0B*sB15;	a[idum+42]=t0B*cB15-t0A*sB15;
 
 	    rt        =t1A+t3B;			it        =t1B-t3A;
 	    t1A       =t1A-t3B;			t1B       =t1B+t3A;
-	    a[rdum+26]=rt *c2D+it *s2D;	a[idum+26]=it *c2D-rt *s2D;
-	    a[rdum+58]=t1A*c3D+t1B*s3D;	a[idum+58]=t1B*c3D-t1A*s3D;
+	    a[rdum+26]=rt *cB0D+it *sB0D;	a[idum+26]=it *cB0D-rt *sB0D;
+	    a[rdum+58]=t1A*cB1D+t1B*sB1D;	a[idum+58]=t1B*cB1D-t1A*sB1D;
 
 /*...Block 4: t06,t16,t26,t36	*/
+	#ifdef USE_AVX
+		rdum -= 2;
+		idum -= 2;
+	#endif
+#if PFETCH
+prefetch_p_doubles(addr);
+addr += 4;
+#endif
 	    rt =t16*s + t17*c;			it =t17*s - t16*c;
 	    t16=t06-rt;					t06 =t06+rt;
 	    t17=t07-it;					t07 =t07+it;
@@ -2399,15 +3206,21 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 
 	    rt        =t06+t26;			it        =t07+t27;
 	    t06       =t06-t26;			t07       =t07-t27;
-	    a[rdum+6 ]=rt *c23+it *s23;	a[idum+6 ]=it *c23-rt *s23;
-	    a[rdum+38]=t06*c33+t07*s33;	a[idum+38]=t07*c33-t06*s33;
+	    a[rdum+6 ]=rt *cB03+it *sB03;	a[idum+6 ]=it *cB03-rt *sB03;
+	    a[rdum+38]=t06*cB13+t07*sB13;	a[idum+38]=t07*cB13-t06*sB13;
 
 	    rt        =t16+t37;			it        =t17-t36;
 	    t16       =t16-t37;			t17       =t17+t36;
-	    a[rdum+22]=rt *c2B+it *s2B;	a[idum+22]=it *c2B-rt *s2B;
-	    a[rdum+54]=t16*c3B+t17*s3B;	a[idum+54]=t17*c3B-t16*s3B;
+	    a[rdum+22]=rt *cB0B+it *sB0B;	a[idum+22]=it *cB0B-rt *sB0B;
+	    a[rdum+54]=t16*cB1B+t17*sB1B;	a[idum+54]=t17*cB1B-t16*sB1B;
 
 /*...Block 8: t0E,t1E,t2E,t3E	*/
+#if PFETCH
+	#if(CACHE_LINE_DOUBLES == 4)
+	prefetch_p_doubles(addr);
+	#endif
+addr += 4;
+#endif
 	    rt =t1E*c - t1F*s;			it =t1F*c + t1E*s;
 	    t1E=t0E+rt;					t0E =t0E-rt;
 	    t1F=t0F+it;					t0F =t0F-it;
@@ -2419,695 +3232,20 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 
 	    rt        =t0E+t2E;			it        =t0F+t2F;
 	    t0E       =t0E-t2E;			t0F       =t0F-t2F;
-	    a[rdum+14]=rt *c27+it *s27;	a[idum+14]=it *c27-rt *s27;
-	    a[rdum+46]=t0E*c37+t0F*s37;	a[idum+46]=t0F*c37-t0E*s37;
+	    a[rdum+14]=rt *cB07+it *sB07;	a[idum+14]=it *cB07-rt *sB07;
+	    a[rdum+46]=t0E*cB17+t0F*sB17;	a[idum+46]=t0F*cB17-t0E*sB17;
 
 	    rt        =t1E+t3F;			it        =t1F-t3E;
 	    t1E       =t1E-t3F;			t1F       =t1F+t3E;
-	    a[rdum+30]=rt *c2F+it *s2F;	a[idum+30]=it *c2F-rt *s2F;
-	    a[rdum+62]=t1E*c3F+t1F*s3F;	a[idum+62]=t1F*c3F-t1E*s3F;
+	    a[rdum+30]=rt *cB0F+it *sB0F;	a[idum+30]=it *cB0F-rt *sB0F;
+	    a[rdum+62]=t1E*cB1F+t1F*sB1F;	a[idum+62]=t1F*cB1F-t1E*sB1F;
 
-	/*...And update the data (j1 and j2) array indices. */
-	  j1 = j1+64;
-	  j2 = j2-64;
+#ifdef USE_SSE2
 
-		i = nradices_prim-6;
-		m =16;
-		k = 2;	/* sincos-array index */
-		goto update_blocklen;
-	}
+	} else {	// (j1 == 0) = false:
 
-	/* If j1 == 0 we need to init the loop counters; otherwise, just jump
-	   right in and pick up where we left off on the previous pair of blocks:
-	*/
-	if(j1 > 0)
-		goto jump_in;
-
-/*
-!...All but the first two radix-32 blocks are done on Mr. Henry Ford's assembly line. From there onward the blocklength
-!   will always be an integer multiple of 16, i.e. we can process each block using pairs of nonoverlapping blocks of 32
-!   complex data each, which is compatible to fusion with radix-32 pass routines.
-*/
-
-      for(i = nradices_prim-6; i >= 0; i-- )	/* Main loop: lower bound = nradices_prim-radix_now. */
-      {						/* Remember, radices get processed in reverse order here as in forward FFT. */
-
-	for(m = 0; m < (blocklen-1)>>1; m +=16)	/* Since we now process TWO 32-element sets per loop execution, only execute the loop half as many times as before. */
-	{
-
-		if(j1 && j1*radix0%n == 0)
-		{
-			/*printf("%8d  %8d  %8d  %8d\n",j1,j1*radix0,j1*radix0%n,j1 & ndivrad0m1);*/
-			return;
-		}
-
-jump_in:	/* Entry point for all blocks but the first. */
-
-	  j1pad = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* floating padded-array 1st element index is here */
-	  j2pad = j2 + ( (j2 >> DAT_BITS) << PAD_BITS );	/* floating padded-array 2nd element index is here */
-
-	/*************************************************************/
-	/*                  1st set of sincos:                       */
-	/*************************************************************/
-		iroot = index[k++];
-		l = iroot;
-
-	#ifdef USE_SSE2
-		c00->re=1.;	(c00+1)->re=0.;
-		c00->im=1.;	(c00+1)->im=0.;
-	#endif
-
-		k1=(l & NRTM1);
-		k2=(l >> NRT_BITS);
-		l += iroot;		 /* 2*iroot */
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c01->re=rt;	(c01+1)->re=it;
-	#else
-		c01 =rt;	s01 =it;
-	#endif
-
-	re= rt;	im= it;	/* Save for the wrapper Step... */
-
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 3*iroot	*/
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c02->re=rt;	(c02+1)->re=it;
-	#else
-		c02 =rt;	s02 =it;
-	#endif
-
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += 4*iroot;			/* 7*iroot	*/
-	    iroot = l;				/* 7*iroot	*/
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c03->re=rt;	(c03+1)->re=it;
-	#else
-		c03 =rt;	s03 =it;
-	#endif
-
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 14*iroot	*/
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c07->re=rt;	(c07+1)->re=it;
-	#else
-		c07 =rt;	s07 =it;
-	#endif
-
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 21*iroot	*/
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c0E->re=rt;	(c0E+1)->re=it;
-	#else
-		c0E =rt;	s0E =it;
-	#endif
-
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 28*iroot	*/
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c15->re=rt;	(c15+1)->re=it;
-	#else
-		c15 =rt;	s15 =it;
-	#endif
-
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c1C->re=rt;	(c1C+1)->re=it;
-	#else
-		c1C =rt;	s1C =it;
-
-		/*(c,s)4-10 (decimal indices), 4-0A (hexadecimal indices):	*/
-	    t00=c01*c07; t01=c01*s07; t02=s01*c07; t03=s01*s07;
-	    c06=t00+t03; s06=t01-t02; c08=t00-t03; s08=t01+t02;
-
-	    t00=c02*c07; t01=c02*s07; t02=s02*c07; t03=s02*s07;
-	    c05=t00+t03; s05=t01-t02; c09=t00-t03; s09=t01+t02;
-
-	    t00=c03*c07; t01=c03*s07; t02=s03*c07; t03=s03*s07;
-	    c04=t00+t03; s04=t01-t02; c0A=t00-t03; s0A=t01+t02;
-
-		/*(c,s)11-17 (decimal indices), 0B-11 (hexadecimal indices):;	*/
-	    t00=c01*c0E; t01=c01*s0E; t02=s01*c0E; t03=s01*s0E;
-	    c0D=t00+t03; s0D=t01-t02; c0F=t00-t03; s0F=t01+t02;
-
-	    t00=c02*c0E; t01=c02*s0E; t02=s02*c0E; t03=s02*s0E;
-	    c0C=t00+t03; s0C=t01-t02; c10=t00-t03; s10=t01+t02;
-
-	    t00=c03*c0E; t01=c03*s0E; t02=s03*c0E; t03=s03*s0E;
-	    c0B=t00+t03; s0B=t01-t02; c11=t00-t03; s11=t01+t02;
-
-		/*(c,s)18-24 (decimal indices), 12-18 (hexadecimal indices):	*/
-	    t00=c01*c15; t01=c01*s15; t02=s01*c15; t03=s01*s15;
-	    c14=t00+t03; s14=t01-t02; c16=t00-t03; s16=t01+t02;
-
-	    t00=c02*c15; t01=c02*s15; t02=s02*c15; t03=s02*s15;
-	    c13=t00+t03; s13=t01-t02; c17=t00-t03; s17=t01+t02;
-
-	    t00=c03*c15; t01=c03*s15; t02=s03*c15; t03=s03*s15;
-	    c12=t00+t03; s12=t01-t02; c18=t00-t03; s18=t01+t02;
-
-		/*(c,s)25-31 (decimal indices), 19-1F (hexadecimal indices):	*/
-	    t00=c01*c1C; t01=c01*s1C; t02=s01*c1C; t03=s01*s1C;
-	    c1B=t00+t03; s1B=t01-t02; c1D=t00-t03; s1D=t01+t02;
-
-	    t00=c02*c1C; t01=c02*s1C; t02=s02*c1C; t03=s02*s1C;
-	    c1A=t00+t03; s1A=t01-t02; c1E=t00-t03; s1E=t01+t02;
-
-	    t00=c03*c1C; t01=c03*s1C; t02=s03*c1C; t03=s03*s1C;
-	    c19=t00+t03; s19=t01-t02; c1F=t00-t03; s1F=t01+t02;
-	#endif
-
-	/*************************************************************/
-	/*                  2nd set of sincos:                       */
-	/*************************************************************/
-	    iroot = index[k++];
-	    l = iroot;
-
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;			/* 2*iroot	*/
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c01->im=rt;	(c01+1)->im=it;
-	#else
-		c21 =rt;	s21 =it;
-	#endif
-
-	if(j1 == 0){ re= rt;	im= it; }   /* The j1 = 0 case is special... */
-
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 3*iroot	*/
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c02->im=rt;	(c02+1)->im=it;
-	#else
-		c22 =rt;	s22 =it;
-	#endif
-
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += 4*iroot;			/* 7*iroot	*/
-	    iroot = l;				/* 7*iroot	*/
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c03->im=rt;	(c03+1)->im=it;
-	#else
-		c23 =rt;	s23 =it;
-	#endif
-
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 14*iroot	*/
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c07->im=rt;	(c07+1)->im=it;
-	#else
-		c27 =rt;	s27 =it;
-	#endif
-
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 21*iroot	*/
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c0E->im=rt;	(c0E+1)->im=it;
-	#else
-		c2E =rt;	s2E =it;
-	#endif
-
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 28*iroot	*/
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c15->im=rt;	(c15+1)->im=it;
-	#else
-		c35 =rt;	s35 =it;
-	#endif
-
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
-		c1C->im=rt;	(c1C+1)->im=it;
-	#else
-		c3C =rt;	s3C =it;
-
-		/*(c,s)4-10 (decimal indices), 4-0A (hexadecimal indices):	*/
-	    t00=c21*c27; t01=c21*s27; t02=s21*c27; t03=s21*s27;
-	    c26=t00+t03; s26=t01-t02; c28=t00-t03; s28=t01+t02;
-
-	    t00=c22*c27; t01=c22*s27; t02=s22*c27; t03=s22*s27;
-	    c25=t00+t03; s25=t01-t02; c29=t00-t03; s29=t01+t02;
-
-	    t00=c23*c27; t01=c23*s27; t02=s23*c27; t03=s23*s27;
-	    c24=t00+t03; s24=t01-t02; c2A=t00-t03; s2A=t01+t02;
-
-		/*(c,s)11-17 (decimal indices), 0B-11 (hexadecimal indices):;	*/
-	    t00=c21*c2E; t01=c21*s2E; t02=s21*c2E; t03=s21*s2E;
-	    c2D=t00+t03; s2D=t01-t02; c2F=t00-t03; s2F=t01+t02;
-
-	    t00=c22*c2E; t01=c22*s2E; t02=s22*c2E; t03=s22*s2E;
-	    c2C=t00+t03; s2C=t01-t02; c30=t00-t03; s30=t01+t02;
-
-	    t00=c23*c2E; t01=c23*s2E; t02=s23*c2E; t03=s23*s2E;
-	    c2B=t00+t03; s2B=t01-t02; c31=t00-t03; s31=t01+t02;
-
-		/*(c,s)18-24 (decimal indices), 12-18 (hexadecimal indices):	*/
-	    t00=c21*c35; t01=c21*s35; t02=s21*c35; t03=s21*s35;
-	    c34=t00+t03; s34=t01-t02; c36=t00-t03; s36=t01+t02;
-
-	    t00=c22*c35; t01=c22*s35; t02=s22*c35; t03=s22*s35;
-	    c33=t00+t03; s33=t01-t02; c37=t00-t03; s37=t01+t02;
-
-	    t00=c23*c35; t01=c23*s35; t02=s23*c35; t03=s23*s35;
-	    c32=t00+t03; s32=t01-t02; c38=t00-t03; s38=t01+t02;
-
-		/*(c,s)25-31 (decimal indices), 19-1F (hexadecimal indices):	*/
-	    t00=c21*c3C; t01=c21*s3C; t02=s21*c3C; t03=s21*s3C;
-	    c3B=t00+t03; s3B=t01-t02; c3D=t00-t03; s3D=t01+t02;
-
-	    t00=c22*c3C; t01=c22*s3C; t02=s22*c3C; t03=s22*s3C;
-	    c3A=t00+t03; s3A=t01-t02; c3E=t00-t03; s3E=t01+t02;
-
-	    t00=c23*c3C; t01=c23*s3C; t02=s23*c3C; t03=s23*s3C;
-	    c39=t00+t03; s39=t01-t02; c3F=t00-t03; s3F=t01+t02;
-	#endif
-
-	#ifdef USE_SSE2
-
-	  #if 1
-		SSE2_CMUL_EXPO(c01,c07,c06,c08)
-		SSE2_CMUL_EXPO(c02,c07,c05,c09)
-		SSE2_CMUL_EXPO(c03,c07,c04,c0A)
-
-		SSE2_CMUL_EXPO(c01,c0E,c0D,c0F)
-		SSE2_CMUL_EXPO(c02,c0E,c0C,c10)
-		SSE2_CMUL_EXPO(c03,c0E,c0B,c11)
-
-		SSE2_CMUL_EXPO(c01,c15,c14,c16)
-		SSE2_CMUL_EXPO(c02,c15,c13,c17)
-		SSE2_CMUL_EXPO(c03,c15,c12,c18)
-
-		SSE2_CMUL_EXPO(c01,c1C,c1B,c1D)
-		SSE2_CMUL_EXPO(c02,c1C,c1A,c1E)
-		SSE2_CMUL_EXPO(c03,c1C,c19,c1F)
-	  #else
-
-		/*(c,s)4-10 (decimal indices), 4-0A (hexadecimal indices):
-	    t00=c01*c07; t01=c01*s07; t02=s01*c07; t03=s01*s07;
-	    c06=t00+t03; s06=t01-t02; c08=t00-t03; s08=t01+t02;
-
-	    t00=c02*c07; t01=c02*s07; t02=s02*c07; t03=s02*s07;
-	    c05=t00+t03; s05=t01-t02; c09=t00-t03; s09=t01+t02;
-
-	    t00=c03*c07; t01=c03*s07; t02=s03*c07; t03=s03*s07;
-	    c04=t00+t03; s04=t01-t02; c0A=t00-t03; s0A=t01+t02;
-		*/
-		__asm	mov	eax, c01
-		__asm	mov	ebx, c07
-		__asm	mov	ecx, c06
-		__asm	mov	edx, c08
-
-		__asm	movaps	xmm0,[eax     ]
-		__asm	movaps	xmm1,[eax     ]
-		__asm	movaps	xmm2,[eax+0x10]
-		__asm	movaps	xmm3,[eax+0x10]
-
-		__asm	mulpd	xmm0,[ebx     ]
-		__asm	mulpd	xmm1,[ebx+0x10]
-		__asm	mulpd	xmm2,[ebx     ]
-		__asm	mulpd	xmm3,[ebx+0x10]
-		__asm	movaps	xmm4,xmm0
-		__asm	movaps	xmm5,xmm1
-		__asm	addpd	xmm0,xmm3
-		__asm	subpd	xmm1,xmm2
-		__asm	subpd	xmm4,xmm3
-		__asm	addpd	xmm5,xmm2
-		__asm	movaps	[ecx     ],xmm0
-		__asm	movaps	[ecx+0x10],xmm1
-		__asm	movaps	[edx     ],xmm4
-		__asm	movaps	[edx+0x10],xmm5
-
-		__asm	mov	eax, c02
-		__asm	mov	ebx, c07
-		__asm	mov	ecx, c05
-		__asm	mov	edx, c09
-
-		__asm	movaps	xmm0,[eax     ]
-		__asm	movaps	xmm1,[eax     ]
-		__asm	movaps	xmm2,[eax+0x10]
-		__asm	movaps	xmm3,[eax+0x10]
-
-		__asm	mulpd	xmm0,[ebx     ]
-		__asm	mulpd	xmm1,[ebx+0x10]
-		__asm	mulpd	xmm2,[ebx     ]
-		__asm	mulpd	xmm3,[ebx+0x10]
-		__asm	movaps	xmm4,xmm0
-		__asm	movaps	xmm5,xmm1
-		__asm	addpd	xmm0,xmm3
-		__asm	subpd	xmm1,xmm2
-		__asm	subpd	xmm4,xmm3
-		__asm	addpd	xmm5,xmm2
-		__asm	movaps	[ecx     ],xmm0
-		__asm	movaps	[ecx+0x10],xmm1
-		__asm	movaps	[edx     ],xmm4
-		__asm	movaps	[edx+0x10],xmm5
-
-		__asm	mov	eax, c03
-		__asm	mov	ebx, c07
-		__asm	mov	ecx, c04
-		__asm	mov	edx, c0A
-
-		__asm	movaps	xmm0,[eax     ]
-		__asm	movaps	xmm1,[eax     ]
-		__asm	movaps	xmm2,[eax+0x10]
-		__asm	movaps	xmm3,[eax+0x10]
-
-		__asm	mulpd	xmm0,[ebx     ]
-		__asm	mulpd	xmm1,[ebx+0x10]
-		__asm	mulpd	xmm2,[ebx     ]
-		__asm	mulpd	xmm3,[ebx+0x10]
-		__asm	movaps	xmm4,xmm0
-		__asm	movaps	xmm5,xmm1
-		__asm	addpd	xmm0,xmm3
-		__asm	subpd	xmm1,xmm2
-		__asm	subpd	xmm4,xmm3
-		__asm	addpd	xmm5,xmm2
-		__asm	movaps	[ecx     ],xmm0
-		__asm	movaps	[ecx+0x10],xmm1
-		__asm	movaps	[edx     ],xmm4
-		__asm	movaps	[edx+0x10],xmm5
-
-		/*(c,s)11-17 (decimal indices), 0B-11 (hexadecimal indices):;
-	    t00=c01*c0E; t01=c01*s0E; t02=s01*c0E; t03=s01*s0E;
-	    c0D=t00+t03; s0D=t01-t02; c0F=t00-t03; s0F=t01+t02;
-
-	    t00=c02*c0E; t01=c02*s0E; t02=s02*c0E; t03=s02*s0E;
-	    c0C=t00+t03; s0C=t01-t02; c10=t00-t03; s10=t01+t02;
-
-	    t00=c03*c0E; t01=c03*s0E; t02=s03*c0E; t03=s03*s0E;
-	    c0B=t00+t03; s0B=t01-t02; c11=t00-t03; s11=t01+t02;
-		*/
-		__asm	mov	eax, c01
-		__asm	mov	ebx, c0E
-		__asm	mov	ecx, c0D
-		__asm	mov	edx, c0F
-
-		__asm	movaps	xmm0,[eax     ]
-		__asm	movaps	xmm1,[eax     ]
-		__asm	movaps	xmm2,[eax+0x10]
-		__asm	movaps	xmm3,[eax+0x10]
-
-		__asm	mulpd	xmm0,[ebx     ]
-		__asm	mulpd	xmm1,[ebx+0x10]
-		__asm	mulpd	xmm2,[ebx     ]
-		__asm	mulpd	xmm3,[ebx+0x10]
-		__asm	movaps	xmm4,xmm0
-		__asm	movaps	xmm5,xmm1
-		__asm	addpd	xmm0,xmm3
-		__asm	subpd	xmm1,xmm2
-		__asm	subpd	xmm4,xmm3
-		__asm	addpd	xmm5,xmm2
-		__asm	movaps	[ecx     ],xmm0
-		__asm	movaps	[ecx+0x10],xmm1
-		__asm	movaps	[edx     ],xmm4
-		__asm	movaps	[edx+0x10],xmm5
-
-		__asm	mov	eax, c02
-		__asm	mov	ebx, c0E
-		__asm	mov	ecx, c0C
-		__asm	mov	edx, c10
-
-		__asm	movaps	xmm0,[eax     ]
-		__asm	movaps	xmm1,[eax     ]
-		__asm	movaps	xmm2,[eax+0x10]
-		__asm	movaps	xmm3,[eax+0x10]
-
-		__asm	mulpd	xmm0,[ebx     ]
-		__asm	mulpd	xmm1,[ebx+0x10]
-		__asm	mulpd	xmm2,[ebx     ]
-		__asm	mulpd	xmm3,[ebx+0x10]
-		__asm	movaps	xmm4,xmm0
-		__asm	movaps	xmm5,xmm1
-		__asm	addpd	xmm0,xmm3
-		__asm	subpd	xmm1,xmm2
-		__asm	subpd	xmm4,xmm3
-		__asm	addpd	xmm5,xmm2
-		__asm	movaps	[ecx     ],xmm0
-		__asm	movaps	[ecx+0x10],xmm1
-		__asm	movaps	[edx     ],xmm4
-		__asm	movaps	[edx+0x10],xmm5
-
-		__asm	mov	eax, c03
-		__asm	mov	ebx, c0E
-		__asm	mov	ecx, c0B
-		__asm	mov	edx, c11
-
-		__asm	movaps	xmm0,[eax     ]
-		__asm	movaps	xmm1,[eax     ]
-		__asm	movaps	xmm2,[eax+0x10]
-		__asm	movaps	xmm3,[eax+0x10]
-
-		__asm	mulpd	xmm0,[ebx     ]
-		__asm	mulpd	xmm1,[ebx+0x10]
-		__asm	mulpd	xmm2,[ebx     ]
-		__asm	mulpd	xmm3,[ebx+0x10]
-		__asm	movaps	xmm4,xmm0
-		__asm	movaps	xmm5,xmm1
-		__asm	addpd	xmm0,xmm3
-		__asm	subpd	xmm1,xmm2
-		__asm	subpd	xmm4,xmm3
-		__asm	addpd	xmm5,xmm2
-		__asm	movaps	[ecx     ],xmm0
-		__asm	movaps	[ecx+0x10],xmm1
-		__asm	movaps	[edx     ],xmm4
-		__asm	movaps	[edx+0x10],xmm5
-
-		/*(c,s)18-24 (decimal indices), 12-18 (hexadecimal indices):
-	    t00=c01*c15; t01=c01*s15; t02=s01*c15; t03=s01*s15;
-	    c14=t00+t03; s14=t01-t02; c16=t00-t03; s16=t01+t02;
-
-	    t00=c02*c15; t01=c02*s15; t02=s02*c15; t03=s02*s15;
-	    c13=t00+t03; s13=t01-t02; c17=t00-t03; s17=t01+t02;
-
-	    t00=c03*c15; t01=c03*s15; t02=s03*c15; t03=s03*s15;
-	    c12=t00+t03; s12=t01-t02; c18=t00-t03; s18=t01+t02;
-		*/
-		__asm	mov	eax, c01
-		__asm	mov	ebx, c15
-		__asm	mov	ecx, c14
-		__asm	mov	edx, c16
-
-		__asm	movaps	xmm0,[eax     ]
-		__asm	movaps	xmm1,[eax     ]
-		__asm	movaps	xmm2,[eax+0x10]
-		__asm	movaps	xmm3,[eax+0x10]
-
-		__asm	mulpd	xmm0,[ebx     ]
-		__asm	mulpd	xmm1,[ebx+0x10]
-		__asm	mulpd	xmm2,[ebx     ]
-		__asm	mulpd	xmm3,[ebx+0x10]
-		__asm	movaps	xmm4,xmm0
-		__asm	movaps	xmm5,xmm1
-		__asm	addpd	xmm0,xmm3
-		__asm	subpd	xmm1,xmm2
-		__asm	subpd	xmm4,xmm3
-		__asm	addpd	xmm5,xmm2
-		__asm	movaps	[ecx     ],xmm0
-		__asm	movaps	[ecx+0x10],xmm1
-		__asm	movaps	[edx     ],xmm4
-		__asm	movaps	[edx+0x10],xmm5
-
-		__asm	mov	eax, c02
-		__asm	mov	ebx, c15
-		__asm	mov	ecx, c13
-		__asm	mov	edx, c17
-
-		__asm	movaps	xmm0,[eax     ]
-		__asm	movaps	xmm1,[eax     ]
-		__asm	movaps	xmm2,[eax+0x10]
-		__asm	movaps	xmm3,[eax+0x10]
-
-		__asm	mulpd	xmm0,[ebx     ]
-		__asm	mulpd	xmm1,[ebx+0x10]
-		__asm	mulpd	xmm2,[ebx     ]
-		__asm	mulpd	xmm3,[ebx+0x10]
-		__asm	movaps	xmm4,xmm0
-		__asm	movaps	xmm5,xmm1
-		__asm	addpd	xmm0,xmm3
-		__asm	subpd	xmm1,xmm2
-		__asm	subpd	xmm4,xmm3
-		__asm	addpd	xmm5,xmm2
-		__asm	movaps	[ecx     ],xmm0
-		__asm	movaps	[ecx+0x10],xmm1
-		__asm	movaps	[edx     ],xmm4
-		__asm	movaps	[edx+0x10],xmm5
-
-		__asm	mov	eax, c03
-		__asm	mov	ebx, c15
-		__asm	mov	ecx, c12
-		__asm	mov	edx, c18
-
-		__asm	movaps	xmm0,[eax     ]
-		__asm	movaps	xmm1,[eax     ]
-		__asm	movaps	xmm2,[eax+0x10]
-		__asm	movaps	xmm3,[eax+0x10]
-
-		__asm	mulpd	xmm0,[ebx     ]
-		__asm	mulpd	xmm1,[ebx+0x10]
-		__asm	mulpd	xmm2,[ebx     ]
-		__asm	mulpd	xmm3,[ebx+0x10]
-		__asm	movaps	xmm4,xmm0
-		__asm	movaps	xmm5,xmm1
-		__asm	addpd	xmm0,xmm3
-		__asm	subpd	xmm1,xmm2
-		__asm	subpd	xmm4,xmm3
-		__asm	addpd	xmm5,xmm2
-		__asm	movaps	[ecx     ],xmm0
-		__asm	movaps	[ecx+0x10],xmm1
-		__asm	movaps	[edx     ],xmm4
-		__asm	movaps	[edx+0x10],xmm5
-
-		/*(c,s)25-31 (decimal indices), 19-1F (hexadecimal indices):
-	    t00=c01*c1C; t01=c01*s1C; t02=s01*c1C; t03=s01*s1C;
-	    c1B=t00+t03; s1B=t01-t02; c1D=t00-t03; s1D=t01+t02;
-
-	    t00=c02*c1C; t01=c02*s1C; t02=s02*c1C; t03=s02*s1C;
-	    c1A=t00+t03; s1A=t01-t02; c1E=t00-t03; s1E=t01+t02;
-
-	    t00=c03*c1C; t01=c03*s1C; t02=s03*c1C; t03=s03*s1C;
-	    c19=t00+t03; s19=t01-t02; c1F=t00-t03; s1F=t01+t02;
-		*/
-		__asm	mov	eax, c01
-		__asm	mov	ebx, c1C
-		__asm	mov	ecx, c1B
-		__asm	mov	edx, c1D
-
-		__asm	movaps	xmm0,[eax     ]
-		__asm	movaps	xmm1,[eax     ]
-		__asm	movaps	xmm2,[eax+0x10]
-		__asm	movaps	xmm3,[eax+0x10]
-
-		__asm	mulpd	xmm0,[ebx     ]
-		__asm	mulpd	xmm1,[ebx+0x10]
-		__asm	mulpd	xmm2,[ebx     ]
-		__asm	mulpd	xmm3,[ebx+0x10]
-		__asm	movaps	xmm4,xmm0
-		__asm	movaps	xmm5,xmm1
-		__asm	addpd	xmm0,xmm3
-		__asm	subpd	xmm1,xmm2
-		__asm	subpd	xmm4,xmm3
-		__asm	addpd	xmm5,xmm2
-		__asm	movaps	[ecx     ],xmm0
-		__asm	movaps	[ecx+0x10],xmm1
-		__asm	movaps	[edx     ],xmm4
-		__asm	movaps	[edx+0x10],xmm5
-
-		__asm	mov	eax, c02
-		__asm	mov	ebx, c1C
-		__asm	mov	ecx, c1A
-		__asm	mov	edx, c1E
-
-		__asm	movaps	xmm0,[eax     ]
-		__asm	movaps	xmm1,[eax     ]
-		__asm	movaps	xmm2,[eax+0x10]
-		__asm	movaps	xmm3,[eax+0x10]
-
-		__asm	mulpd	xmm0,[ebx     ]
-		__asm	mulpd	xmm1,[ebx+0x10]
-		__asm	mulpd	xmm2,[ebx     ]
-		__asm	mulpd	xmm3,[ebx+0x10]
-		__asm	movaps	xmm4,xmm0
-		__asm	movaps	xmm5,xmm1
-		__asm	addpd	xmm0,xmm3
-		__asm	subpd	xmm1,xmm2
-		__asm	subpd	xmm4,xmm3
-		__asm	addpd	xmm5,xmm2
-		__asm	movaps	[ecx     ],xmm0
-		__asm	movaps	[ecx+0x10],xmm1
-		__asm	movaps	[edx     ],xmm4
-		__asm	movaps	[edx+0x10],xmm5
-
-		__asm	mov	eax, c03
-		__asm	mov	ebx, c1C
-		__asm	mov	ecx, c19
-		__asm	mov	edx, c1F
-
-		__asm	movaps	xmm0,[eax     ]
-		__asm	movaps	xmm1,[eax     ]
-		__asm	movaps	xmm2,[eax+0x10]
-		__asm	movaps	xmm3,[eax+0x10]
-
-		__asm	mulpd	xmm0,[ebx     ]
-		__asm	mulpd	xmm1,[ebx+0x10]
-		__asm	mulpd	xmm2,[ebx     ]
-		__asm	mulpd	xmm3,[ebx+0x10]
-		__asm	movaps	xmm4,xmm0
-		__asm	movaps	xmm5,xmm1
-		__asm	addpd	xmm0,xmm3
-		__asm	subpd	xmm1,xmm2
-		__asm	subpd	xmm4,xmm3
-		__asm	addpd	xmm5,xmm2
-		__asm	movaps	[ecx     ],xmm0
-		__asm	movaps	[ecx+0x10],xmm1
-		__asm	movaps	[edx     ],xmm4
-		__asm	movaps	[edx+0x10],xmm5
-
-	  #endif	/* if(1) */
-
-	#ifdef DEBUG_SSE2
-		rng_isaac_init(TRUE);
-		for(iloop = 0; iloop < 64; iloop++)
-		{
-			a[j1pad+iloop] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-			a[j2pad+iloop] = 1024.0*1024.0*rng_isaac_rand_double_norm_pm1();
-//			fprintf(stderr, "radix32_wrapper: A_in[%2d] = %20.5f, %20.5f\n",iloop,a[j1pad+iloop],a[j2pad+iloop]);
-		}
-	#endif
-
-	/* In sse2 mode, the input data are arranged in memory like so, where we view things in 16-byte chunks:
+	/* [cf. the radix-16 analog if this file for notes on the AVX data-alyout]
+	In sse2 mode, the input data are arranged in memory like so, where we view things in 16-byte chunks:
 
 		&a[j1]	a0.re,a1.re		&a[j2]	b0.re,b1.re
 		+0x010	a0.im,a1.im		+0x010	b0.im,b1.im
@@ -3155,9 +3293,6 @@ jump_in:	/* Entry point for all blocks but the first. */
 
 	It's not clear whether there is a preference for one or the other instruction sequence based on resulting performance.
 	*/
-
-		add0 = &a[j1pad];
-		add1 = &a[j2pad];
 
 	#if defined(COMPILER_TYPE_MSVC)
 
@@ -4896,46 +5031,16 @@ jump_in:	/* Entry point for all blocks but the first. */
 
 	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
-		SSE2_RADIX32_WRAPPER_DIF(add0,add1,r00,r10,r20,r30,isrt2,cc0,c00,c01,c02,c03,c05,c07)
+	  #ifdef USE_AVX	// process 4 main-array blocks of 8 vec_dbl = 8 x 4 = 32 doubles each in AVX mode:
 
-	#endif
+		SSE2_RADIX32_WRAPPER_DIF(add0,add1,add2,add3,r00,r10,r20,r30,isrt2,cc0,c00,c01,c02,c03,c05,c07)
 
-	#ifdef DEBUG_SSE2
-		fprintf(stderr, "radix32_dif_pass: r00 = %17.5f, %17.5f, %17.5f, %17.5f\n", r00->re, r01->re, r00->im, r01->im);
-		fprintf(stderr, "radix32_dif_pass: r02 = %17.5f, %17.5f, %17.5f, %17.5f\n", r02->re, r03->re, r02->im, r03->im);
-		fprintf(stderr, "radix32_dif_pass: r04 = %17.5f, %17.5f, %17.5f, %17.5f\n", r04->re, r05->re, r04->im, r05->im);
-		fprintf(stderr, "radix32_dif_pass: r06 = %17.5f, %17.5f, %17.5f, %17.5f\n", r06->re, r07->re, r06->im, r07->im);
-		fprintf(stderr, "radix32_dif_pass: r08 = %17.5f, %17.5f, %17.5f, %17.5f\n", r08->re, r09->re, r08->im, r09->im);
-		fprintf(stderr, "radix32_dif_pass: r0A = %17.5f, %17.5f, %17.5f, %17.5f\n", r0A->re, r0B->re, r0A->im, r0B->im);
-		fprintf(stderr, "radix32_dif_pass: r0C = %17.5f, %17.5f, %17.5f, %17.5f\n", r0C->re, r0D->re, r0C->im, r0D->im);
-		fprintf(stderr, "radix32_dif_pass: r0E = %17.5f, %17.5f, %17.5f, %17.5f\n", r0E->re, r0F->re, r0E->im, r0F->im);
+	  #else	// SSE2:
 
-		fprintf(stderr, "radix32_dif_pass: r10 = %17.5f, %17.5f, %17.5f, %17.5f\n", r10->re, r11->re, r10->im, r11->im);
-		fprintf(stderr, "radix32_dif_pass: r12 = %17.5f, %17.5f, %17.5f, %17.5f\n", r12->re, r13->re, r12->im, r13->im);
-		fprintf(stderr, "radix32_dif_pass: r14 = %17.5f, %17.5f, %17.5f, %17.5f\n", r14->re, r15->re, r14->im, r15->im);
-		fprintf(stderr, "radix32_dif_pass: r16 = %17.5f, %17.5f, %17.5f, %17.5f\n", r16->re, r17->re, r16->im, r17->im);
-		fprintf(stderr, "radix32_dif_pass: r18 = %17.5f, %17.5f, %17.5f, %17.5f\n", r18->re, r19->re, r18->im, r19->im);
-		fprintf(stderr, "radix32_dif_pass: r1A = %17.5f, %17.5f, %17.5f, %17.5f\n", r1A->re, r1B->re, r1A->im, r1B->im);
-		fprintf(stderr, "radix32_dif_pass: r1C = %17.5f, %17.5f, %17.5f, %17.5f\n", r1C->re, r1D->re, r1C->im, r1D->im);
-		fprintf(stderr, "radix32_dif_pass: r1E = %17.5f, %17.5f, %17.5f, %17.5f\n", r1E->re, r1F->re, r1E->im, r1F->im);
+		SSE2_RADIX32_WRAPPER_DIF(add0,add1          ,r00,r10,r20,r30,isrt2,cc0,c00,c01,c02,c03,c05,c07)
 
-		fprintf(stderr, "radix32_dif_pass: r20 = %17.5f, %17.5f, %17.5f, %17.5f\n", r20->re, r21->re, r20->im, r21->im);
-		fprintf(stderr, "radix32_dif_pass: r22 = %17.5f, %17.5f, %17.5f, %17.5f\n", r22->re, r23->re, r22->im, r23->im);
-		fprintf(stderr, "radix32_dif_pass: r24 = %17.5f, %17.5f, %17.5f, %17.5f\n", r24->re, r25->re, r24->im, r25->im);
-		fprintf(stderr, "radix32_dif_pass: r26 = %17.5f, %17.5f, %17.5f, %17.5f\n", r26->re, r27->re, r26->im, r27->im);
-		fprintf(stderr, "radix32_dif_pass: r28 = %17.5f, %17.5f, %17.5f, %17.5f\n", r28->re, r29->re, r28->im, r29->im);
-		fprintf(stderr, "radix32_dif_pass: r2A = %17.5f, %17.5f, %17.5f, %17.5f\n", r2A->re, r2B->re, r2A->im, r2B->im);
-		fprintf(stderr, "radix32_dif_pass: r2C = %17.5f, %17.5f, %17.5f, %17.5f\n", r2C->re, r2D->re, r2C->im, r2D->im);
-		fprintf(stderr, "radix32_dif_pass: r2E = %17.5f, %17.5f, %17.5f, %17.5f\n", r2E->re, r2F->re, r2E->im, r2F->im);
+	  #endif
 
-		fprintf(stderr, "radix32_dif_pass: r30 = %17.5f, %17.5f, %17.5f, %17.5f\n", r30->re, r31->re, r30->im, r31->im);
-		fprintf(stderr, "radix32_dif_pass: r32 = %17.5f, %17.5f, %17.5f, %17.5f\n", r32->re, r33->re, r32->im, r33->im);
-		fprintf(stderr, "radix32_dif_pass: r34 = %17.5f, %17.5f, %17.5f, %17.5f\n", r34->re, r35->re, r34->im, r35->im);
-		fprintf(stderr, "radix32_dif_pass: r36 = %17.5f, %17.5f, %17.5f, %17.5f\n", r36->re, r37->re, r36->im, r37->im);
-		fprintf(stderr, "radix32_dif_pass: r38 = %17.5f, %17.5f, %17.5f, %17.5f\n", r38->re, r39->re, r38->im, r39->im);
-		fprintf(stderr, "radix32_dif_pass: r3A = %17.5f, %17.5f, %17.5f, %17.5f\n", r3A->re, r3B->re, r3A->im, r3B->im);
-		fprintf(stderr, "radix32_dif_pass: r3C = %17.5f, %17.5f, %17.5f, %17.5f\n", r3C->re, r3D->re, r3C->im, r3D->im);
-		fprintf(stderr, "radix32_dif_pass: r0E = %17.5f, %17.5f, %17.5f, %17.5f\n", r0E->re, r0F->re, r0E->im, r0F->im);
 	#endif
 
 /*
@@ -4956,17 +5061,48 @@ jump_in:	/* Entry point for all blocks but the first. */
 		t0B=re1-im1;	t0C=re0+im0;
 		t0D=re0-im0;	t0E=re1+im1;
 
-		tmp0->re = re;		tmp1->re = im;
-		tmp0->im =t0A;		tmp1->im =t09;
+		tmp0->d0 = re;		tmp1->d0 = im;
+		tmp0->d1 =t0A;		tmp1->d1 =t09;
 
-		tmp2->re =t01;		tmp3->re =t02;
-		tmp2->im =t0E;		tmp3->im =t0D;
+		tmp2->d0 =t01;		tmp3->d0 =t02;
+		tmp2->d1 =t0E;		tmp3->d1 =t0D;
 
-		tmp4->re =t03;		tmp5->re =t04;
-		tmp4->im =t0C;		tmp5->im =t0B;
+		tmp4->d0 =t03;		tmp5->d0 =t04;
+		tmp4->d1 =t0C;		tmp5->d1 =t0B;
 
-		tmp6->re =t05;		tmp7->re =t06;
-		tmp6->im =t08;		tmp7->im =t07;
+		tmp6->d0 =t05;		tmp7->d0 =t06;
+		tmp6->d1 =t08;		tmp7->d1 =t07;
+
+	#ifdef USE_AVX
+
+		re = c01->d2;		im = (c01+1)->d2;
+		t01=(re-im)*ISRT2;	t02=(re+im)*ISRT2;
+
+		re0=re*c;	im0=im*s;	re1=re*s;	im1=im*c;
+		t03=re0-im0;	t04=re1+im1;
+		t05=re1-im1;	t06=re0+im0;
+
+		re0=re*c32_1;	im0=im*s32_1;	re1=re*s32_1;	im1=im*c32_1;
+		t07=re0-im0;	t08=re1+im1;
+		t09=re1-im1;	t0A=re0+im0;
+
+		re0=re*c32_3;	im0=im*s32_3;	re1=re*s32_3;	im1=im*c32_3;
+		t0B=re1-im1;	t0C=re0+im0;
+		t0D=re0-im0;	t0E=re1+im1;
+
+		tmp0->d2 = re;		tmp1->d2 = im;
+		tmp0->d3 =t0A;		tmp1->d3 =t09;
+
+		tmp2->d2 =t01;		tmp3->d2 =t02;
+		tmp2->d3 =t0E;		tmp3->d3 =t0D;
+
+		tmp4->d2 =t03;		tmp5->d2 =t04;
+		tmp4->d3 =t0C;		tmp5->d3 =t0B;
+
+		tmp6->d2 =t05;		tmp7->d2 =t06;
+		tmp6->d3 =t08;		tmp7->d3 =t07;
+
+	#endif
 
 		PAIR_SQUARE_4_SSE2(r00,r10,r2E,r3E, tmp0,tmp1,forth);
 		PAIR_SQUARE_4_SSE2(r08,r18,r26,r36, tmp2,tmp3,forth);
@@ -5033,10 +5169,44 @@ jump_in:	/* Entry point for all blocks but the first. */
 			"movaps	%%xmm7,0x70(%%eax)\n\t"\
 			:					// outputs: none
 			: [tmp0] "m" (tmp0)	// All inputs from memory addresses here
-			: "eax"				// Clobbered registers
+			: "cc","memory","eax"				// Clobbered registers
 		);
 
-		#else
+		#elif defined(USE_AVX)	// 64-bit AVX build
+
+		// AVX version has shufpd immediate = 5 = 0101_2, which is the doubled analog of the SSE2 imm8 = 1 = 01_2:
+		__asm__ volatile (\
+			"movq	%[tmp0],%%rax\n\t"\
+			"vmovaps	    (%%rax),%%ymm0\n\t"\
+			"vmovaps	0x20(%%rax),%%ymm1\n\t"\
+			"vmovaps	0x40(%%rax),%%ymm2\n\t"\
+			"vmovaps	0x60(%%rax),%%ymm3\n\t"\
+			"vmovaps	0x80(%%rax),%%ymm4\n\t"\
+			"vmovaps	0xa0(%%rax),%%ymm5\n\t"\
+			"vmovaps	0xc0(%%rax),%%ymm6\n\t"\
+			"vmovaps	0xe0(%%rax),%%ymm7\n\t"\
+			"vshufpd	$5,%%ymm0,%%ymm0,%%ymm0\n\t"\
+			"vshufpd	$5,%%ymm1,%%ymm1,%%ymm1\n\t"\
+			"vshufpd	$5,%%ymm2,%%ymm2,%%ymm2\n\t"\
+			"vshufpd	$5,%%ymm3,%%ymm3,%%ymm3\n\t"\
+			"vshufpd	$5,%%ymm4,%%ymm4,%%ymm4\n\t"\
+			"vshufpd	$5,%%ymm5,%%ymm5,%%ymm5\n\t"\
+			"vshufpd	$5,%%ymm6,%%ymm6,%%ymm6\n\t"\
+			"vshufpd	$5,%%ymm7,%%ymm7,%%ymm7\n\t"\
+			"vmovaps	%%ymm0,    (%%rax)\n\t"\
+			"vmovaps	%%ymm1,0x20(%%rax)\n\t"\
+			"vmovaps	%%ymm2,0x40(%%rax)\n\t"\
+			"vmovaps	%%ymm3,0x60(%%rax)\n\t"\
+			"vmovaps	%%ymm4,0x80(%%rax)\n\t"\
+			"vmovaps	%%ymm5,0xa0(%%rax)\n\t"\
+			"vmovaps	%%ymm6,0xc0(%%rax)\n\t"\
+			"vmovaps	%%ymm7,0xe0(%%rax)\n\t"\
+			:					// outputs: none
+			: [tmp0] "m" (tmp0)	// All inputs from memory addresses here
+			: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		);
+
+		#else					// 64-bit SSE2 build
 
 		__asm__ volatile (\
 			"movq	%[tmp0],%%rax\n\t"\
@@ -5066,7 +5236,7 @@ jump_in:	/* Entry point for all blocks but the first. */
 			"movaps	%%xmm7,0x70(%%rax)\n\t"\
 			:					// outputs: none
 			: [tmp0] "m" (tmp0)	// All inputs from memory addresses here
-			: "rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"				// Clobbered registers
+			: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"				// Clobbered registers
 		);
 
 		#endif
@@ -6886,7 +7056,7 @@ jump_in:	/* Entry point for all blocks but the first. */
 		__asm	movaps	[eax+0x0f0],xmm3	/* a[jp+p4 ] */
 		__asm	movaps	[eax+0x0e0],xmm5	/* a[jt+p4 ] */
 
-		__asm	mov	ecx, c1E
+“		__asm	mov	ecx, c1E
 		__asm	movaps	xmm0,xmm2		/*t3D copy */
 		__asm	movaps	xmm1,xmm4		/*t3C copy */
 		__asm	mulpd	xmm2,[ecx     ]	/*t3D*c1E */
@@ -6910,1850 +7080,35 @@ jump_in:	/* Entry point for all blocks but the first. */
 
 	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
 
-		SSE2_RADIX32_WRAPPER_DIT(add0,add1,isrt2,r00,r08,r10,r20,r28,r30,c00,c01,c02,c03,c04,c05,c06,c07,c08,c0A,c0C,c0E,c10,c12,c14,c16,c18,c1A,c1C,c1E)
+	  #ifdef USE_AVX
 
-	#endif
+		SSE2_RADIX32_WRAPPER_DIT(add0,add1,add2,add3,isrt2,r00,r08,r10,r20,r28,r30,c01,c02,c04,c06,c08,c0A,c0C,c0E,c10,c12,c14,c16,c18,c1A,c1C,c1E)
 
-	#ifdef DEBUG_SSE2
-		for(iloop = 0; iloop < 64; iloop++)
-		{
-			fprintf(stderr, "radix32_wrapper: A_out[%2d] = %20.5f, %20.5f\n",iloop,a[j1pad+iloop],a[j2pad+iloop]);
-		}
-		exit(0);
-	#endif
+	  #else	// SSE2:
 
-#else	/* USE_SSE2 */
-
-	/*************************************************************/
-	/*                  1st set of inputs:                       */
-	/*************************************************************/
-
-		rdum = j1pad;
-		idum = j1pad+RE_IM_STRIDE;
-
-/*...Block 1:	*/
-	    t00=a[rdum   ];							t01=a[idum   ];
-	    rt =a[rdum+32]*c10 - a[idum+32]*s10;	it =a[idum+32]*c10 + a[rdum+32]*s10;
-	    t02=t00-rt;		t03=t01-it;
-	    t00=t00+rt;		t01=t01+it;
-
-	    t04=a[rdum+16]*c08 - a[idum+16]*s08;	t05=a[idum+16]*c08 + a[rdum+16]*s08;
-	    rt =a[rdum+48]*c18 - a[idum+48]*s18;	it =a[idum+48]*c18 + a[rdum+48]*s18;
-	    t06=t04-rt;		t07=t05-it;
-	    t04=t04+rt;		t05=t05+it;
-
-	    rt =t04;		it =t05;
-	    t04=t00-rt;		t05=t01-it;
-	    t00=t00+rt;		t01=t01+it;
-
-	    rt =t06;		it =t07;
-	    t06=t02+it;		t07=t03-rt;
-	    t02=t02-it;		t03=t03+rt;
-
-	    t08=a[rdum+8 ]*c04 - a[idum+8 ]*s04;	t09=a[idum+8 ]*c04 + a[rdum+8 ]*s04;
-	    rt =a[rdum+40]*c14 - a[idum+40]*s14;	it =a[idum+40]*c14 + a[rdum+40]*s14;
-	    t0A=t08-rt;		t0B=t09-it;
-	    t08=t08+rt;		t09=t09+it;
-
-	    t0C=a[rdum+24]*c0C - a[idum+24]*s0C;	t0D=a[idum+24]*c0C + a[rdum+24]*s0C;
-	    rt =a[rdum+56]*c1C - a[idum+56]*s1C;	it =a[idum+56]*c1C + a[rdum+56]*s1C;
-	    t0E=t0C-rt;		t0F=t0D-it;
-	    t0C=t0C+rt;		t0D=t0D+it;
-
-	    rt =t0C;		it =t0D;
-	    t0C=t08-rt;		t0D=t09-it;
-	    t08=t08+rt;		t09=t09+it;
-
-	    rt =t0E;		it =t0F;
-	    t0E=t0A+it;		t0F=t0B-rt;
-	    t0A=t0A-it;		t0B=t0B+rt;
-
-	    rt =t08;		it =t09;
-	    t08=t00-rt;		t09=t01-it;
-	    t00=t00+rt;		t01=t01+it;
-
-	    rt =t0C;		it =t0D;
-	    t0C=t04+it;		t0D=t05-rt;
-	    t04=t04-it;		t05=t05+rt;
-
-	    rt =(t0A-t0B)*ISRT2;it =(t0A+t0B)*ISRT2;
-	    t0A=t02-rt;		t0B=t03-it;
-	    t02=t02+rt;		t03=t03+it;
-
-	    rt =(t0E+t0F)*ISRT2;it =(t0F-t0E)*ISRT2;
-	    t0E=t06+rt;		t0F=t07+it;
-	    t06=t06-rt;		t07=t07-it;
-
-/*...Block 2:	*/
-	    t10=a[rdum+4 ]*c02 - a[idum+4 ]*s02;	t11=a[idum+4 ]*c02 + a[rdum+4 ]*s02;
-	    rt =a[rdum+36]*c12 - a[idum+36]*s12;	it =a[idum+36]*c12 + a[rdum+36]*s12;
-	    t12=t10-rt;		t13=t11-it;
-	    t10=t10+rt;		t11=t11+it;
-
-	    t14=a[rdum+20]*c0A - a[idum+20]*s0A;	t15=a[idum+20]*c0A + a[rdum+20]*s0A;
-	    rt =a[rdum+52]*c1A - a[idum+52]*s1A;	it =a[idum+52]*c1A + a[rdum+52]*s1A;
-	    t16=t14-rt;		t17=t15-it;
-	    t14=t14+rt;		t15=t15+it;
-
-	    rt =t14;		it =t15;
-	    t14=t10-rt;		t15=t11-it;
-	    t10=t10+rt;		t11=t11+it;
-
-	    rt =t16;		it =t17;
-	    t16=t12+it;		t17=t13-rt;
-	    t12=t12-it;		t13=t13+rt;
-
-	    t18=a[rdum+12]*c06 - a[idum+12]*s06;	t19=a[idum+12]*c06 + a[rdum+12]*s06;
-	    rt =a[rdum+44]*c16 - a[idum+44]*s16;	it =a[idum+44]*c16 + a[rdum+44]*s16;
-	    t1A=t18-rt;		t1B=t19-it;
-	    t18=t18+rt;		t19=t19+it;
-
-	    t1C=a[rdum+28]*c0E - a[idum+28]*s0E;	t1D=a[idum+28]*c0E + a[rdum+28]*s0E;
-	    rt =a[rdum+60]*c1E - a[idum+60]*s1E;	it =a[idum+60]*c1E + a[rdum+60]*s1E;
-	    t1E=t1C-rt;		t1F=t1D-it;
-	    t1C=t1C+rt;		t1D=t1D+it;
-
-	    rt =t1C;		it =t1D;
-	    t1C=t18-rt;		t1D=t19-it;
-	    t18=t18+rt;		t19=t19+it;
-
-	    rt =t1E;		it =t1F;
-	    t1E=t1A+it;		t1F=t1B-rt;
-	    t1A=t1A-it;		t1B=t1B+rt;
-
-	    rt =t18;		it =t19;
-	    t18=t10-rt;		t19=t11-it;
-	    t10=t10+rt;		t11=t11+it;
-
-	    rt =t1C;		it =t1D;
-	    t1C=t14+it;		t1D=t15-rt;
-	    t14=t14-it;		t15=t15+rt;
-
-	    rt =(t1A-t1B)*ISRT2;it =(t1A+t1B)*ISRT2;
-	    t1A=t12-rt;		t1B=t13-it;
-	    t12=t12+rt;		t13=t13+it;
-
-	    rt =(t1E+t1F)*ISRT2;it =(t1F-t1E)*ISRT2;
-	    t1E=t16+rt;		t1F=t17+it;
-	    t16=t16-rt;		t17=t17-it;
-
-/*...Block 3:	*/
-	#ifdef USE_SSE2
-		--rdum;
-		--idum;
-	#endif
-	    t20=a[rdum+2 ]*c01 - a[idum+2 ]*s01;	t21=a[idum+2 ]*c01 + a[rdum+2 ]*s01;
-	    rt =a[rdum+34]*c11 - a[idum+34]*s11;	it =a[idum+34]*c11 + a[rdum+34]*s11;
-	    t22=t20-rt;		t23=t21-it;
-	    t20=t20+rt;		t21=t21+it;
-
-	    t24=a[rdum+18]*c09 - a[idum+18]*s09;	t25=a[idum+18]*c09 + a[rdum+18]*s09;
-	    rt =a[rdum+50]*c19 - a[idum+50]*s19;	it =a[idum+50]*c19 + a[rdum+50]*s19;
-	    t26=t24-rt;		t27=t25-it;
-	    t24=t24+rt;		t25=t25+it;
-
-	    rt =t24;		it =t25;
-	    t24=t20-rt;		t25=t21-it;
-	    t20=t20+rt;		t21=t21+it;
-
-	    rt =t26;		it =t27;
-	    t26=t22+it;		t27=t23-rt;
-	    t22=t22-it;		t23=t23+rt;
-
-	    t28=a[rdum+10]*c05 - a[idum+10]*s05;	t29=a[idum+10]*c05 + a[rdum+10]*s05;
-	    rt =a[rdum+42]*c15 - a[idum+42]*s15;	it =a[idum+42]*c15 + a[rdum+42]*s15;
-	    t2A=t28-rt;		t2B=t29-it;
-	    t28=t28+rt;		t29=t29+it;
-
-	    t2C=a[rdum+26]*c0D - a[idum+26]*s0D;	t2D=a[idum+26]*c0D + a[rdum+26]*s0D;
-	    rt =a[rdum+58]*c1D - a[idum+58]*s1D;	it =a[idum+58]*c1D + a[rdum+58]*s1D;
-	    t2E=t2C-rt;		t2F=t2D-it;
-	    t2C=t2C+rt;		t2D=t2D+it;
-
-	    rt =t2C;		it =t2D;
-	    t2C=t28-rt;		t2D=t29-it;
-	    t28=t28+rt;		t29=t29+it;
-
-	    rt =t2E;		it =t2F;
-	    t2E=t2A+it;		t2F=t2B-rt;
-	    t2A=t2A-it;		t2B=t2B+rt;
-
-	    rt =t28;		it =t29;
-	    t28=t20-rt;		t29=t21-it;
-	    t20=t20+rt;		t21=t21+it;
-
-	    rt =t2C;		it =t2D;
-	    t2C=t24+it;		t2D=t25-rt;
-	    t24=t24-it;		t25=t25+rt;
-
-	    rt =(t2A-t2B)*ISRT2;it =(t2A+t2B)*ISRT2;
-	    t2A=t22-rt;		t2B=t23-it;
-	    t22=t22+rt;		t23=t23+it;
-
-	    rt =(t2E+t2F)*ISRT2;it =(t2F-t2E)*ISRT2;
-	    t2E=t26+rt;		t2F=t27+it;
-	    t26=t26-rt;		t27=t27-it;
-
-/*...Block 4:	*/
-	    t30=a[rdum+6 ]*c03 - a[idum+6 ]*s03;	t31=a[idum+6 ]*c03 + a[rdum+6 ]*s03;
-	    rt =a[rdum+38]*c13 - a[idum+38]*s13;	it =a[idum+38]*c13 + a[rdum+38]*s13;
-	    t32=t30-rt;		t33=t31-it;
-	    t30=t30+rt;		t31=t31+it;
-
-	    t34=a[rdum+22]*c0B - a[idum+22]*s0B;	t35=a[idum+22]*c0B + a[rdum+22]*s0B;
-	    rt =a[rdum+54]*c1B - a[idum+54]*s1B;	it =a[idum+54]*c1B + a[rdum+54]*s1B;
-	    t36=t34-rt;		t37=t35-it;
-	    t34=t34+rt;		t35=t35+it;
-
-	    rt =t34;		it =t35;
-	    t34=t30-rt;		t35=t31-it;
-	    t30=t30+rt;		t31=t31+it;
-
-	    rt =t36;		it =t37;
-	    t36=t32+it;		t37=t33-rt;
-	    t32=t32-it;		t33=t33+rt;
-
-	    t38=a[rdum+14]*c07 - a[idum+14]*s07;	t39=a[idum+14]*c07 + a[rdum+14]*s07;
-	    rt =a[rdum+46]*c17 - a[idum+46]*s17;	it =a[idum+46]*c17 + a[rdum+46]*s17;
-	    t3A=t38-rt;		t3B=t39-it;
-	    t38=t38+rt;		t39=t39+it;
-
-	    t3C=a[rdum+30]*c0F - a[idum+30]*s0F;	t3D=a[idum+30]*c0F + a[rdum+30]*s0F;
-	    rt =a[rdum+62]*c1F - a[idum+62]*s1F;	it =a[idum+62]*c1F + a[rdum+62]*s1F;
-	    t3E=t3C-rt;		t3F=t3D-it;
-	    t3C=t3C+rt;		t3D=t3D+it;
-
-	    rt =t3C;		it =t3D;
-	    t3C=t38-rt;		t3D=t39-it;
-	    t38=t38+rt;		t39=t39+it;
-
-	    rt =t3E;		it =t3F;
-	    t3E=t3A+it;		t3F=t3B-rt;
-	    t3A=t3A-it;		t3B=t3B+rt;
-
-	    rt =t38;		it =t39;
-	    t38=t30-rt;		t39=t31-it;
-	    t30=t30+rt;		t31=t31+it;
-
-	    rt =t3C;		it =t3D;
-	    t3C=t34+it;		t3D=t35-rt;
-	    t34=t34-it;		t35=t35+rt;
-
-	    rt =(t3A-t3B)*ISRT2;it =(t3A+t3B)*ISRT2;
-	    t3A=t32-rt;		t3B=t33-it;
-	    t32=t32+rt;		t33=t33+it;
-
-	    rt =(t3E+t3F)*ISRT2;it =(t3F-t3E)*ISRT2;
-	    t3E=t36+rt;		t3F=t37+it;
-	    t36=t36-rt;		t37=t37-it;
-
-/*...and now do eight radix-4 transforms, including the internal twiddle factors:
-	1, exp(i* 1*twopi/32) =       ( c32_1, s32_1), exp(i* 2*twopi/32) =       ( c    , s    ), exp(i* 3*twopi/32) =       ( c32_3, s32_3) (for inputs to transform block 2),
-	1, exp(i* 2*twopi/32) =       ( c    , s    ), exp(i* 4*twopi/32) = ISRT2*( 1    , 1    ), exp(i* 3*twopi/32) =       ( s    , c    ) (for inputs to transform block 3),
-	1, exp(i* 3*twopi/32) =       ( c32_3, s32_3), exp(i* 6*twopi/32) =       ( s    , c    ), exp(i* 9*twopi/32) =       (-s32_1, c32_1) (for inputs to transform block 4),
-	1, exp(i* 4*twopi/32) = ISRT2*( 1    , 1    ), exp(i* 8*twopi/32) =       ( 0    , 1    ), exp(i*12*twopi/32) = ISRT2*(-1    , 1    ) (for inputs to transform block 5),
-	1, exp(i* 5*twopi/32) =       ( s32_3, c32_3), exp(i*10*twopi/32) =       (-s    , c    ), exp(i*15*twopi/32) =       (-c32_1, s32_1) (for inputs to transform block 6),
-	1, exp(i* 6*twopi/32) =       ( s    , c    ), exp(i*12*twopi/32) = ISRT2*(-1    , 1    ), exp(i*18*twopi/32) =       (-c    ,-s    ) (for inputs to transform block 7),
-	1, exp(i* 7*twopi/32) =       ( s32_1, c32_1), exp(i*14*twopi/32) =       (-c    , s    ), exp(i*21*twopi/32) =       (-s32_3,-c32_3) (for inputs to transform block 8),
-   and only the last 3 inputs to each of the radix-4 transforms 2 through 8 are multiplied by non-unity twiddles.
-   Within each block we process the 8 needed twiddles in bit-reversed order.	*/
-
-/*...Block 1: t00,t10,t20,t30	*/
-	    rt =t10;	t10=t00-rt;	t00=t00+rt;
-	    it =t11;	t11=t01-it;	t01=t01+it;
-
-	    rt =t30;	t30=t20-rt;	t20=t20+rt;
-	    it =t31;	t31=t21-it;	t21=t21+it;
-
-	    a1p00r = t00+t20;		a1p00i = t01+t21;
-	    a1p01r = t00-t20;		a1p01i = t01-t21;
-
-	    a1p02r = t10-t31;		a1p02i = t11+t30;
-	    a1p03r = t10+t31;		a1p03i = t11-t30;
-
-/*...Block 5: t08,t18,t28,t38	*/
-	    rt =t18;	t18=t08+t19;	t08=t08-t19;
-			t19=t09-rt;	t09=t09+rt;
-
-	    rt =(t28-t29)*ISRT2;	t29=(t28+t29)*ISRT2;		t28=rt;
-	    rt =(t39+t38)*ISRT2;	it =(t39-t38)*ISRT2;
-	    t38=t28+rt;			t28=t28-rt;
-	    t39=t29+it;			t29=t29-it;
-
-	    a1p04r = t08+t28;		a1p04i = t09+t29;
-	    a1p05r = t08-t28;		a1p05i = t09-t29;
-
-	    a1p06r = t18-t39;		a1p06i = t19+t38;
-	    a1p07r = t18+t39;		a1p07i = t19-t38;
-
-/*...Block 3: t04,t14,t24,t34	*/
-	    rt =(t14-t15)*ISRT2;	it =(t14+t15)*ISRT2;
-	    t14=t04-rt;			t04=t04+rt;
-	    t15=t05-it;			t05=t05+it;
-
-	    rt =t24*c - t25*s;		t25=t25*c + t24*s;		t24=rt;
-	    rt =t34*s - t35*c;		it =t35*s + t34*c;
-	    t34=t24-rt;			t24=t24+rt;
-	    t35=t25-it;			t25=t25+it;
-
-	    a1p08r = t04+t24;		a1p08i = t05+t25;
-	    a1p09r = t04-t24;		a1p09i = t05-t25;
-
-	    a1p0Ar = t14-t35;		a1p0Ai = t15+t34;
-	    a1p0Br = t14+t35;		a1p0Bi = t15-t34;
-
-/*...Block 7: t0C,t1C,t2C,t3C	*/
-	    rt =(t1D+t1C)*ISRT2;	it =(t1D-t1C)*ISRT2;
-	    t1C=t0C+rt;			t0C=t0C-rt;
-	    t1D=t0D+it;			t0D=t0D-it;
-
-	    rt =t2C*s - t2D*c;		t2D=t2D*s + t2C*c;		t2C=rt;
-	    rt =t3C*c - t3D*s;		it =t3D*c + t3C*s;
-	    t3C=t2C+rt;			t2C=t2C-rt;
-	    t3D=t2D+it;			t2D=t2D-it;
-
-	    a1p0Cr = t0C+t2C;		a1p0Ci = t0D+t2D;
-	    a1p0Dr = t0C-t2C;		a1p0Di = t0D-t2D;
-
-	    a1p0Er = t1C-t3D;		a1p0Ei = t1D+t3C;
-	    a1p0Fr = t1C+t3D;		a1p0Fi = t1D-t3C;
-
-/*...Block 2: t02,t12,t22,t32	*/
-	    rt =t12*c - t13*s;		it =t13*c + t12*s;
-	    t12=t02-rt;			t02=t02+rt;
-	    t13=t03-it;			t03=t03+it;
-
-	    rt =t22*c32_1 - t23*s32_1;	t23=t23*c32_1 + t22*s32_1;	t22=rt;
-	    rt =t32*c32_3 - t33*s32_3;	it =t33*c32_3 + t32*s32_3;
-	    t32=t22-rt;			t22=t22+rt;
-	    t33=t23-it;			t23=t23+it;
-
-	    a1p10r = t02+t22;		a1p10i = t03+t23;
-	    a1p11r = t02-t22;		a1p11i = t03-t23;
-
-	    a1p12r = t12-t33;		a1p12i = t13+t32;
-	    a1p13r = t12+t33;		a1p13i = t13-t32;
-
-/*...Block 6: t0A,t1A,t2A,t3A	*/
-	    rt =t1A*s + t1B*c;		it =t1B*s - t1A*c;
-	    t1A=t0A+rt;			t0A =t0A-rt;
-	    t1B=t0B+it;			t0B =t0B-it;
-
-	    rt =t2A*s32_3 - t2B*c32_3;	t2B=t2B*s32_3 + t2A*c32_3;	t2A=rt;
-	    rt =t3A*c32_1 + t3B*s32_1;	it =t3B*c32_1 - t3A*s32_1;
-	    t3A=t2A+rt;			t2A=t2A-rt;
-	    t3B=t2B+it;			t2B=t2B-it;
-
-	    a1p14r = t0A+t2A;		a1p14i = t0B+t2B;
-	    a1p15r = t0A-t2A;		a1p15i = t0B-t2B;
-
-	    a1p16r = t1A-t3B;		a1p16i = t1B+t3A;
-	    a1p17r = t1A+t3B;		a1p17i = t1B-t3A;
-
-/*...Block 4: t06,t16,t26,t36	*/
-	    rt =t16*s - t17*c;		it =t17*s + t16*c;
-	    t16=t06-rt;			t06 =t06+rt;
-	    t17=t07-it;			t07 =t07+it;
-
-	    rt =t26*c32_3 - t27*s32_3;	t27=t27*c32_3 + t26*s32_3;	t26=rt;
-	    rt =t36*s32_1 + t37*c32_1;	it =t37*s32_1 - t36*c32_1;
-	    t36=t26+rt;			t26=t26-rt;
-	    t37=t27+it;			t27=t27-it;
-
-	    a1p18r = t06+t26;		a1p18i = t07+t27;
-	    a1p19r = t06-t26;		a1p19i = t07-t27;
-
-	    a1p1Ar = t16-t37;		a1p1Ai = t17+t36;
-	    a1p1Br = t16+t37;		a1p1Bi = t17-t36;
-
-/*...Block 8: t0E,t1E,t2E,t3E	*/
-	    rt =t1E*c + t1F*s;		it =t1F*c - t1E*s;
-	    t1E=t0E+rt;			t0E =t0E-rt;
-	    t1F=t0F+it;			t0F =t0F-it;
-
-	    rt =t2E*s32_1 - t2F*c32_1;	t2F=t2F*s32_1 + t2E*c32_1;	t2E=rt;
-	    rt =t3E*s32_3 - t3F*c32_3;	it =t3F*s32_3 + t3E*c32_3;
-	    t3E=t2E+rt;			t2E=t2E-rt;
-	    t3F=t2F+it;			t2F=t2F-it;
-
-	    a1p1Cr = t0E+t2E;		a1p1Ci = t0F+t2F;
-	    a1p1Dr = t0E-t2E;		a1p1Di = t0F-t2F;
-
-	    a1p1Er = t1E-t3F;		a1p1Ei = t1F+t3E;
-	    a1p1Fr = t1E+t3F;		a1p1Fi = t1F-t3E;
-
-	/*************************************************************/
-	/*                  2nd set of inputs:                       */
-	/*************************************************************/
-
-	    rdum = j2pad;
-	    idum = j2pad+RE_IM_STRIDE;
-
-/*...Block 1:	*/
-	    t00=a[rdum   ];				t01=a[idum   ];
-	    rt =a[rdum+32]*c30 - a[idum+32]*s30;	it =a[idum+32]*c30 + a[rdum+32]*s30;
-	    t02=t00-rt;		t03=t01-it;
-	    t00=t00+rt;		t01=t01+it;
-
-	    t04=a[rdum+16]*c28 - a[idum+16]*s28;	t05=a[idum+16]*c28 + a[rdum+16]*s28;
-	    rt =a[rdum+48]*c38 - a[idum+48]*s38;	it =a[idum+48]*c38 + a[rdum+48]*s38;
-	    t06=t04-rt;		t07=t05-it;
-	    t04=t04+rt;		t05=t05+it;
-
-	    rt =t04;		it =t05;
-	    t04=t00-rt;		t05=t01-it;
-	    t00=t00+rt;		t01=t01+it;
-
-	    rt =t06;		it =t07;
-	    t06=t02+it;		t07=t03-rt;
-	    t02=t02-it;		t03=t03+rt;
-
-	    t08=a[rdum+8 ]*c24 - a[idum+8 ]*s24;	t09=a[idum+8 ]*c24 + a[rdum+8 ]*s24;
-	    rt =a[rdum+40]*c34 - a[idum+40]*s34;	it =a[idum+40]*c34 + a[rdum+40]*s34;
-	    t0A=t08-rt;		t0B=t09-it;
-	    t08=t08+rt;		t09=t09+it;
-
-	    t0C=a[rdum+24]*c2C - a[idum+24]*s2C;	t0D=a[idum+24]*c2C + a[rdum+24]*s2C;
-	    rt =a[rdum+56]*c3C - a[idum+56]*s3C;	it =a[idum+56]*c3C + a[rdum+56]*s3C;
-	    t0E=t0C-rt;		t0F=t0D-it;
-	    t0C=t0C+rt;		t0D=t0D+it;
-
-	    rt =t0C;		it =t0D;
-	    t0C=t08-rt;		t0D=t09-it;
-	    t08=t08+rt;		t09=t09+it;
-
-	    rt =t0E;		it =t0F;
-	    t0E=t0A+it;		t0F=t0B-rt;
-	    t0A=t0A-it;		t0B=t0B+rt;
-
-	    rt =t08;		it =t09;
-	    t08=t00-rt;		t09=t01-it;
-	    t00=t00+rt;		t01=t01+it;
-
-	    rt =t0C;		it =t0D;
-	    t0C=t04+it;		t0D=t05-rt;
-	    t04=t04-it;		t05=t05+rt;
-
-	    rt =(t0A-t0B)*ISRT2;it =(t0A+t0B)*ISRT2;
-	    t0A=t02-rt;		t0B=t03-it;
-	    t02=t02+rt;		t03=t03+it;
-
-	    rt =(t0E+t0F)*ISRT2;it =(t0F-t0E)*ISRT2;
-	    t0E=t06+rt;		t0F=t07+it;
-	    t06=t06-rt;		t07=t07-it;
-
-/*...Block 2:	*/
-	    t10=a[rdum+4 ]*c22 - a[idum+4 ]*s22;	t11=a[idum+4 ]*c22 + a[rdum+4 ]*s22;
-	    rt =a[rdum+36]*c32 - a[idum+36]*s32;	it =a[idum+36]*c32 + a[rdum+36]*s32;
-	    t12=t10-rt;		t13=t11-it;
-	    t10=t10+rt;		t11=t11+it;
-
-	    t14=a[rdum+20]*c2A - a[idum+20]*s2A;	t15=a[idum+20]*c2A + a[rdum+20]*s2A;
-	    rt =a[rdum+52]*c3A - a[idum+52]*s3A;	it =a[idum+52]*c3A + a[rdum+52]*s3A;
-	    t16=t14-rt;		t17=t15-it;
-	    t14=t14+rt;		t15=t15+it;
-
-	    rt =t14;		it =t15;
-	    t14=t10-rt;		t15=t11-it;
-	    t10=t10+rt;		t11=t11+it;
-
-	    rt =t16;		it =t17;
-	    t16=t12+it;		t17=t13-rt;
-	    t12=t12-it;		t13=t13+rt;
-
-	    t18=a[rdum+12]*c26 - a[idum+12]*s26;	t19=a[idum+12]*c26 + a[rdum+12]*s26;
-	    rt =a[rdum+44]*c36 - a[idum+44]*s36;	it =a[idum+44]*c36 + a[rdum+44]*s36;
-	    t1A=t18-rt;		t1B=t19-it;
-	    t18=t18+rt;		t19=t19+it;
-
-	    t1C=a[rdum+28]*c2E - a[idum+28]*s2E;	t1D=a[idum+28]*c2E + a[rdum+28]*s2E;
-	    rt =a[rdum+60]*c3E - a[idum+60]*s3E;	it =a[idum+60]*c3E + a[rdum+60]*s3E;
-	    t1E=t1C-rt;		t1F=t1D-it;
-	    t1C=t1C+rt;		t1D=t1D+it;
-
-	    rt =t1C;		it =t1D;
-	    t1C=t18-rt;		t1D=t19-it;
-	    t18=t18+rt;		t19=t19+it;
-
-	    rt =t1E;		it =t1F;
-	    t1E=t1A+it;		t1F=t1B-rt;
-	    t1A=t1A-it;		t1B=t1B+rt;
-
-	    rt =t18;		it =t19;
-	    t18=t10-rt;		t19=t11-it;
-	    t10=t10+rt;		t11=t11+it;
-
-	    rt =t1C;		it =t1D;
-	    t1C=t14+it;		t1D=t15-rt;
-	    t14=t14-it;		t15=t15+rt;
-
-	    rt =(t1A-t1B)*ISRT2;it =(t1A+t1B)*ISRT2;
-	    t1A=t12-rt;		t1B=t13-it;
-	    t12=t12+rt;		t13=t13+it;
-
-	    rt =(t1E+t1F)*ISRT2;it =(t1F-t1E)*ISRT2;
-	    t1E=t16+rt;		t1F=t17+it;
-	    t16=t16-rt;		t17=t17-it;
-
-/*...Block 3:	*/
-	#ifdef USE_SSE2
-		--rdum;
-		--idum;
-	#endif
-	    t20=a[rdum+2 ]*c21 - a[idum+2 ]*s21;	t21=a[idum+2 ]*c21 + a[rdum+2 ]*s21;
-	    rt =a[rdum+34]*c31 - a[idum+34]*s31;	it =a[idum+34]*c31 + a[rdum+34]*s31;
-	    t22=t20-rt;		t23=t21-it;
-	    t20=t20+rt;		t21=t21+it;
-
-	    t24=a[rdum+18]*c29 - a[idum+18]*s29;	t25=a[idum+18]*c29 + a[rdum+18]*s29;
-	    rt =a[rdum+50]*c39 - a[idum+50]*s39;	it =a[idum+50]*c39 + a[rdum+50]*s39;
-	    t26=t24-rt;		t27=t25-it;
-	    t24=t24+rt;		t25=t25+it;
-
-	    rt =t24;		it =t25;
-	    t24=t20-rt;		t25=t21-it;
-	    t20=t20+rt;		t21=t21+it;
-
-	    rt =t26;		it =t27;
-	    t26=t22+it;		t27=t23-rt;
-	    t22=t22-it;		t23=t23+rt;
-
-	    t28=a[rdum+10]*c25 - a[idum+10]*s25;	t29=a[idum+10]*c25 + a[rdum+10]*s25;
-	    rt =a[rdum+42]*c35 - a[idum+42]*s35;	it =a[idum+42]*c35 + a[rdum+42]*s35;
-	    t2A=t28-rt;		t2B=t29-it;
-	    t28=t28+rt;		t29=t29+it;
-
-	    t2C=a[rdum+26]*c2D - a[idum+26]*s2D;	t2D=a[idum+26]*c2D + a[rdum+26]*s2D;
-	    rt =a[rdum+58]*c3D - a[idum+58]*s3D;	it =a[idum+58]*c3D + a[rdum+58]*s3D;
-	    t2E=t2C-rt;		t2F=t2D-it;
-	    t2C=t2C+rt;		t2D=t2D+it;
-
-	    rt =t2C;		it =t2D;
-	    t2C=t28-rt;		t2D=t29-it;
-	    t28=t28+rt;		t29=t29+it;
-
-	    rt =t2E;		it =t2F;
-	    t2E=t2A+it;		t2F=t2B-rt;
-	    t2A=t2A-it;		t2B=t2B+rt;
-
-	    rt =t28;		it =t29;
-	    t28=t20-rt;		t29=t21-it;
-	    t20=t20+rt;		t21=t21+it;
-
-	    rt =t2C;		it =t2D;
-	    t2C=t24+it;		t2D=t25-rt;
-	    t24=t24-it;		t25=t25+rt;
-
-	    rt =(t2A-t2B)*ISRT2;it =(t2A+t2B)*ISRT2;
-	    t2A=t22-rt;		t2B=t23-it;
-	    t22=t22+rt;		t23=t23+it;
-
-	    rt =(t2E+t2F)*ISRT2;it =(t2F-t2E)*ISRT2;
-	    t2E=t26+rt;		t2F=t27+it;
-	    t26=t26-rt;		t27=t27-it;
-
-/*...Block 4:	*/
-	    t30=a[rdum+6 ]*c23 - a[idum+6 ]*s23;	t31=a[idum+6 ]*c23 + a[rdum+6 ]*s23;
-	    rt =a[rdum+38]*c33 - a[idum+38]*s33;	it =a[idum+38]*c33 + a[rdum+38]*s33;
-	    t32=t30-rt;		t33=t31-it;
-	    t30=t30+rt;		t31=t31+it;
-
-	    t34=a[rdum+22]*c2B - a[idum+22]*s2B;	t35=a[idum+22]*c2B + a[rdum+22]*s2B;
-	    rt =a[rdum+54]*c3B - a[idum+54]*s3B;	it =a[idum+54]*c3B + a[rdum+54]*s3B;
-	    t36=t34-rt;		t37=t35-it;
-	    t34=t34+rt;		t35=t35+it;
-
-	    rt =t34;		it =t35;
-	    t34=t30-rt;		t35=t31-it;
-	    t30=t30+rt;		t31=t31+it;
-
-	    rt =t36;		it =t37;
-	    t36=t32+it;		t37=t33-rt;
-	    t32=t32-it;		t33=t33+rt;
-
-	    t38=a[rdum+14]*c27 - a[idum+14]*s27;	t39=a[idum+14]*c27 + a[rdum+14]*s27;
-	    rt =a[rdum+46]*c37 - a[idum+46]*s37;	it =a[idum+46]*c37 + a[rdum+46]*s37;
-	    t3A=t38-rt;		t3B=t39-it;
-	    t38=t38+rt;		t39=t39+it;
-
-	    t3C=a[rdum+30]*c2F - a[idum+30]*s2F;	t3D=a[idum+30]*c2F + a[rdum+30]*s2F;
-	    rt =a[rdum+62]*c3F - a[idum+62]*s3F;	it =a[idum+62]*c3F + a[rdum+62]*s3F;
-	    t3E=t3C-rt;		t3F=t3D-it;
-	    t3C=t3C+rt;		t3D=t3D+it;
-
-	    rt =t3C;		it =t3D;
-	    t3C=t38-rt;		t3D=t39-it;
-	    t38=t38+rt;		t39=t39+it;
-
-	    rt =t3E;		it =t3F;
-	    t3E=t3A+it;		t3F=t3B-rt;
-	    t3A=t3A-it;		t3B=t3B+rt;
-
-	    rt =t38;		it =t39;
-	    t38=t30-rt;		t39=t31-it;
-	    t30=t30+rt;		t31=t31+it;
-
-	    rt =t3C;		it =t3D;
-	    t3C=t34+it;		t3D=t35-rt;
-	    t34=t34-it;		t35=t35+rt;
-
-	    rt =(t3A-t3B)*ISRT2;it =(t3A+t3B)*ISRT2;
-	    t3A=t32-rt;		t3B=t33-it;
-	    t32=t32+rt;		t33=t33+it;
-
-	    rt =(t3E+t3F)*ISRT2;it =(t3F-t3E)*ISRT2;
-	    t3E=t36+rt;		t3F=t37+it;
-	    t36=t36-rt;		t37=t37-it;
-/*
-!...and now do eight radix-4 transforms, including the internal twiddle factors:
-*/
-
-/*...Block 1: t00,t10,t20,t30	*/
-	    rt =t10;	t10=t00-rt;	t00=t00+rt;
-	    it =t11;	t11=t01-it;	t01=t01+it;
-
-	    rt =t30;	t30=t20-rt;	t20=t20+rt;
-	    it =t31;	t31=t21-it;	t21=t21+it;
-
-	    a2p00r = t00+t20;		a2p00i = t01+t21;
-	    a2p01r = t00-t20;		a2p01i = t01-t21;
-
-	    a2p02r = t10-t31;		a2p02i = t11+t30;
-	    a2p03r = t10+t31;		a2p03i = t11-t30;
-
-/*...Block 5: t08,t18,t28,t38	*/
-	    rt =t18;	t18=t08+t19;	t08=t08-t19;
-			t19=t09-rt;	t09=t09+rt;
-
-	    rt =(t28-t29)*ISRT2;	t29=(t28+t29)*ISRT2;		t28=rt;
-	    rt =(t39+t38)*ISRT2;	it =(t39-t38)*ISRT2;
-	    t38=t28+rt;			t28=t28-rt;
-	    t39=t29+it;			t29=t29-it;
-
-	    a2p04r = t08+t28;		a2p04i = t09+t29;
-	    a2p05r = t08-t28;		a2p05i = t09-t29;
-
-	    a2p06r = t18-t39;		a2p06i = t19+t38;
-	    a2p07r = t18+t39;		a2p07i = t19-t38;
-
-/*...Block 3: t04,t14,t24,t34	*/
-	    rt =(t14-t15)*ISRT2;	it =(t14+t15)*ISRT2;
-	    t14=t04-rt;			t04=t04+rt;
-	    t15=t05-it;			t05=t05+it;
-
-	    rt =t24*c - t25*s;		t25=t25*c + t24*s;		t24=rt;
-	    rt =t34*s - t35*c;		it =t35*s + t34*c;
-	    t34=t24-rt;			t24=t24+rt;
-	    t35=t25-it;			t25=t25+it;
-
-	    a2p08r = t04+t24;		a2p08i = t05+t25;
-	    a2p09r = t04-t24;		a2p09i = t05-t25;
-
-	    a2p0Ar = t14-t35;		a2p0Ai = t15+t34;
-	    a2p0Br = t14+t35;		a2p0Bi = t15-t34;
-
-/*...Block 7: t0C,t1C,t2C,t3C	*/
-	    rt =(t1D+t1C)*ISRT2;	it =(t1D-t1C)*ISRT2;
-	    t1C=t0C+rt;			t0C=t0C-rt;
-	    t1D=t0D+it;			t0D=t0D-it;
-
-	    rt =t2C*s - t2D*c;		t2D=t2D*s + t2C*c;		t2C=rt;
-	    rt =t3C*c - t3D*s;		it =t3D*c + t3C*s;
-	    t3C=t2C+rt;			t2C=t2C-rt;
-	    t3D=t2D+it;			t2D=t2D-it;
-
-	    a2p0Cr = t0C+t2C;		a2p0Ci = t0D+t2D;
-	    a2p0Dr = t0C-t2C;		a2p0Di = t0D-t2D;
-
-	    a2p0Er = t1C-t3D;		a2p0Ei = t1D+t3C;
-	    a2p0Fr = t1C+t3D;		a2p0Fi = t1D-t3C;
-
-/*...Block 2: t02,t12,t22,t32	*/
-	    rt =t12*c - t13*s;		it =t13*c + t12*s;
-	    t12=t02-rt;			t02=t02+rt;
-	    t13=t03-it;			t03=t03+it;
-
-	    rt =t22*c32_1 - t23*s32_1;	t23=t23*c32_1 + t22*s32_1;	t22=rt;
-	    rt =t32*c32_3 - t33*s32_3;	it =t33*c32_3 + t32*s32_3;
-	    t32=t22-rt;			t22=t22+rt;
-	    t33=t23-it;			t23=t23+it;
-
-	    a2p10r = t02+t22;		a2p10i = t03+t23;
-	    a2p11r = t02-t22;		a2p11i = t03-t23;
-
-	    a2p12r = t12-t33;		a2p12i = t13+t32;
-	    a2p13r = t12+t33;		a2p13i = t13-t32;
-
-/*...Block 6: t0A,t1A,t2A,t3A	*/
-	    rt =t1A*s + t1B*c;		it =t1B*s - t1A*c;
-	    t1A=t0A+rt;			t0A =t0A-rt;
-	    t1B=t0B+it;			t0B =t0B-it;
-
-	    rt =t2A*s32_3 - t2B*c32_3;	t2B=t2B*s32_3 + t2A*c32_3;	t2A=rt;
-	    rt =t3A*c32_1 + t3B*s32_1;	it =t3B*c32_1 - t3A*s32_1;
-	    t3A=t2A+rt;			t2A=t2A-rt;
-	    t3B=t2B+it;			t2B=t2B-it;
-
-	    a2p14r = t0A+t2A;		a2p14i = t0B+t2B;
-	    a2p15r = t0A-t2A;		a2p15i = t0B-t2B;
-
-	    a2p16r = t1A-t3B;		a2p16i = t1B+t3A;
-	    a2p17r = t1A+t3B;		a2p17i = t1B-t3A;
-
-/*...Block 4: t06,t16,t26,t36	*/
-	    rt =t16*s - t17*c;		it =t17*s + t16*c;
-	    t16=t06-rt;			t06 =t06+rt;
-	    t17=t07-it;			t07 =t07+it;
-
-	    rt =t26*c32_3 - t27*s32_3;	t27=t27*c32_3 + t26*s32_3;	t26=rt;
-	    rt =t36*s32_1 + t37*c32_1;	it =t37*s32_1 - t36*c32_1;
-	    t36=t26+rt;			t26=t26-rt;
-	    t37=t27+it;			t27=t27-it;
-
-	    a2p18r = t06+t26;		a2p18i = t07+t27;
-	    a2p19r = t06-t26;		a2p19i = t07-t27;
-
-	    a2p1Ar = t16-t37;		a2p1Ai = t17+t36;
-	    a2p1Br = t16+t37;		a2p1Bi = t17-t36;
-
-/*...Block 8: t0E,t1E,t2E,t3E	*/
-	    rt =t1E*c + t1F*s;		it =t1F*c - t1E*s;
-	    t1E=t0E+rt;			t0E =t0E-rt;
-	    t1F=t0F+it;			t0F =t0F-it;
-
-	    rt =t2E*s32_1 - t2F*c32_1;	t2F=t2F*s32_1 + t2E*c32_1;	t2E=rt;
-	    rt =t3E*s32_3 - t3F*c32_3;	it =t3F*s32_3 + t3E*c32_3;
-	    t3E=t2E+rt;			t2E=t2E-rt;
-	    t3F=t2F+it;			t2F=t2F-it;
-
-	    a2p1Cr = t0E+t2E;		a2p1Ci = t0F+t2F;
-	    a2p1Dr = t0E-t2E;		a2p1Di = t0F-t2F;
-
-	    a2p1Er = t1E-t3F;		a2p1Ei = t1F+t3E;
-	    a2p1Fr = t1E+t3F;		a2p1Fi = t1F-t3E;
-
-/*...send the pairs of complex elements which are to be combined and sincos temporaries needed for the squaring to a
-     small subroutine. The j1 = 0 case is again exceptional.	*/
-
-	  if(j1==0)    	/* NB: mustn't use re, im as temps in exe1-3 section, since those contain saved sincos data for exe4 block.	*/
-	  {
-/*...j=0 (for which I(0)=Re{H(0)}^2+i*Im{H(0)}^2) is done separately...	*/
-
-	    rt=a1p00r;
-	    a1p00r=(rt+a1p00i)*(rt+a1p00i);
-	    a1p00i=(rt-a1p00i)*(rt-a1p00i);
-	    rt=a1p00r;
-	    a1p00r=0.5*(rt+a1p00i);
-	    a1p00i=0.5*(rt-a1p00i);
-
-/*...as is j=N/2 (for which I(j)=H(j)^2). Note that under bit-reversal the N/2 element gets mapped into
-     the second complex data slot, i.e. is adjacent to the starting element.	*/
-
-	    rt =a1p01r*a1p01i;
-	    a1p01r=(a1p01r+a1p01i)*(a1p01r-a1p01i);
-	    a1p01i=rt+rt;
-
-	    pair_square(&a1p02r,&a1p02i,&a1p03r,&a1p03i,0.0,1.0);		/* exe1	*/
-
-	    rt=ISRT2;	it=ISRT2;
-
-	    pair_square(&a1p04r,&a1p04i,&a1p07r,&a1p07i, rt, it);		/* exe2	*/
-	    pair_square(&a1p06r,&a1p06i,&a1p05r,&a1p05i,-it, rt);		/* exe2	*/
-
-	    t03=c; t04=0; t05=s; t06=0;
-	    rt=t03-t04;		it=t05+t06;
-
-	    pair_square(&a1p08r,&a1p08i,&a1p0Fr,&a1p0Fi, rt, it);		/* exe3	*/
-	    pair_square(&a1p0Ar,&a1p0Ai,&a1p0Dr,&a1p0Di,-it, rt);		/* exe3	*/
-
-	    rt=t05-t06;		it=t03+t04;
-
-	    pair_square(&a1p0Cr,&a1p0Ci,&a1p0Br,&a1p0Bi, rt, it);		/* exe3	*/
-	    pair_square(&a1p0Er,&a1p0Ei,&a1p09r,&a1p09i,-it, rt);		/* exe3	*/
-
-	    t03=c32_1; t04=0; t05=s32_1; t06=0;
-	    rt=t03-t04;		it=t05+t06;
-
-	    pair_square(&a1p10r,&a1p10i,&a1p1Fr,&a1p1Fi, rt, it);		/* exe4	*/
-	    pair_square(&a1p12r,&a1p12i,&a1p1Dr,&a1p1Di,-it, rt);		/* exe4	*/
-
-	    t07=c32_3; t08=0; t09=s32_3; t0A=0;
-	    rt=t09-t0A;		it=t07+t08;
-
-	    pair_square(&a1p14r,&a1p14i,&a1p1Br,&a1p1Bi, rt, it);		/* exe4	*/
-	    pair_square(&a1p16r,&a1p16i,&a1p19r,&a1p19i,-it, rt);		/* exe4	*/
-
-	    rt=t07-t08;		it=t09+t0A;
-
-	    pair_square(&a1p18r,&a1p18i,&a1p17r,&a1p17i, rt, it);		/* exe4	*/
-	    pair_square(&a1p1Ar,&a1p1Ai,&a1p15r,&a1p15i,-it, rt);		/* exe4	*/
-
-	    rt=t05-t06;		it=t03+t04;
-
-	    pair_square(&a1p1Cr,&a1p1Ci,&a1p13r,&a1p13i, rt, it);		/* exe4	*/
-	    pair_square(&a1p1Er,&a1p1Ei,&a1p11r,&a1p11i,-it, rt);		/* exe4	*/
-
-/*   exe5:	*/
-
-	    pair_square(&a2p00r,&a2p00i,&a2p1Fr,&a2p1Fi, re, im);
-	    pair_square(&a2p02r,&a2p02i,&a2p1Dr,&a2p1Di,-im, re);
-
-	    rt=(re-im)*ISRT2;	it=(re+im)*ISRT2;
-
-	    pair_square(&a2p04r,&a2p04i,&a2p1Br,&a2p1Bi, rt, it);
-	    pair_square(&a2p06r,&a2p06i,&a2p19r,&a2p19i,-it, rt);
-
-	    t03=re*c; t04=im*s; t05=re*s; t06=im*c;
-	    rt=t03-t04;		it=t05+t06;
-
-	    pair_square(&a2p08r,&a2p08i,&a2p17r,&a2p17i, rt, it);
-	    pair_square(&a2p0Ar,&a2p0Ai,&a2p15r,&a2p15i,-it, rt);
-
-	    rt=t05-t06;		it=t03+t04;
-
-	    pair_square(&a2p0Cr,&a2p0Ci,&a2p13r,&a2p13i, rt, it);
-	    pair_square(&a2p0Er,&a2p0Ei,&a2p11r,&a2p11i,-it, rt);
-
-	    t03=re*c32_1; t04=im*s32_1; t05=re*s32_1; t06=im*c32_1;
-	    rt=t03-t04;		it=t05+t06;
-
-	    pair_square(&a2p10r,&a2p10i,&a2p0Fr,&a2p0Fi, rt, it);
-	    pair_square(&a2p12r,&a2p12i,&a2p0Dr,&a2p0Di,-it, rt);
-
-	    t07=re*c32_3; t08=im*s32_3; t09=re*s32_3; t0A=im*c32_3;
-	    rt=t09-t0A;		it=t07+t08;
-
-	    pair_square(&a2p14r,&a2p14i,&a2p0Br,&a2p0Bi, rt, it);
-	    pair_square(&a2p16r,&a2p16i,&a2p09r,&a2p09i,-it, rt);
-
-	    rt=t07-t08;		it=t09+t0A;
-
-	    pair_square(&a2p18r,&a2p18i,&a2p07r,&a2p07i, rt, it);
-	    pair_square(&a2p1Ar,&a2p1Ai,&a2p05r,&a2p05i,-it, rt);
-
-	    rt=t05-t06;		it=t03+t04;
-
-	    pair_square(&a2p1Cr,&a2p1Ci,&a2p03r,&a2p03i, rt, it);
-	    pair_square(&a2p1Er,&a2p1Ei,&a2p01r,&a2p01i,-it, rt);
-	  }
-	  else
-	  {
-	  #if 0	/* Old version of the code, before SSE2-friendly rearrangement: */
-
-		#error radix32_wrapper square: please use SSE2-style pair_square call sequence!
-	  /*
-		pair_square(&a1p00r,&a1p00i,&a2p1Fr,&a2p1Fi, re, im);	pair_square(&a2p1Er,&a2p1Ei,&a1p01r,&a1p01i,-re, im);
-		pair_square(&a1p02r,&a1p02i,&a2p1Dr,&a2p1Di,-im, re);	pair_square(&a2p1Cr,&a2p1Ci,&a1p03r,&a1p03i, im, re);
-	  */
-		PAIR_SQUARE2A(a1p00r,a1p00i,a2p1Fr,a2p1Fi,a1p02r,a1p02i,a2p1Dr,a2p1Di, re, im);
-		PAIR_SQUARE2B(a2p1Er,a2p1Ei,a1p01r,a1p01i,a2p1Cr,a2p1Ci,a1p03r,a1p03i, re, im);
-
-		rt=(re-im)*ISRT2;	it=(re+im)*ISRT2;
-
-	  /*
-		pair_square(&a1p04r,&a1p04i,&a2p1Br,&a2p1Bi, rt, it);	pair_square(&a2p1Ar,&a2p1Ai,&a1p05r,&a1p05i,-rt, it);
-		pair_square(&a1p06r,&a1p06i,&a2p19r,&a2p19i,-it, rt);	pair_square(&a2p18r,&a2p18i,&a1p07r,&a1p07i, it, rt);
-	  */
-		PAIR_SQUARE2A(a1p04r,a1p04i,a2p1Br,a2p1Bi,a1p06r,a1p06i,a2p19r,a2p19i, rt, it);
-		PAIR_SQUARE2B(a2p1Ar,a2p1Ai,a1p05r,a1p05i,a2p18r,a2p18i,a1p07r,a1p07i, rt, it);
-
-		t03=re*c; t04=im*s; t05=re*s; t06=im*c;
-		rt=t03-t04;		it=t05+t06;
-
-	  /*
-		pair_square(&a1p08r,&a1p08i,&a2p17r,&a2p17i, rt, it);	pair_square(&a2p16r,&a2p16i,&a1p09r,&a1p09i,-rt, it);
-		pair_square(&a1p0Ar,&a1p0Ai,&a2p15r,&a2p15i,-it, rt);	pair_square(&a2p14r,&a2p14i,&a1p0Br,&a1p0Bi, it, rt);
-	  */
-		PAIR_SQUARE2A(a1p08r,a1p08i,a2p17r,a2p17i,a1p0Ar,a1p0Ai,a2p15r,a2p15i, rt, it);
-		PAIR_SQUARE2B(a2p16r,a2p16i,a1p09r,a1p09i,a2p14r,a2p14i,a1p0Br,a1p0Bi, rt, it);
-
-		rt=t05-t06;		it=t03+t04;
-
-	  /*
-		pair_square(&a1p0Cr,&a1p0Ci,&a2p13r,&a2p13i, rt, it);	pair_square(&a2p12r,&a2p12i,&a1p0Dr,&a1p0Di,-rt, it);
-		pair_square(&a1p0Er,&a1p0Ei,&a2p11r,&a2p11i,-it, rt);	pair_square(&a2p10r,&a2p10i,&a1p0Fr,&a1p0Fi, it, rt);
-	  */
-		PAIR_SQUARE2A(a1p0Cr,a1p0Ci,a2p13r,a2p13i,a1p0Er,a1p0Ei,a2p11r,a2p11i, rt, it);
-		PAIR_SQUARE2B(a2p12r,a2p12i,a1p0Dr,a1p0Di,a2p10r,a2p10i,a1p0Fr,a1p0Fi, rt, it);
-
-		t03=re*c32_1; t04=im*s32_1; t05=re*s32_1; t06=im*c32_1;
-		rt=t03-t04;		it=t05+t06;
-
-	  /*
-		pair_square(&a1p10r,&a1p10i,&a2p0Fr,&a2p0Fi, rt, it);	pair_square(&a2p0Er,&a2p0Ei,&a1p11r,&a1p11i,-rt, it);
-		pair_square(&a1p12r,&a1p12i,&a2p0Dr,&a2p0Di,-it, rt);	pair_square(&a2p0Cr,&a2p0Ci,&a1p13r,&a1p13i, it, rt);
-	  */
-		PAIR_SQUARE2A(a1p10r,a1p10i,a2p0Fr,a2p0Fi,a1p12r,a1p12i,a2p0Dr,a2p0Di, rt, it);
-		PAIR_SQUARE2B(a2p0Er,a2p0Ei,a1p11r,a1p11i,a2p0Cr,a2p0Ci,a1p13r,a1p13i, rt, it);
-
-		t07=re*c32_3; t08=im*s32_3; t09=re*s32_3; t0A=im*c32_3;
-		rt=t09-t0A;		it=t07+t08;
-
-	  /*
-		pair_square(&a1p14r,&a1p14i,&a2p0Br,&a2p0Bi, rt, it);	pair_square(&a2p0Ar,&a2p0Ai,&a1p15r,&a1p15i,-rt, it);
-		pair_square(&a1p16r,&a1p16i,&a2p09r,&a2p09i,-it, rt);	pair_square(&a2p08r,&a2p08i,&a1p17r,&a1p17i, it, rt);
-	  */
-		PAIR_SQUARE2A(a1p14r,a1p14i,a2p0Br,a2p0Bi,a1p16r,a1p16i,a2p09r,a2p09i, rt, it);
-		PAIR_SQUARE2B(a2p0Ar,a2p0Ai,a1p15r,a1p15i,a2p08r,a2p08i,a1p17r,a1p17i, rt, it);
-
-		rt=t07-t08;		it=t09+t0A;
-
-	  /*
-		pair_square(&a1p18r,&a1p18i,&a2p07r,&a2p07i, rt, it);	pair_square(&a2p06r,&a2p06i,&a1p19r,&a1p19i,-rt, it);
-		pair_square(&a1p1Ar,&a1p1Ai,&a2p05r,&a2p05i,-it, rt);	pair_square(&a2p04r,&a2p04i,&a1p1Br,&a1p1Bi, it, rt);
-	  */
-		PAIR_SQUARE2A(a1p18r,a1p18i,a2p07r,a2p07i,a1p1Ar,a1p1Ai,a2p05r,a2p05i, rt, it);
-		PAIR_SQUARE2B(a2p06r,a2p06i,a1p19r,a1p19i,a2p04r,a2p04i,a1p1Br,a1p1Bi, rt, it);
-
-		rt=t05-t06;		it=t03+t04;
-
-	  /*
-		pair_square(&a1p1Cr,&a1p1Ci,&a2p03r,&a2p03i, rt, it);	pair_square(&a2p02r,&a2p02i,&a1p1Dr,&a1p1Di,-rt, it);
-		pair_square(&a1p1Er,&a1p1Ei,&a2p01r,&a2p01i,-it, rt);	pair_square(&a2p00r,&a2p00i,&a1p1Fr,&a1p1Fi, it, rt);
-	  */
-		PAIR_SQUARE2A(a1p1Cr,a1p1Ci,a2p03r,a2p03i,a1p1Er,a1p1Ei,a2p01r,a2p01i, rt, it);
-		PAIR_SQUARE2B(a2p02r,a2p02i,a1p1Dr,a1p1Di,a2p00r,a2p00i,a1p1Fr,a1p1Fi, rt, it);
-
-	  #else
-
-		t01=(re-im)*ISRT2;	t02=(re+im)*ISRT2;
-
-		re0=re*c;	im0=im*s;	re1=re*s;	im1=im*c;
-		t03=re0-im0;	t04=re1+im1;
-		t05=re1-im1;	t06=re0+im0;
-
-		re0=re*c32_1;	im0=im*s32_1;	re1=re*s32_1;	im1=im*c32_1;
-		t07=re0-im0;	t08=re1+im1;
-		t09=re1-im1;	t0A=re0+im0;
-
-		re0=re*c32_3;	im0=im*s32_3;	re1=re*s32_3;	im1=im*c32_3;
-		t0B=re1-im1;	t0C=re0+im0;
-		t0D=re0-im0;	t0E=re1+im1;
-	  /*
-		PAIR_SQUARE2A(a1p00r,a1p00i,a2p1Fr,a2p1Fi,a1p02r,a1p02i,a2p1Dr,a2p1Di, re, im);
-		PAIR_SQUARE2B(a2p1Er,a2p1Ei,a1p01r,a1p01i,a2p1Cr,a2p1Ci,a1p03r,a1p03i, re, im);
-
-		PAIR_SQUARE2A(a1p04r,a1p04i,a2p1Br,a2p1Bi,a1p06r,a1p06i,a2p19r,a2p19i,t01,t02);
-		PAIR_SQUARE2B(a2p1Ar,a2p1Ai,a1p05r,a1p05i,a2p18r,a2p18i,a1p07r,a1p07i,t01,t02);
-
-		PAIR_SQUARE2A(a1p08r,a1p08i,a2p17r,a2p17i,a1p0Ar,a1p0Ai,a2p15r,a2p15i,t03,t04);
-		PAIR_SQUARE2B(a2p16r,a2p16i,a1p09r,a1p09i,a2p14r,a2p14i,a1p0Br,a1p0Bi,t03,t04);
-
-		PAIR_SQUARE2A(a1p0Cr,a1p0Ci,a2p13r,a2p13i,a1p0Er,a1p0Ei,a2p11r,a2p11i,t05,t06);
-		PAIR_SQUARE2B(a2p12r,a2p12i,a1p0Dr,a1p0Di,a2p10r,a2p10i,a1p0Fr,a1p0Fi,t05,t06);
-
-		PAIR_SQUARE2A(a1p10r,a1p10i,a2p0Fr,a2p0Fi,a1p12r,a1p12i,a2p0Dr,a2p0Di,t07,t08);
-		PAIR_SQUARE2B(a2p0Er,a2p0Ei,a1p11r,a1p11i,a2p0Cr,a2p0Ci,a1p13r,a1p13i,t07,t08);
-
-		PAIR_SQUARE2A(a1p14r,a1p14i,a2p0Br,a2p0Bi,a1p16r,a1p16i,a2p09r,a2p09i,t0B,t0C);
-		PAIR_SQUARE2B(a2p0Ar,a2p0Ai,a1p15r,a1p15i,a2p08r,a2p08i,a1p17r,a1p17i,t0B,t0C);
-
-		PAIR_SQUARE2A(a1p18r,a1p18i,a2p07r,a2p07i,a1p1Ar,a1p1Ai,a2p05r,a2p05i,t0D,t0E);
-		PAIR_SQUARE2B(a2p06r,a2p06i,a1p19r,a1p19i,a2p04r,a2p04i,a1p1Br,a1p1Bi,t0D,t0E);
-
-		PAIR_SQUARE2A(a1p1Cr,a1p1Ci,a2p03r,a2p03i,a1p1Er,a1p1Ei,a2p01r,a2p01i,t09,t0A);
-		PAIR_SQUARE2B(a2p02r,a2p02i,a1p1Dr,a1p1Di,a2p00r,a2p00i,a1p1Fr,a1p1Fi,t09,t0A);
-	  */
-		PAIR_SQUARE_4(a1p00r,a1p00i,a2p1Fr,a2p1Fi,a1p02r,a1p02i,a2p1Dr,a2p1Di, re, im
-					, a2p02r,a2p02i,a1p1Dr,a1p1Di,a2p00r,a2p00i,a1p1Fr,a1p1Fi,t09,t0A);
-
-		PAIR_SQUARE_4(a1p04r,a1p04i,a2p1Br,a2p1Bi,a1p06r,a1p06i,a2p19r,a2p19i,t01,t02
-					, a2p06r,a2p06i,a1p19r,a1p19i,a2p04r,a2p04i,a1p1Br,a1p1Bi,t0D,t0E);
-
-		PAIR_SQUARE_4(a1p08r,a1p08i,a2p17r,a2p17i,a1p0Ar,a1p0Ai,a2p15r,a2p15i,t03,t04
-					, a2p0Ar,a2p0Ai,a1p15r,a1p15i,a2p08r,a2p08i,a1p17r,a1p17i,t0B,t0C);
-
-		PAIR_SQUARE_4(a1p0Cr,a1p0Ci,a2p13r,a2p13i,a1p0Er,a1p0Ei,a2p11r,a2p11i,t05,t06
-					, a2p0Er,a2p0Ei,a1p11r,a1p11i,a2p0Cr,a2p0Ci,a1p13r,a1p13i,t07,t08);
-
-		PAIR_SQUARE_4(a1p10r,a1p10i,a2p0Fr,a2p0Fi,a1p12r,a1p12i,a2p0Dr,a2p0Di,t07,t08
-					, a2p12r,a2p12i,a1p0Dr,a1p0Di,a2p10r,a2p10i,a1p0Fr,a1p0Fi,t05,t06);
-
-		PAIR_SQUARE_4(a1p14r,a1p14i,a2p0Br,a2p0Bi,a1p16r,a1p16i,a2p09r,a2p09i,t0B,t0C
-					, a2p16r,a2p16i,a1p09r,a1p09i,a2p14r,a2p14i,a1p0Br,a1p0Bi,t03,t04);
-
-		PAIR_SQUARE_4(a1p18r,a1p18i,a2p07r,a2p07i,a1p1Ar,a1p1Ai,a2p05r,a2p05i,t0D,t0E
-					, a2p1Ar,a2p1Ai,a1p05r,a1p05i,a2p18r,a2p18i,a1p07r,a1p07i,t01,t02);
-
-		PAIR_SQUARE_4(a1p1Cr,a1p1Ci,a2p03r,a2p03i,a1p1Er,a1p1Ei,a2p01r,a2p01i,t09,t0A
-					, a2p1Er,a2p1Ei,a1p01r,a1p01i,a2p1Cr,a2p1Ci,a1p03r,a1p03i, re, im);
+		SSE2_RADIX32_WRAPPER_DIT(add0,add1          ,isrt2,r00,r08,r10,r20,r28,r30,c01,c02,c04,c06,c08,c0A,c0C,c0E,c10,c12,c14,c16,c18,c1A,c1C,c1E)
 
 	  #endif
 
-	  }	/* endif(j1==0)	*/
-
-/*...And do an inverse DIT radix-32 pass on the squared-data blocks.	*/
-
-	/*************************************************************/
-	/*                  1st set of inputs:                       */
-	/*************************************************************/
-	    rdum = j1pad;
-	    idum = j1pad+RE_IM_STRIDE;
-#if PFETCH
-addr = &a[rdum+64];
-#endif
-/*   gather the needed data (32 64-bit complex, i.e. 64 64-bit reals) and do the first set of four length-8 IDIT transforms... */
-
-/*...Block 1: */
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
-	    t02=a1p00r-a1p01r;	t03=a1p00i-a1p01i;
-	    t00=a1p00r+a1p01r;	t01=a1p00i+a1p01i;
-
-	    t06=a1p02r-a1p03r;	t07=a1p02i-a1p03i;
-	    t04=a1p02r+a1p03r;	t05=a1p02i+a1p03i;
-
-	    rt =t04;		it =t05;
-	    t04=t00-rt;		t05=t01-it;
-	    t00=t00+rt;		t01=t01+it;
-
-	    rt =t06;		it =t07;
-	    t06=t02-it;		t07=t03+rt;
-	    t02=t02+it;		t03=t03-rt;
-
-	    t0A=a1p04r-a1p05r;	t0B=a1p04i-a1p05i;
-	    t08=a1p04r+a1p05r;	t09=a1p04i+a1p05i;
-
-	    t0E=a1p06r-a1p07r;	t0F=a1p06i-a1p07i;
-	    t0C=a1p06r+a1p07r;	t0D=a1p06i+a1p07i;
-
-	    rt =t0C;		it =t0D;
-	    t0C=t08-rt;		t0D=t09-it;
-	    t08=t08+rt;		t09=t09+it;
-
-	    rt =t0E;		it =t0F;
-	    t0E=t0A-it;		t0F=t0B+rt;
-	    t0A=t0A+it;		t0B=t0B-rt;
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
 	#endif
-addr += 4;
-#endif
-	    rt =t08;		it =t09;
-	    t08=t00-rt;		t09=t01-it;
-	    t00=t00+rt;		t01=t01+it;
 
-	    rt =t0C;		it =t0D;
-	    t0C=t04-it;		t0D=t05+rt;
-	    t04=t04+it;		t05=t05-rt;
-
-	    rt =(t0A+t0B)*ISRT2;it =(t0A-t0B)*ISRT2;
-	    t0A=t02-rt;		t0B=t03+it;
-	    t02=t02+rt;		t03=t03-it;
-
-	    rt =(t0E-t0F)*ISRT2;it =(t0F+t0E)*ISRT2;
-	    t0E=t06+rt;		t0F=t07+it;
-	    t06=t06-rt;		t07=t07-it;
-
-/*...Block 2:	*/
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
-	    t12=a1p08r-a1p09r;	t13=a1p08i-a1p09i;
-	    t10=a1p08r+a1p09r;	t11=a1p08i+a1p09i;
-
-	    t16=a1p0Ar-a1p0Br;	t17=a1p0Ai-a1p0Bi;
-	    t14=a1p0Ar+a1p0Br;	t15=a1p0Ai+a1p0Bi;
-
-	    rt =t14;		it =t15;
-	    t14=t10-rt;		t15=t11-it;
-	    t10=t10+rt;		t11=t11+it;
-
-	    rt =t16;		it =t17;
-	    t16=t12-it;		t17=t13+rt;
-	    t12=t12+it;		t13=t13-rt;
-
-	    t1A=a1p0Cr-a1p0Dr;	t1B=a1p0Ci-a1p0Di;
-	    t18=a1p0Cr+a1p0Dr;	t19=a1p0Ci+a1p0Di;
-
-	    t1E=a1p0Er-a1p0Fr;	t1F=a1p0Ei-a1p0Fi;
-	    t1C=a1p0Er+a1p0Fr;	t1D=a1p0Ei+a1p0Fi;
-
-	    rt =t1C;		it =t1D;
-	    t1C=t18-rt;		t1D=t19-it;
-	    t18=t18+rt;		t19=t19+it;
-
-	    rt =t1E;		it =t1F;
-	    t1E=t1A-it;		t1F=t1B+rt;
-	    t1A=t1A+it;		t1B=t1B-rt;
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
-	#endif
-addr += 4;
-#endif
-	    rt =t18;		it =t19;
-	    t18=t10-rt;		t19=t11-it;
-	    t10=t10+rt;		t11=t11+it;
-
-	    rt =t1C;		it =t1D;
-	    t1C=t14-it;		t1D=t15+rt;
-	    t14=t14+it;		t15=t15-rt;
-
-	    rt =(t1A+t1B)*ISRT2;it =(t1A-t1B)*ISRT2;
-	    t1A=t12-rt;		t1B=t13+it;
-	    t12=t12+rt;		t13=t13-it;
-
-	    rt =(t1E-t1F)*ISRT2;it =(t1F+t1E)*ISRT2;
-	    t1E=t16+rt;		t1F=t17+it;
-	    t16=t16-rt;		t17=t17-it;
-
-/*...Block 3:	*/
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
-	    t22=a1p10r-a1p11r;	t23=a1p10i-a1p11i;
-	    t20=a1p10r+a1p11r;	t21=a1p10i+a1p11i;
-
-	    t26=a1p12r-a1p13r;	t27=a1p12i-a1p13i;
-	    t24=a1p12r+a1p13r;	t25=a1p12i+a1p13i;
-
-	    rt =t24;		it =t25;
-	    t24=t20-rt;		t25=t21-it;
-	    t20=t20+rt;		t21=t21+it;
-
-	    rt =t26;		it =t27;
-	    t26=t22-it;		t27=t23+rt;
-	    t22=t22+it;		t23=t23-rt;
-
-	    t2A=a1p14r-a1p15r;	t2B=a1p14i-a1p15i;
-	    t28=a1p14r+a1p15r;	t29=a1p14i+a1p15i;
-
-	    t2E=a1p16r-a1p17r;	t2F=a1p16i-a1p17i;
-	    t2C=a1p16r+a1p17r;	t2D=a1p16i+a1p17i;
-
-	    rt =t2C;		it =t2D;
-	    t2C=t28-rt;		t2D=t29-it;
-	    t28=t28+rt;		t29=t29+it;
-
-	    rt =t2E;		it =t2F;
-	    t2E=t2A-it;		t2F=t2B+rt;
-	    t2A=t2A+it;		t2B=t2B-rt;
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
-	#endif
-addr += 4;
-#endif
-	    rt =t28;		it =t29;
-	    t28=t20-rt;		t29=t21-it;
-	    t20=t20+rt;		t21=t21+it;
-
-	    rt =t2C;		it =t2D;
-	    t2C=t24-it;		t2D=t25+rt;
-	    t24=t24+it;		t25=t25-rt;
-
-	    rt =(t2A+t2B)*ISRT2;it =(t2A-t2B)*ISRT2;
-	    t2A=t22-rt;		t2B=t23+it;
-	    t22=t22+rt;		t23=t23-it;
-
-	    rt =(t2E-t2F)*ISRT2;it =(t2F+t2E)*ISRT2;
-	    t2E=t26+rt;		t2F=t27+it;
-	    t26=t26-rt;		t27=t27-it;
-
-/*...Block 4:	*/
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
-	    t32=a1p18r-a1p19r;	t33=a1p18i-a1p19i;
-	    t30=a1p18r+a1p19r;	t31=a1p18i+a1p19i;
-
-	    t36=a1p1Ar-a1p1Br;	t37=a1p1Ai-a1p1Bi;
-	    t34=a1p1Ar+a1p1Br;	t35=a1p1Ai+a1p1Bi;
-
-	    rt =t34;		it =t35;
-	    t34=t30-rt;		t35=t31-it;
-	    t30=t30+rt;		t31=t31+it;
-
-	    rt =t36;		it =t37;
-	    t36=t32-it;		t37=t33+rt;
-	    t32=t32+it;		t33=t33-rt;
-
-	    t3A=a1p1Cr-a1p1Dr;	t3B=a1p1Ci-a1p1Di;
-	    t38=a1p1Cr+a1p1Dr;	t39=a1p1Ci+a1p1Di;
-
-	    t3E=a1p1Er-a1p1Fr;	t3F=a1p1Ei-a1p1Fi;
-	    t3C=a1p1Er+a1p1Fr;	t3D=a1p1Ei+a1p1Fi;
-
-	    rt =t3C;		it =t3D;
-	    t3C=t38-rt;		t3D=t39-it;
-	    t38=t38+rt;		t39=t39+it;
-
-	    rt =t3E;		it =t3F;
-	    t3E=t3A-it;		t3F=t3B+rt;
-	    t3A=t3A+it;		t3B=t3B-rt;
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
-	#endif
-addr += 4;
-#endif
-	    rt =t38;		it =t39;
-	    t38=t30-rt;		t39=t31-it;
-	    t30=t30+rt;		t31=t31+it;
-
-	    rt =t3C;		it =t3D;
-	    t3C=t34-it;		t3D=t35+rt;
-	    t34=t34+it;		t35=t35-rt;
-
-	    rt =(t3A+t3B)*ISRT2;it =(t3A-t3B)*ISRT2;
-	    t3A=t32-rt;		t3B=t33+it;
-	    t32=t32+rt;		t33=t33-it;
-
-	    rt =(t3E-t3F)*ISRT2;it =(t3F+t3E)*ISRT2;
-	    t3E=t36+rt;		t3F=t37+it;
-	    t36=t36-rt;		t37=t37-it;
-
-/*...and now do eight radix-4 transforms, including the internal twiddle factors:
-	1, exp(-i* 1*twopi/32) =       ( c32_1,-s32_1), exp(-i* 2*twopi/32) =       ( c    ,-s    ), exp(-i* 3*twopi/32) =       ( c32_3,-s32_3) (for inputs to transform block 2),
-	1, exp(-i* 2*twopi/32) =       ( c    ,-s    ), exp(-i* 4*twopi/32) = ISRT2*( 1    ,-1    ), exp(-i* 3*twopi/32) =       ( s    ,-c    ) (for inputs to transform block 3),
-	1, exp(-i* 3*twopi/32) =       ( c32_3,-s32_3), exp(-i* 6*twopi/32) =       ( s    ,-c    ), exp(-i* 9*twopi/32) =       (-s32_1,-c32_1) (for inputs to transform block 4),
-	1, exp(-i* 4*twopi/32) = ISRT2*( 1    ,-1    ), exp(-i* 8*twopi/32) =       ( 0    ,-1    ), exp(-i*12*twopi/32) = ISRT2*(-1    ,-1    ) (for inputs to transform block 5),
-	1, exp(-i* 5*twopi/32) =       ( s32_3,-c32_3), exp(-i*10*twopi/32) =       (-s    ,-c    ), exp(-i*15*twopi/32) =       (-c32_1,-s32_1) (for inputs to transform block 6),
-	1, exp(-i* 6*twopi/32) =       ( s    ,-c    ), exp(-i*12*twopi/32) = ISRT2*(-1    ,-1    ), exp(-i*18*twopi/32) =       (-c    , s    ) (for inputs to transform block 7),
-	1, exp(-i* 7*twopi/32) =       ( s32_1,-c32_1), exp(-i*14*twopi/32) =       (-c    ,-s    ), exp(-i*21*twopi/32) =       (-s32_3, c32_3) (for inputs to transform block 8),
-   and only the last 3 inputs to each of the radix-4 transforms 2 through 8 are multiplied by non-unity twiddles.	*/
-
-/*...Block 1: t00,t10,t20,t30	*/
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
-	    rt =t10;	t10=t00-rt;	t00=t00+rt;
-	    it =t11;	t11=t01-it;	t01=t01+it;
-
-	    rt =t30;	t30=t20-rt;	t20=t20+rt;
-	    it =t31;	t31=t21-it;	t21=t21+it;
-
-	    a[rdum   ]=t00+t20;			a[idum   ]=t01+t21;
-	    t00       =t00-t20;			t01       =t01-t21;
-	    a[rdum+32]=t00*c10+t01*s10;	a[idum+32]=t01*c10-t00*s10;
-
-	    rt        =t10+t31;			it        =t11-t30;
-	    t10       =t10-t31;			t11       =t11+t30;
-	    a[rdum+16]=rt *c08+it *s08;	a[idum+16]=it *c08-rt *s08;
-	    a[rdum+48]=t10*c18+t11*s18;	a[idum+48]=t11*c18-t10*s18;
-
-/*...Block 5: t08,t18,t28,t38	*/
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
-	#endif
-addr += 4;
-#endif
-	    rt =t18;	t18=t08-t19;	t08=t08+t19;
-					t19=t09+rt;		t09=t09-rt;
-
-	    rt =(t29+t28)*ISRT2;		t29=(t29-t28)*ISRT2;		t28=rt;
-	    rt =(t38-t39)*ISRT2;		it =(t38+t39)*ISRT2;
-	    t38=t28+rt;					t28=t28-rt;
-	    t39=t29+it;					t29=t29-it;
-
-	    rt        =t08+t28;			it        =t09+t29;
-	    t08       =t08-t28;			t09       =t09-t29;
-	    a[rdum+8 ]=rt *c04+it *s04;	a[idum+8 ]=it *c04-rt *s04;
-	    a[rdum+40]=t08*c14+t09*s14;	a[idum+40]=t09*c14-t08*s14;
-
-	    rt        =t18+t39;			it        =t19-t38;
-	    t18       =t18-t39;			t19       =t19+t38;
-	    a[rdum+24]=rt *c0C+it *s0C;	a[idum+24]=it *c0C-rt *s0C;
-	    a[rdum+56]=t18*c1C+t19*s1C;	a[idum+56]=t19*c1C-t18*s1C;
-
-/*...Block 3: t04,t14,t24,t34	*/
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
-	    rt =(t15+t14)*ISRT2;		it =(t15-t14)*ISRT2;
-	    t14=t04-rt;					t04=t04+rt;
-	    t15=t05-it;					t05=t05+it;
-
-	    rt =t24*c + t25*s;			t25=t25*c - t24*s;		t24=rt;
-	    rt =t34*s + t35*c;			it =t35*s - t34*c;
-	    t34=t24-rt;					t24=t24+rt;
-	    t35=t25-it;					t25=t25+it;
-
-	    rt        =t04+t24;			it        =t05+t25;
-	    t04       =t04-t24;			t05       =t05-t25;
-	    a[rdum+4 ]=rt *c02+it *s02;	a[idum+4 ]=it *c02-rt *s02;
-	    a[rdum+36]=t04*c12+t05*s12;	a[idum+36]=t05*c12-t04*s12;
-
-	    rt        =t14+t35;			it        =t15-t34;
-	    t14       =t14-t35;			t15       =t15+t34;
-	    a[rdum+20]=rt *c0A+it *s0A;	a[idum+20]=it *c0A-rt *s0A;
-	    a[rdum+52]=t14*c1A+t15*s1A;	a[idum+52]=t15*c1A-t14*s1A;
-
-/*...Block 7: t0C,t1C,t2C,t3C	*/
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
-	#endif
-addr += 4;
-#endif
-	    rt =(t1C-t1D)*ISRT2;		it =(t1C+t1D)*ISRT2;
-	    t1C=t0C+rt;					t0C=t0C-rt;
-	    t1D=t0D+it;					t0D=t0D-it;
-
-	    rt =t2C*s + t2D*c;			t2D=t2D*s - t2C*c;		t2C=rt;
-	    rt =t3C*c + t3D*s;			it =t3D*c - t3C*s;
-	    t3C=t2C+rt;					t2C=t2C-rt;
-	    t3D=t2D+it;					t2D=t2D-it;
-
-	    rt        =t0C+t2C;			it        =t0D+t2D;
-	    t0C       =t0C-t2C;			t0D       =t0D-t2D;
-	    a[rdum+12]=rt *c06+it *s06;	a[idum+12]=it *c06-rt *s06;
-	    a[rdum+44]=t0C*c16+t0D*s16;	a[idum+44]=t0D*c16-t0C*s16;
-
-	    rt        =t1C+t3D;			it        =t1D-t3C;
-	    t1C       =t1C-t3D;			t1D       =t1D+t3C;
-	    a[rdum+28]=rt *c0E+it *s0E;	a[idum+28]=it *c0E-rt *s0E;
-	    a[rdum+60]=t1C*c1E+t1D*s1E;	a[idum+60]=t1D*c1E-t1C*s1E;
-
-/*...Block 2: t02,t12,t22,t32	*/
-	#ifdef USE_SSE2
-		--rdum;
-		--idum;
-	#endif
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
-	    rt =t12*c + t13*s;			it =t13*c - t12*s;
-	    t12=t02-rt;					t02=t02+rt;
-	    t13=t03-it;					t03=t03+it;
-
-	    rt =t22*c32_1 + t23*s32_1;	t23=t23*c32_1 - t22*s32_1;	t22=rt;
-	    rt =t32*c32_3 + t33*s32_3;	it =t33*c32_3 - t32*s32_3;
-	    t32=t22-rt;					t22=t22+rt;
-	    t33=t23-it;					t23=t23+it;
-
-	    rt        =t02+t22;			it        =t03+t23;
-	    t02       =t02-t22;			t03       =t03-t23;
-	    a[rdum+2 ]=rt *c01+it *s01;	a[idum+2 ]=it *c01-rt *s01;
-	    a[rdum+34]=t02*c11+t03*s11;	a[idum+34]=t03*c11-t02*s11;
-
-	    rt        =t12+t33;			it        =t13-t32;
-	    t12       =t12-t33;			t13       =t13+t32;
-	    a[rdum+18]=rt *c09+it *s09;	a[idum+18]=it *c09-rt *s09;
-	    a[rdum+50]=t12*c19+t13*s19;	a[idum+50]=t13*c19-t12*s19;
-
-/*...Block 6: t0A,t1A,t2A,t3A	*/
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
-	#endif
-addr += 4;
-#endif
-	    rt =t1A*s - t1B*c;			it =t1B*s + t1A*c;
-	    t1A=t0A+rt;					t0A =t0A-rt;
-	    t1B=t0B+it;					t0B =t0B-it;
-
-	    rt =t2A*s32_3 + t2B*c32_3;	t2B=t2B*s32_3 - t2A*c32_3;	t2A=rt;
-	    rt =t3A*c32_1 - t3B*s32_1;	it =t3B*c32_1 + t3A*s32_1;
-	    t3A=t2A+rt;					t2A=t2A-rt;
-	    t3B=t2B+it;					t2B=t2B-it;
-
-	    rt        =t0A+t2A;			it        =t0B+t2B;
-	    t0A       =t0A-t2A;			t0B       =t0B-t2B;
-	    a[rdum+10]=rt *c05+it *s05;	a[idum+10]=it *c05-rt *s05;
-	    a[rdum+42]=t0A*c15+t0B*s15;	a[idum+42]=t0B*c15-t0A*s15;
-
-	    rt        =t1A+t3B;			it        =t1B-t3A;
-	    t1A       =t1A-t3B;			t1B       =t1B+t3A;
-	    a[rdum+26]=rt *c0D+it *s0D;	a[idum+26]=it *c0D-rt *s0D;
-	    a[rdum+58]=t1A*c1D+t1B*s1D;	a[idum+58]=t1B*c1D-t1A*s1D;
-
-/*...Block 4: t06,t16,t26,t36	*/
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
-	    rt =t16*s + t17*c;			it =t17*s - t16*c;
-	    t16=t06-rt;					t06 =t06+rt;
-	    t17=t07-it;					t07 =t07+it;
-
-	    rt =t26*c32_3 + t27*s32_3;	t27=t27*c32_3 - t26*s32_3;	t26=rt;
-	    rt =t36*s32_1 - t37*c32_1;	it =t37*s32_1 + t36*c32_1;
-	    t36=t26+rt;					t26=t26-rt;
-	    t37=t27+it;					t27=t27-it;
-
-	    rt        =t06+t26;			it        =t07+t27;
-	    t06       =t06-t26;			t07       =t07-t27;
-	    a[rdum+6 ]=rt *c03+it *s03;	a[idum+6 ]=it *c03-rt *s03;
-	    a[rdum+38]=t06*c13+t07*s13;	a[idum+38]=t07*c13-t06*s13;
-
-	    rt        =t16+t37;			it        =t17-t36;
-	    t16       =t16-t37;			t17       =t17+t36;
-	    a[rdum+22]=rt *c0B+it *s0B;	a[idum+22]=it *c0B-rt *s0B;
-	    a[rdum+54]=t16*c1B+t17*s1B;	a[idum+54]=t17*c1B-t16*s1B;
-
-/*...Block 8: t0E,t1E,t2E,t3E	*/
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
-	#endif
-addr += 4;
-#endif
-	    rt =t1E*c - t1F*s;			it =t1F*c + t1E*s;
-	    t1E=t0E+rt;					t0E =t0E-rt;
-	    t1F=t0F+it;					t0F =t0F-it;
-
-	    rt =t2E*s32_1 + t2F*c32_1;	t2F=t2F*s32_1 - t2E*c32_1;	t2E=rt;
-	    rt =t3E*s32_3 + t3F*c32_3;	it =t3F*s32_3 - t3E*c32_3;
-	    t3E=t2E+rt;					t2E=t2E-rt;
-	    t3F=t2F+it;					t2F=t2F-it;
-
-	    rt        =t0E+t2E;			it        =t0F+t2F;
-	    t0E       =t0E-t2E;			t0F       =t0F-t2F;
-	    a[rdum+14]=rt *c07+it *s07;	a[idum+14]=it *c07-rt *s07;
-	    a[rdum+46]=t0E*c17+t0F*s17;	a[idum+46]=t0F*c17-t0E*s17;
-
-	    rt        =t1E+t3F;			it        =t1F-t3E;
-	    t1E       =t1E-t3F;			t1F       =t1F+t3E;
-	    a[rdum+30]=rt *c0F+it *s0F;	a[idum+30]=it *c0F-rt *s0F;
-	    a[rdum+62]=t1E*c1F+t1F*s1F;	a[idum+62]=t1F*c1F-t1E*s1F;
-
-	/*************************************************************/
-	/*                  2nd set of inputs:                       */
-	/*************************************************************/
-	    rdum = j2pad;
-	    idum = j2pad+RE_IM_STRIDE;
-#if PFETCH
-addr = &a[rdum-64];
-#endif
-/*...Block 1: */
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
-/*...Block 1:	*/
-	    t02=a2p00r-a2p01r;	t03=a2p00i-a2p01i;
-	    t00=a2p00r+a2p01r;	t01=a2p00i+a2p01i;
-
-	    t06=a2p02r-a2p03r;	t07=a2p02i-a2p03i;
-	    t04=a2p02r+a2p03r;	t05=a2p02i+a2p03i;
-
-	    rt =t04;		it =t05;
-	    t04=t00-rt;		t05=t01-it;
-	    t00=t00+rt;		t01=t01+it;
-
-	    rt =t06;		it =t07;
-	    t06=t02-it;		t07=t03+rt;
-	    t02=t02+it;		t03=t03-rt;
-
-	    t0A=a2p04r-a2p05r;	t0B=a2p04i-a2p05i;
-	    t08=a2p04r+a2p05r;	t09=a2p04i+a2p05i;
-
-	    t0E=a2p06r-a2p07r;	t0F=a2p06i-a2p07i;
-	    t0C=a2p06r+a2p07r;	t0D=a2p06i+a2p07i;
-
-	    rt =t0C;		it =t0D;
-	    t0C=t08-rt;		t0D=t09-it;
-	    t08=t08+rt;		t09=t09+it;
-
-	    rt =t0E;		it =t0F;
-	    t0E=t0A-it;		t0F=t0B+rt;
-	    t0A=t0A+it;		t0B=t0B-rt;
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
-	#endif
-addr += 4;
-#endif
-	    rt =t08;		it =t09;
-	    t08=t00-rt;		t09=t01-it;
-	    t00=t00+rt;		t01=t01+it;
-
-	    rt =t0C;		it =t0D;
-	    t0C=t04-it;		t0D=t05+rt;
-	    t04=t04+it;		t05=t05-rt;
-
-	    rt =(t0A+t0B)*ISRT2;it =(t0A-t0B)*ISRT2;
-	    t0A=t02-rt;		t0B=t03+it;
-	    t02=t02+rt;		t03=t03-it;
-
-	    rt =(t0E-t0F)*ISRT2;it =(t0F+t0E)*ISRT2;
-	    t0E=t06+rt;		t0F=t07+it;
-	    t06=t06-rt;		t07=t07-it;
-
-/*...Block 2:	*/
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
-	    t12=a2p08r-a2p09r;	t13=a2p08i-a2p09i;
-	    t10=a2p08r+a2p09r;	t11=a2p08i+a2p09i;
-
-	    t16=a2p0Ar-a2p0Br;	t17=a2p0Ai-a2p0Bi;
-	    t14=a2p0Ar+a2p0Br;	t15=a2p0Ai+a2p0Bi;
-
-	    rt =t14;		it =t15;
-	    t14=t10-rt;		t15=t11-it;
-	    t10=t10+rt;		t11=t11+it;
-
-	    rt =t16;		it =t17;
-	    t16=t12-it;		t17=t13+rt;
-	    t12=t12+it;		t13=t13-rt;
-
-	    t1A=a2p0Cr-a2p0Dr;	t1B=a2p0Ci-a2p0Di;
-	    t18=a2p0Cr+a2p0Dr;	t19=a2p0Ci+a2p0Di;
-
-	    t1E=a2p0Er-a2p0Fr;	t1F=a2p0Ei-a2p0Fi;
-	    t1C=a2p0Er+a2p0Fr;	t1D=a2p0Ei+a2p0Fi;
-
-	    rt =t1C;		it =t1D;
-	    t1C=t18-rt;		t1D=t19-it;
-	    t18=t18+rt;		t19=t19+it;
-
-	    rt =t1E;		it =t1F;
-	    t1E=t1A-it;		t1F=t1B+rt;
-	    t1A=t1A+it;		t1B=t1B-rt;
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
-	#endif
-addr += 4;
-#endif
-	    rt =t18;		it =t19;
-	    t18=t10-rt;		t19=t11-it;
-	    t10=t10+rt;		t11=t11+it;
-
-	    rt =t1C;		it =t1D;
-	    t1C=t14-it;		t1D=t15+rt;
-	    t14=t14+it;		t15=t15-rt;
-
-	    rt =(t1A+t1B)*ISRT2;it =(t1A-t1B)*ISRT2;
-	    t1A=t12-rt;		t1B=t13+it;
-	    t12=t12+rt;		t13=t13-it;
-
-	    rt =(t1E-t1F)*ISRT2;it =(t1F+t1E)*ISRT2;
-	    t1E=t16+rt;		t1F=t17+it;
-	    t16=t16-rt;		t17=t17-it;
-
-/*...Block 3:	*/
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
-	    t22=a2p10r-a2p11r;	t23=a2p10i-a2p11i;
-	    t20=a2p10r+a2p11r;	t21=a2p10i+a2p11i;
-
-	    t26=a2p12r-a2p13r;	t27=a2p12i-a2p13i;
-	    t24=a2p12r+a2p13r;	t25=a2p12i+a2p13i;
-
-	    rt =t24;		it =t25;
-	    t24=t20-rt;		t25=t21-it;
-	    t20=t20+rt;		t21=t21+it;
-
-	    rt =t26;		it =t27;
-	    t26=t22-it;		t27=t23+rt;
-	    t22=t22+it;		t23=t23-rt;
-
-	    t2A=a2p14r-a2p15r;	t2B=a2p14i-a2p15i;
-	    t28=a2p14r+a2p15r;	t29=a2p14i+a2p15i;
-
-	    t2E=a2p16r-a2p17r;	t2F=a2p16i-a2p17i;
-	    t2C=a2p16r+a2p17r;	t2D=a2p16i+a2p17i;
-
-	    rt =t2C;		it =t2D;
-	    t2C=t28-rt;		t2D=t29-it;
-	    t28=t28+rt;		t29=t29+it;
-
-	    rt =t2E;		it =t2F;
-	    t2E=t2A-it;		t2F=t2B+rt;
-	    t2A=t2A+it;		t2B=t2B-rt;
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
-	#endif
-addr += 4;
-#endif
-	    rt =t28;		it =t29;
-	    t28=t20-rt;		t29=t21-it;
-	    t20=t20+rt;		t21=t21+it;
-
-	    rt =t2C;		it =t2D;
-	    t2C=t24-it;		t2D=t25+rt;
-	    t24=t24+it;		t25=t25-rt;
-
-	    rt =(t2A+t2B)*ISRT2;it =(t2A-t2B)*ISRT2;
-	    t2A=t22-rt;		t2B=t23+it;
-	    t22=t22+rt;		t23=t23-it;
-
-	    rt =(t2E-t2F)*ISRT2;it =(t2F+t2E)*ISRT2;
-	    t2E=t26+rt;		t2F=t27+it;
-	    t26=t26-rt;		t27=t27-it;
-
-/*...Block 4:	*/
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
-	    t32=a2p18r-a2p19r;	t33=a2p18i-a2p19i;
-	    t30=a2p18r+a2p19r;	t31=a2p18i+a2p19i;
-
-	    t36=a2p1Ar-a2p1Br;	t37=a2p1Ai-a2p1Bi;
-	    t34=a2p1Ar+a2p1Br;	t35=a2p1Ai+a2p1Bi;
-
-	    rt =t34;		it =t35;
-	    t34=t30-rt;		t35=t31-it;
-	    t30=t30+rt;		t31=t31+it;
-
-	    rt =t36;		it =t37;
-	    t36=t32-it;		t37=t33+rt;
-	    t32=t32+it;		t33=t33-rt;
-
-	    t3A=a2p1Cr-a2p1Dr;	t3B=a2p1Ci-a2p1Di;
-	    t38=a2p1Cr+a2p1Dr;	t39=a2p1Ci+a2p1Di;
-
-	    t3E=a2p1Er-a2p1Fr;	t3F=a2p1Ei-a2p1Fi;
-	    t3C=a2p1Er+a2p1Fr;	t3D=a2p1Ei+a2p1Fi;
-
-	    rt =t3C;		it =t3D;
-	    t3C=t38-rt;		t3D=t39-it;
-	    t38=t38+rt;		t39=t39+it;
-
-	    rt =t3E;		it =t3F;
-	    t3E=t3A-it;		t3F=t3B+rt;
-	    t3A=t3A+it;		t3B=t3B-rt;
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
-	#endif
-addr += 4;
-#endif
-	    rt =t38;		it =t39;
-	    t38=t30-rt;		t39=t31-it;
-	    t30=t30+rt;		t31=t31+it;
-
-	    rt =t3C;		it =t3D;
-	    t3C=t34-it;		t3D=t35+rt;
-	    t34=t34+it;		t35=t35-rt;
-
-	    rt =(t3A+t3B)*ISRT2;it =(t3A-t3B)*ISRT2;
-	    t3A=t32-rt;		t3B=t33+it;
-	    t32=t32+rt;		t33=t33-it;
-
-	    rt =(t3E-t3F)*ISRT2;it =(t3F+t3E)*ISRT2;
-	    t3E=t36+rt;		t3F=t37+it;
-	    t36=t36-rt;		t37=t37-it;
-
-/*
-!...and now do eight radix-4 transforms, including the internal twiddle factors:
-*/
-/*...Block 1: t00,t10,t20,t30	*/
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
-	    rt =t10;	t10=t00-rt;	t00=t00+rt;
-	    it =t11;	t11=t01-it;	t01=t01+it;
-
-	    rt =t30;	t30=t20-rt;	t20=t20+rt;
-	    it =t31;	t31=t21-it;	t21=t21+it;
-
-	    a[rdum   ]=t00+t20;			a[idum   ]=t01+t21;
-	    t00       =t00-t20;			t01       =t01-t21;
-	    a[rdum+32]=t00*c30+t01*s30;	a[idum+32]=t01*c30-t00*s30;
-
-	    rt        =t10+t31;			it        =t11-t30;
-	    t10       =t10-t31;			t11       =t11+t30;
-	    a[rdum+16]=rt *c28+it *s28;	a[idum+16]=it *c28-rt *s28;
-	    a[rdum+48]=t10*c38+t11*s38;	a[idum+48]=t11*c38-t10*s38;
-
-/*...Block 5: t08,t18,t28,t38	*/
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
-	#endif
-addr += 4;
-#endif
-	    rt =t18;	t18=t08-t19;	t08=t08+t19;
-					t19=t09+rt;		t09=t09-rt;
-
-	    rt =(t29+t28)*ISRT2;		t29=(t29-t28)*ISRT2;		t28=rt;
-	    rt =(t38-t39)*ISRT2;		it =(t38+t39)*ISRT2;
-	    t38=t28+rt;					t28=t28-rt;
-	    t39=t29+it;					t29=t29-it;
-
-	    rt        =t08+t28;			it        =t09+t29;
-	    t08       =t08-t28;			t09       =t09-t29;
-	    a[rdum+8 ]=rt *c24+it *s24;	a[idum+8 ]=it *c24-rt *s24;
-	    a[rdum+40]=t08*c34+t09*s34;	a[idum+40]=t09*c34-t08*s34;
-
-	    rt        =t18+t39;			it        =t19-t38;
-	    t18       =t18-t39;			t19       =t19+t38;
-	    a[rdum+24]=rt *c2C+it *s2C;	a[idum+24]=it *c2C-rt *s2C;
-	    a[rdum+56]=t18*c3C+t19*s3C;	a[idum+56]=t19*c3C-t18*s3C;
-
-/*...Block 3: t04,t14,t24,t34	*/
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
-	    rt =(t15+t14)*ISRT2;		it =(t15-t14)*ISRT2;
-	    t14=t04-rt;					t04=t04+rt;
-	    t15=t05-it;					t05=t05+it;
-
-	    rt =t24*c + t25*s;			t25=t25*c - t24*s;		t24=rt;
-	    rt =t34*s + t35*c;			it =t35*s - t34*c;
-	    t34=t24-rt;					t24=t24+rt;
-	    t35=t25-it;					t25=t25+it;
-
-	    rt        =t04+t24;			it        =t05+t25;
-	    t04       =t04-t24;			t05       =t05-t25;
-	    a[rdum+4 ]=rt *c22+it *s22;	a[idum+4 ]=it *c22-rt *s22;
-	    a[rdum+36]=t04*c32+t05*s32;	a[idum+36]=t05*c32-t04*s32;
-
-	    rt        =t14+t35;			it        =t15-t34;
-	    t14       =t14-t35;			t15       =t15+t34;
-	    a[rdum+20]=rt *c2A+it *s2A;	a[idum+20]=it *c2A-rt *s2A;
-	    a[rdum+52]=t14*c3A+t15*s3A;	a[idum+52]=t15*c3A-t14*s3A;
-
-/*...Block 7: t0C,t1C,t2C,t3C	*/
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
-	#endif
-addr += 4;
-#endif
-	    rt =(t1C-t1D)*ISRT2;		it =(t1C+t1D)*ISRT2;
-	    t1C=t0C+rt;					t0C=t0C-rt;
-	    t1D=t0D+it;					t0D=t0D-it;
-
-	    rt =t2C*s + t2D*c;			t2D=t2D*s - t2C*c;		t2C=rt;
-	    rt =t3C*c + t3D*s;			it =t3D*c - t3C*s;
-	    t3C=t2C+rt;					t2C=t2C-rt;
-	    t3D=t2D+it;					t2D=t2D-it;
-
-	    rt        =t0C+t2C;			it        =t0D+t2D;
-	    t0C       =t0C-t2C;			t0D       =t0D-t2D;
-	    a[rdum+12]=rt *c26+it *s26;	a[idum+12]=it *c26-rt *s26;
-	    a[rdum+44]=t0C*c36+t0D*s36;	a[idum+44]=t0D*c36-t0C*s36;
-
-	    rt        =t1C+t3D;			it        =t1D-t3C;
-	    t1C       =t1C-t3D;			t1D       =t1D+t3C;
-	    a[rdum+28]=rt *c2E+it *s2E;	a[idum+28]=it *c2E-rt *s2E;
-	    a[rdum+60]=t1C*c3E+t1D*s3E;	a[idum+60]=t1D*c3E-t1C*s3E;
-
-/*...Block 2: t02,t12,t22,t32	*/
-	#ifdef USE_SSE2
-		--rdum;
-		--idum;
-	#endif
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
-	    rt =t12*c + t13*s;			it =t13*c - t12*s;
-	    t12=t02-rt;					t02=t02+rt;
-	    t13=t03-it;					t03=t03+it;
-
-	    rt =t22*c32_1 + t23*s32_1;	t23=t23*c32_1 - t22*s32_1;	t22=rt;
-	    rt =t32*c32_3 + t33*s32_3;	it =t33*c32_3 - t32*s32_3;
-	    t32=t22-rt;					t22=t22+rt;
-	    t33=t23-it;					t23=t23+it;
-
-	    rt        =t02+t22;			it        =t03+t23;
-	    t02       =t02-t22;			t03       =t03-t23;
-	    a[rdum+2 ]=rt *c21+it *s21;	a[idum+2 ]=it *c21-rt *s21;
-	    a[rdum+34]=t02*c31+t03*s31;	a[idum+34]=t03*c31-t02*s31;
-
-	    rt        =t12+t33;			it        =t13-t32;
-	    t12       =t12-t33;			t13       =t13+t32;
-	    a[rdum+18]=rt *c29+it *s29;	a[idum+18]=it *c29-rt *s29;
-	    a[rdum+50]=t12*c39+t13*s39;	a[idum+50]=t13*c39-t12*s39;
-
-/*...Block 6: t0A,t1A,t2A,t3A	*/
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
-	#endif
-addr += 4;
-#endif
-	    rt =t1A*s - t1B*c;			it =t1B*s + t1A*c;
-	    t1A=t0A+rt;					t0A =t0A-rt;
-	    t1B=t0B+it;					t0B =t0B-it;
-
-	    rt =t2A*s32_3 + t2B*c32_3;	t2B=t2B*s32_3 - t2A*c32_3;	t2A=rt;
-	    rt =t3A*c32_1 - t3B*s32_1;	it =t3B*c32_1 + t3A*s32_1;
-	    t3A=t2A+rt;					t2A=t2A-rt;
-	    t3B=t2B+it;					t2B=t2B-it;
-
-	    rt        =t0A+t2A;			it        =t0B+t2B;
-	    t0A       =t0A-t2A;			t0B       =t0B-t2B;
-	    a[rdum+10]=rt *c25+it *s25;	a[idum+10]=it *c25-rt *s25;
-	    a[rdum+42]=t0A*c35+t0B*s35;	a[idum+42]=t0B*c35-t0A*s35;
-
-	    rt        =t1A+t3B;			it        =t1B-t3A;
-	    t1A       =t1A-t3B;			t1B       =t1B+t3A;
-	    a[rdum+26]=rt *c2D+it *s2D;	a[idum+26]=it *c2D-rt *s2D;
-	    a[rdum+58]=t1A*c3D+t1B*s3D;	a[idum+58]=t1B*c3D-t1A*s3D;
-
-/*...Block 4: t06,t16,t26,t36	*/
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
-	    rt =t16*s + t17*c;			it =t17*s - t16*c;
-	    t16=t06-rt;					t06 =t06+rt;
-	    t17=t07-it;					t07 =t07+it;
-
-	    rt =t26*c32_3 + t27*s32_3;	t27=t27*c32_3 - t26*s32_3;	t26=rt;
-	    rt =t36*s32_1 - t37*c32_1;	it =t37*s32_1 + t36*c32_1;
-	    t36=t26+rt;					t26=t26-rt;
-	    t37=t27+it;					t27=t27-it;
-
-	    rt        =t06+t26;			it        =t07+t27;
-	    t06       =t06-t26;			t07       =t07-t27;
-	    a[rdum+6 ]=rt *c23+it *s23;	a[idum+6 ]=it *c23-rt *s23;
-	    a[rdum+38]=t06*c33+t07*s33;	a[idum+38]=t07*c33-t06*s33;
-
-	    rt        =t16+t37;			it        =t17-t36;
-	    t16       =t16-t37;			t17       =t17+t36;
-	    a[rdum+22]=rt *c2B+it *s2B;	a[idum+22]=it *c2B-rt *s2B;
-	    a[rdum+54]=t16*c3B+t17*s3B;	a[idum+54]=t17*c3B-t16*s3B;
-
-/*...Block 8: t0E,t1E,t2E,t3E	*/
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
-	#endif
-addr += 4;
-#endif
-	    rt =t1E*c - t1F*s;			it =t1F*c + t1E*s;
-	    t1E=t0E+rt;					t0E =t0E-rt;
-	    t1F=t0F+it;					t0F =t0F-it;
-
-	    rt =t2E*s32_1 + t2F*c32_1;	t2F=t2F*s32_1 - t2E*c32_1;	t2E=rt;
-	    rt =t3E*s32_3 + t3F*c32_3;	it =t3F*s32_3 - t3E*c32_3;
-	    t3E=t2E+rt;					t2E=t2E-rt;
-	    t3F=t2F+it;					t2F=t2F-it;
-
-	    rt        =t0E+t2E;			it        =t0F+t2F;
-	    t0E       =t0E-t2E;			t0F       =t0F-t2F;
-	    a[rdum+14]=rt *c27+it *s27;	a[idum+14]=it *c27-rt *s27;
-	    a[rdum+46]=t0E*c37+t0F*s37;	a[idum+46]=t0F*c37-t0E*s37;
-
-	    rt        =t1E+t3F;			it        =t1F-t3E;
-	    t1E       =t1E-t3F;			t1F       =t1F+t3E;
-	    a[rdum+30]=rt *c2F+it *s2F;	a[idum+30]=it *c2F-rt *s2F;
-	    a[rdum+62]=t1E*c3F+t1F*s3F;	a[idum+62]=t1F*c3F-t1E*s3F;
+	}	// endif(j1 == 0)
 
 #endif	/* USE_SSE2 */
 
-/*...And update the data (j1 and j2) array indices.	*/
+/*...Update the data (j1 and j2) array indices. */
+loop:
+	  if(j1 <= 128) {
+		// Use scalar code (with index offsets properly fiddled) for j1 == 0 case in SIMD mode
+		j1 = j1+64;
+		j2 = j2-64;
+	  } else {
+		// Scalar and SSE2 mode both use same increment of 32; avx uses 64:
+		j1 = j1+stride;
+		j2 = j2-stride;
+	  }
 
-	  j1 = j1+64;
-	  j2 = j2-64;
-
-	}
+	}	/* endfor(m-loop) */
 
 /*
 !...Since the foregoing loop only gets executed half as many times as in the simple version, to properly position
@@ -8764,9 +7119,12 @@ update_blocklen:
 
 	j1 = j1+(blocklen << 1);
 
+//	fprintf(stderr,"(j2_start == %d\n",j2_start);
+
 	if(j2_start == n-64)
 	{
 		j1 = 0;
+//	fprintf(stderr,"(j2_start == n-64) check hit: returning\n");	exit(0);
 		return;
 	}
 
@@ -8783,3 +7141,4 @@ update_blocklen:
 }	/* End of Main loop */
 
 }
+

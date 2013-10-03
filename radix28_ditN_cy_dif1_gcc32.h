@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -1155,7 +1155,7 @@
 			 ,[__p24] "m" (Xp24)\
 			 ,[__out] "m" (Xout)\
 			 ,[__cc0] "m" (Xcc0)\
-			: "eax","ebx","ecx","edx","edi","esi"		/* Clobbered registers */\
+			: "cc","memory","eax","ebx","ecx","edx","edi","esi"		/* Clobbered registers */\
 		);\
 	}
 
@@ -2253,7 +2253,7 @@
 			 ,[__p24] "m" (Xp24)\
 			 ,[__out] "m" (Xout)\
 			 ,[__cc0] "m" (Xcc0)\
-			: "eax","ebx","ecx","edx","edi","esi"		/* Clobbered registers */\
+			: "cc","memory","eax","ebx","ecx","edx","edi","esi"		/* Clobbered registers */\
 		);\
 	}
 

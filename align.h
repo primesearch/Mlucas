@@ -61,6 +61,15 @@ util.c::check_nbits_in_types()>
 #define ALLOC_COMPLEX(_p,_n)(struct complex*)realloc(_p,(_n)*sizeof(struct complex)+512)
 #define ALIGN_COMPLEX(_p)	(struct complex*)(((uint64)(_p) | 127)+1)
 
+// Vecto-double-alloc used by SSE2 / AVX / AVX2 builds; register size difference between YMM and XMM taken care of by def of vec_dbl in types.h:
+#ifdef USE_SSE2
+
+	#define ALLOC_VEC_DBL(_p,_n)(vec_dbl*)realloc(_p,(_n)*sizeof(vec_dbl)+512)
+	#define ALIGN_VEC_DBL(_p)	(vec_dbl*)(((uint64)(_p) | 127)+1)
+
+#endif
+
+
 #define ALLOC_POINTER(_p,_ptr_type,_n)(_ptr_type*)realloc(_p,(_n)*sizeof(_ptr_type)+64)
 #define ALIGN_POINTER(_p,_ptr_type)	  (_ptr_type*)(((uint64)(_p) | 63)+1)
 

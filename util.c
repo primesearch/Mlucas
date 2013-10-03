@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2012 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -22,6 +22,299 @@
 
 #include "util.h"
 #include "imul_macro.h"
+
+/* Tables of Fermat-base-2 pseudoprimes needed by the small-primes sieve code: */
+#include "f2psp_3_5.h"
+
+#undef psmooth
+struct psmooth
+{
+	uint32 p;
+	uint32 b;	// Standard B-smooth measure based on largest prime factor
+	double r;	// L2 "roughness" metric in (0,1] defined by L2 norm of log factor sizes
+};
+
+// Decimal-print m(p) to a file in 100-digit chunks:
+void print_mp_dec()
+{
+	const uint32 p = 13466917;
+	const char fname[] = "p13466917_decimal.txt";
+	FILE*fp = 0x0;
+	uint32 i, lenX, lenD, nchars,nc, wrap_every = 100;	// Insert a LF every 100 digits
+	uint64 *x,*y,*d,*r;
+	uint64 ONES64 = 0xFFFFFFFFFFFFFFFFull;	// In GCC, making this 'const' gives "warning: overflow in implicit constant conversion" wherever it is used.
+	char *str;
+
+	// Allocate the array containing first M(p) and then subsequent divide-by-10^100 results.
+	// Due to the requirement in mi64_div() that dividend and quotient arrays may not point
+	// to the same memory, bounce successive-divide results between 2 arrays, x and y:
+	lenX = (p>>6);
+//	x = (uint64 *)calloc(lenX + 1, sizeof(uint64));
+	x = (uint64 *)calloc(((lenX + 3) & ~3), sizeof(uint64));	// Zero-pad to make multiple of 4, allowing 64-bit DIV algo to use 4-way-folded loops
+	memset(x,ONES64,(lenX<<3));	x[lenX++] = (1ull << (p&63)) - 1;
+	nchars = ceil(p * log(2.0)/log(10.));
+	fprintf(stderr,"Generating decimal printout of M(%u), which has [%u] decimal digits; will write results to file '%s'...",p,nchars,fname);
+	
+#if 0	// Hideously slow-but-reliable one-digit-at-a-time way:
+
+	nchars += nchars/wrap_every + 1;
+	str = (char *)calloc(nchars, sizeof(char));
+	__convert_mi64_base10_char(str, nchars, x, lenX, wrap_every);
+
+#elif 0	// Try using fast right-to-left div-and-mod algo, modulo 10^100:
+
+	nchars += nchars/100 + 1;
+	str = (char *)calloc(nchars, sizeof(char));
+	y = (uint64 *)calloc(lenX + 1, sizeof(uint64));
+	// 10^100 has 333 bits, thus needs 6 uint64s, as do the mod-10^100 remainders,
+	// but we allow the convert_base10_char_mi64() utility to do the allocation of the former for us:
+	ASSERT(HERE, 0x0 != (d = convert_base10_char_mi64("10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", &lenD)) && (lenD == 6), "0");
+	r = (uint64 *)calloc(lenD, sizeof(uint64));
+	nc = nchars-101;	// starting char of first 100 digit chunk 
+	for(i = 0; ; i+=2)	// i = #divides counter
+	{
+		mi64_div(x, d, lenX, lenD, y, r);	// dividend in y, remainder in r
+		convert_mi64_base10_char_print_lead0(str + nc, r, lenD, 100,0);	nc -= 101;
+		lenX = mi64_getlen(y, lenX);
+		if( (lenX < lenD) || ((lenX == lenD) && mi64_cmpult(y,d,lenX)) ) {
+			convert_mi64_base10_char(str, y, lenX, 100);
+			break;
+		}
+		mi64_div(y, d, lenX, lenD, x, r);	// dividend in y, remainder in r
+		convert_mi64_base10_char_print_lead0(str + nc, r, lenD, 100,0);	nc -= 101;
+		lenX = mi64_getlen(x, lenX);
+		if( (lenX < lenD) || ((lenX == lenD) && mi64_cmpult(x,d,lenX)) ) {
+			convert_mi64_base10_char(str, x, lenX, 100);
+			break;
+		}
+	}
+
+#else	// Same ideas as above but using modulo 10^27, the largest power of 10 whose odd factor (5^27) fits in a uint64,
+		// thus allowing the core div-and-mod loops to use 1-word arguments:
+
+	nchars += nchars/27 + 1;
+	str = (char *)calloc(nchars, sizeof(char));
+	y = (uint64 *)calloc(lenX + 1, sizeof(uint64));
+	// 10^100 has 333 bits, thus needs 6 uint64s, as do the mod-10^100 remainders,
+	// but we allow the convert_base10_char_mi64() utility to do the allocation of the former for us:
+	ASSERT(HERE, 0x0 != (d = convert_base10_char_mi64("1000000000000000000000000000", &lenD)) && (lenD == 2), "0");
+	r = (uint64 *)calloc(lenD, sizeof(uint64));
+	nc = nchars- 28;	// starting char of first 27-digit chunk 
+	for(i = 0; ; i+=2)	// i = #divides counter
+	{
+		mi64_div(x, d, lenX, lenD, y, r);	// dividend in y, remainder in r
+		convert_mi64_base10_char_print_lead0(str + nc, r, lenD, 27,0);	nc -= 28;	mi64_clear(r, lenD);
+		lenX = mi64_getlen(y, lenX);
+		if( (lenX < lenD) || ((lenX == lenD) && mi64_cmpult(y,d,lenX)) ) {
+			convert_mi64_base10_char(str, y, lenX, 27);
+			break;
+		}
+		mi64_div(y, d, lenX, lenD, x, r);	// dividend in y, remainder in r
+		convert_mi64_base10_char_print_lead0(str + nc, r, lenD, 27,0);	nc -= 28;	mi64_clear(r, lenD);
+		lenX = mi64_getlen(x, lenX);
+		if( (lenX < lenD) || ((lenX == lenD) && mi64_cmpult(x,d,lenX)) ) {
+			convert_mi64_base10_char(str, x, lenX, 27);
+			break;
+		}
+	}
+
+#endif
+	str[nchars-1] = '\0';
+
+	fp = fopen(fname, "w");
+	ASSERT(HERE, fp != 0x0, "Null file pointer!");
+	fprintf(fp,"%s\n", str);
+	fclose(fp);	fp = 0x0;
+	exit(0);
+}
+
+// Binary predicates for use of stdlib qsort() on the b-subfield of the above psmooth struct:
+int psmooth_cmp_b(const void *x, const void *y)	// Default-int compare predicate
+{
+	uint32 a = ((struct psmooth*)x)->b, b = ((struct psmooth*)y)->b;
+	return ncmp_uint32( (void*)&a, (void*)&b );
+}
+
+// Binary predicates for use of stdlib qsort() on the r-subfield of the above psmooth struct:
+int psmooth_cmp_r(const void *x, const void *y)	// Default-int compare predicate
+{
+	double two53float = (double)1.0*0x08000000*0x04000000;
+	uint64 a = two53float*((struct psmooth*)x)->r, b = two53float*((struct psmooth*)y)->r;
+	return ncmp_uint64( (void*)&a, (void*)&b );
+}
+
+void test_mp_pm1_smooth(uint32 p)
+{
+	double u_so_smoove, logf, ilogn, dtmp;
+	const double ln2 = log(2.0);
+	uint32 nprime = 1000, pm_gap = 10000, thresh = 100000;
+	uint32 curr_p,f2psp_idx,i,ihi,itmp32,j,jlo,jhi,k,max_diff,m,nfac,np,pm1;
+	const uint32 pdiff_8[8] = {2,1,2,1,2,3,1,3}, pdsum_8[8] = { 0, 2, 6, 8,12,18,20,26};
+	// Compact table storing the (difference/2) between adjacent odd primes.
+	unsigned char *pdiff = (unsigned char *)calloc(nprime, sizeof(unsigned char));	// 1000 primes is plenty for this task
+	// Struct used for storing smoothness data ... make big enough to store all primes in [p - pm_gap, p + pm_gap] with a safety factor
+	struct psmooth sdat;
+	// .../10 here is an approximation based on prime density for primes > 100000;
+	// note the code uses an interval [p-pm_gap, p+pm_gap], i.e. of length 2*pm_gap, so the calloc needs to be twice pm_gap/10:
+	struct psmooth*psmooth_vec = (struct psmooth *)calloc(2*pm_gap/10, sizeof(struct psmooth));
+
+	/* Init first few diffs between 3/5, 5/7, 7/11, so can start loop with curr_p = 11 == 1 (mod 10), as required by twopmodq32_x8(): */
+	pdiff[1] = 1;
+	pdiff[2] = 1;
+	ihi = curr_p = 11;
+	/* Process chunks of length 30, starting with curr_p == 11 (mod 30). Applying the obvious divide-by-3,5 mini-sieve,
+	we have 8 candidates in each interval: curr_p + [ 0, 2, 6, 8,12,18,20,26].
+	For example: curr_p = 11 gives the 8 candidates: 11,13,17,19,23,29,31,37.
+	*/
+	f2psp_idx = 0;	// Index to next-expected Fermat base-2 pseudoprime in the precomputed table
+	for(i = 3; i < nprime; curr_p += 30)
+	{
+		/* Make sure (curr_p + 29) < 2^32: */
+		if(curr_p > 0xffffffe3)
+		{
+			fprintf(stderr,"curr_p overflows 32 bits!");
+			nprime = i;
+			break;
+		}
+		/* Do a quick Fermat base-2 compositeness test before invoking the more expensive mod operations: */
+		itmp32 = twopmodq32_x8(curr_p, curr_p+ 2, curr_p+ 6, curr_p+ 8, curr_p+12, curr_p+18, curr_p+20, curr_p+26);
+		for(j = 0; j < 8; ++j)
+		{
+			if((itmp32 >> j)&0x1)	// It's a PRP, so check against the table of known pseudoprimes and
+			{						// (if it's not a PSP) init for the next gap
+				ASSERT(HERE, curr_p <= f2psp[f2psp_idx],"Error in pseudoprime sieve");
+				if((curr_p + pdsum_8[j]) == f2psp[f2psp_idx])	/* It's a base-2 pseudoprime */
+				{
+					++f2psp_idx;
+					pdiff[i] += pdiff_8[j];
+					continue;
+				}
+				else	/* It's prime - add final increment to current pdiff[i] and then increment i: */
+				{
+					ihi = (curr_p + pdsum_8[j]);
+					pdiff[i] += pdiff_8[j];
+					if(pdiff[i] > max_diff)
+					{
+						max_diff = pdiff[i];
+					#if DBG_SIEVE
+						printf("pdiff = %d at curr_p = %u\n", 2*max_diff,ihi);
+					#endif
+					}
+					if(++i == nprime)
+					{
+						break;
+					}
+				}
+			}
+			else
+			{
+				pdiff[i] += pdiff_8[j];
+			}
+		}
+		continue;
+	}
+	printf("Using first %u odd primes; max gap = %u\n",nprime,2*max_diff);
+	printf("max sieving prime = %u\n",ihi);
+
+	ASSERT(HERE, p > thresh, "Mersenne prime exponent must be larger that allowable threshold!");
+	ASSERT(HERE, twopmodq32(p-1, p) == 1, "p fails base-2 fprp test!");
+	np = 0;	// #primes in the current p-centered cohort
+	// find N primes < and > p, compute smoothness norm based on p-1 factorization for each, store each [p,snorm] pair
+	f2psp_idx = 0;	// Index to next-expected Fermat base-2 pseudoprime in the precomputed table
+	jlo = p-pm_gap; jhi = p+pm_gap;
+	// Find right tarting slot in base-2 pseudoprime table:
+	while(f2psp[f2psp_idx] < jlo)
+	{
+		++f2psp_idx;
+	}
+	for(j = jlo; j <= jhi; j+=2)
+	{
+		// Do base-2 fprp test of j:
+		if(!twopmodq32(j-1,j))
+			continue;
+		if(j == f2psp[f2psp_idx]) {	// It's a base-2 pseudoprime
+			++f2psp_idx;
+			continue;
+		}
+		// j is prime - compute factorization of j-1:
+		sdat.p = j;
+		pm1 = j - 1;
+		printf("%u is prime: factorization of p-1 = ",j);
+		ilogn = 1/log(1.0*pm1);	// 1/log(n)
+		// We know 2 is a factor; special-case for that:
+		nfac = 0;
+		u_so_smoove = 0.0;
+		curr_p = 2;
+		logf = ln2;	// log(factor)
+		while((pm1 & 1) == 0) {
+			nfac++;
+			pm1 >>= 1;
+			dtmp = logf*ilogn;
+			u_so_smoove += dtmp*dtmp;
+		}
+		if(nfac > 1) {
+			printf("2^%u",nfac);
+		} else {
+			printf("2");
+		}
+		curr_p = 3;
+		for(m = 0; m < nprime; m++)
+		{
+			if(pm1 < curr_p*curr_p)	{	// Remaining cofactor must be prime
+				sdat.b = pm1;
+				printf(".%u",pm1);
+				nfac++;
+				logf = log(1.0*pm1);	// log(factor)
+				dtmp = logf*ilogn;
+				u_so_smoove += dtmp*dtmp;
+				break;
+			}
+			k = 0;	// factor multiplicity counter
+			while((pm1 % curr_p) == 0) {// curr_p divides (p-1)
+				nfac++;	k++;
+				pm1 /= curr_p;
+				logf = log(1.0*curr_p);	// log(factor)
+				dtmp = logf*ilogn;
+				u_so_smoove += dtmp*dtmp;
+			}
+			sdat.b = curr_p;
+			if(k > 1) {
+				printf(".%u^%u",curr_p,k);
+			} else if(k == 1) {
+				printf(".%u",curr_p);
+			}
+			if(pm1 == 1) break;
+			curr_p += (pdiff[m] << 1);
+		}
+		// L2 norm: divide by #factors (multiple-counting repeated factors):
+		u_so_smoove = sqrt(u_so_smoove)/nfac;
+		sdat.r = u_so_smoove;
+		psmooth_vec[np++] = sdat;	// Write completed datum to array or later sorting
+		printf("; %u factors, L2 smoothness = %15.13f\n",nfac,u_so_smoove);
+	}	// for(j in [p +- pm_gap] loop
+	printf("\n");
+
+	// Using array of [p,snorm]-pair structs, sort resulting array-aof-structs by snorm value:
+	qsort(psmooth_vec, np, sizeof(struct psmooth), psmooth_cmp_b);
+	for(j = 0; j < np; j++) {
+		sdat = psmooth_vec[j];
+	//	printf("p = %u: B -smoothness = %u\n",sdat.p,sdat.b);
+		if(sdat.p == p) {
+			printf("B -smoothness: %u is %u of %u, percentile = %5.2f\n",p,j+1,np,100.0*((double)np-j)/np);
+			break;
+		}
+	}
+	qsort(psmooth_vec, np, sizeof(struct psmooth), psmooth_cmp_r);
+	for(j = 0; j < np; j++) {
+		sdat = psmooth_vec[j];
+	//	printf("p = %u: L2 smoothness = %15.13f\n",sdat.p,sdat.r);
+		if(sdat.p == p) {
+			printf("L2-smoothness: %u is %u of %u, percentile = %5.2f\n",p,j+1,np,100.0*((double)np-j)/np);
+			break;
+		}
+	}
+	exit(0);	// Only enable this bit of test code when a new M-prime is found
+}	// test_mp_pm1_smooth()
 
 #undef X64_ASM
 #if(defined(CPU_IS_X86_64) && defined(COMPILER_TYPE_GCC) && (OS_BITS == 64))
@@ -338,6 +631,62 @@ void host_init(void)
 	/* Use qfloat routines to set the global floating-point constant 1/sqrt(2): */
 	ISRT2 = qfdbl(qfmul_pow2(QSQRT2, -1));		/* 1/sqrt2	*/
 
+// Quick timings of various mi64 stuff:
+#if 0
+	printf("INFO: Testing mi64_add speed...\n");
+
+	/*...time-related stuff	*/
+	clock_t clock1, clock2;
+	double tdiff;
+
+	int i;
+	const int n = 1000, iters = 1000000;
+	// Allocate the main data arrays, require these to be on 16-byte boundaries to enable SSE2-based addsub:
+	uint64 *u = (uint64 *)calloc(n, sizeof(uint64));	ASSERT(HERE, ((uint32)u & 0xf) == 0, "u not 16-byte aligned!");
+	uint64 *v = (uint64 *)calloc(n, sizeof(uint64));	ASSERT(HERE, ((uint32)v & 0xf) == 0, "u not 16-byte aligned!");
+	uint64 *x = (uint64 *)calloc(n, sizeof(uint64));	ASSERT(HERE, ((uint32)x & 0xf) == 0, "u not 16-byte aligned!");
+	uint64 *y = (uint64 *)calloc(n, sizeof(uint64));	ASSERT(HERE, ((uint32)y & 0xf) == 0, "u not 16-byte aligned!");
+
+	/* Init the RNG and the inputs: */
+	rng_isaac_init(TRUE);
+	for(i = 0; i < n; i++)
+	{
+		u[i] = rng_isaac_rand();
+		v[i] = rng_isaac_rand();
+	}
+
+	// First test correctness:
+	uint64 cy1 = mi64_add(u,v,x,n);
+	uint64 cy2 = mi64_add_ref(u,v,y,n);
+	if(cy1 != cy2) {
+		printf("Carryout mismatch: cy1 = %llu, cy2 = %llu\n",cy1,cy2);
+	//	ASSERT(HERE, 0, "Incorrect mi64_add carryout");	// GCC 4.4.5 builds on my SB give carry-mismatch here ... wtf?
+	}
+	for(i = 0; i < n; i++)
+	{
+		if(x[i] != y[i]) {
+			printf("Output mismatch: x[%d] = %llu, y[%d] = %llu\n",i,x[i],i,y[i]);
+			ASSERT(HERE, 0, "Incorrect mi64_add output element");
+		}
+	}
+
+	// Now do timing:
+	clock1 = clock();
+	for(i = 0; i < iters; i++)
+	{
+		mi64_add(u,v,x,n);
+	}
+	clock2 = clock();
+	tdiff = (double)(clock2 - clock1);
+	printf	("mi64_add: Time for %llu limbs =%s\n",(uint64)iters*n, get_time_str(tdiff));
+	exit(0);
+#endif
+	/************************************************************/
+	/* Activate these in turn when a new M-prime is discovered: */
+	/************************************************************/
+//	print_mp_dec();
+//	test_mp_pm1_smooth(p);
+
 #ifdef MULTITHREAD
 
   #ifndef USE_PTHREAD
@@ -356,9 +705,10 @@ void host_init(void)
   #endif
 #endif
 
-#if 1// USE_SSE2
-//	test_fft_radix();
-//	exit(0);
+// Define TEST_FFT_RADIX at compile time to activate short-length DFT self-test [Must select params in test_fft_radix.c]
+#if defined(TEST_FFT_RADIX)	// && defined(USE_SSE2)
+	test_fft_radix();
+	exit(0);
 #endif
 }
 
@@ -414,43 +764,41 @@ void print_host_info(void)
 		cpu_details();
 	#endif
 
-  #if(defined(USE_SSE3))
+  #if(defined(USE_AVX2))
 
-	if(has_sse3())
-	{
-		printf("INFO: Build uses SSE3 instruction set.\n");
-		ASSERT(HERE, has_sse2(), "SSE3, but not SSE2 support detected on this CPU! Check get_cpuid functionality.");
+	if(has_avx2()) {
+		printf("Info: Build uses AVX2 instruction set.\n");
+	} else {
+		ASSERT(HERE, 0, "#define USE_AVX2 invoked but no AVX2 support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
 	}
-	else if(has_sse2())
-	{
-		ASSERT(HERE, 0, "#define USE_SSE3 invoked but only SSE2 support detected on this CPU! Try rebuilding with USE_SSE2 instead.\n");
-	}
-	else
-	{
-		ASSERT(HERE, 0, "#define USE_SSE3 invoked but no SSE2/3 support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
+
+  #elif(defined(USE_AVX))
+
+	if(has_avx2()) {
+		printf("Info: CPU supports AVX2 instruction set, but using AVX-enabled build.\n");
+	} else if(has_avx()) {
+		printf("Info: Build uses AVX instruction set.\n");
+	} else {
+		ASSERT(HERE, 0, "#define USE_AVX invoked but no AVX support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
 	}
 
   #elif(defined(USE_SSE2))
-
-	if(has_sse2())
-	{
+	/* This doesn't work on non-AVX platforms, since XGETBV (needed by has_avx*() functions) does not exist
+	if(has_avx2()) {
+		printf("Info: CPU supports AVX2 instruction set, but using SSE2-enabled build.\n");
+	} else if(has_avx()) {
+		printf("Info: CPU supports AVX instruction set, but using SSE2-enabled build.\n");
+	} else */if(has_sse2()) {
 		printf("INFO: Build uses SSE2 instruction set.\n");
-	}
-	else if(has_sse3())
-	{
-		ASSERT(HERE, 0, "SSE3, but not SSE2 support detected on this CPU! Check get_cpuid functionality.");
-	}
-	else
-	{
-		ASSERT(HERE, 0, "#define USE_SSE2 invoked but no SSE2/3 support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
+	} else {
+		ASSERT(HERE, 0, "#define USE_SSE2 invoked but no SSE2 support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
 	}
 
   #else
 
-	if(has_sse3())
-		printf("Info: CPU supports SSE3 instruction set, but using scalar floating-point build.\n");
-	else if(has_sse2())
+	if(has_sse2()) {
 		printf("Info: CPU supports SSE2 instruction set, but using scalar floating-point build.\n");
+	}
 
   #endif
 
@@ -589,7 +937,7 @@ void set_x87_fpu_params(unsigned short FPU_MODE)
 
 		__asm__ volatile ("stmxcsr %0" : "=m" (oldMXCSR) );
 		newMXCSR = oldMXCSR | 0x8040; // set DAZ and FZ bits
-		__asm__ volatile ("fldcw %0" :: "m" (newMXCSR) );
+		__asm__ volatile ("ldmxcsr %0" :: "m" (newMXCSR) );
 
 	#endif
 #endif
@@ -808,28 +1156,28 @@ ASSERT(HERE, ((uint64)FFT_MUL_BASE >> 16) == 1, "util.c: FFT_MUL_BASE != 2^16");
 	FFT_MUL_BASE_INV = 1.0/FFT_MUL_BASE;
 
 	/* Test approximate 1/x and 1/sqrt(x) routines: */
-	ftmp = finvest(1.5,  8);	ASSERT(HERE, fabs(ftmp - 0.666666666666667) < 4e-03, "Unacceptable level of error in finvest() call!");
-	ftmp = finvest(1.5, 53);	ASSERT(HERE, fabs(ftmp - 0.666666666666667) < 1e-14, "Unacceptable level of error in finvest() call!");
-	ftmp = finvest(1.0, 53);	ASSERT(HERE, fabs(ftmp - 1.000000000000000) < 1e-14, "Unacceptable level of error in finvest() call!");
-	ftmp = finvest(2.0, 53);	ASSERT(HERE, fabs(ftmp - 0.500000000000000) < 1e-14, "Unacceptable level of error in finvest() call!");
-	ftmp = finvest(0.5, 53);	ASSERT(HERE, fabs(ftmp - 2.000000000000000) < 1e-14, "Unacceptable level of error in finvest() call!");
-	ftmp = finvest(.75, 53);	ASSERT(HERE, fabs(ftmp - 1.333333333333333) < 1e-14, "Unacceptable level of error in finvest() call!");
+	ftmp = finvest(1.5,  8);	/*fprintf(stderr, "finvest(1.5,  8) gives err = %20.10e\n", fabs(ftmp - 0.666666666666667));*/	ASSERT(HERE, fabs(ftmp - 0.666666666666667) < 4e-03, "Unacceptable level of error in finvest() call!");
+	ftmp = finvest(1.5, 53);	/*fprintf(stderr, "finvest(1.5, 53) gives err = %20.10e\n", fabs(ftmp - 0.666666666666667));*/	ASSERT(HERE, fabs(ftmp - 0.666666666666667) < 1e-14, "Unacceptable level of error in finvest() call!");
+	ftmp = finvest(1.0, 53);	/*fprintf(stderr, "finvest(1.0, 53) gives err = %20.10e\n", fabs(ftmp - 1.000000000000000));*/	ASSERT(HERE, fabs(ftmp - 1.000000000000000) < 1e-14, "Unacceptable level of error in finvest() call!");
+	ftmp = finvest(2.0, 53);	/*fprintf(stderr, "finvest(2.0, 53) gives err = %20.10e\n", fabs(ftmp - 0.500000000000000));*/	ASSERT(HERE, fabs(ftmp - 0.500000000000000) < 1e-14, "Unacceptable level of error in finvest() call!");
+	ftmp = finvest(0.5, 53);	/*fprintf(stderr, "finvest(0.5, 53) gives err = %20.10e\n", fabs(ftmp - 2.000000000000000));*/	ASSERT(HERE, fabs(ftmp - 2.000000000000000) < 1e-14, "Unacceptable level of error in finvest() call!");
+	ftmp = finvest(.75, 53);	/*fprintf(stderr, "finvest(.75, 53) gives err = %20.10e\n", fabs(ftmp - 1.333333333333333));*/	ASSERT(HERE, fabs(ftmp - 1.333333333333333) < 1e-14, "Unacceptable level of error in finvest() call!");
 	/* Try some large and small inputs: */
-	ftmp = finvest(3.141592653589793e+15, 53);	ASSERT(HERE, fabs(ftmp - 3.183098861837907e-16) < 1e-14, "Unacceptable level of error in finvest() call!");
-	ftmp = finvest(3.183098861837907e-16, 53);	ASSERT(HERE, fabs(ftmp - 3.141592653589793e+15) < 1e+00, "Unacceptable level of error in finvest() call!");
+	ftmp = finvest(3.141592653589793e+15, 53);	/*fprintf(stderr, "finvest(3.141592653589793e+15, 53) gives err = %20.10e\n", fabs(ftmp - 3.183098861837907e-16));*/	ASSERT(HERE, fabs(ftmp - 3.183098861837907e-16) < 1e-14, "Unacceptable level of error in finvest() call!");
+	ftmp = finvest(3.183098861837907e-16, 53);	/*fprintf(stderr, "finvest(3.183098861837907e-16, 53) gives err = %20.10e\n", fabs(ftmp - 3.141592653589793e+15));*/	ASSERT(HERE, fabs(ftmp - 3.141592653589793e+15) < 1e+00, "Unacceptable level of error in finvest() call!");
 
-	ftmp = fisqrtest(1.5,  8);	ASSERT(HERE, fabs(ftmp - 0.816496580927726) < 1e-3 , "Unacceptable level of error in fisqrtest() call!");
-	ftmp = fisqrtest(1.5, 53);	ASSERT(HERE, fabs(ftmp - 0.816496580927726) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
-	ftmp = fisqrtest(1.0, 53);	ASSERT(HERE, fabs(ftmp - 1.000000000000000) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
-	ftmp = fisqrtest(2.0, 53);	ASSERT(HERE, fabs(ftmp - 0.707106781186548) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
-	ftmp = fisqrtest(0.5, 53);	ASSERT(HERE, fabs(ftmp - 1.414213562373095) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
-	ftmp = fisqrtest(0.3, 53);	ASSERT(HERE, fabs(ftmp - 1.825741858350554) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
-	ftmp = fisqrtest(.25, 53);	ASSERT(HERE, fabs(ftmp - 2.000000000000000) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
-	ftmp = fisqrtest(.75, 53);	ASSERT(HERE, fabs(ftmp - 1.154700538379251) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
-	ftmp = fisqrtest(3.0, 53);	ASSERT(HERE, fabs(ftmp - 0.577350269189626) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
+	ftmp = fisqrtest(1.5,  8);	/*fprintf(stderr, "fisqrtest(1.5,  8) gives err = %20.10e\n", fabs(ftmp - 0.816496580927726));*/	ASSERT(HERE, fabs(ftmp - 0.816496580927726) < 1e-3 , "Unacceptable level of error in fisqrtest() call!");
+	ftmp = fisqrtest(1.5, 53);	/*fprintf(stderr, "fisqrtest(1.5, 53) gives err = %20.10e\n", fabs(ftmp - 0.816496580927726));*/	ASSERT(HERE, fabs(ftmp - 0.816496580927726) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
+	ftmp = fisqrtest(1.0, 53);	/*fprintf(stderr, "fisqrtest(1.0, 53) gives err = %20.10e\n", fabs(ftmp - 1.000000000000000));*/	ASSERT(HERE, fabs(ftmp - 1.000000000000000) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
+	ftmp = fisqrtest(2.0, 53);	/*fprintf(stderr, "fisqrtest(2.0, 53) gives err = %20.10e\n", fabs(ftmp - 0.707106781186548));*/	ASSERT(HERE, fabs(ftmp - 0.707106781186548) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
+	ftmp = fisqrtest(0.5, 53);	/*fprintf(stderr, "fisqrtest(0.5, 53) gives err = %20.10e\n", fabs(ftmp - 1.414213562373095));*/	ASSERT(HERE, fabs(ftmp - 1.414213562373095) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
+	ftmp = fisqrtest(0.3, 53);	/*fprintf(stderr, "fisqrtest(0.3, 53) gives err = %20.10e\n", fabs(ftmp - 1.825741858350554));*/	ASSERT(HERE, fabs(ftmp - 1.825741858350554) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
+	ftmp = fisqrtest(.25, 53);	/*fprintf(stderr, "fisqrtest(.25, 53) gives err = %20.10e\n", fabs(ftmp - 2.000000000000000));*/	ASSERT(HERE, fabs(ftmp - 2.000000000000000) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
+	ftmp = fisqrtest(.75, 53);	/*fprintf(stderr, "fisqrtest(.75, 53) gives err = %20.10e\n", fabs(ftmp - 1.154700538379251));*/	ASSERT(HERE, fabs(ftmp - 1.154700538379251) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
+	ftmp = fisqrtest(3.0, 53);	/*fprintf(stderr, "fisqrtest(3.0, 53) gives err = %20.10e\n", fabs(ftmp - 0.577350269189626));*/	ASSERT(HERE, fabs(ftmp - 0.577350269189626) < 1e-14, "Unacceptable level of error in fisqrtest() call!");
 	/* Try some large and small inputs: */
-	ftmp = fisqrtest(3.141592653589793e+15, 53);	ASSERT(HERE, fabs(ftmp - 1.784124116152771e-08) < 1e-22, "Unacceptable level of error in fisqrtest() call!");
-	ftmp = fisqrtest(3.183098861837907e-16, 53);	ASSERT(HERE, fabs(ftmp - 5.604991216397928e+07) < 1e-07, "Unacceptable level of error in fisqrtest() call!");
+	ftmp = fisqrtest(3.141592653589793e+15, 53);	/*fprintf(stderr, "fisqrtest(3.141592653589793e+15, 53); gives err = %20.10e\n", fabs(ftmp - 1.784124116152771e-08));*/	ASSERT(HERE, fabs(ftmp - 1.784124116152771e-08) < 1e-22, "Unacceptable level of error in fisqrtest() call!");
+	ftmp = fisqrtest(3.183098861837907e-16, 53);	/*fprintf(stderr, "fisqrtest(3.183098861837907e-16, 53); gives err = %20.10e\n", fabs(ftmp - 5.604991216397928e+07));*/	ASSERT(HERE, fabs(ftmp - 5.604991216397928e+07) < 1e-07, "Unacceptable level of error in fisqrtest() call!");
 
 	/* Now do a whole mess of 'em: */
 	rng_isaac_init(TRUE);

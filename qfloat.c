@@ -176,16 +176,16 @@ const struct qfloat QEPS    = {0x3890000000000000ull, 0x0000000000000000ull};	/*
 const struct qfloat QHALF   = {0x3FE0000000000000ull, 0x0000000000000000ull};
 const struct qfloat QTWO    = {0x4000000000000000ull, 0x0000000000000000ull};
 const struct qfloat QTHREE  = {0x4008000000000000ull, 0x0000000000000000ull};
-const struct qfloat Q2PI    = {0x401921FB54442D18ull, 0x469898CC51701B84ull};
-const struct qfloat QPI     = {0x400921FB54442D18ull, 0x469898CC51701B84ull};
-const struct qfloat QPIHALF = {0x3FF921FB54442D18ull, 0x469898CC51701B84ull};
-const struct qfloat QIPIHLF = {0x3FE45F306DC9C882ull, 0xA53F84EAFA3EA69Cull};
+const struct qfloat Q2PI    = {0x401921FB54442D18ull, 0x469898CC51701B84ull};	// 2*Pi
+const struct qfloat QPI     = {0x400921FB54442D18ull, 0x469898CC51701B84ull};	// Pi
+const struct qfloat QPIHALF = {0x3FF921FB54442D18ull, 0x469898CC51701B84ull};	// Pi/2
+const struct qfloat QIPIHLF = {0x3FE45F306DC9C882ull, 0xA53F84EAFA3EA69Cull};	// 2/Pi
 
-const struct qfloat QPI4TH  = {0x3FE921FB54442D18ull, 0x469898CC51701B84ull};
-const struct qfloat QLN2    = {0x3FE62E42FEFA39EFull, 0x35793C7673007E5Full};
-const struct qfloat QEXP    = {0x4005BF0A8B145769ull, 0x5355FB8AC404E7A8ull};
-const struct qfloat QSQRT2  = {0x3FF6A09E667F3BCCull, 0x908B2FB1366EA958ull};
-const struct qfloat QISRT2  = {0x3FE6A09E667F3BCCull, 0x908B2FB1366EA958ull};
+const struct qfloat QPI4TH  = {0x3FE921FB54442D18ull, 0x469898CC51701B84ull};	// Pi/4
+const struct qfloat QLN2    = {0x3FE62E42FEFA39EFull, 0x35793C7673007E5Full};	// log(2)
+const struct qfloat QEXP    = {0x4005BF0A8B145769ull, 0x5355FB8AC404E7A8ull};	// E
+const struct qfloat QSQRT2  = {0x3FF6A09E667F3BCCull, 0x908B2FB1366EA958ull};	// NB: Use Pari to output sqrt(2), then display in hex using 'bc -l' and 'obase=16' gives
+const struct qfloat QISRT2  = {0x3FE6A09E667F3BCCull, 0x908B2FB1366EA958ull};	// 1.6A09E667F3BCC908B2FB1366EA957D4, which is already normalized with hidden bit left of the '.'
 const struct qfloat QI64AGM = {0x403D1FB7DBFA8B50ull, 0x9906EE26BBF22BBBull};	/* 1/AGM(1,1/2^64) for log(x), @full precision */
 const struct qfloat QSNAN   = {0xFFFFFFFFFFFFFFFFull, 0xFFFFFFFFFFFFFFFFull};	/* signaling NaN */
 // Array of precomputed small-integer inverses
@@ -1141,6 +1141,12 @@ uint32 qfcmpge(struct qfloat q1, struct qfloat q2)
 /*                  Type Conversion Utilities                                  */
 /*******************************************************************************/
 
+// Returns qfdbl result as a 64-bit integer bitfield
+uint64 qfdbl_as_uint64(const struct qfloat q)
+{
+	return q.hi + (q.lo >> 63);
+}
+
 /*
 Return IEEE64-compliant floating double approximation to a qfloat.
 Since the high part of a qfloat is already in IEEE double form, we only
@@ -1165,7 +1171,10 @@ double qfdbl(struct qfloat q)
 /* qfloat --> long double conversion utility.
 Example: x = QLN2:
 	hi = 0x3fe62e42fefa39ef, 
-	lo = 0x35793c7673007e5f = 0011 0101 0111 1001..., upper 11 bits (after rounding) = 0001 1010 1100 = 1AC
+	lo = 0x35793c7673007e5f, low 64 bits are all-extended-mantissa bits, separate into hi11 and lo53:
+	= 00110101011 11001001111000111011001110011000000000111111001011111, lo53 have MSB = 1, so add 1 to hi11:
+	= 001 1010 1100 [rest discarded], 0-pad 1 bit at top, vie rest as 3-digit hex,
+	upper 11 bits (after rounding) = 0001 1010 1100 = 1AC
 ==> Top 64 mant-bits = (162E42FEFA39EF)*2^B + 1AC = B17217F7D1CF79AC = 12786308645202655660_10 .
 	Input exp-bits = 0x3FE, get widened to 0x3FFE .
 */
@@ -1179,7 +1188,7 @@ long double qfldbl(struct qfloat x)
 	ASSERT(HERE, (exp != 0) && (exp != 0x7ff), "QFLDBL requires normal input!");
 	exp -= (int32)0x400;	// x87 80-bit reg-format has 4 more bits in exp, centered around 0x4000 rather than 0x400
 	nonhidden = ((x.hi & MASK_MANT)<<11) + (x.lo>>53) + ((x.lo>>52)&0x1);
-	// Rounding of the off-shifted portion makes it possible for the above nonhidden-bit summation to overflow into the high bit:
+	// Rounding of the off-shifted portion may cause nonhidden-bit summation to overflow into sign bit:
 	if(MASK_SIGN == nonhidden) {
 		*ld_ptr = MASK_SIGN;	++exp;		// which requires special handling
 	} else {
@@ -1951,7 +1960,7 @@ struct qfloat qfinc(struct qfloat x)
 
 			if(rshift == 0)		/* Operands perfectly aligned */
 			{
-				hi0 += hi1 + (q.lo < 0);	/* carry? */
+				hi0 += hi1;
 			}
 			//***** <= 53 changed to < 53 here: ***********************
 			else if(rshift < 53)	/* Hi part partially shifted into lo, lo part partially shifted off. */
