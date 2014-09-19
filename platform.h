@@ -26,19 +26,28 @@
 #ifndef platform_h_included
 #define platform_h_included
 
-/* Only one of the following 3 should be set = 1 at any time.
-   If > 1 is set, only the first onesuch will be respected. */
-/* Set = 1 to print brief OS summary at compile time and exit: */
+#undef	PLATFORM_DEBUG
 #undef	OS_DEBUG
-#define	OS_DEBUG	0
-
-/* Set = 1 to print brief OS summary at compile time and exit: */
+#undef	OS_BITS_DEBUG
 #undef	CPU_DEBUG
-#define	CPU_DEBUG	0
-
-/* Set = 1 to print brief OS summary at compile time and exit: */
 #undef	CMPLR_DEBUG
-#define	CMPLR_DEBUG	0
+
+// Make PLATFORM_DEBUG def'd the default for CUDA builds, since those use 2 distinct passes which it is useful to clearly separate:
+#ifdef __CUDACC__
+	#define PLATFORM_DEBUG
+#endif
+
+// Define PLATFORM_DEBUG at compile time to enable these internal platfrom-related diagnostic #warning prints:
+#ifdef PLATFORM_DEBUG
+	/* Set = 1 to print brief OS summary at compile time: */
+	#define	OS_DEBUG	1
+	/* Set = 1 to print brief OS-bitness summary at compile time: */
+	#define	OS_BITS_DEBUG	1
+	/* Set = 1 to print brief OS summary at compile time: */
+	#define	CPU_DEBUG	1
+	/* Set = 1 to print brief OS summary at compile time: */
+	#define	CMPLR_DEBUG	1
+#endif
 
 /* Platform-dependent #defines summarizing key performance-related features: */
 #undef	FP_MANTISSA_BITS_DOUBLE	/* Number of significand bits of a register double.
@@ -207,6 +216,12 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 	#endif
 #endif
 
+// GPU-specific flagging is done analogously to SIMD: REALLY_GPU implies USE_GPU, but not v.v.:
+#ifdef REALLY_GPU
+	#define	USE_GPU
+#endif
+
+
 /* Locally defined Compiler types and versions: */
 #undef	COMPILER_NAME
 
@@ -215,22 +230,80 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 
 #undef	COMPILER_VERSION
 
-#undef	COMPILER_TYPE_GCC		/* Gnu C compiler */
-#undef	COMPILER_TYPE_MWERKS	/* Metrowerks Codewarrior */
-#undef	COMPILER_TYPE_ICC		/* Intel compiler */
-#undef	COMPILER_TYPE_HPC		/* HP C compiler */
 #undef	COMPILER_TYPE_APPLEC	/* Apple C compiler */
-#undef	COMPILER_TYPE_XLC		/* IBM XL C compiler */
 #undef	COMPILER_TYPE_DECC		/* DEC C compiler */
-#undef	COMPILER_TYPE_SUNC		/* SunPro C compiler */
+#undef	COMPILER_TYPE_GCC		/* Gnu C compiler */
+#undef	COMPILER_TYPE_HPC		/* HP C compiler */
+#undef	COMPILER_TYPE_ICC		/* Intel compiler */
 #undef	COMPILER_TYPE_MSVC		/* Microsoft Visual C++ (later .NET) compiler */
+#undef	COMPILER_TYPE_MWERKS	/* Metrowerks Codewarrior */
+#undef	COMPILER_TYPE_NVCC		/* nVidia C++ (for GPU) compiler */
+#undef	COMPILER_TYPE_SUNC		/* SunPro C compiler */
+#undef	COMPILER_TYPE_XLC		/* IBM XL C compiler */
 /* Miscellaneous notes on the key-but-lesser-known features of the compilers:
 	- MWERKS and MSVC/.NET share the same inline ASM syntax, as do GCC and ICC.
 	-
 */
 
+// For GPU builds via NVCC, must allow for the 2-compile-pass paradigm:
+//	Pass 1 [host code] should pass through to same predefines-handling as a non-GPU build on the host arch would;
+//	Pass 2 [device code] is handled here.
+// We can differentiate between the 2 passes by using that __CUDACC__ is def'd for both, but __CUDA_ARCH__ only for Pass 2:
+#if defined(__CUDACC__) && !defined(__CUDA_ARCH__)
+
+	#warning CUDA: Host-code compile pass
+
+#endif
+#ifdef __CUDA_ARCH__
+
+	#warning CUDA: Device-code compile pass
+
+	#define CPU_TYPE
+	#define CPU_IS_NVIDIA
+
+	#define COMPILER_TYPE
+	#define COMPILER_TYPE_NVCC
+
+	#define	USE_RINT	// Ensures that float/doule round-to-nearest proceeds via the efficient cuda-stdlib rint() function
+
+  // If GCC version predefines __SIZEOF_POINTER__, that is most reliable (the LONG_MAX-based test below failed under mingw64 because that defined LONG_MAX and LONG_LONG_MAX differently in 64-bit mode:
+  #ifdef __SIZEOF_POINTER__
+
+	#if __SIZEOF_POINTER__ == 4
+		#define OS_BITS 32
+	#elif __SIZEOF_POINTER__ == 8
+		#define OS_BITS 64
+	#else
+		#error __SIZEOF_POINTER__ defined but returns unrecognized value! Use gcc -dM -E < /dev/null | grep __SIZEOF_POINTER__ to examine.
+	#endif
+
+  // Otherwise see if can use the value of __LONG_MAX__ in limits.h to quickly and portably determine whether it's 32-bit or 64-it OS:
+  #else
+	// Syntax here is GCC and SunStudio/MSVC, respectively:
+	#if !defined(__LONG_MAX__) && !defined(LONG_MAX)
+		#include <limits.h>
+	#endif
+
+	#if !defined(__LONG_MAX__) &&  defined(LONG_MAX)
+		#define __LONG_MAX__  LONG_MAX
+	#endif
+
+	#ifdef __LONG_MAX__
+		#if __LONG_MAX__ == 2147483647L
+			#define OS_BITS 32
+		#elif __LONG_MAX__ == 9223372036854775807L
+			#define OS_BITS 64
+		#else
+			#error  __LONG_MAX__ defined but value unrecognized!
+		#endif
+	#else
+		#error platform.h: failed to properly set OS_BITS for NVCC build!
+	#endif
+
+  #endif
+
 /* 32-bit X86, Gnu C or Metrowerks CodeWarrior C compiler: */
-#if(defined(__i386) || defined(__i386__))
+#elif(defined(__i386) || defined(__i386__))
 
 	#ifndef OS_BITS
 		#define OS_BITS 32
@@ -240,29 +313,32 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 	#define CPU_IS_X86
 	#define	INTEGER_MUL_32
 
-	/* Sun C compiler - needs '-xarch=amd64' compiler flag in order for __amd64 to be def'd: */
-	#if(defined(__SUNPRO_C))
-		#define COMPILER_TYPE
-		#define COMPILER_TYPE_SUNC
-	/* Gnu C compiler */
-	#elif(defined(__GNUC__) || defined(__GNUG__))
-		#define COMPILER_TYPE
-		#define COMPILER_TYPE_GCC
-	/* Metrowerks CodeWarrior C compiler */
-	#elif(defined(__MWERKS__))
-		#define COMPILER_TYPE
-		#define COMPILER_TYPE_MWERKS
-	/* Intel C compiler: */
-	#elif(defined(__INTEL_COMPILER))
-		#define COMPILER_TYPE
-		#define COMPILER_TYPE_ICC
+	#ifndef COMPILER_TYPE	// NVCC may already have been defined
+		/* Sun C compiler - needs '-xarch=amd64' compiler flag in order for __amd64 to be def'd: */
+		#if(defined(__SUNPRO_C))
+			#define COMPILER_TYPE
+			#define COMPILER_TYPE_SUNC
+		/* Gnu C compiler */
+		#elif(defined(__GNUC__) || defined(__GNUG__))
+			#define COMPILER_TYPE
+			#define COMPILER_TYPE_GCC
+		/* Metrowerks CodeWarrior C compiler */
+		#elif(defined(__MWERKS__))
+			#define COMPILER_TYPE
+			#define COMPILER_TYPE_MWERKS
+		/* Intel C compiler: */
+		#elif(defined(__INTEL_COMPILER))
+			#define COMPILER_TYPE
+			#define COMPILER_TYPE_ICC
 
-		#include <xmmintrin.h>	/* Principal header file for Streaming SIMD Extensions intrinsics - we need it for the _MM_HINT predefines used in prefetch.h */
-	/* Unknown: */
-	#else
-#error __i386__ defined for unexpected compiler type!
-		#define COMPILER_TYPE
-		#define COMPILER_TYPE_UNKNOWN
+			#include <xmmintrin.h>	/* Principal header file for Streaming SIMD Extensions intrinsics - we need it for the _MM_HINT predefines used in prefetch.h */
+		/* Unknown: */
+		#else
+			#error __i386__ defined for unexpected compiler type!
+
+			#define COMPILER_TYPE
+			#define COMPILER_TYPE_UNKNOWN
+		#endif
 	#endif
 
 /* AMD64 ISA - includes "Intel 64" (formerly known as "EMT64", formerly formerly known as "IA32e", yada, yada): */
@@ -278,31 +354,33 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 	#define MULH64_FAST
 	#define	HARDWARE_FMADD
 
-	/* Sun C compiler - needs '-xarch=amd64' compiler flag in order for __amd64 to be def'd: */
-	#if(defined(__SUNPRO_C))
-		#define COMPILER_TYPE
-		#define COMPILER_TYPE_SUNC
-	// Gnu C compiler: Note this gets triggered as desired for llvm/clang, but for that we use non-GCC flags
-	// to set COMPILER_NAME to reflect that while the compiler is gcc-compatible, it is not gcc:
-	#elif(defined(__GNUC__) || defined(__GNUG__))
-		#define COMPILER_TYPE
-		#define COMPILER_TYPE_GCC
-	/* Metrowerks CodeWarrior C compiler */
-	#elif(defined(__MWERKS__))
-		#define COMPILER_TYPE
-		#define COMPILER_TYPE_MWERKS
-	/* Intel C compiler: */
-	#elif(defined(__INTEL_COMPILER))
-		#define COMPILER_TYPE
-		#define COMPILER_TYPE_ICC
-	/* MS Visual C/Studio/.NET/Whatever: */
-	#elif(defined(_MSC_VER))
-		#define COMPILER_TYPE
-		#define COMPILER_TYPE_MSVC
-	/* Unknown: */
-	#else
-		#define COMPILER_TYPE
-		#define COMPILER_TYPE_UNKNOWN
+	#ifndef COMPILER_TYPE	// NVCC may already have been defined
+		/* Sun C compiler - needs '-xarch=amd64' compiler flag in order for __amd64 to be def'd: */
+		#if(defined(__SUNPRO_C))
+			#define COMPILER_TYPE
+			#define COMPILER_TYPE_SUNC
+		// Gnu C compiler: Note this gets triggered as desired for llvm/clang, but for that we use non-GCC flags
+		// to set COMPILER_NAME to reflect that while the compiler is gcc-compatible, it is not gcc:
+		#elif(defined(__GNUC__) || defined(__GNUG__))
+			#define COMPILER_TYPE
+			#define COMPILER_TYPE_GCC
+		/* Metrowerks CodeWarrior C compiler */
+		#elif(defined(__MWERKS__))
+			#define COMPILER_TYPE
+			#define COMPILER_TYPE_MWERKS
+		/* Intel C compiler: */
+		#elif(defined(__INTEL_COMPILER))
+			#define COMPILER_TYPE
+			#define COMPILER_TYPE_ICC
+		/* MS Visual C/Studio/.NET/Whatever: */
+		#elif(defined(_MSC_VER))
+			#define COMPILER_TYPE
+			#define COMPILER_TYPE_MSVC
+		/* Unknown: */
+		#else
+			#define COMPILER_TYPE
+			#define COMPILER_TYPE_UNKNOWN
+		#endif
 	#endif
 
 /* 32-bit X86, Intel C or MSVC/.NET compiler */
@@ -653,68 +731,70 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 /* Time to name names: */
 #if(defined(OS_TYPE_WINDOWS))
   #if OS_DEBUG
-	#error	OS_NAME "Windows"
-  #else
-	#define	OS_NAME "Windows"
+	#warning	OS_NAME "Windows"
   #endif
+	#define	OS_NAME "Windows"
 #elif(defined(OS_TYPE_LINUX))
   #if OS_DEBUG
-	#error	OS_NAME "Linux"
-  #else
-	#define	OS_NAME "Linux"
+	#warning	OS_NAME "Linux"
   #endif
+	#define	OS_NAME "Linux"
 #elif(defined(OS_TYPE_MACOSX))
   #if OS_DEBUG
-	#error	OS_NAME "OS X"
-  #else
-	#define	OS_NAME "OS X"
+	#warning	OS_NAME "OS X"
   #endif
+	#define	OS_NAME "OS X"
 #elif(defined(OS_TYPE_DECOSF))/* DEC OSF (later HP TruUnix) */
   #if OS_DEBUG
-	#error	OS_NAME "DEC OSF / HP TruUnix"
-  #else
-	#define	OS_NAME "DEC OSF / HP TruUnix"
+	#warning	OS_NAME "DEC OSF / HP TruUnix"
   #endif
+	#define	OS_NAME "DEC OSF / HP TruUnix"
 #elif(defined(OS_TYPE_DECVMS))/* DEC VMS (originally for VAX) */
   #if OS_DEBUG
-	#error	OS_NAME "DEC VMS"
-  #else
-	#define	OS_NAME "DEC VMS"
+	#warning	OS_NAME "DEC VMS"
   #endif
+	#define	OS_NAME "DEC VMS"
 #elif(defined(OS_TYPE_HPUX))
   #if OS_DEBUG
-	#error	OS_NAME "HPUX"
-  #else
-	#define	OS_NAME "HPUX"
+	#warning	OS_NAME "HPUX"
   #endif
+	#define	OS_NAME "HPUX"
 #elif(defined(OS_TYPE_SUN))
   #if OS_DEBUG
-	#error	OS_NAME "SunOS / Solaris"
-  #else
-	#define	OS_NAME "SunOS / Solaris"
+	#warning	OS_NAME "SunOS / Solaris"
   #endif
+	#define	OS_NAME "SunOS / Solaris"
 #elif(defined(OS_TYPE_AIX))
   #if OS_DEBUG
-	#error	OS_NAME "AIX"
-  #else
-	#define	OS_NAME "AIX"
+	#warning	OS_NAME "AIX"
   #endif
+	#define	OS_NAME "AIX"
 #elif(defined(OS_TYPE_IRIX))
   #if OS_DEBUG
-	#error	OS_NAME "Irix"
-  #else
-	#define	OS_NAME "Irix"
+	#warning	OS_NAME "Irix"
   #endif
+	#define	OS_NAME "Irix"
 #elif(defined(OS_TYPE_UNKNOWN))
   #if OS_DEBUG
-	#error	OS_NAME "Unknown"
-  #else
-	#define	OS_NAME "Unknown"
+	#warning	OS_NAME "Unknown"
   #endif
+	#define	OS_NAME "Unknown"
 #endif
 
 #ifndef OS_VERSION
 	#define OS_VERSION "[Unknown]"
+#endif
+
+#if OS_BITS_DEBUG
+	#ifndef OS_BITS
+		#error OS_BITS not defined!
+	#elif OS_BITS == 32
+		#warning Compiling in 32-bit mode
+	#elif OS_BITS == 64
+		#warning Compiling in 64-bit mode
+	#else
+		#error OS_BITS defined but value not supported!
+	#endif
 #endif
 
 #ifdef USE_SSE2
@@ -772,14 +852,6 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 
 	#endif
 
-	/* Uncomment this block for compile-time printout of OS_BITS:
-	#if OS_BITS == 32
-		#error 32-bit OS detected
-	#elif OS_BITS == 64
-		#error 64-bit OS detected
-	#endif
-	*/
-
   #else
 
 	#error SSE2 code not supported for this compiler!
@@ -799,7 +871,7 @@ extern int NTHREADS;
 
 	// OpenMP requires USE_OMP to be def'd in addition to USE_THREADS:
 	#ifdef USE_OMP
-	
+
 		// Found OpenMP header? The predefines here are for Linux, Sun Studio and Windows/MSVC, respectively:
 		#include <omp.h>
 		#if(defined(__OMP_H) || defined(_OPENMP) || defined(_OMPAPI))
@@ -815,7 +887,7 @@ extern int NTHREADS;
 		tell us that in order to access macros for `cpu_set', we must #define _GNU_SOURCE before including <sched.h>.
 		However, whether I define the above or not, on my distro (Fedora v16), I get these compile-time warnings
 		indicating that the affinity stuff is not being included:
-		
+
 			"warning: implicit declaration of function ÔCPU_ZEROÕ", etc.
 
 		Some sleuthing reveals that (at least in my distro) sched.h #includes <features.h>,
@@ -825,10 +897,10 @@ extern int NTHREADS;
 		Even more bizarrely, when (in addition to defining just before including sched.h
 		in my threading-related header file) I add -D_GNU_SOURCE to my compile command line,
 		now all of a sudden the compiler sees both definitions and says
-		
+
 			platform.h:804:0: warning: "_GNU_SOURCE" redefined [enabled by default]
 			<command-line>:0:0: note: this is the location of the previous definition
-		
+
 		...and the "implicit" warnings disppear. Anyway, add that one to the build-related mental "WTF?" bin
 		and just #define __USE_GNU instead.
 		*/
@@ -874,141 +946,131 @@ extern int NTHREADS;
 
 #if defined(CPU_IS_ALFA)
   #if CPU_DEBUG
-	#error	CPU_NAME "Alpha"
-  #else
-	#define	CPU_NAME "Alpha"
+	#warning	CPU_NAME "Alpha"
   #endif
+	#define	CPU_NAME "Alpha"
 #elif defined(CPU_IS_MIPS)
   #if CPU_DEBUG
-	#error	CPU_NAME "Mips"
-  #else
-	#define	CPU_NAME "Mips"
+	#warning	CPU_NAME "Mips"
   #endif
+	#define	CPU_NAME "Mips"
 #elif defined(CPU_IS_SPARC)
   #if CPU_DEBUG
-	#error	CPU_NAME "Sparc"
-  #else
-	#define	CPU_NAME "Sparc"
+	#warning	CPU_NAME "Sparc"
   #endif
+	#define	CPU_NAME "Sparc"
 #elif defined(CPU_IS_PPC)
   #if CPU_DEBUG
-	#error	CPU_NAME "PowerPC"
-  #else
-	#define	CPU_NAME "PowerPC"
+	#warning	CPU_NAME "PowerPC"
   #endif
+	#define	CPU_NAME "PowerPC"
 #elif defined(CPU_IS_X86)
   #if CPU_DEBUG
-	#error	CPU_NAME "x86"
-  #else
+	#warning	CPU_NAME "x86"
+  #endif
 	#define	CPU_NAME "x86"
 	#define	FP_MANTISSA_BITS_DOUBLE	64
-  #endif
 #elif defined(CPU_IS_X86_64)
   #if CPU_DEBUG
-	#error	CPU_NAME "x86_64"
-  #else
+	#warning	CPU_NAME "x86_64"
+  #endif
 	#define	CPU_NAME "x86_64"
 	#define	FP_MANTISSA_BITS_DOUBLE	64
-  #endif
 #elif defined(CPU_IS_POWER)
   #if CPU_DEBUG
-	#error	CPU_NAME "Power"
-  #else
-	#define	CPU_NAME "Power"
+	#warning	CPU_NAME "Power"
   #endif
+	#define	CPU_NAME "Power"
 #elif defined(CPU_IS_HPPA)
   #if CPU_DEBUG
-	#error	CPU_NAME "HPPA"
-  #else
-	#define	CPU_NAME "HPPA"
+	#warning	CPU_NAME "HPPA"
   #endif
+	#define	CPU_NAME "HPPA"
 #elif defined(CPU_IS_IA64)
   #if CPU_DEBUG
-	#error	CPU_NAME "Itanium"
-  #else
+	#warning	CPU_NAME "Itanium"
+  #endif
 	#define	CPU_NAME "Itanium"
 	#define	FP_MANTISSA_BITS_DOUBLE	64
+#elif defined(CPU_IS_NVIDIA)
+  #if CPU_DEBUG
+	#warning	CPU_NAME "nVidia"
   #endif
+	#define	CPU_NAME "nVidia"
 #elif defined(CPU_IS_UNKNOWN)
   #if CPU_DEBUG
-	#error	CPU_NAME "Unknown"
-  #else
-	#define	CPU_NAME "Unknown"
+	#warning	CPU_NAME "Unknown"
   #endif
+	#define	CPU_NAME "Unknown"
 #endif
 
 #ifndef	FP_MANTISSA_BITS_DOUBLE
 	#define	FP_MANTISSA_BITS_DOUBLE	53
 #endif
 
-#if(defined(COMPILER_TYPE_GCC))
+#if(defined(COMPILER_TYPE_NVCC))
+  #if CMPLR_DEBUG
+	#warning	COMPILER_NAME "nVidia C++ (for GPU)"
+  #endif
+	#define COMPILER_NAME "nVidia C++ (for GPU)"
+#elif(defined(COMPILER_TYPE_GCC))
   #ifdef __clang__
    #if CMPLR_DEBUG
-	#error	COMPILER_NAME "Gnu-C-compatible [llvm/clang]"
-   #else
-	#define COMPILER_NAME "Gnu-C-compatible [llvm/clang]"
+	#warning	COMPILER_NAME "Gnu-C-compatible [llvm/clang]"
    #endif
+	#define COMPILER_NAME "Gnu-C-compatible [llvm/clang]"
 	#ifdef	__clang_version__
 		#define	COMPILER_VERSION	__clang_version__
 	#endif
   #else
    #if CMPLR_DEBUG
-	#error	COMPILER_NAME "Gnu C [or other compatible]"
-   #else
-	#define COMPILER_NAME "Gnu C [or other compatible]"
+	#warning	COMPILER_NAME "Gnu C [or other compatible]"
    #endif
+	#define COMPILER_NAME "Gnu C [or other compatible]"
 	#ifdef	__VERSION__
 		#define	COMPILER_VERSION	__VERSION__
 	#endif
   #endif
 #elif(defined(COMPILER_TYPE_MWERKS))
   #if CMPLR_DEBUG
-	#error	COMPILER_NAME "Metrowerks Codewarrior"
-  #else
-	#define COMPILER_NAME "Metrowerks Codewarrior"
+	#warning	COMPILER_NAME "Metrowerks Codewarrior"
   #endif
+	#define COMPILER_NAME "Metrowerks Codewarrior"
 #elif(defined(COMPILER_TYPE_ICC))
   #if CMPLR_DEBUG
-	#error	COMPILER_NAME "Intel C"
-  #else
-	#define COMPILER_NAME "Intel C"
+	#warning	COMPILER_NAME "Intel C"
   #endif
+	#define COMPILER_NAME "Intel C"
 #elif(defined(COMPILER_TYPE_HPC))
   #if CMPLR_DEBUG
-	#error	COMPILER_NAME "HP C"
-  #else
-	#define COMPILER_NAME "HP C"
+	#warning	COMPILER_NAME "HP C"
   #endif
+	#define COMPILER_NAME "HP C"
 #elif(defined(COMPILER_TYPE_APPLEC))
   #if CMPLR_DEBUG
-	#error	COMPILER_NAME "Apple C"
-  #else
-	#define COMPILER_NAME "Apple C"
+	#warning	COMPILER_NAME "Apple C"
   #endif
+	#define COMPILER_NAME "Apple C"
 #elif(defined(COMPILER_TYPE_XLC))
   #if CMPLR_DEBUG
-	#error	COMPILER_NAME "IBM XL-C"
-  #else
-	#define COMPILER_NAME "IBM XL-C"
+	#warning	COMPILER_NAME "IBM XL-C"
   #endif
+	#define COMPILER_NAME "IBM XL-C"
 #elif(defined(COMPILER_TYPE_DECC))
   #if CMPLR_DEBUG
-	#error	COMPILER_NAME "DECC/HP-C"
-  #else
-	#define COMPILER_NAME "DECC/HP-C"
+	#warning	COMPILER_NAME "DECC/HP-C"
   #endif
+	#define COMPILER_NAME "DECC/HP-C"
 #elif(defined(COMPILER_TYPE_SUNC))
   #if CMPLR_DEBUG
-	#error	COMPILER_NAME "SunPro C"
-  #else
-	#define COMPILER_NAME "SunPro C"
+	#warning	COMPILER_NAME "SunPro C"
   #endif
+	#define COMPILER_NAME "SunPro C"
 #elif(defined(COMPILER_TYPE_MSVC))
   #if CMPLR_DEBUG
-	#error	COMPILER_NAME "MSVC/.NET"
-  #else
-	#define COMPILER_NAME "MSVC/.NET"
+	#warning	COMPILER_NAME "MSVC/.NET"
   #endif
+	#define COMPILER_NAME "MSVC/.NET"
 
   #if(_MSC_VER < 1300)	/* Use of MSVC 7+ required, mainly so we don't get compiler errors about 'll' extensions to 64-bit const ints. */
 	#error Your version of MSVC appears to be out of date - Use of MSVC/.NET v7.0 or later is ***required***
@@ -1032,20 +1094,23 @@ extern int NTHREADS;
 
 #elif(defined(COMPILER_TYPE_UNKNOWN))
   #if CMPLR_DEBUG
-	#error	COMPILER_NAME "Unknown Compiler"
-  #else
-	#define	COMPILER_NAME "Unknown Compiler"
+	#warning	COMPILER_NAME "Unknown Compiler"
   #endif
+	#define	COMPILER_NAME "Unknown Compiler"
 #endif
 
 #ifndef COMPILER_VERSION
 	#define COMPILER_VERSION "[Unknown]"
 #endif
 
-#ifdef USE_AVX
-	#ifndef COMPILER_TYPE_GCC
-		#error AVX builds currently only supported under GCC!
-	#endif
+// SIMD code only available for 64-bit GCC build:
+#if defined(USE_SSE2) && !defined(COMPILER_TYPE_GCC)
+	#error  SIMD code only available for GCC (and compatible) build!
+#endif
+
+// SIMD+AVX code only available for 64-bit build:
+#if defined(USE_AVX) && (OS_BITS == 32)
+	#error  SIMD+AVX code only available for 64-bit build!
 #endif
 
 #endif	/* platform_h_included */
@@ -1060,11 +1125,11 @@ extern int NTHREADS;
 	[snip of some thread-affinity-related stuff]
 
 	The last mprime built for the Mac included these libs:
-	
+
 	LIBS   = ../gwnum/release/gwnum.a -lm -lpthread -lcurl -lIOKit -framework CoreFoundation -lstdc++
-	
+
 	and in case CPU_SET etc are macros, I include these files at compile time:
-	
+
 	// Include files needed by all ports
 	#include "prime.h"
 	#include <ctype.h>
@@ -1076,7 +1141,7 @@ extern int NTHREADS;
 	#include <stdlib.h>
 	#include <string.h>
 	#include <sys/stat.h>
-	
+
 	// Required Linux files
 	#ifdef __linux__
 	#include <dirent.h>
@@ -1090,7 +1155,7 @@ extern int NTHREADS;
 	#include <sys/time.h>
 	#include <sys/timeb.h>
 	#endif
-	
+
 	// Required Mac OS X files
 	#ifdef __APPLE__
 	#include <dirent.h>
@@ -1106,7 +1171,7 @@ extern int NTHREADS;
 	#include <IOKit/ps/IOPowerSources.h>
 	#include <IOKit/ps/IOPSKeys.h>
 	#endif
-	
+
 	// Required FreeBSD files
 	#ifdef __FreeBSD__
 	#include <dirent.h>
@@ -1121,7 +1186,7 @@ extern int NTHREADS;
 	#include <sys/time.h>
 	#include <sys/timeb.h>
 	#endif
-	 
+
 	Hope that helps,
 	George
 */

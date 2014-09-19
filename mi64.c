@@ -35,8 +35,10 @@
 #endif
 
 #undef YES_ASM
-#if(defined(CPU_IS_X86_64) && defined(COMPILER_TYPE_GCC) && (OS_BITS == 64))
+#ifndef USE_GPU
+  #if(defined(CPU_IS_X86_64) && defined(COMPILER_TYPE_GCC) && (OS_BITS == 64))
 	#define YES_ASM
+  #endif
 #endif
 
 /*******************/
@@ -480,33 +482,9 @@ void	mi64_setlen(uint64 x[], uint32 oldlen, uint32 newlen)
 	Any or all of X, Y and Z can point to the same array object.
 	Return any exit carry - up to user to determine what to do if this is nonzero.
 */
-
-// Non-unrolled slow reference version, useful for checking results of attempted speedups to 
+// Non-unrolled slow reference version, useful for checking results of attempted speedups:
 uint64	mi64_add_ref(const uint64 x[], const uint64 y[], uint64 z[], uint32 len)
 {
-	uint32 i;
-	uint64 tmp, cy = 0;
-	DBG_ASSERT(HERE, len != 0, "mi64_add_ref: zero-length array!");
-
-	for(i = 0; i < len; i++)
-	{
-		tmp = x[i] + cy;
-		cy  = (tmp < x[i]);
-		tmp = tmp + y[i];
-		cy += (tmp < y[i]);
-		z[i] = tmp;
-	}
-	return cy;
-}
-
-// "Production version":
-uint64	mi64_add(const uint64 x[], const uint64 y[], uint64 z[], uint32 len)
-{
-#if 0
-
-	// cycles per limb:
-	// Core2: 7.60 cpl
-	// SdyBr: 6.60
 	uint32 i;
 	uint64 tmp, cy = 0;
 	DBG_ASSERT(HERE, len != 0, "mi64_add: zero-length array!");
@@ -519,316 +497,405 @@ uint64	mi64_add(const uint64 x[], const uint64 y[], uint64 z[], uint32 len)
 		cy += (tmp < y[i]);
 		z[i] = tmp;
 	}
+	return cy;
+}
 
-#elif 0//!defined(YES_ASM)	// 2-unrolled C loop gives a nice boost. (4-unrolled no better in generic C).
-
-	// Core2: 6.56 cpl
-	// SdyBr: 6.14
-	uint64 tmp, cy, c2 = 0;
-	uint32 i, odd = (len&1), len2 = len - odd;
-
-	for(i = 0; i < len2; i++){
-		tmp = x[i] + y[i];
-		cy = (tmp < x[i]);
-		z[i] = tmp + c2;
-		cy += (tmp > z[i]);
-		i++;
-
-		tmp = x[i] + y[i];
-		c2 = (tmp < x[i]);
-		z[i] = tmp + cy;
-		c2 += (tmp > z[i]);
-	}
-
-	if(odd) {
-		tmp = x[i] + y[i];
-		cy = (tmp < x[i]);
-		z[i] = tmp + c2;
-		cy += (tmp > z[i]);
-	} else {
-		cy = c2;
-	}
-
-#elif !defined(YES_ASM)	// Try 2-folded C loop:
-
-	// Core2: 5.07 cpl
-	// SdyBr: 4.13
-	uint64 tmp,tm2, cy = 0, c2 = 0;
-	uint32 i,j, odd = (len&1), len2 = len >> 1;
-	j = len2;
-	for(i = 0; i < len2; i++, j++){
-		tmp = x[i] + cy;			tm2 = x[j] + c2;
-		cy  = (tmp < x[i]);			c2  = (tm2 < x[j]);
-		tmp = tmp + y[i];			tm2 = tm2 + y[j];
-		cy += (tmp < y[i]);			c2 += (tm2 < y[j]);
-		z[i] = tmp;					z[j] = tm2;
-	}
-	// Propagate low-half carry into high half:
-	while(cy)
+// Non-unrolled slow version allowing nonzero carryin, useful for cleanup stage of SIMD mi64_add():
+uint64	mi64_add_cyin(const uint64 x[], const uint64 y[], uint64 z[], uint32 len, uint64 cyin)
+{
+	uint32 i;
+	uint64 tmp, cy = cyin;
+	for(i = 0; i < len; i++)
 	{
-		tmp = z[i] + cy;
-		cy  = (tmp < z[i]);
+		tmp = x[i] + cy;
+		cy  = (tmp < x[i]);
+		tmp = tmp + y[i];
+		cy += (tmp < y[i]);
 		z[i] = tmp;
-		++i;
 	}
-	c2 += cy;	// In case cy rippled all the way through the high-half result
-	// Take care of any leftover high words:
-	if(odd) {
-		i = len - 1;
-		tmp = x[i] + y[i];
-		cy = (tmp < x[i]);
-		z[i] = tmp + c2;
-		cy += (tmp > z[i]);
-	} else {
-		cy = c2;
-	}
+	return cy;
+}
 
-#elif !defined(YES_ASM)	// Try 2-folded, 2-unrolled C loop:
+#ifndef YES_ASM
 
-	// Core2: 6.40 cpl	<*** slower than non-unrolled version ***
-	// SdyBr: ?
-	uint64 tmp,tm2, cy = 0, c2 = 0;
-	uint32 i,j, odd = (len&1), len2 = len >> 1, l2mask;
-	j = len2;
-	l2mask = len2 & 0xfffffffe;	// If e.g. len = 6, len2 = 3, only want to run main loop for i=0,1
-	for(i = 0; i < l2mask; ){
-		tmp = x[i] + cy;			tm2 = x[j] + c2;
-		cy  = (tmp < x[i]);			c2  = (tm2 < x[j]);
-		tmp = tmp + y[i];			tm2 = tm2 + y[j];
-		cy += (tmp < y[i]);			c2 += (tm2 < y[j]);
-		z[i] = tmp;					z[j] = tm2;
-		i++;						j++;
-		tmp = x[i] + cy;			tm2 = x[j] + c2;
-		cy  = (tmp < x[i]);			c2  = (tm2 < x[j]);
-		tmp = tmp + y[i];			tm2 = tm2 + y[j];
-		cy += (tmp < y[i]);			c2 += (tm2 < y[j]);
-		z[i] = tmp;					z[j] = tm2;
-		i++;						j++;
-	}
-	if(len2 & 0x1) {
-		tmp = x[i] + cy;			tm2 = x[j] + c2;
-		cy  = (tmp < x[i]);			c2  = (tm2 < x[j]);
-		tmp = tmp + y[i];			tm2 = tm2 + y[j];
-		cy += (tmp < y[i]);			c2 += (tm2 < y[j]);
-		z[i] = tmp;					z[j] = tm2;
-		i++;						j++;
-	}
-	// Propagate low-half carry into high half:
-	while(cy)
+	// Non-unrolled slow reference version, useful for checking results of attempted speedups:
+	uint64	mi64_add(const uint64 x[], const uint64 y[], uint64 z[], uint32 len)
 	{
-		tmp = z[i] + cy;
-		cy  = (tmp < z[i]);
-		z[i] = tmp;
-		++i;
+	#if 0
+
+		// cycles per limb:
+		// Core2: 7.60 cpl
+		// SdyBr: 6.60
+		uint32 i;
+		uint64 tmp, cy = 0;
+		DBG_ASSERT(HERE, len != 0, "mi64_add: zero-length array!");
+
+		for(i = 0; i < len; i++)
+		{
+			tmp = x[i] + cy;
+			cy  = (tmp < x[i]);
+			tmp = tmp + y[i];
+			cy += (tmp < y[i]);
+			z[i] = tmp;
+		}
+
+	#elif 0	// 2-unrolled C loop gives a nice boost. (4-unrolled no better in generic C).
+
+		// Core2: 6.56 cpl
+		// SdyBr: 6.14
+		uint64 tmp, cy, c2 = 0;
+		uint32 i, odd = (len&1), len2 = len - odd;
+
+		for(i = 0; i < len2; i++){
+			tmp = x[i] + y[i];
+			cy = (tmp < x[i]);
+			z[i] = tmp + c2;
+			cy += (tmp > z[i]);
+			i++;
+
+			tmp = x[i] + y[i];
+			c2 = (tmp < x[i]);
+			z[i] = tmp + cy;
+			c2 += (tmp > z[i]);
+		}
+
+		if(odd) {
+			tmp = x[i] + y[i];
+			cy = (tmp < x[i]);
+			z[i] = tmp + c2;
+			cy += (tmp > z[i]);
+		} else {
+			cy = c2;
+		}
+
+	#elif 1	// Try 2-folded C loop:
+	//  #error This fails the 7/21/2005 bugfix test in factor_test.h!
+		// Core2: 5.07 cpl
+		// SdyBr: 4.13
+		uint64 tmp,tm2, cy = 0, c2 = 0;
+		uint32 i,j, odd = (len&1), len2 = len >> 1;
+		j = len2;
+		for(i = 0; i < len2; i++, j++){
+			tmp = x[i] + cy;			tm2 = x[j] + c2;
+			cy  = (tmp < x[i]);			c2  = (tm2 < x[j]);
+			tmp = tmp + y[i];			tm2 = tm2 + y[j];
+			cy += (tmp < y[i]);			c2 += (tm2 < y[j]);
+			z[i] = tmp;					z[j] = tm2;
+		}
+		// Propagate low-half carry into high half:
+		while(cy)
+		{
+			tmp = z[i] + cy;
+			cy  = (tmp < z[i]);
+			z[i] = tmp;
+			++i;
+		}
+		c2 += cy;	// In case cy rippled all the way through the high-half result
+		// Take care of any leftover high words:
+		if(odd) {
+			i = len - 1;
+			tmp = x[i] + y[i];
+			cy = (tmp < x[i]);
+			z[i] = tmp + c2;
+			cy += (tmp > z[i]);
+		} else {
+			cy = c2;
+		}
+
+	#elif 0	// Try 2-folded, 2-unrolled C loop:
+
+		// Core2: 5.92 cpl	<*** slower than non-unrolled version ***
+		// SdyBr: ?
+		uint64 tmp,tm2, cy = 0, c2 = 0;
+		uint32 i,j, odd = (len&1), len2 = len >> 1, l2mask;
+		j = len2;
+		l2mask = len2 & 0xfffffffe;	// If e.g. len = 6, len2 = 3, only want to run main loop for i=0,1
+		for(i = 0; i < l2mask; ){
+			tmp = x[i] + cy;			tm2 = x[j] + c2;
+			cy  = (tmp < x[i]);			c2  = (tm2 < x[j]);
+			tmp = tmp + y[i];			tm2 = tm2 + y[j];
+			cy += (tmp < y[i]);			c2 += (tm2 < y[j]);
+			z[i] = tmp;					z[j] = tm2;
+			i++;						j++;
+			tmp = x[i] + cy;			tm2 = x[j] + c2;
+			cy  = (tmp < x[i]);			c2  = (tm2 < x[j]);
+			tmp = tmp + y[i];			tm2 = tm2 + y[j];
+			cy += (tmp < y[i]);			c2 += (tm2 < y[j]);
+			z[i] = tmp;					z[j] = tm2;
+			i++;						j++;
+		}
+		if(len2 & 0x1) {
+			tmp = x[i] + cy;			tm2 = x[j] + c2;
+			cy  = (tmp < x[i]);			c2  = (tm2 < x[j]);
+			tmp = tmp + y[i];			tm2 = tm2 + y[j];
+			cy += (tmp < y[i]);			c2 += (tm2 < y[j]);
+			z[i] = tmp;					z[j] = tm2;
+			i++;						j++;
+		}
+		// Propagate low-half carry into high half:
+		while(cy)
+		{
+			tmp = z[i] + cy;
+			cy  = (tmp < z[i]);
+			z[i] = tmp;
+			++i;
+		}
+		c2 += cy;	// In case cy rippled all the way through the high-half result
+		// Take care of any leftover high words:
+		if(odd) {
+			i = len - 1;
+			tmp = x[i] + y[i];
+			cy = (tmp < x[i]);
+			z[i] = tmp + c2;
+			cy += (tmp > z[i]);
+		} else {
+			cy = c2;
+		}
+
+	#else
+
+		#error No reachable mi64_add code found!
+
+	#endif
+
+		return cy;
 	}
-	c2 += cy;	// In case cy rippled all the way through the high-half result
-	// Take care of any leftover high words:
-	if(odd) {
-		i = len - 1;
-		tmp = x[i] + y[i];
-		cy = (tmp < x[i]);
-		z[i] = tmp + c2;
-		cy += (tmp > z[i]);
-	} else {
-		cy = c2;
-	}
 
-#elif defined(YES_ASM) && !defined(USE_AVX)
+#else	// #ifdef YES_ASM:
 
-	// Core2: 5.04 cpl
-	// SdyBr: 2.20
-	uint64 cy = 0;
-	/* x86_64 ASM implementation of the add/carry loop: */
-	__asm__ volatile (\
-		"movq	%[__x0],%%rax	\n\t"/* &x[0] */\
-		"movq	%[__y0],%%rbx	\n\t"/* &y[0] */\
-		"movq	%[__z0],%%rdx	\n\t"/* &z[0] */\
-		"movslq	%[__len], %%rcx	\n\t"/* ASM loop structured as for(j = len; j != 0; --j){...} */\
-		"xorq   %%rsi, %%rsi    \n\t"/* Index into the 3 arrays (really a uint64-array pointer offset) */\
-		"movq	%%rcx,%%rdi	\n\t"/* Copy of array-length in rdi */\
-		"shrq	$2,%%rcx	\n\t"/* How many iterations thru the 4-way loop */\
-		"andq	$3,%%rdi	\n\t"/* Clear CF. Prepare for middle of loop jump */\
-		"jz     1f		\n\t"/* Woohoo! Perfect multiple of 4 */\
-		"incq   %%rcx		\n\t"/* Compensate for jumping into the middle of the loop */\
-		"decq   %%rdi		\n\t"/* residue 1? */\
-		"jz	4f		\n\t"/* Just do 1 addition in the first partial */\
-		"decq   %%rdi		\n\t"/* residue 2? */\
-		"jz	3f		\n\t"\
-		"jmp	2f		\n\t"/* residue 3 */\
-	"1:					\n\t"\
-		"movq	(%%rax,%%rsi),%%r8 	\n\t"\
-		"adcq	(%%rbx,%%rsi),%%r8	\n\t"\
-		"movq	%%r8,(%%rdx,%%rsi)	\n\t"\
-		"leaq   0x8(%%rsi), %%rsi	\n\t"\
-	"2:					\n\t"\
-		"movq	(%%rax,%%rsi),%%r8 	\n\t"\
-		"adcq	(%%rbx,%%rsi),%%r8	\n\t"\
-		"movq	%%r8,(%%rdx,%%rsi)	\n\t"\
-		"leaq   0x8(%%rsi), %%rsi	\n\t"\
-	"3:					\n\t"\
-		"movq	(%%rax,%%rsi),%%r8 	\n\t"\
-		"adcq	(%%rbx,%%rsi),%%r8	\n\t"\
-		"movq	%%r8,(%%rdx,%%rsi)	\n\t"\
-		"leaq   0x8(%%rsi), %%rsi	\n\t"\
-	"4:					\n\t"\
-		"movq	(%%rax,%%rsi),%%r8 	\n\t"\
-		"adcq	(%%rbx,%%rsi),%%r8	\n\t"\
-		"movq	%%r8,(%%rdx,%%rsi)	\n\t"\
-		"leaq   0x8(%%rsi), %%rsi	\n\t"\
-
-	"decq	%%rcx \n\t"\
-	"jnz 1b 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */ \
-
-		"adcq	%%rcx,%[__cy]	\n\t"/* Carryout. RCX is guaranteed to be zero at this point */\
-		: [__cy] "=m" (cy) /* outputs: cy */\
-		: [__x0] "g" (x)	/* All inputs from memory/register here */\
-		 ,[__y0] "g" (y)	\
-		 ,[__z0] "g" (z)	\
-		 ,[__len] "g" (len)	\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8"	/* Clobbered registers */\
-	);
-
-#elif defined(YES_ASM) && defined(USE_AVX)
-
-	// Hybrid int64 / sse2 -based impl of ?-folded adc loop
-	// Unsigned quadword compare requires sse4.2 or greater, so for now wrap it in the USE_AVX flag
-	uint32 i, odd = (len&1), len2 = len >> 1;
-	uint64 tmp, cy = 0, c2 = 0;
-
-// ********* debug: loop-less version of core op sequence
-  #if 0
-	uint128 xmm0,xmm1,xmm2,xmm3;
-	/* x86_64 ASM implementation of the add/carry loop: */
-	__asm__ volatile (\
-		"movq	%[__x0],%%rax	\n\t"/* &x[0] */\
-		"movq	%[__y0],%%rbx	\n\t"/* &y[0] */\
-		"movq	%[__z0],%%rdx	\n\t"/* &z[0] */\
-		"movslq	%[__len], %%rcx	\n\t"/* ASM loop structured as for(j = len; j != 0; --j){...} */\
-		"xorq   %%rsi, %%rsi    \n\t"/* Index i into the 3 arrays (really a uint64-array pointer offset) */\
-		"shrq	$1,%%rcx	\n\t"/* How many iterations thru the 2-way loop */\
-		"movq	%%rcx,%%rdi	\n\t"/* Copy of half-array-length in rdi */\
-		"shlq	$3,%%rdi	\n\t"/* Index j = i+len2 in bytewise ptr-offset form */\
-		"xorpd	%%xmm0,%%xmm0	\n\t"/* init cy|c2 = 0 ... In sse2 impl, carries stored in negated (bitmask) form, so subtract them. */\
-		"pcmpeqq	%%xmm7,%%xmm7	\n\t"/* 0x11...11 */\
-		"psllq		$63,%%xmm7		\n\t"/* 0x10...00, needed to XOR against for 64-bit unsigned compare emulation */\
-
-		"movlpd	(%%rax,%%rsi),%%xmm1	\n\t"/* tmp.lo = x[i] */\
-		"movhpd	(%%rax,%%rdi),%%xmm1	\n\t"/* tmp.hi = x[j] */\
-		"movlpd	(%%rbx,%%rsi),%%xmm2	\n\t"/* xmm2.lo = y[i] */\
-		"movhpd	(%%rbx,%%rdi),%%xmm2	\n\t"/* xmm2.hi = y[j] */\
-		"paddq	%%xmm0,%%xmm1		\n\t"/* tmp += cy */\
-		"movaps	%%xmm1,%%xmm3		\n\t"/* tmp copy */\
-		"xorpd	%%xmm7,%%xmm0	\n\t"/* toggle high bit of cy */\
-		"xorpd	%%xmm7,%%xmm3	\n\t"/* toggle high bit of tmp-copy */\
-		"pcmpgtq	%%xmm3,%%xmm0	\n\t"/* bitmask: cy = (tmp < cy)? Compare impl as (cy > tmp)? */\
-		"paddq	%%xmm2,%%xmm1		\n\t"/* tmp += y[i|j] */\
-		"movaps	%%xmm1,%%xmm3		\n\t"/* tmp copy */\
-		"xorpd	%%xmm7,%%xmm2	\n\t"/* toggle high bit of cy */\
-		"xorpd	%%xmm7,%%xmm3	\n\t"/* toggle high bit of tmp-copy */\
-		"pcmpgtq	%%xmm3,%%xmm2	\n\t"/* bitmask: c2 = (tmp < y[i|j])? Compare impl as (y[i|j] > tmp)? */\
-		"movlpd	%%xmm1,(%%rdx,%%rsi)	\n\t"/* store z[i] */\
-		"movhpd	%%xmm1,(%%rdx,%%rdi)	\n\t"/* store z[j] */\
-		"paddq	%%xmm0,%%xmm2		\n\t"/* accumulate 2-step carry in xmm2*/\
-		"xorpd	%%xmm0,%%xmm0	\n\t"/* zero the bits of xmm0 */\
-		"psubq	%%xmm2,%%xmm0	\n\t"/* negate the bitmask-form carryout to yield true carry in xmm0*/\
-
-		"movq %[__xmm0],%%rax	\n\t	movapd	%%xmm0,(%%rax)	\n\t"/* debug-dump of xmm */\
-		"movq %[__xmm1],%%rax	\n\t	movapd	%%xmm1,(%%rax)	\n\t"/* debug-dump of xmm */\
-		"movq %[__xmm2],%%rax	\n\t	movapd	%%xmm2,(%%rax)	\n\t"/* debug-dump of xmm */\
-		"movq %[__xmm3],%%rax	\n\t	movapd	%%xmm3,(%%rax)	\n\t"/* debug-dump of xmm */\
-		: 				 /* outputs: none */\
-		: [__x0] "g" (x)	/* All inputs from memory/register here */\
-		 ,[__y0] "g" (y)	\
-		 ,[__z0] "g" (z)	\
-		 ,[__len] "g" (len)	\
-		 ,[__cy] "g" (&cy)	\
-		 ,[__xmm0] "g" (&xmm0)	\
-		 ,[__xmm1] "g" (&xmm1)	\
-		 ,[__xmm2] "g" (&xmm2)	\
-		 ,[__xmm3] "g" (&xmm3)	\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","xmm0","xmm1","xmm2","xmm3","xmm7"	/* Clobbered registers */\
-	);
-  #else
-	/* x86_64 ASM implementation of the add/carry loop: */
-	__asm__ volatile (\
-		"movq	%[__x0],%%rax	\n\t"/* &x[0] */\
-		"movq	%[__y0],%%rbx	\n\t"/* &y[0] */\
-		"movq	%[__z0],%%rdx	\n\t"/* &z[0] */\
-		"movslq	%[__len], %%rcx	\n\t"/* ASM loop structured as for(j = len; j != 0; --j){...} */\
-		"xorq   %%rsi, %%rsi    \n\t"/* Index i into the 3 arrays (really a uint64-array pointer offset) */\
-		"shrq	$1,%%rcx	\n\t"/* How many iterations thru the 2-way loop */\
-		"movq	%%rcx,%%rdi	\n\t"/* Copy of half-array-length in rdi */\
-		"shlq	$3,%%rdi	\n\t"/* Index j = i+len2 in bytewise ptr-offset form */\
-		"xorpd	%%xmm0,%%xmm0	\n\t"/* init cy|c2 = 0 ... In sse2 impl, carries stored in negated (bitmask) form, so subtract them. */\
-		"pcmpeqq	%%xmm7,%%xmm7	\n\t"/* 0x11...11 */\
-		"psllq		$63,%%xmm7		\n\t"/* 0x10...00, needed to XOR against for 64-bit unsigned compare emulation */\
-	"1:	\n\t"/* loop: */\
-		"movlpd	(%%rax,%%rsi),%%xmm1	\n\t"/* tmp.lo = x[i] */\
-		"movhpd	(%%rax,%%rdi),%%xmm1	\n\t"/* tmp.hi = x[j] */\
-		"movlpd	(%%rbx,%%rsi),%%xmm2	\n\t"/* xmm2.lo = y[i] */\
-		"movhpd	(%%rbx,%%rdi),%%xmm2	\n\t"/* xmm2.hi = y[j] */\
-		"paddq	%%xmm0,%%xmm1		\n\t"/* tmp += cy */\
-		"movaps	%%xmm1,%%xmm3		\n\t"/* tmp copy */\
-		"xorpd	%%xmm7,%%xmm0	\n\t"/* toggle high bit of cy */\
-		"xorpd	%%xmm7,%%xmm3	\n\t"/* toggle high bit of tmp-copy */\
-		"pcmpgtq	%%xmm3,%%xmm0	\n\t"/* bitmask: cy = (tmp < cy)? Compare impl as (cy > tmp)? */\
-		"paddq	%%xmm2,%%xmm1		\n\t"/* tmp += y[i|j] */\
-		"movaps	%%xmm1,%%xmm3		\n\t"/* tmp copy */\
-		"xorpd	%%xmm7,%%xmm2	\n\t"/* toggle high bit of cy */\
-		"xorpd	%%xmm7,%%xmm3	\n\t"/* toggle high bit of tmp-copy */\
-		"pcmpgtq	%%xmm3,%%xmm2	\n\t"/* bitmask: c2 = (tmp < y[i|j])? Compare impl as (y[i|j] > tmp)? */\
-		"movlpd	%%xmm1,(%%rdx,%%rsi)	\n\t"/* store z[i] */\
-		"movhpd	%%xmm1,(%%rdx,%%rdi)	\n\t"/* store z[j] */\
-		"paddq	%%xmm0,%%xmm2		\n\t"/* accumulate 2-step carry in xmm2*/\
-		"xorpd	%%xmm0,%%xmm0	\n\t"/* zero the bits of xmm0 */\
-		"psubq	%%xmm2,%%xmm0	\n\t"/* negate the bitmask-form carryout to yield true carry in xmm0*/\
-		"leaq	0x8(%%rsi),%%rsi	\n\t"\
-		"leaq	0x8(%%rdi),%%rdi	\n\t"\
-	"decq	%%rcx \n\t"\
-	"jnz 1b 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */ \
-		"movq	%[__cy],%%rax	\n\t"\
-		"movq	%[__c2],%%rbx	\n\t"\
-		"movlpd	%%xmm0,(%%rax)	\n\t"/* store cy */\
-		"movhpd	%%xmm0,(%%rbx)	\n\t"/* store c2 */\
-		: 				 /* outputs: none */\
-		: [__x0] "g" (x)	/* All inputs from memory/register here */\
-		 ,[__y0] "g" (y)	\
-		 ,[__z0] "g" (z)	\
-		 ,[__len] "g" (len)	\
-		 ,[__cy] "g" (&cy)	\
-		 ,[__c2] "g" (&c2)	\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","xmm0","xmm1","xmm2","xmm3","xmm7"	/* Clobbered registers */\
-	);
-  #endif	// debug toggle
-	// Propagate low-half carry into high half:
-	i = len2;
-	while(cy)
+	uint64	mi64_add(const uint64 x[], const uint64 y[], uint64 z[], uint32 len)
 	{
-		tmp = z[i] + cy;
-		cy  = (tmp < z[i]);
-		z[i] = tmp;
-		++i;
-	}
-	c2 += cy;	// In case cy rippled all the way through the high-half result
-	// Take care of any leftover high words:
-	if(odd) {
-		i = len - 1;
-		tmp = x[i] + y[i];
-		cy = (tmp < x[i]);
-		z[i] = tmp + c2;
-		cy += (tmp > z[i]);
-	} else {
-		cy = c2;
-	}
+	#ifndef USE_AVX
 
-#else
+		// Core2: 5.04 cpl
+		// SdyBr: 2.20; Haswell: 1.84
+		uint64 cy = 0;
+		/* x86_64 ASM implementation of the add/carry loop: */
+		__asm__ volatile (\
+			"movq	%[__x0],%%rax	\n\t"/* &x[0] */\
+			"movq	%[__y0],%%rbx	\n\t"/* &y[0] */\
+			"movq	%[__z0],%%rdx	\n\t"/* &z[0] */\
+			"movslq	%[__len], %%rcx	\n\t"/* ASM loop structured as for(j = len; j != 0; --j){...} */\
+			"xorq   %%rsi, %%rsi    \n\t"/* Index into the 3 arrays (really a uint64-array pointer offset) */\
+			"movq	%%rcx,%%rdi	\n\t"/* Copy of array-length in rdi */\
+			"shrq	$2,%%rcx	\n\t"/* How many iterations thru the 4-way loop */\
+			"andq	$3,%%rdi	\n\t"/* Clear CF. Prepare for middle of loop jump */\
+			"jz     1f		\n\t"/* Woohoo! Perfect multiple of 4 */\
+			"incq   %%rcx		\n\t"/* Compensate for jumping into the middle of the loop */\
+			"decq   %%rdi		\n\t"/* residue 1? */\
+			"jz	4f		\n\t"/* Just do 1 addition in the first partial */\
+			"decq   %%rdi		\n\t"/* residue 2? */\
+			"jz	3f		\n\t"\
+			"jmp	2f		\n\t"/* residue 3 */\
+		"1:					\n\t"\
+			"movq	(%%rax,%%rsi),%%r8 	\n\t"\
+			"adcq	(%%rbx,%%rsi),%%r8	\n\t"\
+			"movq	%%r8,(%%rdx,%%rsi)	\n\t"\
+			"leaq   0x8(%%rsi), %%rsi	\n\t"\
+		"2:					\n\t"\
+			"movq	(%%rax,%%rsi),%%r8 	\n\t"\
+			"adcq	(%%rbx,%%rsi),%%r8	\n\t"\
+			"movq	%%r8,(%%rdx,%%rsi)	\n\t"\
+			"leaq   0x8(%%rsi), %%rsi	\n\t"\
+		"3:					\n\t"\
+			"movq	(%%rax,%%rsi),%%r8 	\n\t"\
+			"adcq	(%%rbx,%%rsi),%%r8	\n\t"\
+			"movq	%%r8,(%%rdx,%%rsi)	\n\t"\
+			"leaq   0x8(%%rsi), %%rsi	\n\t"\
+		"4:					\n\t"\
+			"movq	(%%rax,%%rsi),%%r8 	\n\t"\
+			"adcq	(%%rbx,%%rsi),%%r8	\n\t"\
+			"movq	%%r8,(%%rdx,%%rsi)	\n\t"\
+			"leaq   0x8(%%rsi), %%rsi	\n\t"\
 
-	#error No reachable mi64_add code found!
+		"decq	%%rcx \n\t"\
+		"jnz 1b 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
+
+			"adcq	%%rcx,%[__cy]	\n\t"/* Carryout. RCX is guaranteed to be zero at this point */\
+			: [__cy] "=m" (cy) /* outputs: cy */\
+			: [__x0] "m" (x)	/* All inputs from memory/register here */\
+			 ,[__y0] "m" (y)	\
+			 ,[__z0] "m" (z)	\
+			 ,[__len] "m" (len)	\
+			: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8"	/* Clobbered registers */\
+		);
+
+	#elif defined(USE_AVX)
+
+		// Hybrid int64 / sse2 -based impl of ?-folded adc loop
+		// Unsigned quadword compare requires sse4.2 or greater, so for now wrap it in the USE_AVX flag
+		//
+		// *** NOTE: *** This code is much slower than the GPR/ADC-based version - use for advance
+		// prototyping of AVX512, which will have an 8-quadword unsigned-compare instruction, VPCMPUQ.
+		//
+		uint32 i, odd = (len&1), len2 = len >> 1;
+		uint64 tmp, cy = 0, c2 = 0;
+	ASSERT(HERE, has_sse41() != 0, "This ASM requires SSE4.2, which is unavailable on this CPU!");
+	ASSERT(HERE, has_sse42() != 0, "This ASM requires SSE4.2, which is unavailable on this CPU!");
+		if(len2) {
+		/* x86_64 ASM implementation of the add/carry loop: */
+		__asm__ volatile (\
+			"movq	%[__x0],%%rax	\n\t"/* &x[0] */\
+			"movq	%[__y0],%%rbx	\n\t"/* &y[0] */\
+			"movq	%[__z0],%%rdx	\n\t"/* &z[0] */\
+			"movslq	%[__len2], %%rcx	\n\t"/* ASM loop structured as for(j = len2; j != 0; --j){...} */\
+			"xorq   %%rsi,%%rsi    \n\t"/* Index i into the 3 arrays (really a uint64-array pointer offset) */\
+			"movq	%%rcx,%%rdi	\n\t"/* Copy of half-array-length in rdi */\
+			"shlq	$3,%%rdi	\n\t"/* Index j = i+len2 in bytewise ptr-offset form */\
+			"xorpd	%%xmm0,%%xmm0	\n\t"/* init cy|c2 = 0 ... In sse2 impl, carries stored in negated (bitmask) form, so subtract them. */\
+			"pcmpeqq	%%xmm7,%%xmm7	\n\t"/* 0x11...11 */\
+			"psllq		$63,%%xmm7		\n\t"/* 0x10...00, needed to XOR against for 64-bit unsigned compare emulation */\
+		"1:	\n\t"/* loop: */\
+			"movlpd	(%%rax,%%rsi),%%xmm1	\n\t"/* tmp.lo = x[i] */\
+			"movhpd	(%%rax,%%rdi),%%xmm1	\n\t"/* tmp.hi = x[j] */\
+			"movlpd	(%%rbx,%%rsi),%%xmm2	\n\t"/* xmm2.lo = y[i] */\
+			"movhpd	(%%rbx,%%rdi),%%xmm2	\n\t"/* xmm2.hi = y[j] */\
+			"paddq	%%xmm0,%%xmm1		\n\t"/* tmp += cy */\
+			"movaps	%%xmm1,%%xmm3		\n\t"/* tmp copy */\
+			"xorpd	%%xmm7,%%xmm0	\n\t"/* toggle high bit of cy */\
+			"xorpd	%%xmm7,%%xmm3	\n\t"/* toggle high bit of tmp-copy */\
+			"pcmpgtq	%%xmm3,%%xmm0	\n\t"/* bitmask: cy = (tmp < cy)? Compare impl as (cy > tmp)? */\
+			"paddq	%%xmm2,%%xmm1		\n\t"/* tmp += y[i|j] */\
+			"movaps	%%xmm1,%%xmm3		\n\t"/* tmp copy */\
+			"xorpd	%%xmm7,%%xmm2	\n\t"/* toggle high bit of cy */\
+			"xorpd	%%xmm7,%%xmm3	\n\t"/* toggle high bit of tmp-copy */\
+			"pcmpgtq	%%xmm3,%%xmm2	\n\t"/* bitmask: c2 = (tmp < y[i|j])? Compare impl as (y[i|j] > tmp)? */\
+			"movlpd	%%xmm1,(%%rdx,%%rsi)	\n\t"/* store z[i] */\
+			"movhpd	%%xmm1,(%%rdx,%%rdi)	\n\t"/* store z[j] */\
+			"paddq	%%xmm0,%%xmm2		\n\t"/* accumulate 2-step carry in xmm2*/\
+			"xorpd	%%xmm0,%%xmm0	\n\t"/* zero the bits of xmm0 */\
+			"psubq	%%xmm2,%%xmm0	\n\t"/* negate the bitmask-form carryout to yield true carry in xmm0 */\
+			"leaq	0x8(%%rsi),%%rsi	\n\t"\
+			"leaq	0x8(%%rdi),%%rdi	\n\t"\
+		"decq	%%rcx \n\t"\
+		"jnz 1b 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
+			"movq	%[__cy],%%rax	\n\t"\
+			"movq	%[__c2],%%rbx	\n\t"\
+			"movlpd	%%xmm0,(%%rax)	\n\t"/* store cy */\
+			"movhpd	%%xmm0,(%%rbx)	\n\t"/* store c2 */\
+			: 				 /* outputs: none */\
+			: [__x0] "g" (x)	/* All inputs from memory/register here */\
+			 ,[__y0] "g" (y)	\
+			 ,[__z0] "g" (z)	\
+			 ,[__len2] "g" (len2)	\
+			 ,[__cy] "g" (&cy)	\
+			 ,[__c2] "g" (&c2)	\
+			: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","xmm0","xmm1","xmm2","xmm3","xmm7"	/* Clobbered registers */\
+		);
+		}	// endif(len2)
+		// Propagate low-half carry into high half:
+		i = len2;
+		while(cy)
+		{
+			tmp = z[i] + cy;
+			cy  = (tmp < z[i]);
+			z[i] = tmp;
+			++i;
+		}
+		c2 += cy;	// In case cy rippled all the way through the high-half result
+		// Take care of any leftover high words:
+		if(odd) {
+			i = len - 1;
+			tmp = x[i] + y[i];
+			cy = (tmp < x[i]);
+			z[i] = tmp + c2;
+			cy += (tmp > z[i]);
+		} else {
+			cy = c2;
+		}
+
+	#elif defined(USE_AVX512)
+
+		// AVX512 prototype code for 8-folded adc loop
+		uint32 i, lrem = (len&7), len8 = len >> 3;
+		uint64 tmp, cy = 0, c2 = 0;
+	#error mi64_add: no AVX512 support yet!
+	ASSERT(HERE, has_avx512() != 0, "This ASM requires AVX512, which is unavailable on this CPU!");
+vpcmpuq
+*** how to encode the base.offset data? ***
+vpgatherqq	%%zmmM,%%zmmD[255]	// zmmM has base_addr and
+		if(len8) {
+		/* x86_64 ASM implementation of the add/carry loop: */
+		__asm__ volatile (\
+			"movq	%[__x0],%%rax	\n\t"/* &x[0] */\
+			"movq	%[__y0],%%rbx	\n\t"/* &y[0] */\
+			"movq	%[__z0],%%rdx	\n\t"/* &z[0] */\
+			"movslq	%[__len8], %%rcx	\n\t"/* ASM loop structured as for(j = len8; j != 0; --j){...} */\
+			"xorq   %%rsi,%%rsi    \n\t"/* Index i into the 3 arrays (really a uint64-array pointer offset) */\
+			"movq	%%rcx,%%rdi	\n\t"/* Copy of len/8 in rdi */\
+			"shlq	$3,%%rdi	\n\t"/* Index j = i+len8 in bytewise ptr-offset form */\
+			"xorpd	%%xmm0,%%xmm0	\n\t"/* init cy|c2 = 0 ... In sse2 impl, carries stored in negated (bitmask) form, so subtract them. */\
+		"1:	\n\t"/* loop: */\
+			@movlpd	(%%rax,%%rsi),%%xmm1	\n\t@/* tmp.lo = x[i] */\
+			@movhpd	(%%rax,%%rdi),%%xmm1	\n\t@/* tmp.hi = x[j] */\
+			@movlpd	(%%rbx,%%rsi),%%xmm2	\n\t@/* xmm2.lo = y[i] */\
+			@movhpd	(%%rbx,%%rdi),%%xmm2	\n\t@/* xmm2.hi = y[j] */\
+			@paddq	%%xmm0,%%xmm1		\n\t@/* tmp += cy */\
+			@movaps	%%xmm1,%%xmm3		\n\t@/* tmp copy */\
+			@xorpd	%%xmm7,%%xmm0	\n\t@/* toggle high bit of cy */\
+			@xorpd	%%xmm7,%%xmm3	\n\t@/* toggle high bit of tmp-copy */\
+			@pcmpgtq	%%xmm3,%%xmm0	\n\t@/* bitmask: cy = (tmp < cy)? Compare impl as (cy > tmp)? */\
+			@paddq	%%xmm2,%%xmm1		\n\t@/* tmp += y[i|j] */\
+			@movaps	%%xmm1,%%xmm3		\n\t@/* tmp copy */\
+			@xorpd	%%xmm7,%%xmm2	\n\t@/* toggle high bit of cy */\
+			@xorpd	%%xmm7,%%xmm3	\n\t@/* toggle high bit of tmp-copy */\
+			@pcmpgtq	%%xmm3,%%xmm2	\n\t@/* bitmask: c2 = (tmp < y[i|j])? Compare impl as (y[i|j] > tmp)? */\
+			@movlpd	%%xmm1,(%%rdx,%%rsi)	\n\t@/* store z[i] */\
+			@movhpd	%%xmm1,(%%rdx,%%rdi)	\n\t@/* store z[j] */\
+			@paddq	%%xmm0,%%xmm2		\n\t@/* accumulate 2-step carry in xmm2*/\
+			@xorpd	%%xmm0,%%xmm0	\n\t@/* zero the bits of xmm0 */\
+			@psubq	%%xmm2,%%xmm0	\n\t@/* negate the bitmask-form carryout to yield true carry in xmm0 */\
+			@leaq	0x8(%%rsi),%%rsi	\n\t@\
+			@leaq	0x8(%%rdi),%%rdi	\n\t@\
+		"decq	%%rcx \n\t"\
+		"jnz 1b 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
+			"movq	%[__cy],%%rax	\n\t"\
+			"movq	%[__c2],%%rbx	\n\t"\
+			"movlpd	%%xmm0,(%%rax)	\n\t"/* store cy */\
+			"movhpd	%%xmm0,(%%rbx)	\n\t"/* store c2 */\
+			: 				 /* outputs: none */\
+			: [__x0] "g" (x)	/* All inputs from memory/register here */\
+			 ,[__y0] "g" (y)	\
+			 ,[__z0] "g" (z)	\
+			 ,[__len8] "g" (len8)	\
+			 ,[__cy] "g" (&cy)	\
+			 ,[__c2] "g" (&c2)	\
+			: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","xmm0","xmm1","xmm2","xmm3","xmm7"	/* Clobbered registers */\
+		);
+		}	// endif(len8)
+*** need up-to-7-element cleanup ***
+		// Propagate low-half carry into high half:
+		i = len8;
+		while(cy)
+		{
+			tmp = z[i] + cy;
+			cy  = (tmp < z[i]);
+			z[i] = tmp;
+			++i;
+		}
+		c2 += cy;	// In case cy rippled all the way through the high-half result
+		// Take care of any leftover high words:
+		if(odd) {
+			i = len - 1;
+			tmp = x[i] + y[i];
+			cy = (tmp < x[i]);
+			z[i] = tmp + c2;
+			cy += (tmp > z[i]);
+		} else {
+			cy = c2;
+		}
+
+	#else
+
+		#error No reachable mi64_add code found!
+
+	#endif
+
+		return cy;
+	}
 
 #endif
 
-	return cy;
-}
 
 /*
 	Unsigned sub of two base-2^64 vector ints X - Y.
@@ -1166,7 +1233,7 @@ uint64	mi64_mul_scalar_add_vec2(const uint64 x[], uint64 a, const uint64 y[], ui
 		"leaq	0x8(%%rsi), %%rsi	\n\t"\
 
 	"decq	%%rcx \n\t"\
-	"jnz 1b 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */ \
+	"jnz 1b 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 
 		"adcq	%%r9 ,%[__cy]	\n\t"/* Carryout. */\
 		: [__cy] "=m" (cy) /* outputs: cy */\
@@ -1276,13 +1343,13 @@ void	mi64_mul_vector(const uint64 x[], uint32 lenX, const uint64 y[], uint32 len
 			}
 			u = (uint64 *)calloc((lenA+1), sizeof(uint64));
 		}
-	
+
 		/* Loop over remaining (lenB-1) elements of B[], multiplying A by each, and
 		using u[] as a scratch array to store B[i]*A[] prior to adding to z[]: */
 		for(j = 0; j < lenB; j++)
 		{
 			u[lenA] = mi64_mul_scalar(A, B[j], u, lenA);
-	
+
 			/* Add j-word-left-shifted u[] to z[]: */
 			z[lenA+j] = u[lenA] + mi64_add(&z[j], u, &z[j], lenA);
 		}
@@ -1295,10 +1362,6 @@ void	mi64_mul_vector(const uint64 x[], uint32 lenX, const uint64 y[], uint32 len
 	*lenZ = mi64_getlen(z, *lenZ);
 	DBG_ASSERT(HERE, *lenZ <= lenA + lenB, "*lenZ > (lenA + lenB)!");
 }
-
-#if MI64_DEBUG
-	#define DEBUG_SQUARE	0
-#endif
 
 /* Squaring-specialized version of above. By way of example, consider a length-10 input vector and
 examine full-double-width square in term-by-term fashion, powers of the base b = 2^64 in left col:
@@ -1370,6 +1433,10 @@ We then double the result, and compute the square terms and add them in. This ca
 by making a copy of the z-vector resulting from the above (the one needing double-and-add-to-square-terms),
 initing a vector containing the (nonoverlapping) square terms, and then doing a full-length vector-add.
 */
+#if MI64_DEBUG
+	#define DEBUG_SQUARE	0
+#endif
+
 void	mi64_sqr_vector(const uint64 x[], uint64 z[], uint32 len)
 {
 	uint32 i, j, len8 = (len<<3);
@@ -1493,7 +1560,7 @@ void	mi64_mul_vector_lo_half	(const uint64 x[], const uint64 y[], uint64 z[], ui
 	} else {
 		/* Loop over the elements of y[], multiplying x[] by each, and
 		using u[] as a scratch array to store x[]*y[j] prior to adding to z[].
-	
+
 		For the high-half version, only want terms x[i]*y[j] with (i + j) >= len,
 		plus the high halves of the (i + j) = len-1 terms for the requisite carryins.
 		*/
@@ -1515,8 +1582,13 @@ void	mi64_mul_vector_lo_half	(const uint64 x[], const uint64 y[], uint64 z[], ui
 	}
 }
 
+#define MI64_MULHI_DBG	0	// Set nonzero to enable debug-print in the mi64 mi64_mul_vector_hi_half function below
+
 void	mi64_mul_vector_hi_half	(const uint64 x[], const uint64 y[], uint64 z[], uint32 len)
 {
+#if MI64_MULHI_DBG
+	uint32 i,dbg = 1;
+#endif
 	uint32 j;
 	/* Scratch array for storing intermediate scalar*vector products: */
 	static uint64 *u = 0x0, *v = 0x0;
@@ -1527,6 +1599,9 @@ void	mi64_mul_vector_hi_half	(const uint64 x[], const uint64 y[], uint64 z[], ui
 	/* Does scratch array need allocating or reallocating? */
 	if(dimU < (len+1))
 	{
+	#if MI64_MULHI_DBG
+		if(dbg) { printf("mi64_mul_vector_hi_half: allocs with dimU = %d, len+1 = %d\n",dimU,len+1); }
+	#endif
 		dimU = (len+1);
 		if(u) {
 			free((void *)u); u = 0x0;
@@ -1543,16 +1618,39 @@ void	mi64_mul_vector_hi_half	(const uint64 x[], const uint64 y[], uint64 z[], ui
 	For the high-half version, only want terms x[i]*y[j] with (i + j) >= len,
 	plus the high halves of the (i + j) = len-1 terms for the requisite carryins.
 	*/
+#if MI64_MULHI_DBG
+	if(dbg) { printf("mi64_mul_vector_hi_half: X = %s\n", &cbuf[convert_mi64_base10_char(cbuf, x, len, 0)]); }
+	if(dbg) { printf("mi64_mul_vector_hi_half: Y = %s\n", &cbuf[convert_mi64_base10_char(cbuf, y, len, 0)]); }
+#endif
 	for(j = 0; j < len; j++)
 	{
 		if(y[j] == 0)
 			continue;
 		u[len] = mi64_mul_scalar(x, y[j], u, len);
+	#if MI64_MULHI_DBG
+		if(dbg) { printf("mi64_mul_vector_hi_half: j = %d, cy = %20llu, U = %s\n",j,u[len], &cbuf[convert_mi64_base10_char(cbuf, u, len+1, 0)]); }
+	#endif
 		/* Add j-word-left-shifted u[] to v[]: */
+		/*** 11/2013: Simply could not get this to work using any opt-level > 0 under debian/gcc4.6 ***/
+		// [it works fine at all opts under OSX/gcc4.2] using the x86_64 asm-loop in mi64_add, so use the pure-C mi64_add_ref here:
 		v[len+j] = u[len] + mi64_add(&v[j], u, &v[j], len);
+	#if MI64_MULHI_DBG
+		if(dbg) { printf("mi64_mul_vector_hi_half: j = %d, V = %s\n",j, &cbuf[convert_mi64_base10_char(cbuf, v, len+j+1, 0)]); }
+		if(dbg) {
+			for(i=0;i<=len;++i) {
+				printf("v[%2d] = %20llu\n",i+j,v[i+j]);
+			}
+		}
+	#endif
 	}
 	/* Copy v[len:2*len-1] into z[0:len-1]: */
+#if MI64_MULHI_DBG
+	if(dbg) { printf("mi64_mul_vector_hi_half: Zin  = %s\n", &cbuf[convert_mi64_base10_char(cbuf, z, len, 0)]); }
+#endif
 	memcpy(z,v+len,(len<<3));
+#if MI64_MULHI_DBG
+	if(dbg) { printf("mi64_mul_vector_hi_half: Zout = %s\n", &cbuf[convert_mi64_base10_char(cbuf, z, len, 0)]); exit(0);}
+#endif
 }
 
 
@@ -2363,7 +2461,7 @@ void mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY,
 				printf("r = %s\n", &s0[convert_mi64_base10_char(s0, r, lenX, 0)]);
 			#endif
 				// Hack: subtract (y-r) and see if that satisfies:
-				mi64_sub(r,y,r,lenX);
+				mi64_sub(r,y,r,lenX);	++itmp64;	// Need to incr quotient by 1 to account for extra sub-y
 				ASSERT(HERE, mi64_cmpult(r, y, lenX), "Remainder should be < modulus!");
 			}
 			// At this point are done with x, so set low word of quotient array and clear rest:
@@ -2415,8 +2513,8 @@ void mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY,
 		// We don't bother trimming leading zeros in x, only the divisor y:
 		lenS = mi64_getlen(w, lenD);	// Mnemonic: lenS = "Stripped length"
 	} else {
-		v = x;	// Otherwise just point v at x, since from here on v is treated as read-only (even if not declared so)
-		w = y;	// Do similarly for w and y.
+		v = (uint64*)x;	// Otherwise just point v at x, since from here on v is treated as read-only (even if not declared so).
+		w = (uint64*)y;	// ...and do similarly for w and y. Add explicit cast-to-non-const to silence GCC warns (and NVCC errors).
 		// GCC: "warning: assignment discards qualifiers from pointer target type"; we wish C had a C++ - style <const_cast>.
 		lenS = lenD;
 	}
@@ -2442,7 +2540,7 @@ void mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY,
 		if(nshift)
 		{
 			// rem = (rem << nshift) + rem_save:
-			mi64_shl(r,r,nshift,lenD);	//*** Need to use non-right-justified length (rather than lenS) here! ***
+			mi64_shl(r,r,nshift,lenD);	/*** Need to use non-right-justified length (rather than lenS) here! ***/
 			// No carryout here since we are filling in the just-vacated low bits of rem with rem_save:
 			mi64_add(r,rem_save,r,nws);
 		}
@@ -2457,7 +2555,7 @@ void mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY,
 		/*
 		Find modular inverse (mod 2^nbits) of w in preparation for modular multiply.
 		w must be odd for Montgomery-style modmul to work.
-	
+
 		Init yinv = 3*w ^ 2. This formula returns the correct bottom 4 bits of yinv,
 		and we double the number of correct bits on each of the subsequent iterations.
 		*/
@@ -2467,11 +2565,11 @@ void mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY,
 		DBG_ASSERT(HERE, (w[0] & (uint64)1) == 1, "w must be odd!");
 		mi64_clear(yinv, lenS);
 		yinv[0] = (w[0] + w[0] + w[0]) ^ (uint64)2;
-	
+
 		/* Newton iteration involves repeated steps of form
-	
+
 			yinv = yinv*(2 - w*yinv);
-	
+
 		Number of significant bits at the bottom doubles on each iteration, starting from 4 for the initial seed
 		defined as yinv_0 = 3*w ^ 2. The doubling continues until we reach the bitwidth set by the MULL operation.
 		*/
@@ -2480,12 +2578,12 @@ void mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY,
 			lo64 = w[0]*yinv[0];
 			yinv[0] = yinv[0]*((uint64)2 - lo64);
 		}
-	
+
 		/* Now that have bottom 64 = 2^6 bits of yinv, do as many more Newton iterations as needed to get the full [ybits] of yinv.
 		Number of good bits doubes each iteration, and we only need to compute the new good bits, via
-	
+
 			yinv.hi = MULL(-yinv.lo, MULL(w.hi, yinv.lo) + UMULH(w.lo, yinv.lo))	//========== do this optimization later===========
-	
+
 		where lo = converged bits, and hi = bits converged on current iteration
 		*/
 		i = 1;	// I stores number of converged 64-bit words
@@ -2502,7 +2600,7 @@ void mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY,
 	#if MI64_DIV_MONT
 		if(dbg)printf("yinv = %s\n", &s0[convert_mi64_base10_char(s0, yinv, lenS, 0)]);
 	#endif
-	
+
 		// Process the x-array data in lenS-sized chunks. If last chunk < lenS-sized it gets special handling.
 		// Number of lenS-sized chunks to do (incl. 0-padding of x if its number of machine words not an exact multiple of lenS):
 		lenW = (lenX+lenS-1)/lenS;
@@ -2514,7 +2612,7 @@ void mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY,
 			/* Add w if had a borrow - Since we low-half multiply tmp by yinv below and w*yinv == 1 (mod 2^64),
 			   can simply add 1 to tmp*yinv result instead of adding w to the difference here: */
 			bw = mi64_sub(v+i,hi,tmp,lenS);
-	
+
 			// Compute expected value of low-half of MUL_LOHI for sanity-checking
 			if(bw) {
 				mi64_add(tmp,w,itmp,lenS);	// itmp = tmp + w
@@ -2524,22 +2622,22 @@ void mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY,
 		#if MI64_DIV_MONT
 			if(dbg)printf("v-cy = %s, bw = %llu\n", &s0[convert_mi64_base10_char(s0, tmp, lenS, 0)], bw);
 		#endif
-	
+
 			// Now do the Montgomery mod: cy = umulh( w, mull(tmp, yinv) );
 			mi64_mul_vector_lo_half(tmp,yinv,tmp, lenS);	// tmp = tmp*yinv + bw;
 		#if MI64_DIV_MONT
 			if(dbg)printf("MULL = %s\n", &s0[convert_mi64_base10_char(s0, tmp, lenS, 0)]);
 		#endif
 			tmp[0] += bw;	ASSERT(HERE, tmp[0] >= bw, "bw!");	// Since bw = 0 or 1, check that bw=1 does not propagate is simply check (sum >= bw)
-	
+
 			// Do double-wide product. Fast-divisibility test needs just high half (stored in hi); low half (lo) useful to extract true-mod
 			mi64_mul_vector(tmp,lenS,w,lenS,lo, (uint32*)&j);	// lo:hi = MUL_LOHI(q, tmp)
-	
+
 		#if MI64_DIV_MONT
 			if(dbg)printf("  lo = %s\n", &s0[convert_mi64_base10_char(s0,   lo, lenS, 0)]);
 			if(dbg)printf("  hi = %s\n", &s0[convert_mi64_base10_char(s0,   hi, lenS, 0)]);
 		#endif
-	
+
 			if(!mi64_cmp_eq(lo,itmp,lenS))
 			{
 			#if MI64_DIV_MONT
@@ -2548,7 +2646,7 @@ void mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY,
 				ASSERT(HERE, 0, "Low-half product check mismatch!");
 			}
 		}
-	
+
 		// Last term gets special handling:
 		// Zero-pad the final x-array section (by copying into cy and zeroing remaining higher-order terms of cy) if lenX != 0 (mod lenS):
 		j = lenX-i;
@@ -2572,9 +2670,9 @@ void mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY,
 	#if MI64_DIV_MONT
 		if(dbg)printf("MR = %s\n", &s0[convert_mi64_base10_char(s0, cy, lenS, 0)]);	// MR = "Montgomery remainder"
 	#endif
-	
+
 	//----------------------------------
-	
+
 		// Prepare to transform back out of "Montgomery space" ... first compute B^2 mod q.
 		// B^2 overflows our double-wide scratch [lo]-array field, so compute B^2/2 mod q...
 		mi64_clear(lo,2*lenS);	lo[2*lenS-1] = 0x8000000000000000ull;
@@ -2593,7 +2691,7 @@ void mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY,
 		See the 64-bit-modulus-specialized version of this routine in mi64_div_by_scalar64() for details.
 		*/
 		p = lenW;
-	
+
 		// If p == 2, tmp already contains the needed power
 		if(p == 3) {
 			MONT_SQR_N(tmp,lo,w,yinv, tmp,lenS);
@@ -2614,7 +2712,7 @@ void mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY,
 			*/
 			MONT_SQR_N(tmp,lo,w,yinv,itmp,lenS);	// tmp has p = 2, itmp has p = 3
 	//	printf("B^3 mod q = %s\n", &s0[convert_mi64_base10_char(s0, itmp, lenS, 0)]);
-	
+
 			/* Starting off we have the following 2 choices:
 				A. Mp(2,3) -> p=4;
 				B. Mp(3,3) -> p=5,
@@ -2641,7 +2739,7 @@ void mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY,
 				}
 			}
 		}
-	
+
 		/*
 		Now multiply the Montgomery residue from the mod-loop by the mod-power of the base.
 		Properly scaled, right-justified remainder output in cy ... need the r-j remainder
@@ -2653,9 +2751,9 @@ void mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY,
 		if(dbg && lenW > 2)printf("B^%u mod q = %s\n", lenW,&s0[convert_mi64_base10_char(s0, tmp, lenS, 0)]);
 		if(dbg)printf("Remainder = %s\n", &s0[convert_mi64_base10_char(s0,cy, lenS, 0)]);
 	#endif
-	
+
 	//----------------------------------
-	
+
 		// If q-array supplied, compute quotient and return it in that:
 		if(q) {
 		#if MI64_DIV_MONT
@@ -2672,10 +2770,10 @@ void mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY,
 				if(dbg)printf("i = %u; v = %s\n", i,&s0[convert_mi64_base10_char(s0, v+i, lenS, 0)]);
 			#endif
 				bw = mi64_sub(v+i,hi,tmp,lenS);	// tmp = x[i] - (bw+cy);
-	
+
 				// Compute expected value of low-half of MUL_LOHI for sanity-checking
 				mi64_set_eq(itmp,tmp,lenS);	// itmp = tmp
-	
+
 				// Now do the Montgomery mod: cy = umulh( y, mull(tmp, yinv) );
 				mi64_mul_vector_lo_half(tmp,yinv,tmp, lenS);	// tmp = tmp*yinv + bw;
 			#if MI64_DIV_MONT
@@ -2684,12 +2782,12 @@ void mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY,
 				// Do double-wide product. Fast-divisibility test needs just high half (stored in hi); low half (lo) useful to extract true-mod
 				mi64_mul_vector(tmp,lenS,w,lenS,lo, (uint32*)&j);	// lo:hi = MUL_LOHI(q, tmp); cy is in hi half
 				hi[0] += bw;	ASSERT(HERE, hi[0] >= bw, "bw!");// (cy + bw); Since bw = 0 or 1, check that bw=1 does not propagate is simply check (sum >= bw)
-	
+
 			#if MI64_DIV_MONT
 				if(dbg)printf("  lo = %s\n", &s0[convert_mi64_base10_char(s0,   lo, lenS, 0)]);
 				if(dbg)printf("  hi = %s\n", &s0[convert_mi64_base10_char(s0,   hi, lenS, 0)]);
 			#endif
-	
+
 				if(!mi64_cmp_eq(lo,itmp,lenS))
 				{
 				#if MI64_DIV_MONT
@@ -2725,7 +2823,7 @@ void mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY,
 		if(nshift)
 		{
 			// rem = (rem << nshift) + rem_save:
-			mi64_shl(cy,r,nshift,lenD);	//*** Need to use non-right-justified length (rather than lenS) here! ***
+			mi64_shl(cy,r,nshift,lenD);	/*** Need to use non-right-justified length (rather than lenS) here! ***/
 			// No carryout here since we are filling in the just-vacated low bits of rem with rem_save:
 			mi64_add(r,rem_save,r,nws);
 		} else {
@@ -3642,7 +3740,7 @@ int mi64_is_div_by_scalar64(const uint64 x[], uint64 q, uint32 len)
 		"mulq	%%rsi		\n\t"/* cy = __MULH64(q,tmp) */\
 
 	"subq	$1,%%rcx \n\t"\
-	"jnz loop_start 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */ \
+	"jnz loop_start 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 
 		"movq	%%rdx,%[__cy]	\n\t"\
 		:	/* outputs: none */\
@@ -3672,7 +3770,7 @@ int mi64_is_div_by_scalar64(const uint64 x[], uint64 q, uint32 len)
 		"mulq	%%rsi		\n\t"/* cy = __MULH64(q,tmp) */\
 
 	"subq	$1,%%rcx \n\t"\
-	"jnz loop_start 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */ \
+	"jnz loop_start 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 
 		"movq	%%rdx,%[__cy]	\n\t"\
 		:	/* outputs: none */\
@@ -3754,10 +3852,10 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 		"xorq	%%r9 ,%%r9 		\n\t"/* Init cy2 = 0 */\
 		"xorq	%%rdx,%%rdx		\n\t"/* Init cy3 = 0 */\
 
-		"movslq	%[__len], %%r14	\n\t"/* ASM loop structured as for(j = len; j != 0; --j){...} */\
-		"shrq	$1      , %%r14	\n\t"/* len/2 */\
+		"movslq	%[__len],%%r14	\n\t"/* ASM loop structured as for(j = len; j != 0; --j){...} */\
+		"shrq	$1      ,%%r14	\n\t"/* len/2 */\
 		"leaq	(%%r10,%%r14,8),%%r15	\n\t"/* x+len/2 */\
-		"shrq	$1      , %%r14	\n\t"/* len/4 */\
+		"shrq	$1      ,%%r14	\n\t"/* len/4 */\
 		"movq	%%r14,%%rcx	\n\t"/* Copy len/4 into loop counter*/\
 	"loop4x:		\n\t"\
 		"movq	(%%r10),%%rax	\n\t	leaq	(%%r10,%%r14,8),%%r11	\n\t"/* load x0,&x1 */\
@@ -3778,7 +3876,7 @@ int mi64_is_div_by_scalar64_x4(const uint64 x[], uint64 q0, uint64 q1, uint64 q2
 		"movq	%%r13,%%rax		\n\t	mulq	%[__q3]	\n\t"/* load x3 into rax; cy3 = MULH64(q,tmp3), leave result in rdx */\
 
 	"subq	$1,%%rcx \n\t"\
-	"jnz loop4x 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */ \
+	"jnz loop4x 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%r8 ,%[__cy1]	\n\t	movq	%%r9 ,%[__cy2]	\n\t	movq	%%rdx,%[__cy3]	\n\t"\
 	:	/* outputs: none */\
@@ -3880,7 +3978,7 @@ ASSERT(HERE, !nshift, "2-way folded DIV requires odd q!");
 		"mulq	%%rsi			\n\t"/* cy1 = MULH64(q,tmp1), leave result in rdx */\
 
 	"subq	$1,%%rcx \n\t"\
-	"jnz loop2a 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */ \
+	"jnz loop2a 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%rdx,%[__cy1]	"\
 		:	/* outputs: none */\
@@ -3976,6 +4074,59 @@ ASSERT(HERE, !nshift, "2-way folded DIV requires odd q!");
 
 #else
 
+  #ifdef USE_AVX2	// Haswell-and-beyond version (Have a MULX instruction)
+			// Note: MULX reg1,reg2,reg3 [AT&T/GCC syntax] assumes src1 in RDX [MULQ assumed RAX],
+			//                            src2 in named reg1, lo"hi output halves into reg2:reg3:
+
+	__asm__ volatile (\
+		"movq	%[__x],%%r10	\n\t"\
+		"xorq	%%rdi,%%rdi		\n\t"/* Init cy0 = 0 */\
+		"xorq	%%r8 ,%%r8 		\n\t"/* Init cy1 = 0 */\
+		"xorq	%%r9 ,%%r9 		\n\t"/* Init cy2 = 0 */\
+		"xorq	%%rax,%%rax		\n\t"/* Init cy3 = 0 */\
+		"movq	%[__q],%%rdx	\n\t"/* In context of MULX want this fixed word in RDX, the implied-MULX-input register */\
+		"movq	%[__qinv],%%rbx	\n\t"\
+		"movslq	%[__len],%%r14	\n\t"/* ASM loop structured as for(j = len; j != 0; --j){...} */\
+		"shrq	$1      ,%%r14	\n\t"/* len/2 */\
+		"leaq	(%%r10,%%r14,8),%%r15	\n\t"/* x+len/2 */\
+		"shrq	$1      ,%%r14	\n\t"/* len/4 */\
+		"movq	%%r14,%%rcx	\n\t"/* Copy len/4 into loop counter*/\
+	"loop4u:		\n\t"\
+		"movq	(%%r10),%%rsi	\n\t	leaq	(%%r10,%%r14,8),%%r11	\n\t"/* load x0,&x1 */\
+		"addq	$0x8 ,%%r10		\n\t	movq	(%%r11),%%r11	\n\t"/* Increment x0-ptr, load x1 */\
+		"subq	%%rdi,%%rsi		\n\t	sbbq	%%rdi,%%rdi		\n\t"/* tmp0 = x0 - cy0, save -CF */\
+		"subq	%%r8 ,%%r11		\n\t	sbbq	%%r8 ,%%r8 		\n\t"/* tmp1 = x1 - cy1, save -CF */\
+		"movq	(%%r15),%%r12	\n\t	leaq	(%%r15,%%r14,8),%%r13	\n\t"/* load x2,&x3 */
+		"addq	$0x8 ,%%r15		\n\t	movq	(%%r13),%%r13	\n\t"/* Increment x2-ptr, load x3 */\
+		"subq	%%r9 ,%%r12		\n\t	sbbq	%%r9 ,%%r9 		\n\t"/* tmp2 = x2 - cy2, save -CF */\
+		"subq	%%rax,%%r13		\n\t	sbbq	%%rax,%%rax		\n\t"/* tmp3 = x3 - cy3, save -CF */\
+		"imulq	%%rbx,%%rsi 	\n\t	imulq	%%rbx,%%r11 	\n\t"/* tmp0,1 *= qinv */\
+		"imulq	%%rbx,%%r12 	\n\t	imulq	%%rbx,%%r13 	\n\t"/* tmp2,3 *= qinv */\
+		"subq	%%rdi,%%rsi		\n\t	subq	%%r8 ,%%r11		\n\t"/* tmp0,1 = tmp0,1 * qinv + CF */\
+		"subq	%%r9 ,%%r12		\n\t	subq	%%rax,%%r13		\n\t"/* tmp2,3 = tmp2,3 * qinv + CF */\
+		/* In each MULX, overwrite the explicit input register with the low (discard) product half: */\
+		"mulxq	%%rsi,%%rsi,%%rdi	\n\t"/* x0 enters in rsi; cy0 = MULH64(q,tmp0), result in rdi */\
+		"mulxq	%%r11,%%r11,%%r8 	\n\t"/* load x1 into r11; cy1 = MULH64(q,tmp1), result in r8  */\
+		"mulxq	%%r12,%%r12,%%r9 	\n\t"/* load x2 into r12; cy2 = MULH64(q,tmp2), result in r9  */\
+		"mulxq	%%r13,%%r13,%%rax	\n\t"/* load x3 into r13; cy3 = MULH64(q,tmp3), result in rax */\
+	"subq	$1,%%rcx \n\t"\
+	"jnz loop4u 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
+		"movq	%%rdi,%[__cy0]	\n\t	movq	%%r8 ,%[__cy1]	\n\t	movq	%%r9 ,%[__cy2]	\n\t	movq	%%rax,%[__cy3]	\n\t"\
+	:	/* outputs: none */\
+	: [__q] "m" (q)	/* All inputs from memory addresses here */\
+	 ,[__qinv] "m" (qinv)	\
+	 ,[__x] "m" (x)	\
+	 ,[__cy0] "m" (cy0)	\
+	 ,[__cy1] "m" (cy1)	\
+	 ,[__cy2] "m" (cy2)	\
+	 ,[__cy3] "m" (cy3)	\
+	 ,[__len] "m" (len)	\
+	: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
+	);
+
+  #else		// Pre-Haswell version (no MULX instruction)
+			// Note: MULQ assumes src1 in RAX, src2 in named register, lo"hi output halves into rax:rdx:
+
 	__asm__ volatile (\
 		"movq	%[__x],%%r10	\n\t"\
 		"xorq	%%rdi,%%rdi		\n\t"/* Init cy0 = 0 */\
@@ -3984,11 +4135,10 @@ ASSERT(HERE, !nshift, "2-way folded DIV requires odd q!");
 		"xorq	%%rdx,%%rdx		\n\t"/* Init cy3 = 0 */\
 		"movq	%[__q],%%rsi	\n\t"\
 		"movq	%[__qinv],%%rbx	\n\t"\
-
-		"movslq	%[__len], %%r14	\n\t"/* ASM loop structured as for(j = len; j != 0; --j){...} */\
-		"shrq	$1      , %%r14	\n\t"/* len/2 */\
+		"movslq	%[__len],%%r14	\n\t"/* ASM loop structured as for(j = len; j != 0; --j){...} */\
+		"shrq	$1      ,%%r14	\n\t"/* len/2 */\
 		"leaq	(%%r10,%%r14,8),%%r15	\n\t"/* x+len/2 */\
-		"shrq	$1      , %%r14	\n\t"/* len/4 */\
+		"shrq	$1      ,%%r14	\n\t"/* len/4 */\
 		"movq	%%r14,%%rcx	\n\t"/* Copy len/4 into loop counter*/\
 	"loop4u:		\n\t"\
 		"movq	(%%r10),%%rax	\n\t	leaq	(%%r10,%%r14,8),%%r11	\n\t"/* load x0,&x1 */\
@@ -4007,10 +4157,8 @@ ASSERT(HERE, !nshift, "2-way folded DIV requires odd q!");
 		"movq	%%r11,%%rax		\n\t	mulq	%%rsi	\n\t	movq	%%rdx,%%r8 	\n\t"/* cy1 = MULH64(q,tmp1), then move cy1 out of rdx in prep for cy2 computation */\
 		"movq	%%r12,%%rax		\n\t	mulq	%%rsi	\n\t	movq	%%rdx,%%r9 	\n\t"/* cy2 = MULH64(q,tmp2), then move cy2 out of rdx in prep for cy3 computation */\
 		"movq	%%r13,%%rax		\n\t	mulq	%%rsi	\n\t"/* load x3 into rax; cy3 = MULH64(q,tmp3), leave result in rdx */\
-
 	"subq	$1,%%rcx \n\t"\
-	"jnz loop4u 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */ \
-
+	"jnz loop4u 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%r8 ,%[__cy1]	\n\t	movq	%%r9 ,%[__cy2]	\n\t	movq	%%rdx,%[__cy3]	\n\t"\
 	:	/* outputs: none */\
 	: [__q] "m" (q)	/* All inputs from memory addresses here */\
@@ -4023,6 +4171,9 @@ ASSERT(HERE, !nshift, "2-way folded DIV requires odd q!");
 	 ,[__len] "m" (len)	\
 	: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
 	);
+
+  #endif	// AVX2/MULX or not?
+
 #endif
 
 #if MI64_DEBUG
@@ -4378,7 +4529,7 @@ See similar behavior for 4-way-split version of the algorithm.
 		"mulq	%%rsi			\n\t"/* cy1 = MULH64(q,tmp1), leave result in rdx */\
 
 	"subq	$1,%%rcx \n\t"\
-	"jnz loop2b 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */ \
+	"jnz loop2b 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%rdx,%[__cy1]	"\
 		:	/* outputs: none */\
@@ -4463,7 +4614,7 @@ See similar behavior for 4-way-split version of the algorithm.
 		"mulq	%%rsi			\n\t	movq	%%rdx,%%rdi		\n\t"/* cy0 = MULH64(q,tmp0), then move cy0 out of rdx in prep for cy1 computation */\
 		"movq	%%r12,%%rax		\n\t	mulq	%%rsi			\n\t"/* load tmp1 into rax, then cy1 = MULH64(q,tmp1) */\
 	"subq	$1,%%rcx \n\t"\
-	"jnz loop2c 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */ \
+	"jnz loop2c 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%rdx,%[__cy1]	"\
 		:	/* outputs: none */\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
@@ -4501,7 +4652,7 @@ See similar behavior for 4-way-split version of the algorithm.
 		"mulq	%%rsi			\n\t	subq	%%rdx,%%r8		\n\t"/* cy0 = MULH64(q,tmp0), move cy0 out of rdx into -(bw0 + cy0) in prep for cy1 computation */\
 		"movq	%%r12,%%rax		\n\t	mulq	%%rsi			\n\t"/* load tmp1 into rax, then cy1 = MULH64(q,tmp1) */\
 	"subq	$1,%%rcx \n\t"\
-	"jnz loop2c 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */ \
+	"jnz loop2c 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"						\n\t	movq	%%rdx,%[__cy1]	"/* Only useful carryout is cy1, check-equal-to-zero */\
 		:	/* outputs: none */\
 		: [__q] "m" (q)	/* All inputs from memory addresses here */\
@@ -4552,12 +4703,13 @@ ASSERT(HERE, !nshift, "2-way folded DIV requires odd q!");
 		qinv = qinv*((uint64)2 - q*qinv);
 	}
 
-/* 07/30/2012: Compare full-DIV timings for the standard test, 10000 length-34420 DIvs:
+/* 07/30/2012: "First Light": Compare full-DIV timings for the standard test, 10000 length-34420 DIvs:
 Pure C       : 2.651 sec --> 15.4 cycles
 Rem-ASM/Div-C: 2.763 sec --> 16.0 cycles	<*** slower! Bizarre... ***
-Both ASM     : 2.166 sec --> 12.5 cycles.	<*** Ignore incorrct output of -bw-cy version of loop for now ***
+Both ASM     : 2.166 sec --> 12.5 cycles.	<*** Ignore incorrect output of -bw-cy version of loop for now ***
 */
 #ifndef YES_ASM
+
 	cy0 = cy1 = cy2 = cy3 = (uint64)0;
 	for(i0 = 0, i1 = len4, i2 = i1+i1, i3 = i1+i2; i0 < len4; ++i0, ++i1, ++i2, ++i3)
 	{
@@ -4573,6 +4725,59 @@ Both ASM     : 2.166 sec --> 12.5 cycles.	<*** Ignore incorrct output of -bw-cy 
 
 #else
 
+  #ifdef USE_AVX2	// Haswell-and-beyond version (Have a MULX instruction)
+			// Note: MULX reg1,reg2,reg3 [AT&T/GCC syntax] assumes src1 in RDX [MULQ assumed RAX],
+			//                            src2 in named reg1, lo"hi output halves into reg2:reg3:
+
+	__asm__ volatile (\
+		"movq	%[__x],%%r10	\n\t"\
+		"xorq	%%rdi,%%rdi		\n\t"/* Init cy0 = 0 */\
+		"xorq	%%r8 ,%%r8 		\n\t"/* Init cy1 = 0 */\
+		"xorq	%%r9 ,%%r9 		\n\t"/* Init cy2 = 0 */\
+		"xorq	%%rax,%%rax		\n\t"/* Init cy3 = 0 */\
+		"movq	%[__q],%%rdx	\n\t"/* In context of MULX want this fixed word in RDX, the implied-MULX-input register */\
+		"movq	%[__qinv],%%rbx	\n\t"\
+		"movslq	%[__len],%%r14	\n\t"/* ASM loop structured as for(j = len; j != 0; --j){...} */\
+		"shrq	$1      ,%%r14	\n\t"/* len/2 */\
+		"leaq	(%%r10,%%r14,8),%%r15	\n\t"/* x+len/2 */\
+		"shrq	$1      ,%%r14	\n\t"/* len/4 */\
+		"movq	%%r14,%%rcx	\n\t"/* Copy len/4 into loop counter*/\
+	"loop4b:		\n\t"\
+		"movq	(%%r10),%%rsi	\n\t	leaq	(%%r10,%%r14,8),%%r11	\n\t"/* load x0,&x1 */\
+		"addq	$0x8 ,%%r10		\n\t	movq	(%%r11),%%r11	\n\t"/* Increment x0-ptr, load x1 */\
+		"subq	%%rdi,%%rsi		\n\t	sbbq	%%rdi,%%rdi		\n\t"/* tmp0 = x0 - cy0, save -CF */\
+		"subq	%%r8 ,%%r11		\n\t	sbbq	%%r8 ,%%r8 		\n\t"/* tmp1 = x1 - cy1, save -CF */\
+		"movq	(%%r15),%%r12	\n\t	leaq	(%%r15,%%r14,8),%%r13	\n\t"/* load x2,&x3 */
+		"addq	$0x8 ,%%r15		\n\t	movq	(%%r13),%%r13	\n\t"/* Increment x2-ptr, load x3 */\
+		"subq	%%r9 ,%%r12		\n\t	sbbq	%%r9 ,%%r9 		\n\t"/* tmp2 = x2 - cy2, save -CF */\
+		"subq	%%rax,%%r13		\n\t	sbbq	%%rax,%%rax		\n\t"/* tmp3 = x3 - cy3, save -CF */\
+		"imulq	%%rbx,%%rsi 	\n\t	imulq	%%rbx,%%r11 	\n\t"/* tmp0,1 *= qinv */\
+		"imulq	%%rbx,%%r12 	\n\t	imulq	%%rbx,%%r13 	\n\t"/* tmp2,3 *= qinv */\
+		"subq	%%rdi,%%rsi		\n\t	subq	%%r8 ,%%r11		\n\t"/* tmp0,1 = tmp0,1 * qinv + CF */\
+		"subq	%%r9 ,%%r12		\n\t	subq	%%rax,%%r13		\n\t"/* tmp2,3 = tmp2,3 * qinv + CF */\
+		/* In each MULX, overwrite the explicit input register with the low (discard) product half: */\
+		"mulxq	%%rsi,%%rsi,%%rdi	\n\t"/* x0 enters in rsi; cy0 = MULH64(q,tmp0), result in rdi */\
+		"mulxq	%%r11,%%r11,%%r8 	\n\t"/* load x1 into r11; cy1 = MULH64(q,tmp1), result in r8  */\
+		"mulxq	%%r12,%%r12,%%r9 	\n\t"/* load x2 into r12; cy2 = MULH64(q,tmp2), result in r9  */\
+		"mulxq	%%r13,%%r13,%%rax	\n\t"/* load x3 into r13; cy3 = MULH64(q,tmp3), result in rax */\
+	"subq	$1,%%rcx \n\t"\
+	"jnz loop4b 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
+		"movq	%%rdi,%[__cy0]	\n\t	movq	%%r8 ,%[__cy1]	\n\t	movq	%%r9 ,%[__cy2]	\n\t	movq	%%rax,%[__cy3]	\n\t"\
+	:	/* outputs: none */\
+	: [__q] "m" (q)	/* All inputs from memory addresses here */\
+	 ,[__qinv] "m" (qinv)	\
+	 ,[__x] "m" (x)	\
+	 ,[__cy0] "m" (cy0)	\
+	 ,[__cy1] "m" (cy1)	\
+	 ,[__cy2] "m" (cy2)	\
+	 ,[__cy3] "m" (cy3)	\
+	 ,[__len] "m" (len)	\
+	: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
+	);
+
+  #else		// Pre-Haswell version (no MULX instruction)
+			// Note: MULQ assumes src1 in RAX, src2 in named register, lo"hi output halves into rax:rdx:
+
 	__asm__ volatile (\
 		"movq	%[__x],%%r10	\n\t"\
 		"xorq	%%rdi,%%rdi		\n\t"/* Init cy0 = 0 */\
@@ -4581,11 +4786,10 @@ Both ASM     : 2.166 sec --> 12.5 cycles.	<*** Ignore incorrct output of -bw-cy 
 		"xorq	%%rdx,%%rdx		\n\t"/* Init cy3 = 0 */\
 		"movq	%[__q],%%rsi	\n\t"\
 		"movq	%[__qinv],%%rbx	\n\t"\
-
-		"movslq	%[__len], %%r14	\n\t"/* ASM loop structured as for(j = len; j != 0; --j){...} */\
-		"shrq	$1      , %%r14	\n\t"/* len/2 */\
+		"movslq	%[__len],%%r14	\n\t"/* ASM loop structured as for(j = len; j != 0; --j){...} */\
+		"shrq	$1      ,%%r14	\n\t"/* len/2 */\
 		"leaq	(%%r10,%%r14,8),%%r15	\n\t"/* x+len/2 */\
-		"shrq	$1      , %%r14	\n\t"/* len/4 */\
+		"shrq	$1      ,%%r14	\n\t"/* len/4 */\
 		"movq	%%r14,%%rcx	\n\t"/* Copy len/4 into loop counter*/\
 	"loop4b:		\n\t"\
 		"movq	(%%r10),%%rax	\n\t	leaq	(%%r10,%%r14,8),%%r11	\n\t"/* load x0,&x1 */\
@@ -4604,10 +4808,8 @@ Both ASM     : 2.166 sec --> 12.5 cycles.	<*** Ignore incorrct output of -bw-cy 
 		"movq	%%r11,%%rax		\n\t	mulq	%%rsi	\n\t	movq	%%rdx,%%r8 	\n\t"/* cy1 = MULH64(q,tmp1), then move cy1 out of rdx in prep for cy2 computation */\
 		"movq	%%r12,%%rax		\n\t	mulq	%%rsi	\n\t	movq	%%rdx,%%r9 	\n\t"/* cy2 = MULH64(q,tmp2), then move cy2 out of rdx in prep for cy3 computation */\
 		"movq	%%r13,%%rax		\n\t	mulq	%%rsi	\n\t"/* load x3 into rax; cy3 = MULH64(q,tmp3), leave result in rdx */\
-
 	"subq	$1,%%rcx \n\t"\
-	"jnz loop4b 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */ \
-
+	"jnz loop4b 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdi,%[__cy0]	\n\t	movq	%%r8 ,%[__cy1]	\n\t	movq	%%r9 ,%[__cy2]	\n\t	movq	%%rdx,%[__cy3]	\n\t"\
 	:	/* outputs: none */\
 	: [__q] "m" (q)	/* All inputs from memory addresses here */\
@@ -4620,6 +4822,8 @@ Both ASM     : 2.166 sec --> 12.5 cycles.	<*** Ignore incorrct output of -bw-cy 
 	 ,[__len] "m" (len)	\
 	: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
 	);
+
+  #endif	// AVX2/MULX or not?
 
 #endif
 
@@ -4676,6 +4880,69 @@ Both ASM     : 2.166 sec --> 12.5 cycles.	<*** Ignore incorrct output of -bw-cy 
 
 #else
 
+	/*** Bizarrely, the MULX-based version of the quotient loop runs slower than the original on Haswell ***/
+  #ifdef USE_AVX2	// Haswell-and-beyond version (Have a MULX instruction)
+			// Note: MULX reg1,reg2,reg3 [AT&T/GCC syntax] assumes src1 in RDX [MULQ assumed RAX],
+			//                            src2 in named reg1, lo"hi output halves into reg2:reg3:
+
+	__asm__ volatile (\
+		"movq	%[__x],%%r10	\n\t"\
+		"xorq	%%rdi,%%rdi		\n\t	subq	%[__cy0],%%rdi	\n\t"/* Init bw0 = 0, -(bw0 + cy0) */\
+		"xorq	%%r8 ,%%r8 		\n\t	subq	%[__cy1],%%r8 	\n\t"/* Init bw1 = 0, -(bw1 + cy1) */\
+		"xorq	%%r9 ,%%r9 		\n\t	subq	%[__cy2],%%r9 	\n\t"/* Init bw2 = 0, -(bw2 + cy2) */\
+		"xorq	%%rbx,%%rbx		\n\t	movq	%[__cy3],%%rax	\n\t"/* Init bw3 = 0, +(bw3 + cy3) */\
+		"movq	%[__xy_ptr_diff],%%rsi	\n\t"/* Load (y-x) pointer-diff */\
+		"movslq	%[__len],%%r14	\n\t"/* ASM loop structured as for(j = len; j != 0; --j){...} */\
+		"shrq	$1      ,%%r14	\n\t"/* len/2 */\
+		"leaq	(%%r10,%%r14,8),%%r15	\n\t"/* x+len/2 */\
+		"shrq	$1      ,%%r14	\n\t"/* len/4 */\
+		"movq	%%r14,%%rcx	\n\t"/* Copy len/4 into loop counter*/\
+		"shlq	$3,%%r14	\n\t"/* r14 holds pointer offset corr. to len/4 array elements */\
+	"loop4c:		\n\t"
+		"leaq	(%%r10,%%r14),%%r11	\n\t	movq	(%%r10),%%rdx	\n\t	movq	(%%r11),%%r11	\n\t"/* Load &x1,*x0,*x1 */\
+		"leaq	(%%r15,%%r14),%%r13	\n\t	movq	(%%r15),%%r12	\n\t	movq	(%%r13),%%r13	\n\t"/* Load &x3,*x2,*x3 */
+		"negq	%%rdi			\n\t	negq	%%r8			\n\t"/* rdi = +(bw0 + cy0), r8  = +(bw1 + cy1) */\
+		"negq	%%r9			\n\t	subq	%%rbx,%%rax		\n\t"/* r9  = +(bw2 + cy2), rbx = +(bw3 + cy3) via cy3 -(-bw3), no carryout possible */
+		"subq	%%rdi,%%rdx		\n\t	sbbq	%%rdi,%%rdi		\n\t"/* tmp0 = x0 - (bw0 + cy0), save -CF */\
+		"subq	%%r8 ,%%r11		\n\t	sbbq	%%r8 ,%%r8 		\n\t"/* tmp1 = x1 - (bw1 + cy1), save -CF */\
+		"subq	%%r9 ,%%r12		\n\t	sbbq	%%r9 ,%%r9 		\n\t"/* tmp2 = x2 - (bw2 + cy2), save -CF */\
+		"subq	%%rax,%%r13		\n\t	sbbq	%%rbx,%%rbx		\n\t"/* tmp3 = x3 - (bw3 + cy3), save -CF */\
+		"movq	%[__qinv],%%rax	\n\t"/* I get no speedup from moving qinv into a reg in practice, but my intentions wre good. :) */\
+		"imulq	%%rax,%%rdx		\n\t	imulq	%%rax,%%r11		\n\t"/* tmp0,1 *= qinv */\
+		"imulq	%%rax,%%r12		\n\t	imulq	%%rax,%%r13		\n\t"/* tmp2,3 *= qinv */\
+		"addq	%%rsi,%%r10		\n\t	addq	%%rsi,%%r15		\n\t"/* Add (y-x) pointer-diff to x0,2 ptrs to get y0,2 */\
+		"movq	%%rdx,(%%r10)	\n\t	movq	%%r12,(%%r15)	\n\t"/* store tmp0,2 */\
+		"addq	%%r14,%%r10		\n\t	addq	%%r14,%%r15		\n\t"/* Add len/4 pointer-diff to y0,2 ptrs to get y1,3 */\
+		"movq	%%r11,(%%r10)	\n\t	movq	%%r13,(%%r15)	\n\t"/* store tmp1,3 */\
+		"subq	%%r14,%%r10		\n\t	subq	%%r14,%%r15		\n\t"/* Sub len/4 pointer-diff from y1,3 ptrs to get y0,2 */\
+		"subq	%%rsi,%%r10		\n\t	subq	%%rsi,%%r15		\n\t"/* Sub (y-x) pointer-diff from y0,2 ptrs to get x0,2 */\
+		/* Set up for the MULX calls by moving q into implied-reg rdx */\
+		"movq	%%rdx,%%rax		\n\t	movq	%[__q],%%rdx	\n\t"\
+		/* For MULX, if lo:hi output registers are the same, it holds the high half (only part we care about here) on output: */\
+		"mulxq	%%rax,%%rax,%%rax	\n\t	subq	%%rax,%%rdi	\n\t"/* cy0 = MULH64(q,tmp0), move cy0 from rax -> -bw0-cy0 */\
+		"mulxq	%%r11,%%rax,%%rax	\n\t	subq	%%rax,%%r8 	\n\t"/* cy1 = MULH64(q,tmp1), move cy1 from rax -> -bw1-cy1 */\
+		"mulxq	%%r12,%%rax,%%rax	\n\t	subq	%%rax,%%r9 	\n\t"/* cy2 = MULH64(q,tmp2), move cy2 from rax -> -bw2-cy2 */\
+		"mulxq	%%r13,%%rax,%%rax	\n\t"/* load x3 into rdx; cy3 = MULH64(q,tmp3), leave hi-half-product result in rax */\
+		"addq	$0x8 ,%%r10		\n\t	addq	$0x8 ,%%r15		\n\t"/* Increment x0,2-pointers */\
+	"subq	$1,%%rcx \n\t"\
+	"jnz loop4c 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
+		"movq	%%rax,%[__cy3]	\n\t"\
+	:	/* outputs: none */\
+	: [__q] "m" (q)	/* All inputs from memory addresses here */\
+	 ,[__qinv] "m" (qinv)	\
+	 ,[__x] "m" (x)	\
+	 ,[__xy_ptr_diff] "m" (xy_ptr_diff)	\
+	 ,[__cy0] "m" (cy0)	\
+	 ,[__cy1] "m" (cy1)	\
+	 ,[__cy2] "m" (cy2)	\
+	 ,[__cy3] "m" (cy3)	\
+	 ,[__len] "m" (len)	\
+	: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
+	);
+
+  #else		// Pre-Haswell version (no MULX instruction)
+			// Note: MULQ assumes src1 in RAX, src2 in named register, lo"hi output halves into rax:rdx:
+
 	__asm__ volatile (\
 		"movq	%[__x],%%r10	\n\t"\
 		"xorq	%%rdi,%%rdi		\n\t	subq	%[__cy0],%%rdi	\n\t"/* Init bw0 = 0, -(bw0 + cy0) */\
@@ -4686,7 +4953,6 @@ Both ASM     : 2.166 sec --> 12.5 cycles.	<*** Ignore incorrct output of -bw-cy 
 	/*	"movq	%[__q],%%rsi	\n\t"\	*/\
 	/*	"movq	%[__qinv],%%rbx	\n\t"\	... similar timing-neutrality holds for [__q] */\
 		"movq	%[__xy_ptr_diff],%%rsi	\n\t"/* Load (y-x) pointer-diff */\
-
 		"movslq	%[__len],%%r14	\n\t"/* ASM loop structured as for(j = len; j != 0; --j){...} */\
 		"shrq	$1      ,%%r14	\n\t"/* len/2 */\
 		"leaq	(%%r10,%%r14,8),%%r15	\n\t"/* x+len/2 */\
@@ -4716,9 +4982,8 @@ Both ASM     : 2.166 sec --> 12.5 cycles.	<*** Ignore incorrct output of -bw-cy 
 		"movq	%%r13,%%rax		\n\t	mulq	%[__q]	\n\t"/* load x3 into rax; cy3 = MULH64(q,tmp3), leave result in rdx */\
 		"addq	$0x8 ,%%r10		\n\t	addq	$0x8 ,%%r15		\n\t"/* Increment x0,2-pointers */\
 	"subq	$1,%%rcx \n\t"\
-	"jnz loop4c 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */ \
+	"jnz loop4c 	\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		"movq	%%rdx,%[__cy3]	\n\t"\
-
 	:	/* outputs: none */\
 	: [__q] "m" (q)	/* All inputs from memory addresses here */\
 	 ,[__qinv] "m" (qinv)	\
@@ -4731,7 +4996,11 @@ Both ASM     : 2.166 sec --> 12.5 cycles.	<*** Ignore incorrct output of -bw-cy 
 	 ,[__len] "m" (len)	\
 	: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"	/* Clobbered registers */\
 	);
+
+  #endif	// AVX2/MULX or not?
+
 #endif
+
 //	ASSERT(HERE, bw0 == 0 && bw1 == 0 && bw2 == 0 && bw3 == 0, "bw check!");
 	ASSERT(HERE, cy3 == 0, "cy check!");	// all but the uppermost carryout are generally nonzero
 	return rpow;
@@ -4995,9 +5264,7 @@ uint64 *convert_base10_char_mi64(const char*char_buf, uint32 *len)
 
 /****************/
 
-#if MI64_DEBUG
-	#define MI64_POW_DBG	0	// Set nonzero to enable debug-print in the mi64 modpow functions below
-#endif
+#define MI64_POW_DBG	0	// Set nonzero to enable debug-print in the mi64 modpow functions below
 /*
 Function to find 2^(-p) mod q, where p and q are both base-2^64 multiword unsigned integers.
 Uses a Montgomery-style modmul with a power-of-2 modulus = 2^len. Result (optionally) returned in res[],
@@ -5012,7 +5279,9 @@ The key 3-operation sequence here is as follows:
 uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[], uint32 len, uint64*res)
 {
 #if MI64_POW_DBG
-	uint32 dbg = (k==4296452645);
+	convert_mi64_base10_char(cbuf, q, len, 0);
+fprintf(stderr,"mi64_twopmodq: p = %s\n",cbuf);
+	uint32 dbg = STREQ(cbuf, "170141183460469231731687303715884105727");
 #endif
 	 int32 j, lenp_save = -1, lenq_save = -1;	/* Current-Bit index j needs to be signed because of the LR binary exponentiation. */
 	uint32 idum, pbits;
@@ -5112,7 +5381,7 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
 		mi64_negl(pshift, pshift, lenP);	/* ~pshift[] */
 	#if MI64_POW_DBG
-		if(dbg) { printf("pshift = %s\n", &s0[convert_mi64_base10_char(s0, pshift, lenP, 0)]); }
+		if(dbg) { printf("pshift = %s\n", &cbuf[convert_mi64_base10_char(cbuf, pshift, lenP, 0)]); }
 	#endif
 	}
 
@@ -5153,8 +5422,8 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 	ASSERT(HERE, mi64_cmp_eq_scalar(x, 1ull, lenQ), "Bad Montmul inverse!");
 #if MI64_POW_DBG
 	if(dbg) {
-		printf("q    = %s\n", &s0[convert_mi64_base10_char(s0, q   , lenQ, 0)]);
-		printf("qinv = %s\n", &s0[convert_mi64_base10_char(s0, qinv, lenQ, 0)]);
+		printf("q    = %s\n", &cbuf[convert_mi64_base10_char(cbuf, q   , lenQ, 0)]);
+		printf("qinv = %s\n", &cbuf[convert_mi64_base10_char(cbuf, qinv, lenQ, 0)]);
 		printf("start_index = %3d\n", start_index);
 	}
 #endif
@@ -5168,11 +5437,11 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 #endif
 	mi64_shl(qinv, lo, zshift, lenQ);
 #if MI64_POW_DBG
-	if(dbg) { printf("lo = %s\n", &s0[convert_mi64_base10_char(s0, lo, lenQ, 0)]); }
+	if(dbg) { printf("lo = %s\n", &cbuf[convert_mi64_base10_char(cbuf, lo, lenQ, 0)]); }
 #endif
 	mi64_mul_vector_hi_half(q, lo, lo, lenQ);
 #if MI64_POW_DBG
-	if(dbg) { printf("q*lo/2^%u = %s\n", (lenQ<<6), &s0[convert_mi64_base10_char(s0, lo, lenQ, 0)]); }
+	if(dbg) { printf("q*lo/2^%u = %s\n", (lenQ<<6), &cbuf[convert_mi64_base10_char(cbuf, lo, lenQ, 0)]); }
 #endif
 
 	/* hi = 0 in this instance, which simplifies things. */
@@ -5192,7 +5461,7 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 		}
 	}
 #if MI64_POW_DBG
-	if(dbg) { printf("x0 = %s\n", &s0[convert_mi64_base10_char(s0, x, lenQ, 0)] ); }
+	if(dbg) { printf("x0 = %s\n", &cbuf[convert_mi64_base10_char(cbuf, x, lenQ, 0)] ); }
 #endif
 
 	for(j = start_index-2; j >= 0; j--)
@@ -5202,11 +5471,20 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 	#endif
 		/*...x^2 mod q is returned in x. */
 		mi64_mul_vector(x, lenQ, x, lenQ, lo, &idum);
-		mi64_mul_vector_lo_half(lo, qinv, lo, lenQ);
-		mi64_mul_vector_hi_half(q, lo, lo, lenQ);
-
+	//	mi64_sqr_vector(x, lo, lenQ);	/*** 11/2013: Bizarre - This is slower on both Core2 and Haswell. ***/
 	#if MI64_POW_DBG
-		if(dbg) { printf("lo = %s\n", &s0[convert_mi64_base10_char(s0, lo, lenQ, 0)] ); }
+		if(dbg) {
+			printf("x^2: lo = %s\n",&cbuf[convert_mi64_base10_char(cbuf, lo, lenQ, 0)]);
+			printf("x^2: hi = %s\n",&cbuf[convert_mi64_base10_char(cbuf, hi, lenQ, 0)]);
+		}
+	#endif
+		mi64_mul_vector_lo_half(lo, qinv, lo, lenQ);
+	#if MI64_POW_DBG
+		if(dbg) { printf("lo = MULL(qinc,lo) = %s\n", &cbuf[convert_mi64_base10_char(cbuf, lo, lenQ, 0)] ); }
+	#endif
+		mi64_mul_vector_hi_half(q, lo, lo, lenQ);
+	#if MI64_POW_DBG
+		if(dbg) { printf("lo = MULH(q   ,lo) = %s\n", &cbuf[convert_mi64_base10_char(cbuf, lo, lenQ, 0)] ); }
 	#endif
 
 		/* If h < l, then calculate q-l+h < q; otherwise calculate h-l. */
@@ -5214,14 +5492,17 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 		{
 			cyout = mi64_sub(q, lo, lo, lenQ);
 			cyout = mi64_add(lo, hi, x, lenQ);
+		#if MI64_POW_DBG
+			if(dbg) { printf("x = q-l+h = %s\n",&cbuf[convert_mi64_base10_char(cbuf, x, lenQ, 0)]); }
+		#endif
 		}
 		else
 		{
 			cyout = mi64_sub(hi, lo, x, lenQ);	DBG_ASSERT(HERE, cyout == 0ull, "");
+		#if MI64_POW_DBG
+			if(dbg) { printf("x =   h-l = %s\n",&cbuf[convert_mi64_base10_char(cbuf, x, lenQ, 0)]); }
+		#endif
 		}
-	#if MI64_POW_DBG
-		if(dbg) { printf("x = %s\n",&s0[convert_mi64_base10_char(s0, x, lenQ, 0)]); }
-	#endif
 
 		if(mi64_test_bit(pshift, j))
 		{
@@ -5231,14 +5512,17 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 			{
 				cyout = mi64_add(x, x, x, lenQ);
 				cyout = mi64_sub(x, q, x, lenQ);
+			#if MI64_POW_DBG
+				if(dbg) { printf("2x-q = %s\n",&cbuf[convert_mi64_base10_char(cbuf, x, lenQ, 0)]); }
+			#endif
 			}
 			else
 			{
 				cyout = mi64_add(x, x, x, lenQ);	DBG_ASSERT(HERE, cyout == 0ull, "");
+			#if MI64_POW_DBG
+				if(dbg) { printf("2x   = %s\n",&cbuf[convert_mi64_base10_char(cbuf, x, lenQ, 0)]); }
+			#endif
 			}
-		#if MI64_POW_DBG
-			if(dbg) { printf("2x...\n"); }
-		#endif
 		}
 	}
 
@@ -5252,7 +5536,10 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 		mi64_set_eq(res, x, lenQ);
 	}
 #if MI64_POW_DBG
-	if(dbg) { printf("xout = %s\n",&s0[convert_mi64_base10_char(s0, x, lenQ, 0)]); }
+	if(dbg) { printf("xout = %s\n",&cbuf[convert_mi64_base10_char(cbuf, x, lenQ, 0)]); exit(0); }
+	for(j = 0 ; j < lenQ; ++j) {
+		printf("xout[%3d] = %20llu\n",j,x[j]);
+	}
 #endif
 	return mi64_cmp_eq_scalar(x, 1ull, lenQ);
 }
@@ -5362,7 +5649,7 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
 		mi64_negl(pshift, pshift, lenP);	/* ~pshift[] */
 	#if MI64_POW_DBG
-		if(dbg) { printf("pshift = %s\n", &s0[convert_mi64_base10_char(s0, pshift, lenP, 0)]); }
+		if(dbg) { printf("pshift = %s\n", &cbuf[convert_mi64_base10_char(cbuf, pshift, lenP, 0)]); }
 	#endif
 	}
 
@@ -5422,8 +5709,8 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 	ASSERT(HERE, mi64_cmp_eq_scalar(x, 1ull, lenQ), "Bad Montmul inverse!");
 #if MI64_POW_DBG
 	if(dbg) {
-		printf("q    = %s\n", &s0[convert_mi64_base10_char(s0, q   , lenQ, 0)]);
-		printf("qinv = %s\n", &s0[convert_mi64_base10_char(s0, qinv, lenQ, 0)]);
+		printf("q    = %s\n", &cbuf[convert_mi64_base10_char(cbuf, q   , lenQ, 0)]);
+		printf("qinv = %s\n", &cbuf[convert_mi64_base10_char(cbuf, qinv, lenQ, 0)]);
 		printf("start_index = %3d\n", start_index);
 	}
 #endif
@@ -5437,11 +5724,11 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 #endif
 	mi64_shl(qinv, lo, zshift, lenQ);
 #if MI64_POW_DBG
-	if(dbg) { printf("lo = %s\n", &s0[convert_mi64_base10_char(s0, lo, lenQ, 0)]); }
+	if(dbg) { printf("lo = %s\n", &cbuf[convert_mi64_base10_char(cbuf, lo, lenQ, 0)]); }
 #endif
 	mi64_mul_vector_hi_half(q, lo, lo, lenQ);
 #if MI64_POW_DBG
-	if(dbg) { printf("q*lo/2^%u = %s\n", (lenQ<<6), &s0[convert_mi64_base10_char(s0, lo, lenQ, 0)]); }
+	if(dbg) { printf("q*lo/2^%u = %s\n", (lenQ<<6), &cbuf[convert_mi64_base10_char(cbuf, lo, lenQ, 0)]); }
 #endif
 
 	/* hi = 0 in this instance, which simplifies things. */
@@ -5462,7 +5749,7 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 	}
 
 #if MI64_POW_DBG
-	if(dbg) { printf("x0 = %s\n", &s0[convert_mi64_base10_char(s0, x, lenQ, 0)] ); }
+	if(dbg) { printf("x0 = %s\n", &cbuf[convert_mi64_base10_char(cbuf, x, lenQ, 0)] ); }
 #endif
 
 	for(j = start_index-2; j >= log2_numbits; j--)
@@ -5474,17 +5761,17 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 		mi64_sqr_vector(x, lo, lenQ);
 	#if MI64_POW_DBG
 		if(dbg) {
-			printf("lo = %s\n",&s0[convert_mi64_base10_char(s0, lo, lenQ, 0)]);
-			printf("hi = %s\n",&s0[convert_mi64_base10_char(s0, hi, lenQ, 0)]);
+			printf("lo = %s\n",&cbuf[convert_mi64_base10_char(cbuf, lo, lenQ, 0)]);
+			printf("hi = %s\n",&cbuf[convert_mi64_base10_char(cbuf, hi, lenQ, 0)]);
 		}
 	#endif
 		mi64_mul_vector_lo_half(lo, qinv, x, lenQ);
 	#if MI64_POW_DBG
-		if(dbg) { printf(" x = %s\n",&s0[convert_mi64_base10_char(s0,  x, lenQ, 0)]); }
+		if(dbg) { printf(" x = %s\n",&cbuf[convert_mi64_base10_char(cbuf,  x, lenQ, 0)]); }
 	#endif
 		mi64_mul_vector_hi_qmmp(x, p, k, lo, (lenQ<<6));
 	#if MI64_POW_DBG
-		if(dbg) { printf("lo = %s\n",&s0[convert_mi64_base10_char(s0, lo, lenQ, 0)]); }
+		if(dbg) { printf("lo = %s\n",&cbuf[convert_mi64_base10_char(cbuf, lo, lenQ, 0)]); }
 	#endif
 
 		/* If h < l, then calculate q-l+h < q; otherwise calculate h-l. */
@@ -5499,7 +5786,7 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 		}
 
 	#if MI64_POW_DBG
-		if(dbg) { printf("x = %s\n",&s0[convert_mi64_base10_char(s0, x, lenQ, 0)]); }
+		if(dbg) { printf("x = %s\n",&cbuf[convert_mi64_base10_char(cbuf, x, lenQ, 0)]); }
 	#endif
 		// mi64_test_bit(pshift, j) always true for this portion of MMp powering
 		DBG_ASSERT(HERE, mi64_test_bit(pshift, j), "pshift bit = 0!");
@@ -5566,7 +5853,7 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 		mi64_set_eq(res, x, lenQ);
 	}
 #if MI64_POW_DBG
-	if(dbg) { printf("mi64_twopmodq_qmmp: xout = %s\n", &s0[convert_mi64_base10_char(s0, x, lenQ, 0)] ); }
+	if(dbg) { printf("mi64_twopmodq_qmmp: xout = %s\n", &cbuf[convert_mi64_base10_char(cbuf, x, lenQ, 0)] ); }
 #endif
 	return mi64_cmp_eq_scalar(x, 1ull, lenQ);
 }

@@ -220,6 +220,9 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	#ifdef USE_SSE2
 
 		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
+			free((void *)sc_arr);	sc_arr=0x0;
+		}
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 148*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
@@ -496,6 +499,9 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	!   We don't need a separate sincos array for the real/complex wrapper phase, since this uses the same sincos datum
 	!   as is used for the the first of each of the two blocks of 32 complex FFT data.
 	*/
+		if(index_ptmp != 0x0) {	// Have previously-malloc'ed local storage
+			free((void *)index_ptmp);	index_ptmp=0x0;
+		}
 		index_ptmp = ALLOC_INT(index_ptmp, N2/32);
 		ASSERT(HERE, index_ptmp != 0,"FATAL: unable to allocate array INDEX!");
 		index      = ALIGN_INT(index_ptmp);
@@ -939,7 +945,9 @@ for(i = nradices_prim-6; i >= 0; i-- )	/* Main loop: lower bound = nradices_prim
 	for(m = 0; m < (blocklen-1)>>1; m += 16) /* Since we now process TWO 16-element sets per loop execution, only execute the loop half as many times as before. */
 #endif
 	{
-		if(j1 && j1*radix0%n == 0)
+		// This tells us when we've reached the end of the current data block:
+		// Apr 2014: Must store intermediate product j1*radix0 in a 64-bit int to prevent overflow!
+		if(j1 && ((uint64)j1*radix0)%n == 0)
 		{
 		//	fprintf(stderr,"(j1 && j1*radix0 == 0 (mod n)) check hit: returning\n");
 			return;
@@ -5169,7 +5177,7 @@ addr += 4;
 			"movaps	%%xmm7,0x70(%%eax)\n\t"\
 			:					// outputs: none
 			: [tmp0] "m" (tmp0)	// All inputs from memory addresses here
-			: "cc","memory","eax"				// Clobbered registers
+			: "cc","memory","eax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	// Clobbered registers
 		);
 
 		#elif defined(USE_AVX)	// 64-bit AVX build
@@ -7086,7 +7094,11 @@ addr += 4;
 
 	  #else	// SSE2:
 
-		SSE2_RADIX32_WRAPPER_DIT(add0,add1          ,isrt2,r00,r08,r10,r20,r28,r30,c01,c02,c04,c06,c08,c0A,c0C,c0E,c10,c12,c14,c16,c18,c1A,c1C,c1E)
+	   #if OS_BITS == 64
+		SSE2_RADIX32_WRAPPER_DIT(add0,add1          ,isrt2,r00,r08,r10,r20,r28,r30    ,c01,c02    ,c04    ,c06    ,c08,c0A,c0C,c0E,c10,c12,c14,c16,c18,c1A,c1C,c1E)
+	   #else	// 32-bit SSE2:
+		SSE2_RADIX32_WRAPPER_DIT(add0,add1          ,isrt2,r00,r08,r10,r20,r28,r30,c00,c01,c02,c03,c04,c05,c06,c07,c08,c0A,c0C,c0E,c10,c12,c14,c16,c18,c1A,c1C,c1E)
+	   #endif
 
 	  #endif
 

@@ -23,308 +23,317 @@
 #include "util.h"
 #include "imul_macro.h"
 
-/* Tables of Fermat-base-2 pseudoprimes needed by the small-primes sieve code: */
-#include "f2psp_3_5.h"
+/* Uncomment to enable Mp p-1 smoothness code - Note this is incompatible with standalone factor.c builds! */
+//#define ENABLE_MPRIME_PM1_SMOOTH
 
-#undef psmooth
-struct psmooth
-{
-	uint32 p;
-	uint32 b;	// Standard B-smooth measure based on largest prime factor
-	double r;	// L2 "roughness" metric in (0,1] defined by L2 norm of log factor sizes
-};
+#ifdef ENABLE_MPRIME_PM1_SMOOTH
 
-// Decimal-print m(p) to a file in 100-digit chunks:
-void print_mp_dec()
-{
-	const uint32 p = 13466917;
-	const char fname[] = "p13466917_decimal.txt";
-	FILE*fp = 0x0;
-	uint32 i, lenX, lenD, nchars,nc, wrap_every = 100;	// Insert a LF every 100 digits
-	uint64 *x,*y,*d,*r;
-	uint64 ONES64 = 0xFFFFFFFFFFFFFFFFull;	// In GCC, making this 'const' gives "warning: overflow in implicit constant conversion" wherever it is used.
-	char *str;
+	/* Tables of Fermat-base-2 pseudoprimes needed by the small-primes sieve code: */
+	#include "f2psp_3_5.h"
 
-	// Allocate the array containing first M(p) and then subsequent divide-by-10^100 results.
-	// Due to the requirement in mi64_div() that dividend and quotient arrays may not point
-	// to the same memory, bounce successive-divide results between 2 arrays, x and y:
-	lenX = (p>>6);
-//	x = (uint64 *)calloc(lenX + 1, sizeof(uint64));
-	x = (uint64 *)calloc(((lenX + 3) & ~3), sizeof(uint64));	// Zero-pad to make multiple of 4, allowing 64-bit DIV algo to use 4-way-folded loops
-	memset(x,ONES64,(lenX<<3));	x[lenX++] = (1ull << (p&63)) - 1;
-	nchars = ceil(p * log(2.0)/log(10.));
-	fprintf(stderr,"Generating decimal printout of M(%u), which has [%u] decimal digits; will write results to file '%s'...",p,nchars,fname);
-	
-#if 0	// Hideously slow-but-reliable one-digit-at-a-time way:
-
-	nchars += nchars/wrap_every + 1;
-	str = (char *)calloc(nchars, sizeof(char));
-	__convert_mi64_base10_char(str, nchars, x, lenX, wrap_every);
-
-#elif 0	// Try using fast right-to-left div-and-mod algo, modulo 10^100:
-
-	nchars += nchars/100 + 1;
-	str = (char *)calloc(nchars, sizeof(char));
-	y = (uint64 *)calloc(lenX + 1, sizeof(uint64));
-	// 10^100 has 333 bits, thus needs 6 uint64s, as do the mod-10^100 remainders,
-	// but we allow the convert_base10_char_mi64() utility to do the allocation of the former for us:
-	ASSERT(HERE, 0x0 != (d = convert_base10_char_mi64("10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", &lenD)) && (lenD == 6), "0");
-	r = (uint64 *)calloc(lenD, sizeof(uint64));
-	nc = nchars-101;	// starting char of first 100 digit chunk 
-	for(i = 0; ; i+=2)	// i = #divides counter
+	#undef psmooth
+	struct psmooth
 	{
-		mi64_div(x, d, lenX, lenD, y, r);	// dividend in y, remainder in r
-		convert_mi64_base10_char_print_lead0(str + nc, r, lenD, 100,0);	nc -= 101;
-		lenX = mi64_getlen(y, lenX);
-		if( (lenX < lenD) || ((lenX == lenD) && mi64_cmpult(y,d,lenX)) ) {
-			convert_mi64_base10_char(str, y, lenX, 100);
-			break;
-		}
-		mi64_div(y, d, lenX, lenD, x, r);	// dividend in y, remainder in r
-		convert_mi64_base10_char_print_lead0(str + nc, r, lenD, 100,0);	nc -= 101;
-		lenX = mi64_getlen(x, lenX);
-		if( (lenX < lenD) || ((lenX == lenD) && mi64_cmpult(x,d,lenX)) ) {
-			convert_mi64_base10_char(str, x, lenX, 100);
-			break;
-		}
-	}
+		uint32 p;
+		uint32 b;	// Standard B-smooth measure based on largest prime factor
+		double r;	// L2 "roughness" metric in (0,1] defined by L2 norm of log factor sizes
+	};
 
-#else	// Same ideas as above but using modulo 10^27, the largest power of 10 whose odd factor (5^27) fits in a uint64,
-		// thus allowing the core div-and-mod loops to use 1-word arguments:
-
-	nchars += nchars/27 + 1;
-	str = (char *)calloc(nchars, sizeof(char));
-	y = (uint64 *)calloc(lenX + 1, sizeof(uint64));
-	// 10^100 has 333 bits, thus needs 6 uint64s, as do the mod-10^100 remainders,
-	// but we allow the convert_base10_char_mi64() utility to do the allocation of the former for us:
-	ASSERT(HERE, 0x0 != (d = convert_base10_char_mi64("1000000000000000000000000000", &lenD)) && (lenD == 2), "0");
-	r = (uint64 *)calloc(lenD, sizeof(uint64));
-	nc = nchars- 28;	// starting char of first 27-digit chunk 
-	for(i = 0; ; i+=2)	// i = #divides counter
+	// Decimal-print m(p) to a file in 100-digit chunks:
+	void print_mp_dec()
 	{
-		mi64_div(x, d, lenX, lenD, y, r);	// dividend in y, remainder in r
-		convert_mi64_base10_char_print_lead0(str + nc, r, lenD, 27,0);	nc -= 28;	mi64_clear(r, lenD);
-		lenX = mi64_getlen(y, lenX);
-		if( (lenX < lenD) || ((lenX == lenD) && mi64_cmpult(y,d,lenX)) ) {
-			convert_mi64_base10_char(str, y, lenX, 27);
-			break;
-		}
-		mi64_div(y, d, lenX, lenD, x, r);	// dividend in y, remainder in r
-		convert_mi64_base10_char_print_lead0(str + nc, r, lenD, 27,0);	nc -= 28;	mi64_clear(r, lenD);
-		lenX = mi64_getlen(x, lenX);
-		if( (lenX < lenD) || ((lenX == lenD) && mi64_cmpult(x,d,lenX)) ) {
-			convert_mi64_base10_char(str, x, lenX, 27);
-			break;
-		}
-	}
+		const uint32 p = 13466917;
+		const char fname[] = "p13466917_decimal.txt";
+		FILE*fp = 0x0;
+		uint32 i, lenX, lenD, nchars,nc, wrap_every = 100;	// Insert a LF every 100 digits
+		uint64 *x,*y,*d,*r;
+		uint64 ONES64 = 0xFFFFFFFFFFFFFFFFull;	// In GCC, making this 'const' gives "warning: overflow in implicit constant conversion" wherever it is used.
+		char *str;
 
-#endif
-	str[nchars-1] = '\0';
+		// Allocate the array containing first M(p) and then subsequent divide-by-10^100 results.
+		// Due to the requirement in mi64_div() that dividend and quotient arrays may not point
+		// to the same memory, bounce successive-divide results between 2 arrays, x and y:
+		lenX = (p>>6);
+	//	x = (uint64 *)calloc(lenX + 1, sizeof(uint64));
+		x = (uint64 *)calloc(((lenX + 3) & ~3), sizeof(uint64));	// Zero-pad to make multiple of 4, allowing 64-bit DIV algo to use 4-way-folded loops
+		memset(x,ONES64,(lenX<<3));	x[lenX++] = (1ull << (p&63)) - 1;
+		nchars = ceil(p * log(2.0)/log(10.));
+		fprintf(stderr,"Generating decimal printout of M(%u), which has [%u] decimal digits; will write results to file '%s'...",p,nchars,fname);
 
-	fp = fopen(fname, "w");
-	ASSERT(HERE, fp != 0x0, "Null file pointer!");
-	fprintf(fp,"%s\n", str);
-	fclose(fp);	fp = 0x0;
-	exit(0);
-}
+	#if 0	// Hideously slow-but-reliable one-digit-at-a-time way:
 
-// Binary predicates for use of stdlib qsort() on the b-subfield of the above psmooth struct:
-int psmooth_cmp_b(const void *x, const void *y)	// Default-int compare predicate
-{
-	uint32 a = ((struct psmooth*)x)->b, b = ((struct psmooth*)y)->b;
-	return ncmp_uint32( (void*)&a, (void*)&b );
-}
+		nchars += nchars/wrap_every + 1;
+		str = (char *)calloc(nchars, sizeof(char));
+		__convert_mi64_base10_char(str, nchars, x, lenX, wrap_every);
 
-// Binary predicates for use of stdlib qsort() on the r-subfield of the above psmooth struct:
-int psmooth_cmp_r(const void *x, const void *y)	// Default-int compare predicate
-{
-	double two53float = (double)1.0*0x08000000*0x04000000;
-	uint64 a = two53float*((struct psmooth*)x)->r, b = two53float*((struct psmooth*)y)->r;
-	return ncmp_uint64( (void*)&a, (void*)&b );
-}
+	#elif 0	// Try using fast right-to-left div-and-mod algo, modulo 10^100:
 
-void test_mp_pm1_smooth(uint32 p)
-{
-	double u_so_smoove, logf, ilogn, dtmp;
-	const double ln2 = log(2.0);
-	uint32 nprime = 1000, pm_gap = 10000, thresh = 100000;
-	uint32 curr_p,f2psp_idx,i,ihi,itmp32,j,jlo,jhi,k,max_diff,m,nfac,np,pm1;
-	const uint32 pdiff_8[8] = {2,1,2,1,2,3,1,3}, pdsum_8[8] = { 0, 2, 6, 8,12,18,20,26};
-	// Compact table storing the (difference/2) between adjacent odd primes.
-	unsigned char *pdiff = (unsigned char *)calloc(nprime, sizeof(unsigned char));	// 1000 primes is plenty for this task
-	// Struct used for storing smoothness data ... make big enough to store all primes in [p - pm_gap, p + pm_gap] with a safety factor
-	struct psmooth sdat;
-	// .../10 here is an approximation based on prime density for primes > 100000;
-	// note the code uses an interval [p-pm_gap, p+pm_gap], i.e. of length 2*pm_gap, so the calloc needs to be twice pm_gap/10:
-	struct psmooth*psmooth_vec = (struct psmooth *)calloc(2*pm_gap/10, sizeof(struct psmooth));
-
-	/* Init first few diffs between 3/5, 5/7, 7/11, so can start loop with curr_p = 11 == 1 (mod 10), as required by twopmodq32_x8(): */
-	pdiff[1] = 1;
-	pdiff[2] = 1;
-	ihi = curr_p = 11;
-	/* Process chunks of length 30, starting with curr_p == 11 (mod 30). Applying the obvious divide-by-3,5 mini-sieve,
-	we have 8 candidates in each interval: curr_p + [ 0, 2, 6, 8,12,18,20,26].
-	For example: curr_p = 11 gives the 8 candidates: 11,13,17,19,23,29,31,37.
-	*/
-	f2psp_idx = 0;	// Index to next-expected Fermat base-2 pseudoprime in the precomputed table
-	for(i = 3; i < nprime; curr_p += 30)
-	{
-		/* Make sure (curr_p + 29) < 2^32: */
-		if(curr_p > 0xffffffe3)
+		nchars += nchars/100 + 1;
+		str = (char *)calloc(nchars, sizeof(char));
+		y = (uint64 *)calloc(lenX + 1, sizeof(uint64));
+		// 10^100 has 333 bits, thus needs 6 uint64s, as do the mod-10^100 remainders,
+		// but we allow the convert_base10_char_mi64() utility to do the allocation of the former for us:
+		ASSERT(HERE, 0x0 != (d = convert_base10_char_mi64("10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", &lenD)) && (lenD == 6), "0");
+		r = (uint64 *)calloc(lenD, sizeof(uint64));
+		nc = nchars-101;	// starting char of first 100 digit chunk
+		for(i = 0; ; i+=2)	// i = #divides counter
 		{
-			fprintf(stderr,"curr_p overflows 32 bits!");
-			nprime = i;
-			break;
-		}
-		/* Do a quick Fermat base-2 compositeness test before invoking the more expensive mod operations: */
-		itmp32 = twopmodq32_x8(curr_p, curr_p+ 2, curr_p+ 6, curr_p+ 8, curr_p+12, curr_p+18, curr_p+20, curr_p+26);
-		for(j = 0; j < 8; ++j)
-		{
-			if((itmp32 >> j)&0x1)	// It's a PRP, so check against the table of known pseudoprimes and
-			{						// (if it's not a PSP) init for the next gap
-				ASSERT(HERE, curr_p <= f2psp[f2psp_idx],"Error in pseudoprime sieve");
-				if((curr_p + pdsum_8[j]) == f2psp[f2psp_idx])	/* It's a base-2 pseudoprime */
-				{
-					++f2psp_idx;
-					pdiff[i] += pdiff_8[j];
-					continue;
-				}
-				else	/* It's prime - add final increment to current pdiff[i] and then increment i: */
-				{
-					ihi = (curr_p + pdsum_8[j]);
-					pdiff[i] += pdiff_8[j];
-					if(pdiff[i] > max_diff)
-					{
-						max_diff = pdiff[i];
-					#if DBG_SIEVE
-						printf("pdiff = %d at curr_p = %u\n", 2*max_diff,ihi);
-					#endif
-					}
-					if(++i == nprime)
-					{
-						break;
-					}
-				}
-			}
-			else
-			{
-				pdiff[i] += pdiff_8[j];
-			}
-		}
-		continue;
-	}
-	printf("Using first %u odd primes; max gap = %u\n",nprime,2*max_diff);
-	printf("max sieving prime = %u\n",ihi);
-
-	ASSERT(HERE, p > thresh, "Mersenne prime exponent must be larger that allowable threshold!");
-	ASSERT(HERE, twopmodq32(p-1, p) == 1, "p fails base-2 fprp test!");
-	np = 0;	// #primes in the current p-centered cohort
-	// find N primes < and > p, compute smoothness norm based on p-1 factorization for each, store each [p,snorm] pair
-	f2psp_idx = 0;	// Index to next-expected Fermat base-2 pseudoprime in the precomputed table
-	jlo = p-pm_gap; jhi = p+pm_gap;
-	// Find right tarting slot in base-2 pseudoprime table:
-	while(f2psp[f2psp_idx] < jlo)
-	{
-		++f2psp_idx;
-	}
-	for(j = jlo; j <= jhi; j+=2)
-	{
-		// Do base-2 fprp test of j:
-		if(!twopmodq32(j-1,j))
-			continue;
-		if(j == f2psp[f2psp_idx]) {	// It's a base-2 pseudoprime
-			++f2psp_idx;
-			continue;
-		}
-		// j is prime - compute factorization of j-1:
-		sdat.p = j;
-		pm1 = j - 1;
-		printf("%u is prime: factorization of p-1 = ",j);
-		ilogn = 1/log(1.0*pm1);	// 1/log(n)
-		// We know 2 is a factor; special-case for that:
-		nfac = 0;
-		u_so_smoove = 0.0;
-		curr_p = 2;
-		logf = ln2;	// log(factor)
-		while((pm1 & 1) == 0) {
-			nfac++;
-			pm1 >>= 1;
-			dtmp = logf*ilogn;
-			u_so_smoove += dtmp*dtmp;
-		}
-		if(nfac > 1) {
-			printf("2^%u",nfac);
-		} else {
-			printf("2");
-		}
-		curr_p = 3;
-		for(m = 0; m < nprime; m++)
-		{
-			if(pm1 < curr_p*curr_p)	{	// Remaining cofactor must be prime
-				sdat.b = pm1;
-				printf(".%u",pm1);
-				nfac++;
-				logf = log(1.0*pm1);	// log(factor)
-				dtmp = logf*ilogn;
-				u_so_smoove += dtmp*dtmp;
+			mi64_div(x, d, lenX, lenD, y, r);	// dividend in y, remainder in r
+			convert_mi64_base10_char_print_lead0(str + nc, r, lenD, 100,0);	nc -= 101;
+			lenX = mi64_getlen(y, lenX);
+			if( (lenX < lenD) || ((lenX == lenD) && mi64_cmpult(y,d,lenX)) ) {
+				convert_mi64_base10_char(str, y, lenX, 100);
 				break;
 			}
-			k = 0;	// factor multiplicity counter
-			while((pm1 % curr_p) == 0) {// curr_p divides (p-1)
-				nfac++;	k++;
-				pm1 /= curr_p;
-				logf = log(1.0*curr_p);	// log(factor)
+			mi64_div(y, d, lenX, lenD, x, r);	// dividend in y, remainder in r
+			convert_mi64_base10_char_print_lead0(str + nc, r, lenD, 100,0);	nc -= 101;
+			lenX = mi64_getlen(x, lenX);
+			if( (lenX < lenD) || ((lenX == lenD) && mi64_cmpult(x,d,lenX)) ) {
+				convert_mi64_base10_char(str, x, lenX, 100);
+				break;
+			}
+		}
+
+	#else	// Same ideas as above but using modulo 10^27, the largest power of 10 whose odd factor (5^27) fits in a uint64,
+			// thus allowing the core div-and-mod loops to use 1-word arguments:
+
+		nchars += nchars/27 + 1;
+		str = (char *)calloc(nchars, sizeof(char));
+		y = (uint64 *)calloc(lenX + 1, sizeof(uint64));
+		// 10^100 has 333 bits, thus needs 6 uint64s, as do the mod-10^100 remainders,
+		// but we allow the convert_base10_char_mi64() utility to do the allocation of the former for us:
+		ASSERT(HERE, 0x0 != (d = convert_base10_char_mi64("1000000000000000000000000000", &lenD)) && (lenD == 2), "0");
+		r = (uint64 *)calloc(lenD, sizeof(uint64));
+		nc = nchars- 28;	// starting char of first 27-digit chunk
+		for(i = 0; ; i+=2)	// i = #divides counter
+		{
+			mi64_div(x, d, lenX, lenD, y, r);	// dividend in y, remainder in r
+			convert_mi64_base10_char_print_lead0(str + nc, r, lenD, 27,0);	nc -= 28;	mi64_clear(r, lenD);
+			lenX = mi64_getlen(y, lenX);
+			if( (lenX < lenD) || ((lenX == lenD) && mi64_cmpult(y,d,lenX)) ) {
+				convert_mi64_base10_char(str, y, lenX, 27);
+				break;
+			}
+			mi64_div(y, d, lenX, lenD, x, r);	// dividend in y, remainder in r
+			convert_mi64_base10_char_print_lead0(str + nc, r, lenD, 27,0);	nc -= 28;	mi64_clear(r, lenD);
+			lenX = mi64_getlen(x, lenX);
+			if( (lenX < lenD) || ((lenX == lenD) && mi64_cmpult(x,d,lenX)) ) {
+				convert_mi64_base10_char(str, x, lenX, 27);
+				break;
+			}
+		}
+
+	#endif
+		str[nchars-1] = '\0';
+
+		fp = fopen(fname, "w");
+		ASSERT(HERE, fp != 0x0, "Null file pointer!");
+		fprintf(fp,"%s\n", str);
+		fclose(fp);	fp = 0x0;
+		exit(0);
+	}
+
+	// Binary predicates for use of stdlib qsort() on the b-subfield of the above psmooth struct:
+	int psmooth_cmp_b(const void *x, const void *y)	// Default-int compare predicate
+	{
+		uint32 a = ((struct psmooth*)x)->b, b = ((struct psmooth*)y)->b;
+		return ncmp_uint32( (void*)&a, (void*)&b );
+	}
+
+	// Binary predicates for use of stdlib qsort() on the r-subfield of the above psmooth struct:
+	int psmooth_cmp_r(const void *x, const void *y)	// Default-int compare predicate
+	{
+		double two53float = (double)1.0*0x08000000*0x04000000;
+		uint64 a = two53float*((struct psmooth*)x)->r, b = two53float*((struct psmooth*)y)->r;
+		return ncmp_uint64( (void*)&a, (void*)&b );
+	}
+
+	void test_mp_pm1_smooth(uint32 p)
+	{
+		double u_so_smoove, logf, ilogn, dtmp;
+		const double ln2 = log(2.0);
+		uint32 nprime = 1000, pm_gap = 10000, thresh = 100000;
+		uint32 curr_p,f2psp_idx,i,ihi,itmp32,j,jlo,jhi,k,max_diff,m,nfac,np,pm1;
+		const uint32 pdiff_8[8] = {2,1,2,1,2,3,1,3}, pdsum_8[8] = { 0, 2, 6, 8,12,18,20,26};
+		// Compact table storing the (difference/2) between adjacent odd primes.
+		unsigned char *pdiff = (unsigned char *)calloc(nprime, sizeof(unsigned char));	// 1000 primes is plenty for this task
+		// Struct used for storing smoothness data ... make big enough to store all primes in [p - pm_gap, p + pm_gap] with a safety factor
+		struct psmooth sdat;
+		// .../10 here is an approximation based on prime density for primes > 100000;
+		// note the code uses an interval [p-pm_gap, p+pm_gap], i.e. of length 2*pm_gap, so the calloc needs to be twice pm_gap/10:
+		struct psmooth*psmooth_vec = (struct psmooth *)calloc(2*pm_gap/10, sizeof(struct psmooth));
+
+		/* Init first few diffs between 3/5, 5/7, 7/11, so can start loop with curr_p = 11 == 1 (mod 10), as required by twopmodq32_x8(): */
+		pdiff[1] = 1;
+		pdiff[2] = 1;
+		ihi = curr_p = 11;
+		/* Process chunks of length 30, starting with curr_p == 11 (mod 30). Applying the obvious divide-by-3,5 mini-sieve,
+		we have 8 candidates in each interval: curr_p + [ 0, 2, 6, 8,12,18,20,26].
+		For example: curr_p = 11 gives the 8 candidates: 11,13,17,19,23,29,31,37.
+		*/
+		f2psp_idx = 0;	// Index to next-expected Fermat base-2 pseudoprime in the precomputed table
+		for(i = 3; i < nprime; curr_p += 30)
+		{
+			/* Make sure (curr_p + 29) < 2^32: */
+			if(curr_p > 0xffffffe3)
+			{
+				fprintf(stderr,"curr_p overflows 32 bits!");
+				nprime = i;
+				break;
+			}
+			/* Do a quick Fermat base-2 compositeness test before invoking the more expensive mod operations: */
+			itmp32 = twopmodq32_x8(curr_p, curr_p+ 2, curr_p+ 6, curr_p+ 8, curr_p+12, curr_p+18, curr_p+20, curr_p+26);
+			for(j = 0; j < 8; ++j)
+			{
+				if((itmp32 >> j)&0x1)	// It's a PRP, so check against the table of known pseudoprimes and
+				{						// (if it's not a PSP) init for the next gap
+					ASSERT(HERE, curr_p <= f2psp[f2psp_idx],"Error in pseudoprime sieve");
+					if((curr_p + pdsum_8[j]) == f2psp[f2psp_idx])	/* It's a base-2 pseudoprime */
+					{
+						++f2psp_idx;
+						pdiff[i] += pdiff_8[j];
+						continue;
+					}
+					else	/* It's prime - add final increment to current pdiff[i] and then increment i: */
+					{
+						ihi = (curr_p + pdsum_8[j]);
+						pdiff[i] += pdiff_8[j];
+						if(pdiff[i] > max_diff)
+						{
+							max_diff = pdiff[i];
+						#if DBG_SIEVE
+							printf("pdiff = %d at curr_p = %u\n", 2*max_diff,ihi);
+						#endif
+						}
+						if(++i == nprime)
+						{
+							break;
+						}
+					}
+				}
+				else
+				{
+					pdiff[i] += pdiff_8[j];
+				}
+			}
+			continue;
+		}
+		printf("Using first %u odd primes; max gap = %u\n",nprime,2*max_diff);
+		printf("max sieving prime = %u\n",ihi);
+
+		ASSERT(HERE, p > thresh, "Mersenne prime exponent must be larger that allowable threshold!");
+		ASSERT(HERE, twopmodq32(p-1, p) == 1, "p fails base-2 fprp test!");
+		np = 0;	// #primes in the current p-centered cohort
+		// find N primes < and > p, compute smoothness norm based on p-1 factorization for each, store each [p,snorm] pair
+		f2psp_idx = 0;	// Index to next-expected Fermat base-2 pseudoprime in the precomputed table
+		jlo = p-pm_gap; jhi = p+pm_gap;
+		// Find right tarting slot in base-2 pseudoprime table:
+		while(f2psp[f2psp_idx] < jlo)
+		{
+			++f2psp_idx;
+		}
+		for(j = jlo; j <= jhi; j+=2)
+		{
+			// Do base-2 fprp test of j:
+			if(!twopmodq32(j-1,j))
+				continue;
+			if(j == f2psp[f2psp_idx]) {	// It's a base-2 pseudoprime
+				++f2psp_idx;
+				continue;
+			}
+			// j is prime - compute factorization of j-1:
+			sdat.p = j;
+			pm1 = j - 1;
+			printf("%u is prime: factorization of p-1 = ",j);
+			ilogn = 1/log(1.0*pm1);	// 1/log(n)
+			// We know 2 is a factor; special-case for that:
+			nfac = 0;
+			u_so_smoove = 0.0;
+			curr_p = 2;
+			logf = ln2;	// log(factor)
+			while((pm1 & 1) == 0) {
+				nfac++;
+				pm1 >>= 1;
 				dtmp = logf*ilogn;
 				u_so_smoove += dtmp*dtmp;
 			}
-			sdat.b = curr_p;
-			if(k > 1) {
-				printf(".%u^%u",curr_p,k);
-			} else if(k == 1) {
-				printf(".%u",curr_p);
+			if(nfac > 1) {
+				printf("2^%u",nfac);
+			} else {
+				printf("2");
 			}
-			if(pm1 == 1) break;
-			curr_p += (pdiff[m] << 1);
-		}
-		// L2 norm: divide by #factors (multiple-counting repeated factors):
-		u_so_smoove = sqrt(u_so_smoove)/nfac;
-		sdat.r = u_so_smoove;
-		psmooth_vec[np++] = sdat;	// Write completed datum to array or later sorting
-		printf("; %u factors, L2 smoothness = %15.13f\n",nfac,u_so_smoove);
-	}	// for(j in [p +- pm_gap] loop
-	printf("\n");
+			curr_p = 3;
+			for(m = 0; m < nprime; m++)
+			{
+				if(pm1 < curr_p*curr_p)	{	// Remaining cofactor must be prime
+					sdat.b = pm1;
+					printf(".%u",pm1);
+					nfac++;
+					logf = log(1.0*pm1);	// log(factor)
+					dtmp = logf*ilogn;
+					u_so_smoove += dtmp*dtmp;
+					break;
+				}
+				k = 0;	// factor multiplicity counter
+				while((pm1 % curr_p) == 0) {// curr_p divides (p-1)
+					nfac++;	k++;
+					pm1 /= curr_p;
+					logf = log(1.0*curr_p);	// log(factor)
+					dtmp = logf*ilogn;
+					u_so_smoove += dtmp*dtmp;
+				}
+				sdat.b = curr_p;
+				if(k > 1) {
+					printf(".%u^%u",curr_p,k);
+				} else if(k == 1) {
+					printf(".%u",curr_p);
+				}
+				if(pm1 == 1) break;
+				curr_p += (pdiff[m] << 1);
+			}
+			// L2 norm: divide by #factors (multiple-counting repeated factors):
+			u_so_smoove = sqrt(u_so_smoove)/nfac;
+			sdat.r = u_so_smoove;
+			psmooth_vec[np++] = sdat;	// Write completed datum to array or later sorting
+			printf("; %u factors, L2 smoothness = %15.13f\n",nfac,u_so_smoove);
+		}	// for(j in [p +- pm_gap] loop
+		printf("\n");
 
-	// Using array of [p,snorm]-pair structs, sort resulting array-aof-structs by snorm value:
-	qsort(psmooth_vec, np, sizeof(struct psmooth), psmooth_cmp_b);
-	for(j = 0; j < np; j++) {
-		sdat = psmooth_vec[j];
-	//	printf("p = %u: B -smoothness = %u\n",sdat.p,sdat.b);
-		if(sdat.p == p) {
-			printf("B -smoothness: %u is %u of %u, percentile = %5.2f\n",p,j+1,np,100.0*((double)np-j)/np);
-			break;
+		// Using array of [p,snorm]-pair structs, sort resulting array-aof-structs by snorm value:
+		qsort(psmooth_vec, np, sizeof(struct psmooth), psmooth_cmp_b);
+		for(j = 0; j < np; j++) {
+			sdat = psmooth_vec[j];
+		//	printf("p = %u: B -smoothness = %u\n",sdat.p,sdat.b);
+			if(sdat.p == p) {
+				printf("B -smoothness: %u is %u of %u, percentile = %5.2f\n",p,j+1,np,100.0*((double)np-j)/np);
+				break;
+			}
 		}
-	}
-	qsort(psmooth_vec, np, sizeof(struct psmooth), psmooth_cmp_r);
-	for(j = 0; j < np; j++) {
-		sdat = psmooth_vec[j];
-	//	printf("p = %u: L2 smoothness = %15.13f\n",sdat.p,sdat.r);
-		if(sdat.p == p) {
-			printf("L2-smoothness: %u is %u of %u, percentile = %5.2f\n",p,j+1,np,100.0*((double)np-j)/np);
-			break;
+		qsort(psmooth_vec, np, sizeof(struct psmooth), psmooth_cmp_r);
+		for(j = 0; j < np; j++) {
+			sdat = psmooth_vec[j];
+		//	printf("p = %u: L2 smoothness = %15.13f\n",sdat.p,sdat.r);
+			if(sdat.p == p) {
+				printf("L2-smoothness: %u is %u of %u, percentile = %5.2f\n",p,j+1,np,100.0*((double)np-j)/np);
+				break;
+			}
 		}
-	}
-	exit(0);	// Only enable this bit of test code when a new M-prime is found
-}	// test_mp_pm1_smooth()
+		exit(0);	// Only enable this bit of test code when a new M-prime is found
+	}	// test_mp_pm1_smooth()
+
+#endif	// ENABLE_MPRIME_PM1_SMOOTH
 
 #undef X64_ASM
 #if(defined(CPU_IS_X86_64) && defined(COMPILER_TYPE_GCC) && (OS_BITS == 64))
+	#warning util.c: Defining X64_ASM
 	#define X64_ASM
 	#if FP_MANTISSA_BITS_DOUBLE != 64
 		#error x86_64 asm requires FP_MANTISSA_BITS_DOUBLE == 64!
 	#endif
 #endif
 
-#ifdef USE_GPU
+#if defined(USE_GPU) && defined(__CUDACC__)
+
 	#include "gpu_iface.h"
 
 	// Simple vector-add test function:
@@ -333,13 +342,15 @@ void test_mp_pm1_smooth(uint32 p)
 		int i = blockDim.x * blockIdx.x + threadIdx.x;
 		// Uncomment the if() to Print basic info about threads ... keep I/O reasonable by only
 		// doing so for the first 10 of each batch of 2^18:
-
+	//
 		if(i%0x3ffff < 10) {
-			printf("GPU block %d[dim %d], thread %d ==> seq-thread %d ... \n", blockIdx.x, blockDim.x, threadIdx.x, i);
+			printf("GPU block %d[dim %d], thread %d ==> seq-thread %d [i%0x3ffff = %d]... \n", blockIdx.x, blockDim.x, threadIdx.x, i,i%0x3ffff);
 		}
-
+	//
 		if (i < N)
-		C[i] = A[i] + B[i];
+			C[i] = A[i] + B[i];
+		else
+			printf("GPU block %d[dim %d], thread %d: ERROR: I = %d out of range!\n", blockIdx.x, blockDim.x, threadIdx.x, i);
 	}
 
 	// Host code for the VecAdd test:
@@ -387,6 +398,255 @@ void test_mp_pm1_smooth(uint32 p)
 		}
 	}
 
+	/**********************************************************************************************/
+
+	#include "factor.h"
+	#include "fac_test_dat96.h"
+	#include "twopmodq80.h"
+
+	// Host code for the simpler VecModpow test, same 78-bit [p,q] pair for each thread:
+	void cudaVecModpowTest0()
+	{
+		int i;
+		uint32 p, pshift, start_index, zshift, j, lead7;
+		uint32 N = 1<<10;
+		uint64 k;
+		uint96 q96;
+		double dbl, rnd;
+
+		// Allocate input vectors (which take the TF p/pshift/zshift/start_index/k data on input) in host memory:
+		uint32* h_p     = (uint32*)malloc(N<<2);
+		uint32* h_pshft = (uint32*)malloc(N<<2);
+		uint32* h_zshft = (uint32*)malloc(N<<2);
+		uint32* h_stidx = (uint32*)malloc(N<<2);
+		uint64* h_k     = (uint64*)malloc(N<<3);
+
+		p = 16727479;
+		k = 7946076362870052;
+		// Compute auxiliary TF data:
+		pshift = p + 78;
+		j = leadz32(pshift);
+		/* Extract leftmost 7 bits of pshift (if > 77, use the leftmost 6) and subtract from 96: */
+		lead7 = ((pshift<<j) >> 25);
+		if(lead7 > 77) {
+			lead7 >>= 1;
+			start_index =  32-j-6;	/* Use only the leftmost 6 bits */
+		} else {
+			start_index =  32-j-7;
+		}
+		zshift = 77 - lead7;
+		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
+		pshift = ~pshift;
+
+		// Copy to all N vector-input-data:
+		for(i = 0; i < N; ++i) {
+			*(h_p     + i) = p          ;
+			*(h_pshft + i) = pshift     ;
+			*(h_zshft + i) = zshift     ;
+			*(h_stidx + i) = start_index;
+			*(h_k     + i) = k          ;
+		}
+		printf("Testing %d 78-bit known-factors:\n",N);
+
+		// Initialize output vector (resulting 2^p mod q, in binary "is factor?" form) in host memory:
+		uint8*  h_B = (uint8 *)malloc(N);	// Until impl packed-bitmap scheme for device code return values, use byte array for return values
+		for(i = 0; i < N; ++i) {
+			*(h_B+i) = 0;
+		}
+//printf("Host code: p = %u, pshift = %u, k = %llu, zshift = %u, start_index = %u\n", p,pshift,h_A[0],zshift,start_index);
+		// Allocate vectors in device memory
+		uint32 *d_p,*d_pshft,*d_zshft,*d_stidx;
+		uint64* d_k;
+		cudaMalloc(&d_p    , N<<2);
+		cudaMalloc(&d_pshft, N<<2);
+		cudaMalloc(&d_zshft, N<<2);
+		cudaMalloc(&d_stidx, N<<2);
+		cudaMalloc(&d_k    , N<<3);
+		uint8 * d_B;
+		cudaMalloc(&d_B, N);
+		// Copy vectors from host memory to device memory
+		cudaMemcpy(d_p    , h_p    , N<<2, cudaMemcpyHostToDevice);
+		cudaMemcpy(d_pshft, h_pshft, N<<2, cudaMemcpyHostToDevice);
+		cudaMemcpy(d_zshft, h_zshft, N<<2, cudaMemcpyHostToDevice);
+		cudaMemcpy(d_stidx, h_stidx, N<<2, cudaMemcpyHostToDevice);
+		cudaMemcpy(d_k    , h_k    , N<<3, cudaMemcpyHostToDevice);
+		// Do we need to copy the as-yet-uninited output vector to (or just from) the device?
+		cudaMemcpy(d_B, h_B, N   , cudaMemcpyHostToDevice);
+
+		// Invoke kernel
+		int threadsPerBlock = 256;
+		int blocksPerGrid = (N + threadsPerBlock - 1) / threadsPerBlock;
+
+		printf("VecModpow0 with %d 78-bit known-factors [blocksPerGrid = %d, threadsPerBlock = %d]:\n",N, blocksPerGrid, threadsPerBlock);
+		VecModpow<<<blocksPerGrid, threadsPerBlock>>>(d_p,d_pshft,d_zshft,d_stidx,d_k, d_B, N);
+
+		// Copy result from device memory to host memory
+		// h_B contains the result in host memory
+		cudaMemcpy(h_B, d_B, N, cudaMemcpyDeviceToHost);
+		// Free device memory
+		cudaFree(d_p    );
+		cudaFree(d_pshft);
+		cudaFree(d_zshft);
+		cudaFree(d_stidx);
+		cudaFree(d_k    );
+		cudaFree(d_B);
+
+		// Reference computation:
+		uint64 checksum1, checksum2;
+		j = (uint32)twopmodq78_3WORD_DOUBLE(&checksum1, &checksum2, (uint64)p, k);
+		ASSERT(HERE, (j == 1), "cudaVecModpowTest0 ref-comp failed!");
+		// Test GPU results:
+		for(i = 0; i < N; ++i) {
+			if(*(h_B + i) != 1) {
+				printf("cudaVecModpowTest: Mismatch between Ref and GPU result:\n");
+				printf("res[%d] = %d [ref = %d] = 2^p - 1 (mod q) with (p,k) = %u, %ull\n", i,*(h_B + i), j,p,k);
+				ASSERT(HERE, *(h_B + i) == 1, "cudaVecModpowTest failed!");
+			}
+		}
+		printf("cudaVecModpowTest with %d test (p,q) pairs succeeded!\n",N);
+	}
+
+	// Host code for the VecModpow test:
+	void cudaVecModpowTest()
+	{
+		int i;
+		uint32 p, pshift, start_index, zshift, j, lead7;
+		uint32 N = 1<<10,nelts;
+		uint64 k;
+		uint96 q96;
+		double dbl, rnd;
+
+		// Allocate input vectors (which take the TF p/pshift/zshift/start_index/k data on input) in host memory:
+		uint32* h_p     = (uint32*)malloc(N<<2);
+		uint32* h_pshft = (uint32*)malloc(N<<2);
+		uint32* h_zshft = (uint32*)malloc(N<<2);
+		uint32* h_stidx = (uint32*)malloc(N<<2);
+		uint64* h_k     = (uint64*)malloc(N<<3);
+		for(i = 0, nelts = 0; i < N; ++i) {
+			p = fac96[i].p;
+			if(p == 0) {
+				break;
+			}
+			q96.d1 = fac96[i].d1; q96.d0 = fac96[i].d0;
+			if((q96.d1 >> 14) != 0) {
+				continue;
+			}
+			// Good to go - compute auxiliary TF data:
+			pshift = p + 78;
+			j = leadz32(pshift);
+			/* Extract leftmost 7 bits of pshift (if > 77, use the leftmost 6) and subtract from 96: */
+			lead7 = ((pshift<<j) >> 25);
+			if(lead7 > 77) {
+				lead7 >>= 1;
+				start_index =  32-j-6;	/* Use only the leftmost 6 bits */
+			} else {
+				start_index =  32-j-7;
+			}
+			zshift = 77 - lead7;
+			zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
+			pshift = ~pshift;
+
+			// Compute factor k using fast DP math. Integer-truncation-on-store should obviate the need
+			// to subtract 1 from q, and (double)q is only accurate to 53 bits to begin with):
+			dbl = (double)q96.d0 + (double)q96.d1*TWO64FLOAT;
+			dbl /= (2.0*p);
+			rnd = DNINT(dbl);
+			k = (uint64)rnd;
+
+			*(h_p     + nelts) = p          ;
+			*(h_pshft + nelts) = pshift     ;
+			*(h_zshft + nelts) = zshift     ;
+			*(h_stidx + nelts) = start_index;
+			*(h_k     + nelts) = k          ;
+//	printf("p[%3d] = %u: pshift = %8u, zshift = %8u, stidx = %2u, k = %llu\n",nelts, p, pshift, zshift, start_index, k);
+			++nelts;
+		}
+		printf("Testing %d 78-bit known-factors:\n",nelts);
+		// "Fill in" remaining slots with copy of same datum used in cudaVecModpowTest0:
+		p = 16727479;
+		k = 7946076362870052;
+		// Compute auxiliary TF data:
+		pshift = p + 78;
+		j = leadz32(pshift);
+		/* Extract leftmost 7 bits of pshift (if > 77, use the leftmost 6) and subtract from 96: */
+		lead7 = ((pshift<<j) >> 25);
+		if(lead7 > 77) {
+			lead7 >>= 1;
+			start_index =  32-j-6;	/* Use only the leftmost 6 bits */
+		} else {
+			start_index =  32-j-7;
+		}
+		zshift = 77 - lead7;
+		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
+		pshift = ~pshift;
+		// Copy to all still-uninited vector-input-data:
+		for(i = nelts; i < N; ++i) {
+			*(h_p     + i) = p          ;
+			*(h_pshft + i) = pshift     ;
+			*(h_zshft + i) = zshift     ;
+			*(h_stidx + i) = start_index;
+			*(h_k     + i) = k          ;
+		}
+
+		// Initialize output vector (resulting 2^p mod q, in binary "is factor?" form) in host memory:
+		uint8*  h_B = (uint8 *)malloc(N);	// Until impl packed-bitmap scheme for device code return values, use byte array for return values
+		for(i = 0; i < N; ++i) {
+			*(h_B+i) = 0;
+		}
+//printf("Host code: p = %u, pshift = %u, k = %llu, zshift = %u, start_index = %u\n", p,pshift,h_A[0],zshift,start_index);
+		// Allocate vectors in device memory
+		uint32 *d_p,*d_pshft,*d_zshft,*d_stidx;
+		uint64* d_k;
+		cudaMalloc(&d_p    , N<<2);
+		cudaMalloc(&d_pshft, N<<2);
+		cudaMalloc(&d_zshft, N<<2);
+		cudaMalloc(&d_stidx, N<<2);
+		cudaMalloc(&d_k    , N<<3);
+		uint8 * d_B;
+		cudaMalloc(&d_B, N);
+		// Copy vectors from host memory to device memory
+		cudaMemcpy(d_p    , h_p    , N<<2, cudaMemcpyHostToDevice);
+		cudaMemcpy(d_pshft, h_pshft, N<<2, cudaMemcpyHostToDevice);
+		cudaMemcpy(d_zshft, h_zshft, N<<2, cudaMemcpyHostToDevice);
+		cudaMemcpy(d_stidx, h_stidx, N<<2, cudaMemcpyHostToDevice);
+		cudaMemcpy(d_k    , h_k    , N<<3, cudaMemcpyHostToDevice);
+		// Do we need to copy the as-yet-uninited output vector to (or just from) the device?
+		cudaMemcpy(d_B, h_B, N   , cudaMemcpyHostToDevice);
+
+		// Invoke kernel
+		int threadsPerBlock = 256;
+		int blocksPerGrid = (N + threadsPerBlock - 1) / threadsPerBlock;
+
+		printf("VecModpow with %d 78-bit known-factors [blocksPerGrid = %d, threadsPerBlock = %d]:\n",nelts, blocksPerGrid, threadsPerBlock);
+		VecModpow<<<blocksPerGrid, threadsPerBlock>>>(d_p,d_pshft,d_zshft,d_stidx,d_k, d_B, nelts);
+
+		// Copy result from device memory to host memory
+		// h_B contains the result in host memory
+		cudaMemcpy(h_B, d_B, N, cudaMemcpyDeviceToHost);
+		// Free device memory
+		cudaFree(d_p    );
+		cudaFree(d_pshft);
+		cudaFree(d_zshft);
+		cudaFree(d_stidx);
+		cudaFree(d_k    );
+		cudaFree(d_B);
+
+		// Reference computation:
+		uint64 checksum1, checksum2;
+		// Test GPU results:
+		for(i = 0; i < nelts; ++i) {
+			p = *(h_p + i);
+			k = *(h_k + i);
+			j = (uint32)twopmodq78_3WORD_DOUBLE(&checksum1, &checksum2, (uint64)p, k);
+			if((j != 1) || (*(h_B + i) != 1)) {
+				printf("cudaVecModpowTest: Mismatch between Ref and GPU result:\n");
+				printf("res[%d] = %d [ref = %d] = 2^p - 1 (mod q) with (p,k) = %u, %ull\n", i,*(h_B + i), j,p,k);
+				ASSERT(HERE, (j == 1) && (*(h_B + i) == 1), "cudaVecModpowTest failed!");
+			}
+		}
+		printf("cudaVecModpowTest with %d test (p,q) pairs succeeded!\n",nelts);
+	}
+
 #endif
 
 #undef PLATFORM_SKIP_RND_CONST_ENFORCEMENT
@@ -425,8 +685,6 @@ int32 DAT_BITS, PAD_BITS;	/* Array padding parameters */
 	FFT_MUL_BASE = 2^(FFT_MUL_BITS), where FFT_MUL_BITS #def'ed in Mdata.h
 */
 double FFT_MUL_BASE, FFT_MUL_BASE_INV;
-
-double ISRT2;	/* 1/sqrt(2) */
 
 /***********************/
 
@@ -581,13 +839,6 @@ void host_init(void)
 	int ncpu, nthr;
 #endif
 	double dbl;
-	print_host_info();
-	set_x87_fpu_params(FPU_64RND);
-	check_nbits_in_types();
-
-	/* Test wide-mul routines: */
-	printf("INFO: testing IMUL routines...\n");
-	ASSERT(HERE, test_mul() == 0, "test_mul() returns nonzero!");
 
 	/* Various useful precomputed powers of 2 in floating-double form: */
 	TWO25FLOAT = (double)0x02000000;
@@ -629,7 +880,18 @@ void host_init(void)
 	qtest();	// 09/23/2012: Move to after above float-consts-inits because of the qfloat/mi64 routines which use those consts.
 
 	/* Use qfloat routines to set the global floating-point constant 1/sqrt(2): */
-	ISRT2 = qfdbl(qfmul_pow2(QSQRT2, -1));		/* 1/sqrt2	*/
+	ASSERT(HERE, ISRT2 == qfdbl(QISRT2), "1/sqrt2 precision check failed!");		/* 1/sqrt2	*/
+
+#ifdef CPU_IS_X86
+	set_x87_fpu_params(FPU_64RND);
+#endif
+	// ewm [4. Aug 2014] - move below set_x87_fpu_params(), since need rnd-const set for any DNINT-using ref-computations in the GPU self-tests:
+	print_host_info();
+	check_nbits_in_types();
+
+	/* Test wide-mul routines: */
+	printf("INFO: testing IMUL routines...\n");
+	ASSERT(HERE, test_mul() == 0, "test_mul() returns nonzero!");
 
 // Quick timings of various mi64 stuff:
 #if 0
@@ -743,7 +1005,10 @@ void print_host_info(void)
 		printf("ERROR: No CUDA-enabled GPUs found\n");
 		exit(-1);
 	}
-	cudaVecAddTest();
+//	cudaVecAddTest();
+	cudaVecModpowTest0();
+	cudaVecModpowTest();
+//exit(0);
 
 #endif
 
@@ -788,7 +1053,8 @@ void print_host_info(void)
 		printf("Info: CPU supports AVX2 instruction set, but using SSE2-enabled build.\n");
 	} else if(has_avx()) {
 		printf("Info: CPU supports AVX instruction set, but using SSE2-enabled build.\n");
-	} else */if(has_sse2()) {
+	} else */
+	if(has_sse2()) {
 		printf("INFO: Build uses SSE2 instruction set.\n");
 	} else {
 		ASSERT(HERE, 0, "#define USE_SSE2 invoked but no SSE2 support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
@@ -912,134 +1178,144 @@ For the purpose of completeness, the other FPU control bits are as follows
 	intrinsics munge things so the user-settable FPUCTRL bits are in
 	the same order and locations as on x87.
 */
-void set_x87_fpu_params(unsigned short FPU_MODE)
-{
-	/* SSE FPU control word support: */
-#ifdef USE_SSE2
-	int oldMXCSR, newMXCSR;
-#endif
-#ifdef CPU_IS_IA64
-	int64 FPUCTRL;
-#else
-	unsigned short FPUCTRL;
-#endif
+#ifdef CPU_IS_X86
 
-	ASSERT(HERE, (FPU_64RND == FPU_MODE) || (FPU_64CHOP == 0x0f7f), "Illegal value of FPU_MODE");
-
-#ifdef USE_SSE2
-	#ifdef COMPILER_TYPE_MSVC
-
-		__asm	stmxcsr oldMXCSR
-		newMXCSR = oldMXCSR | 0x8040; // set DAZ and FZ bits
-		__asm ldmxcsr newMXCSR
-
-	#elif(defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
-
-		__asm__ volatile ("stmxcsr %0" : "=m" (oldMXCSR) );
-		newMXCSR = oldMXCSR | 0x8040; // set DAZ and FZ bits
-		__asm__ volatile ("ldmxcsr %0" :: "m" (newMXCSR) );
-
+	void set_x87_fpu_params(unsigned short FPU_MODE)
+	{
+		/* SSE FPU control word support: */
+	#ifdef USE_SSE2
+		int oldMXCSR, newMXCSR;
 	#endif
-#endif
-
-	/* Copy the FPU control word set by the compiler to a local variable
-	(mainly so can see what the compiler sets), then overwrite with one of the above:
-	*/
-#if(defined(COMPILER_TYPE_ICC) && defined(CPU_IS_X86))
-	/**/
-#elif(FP_MANTISSA_BITS_DOUBLE == 64)/* (defined(CPU_IS_X86) || defined(CPU_IS_IA64))) */
-
 	#ifdef CPU_IS_IA64
-
-		#ifndef COMPILER_TYPE_ICC
-			#error unsupported compiler type for ia64!
-		#endif
-		FPUCTRL = _mm_getfpsr();
-		info_x87_fpu_ctrl(FPUCTRL);
-		/* Just use the same full-16-bit constant on all platforms, to ensure that there
-		are no compiler-based differences in the other 12 bits, either: */
-		FPUCTRL = (FPUCTRL & 0x0000) + FPU_MODE;
-		_mm_setfpsr(FPUCTRL);
-
+		int64 FPUCTRL;
 	#else
+		unsigned short FPUCTRL;
+	#endif
 
-		#if(defined(COMPILER_TYPE_MWERKS) || defined(COMPILER_TYPE_MSVC))
+		ASSERT(HERE, (FPU_64RND == FPU_MODE) || (FPU_64CHOP == 0x0f7f), "Illegal value of FPU_MODE");
 
-			__asm	fstcw	FPUCTRL
-			/*_controlfp(_PC_64, _MCW_PC);*/
+	#ifdef USE_SSE2
+		#ifdef COMPILER_TYPE_MSVC
+
+			__asm	stmxcsr oldMXCSR
+			newMXCSR = oldMXCSR | 0x8040; // set DAZ and FZ bits
+			__asm ldmxcsr newMXCSR
 
 		#elif(defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
 
-			__asm__ volatile ("fstcw %0" : "=m" (FPUCTRL) );
+			__asm__ volatile ("stmxcsr %0" : "=m" (oldMXCSR) );
+			newMXCSR = oldMXCSR | 0x8040; // set DAZ and FZ bits
+			__asm__ volatile ("ldmxcsr %0" :: "m" (newMXCSR) );
 
-		#else
-			#error unsupported compiler type for x87!
 		#endif
-		info_x87_fpu_ctrl((uint64)FPUCTRL);
+	#endif
 
-		/* Irrespective of what values the compiler set for bitfields <9:8> and <11:10>
-		of FPUCTRL, set <9:8> = 11 and <11:10> = 00 to get the full 64-mantissa-bit
-		precision available on the x87 and to ensure IEEE rounding mode, respectively:
+		/* Copy the FPU control word set by the compiler to a local variable
+		(mainly so can see what the compiler sets), then overwrite with one of the above:
 		*/
-	  #if 1
-		/* Just use the same full-16-bit constant on all platforms, to ensure that there
-		are no compiler-based differences in the other 12 bits, either: */
-		FPUCTRL = (FPUCTRL & 0x0000) + FPU_MODE;
-	  #else
-		***obsolete:***
-		FPUCTRL &= 0xf0ff;	/* Clear bits 8:11... */
-		FPUCTRL |= 0x0300;	/* And set them to the desired value. */
+	#if(defined(COMPILER_TYPE_ICC) && defined(CPU_IS_X86))
+
+		#error Intel C compiler currently unsupported for x86!
+
+	#elif(FP_MANTISSA_BITS_DOUBLE == 64)/* (defined(CPU_IS_X86) || defined(CPU_IS_IA64))) */
+
+	  #ifdef COMPILER_TYPE_GCC
+		#warning Setting rnd_const-emulated DNINT for 64-bit x86 register-double significand
 	  #endif
 
-		/* ...and then reload the FPU control word for the changes to take effect. */
-		#if(defined(COMPILER_TYPE_MWERKS) || defined(COMPILER_TYPE_MSVC))
-			__asm	fldcw	FPUCTRL
-		#elif(defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
-			__asm__ volatile ("fldcw %0" :: "m" (FPUCTRL) );
-		#endif
+		#ifdef CPU_IS_IA64
 
-	#endif	/* endif(CPU_IS_X86...) */
+			#ifndef COMPILER_TYPE_ICC
+				#error unsupported compiler type for ia64!
+			#endif
+			FPUCTRL = _mm_getfpsr();
+			info_x87_fpu_ctrl(FPUCTRL);
+			/* Just use the same full-16-bit constant on all platforms, to ensure that there
+			are no compiler-based differences in the other 12 bits, either: */
+			FPUCTRL = (FPUCTRL & 0x0000) + FPU_MODE;
+			_mm_setfpsr(FPUCTRL);
 
-#endif	/* endif(FP_MANTISSA_BITS_DOUBLE) */
-}
+		#else
 
-void info_x87_fpu_ctrl(uint64 FPUCTRL)
-{
-#if EWM_DEBUG
-	printf("INFO: x87 FPU Control Word = %16X.\n", (uint64)FPUCTRL);
-#endif
+			#if(defined(COMPILER_TYPE_MWERKS) || defined(COMPILER_TYPE_MSVC))
 
-	/* Check bits <9:8>, and warn if the compiler isn't specifying 64-bit precision: */
-	switch ((FPUCTRL >> 8) & 0x3) {
-	case 0x3:
-		break;
-	case 0x2:
-		printf("INFO: compiler sets x87 FPU to 53-bit mantissa mode. Overriding...Setting to 64-bit mode.\n");
-		break;
-	case 0x0:
-		printf("INFO: compiler sets x87 FPU to 24-bit mantissa mode. Overriding...Setting to 64-bit mode.\n");
-		break;
-	default:
-		printf("INFO: compiler sets x87 FPU to unknown precision. Overriding...Setting to 64-bit mode.\n");
+				__asm	fstcw	FPUCTRL
+				/*_controlfp(_PC_64, _MCW_PC);*/
+
+			#elif(defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
+
+				__asm__ volatile ("fstcw %0" : "=m" (FPUCTRL) );
+
+			#else
+				#error unsupported compiler type for x87!
+			#endif
+			info_x87_fpu_ctrl((uint64)FPUCTRL);
+
+			/* Irrespective of what values the compiler set for bitfields <9:8> and <11:10>
+			of FPUCTRL, set <9:8> = 11 and <11:10> = 00 to get the full 64-mantissa-bit
+			precision available on the x87 and to ensure IEEE rounding mode, respectively:
+			*/
+		  #if 1
+			/* Just use the same full-16-bit constant on all platforms, to ensure that there
+			are no compiler-based differences in the other 12 bits, either: */
+			FPUCTRL = (FPUCTRL & 0x0000) + FPU_MODE;
+		  #else
+			***obsolete:***
+			FPUCTRL &= 0xf0ff;	/* Clear bits 8:11... */
+			FPUCTRL |= 0x0300;	/* And set them to the desired value. */
+		  #endif
+
+			/* ...and then reload the FPU control word for the changes to take effect. */
+			#if(defined(COMPILER_TYPE_MWERKS) || defined(COMPILER_TYPE_MSVC))
+				__asm	fldcw	FPUCTRL
+			#elif(defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
+				__asm__ volatile ("fldcw %0" :: "m" (FPUCTRL) );
+			#endif
+
+		#endif	/* endif(CPU_IS_X86...) */
+
+	#endif	/* endif(FP_MANTISSA_BITS_DOUBLE) */
 	}
 
-	/* Check bits <11:10>, and warn if the compiler isn't specifying 64-bit precision: */
-	switch ((FPUCTRL >> 10) & 0x3) {
-	case 0x0:
-		break;
-	case 0x1:
-		printf("INFO: compiler sets x87 FPU to [round ==> -oo] rounding mode. Overriding...Setting to [round ==> nearest].\n");
-		break;
-	case 0x2:
-		printf("INFO: compiler sets x87 FPU to [round ==> +oo] rounding mode. Overriding...Setting to [round ==> nearest].\n");
-		break;
-	case 0x3:
-		printf("INFO: compiler sets x87 FPU to [round ==> 0] (truncate) rounding mode. Overriding...Setting to [round ==> nearest].\n");
-		break;
-	default:
-		ASSERT(HERE, 0,"0");
+	void info_x87_fpu_ctrl(uint64 FPUCTRL)
+	{
+	#if EWM_DEBUG
+		printf("INFO: x87 FPU Control Word = %16X.\n", (uint64)FPUCTRL);
+	#endif
+
+		/* Check bits <9:8>, and warn if the compiler isn't specifying 64-bit precision: */
+		switch ((FPUCTRL >> 8) & 0x3) {
+		case 0x3:
+			break;
+		case 0x2:
+			printf("INFO: compiler sets x87 FPU to 53-bit mantissa mode. Overriding...Setting to 64-bit mode.\n");
+			break;
+		case 0x0:
+			printf("INFO: compiler sets x87 FPU to 24-bit mantissa mode. Overriding...Setting to 64-bit mode.\n");
+			break;
+		default:
+			printf("INFO: compiler sets x87 FPU to unknown precision. Overriding...Setting to 64-bit mode.\n");
+		}
+
+		/* Check bits <11:10>, and warn if the compiler isn't specifying 64-bit precision: */
+		switch ((FPUCTRL >> 10) & 0x3) {
+		case 0x0:
+			break;
+		case 0x1:
+			printf("INFO: compiler sets x87 FPU to [round ==> -oo] rounding mode. Overriding...Setting to [round ==> nearest].\n");
+			break;
+		case 0x2:
+			printf("INFO: compiler sets x87 FPU to [round ==> +oo] rounding mode. Overriding...Setting to [round ==> nearest].\n");
+			break;
+		case 0x3:
+			printf("INFO: compiler sets x87 FPU to [round ==> 0] (truncate) rounding mode. Overriding...Setting to [round ==> nearest].\n");
+			break;
+		default:
+			ASSERT(HERE, 0,"0");
+		}
 	}
-}
+
+#endif	// CPU_IS_X86 ?
 
 /******* DEFINE GLOBALS AND TEST RND-CONST FAST-NINT: *******/
 void check_nbits_in_types(void)
@@ -1384,6 +1660,41 @@ void	VAR_WARN(char *typelist, ...)
 	va_end(varargs);
 }
 
+/****************/
+
+/*...take index i of a set of N = 2^k and return the bit-reversed complement integer.
+     Since Mlucas isn't restricted to power-of-2 FFT lengths, we don't actually use
+     this function much, preferring the generalized-bit-reversal-on-input-index-vector form,
+     but include it for purposes of reference/utility-usage.
+*/
+/*** REMEMBER: reverse() takes its #bits length arg in exponentiated form n = 2^#bits ***/
+
+int reverse(uint32 i, uint32 n)
+{
+	uint32 tmp = 0;
+
+/*...Make sure each new N is a power of 2. For high-performance implementations
+     (i.e. where one does tons of these,) one could skip this part after verifying
+     it on an initial test run. */
+
+	if((n >> trailz32(n)) != 1)
+	{
+		sprintf(cbuf,"FATAL: non-power-of-2 length encountered in REVERSE.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+	}
+
+	n >>= 1;
+
+	while(n)
+	{
+		tmp <<= 1;
+		tmp += (i & 1);
+		i >>= 1;
+		n >>= 1;
+	}
+
+	return(tmp);
+}
+
 /***************/
 
 /* Slow, default-int versions of leading and trailing-zero-counting algorithms: */
@@ -1414,9 +1725,9 @@ uint32 trailz32(uint32 x)
 
 uint32 trailz64(uint64 x)
 {
-	if(x == 0) return 64;
 #ifdef X64_ASM
 	int bpos;
+	if(x == 0) return 64;
 	__asm__ volatile (\
 		"bsfq %[__x],%%rax		\n\t"\
 		"movl %%eax,%[__bpos]	\n\t"\
@@ -1429,6 +1740,7 @@ uint32 trailz64(uint64 x)
 #else
 	uint32 i;
 	const uint64 one64 = 1;
+	if(x == 0) return 64;
 	for(i = 1; i < 64; i++)
 	{
 		if(x & one64) {
@@ -1512,10 +1824,10 @@ uint32 leadz32(uint32 i)
 uint32 leadz64(uint64 i)
 {
 	uint32 lz;
-	if(i == 0) return 64;
-	if(( int64)i < 0) return 0;
 #ifdef X64_ASM
 	int bpos;
+	if(i == 0) return 64;
+	if(( int64)i < 0) return 0;
 	__asm__ volatile (\
 		"bsrq %[__i],%%rax		\n\t"\
 		"movl %%eax,%[__bpos]	\n\t"\
@@ -1528,6 +1840,8 @@ uint32 leadz64(uint64 i)
 #else
 	uint32 k, shift;
 	uint64 ones_mask = 0xFFFFFFFFFFFFFFFFull;
+	if(i == 0) return 64;
+	if(( int64)i < 0) return 0;
 	lz    =  0;
 	shift = 32;
 	k     = 32;
@@ -3530,14 +3844,14 @@ ftmp0 = ftmp;
 		/* set the mib for hw.ncpu */
 		mib[0] = CTL_HW;
 		mib[1] = HW_AVAILCPU;  // alternatively, try HW_NCPU;
-	
+
 		sysctl(mib, 2, &numCPU, &len, NULL, 0);
-	
+
 		if( numCPU < 1 )
 		{
 			mib[1] = HW_NCPU;
 			sysctl( mib, 2, &numCPU, &len, NULL, 0 );
-	
+
 			if( numCPU < 1 )
 			{
 				numCPU = 1;
@@ -3756,14 +4070,14 @@ do_loop(void*targ)	// Thread-arg pointer *must* be cast to void and specialized 
 	cpuset_t *cset;
 	pthread_t pth;
 	cpuid_t ci;
-	
+
 	cset = cpuset_create();
 	if (cset == NULL) {
 		ASSERT(HERE, 0, "cpuset_create");
 	}
 	ci = 0;
 	cpuset_set(ci, cset);
-	
+
 	pth = pthread_self();
 	error = pthread_setaffinity_np(pth, cpuset_size(cset), cset);
 	if (error) {
@@ -3792,7 +4106,9 @@ do_loop(void*targ)	// Thread-arg pointer *must* be cast to void and specialized 
 char*get_time_str(double tdiff)
 {
 	static char cbuf[STR_MAX_LEN];
+#ifndef MULTITHREAD
 	tdiff /= CLOCKS_PER_SEC;	/* NB: CLOCKS_PER_SEC may be a phony value used to scale clock() ranges */
+#endif
 	sprintf(cbuf, "%2d%1d:%1d%1d:%1d%1d.%1d%1d%1d"
 	,(int)tdiff/36000,((int)tdiff%36000)/3600
 	,((int)tdiff%3600)/600,((int)tdiff%600)/60

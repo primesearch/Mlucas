@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -24,34 +24,79 @@
 
 /****************/
 
-int reverse(uint32 i, uint32 n)
+// Take a power-of-2 complex DFT radix n = p*q decomposed in p x q matrix form
+// (q radix-p twiddleless DFTs followed by p radix-q DFTs-with-twiddles) and print
+// the twiddles needed for the 2nd phase DFTs.
+/*** NOTE: The printout is in row/col-bite-reversed form! ***/
+void print_pow2_twiddles(const uint32 n, const uint32 p, const uint32 q)
 {
-/*...take index i of a set of N = 2^k and return the bit-reversed complement integer.
-     Since Mlucas isn't restricted to power-of-2 FFT lengths, we don't actually use
-     this function, but include it for purposes of reference. */
+	const uint32 n2 = n>>1, n4 = n>>2, n8 = n>>3, lgn = trailz32(n);
+	uint32 pow2,odd, re_im_idx, sigma,signs;
+	int i,ir,j,k,pow;
+	const char csigns[2] = {'+','-'};
+	const char re_im[2] = {'c','s'};
+	char prefix[3];	// 0-slot for overall sign; 1 for complex operator * [Re / Im interchange], 2 for ~ [complex conjugation].
+	ASSERT(HERE, n == (1<<lgn), "n not a power of 2!");
+	ASSERT(HERE, n == p*q, "n != p*q!");
+	printf("Fundamental-root powers for %d x %d impl of radix-%d DFT:\n",p,q,n);
+	for(i = 1; i < p; i++) {	// Skip 0-row, since those roots = 1
+		ir = reverse(i, p);
+		printf("Block %x: ",ir);
+		for(j = 1; j < q; j++) {	// Skip 0-col, since that root = 1
+			k = ir*reverse(j, q);
+			prefix[0] = prefix[1] = prefix[2] = ' ';
+			// First do the basic E^j = -E^(j-n2) reduction for j >= n2:
+			pow = k;
+			pow &= (n-1);	// assumes n a power-of-2
+			if(pow >= n2) {
+				prefix[0] = '-';
+				pow -= n2;
+			}
+			// Once we have done the basic E^j = -E^(j-n2) reduction for j >= n2, do as follows:
+			// j <= n8	: nothing
+			if(pow <= n8) {
+			// j <= n4	: E^j =  *E^(n4-j)
+			} else if(pow <= n4) {
+				prefix[1] = '*';
+				pow = n4-pow;
+			// j <= 3n8	: E^j = *~E^(j-n4)
+			} else if(pow <= (n4+n8)) {
+				prefix[1] = '*';	prefix[2] = '~';
+				pow -= n4;
+			// j <= n2	: E^j = -~E^(n2-j) .
+			} else {
+				if(prefix[0] == '-')
+					prefix[0] = ' ';
+				else
+					prefix[0] = '-';
+				prefix[2] = '~';
+				pow = n2-pow;
+			}
+			// In each case the resulting RHS power < n8.
+		//	if(ir != 0xf) printf("%3s%x,",prefix,pow);	// Uncomment this to print the prefix/hex power
 
-	uint32 tmp = 0;
-
-/*...Make sure each new N is a power of 2. For high-performance implementations
-     (i.e. where one does tons of these,) one could skip this part after verifying
-     it on an initial test run. */
-
-	if((n >> trailz32(n)) != 1)
-	{
-		sprintf(cbuf,"FATAL: non-power-of-2 length encountered in REVERSE.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+			// Now extract the twiddles in a notation similar (but slightly more compact than] the tabulated
+			// header-file roots. Specifically, each twiddle [prefix][pow] generated above printed in form of a
+			// [sgn][s/c][pow2]_[odd] pair, where [sgn] = + or -, [s/c] = s or c denoting sine or cosine, resp.,
+			// and pow2 = lg(n) - trailz(pow) and [odd] = pow >> trailz(pow) :
+			pow2 = trailz32(pow); odd = pow >> pow2;	// The case pow = 0 handled specially below
+			pow2 = lgn - pow2;
+			// Parse complex operators right-to-left:
+			re_im_idx = (prefix[1] == '*');	// 0: re/im unswapped; 1: re/im swapped
+			signs = (prefix[2] == '~')<<1;	// 0 bit: sign of re part; 1-bit: sign of im part
+			// If re/im swapped, need to swap 2 bits of sign field:
+			if(re_im_idx)
+				signs = reverse(signs, 4);	// reverse() takes #birs arg in the form n = 2^#bits, thus n = 2^2 = 4
+			if(prefix[0] == '-')	// Flip both components' signs
+				signs = ~signs;
+			// Now assemble the final output-formatted sincos pair:
+			if(pow == 0)
+				printf("%c%1x,%c%1x, ",csigns[signs&0x1],1-re_im_idx ,csigns[(signs>>1)&0x1],re_im_idx);
+			else
+				printf("%c%c%1x_%x,%c%c%1x_%x, ",csigns[signs&0x1],re_im[re_im_idx],pow2,odd ,csigns[(signs>>1)&0x1],re_im[1-re_im_idx],pow2,odd);
+		}
+		printf("\n");
 	}
-
-	n >>= 1;
-
-	while(n)
-	{
-		tmp <<= 1;
-		tmp += (i & 1);
-		i >>= 1;
-		n >>= 1;
-	}
-
-	return(tmp);
 }
 
 /****************/

@@ -233,21 +233,21 @@ struct qfloat qfsn1	(struct qfloat q);
 {\
 	/* Make sure sign/exp fields have been cleared and shift count >= 0: */\
 	ASSERT(HERE, (__x.hi>>52) == 0,"QRSHIFT:  sign/exp fields not zero!");\
-	ASSERT(HERE, (int64)__n >= 0,"QRSHIFT: (int64)__n >= 0 !");\
+	ASSERT(HERE, (int64)(__n) >= 0,"QRSHIFT: (int64)(__n) >= 0 !");\
 	/* Need to handle zero shift count separately: */\
-	if(__n == 0)\
+	if((__n) == 0)\
 	{\
 		__y.lo = ((uint64)__x.lo);\
 		__y.hi = ((uint64)__x.hi);\
 	}\
-	else if(__n < 64)\
+	else if((__n) < 64)\
 	{\
-		__y.lo = ((uint64)__x.lo >> __n) + ((uint64)__x.hi << (64-__n));\
-		__y.hi = ((uint64)__x.hi >> __n);\
+		__y.lo = ((uint64)__x.lo >> (__n)) + ((uint64)__x.hi << (64-(__n)));\
+		__y.hi = ((uint64)__x.hi >> (__n));\
 	}\
-	else if(__n < 128)\
+	else if((__n) < 128)\
 	{\
-		__y.lo = ((uint64)__x.hi >> (__n-64));\
+		__y.lo = ((uint64)__x.hi >> ((__n)-64));\
 		__y.hi = (uint64)0;\
 	}\
 	else\

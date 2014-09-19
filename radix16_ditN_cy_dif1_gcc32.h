@@ -29,6 +29,7 @@
 	#define SSE2_RADIX16_DIT_NOTWIDDLE(Xadd0,Xp1,Xp2,Xp3,Xp4,Xr1,Xr3,Xr5,Xr7,Xr9,Xr11,Xr17,Xr25,Xisrt2,Xcc0)\
 	{\
 	__asm__ volatile (\
+	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
 		"movl	%[__add0],%%eax		\n\t"\
 		"movl	%[__p1],%%ebx		\n\t"\
 		"movl	%[__p2],%%ecx		\n\t"\
@@ -471,6 +472,7 @@
 		"addpd	%%xmm3,%%xmm4		\n\t"\
 		"movaps	%%xmm5,0x080(%%eax)	\n\t"\
 		"movaps	%%xmm4,0x190(%%eax)	\n\t"\
+	"popl %%ebx	\n\t"\
 		:					/* outputs: none */\
 		: [__add0] "m" (Xadd0)	/* All inputs from memory addresses here */\
 		 ,[__p1] "m" (Xp1)\
@@ -486,7 +488,7 @@
 		 ,[__r25] "m" (Xr25)\
 		 ,[__isrt2] "m" (Xisrt2)\
 		 ,[__cc0] "m" (Xcc0)\
-		: "cc","memory","eax","ebx","ecx","edx","edi","esi"		/* Clobbered registers */\
+		: "cc","memory","eax",/*"ebx",*/"ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
 
@@ -494,6 +496,7 @@
 	#define SSE2_RADIX16_DIF_NOTWIDDLE(Xadd0,Xp1,Xp2,Xp3,Xp4,Xr1,Xr3,Xr5,Xr7,Xr9,Xr11,Xr13,Xr15,Xr17,Xr19,Xr21,Xr23,Xr25,Xr27,Xr29,Xr31,Xisrt2,Xcc0)\
 	{\
 	__asm__ volatile (\
+	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
 		"/* SSE2_RADIX4_DIF_IN_PLACE(r1 , r17, r9 , r25): */\n\t"\
 		"movl	%[__r1] ,%%eax		\n\t"\
 		"movl	%[__r17],%%ebx		\n\t"\
@@ -955,6 +958,7 @@
 		"addpd	%%xmm3,		%%xmm6	\n\t"\
 		"movaps	%%xmm7,    (%%edx)	\n\t"\
 		"movaps	%%xmm6,0x10(%%ecx)	\n\t"\
+	"popl %%ebx	\n\t"\
 		:					/* outputs: none */\
 		: [__add0] "m" (Xadd0)	/* All inputs from memory addresses here */\
 		 ,[__p1] "m" (Xp1)\
@@ -979,7 +983,7 @@
 		 ,[__r31] "m" (Xr31)\
 		 ,[__isrt2] "m" (Xisrt2)\
 		 ,[__cc0] "m" (Xcc0)\
-		: "cc","memory","eax","ebx","ecx","edx","edi","esi"		/* Clobbered registers */\
+		: "cc","memory","eax",/*"ebx",*/"ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
 

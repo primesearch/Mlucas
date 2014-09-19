@@ -44,7 +44,7 @@ int radix11_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	static uint32 bw,sw,bjmodnini,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10;
 	const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 #if LO_ADD
-	static double	cc1 =  0.84125353283118116886,	/* Real part of exp(i*2*pi/11), the radix-11 fundamental sincos datum	*/
+	const double cc1 =  0.84125353283118116886,	/* Real part of exp(i*2*pi/11), the radix-11 fundamental sincos datum	*/
 			ss1 =  0.54064081745559758210,	/* Imag part of exp(i*2*pi/11).	*/
 			cc2 =  0.41541501300188642553,	/* cos(2u)	*/
 			ss2 =  0.90963199535451837140,	/* sin(2u)	*/
@@ -56,7 +56,7 @@ int radix11_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			ss5 =  0.28173255684142969773;	/* sin(5u)	*/
 #else
 /*...Fast length-5 cyclic convolution scheme needs the following: */
-	static double 	a0 =  2.31329240211767848235, /* a0 = (   cq0      -  cq3+  cq2-  cq4)		*/
+	const double a0 =  2.31329240211767848235, /* a0 = (   cq0      -  cq3+  cq2-  cq4)		*/
 			a1 =  1.88745388228838373902, /* a1 = (         cq1-  cq3+  cq2-  cq4)		*/
 			a2 = -1.41435370755978245393, /* a2 = (-2*cq0-2*cq1+3*cq3-2*cq2+3*cq4)/5	*/
 			a3 =  0.08670737584270518028, /* a3 = (-  cq0+  cq1-  cq3+  cq2      )		*/
@@ -1365,7 +1365,7 @@ void radix11_dif_pass1(double a[], int n)
 	int j,j1,j2;
 	static int n11,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10, first_entry=TRUE;
 #if LO_ADD
-	static double	cc1 =  0.84125353283118116886,	/* Real part of exp(i*2*pi/11), the radix-11 fundamental sincos datum	*/
+	const double cc1 =  0.84125353283118116886,	/* Real part of exp(i*2*pi/11), the radix-11 fundamental sincos datum	*/
 			ss1 =  0.54064081745559758210,	/* Imag part of exp(i*2*pi/11).	*/
 			cc2 =  0.41541501300188642553,	/* cos(2u)	*/
 			ss2 =  0.90963199535451837140,	/* sin(2u)	*/
@@ -1377,7 +1377,7 @@ void radix11_dif_pass1(double a[], int n)
 			ss5 =  0.28173255684142969773;	/* sin(5u)	*/
 #else
 /*...Fast length-5 cyclic convolution scheme needs the following: */
-	static double 	a0 =  2.31329240211767848235, /* a0 = (   cq0      -  cq3+  cq2-  cq4)		*/
+	const double a0 =  2.31329240211767848235, /* a0 = (   cq0      -  cq3+  cq2-  cq4)		*/
 			a1 =  1.88745388228838373902, /* a1 = (         cq1-  cq3+  cq2-  cq4)		*/
 			a2 = -1.41435370755978245393, /* a2 = (-2*cq0-2*cq1+3*cq3-2*cq2+3*cq4)/5	*/
 			a3 =  0.08670737584270518028, /* a3 = (-  cq0+  cq1-  cq3+  cq2      )		*/
@@ -1485,10 +1485,10 @@ void radix11_dif_pass1(double a[], int n)
 
 #if LO_ADD
 		RADIX_11_DFT_BASIC(a[j1],a[j2],a[j1+p1],a[j2+p1],a[j1+p2],a[j2+p2],a[j1+p3],a[j2+p3],a[j1+p4],a[j2+p4],a[j1+p5],a[j2+p5],a[j1+p6],a[j2+p6],a[j1+p7],a[j2+p7],a[j1+p8],a[j2+p8],a[j1+p9],a[j2+p9],a[j1+p10],a[j2+p10]
-					,a[j1],a[j2],a[j1+p1],a[j2+p1],a[j1+p2],a[j2+p2],a[j1+p3],a[j2+p3],a[j1+p4],a[j2+p4],a[j1+p5],a[j2+p5],a[j1+p6],a[j2+p6],a[j1+p7],a[j2+p7],a[j1+p8],a[j2+p8],a[j1+p9],a[j2+p9],a[j1+p10],a[j2+p10]);
+					,a[j1],a[j2],a[j1+p1],a[j2+p1],a[j1+p2],a[j2+p2],a[j1+p3],a[j2+p3],a[j1+p4],a[j2+p4],a[j1+p5],a[j2+p5],a[j1+p6],a[j2+p6],a[j1+p7],a[j2+p7],a[j1+p8],a[j2+p8],a[j1+p9],a[j2+p9],a[j1+p10],a[j2+p10], cc1,cc2,cc3,cc4,cc5,ss1,ss2,ss3,ss4,ss5);
 #else
 		RADIX_11_DFT(a[j1],a[j2],a[j1+p1],a[j2+p1],a[j1+p2],a[j2+p2],a[j1+p3],a[j2+p3],a[j1+p4],a[j2+p4],a[j1+p5],a[j2+p5],a[j1+p6],a[j2+p6],a[j1+p7],a[j2+p7],a[j1+p8],a[j2+p8],a[j1+p9],a[j2+p9],a[j1+p10],a[j2+p10]
-					,a[j1],a[j2],a[j1+p1],a[j2+p1],a[j1+p2],a[j2+p2],a[j1+p3],a[j2+p3],a[j1+p4],a[j2+p4],a[j1+p5],a[j2+p5],a[j1+p6],a[j2+p6],a[j1+p7],a[j2+p7],a[j1+p8],a[j2+p8],a[j1+p9],a[j2+p9],a[j1+p10],a[j2+p10]);
+					,a[j1],a[j2],a[j1+p1],a[j2+p1],a[j1+p2],a[j2+p2],a[j1+p3],a[j2+p3],a[j1+p4],a[j2+p4],a[j1+p5],a[j2+p5],a[j1+p6],a[j2+p6],a[j1+p7],a[j2+p7],a[j1+p8],a[j2+p8],a[j1+p9],a[j2+p9],a[j1+p10],a[j2+p10], a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,b0,b1,b2,b3,b4,b5,b6,b7,b8,b9);
 #endif
 	}
 }
@@ -1509,7 +1509,7 @@ void radix11_dit_pass1(double a[], int n)
 	int j,j1,j2;
 	static int n11,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10, first_entry=TRUE;
 #if LO_ADD
-	static double	cc1 =  0.84125353283118116886,	/* Real part of exp(i*2*pi/11), the radix-11 fundamental sincos datum	*/
+	const double cc1 =  0.84125353283118116886,	/* Real part of exp(i*2*pi/11), the radix-11 fundamental sincos datum	*/
 			ss1 =  0.54064081745559758210,	/* Imag part of exp(i*2*pi/11).	*/
 			cc2 =  0.41541501300188642553,	/* cos(2u)	*/
 			ss2 =  0.90963199535451837140,	/* sin(2u)	*/
@@ -1521,7 +1521,7 @@ void radix11_dit_pass1(double a[], int n)
 			ss5 =  0.28173255684142969773;	/* sin(5u)	*/
 #else
 /*...Fast length-5 cyclic convolution scheme needs the following: */
-	static double 	a0 =  2.31329240211767848235, /* a0 = (   cq0      -  cq3+  cq2-  cq4)		*/
+	const double a0 =  2.31329240211767848235, /* a0 = (   cq0      -  cq3+  cq2-  cq4)		*/
 			a1 =  1.88745388228838373902, /* a1 = (         cq1-  cq3+  cq2-  cq4)		*/
 			a2 = -1.41435370755978245393, /* a2 = (-2*cq0-2*cq1+3*cq3-2*cq2+3*cq4)/5	*/
 			a3 =  0.08670737584270518028, /* a3 = (-  cq0+  cq1-  cq3+  cq2      )		*/
@@ -1595,10 +1595,10 @@ void radix11_dit_pass1(double a[], int n)
 		/* Call same radix-11 DFT macro as for DIF, but replace indices [0,1,2,3,4,5,6,7,8,9,10] with j*10%11, j = 0, ..., 10: */
 #if LO_ADD
 		RADIX_11_DFT_BASIC(a[j1],a[j2],a[j1+p1],a[j2+p1],a[j1+p2],a[j2+p2],a[j1+p3],a[j2+p3],a[j1+p4],a[j2+p4],a[j1+p5],a[j2+p5],a[j1+p6],a[j2+p6],a[j1+p7],a[j2+p7],a[j1+p8],a[j2+p8],a[j1+p9],a[j2+p9],a[j1+p10],a[j2+p10]
-					,a[j1],a[j2],a[j1+p10],a[j2+p10],a[j1+p9],a[j2+p9],a[j1+p8],a[j2+p8],a[j1+p7],a[j2+p7],a[j1+p6],a[j2+p6],a[j1+p5],a[j2+p5],a[j1+p4],a[j2+p4],a[j1+p3],a[j2+p3],a[j1+p2],a[j2+p2],a[j1+p1],a[j2+p1]);
+					,a[j1],a[j2],a[j1+p10],a[j2+p10],a[j1+p9],a[j2+p9],a[j1+p8],a[j2+p8],a[j1+p7],a[j2+p7],a[j1+p6],a[j2+p6],a[j1+p5],a[j2+p5],a[j1+p4],a[j2+p4],a[j1+p3],a[j2+p3],a[j1+p2],a[j2+p2],a[j1+p1],a[j2+p1], cc1,cc2,cc3,cc4,cc5,ss1,ss2,ss3,ss4,ss5);
 #else
 		RADIX_11_DFT(a[j1],a[j2],a[j1+p1],a[j2+p1],a[j1+p2],a[j2+p2],a[j1+p3],a[j2+p3],a[j1+p4],a[j2+p4],a[j1+p5],a[j2+p5],a[j1+p6],a[j2+p6],a[j1+p7],a[j2+p7],a[j1+p8],a[j2+p8],a[j1+p9],a[j2+p9],a[j1+p10],a[j2+p10]
-					,a[j1],a[j2],a[j1+p10],a[j2+p10],a[j1+p9],a[j2+p9],a[j1+p8],a[j2+p8],a[j1+p7],a[j2+p7],a[j1+p6],a[j2+p6],a[j1+p5],a[j2+p5],a[j1+p4],a[j2+p4],a[j1+p3],a[j2+p3],a[j1+p2],a[j2+p2],a[j1+p1],a[j2+p1]);
+					,a[j1],a[j2],a[j1+p10],a[j2+p10],a[j1+p9],a[j2+p9],a[j1+p8],a[j2+p8],a[j1+p7],a[j2+p7],a[j1+p6],a[j2+p6],a[j1+p5],a[j2+p5],a[j1+p4],a[j2+p4],a[j1+p3],a[j2+p3],a[j1+p2],a[j2+p2],a[j1+p1],a[j2+p1], a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,b0,b1,b2,b3,b4,b5,b6,b7,b8,b9);
 #endif
 	}
 }

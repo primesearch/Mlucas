@@ -1181,7 +1181,7 @@ Example: x = QLN2:
 long double qfldbl(struct qfloat x)
 {
 	long double ld;
-	uint64 *ld_ptr = &ld, nonhidden;
+	uint64 *ld_ptr = (uint64 *)&ld, nonhidden;
 	int32 exp = (int32)((x.hi & ~MASK_SIGN)>>52);
 	ASSERT(HERE, sizeof(long double) == 16, "QFLDBL assumes 16-byte long double type!");
 	// Denormal check:
@@ -1201,11 +1201,11 @@ long double qfldbl(struct qfloat x)
 /* long double --> qfloat conversion utility */
 struct qfloat ldbl_to_q(long double x)
 {
-	DBG_ASSERT(HERE, sizeof(long double) == 16, "LDBL_TO_Q assumes 16-byte long double type!");
 	struct qfloat q;
 	long double ld = x;
-	uint64 *ld_ptr = &ld, x87_mant, x87_sexp;	// Note high 48 bits of x87_sexp are uninited
+	uint64 *ld_ptr = (uint64 *)&ld, x87_mant, x87_sexp;	// Note high 48 bits of x87_sexp are uninited
 	int32 exp;
+	DBG_ASSERT(HERE, sizeof(long double) == 16, "LDBL_TO_Q assumes 16-byte long double type!");
 	x87_mant = *ld_ptr; x87_sexp = *(ld_ptr+1);
 	if(!x87_mant) return QZRO;
 	// Denormal check:
@@ -1918,7 +1918,7 @@ struct qfloat qfinc(struct qfloat x)
 			// Mask off sign/exp-bits (sign is moot here, since already checked for < 0) and restore hidden bit:
 			q.hi = TWOE52 + (q.hi & MASK_MANT);
 			// When adding x < 1 to 1, only chance of carry into exponent field is if x = (1 - [tiny]) and gets rounded to 1:
-			//***** <= 53 changed to < 53 here: ***********************
+			/***** <= 53 changed to < 53 here: ***********************/
 			if(rshift < 53)	/* Hi part partially shifted into lo, lo part partially shifted off. */
 			{
 				offword = (q.lo << lshift) >> 63;	/* Round by adding the MSB of off-shifted low word into next-higher word. */
@@ -1962,7 +1962,7 @@ struct qfloat qfinc(struct qfloat x)
 			{
 				hi0 += hi1;
 			}
-			//***** <= 53 changed to < 53 here: ***********************
+			/***** <= 53 changed to < 53 here: ***********************/
 			else if(rshift < 53)	/* Hi part partially shifted into lo, lo part partially shifted off. */
 			{	// lshift in [12,63]
 				// All off-shifted bits = 0 here:
@@ -2474,15 +2474,27 @@ guess is the double-precision-accurate inverse of x, we need just 2 such iterati
 struct qfloat qfinv(struct qfloat x)
 {
 	struct qfloat xinv, xyprod;
+#ifdef X87_ASM
+	long double ld;
+  #if QFDEBUG
+ 	uint64 *ld_ptr;
+  #endif
+#else
+	double xinv_dble;
+#endif
+#if QFDEBUG
+	double qres, dres, esum, rerr;
+#endif
+
 	/* Make sure x is properly normalized. This also catches potential divides-by-zero. */
 	if((x.hi & ~(MASK_SIGN + MASK_MANT)) == (uint64)0)
 	{
 		ASSERT(HERE, 0,"ERROR: divide by denormalized input not supported.");
 	}
 #ifdef X87_ASM
-	long double ld = qfldbl(x);
+	ld = qfldbl(x);
   #if QFDEBUG
- 	uint64 *ld_ptr = &ld;
+ 	ld_ptr = &ld;
   #endif
 	asm ("fldt %1;"
 		 "fld1;"
@@ -2491,7 +2503,7 @@ struct qfloat qfinv(struct qfloat x)
 	xinv = ldbl_to_q(ld);
 #else
 	/* Get double-precision approximation to 1/x: */
-	double xinv_dble = fisqrtest(qfdbl(x), 53);
+	xinv_dble = fisqrtest(qfdbl(x), 53);
 	xinv_dble = finvest(qfdbl(x), 53);
 	xinv = dbl_to_q(xinv_dble);
 #endif
@@ -2510,10 +2522,10 @@ struct qfloat qfinv(struct qfloat x)
 #endif
 
 #if QFDEBUG
-	double qres = qfdbl(xinv), dres = 1.0/qfdbl(x);
-	double esum = fabs(qres + dres);
+	qres = qfdbl(xinv), dres = 1.0/qfdbl(x);
+	esum = fabs(qres + dres);
 	if(esum > 1e-15) {
-		double rerr = fabs( (qres - dres)/esum );
+		rerr = fabs( (qres - dres)/esum );
 		if( rerr > 1e-12 ) {
 			WARN(HERE, "High Error Level in QFINV!\n", "", 0);
 		}
@@ -2568,13 +2580,25 @@ iterations.
 struct qfloat qfsqrt(struct qfloat x)
 {
 	struct qfloat xisrt, xysqr;
+#ifdef X87_ASM
+	long double ld;
+  #if QFDEBUG
+ 	uint64 *ld_ptr;
+  #endif
+#else
+	double xisrt_dble;
+#endif
+#if QFDEBUG
+	double qres, dres, esum, rerr;
+#endif
+
 	/* Make sure x is nonnegative. This also catches potential divides-by-zero. */
 	ASSERT(HERE, !(x.hi >> 63),"ERROR: sqrt of a negative number not supported.");
 	if(qfcmpeq(x, QZRO)) return QZRO;
 #ifdef X87_ASM
-	long double ld = qfldbl(x);
+	ld = qfldbl(x);
   #if QFDEBUG
- 	uint64 *ld_ptr = &ld;
+ 	ld_ptr = &ld;
   #endif
 	asm ("fldt %1;"
 		 "fst %%st(1);"
@@ -2584,7 +2608,7 @@ struct qfloat qfsqrt(struct qfloat x)
 	xisrt = ldbl_to_q(ld);
 #else
 	/* Get double-precision approximation to 1/sqrt(x): */
-	double xisrt_dble = fisqrtest(qfdbl(x), 53);
+	xisrt_dble = fisqrtest(qfdbl(x), 53);
 //	xisrt_dble = (double)1.0/sqrt(qfdbl(x));
 	xisrt = dbl_to_q(xisrt_dble);
 #endif
@@ -2603,10 +2627,10 @@ struct qfloat qfsqrt(struct qfloat x)
 #endif
 
 #if QFDEBUG
-	double qres = qfdbl(qisrt), dres = 1.0/sqrt(qfdbl(q));
-	double esum = fabs(qres + dres);
+	qres = qfdbl(qisrt), dres = 1.0/sqrt(qfdbl(q));
+	esum = fabs(qres + dres);
 	if(esum > 1e-15) {
-		double rerr = fabs( (qres - dres)/esum );
+		rerr = fabs( (qres - dres)/esum );
 		if( rerr > 1e-12 ) {
 			WARN(HERE, "High Error Level in QFSQRT!\n", "", 0);
 		}
@@ -2756,6 +2780,19 @@ then do 1 or 2 of the above N-R inverse-function iterations in qfloat mode using
 struct qfloat qflog(struct qfloat x)
 {
 	struct qfloat y;
+#ifdef X87_ASM
+	long double ld;
+  #if QFDEBUG
+ 	uint64 *ld_ptr;
+  #endif
+#else
+	double lnx;
+#endif
+#if QFDEBUG
+	double qres, dres, esum, rerr;
+#endif
+	struct qfloat expy;
+
 	ASSERT(HERE, qfcmplt(QZRO,x), "Arg must be > 0 in QFLOG!");
 
 #if 0	// Algo 0
@@ -2783,11 +2820,9 @@ struct qfloat qflog(struct qfloat x)
 
 #else	// Algo B
 
-	struct qfloat expy;
-
   #ifdef X87_ASM
 
-	long double ld = qfldbl(x);
+	ld = qfldbl(x);
 
    // x87 supports scaled base-2 logarithm, y*l2(x); Use that ln(x) = l2(x)*ln(2), call fy2lx with scaling multiplier y = ln(2):
 	asm ("fldln2;"
@@ -2796,7 +2831,7 @@ struct qfloat qflog(struct qfloat x)
 		 "fstpt %0" : "+m"(ld) : "m"(ld));
 	y = ldbl_to_q(ld);
   #else
-	double lnx = log(qfdbl(x));
+	lnx = log(qfdbl(x));
 	y.hi = *(uint64 *)&lnx; y.lo = 0ull;
   #endif
 
@@ -2813,10 +2848,10 @@ struct qfloat qflog(struct qfloat x)
 #endif
 
 #if QFDEBUG
-	double qres = qfdbl(y), dres = log(qfdbl(x));
-	double esum = fabs(qres + dres);
+	qres = qfdbl(y), dres = log(qfdbl(x));
+	esum = fabs(qres + dres);
 	if(esum > 1e-15) {
-		double rerr = fabs( (qres - dres)/esum );
+		rerr = fabs( (qres - dres)/esum );
 	printf("QFLOG: x = %20.10e, relerr = %20.10e\n", qfdbl(x), rerr);
 		if( rerr > 1e-12 ) {
 			WARN(HERE, "High Error Level in QFLOG!\n", "", 0);
@@ -2876,7 +2911,7 @@ struct qfloat qfexp(struct qfloat x)
 	 int32 pow2;
 	uint32 i, nterm,nterm_idx;
 	double darg = qfdbl(x);
-	struct qfloat xabs, y;
+	struct qfloat xabs, y, sinh, curr_term, mult;
 	const uint8 nterm_arr[64] = {2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,3,3,4,4,4,4,4,4,5,5,5,5,6,6,6,7,7,8,8,9,9,10,10,11,12,13,15,17,19,22,25,30,30,30,30,30,30,30};
 
 	// If arg < 0 compute 1/exp(-x) to avoid cancellation in the summation
@@ -2934,12 +2969,10 @@ struct qfloat qfexp(struct qfloat x)
 #if 1	// Algo B
 
 	y = qfcosh(xabs);
-	struct qfloat sinh = qfsqrt( qfsub(qfmul(y,y),QONE) );
+	sinh = qfsqrt( qfsub(qfmul(y,y),QONE) );
 	y = qfadd(y,sinh);
 
 #else
-
-	struct qfloat curr_term, mult;
 
 	// 2 variants of summation:
   #define NESTED_PRODUCT	1

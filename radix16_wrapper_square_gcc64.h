@@ -935,11 +935,6 @@
 		"vmovaps 	%%ymm7 ,(%%rdx)							\n\t		vmovaps %%ymm15,0x020(%%rdx)				/* outD	*/	\n\t"\
 		"vmovaps 	%%ymm0 ,(%%rax)							\n\t		vmovaps %%ymm2 ,0x020(%%rax)				/* outA	*/	\n\t"\
 		"vmovaps 	%%ymm1 ,(%%rcx)							\n\t		vmovaps %%ymm3 ,0x020(%%rcx)				/* outC	*/	\n\t"\
-/* DEBUG: Dump register contents back into above local-store slots: */\
-"vmovaps	%%ymm0 ,0x000(%%rsi)	\n\t	vmovaps	%%ymm2 ,0x020(%%rsi)	\n\t"\
-"vmovaps	%%ymm5 ,0x040(%%rsi)	\n\t	vmovaps	%%ymm13,0x060(%%rsi)	\n\t"\
-"vmovaps	%%ymm1 ,0x200(%%rsi)	\n\t	vmovaps	%%ymm3 ,0x220(%%rsi)	\n\t"\
-"vmovaps	%%ymm7 ,0x240(%%rsi)	\n\t	vmovaps	%%ymm15,0x260(%%rsi)	\n\t"\
 	"/* a[j+p2]: Inputs from r3 +0/1, 16/17, 2/3, 18/19. Outputs into [add0,add0+0x100,add1,add1+0x100]+0x40: */		\n\t"\
 		"addq	$0x80,%%rsi	\n\t"\
 		"addq	$0x40,%%rax	\n\t"\
@@ -963,11 +958,6 @@
 		"vmovaps 	%%ymm7 ,(%%rdx)							\n\t		vmovaps %%ymm15,0x020(%%rdx)				/* outD	*/	\n\t"\
 		"vmovaps 	%%ymm0 ,(%%rax)							\n\t		vmovaps %%ymm2 ,0x020(%%rax)				/* outA	*/	\n\t"\
 		"vmovaps 	%%ymm1 ,(%%rcx)							\n\t		vmovaps %%ymm3 ,0x020(%%rcx)				/* outC	*/	\n\t"\
-/* DEBUG: Dump register contents back into above local-store slots: */\
-"vmovaps	%%ymm0 ,0x000(%%rsi)	\n\t	vmovaps	%%ymm2 ,0x020(%%rsi)	\n\t"\
-"vmovaps	%%ymm5 ,0x040(%%rsi)	\n\t	vmovaps	%%ymm13,0x060(%%rsi)	\n\t"\
-"vmovaps	%%ymm1 ,0x200(%%rsi)	\n\t	vmovaps	%%ymm3 ,0x220(%%rsi)	\n\t"\
-"vmovaps	%%ymm7 ,0x240(%%rsi)	\n\t	vmovaps	%%ymm15,0x260(%%rsi)	\n\t"\
 	"/* a[j+p4]: Inputs from r5 +0/1, 16/17, 2/3, 18/19. Outputs into [add0,add0+0x100,add1,add1+0x100]+0x80: */		\n\t"\
 		"addq	$0x80,%%rsi	\n\t"\
 		"addq	$0x40,%%rax	\n\t"\
@@ -991,11 +981,6 @@
 		"vmovaps 	%%ymm7 ,(%%rdx)							\n\t		vmovaps %%ymm15,0x020(%%rdx)				/* outD	*/	\n\t"\
 		"vmovaps 	%%ymm0 ,(%%rax)							\n\t		vmovaps %%ymm2 ,0x020(%%rax)				/* outA	*/	\n\t"\
 		"vmovaps 	%%ymm1 ,(%%rcx)							\n\t		vmovaps %%ymm3 ,0x020(%%rcx)				/* outC	*/	\n\t"\
-/* DEBUG: Dump register contents back into above local-store slots: */\
-"vmovaps	%%ymm0 ,0x000(%%rsi)	\n\t	vmovaps	%%ymm2 ,0x020(%%rsi)	\n\t"\
-"vmovaps	%%ymm5 ,0x040(%%rsi)	\n\t	vmovaps	%%ymm13,0x060(%%rsi)	\n\t"\
-"vmovaps	%%ymm1 ,0x200(%%rsi)	\n\t	vmovaps	%%ymm3 ,0x220(%%rsi)	\n\t"\
-"vmovaps	%%ymm7 ,0x240(%%rsi)	\n\t	vmovaps	%%ymm15,0x260(%%rsi)	\n\t"\
 	"/* a[j+p6]: Inputs from r7 +0/1, 16/17, 2/3, 18/19. Outputs into [add0,add0+0x100,add1,add1+0x100]+0xc0: */		\n\t"\
 		"addq	$0x80,%%rsi	\n\t"\
 		"addq	$0x40,%%rax	\n\t"\
@@ -1019,11 +1004,6 @@
 		"vmovaps 	%%ymm7 ,(%%rdx)							\n\t		vmovaps %%ymm15,0x020(%%rdx)				/* outD	*/	\n\t"\
 		"vmovaps 	%%ymm0 ,(%%rax)							\n\t		vmovaps %%ymm2 ,0x020(%%rax)				/* outA	*/	\n\t"\
 		"vmovaps 	%%ymm1 ,(%%rcx)							\n\t		vmovaps %%ymm3 ,0x020(%%rcx)				/* outC	*/	\n\t"\
-/* DEBUG: Dump register contents back into above local-store slots: */\
-"vmovaps	%%ymm0 ,0x000(%%rsi)	\n\t	vmovaps	%%ymm2 ,0x020(%%rsi)	\n\t"\
-"vmovaps	%%ymm5 ,0x040(%%rsi)	\n\t	vmovaps	%%ymm13,0x060(%%rsi)	\n\t"\
-"vmovaps	%%ymm1 ,0x200(%%rsi)	\n\t	vmovaps	%%ymm3 ,0x220(%%rsi)	\n\t"\
-"vmovaps	%%ymm7 ,0x240(%%rsi)	\n\t	vmovaps	%%ymm15,0x260(%%rsi)	\n\t"\
 		:					/* outputs: none */\
 		: [__add0] "m" (Xadd0)	/* All inputs from memory addresses here */\
 		 ,[__add1] "m" (Xadd1)\
@@ -3098,11 +3078,6 @@
 		"movaps		%%xmm6,0x80(%%rcx)			\n\t		addpd		%%xmm9 ,%%xmm12				\n\t"\
 		"movaps		%%xmm3,0x90(%%rbx)			\n\t		movaps		%%xmm13,%%xmm11				\n\t"\
 		"movaps		%%xmm2,0x80(%%rbx)			\n\t		movaps		%%xmm12,%%xmm9 				\n\t"\
-/* DEBUG: Dump output-register contents back into corresponding local-store slots: */\
-"movaps	%%xmm7,0x090(%%rax)	\n\t"\
-"movaps	%%xmm6,0x080(%%rax)	\n\t"\
-"movaps	%%xmm3,0x190(%%rax)	\n\t"\
-"movaps	%%xmm2,0x180(%%rax)	\n\t"\
 		"movaps		0x10(%%rbx),%%xmm3			\n\t		unpckhpd	0x30(%%rcx),%%xmm11			\n\t"\
 		"movaps		    (%%rbx),%%xmm2			\n\t		unpcklpd	0x30(%%rcx),%%xmm13			\n\t"\
 		"movaps		%%xmm3,%%xmm7				\n\t		movaps		%%xmm11,0x30(%%rcx)			\n\t"\
@@ -3111,20 +3086,10 @@
 		"unpcklpd	0x10(%%rcx),%%xmm3			\n\t		movaps		%%xmm9 ,0x20(%%rcx)			\n\t"\
 		"movaps		%%xmm7,0x10(%%rcx)			\n\t		movaps		%%xmm13,0x30(%%rbx)			\n\t"\
 		"unpckhpd	    (%%rcx),%%xmm6			\n\t		movaps		%%xmm12,0x20(%%rbx)			\n\t"\
-													/* DEBUG: Dump output-register contents back into corresponding local-store slots: */\
-													"movaps	%%xmm11,0x030(%%rax)	\n\t"\
-													"movaps	%%xmm9 ,0x020(%%rax)	\n\t"\
-													"movaps	%%xmm13,0x130(%%rax)	\n\t"\
-													"movaps	%%xmm12,0x120(%%rax)	\n\t"\
 		"unpcklpd	    (%%rcx),%%xmm2			\n\t		movaps		0x100(%%rax),%%xmm12		\n\t"\
 		"movaps		%%xmm6,    (%%rcx)			\n\t		movaps		0x110(%%rax),%%xmm13		\n\t"\
 		"movaps		%%xmm3,0x10(%%rbx)			\n\t		movaps		%%xmm12,%%xmm11				\n\t"\
 		"movaps		%%xmm2,    (%%rbx)			\n\t		movaps		%%xmm13,%%xmm9 				\n\t"\
-/* DEBUG: Dump output-register contents back into corresponding local-store slots: */\
-"movaps	%%xmm7,0x010(%%rax)	\n\t"\
-"movaps	%%xmm6,0x000(%%rax)	\n\t"\
-"movaps	%%xmm3,0x110(%%rax)	\n\t"\
-"movaps	%%xmm2,0x100(%%rax)	\n\t"\
 		"addpd		%%xmm5,%%xmm0				\n\t		mulpd		    (%%rdx),%%xmm12			\n\t"\
 		"subpd		%%xmm4,%%xmm1				\n\t		mulpd		    (%%rdx),%%xmm13			\n\t"\
 		"movaps		%%xmm0,%%xmm2				\n\t		mulpd		0x10(%%rdx),%%xmm11			\n\t"\
@@ -3141,11 +3106,6 @@
 		"subpd		%%xmm6,%%xmm3				\n\t		movaps		%%xmm9 ,0xa0(%%rcx)			\n\t"\
 		"addpd		%%xmm7,%%xmm2				\n\t		movaps		%%xmm13,0xb0(%%rbx)			\n\t"\
 		"movaps		%%xmm3,%%xmm7				\n\t		movaps		%%xmm12,0xa0(%%rbx)			\n\t"\
-													/* DEBUG: Dump output-register contents back into corresponding local-store slots: */\
-													"movaps	%%xmm11,0x0b0(%%rax)	\n\t"\
-													"movaps	%%xmm9 ,0x0a0(%%rax)	\n\t"\
-													"movaps	%%xmm13,0x1b0(%%rax)	\n\t"\
-													"movaps	%%xmm12,0x1a0(%%rax)	\n\t"\
 		"movaps		%%xmm2,%%xmm6				\n\t		subpd		%%xmm15,%%xmm8 				\n\t"\
 		"unpckhpd	0x50(%%rcx),%%xmm7			\n\t		subpd		%%xmm14,%%xmm10				\n\t"\
 		"unpcklpd	0x50(%%rcx),%%xmm3			\n\t		addpd		%%xmm15,%%xmm15				\n\t"\
@@ -3155,11 +3115,6 @@
 		"movaps		%%xmm6,0x40(%%rcx)			\n\t		movaps		%%xmm15,%%xmm12				\n\t"\
 		"movaps		%%xmm3,0x50(%%rbx)			\n\t		movaps		%%xmm10,%%xmm13				\n\t"\
 		"movaps		%%xmm2,0x40(%%rbx)			\n\t		mulpd		0x60(%%rdx),%%xmm15	/* c6  = c12 + 6 */\n\t"\
-/* DEBUG: Dump output-register contents back into corresponding local-store slots: */\
-"movaps	%%xmm7,0x050(%%rax)	\n\t"\
-"movaps	%%xmm6,0x040(%%rax)	\n\t"\
-"movaps	%%xmm3,0x150(%%rax)	\n\t"\
-"movaps	%%xmm2,0x140(%%rax)	\n\t"\
 		"subpd		%%xmm5,%%xmm0				\n\t		mulpd		0x60(%%rdx),%%xmm10			\n\t"\
 		"addpd		%%xmm4,%%xmm1				\n\t		mulpd		0x70(%%rdx),%%xmm12			\n\t"\
 		"movaps		%%xmm0,%%xmm6				\n\t		mulpd		0x70(%%rdx),%%xmm13			\n\t"\
@@ -3175,21 +3130,11 @@
 		"unpckhpd	0xd0(%%rcx),%%xmm7			\n\t		movaps		%%xmm12,0x60(%%rcx)			\n\t"\
 		"unpcklpd	0xd0(%%rcx),%%xmm1			\n\t		movaps		%%xmm10,0x70(%%rbx)			\n\t"\
 		"movaps		%%xmm7,0xd0(%%rcx)			\n\t		movaps		%%xmm15,0x60(%%rbx)			\n\t"\
-													/* DEBUG: Dump output-register contents back into corresponding local-store slots: */\
-													"movaps	%%xmm13,0x070(%%rax)	\n\t"\
-													"movaps	%%xmm12,0x060(%%rax)	\n\t"\
-													"movaps	%%xmm10,0x170(%%rax)	\n\t"\
-													"movaps	%%xmm15,0x160(%%rax)	\n\t"\
 		"unpckhpd	0xc0(%%rcx),%%xmm6			\n\t		movaps		%%xmm8 ,%%xmm12				\n\t"\
 		"unpcklpd	0xc0(%%rcx),%%xmm0			\n\t		movaps		%%xmm14,%%xmm13				\n\t"\
 		"movaps		%%xmm6,0xc0(%%rcx)			\n\t		mulpd		0x80(%%rdx),%%xmm8 	/* c14 = c12 + 8 */\n\t"\
 		"movaps		%%xmm1,0xd0(%%rbx)			\n\t		mulpd		0x80(%%rdx),%%xmm14			\n\t"\
 		"movaps		%%xmm0,0xc0(%%rbx)			\n\t		mulpd		0x90(%%rdx),%%xmm12			\n\t"\
-/* DEBUG: Dump output-register contents back into corresponding local-store slots: */\
-"movaps	%%xmm7,0x0d0(%%rax)	\n\t"\
-"movaps	%%xmm6,0x0c0(%%rax)	\n\t"\
-"movaps	%%xmm1,0x1d0(%%rax)	\n\t"\
-"movaps	%%xmm0,0x1c0(%%rax)	\n\t"\
 		"													mulpd		0x90(%%rdx),%%xmm13			\n\t"\
 		"													subpd		%%xmm12,%%xmm14				\n\t"\
 		"													addpd		%%xmm13,%%xmm8 				\n\t"\
@@ -3203,11 +3148,6 @@
 		"													movaps		%%xmm12,0xe0(%%rcx)			\n\t"\
 		"													movaps		%%xmm14,0xf0(%%rbx)			\n\t"\
 		"													movaps		%%xmm8 ,0xe0(%%rbx)			\n\t"\
-													/* DEBUG: Dump output-register contents back into corresponding local-store slots: */\
-													"movaps	%%xmm13,0x0f0(%%rax)	\n\t"\
-													"movaps	%%xmm12,0x0e0(%%rax)	\n\t"\
-													"movaps	%%xmm14,0x1f0(%%rax)	\n\t"\
-													"movaps	%%xmm8 ,0x1e0(%%rax)	\n\t"\
 		:					/* outputs: none */\
 		: [__add0] "m" (Xadd0)	/* All inputs from memory addresses here */\
 		 ,[__add1] "m" (Xadd1)\

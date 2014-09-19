@@ -19,7 +19,17 @@
 *  02111-1307, USA.                                                            *
 *                                                                              *
 *******************************************************************************/
+#if 0
+COMPILER BUG NOTE: If encounter errors of the following kinds:
+clang:
+	fatal error: error in backend: Ran out of registers during register allocation!
+	Please check your inline asm statement for invalid constraints:
+gcc:
+	error: cannot find a register in class ‘GENERAL_REGS’ while reloading ‘asm’
+	error: ‘asm’ operand has impossible constraints
 
+Check the compile optimization level - If 0, try upping to at east -O1.
+#endif
 /*******************************************************************************
    We now include this header file if it was not included before.
 *******************************************************************************/
@@ -31,6 +41,962 @@
 	/*************************************************************/
 	/**************** FERMAT  -MOD CARRY MACROS ******************/
 	/*************************************************************/
+
+#ifdef USE_AVX
+
+/*
+Use MOVUPD (or 1-byte-shorter MOVUPS) in legacy 128-bit SSE form to load 2 doubles into lo128 without touching hi128;
+Thus can do MOVUPD m128,xmm1 to fill lo128 of ymm1, then fill hi128 from xmm2/m128 via (with imm8 = 1):
+
+	VINSERTF128 imm8,src2[xmm/m128],src1[ymm1],dest[ymm2]:
+	imm8 = 0: dest.lo128 = src2, dest.hi128 = src1.hi128
+	imm8 = 1: dest.lo128 = src1.lo128, dest.hi128 = src2
+
+Once have 4 dcomplex roots loaded into 2 ymm as
+ymm0.lo,hi = [c0,s0,c2,s2]
+ymm1.lo,hi = [c1,s1,c3,s3]
+Then interleave via
+
+vunpcklpd ymm0,ymm1,ymmA
+vunpckhpd ymm0,ymm1,ymmB
+
+to get
+
+ymmA = [c0,c1,c2,c3]
+ymmB = [s0,s1,s2,s3]
+
+Similarly for table2 [ = rn1 ] roots to get:
+
+ymmC = [x0,x1,x2,x3]
+ymmD = [y0,y1,y2,y3]
+
+then do CMUL:
+
+vmulpd	ymmA,ymmD,ymmE	// ymmE = c.y
+vmulpd	ymmA,ymmC,ymmA	// ymmA = c.x
+
+vmulpd	ymmB,ymmC,ymmC	// ymmC = s.x
+vmulpd	ymmB,ymmD,ymmD	// ymmD = s.y
+
+vsubpd	ymmA,ymmD,ymmA	// ymmA = c.x - s.y; ymmD free
+vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
+*/
+
+	/* Power-of-2-runlength Fermat-mod acyclic-transform/IBDWT carry macro.
+
+	NOTE: The array indices i/j/k/lcycle declared int in caller but assumed to have been
+	byte-shift-converted at time this macro called, thus can use as complex-address-offsets.
+	*/
+	#define SSE2_fermat_carry_norm_pow2_errcheck_X4(Xdata,Xbase_root,Xcmul_offset,Xcy_re,Xcy_im,Xhalf_arr,Xsign_mask)\
+	{\
+	__asm__ volatile (\
+		/* Base negacyclic roots at this address in [0,2,4,6]*0x20 (Re parts), [1,3,5,7]*0x20 (Imag parts) */\
+		"movq	%[__base_root] ,%%rax			\n\t"	/* Won't need main-array again until output transpose, so re-use rax for base_root */\
+		"movslq	%[__cmul_offset],%%rbx			\n\t"\
+		"addq	%%rax,%%rbx	\n\t"	/* Index into complex const multipliers block, each applied to 4 sets of base roots */\
+		/* Up-multiply quartet of negacyclic roots used in this macro invocation; store sets 2-4 back into mem, keep set 1 in ymm10,11 [that's why we do sets 1/2 after 3/4] */\
+		"vmovaps	    (%%rbx),%%ymm10		\n\t	"	/* Multiply by exp(j*I*Pi/2)/RADIX, for j = 0-3 */\
+		"vmovaps	0x20(%%rbx),%%ymm11		\n\t	"	/* c = Re(exp) in ymm0, s = Im(exp) in ymm1 */\
+		"/* Sets 3/4: */"\
+		"vmovaps	 0x80(%%rax),%%ymm0		\n\t	vmovaps	 0xc0(%%rax),%%ymm2			\n\t"	\
+		"vmovaps	 0xa0(%%rax),%%ymm1		\n\t	vmovaps	 0xe0(%%rax),%%ymm3			\n\t"	\
+		"vmovaps	%%ymm0,%%ymm4			\n\t	vmovaps		%%ymm2,%%ymm6			\n\t"	\
+		"vmovaps	%%ymm1,%%ymm5			\n\t	vmovaps		%%ymm3,%%ymm7			\n\t"	\
+		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	\
+		"vmulpd		%%ymm11,%%ymm5,%%ymm5	\n\t	vmulpd		%%ymm11,%%ymm7,%%ymm7	\n\t"	\
+		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t	vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	\
+		"vmulpd		%%ymm11,%%ymm4,%%ymm4	\n\t	vmulpd		%%ymm11,%%ymm6,%%ymm6	\n\t"	\
+		"vsubpd		%%ymm5 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm7 ,%%ymm2,%%ymm2	\n\t"	\
+		"vaddpd		%%ymm4 ,%%ymm1,%%ymm1	\n\t	vaddpd		%%ymm6 ,%%ymm3,%%ymm3	\n\t"	\
+		"vmovaps	%%ymm0 ,0x80(%%rax)		\n\t	vmovaps		%%ymm2 ,0xc0(%%rax)		\n\t"	/* Store result, overwriting input base root */\
+		"vmovaps	%%ymm1 ,0xa0(%%rax)		\n\t	vmovaps		%%ymm3 ,0xe0(%%rax)		\n\t"	/* Im part */\
+		"/* Sets 1/2: */"\
+		"vmovaps	     (%%rax),%%ymm0		\n\t	vmovaps	 0x40(%%rax),%%ymm2			\n\t"	/* x = Re part of 1st base-root quartet */\
+		"vmovaps	 0x20(%%rax),%%ymm1		\n\t	vmovaps	 0x60(%%rax),%%ymm3			\n\t"	/* y = Im part */\
+		"vmovaps	%%ymm0,%%ymm4			\n\t	vmovaps		%%ymm2,%%ymm6			\n\t"	/* Copy x */\
+		"vmovaps	%%ymm1,%%ymm5			\n\t	vmovaps		%%ymm3,%%ymm7			\n\t"	/* Copy y */\
+		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	/* c.x */\
+		"vmulpd		%%ymm11,%%ymm5,%%ymm5	\n\t	vmulpd		%%ymm11,%%ymm7,%%ymm7	\n\t"	/* s.y */\
+		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t	vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	/* c.y */\
+		"vmulpd		%%ymm11,%%ymm4,%%ymm4	\n\t	vmulpd		%%ymm11,%%ymm6,%%ymm6	\n\t"	/* s.x */\
+		"vsubpd		%%ymm5 ,%%ymm0,%%ymm10	\n\t	vsubpd		%%ymm7 ,%%ymm2,%%ymm2	\n\t"	/* Out.re = c.x - s.y */\
+		"vaddpd		%%ymm4 ,%%ymm1,%%ymm11	\n\t	vaddpd		%%ymm6 ,%%ymm3,%%ymm3	\n\t"	/* Out.im = c.y + s.x */\
+		"											vmovaps		%%ymm2 ,0x40(%%rax)		\n\t"	/* Store result, overwriting input base root */\
+		"											vmovaps		%%ymm3 ,0x60(%%rax)		\n\t"	/* Im part */\
+		"movq		%[__data],%%rax		\n\t"\
+		"movq		%[__half_arr],%%rdx		\n\t"\
+		"vmovaps	0x40(%%rdx),%%ymm12	\n\t"	/* XMM12 = scale */\
+	/* 4-way transpose of inputs (Re, Im parts separately): Inputs from r0/1,2/3,4/5.6/7. Outputs into ymm0-7: */\
+	/* Real parts use ymm0,2,4,6, ymm8 as tmp-reg:					Imag parts use ymm1,3,5,7, ymm9 as tm-reg: */\
+		"vmovaps	     (%%rax),%%ymm4						\n\t		vmovaps	0x020(%%rax),%%ymm5							\n\t"\
+		"vmovaps	0x040(%%rax),%%ymm2						\n\t		vmovaps	0x060(%%rax),%%ymm3							\n\t"\
+		"vshufpd	$15,%%ymm2,%%ymm4,%%ymm6				\n\t		vshufpd	$15,%%ymm3,%%ymm5,%%ymm7					\n\t"\
+		"vshufpd	$0 ,%%ymm2,%%ymm4,%%ymm4				\n\t		vshufpd	$0 ,%%ymm3,%%ymm5,%%ymm5					\n\t"\
+		"vmovaps	0x080(%%rax),%%ymm8						\n\t		vmovaps	0x0a0(%%rax),%%ymm9							\n\t"\
+		"vmovaps	0x0c0(%%rax),%%ymm2						\n\t		vmovaps	0x0e0(%%rax),%%ymm3							\n\t"\
+		"vshufpd	$15,%%ymm2,%%ymm8,%%ymm0				\n\t		vshufpd	$15,%%ymm3,%%ymm9,%%ymm1					\n\t"\
+		"vshufpd	$0 ,%%ymm2,%%ymm8,%%ymm8				\n\t		vshufpd	$0 ,%%ymm3,%%ymm9,%%ymm9					\n\t"\
+		"vperm2f128 $32,%%ymm0,%%ymm6,%%ymm2	/* Re B	*/	\n\t		vperm2f128 $32,%%ymm1,%%ymm7,%%ymm3		/* Im B	*/	\n\t"\
+		"vperm2f128 $49,%%ymm0,%%ymm6,%%ymm6	/* Re D	*/	\n\t		vperm2f128 $49,%%ymm1,%%ymm7,%%ymm7		/* Im D	*/	\n\t"\
+		"vperm2f128 $32,%%ymm8,%%ymm4,%%ymm0	/* Re A	*/	\n\t		vperm2f128 $32,%%ymm9,%%ymm5,%%ymm1 	/* Im A	*/	\n\t"\
+		"vperm2f128 $49,%%ymm8,%%ymm4,%%ymm4	/* Re C	*/	\n\t		vperm2f128 $49,%%ymm9,%%ymm5,%%ymm5 	/* Im C	*/	\n\t"\
+	/* Apply inverse-complex-runlength scaling factor to the data: */\
+		"vmulpd		%%ymm12,%%ymm2,%%ymm2					\n\t		vmulpd		%%ymm12,%%ymm3,%%ymm3	\n\t"\
+		"vmulpd		%%ymm12,%%ymm6,%%ymm6					\n\t		vmulpd		%%ymm12,%%ymm7,%%ymm7	\n\t"\
+		"vmulpd		%%ymm12,%%ymm0,%%ymm0					\n\t		vmulpd		%%ymm12,%%ymm1,%%ymm1	\n\t"\
+		"vmulpd		%%ymm12,%%ymm4,%%ymm4					\n\t		vmulpd		%%ymm12,%%ymm5,%%ymm5	\n\t"\
+		/* Base negacyclic roots at this address in [0,2,4,6]*0x20 (Re parts), [1,3,5,7]*0x20 (Imag parts) */\
+		"movq	%[__base_root] ,%%rax		\n\t"	/* Won't need main-array again until output transpose, so re-use rax for base_root */\
+		/* half_arr[0,1,2,3] = [base*2, baseinv*2,wt_re*2,wt_im*2] */\
+		"vmovaps	-0x40(%%rdx),%%ymm13	\n\t"	/* XMM13 = maxerr */\
+		"/*vmovaps	-0x20(%%rdx),%%ymm15	*/\n\t"	/* rnd_const; prefer ROUNDPD in AVX mode, so ymm15 free */\
+		"vmovaps	%%ymm13,%%ymm14			\n\t"	/* maxerr copy */\
+		"movq		%[__cy_re],%%rbx		\n\t"\
+		"movq		%[__cy_im],%%rcx		\n\t"\
+	/* Do a-quartet: Data in ymm0,ymm1 */\
+		/* For a-quartet, needed negacyclic root already in ymm10/11: */\
+		/* Data in ymm0,ymm1 */\
+		"vmovaps	%%ymm0,%%ymm8			\n\t"	/* x copy */\
+		"vmovaps	%%ymm1,%%ymm9			\n\t"	/* y copy */\
+		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
+		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vaddpd		%%ymm9 ,%%ymm0,%%ymm0	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
+		"vsubpd		%%ymm8 ,%%ymm1,%%ymm1	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
+		/* normalize a-pair, compute carryout, compute ROE: */\
+		"vaddpd		(%%rbx),%%ymm0,%%ymm0	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
+		"vaddpd		(%%rcx),%%ymm1,%%ymm1	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
+		"vmovaps	%%ymm0,%%ymm8			\n\t	vmovaps		%%ymm1,%%ymm9		\n\t"	/* copy x|y */\
+		"vroundpd	$0,%%ymm0,%%ymm0		\n\t	vroundpd	$0,%%ymm1,%%ymm1	\n\t"	/* temp = DNINT(x|y) */\
+		"movq		%[__sign_mask],%%rsi	\n\t"\
+		"vmovaps	0x20(%%rdx),%%ymm12	\n\t"	/* [baseinv0-3] */\
+		"vsubpd		%%ymm0 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm1 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
+		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
+		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
+		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"	/* cpy temp */\
+		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
+		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
+		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
+		"vmovaps	(%%rdx),%%ymm12	\n\t"	/* [base0-3] */\
+		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"	/* store [cy0-3.re|im] */\
+		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
+		"vsubpd		%%ymm8 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm9 ,%%ymm1,%%ymm1	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"	/* cpy x|y */\
+		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
+		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vsubpd		%%ymm9 ,%%ymm0,%%ymm0	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
+		"vaddpd		%%ymm8 ,%%ymm1,%%ymm1	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
+	/* Now do b-quartet: Data in ymm2,ymm3 */\
+		"vmovaps	%%ymm14,%%ymm13			\n\t"	/* maxerr copy */\
+		/* Get next set of negacyclic roots: */\
+		"vmovaps	0x40(%%rax),%%ymm10		\n\t"	/* c = Re part of 2nd base-root quartet */\
+		"vmovaps	0x60(%%rax),%%ymm11		\n\t"	/* s = Im part */\
+		/* Data in ymm2,ymm3 */\
+		"vmovaps	%%ymm2,%%ymm8			\n\t"	/* x copy */\
+		"vmovaps	%%ymm3,%%ymm9			\n\t"	/* y copy */\
+		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
+		"vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vaddpd		%%ymm9 ,%%ymm2,%%ymm2	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
+		"vsubpd		%%ymm8 ,%%ymm3,%%ymm3	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
+		/* normalize, compute carryout, compute ROE: */\
+		"vaddpd		(%%rbx),%%ymm2,%%ymm2	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
+		"vaddpd		(%%rcx),%%ymm3,%%ymm3	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
+		"vmovaps	%%ymm2,%%ymm8			\n\t	vmovaps		%%ymm3,%%ymm9		\n\t"	/* copy x|y */\
+		"vroundpd	$0,%%ymm2,%%ymm2		\n\t	vroundpd	$0,%%ymm3,%%ymm3	\n\t"	/* temp = DNINT(x|y) */\
+		"vmovaps	0x20(%%rdx),%%ymm12	\n\t"	/* [baseinv0-3] */\
+		"vsubpd		%%ymm2 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm3 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
+		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
+		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
+		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"	/* cpy temp */\
+		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
+		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
+		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
+		"vmovaps	(%%rdx),%%ymm12	\n\t"	/* [base0-3] */\
+		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"	/* store [cy0-3.re|im] */\
+		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
+		"vsubpd		%%ymm8 ,%%ymm2,%%ymm2	\n\t	vsubpd		%%ymm9 ,%%ymm3,%%ymm3	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"	/* cpy x|y */\
+		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
+		"vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vsubpd		%%ymm9 ,%%ymm2,%%ymm2	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
+		"vaddpd		%%ymm8 ,%%ymm3,%%ymm3	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
+	/* Now do c-quartet: Data in ymm4,ymm5 */\
+		"vmovaps	%%ymm14,%%ymm13			\n\t"	/* maxerr copy */\
+		/* Get next set of negacyclic roots: */\
+		"vmovaps	0x80(%%rax),%%ymm10		\n\t"	/* c = Re part of 3rd base-root quartet */\
+		"vmovaps	0xa0(%%rax),%%ymm11		\n\t"	/* s = Im part */\
+		/* Data in ymm4,ymm5 */\
+		"vmovaps	%%ymm4,%%ymm8			\n\t"	/* x copy */\
+		"vmovaps	%%ymm5,%%ymm9			\n\t"	/* y copy */\
+		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
+		"vmulpd		%%ymm10,%%ymm4,%%ymm4	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm5,%%ymm5	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vaddpd		%%ymm9 ,%%ymm4,%%ymm4	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
+		"vsubpd		%%ymm8 ,%%ymm5,%%ymm5	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
+		/* normalize, compute carryout, compute ROE: */\
+		"vaddpd		(%%rbx),%%ymm4,%%ymm4	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
+		"vaddpd		(%%rcx),%%ymm5,%%ymm5	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
+		"vmovaps	%%ymm4,%%ymm8			\n\t	vmovaps		%%ymm5,%%ymm9		\n\t"	/* copy x|y */\
+		"vroundpd	$0,%%ymm4,%%ymm4		\n\t	vroundpd	$0,%%ymm5,%%ymm5	\n\t"	/* temp = DNINT(x|y) */\
+		"vmovaps	0x20(%%rdx),%%ymm12	\n\t"	/* [baseinv0-3] */\
+		"vsubpd		%%ymm4 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm5 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
+		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
+		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
+		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"	/* cpy temp */\
+		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
+		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
+		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
+		"vmovaps	(%%rdx),%%ymm12	\n\t"	/* [base0-3] */\
+		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"	/* store [cy0-3.re|im] */\
+		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
+		"vsubpd		%%ymm8 ,%%ymm4,%%ymm4	\n\t	vsubpd		%%ymm9 ,%%ymm5,%%ymm5	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"	/* cpy x|y */\
+		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
+		"vmulpd		%%ymm10,%%ymm4,%%ymm4	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm5,%%ymm5	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vsubpd		%%ymm9 ,%%ymm4,%%ymm4	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
+		"vaddpd		%%ymm8 ,%%ymm5,%%ymm5	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
+	/* Now do d-quartet: Data in ymm6,ymm7 */\
+		"vmovaps	%%ymm14,%%ymm13			\n\t"	/* maxerr copy */\
+		/* Get next set of negacyclic roots: */\
+		"vmovaps	0xc0(%%rax),%%ymm10		\n\t"	/* c = Re part of 4th base-root quartet */\
+		"vmovaps	0xe0(%%rax),%%ymm11		\n\t"	/* s = Im part */\
+		/* Data in ymm6,ymm7 */\
+		"vmovaps	%%ymm6,%%ymm8			\n\t"	/* x copy */\
+		"vmovaps	%%ymm7,%%ymm9			\n\t"	/* y copy */\
+		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
+		"vmulpd		%%ymm10,%%ymm6,%%ymm6	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm7,%%ymm7	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vaddpd		%%ymm9 ,%%ymm6,%%ymm6	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
+		"vsubpd		%%ymm8 ,%%ymm7,%%ymm7	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
+		/* normalize, compute carryout, compute ROE: */\
+		"vaddpd		(%%rbx),%%ymm6,%%ymm6	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
+		"vaddpd		(%%rcx),%%ymm7,%%ymm7	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
+		"vmovaps	%%ymm6,%%ymm8			\n\t	vmovaps		%%ymm7,%%ymm9		\n\t"	/* copy x|y */\
+		"vroundpd	$0,%%ymm6,%%ymm6		\n\t	vroundpd	$0,%%ymm7,%%ymm7	\n\t"	/* temp = DNINT(x|y) */\
+		"vmovaps	0x20(%%rdx),%%ymm12	\n\t"	/* [baseinv0-3] */\
+		"vsubpd		%%ymm6 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm7 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
+		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
+		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
+		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"	/* cpy temp */\
+		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
+		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
+		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
+		"vmovaps	(%%rdx),%%ymm12	\n\t"	/* [base0-3] */\
+		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"	/* store [cy0-3.re|im] */\
+		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
+		"vsubpd		%%ymm8 ,%%ymm6,%%ymm6	\n\t	vsubpd		%%ymm9 ,%%ymm7,%%ymm7	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"	/* cpy x|y */\
+		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
+		"vmulpd		%%ymm10,%%ymm6,%%ymm6	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm7,%%ymm7	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vsubpd		%%ymm9 ,%%ymm6,%%ymm6	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
+		"vaddpd		%%ymm8 ,%%ymm7,%%ymm7	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
+		/* Store maxerr: */\
+		"movq		%[__half_arr],%%rdx		\n\t"\
+		"vmovaps	%%ymm14,-0x40(%%rdx)	\n\t"\
+	/* 4-way transpose of outputs (Re, Im parts separately): Inputs from ymm0-7. Outputs into r0/1,2/3,4/5.6/7: */	\
+	/* Because default inputs for our 4 x 4 transpose macro (e.g. the one used at start of this carry macro) */\
+	/* are into ymm4/2/8/2, munge inputs into that order, resolving name-conflicts via use of the now-available ymm8-15 for outputs: */\
+		"movq		%[__data],%%rax			\n\t"\
+		"vshufpd	$15,%%ymm2,%%ymm0,%%ymm10					\n\t		vshufpd	$15,%%ymm3,%%ymm1,%%ymm11						\n\t"\
+		"vshufpd	$0 ,%%ymm2,%%ymm0,%%ymm0					\n\t		vshufpd	$0 ,%%ymm3,%%ymm1,%%ymm1						\n\t"\
+		"vshufpd	$15,%%ymm6,%%ymm4,%%ymm12					\n\t		vshufpd	$15,%%ymm7,%%ymm5,%%ymm13						\n\t"\
+		"vshufpd	$0 ,%%ymm6,%%ymm4,%%ymm4					\n\t		vshufpd	$0 ,%%ymm7,%%ymm5,%%ymm5						\n\t"\
+		"vperm2f128 $32,%%ymm12,%%ymm10,%%ymm2 		/* Re B	*/	\n\t		vperm2f128 $32,%%ymm13,%%ymm11,%%ymm3		/* Im B	*/	\n\t"\
+		"vperm2f128 $49,%%ymm12,%%ymm10,%%ymm10		/* Re D	*/	\n\t		vperm2f128 $49,%%ymm13,%%ymm11,%%ymm11		/* Im D	*/	\n\t"\
+		"vperm2f128 $32,%%ymm4 ,%%ymm0 ,%%ymm12		/* Re A	*/	\n\t		vperm2f128 $32,%%ymm5 ,%%ymm1 ,%%ymm13 		/* Im A	*/	\n\t"\
+		"vperm2f128 $49,%%ymm4 ,%%ymm0 ,%%ymm0 		/* Re C	*/	\n\t		vperm2f128 $49,%%ymm5 ,%%ymm1 ,%%ymm1		/* Im C	*/	\n\t"\
+		/* And write 'em back to memory: */\
+		"vmovaps	%%ymm12,     (%%rax)						\n\t		vmovaps	%%ymm13,0x020(%%rax)				\n\t"\
+		"vmovaps	%%ymm2 ,0x040(%%rax)						\n\t		vmovaps	%%ymm3 ,0x060(%%rax)				\n\t"\
+		"vmovaps	%%ymm0 ,0x080(%%rax)						\n\t		vmovaps	%%ymm1 ,0x0a0(%%rax)				\n\t"\
+		"vmovaps	%%ymm10,0x0c0(%%rax)						\n\t		vmovaps	%%ymm11,0x0e0(%%rax)				\n\t"\
+		:						/* outputs: none */\
+		:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
+		,	[__base_root]	"m" (Xbase_root)\
+		,	[__cmul_offset] "m" (Xcmul_offset)\
+		,	[__cy_re]		"m" (Xcy_re)\
+		,	[__cy_im]		"m" (Xcy_im)\
+		,	[__half_arr]	"m" (Xhalf_arr)\
+		,	[__sign_mask]	"m" (Xsign_mask)\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14"	/* Clobbered registers */\
+	);\
+	}
+
+	/* Non-power-of-2-runlength Fermat-mod acyclic-transform/IBDWT carry macro.
+
+	Key differences vs pow2 version:
+	- Use odd_radix as index offset into local storage for IBDWT weights and variable base/baseinv terms;
+	- Apply inv/fwd IBDWT weights bookending the negacyclic weights;
+	- Value of base/baseinv to be applied to output taken from odd_radix-length array, using same index as for selecting IBDWT weight.
+	
+	The array indices i/j/k/lcycle declared int in caller but assumed to have been byte-shift-converted at time this macro called,
+	thus can use as complex-address-offsets.  Use bytewise literal offsets to save registers for several args here,as vvv-marked:
+												                                           vvvvv The [1,2,3]-multiples of odd_radix assumed << l2_sz_vd on input */
+	#define SSE2_fermat_carry_norm_errcheck_X4_hiacc(Xdata,Xbase_root,Xcmul_offset,Xcy_re,Xcy_im,Xodd_radix,Xodd_radm2,Xodd_radm3,Xhalf_arr,Xsign_mask,XicycleA,XicycleB,XicycleC,XicycleD, XjcycleA,XkcycleA,XlcycleA)\
+	{\
+	__asm__ volatile (\
+		/* Base negacyclic roots at this address in [0,2,4,6]*0x20 (Re parts), [1,3,5,7]*0x20 (Imag parts) */\
+		"movq	%[__base_root]  ,%%rax			\n\t"	/* Won't need main-array again until output transpose, so re-use rax for base_root */\
+		"movslq	%[__cmul_offset],%%rbx			\n\t"\
+		"addq	%%rax,%%rbx	\n\t"	/* Index into complex const multipliers block, each applied to 4 sets of base roots */\
+		/* Up-multiply quartet of negacyclic roots used in this macro invocation; store sets 2-4 back into mem, keep set 1 in ymm10,11 [that's why we do sets 1/2 after 3/4] */\
+		"vmovaps	    (%%rbx),%%ymm10		\n\t	"	/* Multiply by exp(j*I*Pi/2)/RADIX, for j = 0-3 */\
+		"vmovaps	0x20(%%rbx),%%ymm11		\n\t	"	/* c = Re(exp) in ymm0, s = Im(exp) in ymm1 */\
+		"/* Sets 3/4: */"\
+		"vmovaps	 0x80(%%rax),%%ymm0		\n\t	vmovaps	 0xc0(%%rax),%%ymm2			\n\t"	\
+		"vmovaps	 0xa0(%%rax),%%ymm1		\n\t	vmovaps	 0xe0(%%rax),%%ymm3			\n\t"	\
+		"vmovaps	%%ymm0,%%ymm4			\n\t	vmovaps		%%ymm2,%%ymm6			\n\t"	\
+		"vmovaps	%%ymm1,%%ymm5			\n\t	vmovaps		%%ymm3,%%ymm7			\n\t"	\
+		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	\
+		"vmulpd		%%ymm11,%%ymm5,%%ymm5	\n\t	vmulpd		%%ymm11,%%ymm7,%%ymm7	\n\t"	\
+		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t	vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	\
+		"vmulpd		%%ymm11,%%ymm4,%%ymm4	\n\t	vmulpd		%%ymm11,%%ymm6,%%ymm6	\n\t"	\
+		"vsubpd		%%ymm5 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm7 ,%%ymm2,%%ymm2	\n\t"	\
+		"vaddpd		%%ymm4 ,%%ymm1,%%ymm1	\n\t	vaddpd		%%ymm6 ,%%ymm3,%%ymm3	\n\t"	\
+		"vmovaps	%%ymm0 ,0x80(%%rax)		\n\t	vmovaps		%%ymm2 ,0xc0(%%rax)		\n\t"	/* Store result, overwriting input base root */\
+		"vmovaps	%%ymm1 ,0xa0(%%rax)		\n\t	vmovaps		%%ymm3 ,0xe0(%%rax)		\n\t"	/* Im part */\
+		"/* Sets 1/2: */"\
+		"vmovaps	     (%%rax),%%ymm0		\n\t	vmovaps	 0x40(%%rax),%%ymm2			\n\t"	/* x = Re part of 1st base-root quartet */\
+		"vmovaps	 0x20(%%rax),%%ymm1		\n\t	vmovaps	 0x60(%%rax),%%ymm3			\n\t"	/* y = Im part */\
+		"vmovaps	%%ymm0,%%ymm4			\n\t	vmovaps		%%ymm2,%%ymm6			\n\t"	/* Copy x */\
+		"vmovaps	%%ymm1,%%ymm5			\n\t	vmovaps		%%ymm3,%%ymm7			\n\t"	/* Copy y */\
+		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	/* c.x */\
+		"vmulpd		%%ymm11,%%ymm5,%%ymm5	\n\t	vmulpd		%%ymm11,%%ymm7,%%ymm7	\n\t"	/* s.y */\
+		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t	vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	/* c.y */\
+		"vmulpd		%%ymm11,%%ymm4,%%ymm4	\n\t	vmulpd		%%ymm11,%%ymm6,%%ymm6	\n\t"	/* s.x */\
+		"vsubpd		%%ymm5 ,%%ymm0,%%ymm10	\n\t	vsubpd		%%ymm7 ,%%ymm2,%%ymm2	\n\t"	/* Out.re = c.x - s.y */\
+		"vaddpd		%%ymm4 ,%%ymm1,%%ymm11	\n\t	vaddpd		%%ymm6 ,%%ymm3,%%ymm3	\n\t"	/* Out.im = c.y + s.x */\
+		"											vmovaps		%%ymm2 ,0x40(%%rax)		\n\t"	/* Store result, overwriting input base root */\
+		"											vmovaps		%%ymm3 ,0x60(%%rax)		\n\t"	/* Im part */\
+		"movq		%[__data],%%rax		\n\t"\
+		"movq		%[__half_arr],%%rdx		\n\t"\
+		"addq		$%c[__odd_radix],%%rdx				\n\t"	/* wt|wtinv|base|baseinv data offset by icycle array slots from resp. base addresses */\
+		/* Multiply complex transform outputs [x,y] = [re,im] by inverse IBDWT weights, which include the 2/n scale factor: */\
+		"movslq		%[__icycleA],%%rdi		\n\t"	\
+		"movslq		%[__icycleB],%%r9 		\n\t"	\
+		"movslq		%[__icycleC],%%r8 		\n\t"	\
+		"movslq		%[__icycleD],%%r10		\n\t"	\
+		"vmovaps	(%%rdx,%%rdi),%%ymm12	\n\t"	/* [wtinv0-3]A */\
+		"vmovaps	(%%rdx,%%r9 ),%%ymm13	\n\t"	/* [wtinv0-3]B */\
+		"vmovaps	(%%rdx,%%r8 ),%%ymm14	\n\t"	/* [wtinv0-3]C */\
+		"vmovaps	(%%rdx,%%r10),%%ymm15	\n\t"	/* [wtinv0-3]D */\
+	/* 4-way transpose of inputs (Re, Im parts separately): Inputs from r0/1,2/3,4/5.6/7. Outputs into ymm0-7: */\
+	/* Real parts use ymm0,2,4,6, ymm8 as tmp-reg:					Imag parts use ymm1,3,5,7, ymm9 as tm-reg: */\
+		"vmovaps	     (%%rax),%%ymm4						\n\t		vmovaps	0x020(%%rax),%%ymm5							\n\t"\
+		"vmovaps	0x040(%%rax),%%ymm2						\n\t		vmovaps	0x060(%%rax),%%ymm3							\n\t"\
+		"vmulpd		%%ymm12,%%ymm4,%%ymm4					\n\t		vmulpd		%%ymm12,%%ymm5,%%ymm5					\n\t"\
+		"vmulpd		%%ymm13,%%ymm2,%%ymm2					\n\t		vmulpd		%%ymm13,%%ymm3,%%ymm3					\n\t"\
+		"vshufpd	$15,%%ymm2,%%ymm4,%%ymm6				\n\t		vshufpd	$15,%%ymm3,%%ymm5,%%ymm7					\n\t"\
+		"vshufpd	$0 ,%%ymm2,%%ymm4,%%ymm4				\n\t		vshufpd	$0 ,%%ymm3,%%ymm5,%%ymm5					\n\t"\
+		"vmovaps	0x080(%%rax),%%ymm8						\n\t		vmovaps	0x0a0(%%rax),%%ymm9							\n\t"\
+		"vmovaps	0x0c0(%%rax),%%ymm2						\n\t		vmovaps	0x0e0(%%rax),%%ymm3							\n\t"\
+		"vmulpd		%%ymm14,%%ymm8,%%ymm8					\n\t		vmulpd		%%ymm14,%%ymm9,%%ymm9					\n\t"\
+		"vmulpd		%%ymm15,%%ymm2,%%ymm2					\n\t		vmulpd		%%ymm15,%%ymm3,%%ymm3					\n\t"\
+		"vshufpd	$15,%%ymm2,%%ymm8,%%ymm0				\n\t		vshufpd	$15,%%ymm3,%%ymm9,%%ymm1					\n\t"\
+		"vshufpd	$0 ,%%ymm2,%%ymm8,%%ymm8				\n\t		vshufpd	$0 ,%%ymm3,%%ymm9,%%ymm9					\n\t"\
+		"vperm2f128 $32,%%ymm0,%%ymm6,%%ymm2	/* Re B	*/	\n\t		vperm2f128 $32,%%ymm1,%%ymm7,%%ymm3		/* Im B	*/	\n\t"\
+		"vperm2f128 $49,%%ymm0,%%ymm6,%%ymm6	/* Re D	*/	\n\t		vperm2f128 $49,%%ymm1,%%ymm7,%%ymm7		/* Im D	*/	\n\t"\
+		"vperm2f128 $32,%%ymm8,%%ymm4,%%ymm0	/* Re A	*/	\n\t		vperm2f128 $32,%%ymm9,%%ymm5,%%ymm1 	/* Im A	*/	\n\t"\
+		"vperm2f128 $49,%%ymm8,%%ymm4,%%ymm4	/* Re C	*/	\n\t		vperm2f128 $49,%%ymm9,%%ymm5,%%ymm5 	/* Im C	*/	\n\t"\
+		"subq		$%c[__odd_radix],%%rdx				\n\t"\
+		/* Base negacyclic roots at this address in [0,2,4,6]*0x20 (Re parts), [1,3,5,7]*0x20 (Imag parts) */\
+		"movq		%[__sign_mask],%%rax	\n\t"\
+		"vmovaps	(%%rax),%%ymm15	\n\t"	/* ymm15 free for rest of way; use to store sign_mask needed for floating ABS */\
+		"movq	%[__base_root] ,%%rax		\n\t"	/* Won't need main-array again until output transpose, so re-use rax for base_root */\
+		/* half_arr[0,1,2,3] = [base*2, baseinv*2,wt_re*2,wt_im*2] */\
+		"vmovaps	-0x40(%%rdx),%%ymm13	\n\t"	/* XMM13 = maxerr */\
+		"addq		%%rdi,%%rdx				\n\t"	/* icycle assumed already in left-shifted ptr-byte-offset form */\
+		"vmovaps	%%ymm13,%%ymm14			\n\t"	/* maxerr copy */\
+		"movq		%[__cy_re],%%rbx		\n\t"\
+	/* Do a-quartet: Data in ymm0,ymm1 */\
+		/* For a-quartet, needed negacyclic root already in ymm10/11: */\
+		/* Data in ymm0,ymm1 */\
+		"vmovaps	%%ymm0,%%ymm8			\n\t"	/* x copy */\
+		"vmovaps	%%ymm1,%%ymm9			\n\t"	/* y copy */\
+		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
+		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vaddpd		%%ymm9 ,%%ymm0,%%ymm0	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
+		"vsubpd		%%ymm8 ,%%ymm1,%%ymm1	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
+		/* normalize a-pair, compute carryout, compute ROE: */\
+		"vaddpd		           (%%rbx),%%ymm0,%%ymm0	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
+		"vaddpd		%c[__cy_im](%%rbx),%%ymm1,%%ymm1	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
+		"vmovaps	%%ymm0,%%ymm8			\n\t	vmovaps		%%ymm1,%%ymm9		\n\t"	/* copy x|y */\
+		"vroundpd	$0,%%ymm0,%%ymm0		\n\t	vroundpd	$0,%%ymm1,%%ymm1	\n\t"	/* temp = DNINT(x|y) */\
+		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"	/* [baseinv0-3] */\
+		"vsubpd		%%ymm0 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm1 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
+		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
+		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
+		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"	/* cpy temp */\
+		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
+		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
+		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
+		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm12	\n\t"	/* [base0-3] */\
+		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"	/* store [cy0-3.re|im] */\
+		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
+		"vsubpd		%%ymm8 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm9 ,%%ymm1,%%ymm1	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"	/* cpy x|y */\
+		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
+		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vsubpd		%%ymm9 ,%%ymm0,%%ymm0	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
+		"vaddpd		%%ymm8 ,%%ymm1,%%ymm1	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
+	/* Now do b-quartet: Data in ymm2,ymm3 */\
+		"movq		%[__half_arr],%%rdx		\n\t"\
+		"vmovaps	%%ymm14,%%ymm13			\n\t"	/* maxerr copy */\
+		"movslq		%[__jcycleA],%%rdi		\n\t"\
+		"addq		%%rdi,%%rdx				\n\t"	/* jcycle assumed already in left-shifted ptr-byte-offset form */\
+		/* Get next set of negacyclic roots: */\
+		"vmovaps	0x40(%%rax),%%ymm10		\n\t"	/* c = Re part of 2nd base-root quartet */\
+		"vmovaps	0x60(%%rax),%%ymm11		\n\t"	/* s = Im part */\
+		/* Data in ymm2,ymm3 */\
+		"vmovaps	%%ymm2,%%ymm8			\n\t"	/* x copy */\
+		"vmovaps	%%ymm3,%%ymm9			\n\t"	/* y copy */\
+		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
+		"vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vaddpd		%%ymm9 ,%%ymm2,%%ymm2	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
+		"vsubpd		%%ymm8 ,%%ymm3,%%ymm3	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
+		/* normalize, compute carryout, compute ROE: */\
+		"vaddpd		           (%%rbx),%%ymm2,%%ymm2	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
+		"vaddpd		%c[__cy_im](%%rbx),%%ymm3,%%ymm3	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
+		"vmovaps	%%ymm2,%%ymm8			\n\t	vmovaps		%%ymm3,%%ymm9		\n\t"	/* copy x|y */\
+		"vroundpd	$0,%%ymm2,%%ymm2		\n\t	vroundpd	$0,%%ymm3,%%ymm3	\n\t"	/* temp = DNINT(x|y) */\
+		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"	/* [baseinv0-3] */\
+		"vsubpd		%%ymm2 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm3 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
+		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
+		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
+		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"	/* cpy temp */\
+		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
+		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
+		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
+		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm12	\n\t"	/* [base0-3] */\
+		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"	/* store [cy0-3.re|im] */\
+		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
+		"vsubpd		%%ymm8 ,%%ymm2,%%ymm2	\n\t	vsubpd		%%ymm9 ,%%ymm3,%%ymm3	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"	/* cpy x|y */\
+		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
+		"vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vsubpd		%%ymm9 ,%%ymm2,%%ymm2	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
+		"vaddpd		%%ymm8 ,%%ymm3,%%ymm3	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
+	/* Now do c-quartet: Data in ymm4,ymm5 */\
+		"movq		%[__half_arr],%%rdx		\n\t"\
+		"vmovaps	%%ymm14,%%ymm13			\n\t"	/* maxerr copy */\
+		"movslq		%[__kcycleA],%%rdi		\n\t"\
+		"addq		%%rdi,%%rdx				\n\t"	/* kcycle assumed already in left-shifted ptr-byte-offset form */\
+		/* Get next set of negacyclic roots: */\
+		"vmovaps	0x80(%%rax),%%ymm10		\n\t"	/* c = Re part of 3rd base-root quartet */\
+		"vmovaps	0xa0(%%rax),%%ymm11		\n\t"	/* s = Im part */\
+		/* Data in ymm4,ymm5 */\
+		"vmovaps	%%ymm4,%%ymm8			\n\t"	/* x copy */\
+		"vmovaps	%%ymm5,%%ymm9			\n\t"	/* y copy */\
+		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
+		"vmulpd		%%ymm10,%%ymm4,%%ymm4	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm5,%%ymm5	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vaddpd		%%ymm9 ,%%ymm4,%%ymm4	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
+		"vsubpd		%%ymm8 ,%%ymm5,%%ymm5	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
+		/* normalize, compute carryout, compute ROE: */\
+		"vaddpd		           (%%rbx),%%ymm4,%%ymm4	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
+		"vaddpd		%c[__cy_im](%%rbx),%%ymm5,%%ymm5	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
+		"vmovaps	%%ymm4,%%ymm8			\n\t	vmovaps		%%ymm5,%%ymm9		\n\t"	/* copy x|y */\
+		"vroundpd	$0,%%ymm4,%%ymm4		\n\t	vroundpd	$0,%%ymm5,%%ymm5	\n\t"	/* temp = DNINT(x|y) */\
+		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"	/* [baseinv0-3] */\
+		"vsubpd		%%ymm4 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm5 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
+		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
+		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
+		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"	/* cpy temp */\
+		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
+		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
+		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
+		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm12	\n\t"	/* [base0-3] */\
+		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"	/* store [cy0-3.re|im] */\
+		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
+		"vsubpd		%%ymm8 ,%%ymm4,%%ymm4	\n\t	vsubpd		%%ymm9 ,%%ymm5,%%ymm5	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"	/* cpy x|y */\
+		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
+		"vmulpd		%%ymm10,%%ymm4,%%ymm4	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm5,%%ymm5	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vsubpd		%%ymm9 ,%%ymm4,%%ymm4	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
+		"vaddpd		%%ymm8 ,%%ymm5,%%ymm5	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
+	/* Now do d-quartet: Data in ymm6,ymm7 */\
+		"movq		%[__half_arr],%%rdx		\n\t"\
+		"vmovaps	%%ymm14,%%ymm13			\n\t"	/* maxerr copy */\
+		"movslq		%[__lcycleA],%%rdi		\n\t"\
+		"addq		%%rdi,%%rdx				\n\t"	/* lcycle assumed already in left-shifted ptr-byte-offset form */\
+		/* Get next set of negacyclic roots: */\
+		"vmovaps	0xc0(%%rax),%%ymm10		\n\t"	/* c = Re part of 4th base-root quartet */\
+		"vmovaps	0xe0(%%rax),%%ymm11		\n\t"	/* s = Im part */\
+		/* Data in ymm6,ymm7 */\
+		"vmovaps	%%ymm6,%%ymm8			\n\t"	/* x copy */\
+		"vmovaps	%%ymm7,%%ymm9			\n\t"	/* y copy */\
+		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
+		"vmulpd		%%ymm10,%%ymm6,%%ymm6	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm7,%%ymm7	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vaddpd		%%ymm9 ,%%ymm6,%%ymm6	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
+		"vsubpd		%%ymm8 ,%%ymm7,%%ymm7	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
+		/* normalize, compute carryout, compute ROE: */\
+		"vaddpd		           (%%rbx),%%ymm6,%%ymm6	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
+		"vaddpd		%c[__cy_im](%%rbx),%%ymm7,%%ymm7	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
+		"vmovaps	%%ymm6,%%ymm8			\n\t	vmovaps		%%ymm7,%%ymm9		\n\t"	/* copy x|y */\
+		"vroundpd	$0,%%ymm6,%%ymm6		\n\t	vroundpd	$0,%%ymm7,%%ymm7	\n\t"	/* temp = DNINT(x|y) */\
+		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"	/* [baseinv0-3] */\
+		"vsubpd		%%ymm6 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm7 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
+		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
+		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
+		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"	/* cpy temp */\
+		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
+		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
+		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
+		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm12	\n\t"	/* [base0-3] */\
+		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"	/* store [cy0-3.re|im] */\
+		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
+		"vsubpd		%%ymm8 ,%%ymm6,%%ymm6	\n\t	vsubpd		%%ymm9 ,%%ymm7,%%ymm7	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"	/* cpy x|y */\
+		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
+		"vmulpd		%%ymm10,%%ymm6,%%ymm6	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm7,%%ymm7	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vsubpd		%%ymm9 ,%%ymm6,%%ymm6	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
+		"vaddpd		%%ymm8 ,%%ymm7,%%ymm7	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
+		/* Store maxerr: */\
+		"movq		%[__half_arr],%%rdx		\n\t"\
+		"vmovaps	%%ymm14,-0x40(%%rdx)	\n\t"\
+	/* 4-way transpose of outputs (Re, Im parts separately): Inputs from ymm0-7. Outputs into r0/1,2/3,4/5.6/7: */	\
+	/* Because default inputs for our 4 x 4 transpose macro (e.g. the one used at start of this carry macro) */\
+	/* are into ymm4/2/8/2, munge inputs into that order, resolving name-conflicts via use of the now-available ymm8-15 for outputs: */\
+		"movq		%[__data],%%rax			\n\t"\
+		"vshufpd	$15,%%ymm2,%%ymm0,%%ymm10					\n\t		vshufpd	$15,%%ymm3,%%ymm1,%%ymm11						\n\t"\
+		"vshufpd	$0 ,%%ymm2,%%ymm0,%%ymm0					\n\t		vshufpd	$0 ,%%ymm3,%%ymm1,%%ymm1						\n\t"\
+		"vshufpd	$15,%%ymm6,%%ymm4,%%ymm12					\n\t		vshufpd	$15,%%ymm7,%%ymm5,%%ymm13						\n\t"\
+		"vshufpd	$0 ,%%ymm6,%%ymm4,%%ymm4					\n\t		vshufpd	$0 ,%%ymm7,%%ymm5,%%ymm5						\n\t"\
+		"vperm2f128 $32,%%ymm12,%%ymm10,%%ymm2 		/* Re B	*/	\n\t		vperm2f128 $32,%%ymm13,%%ymm11,%%ymm3		/* Im B	*/	\n\t"\
+		"vperm2f128 $49,%%ymm12,%%ymm10,%%ymm10		/* Re D	*/	\n\t		vperm2f128 $49,%%ymm13,%%ymm11,%%ymm11		/* Im D	*/	\n\t"\
+		"vperm2f128 $32,%%ymm4 ,%%ymm0 ,%%ymm12		/* Re A	*/	\n\t		vperm2f128 $32,%%ymm5 ,%%ymm1 ,%%ymm13 		/* Im A	*/	\n\t"\
+		"vperm2f128 $49,%%ymm4 ,%%ymm0 ,%%ymm0 		/* Re C	*/	\n\t		vperm2f128 $49,%%ymm5 ,%%ymm1 ,%%ymm1		/* Im C	*/	\n\t"\
+		/* Multiply normalized, re-permuted transform outputs by forward IBDWT weights: */\
+		"movslq		%[__icycleA],%%rdi		\n\t"	\
+		"vmovaps	(%%rdx,%%rdi),%%ymm4	\n\t"	/* [wt0-3]A */\
+		"vmovaps	(%%rdx,%%r9 ),%%ymm5	\n\t"	/* [wt0-3]B */\
+		"vmovaps	(%%rdx,%%r8 ),%%ymm6	\n\t"	/* [wt0-3]C */\
+		"vmovaps	(%%rdx,%%r10),%%ymm7	\n\t"	/* [wt0-3]D */\
+		"vmulpd		%%ymm4,%%ymm12,%%ymm12						\n\t		vmulpd		%%ymm4,%%ymm13,%%ymm13			\n\t"\
+		"vmulpd		%%ymm5,%%ymm2 ,%%ymm2 						\n\t		vmulpd		%%ymm5,%%ymm3 ,%%ymm3 			\n\t"\
+		"vmulpd		%%ymm6,%%ymm0 ,%%ymm0 						\n\t		vmulpd		%%ymm6,%%ymm1 ,%%ymm1 			\n\t"\
+		"vmulpd		%%ymm7,%%ymm10,%%ymm10						\n\t		vmulpd		%%ymm7,%%ymm11,%%ymm11			\n\t"\
+		/* And write 'em back to memory: */\
+		"vmovaps	%%ymm12,     (%%rax)						\n\t		vmovaps	%%ymm13,0x020(%%rax)				\n\t"\
+		"vmovaps	%%ymm2 ,0x040(%%rax)						\n\t		vmovaps	%%ymm3 ,0x060(%%rax)				\n\t"\
+		"vmovaps	%%ymm0 ,0x080(%%rax)						\n\t		vmovaps	%%ymm1 ,0x0a0(%%rax)				\n\t"\
+		"vmovaps	%%ymm10,0x0c0(%%rax)						\n\t		vmovaps	%%ymm11,0x0e0(%%rax)				\n\t"\
+		:						/* outputs: none */\
+		:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
+		,	[__base_root]	"m" (Xbase_root)\
+		,	[__cmul_offset] "m" (Xcmul_offset)\
+		,	[__cy_re]		"m" (Xcy_re)\
+		,	[__cy_im]	"e" (Xcy_im)	/* Use literal-byte-offset for this ome to save a reg */\
+		/* [1,2,3]*odd_radix are the index offsets to the wtinv, base, and base_inv values, resp. - assumed << l2_sz_vd on input: */\
+		,	[__odd_radix]   "e" (Xodd_radix)\
+		,	[__odd_radm2]   "e" (Xodd_radm2)\
+		,	[__odd_radm3]   "e" (Xodd_radm3)\
+		,	[__half_arr]	"m" (Xhalf_arr)\
+		,	[__sign_mask]	"m" (Xsign_mask)\
+		/* Need quartet of ascending [modulo odd_radix] icycle indices for IBDWT weights: */\
+		,	[__icycleA]		"m" (XicycleA)\
+		,	[__icycleB]		"m" (XicycleB)\
+		,	[__icycleC]		"m" (XicycleC)\
+		,	[__icycleD]		"m" (XicycleD)\
+		/* Need quartet of same-index [i,j,k,l]cycle indices for negacyclic weights and base/baseinv normalizations: */\
+		,	[__jcycleA]		"m" (XjcycleA)\
+		,	[__kcycleA]		"m" (XkcycleA)\
+		,	[__lcycleA]		"m" (XlcycleA)\
+		: "cc","memory","rax","rbx","rdx","rdi","r8","r9","r10","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"   /* Clobbered registers */\
+	);\
+	}
+
+	#define SSE2_fermat_carry_init_loacc(Xbase_root)\
+	{\
+	__asm__ volatile (\
+		"movq		%[__base_root] ,%%rax	\n\t	"	/* Base negacyclic roots at this address +8*0x20 (Re parts), +9*0x20 (Imag parts) */\
+		"vmovaps	0x100(%%rax),%%ymm10	\n\t	"	/* Multiply by exp(j*I*Pi/2)/RADIX, for j = 0-3 */\
+		"vmovaps	0x120(%%rax),%%ymm11	\n\t	"	/* c = Re(exp) in ymm0, s = Im(exp) in ymm1 */\
+		"vmovaps	     (%%rax),%%ymm0		\n\t	vmovaps	 0x40(%%rax),%%ymm2			\n\t"	/* x = Re part of 1st base-root quartet */\
+		"vmovaps	 0x20(%%rax),%%ymm1		\n\t	vmovaps	 0x60(%%rax),%%ymm3			\n\t"	/* y = Im part */\
+		"vmovaps	%%ymm0,%%ymm4			\n\t	vmovaps		%%ymm2,%%ymm6			\n\t"	/* Copy x */\
+		"vmovaps	%%ymm1,%%ymm5			\n\t	vmovaps		%%ymm3,%%ymm7			\n\t"	/* Copy y */\
+		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	/* c.x */\
+		"vmulpd		%%ymm11,%%ymm5,%%ymm5	\n\t	vmulpd		%%ymm11,%%ymm7,%%ymm7	\n\t"	/* s.y */\
+		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t	vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	/* c.y */\
+		"vmulpd		%%ymm11,%%ymm4,%%ymm4	\n\t	vmulpd		%%ymm11,%%ymm6,%%ymm6	\n\t"	/* s.x */\
+		"vsubpd		%%ymm5 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm7 ,%%ymm2,%%ymm2	\n\t"	/* Out.re = c.x - s.y */\
+		"vaddpd		%%ymm4 ,%%ymm1,%%ymm1	\n\t	vaddpd		%%ymm6 ,%%ymm3,%%ymm3	\n\t"	/* Out.im = c.y + s.x */\
+		"vmovaps	%%ymm0 ,    (%%rax)		\n\t	vmovaps		%%ymm2 ,0x40(%%rax)		\n\t"	/* Store result, overwriting input base root */\
+		"vmovaps	%%ymm1 ,0x20(%%rax)		\n\t	vmovaps		%%ymm3 ,0x60(%%rax)		\n\t"	/* Im part */\
+		"/* Process next 2 base-root quartets: */"\
+		"vmovaps	 0x80(%%rax),%%ymm0		\n\t	vmovaps	 0xc0(%%rax),%%ymm2			\n\t"	\
+		"vmovaps	 0xa0(%%rax),%%ymm1		\n\t	vmovaps	 0xe0(%%rax),%%ymm3			\n\t"	\
+		"vmovaps	%%ymm0,%%ymm4			\n\t	vmovaps		%%ymm2,%%ymm6			\n\t"	\
+		"vmovaps	%%ymm1,%%ymm5			\n\t	vmovaps		%%ymm3,%%ymm7			\n\t"	\
+		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	\
+		"vmulpd		%%ymm11,%%ymm5,%%ymm5	\n\t	vmulpd		%%ymm11,%%ymm7,%%ymm7	\n\t"	\
+		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t	vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	\
+		"vmulpd		%%ymm11,%%ymm4,%%ymm4	\n\t	vmulpd		%%ymm11,%%ymm6,%%ymm6	\n\t"	\
+		"vsubpd		%%ymm5 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm7 ,%%ymm2,%%ymm2	\n\t"	\
+		"vaddpd		%%ymm4 ,%%ymm1,%%ymm1	\n\t	vaddpd		%%ymm6 ,%%ymm3,%%ymm3	\n\t"	\
+		"vmovaps	%%ymm0 ,0x80(%%rax)		\n\t	vmovaps		%%ymm2 ,0xc0(%%rax)		\n\t"	/* Store result, overwriting input base root */\
+		"vmovaps	%%ymm1 ,0xa0(%%rax)		\n\t	vmovaps		%%ymm3 ,0xe0(%%rax)		\n\t"	/* Im part */\
+	:						/* outputs: none */\
+	:	[__base_root]	"m" (Xbase_root)	/* All inputs from memory addresses here */\
+		: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm10","xmm11"   /* Clobbered registers */\
+	);\
+	}
+
+	/* Non-power-of-2-runlength Fermat-mod acyclic-transform/IBDWT carry macro.
+	The array indices i/j/k/lcycle declared int in caller but assumed to have been byte-shift-converted at time this macro called,
+	thus can use as complex-address-offsets.  Use bytewise literal offsets to save registers for several args here,as vvv-marked:
+												                             vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv */
+	#define SSE2_fermat_carry_norm_errcheck_X4_loacc(Xdata,Xbase_root,Xcy_re,Xcy_im,Xodd_radix,Xodd_radm2,Xodd_radm3,Xhalf_arr,Xsign_mask,XicycleA,XicycleB,XicycleC,XicycleD, XjcycleA,XkcycleA,XlcycleA)\
+	{\
+	__asm__ volatile (\
+		"movq		%[__data],%%rax		\n\t"\
+		"movq		%[__half_arr],%%rdx		\n\t"\
+		"addq		$%c[__odd_radix],%%rdx				\n\t"	/* wt|wtinv|base|baseinv data offset by icycle array slots from resp. base addresses */\
+		/* Multiply complex transform outputs [x,y] = [re,im] by inverse IBDWT weights, which include the 2/n scale factor: */\
+		"movslq		%[__icycleA],%%r15		\n\t"	\
+		"movslq		%[__icycleB],%%r9 		\n\t"	\
+		"movslq		%[__icycleC],%%r8 		\n\t"	\
+		"movslq		%[__icycleD],%%r10		\n\t"	\
+		"vmovaps	(%%rdx,%%r15),%%ymm10	\n\t"	/* [wtinv0-3]A */\
+		"vmovaps	(%%rdx,%%r9 ),%%ymm11	\n\t"	/* [wtinv0-3]B */\
+		"vmovaps	(%%rdx,%%r8 ),%%ymm12	\n\t"	/* [wtinv0-3]C */\
+		"vmovaps	(%%rdx,%%r10),%%ymm13	\n\t"	/* [wtinv0-3]D */\
+	/* 4-way transpose of inputs (Re, Im parts separately): Inputs from r0/1,2/3,4/5.6/7. Outputs into ymm0-7: */\
+	/* Real parts use ymm0,2,4,6, ymm8 as tmp-reg:					Imag parts use ymm1,3,5,7, ymm9 as tm-reg: */\
+		"vmovaps	     (%%rax),%%ymm4						\n\t		vmovaps	0x020(%%rax),%%ymm5							\n\t"\
+		"vmovaps	0x040(%%rax),%%ymm2						\n\t		vmovaps	0x060(%%rax),%%ymm3							\n\t"\
+		"vmulpd		%%ymm10,%%ymm4,%%ymm4					\n\t		vmulpd		%%ymm10,%%ymm5,%%ymm5					\n\t"\
+		"vmulpd		%%ymm11,%%ymm2,%%ymm2					\n\t		vmulpd		%%ymm11,%%ymm3,%%ymm3					\n\t"\
+		"vshufpd	$15,%%ymm2,%%ymm4,%%ymm6				\n\t		vshufpd	$15,%%ymm3,%%ymm5,%%ymm7					\n\t"\
+		"vshufpd	$0 ,%%ymm2,%%ymm4,%%ymm4				\n\t		vshufpd	$0 ,%%ymm3,%%ymm5,%%ymm5					\n\t"\
+		"vmovaps	0x080(%%rax),%%ymm8						\n\t		vmovaps	0x0a0(%%rax),%%ymm9							\n\t"\
+		"vmovaps	0x0c0(%%rax),%%ymm2						\n\t		vmovaps	0x0e0(%%rax),%%ymm3							\n\t"\
+		"vmulpd		%%ymm12,%%ymm8,%%ymm8					\n\t		vmulpd		%%ymm12,%%ymm9,%%ymm9					\n\t"\
+		"vmulpd		%%ymm13,%%ymm2,%%ymm2					\n\t		vmulpd		%%ymm13,%%ymm3,%%ymm3					\n\t"\
+		"vshufpd	$15,%%ymm2,%%ymm8,%%ymm0				\n\t		vshufpd	$15,%%ymm3,%%ymm9,%%ymm1					\n\t"\
+		"vshufpd	$0 ,%%ymm2,%%ymm8,%%ymm8				\n\t		vshufpd	$0 ,%%ymm3,%%ymm9,%%ymm9					\n\t"\
+		"vperm2f128 $32,%%ymm0,%%ymm6,%%ymm2	/* Re B	*/	\n\t		vperm2f128 $32,%%ymm1,%%ymm7,%%ymm3		/* Im B	*/	\n\t"\
+		"vperm2f128 $49,%%ymm0,%%ymm6,%%ymm6	/* Re D	*/	\n\t		vperm2f128 $49,%%ymm1,%%ymm7,%%ymm7		/* Im D	*/	\n\t"\
+		"vperm2f128 $32,%%ymm8,%%ymm4,%%ymm0	/* Re A	*/	\n\t		vperm2f128 $32,%%ymm9,%%ymm5,%%ymm1 	/* Im A	*/	\n\t"\
+		"vperm2f128 $49,%%ymm8,%%ymm4,%%ymm4	/* Re C	*/	\n\t		vperm2f128 $49,%%ymm9,%%ymm5,%%ymm5 	/* Im C	*/	\n\t"\
+		"subq		$%c[__odd_radix],%%rdx				\n\t"\
+		/* Base negacyclic roots at this address in [0,2,4,6]*0x20 (Re parts), [1,3,5,7]*0x20 (Imag parts) */\
+		"movq		%[__sign_mask],%%rax	\n\t"\
+		"vmovaps	(%%rax),%%ymm15	\n\t"	/* ymm15 free for rest of way; use to store sign_mask needed for floating ABS */\
+		"movq	%[__base_root] ,%%rax		\n\t"	/* Won't need main-array again until output transpose, so re-use rax for base_root */\
+		/* half_arr[0,1,2,3] = [base*2, baseinv*2,wt_re*2,wt_im*2] */\
+		"vmovaps	-0x40(%%rdx),%%ymm13	\n\t"	/* XMM13 = maxerr */\
+		"addq		%%r15,%%rdx				\n\t"	/* icycle assumed already in left-shifted ptr-byte-offset form */\
+		/* Get next set of negacyclic roots: */\
+		"vmovaps	    (%%rax),%%ymm10		\n\t"	/* c = Re part of 1st base-root quartet */\
+		"vmovaps	0x20(%%rax),%%ymm11		\n\t"	/* s = Im part */\
+	/* Do a-quartet: Data in ymm0,ymm1 */\
+		"vmovaps	%%ymm13,%%ymm14			\n\t"	/* maxerr copy */\
+		"movq		%[__cy_re],%%rbx		\n\t"\
+		"vmovaps	%%ymm0,%%ymm8			\n\t"	/* x copy */\
+		"vmovaps	%%ymm1,%%ymm9			\n\t"	/* y copy */\
+		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
+		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vaddpd		%%ymm9 ,%%ymm0,%%ymm0	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
+		"vsubpd		%%ymm8 ,%%ymm1,%%ymm1	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
+		/* normalize a-pair, compute carryout, compute ROE: */\
+		"vaddpd		           (%%rbx),%%ymm0,%%ymm0	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
+		"vaddpd		%c[__cy_im](%%rbx),%%ymm1,%%ymm1	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
+		"vmovaps	%%ymm0,%%ymm8			\n\t	vmovaps		%%ymm1,%%ymm9		\n\t"	/* copy x|y */\
+		"vroundpd	$0,%%ymm0,%%ymm0		\n\t	vroundpd	$0,%%ymm1,%%ymm1	\n\t"	/* temp = DNINT(x|y) */\
+		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"	/* [baseinv0-3] */\
+		"vsubpd		%%ymm0 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm1 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
+		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
+		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
+		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"	/* cpy temp */\
+		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
+		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
+		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
+		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm12	\n\t"	/* [base0-3] */\
+		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"	/* store [cy0-3.re|im] */\
+		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
+		"vsubpd		%%ymm8 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm9 ,%%ymm1,%%ymm1	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"	/* cpy x|y */\
+		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
+		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vsubpd		%%ymm9 ,%%ymm0,%%ymm0	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
+		"vaddpd		%%ymm8 ,%%ymm1,%%ymm1	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
+		/* Up-multiply negacyclic roots stored in ymm10,11 by exp(j*I*Pi/2)/RADIX, for j = 4 */\
+		"vmovaps	0x140(%%rax),%%ymm8 	\n\t"	/* x = Re(exp) in ymm10 */\
+		"vmovaps	0x160(%%rax),%%ymm9 	\n\t"	/* y = Im(exp) in ymm11 */\
+		"vmulpd		%%ymm10,%%ymm9 ,%%ymm12	\n\t"	/* ymm12 = c.y */\
+		"vmulpd		%%ymm10,%%ymm8 ,%%ymm10	\n\t"	/* ymm10 = c.x */\
+		"vmulpd		%%ymm11,%%ymm8 ,%%ymm8 	\n\t"	/* ymm8  = s.x */\
+		"vmulpd		%%ymm11,%%ymm9 ,%%ymm9 	\n\t"	/* ymm9  = s.y */\
+		"vsubpd		%%ymm9 ,%%ymm10,%%ymm10	\n\t"	/* ymm10 = wt.re = c.x - s.y; ymm9  free */\
+		"vaddpd		%%ymm8 ,%%ymm12,%%ymm11	\n\t"	/* ymm11 = wt.im = s.x + c.y; ymm8 ,4 free */\
+		"vmovaps	%%ymm10,    (%%rax)		\n\t"	/* Store result, overwriting the old base root */\
+		"vmovaps	%%ymm11,0x20(%%rax)		\n\t"	/* Im part */\
+		/* Get next set of negacyclic roots: */\
+		"vmovaps	0x40(%%rax),%%ymm10		\n\t"	/* c = Re part of 2nd base-root quartet */\
+		"vmovaps	0x60(%%rax),%%ymm11		\n\t"	/* s = Im part */\
+	/* Now do b-quartet: Data in ymm2,ymm3 */\
+		"movq		%[__half_arr],%%rdx		\n\t"\
+		"vmovaps	%%ymm14,%%ymm13			\n\t"	/* maxerr copy */\
+		"movslq		%[__jcycleA],%%r15		\n\t"\
+		"addq		%%r15,%%rdx				\n\t"	/* jcycle assumed already in left-shifted ptr-byte-offset form */\
+		"vmovaps	%%ymm2,%%ymm8			\n\t"	/* x copy */\
+		"vmovaps	%%ymm3,%%ymm9			\n\t"	/* y copy */\
+		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
+		"vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vaddpd		%%ymm9 ,%%ymm2,%%ymm2	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
+		"vsubpd		%%ymm8 ,%%ymm3,%%ymm3	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
+		/* normalize, compute carryout, compute ROE: */\
+		"vaddpd		           (%%rbx),%%ymm2,%%ymm2	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
+		"vaddpd		%c[__cy_im](%%rbx),%%ymm3,%%ymm3	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
+		"vmovaps	%%ymm2,%%ymm8			\n\t	vmovaps		%%ymm3,%%ymm9		\n\t"	/* copy x|y */\
+		"vroundpd	$0,%%ymm2,%%ymm2		\n\t	vroundpd	$0,%%ymm3,%%ymm3	\n\t"	/* temp = DNINT(x|y) */\
+		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"	/* [baseinv0-3] */\
+		"vsubpd		%%ymm2 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm3 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
+		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
+		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
+		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"	/* cpy temp */\
+		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
+		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
+		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
+		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm12	\n\t"	/* [base0-3] */\
+		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"	/* store [cy0-3.re|im] */\
+		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
+		"vsubpd		%%ymm8 ,%%ymm2,%%ymm2	\n\t	vsubpd		%%ymm9 ,%%ymm3,%%ymm3	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"	/* cpy x|y */\
+		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
+		"vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vsubpd		%%ymm9 ,%%ymm2,%%ymm2	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
+		"vaddpd		%%ymm8 ,%%ymm3,%%ymm3	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
+		/* Up-multiply negacyclic roots stored in ymm10,11 by exp(j*I*Pi/2)/RADIX, for j = 4 */\
+		"vmovaps	0x140(%%rax),%%ymm8 	\n\t"	/* x = Re(exp) in ymm10 */\
+		"vmovaps	0x160(%%rax),%%ymm9 	\n\t"	/* y = Im(exp) in ymm11 */\
+		"vmulpd		%%ymm10,%%ymm9 ,%%ymm12	\n\t"	/* ymm12 = c.y */\
+		"vmulpd		%%ymm10,%%ymm8 ,%%ymm10	\n\t"	/* ymm10 = c.x */\
+		"vmulpd		%%ymm11,%%ymm8 ,%%ymm8 	\n\t"	/* ymm8  = s.x */\
+		"vmulpd		%%ymm11,%%ymm9 ,%%ymm9 	\n\t"	/* ymm9  = s.y */\
+		"vsubpd		%%ymm9 ,%%ymm10,%%ymm10	\n\t"	/* ymm10 = wt.re = c.x - s.y; ymm9  free */\
+		"vaddpd		%%ymm8 ,%%ymm12,%%ymm11	\n\t"	/* ymm11 = wt.im = s.x + c.y; ymm8 ,4 free */\
+		"vmovaps	%%ymm10,0x40(%%rax)		\n\t"	/* Store result, overwriting the old base root */\
+		"vmovaps	%%ymm11,0x60(%%rax)		\n\t"	/* Im part */\
+		/* Get next set of negacyclic roots: */\
+		"vmovaps	0x80(%%rax),%%ymm10		\n\t"	/* c = Re part of 3rd base-root quartet */\
+		"vmovaps	0xa0(%%rax),%%ymm11		\n\t"	/* s = Im part */\
+	/* Now do c-quartet: Data in ymm4,ymm5 */\
+		"movq		%[__half_arr],%%rdx		\n\t"\
+		"vmovaps	%%ymm14,%%ymm13			\n\t"	/* maxerr copy */\
+		"movslq		%[__kcycleA],%%r15		\n\t"\
+		"addq		%%r15,%%rdx				\n\t"	/* kcycle assumed already in left-shifted ptr-byte-offset form */\
+		"vmovaps	%%ymm4,%%ymm8			\n\t"	/* x copy */\
+		"vmovaps	%%ymm5,%%ymm9			\n\t"	/* y copy */\
+		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
+		"vmulpd		%%ymm10,%%ymm4,%%ymm4	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm5,%%ymm5	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vaddpd		%%ymm9 ,%%ymm4,%%ymm4	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
+		"vsubpd		%%ymm8 ,%%ymm5,%%ymm5	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
+		/* normalize, compute carryout, compute ROE: */\
+		"vaddpd		           (%%rbx),%%ymm4,%%ymm4	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
+		"vaddpd		%c[__cy_im](%%rbx),%%ymm5,%%ymm5	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
+		"vmovaps	%%ymm4,%%ymm8			\n\t	vmovaps		%%ymm5,%%ymm9		\n\t"	/* copy x|y */\
+		"vroundpd	$0,%%ymm4,%%ymm4		\n\t	vroundpd	$0,%%ymm5,%%ymm5	\n\t"	/* temp = DNINT(x|y) */\
+		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"	/* [baseinv0-3] */\
+		"vsubpd		%%ymm4 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm5 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
+		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
+		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
+		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"	/* cpy temp */\
+		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
+		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
+		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
+		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm12	\n\t"	/* [base0-3] */\
+		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"	/* store [cy0-3.re|im] */\
+		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
+		"vsubpd		%%ymm8 ,%%ymm4,%%ymm4	\n\t	vsubpd		%%ymm9 ,%%ymm5,%%ymm5	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"	/* cpy x|y */\
+		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
+		"vmulpd		%%ymm10,%%ymm4,%%ymm4	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm5,%%ymm5	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vsubpd		%%ymm9 ,%%ymm4,%%ymm4	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
+		"vaddpd		%%ymm8 ,%%ymm5,%%ymm5	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
+		/* Up-multiply negacyclic roots stored in ymm10,11 by exp(j*I*Pi/2)/RADIX, for j = 4 */\
+		"vmovaps	0x140(%%rax),%%ymm8 	\n\t"	/* x = Re(exp) in ymm10 */\
+		"vmovaps	0x160(%%rax),%%ymm9 	\n\t"	/* y = Im(exp) in ymm11 */\
+		"vmulpd		%%ymm10,%%ymm9 ,%%ymm12	\n\t"	/* ymm12 = c.y */\
+		"vmulpd		%%ymm10,%%ymm8 ,%%ymm10	\n\t"	/* ymm10 = c.x */\
+		"vmulpd		%%ymm11,%%ymm8 ,%%ymm8 	\n\t"	/* ymm8  = s.x */\
+		"vmulpd		%%ymm11,%%ymm9 ,%%ymm9 	\n\t"	/* ymm9  = s.y */\
+		"vsubpd		%%ymm9 ,%%ymm10,%%ymm10	\n\t"	/* ymm10 = wt.re = c.x - s.y; ymm9  free */\
+		"vaddpd		%%ymm8 ,%%ymm12,%%ymm11	\n\t"	/* ymm11 = wt.im = s.x + c.y; ymm8 ,4 free */\
+		"vmovaps	%%ymm10,0x80(%%rax)		\n\t"	/* Store result, overwriting the old base root */\
+		"vmovaps	%%ymm11,0xa0(%%rax)		\n\t"	/* Im part */\
+		/* Get next set of negacyclic roots: */\
+		"vmovaps	0xc0(%%rax),%%ymm10		\n\t"	/* c = Re part of 4th base-root quartet */\
+		"vmovaps	0xe0(%%rax),%%ymm11		\n\t"	/* s = Im part */\
+	/* Now do d-quartet: Data in ymm6,ymm7 */\
+		"movq		%[__half_arr],%%rdx		\n\t"\
+		"vmovaps	%%ymm14,%%ymm13			\n\t"	/* maxerr copy */\
+		"movslq		%[__lcycleA],%%r15		\n\t"\
+		"addq		%%r15,%%rdx				\n\t"	/* lcycle assumed already in left-shifted ptr-byte-offset form */\
+		"vmovaps	%%ymm6,%%ymm8			\n\t"	/* x copy */\
+		"vmovaps	%%ymm7,%%ymm9			\n\t"	/* y copy */\
+		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
+		"vmulpd		%%ymm10,%%ymm6,%%ymm6	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm7,%%ymm7	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vaddpd		%%ymm9 ,%%ymm6,%%ymm6	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
+		"vsubpd		%%ymm8 ,%%ymm7,%%ymm7	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
+		/* normalize, compute carryout, compute ROE: */\
+		"vaddpd		           (%%rbx),%%ymm6,%%ymm6	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
+		"vaddpd		%c[__cy_im](%%rbx),%%ymm7,%%ymm7	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
+		"vmovaps	%%ymm6,%%ymm8			\n\t	vmovaps		%%ymm7,%%ymm9		\n\t"	/* copy x|y */\
+		"vroundpd	$0,%%ymm6,%%ymm6		\n\t	vroundpd	$0,%%ymm7,%%ymm7	\n\t"	/* temp = DNINT(x|y) */\
+		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"	/* [baseinv0-3] */\
+		"vsubpd		%%ymm6 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm7 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
+		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
+		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
+		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"	/* cpy temp */\
+		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
+		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
+		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
+		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm12	\n\t"	/* [base0-3] */\
+		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"	/* store [cy0-3.re|im] */\
+		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
+		"vsubpd		%%ymm8 ,%%ymm6,%%ymm6	\n\t	vsubpd		%%ymm9 ,%%ymm7,%%ymm7	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"	/* cpy x|y */\
+		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
+		"vmulpd		%%ymm10,%%ymm6,%%ymm6	\n\t"	/* wt_re*[x     ] */\
+		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
+		"vmulpd		%%ymm10,%%ymm7,%%ymm7	\n\t"	/* wt_re*[y     ] */\
+		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
+		"vsubpd		%%ymm9 ,%%ymm6,%%ymm6	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
+		"vaddpd		%%ymm8 ,%%ymm7,%%ymm7	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
+		/* Up-multiply negacyclic roots stored in ymm10,11 by exp(j*I*Pi/2)/RADIX, for j = 4 */\
+		"vmovaps	0x140(%%rax),%%ymm8 	\n\t"	/* x = Re(exp) in ymm10 */\
+		"vmovaps	0x160(%%rax),%%ymm9 	\n\t"	/* y = Im(exp) in ymm11 */\
+		"vmulpd		%%ymm10,%%ymm9 ,%%ymm12	\n\t"	/* ymm12 = c.y */\
+		"vmulpd		%%ymm10,%%ymm8 ,%%ymm10	\n\t"	/* ymm10 = c.x */\
+		"vmulpd		%%ymm11,%%ymm8 ,%%ymm8 	\n\t"	/* ymm8  = s.x */\
+		"vmulpd		%%ymm11,%%ymm9 ,%%ymm9 	\n\t"	/* ymm9  = s.y */\
+		"vsubpd		%%ymm9 ,%%ymm10,%%ymm10	\n\t"	/* ymm10 = wt.re = c.x - s.y; ymm9  free */\
+		"vaddpd		%%ymm8 ,%%ymm12,%%ymm11	\n\t"	/* ymm11 = wt.im = s.x + c.y; ymm8 ,4 free */\
+		"vmovaps	%%ymm10,0xc0(%%rax)		\n\t"	/* Store result, overwriting the old base root */\
+		"vmovaps	%%ymm11,0xe0(%%rax)		\n\t"	/* Im part */\
+		/* Store maxerr: */\
+		"movq		%[__half_arr],%%rdx		\n\t"\
+		"vmovaps	%%ymm14,-0x40(%%rdx)	\n\t"\
+	/* 4-way transpose of outputs (Re, Im parts separately): Inputs from ymm0-7. Outputs into r0/1,2/3,4/5.6/7: */	\
+	/* Because default inputs for our 4 x 4 transpose macro (e.g. the one used at start of this carry macro) */\
+	/* are into ymm4/2/8/2, munge inputs into that order, resolving name-conflicts via use of the now-available ymm8-15 for outputs: */\
+		"movq		%[__data],%%rax			\n\t"\
+		"vshufpd	$15,%%ymm2,%%ymm0,%%ymm10					\n\t		vshufpd	$15,%%ymm3,%%ymm1,%%ymm11						\n\t"\
+		"vshufpd	$0 ,%%ymm2,%%ymm0,%%ymm0					\n\t		vshufpd	$0 ,%%ymm3,%%ymm1,%%ymm1						\n\t"\
+		"vshufpd	$15,%%ymm6,%%ymm4,%%ymm12					\n\t		vshufpd	$15,%%ymm7,%%ymm5,%%ymm13						\n\t"\
+		"vshufpd	$0 ,%%ymm6,%%ymm4,%%ymm4					\n\t		vshufpd	$0 ,%%ymm7,%%ymm5,%%ymm5						\n\t"\
+		"vperm2f128 $32,%%ymm12,%%ymm10,%%ymm2 		/* Re B	*/	\n\t		vperm2f128 $32,%%ymm13,%%ymm11,%%ymm3		/* Im B	*/	\n\t"\
+		"vperm2f128 $49,%%ymm12,%%ymm10,%%ymm10		/* Re D	*/	\n\t		vperm2f128 $49,%%ymm13,%%ymm11,%%ymm11		/* Im D	*/	\n\t"\
+		"vperm2f128 $32,%%ymm4 ,%%ymm0 ,%%ymm12		/* Re A	*/	\n\t		vperm2f128 $32,%%ymm5 ,%%ymm1 ,%%ymm13 		/* Im A	*/	\n\t"\
+		"vperm2f128 $49,%%ymm4 ,%%ymm0 ,%%ymm0 		/* Re C	*/	\n\t		vperm2f128 $49,%%ymm5 ,%%ymm1 ,%%ymm1		/* Im C	*/	\n\t"\
+		/* Multiply normalized, re-permuted transform outputs by forward IBDWT weights: */\
+		"movslq		%[__icycleA],%%r15		\n\t"	\
+		"vmovaps	(%%rdx,%%r15),%%ymm4	\n\t"	/* [wt0-3]A */\
+		"vmovaps	(%%rdx,%%r9 ),%%ymm5	\n\t"	/* [wt0-3]B */\
+		"vmovaps	(%%rdx,%%r8 ),%%ymm6	\n\t"	/* [wt0-3]C */\
+		"vmovaps	(%%rdx,%%r10),%%ymm7	\n\t"	/* [wt0-3]D */\
+		"vmulpd		%%ymm4,%%ymm12,%%ymm12						\n\t		vmulpd		%%ymm4,%%ymm13,%%ymm13			\n\t"\
+		"vmulpd		%%ymm5,%%ymm2 ,%%ymm2 						\n\t		vmulpd		%%ymm5,%%ymm3 ,%%ymm3 			\n\t"\
+		"vmulpd		%%ymm6,%%ymm0 ,%%ymm0 						\n\t		vmulpd		%%ymm6,%%ymm1 ,%%ymm1 			\n\t"\
+		"vmulpd		%%ymm7,%%ymm10,%%ymm10						\n\t		vmulpd		%%ymm7,%%ymm11,%%ymm11			\n\t"\
+		/* And write 'em back to memory: */\
+		"vmovaps	%%ymm12,     (%%rax)						\n\t		vmovaps	%%ymm13,0x020(%%rax)				\n\t"\
+		"vmovaps	%%ymm2 ,0x040(%%rax)						\n\t		vmovaps	%%ymm3 ,0x060(%%rax)				\n\t"\
+		"vmovaps	%%ymm0 ,0x080(%%rax)						\n\t		vmovaps	%%ymm1 ,0x0a0(%%rax)				\n\t"\
+		"vmovaps	%%ymm10,0x0c0(%%rax)						\n\t		vmovaps	%%ymm11,0x0e0(%%rax)				\n\t"\
+		:						/* outputs: none */\
+		:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
+		,	[__base_root]	"m" (Xbase_root)\
+		,	[__cy_re]		"m" (Xcy_re)\
+		,	[__cy_im]		"e" (Xcy_im)	/* Use literal-byte-offset for this ome to save a reg */\
+		/* [1,2,3]*odd_radix are the index offsets to the wtinv, base, and base_inv values, resp. - assumed << l2_sz_vd on input: */\
+		,	[__odd_radix]   "e" (Xodd_radix)\
+		,	[__odd_radm2]   "e" (Xodd_radm2)\
+		,	[__odd_radm3]   "e" (Xodd_radm3)\
+		,	[__half_arr]	"m" (Xhalf_arr)\
+		,	[__sign_mask]	"m" (Xsign_mask)\
+		/* Need quartet of ascending [modulo odd_radix] icycle indices for IBDWT weights: */\
+		,	[__icycleA]		"m" (XicycleA)\
+		,	[__icycleB]		"m" (XicycleB)\
+		,	[__icycleC]		"m" (XicycleC)\
+		,	[__icycleD]		"m" (XicycleD)\
+		/* Need quartet of same-index [i,j,k,l]cycle indices for negacyclic weights and base/baseinv normalizations: */\
+		,	[__jcycleA]		"m" (XjcycleA)\
+		,	[__kcycleA]		"m" (XkcycleA)\
+		,	[__lcycleA]		"m" (XlcycleA)\
+		: "cc","memory","rax","rbx","rdx","r8","r9","r10","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14"   /* Clobbered registers */\
+	);\
+	}
+
+#else	// SSE2
 
 	/* Power-of-2-runlength Fermat-mod acyclic-transform carry macro. (No IBDWT needed for power-of-2 runlenghts).
 	*/
@@ -294,964 +1260,6 @@
 	);\
 	}
 
-#ifdef USE_AVX
-
-/*
-Use MOVUPD (or 1-byte-shorter MOVUPS) in legacy 128-bit SSE form to load 2 doubles into lo128 without touching hi128;
-Thus can do MOVUPD m128,xmm1 to fill lo128 of ymm1, then fill hi128 from xmm2/m128 via (with imm8 = 1):
-
-	VINSERTF128 imm8,src2[xmm/m128],src1[ymm1],dest[ymm2]:
-	imm8 = 0: dest.lo128 = src2, dest.hi128 = src1.hi128
-	imm8 = 1: dest.lo128 = src1.lo128, dest.hi128 = src2
-
-Once have 4 dcomplex roots loaded into 2 ymm as
-ymm0.lo,hi = [c0,s0,c2,s2]
-ymm1.lo,hi = [c1,s1,c3,s3]
-Then interleave via
-
-vunpcklpd ymm0,ymm1,ymmA
-vunpckhpd ymm0,ymm1,ymmB
-
-to get
-
-ymmA = [c0,c1,c2,c3]
-ymmB = [s0,s1,s2,s3]
-
-Similarly for table2 [ = rn1 ] roots to get:
-
-ymmC = [x0,x1,x2,x3]
-ymmD = [y0,y1,y2,y3]
-
-then do CMUL:
-
-vmulpd	ymmA,ymmD,ymmE	// ymmE = c.y
-vmulpd	ymmA,ymmC,ymmA	// ymmA = c.x
-
-vmulpd	ymmB,ymmC,ymmC	// ymmC = s.x
-vmulpd	ymmB,ymmD,ymmD	// ymmD = s.y
-
-vsubpd	ymmA,ymmD,ymmA	// ymmA = c.x - s.y; ymmD free
-vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
-*/
-
-	/* Power-of-2-runlength Fermat-mod acyclic-transform/IBDWT carry macro.
-
-	NOTE: The array indices i/j/k/lcycle declared int in caller but assumed to have been
-	byte-shift-converted at time this macro called, thus can use as complex-address-offsets.
-	*/
-	#define SSE2_fermat_carry_norm_pow2_errcheck_X4(Xdata,Xbase_root,Xcmul_offset,Xcy_re,Xcy_im,Xhalf_arr,Xsign_mask)\
-	{\
-	__asm__ volatile (\
-		/* Base negacyclic roots at this address in [0,2,4,6]*0x20 (Re parts), [1,3,5,7]*0x20 (Imag parts) */\
-		"movq	%[__base_root] ,%%rax			\n\t"	/* Won't need main-array again until output transpose, so re-use rax for base_root */\
-		"leaq	%c[__cmul_offset](%%rax),%%rbx	\n\t"	/* Index into complex const multipliers block, each applied to 4 sets of base roots */\
-		/* Up-multiply quartet of negacyclic roots used in this macro invocation; store sets 2-4 back into mem, keep set 1 in ymm10,11 [that's why we do sets 1/2 after 3/4] */\
-		"vmovaps	    (%%rbx),%%ymm10		\n\t	"	/* Multiply by exp(j*I*Pi/2)/28, for j = 0-3 */\
-		"vmovaps	0x20(%%rbx),%%ymm11		\n\t	"	/* c = Re(exp) in ymm0, s = Im(exp) in ymm1 */\
-		"/* Sets 3/4: */"\
-		"vmovaps	 0x80(%%rax),%%ymm0		\n\t	vmovaps	 0xc0(%%rax),%%ymm2			\n\t"	\
-		"vmovaps	 0xa0(%%rax),%%ymm1		\n\t	vmovaps	 0xe0(%%rax),%%ymm3			\n\t"	\
-		"vmovaps	%%ymm0,%%ymm4			\n\t	vmovaps		%%ymm2,%%ymm6			\n\t"	\
-		"vmovaps	%%ymm1,%%ymm5			\n\t	vmovaps		%%ymm3,%%ymm7			\n\t"	\
-		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	\
-		"vmulpd		%%ymm11,%%ymm5,%%ymm5	\n\t	vmulpd		%%ymm11,%%ymm7,%%ymm7	\n\t"	\
-		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t	vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	\
-		"vmulpd		%%ymm11,%%ymm4,%%ymm4	\n\t	vmulpd		%%ymm11,%%ymm6,%%ymm6	\n\t"	\
-		"vsubpd		%%ymm5 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm7 ,%%ymm2,%%ymm2	\n\t"	\
-		"vaddpd		%%ymm4 ,%%ymm1,%%ymm1	\n\t	vaddpd		%%ymm6 ,%%ymm3,%%ymm3	\n\t"	\
-		"vmovaps	%%ymm0 ,0x80(%%rax)		\n\t	vmovaps		%%ymm2 ,0xc0(%%rax)		\n\t"	/* Store result, overwriting input base root */\
-		"vmovaps	%%ymm1 ,0xa0(%%rax)		\n\t	vmovaps		%%ymm3 ,0xe0(%%rax)		\n\t"	/* Im part */\
-		"/* Sets 1/2: */"\
-		"vmovaps	     (%%rax),%%ymm0		\n\t	vmovaps	 0x40(%%rax),%%ymm2			\n\t"	/* x = Re part of 1st base-root quartet */\
-		"vmovaps	 0x20(%%rax),%%ymm1		\n\t	vmovaps	 0x60(%%rax),%%ymm3			\n\t"	/* y = Im part */\
-		"vmovaps	%%ymm0,%%ymm4			\n\t	vmovaps		%%ymm2,%%ymm6			\n\t"	/* Copy x */\
-		"vmovaps	%%ymm1,%%ymm5			\n\t	vmovaps		%%ymm3,%%ymm7			\n\t"	/* Copy y */\
-		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	/* c.x */\
-		"vmulpd		%%ymm11,%%ymm5,%%ymm5	\n\t	vmulpd		%%ymm11,%%ymm7,%%ymm7	\n\t"	/* s.y */\
-		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t	vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	/* c.y */\
-		"vmulpd		%%ymm11,%%ymm4,%%ymm4	\n\t	vmulpd		%%ymm11,%%ymm6,%%ymm6	\n\t"	/* s.x */\
-		"vsubpd		%%ymm5 ,%%ymm0,%%ymm10	\n\t	vsubpd		%%ymm7 ,%%ymm2,%%ymm2	\n\t"	/* Out.re = c.x - s.y */\
-		"vaddpd		%%ymm4 ,%%ymm1,%%ymm11	\n\t	vaddpd		%%ymm6 ,%%ymm3,%%ymm3	\n\t"	/* Out.im = c.y + s.x */\
-		"											vmovaps		%%ymm2 ,0x40(%%rax)		\n\t"	/* Store result, overwriting input base root */\
-		"											vmovaps		%%ymm3 ,0x60(%%rax)		\n\t"	/* Im part */\
-		"movq		%[__data],%%rax		\n\t"\
-		"movq		%[__half_arr],%%rdx		\n\t"\
-		"vmovaps	0x40(%%rdx),%%ymm12	\n\t"	/* XMM12 = scale */\
-	/* 4-way transpose of inputs (Re, Im parts separately): Inputs from r0/1,2/3,4/5.6/7. Outputs into ymm0-7: */\
-	/* Real parts use ymm0,2,4,6, ymm8 as tmp-reg:					Imag parts use ymm1,3,5,7, ymm9 as tm-reg: */\
-		"vmovaps	     (%%rax),%%ymm4						\n\t		vmovaps	0x020(%%rax),%%ymm5							\n\t"\
-		"vmovaps	0x040(%%rax),%%ymm2						\n\t		vmovaps	0x060(%%rax),%%ymm3							\n\t"\
-		"vshufpd	$15,%%ymm2,%%ymm4,%%ymm6				\n\t		vshufpd	$15,%%ymm3,%%ymm5,%%ymm7					\n\t"\
-		"vshufpd	$0 ,%%ymm2,%%ymm4,%%ymm4				\n\t		vshufpd	$0 ,%%ymm3,%%ymm5,%%ymm5					\n\t"\
-		"vmovaps	0x080(%%rax),%%ymm8						\n\t		vmovaps	0x0a0(%%rax),%%ymm9							\n\t"\
-		"vmovaps	0x0c0(%%rax),%%ymm2						\n\t		vmovaps	0x0e0(%%rax),%%ymm3							\n\t"\
-		"vshufpd	$15,%%ymm2,%%ymm8,%%ymm0				\n\t		vshufpd	$15,%%ymm3,%%ymm9,%%ymm1					\n\t"\
-		"vshufpd	$0 ,%%ymm2,%%ymm8,%%ymm8				\n\t		vshufpd	$0 ,%%ymm3,%%ymm9,%%ymm9					\n\t"\
-		"vperm2f128 $32,%%ymm0,%%ymm6,%%ymm2	/* Re B	*/	\n\t		vperm2f128 $32,%%ymm1,%%ymm7,%%ymm3		/* Im B	*/	\n\t"\
-		"vperm2f128 $49,%%ymm0,%%ymm6,%%ymm6	/* Re D	*/	\n\t		vperm2f128 $49,%%ymm1,%%ymm7,%%ymm7		/* Im D	*/	\n\t"\
-		"vperm2f128 $32,%%ymm8,%%ymm4,%%ymm0	/* Re A	*/	\n\t		vperm2f128 $32,%%ymm9,%%ymm5,%%ymm1 	/* Im A	*/	\n\t"\
-		"vperm2f128 $49,%%ymm8,%%ymm4,%%ymm4	/* Re C	*/	\n\t		vperm2f128 $49,%%ymm9,%%ymm5,%%ymm5 	/* Im C	*/	\n\t"\
-	/* Apply inverse-complex-runlength scaling factor to the data: */\
-		"vmulpd		%%ymm12,%%ymm2,%%ymm2					\n\t		vmulpd		%%ymm12,%%ymm3,%%ymm3	\n\t"\
-		"vmulpd		%%ymm12,%%ymm6,%%ymm6					\n\t		vmulpd		%%ymm12,%%ymm7,%%ymm7	\n\t"\
-		"vmulpd		%%ymm12,%%ymm0,%%ymm0					\n\t		vmulpd		%%ymm12,%%ymm1,%%ymm1	\n\t"\
-		"vmulpd		%%ymm12,%%ymm4,%%ymm4					\n\t		vmulpd		%%ymm12,%%ymm5,%%ymm5	\n\t"\
-		/* Base negacyclic roots at this address in [0,2,4,6]*0x20 (Re parts), [1,3,5,7]*0x20 (Imag parts) */\
-		"movq	%[__base_root] ,%%rax		\n\t"	/* Won't need main-array again until output transpose, so re-use rax for base_root */\
-		/* half_arr[0,1,2,3] = [base*2, baseinv*2,wt_re*2,wt_im*2] */\
-		"vmovaps	-0x40(%%rdx),%%ymm13	\n\t"	/* XMM13 = maxerr */\
-		"/*vmovaps	-0x20(%%rdx),%%ymm15	*/\n\t"	/* rnd_const; prefer ROUNDPD in AVX mode, so ymm15 free */\
-		"vmovaps	%%ymm13,%%ymm14			\n\t"	/* maxerr copy */\
-		"movq		%[__cy_re],%%rbx		\n\t"\
-		"movq		%[__cy_im],%%rcx		\n\t"\
-	/* Do a-quartet: Data in ymm0,ymm1 */\
-		/* For a-quartet, needed negacyclic root already in ymm10/11: */\
-		/* Data in ymm0,ymm1 */\
-		"vmovaps	%%ymm0,%%ymm8			\n\t"	/* x copy */\
-		"vmovaps	%%ymm1,%%ymm9			\n\t"	/* y copy */\
-		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
-		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"vaddpd		%%ymm9 ,%%ymm0,%%ymm0	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
-		"vsubpd		%%ymm8 ,%%ymm1,%%ymm1	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
-		/* normalize a-pair, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%ymm0,%%ymm0	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		(%%rcx),%%ymm1,%%ymm1	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
-		"vmovaps	%%ymm0,%%ymm8			\n\t	vmovaps		%%ymm1,%%ymm9		\n\t"	/* copy x|y */\
-		"vroundpd	$0,%%ymm0,%%ymm0		\n\t	vroundpd	$0,%%ymm1,%%ymm1	\n\t"	/* temp = DNINT(x|y) */\
-		"movq		%[__sign_mask],%%rsi	\n\t"\
-		"vmovaps	0x20(%%rdx),%%ymm12	\n\t"	/* [baseinv0-3] */\
-		"vsubpd		%%ymm0 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm1 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
-		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
-		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
-		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"	/* cpy temp */\
-		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
-		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
-		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
-		"vmovaps	(%%rdx),%%ymm12	\n\t"	/* [base0-3] */\
-		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"	/* store [cy0-3.re|im] */\
-		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm9 ,%%ymm1,%%ymm1	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
-		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"	/* cpy x|y */\
-		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
-		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"vsubpd		%%ymm9 ,%%ymm0,%%ymm0	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
-		"vaddpd		%%ymm8 ,%%ymm1,%%ymm1	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
-	/* Now do b-quartet: Data in ymm2,ymm3 */\
-		"vmovaps	%%ymm14,%%ymm13			\n\t"	/* maxerr copy */\
-		/* Get next set of negacyclic roots: */\
-		"vmovaps	0x40(%%rax),%%ymm10		\n\t"	/* c = Re part of 2nd base-root quartet */\
-		"vmovaps	0x60(%%rax),%%ymm11		\n\t"	/* s = Im part */\
-		/* Data in ymm2,ymm3 */\
-		"vmovaps	%%ymm2,%%ymm8			\n\t"	/* x copy */\
-		"vmovaps	%%ymm3,%%ymm9			\n\t"	/* y copy */\
-		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
-		"vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"vaddpd		%%ymm9 ,%%ymm2,%%ymm2	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
-		"vsubpd		%%ymm8 ,%%ymm3,%%ymm3	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
-		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%ymm2,%%ymm2	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		(%%rcx),%%ymm3,%%ymm3	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
-		"vmovaps	%%ymm2,%%ymm8			\n\t	vmovaps		%%ymm3,%%ymm9		\n\t"	/* copy x|y */\
-		"vroundpd	$0,%%ymm2,%%ymm2		\n\t	vroundpd	$0,%%ymm3,%%ymm3	\n\t"	/* temp = DNINT(x|y) */\
-		"vmovaps	0x20(%%rdx),%%ymm12	\n\t"	/* [baseinv0-3] */\
-		"vsubpd		%%ymm2 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm3 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
-		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
-		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
-		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"	/* cpy temp */\
-		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
-		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
-		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
-		"vmovaps	(%%rdx),%%ymm12	\n\t"	/* [base0-3] */\
-		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"	/* store [cy0-3.re|im] */\
-		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm2,%%ymm2	\n\t	vsubpd		%%ymm9 ,%%ymm3,%%ymm3	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
-		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"	/* cpy x|y */\
-		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
-		"vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"vsubpd		%%ymm9 ,%%ymm2,%%ymm2	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
-		"vaddpd		%%ymm8 ,%%ymm3,%%ymm3	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
-	/* Now do c-quartet: Data in ymm4,ymm5 */\
-		"vmovaps	%%ymm14,%%ymm13			\n\t"	/* maxerr copy */\
-		/* Get next set of negacyclic roots: */\
-		"vmovaps	0x80(%%rax),%%ymm10		\n\t"	/* c = Re part of 3rd base-root quartet */\
-		"vmovaps	0xa0(%%rax),%%ymm11		\n\t"	/* s = Im part */\
-		/* Data in ymm4,ymm5 */\
-		"vmovaps	%%ymm4,%%ymm8			\n\t"	/* x copy */\
-		"vmovaps	%%ymm5,%%ymm9			\n\t"	/* y copy */\
-		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
-		"vmulpd		%%ymm10,%%ymm4,%%ymm4	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm5,%%ymm5	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"vaddpd		%%ymm9 ,%%ymm4,%%ymm4	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
-		"vsubpd		%%ymm8 ,%%ymm5,%%ymm5	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
-		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%ymm4,%%ymm4	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		(%%rcx),%%ymm5,%%ymm5	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
-		"vmovaps	%%ymm4,%%ymm8			\n\t	vmovaps		%%ymm5,%%ymm9		\n\t"	/* copy x|y */\
-		"vroundpd	$0,%%ymm4,%%ymm4		\n\t	vroundpd	$0,%%ymm5,%%ymm5	\n\t"	/* temp = DNINT(x|y) */\
-		"vmovaps	0x20(%%rdx),%%ymm12	\n\t"	/* [baseinv0-3] */\
-		"vsubpd		%%ymm4 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm5 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
-		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
-		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
-		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"	/* cpy temp */\
-		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
-		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
-		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
-		"vmovaps	(%%rdx),%%ymm12	\n\t"	/* [base0-3] */\
-		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"	/* store [cy0-3.re|im] */\
-		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm4,%%ymm4	\n\t	vsubpd		%%ymm9 ,%%ymm5,%%ymm5	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
-		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"	/* cpy x|y */\
-		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
-		"vmulpd		%%ymm10,%%ymm4,%%ymm4	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm5,%%ymm5	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"vsubpd		%%ymm9 ,%%ymm4,%%ymm4	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
-		"vaddpd		%%ymm8 ,%%ymm5,%%ymm5	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
-	/* Now do d-quartet: Data in ymm6,ymm7 */\
-		"vmovaps	%%ymm14,%%ymm13			\n\t"	/* maxerr copy */\
-		/* Get next set of negacyclic roots: */\
-		"vmovaps	0xc0(%%rax),%%ymm10		\n\t"	/* c = Re part of 4th base-root quartet */\
-		"vmovaps	0xe0(%%rax),%%ymm11		\n\t"	/* s = Im part */\
-		/* Data in ymm6,ymm7 */\
-		"vmovaps	%%ymm6,%%ymm8			\n\t"	/* x copy */\
-		"vmovaps	%%ymm7,%%ymm9			\n\t"	/* y copy */\
-		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
-		"vmulpd		%%ymm10,%%ymm6,%%ymm6	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm7,%%ymm7	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"vaddpd		%%ymm9 ,%%ymm6,%%ymm6	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
-		"vsubpd		%%ymm8 ,%%ymm7,%%ymm7	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
-		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%ymm6,%%ymm6	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		(%%rcx),%%ymm7,%%ymm7	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
-		"vmovaps	%%ymm6,%%ymm8			\n\t	vmovaps		%%ymm7,%%ymm9		\n\t"	/* copy x|y */\
-		"vroundpd	$0,%%ymm6,%%ymm6		\n\t	vroundpd	$0,%%ymm7,%%ymm7	\n\t"	/* temp = DNINT(x|y) */\
-		"vmovaps	0x20(%%rdx),%%ymm12	\n\t"	/* [baseinv0-3] */\
-		"vsubpd		%%ymm6 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm7 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
-		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
-		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
-		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"	/* cpy temp */\
-		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
-		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
-		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
-		"vmovaps	(%%rdx),%%ymm12	\n\t"	/* [base0-3] */\
-		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"	/* store [cy0-3.re|im] */\
-		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm6,%%ymm6	\n\t	vsubpd		%%ymm9 ,%%ymm7,%%ymm7	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
-		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"	/* cpy x|y */\
-		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
-		"vmulpd		%%ymm10,%%ymm6,%%ymm6	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm7,%%ymm7	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"vsubpd		%%ymm9 ,%%ymm6,%%ymm6	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
-		"vaddpd		%%ymm8 ,%%ymm7,%%ymm7	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
-		/* Store maxerr: */\
-		"movq		%[__half_arr],%%rdx		\n\t"\
-		"vmovaps	%%ymm14,-0x40(%%rdx)	\n\t"\
-	/* 4-way transpose of outputs (Re, Im parts separately): Inputs from ymm0-7. Outputs into r0/1,2/3,4/5.6/7: */	\
-	/* Because default inputs for our 4 x 4 transpose macro (e.g. the one used at start of this carry macro) */\
-	/* are into ymm4/2/8/2, munge inputs into that order, resolving name-conflicts via use of the now-available ymm8-15 for outputs: */\
-		"movq		%[__data],%%rax			\n\t"\
-		"vshufpd	$15,%%ymm2,%%ymm0,%%ymm10					\n\t		vshufpd	$15,%%ymm3,%%ymm1,%%ymm11						\n\t"\
-		"vshufpd	$0 ,%%ymm2,%%ymm0,%%ymm0					\n\t		vshufpd	$0 ,%%ymm3,%%ymm1,%%ymm1						\n\t"\
-		"vshufpd	$15,%%ymm6,%%ymm4,%%ymm12					\n\t		vshufpd	$15,%%ymm7,%%ymm5,%%ymm13						\n\t"\
-		"vshufpd	$0 ,%%ymm6,%%ymm4,%%ymm4					\n\t		vshufpd	$0 ,%%ymm7,%%ymm5,%%ymm5						\n\t"\
-		"vperm2f128 $32,%%ymm12,%%ymm10,%%ymm2 		/* Re B	*/	\n\t		vperm2f128 $32,%%ymm13,%%ymm11,%%ymm3		/* Im B	*/	\n\t"\
-		"vperm2f128 $49,%%ymm12,%%ymm10,%%ymm10		/* Re D	*/	\n\t		vperm2f128 $49,%%ymm13,%%ymm11,%%ymm11		/* Im D	*/	\n\t"\
-		"vperm2f128 $32,%%ymm4 ,%%ymm0 ,%%ymm12		/* Re A	*/	\n\t		vperm2f128 $32,%%ymm5 ,%%ymm1 ,%%ymm13 		/* Im A	*/	\n\t"\
-		"vperm2f128 $49,%%ymm4 ,%%ymm0 ,%%ymm0 		/* Re C	*/	\n\t		vperm2f128 $49,%%ymm5 ,%%ymm1 ,%%ymm1		/* Im C	*/	\n\t"\
-		/* And write 'em back to memory: */\
-		"vmovaps	%%ymm12,     (%%rax)						\n\t		vmovaps	%%ymm13,0x020(%%rax)				\n\t"\
-		"vmovaps	%%ymm2 ,0x040(%%rax)						\n\t		vmovaps	%%ymm3 ,0x060(%%rax)				\n\t"\
-		"vmovaps	%%ymm0 ,0x080(%%rax)						\n\t		vmovaps	%%ymm1 ,0x0a0(%%rax)				\n\t"\
-		"vmovaps	%%ymm10,0x0c0(%%rax)						\n\t		vmovaps	%%ymm11,0x0e0(%%rax)				\n\t"\
-		:						/* outputs: none */\
-		:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
-		,	[__base_root]	"m" (Xbase_root)\
-		,	[__cmul_offset] "e" (Xcmul_offset)\
-		,	[__cy_re]		"m" (Xcy_re)\
-		,	[__cy_im]		"m" (Xcy_im)\
-		,	[__half_arr]	"m" (Xhalf_arr)\
-		,	[__sign_mask]	"m" (Xsign_mask)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14"	/* Clobbered registers */\
-	);\
-	}
-
-	/* Non-power-of-2-runlength Fermat-mod acyclic-transform/IBDWT carry macro.
-
-	Key differences vs pow2 version:
-	- Use odd_radix as index offset into local storage for IBDWT weights and variable base/baseinv terms;
-	- Apply inv/fwd IBDWT weights bookending the negacyclic weights;
-	- Value of base/baseinv to be applied to output taken from odd_radix-length array, using same index as for selecting IBDWT weight.
-	
-	The array indices i/j/k/lcycle declared int in caller but assumed to have been byte-shift-converted at time this macro called,
-	thus can use directly as complex-address-offsets.
-	*/
-	#define SSE2_fermat_carry_norm_errcheck_X4_hiacc(Xdata,Xbase_root,Xcmul_offset,Xcy_re,Xcy_im,Xodd_radix,Xhalf_arr,Xsign_mask,XicycleA,XicycleB,XicycleC,XicycleD, XjcycleA,XkcycleA,XlcycleA)\
-	{\
-	__asm__ volatile (\
-		/* Base negacyclic roots at this address in [0,2,4,6]*0x20 (Re parts), [1,3,5,7]*0x20 (Imag parts) */\
-		"movq	%[__base_root] ,%%rax			\n\t"	/* Won't need main-array again until output transpose, so re-use rax for base_root */\
-		"leaq	%c[__cmul_offset](%%rax),%%rbx	\n\t"	/* Index into complex const multipliers block, each applied to 4 sets of base roots */\
-		/* Up-multiply quartet of negacyclic roots used in this macro invocation; store sets 2-4 back into mem, keep set 1 in ymm10,11 [that's why we do sets 1/2 after 3/4] */\
-		"vmovaps	    (%%rbx),%%ymm10		\n\t	"	/* Multiply by exp(j*I*Pi/2)/28, for j = 0-3 */\
-		"vmovaps	0x20(%%rbx),%%ymm11		\n\t	"	/* c = Re(exp) in ymm0, s = Im(exp) in ymm1 */\
-		"/* Sets 3/4: */"\
-		"vmovaps	 0x80(%%rax),%%ymm0		\n\t	vmovaps	 0xc0(%%rax),%%ymm2			\n\t"	\
-		"vmovaps	 0xa0(%%rax),%%ymm1		\n\t	vmovaps	 0xe0(%%rax),%%ymm3			\n\t"	\
-		"vmovaps	%%ymm0,%%ymm4			\n\t	vmovaps		%%ymm2,%%ymm6			\n\t"	\
-		"vmovaps	%%ymm1,%%ymm5			\n\t	vmovaps		%%ymm3,%%ymm7			\n\t"	\
-		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	\
-		"vmulpd		%%ymm11,%%ymm5,%%ymm5	\n\t	vmulpd		%%ymm11,%%ymm7,%%ymm7	\n\t"	\
-		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t	vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	\
-		"vmulpd		%%ymm11,%%ymm4,%%ymm4	\n\t	vmulpd		%%ymm11,%%ymm6,%%ymm6	\n\t"	\
-		"vsubpd		%%ymm5 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm7 ,%%ymm2,%%ymm2	\n\t"	\
-		"vaddpd		%%ymm4 ,%%ymm1,%%ymm1	\n\t	vaddpd		%%ymm6 ,%%ymm3,%%ymm3	\n\t"	\
-		"vmovaps	%%ymm0 ,0x80(%%rax)		\n\t	vmovaps		%%ymm2 ,0xc0(%%rax)		\n\t"	/* Store result, overwriting input base root */\
-		"vmovaps	%%ymm1 ,0xa0(%%rax)		\n\t	vmovaps		%%ymm3 ,0xe0(%%rax)		\n\t"	/* Im part */\
-		"/* Sets 1/2: */"\
-		"vmovaps	     (%%rax),%%ymm0		\n\t	vmovaps	 0x40(%%rax),%%ymm2			\n\t"	/* x = Re part of 1st base-root quartet */\
-		"vmovaps	 0x20(%%rax),%%ymm1		\n\t	vmovaps	 0x60(%%rax),%%ymm3			\n\t"	/* y = Im part */\
-		"vmovaps	%%ymm0,%%ymm4			\n\t	vmovaps		%%ymm2,%%ymm6			\n\t"	/* Copy x */\
-		"vmovaps	%%ymm1,%%ymm5			\n\t	vmovaps		%%ymm3,%%ymm7			\n\t"	/* Copy y */\
-		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	/* c.x */\
-		"vmulpd		%%ymm11,%%ymm5,%%ymm5	\n\t	vmulpd		%%ymm11,%%ymm7,%%ymm7	\n\t"	/* s.y */\
-		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t	vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	/* c.y */\
-		"vmulpd		%%ymm11,%%ymm4,%%ymm4	\n\t	vmulpd		%%ymm11,%%ymm6,%%ymm6	\n\t"	/* s.x */\
-		"vsubpd		%%ymm5 ,%%ymm0,%%ymm10	\n\t	vsubpd		%%ymm7 ,%%ymm2,%%ymm2	\n\t"	/* Out.re = c.x - s.y */\
-		"vaddpd		%%ymm4 ,%%ymm1,%%ymm11	\n\t	vaddpd		%%ymm6 ,%%ymm3,%%ymm3	\n\t"	/* Out.im = c.y + s.x */\
-		"											vmovaps		%%ymm2 ,0x40(%%rax)		\n\t"	/* Store result, overwriting input base root */\
-		"											vmovaps		%%ymm3 ,0x60(%%rax)		\n\t"	/* Im part */\
-		"movq		%[__data],%%rax		\n\t"\
-		"movq		%[__half_arr],%%rdx		\n\t"\
-		"movslq		%[__odd_radix],%%r11	\n\t"	/* [1,2,3]*odd_radix are the index offsets to the wtinv, base, and base_inv values, respectively. */\
-		"shlq		$5,%%r11				\n\t"	/* 32 bytes for array-of-complex */\
-		"addq		%%r11,%%rdx				\n\t"	/* wt|wtinv|base|baseinv data offset by icycle array slots from resp. base addresses */\
-		/* Multiply complex transform outputs [x,y] = [re,im] by inverse IBDWT weights, which include the 2/n scale factor: */\
-		"movslq		%[__icycleA],%%rdi		\n\t"	\
-		"movslq		%[__icycleB],%%r9 		\n\t"	\
-		"movslq		%[__icycleC],%%r8 		\n\t"	\
-		"movslq		%[__icycleD],%%r10		\n\t"	\
-		"vmovaps	(%%rdx,%%rdi),%%ymm12	\n\t"	/* [wtinv0-3]A */\
-		"vmovaps	(%%rdx,%%r9 ),%%ymm13	\n\t"	/* [wtinv0-3]B */\
-		"vmovaps	(%%rdx,%%r8 ),%%ymm14	\n\t"	/* [wtinv0-3]C */\
-		"vmovaps	(%%rdx,%%r10),%%ymm15	\n\t"	/* [wtinv0-3]D */\
-	/* 4-way transpose of inputs (Re, Im parts separately): Inputs from r0/1,2/3,4/5.6/7. Outputs into ymm0-7: */\
-	/* Real parts use ymm0,2,4,6, ymm8 as tmp-reg:					Imag parts use ymm1,3,5,7, ymm9 as tm-reg: */\
-		"vmovaps	     (%%rax),%%ymm4						\n\t		vmovaps	0x020(%%rax),%%ymm5							\n\t"\
-		"vmovaps	0x040(%%rax),%%ymm2						\n\t		vmovaps	0x060(%%rax),%%ymm3							\n\t"\
-		"vmulpd		%%ymm12,%%ymm4,%%ymm4					\n\t		vmulpd		%%ymm12,%%ymm5,%%ymm5					\n\t"\
-		"vmulpd		%%ymm13,%%ymm2,%%ymm2					\n\t		vmulpd		%%ymm13,%%ymm3,%%ymm3					\n\t"\
-		"vshufpd	$15,%%ymm2,%%ymm4,%%ymm6				\n\t		vshufpd	$15,%%ymm3,%%ymm5,%%ymm7					\n\t"\
-		"vshufpd	$0 ,%%ymm2,%%ymm4,%%ymm4				\n\t		vshufpd	$0 ,%%ymm3,%%ymm5,%%ymm5					\n\t"\
-		"vmovaps	0x080(%%rax),%%ymm8						\n\t		vmovaps	0x0a0(%%rax),%%ymm9							\n\t"\
-		"vmovaps	0x0c0(%%rax),%%ymm2						\n\t		vmovaps	0x0e0(%%rax),%%ymm3							\n\t"\
-		"vmulpd		%%ymm14,%%ymm8,%%ymm8					\n\t		vmulpd		%%ymm14,%%ymm9,%%ymm9					\n\t"\
-		"vmulpd		%%ymm15,%%ymm2,%%ymm2					\n\t		vmulpd		%%ymm15,%%ymm3,%%ymm3					\n\t"\
-		"vshufpd	$15,%%ymm2,%%ymm8,%%ymm0				\n\t		vshufpd	$15,%%ymm3,%%ymm9,%%ymm1					\n\t"\
-		"vshufpd	$0 ,%%ymm2,%%ymm8,%%ymm8				\n\t		vshufpd	$0 ,%%ymm3,%%ymm9,%%ymm9					\n\t"\
-		"vperm2f128 $32,%%ymm0,%%ymm6,%%ymm2	/* Re B	*/	\n\t		vperm2f128 $32,%%ymm1,%%ymm7,%%ymm3		/* Im B	*/	\n\t"\
-		"vperm2f128 $49,%%ymm0,%%ymm6,%%ymm6	/* Re D	*/	\n\t		vperm2f128 $49,%%ymm1,%%ymm7,%%ymm7		/* Im D	*/	\n\t"\
-		"vperm2f128 $32,%%ymm8,%%ymm4,%%ymm0	/* Re A	*/	\n\t		vperm2f128 $32,%%ymm9,%%ymm5,%%ymm1 	/* Im A	*/	\n\t"\
-		"vperm2f128 $49,%%ymm8,%%ymm4,%%ymm4	/* Re C	*/	\n\t		vperm2f128 $49,%%ymm9,%%ymm5,%%ymm5 	/* Im C	*/	\n\t"\
-		"subq		%%r11,%%rdx				\n\t"\
-		/* Base negacyclic roots at this address in [0,2,4,6]*0x20 (Re parts), [1,3,5,7]*0x20 (Imag parts) */\
-		"movq	%[__base_root] ,%%rax		\n\t"	/* Won't need main-array again until output transpose, so re-use rax for base_root */\
-		/* half_arr[0,1,2,3] = [base*2, baseinv*2,wt_re*2,wt_im*2] */\
-		"vmovaps	-0x40(%%rdx),%%ymm13	\n\t"	/* XMM13 = maxerr */\
-		"/*vmovaps	-0x20(%%rdx),%%ymm15	*/\n\t"	/* rnd_const; prefer ROUNDPD in AVX mode, so ymm15 free */\
-		"addq		%%rdi,%%rdx				\n\t"	/* icycle assumed already in left-shifted ptr-byte-offset form */\
-		"vmovaps	%%ymm13,%%ymm14			\n\t"	/* maxerr copy */\
-		"movq		%[__cy_re],%%rbx		\n\t"\
-		"movq		%[__cy_im],%%rcx		\n\t"\
-		"leaq		(%%r11,%%r11),%%r12		\n\t"	/* 2*odd_radix, ptr-offset form */\
-	/* Do a-quartet: Data in ymm0,ymm1 */\
-		/* For a-quartet, needed negacyclic root already in ymm10/11: */\
-		/* Data in ymm0,ymm1 */\
-		"vmovaps	%%ymm0,%%ymm8			\n\t"	/* x copy */\
-		"vmovaps	%%ymm1,%%ymm9			\n\t"	/* y copy */\
-		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
-		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"leaq		(%%r11,%%r12),%%r13		\n\t"	/* 3*odd_radix, ptr-offset form */\
-		"vaddpd		%%ymm9 ,%%ymm0,%%ymm0	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
-		"vsubpd		%%ymm8 ,%%ymm1,%%ymm1	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
-		/* normalize a-pair, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%ymm0,%%ymm0	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		(%%rcx),%%ymm1,%%ymm1	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
-		"vmovaps	%%ymm0,%%ymm8			\n\t	vmovaps		%%ymm1,%%ymm9		\n\t"	/* copy x|y */\
-		"vroundpd	$0,%%ymm0,%%ymm0		\n\t	vroundpd	$0,%%ymm1,%%ymm1	\n\t"	/* temp = DNINT(x|y) */\
-		"movq		%[__sign_mask],%%rsi	\n\t"\
-		"vmovaps	(%%rdx,%%r13),%%ymm12	\n\t"	/* [baseinv0-3] */\
-		"vsubpd		%%ymm0 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm1 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
-		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
-		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
-		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"	/* cpy temp */\
-		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
-		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
-		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
-		"vmovaps	(%%rdx,%%r12),%%ymm12	\n\t"	/* [base0-3] */\
-		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"	/* store [cy0-3.re|im] */\
-		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm9 ,%%ymm1,%%ymm1	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
-		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"	/* cpy x|y */\
-		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
-		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"vsubpd		%%ymm9 ,%%ymm0,%%ymm0	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
-		"vaddpd		%%ymm8 ,%%ymm1,%%ymm1	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
-	/* Now do b-quartet: Data in ymm2,ymm3 */\
-		"movq		%[__half_arr],%%rdx		\n\t"\
-		"vmovaps	%%ymm14,%%ymm13			\n\t"	/* maxerr copy */\
-		"movslq		%[__jcycleA],%%rdi		\n\t"\
-		"addq		%%rdi,%%rdx				\n\t"	/* jcycle assumed already in left-shifted ptr-byte-offset form */\
-		/* Get next set of negacyclic roots: */\
-		"vmovaps	0x40(%%rax),%%ymm10		\n\t"	/* c = Re part of 2nd base-root quartet */\
-		"vmovaps	0x60(%%rax),%%ymm11		\n\t"	/* s = Im part */\
-		/* Data in ymm2,ymm3 */\
-		"vmovaps	%%ymm2,%%ymm8			\n\t"	/* x copy */\
-		"vmovaps	%%ymm3,%%ymm9			\n\t"	/* y copy */\
-		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
-		"vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"vaddpd		%%ymm9 ,%%ymm2,%%ymm2	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
-		"vsubpd		%%ymm8 ,%%ymm3,%%ymm3	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
-		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%ymm2,%%ymm2	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		(%%rcx),%%ymm3,%%ymm3	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
-		"vmovaps	%%ymm2,%%ymm8			\n\t	vmovaps		%%ymm3,%%ymm9		\n\t"	/* copy x|y */\
-		"vroundpd	$0,%%ymm2,%%ymm2		\n\t	vroundpd	$0,%%ymm3,%%ymm3	\n\t"	/* temp = DNINT(x|y) */\
-		"vmovaps	(%%rdx,%%r13),%%ymm12	\n\t"	/* [baseinv0-3] */\
-		"vsubpd		%%ymm2 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm3 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
-		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
-		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
-		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"	/* cpy temp */\
-		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
-		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
-		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
-		"vmovaps	(%%rdx,%%r12),%%ymm12	\n\t"	/* [base0-3] */\
-		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"	/* store [cy0-3.re|im] */\
-		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm2,%%ymm2	\n\t	vsubpd		%%ymm9 ,%%ymm3,%%ymm3	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
-		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"	/* cpy x|y */\
-		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
-		"vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"vsubpd		%%ymm9 ,%%ymm2,%%ymm2	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
-		"vaddpd		%%ymm8 ,%%ymm3,%%ymm3	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
-	/* Now do c-quartet: Data in ymm4,ymm5 */\
-		"movq		%[__half_arr],%%rdx		\n\t"\
-		"vmovaps	%%ymm14,%%ymm13			\n\t"	/* maxerr copy */\
-		"movslq		%[__kcycleA],%%rdi		\n\t"\
-		"addq		%%rdi,%%rdx				\n\t"	/* kcycle assumed already in left-shifted ptr-byte-offset form */\
-		/* Get next set of negacyclic roots: */\
-		"vmovaps	0x80(%%rax),%%ymm10		\n\t"	/* c = Re part of 3rd base-root quartet */\
-		"vmovaps	0xa0(%%rax),%%ymm11		\n\t"	/* s = Im part */\
-		/* Data in ymm4,ymm5 */\
-		"vmovaps	%%ymm4,%%ymm8			\n\t"	/* x copy */\
-		"vmovaps	%%ymm5,%%ymm9			\n\t"	/* y copy */\
-		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
-		"vmulpd		%%ymm10,%%ymm4,%%ymm4	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm5,%%ymm5	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"vaddpd		%%ymm9 ,%%ymm4,%%ymm4	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
-		"vsubpd		%%ymm8 ,%%ymm5,%%ymm5	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
-		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%ymm4,%%ymm4	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		(%%rcx),%%ymm5,%%ymm5	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
-		"vmovaps	%%ymm4,%%ymm8			\n\t	vmovaps		%%ymm5,%%ymm9		\n\t"	/* copy x|y */\
-		"vroundpd	$0,%%ymm4,%%ymm4		\n\t	vroundpd	$0,%%ymm5,%%ymm5	\n\t"	/* temp = DNINT(x|y) */\
-		"vmovaps	(%%rdx,%%r13),%%ymm12	\n\t"	/* [baseinv0-3] */\
-		"vsubpd		%%ymm4 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm5 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
-		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
-		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
-		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"	/* cpy temp */\
-		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
-		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
-		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
-		"vmovaps	(%%rdx,%%r12),%%ymm12	\n\t"	/* [base0-3] */\
-		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"	/* store [cy0-3.re|im] */\
-		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm4,%%ymm4	\n\t	vsubpd		%%ymm9 ,%%ymm5,%%ymm5	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
-		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"	/* cpy x|y */\
-		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
-		"vmulpd		%%ymm10,%%ymm4,%%ymm4	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm5,%%ymm5	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"vsubpd		%%ymm9 ,%%ymm4,%%ymm4	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
-		"vaddpd		%%ymm8 ,%%ymm5,%%ymm5	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
-	/* Now do d-quartet: Data in ymm6,ymm7 */\
-		"movq		%[__half_arr],%%rdx		\n\t"\
-		"vmovaps	%%ymm14,%%ymm13			\n\t"	/* maxerr copy */\
-		"movslq		%[__lcycleA],%%rdi		\n\t"\
-		"addq		%%rdi,%%rdx				\n\t"	/* lcycle assumed already in left-shifted ptr-byte-offset form */\
-		/* Get next set of negacyclic roots: */\
-		"vmovaps	0xc0(%%rax),%%ymm10		\n\t"	/* c = Re part of 4th base-root quartet */\
-		"vmovaps	0xe0(%%rax),%%ymm11		\n\t"	/* s = Im part */\
-		/* Data in ymm6,ymm7 */\
-		"vmovaps	%%ymm6,%%ymm8			\n\t"	/* x copy */\
-		"vmovaps	%%ymm7,%%ymm9			\n\t"	/* y copy */\
-		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
-		"vmulpd		%%ymm10,%%ymm6,%%ymm6	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm7,%%ymm7	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"vaddpd		%%ymm9 ,%%ymm6,%%ymm6	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
-		"vsubpd		%%ymm8 ,%%ymm7,%%ymm7	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
-		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%ymm6,%%ymm6	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		(%%rcx),%%ymm7,%%ymm7	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
-		"vmovaps	%%ymm6,%%ymm8			\n\t	vmovaps		%%ymm7,%%ymm9		\n\t"	/* copy x|y */\
-		"vroundpd	$0,%%ymm6,%%ymm6		\n\t	vroundpd	$0,%%ymm7,%%ymm7	\n\t"	/* temp = DNINT(x|y) */\
-		"vmovaps	(%%rdx,%%r13),%%ymm12	\n\t"	/* [baseinv0-3] */\
-		"vsubpd		%%ymm6 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm7 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
-		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
-		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
-		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"	/* cpy temp */\
-		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
-		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
-		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
-		"vmovaps	(%%rdx,%%r12),%%ymm12	\n\t"	/* [base0-3] */\
-		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"	/* store [cy0-3.re|im] */\
-		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm6,%%ymm6	\n\t	vsubpd		%%ymm9 ,%%ymm7,%%ymm7	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
-		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"	/* cpy x|y */\
-		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
-		"vmulpd		%%ymm10,%%ymm6,%%ymm6	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm7,%%ymm7	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"vsubpd		%%ymm9 ,%%ymm6,%%ymm6	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
-		"vaddpd		%%ymm8 ,%%ymm7,%%ymm7	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
-		/* Store maxerr: */\
-		"movq		%[__half_arr],%%rdx		\n\t"\
-		"vmovaps	%%ymm14,-0x40(%%rdx)	\n\t"\
-	/* 4-way transpose of outputs (Re, Im parts separately): Inputs from ymm0-7. Outputs into r0/1,2/3,4/5.6/7: */	\
-	/* Because default inputs for our 4 x 4 transpose macro (e.g. the one used at start of this carry macro) */\
-	/* are into ymm4/2/8/2, munge inputs into that order, resolving name-conflicts via use of the now-available ymm8-15 for outputs: */\
-		"movq		%[__data],%%rax			\n\t"\
-		"vshufpd	$15,%%ymm2,%%ymm0,%%ymm10					\n\t		vshufpd	$15,%%ymm3,%%ymm1,%%ymm11						\n\t"\
-		"vshufpd	$0 ,%%ymm2,%%ymm0,%%ymm0					\n\t		vshufpd	$0 ,%%ymm3,%%ymm1,%%ymm1						\n\t"\
-		"vshufpd	$15,%%ymm6,%%ymm4,%%ymm12					\n\t		vshufpd	$15,%%ymm7,%%ymm5,%%ymm13						\n\t"\
-		"vshufpd	$0 ,%%ymm6,%%ymm4,%%ymm4					\n\t		vshufpd	$0 ,%%ymm7,%%ymm5,%%ymm5						\n\t"\
-		"vperm2f128 $32,%%ymm12,%%ymm10,%%ymm2 		/* Re B	*/	\n\t		vperm2f128 $32,%%ymm13,%%ymm11,%%ymm3		/* Im B	*/	\n\t"\
-		"vperm2f128 $49,%%ymm12,%%ymm10,%%ymm10		/* Re D	*/	\n\t		vperm2f128 $49,%%ymm13,%%ymm11,%%ymm11		/* Im D	*/	\n\t"\
-		"vperm2f128 $32,%%ymm4 ,%%ymm0 ,%%ymm12		/* Re A	*/	\n\t		vperm2f128 $32,%%ymm5 ,%%ymm1 ,%%ymm13 		/* Im A	*/	\n\t"\
-		"vperm2f128 $49,%%ymm4 ,%%ymm0 ,%%ymm0 		/* Re C	*/	\n\t		vperm2f128 $49,%%ymm5 ,%%ymm1 ,%%ymm1		/* Im C	*/	\n\t"\
-		/* Multiply normalized, re-permuted transform outputs by forward IBDWT weights: */\
-		"movslq		%[__icycleA],%%rdi		\n\t"	\
-		"vmovaps	(%%rdx,%%rdi),%%ymm4	\n\t"	/* [wt0-3]A */\
-		"vmovaps	(%%rdx,%%r9 ),%%ymm5	\n\t"	/* [wt0-3]B */\
-		"vmovaps	(%%rdx,%%r8 ),%%ymm6	\n\t"	/* [wt0-3]C */\
-		"vmovaps	(%%rdx,%%r10),%%ymm7	\n\t"	/* [wt0-3]D */\
-		"vmulpd		%%ymm4,%%ymm12,%%ymm12						\n\t		vmulpd		%%ymm4,%%ymm13,%%ymm13			\n\t"\
-		"vmulpd		%%ymm5,%%ymm2 ,%%ymm2 						\n\t		vmulpd		%%ymm5,%%ymm3 ,%%ymm3 			\n\t"\
-		"vmulpd		%%ymm6,%%ymm0 ,%%ymm0 						\n\t		vmulpd		%%ymm6,%%ymm1 ,%%ymm1 			\n\t"\
-		"vmulpd		%%ymm7,%%ymm10,%%ymm10						\n\t		vmulpd		%%ymm7,%%ymm11,%%ymm11			\n\t"\
-		/* And write 'em back to memory: */\
-		"vmovaps	%%ymm12,     (%%rax)						\n\t		vmovaps	%%ymm13,0x020(%%rax)				\n\t"\
-		"vmovaps	%%ymm2 ,0x040(%%rax)						\n\t		vmovaps	%%ymm3 ,0x060(%%rax)				\n\t"\
-		"vmovaps	%%ymm0 ,0x080(%%rax)						\n\t		vmovaps	%%ymm1 ,0x0a0(%%rax)				\n\t"\
-		"vmovaps	%%ymm10,0x0c0(%%rax)						\n\t		vmovaps	%%ymm11,0x0e0(%%rax)				\n\t"\
-		:						/* outputs: none */\
-		:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
-		,	[__base_root]	"m" (Xbase_root)\
-		,	[__cmul_offset] "e" (Xcmul_offset)\
-		,	[__cy_re]		"m" (Xcy_re)\
-		,	[__cy_im]		"m" (Xcy_im)\
-		,	[__odd_radix]   "m" (Xodd_radix)\
-		,	[__half_arr]	"m" (Xhalf_arr)\
-		,	[__sign_mask]	"m" (Xsign_mask)\
-		/* Need quartet of ascending [modulo odd_radix] icycle indices for IBDWT weights: */\
-		,	[__icycleA]		"m" (XicycleA)\
-		,	[__icycleB]		"m" (XicycleB)\
-		,	[__icycleC]		"m" (XicycleC)\
-		,	[__icycleD]		"m" (XicycleD)\
-		/* Need quartet of same-index [i,j,k,l]cycle indices for negacyclic weights and base/baseinv normalizations: */\
-		,	[__jcycleA]		"m" (XjcycleA)\
-		,	[__kcycleA]		"m" (XkcycleA)\
-		,	[__lcycleA]		"m" (XlcycleA)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"   /* Clobbered registers */\
-	);\
-	}
-
-	#define SSE2_fermat_carry_init_loacc(Xbase_root)\
-	{\
-	__asm__ volatile (\
-		"movq		%[__base_root] ,%%rax	\n\t	"	/* Base negacyclic roots at this address +8*0x20 (Re parts), +9*0x20 (Imag parts) */\
-		"vmovaps	0x100(%%rax),%%ymm10	\n\t	"	/* Multiply by exp(j*I*Pi/2)/28, for j = 0-3 */\
-		"vmovaps	0x120(%%rax),%%ymm11	\n\t	"	/* c = Re(exp) in ymm0, s = Im(exp) in ymm1 */\
-		"vmovaps	     (%%rax),%%ymm0		\n\t	vmovaps	 0x40(%%rax),%%ymm2			\n\t"	/* x = Re part of 1st base-root quartet */\
-		"vmovaps	 0x20(%%rax),%%ymm1		\n\t	vmovaps	 0x60(%%rax),%%ymm3			\n\t"	/* y = Im part */\
-		"vmovaps	%%ymm0,%%ymm4			\n\t	vmovaps		%%ymm2,%%ymm6			\n\t"	/* Copy x */\
-		"vmovaps	%%ymm1,%%ymm5			\n\t	vmovaps		%%ymm3,%%ymm7			\n\t"	/* Copy y */\
-		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	/* c.x */\
-		"vmulpd		%%ymm11,%%ymm5,%%ymm5	\n\t	vmulpd		%%ymm11,%%ymm7,%%ymm7	\n\t"	/* s.y */\
-		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t	vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	/* c.y */\
-		"vmulpd		%%ymm11,%%ymm4,%%ymm4	\n\t	vmulpd		%%ymm11,%%ymm6,%%ymm6	\n\t"	/* s.x */\
-		"vsubpd		%%ymm5 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm7 ,%%ymm2,%%ymm2	\n\t"	/* Out.re = c.x - s.y */\
-		"vaddpd		%%ymm4 ,%%ymm1,%%ymm1	\n\t	vaddpd		%%ymm6 ,%%ymm3,%%ymm3	\n\t"	/* Out.im = c.y + s.x */\
-		"vmovaps	%%ymm0 ,    (%%rax)		\n\t	vmovaps		%%ymm2 ,0x40(%%rax)		\n\t"	/* Store result, overwriting input base root */\
-		"vmovaps	%%ymm1 ,0x20(%%rax)		\n\t	vmovaps		%%ymm3 ,0x60(%%rax)		\n\t"	/* Im part */\
-		"/* Process next 2 base-root quartets: */"\
-		"vmovaps	 0x80(%%rax),%%ymm0		\n\t	vmovaps	 0xc0(%%rax),%%ymm2			\n\t"	\
-		"vmovaps	 0xa0(%%rax),%%ymm1		\n\t	vmovaps	 0xe0(%%rax),%%ymm3			\n\t"	\
-		"vmovaps	%%ymm0,%%ymm4			\n\t	vmovaps		%%ymm2,%%ymm6			\n\t"	\
-		"vmovaps	%%ymm1,%%ymm5			\n\t	vmovaps		%%ymm3,%%ymm7			\n\t"	\
-		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	\
-		"vmulpd		%%ymm11,%%ymm5,%%ymm5	\n\t	vmulpd		%%ymm11,%%ymm7,%%ymm7	\n\t"	\
-		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t	vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	\
-		"vmulpd		%%ymm11,%%ymm4,%%ymm4	\n\t	vmulpd		%%ymm11,%%ymm6,%%ymm6	\n\t"	\
-		"vsubpd		%%ymm5 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm7 ,%%ymm2,%%ymm2	\n\t"	\
-		"vaddpd		%%ymm4 ,%%ymm1,%%ymm1	\n\t	vaddpd		%%ymm6 ,%%ymm3,%%ymm3	\n\t"	\
-		"vmovaps	%%ymm0 ,0x80(%%rax)		\n\t	vmovaps		%%ymm2 ,0xc0(%%rax)		\n\t"	/* Store result, overwriting input base root */\
-		"vmovaps	%%ymm1 ,0xa0(%%rax)		\n\t	vmovaps		%%ymm3 ,0xe0(%%rax)		\n\t"	/* Im part */\
-	:						/* outputs: none */\
-	:	[__base_root]	"m" (Xbase_root)	/* All inputs from memory addresses here */\
-		: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm10","xmm11"   /* Clobbered registers */\
-	);\
-	}
-
-	/* Non-power-of-2-runlength Fermat-mod acyclic-transform/IBDWT carry macro.
-	The array indices i/j/k/lcycle declared int in caller but assumed to have been byte-shift-converted at time this macro called,
-	thus can use as complex-address-offsets.
-	*/
-	#define SSE2_fermat_carry_norm_errcheck_X4_loacc(Xdata,Xbase_root,Xcy_re,Xcy_im,Xodd_radix,Xhalf_arr,Xsign_mask,XicycleA,XicycleB,XicycleC,XicycleD, XjcycleA,XkcycleA,XlcycleA)\
-	{\
-	__asm__ volatile (\
-		"movq		%[__data],%%rax		\n\t"\
-		"movq		%[__half_arr],%%rdx		\n\t"\
-		"movslq		%[__odd_radix],%%r11	\n\t"	/* [1,2,3]*odd_radix are the index offsets to the wtinv, base, and base_inv values, respectively. */\
-		"shlq		$5,%%r11				\n\t"	/* 32 bytes for array-of-complex */\
-		"addq		%%r11,%%rdx				\n\t"	/* wt|wtinv|base|baseinv data offset by icycle array slots from resp. base addresses */\
-		/* Multiply complex transform outputs [x,y] = [re,im] by inverse IBDWT weights, which include the 2/n scale factor: */\
-		"movslq		%[__icycleA],%%rdi		\n\t"	\
-		"movslq		%[__icycleB],%%r9 		\n\t"	\
-		"movslq		%[__icycleC],%%r8 		\n\t"	\
-		"movslq		%[__icycleD],%%r10		\n\t"	\
-		"vmovaps	(%%rdx,%%rdi),%%ymm10	\n\t"	/* [wtinv0-3]A */\
-		"vmovaps	(%%rdx,%%r9 ),%%ymm11	\n\t"	/* [wtinv0-3]B */\
-		"vmovaps	(%%rdx,%%r8 ),%%ymm12	\n\t"	/* [wtinv0-3]C */\
-		"vmovaps	(%%rdx,%%r10),%%ymm13	\n\t"	/* [wtinv0-3]D */\
-	/* 4-way transpose of inputs (Re, Im parts separately): Inputs from r0/1,2/3,4/5.6/7. Outputs into ymm0-7: */\
-	/* Real parts use ymm0,2,4,6, ymm8 as tmp-reg:					Imag parts use ymm1,3,5,7, ymm9 as tm-reg: */\
-		"vmovaps	     (%%rax),%%ymm4						\n\t		vmovaps	0x020(%%rax),%%ymm5							\n\t"\
-		"vmovaps	0x040(%%rax),%%ymm2						\n\t		vmovaps	0x060(%%rax),%%ymm3							\n\t"\
-		"vmulpd		%%ymm10,%%ymm4,%%ymm4					\n\t		vmulpd		%%ymm10,%%ymm5,%%ymm5					\n\t"\
-		"vmulpd		%%ymm11,%%ymm2,%%ymm2					\n\t		vmulpd		%%ymm11,%%ymm3,%%ymm3					\n\t"\
-		"vshufpd	$15,%%ymm2,%%ymm4,%%ymm6				\n\t		vshufpd	$15,%%ymm3,%%ymm5,%%ymm7					\n\t"\
-		"vshufpd	$0 ,%%ymm2,%%ymm4,%%ymm4				\n\t		vshufpd	$0 ,%%ymm3,%%ymm5,%%ymm5					\n\t"\
-		"vmovaps	0x080(%%rax),%%ymm8						\n\t		vmovaps	0x0a0(%%rax),%%ymm9							\n\t"\
-		"vmovaps	0x0c0(%%rax),%%ymm2						\n\t		vmovaps	0x0e0(%%rax),%%ymm3							\n\t"\
-		"vmulpd		%%ymm12,%%ymm8,%%ymm8					\n\t		vmulpd		%%ymm12,%%ymm9,%%ymm9					\n\t"\
-		"vmulpd		%%ymm13,%%ymm2,%%ymm2					\n\t		vmulpd		%%ymm13,%%ymm3,%%ymm3					\n\t"\
-		"vshufpd	$15,%%ymm2,%%ymm8,%%ymm0				\n\t		vshufpd	$15,%%ymm3,%%ymm9,%%ymm1					\n\t"\
-		"vshufpd	$0 ,%%ymm2,%%ymm8,%%ymm8				\n\t		vshufpd	$0 ,%%ymm3,%%ymm9,%%ymm9					\n\t"\
-		"vperm2f128 $32,%%ymm0,%%ymm6,%%ymm2	/* Re B	*/	\n\t		vperm2f128 $32,%%ymm1,%%ymm7,%%ymm3		/* Im B	*/	\n\t"\
-		"vperm2f128 $49,%%ymm0,%%ymm6,%%ymm6	/* Re D	*/	\n\t		vperm2f128 $49,%%ymm1,%%ymm7,%%ymm7		/* Im D	*/	\n\t"\
-		"vperm2f128 $32,%%ymm8,%%ymm4,%%ymm0	/* Re A	*/	\n\t		vperm2f128 $32,%%ymm9,%%ymm5,%%ymm1 	/* Im A	*/	\n\t"\
-		"vperm2f128 $49,%%ymm8,%%ymm4,%%ymm4	/* Re C	*/	\n\t		vperm2f128 $49,%%ymm9,%%ymm5,%%ymm5 	/* Im C	*/	\n\t"\
-		"subq		%%r11,%%rdx				\n\t"\
-		/* Base negacyclic roots at this address in [0,2,4,6]*0x20 (Re parts), [1,3,5,7]*0x20 (Imag parts) */\
-		"movq	%[__base_root] ,%%rax		\n\t"	/* Won't need main-array again until output transpose, so re-use rax for base_root */\
-		/* half_arr[0,1,2,3] = [base*2, baseinv*2,wt_re*2,wt_im*2] */\
-		"vmovaps	-0x40(%%rdx),%%ymm13	\n\t"	/* XMM13 = maxerr */\
-		"/*vmovaps	-0x20(%%rdx),%%ymm15	*/\n\t"	/* rnd_const; prefer ROUNDPD in AVX mode, so ymm15 free */\
-		"addq		%%rdi,%%rdx				\n\t"	/* icycle assumed already in left-shifted ptr-byte-offset form */\
-		/* Get next set of negacyclic roots: */\
-		"vmovaps	    (%%rax),%%ymm10		\n\t"	/* c = Re part of 1st base-root quartet */\
-		"vmovaps	0x20(%%rax),%%ymm11		\n\t"	/* s = Im part */\
-	/* Do a-quartet: Data in ymm0,ymm1 */\
-		"vmovaps	%%ymm13,%%ymm14			\n\t"	/* maxerr copy */\
-		"movq		%[__cy_re],%%rbx		\n\t"\
-		"movq		%[__cy_im],%%rcx		\n\t"\
-		"leaq		(%%r11,%%r11),%%r12		\n\t"	/* 2*odd_radix, ptr-offset form */\
-		"vmovaps	%%ymm0,%%ymm8			\n\t"	/* x copy */\
-		"vmovaps	%%ymm1,%%ymm9			\n\t"	/* y copy */\
-		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
-		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"leaq		(%%r11,%%r12),%%r13		\n\t"	/* 3*odd_radix, ptr-offset form */\
-		"vaddpd		%%ymm9 ,%%ymm0,%%ymm0	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
-		"vsubpd		%%ymm8 ,%%ymm1,%%ymm1	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
-		/* normalize a-pair, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%ymm0,%%ymm0	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		(%%rcx),%%ymm1,%%ymm1	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
-		"vmovaps	%%ymm0,%%ymm8			\n\t	vmovaps		%%ymm1,%%ymm9		\n\t"	/* copy x|y */\
-		"vroundpd	$0,%%ymm0,%%ymm0		\n\t	vroundpd	$0,%%ymm1,%%ymm1	\n\t"	/* temp = DNINT(x|y) */\
-		"movq		%[__sign_mask],%%rsi	\n\t"\
-		"vmovaps	(%%rdx,%%r13),%%ymm12	\n\t"	/* [baseinv0-3] */\
-		"vsubpd		%%ymm0 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm1 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
-		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
-		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
-		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"	/* cpy temp */\
-		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
-		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
-		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
-		"vmovaps	(%%rdx,%%r12),%%ymm12	\n\t"	/* [base0-3] */\
-		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"	/* store [cy0-3.re|im] */\
-		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm9 ,%%ymm1,%%ymm1	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
-		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"	/* cpy x|y */\
-		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
-		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm1,%%ymm1	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"vsubpd		%%ymm9 ,%%ymm0,%%ymm0	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
-		"vaddpd		%%ymm8 ,%%ymm1,%%ymm1	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
-		/* Up-multiply negacyclic roots stored in ymm10,11 by exp(j*I*Pi/2)/28, for j = 4 */\
-		"vmovaps	0x140(%%rax),%%ymm8 	\n\t"	/* x = Re(exp) in ymm10 */\
-		"vmovaps	0x160(%%rax),%%ymm9 	\n\t"	/* y = Im(exp) in ymm11 */\
-		"vmulpd		%%ymm10,%%ymm9 ,%%ymm12	\n\t"	/* ymm12 = c.y */\
-		"vmulpd		%%ymm10,%%ymm8 ,%%ymm10	\n\t"	/* ymm10 = c.x */\
-		"vmulpd		%%ymm11,%%ymm8 ,%%ymm8 	\n\t"	/* ymm8  = s.x */\
-		"vmulpd		%%ymm11,%%ymm9 ,%%ymm9 	\n\t"	/* ymm9  = s.y */\
-		"vsubpd		%%ymm9 ,%%ymm10,%%ymm10	\n\t"	/* ymm10 = wt.re = c.x - s.y; ymm9  free */\
-		"vaddpd		%%ymm8 ,%%ymm12,%%ymm11	\n\t"	/* ymm11 = wt.im = s.x + c.y; ymm8 ,4 free */\
-		"vmovaps	%%ymm10,    (%%rax)		\n\t"	/* Store result, overwriting the old base root */\
-		"vmovaps	%%ymm11,0x20(%%rax)		\n\t"	/* Im part */\
-		/* Get next set of negacyclic roots: */\
-		"vmovaps	0x40(%%rax),%%ymm10		\n\t"	/* c = Re part of 2nd base-root quartet */\
-		"vmovaps	0x60(%%rax),%%ymm11		\n\t"	/* s = Im part */\
-	/* Now do b-quartet: Data in ymm2,ymm3 */\
-		"movq		%[__half_arr],%%rdx		\n\t"\
-		"vmovaps	%%ymm14,%%ymm13			\n\t"	/* maxerr copy */\
-		"movslq		%[__jcycleA],%%rdi		\n\t"\
-		"addq		%%rdi,%%rdx				\n\t"	/* jcycle assumed already in left-shifted ptr-byte-offset form */\
-		"vmovaps	%%ymm2,%%ymm8			\n\t"	/* x copy */\
-		"vmovaps	%%ymm3,%%ymm9			\n\t"	/* y copy */\
-		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
-		"vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"vaddpd		%%ymm9 ,%%ymm2,%%ymm2	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
-		"vsubpd		%%ymm8 ,%%ymm3,%%ymm3	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
-		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%ymm2,%%ymm2	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		(%%rcx),%%ymm3,%%ymm3	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
-		"vmovaps	%%ymm2,%%ymm8			\n\t	vmovaps		%%ymm3,%%ymm9		\n\t"	/* copy x|y */\
-		"vroundpd	$0,%%ymm2,%%ymm2		\n\t	vroundpd	$0,%%ymm3,%%ymm3	\n\t"	/* temp = DNINT(x|y) */\
-		"vmovaps	(%%rdx,%%r13),%%ymm12	\n\t"	/* [baseinv0-3] */\
-		"vsubpd		%%ymm2 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm3 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
-		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
-		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
-		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"	/* cpy temp */\
-		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
-		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
-		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
-		"vmovaps	(%%rdx,%%r12),%%ymm12	\n\t"	/* [base0-3] */\
-		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"	/* store [cy0-3.re|im] */\
-		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm2,%%ymm2	\n\t	vsubpd		%%ymm9 ,%%ymm3,%%ymm3	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
-		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"	/* cpy x|y */\
-		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
-		"vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"vsubpd		%%ymm9 ,%%ymm2,%%ymm2	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
-		"vaddpd		%%ymm8 ,%%ymm3,%%ymm3	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
-		/* Up-multiply negacyclic roots stored in ymm10,11 by exp(j*I*Pi/2)/28, for j = 4 */\
-		"vmovaps	0x140(%%rax),%%ymm8 	\n\t"	/* x = Re(exp) in ymm10 */\
-		"vmovaps	0x160(%%rax),%%ymm9 	\n\t"	/* y = Im(exp) in ymm11 */\
-		"vmulpd		%%ymm10,%%ymm9 ,%%ymm12	\n\t"	/* ymm12 = c.y */\
-		"vmulpd		%%ymm10,%%ymm8 ,%%ymm10	\n\t"	/* ymm10 = c.x */\
-		"vmulpd		%%ymm11,%%ymm8 ,%%ymm8 	\n\t"	/* ymm8  = s.x */\
-		"vmulpd		%%ymm11,%%ymm9 ,%%ymm9 	\n\t"	/* ymm9  = s.y */\
-		"vsubpd		%%ymm9 ,%%ymm10,%%ymm10	\n\t"	/* ymm10 = wt.re = c.x - s.y; ymm9  free */\
-		"vaddpd		%%ymm8 ,%%ymm12,%%ymm11	\n\t"	/* ymm11 = wt.im = s.x + c.y; ymm8 ,4 free */\
-		"vmovaps	%%ymm10,0x40(%%rax)		\n\t"	/* Store result, overwriting the old base root */\
-		"vmovaps	%%ymm11,0x60(%%rax)		\n\t"	/* Im part */\
-		/* Get next set of negacyclic roots: */\
-		"vmovaps	0x80(%%rax),%%ymm10		\n\t"	/* c = Re part of 3rd base-root quartet */\
-		"vmovaps	0xa0(%%rax),%%ymm11		\n\t"	/* s = Im part */\
-	/* Now do c-quartet: Data in ymm4,ymm5 */\
-		"movq		%[__half_arr],%%rdx		\n\t"\
-		"vmovaps	%%ymm14,%%ymm13			\n\t"	/* maxerr copy */\
-		"movslq		%[__kcycleA],%%rdi		\n\t"\
-		"addq		%%rdi,%%rdx				\n\t"	/* kcycle assumed already in left-shifted ptr-byte-offset form */\
-		"vmovaps	%%ymm4,%%ymm8			\n\t"	/* x copy */\
-		"vmovaps	%%ymm5,%%ymm9			\n\t"	/* y copy */\
-		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
-		"vmulpd		%%ymm10,%%ymm4,%%ymm4	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm5,%%ymm5	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"vaddpd		%%ymm9 ,%%ymm4,%%ymm4	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
-		"vsubpd		%%ymm8 ,%%ymm5,%%ymm5	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
-		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%ymm4,%%ymm4	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		(%%rcx),%%ymm5,%%ymm5	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
-		"vmovaps	%%ymm4,%%ymm8			\n\t	vmovaps		%%ymm5,%%ymm9		\n\t"	/* copy x|y */\
-		"vroundpd	$0,%%ymm4,%%ymm4		\n\t	vroundpd	$0,%%ymm5,%%ymm5	\n\t"	/* temp = DNINT(x|y) */\
-		"vmovaps	(%%rdx,%%r13),%%ymm12	\n\t"	/* [baseinv0-3] */\
-		"vsubpd		%%ymm4 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm5 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
-		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
-		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
-		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"	/* cpy temp */\
-		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
-		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
-		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
-		"vmovaps	(%%rdx,%%r12),%%ymm12	\n\t"	/* [base0-3] */\
-		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"	/* store [cy0-3.re|im] */\
-		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm4,%%ymm4	\n\t	vsubpd		%%ymm9 ,%%ymm5,%%ymm5	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
-		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"	/* cpy x|y */\
-		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
-		"vmulpd		%%ymm10,%%ymm4,%%ymm4	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm5,%%ymm5	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"vsubpd		%%ymm9 ,%%ymm4,%%ymm4	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
-		"vaddpd		%%ymm8 ,%%ymm5,%%ymm5	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
-		/* Up-multiply negacyclic roots stored in ymm10,11 by exp(j*I*Pi/2)/28, for j = 4 */\
-		"vmovaps	0x140(%%rax),%%ymm8 	\n\t"	/* x = Re(exp) in ymm10 */\
-		"vmovaps	0x160(%%rax),%%ymm9 	\n\t"	/* y = Im(exp) in ymm11 */\
-		"vmulpd		%%ymm10,%%ymm9 ,%%ymm12	\n\t"	/* ymm12 = c.y */\
-		"vmulpd		%%ymm10,%%ymm8 ,%%ymm10	\n\t"	/* ymm10 = c.x */\
-		"vmulpd		%%ymm11,%%ymm8 ,%%ymm8 	\n\t"	/* ymm8  = s.x */\
-		"vmulpd		%%ymm11,%%ymm9 ,%%ymm9 	\n\t"	/* ymm9  = s.y */\
-		"vsubpd		%%ymm9 ,%%ymm10,%%ymm10	\n\t"	/* ymm10 = wt.re = c.x - s.y; ymm9  free */\
-		"vaddpd		%%ymm8 ,%%ymm12,%%ymm11	\n\t"	/* ymm11 = wt.im = s.x + c.y; ymm8 ,4 free */\
-		"vmovaps	%%ymm10,0x80(%%rax)		\n\t"	/* Store result, overwriting the old base root */\
-		"vmovaps	%%ymm11,0xa0(%%rax)		\n\t"	/* Im part */\
-		/* Get next set of negacyclic roots: */\
-		"vmovaps	0xc0(%%rax),%%ymm10		\n\t"	/* c = Re part of 4th base-root quartet */\
-		"vmovaps	0xe0(%%rax),%%ymm11		\n\t"	/* s = Im part */\
-	/* Now do d-quartet: Data in ymm6,ymm7 */\
-		"movq		%[__half_arr],%%rdx		\n\t"\
-		"vmovaps	%%ymm14,%%ymm13			\n\t"	/* maxerr copy */\
-		"movslq		%[__lcycleA],%%rdi		\n\t"\
-		"addq		%%rdi,%%rdx				\n\t"	/* lcycle assumed already in left-shifted ptr-byte-offset form */\
-		"vmovaps	%%ymm6,%%ymm8			\n\t"	/* x copy */\
-		"vmovaps	%%ymm7,%%ymm9			\n\t"	/* y copy */\
-		/* Inverse negacyclic weight is (wt_re, -wt_im): */\
-		"vmulpd		%%ymm10,%%ymm6,%%ymm6	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm7,%%ymm7	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"vaddpd		%%ymm9 ,%%ymm6,%%ymm6	\n\t"	/* [a0-3.re] = x*wt_re + y*wt_im */\
-		"vsubpd		%%ymm8 ,%%ymm7,%%ymm7	\n\t"	/* [a0-3.im] = y*wt_re - x*wt_im */\
-		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%ymm6,%%ymm6	\n\t"	/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		(%%rcx),%%ymm7,%%ymm7	\n\t"	/* [a0-3.im] + [cy0-3.im] */\
-		"vmovaps	%%ymm6,%%ymm8			\n\t	vmovaps		%%ymm7,%%ymm9		\n\t"	/* copy x|y */\
-		"vroundpd	$0,%%ymm6,%%ymm6		\n\t	vroundpd	$0,%%ymm7,%%ymm7	\n\t"	/* temp = DNINT(x|y) */\
-		"vmovaps	(%%rdx,%%r13),%%ymm12	\n\t"	/* [baseinv0-3] */\
-		"vsubpd		%%ymm6 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm7 ,%%ymm9 ,%%ymm9 	\n\t"	/* frac = [x - temp] */\
-		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"	/* frac = fabs(frac) */\
-		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"	/* if(frac > maxerr) maxerr=frac */\
-		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"	/* cpy temp */\
-		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"	/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
-		"vmaxpd		%%ymm13,%%ymm14,%%ymm14	\n\t"	/* merge re|im maxerr vectors */\
-		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"	/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
-		"vmovaps	(%%rdx,%%r12),%%ymm12	\n\t"	/* [base0-3] */\
-		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"	/* store [cy0-3.re|im] */\
-		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"	/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm6,%%ymm6	\n\t	vsubpd		%%ymm9 ,%%ymm7,%%ymm7	\n\t"	/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
-		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"	/* cpy x|y */\
-		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
-		"vmulpd		%%ymm10,%%ymm6,%%ymm6	\n\t"	/* wt_re*[x     ] */\
-		"vmulpd		%%ymm11,%%ymm9,%%ymm9	\n\t"	/* wt_im*[y copy] */\
-		"vmulpd		%%ymm10,%%ymm7,%%ymm7	\n\t"	/* wt_re*[y     ] */\
-		"vmulpd		%%ymm11,%%ymm8,%%ymm8	\n\t"	/* wt_im*[x copy] */\
-		"vsubpd		%%ymm9 ,%%ymm6,%%ymm6	\n\t"	/* [a0-3.re] = x*wt_re - y*wt_im */\
-		"vaddpd		%%ymm8 ,%%ymm7,%%ymm7	\n\t"	/* [a0-3.im] = y*wt_re + x*wt_im */\
-		/* Up-multiply negacyclic roots stored in ymm10,11 by exp(j*I*Pi/2)/28, for j = 4 */\
-		"vmovaps	0x140(%%rax),%%ymm8 	\n\t"	/* x = Re(exp) in ymm10 */\
-		"vmovaps	0x160(%%rax),%%ymm9 	\n\t"	/* y = Im(exp) in ymm11 */\
-		"vmulpd		%%ymm10,%%ymm9 ,%%ymm12	\n\t"	/* ymm12 = c.y */\
-		"vmulpd		%%ymm10,%%ymm8 ,%%ymm10	\n\t"	/* ymm10 = c.x */\
-		"vmulpd		%%ymm11,%%ymm8 ,%%ymm8 	\n\t"	/* ymm8  = s.x */\
-		"vmulpd		%%ymm11,%%ymm9 ,%%ymm9 	\n\t"	/* ymm9  = s.y */\
-		"vsubpd		%%ymm9 ,%%ymm10,%%ymm10	\n\t"	/* ymm10 = wt.re = c.x - s.y; ymm9  free */\
-		"vaddpd		%%ymm8 ,%%ymm12,%%ymm11	\n\t"	/* ymm11 = wt.im = s.x + c.y; ymm8 ,4 free */\
-		"vmovaps	%%ymm10,0xc0(%%rax)		\n\t"	/* Store result, overwriting the old base root */\
-		"vmovaps	%%ymm11,0xe0(%%rax)		\n\t"	/* Im part */\
-		/* Store maxerr: */\
-		"movq		%[__half_arr],%%rdx		\n\t"\
-		"vmovaps	%%ymm14,-0x40(%%rdx)	\n\t"\
-	/* 4-way transpose of outputs (Re, Im parts separately): Inputs from ymm0-7. Outputs into r0/1,2/3,4/5.6/7: */	\
-	/* Because default inputs for our 4 x 4 transpose macro (e.g. the one used at start of this carry macro) */\
-	/* are into ymm4/2/8/2, munge inputs into that order, resolving name-conflicts via use of the now-available ymm8-15 for outputs: */\
-		"movq		%[__data],%%rax			\n\t"\
-		"vshufpd	$15,%%ymm2,%%ymm0,%%ymm10					\n\t		vshufpd	$15,%%ymm3,%%ymm1,%%ymm11						\n\t"\
-		"vshufpd	$0 ,%%ymm2,%%ymm0,%%ymm0					\n\t		vshufpd	$0 ,%%ymm3,%%ymm1,%%ymm1						\n\t"\
-		"vshufpd	$15,%%ymm6,%%ymm4,%%ymm12					\n\t		vshufpd	$15,%%ymm7,%%ymm5,%%ymm13						\n\t"\
-		"vshufpd	$0 ,%%ymm6,%%ymm4,%%ymm4					\n\t		vshufpd	$0 ,%%ymm7,%%ymm5,%%ymm5						\n\t"\
-		"vperm2f128 $32,%%ymm12,%%ymm10,%%ymm2 		/* Re B	*/	\n\t		vperm2f128 $32,%%ymm13,%%ymm11,%%ymm3		/* Im B	*/	\n\t"\
-		"vperm2f128 $49,%%ymm12,%%ymm10,%%ymm10		/* Re D	*/	\n\t		vperm2f128 $49,%%ymm13,%%ymm11,%%ymm11		/* Im D	*/	\n\t"\
-		"vperm2f128 $32,%%ymm4 ,%%ymm0 ,%%ymm12		/* Re A	*/	\n\t		vperm2f128 $32,%%ymm5 ,%%ymm1 ,%%ymm13 		/* Im A	*/	\n\t"\
-		"vperm2f128 $49,%%ymm4 ,%%ymm0 ,%%ymm0 		/* Re C	*/	\n\t		vperm2f128 $49,%%ymm5 ,%%ymm1 ,%%ymm1		/* Im C	*/	\n\t"\
-		/* Multiply normalized, re-permuted transform outputs by forward IBDWT weights: */\
-		"movslq		%[__icycleA],%%rdi		\n\t"	\
-		"vmovaps	(%%rdx,%%rdi),%%ymm4	\n\t"	/* [wt0-3]A */\
-		"vmovaps	(%%rdx,%%r9 ),%%ymm5	\n\t"	/* [wt0-3]B */\
-		"vmovaps	(%%rdx,%%r8 ),%%ymm6	\n\t"	/* [wt0-3]C */\
-		"vmovaps	(%%rdx,%%r10),%%ymm7	\n\t"	/* [wt0-3]D */\
-		"vmulpd		%%ymm4,%%ymm12,%%ymm12						\n\t		vmulpd		%%ymm4,%%ymm13,%%ymm13			\n\t"\
-		"vmulpd		%%ymm5,%%ymm2 ,%%ymm2 						\n\t		vmulpd		%%ymm5,%%ymm3 ,%%ymm3 			\n\t"\
-		"vmulpd		%%ymm6,%%ymm0 ,%%ymm0 						\n\t		vmulpd		%%ymm6,%%ymm1 ,%%ymm1 			\n\t"\
-		"vmulpd		%%ymm7,%%ymm10,%%ymm10						\n\t		vmulpd		%%ymm7,%%ymm11,%%ymm11			\n\t"\
-		/* And write 'em back to memory: */\
-		"vmovaps	%%ymm12,     (%%rax)						\n\t		vmovaps	%%ymm13,0x020(%%rax)				\n\t"\
-		"vmovaps	%%ymm2 ,0x040(%%rax)						\n\t		vmovaps	%%ymm3 ,0x060(%%rax)				\n\t"\
-		"vmovaps	%%ymm0 ,0x080(%%rax)						\n\t		vmovaps	%%ymm1 ,0x0a0(%%rax)				\n\t"\
-		"vmovaps	%%ymm10,0x0c0(%%rax)						\n\t		vmovaps	%%ymm11,0x0e0(%%rax)				\n\t"\
-	:						/* outputs: none */\
-	:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
-	,	[__base_root]	"m" (Xbase_root)\
-	,	[__cy_re]		"m" (Xcy_re)\
-	,	[__cy_im]		"m" (Xcy_im)\
-	,	[__odd_radix]   "m" (Xodd_radix)\
-	,	[__half_arr]	"m" (Xhalf_arr)\
-	,	[__sign_mask]	"m" (Xsign_mask)\
-	/* Need quartet of ascending [modulo odd_radix] icycle indices for IBDWT weights: */\
-	,	[__icycleA]		"m" (XicycleA)\
-	,	[__icycleB]		"m" (XicycleB)\
-	,	[__icycleC]		"m" (XicycleC)\
-	,	[__icycleD]		"m" (XicycleD)\
-	/* Need quartet of same-index [i,j,k,l]cycle indices for negacyclic weights and base/baseinv normalizations: */\
-	,	[__jcycleA]		"m" (XjcycleA)\
-	,	[__kcycleA]		"m" (XkcycleA)\
-	,	[__lcycleA]		"m" (XlcycleA)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14"   /* Clobbered registers */\
-	);\
-	}
-
-#else	// SSE2
-
 	/* Non-power-of-2-runlength Fermat-mod acyclic-transform/IBDWT carry macro.
 	The array indices icycle0/1 declared int in caller but assumed to have been << 4 at time this macro called, thus can use as complex-address-offsets.
 	*/
@@ -1415,20 +1423,16 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 	);\
 	}
 
-#endif	// AVX or SSE2?
-
 	/* Same non-power-of-2-transform deal as above, but use xmm8-15 to process 2 sets of carries side-by-side.
 	Data/Carry #2 assumed offset by +0x20/0x10 from #1 (which are accessed via the [__data/__cy] pointers, resp.)
-	i/jcycle0 and i/jcycle1 are the address offsets needed for IBDWT array indexing for the 2 resp. carries.
-	*/
+	i/jcycle0 and i/jcycle1 are the address offsets needed for IBDWT array indexing for the 2 resp. carries. */
 	#define SSE2_fermat_carry_norm_errcheck_X2(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xodd_radix,Xhalf_arr,Xsign_mask,Xadd1,Xadd2,Xicycle0,Xjcycle0,Xicycle1,Xjcycle1)\
 	{\
 	__asm__ volatile (\
 		"/* lcol -> rcol index analogs: [rsi,rax,rbx] -> [r10,r11,r12], [rcx,rdx,rdi] shared */\n\t"\
-		"movslq	%[__idx_offset],%%rsi	\n\t		movslq	%[__idx_incr],%%r10		\n\t"\
-		"movslq		%[__nrt_bits],%%rcx	\n\t		addq	%%rsi,%%r10				\n\t"\
-		"movslq		%[__nrtm1],%%rdi	/* r10 contains idx_offset2, i.e. is the rcol-analog of rsi in lcol: */\n\t"\
-		"movq		%%rsi,%%rax			\n\t		movq		%%r10,%%r11			\n\t"\
+		"movslq	%[__idx_offset],%%rax	\n\t		movslq	%[__idx_incr],%%r10		\n\t"\
+		"movslq		%[__nrt_bits],%%rcx	\n\t		addq	%%rax,%%r10				\n\t"\
+		"movslq		%[__nrtm1],%%rdi	\n\t		movq		%%r10,%%r11	\n\t"/* r10 contains idx_offset2, i.e. is the rcol-analog of idx_offset1 in lcol: */\
 		"shrq		$1,%%rax			\n\t		shrq		$1,%%r11			\n\t"\
 		"movq		%%rax,%%rbx			\n\t		movq		%%r11,%%r12			\n\t"\
 		"andq		%%rdi,%%rax			\n\t		andq		%%rdi,%%r11			\n\t"\
@@ -1439,7 +1443,7 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq		%[__add2],%%rbx		\n\t		addq		%[__add2],%%r12		\n\t"\
 		"movaps		(%%rax),%%xmm0		\n\t		movaps		(%%r11),%%xmm8 		\n\t"\
 		"movaps		(%%rbx),%%xmm1		\n\t		movaps		(%%r12),%%xmm9 		\n\t"\
-		"movq		%%rsi,%%rax			\n\t		movq		%%r10,%%r11			\n\t"\
+		"movslq	%[__idx_offset],%%rax	\n\t		movq		%%r10,%%r11			\n\t"\
 		"movaps		%%xmm1,%%xmm2		\n\t		movaps		%%xmm9 ,%%xmm10		\n\t"\
 		"shufpd	$1,	%%xmm2,%%xmm2		\n\t		shufpd	$1,	%%xmm10,%%xmm10		\n\t"\
 		"mulpd		%%xmm0,%%xmm1		\n\t		mulpd		%%xmm8 ,%%xmm9 		\n\t"\
@@ -1455,7 +1459,7 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq		%[__add2],%%rbx		\n\t		addq		%[__add2],%%r12		\n\t"\
 		"movaps		(%%rax),%%xmm0		\n\t		movaps		(%%r11),%%xmm8 		\n\t"\
 		"movaps		(%%rbx),%%xmm3		\n\t		movaps		(%%r12),%%xmm11		\n\t"\
-		"movq		%%rsi,%%rax			\n\t		movq		%%r10,%%r11			\n\t"\
+		"movslq	%[__idx_offset],%%rax	\n\t		movq		%%r10,%%r11			\n\t"\
 		"movaps		%%xmm3,%%xmm4		\n\t		movaps		%%xmm11,%%xmm12		\n\t"\
 		"shufpd	$1,	%%xmm4,%%xmm4		\n\t		shufpd	$1,	%%xmm12,%%xmm12		\n\t"\
 		"mulpd		%%xmm0,%%xmm3		\n\t		mulpd		%%xmm8 ,%%xmm11		\n\t"\
@@ -1473,8 +1477,7 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"											addq	%%r10,%%rdi				\n\t"\
 		"											mov	%%edi, %[__idx_offset]		\n\t"\
 		"movslq	%[__icycle0],%%r8 		\n\t		movslq	%[__icycle1],%%r10		\n\t"\
-		"movslq	%[__jcycle0],%%r9 		\n\t		movslq	%[__jcycle1],%%r11		\n\t"\
-		"movslq	%[__odd_radix],%%rdi												\n\t"\
+		"movslq	%[__odd_radix],%%rdi	\n\t"\
 		"movq		%[__half_arr],%%rcx	/* Need separate rcol copy of rcx below */	\n\t"\
 		"movq		%[__data],%%rdx		/* rdx shared, offset +0x20 in rcol: */		\n\t"\
 		"shlq		$4,%%rdi			\n\t		movq		%%rcx,%%r12	/* rcol-copy for incr/decr: */\n\t"\
@@ -1525,14 +1528,15 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"maxpd		%%xmm6,%%xmm2		\n\t		maxpd		%%xmm14,%%xmm10		\n\t"\
 		"movaps		%%xmm2,%%xmm6		\n\t		movaps		%%xmm10,%%xmm14		\n\t"\
 		"movaps		%%xmm5,%%xmm2		\n\t		movaps		%%xmm13,%%xmm10		\n\t"\
-		"addq		%%r9 ,%%rcx			\n\t		addq		%%r11,%%r12			\n\t"\
+		"movslq	%[__jcycle0],%%r8 		\n\t		movslq	%[__jcycle1],%%r10		\n\t"\
+		"addq		%%r8 ,%%rcx			\n\t		addq		%%r10,%%r12			\n\t"\
 		"maxpd		%%xmm14,%%xmm6		/* Save larger of maxerr1,2: */	\n\t"\
 		"mulpd	(%%rcx,%%rdi),%%xmm2	\n\t		mulpd	(%%r12,%%rdi),%%xmm10	\n\t"\
 		"roundpd	$0,%%xmm2,%%xmm2	\n\t		roundpd	$0,%%xmm10,%%xmm10		\n\t"\
 		"shlq		$1,%%rdi														\n\t"\
 		"movaps		%%xmm2,%%xmm3		\n\t		movaps		%%xmm10,%%xmm11		\n\t"\
 		"mulpd		     (%%rcx),%%xmm3	\n\t		mulpd		     (%%r12),%%xmm11	\n\t"\
-		"subq		%%r9 ,%%rcx			\n\t		subq		%%r11,%%r12			\n\t"\
+		"subq		%%r8 ,%%rcx			\n\t		subq		%%r10,%%r12			\n\t"\
 		"subpd		%%xmm3,%%xmm5		\n\t		subpd		%%xmm11,%%xmm13		\n\t"\
 		"movaps		%%xmm2,(%%rbx)		\n\t		movaps		%%xmm10,0x10(%%rbx)	\n\t"\
 		"movaps		%%xmm4,%%xmm2		\n\t		movaps		%%xmm12,%%xmm10		\n\t"\
@@ -1544,6 +1548,7 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"mulpd		%%xmm0,%%xmm4		\n\t		mulpd		%%xmm8 ,%%xmm12		\n\t"\
 		"mulpd		%%xmm1,%%xmm3		\n\t		mulpd		%%xmm9 ,%%xmm11		\n\t"\
 		"movaps		%%xmm6,-0x20(%%rcx)	/* Store maxerr: */	\n\t"\
+		"movslq	%[__icycle0],%%r8 		\n\t		movslq	%[__icycle1],%%r10		\n\t"\
 		"addq		%%r8 ,%%rcx			\n\t		addq		%%r10,%%r12			\n\t"\
 		"mulpd		%%xmm0,%%xmm2		\n\t		mulpd		%%xmm8 ,%%xmm10		\n\t"\
 		"mulpd		%%xmm1,%%xmm5		\n\t		mulpd		%%xmm9 ,%%xmm13		\n\t"\
@@ -1554,25 +1559,27 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"mulpd		%%xmm0,%%xmm5		\n\t		mulpd		%%xmm8 ,%%xmm13		\n\t"\
 		"movaps		%%xmm4,    (%%rdx)	\n\t		movaps		%%xmm12,0x20(%%rdx)	\n\t"\
 		"movaps		%%xmm5,0x10(%%rdx)	\n\t		movaps		%%xmm13,0x30(%%rdx)	\n\t"\
-	:						/* outputs: none */\
-	:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
-	,	[__cy]			"m" (Xcy)\
-	,	[__nrt_bits]	"m" (Xnrt_bits)\
-	,	[__nrtm1]		"m" (Xnrtm1)\
-	,	[__idx_offset]	"m" (Xidx_offset)\
-	,	[__idx_incr]	"m" (Xidx_incr)\
-	,	[__odd_radix]   "m" (Xodd_radix)\
-	,	[__half_arr]	"m" (Xhalf_arr)\
-	,	[__sign_mask]	"m" (Xsign_mask)\
-	,	[__add1]		"m" (Xadd1)\
-	,	[__add2]		"m" (Xadd2)\
-	,	[__icycle0]		"m" (Xicycle0)\
-	,	[__jcycle0]		"m" (Xjcycle0)\
-	,	[__icycle1]		"m" (Xicycle1)\
-	,	[__jcycle1]		"m" (Xjcycle1)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14"		/* Clobbered registers */\
+		:						/* outputs: none */\
+		:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
+		,	[__cy]			"m" (Xcy)\
+		,	[__nrt_bits]	"m" (Xnrt_bits)\
+		,	[__nrtm1]		"m" (Xnrtm1)\
+		,	[__idx_offset]	"m" (Xidx_offset)\
+		,	[__idx_incr]	"m" (Xidx_incr)\
+		,	[__odd_radix]	"m" (Xodd_radix)\
+		,	[__half_arr]	"m" (Xhalf_arr)\
+		,	[__sign_mask]	"m" (Xsign_mask)\
+		,	[__add1]		"m" (Xadd1)\
+		,	[__add2]		"m" (Xadd2)\
+		,	[__icycle0]		"m" (Xicycle0)\
+		,	[__jcycle0]		"m" (Xjcycle0)\
+		,	[__icycle1]		"m" (Xicycle1)\
+		,	[__jcycle1]		"m" (Xjcycle1)\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","r8","r10","r11","r12","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14"		/* Clobbered registers */\
 	);\
 	}
+
+#endif	// AVX or SSE2?
 
 	/*************************************************************/
 	/**************** MERSENNE-MOD CARRY MACROS ******************/
@@ -4697,6 +4704,7 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"movq	%[__half_arr]	,%%rax	\n\t"\
 		"movq	%[__wtA]	,%%rbx		\n\t"\
 		"movq	%[__wtB]	,%%rcx		\n\t"\
+		"movaps		-0x10(%%rax),%%xmm4	\n\t"\
 		"movaps		     (%%rbx),%%xmm2	\n\t	movaps		 0x10(%%rbx),%%xmm6	\n\t"\
 		"movhpd		     (%%rcx),%%xmm3	\n\t	movhpd		-0x10(%%rcx),%%xmm7	\n\t"\
 		"movlpd		 0x08(%%rcx),%%xmm3	\n\t	movlpd		-0x08(%%rcx),%%xmm7	\n\t"\
@@ -4725,7 +4733,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"mulpd		%%xmm3	,%%xmm1		\n\t	mulpd		%%xmm7	,%%xmm5		\n\t"\
 		"addpd		(%%rcx)	,%%xmm1		\n\t	addpd		(%%rdx)	,%%xmm5		\n\t"\
 		"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	***Requires SSE4.1, any tiny speed gain not worth loss of portability***/\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"subpd			%%xmm3	,%%xmm1	\n\t	subpd			%%xmm7	,%%xmm5	\n\t"\
@@ -4740,7 +4750,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq	%%rax	,%%rdi			\n\t	addq	%%rax	,%%rbx			\n\t"\
 		"movaps		%%xmm3	,%%xmm1		\n\t	movaps		%%xmm7	,%%xmm5		\n\t"\
 		"mulpd	 	0xc0(%%rdi)	,%%xmm3	\n\t	mulpd	 	0xc0(%%rbx)	,%%xmm7	\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"movaps		%%xmm3	,(%%rcx)	\n\t	movaps		%%xmm7	,(%%rdx)	\n\t"\
 		"\n\t"\
 		"movq	%[__data]	,%%rax		\n\t"\
@@ -4812,7 +4824,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"mulpd	%%xmm3	,%%xmm1			\n\t	mulpd	%%xmm7	,%%xmm5			\n\t"\
 		"addpd	(%%rcx)	,%%xmm1			\n\t	addpd	(%%rdx)	,%%xmm5			\n\t"\
 		"movaps	%%xmm1	,%%xmm3			\n\t	movaps	%%xmm5	,%%xmm7			\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"subpd	%%xmm3	,%%xmm1			\n\t	subpd	%%xmm7	,%%xmm5			\n\t"\
@@ -4827,7 +4841,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq	%%rax	,%%rdi			\n\t	addq	%%rax	,%%rbx			\n\t"\
 		"movaps	%%xmm3	,%%xmm1			\n\t	movaps	%%xmm7	,%%xmm5			\n\t"\
 		"mulpd	 0xc0(%%rdi)	,%%xmm3	\n\t	mulpd	 0xc0(%%rbx)	,%%xmm7	\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"movaps	%%xmm3	,(%%rcx)		\n\t	movaps	%%xmm7	,(%%rdx)		\n\t"\
 		"\n\t"\
 		"movq	%[__data]	,%%rax		\n\t"\
@@ -4860,7 +4876,7 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		, [__sse_bw]		"m" (Xsse_bw)		\
 		, [__sse_nm1]		"m" (Xsse_nm1)		\
 		, [__sse_sw]		"m" (Xsse_sw)		\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm5","xmm6","xmm7"	/* Clobbered registers - Use of roundpd frees up xmm4 */\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
 
@@ -4911,11 +4927,10 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"movq	%[__half_arr]	,%%rax	\n\t"\
 		"movq	%[__wtA]	,%%rbx		\n\t"\
 		"movq	%[__wtB]	,%%rcx		\n\t"\
+		"movaps		-0x10(%%rax),%%xmm4	\n\t"\
 		"movaps		     (%%rbx),%%xmm2	\n\t	movaps		 0x10(%%rbx),%%xmm6	\n\t"\
 		"movhpd		     (%%rcx),%%xmm3	\n\t	movhpd		-0x10(%%rcx),%%xmm7	\n\t"\
 		"movlpd		 0x08(%%rcx),%%xmm3	\n\t	movlpd		-0x08(%%rcx),%%xmm7	\n\t"\
-	"/*	movaps		     (%%rcx),%%xmm3	\n\t	movaps		-0x10(%%rcx),%%xmm7	\n\t	*/"\
-	"/*	shufpd		$1 ,%%xmm3,%%xmm3	\n\t	shufpd		$1 ,%%xmm7,%%xmm7	\n\t	*/"\
 		"\n\t"\
 		"subq	$0x20	,%%rcx			\n\t"\
 		"movq	%%rcx	,%[__wtB]		\n\t"\
@@ -4938,7 +4953,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"mulpd		%%xmm3	,%%xmm1		\n\t	mulpd		%%xmm7	,%%xmm5		\n\t"\
 		"addpd		(%%rcx)	,%%xmm1		\n\t	addpd		(%%rdx)	,%%xmm5		\n\t"\
 		"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"subpd	%%xmm3	,%%xmm1			\n\t	subpd	%%xmm7	,%%xmm5			\n\t"\
@@ -4953,7 +4970,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq	%%rax	,%%rdi			\n\t	addq	%%rax	,%%rbx			\n\t"\
 		"movaps		%%xmm3	,%%xmm1		\n\t	movaps		%%xmm7	,%%xmm5		\n\t"\
 		"mulpd	 	0xc0(%%rdi)	,%%xmm3	\n\t	mulpd	 	0xc0(%%rbx)	,%%xmm7	\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"movaps		%%xmm3	,(%%rcx)	\n\t	movaps		%%xmm7	,(%%rdx)	\n\t"\
 		"\n\t"\
 		"movq	%[__data]	,%%rax		\n\t"\
@@ -5025,7 +5044,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"mulpd	%%xmm3	,%%xmm1			\n\t	mulpd	%%xmm7	,%%xmm5			\n\t"\
 		"addpd	(%%rcx)	,%%xmm1			\n\t	addpd	(%%rdx)	,%%xmm5			\n\t"\
 		"movaps	%%xmm1	,%%xmm3			\n\t	movaps	%%xmm5	,%%xmm7			\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"subpd	%%xmm3	,%%xmm1			\n\t	subpd	%%xmm7	,%%xmm5			\n\t"\
@@ -5040,7 +5061,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq	%%rax	,%%rdi			\n\t	addq	%%rax	,%%rbx			\n\t"\
 		"movaps	%%xmm3	,%%xmm1			\n\t	movaps	%%xmm7	,%%xmm5			\n\t"\
 		"mulpd	 0xc0(%%rdi)	,%%xmm3	\n\t	mulpd	 0xc0(%%rbx)	,%%xmm7	\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"movaps	%%xmm3	,(%%rcx)		\n\t	movaps	%%xmm7	,(%%rdx)		\n\t"\
 		"\n\t"\
 		"movq	%[__data]	,%%rax		\n\t"\
@@ -5072,7 +5095,7 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		, [__sse_bw]		"m" (Xsse_bw)		\
 		, [__sse_nm1]		"m" (Xsse_nm1)		\
 		, [__sse_sw]		"m" (Xsse_sw)		\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
 	);\
 	}
 
@@ -5113,6 +5136,7 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"movq	%[__half_arr]	,%%rax	\n\t"\
 		"movq	%[__wtA]	,%%rbx		\n\t"\
 		"movq	%[__wtB]	,%%rcx		\n\t"\
+		"movaps		-0x10(%%rax),%%xmm4	\n\t"\
 		"movaps		     (%%rbx),%%xmm2	\n\t	movaps		 0x10(%%rbx),%%xmm6	\n\t"\
 		"movhpd		     (%%rcx),%%xmm3	\n\t	movhpd		-0x10(%%rcx),%%xmm7	\n\t"\
 		"movlpd		 0x08(%%rcx),%%xmm3	\n\t	movlpd		-0x08(%%rcx),%%xmm7	\n\t"\
@@ -5137,7 +5161,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"mulpd		%%xmm3	,%%xmm1		\n\t	mulpd		%%xmm7	,%%xmm5		\n\t"\
 		"addpd		(%%rcx)	,%%xmm1		\n\t	addpd		(%%rdx)	,%%xmm5		\n\t"\
 		"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"subpd			%%xmm3	,%%xmm1	\n\t	subpd			%%xmm7	,%%xmm5	\n\t"\
@@ -5152,7 +5178,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq	%%rax	,%%rdi			\n\t	addq	%%rax	,%%rbx			\n\t"\
 		"movaps		%%xmm3	,%%xmm1		\n\t	movaps		%%xmm7	,%%xmm5		\n\t"\
 		"mulpd	 	0xc0(%%rdi)	,%%xmm3	\n\t	mulpd	 	0xc0(%%rbx)	,%%xmm7	\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"movaps		%%xmm3	,(%%rcx)	\n\t	movaps		%%xmm7	,(%%rdx)	\n\t"\
 		"\n\t"\
 		"movq	%[__data]	,%%rax		\n\t"\
@@ -5224,7 +5252,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"mulpd	%%xmm3	,%%xmm1			\n\t	mulpd	%%xmm7	,%%xmm5			\n\t"\
 		"addpd	(%%rcx)	,%%xmm1			\n\t	addpd	(%%rdx)	,%%xmm5			\n\t"\
 		"movaps	%%xmm1	,%%xmm3			\n\t	movaps	%%xmm5	,%%xmm7			\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"subpd	%%xmm3	,%%xmm1			\n\t	subpd	%%xmm7	,%%xmm5			\n\t"\
@@ -5239,7 +5269,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq	%%rax	,%%rdi			\n\t	addq	%%rax	,%%rbx			\n\t"\
 		"movaps	%%xmm3	,%%xmm1			\n\t	movaps	%%xmm7	,%%xmm5			\n\t"\
 		"mulpd	 0xc0(%%rdi)	,%%xmm3	\n\t	mulpd	 0xc0(%%rbx)	,%%xmm7	\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"movaps	%%xmm3	,(%%rcx)		\n\t	movaps	%%xmm7	,(%%rdx)		\n\t"\
 		"\n\t"\
 		"movq	%[__data]	,%%rax		\n\t"\
@@ -5343,6 +5375,7 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"movq	%[__half_arr]	,%%rax	\n\t"\
 		"movq	%[__wtA]	,%%rbx		\n\t"\
 		"movq	%[__wtB]	,%%rcx		\n\t"\
+		"movaps		-0x10(%%rax),%%xmm4	\n\t"\
 		"movaps		     (%%rbx),%%xmm2	\n\t	movaps		 0x10(%%rbx),%%xmm6	\n\t"\
 		"movhpd		     (%%rcx),%%xmm3	\n\t	movhpd		-0x10(%%rcx),%%xmm7	\n\t"\
 		"movlpd		 0x08(%%rcx),%%xmm3	\n\t	movlpd		-0x08(%%rcx),%%xmm7	\n\t"\
@@ -5368,7 +5401,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"mulpd		%%xmm3	,%%xmm1		\n\t	mulpd		%%xmm7	,%%xmm5		\n\t"\
 		"addpd		(%%rcx)	,%%xmm1		\n\t	addpd		(%%rdx)	,%%xmm5		\n\t"\
 		"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"\n\t"\
 		"/* NO ROE HERE */		\n\t"\
 		"\n\t"\
@@ -5378,7 +5413,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq	%%rax	,%%rdi			\n\t	addq	%%rax	,%%rbx			\n\t"\
 		"movaps		%%xmm3	,%%xmm1		\n\t	movaps		%%xmm7	,%%xmm5		\n\t"\
 		"mulpd	 	0xc0(%%rdi)	,%%xmm3	\n\t	mulpd	 	0xc0(%%rbx)	,%%xmm7	\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"movaps		%%xmm3	,(%%rcx)	\n\t	movaps		%%xmm7	,(%%rdx)	\n\t"\
 		"\n\t"\
 		"movq	%[__data]	,%%rax		\n\t"\
@@ -5448,7 +5485,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"mulpd	%%xmm3	,%%xmm1			\n\t	mulpd	%%xmm7	,%%xmm5			\n\t"\
 		"addpd	(%%rcx)	,%%xmm1			\n\t	addpd	(%%rdx)	,%%xmm5			\n\t"\
 		"movaps	%%xmm1	,%%xmm3			\n\t	movaps	%%xmm5	,%%xmm7			\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"\n\t"\
 		"/* NO ROE HERE */		\n\t"\
 		"\n\t"\
@@ -5458,7 +5497,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq	%%rax	,%%rdi			\n\t	addq	%%rax	,%%rbx			\n\t"\
 		"movaps	%%xmm3	,%%xmm1			\n\t	movaps	%%xmm7	,%%xmm5			\n\t"\
 		"mulpd	 0xc0(%%rdi)	,%%xmm3	\n\t	mulpd	 0xc0(%%rbx)	,%%xmm7	\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"movaps	%%xmm3	,(%%rcx)		\n\t	movaps	%%xmm7	,(%%rdx)		\n\t"\
 		"\n\t"\
 		"movq	%[__data]	,%%rax		\n\t"\
@@ -5489,7 +5530,7 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		, [__sse_bw]		"m" (Xsse_bw)		\
 		, [__sse_nm1]		"m" (Xsse_nm1)		\
 		, [__sse_sw]		"m" (Xsse_sw)		\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
 	);\
 	}
 
@@ -5529,6 +5570,7 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"movq	%[__half_arr]	,%%rax	\n\t"\
 		"movq	%[__wtA]	,%%rbx		\n\t"\
 		"movq	%[__wtB]	,%%rcx		\n\t"\
+		"movaps		-0x10(%%rax),%%xmm4	\n\t"\
 		"movaps		     (%%rbx),%%xmm2	\n\t	movaps		 0x10(%%rbx),%%xmm6	\n\t"\
 		"movhpd		     (%%rcx),%%xmm3	\n\t	movhpd		-0x10(%%rcx),%%xmm7	\n\t"\
 		"movlpd		 0x08(%%rcx),%%xmm3	\n\t	movlpd		-0x08(%%rcx),%%xmm7	\n\t"\
@@ -5551,7 +5593,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"mulpd		%%xmm3	,%%xmm1		\n\t	mulpd		%%xmm7	,%%xmm5		\n\t"\
 		"addpd		(%%rcx)	,%%xmm1		\n\t	addpd		(%%rdx)	,%%xmm5		\n\t"\
 		"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"\n\t"\
 		"/* NO ROE HERE */		\n\t"\
 		"\n\t"\
@@ -5561,7 +5605,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq	%%rax	,%%rdi			\n\t	addq	%%rax	,%%rbx			\n\t"\
 		"movaps		%%xmm3	,%%xmm1		\n\t	movaps		%%xmm7	,%%xmm5		\n\t"\
 		"mulpd	 	0xc0(%%rdi)	,%%xmm3	\n\t	mulpd	 	0xc0(%%rbx)	,%%xmm7	\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"movaps		%%xmm3	,(%%rcx)	\n\t	movaps		%%xmm7	,(%%rdx)	\n\t"\
 		"\n\t"\
 		"movq	%[__data]	,%%rax		\n\t"\
@@ -5631,7 +5677,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"mulpd	%%xmm3	,%%xmm1			\n\t	mulpd	%%xmm7	,%%xmm5			\n\t"\
 		"addpd	(%%rcx)	,%%xmm1			\n\t	addpd	(%%rdx)	,%%xmm5			\n\t"\
 		"movaps	%%xmm1	,%%xmm3			\n\t	movaps	%%xmm5	,%%xmm7			\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"\n\t"\
 		"/* NO ROE HERE */		\n\t"\
 		"\n\t"\
@@ -5641,7 +5689,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq	%%rax	,%%rdi			\n\t	addq	%%rax	,%%rbx			\n\t"\
 		"movaps	%%xmm3	,%%xmm1			\n\t	movaps	%%xmm7	,%%xmm5			\n\t"\
 		"mulpd	 0xc0(%%rdi)	,%%xmm3	\n\t	mulpd	 0xc0(%%rbx)	,%%xmm7	\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"movaps	%%xmm3	,(%%rcx)		\n\t	movaps	%%xmm7	,(%%rdx)		\n\t"\
 		"\n\t"\
 		"movq	%[__data]	,%%rax		\n\t"\
@@ -5697,7 +5747,7 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 	/***************************************************************************************************************************************************/
 
 #ifdef USE_AVX	// Our initial "AVX version" is simply the SSE2-based macros, applied to the AVX data layout
-
+  #if 0
 	#define SSE2_cmplx_carry_norm_errcheck0_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw)\
 	{\
 	__asm__ volatile (\
@@ -6348,6 +6398,7 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
 	);\
 	}
+  #endif	// if 0
 
 #else
 
@@ -6400,6 +6451,7 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"movq	%[__half_arr]	,%%rax	\n\t"\
 		"movq	%[__wtA]	,%%rbx		\n\t"\
 		"movq	%[__wtB]	,%%rcx		\n\t"\
+		"movaps		-0x10(%%rax),%%xmm4	\n\t"\
 		"movaps		     (%%rbx),%%xmm2	\n\t	movaps		 0x10(%%rbx),%%xmm6	\n\t"\
 		"movhpd		     (%%rcx),%%xmm3	\n\t	movhpd		-0x10(%%rcx),%%xmm7	\n\t"\
 		"movlpd		 0x08(%%rcx),%%xmm3	\n\t	movlpd		-0x08(%%rcx),%%xmm7	\n\t"\
@@ -6416,16 +6468,18 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq	%%rax	,%%rdi			\n\t	addq	%%rax	,%%rbx			\n\t"\
 		"addq	%%rax	,%%rdx			\n\t	addq	%%rax	,%%rcx			\n\t"\
 		"\n\t"\
-		"mulpd	 	0x100(%%rax),%%xmm2	\n\t	mulpd	 	0x100(%%rax),%%xmm6	\n\t"\
-		"mulpd	 	0x110(%%rax),%%xmm3	\n\t	mulpd	 	0x110(%%rax),%%xmm7	\n\t"\
-		"mulpd	 	     (%%rdi),%%xmm2	\n\t	mulpd	 	     (%%rbx),%%xmm6	\n\t"\
-		"mulpd	 	0x040(%%rdx),%%xmm3	\n\t	mulpd	 	0x040(%%rcx),%%xmm7	\n\t"\
+		"mulpd	 	0x100(%%rax),%%xmm2	\n\t	mulpd	 	0x100(%%rax),%%xmm6	\n\t"/* wt   =wtA*wtl */\
+		"mulpd	 	0x110(%%rax),%%xmm3	\n\t	mulpd	 	0x110(%%rax),%%xmm7	\n\t"/* wtinv=wtB*wtn */\
+		"mulpd	 	     (%%rdi),%%xmm2	\n\t	mulpd	 	     (%%rbx),%%xmm6	\n\t"/* wt   =wt   *one_half[m01] */\
+		"mulpd	 	0x040(%%rdx),%%xmm3	\n\t	mulpd	 	0x040(%%rcx),%%xmm7	\n\t"/* wtinv=wtinv*one_half[4+m23] */\
 		"\n\t"\
 		"movq	%[__cyA]	,%%rcx		\n\t	movq	%[__cyB]	,%%rdx		\n\t"\
 		"mulpd		%%xmm3	,%%xmm1		\n\t	mulpd		%%xmm7	,%%xmm5		\n\t"\
 		"addpd		(%%rcx)	,%%xmm1		\n\t	addpd		(%%rdx)	,%%xmm5		\n\t"\
 		"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"subpd			%%xmm3	,%%xmm1	\n\t	subpd			%%xmm7	,%%xmm5	\n\t"\
@@ -6440,7 +6494,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq	%%rax	,%%rdi			\n\t	addq	%%rax	,%%rbx			\n\t"\
 		"movaps		%%xmm3	,%%xmm1		\n\t	movaps		%%xmm7	,%%xmm5		\n\t"\
 		"mulpd	 	0xc0(%%rdi)	,%%xmm3	\n\t	mulpd	 	0xc0(%%rbx)	,%%xmm7	\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"movaps		%%xmm3	,(%%rcx)	\n\t	movaps		%%xmm7	,(%%rdx)	\n\t"\
 		"\n\t"\
 		"movq	%[__data]	,%%rax		\n\t"\
@@ -6505,16 +6561,18 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq	%%rax	,%%rdi			\n\t	addq	%%rax	,%%rbx			\n\t"\
 		"addq	%%rax	,%%rdx			\n\t	addq	%%rax	,%%rcx			\n\t"\
 		"\n\t"\
-		"mulpd	 0x120(%%rax)	,%%xmm2	\n\t	mulpd	 0x120(%%rax)	,%%xmm6	\n\t"\
-		"mulpd	 0x130(%%rax)	,%%xmm3	\n\t	mulpd	 0x130(%%rax)	,%%xmm7	\n\t"\
-		"mulpd	      (%%rdi)	,%%xmm2	\n\t	mulpd	      (%%rbx)	,%%xmm6	\n\t"\
-		"mulpd	 0x040(%%rdx)	,%%xmm3	\n\t	mulpd	 0x040(%%rcx)	,%%xmm7	\n\t"\
+		"mulpd	 0x120(%%rax)	,%%xmm2	\n\t	mulpd	 0x120(%%rax)	,%%xmm6	\n\t"/* wt   =wtA*wtlp1 */\
+		"mulpd	 0x130(%%rax)	,%%xmm3	\n\t	mulpd	 0x130(%%rax)	,%%xmm7	\n\t"/* wtinv=wtC*wtnm1 */\
+		"mulpd	      (%%rdi)	,%%xmm2	\n\t	mulpd	      (%%rbx)	,%%xmm6	\n\t"/* wt   =wt   *one_half[m01] */\
+		"mulpd	 0x040(%%rdx)	,%%xmm3	\n\t	mulpd	 0x040(%%rcx)	,%%xmm7	\n\t"/* wtinv=wtinv*one_half[4+m23] */\
 		"\n\t"\
 		"movq	%[__cyA]	,%%rcx		\n\t	movq	%[__cyB]	,%%rdx		\n\t"\
 		"mulpd	%%xmm3	,%%xmm1			\n\t	mulpd	%%xmm7	,%%xmm5			\n\t"\
 		"addpd	(%%rcx)	,%%xmm1			\n\t	addpd	(%%rdx)	,%%xmm5			\n\t"\
 		"movaps	%%xmm1	,%%xmm3			\n\t	movaps	%%xmm5	,%%xmm7			\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"subpd	%%xmm3	,%%xmm1			\n\t	subpd	%%xmm7	,%%xmm5			\n\t"\
@@ -6529,7 +6587,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq	%%rax	,%%rdi			\n\t	addq	%%rax	,%%rbx			\n\t"\
 		"movaps	%%xmm3	,%%xmm1			\n\t	movaps	%%xmm7	,%%xmm5			\n\t"\
 		"mulpd	 0xc0(%%rdi)	,%%xmm3	\n\t	mulpd	 0xc0(%%rbx)	,%%xmm7	\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"movaps	%%xmm3	,(%%rcx)		\n\t	movaps	%%xmm7	,(%%rdx)		\n\t"\
 		"\n\t"\
 		"movq	%[__data]	,%%rax		\n\t"\
@@ -6566,7 +6626,7 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		, [__sse_bw]		"m" (Xsse_bw)		\
 		, [__sse_n]		"m" (Xsse_n)		\
 		, [__sse_sw]		"m" (Xsse_sw)		\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
 	);\
 	}
 
@@ -6616,6 +6676,7 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"movq	%[__half_arr]	,%%rax	\n\t"\
 		"movq	%[__wtA]	,%%rbx		\n\t"\
 		"movq	%[__wtB]	,%%rcx		\n\t"\
+		"movaps		-0x10(%%rax),%%xmm4	\n\t"\
 		"movaps		     (%%rbx),%%xmm2	\n\t	movaps		 0x10(%%rbx),%%xmm6	\n\t"\
 		"movhpd		     (%%rcx),%%xmm3	\n\t	movhpd		-0x10(%%rcx),%%xmm7	\n\t"\
 		"movlpd		 0x08(%%rcx),%%xmm3	\n\t	movlpd		-0x08(%%rcx),%%xmm7	\n\t"\
@@ -6641,7 +6702,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"mulpd		%%xmm3	,%%xmm1		\n\t	mulpd		%%xmm7	,%%xmm5		\n\t"\
 		"addpd		(%%rcx)	,%%xmm1		\n\t	addpd		(%%rdx)	,%%xmm5		\n\t"\
 		"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"subpd	%%xmm3	,%%xmm1			\n\t	subpd	%%xmm7	,%%xmm5			\n\t"\
@@ -6656,7 +6719,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq	%%rax	,%%rdi			\n\t	addq	%%rax	,%%rbx			\n\t"\
 		"movaps		%%xmm3	,%%xmm1		\n\t	movaps		%%xmm7	,%%xmm5		\n\t"\
 		"mulpd	 	0xc0(%%rdi)	,%%xmm3	\n\t	mulpd	 	0xc0(%%rbx)	,%%xmm7	\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"movaps		%%xmm3	,(%%rcx)	\n\t	movaps		%%xmm7	,(%%rdx)	\n\t"\
 		"\n\t"\
 		"movq	%[__data]	,%%rax		\n\t"\
@@ -6730,7 +6795,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"mulpd	%%xmm3	,%%xmm1			\n\t	mulpd	%%xmm7	,%%xmm5			\n\t"\
 		"addpd	(%%rcx)	,%%xmm1			\n\t	addpd	(%%rdx)	,%%xmm5			\n\t"\
 		"movaps	%%xmm1	,%%xmm3			\n\t	movaps	%%xmm5	,%%xmm7			\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"subpd	%%xmm3	,%%xmm1			\n\t	subpd	%%xmm7	,%%xmm5			\n\t"\
@@ -6745,7 +6812,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq	%%rax	,%%rdi			\n\t	addq	%%rax	,%%rbx			\n\t"\
 		"movaps	%%xmm3	,%%xmm1			\n\t	movaps	%%xmm7	,%%xmm5			\n\t"\
 		"mulpd	 0xc0(%%rdi)	,%%xmm3	\n\t	mulpd	 0xc0(%%rbx)	,%%xmm7	\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"movaps	%%xmm3	,(%%rcx)		\n\t	movaps	%%xmm7	,(%%rdx)		\n\t"\
 		"\n\t"\
 		"movq	%[__data]	,%%rax		\n\t"\
@@ -6781,7 +6850,7 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		, [__sse_bw]		"m" (Xsse_bw)		\
 		, [__sse_n]		"m" (Xsse_n)		\
 		, [__sse_sw]		"m" (Xsse_sw)		\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
 	);\
 	}
 
@@ -6821,6 +6890,7 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"movq	%[__half_arr]	,%%rax	\n\t"\
 		"movq	%[__wtA]	,%%rbx		\n\t"\
 		"movq	%[__wtB]	,%%rcx		\n\t"\
+		"movaps		-0x10(%%rax),%%xmm4	\n\t"\
 		"movaps		     (%%rbx),%%xmm2	\n\t	movaps		 0x10(%%rbx),%%xmm6	\n\t"\
 		"movhpd		     (%%rcx),%%xmm3	\n\t	movhpd		-0x10(%%rcx),%%xmm7	\n\t"\
 		"movlpd		 0x08(%%rcx),%%xmm3	\n\t	movlpd		-0x08(%%rcx),%%xmm7	\n\t"\
@@ -6843,7 +6913,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"mulpd		%%xmm3	,%%xmm1		\n\t	mulpd		%%xmm7	,%%xmm5		\n\t"\
 		"addpd		(%%rcx)	,%%xmm1		\n\t	addpd		(%%rdx)	,%%xmm5		\n\t"\
 		"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"subpd			%%xmm3	,%%xmm1	\n\t	subpd			%%xmm7	,%%xmm5	\n\t"\
@@ -6858,7 +6930,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq	%%rax	,%%rdi			\n\t	addq	%%rax	,%%rbx			\n\t"\
 		"movaps		%%xmm3	,%%xmm1		\n\t	movaps		%%xmm7	,%%xmm5		\n\t"\
 		"mulpd	 	0xc0(%%rdi)	,%%xmm3	\n\t	mulpd	 	0xc0(%%rbx)	,%%xmm7	\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"movaps		%%xmm3	,(%%rcx)	\n\t	movaps		%%xmm7	,(%%rdx)	\n\t"\
 		"\n\t"\
 		"movq	%[__data]	,%%rax		\n\t"\
@@ -6932,7 +7006,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"mulpd	%%xmm3	,%%xmm1			\n\t	mulpd	%%xmm7	,%%xmm5			\n\t"\
 		"addpd	(%%rcx)	,%%xmm1			\n\t	addpd	(%%rdx)	,%%xmm5			\n\t"\
 		"movaps	%%xmm1	,%%xmm3			\n\t	movaps	%%xmm5	,%%xmm7			\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"subpd	%%xmm3	,%%xmm1			\n\t	subpd	%%xmm7	,%%xmm5			\n\t"\
@@ -6947,7 +7023,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq	%%rax	,%%rdi			\n\t	addq	%%rax	,%%rbx			\n\t"\
 		"movaps	%%xmm3	,%%xmm1			\n\t	movaps	%%xmm7	,%%xmm5			\n\t"\
 		"mulpd	 0xc0(%%rdi)	,%%xmm3	\n\t	mulpd	 0xc0(%%rbx)	,%%xmm7	\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"movaps	%%xmm3	,(%%rcx)		\n\t	movaps	%%xmm7	,(%%rdx)		\n\t"\
 		"\n\t"\
 		"movq	%[__data]	,%%rax		\n\t"\
@@ -7055,6 +7133,7 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"movq	%[__half_arr]	,%%rax	\n\t"\
 		"movq	%[__wtA]	,%%rbx		\n\t"\
 		"movq	%[__wtB]	,%%rcx		\n\t"\
+		"movaps		-0x10(%%rax),%%xmm4	\n\t"\
 		"movaps		     (%%rbx),%%xmm2	\n\t	movaps		 0x10(%%rbx),%%xmm6	\n\t"\
 		"movhpd		     (%%rcx),%%xmm3	\n\t	movhpd		-0x10(%%rcx),%%xmm7	\n\t"\
 		"movlpd		 0x08(%%rcx),%%xmm3	\n\t	movlpd		-0x08(%%rcx),%%xmm7	\n\t"\
@@ -7080,7 +7159,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"mulpd		%%xmm3	,%%xmm1		\n\t	mulpd		%%xmm7	,%%xmm5		\n\t"\
 		"addpd		(%%rcx)	,%%xmm1		\n\t	addpd		(%%rdx)	,%%xmm5		\n\t"\
 		"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"\n\t"\
 		"/* NO ROE HERE */				\n\t"\
 		"\n\t"\
@@ -7090,7 +7171,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq	%%rax	,%%rdi			\n\t	addq	%%rax	,%%rbx			\n\t"\
 		"movaps		%%xmm3	,%%xmm1		\n\t	movaps		%%xmm7	,%%xmm5		\n\t"\
 		"mulpd	 	0xc0(%%rdi)	,%%xmm3	\n\t	mulpd	 	0xc0(%%rbx)	,%%xmm7	\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"movaps		%%xmm3	,(%%rcx)	\n\t	movaps		%%xmm7	,(%%rdx)	\n\t"\
 		"\n\t"\
 		"movq	%[__data]	,%%rax		\n\t"\
@@ -7164,7 +7247,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"mulpd	%%xmm3	,%%xmm1			\n\t	mulpd	%%xmm7	,%%xmm5			\n\t"\
 		"addpd	(%%rcx)	,%%xmm1			\n\t	addpd	(%%rdx)	,%%xmm5			\n\t"\
 		"movaps	%%xmm1	,%%xmm3			\n\t	movaps	%%xmm5	,%%xmm7			\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"\n\t"\
 		"/* NO ROE HERE */				\n\t"\
 		"\n\t"\
@@ -7174,7 +7259,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq	%%rax	,%%rdi			\n\t	addq	%%rax	,%%rbx			\n\t"\
 		"movaps	%%xmm3	,%%xmm1			\n\t	movaps	%%xmm7	,%%xmm5			\n\t"\
 		"mulpd	 0xc0(%%rdi)	,%%xmm3	\n\t	mulpd	 0xc0(%%rbx)	,%%xmm7	\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"movaps	%%xmm3	,(%%rcx)		\n\t	movaps	%%xmm7	,(%%rdx)		\n\t"\
 		"\n\t"\
 		"movq	%[__data]	,%%rax		\n\t"\
@@ -7249,6 +7336,7 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"movq	%[__half_arr]	,%%rax	\n\t"\
 		"movq	%[__wtA]	,%%rbx		\n\t"\
 		"movq	%[__wtB]	,%%rcx		\n\t"\
+		"movaps		-0x10(%%rax),%%xmm4	\n\t"\
 		"movaps		     (%%rbx),%%xmm2	\n\t	movaps		 0x10(%%rbx),%%xmm6	\n\t"\
 		"movhpd		     (%%rcx),%%xmm3	\n\t	movhpd		-0x10(%%rcx),%%xmm7	\n\t"\
 		"movlpd		 0x08(%%rcx),%%xmm3	\n\t	movlpd		-0x08(%%rcx),%%xmm7	\n\t"\
@@ -7271,7 +7359,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"mulpd		%%xmm3	,%%xmm1		\n\t	mulpd		%%xmm7	,%%xmm5		\n\t"\
 		"addpd		(%%rcx)	,%%xmm1		\n\t	addpd		(%%rdx)	,%%xmm5		\n\t"\
 		"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"\n\t"\
 		"/* NO ROE HERE */				\n\t"\
 		"\n\t"\
@@ -7281,7 +7371,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq	%%rax	,%%rdi			\n\t	addq	%%rax	,%%rbx			\n\t"\
 		"movaps		%%xmm3	,%%xmm1		\n\t	movaps		%%xmm7	,%%xmm5		\n\t"\
 		"mulpd	 	0xc0(%%rdi)	,%%xmm3	\n\t	mulpd	 	0xc0(%%rbx)	,%%xmm7	\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"movaps		%%xmm3	,(%%rcx)	\n\t	movaps		%%xmm7	,(%%rdx)	\n\t"\
 		"\n\t"\
 		"movq	%[__data]	,%%rax		\n\t"\
@@ -7355,7 +7447,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"mulpd	%%xmm3	,%%xmm1			\n\t	mulpd	%%xmm7	,%%xmm5			\n\t"\
 		"addpd	(%%rcx)	,%%xmm1			\n\t	addpd	(%%rdx)	,%%xmm5			\n\t"\
 		"movaps	%%xmm1	,%%xmm3			\n\t	movaps	%%xmm5	,%%xmm7			\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"\n\t"\
 		"/* NO ROE HERE */				\n\t"\
 		"\n\t"\
@@ -7365,7 +7459,9 @@ vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 		"addq	%%rax	,%%rdi			\n\t	addq	%%rax	,%%rbx			\n\t"\
 		"movaps	%%xmm3	,%%xmm1			\n\t	movaps	%%xmm7	,%%xmm5			\n\t"\
 		"mulpd	 0xc0(%%rdi)	,%%xmm3	\n\t	mulpd	 0xc0(%%rbx)	,%%xmm7	\n\t"\
-		"roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	\n\t"\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
+		"/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\n\t"\
 		"movaps	%%xmm3	,(%%rcx)		\n\t	movaps	%%xmm7	,(%%rdx)		\n\t"\
 		"\n\t"\
 		"movq	%[__data]	,%%rax		\n\t"\

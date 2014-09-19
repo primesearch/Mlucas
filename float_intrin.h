@@ -223,24 +223,24 @@ For now we prefer to define the following 2 in non-macro form in util.c:
 //	i.e. uses the src0 multiplicand as both a source and as the destination, src1 is addend.
 /*** Note this differs from the Intel FMA3 ISA, which defines FMA132(c,a,b) as b = +- b.c +- a.
 	Thus when translating code prototyped using the 132-macros below, must swap rightmost 2 args [AT&T/GCC syntax]. ***/
-	#define  FMA132(c,a,b)	a =  __FMADD(a,c,b)	/*------------------------------------*/
-	#define  FMS132(c,a,b)	a =  __FMSUB(a,c,b)	/* Executive summary of this quartet: */
-	#define FNMA132(c,a,b)	a = __FNMADD(a,c,b)	/* a = +- a.c +- b                    */
-	#define FNMS132(c,a,b)	a = __FNMSUB(a,c,b)	/* -----------------------------------*/
+	#define  FMA132(c,a,b)	a =  __FMADD(a,c,b)	// a = + a.c + b
+	#define  FMS132(c,a,b)	a =  __FMSUB(a,c,b)	// a = + a.c - b
+	#define FNMA132(c,a,b)	a = __FNMADD(a,c,b)	// a = - a.c + b
+	#define FNMS132(c,a,b)	a = __FNMSUB(a,c,b)	// a = - a.c - b
 
 // 2. VFMADD213 src0, src1, src2/mem2 : src0 = src0*src1 + [src2/mem2]	[why not call this one ...123?]
 //	i.e. uses the src0 multiplicand as both a source and as the destination, [src2/mem2] is addend:
-	#define  FMA213(a,b,c)	a =  __FMADD(a,b,c)	/*------------------------------------*/
-	#define  FMS213(a,b,c)	a =  __FMSUB(a,b,c)	/* Executive summary of this quartet: */
-	#define FNMA213(a,b,c)	a = __FNMADD(a,b,c)	/* a = +- a.b +- c                    */
-	#define FNMS213(a,b,c)	a = __FNMSUB(a,b,c)	/* -----------------------------------*/
+	#define  FMA213(a,b,c)	a =  __FMADD(a,b,c)	// a = + a.b + c
+	#define  FMS213(a,b,c)	a =  __FMSUB(a,b,c)	// a = + a.b - c
+	#define FNMA213(a,b,c)	a = __FNMADD(a,b,c)	// a = - a.b + c
+	#define FNMS213(a,b,c)	a = __FNMSUB(a,b,c)	// a = - a.b - c
 
 // 3. VFMADD231 src0, src1, src2/mem2 : src0 = src1*[src2/mem2] + src0
 //	i.e. uses the src0 addend as both a source and as the destination:
-	#define  FMA231(c,b,a)	a =  __FMADD(b,c,a)	/*------------------------------------*/
-	#define  FMS231(c,b,a)	a =  __FMSUB(b,c,a)	/* Executive summary of this quartet: */
-	#define FNMA231(c,b,a)	a = __FNMADD(b,c,a)	/* a = +- b.c +- a                    */
-	#define FNMS231(c,b,a)	a = __FNMSUB(b,c,a)	/* -----------------------------------*/
+	#define  FMA231(c,b,a)	a =  __FMADD(b,c,a)	// a = + b.c + a
+	#define  FMS231(c,b,a)	a =  __FMSUB(b,c,a)	// a = + b.c - a
+	#define FNMA231(c,b,a)	a = __FNMADD(b,c,a)	// a = - b.c + a
+	#define FNMS231(c,b,a)	a = __FNMSUB(b,c,a)	// a = - b.c - a
 
 // In each case, the first 2 of the 3 input args are the multiplicands, and the rightmost digit in the 3-digit
 // instruction mnemonic indicates which of the 3 input args is overwritten, in right-to-left "Nth arg from the right"

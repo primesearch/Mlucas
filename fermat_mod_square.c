@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2013 by Ernst W. Mayer.                                           *
+*   (C) 1997-2014 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -131,7 +131,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	uint64 idiff, max_idiff = 0;
 
 	static int radix_set_save[10] = {1000,0,0,0,0,0,0,0,0,0};
-	static int radix_vec0, nchunks; 	/* Stores the first element, RADIX_VEC[0], to workaround an OpemMP loop-control problem */
+	static int radix0, nchunks; 	/* Stores the first element, RADIX_VEC[0], to workaround an OpemMP loop-control problem */
 #if DBG_THREADS
 	int num_chunks[MAX_THREADS];		/* Collect stats about how much work done by each thread */
 #endif
@@ -142,7 +142,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	static int *ws_i,*ws_j1,*ws_j2,*ws_j2_start,*ws_k,*ws_m,*ws_blocklen,*ws_blocklen_sum;
 	int i,ii,ierr,iter,j,j1,j2,k,l,m,mm,k1,k2;
 	static uint64 psave=0;
-	static uint32 nsave=0, new_runlength=0;
+	static uint32 nsave=0, rad0save=0, new_runlength=0;
 	static uint32 nwt,nwt_bits,bw,sw,bits_small;
 	static double base[2],baseinv[2],radix_inv;
 	/* roots of unity table pairs needed for FFT: */
@@ -165,7 +165,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	clock_t clock1, clock2;
 #else
 /* Multithreaded needs wall-clock, not CPU time: */
-	time_t clock1, clock2;
+//	time_t clock1, clock2;
+	double clock1, clock2;	// Jun 2014: Switched to getRealTime() code
 #endif
 #ifdef DBG_TIME	// define at compile time to enable internal timing diagnostics
 	const double ICPS = 1.0/CLOCKS_PER_SEC;
@@ -194,7 +195,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		static thread_control_t thread_control = {0,0,0};
 		// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
 		static task_control_t   task_control = {NULL, (void*)fermat_process_chunk, NULL, 0x0};
-	
+
 	  #else
 
 		/* There are RADIX_VEC[0] independent chunks of work which will be done in parallel by teams of NTHREADS threads at a time
@@ -208,8 +209,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 
 #endif
 
-	radix_vec0 = RADIX_VEC[0];
-	nchunks = radix_vec0;
+	radix0 = RADIX_VEC[0];
+	nchunks = radix0;
 	ASSERT(HERE, TRANSFORM_TYPE == RIGHT_ANGLE, "fermat_mod_square: Incorrect TRANSFORM_TYPE!");
 
 /*...initialize things upon first entry */
@@ -235,7 +236,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		psave = p;
 		nsave = n;
 		N2 =n/2;		/* Complex vector length.	*/
-
+//	printf("fermat_mod_square: Init...\n");
 		for(i = 0; i < NRADICES; i++)
 		{
 			if(RADIX_VEC[i] == 0)
@@ -309,7 +310,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			else
 			{
 				fp = fopen(STATFILE,"a");	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
-				if(scrnFlag)                               /* Echo output to stddev */
+				if(scrnFlag)	/* Echo output to stddev */
 				{
 					fprintf(stderr,"%s",cbuf);
 				}
@@ -324,51 +325,66 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	#endif
 
 		/* Check if the leading radix is one of the ones supported for Fermat-mod: */
-		switch(radix_vec0)
+		switch(radix0)
 		{
-		case 7 : break;
-		case 8 : break;
-		case 14: break;
-		case 15: break;
-		case 16: break;
-		case 28: break;
-		case 30: break;
-		case 32: break;
-		case 36: break;
-		case 56: break;
-		case 60: break;
-		case 64: break;
+		case    7: break;
+		case    8: break;
+		case   14: break;
+		case   15: break;
+		case   16: break;
+		case   28: break;
+		case   30: break;
+		case   32: break;
+		case   36: break;
+		case   56: break;
+		case   60: break;
+		case   63: break;
+		case   64: break;
+		case  128: break;
+		case  224: break;
+		case  240: break;
+		case  256: break;
+		case  448: break;
+		case  480: break;
+		case  512: break;
+		case  896: break;
+		case  960: break;
+		case  992: break;	// Include special test radix 31*32 for roundoff tests of F33
+		case 1008: break;	// Include special test radix 63*16 for roundoff tests of F33
+		case 1024: break;
+		case 4032: break;	// Include special test radix 63*64 for roundoff tests of F33
+		case 4096: break;	// Include special test radix 2^12 for roundoff tests of F33
 		default :
-			fprintf(stderr," ERROR : leading radix %d not currently supported for Fermat-mod\n",radix_vec0);
+			fprintf(stderr," ERROR : leading radix %d not currently supported for Fermat-mod\n",radix0);
 			ierr=ERR_RADIX0_UNAVAILABLE;
 			return(ierr);
 		}
 
-		/* My array padding scheme requires N/radix_vec0 to be a power of 2, and to be >= 2^DAT_BITS, where the latter
+		/* My array padding scheme requires N/radix0 to be a power of 2, and to be >= 2^DAT_BITS, where the latter
 		parameter is set in the Mdata.h file: */
 
-		if(n%radix_vec0 != 0)
+		if(n%radix0 != 0)
 		{
-			sprintf(cbuf  ,"FATAL: radix_vec0 does not divide N!\n");
+			sprintf(cbuf  ,"FATAL: radix0 does not divide N!\n");
 			fprintf(stderr,"%s", cbuf);
 			ASSERT(HERE, 0,cbuf);
 		}
 
-		/* Make sure n/radix_vec0 is a power of 2: */
-		i = n/radix_vec0;
+		/* Make sure n/radix0 is a power of 2: */
+		i = n/radix0;
 		if((i >> trailz32(i)) != 1)
 		{
-			sprintf(cbuf  ,"FATAL: n/radix_vec0 not a power of 2!\n");
+			sprintf(cbuf  ,"FATAL: n/radix0 not a power of 2!\n");
 			fprintf(stderr,"%s", cbuf);
 			ASSERT(HERE, 0,cbuf);
 		}
 
 		if(DAT_BITS < 31)
 		{
-			/* Now make sure n/radix_vec0 is sufficiently large (unless n < 2^DAT_BITS, in which case it doesn't matter): */
+			/* Now make sure n/radix0 is sufficiently large (unless n < 2^DAT_BITS, in which case it doesn't matter): */
 			if(i < (1 << DAT_BITS))
 			{
-				sprintf(cbuf  ,"FATAL: n/radix_vec0 must be >= %u!\n", (1 << DAT_BITS));
+				sprintf(cbuf  ,"FATAL: n/radix0 must be >= %u!\n", (1 << DAT_BITS));
 				fprintf(stderr,"%s", cbuf);
 				ASSERT(HERE, 0,cbuf);
 			}
@@ -404,7 +420,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 
 	/*...******Forward FFT****** permuted sincos index array is here: first, calculate the needed dimension...	*/
 		k =0;
-		mm=radix_vec0;			/* First radix requires no twiddle factors.	*/
+		mm=radix0;			/* First radix requires no twiddle factors.	*/
 
 		/* We do the final DIF FFT radix within the dyadic_square routine, so store
 		that block of sincos data there, where they can be merged with the wrapper sincos data:
@@ -441,7 +457,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 
 		/*...First radix needs no twiddle factors, just need it for building the radix_prim array.	*/
 
-		switch(radix_vec0)
+		switch(radix0)
 		{
 		/*
 		case 2 :
@@ -528,6 +544,9 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		case 60 :
 			nradices_radix0 = 4;
 			radix_prim[l++] = 5; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 63 :
+			nradices_radix0 = 3;
+			radix_prim[l++] = 7; radix_prim[l++] = 3; radix_prim[l++] = 3; break;
 		case 64 :
 			nradices_radix0 = 6;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
@@ -541,10 +560,40 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		case 120:
 			nradices_radix0 = 5;
 			radix_prim[l++] = 5; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		*/
 		case 128 :
 			nradices_radix0 = 7;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
-		*/
+		case 224:
+			nradices_radix0 = 6;
+			radix_prim[l++] = 7; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 240:
+			nradices_radix0 = 6;
+			radix_prim[l++] = 5; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 256 :
+			nradices_radix0 = 8;
+			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 512 :
+			nradices_radix0 = 9;
+			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 960:
+			nradices_radix0 = 8;
+			radix_prim[l++] = 5; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 992:
+			nradices_radix0 = 6;
+			radix_prim[l++] =31; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 1008:
+			nradices_radix0 = 7;
+			radix_prim[l++] = 7; radix_prim[l++] = 3; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 1024:
+			nradices_radix0 = 10;
+			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 4032:
+			nradices_radix0 = 9;
+			radix_prim[l++] = 7; radix_prim[l++] = 3; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 4096:
+			nradices_radix0 = 12;
+			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		default :
 			sprintf(cbuf  ,"FATAL: radix %d not available for Fermat-mod transform. Halting...\n",RADIX_VEC[i]);
 			fprintf(stderr,"%s", cbuf);
@@ -633,17 +682,17 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			pow2_fft = FALSE;
 		}
 
-		bw     = p%n;		/* Number of bigwords in the Crandall/Fagin mixed-radix representation = (Mersenne exponent) mod (vector length).	*/
-		sw     = n - bw;	/* Number of smallwords.	*/
+		bw = p%n;		/* Number of bigwords in the Crandall/Fagin mixed-radix representation = (Mersenne exponent) mod (vector length).	*/
+		sw = n - bw;	/* Number of smallwords.	*/
 
-		radix_inv = qfdbl(qf_rational_quotient((int64)1, (int64)radix_vec0));
+		radix_inv = qfdbl(qf_rational_quotient((int64)1, (int64)radix0));
 
 		bits_small = p/n;			/* number of bits in a smallword.	*/
 		if(pow2_fft)
 		{
 			/* If power-of-2 runlength, no IBDWT gets done, make bases the same: */
-			base   [0] = (double)(1 << bits_small);	base   [1] =     base[0]	;
-			baseinv[0] = 1.0/base[0];				baseinv[1] =     baseinv[1]	;	/* don't need extended precision for this since both bases are powers of 2.	*/
+			base   [0] = (double)(1 << bits_small);	base   [1] = base[0]	;
+			baseinv[0] = 1.0/base[0];				baseinv[1] = baseinv[1]	;	/* don't need extended precision for this since both bases are powers of 2.	*/
 		}
 		else
 		{
@@ -734,7 +783,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 
 		/* No need for a fancy NINT here: */
 		NRT_BITS = (uint32)(log(sqrt(1.0*n))/log(2.0) + 0.5);
-		NRT    = 1 << NRT_BITS;
+		NRT = 1 << NRT_BITS;
 		if(n%NRT){ sprintf(cbuf,"FATAL: NRT does not divide N!\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		NRTM1 = NRT - 1;
 
@@ -1150,23 +1199,23 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		}
 
 	#ifdef MULTITHREAD
-	
+
 	  #ifdef USE_PTHREAD
 
 		free((void *)thr_ret); thr_ret = 0x0;
 		free((void *)thread ); thread  = 0x0;
 		free((void *)tdat   ); tdat    = 0x0;
 
-		thr_ret = (int *)calloc(radix_vec0, sizeof(int));
-		thread  = (pthread_t *)calloc(radix_vec0, sizeof(pthread_t));
-		tdat    = (struct ferm_thread_data_t *)calloc(radix_vec0, sizeof(struct ferm_thread_data_t));
+		thr_ret = (int *)calloc(radix0, sizeof(int));
+		thread  = (pthread_t *)calloc(radix0, sizeof(pthread_t));
+		tdat    = (struct ferm_thread_data_t *)calloc(radix0, sizeof(struct ferm_thread_data_t));
 
 		/* Initialize and set thread detached attribute */
 		pthread_attr_init(&attr);
 		pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 
 		/* Populate the thread-specific data structs: */
-		for(i = 0; i < radix_vec0; ++i)
+		for(i = 0; i < radix0; ++i)
 		{
 			tdat[i].tid = i;
 			tdat[i].retval = &thr_ret[i];
@@ -1188,15 +1237,15 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 
 		ASSERT(HERE, MAX_THREADS == get_num_cores(), "MAX_THREADS not set or incorrectly set!");
 
-		if(radix_vec0 % NTHREADS != 0) fprintf(stderr,"fermat_mod_square: radix_vec0 not exactly divisible by NTHREADS - This will hurt performance.\n");
+		if(radix0 % NTHREADS != 0) fprintf(stderr,"fermat_mod_square: radix0 not exactly divisible by NTHREADS - This will hurt performance.\n");
 
 		// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
 		// so on that platform try to be clever and interleave main-thread and threadpool-work processing
-		#ifdef OS_TYPE_MACOSX
+		#if 0//def OS_TYPE_MACOSX
 
 			if(NTHREADS > 1) {
-				main_work_units = radix_vec0/NTHREADS;
-				pool_work_units = radix_vec0 - main_work_units;
+				main_work_units = radix0/NTHREADS;
+				pool_work_units = radix0 - main_work_units;
 				ASSERT(HERE, 0x0 != (tpool = threadpool_init(NTHREADS-1, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
 				printf("Fermat_mod_square: Init threadpool of %d threads\n", NTHREADS-1);
 			} else {
@@ -1206,7 +1255,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		#else
 
 			main_work_units = 0;
-			pool_work_units = radix_vec0;
+			pool_work_units = radix0;
 			ASSERT(HERE, 0x0 != (tpool = threadpool_init(NTHREADS, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
 			printf("Fermat_mod_square: Init threadpool of %d threads\n", NTHREADS);
 
@@ -1220,14 +1269,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	/* 	This set of init-mode calls needs to go below above init-block because several
 	of the inits need the primitive-radix data to have been inited.
 	*/
-	if(new_runlength && init_sse2) {	// Pvsly inited SSE2 local storage, but now have new runlength
-		init_sse2 = nchunks;	// Use *value* of init_sse2 to store #threads
-		thr_id = -1;
-		/* The dyadic-square routines need a few more params passed in init-mode than do the standalone FFT-pass routines: */
-		radix16_dyadic_square(0x0, arr_scratch, n, radix_vec0, 0x0, 0x0, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id);
-		radix32_dyadic_square(0x0, arr_scratch, n, radix_vec0, 0x0, 0x0, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id);
-	}
-	if(init_sse2 == FALSE || (init_sse2 < nchunks)) {		// New run, or need to up #threads in local-store inits
+	// New run, or need to up #threads in local-store inits:
+	if(init_sse2 == FALSE || (init_sse2 < nchunks)) {
 	//	init_sse2 = TRUE;
 		init_sse2 = nchunks;	// Use *value* of init_sse2 to store #threads
 		thr_id = -1;
@@ -1236,12 +1279,21 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		radix32_dif_pass(0x0, 0, 0x0, 0x0, 0, 0, 0x0, init_sse2, thr_id);
 
 		/* The dyadic-square routines need a few more params passed in init-mode than do the standalone FFT-pass routines: */
-		radix16_dyadic_square(0x0, arr_scratch, n, radix_vec0, 0x0, 0x0, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id);
-		radix32_dyadic_square(0x0, arr_scratch, n, radix_vec0, 0x0, 0x0, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id);
+		radix16_dyadic_square(0x0, arr_scratch, n, radix0, 0x0, 0x0, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id);
+		radix32_dyadic_square(0x0, arr_scratch, n, radix0, 0x0, 0x0, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id);
 
 		radix8_dit_pass (0x0, 0, 0x0, 0x0, 0, 0, 0x0, init_sse2, thr_id);
 		radix16_dit_pass(0x0, 0, 0x0, 0x0, 0, 0, 0x0, init_sse2, thr_id);
 		radix32_dit_pass(0x0, 0, 0x0, 0x0, 0, 0, 0x0, init_sse2, thr_id);
+	}
+	// New runlength or leading radix:
+	else if(new_runlength || (rad0save != radix0)) {
+		rad0save = radix0;		// Both radix 0 and nchunks get checked in the dyadic_square routines and only the needed inits done
+		init_sse2 = nchunks;	// Use *value* of init_sse2 to store #threads
+		thr_id = -1;
+		/* The dyadic-square routines need a few more params passed in init-mode than do the standalone FFT-pass routines: */
+		radix16_dyadic_square(0x0, arr_scratch, n, radix0, 0x0, 0x0, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id);
+		radix32_dyadic_square(0x0, arr_scratch, n, radix0, 0x0, 0x0, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id);
 	}
 	new_runlength = FALSE;
 
@@ -1255,7 +1307,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 #ifdef CTIME
 	clock1 = clock();
 #else
-	clock1 = time(0x0);
+//	clock1 = time(0x0);
+	clock1 = getRealTime();
 #endif
 
 	*tdiff = 0.0;
@@ -1278,7 +1331,6 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			j1 = j;
 		#endif
 			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-
 			wt = wt0[ii];
 			a[j1] *= wt;
 			ii += SW_DIV_N - nwt;
@@ -1297,7 +1349,6 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		#endif
 			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 			j2 = j1 + RE_IM_STRIDE;
-
 			wt = wt0[ii];
 			a[j2] *= wt;
 			ii += SW_DIV_N - nwt;
@@ -1316,7 +1367,6 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	#endif
 		j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		j2 = j1 + RE_IM_STRIDE;
-
 		/* Get the needed Nth root of -1: */
 		l = (j >> 1);	/* j/2 */
 		k1=(l & NRTM1);
@@ -1324,19 +1374,18 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		t1=rn0[k1].re;		t2=rn0[k1].im;
 		rt=rn1[k2].re;		it=rn1[k2].im;
 		re =t1*rt-t2*it;	im =t1*it+t2*rt;
-
 		/* Do the cyclic -> acyclic weighting: */
-		t1     = a[j1]*re - a[j2]*im;
+		t1    = a[j1]*re - a[j2]*im;
 		a[j2] = a[j2]*re + a[j1]*im;
 		a[j1] = t1;
 	}
 
-	/*...and perform the initial pass of the forward transform.	*/
+/*...and perform the initial pass of the forward transform.	*/
 
-	/*...NOTE: If the first radix to be processed is 2, 4 or 8, it is assumed that a power-of-2 FFT is being performed,
-	hence no small-prime version of the corresponding pass1 routines is needed.	*/
+/*...NOTE: If the first radix to be processed is 2, 4 or 8, it is assumed that a power-of-2 FFT is being performed,
+     hence no small-prime version of the corresponding pass1 routines is needed.	*/
 
-	switch(radix_vec0)
+	switch(radix0)
 	{
 	case 5 :
 		 radix5_dif_pass1(a,n); break;
@@ -1384,20 +1433,59 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		radix56_dif_pass1(a,n); break;
 	case 60 :
 		radix60_dif_pass1(a,n); break;
+	case 63 :
+		radix63_dif_pass1(a,n); break;
 	case 64 :
 		radix64_dif_pass1(a,n); break;
+	/*
+	case 72 :
+		radix72_dif_pass1(a,n); break;
+	case 112:
+		radix112_dif_pass1(a,n); break;
+	case 120:
+		radix120_dif_pass1(a,n); break;
+	*/
+	case 128:
+		radix128_dif_pass1(a,n); break;
+	/*
+	case 144:
+		radix144_dif_pass1(a,n); break;
+	*/
+	case 224:
+		radix224_dif_pass1(a,n); break;
+	case 240 :
+		radix240_dif_pass1(a,n); break;
+	case 256 :
+		radix256_dif_pass1(a,n); break;
+	case 512 :
+		radix512_dif_pass1(a,n); break;
+	case 960 :
+		radix960_dif_pass1(a,n); break;
+	case 992 :
+		radix992_dif_pass1(a,n); break;
+	case 1008:
+		radix1008_dif_pass1(a,n); break;
+	case 1024:
+		radix1024_dif_pass1(a,n); break;
+	case 4032:
+		radix4032_dif_pass1(a,n); break;
+/*
+	case 4096:
+		radix4096_dif_pass1(a,n); break;
+*/
 	default :
-		sprintf(cbuf,"FATAL: radix %d not available for dif_pass1. Halting...\n",radix_vec0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+		sprintf(cbuf,"FATAL: radix %d not available for dif_pass1. Halting...\n",radix0);
+		fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 	}
 
 /**********************************************************************/
 
-    /*...iteration loop is here. Do forward-FFT/pointwise-square/inverse-FFT, inverse weighting,
-    carry propagation, fractional error checking and forward weighting in same loop.	*/
+	/* Main iteration loop is here. Do forward-FFT/pointwise-square/inverse-FFT, inverse weighting,
+	carry propagation, fractional error checking and forward weighting in same loop:
+	*/
+	ierr = 0;	/* Any return-value error code (whether fatal or not) stored here */
 
-	ierr = 0;
-
-	ASSERT(HERE, ihi > ilo,"fermat_mod_square.c: ihi <= ilo!");
+	ASSERT(HERE, ihi > ilo,"mers_mod_square.c: ihi <= ilo!");
 
 #ifdef MULTITHREAD
 
@@ -1428,9 +1516,9 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 /*...perform the FFT-based squaring:
      Do last S-1 of S forward decimation-in-frequency transform passes.	*/
 
-	/* Break the remaining portion of the FFT into radix_vec0 blocks, each of which ideally
+	/* Break the remaining portion of the FFT into radix0 blocks, each of which ideally
 	should operate on a dataset which fits entirely into the L2 cache of the host machine.
-    In a multithreaded implementation, process NTHREADS blocks in parallel fashion:
+	In a multithreaded implementation, process NTHREADS blocks in parallel fashion:
 	If the number of available processor cores does not divide radix0, there will be one or more under-or-unutilized CPUs.
 	*/
 
@@ -1438,7 +1526,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 
   #ifdef USE_PTHREAD
 
-	/* create radix_vec0 new threads each of which will execute 'fermat_process_chunk()' over some specified index subrange.
+	/* create radix0 new threads each of which will execute 'fermat_process_chunk()' over some specified index subrange.
 	In order to match the threads executing at any given time to the available CPUs, divide the thread execution
 	into [NTHREADS] 'work shifts' ( <= #CPus), each with its threads starting and completing their work before the next shift
 	comes online:
@@ -1448,7 +1536,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 
 	// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
 	// so on that platform try to be clever and interleave main-thread and threadpool-work processing
-	#ifdef OS_TYPE_MACOSX
+	#if 0//def OS_TYPE_MACOSX
 
 		if(NTHREADS > 1) {
 			for(thr_id = 0; thr_id < pool_work_units; ++thr_id)
@@ -1466,22 +1554,22 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 				fermat_process_chunk( (void*)(&tdat[j + pool_work_units]) );
 			}
 
-			struct timespec ns_time;
-			ns_time.tv_sec  = 0.0001;	// (time_t)seconds
-			ns_time.tv_nsec = 0;	// (long)nanoseconds - At least allegedly, but under OS X it seems to be finer-grained than that
-			
+			struct timespec ns_time;	// We want a sleep interval of 0.1 mSec here...
+			ns_time.tv_sec  =      0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
+			ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
+
 			while(tpool->free_tasks_queue.num_tasks != pool_work_units) {
 				// Finer-resolution, declared in <time.h>; cf. http://linux.die.net/man/2/nanosleep
 				ASSERT(HERE, 0 == nanosleep(&ns_time, 0x0), "nanosleep fail!");
 			}
 		} else {
-			for(thr_id = 0; thr_id < radix_vec0; ++thr_id)
+			for(thr_id = 0; thr_id < radix0; ++thr_id)
 			{
 				fermat_process_chunk( (void*)(&tdat[thr_id]) );
 			}
 		}
 
-		for(thr_id = 0; thr_id < radix_vec0; ++thr_id)
+		for(thr_id = 0; thr_id < radix0; ++thr_id)
 		{
 		#ifdef DBG_TIME
 			dt_fwd += tdat[thr_id].dt_fwd;
@@ -1505,10 +1593,10 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			}
 
 		//	printf("start; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
-			struct timespec ns_time;
-			ns_time.tv_sec  = 0.0001;	// (time_t)seconds
-			ns_time.tv_nsec = 0;	// (long)nanoseconds - At least allegedly, but under OS X it seems to be finer-grained than that
-			
+			struct timespec ns_time;	// We want a sleep interval of 0.1 mSec here...
+			ns_time.tv_sec  =      0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
+			ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
+
 		//	while(tpool->tasks_queue.num_tasks != 0) {	//*** not safe, since can have #tasks == 0 with some tasks still in flight ***
 			while(tpool->free_tasks_queue.num_tasks != pool_work_units) {
 			//		sleep(1);	//*** too granular ***
@@ -1518,7 +1606,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			}
 		//	printf("end  ; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
 
-		for(thr_id = 0; thr_id < radix_vec0; ++thr_id)
+		for(thr_id = 0; thr_id < radix0; ++thr_id)
 		{
 		#ifdef DBG_TIME
 			dt_fwd += tdat[thr_id].dt_fwd;
@@ -1531,7 +1619,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	#elif 1	// Simple-and-stupid thread-dispatch:
 
 		// Try a single shifts with one thread for each work chunk, let OS deal with dispatching 'em:
-		for(thr_id = 0; thr_id < radix_vec0; ++thr_id)
+		for(thr_id = 0; thr_id < radix0; ++thr_id)
 		{
 			rc = pthread_create(&thread[thr_id], &attr, fermat_process_chunk, (void*)(&tdat[thr_id]));
 			if (rc) {
@@ -1540,7 +1628,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			}
 		}
 		// As each thread finishes, add its result into an accumulator in non-blocking fashion (no mutexes needed):
-		for(thr_id = 0; thr_id < radix_vec0; ++thr_id)
+		for(thr_id = 0; thr_id < radix0; ++thr_id)
 		{
 			rc = pthread_join(thread[thr_id], &thr_status);
 			if (rc) {
@@ -1556,7 +1644,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 
 	#else
 
-		nshift = radix_vec0/NTHREADS;	// Number of shifts with one thread for each CPU
+		nshift = radix0/NTHREADS;	// Number of shifts with one thread for each CPU
 		for(j = 0; j < nshift; ++j)
 		{
 			ioffset = j*NTHREADS;
@@ -1587,7 +1675,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	#endif
 	} else {
 		/* Single-threaded version: */
-		for(i = 0; i < radix_vec0; ++i)
+		for(i = 0; i < radix0; ++i)
 		{
 			fermat_process_chunk((void*)(&tdat[i]));
 		#ifdef DBG_TIME
@@ -1604,15 +1692,15 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 #else
 
 	/* Unthreaded version: */
-    for(ii = 0; ii < radix_vec0; ++ii)
-    {
+	for(ii = 0; ii < radix0; ++ii)
+	{
 		fermat_process_chunk(
 			a,arr_scratch,n,rt0,rt1,index,ii,nradices_prim,radix_prim
 		#ifdef DBG_TIME
 			,&dt_fwd,&dt_inv,&dt_sqr,&dt_tot
 		#endif
 		);
-    }
+	}
 
 #endif	// threaded?
 
@@ -1625,7 +1713,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	if(iter <= *err_iter)	/* Determine whether to do RO error checking in carry step, depending on iteration number.	*/
 	{
 #endif
-		switch(radix_vec0)
+		switch(radix0)
 		{
 			case  5 :
 				ierr =  radix5_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
@@ -1673,16 +1761,42 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 				ierr = radix56_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
 			case 60 :
 				ierr = radix60_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+			case 63 :
+				ierr = radix63_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
 			case 64 :
 				ierr = radix64_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+			case 128 :
+				ierr = radix128_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+			case 224 :
+				ierr = radix224_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+			case 240 :
+				ierr = radix240_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+			case 256 :
+				ierr = radix256_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+			case 512 :
+				ierr = radix512_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+			case 960 :
+				ierr = radix960_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+			case 992 :
+				ierr = radix992_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+			case 1008:
+				ierr = radix1008_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+			case 1024:
+				ierr = radix1024_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+			case 4032:
+				ierr = radix4032_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		/*
+			case 4096:
+				ierr = radix4096_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		*/
 			default :
-			sprintf(cbuf,"FATAL: radix %d not available for ditN_cy_dif1. Halting...\n",radix_vec0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+				sprintf(cbuf,"FATAL: radix %d not available for ditN_cy_dif1. Halting...\n",radix0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 		}
 #ifndef USE_SSE2
 	}
 	else
 	{
-		switch(radix_vec0)
+		switch(radix0)
 		{
 			case  5 :
 				ierr =  radix5_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,         p); break;
@@ -1731,10 +1845,32 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 				ierr = radix56_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
 			case 60 :
 				ierr = radix60_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+			case 63 :
+				ierr = radix63_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
 			case 64 :
 				ierr = radix64_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+			case 128 :
+				ierr = radix128_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+			case 224 :
+				ierr = radix224_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+			case 240 :
+				ierr = radix240_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+			case 256 :
+				ierr = radix256_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+			case 512 :
+				ierr = radix512_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+			case 1008:
+				ierr = radix1008_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+			case 1024:
+				ierr = radix1024_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+			case 4032:
+				ierr = radix4032_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		/*
+			case 4096:
+				ierr = radix4096_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		*/
 			default :
-			sprintf(cbuf,"FATAL: radix %d not available for ditN_cy_dif1_nochk. Halting...\n",radix_vec0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+			sprintf(cbuf,"FATAL: radix %d not available for ditN_cy_dif1_nochk. Halting...\n",radix0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 		}
 	}
 #endif	/* #ifndef USE_SSE2 */
@@ -1743,65 +1879,119 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	if(ierr)
 		return(ierr);
 
-	/* Update     Max. Max. Error: */
+	/* Update Max. Max. Error: */
 	if(fracmax > MME)
 		MME  = fracmax;
 	/* Accumulate Avg. Max. Error: */
 	if(iter > AME_ITER_START)
 		AME += fracmax;
 
-/*...Now do the fractional error check. Any fractional part in [0.4,0.6] generates a warning...	*/
+/*...Now do the fractional error check. Any fractional part  >= 0.4 generates a warning...	*/
 
 	if(fracmax >= 0.4)
 	{
-	    sprintf(cbuf, "F%u Roundoff warning on iteration %8u, maxerr = %16.12f\n",findex,iter,fracmax);
+		sprintf(cbuf, "F%u Roundoff warning on iteration %8u, maxerr = %16.12f\n",findex,iter,fracmax);
 
-/*...Fractional parts close to 0.5 cause the program to quit.
-     We put the interactive-mode errlimit close to 0.5, to let people really push the limits if they want to...	*/
-	  if(INTERACT)
-	  {
-	    fprintf(stderr,"%s",cbuf);
-	    if(fracmax >= 0.40625) *err_iter = p-1;	/*...If RO > 0.40625 warning issued at any point of the initial error-checked	*/
-	    						/* segment, require error checking on each iteration, even if iter > err_iter.	*/
-
-	    if(fracmax > 0.47 )
-	    {
-	      fprintf(stderr," FATAL ERROR...Halting test of F%u\n",findex);
-	      ierr=ERR_ROUNDOFF;
-	      return(ierr);
-	    }
-	  }
-	  else
-	  {
-	    fp = fopen(   OFILE,"a");
-	    fq = fopen(STATFILE,"a");
-	    fprintf(fp,"%s",cbuf);
-	    fprintf(fq,"%s",cbuf);
-		if (scrnFlag)                               /* Echo output to stddev */
+	/*...Fractional parts close to 0.5 cause the program to quit.
+		 We put the interactive-mode errlimit close to 0.5, to let people really push the limits if they want to...	*/
+		if(INTERACT)
 		{
 			fprintf(stderr,"%s",cbuf);
+			if(fracmax >= 0.40625) *err_iter = p-1;	// If RO > 0.40625 warning issued at any point of the initial error-checked
+													// segment, require error checking on each iteration, even if iter > err_iter.
+			if(fracmax > 0.47 )
+			{
+				fprintf(stderr," FATAL ERROR...Halting test of F%u\n",findex);
+				ierr = ERR_ROUNDOFF;
+				return(ierr);
+			}
 		}
-
-		if(fracmax >= 0.40625) *err_iter = p-1;
-
-/*...In range test mode, any fractional part > 0.4375 is cause for error exit.	*/
-		if(fracmax > 0.4375 )
+		else
 		{
-			sprintf(cbuf," FATAL ERROR...Halting test of F%u\n",findex);
+			fp = fopen(   OFILE,"a");
+			fq = fopen(STATFILE,"a");
 			fprintf(fp,"%s",cbuf);
 			fprintf(fq,"%s",cbuf);
-			fclose(fp);	fp = 0x0;
-			fclose(fq);	fq = 0x0;
-			if (scrnFlag)                               /* Echo output to stddev */
+			if (scrnFlag)	/* Echo output to stddev */
 			{
 				fprintf(stderr,"%s",cbuf);
 			}
-			ierr=ERR_ROUNDOFF;
-			return(ierr);
+	
+			if(fracmax >= 0.40625) *err_iter = p-1;
+	
+		/*...In range test mode, any fractional part > 0.4375 is cause for error exit.	*/
+			if(fracmax > 0.4375 )
+			{
+			/* In order to cope with occasional spurious error - especially in multithreaded and GPU settings - need a mechanism
+			to retry the current iteration interval starting from the last savefile and, based on the result, act accordingly.
+			Here is the retry scheme in words - there are 4 distinct cases, divided into 2 main cases, the second of which has
+			3 subcases:
+	
+			[1] [condition] (ROE_ITER == 0) : This is the initial attempt of the current interval.
+	
+				[action] Store the iteration and value (fracmax) of the initial-pass error in the (signed int)ROE_ITER and
+				(double)ROE_VAL globals (both of which are inited to 0), then (via suitable logic in the calling routine)
+				rerun the interval with the same FFT params:
+				*/
+				if(ROE_ITER == 0) {
+					sprintf(cbuf," Retrying iteration interval to see if roundoff error is reproducible.\n");
+					ROE_ITER = iter;
+					ROE_VAL = fracmax;
+				}
+			/*
+			[2] [condition] (ROE_ITER > 0) : This is a retry of the current interval. There are 3 subcases:
+			*/
+				else if(ROE_ITER > 0) {
+				/*
+				[2a] [condition] The interval-retry is successful, i.e. suffers no fatal ROE.
+					In this case we will not hit this code snip, but rather will arrive at the return() with iter = ihi+1,
+					hence the code handling for this condition is to be found there.
+	
+					[action] Prior to returning, print a "retry successful" informational and rezero ROE_ITER and ROE_VAL.
+				*/
+				/*
+				[2b] [condition] The error is reproducible, i.e. recurs on the same iteration, with the same fractional value.
+	
+					[action] Negate ROE_ITER as a signal to the caller that the interval needs (and the rest of the run)
+					needs to be with the next-larger available FFT length. Since ROE_VAL is no longer needed, rezero it,
+					and expect the caller to do the same with ROE_ITER:
+					*/
+					if(ROE_ITER == iter && ROE_VAL == fracmax) {
+						sprintf(cbuf," Roundoff error is reproducible ... switching to next-larger available FFT length and retrying.\n");
+						ROE_ITER = -ROE_ITER;
+						ROE_VAL = 0.0;
+					}
+				/*
+				[2c] [condition; rare] The error is not reproducible, but encountered a different ROE in the retry of the interval.
+	
+					[action] Treat as fatal (usually a sign of data corruption):
+					*/
+					else {
+					// [original action, now obsolete] Same as for [1], but with a slightly different informational:
+					/*
+						sprintf(cbuf," Retrying iteration interval to see if latest roundoff error is reproducible.\n");
+						ROE_ITER = iter;
+						ROE_VAL = fracmax;
+					*/
+						sprintf(cbuf," The error is not reproducible, but encountered a different ROE in the retry of the interval ... as this is\n  an indicator of likely data corruption, quitting. Please restart the program at your earliest convenience.\n");
+						return(ERR_UNKNOWN_FATAL);
+					}
+				}
+	
+				fprintf(fp,"%s",cbuf);
+				fprintf(fq,"%s",cbuf);
+				fclose(fp);	fp = 0x0;
+				fclose(fq);	fq = 0x0;
+				if (scrnFlag)	/* Echo output to stddev */
+				{
+					fprintf(stderr,"%s",cbuf);
+				}
+				ierr = ERR_ROUNDOFF;
+				return(ierr);
+			}
+			fclose(fp);	fp = 0x0;
+			fclose(fq);	fq = 0x0;
 		}
-		fclose(fp);	fp = 0x0;
-		fclose(fq);	fq = 0x0;
-	  }
 	}
 
 	/*...Whew - that"s a lot of stuff that just happened.
@@ -1819,8 +2009,10 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	}	/* End of main loop	*/
 
 #ifdef RTIME
-	clock2 = time(0x0);
-	*tdiff += difftime(clock2 , clock1);
+//	clock2 = time(0x0);
+//	*tdiff += difftime(clock2 , clock1);
+	clock2 = getRealTime();
+	*tdiff += clock2 - clock1;
 #endif
 
 #ifdef DBG_TIME
@@ -1840,60 +2032,96 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 
 /*...At the end of each iteration cycle, need to undo the initial DIF FFT pass...	*/
 
-	switch(radix_vec0)
+	switch(radix0)
 	{
-/*	  case  3 :	*/
-/*		 radix3_dit_pass1(a,n); break;	*/
-	  case  5 :
+	case  5 :
 		 radix5_dit_pass1(a,n); break;
-	  case  6 :
+	case  6 :
 		 radix6_dit_pass1(a,n); break;
-	  case  7 :
+	case  7 :
 		 radix7_dit_pass1(a,n); break;
-	  case  8 :
+	case  8 :
 		 radix8_dit_pass1(a,n); break;
-	  case  9 :
+	case  9 :
 		 radix9_dit_pass1(a,n); break;
-	  case 10 :
+	case 10 :
 		radix10_dit_pass1(a,n); break;
-	  case 11 :
+	case 11 :
 		radix11_dit_pass1(a,n); break;
-	  case 12 :
+	case 12 :
 		radix12_dit_pass1(a,n); break;
-	  case 13 :
+	case 13 :
 		radix13_dit_pass1(a,n); break;
-	  case 14 :
+	case 14 :
 		radix14_dit_pass1(a,n); break;
-	  case 15 :
+	case 15 :
 		radix15_dit_pass1(a,n); break;
-	  case 16 :
+	case 16 :
 		radix16_dit_pass1(a,n); break;
-	  case 18 :
+	case 18 :
 		radix18_dit_pass1(a,n); break;
-	  case 20 :
+	case 20 :
 		radix20_dit_pass1(a,n); break;
-	  case 22 :
+	case 22 :
 		radix22_dit_pass1(a,n); break;
-	  case 24 :
+	case 24 :
 		radix24_dit_pass1(a,n); break;
-	  case 26 :
+	case 26 :
 		radix26_dit_pass1(a,n); break;
-	  case 28 :
+	case 28 :
 		radix28_dit_pass1(a,n); break;
-	  case 30 :
+	case 30 :
 		radix30_dit_pass1(a,n); break;
-	  case 32 :
+	case 32 :
 		radix32_dit_pass1(a,n); break;
-	  case 36 :
+	case 36 :
 		radix36_dit_pass1(a,n); break;
-	  case 56 :
+	case 56 :
 		radix56_dit_pass1(a,n); break;
-	  case 60 :
+	case 60 :
 		radix60_dit_pass1(a,n); break;
-	  case 64 :
+	case 63 :
+		radix63_dit_pass1(a,n); break;
+	case 64 :
 		radix64_dit_pass1(a,n); break;
-	  default :
-		sprintf(cbuf,"FATAL: radix %d not available for dit_pass1. Halting...\n",radix_vec0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+/*
+	case 72 :
+		radix72_dit_pass1(a,n); break;
+	case 112:
+		radix112_dit_pass1(a,n); break;
+	case 120:
+		radix120_dit_pass1(a,n); break;
+*/
+	case 128:
+		radix128_dit_pass1(a,n); break;
+/*
+	case 144:
+		radix144_dit_pass1(a,n); break;
+*/
+	case 224 :
+		radix224_dit_pass1(a,n); break;
+	case 240 :
+		radix240_dit_pass1(a,n); break;
+	case 256 :
+		radix256_dit_pass1(a,n); break;
+	case 512 :
+		radix512_dit_pass1(a,n); break;
+	case 960 :
+		radix960_dit_pass1(a,n); break;
+	case 992 :
+		radix992_dit_pass1(a,n); break;
+	case 1008 :
+		radix1008_dit_pass1(a,n); break;
+	case 1024:
+		radix1024_dit_pass1(a,n); break;
+	case 4032 :
+		radix4032_dit_pass1(a,n); break;
+/*
+	case 4096:
+		radix4096_dit_pass1(a,n); break;
+*/
+	default :
+		sprintf(cbuf,"FATAL: radix %d not available for dit_pass1. Halting...\n",radix0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 	}
 
 /*...and unweight the data array.	*/
@@ -1989,6 +2217,25 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		ASSERT(HERE, max_fp < 0.01,"fermat_mod_square.c: max_fp < 0.01");
 	}
 
+	// Cf. [2a] above: The interval-retry is successful, i.e. suffers no fatal ROE.
+	// [action] Prior to returning, print a "retry successful" informational and rezero ROE_ITER and ROE_VAL.
+	if(ROE_ITER > 0) {
+		ASSERT(HERE, (ierr == 0) && (iter = ihi+1), "[2a] sanity check failed!");
+		ROE_ITER = 0;
+		ROE_VAL = 0.0;
+		fp = fopen(   OFILE,"a");
+		fq = fopen(STATFILE,"a");
+		sprintf(cbuf,"Retry of iteration interval with fatal roundoff error was successful.\n");
+		fprintf(fp,"%s",cbuf);
+		fprintf(fq,"%s",cbuf);
+		fclose(fp);	fp = 0x0;
+		fclose(fq);	fq = 0x0;
+		if(scrnFlag)	/* Echo output to stddev */
+		{
+			fprintf(stderr,"%s",cbuf);
+		}
+	}
+
 	return(ierr);
 }
 
@@ -2035,14 +2282,14 @@ void fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex r
 	clock0 = clock();
 #endif
 
-	int radix_vec0 = RADIX_VEC[0];
+	int radix0 = RADIX_VEC[0];
     int i,incr,istart,jstart,k,koffset,l,mm;
 	int init_sse2 = FALSE;	// Init-calls to various radix-pass routines presumed done prior to entry into this routine
 
 	l = ii;
 	k    = 0;
 	mm   = 1;
-	incr = n/radix_vec0;
+	incr = n/radix0;
 
 	istart = l*incr;	/* Starting location of current data-block-to-be-processed within A-array. */
 	jstart = istart + ((istart >> DAT_BITS) << PAD_BITS );
@@ -2064,7 +2311,7 @@ void fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex r
 			sprintf(cbuf,"FATAL: radix %d not available for dif_pass. Halting...\n",RADIX_VEC[i]); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 		}
 
-		k    += mm*radix_vec0;
+		k    += mm*radix0;
 		mm   *= RADIX_VEC[i];
 		incr /= RADIX_VEC[i];
 
@@ -2080,15 +2327,15 @@ void fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex r
 	/* The roots-block-re-use param mm not needed for innermost pass, since there each set of inputs gets its own set of roots: */
 	switch(RADIX_VEC[NRADICES-1])
 	{
-	  case 16 :
-			radix16_dyadic_square(&a[jstart],arr_scratch,n,radix_vec0,rt0,rt1,ii,nradices_prim,radix_prim,incr,init_sse2,thr_id); break;
-	  case 32 :
-			radix32_dyadic_square(&a[jstart],arr_scratch,n,radix_vec0,rt0,rt1,ii,nradices_prim,radix_prim,incr,init_sse2,thr_id); break;
-	  /*
-	  case 64 :
-			radix64_dyadic_square(&a[jstart],arr_scratch,n,radix_vec0,rt0,rt1,ii,nradices_prim,radix_prim,incr,init_sse2,thr_id); break;
-	  */
-	  default :
+		case 16 :
+			radix16_dyadic_square(&a[jstart],arr_scratch,n,radix0,rt0,rt1,ii,nradices_prim,radix_prim,incr,init_sse2,thr_id); break;
+		case 32 :
+			radix32_dyadic_square(&a[jstart],arr_scratch,n,radix0,rt0,rt1,ii,nradices_prim,radix_prim,incr,init_sse2,thr_id); break;
+		/*
+		case 64 :
+			radix64_dyadic_square(&a[jstart],arr_scratch,n,radix0,rt0,rt1,ii,nradices_prim,radix_prim,incr,init_sse2,thr_id); break;
+		*/
+		default :
 			sprintf(cbuf,"FATAL: radix %d not available for wrapper/square. Halting...\n",RADIX_VEC[NRADICES-1]); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 	}
 
@@ -2106,11 +2353,11 @@ void fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex r
 	*/
 	k    = 0;
 	mm   = 1;
-	incr = n/radix_vec0;
+	incr = n/radix0;
 
 	for(i=1; i <= NRADICES-2; i++)
 	{
-		k    += mm*radix_vec0;
+		k    += mm*radix0;
 		mm   *= RADIX_VEC[i];
 		incr /= RADIX_VEC[i];
 	}
@@ -2121,7 +2368,7 @@ void fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex r
 	{
 		incr *= RADIX_VEC[i];
 		mm   /= RADIX_VEC[i];
-		k    -= mm*radix_vec0;
+		k    -= mm*radix0;
 
 		koffset = l*mm;
 

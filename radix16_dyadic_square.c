@@ -22,6 +22,14 @@
 
 #include "Mlucas.h"
 
+#ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	4096	// This seems to work best on my Haswell
+  #else
+	#define PFETCH_DIST	1024
+  #endif
+#endif
+
 #ifdef USE_SSE2
 
 	#include "sse2_macro.h"
@@ -100,6 +108,7 @@
 
 		#if OS_BITS == 32
 
+			#undef FULLY_FUSED
 			#include "radix16_wrapper_square_gcc32.h"
 
 		#else
@@ -118,7 +127,7 @@
 
 #ifdef MULTITHREAD
 	#ifndef USE_PTHREAD
-		#error Multithreading currently only supported for 64-bit GCC builds using Pthreads!
+		#error Multithreading currently only supported using Pthreads!
 	#endif
 #endif
 
@@ -139,13 +148,14 @@ The scratch array (2nd input argument) is only needed for data table initializat
 */
 void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int ii, int nradices_prim, int radix_prim[], int incr, int init_sse2, int thr_id)
 {
+	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 5, stridh = (stride>>1);	// main-array loop stride = 32*RE_IM_STRIDE
 	static int max_threads = 0;
 	static int nsave = 0;
 	static int rad0save = 0, ndivrad0 = 0;
 /*	static int *index = 0x0;	OBSOLETE: full-N2/16-length Bit-reversal index array. */
 	static int *index0 = 0x0, *index1 = 0x0, *index_ptmp0 = 0x0, *index_ptmp1 = 0x0;
-	       int index0_idx=-1, index1_idx=-1;
+		   int index0_idx=-1, index1_idx=-1;
 	static int index0_mod=-1, index1_mod=-1;
 	int nradices_prim_radix0;
 	int i,j,j1,j2,l,iroot,k1,k2;
@@ -200,16 +210,9 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 /**************************************************************************************************************************************/
 /*** To-Do: Need to add code to allow for re-init when any of the FFT-related params or #threads changes during course of execution ***/
 /**************************************************************************************************************************************/
-
-	/* Here this variable is somewhat misnamed because it is used to init both non-SIMD and SIMD-specific data */
-	if(init_sse2)	// Just check nonzero here, to allow the *value* of init_sse2 to store #threads
+	if((rad0save != radix0) || (nsave != n))
 	{
-		max_threads = init_sse2;
-	#ifndef COMPILER_TYPE_GCC
-		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
-	#endif
-		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
-
+		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
 		nsave = n;
 		ASSERT(HERE, N2 == n/2, "N2 bad!");
 		rad0save = radix0;
@@ -222,10 +225,76 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 				ASSERT(HERE, 0 , "add1 calculation violates padded index rules!");
 			}
 		}
+		if(index_ptmp0) {
+			free((void *)index_ptmp0);	index_ptmp0=0x0;	index0=0x0;
+			free((void *)index_ptmp1);	index_ptmp1=0x0;	index1=0x0;
+		}
+		/*
+		!...Final forward (DIF) FFT pass sincos data start out in bit-reversed order.
+		!   Allocate and initialize an index array containing N/16 indices...
+
+		index_ptmp = ALLOC_INT(N2/16);
+		index = ALIGN_INT(index_ptmp);
+		if(!index){ sprintf(cbuf,"FATAL: unable to allocate array ITMP in radix16_dyadic_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		for(i=0; i < N2/16; i++)
+		{
+			index[i]=i;
+		}
+		*/
+		index0_mod =        radix0;
+		index1_mod = (n>>5)/radix0;	/* complex length requires an additional divide by 2 */
+
+		index_ptmp0 = ALLOC_INT(index_ptmp0, index0_mod);
+		if(!index_ptmp0){ sprintf(cbuf,"FATAL: unable to allocate array INDEX_PTMP0 in radix16_dyadic_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		index0 = ALIGN_INT(index_ptmp0);
+
+		index_ptmp1 = ALLOC_INT(index_ptmp1, index1_mod);
+		if(!index_ptmp1){ sprintf(cbuf,"FATAL: unable to allocate array INDEX_PTMP1 in radix16_dyadic_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		index1 = ALIGN_INT(index_ptmp1);
+
+		for(i=0; i < index0_mod; i++){index0[i]=       i;}
+		for(i=0; i < index1_mod; i++){index1[i]=radix0*i;}
+
+		/*...then bit-reverse INDEX with respect to N/16. Radices are sent to BR routine
+		in opposite order from which they are processed in forward FFT.
+
+		bit_reverse_int(index, N2/16, nradices_prim-4, &radix_prim[nradices_prim-5], -1,(int *)arr_scratch);
+		*/
+
+		i = 1;
+		for(nradices_prim_radix0 = 1; nradices_prim_radix0 < nradices_prim; nradices_prim_radix0++)
+		{
+			i *= radix_prim[nradices_prim_radix0-1];
+			if(i == radix0)
+				break;
+		}
+		ASSERT(HERE, nradices_prim_radix0 < nradices_prim,"radix16_dyadic_square.c: nradices_prim_radix0 < nradices_prim");
+
+		bit_reverse_int(index0, index0_mod,                 nradices_prim_radix0, &radix_prim[nradices_prim_radix0-1], -1,(int *)arr_scratch);
+		bit_reverse_int(index1, index1_mod, nradices_prim-4-nradices_prim_radix0, &radix_prim[nradices_prim       -5], -1,(int *)arr_scratch);
+
+		if(!init_sse2)	// SSE2 stuff pvsly inited, but new leading radix (e.g. self-test mode)
+			return;
+	}
+
+	/* Here this variable is somewhat misnamed because it is used to init both non-SIMD and SIMD-specific data */
+	if(init_sse2)	// Just check nonzero here, to allow the *value* of init_sse2 to store #threads
+	{
+		if(init_sse2 <= max_threads)	// current alloc sufficient
+			return;
+
+		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+		max_threads = init_sse2;
+	#ifndef COMPILER_TYPE_GCC
+		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+	#endif
+		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
 
 	#ifdef USE_SSE2
-		ASSERT(HERE, sc_arr == 0x0, "Init-mode call conflicts with already-malloc'ed local storage!");
-		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+		fprintf(stderr, "radix16_dyadic_square pfetch_dist = %d\n", pfetch_dist);
+		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
+			free((void *)sc_arr);	sc_arr=0x0;
+		}
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 72*max_threads + 100);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
@@ -322,56 +391,7 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 			VEC_DBL_INIT(ss0  , s);
 		#endif
 	//	}
-
 	#endif	// USE_SSE2
-
-		free((void *)index_ptmp0);	index_ptmp0=0x0;	index0=0x0;
-		free((void *)index_ptmp1);	index_ptmp1=0x0;	index1=0x0;
-
-		/*
-		!...Final forward (DIF) FFT pass sincos data start out in bit-reversed order.
-		!   Allocate and initialize an index array containing N/16 indices...
-
-		index_ptmp = ALLOC_INT(N2/16);
-		index = ALIGN_INT(index_ptmp);
-		if(!index){ sprintf(cbuf,"FATAL: unable to allocate array ITMP in radix16_dyadic_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		for(i=0; i < N2/16; i++)
-		{
-			index[i]=i;
-		}
-		*/
-		index0_mod =        radix0;
-		index1_mod = (n>>5)/radix0;	/* complex length requires an additional divide by 2 */
-
-		index_ptmp0 = ALLOC_INT(index_ptmp0, index0_mod);
-		if(!index_ptmp0){ sprintf(cbuf,"FATAL: unable to allocate array INDEX_PTMP0 in radix16_dyadic_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		index0 = ALIGN_INT(index_ptmp0);
-
-		index_ptmp1 = ALLOC_INT(index_ptmp1, index1_mod);
-		if(!index_ptmp1){ sprintf(cbuf,"FATAL: unable to allocate array INDEX_PTMP1 in radix16_dyadic_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		index1 = ALIGN_INT(index_ptmp1);
-
-		for(i=0; i < index0_mod; i++){index0[i]=       i;}
-		for(i=0; i < index1_mod; i++){index1[i]=radix0*i;}
-
-		/*...then bit-reverse INDEX with respect to N/16. Radices are sent to BR routine
-		in opposite order from which they are processed in forward FFT.
-
-		bit_reverse_int(index, N2/16, nradices_prim-4, &radix_prim[nradices_prim-5], -1,(int *)arr_scratch);
-		*/
-
-		i = 1;
-		for(nradices_prim_radix0 = 1; nradices_prim_radix0 < nradices_prim; nradices_prim_radix0++)
-		{
-			i *= radix_prim[nradices_prim_radix0-1];
-			if(i == radix0)
-				break;
-		}
-		ASSERT(HERE, nradices_prim_radix0 < nradices_prim,"radix16_dyadic_square.c: nradices_prim_radix0 < nradices_prim");
-
-		bit_reverse_int(index0, index0_mod,                 nradices_prim_radix0, &radix_prim[nradices_prim_radix0-1], -1,(int *)arr_scratch);
-		bit_reverse_int(index1, index1_mod, nradices_prim-4-nradices_prim_radix0, &radix_prim[nradices_prim       -5], -1,(int *)arr_scratch);
-
 		return;
 	}	/* end of inits */
 
@@ -415,7 +435,7 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 
 	for(j = 0; j < ndivrad0; j += stride)
 	{
-	    j1 = j + ( (j >> DAT_BITS) << PAD_BITS );
+		j1 = j + ( (j >> DAT_BITS) << PAD_BITS );
 		j2 = j1+RE_IM_STRIDE;
 	/*
 		iroot = index[k];
@@ -571,7 +591,7 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 
 	  /* In AVX mode, also need next 2 sets of sincos: */
 	  #ifdef USE_AVX
-	    // 3rd set (of 4):
+		// 3rd set (of 4):
 		iroot = index0[index0_idx] + index1[index1_idx];
 		if(++index1_idx >= index1_mod)
 		{
@@ -936,7 +956,7 @@ locations, just with local-store address offsets doubled due to the double data 
 
   #if FULLY_FUSED
 
-	SSE2_RADIX16_DIF_DYADIC_DIT(add0,add1,r1,isrt2);
+	SSE2_RADIX16_DIF_DYADIC_DIT(add0,add1,r1,isrt2,pfetch_dist);
 
   #else
 
@@ -1778,10 +1798,10 @@ locations, just with local-store address offsets doubled due to the double data 
 	__asm__ volatile (\
 		"movq	%[__r1],%%rax			\n\t"\
 		"/* z0^2: */					\n\t		/* z8^2: */					\n\t"\
-		"vmovaps	     (%%rax),%%ymm0	\n\t		vmovaps	0x200(%%rax),%%ymm4	\n\t"\
+		"vmovaps		 (%%rax),%%ymm0	\n\t		vmovaps	0x200(%%rax),%%ymm4	\n\t"\
 		"vmovaps	0x020(%%rax),%%ymm1	\n\t		vmovaps	0x220(%%rax),%%ymm5	\n\t"\
-		"vmovaps	      %%ymm0,%%ymm2	\n\t		vmovaps	      %%ymm4,%%ymm6	\n\t"\
-		"vmovaps	      %%ymm0,%%ymm3	\n\t		vmovaps	      %%ymm4,%%ymm7	\n\t"\
+		"vmovaps		  %%ymm0,%%ymm2	\n\t		vmovaps		  %%ymm4,%%ymm6	\n\t"\
+		"vmovaps		  %%ymm0,%%ymm3	\n\t		vmovaps		  %%ymm4,%%ymm7	\n\t"\
 		"vaddpd	%%ymm1,%%ymm0,%%ymm0	\n\t		vaddpd	%%ymm5,%%ymm4,%%ymm4	\n\t"\
 		"vsubpd	%%ymm1,%%ymm2,%%ymm2	\n\t		vsubpd	%%ymm5,%%ymm6,%%ymm6	\n\t"\
 		"vaddpd	%%ymm1,%%ymm1,%%ymm1	\n\t		vaddpd	%%ymm5,%%ymm5,%%ymm5	\n\t"\
@@ -1792,8 +1812,8 @@ locations, just with local-store address offsets doubled due to the double data 
 		"/* z1^2: */					\n\t		/* z9^2: */					\n\t"\
 		"vmovaps	0x040(%%rax),%%ymm0	\n\t		vmovaps	0x240(%%rax),%%ymm4	\n\t"\
 		"vmovaps	0x060(%%rax),%%ymm1	\n\t		vmovaps	0x260(%%rax),%%ymm5	\n\t"\
-		"vmovaps	      %%ymm0,%%ymm2	\n\t		vmovaps	      %%ymm4,%%ymm6	\n\t"\
-		"vmovaps	      %%ymm0,%%ymm3	\n\t		vmovaps	      %%ymm4,%%ymm7	\n\t"\
+		"vmovaps		  %%ymm0,%%ymm2	\n\t		vmovaps		  %%ymm4,%%ymm6	\n\t"\
+		"vmovaps		  %%ymm0,%%ymm3	\n\t		vmovaps		  %%ymm4,%%ymm7	\n\t"\
 		"vaddpd	%%ymm1,%%ymm0,%%ymm0	\n\t		vaddpd	%%ymm5,%%ymm4,%%ymm4	\n\t"\
 		"vsubpd	%%ymm1,%%ymm2,%%ymm2	\n\t		vsubpd	%%ymm5,%%ymm6,%%ymm6	\n\t"\
 		"vaddpd	%%ymm1,%%ymm1,%%ymm1	\n\t		vaddpd	%%ymm5,%%ymm5,%%ymm5	\n\t"\
@@ -1804,8 +1824,8 @@ locations, just with local-store address offsets doubled due to the double data 
 		"/* z2^2: */					\n\t		/* zA^2: */					\n\t"\
 		"vmovaps	0x080(%%rax),%%ymm0	\n\t		vmovaps	0x280(%%rax),%%ymm4	\n\t"\
 		"vmovaps	0x0a0(%%rax),%%ymm1	\n\t		vmovaps	0x2a0(%%rax),%%ymm5	\n\t"\
-		"vmovaps	      %%ymm0,%%ymm2	\n\t		vmovaps	      %%ymm4,%%ymm6	\n\t"\
-		"vmovaps	      %%ymm0,%%ymm3	\n\t		vmovaps	      %%ymm4,%%ymm7	\n\t"\
+		"vmovaps		  %%ymm0,%%ymm2	\n\t		vmovaps		  %%ymm4,%%ymm6	\n\t"\
+		"vmovaps		  %%ymm0,%%ymm3	\n\t		vmovaps		  %%ymm4,%%ymm7	\n\t"\
 		"vaddpd	%%ymm1,%%ymm0,%%ymm0	\n\t		vaddpd	%%ymm5,%%ymm4,%%ymm4	\n\t"\
 		"vsubpd	%%ymm1,%%ymm2,%%ymm2	\n\t		vsubpd	%%ymm5,%%ymm6,%%ymm6	\n\t"\
 		"vaddpd	%%ymm1,%%ymm1,%%ymm1	\n\t		vaddpd	%%ymm5,%%ymm5,%%ymm5	\n\t"\
@@ -1816,8 +1836,8 @@ locations, just with local-store address offsets doubled due to the double data 
 		"/* z3^2: */					\n\t		/* zB^2: */					\n\t"\
 		"vmovaps	0x0c0(%%rax),%%ymm0	\n\t		vmovaps	0x2c0(%%rax),%%ymm4	\n\t"\
 		"vmovaps	0x0e0(%%rax),%%ymm1	\n\t		vmovaps	0x2e0(%%rax),%%ymm5	\n\t"\
-		"vmovaps	      %%ymm0,%%ymm2	\n\t		vmovaps	      %%ymm4,%%ymm6	\n\t"\
-		"vmovaps	      %%ymm0,%%ymm3	\n\t		vmovaps	      %%ymm4,%%ymm7	\n\t"\
+		"vmovaps		  %%ymm0,%%ymm2	\n\t		vmovaps		  %%ymm4,%%ymm6	\n\t"\
+		"vmovaps		  %%ymm0,%%ymm3	\n\t		vmovaps		  %%ymm4,%%ymm7	\n\t"\
 		"vaddpd	%%ymm1,%%ymm0,%%ymm0	\n\t		vaddpd	%%ymm5,%%ymm4,%%ymm4	\n\t"\
 		"vsubpd	%%ymm1,%%ymm2,%%ymm2	\n\t		vsubpd	%%ymm5,%%ymm6,%%ymm6	\n\t"\
 		"vaddpd	%%ymm1,%%ymm1,%%ymm1	\n\t		vaddpd	%%ymm5,%%ymm5,%%ymm5	\n\t"\
@@ -1828,8 +1848,8 @@ locations, just with local-store address offsets doubled due to the double data 
 		"/* z4^2: */					\n\t		/* zC^2: */					\n\t"\
 		"vmovaps	0x100(%%rax),%%ymm0	\n\t		vmovaps	0x300(%%rax),%%ymm4	\n\t"\
 		"vmovaps	0x120(%%rax),%%ymm1	\n\t		vmovaps	0x320(%%rax),%%ymm5	\n\t"\
-		"vmovaps	      %%ymm0,%%ymm2	\n\t		vmovaps	      %%ymm4,%%ymm6	\n\t"\
-		"vmovaps	      %%ymm0,%%ymm3	\n\t		vmovaps	      %%ymm4,%%ymm7	\n\t"\
+		"vmovaps		  %%ymm0,%%ymm2	\n\t		vmovaps		  %%ymm4,%%ymm6	\n\t"\
+		"vmovaps		  %%ymm0,%%ymm3	\n\t		vmovaps		  %%ymm4,%%ymm7	\n\t"\
 		"vaddpd	%%ymm1,%%ymm0,%%ymm0	\n\t		vaddpd	%%ymm5,%%ymm4,%%ymm4	\n\t"\
 		"vsubpd	%%ymm1,%%ymm2,%%ymm2	\n\t		vsubpd	%%ymm5,%%ymm6,%%ymm6	\n\t"\
 		"vaddpd	%%ymm1,%%ymm1,%%ymm1	\n\t		vaddpd	%%ymm5,%%ymm5,%%ymm5	\n\t"\
@@ -1840,8 +1860,8 @@ locations, just with local-store address offsets doubled due to the double data 
 		"/* z5^2: */					\n\t		/* zD^2: */					\n\t"\
 		"vmovaps	0x140(%%rax),%%ymm0	\n\t		vmovaps	0x340(%%rax),%%ymm4	\n\t"\
 		"vmovaps	0x160(%%rax),%%ymm1	\n\t		vmovaps	0x360(%%rax),%%ymm5	\n\t"\
-		"vmovaps	      %%ymm0,%%ymm2	\n\t		vmovaps	      %%ymm4,%%ymm6	\n\t"\
-		"vmovaps	      %%ymm0,%%ymm3	\n\t		vmovaps	      %%ymm4,%%ymm7	\n\t"\
+		"vmovaps		  %%ymm0,%%ymm2	\n\t		vmovaps		  %%ymm4,%%ymm6	\n\t"\
+		"vmovaps		  %%ymm0,%%ymm3	\n\t		vmovaps		  %%ymm4,%%ymm7	\n\t"\
 		"vaddpd	%%ymm1,%%ymm0,%%ymm0	\n\t		vaddpd	%%ymm5,%%ymm4,%%ymm4	\n\t"\
 		"vsubpd	%%ymm1,%%ymm2,%%ymm2	\n\t		vsubpd	%%ymm5,%%ymm6,%%ymm6	\n\t"\
 		"vaddpd	%%ymm1,%%ymm1,%%ymm1	\n\t		vaddpd	%%ymm5,%%ymm5,%%ymm5	\n\t"\
@@ -1852,8 +1872,8 @@ locations, just with local-store address offsets doubled due to the double data 
 		"/* z6^2: */					\n\t		/* zE^2: */					\n\t"\
 		"vmovaps	0x180(%%rax),%%ymm0	\n\t		vmovaps	0x380(%%rax),%%ymm4	\n\t"\
 		"vmovaps	0x1a0(%%rax),%%ymm1	\n\t		vmovaps	0x3a0(%%rax),%%ymm5	\n\t"\
-		"vmovaps	      %%ymm0,%%ymm2	\n\t		vmovaps	      %%ymm4,%%ymm6	\n\t"\
-		"vmovaps	      %%ymm0,%%ymm3	\n\t		vmovaps	      %%ymm4,%%ymm7	\n\t"\
+		"vmovaps		  %%ymm0,%%ymm2	\n\t		vmovaps		  %%ymm4,%%ymm6	\n\t"\
+		"vmovaps		  %%ymm0,%%ymm3	\n\t		vmovaps		  %%ymm4,%%ymm7	\n\t"\
 		"vaddpd	%%ymm1,%%ymm0,%%ymm0	\n\t		vaddpd	%%ymm5,%%ymm4,%%ymm4	\n\t"\
 		"vsubpd	%%ymm1,%%ymm2,%%ymm2	\n\t		vsubpd	%%ymm5,%%ymm6,%%ymm6	\n\t"\
 		"vaddpd	%%ymm1,%%ymm1,%%ymm1	\n\t		vaddpd	%%ymm5,%%ymm5,%%ymm5	\n\t"\
@@ -1864,8 +1884,8 @@ locations, just with local-store address offsets doubled due to the double data 
 		"/* z7^2: */					\n\t		/* zF^2: */					\n\t"\
 		"vmovaps	0x1c0(%%rax),%%ymm0	\n\t		vmovaps	0x3c0(%%rax),%%ymm4	\n\t"\
 		"vmovaps	0x1e0(%%rax),%%ymm1	\n\t		vmovaps	0x3e0(%%rax),%%ymm5	\n\t"\
-		"vmovaps	      %%ymm0,%%ymm2	\n\t		vmovaps	      %%ymm4,%%ymm6	\n\t"\
-		"vmovaps	      %%ymm0,%%ymm3	\n\t		vmovaps	      %%ymm4,%%ymm7	\n\t"\
+		"vmovaps		  %%ymm0,%%ymm2	\n\t		vmovaps		  %%ymm4,%%ymm6	\n\t"\
+		"vmovaps		  %%ymm0,%%ymm3	\n\t		vmovaps		  %%ymm4,%%ymm7	\n\t"\
 		"vaddpd	%%ymm1,%%ymm0,%%ymm0	\n\t		vaddpd	%%ymm5,%%ymm4,%%ymm4	\n\t"\
 		"vsubpd	%%ymm1,%%ymm2,%%ymm2	\n\t		vsubpd	%%ymm5,%%ymm6,%%ymm6	\n\t"\
 		"vaddpd	%%ymm1,%%ymm1,%%ymm1	\n\t		vaddpd	%%ymm5,%%ymm5,%%ymm5	\n\t"\
@@ -1883,90 +1903,90 @@ locations, just with local-store address offsets doubled due to the double data 
 	__asm__ volatile (\
 		"movl	%[__r1],%%eax		\n\t"\
 		"/* z0^2: */				\n\t		/* z8^2: */				\n\t"\
-		"movaps	     (%%eax),%%xmm0	\n\t		movaps	0x100(%%eax),%%xmm3	\n\t"\
+		"movaps		 (%%eax),%%xmm0	\n\t		movaps	0x100(%%eax),%%xmm3	\n\t"\
 		"movaps	0x010(%%eax),%%xmm1	\n\t		movaps	0x110(%%eax),%%xmm4	\n\t"\
-		"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
-		"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
-		"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
-		"mulpd	     (%%eax),%%xmm1	\n\t		mulpd	0x100(%%eax),%%xmm4	\n\t"\
+		"movaps		  %%xmm0,%%xmm2	\n\t		movaps		  %%xmm3,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm0	\n\t		addpd		  %%xmm4,%%xmm3	\n\t"\
+		"subpd		  %%xmm1,%%xmm2	\n\t		subpd		  %%xmm4,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm1	\n\t		addpd		  %%xmm4,%%xmm4	\n\t"\
+		"mulpd		  %%xmm2,%%xmm0	\n\t		mulpd		  %%xmm5,%%xmm3	\n\t"\
+		"mulpd		 (%%eax),%%xmm1	\n\t		mulpd	0x100(%%eax),%%xmm4	\n\t"\
 		"movaps	%%xmm0,     (%%eax)	\n\t		movaps	%%xmm3,0x100(%%eax)	\n\t"\
 		"movaps	%%xmm1,0x010(%%eax)	\n\t		movaps	%%xmm4,0x110(%%eax)	\n\t"\
 		"/* z1^2: */				\n\t		/* z9^2: */				\n\t"\
 		"movaps	0x020(%%eax),%%xmm0	\n\t		movaps	0x120(%%eax),%%xmm3	\n\t"\
 		"movaps	0x030(%%eax),%%xmm1	\n\t		movaps	0x130(%%eax),%%xmm4	\n\t"\
-		"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
-		"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
-		"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+		"movaps		  %%xmm0,%%xmm2	\n\t		movaps		  %%xmm3,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm0	\n\t		addpd		  %%xmm4,%%xmm3	\n\t"\
+		"subpd		  %%xmm1,%%xmm2	\n\t		subpd		  %%xmm4,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm1	\n\t		addpd		  %%xmm4,%%xmm4	\n\t"\
+		"mulpd		  %%xmm2,%%xmm0	\n\t		mulpd		  %%xmm5,%%xmm3	\n\t"\
 		"mulpd	0x020(%%eax),%%xmm1	\n\t		mulpd	0x120(%%eax),%%xmm4	\n\t"\
 		"movaps	%%xmm0,0x020(%%eax)	\n\t		movaps	%%xmm3,0x120(%%eax)	\n\t"\
 		"movaps	%%xmm1,0x030(%%eax)	\n\t		movaps	%%xmm4,0x130(%%eax)	\n\t"\
 		"/* z2^2: */				\n\t		/* zA^2: */				\n\t"\
 		"movaps	0x040(%%eax),%%xmm0	\n\t		movaps	0x140(%%eax),%%xmm3	\n\t"\
 		"movaps	0x050(%%eax),%%xmm1	\n\t		movaps	0x150(%%eax),%%xmm4	\n\t"\
-		"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
-		"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
-		"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+		"movaps		  %%xmm0,%%xmm2	\n\t		movaps		  %%xmm3,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm0	\n\t		addpd		  %%xmm4,%%xmm3	\n\t"\
+		"subpd		  %%xmm1,%%xmm2	\n\t		subpd		  %%xmm4,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm1	\n\t		addpd		  %%xmm4,%%xmm4	\n\t"\
+		"mulpd		  %%xmm2,%%xmm0	\n\t		mulpd		  %%xmm5,%%xmm3	\n\t"\
 		"mulpd	0x040(%%eax),%%xmm1	\n\t		mulpd	0x140(%%eax),%%xmm4	\n\t"\
 		"movaps	%%xmm0,0x040(%%eax)	\n\t		movaps	%%xmm3,0x140(%%eax)	\n\t"\
 		"movaps	%%xmm1,0x050(%%eax)	\n\t		movaps	%%xmm4,0x150(%%eax)	\n\t"\
 		"/* z3^2: */				\n\t		/* zB^2: */				\n\t"\
 		"movaps	0x060(%%eax),%%xmm0	\n\t		movaps	0x160(%%eax),%%xmm3	\n\t"\
 		"movaps	0x070(%%eax),%%xmm1	\n\t		movaps	0x170(%%eax),%%xmm4	\n\t"\
-		"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
-		"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
-		"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+		"movaps		  %%xmm0,%%xmm2	\n\t		movaps		  %%xmm3,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm0	\n\t		addpd		  %%xmm4,%%xmm3	\n\t"\
+		"subpd		  %%xmm1,%%xmm2	\n\t		subpd		  %%xmm4,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm1	\n\t		addpd		  %%xmm4,%%xmm4	\n\t"\
+		"mulpd		  %%xmm2,%%xmm0	\n\t		mulpd		  %%xmm5,%%xmm3	\n\t"\
 		"mulpd	0x060(%%eax),%%xmm1	\n\t		mulpd	0x160(%%eax),%%xmm4	\n\t"\
 		"movaps	%%xmm0,0x060(%%eax)	\n\t		movaps	%%xmm3,0x160(%%eax)	\n\t"\
 		"movaps	%%xmm1,0x070(%%eax)	\n\t		movaps	%%xmm4,0x170(%%eax)	\n\t"\
 		"/* z4^2: */				\n\t		/* zC^2: */				\n\t"\
 		"movaps	0x080(%%eax),%%xmm0	\n\t		movaps	0x180(%%eax),%%xmm3	\n\t"\
 		"movaps	0x090(%%eax),%%xmm1	\n\t		movaps	0x190(%%eax),%%xmm4	\n\t"\
-		"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
-		"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
-		"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+		"movaps		  %%xmm0,%%xmm2	\n\t		movaps		  %%xmm3,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm0	\n\t		addpd		  %%xmm4,%%xmm3	\n\t"\
+		"subpd		  %%xmm1,%%xmm2	\n\t		subpd		  %%xmm4,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm1	\n\t		addpd		  %%xmm4,%%xmm4	\n\t"\
+		"mulpd		  %%xmm2,%%xmm0	\n\t		mulpd		  %%xmm5,%%xmm3	\n\t"\
 		"mulpd	0x080(%%eax),%%xmm1	\n\t		mulpd	0x180(%%eax),%%xmm4	\n\t"\
 		"movaps	%%xmm0,0x080(%%eax)	\n\t		movaps	%%xmm3,0x180(%%eax)	\n\t"\
 		"movaps	%%xmm1,0x090(%%eax)	\n\t		movaps	%%xmm4,0x190(%%eax)	\n\t"\
 		"/* z5^2: */				\n\t		/* zD^2: */				\n\t"\
 		"movaps	0x0a0(%%eax),%%xmm0	\n\t		movaps	0x1a0(%%eax),%%xmm3	\n\t"\
 		"movaps	0x0b0(%%eax),%%xmm1	\n\t		movaps	0x1b0(%%eax),%%xmm4	\n\t"\
-		"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
-		"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
-		"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+		"movaps		  %%xmm0,%%xmm2	\n\t		movaps		  %%xmm3,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm0	\n\t		addpd		  %%xmm4,%%xmm3	\n\t"\
+		"subpd		  %%xmm1,%%xmm2	\n\t		subpd		  %%xmm4,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm1	\n\t		addpd		  %%xmm4,%%xmm4	\n\t"\
+		"mulpd		  %%xmm2,%%xmm0	\n\t		mulpd		  %%xmm5,%%xmm3	\n\t"\
 		"mulpd	0x0a0(%%eax),%%xmm1	\n\t		mulpd	0x1a0(%%eax),%%xmm4	\n\t"\
 		"movaps	%%xmm0,0x0a0(%%eax)	\n\t		movaps	%%xmm3,0x1a0(%%eax)	\n\t"\
 		"movaps	%%xmm1,0x0b0(%%eax)	\n\t		movaps	%%xmm4,0x1b0(%%eax)	\n\t"\
 		"/* z6^2: */				\n\t		/* zE^2: */				\n\t"\
 		"movaps	0x0c0(%%eax),%%xmm0	\n\t		movaps	0x1c0(%%eax),%%xmm3	\n\t"\
 		"movaps	0x0d0(%%eax),%%xmm1	\n\t		movaps	0x1d0(%%eax),%%xmm4	\n\t"\
-		"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
-		"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
-		"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+		"movaps		  %%xmm0,%%xmm2	\n\t		movaps		  %%xmm3,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm0	\n\t		addpd		  %%xmm4,%%xmm3	\n\t"\
+		"subpd		  %%xmm1,%%xmm2	\n\t		subpd		  %%xmm4,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm1	\n\t		addpd		  %%xmm4,%%xmm4	\n\t"\
+		"mulpd		  %%xmm2,%%xmm0	\n\t		mulpd		  %%xmm5,%%xmm3	\n\t"\
 		"mulpd	0x0c0(%%eax),%%xmm1	\n\t		mulpd	0x1c0(%%eax),%%xmm4	\n\t"\
 		"movaps	%%xmm0,0x0c0(%%eax)	\n\t		movaps	%%xmm3,0x1c0(%%eax)	\n\t"\
 		"movaps	%%xmm1,0x0d0(%%eax)	\n\t		movaps	%%xmm4,0x1d0(%%eax)	\n\t"\
 		"/* z7^2: */				\n\t		/* zF^2: */				\n\t"\
 		"movaps	0x0e0(%%eax),%%xmm0	\n\t		movaps	0x1e0(%%eax),%%xmm3	\n\t"\
 		"movaps	0x0f0(%%eax),%%xmm1	\n\t		movaps	0x1f0(%%eax),%%xmm4	\n\t"\
-		"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
-		"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
-		"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+		"movaps		  %%xmm0,%%xmm2	\n\t		movaps		  %%xmm3,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm0	\n\t		addpd		  %%xmm4,%%xmm3	\n\t"\
+		"subpd		  %%xmm1,%%xmm2	\n\t		subpd		  %%xmm4,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm1	\n\t		addpd		  %%xmm4,%%xmm4	\n\t"\
+		"mulpd		  %%xmm2,%%xmm0	\n\t		mulpd		  %%xmm5,%%xmm3	\n\t"\
 		"mulpd	0x0e0(%%eax),%%xmm1	\n\t		mulpd	0x1e0(%%eax),%%xmm4	\n\t"\
 		"movaps	%%xmm0,0x0e0(%%eax)	\n\t		movaps	%%xmm3,0x1e0(%%eax)	\n\t"\
 		"movaps	%%xmm1,0x0f0(%%eax)	\n\t		movaps	%%xmm4,0x1f0(%%eax)	\n\t"\
@@ -1980,90 +2000,90 @@ locations, just with local-store address offsets doubled due to the double data 
 	__asm__ volatile (\
 		"movq	%[__r1],%%rax		\n\t"\
 		"/* z0^2: */				\n\t		/* z8^2: */				\n\t"\
-		"movaps	     (%%rax),%%xmm0	\n\t		movaps	0x100(%%rax),%%xmm3	\n\t"\
+		"movaps		 (%%rax),%%xmm0	\n\t		movaps	0x100(%%rax),%%xmm3	\n\t"\
 		"movaps	0x010(%%rax),%%xmm1	\n\t		movaps	0x110(%%rax),%%xmm4	\n\t"\
-		"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
-		"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
-		"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
-		"mulpd	     (%%rax),%%xmm1	\n\t		mulpd	0x100(%%rax),%%xmm4	\n\t"\
+		"movaps		  %%xmm0,%%xmm2	\n\t		movaps		  %%xmm3,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm0	\n\t		addpd		  %%xmm4,%%xmm3	\n\t"\
+		"subpd		  %%xmm1,%%xmm2	\n\t		subpd		  %%xmm4,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm1	\n\t		addpd		  %%xmm4,%%xmm4	\n\t"\
+		"mulpd		  %%xmm2,%%xmm0	\n\t		mulpd		  %%xmm5,%%xmm3	\n\t"\
+		"mulpd		 (%%rax),%%xmm1	\n\t		mulpd	0x100(%%rax),%%xmm4	\n\t"\
 		"movaps	%%xmm0,     (%%rax)	\n\t		movaps	%%xmm3,0x100(%%rax)	\n\t"\
 		"movaps	%%xmm1,0x010(%%rax)	\n\t		movaps	%%xmm4,0x110(%%rax)	\n\t"\
 		"/* z1^2: */				\n\t		/* z9^2: */				\n\t"\
 		"movaps	0x020(%%rax),%%xmm0	\n\t		movaps	0x120(%%rax),%%xmm3	\n\t"\
 		"movaps	0x030(%%rax),%%xmm1	\n\t		movaps	0x130(%%rax),%%xmm4	\n\t"\
-		"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
-		"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
-		"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+		"movaps		  %%xmm0,%%xmm2	\n\t		movaps		  %%xmm3,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm0	\n\t		addpd		  %%xmm4,%%xmm3	\n\t"\
+		"subpd		  %%xmm1,%%xmm2	\n\t		subpd		  %%xmm4,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm1	\n\t		addpd		  %%xmm4,%%xmm4	\n\t"\
+		"mulpd		  %%xmm2,%%xmm0	\n\t		mulpd		  %%xmm5,%%xmm3	\n\t"\
 		"mulpd	0x020(%%rax),%%xmm1	\n\t		mulpd	0x120(%%rax),%%xmm4	\n\t"\
 		"movaps	%%xmm0,0x020(%%rax)	\n\t		movaps	%%xmm3,0x120(%%rax)	\n\t"\
 		"movaps	%%xmm1,0x030(%%rax)	\n\t		movaps	%%xmm4,0x130(%%rax)	\n\t"\
 		"/* z2^2: */				\n\t		/* zA^2: */				\n\t"\
 		"movaps	0x040(%%rax),%%xmm0	\n\t		movaps	0x140(%%rax),%%xmm3	\n\t"\
 		"movaps	0x050(%%rax),%%xmm1	\n\t		movaps	0x150(%%rax),%%xmm4	\n\t"\
-		"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
-		"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
-		"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+		"movaps		  %%xmm0,%%xmm2	\n\t		movaps		  %%xmm3,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm0	\n\t		addpd		  %%xmm4,%%xmm3	\n\t"\
+		"subpd		  %%xmm1,%%xmm2	\n\t		subpd		  %%xmm4,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm1	\n\t		addpd		  %%xmm4,%%xmm4	\n\t"\
+		"mulpd		  %%xmm2,%%xmm0	\n\t		mulpd		  %%xmm5,%%xmm3	\n\t"\
 		"mulpd	0x040(%%rax),%%xmm1	\n\t		mulpd	0x140(%%rax),%%xmm4	\n\t"\
 		"movaps	%%xmm0,0x040(%%rax)	\n\t		movaps	%%xmm3,0x140(%%rax)	\n\t"\
 		"movaps	%%xmm1,0x050(%%rax)	\n\t		movaps	%%xmm4,0x150(%%rax)	\n\t"\
 		"/* z3^2: */				\n\t		/* zB^2: */				\n\t"\
 		"movaps	0x060(%%rax),%%xmm0	\n\t		movaps	0x160(%%rax),%%xmm3	\n\t"\
 		"movaps	0x070(%%rax),%%xmm1	\n\t		movaps	0x170(%%rax),%%xmm4	\n\t"\
-		"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
-		"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
-		"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+		"movaps		  %%xmm0,%%xmm2	\n\t		movaps		  %%xmm3,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm0	\n\t		addpd		  %%xmm4,%%xmm3	\n\t"\
+		"subpd		  %%xmm1,%%xmm2	\n\t		subpd		  %%xmm4,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm1	\n\t		addpd		  %%xmm4,%%xmm4	\n\t"\
+		"mulpd		  %%xmm2,%%xmm0	\n\t		mulpd		  %%xmm5,%%xmm3	\n\t"\
 		"mulpd	0x060(%%rax),%%xmm1	\n\t		mulpd	0x160(%%rax),%%xmm4	\n\t"\
 		"movaps	%%xmm0,0x060(%%rax)	\n\t		movaps	%%xmm3,0x160(%%rax)	\n\t"\
 		"movaps	%%xmm1,0x070(%%rax)	\n\t		movaps	%%xmm4,0x170(%%rax)	\n\t"\
 		"/* z4^2: */				\n\t		/* zC^2: */				\n\t"\
 		"movaps	0x080(%%rax),%%xmm0	\n\t		movaps	0x180(%%rax),%%xmm3	\n\t"\
 		"movaps	0x090(%%rax),%%xmm1	\n\t		movaps	0x190(%%rax),%%xmm4	\n\t"\
-		"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
-		"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
-		"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+		"movaps		  %%xmm0,%%xmm2	\n\t		movaps		  %%xmm3,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm0	\n\t		addpd		  %%xmm4,%%xmm3	\n\t"\
+		"subpd		  %%xmm1,%%xmm2	\n\t		subpd		  %%xmm4,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm1	\n\t		addpd		  %%xmm4,%%xmm4	\n\t"\
+		"mulpd		  %%xmm2,%%xmm0	\n\t		mulpd		  %%xmm5,%%xmm3	\n\t"\
 		"mulpd	0x080(%%rax),%%xmm1	\n\t		mulpd	0x180(%%rax),%%xmm4	\n\t"\
 		"movaps	%%xmm0,0x080(%%rax)	\n\t		movaps	%%xmm3,0x180(%%rax)	\n\t"\
 		"movaps	%%xmm1,0x090(%%rax)	\n\t		movaps	%%xmm4,0x190(%%rax)	\n\t"\
 		"/* z5^2: */				\n\t		/* zD^2: */				\n\t"\
 		"movaps	0x0a0(%%rax),%%xmm0	\n\t		movaps	0x1a0(%%rax),%%xmm3	\n\t"\
 		"movaps	0x0b0(%%rax),%%xmm1	\n\t		movaps	0x1b0(%%rax),%%xmm4	\n\t"\
-		"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
-		"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
-		"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+		"movaps		  %%xmm0,%%xmm2	\n\t		movaps		  %%xmm3,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm0	\n\t		addpd		  %%xmm4,%%xmm3	\n\t"\
+		"subpd		  %%xmm1,%%xmm2	\n\t		subpd		  %%xmm4,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm1	\n\t		addpd		  %%xmm4,%%xmm4	\n\t"\
+		"mulpd		  %%xmm2,%%xmm0	\n\t		mulpd		  %%xmm5,%%xmm3	\n\t"\
 		"mulpd	0x0a0(%%rax),%%xmm1	\n\t		mulpd	0x1a0(%%rax),%%xmm4	\n\t"\
 		"movaps	%%xmm0,0x0a0(%%rax)	\n\t		movaps	%%xmm3,0x1a0(%%rax)	\n\t"\
 		"movaps	%%xmm1,0x0b0(%%rax)	\n\t		movaps	%%xmm4,0x1b0(%%rax)	\n\t"\
 		"/* z6^2: */				\n\t		/* zE^2: */				\n\t"\
 		"movaps	0x0c0(%%rax),%%xmm0	\n\t		movaps	0x1c0(%%rax),%%xmm3	\n\t"\
 		"movaps	0x0d0(%%rax),%%xmm1	\n\t		movaps	0x1d0(%%rax),%%xmm4	\n\t"\
-		"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
-		"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
-		"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+		"movaps		  %%xmm0,%%xmm2	\n\t		movaps		  %%xmm3,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm0	\n\t		addpd		  %%xmm4,%%xmm3	\n\t"\
+		"subpd		  %%xmm1,%%xmm2	\n\t		subpd		  %%xmm4,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm1	\n\t		addpd		  %%xmm4,%%xmm4	\n\t"\
+		"mulpd		  %%xmm2,%%xmm0	\n\t		mulpd		  %%xmm5,%%xmm3	\n\t"\
 		"mulpd	0x0c0(%%rax),%%xmm1	\n\t		mulpd	0x1c0(%%rax),%%xmm4	\n\t"\
 		"movaps	%%xmm0,0x0c0(%%rax)	\n\t		movaps	%%xmm3,0x1c0(%%rax)	\n\t"\
 		"movaps	%%xmm1,0x0d0(%%rax)	\n\t		movaps	%%xmm4,0x1d0(%%rax)	\n\t"\
 		"/* z7^2: */				\n\t		/* zF^2: */				\n\t"\
 		"movaps	0x0e0(%%rax),%%xmm0	\n\t		movaps	0x1e0(%%rax),%%xmm3	\n\t"\
 		"movaps	0x0f0(%%rax),%%xmm1	\n\t		movaps	0x1f0(%%rax),%%xmm4	\n\t"\
-		"movaps	      %%xmm0,%%xmm2	\n\t		movaps	      %%xmm3,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm0	\n\t		addpd	      %%xmm4,%%xmm3	\n\t"\
-		"subpd	      %%xmm1,%%xmm2	\n\t		subpd	      %%xmm4,%%xmm5	\n\t"\
-		"addpd	      %%xmm1,%%xmm1	\n\t		addpd	      %%xmm4,%%xmm4	\n\t"\
-		"mulpd	      %%xmm2,%%xmm0	\n\t		mulpd	      %%xmm5,%%xmm3	\n\t"\
+		"movaps		  %%xmm0,%%xmm2	\n\t		movaps		  %%xmm3,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm0	\n\t		addpd		  %%xmm4,%%xmm3	\n\t"\
+		"subpd		  %%xmm1,%%xmm2	\n\t		subpd		  %%xmm4,%%xmm5	\n\t"\
+		"addpd		  %%xmm1,%%xmm1	\n\t		addpd		  %%xmm4,%%xmm4	\n\t"\
+		"mulpd		  %%xmm2,%%xmm0	\n\t		mulpd		  %%xmm5,%%xmm3	\n\t"\
 		"mulpd	0x0e0(%%rax),%%xmm1	\n\t		mulpd	0x1e0(%%rax),%%xmm4	\n\t"\
 		"movaps	%%xmm0,0x0e0(%%rax)	\n\t		movaps	%%xmm3,0x1e0(%%rax)	\n\t"\
 		"movaps	%%xmm1,0x0f0(%%rax)	\n\t		movaps	%%xmm4,0x1f0(%%rax)	\n\t"\
@@ -2817,7 +2837,23 @@ locations, just with local-store address offsets doubled due to the double data 
 		aj1p14r=t15-t32;	aj1p14i=t16+t31;
 		aj1p15r=t15+t32;	aj1p15i=t16-t31;
 
-	/*...And do an inverse DIT radix-16 pass on the squared-data blocks. */
+	/*...Dyadic square of the forward FFT outputs: */
+		rt = aj1p0r *aj1p0i ;	aj1p0r  = (aj1p0r  + aj1p0i )*(aj1p0r  - aj1p0i );	aj1p0i  = (rt + rt);
+		rt = aj1p1r *aj1p1i ;	aj1p1r  = (aj1p1r  + aj1p1i )*(aj1p1r  - aj1p1i );	aj1p1i  = (rt + rt);
+		rt = aj1p2r *aj1p2i ;	aj1p2r  = (aj1p2r  + aj1p2i )*(aj1p2r  - aj1p2i );	aj1p2i  = (rt + rt);
+		rt = aj1p3r *aj1p3i ;	aj1p3r  = (aj1p3r  + aj1p3i )*(aj1p3r  - aj1p3i );	aj1p3i  = (rt + rt);
+		rt = aj1p4r *aj1p4i ;	aj1p4r  = (aj1p4r  + aj1p4i )*(aj1p4r  - aj1p4i );	aj1p4i  = (rt + rt);
+		rt = aj1p5r *aj1p5i ;	aj1p5r  = (aj1p5r  + aj1p5i )*(aj1p5r  - aj1p5i );	aj1p5i  = (rt + rt);
+		rt = aj1p6r *aj1p6i ;	aj1p6r  = (aj1p6r  + aj1p6i )*(aj1p6r  - aj1p6i );	aj1p6i  = (rt + rt);
+		rt = aj1p7r *aj1p7i ;	aj1p7r  = (aj1p7r  + aj1p7i )*(aj1p7r  - aj1p7i );	aj1p7i  = (rt + rt);
+		rt = aj1p8r *aj1p8i ;	aj1p8r  = (aj1p8r  + aj1p8i )*(aj1p8r  - aj1p8i );	aj1p8i  = (rt + rt);
+		rt = aj1p9r *aj1p9i ;	aj1p9r  = (aj1p9r  + aj1p9i )*(aj1p9r  - aj1p9i );	aj1p9i  = (rt + rt);
+		rt = aj1p10r*aj1p10i;	aj1p10r = (aj1p10r + aj1p10i)*(aj1p10r - aj1p10i);	aj1p10i = (rt + rt);
+		rt = aj1p11r*aj1p11i;	aj1p11r = (aj1p11r + aj1p11i)*(aj1p11r - aj1p11i);	aj1p11i = (rt + rt);
+		rt = aj1p12r*aj1p12i;	aj1p12r = (aj1p12r + aj1p12i)*(aj1p12r - aj1p12i);	aj1p12i = (rt + rt);
+		rt = aj1p13r*aj1p13i;	aj1p13r = (aj1p13r + aj1p13i)*(aj1p13r - aj1p13i);	aj1p13i = (rt + rt);
+		rt = aj1p14r*aj1p14i;	aj1p14r = (aj1p14r + aj1p14i)*(aj1p14r - aj1p14i);	aj1p14i = (rt + rt);
+		rt = aj1p15r*aj1p15i;	aj1p15r = (aj1p15r + aj1p15i)*(aj1p15r - aj1p15i);	aj1p15i = (rt + rt);
 
 	/* 1st set of inputs: */
 	#if PFETCH
@@ -3007,3 +3043,4 @@ locations, just with local-store address offsets doubled due to the double data 
 
 }
 
+#undef PFETCH_DIST

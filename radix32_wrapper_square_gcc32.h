@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -29,6 +29,7 @@
 	#define SSE2_RADIX32_WRAPPER_DIF(Xadd0,Xadd1,Xr00,Xr10,Xr20,Xr30,Xisrt2,Xcc0,Xc00,Xc01,Xc02,Xc03,Xc05,Xc07)\
 	{\
 	__asm__ volatile (\
+	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
 		"/************************************************************************/\n\t"\
 		"/* Forward DIF radix-32 pass on the interleaved block1 and block2 data: */\n\t"\
 		"/************************************************************************/\n\t"\
@@ -1604,6 +1605,7 @@
 		"addpd		%%xmm3		,%%xmm6\n\t"\
 		"movaps		%%xmm7		,      (%%edx)\n\t"\
 		"movaps		%%xmm6		, 0x010(%%ebx)\n\t"\
+	"popl %%ebx	\n\t"\
 		:					/* outputs: none */\
 		: [__add0] "m" (Xadd0)	/* All inputs from memory addresses here */\
 		 ,[__add1] "m" (Xadd1)\
@@ -1619,13 +1621,14 @@
 		 ,[__c03] "m" (Xc03)\
 		 ,[__c05] "m" (Xc05)\
 		 ,[__c07] "m" (Xc07)\
-		: "eax","ebx","ecx","edx","edi","esi"		/* Clobbered registers */\
+		: "cc","memory","eax",/*"ebx",*/"ecx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
 
 	#define SSE2_RADIX32_WRAPPER_DIT(Xadd0,Xadd1,Xisrt2,Xr00,Xr08,Xr10,Xr20,Xr28,Xr30,Xc00,Xc01,Xc02,Xc03,Xc04,Xc05,Xc06,Xc07,Xc08,Xc0A,Xc0C,Xc0E,Xc10,Xc12,Xc14,Xc16,Xc18,Xc1A,Xc1C,Xc1E)\
 	{\
 	__asm__ volatile (\
+	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
 		"/************************************************************************/\n\t"\
 		"/*...And do an inverse DIT radix-32 pass on the squared-data blocks.	*/\n\t"\
 		"/************************************************************************/\n\t"\
@@ -3171,6 +3174,7 @@
 		"movaps		%%xmm0		, 0x1e0(%%ebx)\n\t"\
 		"movaps		%%xmm4		, 0x1f0(%%eax)\n\t"\
 		"movaps		%%xmm2		, 0x1e0(%%eax)\n\t"\
+	"popl %%ebx	\n\t"\
 		:					/* outputs: none */\
 		: [__add0 ] "m" (Xadd0)	/* All inputs from memory addresses here */\
 		 ,[__add1] "m" (Xadd1)\
@@ -3201,7 +3205,7 @@
 		 ,[__c1A] "m" (Xc1A)\
 		 ,[__c1C] "m" (Xc1C)\
 		 ,[__c1E] "m" (Xc1E)\
-		: "eax","ebx","ecx","edx","edi","esi"		/* Clobbered registers */\
+		: "cc","memory","eax",/*"ebx",*/"ecx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
 

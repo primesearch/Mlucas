@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -57,12 +57,19 @@
 	3) If a larger FFT length with a better timing was found in the .cfg file, returns the FFT radix set data
 	for that FFT length in a compact bitwise form in the return value, as follows:
 
-		- Bits <0:5> store (leading radix-1): We subtract the 1 so radices up to 64 can be stored;
-		- Bits <6:9> store (number of FFT radices);
+		- Bits <0:9> store (leading radix-1): We subtract the 1 so radices up to 1024 can be stored;
+			<*** EWM Jan 2014: For F33 we want r0 ~= 4096, so will need to modify the code here.
+				Once we are dealing with r0 > 1024, consider storing e.g. [odd part of r0, lg(pow2 part)]
+				in some compact fashion, say 6 bits for any odd component (allowing these up to 63) and the
+				rest for the lg2(pow2(r0)) term. Thus e.g. r0 = 4032 = 63*64 would map to a [63,6] pair,
+				needing just 6+3 = 9 bits to store, as opposed to 11 bits for (r0-1) = 4095 = 0b11111111111 .
+			***>
+		- Bits <10:13> store (number of FFT radices);
 		- Each successive pair of higher-order bits stores log2[(intermediate FFT radix)/8]: Since
 		  our smallest permitted intermediate FFT radix is 8 and these must be powers of 2, this
 		  again permits radices up to 64 to be stored using just 2 bits. Radix-8 of course maps to 0
-		  under this scheme, but we know when to stop because bits <6:9> tell us the number of radices.
+		  under this scheme, but we know when to stop because bits <10:13> tell us the number of radices,
+		  which can be as large as 10 under this scheme.
 
 	In order to make it easy for the user to extract these bitwise FFT-radix data from the function
 	return value, we define 2 handy utility functions in util.c:
@@ -105,7 +112,7 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 			if(sscanf(in_line, "%d", &i) == 1)
 			{
 				/* Consider any entry with an FFT length >= target, which further contains
-				a per-iteration timing datum in the form 'sec/iter = sss.mmm', with mmm standing for milliseconds:
+				a per-iteration timing datum in the form 'msec/iter = %7.2f', with the float arg in milliseconds:
 				*/
 				if((i >= kblocks) && (char_addr = strstr(in_line, "sec/iter =")) != 0)
 				{
@@ -115,7 +122,7 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 					if(i == kblocks)
 						found = TRUE;
 
-					if(sscanf(char_addr + 10, "%lf", &tcurr) == 1)
+					if(sscanf(char_addr + 11, "%lf", &tcurr) == 1)	// 11 chars in "msec/iter ="
 					{
 						ASSERT(HERE, tcurr >= 0, "tcurr < 0!");
 						if((tbest == 0.0) || ((tcurr > 0.0) && (tcurr < tbest)))
@@ -125,7 +132,7 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 								sprintf(cbuf, "get_preferred_fft_radix: invalid format for %s file: 'radices =' not found in timing-data line %s", CONFIGFILE, in_line);
 								ASSERT(HERE, 0, cbuf);
 							}
-							char_addr += 10;
+							char_addr += 9;	// 9 chars in "radices ="
 
 							kprod = 1;	/* accumulate product of radices */
 							for(j=0; j<10; j++)	/* Read in the radices */
@@ -137,10 +144,18 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 								}
 								else
 								{
-									char_addr += 3;
+									// Advance to next WS char following the current numeric token - since sscanf skips leading WS,
+									// Must do this in 2 steps. NOTE we *need* the trailing ; here to serve as executable-statement
+									// loop bodies, otherwise the ensuing while or if() is treated so and each while() executes just once.
+									// ***NOTE*** It is crucial to separate the loop-test from the ptr-incrementing here, because if e.g.
+									// we have current radix k = 8, an opening while( isspace(*char_addr++)) increments char_addr to the WS
+									// *following* the 8, and the loop continues, causing us to "lose the current radix",
+									// leading to an eventual ASSERT in the kprod-based looping sanity checks.
+									while( isspace(*char_addr)) char_addr++;	// 1. First skip any WS preceding current numeric token
+									while(!isspace(*char_addr)) char_addr++;	// 2. Look for first WS char following current numeric token
 									if(j == 0)
 									{
-										ASSERT(HERE, k <= 64  , "get_preferred_fft_radix: Leading radix > 64: out of range!");
+										ASSERT(HERE, k <= 1024, "get_preferred_fft_radix: Leading radix > 1024: out of range!");
 									}
 									else if(k)
 									{
@@ -165,17 +180,17 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 									}
 									else	/* Otherwise, store radix-set data into retval in above-described compact form */
 									{
-										if(k == 0)	/* Bits <6:9> store (number of FFT radices): */
+										if(k == 0)	/* Bits <10:13> store (number of FFT radices): */
 										{
-											if(!((retval >> 6) & 0xf))	/* Set based only position of first zero in the list */
-												retval += (j << 6);
+											if(!((retval >> 10) & 0xf))	/* Set based only position of first zero in the list */
+												retval += (j << 10);
 										}
 										else
 										{
 											kprod *= k;
 										}
 
-										/* Bits <0:5> store (leading radix-1): */
+										/* Bits <0:9> store (leading radix-1): */
 										if(j == 0)
 										{
 											retval = k - 1;
@@ -183,7 +198,7 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 										else if(k)	/* Each successive pair of higher-order bits stores log2[(intermediate FFT radix)/8]: */
 										{
 											k = trailz32(k) - 3;
-											retval += (k << (8 + 2*j));
+											retval += (k << (12 + 2*j));
 										}
 									}
 								}
@@ -252,11 +267,11 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 uint32	extractFFTlengthFrom32Bit (uint32 n)
 {
 	uint32 i, nrad, retval;
-	/* Bits <0:5> store (leading radix-1): We subtract the 1 so radices up to 64 can be stored: */
-	retval = (n & 0x3f) + 1;	n >>= 6;
+	/* Bits <0:9> store (leading radix-1): We subtract the 1 so radices up to 1024 can be stored: */
+	retval = (n & 0x3ff) + 1;	n >>= 10;
 	ASSERT(HERE, retval > 4, "extractFFTlengthFrom32Bit: Leading radix must be 5 or larger!");
-	/* Bits <6:9> store (number of FFT radices): */
-	nrad   = (n & 0x0f)    ;	n >>= 4;
+	/* Bits <10:13> store (number of FFT radices): */
+	nrad   = (n & 0xf)    ;	n >>= 4;
 	ASSERT(HERE, nrad >=  3, "extractFFTlengthFrom32Bit: Number of radices must be 3 or larger!");
 	/* Each successive pair of higher-order bits stores log2[(intermediate FFT radix)/8]: */
 	for(i = 1; i < nrad; i++)	/* Already done leading radix, so start at 1, not 0 */
@@ -271,12 +286,12 @@ uint32	extractFFTlengthFrom32Bit (uint32 n)
 void	extractFFTradicesFrom32Bit(uint32 n)
 {
 	uint32 i, nrad, retval;
-	/* Bits <0:5> store (leading radix-1): We subtract the 1 so radices up to 64 can be stored: */
-	retval = (n & 0x3f) + 1;	n >>= 6;
+	/* Bits <0:9> store (leading radix-1): We subtract the 1 so radices up to 1024 can be stored: */
+	retval = (n & 0x3ff) + 1;	n >>= 10;
 	ASSERT(HERE, retval > 4, "extractFFTradicesFrom32Bit: Leading radix must be 5 or larger!");
 	RADIX_VEC[0] = retval;
-	/* Bits <6:9> store (number of FFT radices): */
-	nrad   = (n & 0x0f)    ;	n >>= 4;
+	/* Bits <10:13> store (number of FFT radices): */
+	nrad   = (n & 0xf)    ;	n >>= 4;
 	ASSERT(HERE, nrad >=  3, "extractFFTradicesFrom32Bit: Number of radices must be 3 or larger!");
 	ASSERT(HERE, nrad <= 10, "extractFFTradicesFrom32Bit: Number of radices must be 10 or smaller!");
 	NRADICES = nrad;

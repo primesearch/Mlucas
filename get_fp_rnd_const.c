@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -30,12 +30,12 @@ void	get_fp_rnd_const(double*RND_A, double*RND_B)
 #if(FP_MANTISSA_BITS_DOUBLE == 64)
 	*RND_A = 3.0*0x4000000*0x2000000*0x800;
 	*RND_B =12.0*0x2000000*0x1000000*0x800;
-	fprintf(stderr,"INFO: using 64-bit-significand form of floating-double rounding constant\n");
+	fprintf(stderr,"INFO: using 64-bit-significand form of floating-double rounding constant for scalar-mode DNINT emulation.\n");
 /* These assume IEEE64-compliant double-precision hardware arithmetic. */
 #else
 	*RND_A = 3.0*0x4000000*0x2000000;
 	*RND_B =12.0*0x2000000*0x1000000;
-	fprintf(stderr,"INFO: using 53-bit-significand form of floating-double rounding constant\n");
+	fprintf(stderr,"INFO: using 53-bit-significand form of floating-double rounding constant for scalar-mode DNINT emulation. \n");
 #endif
 }
 

@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -30,6 +30,7 @@
 	#define	SSE2_RADIX24_DIT_NOTWIDDLE(Xadd,Xp01,Xp02,Xp03,Xp04,Xp08,Xp16,Xout,Xisrt2,Xcc3)\
 	{\
 	__asm__ volatile (\
+	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
 		"/* SSE2_RADIX8_DIT_0TWIDDLE(add0+p[0,1,3,2,7,6,5,4], s1p00r) */\n\t"\
 			"movl	%[__p04],%%edi	\n\t"\
 			"movl	%[__add],%%eax	/* Use eax as base address throughout */\n\t"\
@@ -893,7 +894,7 @@
 			"movaps	%%xmm3,0x010(%%eax)			\n\t"\
 			"movaps	%%xmm0,     (%%ecx)			\n\t"\
 			"movaps	%%xmm1,0x010(%%ecx)			\n\t"\
-			"\n\t"\
+	"popl %%ebx	\n\t"\
 			:					/* outputs: none */\
 			: [__add] "m" (Xadd)	/* All inputs from memory addresses here */\
 			 ,[__p01] "m" (Xp01)\
@@ -905,13 +906,14 @@
 			 ,[__out] "m" (Xout)\
 			 ,[__isrt2] "m" (Xisrt2)\
 			 ,[__cc3] "m" (Xcc3)\
-			: "eax","ebx","ecx","edx","edi","esi"		/* Clobbered registers */\
+			: "cc","memory","eax",/*"ebx",*/"ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 		);\
 		}
 
 	#define	SSE2_RADIX24_DIF_NOTWIDDLE(Xadd,Xp01,Xp02,Xp03,Xp04,Xp05,Xp06,Xp07,Xp08,Xp16,Xout,Xisrt2,Xcc3)\
 	{\
 	__asm__ volatile (\
+	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
 			"movl	%[__out],%%eax	/* s1p00r */\n\t"\
 			"movl	 %%eax,%%ebx	/* s1p00r */\n\t"\
 			"movl	 %%eax,%%ecx	/* s1p08r */\n\t"\
@@ -1897,7 +1899,7 @@
 			"movaps	%%xmm1,    (%%ecx)		\n\t"\
 			"movaps	%%xmm3,0x10(%%ebx)		\n\t"\
 			"movaps	%%xmm0,0x10(%%edx)		\n\t"\
-			"\n\t"\
+	"popl %%ebx	\n\t"\
 			:					/* outputs: none */\
 			: [__add] "m" (Xadd)	/* All inputs from memory addresses here */\
 			 ,[__p01] "m" (Xp01)\
@@ -1912,7 +1914,7 @@
 			 ,[__out] "m" (Xout)\
 			 ,[__isrt2] "m" (Xisrt2)\
 			 ,[__cc3] "m" (Xcc3)\
-			: "eax","ebx","ecx","edx","edi","esi"		/* Clobbered registers */\
+			: "cc","memory","eax",/*"ebx",*/"ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 		);\
 		}
 

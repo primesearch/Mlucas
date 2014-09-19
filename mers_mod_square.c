@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2013 by Ernst W. Mayer.                                           *
+*   (C) 1997-2014 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -75,7 +75,7 @@
 
 int mers_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, uint64 p, uint32 *err_iter, int scrnFlag, double *tdiff)
 {
-
+	const char func[] = "mers_mod_square";
 /*...Subroutine to perform Mersenne-mod squaring using Crandall and Fagin's discrete weighted transform (DWT)
      on the data in the length-N real vector A.
 
@@ -138,12 +138,13 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	clock_t clock1, clock2;
 #else
 /* Multithreaded needs wall-clock, not CPU time: */
-	time_t clock1, clock2;
+//	time_t clock1, clock2;
+	double clock1, clock2;	// Jun 2014: Switched to getRealTime() code
 #endif
 
 	/* These came about as a result of multithreading, but now are needed whether built unthreaded or multithreaded */
 	static int init_sse2 = FALSE;
-	int thr_id = -1;	// No multithread support yet.
+	int saved_init_sse2, thr_id = -1;	// No multithread support yet.
 
 #ifdef MULTITHREAD
 
@@ -163,7 +164,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		static thread_control_t thread_control = {0,0,0};
 		// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
 		static task_control_t   task_control = {NULL, (void*)mers_process_chunk, NULL, 0x0};
-	
+
 	  #endif
 
 	#endif
@@ -268,7 +269,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			else
 			{
 				fp = fopen(STATFILE,"a");	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
-				if(scrnFlag)                               /* Echo output to stddev */
+				if(scrnFlag)	/* Echo output to stddev */
 				{
 					fprintf(stderr,"%s",cbuf);
 				}
@@ -478,6 +479,9 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		case 60 :
 			nradices_radix0 = 4;
 			radix_prim[l++] = 5; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 63 :
+			nradices_radix0 = 3;
+			radix_prim[l++] = 7; radix_prim[l++] = 3; radix_prim[l++] = 3; break;
 		case 64 :
 			nradices_radix0 = 6;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
@@ -503,10 +507,61 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		case 120:
 			nradices_radix0 = 5;
 			radix_prim[l++] = 5; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		*/
 		case 128 :
 			nradices_radix0 = 7;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
-		*/
+		case 144:
+			nradices_radix0 = 6;
+			radix_prim[l++] = 3; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 160:
+			nradices_radix0 = 6;
+			radix_prim[l++] = 5; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 176:
+			nradices_radix0 = 5;
+			radix_prim[l++] =11; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 192:
+			nradices_radix0 = 7;
+			radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 208:
+			nradices_radix0 = 5;
+			radix_prim[l++] =13; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 224:
+			nradices_radix0 = 6;
+			radix_prim[l++] = 7; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 240:
+			nradices_radix0 = 6;
+			radix_prim[l++] = 5; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 256 :
+			nradices_radix0 = 8;
+			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 288:
+			nradices_radix0 = 7;
+			radix_prim[l++] = 3; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 512 :
+			nradices_radix0 = 9;
+			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 768:
+			nradices_radix0 = 9;
+			radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 960:
+			nradices_radix0 = 8;
+			radix_prim[l++] = 5; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 992:
+			nradices_radix0 = 6;
+			radix_prim[l++] =31; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 1008:
+			nradices_radix0 = 7;
+			radix_prim[l++] = 7; radix_prim[l++] = 3; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 1024:
+			nradices_radix0 = 10;
+			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 4032:
+			nradices_radix0 = 9;
+			radix_prim[l++] = 7; radix_prim[l++] = 3; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 4096:
+			nradices_radix0 = 12;
+			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		default :
 			sprintf(cbuf  ,"FATAL: radix %d not available. Halting...\n",radix_vec0);
 			fprintf(stderr,"%s", cbuf);
@@ -579,8 +634,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		}
 		nradices_prim = l;
 
-		bw     = p%n;		/* Number of bigwords in the Crandall/Fagin mixed-radix representation = (Mersenne exponent) mod (vector length).	*/
-		sw     = n - bw;	/* Number of smallwords.	*/
+		bw = p%n;		/* Number of bigwords in the Crandall/Fagin mixed-radix representation = (Mersenne exponent) mod (vector length).	*/
+		sw = n - bw;	/* Number of smallwords.	*/
 
 		radix_inv = qfdbl(qf_rational_quotient((int64)1, (int64)radix_vec0));
 
@@ -591,8 +646,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		/*...stuff for the reduced-length DWT weights arrays is here:	*/
 
 		/* No need for a fancy NINT here: */
-		nwt_bits = (uint32)(log(sqrt(1.0*n))/log(2.0) + 0.5);
-		nwt    = 1 << nwt_bits;	/* To save on storage, we calculate the first NWT weights directly and then re-use
+		nwt_bits = (uint32)(log(sqrt(1.0*n))/log(2.0) + 0.5) - 1;	// Jan 2014: -1; reduces nwt to allow more threads to be used at a given N
+		nwt = 1 << nwt_bits;	/* To save on storage, we calculate the first NWT weights directly and then re-use
 								them N/NWT times, each time multiplying the basic weights by a single scalar multiplier (and times 0.5
 								or 1.0). Thus, the total number of weights data is NWT + (N/NWT). To minimize this, we find the positive
 								minimum of the function f(x) = x + N/x, which occurs when f' = 1 - N/(x^2) = 0, or x = NWT = sqrt(N),
@@ -992,7 +1047,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 
 		/* 8/23/2004: Need to allocate an extra element here to account for the padding element that gets inserted when radix_vec0 is odd: */
 
-		block_index     = (int *)malloc((radix_vec0+1)*sizeof(int));
+		block_index = (int *)calloc((radix_vec0+1),sizeof(int));
 		if(!block_index){ sprintf(cbuf,"FATAL: unable to allocate array BLOCK_INDEX in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		/*
 		Examples:
@@ -1112,15 +1167,14 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		}		/* End of Main loop */
 
 		/* arrays storing the index values needed for the parallel-block wrapper/square scheme: */
-		j = radix_vec0*sizeof(int);
-		if( !(ws_i            = (int *)malloc(j)) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_I            in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_j1           = (int *)malloc(j)) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_J1           in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_j2           = (int *)malloc(j)) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_J2           in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_j2_start     = (int *)malloc(j)) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_J2_START     in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_k            = (int *)malloc(j)) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_K            in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_m            = (int *)malloc(j)) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_M            in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_blocklen     = (int *)malloc(j)) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_BLOCKLEN     in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_blocklen_sum = (int *)malloc(j)) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_BLOCKLEN_SUM in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_i            = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_I            in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_j1           = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_J1           in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_j2           = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_J2           in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_j2_start     = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_J2_START     in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_k            = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_K            in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_m            = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_M            in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_blocklen     = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_BLOCKLEN     in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_blocklen_sum = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_BLOCKLEN_SUM in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 
 		for(ii = 0; ii < radix_vec0; ii += 2)
 		{
@@ -1172,7 +1226,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		}
 
 	#ifdef MULTITHREAD
-	
+
 	  #ifdef USE_PTHREAD
 
 		free((void *)thr_ret); thr_ret = 0x0;
@@ -1214,19 +1268,22 @@ The scratch array (2nd input argument) is only needed for data table initializat
 
 	  #ifdef USE_THREADPOOL	// Threadpool-based dispatch:
 
+		// MAX_THREADS is the max. no. of threads we expect to be able to make use of, at 1 thread per core.
 		ASSERT(HERE, MAX_THREADS == get_num_cores(), "MAX_THREADS not set or incorrectly set!");
 
 		if(nchunks % NTHREADS != 0) fprintf(stderr,"mers_mod_square: radix_vec0/2 not exactly divisible by NTHREADS - This will hurt performance.\n");
 
 		// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
 		// so on that platform try to be clever and interleave main-thread and threadpool-work processing
-		#ifdef OS_TYPE_MACOSX
+		#if 0//def OS_TYPE_MACOSX
 
+			// Under OS X we want one core dispatching serial non-pool threads while the others crunch pool threads,
+			// in a manner which balances the load optimally:
 			if(NTHREADS > 1) {
-				main_work_units = nchunks/NTHREADS;
+				main_work_units = nchunks/MAX_THREADS;
 				pool_work_units = nchunks - main_work_units;
-				ASSERT(HERE, 0x0 != (tpool = threadpool_init(NTHREADS-1, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
-				printf("Mers_mod_square: Init threadpool of %d threads\n", NTHREADS-1);
+				ASSERT(HERE, 0x0 != (tpool = threadpool_init(MAX_THREADS-1, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
+				printf("Mers_mod_square: Init threadpool of %d threads\n", MAX_THREADS-1);
 			} else {
 				printf("Mers_mod_square: NTHREADS = 1: Using main execution thread, no threadpool needed.\n");
 			}
@@ -1248,6 +1305,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	/* 	This set of init-mode calls needs to go below above init-block because several
 	of the inits need the primitive-radix data to have been inited.
 	*/
+	// Apr 2014: Thanks to Stephen Searle [SMUS] for the init_sse2-related bugfix:
+	saved_init_sse2 = init_sse2;	// SMJS init_sse2 gets changed in first if, so need to store its current value for second if statement
 	if(new_runlength && init_sse2) {	// Pvsly inited SSE2 local storage, but now have new runlength
 		init_sse2 = nchunks;	// Use *value* of init_sse2 to store #threads
 		thr_id = -1;
@@ -1255,7 +1314,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		radix16_wrapper_square(0x0, arr_scratch, n, radix_vec0, 0x0, 0x0, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id);
 		radix32_wrapper_square(0x0, arr_scratch, n, radix_vec0, 0x0, 0x0, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id);
 	}
-	if(init_sse2 == FALSE || (init_sse2 < nchunks)) {		// New run, or need to up #threads in local-store inits
+	if(init_sse2 == FALSE || (saved_init_sse2 < nchunks)) {		// New run, or need to up #threads in local-store inits
 	//	init_sse2 = TRUE;
 		init_sse2 = nchunks;	// Use *value* of init_sse2 to store #threads
 		thr_id = -1;
@@ -1560,7 +1619,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 #ifdef CTIME
 	clock1 = clock();
 #else
-	clock1 = time(0x0);
+//	clock1 = time(0x0);
+	clock1 = getRealTime();
 #endif
 
 	*tdiff = 0.0;
@@ -1575,12 +1635,16 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	ii     = 1;		/* Pointer to the BASE and BASEINV arrays. If n does not divide p, lowest-order digit is always a bigword (ii = 1).	*/
 	for(i=0; i < n; i++)
 	{
-		j = i + ((i >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-	#ifdef USE_SSE2
-		ASSERT(HERE, ((j-i)&0x1) == 0,"mers_mod_square.c: Array padding non-even!");	/* Stupid &#@@#^(% C precedence rules ... bitwise &,^,| lower than arithemtic-compare. */
-		j = (j & mask01) + br4[j&3];	/* As long as the array padding is always by an EVEN number of elements [which we just checked],
-									the order here is unimportant - do parity-twiddling after padding in this case to save an extra index-store step */
+	// Apr 2014: Thanks to Stephen Searle [SMUS] for the missing-AVX-index-munge bugfix:
+	#ifdef USE_AVX
+		j = (i & mask02) + br8[i&7];
+	#elif defined(USE_SSE2)
+		j = (i & mask01) + br4[i&3];
+	#else
+		j = i;
 	#endif
+		j = j + ( (j>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+
 		l = i & (nwt-1);
 		k =    i  >> nwt_bits;
 		k2= (n-i) >> nwt_bits;	/* Inv-wt stuff not needed here, but gives a cheap debug check (plus, bizarrely, GCC build ~3% faster with it) */
@@ -1606,8 +1670,6 @@ The scratch array (2nd input argument) is only needed for data table initializat
 
 	switch(radix_vec0)
 	{
-/*	case 3 :			*/
-/*		 radix3_dif_pass1(a,n)	*/
 	case 5 :
 		 radix5_dif_pass1(a,n); break;
 	case 6 :
@@ -1662,6 +1724,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		radix56_dif_pass1(a,n); break;
 	case 60 :
 		radix60_dif_pass1(a,n); break;
+	case 63 :
+		radix63_dif_pass1(a,n); break;
 	case 64 :
 		radix64_dif_pass1(a,n); break;
 	/*
@@ -1679,9 +1743,45 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		radix112_dif_pass1(a,n); break;
 	case 120:
 		radix120_dif_pass1(a,n); break;
+	*/
 	case 128:
 		radix128_dif_pass1(a,n); break;
-	*/
+	case 144:
+		radix144_dif_pass1(a,n); break;
+	case 160:
+		radix160_dif_pass1(a,n); break;
+	case 176:
+		radix176_dif_pass1(a,n); break;
+	case 192:
+		radix192_dif_pass1(a,n); break;
+	case 208:
+		radix208_dif_pass1(a,n); break;
+	case 224:
+		radix224_dif_pass1(a,n); break;
+	case 240 :
+		radix240_dif_pass1(a,n); break;
+	case 256 :
+		radix256_dif_pass1(a,n); break;
+	case 288:
+		radix288_dif_pass1(a,n); break;
+	case 512 :
+		radix512_dif_pass1(a,n); break;
+	case 768 :
+		radix768_dif_pass1(a,n); break;
+	case 960 :
+		radix960_dif_pass1(a,n); break;
+	case 992 :
+		radix992_dif_pass1(a,n); break;
+	case 1008:
+		radix1008_dif_pass1(a,n); break;
+	case 1024:
+		radix1024_dif_pass1(a,n); break;
+	case 4032:
+		radix4032_dif_pass1(a,n); break;
+/*
+	case 4096:
+		radix4096_dif_pass1(a,n); break;
+*/
 	default :
 		sprintf(cbuf,"FATAL: radix %d not available for dif_pass1. Halting...\n",radix_vec0);
 		fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
@@ -1693,7 +1793,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	carry propagation, fractional error checking and forward weighting in same loop:
 	*/
 	ierr = 0;	/* Any return-value error code (whether fatal or not) stored here */
-	
+
 	ASSERT(HERE, ihi > ilo,"mers_mod_square.c: ihi <= ilo!");
 
 #ifdef MULTITHREAD
@@ -1702,13 +1802,14 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	/* Pthread stuff defined above, with other variables */
   #elif(defined(USE_OMP))
 	// OpenMP currently not supported - *** To-Do: Port mers_mod_square OpenMP stuff to here ****.
+	#error OpenMP currently not supported - Please recheck thread-related defines in platform.h file.
 	omp_set_num_threads(NTHREADS);
 	for(i=0; i < NTHREADS; i++)
 	{
 		num_chunks[i] = 0;
 	}
   #else
-	#error MULTITHREAD defined but neither USE_OMP nor USE_PTHREAD defined - Please recheck thread-related defines in platform.h file.
+	#error MULTITHREAD defined but USE_PTHREAD not - Please recheck thread-related defines in platform.h file.
   #endif
 
   #if DBG_THREADS
@@ -1719,14 +1820,14 @@ The scratch array (2nd input argument) is only needed for data table initializat
 
 	for(iter=ilo+1; iter <= ihi; iter++)
 	{
-		/*...perform the FFT-based squaring:
-		 Do last S-1 of S forward decimation-in-frequency transform passes.	*/
-	
-		/* Process (radix0/2) pairs of same-sized data blocks.
-		In a multithreaded implementation, process NTHREADS block pairs in parallel fashion.
-	
-		If NTHREADS does not divide (radix0/2), there will be one or more under-or-unutilized threads.
-		*/
+/*...perform the FFT-based squaring:
+	 Do last S-1 of S forward decimation-in-frequency transform passes.	*/
+
+	/* Process (radix0/2) pairs of same-sized data blocks.
+	In a multithreaded implementation, process NTHREADS block pairs in parallel fashion.
+
+	If NTHREADS does not divide (radix0/2), there will be one or more under-or-unutilized threads.
+	*/
 
 #ifdef MULTITHREAD
 
@@ -1736,13 +1837,12 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	subrange. In order to match the threads executing at any given time to the available CPUs, divide the thread execution into
 	[NTHREADS] 'work shifts' ( <= #CPus), each with its threads starting and completing their work before the next shift begins:
 	*/
-	if(NTHREADS > 0)	/******* Change 0 --> to test thread-team/join overhead ******/
-	{
+	if(NTHREADS > 0) {	/******* Change 0 --> to test thread-team/join overhead ******/
 		isum = 0;
 
 	// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
 	// so on that platform try to be clever and interleave main-thread and threadpool-work processing
-	#ifdef OS_TYPE_MACOSX
+	#if 0//def OS_TYPE_MACOSX
 
 		if(NTHREADS > 1) {
 			for(thr_id = 0; thr_id < pool_work_units; ++thr_id)
@@ -1760,10 +1860,10 @@ The scratch array (2nd input argument) is only needed for data table initializat
 				mers_process_chunk( (void*)(&tdat[j + pool_work_units]) );
 			}
 
-			struct timespec ns_time;
-			ns_time.tv_sec  = 0.0001;	// (time_t)seconds
-			ns_time.tv_nsec = 0;	// (long)nanoseconds - At least allegedly, but under OS X it seems to be finer-grained than that
-			
+			struct timespec ns_time;	// We want a sleep interval of 0.1 mSec here...
+			ns_time.tv_sec  =      0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
+			ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
+
 			while(tpool->free_tasks_queue.num_tasks != pool_work_units) {
 				// Finer-resolution, declared in <time.h>; cf. http://linux.die.net/man/2/nanosleep
 				ASSERT(HERE, 0 == nanosleep(&ns_time, 0x0), "nanosleep fail!");
@@ -1786,10 +1886,10 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			}
 
 		//	printf("start; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
-			struct timespec ns_time;
-			ns_time.tv_sec  = 0.0001;	// (time_t)seconds
-			ns_time.tv_nsec = 0;	// (long)nanoseconds - At least allegedly, but under OS X it seems to be finer-grained than that
-			
+			struct timespec ns_time;	// We want a sleep interval of 0.1 mSec here...
+			ns_time.tv_sec  =      0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
+			ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
+
 		//	while(tpool->tasks_queue.num_tasks != 0) {	//*** not safe, since can have #tasks == 0 with some tasks still in flight ***
 			while(tpool->free_tasks_queue.num_tasks != pool_work_units) {
 			//		sleep(1);	//*** too granular ***
@@ -1803,7 +1903,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 
 	} else {
 		/* Single-threaded version: */
-	    for(ii = 0; ii < nchunks; ++ii)
+		for(ii = 0; ii < nchunks; ++ii)
 		{
 			mers_process_chunk((void*)(&tdat[ii]));
 		}
@@ -1814,8 +1914,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 #else
 
 	/* Unthreaded version: */
-    for(ii = 0; ii < radix_vec0; ii += 2)
-    {
+	for(ii = 0; ii < radix_vec0; ii += 2)
+	{
 		mers_process_chunk(a,arr_scratch,n,rt0,rt1,index,block_index,ii,nradices_prim,radix_prim,ws_i,ws_j1,ws_j2,ws_j2_start,ws_k,ws_m,ws_blocklen,ws_blocklen_sum);
 	}
 
@@ -1886,8 +1986,48 @@ The scratch array (2nd input argument) is only needed for data table initializat
 				ierr = radix56_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
 			case 60 :
 				ierr = radix60_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 63 :
+				ierr = radix63_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
 			case 64 :
 				ierr = radix64_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 128 :
+				ierr = radix128_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 144:
+				ierr = radix144_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
+			case 160:
+				ierr = radix160_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
+			case 176:
+				ierr = radix176_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
+			case 192:
+				ierr = radix192_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
+			case 208:
+				ierr = radix208_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
+			case 224 :
+				ierr = radix224_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 240 :
+				ierr = radix240_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 256 :
+				ierr = radix256_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 288:
+				ierr = radix288_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
+			case 512 :
+				ierr = radix512_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 768 :
+				ierr = radix768_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
+			case 960 :
+				ierr = radix960_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 992 :
+				ierr = radix992_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 1008:
+				ierr = radix1008_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 1024:
+				ierr = radix1024_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 4032:
+				ierr = radix4032_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+		/*
+			case 4096:
+				ierr = radix4096_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+		*/
 			default :
 				sprintf(cbuf,"FATAL: radix %d not available for ditN_cy_dif1. Halting...\n",radix_vec0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 		}
@@ -1953,8 +2093,46 @@ The scratch array (2nd input argument) is only needed for data table initializat
 				ierr = radix56_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
 			case 60 :
 				ierr = radix60_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 63 :
+				ierr = radix63_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
 			case 64 :
 				ierr = radix64_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 128 :
+				ierr = radix128_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 288:
+				ierr = radix288_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
+			case 160:
+				ierr = radix160_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
+			case 176:
+				ierr = radix176_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
+			case 192:
+				ierr = radix192_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
+			case 208:
+				ierr = radix208_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
+			case 224 :
+				ierr = radix224_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 240 :
+				ierr = radix240_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 256 :
+				ierr = radix256_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 512 :
+				ierr = radix512_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 768 :
+				ierr = radix768_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
+			case 960 :
+				ierr = radix960_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 992 :
+				ierr = radix992_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 1008:
+				ierr = radix1008_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 1024:
+				ierr = radix1024_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+			case 4032:
+				ierr = radix4032_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+		/*
+			case 4096:
+				ierr = radix4096_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
+		*/
 			default :
 				sprintf(cbuf,"FATAL: radix %d not available for ditN_cy_dif1_nochk. Halting...\n",radix_vec0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 		}
@@ -1965,27 +2143,26 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	if(ierr)
 		return(ierr);
 
-	/* Update     Max. Max. Error: */
+	/* Update Max. Max. Error: */
 	if(fracmax > MME)
 		MME  = fracmax;
 	/* Accumulate Avg. Max. Error: */
 	if(iter > AME_ITER_START)
 		AME += fracmax;
 
-/*...Now do the fractional error check. Any fractional part in [0.4,0.6] generates a warning...	*/
+/*...Now do the fractional error check. Any fractional part  >= 0.4 generates a warning...	*/
 
 	if(fracmax >= 0.4)
 	{
 		sprintf(cbuf, "M%u Roundoff warning on iteration %8u, maxerr = %16.12f\n",(uint32)p,iter,fracmax);
 
-		/*...Fractional parts close to 0.5 cause the program to quit.
-		We put the interactive-mode errlimit close to 0.5, to let people really push the limits if they want to:
-		*/
+	/*...Fractional parts close to 0.5 cause the program to quit.
+		 We put the interactive-mode errlimit close to 0.5, to let people really push the limits if they want to...	*/
 		if(INTERACT)
 		{
 			fprintf(stderr,"%s",cbuf);
-			if(fracmax >= 0.40625) *err_iter = p-1;	/*...If RO > 0.40625 warning issued at any point of the initial error-checked
-													segment, require error checking on each iteration, even if iter > err_iter.	*/
+			if(fracmax >= 0.40625) *err_iter = p-1;	// If RO > 0.40625 warning issued at any point of the initial error-checked
+													// segment, require error checking on each iteration, even if iter > err_iter.
 			if(fracmax > 0.47 )
 			{
 				fprintf(stderr," FATAL ERROR...Halting test of exponent %u\n",(uint32)p);
@@ -1999,22 +2176,38 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			fq = fopen(STATFILE,"a");
 			fprintf(fp,"%s",cbuf);
 			fprintf(fq,"%s",cbuf);
-			if (scrnFlag)			/* Echo output to stddev */
+			if (scrnFlag)	/* Echo output to stddev */
 			{
 				fprintf(stderr,"%s",cbuf);
 			}
-
+	
 			if(fracmax >= 0.40625) *err_iter = p-1;
-
-/*...In range test mode, any fractional part > 0.4375 is cause for error exit.	*/
-			if(fracmax > 0.4375 ) {
-				fprintf(fp," FATAL ERROR...Halting test of exponent %u\n",(uint32)p);
-				fprintf(fq," FATAL ERROR...Halting test of exponent %u\n",(uint32)p);
+	
+		/*...In range test mode, any fractional part > 0.4375 is cause for error exit.	*/
+			if(fracmax > 0.4375 )
+			{
+			// Roundoff-retry scheme detailed in comments for above fermat_mod_square() function:
+				if(ROE_ITER == 0) {
+					sprintf(cbuf," Retrying iteration interval to see if roundoff error is reproducible.\n");
+					ROE_ITER = iter;
+					ROE_VAL = fracmax;
+				} else if(ROE_ITER > 0) {
+					if(ROE_ITER == iter && ROE_VAL == fracmax) {
+						sprintf(cbuf," Roundoff error is reproducible ... switching to next-larger available FFT length and retrying.\n");
+						ROE_ITER = -ROE_ITER;
+						ROE_VAL = 0.0;
+					} else {
+						sprintf(cbuf," The error is not reproducible, but encountered a different ROE in the retry of the interval ... as this is\n  an indicator of likely data corruption, quitting. Please restart the program at your earliest convenience.\n");
+						return(ERR_UNKNOWN_FATAL);
+					}
+				}	
+				fprintf(fp,"%s",cbuf);
+				fprintf(fq,"%s",cbuf);
 				fclose(fp);	fp = 0x0;
 				fclose(fq);	fq = 0x0;
-				if (scrnFlag)		/* Echo output to stddev */
+				if (scrnFlag)	/* Echo output to stddev */
 				{
-					fprintf(stderr," FATAL ERROR...Halting test of exponent %u\n",(uint32)p);
+					fprintf(stderr,"%s",cbuf);
 				}
 				ierr = ERR_ROUNDOFF;
 				return(ierr);
@@ -2024,7 +2217,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		}
 	}
 
-	/*...Whew - that"s a lot of stuff that just happened. Luckily,
+	/*...Whew - that"s a lot of stuff that just happened.
 	computer chips don't understand the concept of "Miller time."	*/
 
 	/* Accumulate the cycle count in a floating double on each pass to avoid problems
@@ -2039,8 +2232,10 @@ The scratch array (2nd input argument) is only needed for data table initializat
 }	/* End of main loop	*/
 
 #ifdef RTIME
-	clock2 = time(0x0);
-	*tdiff += difftime(clock2 , clock1);
+//	clock2 = time(0x0);
+//	*tdiff += difftime(clock2 , clock1);
+	clock2 = getRealTime();
+	*tdiff += clock2 - clock1;
 #endif
 
 #if DBG_THREADS
@@ -2058,86 +2253,120 @@ The scratch array (2nd input argument) is only needed for data table initializat
 
 	switch(radix_vec0)
 	{
-	/*
-		case  3 :
-			 radix3_dit_pass1(a,n); break;
-	*/
-		case  5 :
-			 radix5_dit_pass1(a,n); break;
-		case  6 :
-			 radix6_dit_pass1(a,n); break;
-		case  7 :
-			 radix7_dit_pass1(a,n); break;
-		case  8 :
-			 radix8_dit_pass1(a,n); break;
-		case  9 :
-			 radix9_dit_pass1(a,n); break;
-		case 10 :
-			radix10_dit_pass1(a,n); break;
-		case 11 :
-			radix11_dit_pass1(a,n); break;
-		case 12 :
-			radix12_dit_pass1(a,n); break;
-		case 13 :
-			radix13_dit_pass1(a,n); break;
-		case 14 :
-			radix14_dit_pass1(a,n); break;
-		case 15 :
-			radix15_dit_pass1(a,n); break;
-		case 16 :
-			radix16_dit_pass1(a,n); break;
-		case 18 :
-			radix18_dit_pass1(a,n); break;
-		case 20 :
-			radix20_dit_pass1(a,n); break;
-		case 22 :
-			radix22_dit_pass1(a,n); break;
-		case 24 :
-			radix24_dit_pass1(a,n); break;
-		case 26 :
-			radix26_dit_pass1(a,n); break;
-		case 28 :
-			radix28_dit_pass1(a,n); break;
-		case 30 :
-			radix30_dit_pass1(a,n); break;
-		case 32 :
-			radix32_dit_pass1(a,n); break;
-		case 36 :
-			radix36_dit_pass1(a,n); break;
-		case 40 :
-			radix40_dit_pass1(a,n); break;
-		case 44 :
-			radix44_dit_pass1(a,n); break;
-		case 48 :
-			radix48_dit_pass1(a,n); break;
-		case 52 :
-			radix52_dit_pass1(a,n); break;
-		case 56 :
-			radix56_dit_pass1(a,n); break;
-		case 60 :
-			radix60_dit_pass1(a,n); break;
-		case 64 :
-			radix64_dit_pass1(a,n); break;
-	/*
-		case 72 :
-			radix72_dit_pass1(a,n); break;
-		case 80 :
-			radix80_dit_pass1(a,n); break;
-		case 88 :
-			radix88_dit_pass1(a,n); break;
-		case 96 :
-			radix96_dit_pass1(a,n); break;
-		case 104:
-			radix104_dit_pass1(a,n); break;
-		case 112:
-			radix112_dit_pass1(a,n); break;
-		case 120:
-			radix120_dit_pass1(a,n); break;
-		case 128:
-			radix128_dit_pass1(a,n); break;
-	*/
-		default :
-			sprintf(cbuf,"FATAL: radix %d not available for dit_pass1. Halting...\n",radix_vec0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+	case  5 :
+		 radix5_dit_pass1(a,n); break;
+	case  6 :
+		 radix6_dit_pass1(a,n); break;
+	case  7 :
+		 radix7_dit_pass1(a,n); break;
+	case  8 :
+		 radix8_dit_pass1(a,n); break;
+	case  9 :
+		 radix9_dit_pass1(a,n); break;
+	case 10 :
+		radix10_dit_pass1(a,n); break;
+	case 11 :
+		radix11_dit_pass1(a,n); break;
+	case 12 :
+		radix12_dit_pass1(a,n); break;
+	case 13 :
+		radix13_dit_pass1(a,n); break;
+	case 14 :
+		radix14_dit_pass1(a,n); break;
+	case 15 :
+		radix15_dit_pass1(a,n); break;
+	case 16 :
+		radix16_dit_pass1(a,n); break;
+	case 18 :
+		radix18_dit_pass1(a,n); break;
+	case 20 :
+		radix20_dit_pass1(a,n); break;
+	case 22 :
+		radix22_dit_pass1(a,n); break;
+	case 24 :
+		radix24_dit_pass1(a,n); break;
+	case 26 :
+		radix26_dit_pass1(a,n); break;
+	case 28 :
+		radix28_dit_pass1(a,n); break;
+	case 30 :
+		radix30_dit_pass1(a,n); break;
+	case 32 :
+		radix32_dit_pass1(a,n); break;
+	case 36 :
+		radix36_dit_pass1(a,n); break;
+	case 40 :
+		radix40_dit_pass1(a,n); break;
+	case 44 :
+		radix44_dit_pass1(a,n); break;
+	case 48 :
+		radix48_dit_pass1(a,n); break;
+	case 52 :
+		radix52_dit_pass1(a,n); break;
+	case 56 :
+		radix56_dit_pass1(a,n); break;
+	case 60 :
+		radix60_dit_pass1(a,n); break;
+	case 63 :
+		radix63_dit_pass1(a,n); break;
+	case 64 :
+		radix64_dit_pass1(a,n); break;
+/*
+	case 72 :
+		radix72_dit_pass1(a,n); break;
+	case 80 :
+		radix80_dit_pass1(a,n); break;
+	case 88 :
+		radix88_dit_pass1(a,n); break;
+	case 96 :
+		radix96_dit_pass1(a,n); break;
+	case 104:
+		radix104_dit_pass1(a,n); break;
+	case 112:
+		radix112_dit_pass1(a,n); break;
+	case 120:
+		radix120_dit_pass1(a,n); break;
+*/
+	case 128:
+		radix128_dit_pass1(a,n); break;
+	case 144:
+		radix144_dit_pass1(a,n); break;
+	case 160:
+		radix160_dit_pass1(a,n); break;
+	case 176:
+		radix176_dit_pass1(a,n); break;
+	case 192:
+		radix192_dit_pass1(a,n); break;
+	case 208:
+		radix208_dit_pass1(a,n); break;
+	case 224:
+		radix224_dit_pass1(a,n); break;
+	case 240 :
+		radix240_dit_pass1(a,n); break;
+	case 256 :
+		radix256_dit_pass1(a,n); break;
+	case 288:
+		radix288_dit_pass1(a,n); break;
+	case 512 :
+		radix512_dit_pass1(a,n); break;
+	case 768 :
+		radix768_dit_pass1(a,n); break;
+	case 960 :
+		radix960_dit_pass1(a,n); break;
+	case 992 :
+		radix992_dit_pass1(a,n); break;
+	case 1008 :
+		radix1008_dit_pass1(a,n); break;
+	case 1024:
+		radix1024_dit_pass1(a,n); break;
+	case 4032 :
+		radix4032_dit_pass1(a,n); break;
+/*
+	case 4096:
+		radix4096_dit_pass1(a,n); break;
+*/
+	default :
+		sprintf(cbuf,"FATAL: radix %d not available for dit_pass1. Halting...\n",radix_vec0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 	}
 
 /*...and unweight the data array.	*/
@@ -2202,6 +2431,25 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	}
 #endif
 
+	// Cf. [2a] in fermat_mod_square() function: The interval-retry is successful, i.e. suffers no fatal ROE.
+	// [action] Prior to returning, print a "retry successful" informational and rezero ROE_ITER and ROE_VAL.
+	if(ROE_ITER > 0) {
+		ASSERT(HERE, (ierr == 0) && (iter = ihi+1), "[2a] sanity check failed!");
+		ROE_ITER = 0;
+		ROE_VAL = 0.0;
+		fp = fopen(   OFILE,"a");
+		fq = fopen(STATFILE,"a");
+		sprintf(cbuf,"Retry of iteration interval with fatal roundoff error was successful.\n");
+		fprintf(fp,"%s",cbuf);
+		fprintf(fq,"%s",cbuf);
+		fclose(fp);	fp = 0x0;
+		fclose(fq);	fq = 0x0;
+		if(scrnFlag)	/* Echo output to stddev */
+		{
+			fprintf(stderr,"%s",cbuf);
+		}
+	}
+
 	return(ierr);
 }
 
@@ -2209,7 +2457,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 
 #if(defined(MULTITHREAD) && defined(USE_PTHREAD))
 
-void* 
+void*
 mers_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 {
 	struct mers_thread_data_t* thread_arg = targ;
@@ -2241,7 +2489,7 @@ void mers_process_chunk  (double a[], int arr_scratch[], int n, struct complex r
 #endif	// #ifdef MULTITHREAD
 
 	int radix_vec0 = RADIX_VEC[0];
-    int i,incr,istart,j,jhi,jstart,k,koffset,l,mm;
+	int i,incr,istart,j,jhi,jstart,k,koffset,l,mm;
 	int init_sse2 = FALSE;	// Init-calls to various radix-pass routines presumed done prior to entry into this routine
 
 	/* If radix0 odd and i = 0, process just one block of data, otherwise do two: */
@@ -2298,11 +2546,6 @@ void mers_process_chunk  (double a[], int arr_scratch[], int n, struct complex r
 	for even radix_vec0, for which the l1 = 0 and l2 = 1 blocks are processed separately within
 	wrapper_square, i.e. we must call this routine a second time to process data in the l2-block.
 	*/
-	if(ii == 0 && !(radix_vec0 & 1))
-		jhi = 2;
-	else
-		jhi = 1;
-
 #ifdef CTIME
 	clock_supp = clock();
 #endif
@@ -2331,12 +2574,6 @@ void mers_process_chunk  (double a[], int arr_scratch[], int n, struct complex r
 
 	/*...Rest of inverse decimation-in-time (DIT) transform. Note that during IFFT we process the radices in reverse
 	order. The first array sent to each pass routine is assumed to contain the bit-reversed floating data.	*/
-
-	/* If radix0 odd and i = 0, process just one block of data, otherwise do two: */
-	if(ii == 0 && (radix_vec0 & 1))
-		jhi = 1;
-	else
-		jhi = 2;
 
 	for(j = 0; j < jhi; j++)
 	{

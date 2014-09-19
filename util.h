@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2012 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -56,11 +56,17 @@ void	test_fft_radix(void);
 void	host_init(void);	/* This one is a wrapper for calls to the next few: */
 char*	get_time_str(double tdiff);
 
+/* getRealTime.c: */
+double	 getRealTime();
+
 /* get_cpuid.c: x86-style CPUs */
 void	get_cpu(void);
 uint32	has_sse  (void);
 uint32	has_sse2 (void);
 uint32	has_sse3 (void);
+uint32	has_sse3e(void);
+uint32	has_sse41(void);
+uint32	has_sse42(void);
 uint32	has_avx  (void);
 uint32	has_avx2 (void);
 void	cpu_details(void);
@@ -88,6 +94,8 @@ void	INFO	(long line, char*file, char*info_string, char*info_file, int copy2stde
 void	WARN	(long line, char*file, char*warn_string, char*warn_file, int copy2stderr);
 void	ASSERT	(long line, char*file, int expr, char*assert_string);
 void	VAR_WARN(char *typelist, ...);
+
+int		reverse(uint32 i, uint32 n);
 
 uint32	trailz32(uint32 x);
 uint32	trailz64(uint64 x);

@@ -381,6 +381,7 @@ Non-power-of-2 runlengths:
 		frac = fabs(x-temp);\
 		if(frac > maxerr) maxerr=frac;\
 		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+/*if(j<5) printf("x_in[%d] = %15.5f, wt,inv = %15.14f,%15.14f, base,inv = %7d, %20.15e, temp,frac,cy_out = %15.14f,%15.14f,%15.14f, a[%d]* = %15.5f\n",j,x,wt,wtinv/scale,(int)base[i],baseinv[i],temp,frac,cy,j,(temp-cy*base[i]));*/\
 		x = (temp-cy*base[i])*wt;\
 	bjmodn -= sw;\
 	bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
@@ -396,6 +397,7 @@ Non-power-of-2 runlengths:
 		frac = fabs(y-temp);\
 		if(frac > maxerr) maxerr=frac;\
 		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+/*if(j<5) printf("y_in[%d] = %15.5f, wt,inv = %15.14f,%15.14f, base,inv = %7d, %20.15e, temp,frac,cy_out = %15.14f,%15.14f,%15.14f, a[%d]* = %15.5f\n",j+1,y,wt,wtinv/scale,(int)base[i],baseinv[i],temp,frac,cy,j+1,(temp-cy*base[i]));*/\
 		y = (temp-cy*base[i])*wt;\
 	bjmodn -= sw;\
 	bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
@@ -877,7 +879,8 @@ else\
 			__asm	movaps	[edx+0x10],xmm5	/* store it = ~[a.im,b.im] */	\
 			/* Prepare for next pair of complex data: */	\
 			__asm	add		esi, __idx_incr	/* idx_offset += idx_incr */	\
-			__asm	mov		__idx_offset, esi		}
+			__asm	mov		__idx_offset, esi
+		}
 
 		#define SSE2_fermat_carry_norm_errcheck(__data,__cy,__idx_offset,__idx_incr,__odd_radix,__offset0,__offset1,__NRTM1,__NRT_BITS)\
 		{\
@@ -1017,7 +1020,8 @@ else\
 			__asm	movaps	[edx+0x10],xmm5	/* store it = ~[a.im,b.im] */	\
 			/* Prepare for next pair of complex data: */	\
 			__asm	add		esi, __idx_incr	/* idx_offset += idx_incr */	\
-			__asm	mov		__idx_offset, esi		}
+			__asm	mov		__idx_offset, esi
+		}
 
 	/*************************************************************/
 	/**************** MERSENNE-MOD CARRY MACROS ******************/

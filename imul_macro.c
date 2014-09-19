@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -181,30 +181,7 @@ that don't correctly inline the macro form of these.
 	uint64	__MULH64	(uint64 x, uint64 y)
 	{
 		uint64 lo, hi;
-
-		/***********************************************************************/
-		/******* For 80x87-style architectures, use FPU for integer mul: *******/
-		/***********************************************************************/
-	#if 0/*(defined(CPU_IS_X86) && (defined(COMPILER_TYPE_MWERKS) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_MSVC)))*/
-
-		/* These 2 both yield 64-mantissa-bit register mode (bits <9:8> = 3),
-		with IEEE and truncating rounding mode set via bits <11:10> = 0 and 3,
-		respectively. The other 12 bits are identical to the MSVC defaults: */
-		unsigned const short FPU_64IEEE = 0x037f, FPU_64CHOP = 0x0f7f;
-
-		/* Set chopped mode, do the MUL, the revert to IEEE rounding mode: */
-		#if(defined(COMPILER_TYPE_MWERKS) || defined(COMPILER_TYPE_MSVC))
-			__asm	fldcw	FPU_64CHOP
-	/***TODO: need asm for load-uint64-into-FPU-reg/FMUL/store-result-into-uint64 here***/
-			__asm	fldcw	FPU_64IEEE
-		#elif(defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC) || defined(COMPILER_TYPE_ICC))
-			__asm__ volatile ("fldcw %0" :: "m" (FPU_64CHOP) );
-			***need asm for load-uint64-into-FPU-reg/FMUL/store-result-into-uint64 here***
-			__asm__ volatile ("fldcw %0" :: "m" (FPU_64IEEE) );
-		#endif
-	#else
 		MUL_LOHI64(x, y, &lo, &hi);
-	#endif	/* #if(0) */
 		return hi;
 	}
 

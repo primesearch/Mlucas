@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2013 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -29,6 +29,7 @@
 	#define	SSE2_RADIX36_DIT_NOTWIDDLE(Xadd,Xp01,Xp02,Xp03,Xp04,Xp08,Xp12,Xp16,Xp20,Xp24,Xp28,Xp32,Xr00,Xout,Xcc1)\
 	{\
 	__asm__ volatile (\
+	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
 		"/*	add0,1,3,2 = &a[j1+p00]+p0,1,2,3: SSE2_RADIX4_DIT_0TWIDDLE_STRIDE_C(eax,ebx,edx,ecx, 0x120, 0x240, r00) */\n\t"\
 			"movl	%[__r00],%%esi\n\t"\
 			"movl	%[__add],%%eax\n\t"\
@@ -1589,7 +1590,7 @@
 			"movaps	%%xmm5		,0x10(%%edi)\n\t"\
 			"movaps	%%xmm0		,    (%%esi)\n\t"\
 			"movaps	%%xmm1		,0x10(%%esi)\n\t"\
-			"\n\t"\
+	"popl %%ebx	\n\t"\
 			:					/* outputs: none */\
 			: [__add] "m" (Xadd)	/* All inputs from memory addresses here */\
 			 ,[__p01] "m" (Xp01)\
@@ -1606,7 +1607,7 @@
 			 ,[__r00] "m" (Xr00)\
 			 ,[__out] "m" (Xout)\
 			 ,[__cc1] "m" (Xcc1)\
-			: "eax","ebx","ecx","edx","edi","esi"		/* Clobbered registers */\
+			: "cc","memory","eax",/*"ebx",*/"ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 		);\
 	}
 
@@ -1614,6 +1615,7 @@
 	#define	SSE2_RADIX36_DIF_NOTWIDDLE(Xadd,Xp01,Xp02,Xp03,Xp04,Xp08,Xp12,Xp16,Xp20,Xp24,Xp28,Xp32,Xr00,Xin0,Xcc1)\
 	{\
 	__asm__ volatile (\
+	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
 			"/* SSE2_RADIX_09_DIF_0TWIDDLE(r00,s1p00r,s1p32r,s1p28r,s1p24r,s1p20r,s1p16r,s1p12r,s1p08r,s1p04r) */\n\t"\
 			"movl	%[__in0]	,%%eax 		/* __i0-8 = s1p[00,32,28,24,20,16,12,08,04]r; e[abc]x store output addresses throughout */\n\t"\
 			"movl	%[__r00]	,%%esi\n\t"\
@@ -3261,7 +3263,7 @@
 			"movaps	%%xmm7,    (%%eax)					\n\t"\
 			"movaps	%%xmm3,0x10(%%edx)					\n\t"\
 			"movaps	%%xmm6,0x10(%%ebx)					\n\t"\
-			"\n\t"\
+	"popl %%ebx	\n\t"\
 			:					/* outputs: none */\
 			: [__add] "m" (Xadd)	/* All inputs from memory addresses here */\
 			 ,[__p01] "m" (Xp01)\
@@ -3278,7 +3280,7 @@
 			 ,[__r00] "m" (Xr00)\
 			 ,[__in0] "m" (Xin0)\
 			 ,[__cc1] "m" (Xcc1)\
-			: "eax","ebx","ecx","edx","edi","esi"		/* Clobbered registers */\
+			: "cc","memory","eax",/*"ebx",*/"ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 		);\
 	}
 

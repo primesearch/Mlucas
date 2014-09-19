@@ -127,7 +127,8 @@ All but the "else" stuff below is specific to factor.c built in standalone mode:
 #undef  MAX_FACT_BITS
 #define MAX_FACT_BITS	MAX_BITS_Q
 
-/* ernstMain() return-value Error codes: these must be <= 255: */
+// ernstMain() return-value Error codes: these must be <= 255:
+// ***MAKE SURE*** to also update Mlucas.c:printMlucasErrCode() whenever make any changes to this table!
 #define ERR_INCORRECT_RES64			1
 #define ERR_RADIX0_UNAVAILABLE		2
 #define ERR_RADIXSET_UNAVAILABLE	3
@@ -140,7 +141,9 @@ All but the "else" stuff below is specific to factor.c built in standalone mode:
 #define ERR_CARRY					10
 #define ERR_RUN_SELFTEST_FORLENGTH	11	/* If this is the value of the lowest byte of the return value, upper 3 bytes
 										assumed to contain FFT length (in K) for which we need to run a timing self-test */
-#define ERR_MAX	ERR_RUN_SELFTEST_FORLENGTH
+#define ERR_ASSERT					12	// Assert-type fail but when we need execution to continue (e.g. self-test mode)
+#define ERR_UNKNOWN_FATAL			13	// Halt execution, do not proceed to next worktodo.ini entry (e.g. data corruption suspected)
+#define ERR_MAX	ERR_UNKNOWN_FATAL
 
 /***********************************************************************************************/
 /* Globals. Unless specified otherwise, these are declared in Mdata.h and defined in Mlucas.c: */
@@ -190,7 +193,10 @@ extern char FILE_ACCESS_MODE[3];
 
 extern uint32 N2,NRT,NRT_BITS,NRTM1;
 extern uint32 SW_DIV_N;	/* Needed for the subset of radix* carry routines which support Fermat-mod. Defined in fermat_mod_square. */
-extern double ISRT2;	/* Get this at runtime from the analogous qfloat constant */
+
+#define ISRT2 (const double)0.7071067811865476
+//extern const double ISRT2;	/* Compare this at runtime against the analogous qfloat constant */
+
 extern double AME,MME;	/* Avg and Max per-iteration fractional error for a given iteration interval */
 
 /* Iteration # at which to start collecting RO Err data for AME & MME computation: */
@@ -276,11 +282,23 @@ extern int32 DAT_BITS, PAD_BITS;
 			!*        - dat_bits must be at least 6 to be compatible with radix32_wrapper_square.
 			!*        - dat_bits must be at least 7 to be compatible with radix64_wrapper_square.
 			*/
+// Number of doubles per padding insert = (1 << PAD_BITS_DEF) .
+// In SIMD mode, number of padding elements between data blocks must be a multiple of SIMD vector-double count:
+#ifdef USE_AVX512	// AVX512 both uses 512-bit registers [8 doubles]
+	#define PAD_BITS_DEF ( 3u)
+#else	// AVX uses 256-bit registers [4 doubles]; SSE2 uses 128-bit [2 doubles], but make 4 pad-doubles the minimum:
+	#define PAD_BITS_DEF ( 2u)
+#endif
 
-#define PAD_BITS_DEF ( 2u)	/* Number of 8-byte padding slots in each contiguous-data block = 2^padbits. */
+#if !defined(PAD_BITS_DEF) || !(PAD_BITS_DEF > 0)
+	#error PAD_BITS_DEF not properly defined in Mdata.h!
+#endif
 
 // In SIMD mode, number of padding elements between data blocks must be a multiple of SIMD vector-double count:
-#ifdef USE_SSE2	// AVX and AVX2 both use 256-bit registers; SSE uses 128-bit
+//	AVX512 both uses 512-bit registers [8 doubles]
+//	AVX and AVX2 both use 256-bit registers [4 doubles]
+//	SSE2 uses 128-bit [2 doubles]
+#ifdef USE_SSE2
 	#if ((1 << PAD_BITS_DEF) % RE_IM_STRIDE)
 		#error (PAD_BITS_DEF != RE_IM_STRIDE) in Mdata.h
 	#endif
@@ -331,6 +349,9 @@ const long double inv_m61 = (long double)1.0/2305843009213693951ull;
 */
 
 extern int NRADICES, RADIX_VEC[10];	/* RADIX[] stores sequence of complex FFT radices used.	*/
+
+extern int ROE_ITER;	// Iteration of any dangerously high ROE encountered during the current iteration interval. This must be > 0, but make signed to allow sign-flip encoding of retry-fail.
+extern double ROE_VAL;	// Value (must be in (0, 0.5)) of dangerously high ROE encountered during the current iteration interval
 
 extern FILE *dbg_file;
 extern double*ADDR0;	// Allows for easy debug on address-read-or-write than setting a watchpoint

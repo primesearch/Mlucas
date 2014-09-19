@@ -22,12 +22,18 @@
 
 #include "Mlucas.h"
 
+#define RADIX 16
+
 /* Use for testing higher-accuracy version of the twiddles computation */
 #define HIACC 1
 #define EPS	1e-10
 
 #ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	4096	// This seems to work best on my Haswell
+  #else
 	#define PFETCH_DIST	8
+  #endif
 #endif
 
 #ifdef USE_SSE2
@@ -103,7 +109,6 @@ Additional Notes:
 */
 void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr, int init_sse2, int thr_id)
 {
-	const int RADIX = 16;
 	const int pfetch_dist = PFETCH_DIST;
 	int pfetch_addr;
 	static int max_threads = 0;
@@ -117,9 +122,9 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 	const int l2_stride = 1;	// 2 doubles at a time in scalar [non-SIMD] mode
   #endif
 
-	static double c = 0.9238795325112867561281831, s = 0.3826834323650897717284599;	/* exp[i*(twopi/16)]*/
-#ifdef USE_AVX2	// FMA-based DFT in AVX2 mode needs the tangent
-	static double tan = 0.41421356237309504879;
+	const double c = 0.9238795325112867561281831, s = 0.3826834323650897717284599;	/* exp[i*(twopi/16)]*/
+#if defined(USE_SCALAR_DFT_MACRO) || defined(USE_AVX2)	// FMA-based DFT needs the tangent
+	const double tan = 0.41421356237309504879;
 #endif
 	int i,j,j1,j2,jlo,jhi,m,iroot_prim,iroot,k1,k2;
 	int p1,p2,p3,p4,p8,p12;
@@ -142,9 +147,17 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;					// Base address for discrete per-thread local stores
-	vec_dbl *cc0, *ss0, *isrt2, *two, *r1;	// In || mode, only above base-pointer (shared by all threads) is static:
+   #if OS_BITS == 64
+	vec_dbl *cc0, *ss0, *isrt2, *two, *r1;
+   #else	// 32-bit SSE2:
+	vec_dbl *cc0, *ss0, *isrt2, *two, *r1,*r3,*r5,*r7,*r9,*r17,*r25,*c0,*c1,*c2,*c3;
+   #endif
   #elif defined(COMPILER_TYPE_GCC)
+   #if OS_BITS == 64
 	static vec_dbl *cc0, *ss0, *isrt2, *two, *r1;
+   #else	// 32-bit SSE2:
+	static vec_dbl *cc0, *ss0, *isrt2, *two, *r1,*r3,*r5,*r7,*r9,*r17,*r25,*c0,*c1,*c2,*c3;
+   #endif
   #else
 	static vec_dbl *cc0, *ss0, *isrt2, *two;
 	static vec_dbl *c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15,*s0,*s1,*s2,*s3,*s4,*s5,*s6,*s7,*s8,*s9,*s10,*s11,*s12,*s13,*s14,*s15;
@@ -153,11 +166,13 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 #else
 
+  #ifndef USE_SCALAR_DFT_MACRO
 	int jp,jt;
 	double *addr, *addp;
 	int prefetch_offset;
-	double t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t30,t31,t32
-	,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12,s13,s14,s15;
+	double t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t30,t31,t32;
+  #endif
+	double c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12,s13,s14,s15;
 
 #endif
 
@@ -176,6 +191,9 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 	#endif
 		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
 		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
+			free((void *)sc_arr);	sc_arr=0x0;
+		}
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 72*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
@@ -213,6 +231,18 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 										cc0 = sc_ptr + 0x21;
 										ss0 = sc_ptr + 0x22;
 										two = sc_ptr + 0x43;
+		  #if OS_BITS == 32	// 32-bit SSE2:
+			r3    = r1 + 0x02;
+			r5    = r1 + 0x04;
+			r7    = r1 + 0x06;
+			r9    = r1 + 0x08;
+			r17   = r1 + 0x10;
+			r25   = r1 + 0x18;
+			c0    = r1 + 0x23;
+			c1    = r1 + 0x33;
+			c2    = r1 + 0x2b;
+			c3    = r1 + 0x3b;
+		  #endif
 			/* These remain fixed: */
 			VEC_DBL_INIT(isrt2, ISRT2);
 		  #ifdef USE_AVX2
@@ -285,6 +315,18 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		isrt2 = r1 + 0x20;
 		cc0   = r1 + 0x21;
 		two   = r1 + 0x43;
+	  #if OS_BITS == 32	// 32-bit SSE2:
+		r3    = r1 + 0x02;
+		r5    = r1 + 0x04;
+		r7    = r1 + 0x06;
+		r9    = r1 + 0x08;
+		r17   = r1 + 0x10;
+		r25   = r1 + 0x18;
+		c0    = r1 + 0x23;
+		c1    = r1 + 0x33;
+		c2    = r1 + 0x2b;
+		c3    = r1 + 0x3b;
+	  #endif
 	#endif
 
 #endif
@@ -413,7 +455,8 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-		*(add0-3) = *add0++ = rt;	// c3, for inversion ... place extra copy in 0-slot as described above
+		*(add0-3) = rt;	// c3, for inversion ...
+		*add0++   = rt;	// place extra copy in 0-slot as described above - put on separate line to avoid ambiguity of *(add0-3) = *add0++ = rt
 		*add1++ = it;	// s3  slot will hold __r3 = s3 /c3 
 		*add2++ = rt;	// c3, will get multiplied by 1/c1 to yield __c31
 		k1=(i & NRTM1);
@@ -547,7 +590,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		// Now send the cosine terms to the inversion routine, which also does the combine-and-populate-SIMD-slots step.
 	  #ifdef DFT_V2	// Toggle between 2 versions
 
-		RADIX16_COMPUTE_FMA_SINCOS_DIF_2(cc0,two);
+		RADIX16_COMPUTE_FMA_SINCOS_DIF_2(cc0,two);	//*** Note 'two' contains 1.0x4 in this mode! ***
 		add0 = (double *)cc0;
 
 		/* Scalar data starting at add0 = cc0 laid out as below:
@@ -907,6 +950,43 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 		t1=c2*c13; t2=c2*s13; t3=s2*c13; t4=s2*s13;
 		c11=t1+t4; s11=t2-t3; c15=t1-t4; s15=t2+t3;
+#endif
+
+#ifndef USE_SSE2
+  #ifdef USE_SCALAR_DFT_MACRO	// Must define - or not - @compile time
+	// FMA-based version replaces sine terms with tangents:
+	s1  /= c1;
+	s2  /= c2;
+	s3  /= c3;
+	s4  /= c4;
+	s5  /= c5;
+	s6  /= c6;
+	s7  /= c7;
+	s8  /= c8;
+	s9  /= c9;
+	s10 /= c10;
+	s11 /= c11;
+	s12 /= c12;
+	s13 /= c13;
+	s14 /= c14;
+	s15 /= c15;
+	/* Cosine terms defined like so: */
+	double c1_c = c1*c;	/* In FMA code, this will take the place of c */
+	double c1i2 = c1*ISRT2;
+	double c2i2 = c2*ISRT2;
+	c9  /= c1;
+	c10 /= c2;
+	c11 /= c3;
+	c12 /= c4;
+	c13 /= c5;
+	c14 /= c6;
+	c15 /= c7;
+	// Delay these, since need them unmodified as divisors in the above defs:
+	c7  /= c3;
+	c3  /= c1;
+	c5  /= c1;
+	c6  /= c2;
+  #endif
 #endif
 
 	/* Define the inner-loop parameters in terms of the outer-loop ones to make OpenMP's job easier: */
@@ -1383,7 +1463,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 	   #else
 
-		SSE2_RADIX16_DIF_TWIDDLE  (add0,p1,p2,p3,p4,p8,p12,r1,isrt2,pfetch_addr,pfetch_dist);
+		SSE2_RADIX16_DIF_TWIDDLE_1(add0,p1,p2,p3,p4,p8,p12,r1,isrt2,pfetch_addr,pfetch_dist);
 
 	   #endif
 
@@ -1391,7 +1471,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 	  #elif OS_BITS == 64
 		SSE2_RADIX16_DIF_TWIDDLE(add0,p1,p2,p3,p4,p8,p12,r1,isrt2,pfetch_addr,pfetch_dist);
 	  #else	// 32-bit SSE2:
-		SSE2_RADIX16_DIF_TWIDDLE(add0,p1,p2,p3,p4,p8,p12,r1,isrt2);
+		SSE2_RADIX16_DIF_TWIDDLE(add0,p1,p2,p3,p4,p8,p12,r1,r3,r5,r7,r9,r17,r25,isrt2,cc0,c0,c1,c2,c3);
 	  #endif
 
 	#endif
@@ -1403,7 +1483,8 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		// Test FMA-based DIF macro:
 		RADIX_16_DIF_FMA(a[j1    ],a[j2    ],a[j1+p1 ],a[j2+p1 ],a[j1+p2 ],a[j2+p2 ],a[j1+p3 ],a[j2+p3 ],a[j1+p4 ],a[j2+p4 ],a[j1+p4+p1 ],a[j2+p4+p1 ],a[j1+p4+p2 ],a[j2+p4+p2 ],a[j1+p4+p3 ],a[j2+p4+p3 ],a[j1+p8 ],a[j2+p8 ],a[j1+p8+p1 ],a[j2+p8+p1 ],a[j1+p8+p2],a[j2+p8+p2],a[j1+p8+p3],a[j2+p8+p3],a[j1+p12],a[j2+p12],a[j1+p12+p1],a[j2+p12+p1],a[j1+p12+p2],a[j2+p12+p2],a[j1+p12+p3],a[j2+p12+p3]
 						,a[j1    ],a[j2    ],a[j1+p1 ],a[j2+p1 ],a[j1+p2 ],a[j2+p2 ],a[j1+p3 ],a[j2+p3 ],a[j1+p4 ],a[j2+p4 ],a[j1+p4+p1 ],a[j2+p4+p1 ],a[j1+p4+p2 ],a[j2+p4+p2 ],a[j1+p4+p3 ],a[j2+p4+p3 ],a[j1+p8 ],a[j2+p8 ],a[j1+p8+p1 ],a[j2+p8+p1 ],a[j1+p8+p2],a[j2+p8+p2],a[j1+p8+p3],a[j2+p8+p3],a[j1+p12],a[j2+p12],a[j1+p12+p1],a[j2+p12+p1],a[j1+p12+p2],a[j2+p12+p2],a[j1+p12+p3],a[j2+p12+p3]
-						,c1,s1,c2,s2,c3,s3,c4,s4,c5,s5,c6,s6,c7,s7,c8,s8,c9,s9,c10,s10,c11,s11,c12,s12,c13,s13,c14,s14,c15,s15, c,s)
+						,c1,s1,c2,s2,c3,s3,c4,s4,c5,s5,c6,s6,c7,s7,c8,s8,c9,s9,c10,s10,c11,s11,c12,s12,c13,s13,c14,s14,c15,s15
+						,c1_c,tan,c1i2,c2i2)
 
   #else		// USE_SCALAR_DFT_MACRO = False
 
@@ -1675,6 +1756,11 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 }
 
+// Try FMA-for-DIF-only, since the DIT+FMA macros are less efficient due to the post-twiddles implementation of DIT:
+#ifdef USE_AVX2
+//	#undef USE_AVX2
+#endif
+
 /***************/
 
 /*
@@ -1683,7 +1769,6 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 */
 void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr, int init_sse2, int thr_id)
 {
-	const int RADIX = 16;
 	const int pfetch_dist = PFETCH_DIST;
 	int pfetch_addr;
 	static int max_threads = 0;
@@ -1698,8 +1783,8 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
   #endif
 
 	const double c = 0.9238795325112867561281831, s = 0.3826834323650897717284599;	/* exp[i*(twopi/16)]*/
-#ifdef USE_AVX2	// FMA-based DFT in AVX2 mode needs the tangent
-	static double tan = 0.41421356237309504879;
+#if defined(USE_SCALAR_DFT_MACRO) || defined(USE_AVX2)	// FMA-based DFT needs the tangent
+	const double tan = 0.41421356237309504879;
 #endif
 	int i,j,j1,j2,jlo,jhi,m,iroot_prim,iroot,k1,k2;
 	int p1,p2,p3,p4,p8,p12;
@@ -1722,9 +1807,17 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;					// Base address for discrete per-thread local stores
-	vec_dbl *cc0, *ss0, *isrt2, *two, *r1;	// In || mode, only above base-pointer (shared by all threads) is static:
+   #if OS_BITS == 64
+	vec_dbl *cc0, *ss0, *isrt2, *two, *r1;
+   #else	// 32-bit SSE2:
+	vec_dbl *cc0, *ss0, *isrt2, *two, *r1,*r3,*r5,*r7,*r9,*r11,*r13,*r15,*r17,*r25,*c0,*c1,*c2,*c3;
+   #endif
   #elif defined(COMPILER_TYPE_GCC)
+   #if OS_BITS == 64
 	static vec_dbl *cc0, *ss0, *isrt2, *two, *r1;
+   #else	// 32-bit SSE2:
+	static vec_dbl *cc0, *ss0, *isrt2, *two, *r1,*r3,*r5,*r7,*r9,*r11,*r13,*r15,*r17,*r25,*c0,*c1,*c2,*c3;
+   #endif
   #else
 	static vec_dbl *cc0, *ss0, *isrt2, *two;
 	static vec_dbl *c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15,*s0,*s1,*s2,*s3,*s4,*s5,*s6,*s7,*s8,*s9,*s10,*s11,*s12,*s13,*s14,*s15;
@@ -1733,11 +1826,13 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 #else
 
+  #ifndef USE_SCALAR_DFT_MACRO
 	int jp,jt;
 	double *addr, *addp;
 	int prefetch_offset;
-	double t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t30,t31,t32
-	,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12,s13,s14,s15;
+	double t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t30,t31,t32;
+  #endif
+	double c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12,s13,s14,s15;
 
 #endif
 
@@ -1759,6 +1854,9 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 	#endif
 		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
 		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
+			free((void *)sc_arr);	sc_arr=0x0;
+		}
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 72*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
@@ -1794,6 +1892,21 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 										cc0 = sc_ptr + 0x21;
 										ss0 = sc_ptr + 0x22;
 										two = sc_ptr + 0x43;
+		  #if OS_BITS == 32	// 32-bit SSE2:
+			r3    = r1 + 0x02;
+			r5    = r1 + 0x04;
+			r7    = r1 + 0x06;
+			r9    = r1 + 0x08;
+			r11   = r1 + 0x0a;
+			r13   = r1 + 0x0c;
+			r15   = r1 + 0x0e;
+			r17   = r1 + 0x10;
+			r25   = r1 + 0x18;
+			c0    = r1 + 0x23;
+			c1    = r1 + 0x33;
+			c2    = r1 + 0x2b;
+			c3    = r1 + 0x3b;
+		  #endif
 			/* These remain fixed: */
 			VEC_DBL_INIT(isrt2, ISRT2);
 		  #ifdef USE_AVX2
@@ -1865,6 +1978,21 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		isrt2 = r1 + 0x20;
 		cc0   = r1 + 0x21;
 		two   = r1 + 0x43;
+	  #if OS_BITS == 32	// 32-bit SSE2:
+		r3    = r1 + 0x02;
+		r5    = r1 + 0x04;
+		r7    = r1 + 0x06;
+		r9    = r1 + 0x08;
+		r11   = r1 + 0x0a;
+		r13   = r1 + 0x0c;
+		r15   = r1 + 0x0e;
+		r17   = r1 + 0x10;
+		r25   = r1 + 0x18;
+		c0    = r1 + 0x23;
+		c1    = r1 + 0x33;
+		c2    = r1 + 0x2b;
+		c3    = r1 + 0x3b;
+	  #endif
 	#endif
 
 #endif
@@ -2370,6 +2498,28 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 		t1=c2*c13; t2=c2*s13; t3=s2*c13; t4=s2*s13;
 		c11=t1+t4; s11=t2-t3; c15=t1-t4; s15=t2+t3;
+
+#endif
+
+#ifndef USE_SSE2
+  #ifdef USE_SCALAR_DFT_MACRO	// Must define - or not - @compile time
+	// FMA-based version replaces sine terms with tangents:
+	s1  /= c1;
+	s2  /= c2;
+	s3  /= c3;
+	s4  /= c4;
+	s5  /= c5;
+	s6  /= c6;
+	s7  /= c7;
+	s8  /= c8;
+	s9  /= c9;
+	s10 /= c10;
+	s11 /= c11;
+	s12 /= c12;
+	s13 /= c13;
+	s14 /= c14;
+	s15 /= c15;
+  #endif
 #endif
 
 	/* Define the inner-loop parameters in terms of the outer-loop ones to make OpenMP's job easier: */
@@ -2754,7 +2904,7 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 	   #else	// Allow non-FMA as the default option for comparative timing purposes
 
-		SSE2_RADIX16_DIT_TWIDDLE(add0,p1,p2,p3,p4,p8,r1,isrt2,pfetch_addr,pfetch_dist);
+		SSE2_RADIX16_DIT_TWIDDLE_0(add0,p1,p2,p3,p4,p8,r1,isrt2,pfetch_addr,pfetch_dist);
 
 	   #endif
 
@@ -2771,10 +2921,11 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 
   #ifdef USE_SCALAR_DFT_MACRO	// Must define - or not - @compile time
 
-		// Test FMA-based DIT macro:
+		// Test FMA-based DIT macro: 'sine' terms here are tangents!
 		RADIX_16_DIT_FMA(a[j1    ],a[j2    ],a[j1+p1 ],a[j2+p1 ],a[j1+p2 ],a[j2+p2 ],a[j1+p3 ],a[j2+p3 ],a[j1+p4 ],a[j2+p4 ],a[j1+p4+p1 ],a[j2+p4+p1 ],a[j1+p4+p2 ],a[j2+p4+p2 ],a[j1+p4+p3 ],a[j2+p4+p3 ],a[j1+p8 ],a[j2+p8 ],a[j1+p8+p1 ],a[j2+p8+p1 ],a[j1+p8+p2],a[j2+p8+p2],a[j1+p8+p3],a[j2+p8+p3],a[j1+p12],a[j2+p12],a[j1+p12+p1],a[j2+p12+p1],a[j1+p12+p2],a[j2+p12+p2],a[j1+p12+p3],a[j2+p12+p3]
 						,a[j1    ],a[j2    ],a[j1+p1 ],a[j2+p1 ],a[j1+p2 ],a[j2+p2 ],a[j1+p3 ],a[j2+p3 ],a[j1+p4 ],a[j2+p4 ],a[j1+p4+p1 ],a[j2+p4+p1 ],a[j1+p4+p2 ],a[j2+p4+p2 ],a[j1+p4+p3 ],a[j2+p4+p3 ],a[j1+p8 ],a[j2+p8 ],a[j1+p8+p1 ],a[j2+p8+p1 ],a[j1+p8+p2],a[j2+p8+p2],a[j1+p8+p3],a[j2+p8+p3],a[j1+p12],a[j2+p12],a[j1+p12+p1],a[j2+p12+p1],a[j1+p12+p2],a[j2+p12+p2],a[j1+p12+p3],a[j2+p12+p3]
-						,c1,s1,c2,s2,c3,s3,c4,s4,c5,s5,c6,s6,c7,s7,c8,s8,c9,s9,c10,s10,c11,s11,c12,s12,c13,s13,c14,s14,c15,s15, c,s)
+						,c1,s1,c2,s2,c3,s3,c4,s4,c5,s5,c6,s6,c7,s7,c8,s8,c9,s9,c10,s10,c11,s11,c12,s12,c13,s13,c14,s14,c15,s15
+						,c,tan)
 
   #else		// USE_SCALAR_DFT_MACRO = False
 
@@ -3060,4 +3211,7 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 	}	/* endfor(m=0; m < nloops; m++) */
 
 }
+
+#undef RADIX
+#undef PFETCH_DIST
 

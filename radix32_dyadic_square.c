@@ -45,18 +45,15 @@
 #endif
 
 #ifdef MULTITHREAD
-	#if !defined(USE_PTHREAD) || !defined(COMPILER_TYPE_GCC)
-		#error Multithreading currently only supported for 64-bit GCC builds using Pthreads!
+	#ifndef USE_PTHREAD
+		#error Multithreading currently only supported using Pthreads!
 	#endif
 #endif
 
 /***************/
 
-void radix32_dyadic_square(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int ii, int nradices_prim, int radix_prim[], int incr, int init_sse2, int thr_id)
-{
-
 /*
-!   NOTE: In the following commentary, N refers to the VEC_DBL vector length (N2 in the code),
+!   NOTE: In the following commentary, N refers to the COMPLEX vector length (N2 in the code),
 !   which is half the real vector length.
 !
 !...Acronyms:   DIT = Decimation In Time
@@ -68,16 +65,18 @@ void radix32_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 
 The scratch array (2nd input argument) is only needed for data table initializations, i.e. if init_sse2 = TRUE.
 */
+void radix32_dyadic_square(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int ii, int nradices_prim, int radix_prim[], int incr, int init_sse2, int thr_id)
+{
+	const int stride = (int)RE_IM_STRIDE << 6, stridh = (stride>>1);	// main-array loop stride = 32*RE_IM_STRIDE
 	static int max_threads = 0;
 	static int nsave = 0;
-	static int rad0save = 0;
+	static int rad0save = 0, ndivrad0 = 0;
 /*	static int *index = 0x0;	OBSOLETE: full-N2/16-length Bit-reversal index array. */
 	static int *index0 = 0x0, *index1 = 0x0, *index_ptmp0 = 0x0, *index_ptmp1 = 0x0;
-	       int index0_idx=-1, index1_idx=-1;
+		   int index0_idx=-1, index1_idx=-1;
 	static int index0_mod=-1, index1_mod=-1;
 	int nradices_prim_radix0;
-	const int stride = (int)RE_IM_STRIDE << 5;	// 32*RE_IM_STRIDE; works for any power of 2 SIMD packing number
-	int i,j,j1,j2,l,iroot,k1,k2,ndivrad0;
+	int i,j,j1,j2,l,iroot,k1,k2;
 	const double c = 0.92387953251128675613, s     = 0.38268343236508977173	/* exp[  i*(twopi/16)]	*/
 			,c32_1 = 0.98078528040323044912, s32_1 = 0.19509032201612826784	/* exp(  i*twopi/32), the radix-32 fundamental sincos datum	*/
 			,c32_3 = 0.83146961230254523708, s32_3 = 0.55557023301960222473;/* exp(3*i*twopi/32)	*/
@@ -146,22 +145,83 @@ The scratch array (2nd input argument) is only needed for data table initializat
 /**************************************************************************************************************************************/
 /*** To-Do: Need to add code to allow for re-init when any of the FFT-related params or #threads changes during course of execution ***/
 /**************************************************************************************************************************************/
+	if((rad0save != radix0) || (nsave != n))
+	{
+		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+		nsave = n;
+		ASSERT(HERE, N2 == n/2, "N2 bad!");
+		rad0save = radix0;
+		ndivrad0 = n/radix0;
+		if(index_ptmp0) {
+			free((void *)index_ptmp0);	index_ptmp0=0x0;	index0=0x0;
+			free((void *)index_ptmp1);	index_ptmp1=0x0;	index1=0x0;
+		}
+		/*
+		!...Final forward (DIF) FFT pass sincos data start out in bit-reversed order.
+		!   Allocate and initialize an index array containing N/32 indices...
+
+		index_ptmp = ALLOC_INT(N2/32);
+		if(!index_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array INDEX in radix32_dyadic_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		index = ALIGN_INT(index_ptmp);
+		if(!index){ sprintf(cbuf,"FATAL: unable to allocate array ITMP in radix32_dyadic_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+
+		for(i=0; i < N2/32; i++)
+		{
+			index[i]=i;
+		}
+		*/
+		index0_mod =        radix0;
+		index1_mod = (n>>6)/radix0;	/* complex length requires an additional divide by 2 */
+
+		index_ptmp0 = ALLOC_INT(index_ptmp0, index0_mod);
+		if(!index_ptmp0){ sprintf(cbuf,"FATAL: unable to allocate array INDEX_PTMP0 in radix32_dyadic_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		index0 = ALIGN_INT(index_ptmp0);
+
+		index_ptmp1 = ALLOC_INT(index_ptmp1, index1_mod);
+		if(!index_ptmp1){ sprintf(cbuf,"FATAL: unable to allocate array INDEX_PTMP1 in radix32_dyadic_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		index1 = ALIGN_INT(index_ptmp1);
+
+		for(i=0; i < index0_mod; i++){index0[i]=       i;}
+		for(i=0; i < index1_mod; i++){index1[i]=radix0*i;}
+
+		/*...then bit-reverse INDEX with respect to N/32. Radices are sent to BR routine
+		in opposite order from which they are processed in forward FFT.
+		bit_reverse_int(index, N2/32, nradices_prim-5, &radix_prim[nradices_prim-6], -1, (int *)arr_scratch);
+		*/
+
+		i = 1;
+		for(nradices_prim_radix0 = 1; nradices_prim_radix0 < nradices_prim; nradices_prim_radix0++)
+		{
+			i *= radix_prim[nradices_prim_radix0-1];
+			if(i == radix0)
+				break;
+		}
+		ASSERT(HERE, nradices_prim_radix0 < nradices_prim,"radix32_dyadic_square.c: nradices_prim_radix0 < nradices_prim");
+
+		bit_reverse_int(index0, index0_mod,                 nradices_prim_radix0, &radix_prim[nradices_prim_radix0-1], -1, (int *)arr_scratch);
+		bit_reverse_int(index1, index1_mod, nradices_prim-5-nradices_prim_radix0, &radix_prim[nradices_prim       -6], -1, (int *)arr_scratch);
+	/* fprintf(stderr, "index0[dim = %d] =",index0_mod);	for(i=0; i < index0_mod; i++){fprintf(stderr, " %d",index0[i]);}	fprintf(stderr, "\n"); */
+		if(!init_sse2)	// SSE2 stuff pvsly inited, but new leading radix (e.g. self-test mode)
+			return;
+	}
 
 	/* Here this variable is somewhat misnamed because it is used to init both non-SIMD and SIMD-specific data */
 	if(init_sse2)	// Just check nonzero here, to allow the *value* of init_sse2 to store #threads
 	{
+		if(init_sse2 <= max_threads)	// current alloc sufficient
+			return;
+
+		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
 		max_threads = init_sse2;
 	#ifndef COMPILER_TYPE_GCC
 		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 	#endif
 		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
 
-		nsave = n;
-		rad0save = radix0;
-
 	#ifdef USE_SSE2
-		ASSERT(HERE, sc_arr == 0x0, "Init-mode call conflicts with already-malloc'ed local storage!");
-		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
+			free((void *)sc_arr);	sc_arr=0x0;
+		}
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x94*max_threads + 100);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
@@ -284,56 +344,9 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			VEC_DBL_INIT(two  , 2.0  );
 		#endif
 	//	}
-	#endif
 
-		free((void *)index_ptmp0);	index_ptmp0=0x0;	index0=0x0;
-		free((void *)index_ptmp1);	index_ptmp1=0x0;	index1=0x0;
+	#endif	// USE_SSE2
 
-		/*
-		!...Final forward (DIF) FFT pass sincos data start out in bit-reversed order.
-		!   Allocate and initialize an index array containing N/32 indices...
-
-		index_ptmp = ALLOC_INT(N2/32);
-		if(!index_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array INDEX in radix32_dyadic_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		index = ALIGN_INT(index_ptmp);
-		if(!index){ sprintf(cbuf,"FATAL: unable to allocate array ITMP in radix32_dyadic_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-
-		for(i=0; i < N2/32; i++)
-		{
-			index[i]=i;
-		}
-		*/
-		index0_mod =        radix0;
-		index1_mod = (n>>6)/radix0;	/* complex length requires an additional divide by 2 */
-
-		index_ptmp0 = ALLOC_INT(index_ptmp0, index0_mod);
-		if(!index_ptmp0){ sprintf(cbuf,"FATAL: unable to allocate array INDEX_PTMP0 in radix32_dyadic_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		index0 = ALIGN_INT(index_ptmp0);
-
-		index_ptmp1 = ALLOC_INT(index_ptmp1, index1_mod);
-		if(!index_ptmp1){ sprintf(cbuf,"FATAL: unable to allocate array INDEX_PTMP1 in radix32_dyadic_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		index1 = ALIGN_INT(index_ptmp1);
-
-		for(i=0; i < index0_mod; i++){index0[i]=       i;}
-		for(i=0; i < index1_mod; i++){index1[i]=radix0*i;}
-
-		/*...then bit-reverse INDEX with respect to N/32. Radices are sent to BR routine
-		in opposite order from which they are processed in forward FFT.
-		bit_reverse_int(index, N2/32, nradices_prim-5, &radix_prim[nradices_prim-6], -1, (int *)arr_scratch);
-		*/
-
-		i = 1;
-		for(nradices_prim_radix0 = 1; nradices_prim_radix0 < nradices_prim; nradices_prim_radix0++)
-		{
-			i *= radix_prim[nradices_prim_radix0-1];
-			if(i == radix0)
-				break;
-		}
-		ASSERT(HERE, nradices_prim_radix0 < nradices_prim,"radix32_dyadic_square.c: nradices_prim_radix0 < nradices_prim");
-
-		bit_reverse_int(index0, index0_mod,                 nradices_prim_radix0, &radix_prim[nradices_prim_radix0-1], -1, (int *)arr_scratch);
-		bit_reverse_int(index1, index1_mod, nradices_prim-5-nradices_prim_radix0, &radix_prim[nradices_prim       -6], -1, (int *)arr_scratch);
-	/* fprintf(stderr, "index0[dim = %d] =",index0_mod);	for(i=0; i < index0_mod; i++){fprintf(stderr, " %d",index0[i]);}	fprintf(stderr, "\n"); */
 		return;
 	}	/* end of inits */
 
@@ -395,34 +408,23 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	/*...If a new runlength, should not get to this point: */
 	ASSERT(HERE, n == nsave,"n != nsave");
 	ASSERT(HERE, incr == 64,"incr == 64");
-	ndivrad0 = n/radix0;
-
+	ASSERT(HERE, ndivrad0 == n/radix0,"bad value for ndivrad0!");
 	/*
 	k = ii*(ndivrad0 >> 6);
 	*/
 	index0_idx = ii;
 	index1_idx = 0;
 
-#ifdef USE_AVX
-	for(j = 0; j < ndivrad0; j += 256)
+	for(j = 0; j < ndivrad0; j += stride)
 	{
-	    j1 =j + ( (j >> DAT_BITS) << PAD_BITS );
-#elif defined(USE_SSE2)
-	for(j = 0; j < ndivrad0; j += 128)
-	{
-		j1 = (j & mask01) + br4[j&3];
-	    j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
-#else
-	for(j = 0; j < ndivrad0; j += 64)
-	{
-	    j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-#endif
+		j1 = j + ( (j >> DAT_BITS) << PAD_BITS );
 		j2 = j1+RE_IM_STRIDE;
 	/*
 		iroot = index[k];
 		ASSERT(HERE, iroot == index0[index0_idx] + index1[index1_idx],"radix32_dyadic_square.c: iroot == index0[index0_idx] + index1[index1_idx]");
 		k = k + 1;	// increment sincos array index
 	*/
+
 		iroot = index0[index0_idx] + index1[index1_idx];
 		if(++index1_idx >= index1_mod)
 		{
@@ -440,7 +442,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		Here, due to the need to compute a new set of roots for each set of inputs, we use a streamlined sequence which
 		computes only the [ 0, 1, 2, 3, 7,14,21,28]th roots with maximal accuracy (i.e. using 2-table-multiply),
 		then generates the remaining ones from those. Thus the needed pointer offsets below are
-		    (cc0,ss0) + 0x[06,26,16,36,3e,22,30,14]:
+			(cc0,ss0) + 0x[06,26,16,36,3e,22,30,14]:
 		*/
 		c_tmp = cc0 + 0x06; s_tmp = c_tmp+1;	/* c0,s0 */
 		rt = 1.0; it = 0.0;
@@ -461,9 +463,9 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		c01 =rt;	s01 =it;
 	#endif
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 3*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += iroot;				/* 3*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
@@ -474,10 +476,10 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		c02 =rt;	s02 =it;
 	#endif
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += 4*iroot;			/* 7*iroot	*/
-	    iroot = l;				/* 7*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += 4*iroot;			/* 7*iroot	*/
+		iroot = l;				/* 7*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
@@ -488,9 +490,9 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		c03 =rt;	s03 =it;
 	#endif
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 14*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += iroot;				/* 14*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
@@ -501,9 +503,9 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		c07 =rt;	s07 =it;
 	#endif
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 21*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += iroot;				/* 21*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
@@ -514,9 +516,9 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		c0E =rt;	s0E =it;
 	#endif
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 28*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += iroot;				/* 28*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
@@ -527,8 +529,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		c15 =rt;	s15 =it;
 	#endif
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
@@ -552,63 +554,63 @@ The scratch array (2nd input argument) is only needed for data table initializat
 
 		l = iroot;
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;			/* 2*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += iroot;			/* 2*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x26; s_tmp = c_tmp+1;	/* c1,s1 */
 		c_tmp->d1=rt;	s_tmp->d1=it;
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 3*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += iroot;				/* 3*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x16; s_tmp = c_tmp+1;	/* c2,s2 */
 		c_tmp->d1=rt;	s_tmp->d1=it;
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += 4*iroot;			/* 7*iroot	*/
-	    iroot = l;				/* 7*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += 4*iroot;			/* 7*iroot	*/
+		iroot = l;				/* 7*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x36; s_tmp = c_tmp+1;	/* c3,s3 */
 		c_tmp->d1=rt;	s_tmp->d1=it;
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 14*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += iroot;				/* 14*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x3e; s_tmp = c_tmp+1;	/* c7,s7 */
 		c_tmp->d1=rt;	s_tmp->d1=it;
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 21*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += iroot;				/* 21*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x22; s_tmp = c_tmp+1;	/* c14,s14 */
 		c_tmp->d1=rt;	s_tmp->d1=it;
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 28*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += iroot;				/* 28*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x30; s_tmp = c_tmp+1;	/* c21,s21 */
 		c_tmp->d1=rt;	s_tmp->d1=it;
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
@@ -617,7 +619,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 
 	  /* In AVX mode, also need next 2 sets of sincos: */
 	  #ifdef USE_AVX
-	    // 3rd set (of 4):
+		// 3rd set (of 4):
 		iroot = index0[index0_idx] + index1[index1_idx];
 		if(++index1_idx >= index1_mod)
 		{
@@ -628,70 +630,70 @@ The scratch array (2nd input argument) is only needed for data table initializat
 
 		l = iroot;
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;			/* 2*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += iroot;			/* 2*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x26; s_tmp = c_tmp+1;	/* c1,s1 */
 		c_tmp->d2=rt;	s_tmp->d2=it;
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 3*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += iroot;				/* 3*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x16; s_tmp = c_tmp+1;	/* c2,s2 */
 		c_tmp->d2=rt;	s_tmp->d2=it;
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += 4*iroot;			/* 7*iroot	*/
-	    iroot = l;				/* 7*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += 4*iroot;			/* 7*iroot	*/
+		iroot = l;				/* 7*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x36; s_tmp = c_tmp+1;	/* c3,s3 */
 		c_tmp->d2=rt;	s_tmp->d2=it;
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 14*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += iroot;				/* 14*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x3e; s_tmp = c_tmp+1;	/* c7,s7 */
 		c_tmp->d2=rt;	s_tmp->d2=it;
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 21*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += iroot;				/* 21*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x22; s_tmp = c_tmp+1;	/* c14,s14 */
 		c_tmp->d2=rt;	s_tmp->d2=it;
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 28*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += iroot;				/* 28*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x30; s_tmp = c_tmp+1;	/* c21,s21 */
 		c_tmp->d2=rt;	s_tmp->d2=it;
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x14; s_tmp = c_tmp+1;	/* c28,s28 */
 		c_tmp->d2=rt;	s_tmp->d2=it;
 
-	    // 4th set (of 4):
+		// 4th set (of 4):
 		iroot = index0[index0_idx] + index1[index1_idx];
 		if(++index1_idx >= index1_mod)
 		{
@@ -702,63 +704,63 @@ The scratch array (2nd input argument) is only needed for data table initializat
 
 		l = iroot;
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;			/* 2*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += iroot;			/* 2*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x26; s_tmp = c_tmp+1;	/* c1,s1 */
 		c_tmp->d3=rt;	s_tmp->d3=it;
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 3*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += iroot;				/* 3*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x16; s_tmp = c_tmp+1;	/* c2,s2 */
 		c_tmp->d3=rt;	s_tmp->d3=it;
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += 4*iroot;			/* 7*iroot	*/
-	    iroot = l;				/* 7*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += 4*iroot;			/* 7*iroot	*/
+		iroot = l;				/* 7*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x36; s_tmp = c_tmp+1;	/* c3,s3 */
 		c_tmp->d3=rt;	s_tmp->d3=it;
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 14*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += iroot;				/* 14*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x3e; s_tmp = c_tmp+1;	/* c7,s7 */
 		c_tmp->d3=rt;	s_tmp->d3=it;
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 21*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += iroot;				/* 21*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x22; s_tmp = c_tmp+1;	/* c14,s14 */
 		c_tmp->d3=rt;	s_tmp->d3=it;
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
-	    l += iroot;				/* 28*iroot	*/
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
+		l += iroot;				/* 28*iroot	*/
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x30; s_tmp = c_tmp+1;	/* c21,s21 */
 		c_tmp->d3=rt;	s_tmp->d3=it;
 
-	    k1=(l & NRTM1);
-	    k2=(l >> NRT_BITS);
+		k1=(l & NRTM1);
+		k2=(l >> NRT_BITS);
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
@@ -786,44 +788,44 @@ The scratch array (2nd input argument) is only needed for data table initializat
 
 	#else
 		/*(c,s)4-10 (decimal indices), 4-0A (hexadecimal indices):	*/
-	    t00=c01*c07; t01=c01*s07; t02=s01*c07; t03=s01*s07;
-	    c06=t00+t03; s06=t01-t02; c08=t00-t03; s08=t01+t02;
+		t00=c01*c07; t01=c01*s07; t02=s01*c07; t03=s01*s07;
+		c06=t00+t03; s06=t01-t02; c08=t00-t03; s08=t01+t02;
 
-	    t00=c02*c07; t01=c02*s07; t02=s02*c07; t03=s02*s07;
-	    c05=t00+t03; s05=t01-t02; c09=t00-t03; s09=t01+t02;
+		t00=c02*c07; t01=c02*s07; t02=s02*c07; t03=s02*s07;
+		c05=t00+t03; s05=t01-t02; c09=t00-t03; s09=t01+t02;
 
-	    t00=c03*c07; t01=c03*s07; t02=s03*c07; t03=s03*s07;
-	    c04=t00+t03; s04=t01-t02; c0A=t00-t03; s0A=t01+t02;
+		t00=c03*c07; t01=c03*s07; t02=s03*c07; t03=s03*s07;
+		c04=t00+t03; s04=t01-t02; c0A=t00-t03; s0A=t01+t02;
 
 		/*(c,s)11-17 (decimal indices), 0B-11 (hexadecimal indices):;	*/
-	    t00=c01*c0E; t01=c01*s0E; t02=s01*c0E; t03=s01*s0E;
-	    c0D=t00+t03; s0D=t01-t02; c0F=t00-t03; s0F=t01+t02;
+		t00=c01*c0E; t01=c01*s0E; t02=s01*c0E; t03=s01*s0E;
+		c0D=t00+t03; s0D=t01-t02; c0F=t00-t03; s0F=t01+t02;
 
-	    t00=c02*c0E; t01=c02*s0E; t02=s02*c0E; t03=s02*s0E;
-	    c0C=t00+t03; s0C=t01-t02; c10=t00-t03; s10=t01+t02;
+		t00=c02*c0E; t01=c02*s0E; t02=s02*c0E; t03=s02*s0E;
+		c0C=t00+t03; s0C=t01-t02; c10=t00-t03; s10=t01+t02;
 
-	    t00=c03*c0E; t01=c03*s0E; t02=s03*c0E; t03=s03*s0E;
-	    c0B=t00+t03; s0B=t01-t02; c11=t00-t03; s11=t01+t02;
+		t00=c03*c0E; t01=c03*s0E; t02=s03*c0E; t03=s03*s0E;
+		c0B=t00+t03; s0B=t01-t02; c11=t00-t03; s11=t01+t02;
 
 		/*(c,s)18-24 (decimal indices), 12-18 (hexadecimal indices):	*/
-	    t00=c01*c15; t01=c01*s15; t02=s01*c15; t03=s01*s15;
-	    c14=t00+t03; s14=t01-t02; c16=t00-t03; s16=t01+t02;
+		t00=c01*c15; t01=c01*s15; t02=s01*c15; t03=s01*s15;
+		c14=t00+t03; s14=t01-t02; c16=t00-t03; s16=t01+t02;
 
-	    t00=c02*c15; t01=c02*s15; t02=s02*c15; t03=s02*s15;
-	    c13=t00+t03; s13=t01-t02; c17=t00-t03; s17=t01+t02;
+		t00=c02*c15; t01=c02*s15; t02=s02*c15; t03=s02*s15;
+		c13=t00+t03; s13=t01-t02; c17=t00-t03; s17=t01+t02;
 
-	    t00=c03*c15; t01=c03*s15; t02=s03*c15; t03=s03*s15;
-	    c12=t00+t03; s12=t01-t02; c18=t00-t03; s18=t01+t02;
+		t00=c03*c15; t01=c03*s15; t02=s03*c15; t03=s03*s15;
+		c12=t00+t03; s12=t01-t02; c18=t00-t03; s18=t01+t02;
 
 		/*(c,s)25-31 (decimal indices), 19-1F (hexadecimal indices):	*/
-	    t00=c01*c1C; t01=c01*s1C; t02=s01*c1C; t03=s01*s1C;
-	    c1B=t00+t03; s1B=t01-t02; c1D=t00-t03; s1D=t01+t02;
+		t00=c01*c1C; t01=c01*s1C; t02=s01*c1C; t03=s01*s1C;
+		c1B=t00+t03; s1B=t01-t02; c1D=t00-t03; s1D=t01+t02;
 
-	    t00=c02*c1C; t01=c02*s1C; t02=s02*c1C; t03=s02*s1C;
-	    c1A=t00+t03; s1A=t01-t02; c1E=t00-t03; s1E=t01+t02;
+		t00=c02*c1C; t01=c02*s1C; t02=s02*c1C; t03=s02*s1C;
+		c1A=t00+t03; s1A=t01-t02; c1E=t00-t03; s1E=t01+t02;
 
-	    t00=c03*c1C; t01=c03*s1C; t02=s03*c1C; t03=s03*s1C;
-	    c19=t00+t03; s19=t01-t02; c1F=t00-t03; s1F=t01+t02;
+		t00=c03*c1C; t01=c03*s1C; t02=s03*c1C; t03=s03*s1C;
+		c19=t00+t03; s19=t01-t02; c1F=t00-t03; s1F=t01+t02;
 	#endif
 
 /*       gather the needed data (32 64-bit complex, i.e. 64 64-bit reals) and do the first set of four length-8 transforms...
@@ -834,10 +836,9 @@ The scratch array (2nd input argument) is only needed for data table initializat
 #if defined(USE_SSE2)	// SSE2 and AVX share same code flow, just with different versions of the ASM compute macros
 
 		add0 = &a[j1];
-		add1 = &a[j1+stride];
+		add1 = &a[j1+stridh];
 	//	printf("stride = %d, add0,1 = %llX, %llX, diff = %llX\n",stride,(int64)add0,(int64)add1, (int64)add1-(int64)add0);	exit(0);
-
-		ASSERT(HERE, (j1+stride) == (j+stride) + ( ((j+stride) >> DAT_BITS) << PAD_BITS ) , "add1 calculation violates padded index rules!");
+	//	ASSERT(HERE, (j1+stride) == (j+stride) + ( ((j+stride) >> DAT_BITS) << PAD_BITS ) , "add1 calculation violates padded index rules!");
 
 	#ifdef COMPILER_TYPE_MSVC
 
@@ -1583,184 +1584,184 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		__asm__ volatile (\
 			"movl	%[__r00],%%eax		\n\t"\
 			"/* z0^2: */				\n\t	/* z0^2: */				\n\t"\
-			"movaps	     (%%eax),%%xmm0	\n\t	movaps	0x200(%%eax),%%xmm3	\n\t"\
+			"movaps		 (%%eax),%%xmm0	\n\t	movaps	0x200(%%eax),%%xmm3	\n\t"\
 			"movaps	0x010(%%eax),%%xmm1	\n\t	movaps	0x210(%%eax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
-			"mulpd	     (%%eax),%%xmm1	\n\t	mulpd	0x200(%%eax),%%xmm4	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
+			"mulpd		 (%%eax),%%xmm1	\n\t	mulpd	0x200(%%eax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,     (%%eax)	\n\t	movaps	%%xmm3,0x200(%%eax)	\n\t"\
 			"movaps	%%xmm1,0x010(%%eax)	\n\t	movaps	%%xmm4,0x210(%%eax)	\n\t"\
 			"/* z1^2: */				\n\t	/* z1^2: */				\n\t"\
 			"movaps	0x020(%%eax),%%xmm0	\n\t	movaps	0x220(%%eax),%%xmm3	\n\t"\
 			"movaps	0x030(%%eax),%%xmm1	\n\t	movaps	0x230(%%eax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x020(%%eax),%%xmm1	\n\t	mulpd	0x220(%%eax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x020(%%eax)	\n\t	movaps	%%xmm3,0x220(%%eax)	\n\t"\
 			"movaps	%%xmm1,0x030(%%eax)	\n\t	movaps	%%xmm4,0x230(%%eax)	\n\t"\
 			"/* z2^2: */				\n\t	/* z2^2: */				\n\t"\
 			"movaps	0x040(%%eax),%%xmm0	\n\t	movaps	0x240(%%eax),%%xmm3	\n\t"\
 			"movaps	0x050(%%eax),%%xmm1	\n\t	movaps	0x250(%%eax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x040(%%eax),%%xmm1	\n\t	mulpd	0x240(%%eax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x040(%%eax)	\n\t	movaps	%%xmm3,0x240(%%eax)	\n\t"\
 			"movaps	%%xmm1,0x050(%%eax)	\n\t	movaps	%%xmm4,0x250(%%eax)	\n\t"\
 			"/* z3^2: */				\n\t	/* z3^2: */				\n\t"\
 			"movaps	0x060(%%eax),%%xmm0	\n\t	movaps	0x260(%%eax),%%xmm3	\n\t"\
 			"movaps	0x070(%%eax),%%xmm1	\n\t	movaps	0x270(%%eax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x060(%%eax),%%xmm1	\n\t	mulpd	0x260(%%eax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x060(%%eax)	\n\t	movaps	%%xmm3,0x260(%%eax)	\n\t"\
 			"movaps	%%xmm1,0x070(%%eax)	\n\t	movaps	%%xmm4,0x270(%%eax)	\n\t"\
 			"/* z4^2: */				\n\t	/* z4^2: */				\n\t"\
 			"movaps	0x080(%%eax),%%xmm0	\n\t	movaps	0x280(%%eax),%%xmm3	\n\t"\
 			"movaps	0x090(%%eax),%%xmm1	\n\t	movaps	0x290(%%eax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x080(%%eax),%%xmm1	\n\t	mulpd	0x280(%%eax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x080(%%eax)	\n\t	movaps	%%xmm3,0x280(%%eax)	\n\t"\
 			"movaps	%%xmm1,0x090(%%eax)	\n\t	movaps	%%xmm4,0x290(%%eax)	\n\t"\
 			"/* z5^2: */				\n\t	/* z5^2: */				\n\t"\
 			"movaps	0x0a0(%%eax),%%xmm0	\n\t	movaps	0x2a0(%%eax),%%xmm3	\n\t"\
 			"movaps	0x0b0(%%eax),%%xmm1	\n\t	movaps	0x2b0(%%eax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x0a0(%%eax),%%xmm1	\n\t	mulpd	0x2a0(%%eax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x0a0(%%eax)	\n\t	movaps	%%xmm3,0x2a0(%%eax)	\n\t"\
 			"movaps	%%xmm1,0x0b0(%%eax)	\n\t	movaps	%%xmm4,0x2b0(%%eax)	\n\t"\
 			"/* z6^2: */				\n\t	/* z6^2: */				\n\t"\
 			"movaps	0x0c0(%%eax),%%xmm0	\n\t	movaps	0x2c0(%%eax),%%xmm3	\n\t"\
 			"movaps	0x0d0(%%eax),%%xmm1	\n\t	movaps	0x2d0(%%eax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x0c0(%%eax),%%xmm1	\n\t	mulpd	0x2c0(%%eax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x0c0(%%eax)	\n\t	movaps	%%xmm3,0x2c0(%%eax)	\n\t"\
 			"movaps	%%xmm1,0x0d0(%%eax)	\n\t	movaps	%%xmm4,0x2d0(%%eax)	\n\t"\
 			"/* z7^2: */				\n\t	/* z7^2: */				\n\t"\
 			"movaps	0x0e0(%%eax),%%xmm0	\n\t	movaps	0x2e0(%%eax),%%xmm3	\n\t"\
 			"movaps	0x0f0(%%eax),%%xmm1	\n\t	movaps	0x2f0(%%eax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x0e0(%%eax),%%xmm1	\n\t	mulpd	0x2e0(%%eax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x0e0(%%eax)	\n\t	movaps	%%xmm3,0x2e0(%%eax)	\n\t"\
 			"movaps	%%xmm1,0x0f0(%%eax)	\n\t	movaps	%%xmm4,0x2f0(%%eax)	\n\t"\
 			"/* z8^2: */				\n\t	/* z8^2: */				\n\t"\
 			"movaps	0x100(%%eax),%%xmm0	\n\t	movaps	0x300(%%eax),%%xmm3	\n\t"\
 			"movaps	0x110(%%eax),%%xmm1	\n\t	movaps	0x310(%%eax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x100(%%eax),%%xmm1	\n\t	mulpd	0x300(%%eax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x100(%%eax)	\n\t	movaps	%%xmm3,0x300(%%eax)	\n\t"\
 			"movaps	%%xmm1,0x110(%%eax)	\n\t	movaps	%%xmm4,0x310(%%eax)	\n\t"\
 			"/* z9^2: */				\n\t	/* z9^2: */				\n\t"\
 			"movaps	0x120(%%eax),%%xmm0	\n\t	movaps	0x320(%%eax),%%xmm3	\n\t"\
 			"movaps	0x130(%%eax),%%xmm1	\n\t	movaps	0x330(%%eax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x120(%%eax),%%xmm1	\n\t	mulpd	0x320(%%eax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x120(%%eax)	\n\t	movaps	%%xmm3,0x320(%%eax)	\n\t"\
 			"movaps	%%xmm1,0x130(%%eax)	\n\t	movaps	%%xmm4,0x330(%%eax)	\n\t"\
 			"/* zA^2: */				\n\t	/* zA^2: */				\n\t"\
 			"movaps	0x140(%%eax),%%xmm0	\n\t	movaps	0x340(%%eax),%%xmm3	\n\t"\
 			"movaps	0x150(%%eax),%%xmm1	\n\t	movaps	0x350(%%eax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x140(%%eax),%%xmm1	\n\t	mulpd	0x340(%%eax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x140(%%eax)	\n\t	movaps	%%xmm3,0x340(%%eax)	\n\t"\
 			"movaps	%%xmm1,0x150(%%eax)	\n\t	movaps	%%xmm4,0x350(%%eax)	\n\t"\
 			"/* zB^2: */				\n\t	/* zB^2: */				\n\t"\
 			"movaps	0x160(%%eax),%%xmm0	\n\t	movaps	0x360(%%eax),%%xmm3	\n\t"\
 			"movaps	0x170(%%eax),%%xmm1	\n\t	movaps	0x370(%%eax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x160(%%eax),%%xmm1	\n\t	mulpd	0x360(%%eax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x160(%%eax)	\n\t	movaps	%%xmm3,0x360(%%eax)	\n\t"\
 			"movaps	%%xmm1,0x170(%%eax)	\n\t	movaps	%%xmm4,0x370(%%eax)	\n\t"\
 			"/* zC^2: */				\n\t	/* zC^2: */				\n\t"\
 			"movaps	0x180(%%eax),%%xmm0	\n\t	movaps	0x380(%%eax),%%xmm3	\n\t"\
 			"movaps	0x190(%%eax),%%xmm1	\n\t	movaps	0x390(%%eax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x180(%%eax),%%xmm1	\n\t	mulpd	0x380(%%eax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x180(%%eax)	\n\t	movaps	%%xmm3,0x380(%%eax)	\n\t"\
 			"movaps	%%xmm1,0x190(%%eax)	\n\t	movaps	%%xmm4,0x390(%%eax)	\n\t"\
 			"/* zD^2: */				\n\t	/* zD^2: */				\n\t"\
 			"movaps	0x1a0(%%eax),%%xmm0	\n\t	movaps	0x3a0(%%eax),%%xmm3	\n\t"\
 			"movaps	0x1b0(%%eax),%%xmm1	\n\t	movaps	0x3b0(%%eax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x1a0(%%eax),%%xmm1	\n\t	mulpd	0x3a0(%%eax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x1a0(%%eax)	\n\t	movaps	%%xmm3,0x3a0(%%eax)	\n\t"\
 			"movaps	%%xmm1,0x1b0(%%eax)	\n\t	movaps	%%xmm4,0x3b0(%%eax)	\n\t"\
 			"/* zE^2: */				\n\t	/* zE^2: */				\n\t"\
 			"movaps	0x1c0(%%eax),%%xmm0	\n\t	movaps	0x3c0(%%eax),%%xmm3	\n\t"\
 			"movaps	0x1d0(%%eax),%%xmm1	\n\t	movaps	0x3d0(%%eax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x1c0(%%eax),%%xmm1	\n\t	mulpd	0x3c0(%%eax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x1c0(%%eax)	\n\t	movaps	%%xmm3,0x3c0(%%eax)	\n\t"\
 			"movaps	%%xmm1,0x1d0(%%eax)	\n\t	movaps	%%xmm4,0x3d0(%%eax)	\n\t"\
 			"/* zF^2: */				\n\t	/* zF^2: */				\n\t"\
 			"movaps	0x1e0(%%eax),%%xmm0	\n\t	movaps	0x3e0(%%eax),%%xmm3	\n\t"\
 			"movaps	0x1f0(%%eax),%%xmm1	\n\t	movaps	0x3f0(%%eax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x1e0(%%eax),%%xmm1	\n\t	mulpd	0x3e0(%%eax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x1e0(%%eax)	\n\t	movaps	%%xmm3,0x3e0(%%eax)	\n\t"\
 			"movaps	%%xmm1,0x1f0(%%eax)	\n\t	movaps	%%xmm4,0x3f0(%%eax)	\n\t"\
 			:					// outputs: none
 			: [__r00] "m" (r00)	// All inputs from memory addresses here
-			: "cc","memory","eax"				// Clobbered registers
+			: "cc","memory","eax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5"	// Clobbered registers
 		);
 
 	  #else
@@ -1770,178 +1771,178 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		__asm__ volatile (\
 			"movq	%[__r00],%%rax			\n\t"\
 			"/* z0^2: */					\n\t	/* z0^2: */				\n\t"\
-			"vmovaps	     (%%rax),%%ymm0	\n\t	vmovaps	0x400(%%rax),%%ymm3	\n\t"\
+			"vmovaps		 (%%rax),%%ymm0	\n\t	vmovaps	0x400(%%rax),%%ymm3	\n\t"\
 			"vmovaps	0x020(%%rax),%%ymm1	\n\t	vmovaps	0x420(%%rax),%%ymm4	\n\t"\
-			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
-			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
-			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
-			"vmulpd	     (%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x400(%%rax),%%ymm4,%%ymm4		\n\t"\
+			"vmovaps		  %%ymm0,%%ymm2	\n\t	vmovaps		  %%ymm3,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd		  %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd		  %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd		  %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd		  %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd		  %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd		  %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmulpd		 (%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x400(%%rax),%%ymm4,%%ymm4		\n\t"\
 			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm3,0x400(%%rax)	\n\t"\
 			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm4,0x420(%%rax)	\n\t"\
 			"/* z1^2: */					\n\t	/* z1^2: */				\n\t"\
 			"vmovaps	0x040(%%rax),%%ymm0	\n\t	vmovaps	0x440(%%rax),%%ymm3	\n\t"\
 			"vmovaps	0x060(%%rax),%%ymm1	\n\t	vmovaps	0x460(%%rax),%%ymm4	\n\t"\
-			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
-			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
-			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmovaps		  %%ymm0,%%ymm2	\n\t	vmovaps		  %%ymm3,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd		  %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd		  %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd		  %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd		  %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd		  %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd		  %%ymm5,%%ymm3,%%ymm3	\n\t"\
 			"vmulpd	0x040(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x440(%%rax),%%ymm4,%%ymm4		\n\t"\
 			"vmovaps	%%ymm0,0x040(%%rax)	\n\t	vmovaps	%%ymm3,0x440(%%rax)	\n\t"\
 			"vmovaps	%%ymm1,0x060(%%rax)	\n\t	vmovaps	%%ymm4,0x460(%%rax)	\n\t"\
 			"/* z2^2: */					\n\t	/* z2^2: */				\n\t"\
 			"vmovaps	0x080(%%rax),%%ymm0	\n\t	vmovaps	0x480(%%rax),%%ymm3	\n\t"\
 			"vmovaps	0x0a0(%%rax),%%ymm1	\n\t	vmovaps	0x4a0(%%rax),%%ymm4	\n\t"\
-			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
-			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
-			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmovaps		  %%ymm0,%%ymm2	\n\t	vmovaps		  %%ymm3,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd		  %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd		  %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd		  %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd		  %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd		  %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd		  %%ymm5,%%ymm3,%%ymm3	\n\t"\
 			"vmulpd	0x080(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x480(%%rax),%%ymm4,%%ymm4		\n\t"\
 			"vmovaps	%%ymm0,0x080(%%rax)	\n\t	vmovaps	%%ymm3,0x480(%%rax)	\n\t"\
 			"vmovaps	%%ymm1,0x0a0(%%rax)	\n\t	vmovaps	%%ymm4,0x4a0(%%rax)	\n\t"\
 			"/* z3^2: */					\n\t	/* z3^2: */				\n\t"\
 			"vmovaps	0x0c0(%%rax),%%ymm0	\n\t	vmovaps	0x4c0(%%rax),%%ymm3	\n\t"\
 			"vmovaps	0x0e0(%%rax),%%ymm1	\n\t	vmovaps	0x4e0(%%rax),%%ymm4	\n\t"\
-			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
-			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
-			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmovaps		  %%ymm0,%%ymm2	\n\t	vmovaps		  %%ymm3,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd		  %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd		  %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd		  %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd		  %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd		  %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd		  %%ymm5,%%ymm3,%%ymm3	\n\t"\
 			"vmulpd	0x0c0(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x4c0(%%rax),%%ymm4,%%ymm4		\n\t"\
 			"vmovaps	%%ymm0,0x0c0(%%rax)	\n\t	vmovaps	%%ymm3,0x4c0(%%rax)	\n\t"\
 			"vmovaps	%%ymm1,0x0e0(%%rax)	\n\t	vmovaps	%%ymm4,0x4e0(%%rax)	\n\t"\
 			"/* z4^2: */					\n\t	/* z4^2: */				\n\t"\
 			"vmovaps	0x100(%%rax),%%ymm0	\n\t	vmovaps	0x500(%%rax),%%ymm3	\n\t"\
 			"vmovaps	0x120(%%rax),%%ymm1	\n\t	vmovaps	0x520(%%rax),%%ymm4	\n\t"\
-			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
-			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
-			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmovaps		  %%ymm0,%%ymm2	\n\t	vmovaps		  %%ymm3,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd		  %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd		  %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd		  %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd		  %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd		  %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd		  %%ymm5,%%ymm3,%%ymm3	\n\t"\
 			"vmulpd	0x100(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x500(%%rax),%%ymm4,%%ymm4		\n\t"\
 			"vmovaps	%%ymm0,0x100(%%rax)	\n\t	vmovaps	%%ymm3,0x500(%%rax)	\n\t"\
 			"vmovaps	%%ymm1,0x120(%%rax)	\n\t	vmovaps	%%ymm4,0x520(%%rax)	\n\t"\
 			"/* z5^2: */					\n\t	/* z5^2: */				\n\t"\
 			"vmovaps	0x140(%%rax),%%ymm0	\n\t	vmovaps	0x540(%%rax),%%ymm3	\n\t"\
 			"vmovaps	0x160(%%rax),%%ymm1	\n\t	vmovaps	0x560(%%rax),%%ymm4	\n\t"\
-			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
-			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
-			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmovaps		  %%ymm0,%%ymm2	\n\t	vmovaps		  %%ymm3,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd		  %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd		  %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd		  %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd		  %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd		  %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd		  %%ymm5,%%ymm3,%%ymm3	\n\t"\
 			"vmulpd	0x140(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x540(%%rax),%%ymm4,%%ymm4		\n\t"\
 			"vmovaps	%%ymm0,0x140(%%rax)	\n\t	vmovaps	%%ymm3,0x540(%%rax)	\n\t"\
 			"vmovaps	%%ymm1,0x160(%%rax)	\n\t	vmovaps	%%ymm4,0x560(%%rax)	\n\t"\
 			"/* z6^2: */					\n\t	/* z6^2: */				\n\t"\
 			"vmovaps	0x180(%%rax),%%ymm0	\n\t	vmovaps	0x580(%%rax),%%ymm3	\n\t"\
 			"vmovaps	0x1a0(%%rax),%%ymm1	\n\t	vmovaps	0x5a0(%%rax),%%ymm4	\n\t"\
-			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
-			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
-			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmovaps		  %%ymm0,%%ymm2	\n\t	vmovaps		  %%ymm3,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd		  %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd		  %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd		  %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd		  %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd		  %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd		  %%ymm5,%%ymm3,%%ymm3	\n\t"\
 			"vmulpd	0x180(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x580(%%rax),%%ymm4,%%ymm4		\n\t"\
 			"vmovaps	%%ymm0,0x180(%%rax)	\n\t	vmovaps	%%ymm3,0x580(%%rax)	\n\t"\
 			"vmovaps	%%ymm1,0x1a0(%%rax)	\n\t	vmovaps	%%ymm4,0x5a0(%%rax)	\n\t"\
 			"/* z7^2: */					\n\t	/* z7^2: */				\n\t"\
 			"vmovaps	0x1c0(%%rax),%%ymm0	\n\t	vmovaps	0x5c0(%%rax),%%ymm3	\n\t"\
 			"vmovaps	0x1e0(%%rax),%%ymm1	\n\t	vmovaps	0x5e0(%%rax),%%ymm4	\n\t"\
-			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
-			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
-			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmovaps		  %%ymm0,%%ymm2	\n\t	vmovaps		  %%ymm3,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd		  %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd		  %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd		  %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd		  %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd		  %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd		  %%ymm5,%%ymm3,%%ymm3	\n\t"\
 			"vmulpd	0x1c0(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x5c0(%%rax),%%ymm4,%%ymm4		\n\t"\
 			"vmovaps	%%ymm0,0x1c0(%%rax)	\n\t	vmovaps	%%ymm3,0x5c0(%%rax)	\n\t"\
 			"vmovaps	%%ymm1,0x1e0(%%rax)	\n\t	vmovaps	%%ymm4,0x5e0(%%rax)	\n\t"\
 			"/* z8^2: */					\n\t	/* z8^2: */				\n\t"\
 			"vmovaps	0x200(%%rax),%%ymm0	\n\t	vmovaps	0x600(%%rax),%%ymm3	\n\t"\
 			"vmovaps	0x220(%%rax),%%ymm1	\n\t	vmovaps	0x620(%%rax),%%ymm4	\n\t"\
-			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
-			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
-			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmovaps		  %%ymm0,%%ymm2	\n\t	vmovaps		  %%ymm3,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd		  %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd		  %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd		  %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd		  %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd		  %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd		  %%ymm5,%%ymm3,%%ymm3	\n\t"\
 			"vmulpd	0x200(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x600(%%rax),%%ymm4,%%ymm4		\n\t"\
 			"vmovaps	%%ymm0,0x200(%%rax)	\n\t	vmovaps	%%ymm3,0x600(%%rax)	\n\t"\
 			"vmovaps	%%ymm1,0x220(%%rax)	\n\t	vmovaps	%%ymm4,0x620(%%rax)	\n\t"\
 			"/* z9^2: */					\n\t	/* z9^2: */				\n\t"\
 			"vmovaps	0x240(%%rax),%%ymm0	\n\t	vmovaps	0x640(%%rax),%%ymm3	\n\t"\
 			"vmovaps	0x260(%%rax),%%ymm1	\n\t	vmovaps	0x660(%%rax),%%ymm4	\n\t"\
-			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
-			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
-			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmovaps		  %%ymm0,%%ymm2	\n\t	vmovaps		  %%ymm3,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd		  %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd		  %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd		  %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd		  %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd		  %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd		  %%ymm5,%%ymm3,%%ymm3	\n\t"\
 			"vmulpd	0x240(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x640(%%rax),%%ymm4,%%ymm4		\n\t"\
 			"vmovaps	%%ymm0,0x240(%%rax)	\n\t	vmovaps	%%ymm3,0x640(%%rax)	\n\t"\
 			"vmovaps	%%ymm1,0x260(%%rax)	\n\t	vmovaps	%%ymm4,0x660(%%rax)	\n\t"\
 			"/* zA^2: */					\n\t	/* zA^2: */				\n\t"\
 			"vmovaps	0x280(%%rax),%%ymm0	\n\t	vmovaps	0x680(%%rax),%%ymm3	\n\t"\
 			"vmovaps	0x2a0(%%rax),%%ymm1	\n\t	vmovaps	0x6a0(%%rax),%%ymm4	\n\t"\
-			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
-			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
-			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmovaps		  %%ymm0,%%ymm2	\n\t	vmovaps		  %%ymm3,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd		  %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd		  %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd		  %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd		  %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd		  %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd		  %%ymm5,%%ymm3,%%ymm3	\n\t"\
 			"vmulpd	0x280(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x680(%%rax),%%ymm4,%%ymm4		\n\t"\
 			"vmovaps	%%ymm0,0x280(%%rax)	\n\t	vmovaps	%%ymm3,0x680(%%rax)	\n\t"\
 			"vmovaps	%%ymm1,0x2a0(%%rax)	\n\t	vmovaps	%%ymm4,0x6a0(%%rax)	\n\t"\
 			"/* zB^2: */					\n\t	/* zB^2: */				\n\t"\
 			"vmovaps	0x2c0(%%rax),%%ymm0	\n\t	vmovaps	0x6c0(%%rax),%%ymm3	\n\t"\
 			"vmovaps	0x2e0(%%rax),%%ymm1	\n\t	vmovaps	0x6e0(%%rax),%%ymm4	\n\t"\
-			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
-			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
-			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmovaps		  %%ymm0,%%ymm2	\n\t	vmovaps		  %%ymm3,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd		  %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd		  %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd		  %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd		  %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd		  %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd		  %%ymm5,%%ymm3,%%ymm3	\n\t"\
 			"vmulpd	0x2c0(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x6c0(%%rax),%%ymm4,%%ymm4		\n\t"\
 			"vmovaps	%%ymm0,0x2c0(%%rax)	\n\t	vmovaps	%%ymm3,0x6c0(%%rax)	\n\t"\
 			"vmovaps	%%ymm1,0x2e0(%%rax)	\n\t	vmovaps	%%ymm4,0x6e0(%%rax)	\n\t"\
 			"/* zC^2: */					\n\t	/* zC^2: */				\n\t"\
 			"vmovaps	0x300(%%rax),%%ymm0	\n\t	vmovaps	0x700(%%rax),%%ymm3	\n\t"\
 			"vmovaps	0x320(%%rax),%%ymm1	\n\t	vmovaps	0x720(%%rax),%%ymm4	\n\t"\
-			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
-			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
-			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmovaps		  %%ymm0,%%ymm2	\n\t	vmovaps		  %%ymm3,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd		  %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd		  %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd		  %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd		  %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd		  %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd		  %%ymm5,%%ymm3,%%ymm3	\n\t"\
 			"vmulpd	0x300(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x700(%%rax),%%ymm4,%%ymm4		\n\t"\
 			"vmovaps	%%ymm0,0x300(%%rax)	\n\t	vmovaps	%%ymm3,0x700(%%rax)	\n\t"\
 			"vmovaps	%%ymm1,0x320(%%rax)	\n\t	vmovaps	%%ymm4,0x720(%%rax)	\n\t"\
 			"/* zD^2: */					\n\t	/* zD^2: */				\n\t"\
 			"vmovaps	0x340(%%rax),%%ymm0	\n\t	vmovaps	0x740(%%rax),%%ymm3	\n\t"\
 			"vmovaps	0x360(%%rax),%%ymm1	\n\t	vmovaps	0x760(%%rax),%%ymm4	\n\t"\
-			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
-			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
-			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmovaps		  %%ymm0,%%ymm2	\n\t	vmovaps		  %%ymm3,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd		  %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd		  %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd		  %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd		  %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd		  %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd		  %%ymm5,%%ymm3,%%ymm3	\n\t"\
 			"vmulpd	0x340(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x740(%%rax),%%ymm4,%%ymm4		\n\t"\
 			"vmovaps	%%ymm0,0x340(%%rax)	\n\t	vmovaps	%%ymm3,0x740(%%rax)	\n\t"\
 			"vmovaps	%%ymm1,0x360(%%rax)	\n\t	vmovaps	%%ymm4,0x760(%%rax)	\n\t"\
 			"/* zE^2: */					\n\t	/* zE^2: */				\n\t"\
 			"vmovaps	0x380(%%rax),%%ymm0	\n\t	vmovaps	0x780(%%rax),%%ymm3	\n\t"\
 			"vmovaps	0x3a0(%%rax),%%ymm1	\n\t	vmovaps	0x7a0(%%rax),%%ymm4	\n\t"\
-			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
-			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
-			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmovaps		  %%ymm0,%%ymm2	\n\t	vmovaps		  %%ymm3,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd		  %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd		  %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd		  %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd		  %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd		  %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd		  %%ymm5,%%ymm3,%%ymm3	\n\t"\
 			"vmulpd	0x380(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x780(%%rax),%%ymm4,%%ymm4		\n\t"\
 			"vmovaps	%%ymm0,0x380(%%rax)	\n\t	vmovaps	%%ymm3,0x780(%%rax)	\n\t"\
 			"vmovaps	%%ymm1,0x3a0(%%rax)	\n\t	vmovaps	%%ymm4,0x7a0(%%rax)	\n\t"\
 			"/* zF^2: */					\n\t	/* zF^2: */				\n\t"\
 			"vmovaps	0x3c0(%%rax),%%ymm0	\n\t	vmovaps	0x7c0(%%rax),%%ymm3	\n\t"\
 			"vmovaps	0x3e0(%%rax),%%ymm1	\n\t	vmovaps	0x7e0(%%rax),%%ymm4	\n\t"\
-			"vmovaps	      %%ymm0,%%ymm2	\n\t	vmovaps	      %%ymm3,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd	      %%ymm4,%%ymm3,%%ymm3	\n\t"\
-			"vsubpd	      %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd	      %%ymm4,%%ymm5,%%ymm5	\n\t"\
-			"vaddpd	      %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd	      %%ymm4,%%ymm4,%%ymm4	\n\t"\
-			"vmulpd	      %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd	      %%ymm5,%%ymm3,%%ymm3	\n\t"\
+			"vmovaps		  %%ymm0,%%ymm2	\n\t	vmovaps		  %%ymm3,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm0,%%ymm0		\n\t	vaddpd		  %%ymm4,%%ymm3,%%ymm3	\n\t"\
+			"vsubpd		  %%ymm1,%%ymm2,%%ymm2		\n\t	vsubpd		  %%ymm4,%%ymm5,%%ymm5	\n\t"\
+			"vaddpd		  %%ymm1,%%ymm1,%%ymm1		\n\t	vaddpd		  %%ymm4,%%ymm4,%%ymm4	\n\t"\
+			"vmulpd		  %%ymm2,%%ymm0,%%ymm0		\n\t	vmulpd		  %%ymm5,%%ymm3,%%ymm3	\n\t"\
 			"vmulpd	0x3c0(%%rax),%%ymm1,%%ymm1		\n\t	vmulpd	0x7c0(%%rax),%%ymm4,%%ymm4		\n\t"\
 			"vmovaps	%%ymm0,0x3c0(%%rax)	\n\t	vmovaps	%%ymm3,0x7c0(%%rax)	\n\t"\
 			"vmovaps	%%ymm1,0x3e0(%%rax)	\n\t	vmovaps	%%ymm4,0x7e0(%%rax)	\n\t"\
@@ -1955,178 +1956,178 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		__asm__ volatile (\
 			"movq	%[__r00],%%rax		\n\t"\
 			"/* z0^2: */				\n\t	/* z0^2: */				\n\t"\
-			"movaps	     (%%rax),%%xmm0	\n\t	movaps	0x200(%%rax),%%xmm3	\n\t"\
+			"movaps		 (%%rax),%%xmm0	\n\t	movaps	0x200(%%rax),%%xmm3	\n\t"\
 			"movaps	0x010(%%rax),%%xmm1	\n\t	movaps	0x210(%%rax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
-			"mulpd	     (%%rax),%%xmm1	\n\t	mulpd	0x200(%%rax),%%xmm4	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
+			"mulpd		 (%%rax),%%xmm1	\n\t	mulpd	0x200(%%rax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm3,0x200(%%rax)	\n\t"\
 			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm4,0x210(%%rax)	\n\t"\
 			"/* z1^2: */				\n\t	/* z1^2: */				\n\t"\
 			"movaps	0x020(%%rax),%%xmm0	\n\t	movaps	0x220(%%rax),%%xmm3	\n\t"\
 			"movaps	0x030(%%rax),%%xmm1	\n\t	movaps	0x230(%%rax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x020(%%rax),%%xmm1	\n\t	mulpd	0x220(%%rax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x020(%%rax)	\n\t	movaps	%%xmm3,0x220(%%rax)	\n\t"\
 			"movaps	%%xmm1,0x030(%%rax)	\n\t	movaps	%%xmm4,0x230(%%rax)	\n\t"\
 			"/* z2^2: */				\n\t	/* z2^2: */				\n\t"\
 			"movaps	0x040(%%rax),%%xmm0	\n\t	movaps	0x240(%%rax),%%xmm3	\n\t"\
 			"movaps	0x050(%%rax),%%xmm1	\n\t	movaps	0x250(%%rax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x040(%%rax),%%xmm1	\n\t	mulpd	0x240(%%rax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x040(%%rax)	\n\t	movaps	%%xmm3,0x240(%%rax)	\n\t"\
 			"movaps	%%xmm1,0x050(%%rax)	\n\t	movaps	%%xmm4,0x250(%%rax)	\n\t"\
 			"/* z3^2: */				\n\t	/* z3^2: */				\n\t"\
 			"movaps	0x060(%%rax),%%xmm0	\n\t	movaps	0x260(%%rax),%%xmm3	\n\t"\
 			"movaps	0x070(%%rax),%%xmm1	\n\t	movaps	0x270(%%rax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x060(%%rax),%%xmm1	\n\t	mulpd	0x260(%%rax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x060(%%rax)	\n\t	movaps	%%xmm3,0x260(%%rax)	\n\t"\
 			"movaps	%%xmm1,0x070(%%rax)	\n\t	movaps	%%xmm4,0x270(%%rax)	\n\t"\
 			"/* z4^2: */				\n\t	/* z4^2: */				\n\t"\
 			"movaps	0x080(%%rax),%%xmm0	\n\t	movaps	0x280(%%rax),%%xmm3	\n\t"\
 			"movaps	0x090(%%rax),%%xmm1	\n\t	movaps	0x290(%%rax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x080(%%rax),%%xmm1	\n\t	mulpd	0x280(%%rax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x080(%%rax)	\n\t	movaps	%%xmm3,0x280(%%rax)	\n\t"\
 			"movaps	%%xmm1,0x090(%%rax)	\n\t	movaps	%%xmm4,0x290(%%rax)	\n\t"\
 			"/* z5^2: */				\n\t	/* z5^2: */				\n\t"\
 			"movaps	0x0a0(%%rax),%%xmm0	\n\t	movaps	0x2a0(%%rax),%%xmm3	\n\t"\
 			"movaps	0x0b0(%%rax),%%xmm1	\n\t	movaps	0x2b0(%%rax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x0a0(%%rax),%%xmm1	\n\t	mulpd	0x2a0(%%rax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x0a0(%%rax)	\n\t	movaps	%%xmm3,0x2a0(%%rax)	\n\t"\
 			"movaps	%%xmm1,0x0b0(%%rax)	\n\t	movaps	%%xmm4,0x2b0(%%rax)	\n\t"\
 			"/* z6^2: */				\n\t	/* z6^2: */				\n\t"\
 			"movaps	0x0c0(%%rax),%%xmm0	\n\t	movaps	0x2c0(%%rax),%%xmm3	\n\t"\
 			"movaps	0x0d0(%%rax),%%xmm1	\n\t	movaps	0x2d0(%%rax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x0c0(%%rax),%%xmm1	\n\t	mulpd	0x2c0(%%rax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x0c0(%%rax)	\n\t	movaps	%%xmm3,0x2c0(%%rax)	\n\t"\
 			"movaps	%%xmm1,0x0d0(%%rax)	\n\t	movaps	%%xmm4,0x2d0(%%rax)	\n\t"\
 			"/* z7^2: */				\n\t	/* z7^2: */				\n\t"\
 			"movaps	0x0e0(%%rax),%%xmm0	\n\t	movaps	0x2e0(%%rax),%%xmm3	\n\t"\
 			"movaps	0x0f0(%%rax),%%xmm1	\n\t	movaps	0x2f0(%%rax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x0e0(%%rax),%%xmm1	\n\t	mulpd	0x2e0(%%rax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x0e0(%%rax)	\n\t	movaps	%%xmm3,0x2e0(%%rax)	\n\t"\
 			"movaps	%%xmm1,0x0f0(%%rax)	\n\t	movaps	%%xmm4,0x2f0(%%rax)	\n\t"\
 			"/* z8^2: */				\n\t	/* z8^2: */				\n\t"\
 			"movaps	0x100(%%rax),%%xmm0	\n\t	movaps	0x300(%%rax),%%xmm3	\n\t"\
 			"movaps	0x110(%%rax),%%xmm1	\n\t	movaps	0x310(%%rax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x100(%%rax),%%xmm1	\n\t	mulpd	0x300(%%rax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x100(%%rax)	\n\t	movaps	%%xmm3,0x300(%%rax)	\n\t"\
 			"movaps	%%xmm1,0x110(%%rax)	\n\t	movaps	%%xmm4,0x310(%%rax)	\n\t"\
 			"/* z9^2: */				\n\t	/* z9^2: */				\n\t"\
 			"movaps	0x120(%%rax),%%xmm0	\n\t	movaps	0x320(%%rax),%%xmm3	\n\t"\
 			"movaps	0x130(%%rax),%%xmm1	\n\t	movaps	0x330(%%rax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x120(%%rax),%%xmm1	\n\t	mulpd	0x320(%%rax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x120(%%rax)	\n\t	movaps	%%xmm3,0x320(%%rax)	\n\t"\
 			"movaps	%%xmm1,0x130(%%rax)	\n\t	movaps	%%xmm4,0x330(%%rax)	\n\t"\
 			"/* zA^2: */				\n\t	/* zA^2: */				\n\t"\
 			"movaps	0x140(%%rax),%%xmm0	\n\t	movaps	0x340(%%rax),%%xmm3	\n\t"\
 			"movaps	0x150(%%rax),%%xmm1	\n\t	movaps	0x350(%%rax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x140(%%rax),%%xmm1	\n\t	mulpd	0x340(%%rax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x140(%%rax)	\n\t	movaps	%%xmm3,0x340(%%rax)	\n\t"\
 			"movaps	%%xmm1,0x150(%%rax)	\n\t	movaps	%%xmm4,0x350(%%rax)	\n\t"\
 			"/* zB^2: */				\n\t	/* zB^2: */				\n\t"\
 			"movaps	0x160(%%rax),%%xmm0	\n\t	movaps	0x360(%%rax),%%xmm3	\n\t"\
 			"movaps	0x170(%%rax),%%xmm1	\n\t	movaps	0x370(%%rax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x160(%%rax),%%xmm1	\n\t	mulpd	0x360(%%rax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x160(%%rax)	\n\t	movaps	%%xmm3,0x360(%%rax)	\n\t"\
 			"movaps	%%xmm1,0x170(%%rax)	\n\t	movaps	%%xmm4,0x370(%%rax)	\n\t"\
 			"/* zC^2: */				\n\t	/* zC^2: */				\n\t"\
 			"movaps	0x180(%%rax),%%xmm0	\n\t	movaps	0x380(%%rax),%%xmm3	\n\t"\
 			"movaps	0x190(%%rax),%%xmm1	\n\t	movaps	0x390(%%rax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x180(%%rax),%%xmm1	\n\t	mulpd	0x380(%%rax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x180(%%rax)	\n\t	movaps	%%xmm3,0x380(%%rax)	\n\t"\
 			"movaps	%%xmm1,0x190(%%rax)	\n\t	movaps	%%xmm4,0x390(%%rax)	\n\t"\
 			"/* zD^2: */				\n\t	/* zD^2: */				\n\t"\
 			"movaps	0x1a0(%%rax),%%xmm0	\n\t	movaps	0x3a0(%%rax),%%xmm3	\n\t"\
 			"movaps	0x1b0(%%rax),%%xmm1	\n\t	movaps	0x3b0(%%rax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x1a0(%%rax),%%xmm1	\n\t	mulpd	0x3a0(%%rax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x1a0(%%rax)	\n\t	movaps	%%xmm3,0x3a0(%%rax)	\n\t"\
 			"movaps	%%xmm1,0x1b0(%%rax)	\n\t	movaps	%%xmm4,0x3b0(%%rax)	\n\t"\
 			"/* zE^2: */				\n\t	/* zE^2: */				\n\t"\
 			"movaps	0x1c0(%%rax),%%xmm0	\n\t	movaps	0x3c0(%%rax),%%xmm3	\n\t"\
 			"movaps	0x1d0(%%rax),%%xmm1	\n\t	movaps	0x3d0(%%rax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x1c0(%%rax),%%xmm1	\n\t	mulpd	0x3c0(%%rax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x1c0(%%rax)	\n\t	movaps	%%xmm3,0x3c0(%%rax)	\n\t"\
 			"movaps	%%xmm1,0x1d0(%%rax)	\n\t	movaps	%%xmm4,0x3d0(%%rax)	\n\t"\
 			"/* zF^2: */				\n\t	/* zF^2: */				\n\t"\
 			"movaps	0x1e0(%%rax),%%xmm0	\n\t	movaps	0x3e0(%%rax),%%xmm3	\n\t"\
 			"movaps	0x1f0(%%rax),%%xmm1	\n\t	movaps	0x3f0(%%rax),%%xmm4	\n\t"\
-			"movaps	      %%xmm0,%%xmm2	\n\t	movaps	      %%xmm3,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm0	\n\t	addpd	      %%xmm4,%%xmm3	\n\t"\
-			"subpd	      %%xmm1,%%xmm2	\n\t	subpd	      %%xmm4,%%xmm5	\n\t"\
-			"addpd	      %%xmm1,%%xmm1	\n\t	addpd	      %%xmm4,%%xmm4	\n\t"\
-			"mulpd	      %%xmm2,%%xmm0	\n\t	mulpd	      %%xmm5,%%xmm3	\n\t"\
+			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
+			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
+			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
+			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
 			"mulpd	0x1e0(%%rax),%%xmm1	\n\t	mulpd	0x3e0(%%rax),%%xmm4	\n\t"\
 			"movaps	%%xmm0,0x1e0(%%rax)	\n\t	movaps	%%xmm3,0x3e0(%%rax)	\n\t"\
 			"movaps	%%xmm1,0x1f0(%%rax)	\n\t	movaps	%%xmm4,0x3f0(%%rax)	\n\t"\
@@ -3359,10 +3360,13 @@ The scratch array (2nd input argument) is only needed for data table initializat
 
 		SSE2_RADIX32_WRAPPER_DIT(add0,add1,add2,add3,isrt2,r00,r08,r10,r20,r28,r30,c01,c02,c04,c06,c08,c0A,c0C,c0E,c10,c12,c14,c16,c18,c1A,c1C,c1E)
 
-
 	  #else	// SSE2:
 
-		SSE2_RADIX32_WRAPPER_DIT(add0,add1,          isrt2,r00,r08,r10,r20,r28,r30,c01,c02,c04,c06,c08,c0A,c0C,c0E,c10,c12,c14,c16,c18,c1A,c1C,c1E)
+	   #if OS_BITS == 64
+		SSE2_RADIX32_WRAPPER_DIT(add0,add1          ,isrt2,r00,r08,r10,r20,r28,r30    ,c01,c02    ,c04    ,c06    ,c08,c0A,c0C,c0E,c10,c12,c14,c16,c18,c1A,c1C,c1E)
+	   #else	// 32-bit SSE2:
+		SSE2_RADIX32_WRAPPER_DIT(add0,add1          ,isrt2,r00,r08,r10,r20,r28,r30,c00,c01,c02,c03,c04,c05,c06,c07,c08,c0A,c0C,c0E,c10,c12,c14,c16,c18,c1A,c1C,c1E)
+	   #endif
 
 	  #endif
 

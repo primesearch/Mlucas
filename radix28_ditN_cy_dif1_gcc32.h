@@ -29,6 +29,7 @@
 	#define	SSE2_RADIX28_DIT_NOTWIDDLE(Xadd,Xp01,Xp02,Xp03,Xp04,Xp08,Xp12,Xp16,Xp20,Xp24,Xout,Xcc0)\
 	{\
 	__asm__ volatile (\
+	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
 		"/* SSE2_RADIX4_DIT_0TWIDDLE_STRIDE_E(add00+p[0,1,3,2], s1p00r,s1p03r,s1p02r,s1p01r): */\n\t"\
 			"movl	%[__out],%%esi	/* s1p00r */\n\t"\
 			"movl	%[__add],%%eax\n\t"\
@@ -1141,6 +1142,7 @@
 			"movaps	%%xmm3,0x010(%%edi)		/* <-B3i = s1p24r */\n\t"\
 			"movaps	%%xmm4,     (%%edi)		/* <-B3r = s1p24r */\n\t"\
 			"movaps	%%xmm5,0x110(%%edi)		/* <-B4i = s1p04i */\n\t"\
+	"popl %%ebx	\n\t"\
 			"\n\t"\
 			:					/* outputs: none */\
 			: [__add] "m" (Xadd)	/* All inputs from memory addresses here */\
@@ -1155,7 +1157,7 @@
 			 ,[__p24] "m" (Xp24)\
 			 ,[__out] "m" (Xout)\
 			 ,[__cc0] "m" (Xcc0)\
-			: "cc","memory","eax","ebx","ecx","edx","edi","esi"		/* Clobbered registers */\
+			: "cc","memory","eax",/*"ebx",*/"ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 		);\
 	}
 
@@ -1163,6 +1165,7 @@
 	#define	SSE2_RADIX28_DIF_NOTWIDDLE(Xadd,Xp01,Xp02,Xp03,Xp04,Xp08,Xp12,Xp16,Xp20,Xp24,Xout,Xcc0)\
 	{\
 	__asm__ volatile (\
+	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
 		"/* SSE2_RADIX_07_DFT(s1p00r,s1p24r,s1p20r,s1p16r,s1p12r,s1p08r,s1p04r,cc0,s1p00r,s1p04r,s1p08r,s1p12r,s1p16r,s1p20r,s1p24r): */\n\t"\
 			"movl	%[__out],%%edi	/* s1p00r */\n\t"\
 			"movl	%[__cc0],%%eax	/* cc0 */\n\t"\
@@ -2240,6 +2243,7 @@
 			"movaps	%%xmm5,0x010(%%ecx)		/* <- ~t2 */\n\t"\
 			"movaps	%%xmm6,0x010(%%ebx)		/* <- ~t8 */\n\t"\
 			"\n\t"\
+	"popl %%ebx	\n\t"\
 			:					/* outputs: none */\
 			: [__add] "m" (Xadd)	/* All inputs from memory addresses here */\
 			 ,[__p01] "m" (Xp01)\
@@ -2253,7 +2257,7 @@
 			 ,[__p24] "m" (Xp24)\
 			 ,[__out] "m" (Xout)\
 			 ,[__cc0] "m" (Xcc0)\
-			: "cc","memory","eax","ebx","ecx","edx","edi","esi"		/* Clobbered registers */\
+			: "cc","memory","eax",/*"ebx",*/"ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 		);\
 	}
 

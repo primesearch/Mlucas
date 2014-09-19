@@ -388,6 +388,9 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 	#endif
 		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
 		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
+			free((void *)sc_arr);	sc_arr=0x0;
+		}
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x90*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
@@ -2517,6 +2520,9 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 	#endif
 		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
 		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
+			free((void *)sc_arr);	sc_arr=0x0;
+		}
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x90*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");

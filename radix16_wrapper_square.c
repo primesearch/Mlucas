@@ -447,6 +447,9 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	#ifdef USE_SSE2
 
 		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
+		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
+			free((void *)sc_arr);	sc_arr=0x0;
+		}
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 72*max_threads);	ASSERT(HERE, sc_arr != 0,"FATAL: unable to allocate sc_arr!");
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
@@ -623,6 +626,9 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	!   We don't need a separate sincos array for the rea/complex wrapper phase, since this uses the same sincos datum
 	!   as is used for the the first of each of the two blocks of 16 complex FFT data.
 	*/
+		if(index_ptmp != 0x0) {	// Have previously-malloc'ed local storage
+			free((void *)index_ptmp);	index_ptmp=0x0;
+		}
 		index_ptmp = ALLOC_INT(index_ptmp, N2/16);
 		ASSERT(HERE, index_ptmp != 0,"FATAL: unable to allocate array INDEX!");
 		index = ALIGN_INT(index_ptmp);
@@ -971,7 +977,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	blocklen_sum = ws_blocklen_sum;
 
 //	fprintf(stderr,"stride = %d\n",stride);
-//	fprintf(stderr,"On entry: j1,j2 = %u, %u, nradices_prim = %u, blocklen = %u\n",j1,j2,nradices_prim,blocklen);
+//	fprintf(stderr,"On entry: i = %u, j1,j2,j2_start = %u, %u, %u, k,m = %u, %u, nrad_prim = %u, blocklen,sum = %u\n",
+//		i,j1,j2,j2_start,k,m,nradices_prim,blocklen,blocklen_sum);
 
 	/* If j1 == 0 we need to init the loop counters; otherwise, just jump
 	   right in and pick up where we left off on the previous pair of blocks:
@@ -996,8 +1003,9 @@ for(i = nradices_prim-5; i >= 0; i-- )	/* Main loop: lower bound = nradices_prim
 	for(m = 0; m < (blocklen-1)>>1; m += 8) /* Since we now process TWO 16-element sets per loop execution, only execute the loop half as many times as before. */
 #endif
 	{
-	//	if((j1 & ndivrad0m1 == 0) && j1*radix0%n != 0) printf("WARN: %8d  %8d\n",j1 & ndivrad0m1,j1*radix0%n);
-		if(j1 && j1*radix0%n == 0)
+		// This tells us when we've reached the end of the current data block:
+		// Apr 2014: Must store intermediate product j1*radix0 in a 64-bit int to prevent overflow!
+		if(j1 && ((uint64)j1*radix0)%n == 0)
 		{
 		//	fprintf(stderr,"(j1 && j1*radix0 == 0 (mod n)) check hit: returning\n");
 			return;
@@ -2947,11 +2955,11 @@ addr += 4;
 
 		__asm__ volatile (\
 			"movl	%[tmp0],%%eax\n\t"\
-			"movl	%[tmp1],%%ebx\n\t"\
+			"movl	%[tmp1],%%esi\n\t"\
 			"movl	%[tmp2],%%ecx\n\t"\
 			"movl	%[tmp3],%%edx\n\t"\
 			"movaps	(%%eax),%%xmm0\n\t"\
-			"movaps	(%%ebx),%%xmm1\n\t"\
+			"movaps	(%%esi),%%xmm1\n\t"\
 			"movaps	(%%ecx),%%xmm2\n\t"\
 			"movaps	(%%edx),%%xmm3\n\t"\
 			"shufpd	$1	,%%xmm0	,%%xmm0\n\t"\
@@ -2959,7 +2967,7 @@ addr += 4;
 			"shufpd	$1	,%%xmm2	,%%xmm2\n\t"\
 			"shufpd	$1	,%%xmm3	,%%xmm3\n\t"\
 			"movaps	%%xmm0,(%%eax)\n\t"\
-			"movaps	%%xmm1,(%%ebx)\n\t"\
+			"movaps	%%xmm1,(%%esi)\n\t"\
 			"movaps	%%xmm2,(%%ecx)\n\t"\
 			"movaps	%%xmm3,(%%edx)\n\t"\
 			:					// outputs: none
@@ -2967,7 +2975,7 @@ addr += 4;
 			 ,[tmp1] "m" (tmp1)
 			 ,[tmp2] "m" (tmp2)
 			 ,[tmp3] "m" (tmp3)
-			: "cc","memory","eax","ebx","ecx","edx"		// Clobbered registers
+			: "cc","memory","eax","esi","ecx","edx","xmm0","xmm1","xmm2","xmm3"		// Clobbered registers
 		);
 
 		#elif defined(USE_AVX)	// 64-bit AVX build

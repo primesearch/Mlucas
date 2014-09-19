@@ -112,13 +112,23 @@ completely non-portable substitute:
 	typedef const          long long	sint64c;
 	typedef const unsigned long long	uint64c;
 #endif
-#ifdef int64_t
-#error int64_t already defined!
-	typedef  int64		 int64_t;
-	typedef uint64		uint64_t;
+/*
+#ifdef int32_t
+	#warning int32_t already defined!
+#else
 	typedef  int32		 int32_t;
 	typedef uint32		uint32_t;
 #endif
+
+EWM: nvcc gives 'error: invalid redeclaration of type name "int64_t"' for the typedef following the #else here, i.e. ignores the #ifdef. WTF?
+
+#ifdef int64_t
+	#warning int64_t already defined!
+#else
+	typedef  int64		 int64_t;
+	typedef uint64		uint64_t;
+#endif
+*/
 /*******************************************************************************
    Some useful utility macros:
 *******************************************************************************/
@@ -184,17 +194,44 @@ whenever available:
 #undef  DNINT
 /* Consider broadening these platform checks to "Is C99 Standard supported?" if validate no adverse performance impact */
 #ifdef USE_RINT
+
+  #ifdef COMPILER_TYPE_GCC
+	#warning Using rint() for DNINT
+  #endif
 	/* E.g. CUDA kernel code needs rint(), not lrint() */
 	#define DNINT(x)  rint((x))
+
 #elif(defined(COMPILER_TYPE_ICC) || defined(COMPILER_TYPE_SUNC))
+
+  #ifdef COMPILER_TYPE_GCC
+	#warning Using rint() for DNINT
+  #endif
 	#define DNINT(x)  rint((x))
-#elif(defined(COMPILER_TYPE_GCC))
+
+// Mustn't use lrint in 32-bit mode, since that dumps result into a long, which is only 32 bits:
+#elif(defined(COMPILER_TYPE_GCC)) && (OS_BITS == 64)
+
+  #ifdef COMPILER_TYPE_GCC
+	#warning Using lrint() for DNINT
+  #endif
 	#define DNINT(x) lrint((x))
+
+#elif(defined(COMPILER_TYPE_GCC)) && (OS_BITS == 32)
+
+  #ifdef COMPILER_TYPE_GCC
+	#warning Using llrint() for DNINT
+  #endif
+	#define DNINT(x) llrint((x))
+
 #else
 	/***NOTE:*** The util.c functions set_fpu_params() and check_nbits_in_types()
 	MUST BE CALLED (in that order) AT PROGRAM INVOCATION THIS MACRO TO WORK PROPERLY!!!
 	*/
+  #ifdef COMPILER_TYPE_GCC
+	#warning Using +-rnd_const DNINT emulation
+  #endif
 	#define DNINT(x) ((x) + RND_A) - RND_B
+
 #endif
 
 /* NOTE: when calling the MAX/MIN/ABS macros, do NOT allow either argument to be a
@@ -262,21 +299,34 @@ which is why we union-ize the 128-bit structs storing the relevant data.
 		double im;
 	} __attribute__ ((aligned (16)));
 
-	#undef double2
-	struct double2
+	#undef double_x2
+	struct double_x2
 	{
 		double d0;
 		double d1;
 	} __attribute__ ((aligned (16)));
 
-	#undef double4
-	struct double4
+	#undef double_x4
+	struct double_x4
 	{
 		double d0;
 		double d1;
 		double d2;
 		double d3;
 	} __attribute__ ((aligned (32)));
+
+	#undef double_x8
+	struct double_x8
+	{
+		double d0;
+		double d1;
+		double d2;
+		double d3;
+		double d4;
+		double d5;
+		double d6;
+		double d7;
+	} __attribute__ ((aligned (64)));
 
 #else
 
@@ -286,15 +336,15 @@ which is why we union-ize the 128-bit structs storing the relevant data.
 		double im;
 	};
 
-	#undef double2
-	struct double2
+	#undef double_x2
+	struct double_x2
 	{
 		double d0;
 		double d1;
 	};
 
-	#undef double4
-	struct double4
+	#undef double_x4
+	struct double_x4
 	{
 		double d0;
 		double d1;
@@ -302,23 +352,44 @@ which is why we union-ize the 128-bit structs storing the relevant data.
 		double d3;
 	};
 
+	#undef double_x8
+	struct double_x8
+	{
+		double d0;
+		double d1;
+		double d2;
+		double d3;
+		double d4;
+		double d5;
+		double d6;
+		double d7;
+	};
+
 #endif
 
-#ifdef USE_AVX	// AVX and AVX2 both use 256-bit registers
+// Basic macro used to assign same double initializer (val) to all subfields of a vec_dbl:
+#ifdef USE_AVX3	// Above AVX we use a numeric idx = log2(#doubles in a SIMD register) to avoid long numeric shit like AVX512
 
-	typedef struct double4	vec_dbl;
-	// Basic macro used to assign same double initializer (val) to all subfields of a vec_dbl:
+	typedef struct double_x8	vec_dbl;
+	#define VEC_DBL_INIT(vdbl_ptr, val)	( (vdbl_ptr)->d0 = (vdbl_ptr)->d1 = (vdbl_ptr)->d2 = (vdbl_ptr)->d3 = (vdbl_ptr)->d4 = (vdbl_ptr)->d5 = (vdbl_ptr)->d6 = (vdbl_ptr)->d7 = val )
+
+#elif defined(USE_AVX)	// AVX and AVX2 both use 256-bit registers
+
+	typedef struct double_x4	vec_dbl;
 	#define VEC_DBL_INIT(vdbl_ptr, val)	( (vdbl_ptr)->d0 = (vdbl_ptr)->d1 = (vdbl_ptr)->d2 = (vdbl_ptr)->d3 = val )
 
 #elif defined(USE_SSE2)
 
-	typedef struct double2	vec_dbl;
-	// Basic macro used to assign same double initializer (val) to all subfields of a vec_dbl:
+	typedef struct double_x2	vec_dbl;
 	#define VEC_DBL_INIT(vdbl_ptr, val)	( vdbl_ptr->d0 = vdbl_ptr->d1 = val )
 
-#else	// In non-SIMD mode simply alias-to-double to obviate need for wrapping every declaration in #define USE_SSE2:
+#elif defined(__CUDACC__)
 
-	typedef double	vec_dbl;
+	#ifdef __CUDA_ARCH__	// This only def'd for the device-code compilation pass
+		#if __CUDA_ARCH__ <= 120
+			#error CUDA: This code requires double precision, please add `-arch compute_13` (or greater) to your compile flags and build on an arch of compute capability >= 1.3
+		#endif
+	#endif
 
 #endif
 
@@ -326,6 +397,7 @@ which is why we union-ize the 128-bit structs storing the relevant data.
 Alas, we can't use the above typedefs here, i.e. "vector uint32" won't work:
 */
 #if(CPU_HAS_ALTIVEC || CPU_IS_CELL)
+#error No support for this arch!
 	typedef	vector unsigned char	vec_uint8X16 ;
 	typedef	vector unsigned short	vec_uint16X8 ;
 	typedef	vector unsigned int		vec_uint32X4 ;
@@ -335,6 +407,7 @@ Note that Cell also supports vector long long ints, but as there is currently no
 support for same, there's little point in using them.
 */
 #if(CPU_IS_CELL)
+#error No support for this arch!
 	typedef	vector double			vec_double ;
 #endif
 
@@ -364,7 +437,7 @@ struct uint64_32{
 };
 
 #undef uint96
-typedef	struct uint64_32	uint96;
+typedef	struct uint64_32		uint96;
 
 #undef uint64x2
 struct uint64x2{

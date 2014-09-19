@@ -63,6 +63,10 @@ double*ADDR0 = 0x0;	// Allows for easy debug on address-read-or-write than setti
 uint32 N2,NRT,NRT_BITS,NRTM1;
 int NRADICES, RADIX_VEC[10];	/* RADIX_VEC[] stores sequence of complex FFT radices used.	*/
 
+int ROE_ITER = 0;	// Iteration of any dangerously high ROE encountered during the current iteration interval.
+					// This must be > 0, but make signed to allow sign-flip encoding of retry-fail.
+double ROE_VAL = 0;	// Value (must be in (0, 0.5)) of dangerously high ROE encountered during the current iteration interval
+
 int ITERS_BETWEEN_CHECKPOINTS;	/* number of iterations between checkpoints */
 
 char ESTRING[STR_MAX_LEN];	/* Exponent in string form */
@@ -1017,6 +1021,7 @@ in an nthreads.ini file : */
 	}
 	else
 	{
+	SETUP_FFT:
 		/* Look for a best-FFT-radix-set entry in the .cfg file: */
 		dum = get_preferred_fft_radix(kblocks);
 		if(!dum)
@@ -1380,15 +1385,35 @@ READ_RESTART_FILE:
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 		{
 			ierr = mers_mod_square  (a, arrtmp, n, ilo, ihi, p, &err_iter, scrnFlag, &tdiff);
-			if(ierr)
-				goto GET_NEXT_ASSIGNMENT;
 		}
 		else if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
 		{
 			ierr = fermat_mod_square(a, arrtmp, n, ilo, ihi, p, &err_iter, scrnFlag, &tdiff);
-			if(ierr)
-				goto GET_NEXT_ASSIGNMENT;
 		}
+		// Roundoff-retry scheme is detailed in comments of the above fermat_mod_square() function:
+		if((ierr == ERR_ROUNDOFF) && !INTERACT) {
+			if(!ROE_ITER) {
+				ASSERT(HERE, 0, "ERR_ROUNDOFF returned but ROE_ITER not set!");
+			} else if(ROE_ITER > 0) {
+				// [1] [condition] (ROE_ITER > 0) :
+				//     [action] Rerun the interval with the same FFT params (via goto below)
+			} else if(ROE_ITER < 0) {
+				// [2b] [condition] (ROE_ITER < 0) The error is reproducible, i.e. recurs on same iter, with same fracmax.
+				//     [action] Rerun interval needs (and the rest of the run) with the next-larger available FFT length:
+				ASSERT(HERE, ROE_VAL == 0.0, "[2b]: (ROE_ITER < 0) but (ROE_VAL != 0)");
+				ROE_ITER = 0;
+				n = get_nextlarger_fft_length(n);
+				kblocks = (n >> 10);
+			}
+			// Clear out current FFT-radix data, since get_preferred_fft_radix() expects that:
+			for(i = 0; i < NRADICES; i++) { RADIX_VEC[i] = 0; }
+			NRADICES = 0;
+			goto SETUP_FFT;	// Do this for both ROE_ITER < 0 and > 0; in the latter case with unchanged FFT params
+		}
+		else if(ierr == ERR_UNKNOWN_FATAL)
+			return(EXIT_FAILURE);
+		if(ierr)
+			goto GET_NEXT_ASSIGNMENT;
 
 		/*...Done?	*/
 		if(INTERACT) break;	/* C version uses zero-offset iteration counter. */
@@ -1434,9 +1459,34 @@ READ_RESTART_FILE:
 		ASSERT(HERE, sum1 == Res35m1, "Res35m1 returned by convert_res_FP_bytewise differs from resSH()!");
 		ASSERT(HERE, sum2 == Res36m1, "Res36m1 returned by convert_res_FP_bytewise differs from resSH()!");
 
+		// Sep 2014: Add every-million-iter file-checkpointing: deposit a unique-named restart file
+		//           p[exponent].xM every x million iterations, on top of the usual checkpointing.
+		// To avoid having to write an extra copy of the p-savefile, wait for the *next* checkpoint -
+		// i.e. ihi = (x million + ITERS_BETWEEN_CHECKPOINTS), or more simply, ilo = (x million) -
+		// then simply rename the (not yet updated) p-savefile to add the -M extension, and open a
+		// new version of the p-savefile on the ensuing checkpointing:
+		//
+		if((ilo%1000000) == 0) {
+			sprintf(cbuf, ".%dM", ilo/1000000);
+			// Use statfile as a temp-string here:
+			strcpy(STATFILE, RESTARTFILE);
+			strcat(STATFILE, cbuf);
+		//	fprintf(stderr, "1M-SAVEFILE = %s\n",STATFILE);
+			if(rename(RESTARTFILE, STATFILE))
+			{
+				sprintf(cbuf,"ERROR: unable to rename %s restart file ==> %s ... skipping every-million-iteration restart file archiving\n",RANGEFILE, STATFILE);
+				fprintf(stderr,"%s",cbuf);
+			}
+			// Now restore normal statfile name:
+			strcpy(STATFILE, RESTARTFILE);
+			strcat(STATFILE, ".stat");
+		}	// ilo a multiple of 10^6?
+
 		/* Make sure we start with primary restart file: */
 		RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
+
 	WRITE_RESTART_FILE:
+
 		fp = fopen(RESTARTFILE, "wb");
 		if(fp)
 		{
@@ -1813,14 +1863,14 @@ GET_NEXT_ASSIGNMENT:
 
 			remove("WINI.TMP");
 		}
-
-		/* if one or more exponents left in rangefile, go back for more... */
-
-		if (i > 0) goto RANGE_BEG;   /* CYCLE RANGE */
+		/* if one or more exponents left in rangefile, go back for more; otherwise exit. */
+		if (i > 0)
+			goto RANGE_BEG;   /* CYCLE RANGE */
+		else
+			exit(EXIT_SUCCESS);
 	}
 
-/* If it was an interactive run or the last exponent in the rangefile, we're done. */
-
+	/* If it was an interactive run, return: */
 	return(ierr);
 }
 
@@ -2592,7 +2642,7 @@ int 	main(int argc, char *argv[])
 	uint32	iters = 0, k = 0, maxFFT, expo = 0, findex = 0;
 	double	darg;
 	int		new_cfg = FALSE;
-	int		i, iarg = 0, idum, lo, hi, start = -1, finish = -1, nargs, scrnFlag, modType = 0, testType = 0, selfTest = 0, userSetExponent = 0, xNum = 0;
+	int		i,j, iarg = 0, idum, lo, hi, start = -1, finish = -1, nargs, scrnFlag, modType = 0, testType = 0, selfTest = 0, userSetExponent = 0, xNum = 0;
 	// Force errCheck-always-on in || mode, since we only multithreaded the err-checking versions of the carry routines:
 #ifdef MULTITHREAD
 	int errCheck = 1;
@@ -2609,13 +2659,14 @@ int 	main(int argc, char *argv[])
 	#define numTest				120	// = sum of all the subranges below
 	/* Number of FFT lengths in the various subranges of the full self-test suite: */
 	#define numTiny 			32
-	#define numSmall			22
-	#define numMedium			18
-	#define numLarge			 9
-	#define numHuge				 9
-	#define numEgregious		15
-	#define numBrobdingnagian	15
-	#define numGodzillian		 0	/* Adding larger FFT lengths to test vectors requires supporting changes to Mdata.h:MAX_FFT_LENGTH_IN_K and get_fft_radices.c */
+	#define numSmall			24
+	#define numMedium			24
+	#define numLarge			24
+	#define numHuge				16
+	/* Adding larger FFT lengths to test vectors requires supporting changes to Mdata.h:MAX_FFT_LENGTH_IN_K and get_fft_radices.c */
+	#define numEgregious		 0
+	#define numBrobdingnagian	 0
+	#define numGodzillian		 0
 
 	#if(numTiny+numSmall+numMedium+numLarge+numHuge+numEgregious+numBrobdingnagian+numGodzillian != numTest)
 		#error Sum(numTiny+...) != numTest in main!
@@ -2640,7 +2691,7 @@ int 	main(int argc, char *argv[])
 	We use p's given by given_N_get_maxP(), so maximum RO errors should be consistent and around the target 0.25 value, a little
 	bit higher in SSE2 mode.
 
-	The first letter of the descriptoor for each size range serves as a menmonic for the -[*] option which runs the self-tests
+	The first letter of the descriptor for each size range serves as a menmonic for the -[*] option which runs the self-tests
 	for that range, e.g. -s runs the [Small] range, -e the [Egregious], etc.
 
 	HERE IS THE PROCEDURE FOR ADDING A BEW ENTRY TO THE EXPONENT/RESIDUE TABLE BELOW:
@@ -2747,8 +2798,8 @@ Assertion failed: Output out of range!
 		{   176,   3571153u, { {0xA016F25779902477ull, 21500047857ull,  9150810891ull}, {0x8E6F248EC96445FFull, 22443629034ull, 16625023722ull} } },
 		{   192,   3888509u, { {0x71E61322CCFB396Cull, 29259839105ull, 50741070790ull}, {0x3CEDB241702D2907ull,  6177258458ull, 21951191321ull} } },
 		{   208,   4205303u, { {0xC08562DA75132764ull,  7099101614ull, 36784779697ull}, {0xAD381B4FE91D46FDull,  7173420823ull, 51721175527ull} } },
-		{   240,   4837331u, { {0xB0D0E72B7C87C174ull, 15439682274ull, 46315054895ull}, {0x3AA14E0E90D16317ull,  5730133308ull, 50944347816ull} } },
 		{   224,   4521557u, { {0xE68210464F96D6A6ull, 20442129364ull, 11338970081ull}, {0x3B06B74F5D4C0E35ull,  7526060994ull, 28782225212ull} } },
+		{   240,   4837331u, { {0xB0D0E72B7C87C174ull, 15439682274ull, 46315054895ull}, {0x3AA14E0E90D16317ull,  5730133308ull, 50944347816ull} } },
 		{   256,   5152643u, { {0x074879D86679CB5Bull,  1208548964ull, 48525653083ull}, {0x98AF5E14C824A252ull,   783196824ull,  6594302302ull} } },
 		{   288,   5782013u, { {0x9869BE81D9AB1564ull, 15509103769ull, 49640026911ull}, {0x7C998719C6001318ull, 23749848147ull, 19853218689ull} } },
 		{   320,   6409849u, { {0x20739E43A693A937ull, 27970131351ull, 15334307151ull}, {0xE20A76DCEB6774A6ull, 14260757089ull, 68560882840ull} } },
@@ -2782,7 +2833,6 @@ Assertion failed: Output out of range!
 		{  3328,  63338459u, { {0xF6D5A31C4CE769D0ull, 32776678711ull, 12897379614ull}, {0x59BA4BBB9F240C23ull, 17218869802ull, 56649053764ull} } },
 		{  3584,  68098843u, { {0x46675D1C9B599EFEull,  8451437941ull,  2732573183ull}, {0x0AF9DBE03FE3939Full, 28618044864ull, 16348034528ull} } },
 		{  3840,  72851621u, { {0x5A313D90DECAEF25ull, 20007549674ull, 66588163113ull}, {0xE54B85058DB80689ull,  6488756762ull, 45980449388ull} } },
-		/* Large: */
 		{  4096,  77597293u, { {0x8CC30E314BF3E556ull, 22305398329ull, 64001568053ull}, {0x5F87421FA9DD8F1Full, 26302807323ull, 54919604018ull} } },
 		{  4608,  87068977u, { {0xE6FDFBFC6600B9D8ull, 15739469668ull, 29270706514ull}, {0x1CE06D2ADF8238DCull, 32487573228ull, 43042840938ull} } },
 		{  5120,  96517019u, { {0x49D44A10AC9EA1D7ull,  1040777858ull, 40875102228ull}, {0xC528F96FE4E06C17ull, 12554196331ull, 58274243273ull} } },
@@ -2791,8 +2841,8 @@ Assertion failed: Output out of range!
 		{  6656, 124740697u, { {0x0362F83AAE178D1Aull, 11483908585ull, 30666543873ull}, {0xAD454FE846C84018ull, 17578866610ull, 41948771933ull} } },
 		{  7168, 134113933u, { {0x1C97C7AAEC5CB8C1ull,  2508417425ull, 49620821143ull}, {0xED969839710C0872ull, 27772820714ull, 45853381796ull} } },
 		{  7680, 143472073u, { {0x8FBCF315FA8C8BDAull, 15967283992ull, 62343341476ull}, {0xA0A5A19324FB17DFull,  4384978845ull, 65655725783ull} } },
+		/* Large: */
 		{  8192, 152816047u, { {0xB58E6FA510DC5049ull, 27285140530ull, 16378703918ull}, {0x75F2841AEBE29216ull, 13527336804ull,   503424366ull} } },
-		/* Huge: */
 		{  9216, 171465013u, { {0x60FE24EF89D6140Eull, 25324379967ull,  3841674711ull}, {0x6753411471AD8945ull, 17806860702ull,  3977771754ull} } },
 		{ 10240, 190066777u, { {0x65CF47927C02AC8Eull, 33635344843ull, 67530958158ull}, {0xBADA7FD24D959D21ull, 12777066809ull, 67273129313ull} } },
 		{ 11264, 208626181u, { {0x6FC0151B81E5173Full, 29164620640ull, 19126254587ull}, {0xD74AA66757A5345Eull, 17524190590ull, 14029371481ull} } },
@@ -2802,7 +2852,6 @@ Assertion failed: Output out of range!
 		{ 15360, 282508657u, { {0xE7B08ED3A92EC6ECull,   875689313ull, 41754616020ull}, {0xD08FBAFF5CA5096Full, 30398073011ull, 62088094181ull} } },
 		{ 16384, 300903377u, { {0xA23E8D2F532F05E6ull, 17871262795ull, 53388776441ull}, {0x14F20059083BF452ull, 16549596802ull, 56184170215ull} } },
 		{ 18432, 337615277u, { {0xAEB976D153A4176Bull, 15040345558ull, 14542578090ull}, {0x503B443CB1E0CD2Dull, 29149628739ull,  5785599363ull} } },
-		/* Egregious: */
 		{ 20480, 374233309u, { {0x6D95C0E62C8F9606ull,  3426866174ull, 39787406588ull}, {0xD08FB9031D460B7Eull, 30083048700ull, 30636357797ull} } },
 		{ 22528, 410766953u, { {0x254572CAB2014E6Cull, 17794160487ull, 13396317974ull}, {0x6202B11AA8602531ull,  9896689730ull, 13179771096ull} } },
 		{ 24576, 447223969u, { {0x547DF462C7DAD1F6ull, 21523243373ull, 60663902864ull}, {0x06AB4D8E6FD9D69Bull, 23751736171ull, 10720018557ull} } },
@@ -2817,8 +2866,8 @@ Assertion failed: Output out of range!
 		{ 53248, 951990961u, { {0xE98B9D69E5F350D1ull, 14692034938ull,  2987127112ull}, {0x634157BCC596287Dull, 31799414844ull, 64590776355ull} } },
 		{ 57344,1023472049u, { {0x960CE3D7029BDB70ull, 30108539760ull,  2075307892ull}, {0x9D98FF9A3FD21D1Bull, 10507186734ull,  3891581073ull} } },
 		{ 61440,1094833457u, { {0x9A2592E96BC1C827ull, 40462567463ull, 18678252759ull}, {0x79BF2E2F5AE7985Bull,  8407199527ull, 64114889744ull} } },
+		/* Huge: */
 		{ 65536,1166083297u, { {0xA0FE3066C834E360ull, 29128713056ull,  7270151463ull}, {0x4CC11F1C55F95C9Bull, 17910403663ull, 19262812656ull} } },
-		/* Brobdingnagian: */
 		{ 73728,1308275261u, { {0xE97D94366B318338ull, 27568210744ull, 15277294114ull}, {0x0913DB564B5FB2C9ull, 22759704201ull,  4713378634ull} } },
 		{ 81920,1450094993u, { {0x0F0945ACF6C46D21ull, 55679675681ull,  4898080803ull}, {0x12FB0E6628819A5Aull, 26252443199ull, 65921528136ull} } },
 		{ 90112,1591580099u, { {0xD8B487D8F5AFDF1Aull, 38481682202ull, 32203366427ull}, {0xAA5F7E4D5EC75AD3ull, 16596905178ull,  8253283767ull} } },
@@ -2834,7 +2883,10 @@ Assertion failed: Output out of range!
 		{212992,3686954519u, { {0x9A3231FF531C8617ull, 10531609552ull, 42475524136ull}, {0x0CD00ADEE0D4D0DBull,  1995928646ull, 59987670753ull} } },
 		{229376,3963630893u, { {0x427266E0A64E77F8ull,   135586632ull,  3161584476ull}, {0xBA1F2CE3D59018E7ull,  3171773156ull, 31951413199ull} } },
 		{245760,4239832153u, { {0x05FF04CA8AEA8E54ull,   718789070ull, 67021029350ull}, {0xDCA27889AB5F4D92ull,    55229805ull, 33882881510ull} } },
-		/* Godzillian requires 64-bit exponent support: */
+	/* Larger require 64-bit exponent support: */
+		/* Egregious: */
+		/* Brobdingnagian: */
+		/* Godzillian: */
 		{     0,         0u, { {                 0ull,           0ull,           0ull}, {                 0ull,           0ull,           0ull} } }
 	};
 /*
@@ -3496,7 +3548,11 @@ else
 			/* If the FFT length is not represented in MersVec[],
 			find the nearest prime <= given_N_get_maxP(FFT length):
 			*/
-			if(i < MersVec[0].fftLength || i > MersVec[numTest-1].fftLength)
+			for(j = 0; j < numTest; j++) {
+				if(i < MersVec[j].fftLength) continue;
+				if(i >= MersVec[j].fftLength) break;
+			}
+			if(i != MersVec[j].fftLength)
 			{
 				hi = given_N_get_maxP(i<<10) | 0x1;	/* Make sure starting value is odd */
 				lo = hi - 1000;	if(lo < PMIN) lo = PMIN;
@@ -3508,23 +3564,15 @@ else
 						break;
 					}
 				}
-
 				if(i < lo || lo >= hi)
 				{
 					fprintf(stderr, "ERROR: unable to find a prime in the interval %u <= x <= %u.\n", lo, hi);
 					ASSERT(HERE, 0,"0");
 				}
 			}
-			else	/* Find the corresponding entry of MersVec: */
+			else	/* Use the corresponding entry of MersVec: */
 			{
-				for(lo = 0; lo < numTest; lo++)
-				{
-					if(MersVec[lo].fftLength == i)
-					{
-						start = lo; finish = start+1;
-						break;
-					}
-				}
+				start = j; finish = start+1;
 			}
 		}
 		/* If user specified exponent but no FFT length, get default FFT length for that exponent: */
@@ -3841,7 +3889,7 @@ TIMING_TEST_LOOP:
 		/* If get no successful reference-Res64-matching results, inform user: */
 		if(radix_best < 0 || runtime_best == 0.0)
 		{
-			sprintf(cbuf  , "WARNING: No valid best-radix-set found for FFT length %u K.\n",iarg << 10);
+			sprintf(cbuf  , "WARNING: No valid best-radix-set found for FFT length %u K.\n",iarg);
 			fprintf(stderr,"%s", cbuf);
 		}
 		/* If get a nonzero best-runtime, write the corresponding radix set index to the .cfg file: */
@@ -3873,7 +3921,7 @@ TIMING_TEST_LOOP:
 			   in get_fft_radices() never changing - we only care about the actual *radices*, not the index into
 			   the get_fft_radices case{} selector which yields them.
 			*/
-			fprintf(fp, "%10d  sec/iter = %8.3f  ROE[min,max] = [%10.9f, %10.9f]  radices = ", iarg, tdiff, roerr_min, roerr_max);
+			fprintf(fp, "%10d  msec/iter = %7.2f  ROE[min,max] = [%10.9f, %10.9f]  radices = ", iarg, 1000*tdiff, roerr_min, roerr_max);
 			/*
 				Double-check existence of, and print info about,
 				best radix set found for this FFT length:
@@ -4049,7 +4097,9 @@ void	printMlucasErrCode(int retVal)
 		"ERR_TESTITERS_OUTOFRANGE	",
 		"ERR_ROUNDOFF				",
 		"ERR_CARRY					",
-		"ERR_RUN_SELFTEST_FORLENGTH	"
+		"ERR_RUN_SELFTEST_FORLENGTH	",
+		"ERR_ASSERT					",
+		"ERR_UNKNOWN_FATAL			"
 	};
 
 	/* Error type indicated by lowest byte: */

@@ -53,8 +53,8 @@ PLEASE REFER TO FACTOR.C FOR A DESCRIPTION OF THE APPLICABLE #DEFINES
 	/* This will need to be made platform-dependent at some point: */
   #ifndef TRYQ
 	#define TRYQ	4
-  #elif(TRYQ != 1 && TRYQ != 2 && TRYQ != 4 && TRYQ != 8)
-	#error USE_FLOAT option requires TRYQ = 1, 2 or 4
+  #elif(TRYQ != 1 && TRYQ != 2 && TRYQ != 4 && TRYQ != 8 && TRYQ != 16)
+	#error USE_FLOAT option requires TRYQ = 1, 2, 4, 8 or 16
   #endif
 
 	/* FP-based modmul currently only supported for one-word p's: */
@@ -159,7 +159,7 @@ PLEASE REFER TO FACTOR.C FOR A DESCRIPTION OF THE APPLICABLE #DEFINES
 #ifndef TRYQ
 	#error TRYQ undefined!
 #endif
-#if(TRYQ != 0 && TRYQ != 1 && TRYQ != 2 && TRYQ != 4 && TRYQ != 8)
+#if(TRYQ != 0 && TRYQ != 1 && TRYQ != 2 && TRYQ != 4 && TRYQ != 8 && TRYQ != 16)
 	#error	Illegal value of TRYQ
 #endif
 #if(TRYQ == 2 && !defined(USE_FLOAT) && !defined(USE_FMADD))
@@ -230,18 +230,51 @@ uint64	twopmodq78_3WORD_DOUBLE_q2(uint64*checksum1, uint64*checksum2, uint64 p, 
 uint64	twopmodq78_3WORD_DOUBLE_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
 uint64	twopmodq78_3WORD_DOUBLE_q4_REF(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
 #if defined(COMPILER_TYPE_GCC) && (OS_BITS == 64)
-uint64	twopmodq78_3WORD_DOUBLE_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
+uint64	twopmodq78_3WORD_DOUBLE_q8 (uint64*checksum1, uint64*checksum2, uint64 p
+		, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7
+	);
+uint64	twopmodq78_3WORD_DOUBLE_q16(uint64*checksum1, uint64*checksum2, uint64 p
+		, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7, uint64 k8, uint64 k9, uint64 ka, uint64 kb, uint64 kc, uint64 kd, uint64 ke, uint64 kf
+	);
+uint64	twopmodq78_3WORD_DOUBLE_q32(uint64*checksum1, uint64*checksum2, uint64 p
+		, uint64 k00, uint64 k01, uint64 k02, uint64 k03, uint64 k04, uint64 k05, uint64 k06, uint64 k07, uint64 k08, uint64 k09, uint64 k0a, uint64 k0b, uint64 k0c, uint64 k0d, uint64 k0e, uint64 k0f
+		, uint64 k10, uint64 k11, uint64 k12, uint64 k13, uint64 k14, uint64 k15, uint64 k16, uint64 k17, uint64 k18, uint64 k19, uint64 k1a, uint64 k1b, uint64 k1c, uint64 k1d, uint64 k1e, uint64 k1f
+	);
+uint64	twopmodq78_3WORD_DOUBLE_q64(uint64*checksum1, uint64*checksum2, uint64 p
+		, uint64 k00, uint64 k01, uint64 k02, uint64 k03, uint64 k04, uint64 k05, uint64 k06, uint64 k07, uint64 k08, uint64 k09, uint64 k0a, uint64 k0b, uint64 k0c, uint64 k0d, uint64 k0e, uint64 k0f
+		, uint64 k10, uint64 k11, uint64 k12, uint64 k13, uint64 k14, uint64 k15, uint64 k16, uint64 k17, uint64 k18, uint64 k19, uint64 k1a, uint64 k1b, uint64 k1c, uint64 k1d, uint64 k1e, uint64 k1f
+		, uint64 k20, uint64 k21, uint64 k22, uint64 k23, uint64 k24, uint64 k25, uint64 k26, uint64 k27, uint64 k28, uint64 k29, uint64 k2a, uint64 k2b, uint64 k2c, uint64 k2d, uint64 k2e, uint64 k2f
+		, uint64 k30, uint64 k31, uint64 k32, uint64 k33, uint64 k34, uint64 k35, uint64 k36, uint64 k37, uint64 k38, uint64 k39, uint64 k3a, uint64 k3b, uint64 k3c, uint64 k3d, uint64 k3e, uint64 k3f
+	);
 #endif
 
-// GPU-TF stuff:
-#if defined(USE_GPU) && defined(REALLY_GPU)
-__global__
-#endif
-void	GPU_TF78(uint64*checksum1, uint64*checksum2, uint64 p, const uint64 kvec[], uint32 n, int64 *retval);
-#if defined(USE_GPU) && defined(REALLY_GPU)
-__device__
-#endif
-void	twopmodq78_q4_GPU(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 *retval);
+/******************************************/
+/*            GPU-TF stuff:               */
+/******************************************/
+#ifdef __CUDACC__
+
+	// Self-tests:
+	__global__ void VecModpow(const uint32*pvec, const uint32*pshft, const uint32*zshft, const uint32*stidx, const uint64*kvec, uint8*rvec, int N);
+	// Production TFing:
+	__global__ void GPU_TF78   (const uint32 p, const uint32 pshift, const uint32 zshift, const uint32 start_index, const uint64*kvec, uint8*rvec, int N);
+	__global__ void GPU_TF78_q4(const uint32 p, const uint32 pshift, const uint32 zshift, const uint32 start_index, const uint64*kvec, uint8*rvec, int N);
+	__global__ void GPU_TF78_q8(const uint32 p, const uint32 pshift, const uint32 zshift, const uint32 start_index, const uint64*kvec, uint8*rvec, int N);
+
+	// Simple GPU-ized version of twopmodq78_3WORD_DOUBLE.
+	// Return value: 1 if q = 2.k.p+1 divides 2^p-1, 0 otherwise.
+	__device__ uint32 twopmodq78_gpu(
+		const uint32 p, const uint32 pshift, const uint64 k,
+		const uint32 start_index, const uint32 zshift,
+		const int i	// thread id (handy for debug)
+	);
+
+	__device__ uint32 twopmodq78_q4_GPU(
+		const uint32 p, const uint32 pshift, const uint64 k0, const uint64 k1, const uint64 k2, const uint64 k3,
+		const uint32 start_index, const uint32 zshift,
+		const int i	// thread id (handy for debug)
+	);
+
+#endif	// __CUDACC__
 
 uint64	twopmodq100_2WORD_DOUBLE   (uint64*checksum1, uint64*checksum2, uint64 p, uint64 k);
 uint64	twopmodq100_2WORD_DOUBLE_q2(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1);

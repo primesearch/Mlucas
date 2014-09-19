@@ -413,7 +413,7 @@
 		uint32 a,b,c,d;
 		CPUID(1,a,b,c,d);
 
-		if(d & 0x04000000)
+		if(d & (1 << 26))
 			return 1;
 		else
 			return 0;
@@ -425,7 +425,43 @@
 		uint32 a,b,c,d;
 		CPUID(1,a,b,c,d);
 
-		if(c & 0x00000001)
+		if(c & 1)
+			return 1;
+		else
+			return 0;
+	}
+
+	/* SSE3E is bit  9 of ECX returned by calling CPUID with input EAX = 1: */
+	uint32	has_sse3e()
+	{
+		uint32 a,b,c,d;
+		CPUID(1,a,b,c,d);
+
+		if(c & (1 << 9))
+			return 1;
+		else
+			return 0;
+	}
+
+	/* SSE4.1 is bit 19 of ECX returned by calling CPUID with input EAX = 1: */
+	uint32	has_sse41()
+	{
+		uint32 a,b,c,d;
+		CPUID(1,a,b,c,d);
+
+		if(c & (1 << 19))
+			return 1;
+		else
+			return 0;
+	}
+
+	/* SSE4.2 is bit 20 of ECX returned by calling CPUID with input EAX = 1: */
+	uint32	has_sse42()
+	{
+		uint32 a,b,c,d;
+		CPUID(1,a,b,c,d);
+
+		if(c & (1 << 20))
 			return 1;
 		else
 			return 0;
@@ -454,8 +490,8 @@
 	{
 		uint32 a,b,c,d;
 		CPUID(1,a,b,c,d);
-
-		if(c & 0x18001000) {			// CPU supports AVX+FMA?
+		// Since checking for > 1 lit bits here, can't simply use "is result of AND nonzero?)-style check as above:
+		if((c & 0x18001000) == 0x18001000) {			// CPU supports AVX+FMA?
 			XGETBV(0,a,d);
 			return (a & 0x6) == 0x6;	//  OS supports AVX?
 		} else {

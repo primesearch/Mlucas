@@ -39,6 +39,196 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 
 #ifdef USE_AVX2	// AVX and AVX2 both use 256-bit registers
 
+	// See the AVX2 comments in radix16_dif_dit_pass.c for details on the data layout here:
+	#define FMA_TWIDDLE_FIDDLE(\
+	__c8,__s8,__c4,__s4,__cC,__sC,__c2,__s2,__cA,__sA,__c6,__s6,__cE,__sE,__c1,__s1,__c9,__s9,__c5,__s5,__cD,__sD,__c3,__s3,__cB,__sB,__c7,__s7,__cF,__sF,	__c,__tan,\
+	__twid_ptr)\
+	{\
+		double *add0,*add1,*add2;\
+		add0 = (double *)__twid_ptr;	/* add0 points to 16 cos-data-to-be-inverted; Need a double-ptr on lhs here */\
+		ASSERT(HERE, add0 != 0x0, "Null add0 pointer!");\
+		add1 = add0 + 16;	/* add1 points to block of memory temporarily used to store the corresponding sine data */\
+		add2 = add0 + 32;	/* add2 points to block of memory temporarily used to store the 11 [0-padded to 12] */\
+							/*	cosine data which need to be divided by other cosines (i.e. multiplied by inverses) */\
+	/* The add2-addressed cosine ratios are arranged in 3 YMM-register/memory-sized slots like so;\
+	  once we have filled 4 YYMs with inverses 1/[c3,c1-15] and used those to get the 16 tangents (1st set = 1/c3\
+	  and discarded) we will do as described in the right column to set up for the cosine-ratios computation:\
+	\
+		double __c31 = __c3/__c1;\
+		double __c51 = __c5/__c1;\
+		double __c62 = __c6/__c2;\
+		[0 pad]						shuffle YMM with 1/[c3,c1,c2,c3] to get 1/[c1,c1,c2,c3], then *= [c3,c5,c6,0]\
+	\
+		double __c73 = __c7/__c3;\
+		double __c91 = __c9/__c1;\
+		double __cA2 = __cA/__c2;\
+		double __cB3 = __cB/__c3;	initialize YMM with 1/[c3,c1,c2,c3], then *= [c7,c9,cA,cB]\
+	\
+		double __cC4 = __cC/__c4;\
+		double __cD5 = __cD/__c5;\
+		double __cE6 = __cE/__c6;\
+		double __cF7 = __cF/__c7;	Multiply YMM with 1/[c4-7] *= [cC-F]\
+	*/\
+		*add0++ = 0.0;	/* Since tan0 defined as const, use this pair of double slots to hold 1/c3 (via c3,1 on input, then invert c3 and multiply */\
+		*add1++ = 1.0;	/* them together), which extra 1/c3 copy saves some really awkward permuting, at least in terms of the idiotic x86 ISA. */\
+\
+		*add0++ = __c1;	/* c1, for inversion  */\
+		*add1++ = __s1;	/* s1  slot will hold __r1 = s1 /c1  */\
+\
+		*add0++ = __c2;	/* c2, for inversion  */\
+		*add1++ = __s2;	/* s2  slot will hold __r2 = s2 /c2  */\
+\
+		*(add0-3) = __c3;	/* c3, for inversion ... */\
+		*add0++   = __c3;	/* place extra copy in 0-slot as described above - put on separate line to avoid ambiguity of *(add0-3) = *add0++ = __c3. */\
+		*add1++ = __s3;	/* s3  slot will hold __r3 = s3 /c3  */\
+		*add2++ = __c3;	/* c3, will get multiplied by 1/c1 to yield __c31 */\
+\
+		*add0++ = __c4;	/* c4, for inversion  */\
+		*add1++ = __s4;	/* s4  slot will hold __r4 = s4 /c4  */\
+\
+		*add0++ = __c5;	/* c5, for inversion  */\
+		*add1++ = __s5;	/* s5  slot will hold __r5 = s5 /c5  */\
+		*add2++ = __c5;	/* c5, will get multiplied by 1/c1 to yield __c51 */\
+\
+		*add0++ = __c6;	/* c6, for inversion  */\
+		*add1++ = __s6;	/* s6  slot will hold __r6 = s6 /c6  */\
+		*add2++ = __c6;	/* c6, will get multiplied by 1/c2 to yield __c62 */\
+		*add2++ = 0.0;	/* 0-pad will get multiplied by 1/c3 term, remains 0-pad. */\
+\
+		*add0++ = __c7;	/* c7, for inversion  */\
+		*add1++ = __s7;	/* s7  slot will hold __r7 = s7 /c7  */\
+		*add2++ = __c7;	/* c7, will get multiplied by 1/c3 to yield __c73 */\
+\
+		*add0++ = __c8;	/* c8, for inversion  */\
+		*add1++ = __s8;	/* s8  slot will hold __r8 = s8 /c8  */\
+\
+		*add0++ = __c9;	/* c9, for inversion  */\
+		*add1++ = __s9;	/* s9  slot will hold __r9 = s9 /c9  */\
+		*add2++ = __c9;	/* c9, will get multiplied by 1/c1 to yield __c91 */\
+\
+		*add0++ = __cA;	/* c10, for inversion  */\
+		*add1++ = __sA;	/* s10 slot will hold __rA = s10/c10 */\
+		*add2++ = __cA;	/* cA, will get multiplied by 1/c2 to yield __cA2 */\
+\
+		*add0++ = __cB;	/* c11, for inversion  */\
+		*add1++ = __sB;	/* s11 slot will hold __rB = s11/c11 */\
+		*add2++ = __cB;	/* cB, will get multiplied by 1/c3 to yield __cB3 */\
+\
+		*add0++ = __cC;	/* c12, for inversion  */\
+		*add1++ = __sC;	/* s12 slot will hold __rC = s12/c12 */\
+		*add2++ = __cC;	/* cC, will get multiplied by 1/c4 to yield __cC4 */\
+\
+		*add0++ = __cD;	/* c13, for inversion  */\
+		*add1++ = __sD;	/* s13 slot will hold __rD = s13/c13 */\
+		*add2++ = __cD;	/* cD, will get multiplied by 1/c5 to yield __cD5 */\
+\
+		*add0++ = __cE;	/* c14, for inversion  */\
+		*add1++ = __sE;	/* s14 slot will hold __rE = s14/c14 */\
+		*add2++ = __cE;	/* cE, will get multiplied by 1/c6 to yield __cE6 */\
+\
+		*add0++ = __cF;	/* c15, for inversion  */\
+		*add1++ = __sF;	/* s15 slot will hold __rF = s15/c15 */\
+		*add2++ = __cF;	/* cF, will get multiplied by 1/c7 to yield __cF7 */\
+\
+		/* This places us at add0 == c8 and add1 = c12. */\
+		ASSERT(HERE, add0 == (double *)__twid_ptr+16 && add1 == (double *)__twid_ptr+32 && add2 == (double *)__twid_ptr+44, "add0,1,2 checksum failed in AVX2 sincos inits!");\
+		/*\
+		At this point, the 11 ymm-sized [32-byte] chunks starting at &__twid_ptr contain the following scalar-double data:\
+		\
+			0:	c3,c1-3\
+			1:	c4-7\
+			2:	c8-11\
+			3:	c12-c15\
+			4:	1.0,s1-3\
+			5:	s4-7\
+			6:	s8-11\
+			7:	s12-s15\
+			8:	c3,5,6,[0-pad]\
+			9:	c7,9-B\
+			A:	cC-F\
+		*/\
+\
+		/* Now send the cosine terms to the inversion routine, which also does the combine-and-populate-SIMD-slots step. */\
+		RADIX16_COMPUTE_FMA_SINCOS_DIF_2(__twid_ptr,one);\
+		add0 = (double *)__twid_ptr;\
+\
+		/* Scalar data starting at add0 = __twid_ptr laid out as below:\
+\
+		a[0x00,0x01,0x02,0x03]: add0 + 0x[  0,  8, 10, 18]: [c3 ,c1 ,c2 ,c3 ] Cosines:\
+		a[0x04,0x05,0x06,0x07]: add0 + 0x[ 20, 28, 30, 38]: [c4 ,c5 ,c6 ,c7 ]\
+		a[0x08,0x09,0x0a,0x0b]: add0 + 0x[ 40, 48, 50, 58]: [c8 ,c9 ,cA ,cB ]\
+		a[0x0c,0x0d,0x0e,0x0f]: add0 + 0x[ 60, 68, 70, 78]: [cC ,cD ,cE ,cF ]\
+		a[0x10,0x11,0x12,0x13]: add0 + 0x[ 80, 88, 90, 98]: [-- ,r1 ,r2 ,r3 ] Tangents:\
+		a[0x14,0x15,0x16,0x17]: add0 + 0x[ a0, a8, b0, b8]: [r4 ,r5 ,r6 ,r7 ]\
+		a[0x18,0x19,0x1a,0x1b]: add0 + 0x[ c0, c8, d0, d8]: [r8 ,r9 ,rA ,rB ]\
+		a[0x1c,0x1d,0x1e,0x1f]: add0 + 0x[ e0, e8, f0, f8]: [rC ,rD ,rE ,rF ]\
+		a[0x20,0x21,0x22,0x23]: add0 + 0x[100,108,110,118]: [c31,c51,c62,  0] Cosine ratios:\
+		a[0x24,0x25,0x26,0x27]: add0 + 0x[120,128,130,138]: [c73,c91,cA2,cB3]\
+		a[0x28,0x29,0x2a,0x2b]: add0 + 0x[140,148,150,158]: [cC4,cD5,cE6,cF7]\
+\
+		Ensuing C code massages the above into a scalar-data analog of the 4-copy layout.\
+		*/\
+		/* put all overwrites-of-no-longer-needed data first, to minimize conflicts later.\
+		Data which will not be used in the FMA-based radix-16 DIF are at indices 0x[0,3,5-7,9-15,16]:\
+		Arrange the rest so RHS (read-elt) indices are ascending, then manually move\
+		up those which overwrite indices appearing further down in the RHS: */\
+		add0[0x00] = add0[0x01];	/* c1, copy to *= __c */\
+		add0[0x03] = add0[0x02];	/* c2, copy to *= ISRT2 */\
+		add0[0x0a] = add0[0x02];	/* copy c2 to final loc before overwriting */\
+		add0[0x02] = add0[0x01];	/* c1, copy to *= ISRT2 */\
+		add0[0x01] = __tan;\
+		add0[0x06] = add0[0x04];	/* c4 */\
+		add0[0x04] = add0[0x08];	/* c8 */\
+		add0[0x05] = add0[0x18];	/* r8 */\
+		add0[0x07] = add0[0x14];	/* r4 */\
+		add0[0x08] = add0[0x28];	/* cC4 */\
+		add0[0x09] = add0[0x1c];	/* rC */\
+		add0[0x0b] = add0[0x12];	/* r2 */\
+		add0[0x0c] = add0[0x26];	/* cA2 */\
+		add0[0x0d] = add0[0x1a];	/* rA */\
+		add0[0x0e] = add0[0x22];	/* c62 */\
+		add0[0x0f] = add0[0x16];	/* r6 */\
+		add0[0x10] = add0[0x2a];	/* cE6 */\
+		add0[0x16] = add0[0x21];	/* c51 */\
+		add0[0x21] = add0[0x1f];	/* rF */\
+		add0[0x1f] = add0[0x17];	/* r7 */\
+		add0[0x17] = add0[0x15];	/* r5 */\
+		add0[0x15] = add0[0x19];	/* r9 */\
+		add0[0x19] = add0[0x1d];	/* rD */\
+		add0[0x1d] = add0[0x1b];	/* rB */\
+		add0[0x1b] = add0[0x13];	/* r3 */\
+		add0[0x13] = add0[0x11];	/* r1 */\
+		add0[0x11] = add0[0x1e];	/* rE */\
+		add0[0x12] = add0[0x00];	/* c1 now in [0] */\
+		add0[0x14] = add0[0x25];	/* c91 */\
+		add0[0x18] = add0[0x29];	/* cD5 */\
+		add0[0x1a] = add0[0x20];	/* c31 */\
+		add0[0x1c] = add0[0x27];	/* cB3 */\
+		add0[0x1e] = add0[0x24];	/* c73 */\
+		add0[0x20] = add0[0x2b];	/* cF7 */\
+		/* Now mpy elts in slots 0,2,3 by __c, ISRT2, ISRT2, respectively: */\
+		add0[0x00] *= __c;\
+		add0[0x02] *= ISRT2;\
+		add0[0x03] *= ISRT2;\
+		/* And stick a 1.0 at the end of the above block-of-doubles: */\
+		add0[0x22] = 1.0;\
+\
+		/* Yielding the following layout-of-scalar-doubles, with data above index 0x22 unused in the DIF DFT:\
+\
+		a[0x00,0x01,0x02,0x03]: add0 + 0x[  0,  8, 10, 18]: [c1*c,s/c,c1*ISRT2,c2*ISRT2]\
+		a[0x04,0x05,0x06,0x07]: add0 + 0x[ 20, 28, 30, 38]: [c8 ,r8 ,c4 ,r4 ]\
+		a[0x08,0x09,0x0a,0x0b]: add0 + 0x[ 40, 48, 50, 58]: [cC4,rC ,c2 ,r2 ]\
+		a[0x0c,0x0d,0x0e,0x0f]: add0 + 0x[ 60, 68, 70, 78]: [cA2,rA ,c62,r6 ]\
+		a[0x10,0x11,0x12,0x13]: add0 + 0x[ 80, 88, 90, 98]: [cE6,rE ,c1 ,r1 ]\
+		a[0x14,0x15,0x16,0x17]: add0 + 0x[ a0, a8, b0, b8]: [c91,r9 ,c51,r5 ]\
+		a[0x18,0x19,0x1a,0x1b]: add0 + 0x[ c0, c8, d0, d8]: [cD5,rD ,c31,r3 ]\
+		a[0x1c,0x1d,0x1e,0x1f]: add0 + 0x[ e0, e8, f0, f8]: [cB3,rB ,c73,r7 ]\
+		a[0x20,0x21,0x22,0x23]: add0 + 0x[100,108,110,118]: [cF7,rF ,1.0,  0]\
+		a[0x24,0x25,0x26,0x27]: add0 + 0x[120,128,130,138]: [c73,c91,cA2,cB3]\
+		a[0x28,0x29,0x2a,0x2b]: add0 + 0x[140,148,150,158]: [cC4,cD5,cE6,cF7]\
+		*/\
+	}
+
 	// Initial version of trig-data and DFT-pass routines uses 4-copied trig data, as usual.
 	// My timing tests indicate that using the more-intricate and much-more-instruction-heavy
 	// Newtonian iterative inversion is appreciably faster than using vdivpd: ~20% faster than
@@ -214,7 +404,7 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 	// __cF7	0x400	__rF		0x420
 
 	// Remember that for AVX2-style 3-operand FMA in AT&T syntax, the result overwrites the rightmost input!
-	#define SSE2_RADIX16_DIF_TWIDDLE(Xadd0,Xp1,Xp2,Xp3,Xp4,Xp8,Xp12,Xr1,Xisrt2,Xpfetch_addr,Xpfetch_dist)\
+	#define SSE2_RADIX16_DIF_TWIDDLE_1(Xadd0,Xp1,Xp2,Xp3,Xp4,Xp8,Xp12,Xr1,Xisrt2,Xpfetch_addr,Xpfetch_dist)\
 	{\
 	__asm__ volatile (\
 		/*...Block 1:	*/\
@@ -2042,7 +2232,7 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 	}
 
 	// Default is just an FMA-greedy-optimized version of the non-FMA AVX-based DIT:
-	#define SSE2_RADIX16_DIT_TWIDDLE(Xadd0,Xp1,Xp2,Xp3,Xp4,Xp8,Xr1,Xisrt2,Xpfetch_addr,Xpfetch_dist)\
+	#define SSE2_RADIX16_DIT_TWIDDLE_0(Xadd0,Xp1,Xp2,Xp3,Xp4,Xp8,Xr1,Xisrt2,Xpfetch_addr,Xpfetch_dist)\
 	{\
 	__asm__ volatile (\
 		"movq	%[__isrt2],%%r8					\n\t"\
@@ -2353,7 +2543,8 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 	);\
 	}
 
-#elif defined(USE_AVX)	// AVX and AVX2 both use 256-bit registers
+#endif					// Change from ...elif(AVX) to end/if here to allow for mix of AVX and AVX2 cdoe in DIF/DIT source
+#if defined(USE_AVX)	// AVX and AVX2 both use 256-bit registers
 
   #define USE_64BIT_ASM_STYLE	1	// My x86 timings indicate fancier versions below using ymm0-15 for the radix-16 DFT is faster.
 

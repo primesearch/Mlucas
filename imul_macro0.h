@@ -1238,6 +1238,7 @@ or the with functions using them (if we declare no _-prepended variables local t
 #endif
 
 #ifndef MUL_LOHI32
+#warning Using C/32-bit version of MUL_LOHI32 macro
 	#define MUL_LOHI32(_x32,_y32,_lo,_hi)\
 	{\
 		uint64 _x = (uint64)(_x32), _y = (uint64)(_y32);\
