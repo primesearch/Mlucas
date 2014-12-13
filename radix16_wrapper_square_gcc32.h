@@ -26,9 +26,14 @@
 #ifndef radix16_wrapper_square_gcc_h_included
 #define radix16_wrapper_square_gcc_h_included
 
+	// Since the add0/1 block addresses advance in opposite directions, our prefetch scheme here is like so:
+	// In fwd DIF prefetch  ahead 8 cache lines' worth of data w.r.to add0;
+	// In inv DIT prefetch behind 8 cache lines' worth of data w.r.to add1;
 	#define SSE2_RADIX16_WRAPPER_DIF(Xadd0,Xadd1,Xr1,Xr9,Xr17,Xr25,Xisrt2,Xcc0,Xc1,Xc2,Xc3,Xc4,Xc5,Xc6,Xc7,Xc8,Xc9,Xc10,Xc11,Xc12,Xc13,Xc14,Xc15)\
 	{\
 	__asm__ volatile (\
+	"movl	%[__add0],%%edi	\n\t"\
+	"prefetcht0	0x00(%%edi)\n\t"\
 	"/*************************************************************/\n\t"\
 	"/*                  1st set of inputs:                       */\n\t"\
 	"/*************************************************************/\n\t"\
@@ -110,6 +115,7 @@
 		"/* Now do the p0,8 combo: */\n\t"\
 		"movl		%[__c8] ,%%edx\n\t"\
 	"/* Real parts: */\n\t"\
+	"prefetcht0	0x20(%%edi)\n\t"\
 		"movaps		0x80(%%eax)	,%%xmm6		/* a[j1+p8 ], this is the scratch xmm register  */\n\t"\
 		"movaps		0x80(%%eax)	,%%xmm4		/* a[j1+p8 ], this is the active  xmm register */\n\t"\
 		"unpckhpd	0x80(%%esi)	,%%xmm6		/* a[j2+p8 ] gets read twice */\n\t"\
@@ -188,6 +194,7 @@
 		"\n\t"\
 "/*...Block 2:		Cost: 46 MOVapd, 16 UNPCKHPD, 28 ADD/SUBpd, 16 MULpd */\n\t"\
 		"\n\t"\
+	"prefetcht0	0x40(%%edi)\n\t"\
 		"movl		%[__add0],%%eax\n\t"\
 		"movl		%[__add1],%%esi\n\t"\
 		"movl		%[__r9] ,%%ecx\n\t"\
@@ -275,6 +282,7 @@
 		"movaps		%%xmm5		,0x070(%%ecx)	/* Store it in t16*/\n\t"\
 		"movaps		%%xmm4		,0x060(%%ecx)	/* Store rt in t15*/\n\t"\
 		"\n\t"\
+	"prefetcht0	0x60(%%edi)\n\t"\
 		"movl		%[__c6] ,%%edx\n\t"\
 	"/* Real parts: */\n\t"\
 		"movaps		0x60(%%eax)	,%%xmm6		/* a[j1+p6 ], this is the scratch xmm register  */\n\t"\
@@ -351,6 +359,7 @@
 		"movl		%%eax   ,%%ecx\n\t"\
 		"addl		$0x20   ,%%ecx	/* r19 */\n\t"\
 		"\n\t"\
+	"prefetcht0	0x80(%%edi)\n\t"\
 		"movaps		    (%%eax)	,%%xmm0		/* a[jt   ] */				\n\t	movaps	    (%%ecx),%%xmm4		/* a[jt+p8 ] */\n\t"\
 		"movaps		0x10(%%eax)	,%%xmm1		/* a[jp   ] */				\n\t	movaps	0x10(%%ecx),%%xmm5		/* a[jp+p8 ] */\n\t"\
 		"movaps		    (%%esi)	,%%xmm6		/* c0 */\n\t"\
@@ -430,6 +439,7 @@
 		"\n\t"\
 "/*...Block 4: */\n\t"\
 		"\n\t"\
+	"prefetcht0	0xa0(%%edi)\n\t"\
 "/* SSE2_RADIX4_DIF_4TWIDDLE(r25,r29,r27,r31, r25,c3): */\n\t"\
 	"/* Do the p0,p8 combo: */\n\t"\
 		"movl		%[__r25],%%eax\n\t"\
@@ -503,6 +513,7 @@
 		"addpd		0x010(%%edx),%%xmm7		/* ~t6 <- t6 +it */\n\t"\
 		"\n\t"\
 	"/* Finish radix-4 butterfly and store results into temporary-array slots: */\n\t"\
+	"prefetcht0	0xc0(%%edi)\n\t"\
 		"subpd		%%xmm6		,%%xmm0	/*~t5 */						\n\t	subpd	%%xmm5,%%xmm2			/*~t3 */\n\t"\
 		"subpd		%%xmm7		,%%xmm1	/*~t6 */						\n\t	subpd	%%xmm4,%%xmm3			/*~t8 */\n\t"\
 		"movaps		%%xmm0		,0x040(%%edx)	/* a[jt+p8 ] <- ~t5 */	\n\t	movaps	%%xmm2,0x020(%%edx)		/* a[jt+p4 ] <- ~t3 */\n\t"\
@@ -514,9 +525,9 @@
 		"movaps		%%xmm6		,     (%%edx)	/* a[jt    ] <- ~t1 */	\n\t	movaps	%%xmm5,0x060(%%edx)		/* a[jt+p12] <- ~t7 */\n\t"\
 		"movaps		%%xmm7		,0x010(%%edx)	/* a[jp    ] <- ~t2 */	\n\t	movaps	%%xmm4,0x030(%%edx)		/* a[jp+p4 ] <- ~t4 */\n\t"\
 		"\n\t"\
-"/**************************************************************************************/\n\t"\
-"/*...and now do four more radix-4 transforms, including the internal twiddle factors: */\n\t"\
-"/**************************************************************************************/\n\t"\
+/**************************************************************************************/\
+/*...and now do four more radix-4 transforms, including the internal twiddle factors: */\
+/**************************************************************************************/\
 		"\n\t"\
 "/*...Block 1: t1,9,17,25 */\n\t"\
 		"movl		%[__r1] ,%%eax\n\t"\
@@ -581,6 +592,7 @@
 		"subpd		0x080(%%eax)	,%%xmm1		/* t14=t6 -t13*/\n\t"\
 		"addpd		0x010(%%eax)	,%%xmm2		/* t6 =t13+t6 */\n\t"\
 		"addpd		     (%%eax)	,%%xmm3		/* t13=t14+t5 */\n\t"\
+	"prefetcht0	0xe0(%%edi)\n\t"\
 		"movl		%[__isrt2],%%edi\n\t"\
 		"\n\t"\
 		"movaps		0x100(%%eax)	,%%xmm4		/* t21 */\n\t"\
@@ -784,7 +796,9 @@
 	);\
 	}
 
-
+	// Since the add0/1 block addresses advance in opposite directions, our prefetch scheme here is like so:
+	// In fwd DIF prefetch  ahead 8 cache lines' worth of data w.r.to add0;
+	// In inv DIT prefetch behind 8 cache lines' worth of data w.r.to add1;
 	#define SSE2_RADIX16_WRAPPER_DIT(Xadd0,Xadd1,Xr1,Xr9,Xr17,Xr25,Xisrt2,Xcc0,Xc1,Xc2,Xc3,Xc4,Xc5,Xc6,Xc7,Xc8,Xc9,Xc10,Xc11,Xc12,Xc13,Xc14,Xc15)\
 	{\
 	__asm__ volatile (\
@@ -864,6 +878,8 @@
 		"addpd	0x10(%%edx),%%xmm5\n\t"\
 		"subpd	    (%%edx),%%xmm6\n\t"\
 		"subpd	0x10(%%edx),%%xmm7\n\t"\
+	"movl	%[__add1],%%edi	\n\t"\
+	"prefetcht0	-0x20(%%edi)\n\t"\
 		"\n\t"\
 		"subpd	%%xmm4,%%xmm0\n\t"\
 		"subpd	%%xmm5,%%xmm1\n\t"\
@@ -950,6 +966,7 @@
 		"addpd	0x10(%%esi),%%xmm1\n\t"\
 		"subpd	    (%%esi),%%xmm2\n\t"\
 		"subpd	0x10(%%esi),%%xmm3\n\t"\
+	"prefetcht0	-0x40(%%edi)\n\t"\
 		"\n\t"\
 		"movaps	    (%%ecx),%%xmm4\n\t"\
 		"movaps	0x10(%%ecx),%%xmm5\n\t"\
@@ -983,11 +1000,11 @@
 		"movaps	%%xmm7,     (%%ecx)\n\t"\
 		"movaps	%%xmm6,0x010(%%edx)\n\t"\
 		"\n\t"\
-		"/***************************************************************************************************/\n\t"\
-		"/*..and now do four more radix-4 transforms, including the internal and external twiddle factors.  */\n\t"\
-		"/*  Write even-index 16-byte output pairs to a(j1), odd-index to a(j2), unpack same as on inputs.  */\n\t"\
-		"/*  We do the last 2 radix-4 blocks first, to make the unpack-interleaving of outputs smoother.    */\n\t"\
-		"/***************************************************************************************************/\n\t"\
+	/***************************************************************************************************/\
+	/*..and now do four more radix-4 transforms, including the internal and external twiddle factors.  */\
+	/*  Write even-index 16-byte output pairs to a(j1), odd-index to a(j2), unpack same as on inputs.  */\
+	/*  We do the last 2 radix-4 blocks first, to make the unpack-interleaving of outputs smoother.    */\
+	/***************************************************************************************************/\
 		"\n\t"\
 		"/* Main-array addresses still in add0,1, no need to re-init: */\n\t"\
 		"\n\t"\
@@ -1033,6 +1050,7 @@
 		"subpd		0x040(%%eax),%%xmm3\n\t"\
 		"mulpd		(%%esi),%%xmm2\n\t"\
 		"mulpd		(%%esi),%%xmm3\n\t"\
+	"prefetcht0	-0x60(%%edi)\n\t"\
 		"\n\t"\
 		"subpd		%%xmm2,%%xmm0\n\t"\
 		"subpd		%%xmm3,%%xmm1\n\t"\
@@ -1111,6 +1129,7 @@
 		"\n\t"\
 		"movaps		%%xmm6,0xd0(%%esi)\n\t"\
 		"movaps		%%xmm0,0xc0(%%esi)\n\t"\
+	"prefetcht0	-0x80(%%edi)\n\t"\
 		"\n\t"\
 		"/*...Block 4: t7,15,23,31 -> r25,29,27,31: */\n\t"\
 		"movl		%[__r25],%%eax\n\t"\
@@ -1196,6 +1215,7 @@
 		"mulpd		0x10(%%edx),%%xmm1\n\t"\
 		"subpd		%%xmm0,%%xmm7\n\t"\
 		"addpd		%%xmm1,%%xmm6\n\t"\
+	"prefetcht0	-0xa0(%%edi)\n\t"\
 		"\n\t"\
 		"movaps		%%xmm7,0xb0(%%esi)\n\t"\
 		"movaps		%%xmm6,0xa0(%%esi)\n\t"\
@@ -1276,6 +1296,7 @@
 		"mulpd		0x10(%%edx),%%xmm7\n\t"\
 		"subpd		%%xmm6,%%xmm3\n\t"\
 		"addpd		%%xmm7,%%xmm2\n\t"\
+	"prefetcht0	-0xc0(%%edi)\n\t"\
 		"\n\t"\
 		"movl		%[__add1],%%ecx\n\t"\
 		"movaps		%%xmm3,%%xmm7\n\t"\
@@ -1356,6 +1377,7 @@
 		"unpcklpd	0xc0(%%ecx),%%xmm0\n\t"\
 		"movaps		%%xmm6,0xc0(%%ecx)\n\t"\
 		"\n\t"\
+	"prefetcht0	-0xe0(%%edi)\n\t"\
 		"movaps		%%xmm1,0xd0(%%eax)\n\t"\
 		"movaps		%%xmm0,0xc0(%%eax)\n\t"\
 		"\n\t"\
@@ -1433,6 +1455,7 @@
 		"movaps		0x010(%%eax),%%xmm5\n\t"\
 		"movaps		%%xmm4,%%xmm3\n\t"\
 		"movaps		%%xmm5,%%xmm1\n\t"\
+	"prefetcht0	-0x100(%%edi)\n\t"\
 		"mulpd		    (%%edx),%%xmm4\n\t"\
 		"mulpd		    (%%edx),%%xmm5\n\t"\
 		"mulpd		0x10(%%edx),%%xmm3\n\t"\
@@ -1527,7 +1550,7 @@
 		 ,[__c13] "m" (Xc13)\
 		 ,[__c14] "m" (Xc14)\
 		 ,[__c15] "m" (Xc15)\
-		: "cc","memory","eax","esi","ecx","edx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
+		: "cc","memory","eax","esi","ecx","edx","edi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
 

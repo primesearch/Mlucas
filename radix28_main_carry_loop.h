@@ -54,17 +54,17 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	RADIX_04_DIT(a[jt    ],a[jp    ],a[jt+p01],a[jp+p01],a[jt+p03],a[jp+p03],a[jt+p02],a[jp+p02],a1p24r,a1p24i,a1p27r,a1p27i,a1p26r,a1p26i,a1p25r,a1p25i,rt,it);
 
   /*...and now do 4 radix-7 transforms...*/
+						/*                                     inputs                                                */  /*                 intermediates                     */  /*                                        outputs                                              */  /*   sincos consts   */  /* tmps */
   #if LO_ADD
-					 /*                                                   inputs                                                  */ /*               intermediates              */ /*                                                                     outputs                                                                         */
-	RADIX_07_DFT(a1p00r,a1p00i,a1p04r,a1p04i,a1p08r,a1p08i,a1p12r,a1p12i,a1p16r,a1p16i,a1p20r,a1p20i,a1p24r,a1p24i,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,a1p00r,a1p00i,a1p08r,a1p08i,a1p16r,a1p16i,a1p24r,a1p24i,a1p04r,a1p04i,a1p12r,a1p12i,a1p20r,a1p20i,uc1,us1,uc2,us2,uc3,us3,rt,it,re,im);
-	RADIX_07_DFT(a1p03r,a1p03i,a1p07r,a1p07i,a1p11r,a1p11i,a1p15r,a1p15i,a1p19r,a1p19i,a1p23r,a1p23i,a1p27r,a1p27i,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,a1p07r,a1p07i,a1p15r,a1p15i,a1p23r,a1p23i,a1p03r,a1p03i,a1p11r,a1p11i,a1p19r,a1p19i,a1p27r,a1p27i,uc1,us1,uc2,us2,uc3,us3,rt,it,re,im);
-	RADIX_07_DFT(a1p02r,a1p02i,a1p06r,a1p06i,a1p10r,a1p10i,a1p14r,a1p14i,a1p18r,a1p18i,a1p22r,a1p22i,a1p26r,a1p26i,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,a1p14r,a1p14i,a1p22r,a1p22i,a1p02r,a1p02i,a1p10r,a1p10i,a1p18r,a1p18i,a1p26r,a1p26i,a1p06r,a1p06i,uc1,us1,uc2,us2,uc3,us3,rt,it,re,im);
-	RADIX_07_DFT(a1p01r,a1p01i,a1p05r,a1p05i,a1p09r,a1p09i,a1p13r,a1p13i,a1p17r,a1p17i,a1p21r,a1p21i,a1p25r,a1p25i,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,a1p21r,a1p21i,a1p01r,a1p01i,a1p09r,a1p09i,a1p17r,a1p17i,a1p25r,a1p25i,a1p05r,a1p05i,a1p13r,a1p13i,uc1,us1,uc2,us2,uc3,us3,rt,it,re,im);
+	RADIX_07_DFT_FMA (a1p00r,a1p00i,a1p04r,a1p04i,a1p08r,a1p08i,a1p12r,a1p12i,a1p16r,a1p16i,a1p20r,a1p20i,a1p24r,a1p24i, t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13, a1p00r,a1p00i,a1p08r,a1p08i,a1p16r,a1p16i,a1p24r,a1p24i,a1p04r,a1p04i,a1p12r,a1p12i,a1p20r,a1p20i, uc1,us1,uc2,us2,uc3,us3, rt,it,re,im);
+	RADIX_07_DFT_FMA (a1p03r,a1p03i,a1p07r,a1p07i,a1p11r,a1p11i,a1p15r,a1p15i,a1p19r,a1p19i,a1p23r,a1p23i,a1p27r,a1p27i, t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13, a1p07r,a1p07i,a1p15r,a1p15i,a1p23r,a1p23i,a1p03r,a1p03i,a1p11r,a1p11i,a1p19r,a1p19i,a1p27r,a1p27i, uc1,us1,uc2,us2,uc3,us3, rt,it,re,im);
+	RADIX_07_DFT_FMA (a1p02r,a1p02i,a1p06r,a1p06i,a1p10r,a1p10i,a1p14r,a1p14i,a1p18r,a1p18i,a1p22r,a1p22i,a1p26r,a1p26i, t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13, a1p14r,a1p14i,a1p22r,a1p22i,a1p02r,a1p02i,a1p10r,a1p10i,a1p18r,a1p18i,a1p26r,a1p26i,a1p06r,a1p06i, uc1,us1,uc2,us2,uc3,us3, rt,it,re,im);
+	RADIX_07_DFT_FMA (a1p01r,a1p01i,a1p05r,a1p05i,a1p09r,a1p09i,a1p13r,a1p13i,a1p17r,a1p17i,a1p21r,a1p21i,a1p25r,a1p25i, t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13, a1p21r,a1p21i,a1p01r,a1p01i,a1p09r,a1p09i,a1p17r,a1p17i,a1p25r,a1p25i,a1p05r,a1p05i,a1p13r,a1p13i, uc1,us1,uc2,us2,uc3,us3, rt,it,re,im);
   #else
-	RADIX_07_DFT_NUSS(a1p00r,a1p00i,a1p04r,a1p04i,a1p08r,a1p08i,a1p12r,a1p12i,a1p16r,a1p16i,a1p20r,a1p20i,a1p24r,a1p24i,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,a1p00r,a1p00i,a1p08r,a1p08i,a1p16r,a1p16i,a1p24r,a1p24i,a1p04r,a1p04i,a1p12r,a1p12i,a1p20r,a1p20i,cx0,sx0,cx1,sx1,cx2,sx2,cx3,sx3,rt,it);
-	RADIX_07_DFT_NUSS(a1p03r,a1p03i,a1p07r,a1p07i,a1p11r,a1p11i,a1p15r,a1p15i,a1p19r,a1p19i,a1p23r,a1p23i,a1p27r,a1p27i,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,a1p07r,a1p07i,a1p15r,a1p15i,a1p23r,a1p23i,a1p03r,a1p03i,a1p11r,a1p11i,a1p19r,a1p19i,a1p27r,a1p27i,cx0,sx0,cx1,sx1,cx2,sx2,cx3,sx3,rt,it);
-	RADIX_07_DFT_NUSS(a1p02r,a1p02i,a1p06r,a1p06i,a1p10r,a1p10i,a1p14r,a1p14i,a1p18r,a1p18i,a1p22r,a1p22i,a1p26r,a1p26i,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,a1p14r,a1p14i,a1p22r,a1p22i,a1p02r,a1p02i,a1p10r,a1p10i,a1p18r,a1p18i,a1p26r,a1p26i,a1p06r,a1p06i,cx0,sx0,cx1,sx1,cx2,sx2,cx3,sx3,rt,it);
-	RADIX_07_DFT_NUSS(a1p01r,a1p01i,a1p05r,a1p05i,a1p09r,a1p09i,a1p13r,a1p13i,a1p17r,a1p17i,a1p21r,a1p21i,a1p25r,a1p25i,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,a1p21r,a1p21i,a1p01r,a1p01i,a1p09r,a1p09i,a1p17r,a1p17i,a1p25r,a1p25i,a1p05r,a1p05i,a1p13r,a1p13i,cx0,sx0,cx1,sx1,cx2,sx2,cx3,sx3,rt,it);
+	RADIX_07_DFT_NUSS(a1p00r,a1p00i,a1p04r,a1p04i,a1p08r,a1p08i,a1p12r,a1p12i,a1p16r,a1p16i,a1p20r,a1p20i,a1p24r,a1p24i, t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13, a1p00r,a1p00i,a1p08r,a1p08i,a1p16r,a1p16i,a1p24r,a1p24i,a1p04r,a1p04i,a1p12r,a1p12i,a1p20r,a1p20i, cx0,sx0,cx1,sx1,cx2,sx2,cx3,sx3, rt,it);
+	RADIX_07_DFT_NUSS(a1p03r,a1p03i,a1p07r,a1p07i,a1p11r,a1p11i,a1p15r,a1p15i,a1p19r,a1p19i,a1p23r,a1p23i,a1p27r,a1p27i, t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13, a1p07r,a1p07i,a1p15r,a1p15i,a1p23r,a1p23i,a1p03r,a1p03i,a1p11r,a1p11i,a1p19r,a1p19i,a1p27r,a1p27i, cx0,sx0,cx1,sx1,cx2,sx2,cx3,sx3, rt,it);
+	RADIX_07_DFT_NUSS(a1p02r,a1p02i,a1p06r,a1p06i,a1p10r,a1p10i,a1p14r,a1p14i,a1p18r,a1p18i,a1p22r,a1p22i,a1p26r,a1p26i, t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13, a1p14r,a1p14i,a1p22r,a1p22i,a1p02r,a1p02i,a1p10r,a1p10i,a1p18r,a1p18i,a1p26r,a1p26i,a1p06r,a1p06i, cx0,sx0,cx1,sx1,cx2,sx2,cx3,sx3, rt,it);
+	RADIX_07_DFT_NUSS(a1p01r,a1p01i,a1p05r,a1p05i,a1p09r,a1p09i,a1p13r,a1p13i,a1p17r,a1p17i,a1p21r,a1p21i,a1p25r,a1p25i, t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13, a1p21r,a1p21i,a1p01r,a1p01i,a1p09r,a1p09i,a1p17r,a1p17i,a1p25r,a1p25i,a1p05r,a1p05i,a1p13r,a1p13i, cx0,sx0,cx1,sx1,cx2,sx2,cx3,sx3, rt,it);
   #endif
 
 #else	// USE_SSE2 = True:
@@ -83,10 +83,17 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	/*...and now do 4 radix-7 transforms...*/
 
-	SSE2_RADIX_07_DFT(s1p00r,s1p04r,s1p08r,s1p12r,s1p16r,s1p20r,s1p24r,cc0,s1p00r,s1p08r,s1p16r,s1p24r,s1p04r,s1p12r,s1p20r);
-	SSE2_RADIX_07_DFT(s1p03r,s1p07r,s1p11r,s1p15r,s1p19r,s1p23r,s1p27r,cc0,s1p07r,s1p15r,s1p23r,s1p03r,s1p11r,s1p19r,s1p27r);
-	SSE2_RADIX_07_DFT(s1p02r,s1p06r,s1p10r,s1p14r,s1p18r,s1p22r,s1p26r,cc0,s1p14r,s1p22r,s1p02r,s1p10r,s1p18r,s1p26r,s1p06r);
-	SSE2_RADIX_07_DFT(s1p01r,s1p05r,s1p09r,s1p13r,s1p17r,s1p21r,s1p25r,cc0,s1p21r,s1p01r,s1p09r,s1p17r,s1p25r,s1p05r,s1p13r);
+   #ifdef USE_AVX2
+	SSE2_RADIX_07_DFT(s1p00r,s1p04r,s1p08r,s1p12r,s1p16r,s1p20r,s1p24r, cc0,two, s1p00r,s1p08r,s1p16r,s1p24r,s1p04r,s1p12r,s1p20r);
+	SSE2_RADIX_07_DFT(s1p03r,s1p07r,s1p11r,s1p15r,s1p19r,s1p23r,s1p27r, cc0,two, s1p07r,s1p15r,s1p23r,s1p03r,s1p11r,s1p19r,s1p27r);
+	SSE2_RADIX_07_DFT(s1p02r,s1p06r,s1p10r,s1p14r,s1p18r,s1p22r,s1p26r, cc0,two, s1p14r,s1p22r,s1p02r,s1p10r,s1p18r,s1p26r,s1p06r);
+	SSE2_RADIX_07_DFT(s1p01r,s1p05r,s1p09r,s1p13r,s1p17r,s1p21r,s1p25r, cc0,two, s1p21r,s1p01r,s1p09r,s1p17r,s1p25r,s1p05r,s1p13r);
+   #else
+	SSE2_RADIX_07_DFT(s1p00r,s1p04r,s1p08r,s1p12r,s1p16r,s1p20r,s1p24r, cc0,     s1p00r,s1p08r,s1p16r,s1p24r,s1p04r,s1p12r,s1p20r);
+	SSE2_RADIX_07_DFT(s1p03r,s1p07r,s1p11r,s1p15r,s1p19r,s1p23r,s1p27r, cc0,     s1p07r,s1p15r,s1p23r,s1p03r,s1p11r,s1p19r,s1p27r);
+	SSE2_RADIX_07_DFT(s1p02r,s1p06r,s1p10r,s1p14r,s1p18r,s1p22r,s1p26r, cc0,     s1p14r,s1p22r,s1p02r,s1p10r,s1p18r,s1p26r,s1p06r);
+	SSE2_RADIX_07_DFT(s1p01r,s1p05r,s1p09r,s1p13r,s1p17r,s1p21r,s1p25r, cc0,     s1p21r,s1p01r,s1p09r,s1p17r,s1p25r,s1p05r,s1p13r);
+   #endif
 
   #else	/* GCC-style inline ASM: */
 
@@ -132,13 +139,21 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		sinwt        ->d3 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
 		sinwtm1      ->d3 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
 
-		AVX_cmplx_carry_norm_errcheck0_X4(s1p00r,add1,add2,add3,cy_r00,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		AVX_cmplx_carry_norm_errcheck1_X4(s1p04r,add1,add2,add3,cy_r04,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		AVX_cmplx_carry_norm_errcheck1_X4(s1p08r,add1,add2,add3,cy_r08,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		AVX_cmplx_carry_norm_errcheck1_X4(s1p12r,add1,add2,add3,cy_r12,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		AVX_cmplx_carry_norm_errcheck1_X4(s1p16r,add1,add2,add3,cy_r16,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		AVX_cmplx_carry_norm_errcheck1_X4(s1p20r,add1,add2,add3,cy_r20,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		AVX_cmplx_carry_norm_errcheck1_X4(s1p24r,add1,add2,add3,cy_r24,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		// Each AVX carry macro call also processes 4 prefetches of main-array data
+		tmp = a + j1 + pfetch_dist;
+		AVX_cmplx_carry_norm_errcheck0_X4(s1p00r,add1,add2,add3,cy_r00,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tmp,p01,p02,p03);
+		tmp += p04;
+		AVX_cmplx_carry_norm_errcheck1_X4(s1p04r,add1,add2,add3,cy_r04,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tmp,p01,p02,p03);
+		tmp = a + j1 + pfetch_dist + p08;
+		AVX_cmplx_carry_norm_errcheck1_X4(s1p08r,add1,add2,add3,cy_r08,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tmp,p01,p02,p03);
+		tmp += p04;
+		AVX_cmplx_carry_norm_errcheck1_X4(s1p12r,add1,add2,add3,cy_r12,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tmp,p01,p02,p03);
+		tmp = a + j1 + pfetch_dist + p16;
+		AVX_cmplx_carry_norm_errcheck1_X4(s1p16r,add1,add2,add3,cy_r16,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tmp,p01,p02,p03);
+		tmp += p04;
+		AVX_cmplx_carry_norm_errcheck1_X4(s1p20r,add1,add2,add3,cy_r20,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tmp,p01,p02,p03);
+		tmp = a + j1 + pfetch_dist + p24;
+		AVX_cmplx_carry_norm_errcheck1_X4(s1p24r,add1,add2,add3,cy_r24,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tmp,p01,p02,p03);
 
 		co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 					// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
@@ -191,21 +206,36 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	  #else	/* GCC-style inline ASM: */
 
 	   #ifdef ERR_CHECK_ALL
-		SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy_r00,cy_r02,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_errcheck1_2B(s1p04r,add1,add2,add3,cy_r04,cy_r06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_errcheck1_2B(s1p08r,add1,add2,add3,cy_r08,cy_r10,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_errcheck1_2B(s1p12r,add1,add2,add3,cy_r12,cy_r14,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_errcheck1_2B(s1p16r,add1,add2,add3,cy_r16,cy_r18,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_errcheck1_2B(s1p20r,add1,add2,add3,cy_r20,cy_r22,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_errcheck1_2B(s1p24r,add1,add2,add3,cy_r24,cy_r26,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+		tmp = a + j1 + pfetch_dist;
+		SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy_r00,cy_r02,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
+		tmp += p04;
+		SSE2_cmplx_carry_norm_errcheck1_2B(s1p04r,add1,add2,add3,cy_r04,cy_r06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
+		tmp = a + j1 + pfetch_dist + p08;
+		SSE2_cmplx_carry_norm_errcheck1_2B(s1p08r,add1,add2,add3,cy_r08,cy_r10,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
+		tmp += p04;
+		SSE2_cmplx_carry_norm_errcheck1_2B(s1p12r,add1,add2,add3,cy_r12,cy_r14,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
+		tmp = a + j1 + pfetch_dist + p16;
+		SSE2_cmplx_carry_norm_errcheck1_2B(s1p16r,add1,add2,add3,cy_r16,cy_r18,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
+		tmp += p04;
+		SSE2_cmplx_carry_norm_errcheck1_2B(s1p20r,add1,add2,add3,cy_r20,cy_r22,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
+		tmp = a + j1 + pfetch_dist + p24;
+		SSE2_cmplx_carry_norm_errcheck1_2B(s1p24r,add1,add2,add3,cy_r24,cy_r26,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
 	   #else
-		SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy_r00,cy_r02,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_nocheck1_2B (s1p04r,add1,add2,add3,cy_r04,cy_r06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_nocheck1_2B (s1p08r,add1,add2,add3,cy_r08,cy_r10,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_nocheck1_2B (s1p12r,add1,add2,add3,cy_r12,cy_r14,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_nocheck1_2B (s1p16r,add1,add2,add3,cy_r16,cy_r18,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_nocheck1_2B (s1p20r,add1,add2,add3,cy_r20,cy_r22,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_nocheck1_2B (s1p24r,add1,add2,add3,cy_r24,cy_r26,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		tmp = a + j1 + pfetch_dist;
+		SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy_r00,cy_r02,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
+		tmp += p04;
+		SSE2_cmplx_carry_norm_nocheck1_2B (s1p04r,add1,add2,add3,cy_r04,cy_r06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
+		tmp = a + j1 + pfetch_dist + p08;
+		SSE2_cmplx_carry_norm_nocheck1_2B (s1p08r,add1,add2,add3,cy_r08,cy_r10,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
+		tmp += p04;
+		SSE2_cmplx_carry_norm_nocheck1_2B (s1p12r,add1,add2,add3,cy_r12,cy_r14,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
+		tmp = a + j1 + pfetch_dist + p16;
+		SSE2_cmplx_carry_norm_nocheck1_2B (s1p16r,add1,add2,add3,cy_r16,cy_r18,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
+		tmp += p04;
+		SSE2_cmplx_carry_norm_nocheck1_2B (s1p20r,add1,add2,add3,cy_r20,cy_r22,bjmodn20,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
+		tmp = a + j1 + pfetch_dist + p24;
+		SSE2_cmplx_carry_norm_nocheck1_2B (s1p24r,add1,add2,add3,cy_r24,cy_r26,bjmodn24,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
 	   #endif
 
 	  #endif
@@ -258,21 +288,35 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	  #else	/* GCC-style inline ASM: */
 
 	   #ifdef ERR_CHECK_ALL
-		SSE2_cmplx_carry_norm_errcheck2_2B(s1p00r,add1,add2,     cy_r00,cy_r02,bjmodn00,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_errcheck2_2B(s1p04r,add1,add2,     cy_r04,cy_r06,bjmodn04,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_errcheck2_2B(s1p08r,add1,add2,     cy_r08,cy_r10,bjmodn08,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_errcheck2_2B(s1p12r,add1,add2,     cy_r12,cy_r14,bjmodn12,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_errcheck2_2B(s1p16r,add1,add2,     cy_r16,cy_r18,bjmodn16,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_errcheck2_2B(s1p20r,add1,add2,     cy_r20,cy_r22,bjmodn20,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_errcheck2_2B(s1p24r,add1,add2,     cy_r24,cy_r26,bjmodn24,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		tmp = a + j1 + pfetch_dist;
+		SSE2_cmplx_carry_norm_errcheck2_2B(s1p00r,add1,add2,     cy_r00,cy_r02,bjmodn00,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
+		tmp += p04;
+		SSE2_cmplx_carry_norm_errcheck2_2B(s1p04r,add1,add2,     cy_r04,cy_r06,bjmodn04,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
+		tmp = a + j1 + pfetch_dist + p08;
+		SSE2_cmplx_carry_norm_errcheck2_2B(s1p08r,add1,add2,     cy_r08,cy_r10,bjmodn08,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
+		tmp += p04;
+		SSE2_cmplx_carry_norm_errcheck2_2B(s1p12r,add1,add2,     cy_r12,cy_r14,bjmodn12,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
+		tmp = a + j1 + pfetch_dist + p16;
+		SSE2_cmplx_carry_norm_errcheck2_2B(s1p16r,add1,add2,     cy_r16,cy_r18,bjmodn16,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
+		tmp += p04;
+		SSE2_cmplx_carry_norm_errcheck2_2B(s1p20r,add1,add2,     cy_r20,cy_r22,bjmodn20,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
+		tmp = a + j1 + pfetch_dist + p24;
+		SSE2_cmplx_carry_norm_errcheck2_2B(s1p24r,add1,add2,     cy_r24,cy_r26,bjmodn24,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
 	   #else
-		SSE2_cmplx_carry_norm_nocheck2_2B (s1p00r,add1,add2,     cy_r00,cy_r02,bjmodn00,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_nocheck2_2B (s1p04r,add1,add2,     cy_r04,cy_r06,bjmodn04,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_nocheck2_2B (s1p08r,add1,add2,     cy_r08,cy_r10,bjmodn08,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_nocheck2_2B (s1p12r,add1,add2,     cy_r12,cy_r14,bjmodn12,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_nocheck2_2B (s1p16r,add1,add2,     cy_r16,cy_r18,bjmodn16,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_nocheck2_2B (s1p20r,add1,add2,     cy_r20,cy_r22,bjmodn20,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
-		SSE2_cmplx_carry_norm_nocheck2_2B (s1p24r,add1,add2,     cy_r24,cy_r26,bjmodn24,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		tmp = a + j1 + pfetch_dist;
+		SSE2_cmplx_carry_norm_nocheck2_2B (s1p00r,add1,add2,     cy_r00,cy_r02,bjmodn00,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
+		tmp += p04;
+		SSE2_cmplx_carry_norm_nocheck2_2B (s1p04r,add1,add2,     cy_r04,cy_r06,bjmodn04,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
+		tmp = a + j1 + pfetch_dist + p08;
+		SSE2_cmplx_carry_norm_nocheck2_2B (s1p08r,add1,add2,     cy_r08,cy_r10,bjmodn08,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
+		tmp += p04;
+		SSE2_cmplx_carry_norm_nocheck2_2B (s1p12r,add1,add2,     cy_r12,cy_r14,bjmodn12,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
+		tmp = a + j1 + pfetch_dist + p16;
+		SSE2_cmplx_carry_norm_nocheck2_2B (s1p16r,add1,add2,     cy_r16,cy_r18,bjmodn16,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
+		tmp += p04;
+		SSE2_cmplx_carry_norm_nocheck2_2B (s1p20r,add1,add2,     cy_r20,cy_r22,bjmodn20,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
+		tmp = a + j1 + pfetch_dist + p24;
+		SSE2_cmplx_carry_norm_nocheck2_2B (s1p24r,add1,add2,     cy_r24,cy_r26,bjmodn24,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
 	   #endif
 
 	  #endif
@@ -506,23 +550,39 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		// uses the same 0x40-byte up-multiplier, so the literal offsets advance (+0x100-0x40) = -0xc0 bytes between macro calls:
 		tmp = base_negacyclic_root;	l = 0x700;																														// *cycle index increments by +4 (mod ODD_RADIX) between macro calls
 	/*    0xe0 = (RADIX/4)*sz_vd = bytewise pointer diff (cy_i-cy_r) vvvv  vvvvvvvvvvvvvvvv = [1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
-		SSE2_fermat_carry_norm_errcheck_X4_hiacc(s1p00r,tmp,l,cy_r00,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle0,icycle1,icycle2,icycle3, jcycle0,kcycle0,lcycle0); l -= 0xc0;	tmp += 8;
-		SSE2_fermat_carry_norm_errcheck_X4_hiacc(s1p04r,tmp,l,cy_r04,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle4,icycle5,icycle6,icycle0, jcycle4,kcycle4,lcycle4); l -= 0xc0;	tmp += 8;
-		SSE2_fermat_carry_norm_errcheck_X4_hiacc(s1p08r,tmp,l,cy_r08,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle1,icycle2,icycle3,icycle4, jcycle1,kcycle1,lcycle1); l -= 0xc0;	tmp += 8;
-		SSE2_fermat_carry_norm_errcheck_X4_hiacc(s1p12r,tmp,l,cy_r12,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle5,icycle6,icycle0,icycle1, jcycle5,kcycle5,lcycle5); l -= 0xc0;	tmp += 8;
-		SSE2_fermat_carry_norm_errcheck_X4_hiacc(s1p16r,tmp,l,cy_r16,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle2,icycle3,icycle4,icycle5, jcycle2,kcycle2,lcycle2); l -= 0xc0;	tmp += 8;
-		SSE2_fermat_carry_norm_errcheck_X4_hiacc(s1p20r,tmp,l,cy_r20,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle6,icycle0,icycle1,icycle2, jcycle6,kcycle6,lcycle6); l -= 0xc0;	tmp += 8;
-		SSE2_fermat_carry_norm_errcheck_X4_hiacc(s1p24r,tmp,l,cy_r24,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle3,icycle4,icycle5,icycle6, jcycle3,kcycle3,lcycle3);
+		// Each AVX carry macro call also processes 4 prefetches of main-array data
+		tmp = a + j1 + pfetch_dist;
+		SSE2_fermat_carry_norm_errcheck_X4_hiacc(s1p00r,tmp,l,cy_r00,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle0,icycle1,icycle2,icycle3, jcycle0,kcycle0,lcycle0, tmp,p01,p02,p03); l -= 0xc0;	tmp += 8;
+		tmp += p04;
+		SSE2_fermat_carry_norm_errcheck_X4_hiacc(s1p04r,tmp,l,cy_r04,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle4,icycle5,icycle6,icycle0, jcycle4,kcycle4,lcycle4, tmp,p01,p02,p03); l -= 0xc0;	tmp += 8;
+		tmp = a + j1 + pfetch_dist + p08;
+		SSE2_fermat_carry_norm_errcheck_X4_hiacc(s1p08r,tmp,l,cy_r08,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle1,icycle2,icycle3,icycle4, jcycle1,kcycle1,lcycle1, tmp,p01,p02,p03); l -= 0xc0;	tmp += 8;
+		tmp += p04;
+		SSE2_fermat_carry_norm_errcheck_X4_hiacc(s1p12r,tmp,l,cy_r12,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle5,icycle6,icycle0,icycle1, jcycle5,kcycle5,lcycle5, tmp,p01,p02,p03); l -= 0xc0;	tmp += 8;
+		tmp = a + j1 + pfetch_dist + p16;
+		SSE2_fermat_carry_norm_errcheck_X4_hiacc(s1p16r,tmp,l,cy_r16,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle2,icycle3,icycle4,icycle5, jcycle2,kcycle2,lcycle2, tmp,p01,p02,p03); l -= 0xc0;	tmp += 8;
+		tmp += p04;
+		SSE2_fermat_carry_norm_errcheck_X4_hiacc(s1p20r,tmp,l,cy_r20,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle6,icycle0,icycle1,icycle2, jcycle6,kcycle6,lcycle6, tmp,p01,p02,p03); l -= 0xc0;	tmp += 8;
+		tmp = a + j1 + pfetch_dist + p24;
+		SSE2_fermat_carry_norm_errcheck_X4_hiacc(s1p24r,tmp,l,cy_r24,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle3,icycle4,icycle5,icycle6, jcycle3,kcycle3,lcycle3, tmp,p01,p02,p03);
 
 	  #else	// HIACC = false:
 
-		SSE2_fermat_carry_norm_errcheck_X4_loacc(s1p00r,base_negacyclic_root,cy_r00,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle0,icycle1,icycle2,icycle3, jcycle0,kcycle0,lcycle0);	// *cycle index increments by +4 (mod ODD_RADIX) between macro calls
-		SSE2_fermat_carry_norm_errcheck_X4_loacc(s1p04r,base_negacyclic_root,cy_r04,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle4,icycle5,icycle6,icycle0, jcycle4,kcycle4,lcycle4);
-		SSE2_fermat_carry_norm_errcheck_X4_loacc(s1p08r,base_negacyclic_root,cy_r08,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle1,icycle2,icycle3,icycle4, jcycle1,kcycle1,lcycle1);
-		SSE2_fermat_carry_norm_errcheck_X4_loacc(s1p12r,base_negacyclic_root,cy_r12,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle5,icycle6,icycle0,icycle1, jcycle5,kcycle5,lcycle5);
-		SSE2_fermat_carry_norm_errcheck_X4_loacc(s1p16r,base_negacyclic_root,cy_r16,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle2,icycle3,icycle4,icycle5, jcycle2,kcycle2,lcycle2);
-		SSE2_fermat_carry_norm_errcheck_X4_loacc(s1p20r,base_negacyclic_root,cy_r20,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle6,icycle0,icycle1,icycle2, jcycle6,kcycle6,lcycle6);
-		SSE2_fermat_carry_norm_errcheck_X4_loacc(s1p24r,base_negacyclic_root,cy_r24,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle3,icycle4,icycle5,icycle6, jcycle3,kcycle3,lcycle3);
+		// Each AVX carry macro call also processes 4 prefetches of main-array data
+		tmp = a + j1 + pfetch_dist;
+		SSE2_fermat_carry_norm_errcheck_X4_loacc(s1p00r,base_negacyclic_root,cy_r00,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle0,icycle1,icycle2,icycle3, jcycle0,kcycle0,lcycle0, tmp,p01,p02,p03);	// *cycle index increments by +4 (mod ODD_RADIX) between macro calls
+		tmp += p04;
+		SSE2_fermat_carry_norm_errcheck_X4_loacc(s1p04r,base_negacyclic_root,cy_r04,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle4,icycle5,icycle6,icycle0, jcycle4,kcycle4,lcycle4, tmp,p01,p02,p03);
+		tmp = a + j1 + pfetch_dist + p08;
+		SSE2_fermat_carry_norm_errcheck_X4_loacc(s1p08r,base_negacyclic_root,cy_r08,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle1,icycle2,icycle3,icycle4, jcycle1,kcycle1,lcycle1, tmp,p01,p02,p03);
+		tmp += p04;
+		SSE2_fermat_carry_norm_errcheck_X4_loacc(s1p12r,base_negacyclic_root,cy_r12,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle5,icycle6,icycle0,icycle1, jcycle5,kcycle5,lcycle5, tmp,p01,p02,p03);
+		tmp = a + j1 + pfetch_dist + p16;
+		SSE2_fermat_carry_norm_errcheck_X4_loacc(s1p16r,base_negacyclic_root,cy_r16,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle2,icycle3,icycle4,icycle5, jcycle2,kcycle2,lcycle2, tmp,p01,p02,p03);
+		tmp += p04;
+		SSE2_fermat_carry_norm_errcheck_X4_loacc(s1p20r,base_negacyclic_root,cy_r20,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle6,icycle0,icycle1,icycle2, jcycle6,kcycle6,lcycle6, tmp,p01,p02,p03);
+		tmp = a + j1 + pfetch_dist + p24;
+		SSE2_fermat_carry_norm_errcheck_X4_loacc(s1p24r,base_negacyclic_root,cy_r24,0xe0, 0xe0,0x1c0,0x2a0,half_arr,sign_mask,icycle3,icycle4,icycle5,icycle6, jcycle3,kcycle3,lcycle3, tmp,p01,p02,p03);
 
 	  #endif
 
@@ -575,52 +635,96 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		// Need to stick this #def into an intvar to work around [error: invalid lvalue in asm input for constraint 'm']
 		l = ODD_RADIX << 4;	// 32-bit version needs preshifted << 4 input value
-		SSE2_fermat_carry_norm_errcheck(s1p00r,cy_r00,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle0,jcycle0);
-		SSE2_fermat_carry_norm_errcheck(s1p01r,cy_r02,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle1,jcycle1);
-		SSE2_fermat_carry_norm_errcheck(s1p02r,cy_r04,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle2,jcycle2);
-		SSE2_fermat_carry_norm_errcheck(s1p03r,cy_r06,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle3,jcycle3);
-		SSE2_fermat_carry_norm_errcheck(s1p04r,cy_r08,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle4,jcycle4);
-		SSE2_fermat_carry_norm_errcheck(s1p05r,cy_r10,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle5,jcycle5);
-		SSE2_fermat_carry_norm_errcheck(s1p06r,cy_r12,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle6,jcycle6);
-		SSE2_fermat_carry_norm_errcheck(s1p07r,cy_r14,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle0,jcycle0);
-		SSE2_fermat_carry_norm_errcheck(s1p08r,cy_r16,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle1,jcycle1);
-		SSE2_fermat_carry_norm_errcheck(s1p09r,cy_r18,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle2,jcycle2);
-		SSE2_fermat_carry_norm_errcheck(s1p10r,cy_r20,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle3,jcycle3);
-		SSE2_fermat_carry_norm_errcheck(s1p11r,cy_r22,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle4,jcycle4);
-		SSE2_fermat_carry_norm_errcheck(s1p12r,cy_r24,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle5,jcycle5);
-		SSE2_fermat_carry_norm_errcheck(s1p13r,cy_r26,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle6,jcycle6);
-		SSE2_fermat_carry_norm_errcheck(s1p14r,cy_i00,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle0,jcycle0);
-		SSE2_fermat_carry_norm_errcheck(s1p15r,cy_i02,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle1,jcycle1);
-		SSE2_fermat_carry_norm_errcheck(s1p16r,cy_i04,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle2,jcycle2);
-		SSE2_fermat_carry_norm_errcheck(s1p17r,cy_i06,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle3,jcycle3);
-		SSE2_fermat_carry_norm_errcheck(s1p18r,cy_i08,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle4,jcycle4);
-		SSE2_fermat_carry_norm_errcheck(s1p19r,cy_i10,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle5,jcycle5);
-		SSE2_fermat_carry_norm_errcheck(s1p20r,cy_i12,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle6,jcycle6);
-		SSE2_fermat_carry_norm_errcheck(s1p21r,cy_i14,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle0,jcycle0);
-		SSE2_fermat_carry_norm_errcheck(s1p22r,cy_i16,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle1,jcycle1);
-		SSE2_fermat_carry_norm_errcheck(s1p23r,cy_i18,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle2,jcycle2);
-		SSE2_fermat_carry_norm_errcheck(s1p24r,cy_i20,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle3,jcycle3);
-		SSE2_fermat_carry_norm_errcheck(s1p25r,cy_i22,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle4,jcycle4);
-		SSE2_fermat_carry_norm_errcheck(s1p26r,cy_i24,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle5,jcycle5);
-		SSE2_fermat_carry_norm_errcheck(s1p27r,cy_i26,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle6,jcycle6);
+		// Each SSE2 carry macro call also processes 1 prefetch of main-array data
+		tmp = a + j1 + pfetch_dist;
+		SSE2_fermat_carry_norm_errcheck(s1p00r,cy_r00,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle0,jcycle0, tmp);
+		tmp += p01;
+		SSE2_fermat_carry_norm_errcheck(s1p01r,cy_r02,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle1,jcycle1, tmp);
+		tmp += p02 - p01;
+		SSE2_fermat_carry_norm_errcheck(s1p02r,cy_r04,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle2,jcycle2, tmp);
+		tmp += p01;
+		SSE2_fermat_carry_norm_errcheck(s1p03r,cy_r06,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle3,jcycle3, tmp);
+		tmp = a + j1 + pfetch_dist + p04;
+		SSE2_fermat_carry_norm_errcheck(s1p04r,cy_r08,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle4,jcycle4, tmp);
+		tmp += p01;
+		SSE2_fermat_carry_norm_errcheck(s1p05r,cy_r10,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle5,jcycle5, tmp);
+		tmp += p02 - p01;
+		SSE2_fermat_carry_norm_errcheck(s1p06r,cy_r12,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle6,jcycle6, tmp);
+		tmp += p01;
+		SSE2_fermat_carry_norm_errcheck(s1p07r,cy_r14,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle0,jcycle0, tmp);
+		tmp = a + j1 + pfetch_dist + p08;
+		SSE2_fermat_carry_norm_errcheck(s1p08r,cy_r16,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle1,jcycle1, tmp);
+		tmp += p01;
+		SSE2_fermat_carry_norm_errcheck(s1p09r,cy_r18,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle2,jcycle2, tmp);
+		tmp += p02 - p01;
+		SSE2_fermat_carry_norm_errcheck(s1p10r,cy_r20,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle3,jcycle3, tmp);
+		tmp += p01;
+		SSE2_fermat_carry_norm_errcheck(s1p11r,cy_r22,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle4,jcycle4, tmp);
+		tmp = a + j1 + pfetch_dist + p12;
+		SSE2_fermat_carry_norm_errcheck(s1p12r,cy_r24,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle5,jcycle5, tmp);
+		tmp += p01;
+		SSE2_fermat_carry_norm_errcheck(s1p13r,cy_r26,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle6,jcycle6, tmp);
+		tmp += p02 - p01;
+		SSE2_fermat_carry_norm_errcheck(s1p14r,cy_i00,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle0,jcycle0, tmp);
+		tmp += p01;
+		SSE2_fermat_carry_norm_errcheck(s1p15r,cy_i02,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle1,jcycle1, tmp);
+		tmp = a + j1 + pfetch_dist + p16;
+		SSE2_fermat_carry_norm_errcheck(s1p16r,cy_i04,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle2,jcycle2, tmp);
+		tmp += p01;
+		SSE2_fermat_carry_norm_errcheck(s1p17r,cy_i06,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle3,jcycle3, tmp);
+		tmp += p02 - p01;
+		SSE2_fermat_carry_norm_errcheck(s1p18r,cy_i08,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle4,jcycle4, tmp);
+		tmp += p01;
+		SSE2_fermat_carry_norm_errcheck(s1p19r,cy_i10,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle5,jcycle5, tmp);
+		tmp = a + j1 + pfetch_dist + p20;
+		SSE2_fermat_carry_norm_errcheck(s1p20r,cy_i12,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle6,jcycle6, tmp);
+		tmp += p01;
+		SSE2_fermat_carry_norm_errcheck(s1p21r,cy_i14,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle0,jcycle0, tmp);
+		tmp += p02 - p01;
+		SSE2_fermat_carry_norm_errcheck(s1p22r,cy_i16,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle1,jcycle1, tmp);
+		tmp += p01;
+		SSE2_fermat_carry_norm_errcheck(s1p23r,cy_i18,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle2,jcycle2, tmp);
+		tmp = a + j1 + pfetch_dist + p24;
+		SSE2_fermat_carry_norm_errcheck(s1p24r,cy_i20,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle3,jcycle3, tmp);
+		tmp += p01;
+		SSE2_fermat_carry_norm_errcheck(s1p25r,cy_i22,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle4,jcycle4, tmp);
+		tmp += p02 - p01;
+		SSE2_fermat_carry_norm_errcheck(s1p26r,cy_i24,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle5,jcycle5, tmp);
+		tmp += p01;
+		SSE2_fermat_carry_norm_errcheck(s1p27r,cy_i26,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle6,jcycle6, tmp);
 
 	  #else	// 64-bit SSE2
 
 		l = ODD_RADIX;	// Need to stick this #def into an intvar to work around [error: invalid lvalue in asm input for constraint 'm']
-		SSE2_fermat_carry_norm_errcheck_X2(s1p00r,cy_r00,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle0,jcycle0,icycle1,jcycle1);
-		SSE2_fermat_carry_norm_errcheck_X2(s1p02r,cy_r04,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle2,jcycle2,icycle3,jcycle3);
-		SSE2_fermat_carry_norm_errcheck_X2(s1p04r,cy_r08,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle4,jcycle4,icycle5,jcycle5);
-		SSE2_fermat_carry_norm_errcheck_X2(s1p06r,cy_r12,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle6,jcycle6,icycle0,jcycle0);
-		SSE2_fermat_carry_norm_errcheck_X2(s1p08r,cy_r16,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle1,jcycle1,icycle2,jcycle2);
-		SSE2_fermat_carry_norm_errcheck_X2(s1p10r,cy_r20,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle3,jcycle3,icycle4,jcycle4);
-		SSE2_fermat_carry_norm_errcheck_X2(s1p12r,cy_r24,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle5,jcycle5,icycle6,jcycle6);
-		SSE2_fermat_carry_norm_errcheck_X2(s1p14r,cy_i00,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle0,jcycle0,icycle1,jcycle1);
-		SSE2_fermat_carry_norm_errcheck_X2(s1p16r,cy_i04,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle2,jcycle2,icycle3,jcycle3);
-		SSE2_fermat_carry_norm_errcheck_X2(s1p18r,cy_i08,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle4,jcycle4,icycle5,jcycle5);
-		SSE2_fermat_carry_norm_errcheck_X2(s1p20r,cy_i12,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle6,jcycle6,icycle0,jcycle0);
-		SSE2_fermat_carry_norm_errcheck_X2(s1p22r,cy_i16,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle1,jcycle1,icycle2,jcycle2);
-		SSE2_fermat_carry_norm_errcheck_X2(s1p24r,cy_i20,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle3,jcycle3,icycle4,jcycle4);
-		SSE2_fermat_carry_norm_errcheck_X2(s1p26r,cy_i24,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle5,jcycle5,icycle6,jcycle6);
+		// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+		tmp = a + j1 + pfetch_dist;
+		SSE2_fermat_carry_norm_errcheck_X2(s1p00r,cy_r00,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle0,jcycle0,icycle1,jcycle1, tmp,p01);
+		tmp += p02;
+		SSE2_fermat_carry_norm_errcheck_X2(s1p02r,cy_r04,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle2,jcycle2,icycle3,jcycle3, tmp,p01);
+		tmp = a + j1 + pfetch_dist + p04;
+		SSE2_fermat_carry_norm_errcheck_X2(s1p04r,cy_r08,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle4,jcycle4,icycle5,jcycle5, tmp,p01);
+		tmp += p02;
+		SSE2_fermat_carry_norm_errcheck_X2(s1p06r,cy_r12,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle6,jcycle6,icycle0,jcycle0, tmp,p01);
+		tmp = a + j1 + pfetch_dist + p08;
+		SSE2_fermat_carry_norm_errcheck_X2(s1p08r,cy_r16,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle1,jcycle1,icycle2,jcycle2, tmp,p01);
+		tmp += p02;
+		SSE2_fermat_carry_norm_errcheck_X2(s1p10r,cy_r20,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle3,jcycle3,icycle4,jcycle4, tmp,p01);
+		tmp = a + j1 + pfetch_dist + p12;
+		SSE2_fermat_carry_norm_errcheck_X2(s1p12r,cy_r24,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle5,jcycle5,icycle6,jcycle6, tmp,p01);
+		tmp += p02;
+		SSE2_fermat_carry_norm_errcheck_X2(s1p14r,cy_i00,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle0,jcycle0,icycle1,jcycle1, tmp,p01);
+		tmp = a + j1 + pfetch_dist + p16;
+		SSE2_fermat_carry_norm_errcheck_X2(s1p16r,cy_i04,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle2,jcycle2,icycle3,jcycle3, tmp,p01);
+		tmp += p02;
+		SSE2_fermat_carry_norm_errcheck_X2(s1p18r,cy_i08,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle4,jcycle4,icycle5,jcycle5, tmp,p01);
+		tmp = a + j1 + pfetch_dist + p20;
+		SSE2_fermat_carry_norm_errcheck_X2(s1p20r,cy_i12,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle6,jcycle6,icycle0,jcycle0, tmp,p01);
+		tmp += p02;
+		SSE2_fermat_carry_norm_errcheck_X2(s1p22r,cy_i16,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle1,jcycle1,icycle2,jcycle2, tmp,p01);
+		tmp = a + j1 + pfetch_dist + p24;
+		SSE2_fermat_carry_norm_errcheck_X2(s1p24r,cy_i20,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle3,jcycle3,icycle4,jcycle4, tmp,p01);
+		tmp += p02;
+		SSE2_fermat_carry_norm_errcheck_X2(s1p26r,cy_i24,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,icycle5,jcycle5,icycle6,jcycle6, tmp,p01);
 
 	  #endif
 
@@ -723,17 +827,24 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
   #endif
 
 /*...gather the needed data (28 64-bit complex, i.e. 56 64-bit reals) and do 4 radix-7 transforms...*/
-					 /*                                                                      inputs                                                                         */ /*               intermediates              */ /*                                                  outputs                                                  */
-  #if PFETCH
-	RADIX_07_DFT_PFETCH(a1p00r,a1p00i,a1p24r,a1p24i,a1p20r,a1p20i,a1p16r,a1p16i,a1p12r,a1p12i,a1p08r,a1p08i,a1p04r,a1p04i,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,a1p00r,a1p00i,a1p04r,a1p04i,a1p08r,a1p08i,a1p12r,a1p12i,a1p16r,a1p16i,a1p20r,a1p20i,a1p24r,a1p24i,uc1,us1,uc2,us2,uc3,us3,rt,it,re,im,addr,addp,p01,p02,p03);	jt=p04+p01;	jp=p04+p02;
-	RADIX_07_DFT_PFETCH(a1p21r,a1p21i,a1p17r,a1p17i,a1p13r,a1p13i,a1p09r,a1p09i,a1p05r,a1p05i,a1p01r,a1p01i,a1p25r,a1p25i,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,a1p01r,a1p01i,a1p05r,a1p05i,a1p09r,a1p09i,a1p13r,a1p13i,a1p17r,a1p17i,a1p21r,a1p21i,a1p25r,a1p25i,uc1,us1,uc2,us2,uc3,us3,rt,it,re,im,addr,addp,p04, jt, jp);	jt=p08-p01;	jp=p08+p01;
-	RADIX_07_DFT_PFETCH(a1p14r,a1p14i,a1p10r,a1p10i,a1p06r,a1p06i,a1p02r,a1p02i,a1p26r,a1p26i,a1p22r,a1p22i,a1p18r,a1p18i,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,a1p02r,a1p02i,a1p06r,a1p06i,a1p10r,a1p10i,a1p14r,a1p14i,a1p18r,a1p18i,a1p22r,a1p22i,a1p26r,a1p26i,uc1,us1,uc2,us2,uc3,us3,rt,it,re,im,addr,addp, jt,p08, jp);	jt=p08+p02;	jp=p08+p03;
-	RADIX_07_DFT_PFETCH(a1p07r,a1p07i,a1p03r,a1p03i,a1p27r,a1p27i,a1p23r,a1p23i,a1p19r,a1p19i,a1p15r,a1p15i,a1p11r,a1p11i,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,a1p03r,a1p03i,a1p07r,a1p07i,a1p11r,a1p11i,a1p15r,a1p15i,a1p19r,a1p19i,a1p23r,a1p23i,a1p27r,a1p27i,uc1,us1,uc2,us2,uc3,us3,rt,it,re,im,addr,addp, jt, jp,p12);
+						/*                                     inputs                                                  */  /*                 intermediates                     */  /*                                        outputs                                              */  /*   sincos consts   */  /* tmps, prefetch addresses */
+  #if LO_ADD
+   #if PFETCH
+	RADIX_07_DFT_PFETCH(a1p00r,a1p00i,a1p24r,a1p24i,a1p20r,a1p20i,a1p16r,a1p16i,a1p12r,a1p12i,a1p08r,a1p08i,a1p04r,a1p04i, t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13, a1p00r,a1p00i,a1p04r,a1p04i,a1p08r,a1p08i,a1p12r,a1p12i,a1p16r,a1p16i,a1p20r,a1p20i,a1p24r,a1p24i, uc1,us1,uc2,us2,uc3,us3, rt,it,re,im, addr,addp,p01,p02,p03);	jt=p04+p01;	jp=p04+p02;
+	RADIX_07_DFT_PFETCH(a1p21r,a1p21i,a1p17r,a1p17i,a1p13r,a1p13i,a1p09r,a1p09i,a1p05r,a1p05i,a1p01r,a1p01i,a1p25r,a1p25i, t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13, a1p01r,a1p01i,a1p05r,a1p05i,a1p09r,a1p09i,a1p13r,a1p13i,a1p17r,a1p17i,a1p21r,a1p21i,a1p25r,a1p25i, uc1,us1,uc2,us2,uc3,us3, rt,it,re,im, addr,addp,p04, jt, jp);	jt=p08-p01;	jp=p08+p01;
+	RADIX_07_DFT_PFETCH(a1p14r,a1p14i,a1p10r,a1p10i,a1p06r,a1p06i,a1p02r,a1p02i,a1p26r,a1p26i,a1p22r,a1p22i,a1p18r,a1p18i, t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13, a1p02r,a1p02i,a1p06r,a1p06i,a1p10r,a1p10i,a1p14r,a1p14i,a1p18r,a1p18i,a1p22r,a1p22i,a1p26r,a1p26i, uc1,us1,uc2,us2,uc3,us3, rt,it,re,im, addr,addp, jt,p08, jp);	jt=p08+p02;	jp=p08+p03;
+	RADIX_07_DFT_PFETCH(a1p07r,a1p07i,a1p03r,a1p03i,a1p27r,a1p27i,a1p23r,a1p23i,a1p19r,a1p19i,a1p15r,a1p15i,a1p11r,a1p11i, t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13, a1p03r,a1p03i,a1p07r,a1p07i,a1p11r,a1p11i,a1p15r,a1p15i,a1p19r,a1p19i,a1p23r,a1p23i,a1p27r,a1p27i, uc1,us1,uc2,us2,uc3,us3, rt,it,re,im, addr,addp, jt, jp,p12);
+   #else
+	RADIX_07_DFT       (a1p00r,a1p00i,a1p24r,a1p24i,a1p20r,a1p20i,a1p16r,a1p16i,a1p12r,a1p12i,a1p08r,a1p08i,a1p04r,a1p04i, t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13, a1p00r,a1p00i,a1p04r,a1p04i,a1p08r,a1p08i,a1p12r,a1p12i,a1p16r,a1p16i,a1p20r,a1p20i,a1p24r,a1p24i, uc1,us1,uc2,us2,uc3,us3, rt,it,re,im);
+	RADIX_07_DFT       (a1p21r,a1p21i,a1p17r,a1p17i,a1p13r,a1p13i,a1p09r,a1p09i,a1p05r,a1p05i,a1p01r,a1p01i,a1p25r,a1p25i, t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13, a1p01r,a1p01i,a1p05r,a1p05i,a1p09r,a1p09i,a1p13r,a1p13i,a1p17r,a1p17i,a1p21r,a1p21i,a1p25r,a1p25i, uc1,us1,uc2,us2,uc3,us3, rt,it,re,im);
+	RADIX_07_DFT       (a1p14r,a1p14i,a1p10r,a1p10i,a1p06r,a1p06i,a1p02r,a1p02i,a1p26r,a1p26i,a1p22r,a1p22i,a1p18r,a1p18i, t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13, a1p02r,a1p02i,a1p06r,a1p06i,a1p10r,a1p10i,a1p14r,a1p14i,a1p18r,a1p18i,a1p22r,a1p22i,a1p26r,a1p26i, uc1,us1,uc2,us2,uc3,us3, rt,it,re,im);
+	RADIX_07_DFT       (a1p07r,a1p07i,a1p03r,a1p03i,a1p27r,a1p27i,a1p23r,a1p23i,a1p19r,a1p19i,a1p15r,a1p15i,a1p11r,a1p11i, t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13, a1p03r,a1p03i,a1p07r,a1p07i,a1p11r,a1p11i,a1p15r,a1p15i,a1p19r,a1p19i,a1p23r,a1p23i,a1p27r,a1p27i, uc1,us1,uc2,us2,uc3,us3, rt,it,re,im);
+   #endif
   #else
-	RADIX_07_DFT       (a1p00r,a1p00i,a1p24r,a1p24i,a1p20r,a1p20i,a1p16r,a1p16i,a1p12r,a1p12i,a1p08r,a1p08i,a1p04r,a1p04i,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,a1p00r,a1p00i,a1p04r,a1p04i,a1p08r,a1p08i,a1p12r,a1p12i,a1p16r,a1p16i,a1p20r,a1p20i,a1p24r,a1p24i,uc1,us1,uc2,us2,uc3,us3,rt,it,re,im);
-	RADIX_07_DFT       (a1p21r,a1p21i,a1p17r,a1p17i,a1p13r,a1p13i,a1p09r,a1p09i,a1p05r,a1p05i,a1p01r,a1p01i,a1p25r,a1p25i,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,a1p01r,a1p01i,a1p05r,a1p05i,a1p09r,a1p09i,a1p13r,a1p13i,a1p17r,a1p17i,a1p21r,a1p21i,a1p25r,a1p25i,uc1,us1,uc2,us2,uc3,us3,rt,it,re,im);
-	RADIX_07_DFT       (a1p14r,a1p14i,a1p10r,a1p10i,a1p06r,a1p06i,a1p02r,a1p02i,a1p26r,a1p26i,a1p22r,a1p22i,a1p18r,a1p18i,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,a1p02r,a1p02i,a1p06r,a1p06i,a1p10r,a1p10i,a1p14r,a1p14i,a1p18r,a1p18i,a1p22r,a1p22i,a1p26r,a1p26i,uc1,us1,uc2,us2,uc3,us3,rt,it,re,im);
-	RADIX_07_DFT       (a1p07r,a1p07i,a1p03r,a1p03i,a1p27r,a1p27i,a1p23r,a1p23i,a1p19r,a1p19i,a1p15r,a1p15i,a1p11r,a1p11i,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,a1p03r,a1p03i,a1p07r,a1p07i,a1p11r,a1p11i,a1p15r,a1p15i,a1p19r,a1p19i,a1p23r,a1p23i,a1p27r,a1p27i,uc1,us1,uc2,us2,uc3,us3,rt,it,re,im);
+	RADIX_07_DFT_NUSS  (a1p00r,a1p00i,a1p24r,a1p24i,a1p20r,a1p20i,a1p16r,a1p16i,a1p12r,a1p12i,a1p08r,a1p08i,a1p04r,a1p04i, t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13, a1p00r,a1p00i,a1p04r,a1p04i,a1p08r,a1p08i,a1p12r,a1p12i,a1p16r,a1p16i,a1p20r,a1p20i,a1p24r,a1p24i, cx0,sx0,cx1,sx1,cx2,sx2,cx3,sx3, rt,it);
+	RADIX_07_DFT_NUSS  (a1p21r,a1p21i,a1p17r,a1p17i,a1p13r,a1p13i,a1p09r,a1p09i,a1p05r,a1p05i,a1p01r,a1p01i,a1p25r,a1p25i, t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13, a1p01r,a1p01i,a1p05r,a1p05i,a1p09r,a1p09i,a1p13r,a1p13i,a1p17r,a1p17i,a1p21r,a1p21i,a1p25r,a1p25i, cx0,sx0,cx1,sx1,cx2,sx2,cx3,sx3, rt,it);
+	RADIX_07_DFT_NUSS  (a1p14r,a1p14i,a1p10r,a1p10i,a1p06r,a1p06i,a1p02r,a1p02i,a1p26r,a1p26i,a1p22r,a1p22i,a1p18r,a1p18i, t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13, a1p02r,a1p02i,a1p06r,a1p06i,a1p10r,a1p10i,a1p14r,a1p14i,a1p18r,a1p18i,a1p22r,a1p22i,a1p26r,a1p26i, cx0,sx0,cx1,sx1,cx2,sx2,cx3,sx3, rt,it);
+	RADIX_07_DFT_NUSS  (a1p07r,a1p07i,a1p03r,a1p03i,a1p27r,a1p27i,a1p23r,a1p23i,a1p19r,a1p19i,a1p15r,a1p15i,a1p11r,a1p11i, t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13, a1p03r,a1p03i,a1p07r,a1p07i,a1p11r,a1p11i,a1p15r,a1p15i,a1p19r,a1p19i,a1p23r,a1p23i,a1p27r,a1p27i, cx0,sx0,cx1,sx1,cx2,sx2,cx3,sx3, rt,it);
   #endif
 
 /*...and now do 7 radix-4 transforms...*/
@@ -763,10 +874,17 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
   #if !GCC_ASM_FULL_INLINE
 
-	SSE2_RADIX_07_DFT(s1p00r,s1p24r,s1p20r,s1p16r,s1p12r,s1p08r,s1p04r,cc0,s1p00r,s1p04r,s1p08r,s1p12r,s1p16r,s1p20r,s1p24r);
-	SSE2_RADIX_07_DFT(s1p21r,s1p17r,s1p13r,s1p09r,s1p05r,s1p01r,s1p25r,cc0,s1p01r,s1p05r,s1p09r,s1p13r,s1p17r,s1p21r,s1p25r);
-	SSE2_RADIX_07_DFT(s1p14r,s1p10r,s1p06r,s1p02r,s1p26r,s1p22r,s1p18r,cc0,s1p02r,s1p06r,s1p10r,s1p14r,s1p18r,s1p22r,s1p26r);
-	SSE2_RADIX_07_DFT(s1p07r,s1p03r,s1p27r,s1p23r,s1p19r,s1p15r,s1p11r,cc0,s1p03r,s1p07r,s1p11r,s1p15r,s1p19r,s1p23r,s1p27r);
+   #ifdef USE_AVX2
+	SSE2_RADIX_07_DFT(s1p00r,s1p24r,s1p20r,s1p16r,s1p12r,s1p08r,s1p04r, cc0,two, s1p00r,s1p04r,s1p08r,s1p12r,s1p16r,s1p20r,s1p24r);
+	SSE2_RADIX_07_DFT(s1p21r,s1p17r,s1p13r,s1p09r,s1p05r,s1p01r,s1p25r, cc0,two, s1p01r,s1p05r,s1p09r,s1p13r,s1p17r,s1p21r,s1p25r);
+	SSE2_RADIX_07_DFT(s1p14r,s1p10r,s1p06r,s1p02r,s1p26r,s1p22r,s1p18r, cc0,two, s1p02r,s1p06r,s1p10r,s1p14r,s1p18r,s1p22r,s1p26r);
+	SSE2_RADIX_07_DFT(s1p07r,s1p03r,s1p27r,s1p23r,s1p19r,s1p15r,s1p11r, cc0,two, s1p03r,s1p07r,s1p11r,s1p15r,s1p19r,s1p23r,s1p27r);
+   #else
+	SSE2_RADIX_07_DFT(s1p00r,s1p24r,s1p20r,s1p16r,s1p12r,s1p08r,s1p04r, cc0,     s1p00r,s1p04r,s1p08r,s1p12r,s1p16r,s1p20r,s1p24r);
+	SSE2_RADIX_07_DFT(s1p21r,s1p17r,s1p13r,s1p09r,s1p05r,s1p01r,s1p25r, cc0,     s1p01r,s1p05r,s1p09r,s1p13r,s1p17r,s1p21r,s1p25r);
+	SSE2_RADIX_07_DFT(s1p14r,s1p10r,s1p06r,s1p02r,s1p26r,s1p22r,s1p18r, cc0,     s1p02r,s1p06r,s1p10r,s1p14r,s1p18r,s1p22r,s1p26r);
+	SSE2_RADIX_07_DFT(s1p07r,s1p03r,s1p27r,s1p23r,s1p19r,s1p15r,s1p11r, cc0,     s1p03r,s1p07r,s1p11r,s1p15r,s1p19r,s1p23r,s1p27r);
+   #endif
 
 	/* Since doing radix-7 in-place here, inputs of radix-4 are in consecutive memory locs, i.e. 0x20 bytes apart, e.g. the distance between s1p00r and s1p01r: */
 

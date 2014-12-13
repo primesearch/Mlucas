@@ -25,6 +25,18 @@
 #define RADIX 960	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
 #define ODD_RADIX 15	// ODD_RADIX = [radix >> trailz(radix)]
 
+#ifndef LOACC			// Allow user to override default here...
+	#define LOACC	3	// Default is suitable for F29 work @ FFT length 30M
+#endif
+
+#ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
+  #else
+	#define PFETCH_DIST	32
+  #endif
+#endif
+
 #ifdef MULTITHREAD
 	#ifndef USE_PTHREAD
 		#error Pthreads is only thread model currently supported!
@@ -53,15 +65,15 @@
   // Add larger number in each case - i.e. max(68,3840) = 3840 if AVX+HIACC, max(68,12) = 68 if AVX+LOACC, 20 if SSE2
   // to (half_arr_offset + RADIX) to get required value of radix960_creals_in_local_store:
   #ifdef USE_AVX
-	const int half_arr_offset960 = 0x1126;	// + RADIX = 0x14e6;  Used for thread local-storage-integrity checking
+	const int half_arr_offset960 = 0x1128;	// + RADIX = 0x14e8;  Used for thread local-storage-integrity checking
    #if HIACC
-	const int radix960_creals_in_local_store = 0x23f0;	// AVX+HIACC: 0x14e6 + 0xf00, round up to next even multiple of 0x10
+	const int radix960_creals_in_local_store = 0x23f0;	// AVX+HIACC: 0x14e8 + 0xf00, round up to next even multiple of 0x10
    #else
-	const int radix960_creals_in_local_store = 0x1530;	// AVX+LOACC: 0x14e6 +  0x44, round up to next even multiple of 0x10
+	const int radix960_creals_in_local_store = 0x1530;	// AVX+LOACC: 0x14e8 +  0x44, round up to next even multiple of 0x10
    #endif
 	#include "radix960_avx_negadwt_consts.h"
   #else
-	const int half_arr_offset960 = 0x1306;	// + RADIX = 0x16c6; Used for thread local-storage-integrity checking
+	const int half_arr_offset960 = 0x1308;	// + RADIX = 0x16c8; Used for thread local-storage-integrity checking
 	const int radix960_creals_in_local_store = 0x16e0;	// (half_arr_offset + RADIX) + 0x14(=20), round up to next even multiple of 0x10
   #endif
 
@@ -148,6 +160,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 */
 	const char func[] = "radix960_ditN_cy_dif1";
 	static int thr_id = 0;	// Master thread gets this special id
+	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 #ifdef USE_SSE2
 	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
@@ -238,7 +251,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
 	// [and even if those are contiguous-as-hoped-for, they may run in reverse]; Make array type (struct complex)
 	// to allow us to use the same offset-indexing as in the original radix-32 in-place DFT macros:
-	double *addr, *addi;
+	double *add0, *addr, *addi;
 	struct complex t[RADIX], *tptr;
 	int *itmp;	// Pointer into the bjmodn array
 	int err;
@@ -283,7 +296,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 
 	static int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
 	const double crnd = 3.0*0x4000000*0x2000000;
-	static vec_dbl *max_err, *sse2_rnd, *half_arr, *isrt2,
+	static vec_dbl *max_err, *sse2_rnd, *half_arr, *isrt2,*one,*two,
 		*sse2_c3m1, *sse2_s, *sse2_cn1, *sse2_cn2, *sse2_ss3, *sse2_sn1, *sse2_sn2,	// Need radix-15 roots explicitly
 		*r00,	// Head of RADIX*vec_cmplx-sized local store #1
 		*s1p00,	// Head of RADIX*vec_cmplx-sized local store #2
@@ -536,17 +549,19 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		sse2_ss3  = tmp + 0x05;
 		sse2_sn1  = tmp + 0x06;
 		sse2_sn2  = tmp + 0x07;
-		tmp += 0x08;	// += 0x8 => sc_ptr + 0xf44
+		one       = tmp + 0x08;
+		two       = tmp + 0x09;
+		tmp += 0x0a;	// += 0xa => sc_ptr + 0xf46
 	  #ifdef USE_AVX
 		cy_r = tmp;	cy_i = tmp+0x0f0;	tmp += 0x1e0;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;	// += 0x1e0 + 2 => sc_ptr += 0x1126
+		sse2_rnd= tmp + 0x01;	// += 0x1e0 + 2 => sc_ptr += 0x1128
 		// This is where the value of half_arr_offset comes from
 		half_arr= tmp + 0x02;	/* This table needs 68 vec_dbl for Mersenne-mod, and 3.5*RADIX[avx] | RADIX[sse2] for Fermat-mod */
 	  #else
 		cy_r = tmp;	cy_i = tmp+0x1e0;	tmp += 0x3c0;	// RADIX/2 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;	// += 0x3c0 + 2 => sc_ptr += 0x1306
+		sse2_rnd= tmp + 0x01;	// += 0x3c0 + 2 => sc_ptr += 0x1308
 		// This is where the value of half_arr_offset comes from
 		half_arr= tmp + 0x02;	/* This table needs 20 x 16 bytes for Mersenne-mod, and [4*ODD_RADIX] x 16 for Fermat-mod */
 	  #endif
@@ -562,6 +577,8 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		VEC_DBL_INIT(sse2_ss3 , ss3 );
 		VEC_DBL_INIT(sse2_sn1 , sn1 );
 		VEC_DBL_INIT(sse2_sn2 , sn2 );
+		VEC_DBL_INIT(one  ,  1.0);
+		VEC_DBL_INIT(two  ,  2.0);
 
 		/* SSE2 math = 53-mantissa-bit IEEE double-float: */
 		VEC_DBL_INIT(sse2_rnd, crnd);
@@ -2831,8 +2848,9 @@ void radix960_dit_pass1(double a[], int n)
 	cy960_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
-		double *addr,*addi;
+		double *add0, *addr,*addi;
 		struct complex *tptr;
+		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf,
 			p10,p20,p30,p40,p50,p60,p70,p80,p90,pa0,pb0,pc0,pd0,pe0,pf0,
@@ -2909,7 +2927,7 @@ void radix960_dit_pass1(double a[], int n)
 		vec_dbl *tmp,*tm0,*tm1,*tm2;	// utility ptrs
 		int *itmp;			// Pointer into the bjmodn array
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
-		vec_dbl *max_err, *sse2_rnd, *half_arr, *isrt2,
+		vec_dbl *max_err, *sse2_rnd, *half_arr, *isrt2,*one,*two,
 			*sse2_c3m1, *sse2_s, *sse2_cn1, *sse2_cn2, *sse2_ss3, *sse2_sn1, *sse2_sn2,	// Need radix-15 roots explicitly
 			*r00,	// Head of RADIX*vec_cmplx-sized local store #1
 			*s1p00,	// Head of RADIX*vec_cmplx-sized local store #2
@@ -2937,7 +2955,7 @@ void radix960_dit_pass1(double a[], int n)
 						sn2 =  0.36327126400268044292;	/* [sin(u)-sin(2u)] */
 		double *base, *baseinv, *wt_arr, *wtinv_arr, *bs_arr, *bsinv_arr, bs,bsinv, wts_idx_incr;
 		const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
-		int m,m2;
+		int m,m2,ntmp;
 		double wt,wtinv,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
 		int bjmodn[RADIX];	// Thread only carries a base datum here, must alloc a local array for remaining values
 		double *cy_r = thread_arg->cy_r,*cy_i = thread_arg->cy_i, temp,frac;
@@ -3163,7 +3181,9 @@ void radix960_dit_pass1(double a[], int n)
 		sse2_ss3  = tmp + 0x05;
 		sse2_sn1  = tmp + 0x06;
 		sse2_sn2  = tmp + 0x07;
-		tmp += 0x08;
+		one       = tmp + 0x08;
+		two       = tmp + 0x09;
+		tmp += 0x0a;
 	  #ifdef USE_AVX
 		cy_r = tmp;	cy_i = tmp+0x0f0;	tmp += 0x1e0;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
@@ -3381,4 +3401,4 @@ void radix960_dit_pass1(double a[], int n)
 
 #undef RADIX
 #undef ODD_RADIX
-
+#undef PFETCH_DIST

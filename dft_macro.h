@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2013 by Ernst W. Mayer.                                           *
+*   (C) 1997-2014 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -302,6 +302,90 @@ Totals: 60 ADD, 36 MUL	*/
 	__Br4 = __tr0 + __ti3;										__Bi4 = __ti0 - __tr3;\
 	__Br5 = __re  + __ti2;										__Bi5 = __im  - __tr2;\
 	__Br6 = __rt  + __ti1;										__Bi6 = __it  - __tr1;\
+}
+
+/* FMA-oriented version - above simple-structure better for FMA than Nussbaumer:
+Totals: 30 ADD, 6 MUL, 30 FMA, i.e. trade 30 ADD + 30 MUL for 30 FMA, very nice. */
+#define RADIX_07_DFT_FMA(\
+	__Ar0,__Ai0,\
+	__Ar1,__Ai1,\
+	__Ar2,__Ai2,\
+	__Ar3,__Ai3,\
+	__Ar4,__Ai4,\
+	__Ar5,__Ai5,\
+	__Ar6,__Ai6,\
+	__tr0,__ti0,\
+	__tr1,__ti1,\
+	__tr2,__ti2,\
+	__tr3,__ti3,\
+	__tr4,__ti4,\
+	__tr5,__ti5,\
+	__tr6,__ti6,\
+	__Br0,__Bi0,\
+	__Br1,__Bi1,\
+	__Br2,__Bi2,\
+	__Br3,__Bi3,\
+	__Br4,__Bi4,\
+	__Br5,__Bi5,\
+	__Br6,__Bi6,\
+	__cc1,__ss1,\
+	__cc2,__ss2,\
+	__cc3,__ss3,\
+	__rt,__it,\
+	__re,__im)\
+{\
+	__tr0 = __Ar0;									__ti0 = __Ai0;\
+	__tr6 = __Ar1 - __Ar6;							__ti6 = __Ai1 - __Ai6;	/* x1 - x6 */\
+	__tr5 = __Ar2 - __Ar5;							__ti5 = __Ai2 - __Ai5;	/* x2 - x5 */\
+	__tr4 = __Ar3 - __Ar4;							__ti4 = __Ai3 - __Ai4;	/* x3 - x4 */\
+	__tr1 = __Ar1 + __Ar6;							__ti1 = __Ai1 + __Ai6;	/* x1 + x6 */\
+	__tr2 = __Ar2 + __Ar5;							__ti2 = __Ai2 + __Ai5;	/* x2 + x5 */\
+	__tr3 = __Ar3 + __Ar4;							__ti3 = __Ai3 + __Ai4;	/* x3 + x4 */\
+\
+/* Structure this next FMA-heavy sequence with a view toward the Intel-Haswell issue-rate/	\
+latency model, i.e. attempting to mitigate a 5-cycle latency, with 2 FMAs issuing per cycle.\
+The Broadwell reduced 3-cycle latency would make things easy, but 5-cycle means doing stuff	\
+like interleaving the accumulate-ADDs for the DC outputs Br0,Bi0 with the FMAs: */\
+	__Br0 = __tr0;									__Bi0 = __ti0;\
+/*	__rt  = __tr0 + __cc1*__tr1 + __cc2*__tr2 + __cc3*__tr3;	__it  = __ti0 + __cc1*__ti1 + __cc2*__ti2 + __cc3*__ti3;*/\
+/*	__re  = __tr0 + __cc2*__tr1 + __cc3*__tr2 + __cc1*__tr3;	__im  = __ti0 + __cc2*__ti1 + __cc3*__ti2 + __cc1*__ti3;*/\
+/*	__tr0 = __tr0 + __cc3*__tr1 + __cc1*__tr2 + __cc2*__tr3;	__ti0 = __ti0 + __cc3*__ti1 + __cc1*__ti2 + __cc2*__ti3;*/\
+	__rt  = __re = __tr0;							__it  = __im = __ti0;\
+	__rt  = __FMADD(__cc1,__tr1, __rt );			__it  = __FMADD(__cc1,__ti1, __it );\
+	__re  = __FMADD(__cc2,__tr1, __re );			__im  = __FMADD(__cc2,__ti1, __im );\
+	__tr0 = __FMADD(__cc3,__tr1, __tr0);			__ti0 = __FMADD(__cc3,__ti1, __ti0);\
+	__Br0 += __tr1;									__Bi0 += __ti1;\
+	__rt  = __FMADD(__cc2,__tr2, __rt );			__it  = __FMADD(__cc2,__ti2, __it );\
+	__re  = __FMADD(__cc3,__tr2, __re );			__im  = __FMADD(__cc3,__ti2, __im );\
+	__tr0 = __FMADD(__cc1,__tr2, __tr0);			__ti0 = __FMADD(__cc1,__ti2, __ti0);\
+	__Br0 += __tr2;									__Bi0 += __ti2;\
+	__rt  = __FMADD(__cc3,__tr3, __rt );			__it  = __FMADD(__cc3,__ti3, __it );\
+	__re  = __FMADD(__cc1,__tr3, __re );			__im  = __FMADD(__cc1,__ti3, __im );\
+	__tr0 = __FMADD(__cc2,__tr3, __tr0);			__ti0 = __FMADD(__cc2,__ti3, __ti0);\
+	__Br0 += __tr3;									__Bi0 += __ti3;\
+\
+/* For the Im-parts we have no DC accumulation o interleave with the FMAs, alas: */\
+/*	__tr1 = __ss1*__tr6 + __ss2*__tr5 + __ss3*__tr4;		__ti1 = __ss1*__ti6 + __ss2*__ti5 + __ss3*__ti4;*/\
+/*	__tr2 = __ss2*__tr6 - __ss3*__tr5 - __ss1*__tr4;		__ti2 = __ss2*__ti6 - __ss3*__ti5 - __ss1*__ti4;*/\
+/*	__tr3 = __ss3*__tr6 - __ss1*__tr5 + __ss2*__tr4;		__ti3 = __ss3*__ti6 - __ss1*__ti5 + __ss2*__ti4;*/\
+	__tr1 = __ss1*__tr6;							__ti1 = __ss1*__ti6;\
+	__tr2 = __ss2*__tr6;							__ti2 = __ss2*__ti6;\
+	__tr3 = __ss3*__tr6;							__ti3 = __ss3*__ti6;\
+\
+	__tr1 =  __FMADD(__ss2,__tr5, __tr1);			__ti1 =  __FMADD(__ss2,__ti5, __ti1);\
+	__tr2 = __FNMADD(__ss3,__tr5, __tr2);			__ti2 = __FNMADD(__ss3,__ti5, __ti2);\
+	__tr3 = __FNMADD(__ss1,__tr5, __tr3);			__ti3 = __FNMADD(__ss1,__ti5, __ti3);\
+\
+	__tr1 =  __FMADD(__ss3,__tr4, __tr1);			__ti1 =  __FMADD(__ss3,__ti4, __ti1);\
+	__tr2 = __FNMADD(__ss1,__tr4, __tr2);			__ti2 = __FNMADD(__ss1,__ti4, __ti2);\
+	__tr3 =  __FMADD(__ss2,__tr4, __tr3);			__ti3 =  __FMADD(__ss2,__ti4, __ti3);\
+	/* Output permutation causes signs to get flipped here: */\
+	__Br1 = __rt  - __ti1;							__Bi1 = __it  + __tr1;\
+	__Br2 = __re  - __ti2;							__Bi2 = __im  + __tr2;\
+	__Br3 = __tr0 - __ti3;							__Bi3 = __ti0 + __tr3;\
+	__Br4 = __tr0 + __ti3;							__Bi4 = __ti0 - __tr3;\
+	__Br5 = __re  + __ti2;							__Bi5 = __im  - __tr2;\
+	__Br6 = __rt  + __ti1;							__Bi6 = __it  - __tr1;\
 }
 
 /* Low-mul Nussbaumer-style DFT implementation has 20 fewer MUL but at cost of 12 more ADD.
@@ -1409,6 +1493,131 @@ addr = add0 + __add_offset4;	prefetch_p_doubles(addr);\
 	__Bar = _cr1 + _si1;					__Bai = _ci1 - _sr1;	/* X10=	C1 - I*S1	*/\
 }
 
+/* FMA-oriented version - above simple-structure better for FMA than Nussbaumer:
+Totals: 50 ADD, 10 MUL, 90 FMA, i.e. trade 90 ADD + 90 MUL for 90 FMA, very nice.
+*/
+#define RADIX_11_DFT_FMA(__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__Aar,__Aai\
+					,__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__Bar,__Bai\
+					,_cc1,_cc2,_cc3,_cc4,_cc5,_ss1,_ss2,_ss3,_ss4,_ss5)\
+{\
+	double _t0r,_t0i,_t1r,_t1i,_t2r,_t2i,_t3r,_t3i,_t4r,_t4i,_t5r,_t5i,_t6r,_t6i,_t7r,_t7i,_t8r,_t8i,_t9r,_t9i,_tar,_tai;\
+	double _cr1,_cr2,_cr3,_cr4,_cr5,_ci1,_ci2,_ci3,_ci4,_ci5,_sr1,_sr2,_sr3,_sr4,_sr5,_si1,_si2,_si3,_si4,_si5;\
+\
+	_t0r = __A0r       ;					_t0i = __A0i        ;	/* x0		*/\
+	_t1r = __A1r +__Aar;					_t1i = __A1i + __Aai;	/* x1 + x10	*/\
+	_t2r = __A2r +__A9r;					_t2i = __A2i + __A9i;	/* x2 + x9	*/\
+	_t3r = __A3r +__A8r;					_t3i = __A3i + __A8i;	/* x3 + x8	*/\
+	_t4r = __A4r +__A7r;					_t4i = __A4i + __A7i;	/* x4 + x7	*/\
+	_t5r = __A5r +__A6r;					_t5i = __A5i + __A6i;	/* x5 + x6	*/\
+	_tar = __A1r -__Aar;					_tai = __A1i - __Aai;	/* x1 - x10	*/\
+	_t9r = __A2r -__A9r;					_t9i = __A2i - __A9i;	/* x2 - x9	*/\
+	_t8r = __A3r -__A8r;					_t8i = __A3i - __A8i;	/* x3 - x8	*/\
+	_t7r = __A4r -__A7r;					_t7i = __A4i - __A7i;	/* x4 - x7	*/\
+	_t6r = __A5r -__A6r;					_t6i = __A5i - __A6i;	/* x5 - x6	*/\
+/*\
+	_cr1 = _t0r+_cc1*_t1r+_cc2*_t2r+_cc3*_t3r+_cc4*_t4r+_cc5*_t5r;	_ci1 = _t0i+_cc1*_t1i+_cc2*_t2i+_cc3*_t3i+_cc4*_t4i+_cc5*_t5i;	// C1
+	_cr2 = _t0r+_cc2*_t1r+_cc4*_t2r+_cc5*_t3r+_cc3*_t4r+_cc1*_t5r;	_ci2 = _t0i+_cc2*_t1i+_cc4*_t2i+_cc5*_t3i+_cc3*_t4i+_cc1*_t5i;	// C2
+	_cr3 = _t0r+_cc3*_t1r+_cc5*_t2r+_cc2*_t3r+_cc1*_t4r+_cc4*_t5r;	_ci3 = _t0i+_cc3*_t1i+_cc5*_t2i+_cc2*_t3i+_cc1*_t4i+_cc4*_t5i;	// C3
+	_cr4 = _t0r+_cc4*_t1r+_cc3*_t2r+_cc1*_t3r+_cc5*_t4r+_cc2*_t5r;	_ci4 = _t0i+_cc4*_t1i+_cc3*_t2i+_cc1*_t3i+_cc5*_t4i+_cc2*_t5i;	// C4
+	_cr5 = _t0r+_cc5*_t1r+_cc1*_t2r+_cc4*_t3r+_cc2*_t4r+_cc3*_t5r;	_ci5 = _t0i+_cc5*_t1i+_cc1*_t2i+_cc4*_t3i+_cc2*_t4i+_cc3*_t5i;	// C5
+	__B0r = _t0r+_t1r+_t2r+_t3r+_t4r+_t5r;	__B0i = _t0i+_t1i+_t2i+_t3i+_t4i+_t5i;	// X0\
+*/\
+	/* In a 16-reg FMA model, makes sense to init the c-terms to the t0-summand,
+	and keep the 10 c-terms and 4 of the 5 shared sincos data in registers. That uses 14 regs,
+	leaving 2 for the 2 t*[r,i] data shared by each such block. Those need to be in-reg (at least
+	in the cosine-mults section) because of the need to accumulate the DC terms: E.g. at end of the
+	first block below (after doing the 10 c-term-update FMAs) we add the current values of B0r,i
+	(which we init to t0r,i in the ASM version) to t1r,i, then write the result to memory and
+	load t2r,i into the same 2 regs in preparation for the next such block.
+	*/\
+	_cr1 = _t0r + _cc1*_t1r;	_ci1 = _t0i + _cc1*_t1i;\
+	_cr2 = _t0r + _cc2*_t1r;	_ci2 = _t0i + _cc2*_t1i;\
+	_cr3 = _t0r + _cc3*_t1r;	_ci3 = _t0i + _cc3*_t1i;\
+	_cr4 = _t0r + _cc4*_t1r;	_ci4 = _t0i + _cc4*_t1i;\
+	_cr5 = _t0r + _cc5*_t1r;	_ci5 = _t0i + _cc5*_t1i;\
+	__B0r = _t0r + _t1r;		__B0i = _t0i + _t1i;	\
+\
+	_cr1 += _cc2*_t2r;	_ci1 += _cc2*_t2i;\
+	_cr2 += _cc4*_t2r;	_ci2 += _cc4*_t2i;\
+	_cr3 += _cc5*_t2r;	_ci3 += _cc5*_t2i;\
+	_cr4 += _cc3*_t2r;	_ci4 += _cc3*_t2i;\
+	_cr5 += _cc1*_t2r;	_ci5 += _cc1*_t2i;\
+	__B0r += _t2r;	__B0i += _t2i;\
+\
+	_cr1 += _cc3*_t3r;	_ci1 += _cc3*_t3i;\
+	_cr2 += _cc5*_t3r;	_ci2 += _cc5*_t3i;\
+	_cr3 += _cc2*_t3r;	_ci3 += _cc2*_t3i;\
+	_cr4 += _cc1*_t3r;	_ci4 += _cc1*_t3i;\
+	_cr5 += _cc4*_t3r;	_ci5 += _cc4*_t3i;\
+	__B0r += _t3r;	__B0i += _t3i;\
+\
+	_cr1 += _cc4*_t4r;	_ci1 += _cc4*_t4i;\
+	_cr2 += _cc3*_t4r;	_ci2 += _cc3*_t4i;\
+	_cr3 += _cc1*_t4r;	_ci3 += _cc1*_t4i;\
+	_cr4 += _cc5*_t4r;	_ci4 += _cc5*_t4i;\
+	_cr5 += _cc2*_t4r;	_ci5 += _cc2*_t4i;\
+	__B0r += _t4r;	__B0i += _t4i;\
+\
+	_cr1 += _cc5*_t5r;	_ci1 += _cc5*_t5i;\
+	_cr2 += _cc1*_t5r;	_ci2 += _cc1*_t5i;\
+	_cr3 += _cc4*_t5r;	_ci3 += _cc4*_t5i;\
+	_cr4 += _cc2*_t5r;	_ci4 += _cc2*_t5i;\
+	_cr5 += _cc3*_t5r;	_ci5 += _cc3*_t5i;\
+	__B0r += _t5r;	__B0i += _t5i;\
+\
+/*\
+	In a 16-reg FMA model, can keep the 10 s-terms and all 5 shared sincos data in registers, but that
+	requires us to reload one of the 2 repeated t*-mults (e.g. _tai in the 1st block) 5 times per block.
+	OTOH if we keep both t*r,i-mults and 4 of the 5 ss-mults in-reg, we just need 2 loads-from-mem per block:
+
+	_sr1 =      _ss1*_tar+_ss2*_t9r+_ss3*_t8r+_ss4*_t7r+_ss5*_t6r;	_si1 =      _ss1*_tai+_ss2*_t9i+_ss3*_t8i+_ss4*_t7i+_ss5*_t6i;	// S1
+	_sr2 =      _ss2*_tar+_ss4*_t9r-_ss5*_t8r-_ss3*_t7r-_ss1*_t6r;	_si2 =      _ss2*_tai+_ss4*_t9i-_ss5*_t8i-_ss3*_t7i-_ss1*_t6i;	// S2
+	_sr3 =      _ss3*_tar-_ss5*_t9r-_ss2*_t8r+_ss1*_t7r+_ss4*_t6r;	_si3 =      _ss3*_tai-_ss5*_t9i-_ss2*_t8i+_ss1*_t7i+_ss4*_t6i;	// S3
+	_sr4 =      _ss4*_tar-_ss3*_t9r+_ss1*_t8r+_ss5*_t7r-_ss2*_t6r;	_si4 =      _ss4*_tai-_ss3*_t9i+_ss1*_t8i+_ss5*_t7i-_ss2*_t6i;	// S4
+	_sr5 =      _ss5*_tar-_ss1*_t9r+_ss4*_t8r-_ss2*_t7r+_ss3*_t6r;	_si5 =      _ss5*_tai-_ss1*_t9i+_ss4*_t8i-_ss2*_t7i+_ss3*_t6i;	// S5
+*/\
+	_sr1 = _ss1*_tar;	_si1 = _ss1*_tai;\
+	_sr2 = _ss2*_tar;	_si2 = _ss2*_tai;\
+	_sr3 = _ss3*_tar;	_si3 = _ss3*_tai;\
+	_sr4 = _ss4*_tar;	_si4 = _ss4*_tai;\
+	_sr5 = _ss5*_tar;	_si5 = _ss5*_tai;\
+\
+	_sr1 += _ss2*_t9r;	_si1 += _ss2*_t9i;\
+	_sr2 += _ss4*_t9r;	_si2 += _ss4*_t9i;\
+	_sr3 -= _ss5*_t9r;	_si3 -= _ss5*_t9i;\
+	_sr4 -= _ss3*_t9r;	_si4 -= _ss3*_t9i;\
+	_sr5 -= _ss1*_t9r;	_si5 -= _ss1*_t9i;\
+\
+	_sr1 += _ss3*_t8r;	_si1 += _ss3*_t8i;\
+	_sr2 -= _ss5*_t8r;	_si2 -= _ss5*_t8i;\
+	_sr3 -= _ss2*_t8r;	_si3 -= _ss2*_t8i;\
+	_sr4 += _ss1*_t8r;	_si4 += _ss1*_t8i;\
+	_sr5 += _ss4*_t8r;	_si5 += _ss4*_t8i;\
+\
+	_sr1 += _ss4*_t7r;	_si1 += _ss4*_t7i;\
+	_sr2 -= _ss3*_t7r;	_si2 -= _ss3*_t7i;\
+	_sr3 += _ss1*_t7r;	_si3 += _ss1*_t7i;\
+	_sr4 += _ss5*_t7r;	_si4 += _ss5*_t7i;\
+	_sr5 -= _ss2*_t7r;	_si5 -= _ss2*_t7i;\
+\
+	_sr1 += _ss5*_t6r;	_si1 += _ss5*_t6i;\
+	_sr2 -= _ss1*_t6r;	_si2 -= _ss1*_t6i;\
+	_sr3 += _ss4*_t6r;	_si3 += _ss4*_t6i;\
+	_sr4 -= _ss2*_t6r;	_si4 -= _ss2*_t6i;\
+	_sr5 += _ss3*_t6r;	_si5 += _ss3*_t6i;\
+\
+	__B1r = _cr1 - _si1;					__B1i = _ci1 + _sr1;	/* X1 = C1 + I*S1	*/\
+	__B2r = _cr2 - _si2;					__B2i = _ci2 + _sr2;	/* X2 = C2 + I*S2	*/\
+	__B3r = _cr3 - _si3;					__B3i = _ci3 + _sr3;	/* X3 = C3 + I*S3	*/\
+	__B4r = _cr4 - _si4;					__B4i = _ci4 + _sr4;	/* X4 = C4 + I*S4	*/\
+	__B5r = _cr5 - _si5;					__B5i = _ci5 + _sr5;	/* X5 = C5 + I*S5	*/\
+	__B6r = _cr5 + _si5;					__B6i = _ci5 - _sr5;	/* X6 =	C5 - I*S5	*/\
+	__B7r = _cr4 + _si4;					__B7i = _ci4 - _sr4;	/* X7 =	C4 - I*S4	*/\
+	__B8r = _cr3 + _si3;					__B8i = _ci3 - _sr3;	/* X8 =	C3 - I*S3	*/\
+	__B9r = _cr2 + _si2;					__B9i = _ci2 - _sr2;	/* X9 =	C2 - I*S2	*/\
+	__Bar = _cr1 + _si1;					__Bai = _ci1 - _sr1;	/* X10=	C1 - I*S1	*/\
+}
+
 /*...Radix-11 DFT using length-5 cyclic convolution scheme for the 5 x 5 matrix submultiplies.  Totals: 160 ADD,  44 MUL	*/
 #define RADIX_11_DFT(__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__Aar,__Aai\
 					,__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__Bar,__Bai\
@@ -1511,7 +1720,61 @@ let y0 = (x1-x10) = t21,22, y4 = (x9-x2) = -t19,20, y2 = (x3-x8) = t17,18, y3 = 
 
 /****** RADIX = 13: ******/
 
-/* This version implements a simple tangent-based radix-13 DFT and only tries to minimize the number
+//...Simple-algo Radix-13 DFT, which also works well in an FMA context.  Totals: 140 ADD, 100 MUL, or 40 ADD, 100 FMA.
+//
+#define RADIX_13_DFT_BASIC(__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__Aar,__Aai,__Abr,__Abi,__Acr,__Aci\
+					,__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__Bar,__Bai,__Bbr,__Bbi,__Bcr,__Bci\
+					,_cc1,_cc2,_cc3,_cc4,_cc5,_cc6,_ss1,_ss2,_ss3,_ss4,_ss5,_ss6)\
+{\
+	double _t0r,_t0i,_t1r,_t1i,_t2r,_t2i,_t3r,_t3i,_t4r,_t4i,_t5r,_t5i,_t6r,_t6i,_t7r,_t7i,_t8r,_t8i,_t9r,_t9i,_tar,_tai,_tbr,_tbi,_tcr,_tci;\
+	double _cr1,_cr2,_cr3,_cr4,_cr5,_cr6,_ci1,_ci2,_ci3,_ci4,_ci5,_ci6,_sr1,_sr2,_sr3,_sr4,_sr5,_sr6,_si1,_si2,_si3,_si4,_si5,_si6;\
+\
+	_t0r = __A0r       ;					_t0i = __A0i        ;	/* x0		*/\
+	_t1r = __A1r +__Acr;					_t1i = __A1i + __Aci;	/* x1 + x12	*/\
+	_t2r = __A2r +__Abr;					_t2i = __A2i + __Abi;	/* x2 + x11	*/\
+	_t3r = __A3r +__Aar;					_t3i = __A3i + __Aai;	/* x3 + x10	*/\
+	_t4r = __A4r +__A9r;					_t4i = __A4i + __A9i;	/* x4 + x9 	*/\
+	_t5r = __A5r +__A8r;					_t5i = __A5i + __A8i;	/* x5 + x8 	*/\
+	_t6r = __A6r +__A7r;					_t6i = __A6i + __A7i;	/* x6 - x7 	*/\
+\
+	_tcr = __A1r -__Acr;					_tci = __A1i - __Aci;	/* x1 - x12	*/\
+	_tbr = __A2r -__Abr;					_tbi = __A2i - __Abi;	/* x2 - x11	*/\
+	_tar = __A3r -__Aar;					_tai = __A3i - __Aai;	/* x3 - x10	*/\
+	_t9r = __A4r -__A9r;					_t9i = __A4i - __A9i;	/* x4 - x9 	*/\
+	_t8r = __A5r -__A8r;					_t8i = __A5i - __A8i;	/* x5 - x8 	*/\
+	_t7r = __A6r -__A7r;					_t7i = __A6i - __A7i;	/* x6 - x7 	*/\
+\
+	_cr1 = _t0r+_cc1*_t1r+_cc2*_t2r+_cc3*_t3r+_cc4*_t4r+_cc5*_t5r+_cc6*_t6r;	_ci1 = _t0i+_cc1*_t1i+_cc2*_t2i+_cc3*_t3i+_cc4*_t4i+_cc5*_t5i+_cc6*_t6i;\
+	_cr2 = _t0r+_cc2*_t1r+_cc4*_t2r+_cc6*_t3r+_cc5*_t4r+_cc3*_t5r+_cc1*_t6r;	_ci2 = _t0i+_cc2*_t1i+_cc4*_t2i+_cc6*_t3i+_cc5*_t4i+_cc3*_t5i+_cc1*_t6i;\
+	_cr3 = _t0r+_cc3*_t1r+_cc6*_t2r+_cc4*_t3r+_cc1*_t4r+_cc2*_t5r+_cc5*_t6r;	_ci3 = _t0i+_cc3*_t1i+_cc6*_t2i+_cc4*_t3i+_cc1*_t4i+_cc2*_t5i+_cc5*_t6i;\
+	_cr4 = _t0r+_cc4*_t1r+_cc5*_t2r+_cc1*_t3r+_cc3*_t4r+_cc6*_t5r+_cc2*_t6r;	_ci4 = _t0i+_cc4*_t1i+_cc5*_t2i+_cc1*_t3i+_cc3*_t4i+_cc6*_t5i+_cc2*_t6i;\
+	_cr5 = _t0r+_cc5*_t1r+_cc3*_t2r+_cc2*_t3r+_cc6*_t4r+_cc1*_t5r+_cc4*_t6r;	_ci5 = _t0i+_cc5*_t1i+_cc3*_t2i+_cc2*_t3i+_cc6*_t4i+_cc1*_t5i+_cc4*_t6i;\
+	_cr6 = _t0r+_cc6*_t1r+_cc1*_t2r+_cc5*_t3r+_cc2*_t4r+_cc4*_t5r+_cc3*_t6r;	_ci6 = _t0i+_cc6*_t1i+_cc1*_t2i+_cc5*_t3i+_cc2*_t4i+_cc4*_t5i+_cc3*_t6i;\
+\
+	_sr1 =      _ss1*_tcr+_ss2*_tbr+_ss3*_tar+_ss4*_t9r+_ss5*_t8r+_ss6*_t7r;	_si1 =      _ss1*_tci+_ss2*_tbi+_ss3*_tai+_ss4*_t9i+_ss5*_t8i+_ss6*_t7i;	/* S1 */\
+	_sr2 =      _ss2*_tcr+_ss4*_tbr+_ss6*_tar-_ss5*_t9r-_ss3*_t8r-_ss1*_t7r;	_si2 =      _ss2*_tci+_ss4*_tbi+_ss6*_tai-_ss5*_t9i-_ss3*_t8i-_ss1*_t7i;	/* S2 */\
+	_sr3 =      _ss3*_tcr+_ss6*_tbr-_ss4*_tar-_ss1*_t9r+_ss2*_t8r+_ss5*_t7r;	_si3 =      _ss3*_tci+_ss6*_tbi-_ss4*_tai-_ss1*_t9i+_ss2*_t8i+_ss5*_t7i;	/* S3 */\
+	_sr4 =      _ss4*_tcr-_ss5*_tbr-_ss1*_tar+_ss3*_t9r-_ss6*_t8r-_ss2*_t7r;	_si4 =      _ss4*_tci-_ss5*_tbi-_ss1*_tai+_ss3*_t9i-_ss6*_t8i-_ss2*_t7i;	/* S4 */\
+	_sr5 =      _ss5*_tcr-_ss3*_tbr+_ss2*_tar-_ss6*_t9r-_ss1*_t8r+_ss4*_t7r;	_si5 =      _ss5*_tci-_ss3*_tbi+_ss2*_tai-_ss6*_t9i-_ss1*_t8i+_ss4*_t7i;	/* S5 */\
+	_sr6 =      _ss6*_tcr-_ss1*_tbr+_ss5*_tar-_ss2*_t9r+_ss4*_t8r-_ss3*_t7r;	_si6 =      _ss6*_tci-_ss1*_tbi+_ss5*_tai-_ss2*_t9i+_ss4*_t8i-_ss3*_t7i;	/* S5 */\
+\
+	__B0r = _t0r+_t1r+_t2r+_t3r+_t4r+_t5r+_t6r;	__B0i = _t0i+_t1i+_t2i+_t3i+_t4i+_t5i+_t6i;	/* X0	*/\
+	__B1r = _cr1 - _si1;						__B1i = _ci1 + _sr1;	/* X1 = C1 + I*S1	*/\
+	__B2r = _cr2 - _si2;						__B2i = _ci2 + _sr2;	/* X2 = C2 + I*S2	*/\
+	__B3r = _cr3 - _si3;						__B3i = _ci3 + _sr3;	/* X3 = C3 + I*S3	*/\
+	__B4r = _cr4 - _si4;						__B4i = _ci4 + _sr4;	/* X4 = C4 + I*S4	*/\
+	__B5r = _cr5 - _si5;						__B5i = _ci5 + _sr5;	/* X5 = C5 + I*S5	*/\
+	__B6r = _cr6 - _si6;						__B6i = _ci6 + _sr6;	/* X6 = C6 + I*S6	*/\
+\
+	__Bcr = _cr1 + _si1;						__Bci = _ci1 - _sr1;	/* X12=	C1 - I*S1	*/\
+	__Bbr = _cr2 + _si2;						__Bbi = _ci2 - _sr2;	/* X11=	C2 - I*S2	*/\
+	__Bar = _cr3 + _si3;						__Bai = _ci3 - _sr3;	/* X10=	C3 - I*S3	*/\
+	__B9r = _cr4 + _si4;						__B9i = _ci4 - _sr4;	/* X9 =	C4 - I*S4	*/\
+	__B8r = _cr5 + _si5;						__B8i = _ci5 - _sr5;	/* X8 =	C5 - I*S5	*/\
+	__B7r = _cr6 + _si6;						__B7i = _ci6 - _sr6;	/* X7 =	C6 - I*S6	*/\
+}
+
+/* This version implements a van Buskirk tangent-based radix-13 DFT and only tries to minimize the number
 of temporaries used in each of the major phases, with view toward a 16-register-optimized version.
 (That is why we do the x and y-pieces side-by-side).
 For an 8-register-optimized version which moreover mimics x86-style destructive (2-input, one overwritten with output)
@@ -1529,19 +1792,19 @@ inclusion of the radix13.h header file..
 	double _xr0, _xi0, _xr1, _xi1, _xr2, _xi2, _xr3, _xi3, _xr4, _xi4, _xr5, _xi5, _xr6, _xi6, _xr7, _xi7;\
 	double _yr1, _yi1, _yr2, _yi2, _yr3, _yi3, _yr4, _yi4, _yr5, _yi5, _yr6, _yi6;\
 \
-		_xr7 = __A6r + __A7r;			_xi7 = __A6i + __A7i;\
-		_xr5 = __A5r + __A8r;			_xi5 = __A5i + __A8i;\
-		_xr4 = __A4r + __A9r;			_xi4 = __A4i + __A9i;\
-		_xr6 = __A3r + __Aar;			_xi6 = __A3i + __Aai;\
-		_xr3 = __A2r + __Abr;			_xi3 = __A2i + __Abi;\
-		_xr1 = __A1r + __Acr;			_xi1 = __A1i + __Aci;\
-\
 		_yr1 = __A1r - __Acr;			_yi1 = __A1i - __Aci;\
 		_yr2 = __A2r - __Abr;			_yi2 = __A2i - __Abi;\
 		_yr5 = __A3r - __Aar;			_yi5 = __A3i - __Aai;\
 		_yr3 = __A4r - __A9r;			_yi3 = __A4i - __A9i;\
 		_yr4 = __A5r - __A8r;			_yi4 = __A5i - __A8i;\
 		_yr6 = __A6r - __A7r;			_yi6 = __A6i - __A7i;\
+\
+		_xr1 = __A1r + __Acr;			_xi1 = __A1i + __Aci;\
+		_xr3 = __A2r + __Abr;			_xi3 = __A2i + __Abi;\
+		_xr4 = __A4r + __A9r;			_xi4 = __A4i + __A9i;\
+		_xr5 = __A5r + __A8r;			_xi5 = __A5i + __A8i;\
+		_xr6 = __A3r + __Aar;			_xi6 = __A3i + __Aai;\
+		_xr7 = __A6r + __A7r;			_xi7 = __A6i + __A7i;\
 \
 /* x-terms need 8 registers for each side: */\
 		_xr2 = _xr1+_xr5;					_xi2 = _xi1+_xi5;\
@@ -4312,7 +4575,7 @@ void RADIX_32_DIT_TWIDDLE_OOP(
 	double __c1C,double __s1C,
 	double __c1D,double __s1D,
 	double __c1E,double __s1E,
-	double __c1F,double __s1F 
+	double __c1F,double __s1F
 );
 
 // Twiddleless Radix-32 DIF subtransform macro for use by larger radix-32*k twiddleless-DFT macros.
@@ -4453,7 +4716,7 @@ void SSE2_RADIX256_DIF(
 	// Intermediates-storage pointer:
 	vec_dbl*tmp,
 	// Pointers to base-roots data and first of 16 twiddle vectors:
-	vec_dbl*isrt2, vec_dbl*twid0,
+	vec_dbl*isrt2, vec_dbl*two, vec_dbl*twid0,
 	// Outputs: Base address plus index offsets:
 	double *__B,
 	int *o_offsets_lo,	// Array storing  low parts of output index offsets in 16 slots
@@ -4470,7 +4733,7 @@ void SSE2_RADIX256_DIT(
 	// Intermediates-storage pointer:
 	vec_dbl*tmp,
 	// Pointers to base-roots data and first of 16 twiddle vectors:
-	vec_dbl*isrt2, vec_dbl*twid0,
+	vec_dbl*isrt2, vec_dbl*two, vec_dbl*twid0,
 	// Output pointer: Base ptr of 16 local-mem:
 	vec_dbl*__B
 );

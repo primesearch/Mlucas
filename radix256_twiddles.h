@@ -23,7 +23,7 @@
 #include "radix256.h"
 
 // Skip the usual include-this-header-file-if-it-was-not-included-before #ifndef wapper,
-// since this file is not for defines/typedefs and such but rather to store a lengthy sonst-array-declaration
+// since this file is not for defines/typedefs and such but rather to store a lengthy const-array-declaration
 // and thus needs to be inline-able in multiple places in a source filing making use of it.
 
 const double DFT256_TWIDDLES[16][30] = {

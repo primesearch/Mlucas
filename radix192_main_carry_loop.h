@@ -42,7 +42,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		jt = j1+p40; SSE2_RADIX_64_DIT( FALSE, thr_id, a+jt,(dit_i_offsets+0x80), s1p00, r80,t_offsets);
 
 	//...and now do 64 radix-3 transforms:
-	  #if(OS_BITS == 64) && defined(DFT_X2)	// Must be def'd via compile arglist
+	  #if OS_BITS == 64
 
 		tmp =   r00;	tm1 =   r00+0x80;	tm2 =   r00+0x100;	// Need to double the offsets from the p-stripped ones
 		va0 = s1p00;	va1 = s1p00+0x80;	va2 = s1p00+0x100;	// since vec_dbl pointers but complex data
@@ -244,10 +244,14 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	/* In AVX mode advance carry-ptrs just 1 for each vector-carry-macro call: */
 		tm1 = s1p00; tmp = cy; itmp = bjmodn;
-		AVX_cmplx_carry_norm_errcheck0_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		// Each AVX carry macro call also processes 4 prefetches of main-array data
+		tm2 = a + j1 + pfetch_dist;
+		AVX_cmplx_carry_norm_errcheck0_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tm2,p1,p2,p3);
 		tm1 += 8; tmp += 1; itmp += 4;
 		for(l = 1; l < RADIX>>2; l++) {
-			AVX_cmplx_carry_norm_errcheck1_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			// Each AVX carry macro call also processes 4 prefetches of main-array data
+			tm2 = a + j1 + pfetch_dist + poff[l];
+			AVX_cmplx_carry_norm_errcheck1_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tm2,p1,p2,p3);
 			tm1 += 8; tmp += 1; itmp += 4;
 		}
 
@@ -277,14 +281,19 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		ctmp->re = wtlp1;	ctmp->im = wtlp1;++ctmp;
 		ctmp->re = wtnm1;	ctmp->im = wtnm1;
 
-		add1 = &wt1[col  ];	/* Don't use add0 here, to avoid need to reload main-array address */
+		add1 = &wt1[col  ];
 		add2 = &wt1[co2-1];
 		add3 = &wt1[co3-1];
 
 		tm1 = s1p00; tmp = cy; tm2 = cy+0x01; itmp = bjmodn;
-		SSE2_cmplx_carry_norm_errcheck0_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+		// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+		add0 = a + j1 + pfetch_dist;
+		SSE2_cmplx_carry_norm_errcheck0_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p1);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		for(l = 1; l < RADIX>>2; l++) {
-			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p1);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
 		l= (j+2) & (nwt-1);			/* We want (S*J mod N) - SI(L) for all 16 carries, so precompute	*/
@@ -312,7 +321,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		tm1 = s1p00; tmp = cy; tm2 = cy+0x01; itmp = bjmodn;
 		for(l = 0; l < RADIX>>2; l++) {
-			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p2,p3);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
 		i =((uint32)(sw - bjmodn[0]) >> 31);	/* get ready for the next set...	*/
@@ -330,7 +342,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		wtlp1   =wt0[    l+1];
 		wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
-		/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */		
+		/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */
 		l = 0; addr = cy; itmp = bjmodn;
 	   cmplx_carry_norm_errcheck0(a[j1   ],a[j2   ],*addr,*itmp  ); ++l; ++addr; ++itmp;
 		cmplx_carry_norm_errcheck(a[j1+p1],a[j2+p1],*addr,*itmp,l); ++l; ++addr; ++itmp;
@@ -356,7 +368,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	#ifdef USE_SSE2
 
 	//...gather the needed data (192 64-bit complex) and do 16 radix-3 transforms:
-	  #if(OS_BITS == 64) && defined(DFT_X2)	// Must be def'd via compile arglist
+	  #if OS_BITS == 64
 
 		ilo = ihi = 0;	// ints tracking the low and high nibbles of the p* offset at head of each trio
 		va0 = s1p00;	va1 = s1p00+0x100;	va2 = s1p00+0x080;
@@ -504,7 +516,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			}
 		}
 
-	  #endif	// DFT_X2 ?
+	  #endif	// 32/64-bit?
 
 	//...and now do 3 radix-64 transforms:
 

@@ -38,17 +38,17 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		// Use s1p000-0ff for scratch for these 3 DFTs:
 		SSE2_RADIX256_DIT(
 			(a+j1     ),(int *)(dit_offsets_lo+0x00), dit_idx1, dit_offsets_hi1, 
-			s1p000, isrt2,twid0,
+			s1p000, isrt2,two,twid0,
 			r000
 		);	// Outputs in r0[ 00- ff]
 		SSE2_RADIX256_DIT(
 			(a+j1+p200),(int *)(dit_offsets_lo+0x20), dit_idx2, dit_offsets_hi2, 
-			s1p000, isrt2,twid0,
+			s1p000, isrt2,two,twid0,
 			r100
 		);	// Outputs in r1[100-1ff]
 		SSE2_RADIX256_DIT(
 			(a+j1+p100),(int *)(dit_offsets_lo+0x40), dit_idx3, dit_offsets_hi3, 
-			s1p000, isrt2,twid0,
+			s1p000, isrt2,two,twid0,
 			r200
 		);	// Outputs in r2[200-2ff]
 
@@ -148,10 +148,14 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	/* In AVX mode advance carry-ptrs just 1 for each vector-carry-macro call: */
 		tm1 = s1p000; tmp = cy; itmp = bjmodn;
-		AVX_cmplx_carry_norm_errcheck0_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		// Each AVX carry macro call also processes 4 prefetches of main-array data
+		tm2 = a + j1 + pfetch_dist;
+		AVX_cmplx_carry_norm_errcheck0_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tm2,p1,p2,p3);
 		tm1 += 8; tmp += 1; itmp += 4;
 		for(l = 1; l < RADIX>>2; l++) {
-			AVX_cmplx_carry_norm_errcheck1_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			// Each AVX carry macro call also processes 4 prefetches of main-array data
+			tm2 = a + j1 + pfetch_dist + poff[l];
+			AVX_cmplx_carry_norm_errcheck1_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tm2,p1,p2,p3);
 			tm1 += 8; tmp += 1; itmp += 4;
 		}
 
@@ -186,9 +190,14 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		add3 = &wt1[co3-1];
 
 		tm1 = s1p000; tmp = cy; tm2 = cy+0x01; itmp = bjmodn;
-		SSE2_cmplx_carry_norm_errcheck0_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+		// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+		add0 = a + j1 + pfetch_dist;
+		SSE2_cmplx_carry_norm_errcheck0_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p1);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		for(l = 1; l < RADIX>>2; l++) {
-			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p1);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
 		l= (j+2) & (nwt-1);			/* We want (S*J mod N) - SI(L) for all 16 carries, so precompute	*/
@@ -216,7 +225,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		tm1 = s1p000; tmp = cy; tm2 = cy+0x01; itmp = bjmodn;
 		for(l = 0; l < RADIX>>2; l++) {
-			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p2,p3);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
 		i =((uint32)(sw - bjmodn[0]) >> 31);	/* get ready for the next set...	*/
@@ -288,17 +300,17 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		SSE2_RADIX256_DIF(	// Inputs in r0[ 00- ff]
 			r000,
-			s1p000, isrt2,twid0,
+			s1p000, isrt2,two,twid0,
 			(a+j1     ),dif_offsets_lo, dif_idx1, dif_offsets_hi1
 		);
 		SSE2_RADIX256_DIF(	// Inputs in r1[100-1ff]
 			r100,
-			s1p000, isrt2,twid0,
+			s1p000, isrt2,two,twid0,
 			(a+j1+p200),dif_offsets_lo, dif_idx2, dif_offsets_hi2
 		);
 		SSE2_RADIX256_DIF(	// Inputs in r2[200-2ff]
 			r200,
-			s1p000, isrt2,twid0,
+			s1p000, isrt2,two,twid0,
 			(a+j1+p100),dif_offsets_lo, dif_idx3, dif_offsets_hi3
 		);
 

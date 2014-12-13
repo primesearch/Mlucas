@@ -22,7 +22,15 @@
 
 #include "Mlucas.h"
 
-#define RADIX 44	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
+#define RADIX 44	// = 0x2c; Use #define rather than const int to ensure it's really a compile-time const in the C sense
+
+#ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
+  #else
+	#define PFETCH_DIST	32
+  #endif
+#endif
 
 #ifdef MULTITHREAD
 	#ifndef USE_PTHREAD
@@ -42,11 +50,11 @@
   // For Mersenne-mod we need (16 [SSE2] or 64 [AVX]) + 4 added slots for the half_arr lookup tables.
   // Add relevant number (half_arr_offset44 + RADIX) to get required value of radix44_creals_in_local_store:
   #ifdef USE_AVX
-	const int half_arr_offset44 = 211;	// + RADIX = 255; Used for thread local-storage-integrity checking
-	const int radix44_creals_in_local_store = 324;	// (half_arr_offset44 + RADIX) + 68 and round up to nearest multiple of 4
+	const int half_arr_offset44 = 0xeb;	// + RADIX = 0x117; Used for thread local-storage-integrity checking
+	const int radix44_creals_in_local_store = 0x15c;	// (half_arr_offset44 + RADIX) + 68 and round up to nearest multiple of 4
   #else
-	const int half_arr_offset44 = 222;	// + RADIX = 266; Used for thread local-storage-integrity checking
-	const int radix44_creals_in_local_store = 288;	// (half_arr_offset44 + RADIX) + 20 and round up to nearest multiple of 4
+	const int half_arr_offset44 = 0xf6;	// + RADIX = 0x122; Used for thread local-storage-integrity checking
+	const int radix44_creals_in_local_store = 0x138;	// (half_arr_offset44 + RADIX) + 20 and round up to nearest multiple of 4
 	#if OS_BITS == 64
 	  // #define to either (if left undefined) use small-macro form below, or (if defined) to inline the fused macros as single big blob of asm (64-bit only):
 	  #define GCC_ASM_FULL_INLINE	1	// Enable xmm0-15-using version of radix-40 DFTs; only available in sse2, no avx
@@ -134,6 +142,7 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	const char func[] = "radix44_ditN_cy_dif1";
+	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 #ifdef USE_SSE2
 	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
@@ -151,9 +160,20 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	static uint64 psave=0;
 	static uint32 bw,sw,bjmodnini,p01,p02,p03,p04,p08,p12,p16,p20,p24,p28,p32,p36,p40;
 	static int poff[RADIX>>2];	// Store mults of p04 offset for loop control
-#if defined(USE_SSE2) || !defined(MULTITHREAD)
-	/*...Fast length-5 cyclic convolution scheme needs the following: */
-	const double a0 =  2.31329240211767848235, /* a0 = (   cq0      -  cq3+  cq2-  cq4)		*/
+#ifdef USE_AVX2	// FMA based on simple radix-11 DFT implementation, same as LO_ADD - more accurate, and with FMA, faster as well
+	const double cc1 =  0.84125353283118116886,	/* Real part of exp(i*2*pi/11), the radix-11 fundamental sincos datum	*/
+			ss1 =  0.54064081745559758210,	/* Imag part of exp(i*2*pi/11).	*/
+			cc2 =  0.41541501300188642553,	/* cos(2u)	*/
+			ss2 =  0.90963199535451837140,	/* sin(2u)	*/
+			cc3 = -0.14231483827328514043,	/* cos(3u)	*/
+			ss3 =  0.98982144188093273237,	/* sin(3u)	*/
+			cc4 = -0.65486073394528506404,	/* cos(4u)	*/
+			ss4 =  0.75574957435425828378,	/* sin(4u)	*/
+			cc5 = -0.95949297361449738988,	/* cos(5u)	*/
+			ss5 =  0.28173255684142969773;	/* sin(5u)	*/
+#elif defined(USE_SSE2)
+// 5 Dec 2014: Change const -> static to enable wrong-way-rounding sensitivity experiments:
+	const double a0 = 2.31329240211767848235, /* a0 = (   cq0      -  cq3+  cq2-  cq4)		*/
 			a1 =  1.88745388228838373902, /* a1 = (         cq1-  cq3+  cq2-  cq4)		*/
 			a2 = -1.41435370755978245393, /* a2 = (-2*cq0-2*cq1+3*cq3-2*cq2+3*cq4)/5	*/
 			a3 =  0.08670737584270518028, /* a3 = (-  cq0+  cq1-  cq3+  cq2      )		*/
@@ -163,7 +183,7 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			a7 =  1.07027574694717148957, /* a7 = (         cq1-  cq3            )		*/
 			a8 = -0.55486073394528506404, /* a8 = (-  cq0-  cq1+4*cq3-  cq2-  cq4)/5	*/
 			a9 = -1.10000000000000000000, /* a9 = (   cq0+  cq1+  cq3+  cq2+  cq4)/5 - 1*/
-
+			/* Sine terms same form as cos, but cq1 => -sq1 and no -1 on b9 term: */
 			b0 =  0.49298012814084233296, /* b0 = (   sq0      -  sq3+  sq2-  sq4)		*/
 			b1 = -0.95729268466927362054, /* b1 = (      -  sq1-  sq3+  sq2-  sq4)		*/
 			b2 =  0.37415717312460801167, /* b2 = (-2*sq0+2*sq1+3*sq3-2*sq2+3*sq4)/5	*/
@@ -174,6 +194,19 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			b7 = -1.66538156970877665518, /* b7 = (      -  sq1-  sq3            )		*/
 			b8 =  0.42408709531871829886, /* b8 = (-  sq0+  sq1+4*sq3-  sq2-  sq4)/5	*/
 			b9 =  0.33166247903553998491; /* b9 = (   sq0-  sq1+  sq3+  sq2+  sq4)/5	*/
+#elif defined(LO_ADD)
+	const double cc1 =  0.84125353283118116886,	/* Real part of exp(i*2*pi/11), the radix-11 fundamental sincos datum	*/
+			ss1 =  0.54064081745559758210,	/* Imag part of exp(i*2*pi/11).	*/
+			cc2 =  0.41541501300188642553,	/* cos(2u)	*/
+			ss2 =  0.90963199535451837140,	/* sin(2u)	*/
+			cc3 = -0.14231483827328514043,	/* cos(3u)	*/
+			ss3 =  0.98982144188093273237,	/* sin(3u)	*/
+			cc4 = -0.65486073394528506404,	/* cos(4u)	*/
+			ss4 =  0.75574957435425828378,	/* sin(4u)	*/
+			cc5 = -0.95949297361449738988,	/* cos(5u)	*/
+			ss5 =  0.28173255684142969773;	/* sin(5u)	*/
+#else
+	#error Unhandled combination of preprocessor flags!
 #endif
 	static double radix_inv, n2inv;
 	double scale, dtmp, maxerr = 0.0;
@@ -216,7 +249,7 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	const double crnd = 3.0*0x4000000*0x2000000;
 	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 	vec_dbl *tmp,*tm1,*tm2;	// Non-static utility ptrs
-	static vec_dbl *two,*five, *ua0,*ua1,*ua2,*ua3,*ua4,*ua5,*ua6,*ua7,*ua8,*ua9, *ub0,*ub1,*ub2,*ub3,*ub4,*ub5,*ub6,*ub7,*ub8,*ub9, *max_err, *sse2_rnd, *half_arr,
+	static vec_dbl *two,*one,*five, *ua0,*ua1,*ua2,*ua3,*ua4,*ua5,*ua6,*ua7,*ua8,*ua9, *ub0,*ub1,*ub2,*ub3,*ub4,*ub5,*ub6,*ub7,*ub8,*ub9, *max_err, *sse2_rnd, *half_arr,
 		*r00,*r01,*r02,*r03,*r04,*r05,*r06,*r07,*r08,*r09,*r0a,*r0b,*r0c,*r0d,*r0e,*r0f,
 		*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r1a,*r1b,*r1c,*r1d,*r1e,*r1f,
 		*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r2a,*r2b,
@@ -502,70 +535,197 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		s1p29 = tmp + 0x52;
 		s1p2a = tmp + 0x54;
 		s1p2b = tmp + 0x56;
-	// sc_ptr += 176
-		tmp += 0x58;
-	#ifdef USE_AVX
-		cy = tmp;		tmp += 0xb;	// sc_ptr += 187
-	#else
-		cy = tmp;		tmp += 0x16;	// sc_ptr += 198
-	#endif
-		two     = tmp+ 0x00;
-		five    = tmp+ 0x01;
-		ua0     = tmp+ 0x02;
-		ua1     = tmp+ 0x03;
-		ua2     = tmp+ 0x04;
-		ua3     = tmp+ 0x05;
-		ua4     = tmp+ 0x06;
-		ua5     = tmp+ 0x07;
-		ua6     = tmp+ 0x08;
-		ua7     = tmp+ 0x09;
-		ua8     = tmp+ 0x0a;
-		ua9     = tmp+ 0x0b;
-		ub0     = tmp+ 0x0c;
-		ub1     = tmp+ 0x0d;
-		ub2     = tmp+ 0x0e;
-		ub3     = tmp+ 0x0f;
-		ub4     = tmp+ 0x10;
-		ub5     = tmp+ 0x11;
-		ub6     = tmp+ 0x12;
-		ub7     = tmp+ 0x13;
-		ub8     = tmp+ 0x14;
-		ub9     = tmp+ 0x15;
-		max_err = tmp+ 0x16;
-		sse2_rnd= tmp+ 0x17;
-	// sc_ptr += 211 [AVX] or 222 [SSE2]; This is where the value of half_arr_offset44 comes from
-		half_arr= tmp+ 0x18;	/* This table needs 20x16 bytes */
+		tmp += 0x58;	// sc_ptr += 0xb0
+		two     = tmp + 0;	// AVX+ versions of various DFT macros need consts [2,1] pair laid out thusly
+		one     = tmp + 1;
+	//	two     = tmp + 2; Unnamed ptr, used in AVX2 mode to hold 2.0 (and *five holds 1.0) for the radix-11 DFT code
+		five    = tmp + 3;
+		ua0     = tmp + 4;
+		ua1     = tmp + 5;
+		ua2     = tmp + 6;
+		ua3     = tmp + 7;
+		ua4     = tmp + 8;
+		ua5     = tmp + 9;
+		ua6     = tmp + 0xa;
+		ua7     = tmp + 0xb;
+		ua8     = tmp + 0xc;
+		ua9     = tmp + 0xd;
+		ub0     = tmp + 0xe;
+		ub1     = tmp + 0xf;
+		ub2     = tmp + 0x10;
+		ub3     = tmp + 0x11;
+		ub4     = tmp + 0x12;
+		ub5     = tmp + 0x13;
+		ub6     = tmp + 0x14;
+		ub7     = tmp + 0x15;
+		ub8     = tmp + 0x16;
+		ub9     = tmp + 0x17;
+		tmp += 0x18;	// sc_ptr += 0xde
+	  #ifdef USE_AVX
+		cy = tmp;		tmp += 0x0b;	// sc_ptr += 0xe9
+		max_err = tmp + 0x00;
+		sse2_rnd= tmp + 0x01;	// sc_ptr += 0xeb; This is where the value of half_arr_offset44 comes from
+		half_arr= tmp + 0x02;	/* This table needs 20 vec_dbl for Mersenne-mod, and 3.5*RADIX[avx] | RADIX[sse2] for Fermat-mod */
+	  #else
+		cy = tmp;		tmp += 0x16;	// sc_ptr += 0xf4
+		max_err = tmp + 0x00;
+		sse2_rnd= tmp + 0x01;	// sc_ptr += 0xf6; This is where the value of half_arr_offset44 comes from
+		half_arr= tmp + 0x02;	/* This table needs 20 x 16 bytes for Mersenne-mod, and [4*odd_radix] x 16 for Fermat-mod */
+	  #endif
 
 		ASSERT(HERE, (radix44_creals_in_local_store << l2_sz_vd) >= ((long)half_arr - (long)r00) + (20 << l2_sz_vd), "radix44_creals_in_local_store checksum failed!");
+	  #ifndef USE_AVX2
+		//======= Test the accuracy of the radix-11 trig consts: =========
+		struct qfloat qtheta,qs,qt,qfifth,cq0,cq1,cq2,cq3,cq4,sq0,sq1,sq2,sq3,sq4;
+		qtheta = qfdiv(Q2PI, i64_to_q((uint64)11));
+		qt =          qtheta ;	cq0 = qfcos(qt);	sq0 = qfsin(qt);
+		qt = qfadd(qt,qtheta);	cq1 = qfcos(qt);	sq1 = qfsin(qt);
+		qt = qfadd(qt,qtheta);	cq2 = qfcos(qt);	sq2 = qfsin(qt);
+		qt = qfadd(qt,qtheta);	cq3 = qfcos(qt);	sq3 = qfsin(qt);
+		qt = qfadd(qt,qtheta);	cq4 = qfcos(qt);	sq4 = qfsin(qt);
+		qfifth = qf_rational_quotient((uint64)1, (uint64)5);
+	/*
+		Sensitivity analysis of the various radix-11 DFT params. Here is the baseline, with all consts rounded-to-nearest:
+		./Mlucas -fftlen 352 -iters 10000 -radset 0
+		Using complex FFT radices        44        16        16        16
 
+		M7036339 Roundoff warning on iteration      335, maxerr =   0.406250000000
+		M7036339 Roundoff warning on iteration      632, maxerr =   0.406250000000
+		M7036339 Roundoff warning on iteration      702, maxerr =   0.406250000000
+		M7036339 Roundoff warning on iteration     1138, maxerr =   0.406250000000
+		M7036339 Roundoff warning on iteration     1597, maxerr =   0.406250000000
+		M7036339 Roundoff warning on iteration     2187, maxerr =   0.406250000000
+		M7036339 Roundoff warning on iteration     2457, maxerr =   0.437500000000
+		M7036339 Roundoff warning on iteration     3322, maxerr =   0.460937500000
+		M7036339 Roundoff warning on iteration     4207, maxerr =   0.406250000000
+		M7036339 Roundoff warning on iteration     4414, maxerr =   0.406250000000
+		M7036339 Roundoff warning on iteration     4427, maxerr =   0.406250000000
+		M7036339 Roundoff warning on iteration     4436, maxerr =   0.406250000000
+		M7036339 Roundoff warning on iteration     4918, maxerr =   0.437500000000
+		M7036339 Roundoff warning on iteration     5438, maxerr =   0.406250000000
+		M7036339 Roundoff warning on iteration     5652, maxerr =   0.421875000000
+		M7036339 Roundoff warning on iteration     6806, maxerr =   0.437500000000
+		M7036339 Roundoff warning on iteration     7030, maxerr =   0.406250000000
+		M7036339 Roundoff warning on iteration     7379, maxerr =   0.406250000000
+		M7036339 Roundoff warning on iteration     8087, maxerr =   0.406250000000
+		M7036339 Roundoff warning on iteration     8575, maxerr =   0.406250000000
+		M7036339 Roundoff warning on iteration     8660, maxerr =   0.406250000000
+		M7036339 Roundoff warning on iteration     8984, maxerr =   0.406250000000
+		M7036339 Roundoff warning on iteration     9245, maxerr =   0.406250000000
+		M7036339 Roundoff warning on iteration     9371, maxerr =   0.437500000000
+		M7036339 Roundoff warning on iteration     9412, maxerr =   0.406250000000
+		M7036339 Roundoff warning on iteration     9498, maxerr =   0.437500000000
+		M7036339 Roundoff warning on iteration     9590, maxerr =   0.406250000000
+		M7036339 Roundoff warning on iteration     9686, maxerr =   0.406250000000
+
+		28 warnings, 21@0.40625, 1@0.421875, 5@0.40625, 1 > 0.45
+
+		Results of wrong-way-rounding each param in turn and running the same test - we only detail the 'improved' cases:
+
+			#ROE					Summary							Note
+			----	---------------------------------------------	----
+		a0	3		AvgMaxErr = 0.283830276. MaxErr = 0.457031250	!
+		a1	4		AvgMaxErr = 0.279624450. MaxErr = 0.414062500	!!
+		a3	19		AvgMaxErr = 0.294811107. MaxErr = 0.437500000
+		b0	22		AvgMaxErr = 0.293350167. MaxErr = 0.437500000
+		b1	22		AvgMaxErr = 0.294640647. MaxErr = 0.437500000
+
+		Now try all 5 of the above together ... that is actually worse, so there are complex interactions here.
+		Try pairwise combos, denoting a0,a1,a3,b0,b1 by indices 0-4, resp., listing results only for combos
+		which behave synergistically, i.e. where te result is better than for either term individually:
+
+		0,2		8	AvgMaxErr = 0.283457815. MaxErr = 0.421875000
+		0,4		2	AvgMaxErr = 0.284313121. MaxErr = 0.414062500
+		1,4		3	AvgMaxErr = 0.280305692. MaxErr = 0.406250000	<< Still a tad worse than 1 [=a1] alone
+
+		024		2	AvgMaxErr = 0.283626017. MaxErr = 0.406250000
+		124		5	AvgMaxErr = 0.280089419. MaxErr = 0.406250000	<< #warns greater than 024 but AME is less.
+
+		0124 is again awful.
+
+		Try both of the above triplets on the next-larger prime, 7036343:
+		024		2	AvgMaxErr = 0.283818714. MaxErr = 0.406250000
+		124		4	AvgMaxErr = 0.279806160. MaxErr = 0.437500000
+		..and the next-next-larger-prime, 7036361:
+		024		8	AvgMaxErr = 0.283602988. MaxErr = 0.437500000	<< hmm, tough call - but blowup of 024 err stats here shows how noisy
+		124		3	AvgMaxErr = 0.278681073. MaxErr = 0.437500000	<< these data are, only consistent trend is in the AME, 124 better there.
+		Lastly, try a prime 0.5% larger than above, p = 7071521:
+		024		109 warns (18@0.4375, 3 > 0.4375) thru iter 8705 (12.5 warn/Kiter), at whch point get fatal err of 0.484375
+		124		 82 warns (18@0.4375, 2 > 0.4375) thru iter 7123 (11.5 warn/Kiter), at whch point get fatal err of 0.500000
+
+	*/
+		// Propagate to the VEC_DBL_INITs below just the ones we finally settle on of the full set in the following #if 0 block:
+	   #if 0
+		//================================================================
+		// *** Cosine terms: ***
+		qt = qfsub(qfadd(cq0,cq2),qfadd(cq3,cq4));	dtmp = qfdbl(qt);	ASSERT(HERE, dtmp == a0, "a0");	/* a0 = (   cq0      -  cq3+  cq2-  cq4) */
+		qt = qfsub(qfadd(cq1,cq2),qfadd(cq3,cq4));	dtmp = qfdbl(qt);	ASSERT(HERE, dtmp == a1, "a1");	/* a1 = (         cq1-  cq3+  cq2-  cq4) */
+		qt = qfsub(qfadd(cq1,cq2),qfadd(cq0,cq3));	dtmp = qfdbl(qt);	ASSERT(HERE, dtmp == a3, "a3");	/* a3 = (-  cq0+  cq1-  cq3+  cq2      ) */
+		qt = qfsub(qfadd(cq1,cq4),qfadd(cq0,cq3));	dtmp = qfdbl(qt);	ASSERT(HERE, dtmp == a4, "a4");	/* a4 = (-  cq0+  cq1-  cq3      +  cq4) */
+		qt = qfsub(cq2,cq3);						dtmp = qfdbl(qt);	ASSERT(HERE, dtmp == a6, "a6");	/* a6 = (            -  cq3+  cq2      ) */
+		qt = qfsub(cq1,cq3);						dtmp = qfdbl(qt);	ASSERT(HERE, dtmp == a7, "a7");	/* a7 = (         cq1-  cq3            ) */
+		qt = qfmul(qfifth, qfsub( qfmul_pow2(cq3,2), qfadd(qfadd(cq0,cq1),qfadd(cq2,cq4)) ));	dtmp = qfdbl(qt);	ASSERT(HERE, dtmp == a8, "a8");	/* a8 = (-  cq0-  cq1+4*cq3-  cq2-  cq4)/5 */
+		qt = qfsub( qfmul(qfifth, qfadd( cq0 , qfadd(qfadd(cq1,cq2),qfadd(cq3,cq4)) )), QONE);	dtmp = qfdbl(qt);	ASSERT(HERE, dtmp == a9, "a9");	/* a9 = (   cq0+  cq1+  cq3+  cq2+  cq4)/5 - 1 */
+		qs = qfadd(qfadd(cq0,cq1), cq2);	qs = qfmul_pow2(qs,1);	// 2*(cq0+cq1+cq2)
+		qt = qfadd(cq3,cq4);	qt = qfadd(qt, qfmul_pow2(qt,1));	// 3*(cq3+cq4)
+		qt = qfmul(qfifth, qfsub(qt,qs));	dtmp = qfdbl(qt);	ASSERT(HERE, dtmp == a2, "a2");	/* a2 = (-2*cq0-2*cq1+3*cq3-2*cq2+3*cq4)/5 */
+		qs = qfadd(qfadd(cq4,cq1), cq2);	qs = qfmul_pow2(qs,1);	// 2*(cq4+cq1+cq2)
+		qt = qfadd(cq3,cq0);	qt = qfadd(qt, qfmul_pow2(qt,1));	// 3*(cq3+cq0)
+		qt = qfmul(qfifth, qfsub(qt,qs));	dtmp = qfdbl(qt);	ASSERT(HERE, dtmp == a5, "a5");	/* a5 = ( 3*cq0-2*cq1+3*cq3-2*cq2-2*cq4)/5 */
+		// *** Sine terms: ***
+		qt = qfsub(qfadd(sq0,sq2),qfadd(sq3,sq4));	dtmp = qfdbl(qt);	ASSERT(HERE, dtmp == b0, "b0");	/* b0 = (   sq0      -  sq3+  sq2-  sq4) */
+		qt = qfsub(qfsub(sq2,sq1),qfadd(sq3,sq4));	dtmp = qfdbl(qt);	ASSERT(HERE, dtmp == b1, "b1");	/* b1 = (        -sq1-  sq3+  sq2-  sq4) */
+		qt = qfsub(qfsub(sq2,sq1),qfadd(sq0,sq3));	dtmp = qfdbl(qt);	ASSERT(HERE, dtmp == b3, "b3");	/* b3 = (-  sq0-  sq1-  sq3+  sq2      ) */
+		qt = qfsub(qfsub(sq4,sq1),qfadd(sq0,sq3));	dtmp = qfdbl(qt);	ASSERT(HERE, dtmp == b4, "b4");	/* b4 = (-  sq0-  sq1-  sq3      +  sq4) */
+		qt = qfsub(sq2,sq3);						dtmp = qfdbl(qt);	ASSERT(HERE, dtmp == b6, "b6");	/* b6 = (            -  sq3+  sq2      ) */
+		qt = qfneg(qfadd(sq1,sq3));					dtmp = qfdbl(qt);	ASSERT(HERE, dtmp == b7, "b7");	/* b7 = (        -sq1-  sq3            ) */
+		qt = qfmul(qfifth, qfsub( qfmul_pow2(sq3,2), qfadd(qfsub(sq0,sq1),qfadd(sq2,sq4)) ));	dtmp = qfdbl(qt);	ASSERT(HERE, dtmp == b8, "b8");	/* b8 = (-  sq0+  sq1+4*sq3-  sq2-  sq4)/5 */
+		qt = qfmul(qfifth, qfadd( sq0 , qfadd(qfsub(sq2,sq1),qfadd(sq3,sq4)) ));	dtmp = qfdbl(qt);	ASSERT(HERE, dtmp == b9, "b9");	/* b9 = (   sq0-  sq1+  sq3+  sq2+  sq4)/5 - 1 */
+		qs = qfadd(qfsub(sq0,sq1), sq2);	qs = qfmul_pow2(qs,1);	// 2*(sq0-sq1+sq2)
+		qt = qfadd(sq3,sq4);	qt = qfadd(qt, qfmul_pow2(qt,1));	// 3*(sq3+sq4)
+		qt = qfmul(qfifth, qfsub(qt,qs));	dtmp = qfdbl(qt);	ASSERT(HERE, dtmp == b2, "b2");	/* b2 = (-2*sq0+2*sq1+3*sq3-2*sq2+3*sq4)/5 */
+		qs = qfadd(qfsub(sq4,sq1), sq2);	qs = qfmul_pow2(qs,1);	// 2*(sq4-sq1+sq2)
+		qt = qfadd(sq3,sq0);	qt = qfadd(qt, qfmul_pow2(qt,1));	// 3*(sq3+sq0)
+		qt = qfmul(qfifth, qfsub(qt,qs));	dtmp = qfdbl(qt);	ASSERT(HERE, dtmp == b5, "b5");	/* b5 = ( 3*sq0+2*sq1+3*sq3-2*sq2-2*sq4)/5 */
+		//================================================================
+	   #endif
+	  #endif
 		/* These remain fixed: */
-		VEC_DBL_INIT(two ,2.0);
-		VEC_DBL_INIT(five,5.0);
-		VEC_DBL_INIT(ua0 , a0);
-		VEC_DBL_INIT(ua1 , a1);
-		VEC_DBL_INIT(ua2 , a2);
-		VEC_DBL_INIT(ua3 , a3);
-		VEC_DBL_INIT(ua4 , a4);
-		VEC_DBL_INIT(ua5 , a5);
-		VEC_DBL_INIT(ua6 , a6);
-		VEC_DBL_INIT(ua7 , a7);
-		VEC_DBL_INIT(ua8 , a8);
-		VEC_DBL_INIT(ua9 , a9);
-		VEC_DBL_INIT(ub0 , b0);
-		VEC_DBL_INIT(ub1 , b1);
-		VEC_DBL_INIT(ub2 , b2);
-		VEC_DBL_INIT(ub3 , b3);
-		VEC_DBL_INIT(ub4 , b4);
-		VEC_DBL_INIT(ub5 , b5);
-		VEC_DBL_INIT(ub6 , b6);
-		VEC_DBL_INIT(ub7 , b7);
-		VEC_DBL_INIT(ub8 , b8);
-		VEC_DBL_INIT(ub9 ,-b9);	/* Flip sign to simplify code re-use in radix-11 SSE2 macro */
-
-		VEC_DBL_INIT(sse2_rnd,crnd);
+		VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );
+	  #ifdef USE_AVX2	// FMA version based on simple radix-11 DFT implementation, same as LO_ADD
+		tmp = five-1;
+		VEC_DBL_INIT(tmp ,2.0);		VEC_DBL_INIT(five,1.0);	// *five-1,*five used for [2.0,1.0] here
+		VEC_DBL_INIT(ua0 ,cc1);		VEC_DBL_INIT(ub0 ,0.0);	// upper 10 slots unused here; init = 0
+		VEC_DBL_INIT(ua1 ,cc2);		VEC_DBL_INIT(ub1 ,0.0);
+		VEC_DBL_INIT(ua2 ,cc3);		VEC_DBL_INIT(ub2 ,0.0);
+		VEC_DBL_INIT(ua3 ,cc4);		VEC_DBL_INIT(ub3 ,0.0);
+		VEC_DBL_INIT(ua4 ,cc5);		VEC_DBL_INIT(ub4 ,0.0);
+		VEC_DBL_INIT(ua5 ,ss1);		VEC_DBL_INIT(ub5 ,0.0);
+		VEC_DBL_INIT(ua6 ,ss2);		VEC_DBL_INIT(ub6 ,0.0);
+		VEC_DBL_INIT(ua7 ,ss3);		VEC_DBL_INIT(ub7 ,0.0);
+		VEC_DBL_INIT(ua8 ,ss4);		VEC_DBL_INIT(ub8 ,0.0);
+		VEC_DBL_INIT(ua9 ,ss5);		VEC_DBL_INIT(ub9 ,0.0);
+	  #else
+		tmp = five-1;
+		VEC_DBL_INIT(tmp ,0.0);		VEC_DBL_INIT(five,5.0);	// *five-1 unused here; init = 0
+		VEC_DBL_INIT(ua0 , a0);		VEC_DBL_INIT(ub0 , b0);
+		VEC_DBL_INIT(ua1 , a1);		VEC_DBL_INIT(ub1 , b1);
+		VEC_DBL_INIT(ua2 , a2);		VEC_DBL_INIT(ub2 , b2);
+		VEC_DBL_INIT(ua3 , a3);		VEC_DBL_INIT(ub3 , b3);
+		VEC_DBL_INIT(ua4 , a4);		VEC_DBL_INIT(ub4 , b4);
+		VEC_DBL_INIT(ua5 , a5);		VEC_DBL_INIT(ub5 , b5);
+		VEC_DBL_INIT(ua6 , a6);		VEC_DBL_INIT(ub6 , b6);
+		VEC_DBL_INIT(ua7 , a7);		VEC_DBL_INIT(ub7 , b7);
+		VEC_DBL_INIT(ua8 , a8);		VEC_DBL_INIT(ub8 , b8);
+		VEC_DBL_INIT(ua9 , a9);		VEC_DBL_INIT(ub9 ,-b9);	/* Flip sign to simplify code re-use in radix-11 SSE2 macro */
+		qt = qfsub(qfadd(cq1,cq2),qfadd(cq3,cq4));	dtmp = qfdbl_wrong_way_rnd(qt);	VEC_DBL_INIT(ua1,dtmp);	// wrong-way-rounding of a1
+		qt = qfsub(qfadd(cq1,cq2),qfadd(cq0,cq3));	dtmp = qfdbl_wrong_way_rnd(qt);	VEC_DBL_INIT(ua3,dtmp);	// wrong-way-rounding of a3
+		qt = qfsub(qfsub(sq2,sq1),qfadd(sq3,sq4));	dtmp = qfdbl_wrong_way_rnd(qt);	VEC_DBL_INIT(ub1,dtmp);	// wrong-way-rounding of b1
+	  #endif
+		VEC_DBL_INIT(sse2_rnd, crnd);		/* SSE2 math = 53-mantissa-bit IEEE double-float: */
 
 		// Propagate the above consts to the remaining threads:
-		nbytes = (int)ub9 - (int)two + sz_vd;	// #bytes in above sincos block of data
+		nbytes = (int)cy - (int)two;
 		tmp = two;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
@@ -1652,6 +1812,7 @@ this means that the output permutation translates (in terms of of 4 radix-11 mac
 	{
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr;
+		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p01,p02,p03,p04,p08,p12,p16,p20,p24,p28,p32,p36,p40;
 		int poff[RADIX>>2];
@@ -1670,7 +1831,7 @@ this means that the output permutation translates (in terms of of 4 radix-11 mac
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 		double *add0, *add1, *add2, *add3;
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
-		vec_dbl *two,*five, *ua0,*ua1,*ua2,*ua3,*ua4,*ua5,*ua6,*ua7,*ua8,*ua9, *ub0,*ub1,*ub2,*ub3,*ub4,*ub5,*ub6,*ub7,*ub8,*ub9, *max_err, *sse2_rnd, *half_arr,
+		vec_dbl *two,*one,*five, *ua0,*ua1,*ua2,*ua3,*ua4,*ua5,*ua6,*ua7,*ua8,*ua9, *ub0,*ub1,*ub2,*ub3,*ub4,*ub5,*ub6,*ub7,*ub8,*ub9, *max_err, *sse2_rnd, *half_arr,
 			*r00,*r01,*r02,*r03,*r04,*r05,*r06,*r07,*r08,*r09,*r0a,*r0b,*r0c,*r0d,*r0e,*r0f,
 			*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r1a,*r1b,*r1c,*r1d,*r1e,*r1f,
 			*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r2a,*r2b,
@@ -1684,17 +1845,40 @@ this means that the output permutation translates (in terms of of 4 radix-11 mac
 
 	#else
 
-		/*...Fast length-5 cyclic convolution scheme needs the following: */
-		const double a0 = 2.31329240211767848235, b0 =  0.49298012814084233296,
-					a1 =  1.88745388228838373902, b1 = -0.95729268466927362054,
-					a2 = -1.41435370755978245393, b2 =  0.37415717312460801167,
-					a3 =  0.08670737584270518028, b3 = -1.21620094528344150491,
-					a4 = -0.73047075949850706917, b4 = -1.92428983032294453955,
-					a5 =  0.38639279888589610480, b5 =  0.63306543373877589604,
-					a6 =  0.51254589567199992361, b6 =  0.23407186752667444859,
-					a7 =  1.07027574694717148957, b7 = -1.66538156970877665518,
-					a8 = -0.55486073394528506404, b8 =  0.42408709531871829886,
-					a9 = -1.10000000000000000000, b9 =  0.33166247903553998491;
+	#ifdef LO_ADD
+		const double cc1 =  0.84125353283118116886,	/* Real part of exp(i*2*pi/11), the radix-11 fundamental sincos datum	*/
+				ss1 =  0.54064081745559758210,	/* Imag part of exp(i*2*pi/11).	*/
+				cc2 =  0.41541501300188642553,	/* cos(2u)	*/
+				ss2 =  0.90963199535451837140,	/* sin(2u)	*/
+				cc3 = -0.14231483827328514043,	/* cos(3u)	*/
+				ss3 =  0.98982144188093273237,	/* sin(3u)	*/
+				cc4 = -0.65486073394528506404,	/* cos(4u)	*/
+				ss4 =  0.75574957435425828378,	/* sin(4u)	*/
+				cc5 = -0.95949297361449738988,	/* cos(5u)	*/
+				ss5 =  0.28173255684142969773;	/* sin(5u)	*/
+	  #else
+	const double a0 =  2.31329240211767848235, /* a0 = (   cq0      -  cq3+  cq2-  cq4)		*/
+			a1 =  1.88745388228838373902, /* a1 = (         cq1-  cq3+  cq2-  cq4)		*/
+			a2 = -1.41435370755978245393, /* a2 = (-2*cq0-2*cq1+3*cq3-2*cq2+3*cq4)/5	*/
+			a3 =  0.08670737584270518028, /* a3 = (-  cq0+  cq1-  cq3+  cq2      )		*/
+			a4 = -0.73047075949850706917, /* a4 = (-  cq0+  cq1-  cq3      +  cq4)		*/
+			a5 =  0.38639279888589610480, /* a5 = ( 3*cq0-2*cq1+3*cq3-2*cq2-2*cq4)/5	*/
+			a6 =  0.51254589567199992361, /* a6 = (            -  cq3+  cq2      )		*/
+			a7 =  1.07027574694717148957, /* a7 = (         cq1-  cq3            )		*/
+			a8 = -0.55486073394528506404, /* a8 = (-  cq0-  cq1+4*cq3-  cq2-  cq4)/5	*/
+			a9 = -1.10000000000000000000, /* a9 = (   cq0+  cq1+  cq3+  cq2+  cq4)/5 - 1*/
+
+			b0 =  0.49298012814084233296, /* b0 = (   sq0      -  sq3+  sq2-  sq4)		*/
+			b1 = -0.95729268466927362054, /* b1 = (      -  sq1-  sq3+  sq2-  sq4)		*/
+			b2 =  0.37415717312460801167, /* b2 = (-2*sq0+2*sq1+3*sq3-2*sq2+3*sq4)/5	*/
+			b3 = -1.21620094528344150491, /* b3 = (-  sq0-  sq1-  sq3+  sq2      )		*/
+			b4 = -1.92428983032294453955, /* b4 = (-  sq0-  sq1-  sq3      +  sq4)		*/
+			b5 =  0.63306543373877589604, /* b5 = ( 3*sq0+2*sq1+3*sq3-2*sq2-2*sq4)/5	*/
+			b6 =  0.23407186752667444859, /* b6 = (            -  sq3+  sq2      )		*/
+			b7 = -1.66538156970877665518, /* b7 = (      -  sq1-  sq3            )		*/
+			b8 =  0.42408709531871829886, /* b8 = (-  sq0+  sq1+4*sq3-  sq2-  sq4)/5	*/
+			b9 =  0.33166247903553998491; /* b9 = (   sq0-  sq1+  sq3+  sq2+  sq4)/5	*/
+	  #endif
 		double *base, *baseinv;
 		const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 		int m,m2;
@@ -1854,37 +2038,43 @@ this means that the output permutation translates (in terms of of 4 radix-11 mac
 		s1p29 = tmp + 0x52;
 		s1p2a = tmp + 0x54;
 		s1p2b = tmp + 0x56;
-		tmp += 0x58;
+		tmp += 0x58;	// sc_ptr += 0xb0
+		two     = tmp + 0;	// AVX+ versions of various DFT macros need consts [2,1] pair laid out thusly
+		one     = tmp + 1;
+	//	two     = tmp + 2; Unnamed ptr, used in AVX2 mode to hold 2.0 (and *five holds 1.0) for the radix-11 DFT code
+		five    = tmp + 3;
+		ua0     = tmp + 4;
+		ua1     = tmp + 5;
+		ua2     = tmp + 6;
+		ua3     = tmp + 7;
+		ua4     = tmp + 8;
+		ua5     = tmp + 9;
+		ua6     = tmp + 0xa;
+		ua7     = tmp + 0xb;
+		ua8     = tmp + 0xc;
+		ua9     = tmp + 0xd;
+		ub0     = tmp + 0xe;
+		ub1     = tmp + 0xf;
+		ub2     = tmp + 0x10;
+		ub3     = tmp + 0x11;
+		ub4     = tmp + 0x12;
+		ub5     = tmp + 0x13;
+		ub6     = tmp + 0x14;
+		ub7     = tmp + 0x15;
+		ub8     = tmp + 0x16;
+		ub9     = tmp + 0x17;
+		tmp += 0x18;	// sc_ptr += 0xde
 	  #ifdef USE_AVX
-		cy = tmp;		tmp += 0xb;
+		cy = tmp;		tmp += 0x0b;	// sc_ptr += 0xe9
+		max_err = tmp + 0x00;
+		sse2_rnd= tmp + 0x01;	// sc_ptr += 0xeb; This is where the value of half_arr_offset44 comes from
+		half_arr= tmp + 0x02;	/* This table needs 20 vec_dbl for Mersenne-mod, and 3.5*RADIX[avx] | RADIX[sse2] for Fermat-mod */
 	  #else
-		cy = tmp;		tmp += 0x16;
+		cy = tmp;		tmp += 0x16;	// sc_ptr += 0xf4
+		max_err = tmp + 0x00;
+		sse2_rnd= tmp + 0x01;	// sc_ptr += 0xf6; This is where the value of half_arr_offset44 comes from
+		half_arr= tmp + 0x02;	/* This table needs 20 x 16 bytes for Mersenne-mod, and [4*odd_radix] x 16 for Fermat-mod */
 	  #endif
-		two     = tmp+ 0x00;
-		five    = tmp+ 0x01;
-		ua0     = tmp+ 0x02;
-		ua1     = tmp+ 0x03;
-		ua2     = tmp+ 0x04;
-		ua3     = tmp+ 0x05;
-		ua4     = tmp+ 0x06;
-		ua5     = tmp+ 0x07;
-		ua6     = tmp+ 0x08;
-		ua7     = tmp+ 0x09;
-		ua8     = tmp+ 0x0a;
-		ua9     = tmp+ 0x0b;
-		ub0     = tmp+ 0x0c;
-		ub1     = tmp+ 0x0d;
-		ub2     = tmp+ 0x0e;
-		ub3     = tmp+ 0x0f;
-		ub4     = tmp+ 0x10;
-		ub5     = tmp+ 0x11;
-		ub6     = tmp+ 0x12;
-		ub7     = tmp+ 0x13;
-		ub8     = tmp+ 0x14;
-		ub9     = tmp+ 0x15;
-		max_err = tmp+ 0x16;
-		sse2_rnd= tmp+ 0x17;
-		half_arr= tmp+ 0x18;	/* This table needs 20x16 bytes */
 
 		ASSERT(HERE, (r00 == thread_arg->r00), "thread-local memcheck failed!");
 		ASSERT(HERE, (half_arr == thread_arg->half_arr), "thread-local memcheck failed!");
@@ -1996,3 +2186,4 @@ this means that the output permutation translates (in terms of of 4 radix-11 mac
 #endif
 
 #undef RADIX
+#undef PFETCH_DIST

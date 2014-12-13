@@ -25,6 +25,14 @@
 
 #define RADIX 192	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
 
+#ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
+  #else
+	#define PFETCH_DIST	32
+  #endif
+#endif
+
 #ifdef MULTITHREAD
 	#ifndef USE_PTHREAD
 		#error Pthreads is only thread model currently supported!
@@ -125,6 +133,7 @@ int radix192_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 */
 	const char func[] = "radix192_ditN_cy_dif1";
 	static int thr_id = 0;	// Master thread gets this special id
+	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 #ifdef USE_SSE2
 	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
@@ -200,7 +209,7 @@ int radix192_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;	// Base address for discrete per-thread local stores
   #else
-	double *add1,*add2,*add3;
+	double *add0,*add1,*add2,*add3;
   #endif
 
 	static int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
@@ -1955,6 +1964,7 @@ void radix192_dit_pass1(double a[], int n)
 	const char func[] = "radix192_ditN_cy_dif1";
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr;
+		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf
 			,p10,p20,p30,p40,p50,p60,p70,p80,p90,pa0,pb0;
@@ -1990,7 +2000,7 @@ void radix192_dit_pass1(double a[], int n)
 		const double crnd = 3.0*0x4000000*0x2000000;
 		int *itmp;	// Pointer into the bjmodn array
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
-		double *add1,*add2,*add3;
+		double *add0,*add1,*add2,*add3;
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
 		vec_dbl *cc0,*ss0, *max_err, *sse2_rnd, *half_arr,
 			*r00,*r40,*r80,	// Head of RADIX*vec_cmplx-sized local store #1
@@ -2407,3 +2417,4 @@ void radix192_dit_pass1(double a[], int n)
 #endif
 
 #undef RADIX
+#undef PFETCH_DIST

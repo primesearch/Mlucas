@@ -66,7 +66,7 @@ void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 	int i,j,j1,j2,jlo,jhi,m,iroot_prim,iroot,k1,k2;
 	int p1,p2,p3,p4,p5,p6,p7;
-	double rt,it;
+	double dtmp,rt,it;
 	double re0,im0,re1,im1;
 
 #ifdef USE_SSE2
@@ -74,6 +74,10 @@ void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1
   #if !(defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
 	#error SSE2 code not supported for this compiler!
   #endif
+
+	// Uint64 bitmaps for alternate "rounded the other way" copies of sqrt2,isrt2. Default round-to-nearest versions
+	// (SQRT2, ISRT2) end in ...3BCD. Since we round these down as ...3BCC90... --> ..3BCC, append _dn to varnames:
+	const uint64 sqrt2_dn = 0x3FF6A09E667F3BCCull, isrt2_dn = 0x3FE6A09E667F3BCCull;
 
 	/* This allows us to align sincos temporaries on 16-byte boundaries (e.g. for SSE2) via pointers:
 	In sse2 mode, alloc a complex[32] array (give it a few extra slots to allow ptr to initial element-to-be-used
@@ -90,12 +94,12 @@ void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1
 
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;					// Base address for discrete per-thread local stores
-	vec_dbl *isrt2,*c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7;	// In || mode, only above base-pointer (shared by all threads) is static:
+	vec_dbl *sqrt2,*isrt2,*one,*two,*c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7;	// In || mode, only above base-pointer (shared by all threads) is static:
   #elif defined(COMPILER_TYPE_GCC)
-	static vec_dbl *isrt2,*c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7;
+	static vec_dbl *sqrt2,*isrt2,*one,*two,*c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7;
   #else
 	static vec_dbl *r0,*r8;
-	static vec_dbl *isrt2,*c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7;
+	static vec_dbl *sqrt2,*isrt2,*c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7;
   #endif
 
 #else
@@ -127,63 +131,96 @@ void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1
 	/* Use low 16 16-byte slots of sc_arr for temporaries, next 16 for the doubled sincos twiddles,
 	next 1 for doubled 1/sqrt2, plus at least 3 more slots to allow for 64-byte alignment of the array:
 	*/
-		#ifdef MULTITHREAD
-			__r0  = sc_ptr;
-			isrt2 = sc_ptr + 0x20;	// Need 16 local vec_dbl-sized slots for tmp-data, 16 for sincos twiddles, 1 for 1/sqrt2
-			for(i = 0; i < max_threads; ++i) {
-				/* These remain fixed within each per-thread local store: */
-				VEC_DBL_INIT(isrt2, ISRT2);
-				isrt2 += 36;	/* Move on to next thread's local store */
-			}
-		#elif defined(COMPILER_TYPE_GCC)
-			c0    = sc_ptr + 0x10;
-			c4    = sc_ptr + 0x12;
-			c2    = sc_ptr + 0x14;
-			c6    = sc_ptr + 0x16;
-			c1    = sc_ptr + 0x18;
-			c5    = sc_ptr + 0x1a;
-			c3    = sc_ptr + 0x1c;
-			c7    = sc_ptr + 0x1e;
-			isrt2 = sc_ptr + 0x20;
-			/* These remain fixed: */
-			VEC_DBL_INIT(isrt2, ISRT2);
-		#else
-			r0    = sc_ptr + 0x00;		c0    = sc_ptr + 0x10;
-		//	r1    = sc_ptr + 0x01;		s0    = sc_ptr + 0x11;
-		/*	r2    = sc_ptr + 0x02;	*/	c4    = sc_ptr + 0x12;
-		//	r3    = sc_ptr + 0x03;		s4    = sc_ptr + 0x13;
-		/*	r4    = sc_ptr + 0x04;	*/	c2    = sc_ptr + 0x14;
-		//	r5    = sc_ptr + 0x05;		s2    = sc_ptr + 0x15;
-		/*	r6    = sc_ptr + 0x06;	*/	c6    = sc_ptr + 0x16;
-		//	r7    = sc_ptr + 0x07;		s6    = sc_ptr + 0x17;
-			r8    = sc_ptr + 0x08;		c1    = sc_ptr + 0x18;
-		//	r9    = sc_ptr + 0x09;		s1    = sc_ptr + 0x19;
-		/*	ra    = sc_ptr + 0x0a;	*/	c5    = sc_ptr + 0x1a;
-		//	rb    = sc_ptr + 0x0b;		s5    = sc_ptr + 0x1b;
-		/*	rc    = sc_ptr + 0x0c;	*/	c3    = sc_ptr + 0x1c;
-		//	rd    = sc_ptr + 0x0d;		s3    = sc_ptr + 0x1d;
-		/*	re    = sc_ptr + 0x0e;	*/	c7    = sc_ptr + 0x1e;
-		//	rf    = sc_ptr + 0x0f;		s7    = sc_ptr + 0x1f;
-										isrt2 = sc_ptr + 0x20;
-			/* These remain fixed: */
-			VEC_DBL_INIT(isrt2, ISRT2);
-		#endif
+	#ifdef MULTITHREAD
+		__r0  = sc_ptr;
+		sqrt2 = sc_ptr + 0x20;	// Need 16 local vec_dbl-sized slots for tmp-data, 16 for sincos twiddles, 4 for [sqrt2,isrt2,1,0,2.0] quartet
+		isrt2 = sc_ptr + 0x21;
+		one   = sc_ptr + 0x22;
+		two   = sc_ptr + 0x23;
+		for(i = 0; i < max_threads; ++i) {
+			/* These remain fixed within each per-thread local store: */
+		  #if 1
+			// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
+			dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
+			dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+		  #else
+			VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
+		  #endif
+			VEC_DBL_INIT(one  , 1.0);
+			VEC_DBL_INIT(two  , 2.0);
+			isrt2 += 36;	/* Move on to next thread's local store */
+			one   += 36;
+			two   += 36;
+		}
+	#elif defined(COMPILER_TYPE_GCC)
+		c0    = sc_ptr + 0x10;
+		c4    = sc_ptr + 0x12;
+		c2    = sc_ptr + 0x14;
+		c6    = sc_ptr + 0x16;
+		c1    = sc_ptr + 0x18;
+		c5    = sc_ptr + 0x1a;
+		c3    = sc_ptr + 0x1c;
+		c7    = sc_ptr + 0x1e;
+		sqrt2 = sc_ptr + 0x20;	// Need 16 local vec_dbl-sized slots for tmp-data, 16 for sincos twiddles, 4 for [sqrt2,isrt2,1,0,2.0] quartet
+		isrt2 = sc_ptr + 0x21;
+		one   = sc_ptr + 0x22;
+		two   = sc_ptr + 0x23;
+		/* These remain fixed: */
+	  #if 1
+		// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
+		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
+		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+	  #else
+		VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
+	  #endif
+		VEC_DBL_INIT(one  , 1.0);
+		VEC_DBL_INIT(two  , 2.0);
+	#else
+		r0    = sc_ptr + 0x00;		c0    = sc_ptr + 0x10;
+	//	r1    = sc_ptr + 0x01;		s0    = sc_ptr + 0x11;
+	/*	r2    = sc_ptr + 0x02;	*/	c4    = sc_ptr + 0x12;
+	//	r3    = sc_ptr + 0x03;		s4    = sc_ptr + 0x13;
+	/*	r4    = sc_ptr + 0x04;	*/	c2    = sc_ptr + 0x14;
+	//	r5    = sc_ptr + 0x05;		s2    = sc_ptr + 0x15;
+	/*	r6    = sc_ptr + 0x06;	*/	c6    = sc_ptr + 0x16;
+	//	r7    = sc_ptr + 0x07;		s6    = sc_ptr + 0x17;
+		r8    = sc_ptr + 0x08;		c1    = sc_ptr + 0x18;
+	//	r9    = sc_ptr + 0x09;		s1    = sc_ptr + 0x19;
+	/*	ra    = sc_ptr + 0x0a;	*/	c5    = sc_ptr + 0x1a;
+	//	rb    = sc_ptr + 0x0b;		s5    = sc_ptr + 0x1b;
+	/*	rc    = sc_ptr + 0x0c;	*/	c3    = sc_ptr + 0x1c;
+	//	rd    = sc_ptr + 0x0d;		s3    = sc_ptr + 0x1d;
+	/*	re    = sc_ptr + 0x0e;	*/	c7    = sc_ptr + 0x1e;
+	//	rf    = sc_ptr + 0x0f;		s7    = sc_ptr + 0x1f;
+									isrt2 = sc_ptr + 0x21;
+		/* These remain fixed: */
+	  #if 1
+		// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
+		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
+		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+	  #else
+		VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
+	  #endif
+	#endif
 		return;
 	}	/* end of inits */
 
 	/* If multithreaded, set the local-store pointers needed for the current thread; */
-	#ifdef MULTITHREAD
-		ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
-		c0 = __r0 + thr_id*36 + 0x10;
-		c4    = c0 + 0x02;
-		c2    = c0 + 0x04;
-		c6    = c0 + 0x06;
-		c1    = c0 + 0x08;
-		c5    = c0 + 0x0a;
-		c3    = c0 + 0x0c;
-		c7    = c0 + 0x0e;
-		isrt2 = c0 + 0x10;
-	#endif
+  #ifdef MULTITHREAD
+	ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+	c0 = __r0 + thr_id*36 + 0x10;
+	c4    = c0 + 0x02;
+	c2    = c0 + 0x04;
+	c6    = c0 + 0x06;
+	c1    = c0 + 0x08;
+	c5    = c0 + 0x0a;
+	c3    = c0 + 0x0c;
+	c7    = c0 + 0x0e;
+	sqrt2 = c0 + 0x10;	// Need 16 local vec_dbl-sized slots for tmp-data, 16 for sincos twiddles, 4 for [sqrt2,isrt2,1,0,2.0] quartet
+	isrt2 = c0 + 0x11;
+	one   = c0 + 0x12;
+	two   = c0 + 0x13;
+  #endif
 
 #endif
 
@@ -877,7 +914,7 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 	int i,j,j1,j2,jlo,jhi,m,iroot_prim,iroot,k1,k2;
 	int p1,p2,p3,p4,p5,p6,p7;
-	double rt,it;
+	double dtmp,rt,it;
 	double re0,im0,re1,im1;
 
 #ifdef USE_SSE2
@@ -885,6 +922,10 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
   #if !(defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
 	#error SSE2 code not supported for this compiler!
   #endif
+
+	// Uint64 bitmaps for alternate "rounded the other way" copies of sqrt2,isrt2. Default round-to-nearest versions
+	// (SQRT2, ISRT2) end in ...3BCD. Since we round these down as ...3BCC90... --> ..3BCC, append _dn to varnames:
+	const uint64 sqrt2_dn = 0x3FF6A09E667F3BCCull, isrt2_dn = 0x3FE6A09E667F3BCCull;
 
 	/* This allows us to align sincos temporaries on 16-byte boundaries (e.g. for SSE2) via pointers:
 	In sse2 mode, alloc a complex[32] array (give it a few extra slots to allow ptr to initial element-to-be-used
@@ -901,12 +942,12 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;					// Base address for discrete per-thread local stores
-	vec_dbl *isrt2,*c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7;	// In || mode, only above base-pointer (shared by all threads) is static:
+	vec_dbl *sqrt2,*isrt2,*one,*two,*c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7;	// In || mode, only above base-pointer (shared by all threads) is static:
   #elif defined(COMPILER_TYPE_GCC)
-	static vec_dbl *isrt2,*c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7;
+	static vec_dbl *sqrt2,*isrt2,*one,*two,*c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7;
   #else
 	static vec_dbl *r0,*r8;
-	static vec_dbl *isrt2,*c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7;
+	static vec_dbl *sqrt2,*isrt2,*c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7;
   #endif
 
 #else
@@ -940,11 +981,24 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 	*/
 	#ifdef MULTITHREAD
 		__r0  = sc_ptr;
-		isrt2 = sc_ptr + 0x20;
+		sqrt2 = sc_ptr + 0x20;	// Need 16 local vec_dbl-sized slots for tmp-data, 16 for sincos twiddles, 4 for [sqrt2,isrt2,1,0,2.0] quartet
+		isrt2 = sc_ptr + 0x21;
+		one   = sc_ptr + 0x22;
+		two   = sc_ptr + 0x23;
 		for(i = 0; i < max_threads; ++i) {
 			/* These remain fixed within each per-thread local store: */
-			VEC_DBL_INIT(isrt2, ISRT2);
+		  #if 1
+			// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
+			dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
+			dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+		  #else
+			VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
+		  #endif
+			VEC_DBL_INIT(one  , 1.0);
+			VEC_DBL_INIT(two  , 2.0);
 			isrt2 += 36;	/* Move on to next thread's local store */
+			one   += 36;
+			two   += 36;
 		}
 	#elif defined(COMPILER_TYPE_GCC)
 		c0    = sc_ptr + 0x10;
@@ -955,9 +1009,20 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		c5    = sc_ptr + 0x1a;
 		c3    = sc_ptr + 0x1c;
 		c7    = sc_ptr + 0x1e;
-		isrt2 = sc_ptr + 0x20;
+		sqrt2 = sc_ptr + 0x20;	// Need 16 local vec_dbl-sized slots for tmp-data, 16 for sincos twiddles, 4 for [sqrt2,isrt2,1,0,2.0] quartet
+		isrt2 = sc_ptr + 0x21;
+		one   = sc_ptr + 0x22;
+		two   = sc_ptr + 0x23;
 		/* These remain fixed: */
-		VEC_DBL_INIT(isrt2, ISRT2);
+	  #if 1
+		// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
+		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
+		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+	  #else
+		VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
+	  #endif
+		VEC_DBL_INIT(one  , 1.0);
+		VEC_DBL_INIT(two  , 2.0);
 	#else
 		r0    = sc_ptr + 0x00;		c0    = sc_ptr + 0x10;
 	//	r1    = sc_ptr + 0x01;		s0    = sc_ptr + 0x11;
@@ -975,26 +1040,38 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 	//	rd    = sc_ptr + 0x0d;		s3    = sc_ptr + 0x1d;
 	/*	re    = sc_ptr + 0x0e;	*/	c7    = sc_ptr + 0x1e;
 	//	rf    = sc_ptr + 0x0f;		s7    = sc_ptr + 0x1f;
-									isrt2 = sc_ptr + 0x20;
+		sqrt2 = sc_ptr + 0x20;	// Need 16 local vec_dbl-sized slots for tmp-data, 16 for sincos twiddles, 4 for [sqrt2,isrt2,1,0,2.0] quartet
+		isrt2 = sc_ptr + 0x21;
+		one   = sc_ptr + 0x22;
+		two   = sc_ptr + 0x23;
 		/* These remain fixed: */
-		VEC_DBL_INIT(isrt2, ISRT2);
+	  #if 1
+		// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
+		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
+		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+	  #else
+		VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
+	  #endif
 	#endif
 		return;
 	}	/* end of inits */
 
 	/* If multithreaded, set the local-store pointers needed for the current thread; */
-	#ifdef MULTITHREAD
-		ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
-		c0 = __r0 + thr_id*36 + 0x10;
-		c4    = c0 + 0x02;
-		c2    = c0 + 0x04;
-		c6    = c0 + 0x06;
-		c1    = c0 + 0x08;
-		c5    = c0 + 0x0a;
-		c3    = c0 + 0x0c;
-		c7    = c0 + 0x0e;
-		isrt2 = c0 + 0x10;
-	#endif
+  #ifdef MULTITHREAD
+	ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+	c0 = __r0 + thr_id*36 + 0x10;
+	c4    = c0 + 0x02;
+	c2    = c0 + 0x04;
+	c6    = c0 + 0x06;
+	c1    = c0 + 0x08;
+	c5    = c0 + 0x0a;
+	c3    = c0 + 0x0c;
+	c7    = c0 + 0x0e;
+	sqrt2 = c0 + 0x10;	// Need 16 local vec_dbl-sized slots for tmp-data, 16 for sincos twiddles, 4 for [sqrt2,isrt2,1,0,2.0] quartet
+	isrt2 = c0 + 0x11;
+	one   = c0 + 0x12;
+	two   = c0 + 0x13;
+  #endif
 
 #endif
 

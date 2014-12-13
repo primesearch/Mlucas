@@ -2289,7 +2289,7 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 	// __01; this allows us to cut GP-register usage, which is absolutely a must for the 32-bit version
 	// of the macro, and is a benefit to the 64-bit versions which code-fold to yield 2 side-by-side
 	// streams of independently executable instructions, one for data in xmm0-7, the other using xmm8-15.
-	#define SSE2_RADIX16_DIT_0TWIDDLE(Xin0,Xin1,Xin2,Xin3,Xin4,Xin5,Xin6,Xin7,Xin8,Xin9,Xina,Xinb,Xinc,Xind,Xine,Xinf, Xisrt2, Xout0,Xo1,Xo2,Xo3,Xo4)\
+	#define SSE2_RADIX16_DIT_0TWIDDLE(Xin0,Xin1,Xin2,Xin3,Xin4,Xin5,Xin6,Xin7,Xin8,Xin9,Xina,Xinb,Xinc,Xind,Xine,Xinf, Xisrt2,Xtwo, Xout0,Xo1,Xo2,Xo3,Xo4)\
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
@@ -2723,6 +2723,7 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		,[__ine] "m" (Xine)\
 		,[__inf] "m" (Xinf)\
 		,[__isrt2] "m" (Xisrt2)\
+		,[__two] "m" (Xtwo)\
 		,[__out0] "m" (Xout0)\
 		,[__o1] "e" (Xo1)\
 		,[__o2] "e" (Xo2)\
@@ -2735,7 +2736,7 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 	// Based on the SSE2_RADIX16_DIF_NOTWIDDLE macro in radix16_ditN_cy_dif1_gcc64.h, but with completely
 	// specifiable 16-output addressing required for usage as the power-of-2 component of a twiddleless
 	// radix = [odd*2^n] DFT routine.
-	#define SSE2_RADIX16_DIF_0TWIDDLE(Xin0,Xi1,Xi2,Xi3,Xi4, Xisrt2, Xout0,Xout1,Xout2,Xout3,Xout4,Xout5,Xout6,Xout7,Xout8,Xout9,Xouta,Xoutb,Xoutc,Xoutd,Xoute,Xoutf)\
+	#define SSE2_RADIX16_DIF_0TWIDDLE(Xin0,Xi1,Xi2,Xi3,Xi4, Xisrt2,Xtwo, Xout0,Xout1,Xout2,Xout3,Xout4,Xout5,Xout6,Xout7,Xout8,Xout9,Xouta,Xoutb,Xoutc,Xoutd,Xoute,Xoutf)\
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
@@ -3146,6 +3147,7 @@ We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the v
 		,[__i3] "e" (Xi3)\
 		,[__i4] "e" (Xi4)\
 		,[__isrt2] "m" (Xisrt2)\
+		,[__two] "m" (Xtwo)\
 		,[__out0] "m" (Xout0)\
 		,[__out1] "m" (Xout1)\
 		,[__out2] "m" (Xout2)\

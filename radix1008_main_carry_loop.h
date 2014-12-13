@@ -60,7 +60,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			add0=addr+k0; add1=addr+k1; add2=addr+k2; add3=addr+k3; add4=addr+k4; add5=addr+k5; add6=addr+k6; add7=addr+k7; add8=addr+k8; add9=addr+k9; adda=addr+ka; addb=addr+kb; addc=addr+kc; addd=addr+kd; adde=addr+ke; addf=addr+kf;
 			SSE2_RADIX16_DIT_0TWIDDLE(
 				add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf,
-				isrt2,
+				isrt2,two,
 				tmp,OFF1,OFF2,OFF3,OFF4
 			);	tmp += 2;
 		}
@@ -168,10 +168,14 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	/* In AVX mode advance carry-ptrs just 1 for each vector-carry-macro call: */
 		tm1 = s1p00; tmp = cy_r; itmp = bjmodn;
-		AVX_cmplx_carry_norm_errcheck0_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		// Each AVX carry macro call also processes 4 prefetches of main-array data
+		tm2 = a + j1 + pfetch_dist;
+		AVX_cmplx_carry_norm_errcheck0_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tm2,p1,p2,p3);
 		tm1 += 8; tmp += 1; itmp += 4;
 		for(l = 1; l < RADIX>>2; l++) {
-			AVX_cmplx_carry_norm_errcheck1_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			// Each AVX carry macro call also processes 4 prefetches of main-array data
+			tm2 = a + j1 + pfetch_dist + poff[l];
+			AVX_cmplx_carry_norm_errcheck1_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tm2,p1,p2,p3);
 			tm1 += 8; tmp += 1; itmp += 4;
 		}
 
@@ -204,10 +208,15 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		add3 = &wt1[co3-1];
 
 		tm1 = s1p00; tmp = cy_r; tm2 = cy_r+0x01; itmp = bjmodn;
-		SSE2_cmplx_carry_norm_errcheck0_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+		add0 = a + j1 + pfetch_dist;
+		SSE2_cmplx_carry_norm_errcheck0_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p1);
 		tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		for(l = 1; l < RADIX>>2; l++) {
-			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p1);
 			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
@@ -238,7 +247,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		tm1 = s1p00; tmp = cy_r; tm2 = cy_r+0x01; itmp = bjmodn;
 		for(l = 0; l < RADIX>>2; l++) {
-			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p2,p3);
 			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
@@ -377,15 +389,16 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		// icycle[ic],icycle[ic+1],icycle[ic+2],icycle[ic+3], jcycle[ic],kcycle[ic],lcycle[ic] of the non-looped version with
 		// icycle[ic],icycle[jc],icycle[kc],icycle[lc], jcycle[ic],kcycle[ic],lcycle[ic] :
 		ic = 0; jc = 1; kc = 2; lc = 3;
-		while(tm0 < isrt2)	// Can't use l for loop index here since need it for byte offset in carry macro call
+		while(tm0 < isrt2,two)	// Can't use l for loop index here since need it for byte offset in carry macro call
 		{																/* vvvvvvvvvvvvvvv [1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
 			//See "Sep 2014" note in 32-bit SSE2 version of this code below
 			k1 = icycle[ic];	k5 = jcycle[ic];	k6 = kcycle[ic];	k7 = lcycle[ic];
-			k2 = icycle[ic];
+			k2 = icycle[jc];
 			k3 = icycle[kc];
 			k4 = icycle[lc];
+			tm2 = a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)];	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
 																		/* vvvvvvvvvvvvvvv [1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
-			SSE2_fermat_carry_norm_errcheck_X4_hiacc(tm0,tmp,l,tm1,0x1f80, 0x7e0,0xfc0,0x17a0, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7);
+			SSE2_fermat_carry_norm_errcheck_X4_hiacc(tm0,tmp,l,tm1,0x1f80, 0x7e0,0xfc0,0x17a0, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7, add0,p1,p2,p3);
 			tm0 += 8; tm1++; tmp += 8; l -= 0xc0;
 			MOD_ADD32(ic, 4, ODD_RADIX, ic);
 			MOD_ADD32(jc, 4, ODD_RADIX, jc);
@@ -401,11 +414,12 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		for(l = 0; l < RADIX>>2; l++) {	// RADIX/4 loop passes
 			//See "Sep 2014" note in 32-bit SSE2 version of this code below
 			k1 = icycle[ic];	k5 = jcycle[ic];	k6 = kcycle[ic];	k7 = lcycle[ic];
-			k2 = icycle[ic];
+			k2 = icycle[jc];
 			k3 = icycle[kc];
 			k4 = icycle[lc];
+			tm2 = a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)];	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
 																		/* vvvvvvvvvvvvvvv [1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
-			SSE2_fermat_carry_norm_errcheck_X4_loacc(tm0,tmp,tm1,0x1f80, 0x7e0,0xfc0,0x17a0, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7);
+			SSE2_fermat_carry_norm_errcheck_X4_loacc(tm0,tmp,tm1,0x1f80, 0x7e0,0xfc0,0x17a0, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7, add0,p1,p2,p3);
 			tm0 += 8; tm1++;
 			MOD_ADD32(ic, 4, ODD_RADIX, ic);
 			MOD_ADD32(jc, 4, ODD_RADIX, jc);
@@ -439,7 +453,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			k2 = jcycle[ic];
 			k3 = icycle[jc];
 			k4 = jcycle[jc];
-			SSE2_fermat_carry_norm_errcheck_X2(tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,k1,k2,k3,k4);
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			tm2 = a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)];	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
+			tm2 += (-((int)(tm1-cy_r)&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_fermat_carry_norm_errcheck_X2(tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,k1,k2,k3,k4, tm2,p1);
 			tm1 += 4; tmp += 2;
 			MOD_ADD32(ic, 2, ODD_RADIX, ic);
 			MOD_ADD32(jc, 2, ODD_RADIX, jc);
@@ -457,7 +474,11 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			// Pulling the array-refs out of the carry-macro call like so solves the problem:
 			k1 = icycle[ic];
 			k2 = jcycle[ic];
-			SSE2_fermat_carry_norm_errcheck(tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,k1,k2);
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			tm2 = a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)];	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
+			tm2 += (-(l&0x10)) & p2;
+			tm2 += (-(l&0x01)) & p1;	// Added offset cycles among p0,1,2,3
+			SSE2_fermat_carry_norm_errcheck(tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,k1,k2, tm2);
 			tm1 += 2; tmp++;
 			MOD_ADD32(ic, 1, ODD_RADIX, ic);
 		}
@@ -541,7 +562,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			add0=addr+k0; add1=addr+k1; add2=addr+k2; add3=addr+k3; add4=addr+k4; add5=addr+k5; add6=addr+k6; add7=addr+k7; add8=addr+k8; add9=addr+k9; adda=addr+ka; addb=addr+kb; addc=addr+kc; addd=addr+kd; adde=addr+ke; addf=addr+kf;
 			SSE2_RADIX16_DIF_0TWIDDLE(
 				tmp,OFF1,OFF2,OFF3,OFF4,
-				isrt2,
+				isrt2,two,
 				add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf
 			);
 			tmp += 0x2;

@@ -25,6 +25,14 @@
 #define RADIX 60	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
 #define ODD_RADIX 15	// ODD_RADIX = [radix >> trailz(radix)]
 
+#ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
+  #else
+	#define PFETCH_DIST	32
+  #endif
+#endif
+
 #ifdef MULTITHREAD
 	#ifndef USE_PTHREAD
 		#error Pthreads is only thread model currently supported!
@@ -149,6 +157,7 @@ int radix60_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	const char func[] = "radix240_ditN_cy_dif1";
+	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 #ifdef USE_SSE2
 	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
@@ -233,7 +242,7 @@ int radix60_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	static int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
 	const double crnd = 3.0*0x4000000*0x2000000;
-	static vec_dbl *max_err, *sse2_rnd, *half_arr, *sse2_c3m1, *sse2_s, *sse2_cn1, *sse2_cn2, *sse2_ss3, *sse2_sn1, *sse2_sn2,
+	static vec_dbl *max_err, *sse2_rnd, *half_arr, *two, *sse2_c3m1, *sse2_s, *sse2_cn1, *sse2_cn2, *sse2_ss3, *sse2_sn1, *sse2_sn2,
 		*s1p00,*s1p01,*s1p02,*s1p03,*s1p04,*s1p05,*s1p06,*s1p07,*s1p08,*s1p09,*s1p0a,*s1p0b,*s1p0c,*s1p0d,*s1p0e,
 		*s1p10,*s1p11,*s1p12,*s1p13,*s1p14,*s1p15,*s1p16,*s1p17,*s1p18,*s1p19,*s1p1a,*s1p1b,*s1p1c,*s1p1d,*s1p1e,
 		*s1p20,*s1p21,*s1p22,*s1p23,*s1p24,*s1p25,*s1p26,*s1p27,*s1p28,*s1p29,*s1p2a,*s1p2b,*s1p2c,*s1p2d,*s1p2e,
@@ -524,6 +533,7 @@ int radix60_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		sse2_ss3  = tmp + 0x04;
 		sse2_sn1  = tmp + 0x05;
 		sse2_sn2  = tmp + 0x06;
+		two       = tmp + 0x07;
 		tmp += 0x08;	// +8 = 308
 	#ifdef USE_AVX
 		cy_r = tmp;	cy_i = tmp+0xf;		tmp += 2*0xf;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays;  +30 = 338
@@ -548,6 +558,7 @@ int radix60_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		VEC_DBL_INIT(sse2_ss3 , ss3 );
 		VEC_DBL_INIT(sse2_sn1 , sn1 );
 		VEC_DBL_INIT(sse2_sn2 , sn2 );
+		VEC_DBL_INIT(two      , 2.0 );
 
 		/* SSE2 math = 53-mantissa-bit IEEE double-float: */
 		VEC_DBL_INIT(sse2_rnd, crnd);
@@ -2035,6 +2046,7 @@ void radix60_dit_pass1(double a[], int n)
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr,*addi;
 		struct complex *tptr;
+		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p01,p02,p03,p04,p08,p12,p16,p20,p24,p28,p32,p36,p40,p44,p48,p52,p56;
 		int poff[RADIX>>2];
@@ -2062,7 +2074,7 @@ void radix60_dit_pass1(double a[], int n)
 		vec_dbl *tmp,*tm0,*tm1,*tm2;	// utility ptrs
 		int *itmp;			// Pointer into the bjmodn array
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
-		vec_dbl *max_err, *sse2_rnd, *half_arr, *sse2_c3m1, *sse2_s, *sse2_cn1, *sse2_cn2, *sse2_ss3, *sse2_sn1, *sse2_sn2,
+		vec_dbl *max_err, *sse2_rnd, *half_arr, *two, *sse2_c3m1, *sse2_s, *sse2_cn1, *sse2_cn2, *sse2_ss3, *sse2_sn1, *sse2_sn2,
 			*s1p00,*s1p01,*s1p02,*s1p03,*s1p04,*s1p05,*s1p06,*s1p07,*s1p08,*s1p09,*s1p0a,*s1p0b,*s1p0c,*s1p0d,*s1p0e,
 			*s1p10,*s1p11,*s1p12,*s1p13,*s1p14,*s1p15,*s1p16,*s1p17,*s1p18,*s1p19,*s1p1a,*s1p1b,*s1p1c,*s1p1d,*s1p1e,
 			*s1p20,*s1p21,*s1p22,*s1p23,*s1p24,*s1p25,*s1p26,*s1p27,*s1p28,*s1p29,*s1p2a,*s1p2b,*s1p2c,*s1p2d,*s1p2e,
@@ -2253,6 +2265,7 @@ void radix60_dit_pass1(double a[], int n)
 		sse2_ss3  = tmp + 0x04;
 		sse2_sn1  = tmp + 0x05;
 		sse2_sn2  = tmp + 0x06;
+		two       = tmp + 0x07;
 		tmp += 0x08;
 	   	tm2 = tmp + 0x1e;	/* Use these as handy temps */
 
@@ -2478,4 +2491,4 @@ void radix60_dit_pass1(double a[], int n)
 
 #undef RADIX
 #undef ODD_RADIX
-
+#undef PFETCH_DIST

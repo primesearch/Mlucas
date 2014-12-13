@@ -27,6 +27,14 @@
 #define RADIX 4032	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
 #define ODD_RADIX 63	// ODD_RADIX = [radix >> trailz(radix)]
 
+#ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
+  #else
+	#define PFETCH_DIST	32
+  #endif
+#endif
+
 #ifdef MULTITHREAD
 	#ifndef USE_PTHREAD
 		#error Pthreads is only thread model currently supported!
@@ -138,6 +146,7 @@ int radix4032_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 */
 	const char func[] = "radix4032_ditN_cy_dif1";
 	static int thr_id = 0;	// Master thread gets this special id
+	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 #ifdef USE_SSE2
 	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
@@ -234,7 +243,7 @@ int radix4032_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;	// Base address for discrete per-thread local stores
   #else
-	double *add1,*add2,*add3;
+	double *add0,*add1,*add2,*add3;
   #endif
 
 	static int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
@@ -2454,6 +2463,7 @@ void radix4032_dit_pass1(double a[], int n)
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr,*addi;
 		struct complex *tptr;
+		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p1,p2,p3;
 		int poff[RADIX>>2];
@@ -2493,7 +2503,7 @@ void radix4032_dit_pass1(double a[], int n)
 		const int l2_sz_vd = 4;
 	  #endif
 		const double crnd = 3.0*0x4000000*0x2000000;
-		double *add1, *add2, *add3;
+		double *add0,*add1,*add2,*add3;
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
 		vec_dbl *tmp,*tm0,*tm1,*tm2;	// utility ptrs
 		int *itmp;			// Pointer into the bjmodn array
@@ -2802,4 +2812,4 @@ void radix4032_dit_pass1(double a[], int n)
 
 #undef RADIX
 #undef ODD_RADIX
-
+#undef PFETCH_DIST

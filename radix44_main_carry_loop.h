@@ -131,10 +131,14 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	/* In AVX mode advance carry-ptrs just 1 for each vector-carry-macro call: */
 		tm1 = s1p00; tmp = cy; itmp = bjmodn;
-		AVX_cmplx_carry_norm_errcheck0_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		// Each AVX carry macro call also processes 4 prefetches of main-array data
+		add0 = a + j1 + pfetch_dist;
+		AVX_cmplx_carry_norm_errcheck0_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
 		tm1 += 8; tmp += 1; itmp += 4;
 		for(l = 1; l < RADIX>>2; l++) {
-			AVX_cmplx_carry_norm_errcheck1_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			// Each AVX carry macro call also processes 4 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];
+			AVX_cmplx_carry_norm_errcheck1_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
 			tm1 += 8; tmp += 1; itmp += 4;
 		}
 
@@ -169,9 +173,14 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		add3 = &wt1[co3-1];
 
 		tm1 = s1p00; tmp = cy; tm2 = cy+0x01; itmp = bjmodn;
-		SSE2_cmplx_carry_norm_errcheck0_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+		// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+		add0 = a + j1 + pfetch_dist;
+		SSE2_cmplx_carry_norm_errcheck0_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		for(l = 1; l < RADIX>>2; l++) {
-			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p02;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
 		l= (j+2) & (nwt-1);			/* We want (S*J mod N) - SI(L) for all 16 carries, so precompute	*/
@@ -199,7 +208,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		tm1 = s1p00; tmp = cy; tm2 = cy+0x01; itmp = bjmodn;
 		for(l = 0; l < RADIX>>2; l++) {
-			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p02;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
 		i =((uint32)(sw - bjmodn[0]) >> 31);	/* get ready for the next set...	*/

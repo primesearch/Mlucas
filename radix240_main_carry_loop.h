@@ -32,7 +32,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	for(j = jstart; j < jhi; j += stride)	// Stride = 4 reals for SSE2, 8 for AVX
 	{
 		j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-		j2 = j1+RE_IM_STRIDE;
+		j2 = j1 + RE_IM_STRIDE;
 
 	/*...The radix-240 DIT pass is here:	*/
 
@@ -62,7 +62,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			kf = plo[(i64      )&0xf];
 			addr = &a[j1] + p_in_hi[l];	// p_in_hi[] = p0,p20,...,p30
 			add0=addr+k0; add1=addr+k1; add2=addr+k2; add3=addr+k3; add4=addr+k4; add5=addr+k5; add6=addr+k6; add7=addr+k7; add8=addr+k8; add9=addr+k9; adda=addr+ka; addb=addr+kb; addc=addr+kc; addd=addr+kd; adde=addr+ke; addf=addr+kf;
-			SSE2_RADIX16_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2, tmp,OFF1,OFF2,OFF3,OFF4)
+			SSE2_RADIX16_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2,two, tmp,OFF1,OFF2,OFF3,OFF4)
 			tmp += 2;
 		}
 
@@ -120,8 +120,8 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			vcc = tm2+kc;
 			vcd = tm2+kd;
 			vce = tm2+ke;
-			
-			// Input ptrs:		
+
+			// Input ptrs:
 			va0 = tmp     ;
 			va1 = tmp+0x02;
 			va2 = tmp+0x04;
@@ -196,7 +196,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			vcc = tm2+kc;
 			vcd = tm2+kd;
 			vce = tm2+ke;
-			
+
 			// Now emulate the elided odd-index loop pass (replace l with l+1 in the above sequence) to get next set of ks:
 			jt = (15 - l) << 1;	// Subtract can't yield < 0 here, so no need for mask of result
 			k0 = l; /* odd-order terms of 0,0,1,2...e, i.e. 0,2,4,... */
@@ -232,7 +232,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			vdd = tm2+kd;
 			vde = tm2+ke;
 
-			// 2 sets of Input ptrs:		
+			// 2 sets of Input ptrs:
 							tm1 = tmp + 0x1e;
 			va0 = tmp     ;	vb0 = tm1     ;
 			va1 = tmp+0x02;	vb1 = tm1+0x02;
@@ -250,7 +250,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			vad = tmp+0x1a;	vbd = tm1+0x1a;
 			vae = tmp+0x1c;	vbe = tm1+0x1c;
 
-			SSE2_RADIX_15_DIT_X2(sse2_c3m1,sse2_cn1,
+			SSE2_RADIX_15_DIT_X2(sse2_c3m1,sse2_cn1,two,
 /* r00 +... */	va0,va1,va2,va3,va4,va5,va6,va7,va8,va9,vaa,vab,vac,vad,vae,
 				x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,
 /* s1p00 +... */	vc0,vc1,vc2,vc3,vc4,vc5,vc6,vc7,vc8,vc9,vca,vcb,vcc,vcd,vce,
@@ -263,56 +263,56 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	   #else
 
-		SSE2_RADIX_15_DIT_X2(sse2_c3m1,sse2_cn1,
+		SSE2_RADIX_15_DIT_X2(sse2_c3m1,sse2_cn1,two,
 			r00,r01,r02,r03,r04,r05,r06,r07,r08,r09,r0a,r0b,r0c,r0d,r0e,
 			x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,
 			s1p00,s1pe0,s1pd0,s1pc0,s1pb0,s1pa0,s1p90,s1p80,s1p70,s1p60,s1p50,s1p40,s1p30,s1p20,s1p10,
 			r0f,r10,r11,r12,r13,r14,r15,r16,r17,r18,r19,r1a,r1b,r1c,r1d,
 			y00,y01,y02,y03,y04,y05,y06,y07,y08,y09,y0a,y0b,y0c,y0d,y0e,
 			s1p0f,s1pef,s1pdf,s1pcf,s1pbf,s1paf,s1p9f,s1p8f,s1p7f,s1p6f,s1p5f,s1p4f,s1p3f,s1p2f,s1p1f);
-		SSE2_RADIX_15_DIT_X2(sse2_c3m1,sse2_cn1,
+		SSE2_RADIX_15_DIT_X2(sse2_c3m1,sse2_cn1,two,
 			r1e,r1f,r20,r21,r22,r23,r24,r25,r26,r27,r28,r29,r2a,r2b,r2c,
 			x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,
 			s1p1e,s1p0e,s1pee,s1pde,s1pce,s1pbe,s1pae,s1p9e,s1p8e,s1p7e,s1p6e,s1p5e,s1p4e,s1p3e,s1p2e,
 			r2d,r2e,r2f,r30,r31,r32,r33,r34,r35,r36,r37,r38,r39,r3a,r3b,
 			y00,y01,y02,y03,y04,y05,y06,y07,y08,y09,y0a,y0b,y0c,y0d,y0e,
 			s1p2d,s1p1d,s1p0d,s1ped,s1pdd,s1pcd,s1pbd,s1pad,s1p9d,s1p8d,s1p7d,s1p6d,s1p5d,s1p4d,s1p3d);
-		SSE2_RADIX_15_DIT_X2(sse2_c3m1,sse2_cn1,
+		SSE2_RADIX_15_DIT_X2(sse2_c3m1,sse2_cn1,two,
 			r3c,r3d,r3e,r3f,r40,r41,r42,r43,r44,r45,r46,r47,r48,r49,r4a,
 			x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,
 			s1p3c,s1p2c,s1p1c,s1p0c,s1pec,s1pdc,s1pcc,s1pbc,s1pac,s1p9c,s1p8c,s1p7c,s1p6c,s1p5c,s1p4c,
 			r4b,r4c,r4d,r4e,r4f,r50,r51,r52,r53,r54,r55,r56,r57,r58,r59,
 			y00,y01,y02,y03,y04,y05,y06,y07,y08,y09,y0a,y0b,y0c,y0d,y0e,
 			s1p4b,s1p3b,s1p2b,s1p1b,s1p0b,s1peb,s1pdb,s1pcb,s1pbb,s1pab,s1p9b,s1p8b,s1p7b,s1p6b,s1p5b);
-		SSE2_RADIX_15_DIT_X2(sse2_c3m1,sse2_cn1,
+		SSE2_RADIX_15_DIT_X2(sse2_c3m1,sse2_cn1,two,
 			r5a,r5b,r5c,r5d,r5e,r5f,r60,r61,r62,r63,r64,r65,r66,r67,r68,
 			x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,
 			s1p5a,s1p4a,s1p3a,s1p2a,s1p1a,s1p0a,s1pea,s1pda,s1pca,s1pba,s1paa,s1p9a,s1p8a,s1p7a,s1p6a,
 			r69,r6a,r6b,r6c,r6d,r6e,r6f,r70,r71,r72,r73,r74,r75,r76,r77,
 			y00,y01,y02,y03,y04,y05,y06,y07,y08,y09,y0a,y0b,y0c,y0d,y0e,
 			s1p69,s1p59,s1p49,s1p39,s1p29,s1p19,s1p09,s1pe9,s1pd9,s1pc9,s1pb9,s1pa9,s1p99,s1p89,s1p79);
-		SSE2_RADIX_15_DIT_X2(sse2_c3m1,sse2_cn1,
+		SSE2_RADIX_15_DIT_X2(sse2_c3m1,sse2_cn1,two,
 			r78,r79,r7a,r7b,r7c,r7d,r7e,r7f,r80,r81,r82,r83,r84,r85,r86,
 			x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,
 			s1p78,s1p68,s1p58,s1p48,s1p38,s1p28,s1p18,s1p08,s1pe8,s1pd8,s1pc8,s1pb8,s1pa8,s1p98,s1p88,
 			r87,r88,r89,r8a,r8b,r8c,r8d,r8e,r8f,r90,r91,r92,r93,r94,r95,
 			y00,y01,y02,y03,y04,y05,y06,y07,y08,y09,y0a,y0b,y0c,y0d,y0e,
 			s1p87,s1p77,s1p67,s1p57,s1p47,s1p37,s1p27,s1p17,s1p07,s1pe7,s1pd7,s1pc7,s1pb7,s1pa7,s1p97);
-		SSE2_RADIX_15_DIT_X2(sse2_c3m1,sse2_cn1,
+		SSE2_RADIX_15_DIT_X2(sse2_c3m1,sse2_cn1,two,
 			r96,r97,r98,r99,r9a,r9b,r9c,r9d,r9e,r9f,ra0,ra1,ra2,ra3,ra4,
 			x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,
 			s1p96,s1p86,s1p76,s1p66,s1p56,s1p46,s1p36,s1p26,s1p16,s1p06,s1pe6,s1pd6,s1pc6,s1pb6,s1pa6,
 			ra5,ra6,ra7,ra8,ra9,raa,rab,rac,rad,rae,raf,rb0,rb1,rb2,rb3,
 			y00,y01,y02,y03,y04,y05,y06,y07,y08,y09,y0a,y0b,y0c,y0d,y0e,
 			s1pa5,s1p95,s1p85,s1p75,s1p65,s1p55,s1p45,s1p35,s1p25,s1p15,s1p05,s1pe5,s1pd5,s1pc5,s1pb5);
-		SSE2_RADIX_15_DIT_X2(sse2_c3m1,sse2_cn1,
+		SSE2_RADIX_15_DIT_X2(sse2_c3m1,sse2_cn1,two,
 			rb4,rb5,rb6,rb7,rb8,rb9,rba,rbb,rbc,rbd,rbe,rbf,rc0,rc1,rc2,
 			x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,
 			s1pb4,s1pa4,s1p94,s1p84,s1p74,s1p64,s1p54,s1p44,s1p34,s1p24,s1p14,s1p04,s1pe4,s1pd4,s1pc4,
 			rc3,rc4,rc5,rc6,rc7,rc8,rc9,rca,rcb,rcc,rcd,rce,rcf,rd0,rd1,
 			y00,y01,y02,y03,y04,y05,y06,y07,y08,y09,y0a,y0b,y0c,y0d,y0e,
 			s1pc3,s1pb3,s1pa3,s1p93,s1p83,s1p73,s1p63,s1p53,s1p43,s1p33,s1p23,s1p13,s1p03,s1pe3,s1pd3);
-		SSE2_RADIX_15_DIT_X2(sse2_c3m1,sse2_cn1,
+		SSE2_RADIX_15_DIT_X2(sse2_c3m1,sse2_cn1,two,
 			rd2,rd3,rd4,rd5,rd6,rd7,rd8,rd9,rda,rdb,rdc,rdd,rde,rdf,re0,
 			x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,
 			s1pd2,s1pc2,s1pb2,s1pa2,s1p92,s1p82,s1p72,s1p62,s1p52,s1p42,s1p32,s1p22,s1p12,s1p02,s1pe2,
@@ -420,10 +420,14 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	/* In AVX mode advance carry-ptrs just 1 for each vector-carry-macro call: */
 		tm1 = s1p00; tmp = cy_r; itmp = bjmodn;
-		AVX_cmplx_carry_norm_errcheck0_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		// Each AVX carry macro call also processes 4 prefetches of main-array data
+		tm2 = a + j1 + pfetch_dist;
+		AVX_cmplx_carry_norm_errcheck0_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tm2,p1,p2,p3);
 		tm1 += 8; tmp += 1; itmp += 4;
 		for(l = 1; l < RADIX>>2; l++) {
-			AVX_cmplx_carry_norm_errcheck1_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			// Each AVX carry macro call also processes 4 prefetches of main-array data
+			tm2 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			AVX_cmplx_carry_norm_errcheck1_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tm2,p1,p2,p3);
 			tm1 += 8; tmp += 1; itmp += 4;
 		}
 
@@ -451,14 +455,21 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		ctmp->re = wtlp1;	ctmp->im = wtlp1;++ctmp;
 		ctmp->re = wtnm1;	ctmp->im = wtnm1;
 
-		add1 = &wt1[col  ];	/* Don't use add0 here, to avoid need to reload main-array address */
+		add1 = &wt1[col  ];
 		add2 = &wt1[co2-1];
 		add3 = &wt1[co3-1];
 
 		tm1 = s1p00; tmp = cy_r; tm2 = cy_r+0x01; itmp = bjmodn;
-		SSE2_cmplx_carry_norm_errcheck0_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+		// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+		add0 = a + j1 + pfetch_dist;
+		SSE2_cmplx_carry_norm_errcheck0_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p1);
+		tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		for(l = 1; l < RADIX>>2; l++) {
-			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p1);
+			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
 		l= (j+2) & (nwt-1);			/* We want (S*J mod N) - SI(L) for all 16 carries, so precompute	*/
@@ -488,7 +499,11 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		tm1 = s1p00; tmp = cy_r; tm2 = cy_r+0x01; itmp = bjmodn;
 		for(l = 0; l < RADIX>>2; l++) {
-			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p2,p3);
+			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
 		i =((uint32)(sw - bjmodn[0]) >> 31);	/* get ready for the next set...	*/
@@ -506,7 +521,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		wtlp1   =wt0[    l+1];
 		wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
-		/*...set0 is slightly different from others; divide work into blocks of RADIX/4 macro calls, 1st set of which gets pulled out of loop: */		
+		/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */
 		l = 0; addr = cy_r; itmp = bjmodn;
 	   cmplx_carry_norm_errcheck0(a[j1   ],a[j2   ],*addr,*itmp  ); ++l; ++addr; ++itmp;
 		cmplx_carry_norm_errcheck(a[j1+p1],a[j2+p1],*addr,*itmp,l); ++l; ++addr; ++itmp;
@@ -527,10 +542,13 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	#endif	// USE_AVX?
 
-	}
-	else	/* MODULUS_TYPE_FERMAT */
-	{
+	}		/************************************************************************/
+	else	/*                MODULUS_TYPE_FERMAT:                                 */
+	{		/************************************************************************/
 
+		// AVX-custom 4-way carry macro - each macro call contains 4 of the RADIX stride-n/RADIX-separated carries
+		// (processed independently in parallel), and steps through sequential-data indices j,j+2,j+4,j+6.
+		// For non-power-of-2 FFT lengths we have 2 versions of the AVX carry sequence, tradong off speed (3-5%) vs accuracy:
 	#ifdef USE_AVX
 		int k3,k4,k5,k6,k7;
 		// For a description of the data movement in AVX mode, see radix28_ditN_cy_dif1.
@@ -578,43 +596,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			VEC_DBL_INIT(tmp+ i,wt_re);	VEC_DBL_INIT(tm2+ i,wt_im);
 		}
 
-	  #else	// HIACC = false:
-
-		// Get the needed quartet of Nth roots of -1: This is the same code as in the scalar
-		// fermat_carry_norm_errcheck() macro, with the single index j replaced by the quartet j,j+2,j+4,j+6:
-		l = (j >> 1);	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
-		dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
-		rt  =rn1[k2].re;			it   =rn1[k2].im;
-		wt_re =dtmp*rt-wt_im*it;	wt_im =dtmp*it+wt_im*rt;
-		VEC_DBL_INIT(tmp,wt_re);	++tmp;	VEC_DBL_INIT(tmp,wt_im);	++tmp;
-
-		l += 1;	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
-		dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
-		rt  =rn1[k2].re;			it   =rn1[k2].im;
-		wt_re =dtmp*rt-wt_im*it;	wt_im =dtmp*it+wt_im*rt;
-		VEC_DBL_INIT(tmp,wt_re);	++tmp;	VEC_DBL_INIT(tmp,wt_im);	++tmp;
-
-		l += 1;	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
-		dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
-		rt  =rn1[k2].re;			it   =rn1[k2].im;
-		wt_re =dtmp*rt-wt_im*it;	wt_im =dtmp*it+wt_im*rt;
-		VEC_DBL_INIT(tmp,wt_re);	++tmp;	VEC_DBL_INIT(tmp,wt_im);	++tmp;
-
-		l += 1;	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
-		dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
-		rt  =rn1[k2].re;			it   =rn1[k2].im;
-		wt_re =dtmp*rt-wt_im*it;	wt_im =dtmp*it+wt_im*rt;
-		VEC_DBL_INIT(tmp,wt_re);	++tmp;	VEC_DBL_INIT(tmp,wt_im);	++tmp;
-
-		// The above need some inits to prepare for the AVX version of the Fermat-mod carry macro:
-		SSE2_fermat_carry_init_loacc(base_negacyclic_root);
-
-	  #endif
-
-		// AVX-custom 4-way carry macro - each contains 4 of the RADIX stride-n/RADIX-separated carries
-		// (processed independently in parallel), and steps through sequential-data indices j,j+2,j+4,j+6:
-	  #if HIACC
-
 		/* The starting value of the literal pointer offsets following 'tmp' in these macro calls = RADIX*2*sizeof(vec_dbl)
 		which is the byte offset between the 'active' negacyclic weights [pointed to by base_negacyclic_root] and the
 		precomputed multipliers in the HIACC-wrapped section of the SIMD data initializations. Each 0x100-byte quartet of base roots
@@ -630,11 +611,13 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		{
 			//See "Sep 2014" note in 32-bit SSE2 version of this code below
 			k1 = icycle[ic];	k5 = jcycle[ic];	k6 = kcycle[ic];	k7 = lcycle[ic];
-			k2 = icycle[ic];
+			k2 = icycle[jc];
 			k3 = icycle[kc];
 			k4 = icycle[lc];
+			// Each AVX carry macro call also processes 4 prefetches of main-array data
+			tm2 = a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)];	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
 																		/* vvvvvvvvvvvvvvv [1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
-			SSE2_fermat_carry_norm_errcheck_X4_hiacc(tm0,tmp,l,tm1,0x780, 0x1e0,0x3c0,0x5a0, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7);
+			SSE2_fermat_carry_norm_errcheck_X4_hiacc(tm0,tmp,l,tm1,0x780, 0x1e0,0x3c0,0x5a0, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7, tm2,p1,p2,p3);
 			tm0 += 8; tm1++; tmp += 8; l -= 0xc0;
 			MOD_ADD32(ic, 4, ODD_RADIX, ic);
 			MOD_ADD32(jc, 4, ODD_RADIX, jc);
@@ -642,25 +625,82 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			MOD_ADD32(lc, 4, ODD_RADIX, lc);
 		}
 
-	  #else	/* HIACC = false: */
+	  #else	// HIACC = false:
 
-		tm0 = s1p00; tmp = base_negacyclic_root;	// tmp *not* incremented between macro calls in loacc version
-		tm1 = cy_r; // tm2 = cy_i;	*** replace with literal-byte-offset in macro call to save a reg
+		// Oct 2014: Try getting most of the LOACC speedup with better accuracy by breaking the complex-roots-of-(-1)
+		// chaining into 2 or more equal-sized subchains, each starting with 'fresh' (unchained) complex roots:
+		#if (LOACC == 0)// !defined(LOACC) ||
+		#warning LOACC = 0
+			#define NFOLD (const int)0
+		#elif (LOACC == 1)
+		#warning LOACC = 1
+			#define NFOLD (const int)1
+		#elif (LOACC == 2)
+		#warning LOACC = 2
+			#define NFOLD (const int)2
+		#elif (LOACC == 3)
+		#warning LOACC = 3
+			#define NFOLD (const int)3
+		#else
+			#error If LOACC defined for build of radix240_ditN_cy_dif1.c, must be given value 0,1,2 or 3!
+		#endif
+
+		tm0 = s1p00; tm1 = cy_r; // tm2 = cy_i;	*** replace with literal-byte-offset in macro call to save a reg
 		ic = 0; jc = 1; kc = 2; lc = 3;
-		for(l = 0; l < RADIX>>2; l++) {	// RADIX/4 loop passes
-			//See "Sep 2014" note in 32-bit SSE2 version of this code below
-			k1 = icycle[ic];	k5 = jcycle[ic];	k6 = kcycle[ic];	k7 = lcycle[ic];
-			k2 = icycle[ic];
-			k3 = icycle[kc];
-			k4 = icycle[lc];
-																		/* vvvvvvvvvvvvvvv [1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
-			SSE2_fermat_carry_norm_errcheck_X4_loacc(tm0,tmp,tm1,0x780, 0x1e0,0x3c0,0x5a0, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7);
-			tm0 += 8; tm1++;
-			MOD_ADD32(ic, 4, ODD_RADIX, ic);
-			MOD_ADD32(jc, 4, ODD_RADIX, jc);
-			MOD_ADD32(kc, 4, ODD_RADIX, kc);
-			MOD_ADD32(lc, 4, ODD_RADIX, lc);
-		}
+
+		for(ntmp = 0; ntmp < (1 << NFOLD); ++ntmp)
+		{
+			// E.g.: NFOLD = 1 (==> 2^NFOLD = 2-subchains) means L takes its value
+			// from (j) at start of 1st inner-loop exec, and from (j + n/2) at start of 2nd:
+			l = ((j + ntmp*(n>>NFOLD)) >> 1);
+
+		// Get the needed quartet of Nth roots of -1: This is the same code as in the scalar
+		// fermat_carry_norm_errcheck() macro, with the single index j replaced by the quartet j,j+2,j+4,j+6:
+			/* l = (j >> 1);*/	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+			dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
+			rt  =rn1[k2].re;			it   =rn1[k2].im;
+			wt_re =dtmp*rt-wt_im*it;	wt_im =dtmp*it+wt_im*rt;
+			VEC_DBL_INIT(tmp,wt_re);	++tmp;	VEC_DBL_INIT(tmp,wt_im);	++tmp;
+
+			l += 1;	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+			dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
+			rt  =rn1[k2].re;			it   =rn1[k2].im;
+			wt_re =dtmp*rt-wt_im*it;	wt_im =dtmp*it+wt_im*rt;
+			VEC_DBL_INIT(tmp,wt_re);	++tmp;	VEC_DBL_INIT(tmp,wt_im);	++tmp;
+
+			l += 1;	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+			dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
+			rt  =rn1[k2].re;			it   =rn1[k2].im;
+			wt_re =dtmp*rt-wt_im*it;	wt_im =dtmp*it+wt_im*rt;
+			VEC_DBL_INIT(tmp,wt_re);	++tmp;	VEC_DBL_INIT(tmp,wt_im);	++tmp;
+
+			l += 1;	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+			dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
+			rt  =rn1[k2].re;			it   =rn1[k2].im;
+			wt_re =dtmp*rt-wt_im*it;	wt_im =dtmp*it+wt_im*rt;
+			VEC_DBL_INIT(tmp,wt_re);	++tmp;	VEC_DBL_INIT(tmp,wt_im);	++tmp;
+
+			// The above need some inits to prepare for the AVX version of the Fermat-mod carry macro:
+			SSE2_fermat_carry_init_loacc(base_negacyclic_root);
+
+			// The other ptrs need to carry over from pvs loop, but this one needs resetting due to above 'multipliers refresh'
+			tmp = base_negacyclic_root;	// tmp *not* incremented between macro calls in loacc version
+			for(l = 0; l < RADIX>>(2+NFOLD); l++) {	// RADIX/4 total loop passes, after outer loop completes
+				k1 = icycle[ic];	k5 = jcycle[ic];	k6 = kcycle[ic];	k7 = lcycle[ic];
+				k2 = icycle[jc];
+				k3 = icycle[kc];
+				k4 = icycle[lc];
+				// Each AVX carry macro call also processes 4 prefetches of main-array data
+				tm2 = a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)];	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
+																			/* vvvvvvvvvvvvvvv [1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
+				SSE2_fermat_carry_norm_errcheck_X4_loacc(tm0,tmp,tm1,0x780, 0x1e0,0x3c0,0x5a0, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7, tm2,p1,p2,p3);
+				tm0 += 8; tm1++;
+				MOD_ADD32(ic, 4, ODD_RADIX, ic);
+				MOD_ADD32(jc, 4, ODD_RADIX, jc);
+				MOD_ADD32(kc, 4, ODD_RADIX, kc);
+				MOD_ADD32(lc, 4, ODD_RADIX, lc);
+			}
+		}	// Outer (ntmp-indexed) loop
 
 	  #endif	/* HIACC? */
 
@@ -675,7 +715,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		idx_offset = j;
 		idx_incr = NDIVR;
 
-	  #if (OS_BITS == 64)	// Run out of registers here in serial-build mode, so use (threaded or not?) to toggle carry-macro version selection here:
+	  #if (OS_BITS == 64)
 
 		// [ijkl]c = indices into icycle mini-arrays, gets incremented (mod ODD_RADIX) between macro calls; replace the
 		// icycle[ic],jcycle[ic],icycle[ic+1],jcycle[ic+1] of the non-looped version with icycle[ic],jcycle[ic],icycle[jc],jcycle[jc]:
@@ -688,7 +728,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			k2 = jcycle[ic];
 			int k3 = icycle[jc];
 			int k4 = jcycle[jc];
-			SSE2_fermat_carry_norm_errcheck_X2(tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,k1,k2,k3,k4);
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			tm2 = a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)];	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
+			tm2 += (-((int)(tm1-cy_r)&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_fermat_carry_norm_errcheck_X2(tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,k1,k2,k3,k4, tm2,p1);
 			tm1 += 4; tmp += 2;
 			MOD_ADD32(ic, 2, ODD_RADIX, ic);
 			MOD_ADD32(jc, 2, ODD_RADIX, jc);
@@ -707,7 +750,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			// Pulling the array-refs out of the carry-macro call like so solves the problem:
 			k1 = icycle[ic];
 			k2 = jcycle[ic];
-			SSE2_fermat_carry_norm_errcheck(tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,k1,k2);
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			tm2 = a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)];	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
+			tm2 += plo[(int)(tm1-cy_r)&0x3];	// Added offset cycles among p0,1,2,3
+			SSE2_fermat_carry_norm_errcheck(tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,k1,k2, tm2);
 			tm1 += 2; tmp++;
 			MOD_ADD32(ic, 1, ODD_RADIX, ic);
 		}
@@ -725,108 +771,24 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			fermat_carry_norm_errcheckB(a[jt+p2],a[jp+p2],*addr,*addi,icycle[ic],ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR; ++addr; ++addi; MOD_ADD32(ic, 1, ODD_RADIX, ic);
 			fermat_carry_norm_errcheckB(a[jt+p3],a[jp+p3],*addr,*addi,icycle[ic],ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR; ++addr; ++addi; MOD_ADD32(ic, 1, ODD_RADIX, ic);
 		}
-
-		icycle[ 0] += wts_idx_incr;	/* Inside the loop use this, as it is faster than general-mod '% nwt' */
-		icycle[ 1] += wts_idx_incr;
-		icycle[ 2] += wts_idx_incr;
-		icycle[ 3] += wts_idx_incr;
-		icycle[ 4] += wts_idx_incr;
-		icycle[ 5] += wts_idx_incr;
-		icycle[ 6] += wts_idx_incr;
-		icycle[ 7] += wts_idx_incr;
-		icycle[ 8] += wts_idx_incr;
-		icycle[ 9] += wts_idx_incr;
-		icycle[10] += wts_idx_incr;
-		icycle[11] += wts_idx_incr;
-		icycle[12] += wts_idx_incr;
-		icycle[13] += wts_idx_incr;
-		icycle[14] += wts_idx_incr;
-		icycle[ 0] += ( (-(int)((uint32)icycle[ 0] >> 31)) & nwt);
-		icycle[ 1] += ( (-(int)((uint32)icycle[ 1] >> 31)) & nwt);
-		icycle[ 2] += ( (-(int)((uint32)icycle[ 2] >> 31)) & nwt);
-		icycle[ 3] += ( (-(int)((uint32)icycle[ 3] >> 31)) & nwt);
-		icycle[ 4] += ( (-(int)((uint32)icycle[ 4] >> 31)) & nwt);
-		icycle[ 5] += ( (-(int)((uint32)icycle[ 5] >> 31)) & nwt);
-		icycle[ 6] += ( (-(int)((uint32)icycle[ 6] >> 31)) & nwt);
-		icycle[ 7] += ( (-(int)((uint32)icycle[ 7] >> 31)) & nwt);
-		icycle[ 8] += ( (-(int)((uint32)icycle[ 8] >> 31)) & nwt);
-		icycle[ 9] += ( (-(int)((uint32)icycle[ 9] >> 31)) & nwt);
-		icycle[10] += ( (-(int)((uint32)icycle[10] >> 31)) & nwt);
-		icycle[11] += ( (-(int)((uint32)icycle[11] >> 31)) & nwt);
-		icycle[12] += ( (-(int)((uint32)icycle[12] >> 31)) & nwt);
-		icycle[13] += ( (-(int)((uint32)icycle[13] >> 31)) & nwt);
-		icycle[14] += ( (-(int)((uint32)icycle[14] >> 31)) & nwt);
+		for(ntmp = 0; ntmp < ODD_RADIX; ntmp++) {
+			icycle[ntmp] += wts_idx_incr;	// Inside the loop use this, as it is faster than general-mod '% nwt'
+			icycle[ntmp] += ( (-(int)((uint32)icycle[ntmp] >> 31)) & nwt);
+		}
 
 	#endif	/* #ifdef USE_SSE2 */
 
 	// Here we nest AVX inside SSE2 since i/jcycle updates are for both, k/l for AVX-only:
 	#ifdef USE_SSE2
-
-		icycle[ 0] += wts_idx_inc2;		icycle[ 0] += ( (-(icycle[ 0] < 0)) & nwt16);
-		icycle[ 1] += wts_idx_inc2;		icycle[ 1] += ( (-(icycle[ 1] < 0)) & nwt16);
-		icycle[ 2] += wts_idx_inc2;		icycle[ 2] += ( (-(icycle[ 2] < 0)) & nwt16);
-		icycle[ 3] += wts_idx_inc2;		icycle[ 3] += ( (-(icycle[ 3] < 0)) & nwt16);
-		icycle[ 4] += wts_idx_inc2;		icycle[ 4] += ( (-(icycle[ 4] < 0)) & nwt16);
-		icycle[ 5] += wts_idx_inc2;		icycle[ 5] += ( (-(icycle[ 5] < 0)) & nwt16);
-		icycle[ 6] += wts_idx_inc2;		icycle[ 6] += ( (-(icycle[ 6] < 0)) & nwt16);
-		icycle[ 7] += wts_idx_inc2;		icycle[ 7] += ( (-(icycle[ 7] < 0)) & nwt16);
-		icycle[ 8] += wts_idx_inc2;		icycle[ 8] += ( (-(icycle[ 8] < 0)) & nwt16);
-		icycle[ 9] += wts_idx_inc2;		icycle[ 9] += ( (-(icycle[ 9] < 0)) & nwt16);
-		icycle[10] += wts_idx_inc2;		icycle[10] += ( (-(icycle[10] < 0)) & nwt16);
-		icycle[11] += wts_idx_inc2;		icycle[11] += ( (-(icycle[11] < 0)) & nwt16);
-		icycle[12] += wts_idx_inc2;		icycle[12] += ( (-(icycle[12] < 0)) & nwt16);
-		icycle[13] += wts_idx_inc2;		icycle[13] += ( (-(icycle[13] < 0)) & nwt16);
-		icycle[14] += wts_idx_inc2;		icycle[14] += ( (-(icycle[14] < 0)) & nwt16);
-
-		jcycle[ 0] += wts_idx_inc2;		jcycle[ 0] += ( (-(jcycle[ 0] < 0)) & nwt16);
-		jcycle[ 1] += wts_idx_inc2;		jcycle[ 1] += ( (-(jcycle[ 1] < 0)) & nwt16);
-		jcycle[ 2] += wts_idx_inc2;		jcycle[ 2] += ( (-(jcycle[ 2] < 0)) & nwt16);
-		jcycle[ 3] += wts_idx_inc2;		jcycle[ 3] += ( (-(jcycle[ 3] < 0)) & nwt16);
-		jcycle[ 4] += wts_idx_inc2;		jcycle[ 4] += ( (-(jcycle[ 4] < 0)) & nwt16);
-		jcycle[ 5] += wts_idx_inc2;		jcycle[ 5] += ( (-(jcycle[ 5] < 0)) & nwt16);
-		jcycle[ 6] += wts_idx_inc2;		jcycle[ 6] += ( (-(jcycle[ 6] < 0)) & nwt16);
-		jcycle[ 7] += wts_idx_inc2;		jcycle[ 7] += ( (-(jcycle[ 7] < 0)) & nwt16);
-		jcycle[ 8] += wts_idx_inc2;		jcycle[ 8] += ( (-(jcycle[ 8] < 0)) & nwt16);
-		jcycle[ 9] += wts_idx_inc2;		jcycle[ 9] += ( (-(jcycle[ 9] < 0)) & nwt16);
-		jcycle[10] += wts_idx_inc2;		jcycle[10] += ( (-(jcycle[10] < 0)) & nwt16);
-		jcycle[11] += wts_idx_inc2;		jcycle[11] += ( (-(jcycle[11] < 0)) & nwt16);
-		jcycle[12] += wts_idx_inc2;		jcycle[12] += ( (-(jcycle[12] < 0)) & nwt16);
-		jcycle[13] += wts_idx_inc2;		jcycle[13] += ( (-(jcycle[13] < 0)) & nwt16);
-		jcycle[14] += wts_idx_inc2;		jcycle[14] += ( (-(jcycle[14] < 0)) & nwt16);
-
-	  #ifdef USE_AVX
-		kcycle[ 0] += wts_idx_inc2;		kcycle[ 0] += ( (-(kcycle[ 0] < 0)) & nwt16);
-		kcycle[ 1] += wts_idx_inc2;		kcycle[ 1] += ( (-(kcycle[ 1] < 0)) & nwt16);
-		kcycle[ 2] += wts_idx_inc2;		kcycle[ 2] += ( (-(kcycle[ 2] < 0)) & nwt16);
-		kcycle[ 3] += wts_idx_inc2;		kcycle[ 3] += ( (-(kcycle[ 3] < 0)) & nwt16);
-		kcycle[ 4] += wts_idx_inc2;		kcycle[ 4] += ( (-(kcycle[ 4] < 0)) & nwt16);
-		kcycle[ 5] += wts_idx_inc2;		kcycle[ 5] += ( (-(kcycle[ 5] < 0)) & nwt16);
-		kcycle[ 6] += wts_idx_inc2;		kcycle[ 6] += ( (-(kcycle[ 6] < 0)) & nwt16);
-		kcycle[ 7] += wts_idx_inc2;		kcycle[ 7] += ( (-(kcycle[ 7] < 0)) & nwt16);
-		kcycle[ 8] += wts_idx_inc2;		kcycle[ 8] += ( (-(kcycle[ 8] < 0)) & nwt16);
-		kcycle[ 9] += wts_idx_inc2;		kcycle[ 9] += ( (-(kcycle[ 9] < 0)) & nwt16);
-		kcycle[10] += wts_idx_inc2;		kcycle[10] += ( (-(kcycle[10] < 0)) & nwt16);
-		kcycle[11] += wts_idx_inc2;		kcycle[11] += ( (-(kcycle[11] < 0)) & nwt16);
-		kcycle[12] += wts_idx_inc2;		kcycle[12] += ( (-(kcycle[12] < 0)) & nwt16);
-		kcycle[13] += wts_idx_inc2;		kcycle[13] += ( (-(kcycle[13] < 0)) & nwt16);
-		kcycle[14] += wts_idx_inc2;		kcycle[14] += ( (-(kcycle[14] < 0)) & nwt16);
-
-		lcycle[ 0] += wts_idx_inc2;		lcycle[ 0] += ( (-(lcycle[ 0] < 0)) & nwt16);
-		lcycle[ 1] += wts_idx_inc2;		lcycle[ 1] += ( (-(lcycle[ 1] < 0)) & nwt16);
-		lcycle[ 2] += wts_idx_inc2;		lcycle[ 2] += ( (-(lcycle[ 2] < 0)) & nwt16);
-		lcycle[ 3] += wts_idx_inc2;		lcycle[ 3] += ( (-(lcycle[ 3] < 0)) & nwt16);
-		lcycle[ 4] += wts_idx_inc2;		lcycle[ 4] += ( (-(lcycle[ 4] < 0)) & nwt16);
-		lcycle[ 5] += wts_idx_inc2;		lcycle[ 5] += ( (-(lcycle[ 5] < 0)) & nwt16);
-		lcycle[ 6] += wts_idx_inc2;		lcycle[ 6] += ( (-(lcycle[ 6] < 0)) & nwt16);
-		lcycle[ 7] += wts_idx_inc2;		lcycle[ 7] += ( (-(lcycle[ 7] < 0)) & nwt16);
-		lcycle[ 8] += wts_idx_inc2;		lcycle[ 8] += ( (-(lcycle[ 8] < 0)) & nwt16);
-		lcycle[ 9] += wts_idx_inc2;		lcycle[ 9] += ( (-(lcycle[ 9] < 0)) & nwt16);
-		lcycle[10] += wts_idx_inc2;		lcycle[10] += ( (-(lcycle[10] < 0)) & nwt16);
-		lcycle[11] += wts_idx_inc2;		lcycle[11] += ( (-(lcycle[11] < 0)) & nwt16);
-		lcycle[12] += wts_idx_inc2;		lcycle[12] += ( (-(lcycle[12] < 0)) & nwt16);
-		lcycle[13] += wts_idx_inc2;		lcycle[13] += ( (-(lcycle[13] < 0)) & nwt16);
-		lcycle[14] += wts_idx_inc2;		lcycle[14] += ( (-(lcycle[14] < 0)) & nwt16);
-	  #endif
+		for(ntmp = 0; ntmp < ODD_RADIX; ntmp++)
+		{
+			icycle[ntmp] += wts_idx_inc2;		icycle[ntmp] += ( (-(icycle[ntmp] < 0)) & nwt16);
+			jcycle[ntmp] += wts_idx_inc2;		jcycle[ntmp] += ( (-(jcycle[ntmp] < 0)) & nwt16);
+		#ifdef USE_AVX
+			kcycle[ntmp] += wts_idx_inc2;		kcycle[ntmp] += ( (-(kcycle[ntmp] < 0)) & nwt16);
+			lcycle[ntmp] += wts_idx_inc2;		lcycle[ntmp] += ( (-(lcycle[ntmp] < 0)) & nwt16);
+		#endif
+		}
 	#endif
 
 	}	/* if(MODULUS_TYPE == ...) */
@@ -836,7 +798,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	#ifdef USE_SSE2
 
 	  #if (OS_BITS == 32)
-	
+
 		tmp = r00;
 		tm2 = s1p00;
 		for(l = 0; l < 16; l++) {
@@ -878,8 +840,8 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			vcc = tm2+kc;
 			vcd = tm2+kd;
 			vce = tm2+ke;
-			
-			// Output ptrs:		
+
+			// Output ptrs:
 			va0 = tmp     ;
 			va1 = tmp+0x02;
 			va2 = tmp+0x04;
@@ -903,9 +865,9 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			);
 			tmp += 0x1e;	// advance ptr by 15 vec_cmplx [= 30 vec_dbl] elements
 		}
-	
+
 	  #else	// (OS_BITS == 64):
-	
+
 	   #if USE_COMPACT_OBJ_CODE
 
 		tmp = r00;
@@ -949,7 +911,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			vcc = tm2+kc;
 			vcd = tm2+kd;
 			vce = tm2+ke;
-			
+
 			// Now emulate the elided odd-index loop pass (replace l with l+1 in the above sequence) to get next set of ks:
 			jt += 2;
 			k0 = (14-l); /* odd-order terms of 0,e,d,...,0, i.e. e,c,a,8,...,0
@@ -986,7 +948,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			vdd = tm2+kd;
 			vde = tm2+ke;
 
-			// 2 sets of output ptrs:		
+			// 2 sets of output ptrs:
 							tm1 = tmp + 0x1e;
 			va0 = tmp     ;	vb0 = tm1     ;
 			va1 = tmp+0x02;	vb1 = tm1+0x02;
@@ -1004,7 +966,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			vad = tmp+0x1a;	vbd = tm1+0x1a;
 			vae = tmp+0x1c;	vbe = tm1+0x1c;
 
-			SSE2_RADIX_15_DIF_X2(sse2_c3m1,sse2_cn1,
+			SSE2_RADIX_15_DIF_X2(sse2_c3m1,sse2_cn1,two,
 /* s1p00 +... */	vc0,vc1,vc2,vc3,vc4,vc5,vc6,vc7,vc8,vc9,vca,vcb,vcc,vcd,vce,
 				x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,
 /* r00 +... */	va0,va1,va2,va3,va4,va5,va6,va7,va8,va9,vaa,vab,vac,vad,vae,
@@ -1018,56 +980,56 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	  #else
 
 		/* We use the 16-register/64-bit-mode doubled-radix-15-DFT macros as detailed in the radix60 carry routine: */
-		SSE2_RADIX_15_DIF_X2(sse2_c3m1,sse2_cn1,
+		SSE2_RADIX_15_DIF_X2(sse2_c3m1,sse2_cn1,two,
 			s1p00,s1pe0,s1pd0,s1pc0,s1pb0,s1pa0,s1p90,s1p80,s1p70,s1p60,s1p50,s1p40,s1p30,s1p20,s1p10,
 			x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,
 			r00,r01,r02,r03,r04,r05,r06,r07,r08,r09,r0a,r0b,r0c,r0d,r0e,
 			s1pe1,s1pd1,s1pc1,s1pb1,s1pa1,s1p91,s1p81,s1p71,s1p61,s1p51,s1p41,s1p31,s1p21,s1p11,s1p01,
 			y00,y01,y02,y03,y04,y05,y06,y07,y08,y09,y0a,y0b,y0c,y0d,y0e,
 			r0f,r10,r11,r12,r13,r14,r15,r16,r17,r18,r19,r1a,r1b,r1c,r1d);
-		SSE2_RADIX_15_DIF_X2(sse2_c3m1,sse2_cn1,
+		SSE2_RADIX_15_DIF_X2(sse2_c3m1,sse2_cn1,two,
 			s1pd2,s1pc2,s1pb2,s1pa2,s1p92,s1p82,s1p72,s1p62,s1p52,s1p42,s1p32,s1p22,s1p12,s1p02,s1pe2,
 			x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,
 			r1e,r1f,r20,r21,r22,r23,r24,r25,r26,r27,r28,r29,r2a,r2b,r2c,
 			s1pc3,s1pb3,s1pa3,s1p93,s1p83,s1p73,s1p63,s1p53,s1p43,s1p33,s1p23,s1p13,s1p03,s1pe3,s1pd3,
 			y00,y01,y02,y03,y04,y05,y06,y07,y08,y09,y0a,y0b,y0c,y0d,y0e,
 			r2d,r2e,r2f,r30,r31,r32,r33,r34,r35,r36,r37,r38,r39,r3a,r3b);
-		SSE2_RADIX_15_DIF_X2(sse2_c3m1,sse2_cn1,
+		SSE2_RADIX_15_DIF_X2(sse2_c3m1,sse2_cn1,two,
 			s1pb4,s1pa4,s1p94,s1p84,s1p74,s1p64,s1p54,s1p44,s1p34,s1p24,s1p14,s1p04,s1pe4,s1pd4,s1pc4,
 			x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,
 			r3c,r3d,r3e,r3f,r40,r41,r42,r43,r44,r45,r46,r47,r48,r49,r4a,
 			s1pa5,s1p95,s1p85,s1p75,s1p65,s1p55,s1p45,s1p35,s1p25,s1p15,s1p05,s1pe5,s1pd5,s1pc5,s1pb5,
 			y00,y01,y02,y03,y04,y05,y06,y07,y08,y09,y0a,y0b,y0c,y0d,y0e,
 			r4b,r4c,r4d,r4e,r4f,r50,r51,r52,r53,r54,r55,r56,r57,r58,r59);
-		SSE2_RADIX_15_DIF_X2(sse2_c3m1,sse2_cn1,
+		SSE2_RADIX_15_DIF_X2(sse2_c3m1,sse2_cn1,two,
 			s1p96,s1p86,s1p76,s1p66,s1p56,s1p46,s1p36,s1p26,s1p16,s1p06,s1pe6,s1pd6,s1pc6,s1pb6,s1pa6,
 			x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,
 			r5a,r5b,r5c,r5d,r5e,r5f,r60,r61,r62,r63,r64,r65,r66,r67,r68,
 			s1p87,s1p77,s1p67,s1p57,s1p47,s1p37,s1p27,s1p17,s1p07,s1pe7,s1pd7,s1pc7,s1pb7,s1pa7,s1p97,
 			y00,y01,y02,y03,y04,y05,y06,y07,y08,y09,y0a,y0b,y0c,y0d,y0e,
 			r69,r6a,r6b,r6c,r6d,r6e,r6f,r70,r71,r72,r73,r74,r75,r76,r77);
-		SSE2_RADIX_15_DIF_X2(sse2_c3m1,sse2_cn1,
+		SSE2_RADIX_15_DIF_X2(sse2_c3m1,sse2_cn1,two,
 			s1p78,s1p68,s1p58,s1p48,s1p38,s1p28,s1p18,s1p08,s1pe8,s1pd8,s1pc8,s1pb8,s1pa8,s1p98,s1p88,
 			x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,
 			r78,r79,r7a,r7b,r7c,r7d,r7e,r7f,r80,r81,r82,r83,r84,r85,r86,
 			s1p69,s1p59,s1p49,s1p39,s1p29,s1p19,s1p09,s1pe9,s1pd9,s1pc9,s1pb9,s1pa9,s1p99,s1p89,s1p79,
 			y00,y01,y02,y03,y04,y05,y06,y07,y08,y09,y0a,y0b,y0c,y0d,y0e,
 			r87,r88,r89,r8a,r8b,r8c,r8d,r8e,r8f,r90,r91,r92,r93,r94,r95);
-		SSE2_RADIX_15_DIF_X2(sse2_c3m1,sse2_cn1,
+		SSE2_RADIX_15_DIF_X2(sse2_c3m1,sse2_cn1,two,
 			s1p5a,s1p4a,s1p3a,s1p2a,s1p1a,s1p0a,s1pea,s1pda,s1pca,s1pba,s1paa,s1p9a,s1p8a,s1p7a,s1p6a,
 			x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,
 			r96,r97,r98,r99,r9a,r9b,r9c,r9d,r9e,r9f,ra0,ra1,ra2,ra3,ra4,
 			s1p4b,s1p3b,s1p2b,s1p1b,s1p0b,s1peb,s1pdb,s1pcb,s1pbb,s1pab,s1p9b,s1p8b,s1p7b,s1p6b,s1p5b,
 			y00,y01,y02,y03,y04,y05,y06,y07,y08,y09,y0a,y0b,y0c,y0d,y0e,
 			ra5,ra6,ra7,ra8,ra9,raa,rab,rac,rad,rae,raf,rb0,rb1,rb2,rb3);
-		SSE2_RADIX_15_DIF_X2(sse2_c3m1,sse2_cn1,
+		SSE2_RADIX_15_DIF_X2(sse2_c3m1,sse2_cn1,two,
 			s1p3c,s1p2c,s1p1c,s1p0c,s1pec,s1pdc,s1pcc,s1pbc,s1pac,s1p9c,s1p8c,s1p7c,s1p6c,s1p5c,s1p4c,
 			x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,
 			rb4,rb5,rb6,rb7,rb8,rb9,rba,rbb,rbc,rbd,rbe,rbf,rc0,rc1,rc2,
 			s1p2d,s1p1d,s1p0d,s1ped,s1pdd,s1pcd,s1pbd,s1pad,s1p9d,s1p8d,s1p7d,s1p6d,s1p5d,s1p4d,s1p3d,
 			y00,y01,y02,y03,y04,y05,y06,y07,y08,y09,y0a,y0b,y0c,y0d,y0e,
 			rc3,rc4,rc5,rc6,rc7,rc8,rc9,rca,rcb,rcc,rcd,rce,rcf,rd0,rd1);
-		SSE2_RADIX_15_DIF_X2(sse2_c3m1,sse2_cn1,
+		SSE2_RADIX_15_DIF_X2(sse2_c3m1,sse2_cn1,two,
 			s1p1e,s1p0e,s1pee,s1pde,s1pce,s1pbe,s1pae,s1p9e,s1p8e,s1p7e,s1p6e,s1p5e,s1p4e,s1p3e,s1p2e,
 			x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,
 			rd2,rd3,rd4,rd5,rd6,rd7,rd8,rd9,rda,rdb,rdc,rdd,rde,rdf,re0,
@@ -1078,7 +1040,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	  #endif	// USE_COMPACT_OBJ_CODE?
 
 	 #endif	// (OS_BITS == 32)?
-	
+
 		/*...and now do 15 radix-16 transforms, with index-perms as described in radix240_dif_pass1().
 		inputs of SSE2_RADIX16_DIT_0TWIDDLE from 30*vec_dbl - separated memlocs, same offsets as already set for DIT: */
 
@@ -1106,56 +1068,56 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			kf = plo[(i64      )&0xf];
 			addr = &a[j1] + p_in_hi[l];	// p_in_hi[] = p0,p20,...,p30
 			add0=addr+k0; add1=addr+k1; add2=addr+k2; add3=addr+k3; add4=addr+k4; add5=addr+k5; add6=addr+k6; add7=addr+k7; add8=addr+k8; add9=addr+k9; adda=addr+ka; addb=addr+kb; addc=addr+kc; addd=addr+kd; adde=addr+ke; addf=addr+kf;
-			SSE2_RADIX16_DIF_0TWIDDLE(tmp,OFF1,OFF2,OFF3,OFF4, isrt2, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
+			SSE2_RADIX16_DIF_0TWIDDLE(tmp,OFF1,OFF2,OFF3,OFF4, isrt2,two, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
 			tmp += 2;
 		}
 
 	  #else
 
 		addr = &a[j1]    ; add0=addr   ; add1=addr+p1; add2=addr+p2; add3=addr+p3; add4=addr+p4; add5=addr+p5; add6=addr+p6; add7=addr+p7; add8=addr+p8; add9=addr+p9; adda=addr+pa; addb=addr+pb; addc=addr+pc; addd=addr+pd; adde=addr+pe; addf=addr+pf;
-		SSE2_RADIX16_DIF_0TWIDDLE(r00,OFF1,OFF2,OFF3,OFF4, isrt2, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
+		SSE2_RADIX16_DIF_0TWIDDLE(r00,OFF1,OFF2,OFF3,OFF4, isrt2,two, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
 
 		addr = &a[j1]+p20; add0=addr+p5; add1=addr+p4; add2=addr+p7; add3=addr+p6; add4=addr+p3; add5=addr+p2; add6=addr   ; add7=addr+p1; add8=addr+pd; add9=addr+pc; adda=addr+pf; addb=addr+pe; addc=addr+pb; addd=addr+pa; adde=addr+p8; addf=addr+p9;
-		SSE2_RADIX16_DIF_0TWIDDLE(r01,OFF1,OFF2,OFF3,OFF4, isrt2, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
+		SSE2_RADIX16_DIF_0TWIDDLE(r01,OFF1,OFF2,OFF3,OFF4, isrt2,two, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
 
 		addr = &a[j1]+p10; add0=addr+pa; add1=addr+pb; add2=addr+p9; add3=addr+p8; add4=addr+pe; add5=addr+pf; add6=addr+pd; add7=addr+pc; add8=addr+p6; add9=addr+p7; adda=addr+p5; addb=addr+p4; addc=addr+p1; addd=addr   ; adde=addr+p3; addf=addr+p2;
-		SSE2_RADIX16_DIF_0TWIDDLE(r02,OFF1,OFF2,OFF3,OFF4, isrt2, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
+		SSE2_RADIX16_DIF_0TWIDDLE(r02,OFF1,OFF2,OFF3,OFF4, isrt2,two, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
 
 		addr = &a[j1]+pe0; add0=addr+p7; add1=addr+p6; add2=addr+p4; add3=addr+p5; add4=addr   ; add5=addr+p1; add6=addr+p2; add7=addr+p3; add8=addr+pf; add9=addr+pe; adda=addr+pc; addb=addr+pd; addc=addr+p8; addd=addr+p9; adde=addr+pa; addf=addr+pb;
-		SSE2_RADIX16_DIF_0TWIDDLE(r03,OFF1,OFF2,OFF3,OFF4, isrt2, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
+		SSE2_RADIX16_DIF_0TWIDDLE(r03,OFF1,OFF2,OFF3,OFF4, isrt2,two, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
 
 		addr = &a[j1]+pd0; add0=addr+p9; add1=addr+p8; add2=addr+pb; add3=addr+pa; add4=addr+pd; add5=addr+pc; add6=addr+pf; add7=addr+pe; add8=addr+p5; add9=addr+p4; adda=addr+p7; addb=addr+p6; addc=addr+p3; addd=addr+p2; adde=addr   ; addf=addr+p1;
-		SSE2_RADIX16_DIF_0TWIDDLE(r04,OFF1,OFF2,OFF3,OFF4, isrt2, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
+		SSE2_RADIX16_DIF_0TWIDDLE(r04,OFF1,OFF2,OFF3,OFF4, isrt2,two, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
 
 		addr = &a[j1]+pc0; add0=addr+p2; add1=addr+p3; add2=addr+p1; add3=addr   ; add4=addr+p6; add5=addr+p7; add6=addr+p5; add7=addr+p4; add8=addr+pa; add9=addr+pb; adda=addr+p9; addb=addr+p8; addc=addr+pe; addd=addr+pf; adde=addr+pd; addf=addr+pc;
-		SSE2_RADIX16_DIF_0TWIDDLE(r05,OFF1,OFF2,OFF3,OFF4, isrt2, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
+		SSE2_RADIX16_DIF_0TWIDDLE(r05,OFF1,OFF2,OFF3,OFF4, isrt2,two, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
 
 		addr = &a[j1]+pb0; add0=addr+pb; add1=addr+pa; add2=addr+p8; add3=addr+p9; add4=addr+pf; add5=addr+pe; add6=addr+pc; add7=addr+pd; add8=addr+p7; add9=addr+p6; adda=addr+p4; addb=addr+p5; addc=addr   ; addd=addr+p1; adde=addr+p2; addf=addr+p3;
-		SSE2_RADIX16_DIF_0TWIDDLE(r06,OFF1,OFF2,OFF3,OFF4, isrt2, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
+		SSE2_RADIX16_DIF_0TWIDDLE(r06,OFF1,OFF2,OFF3,OFF4, isrt2,two, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
 
 		addr = &a[j1]+pa0; add0=addr+p1; add1=addr   ; add2=addr+p3; add3=addr+p2; add4=addr+p5; add5=addr+p4; add6=addr+p7; add7=addr+p6; add8=addr+p9; add9=addr+p8; adda=addr+pb; addb=addr+pa; addc=addr+pd; addd=addr+pc; adde=addr+pf; addf=addr+pe;
-		SSE2_RADIX16_DIF_0TWIDDLE(r07,OFF1,OFF2,OFF3,OFF4, isrt2, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
+		SSE2_RADIX16_DIF_0TWIDDLE(r07,OFF1,OFF2,OFF3,OFF4, isrt2,two, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
 
 		addr = &a[j1]+p90; add0=addr+pc; add1=addr+pd; add2=addr+pe; add3=addr+pf; add4=addr+pa; add5=addr+pb; add6=addr+p9; add7=addr+p8; add8=addr+p2; add9=addr+p3; adda=addr+p1; addb=addr   ; addc=addr+p6; addd=addr+p7; adde=addr+p5; addf=addr+p4;
-		SSE2_RADIX16_DIF_0TWIDDLE(r08,OFF1,OFF2,OFF3,OFF4, isrt2, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
+		SSE2_RADIX16_DIF_0TWIDDLE(r08,OFF1,OFF2,OFF3,OFF4, isrt2,two, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
 
 		addr = &a[j1]+p80; add0=addr+p3; add1=addr+p2; add2=addr   ; add3=addr+p1; add4=addr+p7; add5=addr+p6; add6=addr+p4; add7=addr+p5; add8=addr+pb; add9=addr+pa; adda=addr+p8; addb=addr+p9; addc=addr+pf; addd=addr+pe; adde=addr+pc; addf=addr+pd;
-		SSE2_RADIX16_DIF_0TWIDDLE(r09,OFF1,OFF2,OFF3,OFF4, isrt2, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
+		SSE2_RADIX16_DIF_0TWIDDLE(r09,OFF1,OFF2,OFF3,OFF4, isrt2,two, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
 
 		addr = &a[j1]+p70; add0=addr+pe; add1=addr+pf; add2=addr+pd; add3=addr+pc; add4=addr+p9; add5=addr+p8; add6=addr+pb; add7=addr+pa; add8=addr+p1; add9=addr   ; adda=addr+p3; addb=addr+p2; addc=addr+p5; addd=addr+p4; adde=addr+p7; addf=addr+p6;
-		SSE2_RADIX16_DIF_0TWIDDLE(r0a,OFF1,OFF2,OFF3,OFF4, isrt2, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
+		SSE2_RADIX16_DIF_0TWIDDLE(r0a,OFF1,OFF2,OFF3,OFF4, isrt2,two, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
 
 		addr = &a[j1]+p60; add0=addr+p4; add1=addr+p5; add2=addr+p6; add3=addr+p7; add4=addr+p2; add5=addr+p3; add6=addr+p1; add7=addr   ; add8=addr+pc; add9=addr+pd; adda=addr+pe; addb=addr+pf; addc=addr+pa; addd=addr+pb; adde=addr+p9; addf=addr+p8;
-		SSE2_RADIX16_DIF_0TWIDDLE(r0b,OFF1,OFF2,OFF3,OFF4, isrt2, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
+		SSE2_RADIX16_DIF_0TWIDDLE(r0b,OFF1,OFF2,OFF3,OFF4, isrt2,two, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
 
 		addr = &a[j1]+p50; add0=addr+pd; add1=addr+pc; add2=addr+pf; add3=addr+pe; add4=addr+pb; add5=addr+pa; add6=addr+p8; add7=addr+p9; add8=addr+p3; add9=addr+p2; adda=addr   ; addb=addr+p1; addc=addr+p7; addd=addr+p6; adde=addr+p4; addf=addr+p5;
-		SSE2_RADIX16_DIF_0TWIDDLE(r0c,OFF1,OFF2,OFF3,OFF4, isrt2, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
+		SSE2_RADIX16_DIF_0TWIDDLE(r0c,OFF1,OFF2,OFF3,OFF4, isrt2,two, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
 
 		addr = &a[j1]+p40; add0=addr+p6; add1=addr+p7; add2=addr+p5; add3=addr+p4; add4=addr+p1; add5=addr   ; add6=addr+p3; add7=addr+p2; add8=addr+pe; add9=addr+pf; adda=addr+pd; addb=addr+pc; addc=addr+p9; addd=addr+p8; adde=addr+pb; addf=addr+pa;
-		SSE2_RADIX16_DIF_0TWIDDLE(r0d,OFF1,OFF2,OFF3,OFF4, isrt2, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
+		SSE2_RADIX16_DIF_0TWIDDLE(r0d,OFF1,OFF2,OFF3,OFF4, isrt2,two, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
 
 		addr = &a[j1]+p30; add0=addr+p8; add1=addr+p9; add2=addr+pa; add3=addr+pb; add4=addr+pc; add5=addr+pd; add6=addr+pe; add7=addr+pf; add8=addr+p4; add9=addr+p5; adda=addr+p6; addb=addr+p7; addc=addr+p2; addd=addr+p3; adde=addr+p1; addf=addr   ;
-		SSE2_RADIX16_DIF_0TWIDDLE(r0e,OFF1,OFF2,OFF3,OFF4, isrt2, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
+		SSE2_RADIX16_DIF_0TWIDDLE(r0e,OFF1,OFF2,OFF3,OFF4, isrt2,two, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
 
 	   #endif	// USE_COMPACT_OBJ_CODE
 
@@ -1216,7 +1178,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				c16,s16);	tptr++;
 		}
 
-	#endif	/* if(USE_SSE2) */
+	#endif	// USE_SSE2 ?
 	}
 
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)

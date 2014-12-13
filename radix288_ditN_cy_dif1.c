@@ -26,6 +26,14 @@
 #define RADIX 288	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
 #define ODD_RADIX 9	// ODD_RADIX = [radix >> trailz(radix)]
 
+#ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
+  #else
+	#define PFETCH_DIST	32
+  #endif
+#endif
+
 #ifdef MULTITHREAD
 	#ifndef USE_PTHREAD
 		#error Pthreads is only thread model currently supported!
@@ -44,10 +52,10 @@
   // For Mersenne-mod we need (16 [SSE2] or 64 [AVX]) + 4 added slots for the half_arr lookup tables.
   // Add relevant number (half_arr_offset288 + RADIX) to get required value of radix288_creals_in_local_store:
   #ifdef USE_AVX
-	const int half_arr_offset288 = 0x4da;	// + RADIX = 0x4da + 0x120 = 0x5fa; Used for thread local-storage-integrity checking
-	const int radix288_creals_in_local_store = 0x650;	// += 68 (=0x44) and round up to nearest multiple of 4
+	const int half_arr_offset288 = 0x4dc;	// + RADIX = 0x4dc + 0x120 = 0x5fc; Used for thread local-storage-integrity checking
+	const int radix288_creals_in_local_store = 0x640;	// += 68 (=0x44) and round up to nearest multiple of 4
   #else
-	const int half_arr_offset288 = 0x522;	// + RADIX = 0x522 + 0x120 = 0x642; Used for thread local-storage-integrity checking
+	const int half_arr_offset288 = 0x524;	// + RADIX = 0x524 + 0x120 = 0x644; Used for thread local-storage-integrity checking
 	const int radix288_creals_in_local_store = 0x658;	// += 20 (=0x14) and round up to nearest multiple of 4
   #endif
 
@@ -132,6 +140,7 @@ int radix288_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	const char func[] = "radix288_ditN_cy_dif1";
+	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 #ifdef USE_SSE2
 	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
@@ -184,6 +193,10 @@ int radix288_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	int col,co2,co3;
   #ifdef USE_AVX
 	static struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+   #ifdef USE_AVX2
+	// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
+	vec_dbl *rad9_iptr[9], *rad9_optr[9];
+   #endif
   #else
 	int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
@@ -210,9 +223,9 @@ int radix288_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		*va0,*va1,*va2,*va3,*va4,*va5,*va6,*va7,*va8,
 		*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8,
 	#endif
-		*tmp,*tm1,*tm2;	// Non-static utility ptrs
-	static vec_dbl *isrt2,*xcc1,*xss1,*xcc2,*xss2,*xcc3,*xss3,	// radix-32 DFT trig consts
-		*ycc1,*yss1,*ycc2,*yss2,*ycc3m1,*yss3,*ycc4,*yss4,	// radiy-9 DFT trig consts
+		*tmp,*tm0,*tm1,*tm2;	// Non-static utility ptrs
+	static vec_dbl *two,*one,*sqrt2,*isrt2,*xcc1,*xss1,*xcc2,*xss2,*xcc3,*xss3,	// radix-32 DFT trig consts
+									*ycc1,*yss1,*ycc2,*yss2,*ycc3m1,*yss3,*ycc4,*yss4,	// radix-9 DFT trig consts
 		*max_err, *sse2_rnd, *half_arr,
 		*r00,	// Head of RADIX*vec_cmplx-sized local store #1
 		*s1p00,	// Head of RADIX*vec_cmplx-sized local store #2
@@ -401,7 +414,10 @@ int radix288_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	  #endif
 		tmp = sc_ptr;	r00   = tmp;	// Head of RADIX*vec_cmplx-sized local store #1
 		tmp += 0x240;	s1p00 = tmp;	// Head of RADIX*vec_cmplx-sized local store #2
-		tmp += 0x240;
+		tmp	+= 0x243;	// Extra 3 slots here for two,one below - added those late, too lazy to rejigger all the existing offsets following
+		two     = tmp - 3;	// AVX+ versions of various DFT macros assume consts 2.0,1.0,isrt2 laid out thusly
+		one     = tmp - 2;
+		sqrt2	= tmp - 1;
 		isrt2   = tmp + 0x0;
 		xcc2	= tmp + 0x1;	// Radix-32 DFT macros assume roots stored in this [8th, 16th, 32nd_1,3] order
 		xss2	= tmp + 0x2;
@@ -418,21 +434,22 @@ int radix288_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		yss3    = tmp + 0xc;
 		ycc4    = tmp + 0xd;
 		yss4    = tmp + 0xe;
-		tmp += 0x10;	// sc_ptr += 0x490, added extra pad slot to make offset even
+		tmp += 0xf;	// sc_ptr += 0x492
 	  #ifdef USE_AVX
 		cy = tmp;		tmp += 0x48;	// RADIX/4 vec_dbl slots
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x(490 + 48 + 2) = 0x4da; This is where the value of half_arr_offset288 comes from
+		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x(492 + 48 + 2) = 0x4dc; This is where the value of half_arr_offset288 comes from
 		half_arr= tmp + 0x02;	// This table needs 20 vec_dbl in both avx and sse2 mode
 	  #else
 		cy = tmp;		tmp += 0x90;	// RADIX/2 vec_dbl slots
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x(490 + 90 + 2) = 0x522; This is where the value of half_arr_offset288 comes from
+		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x(492 + 90 + 2) = 0x524; This is where the value of half_arr_offset288 comes from
 		half_arr= tmp + 0x02;
 	  #endif
 		ASSERT(HERE, (radix288_creals_in_local_store << l2_sz_vd) >= ((long)half_arr - (long)r00) + (20 << l2_sz_vd), "radix208_creals_in_local_store checksum failed!");
 		/* These remain fixed: */
-		VEC_DBL_INIT(isrt2, ISRT2);
+		VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );
+		VEC_DBL_INIT(sqrt2, SQRT2);	VEC_DBL_INIT(isrt2, ISRT2);
 		VEC_DBL_INIT(xcc2, c16  );	VEC_DBL_INIT(xss2, s16  );	// radix-32 DFT trig consts
 		VEC_DBL_INIT(xcc1, c32_1);	VEC_DBL_INIT(xss1, s32_1);
 		VEC_DBL_INIT(xcc3, c32_3);	VEC_DBL_INIT(xss3, s32_3);
@@ -443,8 +460,8 @@ int radix288_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		VEC_DBL_INIT(sse2_rnd, crnd);		/* SSE2 math = 53-mantissa-bit IEEE double-float: */
 
 		// Propagate the above consts to the remaining threads:
-		nbytes = (int)cy - (int)isrt2;	// #bytes in 1st of above block of consts
-		tmp = isrt2;
+		nbytes = (int)cy - (int)two;	// #bytes in 1st of above block of consts
+		tmp = two;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
 			memcpy(tm2, tmp, nbytes);
@@ -2719,6 +2736,7 @@ void radix288_dit_pass1(double a[], int n)
 	{
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr;
+		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf
 				,p10,p20,p30,p40,p50,p60,p70,p80,p90,pa0,pb0,pc0,pd0,pe0,pf0,p100,p110;
@@ -2734,6 +2752,10 @@ void radix288_dit_pass1(double a[], int n)
 		double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
 	#ifdef USE_AVX
 		struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+	   #ifdef USE_AVX2
+		// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
+		vec_dbl *rad9_iptr[9], *rad9_optr[9];
+	   #endif
 	#else
 		int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	#endif
@@ -2745,11 +2767,11 @@ void radix288_dit_pass1(double a[], int n)
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 		double *add0, *add1, *add2, *add3;
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
-		vec_dbl *tmp,*tm1,*tm2,	// Non-static utility ptrs
+		vec_dbl *tmp,*tm0,*tm1,*tm2,	// Non-static utility ptrs
 			*va0,*va1,*va2,*va3,*va4,*va5,*va6,*va7,*va8,
 			*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8,
-				*isrt2,*xcc1,*xss1,*xcc2,*xss2,*xcc3,*xss3,		// radix-32 DFT trig consts
-			*ycc1,*yss1,*ycc2,*yss2,*ycc3m1,*yss3,*ycc4,*yss4,	// radiy-9 DFT trig consts
+				*two,*one,*sqrt2,*isrt2,*xcc1,*xss1,*xcc2,*xss2,*xcc3,*xss3,				// radix-32 DFT trig consts
+								*ycc1,*yss1,*ycc2,*yss2,*ycc3m1,*yss3,*ycc4,*yss4,	// radiy-9 DFT trig consts
 			*max_err, *sse2_rnd, *half_arr,
 			*r00,	// Head of RADIX*vec_cmplx-sized local store #1
 			*s1p00,	// Head of RADIX*vec_cmplx-sized local store #2
@@ -3529,7 +3551,10 @@ void radix288_dit_pass1(double a[], int n)
 	#ifdef USE_SSE2
 		tmp	= r00 = thread_arg->r00;	// Head of RADIX*vec_cmplx-sized local store #1
 		tmp += 0x240;	s1p00 = tmp;	// Head of RADIX*vec_cmplx-sized local store #2
-		tmp += 0x240;
+		tmp	+= 0x243;	// Extra 3 slots here for two,one below - added those late, too lazy to rejigger all the existing offsets following
+		two     = tmp - 3;	// AVX+ versions of various DFT macros assume consts 2.0,1.0,isrt2 laid out thusly
+		one     = tmp - 2;
+		sqrt2	= tmp - 1;
 		isrt2   = tmp + 0x0;
 		xcc2	= tmp + 0x1;	// Radix-32 DFT macros assume roots stored in this [8th, 16th, 32nd_1,3] order
 		xss2	= tmp + 0x2;
@@ -3546,16 +3571,16 @@ void radix288_dit_pass1(double a[], int n)
 		yss3    = tmp + 0xc;
 		ycc4    = tmp + 0xd;
 		yss4    = tmp + 0xe;
-		tmp += 0x10;	// sc_ptr += 0x490, added extra pad slot to make offset even
+		tmp += 0xf;	// sc_ptr += 0x492
 	  #ifdef USE_AVX
 		cy = tmp;		tmp += 0x48;	// RADIX/4 vec_dbl slots
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x(490 + 48 + 2) = 0x4da; This is where the value of half_arr_offset288 comes from
+		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x(492 + 48 + 2) = 0x4dc; This is where the value of half_arr_offset288 comes from
 		half_arr= tmp + 0x02;	// This table needs 20 vec_dbl in both avx and sse2 mode
 	  #else
 		cy = tmp;		tmp += 0x90;	// RADIX/2 vec_dbl slots
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x(490 + 90 + 2) = 0x522; This is where the value of half_arr_offset288 comes from
+		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x(492 + 90 + 2) = 0x524; This is where the value of half_arr_offset288 comes from
 		half_arr= tmp + 0x02;
 	  #endif
 
@@ -3670,4 +3695,4 @@ void radix288_dit_pass1(double a[], int n)
 
 #undef RADIX
 #undef ODD_RADIX
-
+#undef PFETCH_DIST

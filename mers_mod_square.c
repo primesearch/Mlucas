@@ -109,7 +109,11 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	double adiff, max_adiff = 0.0;	/* Use to store the max abs error between real*8 and real*16 computed values */
 	 int64 i1,i2;
 	uint64 idiff, max_idiff = 0;
-
+	const double mult[2] = {1.0,-1.0};
+	static double nh_inv,nq_inv;	// Needed for "which complex quadrant?" computation
+	static int nh,nq;			// #rt1 elts in each quadrant
+	int qodd;
+	double *re_im_ptr;
 	static int radix_set_save[10] = {1000,0,0,0,0,0,0,0,0,0};
 	static int radix_vec0, nchunks; 	// Store frequently-used RADIX_VEC[0] and number-of-independently-doable work units
 #if DBG_THREADS
@@ -839,7 +843,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		*/
 
 		/*...The rt0 array stores the (0:NRT-1)th powers of the [N2]th root of unity
-		(i.e. will be accessed using the lower (NRT) bits of the integer sincos index):
+		(i.e. will be accessed using the lower lg(NRT) bits of the integer sincos index):
 		*/
 		rt0_ptmp = ALLOC_COMPLEX(rt0_ptmp, NRT);
 		if(!rt0_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array RT0 in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
@@ -939,7 +943,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		}
 
 		/*...The rt1 array stores the (0:(n/2)/NRT-1)th powers of the [(n/2)/NRT]th root of unity
-		(and will be accessed using the upper bits, <NRT:31>, of the integer sincos index):
+		(and will be accessed using the upper bits, <lg(NRT):31>, of the integer sincos index):
 		*/
 		rt1_ptmp = ALLOC_COMPLEX(rt1_ptmp, n/(2*NRT));
 		if(!rt1_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array RT1 in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
@@ -1038,6 +1042,95 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			/*qn = qfmul(qc, qi); qt = qfmul(qs, qr); qs   = qfadd(qn, qt); qc = qmul;	*/
 		}
 
+/*
+Oct 2014:
+Exploitable symmetries which can be used to cut size of rt1, based on the quadrant. Let n := nrt/4,
+let q: = 0-3, corr. to int(theta/(pi/2), gamma := theta - q*(pi/2), and iq := i - q*n = "index within quadrant":
+
+I-range	qud		root in terms of iq:		Alternative (#else below)
+-------	---	 ----------------------------	-----------------------
+[ 0, n)	q=0	 rt1[iq].re, rt1[iq].im			 rt1[iq].re, rt1[iq].im
+[ n,2n)	q=1	-rt1[nq-iq].re, rt1[nq-iq].im	-rt1[iq].im, rt1[iq].re
+[2n,3n)	q=2	-rt1[iq].re,-rt1[iq].im			-rt1[iq].re,-rt1[iq].im
+[3n,4n)	q=3	 rt1[nq-iq].re,-rt1[nq-iq].im	 rt1[iq].im,-rt1[iq].re
+
+Cutting the rt1 size by a factor of 4 also means tweaking our relative-table-size formula:
+For the original (rt1-size-unreduced) scheme we want the 2 table to be equal-sized in the case of N an even power of 2
+So e.g. rt0,1 have B,B elts each, total = 2B.
+Now get rt0,1 have B,B/4 elts each, total = (5/4)*B. If instead started with (rt1-unreduced) sizes B/2,2B,
+    get rt0,1 with B/2,B/2 elts each, total = B, half the original 2B, and the minimum possible,
+ since starting with (rt1-unreduced) sizes B/4,4B ==> B/4,B, total = (5/4)*B, i.e. the total again starts to rise.
+
+We can even go one better by using the fact that all roots can be mapped to data in the first octant: Let n := nrt/8,
+let q: = 0-7, corr. to int(theta/(pi/4), gamma := theta - q*(pi/4), and iq := i - q*n = "index within octant":
+
+I-range	oct		root in terms of iq:
+-------	---	 ----------------------------
+[ 0, n)	q=0	 rt1[   iq].re, rt1[   iq].im
+[ n,2n)	q=1	 rt1[nq-iq].im, rt1[nq-iq].re
+[2n,3n)	q=2	-rt1[   iq].im, rt1[   iq].re
+[3n,4n)	q=3	-rt1[nq-iq].re, rt1[nq-iq].im
+[4n,5n)	q=4	-rt1[   iq].re,-rt1[   iq].im
+[5n,6n)	q=5	-rt1[nq-iq].im,-rt1[nq-iq].re
+[6n,7n)	q=6	 rt1[   iq].im,-rt1[   iq].re
+[7n,8n)	q=7	 rt1[nq-iq].re,-rt1[nq-iq].im
+
+Now if start with (rt1-unreduced) sizes B/2,2B,
+    get rt0,1 with B/2,B/4 elts each, total = (3/4)*B, vs the original 2B, and the minimum possible.
+    (Get same total if start with (rt1-unreduced) sizes B/4,4B ==> B/4,B/2, total = (3/4)*B.)
+*/
+/*
+for(i=0; i < NRT; i++) {
+	printf("I = %3d: rt0[i].re,im = %20.15f, %20.15f\n",i,rt0[i].re,rt0[i].im);
+}
+*/
+#if 0
+	#define SYMM	2	// "foldness" of the symmetry scheme used: 2 = half-plane, 4 = quadrans, 8 = half-quads.
+	#if SYMM == 2
+		nh = n/(NRT<<2);	// #rt1 elts in each quadrant
+		nh_inv = 1.0/(double)nh;
+		printf("half-plane #elts = %d\n",nh);
+	#elif SYMM == 4
+		nq = n/(NRT<<3);	// #rt1 elts in each quadrant
+		nq_inv = 1.0/(double)nq;
+		printf("quadrant #elts = %d\n",nq);
+	#else
+		Value of SYMM unsupported!
+	#endif
+
+	printf("rt1 #elts = %d\n",n/(2*NRT));
+	for(i=0; i < n/(2*NRT); i++) {
+	#if SYMM == 2
+		qodd = i >= nh;
+		t1 = mult[qodd];	// -1 if root in lower half-plane
+		j = i - ((-qodd) & nh);	// i % nh
+		double c = rt1[j].re;
+		double s = rt1[j].im;
+		c *= t1;
+		s *= t1;
+	if(i > (nh-3) && i < (nh+3))
+		printf("I = %3d, J = %3d [h = %1d]: rt1[i].re,im = %17.15f, %17.15f; V2 = %17.15f, %17.15f\n",i,j,qodd,rt1[i].re,rt1[i].im, c,s);
+	#elif SYMM == 4
+		uint32 iq = (int)((double)i*nq_inv);	// Efficient way of computing i*(NRT<<3)/n
+		j = i - iq*nq;		// i % nq
+	  #if 0
+		qodd = -(iq&1);			// Negate (iq odd?) result to turn into bitmask
+		j += qodd & (nq-j-j);	// If quadrant index odd (1 or 3), need nq-j instead of j
+		double c = rt1[j].re;
+		double s = rt1[j].im;
+	  #else
+		qodd = iq&1;			// quadrant index odd (1 or 3)?
+		re_im_ptr = rt1 + j;	// Cast to double*
+		double c = *(re_im_ptr +    qodd );
+		double s = *(re_im_ptr + (1-qodd));
+	  #endif
+		c *= mult[(iq-1) < 2];	// re part negated for quadrants 1,2 (this is why iq needs to be unsigned)
+		s *= mult[ iq    > 1];	// im part negated for quadrants 2,3
+		printf("I = %3d [q = %1d]: rt1[i].re,im = %17.15f, %17.15f; V2[m1,m2 = %d,%d] = %17.15f, %17.15f\n",i,iq,rt1[i].re,rt1[i].im, (iq-1) < 2,(iq > 1),c,s);
+	#endif
+	}
+	exit(0);
+#endif
 		/**********************************************/
 		/*************** MERSENNE-ONLY: ***************/
 		/**********************************************/
@@ -2150,9 +2243,9 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	if(iter > AME_ITER_START)
 		AME += fracmax;
 
-/*...Now do the fractional error check. Any fractional part  >= 0.4 generates a warning...	*/
-
-	if(fracmax >= 0.4)
+/*...Now do the fractional error check. Any fractional part  > 0.40625 generates a warning...	*/
+// Dec 2014: Bump threshold up from ( >= 0.4 ) to ( > 0.40625 ):
+	if(fracmax > 0.40625)
 	{
 		sprintf(cbuf, "M%u Roundoff warning on iteration %8u, maxerr = %16.12f\n",(uint32)p,iter,fracmax);
 
@@ -2161,7 +2254,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		if(INTERACT)
 		{
 			fprintf(stderr,"%s",cbuf);
-			if(fracmax >= 0.40625) *err_iter = p-1;	// If RO > 0.40625 warning issued at any point of the initial error-checked
+			if(fracmax > 0.40625) *err_iter = p-1;	// If RO > 0.40625 warning issued at any point of the initial error-checked
 													// segment, require error checking on each iteration, even if iter > err_iter.
 			if(fracmax > 0.47 )
 			{
@@ -2180,9 +2273,9 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			{
 				fprintf(stderr,"%s",cbuf);
 			}
-	
-			if(fracmax >= 0.40625) *err_iter = p-1;
-	
+
+			if(fracmax > 0.40625) *err_iter = p-1;
+
 		/*...In range test mode, any fractional part > 0.4375 is cause for error exit.	*/
 			if(fracmax > 0.4375 )
 			{
@@ -2200,7 +2293,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 						sprintf(cbuf," The error is not reproducible, but encountered a different ROE in the retry of the interval ... as this is\n  an indicator of likely data corruption, quitting. Please restart the program at your earliest convenience.\n");
 						return(ERR_UNKNOWN_FATAL);
 					}
-				}	
+				}
 				fprintf(fp,"%s",cbuf);
 				fprintf(fq,"%s",cbuf);
 				fclose(fp);	fp = 0x0;

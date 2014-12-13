@@ -26,6 +26,14 @@
 
 #define USE_SCALAR_DFT_MACRO	1
 
+#ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
+  #else
+	#define PFETCH_DIST	32
+  #endif
+#endif
+
 #ifdef MULTITHREAD
 	#ifndef USE_PTHREAD
 		#error Pthreads is only thread model currently supported!
@@ -205,6 +213,7 @@ int radix16_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !   storage scheme, and radix16_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	static int NDIVR;
+	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 #ifdef USE_SSE2
 	const int sz_vd = sizeof(vec_dbl);
@@ -3170,6 +3179,7 @@ void radix16_dit_pass1(double a[], int n)
 	void*
 	cy16_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
+		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		int idx_offset,idx_incr;
 		int j,j1,j2,k,l;
@@ -3183,7 +3193,7 @@ void radix16_dit_pass1(double a[], int n)
 
 	#ifdef USE_SSE2
 
-		uint32 p1,p2,p3,p4;
+		uint32 p1,p2,p3,p4,p8,p12;
 		double *add0, *add1, *add2, *add3;
 		const double crnd = 3.0*0x4000000*0x2000000;
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
@@ -3253,6 +3263,8 @@ void radix16_dit_pass1(double a[], int n)
 		p2  = p1  + p1;
 		p3  = p2  + p1;
 		p4  = p3  + p1;
+		p8  = p4  + p4;
+		p12 = p8  + p4;
 	#ifndef USE_SSE2
 		p5  = p4  + p1;
 		p6  = p5  + p1;
@@ -3270,6 +3282,8 @@ void radix16_dit_pass1(double a[], int n)
 		p2  = p2  + ( (p2  >> DAT_BITS) << PAD_BITS );
 		p3  = p3  + ( (p3  >> DAT_BITS) << PAD_BITS );
 		p4  = p4  + ( (p4  >> DAT_BITS) << PAD_BITS );
+		p8  = p8  + ( (p8  >> DAT_BITS) << PAD_BITS );
+		p12 = p12 + ( (p12 >> DAT_BITS) << PAD_BITS );
 	#ifndef USE_SSE2
 		p5  = p5  + ( (p5  >> DAT_BITS) << PAD_BITS );
 		p6  = p6  + ( (p6  >> DAT_BITS) << PAD_BITS );
@@ -3512,336 +3526,11 @@ void radix16_dit_pass1(double a[], int n)
 		#endif
 		}
 
-	#if (OS_BITS == 32)
-
 		/********************************************************************************/
 		/* This main loop is same for un-and-multithreaded, so stick into a header file */
 		/* (can't use a macro because of the #if-enclosed stuff).                       */
 		/********************************************************************************/
 		#include "radix16_main_carry_loop.h"
-
-	#else	// 64-bit builds
-
-		for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
-		{
-			for(j = jstart; j < jhi; j += stride)
-			{
-				j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-				j2 = j1+RE_IM_STRIDE;
-
-			#ifdef USE_SSE2
-				add0 = &a[j1];
-				SSE2_RADIX16_DIT_NOTWIDDLE(add0,p1,p2,p3,p4,r00,r02,r04,r06,r08,r0a,r10,r18,isrt2,cc0);
-			#else
-				RADIX_16_DIT(a[j1    ],a[j2    ],a[j1+p1 ],a[j2+p1 ],a[j1+p2 ],a[j2+p2 ],a[j1+p3 ],a[j2+p3 ],a[j1+p4 ],a[j2+p4 ],a[j1+p5 ],a[j2+p5 ],a[j1+p6 ],a[j2+p6 ],a[j1+p7 ],a[j2+p7 ],a[j1+p8 ],a[j2+p8 ],a[j1+p9 ],a[j2+p9 ],a[j1+p10],a[j2+p10],a[j1+p11],a[j2+p11],a[j1+p12],a[j2+p12],a[j1+p13],a[j2+p13],a[j1+p14],a[j2+p14],a[j1+p15],a[j2+p15]
-							,a1p0r,a1p0i,a1p1r,a1p1i,a1p2r,a1p2i,a1p3r,a1p3i,a1p4r,a1p4i,a1p5r,a1p5i,a1p6r,a1p6i,a1p7r,a1p7i,a1p8r,a1p8i,a1p9r,a1p9i,a1pAr,a1pAi,a1pBr,a1pBi,a1pCr,a1pCi,a1pDr,a1pDi,a1pEr,a1pEi,a1pFr,a1pFi
-							,c,s)
-			#endif
-
-			/*...Now do the carries. Since the outputs would
-			normally be getting dispatched to 16 separate blocks of the A-array, we need 16 separate carries.	*/
-
-			if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
-			{
-			#ifdef USE_AVX
-
-				add1 = &wt1[col  ];
-				add2 = &wt1[co2-1];
-				add3 = &wt1[co3-1];
-
-				l= j & (nwt-1);						tmp = half_arr + 64;	/* ptr to local storage for the doubled wtl,wtn terms: */
-				n_minus_sil  ->d0 = n-si[l  ];		tmp->d0 = wt0[    l  ];
-				n_minus_silp1->d0 = n-si[l+1];		tmp->d1 = wt0[nwt-l  ]*scale;
-				sinwt        ->d0 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
-				sinwtm1      ->d0 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
-
-				l= (j+2) & (nwt-1);					++tmp;	/* Get ready for next 4 weights-related doubles... */
-				n_minus_sil  ->d1 = n-si[l  ];		tmp->d0 = wt0[    l  ];
-				n_minus_silp1->d1 = n-si[l+1];		tmp->d1 = wt0[nwt-l  ]*scale;
-				sinwt        ->d1 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
-				sinwtm1      ->d1 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
-
-				l= (j+4) & (nwt-1);					++tmp;	/* Get ready for next 4 weights-related doubles... */
-				n_minus_sil  ->d2 = n-si[l  ];		tmp->d0 = wt0[    l  ];
-				n_minus_silp1->d2 = n-si[l+1];		tmp->d1 = wt0[nwt-l  ]*scale;
-				sinwt        ->d2 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
-				sinwtm1      ->d2 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
-
-				l= (j+6) & (nwt-1);					++tmp;	/* Get ready for next 4 weights-related doubles... */
-				n_minus_sil  ->d3 = n-si[l  ];		tmp->d0 = wt0[    l  ];
-				n_minus_silp1->d3 = n-si[l+1];		tmp->d1 = wt0[nwt-l  ]*scale;
-				sinwt        ->d3 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
-				sinwtm1      ->d3 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
-
-				AVX_cmplx_carry_norm_pow2_errcheck0_X4(r00,add1,add2,add3,cy_r0,bjmodn0,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
-				AVX_cmplx_carry_norm_pow2_errcheck1_X4(r08,add1,add2,add3,cy_r4,bjmodn4,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
-				AVX_cmplx_carry_norm_pow2_errcheck1_X4(r10,add1,add2,add3,cy_r8,bjmodn8,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
-				AVX_cmplx_carry_norm_pow2_errcheck1_X4(r18,add1,add2,add3,cy_rC,bjmodnC,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
-
-				co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
-							// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
-
-				i =((uint32)(sw - *bjmodn0) >> 31);	/* get ready for the next set...	*/
-
-			#elif defined(USE_SSE2)
-
-				l= j & (nwt-1);			/* We want (S*J mod N) - SI(L) for all 16 carries, so precompute	*/
-				n_minus_sil   = n-si[l  ];		/* N - SI(L) and for each J, find N - (B*J mod N) - SI(L)		*/
-				n_minus_silp1 = n-si[l+1];		/* For the inverse weight, want (S*(N - J) mod N) - SI(NWT - L) =	*/
-				sinwt   = si[nwt-l  ];		/*	= N - (S*J mod N) - SI(NWT - L) = (B*J mod N) - SI(NWT - L).	*/
-				sinwtm1 = si[nwt-l-1];
-
-				wtl     =wt0[    l  ];
-				wtn     =wt0[nwt-l  ]*scale;	/* Include 1/(n/2) scale factor of inverse transform here...	*/
-				wtlp1   =wt0[    l+1];
-				wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
-
-				ctmp = (struct complex *)half_arr + 16;	/* ptr to local storage for the doubled wtl,wtn terms: */
-				ctmp->re = wtl;		ctmp->im = wtl;	++ctmp;
-				ctmp->re = wtn;		ctmp->im = wtn;	++ctmp;
-				ctmp->re = wtlp1;	ctmp->im = wtlp1;++ctmp;
-				ctmp->re = wtnm1;	ctmp->im = wtnm1;
-
-				add1 = &wt1[col  ];	/* Don't use add0 here, to avoid need to reload main-array address */
-				add2 = &wt1[co2-1];
-				add3 = &wt1[co3-1];
-
-			   #ifdef ERR_CHECK_ALL
-				SSE2_cmplx_carry_norm_pow2_errcheck0_2B(r00,add1,add2,add3,cy_r0,cy_r2,bjmodn0,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
-				SSE2_cmplx_carry_norm_pow2_errcheck1_2B(r08,add1,add2,add3,cy_r4,cy_r6,bjmodn4,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
-				SSE2_cmplx_carry_norm_pow2_errcheck1_2B(r10,add1,add2,add3,cy_r8,cy_rA,bjmodn8,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
-				SSE2_cmplx_carry_norm_pow2_errcheck1_2B(r18,add1,add2,add3,cy_rC,cy_rE,bjmodnC,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
-			   #else
-				SSE2_cmplx_carry_norm_pow2_errcheck0_2B(r00,add1,add2,add3,cy_r0,cy_r2,bjmodn0,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
-				SSE2_cmplx_carry_norm_pow2_nocheck1_2B (r08,add1,add2,add3,cy_r4,cy_r6,bjmodn4,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
-				SSE2_cmplx_carry_norm_pow2_nocheck1_2B (r10,add1,add2,add3,cy_r8,cy_rA,bjmodn8,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
-				SSE2_cmplx_carry_norm_pow2_nocheck1_2B (r18,add1,add2,add3,cy_rC,cy_rE,bjmodnC,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
-			   #endif
-
-				l= (j+2) & (nwt-1);			/* We want (S*J mod N) - SI(L) for all 16 carries, so precompute	*/
-				n_minus_sil   = n-si[l  ];		/* N - SI(L) and for each J, find N - (B*J mod N) - SI(L)		*/
-				n_minus_silp1 = n-si[l+1];		/* For the inverse weight, want (S*(N - J) mod N) - SI(NWT - L) =	*/
-				sinwt   = si[nwt-l  ];		/*	= N - (S*J mod N) - SI(NWT - L) = (B*J mod N) - SI(NWT - L).	*/
-				sinwtm1 = si[nwt-l-1];
-
-				wtl     =wt0[    l  ];
-				wtn     =wt0[nwt-l  ]*scale;	/* Include 1/(n/2) scale factor of inverse transform here...	*/
-				wtlp1   =wt0[    l+1];
-				wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
-
-				ctmp = (struct complex *)half_arr + 16;	/* ptr to local storage for the doubled wtl,wtn terms: */
-				ctmp->re = wtl;		ctmp->im = wtl;	++ctmp;
-				ctmp->re = wtn;		ctmp->im = wtn;	++ctmp;
-				ctmp->re = wtlp1;	ctmp->im = wtlp1;++ctmp;
-				ctmp->re = wtnm1;	ctmp->im = wtnm1;
-
-				co2 = co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
-							(and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).	*/
-				add1 = &wt1[col  ];
-				add2 = &wt1[co2-1];
-
-			   #ifdef ERR_CHECK_ALL
-				SSE2_cmplx_carry_norm_pow2_errcheck2_2B(r00,add1,add2,cy_r0,cy_r2,bjmodn0,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
-				SSE2_cmplx_carry_norm_pow2_errcheck2_2B(r08,add1,add2,cy_r4,cy_r6,bjmodn4,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
-				SSE2_cmplx_carry_norm_pow2_errcheck2_2B(r10,add1,add2,cy_r8,cy_rA,bjmodn8,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
-				SSE2_cmplx_carry_norm_pow2_errcheck2_2B(r18,add1,add2,cy_rC,cy_rE,bjmodnC,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
-			   #else
-				SSE2_cmplx_carry_norm_pow2_nocheck2_2B (r00,add1,add2,cy_r0,cy_r2,bjmodn0,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
-				SSE2_cmplx_carry_norm_pow2_nocheck2_2B (r08,add1,add2,cy_r4,cy_r6,bjmodn4,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
-				SSE2_cmplx_carry_norm_pow2_nocheck2_2B (r10,add1,add2,cy_r8,cy_rA,bjmodn8,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
-				SSE2_cmplx_carry_norm_pow2_nocheck2_2B (r18,add1,add2,cy_rC,cy_rE,bjmodnC,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
-			   #endif
-
-				i =((uint32)(sw - *bjmodn0) >> 31);	/* get ready for the next set...	*/
-
-			#else	// Scalar-double mode:
-
-				l= j & (nwt-1);			/* We want (S*J mod N) - SI(L) for all 16 carries, so precompute	*/
-				n_minus_sil   = n-si[l  ];		/* N - SI(L) and for each J, find N - (B*J mod N) - SI(L)		*/
-				n_minus_silp1 = n-si[l+1];		/* For the inverse weight, want (S*(N - J) mod N) - SI(NWT - L) =	*/
-				sinwt   = si[nwt-l  ];		/*	= N - (S*J mod N) - SI(NWT - L) = (B*J mod N) - SI(NWT - L).	*/
-				sinwtm1 = si[nwt-l-1];
-
-				wtl     =wt0[    l  ];
-				wtn     =wt0[nwt-l  ]*scale;	/* Include 1/(n/2) scale factor of inverse transform here...	*/
-				wtlp1   =wt0[    l+1];
-				wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
-
-			/*...set0 is slightly different from others:	*/
-			   cmplx_carry_norm_pow2_errcheck0(a1p0r,a1p0i,cy_r0,bjmodn0    );
-				cmplx_carry_norm_pow2_errcheck(a1p1r,a1p1i,cy_r1,bjmodn1,0x1);
-				cmplx_carry_norm_pow2_errcheck(a1p2r,a1p2i,cy_r2,bjmodn2,0x2);
-				cmplx_carry_norm_pow2_errcheck(a1p3r,a1p3i,cy_r3,bjmodn3,0x3);
-				cmplx_carry_norm_pow2_errcheck(a1p4r,a1p4i,cy_r4,bjmodn4,0x4);
-				cmplx_carry_norm_pow2_errcheck(a1p5r,a1p5i,cy_r5,bjmodn5,0x5);
-				cmplx_carry_norm_pow2_errcheck(a1p6r,a1p6i,cy_r6,bjmodn6,0x6);
-				cmplx_carry_norm_pow2_errcheck(a1p7r,a1p7i,cy_r7,bjmodn7,0x7);
-				cmplx_carry_norm_pow2_errcheck(a1p8r,a1p8i,cy_r8,bjmodn8,0x8);
-				cmplx_carry_norm_pow2_errcheck(a1p9r,a1p9i,cy_r9,bjmodn9,0x9);
-				cmplx_carry_norm_pow2_errcheck(a1pAr,a1pAi,cy_rA,bjmodnA,0xA);
-				cmplx_carry_norm_pow2_errcheck(a1pBr,a1pBi,cy_rB,bjmodnB,0xB);
-				cmplx_carry_norm_pow2_errcheck(a1pCr,a1pCi,cy_rC,bjmodnC,0xC);
-				cmplx_carry_norm_pow2_errcheck(a1pDr,a1pDi,cy_rD,bjmodnD,0xD);
-				cmplx_carry_norm_pow2_errcheck(a1pEr,a1pEi,cy_rE,bjmodnE,0xE);
-				cmplx_carry_norm_pow2_errcheck(a1pFr,a1pFi,cy_rF,bjmodnF,0xF);
-
-				i =((uint32)(sw - bjmodn0) >> 31);	/* get ready for the next set...	*/
-
-				co2 = co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
-							(and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).	*/
-
-			#endif	// USE_AVX?
-
-			}
-			else	/* MODULUS_TYPE_FERMAT */
-			{
-
-			#ifdef USE_AVX
-
-				// For a description of the data movement in AVX mode, see radix28_ditN_cy_dif1.
-				tmp = half_arr+2;
-				VEC_DBL_INIT(tmp, scale);
-				/* Get the needed Nth root of -1: */
-				add1 = (double *)&rn0[0];
-				add2 = (double *)&rn1[0];
-
-				idx_offset = j;
-				idx_incr = NDIVR;
-
-				tmp = base_negacyclic_root;	tm2 = tmp+1;
-
-				// Hi-accuracy version needs 4 copies of each base root:
-				l = (j >> 1);	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
-				dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
-				rt  =rn1[k2].re;			it   =rn1[k2].im;
-				wt_re =dtmp*rt-wt_im*it;	wt_im =dtmp*it+wt_im*rt;
-				VEC_DBL_INIT(tmp+  0,wt_re);	VEC_DBL_INIT(tm2+  0,wt_im);
-				VEC_DBL_INIT(tmp+  8,wt_re);	VEC_DBL_INIT(tm2+  8,wt_im);
-				VEC_DBL_INIT(tmp+ 16,wt_re);	VEC_DBL_INIT(tm2+ 16,wt_im);
-				VEC_DBL_INIT(tmp+ 24,wt_re);	VEC_DBL_INIT(tm2+ 24,wt_im);
-				tmp += 2;	tm2 += 2;
-				l += 1;	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
-				dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
-				rt  =rn1[k2].re;			it   =rn1[k2].im;
-				wt_re =dtmp*rt-wt_im*it;	wt_im =dtmp*it+wt_im*rt;
-				VEC_DBL_INIT(tmp+  0,wt_re);	VEC_DBL_INIT(tm2+  0,wt_im);
-				VEC_DBL_INIT(tmp+  8,wt_re);	VEC_DBL_INIT(tm2+  8,wt_im);
-				VEC_DBL_INIT(tmp+ 16,wt_re);	VEC_DBL_INIT(tm2+ 16,wt_im);
-				VEC_DBL_INIT(tmp+ 24,wt_re);	VEC_DBL_INIT(tm2+ 24,wt_im);
-				tmp += 2;	tm2 += 2;
-				l += 1;	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
-				dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
-				rt  =rn1[k2].re;			it   =rn1[k2].im;
-				wt_re =dtmp*rt-wt_im*it;	wt_im =dtmp*it+wt_im*rt;
-				VEC_DBL_INIT(tmp+  0,wt_re);	VEC_DBL_INIT(tm2+  0,wt_im);
-				VEC_DBL_INIT(tmp+  8,wt_re);	VEC_DBL_INIT(tm2+  8,wt_im);
-				VEC_DBL_INIT(tmp+ 16,wt_re);	VEC_DBL_INIT(tm2+ 16,wt_im);
-				VEC_DBL_INIT(tmp+ 24,wt_re);	VEC_DBL_INIT(tm2+ 24,wt_im);
-				tmp += 2;	tm2 += 2;
-				l += 1;	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
-				dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
-				rt  =rn1[k2].re;			it   =rn1[k2].im;
-				wt_re =dtmp*rt-wt_im*it;	wt_im =dtmp*it+wt_im*rt;
-				VEC_DBL_INIT(tmp+  0,wt_re);	VEC_DBL_INIT(tm2+  0,wt_im);
-				VEC_DBL_INIT(tmp+  8,wt_re);	VEC_DBL_INIT(tm2+  8,wt_im);
-				VEC_DBL_INIT(tmp+ 16,wt_re);	VEC_DBL_INIT(tm2+ 16,wt_im);
-				VEC_DBL_INIT(tmp+ 24,wt_re);	VEC_DBL_INIT(tm2+ 24,wt_im);
-
-				l = 0x400;
-				tmp = base_negacyclic_root+  0;	SSE2_fermat_carry_norm_pow2_errcheck_X4(r00,tmp,l,cy_r0,cy_i0,half_arr,sign_mask); l -= 0xc0;
-				tmp = base_negacyclic_root+  8;	SSE2_fermat_carry_norm_pow2_errcheck_X4(r08,tmp,l,cy_r4,cy_i4,half_arr,sign_mask); l -= 0xc0;
-				tmp = base_negacyclic_root+ 16;	SSE2_fermat_carry_norm_pow2_errcheck_X4(r10,tmp,l,cy_r8,cy_i8,half_arr,sign_mask); l -= 0xc0;
-				tmp = base_negacyclic_root+ 24;	SSE2_fermat_carry_norm_pow2_errcheck_X4(r18,tmp,l,cy_rC,cy_iC,half_arr,sign_mask);
-
-			#elif defined(USE_SSE2)
-
-				tmp = half_arr+2;
-				VEC_DBL_INIT(tmp, scale);
-				/* Get the needed Nth root of -1: */
-				add1 = (double *)&rn0[0];
-				add2 = (double *)&rn1[0];
-
-				idx_offset = j;
-				idx_incr = NDIVR;
-
-			  #if (OS_BITS == 32)
-
-				SSE2_fermat_carry_norm_pow2_errcheck(r00,cy_r0,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-				SSE2_fermat_carry_norm_pow2_errcheck(r02,cy_r2,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-				SSE2_fermat_carry_norm_pow2_errcheck(r04,cy_r4,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-				SSE2_fermat_carry_norm_pow2_errcheck(r06,cy_r6,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-				SSE2_fermat_carry_norm_pow2_errcheck(r08,cy_r8,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-				SSE2_fermat_carry_norm_pow2_errcheck(r0A,cy_rA,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-				SSE2_fermat_carry_norm_pow2_errcheck(r0C,cy_rC,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-				SSE2_fermat_carry_norm_pow2_errcheck(r0E,cy_rE,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-				SSE2_fermat_carry_norm_pow2_errcheck(r10,cy_i0,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-				SSE2_fermat_carry_norm_pow2_errcheck(r12,cy_i2,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-				SSE2_fermat_carry_norm_pow2_errcheck(r14,cy_i4,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-				SSE2_fermat_carry_norm_pow2_errcheck(r16,cy_i6,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-				SSE2_fermat_carry_norm_pow2_errcheck(r18,cy_i8,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-				SSE2_fermat_carry_norm_pow2_errcheck(r1A,cy_iA,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-				SSE2_fermat_carry_norm_pow2_errcheck(r1C,cy_iC,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-				SSE2_fermat_carry_norm_pow2_errcheck(r1E,cy_iE,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-
-			  #else	// 64-bit SSE2
-
-				SSE2_fermat_carry_norm_pow2_errcheck_X2(r00,cy_r0,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-				SSE2_fermat_carry_norm_pow2_errcheck_X2(r04,cy_r4,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-				SSE2_fermat_carry_norm_pow2_errcheck_X2(r08,cy_r8,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-				SSE2_fermat_carry_norm_pow2_errcheck_X2(r0C,cy_rC,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-				SSE2_fermat_carry_norm_pow2_errcheck_X2(r10,cy_i0,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-				SSE2_fermat_carry_norm_pow2_errcheck_X2(r14,cy_i4,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-				SSE2_fermat_carry_norm_pow2_errcheck_X2(r18,cy_i8,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-				SSE2_fermat_carry_norm_pow2_errcheck_X2(r1C,cy_iC,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
-
-			  #endif
-
-			#else	// Scalar-double mode:
-
-				ntmp = 0;
-				fermat_carry_norm_pow2_errcheck(a1p0r,a1p0i,cy_r0,cy_i0,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-				fermat_carry_norm_pow2_errcheck(a1p1r,a1p1i,cy_r1,cy_i1,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-				fermat_carry_norm_pow2_errcheck(a1p2r,a1p2i,cy_r2,cy_i2,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-				fermat_carry_norm_pow2_errcheck(a1p3r,a1p3i,cy_r3,cy_i3,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-				fermat_carry_norm_pow2_errcheck(a1p4r,a1p4i,cy_r4,cy_i4,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-				fermat_carry_norm_pow2_errcheck(a1p5r,a1p5i,cy_r5,cy_i5,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-				fermat_carry_norm_pow2_errcheck(a1p6r,a1p6i,cy_r6,cy_i6,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-				fermat_carry_norm_pow2_errcheck(a1p7r,a1p7i,cy_r7,cy_i7,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-				fermat_carry_norm_pow2_errcheck(a1p8r,a1p8i,cy_r8,cy_i8,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-				fermat_carry_norm_pow2_errcheck(a1p9r,a1p9i,cy_r9,cy_i9,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-				fermat_carry_norm_pow2_errcheck(a1pAr,a1pAi,cy_rA,cy_iA,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-				fermat_carry_norm_pow2_errcheck(a1pBr,a1pBi,cy_rB,cy_iB,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-				fermat_carry_norm_pow2_errcheck(a1pCr,a1pCi,cy_rC,cy_iC,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-				fermat_carry_norm_pow2_errcheck(a1pDr,a1pDi,cy_rD,cy_iD,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-				fermat_carry_norm_pow2_errcheck(a1pEr,a1pEi,cy_rE,cy_iE,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-				fermat_carry_norm_pow2_errcheck(a1pFr,a1pFi,cy_rF,cy_iF,ntmp,NRTM1,NRT_BITS);
-
-			#endif	/* #ifdef USE_SSE2 */
-
-			}	/* if(MODULUS_TYPE == ...) */
-
-			/*...The radix-16 DIF pass is here:	*/
-			#ifdef USE_SSE2
-				SSE2_RADIX16_DIF_NOTWIDDLE(add0,p1,p2,p3,p4,r00,r02,r04,r06,r08,r0A,r0C,r0E,r10,r12,r14,r16,r18,r1A,r1C,r1E,isrt2,cc0);
-			#else
-				RADIX_16_DIF(a1p0r,a1p0i,a1p1r,a1p1i,a1p2r,a1p2i,a1p3r,a1p3i,a1p4r,a1p4i,a1p5r,a1p5i,a1p6r,a1p6i,a1p7r,a1p7i,a1p8r,a1p8i,a1p9r,a1p9i,a1pAr,a1pAi,a1pBr,a1pBi,a1pCr,a1pCi,a1pDr,a1pDi,a1pEr,a1pEi,a1pFr,a1pFi
-							,a[j1    ],a[j2    ],a[j1+p1 ],a[j2+p1 ],a[j1+p2 ],a[j2+p2 ],a[j1+p3 ],a[j2+p3 ],a[j1+p4 ],a[j2+p4 ],a[j1+p5 ],a[j2+p5 ],a[j1+p6 ],a[j2+p6 ],a[j1+p7 ],a[j2+p7 ],a[j1+p8 ],a[j2+p8 ],a[j1+p9 ],a[j2+p9 ],a[j1+p10],a[j2+p10],a[j1+p11],a[j2+p11],a[j1+p12],a[j2+p12],a[j1+p13],a[j2+p13],a[j1+p14],a[j2+p14],a[j1+p15],a[j2+p15]
-							,c,s)
-			#endif
-
-			}	/* end for(j=_jstart; j < _jhi; j += 2) */
-
-			if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
-			{
-				jstart += nwt;
-				jhi    += nwt;
-
-				col += RADIX;
-				co3 -= RADIX;
-			}
-		}	/* end for(k=1; k <= khi; k++) */
-
-	#endif	// (OS_BITS == 32)
 
 		/* At end of each thread-processed work chunk, dump the
 		carryouts into their non-thread-private array slots:
@@ -3972,3 +3661,4 @@ void radix16_dit_pass1(double a[], int n)
 #endif
 
 #undef RADIX
+#undef PFETCH_DIST

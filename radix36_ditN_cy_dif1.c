@@ -24,6 +24,14 @@
 
 #define RADIX 36	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
 
+#ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
+  #else
+	#define PFETCH_DIST	32
+  #endif
+#endif
+
 #ifdef MULTITHREAD
 	#ifndef USE_PTHREAD
 		#error Pthreads is only thread model currently supported!
@@ -42,14 +50,14 @@
   // For Mersenne-mod we need (16 [SSE2] or 64 [AVX]) + 4 added slots for the half_arr lookup tables.
   // Add relevant number (half_arr_offset36 + RADIX) to get required value of radix36_creals_in_local_store:
   #ifdef USE_AVX
-	const int half_arr_offset36 = 0xa3;	// + RADIX = 0xc7; Used for thread local-storage-integrity checking
-	const int radix36_creals_in_local_store = 0x110;	// += 68 and round up to nearest multiple of 4
+	const int half_arr_offset36 = 0xa5;	// + RADIX = 0xc9; Used for thread local-storage-integrity checking
+	const int radix36_creals_in_local_store = 0x110;	// += 68 (= 0x44) and round up to nearest multiple of 4
 	#if OS_BITS == 64
-	  #define GCC_ASM_FULL_INLINE	1	// This *must* be #defined = 1 in AVX mode!
+	  #define GCC_ASM_FULL_INLINE	0	// This *must* be #defined = 1 in AVX mode!
 	#endif
   #else
-	const int half_arr_offset36 = 0xac;	// + RADIX = 0xd0; Used for thread local-storage-integrity checking
-	const int radix36_creals_in_local_store = 0xe4;	// += 20 and round up to nearest multiple of 4
+	const int half_arr_offset36 = 0xae;	// + RADIX = 0xd2; Used for thread local-storage-integrity checking
+	const int radix36_creals_in_local_store = 0xe8;	// += 20 (= 0x14) and round up to nearest multiple of 4
 	#if OS_BITS == 64
 	  // #define to either (if left undefined) use small-macro form below, or (if defined) to inline the fused macros as single big blob of asm (64-bit only):
 	  #define GCC_ASM_FULL_INLINE	0	// sse2/core 2 timings better for small-macro form due to smaller obj-code size.
@@ -141,6 +149,7 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	const char func[] = "radix36_ditN_cy_dif1";
+	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 #ifdef USE_SSE2
 	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
@@ -183,6 +192,10 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	int col,co2,co3;
   #ifdef USE_AVX
 	static struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+   #ifdef USE_AVX2
+	// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
+	vec_dbl *rad9_iptr[9], *rad9_optr[9];
+   #endif
   #else
 	int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
@@ -209,7 +222,7 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	const double crnd = 3.0*0x4000000*0x2000000;
 	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 	vec_dbl *tmp,*tm1,*tm2;	// Non-static utility ptrs
-	static vec_dbl *cc1, *ss1, *cc2, *ss2, *cc3m1, *ss3, *cc4, *ss4, *max_err, *sse2_rnd, *half_arr
+	static vec_dbl *two,*one, *cc1, *ss1, *cc2, *ss2, *cc3m1, *ss3, *cc4, *ss4, *max_err, *sse2_rnd, *half_arr
 		,*r00,*r02,*r04,*r06,*r08,*r0a,*r0c,*r0e,*r0g
 		,*r10,*r12,*r14,*r16,*r18,*r1a,*r1c,*r1e,*r1g
 		,*r20,*r22,*r24,*r26,*r28,*r2a,*r2c,*r2e,*r2g
@@ -442,7 +455,9 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		r3c	= tmp + 0x42;		s1p33r = tm2 + 0x42;
 		r3e	= tmp + 0x44;		s1p34r = tm2 + 0x44;
 		r3g	= tmp + 0x46;		s1p35r = tm2 + 0x46;
-		tmp	+= 0x90;
+		tmp	+= 0x92;	// Extra 2 slots here for two,one below - added those late, too lazy to rejigger all the existing offsets following
+		two    = tmp - 2;	// AVX+ versions of Radix-32 DFT macros assume consts 2.0,1.0,sqrt2,isrt2 laid out thusly
+		one    = tmp - 1;
 		cc1    = tmp + 0;
 		ss1    = tmp + 1;
 		cc2    = tmp + 2;
@@ -451,19 +466,20 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		ss3    = tmp + 5;
 		cc4    = tmp + 6;
 		ss4    = tmp + 7;
-		tmp += 0x8;	// sc_ptr += 0x98
+		tmp += 0x8;	// sc_ptr += 0x9a
 	#ifdef USE_AVX
 		cy = tmp;		tmp += 9;
 	#else
 		cy = tmp;		tmp += 18;
 	#endif
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;	// sc_ptr += 2 = 0xa3 [avx] or 0xac [sse2]; This is where the value of half_arr_offset36 comes from
+		sse2_rnd= tmp + 0x01;	// sc_ptr += 2 = 0xa5 [avx] or 0xae [sse2]; This is where the value of half_arr_offset36 comes from
 		half_arr= tmp + 0x02;	/* This table needs 20x16 bytes */
 
 		ASSERT(HERE, (radix36_creals_in_local_store << l2_sz_vd) >= ((long)half_arr - (long)r00) + (20 << l2_sz_vd), "radix36_creals_in_local_store checksum failed!");
 
 		/* These remain fixed: */
+		VEC_DBL_INIT(two  , 2.0 );		VEC_DBL_INIT(one, 1.0 );
 		VEC_DBL_INIT(cc1  , c	);		VEC_DBL_INIT(ss1, s );
 		VEC_DBL_INIT(cc2  , c2  );		VEC_DBL_INIT(ss2, s2);
 		VEC_DBL_INIT(cc3m1, c3m1);		VEC_DBL_INIT(ss3, s3);
@@ -472,8 +488,8 @@ int radix36_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		VEC_DBL_INIT(sse2_rnd, crnd);
 
 		// Propagate the above consts to the remaining threads:
-		nbytes = (int)cy - (int)cc1;	// #bytes in above sincos block of data
-		tmp = cc1;
+		nbytes = (int)cy - (int)two;	// #bytes in above sincos block of data
+		tmp = two;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
 			memcpy(tm2, tmp, nbytes);
@@ -2764,6 +2780,7 @@ void radix36_dit_pass1(double a[], int n)
 	{
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr;
+		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p01,p02,p03,p04,p08,p12,p16,p20,p24,p28,p32;
 		int poff[RADIX>>2];	// Store mults of p04 offset for loop control
@@ -2771,6 +2788,10 @@ void radix36_dit_pass1(double a[], int n)
 		double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
 	#ifdef USE_AVX
 		struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+	  #ifdef USE_AVX2
+		// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
+		vec_dbl *rad9_iptr[9], *rad9_optr[9];
+	  #endif
 	#else
 		int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	#endif
@@ -2782,7 +2803,7 @@ void radix36_dit_pass1(double a[], int n)
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 		double *add0, *add1, *add2, *add3;	/* Addresses into array sections */
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
-		vec_dbl *cc1, *ss1, *cc2, *ss2, *cc3m1, *ss3, *cc4, *ss4, *max_err, *sse2_rnd, *half_arr
+		vec_dbl *two,*one, *cc1, *ss1, *cc2, *ss2, *cc3m1, *ss3, *cc4, *ss4, *max_err, *sse2_rnd, *half_arr
 			,*r00,*r02,*r04,*r06,*r08,*r0a,*r0c,*r0e,*r0g
 			,*r10,*r12,*r14,*r16,*r18,*r1a,*r1c,*r1e,*r1g
 			,*r20,*r22,*r24,*r26,*r28,*r2a,*r2c,*r2e,*r2g
@@ -2906,7 +2927,9 @@ void radix36_dit_pass1(double a[], int n)
 		r3c	= tmp + 0x42;		s1p33r = tm2 + 0x42;
 		r3e	= tmp + 0x44;		s1p34r = tm2 + 0x44;
 		r3g	= tmp + 0x46;		s1p35r = tm2 + 0x46;
-		tmp	+= 0x90;
+		tmp	+= 0x92;	// Extra 2 slots here for two,one below - added those late, too lazy to rejigger all the existing offsets following
+		two    = tmp - 2;	// AVX+ versions of Radix-32 DFT macros assume consts 2.0,1.0,sqrt2,isrt2 laid out thusly
+		one    = tmp - 1;
 		cc1    = tmp + 0;
 		ss1    = tmp + 1;
 		cc2    = tmp + 2;
@@ -3035,3 +3058,4 @@ void radix36_dit_pass1(double a[], int n)
 #endif
 
 #undef RADIX
+#undef PFETCH_DIST

@@ -22,6 +22,8 @@
 
 #include "Mlucas.h"
 
+#define EPS 1e-10
+
 #ifndef PFETCH_DIST
   #ifdef USE_AVX
 	#define PFETCH_DIST	4096	// This seems to work best on my Haswell
@@ -148,6 +150,9 @@ The scratch array (2nd input argument) is only needed for data table initializat
 */
 void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int ii, int nradices_prim, int radix_prim[], int incr, int init_sse2, int thr_id)
 {
+  #ifdef NEW_2TABLE_CMUL
+	static int rootsn, m10xradix;
+  #endif
 	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 5, stridh = (stride>>1);	// main-array loop stride = 32*RE_IM_STRIDE
 	static int max_threads = 0;
@@ -158,7 +163,7 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 		   int index0_idx=-1, index1_idx=-1;
 	static int index0_mod=-1, index1_mod=-1;
 	int nradices_prim_radix0;
-	int i,j,j1,j2,l,iroot,k1,k2;
+	int i,j,j1,j2,l,iroot,k,k1,k2;
 	const double c = 0.9238795325112867561281831, s = 0.3826834323650897717284599;	/* exp[i*(twopi/16)] */
 	double re0,im0,re1,im1,rt,it;
 
@@ -174,15 +179,23 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 	double *add2, *add3;
   #endif
 	vec_dbl *c_tmp,*s_tmp;
-	vec_dbl *tmp;
+	vec_dbl *tmp,*tm1;
   #ifdef MULTITHREAD
-	static vec_dbl *__r0;					// Base address for discrete per-thread local stores
+	static vec_dbl *__r0;	// Base address for discrete per-thread local stores
 	// In || mode, only above base-pointer (shared by all threads) is static:
-	vec_dbl *cc0, *ss0, *isrt2, *two, *r1,*r9,*r17,*r25,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15;
+	vec_dbl *cc0, *ss0, *isrt2, *two,*one, *r1,*r9,*r17,*r25,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15;
+   #ifdef NEW_2TABLE_CMUL
+	int nbytes;
+	static vec_dbl *__rr0;	// Base address for discrete per-thread local stores of the following 2 radix0-size-dependent tables
+	vec_dbl *roots0 = 0x0, *roots1 = 0x0;
+   #endif
   #elif defined(COMPILER_TYPE_GCC)
-	static vec_dbl *cc0, *ss0, *isrt2, *two, *r1,*r9,*r17,*r25,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15;
+	static vec_dbl *cc0, *ss0, *isrt2, *two,*one, *r1,*r9,*r17,*r25,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15;
+   #ifdef NEW_2TABLE_CMUL
+	static vec_dbl *roots0 = 0x0, *roots1 = 0x0;
+   #endif
   #else
-	static vec_dbl *cc0, *ss0, *isrt2, *two;
+	static vec_dbl *cc0, *ss0, *isrt2, *two,*one;
 	static vec_dbl *c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15;
 	static vec_dbl *r1,*r2,*r3,*r4,*r5,*r6,*r7,*r8,*r9,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r30,*r31,*r32;
   #endif
@@ -196,6 +209,17 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 	,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t30,t31,t32
 	,aj1p0r,aj1p1r,aj1p2r,aj1p3r,aj1p4r,aj1p5r,aj1p6r,aj1p7r,aj1p8r,aj1p9r,aj1p10r,aj1p11r,aj1p12r,aj1p13r,aj1p14r,aj1p15r
 	,aj1p0i,aj1p1i,aj1p2i,aj1p3i,aj1p4i,aj1p5i,aj1p6i,aj1p7i,aj1p8i,aj1p9i,aj1p10i,aj1p11i,aj1p12i,aj1p13i,aj1p14i,aj1p15i;
+  #ifdef NEW_2TABLE_CMUL
+   #ifdef MULTITHREAD
+	int nbytes;
+	double *tmp,*tm1;
+	static double *__rr0;	// Base address for discrete per-thread local stores of the following 2 radix0-size-dependent tables
+	// In || mode, only above base-pointer (shared by all threads) is static:
+	double *roots0 = 0x0, *roots1 = 0x0;
+   #else
+	static double *roots0 = 0x0, *roots1 = 0x0;
+   #endif
+  #endif
 
 #endif
 
@@ -207,11 +231,59 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 	switch to a special-init-mode-call paradigm, in which the function is inited once (for as many threads as needed)
 	prior to being executed:
 	*/
+//=======================
+/*
+Sep 2014: New way of doing the 2-table MULs used to generate the complex roots in this final-FFT-pass/dyadic-square/initial-iFFT-pass step:
+
+o Each of the radix0 l-index-sets (used to get croots) is identical if one subtracts
+  the leading l-value from all in the set, thus here is the resulting 2-table-MUL scheme:
+
+	o Table0 has the [radix0] croots corresponding to the leading l-values of the l-sets [suitably vectorized in SIMD builds];
+	o Table1 has the [(15/16)*n2/radix0] croots corresponding to the l-values of the basic (0-index) set;
+	o For each DFT data block in radix16_dyadic_square, we read the 15 basic croots from the appropriate segment
+	  of Table1, then SIMD-"multiply them up" by the appropriate vectorized scaling-croot read from Table0.
+*/
 /**************************************************************************************************************************************/
 /*** To-Do: Need to add code to allow for re-init when any of the FFT-related params or #threads changes during course of execution ***/
 /**************************************************************************************************************************************/
 	if((rad0save != radix0) || (nsave != n))
 	{
+	#ifdef NEW_2TABLE_CMUL
+
+		if(roots0) {
+			free((void *)roots0);	roots0=0x0;	index0=0x0;
+			free((void *)roots1);	roots1=0x0;	index1=0x0;
+		}
+
+	  #ifndef MULTITHREAD	// In unthreaded mdoe, need just 1 copy of each table
+	  	i = 1;
+	  #else	// In || mode, see if have pvsly inited these tables, i.e. if max_threads has been set.
+	  		// If so, use it as a proxy for #threads. If not, take #threads from the numeric value of init_sse2.
+	  		// Can handle both cases simply, like so:
+	  	i = MAX(init_sse2, max_threads);
+	  #endif
+		// Save these runtime consts in a pair of statics:
+		m10xradix = (radix0<<3) + (radix0<<1);	// 10*radix0
+		rootsn = m10xradix + 150*(n>>5)/radix0;
+		// Number of doubles/vec_dbl needed per thread for both local-store roots tables:
+		j = i*rootsn;
+	  #ifdef USE_SSE2
+		roots0 = ALLOC_VEC_DBL(roots0, j);
+		roots0 = ALIGN_VEC_DBL(roots0);
+		ASSERT(HERE, ((uint32)roots0 & 0x3f) == 0, "roots0 not 64-byte aligned!");
+	  #else
+		roots0 = ALLOC_DOUBLE(roots0, j);
+		roots0 = ALIGN_DOUBLE(roots0);
+	  #endif
+		ASSERT(HERE, roots0 != 0x0,"FATAL: unable to allocate array ROOTS0 in radix16_dyadic_square.");
+
+		roots1 = roots0 + m10xradix;	// roots0 table has 10*radix0 entries
+	  #ifdef MULTITHREAD
+		__rr0 = roots0;
+	  #endif
+
+	#endif
+
 		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
 		nsave = n;
 		ASSERT(HERE, N2 == n/2, "N2 bad!");
@@ -273,6 +345,342 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 		bit_reverse_int(index0, index0_mod,                 nradices_prim_radix0, &radix_prim[nradices_prim_radix0-1], -1,(int *)arr_scratch);
 		bit_reverse_int(index1, index1_mod, nradices_prim-4-nradices_prim_radix0, &radix_prim[nradices_prim       -5], -1,(int *)arr_scratch);
 
+	#ifdef NEW_2TABLE_CMUL
+		//Simulate the processing loop to get the above tables:
+		for(ii = 0; ii < radix0; ++ii)
+		{
+			index0_idx = ii;
+			index1_idx = 0;
+		//	if(ii == 0)printf("J = [%d-%d]:\n",0,ndivrad0);
+			for(j = 0; j < ndivrad0; j += stride)
+			{
+				iroot = index0[index0_idx] + index1[index1_idx];
+				if(++index1_idx >= index1_mod)
+				{
+					index1_idx -= index1_mod;
+					++index0_idx;
+				}
+				l = iroot;
+				if(j==0) {
+				//	printf("L0 = %d\n",l);
+					k = (ii<<3) + (ii<<1);	// 10*ii (corr. to 5 complex roots)
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					l += iroot;
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+				  #ifdef USE_SSE2
+					c_tmp = roots0+k; s_tmp = c_tmp+1;
+					VEC_DBL_INIT(c_tmp, rt);	VEC_DBL_INIT(s_tmp, it);
+				  #else
+					roots0[k  ] = rt; roots0[k+1] = it;
+			//	printf("Roots0[%d]: %15.13f, %15.13f\n",k,rt,it);
+				  #endif
+				// 2*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					l += (iroot << 1);
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+				  #ifdef USE_SSE2
+					c_tmp += 2; s_tmp = c_tmp+1;
+					VEC_DBL_INIT(c_tmp, rt);	VEC_DBL_INIT(s_tmp, it);
+				  #else
+					roots0[k+2] = rt; roots0[k+3] = it;
+				  #endif
+				// 4*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					l += (iroot << 2);
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+				  #ifdef USE_SSE2
+					c_tmp += 2; s_tmp = c_tmp+1;
+					VEC_DBL_INIT(c_tmp, rt);	VEC_DBL_INIT(s_tmp, it);
+				  #else
+					roots0[k+4] = rt; roots0[k+5] = it;
+				  #endif
+				// 8*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					l += (iroot << 2) + iroot;
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+				  #ifdef USE_SSE2
+					c_tmp += 2; s_tmp = c_tmp+1;
+					VEC_DBL_INIT(c_tmp, rt);	VEC_DBL_INIT(s_tmp, it);
+				  #else
+					roots0[k+6] = rt; roots0[k+7] = it;
+				  #endif
+				// 13*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+				  #ifdef USE_SSE2
+					c_tmp += 2; s_tmp = c_tmp+1;
+					VEC_DBL_INIT(c_tmp, rt);	VEC_DBL_INIT(s_tmp, it);
+				  #else
+					roots0[k+8] = rt; roots0[k+9] = it;
+				  #endif
+				}
+				if(ii == 0) {
+					i = j>>5;	// >>5 removes <<5 used to obtain loop stride
+				//	printf("%d,",l);
+				// 1*iroot:
+					k = (i<<3) + (i<<1);	// 10*i (corr. to 5 complex roots)
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					l += iroot;
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+				  #ifdef USE_SSE2
+					roots1[k].d0 = rt; roots1[k+1].d0 = it;
+				  #else
+					roots1[k] = rt; roots1[k+1] = it;
+				//	printf("Roots1[%d]: %15.13f, %15.13f\n",k,rt,it);
+				  #endif
+				// 2*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					l += (iroot << 1);
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+				  #ifdef USE_SSE2
+					roots1[k+2].d0 = rt; roots1[k+3].d0 = it;
+				  #else
+					roots1[k+2] = rt; roots1[k+3] = it;
+				  #endif
+				// 4*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					l += (iroot << 2);
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+				  #ifdef USE_SSE2
+					roots1[k+4].d0 = rt; roots1[k+5].d0 = it;
+				  #else
+					roots1[k+4] = rt; roots1[k+5] = it;
+				  #endif
+				// 8*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					l += (iroot << 2) + iroot;
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+				  #ifdef USE_SSE2
+					roots1[k+6].d0 = rt; roots1[k+7].d0 = it;
+				  #else
+					roots1[k+6] = rt; roots1[k+7] = it;
+				  #endif
+				// 13*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+				  #ifdef USE_SSE2
+					roots1[k+8].d0 = rt; roots1[k+9].d0 = it;
+				  #else
+					roots1[k+8] = rt; roots1[k+9] = it;
+				  #endif
+				}
+			/* In SSE2 mode, also need next set of sincos: */
+			  #ifdef USE_SSE2
+				// 2nd set:
+				iroot = index0[index0_idx] + index1[index1_idx];
+				if(++index1_idx >= index1_mod)
+				{
+					index1_idx -= index1_mod;
+					++index0_idx;
+				}
+				l = iroot;
+				if(ii == 0) {
+					i = j>>5;	// >>5 removes <<5 used to obtain loop stride
+				//	printf("%d,",l);
+					k = (i<<3) + (i<<1);	// 10*i (corr. to 5 complex roots)
+				// 1*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					l += iroot;
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+					roots1[k].d1 = rt; roots1[k+1].d1 = it;
+				// 2*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					l += (iroot << 1);
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+					roots1[k+2].d1 = rt; roots1[k+3].d1 = it;
+				// 4*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					l += (iroot << 2);
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+					roots1[k+4].d1 = rt; roots1[k+5].d1 = it;
+				// 8*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					l += (iroot << 2) + iroot;
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+					roots1[k+6].d1 = rt; roots1[k+7].d1 = it;
+				// 13*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+					roots1[k+8].d1 = rt; roots1[k+9].d1 = it;
+				}
+
+			  /* In AVX mode, also need next 2 sets of sincos: */
+			   #ifdef USE_AVX
+				// 3rd set (of 4):
+				iroot = index0[index0_idx] + index1[index1_idx];
+				if(++index1_idx >= index1_mod)
+				{
+					index1_idx -= index1_mod;
+					++index0_idx;
+				}
+				l = iroot;
+				if(ii == 0) {
+					i = j>>5;	// >>5 removes <<5 used to obtain loop stride
+				//	printf("%d,",l);
+					k = (i<<3) + (i<<1);	// 10*i (corr. to 5 complex roots)
+				// 1*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					l += iroot;
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+					roots1[k].d2 = rt; roots1[k+1].d2 = it;
+				// 2*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					l += (iroot << 1);
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+					roots1[k+2].d2 = rt; roots1[k+3].d2 = it;
+				// 4*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					l += (iroot << 2);
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+					roots1[k+4].d2 = rt; roots1[k+5].d2 = it;
+				// 8*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					l += (iroot << 2) + iroot;
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+					roots1[k+6].d2 = rt; roots1[k+7].d2 = it;
+				// 13*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+					roots1[k+8].d2 = rt; roots1[k+9].d2 = it;
+				}
+
+				// 4th set:
+				iroot = index0[index0_idx] + index1[index1_idx];
+				if(++index1_idx >= index1_mod)
+				{
+					index1_idx -= index1_mod;
+					++index0_idx;
+				}
+				l = iroot;
+				if(ii == 0) {
+					i = j>>5;	// >>5 removes <<5 used to obtain loop stride
+				//	printf("%d,",l);
+					k = (i<<3) + (i<<1);	// 10*i (corr. to 5 complex roots)
+				// 1*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					l += iroot;
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+					roots1[k].d3 = rt; roots1[k+1].d3 = it;
+				// 2*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					l += (iroot << 1);
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+					roots1[k+2].d3 = rt; roots1[k+3].d3 = it;
+				// 4*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					l += (iroot << 2);
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+					roots1[k+4].d3 = rt; roots1[k+5].d3 = it;
+				// 8*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					l += (iroot << 2) + iroot;
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+					roots1[k+6].d3 = rt; roots1[k+7].d3 = it;
+				// 13*iroot:
+					k1=(l & NRTM1);
+					k2=(l >> NRT_BITS);
+					re0=rt0[k1].re;	im0=rt0[k1].im;
+					re1=rt1[k2].re;	im1=rt1[k2].im;
+					rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+					roots1[k+8].d3 = rt; roots1[k+9].d3 = it;
+				}
+			   #endif	// USE_AVX
+			  #endif	// USE_SSE2
+			}	// j
+		}	// ii
+		// Propagate the above data to the remaining threads:
+	  #ifdef MULTITHREAD
+		// Number of doubles/vec_dbl needed per thread for both local-store roots tables:
+		j = 10*(radix0 + 15*(n>>1)/(radix0<<4));
+		// #bytes:
+	   #ifdef USE_AVX
+		nbytes = j << 5;
+	   #elif defined(USE_SSE2)
+		nbytes = j << 4;
+	   #else
+		nbytes = j << 3;
+	   #endif
+		tmp = __rr0;
+		tm1 = tmp + j;
+		l = MAX(init_sse2, max_threads);	// max_threads will get inited in next if(), so hack it here
+		for(i = 1; i < l; ++i) {
+			memcpy(tm1, tmp, nbytes);
+			tm1 += j;
+		}
+	  #endif
+	#endif	// NEW_2TABLE_CMUL
 		if(!init_sse2)	// SSE2 stuff pvsly inited, but new leading radix (e.g. self-test mode)
 			return;
 	}
@@ -309,44 +717,49 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 			cc0   = sc_ptr + 0x21;
 			ss0   = sc_ptr + 0x22;
 			two   = sc_ptr + 0x43;
+			one   = sc_ptr + 0x44;
 			for(i = 0; i < max_threads; ++i) {
 				/* These remain fixed within each per-thread local store: */
 				VEC_DBL_INIT(isrt2, ISRT2);
 				VEC_DBL_INIT(two  , 2.0);
+				VEC_DBL_INIT(one  , 1.0);
 				VEC_DBL_INIT(cc0  , c);
 				VEC_DBL_INIT(ss0  , s);
 				isrt2 += 72;	/* Move on to next thread's local store */
 				cc0   += 72;
 				ss0   += 72;
 				two   += 72;
+				one   += 72;
 			}
 		#elif defined(COMPILER_TYPE_GCC)
-			r1  = sc_ptr;
-			r9  = sc_ptr + 0x08;
-			r17 = sc_ptr + 0x10;
-			r25 = sc_ptr + 0x18;
-			isrt2 = r1 + 0x20;
-			cc0 = r1 + 0x21;
-			ss0 = r1 + 0x22;
-			c8    = r1 + 0x25;	/* Need some added root-addresses here for expedited roots computation via SSE2_CMUL_EXPO macros */
-			c4    = r1 + 0x27;
-			c12   = r1 + 0x29;
-			c2    = r1 + 0x2b;
-			c10   = r1 + 0x2d;
-			c6    = r1 + 0x2f;
-			c14   = r1 + 0x31;
-			c1    = r1 + 0x33;
-			c9    = r1 + 0x35;
-			c5    = r1 + 0x37;
-			c13   = r1 + 0x39;
-			c3    = r1 + 0x3b;
-			c11   = r1 + 0x3d;
-			c7    = r1 + 0x3f;
-			c15   = r1 + 0x41;
-			two = r1 + 0x43;
+			r1    = sc_ptr;
+			r9    = sc_ptr + 0x08;
+			r17   = sc_ptr + 0x10;
+			r25   = sc_ptr + 0x18;
+			isrt2 = sc_ptr + 0x20;
+			cc0   = sc_ptr + 0x21;
+			ss0   = sc_ptr + 0x22;
+			c8    = sc_ptr + 0x25;	/* Need some added root-addresses here for expedited roots computation via SSE2_CMUL_EXPO macros */
+			c4    = sc_ptr + 0x27;
+			c12   = sc_ptr + 0x29;
+			c2    = sc_ptr + 0x2b;
+			c10   = sc_ptr + 0x2d;
+			c6    = sc_ptr + 0x2f;
+			c14   = sc_ptr + 0x31;
+			c1    = sc_ptr + 0x33;
+			c9    = sc_ptr + 0x35;
+			c5    = sc_ptr + 0x37;
+			c13   = sc_ptr + 0x39;
+			c3    = sc_ptr + 0x3b;
+			c11   = sc_ptr + 0x3d;
+			c7    = sc_ptr + 0x3f;
+			c15   = sc_ptr + 0x41;
+			two   = sc_ptr + 0x43;
+			one   = sc_ptr + 0x44;
 			/* These remain fixed: */
 			VEC_DBL_INIT(isrt2, ISRT2);
 			VEC_DBL_INIT(two  , 2.0);
+			VEC_DBL_INIT(one  , 1.0);
 			VEC_DBL_INIT(cc0  , c);
 			VEC_DBL_INIT(ss0  , s);
 		#else
@@ -371,7 +784,7 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 			r17 = sc_ptr + 0x10;		c7  = sc_ptr + 0x3f;
 			r18 = sc_ptr + 0x11;		c15 = sc_ptr + 0x41;
 			r19 = sc_ptr + 0x12;		two = sc_ptr + 0x43;
-			r20 = sc_ptr + 0x13;
+			r20 = sc_ptr + 0x13;		one = sc_ptr + 0x44;
 			r21 = sc_ptr + 0x14;
 			r22 = sc_ptr + 0x15;
 			r23 = sc_ptr + 0x16;
@@ -387,6 +800,7 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 			/* These remain fixed: */
 			VEC_DBL_INIT(isrt2, ISRT2);
 			VEC_DBL_INIT(two  , 2.0);
+			VEC_DBL_INIT(one  , 1.0);
 			VEC_DBL_INIT(cc0  , c);
 			VEC_DBL_INIT(ss0  , s);
 		#endif
@@ -398,6 +812,10 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 	/* If multithreaded, set the local-store pointers needed for the current thread; */
 #ifdef MULTITHREAD
 	ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+  #ifdef NEW_2TABLE_CMUL
+	roots0 = __rr0 + thr_id*rootsn;
+	roots1 = roots0 + m10xradix;
+  #endif
   #ifdef USE_SSE2
 	r1    = __r0 + thr_id*72;
 	r9    = r1 + 0x08;
@@ -432,29 +850,352 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 	*/
 	index0_idx = ii;
 	index1_idx = 0;
-
+//printf("\nJ = [%d-%d]:\n",0,ndivrad0);
 	for(j = 0; j < ndivrad0; j += stride)
 	{
 		j1 = j + ( (j >> DAT_BITS) << PAD_BITS );
 		j2 = j1+RE_IM_STRIDE;
-	/*
-		iroot = index[k];
-		ASSERT(HERE, iroot == index0[index0_idx] + index1[index1_idx],"radix16_dyadic_square.c: iroot == index0[index0_idx] + index1[index1_idx]");
-		k = k + 1;	// increment sincos array index
-	*/
 
-		iroot = index0[index0_idx] + index1[index1_idx];
-	//	fprintf(stderr, "idx0 = %d, idx1 = %d, irootA = %d\n",index0_idx,index1_idx,iroot);
+	#ifdef NEW_2TABLE_CMUL
+
+	  #ifdef USE_AVX
+
+		k1 = (ii<<3) + (ii<<1);	// 10*ii (corr. to 5 complex roots)
+		k2 = (j>>2) + (j>>4);	// 10*i (corr. to 5 complex roots)
+
+		c_tmp = cc0 + 0x02; s_tmp = c_tmp+1;	/* c0,s0 */
+		rt = 1.0; it = 0.0;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+
+		tmp = roots0+k1;
+		tm1 = roots1+k2;
+		__asm__ volatile (\
+		"movq	%[__roots0]	,%%rcx\n\t"\
+		"movq	%[__roots1]	,%%rdx\n\t"\
+		"movq	%[__cc0]	,%%rsi\n\t"\
+		/* c1: */\
+		"vmovaps	     (%%rcx),%%ymm0		\n\t"\
+		"vmovaps	0x020(%%rcx),%%ymm2		\n\t"\
+		"vmovaps	     (%%rdx),%%ymm4		\n\t"\
+		"vmovaps	0x20(%%rdx),%%ymm5		\n\t"\
+		"vmovaps	%%ymm0,%%ymm1			\n\t"\
+		"vmovaps	%%ymm2,%%ymm3			\n\t	"	/* c8: */\
+		"vmulpd		%%ymm4,%%ymm0,%%ymm0	\n\t		vmovaps	0x0c0(%%rcx),%%ymm0		\n\t"\
+		"vmulpd		%%ymm5,%%ymm1,%%ymm1	\n\t		vmovaps	0x0e0(%%rcx),%%ymm2		\n\t"\
+		"vmulpd		%%ymm4,%%ymm2,%%ymm2	\n\t		vmovaps	0x0c0(%%rdx),%%ymm4		\n\t"\
+		"vmulpd		%%ymm5,%%ymm3,%%ymm3	\n\t		vmovaps	0x0e0(%%rdx),%%ymm5		\n\t"\
+		"vsubpd		%%ymm3,%%ymm0,%%ymm0	\n\t		vmovaps	%%ymm0,%%ymm1			\n\t"\
+		"vaddpd		%%ymm2,%%ymm1,%%ymm1	\n\t		vmovaps	%%ymm2,%%ymm3			\n\t"\
+		"vmovaps	%%ymm0,0x240(%%rsi)		\n\t		vmulpd		%%ymm4,%%ymm0,%%ymm0\n\t"\
+		"vmovaps	%%ymm1,0x260(%%rsi)		\n\t		vmulpd		%%ymm5,%%ymm1,%%ymm1\n\t"\
+		/* c2: */									"	vmulpd		%%ymm4,%%ymm2,%%ymm2\n\t"\
+		"vmovaps	0x040(%%rcx),%%ymm0		\n\t		vmulpd		%%ymm5,%%ymm3,%%ymm3\n\t"\
+		"vmovaps	0x060(%%rcx),%%ymm2		\n\t		vsubpd		%%ymm3,%%ymm0,%%ymm0\n\t"\
+		"vmovaps	0x040(%%rdx),%%ymm4		\n\t		vaddpd		%%ymm2,%%ymm1,%%ymm1\n\t"\
+		"vmovaps	0x060(%%rdx),%%ymm5		\n\t		vmovaps	%%ymm0,0x080(%%rsi)		\n\t"\
+		"vmovaps	%%ymm0,%%ymm1			\n\t		vmovaps	%%ymm1,0x0a0(%%rsi)		\n\t"\
+		"vmovaps	%%ymm2,%%ymm3			\n\t	"	/* c13: */\
+		"vmulpd		%%ymm4,%%ymm0,%%ymm0	\n\t		vmovaps	0x100(%%rcx),%%ymm0		\n\t"\
+		"vmulpd		%%ymm5,%%ymm1,%%ymm1	\n\t		vmovaps	0x120(%%rcx),%%ymm2		\n\t"\
+		"vmulpd		%%ymm4,%%ymm2,%%ymm2	\n\t		vmovaps	0x100(%%rdx),%%ymm4		\n\t"\
+		"vmulpd		%%ymm5,%%ymm3,%%ymm3	\n\t		vmovaps	0x120(%%rdx),%%ymm5		\n\t"\
+		"vsubpd		%%ymm3,%%ymm0,%%ymm0	\n\t		vmovaps	%%ymm0,%%ymm1			\n\t"\
+		"vaddpd		%%ymm2,%%ymm1,%%ymm1	\n\t		vmovaps	%%ymm2,%%ymm3			\n\t"\
+		"vmovaps	%%ymm0,0x140(%%rsi)		\n\t		vmulpd		%%ymm4,%%ymm0,%%ymm0\n\t"\
+		"vmovaps	%%ymm1,0x160(%%rsi)		\n\t		vmulpd		%%ymm5,%%ymm1,%%ymm1\n\t"\
+		/* c4: */									"	vmulpd		%%ymm4,%%ymm2,%%ymm2\n\t"\
+		"vmovaps	0x080(%%rcx),%%ymm0		\n\t		vmulpd		%%ymm5,%%ymm3,%%ymm3\n\t"\
+		"vmovaps	0x0a0(%%rcx),%%ymm2		\n\t		vsubpd		%%ymm3,%%ymm0,%%ymm0\n\t"\
+		"vmovaps	0x080(%%rdx),%%ymm4		\n\t		vaddpd		%%ymm2,%%ymm1,%%ymm1\n\t"\
+		"vmovaps	0x0a0(%%rdx),%%ymm5		\n\t		vmovaps	%%ymm0,0x300(%%rsi)		\n\t"\
+		"vmovaps	%%ymm0,%%ymm1			\n\t		vmovaps	%%ymm1,0x320(%%rsi)		\n\t"\
+		"vmovaps	%%ymm2,%%ymm3			\n\t"\
+		"vmulpd		%%ymm4,%%ymm0,%%ymm0	\n\t"\
+		"vmulpd		%%ymm5,%%ymm1,%%ymm1	\n\t"\
+		"vmulpd		%%ymm4,%%ymm2,%%ymm2	\n\t"\
+		"vmulpd		%%ymm5,%%ymm3,%%ymm3	\n\t"\
+		"vsubpd		%%ymm3,%%ymm0,%%ymm0	\n\t"\
+		"vaddpd		%%ymm2,%%ymm1,%%ymm1	\n\t"\
+		"vmovaps	%%ymm0,0x0c0(%%rsi)		\n\t"\
+		"vmovaps	%%ymm1,0x0e0(%%rsi)		\n\t"\
+		:					/* outputs: none */\
+		: [__cc0]  "m" (cc0)	/* All inputs from memory addresses here */\
+		 ,[__roots0] "m" (tmp)\
+		 ,[__roots1] "m" (tm1)\
+		: "cc","memory","rsi","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		);
+
+	  #elif defined(USE_SSE2)
+
+		k1 = (ii<<3) + (ii<<1);	// 10*ii (corr. to 5 complex roots)
+		k2 = (j>>2) + (j>>4);	// 10*i (corr. to 5 complex roots)
+
+		c_tmp = cc0 + 0x02; s_tmp = c_tmp+1;	/* c0,s0 */
+		rt = 1.0; it = 0.0;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	   #if 0	// Original scalar-double C prototyping code to show what the following SIMD inline code is doing:
+		// c1:
+		c_tmp = cc0 + 0x12; s_tmp = c_tmp+1;
+		re0=roots0[k1].d0;	im0=roots0[k1+1].d0;
+		re1=roots1[k2].d0;	im1=roots1[k2+1].d0;
+		c_tmp->d0=re0*re1-im0*im1;	s_tmp->d0=re0*im1+im0*re1;
+		re0=roots0[k1].d1;	im0=roots0[k1+1].d1;
+		re1=roots1[k2].d1;	im1=roots1[k2+1].d1;
+		c_tmp->d1=re0*re1-im0*im1;	s_tmp->d1=re0*im1+im0*re1;
+		// c2:
+		c_tmp = cc0 + 0xa; s_tmp = c_tmp+1;
+		re0=roots0[k1+2].d0;	im0=roots0[k1+3].d0;
+		re1=roots1[k2+2].d0;	im1=roots1[k2+3].d0;
+		c_tmp->d0=re0*re1-im0*im1;	s_tmp->d0=re0*im1+im0*re1;
+		re0=roots0[k1+2].d1;	im0=roots0[k1+3].d1;
+		re1=roots1[k2+2].d1;	im1=roots1[k2+3].d1;
+		c_tmp->d1=re0*re1-im0*im1;	s_tmp->d1=re0*im1+im0*re1;
+		// c4:
+		c_tmp = cc0 + 0x6; s_tmp = c_tmp+1;
+		re0=roots0[k1+4].d0;	im0=roots0[k1+5].d0;
+		re1=roots1[k2+4].d0;	im1=roots1[k2+5].d0;
+		c_tmp->d0=re0*re1-im0*im1;	s_tmp->d0=re0*im1+im0*re1;
+		re0=roots0[k1+4].d1;	im0=roots0[k1+5].d1;
+		re1=roots1[k2+4].d1;	im1=roots1[k2+5].d1;
+		c_tmp->d1=re0*re1-im0*im1;	s_tmp->d1=re0*im1+im0*re1;
+		// c8:
+		c_tmp = cc0 + 0x4; s_tmp = c_tmp+1;
+		re0=roots0[k1+6].d0;	im0=roots0[k1+7].d0;
+		re1=roots1[k2+6].d0;	im1=roots1[k2+7].d0;
+		c_tmp->d0=re0*re1-im0*im1;	s_tmp->d0=re0*im1+im0*re1;
+		re0=roots0[k1+6].d1;	im0=roots0[k1+7].d1;
+		re1=roots1[k2+6].d1;	im1=roots1[k2+7].d1;
+		c_tmp->d1=re0*re1-im0*im1;	s_tmp->d1=re0*im1+im0*re1;
+		// c13:
+		c_tmp = cc0 + 0x18; s_tmp = c_tmp+1;
+		re0=roots0[k1+8].d0;	im0=roots0[k1+9].d0;
+		re1=roots1[k2+8].d0;	im1=roots1[k2+9].d0;
+		c_tmp->d0=re0*re1-im0*im1;	s_tmp->d0=re0*im1+im0*re1;
+		re0=roots0[k1+8].d1;	im0=roots0[k1+9].d1;
+		re1=roots1[k2+8].d1;	im1=roots1[k2+9].d1;
+		c_tmp->d1=re0*re1-im0*im1;	s_tmp->d1=re0*im1+im0*re1;
+	   #else
+
+		tmp = roots0+k1;
+		tm1 = roots1+k2;
+		#if OS_BITS == 32
+		__asm__ volatile (\
+		"movl	%[__roots0]	,%%ecx\n\t"\
+		"movl	%[__roots1]	,%%edx\n\t"\
+		"movl	%[__cc0]	,%%esi\n\t"\
+		/* c1: */\
+		"movaps	    (%%ecx),%%xmm0		\n\t"\
+		"movaps	0x10(%%ecx),%%xmm2		\n\t"\
+		"movaps	%%xmm0,%%xmm1			\n\t"\
+		"movaps	%%xmm2,%%xmm3			\n\t	"	/* c8: */\
+		"mulpd	    (%%edx),%%xmm0		\n\t		movaps	0x60(%%ecx),%%xmm4\n\t"\
+		"mulpd	0x10(%%edx),%%xmm1		\n\t		movaps	0x70(%%ecx),%%xmm6\n\t"\
+		"mulpd	    (%%edx),%%xmm2		\n\t		movaps	%%xmm4,%%xmm5\n\t"\
+		"mulpd	0x10(%%edx),%%xmm3		\n\t		movaps	%%xmm6,%%xmm7\n\t"\
+		"subpd	%%xmm3,%%xmm0			\n\t		mulpd	0x60(%%edx),%%xmm4\n\t"\
+		"addpd	%%xmm2,%%xmm1			\n\t		mulpd	0x70(%%edx),%%xmm5\n\t"\
+		"movaps	%%xmm0,0x120(%%esi)		\n\t		mulpd	0x60(%%edx),%%xmm6\n\t"\
+		"movaps	%%xmm1,0x130(%%esi)		\n\t		mulpd	0x70(%%edx),%%xmm7\n\t"\
+		/* c2: */								"	subpd	%%xmm7,%%xmm4\n\t"\
+		"movaps	0x20(%%ecx),%%xmm0		\n\t		addpd	%%xmm6,%%xmm5\n\t"\
+		"movaps	0x30(%%ecx),%%xmm2		\n\t		movaps	%%xmm4,0x040(%%esi)\n\t"\
+		"movaps	%%xmm0,%%xmm1			\n\t		movaps	%%xmm5,0x050(%%esi)\n\t"\
+		"movaps	%%xmm2,%%xmm3			\n\t	"	/* c13: */\
+		"mulpd	0x20(%%edx),%%xmm0		\n\t		movaps	0x80(%%ecx),%%xmm4\n\t"\
+		"mulpd	0x30(%%edx),%%xmm1		\n\t		movaps	0x90(%%ecx),%%xmm6\n\t"\
+		"mulpd	0x20(%%edx),%%xmm2		\n\t		movaps	%%xmm4,%%xmm5\n\t"\
+		"mulpd	0x30(%%edx),%%xmm3		\n\t		movaps	%%xmm6,%%xmm7\n\t"\
+		"subpd	%%xmm3,%%xmm0			\n\t		mulpd	0x80(%%edx),%%xmm4\n\t"\
+		"addpd	%%xmm2,%%xmm1			\n\t		mulpd	0x90(%%edx),%%xmm5\n\t"\
+		"movaps	%%xmm0,0x0a0(%%esi)		\n\t		mulpd	0x80(%%edx),%%xmm6\n\t"\
+		"movaps	%%xmm1,0x0b0(%%esi)		\n\t		mulpd	0x90(%%edx),%%xmm7\n\t"\
+		/* c4: */								"	subpd	%%xmm7,%%xmm4\n\t"\
+		"movaps	0x40(%%ecx),%%xmm0		\n\t		addpd	%%xmm6,%%xmm5\n\t"\
+		"movaps	0x50(%%ecx),%%xmm2		\n\t		movaps	%%xmm4,0x180(%%esi)\n\t"\
+		"movaps	%%xmm0,%%xmm1			\n\t		movaps	%%xmm5,0x190(%%esi)\n\t"\
+		"movaps	%%xmm2,%%xmm3			\n\t"\
+		"mulpd	0x40(%%edx),%%xmm0		\n\t"\
+		"mulpd	0x50(%%edx),%%xmm1		\n\t"\
+		"mulpd	0x40(%%edx),%%xmm2		\n\t"\
+		"mulpd	0x50(%%edx),%%xmm3		\n\t"\
+		"subpd	%%xmm3,%%xmm0			\n\t"\
+		"addpd	%%xmm2,%%xmm1			\n\t"\
+		"movaps	%%xmm0,0x060(%%esi)		\n\t"\
+		"movaps	%%xmm1,0x070(%%esi)		\n\t"\
+		:					/* outputs: none */\
+		: [__cc0]  "m" (cc0)	/* All inputs from memory addresses here */\
+		 ,[__roots0] "m" (tmp)\
+		 ,[__roots1] "m" (tm1)\
+		: "cc","memory","esi","ecx","edx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
+		);
+		#else	// OS_BITS == 64
+		__asm__ volatile (\
+		"movq	%[__roots0]	,%%rcx\n\t"\
+		"movq	%[__roots1]	,%%rdx\n\t"\
+		"movq	%[__cc0]	,%%rsi\n\t"\
+		/* c1: */\
+		"movaps	    (%%rcx),%%xmm0		\n\t"\
+		"movaps	0x10(%%rcx),%%xmm2		\n\t"\
+		"movaps	%%xmm0,%%xmm1			\n\t"\
+		"movaps	%%xmm2,%%xmm3			\n\t"		/* c8: */\
+		"mulpd	    (%%rdx),%%xmm0		\n\t		movaps	0x60(%%rcx),%%xmm4\n\t"\
+		"mulpd	0x10(%%rdx),%%xmm1		\n\t		movaps	0x70(%%rcx),%%xmm6\n\t"\
+		"mulpd	    (%%rdx),%%xmm2		\n\t		movaps	%%xmm4,%%xmm5\n\t"\
+		"mulpd	0x10(%%rdx),%%xmm3		\n\t		movaps	%%xmm6,%%xmm7\n\t"\
+		"subpd	%%xmm3,%%xmm0			\n\t		mulpd	0x60(%%rdx),%%xmm4\n\t"\
+		"addpd	%%xmm2,%%xmm1			\n\t		mulpd	0x70(%%rdx),%%xmm5\n\t"\
+		"movaps	%%xmm0,0x120(%%rsi)		\n\t		mulpd	0x60(%%rdx),%%xmm6\n\t"\
+		"movaps	%%xmm1,0x130(%%rsi)		\n\t		mulpd	0x70(%%rdx),%%xmm7\n\t"\
+		/* c2: */								"	subpd	%%xmm7,%%xmm4\n\t"\
+		"movaps	0x20(%%rcx),%%xmm0		\n\t		addpd	%%xmm6,%%xmm5\n\t"\
+		"movaps	0x30(%%rcx),%%xmm2		\n\t		movaps	%%xmm4,0x040(%%rsi)\n\t"\
+		"movaps	%%xmm0,%%xmm1			\n\t		movaps	%%xmm5,0x050(%%rsi)\n\t"\
+		"movaps	%%xmm2,%%xmm3			\n\t	"	/* c13: */\
+		"mulpd	0x20(%%rdx),%%xmm0		\n\t		movaps	0x80(%%rcx),%%xmm4\n\t"\
+		"mulpd	0x30(%%rdx),%%xmm1		\n\t		movaps	0x90(%%rcx),%%xmm6\n\t"\
+		"mulpd	0x20(%%rdx),%%xmm2		\n\t		movaps	%%xmm4,%%xmm5\n\t"\
+		"mulpd	0x30(%%rdx),%%xmm3		\n\t		movaps	%%xmm6,%%xmm7\n\t"\
+		"subpd	%%xmm3,%%xmm0			\n\t		mulpd	0x80(%%rdx),%%xmm4\n\t"\
+		"addpd	%%xmm2,%%xmm1			\n\t		mulpd	0x90(%%rdx),%%xmm5\n\t"\
+		"movaps	%%xmm0,0x0a0(%%rsi)		\n\t		mulpd	0x80(%%rdx),%%xmm6\n\t"\
+		"movaps	%%xmm1,0x0b0(%%rsi)		\n\t		mulpd	0x90(%%rdx),%%xmm7\n\t"\
+		/* c4: */								"	subpd	%%xmm7,%%xmm4\n\t"\
+		"movaps	0x40(%%rcx),%%xmm0		\n\t		addpd	%%xmm6,%%xmm5\n\t"\
+		"movaps	0x50(%%rcx),%%xmm2		\n\t		movaps	%%xmm4,0x180(%%rsi)\n\t"\
+		"movaps	%%xmm0,%%xmm1			\n\t		movaps	%%xmm5,0x190(%%rsi)\n\t"\
+		"movaps	%%xmm2,%%xmm3			\n\t"\
+		"mulpd	0x40(%%rdx),%%xmm0		\n\t"\
+		"mulpd	0x50(%%rdx),%%xmm1		\n\t"\
+		"mulpd	0x40(%%rdx),%%xmm2		\n\t"\
+		"mulpd	0x50(%%rdx),%%xmm3		\n\t"\
+		"subpd	%%xmm3,%%xmm0			\n\t"\
+		"addpd	%%xmm2,%%xmm1			\n\t"\
+		"movaps	%%xmm0,0x060(%%rsi)		\n\t"\
+		"movaps	%%xmm1,0x070(%%rsi)		\n\t"\
+		:					/* outputs: none */\
+		: [__cc0]  "m" (cc0)	/* All inputs from memory addresses here */\
+		 ,[__roots0] "m" (tmp)\
+		 ,[__roots1] "m" (tm1)\
+		: "cc","memory","rsi","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		);
+		#endif	// OS_BITS == 32 OR 64?
+
+	   #endif
+		// Now generate the remaining roots from the smaller "seed set":
+		SSE2_CMUL_EXPO(c1,c4 ,c3 ,c5 );
+		SSE2_CMUL_EXPO(c1,c8 ,c7 ,c9 );
+		SSE2_CMUL_EXPO(c2,c8 ,c6 ,c10);
+		SSE2_CMUL_EXPO(c1,c13,c12,c14);
+		SSE2_CMUL_EXPO(c2,c13,c11,c15);
+
+	  #else	// Scalar-double mode:
+
+		k1 = (ii<<3) + (ii<<1);	// 10*ii (corr. to 5 complex roots)
+		k2 = (j>>2) + (j>>4);	// 10*i (corr. to 5 complex roots)
+		// c1:
+		re0 = roots0[k1];	im0 = roots0[k1+1];
+		re1 = roots1[k2];	im1 = roots1[k2+1];
+		c1 = re0*re1-im0*im1;	s1 = re0*im1+im0*re1;
+		// c2:
+		re0 = roots0[k1+2];	im0 = roots0[k1+3];
+		re1 = roots1[k2+2];	im1 = roots1[k2+3];
+		c2 = re0*re1-im0*im1;	s2 = re0*im1+im0*re1;
+		// c4:
+		re0 = roots0[k1+4];	im0 = roots0[k1+5];
+		re1 = roots1[k2+4];	im1 = roots1[k2+5];
+		c4 = re0*re1-im0*im1;	s4 = re0*im1+im0*re1;
+		// c8:
+		re0 = roots0[k1+6];	im0 = roots0[k1+7];
+		re1 = roots1[k2+6];	im1 = roots1[k2+7];
+		c8 = re0*re1-im0*im1;	s8 = re0*im1+im0*re1;
+		// c13:
+		re0 = roots0[k1+8];	im0 = roots0[k1+9];
+		re1 = roots1[k2+8];	im1 = roots1[k2+9];
+		c13 = re0*re1-im0*im1;	s13 = re0*im1+im0*re1;
+
+		// Now generate the remaining roots from the smaller "seed set":
+		/* c3,5 */
+		t1=c1 *c4 ;	t2=c1 *s4 ;	rt=s1 *c4 ;	it=s1 *s4;
+		c3 =t1 +it;	s3 =t2 -rt;	c5 =t1 -it;	s5 =t2 +rt;
+
+		/* c6,7,9,10 */
+		t1=c1 *c8 ;	t2=c1 *s8 ;	rt=s1 *c8 ;	it=s1 *s8;
+		c7 =t1 +it;	s7 =t2 -rt;	c9 =t1 -it;	s9 =t2 +rt;
+
+		t1=c2 *c8 ;	t2=c2 *s8 ;	rt=s2 *c8 ;	it=s2 *s8;
+		c6 =t1 +it;	s6 =t2 -rt;	c10=t1 -it;	s10=t2 +rt;
+
+		/* c11,12,14,15 */
+		t1=c1 *c13;	t2=c1 *s13;	rt=s1 *c13;	it=s1 *s13;
+		c12=t1 +it;	s12=t2 -rt;	c14=t1 -it;	s14=t2 +rt;
+
+		t1=c2 *c13;	t2=c2 *s13;	rt=s2 *c13;	it=s2 *s13;
+		c11=t1 +it;	s11=t2 -rt;	c15=t1 -it;	s15=t2 +rt;
+
+	  #endif
+
+	#else	// #ifndef NEW_2TABLE_CMUL:
+
+	  #if 0//def USE_AVX2	// Special code for AVX2: do all 4 elts of sincos quartet using gather-load and SIMD arithmetic
+
+		struct uint32x4 l_4,iroot_4;
+
+		//=== Need 4-way vector-SIMD version of this ===
+		iroot_4->d0 = index0[index0_idx] + index1[index1_idx];
 		if(++index1_idx >= index1_mod)
 		{
 			index1_idx -= index1_mod;
-		//	ASSERT(HERE, index0_idx < index0_mod,"radix16_dyadic_square.c: index0_idx < index0_mod");
 			++index0_idx;
 		}
+		iroot_4->d1 = index0[index0_idx] + index1[index1_idx];
+		if(++index1_idx >= index1_mod)
+		{
+			index1_idx -= index1_mod;
+			++index0_idx;
+		}
+		iroot_4->d2 = index0[index0_idx] + index1[index1_idx];
+		if(++index1_idx >= index1_mod)
+		{
+			index1_idx -= index1_mod;
+			++index0_idx;
+		}
+		iroot_4->d3 = index0[index0_idx] + index1[index1_idx];
+		if(++index1_idx >= index1_mod)
+		{
+			index1_idx -= index1_mod;
+			++index0_idx;
+		}
+	//=== start asm here ===
+	__asm__ volatile (\
+		"movq	%[__iroot_4],%%rax		\n\t"\
+		"vmovaps	 (%%rax),%%xmm0		\n\t"/* iroot quartet is 4x32-bit int */\
+		"vmovaps	 %%xmm0,%%xmm1		\n\t"/* l = iroot */\
+		:					// outputs: none
+		: [__iroot_4] "m" (iroot_4)	// All inputs from memory addresses here
+		: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	// Clobbered registers
+	);
+//=====================
+//*** need full inline-asm for these 5 macro calls ***
+		// Now generate the remaining roots from the smaller "seed set":
+		SSE2_CMUL_EXPO(c1,c4 ,c3 ,c5 );
+		SSE2_CMUL_EXPO(c1,c8 ,c7 ,c9 );
+		SSE2_CMUL_EXPO(c2,c8 ,c6 ,c10);
+		SSE2_CMUL_EXPO(c1,c13,c12,c14);
+		SSE2_CMUL_EXPO(c2,c13,c11,c15);
 
+	  #else	// Non-AVX2 SIMD and scalar-double cases:
+
+		iroot = index0[index0_idx] + index1[index1_idx];
+		if(++index1_idx >= index1_mod)
+		{
+			index1_idx -= index1_mod;
+			++index0_idx;
+		}
 		l = iroot;
 
-	#ifdef USE_SSE2
+	  #ifdef USE_SSE2
 		/* Due to roots-locality considerations, roots (c,s)[0-15] are offset w.r.to the thread-local ptr pair as
 		(cc0,ss0) + 0x[2,12,a,1a,6,16,e,1e,4,14,c,1c,8,18,10,20]. Here, due to the need to compute a new set of roots
 		for each set of inputs, we use a streamlined sequence which computes only the [0,1,2,4,8,13]th roots with
@@ -465,7 +1206,7 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 		rt = 1.0; it = 0.0;
 		VEC_DBL_INIT(c_tmp, rt);
 		VEC_DBL_INIT(s_tmp, it);
-	#endif
+	  #endif
 
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
@@ -473,12 +1214,12 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
+	  #ifdef USE_SSE2
 		c_tmp = cc0 + 0x12; s_tmp = c_tmp+1;
 		c_tmp->d0=rt;	s_tmp->d0=it;	/* For all but the trivial 0th root, re and im parts in SSE2 mode use a separate set of roots, im-parts done below */
-	#else
+	  #else
 		c1 =rt;	s1 =it;
-	#endif
+	  #endif
 
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
@@ -486,25 +1227,24 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
+	  #ifdef USE_SSE2
 		c_tmp = cc0 + 0xa; s_tmp = c_tmp+1;
 		c_tmp->d0=rt;	s_tmp->d0=it;
-	#else
+	  #else
 		c2 =rt;	s2 =it;
-	#endif
-
+	  #endif
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
 		l += (iroot << 2);	/* 8*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
+	  #ifdef USE_SSE2
 		c_tmp = cc0 + 0x6; s_tmp = c_tmp+1;
 		c_tmp->d0=rt;	s_tmp->d0=it;
-	#else
+	  #else
 		c4 =rt;	s4 =it;
-	#endif
+	  #endif
 
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
@@ -512,37 +1252,97 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
+	  #ifdef USE_SSE2
 		c_tmp = cc0 + 0x4; s_tmp = c_tmp+1;
 		c_tmp->d0=rt;	s_tmp->d0=it;
-	#else
+	  #else
 		c8 =rt;	s8 =it;
-	#endif
+	  #endif
 
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	#ifdef USE_SSE2
+	  #ifdef USE_SSE2
 		c_tmp = cc0 + 0x18; s_tmp = c_tmp+1;
 		c_tmp->d0=rt;	s_tmp->d0=it;
-	#else
+	  #else
 		c13 =rt;	s13 =it;
-	#endif
+	  #endif
+/*=======================
+AVX2: Try doing the roots using VGATHERDPD/VGATHERQPD gather-load and inline ASM for the CMUL:
 
+VGATHERDPD/VGATHERQPD Description:
+
+The instruction conditionally loads up to 2 or 4 double-precision floating-point values from memory addresses
+specified by the memory operand (the second operand) and using qword indices. The memory operand uses the VSIB
+form of the SIB byte to specify a general purpose register operand as the common base, a vector register for
+an array of indices relative to the base and a constant scale factor.
+
+The mask operand (the third operand) specifies the conditional load operation from each memory address and the
+corresponding update of each data element of the destination operand (the first operand). Conditionality is
+specified by the most signif- icant bit of each data element of the mask register. If an element’s mask bit is
+not set, the corresponding element of the destination register is left unchanged. The width of data element in
+the destination register and mask register are identical. The entire mask register will be set to zero by this
+instruction unless the instruction causes an exception.
+
+Using dword indices in the lower half of the mask register, the instruction condition- ally loads up to 2 or 4
+double-precision floating-point values from the VSIB addressing memory operand, and updates the destination register.
+
+VGATHERDPD/VGATHERQPD Operation:
+
+DEST <-- SRC1;
+BASE_ADDR: base register encoded in VSIB addressing;
+VINDEX: the vector index register encoded by VSIB addressing;
+SCALE: scale factor encoded by SIB:[7:6];
+DISP: optional 1, 2, 4 byte displacement;
+MASK <-- SRC3;
+
+ewm:
+o We have 2 32-bit index quartets (i.e. each quartet = 128 bits) based on quads of k1 and k2 values
+o For the k1,2-quartets the load base addresses = rt0,1, resp.
+
+
+VGATHERDPD (VEX.256 version):
+
+	FOR j<--0 to 3 i<--j * 64;
+		IF MASK[63+i] THEN MASK[i +63:i]<--0xFFFFFFFF_FFFFFFFF; // extend from most significant bit
+		ELSE MASK[i +63:i]<--0;
+	FI; ENDFOR
+	FOR j<--0 to 3 k<--j * 32;
+		i<--j * 64; DATA_ADDR<--BASE_ADDR + (SignExtend(VINDEX1[k+31:k])*SCALE + DISP; IF MASK[63+i] THEN
+		DEST[i +63:i]<--FETCH_64BITS(DATA_ADDR); // a fault exits the loop
+	FI;
+	MASK[i +63:i]<--0; ENDFOR
+
+And basics of VSIB:
+
+4.2	VECTOR SIB (VSIB) MEMORY ADDRESSING
+In AVX2, an SIB byte that follows the ModR/M byte can support VSIB memory addressing to an array of linear
+addresses. VSIB addressing is only supported in a subset of AVX2 instructions. VSIB memory addressing requires
+32-bit or 64-bit effec- tive address. In 32-bit mode, VSIB addressing is not supported when address size attribute
+is overridden to 16 bits. In 16-bit protected mode, VSIB memory addressing is permitted if address size attribute
+is overridden to 32 bits. Additionally, VSIB memory addressing is supported only with VEX prefix.
+
+In VSIB memory addressing, the SIB byte consists of:
+•	The scale field (bit 7:6) specifies the scale factor.
+•	The index field (bits 5:3) specifies the register number of the vector index register,
+	each element in the vector register specifies an index.
+•	The base field (bits 2:0) specifies the register number of the base register.
+
+=======================
+*/
 	/* In SSE2 mode, also need next set of sincos: */
-	#ifdef USE_SSE2
+	  #ifdef USE_SSE2
 		// 2nd set:
 		iroot = index0[index0_idx] + index1[index1_idx];
-	/* fprintf(stderr, "idx0 = %d, idx1 = %d, irootB = %d\n",index0_idx,index1_idx,iroot); */
 		if(++index1_idx >= index1_mod)
 		{
 			index1_idx -= index1_mod;
 		/*	ASSERT(HERE, index0_idx < index0_mod,"radix16_dyadic_square.c: index0_idx < index0_mod");	*/
 			++index0_idx;
 		}
-
 		l = iroot;
 
 		k1=(l & NRTM1);
@@ -590,7 +1390,7 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 		c_tmp->d1=rt;	s_tmp->d1=it;
 
 	  /* In AVX mode, also need next 2 sets of sincos: */
-	  #ifdef USE_AVX
+	   #ifdef USE_AVX
 		// 3rd set (of 4):
 		iroot = index0[index0_idx] + index1[index1_idx];
 		if(++index1_idx >= index1_mod)
@@ -698,7 +1498,7 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 		c_tmp = cc0 + 0x18; s_tmp = c_tmp+1;	/* c13,s13 */
 		c_tmp->d3=rt;	s_tmp->d3=it;
-	  #endif	// AVX?
+	   #endif	// AVX?
 
 		// Now generate the remaining roots from the smaller "seed set":
 		SSE2_CMUL_EXPO(c1,c4 ,c3 ,c5 );
@@ -707,7 +1507,8 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 		SSE2_CMUL_EXPO(c1,c13,c12,c14);
 		SSE2_CMUL_EXPO(c2,c13,c11,c15);
 
-	#else
+	  #else
+
 		/* c3,5 */
 		t1=c1 *c4 ;	t2=c1 *s4 ;	rt=s1 *c4 ;	it=s1 *s4;
 		c3 =t1 +it;	s3 =t2 -rt;	c5 =t1 -it;	s5 =t2 +rt;
@@ -725,7 +1526,11 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 
 		t1=c2 *c13;	t2=c2 *s13;	rt=s2 *c13;	it=s2 *s13;
 		c11=t1 +it;	s11=t2 -rt;	c15=t1 -it;	s15=t2 +rt;
-	#endif
+	  #endif
+
+	  #endif	// USE_AVX2	?
+
+	#endif	// NEW_2TABLE_CMUL?
 
 /*   Radix-16 DIF FFT: gather the needed data (16 64-bit complex, i.e. 32 64-bit reals) and do the first set of four length-4 transforms... */
 
@@ -745,43 +1550,43 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 	We can break this into a bunch of smaller interleave steps, in each of which have 4 register quartets-of-doubles
 	a0-3, b0-3, c0-3, d0-3, which we need to interleave like so (= a 4x4 matrix transposition, if one considers each
 	input register to hold a row of the matrix):
-	
+
 		[a0,a1,a2,a3]         |\     [a0,b0,c0,d0]
 		[b0,b1,b2,b3]    -----  \    [a1,b1,c1,d1]
 		[c0,c1,c2,c3]    -----  /    [a2,b2,c2,d2]
 		[d0,d1,d2,d3]         |/     [a3,b3,c3,d3]
-	
+
 	George says he uses this sequence for this transposition operation:
-	
+
 		vmovapd	ymm1, [srcreg]				;; R1											a0,a1,a2,a3
 		vmovapd	ymm7, [srcreg+d1]			;; R2											b0,b1,b2,b3
 		vshufpd	ymm0, ymm1, ymm7, 15		;; Shuffle R1 and R2 to create R1/R2 hi			ymm0:a1,b1,a3,b3
 		vshufpd	ymm1, ymm1, ymm7, 0			;; Shuffle R1 and R2 to create R1/R2 low		ymm1:a0,b0,a2,b2
-	
+
 		vmovapd	ymm2, [srcreg+d2]			;; R3											c0,c1,c2,c3
 		vmovapd	ymm7, [srcreg+d2+d1]		;; R4											d0,d1,d2,d3
 		vshufpd	ymm3, ymm2, ymm7, 15		;; Shuffle R3 and R4 to create R3/R4 hi			ymm3:c1,d1,c3,d3
 		vshufpd	ymm2, ymm2, ymm7, 0			;; Shuffle R3 and R4 to create R3/R4 low		ymm2:c0,d0,c2,d2
-	
+
 		vperm2f128 ymm4, ymm0, ymm3, 32		;; Shuffle R1/R2 hi and R3/R4 hi (new R2)		ymm4:[a1,b1][c1,d1]	imm0:1=0,4:5=2 -> [in1.lo,in2.lo] = [ymm0.lo,ymm3.lo]
 		vperm2f128 ymm0, ymm0, ymm3, 49		;; Shuffle R1/R2 hi and R3/R4 hi (new R4)		ymm0:[a3,b3][c3,d3]	imm0:1=1,4:5=3 -> [in1.hi,in2.hi] = [ymm0.hi,ymm3.hi]
-	
+
 		vperm2f128 ymm3, ymm1, ymm2, 32		;; Shuffle R1/R2 low and R3/R4 low (new R1)		ymm3:[a0,b0][c0,d0]	imm0:1=0,4:5=2 -> [in1.lo,in2.lo] = [ymm1.lo,ymm2.lo]
 		vperm2f128 ymm1, ymm1, ymm2, 49		;; Shuffle R1/R2 low and R3/R4 low (new R3)		ymm1:[a2,b2][c2,d2]	imm0:1=1,4:5=3 -> [in1.hi,in2.hi] = [ymm1.hi,ymm2.hi]
-	
+
 	I want output-reg index to match subscripts of final a-d set stored in the register, so swap ymm indices 0134 -> 3201:
-	
+
 		// Data exit in ymmA-D; ymmX,Y are any 2 other registers
 		vmovapd	ymmC, [srcreg]				// a0,a1,a2,a3
 		vmovapd	ymmX, [srcreg+d1]			// b0,b1,b2,b3
 		vshufpd	ymmD, ymmC, ymmX, 15		// ymmD:a1,b1,a3,b3
 		vshufpd	ymmC, ymmC, ymmX, 0			// ymmC:a0,b0,a2,b2
-	
+
 		vmovapd	ymmY, [srcreg+d2]			// c0,c1,c2,c3
 		vmovapd	ymmX, [srcreg+d2+d1]		// d0,d1,d2,d3
 		vshufpd	ymmA, ymmY, ymmX, 15		// ymmA:c1,d1,c3,d3
 		vshufpd	ymmY, ymmY, ymmX, 0			// ymmY:c0,d0,c2,d2
-	
+
 		vperm2f128 ymmB, ymmD, ymmA, 32		// ymmB:[a1,b1][c1,d1]
 		vperm2f128 ymmD, ymmD, ymmA, 49		// ymmD:[a3,b3][c3,d3]
 		vperm2f128 ymmA, ymmC, ymmY, 32		// ymmA:[a0,b0][c0,d0]
@@ -885,40 +1690,40 @@ void radix16_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 
 						Pass 1 INPUTS:														Pass 2 INPUTS:
 			add0:					add1:											add2:					add3:
-	[1re]	a + 0	a0.re,a1.re		a + 32	b0.re,b1.re	[1*,3]				[1re]	a + 64	c0.re,c1.re		a + 96	d0.re,d1.re	[1*,3]		
-	[1im]	+0x010	a0.im,a1.im		+0x010	b0.im,b1.im	[1*,3]				[1im]	+0x010	c0.im,c1.im		+0x010	d0.im,d1.im	[1*,3]		
-	[2re]	+0x020	a2.re,a3.re		+0x020	b2.re,b3.re		[2*,4]			[2re]	+0x020	c2.re,c3.re		+0x020	d2.re,d3.re		[2*,4]	
-	[2im]	+0x030	a2.im,a3.im		+0x030	b2.im,b3.im		[2*,4]			[2im]	+0x030	c2.im,c3.im		+0x030	d2.im,d3.im		[2*,4]	
-	[1re]	+0x040	a4.re,a5.re		+0x040	b4.re,b5.re	[1*,3]				[1re]	+0x040	c4.re,c5.re		+0x040	d4.re,d5.re	[1*,3]		
-	[1im]	+0x050	a4.im,a5.im		+0x050	b4.im,b5.im	[1*,3]				[1im]	+0x050	c4.im,c5.im		+0x050	d4.im,d5.im	[1*,3]		
-	[2re]	+0x060	a6.re,a7.re		+0x060	b6.re,b7.re		[2*,4]			[2re]	+0x060	c6.re,c7.re		+0x060	d6.re,d7.re		[2*,4]	
-	[2im]	+0x070	a6.im,a7.im		+0x070	b6.im,b7.im		[2*,4]			[2im]	+0x070	c6.im,c7.im		+0x070	d6.im,d7.im		[2*,4]	
-	[1re]	+0x080	a8.re,a9.re		+0x080	b8.re,b9.re	[1*,3]				[1re]	+0x080	c8.re,c9.re		+0x080	d8.re,d9.re	[1*,3]		
-	[1im]	+0x090	a8.im,a9.im		+0x090	b8.im,b9.im	[1*,3]				[1im]	+0x090	c8.im,c9.im		+0x090	d8.im,d9.im	[1*,3]		
-	[2re]	+0x0a0	aA.re,aB.re		+0x0a0	bA.re,bB.re		[2*,4]			[2re]	+0x0a0	cA.re,cB.re		+0x0a0	dA.re,dB.re		[2*,4]	
-	[2im]	+0x0b0	aA.im,aB.im		+0x0b0	bA.im,bB.im		[2*,4]			[2im]	+0x0b0	cA.im,cB.im		+0x0b0	dA.im,dB.im		[2*,4]	
-	[1re]	+0x0c0	aC.re,aD.re		+0x0c0	bC.re,bD.re	[1*,3]				[1re]	+0x0c0	cC.re,cD.re		+0x0c0	dC.re,dD.re	[1*,3]		
-	[1im]	+0x0d0	aC.im,aD.im		+0x0d0	bC.im,bD.im	[1*,3]				[1im]	+0x0d0	cC.im,cD.im		+0x0d0	dC.im,dD.im	[1*,3]		
-	[2re]	+0x0e0	aE.re,aF.re		+0x0e0	bE.re,bF.re		[2*,4]			[2re]	+0x0e0	cE.re,cF.re		+0x0e0	dE.re,dF.re		[2*,4]	
-	[2im]	+0x0f0	aE.im,aF.im		+0x0f0	bE.im,bF.im		[2*,4]			[2im]	+0x0f0	cE.im,cF.im		+0x0f0	dE.im,dF.im		[2*,4]	
-	
-						Pass 1 OUTPUTS:															Pass 2 OUTPUTS:							
-	[1re]	r0+  0	a0.re,b0.re		r0+x100	a1.re,b1.re	[1*,3]				[1re]	r0+x200	c0.re,d0.re		r0+x300	c1.re,d1.re	[1*,3]		
-	[1im]	+0x010	a0.im,b0.im		+0x010	a1.im,b1.im	[1*,3]				[1im]	+0x010	c0.im,d0.im		+0x010	c1.im,d1.im	[1*,3]		
-	[2re]	+0x020	a2.re,b2.re		+0x020	a3.re,b3.re		[2*,4]			[2re]	+0x020	c2.re,d2.re		+0x020	c3.re,d3.re		[2*,4]	
-	[2im]	+0x030	a2.im,b2.im		+0x030	a3.im,b3.im		[2*,4]			[2im]	+0x030	c2.im,d2.im		+0x030	c3.im,d3.im		[2*,4]	
-	[1re]	+0x040	a4.re,b4.re		+0x040	a5.re,b5.re	[1*,3]				[1re]	+0x040	c4.re,d4.re		+0x040	c5.re,d5.re	[1*,3]		
-	[1im]	+0x050	a4.im,b4.im		+0x050	a5.im,b5.im	[1*,3]				[1im]	+0x050	c4.im,d4.im		+0x050	c5.im,d5.im	[1*,3]		
-	[2re]	+0x060	a6.re,b6.re		+0x060	a7.re,b7.re		[2*,4]			[2re]	+0x060	c6.re,d6.re		+0x060	c7.re,d7.re		[2*,4]	
-	[2im]	+0x070	a6.im,b6.im		+0x070	a7.im,b7.im		[2*,4]			[2im]	+0x070	c6.im,d6.im		+0x070	c7.im,d7.im		[2*,4]	
-	[1re]	+0x080	a8.re,b8.re		+0x080	a9.re,b9.re	[1*,3]				[1re]	+0x080	c8.re,d8.re		+0x080	c9.re,d9.re	[1*,3]		
-	[1im]	+0x090	a8.im,b8.im		+0x090	a9.im,b9.im	[1*,3]				[1im]	+0x090	c8.im,d8.im		+0x090	c9.im,d9.im	[1*,3]		
-	[2re]	+0x0a0	aA.re,bA.re		+0x0a0	aB.re,bB.re		[2*,4]			[2re]	+0x0a0	cA.re,dA.re		+0x0a0	cB.re,dB.re		[2*,4]	
-	[2im]	+0x0b0	aA.im,bA.im		+0x0b0	aB.im,bB.im		[2*,4]			[2im]	+0x0b0	cA.im,dA.im		+0x0b0	cB.im,dB.im		[2*,4]	
-	[1re]	+0x0c0	aC.re,bC.re		+0x0c0	aD.re,bD.re	[1*,3]				[1re]	+0x0c0	cC.re,dC.re		+0x0c0	cD.re,dD.re	[1*,3]		
-	[1im]	+0x0d0	aC.im,bC.im		+0x0d0	aD.im,bD.im	[1*,3]				[1im]	+0x0d0	cC.im,dC.im		+0x0d0	cD.im,dD.im	[1*,3]		
-	[2re]	+0x0e0	aE.re,bE.re		+0x0e0	aF.re,bF.re		[2*,4]			[2re]	+0x0e0	cE.re,dE.re		+0x0e0	cF.re,dF.re		[2*,4]	
-	[2im]	+0x0f0	aE.im,bE.im		+0x0f0	aF.im,bF.im		[2*,4]			[2im]	+0x0f0	cE.im,dE.im		+0x0f0	cF.im,dF.im		[2*,4]	
+	[1re]	a + 0	a0.re,a1.re		a + 32	b0.re,b1.re	[1*,3]				[1re]	a + 64	c0.re,c1.re		a + 96	d0.re,d1.re	[1*,3]
+	[1im]	+0x010	a0.im,a1.im		+0x010	b0.im,b1.im	[1*,3]				[1im]	+0x010	c0.im,c1.im		+0x010	d0.im,d1.im	[1*,3]
+	[2re]	+0x020	a2.re,a3.re		+0x020	b2.re,b3.re		[2*,4]			[2re]	+0x020	c2.re,c3.re		+0x020	d2.re,d3.re		[2*,4]
+	[2im]	+0x030	a2.im,a3.im		+0x030	b2.im,b3.im		[2*,4]			[2im]	+0x030	c2.im,c3.im		+0x030	d2.im,d3.im		[2*,4]
+	[1re]	+0x040	a4.re,a5.re		+0x040	b4.re,b5.re	[1*,3]				[1re]	+0x040	c4.re,c5.re		+0x040	d4.re,d5.re	[1*,3]
+	[1im]	+0x050	a4.im,a5.im		+0x050	b4.im,b5.im	[1*,3]				[1im]	+0x050	c4.im,c5.im		+0x050	d4.im,d5.im	[1*,3]
+	[2re]	+0x060	a6.re,a7.re		+0x060	b6.re,b7.re		[2*,4]			[2re]	+0x060	c6.re,c7.re		+0x060	d6.re,d7.re		[2*,4]
+	[2im]	+0x070	a6.im,a7.im		+0x070	b6.im,b7.im		[2*,4]			[2im]	+0x070	c6.im,c7.im		+0x070	d6.im,d7.im		[2*,4]
+	[1re]	+0x080	a8.re,a9.re		+0x080	b8.re,b9.re	[1*,3]				[1re]	+0x080	c8.re,c9.re		+0x080	d8.re,d9.re	[1*,3]
+	[1im]	+0x090	a8.im,a9.im		+0x090	b8.im,b9.im	[1*,3]				[1im]	+0x090	c8.im,c9.im		+0x090	d8.im,d9.im	[1*,3]
+	[2re]	+0x0a0	aA.re,aB.re		+0x0a0	bA.re,bB.re		[2*,4]			[2re]	+0x0a0	cA.re,cB.re		+0x0a0	dA.re,dB.re		[2*,4]
+	[2im]	+0x0b0	aA.im,aB.im		+0x0b0	bA.im,bB.im		[2*,4]			[2im]	+0x0b0	cA.im,cB.im		+0x0b0	dA.im,dB.im		[2*,4]
+	[1re]	+0x0c0	aC.re,aD.re		+0x0c0	bC.re,bD.re	[1*,3]				[1re]	+0x0c0	cC.re,cD.re		+0x0c0	dC.re,dD.re	[1*,3]
+	[1im]	+0x0d0	aC.im,aD.im		+0x0d0	bC.im,bD.im	[1*,3]				[1im]	+0x0d0	cC.im,cD.im		+0x0d0	dC.im,dD.im	[1*,3]
+	[2re]	+0x0e0	aE.re,aF.re		+0x0e0	bE.re,bF.re		[2*,4]			[2re]	+0x0e0	cE.re,cF.re		+0x0e0	dE.re,dF.re		[2*,4]
+	[2im]	+0x0f0	aE.im,aF.im		+0x0f0	bE.im,bF.im		[2*,4]			[2im]	+0x0f0	cE.im,cF.im		+0x0f0	dE.im,dF.im		[2*,4]
+
+						Pass 1 OUTPUTS:															Pass 2 OUTPUTS:
+	[1re]	r0+  0	a0.re,b0.re		r0+x100	a1.re,b1.re	[1*,3]				[1re]	r0+x200	c0.re,d0.re		r0+x300	c1.re,d1.re	[1*,3]
+	[1im]	+0x010	a0.im,b0.im		+0x010	a1.im,b1.im	[1*,3]				[1im]	+0x010	c0.im,d0.im		+0x010	c1.im,d1.im	[1*,3]
+	[2re]	+0x020	a2.re,b2.re		+0x020	a3.re,b3.re		[2*,4]			[2re]	+0x020	c2.re,d2.re		+0x020	c3.re,d3.re		[2*,4]
+	[2im]	+0x030	a2.im,b2.im		+0x030	a3.im,b3.im		[2*,4]			[2im]	+0x030	c2.im,d2.im		+0x030	c3.im,d3.im		[2*,4]
+	[1re]	+0x040	a4.re,b4.re		+0x040	a5.re,b5.re	[1*,3]				[1re]	+0x040	c4.re,d4.re		+0x040	c5.re,d5.re	[1*,3]
+	[1im]	+0x050	a4.im,b4.im		+0x050	a5.im,b5.im	[1*,3]				[1im]	+0x050	c4.im,d4.im		+0x050	c5.im,d5.im	[1*,3]
+	[2re]	+0x060	a6.re,b6.re		+0x060	a7.re,b7.re		[2*,4]			[2re]	+0x060	c6.re,d6.re		+0x060	c7.re,d7.re		[2*,4]
+	[2im]	+0x070	a6.im,b6.im		+0x070	a7.im,b7.im		[2*,4]			[2im]	+0x070	c6.im,d6.im		+0x070	c7.im,d7.im		[2*,4]
+	[1re]	+0x080	a8.re,b8.re		+0x080	a9.re,b9.re	[1*,3]				[1re]	+0x080	c8.re,d8.re		+0x080	c9.re,d9.re	[1*,3]
+	[1im]	+0x090	a8.im,b8.im		+0x090	a9.im,b9.im	[1*,3]				[1im]	+0x090	c8.im,d8.im		+0x090	c9.im,d9.im	[1*,3]
+	[2re]	+0x0a0	aA.re,bA.re		+0x0a0	aB.re,bB.re		[2*,4]			[2re]	+0x0a0	cA.re,dA.re		+0x0a0	cB.re,dB.re		[2*,4]
+	[2im]	+0x0b0	aA.im,bA.im		+0x0b0	aB.im,bB.im		[2*,4]			[2im]	+0x0b0	cA.im,dA.im		+0x0b0	cB.im,dB.im		[2*,4]
+	[1re]	+0x0c0	aC.re,bC.re		+0x0c0	aD.re,bD.re	[1*,3]				[1re]	+0x0c0	cC.re,dC.re		+0x0c0	cD.re,dD.re	[1*,3]
+	[1im]	+0x0d0	aC.im,bC.im		+0x0d0	aD.im,bD.im	[1*,3]				[1im]	+0x0d0	cC.im,dC.im		+0x0d0	cD.im,dD.im	[1*,3]
+	[2re]	+0x0e0	aE.re,bE.re		+0x0e0	aF.re,bF.re		[2*,4]			[2re]	+0x0e0	cE.re,dE.re		+0x0e0	cF.re,dF.re		[2*,4]
+	[2im]	+0x0f0	aE.im,bE.im		+0x0f0	aF.im,bF.im		[2*,4]			[2im]	+0x0f0	cE.im,dE.im		+0x0f0	cF.im,dF.im		[2*,4]
 
 	Here, e.g. [1*,3] means "interleaved with Block 1 inputs, high parts stored in local mem and used for Block 3 radix-4 DFT".
 

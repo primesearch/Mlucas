@@ -880,7 +880,8 @@ void host_init(void)
 	qtest();	// 09/23/2012: Move to after above float-consts-inits because of the qfloat/mi64 routines which use those consts.
 
 	/* Use qfloat routines to set the global floating-point constant 1/sqrt(2): */
-	ASSERT(HERE, ISRT2 == qfdbl(QISRT2), "1/sqrt2 precision check failed!");		/* 1/sqrt2	*/
+	ASSERT(HERE, ISRT2 == qfdbl(QISRT2), "1/sqrt2 precision check failed!");
+	ASSERT(HERE, SQRT2 == qfdbl(QSQRT2), "  sqrt2 precision check failed!");
 
 #ifdef CPU_IS_X86
 	set_x87_fpu_params(FPU_64RND);
@@ -1032,7 +1033,7 @@ void print_host_info(void)
   #if(defined(USE_AVX2))
 
 	if(has_avx2()) {
-		printf("Info: Build uses AVX2 instruction set.\n");
+		printf("INFO: Build uses AVX2 instruction set.\n");
 	} else {
 		ASSERT(HERE, 0, "#define USE_AVX2 invoked but no AVX2 support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
 	}
@@ -1040,9 +1041,9 @@ void print_host_info(void)
   #elif(defined(USE_AVX))
 
 	if(has_avx2()) {
-		printf("Info: CPU supports AVX2 instruction set, but using AVX-enabled build.\n");
+		printf("INFO: CPU supports AVX2 instruction set, but using AVX-enabled build.\n");
 	} else if(has_avx()) {
-		printf("Info: Build uses AVX instruction set.\n");
+		printf("INFO: Build uses AVX instruction set.\n");
 	} else {
 		ASSERT(HERE, 0, "#define USE_AVX invoked but no AVX support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
 	}
@@ -1050,9 +1051,9 @@ void print_host_info(void)
   #elif(defined(USE_SSE2))
 	/* This doesn't work on non-AVX platforms, since XGETBV (needed by has_avx*() functions) does not exist
 	if(has_avx2()) {
-		printf("Info: CPU supports AVX2 instruction set, but using SSE2-enabled build.\n");
+		printf("INFO: CPU supports AVX2 instruction set, but using SSE2-enabled build.\n");
 	} else if(has_avx()) {
-		printf("Info: CPU supports AVX instruction set, but using SSE2-enabled build.\n");
+		printf("INFO: CPU supports AVX instruction set, but using SSE2-enabled build.\n");
 	} else */
 	if(has_sse2()) {
 		printf("INFO: Build uses SSE2 instruction set.\n");
@@ -1063,7 +1064,7 @@ void print_host_info(void)
   #else
 
 	if(has_sse2()) {
-		printf("Info: CPU supports SSE2 instruction set, but using scalar floating-point build.\n");
+		printf("INFO: CPU supports SSE2 instruction set, but using scalar floating-point build.\n");
 	}
 
   #endif

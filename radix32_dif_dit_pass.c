@@ -343,11 +343,11 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;					// Base address for discrete per-thread local stores
 	// In || mode, only above base-pointer (shared by all threads) is static:
-	vec_dbl *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *two, *r00;
+	vec_dbl *isrt2,*sqrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *one,*two, *r00;
   #elif defined(COMPILER_TYPE_GCC)
-	static vec_dbl *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *two, *r00;
+	static vec_dbl *isrt2,*sqrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *one,*two, *r00;
   #else
-	static vec_dbl *isrt2, *two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3
+	static vec_dbl *isrt2,*sqrt2, *one,*two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3
 		,*c00,*c01,*c02,*c03,*c04,*c05,*c06,*c07,*c08,*c09,*c0A,*c0B,*c0C,*c0D,*c0E,*c0F
 		,*c10,*c11,*c12,*c13,*c14,*c15,*c16,*c17,*c18,*c19,*c1A,*c1B,*c1C,*c1D,*c1E,*c1F
 		,*s00,*s01,*s02,*s03,*s04,*s05,*s06,*s07,*s08,*s09,*s0A,*s0B,*s0C,*s0D,*s0E,*s0F
@@ -408,10 +408,13 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 			ss1	  = sc_ptr + 0x44;
 			cc3	  = sc_ptr + 0x45;
 			ss3	  = sc_ptr + 0x46;
-			two   = sc_ptr + 0x87;
+			one   = sc_ptr + 0x87;
+			two   = sc_ptr + 0x88;
+			sqrt2 = sc_ptr + 0x89;
 			for(i = 0; i < max_threads; ++i) {
 				/* These remain fixed within each per-thread local store: */
-				VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(two, 2.0  );
+				VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(sqrt2, SQRT2);
+				VEC_DBL_INIT(one  , 1.0  );		VEC_DBL_INIT(two, 2.0  );
 				VEC_DBL_INIT(cc0  , c    );		VEC_DBL_INIT(ss0, s    );
 				VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1, s32_1);
 				VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3, s32_3);
@@ -423,7 +426,9 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 				ss1   += 0x90;
 				cc3   += 0x90;
 				ss3   += 0x90;
+				one   += 0x90;
 				two   += 0x90;
+				sqrt2 += 0x90;
 			}
 		#elif defined(COMPILER_TYPE_GCC)
 			r00   = sc_ptr;
@@ -434,9 +439,12 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 			ss1	  = sc_ptr + 0x44;
 			cc3	  = sc_ptr + 0x45;
 			ss3	  = sc_ptr + 0x46;
-			two   = sc_ptr + 0x87;
+			one   = sc_ptr + 0x87;
+			two   = sc_ptr + 0x88;
+			sqrt2 = sc_ptr + 0x89;
 			/* These remain fixed: */
-			VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(two, 2.0  );
+			VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(sqrt2, SQRT2);
+			VEC_DBL_INIT(one  , 1.0  );		VEC_DBL_INIT(two, 2.0  );
 			VEC_DBL_INIT(cc0  , c    );		VEC_DBL_INIT(ss0, s    );
 			VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1, s32_1);
 			VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3, s32_3);
@@ -506,15 +514,16 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 			r3D		= sc_ptr + 0x3d;	s0F		= sc_ptr + 0x84;
 			r3E		= sc_ptr + 0x3e;	c1F		= sc_ptr + 0x85;
 			r3F		= sc_ptr + 0x3f;	s1F		= sc_ptr + 0x86;
-			isrt2	= sc_ptr + 0x40;	two		= sc_ptr + 0x87;
-			cc0		= sc_ptr + 0x41;
-			ss0		= sc_ptr + 0x42;
+			isrt2	= sc_ptr + 0x40;	one     = sc_ptr + 0x87;
+			cc0		= sc_ptr + 0x41;	two     = sc_ptr + 0x88;
+			ss0		= sc_ptr + 0x42;	sqrt2   = sc_ptr + 0x89;
 			cc1		= sc_ptr + 0x43;
 			ss1		= sc_ptr + 0x44;
 			cc3		= sc_ptr + 0x45;
 			ss3		= sc_ptr + 0x46;
 			/* These remain fixed: */
-			VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(two, 2.0  );
+			VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(sqrt2, SQRT2);
+			VEC_DBL_INIT(one  , 1.0  );		VEC_DBL_INIT(two, 2.0  );
 			VEC_DBL_INIT(cc0  , c    );		VEC_DBL_INIT(ss0, s    );
 			VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1, s32_1);
 			VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3, s32_3);
@@ -2475,11 +2484,11 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;	/* Base address for discrete per-thread local stores */
 	// In || mode, only above base-pointer (shared by all threads) is static:
-	vec_dbl *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *two
+	vec_dbl *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *one,*two,*sqrt2
 		,*r00,*r02,*r04,*r06,*r08,*r0A,*r0C,*r0E
 		,*r10,*r12,*r14,*r16,*r18,*r1A,*r1C,*r1E,*r20,*r30;
   #else
-	static vec_dbl *isrt2, *two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3
+	static vec_dbl *isrt2,*sqrt2, *one,*two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3
 		,*c00,*c01,*c02,*c03,*c04,*c05,*c06,*c07,*c08,*c09,*c0A,*c0B,*c0C,*c0D,*c0E,*c0F
 		,*c10,*c11,*c12,*c13,*c14,*c15,*c16,*c17,*c18,*c19,*c1A,*c1B,*c1C,*c1D,*c1E,*c1F
 		,*s00,*s01,*s02,*s03,*s04,*s05,*s06,*s07,*s08,*s09,*s0A,*s0B,*s0C,*s0D,*s0E,*s0F
@@ -2540,10 +2549,13 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 			ss1	  = sc_ptr + 0x44;
 			cc3	  = sc_ptr + 0x45;
 			ss3	  = sc_ptr + 0x46;
-			two   = sc_ptr + 0x87;
+			one   = sc_ptr + 0x87;
+			two   = sc_ptr + 0x88;
+			sqrt2 = sc_ptr + 0x89;
 			for(i = 0; i < max_threads; ++i) {
 				/* These remain fixed within each per-thread local store: */
-				VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(two, 2.0  );
+				VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(sqrt2, SQRT2);
+				VEC_DBL_INIT(one  , 1.0  );		VEC_DBL_INIT(two, 2.0  );
 				VEC_DBL_INIT(cc0  , c    );		VEC_DBL_INIT(ss0, s    );
 				VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1, s32_1);
 				VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3, s32_3);
@@ -2555,7 +2567,9 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 				ss1   += 0x90;
 				cc3   += 0x90;
 				ss3   += 0x90;
+				one   += 0x90;
 				two   += 0x90;
+				sqrt2 += 0x90;
 			}
 		#else
 	//	} else {
@@ -2623,16 +2637,17 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 			r3D		= sc_ptr + 0x3d;	s17		= sc_ptr + 0x84;
 			r3E		= sc_ptr + 0x3e;	c1F		= sc_ptr + 0x85;
 			r3F		= sc_ptr + 0x3f;	s1F		= sc_ptr + 0x86;
-			isrt2	= sc_ptr + 0x40;	two     = sc_ptr + 0x87;
-			cc0		= sc_ptr + 0x41;
-			ss0		= sc_ptr + 0x42;
+			isrt2	= sc_ptr + 0x40;	one     = sc_ptr + 0x87;
+			cc0		= sc_ptr + 0x41;	two     = sc_ptr + 0x88;
+			ss0		= sc_ptr + 0x42;	sqrt2   = sc_ptr + 0x89;
 			cc1		= sc_ptr + 0x43;
 			ss1		= sc_ptr + 0x44;
 			cc3		= sc_ptr + 0x45;
 			ss3		= sc_ptr + 0x46;
 
 			/* These remain fixed: */
-			VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(two, 2.0  );
+			VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(sqrt2, SQRT2);
+			VEC_DBL_INIT(one  , 1.0  );		VEC_DBL_INIT(two, 2.0  );
 			VEC_DBL_INIT(cc0  , c    );		VEC_DBL_INIT(ss0, s    );
 			VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1, s32_1);
 			VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3, s32_3);

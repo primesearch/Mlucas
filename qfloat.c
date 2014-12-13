@@ -241,822 +241,6 @@ int main()
 }
 #endif
 
-int qtest(void)
-{
-	double c, d;
-	int64 hidiff;
-	uint128 i128;
-	struct qfloat p, q,qref,qerr, r;
-	double derr, pi = 3.1415926535897932384;
-#if TIMING_TEST
-	uint32 i;
-	int64 lodiff;
-	/*...time-related stuff	*/
-	clock_t clock1, clock2;
-	const uint32 titers = 100000;
-	const double CPU_FREQUENCY = 2000000000.0;	// One would think CLOCKS_PER_SEC would encode exactly what its name implies, but noooo......
-	double td = 0, tdiff, cycles, cycles_for_qfdbl;
-#endif
-
-#ifdef MUL_LOHI64_SUBROUTINE
-	printf("INFO: qfloat routines using subroutine form of MUL_LOHI\n");
-#endif
-
-#ifdef X87_ASM
-	// Test long-double interface used for high-precision inits of NR seeds for certain transcendental functions:
-	long double ld;
-	uint64 *ld_ptr = &ld, x87_mant, x87_sexp;
-
-	// Test I/O functions:
-	ASSERT(HERE, STREQ( qf2str(QPI), "+3.14159265358979323846264338327950289 E+000" ), "I/O test failed!");
-	
-	asm ("fldln2;"
-		 "fstpt %0" : "=m"(ld) : );
-	x87_mant = *ld_ptr; x87_sexp = *(ld_ptr+1) & 0x000000000000FFFFull;	// Mask off high 48 bits of x87_sexp field, as these are uninited
-	if(x87_mant != 0xB17217F7D1CF79ACull) {
-		printf("ln2 = %30.20Le\n", ld);
-		printf("x87_mant = %16llx, expected 0xB17217F7D1CF79ACull\n", x87_mant);	// x87_mant = b17217f7d1cf79ac, left-shift one place to off-shift hidden bit
-		WARN(HERE, "Ln2 long-double mantissa conversion error", "", 0);
-	}
-//	ASSERT(HERE, x87_mant == 0xB17217F7D1CF79ACull, "Ln2 long-double mantissa conversion error");
-
-//	printf("x87_sexp = %16llx\n", x87_sexp);	// x87_sexp = 3ffe, clear high 4 bits to get qfloat/double-compatible exp-field
-	ASSERT(HERE, x87_sexp == 0x0000000000003FFEull, "Ln2 long-double exponent conversion error");
-
-	asm ("fld1;"
-		 "fadd %%st(0), %%st(0);"
-		 "fsqrt;"
-		 "fchs;"
-		 "fstpt %0" : "=m"(ld) : );
-	x87_mant = *ld_ptr; x87_sexp = *(ld_ptr+1) & 0x000000000000FFFFull;
-
-	if(x87_mant != 0xB504F333F9DE6484ull) {
-		printf("-Sqrt2 = %30.20Le\n", ld);
-		printf("x87_mant = %16llx, expected 0xB504F333F9DE6484ull\n", x87_mant);
-		WARN(HERE, "-Sqrt2 long-double mantissa conversion error", "", 0);
-	}
-//	ASSERT(HERE, x87_mant == 0xB504F333F9DE6484ull, "-Sqrt2 long-double mantissa conversion error");
-
-//	printf("x87_sexp = %16llx\n", x87_sexp);
-	ASSERT(HERE, x87_sexp == 0x000000000000BFFFull, "-Sqrt2 long-double exponent conversion error");
-
-#endif
-
-	ASSERT(HERE, (ABS((int64)0x1234567890ABCDEFull) == 0x1234567890ABCDEFull), "ERROR 10 in qfloat.c");
-
-	/*********** TEST THE TYPE CONVERSIONS **************/
-#if TIMING_TEST
-	printf	("Performing timing tests of basic qfloat operations:\n");
-	clock1 = clock();
-	for(i = 0; i < titers; ++i) {
-		td += qfdbl(QISRT2);
-		td += qfdbl(QPI);
-		td += qfdbl(QLN2);
-		td += qfdbl(QEXP);
-	}
-	clock2 = clock();
-	ASSERT(HERE, td != 0.0, "!");
-	tdiff = (double)(clock2 - clock1);
-	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
-	cycles /= 4.0*(double)titers;
-	printf	("qfdbl   : cycles/operation = %10.2f\n",cycles);
-	cycles_for_qfdbl = cycles;
-#endif
-	c = 0.0;	d = qfdbl(QZRO);
-#if QFDEBUG
-		printf("dble(0.0) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
-#endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(HERE, 0,"ERROR 12 in qfloat.c");
-
-	c = 1.0;	d = qfdbl(QONE);
-#if QFDEBUG
-		printf("dble(1.0) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
-#endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(HERE, 0,"ERROR 14 in qfloat.c");
-
-	c = 2.0;	d = qfdbl(QTWO);
-#if QFDEBUG
-		printf("dble(2.0) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
-#endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(HERE, 0,"ERROR 16 in qfloat.c");
-
-	c =-2.0;	d = qfdbl(qfneg(QTWO));
-#if QFDEBUG
-		printf("dble(-2.0)= %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
-#endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(HERE, 0,"ERROR 18 in qfloat.c");
-
-	c = 2*pi;	d = qfdbl(Q2PI);
-#if QFDEBUG
-		printf("dble(2pi) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
-#endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(HERE, 0,"ERROR 20 in qfloat.c");
-
-	c =log(2.0);d = qfdbl(QLN2);
-#if QFDEBUG
-		printf("dble(ln2) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
-#endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(HERE, 0,"ERROR 22 in qfloat.c");
-
-	c = exp(1.0);
-	d = qfdbl(QEXP);
-#if QFDEBUG
-		printf("dble(exp) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
-#endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(HERE, 0,"ERROR 24 in qfloat.c");
-
-	c = -c;		d = qfdbl(qfneg(QEXP));
-#if QFDEBUG
-		printf("dble(-exp)= %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
-#endif
-	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(HERE, 0,"ERROR 26 in qfloat.c");
-
-	/*********** TEST THE MULTIPLY ALGORITHM ************/
-#if TIMING_TEST
-	clock1 = clock();
-	// For some reason the usual qfdbl(...) here ends up running a tad faster than the above pure qfdbl-loop,
-	hidiff = 0;						// so instead just accum the hi result part in an int64.
-	for(i = 0; i < titers; ++i) {
-		hidiff += qfmul_pow2(QLN2,+1).hi;
-		hidiff += qfmul_pow2(QLN2,+1).hi;
-		hidiff += qfmul_pow2(QLN2,+1).hi;
-		hidiff += qfmul_pow2(QLN2,+1).hi;
-	}
-	ASSERT(HERE, hidiff, "!");
-	clock2 = clock();
-	tdiff = (double)(clock2 - clock1);
-	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
-	cycles /= 4.0*(double)titers;
-	printf	("qfmul_pow2: cycles/operation = %8.2f\n",cycles);
-#endif
-#if TIMING_TEST
-	clock1 = clock();
-	td = 0.0;
-	for(i = 0; i < titers; ++i) {
-		td += qfdbl(qfmul(QEXP,QEXP));
-	}
-	ASSERT(HERE, td != 0.0, "!");
-	clock2 = clock();
-	tdiff = (double)(clock2 - clock1);
-	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
-	cycles /= (double)titers;
-	printf	("qfmul   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
-#endif
-	/* e*e: 	0x401D8E64B8D4DDAD, 0xCC33A3BA206B68AC	*/
-	q = qfmul(QEXP,QEXP);
-#if QFDEBUG
-		printf("      e*e  = %16llX  %16llX\n",q.hi,q.lo);
-		printf("dble( e*e) = %25.16e\n",qfdbl(q));
-#endif
-	qref.hi = 0x401D8E64B8D4DDADull;	qref.lo = 0xCC33A3BA206B68ACull;
-	// This is better than the separate hi/lo-word test, since it allows for the ROE to be of either sign:
-	qerr = qfabs(qfsub(q,qref));			// Div-by-eps same as mul-by-by-2^118
-	derr = qfdbl( qfmul_pow2(qerr,+118) );	// The threshold here typically needs to be ~16*[magnitude of output]
-	ASSERT(HERE, derr < 64.0 ,"ERROR in QFMUL error-level check!");
-
-	/* ln2*e:	0x3FFE258ECC242F82, 0x5DEC567E6A0E1111	*/
-	q = qfmul(QLN2,QEXP);
-#if QFDEBUG
-		printf("     L2*e  = %16llX  %16llX\n",q.hi,q.lo);
-		printf("dble(L2*e) = %25.16e\n",qfdbl(q));
-#endif
-	qref.hi = 0x3FFE258ECC242F82ull;	qref.lo = 0x5DEC567E6A0E1111ull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr < 64.0 ,"ERROR in QFMUL error-level check!");
-
-	/* ln2^2:	0x3FDEBFBDFF82C58E, 0xA86F16B06EC97360	*/
-	q = qfmul(QLN2,QLN2);
-#if QFDEBUG
-		printf("     L2^2  = %16llX  %16llX\n",q.hi,q.lo);
-		printf("dble(L2^2) = %25.16e\n",qfdbl(q));
-#endif
-	qref.hi = 0x3FDEBFBDFF82C58Eull;	qref.lo = 0xA86F16B06EC97360ull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr < 64.0 ,"ERROR in QFMUL error-level check!");
-
-	/* ln2*2pi:	0x40116BB24190A0B6, 0xE765BE0D06135E60	*/
-	q = qfmul(QLN2,Q2PI);
-#if QFDEBUG
-		printf("     Ln2*pi = %16llX  %16llX\n",q.hi,q.lo);
-		printf("dble(Ln2*pi)= %25.16e\n",qfdbl(q));
-#endif
-	qref.hi = 0x40116BB24190A0B6ull;	qref.lo = 0xE765BE0D06135E60ull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr < 64.0 ,"ERROR in QFMUL error-level check!");
-
-	/* 2pi*e:	0x403114580B45D474, 0x9E6108579A2D0CA7	*/
-	q = qfmul(Q2PI,QEXP);
-#if QFDEBUG
-		printf("     pi*e  = %16llX  %16llX\n",q.hi,q.lo);
-		printf("dble(pi*e) = %25.16e\n",qfdbl(q));
-#endif
-	qref.hi = 0x403114580B45D474ull;	qref.lo = 0x9E6108579A2D0CA7ull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr < 128.0 ,"ERROR in QFMUL error-level check!");
-
-	/* 2pi*2pi:	0x4043BD3CC9BE45DE, 0x5A4ADC4D9B301183	*/
-	q = qfmul(Q2PI,Q2PI);
-#if QFDEBUG
-		printf("  (2*pi)^2 = %16llX  %16llX\n",q.hi,q.lo);
-		printf("dble(2pi^2)= %25.16e\n",qfdbl(q));
-		printf("dble(2pi^2)= %25.16e\n",pi*pi);
-#endif
-	qref.hi = 0x4043BD3CC9BE45DEull;	qref.lo = 0x5A4ADC4D9B301183ull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr < 128.0 ,"ERROR in QFMUL error-level check!");
-
-	/*********** TEST THE ADDITION ALGORITHM ************/
-#if TIMING_TEST
-	clock1 = clock();
-	td = 0.0;
-	for(i = 0; i < titers; ++i) {
-		td += qfdbl(qfadd(QEXP,QEXP));
-	}
-	ASSERT(HERE, td != 0.0, "!");
-	clock2 = clock();
-	tdiff = (double)(clock2 - clock1);
-	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
-	cycles /= (double)titers;
-	printf	("qfadd   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
-#endif
-	/* 2*pi+e:	0x402200C04CE72C66, 0x7821CB48D9B947AC	*/
-	q = qfadd(QEXP,Q2PI);
-#if QFDEBUG
-		printf("  2*pi + e = %16llX  %16llX\n",q.hi,q.lo);
-#endif
-	qref.hi = 0x402200C04CE72C66ull;	qref.lo = 0x7821CB48D9B947ACull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr < 64.0 ,"ERROR in QFMUL error-level check!");
-
-	/********** TEST THE SUBTRACTION ALGORITHM **********/
-#if TIMING_TEST
-	clock1 = clock();
-	td = 0.0;
-	for(i = 0; i < titers; ++i) {
-		td += qfdbl(qfsub(QEXP,QEXP));
-	}
-	ASSERT(HERE, td == 0.0, "!");
-	clock2 = clock();
-	tdiff = (double)(clock2 - clock1);
-	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
-	cycles /= (double)titers;
-	printf	("qfsub   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
-#endif
-	/* Both inputs   normalized, output   normalized, with just one significant bit. */
-	q.hi = 0x3FEFFFFFFFFFFFFFull;	q.lo = 0xFFFFFFFFFFFFFFFFull;
-	q = qfsub(q, q);
-#if QFDEBUG
-		printf("result1 = %16llX  %16llX\n",q.hi,q.lo);
-#endif
-	qref.hi = qref.lo = 0x0000000000000000ull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr == 0.0 ,"ERROR in QFSUB error-level check!");
-
-	p.hi = 0x3FEFFFFFFFFFFFFFull;	p.lo = 0xFFFFFFFFFFFFFFFFull;
-	q.hi = 0x3FEFFFFFFFFFFFFFull;	q.lo = 0xFFFFFFFFFFFFFFFEull;
-	q = qfsub(p, q);
-#if QFDEBUG
-		printf("result2 = %16llX  %16llX\n",q.hi,q.lo);
-#endif
-	qref.hi = 0x38A0000000000000ull;	qref.lo = 0x0000000000000000ull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr == 0.0 ,"ERROR in QFSUB error-level check!");
-
-	/* Both inputs   normalized, output denormalized, with just one significant bit. */
-	p.hi = 0x00FFFFFFFFFFFFFFull;	p.lo = 0xFFFFFFFFFFFFFFFFull;
-	q.hi = 0x00FFFFFFFFFFFFFFull;	q.lo = 0xFFFFFFFFFFFFFFFEull;
-	q = qfsub(p, q);
-#if QFDEBUG
-		printf("result3 = %16llX  %16llX\n",q.hi,q.lo);
-#endif
-	qref.hi = 0x0000000000000000ull;	qref.lo = 0x0000000000004000ull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr == 0.0 ,"ERROR in QFSUB error-level check!");
-
-	/* Both inputs denormalized, output zero */
-	q.hi = 0x000FFFFFFFFFFFFFull;	q.lo = 0xFFFFFFFFFFFFFFFFull;
-	q = qfsub(q, q);
-#if QFDEBUG
-		printf("result4 = %16llX  %16llX\n",q.hi,q.lo);
-#endif
-	qref.hi = qref.lo = 0ull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr == 0.0 ,"ERROR in QFSUB error-level check!");
-
-	/* Both inputs denormalized, output denormalized, with just one significant bit. */
-	p.hi = 0x000FFFFFFFFFFFFFull;	p.lo = 0xFFFFFFFFFFFFFFFFull;
-	q.hi = 0x000FFFFFFFFFFFFFull;	q.lo = 0xFFFFFFFFFFFFFFFEull;
-	q = qfsub(p, q);
-#if QFDEBUG
-		printf("result5 = %16llX  %16llX\n",q.hi,q.lo);
-#endif
-	qref.hi = 0ull;	qref.lo = 1ull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr == 0.0 ,"ERROR in QFSUB error-level check!");
-
-	/* 2*pi-e:	0x400C84EC1D7402C7, 0x39DB360DDEDB4F60	*/
-	q = qfsub(Q2PI,QEXP);
-#if QFDEBUG
-		printf("    2pi- e = %16llX  %16llX\n",q.hi,q.lo);
-#endif
-	qref.hi = 0x400C84EC1D7402C7ull;	qref.lo = 0x39DB360DDEDB4F60ull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr == 0.0 ,"ERROR in QFSUB error-level check!");
-
-	/* e-2*pi:	0xC00C84EC1D7402C7, 0x39DB360DDEDB4F60	*/
-	r = qfsub(QEXP,Q2PI);
-#if QFDEBUG
-		printf("     e-2pi = %16llX  %16llX\n",r.hi,r.lo);
-#endif
-	if(!(qfcmpeq(r, qfneg(q)))) ASSERT(HERE, 0,"ERROR 54 in qfloat.c");
-
-	/*********** TEST THE SQUARE ROOT ALGORITHM ************/
-#if TIMING_TEST
-	clock1 = clock();
-	td = 0.0;
-	for(i = 0; i < titers; ++i) {
-		td += qfdbl(qfsqrt(QEXP));
-	}
-	ASSERT(HERE, td != 0.0, "!");
-	clock2 = clock();
-	tdiff = (double)(clock2 - clock1);
-	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
-	cycles /= (double)titers;
-	printf	("qfsqrt  : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
-#endif
-	/* sqrt(2):	0x3FF6A09E667F3BCC, 0x908B2FB1366EA958, qfsqrt gives ...956. */
-	q = qfsqrt(QTWO);
-#if QFDEBUG
-		printf("sqrt(2) = %16llX  %16llX\n",q.hi,q.lo);
-#endif
-	qref.hi = 0x3FF6A09E667F3BCCull;	qref.lo = 0x908B2FB1366EA958ull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	if(derr >= 16.0) {
-		printf("derr = %10.5f\n", derr);
-		WARN(HERE, "ERROR in QFSQRT error-level check!", "", 0);
-	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFSQRT error-level check!");
-
-	/*********** TEST THE INVERSION AND DIVISION ALGORITHMS ************/
-#if TIMING_TEST
-	clock1 = clock();
-	td = 0.0;
-	for(i = 0; i < titers; ++i) {
-		td += qfdbl(qfinv(QEXP));
-	}
-	ASSERT(HERE, td != 0.0, "!");
-	clock2 = clock();
-	tdiff = (double)(clock2 - clock1);
-	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
-	cycles /= (double)titers;
-	printf	("qfinv   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
-#endif
-	/* 1/(2*pi):0x3FC45F306DC9C882, 0xA53F84EAFA3EA69B(B81B...), qfinv gives ...698. */
-	q = qfinv(Q2PI);
-#if QFDEBUG
-		printf("1/(2*pi) = %16llX  %16llX\n",q.hi,q.lo);
-#endif
-	qref.hi = 0x3FC45F306DC9C882ull;	qref.lo = 0xA53F84EAFA3EA69Bull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	if(derr >= 16.0) {
-		printf("derr = %10.5f\n", derr);
-		WARN(HERE, "ERROR in QFINV error-level check!", "", 0);
-	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFINV error-level check!");
-
-	/* 1/e:		0x3FD78B56362CEF37, 0xC6AEB7B1E0A4153E(4376...), qfinv gives ...53C. */
-	q = qfinv(QEXP);
-#if QFDEBUG
-		printf("1/e      = %16llX  %16llX\n",q.hi,q.lo);
-#endif
-	qref.hi = 0x3FD78B56362CEF37ull;	qref.lo = 0xC6AEB7B1E0A4153Eull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	if(derr >= 16.0) {
-		printf("derr = %10.5f\n", derr);
-		WARN(HERE, "ERROR in QFINV error-level check!", "", 0);
-	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFINV error-level check!");
-
-	/* 1/ln2:	0x3FF71547652B82FE, 0x1777D0FFDA0D23A7(D11D...), qfinv gives ...3A6. */
-	q = qfinv(QLN2);
-#if QFDEBUG
-		printf("1/ln(2)  = %16llX  %16llX\n",q.hi,q.lo);
-#endif
-	qref.hi = 0x3FF71547652B82FEull;	qref.lo = 0x1777D0FFDA0D23A7ull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	if(derr >= 16.0) {
-		printf("derr = %10.5f\n", derr);
-		WARN(HERE, "ERROR in QFINV error-level check!", "", 0);
-	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFINV error-level check!");
-
-#if TIMING_TEST
-	clock1 = clock();
-	td = 0.0;
-	for(i = 0; i < titers; ++i) {
-		td += qfdbl(qfdiv(QEXP,QPI));
-	}
-	ASSERT(HERE, td != 0.0, "!");
-	clock2 = clock();
-	tdiff = (double)(clock2 - clock1);
-	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
-	cycles /= (double)titers;
-	printf	("qfdiv   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
-#endif
-	/* 2*pi/ln2:0x40222123045B5DEB, 0x9C5398CE82C06E4B(80DB...), qfdiv gives ...E4A. */
-	q = qfdiv(Q2PI, QLN2);
-#if QFDEBUG
-		printf("2*pi/ln(2)  = %16llX  %16llX\n",q.hi,q.lo);
-#endif
-	qref.hi = 0x40222123045B5DEBull;	qref.lo = 0x9C5398CE82C06E4Bull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	if(derr >= 128.0) {
-		printf("derr = %10.5f\n", derr);
-		WARN(HERE, "ERROR in QFDIV error-level check!", "", 0);
-	}
-//	ASSERT(HERE, derr < 128.0 ,"ERROR in QFDIV error-level check!");
-
-	/*********** TEST THE TRANSCENDENTAL FUNCTIONS ************/
-#if TIMING_TEST
-	clock1 = clock();
-	td = 0.0;
-	for(i = 0; i < titers; ++i) {
-		td += qfdbl(qfsn1(QLN2));
-	}
-	ASSERT(HERE, td != 0.0, "!");
-	clock2 = clock();
-	tdiff = (double)(clock2 - clock1);
-	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
-	cycles /= (double)titers;
-	printf	("qfsin   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
-#endif
-	/* sin(Pi/4):	Compare to precomputed 1/sqrt2: */
-	q = qfsn1(QPI4TH);
-	qref.hi = QISRT2.hi;	qref.lo = QISRT2.lo;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	if(derr >= 16.0) {
-		printf("derr = %10.5f\n", derr);
-		WARN(HERE, "ERROR in QFSIN error-level check!", "", 0);
-	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFSIN error-level check!");
-
-#if TIMING_TEST
-	clock1 = clock();
-	td = 0.0;
-	for(i = 0; i < titers; ++i) {
-		td += qfdbl(qfcs1(QLN2));
-	}
-	ASSERT(HERE, td != 0.0, "!");
-	clock2 = clock();
-	tdiff = (double)(clock2 - clock1);
-	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
-	cycles /= (double)titers;
-	printf	("qfcos   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
-#endif
-	/* cos(Pi/4):	Compare to precomputed 1/sqrt2: */
-	q = qfcs1(QPI4TH);
-	qref.hi = QISRT2.hi;	qref.lo = QISRT2.lo;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	if(derr >= 16.0) {
-		printf("derr = %10.5f\n", derr);
-		WARN(HERE, "ERROR in QFCOS error-level check!", "", 0);
-	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFCOS error-level check!");
-
-#if TIMING_TEST
-	clock1 = clock();
-	td = 0.0;
-	for(i = 0; i < titers; ++i) {
-		td += qfdbl(qftan(QLN2));
-	}
-	ASSERT(HERE, td != 0.0, "!");
-	clock2 = clock();
-	tdiff = (double)(clock2 - clock1);
-	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
-	cycles /= (double)titers;
-	printf	("qftan   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
-#endif
-	/* tan(Pi/4):	Compare to 1: */
-	q = qftan(QPI4TH);
-#if QFDEBUG
-		printf("qtfan(PI/4) = %16llX  %16llX\n",q.hi,q.lo);
-#endif
-	qref.hi = QONE.hi;	qref.lo = QONE.lo;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	if(derr >= 16.0) {
-		printf("derr = %10.5f\n", derr);
-		WARN(HERE, "ERROR in QFTAN error-level check!", "", 0);
-	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFTAN error-level check!");
-
-#if TIMING_TEST
-	clock1 = clock();
-	td = 0.0;
-	for(i = 0; i < titers; ++i) {
-		td += qfdbl(qfcot(QLN2));
-	}
-	ASSERT(HERE, td != 0.0, "!");
-	clock2 = clock();
-	tdiff = (double)(clock2 - clock1);
-	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
-	cycles /= (double)titers;
-	printf	("qfcot   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
-#endif
-	/* cot(Pi/4):	Compare to 1: */
-	q = qfcot(QPI4TH);
-#if QFDEBUG
-		printf("qfcot(PI/4) = %16llX  %16llX\n",q.hi,q.lo);
-#endif
-	qref.hi = QONE.hi;	qref.lo = QONE.lo;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	if(derr >= 16.0) {
-		printf("derr = %10.5f\n", derr);
-		WARN(HERE, "ERROR in QFCOT error-level check!", "", 0);
-	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFCOT error-level check!");
-
-#if TIMING_TEST
-	clock1 = clock();
-	td = 0.0;
-	for(i = 0; i < titers; ++i) {
-		td += qfdbl(qfatan(QLN2));
-	}
-	ASSERT(HERE, td != 0.0, "!");
-	clock2 = clock();
-	tdiff = (double)(clock2 - clock1);
-	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
-	cycles /= (double)titers;
-	printf	("qfatan  : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
-#endif
-	/* atan(1):	Compare to precomputed Pi/4: */
-	q = qfatan(QONE);
-#if QFDEBUG
-		printf("qatan(1) = %16llX  %16llX\n",q.hi,q.lo);
-#endif
-	qref.hi = QPI4TH.hi;	qref.lo = QPI4TH.lo;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	if(derr >= 16.0) {
-		printf("derr = %10.5f\n", derr);
-		WARN(HERE, "ERROR in QFATAN error-level check!", "", 0);
-	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFATAN error-level check!");
-
-#if TIMING_TEST
-	clock1 = clock();
-	td = 0.0;
-	for(i = 0; i < titers; ++i) {
-		td += qfdbl(qflog(QLN2));
-	}
-	ASSERT(HERE, td != 0.0, "!");
-	clock2 = clock();
-	tdiff = (double)(clock2 - clock1);
-	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
-	cycles /= (double)titers;
-	printf	("qflog   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
-#endif
-	/* log(2):	Compare to precomputed QLN2 = {0x3FE62E42FEFA39EFull, 0x35793C7673007E5Full}: */
-	q = qflog(QTWO);
-#if QFDEBUG
-		printf("qlog(2) = %16llX  %16llX\n",q.hi,q.lo);
-#endif
-	qref.hi = 0x3FE62E42FEFA39EFull;	qref.lo = 0x35793C7673007E5Full;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	ASSERT(HERE, derr < 1100.0,"ERROR in QFLOG error-level check!");	// AGM-based log is fast but error-prone
-
-	/* log(2^64):	Compare to precomputed log(2^64) = (same as log(2) but exp-field += 6): */
-	q = qfmul_pow2(QONE,+64);
-	q = qflog(q);
-#if QFDEBUG
-		printf("qlog(2^64) = %16llX  %16llX\n",q.hi,q.lo);
-#endif
-	qref.hi = 0x40462E42FEFA39EFull;	qref.lo = 0x35793C7673007E5Full;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	if(derr >= 1100.0) {
-		printf("derr = %10.5f\n", derr);
-		WARN(HERE, "ERROR in QFLOG error-level check!", "", 0);
-	}
-//	ASSERT(HERE, derr < 1100.0 ,"ERROR in QFLOG error-level check!");
-
-#if TIMING_TEST
-	clock1 = clock();
-	td = 0.0;
-	for(i = 0; i < titers; ++i) {
-		td += qfdbl(qfexp(QLN2));
-	}
-	ASSERT(HERE, td != 0.0, "!");
-	clock2 = clock();
-	tdiff = (double)(clock2 - clock1);
-	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
-	cycles /= (double)titers;
-	printf	("qfexp   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
-#endif
-	/* exp(1):	0x4005BF0A8B145769, 0x5355FB8AC404E7A7(9E3B...), qfexp gives ...4E7A7, ~116 bits of accuracy. */
-	q = qfexp(QONE);
-#if QFDEBUG
-		printf("qexp(1) = %16llX  %16llX\n",q.hi,q.lo);
-#endif
-	qref.hi = 0x4005BF0A8B145769ull;	qref.lo = 0x5355FB8AC404E7A7ull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	if(derr > 64.0) {
-		printf("derr = %10.5f\n", derr);
-		WARN(HERE, "ERROR in QFEXP error-level check!", "", 0);
-	}
-//	ASSERT(HERE, derr <= 64.0 ,"ERROR in QFEXP error-level check!");
-
-	/* Sine and cosine are somewhat roundoff-error prone, so raise the error limit slightly. */
-	/* cos(1):	0x3FE14A280FB5068B, 0x923848CDB2ED0E37(A534...), qfcs1 gives ...D0E38, ~116 bits of accuracy */
-	q = qfcs1(QONE);
-#if QFDEBUG
-		printf("qcs1(1) = %16llX  %16llX\n",q.hi,q.lo);
-#endif
-	qref.hi = 0x3FE14A280FB5068Bull;	qref.lo = 0x923848CDB2ED0E37ull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	if(derr >= 16.0) {
-		printf("derr = %10.5f\n", derr);
-		WARN(HERE, "ERROR in QFCS1 error-level check!", "", 0);
-	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFCS1 error-level check!");
-
-	r = qfcos(QONE);
-#if QFDEBUG
-		printf("qcos(1) = %16llX  %16llX\n",r.hi,r.lo);
-#endif
-	if(!(qfcmpeq(r, q))) ASSERT(HERE, 0,"ERROR 70 in qfloat.c");
-
-	/* sin(1):	0x3FEAED548F090CEE, 0x0418DD3D2138A1E7(8651...), qfsn1 gives ...8A1E9, ~115 bits of accuracy */
-	q = qfsn1(QONE);
-#if QFDEBUG
-		printf("qsn1(1) = %16llX  %16llX\n",q.hi,q.lo);
-#endif
-	qref.hi = 0x3FEAED548F090CEEull;	qref.lo = 0x0418DD3D2138A1E7ull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	if(derr >= 16.0) {
-		printf("derr = %10.5f\n", derr);
-		WARN(HERE, "ERROR in QFSN1 error-level check!", "", 0);
-	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFSN1 error-level check!");
-
-	r = qfsin(QONE);
-#if QFDEBUG
-		printf("qsin(1) = %16llX  %16llX\n",r.hi,r.lo);
-#endif
-	if(!(qfcmpeq(r, q))) ASSERT(HERE, 0,"ERROR 74 in qfloat.c");
-
-	/* cos(100):0x3FEB981DBF665FDF, 0x63F433736617A041(5D8A...), qfcos gives ...7A023, ~114 bits of accuracy */
-	q = qfcos(i64_to_q((int64)100));
-#if QFDEBUG
-		printf("qcos(100) = %16llX  %16llX\n",q.hi,q.lo);
-#endif
-	qref.hi = 0x3FEB981DBF665FDFull;	qref.lo = 0x63F433736617A041ull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	if(derr >= 128.0) {
-		printf("derr = %10.5f\n", derr);
-		WARN(HERE, "ERROR in QFCOS error-level check!", "", 0);
-	}
-//	ASSERT(HERE, derr < 128.0 ,"ERROR in QFCOS error-level check!");
-
-	/* sin(100):0xBFE03425B78C4DB8, 0x0708F6155D083EB2(1C6B...), qfsin gives ...83EE5, ~109 bits of accuracy */
-	q = qfsin(i64_to_q((int64)100));
-#if QFDEBUG
-		printf("qsin(100) = %16llX  %16llX\n",q.hi,q.lo);
-#endif
-	qref.hi = 0xBFE03425B78C4DB8ull;	qref.lo = 0x0708F6155D083EB2ull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	if(derr >= 128.0) {
-		printf("derr = %10.5f\n", derr);
-		WARN(HERE, "ERROR in QFSIN error-level check!", "", 0);
-	}
-//	ASSERT(HERE, derr < 128.0 ,"ERROR in QFSIN error-level check!");
-
-	/*********** Test the hyperbolic-trigs: **********************/
-#if TIMING_TEST
-	clock1 = clock();
-	td = 0.0;
-	for(i = 0; i < titers; ++i) {
-		td += qfdbl(qfsinh(QLN2));
-	}
-	ASSERT(HERE, td != 0.0, "!");
-	clock2 = clock();
-	tdiff = (double)(clock2 - clock1);
-	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
-	cycles /= (double)titers;
-	printf	("qfsinh  : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
-#endif
-	/* sinh(ln(2)):	Compare to 0.75: */
-	q = qfsinh(QLN2);
-	qref.hi = 0x3FE8000000000000ull;	qref.lo = 0x0000000000000000ull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	if(derr >= 16.0) {
-		printf("derr = %10.5f\n", derr);
-		WARN(HERE, "ERROR in QFSINH error-level check!", "", 0);
-	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFSINH error-level check!");
-
-#if TIMING_TEST
-	clock1 = clock();
-	td = 0.0;
-	for(i = 0; i < titers; ++i) {
-		td += qfdbl(qfcosh(QLN2));
-	}
-	ASSERT(HERE, td != 0.0, "!");
-	clock2 = clock();
-	tdiff = (double)(clock2 - clock1);
-	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
-	cycles /= (double)titers;
-	printf	("qfcosh  : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
-#endif
-	/* cosh(ln(2)):	Compare to 1.25: */
-	q = qfcosh(QLN2);
-	qref.hi = 0x3FF4000000000000ull;	qref.lo = 0x0000000000000000ull;
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	if(derr >= 16.0) {
-		printf("derr = %10.5f\n", derr);
-		WARN(HERE, "ERROR in QFCOSH error-level check!", "", 0);
-	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFCOSH error-level check!");
-
-#if TIMING_TEST
-	clock1 = clock();
-	td = 0.0;
-	for(i = 0; i < titers; ++i) {
-		td += qfdbl(qftanh(QLN2));
-	}
-	ASSERT(HERE, td != 0.0, "!");
-	clock2 = clock();
-	tdiff = (double)(clock2 - clock1);
-	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
-	cycles /= (double)titers;
-	printf	("qftanh  : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
-#endif
-	/* tanh(ln(2)):	Compare to 3/5: */
-	q = qftanh(QLN2);
-	qref = qfmul( i64_to_q(3ull), QNINV[5] );
-	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
-	if(derr >= 16.0) {
-		printf("derr = %10.5f\n", derr);
-		WARN(HERE, "ERROR in QFTANH error-level check!", "", 0);
-	}
-//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFTANH error-level check!");
-
-	/*********** TEST THE INT --> QFLOAT and ROUND-TOWARD-ZERO AND ROUND-TO-NEAREST FUNCTIONS ************/
-	ASSERT(HERE, CMPEQ128( qfint(qfneg( i64_to_q(  0ull))), NIL128 ), "error!");
-	ASSERT(HERE, CMPEQ128( qfint(qfneg(i128_to_q(NIL128))), NIL128 ), "error!");
-#if TIMING_TEST
-	clock1 = clock();
-	hidiff = lodiff = 0ull;
-	for(i = 0; i < titers; ++i) {
-		i128 = qfnint(QLN2);
-		hidiff += i128.d1;
-		lodiff += i128.d0;
-	}
-	ASSERT(HERE, !hidiff && (lodiff == titers), "!");	// NINT(ln2) = 1, titers times
-	clock2 = clock();
-	tdiff = (double)(clock2 - clock1);
-	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
-	cycles /= (double)titers;
-	printf	("qfnint  : cycles/operation = %10.2f\n",cycles);
-#endif
-	q = qfmul_pow2(QONE, -1);
-	i128 = qfnint(q);
-#if QFDEBUG
-		printf("qfnint(0.5) = %16llX  %16llX\n",i128.d1,i128.d0);
-#endif
-	ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)1),"ERROR 80 in qfloat.c");
-
-#if TIMING_TEST
-	clock1 = clock();
-	hidiff = lodiff = 0ull;
-	for(i = 0; i < titers; ++i) {
-		i128 = qfint(QLN2);
-		hidiff += i128.d1;
-		lodiff += i128.d0 + qfint(QPI).d0;
-	}
-	ASSERT(HERE, !hidiff && (lodiff == 3*titers), "!");	// INT(ln2) = 0 and INT(pi) = 3, summed (titers) times
-	clock2 = clock();
-	tdiff = (double)(clock2 - clock1);
-	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
-	cycles /= (double)titers;
-	printf	("qfint   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
-#endif
-	i128 = qfnint(QHALF);	ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)1),"ERROR 82 in qfloat.c");
-	i128 = qfint(QHALF);	ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)0),"ERROR 83 in qfloat.c");
-	i128 = qfnint(QEXP);	ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)3),"ERROR 84 in qfloat.c");
-	i128 = qfint(QEXP);		ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)2),"ERROR 85 in qfloat.c");
-	i128 = qfnint(Q2PI);	ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)6),"ERROR 86 in qfloat.c");
-	i128 = qfint(Q2PI);		ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)6),"ERROR 87 in qfloat.c");
-	q = qfmul_pow2(Q2PI, 20);
-	i128 = qfnint(q);		ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)6588397),"ERROR 90 in qfloat.c");
-
-	q = qfmul_pow2(QPI, 125);	/* This gives pi*2^125, which should still fit into a signed 128-bit int. */
-	i128 = qfnint(q);
-	ASSERT(HERE, (i128.d1 = (uint64)0x6487ED5110B4611Aull && i128.d0 == (uint64)0x62633145C06E1000ull),"ERROR 92 in qfloat.c");
-
-#if TIMING_TEST
-	exit(0);
-#endif
-	return 0;
-}
-
 
 /* qfloat negation. */
 struct qfloat qfneg(struct qfloat q)
@@ -1157,15 +341,41 @@ double qfdbl(struct qfloat q)
 	uint64 hi;
 
 	hi   = q.hi + (q.lo >> 63);
-	/* If adding the carry rippled into the bottom bit of the exponent field, need to right-shift the significand one place.
-	Note that this can only happen if bits <0:52> of hi were all flipped to 0, so don't need to worry about rounding the bit that gets shifted off.
-	In fact, we don't even need to explicitly restore any hidden bit or do an actual right-shift while doing this, since:
+	/* If adding the carry rippled into the bottom bit of the exponent field, need to right-shift
+	the significand one place. Note that this can only happen if bits <0:52> of hi were all flipped
+	to 0, so don't need to worry about rounding the bit that gets shifted off. In fact, we don't even
+	need to explicitly restore any hidden bit or do an actual right-shift while doing this, since:
 
-	a) If number was normalized, the 1 that got carried out of the bottom 52 bits gets added to the exponent, which is what we wanted to do anyway;
+	a) If number was normalized, the 1 that got carried out of the bottom 52 bits
+		gets added to the exponent, which is what we wanted to do anyway;
 
-	b) If number was denormalized, MSB of significand now gets treated as exponent field of 1, which again is what we wanted to do anyway.
+	b) If number was denormalized, MSB of significand now gets treated as exponent
+		field of 1, which again is what we wanted to do anyway.
 	*/
 	return *(double *)&hi;
+}
+
+// Same as above, but deliberately round the LSB the wrong way, e.g. for sensitivity analysis of a const doubles:
+double qfdbl_wrong_way_rnd(struct qfloat q)
+{
+	uint64 hi,lo;
+	lo = (q.lo >> 63) ^ 0x1;
+	hi = q.hi + lo;
+	return *(double *)&hi;
+}
+
+// For generic doubles (i.e. we do not know what the less-significant bits were which were rounded in),
+// need to provide a pair of functions to add/sub 1 from the LSB:
+double dbl_lsb_add1(double d)
+{
+	uint64 c = *(uint64 *)&d + 1;
+	return *(double *)&c;
+}
+
+double dbl_lsb_sub1(double d)
+{
+	uint64 c = *(uint64 *)&d - 1;
+	return *(double *)&c;
 }
 
 /* qfloat --> long double conversion utility.
@@ -3576,5 +2786,823 @@ struct qfloat qftanh_and_cosh(struct qfloat *x)
 	struct qfloat cosh = qfcosh(*x), sinh = qfsqrt(qfsub(qfmul(cosh,cosh), QONE));
 	*x = cosh;
 	return qfdiv( sinh, cosh );
+}
+
+/*=========================== test routine: ============================*/
+
+int qtest(void)
+{
+	double c, d;
+	int64 hidiff;
+	uint128 i128;
+	struct qfloat p, q,qref,qerr, r;
+	double derr, pi = 3.1415926535897932384;
+#if TIMING_TEST
+	uint32 i;
+	int64 lodiff;
+	/*...time-related stuff	*/
+	clock_t clock1, clock2;
+	const uint32 titers = 100000;
+	const double CPU_FREQUENCY = 2000000000.0;	// One would think CLOCKS_PER_SEC would encode exactly what its name implies, but noooo......
+	double td = 0, tdiff, cycles, cycles_for_qfdbl;
+#endif
+
+#ifdef MUL_LOHI64_SUBROUTINE
+	printf("INFO: qfloat routines using subroutine form of MUL_LOHI\n");
+#endif
+
+#ifdef X87_ASM
+	// Test long-double interface used for high-precision inits of NR seeds for certain transcendental functions:
+	long double ld;
+	uint64 *ld_ptr = &ld, x87_mant, x87_sexp;
+
+	// Test I/O functions:
+	ASSERT(HERE, STREQ( qf2str(QPI), "+3.14159265358979323846264338327950289 E+000" ), "I/O test failed!");
+	
+	asm ("fldln2;"
+		 "fstpt %0" : "=m"(ld) : );
+	x87_mant = *ld_ptr; x87_sexp = *(ld_ptr+1) & 0x000000000000FFFFull;	// Mask off high 48 bits of x87_sexp field, as these are uninited
+	if(x87_mant != 0xB17217F7D1CF79ACull) {
+		printf("ln2 = %30.20Le\n", ld);
+		printf("x87_mant = %16llx, expected 0xB17217F7D1CF79ACull\n", x87_mant);	// x87_mant = b17217f7d1cf79ac, left-shift one place to off-shift hidden bit
+		WARN(HERE, "Ln2 long-double mantissa conversion error", "", 0);
+	}
+//	ASSERT(HERE, x87_mant == 0xB17217F7D1CF79ACull, "Ln2 long-double mantissa conversion error");
+
+//	printf("x87_sexp = %16llx\n", x87_sexp);	// x87_sexp = 3ffe, clear high 4 bits to get qfloat/double-compatible exp-field
+	ASSERT(HERE, x87_sexp == 0x0000000000003FFEull, "Ln2 long-double exponent conversion error");
+
+	asm ("fld1;"
+		 "fadd %%st(0), %%st(0);"
+		 "fsqrt;"
+		 "fchs;"
+		 "fstpt %0" : "=m"(ld) : );
+	x87_mant = *ld_ptr; x87_sexp = *(ld_ptr+1) & 0x000000000000FFFFull;
+
+	if(x87_mant != 0xB504F333F9DE6484ull) {
+		printf("-Sqrt2 = %30.20Le\n", ld);
+		printf("x87_mant = %16llx, expected 0xB504F333F9DE6484ull\n", x87_mant);
+		WARN(HERE, "-Sqrt2 long-double mantissa conversion error", "", 0);
+	}
+//	ASSERT(HERE, x87_mant == 0xB504F333F9DE6484ull, "-Sqrt2 long-double mantissa conversion error");
+
+//	printf("x87_sexp = %16llx\n", x87_sexp);
+	ASSERT(HERE, x87_sexp == 0x000000000000BFFFull, "-Sqrt2 long-double exponent conversion error");
+
+#endif
+
+	ASSERT(HERE, (ABS((int64)0x1234567890ABCDEFull) == 0x1234567890ABCDEFull), "ERROR 10 in qfloat.c");
+
+	/*********** TEST THE TYPE CONVERSIONS **************/
+#if TIMING_TEST
+	printf	("Performing timing tests of basic qfloat operations:\n");
+	clock1 = clock();
+	for(i = 0; i < titers; ++i) {
+		td += qfdbl(QISRT2);
+		td += qfdbl(QPI);
+		td += qfdbl(QLN2);
+		td += qfdbl(QEXP);
+	}
+	clock2 = clock();
+	ASSERT(HERE, td != 0.0, "!");
+	tdiff = (double)(clock2 - clock1);
+	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
+	cycles /= 4.0*(double)titers;
+	printf	("qfdbl   : cycles/operation = %10.2f\n",cycles);
+	cycles_for_qfdbl = cycles;
+#endif
+	c = 0.0;	d = qfdbl(QZRO);
+#if QFDEBUG
+		printf("dble(0.0) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
+#endif
+	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(HERE, 0,"ERROR 12 in qfloat.c");
+
+	c = 1.0;	d = qfdbl(QONE);
+#if QFDEBUG
+		printf("dble(1.0) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
+#endif
+	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(HERE, 0,"ERROR 14 in qfloat.c");
+
+	c = 2.0;	d = qfdbl(QTWO);
+#if QFDEBUG
+		printf("dble(2.0) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
+#endif
+	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(HERE, 0,"ERROR 16 in qfloat.c");
+
+	c =-2.0;	d = qfdbl(qfneg(QTWO));
+#if QFDEBUG
+		printf("dble(-2.0)= %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
+#endif
+	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(hidiff == (int64)0)) ASSERT(HERE, 0,"ERROR 18 in qfloat.c");
+
+	c = 2*pi;	d = qfdbl(Q2PI);
+#if QFDEBUG
+		printf("dble(2pi) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
+#endif
+	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(HERE, 0,"ERROR 20 in qfloat.c");
+
+	c =log(2.0);d = qfdbl(QLN2);
+#if QFDEBUG
+		printf("dble(ln2) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
+#endif
+	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(HERE, 0,"ERROR 22 in qfloat.c");
+
+	c = exp(1.0);
+	d = qfdbl(QEXP);
+#if QFDEBUG
+		printf("dble(exp) = %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
+#endif
+	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(HERE, 0,"ERROR 24 in qfloat.c");
+
+	c = -c;		d = qfdbl(qfneg(QEXP));
+#if QFDEBUG
+		printf("dble(-exp)= %16llX  %16llX\n",*(int64 *)&c, *(int64 *)&d);
+#endif
+	hidiff = *(int64 *)&c - *(int64 *)&d;	if(!(ABS(hidiff) < (int64)2)) ASSERT(HERE, 0,"ERROR 26 in qfloat.c");
+
+	/*********** TEST THE MULTIPLY ALGORITHM ************/
+#if TIMING_TEST
+	clock1 = clock();
+	// For some reason the usual qfdbl(...) here ends up running a tad faster than the above pure qfdbl-loop,
+	hidiff = 0;						// so instead just accum the hi result part in an int64.
+	for(i = 0; i < titers; ++i) {
+		hidiff += qfmul_pow2(QLN2,+1).hi;
+		hidiff += qfmul_pow2(QLN2,+1).hi;
+		hidiff += qfmul_pow2(QLN2,+1).hi;
+		hidiff += qfmul_pow2(QLN2,+1).hi;
+	}
+	ASSERT(HERE, hidiff, "!");
+	clock2 = clock();
+	tdiff = (double)(clock2 - clock1);
+	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
+	cycles /= 4.0*(double)titers;
+	printf	("qfmul_pow2: cycles/operation = %8.2f\n",cycles);
+#endif
+#if TIMING_TEST
+	clock1 = clock();
+	td = 0.0;
+	for(i = 0; i < titers; ++i) {
+		td += qfdbl(qfmul(QEXP,QEXP));
+	}
+	ASSERT(HERE, td != 0.0, "!");
+	clock2 = clock();
+	tdiff = (double)(clock2 - clock1);
+	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
+	cycles /= (double)titers;
+	printf	("qfmul   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
+#endif
+	/* e*e: 	0x401D8E64B8D4DDAD, 0xCC33A3BA206B68AC	*/
+	q = qfmul(QEXP,QEXP);
+#if QFDEBUG
+		printf("      e*e  = %16llX  %16llX\n",q.hi,q.lo);
+		printf("dble( e*e) = %25.16e\n",qfdbl(q));
+#endif
+	qref.hi = 0x401D8E64B8D4DDADull;	qref.lo = 0xCC33A3BA206B68ACull;
+	// This is better than the separate hi/lo-word test, since it allows for the ROE to be of either sign:
+	qerr = qfabs(qfsub(q,qref));			// Div-by-eps same as mul-by-by-2^118
+	derr = qfdbl( qfmul_pow2(qerr,+118) );	// The threshold here typically needs to be ~16*[magnitude of output]
+	ASSERT(HERE, derr < 64.0 ,"ERROR in QFMUL error-level check!");
+
+	/* ln2*e:	0x3FFE258ECC242F82, 0x5DEC567E6A0E1111	*/
+	q = qfmul(QLN2,QEXP);
+#if QFDEBUG
+		printf("     L2*e  = %16llX  %16llX\n",q.hi,q.lo);
+		printf("dble(L2*e) = %25.16e\n",qfdbl(q));
+#endif
+	qref.hi = 0x3FFE258ECC242F82ull;	qref.lo = 0x5DEC567E6A0E1111ull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	ASSERT(HERE, derr < 64.0 ,"ERROR in QFMUL error-level check!");
+
+	/* ln2^2:	0x3FDEBFBDFF82C58E, 0xA86F16B06EC97360	*/
+	q = qfmul(QLN2,QLN2);
+#if QFDEBUG
+		printf("     L2^2  = %16llX  %16llX\n",q.hi,q.lo);
+		printf("dble(L2^2) = %25.16e\n",qfdbl(q));
+#endif
+	qref.hi = 0x3FDEBFBDFF82C58Eull;	qref.lo = 0xA86F16B06EC97360ull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	ASSERT(HERE, derr < 64.0 ,"ERROR in QFMUL error-level check!");
+
+	/* ln2*2pi:	0x40116BB24190A0B6, 0xE765BE0D06135E60	*/
+	q = qfmul(QLN2,Q2PI);
+#if QFDEBUG
+		printf("     Ln2*pi = %16llX  %16llX\n",q.hi,q.lo);
+		printf("dble(Ln2*pi)= %25.16e\n",qfdbl(q));
+#endif
+	qref.hi = 0x40116BB24190A0B6ull;	qref.lo = 0xE765BE0D06135E60ull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	ASSERT(HERE, derr < 64.0 ,"ERROR in QFMUL error-level check!");
+
+	/* 2pi*e:	0x403114580B45D474, 0x9E6108579A2D0CA7	*/
+	q = qfmul(Q2PI,QEXP);
+#if QFDEBUG
+		printf("     pi*e  = %16llX  %16llX\n",q.hi,q.lo);
+		printf("dble(pi*e) = %25.16e\n",qfdbl(q));
+#endif
+	qref.hi = 0x403114580B45D474ull;	qref.lo = 0x9E6108579A2D0CA7ull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	ASSERT(HERE, derr < 128.0 ,"ERROR in QFMUL error-level check!");
+
+	/* 2pi*2pi:	0x4043BD3CC9BE45DE, 0x5A4ADC4D9B301183	*/
+	q = qfmul(Q2PI,Q2PI);
+#if QFDEBUG
+		printf("  (2*pi)^2 = %16llX  %16llX\n",q.hi,q.lo);
+		printf("dble(2pi^2)= %25.16e\n",qfdbl(q));
+		printf("dble(2pi^2)= %25.16e\n",pi*pi);
+#endif
+	qref.hi = 0x4043BD3CC9BE45DEull;	qref.lo = 0x5A4ADC4D9B301183ull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	ASSERT(HERE, derr < 128.0 ,"ERROR in QFMUL error-level check!");
+
+	/*********** TEST THE ADDITION ALGORITHM ************/
+#if TIMING_TEST
+	clock1 = clock();
+	td = 0.0;
+	for(i = 0; i < titers; ++i) {
+		td += qfdbl(qfadd(QEXP,QEXP));
+	}
+	ASSERT(HERE, td != 0.0, "!");
+	clock2 = clock();
+	tdiff = (double)(clock2 - clock1);
+	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
+	cycles /= (double)titers;
+	printf	("qfadd   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
+#endif
+	/* 2*pi+e:	0x402200C04CE72C66, 0x7821CB48D9B947AC	*/
+	q = qfadd(QEXP,Q2PI);
+#if QFDEBUG
+		printf("  2*pi + e = %16llX  %16llX\n",q.hi,q.lo);
+#endif
+	qref.hi = 0x402200C04CE72C66ull;	qref.lo = 0x7821CB48D9B947ACull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	ASSERT(HERE, derr < 64.0 ,"ERROR in QFMUL error-level check!");
+
+	/********** TEST THE SUBTRACTION ALGORITHM **********/
+#if TIMING_TEST
+	clock1 = clock();
+	td = 0.0;
+	for(i = 0; i < titers; ++i) {
+		td += qfdbl(qfsub(QEXP,QEXP));
+	}
+	ASSERT(HERE, td == 0.0, "!");
+	clock2 = clock();
+	tdiff = (double)(clock2 - clock1);
+	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
+	cycles /= (double)titers;
+	printf	("qfsub   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
+#endif
+	/* Both inputs   normalized, output   normalized, with just one significant bit. */
+	q.hi = 0x3FEFFFFFFFFFFFFFull;	q.lo = 0xFFFFFFFFFFFFFFFFull;
+	q = qfsub(q, q);
+#if QFDEBUG
+		printf("result1 = %16llX  %16llX\n",q.hi,q.lo);
+#endif
+	qref.hi = qref.lo = 0x0000000000000000ull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	ASSERT(HERE, derr == 0.0 ,"ERROR in QFSUB error-level check!");
+
+	p.hi = 0x3FEFFFFFFFFFFFFFull;	p.lo = 0xFFFFFFFFFFFFFFFFull;
+	q.hi = 0x3FEFFFFFFFFFFFFFull;	q.lo = 0xFFFFFFFFFFFFFFFEull;
+	q = qfsub(p, q);
+#if QFDEBUG
+		printf("result2 = %16llX  %16llX\n",q.hi,q.lo);
+#endif
+	qref.hi = 0x38A0000000000000ull;	qref.lo = 0x0000000000000000ull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	ASSERT(HERE, derr == 0.0 ,"ERROR in QFSUB error-level check!");
+
+	/* Both inputs   normalized, output denormalized, with just one significant bit. */
+	p.hi = 0x00FFFFFFFFFFFFFFull;	p.lo = 0xFFFFFFFFFFFFFFFFull;
+	q.hi = 0x00FFFFFFFFFFFFFFull;	q.lo = 0xFFFFFFFFFFFFFFFEull;
+	q = qfsub(p, q);
+#if QFDEBUG
+		printf("result3 = %16llX  %16llX\n",q.hi,q.lo);
+#endif
+	qref.hi = 0x0000000000000000ull;	qref.lo = 0x0000000000004000ull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	ASSERT(HERE, derr == 0.0 ,"ERROR in QFSUB error-level check!");
+
+	/* Both inputs denormalized, output zero */
+	q.hi = 0x000FFFFFFFFFFFFFull;	q.lo = 0xFFFFFFFFFFFFFFFFull;
+	q = qfsub(q, q);
+#if QFDEBUG
+		printf("result4 = %16llX  %16llX\n",q.hi,q.lo);
+#endif
+	qref.hi = qref.lo = 0ull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	ASSERT(HERE, derr == 0.0 ,"ERROR in QFSUB error-level check!");
+
+	/* Both inputs denormalized, output denormalized, with just one significant bit. */
+	p.hi = 0x000FFFFFFFFFFFFFull;	p.lo = 0xFFFFFFFFFFFFFFFFull;
+	q.hi = 0x000FFFFFFFFFFFFFull;	q.lo = 0xFFFFFFFFFFFFFFFEull;
+	q = qfsub(p, q);
+#if QFDEBUG
+		printf("result5 = %16llX  %16llX\n",q.hi,q.lo);
+#endif
+	qref.hi = 0ull;	qref.lo = 1ull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	ASSERT(HERE, derr == 0.0 ,"ERROR in QFSUB error-level check!");
+
+	/* 2*pi-e:	0x400C84EC1D7402C7, 0x39DB360DDEDB4F60	*/
+	q = qfsub(Q2PI,QEXP);
+#if QFDEBUG
+		printf("    2pi- e = %16llX  %16llX\n",q.hi,q.lo);
+#endif
+	qref.hi = 0x400C84EC1D7402C7ull;	qref.lo = 0x39DB360DDEDB4F60ull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	ASSERT(HERE, derr == 0.0 ,"ERROR in QFSUB error-level check!");
+
+	/* e-2*pi:	0xC00C84EC1D7402C7, 0x39DB360DDEDB4F60	*/
+	r = qfsub(QEXP,Q2PI);
+#if QFDEBUG
+		printf("     e-2pi = %16llX  %16llX\n",r.hi,r.lo);
+#endif
+	if(!(qfcmpeq(r, qfneg(q)))) ASSERT(HERE, 0,"ERROR 54 in qfloat.c");
+
+	/*********** TEST THE SQUARE ROOT ALGORITHM ************/
+#if TIMING_TEST
+	clock1 = clock();
+	td = 0.0;
+	for(i = 0; i < titers; ++i) {
+		td += qfdbl(qfsqrt(QEXP));
+	}
+	ASSERT(HERE, td != 0.0, "!");
+	clock2 = clock();
+	tdiff = (double)(clock2 - clock1);
+	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
+	cycles /= (double)titers;
+	printf	("qfsqrt  : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
+#endif
+	/* sqrt(2):	0x3FF6A09E667F3BCC, 0x908B2FB1366EA958, qfsqrt gives ...956. */
+	q = qfsqrt(QTWO);
+#if QFDEBUG
+		printf("sqrt(2) = %16llX  %16llX\n",q.hi,q.lo);
+#endif
+	qref.hi = 0x3FF6A09E667F3BCCull;	qref.lo = 0x908B2FB1366EA958ull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	if(derr >= 16.0) {
+		printf("derr = %10.5f\n", derr);
+		WARN(HERE, "ERROR in QFSQRT error-level check!", "", 0);
+	}
+//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFSQRT error-level check!");
+
+	/*********** TEST THE INVERSION AND DIVISION ALGORITHMS ************/
+#if TIMING_TEST
+	clock1 = clock();
+	td = 0.0;
+	for(i = 0; i < titers; ++i) {
+		td += qfdbl(qfinv(QEXP));
+	}
+	ASSERT(HERE, td != 0.0, "!");
+	clock2 = clock();
+	tdiff = (double)(clock2 - clock1);
+	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
+	cycles /= (double)titers;
+	printf	("qfinv   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
+#endif
+	/* 1/(2*pi):0x3FC45F306DC9C882, 0xA53F84EAFA3EA69B(B81B...), qfinv gives ...698. */
+	q = qfinv(Q2PI);
+#if QFDEBUG
+		printf("1/(2*pi) = %16llX  %16llX\n",q.hi,q.lo);
+#endif
+	qref.hi = 0x3FC45F306DC9C882ull;	qref.lo = 0xA53F84EAFA3EA69Bull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	if(derr >= 16.0) {
+		printf("derr = %10.5f\n", derr);
+		WARN(HERE, "ERROR in QFINV error-level check!", "", 0);
+	}
+//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFINV error-level check!");
+
+	/* 1/e:		0x3FD78B56362CEF37, 0xC6AEB7B1E0A4153E(4376...), qfinv gives ...53C. */
+	q = qfinv(QEXP);
+#if QFDEBUG
+		printf("1/e      = %16llX  %16llX\n",q.hi,q.lo);
+#endif
+	qref.hi = 0x3FD78B56362CEF37ull;	qref.lo = 0xC6AEB7B1E0A4153Eull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	if(derr >= 16.0) {
+		printf("derr = %10.5f\n", derr);
+		WARN(HERE, "ERROR in QFINV error-level check!", "", 0);
+	}
+//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFINV error-level check!");
+
+	/* 1/ln2:	0x3FF71547652B82FE, 0x1777D0FFDA0D23A7(D11D...), qfinv gives ...3A6. */
+	q = qfinv(QLN2);
+#if QFDEBUG
+		printf("1/ln(2)  = %16llX  %16llX\n",q.hi,q.lo);
+#endif
+	qref.hi = 0x3FF71547652B82FEull;	qref.lo = 0x1777D0FFDA0D23A7ull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	if(derr >= 16.0) {
+		printf("derr = %10.5f\n", derr);
+		WARN(HERE, "ERROR in QFINV error-level check!", "", 0);
+	}
+//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFINV error-level check!");
+
+#if TIMING_TEST
+	clock1 = clock();
+	td = 0.0;
+	for(i = 0; i < titers; ++i) {
+		td += qfdbl(qfdiv(QEXP,QPI));
+	}
+	ASSERT(HERE, td != 0.0, "!");
+	clock2 = clock();
+	tdiff = (double)(clock2 - clock1);
+	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
+	cycles /= (double)titers;
+	printf	("qfdiv   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
+#endif
+	/* 2*pi/ln2:0x40222123045B5DEB, 0x9C5398CE82C06E4B(80DB...), qfdiv gives ...E4A. */
+	q = qfdiv(Q2PI, QLN2);
+#if QFDEBUG
+		printf("2*pi/ln(2)  = %16llX  %16llX\n",q.hi,q.lo);
+#endif
+	qref.hi = 0x40222123045B5DEBull;	qref.lo = 0x9C5398CE82C06E4Bull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	if(derr >= 128.0) {
+		printf("derr = %10.5f\n", derr);
+		WARN(HERE, "ERROR in QFDIV error-level check!", "", 0);
+	}
+//	ASSERT(HERE, derr < 128.0 ,"ERROR in QFDIV error-level check!");
+
+	/*********** TEST THE TRANSCENDENTAL FUNCTIONS ************/
+#if TIMING_TEST
+	clock1 = clock();
+	td = 0.0;
+	for(i = 0; i < titers; ++i) {
+		td += qfdbl(qfsn1(QLN2));
+	}
+	ASSERT(HERE, td != 0.0, "!");
+	clock2 = clock();
+	tdiff = (double)(clock2 - clock1);
+	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
+	cycles /= (double)titers;
+	printf	("qfsin   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
+#endif
+	/* sin(Pi/4):	Compare to precomputed 1/sqrt2: */
+	q = qfsn1(QPI4TH);
+	qref.hi = QISRT2.hi;	qref.lo = QISRT2.lo;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	if(derr >= 16.0) {
+		printf("derr = %10.5f\n", derr);
+		WARN(HERE, "ERROR in QFSIN error-level check!", "", 0);
+	}
+//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFSIN error-level check!");
+
+#if TIMING_TEST
+	clock1 = clock();
+	td = 0.0;
+	for(i = 0; i < titers; ++i) {
+		td += qfdbl(qfcs1(QLN2));
+	}
+	ASSERT(HERE, td != 0.0, "!");
+	clock2 = clock();
+	tdiff = (double)(clock2 - clock1);
+	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
+	cycles /= (double)titers;
+	printf	("qfcos   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
+#endif
+	/* cos(Pi/4):	Compare to precomputed 1/sqrt2: */
+	q = qfcs1(QPI4TH);
+	qref.hi = QISRT2.hi;	qref.lo = QISRT2.lo;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	if(derr >= 16.0) {
+		printf("derr = %10.5f\n", derr);
+		WARN(HERE, "ERROR in QFCOS error-level check!", "", 0);
+	}
+//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFCOS error-level check!");
+
+#if TIMING_TEST
+	clock1 = clock();
+	td = 0.0;
+	for(i = 0; i < titers; ++i) {
+		td += qfdbl(qftan(QLN2));
+	}
+	ASSERT(HERE, td != 0.0, "!");
+	clock2 = clock();
+	tdiff = (double)(clock2 - clock1);
+	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
+	cycles /= (double)titers;
+	printf	("qftan   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
+#endif
+	/* tan(Pi/4):	Compare to 1: */
+	q = qftan(QPI4TH);
+#if QFDEBUG
+		printf("qtfan(PI/4) = %16llX  %16llX\n",q.hi,q.lo);
+#endif
+	qref.hi = QONE.hi;	qref.lo = QONE.lo;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	if(derr >= 16.0) {
+		printf("derr = %10.5f\n", derr);
+		WARN(HERE, "ERROR in QFTAN error-level check!", "", 0);
+	}
+//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFTAN error-level check!");
+
+#if TIMING_TEST
+	clock1 = clock();
+	td = 0.0;
+	for(i = 0; i < titers; ++i) {
+		td += qfdbl(qfcot(QLN2));
+	}
+	ASSERT(HERE, td != 0.0, "!");
+	clock2 = clock();
+	tdiff = (double)(clock2 - clock1);
+	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
+	cycles /= (double)titers;
+	printf	("qfcot   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
+#endif
+	/* cot(Pi/4):	Compare to 1: */
+	q = qfcot(QPI4TH);
+#if QFDEBUG
+		printf("qfcot(PI/4) = %16llX  %16llX\n",q.hi,q.lo);
+#endif
+	qref.hi = QONE.hi;	qref.lo = QONE.lo;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	if(derr >= 16.0) {
+		printf("derr = %10.5f\n", derr);
+		WARN(HERE, "ERROR in QFCOT error-level check!", "", 0);
+	}
+//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFCOT error-level check!");
+
+#if TIMING_TEST
+	clock1 = clock();
+	td = 0.0;
+	for(i = 0; i < titers; ++i) {
+		td += qfdbl(qfatan(QLN2));
+	}
+	ASSERT(HERE, td != 0.0, "!");
+	clock2 = clock();
+	tdiff = (double)(clock2 - clock1);
+	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
+	cycles /= (double)titers;
+	printf	("qfatan  : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
+#endif
+	/* atan(1):	Compare to precomputed Pi/4: */
+	q = qfatan(QONE);
+#if QFDEBUG
+		printf("qatan(1) = %16llX  %16llX\n",q.hi,q.lo);
+#endif
+	qref.hi = QPI4TH.hi;	qref.lo = QPI4TH.lo;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	if(derr >= 16.0) {
+		printf("derr = %10.5f\n", derr);
+		WARN(HERE, "ERROR in QFATAN error-level check!", "", 0);
+	}
+//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFATAN error-level check!");
+
+#if TIMING_TEST
+	clock1 = clock();
+	td = 0.0;
+	for(i = 0; i < titers; ++i) {
+		td += qfdbl(qflog(QLN2));
+	}
+	ASSERT(HERE, td != 0.0, "!");
+	clock2 = clock();
+	tdiff = (double)(clock2 - clock1);
+	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
+	cycles /= (double)titers;
+	printf	("qflog   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
+#endif
+	/* log(2):	Compare to precomputed QLN2 = {0x3FE62E42FEFA39EFull, 0x35793C7673007E5Full}: */
+	q = qflog(QTWO);
+#if QFDEBUG
+		printf("qlog(2) = %16llX  %16llX\n",q.hi,q.lo);
+#endif
+	qref.hi = 0x3FE62E42FEFA39EFull;	qref.lo = 0x35793C7673007E5Full;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	ASSERT(HERE, derr < 1100.0,"ERROR in QFLOG error-level check!");	// AGM-based log is fast but error-prone
+
+	/* log(2^64):	Compare to precomputed log(2^64) = (same as log(2) but exp-field += 6): */
+	q = qfmul_pow2(QONE,+64);
+	q = qflog(q);
+#if QFDEBUG
+		printf("qlog(2^64) = %16llX  %16llX\n",q.hi,q.lo);
+#endif
+	qref.hi = 0x40462E42FEFA39EFull;	qref.lo = 0x35793C7673007E5Full;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	if(derr >= 1100.0) {
+		printf("derr = %10.5f\n", derr);
+		WARN(HERE, "ERROR in QFLOG error-level check!", "", 0);
+	}
+//	ASSERT(HERE, derr < 1100.0 ,"ERROR in QFLOG error-level check!");
+
+#if TIMING_TEST
+	clock1 = clock();
+	td = 0.0;
+	for(i = 0; i < titers; ++i) {
+		td += qfdbl(qfexp(QLN2));
+	}
+	ASSERT(HERE, td != 0.0, "!");
+	clock2 = clock();
+	tdiff = (double)(clock2 - clock1);
+	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
+	cycles /= (double)titers;
+	printf	("qfexp   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
+#endif
+	/* exp(1):	0x4005BF0A8B145769, 0x5355FB8AC404E7A7(9E3B...), qfexp gives ...4E7A7, ~116 bits of accuracy. */
+	q = qfexp(QONE);
+#if QFDEBUG
+		printf("qexp(1) = %16llX  %16llX\n",q.hi,q.lo);
+#endif
+	qref.hi = 0x4005BF0A8B145769ull;	qref.lo = 0x5355FB8AC404E7A7ull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	if(derr > 64.0) {
+		printf("derr = %10.5f\n", derr);
+		WARN(HERE, "ERROR in QFEXP error-level check!", "", 0);
+	}
+//	ASSERT(HERE, derr <= 64.0 ,"ERROR in QFEXP error-level check!");
+
+	/* Sine and cosine are somewhat roundoff-error prone, so raise the error limit slightly. */
+	/* cos(1):	0x3FE14A280FB5068B, 0x923848CDB2ED0E37(A534...), qfcs1 gives ...D0E38, ~116 bits of accuracy */
+	q = qfcs1(QONE);
+#if QFDEBUG
+		printf("qcs1(1) = %16llX  %16llX\n",q.hi,q.lo);
+#endif
+	qref.hi = 0x3FE14A280FB5068Bull;	qref.lo = 0x923848CDB2ED0E37ull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	if(derr >= 16.0) {
+		printf("derr = %10.5f\n", derr);
+		WARN(HERE, "ERROR in QFCS1 error-level check!", "", 0);
+	}
+//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFCS1 error-level check!");
+
+	r = qfcos(QONE);
+#if QFDEBUG
+		printf("qcos(1) = %16llX  %16llX\n",r.hi,r.lo);
+#endif
+	if(!(qfcmpeq(r, q))) ASSERT(HERE, 0,"ERROR 70 in qfloat.c");
+
+	/* sin(1):	0x3FEAED548F090CEE, 0x0418DD3D2138A1E7(8651...), qfsn1 gives ...8A1E9, ~115 bits of accuracy */
+	q = qfsn1(QONE);
+#if QFDEBUG
+		printf("qsn1(1) = %16llX  %16llX\n",q.hi,q.lo);
+#endif
+	qref.hi = 0x3FEAED548F090CEEull;	qref.lo = 0x0418DD3D2138A1E7ull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	if(derr >= 16.0) {
+		printf("derr = %10.5f\n", derr);
+		WARN(HERE, "ERROR in QFSN1 error-level check!", "", 0);
+	}
+//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFSN1 error-level check!");
+
+	r = qfsin(QONE);
+#if QFDEBUG
+		printf("qsin(1) = %16llX  %16llX\n",r.hi,r.lo);
+#endif
+	if(!(qfcmpeq(r, q))) ASSERT(HERE, 0,"ERROR 74 in qfloat.c");
+
+	/* cos(100):0x3FEB981DBF665FDF, 0x63F433736617A041(5D8A...), qfcos gives ...7A023, ~114 bits of accuracy */
+	q = qfcos(i64_to_q((int64)100));
+#if QFDEBUG
+		printf("qcos(100) = %16llX  %16llX\n",q.hi,q.lo);
+#endif
+	qref.hi = 0x3FEB981DBF665FDFull;	qref.lo = 0x63F433736617A041ull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	if(derr >= 128.0) {
+		printf("derr = %10.5f\n", derr);
+		WARN(HERE, "ERROR in QFCOS error-level check!", "", 0);
+	}
+//	ASSERT(HERE, derr < 128.0 ,"ERROR in QFCOS error-level check!");
+
+	/* sin(100):0xBFE03425B78C4DB8, 0x0708F6155D083EB2(1C6B...), qfsin gives ...83EE5, ~109 bits of accuracy */
+	q = qfsin(i64_to_q((int64)100));
+#if QFDEBUG
+		printf("qsin(100) = %16llX  %16llX\n",q.hi,q.lo);
+#endif
+	qref.hi = 0xBFE03425B78C4DB8ull;	qref.lo = 0x0708F6155D083EB2ull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	if(derr >= 128.0) {
+		printf("derr = %10.5f\n", derr);
+		WARN(HERE, "ERROR in QFSIN error-level check!", "", 0);
+	}
+//	ASSERT(HERE, derr < 128.0 ,"ERROR in QFSIN error-level check!");
+
+	/*********** Test the hyperbolic-trigs: **********************/
+#if TIMING_TEST
+	clock1 = clock();
+	td = 0.0;
+	for(i = 0; i < titers; ++i) {
+		td += qfdbl(qfsinh(QLN2));
+	}
+	ASSERT(HERE, td != 0.0, "!");
+	clock2 = clock();
+	tdiff = (double)(clock2 - clock1);
+	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
+	cycles /= (double)titers;
+	printf	("qfsinh  : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
+#endif
+	/* sinh(ln(2)):	Compare to 0.75: */
+	q = qfsinh(QLN2);
+	qref.hi = 0x3FE8000000000000ull;	qref.lo = 0x0000000000000000ull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	if(derr >= 16.0) {
+		printf("derr = %10.5f\n", derr);
+		WARN(HERE, "ERROR in QFSINH error-level check!", "", 0);
+	}
+//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFSINH error-level check!");
+
+#if TIMING_TEST
+	clock1 = clock();
+	td = 0.0;
+	for(i = 0; i < titers; ++i) {
+		td += qfdbl(qfcosh(QLN2));
+	}
+	ASSERT(HERE, td != 0.0, "!");
+	clock2 = clock();
+	tdiff = (double)(clock2 - clock1);
+	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
+	cycles /= (double)titers;
+	printf	("qfcosh  : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
+#endif
+	/* cosh(ln(2)):	Compare to 1.25: */
+	q = qfcosh(QLN2);
+	qref.hi = 0x3FF4000000000000ull;	qref.lo = 0x0000000000000000ull;
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	if(derr >= 16.0) {
+		printf("derr = %10.5f\n", derr);
+		WARN(HERE, "ERROR in QFCOSH error-level check!", "", 0);
+	}
+//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFCOSH error-level check!");
+
+#if TIMING_TEST
+	clock1 = clock();
+	td = 0.0;
+	for(i = 0; i < titers; ++i) {
+		td += qfdbl(qftanh(QLN2));
+	}
+	ASSERT(HERE, td != 0.0, "!");
+	clock2 = clock();
+	tdiff = (double)(clock2 - clock1);
+	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
+	cycles /= (double)titers;
+	printf	("qftanh  : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
+#endif
+	/* tanh(ln(2)):	Compare to 3/5: */
+	q = qftanh(QLN2);
+	qref = qfmul( i64_to_q(3ull), QNINV[5] );
+	qerr = qfabs(qfsub(q,qref));	derr = qfdbl( qfmul_pow2(qerr,+118) );
+	if(derr >= 16.0) {
+		printf("derr = %10.5f\n", derr);
+		WARN(HERE, "ERROR in QFTANH error-level check!", "", 0);
+	}
+//	ASSERT(HERE, derr < 16.0 ,"ERROR in QFTANH error-level check!");
+
+	/*********** TEST THE INT --> QFLOAT and ROUND-TOWARD-ZERO AND ROUND-TO-NEAREST FUNCTIONS ************/
+	ASSERT(HERE, CMPEQ128( qfint(qfneg( i64_to_q(  0ull))), NIL128 ), "error!");
+	ASSERT(HERE, CMPEQ128( qfint(qfneg(i128_to_q(NIL128))), NIL128 ), "error!");
+#if TIMING_TEST
+	clock1 = clock();
+	hidiff = lodiff = 0ull;
+	for(i = 0; i < titers; ++i) {
+		i128 = qfnint(QLN2);
+		hidiff += i128.d1;
+		lodiff += i128.d0;
+	}
+	ASSERT(HERE, !hidiff && (lodiff == titers), "!");	// NINT(ln2) = 1, titers times
+	clock2 = clock();
+	tdiff = (double)(clock2 - clock1);
+	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
+	cycles /= (double)titers;
+	printf	("qfnint  : cycles/operation = %10.2f\n",cycles);
+#endif
+	q = qfmul_pow2(QONE, -1);
+	i128 = qfnint(q);
+#if QFDEBUG
+		printf("qfnint(0.5) = %16llX  %16llX\n",i128.d1,i128.d0);
+#endif
+	ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)1),"ERROR 80 in qfloat.c");
+
+#if TIMING_TEST
+	clock1 = clock();
+	hidiff = lodiff = 0ull;
+	for(i = 0; i < titers; ++i) {
+		i128 = qfint(QLN2);
+		hidiff += i128.d1;
+		lodiff += i128.d0 + qfint(QPI).d0;
+	}
+	ASSERT(HERE, !hidiff && (lodiff == 3*titers), "!");	// INT(ln2) = 0 and INT(pi) = 3, summed (titers) times
+	clock2 = clock();
+	tdiff = (double)(clock2 - clock1);
+	cycles = tdiff*CPU_FREQUENCY/CLOCKS_PER_SEC;
+	cycles /= (double)titers;
+	printf	("qfint   : cycles/operation = %10.2f\n",cycles - cycles_for_qfdbl);
+#endif
+	i128 = qfnint(QHALF);	ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)1),"ERROR 82 in qfloat.c");
+	i128 = qfint(QHALF);	ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)0),"ERROR 83 in qfloat.c");
+	i128 = qfnint(QEXP);	ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)3),"ERROR 84 in qfloat.c");
+	i128 = qfint(QEXP);		ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)2),"ERROR 85 in qfloat.c");
+	i128 = qfnint(Q2PI);	ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)6),"ERROR 86 in qfloat.c");
+	i128 = qfint(Q2PI);		ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)6),"ERROR 87 in qfloat.c");
+	q = qfmul_pow2(Q2PI, 20);
+	i128 = qfnint(q);		ASSERT(HERE, (!i128.d1 && i128.d0 == (uint64)6588397),"ERROR 90 in qfloat.c");
+
+	q = qfmul_pow2(QPI, 125);	/* This gives pi*2^125, which should still fit into a signed 128-bit int. */
+	i128 = qfnint(q);
+	ASSERT(HERE, (i128.d1 = (uint64)0x6487ED5110B4611Aull && i128.d0 == (uint64)0x62633145C06E1000ull),"ERROR 92 in qfloat.c");
+
+#if TIMING_TEST
+	exit(0);
+#endif
+	return 0;
 }
 

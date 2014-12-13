@@ -44,22 +44,41 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		/* Outputs in SSE2 modes are temps 2*9*16 = 18*16 = 0x120 bytes apart: */
 	  #ifdef USE_AVX
-		#error Constant byte-offsets here are SSE2-only; AVX builds require GCC_ASM_FULL_INLINE to be defined = 1 in C file!
+		#define RAD4_OFF	0x240
+	  #else
+		#define RAD4_OFF	0x120
 	  #endif
-		add0 = &a[j1    ]; 	add1 = add0+p01;	add3 = add0+p02;	add2 = add0+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r00, 0x120)
-		add1 = &a[j1+p08];	add0 = add1+p01;	add2 = add1+p02;	add3 = add1+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r02, 0x120)
-		add2 = &a[j1+p04];	add3 = add2+p01;	add0 = add2+p02;	add1 = add2+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r04, 0x120)
-		add3 = &a[j1+p28];	add2 = add3+p01;	add1 = add3+p02;	add0 = add3+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r06, 0x120)
-		add1 = &a[j1+p24];	add0 = add1+p01;	add2 = add1+p02;	add3 = add1+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r08, 0x120)
-		add0 = &a[j1+p32];	add1 = add0+p01;	add3 = add0+p02;	add2 = add0+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r0a, 0x120)
-		add3 = &a[j1+p12];	add2 = add3+p01;	add1 = add3+p02;	add0 = add3+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r0c, 0x120)
-		add2 = &a[j1+p20];	add3 = add2+p01;	add0 = add2+p02;	add1 = add2+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r0e, 0x120)
-		add0 = &a[j1+p16];	add1 = add0+p01;	add3 = add0+p02;	add2 = add0+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r0g, 0x120)
+		add0 = &a[j1    ]; 	add1 = add0+p01;	add3 = add0+p02;	add2 = add0+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r00, RAD4_OFF)
+		add1 = &a[j1+p08];	add0 = add1+p01;	add2 = add1+p02;	add3 = add1+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r02, RAD4_OFF)
+		add2 = &a[j1+p04];	add3 = add2+p01;	add0 = add2+p02;	add1 = add2+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r04, RAD4_OFF)
+		add3 = &a[j1+p28];	add2 = add3+p01;	add1 = add3+p02;	add0 = add3+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r06, RAD4_OFF)
+		add1 = &a[j1+p24];	add0 = add1+p01;	add2 = add1+p02;	add3 = add1+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r08, RAD4_OFF)
+		add0 = &a[j1+p32];	add1 = add0+p01;	add3 = add0+p02;	add2 = add0+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r0a, RAD4_OFF)
+		add3 = &a[j1+p12];	add2 = add3+p01;	add1 = add3+p02;	add0 = add3+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r0c, RAD4_OFF)
+		add2 = &a[j1+p20];	add3 = add2+p01;	add0 = add2+p02;	add1 = add2+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r0e, RAD4_OFF)
+		add0 = &a[j1+p16];	add1 = add0+p01;	add3 = add0+p02;	add2 = add0+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r0g, RAD4_OFF)
+
 		/* Radix-9 DFT uses adjacent temps, i.e. stride = 2*16 bytes: */
-		SSE2_RADIX_09_DIT(r00,r02,r04,r06,r08,r0a,r0c,r0e,r0g, cc1, s1p00r,s1p32r,s1p28r,s1p24r,s1p20r,s1p16r,s1p12r,s1p08r,s1p04r)
-		SSE2_RADIX_09_DIT(r10,r12,r14,r16,r18,r1a,r1c,r1e,r1g, cc1, s1p27r,s1p23r,s1p19r,s1p15r,s1p11r,s1p07r,s1p03r,s1p35r,s1p31r)
-		SSE2_RADIX_09_DIT(r20,r22,r24,r26,r28,r2a,r2c,r2e,r2g, cc1, s1p18r,s1p14r,s1p10r,s1p06r,s1p02r,s1p34r,s1p30r,s1p26r,s1p22r)
-		SSE2_RADIX_09_DIT(r30,r32,r34,r36,r38,r3a,r3c,r3e,r3g, cc1, s1p09r,s1p05r,s1p01r,s1p33r,s1p29r,s1p25r,s1p21r,s1p17r,s1p13r)
+	  #ifdef USE_AVX2
+		// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
+		tm1 = rad9_iptr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
+		tm2 = rad9_optr;
+		// Pointer patterns here same as for DIF, just need to swap I/O by reversing order of tm1,tm2 --> tm2,tm1 in macro arglists:
+		rad9_iptr[0] = s1p27r; rad9_iptr[1] = s1p23r; rad9_iptr[2] = s1p19r; rad9_iptr[3] = s1p15r; rad9_iptr[4] = s1p11r; rad9_iptr[5] = s1p07r; rad9_iptr[6] = s1p03r; rad9_iptr[7] = s1p35r; rad9_iptr[8] = s1p31r;
+		rad9_optr[0] = r10; rad9_optr[1] = r12; rad9_optr[2] = r14; rad9_optr[3] = r16; rad9_optr[4] = r18; rad9_optr[5] = r1a; rad9_optr[6] = r1c; rad9_optr[7] = r1e; rad9_optr[8] = r1g;
+		SSE2_RADIX_09_DIT_X2(r00,r02,r04,r06,r08,r0a,r0c,r0e,r0g, cc1,     s1p00r,s1p32r,s1p28r,s1p24r,s1p20r,s1p16r,s1p12r,s1p08r,s1p04r,
+				tm2,tm1)  // r10,r12,r14,r16,r18,r1a,r1c,r1e,r1g, cc1,     s1p27r,s1p23r,s1p19r,s1p15r,s1p11r,s1p07r,s1p03r,s1p35r,s1p31r)
+
+		rad9_iptr[0] = s1p09r; rad9_iptr[1] = s1p05r; rad9_iptr[2] = s1p01r; rad9_iptr[3] = s1p33r; rad9_iptr[4] = s1p29r; rad9_iptr[5] = s1p25r; rad9_iptr[6] = s1p21r; rad9_iptr[7] = s1p17r; rad9_iptr[8] = s1p13r;
+		rad9_optr[0] = r30; rad9_optr[1] = r32; rad9_optr[2] = r34; rad9_optr[3] = r36; rad9_optr[4] = r38; rad9_optr[5] = r3a; rad9_optr[6] = r3c; rad9_optr[7] = r3e; rad9_optr[8] = r3g;
+		SSE2_RADIX_09_DIT_X2(r20,r22,r24,r26,r28,r2a,r2c,r2e,r2g, cc1,     s1p18r,s1p14r,s1p10r,s1p06r,s1p02r,s1p34r,s1p30r,s1p26r,s1p22r,
+				tm2,tm1)  // r30,r32,r34,r36,r38,r3a,r3c,r3e,r3g, cc1,     s1p09r,s1p05r,s1p01r,s1p33r,s1p29r,s1p25r,s1p21r,s1p17r,s1p13r)
+	  #else
+		SSE2_RADIX_09_DIT(r00,r02,r04,r06,r08,r0a,r0c,r0e,r0g, cc1,     s1p00r,s1p32r,s1p28r,s1p24r,s1p20r,s1p16r,s1p12r,s1p08r,s1p04r)
+		SSE2_RADIX_09_DIT(r10,r12,r14,r16,r18,r1a,r1c,r1e,r1g, cc1,     s1p27r,s1p23r,s1p19r,s1p15r,s1p11r,s1p07r,s1p03r,s1p35r,s1p31r)
+		SSE2_RADIX_09_DIT(r20,r22,r24,r26,r28,r2a,r2c,r2e,r2g, cc1,     s1p18r,s1p14r,s1p10r,s1p06r,s1p02r,s1p34r,s1p30r,s1p26r,s1p22r)
+		SSE2_RADIX_09_DIT(r30,r32,r34,r36,r38,r3a,r3c,r3e,r3g, cc1,     s1p09r,s1p05r,s1p01r,s1p33r,s1p29r,s1p25r,s1p21r,s1p17r,s1p13r)
+	  #endif
 
 	  #endif
 
@@ -120,10 +139,14 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	/* In AVX mode advance carry-ptrs just 1 for each vector-carry-macro call: */
 		tm1 = s1p00r; tmp = cy; itmp = bjmodn;
-		AVX_cmplx_carry_norm_errcheck0_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		// Each AVX carry macro call also processes 4 prefetches of main-array data
+		add0 = a + j1 + pfetch_dist;
+		AVX_cmplx_carry_norm_errcheck0_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
 		tm1 += 8; tmp += 1; itmp += 4;
 		for(l = 1; l < RADIX>>2; l++) {
-			AVX_cmplx_carry_norm_errcheck1_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			// Each AVX carry macro call also processes 4 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];
+			AVX_cmplx_carry_norm_errcheck1_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
 			tm1 += 8; tmp += 1; itmp += 4;
 		}
 
@@ -158,9 +181,14 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		add3 = &wt1[co3-1];
 
 		tm1 = s1p00r; tmp = cy; tm2 = cy+0x01; itmp = bjmodn;
-		SSE2_cmplx_carry_norm_errcheck0_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+		// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+		add0 = a + j1 + pfetch_dist;
+		SSE2_cmplx_carry_norm_errcheck0_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		for(l = 1; l < RADIX>>2; l++) {
-			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p02;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
 		l= (j+2) & (nwt-1);			/* We want (S*J mod N) - SI(L) for all 16 carries, so precompute	*/
@@ -188,7 +216,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		tm1 = s1p00r; tmp = cy; tm2 = cy+0x01; itmp = bjmodn;
 		for(l = 0; l < RADIX>>2; l++) {
-			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p02;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
 		i =((uint32)(sw - bjmodn[0]) >> 31);	/* get ready for the next set...	*/
@@ -239,23 +270,36 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	  #else
 
 		/* Radix-9 DFT uses adjacent temps, i.e. stride = 2*16 bytes: */
+	  #ifdef USE_AVX2
+		// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
+		tm1 = rad9_iptr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
+		tm2 = rad9_optr;
+		rad9_iptr[0] = s1p27r; rad9_iptr[1] = s1p23r; rad9_iptr[2] = s1p19r; rad9_iptr[3] = s1p15r; rad9_iptr[4] = s1p11r; rad9_iptr[5] = s1p07r; rad9_iptr[6] = s1p03r; rad9_iptr[7] = s1p35r; rad9_iptr[8] = s1p31r;
+		rad9_optr[0] = r10; rad9_optr[1] = r12; rad9_optr[2] = r14; rad9_optr[3] = r16; rad9_optr[4] = r18; rad9_optr[5] = r1a; rad9_optr[6] = r1c; rad9_optr[7] = r1e; rad9_optr[8] = r1g;
+		SSE2_RADIX_09_DIF_X2(s1p00r,s1p32r,s1p28r,s1p24r,s1p20r,s1p16r,s1p12r,s1p08r,s1p04r, cc1, r00,r02,r04,r06,r08,r0a,r0c,r0e,r0g,
+				tm1,tm2)  // s1p27r,s1p23r,s1p19r,s1p15r,s1p11r,s1p07r,s1p03r,s1p35r,s1p31r, cc1, r10,r12,r14,r16,r18,r1a,r1c,r1e,r1g)
+
+		rad9_iptr[0] = s1p09r; rad9_iptr[1] = s1p05r; rad9_iptr[2] = s1p01r; rad9_iptr[3] = s1p33r; rad9_iptr[4] = s1p29r; rad9_iptr[5] = s1p25r; rad9_iptr[6] = s1p21r; rad9_iptr[7] = s1p17r; rad9_iptr[8] = s1p13r;
+		rad9_optr[0] = r30; rad9_optr[1] = r32; rad9_optr[2] = r34; rad9_optr[3] = r36; rad9_optr[4] = r38; rad9_optr[5] = r3a; rad9_optr[6] = r3c; rad9_optr[7] = r3e; rad9_optr[8] = r3g;
+		SSE2_RADIX_09_DIF_X2(s1p18r,s1p14r,s1p10r,s1p06r,s1p02r,s1p34r,s1p30r,s1p26r,s1p22r, cc1, r20,r22,r24,r26,r28,r2a,r2c,r2e,r2g,
+				tm1,tm2)  // s1p09r,s1p05r,s1p01r,s1p33r,s1p29r,s1p25r,s1p21r,s1p17r,s1p13r, cc1, r30,r32,r34,r36,r38,r3a,r3c,r3e,r3g)
+	  #else
 		SSE2_RADIX_09_DIF(s1p00r,s1p32r,s1p28r,s1p24r,s1p20r,s1p16r,s1p12r,s1p08r,s1p04r, cc1, r00,r02,r04,r06,r08,r0a,r0c,r0e,r0g)
 		SSE2_RADIX_09_DIF(s1p27r,s1p23r,s1p19r,s1p15r,s1p11r,s1p07r,s1p03r,s1p35r,s1p31r, cc1, r10,r12,r14,r16,r18,r1a,r1c,r1e,r1g)
 		SSE2_RADIX_09_DIF(s1p18r,s1p14r,s1p10r,s1p06r,s1p02r,s1p34r,s1p30r,s1p26r,s1p22r, cc1, r20,r22,r24,r26,r28,r2a,r2c,r2e,r2g)
 		SSE2_RADIX_09_DIF(s1p09r,s1p05r,s1p01r,s1p33r,s1p29r,s1p25r,s1p21r,s1p17r,s1p13r, cc1, r30,r32,r34,r36,r38,r3a,r3c,r3e,r3g)
-		/* Outputs in SSE2 modes are temps 2*9*16 = 18*16 = 0x120 bytes apart: */
-	  #ifdef USE_AVX
-		#error Constant byte-offsets here are SSE2-only; AVX builds require GCC_ASM_FULL_INLINE to be defined = 1 in C file!
 	  #endif
-		add0 = &a[j1    ]; 	add1 = add0+p01;	add3 = add0+p02;	add2 = add0+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r00, 0x120)
-		add0 = &a[j1+p32];	add1 = add0+p01;	add3 = add0+p02;	add2 = add0+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r02, 0x120)
-		add2 = &a[j1+p20];	add3 = add2+p01;	add0 = add2+p02;	add1 = add2+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r04, 0x120)
-		add1 = &a[j1+p08];	add0 = add1+p01;	add2 = add1+p02;	add3 = add1+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r06, 0x120)
-		add3 = &a[j1+p28];	add2 = add3+p01;	add1 = add3+p02;	add0 = add3+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r08, 0x120)
-		add0 = &a[j1+p16];	add1 = add0+p01;	add3 = add0+p02;	add2 = add0+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r0a, 0x120)
-		add2 = &a[j1+p04];	add3 = add2+p01;	add0 = add2+p02;	add1 = add2+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r0c, 0x120)
-		add1 = &a[j1+p24];	add0 = add1+p01;	add2 = add1+p02;	add3 = add1+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r0e, 0x120)
-		add3 = &a[j1+p12];	add2 = add3+p01;	add1 = add3+p02;	add0 = add3+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r0g, 0x120)
+
+		/* Outputs in SSE2 modes are temps 2*9*16 = 18*16 = 0X120 bytes apart: */
+		add0 = &a[j1    ]; 	add1 = add0+p01;	add3 = add0+p02;	add2 = add0+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r00, RAD4_OFF)
+		add0 = &a[j1+p32];	add1 = add0+p01;	add3 = add0+p02;	add2 = add0+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r02, RAD4_OFF)
+		add2 = &a[j1+p20];	add3 = add2+p01;	add0 = add2+p02;	add1 = add2+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r04, RAD4_OFF)
+		add1 = &a[j1+p08];	add0 = add1+p01;	add2 = add1+p02;	add3 = add1+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r06, RAD4_OFF)
+		add3 = &a[j1+p28];	add2 = add3+p01;	add1 = add3+p02;	add0 = add3+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r08, RAD4_OFF)
+		add0 = &a[j1+p16];	add1 = add0+p01;	add3 = add0+p02;	add2 = add0+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r0a, RAD4_OFF)
+		add2 = &a[j1+p04];	add3 = add2+p01;	add0 = add2+p02;	add1 = add2+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r0c, RAD4_OFF)
+		add1 = &a[j1+p24];	add0 = add1+p01;	add2 = add1+p02;	add3 = add1+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r0e, RAD4_OFF)
+		add3 = &a[j1+p12];	add2 = add3+p01;	add1 = add3+p02;	add0 = add3+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r0g, RAD4_OFF)
 
 	  #endif
 
@@ -290,3 +334,4 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	co3 -= RADIX;
 }	/* end for(k=1; k <= khi; k++) */
 
+#undef RAD4_OFF

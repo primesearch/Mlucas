@@ -24,6 +24,14 @@
 
 #define RADIX 20	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
 
+#ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
+  #else
+	#define PFETCH_DIST	32
+  #endif
+#endif
+
 #ifdef MULTITHREAD
 	#ifndef USE_PTHREAD
 		#error Pthreads is only thread model currently supported!
@@ -169,6 +177,7 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	static	int NDIVR;
+	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 #ifdef USE_SSE2
 	const int sz_vd = sizeof(vec_dbl);
@@ -2527,6 +2536,7 @@ void radix20_dit_pass1(double a[], int n)
 	void*
 	cy20_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 	{
+		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		int j,j1,j2,k,l;
 		double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
@@ -2538,7 +2548,7 @@ void radix20_dit_pass1(double a[], int n)
 
 	#ifdef USE_SSE2
 
-		uint32 p01,p04,p08,p16;
+		uint32 p01,p02,p03,p04,p08,p12,p16;
 		double *add0, *add1, *add2, *add3;
 		const double crnd = 3.0*0x4000000*0x2000000;
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
@@ -2602,8 +2612,11 @@ void radix20_dit_pass1(double a[], int n)
 		/*   constant index offsets for array load/stores are here.	*/
 	#ifdef USE_SSE2
 		p01 = NDIVR;
+		p02 = p01 + p01;
+		p03 = p02 + p01;
 		p04 = p01<<2;
 		p08 = p01<<3;
+		p12 = p08 + p04;
 		p16 = p01<<4;
 	#else
 		p01 = NDIVR;
@@ -2628,8 +2641,11 @@ void radix20_dit_pass1(double a[], int n)
 	#endif	// USE_SSE2
 	#ifdef USE_SSE2
 		p01 = p01 + ( (p01 >> DAT_BITS) << PAD_BITS );
+		p02 = p02 + ( (p02 >> DAT_BITS) << PAD_BITS );
+		p03 = p03 + ( (p03 >> DAT_BITS) << PAD_BITS );
 		p04 = p04 + ( (p04 >> DAT_BITS) << PAD_BITS );
 		p08 = p08 + ( (p08 >> DAT_BITS) << PAD_BITS );
+		p12 = p12 + ( (p12 >> DAT_BITS) << PAD_BITS );
 		p16 = p16 + ( (p16 >> DAT_BITS) << PAD_BITS );
 	#else
 		p01 = p01 + ( (p01 >> DAT_BITS) << PAD_BITS );
@@ -2907,3 +2923,4 @@ void radix20_dit_pass1(double a[], int n)
 #endif
 
 #undef RADIX
+#undef PFETCH_DIST

@@ -1279,8 +1279,9 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		radix32_dif_pass(0x0, 0, 0x0, 0x0, 0, 0, 0x0, init_sse2, thr_id);
 
 		/* The dyadic-square routines need a few more params passed in init-mode than do the standalone FFT-pass routines: */
-		radix16_dyadic_square(0x0, arr_scratch, n, radix0, 0x0, 0x0, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id);
-		radix32_dyadic_square(0x0, arr_scratch, n, radix0, 0x0, 0x0, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id);
+		// Sep 2014: Add roots-table pointers to arglist since now need these to init modified 2-table-CMUL scheme:
+		radix16_dyadic_square(0x0, arr_scratch, n, radix0, rt0, rt1, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id);
+		radix32_dyadic_square(0x0, arr_scratch, n, radix0, rt0, rt1, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id);
 
 		radix8_dit_pass (0x0, 0, 0x0, 0x0, 0, 0, 0x0, init_sse2, thr_id);
 		radix16_dit_pass(0x0, 0, 0x0, 0x0, 0, 0, 0x0, init_sse2, thr_id);
@@ -1292,8 +1293,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		init_sse2 = nchunks;	// Use *value* of init_sse2 to store #threads
 		thr_id = -1;
 		/* The dyadic-square routines need a few more params passed in init-mode than do the standalone FFT-pass routines: */
-		radix16_dyadic_square(0x0, arr_scratch, n, radix0, 0x0, 0x0, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id);
-		radix32_dyadic_square(0x0, arr_scratch, n, radix0, 0x0, 0x0, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id);
+		radix16_dyadic_square(0x0, arr_scratch, n, radix0, rt0, rt1, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id);
+		radix32_dyadic_square(0x0, arr_scratch, n, radix0, rt0, rt1, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id);
 	}
 	new_runlength = FALSE;
 
@@ -1568,7 +1569,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 				fermat_process_chunk( (void*)(&tdat[thr_id]) );
 			}
 		}
-
+//printf("Iter = %d\n",iter);
 		for(thr_id = 0; thr_id < radix0; ++thr_id)
 		{
 		#ifdef DBG_TIME
@@ -1579,15 +1580,14 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		#endif
 		}
 
-//exit(0);
-//printf("Iter = %d\n",iter);
-
 	#elif defined(USE_THREADPOOL)	// Threadpool-based dispatch for generic (non OS X) Linux
 
 			for(thr_id = 0; thr_id < pool_work_units; ++thr_id)
 			{
 				task_control.data = (void*)(&tdat[thr_id]);
-			//	printf("adding pool task %d\n",thr_id);
+			// Get thread ID w.r.to the pool:
+			//	j = ((struct thread_init *)(&task_control)->data)->thread_num;
+			//	printf("adding pool task %d with pool ID [%d]\n",thr_id,j);
 				threadpool_add_task(tpool, &task_control, task_is_blocking);
 			//	printf("; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
 			}
@@ -1886,9 +1886,9 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	if(iter > AME_ITER_START)
 		AME += fracmax;
 
-/*...Now do the fractional error check. Any fractional part  >= 0.4 generates a warning...	*/
-
-	if(fracmax >= 0.4)
+/*...Now do the fractional error check. Any fractional part  > 0.40625 generates a warning...	*/
+// Dec 2014: Bump threshold up from ( >= 0.4 ) to ( > 0.40625 ):
+	if(fracmax > 0.40625)
 	{
 		sprintf(cbuf, "F%u Roundoff warning on iteration %8u, maxerr = %16.12f\n",findex,iter,fracmax);
 
@@ -1897,7 +1897,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		if(INTERACT)
 		{
 			fprintf(stderr,"%s",cbuf);
-			if(fracmax >= 0.40625) *err_iter = p-1;	// If RO > 0.40625 warning issued at any point of the initial error-checked
+			if(fracmax > 0.40625) *err_iter = p-1;	// If RO > 0.40625 warning issued at any point of the initial error-checked
 													// segment, require error checking on each iteration, even if iter > err_iter.
 			if(fracmax > 0.47 )
 			{
@@ -1916,9 +1916,9 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			{
 				fprintf(stderr,"%s",cbuf);
 			}
-	
-			if(fracmax >= 0.40625) *err_iter = p-1;
-	
+
+			if(fracmax > 0.40625) *err_iter = p-1;
+
 		/*...In range test mode, any fractional part > 0.4375 is cause for error exit.	*/
 			if(fracmax > 0.4375 )
 			{
@@ -1926,9 +1926,9 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			to retry the current iteration interval starting from the last savefile and, based on the result, act accordingly.
 			Here is the retry scheme in words - there are 4 distinct cases, divided into 2 main cases, the second of which has
 			3 subcases:
-	
+
 			[1] [condition] (ROE_ITER == 0) : This is the initial attempt of the current interval.
-	
+
 				[action] Store the iteration and value (fracmax) of the initial-pass error in the (signed int)ROE_ITER and
 				(double)ROE_VAL globals (both of which are inited to 0), then (via suitable logic in the calling routine)
 				rerun the interval with the same FFT params:
@@ -1946,12 +1946,12 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 				[2a] [condition] The interval-retry is successful, i.e. suffers no fatal ROE.
 					In this case we will not hit this code snip, but rather will arrive at the return() with iter = ihi+1,
 					hence the code handling for this condition is to be found there.
-	
+
 					[action] Prior to returning, print a "retry successful" informational and rezero ROE_ITER and ROE_VAL.
 				*/
 				/*
 				[2b] [condition] The error is reproducible, i.e. recurs on the same iteration, with the same fractional value.
-	
+
 					[action] Negate ROE_ITER as a signal to the caller that the interval needs (and the rest of the run)
 					needs to be with the next-larger available FFT length. Since ROE_VAL is no longer needed, rezero it,
 					and expect the caller to do the same with ROE_ITER:
@@ -1963,7 +1963,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 					}
 				/*
 				[2c] [condition; rare] The error is not reproducible, but encountered a different ROE in the retry of the interval.
-	
+
 					[action] Treat as fatal (usually a sign of data corruption):
 					*/
 					else {
@@ -1977,7 +1977,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 						return(ERR_UNKNOWN_FATAL);
 					}
 				}
-	
+
 				fprintf(fp,"%s",cbuf);
 				fprintf(fq,"%s",cbuf);
 				fclose(fp);	fp = 0x0;
@@ -2243,7 +2243,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 
 #if(defined(MULTITHREAD) && defined(USE_PTHREAD))
 
-void* 
+void*
 fermat_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
 {
 	struct ferm_thread_data_t* thread_arg = targ;

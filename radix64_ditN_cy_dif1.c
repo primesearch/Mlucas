@@ -27,6 +27,14 @@
 
 #define USE_SCALAR_DFT_MACRO	0
 
+#ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
+  #else
+	#define PFETCH_DIST	32
+  #endif
+#endif
+
 #ifdef MULTITHREAD
 	#ifndef USE_PTHREAD
 		#error Pthreads is only thread model currently supported!
@@ -47,7 +55,7 @@
   #if USE_SCALAR_DFT_MACRO
 	#define OFF	0
   #else
-	#define OFF 0x2e	// Extra alloc for sincos data
+	#define OFF 0x32	// Extra alloc for sincos data
   #endif
   #ifdef USE_AVX
 	const int half_arr_offset64 = 0x100 + OFF + (RADIX>>2);	// RADIX/4 vec_dbl slots for carries in AVX mode
@@ -149,6 +157,7 @@ int radix64_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 #if USE_SCALAR_DFT_MACRO
 	static int dft_offsets[RADIX], c_offsets[RADIX];
 #endif
+	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 #ifdef USE_SSE2
 	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
@@ -190,6 +199,9 @@ int radix64_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 #ifdef USE_SSE2
 
+	// Uint64 bitmaps for alternate "rounded the other way" copies of sqrt2,isrt2. Default round-to-nearest versions
+	// (SQRT2, ISRT2) end in ...3BCD. Since we round these down as ...3BCC90... --> ..3BCC, append _dn to varnames:
+	const uint64 sqrt2_dn = 0x3FF6A09E667F3BCCull, isrt2_dn = 0x3FE6A09E667F3BCCull;
 	int idx_offset,idx_incr;
 	static int cslots_in_local_store;
 	static vec_dbl *sc_arr = 0x0, *sc_ptr;
@@ -210,7 +222,7 @@ int radix64_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 	static vec_dbl *max_err, *sse2_rnd, *half_arr,
 	#if !USE_SCALAR_DFT_MACRO
-		*cc0, *ss0,
+		*cc0, *ss0, *two,*one,*sqrt2,
 		 *isrt2, *cc1, *ss1, *cc2, *ss2, *cc3, *ss3, *cc4, *ss4, *cc5, *ss5, *cc6, *ss6, *cc7, *ss7,
 		*nisrt2,*ncc1,*nss1,*ncc2,*nss2,*ncc3,*nss3,*ncc4,*nss4,*ncc5,*nss5,*ncc6,*nss6,*ncc7,*nss7,	// each non-unity root now needs a negated counterpart
 	#endif
@@ -307,80 +319,6 @@ int radix64_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	{
 		first_entry=TRUE;
 	}
-
-/******************* AVX debug stuff: *******************/
-#if 0
-int ipad;
-if(first_entry) {
-	// Use RNG to populate data array:
-	rng_isaac_init(TRUE);
-	dtmp = 1024.0*1024.0*1024.0*1024.0;
-	ipad = 0;
-	for(i = 0; i < n; i += 8) {
-		ipad = i + ( (i >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-		// All the inits are w.r.to an un-SIMD-rearranged ...,re,im,re,im,... pattern:
-	#ifdef USE_AVX	// AVX and AVX2 both use 256-bit registers
-		a[ipad+br8[0]] = dtmp*rng_isaac_rand_double_norm_pm1();	// re0
-		a[ipad+br8[1]] = dtmp*rng_isaac_rand_double_norm_pm1();	// im0
-		a[ipad+br8[2]] = dtmp*rng_isaac_rand_double_norm_pm1();	// re1
-		a[ipad+br8[3]] = dtmp*rng_isaac_rand_double_norm_pm1();	// im1
-		a[ipad+br8[4]] = dtmp*rng_isaac_rand_double_norm_pm1();	// re2
-		a[ipad+br8[5]] = dtmp*rng_isaac_rand_double_norm_pm1();	// im2
-		a[ipad+br8[6]] = dtmp*rng_isaac_rand_double_norm_pm1();	// re3
-		a[ipad+br8[7]] = dtmp*rng_isaac_rand_double_norm_pm1();	// im3
-	#elif defined(USE_SSE2)
-		a[ipad+br4[0]  ] = dtmp*rng_isaac_rand_double_norm_pm1();	// re0
-		a[ipad+br4[1]  ] = dtmp*rng_isaac_rand_double_norm_pm1();	// im0
-		a[ipad+br4[2]  ] = dtmp*rng_isaac_rand_double_norm_pm1();	// re1
-		a[ipad+br4[3]  ] = dtmp*rng_isaac_rand_double_norm_pm1();	// im1
-		a[ipad+br4[0]+4] = dtmp*rng_isaac_rand_double_norm_pm1();	// re2
-		a[ipad+br4[1]+4] = dtmp*rng_isaac_rand_double_norm_pm1();	// im2
-		a[ipad+br4[2]+4] = dtmp*rng_isaac_rand_double_norm_pm1();	// re3
-		a[ipad+br4[3]+4] = dtmp*rng_isaac_rand_double_norm_pm1();	// im3
-	#else	// Scalar mode: Data arranged in standard (re,im) pairwise fashion
-		a[ipad+0] = dtmp*rng_isaac_rand_double_norm_pm1();	// re0
-		a[ipad+1] = dtmp*rng_isaac_rand_double_norm_pm1();	// im0
-		a[ipad+2] = dtmp*rng_isaac_rand_double_norm_pm1();	// re1
-		a[ipad+3] = dtmp*rng_isaac_rand_double_norm_pm1();	// im1
-		a[ipad+4] = dtmp*rng_isaac_rand_double_norm_pm1();	// re2
-		a[ipad+5] = dtmp*rng_isaac_rand_double_norm_pm1();	// im2
-		a[ipad+6] = dtmp*rng_isaac_rand_double_norm_pm1();	// re3
-		a[ipad+7] = dtmp*rng_isaac_rand_double_norm_pm1();	// im3
-	#endif
-  #if 0
-	#ifdef USE_AVX	// AVX and AVX2 both use 256-bit registers
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+0,a[ipad+br8[0]]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+1,a[ipad+br8[1]]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+2,a[ipad+br8[2]]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+3,a[ipad+br8[3]]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+4,a[ipad+br8[4]]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+5,a[ipad+br8[5]]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+6,a[ipad+br8[6]]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+7,a[ipad+br8[7]]);
-	#elif defined(USE_SSE2)
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+0  ,a[ipad+br4[0]  ]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+1  ,a[ipad+br4[1]  ]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+2  ,a[ipad+br4[2]  ]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+3  ,a[ipad+br4[3]  ]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+0+4,a[ipad+br4[0]+4]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+1+4,a[ipad+br4[1]+4]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+2+4,a[ipad+br4[2]+4]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+3+4,a[ipad+br4[3]+4]);
-	#else	// Scalar mode: Data arranged in standard (re,im) pairwise fashion
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+0,a[ipad+0]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+1,a[ipad+1]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+2,a[ipad+2]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+3,a[ipad+3]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+4,a[ipad+4]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+5,a[ipad+5]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+6,a[ipad+6]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+7,a[ipad+7]);
-	#endif
-  #endif
-	}
-}
-#endif
-/********************************************************/
 
 /*...initialize things upon first entry: */
 
@@ -578,6 +516,11 @@ if(first_entry) {
 		s1p1f = tmp + 0x3e;	s1p3f = tmp + 0x7e;
 		tmp += 0x80;
 	  #if !USE_SCALAR_DFT_MACRO
+		two     = tmp + 0;	// AVX+ versions of various DFT macros need consts [2,1,sqrt2,isrt2] quartet laid out thusly
+		one     = tmp + 1;
+		sqrt2	= tmp + 2;
+	//	isrt2   = tmp + 3;	Unnamed slot, since previous layout below already has an iart2 pointer
+		tmp += 4;
 		// Each non-unity root now needs a negated counterpart:
 		/* Stupidity: Since a truly general-purpose [in the sense that it can be used for our radix-128 internal-twiddles]
 		radix-8 DFT-with-twiddles macro needs 8 in-addresses [corr. to the 8 real parts of the input data], 8 o-addresses,
@@ -633,18 +576,18 @@ if(first_entry) {
 // [copy isrt2]	= tmp + 0x2b;
 		ncc7	= tmp + 0x2c;
 		nss7	= tmp + 0x2d;
-		tmp += 0x2e;	// sc_ptr += 0x12e
+		tmp += 0x2e;	// sc_ptr += 0x132
 	  #endif
 	  #ifdef USE_AVX
 		cy_r = tmp;	cy_i = tmp+0x10;	tmp += 2*0x10;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;	// +2 = 336 vec_dbl
+		sse2_rnd= tmp + 0x01;	// +2 = 340 vec_dbl
 		// This is where the value of half_arr_offset comes from
 		half_arr= tmp + 0x02;	/* This table needs 68 vec_dbl for Mersenne-mod, and 3.5*RADIX[avx] | RADIX[sse2] for Fermat-mod */
 	  #else
 		cy_r = tmp;	cy_i = tmp+0x20;	tmp += 2*0x20;	// RADIX/2 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;	// +2 = 368 complex
+		sse2_rnd= tmp + 0x01;	// +2 = 372 complex
 		// This is where the value of half_arr_offset comes from
 		half_arr= tmp + 0x02;	/* This table needs 20 x 16 bytes for Mersenne-mod, 2 for Fermat-mod */
 	  #endif
@@ -653,23 +596,28 @@ if(first_entry) {
 
 	  #if !USE_SCALAR_DFT_MACRO
 		/* These remain fixed: */
-		VEC_DBL_INIT(nisrt2,-ISRT2);
-		VEC_DBL_INIT( isrt2, ISRT2);									// Copies of +ISRT2 needed for 30-asm-macro-operand-GCC-limit workaround:
-		VEC_DBL_INIT( cc0,   1.0);		VEC_DBL_INIT( ss0,   0.0);		tmp =  cc0-1; ASSERT(HERE, tmp->d0 == ISRT2 && tmp->d1 == ISRT2, "tmp->d0,1 != ISRT2");
-		VEC_DBL_INIT( cc1, c64_1);		VEC_DBL_INIT( ss1, s64_1);		tmp =  cc1-1; VEC_DBL_INIT(tmp, ISRT2);
-		VEC_DBL_INIT( cc2, c32_1);		VEC_DBL_INIT( ss2, s32_1);		tmp =  cc2-1; VEC_DBL_INIT(tmp, ISRT2);
-		VEC_DBL_INIT( cc3, c64_3);		VEC_DBL_INIT( ss3, s64_3);		tmp =  cc3-1; VEC_DBL_INIT(tmp, ISRT2);
-		VEC_DBL_INIT( cc4, c16  );		VEC_DBL_INIT( ss4, s16  );		tmp =  cc4-1; VEC_DBL_INIT(tmp, ISRT2);
-		VEC_DBL_INIT( cc5, c64_5);		VEC_DBL_INIT( ss5, s64_5);		tmp =  cc5-1; VEC_DBL_INIT(tmp, ISRT2);
-		VEC_DBL_INIT( cc6, c32_3);		VEC_DBL_INIT( ss6, s32_3);		tmp =  cc6-1; VEC_DBL_INIT(tmp, ISRT2);
-		VEC_DBL_INIT( cc7, c64_7);		VEC_DBL_INIT( ss7, s64_7);		tmp =  cc7-1; VEC_DBL_INIT(tmp, ISRT2);
-		VEC_DBL_INIT(ncc1,-c64_1);		VEC_DBL_INIT(nss1,-s64_1);		tmp = ncc1-1; VEC_DBL_INIT(tmp, ISRT2);
-		VEC_DBL_INIT(ncc2,-c32_1);		VEC_DBL_INIT(nss2,-s32_1);		tmp = ncc2-1; VEC_DBL_INIT(tmp, ISRT2);
-		VEC_DBL_INIT(ncc3,-c64_3);		VEC_DBL_INIT(nss3,-s64_3);		tmp = ncc3-1; VEC_DBL_INIT(tmp, ISRT2);
-		VEC_DBL_INIT(ncc4,-c16  );		VEC_DBL_INIT(nss4,-s16  );		tmp = ncc4-1; VEC_DBL_INIT(tmp, ISRT2);
-		VEC_DBL_INIT(ncc5,-c64_5);		VEC_DBL_INIT(nss5,-s64_5);		tmp = ncc5-1; VEC_DBL_INIT(tmp, ISRT2);
-		VEC_DBL_INIT(ncc6,-c32_3);		VEC_DBL_INIT(nss6,-s32_3);		tmp = ncc6-1; VEC_DBL_INIT(tmp, ISRT2);
-		VEC_DBL_INIT(ncc7,-c64_7);		VEC_DBL_INIT(nss7,-s64_7);		tmp = ncc7-1; VEC_DBL_INIT(tmp, ISRT2);
+		VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );
+		tmp = sqrt2+1;
+		// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
+		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
+		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+		VEC_DBL_INIT(nisrt2,-dtmp);
+		VEC_DBL_INIT( isrt2, dtmp);									// Copies of +ISRT2 needed for 30-asm-macro-operand-GCC-limit workaround:
+		VEC_DBL_INIT( cc0,   1.0);		VEC_DBL_INIT( ss0,   0.0);	//	tmp =  cc0-1; ASSERT(HERE, tmp->d0 == ISRT2 && tmp->d1 == ISRT2, "tmp->d0,1 != ISRT2");	Disable to allow "round down" variant
+		VEC_DBL_INIT( cc1, c64_1);		VEC_DBL_INIT( ss1, s64_1);		tmp =  cc1-1; VEC_DBL_INIT(tmp, dtmp);
+		VEC_DBL_INIT( cc2, c32_1);		VEC_DBL_INIT( ss2, s32_1);		tmp =  cc2-1; VEC_DBL_INIT(tmp, dtmp);
+		VEC_DBL_INIT( cc3, c64_3);		VEC_DBL_INIT( ss3, s64_3);		tmp =  cc3-1; VEC_DBL_INIT(tmp, dtmp);
+		VEC_DBL_INIT( cc4, c16  );		VEC_DBL_INIT( ss4, s16  );		tmp =  cc4-1; VEC_DBL_INIT(tmp, dtmp);
+		VEC_DBL_INIT( cc5, c64_5);		VEC_DBL_INIT( ss5, s64_5);		tmp =  cc5-1; VEC_DBL_INIT(tmp, dtmp);
+		VEC_DBL_INIT( cc6, c32_3);		VEC_DBL_INIT( ss6, s32_3);		tmp =  cc6-1; VEC_DBL_INIT(tmp, dtmp);
+		VEC_DBL_INIT( cc7, c64_7);		VEC_DBL_INIT( ss7, s64_7);		tmp =  cc7-1; VEC_DBL_INIT(tmp, dtmp);
+		VEC_DBL_INIT(ncc1,-c64_1);		VEC_DBL_INIT(nss1,-s64_1);		tmp = ncc1-1; VEC_DBL_INIT(tmp, dtmp);
+		VEC_DBL_INIT(ncc2,-c32_1);		VEC_DBL_INIT(nss2,-s32_1);		tmp = ncc2-1; VEC_DBL_INIT(tmp, dtmp);
+		VEC_DBL_INIT(ncc3,-c64_3);		VEC_DBL_INIT(nss3,-s64_3);		tmp = ncc3-1; VEC_DBL_INIT(tmp, dtmp);
+		VEC_DBL_INIT(ncc4,-c16  );		VEC_DBL_INIT(nss4,-s16  );		tmp = ncc4-1; VEC_DBL_INIT(tmp, dtmp);
+		VEC_DBL_INIT(ncc5,-c64_5);		VEC_DBL_INIT(nss5,-s64_5);		tmp = ncc5-1; VEC_DBL_INIT(tmp, dtmp);
+		VEC_DBL_INIT(ncc6,-c32_3);		VEC_DBL_INIT(nss6,-s32_3);		tmp = ncc6-1; VEC_DBL_INIT(tmp, dtmp);
+		VEC_DBL_INIT(ncc7,-c64_7);		VEC_DBL_INIT(nss7,-s64_7);		tmp = ncc7-1; VEC_DBL_INIT(tmp, dtmp);
 	  #else
 	// Init-mode calls to these functions which maintain an internal local-alloc static store:
 		thr_id = -1;	// Use this special thread id for any macro-required thread-local-data inits...
@@ -683,8 +631,8 @@ if(first_entry) {
 
 	  #if !USE_SCALAR_DFT_MACRO
 		// Propagate the above consts to the remaining threads:
-		nbytes = (int)cy_r - (int)nisrt2;	// #bytes in 1st of above block of consts
-		tmp = nisrt2;
+		nbytes = (int)cy_r - (int)two;	// #bytes in 1st of above block of consts
+		tmp = two;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
 			memcpy(tm2, tmp, nbytes);
@@ -1237,11 +1185,7 @@ for(outer=0; outer <= 1; outer++)
 		ASSERT(HERE, tdat[ithread].rn1 == rn1, "thread-local memcheck fail!");
 	#ifdef USE_SSE2
 		ASSERT(HERE, tdat[ithread].r00 == __r0 + ithread*cslots_in_local_store, "thread-local memcheck fail!");
-		tmp = tdat[ithread].r00;		dtmp = -ISRT2;
-	  #if !USE_SCALAR_DFT_MACRO
-		ASSERT(HERE, ((tmp + 0x100)->d0 == -ISRT2 && (tmp + 0x100)->d1 == -ISRT2), "thread-local memcheck failed!");
-		ASSERT(HERE, ((tmp + 0x101)->d0 == +ISRT2 && (tmp + 0x101)->d1 == +ISRT2), "thread-local memcheck failed!");
-	  #endif
+		tmp = tdat[ithread].r00;
 		tmp = tdat[ithread].half_arr;
 		ASSERT(HERE, ((tmp-1)->d0 == crnd && (tmp-1)->d1 == crnd), "thread-local memcheck failed!");
 	#endif
@@ -2164,6 +2108,7 @@ void radix64_dit_pass1(double a[], int n)
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr,*addi;
 		struct complex *tptr;
+		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p01,p02,p03,p04,p05,p06,p07,p08,p10,p18,p20,p28,p30,p38;
 		int poff[RADIX>>2], po_br[8];;	// Store mults of p-offsets for loop-controlled DFT macro calls
@@ -2190,7 +2135,7 @@ void radix64_dit_pass1(double a[], int n)
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 		vec_dbl *max_err, *sse2_rnd, *half_arr,
 		#if !USE_SCALAR_DFT_MACRO
-			*cc0, *ss0,
+			*cc0, *ss0, *two,*one,*sqrt2,
 			 *isrt2, *cc1, *ss1, *cc2, *ss2, *cc3, *ss3, *cc4, *ss4, *cc5, *ss5, *cc6, *ss6, *cc7, *ss7,
 			*nisrt2,*ncc1,*nss1,*ncc2,*nss2,*ncc3,*nss3,*ncc4,*nss4,*ncc5,*nss5,*ncc6,*nss6,*ncc7,*nss7,	// each non-unity root now needs a negated counterpart
 		#endif
@@ -2403,6 +2348,12 @@ void radix64_dit_pass1(double a[], int n)
 		s1p1f = tmp + 0x3e;	s1p3f = tmp + 0x7e;
 		tmp += 0x80;
 	  #if !USE_SCALAR_DFT_MACRO
+		// To support FMA versions of the radix-8 macros used to build radix-64 we insert a standalone copy of the [2,1,sqrt2,isrt2] quartet:
+		two     = tmp + 0;	// AVX+ versions of various DFT macros assume consts 2.0,1.0,isrt2 laid out thusly
+		one     = tmp + 1;
+		sqrt2	= tmp + 2;
+	//	isrt2   = tmp + 3;	Unnamed slot, since previous layout below already has an iart2 pointer
+		tmp += 4;
 		nisrt2	= tmp + 0x00;	// For the +- isrt2 pair put the - datum first, thus cc0 satisfies
 		 isrt2	= tmp + 0x01;	// the same "cc-1 gets you isrt2" property as do the other +-[cc,ss] pairs.
 		 cc0	= tmp + 0x02;
@@ -2449,12 +2400,12 @@ void radix64_dit_pass1(double a[], int n)
 // [copy isrt2]	= tmp + 0x2b;
 		ncc7	= tmp + 0x2c;
 		nss7	= tmp + 0x2d;
-		tmp += 0x2e;	// sc_ptr += 0x12e
+		tmp += 0x2e;	// sc_ptr += 0x132
 	  #endif
 	  #ifdef USE_AVX
 		cy_r = tmp;	cy_i = tmp+0x10;	tmp += 2*0x10;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;	// +2 = 336 vec_dbl
+		sse2_rnd= tmp + 0x01;	// +2 = 340 vec_dbl
 		// This is where the value of half_arr_offset comes from
 		half_arr= tmp + 0x02;	/* This table needs 68 vec_dbl for Mersenne-mod, and 3.5*RADIX[avx] | RADIX[sse2] for Fermat-mod */
 
@@ -2462,16 +2413,13 @@ void radix64_dit_pass1(double a[], int n)
 	  #else
 		cy_r = tmp;	cy_i = tmp+0x20;	tmp += 2*0x20;	// RADIX/2 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;	// +2 = 368 complex
+		sse2_rnd= tmp + 0x01;	// +2 = 372 complex
 		// This is where the value of half_arr_offset comes from
 		half_arr= tmp + 0x02;	/* This table needs 20 x 16 bytes for Mersenne-mod, 2 for Fermat-mod */
 	  #endif
 
 		ASSERT(HERE, (r00 == thread_arg->r00), "thread-local memcheck failed!");
 		ASSERT(HERE, (half_arr == thread_arg->half_arr), "thread-local memcheck failed!");
-	  #if !USE_SCALAR_DFT_MACRO
-		ASSERT(HERE, (isrt2->d0 == ISRT2 && isrt2->d1 == ISRT2), "thread-local memcheck failed!");
-	  #endif
 		ASSERT(HERE, (sse2_rnd->d0 == crnd && sse2_rnd->d1 == crnd), "thread-local memcheck failed!");
 
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
@@ -2645,3 +2593,4 @@ void radix64_dit_pass1(double a[], int n)
 #endif
 
 #undef RADIX
+#undef PFETCH_DIST

@@ -853,13 +853,14 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 	__asm__ volatile (\
 		/*...Block 1:	*/\
 		"movq	%[__add0],%%rax				\n\t"\
-	"movslq	%[__pfetch_addr],%%r15	\n\t"	/* Prefetch base-index offset cycles among add0 + p0,1,2,3 on successive macro calls */\
-	"leaq	(%%rax,%%r15,8),%%r15	\n\t"	/* [base-address + data-fetch-ahead index] */\
+	"movq	%%rax,%%r15	\n\t"	/* Prefetch base-index offset cycles among add0 + p0,1,2,3 on successive macro calls */\
 		"movslq	%[__p4],%%rbx				\n\t"\
 		"movslq	%[__p8],%%rcx				\n\t"\
 	"shlq	$3,%%rbx	\n\t"\
 		"movslq	%[__p12],%%rdx				\n\t"\
-	"movq	%%rbx,%%r14	\n\t"	/* Save a copy of p4 pointer offset. Will prefetch from [base-address + data-fetch-ahead index] + [0,p4,p8,p12] on each macro call. */\
+	"mov	%%rbx,%%r14		\n\t"/* Save copies of p2,p4 pointer offsets. */\
+	"movslq	%[__p2],%%r13	\n\t"/* Will prefetch from [base-address + data-fetch-ahead index] */\
+	"shlq	$3,%%r13		\n\t"/* + p[2,4,6,8,10,12,14] in first half of macro, p1 + p[2,4,6,8,10,12,14] in 2nd half. */\
 	"prefetcht1	%c[__pfetch_dist](%%r15)\n\t"/* [base-address + data-fetch-ahead index] + p0 */\
 		"movq	%[__cc0],%%rsi 			\n\t"\
 		"vbroadcastsd 0x28(%%rsi),%%ymm13 \n\t vbroadcastsd 0x38(%%rsi),%%ymm14 \n\t vbroadcastsd 0x48(%%rsi),%%ymm15 \n\t"/* load __r8,r4,rC into ymm13-15 */\
@@ -879,6 +880,7 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"vbroadcastsd	0x030(%%rsi),%%ymm15		\n\t"/* load __c4 */\
 		"vmovaps		%%ymm8 ,%%ymm10				\n\t	vmovaps			%%ymm0,%%ymm2 				\n\t"/*	_c = _a;	t02 = t00; */\
 		" vfmadd231pd	%%ymm6 ,%%ymm13,%%ymm8 		\n\t	 vfmadd231pd	%%ymm4 ,%%ymm14,%%ymm0 		\n\t"/*	 FMA231(t06,__cC4,_a);		 FMA231(t04,__c8,t00); */\
+	"prefetcht1	%c[__pfetch_dist](%%r15,%%r13)\n\t"/* ...+p2 */\
 		"vmovaps		%%ymm9 ,%%ymm11				\n\t	vmovaps			%%ymm1 ,%%ymm3 				\n\t"/*	_d = _b;	t03 = t01; */\
 		" vfmadd231pd	%%ymm7 ,%%ymm13,%%ymm9 		\n\t	 vfmadd231pd	%%ymm5 ,%%ymm14,%%ymm1 		\n\t"/*	 FMA231(t07,__cC4,_b);		 FMA231(t05,__c8,t01); */\
 		"vfnmadd231pd	%%ymm6 ,%%ymm13,%%ymm10		\n\t	vfnmadd231pd	%%ymm4 ,%%ymm14,%%ymm2 		\n\t"/*	FNMA231(t06,__cC4,_c);		FNMA231(t04,__c8,t02); */\
@@ -903,6 +905,8 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"addq	%%r9,%%rdx			\n\t"\
 		"addq	$0x040,%%rsi 		/* cc += 8 */\n\t"\
 		"addq	$0x100,%%rdi 		/* r1 += 8 */\n\t"\
+	"prefetcht1	%c[__pfetch_dist](%%r15,%%r14)\n\t"/* ...+p4 */\
+	"addq	%%r14,%%r13 		\n\t"/* p2 -> p6 */\
 		"vbroadcastsd 0x018(%%rsi),%%ymm12 	\n\t"/* load __r2 into ymm12 */\
 		"vbroadcastsd 0x028(%%rsi),%%ymm13 	\n\t"/* load __rA into ymm13 */\
 		"vbroadcastsd 0x038(%%rsi),%%ymm14 	\n\t"/* load __r6 into ymm14 */\
@@ -921,6 +925,7 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"vmovaps		%%ymm8 ,%%ymm10				\n\t	vmovaps			%%ymm0,%%ymm2 				\n\t"/*	_c = _a;	t10 = t08; */\
 		" vfmadd231pd	%%ymm6 ,%%ymm13,%%ymm8 		\n\t	 vfmadd231pd	%%ymm4 ,%%ymm14,%%ymm0 		\n\t"/*	 FMA231(t14,__cE6,_a);		 FMA231(t12,__cA2,t08); */\
 		"vmovaps		%%ymm9 ,%%ymm11				\n\t	vmovaps			%%ymm1 ,%%ymm3 				\n\t"/*	_d = _b;	t11 = t09; */\
+	"prefetcht1	%c[__pfetch_dist](%%r15,%%r13)\n\t"/* ...+p6 */\
 		" vfmadd231pd	%%ymm7 ,%%ymm13,%%ymm9 		\n\t	 vfmadd231pd	%%ymm5 ,%%ymm14,%%ymm1 		\n\t"/*	 FMA231(t15,__cE6,_b);		 FMA231(t13,__cA2,t09); */\
 		"vfnmadd231pd	%%ymm6 ,%%ymm13,%%ymm10		\n\t	vfnmadd231pd	%%ymm4 ,%%ymm14,%%ymm2 		\n\t"/*	FNMA231(t14,__cE6,_c);		FNMA231(t12,__cA2,t10); */\
 		"vfnmadd231pd	%%ymm7 ,%%ymm13,%%ymm11		\n\t	vfnmadd231pd	%%ymm5 ,%%ymm14,%%ymm3 		\n\t"/*	FNMA231(t15,__cE6,_d);		FNMA231(t13,__cA2,t11); */\
@@ -939,7 +944,6 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"subq	%%r9,%%rbx			\n\t"\
 		"subq	%%r9,%%rcx			\n\t"\
 		"subq	%%r9,%%rdx			\n\t"\
-	"prefetcht1	%c[__pfetch_dist](%%r15,%%r14)\n\t"/* ...+p4 */\
 		"\n\t"\
 		/*...Block 3: Register indices for the 8 t-date = [t-index - 16]: */\
 		"movslq	%[__p1],%%r8		\n\t"\
@@ -950,6 +954,8 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"addq	%%r8,%%rdx			\n\t"\
 		"addq	$0x040,%%rsi 		/* cc += 8 */\n\t"\
 		"addq	$0x100,%%rdi 		/* r1 += 8 */\n\t"\
+	"prefetcht1	%c[__pfetch_dist](%%r15,%%r14,2)\n\t"/* ...+p8 */\
+	"addq	%%r14,%%r13 		\n\t"/* p6 -> p10 */\
 		"vbroadcastsd 0x018(%%rsi),%%ymm12 	\n\t"/* load __r1 into ymm12 */\
 		"vbroadcastsd 0x028(%%rsi),%%ymm13 	\n\t"/* load __r9 into ymm13 */\
 		"vbroadcastsd 0x038(%%rsi),%%ymm14 	\n\t"/* load __r5 into ymm14 */\
@@ -966,6 +972,7 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"vfnmadd231pd	0x020(%%rdx),%%ymm15,%%ymm6 \n\t	 vfmadd231pd	(%%rdx),%%ymm15,%%ymm7  	\n\t"/* FNMA231(__ADi,__rD,t22);	 FMA231(__ADr,__rD,t23); */\
 		"vbroadcastsd	0x030(%%rsi),%%ymm15		\n\t"/* load __c51 */\
 		"vmovaps		%%ymm8 ,%%ymm10				\n\t	vmovaps			%%ymm0,%%ymm2 				\n\t"/*	_c= _a;	t18= t16; */\
+	"prefetcht1	%c[__pfetch_dist](%%r15,%%r13)\n\t"/* ...+p10 */\
 		" vfmadd231pd	%%ymm6 ,%%ymm13,%%ymm8 		\n\t	 vfmadd231pd	%%ymm4 ,%%ymm14,%%ymm0 		\n\t"/*	 FMA231(t22,__cD5,_a);		 FMA231(t20,__c91,t16); */\
 		"vmovaps		%%ymm9 ,%%ymm11				\n\t	vmovaps			%%ymm1 ,%%ymm3 				\n\t"/*	_d= _b;	t19= t17; */\
 		" vfmadd231pd	%%ymm7 ,%%ymm13,%%ymm9 		\n\t	 vfmadd231pd	%%ymm5 ,%%ymm14,%%ymm1 		\n\t"/*	 FMA231(t23,__cD5,_b);		 FMA231(t21,__c91,t17); */\
@@ -983,13 +990,15 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"vmovaps		%%ymm7 ,0x0e0(%%rdi)		\n\t	vmovaps			%%ymm3 ,0x060(%%rdi)		\n\t"\
 		"\n\t"\
 		/*...Block 4: Register indices for the 8 t-date = [t-index - 24]: */\
-		"/* __p2 << 3 still in %%r9 */\n\t"\
-		"addq	%%r9,%%rax			\n\t"\
+		"addq	%%r9,%%rax			\n\t"/* __p2 << 3 still in %%r9: */\
 		"addq	%%r9,%%rbx			\n\t"\
 		"addq	%%r9,%%rcx			\n\t"\
 		"addq	%%r9,%%rdx			\n\t"\
 		"addq	$0x040,%%rsi 		/* cc += 8 */\n\t"\
 		"addq	$0x100,%%rdi 		/* r1 += 8 */\n\t"\
+	"addq	%%r14,%%r13 		\n\t"/* p10 -> p14 */\
+	"leaq	(%%r14,%%r14,2),%%r14 \n\t"/* p4  -> p12 */\
+	"prefetcht1	%c[__pfetch_dist](%%r15,%%r14)\n\t"/* ...+p12 */\
 		"vbroadcastsd 0x018(%%rsi),%%ymm12 	\n\t"/* load __r3 into ymm12 */\
 		"vbroadcastsd 0x028(%%rsi),%%ymm13 	\n\t"/* load __rB into ymm13 */\
 		"vbroadcastsd 0x038(%%rsi),%%ymm14 	\n\t"/* load __r7 into ymm14 */\
@@ -1005,6 +1014,7 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"vbroadcastsd	0x020(%%rsi),%%ymm14		\n\t"/* load __cB3 */\
 		"vfnmadd231pd	0x020(%%rdx),%%ymm15,%%ymm6 \n\t	 vfmadd231pd	(%%rdx),%%ymm15,%%ymm7  	\n\t"/* FNMA231(__AFi,__rF,t30 );	 FMA231(__AFr,__rF,t31 ); */\
 		"vbroadcastsd	0x030(%%rsi),%%ymm15		\n\t"/* load __c73 */\
+	"prefetcht1	%c[__pfetch_dist](%%r15,%%r13)\n\t"/* ...+p14 */\
 		"vmovaps		%%ymm8 ,%%ymm10				\n\t	vmovaps			%%ymm0,%%ymm2 				\n\t"/*	_c= _a;	t26= t24; */\
 		" vfmadd231pd	%%ymm6 ,%%ymm13,%%ymm8 		\n\t	 vfmadd231pd	%%ymm4 ,%%ymm14,%%ymm0 		\n\t"/*	 FMA231(t30,__cF7,_a);		 FMA231(t28,__cB3,t24); */\
 		"vmovaps		%%ymm9 ,%%ymm11				\n\t	vmovaps			%%ymm1 ,%%ymm3 				\n\t"/*	_d= _b;	t27= t25; */\
@@ -1022,9 +1032,13 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"vmovaps		%%ymm6 ,0x0c0(%%rdi)		\n\t	vmovaps			%%ymm2 ,0x040(%%rdi)		\n\t"\
 		"vmovaps		%%ymm7 ,0x0e0(%%rdi)		\n\t	vmovaps			%%ymm3 ,0x060(%%rdi)		\n\t"\
 		"\n\t"\
-	"/*************************************************************************************/\n\t"\
-	"/*  And now do four more radix-4 transforms, including the internal twiddle factors: */\n\t"\
-	"/*************************************************************************************/\n\t"\
+	/*************************************************************************************/\
+	/*  And now do four more radix-4 transforms, including the internal twiddle factors: */\
+	/*************************************************************************************/\
+	"movslq	%[__p2],%%r13	\n\t"/* Restore p2,4 ptr-offsets in prep for 2nd-hald prefetches */\
+	"movslq	%[__p4],%%r14	\n\t"\
+	"shlq	$3,%%r13		\n\t"\
+	"shlq	$3,%%r14		\n\t"\
 		/* Block 1: */\
 		"movq	%[__add0],%%rax		\n\t"\
 		"leaq	(%%r8,%%r9),%%rdx	/* [pointer arithmetic] p2 += p1 to give p3-ptr in rdx */\n\t"\
@@ -1033,9 +1047,9 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"addq	%%rax,%%rdx			/* add0+p3 */\n\t"\
 		"subq	$0x0c0,%%rsi 		/* revert cc-ptr to base value */\n\t"\
 		"subq	$0x300,%%rdi 		/* revert r1-ptr to base value */\n\t"\
-	"prefetcht1	%c[__pfetch_dist](%%r15,%%r14,2)\n\t"/* ...+p8 */\
-	"leaq	(%%r14,%%r14,2),%%r14	\n\t"	/* p4 + (p4*2) = p12, ptr-offset form */\
 		"\n\t"\
+	"addq	%%r8,%%r15	\n\t"	/*  __p1 << 3 still in %%r8: [base-address + data-fetch-ahead index + p1] */\
+	"prefetcht1	%c[__pfetch_dist](%%r15)\n\t"/* ...+p1 */\
 		/*...Read t0,8,16,24 from local store ... Do the 4 Im-part FMAs first, because their results needed 1st below */\
 		"vbroadcastsd	0x050(%%rsi),%%ymm14		\n\t	vbroadcastsd	0x0d0(%%rsi),%%ymm15		\n\t"/* load __c2,c31 into pair of regs */\
 		"vmovaps		     (%%rdi),%%ymm0 		\n\t	vmovaps			0x100(%%rdi),%%ymm2 		\n\t"/*    t00;    t08; */\
@@ -1047,6 +1061,7 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"vmovaps			 %%ymm1 ,%%ymm9 		\n\t	vmovaps				 %%ymm5 ,%%ymm11		\n\t"/* _b=t01; _d=t17; */\
 		" vfmadd231pd	%%ymm3 ,%%ymm14,%%ymm1 		\n\t	 vfmadd231pd	%%ymm7 ,%%ymm15,%%ymm5 		\n\t"/*	 FMA231(t09,__c2 ,t01);		 FMA231(t25,__c31,t17); */\
 		"vfnmadd231pd	%%ymm2 ,%%ymm14,%%ymm8 		\n\t	vfnmadd231pd	%%ymm6 ,%%ymm15,%%ymm10		\n\t"/*	FNMA231(t08,__c2 ,_a );		FNMA231(t24,__c31,_c ); */\
+	"prefetcht1	%c[__pfetch_dist](%%r15,%%r13)\n\t"/* ...+p3 */\
 		"vbroadcastsd	0x090(%%rsi),%%ymm6 		\n\t"/* load __c1 */\
 		"vfnmadd231pd	%%ymm3 ,%%ymm14,%%ymm9 		\n\t	vfnmadd231pd	%%ymm7 ,%%ymm15,%%ymm11		\n\t"/*	FNMA231(t09,__c2 ,_b );		FNMA231(t25,__c31,_d ); */\
 		"vmovaps			 %%ymm0 ,%%ymm12		\n\t	vmovaps				 %%ymm1 ,%%ymm13		\n\t"/* _e = t00; _f = t01; */\
@@ -1070,6 +1085,8 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"addq	%%r8,%%rcx		/* add0+p6 */\n\t"\
 		"addq	%%r8,%%rdx		/* add0+p7 */\n\t"\
 		"addq	$0x80,%%rdi		/* r5 */\n\t"\
+	"prefetcht1	%c[__pfetch_dist](%%r15,%%r14)\n\t"/* ...+p5 */\
+	"addq	%%r14,%%r13 		\n\t"/* p2 -> p6 */\
 		"vbroadcastsd	0x050(%%rsi),%%ymm14		\n\t	vbroadcastsd	0x0d0(%%rsi),%%ymm15		\n\t"/* load __c2,31 into pair of regs */\
 		"vmovaps		0x200(%%rdi),%%ymm4 		\n\t	vmovaps			0x220(%%rdi),%%ymm5 		\n\t"/*    t20;    t21; */\
 		"vmovaps		0x300(%%rdi),%%ymm6 		\n\t	vmovaps			0x320(%%rdi),%%ymm7 		\n\t"/*    t28;    t29; */\
@@ -1083,6 +1100,7 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"vmovaps			 %%ymm10,%%ymm5 		\n\t	vmovaps				 %%ymm4 ,%%ymm12		\n\t"/* t21 = _c; _e = t20; */\
 		" vfmadd231pd	%%ymm3 ,%%ymm14,%%ymm8 		\n\t	 vfmadd231pd	%%ymm11,%%ymm15,%%ymm5 		\n\t"/*	 FMA231(t13,__c2 ,_a );		 FMA231(_d ,__c31,t21); */\
 		"vfnmadd231pd	%%ymm2 ,%%ymm14,%%ymm9 		\n\t	 vfmadd231pd	%%ymm7 ,%%ymm15,%%ymm4 		\n\t"/*	FNMA231(t12,__c2 ,_b );		 FMA231(t29,__c31,t20); */\
+	"prefetcht1	%c[__pfetch_dist](%%r15,%%r13)\n\t"/* ...+p7 */\
 		"vfnmadd231pd	%%ymm3 ,%%ymm14,%%ymm0 		\n\t	vfnmadd231pd	%%ymm11,%%ymm15,%%ymm10		\n\t"/*	FNMA231(t13,__c2 ,t04);		FNMA231(_d ,__c31,_c ); */\
 		" vfmadd231pd	%%ymm2 ,%%ymm14,%%ymm1 		\n\t	vfnmadd231pd	%%ymm7 ,%%ymm15,%%ymm12		\n\t"/*	 FMA231(t12,__c2 ,t05);		FNMA231(t29,__c31,_e ); */\
 		"vmovaps			 %%ymm8 ,%%ymm2 		\n\t	vmovaps				 %%ymm9 ,%%ymm3 		\n\t"/* t12 = _a; t13 = _b; */\
@@ -1104,7 +1122,8 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"addq	%%r8,%%rbx		/* add0+p9 */\n\t"\
 		"addq	%%r8,%%rcx		/* add0+pA */\n\t"\
 		"addq	%%r8,%%rdx		/* add0+pB */\n\t"\
-	"prefetcht1	%c[__pfetch_dist](%%r15,%%r14)\n\t"/* ...+p12 */\
+	"prefetcht1	%c[__pfetch_dist](%%r15,%%r14,2)\n\t"/* ...+p9 */\
+	"addq	%%r14,%%r13 		\n\t"/* p6 -> p10 */\
 		"vbroadcastsd	0x008(%%rsi),%%ymm15		\n\t"/* load __sc  */\
 		"vbroadcastsd	0x0d0(%%rsi),%%ymm14		\n\t"/* load __c31 */\
 		"vmovaps		0x200(%%rdi),%%ymm4 		\n\t	vmovaps			0x220(%%rdi),%%ymm5 		\n\t"/*    t18;    t19; */\
@@ -1119,6 +1138,7 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"vbroadcastsd	(%%rsi),%%ymm15				\n\t"/* load __c1_c */\
 		"vmovaps		     (%%rdi),%%ymm0 		\n\t	vmovaps			0x020(%%rdi),%%ymm1 		\n\t"/*    t02;    t03; */\
 		"vmovaps			 %%ymm10,%%ymm4 		\n\t	vmovaps				 %%ymm0 ,%%ymm2 		\n\t"/* t18 = _c;	t10 = t02; */\
+	"prefetcht1	%c[__pfetch_dist](%%r15,%%r13)\n\t"/* ...+p11 */\
 		" vfmadd231pd	%%ymm8 ,%%ymm14,%%ymm4 		\n\t	 vfmadd231pd	%%ymm12,%%ymm6 ,%%ymm0 		\n\t"/*	 FMA231(_a ,__c31,t18);		 FMA231(_e ,__c2i2,t02); */\
 		"vmovaps			 %%ymm11,%%ymm5 		\n\t	vmovaps				 %%ymm1 ,%%ymm3 		\n\t"/* t19 = _d;	t11 = t03; */\
 		" vfmadd231pd	%%ymm9 ,%%ymm14,%%ymm5 		\n\t	 vfmadd231pd	%%ymm13,%%ymm6 ,%%ymm1 		\n\t"/*	 FMA231(_b ,__c31,t19);		 FMA231(_f ,__c2i2,t03); */\
@@ -1143,6 +1163,9 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"addq	%%r8,%%rbx		/* add0+pD */\n\t"\
 		"addq	%%r8,%%rcx		/* add0+pE */\n\t"\
 		"addq	%%r8,%%rdx		/* add0+pF */\n\t"\
+	"addq	%%r14,%%r13 		\n\t"/* p10 -> p14 */\
+	"leaq	(%%r14,%%r14,2),%%r14 \n\t"/* p4  -> p12 */\
+	"prefetcht1	%c[__pfetch_dist](%%r15,%%r14)\n\t"/* ...+p13 */\
 		"vbroadcastsd	0x008(%%rsi),%%ymm15		\n\t"/* load __sc  */\
 		"vmovaps		0x200(%%rdi),%%ymm4 		\n\t	vmovaps			0x220(%%rdi),%%ymm5 		\n\t"/*    t22;    t23; */\
 		"vmovaps		0x300(%%rdi),%%ymm6 		\n\t	vmovaps			0x320(%%rdi),%%ymm7 		\n\t"/*    t30;    t31; */\
@@ -1158,6 +1181,7 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"vmovaps		     (%%rdi),%%ymm0 		\n\t	vmovaps			0x020(%%rdi),%%ymm1 		\n\t"/*    t06;    t07; */\
 		"vmovaps			 %%ymm1 ,%%ymm3 		\n\t	vmovaps				 %%ymm0 ,%%ymm2 		\n\t"/* t15= t07;	t14= t06; */\
 		"vfnmadd231pd	%%ymm11,%%ymm6 ,%%ymm1 		\n\t	vfnmadd231pd	%%ymm10,%%ymm6 ,%%ymm0 		\n\t"/*	FNMA231(_d ,__c2i2,t07);	FNMA231(_c ,__c2i2,t06); */\
+	"prefetcht1	%c[__pfetch_dist](%%r15,%%r13)\n\t"/* ...+p15 */\
 		"vmovaps			 %%ymm12,%%ymm4 		\n\t	vmovaps				 %%ymm13,%%ymm5 		\n\t"/* t22= _e; t23= _f; */\
 		"vfnmadd231pd	%%ymm8 ,%%ymm14,%%ymm4 		\n\t	vfnmadd231pd	%%ymm9 ,%%ymm14,%%ymm5 		\n\t"/*	FNMA231(_a ,__c31 ,t22);	FNMA231(_b ,__c31 ,t23); */\
 		" vfmadd231pd	%%ymm8 ,%%ymm14,%%ymm12		\n\t	 vfmadd231pd	%%ymm9 ,%%ymm14,%%ymm13		\n\t"/*	 FMA231(_a ,__c31 ,_e );	 FMA231(_b ,__c31 ,_f ); */\
@@ -1185,7 +1209,7 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		 ,[__cc0] "m" (Xcc0)\
 		 ,[__pfetch_addr] "m" (Xpfetch_addr)\
 		 ,[__pfetch_dist] "e" (Xpfetch_dist)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r8","r9","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r8","r9","r14","r13","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
@@ -1823,6 +1847,13 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 	//     in an attempt to make for better scheduling;
 	// [2] Uses scalar-double/vbroadcastsd scheme for trig data, inited by above RADIX16_COMPUTE_FMA_SINCOS_DIT_2 macro.
 	//
+	/* Sep 2014: Since my DIT impl is post-twiddles, that is twiddles-applied-to-outputs, original all-FMA version of DIT
+	is dominated by "trivial-MUL" FMAs in which one of the 2 multiplicands is unity. Haswell can in theory issue FMAs at
+	2x the rate of ADD/SUB (i.e. 2 per cycle vs 1) so this should be better in terms of throughput, but due to longer
+	latency of FMA (5 cycles vs 3) it's worth also trying a variant in which we replace the trivial-MUL FMAs with their
+	equivalent ADD/SUB. Tried such a modified version, replacing 110 trivial-MUL FMAs with equivalent ADD/SUB - slower.
+	All-FMA should be even better on Broadwell (2nd-gen die-shrunk successor to Haswell), where FMA latency just 3 cycles!
+	*/
 	#define SSE2_RADIX16_DIT_TWIDDLE_2(Xadd0,Xp1,Xp2,Xp3,Xp4,Xp8,Xp12,Xr1,Xcc0,Xpfetch_addr,Xpfetch_dist)\
 	{\
 	__asm__ volatile (\
@@ -1839,7 +1870,7 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"movslq	%[__p3],%%rdx	\n\t"\
 		"movq	%[__cc0],%%rsi 	\n\t"\
 		"shlq	$3,%%r10		\n\t"/* p4 in bytewise ptr-arithmetic form */\
-		"vmovaps 0x440(%%rsi),%%ymm10	\n\t"/* cc0 + 0x22 = __two; Actually holds 1.0 in AVX2 mode */\
+		"vmovaps 0x440(%%rsi),%%ymm10	\n\t"/* cc0 + 0x22 = __two; ACTUALLY HOLDS 1.0 IN AVX2 MODE */\
 		"leaq	(%%rax,%%rbx,8),%%rbx	\n\t"/* add0+p1 */\
 		"leaq	(%%rax,%%rcx,8),%%rcx	\n\t"/* add0+p2 */\
 		"leaq	(%%rax,%%rdx,8),%%rdx	\n\t"/* add0+p3 */\

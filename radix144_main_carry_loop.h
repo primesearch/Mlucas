@@ -59,12 +59,72 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			add0=addr+k0; add1=addr+k1; add2=addr+k2; add3=addr+k3; add4=addr+k4; add5=addr+k5; add6=addr+k6; add7=addr+k7; add8=addr+k8; add9=addr+k9; adda=addr+ka; addb=addr+kb; addc=addr+kc; addd=addr+kd; adde=addr+ke; addf=addr+kf;
 			SSE2_RADIX16_DIT_0TWIDDLE(
 				add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf,
-				isrt2,
+				isrt2,two,
 				tmp,OFF1,OFF2,OFF3,OFF4
 			);	tmp += 0x20;
 		}
 	//...and now do 16 radix-9 transforms:
 		tmp = r00;
+	  #ifdef USE_AVX2
+		for(l = 0; l < 16; l += 2) {
+			// Input-ptrs are regular-stride offsets of r00:
+			va0 = tmp;
+			va1 = tmp + 0x20;
+			va2 = tmp + 0x40;
+			va3 = tmp + 0x60;
+			va4 = tmp + 0x80;
+			va5 = tmp + 0xa0;
+			va6 = tmp + 0xc0;
+			va7 = tmp + 0xe0;
+			va8 = tmp + 0x100;
+			tm1 = s1p00 + (((16 - l)&0xf)<<1);	// Low-part offset = p0,f,e,...,2,1 [evens]
+			// Hi-part of p-offset indices:
+			// Since SIMD code stores DIT-outs into contig-local mem rather than back into large-strided main-array locs,
+			// replacing phi[*] with (*)<<5 gives vec_dbl-complex stride analogs of the p-mults used here in scalar-double mode:
+			iptr = dit_pcshft + dit_ncshft[l];
+			k0 = *iptr;			vb0 = tm1 + (k0<<5);
+			k1 = *(iptr+0x1);	vb1 = tm1 + (k1<<5);
+			k2 = *(iptr+0x2);	vb2 = tm1 + (k2<<5);
+			k3 = *(iptr+0x3);	vb3 = tm1 + (k3<<5);
+			k4 = *(iptr+0x4);	vb4 = tm1 + (k4<<5);
+			k5 = *(iptr+0x5);	vb5 = tm1 + (k5<<5);
+			k6 = *(iptr+0x6);	vb6 = tm1 + (k6<<5);
+			k7 = *(iptr+0x7);	vb7 = tm1 + (k7<<5);
+			k8 = *(iptr+0x8);	vb8 = tm1 + (k8<<5);
+
+		// 2nd set of data:
+			rad9_iptr[0] = tmp + 2;
+			rad9_iptr[1] = tmp + 0x22;
+			rad9_iptr[2] = tmp + 0x42;
+			rad9_iptr[3] = tmp + 0x62;
+			rad9_iptr[4] = tmp + 0x82;
+			rad9_iptr[5] = tmp + 0xa2;
+			rad9_iptr[6] = tmp + 0xc2;
+			rad9_iptr[7] = tmp + 0xe2;
+			rad9_iptr[8] = tmp + 0x102;
+			tm1 = s1p00 + ((15 - l)<<1);	// Low-part offset = p0,f,e,...,2,1 [odds]
+			// Hi-part of p-offset indices:
+			// Since SIMD code stores DIT-outs into contig-local mem rather than back into large-strided main-array locs,
+			// replacing phi[*] with (*)<<5 gives vec_dbl-complex stride analogs of the p-mults used here in scalar-double mode:
+			iptr = dit_pcshft + dit_ncshft[l+1];
+			k0 = *iptr;			rad9_optr[0] = tm1 + (k0<<5);
+			k1 = *(iptr+0x1);	rad9_optr[1] = tm1 + (k1<<5);
+			k2 = *(iptr+0x2);	rad9_optr[2] = tm1 + (k2<<5);
+			k3 = *(iptr+0x3);	rad9_optr[3] = tm1 + (k3<<5);
+			k4 = *(iptr+0x4);	rad9_optr[4] = tm1 + (k4<<5);
+			k5 = *(iptr+0x5);	rad9_optr[5] = tm1 + (k5<<5);
+			k6 = *(iptr+0x6);	rad9_optr[6] = tm1 + (k6<<5);
+			k7 = *(iptr+0x7);	rad9_optr[7] = tm1 + (k7<<5);
+			k8 = *(iptr+0x8);	rad9_optr[8] = tm1 + (k8<<5);
+
+			// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
+			tm1 = rad9_iptr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
+			tm2 = rad9_optr;
+			SSE2_RADIX_09_DIT_X2(va0,va1,va2,va3,va4,va5,va6,va7,va8, cc1, vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8,
+				tm1,tm2
+			);	tmp += 4;
+		}
+	  #else
 		for(l = 0; l < 16; l++) {
 			// Input-ptrs are regular-stride offsets of r00:
 			va0 = tmp;
@@ -96,6 +156,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8
 			);	tmp += 2;
 		}
+	  #endif
 
 	#else	// USE_SSE2 = False:
 
@@ -187,10 +248,14 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	/* In AVX mode advance carry-ptrs just 1 for each vector-carry-macro call: */
 		tm1 = s1p00; tmp = cy; itmp = bjmodn;
-		AVX_cmplx_carry_norm_errcheck0_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		// Each AVX carry macro call also processes 4 prefetches of main-array data
+		add0 = a + j1 + pfetch_dist;
+		AVX_cmplx_carry_norm_errcheck0_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p1,p2,p3);
 		tm1 += 8; tmp += 1; itmp += 4;
 		for(l = 1; l < RADIX>>2; l++) {
-			AVX_cmplx_carry_norm_errcheck1_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			// Each AVX carry macro call also processes 4 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];
+			AVX_cmplx_carry_norm_errcheck1_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p1,p2,p3);
 			tm1 += 8; tmp += 1; itmp += 4;
 		}
 
@@ -223,9 +288,14 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		add3 = &wt1[co3-1];
 
 		tm1 = s1p00; tmp = cy; tm2 = cy+0x01; itmp = bjmodn;
-		SSE2_cmplx_carry_norm_errcheck0_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+		// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+		add0 = a + j1 + pfetch_dist;
+		SSE2_cmplx_carry_norm_errcheck0_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p1);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		for(l = 1; l < RADIX>>2; l++) {
-			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p1);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
 		l= (j+2) & (nwt-1);			/* We want (S*J mod N) - SI(L) for all 16 carries, so precompute	*/
@@ -255,7 +325,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		tm1 = s1p00; tmp = cy; tm2 = cy+0x01; itmp = bjmodn;
 		for(l = 0; l < RADIX>>2; l++) {
-			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p2,p3);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
 		i =((uint32)(sw - bjmodn[0]) >> 31);	/* get ready for the next set...	*/
@@ -273,7 +346,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		wtlp1   =wt0[    l+1];
 		wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
-		/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */		
+		/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */
 		l = 0; addr = cy; itmp = bjmodn;
 	   cmplx_carry_norm_errcheck0(a[j1   ],a[j2   ],*addr,*itmp  ); ++l; ++addr; ++itmp;
 		cmplx_carry_norm_errcheck(a[j1+p1],a[j2+p1],*addr,*itmp,l); ++l; ++addr; ++itmp;
@@ -298,6 +371,67 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	#ifdef USE_SSE2
 
 	//...gather the needed data (144 64-bit complex) and do 16 radix-9 transforms:
+	  #ifdef USE_AVX2
+		tmp = r00;
+		for(l = 0; l < 16; l += 2) {
+			tm1 = s1p00 + ((((l<<3)-l) & 0xf)<<1);	// Low-part offset = p[7*l (mod 16)] [evens]
+			iptr = dif_pcshft + dif_ncshft[l];
+			// Hi-part of p-offset indices:
+			// Since SIMD code stores DIF-ins into contig-local mem rather than back into large-strided main-array locs,
+			// replacing phi[*] with (*)<<5 gives vec_dbl-complex stride analogs of the p-mults used here in scalar-double mode:
+			k0 = *iptr;			vb0 = tm1 + (k0<<5);
+			k1 = *(iptr+0x1);	vb1 = tm1 + (k1<<5);
+			k2 = *(iptr+0x2);	vb2 = tm1 + (k2<<5);
+			k3 = *(iptr+0x3);	vb3 = tm1 + (k3<<5);
+			k4 = *(iptr+0x4);	vb4 = tm1 + (k4<<5);
+			k5 = *(iptr+0x5);	vb5 = tm1 + (k5<<5);
+			k6 = *(iptr+0x6);	vb6 = tm1 + (k6<<5);
+			k7 = *(iptr+0x7);	vb7 = tm1 + (k7<<5);
+			k8 = *(iptr+0x8);	vb8 = tm1 + (k8<<5);
+			// Output-ptrs [va/vb swap roles here vs DIT] are regular-stride offsets of r00:
+			va0 = tmp;
+			va1 = tmp + 0x20;
+			va2 = tmp + 0x40;
+			va3 = tmp + 0x60;
+			va4 = tmp + 0x80;
+			va5 = tmp + 0xa0;
+			va6 = tmp + 0xc0;
+			va7 = tmp + 0xe0;
+			va8 = tmp + 0x100;
+
+		// 2nd set of data:
+			tm1 = s1p00 + ((((l<<3)-l+7) & 0xf)<<1);	// Low-part offset = p[7*l (mod 16)] [odds]
+			iptr = dif_pcshft + dif_ncshft[l+1];
+			// Hi-part of p-offset indices:
+			// Since SIMD code stores DIF-ins into contig-local mem rather than back into large-strided main-array locs,
+			// replacing phi[*] with (*)<<5 gives vec_dbl-complex stride analogs of the p-mults used here in scalar-double mode:
+			k0 = *iptr;			rad9_iptr[0] = tm1 + (k0<<5);
+			k1 = *(iptr+0x1);	rad9_iptr[1] = tm1 + (k1<<5);
+			k2 = *(iptr+0x2);	rad9_iptr[2] = tm1 + (k2<<5);
+			k3 = *(iptr+0x3);	rad9_iptr[3] = tm1 + (k3<<5);
+			k4 = *(iptr+0x4);	rad9_iptr[4] = tm1 + (k4<<5);
+			k5 = *(iptr+0x5);	rad9_iptr[5] = tm1 + (k5<<5);
+			k6 = *(iptr+0x6);	rad9_iptr[6] = tm1 + (k6<<5);
+			k7 = *(iptr+0x7);	rad9_iptr[7] = tm1 + (k7<<5);
+			k8 = *(iptr+0x8);	rad9_iptr[8] = tm1 + (k8<<5);
+			// Output-ptrs [va/vb swap roles here vs DIT] are regular-stride offsets of r00:
+			rad9_optr[0] = tmp + 2;
+			rad9_optr[1] = tmp + 0x22;
+			rad9_optr[2] = tmp + 0x42;
+			rad9_optr[3] = tmp + 0x62;
+			rad9_optr[4] = tmp + 0x82;
+			rad9_optr[5] = tmp + 0xa2;
+			rad9_optr[6] = tmp + 0xc2;
+			rad9_optr[7] = tmp + 0xe2;
+			rad9_optr[8] = tmp + 0x102;
+			// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
+			tm0 = rad9_iptr;	// Can't use tm1 here since use that for s1p00 offsets in loop body
+			tm2 = rad9_optr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
+			SSE2_RADIX_09_DIF_X2(vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8, cc1, va0,va1,va2,va3,va4,va5,va6,va7,va8,
+				tm0,tm2
+			);	tmp += 4;
+		}
+	  #else
 		tmp = r00;
 		for(l = 0; l < 16; l++) {
 			tm1 = s1p00 + ((((l<<3)-l) & 0xf)<<1);	// Low-part offset = p[7*l (mod 16)]
@@ -330,6 +464,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				va0,va1,va2,va3,va4,va5,va6,va7,va8
 			);	tmp += 2;
 		}
+	  #endif
 	//...and now do 9 radix-16 transforms:
 		tmp = r00;
 		for(l = 0; l < 9; l++) {
@@ -355,7 +490,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			add0=addr+k0; add1=addr+k1; add2=addr+k2; add3=addr+k3; add4=addr+k4; add5=addr+k5; add6=addr+k6; add7=addr+k7; add8=addr+k8; add9=addr+k9; adda=addr+ka; addb=addr+kb; addc=addr+kc; addd=addr+kd; adde=addr+ke; addf=addr+kf;
 			SSE2_RADIX16_DIF_0TWIDDLE(
 				tmp,OFF1,OFF2,OFF3,OFF4,
-				isrt2,
+				isrt2,two,
 				add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf
 			);	tmp += 0x20;
 		}

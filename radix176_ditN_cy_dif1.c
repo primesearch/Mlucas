@@ -27,6 +27,14 @@
 
 // NB: USE_COMPACT_OBJ_CODE default-implemented here, hence no toggle available
 
+#ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
+  #else
+	#define PFETCH_DIST	32
+  #endif
+#endif
+
 #ifdef MULTITHREAD
 	#ifndef USE_PTHREAD
 		#error Pthreads is only thread model currently supported!
@@ -56,7 +64,7 @@
 	const int half_arr_offset176 = 0x30e;	// + RADIX = 0x3be; Used for thread local-storage-integrity checking
 	const int radix176_creals_in_local_store = 0x410;	// (half_arr_offset176 + RADIX) + 68 and round up to nearest multiple of 16
   #else
-	const int half_arr_offset176 = 0x338;	// + RADIX = 0x3e8; Used for thread local-storage-integrity checking
+	const int half_arr_offset176 = 0x33a;	// + RADIX = 0x3ea; Used for thread local-storage-integrity checking
 	const int radix176_creals_in_local_store = 0x400;	// (half_arr_offset176 + RADIX) = 20 and round up to nearest multiple of 16
   #endif
 
@@ -136,6 +144,7 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	const char func[] = "radix176_ditN_cy_dif1";
+	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 #ifdef USE_SSE2
 	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
@@ -182,8 +191,19 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 #endif
 	static int poff[RADIX>>2];	// Store mults of p4 offset for loop control
 	static double radix_inv, n2inv;
-#if defined(USE_SSE2) || !defined(MULTITHREAD)
-	const double a0 =  2.31329240211767848235, /* a0 = (   cq0      -  cq3+  cq2-  cq4)		*/
+#ifdef USE_AVX2	// FMA based on simple radix-11 DFT implementation, same as LO_ADD - more accurate, and with FMA, faster as well
+	const double cc1 =  0.84125353283118116886,	/* Real part of exp(i*2*pi/11), the radix-11 fundamental sincos datum	*/
+			ss1 =  0.54064081745559758210,	/* Imag part of exp(i*2*pi/11).	*/
+			cc2 =  0.41541501300188642553,	/* cos(2u)	*/
+			ss2 =  0.90963199535451837140,	/* sin(2u)	*/
+			cc3 = -0.14231483827328514043,	/* cos(3u)	*/
+			ss3 =  0.98982144188093273237,	/* sin(3u)	*/
+			cc4 = -0.65486073394528506404,	/* cos(4u)	*/
+			ss4 =  0.75574957435425828378,	/* sin(4u)	*/
+			cc5 = -0.95949297361449738988,	/* cos(5u)	*/
+			ss5 =  0.28173255684142969773;	/* sin(5u)	*/
+#elif defined(USE_SSE2)
+	const double a0 = 2.31329240211767848235, /* a0 = (   cq0      -  cq3+  cq2-  cq4)		*/
 			a1 =  1.88745388228838373902, /* a1 = (         cq1-  cq3+  cq2-  cq4)		*/
 			a2 = -1.41435370755978245393, /* a2 = (-2*cq0-2*cq1+3*cq3-2*cq2+3*cq4)/5	*/
 			a3 =  0.08670737584270518028, /* a3 = (-  cq0+  cq1-  cq3+  cq2      )		*/
@@ -204,6 +224,19 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			b7 = -1.66538156970877665518, /* b7 = (      -  sq1-  sq3            )		*/
 			b8 =  0.42408709531871829886, /* b8 = (-  sq0+  sq1+4*sq3-  sq2-  sq4)/5	*/
 			b9 =  0.33166247903553998491; /* b9 = (   sq0-  sq1+  sq3+  sq2+  sq4)/5	*/
+#elif defined(LO_ADD)
+	const double cc1 =  0.84125353283118116886,	/* Real part of exp(i*2*pi/11), the radix-11 fundamental sincos datum	*/
+			ss1 =  0.54064081745559758210,	/* Imag part of exp(i*2*pi/11).	*/
+			cc2 =  0.41541501300188642553,	/* cos(2u)	*/
+			ss2 =  0.90963199535451837140,	/* sin(2u)	*/
+			cc3 = -0.14231483827328514043,	/* cos(3u)	*/
+			ss3 =  0.98982144188093273237,	/* sin(3u)	*/
+			cc4 = -0.65486073394528506404,	/* cos(4u)	*/
+			ss4 =  0.75574957435425828378,	/* sin(4u)	*/
+			cc5 = -0.95949297361449738988,	/* cos(5u)	*/
+			ss5 =  0.28173255684142969773;	/* sin(5u)	*/
+#else
+	#error Unhandled combination of preprocessor flags!
 #endif
 	double scale, dtmp, maxerr = 0.0;
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
@@ -242,6 +275,9 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	double *add0,*add1,*add2,*add3,*add4,*add5,*add6,*add7,*add8,*add9,*adda,*addb,*addc,*addd,*adde,*addf;	/* Addresses into array sections */
   #endif
 
+	// Uint64 bitmaps for alternate "rounded the other way" copies of sqrt2,isrt2. Default round-to-nearest versions
+	// (SQRT2, ISRT2) end in ...3BCD. Since we round these down as ...3BCC90... --> ..3BCC, append _dn to varnames:
+	const uint64 sqrt2_dn = 0x3FF6A09E667F3BCCull, isrt2_dn = 0x3FE6A09E667F3BCCull;
 	static int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
 	const double crnd = 3.0*0x4000000*0x2000000;
 	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
@@ -251,7 +287,7 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8,*vb9,*vba,
 	#endif
 		*tmp,*tm1,*tm2;	// Non-static utility ptrs
-	static vec_dbl *isrt2,*cc0,*ss0, *two,*five, *ua0,*ua1,*ua2,*ua3,*ua4,*ua5,*ua6,*ua7,*ua8,*ua9, *ub0,*ub1,*ub2,*ub3,*ub4,*ub5,*ub6,*ub7,*ub8,*ub9, *max_err, *sse2_rnd, *half_arr,
+	static vec_dbl *two,*one,*sqrt2,*isrt2, *cc0,*ss0, *five, *ua0,*ua1,*ua2,*ua3,*ua4,*ua5,*ua6,*ua7,*ua8,*ua9, *ub0,*ub1,*ub2,*ub3,*ub4,*ub5,*ub6,*ub7,*ub8,*ub9, *max_err, *sse2_rnd, *half_arr,
 		*r00,	// Head of RADIX*vec_cmplx-sized local store #1
 		*s1p00,	// Head of RADIX*vec_cmplx-sized local store #2
 		*cy;	// Need RADIX/2 slots for sse2 carries, RADIX/4 for avx
@@ -440,31 +476,34 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		tmp = sc_ptr;	r00   = tmp;	// Head of RADIX*vec_cmplx-sized local store #1
 		tmp += 0x160;	s1p00 = tmp;	// Head of RADIX*vec_cmplx-sized local store #2
 		tmp += 0x160;
-		isrt2   = tmp + 0x00;
-		cc0		= tmp + 0x01;
-		ss0		= tmp + 0x02;
-		two     = tmp + 0x03;
-		five    = tmp + 0x04;
-		ua0     = tmp + 0x05;
-		ua1     = tmp + 0x06;
-		ua2     = tmp + 0x07;
-		ua3     = tmp + 0x08;
-		ua4     = tmp + 0x09;
-		ua5     = tmp + 0x0a;
-		ua6     = tmp + 0x0b;
-		ua7     = tmp + 0x0c;
-		ua8     = tmp + 0x0d;
-		ua9     = tmp + 0x0e;
-		ub0     = tmp + 0x0f;
-		ub1     = tmp + 0x10;
-		ub2     = tmp + 0x11;
-		ub3     = tmp + 0x12;
-		ub4     = tmp + 0x13;
-		ub5     = tmp + 0x14;
-		ub6     = tmp + 0x15;
-		ub7     = tmp + 0x16;
-		ub8     = tmp + 0x17;
-		ub9     = tmp + 0x18;
+		two     = tmp + 0;	// AVX+ versions of radix-8,16,32 twiddleless-DFT macros need consts [2,1,sqrt2,isrt2] quartet laid out thusly
+		one     = tmp + 1;
+		sqrt2   = tmp + 2;
+		isrt2   = tmp + 3;
+		cc0		= tmp + 4;
+		ss0		= tmp + 5;
+	//	two     = tmp + 6; Unnamed ptr, used in AVX2 mode to hold 2.0 (and *five holds 1.0) for the radix-11 DFT code
+		five    = tmp + 7;
+		ua0     = tmp + 8;
+		ua1     = tmp + 9;
+		ua2     = tmp + 0xa;
+		ua3     = tmp + 0xb;
+		ua4     = tmp + 0xc;
+		ua5     = tmp + 0xd;
+		ua6     = tmp + 0xe;
+		ua7     = tmp + 0xf;
+		ua8     = tmp + 0x10;
+		ua9     = tmp + 0x11;
+		ub0     = tmp + 0x12;
+		ub1     = tmp + 0x13;
+		ub2     = tmp + 0x14;
+		ub3     = tmp + 0x15;
+		ub4     = tmp + 0x16;
+		ub5     = tmp + 0x17;
+		ub6     = tmp + 0x18;
+		ub7     = tmp + 0x19;
+		ub8     = tmp + 0x1a;
+		ub9     = tmp + 0x1b;
 		tmp += 0x20;	// sc_ptr += 0x2e0
 	  #ifdef USE_AVX
 		cy = tmp;		tmp += 0x2c;	// sc_ptr += 0x30c
@@ -474,40 +513,120 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	  #else
 		cy = tmp;		tmp += 0x58;	// sc_ptr += 0x338
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;	// sc_ptr += 0xe0 = 0x33a; This is where the value of half_arr_offset176 comes from
+		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x33a; This is where the value of half_arr_offset176 comes from
 		half_arr= tmp + 0x02;	/* This table needs 20 x 16 bytes for Mersenne-mod, and [4*odd_radix] x 16 for Fermat-mod */
 	  #endif
 
+	  #ifndef USE_AVX2
+		/*======= Cf. the radix-44 routine for details on the wrong-way-rounding of a
+		selected subset of DFT-11 consts in order to improve overall accuracy: =========*/
+		/*
+		Here is the baseline, with all consts rounded-to-nearest and using an AVX-mode build of this routine (i.e. the low-accuracy radix-11 DFT):
+		./Mlucas -fftlen 1408 -iters 10000 -radset 0
+		Using complex FFT radices       176        16        16        16
+
+		M27309229 Roundoff warning on iteration       97, maxerr =   0.406250000000
+		M27309229 Roundoff warning on iteration      411, maxerr =   0.421875000000
+		M27309229 Roundoff warning on iteration      770, maxerr =   0.406250000000
+		M27309229 Roundoff warning on iteration      859, maxerr =   0.406250000000
+		M27309229 Roundoff warning on iteration     1189, maxerr =   0.437500000000
+		M27309229 Roundoff warning on iteration     1215, maxerr =   0.406250000000
+		M27309229 Roundoff warning on iteration     1474, maxerr =   0.406250000000
+		M27309229 Roundoff warning on iteration     1696, maxerr =   0.406250000000
+		M27309229 Roundoff warning on iteration     1717, maxerr =   0.437500000000
+		M27309229 Roundoff warning on iteration     1782, maxerr =   0.406250000000
+		M27309229 Roundoff warning on iteration     1916, maxerr =   0.406250000000
+		M27309229 Roundoff warning on iteration     2152, maxerr =   0.406250000000
+		M27309229 Roundoff warning on iteration     2576, maxerr =   0.406250000000
+		M27309229 Roundoff warning on iteration     2719, maxerr =   0.437500000000
+		M27309229 Roundoff warning on iteration     3104, maxerr =   0.406250000000
+		M27309229 Roundoff warning on iteration     3304, maxerr =   0.406250000000
+		M27309229 Roundoff warning on iteration     3510, maxerr =   0.406250000000
+		M27309229 Roundoff warning on iteration     3547, maxerr =   0.406250000000
+		M27309229 Roundoff warning on iteration     4646, maxerr =   0.406250000000
+		M27309229 Roundoff warning on iteration     5058, maxerr =   0.406250000000
+		M27309229 Roundoff warning on iteration     5450, maxerr =   0.406250000000
+		M27309229 Roundoff warning on iteration     5684, maxerr =   0.421875000000
+		M27309229 Roundoff warning on iteration     5923, maxerr =   0.406250000000
+		M27309229 Roundoff warning on iteration     6559, maxerr =   0.429687500000
+		M27309229 Roundoff warning on iteration     6751, maxerr =   0.414062500000
+		M27309229 Roundoff warning on iteration     7939, maxerr =   0.406250000000
+		M27309229 Roundoff warning on iteration     8335, maxerr =   0.421875000000
+		M27309229 Roundoff warning on iteration     9653, maxerr =   0.437500000000
+		10000 iterations of M27309229 with FFT length 1441792 = 1408 K
+		Res64: 4174B336E5A09625. AvgMaxErr = 0.310843528. MaxErr = 0.437500000. Program: E3.0x
+
+		And here is with the 3 'consts' below fiddled:
+
+		M27309229 Roundoff warning on iteration     2248, maxerr =   0.429687500000
+		M27309229 Roundoff warning on iteration     3305, maxerr =   0.437500000000
+		M27309229 Roundoff warning on iteration     3393, maxerr =   0.437500000000
+		M27309229 Roundoff warning on iteration     3510, maxerr =   0.406250000000
+		M27309229 Roundoff warning on iteration     6165, maxerr =   0.414062500000
+		M27309229 Roundoff warning on iteration     8010, maxerr =   0.406250000000
+		M27309229 Roundoff warning on iteration     8620, maxerr =   0.406250000000
+		10000 iterations of M27309229 with FFT length 1441792 = 1408 K
+		Res64: 4174B336E5A09625. AvgMaxErr = 0.302672598. MaxErr = 0.437500000. Program: E3.0x
+
+		MaxErr stays same in this case, but overall is appreciably improved.
+
+	Of course AVX2 mode, i.e. using the MUL-heavy basic-algo radix-11 DFT, is vastly better even sans any such rounding tricks:
+
+		Res64: 4174B336E5A09625. AvgMaxErr = 0.261240185. MaxErr = 0.359375000. Program: E3.0x
+		*/
+		struct qfloat qtheta,qs,qt,cq0,cq1,cq2,cq3,cq4,sq0,sq1,sq2,sq3,sq4;
+		qtheta = qfdiv(Q2PI, i64_to_q((uint64)11));
+		qt =          qtheta ;	cq0 = qfcos(qt);	sq0 = qfsin(qt);
+		qt = qfadd(qt,qtheta);	cq1 = qfcos(qt);	sq1 = qfsin(qt);
+		qt = qfadd(qt,qtheta);	cq2 = qfcos(qt);	sq2 = qfsin(qt);
+		qt = qfadd(qt,qtheta);	cq3 = qfcos(qt);	sq3 = qfsin(qt);
+		qt = qfadd(qt,qtheta);	cq4 = qfcos(qt);	sq4 = qfsin(qt);
+		//================================================================
+	  #endif
 		/* These remain fixed: */
-		VEC_DBL_INIT( isrt2, ISRT2);
+		VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );
+	  #if 1
+		// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
+		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
+		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+	  #else
+		VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
+	  #endif
 		VEC_DBL_INIT(cc0, c16);	VEC_DBL_INIT(ss0, s16);	// Radix-16 DFT macros assume [isrt2,cc0,ss0] memory ordering
-		VEC_DBL_INIT(two ,2.0);
+	  #ifdef USE_AVX2	// FMA version based on simple radix-11 DFT implementation, same as LO_ADD
+		tmp = five-1;
+		VEC_DBL_INIT(tmp ,2.0);		VEC_DBL_INIT(five,1.0);	// *five-1,*five used for [2.0,1.0] here
+		VEC_DBL_INIT(ua0 ,cc1);		VEC_DBL_INIT(ub0 ,0.0);	// upper 10 slots unused here; init = 0
+		VEC_DBL_INIT(ua1 ,cc2);		VEC_DBL_INIT(ub1 ,0.0);
+		VEC_DBL_INIT(ua2 ,cc3);		VEC_DBL_INIT(ub2 ,0.0);
+		VEC_DBL_INIT(ua3 ,cc4);		VEC_DBL_INIT(ub3 ,0.0);
+		VEC_DBL_INIT(ua4 ,cc5);		VEC_DBL_INIT(ub4 ,0.0);
+		VEC_DBL_INIT(ua5 ,ss1);		VEC_DBL_INIT(ub5 ,0.0);
+		VEC_DBL_INIT(ua6 ,ss2);		VEC_DBL_INIT(ub6 ,0.0);
+		VEC_DBL_INIT(ua7 ,ss3);		VEC_DBL_INIT(ub7 ,0.0);
+		VEC_DBL_INIT(ua8 ,ss4);		VEC_DBL_INIT(ub8 ,0.0);
+		VEC_DBL_INIT(ua9 ,ss5);		VEC_DBL_INIT(ub9 ,0.0);
+	  #else
 		VEC_DBL_INIT(five,5.0);
-		VEC_DBL_INIT(ua0 , a0);
-		VEC_DBL_INIT(ua1 , a1);
-		VEC_DBL_INIT(ua2 , a2);
-		VEC_DBL_INIT(ua3 , a3);
-		VEC_DBL_INIT(ua4 , a4);
-		VEC_DBL_INIT(ua5 , a5);
-		VEC_DBL_INIT(ua6 , a6);
-		VEC_DBL_INIT(ua7 , a7);
-		VEC_DBL_INIT(ua8 , a8);
-		VEC_DBL_INIT(ua9 , a9);
-		VEC_DBL_INIT(ub0 , b0);
-		VEC_DBL_INIT(ub1 , b1);
-		VEC_DBL_INIT(ub2 , b2);
-		VEC_DBL_INIT(ub3 , b3);
-		VEC_DBL_INIT(ub4 , b4);
-		VEC_DBL_INIT(ub5 , b5);
-		VEC_DBL_INIT(ub6 , b6);
-		VEC_DBL_INIT(ub7 , b7);
-		VEC_DBL_INIT(ub8 , b8);
-		VEC_DBL_INIT(ub9 ,-b9);	/* Flip sign to simplify code re-use in radix-11 SSE2 macro */
+		VEC_DBL_INIT(ua0 , a0);		VEC_DBL_INIT(ub0 , b0);
+		VEC_DBL_INIT(ua1 , a1);		VEC_DBL_INIT(ub1 , b1);
+		VEC_DBL_INIT(ua2 , a2);		VEC_DBL_INIT(ub2 , b2);
+		VEC_DBL_INIT(ua3 , a3);		VEC_DBL_INIT(ub3 , b3);
+		VEC_DBL_INIT(ua4 , a4);		VEC_DBL_INIT(ub4 , b4);
+		VEC_DBL_INIT(ua5 , a5);		VEC_DBL_INIT(ub5 , b5);
+		VEC_DBL_INIT(ua6 , a6);		VEC_DBL_INIT(ub6 , b6);
+		VEC_DBL_INIT(ua7 , a7);		VEC_DBL_INIT(ub7 , b7);
+		VEC_DBL_INIT(ua8 , a8);		VEC_DBL_INIT(ub8 , b8);
+		VEC_DBL_INIT(ua9 , a9);		VEC_DBL_INIT(ub9 ,-b9);	/* Flip sign to simplify code re-use in radix-11 SSE2 macro */
+		qt = qfsub(qfadd(cq1,cq2),qfadd(cq3,cq4));	dtmp = qfdbl_wrong_way_rnd(qt);	VEC_DBL_INIT(ua1,dtmp);	// wrong-way-rounding of a1
+		qt = qfsub(qfadd(cq1,cq2),qfadd(cq0,cq3));	dtmp = qfdbl_wrong_way_rnd(qt);	VEC_DBL_INIT(ua3,dtmp);	// wrong-way-rounding of a3
+		qt = qfsub(qfsub(sq2,sq1),qfadd(sq3,sq4));	dtmp = qfdbl_wrong_way_rnd(qt);	VEC_DBL_INIT(ub1,dtmp);	// wrong-way-rounding of b1
+	  #endif
 		VEC_DBL_INIT(sse2_rnd, crnd);		/* SSE2 math = 53-mantissa-bit IEEE double-float: */
 
 		// Propagate the above consts to the remaining threads:
-		nbytes = (int)ub9 - (int)isrt2 + sz_vd;	// #bytes in 1st of above block of consts
-		tmp = isrt2;
+		nbytes = (int)cy - (int)two;
+		tmp = two;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
 			memcpy(tm2, tmp, nbytes);
@@ -1681,6 +1800,7 @@ void radix176_dit_pass1(double a[], int n)
 	{
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr;
+		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf
 					,p10,p20,p30,p40,p50,p60,p70,p80,p90,pa0;
@@ -1727,10 +1847,10 @@ void radix176_dit_pass1(double a[], int n)
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 		double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7, *add8, *add9, *adda, *addb, *addc, *addd, *adde, *addf;
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
-		vec_dbl *tmp,*tm1,*tm2,	// Non-static utility ptrs
+		vec_dbl *tmp,*tm1,*tm2,	// Utility ptrs
 			*va0,*va1,*va2,*va3,*va4,*va5,*va6,*va7,*va8,*va9,*vaa,
 			*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8,*vb9,*vba;
-		vec_dbl *isrt2,*cc0,*ss0, *two,*five, *ua0,*ua1,*ua2,*ua3,*ua4,*ua5,*ua6,*ua7,*ua8,*ua9, *ub0,*ub1,*ub2,*ub3,*ub4,*ub5,*ub6,*ub7,*ub8,*ub9, *max_err, *sse2_rnd, *half_arr,
+		vec_dbl *two,*one,*sqrt2,*isrt2, *cc0,*ss0, *five, *ua0,*ua1,*ua2,*ua3,*ua4,*ua5,*ua6,*ua7,*ua8,*ua9, *ub0,*ub1,*ub2,*ub3,*ub4,*ub5,*ub6,*ub7,*ub8,*ub9, *max_err, *sse2_rnd, *half_arr,
 			*r00,	// Head of RADIX*vec_cmplx-sized local store #1
 			*s1p00,	// Head of RADIX*vec_cmplx-sized local store #2
 			*cy;	// Need RADIX/2 slots for sse2 carries, RADIX/4 for avx
@@ -1739,6 +1859,18 @@ void radix176_dit_pass1(double a[], int n)
 
 	#else
 
+	#ifdef LO_ADD
+		const double cc1 =  0.84125353283118116886,	/* Real part of exp(i*2*pi/11), the radix-11 fundamental sincos datum	*/
+				ss1 =  0.54064081745559758210,	/* Imag part of exp(i*2*pi/11).	*/
+				cc2 =  0.41541501300188642553,	/* cos(2u)	*/
+				ss2 =  0.90963199535451837140,	/* sin(2u)	*/
+				cc3 = -0.14231483827328514043,	/* cos(3u)	*/
+				ss3 =  0.98982144188093273237,	/* sin(3u)	*/
+				cc4 = -0.65486073394528506404,	/* cos(4u)	*/
+				ss4 =  0.75574957435425828378,	/* sin(4u)	*/
+				cc5 = -0.95949297361449738988,	/* cos(5u)	*/
+				ss5 =  0.28173255684142969773;	/* sin(5u)	*/
+	  #else
 	const double a0 =  2.31329240211767848235, /* a0 = (   cq0      -  cq3+  cq2-  cq4)		*/
 			a1 =  1.88745388228838373902, /* a1 = (         cq1-  cq3+  cq2-  cq4)		*/
 			a2 = -1.41435370755978245393, /* a2 = (-2*cq0-2*cq1+3*cq3-2*cq2+3*cq4)/5	*/
@@ -1760,6 +1892,7 @@ void radix176_dit_pass1(double a[], int n)
 			b7 = -1.66538156970877665518, /* b7 = (      -  sq1-  sq3            )		*/
 			b8 =  0.42408709531871829886, /* b8 = (-  sq0+  sq1+4*sq3-  sq2-  sq4)/5	*/
 			b9 =  0.33166247903553998491; /* b9 = (   sq0-  sq1+  sq3+  sq2+  sq4)/5	*/
+	  #endif
 		double *base, *baseinv;
 		const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 		int m,m2;
@@ -1875,31 +2008,34 @@ void radix176_dit_pass1(double a[], int n)
 		tmp	= r00 = thread_arg->r00;	// Head of RADIX*vec_cmplx-sized local store #1
 		tmp += 0x160;	s1p00 = tmp;	// Head of RADIX*vec_cmplx-sized local store #2
 		tmp += 0x160;
-		isrt2   = tmp + 0x00;
-		cc0		= tmp + 0x01;
-		ss0		= tmp + 0x02;
-		two     = tmp + 0x03;
-		five    = tmp + 0x04;
-		ua0     = tmp + 0x05;
-		ua1     = tmp + 0x06;
-		ua2     = tmp + 0x07;
-		ua3     = tmp + 0x08;
-		ua4     = tmp + 0x09;
-		ua5     = tmp + 0x0a;
-		ua6     = tmp + 0x0b;
-		ua7     = tmp + 0x0c;
-		ua8     = tmp + 0x0d;
-		ua9     = tmp + 0x0e;
-		ub0     = tmp + 0x0f;
-		ub1     = tmp + 0x10;
-		ub2     = tmp + 0x11;
-		ub3     = tmp + 0x12;
-		ub4     = tmp + 0x13;
-		ub5     = tmp + 0x14;
-		ub6     = tmp + 0x15;
-		ub7     = tmp + 0x16;
-		ub8     = tmp + 0x17;
-		ub9     = tmp + 0x18;
+		two     = tmp + 0;	// AVX+ versions of radix-8,16,32 twiddleless-DFT macros need consts [2,1,sqrt2,isrt2] quartet laid out thusly
+		one     = tmp + 1;
+		sqrt2   = tmp + 2;
+		isrt2   = tmp + 3;
+		cc0		= tmp + 4;
+		ss0		= tmp + 5;
+	//	two     = tmp + 6; Unnamed ptr, used in AVX2 mode to hold 2.0 (and *five holds 1.0) for the radix-11 DFT code
+		five    = tmp + 7;
+		ua0     = tmp + 8;
+		ua1     = tmp + 9;
+		ua2     = tmp + 0xa;
+		ua3     = tmp + 0xb;
+		ua4     = tmp + 0xc;
+		ua5     = tmp + 0xd;
+		ua6     = tmp + 0xe;
+		ua7     = tmp + 0xf;
+		ua8     = tmp + 0x10;
+		ua9     = tmp + 0x11;
+		ub0     = tmp + 0x12;
+		ub1     = tmp + 0x13;
+		ub2     = tmp + 0x14;
+		ub3     = tmp + 0x15;
+		ub4     = tmp + 0x16;
+		ub5     = tmp + 0x17;
+		ub6     = tmp + 0x18;
+		ub7     = tmp + 0x19;
+		ub8     = tmp + 0x1a;
+		ub9     = tmp + 0x1b;
 		tmp += 0x20;	// sc_ptr += 0x2e0
 	  #ifdef USE_AVX
 		cy = tmp;		tmp += 0x2c;	// sc_ptr += 0x30c
@@ -2032,3 +2168,4 @@ void radix176_dit_pass1(double a[], int n)
 #endif
 
 #undef RADIX
+#undef PFETCH_DIST

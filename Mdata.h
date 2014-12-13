@@ -194,8 +194,9 @@ extern char FILE_ACCESS_MODE[3];
 extern uint32 N2,NRT,NRT_BITS,NRTM1;
 extern uint32 SW_DIV_N;	/* Needed for the subset of radix* carry routines which support Fermat-mod. Defined in fermat_mod_square. */
 
-#define ISRT2 (const double)0.7071067811865476
-//extern const double ISRT2;	/* Compare this at runtime against the analogous qfloat constant */
+/* Compare these at runtime against the analogous qfloat consts: */
+#define ISRT2 (const double)0.7071067811865476	//extern const double ISRT2;
+#define SQRT2 (const double)1.41421356237309504880
 
 extern double AME,MME;	/* Avg and Max per-iteration fractional error for a given iteration interval */
 

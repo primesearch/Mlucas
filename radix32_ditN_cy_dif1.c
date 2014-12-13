@@ -25,6 +25,14 @@
 
 #define RADIX 32	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
 
+#ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
+  #else
+	#define PFETCH_DIST	32
+  #endif
+#endif
+
 #ifdef MULTITHREAD
 	#ifndef USE_PTHREAD
 		#error Pthreads is only thread model currently supported!
@@ -137,6 +145,7 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !   storage scheme, and radix16_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	const char func[] = "radix32_ditN_cy_dif1";
+	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 #ifdef USE_SSE2
 	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
@@ -191,10 +200,13 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	double *add0, *add1, *add2, *add3;	/* Addresses into array sections */
   #endif
 
+	// Uint64 bitmaps for alternate "rounded the other way" copies of sqrt2,isrt2. Default round-to-nearest versions
+	// (SQRT2, ISRT2) end in ...3BCD. Since we round these down as ...3BCC90... --> ..3BCC, append _dn to varnames:
+	const uint64 sqrt2_dn = 0x3FF6A09E667F3BCCull, isrt2_dn = 0x3FE6A09E667F3BCCull;
 	static int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
 	const double crnd = 3.0*0x4000000*0x2000000;
 	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
-	static vec_dbl *isrt2,*cc1,*ss1,*cc2,*ss2,*cc3,*ss3, *max_err, *sse2_rnd, *half_arr
+	static vec_dbl *two,*one,*sqrt2,*isrt2,*cc1,*ss1,*cc2,*ss2,*cc3,*ss3, *max_err, *sse2_rnd, *half_arr
 		,*r00,*r02,*r04,*r06,*r08,*r0A,*r0C,*r0E
 		,*r10,*r12,*r14,*r16,*r18,*r1A,*r1C,*r1E
 		,*r20,*r22,*r24,*r26,*r28,*r2A,*r2C,*r2E
@@ -410,14 +422,17 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		r0C = tmp + 0x0c;	r1C = tmp + 0x1c;	r2C = tmp + 0x2c;	r3C = tmp + 0x3c;
 		r0E = tmp + 0x0e;	r1E = tmp + 0x1e;	r2E = tmp + 0x2e;	r3E = tmp + 0x3e;
 		tmp += 0x40;
-		isrt2	= tmp + 0x0;
-		cc2		= tmp + 0x1;	// Radix-32 DFT macros assume roots stored in this [8th, 16th, 32nd_1,3] order
-		ss2		= tmp + 0x2;
-		cc1		= tmp + 0x3;
-		ss1		= tmp + 0x4;
-		cc3		= tmp + 0x5;
-		ss3		= tmp + 0x6;
-		tmp = ss3 + 0x2;	// Only need +1 but prefer an even offset
+		two  	= tmp + 0x0;	// AVX+ versions of Radix-32 DFT macros assume consts 2.0,1.0,sqrt2,isrt2 laid out thusly
+		one 	= tmp + 0x1;
+		sqrt2	= tmp + 0x2;
+		isrt2	= tmp + 0x3;
+		cc2		= tmp + 0x4;	// Radix-32 DFT macros assume roots stored in this [8th, 16th, 32nd_1,3] order
+		ss2		= tmp + 0x5;
+		cc1		= tmp + 0x6;
+		ss1		= tmp + 0x7;
+		cc3		= tmp + 0x8;
+		ss3		= tmp + 0x9;
+		tmp += 0xa;
 	  #ifdef USE_AVX
 		cy_r = tmp;	cy_i = tmp+0x08;	tmp += 0x10;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
@@ -434,7 +449,14 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		ASSERT(HERE, (radix32_creals_in_local_store << l2_sz_vd) >= ((long)half_arr - (long)r00) + (20 << l2_sz_vd), "radix32_creals_in_local_store checksum failed!");
 
 		/* These remain fixed: */
-		VEC_DBL_INIT(isrt2, ISRT2);
+		VEC_DBL_INIT(two  , 2.0  );		VEC_DBL_INIT(one, 1.0  );
+	  #if 1
+		// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
+		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
+		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+	  #else
+		VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
+	  #endif
 		VEC_DBL_INIT(cc2  , c16  );		VEC_DBL_INIT(ss2, s16  );
 		VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1, s32_1);
 		VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3, s32_3);
@@ -443,8 +465,8 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		VEC_DBL_INIT(sse2_rnd, crnd);
 
 		// Propagate the above consts to the remaining threads:
-		nbytes = (int)cy_r - (int)isrt2;	// #bytes in 1st of above block of consts
-		tmp = isrt2;
+		nbytes = (int)cy_r - (int)two;	// #bytes in 1st of above block of consts
+		tmp = two;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
 			memcpy(tm2, tmp, nbytes);
@@ -998,7 +1020,7 @@ for(outer=0; outer <= 1; outer++)
 	#ifdef USE_SSE2
 		ASSERT(HERE, tdat[ithread].r00 == __r0 + ithread*cslots_in_local_store, "thread-local memcheck fail!");
 		tmp = tdat[ithread].r00;
-		ASSERT(HERE, ((tmp + 0x40)->d0 == ISRT2 && (tmp + 0x40)->d1 == ISRT2), "thread-local memcheck failed!");
+		ASSERT(HERE, ((tmp + 0x40)->d0 == 2.0 && (tmp + 0x40)->d1 == 2.0), "thread-local memcheck failed!");
 		tmp = tdat[ithread].half_arr;
 		ASSERT(HERE, ((tmp-1)->d0 == crnd && (tmp-1)->d1 == crnd), "thread-local memcheck failed!");
 	#endif
@@ -1517,6 +1539,7 @@ void radix32_dit_pass1(double a[], int n)
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr,*addi;
 		struct complex *tptr;
+		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p01,p02,p03,p04,p08,p0C,p10,p14,p18,p1C;
 		int poff[RADIX>>2];	// Store mults of p-offsets for loop-controlled DFT macro calls
@@ -1539,7 +1562,7 @@ void radix32_dit_pass1(double a[], int n)
 		vec_dbl *tmp,*tm0,*tm1,*tm2;	// utility ptrs
 		int *itmp;			// Pointer into the bjmodn array
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
-		vec_dbl *isrt2, *cc2, *ss2, *cc1, *ss1, *cc3, *ss3, *max_err, *sse2_rnd, *half_arr
+		vec_dbl *two,*one,*sqrt2,*isrt2, *cc2, *ss2, *cc1, *ss1, *cc3, *ss3, *max_err, *sse2_rnd, *half_arr
 			,*r00,*r02,*r04,*r06,*r08,*r0A,*r0C,*r0E
 			,*r10,*r12,*r14,*r16,*r18,*r1A,*r1C,*r1E
 			,*r20,*r22,*r24,*r26,*r28,*r2A,*r2C,*r2E
@@ -1636,24 +1659,27 @@ void radix32_dit_pass1(double a[], int n)
 			arr_offsets[l] <<= 3;
 		}
 
-		r00 = thread_arg->r00;	// declared above
-		r00 = r00 + 0x00;	r10 = r00 + 0x10;	r20 = r00 + 0x20;	r30 = r00 + 0x30;
-		r02 = r00 + 0x02;	r12 = r00 + 0x12;	r22 = r00 + 0x22;	r32 = r00 + 0x32;
-		r04 = r00 + 0x04;	r14 = r00 + 0x14;	r24 = r00 + 0x24;	r34 = r00 + 0x34;
-		r06 = r00 + 0x06;	r16 = r00 + 0x16;	r26 = r00 + 0x26;	r36 = r00 + 0x36;
-		r08 = r00 + 0x08;	r18 = r00 + 0x18;	r28 = r00 + 0x28;	r38 = r00 + 0x38;
-		r0A = r00 + 0x0a;	r1A = r00 + 0x1a;	r2A = r00 + 0x2a;	r3A = r00 + 0x3a;
-		r0C = r00 + 0x0c;	r1C = r00 + 0x1c;	r2C = r00 + 0x2c;	r3C = r00 + 0x3c;
-		r0E = r00 + 0x0e;	r1E = r00 + 0x1e;	r2E = r00 + 0x2e;	r3E = r00 + 0x3e;
-
-		isrt2	= r00 + 0x40;
-		cc2		= r00 + 0x41;
-		ss2		= r00 + 0x42;
-		cc1		= r00 + 0x43;
-		ss1		= r00 + 0x44;
-		cc3		= r00 + 0x45;
-		ss3		= r00 + 0x46;
-		tmp = ss3 + 0x2;	// Only need +1 but prefer an even offset
+		tmp = thread_arg->r00;	// declared above
+		r00 = tmp + 0x00;	r10 = tmp + 0x10;	r20 = tmp + 0x20;	r30 = tmp + 0x30;
+		r02 = tmp + 0x02;	r12 = tmp + 0x12;	r22 = tmp + 0x22;	r32 = tmp + 0x32;
+		r04 = tmp + 0x04;	r14 = tmp + 0x14;	r24 = tmp + 0x24;	r34 = tmp + 0x34;
+		r06 = tmp + 0x06;	r16 = tmp + 0x16;	r26 = tmp + 0x26;	r36 = tmp + 0x36;
+		r08 = tmp + 0x08;	r18 = tmp + 0x18;	r28 = tmp + 0x28;	r38 = tmp + 0x38;
+		r0A = tmp + 0x0a;	r1A = tmp + 0x1a;	r2A = tmp + 0x2a;	r3A = tmp + 0x3a;
+		r0C = tmp + 0x0c;	r1C = tmp + 0x1c;	r2C = tmp + 0x2c;	r3C = tmp + 0x3c;
+		r0E = tmp + 0x0e;	r1E = tmp + 0x1e;	r2E = tmp + 0x2e;	r3E = tmp + 0x3e;
+		tmp += 0x40;
+		two  	= tmp + 0x0;
+		one 	= tmp + 0x1;
+		sqrt2	= tmp + 0x2;
+		isrt2	= tmp + 0x3;
+		cc2		= tmp + 0x4;	// Radix-32 DFT macros assume roots stored in this [8th, 16th, 32nd_1,3] order
+		ss2		= tmp + 0x5;
+		cc1		= tmp + 0x6;
+		ss1		= tmp + 0x7;
+		cc3		= tmp + 0x8;
+		ss3		= tmp + 0x9;
+		tmp += 0xa;
 	  #ifdef USE_AVX
 		cy_r = tmp;	cy_i = tmp+0x08;	tmp += 0x10;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
@@ -1669,7 +1695,6 @@ void radix32_dit_pass1(double a[], int n)
 
 		ASSERT(HERE, (r00 == thread_arg->r00), "thread-local memcheck failed!");
 		ASSERT(HERE, (half_arr == thread_arg->half_arr), "thread-local memcheck failed!");
-		ASSERT(HERE, (isrt2->d0 == ISRT2 && isrt2->d1 == ISRT2), "thread-local memcheck failed!");
 		ASSERT(HERE, (sse2_rnd->d0 == crnd && sse2_rnd->d1 == crnd), "thread-local memcheck failed!");
 
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
@@ -1843,3 +1868,4 @@ void radix32_dit_pass1(double a[], int n)
 #endif
 
 #undef RADIX
+#undef PFETCH_DIST

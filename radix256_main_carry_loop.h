@@ -51,7 +51,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		// Intermediates base pointer:
 		r00,
 		// Pointers to base-roots data and first of 16 twiddle vectors:
-		isrt2, twid0,
+		isrt2,two, twid0,
 		// Output pointer: Base ptr of 16 local-mem:
 		s1p00
 	);
@@ -74,8 +74,11 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		add0 = &a[j1] + poff[l<<2];	// poff[4*i] = p10,p20,...,pf0
 		add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
 			add8 = add0+p08; add9 = add1+p08; adda = add2+p08; addb = add3+p08; addc = add4+p08; addd = add5+p08; adde = add6+p08; addf = add7+p08;
-		SSE2_RADIX16_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2,
-		tmp,OFF1,OFF2,OFF3,OFF4); tmp += 32;
+		SSE2_RADIX16_DIT_0TWIDDLE(
+			add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf,
+			isrt2,two,
+			tmp,OFF1,OFF2,OFF3,OFF4
+		); tmp += 32;
 	}
 
 	#undef OFF1
@@ -100,88 +103,27 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
   #endif
 // Block 0: All unity twiddles:
 	SSE2_RADIX16_DIT_0TWIDDLE(
-		r00,r10,r20,r30,r40,r50,r60,r70,r80,r90,ra0,rb0,rc0,rd0,re0,rf0, isrt2,
+		r00,r10,r20,r30,r40,r50,r60,r70,r80,r90,ra0,rb0,rc0,rd0,re0,rf0, isrt2,two,
 		s1p00,OFF1,OFF2,OFF3,OFF4
 	);
 
-/*** For the last 14 of the 15 with-twiddles DFTs allow use of FMA-based macros under Intel AVX2/FMA3: ***/
   #ifdef USE_AVX2	// Must define - or not - @compile time
 
+/*** Only last 14 of the 15 with-twiddles DFTs allow use of FMA-based macros under Intel AVX2/FMA3: ***/
 // Block 8: BR twiddles = {  I.{},  C^ 8,-~C^ 8,  C^ 4,*~C^ 4, *C^ 4,-~C^ 4,  C^ 2,*~C^ 2, *C^ 6,-~C^ 6,  C^ 6,*~C^ 6, *C^ 2,-~C^ 2}
 	jt = j1 + p08;	jp = j2 + p08;
 	SSE2_RADIX16_DIT_TWIDDLE_OOP(
 		r08,OFF1,OFF2,OFF3,OFF4, s1p08,OFF1,OFF2,OFF3,OFF4, isrt2, twid8
 	);
-// Block 4: BR twiddles = {  C^ 8,  C^ 4, *C^ 4,  C^ 2, *C^ 6,  C^ 6, *C^ 2,  C^ 1, *C^ 7,  C^ 5, *C^ 3,  C^ 3, *C^ 5,  C^ 7, *C^ 1}
-	jt = j1 + p04;	jp = j2 + p04;
-	SSE2_RADIX16_DIT_FMA_OOP(
-		r04,OFF1,OFF2,OFF3,OFF4, s1p04,OFF1,OFF2,OFF3,OFF4, twid4
-	);
-// Block c: BR twiddles = {-~C^ 8, *C^ 4, -C^ 4,  C^ 6,-~C^ 2,*~C^ 2,-*C^ 6,  C^ 3,-~C^ 5, *C^ 1, -C^ 7, *C^ 7, -C^ 1,*~C^ 5,-*C^ 3}
-	jt = j1 + p0c;	jp = j2 + p0c;
-	SSE2_RADIX16_DIT_FMA_OOP(
-		r0c,OFF1,OFF2,OFF3,OFF4, s1p0c,OFF1,OFF2,OFF3,OFF4, twidc
-	);
-// Block 2: BR twiddles = {  C^ 4,  C^ 2,  C^ 6,  C^ 1,  C^ 5,  C^ 3,  C^ 7,  D^ 1,  D^ 9,  D^ 5,  D^ d,  D^ 3,  D^ b,  D^ 7,  D^ f}
-	jt = j1 + p02;	jp = j2 + p02;
-	SSE2_RADIX16_DIT_FMA_OOP(
-		r02,OFF1,OFF2,OFF3,OFF4, s1p02,OFF1,OFF2,OFF3,OFF4, twid2
-	);
-// Block a: BR twiddles = {*~C^ 4, *C^ 6,-~C^ 2,  C^ 5,-~C^ 7, *C^ 1, -C^ 3,  D^ 5,*~D^ d, *D^ 7, -D^ 1,  D^ f,-~D^ 9,*~D^ 3, -D^ b}
-	jt = j1 + p0a;	jp = j2 + p0a;
-	SSE2_RADIX16_DIT_FMA_OOP(
-		r0a,OFF1,OFF2,OFF3,OFF4, s1p0a,OFF1,OFF2,OFF3,OFF4, twida
-	);
-// Block 6: BR twiddles = { *C^ 4,  C^ 6,*~C^ 2,  C^ 3, *C^ 1, *C^ 7,*~C^ 5,  D^ 3, *D^ 5,  D^ f,*~D^ 7,  D^ 9,*~D^ 1, *D^ b,*~D^ d}
-	jt = j1 + p06;	jp = j2 + p06;
-	SSE2_RADIX16_DIT_FMA_OOP(
-		r06,OFF1,OFF2,OFF3,OFF4, s1p06,OFF1,OFF2,OFF3,OFF4, twid6
-	);
-// Block e: BR twiddles = {-~C^ 4, *C^ 2,-*C^ 6,  C^ 7, -C^ 3,*~C^ 5,~*C^ 1,  D^ 7,-~D^ 1,*~D^ 3,-*D^ 5, *D^ b, -D^ d,-~D^ f,~*D^ 9}
-	jt = j1 + p0e;	jp = j2 + p0e;
-	SSE2_RADIX16_DIT_FMA_OOP(
-		r0e,OFF1,OFF2,OFF3,OFF4, s1p0e,OFF1,OFF2,OFF3,OFF4, twide
-	);
-// Block 1: BR twiddles = {  C^ 2,  C^ 1,  C^ 3,  D^ 1,  D^ 5,  D^ 3,  D^ 7,  E^ 1,  E^ 9,  E^ 5,  E^ d,  E^ 3,  E^ b,  E^ 7,  E^ f}
-	jt = j1 + p01;	jp = j2 + p01;
-	SSE2_RADIX16_DIT_FMA_OOP(
-		r01,OFF1,OFF2,OFF3,OFF4, s1p01,OFF1,OFF2,OFF3,OFF4, twid1
-	);
-// Block 9: BR twiddles = {*~C^ 2, *C^ 7,-~C^ 5,  D^ 9,*~D^ d, *D^ 5,-~D^ 1,  E^ 9,*~E^ h, *E^ j,-~E^ b,  E^ r,-~E^ t, *E^ 1, -E^ 7}
-	jt = j1 + p09;	jp = j2 + p09;
-	SSE2_RADIX16_DIT_FMA_OOP(
-		r09,OFF1,OFF2,OFF3,OFF4, s1p09,OFF1,OFF2,OFF3,OFF4, twid9
-	);
-// Block 5: BR twiddles = { *C^ 6,  C^ 5, *C^ 1,  D^ 5, *D^ 7,  D^ f,*~D^ 3,  E^ 5, *E^ j,  E^ p,*~E^ 1,  E^ f, *E^ 9, *E^ t,*~E^ b}
-	jt = j1 + p05;	jp = j2 + p05;
-	SSE2_RADIX16_DIT_FMA_OOP(
-		r05,OFF1,OFF2,OFF3,OFF4, s1p05,OFF1,OFF2,OFF3,OFF4, twid5
-	);
-// Block d: BR twiddles = {-~C^ 6, *C^ 3, -C^ 7,  D^ d, -D^ 1,*~D^ 7,-*D^ 5,  E^ d,-~E^ b,*~E^ 1,-*E^ n, *E^ p, -E^ f,*~E^ r,~*E^ 3}
-	jt = j1 + p0d;	jp = j2 + p0d;
-	SSE2_RADIX16_DIT_FMA_OOP(
-		r0d,OFF1,OFF2,OFF3,OFF4, s1p0d,OFF1,OFF2,OFF3,OFF4, twidd
-	);
-// Block 3: BR twiddles = {  C^ 6,  C^ 3, *C^ 7,  D^ 3,  D^ f,  D^ 9, *D^ b,  E^ 3,  E^ r,  E^ f, *E^ p,  E^ 9, *E^ v,  E^ l, *E^ j}
-	jt = j1 + p03;	jp = j2 + p03;
-	SSE2_RADIX16_DIT_FMA_OOP(
-		r03,OFF1,OFF2,OFF3,OFF4, s1p03,OFF1,OFF2,OFF3,OFF4, twid3
-	);
-// Block b: BR twiddles = {*~C^ 6, *C^ 5, -C^ 1,  D^ b,-~D^ 9,*~D^ 1, -D^ d,  E^ b,-~E^ t, *E^ 9, -E^ f, *E^ v,-~E^ 7,*~E^ d,-*E^ r}
-	jt = j1 + p0b;	jp = j2 + p0b;
-	SSE2_RADIX16_DIT_FMA_OOP(
-		r0b,OFF1,OFF2,OFF3,OFF4, s1p0b,OFF1,OFF2,OFF3,OFF4, twidb
-	);
-// Block 7: BR twiddles = { *C^ 2,  C^ 7,*~C^ 5,  D^ 7,*~D^ 3, *D^ b,-~D^ f,  E^ 7, *E^ 1, *E^ t,*~E^ r,  E^ l,*~E^ d, *E^ f,-~E^ n}
-	jt = j1 + p07;	jp = j2 + p07;
-	SSE2_RADIX16_DIT_FMA_OOP(
-		r07,OFF1,OFF2,OFF3,OFF4, s1p07,OFF1,OFF2,OFF3,OFF4, twid7
-	);
-// Block f: BR twiddles = {-~C^ 2, *C^ 1,-*C^ 3,  D^ f, -D^ b,*~D^ d,~*D^ 9,  E^ f, -E^ 7,*~E^ b,~*E^ 3, *E^ j,-*E^ r,-~E^ n, ~E^ v}
-	jt = j1 + p0f;	jp = j2 + p0f;
-	SSE2_RADIX16_DIT_FMA_OOP(
-		r0f,OFF1,OFF2,OFF3,OFF4, s1p0f,OFF1,OFF2,OFF3,OFF4, twidf
-	);
+
+	// Remaining 14 sets of macro calls done in loop:
+	for(l = 2; l < 16; l++) {
+		k1 = reverse(l,16)<<1;
+		tm1 = r00 + k1; tm2 = s1p00 + k1; tmp = twid0 + (k1<<4)-k1;	// Twid-offsets are multiples of 30 vec_dbl
+		SSE2_RADIX16_DIT_FMA_OOP(
+			tm1,OFF1,OFF2,OFF3,OFF4, tm2,OFF1,OFF2,OFF3,OFF4, tmp
+		);
+	}
 
   #else	// Non-FMA version:
 
@@ -415,10 +357,14 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 
 	/* In AVX mode advance carry-ptrs just 1 for each vector-carry-macro call: */
 		tm1 = s1p00; tmp = cy_r; itmp = bjmodn;
-		AVX_cmplx_carry_norm_pow2_errcheck0_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
+		// Each AVX carry macro call also processes 4 prefetches of main-array data
+		add0 = a + j1 + pfetch_dist;
+		AVX_cmplx_carry_norm_pow2_errcheck0_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p01,p02,p03);
 		tm1 += 8; tmp++; itmp += 4;
 		for(l = 1; l < RADIX>>2; l++) {
-			AVX_cmplx_carry_norm_pow2_errcheck1_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);
+			// Each AVX carry macro call also processes 4 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];
+			AVX_cmplx_carry_norm_pow2_errcheck1_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p01,p02,p03);
 			tm1 += 8; tmp++; itmp += 4;
 		}
 
@@ -451,9 +397,14 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 		add3 = &wt1[co3-1];
 
 		tm1 = s1p00; tmp = cy_r; tm2 = cy_r+0x01; itmp = bjmodn;
-		SSE2_cmplx_carry_norm_pow2_errcheck0_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+		// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+		add0 = a + j1 + pfetch_dist;
+		SSE2_cmplx_carry_norm_pow2_errcheck0_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p01);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		for(l = 1; l < RADIX>>2; l++) {
-			SSE2_cmplx_carry_norm_pow2_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p02;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_cmplx_carry_norm_pow2_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p01);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
 		l= (j+2) & (nwt-1);			/* We want (S*J mod N) - SI(L) for all 16 carries, so precompute	*/
@@ -480,7 +431,10 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 
 		tm1 = s1p00; tmp = cy_r; tm2 = cy_r+0x01; itmp = bjmodn;
 		for(l = 0; l < RADIX>>2; l++) {
-			SSE2_cmplx_carry_norm_pow2_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p02;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_cmplx_carry_norm_pow2_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p02,p03);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
 		i =((uint32)(sw - bjmodn[0]) >> 31);	/* get ready for the next set...	*/
@@ -580,7 +534,9 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 	// uses the same 0x40-byte up-multiplier, so the literal offsets advance (+0x100-0x40) = -0xc0 bytes between macro calls:
 		tm0 = s1p00; tmp = base_negacyclic_root; tm1 = cy_r; tm2 = cy_i; l = 0x4000;
 		for(i = 0; i < RADIX>>2; i++) {	// RADIX/4 loop passes
-			SSE2_fermat_carry_norm_pow2_errcheck_X4(tm0,tmp,l,tm1,tm2,half_arr,sign_mask);
+			// Each AVX carry macro call also processes 4 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[i];	// Can't use tm2 as prefetch base-ptr for pow2 Fermat-mod carry-macro since that's used for cy_i
+			SSE2_fermat_carry_norm_pow2_errcheck_X4(tm0,tmp,l,tm1,tm2,half_arr,sign_mask, add0,p01,p02,p03);
 			tm0 += 8; tm1++; tm2++; tmp += 8; l -= 0xc0;
 		}
 
@@ -601,12 +557,19 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 		tm1 = s1p00; tmp = cy_r;	/* <*** Again rely on contiguity of cy_r,i here ***/
 	  #if (OS_BITS == 32)
 		for(l = 0; l < RADIX; l++) {	// RADIX loop passes
-			SSE2_fermat_carry_norm_pow2_errcheck   (tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
+			// Each SSE2 carry macro call also processes 1 prefetch of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x10)) & p02;
+			add0 += (-(l&0x01)) & p01;
+			SSE2_fermat_carry_norm_pow2_errcheck   (tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0);
 			tm1 += 2; tmp++;
 		}
 	  #else	// 64-bit SSE2
 		for(l = 0; l < RADIX>>1; l++) {	// RADIX/2 loop passes
-			SSE2_fermat_carry_norm_pow2_errcheck_X2(tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2);
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p02;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_fermat_carry_norm_pow2_errcheck_X2(tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0,p01);
 			tm1 += 4; tmp += 2;
 		}
 	  #endif
@@ -641,7 +604,7 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 		// Intermediates base pointer:
 		r00,
 		// Pointers to base-roots data and first of 16 twiddle vectors:
-		isrt2, twid0,
+		isrt2,two, twid0,
 		// Outputs: Base address plus index offset lo/hi-half arrays:
 		(a+j1),
 		dft_offsets_lo,(uint32)0,dft_offsets_hi
@@ -668,9 +631,9 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 	#if (OS_BITS == 32)
 								 add1 = (vec_dbl*)tmp+ 2; add2 = (vec_dbl*)tmp+ 4; add3 = (vec_dbl*)tmp+ 6; add4 = (vec_dbl*)tmp+ 8; add5 = (vec_dbl*)tmp+10; add6 = (vec_dbl*)tmp+12; add7 = (vec_dbl*)tmp+14;
 		add8 = (vec_dbl*)tmp+16; add9 = (vec_dbl*)tmp+18; adda = (vec_dbl*)tmp+20; addb = (vec_dbl*)tmp+22; addc = (vec_dbl*)tmp+24; addd = (vec_dbl*)tmp+26; adde = (vec_dbl*)tmp+28; addf = (vec_dbl*)tmp+30;
-		SSE2_RADIX16_DIF_0TWIDDLE  (tm2,OFF1,OFF2,OFF3,OFF4, isrt2, tmp,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf);
+		SSE2_RADIX16_DIF_0TWIDDLE  (tm2,OFF1,OFF2,OFF3,OFF4, isrt2,two, tmp,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf);
 	#else
-		SSE2_RADIX16_DIF_0TWIDDLE_B(tm2,OFF1,OFF2,OFF3,OFF4, isrt2, tmp);
+		SSE2_RADIX16_DIF_0TWIDDLE_B(tm2,OFF1,OFF2,OFF3,OFF4, isrt2,two, tmp);
 	#endif
 		tmp += 32;
 	}
@@ -700,99 +663,28 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 		r00,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2, twid0
 	);
 
-/*** For the last 14 of the 15 with-twiddles DFTs allow use of FMA-based macros under Intel AVX2/FMA3: ***/
   #ifdef USE_AVX2	// Must define - or not - @compile time
 
+/*** Only last 14 of the 15 with-twiddles DFTs allow use of FMA-based macros under Intel AVX2/FMA3: ***/
 // Block 8: BR twiddles = {  I.{},  C^ 8,-~C^ 8,  C^ 4,*~C^ 4, *C^ 4,-~C^ 4,  C^ 2,*~C^ 2, *C^ 6,-~C^ 6,  C^ 6,*~C^ 6, *C^ 2,-~C^ 2}
 	add0 = &a[j1] + p10; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
 		add8 = add0+p08; add9 = add1+p08; adda = add2+p08; addb = add3+p08; addc = add4+p08; addd = add5+p08; adde = add6+p08; addf = add7+p08;
 	SSE2_RADIX16_DIF_TWIDDLE_OOP(
 		r01,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2, twid8
 	);
-// Block 4: BR twiddles = {  C^ 8,  C^ 4, *C^ 4,  C^ 2, *C^ 6,  C^ 6, *C^ 2,  C^ 1, *C^ 7,  C^ 5, *C^ 3,  C^ 3, *C^ 5,  C^ 7, *C^ 1}
-	add0 = &a[j1] + p20; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
+
+	// Remaining 14 sets of macro calls done in loop:
+	tm1 = r02;
+	for(l = 2; l < 16; l++) {
+		k1 = reverse(l,16)<<1;
+		tmp = twid0 + (k1<<4)-k1;	// Twid-offsets are multiples of 30 vec_dbl
+		add0 = &a[j1] + poff[l<<2];	// poff[4*i] = p10,p20,...,pf0
+			add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
 		add8 = add0+p08; add9 = add1+p08; adda = add2+p08; addb = add3+p08; addc = add4+p08; addd = add5+p08; adde = add6+p08; addf = add7+p08;
-	SSE2_RADIX16_DIF_FMA_OOP(
-		r02,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, twid4
-	);
-// Block c: BR twiddles = {-~C^ 8, *C^ 4, -C^ 4,  C^ 6,-~C^ 2,*~C^ 2,-*C^ 6,  C^ 3,-~C^ 5, *C^ 1, -C^ 7, *C^ 7, -C^ 1,*~C^ 5,-*C^ 3}
-	add0 = &a[j1] + p30; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-		add8 = add0+p08; add9 = add1+p08; adda = add2+p08; addb = add3+p08; addc = add4+p08; addd = add5+p08; adde = add6+p08; addf = add7+p08;
-	SSE2_RADIX16_DIF_FMA_OOP(
-		r03,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, twidc
-	);
-// Block 2: BR twiddles = {  C^ 4,  C^ 2,  C^ 6,  C^ 1,  C^ 5,  C^ 3,  C^ 7,  D^ 1,  D^ 9,  D^ 5,  D^ d,  D^ 3,  D^ b,  D^ 7,  D^ f}
-	add0 = &a[j1] + p40; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-		add8 = add0+p08; add9 = add1+p08; adda = add2+p08; addb = add3+p08; addc = add4+p08; addd = add5+p08; adde = add6+p08; addf = add7+p08;
-	SSE2_RADIX16_DIF_FMA_OOP(
-		r04,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, twid2
-	);
-// Block a: BR twiddles = {*~C^ 4, *C^ 6,-~C^ 2,  C^ 5,-~C^ 7, *C^ 1, -C^ 3,  D^ 5,*~D^ d, *D^ 7, -D^ 1,  D^ f,-~D^ 9,*~D^ 3, -D^ b}
-	add0 = &a[j1] + p50; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-		add8 = add0+p08; add9 = add1+p08; adda = add2+p08; addb = add3+p08; addc = add4+p08; addd = add5+p08; adde = add6+p08; addf = add7+p08;
-	SSE2_RADIX16_DIF_FMA_OOP(
-		r05,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, twida
-	);
-// Block 6: BR twiddles = { *C^ 4,  C^ 6,*~C^ 2,  C^ 3, *C^ 1, *C^ 7,*~C^ 5,  D^ 3, *D^ 5,  D^ f,*~D^ 7,  D^ 9,*~D^ 1, *D^ b,*~D^ d}
-	add0 = &a[j1] + p60; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-		add8 = add0+p08; add9 = add1+p08; adda = add2+p08; addb = add3+p08; addc = add4+p08; addd = add5+p08; adde = add6+p08; addf = add7+p08;
-	SSE2_RADIX16_DIF_FMA_OOP(
-		r06,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, twid6
-	);
-// Block e: BR twiddles = {-~C^ 4, *C^ 2,-*C^ 6,  C^ 7, -C^ 3,*~C^ 5,~*C^ 1,  D^ 7,-~D^ 1,*~D^ 3,-*D^ 5, *D^ b, -D^ d,-~D^ f,~*D^ 9}
-	add0 = &a[j1] + p70; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-		add8 = add0+p08; add9 = add1+p08; adda = add2+p08; addb = add3+p08; addc = add4+p08; addd = add5+p08; adde = add6+p08; addf = add7+p08;
-	SSE2_RADIX16_DIF_FMA_OOP(
-		r07,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, twide
-	);
-// Block 1: BR twiddles = {  C^ 2,  C^ 1,  C^ 3,  D^ 1,  D^ 5,  D^ 3,  D^ 7,  E^ 1,  E^ 9,  E^ 5,  E^ d,  E^ 3,  E^ b,  E^ 7,  E^ f}
-	add0 = &a[j1] + p80; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-		add8 = add0+p08; add9 = add1+p08; adda = add2+p08; addb = add3+p08; addc = add4+p08; addd = add5+p08; adde = add6+p08; addf = add7+p08;
-	SSE2_RADIX16_DIF_FMA_OOP(
-		r08,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, twid1
-	);
-// Block 9: BR twiddles = {*~C^ 2, *C^ 7,-~C^ 5,  D^ 9,*~D^ d, *D^ 5,-~D^ 1,  E^ 9,*~E^ h, *E^ j,-~E^ b,  E^ r,-~E^ t, *E^ 1, -E^ 7}
-	add0 = &a[j1] + p90; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-		add8 = add0+p08; add9 = add1+p08; adda = add2+p08; addb = add3+p08; addc = add4+p08; addd = add5+p08; adde = add6+p08; addf = add7+p08;
-	SSE2_RADIX16_DIF_FMA_OOP(
-		r09,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, twid9
-	);
-// Block 5: BR twiddles = { *C^ 6,  C^ 5, *C^ 1,  D^ 5, *D^ 7,  D^ f,*~D^ 3,  E^ 5, *E^ j,  E^ p,*~E^ 1,  E^ f, *E^ 9, *E^ t,*~E^ b}
-	add0 = &a[j1] + pa0; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-		add8 = add0+p08; add9 = add1+p08; adda = add2+p08; addb = add3+p08; addc = add4+p08; addd = add5+p08; adde = add6+p08; addf = add7+p08;
-	SSE2_RADIX16_DIF_FMA_OOP(
-		r0a,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, twid5
-	);
-// Block d: BR twiddles = {-~C^ 6, *C^ 3, -C^ 7,  D^ d, -D^ 1,*~D^ 7,-*D^ 5,  E^ d,-~E^ b,*~E^ 1,-*E^ n, *E^ p, -E^ f,*~E^ r,~*E^ 3}
-	add0 = &a[j1] + pb0; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-		add8 = add0+p08; add9 = add1+p08; adda = add2+p08; addb = add3+p08; addc = add4+p08; addd = add5+p08; adde = add6+p08; addf = add7+p08;
-	SSE2_RADIX16_DIF_FMA_OOP(
-		r0b,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, twidd
-	);
-// Block 3: BR twiddles = {  C^ 6,  C^ 3, *C^ 7,  D^ 3,  D^ f,  D^ 9, *D^ b,  E^ 3,  E^ r,  E^ f, *E^ p,  E^ 9, *E^ v,  E^ l, *E^ j}
-	add0 = &a[j1] + pc0; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-		add8 = add0+p08; add9 = add1+p08; adda = add2+p08; addb = add3+p08; addc = add4+p08; addd = add5+p08; adde = add6+p08; addf = add7+p08;
-	SSE2_RADIX16_DIF_FMA_OOP(
-		r0c,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, twid3
-	);
-// Block b: BR twiddles = {*~C^ 6, *C^ 5, -C^ 1,  D^ b,-~D^ 9,*~D^ 1, -D^ d,  E^ b,-~E^ t, *E^ 9, -E^ f, *E^ v,-~E^ 7,*~E^ d,-*E^ r}
-	add0 = &a[j1] + pd0; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-		add8 = add0+p08; add9 = add1+p08; adda = add2+p08; addb = add3+p08; addc = add4+p08; addd = add5+p08; adde = add6+p08; addf = add7+p08;
-	SSE2_RADIX16_DIF_FMA_OOP(
-		r0d,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, twidb
-	);
-// Block 7: BR twiddles = { *C^ 2,  C^ 7,*~C^ 5,  D^ 7,*~D^ 3, *D^ b,-~D^ f,  E^ 7, *E^ 1, *E^ t,*~E^ r,  E^ l,*~E^ d, *E^ f,-~E^ n}
-	add0 = &a[j1] + pe0; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-		add8 = add0+p08; add9 = add1+p08; adda = add2+p08; addb = add3+p08; addc = add4+p08; addd = add5+p08; adde = add6+p08; addf = add7+p08;
-	SSE2_RADIX16_DIF_FMA_OOP(
-		r0e,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, twid7
-	);
-// Block f: BR twiddles = {-~C^ 2, *C^ 1,-*C^ 3,  D^ f, -D^ b,*~D^ d,~*D^ 9,  E^ f, -E^ 7,*~E^ b,~*E^ 3, *E^ j,-*E^ r,-~E^ n, ~E^ v}
-	add0 = &a[j1] + pf0; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-		add8 = add0+p08; add9 = add1+p08; adda = add2+p08; addb = add3+p08; addc = add4+p08; addd = add5+p08; adde = add6+p08; addf = add7+p08;
-	SSE2_RADIX16_DIF_FMA_OOP(
-		r0f,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, twidf
-	);
+		SSE2_RADIX16_DIF_FMA_OOP(
+			tm1,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, tmp
+		);	tm1 += 2;
+	}
 
   #else	// Non-FMA version:
 

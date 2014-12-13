@@ -27,6 +27,14 @@
 
 // NB: USE_COMPACT_OBJ_CODE default-implemented here, hence no toggle available
 
+#ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
+  #else
+	#define PFETCH_DIST	32
+  #endif
+#endif
+
 #ifdef MULTITHREAD
 	#ifndef USE_PTHREAD
 		#error Pthreads is only thread model currently supported!
@@ -53,11 +61,11 @@
   // For Mersenne-mod we need (16 [SSE2] or 64 [AVX]) + 4 added slots for the half_arr lookup tables.
   // Add relevant number (half_arr_offset144 + RADIX) to get required value of radix144_creals_in_local_store:
   #ifdef USE_AVX
-	const int half_arr_offset144 = 0x272;	// + RADIX = 0x302; Used for thread local-storage-integrity checking
-	const int radix144_creals_in_local_store = 0x348;	// (half_arr_offset144 + RADIX) + 68 and round up to nearest multiple of 4
+	const int half_arr_offset144 = 0x274;	// + RADIX = 0x304; Used for thread local-storage-integrity checking
+	const int radix144_creals_in_local_store = 0x34c;	// (half_arr_offset144 + RADIX) + 68 and round up to nearest multiple of 4
   #else
-	const int half_arr_offset144 = 0x296;	// + RADIX = 0x326; Used for thread local-storage-integrity checking
-	const int radix144_creals_in_local_store = 0x33c;	// (half_arr_offset144 + RADIX) = 20 and round up to nearest multiple of 4
+	const int half_arr_offset144 = 0x298;	// + RADIX = 0x328; Used for thread local-storage-integrity checking
+	const int radix144_creals_in_local_store = 0x340;	// (half_arr_offset144 + RADIX) = 20 and round up to nearest multiple of 4
   #endif
 
 	#include "sse2_macro.h"
@@ -136,6 +144,7 @@ int radix144_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	const char func[] = "radix144_ditN_cy_dif1";
+	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 #ifdef USE_SSE2
 	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
@@ -222,6 +231,10 @@ int radix144_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	int col,co2,co3;
   #ifdef USE_AVX
 	static struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+   #ifdef USE_AVX2
+	// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
+	vec_dbl *rad9_iptr[9], *rad9_optr[9];
+   #endif
   #else
 	int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
@@ -244,6 +257,9 @@ int radix144_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	double *add0,*add1,*add2,*add3,*add4,*add5,*add6,*add7,*add8,*add9,*adda,*addb,*addc,*addd,*adde,*addf;	/* Addresses into array sections */
   #endif
 
+	// Uint64 bitmaps for alternate "rounded the other way" copies of sqrt2,isrt2. Default round-to-nearest versions
+	// (SQRT2, ISRT2) end in ...3BCD. Since we round these down as ...3BCC90... --> ..3BCC, append _dn to varnames:
+	const uint64 sqrt2_dn = 0x3FF6A09E667F3BCCull, isrt2_dn = 0x3FE6A09E667F3BCCull;
 	static int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
 	const double crnd = 3.0*0x4000000*0x2000000;
 	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
@@ -252,8 +268,8 @@ int radix144_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		*va0,*va1,*va2,*va3,*va4,*va5,*va6,*va7,*va8,
 		*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8,
 	#endif
-		*tmp,*tm1,*tm2;	// Non-static utility ptrs
-	static vec_dbl *isrt2,*cc0,*ss0, *cc1,*ss1,*cc2,*ss2,*cc3m1,*ss3,*cc4,*ss4, *max_err, *sse2_rnd, *half_arr,
+		*tmp,*tm0,*tm1,*tm2;	// Non-static utility ptrs
+	static vec_dbl *two,*one,*sqrt2,*isrt2,*cc0,*ss0, *cc1,*ss1,*cc2,*ss2,*cc3m1,*ss3,*cc4,*ss4, *max_err, *sse2_rnd, *half_arr,
 		*r00,	// Head of RADIX*vec_cmplx-sized local store #1
 		*s1p00,	// Head of RADIX*vec_cmplx-sized local store #2
 		*cy;	// Need RADIX/2 slots for sse2 carries, RADIX/4 for avx
@@ -441,36 +457,46 @@ int radix144_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	  #endif
 		tmp = sc_ptr;	r00   = tmp;	// Head of RADIX*vec_cmplx-sized local store #1
 		tmp += 0x120;	s1p00 = tmp;	// Head of RADIX*vec_cmplx-sized local store #2
-		tmp += 0x120;
+		tmp	+= 0x122;	// Extra 2 slots here for one,sqrt2 below - added those late, too lazy to rejigger all the existing offsets following
+		two    = tmp - 2;	// AVX+ versions of various DFT macros assume consts 2.0,1.0,sqrt2,isrt2 laid out thusly
+		one    = tmp - 1;
+		sqrt2  = tmp + 0;
 		// Roots for radix-16 DFTs:
-		isrt2  = tmp + 0x0;
-		cc0    = tmp + 0x1;
-		ss0    = tmp + 0x2;
+		isrt2  = tmp + 0x1;
+		cc0    = tmp + 0x2;
+		ss0    = tmp + 0x3;
 		// Roots for radix-9 DFTs:
-		cc1    = tmp + 0x3;
-		ss1    = tmp + 0x4;
-		cc2    = tmp + 0x5;
-		ss2    = tmp + 0x6;
-		cc3m1  = tmp + 0x7;
-		ss3    = tmp + 0x8;
-		cc4    = tmp + 0x9;
-		ss4    = tmp + 0xa;
-		tmp += 0xc;	// sc_ptr += 0x24c, added extra pad slot to make offset even
+		cc1    = tmp + 0x4;
+		ss1    = tmp + 0x5;
+		cc2    = tmp + 0x6;
+		ss2    = tmp + 0x7;
+		cc3m1  = tmp + 0x8;
+		ss3    = tmp + 0x9;
+		cc4    = tmp + 0xa;
+		ss4    = tmp + 0xb;
+		tmp += 0xc;	// sc_ptr += 0x24e
 	  #ifdef USE_AVX
-		cy = tmp;		tmp += 0x24;	// sc_ptr += 0x270
+		cy = tmp;		tmp += 0x24;	// sc_ptr += 0x272
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;	// sc_ptr += 2 = 0x272; This is where the value of half_arr_offset144 comes from
+		sse2_rnd= tmp + 0x01;	// sc_ptr += 2 = 0x274; This is where the value of half_arr_offset144 comes from
 		half_arr= tmp + 0x02;	// This table needs 68 vec_dbl in AVX mode
 	  #else
-		cy = tmp;		tmp += 0x48;	// sc_ptr += 0x294
+		cy = tmp;		tmp += 0x48;	// sc_ptr += 0x296
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;	// sc_ptr += 2 = 0x296; This is where the value of half_arr_offset144 comes from
 		half_arr= tmp + 0x02;	// This table needs 20 x 16 bytes in SSE2 mode
 	  #endif
 
 		/* These remain fixed: */
-		VEC_DBL_INIT(isrt2, ISRT2);
-		VEC_DBL_INIT(cc0, c16  );	VEC_DBL_INIT(ss0, s16);	// Radix-16 DFT macros assume [isrt2,cc0,ss0] memory ordering
+		VEC_DBL_INIT(two  , 2.0  );		VEC_DBL_INIT(one, 1.0  );
+	  #if 0	// Here this trick actually degrades accuracy ... must be interaction with the radix-9 DFTs of some kind
+		// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
+		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
+		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+	  #else
+		VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
+	  #endif
+		VEC_DBL_INIT(cc0, c16  );		VEC_DBL_INIT(ss0, s16);	// Radix-16 DFT macros assume [isrt2,cc0,ss0] memory ordering
 		VEC_DBL_INIT(cc1  , c	);		VEC_DBL_INIT(ss1, s );
 		VEC_DBL_INIT(cc2  , c2  );		VEC_DBL_INIT(ss2, s2);
 		VEC_DBL_INIT(cc3m1, c3m1);		VEC_DBL_INIT(ss3, s3);
@@ -478,8 +504,8 @@ int radix144_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		VEC_DBL_INIT(sse2_rnd, crnd);		/* SSE2 math = 53-mantissa-bit IEEE double-float: */
 
 		// Propagate the above consts to the remaining threads:
-		nbytes = (int)ss4 - (int)isrt2 + sz_vd;	// #bytes in 1st of above block of consts
-		tmp = isrt2;
+		nbytes = (int)cy - (int)two;
+		tmp = two;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
 			memcpy(tm2, tmp, nbytes);
@@ -1615,6 +1641,7 @@ void radix144_dit_pass1(double a[], int n)
 	{
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr;
+		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf
 					,p10,p20,p30,p40,p50,p60,p70,p80,p90,pa0;
@@ -1665,6 +1692,10 @@ void radix144_dit_pass1(double a[], int n)
 		double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
 	#ifdef USE_AVX
 		struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+	  #ifdef USE_AVX2
+		// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
+		vec_dbl *rad9_iptr[9], *rad9_optr[9];
+	  #endif
 	#else
 		int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	#endif
@@ -1676,10 +1707,10 @@ void radix144_dit_pass1(double a[], int n)
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 		double *add0,*add1,*add2,*add3,*add4,*add5,*add6,*add7,*add8,*add9,*adda,*addb,*addc,*addd,*adde,*addf;	/* Addresses into array sections */
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
-		vec_dbl *tmp,*tm1,*tm2,	// Non-static utility ptrs
+		vec_dbl *tmp,*tm0,*tm1,*tm2,	// Non-static utility ptrs
 			*va0,*va1,*va2,*va3,*va4,*va5,*va6,*va7,*va8,
-			*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8;
-		vec_dbl *isrt2,*cc0,*ss0, *cc1,*ss1,*cc2,*ss2,*cc3m1,*ss3,*cc4,*ss4, *max_err, *sse2_rnd, *half_arr,
+			*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8,
+			*two,*one,*sqrt2,*isrt2,*cc0,*ss0, *cc1,*ss1,*cc2,*ss2,*cc3m1,*ss3,*cc4,*ss4, *max_err, *sse2_rnd, *half_arr,
 			*r00,	// Head of RADIX*vec_cmplx-sized local store #1
 			*s1p00,	// Head of RADIX*vec_cmplx-sized local store #2
 			*cy;	// Need RADIX/2 slots for sse2 carries, RADIX/4 for avx
@@ -1807,28 +1838,31 @@ void radix144_dit_pass1(double a[], int n)
 	#ifdef USE_SSE2
 		tmp	= r00 = thread_arg->r00;	// Head of RADIX*vec_cmplx-sized local store #1
 		tmp += 0x120;	s1p00 = tmp;	// Head of RADIX*vec_cmplx-sized local store #2
-		tmp += 0x120;
+		tmp	+= 0x122;	// Extra 2 slots here for one,sqrt2 below - added those late, too lazy to rejigger all the existing offsets following
+		two    = tmp - 2;	// AVX+ versions of various DFT macros assume consts 2.0,1.0,sqrt2,isrt2 laid out thusly
+		one    = tmp - 1;
+		sqrt2  = tmp + 0;
 		// Roots for radix-16 DFTs:
-		isrt2  = tmp + 0x0;
-		cc0    = tmp + 0x1;
-		ss0    = tmp + 0x2;
+		isrt2  = tmp + 0x1;
+		cc0    = tmp + 0x2;
+		ss0    = tmp + 0x3;
 		// Roots for radix-9 DFTs:
-		cc1    = tmp + 0x3;
-		ss1    = tmp + 0x4;
-		cc2    = tmp + 0x5;
-		ss2    = tmp + 0x6;
-		cc3m1  = tmp + 0x7;
-		ss3    = tmp + 0x8;
-		cc4    = tmp + 0x9;
-		ss4    = tmp + 0xa;
-		tmp += 0xc;	// sc_ptr += 0x24c, added extra pad slot to make offset even
+		cc1    = tmp + 0x4;
+		ss1    = tmp + 0x5;
+		cc2    = tmp + 0x6;
+		ss2    = tmp + 0x7;
+		cc3m1  = tmp + 0x8;
+		ss3    = tmp + 0x9;
+		cc4    = tmp + 0xa;
+		ss4    = tmp + 0xb;
+		tmp += 0xc;	// sc_ptr += 0x24e
 	  #ifdef USE_AVX
-		cy = tmp;		tmp += 0x24;	// sc_ptr += 0x270
+		cy = tmp;		tmp += 0x24;	// sc_ptr += 0x272
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;	// sc_ptr += 2 = 0x272; This is where the value of half_arr_offset144 comes from
+		sse2_rnd= tmp + 0x01;	// sc_ptr += 2 = 0x274; This is where the value of half_arr_offset144 comes from
 		half_arr= tmp + 0x02;	// This table needs 68 vec_dbl in AVX mode
 	  #else
-		cy = tmp;		tmp += 0x48;	// sc_ptr += 0x294
+		cy = tmp;		tmp += 0x48;	// sc_ptr += 0x296
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;	// sc_ptr += 2 = 0x296; This is where the value of half_arr_offset144 comes from
 		half_arr= tmp + 0x02;	// This table needs 20 x 16 bytes in SSE2 mode
@@ -1953,3 +1987,4 @@ void radix144_dit_pass1(double a[], int n)
 #endif
 
 #undef RADIX
+#undef PFETCH_DIST

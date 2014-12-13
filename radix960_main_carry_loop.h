@@ -25,10 +25,9 @@
 
 for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 {
-	for(j = jstart; j < jhi; j += stride)
+	for(j = jstart; j < jhi; j += stride)	// Stride = 4 reals for SSE2, 8 for AVX
 	{
-		j1 =  j;
-		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+		j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		j2 = j1 + RE_IM_STRIDE;
 
 	/*...The radix-960 DIT pass is here:	*/
@@ -124,7 +123,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			vcd = tm2+kd;
 			vce = tm2+ke;
 
-			// Input ptrs:		
+			// Input ptrs:
 			va0 = tmp     ;
 			va1 = tmp+0x02;
 			va2 = tmp+0x04;
@@ -149,7 +148,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			tmp += 0x1e;	// advance ptr by 15 vec_cmplx [= 30 vec_dbl] elements
 		}
 
-	  #else
+	  #else	// (OS_BITS == 64):
 
 		vec_dbl
 		*va0,*va1,*va2,*va3,*va4,*va5,*va6,*va7,*va8,*va9,*vaa,*vab,*vac,*vad,*vae,
@@ -202,7 +201,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			vcc = tm2+kc;
 			vcd = tm2+kd;
 			vce = tm2+ke;
-			
+
 		// Now emulate the elided odd-index loop pass (replace l with l+1 in the above sequence) to get next set of ks:
 			jp = ((63 - l)&0xf)<<1;	// Replace plo[] of scalar-double code with []<<1
 		// [1] here: Know l > 0 so no need to compute mask, just assume = all-ones:
@@ -244,7 +243,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			vdd = tm2+kd;
 			vde = tm2+ke;
 
-			// 2 sets of Input ptrs:		
+			// 2 sets of Input ptrs:
 							tm1 = tmp + 0x1e;
 			va0 = tmp     ;	vb0 = tm1     ;
 			va1 = tmp+0x02;	vb1 = tm1+0x02;
@@ -262,7 +261,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			vad = tmp+0x1a;	vbd = tm1+0x1a;
 			vae = tmp+0x1c;	vbe = tm1+0x1c;
 
-			SSE2_RADIX_15_DIT_X2(sse2_c3m1,sse2_cn1,
+			SSE2_RADIX_15_DIT_X2(sse2_c3m1,sse2_cn1,two,
 				va0,va1,va2,va3,va4,va5,va6,va7,va8,va9,vaa,vab,vac,vad,vae,	/* In1: r00 +... */
 				x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,	/* Scratch1 */
 				vc0,vc1,vc2,vc3,vc4,vc5,vc6,vc7,vc8,vc9,vca,vcb,vcc,vcd,vce,	/* Out1: s1p00 +... */
@@ -340,7 +339,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			);	tptr += 0xf;
 		}
 
-	#endif	// USE_SSE2?
+	#endif	// SIMD or not?
 
 	/*...Now do the carries. Since the outputs would
 	normally be getting dispatched to RADIX separate blocks of the A-array, we need 28 separate carries.	*/
@@ -380,10 +379,14 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	/* In AVX mode advance carry-ptrs just 1 for each vector-carry-macro call: */
 		tm1 = s1p00; tmp = cy_r; itmp = bjmodn;
-		AVX_cmplx_carry_norm_errcheck0_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		// Each AVX carry macro call also processes 4 prefetches of main-array data
+		tm2 = a + j1 + pfetch_dist;
+		AVX_cmplx_carry_norm_errcheck0_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tm2,p1,p2,p3);
 		tm1 += 8; tmp += 1; itmp += 4;
 		for(l = 1; l < RADIX>>2; l++) {
-			AVX_cmplx_carry_norm_errcheck1_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			// Each AVX carry macro call also processes 4 prefetches of main-array data
+			tm2 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			AVX_cmplx_carry_norm_errcheck1_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tm2,p1,p2,p3);
 			tm1 += 8; tmp += 1; itmp += 4;
 		}
 
@@ -411,15 +414,20 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		ctmp->re = wtlp1;	ctmp->im = wtlp1;++ctmp;
 		ctmp->re = wtnm1;	ctmp->im = wtnm1;
 
-		add1 = &wt1[col  ];	/* Don't use add0 here, to avoid need to reload main-array address */
+		add1 = &wt1[col  ];
 		add2 = &wt1[co2-1];
 		add3 = &wt1[co3-1];
 
 		tm1 = s1p00; tmp = cy_r; tm2 = cy_r+0x01; itmp = bjmodn;
-		SSE2_cmplx_carry_norm_errcheck0_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+		add0 = a + j1 + pfetch_dist;
+		SSE2_cmplx_carry_norm_errcheck0_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p1);
 		tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		for(l = 1; l < RADIX>>2; l++) {
-			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p1);
 			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
@@ -450,7 +458,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		tm1 = s1p00; tmp = cy_r; tm2 = cy_r+0x01; itmp = bjmodn;
 		for(l = 0; l < RADIX>>2; l++) {
-			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p2,p3);
 			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
@@ -469,7 +480,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		wtlp1   =wt0[    l+1];
 		wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
-		/*...set0 is slightly different from others; divide work into blocks of RADIX/4 macro calls, 1st set of which gets pulled out of loop: */		
+		/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */
 		l = 0; addr = cy_r; itmp = bjmodn;
 	   cmplx_carry_norm_errcheck0(a[j1   ],a[j2   ],*addr,*itmp  ); ++l; ++addr; ++itmp;
 		cmplx_carry_norm_errcheck(a[j1+p1],a[j2+p1],*addr,*itmp,l); ++l; ++addr; ++itmp;
@@ -490,10 +501,13 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	#endif	// USE_AVX?
 
-	}
-	else	/* MODULUS_TYPE_FERMAT */
-	{
+	}		/************************************************************************/
+	else	/*                MODULUS_TYPE_FERMAT:                                 */
+	{		/************************************************************************/
 
+		// AVX-custom 4-way carry macro - each macro call contains 4 of the RADIX stride-n/RADIX-separated carries
+		// (processed independently in parallel), and steps through sequential-data indices j,j+2,j+4,j+6.
+		// For non-power-of-2 FFT lengths we have 2 versions of the AVX carry sequence, tradong off speed (3-5%) vs accuracy:
 	#ifdef USE_AVX
 
 		// For a description of the data movement in AVX mode, see radix28_ditN_cy_dif1.
@@ -541,43 +555,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			VEC_DBL_INIT(tmp+ i,wt_re);	VEC_DBL_INIT(tm2+ i,wt_im);
 		}
 
-	  #else	// HIACC = false:
-
-		// Get the needed quartet of Nth roots of -1: This is the same code as in the scalar
-		// fermat_carry_norm_errcheck() macro, with the single index j replaced by the quartet j,j+2,j+4,j+6:
-		l = (j >> 1);	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
-		dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
-		rt  =rn1[k2].re;			it   =rn1[k2].im;
-		wt_re =dtmp*rt-wt_im*it;	wt_im =dtmp*it+wt_im*rt;
-		VEC_DBL_INIT(tmp,wt_re);	++tmp;	VEC_DBL_INIT(tmp,wt_im);	++tmp;
-
-		l += 1;	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
-		dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
-		rt  =rn1[k2].re;			it   =rn1[k2].im;
-		wt_re =dtmp*rt-wt_im*it;	wt_im =dtmp*it+wt_im*rt;
-		VEC_DBL_INIT(tmp,wt_re);	++tmp;	VEC_DBL_INIT(tmp,wt_im);	++tmp;
-
-		l += 1;	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
-		dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
-		rt  =rn1[k2].re;			it   =rn1[k2].im;
-		wt_re =dtmp*rt-wt_im*it;	wt_im =dtmp*it+wt_im*rt;
-		VEC_DBL_INIT(tmp,wt_re);	++tmp;	VEC_DBL_INIT(tmp,wt_im);	++tmp;
-
-		l += 1;	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
-		dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
-		rt  =rn1[k2].re;			it   =rn1[k2].im;
-		wt_re =dtmp*rt-wt_im*it;	wt_im =dtmp*it+wt_im*rt;
-		VEC_DBL_INIT(tmp,wt_re);	++tmp;	VEC_DBL_INIT(tmp,wt_im);	++tmp;
-
-		// The above need some inits to prepare for the AVX version of the Fermat-mod carry macro:
-		SSE2_fermat_carry_init_loacc(base_negacyclic_root);
-
-	  #endif
-
-		// AVX-custom 4-way carry macro - each contains 4 of the RADIX stride-n/RADIX-separated carries
-		// (processed independently in parallel), and steps through sequential-data indices j,j+2,j+4,j+6:
-	  #if HIACC
-
 		/* The starting value of the literal pointer offsets following 'tmp' in these macro calls = RADIX*2*sizeof(vec_dbl)
 		which is the byte offset between the 'active' negacyclic weights [pointed to by base_negacyclic_root] and the
 		precomputed multipliers in the HIACC-wrapped section of the SIMD data initializations. Each 0x100-byte quartet of base roots
@@ -593,11 +570,13 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		{
 			//See "Sep 2014" note in 32-bit SSE2 version of this code below
 			k1 = icycle[ic];	k5 = jcycle[ic];	k6 = kcycle[ic];	k7 = lcycle[ic];
-			k2 = icycle[ic];
+			k2 = icycle[jc];
 			k3 = icycle[kc];
 			k4 = icycle[lc];
+			// Each AVX carry macro call also processes 4 prefetches of main-array data
+			tm2 = a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)];	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
 																		/* vvvvvvvvvvvvvvv [1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
-			SSE2_fermat_carry_norm_errcheck_X4_hiacc(tm0,tmp,l,tm1,0x1e00, 0x1e0,0x3c0,0x5a0, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7);
+			SSE2_fermat_carry_norm_errcheck_X4_hiacc(tm0,tmp,l,tm1,0x1e00, 0x1e0,0x3c0,0x5a0, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7, tm2,p1,p2,p3);
 			tm0 += 8; tm1++; tmp += 8; l -= 0xc0;
 			MOD_ADD32(ic, 4, ODD_RADIX, ic);
 			MOD_ADD32(jc, 4, ODD_RADIX, jc);
@@ -605,31 +584,88 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			MOD_ADD32(lc, 4, ODD_RADIX, lc);
 		}
 
-	  #else	/* HIACC = false: */
+	  #else	// HIACC = false:
 
-		tm0 = s1p00; tmp = base_negacyclic_root;	// tmp *not* incremented between macro calls in loacc version
-		tm1 = cy_r; // tm2 = cy_i;	*** replace with literal-byte-offset in macro call to save a reg
+		// Oct 2014: Try getting most of the LOACC speedup with better accuracy by breaking the complex-roots-of-(-1)
+		// chaining into 2 or more equal-sized subchains, each starting with 'fresh' (unchained) complex roots:
+		#if (LOACC == 0)
+			#define NFOLD (const int)0
+		#elif (LOACC == 1)
+			#define NFOLD (const int)1
+		#elif (LOACC == 2)
+			#define NFOLD (const int)2
+		#elif (LOACC == 3)
+			#define NFOLD (const int)3
+		#elif (LOACC == 4)
+			#define NFOLD (const int)4
+		#elif (LOACC == 5)
+			#define NFOLD (const int)5
+		#else
+			#error If LOACC defined for build of radix960_ditN_cy_dif1.c, must be given value 0,1,2,3,4 or 5!
+		#endif
+
+		tm0 = s1p00; tm1 = cy_r; // tm2 = cy_i;	*** replace with literal-byte-offset in macro call to save a reg
 		ic = 0; jc = 1; kc = 2; lc = 3;
-		for(l = 0; l < RADIX>>2; l++) {	// RADIX/4 loop passes
-			//See "Sep 2014" note in 32-bit SSE2 version of this code below
-			k1 = icycle[ic];	k5 = jcycle[ic];	k6 = kcycle[ic];	k7 = lcycle[ic];
-			k2 = icycle[ic];
-			k3 = icycle[kc];
-			k4 = icycle[lc];
-																		/* vvvvvvvvvvvvvvv [1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
-			SSE2_fermat_carry_norm_errcheck_X4_loacc(tm0,tmp,tm1,0x1e00, 0x1e0,0x3c0,0x5a0, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7);
-			tm0 += 8; tm1++;
-			MOD_ADD32(ic, 4, ODD_RADIX, ic);
-			MOD_ADD32(jc, 4, ODD_RADIX, jc);
-			MOD_ADD32(kc, 4, ODD_RADIX, kc);
-			MOD_ADD32(lc, 4, ODD_RADIX, lc);
-		}
+
+		for(ntmp = 0; ntmp < (1 << NFOLD); ++ntmp)
+		{
+			// E.g.: NFOLD = 1 (==> 2^NFOLD = 2-subchains) means L takes its value
+			// from (j) at start of 1st inner-loop exec, and from (j + n/2) at start of 2nd:
+			l = ((j + ntmp*(n>>NFOLD)) >> 1);
+
+		// Get the needed quartet of Nth roots of -1: This is the same code as in the scalar
+		// fermat_carry_norm_errcheck() macro, with the single index j replaced by the quartet j,j+2,j+4,j+6:
+			/* l = (j >> 1);*/	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+			dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
+			rt  =rn1[k2].re;			it   =rn1[k2].im;
+			wt_re =dtmp*rt-wt_im*it;	wt_im =dtmp*it+wt_im*rt;
+			VEC_DBL_INIT(tmp,wt_re);	++tmp;	VEC_DBL_INIT(tmp,wt_im);	++tmp;
+
+			l += 1;	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+			dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
+			rt  =rn1[k2].re;			it   =rn1[k2].im;
+			wt_re =dtmp*rt-wt_im*it;	wt_im =dtmp*it+wt_im*rt;
+			VEC_DBL_INIT(tmp,wt_re);	++tmp;	VEC_DBL_INIT(tmp,wt_im);	++tmp;
+
+			l += 1;	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+			dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
+			rt  =rn1[k2].re;			it   =rn1[k2].im;
+			wt_re =dtmp*rt-wt_im*it;	wt_im =dtmp*it+wt_im*rt;
+			VEC_DBL_INIT(tmp,wt_re);	++tmp;	VEC_DBL_INIT(tmp,wt_im);	++tmp;
+
+			l += 1;	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
+			dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
+			rt  =rn1[k2].re;			it   =rn1[k2].im;
+			wt_re =dtmp*rt-wt_im*it;	wt_im =dtmp*it+wt_im*rt;
+			VEC_DBL_INIT(tmp,wt_re);	++tmp;	VEC_DBL_INIT(tmp,wt_im);	++tmp;
+
+			// The above need some inits to prepare for the AVX version of the Fermat-mod carry macro:
+			SSE2_fermat_carry_init_loacc(base_negacyclic_root);
+
+			// The other ptrs need to carry over from pvs loop, but this one needs resetting due to above 'multipliers refresh'
+			tmp = base_negacyclic_root;	// tmp *not* incremented between macro calls in loacc version
+			for(l = 0; l < RADIX>>(2+NFOLD); l++) {	// RADIX/4 total loop passes, after outer loop completes
+				k1 = icycle[ic];	k5 = jcycle[ic];	k6 = kcycle[ic];	k7 = lcycle[ic];
+				k2 = icycle[jc];
+				k3 = icycle[kc];
+				k4 = icycle[lc];
+				// Each AVX carry macro call also processes 4 prefetches of main-array data
+				tm2 = a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)];	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
+																			/* vvvvvvvvvvvvvvv [1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
+				SSE2_fermat_carry_norm_errcheck_X4_loacc(tm0,tmp,tm1,0x1e00, 0x1e0,0x3c0,0x5a0, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7, tm2,p1,p2,p3);
+				tm0 += 8; tm1++;
+				MOD_ADD32(ic, 4, ODD_RADIX, ic);
+				MOD_ADD32(jc, 4, ODD_RADIX, jc);
+				MOD_ADD32(kc, 4, ODD_RADIX, kc);
+				MOD_ADD32(lc, 4, ODD_RADIX, lc);
+			}
+		}	// Outer (ntmp-indexed) loop
 
 	  #endif	/* HIACC? */
 
 	#elif defined(USE_SSE2)
 
-		/* For a description of the data movement for Fermat-mod carries in SSE2 mode, see radix16_ditN_cy_dif1.c. */
+		// For a description of the data movement for Fermat-mod carries in SSE2 mode, see radix16_ditN_cy_dif1.c.
 
 		/* Get the needed Nth root of -1: */
 		add1 = (double *)&rn0[0];
@@ -651,7 +687,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			k2 = jcycle[ic];
 			k3 = icycle[jc];
 			k4 = jcycle[jc];
-			SSE2_fermat_carry_norm_errcheck_X2(tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,k1,k2,k3,k4);
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			tm2 = a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)];	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
+			tm2 += (-((int)(tm1-cy_r)&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_fermat_carry_norm_errcheck_X2(tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,k1,k2,k3,k4, tm2,p1);
 			tm1 += 4; tmp += 2;
 			MOD_ADD32(ic, 2, ODD_RADIX, ic);
 			MOD_ADD32(jc, 2, ODD_RADIX, jc);
@@ -662,6 +701,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		ic = 0;	// ic = idx into [i|j]cycle mini-arrays, gets incremented (mod ODD_RADIX) between macro calls
 		tm1 = s1p00; tmp = cy_r;	// <*** Again rely on contiguity of cy_r,i here ***
+		// Need to stick this #def into an intvar to work around [error: invalid lvalue in asm input for constraint 'm']
 		l = ODD_RADIX << 4;	// 32-bit version needs preshifted << 4 input value
 		while(tm1 < x00) {
 			//Sep 2014: Even with reduced-register version of the 32-bit Fermat-mod carry macro,
@@ -669,7 +709,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			// Pulling the array-refs out of the carry-macro call like so solves the problem:
 			k1 = icycle[ic];
 			k2 = jcycle[ic];
-			SSE2_fermat_carry_norm_errcheck(tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,k1,k2);
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			tm2 = a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)];	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
+			tm2 += plo[(int)(tm1-cy_r)&0x3];	// Added offset cycles among p0,1,2,3
+			SSE2_fermat_carry_norm_errcheck(tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,k1,k2, tm2);
 			tm1 += 2; tmp++;
 			MOD_ADD32(ic, 1, ODD_RADIX, ic);
 		}
@@ -714,8 +757,8 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	#ifdef USE_SSE2
 
 	//...gather the needed data (960 64-bit complex) and do 64 radix-15 transforms:
-	  #if (OS_BITS == 32)	//Aug 2014: Too much work to 32-bit-ify the register-intensive large-pow2 macros, so punt on those
-	
+	  #if (OS_BITS == 32)
+
 		tmp = r00;	tm2 = s1p00;	kk = 0;
 		for(l = 0; l < 64; l++) {
 		// NB: All offsets end up being shifted "one too many" bits leftward since
@@ -785,7 +828,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			tmp += 0x1e;	// advance ptr by 15 vec_cmplx [= 30 vec_dbl] elements
 		}
 
-	  #else
+	  #else	// (OS_BITS == 64):
 
 		tmp = r00;	tm2 = s1p00;	kk = 0;
 		for(l = 0; l < 64; l += 2) {
@@ -830,7 +873,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			vcc = tm2+kc;
 			vcd = tm2+kd;
 			vce = tm2+ke;
-			
+
 		// Now emulate the elided odd-index loop pass (replace l with l+1 in the above sequence) to get next set of ks:
 		// [0] here:
 			jp += 2;
@@ -871,7 +914,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			vdd = tm2+kd;
 			vde = tm2+ke;
 
-			// 2 sets of output ptrs:		
+			// 2 sets of output ptrs:
 							tm1 = tmp + 0x1e;
 			va0 = tmp     ;	vb0 = tm1     ;
 			va1 = tmp+0x02;	vb1 = tm1+0x02;
@@ -889,7 +932,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			vad = tmp+0x1a;	vbd = tm1+0x1a;
 			vae = tmp+0x1c;	vbe = tm1+0x1c;
 
-			SSE2_RADIX_15_DIF_X2(sse2_c3m1,sse2_cn1,
+			SSE2_RADIX_15_DIF_X2(sse2_c3m1,sse2_cn1,two,
 				vc0,vc1,vc2,vc3,vc4,vc5,vc6,vc7,vc8,vc9,vca,vcb,vcc,vcd,vce,	/* Ins1: s1p00 +... */
 				x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,	/* Scratch1 */
 				va0,va1,va2,va3,va4,va5,va6,va7,va8,va9,vaa,vab,vac,vad,vae,	/* Out1: r00 +... */

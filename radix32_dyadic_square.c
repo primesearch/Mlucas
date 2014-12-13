@@ -95,17 +95,17 @@ void radix32_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 	double *add2, *add3;
   #endif
 	vec_dbl *c_tmp,*s_tmp;
+	vec_dbl *tmp;
 
   #ifdef MULTITHREAD
-	static vec_dbl *__r0;	/* Base address for discrete per-thread local stores */
+	static vec_dbl *__r0;					// Base address for discrete per-thread local stores
 	// In || mode, only above base-pointer (shared by all threads) is static:
-	vec_dbl *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *forth, *two
+	vec_dbl *isrt2,*sqrt2, *one,*two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3
 		,*c00,*c01,*c02,*c03,*c04,*c05,*c06,*c07,*c08,*c09,*c0A,*c0B,*c0C,*c0D,*c0E,*c0F
 		,*c10,*c11,*c12,*c13,*c14,*c15,*c16,*c17,*c18,*c19,*c1A,*c1B,*c1C,*c1D,*c1E,*c1F
-		,*r00,*r08,*r10,*r20,*r28,*r30;
+		,*r00,*r08,*r10,*r18,*r20,*r28,*r30,*r38;
   #else
-	static vec_dbl *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *forth, *two
-		, *tmp0, *tmp1, *tmp2, *tmp3, *tmp4, *tmp5, *tmp6, *tmp7
+	static vec_dbl *isrt2,*sqrt2, *one,*two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3,
 		,*c00,*c01,*c02,*c03,*c04,*c05,*c06,*c07,*c08,*c09,*c0A,*c0B,*c0C,*c0D,*c0E,*c0F
 		,*c10,*c11,*c12,*c13,*c14,*c15,*c16,*c17,*c18,*c19,*c1A,*c1B,*c1C,*c1D,*c1E,*c1F
 		,*r00,*r01,*r02,*r03,*r04,*r05,*r06,*r07,*r08,*r09,*r0A,*r0B,*r0C,*r0D,*r0E,*r0F
@@ -226,11 +226,13 @@ void radix32_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
-	/* Use low 32 16-byte slots of sc_arr for temporaries, next 8 for scratch, next 7 for the nontrivial complex 16th roots,
-	next 62 for the doubled sincos twiddles, plus one for the 1/4 constant and at least 4 more to allow for 64-byte alignment of the array.
+	/* Use low 64 vec_dbl slots of sc_arr for temporaries, next 8 for scratch, next 7 for the nontrivial complex 16th roots,
+	next 62 for the doubled sincos twiddles, next 3 for [1.0,2.0,sqrt2] and at least 3 more to allow for 64-byte alignment of the array.
+
+	*** NOTE ***: Offsets below must match those in radix32_dyadic_square,
+				since routines share DFT macros which use many literal byte offsets to reduce argument count.
 	*/
 		#ifdef MULTITHREAD
-	//	if(max_threads > 1) {
 			__r0  = sc_ptr;
 			isrt2 = sc_ptr + 0x48;
 			cc0	  = sc_ptr + 0x49;
@@ -239,16 +241,17 @@ void radix32_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 			ss1	  = sc_ptr + 0x4c;
 			cc3	  = sc_ptr + 0x4d;
 			ss3	  = sc_ptr + 0x4e;
-			forth = sc_ptr + 0x8f;
-			two   = sc_ptr + 0x90;
+			two   = sc_ptr + 0x8f;	// PAIR_SQUARE_4_AVX2 not used for Fermat-mod (i.e. no need for *forth), but note the SSE2_RADIX32_WRAPPER_DIF/T
+		//	forth = sc_ptr + 0x90;	// asm macros are shared by Mersenne & Fermat, and assume two = isrt2 + 0x47, sqrt2 = two + 2, one = two - 1,
+			sqrt2 = sc_ptr + 0x91;	// i.e. need to "leave slot for forth just above two".
+			one	  = sc_ptr + 0x92;
 			for(i = 0; i < max_threads; ++i) {
 				/* These remain fixed within each per-thread local store: */
-				VEC_DBL_INIT(isrt2, ISRT2);
-				VEC_DBL_INIT(cc0  , c	 );		VEC_DBL_INIT(ss0 , s	);
-				VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1 , s32_1);
-				VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3 , s32_3);
-				VEC_DBL_INIT(forth, 0.25 );
-				VEC_DBL_INIT(two  , 2.0  );
+				VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(sqrt2, SQRT2);
+				VEC_DBL_INIT(one  , 1.0  );		VEC_DBL_INIT(two, 2.0  );	//VEC_DBL_INIT(forth, 0.25 );
+				VEC_DBL_INIT(cc0  , c    );		VEC_DBL_INIT(ss0, s    );
+				VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1, s32_1);
+				VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3, s32_3);
 				/* Move on to next thread's local store */
 				isrt2 += 0x94;
 				cc0   += 0x94;
@@ -257,93 +260,59 @@ void radix32_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 				ss1   += 0x94;
 				cc3   += 0x94;
 				ss3   += 0x94;
-				forth += 0x94;
+				one   += 0x94;
 				two   += 0x94;
+			//	forth += 0x94;
+				sqrt2 += 0x94;
 			}
 		#else
-	//	} else {
-			r00		= sc_ptr + 0x00;	isrt2	= sc_ptr + 0x48;
-			r01		= sc_ptr + 0x01;	cc0		= sc_ptr + 0x49;
-			r02		= sc_ptr + 0x02;	ss0		= sc_ptr + 0x4a;
-			r03		= sc_ptr + 0x03;	cc1		= sc_ptr + 0x4b;
-			r04		= sc_ptr + 0x04;	ss1		= sc_ptr + 0x4c;
-			r05		= sc_ptr + 0x05;	cc3		= sc_ptr + 0x4d;
-			r06		= sc_ptr + 0x06;	ss3		= sc_ptr + 0x4e;
-			r07		= sc_ptr + 0x07;	c00		= sc_ptr + 0x4f;
-			r08		= sc_ptr + 0x08;//	s00		= sc_ptr + 0x50;
-			r09		= sc_ptr + 0x09;	c10		= sc_ptr + 0x51;
-			r0A		= sc_ptr + 0x0a;//	s10		= sc_ptr + 0x52;
-			r0B		= sc_ptr + 0x0b;	c08		= sc_ptr + 0x53;
-			r0C		= sc_ptr + 0x0c;//	s08		= sc_ptr + 0x54;
-			r0D		= sc_ptr + 0x0d;	c18		= sc_ptr + 0x55;
-			r0E		= sc_ptr + 0x0e;//	s18		= sc_ptr + 0x56;
-			r0F		= sc_ptr + 0x0f;	c04		= sc_ptr + 0x57;
-			r10		= sc_ptr + 0x10;//	s04		= sc_ptr + 0x58;
-			r11		= sc_ptr + 0x11;	c14		= sc_ptr + 0x59;
-			r12		= sc_ptr + 0x12;//	s14		= sc_ptr + 0x5a;
-			r13		= sc_ptr + 0x13;	c0C		= sc_ptr + 0x5b;
-			r14		= sc_ptr + 0x14;//	s0C		= sc_ptr + 0x5c;
-			r15		= sc_ptr + 0x15;	c1C		= sc_ptr + 0x5d;
-			r16		= sc_ptr + 0x16;//	s1C		= sc_ptr + 0x5e;
-			r17		= sc_ptr + 0x17;	c02		= sc_ptr + 0x5f;
-			r18		= sc_ptr + 0x18;//	s02		= sc_ptr + 0x60;
-			r19		= sc_ptr + 0x19;	c12		= sc_ptr + 0x61;
-			r1A		= sc_ptr + 0x1a;//	s12		= sc_ptr + 0x62;
-			r1B		= sc_ptr + 0x1b;	c0A		= sc_ptr + 0x63;
-			r1C		= sc_ptr + 0x1c;//	s0A		= sc_ptr + 0x64;
-			r1D		= sc_ptr + 0x1d;	c1A		= sc_ptr + 0x65;
-			r1E		= sc_ptr + 0x1e;//	s1A		= sc_ptr + 0x66;
-			r1F		= sc_ptr + 0x1f;	c06		= sc_ptr + 0x67;
-			r20		= sc_ptr + 0x20;//	s06		= sc_ptr + 0x68;
-			r21		= sc_ptr + 0x21;	c16		= sc_ptr + 0x69;
-			r22		= sc_ptr + 0x22;//	s16		= sc_ptr + 0x6a;
-			r23		= sc_ptr + 0x23;	c0E		= sc_ptr + 0x6b;
-			r24		= sc_ptr + 0x24;//	s0E		= sc_ptr + 0x6c;
-			r25		= sc_ptr + 0x25;	c1E		= sc_ptr + 0x6d;
-			r26		= sc_ptr + 0x26;//	s1E		= sc_ptr + 0x6e;
-			r27		= sc_ptr + 0x27;	c01		= sc_ptr + 0x6f;
-			r28		= sc_ptr + 0x28;//	s01		= sc_ptr + 0x70;
-			r29		= sc_ptr + 0x29;	c11		= sc_ptr + 0x71;
-			r2A		= sc_ptr + 0x2a;//	s11		= sc_ptr + 0x72;
-			r2B		= sc_ptr + 0x2b;	c09		= sc_ptr + 0x73;
-			r2C		= sc_ptr + 0x2c;//	s09		= sc_ptr + 0x74;
-			r2D		= sc_ptr + 0x2d;	c19		= sc_ptr + 0x75;
-			r2E		= sc_ptr + 0x2e;//	s19		= sc_ptr + 0x76;
-			r2F		= sc_ptr + 0x2f;	c05		= sc_ptr + 0x77;
-			r30		= sc_ptr + 0x30;//	s05		= sc_ptr + 0x78;
-			r31		= sc_ptr + 0x31;	c15		= sc_ptr + 0x79;
-			r32		= sc_ptr + 0x32;//	s15		= sc_ptr + 0x7a;
-			r33		= sc_ptr + 0x33;	c0D		= sc_ptr + 0x7b;
-			r34		= sc_ptr + 0x34;//	s0D		= sc_ptr + 0x7c;
-			r35		= sc_ptr + 0x35;	c1D		= sc_ptr + 0x7d;
-			r36		= sc_ptr + 0x36;//	s1D		= sc_ptr + 0x7e;
-			r37		= sc_ptr + 0x37;	c03		= sc_ptr + 0x7f;
-			r38		= sc_ptr + 0x38;//	s03		= sc_ptr + 0x80;
-			r39		= sc_ptr + 0x39;	c13		= sc_ptr + 0x81;
-			r3A		= sc_ptr + 0x3a;//	s13		= sc_ptr + 0x82;
-			r3B		= sc_ptr + 0x3b;	c0B		= sc_ptr + 0x83;
-			r3C		= sc_ptr + 0x3c;//	s0B		= sc_ptr + 0x84;
-			r3D		= sc_ptr + 0x3d;	c1B		= sc_ptr + 0x85;
-			r3E		= sc_ptr + 0x3e;//	s1B		= sc_ptr + 0x86;
-			r3F		= sc_ptr + 0x3f;	c07		= sc_ptr + 0x87;
-			tmp0	= sc_ptr + 0x40;//	s07		= sc_ptr + 0x88;
-			tmp1	= sc_ptr + 0x41;	c17		= sc_ptr + 0x89;
-			tmp2	= sc_ptr + 0x42;//	s17		= sc_ptr + 0x8a;
-			tmp3	= sc_ptr + 0x43;	c0F		= sc_ptr + 0x8b;
-			tmp4	= sc_ptr + 0x44;//	s0F		= sc_ptr + 0x8c;
-			tmp5	= sc_ptr + 0x45;	c1F		= sc_ptr + 0x8d;
-			tmp6	= sc_ptr + 0x46;//	s1F		= sc_ptr + 0x8e;
-			tmp7	= sc_ptr + 0x47;	forth	= sc_ptr + 0x8f;
-										two     = sc_ptr + 0x90;
-			/* These remain fixed: */
-			VEC_DBL_INIT(isrt2, ISRT2);
-			VEC_DBL_INIT(cc0  , c	 );		VEC_DBL_INIT(ss0 , s	);
-			VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1 , s32_1);
-			VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3 , s32_3);
-			VEC_DBL_INIT(forth, 0.25 );
-			VEC_DBL_INIT(two  , 2.0  );
+			r00	 = sc_ptr + 0x00;	isrt2 = sc_ptr + 0x48;
+			r02	 = sc_ptr + 0x02;	cc0   = sc_ptr + 0x49;	ss0 = sc_ptr + 0x4a;
+			r04	 = sc_ptr + 0x04;	cc1   = sc_ptr + 0x4b;	ss1 = sc_ptr + 0x4c;
+			r06	 = sc_ptr + 0x06;	cc3   = sc_ptr + 0x4d;	ss3 = sc_ptr + 0x4e;
+			r08	 = sc_ptr + 0x08;	c00   = sc_ptr + 0x4f;
+			r0A	 = sc_ptr + 0x0a;	c10   = sc_ptr + 0x51;
+			r0C	 = sc_ptr + 0x0c;	c08   = sc_ptr + 0x53;
+			r0E	 = sc_ptr + 0x0e;	c18   = sc_ptr + 0x55;
+			r10	 = sc_ptr + 0x10;	c04   = sc_ptr + 0x57;
+			r12	 = sc_ptr + 0x12;	c14   = sc_ptr + 0x59;
+			r14	 = sc_ptr + 0x14;	c0C   = sc_ptr + 0x5b;
+			r16	 = sc_ptr + 0x16;	c1C   = sc_ptr + 0x5d;
+			r18	 = sc_ptr + 0x18;	c02   = sc_ptr + 0x5f;
+			r1A	 = sc_ptr + 0x1a;	c12   = sc_ptr + 0x61;
+			r1C	 = sc_ptr + 0x1c;	c0A   = sc_ptr + 0x63;
+			r1E	 = sc_ptr + 0x1e;	c1A   = sc_ptr + 0x65;
+			r20	 = sc_ptr + 0x20;	c06   = sc_ptr + 0x67;
+			r22	 = sc_ptr + 0x22;	c16   = sc_ptr + 0x69;
+			r24	 = sc_ptr + 0x24;	c0E   = sc_ptr + 0x6b;
+			r26	 = sc_ptr + 0x26;	c1E   = sc_ptr + 0x6d;
+			r28	 = sc_ptr + 0x28;	c01   = sc_ptr + 0x6f;
+			r2A	 = sc_ptr + 0x2a;	c11   = sc_ptr + 0x71;
+			r2C	 = sc_ptr + 0x2c;	c09   = sc_ptr + 0x73;
+			r2E	 = sc_ptr + 0x2e;	c19   = sc_ptr + 0x75;
+			r30	 = sc_ptr + 0x30;	c05   = sc_ptr + 0x77;
+			r32	 = sc_ptr + 0x32;	c15   = sc_ptr + 0x79;
+			r34	 = sc_ptr + 0x34;	c0D   = sc_ptr + 0x7b;
+			r36	 = sc_ptr + 0x36;	c1D   = sc_ptr + 0x7d;
+			r38	 = sc_ptr + 0x38;	c03   = sc_ptr + 0x7f;
+			r3A	 = sc_ptr + 0x3a;	c13   = sc_ptr + 0x81;
+			r3C	 = sc_ptr + 0x3c;	c0B   = sc_ptr + 0x83;
+			r3E	 = sc_ptr + 0x3e;	c1B   = sc_ptr + 0x85;
+									c07   = sc_ptr + 0x87;
+									c17   = sc_ptr + 0x89;
+									c0F   = sc_ptr + 0x8b;
+									c1F   = sc_ptr + 0x8d;
+									two   = sc_ptr + 0x8f;
+								//	forth = sc_ptr + 0x90;
+									sqrt2 = sc_ptr + 0x91;
+									one	  = sc_ptr + 0x92;
+			/* These remain fixed within each per-thread local store: */
+			VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(sqrt2, SQRT2);
+			VEC_DBL_INIT(one  , 1.0  );		VEC_DBL_INIT(two, 2.0  );	//VEC_DBL_INIT(forth, 0.25 );
+			VEC_DBL_INIT(cc0  , c    );		VEC_DBL_INIT(ss0, s    );
+			VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1, s32_1);
+			VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3, s32_3);
 		#endif
-	//	}
 
 	#endif	// USE_SSE2
 
@@ -354,57 +323,48 @@ void radix32_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 #ifdef MULTITHREAD
 	ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
   #ifdef USE_SSE2
-	r00 = __r0 + thr_id*0x94;
-	r08   = r00 + 0x08;
-	r10   = r00 + 0x10;
-	r20   = r00 + 0x20;
-	r28   = r00 + 0x28;
-	r30   = r00 + 0x30;
-	isrt2 = r00 + 0x48;
-	cc0	  = r00 + 0x49;
-	ss0	  = r00 + 0x4a;
-	cc1	  = r00 + 0x4b;
-	ss1	  = r00 + 0x4c;
-	cc3	  = r00 + 0x4d;
-	ss3	  = r00 + 0x4e;
-	c00   = r00 + 0x4f;
-	c01   = r00 + 0x6f;
-	c02   = r00 + 0x5f;
-	c03   = r00 + 0x7f;
-	c04   = r00 + 0x57;
-	c05   = r00 + 0x77;
-	c06   = r00 + 0x67;
-	c07   = r00 + 0x87;
-	c08   = r00 + 0x53;
-	c0A   = r00 + 0x63;
-	c0C   = r00 + 0x5b;
-	c0E   = r00 + 0x6b;
-	c10   = r00 + 0x51;
-	c12   = r00 + 0x61;
-	c14   = r00 + 0x59;
-	c16   = r00 + 0x69;
-	c18   = r00 + 0x55;
-	c1A   = r00 + 0x65;
-	c1C   = r00 + 0x5d;
-	c1E   = r00 + 0x6d;
-	forth = r00 + 0x8f;
-	two   = r00 + 0x90;
-	/* Need these added root-addresses for expedited roots computation via SSE2_CMUL_EXPO macros */
-	c09	  = r00 + 0x73;
-	c0B	  = r00 + 0x83;
-	c0D	  = r00 + 0x7b;
-	c0F	  = r00 + 0x8b;
-	c11	  = r00 + 0x71;
-	c13	  = r00 + 0x81;
-	c15	  = r00 + 0x79;
-	c17	  = r00 + 0x89;
-	c19	  = r00 + 0x75;
-	c1B	  = r00 + 0x85;
-	c1D	  = r00 + 0x7d;
-	c1F	  = r00 + 0x8d;
+	r00  = __r0 + thr_id*148;isrt2	= r00 + 0x48;
+/*	r02  = r00 + 0x02;*/cc0   = r00 + 0x49;
+/*	r04  = r00 + 0x04;*/cc1   = r00 + 0x4b;
+/*	r06  = r00 + 0x06;*/cc3   = r00 + 0x4d;
+	r08  = r00 + 0x08;	c00   = r00 + 0x4f;
+/*	r0A  = r00 + 0x0a;*/c10   = r00 + 0x51;
+/*	r0C  = r00 + 0x0c;*/c08   = r00 + 0x53;
+/*	r0E  = r00 + 0x0e;*/c18   = r00 + 0x55;
+	r10  = r00 + 0x10;	c04   = r00 + 0x57;
+/*	r12  = r00 + 0x12;*/c14   = r00 + 0x59;
+/*	r14  = r00 + 0x14;*/c0C   = r00 + 0x5b;
+/*	r16  = r00 + 0x16;*/c1C   = r00 + 0x5d;
+	r18  = r00 + 0x18;	c02   = r00 + 0x5f;
+/*	r1A  = r00 + 0x1a;*/c12   = r00 + 0x61;
+/*	r1C  = r00 + 0x1c;*/c0A   = r00 + 0x63;
+/*	r1E  = r00 + 0x1e;*/c1A   = r00 + 0x65;
+	r20  = r00 + 0x20;	c06   = r00 + 0x67;
+/*	r22  = r00 + 0x22;*/c16   = r00 + 0x69;
+/*	r24  = r00 + 0x24;*/c0E   = r00 + 0x6b;
+/*	r26  = r00 + 0x26;*/c1E   = r00 + 0x6d;
+	r28  = r00 + 0x28;	c01   = r00 + 0x6f;
+/*	r2A  = r00 + 0x2a;*/c11   = r00 + 0x71;
+/*	r2C  = r00 + 0x2c;*/c09   = r00 + 0x73;
+/*	r2E  = r00 + 0x2e;*/c19   = r00 + 0x75;
+	r30  = r00 + 0x30;	c05   = r00 + 0x77;
+/*	r32  = r00 + 0x32;*/c15   = r00 + 0x79;
+/*	r34  = r00 + 0x34;*/c0D   = r00 + 0x7b;
+/*	r36  = r00 + 0x36;*/c1D   = r00 + 0x7d;
+	r38  = r00 + 0x38;	c03   = r00 + 0x7f;
+/*	r3A  = r00 + 0x3a;*/c13   = r00 + 0x81;
+/*	r3C  = r00 + 0x3c;*/c0B   = r00 + 0x83;
+/*	r3E  = r00 + 0x3e;*/c1B   = r00 + 0x85;
+						c07   = r00 + 0x87;
+						c17   = r00 + 0x89;
+						c0F   = r00 + 0x8b;
+						c1F   = r00 + 0x8d;
+						two   = r00 + 0x8f;
+					//	forth = r00 + 0x90;
+						sqrt2 = r00 + 0x91;
+						one	  = r00 + 0x92;
   #endif
 #endif
-
 	/*...If a new runlength, should not get to this point: */
 	ASSERT(HERE, n == nsave,"n != nsave");
 	ASSERT(HERE, incr == 64,"incr == 64");
@@ -1767,7 +1727,7 @@ void radix32_dyadic_square(double a[], int arr_scratch[], int n, int radix0, str
 	  #else
 
 		#ifdef USE_AVX
-		
+
 		__asm__ volatile (\
 			"movq	%[__r00],%%rax			\n\t"\
 			"/* z0^2: */					\n\t	/* z0^2: */				\n\t"\

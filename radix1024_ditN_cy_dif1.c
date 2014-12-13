@@ -33,6 +33,20 @@
 	#error Currently only pass-1 radices 32 and 64 supported!
 #endif
 
+#ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
+  #else
+	#define PFETCH_DIST	32
+  #endif
+#endif
+
+#ifdef MULTITHREAD
+	#ifndef USE_PTHREAD
+		#error Pthreads is only thread model currently supported!
+	#endif
+#endif
+
 // SIMD+SSE2 code only available for GCC build:
 #if defined(USE_SSE2) && defined(COMPILER_TYPE_GCC)
 
@@ -131,6 +145,7 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 #endif
 	const char func[] = "radix1024_ditN_cy_dif1";
 	static int thr_id = 0;	// Master thread gets this special id
+	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 #ifdef USE_SSE2
 	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
@@ -196,7 +211,15 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 	static uint64 *sm_ptr, *sign_mask, *sse_bw, *sse_sw, *sse_nm1;
 	uint64 tmp64;
 
-  #ifdef MULTITHREAD
+  #ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
+  #else
+	#define PFETCH_DIST	32
+  #endif
+#endif
+
+#ifdef MULTITHREAD
 	static vec_dbl *__r0;	// Base address for discrete per-thread local stores
   #else
 	double *add0,*add1,*add2,*add3,*add4,*add5,*add6,*add7,*add8,*add9,*adda,*addb,*addc,*addd,*adde,*addf;
@@ -2788,6 +2811,7 @@ void radix1024_dit_pass1(double a[], int n)
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr,*addi;
 		struct complex *tptr;
+		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf,
 			p11,p12,p13,p14,p15,p16,p17,p18,p19,p1a,p1b,p1c,p1d,p1e,p1f,
@@ -3276,3 +3300,4 @@ void radix1024_dit_pass1(double a[], int n)
 #endif
 
 #undef RADIX
+#undef PFETCH_DIST

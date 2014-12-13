@@ -368,7 +368,7 @@ which is why we union-ize the 128-bit structs storing the relevant data.
 #endif
 
 // Basic macro used to assign same double initializer (val) to all subfields of a vec_dbl:
-#ifdef USE_AVX3	// Above AVX we use a numeric idx = log2(#doubles in a SIMD register) to avoid long numeric shit like AVX512
+#ifdef USE_AVX512
 
 	typedef struct double_x8	vec_dbl;
 	#define VEC_DBL_INIT(vdbl_ptr, val)	( (vdbl_ptr)->d0 = (vdbl_ptr)->d1 = (vdbl_ptr)->d2 = (vdbl_ptr)->d3 = (vdbl_ptr)->d4 = (vdbl_ptr)->d5 = (vdbl_ptr)->d6 = (vdbl_ptr)->d7 = val )
@@ -381,7 +381,7 @@ which is why we union-ize the 128-bit structs storing the relevant data.
 #elif defined(USE_SSE2)
 
 	typedef struct double_x2	vec_dbl;
-	#define VEC_DBL_INIT(vdbl_ptr, val)	( vdbl_ptr->d0 = vdbl_ptr->d1 = val )
+	#define VEC_DBL_INIT(vdbl_ptr, val)	( (vdbl_ptr)->d0 = (vdbl_ptr)->d1 = val )
 
 #elif defined(__CUDACC__)
 

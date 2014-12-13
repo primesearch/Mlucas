@@ -24,6 +24,14 @@
 
 #define RADIX 40	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
 
+#ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
+  #else
+	#define PFETCH_DIST	32
+  #endif
+#endif
+
 #ifdef MULTITHREAD
 	#ifndef USE_PTHREAD
 		#error Pthreads is only thread model currently supported!
@@ -42,11 +50,11 @@
   // For Mersenne-mod we need (16 [SSE2] or 64 [AVX]) + 4 added slots for the half_arr lookup tables.
   // Add relevant number (half_arr_offset40 + RADIX) to get required value of radix40_creals_in_local_store:
   #ifdef USE_AVX
-	const int half_arr_offset40 = 178;	// + RADIX = 218; Used for thread local-storage-integrity checking
+	const int half_arr_offset40 = 180;	// + RADIX = 220; Used for thread local-storage-integrity checking
 	const int radix40_creals_in_local_store = 288;	// += 68 and round up to nearest multiple of 4
   #else
-	const int half_arr_offset40 = 188;	// + RADIX = 228; Used for thread local-storage-integrity checking
-	const int radix40_creals_in_local_store = 248;	// += 20 and round up to nearest multiple of 4
+	const int half_arr_offset40 = 190;	// + RADIX = 230; Used for thread local-storage-integrity checking
+	const int radix40_creals_in_local_store = 252;	// += 20 and round up to nearest multiple of 4
   #endif
 
 	#include "sse2_macro.h"
@@ -57,8 +65,11 @@
 
 		#if OS_BITS == 64
 
-		  // #define to either (if left undefined) use small-macro form below, or (if defined) to inline the fused macros as single big blob of asm (64-bit only):
-		  #define GCC_ASM_FULL_INLINE	1	// Enable xmm0-15-using version of radix-40 DFTs
+		 #ifdef USE_AVX2	// FMA-using radix-5,8 macros better than non-FMA "big radix-40 blobs"
+		  #define GCC_ASM_FULL_INLINE	0
+		 #else
+		  #define GCC_ASM_FULL_INLINE	1	// Set = 1 to inline the fused macros as single big blob of asm
+		 #endif
 
 		  #if GCC_ASM_FULL_INLINE
 			#include "radix40_ditN_cy_dif1_gcc64.h"
@@ -141,6 +152,7 @@ int radix40_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	const char func[] = "radix40_ditN_cy_dif1";
+	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 #ifdef USE_SSE2
 	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
@@ -202,11 +214,14 @@ int radix40_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7;	/* Addresses into array sections */
   #endif
 
+	// Uint64 bitmaps for alternate "rounded the other way" copies of sqrt2,isrt2. Default round-to-nearest versions
+	// (SQRT2, ISRT2) end in ...3BCD. Since we round these down as ...3BCC90... --> ..3BCC, append _dn to varnames:
+	const uint64 sqrt2_dn = 0x3FF6A09E667F3BCCull, isrt2_dn = 0x3FE6A09E667F3BCCull;
 	static int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
 	const double crnd = 3.0*0x4000000*0x2000000;
 	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 	vec_dbl *tmp,*tm1,*tm2;	// Non-static utility ptrs
-	static vec_dbl *isrt2, *xcc1, *xss1, *xcc2, *xss2, *xss3, *max_err, *sse2_rnd, *half_arr
+	static vec_dbl *sqrt2,*isrt2,*two,*one, *xcc1, *xss1, *xcc2, *xss2, *xss3, *max_err, *sse2_rnd, *half_arr
 		,*r00,*r02,*r04,*r06,*r08,*r10,*r12,*r14,*r16,*r18,*r20,*r22,*r24,*r26,*r28,*r30,*r32,*r34,*r36,*r38
 		,*r40,*r42,*r44,*r46,*r48,*r50,*r52,*r54,*r56,*r58,*r60,*r62,*r64,*r66,*r68,*r70,*r72,*r74,*r76,*r78
 		,*s1p00r,*s1p01r,*s1p02r,*s1p03r,*s1p04r,*s1p05r,*s1p06r,*s1p07r,*s1p08r,*s1p09r,*s1p10r,*s1p11r,*s1p12r,*s1p13r,*s1p14r,*s1p15r,*s1p16r,*s1p17r,*s1p18r,*s1p19r
@@ -442,31 +457,33 @@ int radix40_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		r74	= sc_ptr + 0x4a;		s1p37r = tmp + 0x4a;
 		r76	= sc_ptr + 0x4c;		s1p38r = tmp + 0x4c;
 		r78	= sc_ptr + 0x4e;		s1p39r = tmp + 0x4e;
-	// sc_ptr += 160
-		isrt2 = tmp + 0x50;
-		xcc1 = tmp + 0x51;
-		xcc2 = tmp + 0x52;
-		xss1 = tmp + 0x53;
-		xss2 = tmp + 0x54;
-		xss3 = tmp + 0x55;
-	// sc_ptr += 166
-		tmp += 0x56;
+		tmp += 0x50;	// sc_ptr += 160
+		two   = tmp + 0;	// AVX+ versions of radix-8,16,32 twiddleless-DFT macros need consts [2,1,sqrt2,isrt2] quartet laid out thusly
+		one   = tmp + 1;
+		sqrt2 = tmp + 2;
+		isrt2 = tmp + 3;
+		xcc1 = tmp + 4;
+		xcc2 = tmp + 5;
+		xss1 = tmp + 6;
+		xss2 = tmp + 7;
+		xss3 = tmp + 8;
+		tmp += 0xa;		// sc_ptr += 170
 	#ifdef USE_AVX
-		cy = tmp;		tmp += 0xa;
-	// sc_ptr += 176
+		cy = tmp;		tmp += 0xa;		// sc_ptr += 180
 	#else
-		cy = tmp;		tmp += 0x14;
-	// sc_ptr += 186
+		cy = tmp;		tmp += 0x14;	// sc_ptr += 190
 	#endif
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;
-	// sc_ptr += 178 [AVX] or 188 [SSE2]; This is where the value of half_arr_offset40 comes from
+		sse2_rnd= tmp + 0x01;	// sc_ptr += 180 [AVX] or 190 [SSE2]; This is where the value of half_arr_offset40 comes from
 		half_arr= tmp + 0x02;	/* This table needs 20x16 bytes */
 
 		ASSERT(HERE, (radix40_creals_in_local_store << l2_sz_vd) >= ((long)half_arr - (long)r00) + (20 << l2_sz_vd), "radix40_creals_in_local_store checksum failed!");
 
 		/* These remain fixed: */
-		VEC_DBL_INIT(isrt2, ISRT2);
+		VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );
+		// Alternate "rounded the other way" copies of sqrt2,isrt2:
+		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
+		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
 		VEC_DBL_INIT(xcc1 , cc1  );
 		VEC_DBL_INIT(xcc2 , cc2  );
 		VEC_DBL_INIT(xss1 , s2   );
@@ -476,8 +493,8 @@ int radix40_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		VEC_DBL_INIT(sse2_rnd,crnd);
 
 		// Propagate the above consts to the remaining threads:
-		nbytes = (int)xss3 - (int)isrt2 + sz_vd;	// #bytes in above sincos block of data
-		tmp = isrt2;
+		nbytes = (int)cy - (int)two;	// #bytes in above sincos block of data
+		tmp = two;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
 			memcpy(tm2, tmp, nbytes);
@@ -1361,6 +1378,7 @@ void radix40_dit_pass1(double a[], int n)
 	{
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr;
+		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p01,p02,p03,p04,p05,p06,p07,p08,p16,p24,p32;
 		int poff[RADIX>>2];
@@ -1382,7 +1400,7 @@ void radix40_dit_pass1(double a[], int n)
 	  #if defined(COMPILER_TYPE_MSVC) || !GCC_ASM_FULL_INLINE
 		double *add4, *add5, *add6, *add7;
 	  #endif
-		vec_dbl *isrt2, *xcc1, *xss1, *xcc2, *xss2, *xss3, *max_err, *sse2_rnd, *half_arr
+		vec_dbl *sqrt2,*isrt2,*two,*one, *xcc1, *xss1, *xcc2, *xss2, *xss3, *max_err, *sse2_rnd, *half_arr
 			,*r00,*r02,*r04,*r06,*r08,*r10,*r12,*r14,*r16,*r18,*r20,*r22,*r24,*r26,*r28,*r30,*r32,*r34,*r36,*r38
 			,*r40,*r42,*r44,*r46,*r48,*r50,*r52,*r54,*r56,*r58,*r60,*r62,*r64,*r66,*r68,*r70,*r72,*r74,*r76,*r78
 			,*s1p00r,*s1p01r,*s1p02r,*s1p03r,*s1p04r,*s1p05r,*s1p06r,*s1p07r,*s1p08r,*s1p09r,*s1p10r,*s1p11r,*s1p12r,*s1p13r,*s1p14r,*s1p15r,*s1p16r,*s1p17r,*s1p18r,*s1p19r
@@ -1506,21 +1524,24 @@ void radix40_dit_pass1(double a[], int n)
 		r74	= r00 + 0x4a;		s1p37r = tmp + 0x4a;
 		r76	= r00 + 0x4c;		s1p38r = tmp + 0x4c;
 		r78	= r00 + 0x4e;		s1p39r = tmp + 0x4e;
-
-		isrt2 = tmp + 0x50;
-		xcc1 = tmp + 0x51;
-		xcc2 = tmp + 0x52;
-		xss1 = tmp + 0x53;
-		xss2 = tmp + 0x54;
-		xss3 = tmp + 0x55;
-		tmp += 0x56;
-	  #ifdef USE_AVX
-		cy = tmp;		tmp += 0xa;
-	  #else
-		cy = tmp;		tmp += 0x14;
-	  #endif
+		tmp += 0x50;	// sc_ptr += 160
+		two   = tmp + 0;	// AVX+ versions of radix-8,16,32 twiddleless-DFT macros need consts [2,1,sqrt2,isrt2] quartet laid out thusly
+		one   = tmp + 1;
+		sqrt2 = tmp + 2;
+		isrt2 = tmp + 3;
+		xcc1 = tmp + 4;
+		xcc2 = tmp + 5;
+		xss1 = tmp + 6;
+		xss2 = tmp + 7;
+		xss3 = tmp + 8;
+		tmp += 0xa;		// sc_ptr += 170
+	#ifdef USE_AVX
+		cy = tmp;		tmp += 0xa;		// sc_ptr += 180
+	#else
+		cy = tmp;		tmp += 0x14;	// sc_ptr += 190
+	#endif
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;
+		sse2_rnd= tmp + 0x01;	// sc_ptr += 180 [AVX] or 190 [SSE2]; This is where the value of half_arr_offset40 comes from
 		half_arr= tmp + 0x02;	/* This table needs 20x16 bytes */
 
 		ASSERT(HERE, (r00 == thread_arg->r00), "thread-local memcheck failed!");
@@ -1633,3 +1654,4 @@ void radix40_dit_pass1(double a[], int n)
 #endif
 
 #undef RADIX
+#undef PFETCH_DIST

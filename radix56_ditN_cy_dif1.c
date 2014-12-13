@@ -25,6 +25,14 @@
 #define RADIX 56	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
 #define ODD_RADIX 7	// ODD_RADIX = [radix >> trailz(radix)]
 
+#ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
+  #else
+	#define PFETCH_DIST	32
+  #endif
+#endif
+
 #ifdef MULTITHREAD
 	#ifndef USE_PTHREAD
 		#error Pthreads is only thread model currently supported!
@@ -54,11 +62,11 @@
   // Add larger number in each case - i.e. max(68,224) = 224 if AVX+HIACC, max(68,12) = 68 if AVX+LOACC, 20 if SSE2
   // to (half_arr_offset56 + RADIX) to get required value of radix56_creals_in_local_store:
   #ifdef USE_AVX
-	const int half_arr_offset56 = 268;	// = 0x10c ... + RADIX = 324; Used for thread local-storage-integrity checking
+	const int half_arr_offset56 = 270;	// = 0x10e ... + RADIX = 326; Used for thread local-storage-integrity checking
    #if HIACC
-	const int radix56_creals_in_local_store = 548;	// AVX+HIACC: 324 + 224 and round up to nearest multiple of 8
+	const int radix56_creals_in_local_store = 552;	// AVX+HIACC: 326 + 224 and round up to nearest multiple of 4
    #else
-	const int radix56_creals_in_local_store = 396;	// AVX+LOACC: 324 +  68 and round up to nearest multiple of 8
+	const int radix56_creals_in_local_store = 396;	// AVX+LOACC: 326 +  68 and round up to nearest multiple of 4
    #endif
 	const uint64 radix56_avx_negadwt_consts[RADIX] = {	// 8 entries per line ==> RADIX/8 lines:
 		0x3FF0000000000000ull,0x3FEFFCC70925C367ull,0x3FEFF31CCABE6E4Cull,0x3FEFE303371EABCBull,0x3FEFCC7D8C64135Full,0x3FEFAF9053CDF7E6ull,0x3FEF8C4160D38565ull,0x3FEF6297CFF75CB0ull,
@@ -70,8 +78,8 @@
 		0x3FCC7B90E3024582ull,0x3FC8F8B83C69A60Bull,0x3FC570D80B7C3350ull,0x3FC1E4A65C4D04B5ull,0x3FBCA9B4332D6F61ull,0x3FB58455CFC8625Dull,0x3FACB544024FC940ull,0x3F9CB82865EB9D38ull
 	};
   #else
-	const int half_arr_offset56 = 296;	// = 0x128 ... + RADIX = 352; Used for thread local-storage-integrity checking
-	const int radix56_creals_in_local_store = 372;	// SSE2: 352 + 20 and round up to nearest multiple of 8
+	const int half_arr_offset56 = 298;	// = 0x12a ... + RADIX = 354; Used for thread local-storage-integrity checking
+	const int radix56_creals_in_local_store = 376;	// SSE2: 354 + 20 and round up to nearest multiple of 4
   #endif
 
 #endif
@@ -153,6 +161,7 @@ int radix56_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !   storage scheme, and radix7/8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	const char func[] = "radix56_ditN_cy_dif1";
+	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 #ifdef USE_SSE2
 	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
@@ -188,8 +197,22 @@ int radix56_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	// even though ODD_RADIX has been declared a const:
 	static double foo_array[(ODD_RADIX+1)<<2], *wt_arr, *wtinv_arr, *bs_arr, *bsinv_arr, bs,bsinv;
 
-#if defined(USE_SSE2) || !defined (LO_ADD)
-	/* SSE2 version assumes LO_ADD = 0, i.e. the low-mul Nussbaumer-style DFT implementation: */
+#if !defined(USE_SSE2) && !defined(MULTITHREAD)
+	double t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,t14,t15;	// tmps for scalar-double DFT macros
+#endif
+// AVX2 (i.e. FMA) or (scalar-double) + (LO_ADD = 1 in masterdefs.h) means non-Nussbaumer radix-7, uses these sincos constants:
+#if defined(USE_AVX2) || (!defined(USE_SSE2) && defined(LO_ADD))
+
+	const double	uc1 = .62348980185873353053,	 /* cos(u) = Real part of exp(i*2*pi/7), the radix-7 fundamental sincos datum	*/
+					us1 = .78183148246802980870,	 /* sin(u) = Imag part of exp(i*2*pi/7).	*/
+					uc2 =-.22252093395631440426,	 /* cos(2u)	*/
+					us2 = .97492791218182360702,	 /* sin(2u)	*/
+					uc3 =-.90096886790241912622,	 /* cos(3u)	*/
+					us3 = .43388373911755812050;	 /* sin(3u)	*/
+
+#elif defined(USE_SSE2) || !defined (LO_ADD)	// Low-MUL/high-ADD Nussbaumer radix-7 needs these trig combos:
+
+	// SSE2 version assumes LO_ADD = 0, i.e. the low-mul Nussbaumer-style DFT implementation:
 	const double	cx0 =-0.16666666666666666667,	/* (cc1+cc2+cc3)/3 */
 				 	cx1 = 1.52445866976115265675, 	/*  cc1-cc3		*/
 				 	cx2 = 0.67844793394610472196, 	/*  cc2-cc3		*/
@@ -199,15 +222,8 @@ int radix56_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 				 	sx1 = 1.21571522158558792920, 	/*  ss1+ss3		*/
 				 	sx2 = 1.40881165129938172752, 	/*  ss2+ss3		*/
 				 	sx3 = 0.87484229096165655224;	/* (ss1+ss2+2*ss3)/3	*/
-#elif !defined(MULTITHREAD)
-	double t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,t14,t15;	// tmps for scalar-double DFT macros
-	/* Non-SSE2 version assumes LO_ADD = 1 and uses the corresponding versions of the sincos constants: */
-	const double	uc1 = .62348980185873353053,	 /* cos(u) = Real part of exp(i*2*pi/7), the radix-7 fundamental sincos datum	*/
-					us1 = .78183148246802980870,	 /* sin(u) = Imag part of exp(i*2*pi/7).	*/
-					uc2 =-.22252093395631440426,	 /* cos(2u)	*/
-					us2 = .97492791218182360702,	 /* sin(2u)	*/
-					uc3 =-.90096886790241912622,	 /* cos(3u)	*/
-					us3 = .43388373911755812050;	 /* sin(3u)	*/
+#else
+	#error Unhandled combination of preprocessor flags!	// Just in case I ever 'decide' to leave some holes in the above PP logic tree
 #endif
 	double scale,dtmp, maxerr = 0.0;
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
@@ -252,9 +268,12 @@ int radix56_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7;	/* Addresses into array sections */
   #endif
 
+	// Uint64 bitmaps for alternate "rounded the other way" copies of sqrt2,isrt2. Default round-to-nearest versions
+	// (SQRT2, ISRT2) end in ...3BCD. Since we round these down as ...3BCC90... --> ..3BCC, append _dn to varnames:
+	const uint64 sqrt2_dn = 0x3FF6A09E667F3BCCull, isrt2_dn = 0x3FE6A09E667F3BCCull;
 	static int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
 	const double crnd = 3.0*0x4000000*0x2000000;
-	static vec_dbl *isrt2, *cc0, *ss0, *cc1, *ss1, *cc2, *ss2, *cc3, *ss3, *max_err, *sse2_rnd, *half_arr
+	static vec_dbl *two,*one,*sqrt2,*isrt2, *cc0, *ss0, *cc1, *ss1, *cc2, *ss2, *cc3, *ss3, *max_err, *sse2_rnd, *half_arr
 	,*r00r,*r01r,*r02r,*r03r,*r04r,*r05r,*r06r,*r07r,*r08r,*r09r,*r10r,*r11r,*r12r,*r13r
 	,*r14r,*r15r,*r16r,*r17r,*r18r,*r19r,*r20r,*r21r,*r22r,*r23r,*r24r,*r25r,*r26r,*r27r
 	,*r28r,*r29r,*r30r,*r31r,*r32r,*r33r,*r34r,*r35r,*r36r,*r37r,*r38r,*r39r,*r40r,*r41r
@@ -527,41 +546,55 @@ int radix56_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		s1p25r = tmp + 0x32;	s1p53r = tm2 + 0x32;
 		s1p26r = tmp + 0x34;	s1p54r = tm2 + 0x34;
 		s1p27r = tmp + 0x36;	s1p55r = tm2 + 0x36;
-		tmp += 0x71;	// sc_ptr += 0xe1 [2x +0x38, plut jump of 1 for isrt2]
-		isrt2   = tmp - 0x01;
-		cc0		= tmp + 0x00;
-		ss0		= tmp + 0x01;
-		cc1		= tmp + 0x02;
-		ss1		= tmp + 0x03;
-		cc2		= tmp + 0x04;
-		ss2		= tmp + 0x05;
-		cc3  	= tmp + 0x06;
-		ss3		= tmp + 0x07;	/* Pad with extra 4 slots for scratch storage needed by SSE2_RADIX_07_DFT macro here, plus 1 to make offset even */
-		tmp += 0x08 + 0x5;	// sc_ptr += 0xee
+		tmp += 0x70;	// sc_ptr += 0xe0
+		two     = tmp + 0;	// AVX+ versions of radix-8,16,32 twiddleless-DFT macros need consts [2,1,sqrt2,isrt2] quartet laid out thusly
+		one     = tmp + 1;
+		sqrt2   = tmp + 2;
+		isrt2   = tmp + 3;
+		cc0		= tmp + 4;
+		ss0		= tmp + 5;
+		cc1		= tmp + 6;
+		ss1		= tmp + 7;
+		cc2		= tmp + 8;
+		ss2		= tmp + 9;
+		cc3  	= tmp + 0xa;
+		ss3		= tmp + 0xb;	// Pad with extra 4 slots for scratch storage needed by SSE2_RADIX_07_DFT macro here, plus 1 to make offset even
+		tmp += 0x10;	// sc_ptr += 0xf0
 	  #ifdef USE_AVX
-		cy_r = tmp;	cy_i = tmp+0xe;		tmp += 2*0xe;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays;  +30 = 338
-		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x10c; This is where the value of half_arr_offset56 comes from
+		cy_r = tmp;	cy_i = tmp+0xe;		tmp += 2*0xe;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays;
+		max_err = tmp + 0x00;	// +2 for max_err, sse2_rnd
+		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x10e; This is where the value of half_arr_offset56 comes from
 		half_arr= tmp + 0x02;	/* This table needs 20 vec_dbl for Mersenne-mod, and 3.5*RADIX[avx] | RADIX[sse2] for Fermat-mod */
 	  #else
 		cy_r = tmp;	cy_i = tmp+0x1c;	tmp += 2*0x1c;	// RADIX/2 vec_dbl slots for each of cy_r and cy_i carry sub-arrays; +60 = 368 complex
 		max_err = tmp + 0x00;			// ^^^ sc_ptr += 0x126
-		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x128; This is where the value of half_arr_offset56 comes from
+		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x12a; This is where the value of half_arr_offset56 comes from
 		half_arr= tmp + 0x02;	/* This table needs 20 x 16 bytes for Mersenne-mod, and [4*ODD_RADIX] x 16 for Fermat-mod */
 	  #endif
 
 		/* These remain fixed: */
-		VEC_DBL_INIT( isrt2, ISRT2);
+		VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );
+		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
+		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+	  #ifdef USE_AVX2
+		// AVX2 (i.e. FMA)means non-Nussbaumer radix-7, uses these sincos constants:
+		VEC_DBL_INIT(cc0, uc1  );	VEC_DBL_INIT(ss0, us1);
+		VEC_DBL_INIT(cc1, uc2  );	VEC_DBL_INIT(ss1, us2);
+		VEC_DBL_INIT(cc2, uc3  );	VEC_DBL_INIT(ss2, us3);
+		VEC_DBL_INIT(cc3, 0.0  );	VEC_DBL_INIT(ss3, 0.0);	// Unused in non-Nussbaumer mode
+	  #else
+		/* SSE2 version assumes LO_ADD = 0, i.e. the low-mul Nussbaumer-style DFT implementation: */
 		/* cc0 = (cc1+cc2+cc3)/3 - 1; subtract 1 from Nussbaumer's definition in order to ease in-place computation */
 		VEC_DBL_INIT(cc0, cx0-1);	VEC_DBL_INIT(ss0, sx0);
 		VEC_DBL_INIT(cc1, cx1  );	VEC_DBL_INIT(ss1, sx1);
 		VEC_DBL_INIT(cc2, cx2  );	VEC_DBL_INIT(ss2, sx2);
 		VEC_DBL_INIT(cc3, cx3  );	VEC_DBL_INIT(ss3, sx3);
+	  #endif
 		VEC_DBL_INIT(sse2_rnd, crnd);		/* SSE2 math = 53-mantissa-bit IEEE double-float: */
 
 		// Propagate the above consts to the remaining threads:
-		nbytes = (int)cy_r - (int)isrt2;	// #bytes in 1st of above block of consts
-		tmp = isrt2;
+		nbytes = (int)cy_r - (int)two;	// #bytes in 1st of above block of consts
+		tmp = two;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
 			memcpy(tm2, tmp, nbytes);
@@ -1975,8 +2008,30 @@ void radix56_dit_pass1(double a[], int n)
 	{
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		const char func[] = "radix56_ditN_cy_dif1";
+	  // LO_ADD = 1 in masterdefs.h means non-Nussbaumer radix-7, uses these sincos constants:
+	  #if defined(USE_AVX2) || (!defined(USE_SSE2) && defined(LO_ADD))
+
+		const double	uc1 = .62348980185873353053,	 /* cos(u) = Real part of exp(i*2*pi/7), the radix-7 fundamental sincos datum	*/
+						us1 = .78183148246802980870,	 /* sin(u) = Imag part of exp(i*2*pi/7).	*/
+						uc2 =-.22252093395631440426,	 /* cos(2u)	*/
+						us2 = .97492791218182360702,	 /* sin(2u)	*/
+						uc3 =-.90096886790241912622,	 /* cos(3u)	*/
+						us3 = .43388373911755812050;	 /* sin(3u)	*/
+
+	  #elif defined(USE_SSE2) || !defined (LO_ADD)	// Low-MUL/high-ADD Nussbaumer radix-7 needs these trig combos:
+		const double	cx0 =-0.16666666666666666667,	/* (cc1+cc2+cc3)/3 */
+						cx1 = 1.52445866976115265675, 	/*  cc1-cc3		*/
+						cx2 = 0.67844793394610472196, 	/*  cc2-cc3		*/
+						cx3 = 0.73430220123575245957,	/* (cc1+cc2-2*cc3)/3	*/
+					/* Switch the sign of ss3 in these: */
+						sx0 = 0.44095855184409843174,	/* (ss1+ss2-ss3)/3	*/
+						sx1 = 1.21571522158558792920, 	/*  ss1+ss3		*/
+						sx2 = 1.40881165129938172752, 	/*  ss2+ss3		*/
+						sx3 = 0.87484229096165655224;	/* (ss1+ss2+2*ss3)/3	*/
+	  #endif
 		double *addr,*addi;
 		struct complex *tptr;
+		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p01,p02,p03,p04,p05,p06,p07,p08,p10,p18,p20,p28,p30;
 		int poff[RADIX>>2];
@@ -2003,7 +2058,7 @@ void radix56_dit_pass1(double a[], int n)
 		vec_dbl *tmp,*tm0,*tm1,*tm2;	// utility ptrs
 		int *itmp;			// Pointer into the bjmodn array
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
-		vec_dbl *isrt2, *cc0, *ss0, *cc1, *ss1, *cc2, *ss2, *cc3, *ss3, *max_err, *sse2_rnd, *half_arr
+		vec_dbl *two,*one,*sqrt2,*isrt2, *cc0, *ss0, *cc1, *ss1, *cc2, *ss2, *cc3, *ss3, *max_err, *sse2_rnd, *half_arr
 		,*r00r,*r01r,*r02r,*r03r,*r04r,*r05r,*r06r,*r07r,*r08r,*r09r,*r10r,*r11r,*r12r,*r13r
 		,*r14r,*r15r,*r16r,*r17r,*r18r,*r19r,*r20r,*r21r,*r22r,*r23r,*r24r,*r25r,*r26r,*r27r
 		,*r28r,*r29r,*r30r,*r31r,*r32r,*r33r,*r34r,*r35r,*r36r,*r37r,*r38r,*r39r,*r40r,*r41r
@@ -2025,13 +2080,6 @@ void radix56_dit_pass1(double a[], int n)
 
 	#else
 
-		/* Non-SSE2 version assumes LO_ADD = 1 and uses the corresponding versions of the sincos constants: */
-		const double	uc1 = .62348980185873353053,	 /* cos(u) = Real part of exp(i*2*pi/7), the radix-7 fundamental sincos datum	*/
-						us1 = .78183148246802980870,	 /* sin(u) = Imag part of exp(i*2*pi/7).	*/
-						uc2 =-.22252093395631440426,	 /* cos(2u)	*/
-						us2 = .97492791218182360702,	 /* sin(2u)	*/
-						uc3 =-.90096886790241912622,	 /* cos(3u)	*/
-						us3 = .43388373911755812050;	 /* sin(3u)	*/
 		double *base, *baseinv, *wt_arr, *wtinv_arr, *bs_arr, *bsinv_arr, bs,bsinv;
 		int wts_idx_incr;
 		const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
@@ -2169,31 +2217,42 @@ void radix56_dit_pass1(double a[], int n)
 		s1p25r = tmp + 0x32;	s1p53r = tm2 + 0x32;
 		s1p26r = tmp + 0x34;	s1p54r = tm2 + 0x34;
 		s1p27r = tmp + 0x36;	s1p55r = tm2 + 0x36;
-		tmp += 0x71;	// sc_ptr += 0xe1 [2x +0x38, plut jump of 1 for isrt2]
-		isrt2   = tmp - 0x01;
-		cc0		= tmp + 0x00;
-		ss0		= tmp + 0x01;
-		cc1		= tmp + 0x02;
-		ss1		= tmp + 0x03;
-		cc2		= tmp + 0x04;
-		ss2		= tmp + 0x05;
-		cc3  	= tmp + 0x06;
-		ss3		= tmp + 0x07;	/* Pad with extra 4 slots for scratch storage needed by SSE2_RADIX_07_DFT macro here, plus 1 to make offset even */
-		tmp += 0x08 + 0x5;	// sc_ptr += 0xee
+		tmp += 0x70;	// sc_ptr += 0xe0
+		two     = tmp + 0;	// AVX+ versions of radix-8,16,32 twiddleless-DFT macros need consts [2,1,sqrt2,isrt2] quartet laid out thusly
+		one     = tmp + 1;
+		sqrt2   = tmp + 2;
+		isrt2   = tmp + 3;
+		cc0		= tmp + 4;
+		ss0		= tmp + 5;
+		cc1		= tmp + 6;
+		ss1		= tmp + 7;
+		cc2		= tmp + 8;
+		ss2		= tmp + 9;
+		cc3  	= tmp + 0xa;
+		ss3		= tmp + 0xb;	// Pad with extra 4 slots for scratch storage needed by SSE2_RADIX_07_DFT macro here, plus 1 to make offset even
+		tmp += 0x10;	// sc_ptr += 0xf0
 	  #ifdef USE_AVX
 		cy_r = tmp;	cy_i = tmp+0xe;	tmp += 2*0xe;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x10c; This is where the value of half_arr_offset56 comes from
+		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x10e; This is where the value of half_arr_offset56 comes from
 		half_arr= tmp + 0x02;	/* This table needs 20 vec_dbl for Mersenne-mod, and 3.5*RADIX[avx] | RADIX[sse2] for Fermat-mod */
 
 		base_negacyclic_root = half_arr + RADIX;	// Only used for Fermat-mod
 	  #else
 		cy_r = tmp;	cy_i = tmp+0x1c;	tmp += 2*0x1c;	// RADIX/2 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x128; This is where the value of half_arr_offset56 comes from
+		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x12a; This is where the value of half_arr_offset56 comes from
 		half_arr= tmp + 0x02;	/* This table needs 20 x 16 bytes for Mersenne-mod, and [4*ODD_RADIX] x 16 for Fermat-mod */
 	  #endif
 
+		ASSERT(HERE, (two->d0 == 2.0 && two->d1 == 2.0), "thread-local memcheck failed!");
+	  #ifdef USE_AVX2
+		// AVX2 (i.e. FMA)means non-Nussbaumer radix-7, uses these sincos constants:
+		ASSERT(HERE, (ss3->d0 == 0.0 && ss3->d1 == 0.0), "thread-local memcheck failed!");
+	  #else
+		/* SSE2 version assumes LO_ADD = 0, i.e. the low-mul Nussbaumer-style DFT implementation: */
+		ASSERT(HERE, (ss3->d0 == sx3 && ss3->d1 == sx3), "thread-local memcheck failed!");
+	  #endif
 		ASSERT(HERE, (sse2_rnd->d0 == crnd && sse2_rnd->d1 == crnd), "thread-local memcheck failed!");
 		tmp = half_arr;
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
@@ -2395,4 +2454,4 @@ void radix56_dit_pass1(double a[], int n)
 
 #undef RADIX
 #undef ODD_RADIX
-
+#undef PFETCH_DIST

@@ -23,217 +23,19 @@
 #include "Mlucas.h"
 #include "pair_square.h"
 
+#ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	4096	// This seems to work best on my Haswell
+  #else
+	#define PFETCH_DIST	1024
+  #endif
+#endif
+
 #ifdef USE_SSE2
 
 	#include "sse2_macro.h"
 
-	#if defined(COMPILER_TYPE_MSVC)
-
-		#define PAIR_SQUARE_4_SSE3(__tAr, __tBr, __tCr, __tDr, __c, __s, __forth)\
-		{\
-		/*   calculate cross-product terms...\
-			__rt=__tAr* ~tDr+__tAi* ~tDi; __rt=__rt+__rt;\
-			__it=__tAi* ~tDr-__tAr* ~tDi; __it=__it+__it;\
-		*/\
-			__asm	mov	edx, __tDr\
-			__asm	mov	eax, __tAr\
-			\
-			__asm	movaps	xmm6,[edx     ]	/* tDr */				\
-			__asm	movaps	xmm7,[edx+0x10]	/* tDi */				\
-			__asm	movaps	xmm0,[eax     ]	/* tAr */				/*   now calculate square terms and __store back in the same temporaries:	*/					\
-			__asm	movaps	xmm3,[eax+0x10]	/* tAi */				/*	__tmp=(__tAr+__tAi)*(__tAr-__tAi); __tAi=__tAr*__tAi; __tAi=__tAi+__tAi; __tAr=__tmp;	*/	\
-			__asm	shufpd	xmm6,xmm6,1	/*~tDr */						__asm	movaps	xmm4,xmm0	/* __tAr */	\
-			__asm	shufpd	xmm7,xmm7,1	/*~tDi */						__asm	movaps	xmm5,xmm3	/* __tAi */	\
-			__asm	movaps	xmm2,xmm0	/* cpy tAr */					__asm	subpd	xmm4,xmm5		/* (__tAr-__tAi) */	\
-			__asm	movaps	xmm1,xmm3	/* cpy tAi */					__asm	addpd	xmm5,xmm5		/*      2*__tAi  */	\
-																		__asm	addpd	xmm5,xmm4		/* (__tAr+__tAi) */	\
-			__asm	mulpd	xmm0,xmm6	/* tAr*~tDr */					__asm	mulpd	xmm4,xmm5		/*>__tAr */	\
-			__asm	mulpd	xmm3,xmm7	/* tAi*~tDi */					__asm	movaps	xmm5,xmm2	/* __tAr */	\
-			__asm	mulpd	xmm2,xmm7	/* tAr*~tDi */					__asm	mulpd	xmm5,xmm1	/* __tAr*__tAi */	\
-			__asm	mulpd	xmm1,xmm6	/* tAi*~tDr */					__asm	addpd	xmm5,xmm5		/*>__tAi */	\
-			__asm	addpd	xmm0,xmm3	/* rt */						__asm	movaps	[eax     ],xmm4	/* tmp store >__tAr */	\
-			__asm	subpd	xmm1,xmm2	/* it */						__asm	movaps	[eax+0x10],xmm5	/* tmp store >__tAi */	\
-			__asm	addpd	xmm0,xmm0	/* rt=rt+rt */					__asm	subpd	xmm0,xmm4	/* rt-__tAr */	\
-			__asm	addpd	xmm1,xmm1	/* it=it+it */					__asm	subpd	xmm1,xmm5	/* it-__tAi; xmm2-7 free */	\
-			\
-		/*\
-			__st=__tBr* ~tCr+__tBi* ~tCi; __st=__st+__st;\
-			__jt=__tBi* ~tCr-__tBr* ~tCi; __jt=__jt+__jt;\
-		*/\
-			__asm	mov	ecx, __tCr\
-			__asm	mov	ebx, __tBr\
-			\
-			__asm	movaps	xmm6,[ecx     ]	/* tCr */	\
-			__asm	movaps	xmm7,[ecx+0x10]	/* tCi */	\
-			__asm	movaps	xmm2,[ebx     ]	/* tBr */	\
-			__asm	movaps	xmm5,[ebx+0x10]	/* tBi */	\
-			__asm	shufpd	xmm6,xmm6,1	/*~tCr */	\
-			__asm	shufpd	xmm7,xmm7,1	/*~tCi */	\
-			__asm	movaps	xmm4,[ebx     ]	/* cpy tBr */	\
-			__asm	movaps	xmm3,[ebx+0x10]	/* cpy tBi */	\
-			\
-			__asm	mulpd	xmm2,xmm6	/* tBr*~tCr */	\
-			__asm	mulpd	xmm5,xmm7	/* tBi*~tCi */	\
-			__asm	mulpd	xmm3,xmm6	/* tBi*~tCr */	\
-			__asm	mulpd	xmm4,xmm7	/* tBr*~tCi */	\
-			__asm	addpd	xmm2,xmm5	/* st */	\
-			__asm	subpd	xmm3,xmm4	/* jt */	\
-			__asm	addpd	xmm2,xmm2	/* st=st+st */	\
-			__asm	addpd	xmm3,xmm3	/* jt=jt+jt; xmm4-7 free */	\
-		\
-		\
-		/*	__tmp=(__tBr+__tBi)*(__tBr-__tBi); __tBi=__tBr*__tBi; __tBi=__tBi+__tBi; __tBr=__tmp;	*/	\
-		/*** [Can be done in parallel with above segment] ***/											\
-		\
-			__asm	movaps	xmm6,[ebx     ]	/* __tBr */	\
-			__asm	movaps	xmm7,[ebx+0x10]	/* __tBi */	\
-			__asm	subpd	xmm6,xmm7		/* (__tBr-__tBi) */	\
-			__asm	addpd	xmm7,xmm7		/*      2*__tBi  */	\
-			__asm	addpd	xmm7,xmm6		/* (__tBr+__tBi) */	\
-			__asm	mulpd	xmm6,xmm7		/*>__tBr */	\
-			\
-			__asm	movaps	xmm7,[ebx     ]	/* __tBr */	\
-			__asm	mulpd	xmm7,[ebx+0x10]	/* __tBr*__tBi */	\
-			__asm	addpd	xmm7,xmm7		/*>__tBi */	\
-			__asm	movaps	[ebx     ],xmm6	/* tmp store >__tBr */	\
-			__asm	movaps	[ebx+0x10],xmm7	/* tmp store >__tBi */	\
-			\
-			__asm	subpd	xmm2,xmm6	/* st-__tBr */	\
-			__asm	subpd	xmm3,xmm7	/* jt-__tBi; xmm4-7 free */	\
-		\
-		/*	__tmp=(__tDr+__tDi)*(__tDr-__tDi); __tDi=__tDr*__tDi; __tDi=__tDi+__tDi; __tDr=__tmp;	*/	\
-		\
-			__asm	movaps	xmm4,[edx     ]	/* __tDr */	\
-			__asm	movaps	xmm5,[edx+0x10]	/* __tDi */	\
-			__asm	subpd	xmm4,xmm5		/* (__tDr-__tDi) */	\
-			__asm	addpd	xmm5,xmm5		/*      2*__tDi  */	\
-			__asm	addpd	xmm5,xmm4		/* (__tDr+__tDi) */	\
-			__asm	mulpd	xmm4,xmm5		/*>__tDr */	\
-			\
-			__asm	movaps	xmm5,[edx     ]	/* __tDr */	\
-			__asm	mulpd	xmm5,[edx+0x10]	/* __tDr*__tDi */	\
-			__asm	addpd	xmm5,xmm5		/*>__tDi */	\
-			__asm	movaps	[edx     ],xmm4	/* tmp store ~tDr */	\
-			__asm	movaps	[edx+0x10],xmm5	/* tmp store ~tDi */	\
-			__asm	shufpd	xmm4,xmm4,1	/*~tDr */	\
-			__asm	shufpd	xmm5,xmm5,1	/*~tDi */	\
-			\
-			__asm	subpd	xmm0,xmm4	/* rt-__tAr- ~tDr */	\
-			__asm	addpd	xmm1,xmm5	/* it-__tAi+ ~tDi; xmm4-7 free */	\
-		\
-		/*	__tmp=(__tCr+__tCi)*(__tCr-__tCi); __tCi=__tCr*__tCi; __tCi=__tCi+__tCi; __tCr=__tmp;	*/	\
-		/*** [Can be done in parallel with above segment] ***/											\
-		\
-			__asm	movaps	xmm6,[ecx     ]	/* __tCr */	\
-			__asm	movaps	xmm7,[ecx+0x10]	/* __tCi */	\
-			__asm	subpd	xmm6,xmm7		/* (__tCr-__tCi) */	\
-			__asm	addpd	xmm7,xmm7		/*      2*__tCi  */	\
-			__asm	addpd	xmm7,xmm6		/* (__tCr+__tCi) */	\
-			__asm	mulpd	xmm6,xmm7		/*>__tCr */	\
-			\
-			__asm	movaps	xmm7,[ecx     ]	/* __tCr */	\
-			__asm	mulpd	xmm7,[ecx+0x10]	/* __tCr*__tCi */	\
-			__asm	addpd	xmm7,xmm7		/*>__tCi */	\
-			__asm	movaps	[ecx     ],xmm6	/* tmp store ~tCr */	\
-			__asm	movaps	[ecx+0x10],xmm7	/* tmp store ~tCi */	\
-			__asm	shufpd	xmm6,xmm6,1	/*~tCr */	\
-			__asm	shufpd	xmm7,xmm7,1	/*~tCi */	\
-			\
-			__asm	subpd	xmm2,xmm6	/* st-__tBr- ~tCr */	\
-			__asm	addpd	xmm3,xmm7	/* jt-__tBi+ ~tCi; xmm4-7 free */	\
-		\
-		/*	__tmp=((1.0+__c)*__rt-__s*__it)*0.25;					\
-			__it =((1.0+__c)*__it+__s*__rt)*0.25;	__rt=__tmp;	*/	\
-		/*** [Can be done in parallel with above segment] ***/		\
-		\
-			__asm	mov	eax, __c	\
-			__asm	mov	ebx, __s	\
-			__asm	mov	edx, __forth	\
-			__asm	movaps	xmm4,xmm0	/* cpy rt */	\
-			__asm	movaps	xmm5,xmm1	/* cpy it */	\
-			__asm	mulpd	xmm0,[eax]	/* c*rt */	\
-			__asm	mulpd	xmm1,[eax]	/* c*it */	\
-			__asm	addpd	xmm0,xmm4	/* (c+1.0)*rt */	\
-			__asm	addpd	xmm1,xmm5	/* (c+1.0)*it */	\
-			__asm	mulpd	xmm4,[ebx]	/* s*rt */	\
-			__asm	mulpd	xmm5,[ebx]	/* s*it */	\
-			__asm	subpd	xmm0,xmm5	/* (c+1.0)*rt-s*it */				\
-			__asm	addpd	xmm1,xmm4	/* (c+1.0)*it+s*rt; xmm4,5 free */	\
-			__asm	mulpd	xmm0,[edx]	/* -rt Both of these inherit the sign flip [w.r.to the non-SSE2 PAIR_SQUARE_4 macro] */	\
-			__asm	mulpd	xmm1,[edx]	/* -it that resulted from the in-place-friendlier (rt-__tAr- ~tDr) reordering above. */	\
-		\
-		/*	__tmp=((1.0-__s)*__st-__c*__jt)*0.25;					\
-			__jt =((1.0-__s)*__jt+__c*__st)*0.25	__st=__tmp;	*/	\
-		/*** [Can be done in parallel wjth above segment] ***/		\
-		\
-			__asm	movaps	xmm6,xmm2	/* cpy st */	\
-			__asm	movaps	xmm7,xmm3	/* cpy jt */	\
-			__asm	mulpd	xmm2,[ebx]	/* s*st */	\
-			__asm	mulpd	xmm3,[ebx]	/* s*jt */	\
-			__asm	subpd	xmm2,xmm6	/* (s-1.0)*st, note sign flip! */	\
-			__asm	subpd	xmm3,xmm7	/* (s-1.0)*jt, note sign flip! */	\
-			__asm	mulpd	xmm6,[eax]	/* c*st */	\
-			__asm	mulpd	xmm7,[eax]	/* c*jt */	\
-			__asm	addpd	xmm2,xmm7	/* -[(1.0-s)*st-c*jt] */				\
-			__asm	subpd	xmm3,xmm6	/* -[(1.0-s)*jt+c*st]; xmm6,7 free */	\
-			__asm	mulpd	xmm2,[edx]	/* +st Sign flip due to (s-1.0) reordering here */	\
-			__asm	mulpd	xmm3,[edx]	/* +jt cancels earlier one due to in-place-friendlier (st-__tBr- ~tCr) reordering above. */	\
-		\
-		/*...and now complete and store the results. We flip the signs on st and jt here to undo the above -st,-jt negations. */\
-		/*	__tAr = (__tAr+__rt);	\
-			__tAi = (__tAi+__it);	\
-			__tBr = (__tBr-__st);	\
-			__tBi = (__tBi-__jt); */\
-		\
-			__asm	mov	eax, __tAr	\
-			__asm	mov	ebx, __tBr	\
-			\
-			__asm	movaps	xmm4,[eax     ]	/* __tAr */	\
-			__asm	movaps	xmm5,[eax+0x10]	/* __tAi */	\
-			__asm	movaps	xmm6,[ebx     ]	/* __tBr */	\
-			__asm	movaps	xmm7,[ebx+0x10]	/* __tBi */	\
-			__asm	addpd	xmm4,xmm0		/* (__tAr+__rt) */	\
-			__asm	addpd	xmm5,xmm1		/* (__tAi+__it) */	\
-			__asm	subpd	xmm6,xmm2		/* (__tBr-__st) */	\
-			__asm	subpd	xmm7,xmm3		/* (__tBi-__jt) */	\
-			__asm	movaps	[eax     ],xmm4	/* store >__tAr */	\
-			__asm	movaps	[eax+0x10],xmm5	/* store >__tAi */	\
-			__asm	movaps	[ebx     ],xmm6	/* store >__tBr */	\
-			__asm	movaps	[ebx+0x10],xmm7	/* store >__tBi */	\
-			\
-		/*...N-j terms are as above, but with the replacements: __tAr<--> ~tDr, __tAi<--> ~tDi, __it|-->-__it. */\
-		/*	__tDr = (__tDr+ ~rt);	\
-			__tDi = (__tDi- ~it);	\
-			__tCr = (__tCr- ~st);	\
-			__tCi = (__tCi+ ~jt); */\
-			\
-			__asm	mov	ecx, __tCr	\
-			__asm	mov	edx, __tDr	\
-			\
-			__asm	shufpd	xmm0,xmm0,1		/* ~rt */	\
-			__asm	shufpd	xmm1,xmm1,1		/* ~it */	\
-			__asm	shufpd	xmm2,xmm2,1		/* ~st */	\
-			__asm	shufpd	xmm3,xmm3,1		/* ~jt */	\
-			\
-			__asm	movaps	xmm4,[edx     ]	/* __tDr */	\
-			__asm	movaps	xmm5,[edx+0x10]	/* __tDi */	\
-			__asm	movaps	xmm6,[ecx     ]	/* __tCr */	\
-			__asm	movaps	xmm7,[ecx+0x10]	/* __tCi */	\
-			__asm	addpd	xmm4,xmm0		/* (__tDr+ ~rt) */	\
-			__asm	subpd	xmm5,xmm1		/* (__tDi- ~it) */	\
-			__asm	subpd	xmm6,xmm2		/* (__tCr- ~st) */	\
-			__asm	addpd	xmm7,xmm3		/* (__tCi+ ~jt) */	\
-			__asm	movaps	[edx     ],xmm4	/* store >__tDr */	\
-			__asm	movaps	[edx+0x10],xmm5	/* store >__tDi */	\
-			__asm	movaps	[ecx     ],xmm6	/* store >__tCr */	\
-			__asm	movaps	[ecx+0x10],xmm7	/* store >__tCi */	\
-			\
-			/**************************************************************/\
-			/* Total Cost:  52 MOVapd,  48 ADD/SUBpd, 28 MULpd, 12 SHUFpd */\
-			/******** [~1/4 the cost of a radix-16 DIF or DIT pass] *******/\
-		}
-
-	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)	/* GCC-style inline ASM: */
+	#if defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)	/* GCC-style inline ASM: */
 
 		#if OS_BITS == 32
 
@@ -357,6 +159,7 @@ void radix16_wrapper_square(double a[], int arr_scratch[], int n, int radix0, st
 
 The scratch array (2nd input argument) is only needed for data table initializations, i.e. if first_entry = TRUE.
 */
+	const int pfetch_dist = PFETCH_DIST;
 #ifdef USE_SSE2
 	const int stride = (int)RE_IM_STRIDE << 4;	// main-array loop stride = 32 for sse2, 64 for avx
 #else
@@ -371,6 +174,15 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	int i,j1,j2,j2_start,k,m,blocklen,blocklen_sum;
 	/*int ndivrad0m1;*/
 	const double c = 0.9238795325112867561281831, s = 0.3826834323650897717284599;	/* exp[i*(twopi/16)] */
+#if SYMM == 2	// Use complex-plane symmetries to reduce fraction of rt1 array actually needed
+	const double mult[2] = {1.0,-1.0};
+	static double nh_inv;	// Needed for "which complex quadrant?" computation
+	static int nh;			// #rt1 elts in each quadrant
+	int qodd;
+	struct complex *cptr;
+#elif defined(SYMM)
+	#error Only SYMM = 2 is supported!
+#endif
 	double rt,it,re = 0.0, im= 0.0;
 	double re0,im0,re1,im1;
 	double cA1,cA2,cA3,cA4,cA5,cA6,cA7,cA8,cA9,cA10,cA11,cA12,cA13,cA14,cA15,sA1,sA2,sA3,sA4,sA5,sA6,sA7,sA8,sA9,sA10,sA11,sA12,sA13,sA14,sA15;
@@ -402,18 +214,14 @@ The scratch array (2nd input argument) is only needed for data table initializat
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;					// Base address for discrete per-thread local stores
 	// In || mode, only above base-pointer (shared by all threads) is static:
-	vec_dbl *cc0, *ss0, *isrt2, *forth, *tmp0, *tmp1, *tmp2, *tmp3
+	vec_dbl *cc0, *ss0, *isrt2,*one,*two,*forth, *tmp0, *tmp1, *tmp2, *tmp3
 			,*r1,*r3,*r5,*r7,*r9,*r11,*r13,*r15,*r17,*r19,*r21,*r23,*r25,*r27,*r29,*r31
 			,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15;
   #else
-	static vec_dbl *cc0, *ss0, *isrt2, *forth, *tmp0, *tmp1, *tmp2, *tmp3
-   #ifdef COMPILER_TYPE_GCC	// Same list of ptrs as above, but now make them static:
+	// Same list of ptrs (sans base-address) as above, but now make them static:
+	static vec_dbl *cc0, *ss0, *isrt2,*one,*two,*forth, *tmp0, *tmp1, *tmp2, *tmp3
 			,*r1,*r3,*r5,*r7,*r9,*r11,*r13,*r15,*r17,*r19,*r21,*r23,*r25,*r27,*r29,*r31
 			,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15;
-   #else
-			,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15,*s1,*s2,*s3,*s4,*s5,*s6,*s7,*s8,*s9,*s10,*s11,*s12,*s13,*s14,*s15
-			,*r1,*r2,*r3,*r4,*r5,*r6,*r7,*r8,*r9,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r30,*r31,*r32;
-   #endif
   #endif
 
 #endif
@@ -444,13 +252,19 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		nsave = n;
 		ASSERT(HERE, N2 == n/2, "N2 bad!");
 
+	#if SYMM == 2	// Use complex-plane symmetries to reduce fraction of rt1 array actually needed
+		nh = n/(NRT<<2);	// #rt1 elts in each quadrant
+		nh_inv = 1.0/(double)nh;
+	#endif
+
 	#ifdef USE_SSE2
 
 		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
 		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
 			free((void *)sc_arr);	sc_arr=0x0;
 		}
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 72*max_threads);	ASSERT(HERE, sc_arr != 0,"FATAL: unable to allocate sc_arr!");
+		// Need 0x47 slots for data, plus need to leave room to pad-align:
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x4c*max_threads);	ASSERT(HERE, sc_arr != 0,"FATAL: unable to allocate sc_arr!");
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
@@ -463,19 +277,25 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			isrt2 = sc_ptr + 0x20;
 			cc0   = sc_ptr + 0x21;
 			ss0   = sc_ptr + 0x22;
-			forth = sc_ptr + 0x43;
+			one   = sc_ptr + 0x43;
+			two   = sc_ptr + 0x44;	// PAIR_SQUARE_4_AVX2 assumes two = forth-1
+			forth = sc_ptr + 0x45;
 			for(i = 0; i < max_threads; ++i) {
 				/* These remain fixed within each per-thread local store: */
 				VEC_DBL_INIT(isrt2, ISRT2);
 				VEC_DBL_INIT(cc0  , c	);
 				VEC_DBL_INIT(ss0  , s	);
+				VEC_DBL_INIT(one  , 1.00);
+				VEC_DBL_INIT(two  , 2.00);
 				VEC_DBL_INIT(forth, 0.25);
-				isrt2 += 72;	/* Move on to next thread's local store */
-				cc0   += 72;
-				ss0   += 72;
-				forth += 72;
+				isrt2 += 0x4c;	/* Move on to next thread's local store */
+				cc0   += 0x4c;
+				ss0   += 0x4c;
+				one   += 0x4c;
+				two   += 0x4c;
+				forth += 0x4c;
 			}
-		#elif defined(COMPILER_TYPE_GCC)
+		#else
 			r1  = sc_ptr;			  	cc0	= sc_ptr + 0x21;
 			r3	= sc_ptr + 0x02;		ss0	= sc_ptr + 0x22;
 			r5	= sc_ptr + 0x04;		c8	= sc_ptr + 0x25;	// Insert a pad here to match offsets in radix16_dyadic_square
@@ -493,58 +313,19 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			r29	= sc_ptr + 0x1c;		c11	= sc_ptr + 0x3d;
 			r31	= sc_ptr + 0x1e;		c7	= sc_ptr + 0x3f;
 			isrt2=sc_ptr + 0x20;		c15	= sc_ptr + 0x41;
-										forth=sc_ptr + 0x43;
-										tmp0= sc_ptr + 0x44;
-										tmp1= sc_ptr + 0x45;
-										tmp2= sc_ptr + 0x46;
-										tmp3= sc_ptr + 0x47;
+										one   = sc_ptr + 0x43;
+										two   = sc_ptr + 0x44;	// PAIR_SQUARE_4_AVX2 assumes two = forth-1
+										forth = sc_ptr + 0x45;
+										tmp0 = sc_ptr + 0x23;	/* stick these 2 tmp-ptrs into pad slots between ss0 and c8 above */
+										tmp1 = sc_ptr + 0x24;
+										tmp2 = sc_ptr + 0x46;
+										tmp3 = sc_ptr + 0x47;
 			/* These remain fixed: */
 			VEC_DBL_INIT(isrt2, ISRT2);
 			VEC_DBL_INIT(cc0  , c	);
 			VEC_DBL_INIT(ss0  , s	);
-			VEC_DBL_INIT(forth, 0.25);
-		#else
-			r1	= sc_ptr + 0x00;	  	cc0	= sc_ptr + 0x21;
-			r2	= sc_ptr + 0x01;		ss0	= sc_ptr + 0x22;
-			r3	= sc_ptr + 0x02;		c8	= sc_ptr + 0x25;
-			r4	= sc_ptr + 0x03;		s8	= sc_ptr + 0x26;
-			r5	= sc_ptr + 0x04;		c4	= sc_ptr + 0x27;
-			r6	= sc_ptr + 0x05;		s4	= sc_ptr + 0x28;
-			r7	= sc_ptr + 0x06;		c12	= sc_ptr + 0x29;
-			r8	= sc_ptr + 0x07;		s12	= sc_ptr + 0x2a;
-			r9	= sc_ptr + 0x08;		c2	= sc_ptr + 0x2b;
-			r10	= sc_ptr + 0x09;		s2	= sc_ptr + 0x2c;
-			r11	= sc_ptr + 0x0a;		c10	= sc_ptr + 0x2d;
-			r12	= sc_ptr + 0x0b;		s10	= sc_ptr + 0x2e;
-			r13	= sc_ptr + 0x0c;		c6	= sc_ptr + 0x2f;
-			r14	= sc_ptr + 0x0d;		s6	= sc_ptr + 0x30;
-			r15	= sc_ptr + 0x0e;		c14	= sc_ptr + 0x31;
-			r16	= sc_ptr + 0x0f;		s14	= sc_ptr + 0x32;
-			r17	= sc_ptr + 0x10;		c1	= sc_ptr + 0x33;
-			r18	= sc_ptr + 0x11;		s1	= sc_ptr + 0x34;
-			r19	= sc_ptr + 0x12;		c9	= sc_ptr + 0x35;
-			r20	= sc_ptr + 0x13;		s9	= sc_ptr + 0x36;
-			r21	= sc_ptr + 0x14;		c5	= sc_ptr + 0x37;
-			r22	= sc_ptr + 0x15;		s5	= sc_ptr + 0x38;
-			r23	= sc_ptr + 0x16;		c13	= sc_ptr + 0x39;
-			r24	= sc_ptr + 0x17;		s13	= sc_ptr + 0x3a;
-			r25	= sc_ptr + 0x18;		c3	= sc_ptr + 0x3b;
-			r26	= sc_ptr + 0x19;		s3	= sc_ptr + 0x3c;
-			r27	= sc_ptr + 0x1a;		c11	= sc_ptr + 0x3d;
-			r28	= sc_ptr + 0x1b;		s11	= sc_ptr + 0x3e;
-			r29	= sc_ptr + 0x1c;		c7	= sc_ptr + 0x3f;
-			r30	= sc_ptr + 0x1d;		s7	= sc_ptr + 0x40;
-			r31	= sc_ptr + 0x1e;		c15	= sc_ptr + 0x41;
-			r32	= sc_ptr + 0x1f;		s15	= sc_ptr + 0x42;
-			isrt2=sc_ptr + 0x20;		forth=sc_ptr + 0x43;
-										tmp0= sc_ptr + 0x44;
-										tmp1= sc_ptr + 0x45;
-										tmp2= sc_ptr + 0x46;
-										tmp3= sc_ptr + 0x47;
-			/* These remain fixed: */
-			VEC_DBL_INIT(isrt2, ISRT2);
-			VEC_DBL_INIT(cc0  , c	);
-			VEC_DBL_INIT(ss0  , s	);
+			VEC_DBL_INIT(one  , 1.00);
+			VEC_DBL_INIT(two  , 2.00);
 			VEC_DBL_INIT(forth, 0.25);
 		#endif
 
@@ -691,7 +472,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 #ifdef MULTITHREAD
 	ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
   #ifdef USE_SSE2
-	r1 = __r0 + thr_id*72;	cc0	= r1 + 0x21;
+	r1 = __r0 + thr_id*0x4c;cc0	= r1 + 0x21;
 	r3	= r1 + 0x02;		ss0	= r1 + 0x22;
 	r5	= r1 + 0x04;		c8	= r1 + 0x25;	// Insert a pad here to match offsets in radix16_dyadic_square
 	r7	= r1 + 0x06;		c4	= r1 + 0x27;
@@ -708,11 +489,13 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	r29	= r1 + 0x1c;		c11	= r1 + 0x3d;
 	r31	= r1 + 0x1e;		c7	= r1 + 0x3f;
 	isrt2=r1 + 0x20;		c15	= r1 + 0x41;
-							forth=r1 + 0x43;
-							tmp0= r1 + 0x44;
-							tmp1= r1 + 0x45;
-							tmp2= r1 + 0x46;
-							tmp3= r1 + 0x47;
+							one   = r1 + 0x43;
+							two   = r1 + 0x44;	// PAIR_SQUARE_4_AVX2 assumes two = forth-1
+							forth = r1 + 0x45;
+							tmp0 = r1 + 0x23;	/* stick these 2 tmp-ptrs into pad slots between ss0 and c8 above */
+							tmp1 = r1 + 0x24;
+							tmp2 = r1 + 0x46;
+							tmp3 = r1 + 0x47;
   #endif
 #endif
 	/*...If a new runlength, should not get to this point: */
@@ -1041,9 +824,14 @@ jump_in:	/* Entry point for all blocks but the first. */
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
 		l += iroot;		 /* 2*iroot */
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+	#if SYMM == 2	// Use complex-plane symmetries to reduce fraction of rt1 array actually needed
+		qodd = k2 >= nh;	k2 -= ((-qodd) & nh);	rt = mult[qodd];
+		re1 = rt*rt1[k2].re;im1 = rt*rt1[k2].im;	// Mult = -+1 if root is/is-not in lower half-plane
+	#else
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+	#endif
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x12; s_tmp = c_tmp+1;	// c1,s1
 		c_tmp->d0=rt;	s_tmp->d0=it;
@@ -1056,9 +844,19 @@ jump_in:	/* Entry point for all blocks but the first. */
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
 		l += (iroot << 1);	/* 4*iroot */
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+	#if SYMM == 2
+		if(k2 >= nh) {	// Bizarrely, on x86 this branched version is faster than above branchless
+			cptr = rt1 + k2-nh;
+			re1 = -cptr->re;	im1 = -cptr->im;
+		} else {
+			cptr = rt1 + k2;
+			re1 =  cptr->re;	im1 =  cptr->im;
+		}
+	#else
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+	#endif
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x0a; s_tmp = c_tmp+1;	// c2,s2
 		c_tmp->d0=rt;	s_tmp->d0=it;
@@ -1069,9 +867,19 @@ jump_in:	/* Entry point for all blocks but the first. */
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
 		l += (iroot << 2);	/* 8*iroot */
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+	#if SYMM == 2
+		if(k2 >= nh) {
+			cptr = rt1 + k2-nh;
+			re1 = -cptr->re;	im1 = -cptr->im;
+		} else {
+			cptr = rt1 + k2;
+			re1 =  cptr->re;	im1 =  cptr->im;
+		}
+	#else
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+	#endif
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x06; s_tmp = c_tmp+1;	// c4,s4
 		c_tmp->d0=rt;	s_tmp->d0=it;
@@ -1082,9 +890,19 @@ jump_in:	/* Entry point for all blocks but the first. */
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
 		l += (iroot << 2) + iroot;	/* 13*iroot */
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+	#if SYMM == 2
+		if(k2 >= nh) {
+			cptr = rt1 + k2-nh;
+			re1 = -cptr->re;	im1 = -cptr->im;
+		} else {
+			cptr = rt1 + k2;
+			re1 =  cptr->re;	im1 =  cptr->im;
+		}
+	#else
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+	#endif
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x04; s_tmp = c_tmp+1;	// c8,s8
 		c_tmp->d0=rt;	s_tmp->d0=it;
@@ -1094,9 +912,19 @@ jump_in:	/* Entry point for all blocks but the first. */
 
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+	#if SYMM == 2
+		if(k2 >= nh) {
+			cptr = rt1 + k2-nh;
+			re1 = -cptr->re;	im1 = -cptr->im;
+		} else {
+			cptr = rt1 + k2;
+			re1 =  cptr->re;	im1 =  cptr->im;
+		}
+	#else
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+	#endif
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x18; s_tmp = c_tmp+1;	// c13,s13
 		c_tmp->d0=rt;	s_tmp->d0=it;
@@ -1130,9 +958,19 @@ jump_in:	/* Entry point for all blocks but the first. */
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
 		l += iroot;		 /* 2*iroot */
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+	#if SYMM == 2
+		if(k2 >= nh) {
+			cptr = rt1 + k2-nh;
+			re1 = -cptr->re;	im1 = -cptr->im;
+		} else {
+			cptr = rt1 + k2;
+			re1 =  cptr->re;	im1 =  cptr->im;
+		}
+	#else
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+	#endif
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x12; s_tmp = c_tmp+1;	// c1,s1
 		c_tmp->d1=rt;	s_tmp->d1=it;
@@ -1145,9 +983,19 @@ jump_in:	/* Entry point for all blocks but the first. */
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
 		l += (iroot << 1);	/* 4*iroot */
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+	#if SYMM == 2
+		if(k2 >= nh) {
+			cptr = rt1 + k2-nh;
+			re1 = -cptr->re;	im1 = -cptr->im;
+		} else {
+			cptr = rt1 + k2;
+			re1 =  cptr->re;	im1 =  cptr->im;
+		}
+	#else
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+	#endif
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x0a; s_tmp = c_tmp+1;	// c2,s2
 		c_tmp->d1=rt;	s_tmp->d1=it;
@@ -1158,9 +1006,19 @@ jump_in:	/* Entry point for all blocks but the first. */
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
 		l += (iroot << 2);	/* 8*iroot */
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+	#if SYMM == 2
+		if(k2 >= nh) {
+			cptr = rt1 + k2-nh;
+			re1 = -cptr->re;	im1 = -cptr->im;
+		} else {
+			cptr = rt1 + k2;
+			re1 =  cptr->re;	im1 =  cptr->im;
+		}
+	#else
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+	#endif
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x06; s_tmp = c_tmp+1;	// c4,s4
 		c_tmp->d1=rt;	s_tmp->d1=it;
@@ -1171,9 +1029,19 @@ jump_in:	/* Entry point for all blocks but the first. */
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
 		l += (iroot << 2) + iroot;	/* 13*iroot */
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+	#if SYMM == 2
+		if(k2 >= nh) {
+			cptr = rt1 + k2-nh;
+			re1 = -cptr->re;	im1 = -cptr->im;
+		} else {
+			cptr = rt1 + k2;
+			re1 =  cptr->re;	im1 =  cptr->im;
+		}
+	#else
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+	#endif
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x04; s_tmp = c_tmp+1;	// c8,s8
 		c_tmp->d1=rt;	s_tmp->d1=it;
@@ -1183,9 +1051,19 @@ jump_in:	/* Entry point for all blocks but the first. */
 
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+	#if SYMM == 2
+		if(k2 >= nh) {
+			cptr = rt1 + k2-nh;
+			re1 = -cptr->re;	im1 = -cptr->im;
+		} else {
+			cptr = rt1 + k2;
+			re1 =  cptr->re;	im1 =  cptr->im;
+		}
+	#else
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+	#endif
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
 	#ifdef USE_SSE2
 		c_tmp = cc0 + 0x18; s_tmp = c_tmp+1;	// c13,s13
 		c_tmp->d1=rt;	s_tmp->d1=it;
@@ -1222,44 +1100,94 @@ jump_in:	/* Entry point for all blocks but the first. */
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
 		l += iroot;		 /* 2*iroot */
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+	#if SYMM == 2
+		if(k2 >= nh) {
+			cptr = rt1 + k2-nh;
+			re1 = -cptr->re;	im1 = -cptr->im;
+		} else {
+			cptr = rt1 + k2;
+			re1 =  cptr->re;	im1 =  cptr->im;
+		}
+	#else
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+	#endif
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
 		c_tmp = cc0 + 0x12; s_tmp = c_tmp+1;	// c1,s1
 		c_tmp->d2=rt;	s_tmp->d2=it;
 
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
 		l += (iroot << 1);	/* 4*iroot */
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+	#if SYMM == 2
+		if(k2 >= nh) {
+			cptr = rt1 + k2-nh;
+			re1 = -cptr->re;	im1 = -cptr->im;
+		} else {
+			cptr = rt1 + k2;
+			re1 =  cptr->re;	im1 =  cptr->im;
+		}
+	#else
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+	#endif
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
 		c_tmp = cc0 + 0x0a; s_tmp = c_tmp+1;	// c2,s2
 		c_tmp->d2=rt;	s_tmp->d2=it;
 
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
 		l += (iroot << 2);	/* 8*iroot */
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+	#if SYMM == 2
+		if(k2 >= nh) {
+			cptr = rt1 + k2-nh;
+			re1 = -cptr->re;	im1 = -cptr->im;
+		} else {
+			cptr = rt1 + k2;
+			re1 =  cptr->re;	im1 =  cptr->im;
+		}
+	#else
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+	#endif
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
 		c_tmp = cc0 + 0x06; s_tmp = c_tmp+1;	// c4,s4
 		c_tmp->d2=rt;	s_tmp->d2=it;
 
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
 		l += (iroot << 2) + iroot;	/* 13*iroot */
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+	#if SYMM == 2
+		if(k2 >= nh) {
+			cptr = rt1 + k2-nh;
+			re1 = -cptr->re;	im1 = -cptr->im;
+		} else {
+			cptr = rt1 + k2;
+			re1 =  cptr->re;	im1 =  cptr->im;
+		}
+	#else
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+	#endif
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
 		c_tmp = cc0 + 0x04; s_tmp = c_tmp+1;	// c8,s8
 		c_tmp->d2=rt;	s_tmp->d2=it;
 
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+	#if SYMM == 2
+		if(k2 >= nh) {
+			cptr = rt1 + k2-nh;
+			re1 = -cptr->re;	im1 = -cptr->im;
+		} else {
+			cptr = rt1 + k2;
+			re1 =  cptr->re;	im1 =  cptr->im;
+		}
+	#else
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+	#endif
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
 		c_tmp = cc0 + 0x18; s_tmp = c_tmp+1;	// c13,s13
 		c_tmp->d2=rt;	s_tmp->d2=it;
 
@@ -1272,44 +1200,94 @@ jump_in:	/* Entry point for all blocks but the first. */
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
 		l += iroot;		 /* 2*iroot */
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+	#if SYMM == 2
+		if(k2 >= nh) {
+			cptr = rt1 + k2-nh;
+			re1 = -cptr->re;	im1 = -cptr->im;
+		} else {
+			cptr = rt1 + k2;
+			re1 =  cptr->re;	im1 =  cptr->im;
+		}
+	#else
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+	#endif
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
 		c_tmp = cc0 + 0x12; s_tmp = c_tmp+1;	// c1,s1
 		c_tmp->d3=rt;	s_tmp->d3=it;
 
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
 		l += (iroot << 1);	/* 4*iroot */
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+	#if SYMM == 2
+		if(k2 >= nh) {
+			cptr = rt1 + k2-nh;
+			re1 = -cptr->re;	im1 = -cptr->im;
+		} else {
+			cptr = rt1 + k2;
+			re1 =  cptr->re;	im1 =  cptr->im;
+		}
+	#else
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+	#endif
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
 		c_tmp = cc0 + 0x0a; s_tmp = c_tmp+1;	// c2,s2
 		c_tmp->d3=rt;	s_tmp->d3=it;
 
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
 		l += (iroot << 2);	/* 8*iroot */
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+	#if SYMM == 2
+		if(k2 >= nh) {
+			cptr = rt1 + k2-nh;
+			re1 = -cptr->re;	im1 = -cptr->im;
+		} else {
+			cptr = rt1 + k2;
+			re1 =  cptr->re;	im1 =  cptr->im;
+		}
+	#else
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+	#endif
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
 		c_tmp = cc0 + 0x06; s_tmp = c_tmp+1;	// c4,s4
 		c_tmp->d3=rt;	s_tmp->d3=it;
 
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
 		l += (iroot << 2) + iroot;	/* 13*iroot */
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+	#if SYMM == 2
+		if(k2 >= nh) {
+			cptr = rt1 + k2-nh;
+			re1 = -cptr->re;	im1 = -cptr->im;
+		} else {
+			cptr = rt1 + k2;
+			re1 =  cptr->re;	im1 =  cptr->im;
+		}
+	#else
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+	#endif
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
 		c_tmp = cc0 + 0x04; s_tmp = c_tmp+1;	// c8,s8
 		c_tmp->d3=rt;	s_tmp->d3=it;
 
 		k1=(l & NRTM1);
 		k2=(l >> NRT_BITS);
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+	#if SYMM == 2
+		if(k2 >= nh) {
+			cptr = rt1 + k2-nh;
+			re1 = -cptr->re;	im1 = -cptr->im;
+		} else {
+			cptr = rt1 + k2;
+			re1 =  cptr->re;	im1 =  cptr->im;
+		}
+	#else
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+	#endif
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
 		c_tmp = cc0 + 0x18; s_tmp = c_tmp+1;	// c13,s13
 		c_tmp->d3=rt;	s_tmp->d3=it;
 	  }	// endif(j1 > 64)
@@ -1375,14 +1353,7 @@ jump_in:	/* Entry point for all blocks but the first. */
 		cB14 = c14->d1;	sB14 = (c14+1)->d1;
 		cB15 = c15->d1;	sB15 = (c15+1)->d1;
 	if(j1 == 0){ re= cB1;	im= sB1; }   /* The j1 = 0 case is special... */
-/*
-	fprintf(stderr,"j1 = %u: Using scalar-mode code, sum[cA,sA,cB,sB] = %20.10e %20.10e %20.10e %20.10e\n",j1,
-		cA1+cA2+cA3+cA4+cA5+cA6+cA7+cA8+cA9+cA10+cA11+cA12+cA13+cA14+cA15,
-		sA1+sA2+sA3+sA4+sA5+sA6+sA7+sA8+sA9+sA10+sA11+sA12+sA13+sA14+sA15,
-		cB1+cB2+cB3+cB4+cB5+cB6+cB7+cB8+cB9+cB10+cB11+cB12+cB13+cB14+cB15,
-		sB1+sB2+sB3+sB4+sB5+sB6+sB7+sB8+sB9+sB10+sB11+sB12+sB13+sB14+sB15
-	);
-*/
+
 	#endif
 
 	/*************************************************************/
@@ -2848,7 +2819,7 @@ addr += 4;
 
 	  #ifdef USE_AVX	// process 4 main-array blocks of 8 vec_dbl = 8 x 4 = 32 doubles each in AVX mode:
 
-		SSE2_RADIX16_WRAPPER_DIF(add0,add1,add2,add3,r1,r9,r17,r25,isrt2,cc0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15)
+		SSE2_RADIX16_WRAPPER_DIF(add0,add1,add2,add3,r1,r9,r17,r25,isrt2,cc0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,pfetch_dist)
 
 	  #else	// SSE2:
 
@@ -2895,14 +2866,7 @@ addr += 4;
 
 		tmp2->d0 = t1;		tmp3->d0 = t2;
 		tmp2->d1 = t4;		tmp3->d1 = t3;
-/*
-	fprintf(dbg_file, "PAIR_SQUARE_4_SSE2 consts for j1 = %d:\n",j1);
-	fprintf(dbg_file, "re,im = %20.10e,%20.10e\n",re,im);
-	fprintf(dbg_file, "tmp0 = %20.10e,%20.10e\n",tmp0->d0,tmp0->d1);
-	fprintf(dbg_file, "tmp1 = %20.10e,%20.10e\n",tmp1->d0,tmp1->d1);
-	fprintf(dbg_file, "tmp2 = %20.10e,%20.10e\n",tmp2->d0,tmp2->d1);
-	fprintf(dbg_file, "tmp3 = %20.10e,%20.10e\n",tmp3->d0,tmp3->d1);
-*/
+
 	#ifdef USE_AVX
 
 		re = c1->d2;		im = (c1+1)->d2;
@@ -2917,18 +2881,16 @@ addr += 4;
 
 		tmp2->d2 = t1;		tmp3->d2 = t2;
 		tmp2->d3 = t4;		tmp3->d3 = t3;
-/*
-	fprintf(dbg_file, "PAIR_SQUARE_4_SSE2 consts for j1 = %d:\n",j1+32);
-	fprintf(dbg_file, "re,im = %20.10e,%20.10e\n",c1->d2,(c1+1)->d2);
-	fprintf(dbg_file, "tmp0 = %20.10e,%20.10e\n",tmp0->d2,tmp0->d3);
-	fprintf(dbg_file, "tmp1 = %20.10e,%20.10e\n",tmp1->d2,tmp1->d3);
-	fprintf(dbg_file, "tmp2 = %20.10e,%20.10e\n",tmp2->d2,tmp2->d3);
-	fprintf(dbg_file, "tmp3 = %20.10e,%20.10e\n",tmp3->d2,tmp3->d3);
-*/
+
 	#endif
 
+	#ifdef USE_AVX2
+		PAIR_SQUARE_4_AVX2(	r1, r9,r23,r31, tmp0,tmp1,
+							r5,r13,r19,r27, tmp2,tmp3,forth);
+	#else
 		PAIR_SQUARE_4_SSE2( r1, r9,r23,r31, tmp0,tmp1,forth);
 		PAIR_SQUARE_4_SSE2( r5,r13,r19,r27, tmp2,tmp3,forth);
+	#endif
 
 	#if defined(COMPILER_TYPE_MSVC)
 
@@ -3037,8 +2999,13 @@ addr += 4;
 
 	#endif
 
+	#ifdef USE_AVX2
+		PAIR_SQUARE_4_AVX2(	r3,r11,r21,r29, tmp3,tmp2,
+							r7,r15,r17,r25, tmp1,tmp0,forth);
+	#else
 		PAIR_SQUARE_4_SSE2( r3,r11,r21,r29, tmp3,tmp2,forth);
 		PAIR_SQUARE_4_SSE2( r7,r15,r17,r25, tmp1,tmp0,forth);
+	#endif
 
 		/******** NB: The cost of each PAIR_SQUARE_4 call costs ~1/4 the cost of a single radix-16 DIF or DIT pass,
 		          so this entire sequence costs ~= 1 radix-16 pass, thus the entire function costs ~3 radix-16 passes.
@@ -3635,7 +3602,7 @@ addr += 4;
 
 	  #ifdef USE_AVX
 
-		SSE2_RADIX16_WRAPPER_DIT(add0,add1,add2,add3,r1,r9,r17,r25,isrt2,cc0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15)
+		SSE2_RADIX16_WRAPPER_DIT(add0,add1,add2,add3,r1,r9,r17,r25,isrt2,cc0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,pfetch_dist)
 
 	  #else	// SSE2:
 
@@ -3739,3 +3706,4 @@ update_blocklen:
 
 }
 
+#undef PFETCH_DIST

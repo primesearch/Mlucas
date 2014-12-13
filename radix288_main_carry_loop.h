@@ -42,6 +42,50 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		}
 	//...and now do 32 radix-9 transforms, with the columns of t*[r,i] output pairs in the above 9x radix-32 set now acting as input rows.
 		tmp = r00;
+	  #ifdef USE_AVX2
+		for(l = 0; l < 32; l += 2) {
+			int kk = dit_p20_lo_offset[l];
+			// Extract index (in [0-8]) into circ-shift array used for high parts of p-mults. The [0-8] value is
+			// in low 4 bits of kk; the "which length-17 half of the dit_p20_cperms array?" selector is via (kk < 0):
+			int ic = ((-(kk < 0)) & 17)	// +/- sign on kk puts us into lower/upper half of the cshift array (base index 0/17)
+						+ (kk & 0xf);	// ...and low 4 bits give the element index w.r.to the array-half in question.
+			int k0 = dit_p20_cperms[ic], k1 = dit_p20_cperms[ic+1], k2 = dit_p20_cperms[ic+2], k3 = dit_p20_cperms[ic+3], k4 = dit_p20_cperms[ic+4], k5 = dit_p20_cperms[ic+5], k6 = dit_p20_cperms[ic+6], k7 = dit_p20_cperms[ic+7], k8 = dit_p20_cperms[ic+8];
+			// Extract Low part, i.e. (mod p20) of the p-index offsets in the above circ-perm-indexing scheme for the radix-9 DFTs:
+			kk = (kk & 0x7fffffff) >> 4;	tm1 = s1p00 + kk;
+			// I-ptrs are regular-stride offsets of r00; O-ptrs are offset w.r.to s1p00:
+			va0 = tmp;						vb0 = tm1 + k0;
+			va1 = tmp + 0x40;				vb1 = tm1 + k1;
+			va2 = tmp + 0x80;				vb2 = tm1 + k2;
+			va3 = tmp + 0xc0;				vb3 = tm1 + k3;
+			va4 = tmp + 0x100;				vb4 = tm1 + k4;
+			va5 = tmp + 0x140;				vb5 = tm1 + k5;
+			va6 = tmp + 0x180;				vb6 = tm1 + k6;
+			va7 = tmp + 0x1c0;				vb7 = tm1 + k7;
+			va8 = tmp + 0x200;				vb8 = tm1 + k8;
+
+		// 2nd set of data:
+			kk = dit_p20_lo_offset[l+1];
+			ic = ((-(kk < 0)) & 17)	+ (kk & 0xf);
+			k0 = dit_p20_cperms[ic], k1 = dit_p20_cperms[ic+1], k2 = dit_p20_cperms[ic+2], k3 = dit_p20_cperms[ic+3], k4 = dit_p20_cperms[ic+4], k5 = dit_p20_cperms[ic+5], k6 = dit_p20_cperms[ic+6], k7 = dit_p20_cperms[ic+7], k8 = dit_p20_cperms[ic+8];
+			kk = (kk & 0x7fffffff) >> 4;	tm1 = s1p00 + kk;
+			rad9_iptr[0] = tmp + 2;			rad9_optr[0] = tm1 + k0;
+			rad9_iptr[1] = tmp + 0x42;		rad9_optr[1] = tm1 + k1;
+			rad9_iptr[2] = tmp + 0x82;		rad9_optr[2] = tm1 + k2;
+			rad9_iptr[3] = tmp + 0xc2;		rad9_optr[3] = tm1 + k3;
+			rad9_iptr[4] = tmp + 0x102;		rad9_optr[4] = tm1 + k4;
+			rad9_iptr[5] = tmp + 0x142;		rad9_optr[5] = tm1 + k5;
+			rad9_iptr[6] = tmp + 0x182;		rad9_optr[6] = tm1 + k6;
+			rad9_iptr[7] = tmp + 0x1c2;		rad9_optr[7] = tm1 + k7;
+			rad9_iptr[8] = tmp + 0x202;		rad9_optr[8] = tm1 + k8;
+
+			// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
+			tm1 = rad9_iptr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
+			tm2 = rad9_optr;
+			SSE2_RADIX_09_DIT_X2(va0,va1,va2,va3,va4,va5,va6,va7,va8, ycc1, vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8,
+				tm1,tm2
+			);	tmp += 4;
+		}
+	  #else
 		for(l = 0; l < 32; l++) {
 			int kk = dit_p20_lo_offset[l];
 			// Extract index (in [0-8]) into circ-shift array used for high parts of p-mults. The [0-8] value is
@@ -68,6 +112,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8
 			);	tmp += 2;
 		}
+	  #endif
 
 	#else	// USE_SSE2 = False:
 
@@ -132,10 +177,14 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	/* In AVX mode advance carry-ptrs just 1 for each vector-carry-macro call: */
 		tm1 = s1p00; tmp = cy; itmp = bjmodn;
-		AVX_cmplx_carry_norm_errcheck0_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+		// Each AVX carry macro call also processes 4 prefetches of main-array data
+		tm2 = a + j1 + pfetch_dist;
+		AVX_cmplx_carry_norm_errcheck0_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tm2,p1,p2,p3);
 		tm1 += 8; tmp += 1; itmp += 4;
 		for(l = 1; l < RADIX>>2; l++) {
-			AVX_cmplx_carry_norm_errcheck1_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);
+			// Each AVX carry macro call also processes 4 prefetches of main-array data
+			tm2 = a + j1 + pfetch_dist + poff[l];
+			AVX_cmplx_carry_norm_errcheck1_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tm2,p1,p2,p3);
 			tm1 += 8; tmp += 1; itmp += 4;
 		}
 
@@ -168,9 +217,14 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		add3 = &wt1[co3-1];
 
 		tm1 = s1p00; tmp = cy; tm2 = cy+0x01; itmp = bjmodn;
-		SSE2_cmplx_carry_norm_errcheck0_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+		// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+		add0 = a + j1 + pfetch_dist;
+		SSE2_cmplx_carry_norm_errcheck0_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p1);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		for(l = 1; l < RADIX>>2; l++) {
-			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p1);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
 		l= (j+2) & (nwt-1);			/* We want (S*J mod N) - SI(L) for all 16 carries, so precompute	*/
@@ -200,7 +254,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		tm1 = s1p00; tmp = cy; tm2 = cy+0x01; itmp = bjmodn;
 		for(l = 0; l < RADIX>>2; l++) {
-			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p2,p3);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
 		i =((uint32)(sw - bjmodn[0]) >> 31);	/* get ready for the next set...	*/
@@ -218,7 +275,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		wtlp1   =wt0[    l+1];
 		wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
-		/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */		
+		/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */
 		l = 0; addr = cy; itmp = bjmodn;
 	   cmplx_carry_norm_errcheck0(a[j1   ],a[j2   ],*addr,*itmp  ); ++l; ++addr; ++itmp;
 		cmplx_carry_norm_errcheck(a[j1+p1],a[j2+p1],*addr,*itmp,l); ++l; ++addr; ++itmp;
@@ -244,6 +301,52 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	#ifdef USE_SSE2
 
 	//...gather the needed data (288 64-bit complex) and do 32 radix-9 transforms:
+	  #ifdef USE_AVX2
+		tmp = r00;
+		for(l = 0; l < 32; l += 2) {
+			// Input pointers are into s1p** memblock:
+			int kk = dif_p20_lo_offset[l];
+			// Extract index (in [0-8]) into circ-shift array used for high parts of p-mults. The [0-8] value is
+			// in low 4 bits of kk; the "which length-17 half of the dif_p20_cperms array?" selector is via (kk < 0):
+			int ic = ((-(kk < 0)) & 17)	// +/- sign on ll puts us into lower/upper half of the cshift array (base index 0/17)
+						+ (kk & 0xf);	// ...and low 4 bits give the element index w.r.to the array-half in question.
+			int k0 = dif_p20_cperms[ic], k1 = dif_p20_cperms[ic+1], k2 = dif_p20_cperms[ic+2], k3 = dif_p20_cperms[ic+3], k4 = dif_p20_cperms[ic+4], k5 = dif_p20_cperms[ic+5], k6 = dif_p20_cperms[ic+6], k7 = dif_p20_cperms[ic+7], k8 = dif_p20_cperms[ic+8];
+			// Extract Low part, i.e. (mod p20) of the p-index offsets in the above circ-perm-indexing scheme for the radix-9 DFTs:
+			kk = (kk & 0x7fffffff) >> 4;	tm1 = s1p00 + kk;
+			// O-ptrs are regular-stride offsets of r00; I-ptrs are offset w.r.to s1p00:
+			va0 = tmp;						vb0 = tm1 + k0;
+			va1 = tmp + 0x40;				vb1 = tm1 + k1;
+			va2 = tmp + 0x80;				vb2 = tm1 + k2;
+			va3 = tmp + 0xc0;				vb3 = tm1 + k3;
+			va4 = tmp + 0x100;				vb4 = tm1 + k4;
+			va5 = tmp + 0x140;				vb5 = tm1 + k5;
+			va6 = tmp + 0x180;				vb6 = tm1 + k6;
+			va7 = tmp + 0x1c0;				vb7 = tm1 + k7;
+			va8 = tmp + 0x200;				vb8 = tm1 + k8;
+
+		// 2nd set of data:
+			kk = dif_p20_lo_offset[l+1];
+			ic = ((-(kk < 0)) & 17)	+ (kk & 0xf);
+			k0 = dif_p20_cperms[ic], k1 = dif_p20_cperms[ic+1], k2 = dif_p20_cperms[ic+2], k3 = dif_p20_cperms[ic+3], k4 = dif_p20_cperms[ic+4], k5 = dif_p20_cperms[ic+5], k6 = dif_p20_cperms[ic+6], k7 = dif_p20_cperms[ic+7], k8 = dif_p20_cperms[ic+8];
+			kk = (kk & 0x7fffffff) >> 4;	tm1 = s1p00 + kk;
+			rad9_optr[0] = tmp + 2;			rad9_iptr[0] = tm1 + k0;
+			rad9_optr[1] = tmp + 0x42;		rad9_iptr[1] = tm1 + k1;
+			rad9_optr[2] = tmp + 0x82;		rad9_iptr[2] = tm1 + k2;
+			rad9_optr[3] = tmp + 0xc2;		rad9_iptr[3] = tm1 + k3;
+			rad9_optr[4] = tmp + 0x102;		rad9_iptr[4] = tm1 + k4;
+			rad9_optr[5] = tmp + 0x142;		rad9_iptr[5] = tm1 + k5;
+			rad9_optr[6] = tmp + 0x182;		rad9_iptr[6] = tm1 + k6;
+			rad9_optr[7] = tmp + 0x1c2;		rad9_iptr[7] = tm1 + k7;
+			rad9_optr[8] = tmp + 0x202;		rad9_iptr[8] = tm1 + k8;
+
+			// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
+			tm0 = rad9_iptr;	// Can't use tm1 here since use that for s1p00 offsets in loop body
+			tm2 = rad9_optr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
+			SSE2_RADIX_09_DIF_X2(vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8, ycc1, va0,va1,va2,va3,va4,va5,va6,va7,va8,
+				tm0,tm2
+			);	tmp += 4;
+		}
+	  #else
 		tmp = r00;
 		for(l = 0; l < 32; l++) {
 			// Input pointers are into s1p** memblock:
@@ -272,6 +375,8 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				va0,va1,va2,va3,va4,va5,va6,va7,va8
 			);	tmp += 2;
 		}
+	  #endif
+
 	//...and now do 9 radix-32 transforms:
 		tmp = r00;
 		for(l = 0; l < ODD_RADIX; l++) {

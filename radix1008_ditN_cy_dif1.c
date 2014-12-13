@@ -26,6 +26,14 @@
 #define RADIX 1008	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
 #define ODD_RADIX 63	// ODD_RADIX = [radix >> trailz(radix)]
 
+#ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
+  #else
+	#define PFETCH_DIST	32
+  #endif
+#endif
+
 #ifdef MULTITHREAD
 	#ifndef USE_PTHREAD
 		#error Pthreads is only thread model currently supported!
@@ -150,6 +158,7 @@ int radix1008_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 */
 	const char func[] = "radix1008_ditN_cy_dif1";
 	static int thr_id = 0;	// Master thread gets this special id
+	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 #ifdef USE_SSE2
 	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
@@ -289,7 +298,7 @@ int radix1008_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 	vec_dbl
 		*tmp,*tm0,*tm1,*tm2;	// Non-static utility ptrs
 	static vec_dbl *max_err, *sse2_rnd, *half_arr,
-		*isrt2,*cc0,*ss0,	// radix-16 DFT roots
+		*two,*isrt2,*cc0,*ss0,	// radix-16 DFT roots
 		*r00,	// Head of RADIX*vec_cmplx-sized local store #1
 		*s1p00,	// Head of RADIX*vec_cmplx-sized local store #2
 		*cy_r,*cy_i;	// Need RADIX total vec_dbl slots for sse2 carries, RADIX/2 for avx
@@ -496,10 +505,11 @@ int radix1008_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 		tmp += 0x7e0;	s1p00 = tmp;	// Head of RADIX*vec_cmplx-sized local store #2
 		tmp += 0x7e0;
 		// Roots for radix-16 DFTs:
-		isrt2  = tmp + 0x0;
-		cc0    = tmp + 0x1;
-		ss0    = tmp + 0x2;
-		tmp += 0x4;	// sc_ptr += 0xfc4, added extra pad slot to make offset even
+		two    = tmp + 0x0;
+		isrt2  = tmp + 0x1;
+		cc0    = tmp + 0x2;
+		ss0    = tmp + 0x3;
+		tmp += 0x4;	// sc_ptr += 0xfc4
 	  #ifdef USE_AVX
 		cy_r = tmp;	cy_i = tmp+0x0fc;	tmp += 0x1f8;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
@@ -522,6 +532,7 @@ int radix1008_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 		ASSERT(HERE, (radix1008_creals_in_local_store << l2_sz_vd) >= ((long)half_arr - (long)r00) + (j << l2_sz_vd), "radix1008_creals_in_local_store checksum failed!");
 
 		// Roots for radix-16 DFTs:
+		VEC_DBL_INIT( two  , 2.0);
 		VEC_DBL_INIT(isrt2, ISRT2);
 		VEC_DBL_INIT(cc0, c16  );	VEC_DBL_INIT(ss0, s16);	// Radix-16 DFT macros assume [isrt2,cc0,ss0] memory ordering
 		VEC_DBL_INIT(sse2_rnd, crnd);		/* SSE2 math = 53-mantissa-bit IEEE double-float: */
@@ -533,8 +544,8 @@ int radix1008_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 		thr_id = 0;	// ...then revert to 0.
 
 		// Propagate the above consts to the remaining threads:
-		nbytes = (int)cy_r - (int)isrt2;	// #bytes in 1st of above block of consts
-		tmp = isrt2;
+		nbytes = (int)cy_r - (int)two;	// #bytes in 1st of above block of consts
+		tmp = two;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
 			memcpy(tm2, tmp, nbytes);
@@ -2175,6 +2186,7 @@ void radix1008_dit_pass1(double a[], int n)
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr,*addi;
 		struct complex *tptr;
+		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p1,p2,p3;
 		int poff[RADIX>>2];
@@ -2255,7 +2267,7 @@ void radix1008_dit_pass1(double a[], int n)
 		int *itmp;			// Pointer into the bjmodn array
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 		vec_dbl *max_err, *sse2_rnd, *half_arr,
-			*isrt2,*cc0,*ss0,	// radix-16 DFT roots
+			*two,*isrt2,*cc0,*ss0,	// radix-16 DFT roots
 			*r00,	// Head of RADIX*vec_cmplx-sized local store #1
 			*s1p00,	// Head of RADIX*vec_cmplx-sized local store #2
 			*cy_r,*cy_i;	// Need RADIX/2 slots for sse2 carries, RADIX/4 for avx
@@ -2341,10 +2353,11 @@ void radix1008_dit_pass1(double a[], int n)
 		tmp += 0x7e0;	s1p00 = tmp;	// Head of RADIX*vec_cmplx-sized local store #2
 		tmp += 0x7e0;
 		// Roots for radix-16 DFTs:
-		isrt2  = tmp + 0x0;
-		cc0    = tmp + 0x1;
-		ss0    = tmp + 0x2;
-		tmp += 0x4;	// sc_ptr += 0xfc4, added extra pad slot to make offset even
+		two    = tmp + 0x0;
+		isrt2  = tmp + 0x1;
+		cc0    = tmp + 0x2;
+		ss0    = tmp + 0x3;
+		tmp += 0x4;	// sc_ptr += 0xfc4
 	  #ifdef USE_AVX
 		cy_r = tmp;	cy_i = tmp+0x0fc;	tmp += 0x1f8;	// RADIX/4 vec_dbl slots for each of cy_r and cy_i carry sub-arrays
 		max_err = tmp + 0x00;
@@ -2571,4 +2584,4 @@ void radix1008_dit_pass1(double a[], int n)
 
 #undef RADIX
 #undef ODD_RADIX
-
+#undef PFETCH_DIST

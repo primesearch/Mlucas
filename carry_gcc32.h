@@ -35,10 +35,12 @@
 #if 1	// Experimental low-reg version with just 1-push/pop and 2 compiler-visible GPR clobbers (max allowed by the fermat-mod
 		// carry code in compact-obj-code loop-wrapped form, and even 2-reg is too mch for GCC, so this is clang--buildable-only):
 
-	#define SSE2_fermat_carry_norm_pow2_errcheck(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xhalf_arr,Xsign_mask,Xadd1,Xadd2)\
+	#define SSE2_fermat_carry_norm_pow2_errcheck(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xhalf_arr,Xsign_mask,Xadd1,Xadd2, Xadd0)\
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"prefetcht0	(%%ecx)	\n\t"\
 		"movl		%[__nrt_bits],%%ecx	\n\t"\
 		"movl	%[__idx_offset],%%eax	\n\t"\
 		"shrl		$1,%%eax			\n\t"\
@@ -162,15 +164,19 @@
 	,	[__sign_mask]	"m" (Xsign_mask)\
 	,	[__add1]		"m" (Xadd1)\
 	,	[__add2]		"m" (Xadd2)\
+	/* Prefetch address */\
+	,	[__add0] "m" (Xadd0)\
 		: "cc","memory","eax",/*"ebx",*/"ecx","edx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
 
 #else
 
-	#define SSE2_fermat_carry_norm_pow2_errcheck(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xhalf_arr,Xsign_mask,Xadd1,Xadd2)\
+	#define SSE2_fermat_carry_norm_pow2_errcheck(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xhalf_arr,Xsign_mask,Xadd1,Xadd2, Xadd0)\
 	{\
 	__asm__ volatile (\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"prefetcht0	(%%ecx)	\n\t"\
 		"movl		%[__nrt_bits],%%ecx	\n\t"\
 		"movl	%[__idx_offset],%%eax	\n\t"\
 		"shrl		$1,%%eax			\n\t"\
@@ -293,6 +299,8 @@
 	,	[__sign_mask]	"m" (Xsign_mask)\
 	,	[__add1]		"m" (Xadd1)\
 	,	[__add2]		"m" (Xadd2)\
+	/* Prefetch address */\
+	,	[__add0] "m" (Xadd0)\
 		: "cc","memory","eax","esi","ecx","edx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
@@ -327,10 +335,12 @@
 	same self-tests once more ... and it worked! Difference proved to be the addition of the -g3 -ggdb flags to the -Os opt-level
 	in the compile args. *** Need to see if this "accdental workaround" is more generally usefu;. ***
 	*/
-	#define SSE2_fermat_carry_norm_errcheck(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xodd_radix,Xhalf_arr,Xsign_mask,Xadd1,Xadd2,Xoffset0,Xoffset1)\
+	#define SSE2_fermat_carry_norm_errcheck(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xodd_radix,Xhalf_arr,Xsign_mask,Xadd1,Xadd2,Xoffset0,Xoffset1, Xadd0)\
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"prefetcht0	(%%ecx)	\n\t"\
 		"movl	%[__nrt_bits],%%ecx		\n\t"/* __odd_radix was in edx, no more in 3-reg version using just e[abc]x */\
 		"movl	%[__idx_offset],%%eax	\n\t"\
 		"shrl		$1,%%eax			\n\t"\
@@ -479,16 +489,20 @@
 	,	[__add2]		"m" (Xadd2)\
 	,	[__offset0]		"m" (Xoffset0)\
 	,	[__offset1]		"m" (Xoffset1)\
+	/* Prefetch address */\
+	,	[__add0] "m" (Xadd0)\
 		: "cc","memory","eax",/*"ebx",*/"ecx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
 
 #else
 
-	#define SSE2_fermat_carry_norm_errcheck(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xodd_radix,Xhalf_arr,Xsign_mask,Xadd1,Xadd2,Xoffset0,Xoffset1)\
+	#define SSE2_fermat_carry_norm_errcheck(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xodd_radix,Xhalf_arr,Xsign_mask,Xadd1,Xadd2,Xoffset0,Xoffset1, Xadd0)\
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"prefetcht0	(%%ecx)	\n\t"\
 		"movl	%[__idx_offset],%%esi	\n\t"\
 		"movl %[__odd_radix],%%edi		\n\t"\
 		"movl	%[__nrt_bits],%%ecx		\n\t"\
@@ -633,6 +647,8 @@
 	,	[__add2]		"m" (Xadd2)\
 	,	[__offset0]		"m" (Xoffset0)\
 	,	[__offset1]		"m" (Xoffset1)\
+	/* Prefetch address */\
+	,	[__add0] "m" (Xadd0)\
 		: "cc","memory","eax",/*"ebx",*/"ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
@@ -644,10 +660,12 @@
 	/*************************************************************/
 
 	/********* Packed 32-bit-int version of SSE2_cmplx_carry_norm_pow2_errcheck0_2x:***********/
-	#define SSE2_cmplx_carry_norm_pow2_errcheck0_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw)\
+	#define SSE2_cmplx_carry_norm_pow2_errcheck0_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1)\
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"prefetcht0	(%%ecx)	\n\t"\
 	"/***************Unpack the data:*************************/\n\t"\
 		"movl	%[__data]	,%%eax	\n\t"\
 		"movaps		    (%%eax)	,%%xmm1	\n\t	movaps		0x40(%%eax)	,%%xmm5	\n\t"\
@@ -737,13 +755,11 @@
 		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
 		"movaps		%%xmm3	,(%%ecx)	\n\t	movaps		%%xmm7	,(%%edx)	\n\t"\
 		"\n\t"\
-		"\n\t"\
 		"movl	%[__data]	,%%eax		\n\t"\
 		"mulpd	 0x80(%%edi)	,%%xmm3	\n\t	mulpd	 0x80(%%ebx)	,%%xmm7	\n\t"\
 		"subpd		%%xmm3	,	%%xmm1	\n\t	subpd		%%xmm7	,	%%xmm5	\n\t"\
 		"mulpd		%%xmm2	,	%%xmm1	\n\t	mulpd		%%xmm6	,	%%xmm5	\n\t"\
 		"movaps		%%xmm1	,    (%%eax)\n\t	movaps		%%xmm5	,0x40(%%eax)\n\t"\
-		"\n\t"\
 		"\n\t"\
 		"movl	%[__sse_bw]	,%%eax		\n\t"\
 		"movl	%[__sse_nm1]	,%%ebx	\n\t"\
@@ -752,6 +768,9 @@
 	"/**********************************************/\n\t"\
 	"/*          Imaginary parts               */\n\t"\
 	"/**********************************************/\n\t"\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"movl		%[__p1],%%esi	\n\t"	\
+	"prefetcht0	(%%ecx,%%esi,8)	\n\t"\
 		"movl	%[__sse_sw]	,%%edx		\n\t"\
 		"movaps	(%%edx)	,%%xmm1			\n\t"\
 		"psubd	%%xmm0	,%%xmm1			\n\t"\
@@ -823,13 +842,11 @@
 		"subpd	%%xmm4	,%%xmm3			\n\t	subpd	%%xmm4	,%%xmm7			\n\t"\
 		"movaps	%%xmm3	,(%%ecx)		\n\t	movaps	%%xmm7	,(%%edx)		\n\t"\
 		"\n\t"\
-		"\n\t"\
 		"movl	%[__data]	,%%eax		\n\t"\
 		"mulpd	 0x80(%%edi)	,%%xmm3	\n\t	mulpd	 0x80(%%ebx)	,%%xmm7	\n\t"\
 		"subpd	%%xmm3	,%%xmm1			\n\t	subpd	%%xmm7	,%%xmm5			\n\t"\
 		"mulpd	%%xmm2	,%%xmm1			\n\t	mulpd	%%xmm6	,%%xmm5			\n\t"\
 		"movaps	%%xmm1	, 0x10(%%eax)	\n\t	movaps	%%xmm5	, 0x50(%%eax)	\n\t"\
-		"\n\t"\
 		"\n\t"\
 		"movl	%[__sse_bw]	,%%eax		\n\t"\
 		"movl	%[__sse_nm1]	,%%ebx	\n\t"\
@@ -856,15 +873,20 @@
 		, [__sse_bw]		"m" (Xsse_bw)		\
 		, [__sse_nm1]		"m" (Xsse_nm1)		\
 		, [__sse_sw]		"m" (Xsse_sw)		\
+	/* Prefetch: base address and 1 index offsets */\
+	,	[__add0] "m" (Xadd0)\
+	,	[__p1] "m" (Xp1)\
 		: "cc","memory","eax","ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
 
 	/********* Packed 32-bit-int version of SSE2_cmplx_carry_norm_pow2_errcheck1_2x:***********/
-	#define SSE2_cmplx_carry_norm_pow2_errcheck1_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw)\
+	#define SSE2_cmplx_carry_norm_pow2_errcheck1_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1)\
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"prefetcht0	(%%ecx)	\n\t"\
 	"/***************Unpack the data:*************************/\n\t"\
 		"movl	%[__data]	,%%eax	\n\t"\
 		"movaps		    (%%eax)	,%%xmm1	\n\t	movaps		0x40(%%eax)	,%%xmm5	\n\t"\
@@ -952,13 +974,11 @@
 		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
 		"movaps		%%xmm3	,(%%ecx)	\n\t	movaps		%%xmm7	,(%%edx)	\n\t"\
 		"\n\t"\
-		"\n\t"\
 		"movl	%[__data]	,%%eax		\n\t"\
 		"mulpd	 0x80(%%edi)	,%%xmm3	\n\t	mulpd	 0x80(%%ebx)	,%%xmm7	\n\t"\
 		"subpd		%%xmm3	,	%%xmm1	\n\t	subpd		%%xmm7	,	%%xmm5	\n\t"\
 		"mulpd		%%xmm2	,	%%xmm1	\n\t	mulpd		%%xmm6	,	%%xmm5	\n\t"\
 		"movaps		%%xmm1	,    (%%eax)\n\t	movaps		%%xmm5	,0x40(%%eax)\n\t"\
-		"\n\t"\
 		"\n\t"\
 		"movl	%[__sse_bw]	,%%eax		\n\t"\
 		"movl	%[__sse_nm1]	,%%ebx	\n\t"\
@@ -967,6 +987,9 @@
 	"/**********************************************/\n\t"\
 	"/*          Imaginary parts               */\n\t"\
 	"/**********************************************/\n\t"\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"movl		%[__p1],%%esi	\n\t"	\
+	"prefetcht0	(%%ecx,%%esi,8)	\n\t"\
 		"movl	%[__sse_sw]	,%%edx		\n\t"\
 		"movaps	(%%edx)	,%%xmm1			\n\t"\
 		"psubd	%%xmm0	,%%xmm1			\n\t"\
@@ -1038,13 +1061,11 @@
 		"subpd	%%xmm4	,%%xmm3			\n\t	subpd	%%xmm4	,%%xmm7			\n\t"\
 		"movaps	%%xmm3	,(%%ecx)		\n\t	movaps	%%xmm7	,(%%edx)		\n\t"\
 		"\n\t"\
-		"\n\t"\
 		"movl	%[__data]	,%%eax		\n\t"\
 		"mulpd	 0x80(%%edi)	,%%xmm3	\n\t	mulpd	 0x80(%%ebx)	,%%xmm7	\n\t"\
 		"subpd	%%xmm3	,%%xmm1			\n\t	subpd	%%xmm7	,%%xmm5			\n\t"\
 		"mulpd	%%xmm2	,%%xmm1			\n\t	mulpd	%%xmm6	,%%xmm5			\n\t"\
 		"movaps	%%xmm1	, 0x10(%%eax)	\n\t	movaps	%%xmm5	, 0x50(%%eax)	\n\t"\
-		"\n\t"\
 		"\n\t"\
 		"movl	%[__sse_bw]	,%%eax		\n\t"\
 		"movl	%[__sse_nm1]	,%%ebx	\n\t"\
@@ -1070,15 +1091,21 @@
 		, [__sse_bw]		"m" (Xsse_bw)		\
 		, [__sse_nm1]		"m" (Xsse_nm1)		\
 		, [__sse_sw]		"m" (Xsse_sw)		\
+	/* Prefetch: base address and 1 index offsets */\
+	,	[__add0] "m" (Xadd0)\
+	,	[__p1] "m" (Xp1)\
 		: "cc","memory","eax","ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
 
 	/********* Packed 32-bit-int version of SSE2_cmplx_carry_norm_pow2_errcheck2_2x:***********/
-	#define SSE2_cmplx_carry_norm_pow2_errcheck2_2B(Xdata,XwtA,XwtB,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw)\
+	#define SSE2_cmplx_carry_norm_pow2_errcheck2_2B(Xdata,XwtA,XwtB,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp2,Xp3)\
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"movl		%[__p2],%%esi	\n\t"	\
+	"prefetcht0	(%%ecx,%%esi,8)	\n\t"\
 	"/**********************************************/\n\t"\
 	"/*          Real      parts                   */\n\t"\
 	"/**********************************************/\n\t"\
@@ -1124,10 +1151,10 @@
 		"addl	%%eax	,%%edi			\n\t	addl	%%eax	,%%ebx			\n\t"\
 		"addl	%%eax	,%%edx			\n\t	addl	%%eax	,%%ecx			\n\t"\
 		"\n\t"\
-		"mulpd	 	0x100(%%eax),%%xmm2	\n\t	mulpd	 	0x100(%%eax),%%xmm6	\n\t"\
 		"mulpd	 	0x110(%%eax),%%xmm3	\n\t	mulpd	 	0x110(%%eax),%%xmm7	\n\t"\
-		"mulpd	 	     (%%edi),%%xmm2	\n\t	mulpd	 	     (%%ebx),%%xmm6	\n\t"\
+		"mulpd	 	0x100(%%eax),%%xmm2	\n\t	mulpd	 	0x100(%%eax),%%xmm6	\n\t"\
 		"mulpd	 	0x040(%%edx),%%xmm3	\n\t	mulpd	 	0x040(%%ecx),%%xmm7	\n\t"\
+		"mulpd	 	     (%%edi),%%xmm2	\n\t	mulpd	 	     (%%ebx),%%xmm6	\n\t"\
 		"\n\t"\
 		"movl	%[__cyA]	,%%ecx		\n\t	movl	%[__cyB]	,%%edx		\n\t"\
 		"mulpd		%%xmm3	,%%xmm1		\n\t	mulpd		%%xmm7	,%%xmm5		\n\t"\
@@ -1152,13 +1179,11 @@
 		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
 		"movaps		%%xmm3	,(%%ecx)	\n\t	movaps		%%xmm7	,(%%edx)	\n\t"\
 		"\n\t"\
-		"\n\t"\
 		"movl	%[__data]	,%%eax		\n\t"\
 		"mulpd	 0x80(%%edi)	,%%xmm3	\n\t	mulpd	 0x80(%%ebx)	,%%xmm7	\n\t"\
 		"subpd		%%xmm3	,	%%xmm1	\n\t	subpd		%%xmm7	,	%%xmm5	\n\t"\
 		"mulpd		%%xmm2	,	%%xmm1	\n\t	mulpd		%%xmm6	,	%%xmm5	\n\t"\
 		"movaps		%%xmm1	,0x20(%%eax)\n\t	movaps		%%xmm5	,0x60(%%eax)\n\t"\
-		"\n\t"\
 		"\n\t"\
 		"movl	%[__sse_bw]	,%%eax		\n\t"\
 		"movl	%[__sse_nm1]	,%%ebx	\n\t"\
@@ -1167,6 +1192,9 @@
 	"/**********************************************/\n\t"\
 	"/*          Imaginary parts               */\n\t"\
 	"/**********************************************/\n\t"\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"movl		%[__p3],%%esi	\n\t"	\
+	"prefetcht0	(%%ecx,%%esi,8)	\n\t"\
 		"movl	%[__sse_sw]	,%%edx		\n\t"\
 		"movaps	(%%edx)	,%%xmm1			\n\t"\
 		"psubd	%%xmm0	,%%xmm1			\n\t"\
@@ -1210,10 +1238,10 @@
 		"addl	%%eax	,%%edi			\n\t	addl	%%eax	,%%ebx			\n\t"\
 		"addl	%%eax	,%%edx			\n\t	addl	%%eax	,%%ecx			\n\t"\
 		"\n\t"\
-		"mulpd	 0x120(%%eax)	,%%xmm2	\n\t	mulpd	 0x120(%%eax)	,%%xmm6	\n\t"\
 		"mulpd	 0x130(%%eax)	,%%xmm3	\n\t	mulpd	 0x130(%%eax)	,%%xmm7	\n\t"\
-		"mulpd	      (%%edi)	,%%xmm2	\n\t	mulpd	      (%%ebx)	,%%xmm6	\n\t"\
+		"mulpd	 0x120(%%eax)	,%%xmm2	\n\t	mulpd	 0x120(%%eax)	,%%xmm6	\n\t"\
 		"mulpd	 0x040(%%edx)	,%%xmm3	\n\t	mulpd	 0x040(%%ecx)	,%%xmm7	\n\t"\
+		"mulpd	      (%%edi)	,%%xmm2	\n\t	mulpd	      (%%ebx)	,%%xmm6	\n\t"\
 		"\n\t"\
 		"movl	%[__cyA]	,%%ecx		\n\t	movl	%[__cyB]	,%%edx		\n\t"\
 		"mulpd	%%xmm3	,%%xmm1			\n\t	mulpd	%%xmm7	,%%xmm5			\n\t"\
@@ -1238,13 +1266,11 @@
 		"subpd	%%xmm4	,%%xmm3			\n\t	subpd	%%xmm4	,%%xmm7			\n\t"\
 		"movaps	%%xmm3	,(%%ecx)		\n\t	movaps	%%xmm7	,(%%edx)		\n\t"\
 		"\n\t"\
-		"\n\t"\
 		"movl	%[__data]	,%%eax		\n\t"\
 		"mulpd	 0x80(%%edi)	,%%xmm3	\n\t	mulpd	 0x80(%%ebx)	,%%xmm7	\n\t"\
 		"subpd	%%xmm3	,%%xmm1			\n\t	subpd	%%xmm7	,%%xmm5			\n\t"\
 		"mulpd	%%xmm2	,%%xmm1			\n\t	mulpd	%%xmm6	,%%xmm5			\n\t"\
 		"movaps	%%xmm1	, 0x30(%%eax)	\n\t	movaps	%%xmm5	, 0x70(%%eax)	\n\t"\
-		"\n\t"\
 		"\n\t"\
 		"movl	%[__sse_bw]	,%%eax		\n\t"\
 		"movl	%[__sse_nm1]	,%%ebx	\n\t"\
@@ -1285,6 +1311,10 @@
 		, [__sse_bw]		"m" (Xsse_bw)		\
 		, [__sse_nm1]		"m" (Xsse_nm1)		\
 		, [__sse_sw]		"m" (Xsse_sw)		\
+	/* Prefetch: base address and 2 index offsets */\
+	,	[__add0] "m" (Xadd0)\
+	,	[__p2] "m" (Xp2)\
+	,	[__p3] "m" (Xp3)\
 		: "cc","memory","eax","ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
@@ -1293,10 +1323,11 @@
 	/********** No-ROE-Check versions of the latter 2 of the above 3 macros - the first is called too infrequently to bother with a special non-ROE version: **********/
 	/******************************************************************************************************************************************************************/
 
-	#define SSE2_cmplx_carry_norm_pow2_nocheck1_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw)\
+	#define SSE2_cmplx_carry_norm_pow2_nocheck1_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1)\
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
 	"/***************Unpack the data:*************************/\n\t"\
 		"movl	%[__data]	,%%eax	\n\t"\
 		"movaps		    (%%eax)	,%%xmm1	\n\t	movaps		0x40(%%eax)	,%%xmm5	\n\t"\
@@ -1379,13 +1410,11 @@
 		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
 		"movaps		%%xmm3	,(%%ecx)	\n\t	movaps		%%xmm7	,(%%edx)	\n\t"\
 		"\n\t"\
-		"\n\t"\
 		"movl	%[__data]	,%%eax		\n\t"\
 		"mulpd	 0x80(%%edi)	,%%xmm3	\n\t	mulpd	 0x80(%%ebx)	,%%xmm7	\n\t"\
 		"subpd		%%xmm3	,	%%xmm1	\n\t	subpd		%%xmm7	,	%%xmm5	\n\t"\
 		"mulpd		%%xmm2	,	%%xmm1	\n\t	mulpd		%%xmm6	,	%%xmm5	\n\t"\
 		"movaps		%%xmm1	,    (%%eax)\n\t	movaps		%%xmm5	,0x40(%%eax)\n\t"\
-		"\n\t"\
 		"\n\t"\
 		"movl	%[__sse_bw]	,%%eax		\n\t"\
 		"movl	%[__sse_nm1]	,%%ebx	\n\t"\
@@ -1394,6 +1423,9 @@
 	"/**********************************************/\n\t"\
 	"/*          Imaginary parts               */\n\t"\
 	"/**********************************************/\n\t"\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"movl		%[__p1],%%esi	\n\t"	\
+	"prefetcht0	(%%ecx,%%esi,8)	\n\t"\
 		"movl	%[__sse_sw]	,%%edx		\n\t"\
 		"movaps	(%%edx)	,%%xmm1			\n\t"\
 		"psubd	%%xmm0	,%%xmm1			\n\t"\
@@ -1460,13 +1492,11 @@
 		"subpd	%%xmm4	,%%xmm3			\n\t	subpd	%%xmm4	,%%xmm7			\n\t"\
 		"movaps	%%xmm3	,(%%ecx)		\n\t	movaps	%%xmm7	,(%%edx)		\n\t"\
 		"\n\t"\
-		"\n\t"\
 		"movl	%[__data]	,%%eax		\n\t"\
 		"mulpd	 0x80(%%edi)	,%%xmm3	\n\t	mulpd	 0x80(%%ebx)	,%%xmm7	\n\t"\
 		"subpd	%%xmm3	,%%xmm1			\n\t	subpd	%%xmm7	,%%xmm5			\n\t"\
 		"mulpd	%%xmm2	,%%xmm1			\n\t	mulpd	%%xmm6	,%%xmm5			\n\t"\
 		"movaps	%%xmm1	, 0x10(%%eax)	\n\t	movaps	%%xmm5	, 0x50(%%eax)	\n\t"\
-		"\n\t"\
 		"\n\t"\
 		"movl	%[__sse_bw]	,%%eax		\n\t"\
 		"movl	%[__sse_nm1]	,%%ebx	\n\t"\
@@ -1491,14 +1521,20 @@
 		, [__sse_bw]		"m" (Xsse_bw)		\
 		, [__sse_nm1]		"m" (Xsse_nm1)		\
 		, [__sse_sw]		"m" (Xsse_sw)		\
+	/* Prefetch: base address and 1 index offsets */\
+	,	[__add0] "m" (Xadd0)\
+	,	[__p1] "m" (Xp1)\
 		: "cc","memory","eax","ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
 
-	#define SSE2_cmplx_carry_norm_pow2_nocheck2_2B(Xdata,XwtA,XwtB,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw)\
+	#define SSE2_cmplx_carry_norm_pow2_nocheck2_2B(Xdata,XwtA,XwtB,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp2,Xp3)\
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"movl		%[__p2],%%esi	\n\t"	\
+	"prefetcht0	(%%ecx,%%esi,8)	\n\t"\
 	"/**********************************************/\n\t"\
 	"/*          Real      parts                   */\n\t"\
 	"/**********************************************/\n\t"\
@@ -1567,13 +1603,11 @@
 		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
 		"movaps		%%xmm3	,(%%ecx)	\n\t	movaps		%%xmm7	,(%%edx)	\n\t"\
 		"\n\t"\
-		"\n\t"\
 		"movl	%[__data]	,%%eax		\n\t"\
 		"mulpd	 0x80(%%edi)	,%%xmm3	\n\t	mulpd	 0x80(%%ebx)	,%%xmm7	\n\t"\
 		"subpd		%%xmm3	,	%%xmm1	\n\t	subpd		%%xmm7	,	%%xmm5	\n\t"\
 		"mulpd		%%xmm2	,	%%xmm1	\n\t	mulpd		%%xmm6	,	%%xmm5	\n\t"\
 		"movaps		%%xmm1	,0x20(%%eax)\n\t	movaps		%%xmm5	,0x60(%%eax)\n\t"\
-		"\n\t"\
 		"\n\t"\
 		"movl	%[__sse_bw]	,%%eax		\n\t"\
 		"movl	%[__sse_nm1]	,%%ebx	\n\t"\
@@ -1582,6 +1616,9 @@
 	"/**********************************************/\n\t"\
 	"/*          Imaginary parts               */\n\t"\
 	"/**********************************************/\n\t"\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"movl		%[__p3],%%esi	\n\t"	\
+	"prefetcht0	(%%ecx,%%esi,8)	\n\t"\
 		"movl	%[__sse_sw]	,%%edx		\n\t"\
 		"movaps	(%%edx)	,%%xmm1			\n\t"\
 		"psubd	%%xmm0	,%%xmm1			\n\t"\
@@ -1648,13 +1685,11 @@
 		"subpd	%%xmm4	,%%xmm3			\n\t	subpd	%%xmm4	,%%xmm7			\n\t"\
 		"movaps	%%xmm3	,(%%ecx)		\n\t	movaps	%%xmm7	,(%%edx)		\n\t"\
 		"\n\t"\
-		"\n\t"\
 		"movl	%[__data]	,%%eax		\n\t"\
 		"mulpd	 0x80(%%edi)	,%%xmm3	\n\t	mulpd	 0x80(%%ebx)	,%%xmm7	\n\t"\
 		"subpd	%%xmm3	,%%xmm1			\n\t	subpd	%%xmm7	,%%xmm5			\n\t"\
 		"mulpd	%%xmm2	,%%xmm1			\n\t	mulpd	%%xmm6	,%%xmm5			\n\t"\
 		"movaps	%%xmm1	, 0x30(%%eax)	\n\t	movaps	%%xmm5	, 0x70(%%eax)	\n\t"\
-		"\n\t"\
 		"\n\t"\
 		"movl	%[__sse_bw]	,%%eax		\n\t"\
 		"movl	%[__sse_nm1]	,%%ebx	\n\t"\
@@ -1694,6 +1729,10 @@
 		, [__sse_bw]		"m" (Xsse_bw)		\
 		, [__sse_nm1]		"m" (Xsse_nm1)		\
 		, [__sse_sw]		"m" (Xsse_sw)		\
+	/* Prefetch: base address and 2 index offsets */\
+	,	[__add0] "m" (Xadd0)\
+	,	[__p2] "m" (Xp2)\
+	,	[__p3] "m" (Xp3)\
 		: "cc","memory","eax","ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
@@ -1703,10 +1742,12 @@
 	/********* Non-power-of-2-FFT versions of SSE2_cmplx_carry_norm_pow2_errcheck0_2B,1_2B,2_2B (only give sans-error-check version of latter 2: *******/
 	/***************************************************************************************************************************************************/
 
-	#define SSE2_cmplx_carry_norm_errcheck0_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw)\
+	#define SSE2_cmplx_carry_norm_errcheck0_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1)\
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"prefetcht0	(%%ecx)	\n\t"\
 	"/***************Unpack the data:*************************/\n\t"\
 		"movl	%[__data]	,%%eax	\n\t"\
 		"movaps		    (%%eax)	,%%xmm1	\n\t	movaps		0x40(%%eax)	,%%xmm5	\n\t"\
@@ -1796,7 +1837,6 @@
 		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
 		"movaps		%%xmm3	,(%%ecx)	\n\t	movaps		%%xmm7	,(%%edx)	\n\t"\
 		"\n\t"\
-		"\n\t"\
 		"movl	%[__data]	,%%eax		\n\t"\
 		"mulpd	 0x80(%%edi)	,%%xmm3	\n\t	mulpd	 0x80(%%ebx)	,%%xmm7	\n\t"\
 		"subpd		%%xmm3	,	%%xmm1	\n\t	subpd		%%xmm7	,	%%xmm5	\n\t"\
@@ -1814,6 +1854,9 @@
 	"/**********************************************/\n\t"\
 	"/*          Imaginary parts               */\n\t"\
 	"/**********************************************/\n\t"\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"movl		%[__p1],%%esi	\n\t"	\
+	"prefetcht0	(%%ecx,%%esi,8)	\n\t"\
 		"movl	%[__sse_sw]	,%%edx		\n\t"\
 		"movaps	(%%edx)	,%%xmm1			\n\t"\
 		"psubd	%%xmm0	,%%xmm1			\n\t"\
@@ -1885,13 +1928,11 @@
 		"subpd	%%xmm4	,%%xmm3			\n\t	subpd	%%xmm4	,%%xmm7			\n\t"\
 		"movaps	%%xmm3	,(%%ecx)		\n\t	movaps	%%xmm7	,(%%edx)		\n\t"\
 		"\n\t"\
-		"\n\t"\
 		"movl	%[__data]	,%%eax		\n\t"\
 		"mulpd	 0x80(%%edi)	,%%xmm3	\n\t	mulpd	 0x80(%%ebx)	,%%xmm7	\n\t"\
 		"subpd	%%xmm3	,%%xmm1			\n\t	subpd	%%xmm7	,%%xmm5			\n\t"\
 		"mulpd	%%xmm2	,%%xmm1			\n\t	mulpd	%%xmm6	,%%xmm5			\n\t"\
 		"movaps	%%xmm1	, 0x10(%%eax)	\n\t	movaps	%%xmm5	, 0x50(%%eax)	\n\t"\
-		"\n\t"\
 		"\n\t"\
 		"movl	%[__sse_n]	,%%ebx		\n\t"\
 		"movaps		(%%ebx)	,%%xmm2		\n\t"\
@@ -1922,14 +1963,19 @@
 		, [__sse_bw]		"m" (Xsse_bw)		\
 		, [__sse_n]		"m" (Xsse_n)		\
 		, [__sse_sw]		"m" (Xsse_sw)		\
+	/* Prefetch: base address and 1 index offsets */\
+	,	[__add0] "m" (Xadd0)\
+	,	[__p1] "m" (Xp1)\
 		: "cc","memory","eax","ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
 
-	#define SSE2_cmplx_carry_norm_errcheck1_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw)\
+	#define SSE2_cmplx_carry_norm_errcheck1_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1)\
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"prefetcht0	(%%ecx)	\n\t"\
 	"/***************Unpack the data:*************************/\n\t"\
 		"movl	%[__data]	,%%eax	\n\t"\
 		"movaps		    (%%eax)	,%%xmm1	\n\t	movaps		0x40(%%eax)	,%%xmm5	\n\t"\
@@ -2017,7 +2063,6 @@
 		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
 		"movaps		%%xmm3	,(%%ecx)	\n\t	movaps		%%xmm7	,(%%edx)	\n\t"\
 		"\n\t"\
-		"\n\t"\
 		"movl	%[__data]	,%%eax		\n\t"\
 		"mulpd	 0x80(%%edi)	,%%xmm3	\n\t	mulpd	 0x80(%%ebx)	,%%xmm7	\n\t"\
 		"subpd		%%xmm3	,	%%xmm1	\n\t	subpd		%%xmm7	,	%%xmm5	\n\t"\
@@ -2035,6 +2080,9 @@
 	"/**********************************************/\n\t"\
 	"/*          Imaginary parts               */\n\t"\
 	"/**********************************************/\n\t"\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"movl		%[__p1],%%esi	\n\t"	\
+	"prefetcht0	(%%ecx,%%esi,8)	\n\t"\
 		"movl	%[__sse_sw]	,%%edx		\n\t"\
 		"movaps	(%%edx)	,%%xmm1			\n\t"\
 		"psubd	%%xmm0	,%%xmm1			\n\t"\
@@ -2140,14 +2188,20 @@
 		, [__sse_bw]		"m" (Xsse_bw)		\
 		, [__sse_n]		"m" (Xsse_n)		\
 		, [__sse_sw]		"m" (Xsse_sw)		\
+	/* Prefetch: base address and 1 index offsets */\
+	,	[__add0] "m" (Xadd0)\
+	,	[__p1] "m" (Xp1)\
 		: "cc","memory","eax","ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
 
-	#define SSE2_cmplx_carry_norm_errcheck2_2B(Xdata,XwtA,XwtB,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw)\
+	#define SSE2_cmplx_carry_norm_errcheck2_2B(Xdata,XwtA,XwtB,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp2,Xp3)\
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"movl		%[__p2],%%esi	\n\t"	\
+	"prefetcht0	(%%ecx,%%esi,8)	\n\t"\
 	"/**********************************************/\n\t"\
 	"/*          Real      parts                   */\n\t"\
 	"/**********************************************/\n\t"\
@@ -2221,7 +2275,6 @@
 		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
 		"movaps		%%xmm3	,(%%ecx)	\n\t	movaps		%%xmm7	,(%%edx)	\n\t"\
 		"\n\t"\
-		"\n\t"\
 		"movl	%[__data]	,%%eax		\n\t"\
 		"mulpd	 0x80(%%edi)	,%%xmm3	\n\t	mulpd	 0x80(%%ebx)	,%%xmm7	\n\t"\
 		"subpd		%%xmm3	,	%%xmm1	\n\t	subpd		%%xmm7	,	%%xmm5	\n\t"\
@@ -2239,6 +2292,9 @@
 	"/**********************************************/\n\t"\
 	"/*          Imaginary parts               */\n\t"\
 	"/**********************************************/\n\t"\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"movl		%[__p3],%%esi	\n\t"	\
+	"prefetcht0	(%%ecx,%%esi,8)	\n\t"\
 		"movl	%[__sse_sw]	,%%edx		\n\t"\
 		"movaps	(%%edx)	,%%xmm1			\n\t"\
 		"psubd	%%xmm0	,%%xmm1			\n\t"\
@@ -2310,7 +2366,6 @@
 		"subpd	%%xmm4	,%%xmm3			\n\t	subpd	%%xmm4	,%%xmm7			\n\t"\
 		"movaps	%%xmm3	,(%%ecx)		\n\t	movaps	%%xmm7	,(%%edx)		\n\t"\
 		"\n\t"\
-		"\n\t"\
 		"movl	%[__data]	,%%eax		\n\t"\
 		"mulpd	 0x80(%%edi)	,%%xmm3	\n\t	mulpd	 0x80(%%ebx)	,%%xmm7	\n\t"\
 		"subpd	%%xmm3	,%%xmm1			\n\t	subpd	%%xmm7	,%%xmm5			\n\t"\
@@ -2360,6 +2415,10 @@
 		, [__sse_bw]		"m" (Xsse_bw)		\
 		, [__sse_n]		"m" (Xsse_n)		\
 		, [__sse_sw]		"m" (Xsse_sw)		\
+	/* Prefetch: base address and 2 index offsets */\
+	,	[__add0] "m" (Xadd0)\
+	,	[__p2] "m" (Xp2)\
+	,	[__p3] "m" (Xp3)\
 		: "cc","memory","eax","ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
@@ -2368,10 +2427,12 @@
 	/********** No-ROE-Check versions of the latter 2 of the above 3 macros - the first is called too infrequently to bother with a special non-ROE version: **********/
 	/******************************************************************************************************************************************************************/
 
-	#define SSE2_cmplx_carry_norm_nocheck1_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw)\
+	#define SSE2_cmplx_carry_norm_nocheck1_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1)\
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"prefetcht0	(%%ecx)	\n\t"\
 	"/***************Unpack the data:*************************/\n\t"\
 		"movl	%[__data]	,%%eax	\n\t"\
 		"movaps		    (%%eax)	,%%xmm1	\n\t	movaps		0x40(%%eax)	,%%xmm5	\n\t"\
@@ -2454,7 +2515,6 @@
 		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
 		"movaps		%%xmm3	,(%%ecx)	\n\t	movaps		%%xmm7	,(%%edx)	\n\t"\
 		"\n\t"\
-		"\n\t"\
 		"movl	%[__data]	,%%eax		\n\t"\
 		"mulpd	 0x80(%%edi)	,%%xmm3	\n\t	mulpd	 0x80(%%ebx)	,%%xmm7	\n\t"\
 		"subpd		%%xmm3	,	%%xmm1	\n\t	subpd		%%xmm7	,	%%xmm5	\n\t"\
@@ -2472,6 +2532,9 @@
 	"/**********************************************/\n\t"\
 	"/*          Imaginary parts               */\n\t"\
 	"/**********************************************/\n\t"\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"movl		%[__p1],%%esi	\n\t"	\
+	"prefetcht0	(%%ecx,%%esi,8)	\n\t"\
 		"movl	%[__sse_sw]	,%%edx		\n\t"\
 		"movaps	(%%edx)	,%%xmm1			\n\t"\
 		"psubd	%%xmm0	,%%xmm1			\n\t"\
@@ -2571,14 +2634,20 @@
 		, [__sse_bw]		"m" (Xsse_bw)		\
 		, [__sse_n]		"m" (Xsse_n)		\
 		, [__sse_sw]		"m" (Xsse_sw)		\
+	/* Prefetch: base address and 1 index offsets */\
+	,	[__add0] "m" (Xadd0)\
+	,	[__p1] "m" (Xp1)\
 		: "cc","memory","eax","ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
 
-	#define SSE2_cmplx_carry_norm_nocheck2_2B(Xdata,XwtA,XwtB,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw)\
+	#define SSE2_cmplx_carry_norm_nocheck2_2B(Xdata,XwtA,XwtB,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp2,Xp3)\
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"movl		%[__p2],%%esi	\n\t"	\
+	"prefetcht0	(%%ecx,%%esi,8)	\n\t"\
 	"/**********************************************/\n\t"\
 	"/*          Real      parts                   */\n\t"\
 	"/**********************************************/\n\t"\
@@ -2647,7 +2716,6 @@
 		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
 		"movaps		%%xmm3	,(%%ecx)	\n\t	movaps		%%xmm7	,(%%edx)	\n\t"\
 		"\n\t"\
-		"\n\t"\
 		"movl	%[__data]	,%%eax		\n\t"\
 		"mulpd	 0x80(%%edi)	,%%xmm3	\n\t	mulpd	 0x80(%%ebx)	,%%xmm7	\n\t"\
 		"subpd		%%xmm3	,	%%xmm1	\n\t	subpd		%%xmm7	,	%%xmm5	\n\t"\
@@ -2665,6 +2733,9 @@
 	"/**********************************************/\n\t"\
 	"/*          Imaginary parts               */\n\t"\
 	"/**********************************************/\n\t"\
+	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
+	"movl		%[__p3],%%esi	\n\t"	\
+	"prefetcht0	(%%ecx,%%esi,8)	\n\t"\
 		"movl	%[__sse_sw]	,%%edx		\n\t"\
 		"movaps	(%%edx)	,%%xmm1			\n\t"\
 		"psubd	%%xmm0	,%%xmm1			\n\t"\
@@ -2731,7 +2802,6 @@
 		"subpd	%%xmm4	,%%xmm3			\n\t	subpd	%%xmm4	,%%xmm7			\n\t"\
 		"movaps	%%xmm3	,(%%ecx)		\n\t	movaps	%%xmm7	,(%%edx)		\n\t"\
 		"\n\t"\
-		"\n\t"\
 		"movl	%[__data]	,%%eax		\n\t"\
 		"mulpd	 0x80(%%edi)	,%%xmm3	\n\t	mulpd	 0x80(%%ebx)	,%%xmm7	\n\t"\
 		"subpd	%%xmm3	,%%xmm1			\n\t	subpd	%%xmm7	,%%xmm5			\n\t"\
@@ -2780,6 +2850,10 @@
 		, [__sse_bw]		"m" (Xsse_bw)		\
 		, [__sse_n]		"m" (Xsse_n)		\
 		, [__sse_sw]		"m" (Xsse_sw)		\
+	/* Prefetch: base address and 2 index offsets */\
+	,	[__add0] "m" (Xadd0)\
+	,	[__p2] "m" (Xp2)\
+	,	[__p3] "m" (Xp3)\
 		: "cc","memory","eax","ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}

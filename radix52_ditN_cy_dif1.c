@@ -21,9 +21,16 @@
 *******************************************************************************/
 
 #include "Mlucas.h"
-#include "radix13.h"
 
 #define RADIX 52	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
+
+#ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
+  #else
+	#define PFETCH_DIST	32
+  #endif
+#endif
 
 #ifdef MULTITHREAD
 	#ifndef USE_PTHREAD
@@ -135,6 +142,7 @@ int radix52_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	const char func[] = "radix52_ditN_cy_dif1";
+	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 #ifdef USE_SSE2
 	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
@@ -146,6 +154,22 @@ int radix52_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
   #endif
 #else
 	const int sz_vd = sizeof(double), sz_vd_m1 = sz_vd-1;
+#endif
+#if (defined(USE_AVX2) && defined(HIACC)) || (!defined(USE_SSE2) && defined(HIACC))
+const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the radix-13 fundamental sincos datum	*/
+			ss1 =  0.46472317204376854565,	/* Imag part of exp(i*2*pi/13).	*/
+			cc2 =  0.56806474673115580252,	/* cos(2u)	*/
+			ss2 =  0.82298386589365639457,	/* sin(2u)	*/
+			cc3 =  0.12053668025532305336,	/* cos(3u)	*/
+			ss3 =  0.99270887409805399279,	/* sin(3u)	*/
+			cc4 = -0.35460488704253562594,	/* cos(4u)	*/
+			ss4 =  0.93501624268541482344,	/* sin(4u)	*/
+			cc5 = -0.74851074817110109861,	/* cos(5u)	*/
+			ss5 =  0.66312265824079520240,	/* sin(5u)	*/
+			cc6 = -0.97094181742605202714,	/* cos(6u)	*/
+			ss6 =  0.23931566428755776718;	/* sin(6u)	*/
+#else	// Consts for van Buskirk-style tangent DFT in this header:
+	#include "radix13.h"
 #endif
 
 	int NDIVR,i,j,j1,j2,jt,jp,jstart,jhi,full_pass,k,khi,l,ntmp,outer,nbytes;
@@ -193,7 +217,7 @@ int radix52_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	const double crnd = 3.0*0x4000000*0x2000000;
 	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 	vec_dbl *tmp,*tm1,*tm2;	// Non-static utility ptrs
-	static vec_dbl *two,*rad13_const, *max_err, *sse2_rnd, *half_arr,	/* rad13_const needs 18*16 bytes allocated */
+	static vec_dbl *one,*two,*rad13_const, *max_err, *sse2_rnd, *half_arr,	/* rad13_const needs 18*16 bytes allocated */
 		*r00,*r01,*r02,*r03,*r04,*r05,*r06,*r07,*r08,*r09,*r0a,*r0b,*r0c,*r0d,*r0e,*r0f,
 		*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r1a,*r1b,*r1c,*r1d,*r1e,*r1f,
 		*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r2a,*r2b,*r2c,*r2d,*r2e,*r2f,
@@ -458,9 +482,10 @@ int radix52_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		r1e = tmp + 0x3c;
 		r1f = tmp + 0x3e;
 		tmp += 0x68;	// sc_ptr += 208
-		two = tmp;
-		rad13_const = tmp + 0x01;	/* Leave an extra slot at radix13_const-1 for the constant two = 2.0: */
-		tmp += 0x14;	/* Need 20 16-byte slots for two+sincos, but offset the carry slots by the next-larger multiple of 4 */
+		one = tmp;	// Leave 2 extra slots at radix13_const-1 for the consts 1.0,2.0: */
+		two = tmp+1;
+		rad13_const = tmp + 0x02;	// Needs 17 vec_dbl slots
+		tmp += 0x14;	/* Need 19 (0x12) 16-byte slots for two+sincos, but offset the carry slots by the next-larger multiple of 4 */
 	// sc_ptr += 228
 	#ifdef USE_AVX
 		cy = tmp;		tmp += 0x0d;	// RADIX/4 vec_dbl slots for carry sub-array
@@ -477,8 +502,29 @@ int radix52_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	#endif
 		ASSERT(HERE, (radix52_creals_in_local_store << l2_sz_vd) >= ((long)half_arr - (long)s1p00) + (20 << l2_sz_vd), "radix52_creals_in_local_store checksum failed!");
 		/* These remain fixed: */
-		tmp = two;		/* __cc pointer offsets: */
+		tmp = rad13_const-2;		/* __cc pointer offsets: */
+		VEC_DBL_INIT(tmp,  1.0);	++tmp;	/*	-0x020 = 1.0 */
 		VEC_DBL_INIT(tmp,  2.0);	++tmp;	/*	-0x010 = 2.0 */
+	  #if defined(USE_AVX2) && defined(HIACC)	// FMA+HIACC version (like radix-11/FMA) based on simple radix-13 DFT implementation, but here (simple+FMA) is a
+	  											// tad slower than the default tangent-DFT and the latter has decent roundoff properties, so remains the default
+		VEC_DBL_INIT(tmp, cc1 );	++tmp;	/*	0x000 = cc1 */
+		VEC_DBL_INIT(tmp, cc2 );	++tmp;	/*	0x010 = cc2 */
+		VEC_DBL_INIT(tmp, cc3 );	++tmp;	/*	0x020 = cc3 */
+		VEC_DBL_INIT(tmp, cc4 );	++tmp;	/*	0x030 = cc4 */
+		VEC_DBL_INIT(tmp, cc5 );	++tmp;	/*	0x040 = cc5 */
+		VEC_DBL_INIT(tmp, cc6 );	++tmp;	/*	0x050 = cc6 */
+		VEC_DBL_INIT(tmp, ss1 );	++tmp;	/*	0x060 = ss1 */
+		VEC_DBL_INIT(tmp, ss2 );	++tmp;	/*	0x070 = ss2 */
+		VEC_DBL_INIT(tmp, ss3 );	++tmp;	/*	0x080 = ss3 */
+		VEC_DBL_INIT(tmp, ss4 );	++tmp;	/*	0x090 = ss4 */
+		VEC_DBL_INIT(tmp, ss5 );	++tmp;	/*	0x0a0 = ss5 */
+		VEC_DBL_INIT(tmp, ss6 );	++tmp;	/*	0x0b0 = ss6 */
+		VEC_DBL_INIT(tmp, 0.0 );	++tmp;	/*	0x0c0 = 0.0 */// Upper 5 slots unused here; init = 0
+		VEC_DBL_INIT(tmp, 0.0 );	++tmp;	/*	0x0d0 = 0.0 */
+		VEC_DBL_INIT(tmp, 0.0 );	++tmp;	/*	0x0e0 = 0.0 */
+		VEC_DBL_INIT(tmp, 0.0 );	++tmp;	/*	0x0f0 = 0.0 */
+		VEC_DBL_INIT(tmp, 0.0 );	++tmp;	/*	0x100 = 0.0 */
+	  #else
 		VEC_DBL_INIT(tmp,  DC1);	++tmp;	/*	0x000 =  DC1 */
 		VEC_DBL_INIT(tmp,  DC3);	++tmp;	/*	0x010 =  DC3 */
 		VEC_DBL_INIT(tmp,  DC4);	++tmp;	/*	0x020 =  DC4 */
@@ -496,11 +542,12 @@ int radix52_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		VEC_DBL_INIT(tmp, DS93);	++tmp;	/*	0x0e0 = DS93 */
 		VEC_DBL_INIT(tmp, DSa4);	++tmp;	/*	0x0f0 = DSa4 */
 		VEC_DBL_INIT(tmp, DSb5);	++tmp;	/*	0x100 = DSb5 */
+	  #endif
 		VEC_DBL_INIT(sse2_rnd,crnd);
 
 		// Propagate the above consts to the remaining threads:
-		nbytes = (int)tmp - (int)two;	// #bytes in above sincos block of data
-		tmp = two;
+		nbytes = (int)tmp - (int)one;	// #bytes in above sincos block of data
+		tmp = one;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
 			memcpy(tm2, tmp, nbytes);
@@ -1155,6 +1202,7 @@ for(outer=0; outer <= 1; outer++)
 
 void radix52_dif_pass1(double a[], int n)
 {
+	#include "radix13.h"
 /*
 !...Acronym: DIF = Decimation In Frequency
 !
@@ -1282,6 +1330,7 @@ void radix52_dif_pass1(double a[], int n)
 
 void radix52_dit_pass1(double a[], int n)
 {
+	#include "radix13.h"
 /*
 !...Acronym: DIT = Decimation In Time
 !
@@ -1428,6 +1477,7 @@ void radix52_dit_pass1(double a[], int n)
 	{
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr;
+		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p01,p02,p03,p04,p08,p12,p16,p20,p24,p28,p32,p36,p40,p44,p48;
 		int poff[RADIX>>2];
@@ -1446,7 +1496,7 @@ void radix52_dit_pass1(double a[], int n)
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 		double *add0, *add1, *add2, *add3;
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
-		vec_dbl *two,*rad13_const, *max_err, *sse2_rnd, *half_arr,	/* rad13_const needs 18*16 bytes allocated */
+		vec_dbl *one,*two,*rad13_const, *max_err, *sse2_rnd, *half_arr,	/* rad13_const needs 18*16 bytes allocated */
 			*r00,*r01,*r02,*r03,*r04,*r05,*r06,*r07,*r08,*r09,*r0a,*r0b,*r0c,*r0d,*r0e,*r0f,
 			*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r1a,*r1b,*r1c,*r1d,*r1e,*r1f,
 			*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r2a,*r2b,*r2c,*r2d,*r2e,*r2f,
@@ -1462,6 +1512,22 @@ void radix52_dit_pass1(double a[], int n)
 
 	#else
 
+	  #ifdef HIACC
+		const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the radix-13 fundamental sincos datum	*/
+				ss1 =  0.46472317204376854565,	/* Imag part of exp(i*2*pi/13).	*/
+				cc2 =  0.56806474673115580252,	/* cos(2u)	*/
+				ss2 =  0.82298386589365639457,	/* sin(2u)	*/
+				cc3 =  0.12053668025532305336,	/* cos(3u)	*/
+				ss3 =  0.99270887409805399279,	/* sin(3u)	*/
+				cc4 = -0.35460488704253562594,	/* cos(4u)	*/
+				ss4 =  0.93501624268541482344,	/* sin(4u)	*/
+				cc5 = -0.74851074817110109861,	/* cos(5u)	*/
+				ss5 =  0.66312265824079520240,	/* sin(5u)	*/
+				cc6 = -0.97094181742605202714,	/* cos(6u)	*/
+				ss6 =  0.23931566428755776718;	/* sin(6u)	*/
+	  #else	// Consts for van Buskirk-style tangent DFT in this header:
+		#include "radix13.h"
+	  #endif
 		double *base, *baseinv;
 		const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 		int m,m2;
@@ -1603,10 +1669,10 @@ void radix52_dit_pass1(double a[], int n)
 		r1e = tmp + 0x3c;
 		r1f = tmp + 0x3e;
 		tmp += 0x68;	// sc_ptr += 208
-		two = tmp;
-		rad13_const = tmp + 0x01;	/* Leave an extra slot at radix13_const-1 for the constant two = 2.0: */
-		tmp += 0x14;	/* Need 20 16-byte slots for two+sincos, but offset the carry slots by the next-larger multiple of 4 */
-
+		one = tmp;	// Leave 2 extra slots at radix13_const-1 for the consts 1.0,2.0: */
+		two = tmp+1;
+		rad13_const = tmp + 0x02;	// Needs 17 vec_dbl slots
+		tmp += 0x14;	/* Need 19 (0x12) 16-byte slots for two+sincos, but offset the carry slots by the next-larger multiple of 4 */
 	  #ifdef USE_AVX
 		cy = tmp;		tmp += 0x0d;
 		max_err = tmp + 0x00;
@@ -1728,3 +1794,4 @@ void radix52_dit_pass1(double a[], int n)
 #endif
 
 #undef RADIX
+#undef PFETCH_DIST

@@ -21,12 +21,19 @@
 *******************************************************************************/
 
 #include "Mlucas.h"
-#include "radix13.h"
 #include "radix16.h"
 
 #define RADIX 208	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
 
 // NB: USE_COMPACT_OBJ_CODE default-implemented here, hence no toggle available
+
+#ifndef PFETCH_DIST
+  #ifdef USE_AVX
+	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
+  #else
+	#define PFETCH_DIST	32
+  #endif
+#endif
 
 #ifdef MULTITHREAD
 	#ifndef USE_PTHREAD
@@ -54,11 +61,11 @@
   // For Mersenne-mod we need (16 [SSE2] or 64 [AVX]) + 4 added slots for the half_arr lookup tables.
   // Add relevant number (half_arr_offset208 + RADIX) to get required value of radix208_creals_in_local_store:
   #ifdef USE_AVX
-	const int half_arr_offset208 = 0x38c;	// + RADIX = += 0xd0 = 0x45c; Used for thread local-storage-integrity checking
-	const int radix208_creals_in_local_store = 0x470;	// (half_arr_offset208 + RADIX) + 68 and round up to nearest multiple of 4
+	const int half_arr_offset208 = 0x390;	// + RADIX = += 0xd0 = 0x460; Used for thread local-storage-integrity checking
+	const int radix208_creals_in_local_store = 0x4a4;	// (half_arr_offset208 + RADIX) + 68 and round up to nearest multiple of 4
   #else
-	const int half_arr_offset208 = 0x3c0;	// + RADIX = 0x490; Used for thread local-storage-integrity checking
-	const int radix208_creals_in_local_store = 0x504;	// (half_arr_offset208 + RADIX) = 20 and round up to nearest multiple of 4
+	const int half_arr_offset208 = 0x3c4;	// + RADIX = 0x494; Used for thread local-storage-integrity checking
+	const int radix208_creals_in_local_store = 0x4a8;	// (half_arr_offset208 + RADIX) = 20 and round up to nearest multiple of 4
   #endif
 
 	#include "sse2_macro.h"
@@ -137,6 +144,7 @@ int radix208_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	const char func[] = "radix208_ditN_cy_dif1";
+	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 #ifdef USE_SSE2
 	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
@@ -149,7 +157,22 @@ int radix208_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 #else
 	const int sz_vd = sizeof(double), sz_vd_m1 = sz_vd-1;
 #endif
-
+#if (defined(USE_AVX2) && defined(HIACC)) || (!defined(USE_SSE2) && defined(HIACC))
+const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the radix-13 fundamental sincos datum	*/
+			ss1 =  0.46472317204376854565,	/* Imag part of exp(i*2*pi/13).	*/
+			cc2 =  0.56806474673115580252,	/* cos(2u)	*/
+			ss2 =  0.82298386589365639457,	/* sin(2u)	*/
+			cc3 =  0.12053668025532305336,	/* cos(3u)	*/
+			ss3 =  0.99270887409805399279,	/* sin(3u)	*/
+			cc4 = -0.35460488704253562594,	/* cos(4u)	*/
+			ss4 =  0.93501624268541482344,	/* sin(4u)	*/
+			cc5 = -0.74851074817110109861,	/* cos(5u)	*/
+			ss5 =  0.66312265824079520240,	/* sin(5u)	*/
+			cc6 = -0.97094181742605202714,	/* cos(6u)	*/
+			ss6 =  0.23931566428755776718;	/* sin(6u)	*/
+#else	// Consts for van Buskirk-style tangent DFT in this header:
+	#include "radix13.h"
+#endif
 	int NDIVR,i,j,j1,j2,jt,jp,jstart,jhi,full_pass,k,khi,l,ntmp,outer,nbytes;
 	static uint64 psave=0;
 	static uint32 bw,sw,bjmodnini,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf
@@ -220,6 +243,9 @@ int radix208_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	double *add0,*add1,*add2,*add3,*add4,*add5,*add6,*add7,*add8,*add9,*adda,*addb,*addc,*addd,*adde,*addf;	/* Addresses into array sections */
   #endif
 
+	// Uint64 bitmaps for alternate "rounded the other way" copies of sqrt2,isrt2. Default round-to-nearest versions
+	// (SQRT2, ISRT2) end in ...3BCD. Since we round these down as ...3BCC90... --> ..3BCC, append _dn to varnames:
+	const uint64 sqrt2_dn = 0x3FF6A09E667F3BCCull, isrt2_dn = 0x3FE6A09E667F3BCCull;
 	static int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
 	const double crnd = 3.0*0x4000000*0x2000000;
 	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
@@ -229,7 +255,7 @@ int radix208_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8,*vb9,*vba,*vbb,*vbc,
 	#endif
 		*tmp,*tm1,*tm2;	// Non-static utility ptrs
-	static vec_dbl *two,*rad13_const, *max_err, *sse2_rnd, *half_arr, *isrt2, *cc0, *ss0,	// rad13_const needs 18*sizeof(vec_dbl) bytes
+	static vec_dbl *two,*one,*sqrt2,*isrt2, *rad13_const, *max_err, *sse2_rnd, *half_arr, *cc0, *ss0,	// rad13_const needs 18*sizeof(vec_dbl) bytes
 		*r00,	// Head of RADIX*vec_cmplx-sized local store #1
 		*s1p00,	// Head of RADIX*vec_cmplx-sized local store #2
 		*cy;	// Need RADIX/2 slots for sse2 carries, RADIX/4 for avx
@@ -418,32 +444,63 @@ int radix208_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		tmp = sc_ptr;	r00   = tmp;	// Head of RADIX*vec_cmplx-sized local store #1
 		tmp += 0x1a0;	s1p00 = tmp;	// Head of RADIX*vec_cmplx-sized local store #2
 		tmp += 0x1a0;
-		// DFT-roots:
-		isrt2 = tmp + 0x00;
-		cc0   = tmp + 0x01;
-		ss0   = tmp + 0x02;
-		two   = tmp + 0x03;
-		rad13_const = tmp + 0x04;	// Needs 17 vec_dbl slots
-		tmp += 0x16;	// Need 4 + 17 = 21 vec_dbl slots for DFT sincos, but pad to next-higher even
-	// sc_ptr += 0x356
+		two   = tmp + 0;	// AVX+ versions of radix-8,16,32 twiddleless-DFT macros need consts [2,1,sqrt2,isrt2] quartet laid out thusly
+		one   = tmp + 1;
+		sqrt2 = tmp + 2;
+		isrt2 = tmp + 3;
+		cc0   = tmp + 4;
+		ss0   = tmp + 5;
+	//	one   = tmp + 6;	Unnamed 1.0 slot to be used in radix-13
+	//	two   = tmp + 7;	Unnamed 2.0 slot to be used in radix-13
+		rad13_const = tmp + 0x08;	// Needs 17 vec_dbl slots
+		tmp += 0x1a;	// Need 8 + 17 = 25 vec_dbl slots for DFT sincos; round up nearest even
+	// sc_ptr += 0x36a
 	  #ifdef USE_AVX
 		cy = tmp;		tmp += 0x34;	// RADIX/4 vec_dbl slots for carry sub-array
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x38c; This is where the value of half_arr_offset208 comes from
+		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x390; This is where the value of half_arr_offset208 comes from
 		half_arr= tmp + 0x02;	// This table needs 68*sz_vd bytes in avx mode
 	  #else
 		cy = tmp;		tmp += 0x68;	// RADIX/2 vec_dbl slots for carry sub-array
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x3c0; This is where the value of half_arr_offset208 comes from
+		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x3c4; This is where the value of half_arr_offset208 comes from
 		half_arr= tmp + 0x02;	// This table needs 20*sz_vd bytes in sse2 mode
 	  #endif
 		ASSERT(HERE, (radix208_creals_in_local_store << l2_sz_vd) >= ((long)half_arr - (long)r00) + (20 << l2_sz_vd), "radix208_creals_in_local_store checksum failed!");
 		/* These remain fixed: */
-		VEC_DBL_INIT(isrt2,ISRT2);
+		VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );
+	  #if 1
+		// 2 unnamed slots for alternate "rounded the other way" copies of sqrt2,isrt2:
+		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
+		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+	  #else
+		VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
+	  #endif
 		VEC_DBL_INIT(cc0  ,  c16);
 		VEC_DBL_INIT(ss0  ,  s16);
-		tmp = two;		/* __cc pointer offsets: */
+		tmp = rad13_const-2;		/* __cc pointer offsets: */
+		VEC_DBL_INIT(tmp,  1.0);	++tmp;	/*	-0x020 = 1.0 */
 		VEC_DBL_INIT(tmp,  2.0);	++tmp;	/*	-0x010 = 2.0 */
+	  #if defined(USE_AVX2) && defined(HIACC)	// FMA+HIACC version (like radix-11/FMA) based on simple radix-13 DFT implementation, but here (simple+FMA) is a
+	  											// tad slower than the default tangent-DFT and the latter has decent roundoff properties, so remains the default
+		VEC_DBL_INIT(tmp, cc1 );	++tmp;	/*	0x000 = cc1 */
+		VEC_DBL_INIT(tmp, cc2 );	++tmp;	/*	0x010 = cc2 */
+		VEC_DBL_INIT(tmp, cc3 );	++tmp;	/*	0x020 = cc3 */
+		VEC_DBL_INIT(tmp, cc4 );	++tmp;	/*	0x030 = cc4 */
+		VEC_DBL_INIT(tmp, cc5 );	++tmp;	/*	0x040 = cc5 */
+		VEC_DBL_INIT(tmp, cc6 );	++tmp;	/*	0x050 = cc6 */
+		VEC_DBL_INIT(tmp, ss1 );	++tmp;	/*	0x060 = ss1 */
+		VEC_DBL_INIT(tmp, ss2 );	++tmp;	/*	0x070 = ss2 */
+		VEC_DBL_INIT(tmp, ss3 );	++tmp;	/*	0x080 = ss3 */
+		VEC_DBL_INIT(tmp, ss4 );	++tmp;	/*	0x090 = ss4 */
+		VEC_DBL_INIT(tmp, ss5 );	++tmp;	/*	0x0a0 = ss5 */
+		VEC_DBL_INIT(tmp, ss6 );	++tmp;	/*	0x0b0 = ss6 */
+		VEC_DBL_INIT(tmp, 0.0 );	++tmp;	/*	0x0c0 = 0.0 */// Upper 5 slots unused here; init = 0
+		VEC_DBL_INIT(tmp, 0.0 );	++tmp;	/*	0x0d0 = 0.0 */
+		VEC_DBL_INIT(tmp, 0.0 );	++tmp;	/*	0x0e0 = 0.0 */
+		VEC_DBL_INIT(tmp, 0.0 );	++tmp;	/*	0x0f0 = 0.0 */
+		VEC_DBL_INIT(tmp, 0.0 );	++tmp;	/*	0x100 = 0.0 */
+	  #else
 		VEC_DBL_INIT(tmp,  DC1);	++tmp;	/*	0x000 =  DC1 */
 		VEC_DBL_INIT(tmp,  DC3);	++tmp;	/*	0x010 =  DC3 */
 		VEC_DBL_INIT(tmp,  DC4);	++tmp;	/*	0x020 =  DC4 */
@@ -461,11 +518,12 @@ int radix208_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		VEC_DBL_INIT(tmp, DS93);	++tmp;	/*	0x0e0 = DS93 */
 		VEC_DBL_INIT(tmp, DSa4);	++tmp;	/*	0x0f0 = DSa4 */
 		VEC_DBL_INIT(tmp, DSb5);	++tmp;	/*	0x100 = DSb5 */
+	  #endif
 		VEC_DBL_INIT(sse2_rnd,crnd);
 
 		// Propagate the above consts to the remaining threads:
-		nbytes = (int)tmp - (int)isrt2;	// #bytes in above sincos block of data
-		tmp = isrt2;
+		nbytes = (int)tmp - (int)two;	// #bytes in above sincos block of data
+		tmp = two;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
 			memcpy(tm2, tmp, nbytes);
@@ -1140,6 +1198,7 @@ for(outer=0; outer <= 1; outer++)
 
 void radix208_dif_pass1(double a[], int n)
 {
+#include "radix13.h"	// In these wrappers we always use the tangent-DFT
 /*
 !...Acronym: DIF = Decimation In Frequency
 !
@@ -1363,6 +1422,7 @@ void radix208_dif_pass1(double a[], int n)
 
 void radix208_dit_pass1(double a[], int n)
 {
+#include "radix13.h"	// In these wrappers we always use the tangent-DFT
 /*
 !...Acronym: DIT = Decimation In Time
 !
@@ -1575,6 +1635,7 @@ void radix208_dit_pass1(double a[], int n)
 	{
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		double *addr;
+		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf
 					,p10,p20,p30,p40,p50,p60,p70,p80,p90,pa0,pb0,pc0;
@@ -1623,7 +1684,7 @@ void radix208_dit_pass1(double a[], int n)
 		vec_dbl *tmp,*tm1,*tm2,	// Non-static utility ptrs
 			*va0,*va1,*va2,*va3,*va4,*va5,*va6,*va7,*va8,*va9,*vaa,*vab,*vac,
 			*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8,*vb9,*vba,*vbb,*vbc;
-		vec_dbl *two,*rad13_const, *max_err, *sse2_rnd, *half_arr, *isrt2, *cc0, *ss0,	/* rad13_const needs 18*16 bytes allocated */
+		vec_dbl *two,*one,*sqrt2,*isrt2, *rad13_const, *max_err, *sse2_rnd, *half_arr, *cc0, *ss0,	/* rad13_const needs 18*16 bytes allocated */
 			*r00,	// Head of RADIX*vec_cmplx-sized local store #1
 			*s1p00,	// Head of RADIX*vec_cmplx-sized local store #2
 			*cy;	// Need RADIX/2 slots for sse2 carries, RADIX/4 for avx
@@ -1632,6 +1693,22 @@ void radix208_dit_pass1(double a[], int n)
 
 	#else
 
+	  #ifdef HIACC
+		const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the radix-13 fundamental sincos datum	*/
+				ss1 =  0.46472317204376854565,	/* Imag part of exp(i*2*pi/13).	*/
+				cc2 =  0.56806474673115580252,	/* cos(2u)	*/
+				ss2 =  0.82298386589365639457,	/* sin(2u)	*/
+				cc3 =  0.12053668025532305336,	/* cos(3u)	*/
+				ss3 =  0.99270887409805399279,	/* sin(3u)	*/
+				cc4 = -0.35460488704253562594,	/* cos(4u)	*/
+				ss4 =  0.93501624268541482344,	/* sin(4u)	*/
+				cc5 = -0.74851074817110109861,	/* cos(5u)	*/
+				ss5 =  0.66312265824079520240,	/* sin(5u)	*/
+				cc6 = -0.97094181742605202714,	/* cos(6u)	*/
+				ss6 =  0.23931566428755776718;	/* sin(6u)	*/
+	  #else	// Consts for van Buskirk-style tangent DFT in this header:
+		#include "radix13.h"
+	  #endif
 		double *base, *baseinv;
 		const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 		int m,m2;
@@ -1727,28 +1804,28 @@ void radix208_dit_pass1(double a[], int n)
 		tmp	= r00 = thread_arg->r00;	// Head of RADIX*vec_cmplx-sized local store #1
 		tmp += 0x1a0;	s1p00 = tmp;	// Head of RADIX*vec_cmplx-sized local store #2
 		tmp += 0x1a0;
-		// DFT-roots:
-		isrt2 = tmp + 0x00;
-		cc0   = tmp + 0x01;
-		ss0   = tmp + 0x02;
-		two   = tmp + 0x03;
-		rad13_const = tmp + 0x04;	// Needs 17 vec_dbl slots
-		tmp += 0x16;	// Need 4 + 17 = 21 vec_dbl slots for DFT sincos, but pad to next-higher even
-	// sc_ptr += 0x354
+		two   = tmp + 0;	// AVX+ versions of radix-8,16,32 twiddleless-DFT macros need consts [2,1,sqrt2,isrt2] quartet laid out thusly
+		one   = tmp + 1;
+		sqrt2 = tmp + 2;
+		isrt2 = tmp + 3;
+		cc0   = tmp + 4;
+		ss0   = tmp + 5;
+	//	one   = tmp + 6;	Unnamed 1.0 slot to be used in radix-13
+	//	two   = tmp + 7;	Unnamed 2.0 slot to be used in radix-13
+		rad13_const = tmp + 0x08;	// Needs 17 vec_dbl slots
+		tmp += 0x1a;	// Need 8 + 17 = 25 vec_dbl slots for DFT sincos; round up nearest even
+	// sc_ptr += 0x36a
 	  #ifdef USE_AVX
 		cy = tmp;		tmp += 0x34;	// RADIX/4 vec_dbl slots for carry sub-array
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;
-	// sc_ptr += 0x428; This is where the value of half_arr_offset208 comes from
-		half_arr= tmp + 0x02;	/* This table needs 20x16 bytes for Mersenne-mod, and radixx16 for Fermat-mod */
+		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x390; This is where the value of half_arr_offset208 comes from
+		half_arr= tmp + 0x02;	// This table needs 68*sz_vd bytes in avx mode
 	  #else
 		cy = tmp;		tmp += 0x68;	// RADIX/2 vec_dbl slots for carry sub-array
 		max_err = tmp + 0x00;
-		sse2_rnd= tmp + 0x01;
-	// sc_ptr += 0x4f8; This is where the value of half_arr_offset208 comes from
-		half_arr= tmp + 0x02;	/* This table needs 20x16 bytes for Mersenne-mod, and radixx16 for Fermat-mod */
+		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x3c4; This is where the value of half_arr_offset208 comes from
+		half_arr= tmp + 0x02;	// This table needs 20*sz_vd bytes in sse2 mode
 	  #endif
-
 		ASSERT(HERE, (r00 == thread_arg->r00), "thread-local memcheck failed!");
 		ASSERT(HERE, (half_arr == thread_arg->half_arr), "thread-local memcheck failed!");
 		ASSERT(HERE, (sse2_rnd->d0 == crnd && sse2_rnd->d1 == crnd), "thread-local memcheck failed!");
@@ -1868,3 +1945,4 @@ void radix208_dit_pass1(double a[], int n)
 #endif
 
 #undef RADIX
+#undef PFETCH_DIST
