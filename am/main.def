@@ -1,0 +1,90 @@
+/*                                      Hey, EMACS: -*- C -*-  */
+/* main.def - definition used by autogen to generate main.am
+   Copyright (C) 2015  Alex Vong
+
+   This program is free software; you can redistribute it and/or
+   modify it under the terms of the GNU General Public License
+   as published by the Free Software Foundation; either version 2
+   of the License, or (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program; if not, write to the Free Software Foundation,
+   Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.  */
+
+autogen definitions main;
+
+/* normal source files  */
+normal_c = " br.c dft_macro.c factor.c fermat_mod_square.c gcd_lehmer.c get_cpuid.c get_fft_radices.c get_fp_rnd_const.c get_preferred_fft_radix.c getRealTime.c imul_macro.c mers_mod_square.c mi64.c Mlucas.c pairFFT_mul.c radix1008_ditN_cy_dif1.c radix1024_ditN_cy_dif1.c radix104_ditN_cy_dif1.c radix10_ditN_cy_dif1.c radix112_ditN_cy_dif1.c radix11_ditN_cy_dif1.c radix120_ditN_cy_dif1.c radix128_ditN_cy_dif1.c radix12_ditN_cy_dif1.c radix13_ditN_cy_dif1.c radix144_ditN_cy_dif1.c radix14_ditN_cy_dif1.c radix15_ditN_cy_dif1.c radix160_ditN_cy_dif1.c radix16_dif_dit_pass.c radix16_ditN_cy_dif1.c radix16_dyadic_square.c radix16_pairFFT_mul.c radix16_wrapper_ini.c radix16_wrapper_square.c radix176_ditN_cy_dif1.c radix18_ditN_cy_dif1.c radix192_ditN_cy_dif1.c radix208_ditN_cy_dif1.c radix20_ditN_cy_dif1.c radix224_ditN_cy_dif1.c radix22_ditN_cy_dif1.c radix240_ditN_cy_dif1.c radix24_ditN_cy_dif1.c radix256_ditN_cy_dif1.c radix26_ditN_cy_dif1.c radix288_ditN_cy_dif1.c radix28_ditN_cy_dif1.c radix30_ditN_cy_dif1.c radix31_ditN_cy_dif1.c radix32_dif_dit_pass.c radix32_ditN_cy_dif1.c radix32_dyadic_square.c radix32_wrapper_ini.c radix32_wrapper_square.c radix36_ditN_cy_dif1.c radix4032_ditN_cy_dif1.c radix40_ditN_cy_dif1.c radix44_ditN_cy_dif1.c radix48_ditN_cy_dif1.c radix512_ditN_cy_dif1.c radix52_ditN_cy_dif1.c radix56_ditN_cy_dif1.c radix5_ditN_cy_dif1.c radix60_ditN_cy_dif1.c radix63_ditN_cy_dif1.c radix64_ditN_cy_dif1.c radix6_ditN_cy_dif1.c radix72_ditN_cy_dif1.c radix768_ditN_cy_dif1.c radix7_ditN_cy_dif1.c radix80_ditN_cy_dif1.c radix88_ditN_cy_dif1.c radix8_dif_dit_pass.c radix8_ditN_cy_dif1.c radix960_ditN_cy_dif1.c radix96_ditN_cy_dif1.c radix992_ditN_cy_dif1.c radix9_ditN_cy_dif1.c test_fft_radix.c twopmodq128_96.c twopmodq128.c twopmodq160.c twopmodq192.c twopmodq256.c twopmodq64_test.c twopmodq80.c twopmodq96.c twopmodq.c types.c";
+/* multithread-related source files  */
+threads_c = " threadpool.c";
+/* optimization-sensitive source files  */
+tricky_c = " rng_isaac.c qfloat.c util.c";
+/* all headers  */
+header = " align.h carry_dbg.h carry_gcc32.h carry_gcc64.h carry.h dft_macro.h f2psp_3_5.h f2psp.h fac_test_dat128.h fac_test_dat192.h fac_test_dat256.h fac_test_dat64.h fac_test_dat96.h factor.h factor_test.h float_intrin.h gcd_lehmer.h genFFT_mul.h imul256_macro.h imul_macro0.h imul_macro1.h imul_macro.h int_macros.h masterdefs.h Mdata.h mi64.h Mlucas.h pair_square.h platform.h prefetch.h qfloat.h radix09_sse_macro.h radix1008_avx_negadwt_consts.h radix1008_main_carry_loop.h radix1024_avx_negadwt_consts.h radix1024.h radix1024_main_carry_loop.h radix1024_twiddles.h radix11_sse_macro.h radix128.h radix128_main_carry_loop.h radix128_twiddles.h radix13.h radix13_sse_macro.h radix144_main_carry_loop.h radix15_sse_macro.h radix160_main_carry_loop.h radix16_dif_dit_pass_gcc32.h radix16_dif_dit_pass_gcc64.h radix16_ditN_cy_dif1_gcc32.h radix16_ditN_cy_dif1_gcc64.h radix16_dyadic_square_gcc64.h radix16.h radix16_main_carry_loop.h radix16_wrapper_square_gcc32.h radix16_wrapper_square_gcc64.h radix176_main_carry_loop.h radix192_main_carry_loop.h radix208_main_carry_loop.h radix20_ditN_cy_dif1_gcc32.h radix20_ditN_cy_dif1_gcc64.h radix20_main_carry_loop.h radix224_main_carry_loop.h radix240_main_carry_loop.h radix24_ditN_cy_dif1_gcc32.h radix24_ditN_cy_dif1_gcc64.h radix24_main_carry_loop.h radix256.h radix256_main_carry_loop.h radix256_twiddles.h radix288_main_carry_loop.h radix28_ditN_cy_dif1_gcc32.h radix28_ditN_cy_dif1_gcc64.h radix28_main_carry_loop.h radix31.h radix32_dif_dit_pass_gcc32.h radix32_dif_dit_pass_gcc64.h radix32_ditN_cy_dif1_gcc32.h radix32_ditN_cy_dif1_gcc64.h radix32_ditN_cy_dif1_win32.h radix32.h radix32_main_carry_loop.h radix32_wrapper_square_gcc32.h radix32_wrapper_square_gcc64.h radix36_ditN_cy_dif1_gcc32.h radix36_ditN_cy_dif1_gcc64.h radix36_main_carry_loop.h radix4032_avx_negadwt_consts.h radix4032.h radix4032_main_carry_loop.h radix40_ditN_cy_dif1_gcc64.h radix40_main_carry_loop.h radix44_ditN_cy_dif1_gcc64.h radix44_main_carry_loop.h radix48_main_carry_loop.h radix512.h radix52_ditN_cy_dif1_gcc64.h radix52_main_carry_loop.h radix56_main_carry_loop.h radix60_ditN_cy_dif1_gcc64.h radix60_main_carry_loop.h radix63_main_carry_loop.h radix64.h radix64_main_carry_loop.h radix768_main_carry_loop.h radix8_dif_dit_pass_gcc32.h radix8_dif_dit_pass_gcc64.h radix960_avx_negadwt_consts.h radix960_main_carry_loop.h radix992_main_carry_loop.h rng_isaac.h sse2_macro_gcc32.h sse2_macro_gcc64.h sse2_macro.h threadpool.h twopmodq80.h types.h util.h";
+
+/* patches used to patch autotools-generated files  */
+patch = " 0001-missing-add-autoreconf-autogen-and-perl-as-supported.patch";
+
+/* scripts used to generate documentations  */
+script_doc = " gen-ChangeLog-NEWS manpage.pl";
+
+/* input file used to generate the mlucas wrapper script  */
+script_in = " mlucas.in";
+
+/* tests invoked when running `$ make check'  */
+script_test = " spot_check.test self_test.test";
+
+/* templates and definition used by autogen  */
+template = " amd64_instruction_unspecified.tpl generic.tpl main.def main.tpl scheme.tpl";
+
+/* manpage to be distributed  */
+documentation = " mlucas.1";
+/* html to be distributed  */
+share_html = " README.html";
+
+/* licenses to be distributed  */
+license = " COPYING.BSD-3-clause COPYING.CC0 COPYING.CC-BY-3.0 COPYING.GFDL-1.3 COPYING.GPL-2";
+
+/* a thread-safe generic rule for building one or more targets  */
+rule = "?target-name?.stamp: ?ingredient?
+	@rm -f ?target-name?.tmp
+	@touch ?target-name?.tmp
+	@if $(AM_V_P); \
+	then \
+	set -x; \
+	else \
+	?echo?; \
+	fi; \
+	$(MKDIR_P) ?dir-name?; \
+	cd ?dir-name? && \
+	?command?
+	@mv -f ?target-name?.tmp ?target-name?.stamp
+
+?target?: ?target-name?.stamp
+	@if test -f $@; \
+	then \
+	true; \
+	else \
+	rm -f ?target-name?.stamp; \
+	$(MAKE) $(AM_MAKEFLAGS) ?target-name?.stamp; \
+	fi";
+/* a generic rule for invoking the C compiler  */
+compilation_rule = "	$(COMPILE) ?compilation-flag? \
+	-c ?ingredient-path-name? \
+	$(REDIRECTION)";
+
+/* a generic rule for instantiating scripts  */
+make_script_rule = "	set -- ?target?; \
+	for script in ?ingredient-path-name?; \
+	do \
+	sed -e h ?sed-scripts? < $$script > $$1; \
+	chmod +x $$1; \
+	shift; \
+	done";
+/* a generic format of sed script capable of substituting one variable  */
+sed_script = "-e 's,[@]?variable?[@],$(?variable?),g'";

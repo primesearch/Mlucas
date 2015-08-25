@@ -1,0 +1,144 @@
+Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Mlucas
+Upstream-Contact: Ernst W. Mayer <ewmayer@aol.com>
+Source: http://hogranch.com/mayer/src/C/
+Comment:
+ This file itself is licensed under
+ the GNU General Public License version 2 or later.
+ .
+ The complete text of the GNU General Public License version 2
+ can be found in "COPYING.d/COPYING.GPL-2".
+ .
+ Most of the files are licensed under
+ the GNU General Public License version 2 or later.
+ Other files are under permissive licenses or in the public domain.
+ All files except empty files or generated data
+ should have a license header or footer.
+ If not, please send a bug report (see section Bugs for details).
+
+Files: src/*
+Copyright: 1997-2015 Ernst W. Mayer <ewmayer@aol.com>
+License: GPL-2+
+
+Files: src/getRealTime.c
+Copyright: 2012 David Robert Nadeau
+License: CC-BY-3.0
+
+Files: src/rng_isaac.c src/rng_isaac.h
+Copyright: 1996 Bob Jenkins
+License: public-domain
+ Public Domain.
+
+Files: src/threadpool.c src/threadpool.h
+Copyright: 2010-2012 Tomer Heber <heber.tomer@gmail.com>
+	   2012 Jason Papadopoulos <jasonp@boo.net>
+	   1997-2013 Ernst W. Mayer <ewmayer@aol.com>
+License: BSD-3-clause and permissive-disclaimer and GPL-2+
+Comment:
+ One of the authors Tomer Hebe did not specify
+ which BSD License he was referring to.
+ We assume it is the BSD 3-Clause License found on Debian 8 systems.
+ .
+ One of the authors Jason Papadopoulos placed his contribution
+ into the public domain, but disclaimed any responsibility.
+ If this is legally allowed, then his contribution is in the public domain.
+ Otherwise, regard it as a permissive license with disclaimer.
+
+Files: html/* scripts/gen-ChangeLog-NEWS
+Copyright: 2015 Ernst W. Mayer <ewmayer@aol.com>
+License: GFDL-NIV-1.3+
+
+Files: am/* scripts/*.in scripts/*.pl configure.ac bootstrap COPYING README
+Copyright: 2015 Alex Vong <alexvong1995@gmail.com>
+License: GPL-2+
+
+Files: scripts/*.test AUTHORS Makefile.am
+Copyright: 2015 Alex Vong <alexvong1995@gmail.com>
+License: CC0
+
+Files: COPYING.d/COPYING.BSD-3-clause
+Copyright: The Regents of the University of California
+License: DONT-CHANGE-THE-BSD
+ All rights reserved.
+
+Files: COPYING.d/COPYING.CC*
+Copyright: CREATIVE COMMONS CORPORATION
+License: CREATIVE-COMMONS-NO-WARRANTIES
+ CREATIVE COMMONS CORPORATION IS NOT A LAW FIRM AND DOES NOT PROVIDE
+ LEGAL SERVICES. DISTRIBUTION OF THIS DOCUMENT DOES NOT CREATE AN
+ ATTORNEY-CLIENT RELATIONSHIP. CREATIVE COMMONS PROVIDES THIS
+ INFORMATION ON AN "AS-IS" BASIS. CREATIVE COMMONS MAKES NO WARRANTIES
+ REGARDING THE USE OF THIS DOCUMENT OR THE INFORMATION OR WORKS
+ PROVIDED HEREUNDER, AND DISCLAIMS LIABILITY FOR DAMAGES RESULTING FROM
+ THE USE OF THIS DOCUMENT OR THE INFORMATION OR WORKS PROVIDED
+ HEREUNDER.
+
+Files: COPYING.d/COPYING.GFDL-1.3
+Copyright: 2000, 2001, 2002, 2007, 2008 Free Software Foundation, Inc
+License: DONT-CHANGE-THE-GPL
+
+Files: COPYING.d/COPYING.GPL-2
+Copyright: 1989, 1991 Free Software Foundation, Inc
+License: DONT-CHANGE-THE-GPL
+
+Files: patch/0001*.patch missing
+Copyright: 1996-2015 Free Software Foundation, Inc
+License: GPL-2+ with Autoconf exception
+
+License: GPL-2+
+ The complete text of the GNU General Public License version 2
+ can be found in "COPYING.d/COPYING.GPL-2".
+
+License: CC-BY-3.0
+ The complete text of the Attribution 3.0 Unported
+ can be found in "COPYING.d/COPYING.CC-BY-3.0".
+
+License: BSD-3-clause
+ The complete text of the BSD 3-Clause License
+ can be found in "COPYING.d/COPYING.CC-BY-3.0".
+
+License: permissive-disclaimer
+ This source distribution is placed in the public domain by its author,
+ Jason Papadopoulos. You may use it for any purpose, free of charge,
+ without having to notify anyone. I disclaim any responsibility for any
+ errors.
+ .
+ Optionally, please be nice and tell me if you find this source to be
+ useful. Again optionally, if you add to the functionality present here
+ please consider making those additions public too, so that others may
+ benefit from your work.
+
+License: GFDL-NIV-1.3+
+ The complete text of the GNU Free Documentation License version 1.3
+ with no Invariant Sections, no Front-Cover Texts, and no Back-Cover Texts
+ can be found in "COPYING.d/COPYING.GFDL-1.3".
+
+License: CC0
+ The complete text of the GNU Free Documentation License version 1.3
+ can be found in "COPYING.d/ COPYING.CC0".
+
+License: GPL-2+ with Autoconf exception
+ This program is free software; you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 2, or (at your option)
+ any later version.
+ .
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+ .
+ You should have received a copy of the GNU General Public License
+ along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ .
+ As a special exception to the GNU General Public License, if you
+ distribute this file as part of a program that contains a
+ configuration script generated by Autoconf, you may include it under
+ the same distribution terms that you use for the rest of that program.
+ .
+ The complete text of the GNU General Public License version 2
+ can be found in "COPYING.d/COPYING.GPL-2".
+
+License: DONT-CHANGE-THE-GPL
+ Everyone is permitted to copy and distribute verbatim copies
+ of this license document, but changing it is not allowed.

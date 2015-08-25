@@ -1,0 +1,89 @@
+#!/bin/sh
+#
+# mlucas - shell wrapper for Mlucas
+# Copyright (C) 2015  Alex Vong
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software Foundation,
+# Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+# Use error
+set -e
+
+# Obtain PKGLIBEXECDIR from substitution
+PKGLIBEXECDIR='@pkglibexecdir@/'
+
+# Obtain DIRNAME by tranforming `foo/bar' to `foo/'
+# Otherwise, set it to $PKGLIBEXECDIR
+case "$0" in
+    */*)
+	DIRNAME=`echo "$0" | sed -e 's/\/[^\/]*$/\//g'`
+	;;
+    *)
+	DIRNAME="$PKGLIBEXECDIR"
+	;;
+esac
+
+# Find out where are the mlucas executables
+# Print error messages if fail to find mlucas executables
+if test -x "$DIRNAME"avx2/mlucas && \
+	test -x "$DIRNAME"avx/mlucas && \
+	test -x "$DIRNAME"sse2/mlucas
+then
+    # Try invoking different flavours of mlucas using relative path
+    # Normally,the sse2 version should work for all amd64 computers
+    # The `else' clause must not be changed to `elif'
+    # Otherwise, user will be left hopelessly without any error messages
+    # if something goes wrong (e.g. MLUCAS_PATH without a trailing `/')
+    if "$DIRNAME"avx2/mlucas \
+		 -fftlen 192 -iters 100 -radset 0 -nthread 2 \
+		 > /dev/null 2>&1
+    then
+	exec "$DIRNAME"avx2/mlucas "$@"
+    elif "$DIRNAME"avx/mlucas \
+		   -fftlen 192 -iters 100 -radset 0 -nthread 2 \
+		   > /dev/null 2>&1
+    then
+	exec "$DIRNAME"avx/mlucas "$@"
+    else
+	exec "$DIRNAME"sse2/mlucas "$@"
+    fi
+elif test -x "$PKGLIBEXECDIR"avx2/mlucas && \
+	test -x "$PKGLIBEXECDIR"avx/mlucas && \
+	test -x "$PKGLIBEXECDIR"sse2/mlucas
+then
+    # Try invoking different flavours of mlucas using absolute path
+    # Normally,the sse2 version should work for all amd64 computers
+    # The `else' clause must not be changed to `elif'
+    # Otherwise, user will be left hopelessly without any error messages
+    # if something goes wrong (e.g. MLUCAS_PATH without a trailing `/')
+    if "$PKGLIBEXECDIR"avx2/mlucas \
+		       -fftlen 192 -iters 100 -radset 0 -nthread 2 \
+		       > /dev/null 2>&1
+    then
+	exec "$PKGLIBEXECDIR"avx2/mlucas "$@"
+    elif "$PKGLIBEXECDIR"avx/mlucas \
+			 -fftlen 192 -iters 100 -radset 0 -nthread 2 \
+			 > /dev/null 2>&1
+    then
+	exec "$PKGLIBEXECDIR"avx/mlucas "$@"
+    else
+	exec "$PKGLIBEXECDIR"sse2/mlucas "$@"
+    fi
+else
+    {
+	printf 'cannot find any mlucas executables\n'
+	printf 'see BUGS section in mlucas(1) on how to report bugs about '
+	printf 'installation problems\n'
+    } >&2
+fi
