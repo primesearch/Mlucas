@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2012 by Ernst W. Mayer.                                           *
+*   (C) 1997-2015 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -282,24 +282,28 @@ uint64 twopmodq63(uint64 p, uint64 q)
 {
 	 int32 j;
 	uint64 qinv, x, lo, hi, r;
-	static uint64 psave = 0, pshift, zstart;
-	static uint32 start_index, first_entry = TRUE;
+	uint64 pshift, qhalf = q>>1;
+	uint32 jshift, leadb, start_index, zshift;
+	uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
-	if(first_entry || p != psave)
-	{
-		first_entry = FALSE;
-		psave  = p;
-		pshift = p + 64;
-	/*
-	!    find number of leading zeros in p, use it to find the position of the leftmost
-	!    ones bit, and subtract 6 to account for the fact that we can do the powering for the leftmost
-	!    6 bits via a simple shift.
-	*/
-		start_index = 64-leadz64(pshift)-6;	/* Leftward bit at which to start the l-r binary powering, assuming
+	pshift = p + 64;
+/*
+!    find number of leading zeros in p, use it to find the position of the leftmost
+!    ones bit, and subtract 6 to account for the scaling factor of 2^64...
+*/
+	jshift = leadz64(pshift);
+	// Extract leftmost 6 bits of pshift and subtract from 64:
+	leadb = ((pshift<<jshift) >> (64-6));
+	start_index = (64-6)-jshift;	/* Leftward bit at which to start the l-r binary powering, assuming
 							 the leftmost 6 bits have already been processed via a shift (see next). */
-		zstart = ((uint64)1) << (63-ibits64(pshift,start_index,6));	/* no need to mod this, since ibits64(...) > 0. */
-		pshift = ~pshift;
-	}
+	zshift = 63 - leadb;	/* Since 6 bits with leftmost bit = 1 is guaranteed
+	 to be in [32,63], the shift count here is in [0, 31].
+	 That means that zstart < 2^32. Together with the fact that
+	 squaring a power of two gives another power of two, we can
+	 simplify the modmul code sequence for the first iteration.
+	 Every little bit counts (literally in this case :), right? */
+	zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
+	pshift = ~pshift;
 
 	/*
 	Find modular inverse (mod 2^64) of q in preparation for modular multiply.
@@ -362,15 +366,27 @@ uint64 twopmodq63(uint64 p, uint64 q)
 		qinv = qinv*((uint64)2 - q*qinv);
 	}
 
-	/*...Initialize the binary powering...*/
-	x = zstart;
+	// Since zshift is a power of two < 2^128, use streamlined code sequence for 1st iteration:
+	j = start_index-1;
+	x = qinv << zshift;	// MULL64(1 << zshift, qinv, lo) simply amounts to a left-shift of the bits of qinv
+  #ifdef MUL_LOHI64_SUBROUTINE
+	x = __MULH64(q,x);
+  #else
+	MULH64(q,x,x);
+  #endif
+	// hi =  in this instance, which simplifies things:
+	x = q - x;
+	if((pshift >> j) & (uint64)1)
+	{
+		x = x + x - (q & -(x >= qhalf));
+	}
 	DBG_ASSERT(HERE, x < q, "twopmodq63 : x0 < q");
 
 #if FAC_DEBUG
 	fprintf(stderr, "twopmodq63 : x0 = %s, q = %s\n", &str0[convert_uint64_base10_char(str0, x)], &str1[convert_uint64_base10_char(str1, q)] );
 #endif
 
-	for(j = start_index-1; j >= 0; j--)
+	for(j = start_index-2; j >= 0; j--)
 	{
 	#ifdef MUL_LOHI64_SUBROUTINE
 		SQR_LOHI64(x,&lo,&hi);
@@ -402,128 +418,149 @@ uint64 twopmodq63(uint64 p, uint64 q)
 	/*...Double and return.	These are specialized for the case where 2^p == 1 mod q
 	implies divisibility, in which case x = (q+1)/2.
 	*/
-	r = x+x-q;	/* In the case of interest, x = (q+1)/2 < 2^63, so x + x cannot overflow. */
+	r = x+x+FERMAT-q;	/* In the case of interest, x = (q+1)/2 < 2^63, so x + x cannot overflow. */
 	return r;
 }
 
 /*** 4-trial-factor version ***/
-uint64 twopmodq63_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
+uint64 twopmodq63_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 {
+//int dbg = ( (p == (1ull<<32)) && ( (k0 == 2958ull) || (k1 == 2958ull) || (k2 == 2958ull) || (k3 == 2958ull) ) );
+//if(dbg) printf("Hit! k0-3 = %llu, %llu, %llu, %llu\n",k0, k1, k2, k3);
 	 int32 j;
-	uint64 q0 = 1+(p<<1)*k0, q1 = 1+(p<<1)*k1, q2 = 1+(p<<1)*k2, q3 = 1+(p<<1)*k3
-		, qinv0, qinv1, qinv2, qinv3
-		, x0, x1, x2, x3
-		, y0, y1, y2, y3
-		, lo0, lo1, lo2, lo3
-		, hi0, hi1, hi2, hi3, r;
-	static uint64 psave = 0, pshift, zstart;
-	static uint32 start_index, first_entry = TRUE;
-#ifdef MOD_INI_Q4
-	uint32 ql0,ql1,ql2,ql3,qh0,qh1,qh2,qh3,qil0,qil1,qil2,qil3,qih0,qih1,qih2,qih3;
-#endif
+	uint32 q32_0, q32_1, q32_2, q32_3;
+	uint32 qinv32_0, qinv32_1, qinv32_2, qinv32_3;
+	uint64 q0, qinv0, qhalf0, x0, y0
+		 , q1, qinv1, qhalf1, x1, y1
+		 , q2, qinv2, qhalf2, x2, y2
+		 , q3, qinv3, qhalf3, x3, y3, r;
+	uint64 pshift;
+	uint32 jshift, leadb, start_index, zshift;
+	uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
-	if(first_entry || p != psave)
-	{
-		first_entry = FALSE;
-		psave  = p;
-		pshift = p + 64;
-	/*
-	!    find number of leading zeros in p, use it to find the position of the leftmost
-	!    ones bit, and subtract 6 to account for the scaling factor of 2^64...
-	*/
-		start_index = 64-leadz64(pshift)-6;	/* Leftward bit at which to start the l-r binary powering, assuming
-								 the leftmost 6 bits have already been processed via a shift (see next). */
-		zstart = ((uint64)1) << (63-ibits64(pshift,start_index,6));	/* no need to mod this, since ibits64(...) > 0. */
-		pshift = ~pshift;
-	}
-	*checksum1 += q0 + q1 + q2 + q3;
+	pshift = p + 64;
+	jshift = leadz64(pshift);
+	// Extract leftmost 6 bits of pshift and subtract from 64:
+	leadb = ((pshift<<jshift) >> (64-6));
+	start_index = (64-6)-jshift;
+	zshift = 63 - leadb;
+	zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
+	pshift = ~pshift;
+
+	r = p<<1;
+	q0 = 1+r*k0; q1 = 1+r*k1; q2 = 1+r*k2; q3 = 1+r*k3;
+	qhalf0 = q0>>1;
+	qhalf1 = q1>>1;
+	qhalf2 = q2>>1;
+	qhalf3 = q3>>1;
 
 	/* q must be odd for Montgomery-style modmul to work: */
 	ASSERT(HERE, q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 , "even modulus!");
-	qinv0 = (q0+q0+q0) ^ (uint64)2;
-	qinv1 = (q1+q1+q1) ^ (uint64)2;
-	qinv2 = (q2+q2+q2) ^ (uint64)2;
-	qinv3 = (q3+q3+q3) ^ (uint64)2;
 
-	for(j = 0; j < 4; j++)
+	// This gives 4-bit inverse:
+	q32_0 = (uint32)q0;
+	q32_1 = (uint32)q1;
+	q32_2 = (uint32)q2;
+	q32_3 = (uint32)q3;
+	qinv32_0 = (q32_0 + q32_0 + q32_0) ^ (uint32)2;
+	qinv32_1 = (q32_1 + q32_1 + q32_1) ^ (uint32)2;
+	qinv32_2 = (q32_2 + q32_2 + q32_2) ^ (uint32)2;
+	qinv32_3 = (q32_3 + q32_3 + q32_3) ^ (uint32)2;
+	// First 3 iterations (4->8, 8->16, 16->32 bits) can all use 32-bit arithmetic:
+	for(j = 0; j < 3; j++)
 	{
-		qinv0 = qinv0*((uint64)2 - q0*qinv0);
-		qinv1 = qinv1*((uint64)2 - q1*qinv1);
-		qinv2 = qinv2*((uint64)2 - q2*qinv2);
-		qinv3 = qinv3*((uint64)2 - q3*qinv3);
+		qinv32_0 = qinv32_0*((uint32)2 - q32_0*qinv32_0);
+		qinv32_1 = qinv32_1*((uint32)2 - q32_1*qinv32_1);
+		qinv32_2 = qinv32_2*((uint32)2 - q32_2*qinv32_2);
+		qinv32_3 = qinv32_3*((uint32)2 - q32_3*qinv32_3);
 	}
-
-#ifdef MOD_INI_Q4
-	MOD_INI_Q4(
-	 q0,qinv0
-	,q1,qinv1
-	,q2,qinv2
-	,q3,qinv3
-	);
-#endif
+	// Promote to 64-bit and do one more iteration to get a 64-bit inverse:
+	qinv0 = (uint64)qinv32_0;
+	qinv1 = (uint64)qinv32_1;
+	qinv2 = (uint64)qinv32_2;
+	qinv3 = (uint64)qinv32_3;
+	MULL64(q0,qinv0,y0);
+	MULL64(q1,qinv1,y1);
+	MULL64(q2,qinv2,y2);
+	MULL64(q3,qinv3,y3);
+	MULL64(qinv0,((uint64)2 - y0),qinv0);
+	MULL64(qinv1,((uint64)2 - y1),qinv1);
+	MULL64(qinv2,((uint64)2 - y2),qinv2);
+	MULL64(qinv3,((uint64)2 - y3),qinv3);
 
 /*...Initialize the binary powering...*/
 
-	x0 = x1 = x2 = x3 = zstart;
-#if FAC_DEBUG
-  #if 0	/* These appear to be benign: */
-	if(x0 >= q0){ sprintf(char_buf, "twopmodq63_q4 : (x0 = %s) >= (q0 = %s)", &str0[convert_uint64_base10_char(str0, x0)], &str1[convert_uint64_base10_char(str1, q0)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(x1 >= q1){ sprintf(char_buf, "twopmodq63_q4 : (x1 = %s) >= (q1 = %s)", &str0[convert_uint64_base10_char(str0, x1)], &str1[convert_uint64_base10_char(str1, q1)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(x2 >= q2){ sprintf(char_buf, "twopmodq63_q4 : (x2 = %s) >= (q2 = %s)", &str0[convert_uint64_base10_char(str0, x2)], &str1[convert_uint64_base10_char(str1, q2)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(x3 >= q3){ sprintf(char_buf, "twopmodq63_q4 : (x3 = %s) >= (q3 = %s)", &str0[convert_uint64_base10_char(str0, x3)], &str1[convert_uint64_base10_char(str1, q3)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
+	/* Since zshift is a power of two < 2^128, use a
+	 streamlined code sequence for the first iteration: */
+	j = start_index-1;
+
+	/* MULL64(zshift,qinv,lo) simply amounts to a left-shift of the bits of qinv: */
+	x0 = qinv0 << zshift;
+	x1 = qinv1 << zshift;
+	x2 = qinv2 << zshift;
+	x3 = qinv3 << zshift;
+  #ifdef MUL_LOHI64_SUBROUTINE
+	x0 = __MULH64(q0,x0);
+	x1 = __MULH64(q1,x1);
+	x2 = __MULH64(q2,x2);
+	x3 = __MULH64(q3,x3);
+  #else
+	MULH64(q0,x0,x0);
+	MULH64(q1,x1,x1);
+	MULH64(q2,x2,x2);
+	MULH64(q3,x3,x3);
   #endif
-#endif
 
-	for(j = start_index-1; j >= 0; j--)
+	/* hi = 0 in this instance, which simplifies things. */
+	x0 = q0 - x0;
+	x1 = q1 - x1;
+	x2 = q2 - x2;
+	x3 = q3 - x3;
+	if((pshift >> j) & (uint64)1)
 	{
-	#ifdef MOD_INI_Q4
-		MOD_SQR_Q4(
-		 x0,hi0,y0
-		,x1,hi1,y1
-		,x2,hi2,y2
-		,x3,hi3,y3
-		);
-	#else
-	  #ifdef MUL_LOHI64_SUBROUTINE
-		SQR_LOHI64(x0,&lo0,&hi0);
-		SQR_LOHI64(x1,&lo1,&hi1);
-		SQR_LOHI64(x2,&lo2,&hi2);
-		SQR_LOHI64(x3,&lo3,&hi3);
-	  #else
-		SQR_LOHI64(x0,lo0,hi0);
-		SQR_LOHI64(x1,lo1,hi1);
-		SQR_LOHI64(x2,lo2,hi2);
-		SQR_LOHI64(x3,lo3,hi3);
-	 #endif
+		x0 = x0 + x0 - (q0 & -(x0 >= qhalf0));
+		x1 = x1 + x1 - (q1 & -(x1 >= qhalf1));
+		x2 = x2 + x2 - (q2 & -(x2 >= qhalf2));
+		x3 = x3 + x3 - (q3 & -(x3 >= qhalf3));
+	}
 
+//if(dbg) printf("q1 = %llu: x1 = %llu\n",q1,x1);
+	for(j = start_index-2; j >= 0; j--)
+	{
 	/*...x^2 mod q is returned in x. On MIPS, we discard the lower half of DMULTU(q,x*y*qinv).	*/
-	/*
-		lo0 *= qinv0;
-		lo1 *= qinv1;
-		lo2 *= qinv2;
-		lo3 *= qinv3;
-	*/
-		MULL64(lo0,qinv0,lo0);
-		MULL64(lo1,qinv1,lo1);
-		MULL64(lo2,qinv2,lo2);
-		MULL64(lo3,qinv3,lo3);
+	  #ifdef MUL_LOHI64_SUBROUTINE
+		SQR_LOHI64(x0,&x0,&y0);
+		SQR_LOHI64(x1,&x1,&y1);
+		SQR_LOHI64(x2,&x2,&y2);
+		SQR_LOHI64(x3,&x3,&y3);
+	  #else
+		SQR_LOHI64(x0,x0,y0);
+		SQR_LOHI64(x1,x1,y1);
+		SQR_LOHI64(x2,x2,y2);
+		SQR_LOHI64(x3,x3,y3);
+	  #endif
+	// x *= qinv:
+		MULL64(x0,qinv0,x0);
+		MULL64(x1,qinv1,x1);
+		MULL64(x2,qinv2,x2);
+		MULL64(x3,qinv3,x3);
 
 	  #ifdef MUL_LOHI64_SUBROUTINE
-		y0 = __MULH64(q0,lo0);
-		y1 = __MULH64(q1,lo1);
-		y2 = __MULH64(q2,lo2);
-		y3 = __MULH64(q3,lo3);
+		x0 = __MULH64(q0,x0);
+		x1 = __MULH64(q1,x1);
+		x2 = __MULH64(q2,x2);
+		x3 = __MULH64(q3,x3);
 	  #else
-		MULH64(q0,lo0,y0);
-		MULH64(q1,lo1,y1);
-		MULH64(q2,lo2,y2);
-		MULH64(q3,lo3,y3);
+		MULH64(q0,x0,x0);
+		MULH64(q1,x1,x1);
+		MULH64(q2,x2,x2);
+		MULH64(q3,x3,x3);
 	  #endif
-	#endif
-		x0 = hi0 - y0 + q0;
-		x1 = hi1 - y1 + q1;
-		x2 = hi2 - y2 + q2;
-		x3 = hi3 - y3 + q3;
+
+		x0 = y0 - x0 + q0;
+		x1 = y1 - x1 + q1;
+		x2 = y2 - x2 + q2;
+		x3 = y3 - x3 + q3;
 
 	#ifdef NOBRANCH
 		x0 -= q0 & -(x0 >= q0);
@@ -537,137 +574,161 @@ uint64 twopmodq63_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 		if(x3 >= q3) x3 -= q3;
 	#endif
 
-		if((pshift >> j) & (uint64)1)
-		{
+		if((pshift >> j) & (uint64)1) {
+		#ifdef NOBRANCH
+			x0 = x0 + x0 - (q0 & -(x0 >= qhalf0));
+			x1 = x1 + x1 - (q1 & -(x1 >= qhalf1));
+			x2 = x2 + x2 - (q2 & -(x2 >= qhalf2));
+			x3 = x3 + x3 - (q3 & -(x3 >= qhalf3));
+		#else
 			x0 = x0 + x0;
 			x1 = x1 + x1;
 			x2 = x2 + x2;
 			x3 = x3 + x3;
-		#ifdef NOBRANCH
-			x0 -= q0 & -(x0 >= q0);
-			x1 -= q1 & -(x1 >= q1);
-			x2 -= q2 & -(x2 >= q2);
-			x3 -= q3 & -(x3 >= q3);
-		#else
 			if(x0 >= q0) x0 -= q0;
 			if(x1 >= q1) x1 -= q1;
 			if(x2 >= q2) x2 -= q2;
 			if(x3 >= q3) x3 -= q3;
 		#endif
+//if(dbg) printf("2*x^2 = %llu\n",x1);
+ 		} else {
+//if(dbg) printf("  x^2 = %llu\n",x1);
 		}
 	}
 
 	/*...Double and return.	These are specialized for the case where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2. */
-
-	*checksum2 += x0 + x1 + x2 + x3;
-
+//if(dbg) printf("xout = %llu\n",x1+x1-q1+FERMAT);
 	r = 0;
-	if(x0+x0-q0 == 1)r += 1;
-	if(x1+x1-q1 == 1)r += 2;
-	if(x2+x2-q2 == 1)r += 4;
-	if(x3+x3-q3 == 1)r += 8;
+	if(x0+x0-q0+FERMAT == 1)r += 1;
+	if(x1+x1-q1+FERMAT == 1)r += 2;
+	if(x2+x2-q2+FERMAT == 1)r += 4;
+	if(x3+x3-q3+FERMAT == 1)r += 8;
+//if(dbg)printf("retval = %u\n",(uint32)r);
 	return r;
 }
 
 /*** 8-trial-factor version ***/
-uint64 twopmodq63_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7)
+uint64 twopmodq63_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7)
 {
 	 int32 j;
+	uint32 q32_0, q32_1, q32_2, q32_3, q32_4, q32_5, q32_6, q32_7;
+	uint32 qinv32_0,qinv32_1,qinv32_2,qinv32_3,qinv32_4,qinv32_5,qinv32_6,qinv32_7;
 	uint64 q0 = 1+(p<<1)*k0, q1 = 1+(p<<1)*k1, q2 = 1+(p<<1)*k2, q3 = 1+(p<<1)*k3, q4 = 1+(p<<1)*k4, q5 = 1+(p<<1)*k5, q6 = 1+(p<<1)*k6, q7 = 1+(p<<1)*k7
 		, qinv0, qinv1, qinv2, qinv3, qinv4, qinv5, qinv6, qinv7
 		, x0, x1, x2, x3, x4, x5, x6, x7
-		, lo0, lo1, lo2, lo3, lo4, lo5, lo6, lo7
-		, hi0, hi1, hi2, hi3, hi4, hi5, hi6, hi7, r;
-	static uint64 psave = 0, pshift;
-	static uint32 start_index, zshift, first_entry = TRUE;
+		, y0, y1, y2, y3, y4, y5, y6, y7, r;
+	uint64 pshift;
+	uint32 jshift, leadb, start_index, zshift;
+	uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
-	if(first_entry || p != psave)
-	{
-		first_entry = FALSE;
-		psave  = p;
-		pshift = p + 64;
-	/*
-	!    find number of leading zeros in p, use it to find the position of the leftmost
-	!    ones bit, and subtract 6 to account for the scaling factor of 2^64...
-	*/
-		start_index = 64-leadz64(pshift)-6;	/* Leftward bit at which to start the l-r binary powering, assuming
-							 the leftmost 6 bits have already been processed via a shift (see next). */
-		zshift = 63-ibits64(pshift,start_index,6);	/* Since 6 bits with leftmost bit = 1 is guaranteed
-								to be in [32,63], the shift count here is in [0, 31].
-								That means that zstart < 2^32. Together with the fact that
-								squaring a power of two gives another power of two, we can
-								simplify the modmul code sequence for the first iteration.
-								Every little bit counts (literally in this case :), right? */
-		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
-
-		pshift = ~pshift;
-	}
-	*checksum1 += q0 + q1 + q2 + q3 + q4 + q5 + q6 + q7;
+	pshift = p + 64;
+	jshift = leadz64(pshift);
+	// Extract leftmost 6 bits of pshift and subtract from 64:
+	leadb = ((pshift<<jshift) >> (64-6));
+	start_index = (64-6)-jshift;
+	zshift = 63 - leadb;
+	zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
+	pshift = ~pshift;
 
 	/* q must be odd for Montgomery-style modmul to work: */
 	ASSERT(HERE, q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 && q4 & 1 && q5 & 1 && q6 & 1 && q7 & 1 , "even modulus!");
-	qinv0 = (q0+q0+q0) ^ (uint64)2;
-	qinv1 = (q1+q1+q1) ^ (uint64)2;
-	qinv2 = (q2+q2+q2) ^ (uint64)2;
-	qinv3 = (q3+q3+q3) ^ (uint64)2;
-	qinv4 = (q4+q4+q4) ^ (uint64)2;
-	qinv5 = (q5+q5+q5) ^ (uint64)2;
-	qinv6 = (q6+q6+q6) ^ (uint64)2;
-	qinv7 = (q7+q7+q7) ^ (uint64)2;
 
-	for(j = 0; j < 4; j++)
+	// This gives 4-bit inverse:
+	q32_0 = (uint32)q0;
+	q32_1 = (uint32)q1;
+	q32_2 = (uint32)q2;
+	q32_3 = (uint32)q3;
+	q32_4 = (uint32)q4;
+	q32_5 = (uint32)q5;
+	q32_6 = (uint32)q6;
+	q32_7 = (uint32)q7;
+	qinv32_0 = (q32_0 + q32_0 + q32_0) ^ (uint32)2;
+	qinv32_1 = (q32_1 + q32_1 + q32_1) ^ (uint32)2;
+	qinv32_2 = (q32_2 + q32_2 + q32_2) ^ (uint32)2;
+	qinv32_3 = (q32_3 + q32_3 + q32_3) ^ (uint32)2;
+	qinv32_4 = (q32_4 + q32_4 + q32_4) ^ (uint32)2;
+	qinv32_5 = (q32_5 + q32_5 + q32_5) ^ (uint32)2;
+	qinv32_6 = (q32_6 + q32_6 + q32_6) ^ (uint32)2;
+	qinv32_7 = (q32_7 + q32_7 + q32_7) ^ (uint32)2;
+	// First 3 iterations (4->8, 8->16, 16->32 bits) can all use 32-bit arithmetic:
+	for(j = 0; j < 3; j++)
 	{
-		qinv0 = qinv0*((uint64)2 - q0*qinv0);
-		qinv1 = qinv1*((uint64)2 - q1*qinv1);
-		qinv2 = qinv2*((uint64)2 - q2*qinv2);
-		qinv3 = qinv3*((uint64)2 - q3*qinv3);
-		qinv4 = qinv4*((uint64)2 - q4*qinv4);
-		qinv5 = qinv5*((uint64)2 - q5*qinv5);
-		qinv6 = qinv6*((uint64)2 - q6*qinv6);
-		qinv7 = qinv7*((uint64)2 - q7*qinv7);
+		qinv32_0 = qinv32_0*((uint32)2 - q32_0*qinv32_0);
+		qinv32_1 = qinv32_1*((uint32)2 - q32_1*qinv32_1);
+		qinv32_2 = qinv32_2*((uint32)2 - q32_2*qinv32_2);
+		qinv32_3 = qinv32_3*((uint32)2 - q32_3*qinv32_3);
+		qinv32_4 = qinv32_4*((uint32)2 - q32_4*qinv32_4);
+		qinv32_5 = qinv32_5*((uint32)2 - q32_5*qinv32_5);
+		qinv32_6 = qinv32_6*((uint32)2 - q32_6*qinv32_6);
+		qinv32_7 = qinv32_7*((uint32)2 - q32_7*qinv32_7);
 	}
+	// Promote to 64-bit and do one more iteration to get a 64-bit inverse:
+	qinv0 = (uint64)qinv32_0;
+	qinv1 = (uint64)qinv32_1;
+	qinv2 = (uint64)qinv32_2;
+	qinv3 = (uint64)qinv32_3;
+	qinv4 = (uint64)qinv32_4;
+	qinv5 = (uint64)qinv32_5;
+	qinv6 = (uint64)qinv32_6;
+	qinv7 = (uint64)qinv32_7;
+	MULL64(q0,qinv0,y0);
+	MULL64(q1,qinv1,y1);
+	MULL64(q2,qinv2,y2);
+	MULL64(q3,qinv3,y3);
+	MULL64(q4,qinv4,y4);
+	MULL64(q5,qinv5,y5);
+	MULL64(q6,qinv6,y6);
+	MULL64(q7,qinv7,y7);
+	MULL64(qinv0,((uint64)2 - y0),qinv0);
+	MULL64(qinv1,((uint64)2 - y1),qinv1);
+	MULL64(qinv2,((uint64)2 - y2),qinv2);
+	MULL64(qinv3,((uint64)2 - y3),qinv3);
+	MULL64(qinv4,((uint64)2 - y4),qinv4);
+	MULL64(qinv5,((uint64)2 - y5),qinv5);
+	MULL64(qinv6,((uint64)2 - y6),qinv6);
+	MULL64(qinv7,((uint64)2 - y7),qinv7);
 
 	/* Since zstart is a power of two < 2^64, use a streamlined code sequence for the first iteration: */
 	j = start_index-1;
 
 	/* MULL64(zstart,qinv,lo) simply amounts to a left-shift of the bits of qinv: */
-	lo0 = qinv0 << zshift;
-	lo1 = qinv1 << zshift;
-	lo2 = qinv2 << zshift;
-	lo3 = qinv3 << zshift;
-	lo4 = qinv4 << zshift;
-	lo5 = qinv5 << zshift;
-	lo6 = qinv6 << zshift;
-	lo7 = qinv7 << zshift;
+	x0 = qinv0 << zshift;
+	x1 = qinv1 << zshift;
+	x2 = qinv2 << zshift;
+	x3 = qinv3 << zshift;
+	x4 = qinv4 << zshift;
+	x5 = qinv5 << zshift;
+	x6 = qinv6 << zshift;
+	x7 = qinv7 << zshift;
 
 #ifdef MUL_LOHI64_SUBROUTINE
-	lo0 = __MULH64(q0,lo0);
-	lo1 = __MULH64(q1,lo1);
-	lo2 = __MULH64(q2,lo2);
-	lo3 = __MULH64(q3,lo3);
-	lo4 = __MULH64(q4,lo4);
-	lo5 = __MULH64(q5,lo5);
-	lo6 = __MULH64(q6,lo6);
-	lo7 = __MULH64(q7,lo7);
+	x0 = __MULH64(q0,x0);
+	x1 = __MULH64(q1,x1);
+	x2 = __MULH64(q2,x2);
+	x3 = __MULH64(q3,x3);
+	x4 = __MULH64(q4,x4);
+	x5 = __MULH64(q5,x5);
+	x6 = __MULH64(q6,x6);
+	x7 = __MULH64(q7,x7);
 #else
-	MULH64(q0,lo0,lo0);
-	MULH64(q1,lo1,lo1);
-	MULH64(q2,lo2,lo2);
-	MULH64(q3,lo3,lo3);
-	MULH64(q4,lo4,lo4);
-	MULH64(q5,lo5,lo5);
-	MULH64(q6,lo6,lo6);
-	MULH64(q7,lo7,lo7);
+	MULH64(q0,x0,x0);
+	MULH64(q1,x1,x1);
+	MULH64(q2,x2,x2);
+	MULH64(q3,x3,x3);
+	MULH64(q4,x4,x4);
+	MULH64(q5,x5,x5);
+	MULH64(q6,x6,x6);
+	MULH64(q7,x7,x7);
 #endif
 	/* hi = 0 in this instance, which simplifies things. */
-	x0 = q0 - lo0;
-	x1 = q1 - lo1;
-	x2 = q2 - lo2;
-	x3 = q3 - lo3;
-	x4 = q4 - lo4;
-	x5 = q5 - lo5;
-	x6 = q6 - lo6;
-	x7 = q7 - lo7;
+	x0 = q0 - x0;
+	x1 = q1 - x1;
+	x2 = q2 - x2;
+	x3 = q3 - x3;
+	x4 = q4 - x4;
+	x5 = q5 - x5;
+	x6 = q6 - x6;
+	x7 = q7 - x7;
 
 	if((pshift >> j) & (uint64)1)
 	{
@@ -679,7 +740,7 @@ uint64 twopmodq63_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 		x5 = x5 + x5;
 		x6 = x6 + x6;
 		x7 = x7 + x7;
-#ifdef NOBRANCH
+	#ifdef NOBRANCH
 		x0 -= q0 & -(x0 >= q0);
 		x1 -= q1 & -(x1 >= q1);
 		x2 -= q2 & -(x2 >= q2);
@@ -688,7 +749,7 @@ uint64 twopmodq63_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 		x5 -= q5 & -(x5 >= q5);
 		x6 -= q6 & -(x6 >= q6);
 		x7 -= q7 & -(x7 >= q7);
-#else
+	#else
 		if(x0 >= q0) x0 -= q0;
 		if(x1 >= q1) x1 -= q1;
 		if(x2 >= q2) x2 -= q2;
@@ -697,125 +758,69 @@ uint64 twopmodq63_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 		if(x5 >= q5) x5 -= q5;
 		if(x6 >= q6) x6 -= q6;
 		if(x7 >= q7) x7 -= q7;
-#endif
+	#endif
 	}
-
-#if FAC_DEBUG
-  #if 0	/* These appear to be benign: */
-	if(x0 >= q0){ sprintf(char_buf, "twopmodq63_q8 : (x0 = %s) >= (q0 = %s)", &str0[convert_uint64_base10_char(str0, x0)], &str1[convert_uint64_base10_char(str1, q0)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(x1 >= q1){ sprintf(char_buf, "twopmodq63_q8 : (x1 = %s) >= (q1 = %s)", &str0[convert_uint64_base10_char(str0, x1)], &str1[convert_uint64_base10_char(str1, q1)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(x2 >= q2){ sprintf(char_buf, "twopmodq63_q8 : (x2 = %s) >= (q2 = %s)", &str0[convert_uint64_base10_char(str0, x2)], &str1[convert_uint64_base10_char(str1, q2)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(x3 >= q3){ sprintf(char_buf, "twopmodq63_q8 : (x3 = %s) >= (q3 = %s)", &str0[convert_uint64_base10_char(str0, x3)], &str1[convert_uint64_base10_char(str1, q3)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(x4 >= q4){ sprintf(char_buf, "twopmodq63_q8 : (x4 = %s) >= (q4 = %s)", &str0[convert_uint64_base10_char(str0, x4)], &str1[convert_uint64_base10_char(str1, q4)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(x5 >= q5){ sprintf(char_buf, "twopmodq63_q8 : (x5 = %s) >= (q5 = %s)", &str0[convert_uint64_base10_char(str0, x5)], &str1[convert_uint64_base10_char(str1, q5)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(x6 >= q6){ sprintf(char_buf, "twopmodq63_q8 : (x6 = %s) >= (q6 = %s)", &str0[convert_uint64_base10_char(str0, x6)], &str1[convert_uint64_base10_char(str1, q6)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(x7 >= q7){ sprintf(char_buf, "twopmodq63_q8 : (x7 = %s) >= (q7 = %s)", &str0[convert_uint64_base10_char(str0, x7)], &str1[convert_uint64_base10_char(str1, q7)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-  #endif
-#endif
 
 	for(j = start_index-2; j >= 0; j--)
 	{
-#ifdef MUL_LOHI64_SUBROUTINE
-
-		SQR_LOHI64(x0,&lo0,&hi0);	/*FSQR_LOHI64(x0,lo7,hi7);	if(lo0 != lo7 || hi0 != hi7){ printf("FSQR_LOHI mismatch! x = %s, sqr(hi,lo) = (%s, %s), fsqr = (%s, %s)\n", x0,lo0,hi0,lo7,hi7); } */
-		SQR_LOHI64(x1,&lo1,&hi1);
-		SQR_LOHI64(x2,&lo2,&hi2);
-		SQR_LOHI64(x3,&lo3,&hi3);
-		SQR_LOHI64(x4,&lo4,&hi4);
-		SQR_LOHI64(x5,&lo5,&hi5);
-		SQR_LOHI64(x6,&lo6,&hi6);
-		SQR_LOHI64(x7,&lo7,&hi7);
-		/*
-		FSQR_LOHI64(x0,lo0,hi0);
-		FSQR_LOHI64(x1,lo1,hi1);
-		FSQR_LOHI64(x2,lo2,hi2);
-		FSQR_LOHI64(x3,lo3,hi3);
-		FSQR_LOHI64(x4,lo4,hi4);
-		FSQR_LOHI64(x5,lo5,hi5);
-		FSQR_LOHI64(x6,lo6,hi6);
-		FSQR_LOHI64(x7,lo7,hi7);
-		*/
-#else
-								/* Uncomment these to test out various versions of the FSQR... routines: */
-		SQR_LOHI64(x0,lo0,hi0);	/*FSQR_LOHI64(x0,lo7,hi7);	if(lo0 != lo7 || hi0 != hi7){ printf("FSQR_LOHI mismatch! x = %s, sqr(lo,hi) = (%s, %s), fsqr = (%s, %s)\n", x0,lo0,hi0,lo7,hi7); abort(); } */
-		SQR_LOHI64(x1,lo1,hi1);	/*FSQR_LOHI64(x1,lo7,hi7);	if(lo1 != lo7 || hi1 != hi7){ printf("FSQR_LOHI mismatch! x = %s, sqr(lo,hi) = (%s, %s), fsqr = (%s, %s)\n", x1,lo1,hi1,lo7,hi7); abort(); } */
-		SQR_LOHI64(x2,lo2,hi2);	/*FSQR_LOHI64(x2,lo7,hi7);	if(lo2 != lo7 || hi2 != hi7){ printf("FSQR_LOHI mismatch! x = %s, sqr(lo,hi) = (%s, %s), fsqr = (%s, %s)\n", x2,lo2,hi2,lo7,hi7); abort(); } */
-		SQR_LOHI64(x3,lo3,hi3);	/*FSQR_LOHI64(x3,lo7,hi7);	if(lo3 != lo7 || hi3 != hi7){ printf("FSQR_LOHI mismatch! x = %s, sqr(lo,hi) = (%s, %s), fsqr = (%s, %s)\n", x3,lo3,hi3,lo7,hi7); abort(); } */
-		SQR_LOHI64(x4,lo4,hi4);	/*FSQR_LOHI64(x4,lo7,hi7);	if(lo4 != lo7 || hi4 != hi7){ printf("FSQR_LOHI mismatch! x = %s, sqr(lo,hi) = (%s, %s), fsqr = (%s, %s)\n", x4,lo4,hi4,lo7,hi7); abort(); } */
-		SQR_LOHI64(x5,lo5,hi5);	/*FSQR_LOHI64(x5,lo7,hi7);	if(lo5 != lo7 || hi5 != hi7){ printf("FSQR_LOHI mismatch! x = %s, sqr(lo,hi) = (%s, %s), fsqr = (%s, %s)\n", x5,lo5,hi5,lo7,hi7); abort(); } */
-		SQR_LOHI64(x6,lo6,hi6);	/*FSQR_LOHI64(x6,lo7,hi7);	if(lo6 != lo7 || hi6 != hi7){ printf("FSQR_LOHI mismatch! x = %s, sqr(lo,hi) = (%s, %s), fsqr = (%s, %s)\n", x6,lo6,hi6,lo7,hi7); abort(); } */
-		SQR_LOHI64(x7,lo7,hi7);
-		/*
-		FSQR_LOHI_q8(
-		  x0,lo0,hi0
-		, x1,lo1,hi1
-		, x2,lo2,hi2
-		, x3,lo3,hi3
-		, x4,lo4,hi4
-		, x5,lo5,hi5
-		, x6,lo6,hi6
-		, x7,lo7,hi7);
-		//
-		FSQR_LOHI25(x0,lo0,hi0);
-		FSQR_LOHI25(x1,lo1,hi1);
-		FSQR_LOHI25(x2,lo2,hi2);
-		FSQR_LOHI25(x3,lo3,hi3);
-		FSQR_LOHI25(x4,lo4,hi4);
-		FSQR_LOHI25(x5,lo5,hi5);
-		FSQR_LOHI25(x6,lo6,hi6);
-		FSQR_LOHI25(x7,lo7,hi7);
-		*/
-#endif
 	/*...x^2 mod q is returned in x. On MIPS, we discard the lower half of DMULTU(q,x*y*qinv).	*/
+	#ifdef MUL_LOHI64_SUBROUTINE
+		SQR_LOHI64(x0,&x0,&y0);
+		SQR_LOHI64(x1,&x1,&y1);
+		SQR_LOHI64(x2,&x2,&y2);
+		SQR_LOHI64(x3,&x3,&y3);
+		SQR_LOHI64(x4,&x4,&y4);
+		SQR_LOHI64(x5,&x5,&y5);
+		SQR_LOHI64(x6,&x6,&y6);
+		SQR_LOHI64(x7,&x7,&y7);
+	#else
+		SQR_LOHI64(x0,x0,y0);
+		SQR_LOHI64(x1,x1,y1);
+		SQR_LOHI64(x2,x2,y2);
+		SQR_LOHI64(x3,x3,y3);
+		SQR_LOHI64(x4,x4,y4);
+		SQR_LOHI64(x5,x5,y5);
+		SQR_LOHI64(x6,x6,y6);
+		SQR_LOHI64(x7,x7,y7);
+	#endif
+		MULL64(x0,qinv0,x0);
+		MULL64(x1,qinv1,x1);
+		MULL64(x2,qinv2,x2);
+		MULL64(x3,qinv3,x3);
+		MULL64(x4,qinv4,x4);
+		MULL64(x5,qinv5,x5);
+		MULL64(x6,qinv6,x6);
+		MULL64(x7,qinv7,x7);
+	#ifdef MUL_LOHI64_SUBROUTINE
+		x0 = __MULH64(q0,x0);
+		x1 = __MULH64(q1,x1);
+		x2 = __MULH64(q2,x2);
+		x3 = __MULH64(q3,x3);
+		x4 = __MULH64(q4,x4);
+		x5 = __MULH64(q5,x5);
+		x6 = __MULH64(q6,x6);
+		x7 = __MULH64(q7,x7);
+	#else
+		MULH64(q0,x0,x0);
+		MULH64(q1,x1,x1);
+		MULH64(q2,x2,x2);
+		MULH64(q3,x3,x3);
+		MULH64(q4,x4,x4);
+		MULH64(q5,x5,x5);
+		MULH64(q6,x6,x6);
+		MULH64(q7,x7,x7);
+	#endif
 
-		MULL64(lo0,qinv0,lo0);
-		MULL64(lo1,qinv1,lo1);
-		MULL64(lo2,qinv2,lo2);
-		MULL64(lo3,qinv3,lo3);
-		MULL64(lo4,qinv4,lo4);
-		MULL64(lo5,qinv5,lo5);
-		MULL64(lo6,qinv6,lo6);
-		MULL64(lo7,qinv7,lo7);
+		x0 = y0 - x0 + q0;
+		x1 = y1 - x1 + q1;
+		x2 = y2 - x2 + q2;
+		x3 = y3 - x3 + q3;
+		x4 = y4 - x4 + q4;
+		x5 = y5 - x5 + q5;
+		x6 = y6 - x6 + q6;
+		x7 = y7 - x7 + q7;
 
-		x0 = hi0 + q0;
-		x1 = hi1 + q1;
-		x2 = hi2 + q2;
-		x3 = hi3 + q3;
-		x4 = hi4 + q4;
-		x5 = hi5 + q5;
-		x6 = hi6 + q6;
-		x7 = hi7 + q7;
-
-#ifdef MUL_LOHI64_SUBROUTINE
-		lo0 = __MULH64(q0,lo0);
-		lo1 = __MULH64(q1,lo1);
-		lo2 = __MULH64(q2,lo2);
-		lo3 = __MULH64(q3,lo3);
-		lo4 = __MULH64(q4,lo4);
-		lo5 = __MULH64(q5,lo5);
-		lo6 = __MULH64(q6,lo6);
-		lo7 = __MULH64(q7,lo7);
-#else
-		MULH64(q0,lo0,lo0);
-		MULH64(q1,lo1,lo1);
-		MULH64(q2,lo2,lo2);
-		MULH64(q3,lo3,lo3);
-		MULH64(q4,lo4,lo4);
-		MULH64(q5,lo5,lo5);
-		MULH64(q6,lo6,lo6);
-		MULH64(q7,lo7,lo7);
-#endif
-
-		x0 -= lo0;
-		x1 -= lo1;
-		x2 -= lo2;
-		x3 -= lo3;
-		x4 -= lo4;
-		x5 -= lo5;
-		x6 -= lo6;
-		x7 -= lo7;
-
-#ifdef NOBRANCH
+	#ifdef NOBRANCH
 		x0 -= q0 & -(x0 >= q0);
 		x1 -= q1 & -(x1 >= q1);
 		x2 -= q2 & -(x2 >= q2);
@@ -824,7 +829,7 @@ uint64 twopmodq63_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 		x5 -= q5 & -(x5 >= q5);
 		x6 -= q6 & -(x6 >= q6);
 		x7 -= q7 & -(x7 >= q7);
-#else
+	#else
 		if(x0 >= q0) x0 -= q0;
 		if(x1 >= q1) x1 -= q1;
 		if(x2 >= q2) x2 -= q2;
@@ -833,7 +838,7 @@ uint64 twopmodq63_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 		if(x5 >= q5) x5 -= q5;
 		if(x6 >= q6) x6 -= q6;
 		if(x7 >= q7) x7 -= q7;
-#endif
+	#endif
 
 		if((pshift >> j) & (uint64)1)
 		{
@@ -845,7 +850,7 @@ uint64 twopmodq63_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 			x5 = x5 + x5;
 			x6 = x6 + x6;
 			x7 = x7 + x7;
-#ifdef NOBRANCH
+		#ifdef NOBRANCH
 			x0 -= q0 & -(x0 >= q0);
 			x1 -= q1 & -(x1 >= q1);
 			x2 -= q2 & -(x2 >= q2);
@@ -854,7 +859,7 @@ uint64 twopmodq63_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 			x5 -= q5 & -(x5 >= q5);
 			x6 -= q6 & -(x6 >= q6);
 			x7 -= q7 & -(x7 >= q7);
-#else
+		#else
 			if(x0 >= q0) x0 -= q0;
 			if(x1 >= q1) x1 -= q1;
 			if(x2 >= q2) x2 -= q2;
@@ -863,23 +868,19 @@ uint64 twopmodq63_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 			if(x5 >= q5) x5 -= q5;
 			if(x6 >= q6) x6 -= q6;
 			if(x7 >= q7) x7 -= q7;
-#endif
+		#endif
 		}
 	}
 
 	/*...Double and return.	These are specialized for the case where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2. */
-
-	*checksum2 += x0 + x1 + x2 + x3 + x4 + x5 + x6 + x7;
-
-	r = 0;
-	if(x0+x0-q0 == 1)r +=  1;
-	if(x1+x1-q1 == 1)r +=  2;
-	if(x2+x2-q2 == 1)r +=  4;
-	if(x3+x3-q3 == 1)r +=  8;
-	if(x4+x4-q4 == 1)r += 16;
-	if(x5+x5-q5 == 1)r += 32;
-	if(x6+x6-q6 == 1)r += 64;
-	if(x7+x7-q7 == 1)r +=128;
+	r =  (x0+x0-q0+FERMAT == 1)   ;
+	r += (x1+x1-q1+FERMAT == 1)<<1;
+	r += (x2+x2-q2+FERMAT == 1)<<2;
+	r += (x3+x3-q3+FERMAT == 1)<<3;
+	r += (x4+x4-q4+FERMAT == 1)<<4;
+	r += (x5+x5-q5+FERMAT == 1)<<5;
+	r += (x6+x6-q6+FERMAT == 1)<<6;
+	r += (x7+x7-q7+FERMAT == 1)<<7;
 	return r;
 }
 
@@ -1164,19 +1165,19 @@ uint64 twopmmodq64(uint64 p, uint64 q)
 {
 	 int32 j,nshift;
 	uint64 qhalf, qinv, x, rsqr;
-	static uint64 psave = 0, zstart;
-	static uint32 start_index, first_entry = TRUE;
+	uint64 pshift;
+	uint32 jshift, leadb, start_index, zshift;
+
+	pshift = p + 64;
+	jshift = leadz64(pshift);
+	// Extract leftmost 6 bits of pshift and subtract from 64:
+	leadb = ((pshift<<jshift) >> (64-6));
+	start_index = (64-6)-jshift;
+	zshift = 63 - leadb;
+	zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
+	pshift = ~pshift;
 
 	qhalf  = q>>1;	/* = (q-1)/2, since q odd. */
-
-	if(first_entry || p != psave)
-	{
-		first_entry = FALSE;
-		psave  = p;
-		start_index = 64-leadz64(p)-6;
-		zstart = (uint64)1 << ibits64(p,start_index,6);
-	}
-
 	nshift = trailz64(q);
 	if(nshift)
 	{
@@ -1193,12 +1194,25 @@ uint64 twopmmodq64(uint64 p, uint64 q)
 	}
 
 	/*...Initialize the binary powering...*/
-	x = zstart;
+	// Since zshift is a power of two < 2^128, use streamlined code sequence for 1st iteration:
+	j = start_index-1;
+	x = qinv << zshift;	// MULL64(1 << zshift, qinv, lo) simply amounts to a left-shift of the bits of qinv
+  #ifdef MUL_LOHI64_SUBROUTINE
+	x = __MULH64(q,x);
+  #else
+	MULH64(q,x,x);
+  #endif
+	// hi =  in this instance, which simplifies things:
+	x = q - x;
+	if((pshift >> j) & (uint64)1)
+	{
+		x = x + x - (q & -(x >= qhalf));
+	}
 
 	rsqr = radix_power64(q,qinv,2);	// Compute R^2 (mod q) in prep. for Mont-mul with initial seed...
 
 	MONT_MUL64(x,rsqr, q,qinv, x);	// x*R (mod q) = MONT_MUL(x,R^2 (mod q),q,qinv)
-	for(j = start_index-1; j >= 0; j--)
+	for(j = start_index-2; j >= 0; j--)
 	{
 		MONT_SQR64(x,q,qinv,x);
 		if((p >> j) & (uint64)1)
@@ -1287,16 +1301,16 @@ void twopmmodq64_q4(uint64 p, uint64 *i0, uint64 *i1, uint64 *i2, uint64 *i3, ui
 	, qinv0, qinv1, qinv2, qinv3
 	, x0, x1, x2, x3
 	, y0, y1, y2, y3;
-	static uint64 psave = 0, zstart;
-	static uint32 start_index, first_entry = TRUE;
-	
-	if(first_entry || p != psave)
-	{
-		first_entry = FALSE;
-		psave  = p;
-		start_index = 64-leadz64(p)-6;
-		zstart = (uint64)1 << ibits64(p,start_index,6);
-	}
+	uint64 pshift;
+	uint32 jshift, leadb, start_index, zshift;
+
+	pshift = p + 64;
+	jshift = leadz64(pshift);
+	// Extract leftmost 6 bits of pshift and subtract from 64:
+	leadb = ((pshift<<jshift) >> (64-6));
+	start_index = (64-6)-jshift;
+	zshift = 63 - leadb;
+	pshift = ~pshift;
 
 	/* q must be odd for Montgomery-style modmul to work: */
 	ASSERT(HERE, q1 > 1 && q1 > 1 && q2 > 1 && q3 > 1 , "modulus must be > 1!");
@@ -1313,7 +1327,7 @@ void twopmmodq64_q4(uint64 p, uint64 *i0, uint64 *i1, uint64 *i2, uint64 *i3, ui
 		qinv2 = qinv2*((uint64)2 - q2*qinv2);
 		qinv3 = qinv3*((uint64)2 - q3*qinv3);
 	}
-	x0 = x1 = x2 = x3 = zstart;
+	x0 = x1 = x2 = x3 = 1ull << zshift;
 	y0 = radix_power64(q0,qinv0,2);	// Compute R^2 (mod q) in prep. for Mont-mul with initial seed...
 	y1 = radix_power64(q1,qinv1,2);
 	y2 = radix_power64(q2,qinv2,2);
@@ -1352,7 +1366,7 @@ void twopmmodq64_q4(uint64 p, uint64 *i0, uint64 *i1, uint64 *i2, uint64 *i3, ui
   #else
 
 	j = start_index-1;
-//printf("twopmodq64_q4 : x1 = %s\n", &str0[convert_uint64_base10_char(str0, x1)] );
+//printf("twopmmodq64_q4 : x1 = %s\n", &str0[convert_uint64_base10_char(str0, x1)] );
 //for(j = start_index-1; j >= 0; j--) {
 	__asm__ volatile (\
 	"/* Load the q0|1|2 into rbx|rsi|rdi, keeping rcx free for loop index and rax:rdx for double-width MULs: */	\n\t"\
@@ -1438,7 +1452,7 @@ void twopmmodq64_q4(uint64 p, uint64 *i0, uint64 *i1, uint64 *i2, uint64 *i3, ui
 		"movl	%[__p],%%eax	/* Need to follow this with load-j-into-ecx if use HLL loop control in debug mode */\n\t"\
 		"shrq	%%cl,%%rax				\n\t"\
 		"andq	$0x1,%%rax				\n\t"\
-	"je	twopmodq64_q4_pjmp			\n\t"\
+	"je	twopmmodq64_q4_pjmp			\n\t"\
 		"\n\t"\
 		"movq	%%r12,%%r8 	/* r8  <- Copy of x */\n\t"\
 		"movq	%%r12,%%rax	/* rax <- Copy of x */\n\t"\
@@ -1468,7 +1482,7 @@ void twopmmodq64_q4(uint64 p, uint64 *i0, uint64 *i1, uint64 *i2, uint64 *i3, ui
 		"addq	%%rax,%%r11	\n\t"\
 		"cmovcq %%r11,%%r15	\n\t"\
 		"\n\t"\
-	"twopmodq64_q4_pjmp:					\n\t"\
+	"twopmmodq64_q4_pjmp:					\n\t"\
 		"/* } endif((p >> j) & (uint64)1) */						\n\t"\
 		"subq	$1,%%rcx	/* j-- */		\n\t"\
 		"cmpq	$0,%%rcx	/* compare j vs 0 */\n\t"\
@@ -1519,24 +1533,23 @@ uint64 twopmodq64(uint64 p, uint64 q)
 {
 	 int32 j;
 	uint64 qhalf, qinv, x;
-	static uint64 psave = 0, pshift, zstart;
-	static uint32 start_index, first_entry = TRUE;
+	uint64 pshift;
+	uint32 jshift, leadb, start_index, zshift;
+	uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
+
+	pshift = p + 64;
+	jshift = leadz64(pshift);
+	// Extract leftmost 6 bits of pshift and subtract from 64:
+	leadb = ((pshift<<jshift) >> (64-6));
+	start_index = (64-6)-jshift;
+	zshift = 63 - leadb;
+	zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
+	pshift = ~pshift;
 
 	qhalf  = q>>1;	/* = (q-1)/2, since q odd. */
 
-	if(first_entry || p != psave)
-	{
-		first_entry = FALSE;
-		psave  = p;
-		pshift = p + 64;
-		start_index = 64-leadz64(pshift)-6;
-
-		zstart = ((uint64)1) << (63-ibits64(pshift,start_index,6));
-		pshift = ~pshift;
-	}
-
 	/* q must be odd for Montgomery-style modmul to work: */
-	ASSERT(HERE, q & 0x1, "q must be odd!");
+	ASSERT(HERE, q & 1, "q must be odd!");
 	qinv = (q+q+q) ^ (uint64)2;
 	for(j = 0; j < 4; j++)
 	{
@@ -1544,8 +1557,20 @@ uint64 twopmodq64(uint64 p, uint64 q)
 	}
 
 	/*...Initialize the binary powering...*/
-
-	x = zstart;
+	// Since zshift is a power of two < 2^128, use streamlined code sequence for 1st iteration:
+	j = start_index-1;
+	x = qinv << zshift;	// MULL64(1 << zshift, qinv, lo) simply amounts to a left-shift of the bits of qinv
+  #ifdef MUL_LOHI64_SUBROUTINE
+	x = __MULH64(q,x);
+  #else
+	MULH64(q,x,x);
+  #endif
+	// hi =  in this instance, which simplifies things:
+	x = q - x;
+	if((pshift >> j) & (uint64)1)
+	{
+		x = x + x - (q & -(x >= qhalf));
+	}
 #if FAC_DEBUG
 /*	ASSERT(HERE, x < q, "twopmodq64 : x0 < q");	*/
   #if 0	/* These appear to be benign: */
@@ -1553,7 +1578,7 @@ uint64 twopmodq64(uint64 p, uint64 q)
   #endif
 #endif
 
-	for(j = start_index-1; j >= 0; j--)
+	for(j = start_index-2; j >= 0; j--)
 	{
 		MONT_SQR64(x,q,qinv,x);
 		if((pshift >> j) & (uint64)1)
@@ -1569,7 +1594,7 @@ uint64 twopmodq64(uint64 p, uint64 q)
 	}
 
 	/*...Double and return.	These are specialized for the case where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2. */
-	x = x+x-q;	/* In the case of interest, x = (q+1)/2 < 2^63, so x + x cannot overflow. */
+	x = x+x+FERMAT-q;	/* In the case of interest, x = (q+1)/2 < 2^63, so x + x cannot overflow. */
 	return x;
 }
 
@@ -1581,51 +1606,62 @@ uint64 twopmodq64(uint64 p, uint64 q)
 /******************************/
 
 // Negative-power version, needing no explicit radix-mod scalings:
-uint64 twopmodq64_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
+uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 {
 	 int32 j;
+	uint32 q32_0, q32_1, q32_2, q32_3;
+	uint32 qinv32_0, qinv32_1, qinv32_2, qinv32_3;
 	uint64 q0 = 1+(p<<1)*k0, q1 = 1+(p<<1)*k1, q2 = 1+(p<<1)*k2, q3 = 1+(p<<1)*k3
 		, qinv0, qinv1, qinv2, qinv3
 		, x0, x1, x2, x3
 		, y0, y1, y2, y3
 		, lo0, lo1, lo2, lo3, r;
-	static uint64 psave = 0, pshift;
-	static uint32 start_index, zshift, first_entry = TRUE;
+	uint64 pshift;
+	uint32 jshift, leadb, start_index, zshift;
+	uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
-	if(first_entry || p != psave)
-	{
-		first_entry = FALSE;
-		psave  = p;
-		pshift = p + 64;
-		start_index = 64-leadz64(pshift)-6;
-
-		zshift = 63-ibits64(pshift,start_index,6);	/* Since 6 bits with leftmost bit = 1 is guaranteed
-								to be in [32,63], the shift count here is in [0, 31].
-								That means that zstart < 2^32. Together with the fact that
-								squaring a power of two gives another power of two, we can
-								simplify the modmul code sequence for the first iteration.
-								Every little bit counts (literally in this case :), right? */
-		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
-
-		pshift = ~pshift;
-	}
-	*checksum1 += q0 + q1 + q2 + q3;
+	pshift = p + 64;
+	jshift = leadz64(pshift);
+	// Extract leftmost 6 bits of pshift and subtract from 64:
+	leadb = ((pshift<<jshift) >> (64-6));
+	start_index = (64-6)-jshift;
+	zshift = 63 - leadb;
+	zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
+	pshift = ~pshift;
 
 	/* q must be odd for Montgomery-style modmul to work: */
 	ASSERT(HERE, q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 , "even modulus!");
 
-	qinv0 = (q0+q0+q0) ^ (uint64)2;
-	qinv1 = (q1+q1+q1) ^ (uint64)2;
-	qinv2 = (q2+q2+q2) ^ (uint64)2;
-	qinv3 = (q3+q3+q3) ^ (uint64)2;
-
-	for(j = 0; j < 4; j++)
+	// This gives 4-bit inverse:
+	q32_0 = (uint32)q0;
+	q32_1 = (uint32)q1;
+	q32_2 = (uint32)q2;
+	q32_3 = (uint32)q3;
+	qinv32_0 = (q32_0 + q32_0 + q32_0) ^ (uint32)2;
+	qinv32_1 = (q32_1 + q32_1 + q32_1) ^ (uint32)2;
+	qinv32_2 = (q32_2 + q32_2 + q32_2) ^ (uint32)2;
+	qinv32_3 = (q32_3 + q32_3 + q32_3) ^ (uint32)2;
+	// First 3 iterations (4->8, 8->16, 16->32 bits) can all use 32-bit arithmetic:
+	for(j = 0; j < 3; j++)
 	{
-		qinv0 = qinv0*((uint64)2 - q0*qinv0);
-		qinv1 = qinv1*((uint64)2 - q1*qinv1);
-		qinv2 = qinv2*((uint64)2 - q2*qinv2);
-		qinv3 = qinv3*((uint64)2 - q3*qinv3);
+		qinv32_0 = qinv32_0*((uint32)2 - q32_0*qinv32_0);
+		qinv32_1 = qinv32_1*((uint32)2 - q32_1*qinv32_1);
+		qinv32_2 = qinv32_2*((uint32)2 - q32_2*qinv32_2);
+		qinv32_3 = qinv32_3*((uint32)2 - q32_3*qinv32_3);
 	}
+	// Promote to 64-bit and do one more iteration to get a 64-bit inverse:
+	qinv0 = (uint64)qinv32_0;
+	qinv1 = (uint64)qinv32_1;
+	qinv2 = (uint64)qinv32_2;
+	qinv3 = (uint64)qinv32_3;
+	MULL64(q0,qinv0,y0);
+	MULL64(q1,qinv1,y1);
+	MULL64(q2,qinv2,y2);
+	MULL64(q3,qinv3,y3);
+	MULL64(qinv0,((uint64)2 - y0),qinv0);
+	MULL64(qinv1,((uint64)2 - y1),qinv1);
+	MULL64(qinv2,((uint64)2 - y2),qinv2);
+	MULL64(qinv3,((uint64)2 - y3),qinv3);
 
 	/* Since zstart is a power of two < 2^128, use a
 	streamlined code sequence for the first iteration: */
@@ -1667,27 +1703,48 @@ uint64 twopmodq64_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 		x2 = y2 + y2;	if(x2 >= q2 || x2 < y2) x2 -= q2;
 		x3 = y3 + y3;	if(x3 >= q3 || x3 < y3) x3 -= q3;
 	#endif
-	}
-	else
-	{
+	} else {
 		x0 = y0;
 		x1 = y1;
 		x2 = y2;
 		x3 = y3;
 	}
 
-#if FAC_DEBUG
-  #if 0	/* These appear to be benign: */
-	if(x0 >= q0){ sprintf(char_buf, "twopmodq64_q8 : (x0 = %s) >= (q0 = %s)", &str0[convert_uint64_base10_char(str0, x0)], &str1[convert_uint64_base10_char(str1, q0)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(x1 >= q1){ sprintf(char_buf, "twopmodq64_q8 : (x1 = %s) >= (q1 = %s)", &str0[convert_uint64_base10_char(str0, x1)], &str1[convert_uint64_base10_char(str1, q1)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(x2 >= q2){ sprintf(char_buf, "twopmodq64_q8 : (x2 = %s) >= (q2 = %s)", &str0[convert_uint64_base10_char(str0, x2)], &str1[convert_uint64_base10_char(str1, q2)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(x3 >= q3){ sprintf(char_buf, "twopmodq64_q8 : (x3 = %s) >= (q3 = %s)", &str0[convert_uint64_base10_char(str0, x3)], &str1[convert_uint64_base10_char(str1, q3)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-  #endif
-#endif
-
 	for(j = start_index-2; j >= 0; j--)
 	{
-		MONT_SQR64_q4(x0,x1,x2,x3,q0,q1,q2,q3,qinv0,qinv1,qinv2,qinv3,y0,y1,y2,y3);
+	//	MONT_SQR64_q4(x0,x1,x2,x3,q0,q1,q2,q3,qinv0,qinv1,qinv2,qinv3,y0,y1,y2,y3);
+	  #ifdef MUL_LOHI64_SUBROUTINE
+		SQR_LOHI64(x0,&x0,&y0);
+		SQR_LOHI64(x1,&x1,&y1);
+		SQR_LOHI64(x2,&x2,&y2);
+		SQR_LOHI64(x3,&x3,&y3);
+	  #else
+		SQR_LOHI64(x0, x0, y0);
+		SQR_LOHI64(x1, x1, y1);
+		SQR_LOHI64(x2, x2, y2);
+		SQR_LOHI64(x3, x3, y3);
+	  #endif
+		MULL64(qinv0,x0,x0);
+		MULL64(qinv1,x1,x1);
+		MULL64(qinv2,x2,x2);
+		MULL64(qinv3,x3,x3);
+	  #ifdef MUL_LOHI64_SUBROUTINE
+		x0 = MULH64(q0,x0);
+		x1 = MULH64(q1,x1);
+		x2 = MULH64(q2,x2);
+		x3 = MULH64(q3,x3);
+	  #else
+		MULH64(q0,x0,x0);
+		MULH64(q1,x1,x1);
+		MULH64(q2,x2,x2);
+		MULH64(q3,x3,x3);
+	  #endif
+		/* did we have a borrow from (y-x)? */
+		y0 = y0 - x0 + ((-(int64)(y0 < x0)) & q0);
+		y1 = y1 - x1 + ((-(int64)(y1 < x1)) & q1);
+		y2 = y2 - x2 + ((-(int64)(y2 < x2)) & q2);
+		y3 = y3 - x3 + ((-(int64)(y3 < x3)) & q3);
+
 		if((pshift >> j) & (uint64)1)
 		{
 		#ifdef NOBRANCH
@@ -1701,9 +1758,7 @@ uint64 twopmodq64_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 			x2 = y2 + y2;	if(x2 >= q2 || x2 < y2) x2 -= q2;
 			x3 = y3 + y3;	if(x3 >= q3 || x3 < y3) x3 -= q3;
 		#endif
-		}
-		else
-		{
+		} else {
 			x0 = y0;
 			x1 = y1;
 			x2 = y2;
@@ -1712,13 +1767,11 @@ uint64 twopmodq64_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 	}
 
 	/*...Double and return.	These are specialized for the case where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2. */
-	*checksum2 += x0 + x1 + x2 + x3;
-
 	r = 0;
-	if(x0+x0-q0 == 1) r +=  1;
-	if(x1+x1-q1 == 1) r +=  2;
-	if(x2+x2-q2 == 1) r +=  4;
-	if(x3+x3-q3 == 1) r +=  8;
+	if(x0+x0-q0+FERMAT == 1) r +=  1;
+	if(x1+x1-q1+FERMAT == 1) r +=  2;
+	if(x2+x2-q2+FERMAT == 1) r +=  4;
+	if(x3+x3-q3+FERMAT == 1) r +=  8;
 	return r;
 }
 
@@ -1727,103 +1780,128 @@ uint64 twopmodq64_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 /*** 8-trial-factor version ***/
 /******************************/
 
-uint64 twopmodq64_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7)
+uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7)
 {
 	 int32 j;
+	uint32 q32_0, q32_1, q32_2, q32_3, q32_4, q32_5, q32_6, q32_7;
+	uint32 qinv32_0,qinv32_1,qinv32_2,qinv32_3,qinv32_4,qinv32_5,qinv32_6,qinv32_7;
 	uint64 q0 = 1+(p<<1)*k0, q1 = 1+(p<<1)*k1, q2 = 1+(p<<1)*k2, q3 = 1+(p<<1)*k3, q4 = 1+(p<<1)*k4, q5 = 1+(p<<1)*k5, q6 = 1+(p<<1)*k6, q7 = 1+(p<<1)*k7
 		, qinv0, qinv1, qinv2, qinv3, qinv4, qinv5, qinv6, qinv7
 		, x0, x1, x2, x3, x4, x5, x6, x7
-		, y0, y1, y2, y3, y4, y5, y6, y7
-		, lo0, lo1, lo2, lo3, lo4, lo5, lo6, lo7
-		, hi0, hi1, hi2, hi3, hi4, hi5, hi6, hi7, r;
-	static uint64 psave = 0, pshift;
-	static uint32 start_index, zshift, first_entry = TRUE;
+		, y0, y1, y2, y3, y4, y5, y6, y7, r;
+	uint64 pshift;
+	uint32 jshift, leadb, start_index, zshift;
+	uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
-	if(first_entry || p != psave)
-	{
-		first_entry = FALSE;
-		psave  = p;
-		pshift = p + 64;
-		start_index = 64-leadz64(pshift)-6;
-
-		zshift = 63-ibits64(pshift,start_index,6);	/* Since 6 bits with leftmost bit = 1 is guaranteed
-								to be in [32,63], the shift count here is in [0, 31].
-								That means that zstart < 2^32. Together with the fact that
-								squaring a power of two gives another power of two, we can
-								simplify the modmul code sequence for the first iteration.
-								Every little bit counts (literally in this case :), right? */
-		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
-
-		pshift = ~pshift;
-	}
-	*checksum1 += q0 + q1 + q2 + q3 + q4 + q5 + q6 + q7;
+	pshift = p + 64;
+	jshift = leadz64(pshift);
+	// Extract leftmost 6 bits of pshift and subtract from 64:
+	leadb = ((pshift<<jshift) >> (64-6));
+	start_index = (64-6)-jshift;
+	zshift = 63 - leadb;
+	zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
+	pshift = ~pshift;
 
 	/* q must be odd for Montgomery-style modmul to work: */
 	ASSERT(HERE, q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 && q4 & 1 && q5 & 1 && q6 & 1 && q7 & 1 , "even modulus!");
 
-	qinv0 = (q0+q0+q0) ^ (uint64)2;
-	qinv1 = (q1+q1+q1) ^ (uint64)2;
-	qinv2 = (q2+q2+q2) ^ (uint64)2;
-	qinv3 = (q3+q3+q3) ^ (uint64)2;
-	qinv4 = (q4+q4+q4) ^ (uint64)2;
-	qinv5 = (q5+q5+q5) ^ (uint64)2;
-	qinv6 = (q6+q6+q6) ^ (uint64)2;
-	qinv7 = (q7+q7+q7) ^ (uint64)2;
-
-	for(j = 0; j < 4; j++)
+	// This gives 4-bit inverse:
+	q32_0 = (uint32)q0;
+	q32_1 = (uint32)q1;
+	q32_2 = (uint32)q2;
+	q32_3 = (uint32)q3;
+	q32_4 = (uint32)q4;
+	q32_5 = (uint32)q5;
+	q32_6 = (uint32)q6;
+	q32_7 = (uint32)q7;
+	qinv32_0 = (q32_0 + q32_0 + q32_0) ^ (uint32)2;
+	qinv32_1 = (q32_1 + q32_1 + q32_1) ^ (uint32)2;
+	qinv32_2 = (q32_2 + q32_2 + q32_2) ^ (uint32)2;
+	qinv32_3 = (q32_3 + q32_3 + q32_3) ^ (uint32)2;
+	qinv32_4 = (q32_4 + q32_4 + q32_4) ^ (uint32)2;
+	qinv32_5 = (q32_5 + q32_5 + q32_5) ^ (uint32)2;
+	qinv32_6 = (q32_6 + q32_6 + q32_6) ^ (uint32)2;
+	qinv32_7 = (q32_7 + q32_7 + q32_7) ^ (uint32)2;
+	// First 3 iterations (4->8, 8->16, 16->32 bits) can all use 32-bit arithmetic:
+	for(j = 0; j < 3; j++)
 	{
-		qinv0 = qinv0*((uint64)2 - q0*qinv0);
-		qinv1 = qinv1*((uint64)2 - q1*qinv1);
-		qinv2 = qinv2*((uint64)2 - q2*qinv2);
-		qinv3 = qinv3*((uint64)2 - q3*qinv3);
-		qinv4 = qinv4*((uint64)2 - q4*qinv4);
-		qinv5 = qinv5*((uint64)2 - q5*qinv5);
-		qinv6 = qinv6*((uint64)2 - q6*qinv6);
-		qinv7 = qinv7*((uint64)2 - q7*qinv7);
+		qinv32_0 = qinv32_0*((uint32)2 - q32_0*qinv32_0);
+		qinv32_1 = qinv32_1*((uint32)2 - q32_1*qinv32_1);
+		qinv32_2 = qinv32_2*((uint32)2 - q32_2*qinv32_2);
+		qinv32_3 = qinv32_3*((uint32)2 - q32_3*qinv32_3);
+		qinv32_4 = qinv32_4*((uint32)2 - q32_4*qinv32_4);
+		qinv32_5 = qinv32_5*((uint32)2 - q32_5*qinv32_5);
+		qinv32_6 = qinv32_6*((uint32)2 - q32_6*qinv32_6);
+		qinv32_7 = qinv32_7*((uint32)2 - q32_7*qinv32_7);
 	}
+	// Promote to 64-bit and do one more iteration to get a 64-bit inverse:
+	qinv0 = (uint64)qinv32_0;
+	qinv1 = (uint64)qinv32_1;
+	qinv2 = (uint64)qinv32_2;
+	qinv3 = (uint64)qinv32_3;
+	qinv4 = (uint64)qinv32_4;
+	qinv5 = (uint64)qinv32_5;
+	qinv6 = (uint64)qinv32_6;
+	qinv7 = (uint64)qinv32_7;
+	MULL64(q0,qinv0,y0);
+	MULL64(q1,qinv1,y1);
+	MULL64(q2,qinv2,y2);
+	MULL64(q3,qinv3,y3);
+	MULL64(q4,qinv4,y4);
+	MULL64(q5,qinv5,y5);
+	MULL64(q6,qinv6,y6);
+	MULL64(q7,qinv7,y7);
+	MULL64(qinv0,((uint64)2 - y0),qinv0);
+	MULL64(qinv1,((uint64)2 - y1),qinv1);
+	MULL64(qinv2,((uint64)2 - y2),qinv2);
+	MULL64(qinv3,((uint64)2 - y3),qinv3);
+	MULL64(qinv4,((uint64)2 - y4),qinv4);
+	MULL64(qinv5,((uint64)2 - y5),qinv5);
+	MULL64(qinv6,((uint64)2 - y6),qinv6);
+	MULL64(qinv7,((uint64)2 - y7),qinv7);
 
 	/* Since zstart is a power of two < 2^128, use a
 	streamlined code sequence for the first iteration: */
 	j = start_index-1;
 
-	/* MULL64(zstart,qinv,lo) simply amounts to a left-shift of the bits of qinv: */
-	lo0 = qinv0 << zshift;
-	lo1 = qinv1 << zshift;
-	lo2 = qinv2 << zshift;
-	lo3 = qinv3 << zshift;
-	lo4 = qinv4 << zshift;
-	lo5 = qinv5 << zshift;
-	lo6 = qinv6 << zshift;
-	lo7 = qinv7 << zshift;
+	/* MULL64(zstart,qinv,x) simply amounts to a left-shift of the bits of qinv: */
+	x0 = qinv0 << zshift;
+	x1 = qinv1 << zshift;
+	x2 = qinv2 << zshift;
+	x3 = qinv3 << zshift;
+	x4 = qinv4 << zshift;
+	x5 = qinv5 << zshift;
+	x6 = qinv6 << zshift;
+	x7 = qinv7 << zshift;
 
 #ifdef MUL_LOHI64_SUBROUTINE
-	lo0 = __MULH64(q0,lo0);
-	lo1 = __MULH64(q1,lo1);
-	lo2 = __MULH64(q2,lo2);
-	lo3 = __MULH64(q3,lo3);
-	lo4 = __MULH64(q4,lo4);
-	lo5 = __MULH64(q5,lo5);
-	lo6 = __MULH64(q6,lo6);
-	lo7 = __MULH64(q7,lo7);
+	x0 = __MULH64(q0,x0);
+	x1 = __MULH64(q1,x1);
+	x2 = __MULH64(q2,x2);
+	x3 = __MULH64(q3,x3);
+	x4 = __MULH64(q4,x4);
+	x5 = __MULH64(q5,x5);
+	x6 = __MULH64(q6,x6);
+	x7 = __MULH64(q7,x7);
 #else
-	MULH64(q0,lo0,lo0);
-	MULH64(q1,lo1,lo1);
-	MULH64(q2,lo2,lo2);
-	MULH64(q3,lo3,lo3);
-	MULH64(q4,lo4,lo4);
-	MULH64(q5,lo5,lo5);
-	MULH64(q6,lo6,lo6);
-	MULH64(q7,lo7,lo7);
+	MULH64(q0,x0,x0);
+	MULH64(q1,x1,x1);
+	MULH64(q2,x2,x2);
+	MULH64(q3,x3,x3);
+	MULH64(q4,x4,x4);
+	MULH64(q5,x5,x5);
+	MULH64(q6,x6,x6);
+	MULH64(q7,x7,x7);
 #endif
 	/* hi = 0 in this instance, which simplifies things. */
-	y0 = q0 - lo0;
-	y1 = q1 - lo1;
-	y2 = q2 - lo2;
-	y3 = q3 - lo3;
-	y4 = q4 - lo4;
-	y5 = q5 - lo5;
-	y6 = q6 - lo6;
-	y7 = q7 - lo7;
+	y0 = q0 - x0;
+	y1 = q1 - x1;
+	y2 = q2 - x2;
+	y3 = q3 - x3;
+	y4 = q4 - x4;
+	y5 = q5 - x5;
+	y6 = q6 - x6;
+	y7 = q7 - x7;
 
 	if((pshift >> j) & (uint64)1)
 	{
@@ -1846,9 +1924,7 @@ uint64 twopmodq64_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 		x6 = y6 + y6;	if(x6 >= q6 || x6 < y6) x6 -= q6;
 		x7 = y7 + y7;	if(x7 >= q7 || x7 < y7) x7 -= q7;
 	#endif
-	}
-	else
-	{
+	} else {
 		x0 = y0;
 		x1 = y1;
 		x2 = y2;
@@ -1859,98 +1935,64 @@ uint64 twopmodq64_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 		x7 = y7;
 	}
 
-#if FAC_DEBUG
-  #if 0	/* These appear to be benign: */
-	if(x0 >= q0){ sprintf(char_buf, "twopmodq64_q8 : (x0 = %s) >= (q0 = %s)", &str0[convert_uint64_base10_char(str0, x0)], &str1[convert_uint64_base10_char(str1, q0)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(x1 >= q1){ sprintf(char_buf, "twopmodq64_q8 : (x1 = %s) >= (q1 = %s)", &str0[convert_uint64_base10_char(str0, x1)], &str1[convert_uint64_base10_char(str1, q1)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(x2 >= q2){ sprintf(char_buf, "twopmodq64_q8 : (x2 = %s) >= (q2 = %s)", &str0[convert_uint64_base10_char(str0, x2)], &str1[convert_uint64_base10_char(str1, q2)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(x3 >= q3){ sprintf(char_buf, "twopmodq64_q8 : (x3 = %s) >= (q3 = %s)", &str0[convert_uint64_base10_char(str0, x3)], &str1[convert_uint64_base10_char(str1, q3)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(x4 >= q4){ sprintf(char_buf, "twopmodq64_q8 : (x4 = %s) >= (q4 = %s)", &str0[convert_uint64_base10_char(str0, x4)], &str1[convert_uint64_base10_char(str1, q4)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(x5 >= q5){ sprintf(char_buf, "twopmodq64_q8 : (x5 = %s) >= (q5 = %s)", &str0[convert_uint64_base10_char(str0, x5)], &str1[convert_uint64_base10_char(str1, q5)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(x6 >= q6){ sprintf(char_buf, "twopmodq64_q8 : (x6 = %s) >= (q6 = %s)", &str0[convert_uint64_base10_char(str0, x6)], &str1[convert_uint64_base10_char(str1, q6)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-	if(x7 >= q7){ sprintf(char_buf, "twopmodq64_q8 : (x7 = %s) >= (q7 = %s)", &str0[convert_uint64_base10_char(str0, x7)], &str1[convert_uint64_base10_char(str1, q7)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-  #endif
-#endif
-
 	for(j = start_index-2; j >= 0; j--)
 	{
 	#ifdef MUL_LOHI64_SUBROUTINE
-		SQR_LOHI64(x0,&lo0,&hi0);
-		SQR_LOHI64(x1,&lo1,&hi1);
-		SQR_LOHI64(x2,&lo2,&hi2);
-		SQR_LOHI64(x3,&lo3,&hi3);
-		SQR_LOHI64(x4,&lo4,&hi4);
-		SQR_LOHI64(x5,&lo5,&hi5);
-		SQR_LOHI64(x6,&lo6,&hi6);
-		SQR_LOHI64(x7,&lo7,&hi7);
+		SQR_LOHI64(x0,&x0,&y0);
+		SQR_LOHI64(x1,&x1,&y1);
+		SQR_LOHI64(x2,&x2,&y2);
+		SQR_LOHI64(x3,&x3,&y3);
+		SQR_LOHI64(x4,&x4,&y4);
+		SQR_LOHI64(x5,&x5,&y5);
+		SQR_LOHI64(x6,&x6,&y6);
+		SQR_LOHI64(x7,&x7,&y7);
 	#else
-		SQR_LOHI64(x0,lo0,hi0);
-		SQR_LOHI64(x1,lo1,hi1);
-		SQR_LOHI64(x2,lo2,hi2);
-		SQR_LOHI64(x3,lo3,hi3);
-		SQR_LOHI64(x4,lo4,hi4);
-		SQR_LOHI64(x5,lo5,hi5);
-		SQR_LOHI64(x6,lo6,hi6);
-		SQR_LOHI64(x7,lo7,hi7);
+		SQR_LOHI64(x0,x0,y0);
+		SQR_LOHI64(x1,x1,y1);
+		SQR_LOHI64(x2,x2,y2);
+		SQR_LOHI64(x3,x3,y3);
+		SQR_LOHI64(x4,x4,y4);
+		SQR_LOHI64(x5,x5,y5);
+		SQR_LOHI64(x6,x6,y6);
+		SQR_LOHI64(x7,x7,y7);
 	#endif
-	/*...x^2 mod q is returned in x. On MIPS, we discard the lower half of DMULTU(q,x*y*qinv).	*/
-
-		MULL64(lo0,qinv0,lo0);
-		MULL64(lo1,qinv1,lo1);
-		MULL64(lo2,qinv2,lo2);
-		MULL64(lo3,qinv3,lo3);
-		MULL64(lo4,qinv4,lo4);
-		MULL64(lo5,qinv5,lo5);
-		MULL64(lo6,qinv6,lo6);
-		MULL64(lo7,qinv7,lo7);
-
+		MULL64(x0,qinv0,x0);
+		MULL64(x1,qinv1,x1);
+		MULL64(x2,qinv2,x2);
+		MULL64(x3,qinv3,x3);
+		MULL64(x4,qinv4,x4);
+		MULL64(x5,qinv5,x5);
+		MULL64(x6,qinv6,x6);
+		MULL64(x7,qinv7,x7);
 	#ifdef MUL_LOHI64_SUBROUTINE
-		lo0 = __MULH64(q0,lo0);
-		lo1 = __MULH64(q1,lo1);
-		lo2 = __MULH64(q2,lo2);
-		lo3 = __MULH64(q3,lo3);
-		lo4 = __MULH64(q4,lo4);
-		lo5 = __MULH64(q5,lo5);
-		lo6 = __MULH64(q6,lo6);
-		lo7 = __MULH64(q7,lo7);
+		x0 = __MULH64(q0,x0);
+		x1 = __MULH64(q1,x1);
+		x2 = __MULH64(q2,x2);
+		x3 = __MULH64(q3,x3);
+		x4 = __MULH64(q4,x4);
+		x5 = __MULH64(q5,x5);
+		x6 = __MULH64(q6,x6);
+		x7 = __MULH64(q7,x7);
 	#else
-		MULH64(q0,lo0,lo0);
-		MULH64(q1,lo1,lo1);
-		MULH64(q2,lo2,lo2);
-		MULH64(q3,lo3,lo3);
-		MULH64(q4,lo4,lo4);
-		MULH64(q5,lo5,lo5);
-		MULH64(q6,lo6,lo6);
-		MULH64(q7,lo7,lo7);
+		MULH64(q0,x0,x0);
+		MULH64(q1,x1,x1);
+		MULH64(q2,x2,x2);
+		MULH64(q3,x3,x3);
+		MULH64(q4,x4,x4);
+		MULH64(q5,x5,x5);
+		MULH64(q6,x6,x6);
+		MULH64(q7,x7,x7);
 	#endif
-		y0 = hi0 - lo0;
-		y1 = hi1 - lo1;
-		y2 = hi2 - lo2;
-		y3 = hi3 - lo3;
-		y4 = hi4 - lo4;
-		y5 = hi5 - lo5;
-		y6 = hi6 - lo6;
-		y7 = hi7 - lo7;
 
-	#ifdef NOBRANCH
-		y0 += q0 & -(y0 > hi0);
-		y1 += q1 & -(y1 > hi1);
-		y2 += q2 & -(y2 > hi2);
-		y3 += q3 & -(y3 > hi3);
-		y4 += q4 & -(y4 > hi4);
-		y5 += q5 & -(y5 > hi5);
-		y6 += q6 & -(y6 > hi6);
-		y7 += q7 & -(y7 > hi7);
-	#else
-		if(y0 > hi0) y0 += q0;
-		if(y1 > hi1) y1 += q1;
-		if(y2 > hi2) y2 += q2;
-		if(y3 > hi3) y3 += q3;
-		if(y4 > hi4) y4 += q4;
-		if(y5 > hi5) y5 += q5;
-		if(y6 > hi6) y6 += q6;
-		if(y7 > hi7) y7 += q7;
-	#endif
+		/* did we have a borrow from (y-x)? */
+		y0 = y0 - x0 + ((-(int64)(y0 < x0)) & q0);
+		y1 = y1 - x1 + ((-(int64)(y1 < x1)) & q1);
+		y2 = y2 - x2 + ((-(int64)(y2 < x2)) & q2);
+		y3 = y3 - x3 + ((-(int64)(y3 < x3)) & q3);
+		y4 = y4 - x4 + ((-(int64)(y4 < x4)) & q4);
+		y5 = y5 - x5 + ((-(int64)(y5 < x5)) & q5);
+		y6 = y6 - x6 + ((-(int64)(y6 < x6)) & q6);
+		y7 = y7 - x7 + ((-(int64)(y7 < x7)) & q7);
 
 		if((pshift >> j) & (uint64)1)
 		{
@@ -1973,9 +2015,7 @@ uint64 twopmodq64_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 			x6 = y6 + y6;	if(x6 >= q6 || x6 < y6) x6 -= q6;
 			x7 = y7 + y7;	if(x7 >= q7 || x7 < y7) x7 -= q7;
 		#endif
-		}
-		else
-		{
+		} else {
 			x0 = y0;
 			x1 = y1;
 			x2 = y2;
@@ -1988,18 +2028,14 @@ uint64 twopmodq64_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 	}
 
 	/*...Double and return.	These are specialized for the case where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2. */
-
-	*checksum2 += x0 + x1 + x2 + x3 + x4 + x5 + x6 + x7;
-
-	r = 0;
-	if(x0+x0-q0 == 1) r +=  1;
-	if(x1+x1-q1 == 1) r +=  2;
-	if(x2+x2-q2 == 1) r +=  4;
-	if(x3+x3-q3 == 1) r +=  8;
-	if(x4+x4-q4 == 1) r += 16;
-	if(x5+x5-q5 == 1) r += 32;
-	if(x6+x6-q6 == 1) r += 64;
-	if(x7+x7-q7 == 1) r +=128;
+	r =  (x0+x0-q0+FERMAT == 1)   ;
+	r += (x1+x1-q1+FERMAT == 1)<<1;
+	r += (x2+x2-q2+FERMAT == 1)<<2;
+	r += (x3+x3-q3+FERMAT == 1)<<3;
+	r += (x4+x4-q4+FERMAT == 1)<<4;
+	r += (x5+x5-q5+FERMAT == 1)<<5;
+	r += (x6+x6-q6+FERMAT == 1)<<6;
+	r += (x7+x7-q7+FERMAT == 1)<<7;
 	return r;
 }
 
@@ -2010,7 +2046,7 @@ uint64 twopmodq64_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 /*** 65-BIT INPUTS: it is assumed here that q has a hidden 65th bit! ***************/
 /***********************************************************************************/
 
-uint64 twopmodq65(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k)
+uint64 twopmodq65(uint64 p, uint64 k)
 {
 #if FAC_DEBUG
 	int dbg = (p == 0);
@@ -2018,8 +2054,17 @@ uint64 twopmodq65(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k)
 	 int32 j;
 	uint64 q, qinv, x, y, lo, hi, r;
 	uint64 A, B, t;
-	static uint64 psave = 0, pshift, zstart;
-	static uint32 start_index, first_entry = TRUE;
+	uint64 pshift;
+	uint32 jshift, leadb, start_index, zshift;
+	uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
+
+	pshift = p + 64;
+	jshift = leadz64(pshift);
+	// Extract leftmost 6 bits of pshift and subtract from 64:
+	leadb = ((pshift<<jshift) >> (64-6));
+	start_index = (64-6)-jshift;
+	zshift = 63 - leadb;
+	pshift = ~pshift;
 
 #if FAC_DEBUG
 if(dbg)printf("twopmodq65:\n");
@@ -2027,20 +2072,9 @@ if(dbg)printf("twopmodq65:\n");
 	// Assume q is 65-bits here, so check that during construction of q = 2.k.p+1:
 	q = k*p;	ASSERT(HERE, q+q < q, "q not 65 bits!");
 	q = (q << 1) + 1;
-	if(first_entry || p != psave)
-	{
-		first_entry = FALSE;
-		psave  = p;
-		pshift = p + 64;
-		start_index = 64-leadz64(pshift)-6;
-
-		zstart = ((uint64)1) << (63-ibits64(pshift,start_index,6));
-		pshift = ~pshift;
-	}
-	*checksum1 += q;
 
 	/* q must be odd for Montgomery-style modmul to work: */
-	ASSERT(HERE, q & 0x1, "q must be odd!");
+	ASSERT(HERE, q & 1, "q must be odd!");
 	qinv = (q+q+q) ^ (uint64)2;
 	for(j = 0; j < 4; j++)
 	{
@@ -2048,105 +2082,94 @@ if(dbg)printf("twopmodq65:\n");
 	}
 
 	/*...Initialize the binary powering...*/
-	x = zstart;
-	A = 0;
+	x = 1ull << zshift;
+	A = 0ull;
 
 #if FAC_DEBUG
 	if(dbg) printf("twopmodq65: jhi = %d\n", start_index-1);
 #endif
 	for(j = start_index-1; j >= 0; j--)
 	{
-#ifdef MUL_LOHI64_SUBROUTINE
+	#ifdef MUL_LOHI64_SUBROUTINE
 		SQR_LOHI64(x,&lo,&hi);
-#else
-		SQR_LOHI64(x,lo,hi);
-#endif
-
-		if(A > 0)
-		{
+	#else
+		SQR_LOHI64(x, lo, hi);
+	#endif
+		if(A > 0) {
 			y  = (-A & x);
-			hi+= y; if(hi<y) ++A;
-			hi+= y; if(hi<y) ++A;
+			hi += y; A += (hi < y);
+			hi += y; A += (hi < y);
 		}
 
-	/*...x^2 mod q is returned in x. On MIPS, we discard the lower half of DMULTU(q,x*y*qinv).	*/
-
+		/*...x^2 mod q is returned in x. On MIPS, we discard the lower half of DMULTU(q,x*y*qinv).	*/
 		lo *= qinv;
 
-#ifdef MUL_LOHI64_SUBROUTINE
+	#ifdef MUL_LOHI64_SUBROUTINE
 		y = __MULH64(q,lo);
-#else
+	#else
 		MULH64(q,lo,y);	/* Need original lo for a few more steps here, so store MULH result in y. */
-#endif
+	#endif
 		B = 0;
-		y += lo; if(y < lo) ++B;	/* Upper (65th) bit of q guaranteed to be 1. */
+		y += lo; B += (y < lo);	/* Upper (65th) bit of q guaranteed to be 1. */
 	/*
 	!	SQR_HIGH_EXACT(x) now in hi + A*2^64,  MULH_EXACT(q, lo*qinv) in y + B*2^64.
 	!	Get SQR_HIGH_EXACT(x) - MULH_EXACT(q, lo*qinv), normalizing as we go.
 	*/
-#if FAC_DEBUG
-	if(dbg) printf("twopmodq65: while(%llu++ < %llu) || (%llu+=%llu < %llu)\n",A,B,hi,q,y);
-#endif
+	#if FAC_DEBUG
+		if(dbg) printf("twopmodq65: while(%llu++ < %llu) || (%llu+=%llu < %llu)\n",A,B,hi,q,y);
+	#endif
 		while(A < B || (A == B && hi < y))	/* SQR_HIGH_EXACT(x) < MULH_EXACT(q, lo*qinv); add q until >= . */
 		{
 			++A; hi += q;
-			if(hi < q) ++A;	/* had a carry */
+			A += (hi < q);	/* had a carry */
 		}
 
 	/* Do the subtraction. Result is in (hi,A). */
-
 	#if FAC_DEBUG
 		/*ASSERT(HERE, A > B || (A == B && hi >= y), "twopmodq65 : A > B || (A == B && hi >= y)"); */
 	#endif
-
 		A -= B; x = hi; hi -= y;
-		if(hi > x) --A;	/* had a borrow */
+		A -= (hi > x);	/* had a borrow */
 
 	/* ...and normalize. Result is in (x, A).. */
-
 		x = hi;
-#if FAC_DEBUG
-	if(dbg) printf("twopmodq65: while(A=%llu-- > 1) || (%llu-=%llu >=%llu)\n",A,x,q,q);
-#endif
-		while(A > 1 || (A == 1 && x >= q))
-		{
+	#if FAC_DEBUG
+		if(dbg) printf("twopmodq65: while(A=%llu-- > 1) || (%llu-=%llu >=%llu)\n",A,x,q,q);
+	#endif
+		while(A > 1 || (A == 1 && x >= q)) {
 			--A; x -= q;
-
-#if FAC_DEBUG
-	if(dbg) printf("twopmodq65: A = %llu, x-q = %llu, q = %llu, hi = %llu\n",A,x,q,hi);
-	if(dbg) printf("twopmodq65: (x > hi) = %llu\n",(x > hi));
-	if(dbg) printf("twopmodq65: (x <=hi) = %llu\n",(x <=hi));
-	if(dbg) printf("twopmodq65: (hi < x) = %llu\n",(hi < x));
-	if(dbg) printf("twopmodq65: (hi <=x) = %llu\n",(hi <=x));
-	if(dbg) printf("twopmodq65: (hi >=x) = %llu\n",(hi >=x));
-	if(dbg) printf("twopmodq65: (hi -x ) = %llu - %llu = %llu\n",hi,x,(hi - x));
-	if(dbg) printf("twopmodq65: (hi.-x.) = %lf  - %lf  = %lf \n",(double)hi,(double)x,((double)hi - (double)x));
-#endif
+		#if FAC_DEBUG
+			if(dbg) printf("twopmodq65: A = %llu, x-q = %llu, q = %llu, hi = %llu\n",A,x,q,hi);
+			if(dbg) printf("twopmodq65: (x > hi) = %llu\n",(x > hi));
+			if(dbg) printf("twopmodq65: (x <=hi) = %llu\n",(x <=hi));
+			if(dbg) printf("twopmodq65: (hi < x) = %llu\n",(hi < x));
+			if(dbg) printf("twopmodq65: (hi <=x) = %llu\n",(hi <=x));
+			if(dbg) printf("twopmodq65: (hi >=x) = %llu\n",(hi >=x));
+			if(dbg) printf("twopmodq65: (hi -x ) = %llu - %llu = %llu\n",hi,x,(hi - x));
+			if(dbg) printf("twopmodq65: (hi.-x.) = %lf  - %lf  = %lf \n",(double)hi,(double)x,((double)hi - (double)x));
+		#endif
 			/* had a borrow: */
-			A -= (x > hi);	/* 12/16/2003: The HP C compiler for IA64 under HPUX
-								f***s up an (x > hi) compare for certain operands,
-								so replace that with (hi <= x), which appears to get
-								handled OK. */
-#if FAC_DEBUG
-	ASSERT(HERE, ((double)x > (double)hi) == (x > hi),"((double)x > (double)hi) == (x > hi)");
-	ASSERT(HERE, (int64)A >=0,"(int64)A >=0");
-#endif
+			A -= (x > hi);
+		#if FAC_DEBUG
+			ASSERT(HERE, ((double)x > (double)hi) == (x > hi),"((double)x > (double)hi) == (x > hi)");
+			ASSERT(HERE, (int64)A >=0,"(int64)A >=0");
+		#endif
 		}
 
 		if((pshift >> j) & (uint64)1)
 		{
 			/* Add x to itself... */
 			y = x + x; B = A + A;
-			if(y < x) ++B;		/* had a carry */
+			B += (y < x);		/* had a carry */
 
 			/* ...and normalize the result. */
-#if FAC_DEBUG
-	if(dbg) printf("twopmodq65: while(B=%llu-- > 1) || (%llu-=%llu >=%llu)\n",B,y,q,q);
-#endif
+		#if FAC_DEBUG
+			if(dbg) printf("twopmodq65: while(B=%llu-- > 1) || (%llu-=%llu >=%llu)\n",B,y,q,q);
+		#endif
 			while(B > 1 || (B == 1 && y >= q))
 			{
 				--B; t = y; y -= q;
-				if(y > t) --B;		/* had a borrow */
+				B -= (y > t);		/* had a borrow */
 			}
 			x = y; A = B;
 		}
@@ -2156,31 +2179,23 @@ if(dbg)printf("twopmodq65:\n");
 
 	/* Add x to itself... */
 	y = x + x; B = A + A;
-	if(y < x) ++B;		/* had a carry */
-	/* ...and normalize the result. */
+	B += (y < x);		/* had a carry */
 
+	/* ...and normalize the result. */
 #if FAC_DEBUG
 	if(dbg) printf("twopmodq65:#while(%llu-- > 1) || (%llu-=%llu >=%llu)\n",B,y,q,q);
 #endif
-	while(B > 1 || (B == 1 && y >= q))
-	{
+	while(B > 1 || (B == 1 && y >= q)) {
 		--B; t = y; y -= q;
-		if(y > t) --B;		/* had a borrow */
+		B -= (y > t);		/* had a borrow */
 	}
 
 	/*if(y == (uint64)1) ASSERT(HERE, B == 0, "twopmodq65 : B == 0");*/
-	*checksum2 += x;
-
-	r = 0;
-	if(y == 1)
-	{
-		r += 1;
-	}
-	return r;
+	return (y + FERMAT == 1ull && B == 0ull);
 }
 
 /*** 4-trial-factor version ***/
-uint64 twopmodq65_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
+uint64 twopmodq65_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 {
 	 int32 j;
 	uint64 q0 = 1+(p<<1)*k0, q1 = 1+(p<<1)*k1, q2 = 1+(p<<1)*k2, q3 = 1+(p<<1)*k3
@@ -2191,23 +2206,17 @@ uint64 twopmodq65_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 		, B0, B1, B2, B3
 		, lo0, lo1, lo2, lo3
 		, hi0, hi1, hi2, hi3, r, t;
-	static uint64 psave = 0, pshift, zstart;
-	static uint32 start_index, first_entry = TRUE;
-#ifdef MOD_INI_Q4
-	uint32 ql0,ql1,ql2,ql3,qh0,qh1,qh2,qh3,qil0,qil1,qil2,qil3,qih0,qih1,qih2,qih3;
-#endif
+	uint64 pshift;
+	uint32 jshift, leadb, start_index, zshift;
+	uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
-	if(first_entry || p != psave)
-	{
-		first_entry = FALSE;
-		psave  = p;
-		pshift = p + 64;
-		start_index = 64-leadz64(pshift)-6;
-
-		zstart = ((uint64)1) << (63-ibits64(pshift,start_index,6));
-		pshift = ~pshift;
-	}
-	*checksum1 += q0 + q1 + q2 + q3;
+	pshift = p + 64;
+	jshift = leadz64(pshift);
+	// Extract leftmost 6 bits of pshift and subtract from 64:
+	leadb = ((pshift<<jshift) >> (64-6));
+	start_index = (64-6)-jshift;
+	zshift = 63 - leadb;
+	pshift = ~pshift;
 
 	/* q must be odd for Montgomery-style modmul to work: */
 	ASSERT(HERE, q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 , "even modulus!");
@@ -2225,31 +2234,13 @@ uint64 twopmodq65_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 		qinv3 = qinv3*((uint64)2 - q3*qinv3);
 	}
 
-#ifdef MOD_INI_Q4
-	MOD_INI_Q4(
-	 q0,qinv0
-	,q1,qinv1
-	,q2,qinv2
-	,q3,qinv3
-	);
-#endif
-
 /*...Initialize the binary powering...*/
 
-	x0 = x1 = x2 = x3 = zstart;
+	x0 = x1 = x2 = x3 = 1ull << zshift;
 	A0 = A1 = A2 = A3 = 0;
 
 	for(j = start_index-1; j >= 0; j--)
 	{
-
-#ifdef MOD_INI_Q4
-		MOD_SQR_Q4(
-		 x0,hi0,y0
-		,x1,hi1,y1
-		,x2,hi2,y2
-		,x3,hi3,y3
-		);
-#else
 	#ifdef MUL_LOHI64_SUBROUTINE
 		SQR_LOHI64(x0,&lo0,&hi0);
 		SQR_LOHI64(x1,&lo1,&hi1);
@@ -2280,20 +2271,19 @@ uint64 twopmodq65_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 		MULH64(q2,lo2,y2);
 		MULH64(q3,lo3,y3);
 	#endif
-#endif
 
 		/* Use B0-3 as temporaries here... */
-#ifdef NOBRANCH
+	#ifdef NOBRANCH
 		if(A0 > 0){ B0 = (-A0 & x0); hi0 += B0; A0 += (hi0 < B0); hi0 += B0; A0 += (hi0 < B0); }
 		if(A1 > 0){ B1 = (-A1 & x1); hi1 += B1; A1 += (hi1 < B1); hi1 += B1; A1 += (hi1 < B1); }
 		if(A2 > 0){ B2 = (-A2 & x2); hi2 += B2; A2 += (hi2 < B2); hi2 += B2; A2 += (hi2 < B2); }
 		if(A3 > 0){ B3 = (-A3 & x3); hi3 += B3; A3 += (hi3 < B3); hi3 += B3; A3 += (hi3 < B3); }
-#else
+	#else
 		if(A0 > 0){ B0 = (-A0 & x0); hi0 += B0; if(hi0 < B0) ++A0; hi0 += B0; if(hi0 < B0) ++A0; }
 		if(A1 > 0){ B1 = (-A1 & x1); hi1 += B1; if(hi1 < B1) ++A1; hi1 += B1; if(hi1 < B1) ++A1; }
 		if(A2 > 0){ B2 = (-A2 & x2); hi2 += B2; if(hi2 < B2) ++A2; hi2 += B2; if(hi2 < B2) ++A2; }
 		if(A3 > 0){ B3 = (-A3 & x3); hi3 += B3; if(hi3 < B3) ++A3; hi3 += B3; if(hi3 < B3) ++A3; }
-#endif
+	#endif
 		/* ...And then give them their proper value here: */
 		y0 += lo0; B0 = (y0 < lo0);
 		y1 += lo1; B1 = (y1 < lo1);
@@ -2305,33 +2295,33 @@ uint64 twopmodq65_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 	!	On the other side of the ledger, since SQR_HIGH_EXACT(x) is < 2q, the difference will be < 2q or < 3q, respectively,
 	!	depending on whether we add the q to SQR_HIGH_EXACT(x) conditionally or unconditionally.
 	*/
-		if(A0 < B0 || (A0 == B0 && hi0 < y0)){ ++A0; hi0 += q0; if(hi0 < q0) ++A0; }
-		if(A1 < B1 || (A1 == B1 && hi1 < y1)){ ++A1; hi1 += q1; if(hi1 < q1) ++A1; }
-		if(A2 < B2 || (A2 == B2 && hi2 < y2)){ ++A2; hi2 += q2; if(hi2 < q2) ++A2; }
-		if(A3 < B3 || (A3 == B3 && hi3 < y3)){ ++A3; hi3 += q3; if(hi3 < q3) ++A3; }
+		if(A0 < B0 || (A0 == B0 && hi0 < y0)){ ++A0; hi0 += q0; A0 += (hi0 < q0); }
+		if(A1 < B1 || (A1 == B1 && hi1 < y1)){ ++A1; hi1 += q1; A1 += (hi1 < q1); }
+		if(A2 < B2 || (A2 == B2 && hi2 < y2)){ ++A2; hi2 += q2; A2 += (hi2 < q2); }
+		if(A3 < B3 || (A3 == B3 && hi3 < y3)){ ++A3; hi3 += q3; A3 += (hi3 < q3); }
 
 	/* Do the subtraction. Result is in (hi,A). */
 
-		A0 -= B0; x0 = hi0; hi0 -= y0; if(hi0 > x0) --A0;
-		A1 -= B1; x1 = hi1; hi1 -= y1; if(hi1 > x1) --A1;
-		A2 -= B2; x2 = hi2; hi2 -= y2; if(hi2 > x2) --A2;
-		A3 -= B3; x3 = hi3; hi3 -= y3; if(hi3 > x3) --A3;
+		A0 -= B0; x0 = hi0; hi0 -= y0; A0 -= (hi0 > x0);
+		A1 -= B1; x1 = hi1; hi1 -= y1; A1 -= (hi1 > x1);
+		A2 -= B2; x2 = hi2; hi2 -= y2; A2 -= (hi2 > x2);
+		A3 -= B3; x3 = hi3; hi3 -= y3; A3 -= (hi3 > x3);
 
 	/* ...and normalize. Result is in (x, A), and is < 2q if the previous normalization was done conditionally, < 3q otherwise. */
 
-		x0 = hi0; if(A0 > 1 || (A0 == 1 && x0 >= q0)){ --A0; x0 -= q0; if(x0 > hi0) --A0; }
-		x1 = hi1; if(A1 > 1 || (A1 == 1 && x1 >= q1)){ --A1; x1 -= q1; if(x1 > hi1) --A1; }
-		x2 = hi2; if(A2 > 1 || (A2 == 1 && x2 >= q2)){ --A2; x2 -= q2; if(x2 > hi2) --A2; }
-		x3 = hi3; if(A3 > 1 || (A3 == 1 && x3 >= q3)){ --A3; x3 -= q3; if(x3 > hi3) --A3; }
+		x0 = hi0; if(A0 > 1 || (A0 == 1 && x0 >= q0)){ --A0; x0 -= q0; A0 -= (x0 > hi0); }
+		x1 = hi1; if(A1 > 1 || (A1 == 1 && x1 >= q1)){ --A1; x1 -= q1; A1 -= (x1 > hi1); }
+		x2 = hi2; if(A2 > 1 || (A2 == 1 && x2 >= q2)){ --A2; x2 -= q2; A2 -= (x2 > hi2); }
+		x3 = hi3; if(A3 > 1 || (A3 == 1 && x3 >= q3)){ --A3; x3 -= q3; A3 -= (x3 > hi3); }
 
 	/* Add x to itself and normalize the result. */
 
 		if((pshift >> j) & (uint64)1)
 		{
-			y0 = x0 + x0; B0 = A0 + A0; if(y0 < x0) ++B0; if(B0 > 1 || (B0 == 1 && y0 >= q0)){ --B0; t = y0; y0 -= q0; if(y0 > t) --B0; }
-			y1 = x1 + x1; B1 = A1 + A1; if(y1 < x1) ++B1; if(B1 > 1 || (B1 == 1 && y1 >= q1)){ --B1; t = y1; y1 -= q1; if(y1 > t) --B1; }
-			y2 = x2 + x2; B2 = A2 + A2; if(y2 < x2) ++B2; if(B2 > 1 || (B2 == 1 && y2 >= q2)){ --B2; t = y2; y2 -= q2; if(y2 > t) --B2; }
-			y3 = x3 + x3; B3 = A3 + A3; if(y3 < x3) ++B3; if(B3 > 1 || (B3 == 1 && y3 >= q3)){ --B3; t = y3; y3 -= q3; if(y3 > t) --B3; }
+			y0 = x0 + x0; B0 = A0 + A0; B0 += (y0 < x0); if(B0 > 1 || (B0 == 1 && y0 >= q0)){ --B0; t = y0; y0 -= q0; B0 -= (y0 > t); }
+			y1 = x1 + x1; B1 = A1 + A1; B1 += (y1 < x1); if(B1 > 1 || (B1 == 1 && y1 >= q1)){ --B1; t = y1; y1 -= q1; B1 -= (y1 > t); }
+			y2 = x2 + x2; B2 = A2 + A2; B2 += (y2 < x2); if(B2 > 1 || (B2 == 1 && y2 >= q2)){ --B2; t = y2; y2 -= q2; B2 -= (y2 > t); }
+			y3 = x3 + x3; B3 = A3 + A3; B3 += (y3 < x3); if(B3 > 1 || (B3 == 1 && y3 >= q3)){ --B3; t = y3; y3 -= q3; B3 -= (y3 > t); }
 
 			x0 = y0; A0 = B0;
 			x1 = y1; A1 = B1;
@@ -2342,23 +2332,21 @@ uint64 twopmodq65_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 
 	/*...Double and return.	These are specialized for the case where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2. */
 
-	y0 = x0 + x0; B0 = A0 + A0; if(y0 < x0) ++B0; if(B0 > 1 || (B0 == 1 && y0 >= q0)){ --B0; t = y0; y0 -= q0; if(y0 > t) --B0; }
-	y1 = x1 + x1; B1 = A1 + A1; if(y1 < x1) ++B1; if(B1 > 1 || (B1 == 1 && y1 >= q1)){ --B1; t = y1; y1 -= q1; if(y1 > t) --B1; }
-	y2 = x2 + x2; B2 = A2 + A2; if(y2 < x2) ++B2; if(B2 > 1 || (B2 == 1 && y2 >= q2)){ --B2; t = y2; y2 -= q2; if(y2 > t) --B2; }
-	y3 = x3 + x3; B3 = A3 + A3; if(y3 < x3) ++B3; if(B3 > 1 || (B3 == 1 && y3 >= q3)){ --B3; t = y3; y3 -= q3; if(y3 > t) --B3; }
-
-	*checksum2 += x0 + x1 + x2 + x3;
+	y0 = x0 + x0; B0 = A0 + A0; B0 += (y0 < x0); if(B0 > 1 || (B0 == 1 && y0 >= q0)){ --B0; t = y0; y0 -= q0; B0 -= (y0 > t); }
+	y1 = x1 + x1; B1 = A1 + A1; B1 += (y1 < x1); if(B1 > 1 || (B1 == 1 && y1 >= q1)){ --B1; t = y1; y1 -= q1; B1 -= (y1 > t); }
+	y2 = x2 + x2; B2 = A2 + A2; B2 += (y2 < x2); if(B2 > 1 || (B2 == 1 && y2 >= q2)){ --B2; t = y2; y2 -= q2; B2 -= (y2 > t); }
+	y3 = x3 + x3; B3 = A3 + A3; B3 += (y3 < x3); if(B3 > 1 || (B3 == 1 && y3 >= q3)){ --B3; t = y3; y3 -= q3; B3 -= (y3 > t); }
 
 	r = 0;
-	if(y0 == 1) r +=  1;
-	if(y1 == 1) r +=  2;
-	if(y2 == 1) r +=  4;
-	if(y3 == 1) r +=  8;
+	if(y0+FERMAT == 1) r +=  1;
+	if(y1+FERMAT == 1) r +=  2;
+	if(y2+FERMAT == 1) r +=  4;
+	if(y3+FERMAT == 1) r +=  8;
 	return r;
 }
 
 /*** 8-trial-factor version ***/
-uint64 twopmodq65_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7)
+uint64 twopmodq65_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7)
 {
 	 int32 j;
 	uint64 q0 = 1+(p<<1)*k0, q1 = 1+(p<<1)*k1, q2 = 1+(p<<1)*k2, q3 = 1+(p<<1)*k3, q4 = 1+(p<<1)*k4, q5 = 1+(p<<1)*k5, q6 = 1+(p<<1)*k6, q7 = 1+(p<<1)*k7
@@ -2369,20 +2357,17 @@ uint64 twopmodq65_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 		, B0, B1, B2, B3, B4, B5, B6, B7
 		, lo0, lo1, lo2, lo3, lo4, lo5, lo6, lo7
 		, hi0, hi1, hi2, hi3, hi4, hi5, hi6, hi7, r, t;
-	static uint64 psave = 0, pshift, zstart;
-	static uint32 start_index, first_entry = TRUE;
+	uint64 pshift;
+	uint32 jshift, leadb, start_index, zshift;
+	uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
-	if(first_entry || p != psave)
-	{
-		first_entry = FALSE;
-		psave  = p;
-		pshift = p + 64;
-		start_index = 64-leadz64(pshift)-6;
-
-		zstart = ((uint64)1) << (63-ibits64(pshift,start_index,6));
-		pshift = ~pshift;
-	}
-	*checksum1 += q0 + q1 + q2 + q3 + q4 + q5 + q6 + q7;
+	pshift = p + 64;
+	jshift = leadz64(pshift);
+	// Extract leftmost 6 bits of pshift and subtract from 64:
+	leadb = ((pshift<<jshift) >> (64-6));
+	start_index = (64-6)-jshift;
+	zshift = 63 - leadb;
+	pshift = ~pshift;
 
 	/* q must be odd for Montgomery-style modmul to work: */
 	ASSERT(HERE, q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 && q4 & 1 && q5 & 1 && q6 & 1 && q7 & 1 , "even modulus!");
@@ -2410,7 +2395,7 @@ uint64 twopmodq65_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 
 	/*...Initialize the binary powering...*/
 
-	x0 = x1 = x2 = x3 = x4 = x5 = x6 = x7 = zstart;
+	x0 = x1 = x2 = x3 = x4 = x5 = x6 = x7 = 1ull << zshift;
 	A0 = A1 = A2 = A3 = A4 = A5 = A6 = A7 = 0;
 
 	for(j = start_index-1; j >= 0; j--)
@@ -2467,7 +2452,7 @@ uint64 twopmodq65_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 	#endif
 
 		/* Use B0-3 as temporaries here... */
-#ifdef NOBRANCH
+	#ifdef NOBRANCH
 		if(A0 > 0){ B0 = (-A0 & x0); hi0 += B0; A0 += (hi0 < B0); hi0 += B0; A0 += (hi0 < B0); }
 		if(A1 > 0){ B1 = (-A1 & x1); hi1 += B1; A1 += (hi1 < B1); hi1 += B1; A1 += (hi1 < B1); }
 		if(A2 > 0){ B2 = (-A2 & x2); hi2 += B2; A2 += (hi2 < B2); hi2 += B2; A2 += (hi2 < B2); }
@@ -2476,7 +2461,7 @@ uint64 twopmodq65_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 		if(A5 > 0){ B5 = (-A5 & x5); hi5 += B5; A5 += (hi5 < B5); hi5 += B5; A5 += (hi5 < B5); }
 		if(A6 > 0){ B6 = (-A6 & x6); hi6 += B6; A6 += (hi6 < B6); hi6 += B6; A6 += (hi6 < B6); }
 		if(A7 > 0){ B7 = (-A7 & x7); hi7 += B7; A7 += (hi7 < B7); hi7 += B7; A7 += (hi7 < B7); }
-#else
+	#else
 		if(A0 > 0){ B0 = (-A0 & x0); hi0 += B0; if(hi0 < B0) ++A0; hi0 += B0; if(hi0 < B0) ++A0; }
 		if(A1 > 0){ B1 = (-A1 & x1); hi1 += B1; if(hi1 < B1) ++A1; hi1 += B1; if(hi1 < B1) ++A1; }
 		if(A2 > 0){ B2 = (-A2 & x2); hi2 += B2; if(hi2 < B2) ++A2; hi2 += B2; if(hi2 < B2) ++A2; }
@@ -2485,7 +2470,7 @@ uint64 twopmodq65_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 		if(A5 > 0){ B5 = (-A5 & x5); hi5 += B5; if(hi5 < B5) ++A5; hi5 += B5; if(hi5 < B5) ++A5; }
 		if(A6 > 0){ B6 = (-A6 & x6); hi6 += B6; if(hi6 < B6) ++A6; hi6 += B6; if(hi6 < B6) ++A6; }
 		if(A7 > 0){ B7 = (-A7 & x7); hi7 += B7; if(hi7 < B7) ++A7; hi7 += B7; if(hi7 < B7) ++A7; }
-#endif
+	#endif
 		/* ...And then give them their proper value here: */
 		y0 += lo0; B0 = (y0 < lo0);
 		y1 += lo1; B1 = (y1 < lo1);
@@ -2501,49 +2486,49 @@ uint64 twopmodq65_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 	!	On the other side of the ledger, since SQR_HIGH_EXACT(x) is < 2q, the difference will be < 2q or < 3q, respectively,
 	!	depending on whether we add the q to SQR_HIGH_EXACT(x) conditionally or unconditionally.
 	*/
-		if(A0 < B0 || (A0 == B0 && hi0 < y0)){ ++A0; hi0 += q0; if(hi0 < q0) ++A0; }
-		if(A1 < B1 || (A1 == B1 && hi1 < y1)){ ++A1; hi1 += q1; if(hi1 < q1) ++A1; }
-		if(A2 < B2 || (A2 == B2 && hi2 < y2)){ ++A2; hi2 += q2; if(hi2 < q2) ++A2; }
-		if(A3 < B3 || (A3 == B3 && hi3 < y3)){ ++A3; hi3 += q3; if(hi3 < q3) ++A3; }
-		if(A4 < B4 || (A4 == B4 && hi4 < y4)){ ++A4; hi4 += q4; if(hi4 < q4) ++A4; }
-		if(A5 < B5 || (A5 == B5 && hi5 < y5)){ ++A5; hi5 += q5; if(hi5 < q5) ++A5; }
-		if(A6 < B6 || (A6 == B6 && hi6 < y6)){ ++A6; hi6 += q6; if(hi6 < q6) ++A6; }
-		if(A7 < B7 || (A7 == B7 && hi7 < y7)){ ++A7; hi7 += q7; if(hi7 < q7) ++A7; }
+		if(A0 < B0 || (A0 == B0 && hi0 < y0)){ ++A0; hi0 += q0; A0 += (hi0 < q0); }
+		if(A1 < B1 || (A1 == B1 && hi1 < y1)){ ++A1; hi1 += q1; A1 += (hi1 < q1); }
+		if(A2 < B2 || (A2 == B2 && hi2 < y2)){ ++A2; hi2 += q2; A2 += (hi2 < q2); }
+		if(A3 < B3 || (A3 == B3 && hi3 < y3)){ ++A3; hi3 += q3; A3 += (hi3 < q3); }
+		if(A4 < B4 || (A4 == B4 && hi4 < y4)){ ++A4; hi4 += q4; A4 += (hi4 < q4); }
+		if(A5 < B5 || (A5 == B5 && hi5 < y5)){ ++A5; hi5 += q5; A5 += (hi5 < q5); }
+		if(A6 < B6 || (A6 == B6 && hi6 < y6)){ ++A6; hi6 += q6; A6 += (hi6 < q6); }
+		if(A7 < B7 || (A7 == B7 && hi7 < y7)){ ++A7; hi7 += q7; A7 += (hi7 < q7); }
 
 	/* Do the subtraction. Result is in (hi,A). */
 
-		A0 -= B0; x0 = hi0; hi0 -= y0; if(hi0 > x0) --A0;
-		A1 -= B1; x1 = hi1; hi1 -= y1; if(hi1 > x1) --A1;
-		A2 -= B2; x2 = hi2; hi2 -= y2; if(hi2 > x2) --A2;
-		A3 -= B3; x3 = hi3; hi3 -= y3; if(hi3 > x3) --A3;
-		A4 -= B4; x4 = hi4; hi4 -= y4; if(hi4 > x4) --A4;
-		A5 -= B5; x5 = hi5; hi5 -= y5; if(hi5 > x5) --A5;
-		A6 -= B6; x6 = hi6; hi6 -= y6; if(hi6 > x6) --A6;
-		A7 -= B7; x7 = hi7; hi7 -= y7; if(hi7 > x7) --A7;
+		A0 -= B0; x0 = hi0; hi0 -= y0; A0 -= (hi0 > x0);
+		A1 -= B1; x1 = hi1; hi1 -= y1; A1 -= (hi1 > x1);
+		A2 -= B2; x2 = hi2; hi2 -= y2; A2 -= (hi2 > x2);
+		A3 -= B3; x3 = hi3; hi3 -= y3; A3 -= (hi3 > x3);
+		A4 -= B4; x4 = hi4; hi4 -= y4; A4 -= (hi4 > x4);
+		A5 -= B5; x5 = hi5; hi5 -= y5; A5 -= (hi5 > x5);
+		A6 -= B6; x6 = hi6; hi6 -= y6; A6 -= (hi6 > x6);
+		A7 -= B7; x7 = hi7; hi7 -= y7; A7 -= (hi7 > x7);
 
 	/* ...and normalize. Result is in (x, A), and is < 2q if the previous normalization was done conditionally, < 3q otherwise. */
 
-		x0 = hi0; if(A0 > 1 || (A0 == 1 && x0 >= q0)){ --A0; x0 -= q0; if(x0 > hi0) --A0; }
-		x1 = hi1; if(A1 > 1 || (A1 == 1 && x1 >= q1)){ --A1; x1 -= q1; if(x1 > hi1) --A1; }
-		x2 = hi2; if(A2 > 1 || (A2 == 1 && x2 >= q2)){ --A2; x2 -= q2; if(x2 > hi2) --A2; }
-		x3 = hi3; if(A3 > 1 || (A3 == 1 && x3 >= q3)){ --A3; x3 -= q3; if(x3 > hi3) --A3; }
-		x4 = hi4; if(A4 > 1 || (A4 == 1 && x4 >= q4)){ --A4; x4 -= q4; if(x4 > hi4) --A4; }
-		x5 = hi5; if(A5 > 1 || (A5 == 1 && x5 >= q5)){ --A5; x5 -= q5; if(x5 > hi5) --A5; }
-		x6 = hi6; if(A6 > 1 || (A6 == 1 && x6 >= q6)){ --A6; x6 -= q6; if(x6 > hi6) --A6; }
-		x7 = hi7; if(A7 > 1 || (A7 == 1 && x7 >= q7)){ --A7; x7 -= q7; if(x7 > hi7) --A7; }
+		x0 = hi0; if(A0 > 1 || (A0 == 1 && x0 >= q0)){ --A0; x0 -= q0; A0 -= (x0 > hi0); }
+		x1 = hi1; if(A1 > 1 || (A1 == 1 && x1 >= q1)){ --A1; x1 -= q1; A1 -= (x1 > hi1); }
+		x2 = hi2; if(A2 > 1 || (A2 == 1 && x2 >= q2)){ --A2; x2 -= q2; A2 -= (x2 > hi2); }
+		x3 = hi3; if(A3 > 1 || (A3 == 1 && x3 >= q3)){ --A3; x3 -= q3; A3 -= (x3 > hi3); }
+		x4 = hi4; if(A4 > 1 || (A4 == 1 && x4 >= q4)){ --A4; x4 -= q4; A4 -= (x4 > hi4); }
+		x5 = hi5; if(A5 > 1 || (A5 == 1 && x5 >= q5)){ --A5; x5 -= q5; A5 -= (x5 > hi5); }
+		x6 = hi6; if(A6 > 1 || (A6 == 1 && x6 >= q6)){ --A6; x6 -= q6; A6 -= (x6 > hi6); }
+		x7 = hi7; if(A7 > 1 || (A7 == 1 && x7 >= q7)){ --A7; x7 -= q7; A7 -= (x7 > hi7); }
 
 	/* Add x to itself and normalize the result. */
 
 		if((pshift >> j) & (uint64)1)
 		{
-			y0 = x0 + x0; B0 = A0 + A0; if(y0 < x0) ++B0; if(B0 > 1 || (B0 == 1 && y0 >= q0)){ --B0; t = y0; y0 -= q0; if(y0 > t) --B0; }
-			y1 = x1 + x1; B1 = A1 + A1; if(y1 < x1) ++B1; if(B1 > 1 || (B1 == 1 && y1 >= q1)){ --B1; t = y1; y1 -= q1; if(y1 > t) --B1; }
-			y2 = x2 + x2; B2 = A2 + A2; if(y2 < x2) ++B2; if(B2 > 1 || (B2 == 1 && y2 >= q2)){ --B2; t = y2; y2 -= q2; if(y2 > t) --B2; }
-			y3 = x3 + x3; B3 = A3 + A3; if(y3 < x3) ++B3; if(B3 > 1 || (B3 == 1 && y3 >= q3)){ --B3; t = y3; y3 -= q3; if(y3 > t) --B3; }
-			y4 = x4 + x4; B4 = A4 + A4; if(y4 < x4) ++B4; if(B4 > 1 || (B4 == 1 && y4 >= q4)){ --B4; t = y4; y4 -= q4; if(y4 > t) --B4; }
-			y5 = x5 + x5; B5 = A5 + A5; if(y5 < x5) ++B5; if(B5 > 1 || (B5 == 1 && y5 >= q5)){ --B5; t = y5; y5 -= q5; if(y5 > t) --B5; }
-			y6 = x6 + x6; B6 = A6 + A6; if(y6 < x6) ++B6; if(B6 > 1 || (B6 == 1 && y6 >= q6)){ --B6; t = y6; y6 -= q6; if(y6 > t) --B6; }
-			y7 = x7 + x7; B7 = A7 + A7; if(y7 < x7) ++B7; if(B7 > 1 || (B7 == 1 && y7 >= q7)){ --B7; t = y7; y7 -= q7; if(y7 > t) --B7; }
+			y0 = x0 + x0; B0 = A0 + A0; B0 += (y0 < x0); if(B0 > 1 || (B0 == 1 && y0 >= q0)){ --B0; t = y0; y0 -= q0; B0 -= (y0 > t); }
+			y1 = x1 + x1; B1 = A1 + A1; B1 += (y1 < x1); if(B1 > 1 || (B1 == 1 && y1 >= q1)){ --B1; t = y1; y1 -= q1; B1 -= (y1 > t); }
+			y2 = x2 + x2; B2 = A2 + A2; B2 += (y2 < x2); if(B2 > 1 || (B2 == 1 && y2 >= q2)){ --B2; t = y2; y2 -= q2; B2 -= (y2 > t); }
+			y3 = x3 + x3; B3 = A3 + A3; B3 += (y3 < x3); if(B3 > 1 || (B3 == 1 && y3 >= q3)){ --B3; t = y3; y3 -= q3; B3 -= (y3 > t); }
+			y4 = x4 + x4; B4 = A4 + A4; B4 += (y4 < x4); if(B4 > 1 || (B4 == 1 && y4 >= q4)){ --B4; t = y4; y4 -= q4; B4 -= (y4 > t); }
+			y5 = x5 + x5; B5 = A5 + A5; B5 += (y5 < x5); if(B5 > 1 || (B5 == 1 && y5 >= q5)){ --B5; t = y5; y5 -= q5; B5 -= (y5 > t); }
+			y6 = x6 + x6; B6 = A6 + A6; B6 += (y6 < x6); if(B6 > 1 || (B6 == 1 && y6 >= q6)){ --B6; t = y6; y6 -= q6; B6 -= (y6 > t); }
+			y7 = x7 + x7; B7 = A7 + A7; B7 += (y7 < x7); if(B7 > 1 || (B7 == 1 && y7 >= q7)){ --B7; t = y7; y7 -= q7; B7 -= (y7 > t); }
 
 			x0 = y0; A0 = B0;
 			x1 = y1; A1 = B1;
@@ -2558,26 +2543,23 @@ uint64 twopmodq65_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 
 	/*...Double and return.	These are specialized for the case where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2. */
 
-	y0 = x0 + x0; B0 = A0 + A0; if(y0 < x0) ++B0; if(B0 > 1 || (B0 == 1 && y0 >= q0)){ --B0; t = y0; y0 -= q0; if(y0 > t) --B0; }
-	y1 = x1 + x1; B1 = A1 + A1; if(y1 < x1) ++B1; if(B1 > 1 || (B1 == 1 && y1 >= q1)){ --B1; t = y1; y1 -= q1; if(y1 > t) --B1; }
-	y2 = x2 + x2; B2 = A2 + A2; if(y2 < x2) ++B2; if(B2 > 1 || (B2 == 1 && y2 >= q2)){ --B2; t = y2; y2 -= q2; if(y2 > t) --B2; }
-	y3 = x3 + x3; B3 = A3 + A3; if(y3 < x3) ++B3; if(B3 > 1 || (B3 == 1 && y3 >= q3)){ --B3; t = y3; y3 -= q3; if(y3 > t) --B3; }
-	y4 = x4 + x4; B4 = A4 + A4; if(y4 < x4) ++B4; if(B4 > 1 || (B4 == 1 && y4 >= q4)){ --B4; t = y4; y4 -= q4; if(y4 > t) --B4; }
-	y5 = x5 + x5; B5 = A5 + A5; if(y5 < x5) ++B5; if(B5 > 1 || (B5 == 1 && y5 >= q5)){ --B5; t = y5; y5 -= q5; if(y5 > t) --B5; }
-	y6 = x6 + x6; B6 = A6 + A6; if(y6 < x6) ++B6; if(B6 > 1 || (B6 == 1 && y6 >= q6)){ --B6; t = y6; y6 -= q6; if(y6 > t) --B6; }
-	y7 = x7 + x7; B7 = A7 + A7; if(y7 < x7) ++B7; if(B7 > 1 || (B7 == 1 && y7 >= q7)){ --B7; t = y7; y7 -= q7; if(y7 > t) --B7; }
+	y0 = x0 + x0; B0 = A0 + A0; B0 += (y0 < x0); if(B0 > 1 || (B0 == 1 && y0 >= q0)){ --B0; t = y0; y0 -= q0; B0 -= (y0 > t); }
+	y1 = x1 + x1; B1 = A1 + A1; B1 += (y1 < x1); if(B1 > 1 || (B1 == 1 && y1 >= q1)){ --B1; t = y1; y1 -= q1; B1 -= (y1 > t); }
+	y2 = x2 + x2; B2 = A2 + A2; B2 += (y2 < x2); if(B2 > 1 || (B2 == 1 && y2 >= q2)){ --B2; t = y2; y2 -= q2; B2 -= (y2 > t); }
+	y3 = x3 + x3; B3 = A3 + A3; B3 += (y3 < x3); if(B3 > 1 || (B3 == 1 && y3 >= q3)){ --B3; t = y3; y3 -= q3; B3 -= (y3 > t); }
+	y4 = x4 + x4; B4 = A4 + A4; B4 += (y4 < x4); if(B4 > 1 || (B4 == 1 && y4 >= q4)){ --B4; t = y4; y4 -= q4; B4 -= (y4 > t); }
+	y5 = x5 + x5; B5 = A5 + A5; B5 += (y5 < x5); if(B5 > 1 || (B5 == 1 && y5 >= q5)){ --B5; t = y5; y5 -= q5; B5 -= (y5 > t); }
+	y6 = x6 + x6; B6 = A6 + A6; B6 += (y6 < x6); if(B6 > 1 || (B6 == 1 && y6 >= q6)){ --B6; t = y6; y6 -= q6; B6 -= (y6 > t); }
+	y7 = x7 + x7; B7 = A7 + A7; B7 += (y7 < x7); if(B7 > 1 || (B7 == 1 && y7 >= q7)){ --B7; t = y7; y7 -= q7; B7 -= (y7 > t); }
 
-	*checksum2 += x0 + x1 + x2 + x3 + x4 + x5 + x6 + x7;
-
-	r = 0;
-	if(y0 == 1) r +=  1;
-	if(y1 == 1) r +=  2;
-	if(y2 == 1) r +=  4;
-	if(y3 == 1) r +=  8;
-	if(y4 == 1) r += 16;
-	if(y5 == 1) r += 32;
-	if(y6 == 1) r += 64;
-	if(y7 == 1) r +=128;
+	r  = (y0+FERMAT == 1);
+	r += (y1+FERMAT == 1)<<1;
+	r += (y2+FERMAT == 1)<<2;
+	r += (y3+FERMAT == 1)<<3;
+	r += (y4+FERMAT == 1)<<4;
+	r += (y5+FERMAT == 1)<<5;
+	r += (y6+FERMAT == 1)<<6;
+	r += (y7+FERMAT == 1)<<7;
 	return r;
 }
 

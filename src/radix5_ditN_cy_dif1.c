@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2013 by Ernst W. Mayer.                                           *
+*   (C) 1997-2016 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -38,8 +38,8 @@ int radix5_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], 
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
 	int n5,bjmodn0,bjmodn1,bjmodn2,bjmodn3,bjmodn4,i,j,j1,j2,jstart,jhi,iroot,root_incr,k,khi,l,outer;
-	static uint64 psave=0;
-	static uint32 bw,sw,bjmodnini,p1,p2,p3,p4;
+	static uint64 psave = 0;
+	static uint32 bw,sw,bjmodnini,p1,p2,p3,p4, nsave = 0;
 	const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 	static double cc1 = -1.25000000000000000000,	/* [cos(u)+cos(2u)]/2-1 = -5/4 */
 		      cc2 =  0.55901699437494742409,	/* [cos(u)-cos(2u)]/2 */
@@ -63,6 +63,7 @@ int radix5_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], 
 	int n_div_nwt;
 	int col,co2,co3,m,m2,n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	double wt,wtinv,wtl,wtlp1,wtn,wtnm1,wtA,wtB,wtC;
+	double wt_re,wt_im, wi_re,wi_im;					/* Fermat/LOACC weights stuff */
 
 /*...change n5 and n_div_wt to non-static to work around a gcc compiler bug. */
 	n5   = n/5;
@@ -82,16 +83,15 @@ int radix5_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], 
 		return(err);
 	}
 
-	if(p != psave)
-	{
-	  first_entry=TRUE;
+	if(p != psave || n != nsave) {	/* Exponent or array length change triggers re-init */
+		first_entry=TRUE;
 	}
 
 /*...initialize things upon first entry	*/
 
 	if(first_entry)
 	{
-	  psave = p;
+	  psave = p;	nsave = n;
 	  first_entry=FALSE;
 	  radix_inv = qfdbl(qf_rational_quotient((int64)1, (int64)5));
 	  n2inv     = qfdbl(qf_rational_quotient((int64)1, (int64)(n/2)));
@@ -226,7 +226,7 @@ for(outer=0; outer <= 1; outer++)
 	    wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
 /*...set0 is slightly different from others:	*/
-	   cmplx_carry_norm_errcheck0(aj1p0r ,aj1p0i ,cy0 ,bjmodn0 );
+	   cmplx_carry_norm_errcheck0(aj1p0r ,aj1p0i ,cy0 ,bjmodn0 ,0 );
 	    cmplx_carry_norm_errcheck(aj1p1r ,aj1p1i ,cy1 ,bjmodn1 ,1 );
 	    cmplx_carry_norm_errcheck(aj1p2r ,aj1p2i ,cy2 ,bjmodn2 ,2 );
 	    cmplx_carry_norm_errcheck(aj1p3r ,aj1p3i ,cy3 ,bjmodn3 ,3 );
@@ -302,7 +302,7 @@ prefetch_p_doubles(addr);
 
 /*  Wraparound carry cleanup loop is here: ***
 !
-!   The cleanup carries from the end of each length-N/5 block into the beginning of the next
+!   The cleanup carries from the end of each length-N/5 block into the begining of the next
 !   can all be neatly processed as follows:
 !
 !   (1) Invert the radix-5 forward DIF FFT of the first block of 5 complex elements in A and unweight;
@@ -349,332 +349,6 @@ prefetch_p_doubles(addr);
 	    return(err);
 	}
 	*fracmax = maxerr;
-	return(0);
-}
-
-/***************/
-
-int radix5_ditN_cy_dif1_nochk(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], double base[], double baseinv[], int iter                 , uint64 p)
-{
-/*
-!...Acronym: DWT = Discrete Weighted Transform, DIT = Decimation In Time, DIF = Decimation In Frequency
-!
-!...Performs a final radix-5 complex DIT pass, an inverse DWT weighting, a carry propagation,
-!   a forward DWT weighting, and an initial radix-5 complex DIF pass on the data in the length-N real vector A.
-!
-!   Data enter and are returned in the A-array.
-!
-!   See the documentation in mers_mod_square and radix16_dif_pass for further details on the array
-!   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
-*/
-	int n5,bjmodn0,bjmodn1,bjmodn2,bjmodn3,bjmodn4,i,j,j1,j2,jstart,jhi,iroot,root_incr,k,khi,l,outer;
-	static uint64 psave=0;
-	static uint32 bw,sw,bjmodnini,p1,p2,p3,p4;
-	const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
-	static double cc1 = -1.25000000000000000000,	/* [cos(u)+cos(2u)]/2-1 = -5/4 */
-		      cc2 =  0.55901699437494742409,	/* [cos(u)-cos(2u)]/2 */
-		      s   =  0.95105651629515357211,	/*  sin(u) */
-		      ss1 =  1.53884176858762670130,	/* [sin(u)+sin(2u)] */
-		      ss2 =  0.36327126400268044292,	/* [sin(u)-sin(2u)] */
-		      radix_inv, n2inv;
-	double rt,it
-		,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10
-		,aj1p0r,aj1p1r,aj1p2r,aj1p3r,aj1p4r
-		,aj1p0i,aj1p1i,aj1p2i,aj1p3i,aj1p4i
-		,cy0,cy1,cy2,cy3,cy4,temp,scale;
-#if PFETCH
-	double *add0, *addr;
-#endif
-	int err;
-	static int first_entry=TRUE;
-
-/*...stuff for the reduced-length DWT weights array is here:	*/
-	int n_div_nwt;
-	int col,co2,co3,m,m2,n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
-	double wt,wtinv,wtl,wtlp1,wtn,wtnm1,wtA,wtB,wtC;
-
-/*...change n5 and n_div_wt to non-static to work around a gcc compiler bug. */
-	n5   = n/5;
-	n_div_nwt = n5 >> nwt_bits;
-
-	if((n_div_nwt << nwt_bits) != n5)
-	{
-		sprintf(cbuf,"FATAL: iter = %10d; NWT_BITS does not divide N/5 in radix5_ditN_cy_dif1.\n",iter);
-		if(INTERACT)fprintf(stderr,"%s",cbuf);
-		fp = mlucas_fopen(   OFILE,"a");
-		fq = mlucas_fopen(STATFILE,"a");
-		fprintf(fp,"%s",cbuf);
-		fprintf(fq,"%s",cbuf);
-		fclose(fp);	fp = 0x0;
-		fclose(fq);	fq = 0x0;
-		err=ERR_CARRY;
-		return(err);
-	}
-
-	if(p != psave)
-	{
-	  first_entry=TRUE;
-	}
-
-/*...initialize things upon first entry	*/
-
-	if(first_entry)
-	{
-	  psave = p;
-	  first_entry=FALSE;
-	  radix_inv = qfdbl(qf_rational_quotient((int64)1, (int64)5));
-	  n2inv     = qfdbl(qf_rational_quotient((int64)1, (int64)(n/2)));
-
-	  bw    = p%n;		/* Number of bigwords in the Crandall/Fagin mixed-radix representation = (Mersenne exponent) mod (vector length).	*/
-	  sw    = n - bw;	/* Number of smallwords.	*/
-
-/*   constant index offsets for array load/stores are here.	*/
-
-	  p1 = n5;
-	  p2 = p1 +p1;
-	  p3 = p2 +p1;
-	  p4 = p3 +p1;
-
-	  p1 = p1 + ( (p1 >> DAT_BITS) << PAD_BITS );
-	  p2 = p2 + ( (p2 >> DAT_BITS) << PAD_BITS );
-	  p3 = p3 + ( (p3 >> DAT_BITS) << PAD_BITS );
-	  p4 = p4 + ( (p4 >> DAT_BITS) << PAD_BITS );
-
-	  bjmodnini=0;
-	  for(j=0; j < n5; j++)
-	  {
-	    bjmodnini -= sw; bjmodnini = bjmodnini + ( (-(int)((uint32)bjmodnini >> 31)) & n);
-	  }
-	}
-
-/*...The radix-5 final DIT pass is here.	*/
-
-	cy0 = 0;		/* init carries	*/
-	cy1 = 0;
-	cy2 = 0;
-	cy3 = 0;
-	cy4 = 0;
-
-	/* If an LL test, init the subtract-2: */
-	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRIMALITY)
-	{
-		cy0 = -2;
-	}
-	else
-	{
-		ASSERT(HERE,0,"Radix-5 currently only supports LL test mode!");
-	}
-
-	iroot = 0;	/* init sincos array index	*/
-	root_incr = 1;	/* init sincos array index increment (set = 1 for normal carry pass, = 0 for wrapper pass)	*/
-	scale = n2inv;	/* init inverse-weight scale factor  (set = 2/n for normal carry pass, = 1 for wrapper pass)	*/
-
-	jstart = 0;
-	jhi = jstart+nwt-1;
-	khi = n_div_nwt;
-
-for(outer=0; outer <= 1; outer++)
-{
-	i = 1;		/* Pointer to the BASE and BASEINV arrays. lowest-order digit is always a bigword (i = 1).	*/
-
-	bjmodn0 = 0;
-	bjmodn1 = bjmodnini;
-	bjmodn2 = bjmodn1 +bjmodnini-n; bjmodn2 = bjmodn2 + ( (-(int)((uint32)bjmodn2 >> 31)) & n);
-	bjmodn3 = bjmodn2 +bjmodnini-n; bjmodn3 = bjmodn3 + ( (-(int)((uint32)bjmodn3 >> 31)) & n);
-	bjmodn4 = bjmodn3 +bjmodnini-n; bjmodn4 = bjmodn4 + ( (-(int)((uint32)bjmodn4 >> 31)) & n);
-
-	col=0;
-	co2=(n >> nwt_bits)-1+5;
-	co3=co2-5;		/* At the start of each new j-loop, co3=co2-radix(1)	*/
-
-	for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
-	{
-	  for(j=jstart; j<jhi; j += 2)	/* Each inner loop execution processes (radix(1)*nwt) array data.	*/
-	  {
-	#ifdef USE_SSE2
-		j1 = (j & mask01) + br4[j&3];
-	    j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
-	#else
-	    j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-	#endif
-		j2 = j1+RE_IM_STRIDE;
-
-	    t1 =a[j1   ];		t2 =a[j2   ];
-
-	    t3 =a[j1+p1];		t4 =a[j2+p1];
-	    rt =a[j1+p4];		it =a[j2+p4];
-	    t9 =t3 -rt;			t10=t4 -it;
-	    t3 =t3 +rt;			t4 =t4 +it;
-
-	    t5 =a[j1+p2];		t6 =a[j2+p2];
-	    rt =a[j1+p3];		it =a[j2+p3];
-	    t7 =t5 -rt;			t8 =t6 -it;
-	    t5 =t5 +rt;			t6 =t6 +it;
-
-/*       ...now complete the result.	*/
-
-	    rt = t3+t5;			it = t4+t6;
-	    t1 = t1+rt;			t2 = t2+it;
-	    aj1p0r = t1;		aj1p0i = t2;
-
-	    rt = t1+cc1*rt;		it = t2+cc1*it;
-	    t5 = cc2*(t3-t5);	t6 = cc2*(t4-t6);
-
-	    t3 = rt+t5;			t4 = it+t6;
-	    t5 = rt-t5;			t6 = it-t6;
-
-/*	...only difference from the forward transform is that in this next part, we inline minus signs in front of s,ss1,ss2.	*/
-
-	    rt = s  *(t7-t9);	it = s  *(t8-t10);
-	    t7 = ss1* t7;		t8 = ss1* t8;
-	    t9 = ss2* t9;		t10= ss2* t10;
-
-	    t7 = rt-t7;			t8 = it-t8;
-	    t9 = rt+t9;			t10= it+t10;
-
-	    aj1p1r=t3-t8;		aj1p1i=t4+t7;
-	    aj1p2r=t5-t10;		aj1p2i=t6+t9;
-	    aj1p3r=t5+t10;		aj1p3i=t6-t9;
-	    aj1p4r=t3+t8;		aj1p4i=t4-t7;
-
-/*...and combine those to complete the radix-5 transform and do the carries. Since the outputs would
-     normally be getting dispatched to 5 separate blocks of the A-array, we need 5 separate carries.	*/
-
-	    l= j & (nwt-1);
-	    n_minus_sil   = n-si[l  ];
-	    n_minus_silp1 = n-si[l+1];
-	    sinwt   = si[nwt-l  ];
-	    sinwtm1 = si[nwt-l-1];
-
-	    wtl     =wt0[    l  ];
-	    wtn     =wt0[nwt-l  ]*scale;	/* Include 1/(n/2) scale factor of inverse transform here...	*/
-	    wtlp1   =wt0[    l+1];
-	    wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
-
-/*...set0 is slightly different from others:	*/
-	   cmplx_carry_norm_nocheck0(aj1p0r ,aj1p0i ,cy0 ,bjmodn0 );
-	    cmplx_carry_norm_nocheck(aj1p1r ,aj1p1i ,cy1 ,bjmodn1 ,1 );
-	    cmplx_carry_norm_nocheck(aj1p2r ,aj1p2i ,cy2 ,bjmodn2 ,2 );
-	    cmplx_carry_norm_nocheck(aj1p3r ,aj1p3i ,cy3 ,bjmodn3 ,3 );
-	    cmplx_carry_norm_nocheck(aj1p4r ,aj1p4i ,cy4 ,bjmodn4 ,4 );
-
-	    i =((uint32)(sw - bjmodn0) >> 31);	/* get ready for the next set...	*/
-	    co2=co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
-			   and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).	*/
-
-/*...The radix-5 DIF pass is here:	*/
-
-/*       gather the needed data (5 64-bit complex, i.e. 10 64-bit reals) and begin the transform...	*/
-#if PFETCH
-add0 = &a[j1];
-prefetch_p_doubles(add0);
-#endif
-	  t1 =aj1p0r;			t2 =aj1p0i;
-	  t3 =aj1p1r+aj1p4r;	t4 =aj1p1i+aj1p4i;
-	  t5 =aj1p2r+aj1p3r;	t6 =aj1p2i+aj1p3i;
-	  t7 =aj1p2r-aj1p3r;	t8 =aj1p2i-aj1p3i;
-	  t9 =aj1p1r-aj1p4r;	t10=aj1p1i-aj1p4i;
-#if PFETCH
-addr = add0+p1;
-prefetch_p_doubles(addr);
-#endif
-/*       ...now complete the first complex datum of the result.	*/
-
-	  rt = t3+t5;			it = t4+t6;
-	  t1 = t1+rt;			t2 = t2+it;
-
-	  rt = t1+cc1*rt;		it = t2+cc1*it;
-	  t5 = cc2*(t3-t5);		t6 = cc2*(t4-t6);
-
-	  t3 = rt+t5;			t4 = it+t6;
-	  t5 = rt-t5;			t6 = it-t6;
-#if PFETCH
-addr = add0+p2;
-prefetch_p_doubles(addr);
-#endif
-	  rt = s  *(t9-t7);		it = s  *(t10-t8);
-	  t7 = ss1* t7;			t8 = ss1* t8;
-	  t9 = ss2* t9;			t10= ss2* t10;
-
-	  t7 = rt+t7;			t8 = it+t8;
-	  t9 = rt-t9;			t10= it-t10;
-
-/*...Inline multiply of sine part by I into finishing phase...	*/
-#if PFETCH
-addr = add0+p3;
-prefetch_p_doubles(addr);
-#endif
-	  a[j1   ]=t1;			a[j2   ]=t2;
-	  a[j1+p1]=t3-t8;		a[j2+p1]=t4+t7;
-	  a[j1+p2]=t5-t10;		a[j2+p2]=t6+t9;
-	  a[j1+p3]=t5+t10;		a[j2+p3]=t6-t9;
-	  a[j1+p4]=t3+t8;		a[j2+p4]=t4-t7;
-#if PFETCH
-addr = add0+p4;
-prefetch_p_doubles(addr);
-#endif
-	  iroot += root_incr;		/* increment sincos index.	*/
-
-	  }
-
-	  jstart += nwt;
-	  jhi    += nwt;
-	  col += 5;
-	  co3 -= 5;
-
-	}
-
-	if(root_incr==0)break;
-
-/*  Wraparound carry cleanup loop is here: ***
-!
-!   The cleanup carries from the end of each length-N/5 block into the beginning of the next
-!   can all be neatly processed as follows:
-!
-!   (1) Invert the radix-5 forward DIF FFT of the first block of 5 complex elements in A and unweight;
-!   (2) Propagate cleanup carries among the real and imaginary parts of the 5 outputs of (1);
-!   (3) Reweight and perform a radix-5 forward DIF FFT on the result of (2);
-!   (4) If any of the exit carries from (2) are nonzero, advance to the next 5 elements and repeat (1-4).
-*/
-	t1 =cy4;
-	cy4=cy3;
-	cy3=cy2;
-	cy2=cy1;
-	cy1=cy0;
-	cy0=t1;
-
-	iroot = 0;
-	root_incr = 0;
-	scale = 1;
-
-	jstart = 0;
-	jhi = 7;
-	khi = 1;
-
-	for(j=0; j<=jhi; j++)
-	{
-	  a[j    ] *= radix_inv;
-	  a[j+p1 ] *= radix_inv;
-	  a[j+p2 ] *= radix_inv;
-	  a[j+p3 ] *= radix_inv;
-	  a[j+p4 ] *= radix_inv;
-	}
-}
-
-	if(fabs(cy0)+fabs(cy1)+fabs(cy2)+fabs(cy3)+fabs(cy4) != 0.0)
-	{
-	    sprintf(cbuf,"FATAL: iter = %10d; nonzero exit carry in radix5_ditN_cy_dif1 - input wordsize may be too small.\n",iter);
-	    if(INTERACT)fprintf(stderr,"%s",cbuf);
-	    fp = mlucas_fopen(   OFILE,"a");
-	    fq = mlucas_fopen(STATFILE,"a");
-		fprintf(fp,"%s",cbuf);
-		fprintf(fq,"%s",cbuf);
-	    fclose(fp);	fp = 0x0;
-	    fclose(fq);	fq = 0x0;
-	    err=ERR_CARRY;
-	    return(err);
-	}
-
 	return(0);
 }
 

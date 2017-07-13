@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2014 by Ernst W. Mayer.                                           *
+*   (C) 1997-2017 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -118,7 +118,7 @@ uint32 SW_DIV_N;	/* Needed for the subset of radix* carry routines which support
 
 The scratch array (2nd input argument) is only needed for data table initializations, i.e. if first_entry = TRUE.
 */
-int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, uint64 p, uint32 *err_iter, int scrnFlag, double *tdiff)
+int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, uint64 p, int scrnFlag, double *tdiff)
 {
 	struct qfloat qmul, qwt, qt, qn;	/* qfloats used for DWT weights calculation. */
 	struct qfloat qtheta, qr, qi, qc, qs;	/* qfloats used for FFT sincos  calculation. */
@@ -221,10 +221,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	if(n != nsave) new_runlength = TRUE;
 	if(p != psave || new_runlength) first_entry=TRUE;
 
-	for(i = 0; i < 10; i++)
-	{
-		if(RADIX_VEC[i] != radix_set_save[i])
-		{
+	for(i = 0; i < 10; i++) {
+		if(RADIX_VEC[i] != radix_set_save[i]) {
 			first_entry=TRUE;
 			break;
 		}
@@ -237,19 +235,15 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		nsave = n;
 		N2 =n/2;		/* Complex vector length.	*/
 //	printf("fermat_mod_square: Init...\n");
-		for(i = 0; i < NRADICES; i++)
-		{
-			if(RADIX_VEC[i] == 0)
-			{
+		for(i = 0; i < NRADICES; i++) {
+			if(RADIX_VEC[i] == 0) {
 				sprintf(cbuf, "fermat_mod_square: RADIX_VEC[i = %d] zero, for i < [NRADICES = %d]!",i,NRADICES);
 				ASSERT(HERE, 0, cbuf);
 			}
 			radix_set_save[i] = RADIX_VEC[i];
 		}
-		for(i = NRADICES; i < 10; i++)
-		{
-			if(RADIX_VEC[i] != 0)
-			{
+		for(i = NRADICES; i < 10; i++) {
+			if(RADIX_VEC[i] != 0) {
 				sprintf(cbuf, "fermat_mod_square: RADIX_VEC[i = %d] nonzero, for i >= [NRADICES = %d]!",i,NRADICES);
 				ASSERT(HERE, 0, cbuf);
 			}
@@ -708,7 +702,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		/******************************************************************/
 
 			/* Double-check that sw*nwt (where nwt is the odd factor of N) is divisible by N: */
-			ASSERT(HERE, sw*nwt % n == 0,"fermat_mod_square.c: sw*nwt % n == 0");
+		//	printf("sw,nwt,n = %u,%u,%u; sw*nwt mod n = %u\n",sw,nwt,n, (uint64)sw*nwt % n);
+			ASSERT(HERE, (uint64)sw*nwt % n == 0,"fermat_mod_square.c: sw*nwt % n == 0");
 			SW_DIV_N = sw*nwt/n;
 
 			qn   = i64_to_q((int64) nwt);
@@ -1314,34 +1309,157 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 
 	*tdiff = 0.0;
 
+/******************* AVX debug stuff: *******************/
+	int ipad;
+	double avg_abs_val = 0;
+#if 0
+	// Use RNG to populate data array:
+	rng_isaac_init(TRUE);
+	double pow2_dmult = 1024.0*128.0;	// Restrict inputs to 18 bits, which in balanced-digit representation
+										// means restricting multiplier of random-inputs-in-[-1,+1] below to 2^17
+	for(i = 0; i < n; i += 16) {
+		ipad = i + ( (i >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+		// All the inits are w.r.to an un-SIMD-rearranged ...,re,im,re,im,... pattern:
+	#ifdef USE_AVX512
+		a[ipad+br16[ 0]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re0
+		a[ipad+br16[ 1]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im0
+		a[ipad+br16[ 2]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re1
+		a[ipad+br16[ 3]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im1
+		a[ipad+br16[ 4]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re2
+		a[ipad+br16[ 5]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im2
+		a[ipad+br16[ 6]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re3
+		a[ipad+br16[ 7]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im3
+		a[ipad+br16[ 8]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re4
+		a[ipad+br16[ 9]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im4
+		a[ipad+br16[10]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re5
+		a[ipad+br16[11]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im5
+		a[ipad+br16[12]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re6
+		a[ipad+br16[13]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im6
+		a[ipad+br16[14]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re7
+		a[ipad+br16[15]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im7
+	#elif defined(USE_AVX)
+		a[ipad+br8[0]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re0
+		a[ipad+br8[1]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im0
+		a[ipad+br8[2]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re1
+		a[ipad+br8[3]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im1
+		a[ipad+br8[4]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re2
+		a[ipad+br8[5]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im2
+		a[ipad+br8[6]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re3
+		a[ipad+br8[7]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im3
+		a[ipad+br8[0]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re4
+		a[ipad+br8[1]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im4
+		a[ipad+br8[2]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re5
+		a[ipad+br8[3]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im5
+		a[ipad+br8[4]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re6
+		a[ipad+br8[5]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im6
+		a[ipad+br8[6]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re7
+		a[ipad+br8[7]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im7
+	#else
+		#error Debug only enabled for AVX and above!
+	#endif
+  #if 0
+	  if(i < 1024) {
+	#ifdef USE_AVX512
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+ 0, a[ipad+br16[ 0]],ipad+ 0, a[ipad+ 0]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+ 1, a[ipad+br16[ 1]],ipad+ 1, a[ipad+ 1]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+ 2, a[ipad+br16[ 2]],ipad+ 2, a[ipad+ 2]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+ 3, a[ipad+br16[ 3]],ipad+ 3, a[ipad+ 3]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+ 4, a[ipad+br16[ 4]],ipad+ 4, a[ipad+ 4]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+ 5, a[ipad+br16[ 5]],ipad+ 5, a[ipad+ 5]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+ 6, a[ipad+br16[ 6]],ipad+ 6, a[ipad+ 6]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+ 7, a[ipad+br16[ 7]],ipad+ 7, a[ipad+ 7]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+ 8, a[ipad+br16[ 8]],ipad+ 8, a[ipad+ 8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+ 9, a[ipad+br16[ 9]],ipad+ 9, a[ipad+ 9]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+10, a[ipad+br16[10]],ipad+10, a[ipad+10]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+11, a[ipad+br16[11]],ipad+11, a[ipad+11]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+12, a[ipad+br16[12]],ipad+12, a[ipad+12]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+13, a[ipad+br16[13]],ipad+13, a[ipad+13]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+14, a[ipad+br16[14]],ipad+14, a[ipad+14]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+15, a[ipad+br16[15]],ipad+15, a[ipad+15]);
+	#elif defined(USE_AVX)
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+0  ,a[ipad+br8[0]  ],ipad+0  ,a[ipad+0  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+1  ,a[ipad+br8[1]  ],ipad+1  ,a[ipad+1  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+2  ,a[ipad+br8[2]  ],ipad+2  ,a[ipad+2  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+3  ,a[ipad+br8[3]  ],ipad+3  ,a[ipad+3  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+4  ,a[ipad+br8[4]  ],ipad+4  ,a[ipad+4  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+5  ,a[ipad+br8[5]  ],ipad+5  ,a[ipad+5  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+6  ,a[ipad+br8[6]  ],ipad+6  ,a[ipad+6  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+7  ,a[ipad+br8[7]  ],ipad+7  ,a[ipad+7  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+0+8,a[ipad+br8[0]+8],ipad+0+8,a[ipad+0+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+1+8,a[ipad+br8[1]+8],ipad+1+8,a[ipad+1+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+2+8,a[ipad+br8[2]+8],ipad+2+8,a[ipad+2+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+3+8,a[ipad+br8[3]+8],ipad+3+8,a[ipad+3+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+4+8,a[ipad+br8[4]+8],ipad+4+8,a[ipad+4+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+5+8,a[ipad+br8[5]+8],ipad+5+8,a[ipad+5+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+6+8,a[ipad+br8[6]+8],ipad+6+8,a[ipad+6+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+7+8,a[ipad+br8[7]+8],ipad+7+8,a[ipad+7+8]);
+	#endif
+	  }
+  #endif
+	}
+  #if 0
+	for(i = 0; i < n; i += 16) {
+		ipad = i + ( (i >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+		avg_abs_val += fabs(a[ipad])+fabs(a[ipad+1])+fabs(a[ipad+2])+fabs(a[ipad+3])+fabs(a[ipad+4])+fabs(a[ipad+5])+fabs(a[ipad+6])+fabs(a[ipad+7])+fabs(a[ipad+8])+fabs(a[ipad+9])+fabs(a[ipad+10])+fabs(a[ipad+11])+fabs(a[ipad+12])+fabs(a[ipad+13])+fabs(a[ipad+14])+fabs(a[ipad+15]);
+	}
+	printf("Avg abs-val of RNG inputs = %20.10f\n",avg_abs_val);
+  #endif
+#endif
+/********************************************************/
 	/*...At the start of each iteration cycle, need to forward-weight the array of integer residue digits.
 	For the non-power-of-2 case, IBDWT weights must be applied to the non-acyclic-twisted transform inputs,
 	i.e. first apply the IBDWT weights, then do the acyclic-twisting complex multiply:
 	*/
-	if(!pow2_fft)
-	{
-		ii = 0;	/* index into wt0 array (mod NWT) is here: */
-		/* Evens: */
-		for(j = 0; j < n; j += 2)
-		{
-		#ifdef USE_AVX
-			j1 = (j & mask02) + br8[j&7];
-		#elif defined(USE_SSE2)
-			j1 = (j & mask01) + br4[j&3];
-		#else
-			j1 = j;
-		#endif
-			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-			wt = wt0[ii];
-			a[j1] *= wt;
-			ii += SW_DIV_N - nwt;
-			ii += ( (-(int)((uint32)ii >> 31)) & nwt);\
+	// Mar 2017: Can skip this step if it's the start of a test, i.e. ilo = 0; but need it
+	// if add RNG-input-setting above for debug, hence also check a[1] for nonzero:
+	if(ilo || a[1]) {
+		if(!pow2_fft) {
+			ii = 0;	/* index into wt0 array (mod NWT) is here: */
+			/* Evens: */
+			for(j = 0; j < n; j += 2)
+			{
+			#ifdef USE_AVX512
+				j1 = (j & mask03) + br16[j&15];
+			#elif defined(USE_AVX)
+				j1 = (j & mask02) + br8[j&7];
+			#elif defined(USE_SSE2)
+				j1 = (j & mask01) + br4[j&3];
+			#else
+				j1 = j;
+			#endif
+				j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+				wt = wt0[ii];
+				a[j1] *= wt;
+				ii += SW_DIV_N - nwt;
+				ii += ( (-(int)((uint32)ii >> 31)) & nwt);\
+			}
+			/* Odds: */
+			ASSERT(HERE, ii == 0,"fermat_mod_square.c: ii == 0");
+			for(j = 0; j < n; j += 2)
+			{
+			#ifdef USE_AVX512
+				j1 = (j & mask03) + br16[j&15];
+			#elif defined(USE_AVX)
+				j1 = (j & mask02) + br8[j&7];
+			#elif defined(USE_SSE2)
+				j1 = (j & mask01) + br4[j&3];
+			#else
+				j1 = j;
+			#endif
+				j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+				j2 = j1 + RE_IM_STRIDE;
+				wt = wt0[ii];
+				a[j2] *= wt;
+				ii += SW_DIV_N - nwt;
+				ii += ( (-(int)((uint32)ii >> 31)) & nwt);\
+			}
 		}
-		/* Odds: */
-		ASSERT(HERE, ii == 0,"fermat_mod_square.c: ii == 0");
+		/* Acyclic twisting: */
 		for(j = 0; j < n; j += 2)
 		{
-		#ifdef USE_AVX
+		#ifdef USE_AVX512
+			j1 = (j & mask03) + br16[j&15];
+		#elif defined(USE_AVX)
 			j1 = (j & mask02) + br8[j&7];
 		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
@@ -1350,35 +1468,18 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		#endif
 			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 			j2 = j1 + RE_IM_STRIDE;
-			wt = wt0[ii];
-			a[j2] *= wt;
-			ii += SW_DIV_N - nwt;
-			ii += ( (-(int)((uint32)ii >> 31)) & nwt);\
+			/* Get the needed Nth root of -1: */
+			l = (j >> 1);	/* j/2 */
+			k1=(l & NRTM1);
+			k2=(l >> NRT_BITS);
+			t1=rn0[k1].re;		t2=rn0[k1].im;
+			rt=rn1[k2].re;		it=rn1[k2].im;
+			re =t1*rt-t2*it;	im =t1*it+t2*rt;
+			/* Do the cyclic -> acyclic weighting: */
+			t1    = a[j1]*re - a[j2]*im;
+			a[j2] = a[j2]*re + a[j1]*im;
+			a[j1] = t1;
 		}
-	}
-	/* Acyclic twisting: */
-	for(j = 0; j < n; j += 2)
-	{
-	#ifdef USE_AVX
-		j1 = (j & mask02) + br8[j&7];
-	#elif defined(USE_SSE2)
-		j1 = (j & mask01) + br4[j&3];
-	#else
-		j1 = j;
-	#endif
-		j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-		j2 = j1 + RE_IM_STRIDE;
-		/* Get the needed Nth root of -1: */
-		l = (j >> 1);	/* j/2 */
-		k1=(l & NRTM1);
-		k2=(l >> NRT_BITS);
-		t1=rn0[k1].re;		t2=rn0[k1].im;
-		rt=rn1[k2].re;		it=rn1[k2].im;
-		re =t1*rt-t2*it;	im =t1*it+t2*rt;
-		/* Do the cyclic -> acyclic weighting: */
-		t1    = a[j1]*re - a[j2]*im;
-		a[j2] = a[j2]*re + a[j1]*im;
-		a[j1] = t1;
 	}
 
 /*...and perform the initial pass of the forward transform.	*/
@@ -1708,176 +1809,93 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 
 	fracmax = 0.0;
 
-/* Only define 2nd version of carry routine[s] with ROE checking disabled in non-SSE2 mode, as SSE2 ROE checking is cheap: */
-#ifndef USE_SSE2
-	if(iter <= *err_iter)	/* Determine whether to do RO error checking in carry step, depending on iteration number.	*/
+	switch(radix0)
 	{
-#endif
-		switch(radix0)
-		{
-			case  5 :
-				ierr =  radix5_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
-			case  6 :
-				ierr =  radix6_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
-			case  7 :
-				ierr =  radix7_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case  8 :
-				ierr =  radix8_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case  9 :
-				ierr =  radix9_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
-			case 10 :
-				ierr = radix10_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
-			case 11 :
-				ierr = radix11_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
-			case 12 :
-				ierr = radix12_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
-			case 13 :
-				ierr = radix13_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
-			case 14 :
-				ierr = radix14_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 15 :
-				ierr = radix15_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 16 :
-				ierr = radix16_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 18 :
-				ierr = radix18_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
-			case 20 :
-				ierr = radix20_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
-			case 22 :
-				ierr = radix22_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
-			case 24 :
-				ierr = radix24_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
-			case 26 :
-				ierr = radix26_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
-			case 28 :
-				ierr = radix28_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 30 :
-				ierr = radix30_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 32 :
-				ierr = radix32_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 36 :
-				ierr = radix36_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 56 :
-				ierr = radix56_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 60 :
-				ierr = radix60_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 63 :
-				ierr = radix63_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 64 :
-				ierr = radix64_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 128 :
-				ierr = radix128_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 224 :
-				ierr = radix224_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 240 :
-				ierr = radix240_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 256 :
-				ierr = radix256_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 512 :
-				ierr = radix512_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 960 :
-				ierr = radix960_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 992 :
-				ierr = radix992_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 1008:
-				ierr = radix1008_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 1024:
-				ierr = radix1024_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 4032:
-				ierr = radix4032_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-		/*
-			case 4096:
-				ierr = radix4096_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-		*/
-			default :
-				sprintf(cbuf,"FATAL: radix %d not available for ditN_cy_dif1. Halting...\n",radix0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
-		}
-#ifndef USE_SSE2
+		case  5 :
+			ierr =  radix5_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
+		case  6 :
+			ierr =  radix6_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
+		case  7 :
+			ierr =  radix7_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		case  8 :
+			ierr =  radix8_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		case  9 :
+			ierr =  radix9_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
+		case 10 :
+			ierr = radix10_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
+		case 11 :
+			ierr = radix11_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
+		case 12 :
+			ierr = radix12_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
+		case 13 :
+			ierr = radix13_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
+		case 14 :
+			ierr = radix14_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		case 15 :
+			ierr = radix15_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		case 16 :
+			ierr = radix16_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		case 18 :
+			ierr = radix18_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
+		case 20 :
+			ierr = radix20_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
+		case 22 :
+			ierr = radix22_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
+		case 24 :
+			ierr = radix24_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
+		case 26 :
+			ierr = radix26_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,&fracmax,p); break;
+		case 28 :
+			ierr = radix28_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		case 30 :
+			ierr = radix30_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		case 32 :
+			ierr = radix32_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		case 36 :
+			ierr = radix36_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		case 56 :
+			ierr = radix56_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		case 60 :
+			ierr = radix60_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		case 63 :
+			ierr = radix63_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		case 64 :
+			ierr = radix64_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		case 128 :
+			ierr = radix128_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		case 224 :
+			ierr = radix224_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		case 240 :
+			ierr = radix240_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		case 256 :
+			ierr = radix256_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		case 512 :
+			ierr = radix512_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		case 960 :
+			ierr = radix960_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		case 992 :
+			ierr = radix992_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		case 1008:
+			ierr = radix1008_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		case 1024:
+			ierr = radix1024_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+		case 4032:
+			ierr = radix4032_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+	/*
+		case 4096:
+			ierr = radix4096_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
+	*/
+		default :
+			sprintf(cbuf,"FATAL: radix %d not available for ditN_cy_dif1. Halting...\n",radix0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 	}
-	else
-	{
-		switch(radix0)
-		{
-			case  5 :
-				ierr =  radix5_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,         p); break;
-			case  6 :
-				ierr =  radix6_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,         p); break;
-			case  7 :
-				ierr =  radix7_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,         p); break;
-			case  8 :
-				ierr =  radix8_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,         p); break;
-			case  9 :
-				ierr =  radix9_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,         p); break;
-			case 10 :
-				ierr = radix10_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,         p); break;
-			case 11 :
-				ierr = radix11_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,         p); break;
-			case 12 :
-				ierr = radix12_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,         p); break;
-			case 13 :
-				ierr = radix13_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,         p); break;
-			case 14 :
-				ierr = radix14_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,         p); break;
-			case 15 :
-				ierr = radix15_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,         p); break;
-			case 16 :
-				ierr = radix16_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,         p); break;
-			case 18 :
-				ierr = radix18_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,         p); break;
-			case 20 :
-				ierr = radix20_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,         p); break;
-			case 22 :
-				ierr = radix22_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,         p); break;
-			case 24 :
-				ierr = radix24_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,         p); break;
-			case 26 :
-				ierr = radix26_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,0x0,        base,baseinv,iter,         p); break;
-			case 28 :
-				ierr = radix28_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,         p); break;
-			case 30 :
-				ierr = radix30_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,         p); break;
-			case 32 :
-/*				ierr = radix32_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,         p); break;	*/
-				ierr = radix32_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 36 :
-				ierr = radix36_ditN_cy_dif1_nochk(a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,         p); break;
-			case 56 :
-				ierr = radix56_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 60 :
-				ierr = radix60_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 63 :
-				ierr = radix63_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 64 :
-				ierr = radix64_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 128 :
-				ierr = radix128_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 224 :
-				ierr = radix224_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 240 :
-				ierr = radix240_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 256 :
-				ierr = radix256_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 512 :
-				ierr = radix512_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 1008:
-				ierr = radix1008_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 1024:
-				ierr = radix1024_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-			case 4032:
-				ierr = radix4032_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-		/*
-			case 4096:
-				ierr = radix4096_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
-		*/
-			default :
-			sprintf(cbuf,"FATAL: radix %d not available for ditN_cy_dif1_nochk. Halting...\n",radix0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
-		}
-	}
-#endif	/* #ifndef USE_SSE2 */
 
 	/* Nonzero remaining carries are instantly fatal: */
 	if(ierr)
 		return(ierr);
+#if 0
+printf("Exiting mers_mod_square.\n");
+exit(0);
+#endif
 
 	/* Update Max. Max. Error: */
 	if(fracmax > MME)
@@ -1897,8 +1915,6 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		if(INTERACT)
 		{
 			fprintf(stderr,"%s",cbuf);
-			if(fracmax > 0.40625) *err_iter = p-1;	// If RO > 0.40625 warning issued at any point of the initial error-checked
-													// segment, require error checking on each iteration, even if iter > err_iter.
 			if(fracmax > 0.47 )
 			{
 				fprintf(stderr," FATAL ERROR...Halting test of F%u\n",findex);
@@ -1916,8 +1932,6 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			{
 				fprintf(stderr,"%s",cbuf);
 			}
-
-			if(fracmax > 0.40625) *err_iter = p-1;
 
 		/*...In range test mode, any fractional part > 0.4375 is cause for error exit.	*/
 			if(fracmax > 0.4375 )
@@ -2137,7 +2151,9 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		/* Evens: */
 		for(j = 0; j < n; j += 2)
 		{
-		#ifdef USE_AVX
+		#ifdef USE_AVX512
+			j1 = (j & mask03) + br16[j&15];
+		#elif defined(USE_AVX)
 			j1 = (j & mask02) + br8[j&7];
 		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
@@ -2155,7 +2171,9 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		ASSERT(HERE, ii == 0,"fermat_mod_square.c: ii == 0");
 		for(j = 0; j < n; j += 2)
 		{
-		#ifdef USE_AVX
+		#ifdef USE_AVX512
+			j1 = (j & mask03) + br16[j&15];
+		#elif defined(USE_AVX)
 			j1 = (j & mask02) + br8[j&7];
 		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
@@ -2175,7 +2193,9 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	/* Acyclic untwisting: */
 	for(j = 0; j < n; j += 2)
 	{
-	#ifdef USE_AVX
+	#ifdef USE_AVX512
+		j1 = (j & mask03) + br16[j&15];
+	#elif defined(USE_AVX)
 		j1 = (j & mask02) + br8[j&7];
 	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
@@ -2213,7 +2233,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	if(max_fp > 0.01)
 	{
 		fprintf(stderr,"fermat_mod_square.c: max_fp > 0.01! Value = %20.10f\n", max_fp);
-		fprintf(stderr,"Check your build for inadvertent mixing of SSE2 and non-SSE2-enabled files!\n");
+		fprintf(stderr,"Check your build for inadvertent mixing of SIMD build modes!\n");
 		ASSERT(HERE, max_fp < 0.01,"fermat_mod_square.c: max_fp < 0.01");
 	}
 
@@ -2277,11 +2297,11 @@ void fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex r
 
 #endif	// #ifdef MULTITHREAD
 
+	const char func[] = "fermat_process_chunk";
 #ifdef DBG_TIME
 	clock_t clock0, clock1, clock2, clock3;
 	clock0 = clock();
 #endif
-
 	int radix0 = RADIX_VEC[0];
     int i,incr,istart,jstart,k,koffset,l,mm;
 	int init_sse2 = FALSE;	// Init-calls to various radix-pass routines presumed done prior to entry into this routine
@@ -2289,9 +2309,9 @@ void fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex r
 	l = ii;
 	k    = 0;
 	mm   = 1;
+	// Starting location of current data-block-to-be-processed within A-array:
 	incr = n/radix0;
-
-	istart = l*incr;	/* Starting location of current data-block-to-be-processed within A-array. */
+	istart = l*incr;
 	jstart = istart + ((istart >> DAT_BITS) << PAD_BITS );
 
 	for(i=1; i <= NRADICES-2; i++)
@@ -2314,7 +2334,6 @@ void fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex r
 		k    += mm*radix0;
 		mm   *= RADIX_VEC[i];
 		incr /= RADIX_VEC[i];
-
 	}	/* end i-loop. */
 
 #ifdef DBG_TIME

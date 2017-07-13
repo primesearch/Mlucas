@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2013 by Ernst W. Mayer.                                           *
+*   (C) 1997-2017 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -31,279 +31,7 @@
 		#error SIMD Mode requires HIACC flag to be set!
 	#endif
 
-	#ifdef COMPILER_TYPE_MSVC
-		#include "sse2_macro.h"
-	#endif
-
-	#if defined(COMPILER_TYPE_MSVC)
-
-		/* Full-inline-asm version of SSE2_RADIX8_DIT_0TWIDDLE_B. Assumes base addresses add4-7 in e[a-d]x,
-		base offset in edi, these must remain unchanged, so esi is available for temporary storage. */
-		#define SSE2_RADIX8_DIT_0TWIDDLE_B(__tmp)\
-		{\
-			/*** 2nd of the 2 length-4 subtransforms gets done first, due to e.g. t1-+t9 combos in final step: ***/\
-			/*\
-			t9 =a[j1+p4];	t10=a[j2+p4];\
-			t11=a[j1+p5];	t12=a[j2+p5];\
-			~t11=t9 -t11;	~t12=t10-t12;\
-			~t9 =t9 +t11;	~t10=t10+t12;\
-			*/\
-			__asm	mov	esi,__tmp\
-			__asm	movaps	xmm0,[eax]		/* xmm0 <- a[j1+p4] = t9 */\
-			__asm	movaps	xmm1,[eax+0x10]	/* xmm1 <- a[j2+p4] = t10*/\
-			__asm	movaps	xmm2,xmm0		/* xmm4 <- copy of t9    */\
-			__asm	movaps	xmm3,xmm1		/* xmm5 <- copy of t10   */\
-			__asm	addpd	xmm2,[ebx]		/* xmm2 <- t9  */\
-			__asm	addpd	xmm3,[ebx+0x10]	/* xmm3 <- t10 */\
-			__asm	subpd	xmm0,[ebx]		/* xmm0 <- t11 */\
-			__asm	subpd	xmm1,[ebx+0x10]	/* xmm1 <- t12 */\
-			/*\
-			t13=a[j1+p6];	t14=a[j2+p6];\
-			rt =a[j1+p7];	it =a[j2+p7];\
-			~t15=t13-t15	~t16=t14-t16\
-			~t13=t13+t15	~t14=t14+t16\
-			*/\
-			__asm	movaps	xmm4,[ecx]		/* xmm4 <- a[j1+p6] = t13*/\
-			__asm	movaps	xmm5,[ecx+0x10]	/* xmm5 <- a[j2+p6] = t14*/\
-			__asm	movaps	xmm6,xmm4		/* xmm6 <- copy of t13   */\
-			__asm	movaps	xmm7,xmm5		/* xmm7 <- copy of t14   */\
-			__asm	addpd	xmm6,[edx]		/* xmm6 <- t13 */\
-			__asm	addpd	xmm7,[edx+0x10]	/* xmm7 <- t14 */\
-			__asm	subpd	xmm4,[edx]		/* xmm4 <- t15 */\
-			__asm	subpd	xmm5,[edx+0x10]	/* xmm5 <- t16 */\
-			/* Copy t13,14 into temp-array slot add6 */\
-			__asm	movaps	[esi+0xc0],xmm6\
-			__asm	movaps	[esi+0xd0],xmm7\
-			\
-			/** GPRs: ***** SSE Regs: ***** Temp array: ********\\
-			*	eax, add4	xmm0 <- t11		add0 <- unused		*\
-			*	ebx, add5	xmm1 <- t12		add1 <- unused 		*\
-			*	ecx, add6	xmm2 <- t9 		add2 <- unused		*\
-			*	edx, add7	xmm3 <- t10		add3 <- unused 		*\
-			*				xmm4 <- t15		add4 <- unused		*\
-			*				xmm5 <- t16		add5 <- unused		*\
-			*				xmm6 <- t13		add6 <- t13,14		*\
-			*				xmm7 <- t14		add7 <- t15,16		*\
-			\***************************************************/\
-			\
-			/*\
-			rt =t13;	t13=t9 -rt ;	t9 =t9 +rt ;	copies of t13 in add6     , xmm6\
-			it =t14;	t14=t10-it ;	t10=t10+it ;	copies of t14 in add6+0x10, xmm7\
-			\
-			rt =t15;	t15=t11-t16;	t11=t11+t16;	copies of t15 in add7     , xmm4\
-						t16=t12+rt ;	t12=t12-rt ;	copies of t16 in add7+0x10, xmm5\
-			*/\
-			/* Move outputs t11,12 into a[j1,j2+p5], first doing the addsub and mul by ISRT2: */\
-			/* Move outputs t15,16 into a[j1,j2+p7], first doing the addsub and mul by ISRT2: */\
-			\
-			__asm	addpd	xmm6,xmm2		/* xmm6 <- ~t9  */\
-			__asm	addpd	xmm7,xmm3		/* xmm7 <- ~t10 */\
-			__asm	subpd	xmm2,[esi+0xc0]	/* xmm2 <- ~t13 */\
-			__asm	subpd	xmm3,[esi+0xd0]	/* xmm3 <- ~t14 */\
-			/* Move t13,14 into a[j1,j2+p6] */\
-			__asm	movaps	[esi+0xc0],xmm2	/* add6r <- ~t13 */\
-			__asm	movaps	[esi+0xd0],xmm3	/* add6i <- ~t14 */\
-			\
-			__asm	movaps	xmm2,xmm4	/* xmm2 <- copy of t15 */\
-			__asm	movaps	xmm3,xmm5	/* xmm3 <- copy of t16 */\
-			__asm	addpd	xmm5,xmm0	/* xmm5 <-~t11 */\
-			__asm	subpd	xmm0,xmm3	/* xmm0 <-~t15 */\
-			__asm	addpd	xmm4,xmm1	/* xmm4 <-~t16 */\
-			__asm	subpd	xmm1,xmm2	/* xmm1 <-~t12 */\
-			\
-			__asm	mov	esi,isrt2\
-			__asm	movaps	xmm2,xmm5	/* xmm2 <- copy of~t11 */\
-			__asm	movaps	xmm3,xmm1	/* xmm3 <- copy of~t12 */\
-			__asm	addpd	xmm5,xmm1	/* xmm5 <-~(t11+t12), xmm1 FREE */\
-			__asm	movaps	xmm1,[esi]	/* xmm1 <- ISRT2 */\
-			__asm	subpd	xmm2,xmm3	/* xmm2 <-~(t11-t12), xmm3 FREE */\
-			__asm	mov	esi,__tmp\
-			__asm	mulpd	xmm5,xmm1	/* xmm5 <- (t11+t12)*ISRT2 */\
-			__asm	mulpd	xmm2,xmm1	/* xmm2 <- (t11-t12)*ISRT2 */\
-			__asm	movaps	xmm3,xmm0	/* xmm3 <- copy of~t15 */\
-			\
-			__asm	movaps	[esi+0xa0],xmm5	/* add5r<- (t11+t12)*ISRT2, xmm5 FREE */\
-			__asm	movaps	xmm5,xmm4	/* xmm5 <- copy of~t16 */\
-			__asm	addpd	xmm0,xmm4	/* xmm0 <-~(t15+t16) */\
-			__asm	movaps	[esi+0xb0],xmm2	/* add5i<- (t11-t12)*ISRT2 */\
-			__asm	subpd	xmm3,xmm5	/* xmm3 <-~(t15-t16) */\
-			__asm	mulpd	xmm0,xmm1	/* xmm0 <- (t15+t16)*ISRT2 */\
-			__asm	mulpd	xmm3,xmm1	/* xmm3 <- (t15-t16)*ISRT2 */\
-			__asm	movaps	[esi+0xe0],xmm0	/* add7r<- (t15+t16)*ISRT2 */\
-			__asm	movaps	[esi+0xf0],xmm3	/* add7i<- (t15-t16)*ISRT2 */\
-			\
-			/** GPRs: ***** SSE Regs: ***** Temp array: ******************\\
-			*    eax, add4   xmm0 unused        add0 <- unused            *\
-			*    ebx, add5   xmm1 unused        add1 <- unused            *\
-			*    ecx, add6   xmm2 unused        add2 <- unused            *\
-			*    edx, add7   xmm3 unused        add3 <- unused            *\
-			*                xmm4 unused        add4 <- unused            *\
-			*                xmm5 unused        add5 <- (t11+-t12)*ISRT2  *\
-			*                xmm6 t9            add6 <-  t13,14           *\
-			*                xmm7 t10           add7 <- (t15+-t16)*ISRT2  *\
-			\*************************************************************/\
-			\
-			/**************** 1st of the 2 length-4 subtransforms... **************/\
-			/*\
-			t1 =a[j1   ];	t2 =a[j2   ];\
-			rt =a[j1+p1];	it =a[j2+p1];\
-			t3 =t1 -rt;		t4 =t2 -it;\
-			t1 =t1 +rt;		t2 =t2 +it;\
-			*/\
-			__asm	sub	eax, edi\
-			__asm	sub	ebx, edi\
-			__asm	sub	ecx, edi\
-			__asm	sub	edx, edi\
-			\
-			__asm	movaps	xmm0,[eax]		/* xmm0 <- a[j1   ] = t1 */\
-			__asm	movaps	xmm1,[eax+0x10]	/* xmm1 <- a[j2   ] = t2 */\
-			__asm	movaps	xmm2,xmm0		/* xmm2 <- copy of t1    */\
-			__asm	movaps	xmm3,xmm1		/* xmm3 <- copy of t2    */\
-			__asm	addpd	xmm2,[ebx]		/*~xmm2 <- t1  */\
-			__asm	addpd	xmm3,[ebx+0x10]	/*~xmm3 <- t2  */\
-			__asm	subpd	xmm0,[ebx]		/*~xmm0 <- t3  */\
-			__asm	subpd	xmm1,[ebx+0x10]	/*~xmm1 <- t4  */\
-			\
-			/* Move t9,10 into temp[j1+p0] in anticipation of final outputs t1+-t9, t2+-t10 which will go there: */\
-			__asm	movaps	[esi     ],xmm6\
-			__asm	movaps	[esi+0x10],xmm7	/* add0 <-  t9,t10 */\
-			__asm	addpd	xmm6,xmm6		/* xmm6 <- 2*t9  */\
-			__asm	addpd	xmm7,xmm7		/* xmm7 <- 2*t10 */\
-			/* Move 2*t9,10 into temp[j1+p4] in anticipation of final outputs t1+-t9, t2+-t10 which will go there: */\
-			__asm	movaps	[esi+0x80],xmm6	/* add4 <- 2*t9,2*t10  */\
-			__asm	movaps	[esi+0x90],xmm7	/* xmm4-7 FREE */\
-			/*\
-			t5 =a[j1+p2];	t6 =a[j2+p2];\
-			rt =a[j1+p3];	it =a[j2+p3];\
-			t7 =t5 -rt;		t8 =t6 -it;\
-			t5 =t5 +rt;		t6 =t6 +it;\
-			*/\
-			__asm	movaps	xmm4,[ecx]		/* xmm4 <- a[j1+p2] = t5 */\
-			__asm	movaps	xmm5,[ecx+0x10]	/* xmm5 <- a[j2+p2] = t6 */\
-			__asm	movaps	xmm6,xmm4		/* xmm6 <- copy of t5    */\
-			__asm	movaps	xmm7,xmm5		/* xmm7 <- copy of t6    */\
-			__asm	addpd	xmm6,[edx]		/*~xmm6 <- t5  */\
-			__asm	addpd	xmm7,[edx+0x10]	/*~xmm7 <- t6  */\
-			__asm	subpd	xmm4,[edx]		/*~xmm4 <- t7  */\
-			__asm	subpd	xmm5,[edx+0x10]	/*~xmm5 <- t8  */\
-			/* Copy t5,6 into temp-array slots a[j1,j2+p2] */\
-			__asm	movaps	[esi+0x40],xmm6\
-			__asm	movaps	[esi+0x50],xmm7	/* add2 <-  t5,t6 */\
-			\
-			/** GPRs: ***** SSE Regs: ***** Temp array: ******************\\
-			*    eax, add0   xmm0 t3            add0 <-  t9,t10           *\
-			*    ebx, add1   xmm1 t4            add1 <- unused            *\
-			*    ecx, add2   xmm2 t1            add2 <-  t5,t6            *\
-			*    edx, add3   xmm3 t2            add3 <- unused            *\
-			*                xmm4 t7            add4 <- 2*t9,2*t10        *\
-			*                xmm5 t8            add5 <- (t11+-t12)*ISRT2  *\
-			*                xmm6 t5            add6 <-  t13,14           *\
-			*                xmm7 t6            add7 <- (t15+-t16)*ISRT2  *\
-			\*************************************************************/\
-			\
-			/*\
-			rt =t5;	t5 =t1 -rt;	t1 =t1 +rt;	copies of t5 in add2     , xmm6\
-			it =t6;	t6 =t2 -it;	t2 =t2 +it;	copies of t6 in add2+0x10, xmm7\
-			\
-			rt =t7;	t7 =t3 -t8;	t3 =t3 +t8;\
-					t8 =t4 +rt;	t4 =t4 -rt;\
-			*/\
-			__asm	addpd	xmm6,xmm2		/* xmm6 <- ~t1 */\
-			__asm	addpd	xmm7,xmm3		/* xmm7 <- ~t2 */\
-			__asm	subpd	xmm2,[esi+0x40]	/* xmm2 <- ~t5 */\
-			__asm	subpd	xmm3,[esi+0x50]	/* xmm3 <- ~t6 */\
-			\
-			/* Compute and dump first 2 outputs now, in order to free up 2 registers: */\
-			__asm	addpd	xmm6,[esi     ]	/* t1+t9 */\
-			__asm	addpd	xmm7,[esi+0x10]	/* t2+t10*/\
-			__asm	movaps	[esi     ],xmm6	/* a[j1   ], DONE. */\
-			__asm	movaps	[esi+0x10],xmm7	/* a[j2   ], DONE. */\
-			\
-			__asm	subpd	xmm6,[esi+0x80]	/* t1-t9  = [t1+t9 ] - 2*t9  */\
-			__asm	subpd	xmm7,[esi+0x90]	/* t2-t10 = [t2+t10] - 2*t10 */\
-			__asm	movaps	[esi+0x80],xmm6	/* a[j1+p4], DONE. */\
-			__asm	movaps	[esi+0x90],xmm7	/* a[j2+p4], DONE. */\
-			\
-			__asm	movaps	xmm6,xmm4		/* xmm6 <- copy of t7 */\
-			__asm	movaps	xmm7,xmm5		/* xmm7 <- copy of t8 */\
-			__asm	addpd	xmm5,xmm0	/* xmm5 <- ~t3 */\
-			__asm	subpd	xmm0,xmm7	/* xmm0 <- ~t7 */\
-			__asm	addpd	xmm4,xmm1	/* xmm4 <- ~t8 */\
-			__asm	subpd	xmm1,xmm6	/* xmm1 <- ~t4 */\
-			 \
-			/** GPRs: ***** SSE Regs: ***** Temp array: ******************\\
-			*    eax, add0   xmm0 t7            add0 <- DONE              *\
-			*    ebx, add1   xmm1 t4            add1 <- unused            *\
-			*    ecx, add2   xmm2 t5            add2 <- unused            *\
-			*    edx, add3   xmm3 t6            add3 <- unused            *\
-			*    edi, p4     xmm4 t8            add4 <- DONE              *\
-			*    esi, add4   xmm5 t3            add5 <- (t11+-t12)*ISRT2  *\
-			*                xmm6 unused        add6 <-  t13,14           *\
-			*                xmm7 unused        add7 <- (t15+-t16)*ISRT2  *\
-			\*************************************************************/\
-			\
-			/*\
-			rt=(t11+t12)*ISRT2;			it=(t11-t12)*ISRT2;	precomputed, in add5\
-			a[j1+p1]=t3+rt;				a[j2+p1]=t4-it;\
-			a[j1+p5]=t3-rt;				a[j2+p5]=t4+it;\
-			*/\
-			__asm	movaps	xmm6,xmm5		/* xmm6 <- copy of t3 */\
-			__asm	movaps	xmm7,xmm1		/* xmm7 <- copy of t4 */\
-			__asm	addpd	xmm5,[esi+0xa0]	/* t3+rt */\
-			__asm	subpd	xmm1,[esi+0xb0]	/* t4-it */\
-			__asm	subpd	xmm6,[esi+0xa0]	/* t3-rt */\
-			__asm	addpd	xmm7,[esi+0xb0]	/* t4+it */\
-			__asm	movaps	[esi+0x20],xmm5	/* a[j1+p1] */\
-			__asm	movaps	[esi+0x30],xmm1	/* a[j2+p1] */\
-			__asm	movaps	[esi+0xa0],xmm6	/* a[j1+p5] */\
-			__asm	movaps	[esi+0xb0],xmm7	/* a[j2+p5] */\
-			\
-			/*\
-			a[j1+p2]=t5+t14;			a[j1+p2]=t6-t13;\
-			a[j1+p6]=t5-t14;			a[j1+p6]=t6+t13;\
-			*/\
-			__asm	movaps	xmm6,xmm2		/* xmm6 <- copy of t5 */\
-			__asm	movaps	xmm7,xmm3		/* xmm7 <- copy of t6 */\
-			__asm	addpd	xmm2,[esi+0xd0]	/* t5+t14*/\
-			__asm	subpd	xmm3,[esi+0xc0]	/* t6-t13*/\
-			__asm	subpd	xmm6,[esi+0xd0]	/* t5-t14*/\
-			__asm	addpd	xmm7,[esi+0xc0]	/* t6+t13*/\
-			__asm	movaps	[esi+0x40],xmm2	/* a[j1+p2] */\
-			__asm	movaps	[esi+0x50],xmm3	/* a[j2+p2] */\
-			__asm	movaps	[esi+0xc0],xmm6	/* a[j1+p6] */\
-			__asm	movaps	[esi+0xd0],xmm7	/* a[j2+p6] */\
-			\
-			/*\
-			rt=(t15-t16)*ISRT2;			it=(t15+t16)*ISRT2;	precomputed, it,rt] in add7; NOTE reversed order!\
-			a[j1+p3]=t7-rt;				a[j1+p3]  =t8-it;\
-			a[j1+p7]=t7+rt;				a[j1+p7]  =t8+it;\
-			*/\
-			__asm	movaps	xmm6,xmm0		/* xmm6 <- copy of t7 */\
-			__asm	movaps	xmm7,xmm4		/* xmm7 <- copy of t8 */\
-			__asm	subpd	xmm0,[esi+0xf0]	/* t7-rt */\
-			__asm	subpd	xmm4,[esi+0xe0]	/* t8-it */\
-			__asm	addpd	xmm6,[esi+0xf0]	/* t7+rt */\
-			__asm	addpd	xmm7,[esi+0xe0]	/* t8+it */\
-			__asm	movaps	[esi+0x60],xmm0	/* a[j1+p3] */\
-			__asm	movaps	[esi+0x70],xmm4	/* a[j2+p3] */\
-			__asm	movaps	[esi+0xe0],xmm6	/* a[j1+p7] */\
-			__asm	movaps	[esi+0xf0],xmm7	/* a[j2+p7] */\
-													/* Totals: 97 load/store [61 movaps, 36 implied], 54 add/subpd,  4 mulpd, 59 address-compute */\
-		}
-
-	#else	/* GCC-style inline ASM: */
-
-		#if OS_BITS == 32
-
-			#include "radix32_dif_dit_pass_gcc32.h"
-
-		#else
-
-			#include "radix32_dif_dit_pass_gcc64.h"
-
-		#endif
-
-	#endif
+	#include "radix32_dif_dit_pass_asm.h"
 
 #endif
 
@@ -329,33 +57,20 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 #ifdef USE_SSE2
 
-  #if !(defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
+  #ifndef COMPILER_TYPE_GCC
 	#error SSE2 code not supported for this compiler!
   #endif
 
 	static vec_dbl *sc_arr = 0x0, *sc_ptr;
 	double *add0;	/* Addresses into array sections */
-#ifdef COMPILER_TYPE_MSVC
-	double *add1, *add2, *add3, *add4, *add5, *add6, *add7;
-#endif
 	vec_dbl *c_tmp,*s_tmp;
 
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;					// Base address for discrete per-thread local stores
 	// In || mode, only above base-pointer (shared by all threads) is static:
 	vec_dbl *isrt2,*sqrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *one,*two, *r00;
-  #elif defined(COMPILER_TYPE_GCC)
-	static vec_dbl *isrt2,*sqrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *one,*two, *r00;
   #else
-	static vec_dbl *isrt2,*sqrt2, *one,*two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3
-		,*c00,*c01,*c02,*c03,*c04,*c05,*c06,*c07,*c08,*c09,*c0A,*c0B,*c0C,*c0D,*c0E,*c0F
-		,*c10,*c11,*c12,*c13,*c14,*c15,*c16,*c17,*c18,*c19,*c1A,*c1B,*c1C,*c1D,*c1E,*c1F
-		,*s00,*s01,*s02,*s03,*s04,*s05,*s06,*s07,*s08,*s09,*s0A,*s0B,*s0C,*s0D,*s0E,*s0F
-		,*s10,*s11,*s12,*s13,*s14,*s15,*s16,*s17,*s18,*s19,*s1A,*s1B,*s1C,*s1D,*s1E,*s1F
-		,*r00,*r01,*r02,*r03,*r04,*r05,*r06,*r07,*r08,*r09,*r0A,*r0B,*r0C,*r0D,*r0E,*r0F
-		,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r1A,*r1B,*r1C,*r1D,*r1E,*r1F
-		,*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r2A,*r2B,*r2C,*r2D,*r2E,*r2F
-		,*r30,*r31,*r32,*r33,*r34,*r35,*r36,*r37,*r38,*r39,*r3A,*r3B,*r3C,*r3D,*r3E,*r3F;
+	static vec_dbl *isrt2,*sqrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *one,*two, *r00;
   #endif
 
 #else
@@ -393,7 +108,7 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		}
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x90*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 64 16-byte slots of sc_arr for temporaries, next 7 for the nontrivial complex 32nd roots,
 	last 64 for the doubled sincos twiddles, plus at least 3 more slots to allow for 64-byte alignment of the array.
@@ -430,7 +145,7 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 				two   += 0x90;
 				sqrt2 += 0x90;
 			}
-		#elif defined(COMPILER_TYPE_GCC)
+		#else
 			r00   = sc_ptr;
 			isrt2 = sc_ptr + 0x40;
 			cc0	  = sc_ptr + 0x41;
@@ -442,85 +157,6 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 			one   = sc_ptr + 0x87;
 			two   = sc_ptr + 0x88;
 			sqrt2 = sc_ptr + 0x89;
-			/* These remain fixed: */
-			VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(sqrt2, SQRT2);
-			VEC_DBL_INIT(one  , 1.0  );		VEC_DBL_INIT(two, 2.0  );
-			VEC_DBL_INIT(cc0  , c    );		VEC_DBL_INIT(ss0, s    );
-			VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1, s32_1);
-			VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3, s32_3);
-		#else
-	//	} else {
-			r00		= sc_ptr + 0x00;	c00		= sc_ptr + 0x47;
-			r01		= sc_ptr + 0x01;	s00		= sc_ptr + 0x48;
-			r02		= sc_ptr + 0x02;	c10		= sc_ptr + 0x49;
-			r03		= sc_ptr + 0x03;	s10		= sc_ptr + 0x4a;
-			r04		= sc_ptr + 0x04;	c08		= sc_ptr + 0x4b;
-			r05		= sc_ptr + 0x05;	s08		= sc_ptr + 0x4c;
-			r06		= sc_ptr + 0x06;	c18		= sc_ptr + 0x4d;
-			r07		= sc_ptr + 0x07;	s18		= sc_ptr + 0x4e;
-			r08		= sc_ptr + 0x08;	c04		= sc_ptr + 0x4f;
-			r09		= sc_ptr + 0x09;	s04		= sc_ptr + 0x50;
-			r0A		= sc_ptr + 0x0a;	c14		= sc_ptr + 0x51;
-			r0B		= sc_ptr + 0x0b;	s14		= sc_ptr + 0x52;
-			r0C		= sc_ptr + 0x0c;	c0C		= sc_ptr + 0x53;
-			r0D		= sc_ptr + 0x0d;	s0C		= sc_ptr + 0x54;
-			r0E		= sc_ptr + 0x0e;	c1C		= sc_ptr + 0x55;
-			r0F		= sc_ptr + 0x0f;	s1C		= sc_ptr + 0x56;
-			r10		= sc_ptr + 0x10;	c02		= sc_ptr + 0x57;
-			r11		= sc_ptr + 0x11;	s02		= sc_ptr + 0x58;
-			r12		= sc_ptr + 0x12;	c12		= sc_ptr + 0x59;
-			r13		= sc_ptr + 0x13;	s12		= sc_ptr + 0x5a;
-			r14		= sc_ptr + 0x14;	c0A		= sc_ptr + 0x5b;
-			r15		= sc_ptr + 0x15;	s0A		= sc_ptr + 0x5c;
-			r16		= sc_ptr + 0x16;	c1A		= sc_ptr + 0x5d;
-			r17		= sc_ptr + 0x17;	s1A		= sc_ptr + 0x5e;
-			r18		= sc_ptr + 0x18;	c06		= sc_ptr + 0x5f;
-			r19		= sc_ptr + 0x19;	s06		= sc_ptr + 0x60;
-			r1A		= sc_ptr + 0x1a;	c16		= sc_ptr + 0x61;
-			r1B		= sc_ptr + 0x1b;	s16		= sc_ptr + 0x62;
-			r1C		= sc_ptr + 0x1c;	c0E		= sc_ptr + 0x63;
-			r1D		= sc_ptr + 0x1d;	s0E		= sc_ptr + 0x64;
-			r1E		= sc_ptr + 0x1e;	c1E		= sc_ptr + 0x65;
-			r1F		= sc_ptr + 0x1f;	s1E		= sc_ptr + 0x66;
-			r20		= sc_ptr + 0x20;	c01		= sc_ptr + 0x67;
-			r21		= sc_ptr + 0x21;	s01		= sc_ptr + 0x68;
-			r22		= sc_ptr + 0x22;	c11		= sc_ptr + 0x69;
-			r23		= sc_ptr + 0x23;	s11		= sc_ptr + 0x6a;
-			r24		= sc_ptr + 0x24;	c09		= sc_ptr + 0x6b;
-			r25		= sc_ptr + 0x25;	s09		= sc_ptr + 0x6c;
-			r26		= sc_ptr + 0x26;	c19		= sc_ptr + 0x6d;
-			r27		= sc_ptr + 0x27;	s19		= sc_ptr + 0x6e;
-			r28		= sc_ptr + 0x28;	c05		= sc_ptr + 0x6f;
-			r29		= sc_ptr + 0x29;	s05		= sc_ptr + 0x70;
-			r2A		= sc_ptr + 0x2a;	c15		= sc_ptr + 0x71;
-			r2B		= sc_ptr + 0x2b;	s15		= sc_ptr + 0x72;
-			r2C		= sc_ptr + 0x2c;	c0D		= sc_ptr + 0x73;
-			r2D		= sc_ptr + 0x2d;	s0D		= sc_ptr + 0x74;
-			r2E		= sc_ptr + 0x2e;	c1D		= sc_ptr + 0x75;
-			r2F		= sc_ptr + 0x2f;	s1D		= sc_ptr + 0x76;
-			r30		= sc_ptr + 0x30;	c03		= sc_ptr + 0x77;
-			r31		= sc_ptr + 0x31;	s03		= sc_ptr + 0x78;
-			r32		= sc_ptr + 0x32;	c13		= sc_ptr + 0x79;
-			r33		= sc_ptr + 0x33;	s13		= sc_ptr + 0x7a;
-			r34		= sc_ptr + 0x34;	c0B		= sc_ptr + 0x7b;
-			r35		= sc_ptr + 0x35;	s0B		= sc_ptr + 0x7c;
-			r36		= sc_ptr + 0x36;	c1B		= sc_ptr + 0x7d;
-			r37		= sc_ptr + 0x37;	s1B		= sc_ptr + 0x7e;
-			r38		= sc_ptr + 0x38;	c07		= sc_ptr + 0x7f;
-			r39		= sc_ptr + 0x39;	s07		= sc_ptr + 0x80;
-			r3A		= sc_ptr + 0x3a;	c17		= sc_ptr + 0x81;
-			r3B		= sc_ptr + 0x3b;	s17		= sc_ptr + 0x82;
-			r3C		= sc_ptr + 0x3c;	c0F		= sc_ptr + 0x83;
-			r3D		= sc_ptr + 0x3d;	s0F		= sc_ptr + 0x84;
-			r3E		= sc_ptr + 0x3e;	c1F		= sc_ptr + 0x85;
-			r3F		= sc_ptr + 0x3f;	s1F		= sc_ptr + 0x86;
-			isrt2	= sc_ptr + 0x40;	one     = sc_ptr + 0x87;
-			cc0		= sc_ptr + 0x41;	two     = sc_ptr + 0x88;
-			ss0		= sc_ptr + 0x42;	sqrt2   = sc_ptr + 0x89;
-			cc1		= sc_ptr + 0x43;
-			ss1		= sc_ptr + 0x44;
-			cc3		= sc_ptr + 0x45;
-			ss3		= sc_ptr + 0x46;
 			/* These remain fixed: */
 			VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(sqrt2, SQRT2);
 			VEC_DBL_INIT(one  , 1.0  );		VEC_DBL_INIT(two, 2.0  );
@@ -1133,767 +769,11 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 #ifdef USE_SSE2
 
-	/*       gather the needed data (32 64-bit complex, i.e. 64 64-bit reals) and do the first set of four length-8 transforms...
-			 We process the sincos data in bit-reversed order.	*/
-
-	#ifdef COMPILER_TYPE_MSVC
-
-	/*...Block 1: */
-	#if 1	// if(1) - test out pure-asm version
-		add0 = &a[j1];
-		__asm	mov	eax, add0
-		__asm	mov	ebx, p08		// Can't get these via simple load-one-and-shift-as-needed due to array padding scheme
-		__asm	mov	ecx, p10
-		__asm	mov	edx, p18
-		__asm	shl	ebx,  3
-		__asm	shl	ecx,  3
-		__asm	shl	edx,  3
-		__asm	add	ebx, eax
-		__asm	add	ecx, eax
-		__asm	add	edx, eax
-		SSE2_RADIX4_DIF_4TWIDDLE_A         (r00,c10)	// Saves one CMUL compared to _B version [since first twiddle is unity]
-//		SSE2_RADIX4_DIF_4TWIDDLE_B         (r00,c00)
-		__asm	mov	edi, p04
-		__asm	shl	edi,  3		// 8-bytes for array-of-doubles
-		__asm	add	eax, edi	// &a[j1+p4];
-		__asm	add	ebx, edi
-		__asm	add	ecx, edi
-		__asm	add	edx, edi
-		SSE2_RADIX4_DIF_4TWIDDLE_2NDOFTWO_B(r08,c04)
-		/* Combine the 2 radix-4 subtransforms: */
-		SSE2_RADIX8_DIF_COMBINE_RAD4_SUBS_B(r00)
-	#else
-		add0 = &a[j1];
-		add1 = add0+p04;
-		add2 = add0+p08;
-		add3 = add0+p0C;
-		add4 = add0+p10;
-		add5 = add0+p14;
-		add6 = add0+p18;
-		add7 = add0+p1C;
-
-		SSE2_RADIX4_DIF_4TWIDDLE         (add0,add2,add4,add6,r00,c00)
-		SSE2_RADIX4_DIF_4TWIDDLE_2NDOFTWO(add1,add3,add5,add7,r08,c04)
-		/* Combine the 2 radix-4 subtransforms: */
-		SSE2_RADIX8_DIF_COMBINE_RAD4_SUBS(r00,r02,r04,r06,r08,r0A,r0C,r0E)
-	#endif
-
-	/*...Block 2:	*/
-	#if 1	// if(1) - test out pure-asm version
-		__asm	mov	edi, p02	// Do things this way [rather than repeatedly adding p1] since array-padding scheme means p2 == p+p1 not guaranteed.
-		__asm	shl	edi,  3		// 8-bytes for array-of-doubles
-		__asm	sub	eax, edi	// &a[j1+p2]
-		__asm	sub	ebx, edi
-		__asm	sub	ecx, edi
-		__asm	sub	edx, edi
-		SSE2_RADIX4_DIF_4TWIDDLE_B         (r10,c02)
-		__asm	mov	edi, p04
-		__asm	shl	edi,  3		// 8-bytes for array-of-doubles
-		__asm	add	eax, edi	// &a[j1+p6];
-		__asm	add	ebx, edi
-		__asm	add	ecx, edi
-		__asm	add	edx, edi
-		SSE2_RADIX4_DIF_4TWIDDLE_2NDOFTWO_B(r18,c06)
-		/* Combine the 2 radix-4 subtransforms: */
-		SSE2_RADIX8_DIF_COMBINE_RAD4_SUBS_B(r10)
-	#else
-		add0 = &a[j1+p02];
-		add1 = add0+p04;
-		add2 = add0+p08;
-		add3 = add0+p0C;
-		add4 = add0+p10;
-		add5 = add0+p14;
-		add6 = add0+p18;
-		add7 = add0+p1C;
-
-		SSE2_RADIX4_DIF_4TWIDDLE         (add0,add2,add4,add6,r10,c02)
-		SSE2_RADIX4_DIF_4TWIDDLE_2NDOFTWO(add1,add3,add5,add7,r18,c06)
-		/* Combine the 2 radix-4 subtransforms: */
-		SSE2_RADIX8_DIF_COMBINE_RAD4_SUBS(r10,r12,r14,r16,r18,r1A,r1C,r1E)
-	#endif
-
-	/*...Block 3:	*/
-	#if 1	// if(1) - test out pure-asm version
-		__asm	mov	eax, add0
-		__asm	mov	edi, p01	// Do things this way [rather than repeatedly adding p1] since array-padding scheme means p2 == p+p1 not guaranteed.
-		__asm	mov	ebx, p08		// Can't get these via simple load-one-and-shift-as-needed due to array padding scheme
-		__asm	mov	ecx, p10
-		__asm	mov	edx, p18
-		__asm	shl	edi,  3		// 8-bytes for array-of-doubles
-		__asm	shl	ebx,  3
-		__asm	shl	ecx,  3
-		__asm	shl	edx,  3
-		__asm	add	eax, edi	// &a[j1+p1];
-		__asm	add	ebx, eax
-		__asm	add	ecx, eax
-		__asm	add	edx, eax
-		SSE2_RADIX4_DIF_4TWIDDLE_B         (r20,c01)
-		__asm	mov	edi, p04
-		__asm	shl	edi,  3		// 8-bytes for array-of-doubles
-		__asm	add	eax, edi	// &a[j1+p5];
-		__asm	add	ebx, edi
-		__asm	add	ecx, edi
-		__asm	add	edx, edi
-		SSE2_RADIX4_DIF_4TWIDDLE_2NDOFTWO_B(r28,c05)
-		/* Combine the 2 radix-4 subtransforms: */
-		SSE2_RADIX8_DIF_COMBINE_RAD4_SUBS_B(r20)
-	#else
-		add0 = &a[j1+p01];
-		add1 = add0+p04;
-		add2 = add0+p08;
-		add3 = add0+p0C;
-		add4 = add0+p10;
-		add5 = add0+p14;
-		add6 = add0+p18;
-		add7 = add0+p1C;
-
-		SSE2_RADIX4_DIF_4TWIDDLE         (add0,add2,add4,add6,r20,c01)
-		SSE2_RADIX4_DIF_4TWIDDLE_2NDOFTWO(add1,add3,add5,add7,r28,c05)
-		/* Combine the 2 radix-4 subtransforms: */
-		SSE2_RADIX8_DIF_COMBINE_RAD4_SUBS(r20,r22,r24,r26,r28,r2A,r2C,r2E)
-	#endif
-
-	/*...Block 4:	*/
-	#if 1	// if(1) - test out pure-asm version
-		__asm	mov	edi, p02	// Do things this way [rather than repeatedly adding p1] since array-padding scheme means p2 == p+p1 not guaranteed.
-		__asm	shl	edi,  3		// 8-bytes for array-of-doubles
-		__asm	sub	eax, edi	// &a[j1+p3]
-		__asm	sub	ebx, edi
-		__asm	sub	ecx, edi
-		__asm	sub	edx, edi
-		SSE2_RADIX4_DIF_4TWIDDLE_B         (r30,c03)
-		__asm	mov	edi, p04
-		__asm	shl	edi,  3		// 8-bytes for array-of-doubles
-		__asm	add	eax, edi	// &a[j1+p7];
-		__asm	add	ebx, edi
-		__asm	add	ecx, edi
-		__asm	add	edx, edi
-		SSE2_RADIX4_DIF_4TWIDDLE_2NDOFTWO_B(r38,c07)
-		/* Combine the 2 radix-4 subtransforms: */
-		SSE2_RADIX8_DIF_COMBINE_RAD4_SUBS_B(r30)
-	#else
-		add0 = &a[jt];
-		add1 = add0+p04;
-		add2 = add0+p08;
-		add3 = add0+p0C;
-		add4 = add0+p10;
-		add5 = add0+p14;
-		add6 = add0+p18;
-		add7 = add0+p1C;
-
-		SSE2_RADIX4_DIF_4TWIDDLE         (add0,add2,add4,add6,r30,c03)
-		SSE2_RADIX4_DIF_4TWIDDLE_2NDOFTWO(add1,add3,add5,add7,r38,c07)
-		/* Combine the 2 radix-4 subtransforms: */
-		SSE2_RADIX8_DIF_COMBINE_RAD4_SUBS(r30,r32,r34,r36,r38,r3A,r3C,r3E)
-	#endif
-
-	/*...and now do eight radix-4 transforms, including the internal twiddle factors:
-		1, exp(i* 1*twopi/32) =       ( c32_1, s32_1), exp(i* 2*twopi/32) =       ( c    , s    ), exp(i* 3*twopi/32) =       ( c32_3, s32_3) (for inputs to transform block 2),
-		1, exp(i* 2*twopi/32) =       ( c    , s    ), exp(i* 4*twopi/32) = ISRT2*( 1    , 1    ), exp(i* 6*twopi/32) =       ( s    , c    ) (for inputs to transform block 3),
-		1, exp(i* 3*twopi/32) =       ( c32_3, s32_3), exp(i* 6*twopi/32) =       ( s    , c    ), exp(i* 9*twopi/32) =       (-s32_1, c32_1) (for inputs to transform block 4),
-		1, exp(i* 4*twopi/32) = ISRT2*( 1    , 1    ), exp(i* 8*twopi/32) =       ( 0    , 1    ), exp(i*12*twopi/32) = ISRT2*(-1    , 1    ) (for inputs to transform block 5),
-		1, exp(i* 5*twopi/32) =       ( s32_3, c32_3), exp(i*10*twopi/32) =       (-s    , c    ), exp(i*15*twopi/32) =       (-c32_1, s32_1) (for inputs to transform block 6),
-		1, exp(i* 6*twopi/32) =       ( s    , c    ), exp(i*12*twopi/32) = ISRT2*(-1    , 1    ), exp(i*18*twopi/32) =       (-c    ,-s    ) (for inputs to transform block 7),
-		1, exp(i* 7*twopi/32) =       ( s32_1, c32_1), exp(i*14*twopi/32) =       (-c    , s    ), exp(i*21*twopi/32) =       (-s32_3,-c32_3) (for inputs to transform block 8),
-		 and only the last 3 inputs to each of the radix-4 transforms 2 through 8 are multiplied by non-unity twiddles.	*/
-
-	/*...Block 1: t00,t10,t20,t30	*/
-	#if 1
-		__asm	mov eax, add0	// &a[j1]
-		__asm	mov ebx, p01
-		__asm	mov ecx, p02
-		__asm	mov edx, p03
-		__asm	shl	ebx, 3		/* Pointer offset for floating doubles */
-		__asm	shl	ecx, 3
-		__asm	shl	edx, 3
-		__asm	add ebx, eax
-		__asm	add ecx, eax
-		__asm	add edx, eax
-	#else
-		add0 = &a[j1];
-		add1 = add0+p01;
-		add2 = add0+p02;
-		add3 = add0+p03;
-		__asm	mov	eax, add0	/* restore main-array indices */
-		__asm	mov	ebx, add1
-		__asm	mov	ecx, add2
-		__asm	mov	edx, add3
-	#endif
-
-		__asm	mov	edi, r00
-
-		__asm	movaps	xmm0,[edi      ]	/* t00 */				__asm	movaps	xmm4,[edi+0x200]	/* t20 */
-		__asm	movaps	xmm1,[edi+0x010]	/* t01 */				__asm	movaps	xmm5,[edi+0x210]	/* t21 */
-		__asm	movaps	xmm2,[edi+0x100]	/* t10 */				__asm	movaps	xmm6,[edi+0x300]	/* t30 */
-		__asm	movaps	xmm3,[edi+0x110]	/* t11 */				__asm	movaps	xmm7,[edi+0x310]	/* t31 */
-
-		__asm	subpd	xmm0,[edi+0x100]	/* t10=t00-rt */		__asm	subpd	xmm4,[edi+0x300]	/* t30=t20-rt */
-		__asm	subpd	xmm1,[edi+0x110]	/* t11=t01-it */		__asm	subpd	xmm5,[edi+0x310]	/* t31=t21-it */
-		__asm	addpd	xmm2,[edi      ]	/* t00=t00+rt */		__asm	addpd	xmm6,[edi+0x200]	/* t20=t20+rt */
-		__asm	addpd	xmm3,[edi+0x010]	/* t01=t01+it */		__asm	addpd	xmm7,[edi+0x210]	/* t21=t21+it */
-
-		__asm	subpd	xmm2,xmm6		/* t00 <- t00-t20 */		__asm	subpd	xmm0,xmm5		/* t10 <- t10-t31 */
-		__asm	subpd	xmm3,xmm7		/* t01 <- t01-t21 */		__asm	subpd	xmm1,xmm4		/* t11 <- t11-t30 */
-		__asm	addpd	xmm6,xmm6		/*          2*t20 */		__asm	addpd	xmm5,xmm5		/*          2*t31 */
-		__asm	addpd	xmm7,xmm7		/*          2*t21 */		__asm	addpd	xmm4,xmm4		/*          2*t30 */
-		__asm	movaps	[ebx     ],xmm2	/* a[jt+p1 ] */				__asm	movaps	[ecx     ],xmm0	/* a[jt+p2 ] */
-		__asm	movaps	[ebx+0x10],xmm3	/* a[jp+p1 ] */				__asm	movaps	[edx+0x10],xmm1	/* a[jp+p3 ] */
-		__asm	addpd	xmm6,xmm2		/* t20 <- t00+t20 */		__asm	addpd	xmm5,xmm0		/* t31 <- t10+t31 */
-		__asm	addpd	xmm7,xmm3		/* t21 <- t01+t21 */		__asm	addpd	xmm4,xmm1		/* t30 <- t11+t30 */
-		__asm	movaps	[eax     ],xmm6	/* a[jt+p0 ] */				__asm	movaps	[edx     ],xmm5	/* a[jt+p3 ] */
-		__asm	movaps	[eax+0x10],xmm7	/* a[jp+p0 ] */				__asm	movaps	[ecx+0x10],xmm4	/* a[jp+p2 ] */
-
-	/*...Block 5: t08,t18,t28,t38	*/
-	#if 1
-		__asm	sub ebx, eax
-		__asm	sub ecx, eax
-		__asm	sub edx, eax
-		__asm	mov	edi, p04
-		__asm	shl	edi, 3
-		__asm	add eax, edi	// &a[j1+p04]
-		__asm	add ebx, eax
-		__asm	add ecx, eax
-		__asm	add edx, eax
-	#else
-		add0 = &a[j1+p04];
-		add1 = add0+p01;
-		add2 = add0+p02;
-		add3 = add0+p03;
-	#endif
-		__asm	mov	edi, r08
-		__asm	mov	esi, isrt2
-		__asm	movaps	xmm3,[esi ]	/* isrt2 */
-																__asm	movaps	xmm4,[edi+0x200]	/* t28 */
-																__asm	movaps	xmm5,[edi+0x210]	/* t29 */
-																__asm	movaps	xmm6,[edi+0x300]	/* t38 */
-																__asm	movaps	xmm7,[edi+0x310]	/* t39 */
-																__asm	mulpd	xmm4,xmm3	/* t28 *ISRT2 */
-		__asm	movaps	xmm0,[edi      ]	/* t08 */			__asm	mulpd	xmm5,xmm3	/* t29 *ISRT2 */
-		__asm	movaps	xmm1,[edi+0x010]	/* t09 */			__asm	mulpd	xmm6,xmm3	/* t38 *ISRT2 */
-		__asm	movaps	xmm2,[edi+0x100]	/* t18 */			__asm	mulpd	xmm7,xmm3	/* t39 *ISRT2 */
-		__asm	movaps	xmm3,[edi+0x110]	/* t19; this must execute after the last mul-by-ISRT2 above */
-
-		__asm	subpd	xmm0,xmm3		/* ~t08= t08-t19*/		__asm	subpd	xmm4,xmm5		/* ~t28=t28-t29*/
-		__asm	subpd	xmm1,xmm2		/* ~t19= t09-t18*/		__asm	subpd	xmm7,xmm6		/*  it =t39-t38*/
-		__asm	addpd	xmm3,xmm3		/*         2*t19*/		__asm	addpd	xmm5,xmm5		/*        2*t29*/
-		__asm	addpd	xmm2,xmm2		/*         2*t18*/		__asm	addpd	xmm6,xmm6		/*        2*t38*/
-		__asm	addpd	xmm3,xmm0		/* ~t18= t19+t08*/		__asm	addpd	xmm5,xmm4		/* ~t29=t29+t28*/
-		__asm	addpd	xmm2,xmm1		/* ~t09= t18+t09*/		__asm	addpd	xmm6,xmm7		/*  rt =t38+t39*/
-
-		__asm	subpd	xmm4,xmm6		/* t28=t28-rt */
-		__asm	subpd	xmm5,xmm7		/* t29=t29-it */
-		__asm	addpd	xmm6,xmm6		/*      2* rt */
-		__asm	addpd	xmm7,xmm7		/*      2* it */
-		__asm	addpd	xmm6,xmm4		/* t38=t28+rt */
-		__asm	addpd	xmm7,xmm5		/* t39=t29+it */
-
-		__asm	subpd	xmm0,xmm4		/* t08-t28 */			__asm	subpd	xmm3,xmm7		/* t18-t39 */
-		__asm	subpd	xmm2,xmm5		/* t09-t29 */			__asm	subpd	xmm1,xmm6		/* t19-t38 */
-		__asm	addpd	xmm4,xmm4		/*   2*t28 */			__asm	addpd	xmm7,xmm7		/*   2*t39 */
-		__asm	addpd	xmm5,xmm5		/*   2*t29 */			__asm	addpd	xmm6,xmm6		/*   2*t38 */
-		__asm	movaps	[ebx     ],xmm0	/* a[jt+p1 ] */			__asm	movaps	[ecx     ],xmm3	/* a[jt+p2 ] */
-		__asm	movaps	[ebx+0x10],xmm2	/* a[jp+p1 ] */			__asm	movaps	[edx+0x10],xmm1	/* a[jp+p3 ] */
-		__asm	addpd	xmm4,xmm0		/* t08+t28 */			__asm	addpd	xmm7,xmm3		/* t18+t39 */
-		__asm	addpd	xmm5,xmm2		/* t09+t29 */			__asm	addpd	xmm6,xmm1		/* t19+t38 */
-		__asm	movaps	[eax     ],xmm4	/* a[jt+p0 ] */			__asm	movaps	[edx     ],xmm7	/* a[jt+p3 ] */
-		__asm	movaps	[eax+0x10],xmm5	/* a[jp+p0 ] */			__asm	movaps	[ecx+0x10],xmm6	/* a[jp+p2 ] */
-
-	/*...Block 3: t04,t14,t24,t34	*/
-	#if 1
-		__asm	sub ebx, eax
-		__asm	sub ecx, eax
-		__asm	sub edx, eax
-		__asm	mov	edi, p04
-		__asm	shl	edi, 3
-		__asm	sub eax, edi	// &a[j1]
-		__asm	mov	edi, p08
-		__asm	shl	edi, 3
-		__asm	add eax, edi	// &a[j1+p08]
-		__asm	add ebx, eax
-		__asm	add ecx, eax
-		__asm	add edx, eax
-	#else
-		add0 = &a[j1+p08];
-		add1 = add0+p01;
-		add2 = add0+p02;
-		add3 = add0+p03;
-		__asm	mov	eax, add0	/* restore main-array indices */
-		__asm	mov	ebx, add1
-		__asm	mov	ecx, add2
-		__asm	mov	edx, add3
-	#endif
-		__asm	mov	edi, r04
-		__asm	mov	esi, cc0
-		__asm	movaps	xmm4,[edi+0x200]	/* t24 */
-		__asm	movaps	xmm5,[edi+0x210]	/* t25 */
-		__asm	movaps	xmm3,[esi      ]	/* c */
-		__asm	movaps	xmm2,[esi+0x010]	/* s */
-		__asm	movaps	xmm6,xmm4		/* copy t24 */
-		__asm	movaps	xmm7,xmm5		/* copy t25 */
-
-		__asm	mulpd	xmm4,xmm3		/* t24*c */
-		__asm	mulpd	xmm5,xmm3		/* t25*c */
-		__asm	mulpd	xmm6,xmm2		/* t24*s */				__asm	movaps	xmm0,[edi+0x300]	/* t34 */
-		__asm	mulpd	xmm7,xmm2		/* t25*s */				__asm	movaps	xmm1,[edi+0x310]	/* t35 */
-		__asm	addpd	xmm5,xmm6	/* ~t25 */					__asm	movaps	xmm6,xmm0		/* copy t34 */
-		__asm	subpd	xmm4,xmm7	/* ~t24 */					__asm	movaps	xmm7,xmm1		/* copy t35 */
-
-																__asm	mulpd	xmm6,xmm2		/* t34*s */
-																__asm	mulpd	xmm7,xmm2		/* t35*s */
-																__asm	mulpd	xmm0,xmm3		/* t34*c */
-																__asm	mulpd	xmm1,xmm3		/* t35*c */
-																__asm	addpd	xmm7,xmm0	/* it */
-																__asm	subpd	xmm6,xmm1	/* rt */
-
-		__asm	movaps	xmm2,xmm4		/* copy t24 */
-		__asm	movaps	xmm3,xmm5		/* copy t25 */
-		__asm	subpd	xmm4,xmm6		/*~t34=t24-rt */
-		__asm	subpd	xmm5,xmm7		/*~t35=t25-it */
-		__asm	addpd	xmm6,xmm2		/*~t24=t24+rt */
-		__asm	addpd	xmm7,xmm3		/*~t25=t25+it */
-
-		__asm	mov	esi, isrt2
-		__asm	movaps	xmm2,[edi+0x100]	/* t14 */
-		__asm	movaps	xmm3,[edi+0x110]	/* t15 */
-		__asm	movaps	xmm1,[esi]	/* isrt2 */
-		__asm	movaps	xmm0,xmm2	/* cpy t14 */
-		__asm	subpd	xmm2,xmm3	/*~t14=t14-t15 */
-		__asm	addpd	xmm3,xmm0	/*~t15=t15+t14 */
-		__asm	mulpd	xmm2,xmm1	/* rt = (t14-t15)*ISRT2 */
-		__asm	mulpd	xmm3,xmm1	/* it = (t15+t14)*ISRT2 */
-
-		__asm	movaps	xmm0,[edi      ]	/* t04 */
-		__asm	movaps	xmm1,[edi+0x010]	/* t05 */
-
-		__asm	subpd	xmm0,xmm2			/*~t14=t04-rt */
-		__asm	subpd	xmm1,xmm3			/*~t15=t05-it */
-		__asm	addpd	xmm2,xmm2			/*      2* rt */
-		__asm	addpd	xmm3,xmm3			/*      2* it */
-		__asm	addpd	xmm2,xmm0			/*~t04=rt +t04*/
-		__asm	addpd	xmm3,xmm1			/*~t05=it +t05*/
-
-		__asm	subpd	xmm2,xmm6		/* t04-t24 */			__asm	subpd	xmm0,xmm5		/* t14-t35 */
-		__asm	subpd	xmm3,xmm7		/* t05-t25 */			__asm	subpd	xmm1,xmm4		/* t15-t34 */
-		__asm	addpd	xmm6,xmm6		/*   2*t24 */			__asm	addpd	xmm5,xmm5		/*          2*t35 */
-		__asm	addpd	xmm7,xmm7		/*   2*t25 */			__asm	addpd	xmm4,xmm4		/*          2*t34 */
-		__asm	movaps	[ebx     ],xmm2	/* a[jt+p1 ] */			__asm	movaps	[ecx     ],xmm0	/* a[jt+p2 ] */
-		__asm	movaps	[ebx+0x10],xmm3	/* a[jp+p1 ] */			__asm	movaps	[edx+0x10],xmm1	/* a[jp+p3 ] */
-		__asm	addpd	xmm6,xmm2		/* t04+t24 */			__asm	addpd	xmm5,xmm0		/* t14+t35 */
-		__asm	addpd	xmm7,xmm3		/* t05+t25 */			__asm	addpd	xmm4,xmm1		/* t15+t34 */
-		__asm	movaps	[eax     ],xmm6	/* a[jt+p0 ] */			__asm	movaps	[edx     ],xmm5	/* a[jt+p3 ] */
-		__asm	movaps	[eax+0x10],xmm7	/* a[jp+p0 ] */			__asm	movaps	[ecx+0x10],xmm4	/* a[jp+p2 ] */
-
-	/*...Block 7: t0C,t1C,t2C,t3C	*/
-	#if 1
-		__asm	sub ebx, eax
-		__asm	sub ecx, eax
-		__asm	sub edx, eax
-		__asm	mov	edi, p08
-		__asm	shl	edi, 3
-		__asm	sub eax, edi	// &a[j1]
-		__asm	mov	edi, p0C
-		__asm	shl	edi, 3
-		__asm	add eax, edi	// &a[j1+p0C]
-		__asm	add ebx, eax
-		__asm	add ecx, eax
-		__asm	add edx, eax
-	#else
-		add0 = &a[j1+p0C];
-		add1 = add0+p01;
-		add2 = add0+p02;
-		add3 = add0+p03;
-		__asm	mov	eax, add0	/* restore main-array indices */
-		__asm	mov	ebx, add1
-		__asm	mov	ecx, add2
-		__asm	mov	edx, add3
-	#endif
-		__asm	mov	edi, r0C
-		__asm	mov	esi, cc0
-		__asm	movaps	xmm4,[edi+0x200]	/* t2C */
-		__asm	movaps	xmm5,[edi+0x210]	/* t2D */
-		__asm	movaps	xmm2,[esi      ]	/* c */
-		__asm	movaps	xmm3,[esi+0x010]	/* s */
-		__asm	movaps	xmm6,xmm4		/* copy t2C */
-		__asm	movaps	xmm7,xmm5		/* copy t2D */
-
-		__asm	mulpd	xmm4,xmm3		/* t2C*s */
-		__asm	mulpd	xmm5,xmm3		/* t2D*s */
-		__asm	mulpd	xmm6,xmm2		/* t2C*c */				__asm	movaps	xmm0,[edi+0x300]	/* t3C */
-		__asm	mulpd	xmm7,xmm2		/* t2D*c */				__asm	movaps	xmm1,[edi+0x310]	/* t3D */
-		__asm	addpd	xmm5,xmm6	/* ~t2D */					__asm	movaps	xmm6,xmm0		/* copy t3C */
-		__asm	subpd	xmm4,xmm7	/* ~t2C */					__asm	movaps	xmm7,xmm1		/* copy t3D */
-
-																__asm	mulpd	xmm6,xmm2		/* t3C*c */
-																__asm	mulpd	xmm7,xmm2		/* t3D*c */
-																__asm	mulpd	xmm0,xmm3		/* t3C*s */
-																__asm	mulpd	xmm1,xmm3		/* t3D*s */
-																__asm	addpd	xmm7,xmm0	/* it */
-																__asm	subpd	xmm6,xmm1	/* rt */
-
-		__asm	movaps	xmm2,xmm4		/* copy t2C */
-		__asm	movaps	xmm3,xmm5		/* copy t2D */
-		__asm	subpd	xmm4,xmm6		/*~t2C=t2C-rt */
-		__asm	subpd	xmm5,xmm7		/*~t2D=t2D-it */
-		__asm	addpd	xmm6,xmm2		/*~t3C=t2C+rt */
-		__asm	addpd	xmm7,xmm3		/*~t3D=t2D+it */
-
-		__asm	mov	esi, isrt2
-		__asm	movaps	xmm2,[edi+0x100]	/* t1C */
-		__asm	movaps	xmm3,[edi+0x110]	/* t1D */
-		__asm	movaps	xmm1,[esi]	/* isrt2 */
-		__asm	movaps	xmm0,xmm2	/* cpy t1C */
-		__asm	addpd	xmm2,xmm3	/*~t1C=t1C+t1D */
-		__asm	subpd	xmm3,xmm0	/*~t1D=t1D-t1C */
-		__asm	mulpd	xmm2,xmm1	/* rt = (t1C+t1D)*ISRT2 */
-		__asm	mulpd	xmm3,xmm1	/* it = (t1D-t1C)*ISRT2 */
-
-		__asm	movaps	xmm0,[edi      ]	/* t0C */
-		__asm	movaps	xmm1,[edi+0x010]	/* t0D */
-
-		__asm	subpd	xmm0,xmm2			/*~t0C=t0C-rt */
-		__asm	subpd	xmm1,xmm3			/*~t0D=t0D-it */
-		__asm	addpd	xmm2,xmm2			/*      2* rt */
-		__asm	addpd	xmm3,xmm3			/*      2* it */
-		__asm	addpd	xmm2,xmm0			/*~t1C=rt +t0C*/
-		__asm	addpd	xmm3,xmm1			/*~t1D=it +t0D*/
-
-		__asm	subpd	xmm0,xmm4		/* t0C-t2C */			__asm	subpd	xmm2,xmm7		/* t1C-t3D */
-		__asm	subpd	xmm1,xmm5		/* t0D-t2D */			__asm	subpd	xmm3,xmm6		/* t1D-t3C */
-		__asm	addpd	xmm4,xmm4		/*   2*t2C */			__asm	addpd	xmm7,xmm7		/*   2*t3D */
-		__asm	addpd	xmm5,xmm5		/*   2*t2D */			__asm	addpd	xmm6,xmm6		/*   2*t3C */
-		__asm	movaps	[ebx     ],xmm0	/* a[jt+p1 ] */			__asm	movaps	[ecx     ],xmm2	/* a[jt+p2 ] */
-		__asm	movaps	[ebx+0x10],xmm1	/* a[jp+p1 ] */			__asm	movaps	[edx+0x10],xmm3	/* a[jp+p3 ] */
-		__asm	addpd	xmm4,xmm0		/* t0C+t2C */			__asm	addpd	xmm7,xmm2		/* t1C+t3D */
-		__asm	addpd	xmm5,xmm1		/* t0D+t2D */			__asm	addpd	xmm6,xmm3		/* t1D+t3C */
-		__asm	movaps	[eax     ],xmm4	/* a[jt+p0 ] */			__asm	movaps	[edx     ],xmm7	/* a[jt+p3 ] */
-		__asm	movaps	[eax+0x10],xmm5	/* a[jp+p0 ] */			__asm	movaps	[ecx+0x10],xmm6	/* a[jp+p2 ] */
-
-	/*...Block 2: t02,t12,t22,t32	*/
-		__asm	sub ebx, eax
-		__asm	sub ecx, eax
-		__asm	sub edx, eax
-		__asm	mov	edi, p0C
-		__asm	shl	edi, 3
-		__asm	sub eax, edi	// &a[j1]
-		__asm	mov	edi, p10
-		__asm	shl	edi, 3
-		__asm	add eax, edi	// &a[j1+p10]
-		__asm	add ebx, eax
-		__asm	add ecx, eax
-		__asm	add edx, eax
-
-		__asm	mov	edi, r02
-		__asm	mov	esi, cc1
-		__asm	movaps	xmm4,[edi+0x200]	/* t22 */
-		__asm	movaps	xmm5,[edi+0x210]	/* t23 */
-		__asm	movaps	xmm2,[esi      ]	/* c32_1 */
-		__asm	movaps	xmm3,[esi+0x010]	/* s32_1 */
-		__asm	movaps	xmm6,xmm4		/* copy t22 */
-		__asm	movaps	xmm7,xmm5		/* copy t23 */
-
-																__asm	add	esi, 0x20	/* cc3 */
-		__asm	mulpd	xmm4,xmm2		/* t22*c32_1 */
-		__asm	mulpd	xmm5,xmm2		/* t23*c32_1 */
-		__asm	mulpd	xmm6,xmm3		/* t22*s32_1 */			__asm	movaps	xmm0,[edi+0x300]	/* t32 */
-		__asm	mulpd	xmm7,xmm3		/* t23*s32_1 */			__asm	movaps	xmm1,[edi+0x310]	/* t33 */
-																__asm	movaps	xmm2,[esi      ]	/* c32_3 */
-																__asm	movaps	xmm3,[esi+0x010]	/* s32_3 */
-		__asm	addpd	xmm5,xmm6	/* ~t23 */					__asm	movaps	xmm6,xmm0		/* copy t32 */
-		__asm	subpd	xmm4,xmm7	/* ~t22 */					__asm	movaps	xmm7,xmm1		/* copy t33 */
-
-																__asm	mulpd	xmm6,xmm2		/* t32*c32_3 */
-																__asm	mulpd	xmm7,xmm2		/* t33*c32_3 */
-																__asm	mulpd	xmm0,xmm3		/* t32*s32_3 */
-																__asm	mulpd	xmm1,xmm3		/* t33*s32_3 */
-																__asm	addpd	xmm7,xmm0	/* it */
-																__asm	subpd	xmm6,xmm1	/* rt */
-
-		__asm	movaps	xmm2,xmm4		/* copy t22 */
-		__asm	movaps	xmm3,xmm5		/* copy t23 */
-		__asm	subpd	xmm4,xmm6		/*~t32=t22-rt */
-		__asm	subpd	xmm5,xmm7		/*~t33=t23-it */
-		__asm	addpd	xmm6,xmm2		/*~t22=t22+rt */
-		__asm	addpd	xmm7,xmm3		/*~t23=t23+it */
-
-		__asm	sub	esi, 0x40	/* cc0 */
-		__asm	movaps	xmm1,[edi+0x100]	/* t12 */
-		__asm	movaps	xmm3,[edi+0x110]	/* t13 */
-		__asm	movaps	xmm0,[esi+0x010]	/* s */
-		__asm	movaps	xmm2,xmm1			/* cpy t12 */
-		__asm	mulpd	xmm1,xmm0		/* t12*s */
-		__asm	mulpd	xmm0,xmm3		/* s*t13 */
-		__asm	mulpd	xmm2,[esi]		/* t12*c */
-		__asm	mulpd	xmm3,[esi]		/* t13*c */
-		__asm	subpd	xmm2,xmm0	/* rt =t12*c - t13*s */
-		__asm	addpd	xmm3,xmm1	/* it =t13*c + t12*s */
-
-		__asm	movaps	xmm0,[edi      ]	/* t02 */
-		__asm	movaps	xmm1,[edi+0x010]	/* t03 */
-
-		__asm	subpd	xmm0,xmm2			/*~t12=t02-rt */
-		__asm	subpd	xmm1,xmm3			/*~t13=t03-it */
-		__asm	addpd	xmm2,xmm2			/*      2* rt */
-		__asm	addpd	xmm3,xmm3			/*      2* it */
-		__asm	addpd	xmm2,xmm0			/*~t02=rt +t02*/
-		__asm	addpd	xmm3,xmm1			/*~t03=it +t03*/
-
-		__asm	subpd	xmm2,xmm6		/* t02-t22 */			__asm	subpd	xmm0,xmm5		/* t12-t33 */
-		__asm	subpd	xmm3,xmm7		/* t03-t23 */			__asm	subpd	xmm1,xmm4		/* t13-t32 */
-		__asm	addpd	xmm6,xmm6		/*   2*t22 */			__asm	addpd	xmm5,xmm5		/*   2*t33 */
-		__asm	addpd	xmm7,xmm7		/*   2*t23 */			__asm	addpd	xmm4,xmm4		/*   2*t32 */
-		__asm	movaps	[ebx     ],xmm2	/* a[jt+p1 ] */			__asm	movaps	[ecx     ],xmm0	/* a[jt+p2 ] */
-		__asm	movaps	[ebx+0x10],xmm3	/* a[jp+p1 ] */			__asm	movaps	[edx+0x10],xmm1	/* a[jp+p3 ] */
-		__asm	addpd	xmm6,xmm2		/* t02+t22 */			__asm	addpd	xmm5,xmm0		/* t12+t33 */
-		__asm	addpd	xmm7,xmm3		/* t03+t23 */			__asm	addpd	xmm4,xmm1		/* t13+t32 */
-		__asm	movaps	[eax     ],xmm6	/* a[jt+p0 ] */			__asm	movaps	[edx     ],xmm5	/* a[jt+p3 ] */
-		__asm	movaps	[eax+0x10],xmm7	/* a[jp+p0 ] */			__asm	movaps	[ecx+0x10],xmm4	/* a[jp+p2 ] */
-
-	/*...Block 6: t0A,t1A,t2A,t3A	*/
-		__asm	sub ebx, eax
-		__asm	sub ecx, eax
-		__asm	sub edx, eax
-		__asm	mov	edi, p10
-		__asm	shl	edi, 3
-		__asm	sub eax, edi	// &a[j1]
-		__asm	mov	edi, p14
-		__asm	shl	edi, 3
-		__asm	add eax, edi	// &a[j1+p14]
-		__asm	add ebx, eax
-		__asm	add ecx, eax
-		__asm	add edx, eax
-
-		__asm	mov	edi, r0A
-		__asm	mov	esi, cc3
-		__asm	movaps	xmm4,[edi+0x200]	/* t22 */
-		__asm	movaps	xmm5,[edi+0x210]	/* t23 */
-		__asm	movaps	xmm3,[esi      ]	/* c32_3 */
-		__asm	movaps	xmm2,[esi+0x010]	/* s32_3 */
-		__asm	movaps	xmm6,xmm4		/* copy t22 */
-		__asm	movaps	xmm7,xmm5		/* copy t23 */
-
-																__asm	sub	esi, 0x20	/* cc1 */
-		__asm	mulpd	xmm4,xmm2		/* t22*s32_3 */
-		__asm	mulpd	xmm5,xmm2		/* t23*s32_3 */
-		__asm	mulpd	xmm6,xmm3		/* t22*c32_3 */			__asm	movaps	xmm0,[edi+0x300]	/* t32 */
-		__asm	mulpd	xmm7,xmm3		/* t23*c32_3 */			__asm	movaps	xmm1,[edi+0x310]	/* t33 */
-																__asm	movaps	xmm2,[esi      ]	/* c32_1 */
-																__asm	movaps	xmm3,[esi+0x010]	/* s32_1 */
-		__asm	addpd	xmm5,xmm6	/* ~t23 */					__asm	movaps	xmm6,xmm0		/* copy t32 */
-		__asm	subpd	xmm4,xmm7	/* ~t22 */					__asm	movaps	xmm7,xmm1		/* copy t33 */
-
-																__asm	mulpd	xmm6,xmm2		/* t32*c32_1 */
-																__asm	mulpd	xmm7,xmm2		/* t33*c32_1 */
-																__asm	mulpd	xmm0,xmm3		/* t32*s32_1 */
-																__asm	mulpd	xmm1,xmm3		/* t33*s32_1 */
-																__asm	subpd	xmm7,xmm0	/* it */
-																__asm	addpd	xmm6,xmm1	/* rt */
-
-		__asm	movaps	xmm2,xmm4		/* copy t22 */
-		__asm	movaps	xmm3,xmm5		/* copy t23 */
-		__asm	subpd	xmm4,xmm6		/*~t22=t22-rt */
-		__asm	subpd	xmm5,xmm7		/*~t23=t23-it */
-		__asm	addpd	xmm6,xmm2		/*~t32=t22+rt */
-		__asm	addpd	xmm7,xmm3		/*~t33=t23+it */
-
-		__asm	sub	esi, 0x20	/* cc0 */
-		__asm	movaps	xmm1,[edi+0x100]	/* t12 */
-		__asm	movaps	xmm3,[edi+0x110]	/* t13 */
-		__asm	movaps	xmm0,[esi]		/* c */
-		__asm	movaps	xmm2,xmm1			/* cpy t12 */
-		__asm	mulpd	xmm1,xmm0		/* t12*c */
-		__asm	mulpd	xmm0,xmm3		/* c*t13 */
-		__asm	mulpd	xmm2,[esi+0x010]/* t12*s */
-		__asm	mulpd	xmm3,[esi+0x010]/* t13*s */
-		__asm	addpd	xmm2,xmm0	/* rt =t12*s + t13*c */
-		__asm	subpd	xmm3,xmm1	/* it =t13*s - t12*c */
-
-		__asm	movaps	xmm0,[edi      ]	/* t02 */
-		__asm	movaps	xmm1,[edi+0x010]	/* t03 */
-
-		__asm	subpd	xmm0,xmm2			/*~t02=t02-rt */
-		__asm	subpd	xmm1,xmm3			/*~t03=t03-it */
-		__asm	addpd	xmm2,xmm2			/*      2* rt */
-		__asm	addpd	xmm3,xmm3			/*      2* it */
-		__asm	addpd	xmm2,xmm0			/*~t12=rt +t02*/
-		__asm	addpd	xmm3,xmm1			/*~t13=it +t03*/
-
-		__asm	subpd	xmm0,xmm4		/* t02-t22 */			__asm	subpd	xmm2,xmm7		/* t12-t33 */
-		__asm	subpd	xmm1,xmm5		/* t03-t23 */			__asm	subpd	xmm3,xmm6		/* t13-t32 */
-		__asm	addpd	xmm4,xmm4		/*   2*t22 */			__asm	addpd	xmm7,xmm7		/*   2*t33 */
-		__asm	addpd	xmm5,xmm5		/*   2*t23 */			__asm	addpd	xmm6,xmm6		/*   2*t32 */
-		__asm	movaps	[ebx     ],xmm0	/* a[jt+p1 ] */			__asm	movaps	[ecx     ],xmm2	/* a[jt+p2 ] */
-		__asm	movaps	[ebx+0x10],xmm1	/* a[jp+p1 ] */			__asm	movaps	[edx+0x10],xmm3	/* a[jp+p3 ] */
-		__asm	addpd	xmm4,xmm0		/* t02+t22 */			__asm	addpd	xmm7,xmm2		/* t12+t33 */
-		__asm	addpd	xmm5,xmm1		/* t03+t23 */			__asm	addpd	xmm6,xmm3		/* t13+t32 */
-		__asm	movaps	[eax     ],xmm4	/* a[jt+p0 ] */			__asm	movaps	[edx     ],xmm7	/* a[jt+p3 ] */
-		__asm	movaps	[eax+0x10],xmm5	/* a[jp+p0 ] */			__asm	movaps	[ecx+0x10],xmm6	/* a[jp+p2 ] */
-
-	/*...Block 4: t06,t16,t26,t36	*/
-		__asm	sub ebx, eax
-		__asm	sub ecx, eax
-		__asm	sub edx, eax
-		__asm	mov	edi, p14
-		__asm	shl	edi, 3
-		__asm	sub eax, edi	// &a[j1]
-		__asm	mov	edi, p18
-		__asm	shl	edi, 3
-		__asm	add eax, edi	// &a[j1+p18]
-		__asm	add ebx, eax
-		__asm	add ecx, eax
-		__asm	add edx, eax
-
-		__asm	mov	edi, r06
-		__asm	mov	esi, cc3
-		__asm	movaps	xmm4,[edi+0x200]	/* t22 */
-		__asm	movaps	xmm5,[edi+0x210]	/* t23 */
-		__asm	movaps	xmm2,[esi      ]	/* c32_3 */
-		__asm	movaps	xmm3,[esi+0x010]	/* s32_3 */
-		__asm	movaps	xmm6,xmm4		/* copy t22 */
-		__asm	movaps	xmm7,xmm5		/* copy t23 */
-
-																__asm	sub	esi, 0x20	/* cc1 */
-		__asm	mulpd	xmm4,xmm2		/* t22*c32_3 */
-		__asm	mulpd	xmm5,xmm2		/* t23*c32_3 */
-		__asm	mulpd	xmm6,xmm3		/* t22*s32_3 */			__asm	movaps	xmm0,[edi+0x300]	/* t32 */
-		__asm	mulpd	xmm7,xmm3		/* t23*s32_3 */			__asm	movaps	xmm1,[edi+0x310]	/* t33 */
-																__asm	movaps	xmm3,[esi      ]	/* c32_1 */
-																__asm	movaps	xmm2,[esi+0x010]	/* s32_1 */
-		__asm	addpd	xmm5,xmm6	/* ~t23 */					__asm	movaps	xmm6,xmm0		/* copy t32 */
-		__asm	subpd	xmm4,xmm7	/* ~t22 */					__asm	movaps	xmm7,xmm1		/* copy t33 */
-
-																__asm	mulpd	xmm6,xmm2		/* t32*s32_1 */
-																__asm	mulpd	xmm7,xmm2		/* t33*s32_1 */
-																__asm	mulpd	xmm0,xmm3		/* t32*c32_1 */
-																__asm	mulpd	xmm1,xmm3		/* t33*c32_1 */
-																__asm	subpd	xmm7,xmm0	/* it */
-																__asm	addpd	xmm6,xmm1	/* rt */
-
-		__asm	movaps	xmm2,xmm4		/* copy t22 */
-		__asm	movaps	xmm3,xmm5		/* copy t23 */
-		__asm	subpd	xmm4,xmm6		/*~t22=t22-rt */
-		__asm	subpd	xmm5,xmm7		/*~t23=t23-it */
-		__asm	addpd	xmm6,xmm2		/*~t32=t22+rt */
-		__asm	addpd	xmm7,xmm3		/*~t33=t23+it */
-
-		__asm	sub	esi, 0x20	/* cc0 */
-		__asm	movaps	xmm1,[edi+0x100]	/* t12 */
-		__asm	movaps	xmm3,[edi+0x110]	/* t13 */
-		__asm	movaps	xmm0,[esi]		/* c */
-		__asm	movaps	xmm2,xmm1			/* cpy t12 */
-		__asm	mulpd	xmm1,xmm0		/* t12*c */
-		__asm	mulpd	xmm0,xmm3		/* c*t13 */
-		__asm	mulpd	xmm2,[esi+0x010]/* t12*s */
-		__asm	mulpd	xmm3,[esi+0x010]/* t13*s */
-		__asm	subpd	xmm2,xmm0	/* rt =t12*s - t13*c */
-		__asm	addpd	xmm3,xmm1	/* it =t13*s + t12*c */
-
-		__asm	movaps	xmm0,[edi      ]	/* t02 */
-		__asm	movaps	xmm1,[edi+0x010]	/* t03 */
-
-		__asm	subpd	xmm0,xmm2			/*~t12=t02-rt */
-		__asm	subpd	xmm1,xmm3			/*~t13=t03-it */
-		__asm	addpd	xmm2,xmm2			/*      2* rt */
-		__asm	addpd	xmm3,xmm3			/*      2* it */
-		__asm	addpd	xmm2,xmm0			/*~t02=rt +t02*/
-		__asm	addpd	xmm3,xmm1			/*~t03=it +t03*/
-
-		__asm	subpd	xmm2,xmm4		/* t02-t22 */			__asm	subpd	xmm0,xmm7		/* t12-t33 */
-		__asm	subpd	xmm3,xmm5		/* t03-t23 */			__asm	subpd	xmm1,xmm6		/* t13-t32 */
-		__asm	addpd	xmm4,xmm4		/*   2*t22 */			__asm	addpd	xmm7,xmm7		/*   2*t33 */
-		__asm	addpd	xmm5,xmm5		/*   2*t23 */			__asm	addpd	xmm6,xmm6		/*   2*t32 */
-		__asm	movaps	[ebx     ],xmm2	/* a[jt+p1 ] */			__asm	movaps	[ecx     ],xmm0	/* a[jt+p2 ] */
-		__asm	movaps	[ebx+0x10],xmm3	/* a[jp+p1 ] */			__asm	movaps	[edx+0x10],xmm1	/* a[jp+p3 ] */
-		__asm	addpd	xmm4,xmm2		/* t02+t22 */			__asm	addpd	xmm7,xmm0		/* t12+t33 */
-		__asm	addpd	xmm5,xmm3		/* t03+t23 */			__asm	addpd	xmm6,xmm1		/* t13+t32 */
-		__asm	movaps	[eax     ],xmm4	/* a[jt+p0 ] */			__asm	movaps	[edx     ],xmm7	/* a[jt+p3 ] */
-		__asm	movaps	[eax+0x10],xmm5	/* a[jp+p0 ] */			__asm	movaps	[ecx+0x10],xmm6	/* a[jp+p2 ] */
-
-	/*...Block 8: t0E,t1E,t2E,t3E	*/
-		__asm	sub ebx, eax
-		__asm	sub ecx, eax
-		__asm	sub edx, eax
-		__asm	mov	edi, p18
-		__asm	shl	edi, 3
-		__asm	sub eax, edi	// &a[j1]
-		__asm	mov	edi, p1C
-		__asm	shl	edi, 3
-		__asm	add eax, edi	// &a[j1+p1C]
-		__asm	add ebx, eax
-		__asm	add ecx, eax
-		__asm	add edx, eax
-
-		__asm	mov	edi, r0E
-		__asm	mov	esi, cc1
-		__asm	movaps	xmm4,[edi+0x200]	/* t22 */
-		__asm	movaps	xmm5,[edi+0x210]	/* t23 */
-		__asm	movaps	xmm3,[esi      ]	/* c32_1 */
-		__asm	movaps	xmm2,[esi+0x010]	/* s32_1 */
-		__asm	movaps	xmm6,xmm4		/* copy t22 */
-		__asm	movaps	xmm7,xmm5		/* copy t23 */
-
-																__asm	add	esi, 0x20	/* cc3 */
-		__asm	mulpd	xmm4,xmm2		/* t22*s32_1 */
-		__asm	mulpd	xmm5,xmm2		/* t23*s32_1 */
-		__asm	mulpd	xmm6,xmm3		/* t22*c32_1 */			__asm	movaps	xmm0,[edi+0x300]	/* t32 */
-		__asm	mulpd	xmm7,xmm3		/* t23*c32_1 */			__asm	movaps	xmm1,[edi+0x310]	/* t33 */
-																__asm	movaps	xmm3,[esi      ]	/* c32_3 */
-																__asm	movaps	xmm2,[esi+0x010]	/* s32_3 */
-		__asm	addpd	xmm5,xmm6	/* ~t23 */					__asm	movaps	xmm6,xmm0		/* copy t32 */
-		__asm	subpd	xmm4,xmm7	/* ~t22 */					__asm	movaps	xmm7,xmm1		/* copy t33 */
-
-																__asm	mulpd	xmm6,xmm2		/* t32*s32_3 */
-																__asm	mulpd	xmm7,xmm2		/* t33*s32_3 */
-																__asm	mulpd	xmm0,xmm3		/* t32*c32_3 */
-																__asm	mulpd	xmm1,xmm3		/* t33*c32_3 */
-																__asm	addpd	xmm7,xmm0	/* it */
-																__asm	subpd	xmm6,xmm1	/* rt */
-
-		__asm	movaps	xmm2,xmm4		/* copy t22 */
-		__asm	movaps	xmm3,xmm5		/* copy t23 */
-		__asm	subpd	xmm4,xmm6		/*~t22=t22-rt */
-		__asm	subpd	xmm5,xmm7		/*~t23=t23-it */
-		__asm	addpd	xmm6,xmm2		/*~t32=t22+rt */
-		__asm	addpd	xmm7,xmm3		/*~t33=t23+it */
-
-		__asm	sub	esi, 0x40	/* cc0 */
-		__asm	movaps	xmm1,[edi+0x100]	/* t12 */
-		__asm	movaps	xmm3,[edi+0x110]	/* t13 */
-		__asm	movaps	xmm0,[esi+0x010]	/* s */
-		__asm	movaps	xmm2,xmm1			/* cpy t12 */
-		__asm	mulpd	xmm1,xmm0		/* t12*s */
-		__asm	mulpd	xmm0,xmm3		/* s*t13 */
-		__asm	mulpd	xmm2,[esi]		/* t12*c */
-		__asm	mulpd	xmm3,[esi]		/* t13*c */
-		__asm	addpd	xmm2,xmm0	/* rt =t12*c + t13*s */
-		__asm	subpd	xmm3,xmm1	/* it =t13*c - t12*s */
-
-		__asm	movaps	xmm0,[edi      ]	/* t02 */
-		__asm	movaps	xmm1,[edi+0x010]	/* t03 */
-
-		__asm	subpd	xmm0,xmm2			/*~t02=t02-rt */
-		__asm	subpd	xmm1,xmm3			/*~t03=t03-it */
-		__asm	addpd	xmm2,xmm2			/*      2* rt */
-		__asm	addpd	xmm3,xmm3			/*      2* it */
-		__asm	addpd	xmm2,xmm0			/*~t12=rt +t02*/
-		__asm	addpd	xmm3,xmm1			/*~t13=it +t03*/
-
-		__asm	subpd	xmm0,xmm4		/* t02-t22 */			__asm	subpd	xmm2,xmm7		/* t12-t33 */
-		__asm	subpd	xmm1,xmm5		/* t03-t23 */			__asm	subpd	xmm3,xmm6		/* t13-t32 */
-		__asm	addpd	xmm4,xmm4		/*   2*t22 */			__asm	addpd	xmm7,xmm7		/*   2*t33 */
-		__asm	addpd	xmm5,xmm5		/*   2*t23 */			__asm	addpd	xmm6,xmm6		/*   2*t32 */
-		__asm	movaps	[ebx     ],xmm0	/* a[jt+p1 ] */			__asm	movaps	[ecx     ],xmm2	/* a[jt+p2 ] */
-		__asm	movaps	[ebx+0x10],xmm1	/* a[jp+p1 ] */			__asm	movaps	[edx+0x10],xmm3	/* a[jp+p3 ] */
-		__asm	addpd	xmm4,xmm0		/* t02+t22 */			__asm	addpd	xmm7,xmm2		/* t12+t33 */
-		__asm	addpd	xmm5,xmm1		/* t03+t23 */			__asm	addpd	xmm6,xmm3		/* t13+t32 */
-		__asm	movaps	[eax     ],xmm4	/* a[jt+p0 ] */			__asm	movaps	[edx     ],xmm7	/* a[jt+p3 ] */
-		__asm	movaps	[eax+0x10],xmm5	/* a[jp+p0 ] */			__asm	movaps	[ecx+0x10],xmm6	/* a[jp+p2 ] */
-
-	#else	/* GCC-style inline ASM: */
+	/* Gather needed data (32 64-bit complex, i.e. 64 64-bit reals) and do first set of four length-8 transforms,
+		processing sincos data in bit-reversed order.	*/
 
 		add0 = &a[j1];
 		SSE2_RADIX32_DIF_TWIDDLE(add0,p01,p02,p03,p04,p08,p0C,p10,p18,r00)
-
-	#endif	// MSVC or GCC?
 
 #else	// !USE_SEE2: Scalar (Non-SIMD) code:
 
@@ -2470,33 +1350,20 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 #ifdef USE_SSE2
 
-  #if !(defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
+  #ifndef COMPILER_TYPE_GCC
 	#error SSE2 code not supported for this compiler!
   #endif
 
 	static vec_dbl *sc_arr = 0x0, *sc_ptr;
 	double *add0;	/* Addresses into array sections */
-#ifdef COMPILER_TYPE_MSVC
-	double *add1, *add2, *add3, *add4, *add5, *add6, *add7;
-#endif
 	vec_dbl *c_tmp,*s_tmp;
 
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;	/* Base address for discrete per-thread local stores */
 	// In || mode, only above base-pointer (shared by all threads) is static:
-	vec_dbl *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *one,*two,*sqrt2
-		,*r00,*r02,*r04,*r06,*r08,*r0A,*r0C,*r0E
-		,*r10,*r12,*r14,*r16,*r18,*r1A,*r1C,*r1E,*r20,*r30;
+	vec_dbl *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *one,*two,*sqrt2, *r00,*r10,*r20,*r30;
   #else
-	static vec_dbl *isrt2,*sqrt2, *one,*two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3
-		,*c00,*c01,*c02,*c03,*c04,*c05,*c06,*c07,*c08,*c09,*c0A,*c0B,*c0C,*c0D,*c0E,*c0F
-		,*c10,*c11,*c12,*c13,*c14,*c15,*c16,*c17,*c18,*c19,*c1A,*c1B,*c1C,*c1D,*c1E,*c1F
-		,*s00,*s01,*s02,*s03,*s04,*s05,*s06,*s07,*s08,*s09,*s0A,*s0B,*s0C,*s0D,*s0E,*s0F
-		,*s10,*s11,*s12,*s13,*s14,*s15,*s16,*s17,*s18,*s19,*s1A,*s1B,*s1C,*s1D,*s1E,*s1F
-		,*r00,*r01,*r02,*r03,*r04,*r05,*r06,*r07,*r08,*r09,*r0A,*r0B,*r0C,*r0D,*r0E,*r0F
-		,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r1A,*r1B,*r1C,*r1D,*r1E,*r1F
-		,*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r2A,*r2B,*r2C,*r2D,*r2E,*r2F
-		,*r30,*r31,*r32,*r33,*r34,*r35,*r36,*r37,*r38,*r39,*r3A,*r3B,*r3C,*r3D,*r3E,*r3F;
+	static vec_dbl *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *one,*two,*sqrt2, *r00,*r10,*r20,*r30;
   #endif
 
 #else
@@ -2534,14 +1401,47 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		}
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x90*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 64 16-byte slots of sc_arr for temporaries, next 7 for the nontrivial complex 32nd roots,
 	last 64 for the doubled sincos twiddles, plus at least 3 more slots to allow for 64-byte alignment of the array.
 	*/
-		#ifdef MULTITHREAD
-	//	if(max_threads > 1) {
-			__r0  = sc_ptr;
+	#ifdef MULTITHREAD
+		__r0  = sc_ptr;
+		isrt2 = sc_ptr + 0x40;
+		cc0	  = sc_ptr + 0x41;
+		ss0	  = sc_ptr + 0x42;
+		cc1	  = sc_ptr + 0x43;
+		ss1	  = sc_ptr + 0x44;
+		cc3	  = sc_ptr + 0x45;
+		ss3	  = sc_ptr + 0x46;
+		one   = sc_ptr + 0x87;
+		two   = sc_ptr + 0x88;
+		sqrt2 = sc_ptr + 0x89;
+		for(i = 0; i < max_threads; ++i) {
+			/* These remain fixed within each per-thread local store: */
+			VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(sqrt2, SQRT2);
+			VEC_DBL_INIT(one  , 1.0  );		VEC_DBL_INIT(two, 2.0  );
+			VEC_DBL_INIT(cc0  , c    );		VEC_DBL_INIT(ss0, s    );
+			VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1, s32_1);
+			VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3, s32_3);
+			/* Move on to next thread's local store */
+			isrt2 += 0x90;
+			cc0   += 0x90;
+			ss0   += 0x90;
+			cc1   += 0x90;
+			ss1   += 0x90;
+			cc3   += 0x90;
+			ss3   += 0x90;
+			one   += 0x90;
+			two   += 0x90;
+			sqrt2 += 0x90;
+		}
+		#else
+			r00   = sc_ptr;
+			r10   = sc_ptr + 0x10;
+			r20   = sc_ptr + 0x20;
+			r30   = sc_ptr + 0x30;
 			isrt2 = sc_ptr + 0x40;
 			cc0	  = sc_ptr + 0x41;
 			ss0	  = sc_ptr + 0x42;
@@ -2552,136 +1452,28 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 			one   = sc_ptr + 0x87;
 			two   = sc_ptr + 0x88;
 			sqrt2 = sc_ptr + 0x89;
-			for(i = 0; i < max_threads; ++i) {
-				/* These remain fixed within each per-thread local store: */
-				VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(sqrt2, SQRT2);
-				VEC_DBL_INIT(one  , 1.0  );		VEC_DBL_INIT(two, 2.0  );
-				VEC_DBL_INIT(cc0  , c    );		VEC_DBL_INIT(ss0, s    );
-				VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1, s32_1);
-				VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3, s32_3);
-				/* Move on to next thread's local store */
-				isrt2 += 0x90;
-				cc0   += 0x90;
-				ss0   += 0x90;
-				cc1   += 0x90;
-				ss1   += 0x90;
-				cc3   += 0x90;
-				ss3   += 0x90;
-				one   += 0x90;
-				two   += 0x90;
-				sqrt2 += 0x90;
-			}
-		#else
-	//	} else {
-			r00		= sc_ptr + 0x00;	c00		= sc_ptr + 0x47;
-			r01		= sc_ptr + 0x01;	s00		= sc_ptr + 0x48;
-			r02		= sc_ptr + 0x02;	c08		= sc_ptr + 0x49;
-			r03		= sc_ptr + 0x03;	s08		= sc_ptr + 0x4a;
-			r04		= sc_ptr + 0x04;	c10		= sc_ptr + 0x4b;
-			r05		= sc_ptr + 0x05;	s10		= sc_ptr + 0x4c;
-			r06		= sc_ptr + 0x06;	c18		= sc_ptr + 0x4d;
-			r07		= sc_ptr + 0x07;	s18		= sc_ptr + 0x4e;
-			r08		= sc_ptr + 0x08;	c04		= sc_ptr + 0x4f;
-			r09		= sc_ptr + 0x09;	s04		= sc_ptr + 0x50;
-			r0A		= sc_ptr + 0x0a;	c0C		= sc_ptr + 0x51;
-			r0B		= sc_ptr + 0x0b;	s0C		= sc_ptr + 0x52;
-			r0C		= sc_ptr + 0x0c;	c14		= sc_ptr + 0x53;
-			r0D		= sc_ptr + 0x0d;	s14		= sc_ptr + 0x54;
-			r0E		= sc_ptr + 0x0e;	c1C		= sc_ptr + 0x55;
-			r0F		= sc_ptr + 0x0f;	s1C		= sc_ptr + 0x56;
-			r10		= sc_ptr + 0x10;	c02		= sc_ptr + 0x57;
-			r11		= sc_ptr + 0x11;	s02		= sc_ptr + 0x58;
-			r12		= sc_ptr + 0x12;	c0A		= sc_ptr + 0x59;
-			r13		= sc_ptr + 0x13;	s0A		= sc_ptr + 0x5a;
-			r14		= sc_ptr + 0x14;	c12		= sc_ptr + 0x5b;
-			r15		= sc_ptr + 0x15;	s12		= sc_ptr + 0x5c;
-			r16		= sc_ptr + 0x16;	c1A		= sc_ptr + 0x5d;
-			r17		= sc_ptr + 0x17;	s1A		= sc_ptr + 0x5e;
-			r18		= sc_ptr + 0x18;	c06		= sc_ptr + 0x5f;
-			r19		= sc_ptr + 0x19;	s06		= sc_ptr + 0x60;
-			r1A		= sc_ptr + 0x1a;	c0E		= sc_ptr + 0x61;
-			r1B		= sc_ptr + 0x1b;	s0E		= sc_ptr + 0x62;
-			r1C		= sc_ptr + 0x1c;	c16		= sc_ptr + 0x63;
-			r1D		= sc_ptr + 0x1d;	s16		= sc_ptr + 0x64;
-			r1E		= sc_ptr + 0x1e;	c1E		= sc_ptr + 0x65;
-			r1F		= sc_ptr + 0x1f;	s1E		= sc_ptr + 0x66;
-			r20		= sc_ptr + 0x20;	c01		= sc_ptr + 0x67;
-			r21		= sc_ptr + 0x21;	s01		= sc_ptr + 0x68;
-			r22		= sc_ptr + 0x22;	c09		= sc_ptr + 0x69;
-			r23		= sc_ptr + 0x23;	s09		= sc_ptr + 0x6a;
-			r24		= sc_ptr + 0x24;	c11		= sc_ptr + 0x6b;
-			r25		= sc_ptr + 0x25;	s11		= sc_ptr + 0x6c;
-			r26		= sc_ptr + 0x26;	c19		= sc_ptr + 0x6d;
-			r27		= sc_ptr + 0x27;	s19		= sc_ptr + 0x6e;
-			r28		= sc_ptr + 0x28;	c05		= sc_ptr + 0x6f;
-			r29		= sc_ptr + 0x29;	s05		= sc_ptr + 0x70;
-			r2A		= sc_ptr + 0x2a;	c0D		= sc_ptr + 0x71;
-			r2B		= sc_ptr + 0x2b;	s0D		= sc_ptr + 0x72;
-			r2C		= sc_ptr + 0x2c;	c15		= sc_ptr + 0x73;
-			r2D		= sc_ptr + 0x2d;	s15		= sc_ptr + 0x74;
-			r2E		= sc_ptr + 0x2e;	c1D		= sc_ptr + 0x75;
-			r2F		= sc_ptr + 0x2f;	s1D		= sc_ptr + 0x76;
-			r30		= sc_ptr + 0x30;	c03		= sc_ptr + 0x77;
-			r31		= sc_ptr + 0x31;	s03		= sc_ptr + 0x78;
-			r32		= sc_ptr + 0x32;	c0B		= sc_ptr + 0x79;
-			r33		= sc_ptr + 0x33;	s0B		= sc_ptr + 0x7a;
-			r34		= sc_ptr + 0x34;	c13		= sc_ptr + 0x7b;
-			r35		= sc_ptr + 0x35;	s13		= sc_ptr + 0x7c;
-			r36		= sc_ptr + 0x36;	c1B		= sc_ptr + 0x7d;
-			r37		= sc_ptr + 0x37;	s1B		= sc_ptr + 0x7e;
-			r38		= sc_ptr + 0x38;	c07		= sc_ptr + 0x7f;
-			r39		= sc_ptr + 0x39;	s07		= sc_ptr + 0x80;
-			r3A		= sc_ptr + 0x3a;	c0F		= sc_ptr + 0x81;
-			r3B		= sc_ptr + 0x3b;	s0F		= sc_ptr + 0x82;
-			r3C		= sc_ptr + 0x3c;	c17		= sc_ptr + 0x83;
-			r3D		= sc_ptr + 0x3d;	s17		= sc_ptr + 0x84;
-			r3E		= sc_ptr + 0x3e;	c1F		= sc_ptr + 0x85;
-			r3F		= sc_ptr + 0x3f;	s1F		= sc_ptr + 0x86;
-			isrt2	= sc_ptr + 0x40;	one     = sc_ptr + 0x87;
-			cc0		= sc_ptr + 0x41;	two     = sc_ptr + 0x88;
-			ss0		= sc_ptr + 0x42;	sqrt2   = sc_ptr + 0x89;
-			cc1		= sc_ptr + 0x43;
-			ss1		= sc_ptr + 0x44;
-			cc3		= sc_ptr + 0x45;
-			ss3		= sc_ptr + 0x46;
-
 			/* These remain fixed: */
 			VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(sqrt2, SQRT2);
 			VEC_DBL_INIT(one  , 1.0  );		VEC_DBL_INIT(two, 2.0  );
 			VEC_DBL_INIT(cc0  , c    );		VEC_DBL_INIT(ss0, s    );
 			VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1, s32_1);
 			VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3, s32_3);
-		#endif
-	//	}
+	#endif
 		return;
 	}	/* end of inits */
 
 	/* If multithreaded, set the local-store pointers needed for the current thread; */
-	#ifdef MULTITHREAD
-		ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
-		r00 = __r0 + thr_id*0x90;
-		r02 = r00 + 0x02;
-		r04 = r00 + 0x04;
-		r06 = r00 + 0x06;
-		r08 = r00 + 0x08;
-		r0A = r00 + 0x0A;
-		r0C = r00 + 0x0C;
-		r0E = r00 + 0x0E;
-		r10 = r00 + 0x10;
-		r12 = r00 + 0x12;
-		r14 = r00 + 0x14;
-		r16 = r00 + 0x16;
-		r18 = r00 + 0x18;
-		r1A = r00 + 0x1A;
-		r1C = r00 + 0x1C;
-		r1E = r00 + 0x1E;
-		r20 = r00 + 0x20;
-		r30 = r00 + 0x30;
-		isrt2 = r00 + 0x40;
-		cc0	= r00 + 0x41;
-	#endif
+  #ifdef MULTITHREAD
+	ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+	r00 = __r0 + thr_id*0x90;
+	r10 = r00 + 0x10;
+	r20 = r00 + 0x20;
+	r30 = r00 + 0x30;
+	isrt2 = r00 + 0x40;
+	cc0	= r00 + 0x41;
+  #endif
 
-#endif
+#endif	// USE_SSE2 ?
 
 	p01 = incr >> 5;
 	p02 = p01 +p01;
@@ -2723,6 +1515,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 	#ifdef USE_SSE2
 		/* Due to roots-locality considerations, roots (c,s)[0-31] are offset w.r.to the thread-local ptr pair as
 					cc[00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10 11 12 13 14 15 16 17 18 19 1A 1B 1C 1D 1E 1F]
+		(cc0,ss0) + 0x[06,26,16,36|0e,2e,1e,3e|0a,2a,1a,3a|12,32,22,42|08,28,18,38|10,30,20,40|0c,2c,1c,3c|14,34,24,44].
+
 		(cc0,ss0) + 0x[06,26,16,36|0e,2e,1e,3e|08,28,18,38|10,30,20,40|0a,2a,1a,3a|12,32,22,42|0c,2c,1c,3c|14,34,24,44].
 	*** NOTE: This is the same pattern as for DIF version, but with the middle 2 roots octets [08-40] and [0a-42] swapped ***
 		*/
@@ -3262,6 +2056,170 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 	  jlo = m*incr;
 	  jhi = jlo+(incr >> 5);
 
+/******************* AVX debug stuff: *******************/
+#if 0
+if(1) {
+	int ipad;
+	// Use RNG to populate data array:
+	rng_isaac_init(TRUE);
+	double dtmp = 1024.0*1024.0*1024.0*1024.0;
+	j1 = jlo;
+	j1 += ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+  #ifdef USE_AVX512
+	ipad =   0;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p01;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p02;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p03;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p04;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p05;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p06;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p07;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad =   0+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p01+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p02+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p03+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p04+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p05+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p06+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p07+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad =   0+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p01+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p02+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p03+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p04+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p05+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p06+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p07+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad =   0+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p01+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p02+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p03+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p04+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p05+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p06+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p07+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+  #elif defined(USE_AVX)
+	ipad =   0;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p01;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p02;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p03;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p04;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p05;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p06;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p07;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad =   0+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p01+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p02+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p03+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p04+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p05+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p06+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p07+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad =   0+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p01+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p02+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p03+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p04+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p05+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p06+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p07+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad =   0+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p01+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p02+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p03+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p04+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p05+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p06+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p07+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+  #elif defined(USE_SSE2)
+	ipad =   0;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p01;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p02;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p03;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p04;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p05;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p06;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p07;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad =   0+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p01+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p02+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p03+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p04+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p05+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p06+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p07+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad =   0+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p01+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p02+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p03+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p04+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p05+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p06+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p07+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad =   0+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p01+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p02+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p03+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p04+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p05+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p06+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p07+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+  #else
+	ipad =   0;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p01;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p02;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p03;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p04;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p05;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p06;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p07;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad =   0+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p01+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p02+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p03+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p04+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p05+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p06+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p07+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad =   0+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p01+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p02+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p03+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p04+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p05+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p06+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p07+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad =   0+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p01+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p02+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p03+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p04+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p05+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p06+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p07+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+  #endif
+  #if 0
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 0, a[ipad+br16[ 0]],ipad+ 0, a[ipad+ 0]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 1, a[ipad+br16[ 1]],ipad+ 1, a[ipad+ 1]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 2, a[ipad+br16[ 2]],ipad+ 2, a[ipad+ 2]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 3, a[ipad+br16[ 3]],ipad+ 3, a[ipad+ 3]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 4, a[ipad+br16[ 4]],ipad+ 4, a[ipad+ 4]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 5, a[ipad+br16[ 5]],ipad+ 5, a[ipad+ 5]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 6, a[ipad+br16[ 6]],ipad+ 6, a[ipad+ 6]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 7, a[ipad+br16[ 7]],ipad+ 7, a[ipad+ 7]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 8, a[ipad+br16[ 8]],ipad+ 8, a[ipad+ 8]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 9, a[ipad+br16[ 9]],ipad+ 9, a[ipad+ 9]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+10, a[ipad+br16[10]],ipad+10, a[ipad+10]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+11, a[ipad+br16[11]],ipad+11, a[ipad+11]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+12, a[ipad+br16[12]],ipad+12, a[ipad+12]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+13, a[ipad+br16[13]],ipad+13, a[ipad+13]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+14, a[ipad+br16[14]],ipad+14, a[ipad+14]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+15, a[ipad+br16[15]],ipad+15, a[ipad+15]);
+  #endif
+//exit(0);
+}
+#endif
+/********************************************************/
 	/* In SIMD mode, data are arranged in [re_0,...,re_n-1,im_0,...,im_n-1] groups, not the usual [re_0,im_0],...,[re_n-1,im_n-1] pairs.
 	Thus we can still increment the j-index as if stepping through the residue array-of-doubles in strides of 2,
 	but to point to the proper real datum, we need to index-map e.g. [0,1,2,3] ==> [0,2,1,3] in 2-way SIMD mode.
@@ -3275,772 +2233,30 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 #ifdef USE_SSE2
 
-	/*       gather the needed data (32 64-bit complex, i.e. 64 64-bit reals) and do the first set of four length-8 transforms...
-			 We process the sincos data in bit-reversed order.	*/
-
-	#ifdef COMPILER_TYPE_MSVC
-
-	/*...Block 1: */
-	#if 0
+	/* Gather needed data (32 64-bit complex, i.e. 64 64-bit reals) and do first set of four length-8 transforms,
+		processing sincos data in bit-reversed order.	*/
 		add0 = &a[j1];
-		add1 = add0+p08;
-		add2 = add0+p10;
-		add3 = add0+p18;
-		__asm	mov eax, add0
-		__asm	mov ebx, p05
-		__asm	mov ecx, p06
-		__asm	mov edx, p07
-		__asm	mov	edi, p04		/* edi will store copy of p4 throughout */
-		__asm	shl	ebx, 3			/* Pointer offset for floating doubles */
-		__asm	shl	ecx, 3
-		__asm	shl	edx, 3
-		__asm	shl	edi, 3
-		__asm	add ebx, eax
-		__asm	add ecx, eax
-		__asm	add edx, eax
-		__asm	add eax, edi
-		SSE2_RADIX8_DIT_0TWIDDLE_B(r00)
-		/* Totals: 97 load/store [61 movaps, 36 implied], 54 add/subpd,  4 mulpd, 59 address-compute */
-	#elif 1
-		add0 = &a[j1];
-		add1 = add0+p08;
-		add2 = add0+p10;
-		add3 = add0+p18;
-		__asm	mov eax, add0
-		__asm	mov ebx, p01
-		__asm	mov ecx, p02
-		__asm	mov edx, p03
-		__asm	mov	edi, p04		/* edi will store copy of p4 throughout */
-		__asm	shl	ebx, 3			/* Pointer offset for floating doubles */
-		__asm	shl	ecx, 3
-		__asm	shl	edx, 3
-		__asm	shl	edi, 3
-		__asm	add ebx, eax
-		__asm	add ecx, eax
-		__asm	add edx, eax
-		SSE2_RADIX4_DIT_0TWIDDLE_B(r00)
-		__asm	add eax, edi
-		__asm	add ebx, edi
-		__asm	add ecx, edi
-		__asm	add edx, edi
-		SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO_B(r08)
-		SSE2_RADIX8_DIT_COMBINE_RAD4_SUBS(r00,r02,r04,r06,r08,r0A,r0C,r0E)
-		/* Totals: 67 load/store [67 movaps,  0 implied], 76 add/subpd,  4 mulpd, 22 address-compute */
-	#else
-		add0 = &a[jt];
-		add1 = add0+p01;
-		add2 = add0+p02;
-		add3 = add0+p03;
-		add4 = add0+p04;
-		add5 = add0+p05;
-		add6 = add0+p06;
-		add7 = add0+p07;
-
-		SSE2_RADIX4_DIT_0TWIDDLE         (add0, add1, add2, add3, r00)
-		SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO(add4, add5, add6, add7, r08)
-		SSE2_RADIX8_DIT_COMBINE_RAD4_SUBS(r00,r02,r04,r06,r08,r0A,r0C,r0E)
-	#endif
-
-	/*...Block 2:;	*/
-	#if 0
-		__asm	mov eax, add1
-		__asm	mov ebx, p05
-		__asm	mov ecx, p06
-		__asm	mov edx, p07
-		__asm	mov	edi, p04		/* edi will store copy of p4 throughout */
-		__asm	shl	ebx, 3			/* Pointer offset for floating doubles */
-		__asm	shl	ecx, 3
-		__asm	shl	edx, 3
-		__asm	shl	edi, 3
-		__asm	add ebx, eax
-		__asm	add ecx, eax
-		__asm	add edx, eax
-		__asm	add eax, edi
-		SSE2_RADIX8_DIT_0TWIDDLE_B(r10)
-	#elif 1
-		__asm	mov eax, add1
-		__asm	mov ebx, p01
-		__asm	mov ecx, p02
-		__asm	mov edx, p03
-		__asm	mov	edi, p04		/* edi will store copy of p4 throughout */
-		__asm	shl	ebx, 3			/* Pointer offset for floating doubles */
-		__asm	shl	ecx, 3
-		__asm	shl	edx, 3
-		__asm	shl	edi, 3
-		__asm	add ebx, eax
-		__asm	add ecx, eax
-		__asm	add edx, eax
-		SSE2_RADIX4_DIT_0TWIDDLE_B(r10)
-		__asm	add eax, edi
-		__asm	add ebx, edi
-		__asm	add ecx, edi
-		__asm	add edx, edi
-		SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO_B(r18)
-		SSE2_RADIX8_DIT_COMBINE_RAD4_SUBS(r10,r12,r14,r16,r18,r1A,r1C,r1E)
-	#else
-		add0 = &a[jt];
-		add1 = add0+p01;
-		add2 = add0+p02;
-		add3 = add0+p03;
-		add4 = add0+p04;
-		add5 = add0+p05;
-		add6 = add0+p06;
-		add7 = add0+p07;
-
-		SSE2_RADIX4_DIT_0TWIDDLE         (add0, add1, add2, add3, r10)
-		SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO(add4, add5, add6, add7, r18)
-		SSE2_RADIX8_DIT_COMBINE_RAD4_SUBS(r10,r12,r14,r16,r18,r1A,r1C,r1E)
-	#endif
-
-	/*...Block 3:	*/
-	#if 0
-		__asm	mov eax, add2
-		__asm	mov ebx, p05
-		__asm	mov ecx, p06
-		__asm	mov edx, p07
-		__asm	mov	edi, p04		/* edi will store copy of p4 throughout */
-		__asm	shl	ebx, 3			/* Pointer offset for floating doubles */
-		__asm	shl	ecx, 3
-		__asm	shl	edx, 3
-		__asm	shl	edi, 3
-		__asm	add ebx, eax
-		__asm	add ecx, eax
-		__asm	add edx, eax
-		__asm	add eax, edi
-		SSE2_RADIX8_DIT_0TWIDDLE_B(r20)
-	#elif 1
-		__asm	mov eax, add2
-		__asm	mov ebx, p01
-		__asm	mov ecx, p02
-		__asm	mov edx, p03
-		__asm	mov	edi, p04		/* edi will store copy of p4 throughout */
-		__asm	shl	ebx, 3			/* Pointer offset for floating doubles */
-		__asm	shl	ecx, 3
-		__asm	shl	edx, 3
-		__asm	shl	edi, 3
-		__asm	add ebx, eax
-		__asm	add ecx, eax
-		__asm	add edx, eax
-		SSE2_RADIX4_DIT_0TWIDDLE_B(r20)
-		__asm	add eax, edi
-		__asm	add ebx, edi
-		__asm	add ecx, edi
-		__asm	add edx, edi
-		SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO_B(r28)
-		SSE2_RADIX8_DIT_COMBINE_RAD4_SUBS(r20,r22,r24,r26,r28,r2A,r2C,r2E)
-	#else
-		add0 = &a[jt];
-		add1 = add0+p01;
-		add2 = add0+p02;
-		add3 = add0+p03;
-		add4 = add0+p04;
-		add5 = add0+p05;
-		add6 = add0+p06;
-		add7 = add0+p07;
-
-		SSE2_RADIX4_DIT_0TWIDDLE         (add0, add1, add2, add3, r20)
-		SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO(add4, add5, add6, add7, r28)
-		SSE2_RADIX8_DIT_COMBINE_RAD4_SUBS(r20,r22,r24,r26,r28,r2A,r2C,r2E)
-	#endif
-
-	/*...Block 4:	*/
-	#if 0
-		__asm	mov eax, add3
-		__asm	mov ebx, p05
-		__asm	mov ecx, p06
-		__asm	mov edx, p07
-		__asm	mov	edi, p04		/* edi will store copy of p4 throughout */
-		__asm	shl	ebx, 3			/* Pointer offset for floating doubles */
-		__asm	shl	ecx, 3
-		__asm	shl	edx, 3
-		__asm	shl	edi, 3
-		__asm	add ebx, eax
-		__asm	add ecx, eax
-		__asm	add edx, eax
-		__asm	add eax, edi
-		SSE2_RADIX8_DIT_0TWIDDLE_B(r30)
-	#elif 1
-		__asm	mov eax, add3
-		__asm	mov ebx, p01
-		__asm	mov ecx, p02
-		__asm	mov edx, p03
-		__asm	mov	edi, p04		/* edi will store copy of p4 throughout */
-		__asm	shl	ebx, 3			/* Pointer offset for floating doubles */
-		__asm	shl	ecx, 3
-		__asm	shl	edx, 3
-		__asm	shl	edi, 3
-		__asm	add ebx, eax
-		__asm	add ecx, eax
-		__asm	add edx, eax
-		SSE2_RADIX4_DIT_0TWIDDLE_B(r30)
-		__asm	add eax, edi
-		__asm	add ebx, edi
-		__asm	add ecx, edi
-		__asm	add edx, edi
-		SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO_B(r38)
-		SSE2_RADIX8_DIT_COMBINE_RAD4_SUBS(r30,r32,r34,r36,r38,r3A,r3C,r3E)
-	#else
-		add0 = &a[jt];
-		add1 = add0+p01;
-		add2 = add0+p02;
-		add3 = add0+p03;
-		add4 = add0+p04;
-		add5 = add0+p05;
-		add6 = add0+p06;
-		add7 = add0+p07;
-
-		SSE2_RADIX4_DIT_0TWIDDLE         (add0, add1, add2, add3, r30)
-		SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO(add4, add5, add6, add7, r38)
-		SSE2_RADIX8_DIT_COMBINE_RAD4_SUBS(r30,r32,r34,r36,r38,r3A,r3C,r3E)
-	#endif
-
-	/*...and now do eight radix-4 transforms, including the internal twiddle factors:
-		1, exp(-i* 1*twopi/32) =       ( c32_1,-s32_1), exp(-i* 2*twopi/32) =       ( c    ,-s    ), exp(-i* 3*twopi/32) =       ( c32_3,-s32_3) (for inputs to transform block 2),
-		1, exp(-i* 2*twopi/32) =       ( c    ,-s    ), exp(-i* 4*twopi/32) = ISRT2*( 1    ,-1    ), exp(-i* 6*twopi/32) =       ( s    ,-c    ) (for inputs to transform block 3),
-		1, exp(-i* 3*twopi/32) =       ( c32_3,-s32_3), exp(-i* 6*twopi/32) =       ( s    ,-c    ), exp(-i* 9*twopi/32) =       (-s32_1,-c32_1) (for inputs to transform block 4),
-		1, exp(-i* 4*twopi/32) = ISRT2*( 1    ,-1    ), exp(-i* 8*twopi/32) =       ( 0    ,-1    ), exp(-i*12*twopi/32) = ISRT2*(-1    ,-1    ) (for inputs to transform block 5),
-		1, exp(-i* 5*twopi/32) =       ( s32_3,-c32_3), exp(-i*10*twopi/32) =       (-s    ,-c    ), exp(-i*15*twopi/32) =       (-c32_1,-s32_1) (for inputs to transform block 6),
-		1, exp(-i* 6*twopi/32) =       ( s    ,-c    ), exp(-i*12*twopi/32) = ISRT2*(-1    ,-1    ), exp(-i*18*twopi/32) =       (-c    , s    ) (for inputs to transform block 7),
-		1, exp(-i* 7*twopi/32) =       ( s32_1,-c32_1), exp(-i*14*twopi/32) =       (-c    ,-s    ), exp(-i*21*twopi/32) =       (-s32_3, c32_3) (for inputs to transform block 8),
-		 and only the last 3 inputs to each of the radix-4 transforms 2 through 8 are multiplied by non-unity twiddles.	*/
-
-	/*...Block 1: t00,t10,t20,t30	*/
-	#if 0
-		add0 = &a[j1];
-		add1 = add0+p08;
-		add2 = add0+p10;
-		add3 = add0+p18;
-
-		__asm	mov	eax, r00
-		__asm	mov	edx, eax
-		__asm	add	edx, 0x100	/* r10 */
-
-		__asm	movaps	xmm2,[edx      ]	/* t10 */				__asm	movaps	xmm4,[edx+0x200]	/* t30 */
-		__asm	movaps	xmm3,[edx+0x010]	/* t11 */				__asm	movaps	xmm5,[edx+0x210]	/* t31 */
-		__asm	movaps	xmm0,[eax      ]	/* t00 */				__asm	movaps	xmm6,[eax+0x200]	/* t20 */
-		__asm	movaps	xmm1,[eax+0x010]	/* t01 */				__asm	movaps	xmm7,[eax+0x210]	/* t21 */
-
-		__asm	subpd	xmm0,xmm2			/*~t10=t00-t10*/		__asm	subpd	xmm6,xmm4			/*~t30=t20-t30*/
-		__asm	subpd	xmm1,xmm3			/*~t11=t01-t11*/		__asm	subpd	xmm7,xmm5			/*~t31=t21-t31*/
-		__asm	addpd	xmm2,xmm2			/*       2*t10*/		__asm	addpd	xmm4,xmm4			/*       2*t30*/
-		__asm	addpd	xmm3,xmm3			/*       2*t11*/		__asm	addpd	xmm5,xmm5			/*       2*t31*/
-		__asm	addpd	xmm2,xmm0			/*~t00=t00+t10*/		__asm	addpd	xmm4,xmm6			/*~t20=t20+t30*/
-		__asm	addpd	xmm3,xmm1			/*~t01=t01+t11*/		__asm	addpd	xmm5,xmm7			/*~t21=t21+t31*/
-
-		SSE2_RADIX4_DIT_4TWIDDLE_2ND_HALF(add0, add1, add2, add3, c00)
-	#else
-		__asm	mov eax, add0
-		__asm	mov ebx, p08
-		__asm	mov ecx, r00
-		__asm	mov edx, r10
-		__asm	mov edi, p10	/* edi will store copy of p10 throughout */
-		__asm	shl	ebx, 3		/* Pointer offset for floating doubles */
-		__asm	shl	edi, 3
-		__asm	add ebx, eax	/* add1 = add0+p8 */
-
-		__asm	movaps	xmm2,[edx      ]	/* t10 */				__asm	movaps	xmm4,[edx+0x200]	/* t30 */
-		__asm	movaps	xmm3,[edx+0x010]	/* t11 */				__asm	movaps	xmm5,[edx+0x210]	/* t31 */
-		__asm	movaps	xmm0,[ecx      ]	/* t00 */				__asm	movaps	xmm6,[ecx+0x200]	/* t20 */
-		__asm	movaps	xmm1,[ecx+0x010]	/* t01 */				__asm	movaps	xmm7,[ecx+0x210]	/* t21 */
-
-		__asm	subpd	xmm0,xmm2			/*~t10=t00-t10*/		__asm	subpd	xmm6,xmm4			/*~t30=t20-t30*/
-		__asm	subpd	xmm1,xmm3			/*~t11=t01-t11*/		__asm	subpd	xmm7,xmm5			/*~t31=t21-t31*/
-		__asm	addpd	xmm2,xmm2			/*       2*t10*/		__asm	addpd	xmm4,xmm4			/*       2*t30*/
-		__asm	addpd	xmm3,xmm3			/*       2*t11*/		__asm	addpd	xmm5,xmm5			/*       2*t31*/
-		__asm	addpd	xmm2,xmm0			/*~t00=t00+t10*/		__asm	addpd	xmm4,xmm6			/*~t20=t20+t30*/
-		__asm	addpd	xmm3,xmm1			/*~t01=t01+t11*/		__asm	addpd	xmm5,xmm7			/*~t21=t21+t31*/
-
-		SSE2_RADIX4_DIT_4TWIDDLE_2ND_HALF_B(c00)
-	#endif
-
-	/*...Block 2: t02,t12,t22,t32	*/
-		__asm	mov eax, add0
-		__asm	mov esi, p01
-		__asm	mov ebx, p08
-		__asm	shl	esi, 3
-		__asm	shl	ebx, 3		/* Pointer offset for floating doubles */
-		__asm	add eax, esi	/* add0 = &a[j1+p1] */
-		__asm	add ebx, eax	/* add1 = add0+p8 */
-		__asm	mov ecx, r02
-		__asm	mov edx, r12
-		__asm	add	ecx, 0x200
-		__asm	add	edx, 0x200
-		__asm	mov	esi, cc1
-
-		__asm	movaps	xmm4,[ecx      ]	/* t22 */
-		__asm	movaps	xmm5,[ecx+0x010]	/* t23 */
-		__asm	movaps	xmm2,[esi      ]	/* c32_1 */
-		__asm	movaps	xmm3,[esi+0x010]	/* s32_1 */
-		__asm	movaps	xmm6,xmm4	/* xmm2 <- cpy t22 */
-		__asm	movaps	xmm7,xmm5	/* xmm3 <- cpy t23 */
-
-		__asm	mulpd	xmm4,xmm2		/* t22*c32_1 */
-		__asm	mulpd	xmm5,xmm2		/* t23*c32_1 */
-		__asm	mulpd	xmm6,xmm3		/* t22*s32_1 */	__asm	movaps	xmm0,[edx      ]	/* t32 */
-		__asm	mulpd	xmm7,xmm3		/* t23*s32_1 */	__asm	movaps	xmm1,[edx+0x010]	/* t33 */
-														__asm	add	esi, 0x20
-														__asm	movaps	xmm2,[esi      ]	/* c32_3 */
-														__asm	movaps	xmm3,[esi+0x010]	/* s32_3 */
-		__asm	subpd	xmm5,xmm6	/* xmm5 <-~t23 */	__asm	movaps	xmm6,xmm0	/* xmm6 <- cpy t32 */
-		__asm	addpd	xmm4,xmm7	/* xmm4 <-~t22 */	__asm	movaps	xmm7,xmm1	/* xmm7 <- cpy t33 */
-
-														__asm	mulpd	xmm0,xmm2		/* t32*c32_3 */
-														__asm	mulpd	xmm1,xmm2		/* t33*c32_3 */
-														__asm	mulpd	xmm6,xmm3		/* t32*s32_3 */
-														__asm	mulpd	xmm7,xmm3		/* t33*s32_3 */
-														__asm	subpd	xmm1,xmm6	/* xmm1 <- it */
-														__asm	addpd	xmm0,xmm7	/* xmm0 <- rt */
-
-		__asm	movaps	xmm7,xmm5	/* xmm7 <- cpy~t23*/
-		__asm	movaps	xmm6,xmm4	/* xmm6 <- cpy~t22*/
-
-		__asm	addpd	xmm4,xmm0	/* ~t22 <- t22+rt */
-		__asm	addpd	xmm5,xmm1	/* ~t23 <- t23+it */
-		__asm	subpd	xmm6,xmm0	/* ~t32 <- t22-rt */
-		__asm	subpd	xmm7,xmm1	/* ~t33 <- t23-it */
-	/*
-		rt =t12*c + t13*s;			it =t13*c - t12*s;
-		t12=t02-rt;					t02=t02+rt;
-		t13=t03-it;					t03=t03+it;
-	*/
-		__asm	sub	ecx, 0x200
-		__asm	sub	edx, 0x200
-		__asm	mov	esi, cc0
-		__asm	movaps	xmm1,[edx      ]	/* t12 */
-		__asm	movaps	xmm3,[edx+0x010]	/* t13 */
-		__asm	movaps	xmm2,[esi+0x010]	/* s */
-		__asm	movaps	xmm0,xmm1			/* cpy t12 */
-		__asm	mulpd	xmm1,xmm2		/* t12*s */
-		__asm	mulpd	xmm2,xmm3		/* t13*s */
-		__asm	mulpd	xmm0,[esi]		/* t12*c */
-		__asm	mulpd	xmm3,[esi]		/* t13*c */
-
-		__asm	addpd	xmm2,xmm0	/* rt =t12*c + t13*s */
-		__asm	subpd	xmm3,xmm1	/* it =t13*c - t12*s */
-
-		__asm	movaps	xmm0,[ecx      ]	/* t02 */
-		__asm	movaps	xmm1,[ecx+0x010]	/* t03 */
-		__asm	subpd	xmm0,xmm2	/*~t12 <- t02- rt */
-		__asm	subpd	xmm1,xmm3	/*~t13 <- t03- it */
-		__asm	addpd	xmm2,xmm2	/*          2* rt */
-		__asm	addpd	xmm3,xmm3	/*          2* it */
-		__asm	addpd	xmm2,xmm0	/*~t02 <- t02+ rt */
-		__asm	addpd	xmm3,xmm1	/*~t03 <- t03+ it */
-
-		SSE2_RADIX4_DIT_4TWIDDLE_2ND_HALF_B(c01)
-
-	/*...Block 3: t04,t14,t24,t34	*/
-		__asm	mov eax, add0
-		__asm	mov esi, p02
-		__asm	mov ebx, p08
-		__asm	shl	esi, 3
-		__asm	shl	ebx, 3		/* Pointer offset for floating doubles */
-		__asm	add eax, esi	/* add0 = &a[j1+p2] */
-		__asm	add ebx, eax	/* add1 = add0+p8 */
-		__asm	mov ecx, r04
-		__asm	mov edx, r14
-		__asm	add	ecx, 0x200
-		__asm	add	edx, 0x200
-		__asm	mov	esi, cc0
-
-		__asm	movaps	xmm4,[ecx      ]	/* t24 */
-		__asm	movaps	xmm5,[ecx+0x010]	/* t25 */
-		__asm	movaps	xmm2,[esi      ]	/* c */
-		__asm	movaps	xmm3,[esi+0x010]	/* s */
-		__asm	movaps	xmm6,xmm4	/* xmm2 <- cpy t24 */
-		__asm	movaps	xmm7,xmm5	/* xmm3 <- cpy t25 */
-
-		__asm	mulpd	xmm4,xmm2		/* t24*c */
-		__asm	mulpd	xmm5,xmm2		/* t25*c */
-		__asm	mulpd	xmm6,xmm3		/* t24*s */		__asm	movaps	xmm0,[edx      ]	/* t34 */
-		__asm	mulpd	xmm7,xmm3		/* t25*s */		__asm	movaps	xmm1,[edx+0x010]	/* t35 */
-		__asm	subpd	xmm5,xmm6	/* xmm1 <-~t25 */	__asm	movaps	xmm6,xmm0	/* xmm6 <- cpy t34 */
-		__asm	addpd	xmm4,xmm7	/* xmm0 <-~t24 */	__asm	movaps	xmm7,xmm1	/* xmm7 <- cpy t35 */
-
-														__asm	mulpd	xmm0,xmm3		/* t34*s */
-														__asm	mulpd	xmm1,xmm3		/* t35*s */
-														__asm	mulpd	xmm6,xmm2		/* t34*c */
-														__asm	mulpd	xmm7,xmm2		/* t35*c */
-														__asm	subpd	xmm1,xmm6	/* xmm5 <- it */
-														__asm	addpd	xmm0,xmm7	/* xmm4 <- rt */
-
-		__asm	movaps	xmm7,xmm5	/* xmm3 <- cpy~t25*/
-		__asm	movaps	xmm6,xmm4	/* xmm2 <- cpy~t24*/
-
-		__asm	addpd	xmm4,xmm0	/* ~t24 <- t24+rt */
-		__asm	addpd	xmm5,xmm1	/* ~t25 <- t25+it */
-		__asm	subpd	xmm6,xmm0	/* ~t34 <- t24-rt */
-		__asm	subpd	xmm7,xmm1	/* ~t35 <- t25-it */
-
-		__asm	sub	ecx, 0x200
-		__asm	sub	edx, 0x200
-		__asm	mov	esi, isrt2
-		__asm	movaps	xmm2,[edx      ]	/* t14 */
-		__asm	movaps	xmm3,[edx+0x010]	/* t15 */
-		__asm	movaps	xmm1,[esi]	/* isrt2 */
-		__asm	movaps	xmm0,xmm3	/* cpy t15 */
-		__asm	subpd	xmm3,xmm2	/*~t15=t15-t14 */
-		__asm	addpd	xmm2,xmm0	/*~t14=t14+t15 */
-		__asm	mulpd	xmm2,xmm1	/* rt */
-		__asm	mulpd	xmm3,xmm1	/* it */
-
-		__asm	movaps	xmm0,[ecx      ]	/* t04 */
-		__asm	movaps	xmm1,[ecx+0x010]	/* t05 */
-		__asm	subpd	xmm0,xmm2	/*~t14 <- t04- rt */
-		__asm	subpd	xmm1,xmm3	/*~t15 <- t05- it */
-		__asm	addpd	xmm2,xmm2	/*          2* rt */
-		__asm	addpd	xmm3,xmm3	/*          2* it */
-		__asm	addpd	xmm2,xmm0	/*~t04 <- t04+ rt */
-		__asm	addpd	xmm3,xmm1	/*~t05 <- t05+ it */
-
-		SSE2_RADIX4_DIT_4TWIDDLE_2ND_HALF_B(c02)
-
-	/*...Block 4: t06,t16,t26,t36	*/
-		__asm	mov eax, add0
-		__asm	mov esi, p03
-		__asm	mov ebx, p08
-		__asm	shl	esi, 3
-		__asm	shl	ebx, 3		/* Pointer offset for floating doubles */
-		__asm	add eax, esi	/* add0 = &a[j1+p3] */
-		__asm	add ebx, eax	/* add1 = add0+p8 */
-		__asm	mov ecx, r06
-		__asm	mov edx, r16
-		__asm	add	ecx, 0x200
-		__asm	add	edx, 0x200
-		__asm	mov	esi, cc3
-
-		__asm	movaps	xmm4,[ecx      ]	/* t26 */
-		__asm	movaps	xmm5,[ecx+0x010]	/* t27 */
-		__asm	movaps	xmm2,[esi      ]	/* c32_3 */
-		__asm	movaps	xmm3,[esi+0x010]	/* s32_3 */
-		__asm	movaps	xmm6,xmm4	/* xmm2 <- cpy t26 */
-		__asm	movaps	xmm7,xmm5	/* xmm3 <- cpy t27 */
-
-		__asm	mulpd	xmm4,xmm2		/* t26*c32_3 */
-		__asm	mulpd	xmm5,xmm2		/* t27*c32_3 */
-		__asm	mulpd	xmm6,xmm3		/* t26*s32_3 */	__asm	movaps	xmm0,[edx      ]	/* t36 */
-		__asm	mulpd	xmm7,xmm3		/* t27*s32_3 */	__asm	movaps	xmm1,[edx+0x010]	/* t37 */
-														__asm	sub	esi, 0x20
-														__asm	movaps	xmm3,[esi      ]	/* c32_1 */
-														__asm	movaps	xmm2,[esi+0x010]	/* s32_1 */
-		__asm	subpd	xmm5,xmm6	/* xmm5 <-~t27 */	__asm	movaps	xmm6,xmm0	/* xmm6 <- cpy t36 */
-		__asm	addpd	xmm4,xmm7	/* xmm4 <-~t26 */	__asm	movaps	xmm7,xmm1	/* xmm7 <- cpy t37 */
-
-														__asm	mulpd	xmm0,xmm2		/* t36*s32_1 */
-														__asm	mulpd	xmm1,xmm2		/* t37*s32_1 */
-														__asm	mulpd	xmm6,xmm3		/* t36*c32_1 */
-														__asm	mulpd	xmm7,xmm3		/* t37*c32_1 */
-														__asm	addpd	xmm1,xmm6	/* xmm1 <- it */
-														__asm	subpd	xmm0,xmm7	/* xmm0 <- rt */
-
-		__asm	movaps	xmm7,xmm5	/* xmm7 <- cpy~t27*/
-		__asm	movaps	xmm6,xmm4	/* xmm6 <- cpy~t26*/
-
-		__asm	addpd	xmm6,xmm0	/* ~t36 <- t26+rt */
-		__asm	addpd	xmm7,xmm1	/* ~t37 <- t27+it */
-		__asm	subpd	xmm4,xmm0	/* ~t26 <- t26-rt */
-		__asm	subpd	xmm5,xmm1	/* ~t27 <- t27-it */
-	/*
-		rt =t16*s + t17*c;			it =t17*s - t16*c;
-		t16=t06-rt;					t06 =t06+rt;
-		t17=t07-it;					t07 =t07+it;
-	*/
-		__asm	sub	ecx, 0x200
-		__asm	sub	edx, 0x200
-		__asm	mov	esi, cc0
-		__asm	movaps	xmm2,[edx      ]	/* t16 */
-		__asm	movaps	xmm0,[edx+0x010]	/* t17 */
-		__asm	movaps	xmm3,[esi+0x010]	/* s */
-		__asm	movaps	xmm1,xmm2			/* cpy t16 */
-		__asm	mulpd	xmm2,xmm3		/* t16*s */
-		__asm	mulpd	xmm3,xmm0		/* s*t17 */
-		__asm	mulpd	xmm1,[esi]		/* t16*c */
-		__asm	mulpd	xmm0,[esi]		/* t17*c */
-
-		__asm	addpd	xmm2,xmm0	/* rt =t16*s - t17*c */
-		__asm	subpd	xmm3,xmm1	/* it =t17*s + t16*c */
-
-		__asm	movaps	xmm0,[ecx      ]	/* t06 */
-		__asm	movaps	xmm1,[ecx+0x010]	/* t07 */
-		__asm	subpd	xmm0,xmm2	/*~t16 <- t06- rt */
-		__asm	subpd	xmm1,xmm3	/*~t17 <- t07- it */
-		__asm	addpd	xmm2,xmm2	/*          2* rt */
-		__asm	addpd	xmm3,xmm3	/*          2* it */
-		__asm	addpd	xmm2,xmm0	/*~t06 <- t06+ rt */
-		__asm	addpd	xmm3,xmm1	/*~t07 <- t07+ it */
-
-		SSE2_RADIX4_DIT_4TWIDDLE_2ND_HALF_B(c03)
-
-	/*...Block 5: t08,t18,t28,t38	*/
-		__asm	mov eax, add0
-		__asm	mov esi, p04
-		__asm	mov ebx, p08
-		__asm	shl	esi, 3
-		__asm	shl	ebx, 3		/* Pointer offset for floating doubles */
-		__asm	add eax, esi	/* add0 = &a[j1+p4] */
-		__asm	add ebx, eax	/* add1 = add0+p8 */
-		__asm	mov ecx, r08
-		__asm	mov edx, r18
-		__asm	add	ecx, 0x200
-		__asm	add	edx, 0x200
-		__asm	mov	esi, isrt2
-		__asm	movaps	xmm2,[esi]	/* isrt2 */
-
-		__asm	movaps	xmm4,[ecx      ]	/* t28 */
-		__asm	movaps	xmm5,[ecx+0x010]	/* t29 */
-		__asm	movaps	xmm6,[edx      ]	/* t38 */
-		__asm	movaps	xmm7,[edx+0x010]	/* t39 */
-		__asm	sub	ecx, 0x200
-		__asm	sub	edx, 0x200
-		__asm	mulpd	xmm4,xmm2
-		__asm	mulpd	xmm5,xmm2
-		__asm	mulpd	xmm6,xmm2
-		__asm	mulpd	xmm7,xmm2
-
-		__asm	subpd	xmm5,xmm4			/*~t29=t29-t28*/		__asm	movaps	xmm0,[ecx      ]	/* t08 */
-		__asm	subpd	xmm6,xmm7			/* rt =t38-t39*/		__asm	movaps	xmm2,[edx+0x010]	/* t19 */
-		__asm	addpd	xmm4,xmm4			/*       2*t28*/		__asm	movaps	xmm3,[ecx+0x010]	/* t09 */
-		__asm	addpd	xmm7,xmm7			/*       2*t39*/		__asm	movaps	xmm1,[edx      ]	/* t18 */
-		__asm	addpd	xmm4,xmm5			/*~t28=t28+t29*/
-		__asm	addpd	xmm7,xmm6			/* it =t39+t38*/
-
-		__asm	subpd	xmm4,xmm6			/*~t28=t28-rt */		__asm	subpd	xmm0,xmm2			/*~t18=t08-t19*/
-		__asm	subpd	xmm5,xmm7			/*~t29=t29-it */		__asm	subpd	xmm3,xmm1			/*~t09=t09-t18*/
-		__asm	addpd	xmm6,xmm6			/*       2*rt */		__asm	addpd	xmm2,xmm2			/*       2*t08*/
-		__asm	addpd	xmm7,xmm7			/*       2*it */		__asm	addpd	xmm1,xmm1			/*       2*t09*/
-		__asm	addpd	xmm6,xmm4			/*~t38=t28+rt */		__asm	addpd	xmm2,xmm0			/*~t08=t19+t08*/
-		__asm	addpd	xmm7,xmm5			/*~t39=t29+it */		__asm	addpd	xmm1,xmm3			/*~t19=t18+t09*/
-
-		SSE2_RADIX4_DIT_4TWIDDLE_2ND_HALF_B(c04)
-
-	/*...Block 6: t0A,t1A,t2A,t3A	*/
-		__asm	mov eax, add0
-		__asm	mov esi, p05
-		__asm	mov ebx, p08
-		__asm	shl	esi, 3
-		__asm	shl	ebx, 3		/* Pointer offset for floating doubles */
-		__asm	add eax, esi	/* add0 = &a[j1+p5] */
-		__asm	add ebx, eax	/* add1 = add0+p8 */
-		__asm	mov ecx, r0A
-		__asm	mov edx, r1A
-		__asm	add	ecx, 0x200
-		__asm	add	edx, 0x200
-		__asm	mov	esi, cc3
-
-		__asm	movaps	xmm4,[ecx      ]	/* t2A */
-		__asm	movaps	xmm5,[ecx+0x010]	/* t2B */
-		__asm	movaps	xmm3,[esi      ]	/* c32_3 */
-		__asm	movaps	xmm2,[esi+0x010]	/* s32_3 */
-		__asm	movaps	xmm6,xmm4	/* xmm2 <- cpy t2A */
-		__asm	movaps	xmm7,xmm5	/* xmm3 <- cpy t2B */
-
-		__asm	mulpd	xmm4,xmm2		/* t2A*s32_3 */
-		__asm	mulpd	xmm5,xmm2		/* t2B*s32_3 */
-		__asm	mulpd	xmm6,xmm3		/* t2A*c32_3 */	__asm	movaps	xmm0,[edx      ]	/* t3A */
-		__asm	mulpd	xmm7,xmm3		/* t2B*c32_3 */	__asm	movaps	xmm1,[edx+0x010]	/* t3B */
-														__asm	sub	esi, 0x20
-														__asm	movaps	xmm2,[esi      ]	/* c32_1 */
-														__asm	movaps	xmm3,[esi+0x010]	/* s32_1 */
-		__asm	subpd	xmm5,xmm6	/* xmm5 <-~t2B */	__asm	movaps	xmm6,xmm0	/* xmm6 <- cpy t3A */
-		__asm	addpd	xmm4,xmm7	/* xmm4 <-~t2A */	__asm	movaps	xmm7,xmm1	/* xmm7 <- cpy t3B */
-
-														__asm	mulpd	xmm0,xmm2		/* t3A*c32_1 */
-														__asm	mulpd	xmm1,xmm2		/* t3B*c32_1 */
-														__asm	mulpd	xmm6,xmm3		/* t3A*s32_1 */
-														__asm	mulpd	xmm7,xmm3		/* t3B*s32_1 */
-														__asm	addpd	xmm1,xmm6	/* xmm1 <- it */
-														__asm	subpd	xmm0,xmm7	/* xmm0 <- rt */
-
-		__asm	movaps	xmm7,xmm5	/* xmm7 <- cpy~t2B*/
-		__asm	movaps	xmm6,xmm4	/* xmm6 <- cpy~t2A*/
-
-		__asm	addpd	xmm6,xmm0	/* ~t3A <- t2A+rt */
-		__asm	addpd	xmm7,xmm1	/* ~t3B <- t2B+it */
-		__asm	subpd	xmm4,xmm0	/* ~t2A <- t2A-rt */
-		__asm	subpd	xmm5,xmm1	/* ~t2B <- t2B-it */
-	/*
-		rt =t1A*s - t1B*c;		it =t1B*s + t1A*c;
-		t1A=t0A+rt;				t0A =t0A-rt;
-		t1B=t0B+it;				t0B =t0B-it;
-	*/
-		__asm	sub	ecx, 0x200
-		__asm	sub	edx, 0x200
-		__asm	mov	esi, cc0
-		__asm	movaps	xmm0,[edx      ]	/* t1A */
-		__asm	movaps	xmm2,[edx+0x010]	/* t1B */
-		__asm	movaps	xmm1,[esi+0x010]	/* s */
-		__asm	movaps	xmm3,xmm0			/* cpy t1A */
-		__asm	mulpd	xmm0,xmm1		/* t1A*s */
-		__asm	mulpd	xmm1,xmm2		/* s*t1B */
-		__asm	mulpd	xmm3,[esi]		/* t1A*c */
-		__asm	mulpd	xmm2,[esi]		/* t1B*c */
-
-		__asm	subpd	xmm0,xmm2	/* rt =t1A*s - t1B*c */
-		__asm	addpd	xmm1,xmm3	/* it =t1B*s + t1A*c */
-
-		__asm	movaps	xmm2,[ecx      ]	/* t0A */
-		__asm	movaps	xmm3,[ecx+0x010]	/* t0B */
-		__asm	subpd	xmm2,xmm0	/*~t0A <- t0A- rt */
-		__asm	subpd	xmm3,xmm1	/*~t0B <- t0B- it */
-		__asm	addpd	xmm0,xmm0	/*          2* rt */
-		__asm	addpd	xmm1,xmm1	/*          2* it */
-		__asm	addpd	xmm0,xmm2	/*~t1A <- t0A+ rt */
-		__asm	addpd	xmm1,xmm3	/*~t1B <- t0B+ it */
-
-		SSE2_RADIX4_DIT_4TWIDDLE_2ND_HALF_B(c05)
-
-	/*...Block 7: t0C,t1C,t2C,t3C	*/
-		__asm	mov eax, add0
-		__asm	mov esi, p06
-		__asm	mov ebx, p08
-		__asm	shl	esi, 3
-		__asm	shl	ebx, 3		/* Pointer offset for floating doubles */
-		__asm	add eax, esi	/* add0 = &a[j1+p5] */
-		__asm	add ebx, eax	/* add1 = add0+p8 */
-		__asm	mov ecx, r0C
-		__asm	mov edx, r1C
-		__asm	add	ecx, 0x200
-		__asm	add	edx, 0x200
-		__asm	mov	esi, cc0
-
-		__asm	movaps	xmm4,[ecx      ]	/* t2C */
-		__asm	movaps	xmm5,[ecx+0x010]	/* t2D */
-		__asm	movaps	xmm3,[esi      ]	/* c */
-		__asm	movaps	xmm2,[esi+0x010]	/* s */
-		__asm	movaps	xmm6,xmm4	/* xmm2 <- cpy t2C */
-		__asm	movaps	xmm7,xmm5	/* xmm3 <- cpy t2D */
-
-		__asm	mulpd	xmm4,xmm2		/* t2C*s */
-		__asm	mulpd	xmm5,xmm2		/* t2D*s */
-		__asm	mulpd	xmm6,xmm3		/* t2C*c */		__asm	movaps	xmm0,[edx      ]	/* t3C */
-		__asm	mulpd	xmm7,xmm3		/* t2D*c */		__asm	movaps	xmm1,[edx+0x010]	/* t3D */
-		__asm	subpd	xmm5,xmm6	/* xmm5 <-~t2D */	__asm	movaps	xmm6,xmm0	/* xmm6 <- cpy t3C */
-		__asm	addpd	xmm4,xmm7	/* xmm4 <-~t2C */	__asm	movaps	xmm7,xmm1	/* xmm7 <- cpy t3D */
-
-														__asm	mulpd	xmm0,xmm3		/* t3C*c */
-														__asm	mulpd	xmm1,xmm3		/* t3D*c */
-														__asm	mulpd	xmm6,xmm2		/* t3C*s */
-														__asm	mulpd	xmm7,xmm2		/* t3D*s */
-														__asm	subpd	xmm1,xmm6	/* xmm1 <- it */
-														__asm	addpd	xmm0,xmm7	/* xmm0 <- rt */
-
-		__asm	movaps	xmm7,xmm5	/* xmm7 <- cpy~t2D*/
-		__asm	movaps	xmm6,xmm4	/* xmm6 <- cpy~t2C*/
-
-		__asm	addpd	xmm6,xmm0	/* ~t3C <- t2C+rt */
-		__asm	addpd	xmm7,xmm1	/* ~t3D <- t2D+it */
-		__asm	subpd	xmm4,xmm0	/* ~t2C <- t2C-rt */
-		__asm	subpd	xmm5,xmm1	/* ~t2D <- t2D-it */
-
-		__asm	sub	ecx, 0x200
-		__asm	sub	edx, 0x200
-		__asm	mov	esi, isrt2
-		__asm	movaps	xmm0,[edx      ]	/* t1C */
-		__asm	movaps	xmm1,[edx+0x010]	/* t1D */
-		__asm	movaps	xmm3,[esi]	/* isrt2 */
-		__asm	movaps	xmm2,xmm0	/* cpy t1C */
-		__asm	subpd	xmm0,xmm1	/*~t1C=t1C-t1D */
-		__asm	addpd	xmm1,xmm2	/*~t1D=t1D+t1C */
-		__asm	mulpd	xmm0,xmm3	/* it */
-		__asm	mulpd	xmm1,xmm3	/* rt */
-
-		__asm	movaps	xmm2,[ecx      ]	/* t0C */
-		__asm	movaps	xmm3,[ecx+0x010]	/* t0D */
-		__asm	subpd	xmm2,xmm0	/*~t0C <- t0C- rt */
-		__asm	subpd	xmm3,xmm1	/*~t0D <- t0D- it */
-		__asm	addpd	xmm0,xmm0	/*          2* rt */
-		__asm	addpd	xmm1,xmm1	/*          2* it */
-		__asm	addpd	xmm0,xmm2	/*~t1C <- t0C+ rt */
-		__asm	addpd	xmm1,xmm3	/*~t1D <- t0D+ it */
-
-		SSE2_RADIX4_DIT_4TWIDDLE_2ND_HALF_B(c06)
-
-	/*...Block 8: t0E,t1E,t2E,t3E	*/
-		__asm	mov eax, add0
-		__asm	mov esi, p07
-		__asm	mov ebx, p08
-		__asm	shl	esi, 3
-		__asm	shl	ebx, 3		/* Pointer offset for floating doubles */
-		__asm	add eax, esi	/* add0 = &a[j1+p5] */
-		__asm	add ebx, eax	/* add1 = add0+p8 */
-		__asm	mov ecx, r0E
-		__asm	mov edx, r1E
-		__asm	add	ecx, 0x200
-		__asm	add	edx, 0x200
-		__asm	mov	esi, cc1
-
-		__asm	movaps	xmm4,[ecx      ]	/* t2E */
-		__asm	movaps	xmm5,[ecx+0x010]	/* t2F */
-		__asm	movaps	xmm3,[esi      ]	/* c32_1 */
-		__asm	movaps	xmm2,[esi+0x010]	/* s32_1 */
-		__asm	movaps	xmm6,xmm4	/* xmm2 <- cpy t2E */
-		__asm	movaps	xmm7,xmm5	/* xmm3 <- cpy t2F */
-
-		__asm	mulpd	xmm4,xmm2		/* t2E*s32_1 */
-		__asm	mulpd	xmm5,xmm2		/* t2F*s32_1 */
-		__asm	mulpd	xmm6,xmm3		/* t2E*c32_1 */	__asm	movaps	xmm0,[edx      ]	/* t3E */
-		__asm	mulpd	xmm7,xmm3		/* t2F*c32_1 */	__asm	movaps	xmm1,[edx+0x010]	/* t3F */
-														__asm	add	esi, 0x20
-														__asm	movaps	xmm3,[esi      ]	/* c32_3 */
-														__asm	movaps	xmm2,[esi+0x010]	/* s32_3 */
-		__asm	subpd	xmm5,xmm6	/* xmm5 <-~t2F */	__asm	movaps	xmm6,xmm0	/* xmm6 <- cpy t3E */
-		__asm	addpd	xmm4,xmm7	/* xmm4 <-~t2E */	__asm	movaps	xmm7,xmm1	/* xmm7 <- cpy t3F */
-
-														__asm	mulpd	xmm0,xmm2		/* t3E*s32_3 */
-														__asm	mulpd	xmm1,xmm2		/* t3F*s32_3 */
-														__asm	mulpd	xmm6,xmm3		/* t3E*c32_3 */
-														__asm	mulpd	xmm7,xmm3		/* t3F*c32_3 */
-														__asm	subpd	xmm1,xmm6	/* xmm1 <- it */
-														__asm	addpd	xmm0,xmm7	/* xmm0 <- rt */
-
-		__asm	movaps	xmm7,xmm5	/* xmm7 <- cpy~t2F*/
-		__asm	movaps	xmm6,xmm4	/* xmm6 <- cpy~t2E*/
-
-		__asm	subpd	xmm4,xmm0	/* ~t2E <- t2E-rt */
-		__asm	subpd	xmm5,xmm1	/* ~t2F <- t2F-it */
-		__asm	addpd	xmm6,xmm0	/* ~t3E <- t2E+rt */
-		__asm	addpd	xmm7,xmm1	/* ~t3F <- t2F+it */
-	/*
-		rt =t1E*c - t1F*s;		it =t1F*c + t1E*s;
-		t1E=t0E+rt;				t0E =t0E-rt;
-		t1F=t0F+it;				t0F =t0F-it;
-	*/
-		__asm	sub	ecx, 0x200
-		__asm	sub	edx, 0x200
-		__asm	mov	esi, cc0
-		__asm	movaps	xmm3,[edx      ]	/* t1E */
-		__asm	movaps	xmm1,[edx+0x010]	/* t1F */
-		__asm	movaps	xmm2,[esi+0x010]	/* s */
-		__asm	movaps	xmm0,xmm3			/* cpy t1E */
-		__asm	mulpd	xmm3,xmm2		/* t1E*s */
-		__asm	mulpd	xmm2,xmm1		/* t1F*s */
-		__asm	mulpd	xmm0,[esi]		/* t1E*c */
-		__asm	mulpd	xmm1,[esi]		/* t1F*c */
-
-		__asm	subpd	xmm0,xmm2	/* rt =t1E*c - t1F*s */
-		__asm	addpd	xmm1,xmm3	/* it =t1F*c + t1E*s */
-
-		__asm	movaps	xmm2,[ecx      ]	/* t0E */
-		__asm	movaps	xmm3,[ecx+0x010]	/* t0F */
-		__asm	subpd	xmm2,xmm0	/*~t0E <- t0E- rt */
-		__asm	subpd	xmm3,xmm1	/*~t0F <- t0F- it */
-		__asm	addpd	xmm0,xmm0	/*          2* rt */
-		__asm	addpd	xmm1,xmm1	/*          2* it */
-		__asm	addpd	xmm0,xmm2	/*~t1E <- t0E+ rt */
-		__asm	addpd	xmm1,xmm3	/*~t1F <- t0F+ it */
-
-		SSE2_RADIX4_DIT_4TWIDDLE_2ND_HALF_B(c07)
-
-	#else	/* GCC-style inline ASM: */
-
-		add0 = &a[j1];
-	  #if (OS_BITS == 32) || !USE_64BIT_ASM_STYLE	// 2nd of these is a toggle defined and set in radix32_dif_dit_pass_gcc64.h
-		SSE2_RADIX32_DIT_TWIDDLE(add0,p01,p02,p03,p04,p05,p06,p07,p08,p10,p18,r00,r02,r04,r06,r08,r0A,r0C,r0E,r10,r12,r14,r16,r18,r1A,r1C,r1E,r20,r30,isrt2)
-	  #else
 		SSE2_RADIX32_DIT_TWIDDLE(add0,p01,p02,p03,p04,p05,p06,p07,p08,p10,p18,r00,r10,r20,r30,isrt2)
-	  #endif
-
-	#endif
+/*** AVX-512 debug: ***/
+#if 0
+	printf("AVX-%u: %u x %u Untransposed DIT outputs:\n",(int)RE_IM_STRIDE << 6,RE_IM_STRIDE,RE_IM_STRIDE);
+	vec_dbl *tmp = r00;
+  #ifdef USE_AVX512
+	for(i = 0; i < 32; i++) { printf("\tre[%2u] = %20.10e,%20.10e,%20.10e,%20.10e,%20.10e,%20.10e,%20.10e,%20.10e\n",i,tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7); tmp+=2; }
+	tmp = r00+1;
+	for(i = 0; i < 32; i++) { printf("\tim[%2u] = %20.10e,%20.10e,%20.10e,%20.10e,%20.10e,%20.10e,%20.10e,%20.10e\n",i,tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7); tmp+=2; }
+  #elif defined(USE_AVX)
+	for(i = 0; i < 32; i++) { printf("\tre[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,tmp->d0,tmp->d1,tmp->d2,tmp->d3); tmp+=2; }
+	tmp = r00+1;
+	for(i = 0; i < 32; i++) { printf("\tim[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,tmp->d0,tmp->d1,tmp->d2,tmp->d3); tmp+=2; }
+  #elif defined(USE_SSE2)
+	for(i = 0; i < 32; i++) { printf("\tre[%2u] = %20.10e,%20.10e\n",i,tmp->d0,tmp->d1); tmp+=2; }
+	tmp = r00+1;
+	for(i = 0; i < 32; i++) { printf("\tim[%2u] = %20.10e,%20.10e\n",i,tmp->d0,tmp->d1); tmp+=2; }
+  #endif
+exit(0);
+#endif
+/**********************/
 
 #else	/* USE_SSE2 */
 

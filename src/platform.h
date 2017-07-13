@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2013 by Ernst W. Mayer.                                           *
+*   (C) 1997-2017 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -25,12 +25,6 @@
  ****************************************************************************/
 #ifndef platform_h_included
 #define platform_h_included
-
-#undef	PLATFORM_DEBUG
-#undef	OS_DEBUG
-#undef	OS_BITS_DEBUG
-#undef	CPU_DEBUG
-#undef	CMPLR_DEBUG
 
 // Make PLATFORM_DEBUG def'd the default for CUDA builds, since those use 2 distinct passes which it is useful to clearly separate:
 #ifdef __CUDACC__
@@ -60,11 +54,7 @@
 					This implies that MUL64x32 aliases to MUL_LOHI, i.e. that the
 					2nd argument to a MUL64x32 call need not be restricted to 32 bits. */
 
-#undef	HARDWARE_FMADD	/* Indicates whether the hardware in question supports a fused multiply-add operation. */
-
-#undef	USE_FMADD	/* Only set if HARDWARE_FMADD is set *and* user has #def'd FMADD_YES.
-					If set, user is expected to provide a suitable associated
-					set of macros in the file float_intrin.h */
+#undef	USE_FMADD	/* Indicates whether the hardware in question supports a fused multiply-add operation. */
 
 /* Locally defined OS types: */
 #undef	OS_NAME
@@ -80,15 +70,17 @@
 #undef	OS_TYPE_SUN
 #undef	OS_TYPE_AIX
 #undef	OS_TYPE_FreeBSD_kernel
+#undef  OS_TYPE_GNU_HURD
 #undef	OS_TYPE_IRIX
 
 #undef	OS_VERSION
 
 /* Some of these are currently identified via the compiler (below) rather than directly: */
-#if(defined(WINDOWS) || defined(_WINDOWS) || defined(WIN32) || defined(_WIN32))
+// Jun 2017: For Win-builds under msys/mingw, allow defined(__MINGW32__) to override normal windos|linux preprocessing logic:
+#if !defined(__MINGW32__) && (defined(WINDOWS) || defined(_WINDOWS) || defined(WIN32) || defined(_WIN32))
 	#define	OS_TYPE
 	#define	OS_TYPE_WINDOWS
-#elif(defined(linux) || defined(__linux__) || defined(__linux))
+#elif defined(__MINGW32__) || (defined(linux) || defined(__linux__) || defined(__linux))
 	#define	OS_TYPE
 	#define	OS_TYPE_LINUX
 #elif(defined(__APPLE__))
@@ -102,6 +94,9 @@
    notable examples are FreeBSD itself and GNU/kFreeBSD  */
 	#define OS_TYPE
 	#define OS_TYPE_FreeBSD_kernel
+#elif(defined(__gnu_hurd__))
+	#define OS_TYPE
+	#define OS_TYPE_GNU_HURD
 #elif(defined(__osf__))
 	#define OS_TYPE
 	#define	OS_TYPE_DECOSF
@@ -156,6 +151,10 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 
 #undef	CPU_IS_MIPSEL
 
+#undef	CPU_IS_S390
+
+#undef	CPU_IS_S390X
+
 #undef	CPU_IS_SPARC
 	#undef	CPU_SUBTYPE_ULTRA1
 	#undef	CPU_SUBTYPE_ULTRA2
@@ -198,16 +197,36 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 	#undef	CPU_SUBTYPE_PA2
 
 // SIMD-functionality-related flags: We currently only care about the x86 family SSE2 / AVX / AVX2 instruction sets.
-// We define these in a "grandfathered-in" fashion, i.e. each higher-functionality flag (= higher up in our descending-ordering)
-// will automatically turn on the lower ones, e.g. AVX2 enables both AVX and SSE2. This is because we code things such that
-// SIMD-enabled #ifdefs wrap variable defs shared by all these specific SIMD ISAs, but e.g. for AVX/AVX2 the vec_dbl type
-// encodes a 4-double struct, whereas for SSE2, vec_dbl is a 2-double struct. In places where we really need to invoke
+// Define these in a "grandfathered-in" fashion, i.e. each higher-functionality flag automatically enables the lower
+// ones, e.g. AVX2 enables both AVX and SSE2. This is because we code things such that SIMD-enabled #ifdefs wrap
+// variable defs shared by all these specific SIMD ISAs, but e.g. for AVX/AVX2 the vec_dbl type encodes a
+// 4-double struct, whereas for SSE2, vec_dbl is a 2-double struct. In places where we really need to invoke
 // separate code sections based on these #defs, we check them in inverse order, i.e. highest first. That way if e.g.
-// AVX2, AVX and SSE2 have different versions of a common-named arithmetic macro, the fact that all > 1 of these #defines
+// AVX2, AVX and SSE2 have different versions of a common-named arithmetic macro, the fact that all of these #defines
 // are enabled yields no conflict, since the highest-level one wins, as it were:
 
 // We don't allow the user to set more than one of these defines:
-#ifdef USE_AVX2
+#ifdef USE_AVX512_I
+	#error AVX-512 IFMA instruction extensions not yet supported!
+	#if defined(USE_AVX512) || defined(USE_AVX2) || defined(USE_AVX) || defined(USE_SSE2)
+		#error Only one of USE_SSE2 / USE_AVX / USE_AVX2 / USE_AVX512 / USE_AVX512_I may be defined at compile time!
+	#endif
+
+	#define USE_AVX512
+	#define USE_AVX2
+	#define USE_AVX
+	#define	USE_SSE2
+
+#elif defined(USE_AVX512)
+	#if defined(USE_AVX2) || defined(USE_AVX) || defined(USE_SSE2)
+		#error Only one of USE_SSE2 / USE_AVX / USE_AVX2 / USE_AVX512 may be defined at compile time!
+	#endif
+
+	#define USE_AVX2
+	#define USE_AVX
+	#define	USE_SSE2
+
+#elif defined(USE_AVX2)
 	#if defined(USE_AVX) || defined(USE_SSE2)
 		#error Only one of USE_SSE2 / USE_AVX / USE_AVX2 may be defined at compile time!
 	#endif
@@ -226,6 +245,58 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 	#if defined(USE_AVX2) || defined(USE_AVX)
 		#error Only one of USE_SSE2 / USE_AVX / USE_AVX2 may be defined at compile time!
 	#endif
+#endif
+
+// At several points in the code we need to make sure the compiler is at least GCC v5 in order
+// to properly support the full AVX2 instruction set. Assume that is true in any AVX-512-enabled builds:
+#ifdef USE_AVX512
+	#define GCC_5PLUS
+#endif
+
+/* SIMD register-width-related params -
+Note the vec_dbl type (matching the SIMD floating-point register width) is def'd in types.h:
+
+o RE_IM_STRIDE = Numberic of doubles (real*8 in Fortran-style num-bytes lingo) in a SIMD floating-point register
+               = Number of real*8 array slots separating grouped Re and Im elements of the same complex datum
+                 in the vector that gets FFTed. Default (non-SIMD) value is 1, SSE2 = 2, AVX/AVX2 = 4, AVX512 = 8.
+
+o L2_SZ_VD = lg(sizeof(vec_dbl) = 4 for sse2, 5 for avx/avx2, 6 for avx512.
+
+o SZ_VD = sizeof(vec_dbl), SZ_VD_M1 = SZ_VD-1.
+*/
+#undef RE_IM_STRIDE
+#undef L2_SZ_VD
+#undef SZ_VD
+#undef SZ_VDM1
+
+#ifdef USE_AVX512
+
+	#define RE_IM_STRIDE	8
+	#define L2_SZ_VD		6
+	#define SZ_VD			64
+	#define SZ_VDM1			63
+
+#elif defined(USE_AVX)	// AVX and AVX2 both use 256-bit registers
+
+	#define RE_IM_STRIDE	4
+	#define L2_SZ_VD		5
+	#define SZ_VD			32
+	#define SZ_VDM1			31
+
+#elif defined(USE_SSE2)
+
+	#define RE_IM_STRIDE	2
+	#define L2_SZ_VD		4
+	#define SZ_VD			16
+	#define SZ_VDM1			15
+
+#else	// Scalar-double mode: Still need to define the qtys below:
+
+	#define RE_IM_STRIDE	1
+	#define L2_SZ_VD		3
+	#define SZ_VD			8
+	#define SZ_VDM1			7
+
 #endif
 
 // GPU-specific flagging is done analogously to SIMD: REALLY_GPU implies USE_GPU, but not v.v.:
@@ -264,6 +335,7 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 #if defined(__CUDACC__) && !defined(__CUDA_ARCH__)
 
 	#warning CUDA: Host-code compile pass
+	#define	USE_FMADD
 
 #endif
 #ifdef __CUDA_ARCH__
@@ -276,7 +348,9 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 	#define COMPILER_TYPE
 	#define COMPILER_TYPE_NVCC
 
-	#define	USE_RINT	// Ensures that float/doule round-to-nearest proceeds via the efficient cuda-stdlib rint() function
+	#define	USE_RINT	// Ensures that float/double round-to-nearest proceeds via the efficient cuda-stdlib rint() function
+
+	#define	USE_FMADD
 
   // If GCC version predefines __SIZEOF_POINTER__, that is most reliable (the LONG_MAX-based test below failed under mingw64 because that defined LONG_MAX and LONG_LONG_MAX differently in 64-bit mode:
   #ifdef __SIZEOF_POINTER__
@@ -364,7 +438,11 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 	#define CPU_IS_X86_64
 
 	#define MULH64_FAST
-	#define	HARDWARE_FMADD
+	// x86_64 only has FMA support (we speak here specifically of FMA3, since we're not interested
+	// in AMD's brief fling with FMA4) as of Intel AVX2+FMA3:
+	#ifdef USE_AVX2
+//	  #define	USE_FMADD
+	#endif
 
 	#ifndef COMPILER_TYPE	// NVCC may already have been defined
 		/* Sun C compiler - needs '-xarch=amd64' compiler flag in order for __amd64 to be def'd: */
@@ -424,7 +502,7 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 		#include <dvec.h>					* SSE 2 intrinsics for Class Libraries												*
 		#include <fvec.h>					* SSE intrinsics for Class Libraries												*
 		#include <ia32intrin.h>				* Miscellaneous IA-32 intrinsics.													*
-		#include <ivec.h>					* MMX™ instructions intrinsics for Class Libraries									*
+		#include <ivec.h>					* MMX instructions intrinsics for Class Libraries									*
 		#include <mathf.h>					* Principal header file for legacy Intel Math Library								*
 		#include <mathimf.h>				* Principal header file for current Intel Math Library								*
 		#include <mmintrin.h>				* Intrinsics for MMX instructions													*
@@ -465,7 +543,7 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 	#define CPU_IS_IA64
 
 	#define MULH64_FAST
-	#define	HARDWARE_FMADD
+	#define	USE_FMADD
 
 	/* HP C or C++ compiler for HPUX: */
 	#if(defined(__HP_cc) || defined(__HP_aCC))
@@ -499,7 +577,7 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 		#include <fvec.h>					* SSE intrinsics for Class Libraries											*
 		#include <ia64intrin.h>				* Miscellaneous IA-64 intrinsics.												*
 		#include <ia64regs.h>				* Header file for registers on Itanium-based systems							*
-		#include <ivec.h>					* MMX™ instructions intrinsics for Class Libraries								*
+		#include <ivec.h>					* MMX instructions intrinsics for Class Libraries								*
 		#include <mathimf.h>				* Principal header file for current Intel Math Library							*
 		#include <mmclass.h>				* Principal header files for MMX™ instructions with Class Libraries				*
 		#include <mmintrin.h>				* Intrinsics for MMX instructions												*
@@ -537,7 +615,7 @@ We Deliberately put this #elif ahead of the PowerPC one because the Power/AIX co
 	#define CPU_TYPE
 	#define CPU_IS_POWER
 
-	#define	HARDWARE_FMADD
+	#define	USE_FMADD
 
 	/* IBM XLC compiler */
 	#if(defined(xlc) || defined(__xlc__) || defined(__xlc) || defined(XLC) || defined(__XLC__) || defined(__XLC) || defined(__xlC__))
@@ -566,7 +644,7 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 	#define CPU_TYPE
 	#define CPU_IS_PPC
 
-	#define	HARDWARE_FMADD
+	#define	USE_FMADD
 
 /* TODO:***do we need separate ifdefs for gcc and applec?***/
 	/* Gnu C compiler for OS-X: */
@@ -712,13 +790,41 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 		#define	CPU_SUBTYPE_NAME "Ultra1"
 	#endif
 
-/* Information are based on Debian Wiki <https://wiki.debian.org/ArmEabiPort>:
+/* ARMv8 64 bit processors support native 64 bit types */
+#elif(defined(__aarch64__))
+	#ifndef OS_BITS
+		  #define OS_BITS 64
+	#endif
 
-   The compiler generates code using the ARM "new" Embedded ABI by ARM ltd.
-   The new EABI enhances floating point performance with or without an FPU.
+	#define CPU_TYPE
+	#define CPU_IS_ARM_EABI
 
-   The symbol __ARM_EABI__ is not defined if compiles under the old EABI.  */
-#elif(defined(__ARMEL__) && defined(__ARM_EABI__))
+	#if(defined(__GNUC__) || defined(__GNUG__))
+		  #define COMPILER_TYPE
+		  #define COMPILER_TYPE_GCC
+	#else
+		  #define COMPILER_TYPE
+		  #define COMPILER_TYPE_UNKNOWN
+	#endif
+
+	#if(defined(__ARM_NEON))
+		  #define CPU_SUBTYPE
+		  #define CPU_SUBTYPE_VFP_HF
+		  #define CPU_SUBTYPE_NAME "ARMv8 64 bit NEON"
+	#endif
+
+/* 32-bit ARM: */
+#elif(defined(__ARM_ARCH))
+	/* Information are based on Debian Wiki <https://wiki.debian.org/ArmEabiPort>:
+	
+	   The compiler generates code using the ARM "new" Embedded ABI by ARM ltd.
+	   The new EABI enhances floating point performance with or without an FPU.
+	
+	   The symbol __ARM_EABI__ is not defined if compiles under the old EABI.
+	*/
+	#if !(defined(__ARMEL__) && defined(__ARM_EABI__))
+		#error __ARM_ARCH predefine seqeunce expects both __ARMEL__ and __ARM_EABI__ to be defined! Please check your platforms predefine list using 'gcc -dM -E - < /dev/null' and forward the results to the program author/maintainer(s) listed on the README page.
+	#endif
 
 	#ifndef OS_BITS
 		#define OS_BITS 32
@@ -752,10 +858,8 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 /* MIPS (older system in unknown mode or newer system in big-endian mode)  */
 /* Newer system will define system-specific macros to indicate its endianness,
    but this may not be available on older system.  */
-#elif(defined(__mips__) || defined(mips) ||	\
-      defined(_mips) || defined(__mips)) &&	\
-  !(defined(__MIPSEL__) || defined(MIPSEL) ||	\
-    defined(_MIPSEL) || defined(__MIPSEL))
+#elif(defined(__mips__) || defined(mips) ||	defined(_mips) || defined(__mips)) &&	\
+  !(defined(__MIPSEL__) || defined(MIPSEL) || defined(_MIPSEL) || defined(__MIPSEL))
 
 	#define CPU_TYPE
 	#define CPU_IS_MIPS
@@ -781,10 +885,8 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 	#endif
 
 /* MIPS in little-endian mode  */
-#elif(defined(__mips__) || defined(mips) ||	\
-      defined(_mips) || defined(__mips)) &&	\
-  (defined(__MIPSEL__) || defined(MIPSEL) ||	\
-   defined(_MIPSEL) || defined(__MIPSEL))
+#elif(defined(__mips__) || defined(mips) || defined(_mips) || defined(__mips)) &&	\
+  (defined(__MIPSEL__) || defined(MIPSEL) || defined(_MIPSEL) || defined(__MIPSEL))
 
 	#define CPU_TYPE
 	#define CPU_IS_MIPSEL
@@ -809,7 +911,88 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 		#endif
 	#endif
 
+/* S/390 and zSeries  */
+#elif(defined(__s390__) || defined(__zarch__)) && !defined(__s390x__)
+
+	#ifndef OS_BITS
+		#define OS_BITS 31
+	#endif
+
+	#define CPU_TYPE
+	#define CPU_IS_S390
+
+	#if(defined(__GNUC__) || defined(__GNUG__))
+		#define COMPILER_TYPE
+		#define COMPILER_TYPE_GCC
+	#else
+		#define COMPILER_TYPE
+		#define COMPILER_TYPE_UNKNOWN
+	#endif
+
+/* System z  */
+#elif(defined(__s390__) || defined(__zarch__)) && defined(__s390x__)
+
+	#ifndef OS_BITS
+		#define OS_BITS 64
+	#endif
+	#define MULH64_FAST
+
+	#define CPU_TYPE
+	#define CPU_IS_S390X
+
+	#if(defined(__GNUC__) || defined(__GNUG__))
+		#define COMPILER_TYPE
+		#define COMPILER_TYPE_GCC
+	#else
+		#define COMPILER_TYPE
+		#define COMPILER_TYPE_UNKNOWN
+	#endif
+
+#elif (defined(__GNUC__) || defined(__GNUG__))	// Unknown hardware platform, but under Linux/GCC
+
+	#define COMPILER_TYPE
+	#define COMPILER_TYPE_GCC
+
+	#define	USE_RINT	// Ensures that float/double round-to-nearest proceeds via the efficient cuda-stdlib rint() function
+
+  // If GCC version predefines __SIZEOF_POINTER__, that is most reliable (the LONG_MAX-based test below failed under mingw64 because that defined LONG_MAX and LONG_LONG_MAX differently in 64-bit mode:
+  #ifdef __SIZEOF_POINTER__
+
+	#if __SIZEOF_POINTER__ == 4
+		#define OS_BITS 32
+	#elif __SIZEOF_POINTER__ == 8
+		#define OS_BITS 64
+	#else
+		#error __SIZEOF_POINTER__ defined but returns unrecognized value! Use gcc -dM -E < /dev/null | grep __SIZEOF_POINTER__ to examine.
+	#endif
+
+  // Otherwise see if can use the value of __LONG_MAX__ in limits.h to quickly and portably determine whether it's 32-bit or 64-it OS:
+  #else
+	// Syntax here is GCC and SunStudio/MSVC, respectively:
+	#if !defined(__LONG_MAX__) && !defined(LONG_MAX)
+		#include <limits.h>
+	#endif
+
+	#if !defined(__LONG_MAX__) &&  defined(LONG_MAX)
+		#define __LONG_MAX__  LONG_MAX
+	#endif
+
+	#ifdef __LONG_MAX__
+		#if __LONG_MAX__ == 2147483647L
+			#define OS_BITS 32
+		#elif __LONG_MAX__ == 9223372036854775807L
+			#define OS_BITS 64
+		#else
+			#error  __LONG_MAX__ defined but value unrecognized!
+		#endif
+	#else
+		#error platform.h: failed to properly set OS_BITS for NVCC build!
+	#endif
+
+  #endif
+
 #else
+
 	/* Default is to assume crappy 64-bit integer MUL: */
 	#define MUL64_SUCKS
 
@@ -819,15 +1002,7 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 	#define CPU_IS_UNKNOWN
 	#define COMPILER_TYPE
 	#define COMPILER_TYPE_UNKNOWN
-#endif
 
-/* Use fused floating mul/add? */
-#ifdef FMADD_YES
-	#ifdef HARDWARE_FMADD
-		#define	USE_FMADD
-	#else
-		#error Fused mul/add not implemented/supported on this platform - please rebuild without FMADD_YES flag!
-	#endif
 #endif
 
 /* Check that OS_TYPE, CPU_TYPE, COMPILER_TYPE are all defined: */
@@ -835,7 +1010,8 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 	#error platform.h : OS_TYPE not defined!
 #endif
 #ifndef CPU_TYPE
-	#error platform.h : CPU_TYPE not defined!
+	#warning platform.h : CPU_TYPE not defined!
+	#define	CPU_TYPE	"Unknown CPU type"
 #endif
 #ifndef COMPILER_TYPE
 	#error platform.h : COMPILER_TYPE not defined!
@@ -887,6 +1063,11 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 	#warning	OS_NAME "FreeBSD or GNU/kFreeBSD"
   #endif
 	#define	OS_NAME "FreeBSD or GNU/kFreeBSD"
+#elif(defined(OS_TYPE_GNU_HURD))
+  #if OS_DEBUG
+	#warning	OS_NAME "GNU/Hurd"
+  #endif
+	#define	OS_NAME "GNU/Hurd"
 #elif(defined(OS_TYPE_IRIX))
   #if OS_DEBUG
 	#warning	OS_NAME "Irix"
@@ -982,13 +1163,15 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 /* Notice we must include <stdio.h> before anything, or we will get the error
 
 /usr/include/stdio.h:314:6: error: unknown type name '_IO_cookie_io_functions_t'
-      _IO_cookie_io_functions_t __io_funcs) __THROW __wur;
-      ^
+	_IO_cookie_io_functions_t __io_funcs) __THROW __wur;
+	^
 */
 #ifdef OS_TYPE_LINUX
 	#include <stdio.h>
 	#include <sys/time.h>
+  #ifndef __MINGW32__
 	#include <sys/resource.h>
+  #endif
 #endif
 
 /* Multihreading support. */
@@ -1002,7 +1185,7 @@ extern int NTHREADS;
 
 	// OpenMP requires USE_OMP to be def'd in addition to USE_THREADS:
 	#ifdef USE_OMP
-
+		#error OpenMP not supported - please build with just USE_THREADS to activate pthreads-based parallel capability.
 		// Found OpenMP header? The predefines here are for Linux, Sun Studio and Windows/MSVC, respectively:
 		#include <omp.h>
 		#if(defined(__OMP_H) || defined(_OPENMP) || defined(_OMPAPI))
@@ -1038,7 +1221,9 @@ extern int NTHREADS;
 		#define __USE_GNU
 		#include <sched.h>
 
+	#ifndef OS_TYPE_GNU_HURD
 		#include <sys/sysctl.h>
+	#endif
 		#include <unistd.h>	// Needed for Posix sleep() command, among other things
 		#ifdef OS_TYPE_LINUX
 
@@ -1068,11 +1253,12 @@ extern int NTHREADS;
 	  #endif	// OpenMP or Pthread
 
 	#else
-
 		#error Multithreading currently only supported for Linux/GCC builds!
-
 	#endif
 
+	#ifndef USE_PTHREAD
+		#error Attempt to access Pthreads support during preprocessing failed!
+	#endif
 #endif
 
 #if defined(CPU_IS_ALFA)
@@ -1095,6 +1281,16 @@ extern int NTHREADS;
 	#warning	CPU_NAME "Mips little-endian"
   #endif
 	#define	CPU_NAME "Mips little-endian"
+#elif defined(CPU_IS_S390)
+  #if CPU_DEBUG
+	#warning	CPU_NAME "S390"
+  #endif
+	#define	CPU_NAME "S390"
+#elif defined(CPU_IS_S390X)
+  #if CPU_DEBUG
+	#warning	CPU_NAME "S390x"
+  #endif
+	#define	CPU_NAME "S390x"
 #elif defined(CPU_IS_SPARC)
   #if CPU_DEBUG
 	#warning	CPU_NAME "Sparc"
@@ -1140,9 +1336,22 @@ extern int NTHREADS;
 	#define	CPU_NAME "nVidia"
 #elif defined(CPU_IS_UNKNOWN)
   #if CPU_DEBUG
-	#warning	CPU_NAME "Unknown"
+	#warning	CPU_NAME "Unknown CPU name"
   #endif
-	#define	CPU_NAME "Unknown"
+	#define	CPU_NAME			"Unknown CPU name"
+#endif
+
+#ifndef CPU_NAME
+  #if CPU_DEBUG
+	#warning	CPU_NAME "Unknown CPU name"
+  #endif
+	#define	CPU_NAME			"Unknown CPU name"
+#endif
+#ifndef CPU_SUBTYPE_NAME
+  #if CPU_DEBUG
+	#warning	CPU_SUBTYPE_NAME	"Unknown CPU subtype"
+  #endif
+	#define	CPU_SUBTYPE_NAME	"Unknown CPU subtype"
 #endif
 
 #ifndef	FP_MANTISSA_BITS_DOUBLE
@@ -1244,6 +1453,17 @@ extern int NTHREADS;
 	#define COMPILER_VERSION "[Unknown]"
 #endif
 
+// In case OS_BITS not yet def'd:
+#ifndef	OS_BITS
+	#if __SIZEOF_LONG_LONG__ == 4
+		#define OS_BITS 32
+	#elif __SIZEOF_LONG_LONG__ == 8
+		#define OS_BITS 64
+	#else
+		#error __SIZEOF_LONG_LONG__ defined but returns unrecognized value! Use gcc -dM -E < /dev/null | grep __SIZEOF_LONG_LONG__ to examine.
+	#endif
+#endif
+
 // SIMD code only available for 64-bit GCC build:
 #if defined(USE_SSE2) && !defined(COMPILER_TYPE_GCC)
 	#error  SIMD code only available for GCC (and compatible) build!
@@ -1253,6 +1473,28 @@ extern int NTHREADS;
 #if defined(USE_AVX) && (OS_BITS == 32)
 	#error  SIMD+AVX code only available for 64-bit build!
 #endif
+
+// Control over x86 inline assembly usage:
+#undef X32_ASM
+#if defined(CPU_IS_X86) && defined(COMPILER_TYPE_GCC) && (OS_BITS == 32)
+  #if defined(VERBOSE_HEADERS)
+	#warning platform.h: Defining X32_ASM
+  #endif
+	#define X32_ASM
+#endif
+
+#undef X64_ASM
+#if defined(CPU_IS_X86_64) && defined(COMPILER_TYPE_GCC) && (OS_BITS == 64)
+  #if defined(VERBOSE_HEADERS)
+	#warning platform.h: Defining both X64_ASM and X32_ASM
+  #endif
+	#define X64_ASM
+	#define X32_ASM
+	#if FP_MANTISSA_BITS_DOUBLE != 64
+		#error x86_64 asm requires FP_MANTISSA_BITS_DOUBLE == 64!
+	#endif
+#endif
+
 
 #endif	/* platform_h_included */
 

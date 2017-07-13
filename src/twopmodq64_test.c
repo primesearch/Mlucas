@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2012 by Ernst W. Mayer.                                           *
+*   (C) 1997-2015 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -22,56 +22,338 @@
 
 #include "factor.h"	/* Need this for include of platform-specific defs used in YES_ASM test below */
 
+//*** This file contains specialized implementations of 64-bit modpow for 64-bit-int-capable GPU
+//*** [e.g. nVidia CUDA with compute capability >= 2.0] and 64-bit x86:
+
 #undef YES_ASM
 #if(defined(CPU_IS_X86_64) && defined(COMPILER_TYPE_GCC) && (OS_BITS == 64))
 	#define YES_ASM
 #endif
 
+#ifdef __CUDACC__
+
+	// Simple GPU-ized version of twopmodq64.
+	// Return 1 if q = 2.k.p+1 divides 2^p-1, 0 otherwise.
+	__device__ uint32 twopmodq64_gpu(			// Sans noinline qualifier, compile time of GPU_TF64_pop64 using this function blows up.
+		const uint64 p, const uint64 pshift, const uint32 FERMAT, const uint64 k,
+		const uint32 start_index, const uint32 zshift,
+		const int i	// thread id (handy for debug)
+	)
+	{
+	#ifdef __CUDA_ARCH__	// Only allow device-code compilation of function body, otherwise get
+							// no end of inline-asm-related errors, since nvcc doesn't speak that language
+		 int32 j;	// Do 2* on k since p is 32-bit (e.g. (p<<1) = 0 for p = F31):
+		uint64 q = p*(k<<1) + 1, qinv, x,y, qhalf = q>>1;	// q>>1 = (q-1)/2, since q odd.
+		// q must be odd for Montgomery-style modmul to work:
+		uint32 tmp32, q32 = (uint32)q;
+		uint32 qinv32 = (q32 + q32 + q32) ^ (uint32)2;	// This gives 4-bit inverse
+		// First 3 iterations (4->8, 8->16, 16->32 bits) can all use 32-bit arithmetic:
+		for(j = 0; j < 3; j++)
+		{
+			tmp32 = q32*qinv32;
+			qinv32 = qinv32*((uint32)2 - tmp32);
+		}
+		// Promote to 64-bit and do one more iteration to get a 64-bit inverse:
+		qinv = qinv32;
+		qinv = qinv*((uint64)2 - q*qinv);
+
+		// Since zstart := 1<<zshift is a power of two < 2^128, use streamlined code sequence for the first iteration:
+		j = start_index-1;
+		// MULL64(zstart,qinv) simply amounts to a left-shift of the bits of qinv:
+		x = qinv << zshift;
+	#ifdef MUL_LOHI64_SUBROUTINE
+		x = __MULH64(q,x);
+	#else
+		MULH64(q,x,x);
+	#endif
+		// hi = 0 in this instance, which simplifies things.
+		y = q - x;
+
+		if((pshift >> j) & 1)	// Faster than ANDing with a precomputed length-32 2^n array (n=0,...,31)
+		{
+		#ifdef NOBRANCH
+			x = y + y;	x -= q & -(x >= q || x < y);
+		#else
+			x = y + y;	if(x >= q || x < y) x -= q;
+		#endif
+		} else {
+			x = y;
+		}
+
+		for(j = start_index-2; j >= 0; j--)
+		{
+			// 3-MUL sequence to effect x = MONT_SQR64(x,q,qinv):
+		#ifdef MUL_LOHI64_SUBROUTINE
+			SQR_LOHI64(x,&x,&y);	// Lo half of x^2 overwrites x, hi half into y
+			MULL64(qinv,x,x);
+			x = MULH64(q,x);
+		#else
+			SQR_LOHI64(x, x, y);
+			MULL64(qinv,x,x);
+			MULH64(q,x,x);
+		#endif
+			x = y - x + ((-(int64)(y < x)) & q);	/* did we have a borrow from (y-x)? */
+
+			if((pshift >> j) & 1)
+			{
+			#ifdef NOBRANCH
+				x = x + x - (q & -(x > qhalf));
+			#else
+				if(x > qhalf)	// Combines overflow-on-add and need-to-subtract-q-from-sum checks
+				{
+					x = x + x;
+					x -= q;
+				}
+				else
+					x = x + x;
+			#endif
+			}
+		}
+		// Double and return. This is specialized for the case where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2.
+		x = x+x-q+FERMAT;	// In the case of interest, x = (q+1)/2 < 2^63, so x + x cannot overflow.
+		return (x==1);
+	#else	// ifndef __CUDA_ARCH__
+		ASSERT(HERE, 0, "Device code being called in host mode!");
+		return 0;
+	#endif
+	}
+
+  // Comment out for now - NVCC takes ungodly long to compile the MONT_SQR64_q4 sequence, and GPU seems to like 1-factor-at-a-time better anyway:
+  #if 0
+	// 4-operand version: Returns results in bits <0:3> of retval. A '1' bit indicates that the corresponding k-value yields a factor.
+	__noinline__ __device__ uint32 twopmodq64_q4_GPU(
+		const uint64 p, const uint64 pshift, const uint32 FERMAT, const uint64 k0, const uint64 k1, const uint64 k2, const uint64 k3,
+		const uint32 start_index, const uint32 zshift,
+		const int i	// thread id (handy for debug)
+	)
+	{
+	#ifdef __CUDA_ARCH__	// Only allow device-code compilation of function body, otherwise get
+							// no end of inline-asm-related errors, since nvcc doesn't speak that language
+		uint8 r = 0;
+		 int32 j;
+		uint64 q0 = 1+(p<<1)*k0, q1 = 1+(p<<1)*k1, q2 = 1+(p<<1)*k2, q3 = 1+(p<<1)*k3
+			, qinv0, qinv1, qinv2, qinv3
+			, x0, x1, x2, x3
+			, y0, y1, y2, y3;
+
+		qinv0 = (q0+q0+q0) ^ (uint64)2;
+		qinv1 = (q1+q1+q1) ^ (uint64)2;
+		qinv2 = (q2+q2+q2) ^ (uint64)2;
+		qinv3 = (q3+q3+q3) ^ (uint64)2;
+
+		for(j = 0; j < 4; j++)
+		{
+			qinv0 = qinv0*((uint64)2 - q0*qinv0);
+			qinv1 = qinv1*((uint64)2 - q1*qinv1);
+			qinv2 = qinv2*((uint64)2 - q2*qinv2);
+			qinv3 = qinv3*((uint64)2 - q3*qinv3);
+		}
+
+		// Since zstart := 1<<zshift is a power of two < 2^128, use streamlined code sequence for the first iteration:
+		j = start_index-1;
+
+		// MULL64(zstart,qinv) simply amounts to a left-shift of the bits of qinv:
+		x0 = qinv0 << zshift;
+		x1 = qinv1 << zshift;
+		x2 = qinv2 << zshift;
+		x3 = qinv3 << zshift;
+
+	#ifdef MUL_LOHI64_SUBROUTINE
+		x0 = __MULH64(q0,x0);
+		x1 = __MULH64(q1,x1);
+		x2 = __MULH64(q2,x2);
+		x3 = __MULH64(q3,x3);
+	#else
+		MULH64(q0,x0,x0);
+		MULH64(q1,x1,x1);
+		MULH64(q2,x2,x2);
+		MULH64(q3,x3,x3);
+	#endif
+		// hi = 0 in this instance, which simplifies things.
+		y0 = q0 - x0;
+		y1 = q1 - x1;
+		y2 = q2 - x2;
+		y3 = q3 - x3;
+
+		if((pshift >> j) & 1)
+		{
+		#ifdef NOBRANCH
+			x0 = y0 + y0;	x0 -= q0 & -(x0 >= q0 || x0 < y0);
+			x1 = y1 + y1;	x1 -= q1 & -(x1 >= q1 || x1 < y1);
+			x2 = y2 + y2;	x2 -= q2 & -(x2 >= q2 || x2 < y2);
+			x3 = y3 + y3;	x3 -= q3 & -(x3 >= q3 || x3 < y3);
+		#else
+			x0 = y0 + y0;	if(x0 >= q0 || x0 < y0) x0 -= q0;
+			x1 = y1 + y1;	if(x1 >= q1 || x1 < y1) x1 -= q1;
+			x2 = y2 + y2;	if(x2 >= q2 || x2 < y2) x2 -= q2;
+			x3 = y3 + y3;	if(x3 >= q3 || x3 < y3) x3 -= q3;
+		#endif
+		}
+		else
+		{
+			x0 = y0;
+			x1 = y1;
+			x2 = y2;
+			x3 = y3;
+		}
+
+		for(j = start_index-2; j >= 0; j--)
+		{
+//	MONT_SQR64_q4(x0,x1,x2,x3,q0,q1,q2,q3,qinv0,qinv1,qinv2,qinv3,y0,y1,y2,y3);
+			SQR_LOHI64(x0, x0, y0);								\
+			SQR_LOHI64(x1, x1, y1);								\
+			SQR_LOHI64(x2, x2, y2);								\
+			SQR_LOHI64(x3, x3, y3);								\
+			MULL64(qinv0,x0,x0);								\
+			MULL64(qinv1,x1,x1);								\
+			MULL64(qinv2,x2,x2);								\
+			MULL64(qinv3,x3,x3);								\
+			MULH64(q0,x0,x0);									\
+			MULH64(q1,x1,x1);									\
+			MULH64(q2,x2,x2);									\
+			MULH64(q3,x3,x3);									\
+			/* did we have a borrow from (y-x)? */				\
+			y0 = y0 - x0 + ((-(int64)(y0 < x0)) & q0);		\
+			y1 = y1 - x1 + ((-(int64)(y1 < x1)) & q1);		\
+			y2 = y2 - x2 + ((-(int64)(y2 < x2)) & q2);		\
+			y3 = y3 - x3 + ((-(int64)(y3 < x3)) & q3);		\
+			if((pshift >> j) & 1)
+			{
+			#ifdef NOBRANCH
+				x0 = y0 + y0;	x0 -= q0 & -(x0 >= q0 || x0 < y0);
+				x1 = y1 + y1;	x1 -= q1 & -(x1 >= q1 || x1 < y1);
+				x2 = y2 + y2;	x2 -= q2 & -(x2 >= q2 || x2 < y2);
+				x3 = y3 + y3;	x3 -= q3 & -(x3 >= q3 || x3 < y3);
+			#else
+				x0 = y0 + y0;	if(x0 >= q0 || x0 < y0) x0 -= q0;
+				x1 = y1 + y1;	if(x1 >= q1 || x1 < y1) x1 -= q1;
+				x2 = y2 + y2;	if(x2 >= q2 || x2 < y2) x2 -= q2;
+				x3 = y3 + y3;	if(x3 >= q3 || x3 < y3) x3 -= q3;
+			#endif
+			}
+			else
+			{
+				x0 = y0;
+				x1 = y1;
+				x2 = y2;
+				x3 = y3;
+			}
+		}
+		//...Double and return.	Specialize for the case where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2.
+		r  = (x0+x0-q0+FERMAT == 1);
+		r += (x1+x1-q1+FERMAT == 1);
+		r += (x2+x2-q2+FERMAT == 1);
+		r += (x3+x3-q3+FERMAT == 1);
+		return r;
+	#else	// ifndef __CUDA_ARCH__
+		ASSERT(HERE, 0, "Device code being called in host mode!");
+		return 0;
+	#endif
+	}
+  #endif 	// #if 0
+
+	__global__ void VecModpow64(const uint64*pvec, const uint64*pshft, const uint32*zshft, const uint32*stidx, const uint64*kvec, uint8*rvec, int N)
+	{
+		int i = blockDim.x * blockIdx.x + threadIdx.x;	// Hardware thread ID:
+		if(i < N) {	// Allow for partially-filled thread blocks
+			uint64 p           = pvec[i];
+			uint64 pshift      = pshft[i];
+			uint32 zshift      = zshft[i];
+			uint32 start_index = stidx[i];
+			uint64 k           = kvec[i];
+			// Result returned in rvec[i]:
+			rvec[i] = twopmodq64_gpu(p, pshift, 0, k, start_index, zshift, i);
+		}
+	}
+
+	__global__ void GPU_TF64_pop64(const uint64 p, const uint64 pshift, const uint32 FERMAT, const uint32 zshift, const uint32 start_index, const uint64 k0, uint32*kvec, const uint32 N)
+	{
+		int i = blockDim.x * blockIdx.x + threadIdx.x;	// Hardware thread ID:
+		if(i < N) {	// Allow for partially-filled thread blocks
+			uint64 k = k0 + kvec[i];
+			// If this k yields a factor, save the k in the 'one-beyond' slot of the kvec array:
+			if(twopmodq64_gpu(p, pshift, FERMAT, k, start_index, zshift, i)) {
+				kvec[N  ] = (uint32)(k      );	// Use 'one-beyond' elt of kvec, assume at most one factor k per batch (of ~50000), thus no need for atomic update here.
+				kvec[N+1] = (uint32)(k >> 32);	// Must break 64-bit k into 2 32-bit pieces since kvec (32-bit offsets) array is 32-bit
+			}
+		}
+	}
+
+	__global__ void GPU_TF64(const uint64 p, const uint64 pshift, const uint32 FERMAT, const uint32 zshift, const uint32 start_index, const uint64*kvec, uint8*rvec, int N)
+	{
+		int i = blockDim.x * blockIdx.x + threadIdx.x;	// Hardware thread ID:
+		if(i < N) {	// Allow for partially-filled thread blocks
+			uint64 k = kvec[i];
+			// Result returned in rvec[i]:
+			rvec[i] = twopmodq64_gpu(p, pshift, FERMAT, k, start_index, zshift, i);
+		}
+	}
+
+	__global__ void GPU_TF64_q4(const uint64 p, const uint64 pshift, const uint32 FERMAT, const uint32 zshift, const uint32 start_index, const uint64*kvec, uint8*rvec, int N)
+	{
+		int i = blockDim.x * blockIdx.x + threadIdx.x;	// Hardware thread ID:
+		if(i < N) {	// Allow for partially-filled thread blocks
+			int i4 = i << 2;	// *= 4 here to yield base-ID for each k-quartet
+			uint64 k0 = kvec[i4], k1 = kvec[i4+1], k2 = kvec[i4+2], k3 = kvec[i4+3];
+			// Result returned in bits <0:3> of rvec[i]:
+		#if 0	// Disable until fix slow-compile issue with the twopmodq78_q4_GPU source code
+			rvec[i] = twopmodq64_q4_GPU(p, pshift, FERMAT, k0,k1,k2,k3, start_index, zshift, i);
+		#else
+			uint8 r0,r1,r2,r3;
+			r0 = twopmodq64_gpu(p, pshift, FERMAT, k0, start_index, zshift, i);
+			r1 = twopmodq64_gpu(p, pshift, FERMAT, k1, start_index, zshift, i);
+			r2 = twopmodq64_gpu(p, pshift, FERMAT, k2, start_index, zshift, i);
+			r3 = twopmodq64_gpu(p, pshift, FERMAT, k3, start_index, zshift, i);
+			rvec[i] = r0 + (r1<<1) + (r2<<2) + (r3<<3);
+		#endif
+		}
+	}
+/*
+	__global__ void GPU_TF64_q8(const uint64 p, const uint64 pshift, const uint32 FERMAT, const uint32 zshift, const uint32 start_index, const uint64*kvec, uint8*rvec, int N)
+	{
+		int i = blockDim.x * blockIdx.x + threadIdx.x;	// Hardware thread ID:
+		if(i < N) {	// Allow for partially-filled thread blocks
+			int i8 = i << 3;	// *= 8 here to yield base-ID for each k-octtet
+			uint64 k0 = kvec[i8], k1 = kvec[i8+1], k2 = kvec[i8+2], k3 = kvec[i8+3], k4 = kvec[i8+4], k5 = kvec[i8+5], k6 = kvec[i8+6], k7 = kvec[i8+7];
+			// Result returned in bits <0:7> (that is, all 8 bits) of rvec[i]:
+			rvec[i] = twopmodq64_q8_GPU(p, pshift, FERMAT, k0,k1,k2,k3,k4,k5,k6,k7, start_index, zshift, i);
+		}
+	}
+*/
+#endif	// __CUDACC__
+
 #ifdef YES_ASM
-char str0[64];
 /*** 4-trial-factor version, optimized x86_64 asm for main powering loop ***/
-uint64 twopmodq64_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
+uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 {
+//int dbg = ( (p == (1ull<<32)) && ( (k0 == 2958ull) || (k1 == 2958ull) || (k2 == 2958ull) || (k3 == 2958ull) ) );
+//if(dbg) printf("Hit! k0-3 = %llu, %llu, %llu, %llu\n",k0, k1, k2, k3);
 	int32 j;
 	uint64 q0 = 1+(p<<1)*k0, q1 = 1+(p<<1)*k1, q2 = 1+(p<<1)*k2, q3 = 1+(p<<1)*k3
 	, qinv0, qinv1, qinv2, qinv3
 	, x0, x1, x2, x3
 	, y0, y1, y2, y3
 	, lo0, lo1, lo2, lo3, r;
-	static uint64 psave = 0, pshift;
-	static uint32 start_index, zshift, first_entry = TRUE;
-	
-	if(first_entry || p != psave)
-	{
-		first_entry = FALSE;
-		psave  = p;
-		pshift = p + 64;
-		start_index = 64-leadz64(pshift)-6;
-		
-		zshift = 63-ibits64(pshift,start_index,6);	/* Since 6 bits with leftmost bit = 1 is guaranteed
-		 to be in [32,63], the shift count here is in [0, 31].
-		 That means that zstart < 2^32. Together with the fact that
-		 squaring a power of two gives another power of two, we can
-		 simplify the modmul code sequence for the first iteration.
-		 Every little bit counts (literally in this case :), right? */
-		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
-		
-		pshift = ~pshift;
-	}
-	*checksum1 += q0 + q1 + q2 + q3;
+	uint64 pshift;
+	uint32 jshift, leadb, start_index, zshift;
+	uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
+
+	pshift = p + 64;
+	jshift = leadz64(pshift);
+	// Extract leftmost 6 bits of pshift and subtract from 64:
+	leadb = ((pshift<<jshift) >> (64-6));
+	start_index = (64-6)-jshift;
+	zshift = 63 - leadb;
+	zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
+	pshift = ~pshift;
 
 	/* q must be odd for Montgomery-style modmul to work: */
-#if FAC_DEBUG
-	ASSERT(HERE, (q0 & (uint64)1) == 1, "(q0 & (uint64)1) != 1!");
-	ASSERT(HERE, (q1 & (uint64)1) == 1, "(q1 & (uint64)1) != 1!");
-	ASSERT(HERE, (q2 & (uint64)1) == 1, "(q2 & (uint64)1) != 1!");
-	ASSERT(HERE, (q3 & (uint64)1) == 1, "(q3 & (uint64)1) != 1!");
-#endif
+	ASSERT(HERE, q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 , "even modulus!");
 	qinv0 = (q0+q0+q0) ^ (uint64)2;
 	qinv1 = (q1+q1+q1) ^ (uint64)2;
 	qinv2 = (q2+q2+q2) ^ (uint64)2;
 	qinv3 = (q3+q3+q3) ^ (uint64)2;
-	
+
 	for(j = 0; j < 4; j++)
 	{
 		qinv0 = qinv0*((uint64)2 - q0*qinv0);
@@ -79,11 +361,11 @@ uint64 twopmodq64_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 		qinv2 = qinv2*((uint64)2 - q2*qinv2);
 		qinv3 = qinv3*((uint64)2 - q3*qinv3);
 	}
-	
+
 	/* Since zstart is a power of two < 2^128, use a
 	 streamlined code sequence for the first iteration: */
 	j = start_index-1;
-	
+
 	/* MULL64(zstart,qinv,lo) simply amounts to a left-shift of the bits of qinv: */
 	lo0 = qinv0 << zshift;
 	lo1 = qinv1 << zshift;
@@ -99,7 +381,7 @@ uint64 twopmodq64_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 	y1 = q1 - lo1;
 	y2 = q2 - lo2;
 	y3 = q3 - lo3;
-	
+
 	if((pshift >> j) & (uint64)1)
 	{
 		x0 = y0 + y0;	x0 -= q0 & -(x0 >= q0 || x0 < y0);
@@ -114,6 +396,7 @@ uint64 twopmodq64_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 		x2 = y2;
 		x3 = y3;
 	}
+//if(dbg) printf("x0 = %llu\n",x0);
 
 //printf("twopmodq64_q4 : x1 = %s\n", &str0[convert_uint64_base10_char(str0, x1)] );
 //for(j = start_index-2; j >= 0; j--) {
@@ -264,20 +547,18 @@ uint64 twopmodq64_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 //printf("twopmodq64_q4 : x1 = %s\n", &str0[convert_uint64_base10_char(str0, x1+x1-q1)] );
 //exit(0);
 	/*...Double and return.	These are specialized for the case where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2. */
-
-	*checksum2 += x0 + x1 + x2 + x3;
-
+//if(dbg) printf("xout = %llu\n",x0+x0-q0+FERMAT);
 	r = 0;
-	if(x0+x0-q0 == 1) r +=  1;
-	if(x1+x1-q1 == 1) r +=  2;
-	if(x2+x2-q2 == 1) r +=  4;
-	if(x3+x3-q3 == 1) r +=  8;
+	if(x0+x0-q0+FERMAT == 1) r +=  1;
+	if(x1+x1-q1+FERMAT == 1) r +=  2;
+	if(x2+x2-q2+FERMAT == 1) r +=  4;
+	if(x3+x3-q3+FERMAT == 1) r +=  8;
 	return(r);
 }
 
 
 /*** 8-trial-factor version ***/
-uint64 twopmodq64_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7)
+uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7)
 {
 	 int32 j;
 	uint64 q0 = 1+(p<<1)*k0, q1 = 1+(p<<1)*k1, q2 = 1+(p<<1)*k2, q3 = 1+(p<<1)*k3, q4 = 1+(p<<1)*k4, q5 = 1+(p<<1)*k5, q6 = 1+(p<<1)*k6, q7 = 1+(p<<1)*k7
@@ -285,29 +566,21 @@ uint64 twopmodq64_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 		, x0, x1, x2, x3, x4, x5, x6, x7
 		, y0, y1, y2, y3, y4, y5, y6, y7
 		, lo0, lo1, lo2, lo3, lo4, lo5, lo6, lo7, r;
-	static uint64 psave = 0, pshift;
-	static uint32 start_index, zshift, first_entry = TRUE;
+	uint64 pshift;
+	uint32 jshift, leadb, start_index, zshift;
+	uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
-	if(first_entry || p != psave)
-	{
-		first_entry = FALSE;
-		psave  = p;
-		pshift = p + 64;
-		start_index = 64-leadz64(pshift)-6;
-
-		zshift = 63-ibits64(pshift,start_index,6);	/* Since 6 bits with leftmost bit = 1 is guaranteed
-								to be in [32,63], the shift count here is in [0, 31].
-								That means that zstart < 2^32. Together with the fact that
-								squaring a power of two gives another power of two, we can
-								simplify the modmul code sequence for the first iteration.
-								Every little bit counts (literally in this case :), right? */
-		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
-
-		pshift = ~pshift;
-	}
-	*checksum1 += q0 + q1 + q2 + q3 + q4 + q5 + q6 + q7;
+	pshift = p + 64;
+	jshift = leadz64(pshift);
+	// Extract leftmost 6 bits of pshift and subtract from 64:
+	leadb = ((pshift<<jshift) >> (64-6));
+	start_index = (64-6)-jshift;
+	zshift = 63 - leadb;
+	zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
+	pshift = ~pshift;
 
 	/* q must be odd for Montgomery-style modmul to work: */
+	ASSERT(HERE, q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 && q4 & 1 && q5 & 1 && q6 & 1 && q7 & 1 , "even modulus!");
 	qinv0 = (q0+q0+q0) ^ (uint64)2;
 	qinv1 = (q1+q1+q1) ^ (uint64)2;
 	qinv2 = (q2+q2+q2) ^ (uint64)2;
@@ -633,44 +906,17 @@ uint64 twopmodq64_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, ui
 	/*...Double and return.	These are specialized for the case where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2.
 	*/
 
-	*checksum2 += x0 + x1 + x2 + x3 + x4 + x5 + x6 + x7;
-
 	r = 0;
-	if(x0+x0-q0 == 1) r +=  1;
-	if(x1+x1-q1 == 1) r +=  2;
-	if(x2+x2-q2 == 1) r +=  4;
-	if(x3+x3-q3 == 1) r +=  8;
-	if(x4+x4-q4 == 1) r += 16;
-	if(x5+x5-q5 == 1) r += 32;
-	if(x6+x6-q6 == 1) r += 64;
-	if(x7+x7-q7 == 1) r +=128;
+	if(x0+x0-q0+FERMAT == 1) r +=  1;
+	if(x1+x1-q1+FERMAT == 1) r +=  2;
+	if(x2+x2-q2+FERMAT == 1) r +=  4;
+	if(x3+x3-q3+FERMAT == 1) r +=  8;
+	if(x4+x4-q4+FERMAT == 1) r += 16;
+	if(x5+x5-q5+FERMAT == 1) r += 32;
+	if(x6+x6-q6+FERMAT == 1) r += 64;
+	if(x7+x7-q7+FERMAT == 1) r +=128;
 	return(r);
 }
 
 #endif /* YES_ASM */
-
-/*
-Testing 64-bit factors...
-twopmodq64_q4 : x0 = 2296955013172626669
-twopmodq64_q4 : x0 = 10409682588550727410
-twopmodq64_q4 : x0 = 880670618513687225
-twopmodq64_q4 : x0 = 2866340383748859111
-twopmodq64_q4 : x0 = 5073482287602503363
-twopmodq64_q4 : x0 = 6951418682011146289
-twopmodq64_q4 : x0 = 6509011776062795213
-twopmodq64_q4 : x0 = 272552355776550471
-twopmodq64_q4 : x0 = 4838859802115059419
-twopmodq64_q4 : x0 = 1529997424122302037
-twopmodq64_q4 : x0 = 512414035628167992
-twopmodq64_q4 : x0 = 6146322359422961128
-twopmodq64_q4 : x0 = 8278789907500224298
-twopmodq64_q4 : x0 = 4711846519350180584
-twopmodq64_q4 : x0 = 7430191046458322498
-twopmodq64_q4 : x0 = 4067943528132455686
-twopmodq64_q4 : x0 = 6760717124811562117
-twopmodq64_q4 : x0 = 9342645731491044701
-twopmodq64_q4 : x0 = 5250182887251718101
-twopmodq64_q4 : x0 = 1
-rm: t17922587: No such file or directory
-*/
 

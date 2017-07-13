@@ -28,7 +28,7 @@
 
 #else
 	// EWM: Instead of error-on-compile we default to the util.c:get_time_str() function if any misconfig deteceted:
-//	#error "Unable to define getRealTime( ) for an unknown OS."
+	#error "Unable to define getRealTime( ) for an unknown OS."
 	#define GRT_MISCONFIG
 #endif
 
@@ -99,7 +99,7 @@ double getRealTime( )
 		if ( id != (clockid_t)-1 && clock_gettime( id, &ts ) != -1 )
 			return (double)ts.tv_sec +
 				(double)ts.tv_nsec / 1000000000.0;
-		/* Fall through. */
+		/* Fall thru. */
 	}
 #endif /* _POSIX_TIMERS */
 

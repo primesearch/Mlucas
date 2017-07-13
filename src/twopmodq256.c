@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2012 by Ernst W. Mayer.                                           *
+*   (C) 1997-2015 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -27,6 +27,38 @@
 	char str0[64], str1[64];
 #endif
 
+// Specialized versions of MULL128, in which we multiply the
+// low half of the 256-bit input x with the high half of the 256-bit input y:
+#ifdef MUL_LOHI64_SUBROUTINE
+
+    #define MULL128_256lohihalf(__x, __y, __lo)\
+    {\
+		uint64 __w0,__w1,__a,__c;\
+		\
+		__a = __MULL64(__x.d0,__y.d3);\
+		__c = __MULL64(__y.d2,__x.d1);\
+		MUL_LOHI64(__x.d0,__y.d2,&__w0,&__w1);\
+		__w1 += __a;\
+		__w1 += __c;\
+		__lo.d0 =  __w0;	__lo.d1 = __w1;\
+    }
+
+#else
+
+    #define MULL128_256lohihalf(__x, __y, __lo)\
+    {\
+		uint64 __w0,__w1,__a,__c;\
+		\
+		MULL64(__x.d0,__y.d3,__a);\
+		MULL64(__y.d2,__x.d1,__c);\
+		MUL_LOHI64(__x.d0,__y.d2, __w0, __w1);\
+		__w1 += __a;\
+		__w1 += __c;\
+		__lo.d0 =  __w0;	__lo.d1 = __w1;\
+    }
+
+#endif
+
 /***********************************************************************************/
 /***256-BIT INPUTS *****************************************************************/
 /***********************************************************************************/
@@ -35,18 +67,21 @@
 */
 uint256 twopmodq256(uint256 p, uint256 q)
 {
-#if FAC_DEBUG
-	int dbg = STREQ(&char_buf[convert_uint256_base10_char(char_buf, p)], "0");
-#endif
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 lead8, lo64;
 	uint256 qhalf, qinv, x, lo, hi;
 	static uint256 psave = {0ull, 0ull, 0ull, 0ull}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
-
-#if FAC_DEBUG
-if(dbg)printf("twopmodq256:\n");
-#endif
+	uint32 FERMAT;
+	if(p.d3 != 0ull)
+		FERMAT = isPow2_64(p.d3) && (p.d2 == 0ull) && (p.d1 == 0ull) && (p.d0 == 0ull);
+	else if(p.d2 != 0ull)
+		FERMAT = isPow2_64(p.d2) && (p.d1 == 0ull) && (p.d0 == 0ull);
+	else if(p.d1 != 0ull)
+		FERMAT = isPow2_64(p.d1) && (p.d0 == 0ull);
+	else
+		FERMAT = isPow2_64(p.d0);
+	FERMAT <<= 1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
 	RSHIFT_FAST256(q, 1, qhalf);	/* = (q-1)/2, since q odd. */
 
@@ -56,13 +91,6 @@ if(dbg)printf("twopmodq256:\n");
 		psave  = p;
 		x.d0 = 256; x.d1 = x.d2 = x.d3 = 0;
 		ADD256(p, x, pshift);
-#if FAC_DEBUG
-	if(dbg)
-	{
-		printf("p = %s\n", &char_buf[convert_uint256_base10_char(char_buf, p     )]);
-		printf("p+= %s\n", &char_buf[convert_uint256_base10_char(char_buf, pshift)]);
-	}
-#endif
 	/*
 	!    find number of leading zeros in p, use it to find the position of the leftmost
 	!    ones bit, and subtract 8 to account for the fact that we can do the powering for the leftmost
@@ -107,22 +135,12 @@ if(dbg)printf("twopmodq256:\n");
 			start_index =  64-j-8;
 		}
 
-#if FAC_DEBUG
-	if(dbg)	printf("lead8 = %u\n", (uint32)lead8);
-#endif
 		zshift = 255 - lead8;
 		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
-
 		pshift.d3 = ~pshift.d3;	pshift.d2 = ~pshift.d2;	pshift.d1 = ~pshift.d1;	pshift.d0 = ~pshift.d0;
 	}
 
-	/*
-	!    Find modular inverse (mod 2^256) of q in preparation for modular multiply.
-	*/
-	/* q must be odd for Montgomery-style modmul to work: */
-#if FAC_DEBUG
-	ASSERT(HERE, (q.d0 & (uint64)1) == 1, "twopmodq256 : (q.d0 & (uint64)1) == 1");
-#endif
+	// Find inverse (mod 2^256) of q in preparation for modular multiply: q must be odd for Montgomery-style modmul to work:
 	/* Init qinv = q. We're really only interested in the bottom 2 bits of q. */
 	qinv.d0 = (q.d0 + q.d0 + q.d0) ^ (uint64)2;	qinv.d3 = qinv.d2 = qinv.d1 = (uint64)0;
 
@@ -139,64 +157,42 @@ if(dbg)printf("twopmodq256:\n");
 		qinv.d0 = qinv.d0*((uint64)2 - lo64);
 	}
 
-	/* Now that have bottom 64 bits of qinv, do two more Newton iterations using full 256-bit operands: */
-	MULL256(q, qinv, x);
-	SUB256 (TWO256, x, x);
-	MULL256(qinv, x, qinv);
-
-	MULL256(q, qinv, x);
-	SUB256 (TWO256, x, x);
-	MULL256(qinv, x, qinv);
-
-#if FAC_DEBUG
-	if(dbg)
-	{
-		printf("q    = %s\n", &char_buf[convert_uint256_base10_char(char_buf, q   )]);
-		printf("qinv = %s\n", &char_buf[convert_uint256_base10_char(char_buf, qinv)]);
-	}
+	/* Now that have bottom 64 bits of qinv, do two more Newton iterations using 128-bit and full 256-bit operands, resp: */
+	// 64 -> 128 bits: CF. twopmodq128.c: qinv has 128 bits, but only the upper 64 get modified here:
+#ifdef MUL_LOHI64_SUBROUTINE
+	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + __MULH64(q.d0, qinv.d0));
+#else
+	MULH64(q.d0, qinv.d0, lo64);
+	qinv.d1 = -qinv.d0*(q.d1*qinv.d0 + lo64);
 #endif
+	// 128 -> 256 bits:
+#if 1
+	MULH128(q, qinv, x);
+	// NB: input order here matters! Low-half input must be first in arglist:
+	MULL128_256lohihalf(qinv, q, lo);	//      MULL128([hi half of q], [lo half of qinv])
+	ADD128(x, lo, x);					// x += MULL128_256hilohalf result [only need low 128 bits]
+	MULL128(qinv, x, hi);				// MULL128(qinv, x)
+	qinv.d2 = ~hi.d0;	qinv.d3 = ~hi.d1;			// [hi half of qinv] = -MULL128(qinv, x) ...
+	qinv.d2 += 1ull; qinv.d3 += (qinv.d2 == 0ull);	// ... Negation here uses multiword analog of the identity -x = ~x + 1 .
+#else
+	MULL256(q, qinv, x);
+	SUB256 (TWO256, x, x);
+	MULL256(qinv, x, qinv);
+#endif
+
 	/* Since zstart is a power of two < 2^256, use a streamlined code sequence for the first iteration: */
 	ASSERT(HERE, start_index>=2, "twopmodq256 : start_index < 2!");
 	j = start_index-1;
 
 	/* MULL256(zstart,qinv,lo) simply amounts to a left-shift of the bits of qinv: */
-#if FAC_DEBUG
-	if(dbg) printf("j = start_index - 1 = %u\n", j);
-	if(dbg) printf("zshift  = %u\n", zshift);
-#endif
 	LSHIFT256(qinv, zshift, lo);
-#if FAC_DEBUG
-	if(dbg) printf("lo = %s\n", &char_buf[convert_uint256_base10_char(char_buf, lo)]);
-#endif
 	MULH256(q,lo,lo);
-#if FAC_DEBUG
-	if(dbg) printf("q*lo/2^256 = %s\n", &char_buf[convert_uint256_base10_char(char_buf, lo)]);
-#endif
+	SUB256(q, lo, x);	// hi = 0 in this instance, which simplifies things.
 
-	/* hi = 0 in this instance, which simplifies things. */
-	SUB256(q, lo, x);
-
-#if FAC_DEBUG
-	if(dbg) printf("x = %s\n", &char_buf[convert_uint256_base10_char(char_buf, lo)]);
-#endif
-	if(TEST_BIT256(pshift, j))
-	{
-	#if FAC_DEBUG
-		ASSERT(HERE, CMPULT256(x,q), "twopmodq256 : CMPULT256(x,q)");
-	#endif
+	if(TEST_BIT256(pshift, j)) {
 		/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 		if(CMPUGT256(x, qhalf)){ ADD256(x, x, x); SUB256(x, q, x); }else{ ADD256(x, x, x); }
-#if FAC_DEBUG
-if(dbg) printf("2x= %s\n", &char_buf[convert_uint256_base10_char(char_buf, x)]);
-#endif
 	}
-
-#if FAC_DEBUG
-	if(dbg) printf("x0= %s\n", &char_buf[convert_uint256_base10_char(char_buf, x)]);
-#endif
-#if FAC_DEBUG
-	if(CMPULT256(q, x)){ sprintf(char_buf, "twopmodq256 : (x0 = %s) >= (q = %s)", &str0[convert_uint256_base10_char(str0, x)], &str1[convert_uint256_base10_char(str1, q)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
-#endif
 
 	for(j = start_index-2; j >= 0; j--)
 	{
@@ -206,29 +202,16 @@ if(dbg) printf("2x= %s\n", &char_buf[convert_uint256_base10_char(char_buf, x)]);
 		MULH256(q,lo,lo);
 
 		/* If h < l, then calculate q-l+h < q; otherwise calculate h-l. */
-		if(CMPULT256(hi, lo))
-		{
+		if(CMPULT256(hi, lo)) {
 			SUB256(q, lo, lo);
 			ADD256(lo, hi, x);
-		}
-		else
-		{
+		} else {
 			SUB256(hi, lo, x);
 		}
-#if FAC_DEBUG
-	if(dbg) printf("x = %s\n", &char_buf[convert_uint256_base10_char(char_buf, x)]);
-#endif
 
-		if(TEST_BIT256(pshift, j))
-		{
-		#if FAC_DEBUG
-			ASSERT(HERE, CMPULT256(x,q), "twopmodq256 : CMPULT256(x,q)");
-		#endif
+		if(TEST_BIT256(pshift, j)) {
 			/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 			if(CMPUGT256(x, qhalf)){ ADD256(x, x, x); SUB256(x, q, x); }else{ ADD256(x, x, x); }
-#if FAC_DEBUG
-	if(dbg) printf("2x= %s\n", &char_buf[convert_uint256_base10_char(char_buf, x)]);
-#endif
 		}
 	}
 
@@ -236,14 +219,26 @@ if(dbg) printf("2x= %s\n", &char_buf[convert_uint256_base10_char(char_buf, x)]);
 	where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2.
 	*/
 	ADD256(x,x,x);	/* In the case of interest, x = (q+1)/2 < 2^255, so x + x cannot overflow. */
-#if FAC_DEBUG
-	if(dbg) printf("Final x = %s\n", &char_buf[convert_uint256_base10_char(char_buf, x)]);
-#endif
+	// For Fn with n > 50-or-so it is not uncommon to have q = b*2^64 + 1, thus need to check for borrow
+	lo.d3 = lo.d2 = lo.d1 = 0ull; lo.d0 = FERMAT;	SUB256(q,lo,q);	// Since carry may propagate > 1 word, use general SUB
 	SUB256(x,q,x);
-#if FAC_DEBUG
-	if(dbg) printf("Final x-q=%s\n", &char_buf[convert_uint256_base10_char(char_buf, x)]);
-#endif
-
 	return x;
 }
+/* Sep 2015: timing comparisons on my clunky old 32-bit Core Duo:
 
+192-bit:
+	F(147) has 1 factors in range k = [245044800, 261381120], passes 0-15
+	Performed 580390 trial divides
+	real	0m28.437s
+	user	0m53.595s
+	
+	~170 modmul per q --> ~1075 cycle/modmul [lumps sieve time in w/modmul]
+
+256-bit:
+	F(195) has 1 factors in range k = [97190681427840, 97190697764160], passes 0-15
+	Performed 579792 trial divides
+	real	1m9.458s
+	user	2m10.487s
+	
+	~235 modmul per q --> ~1900 cycle/modmul [lumps sieve time in w/modmul]
+*/

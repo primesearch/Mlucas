@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2012 by Ernst W. Mayer.                                           *
+*   (C) 1997-2015 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -42,7 +42,7 @@ The key 3-operation sequence here is as follows:
 	MULH128(q,lo,lo);	// Inputs  q &   lo, and output (overwrites lo) have 128 bits
 							//    (but only lower 96 bits of q and output are nonzero).
 */
-uint64 twopmodq128_96(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k)
+uint64 twopmodq128_96(uint64 p, uint64 k)
 {
 #if FAC_DEBUG
 	int dbg = (p == 0);
@@ -52,6 +52,7 @@ uint64 twopmodq128_96(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k)
 	uint128 q, qinv, x, lo;
 	static uint64 psave = 0, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
+	uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
 #if FAC_DEBUG
 if(dbg)printf("twopmodq128_96:\n");
@@ -59,10 +60,13 @@ if(dbg)printf("twopmodq128_96:\n");
 
 	ASSERT(HERE, (p >> 63) == 0, "p must be < 2^63!");
 	q.d0 = p+p;	q.d1 = 0;
+#ifdef MUL_LOHI64_SUBROUTINE
+	MUL_LOHI64(q.d0, k,&q.d0,&q.d1);
+#else
 	MUL_LOHI64(q.d0, k, q.d0, q.d1);
+#endif
 	q.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 	ASSERT(HERE, (q.d1 >> 32) == 0, "(q.d1 >> 32) != 0");
-	*checksum1 += q.d0;
 
 	if(first_entry || p != psave)
 	{
@@ -236,18 +240,17 @@ if(dbg)printf("\n");
 	where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2.
 	*/
 	ADD128(x,x,x);
+	q.d0 -= FERMAT;
 	SUB128(x,q,x);
 
 #if FAC_DEBUG
 if(dbg)printf("x0 = %s\n", &char_buf[convert_uint128_base10_char(char_buf, x)]);
 #endif
-
-	*checksum2 += x.d0;
 	return (uint64)CMPEQ128(x, ONE128) ;
 }
 
 /*** 4-trial-factor version ***/
-uint64 twopmodq128_96_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
+uint64 twopmodq128_96_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 {
 #if FAC_DEBUG
 	int dbg = (p == 0);
@@ -262,6 +265,7 @@ uint64 twopmodq128_96_q4(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0
 		, lo0, lo1, lo2, lo3;
 	static uint64 psave = 0, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
+	uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
 #if FAC_DEBUG
 if(dbg)printf("twopmodq128_96_q4:\n");
@@ -296,10 +300,17 @@ if(dbg)printf("twopmodq128_96_q4:\n");
 	ASSERT(HERE, (p >> 63) == 0, "p must be < 2^63!");
 	q0.d0 = q1.d0 = q2.d0 = q3.d0 = p+p;
 	q0.d1 = q1.d1 = q2.d1 = q3.d1 = 0;
+#ifdef MUL_LOHI64_SUBROUTINE
+	MUL_LOHI64(q0.d0, k0,&q0.d0,&q0.d1);
+	MUL_LOHI64(q1.d0, k1,&q1.d0,&q1.d1);
+	MUL_LOHI64(q2.d0, k2,&q2.d0,&q2.d1);
+	MUL_LOHI64(q3.d0, k3,&q3.d0,&q3.d1);
+#else
 	MUL_LOHI64(q0.d0, k0, q0.d0, q0.d1);
 	MUL_LOHI64(q1.d0, k1, q1.d0, q1.d1);
 	MUL_LOHI64(q2.d0, k2, q2.d0, q2.d1);
 	MUL_LOHI64(q3.d0, k3, q3.d0, q3.d1);
+#endif
 	ASSERT(HERE, (q0.d1 >> 32) == 0, "(q0.d1 >> 32) != 0");
 	ASSERT(HERE, (q1.d1 >> 32) == 0, "(q1.d1 >> 32) != 0");
 	ASSERT(HERE, (q2.d1 >> 32) == 0, "(q2.d1 >> 32) != 0");
@@ -309,8 +320,6 @@ if(dbg)printf("twopmodq128_96_q4:\n");
 	q1.d0 += 1;
 	q2.d0 += 1;
 	q3.d0 += 1;
-
-	*checksum1 += q0.d0 + q1.d0 + q2.d0 + q3.d0;
 
 	/* q must be odd for Montgomery-style modmul to work: */
 #if FAC_DEBUG
@@ -557,7 +566,10 @@ if(dbg)printf("\n");
 	ADD128(x1 ,x1, x1);
 	ADD128(x2 ,x2, x2);
 	ADD128(x3 ,x3, x3);
-
+	q0.d0 -= FERMAT;
+	q1.d0 -= FERMAT;
+	q2.d0 -= FERMAT;
+	q3.d0 -= FERMAT;
 	SUB128(x0, q0, x0);
 	SUB128(x1, q1, x1);
 	SUB128(x2, q2, x2);
@@ -566,8 +578,6 @@ if(dbg)printf("\n");
 #if FAC_DEBUG
 if(dbg)printf("x0 = %s\n", &char_buf[convert_uint128_base10_char(char_buf, x0)]);
 #endif
-
-	*checksum2 += x0.d0 + x1.d0 + x2.d0 + x3.d0;
 
 	/* Only do the full 128-bit (Xj== 1) check if the bottom 64 bits of Xj == 1: */
 	r = 0;
@@ -579,7 +589,7 @@ if(dbg)printf("x0 = %s\n", &char_buf[convert_uint128_base10_char(char_buf, x0)])
 }
 
 /*** 8-trial-factor version ***/
-uint64 twopmodq128_96_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7)
+uint64 twopmodq128_96_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7)
 {
 #if FAC_DEBUG
 	int dbg = STREQ(&char_buf[convert_uint64_base10_char(char_buf, p)], "0");
@@ -592,6 +602,7 @@ uint64 twopmodq128_96_q8(uint64*checksum1, uint64*checksum2, uint64 p, uint64 k0
 		, lo0, lo1, lo2, lo3, lo4, lo5, lo6, lo7;
 	static uint64 psave = 0, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
+	uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
 #if FAC_DEBUG
 if(dbg)printf("twopmodq128_96_q8:\n");
@@ -628,6 +639,16 @@ if(dbg)printf("twopmodq128_96_q8:\n");
 	ASSERT(HERE, (p >> 63) == 0, "p must be < 2^63!");
 	q0.d0 = q1.d0 = q2.d0 = q3.d0 = q4.d0 = q5.d0 = q6.d0 = q7.d0 = p+p;
 	q0.d1 = q1.d1 = q2.d1 = q3.d1 = q4.d1 = q5.d1 = q6.d1 = q7.d1 = 0;
+#ifdef MUL_LOHI64_SUBROUTINE
+	MUL_LOHI64(q0.d0, k0,&q0.d0,&q0.d1);
+	MUL_LOHI64(q1.d0, k1,&q1.d0,&q1.d1);
+	MUL_LOHI64(q2.d0, k2,&q2.d0,&q2.d1);
+	MUL_LOHI64(q3.d0, k3,&q3.d0,&q3.d1);
+	MUL_LOHI64(q4.d0, k4,&q4.d0,&q4.d1);
+	MUL_LOHI64(q5.d0, k5,&q5.d0,&q5.d1);
+	MUL_LOHI64(q6.d0, k6,&q6.d0,&q6.d1);
+	MUL_LOHI64(q7.d0, k7,&q7.d0,&q7.d1);
+#else
 	MUL_LOHI64(q0.d0, k0, q0.d0, q0.d1);
 	MUL_LOHI64(q1.d0, k1, q1.d0, q1.d1);
 	MUL_LOHI64(q2.d0, k2, q2.d0, q2.d1);
@@ -636,6 +657,7 @@ if(dbg)printf("twopmodq128_96_q8:\n");
 	MUL_LOHI64(q5.d0, k5, q5.d0, q5.d1);
 	MUL_LOHI64(q6.d0, k6, q6.d0, q6.d1);
 	MUL_LOHI64(q7.d0, k7, q7.d0, q7.d1);
+#endif
 
 	q0.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
 	q1.d0 += 1;
@@ -653,8 +675,6 @@ if(dbg)printf("twopmodq128_96_q8:\n");
 	ASSERT(HERE, (q5.d1 >> 32) == 0, "(q5.d1 >> 32) != 0");
 	ASSERT(HERE, (q6.d1 >> 32) == 0, "(q6.d1 >> 32) != 0");
 	ASSERT(HERE, (q7.d1 >> 32) == 0, "(q7.d1 >> 32) != 0");
-
-	*checksum1 += q0.d0 + q1.d0 + q2.d0 + q3.d0 + q4.d0 + q5.d0 + q6.d0 + q7.d0;
 
 	/*
 	!    Find modular inverse (mod 2^128) of q in preparation for modular multiply.
@@ -952,7 +972,16 @@ if(dbg)printf("\n");
 	ADD128(x5 ,x5, x5);
 	ADD128(x6 ,x6, x6);
 	ADD128(x7 ,x7, x7);
-
+	if(FERMAT) {
+		q0.d0 -= 2;
+		q1.d0 -= 2;
+		q2.d0 -= 2;
+		q3.d0 -= 2;
+		q4.d0 -= 2;
+		q5.d0 -= 2;
+		q6.d0 -= 2;
+		q7.d0 -= 2;
+	}
 	SUB128(x0, q0, x0);
 	SUB128(x1, q1, x1);
 	SUB128(x2, q2, x2);
@@ -965,8 +994,6 @@ if(dbg)printf("\n");
 #if FAC_DEBUG
 if(dbg)printf("x0 = %20llu + 2^64* %20llu\n",x0.d0, x0.d1);
 #endif
-
-	*checksum2 += x0.d0 + x1.d0 + x2.d0 + x3.d0 + x4.d0 + x5.d0 + x6.d0 + x7.d0;
 
 	/* Only do the full 128-bit (Xj== 1) check if the bottom 64 bits of Xj == 1: */
 	r = 0;

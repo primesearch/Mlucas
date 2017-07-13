@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2012 by Ernst W. Mayer.                                           *
+*   (C) 1997-2015 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -277,10 +277,10 @@ On Alpha, this needs a total of 20 MUL instructions and 82 ALU ops.
 		,__a,__b,__e,__f,__i,__j,__k,__l\
 		,__q,__r,__u,__v;\
 		\
-		MUL_LOHI64(__x.d0,__x.d0,&__w0,&__w1);	/*   x0^2  */\
-		MUL_LOHI64(__x.d1,__x.d1,&__w2,&__w3);	/*   x1^2  */\
-		MUL_LOHI64(__x.d2,__x.d2,&__w4,&__w5);	/*   x2^2  */\
-		MUL_LOHI64(__x.d3,__x.d3,&__w6,&__w7);	/*   x3^2  */\
+		SQR_LOHI64(__x.d0       ,&__w0,&__w1);	/*   x0^2  */\
+		SQR_LOHI64(__x.d1       ,&__w2,&__w3);	/*   x1^2  */\
+		SQR_LOHI64(__x.d2       ,&__w4,&__w5);	/*   x2^2  */\
+		SQR_LOHI64(__x.d3       ,&__w6,&__w7);	/*   x3^2  */\
 		\
 		MUL_LOHI64(__x.d0,__x.d1,&__a ,&__b );	/*   x0*x1 */\
 		\
@@ -358,10 +358,10 @@ On Alpha, this needs a total of 20 MUL instructions and 82 ALU ops.
 		,__a,__b,__e,__f,__i,__j,__k,__l\
 		,__q,__r,__u,__v;\
 		\
-		MUL_LOHI64(__x.d0,__x.d0, __w0, __w1);	/*   x0^2  */\
-		MUL_LOHI64(__x.d1,__x.d1, __w2, __w3);	/*   x1^2  */\
-		MUL_LOHI64(__x.d2,__x.d2, __w4, __w5);	/*   x2^2  */\
-		MUL_LOHI64(__x.d3,__x.d3, __w6, __w7);	/*   x3^2  */\
+		SQR_LOHI64(__x.d0       , __w0, __w1);	/*   x0^2  */\
+		SQR_LOHI64(__x.d1       , __w2, __w3);	/*   x1^2  */\
+		SQR_LOHI64(__x.d2       , __w4, __w5);	/*   x2^2  */\
+		SQR_LOHI64(__x.d3       , __w6, __w7);	/*   x3^2  */\
 		\
 		MUL_LOHI64(__x.d0,__x.d1, __a , __b );	/*   x0*x1 */\
 		\

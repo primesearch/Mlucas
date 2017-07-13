@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2014 by Ernst W. Mayer.                                           *
+*   (C) 1997-2017 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -25,35 +25,55 @@
 
 #define RADIX 768	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
 
-#define USE_COMPACT_OBJ_CODE	1
+#define EPS 1e-10
+
+/* Use for toggling higher-accuracy version of the twiddles computation */
+//#define HIACC 0	<*** prefer to set via compile-time flag; default is FALSE [= LOACC]
+
+// Mersenne-mod takes a binary-toggle LOACC; must give a numerical value for Fermat-mod:
+#if defined(HIACC) && defined(LOACC)
+	#error Only one of LOACC and HIACC may be defined!
+#endif
+#if !defined(HIACC) && !defined(LOACC)
+  #if OS_BITS == 64
+	#define LOACC	1	// Default is suitable for F29 work @ FFT length 30M
+	#warning LOACC = 1
+  #else
+	#define HIACC	1	// 32-bit mode only supports the older HIACC carry macros
+  #endif
+#endif
+#if defined(HIACC) && defined(USE_AVX512)
+	#error Currently only LOACC carry-mode supported in AVX-512 builds!
+#endif
+#if defined(LOACC) && (OS_BITS == 32)
+	#error 32-bit mode only supports the older HIACC carry macros!
+#endif
 
 #ifndef PFETCH_DIST
-  #ifdef USE_AVX
+  #ifdef USE_AVX512
+	#define PFETCH_DIST	64	// Feb 2017: Test on KNL point to this as best
+  #elif defined(USE_AVX)
 	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
   #else
 	#define PFETCH_DIST	32
   #endif
 #endif
 
-#ifdef MULTITHREAD
-	#ifndef USE_PTHREAD
-		#error Pthreads is only thread model currently supported!
-	#endif
-#endif
-
 #ifdef USE_SSE2
 
 	#define EPS 1e-10
 
-  // For Mersenne-mod we need (16 [SSE2] or 64 [AVX]) + 4 added slots for the half_arr lookup tables.
-  // Add applicable one of the 2 numbers to (half_arr_offset768 + RADIX) to get SIMD value of radix768_creals_in_local_store:
-
-  #ifdef USE_AVX
-	const int half_arr_offset768 = 0xea7;	// + RADIX + 68 = 0xea7 + 0x300 + 0x044; Used for thread local-storage-integrity checking
-	const int radix768_creals_in_local_store = 0x2200;	// ...and round up to nearest multiple of 128
+  // For Mersenne-mod need (16 [SSE2] or 64 [AVX]) + (4 [HIACC] or 40 [LOACC]) added slots for half_arr lookup tables.
+  // Max = (40 [SSE2]; 132 [AVX]), add to (half_arr_offset768 + RADIX) to get SIMD value of radix768_creals_in_local_store:
+  #ifdef USE_AVX512	// RADIX/8 = 0x60 fewer carry slots than AVX:
+	const int half_arr_offset768 = 0xe47;	// + RADIX + 132 (=0x84); Used for thread local-storage-integrity checking
+	const int radix768_creals_in_local_store = 0x11cc;	// ... + 0x300 + 0x084, and round up to nearest multiple of 4
+  #elif defined(USE_AVX)
+	const int half_arr_offset768 = 0xea7;	// + RADIX + 132 (=0x84); Used for thread local-storage-integrity checking
+	const int radix768_creals_in_local_store = 0x122c;	// ... + 0x300 + 0x084, and round up to nearest multiple of 4
   #else
-	const int half_arr_offset768 = 0xf67;	// + RADIX + 20 = 0xf67 + 0x300 + 0x014; Used for thread local-storage-integrity checking
-	const int radix768_creals_in_local_store = 0x2280;	// ...and round up to nearest multiple of 4
+	const int half_arr_offset768 = 0xf67;	// + RADIX + 40 = 0xf67 + 0x300 + 0x028; Used for thread local-storage-integrity checking
+	const int radix768_creals_in_local_store = 0x1290;	// ...and round up to nearest multiple of 4
   #endif
 
 	#include "sse2_macro.h"
@@ -89,6 +109,9 @@
 		double *arrdat;			/* Main data array */
 		double *wt0;
 		double *wt1;
+	#ifdef LOACC
+		double *wts_mult, *inv_mult;
+	#endif
 		int *si;
 	#ifdef USE_SSE2
 		vec_dbl *r000;
@@ -109,7 +132,11 @@
 	// Thus, we are forced to resort to fugly hackage - add pad slots to a garbage-named struct-internal array along with
 	// a pointer-to-be-inited-at-runtime, when we set ptr to the lowest-index array element having the desired alginment:
 		double *cy;
+	  #ifdef USE_AVX512
+		double cy_dat[RADIX+8] __attribute__ ((__aligned__(8)));
+	  #else
 		double cy_dat[RADIX+4] __attribute__ ((__aligned__(8)));	// Enforce min-alignment of 8 bytes in 32-bit builds.
+	  #endif
 	#endif
 	};
 
@@ -151,7 +178,9 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 #ifdef USE_SSE2
 	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
 	// lg(sizeof(vec_dbl)):
-  #ifdef USE_AVX
+  #ifdef USE_AVX512
+	const int l2_sz_vd = 6;
+  #elif defined(USE_AVX)
 	const int l2_sz_vd = 5;
   #else
 	const int l2_sz_vd = 4;
@@ -159,15 +188,25 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 #else
 	const int sz_vd = sizeof(double), sz_vd_m1 = sz_vd-1;
 #endif
-
+  #ifdef LOACC
+	static double wts_mult[2], inv_mult[2];	// Const wts-multiplier and 2*(its multiplicative inverse)
+  #endif
+	double wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
+	// Cleanup loop assumes carryins propagate at most 4 words up, but need at least 1 vec_cmplx
+	// (2 vec_dbl)'s worth of doubles in wraparound step, hence AVX-512 needs value bumped up:
+  #ifdef USE_AVX512
+	const int jhi_wrap = 15;
+  #else
+	const int jhi_wrap =  7;
+  #endif
 	int NDIVR,i,j,j1,j2,jt,jp,jstart,jhi,full_pass,k,khi,l,l1,l2,outer,nbytes;
 	int k0,k1,k2;
-	static uint64 psave=0;
+	static uint64 psave = 0;
 	static uint32 bw,sw,bjmodnini,
 		p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf,
-		     p10,p20,p30,p40,p50,p60,p70,p80,p90,pa0,pb0,pc0,pd0,pe0,pf0,
+		p10,p20,p30,p40,p50,p60,p70,p80,p90,pa0,pb0,pc0,pd0,pe0,pf0,
 		p100,p110,p120,p130,p140,p150,p160,p170,p180,p190,p1a0,p1b0,p1c0,p1d0,p1e0,p1f0,
-		p200,p210,p220,p230,p240,p250,p260,p270,p280,p290,p2a0,p2b0,p2c0,p2d0,p2e0,p2f0;
+		p200,p210,p220,p230,p240,p250,p260,p270,p280,p290,p2a0,p2b0,p2c0,p2d0,p2e0,p2f0, nsave = 0;
 	static int poff[RADIX>>2];	// Store mults of p4 offset for loop control
 	static double radix_inv, n2inv;
 #if defined(USE_SSE2) || !defined(MULTITHREAD)
@@ -188,7 +227,14 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 
 /*...stuff for the reduced-length DWT weights array is here:	*/
 	int n_div_nwt;
-  #ifdef USE_AVX
+  #ifdef USE_AVX512
+	double t0,t1,t2,t3;
+   #ifdef CARRY_16_WAY
+	static struct uint32x16 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+   #else
+	static struct uint32x8  *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+   #endif
+  #elif defined(USE_AVX)
 	static struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
   #endif
 #ifndef MULTITHREAD
@@ -201,7 +247,7 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 
 #ifdef USE_SSE2
 
-  #if !(defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
+  #if !(defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC))
 	#error SSE2 code not supported for this compiler!
   #endif
 
@@ -214,7 +260,7 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	static vec_dbl *__r0;	// Base address for discrete per-thread local stores
   #else
 	double *addr, *add0,*add1,*add2,*add3;
-	int *itmp;			// Pointer into the bjmodn array
+	int *itmp,*itm2;			// Pointer into the bjmodn array
   #endif
 
 	// Uint64 bitmaps for alternate "rounded the other way" copies of sqrt2,isrt2. Default round-to-nearest versions
@@ -254,7 +300,7 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
   #endif
 	double *addr;
 	int bjmodn[RADIX];
-	int *itmp;	// Pointer into the bjmodn array
+	int *itmp,*itm2;	// Pointer into the bjmodn array
 	double temp,frac,cy[RADIX],
 		t00,t01,t02,t03,t04,t05;
 
@@ -268,8 +314,8 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	uint32 ptr_prod;
 	static int *_bjmodnini = 0x0,*_bjmodn[RADIX];
 	static int *_i, *_jstart = 0x0, *_jhi = 0x0, *_col = 0x0, *_co2 = 0x0, *_co3 = 0x0;
-	static double *_maxerr = 0x0,*_cy[RADIX];
-	if(!_maxerr) {
+	static double *_cy[RADIX];
+	if(!_jhi) {
 		_cy[0] = 0x0;	// First of these used as an "already inited consts?" sentinel, must init = 0x0 at same time do so for non-array static ptrs
 	}
 
@@ -296,34 +342,66 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		return(err);
 	}
 
-	if(p != psave)
-	{
+	if(p != psave || n != nsave) {	/* Exponent or array length change triggers re-init */
 		first_entry=TRUE;
+		/* To-do: Support #thread change here! */
 	}
 
 /*...initialize things upon first entry: */
 
 	if(first_entry)
 	{
-		psave = p;
-		first_entry=FALSE;
+		psave = p;	nsave = n;
 		radix_inv = qfdbl(qf_rational_quotient((int64)1, (int64)RADIX));
 		n2inv     = qfdbl(qf_rational_quotient((int64)1, (int64)(n/2)));
 
 		bw    = p%n;	/* Number of bigwords in the Crandall/Fagin mixed-radix representation = (Mersenne exponent) mod (vector length).	*/
 		sw    = n - bw;	/* Number of smallwords.	*/
 
+	#ifdef LOACC
+
+	  #ifdef USE_AVX512
+	   #ifdef CARRY_16_WAY
+		i = 16;
+	   #else
+		i = 8;
+	   #endif
+	  #elif defined(USE_AVX)	// AVX LOACC: Make CARRY_8_WAY default here:
+		i = 8;
+	  #elif defined(USE_SSE2)	// AVX and SSE2 modes use 4-way carry macros
+		i = 4;
+	  #else	// Scalar-double mode:
+		i = 1;
+	  #endif
+
+		// For n a power of 2 don't need to worry about 32-bit integer overflow in the sw*NDIVR term,
+		// but for non-power-of-2 n we must cast-to-uint64 to avoid such overflows fubaring the result:
+		struct qfloat qt,qn;
+		qt = i64_to_q(i*(uint64)sw*NDIVR % n);
+		qn = i64_to_q((int64) n);
+		qt = qfdiv(qt, qn);		// x = (sw*NDIVR (mod n))/n
+		qt = qfmul(qt, QLN2);	// x*ln(2)...
+		qt = qfexp(qt);			// ...and get 2^x via exp[x*ln(2)].
+		wts_mult[0] = qfdbl(qt);		// a = 2^(x/n), with x = sw
+		inv_mult[0] = qfdbl(qfinv(qt));	// Double-based inversion (1.0 / wts_mult_a[0]) often gets LSB wrong
+		ASSERT(HERE,fabs(wts_mult[0]*inv_mult[0] - 1.0) < EPS, "wts_mults fail accuracy check!");
+		//curr have w, 2/w, separate-mul-by-1-or-0.5 gives [w,w/2] and [1/w,2/w] for i = 0,1, resp:
+		wts_mult[1] = 0.5*wts_mult[0];
+		inv_mult[1] = 2.0*inv_mult[0];
+		ASSERT(HERE,fabs(wts_mult[1]*inv_mult[1] - 1.0) < EPS, "wts_mults fail accuracy check!");
+
+	#endif
+
 	#ifdef MULTITHREAD
 
-		/* #Chunks ||ized in carry step is ideally a power of 2, so use the smallest
-		power of 2 that is >= the value of the global NTHREADS (but still <= MAX_THREADS):
+		/* #Chunks ||ized in carry step is ideally a power of 2, so use the largest
+		power of 2 that is <= the value of the global NTHREADS (but still <= MAX_THREADS):
 		*/
 		if(isPow2(NTHREADS))
 			CY_THREADS = NTHREADS;
-		else
-		{
+		else {
 			i = leadz32(NTHREADS);
-			CY_THREADS = (((uint32)NTHREADS << i) & 0x80000000) >> (i-1);
+			CY_THREADS = (((uint32)NTHREADS << i) & 0x80000000) >> i;
 		}
 
 		if(CY_THREADS > MAX_THREADS)
@@ -331,7 +409,6 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		//	CY_THREADS = MAX_THREADS;
 			fprintf(stderr,"WARN: CY_THREADS = %d exceeds number of cores = %d\n", CY_THREADS, MAX_THREADS);
 		}
-		if(CY_THREADS < NTHREADS)	{ WARN(HERE, "CY_THREADS < NTHREADS", "", 1); return(ERR_ASSERT); }
 		if(!isPow2(CY_THREADS))		{ WARN(HERE, "CY_THREADS not a power of 2!", "", 1); return(ERR_ASSERT); }
 		if(CY_THREADS > 1)
 		{
@@ -340,33 +417,33 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		}
 
 	  #ifdef USE_PTHREAD
-
-		j = (uint32)sizeof(struct cy_thread_data_t);
-		tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, j);
-
-		// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
-		// so on that platform try to be clever and interleave main-thread and threadpool-work processing
-		#if 0//def OS_TYPE_MACOSX
-
-			if(CY_THREADS > 1) {
-				main_work_units = CY_THREADS/2;
-				pool_work_units = CY_THREADS - main_work_units;
-				ASSERT(HERE, 0x0 != (tpool = threadpool_init(pool_work_units, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
-				printf("radix%d_ditN_cy_dif1: Init threadpool of %d threads\n", RADIX, pool_work_units);
-			} else {
-				main_work_units = 1;
-				printf("radix%d_ditN_cy_dif1: CY_THREADS = 1: Using main execution thread, no threadpool needed.\n", RADIX);
-			}
-
-		#else
-
-			pool_work_units = CY_THREADS;
-			ASSERT(HERE, 0x0 != (tpool = threadpool_init(CY_THREADS, MAX_THREADS, CY_THREADS, &thread_control)), "threadpool_init failed!");
-
-		#endif
-
-		fprintf(stderr,"Using %d threads in carry step\n", CY_THREADS);
-
+		if(tdat == 0x0) {
+			j = (uint32)sizeof(struct cy_thread_data_t);
+			tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, sizeof(struct cy_thread_data_t));
+	
+			// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
+			// so on that platform try to be clever and interleave main-thread and threadpool-work processing
+			#if 0//def OS_TYPE_MACOSX
+	
+				if(CY_THREADS > 1) {
+					main_work_units = CY_THREADS/2;
+					pool_work_units = CY_THREADS - main_work_units;
+					ASSERT(HERE, 0x0 != (tpool = threadpool_init(pool_work_units, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
+					printf("radix%d_ditN_cy_dif1: Init threadpool of %d threads\n", RADIX, pool_work_units);
+				} else {
+					main_work_units = 1;
+					printf("radix%d_ditN_cy_dif1: CY_THREADS = 1: Using main execution thread, no threadpool needed.\n", RADIX);
+				}
+	
+			#else
+	
+				pool_work_units = CY_THREADS;
+				ASSERT(HERE, 0x0 != (tpool = threadpool_init(CY_THREADS, MAX_THREADS, CY_THREADS, &thread_control)), "threadpool_init failed!");
+	
+			#endif
+	
+			fprintf(stderr,"Using %d threads in carry step\n", CY_THREADS);
+		}
 	  #endif
 
 	#else
@@ -388,24 +465,28 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			tdat[ithread].arrdat = a;			/* Main data array */
 			tdat[ithread].wt0 = wt0;
 			tdat[ithread].wt1 = wt1;
+		#ifdef LOACC
+			tdat[ithread].wts_mult = wts_mult;
+			tdat[ithread].inv_mult = inv_mult;
+		#endif
 			tdat[ithread].si  = si;
 
 		// This array pointer must be set based on vec_dbl-sized alignment at runtime for each thread:
-			for(l = 0; l < 4; l++) {
-				if( ((uint32)&tdat[ithread].cy_dat[l] & sz_vd_m1) == 0 ) {
+			for(l = 0; l < RE_IM_STRIDE; l++) {
+				if( ((long)&tdat[ithread].cy_dat[l] & sz_vd_m1) == 0 ) {
 					tdat[ithread].cy = &tdat[ithread].cy_dat[l];
 				//	fprintf(stderr,"%d-byte-align cy_dat array at element[%d]\n",sz_vd,l);
 					break;
 				}
 			}
-			ASSERT(HERE, l < 4, "Failed to align cy_dat array!");
+			ASSERT(HERE, l < RE_IM_STRIDE, "Failed to align cy_dat array!");
 		}
 	#endif
 
 	#ifdef USE_SSE2
 
-		ASSERT(HERE, ((uint32)wt0    & 0x3f) == 0, "wt0[]  not 64-byte aligned!");
-		ASSERT(HERE, ((uint32)wt1    & 0x3f) == 0, "wt1[]  not 64-byte aligned!");
+		ASSERT(HERE, ((long)wt0    & 0x3f) == 0, "wt0[]  not 64-byte aligned!");
+		ASSERT(HERE, ((long)wt1    & 0x3f) == 0, "wt1[]  not 64-byte aligned!");
 
 		// Use double-complex type size (16 bytes) to alloc a block of local storage
 		// consisting of radix768_creals_in_local_store dcomplex and (12+RADIX/2) uint64 element slots per thread
@@ -413,9 +494,9 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		cslots_in_local_store = radix768_creals_in_local_store + (((12+RADIX/2)/2 + 3) & ~0x3);
 		sc_arr = ALLOC_VEC_DBL(sc_arr, cslots_in_local_store*CY_THREADS);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 		sm_ptr = (uint64*)(sc_ptr + radix768_creals_in_local_store);
-		ASSERT(HERE, ((uint32)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
+		ASSERT(HERE, ((long)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
 
 	  #ifdef USE_PTHREAD
 		__r0 = sc_ptr;
@@ -452,18 +533,23 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		twide  = tmp + 0x1a4;
 		twidf  = tmp + 0x1c2;
 		tmp += 0x1e0;	// += 15*30 => sc_ptr += 0xde8
-	  #ifdef USE_AVX
+	  #ifdef USE_AVX512
+		cy = tmp;		tmp += 0x60;	// RADIX/8 vec_dbl slots for carry sub-array
+		max_err = tmp + 0x00;
+		sse2_rnd= tmp + 0x01;
+		half_arr= tmp + 0x02;
+	  #elif defined(USE_AVX)
 		cy = tmp;		tmp += 0xc0;	// RADIX/4 vec_dbl slots for carry sub-array
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;	// += 0xc0 + 2 => sc_ptr += 0xeaa
 		// This is where the value of half_arr_offset comes from
-		half_arr= tmp + 0x02;	/* This table needs 68 vec_dbl for Mersenne-mod, and 3.5*RADIX[avx] | RADIX[sse2] for Fermat-mod */
+		half_arr= tmp + 0x02;	/* This table needs 96 vec_dbl for Mersenne-mod, and 3.5*RADIX[avx] | RADIX[sse2] for Fermat-mod */
 	  #else
 		cy = tmp;		tmp += 0x180;	// RADIX/2 vec_dbl slots for carry sub-array
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;	// += 0x180 + 2 => sc_ptr += 0xf6a
 		// This is where the value of half_arr_offset comes from
-		half_arr= tmp + 0x02;	/* This table needs 20 x 16 bytes for Mersenne-mod, 2 for Fermat-mod */
+		half_arr= tmp + 0x02;	/* This table needs 32 x 16 bytes for Mersenne-mod, 2 for Fermat-mod */
 	  #endif
 //		ASSERT(HERE, half_arr_offset == (uint32)(half_arr-sc_ptr), "half_arr_offset mismatches actual!");
 		ASSERT(HERE, (radix768_creals_in_local_store << l2_sz_vd) >= ((long)half_arr - (long)r000) + (20 << l2_sz_vd), "radix768_creals_in_local_store checksum failed!");
@@ -478,7 +564,11 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		VEC_DBL_INIT(cc1, c3m1);
 		VEC_DBL_INIT(ss1, s   );
 		/* SSE2 math = 53-mantissa-bit IEEE double-float: */
+	  #ifdef USE_AVX512	// In AVX-512 mode, use VRNDSCALEPD for rounding and hijack this vector-data slot for the 4 base/baseinv-consts
+		sse2_rnd->d0 = base[0]; sse2_rnd->d1 = baseinv[1]; sse2_rnd->d2 = wts_mult[1]; sse2_rnd->d3 = inv_mult[0];
+	  #else
 		VEC_DBL_INIT(sse2_rnd, crnd);
+	  #endif
 
 		// ptrs to 16 sets (30 vec_dbl data each) of non-unity twiddles shared by the 2nd-half DIF and DIT DFT macros.
 		// Since we copied the init-blocks here from the code below in which the twiddle-sets appear in BR order, init same way:
@@ -511,7 +601,7 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			#error USE_FMA flag not supported in SIMD mode - to use FMA under AVX2/FMA3, define *only* USE_AVX2!
 		#endif
 
-		#include "radix16_dif_dit_pass_gcc64.h"	// Need this for FMA_TWIDDLE_FIDDLE macro
+		#include "radix16_dif_dit_pass_asm.h"	// Need this for FMA_TWIDDLE_FIDDLE macro
 
 		FMA_TWIDDLE_FIDDLE(
 			ISRT2,ISRT2, c16,s16, s16,c16, c32_1,s32_1, s32_3,c32_3, c32_3,s32_3, s32_1,c32_1, c64_1,s64_1, s64_7,c64_7, c64_5,s64_5, s64_3,c64_3, c64_3,s64_3, s64_5,c64_5, c64_7,s64_7, s64_1,c64_1	,c16,tan,
@@ -559,7 +649,7 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	#endif
 
 		// Propagate the above consts to the remaining threads:
-		nbytes = (int)cy - (int)two;	// #bytes in 1st of above block of consts
+		nbytes = (long)cy - (long)two;	// #bytes in 1st of above block of consts
 		tmp = two;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
@@ -598,7 +688,18 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		*/
 		tmp = half_arr;
 
-	  #ifdef USE_AVX
+	#ifdef USE_AVX512
+		// Each lookup-category in the 'mini-tables' used in AVX mode balloons from 16x32-bytes to 64x64-bytes,
+		// so switch to an opmask-based scheme which starts with e.g. a broadcast constant and onditional doubling.
+		// Here are the needed consts and opmasks:
+		// [1] Fwd-wt multipliers: Init = 0.50 x 8, anytime AVX-style lookup into 1st table below would have bit = 0, double the corr. datum
+		// [2] Inv-wt multipliers: Init = 0.25 x 8, anytime AVX-style lookup into 2nd table below would have bit = 0, double the corr. datum
+		// [3] Fwd-base mults: Init = base[0] x 8, anytime AVX-style lookup into 3rd table below would have bit = 1, double the corr. datum
+		// [4] Inv-base mults: Init = binv[1] x 8, anytime AVX-style lookup into 4th table below would have bit = 0, double the corr. datum
+		// [5] [LOACC] Init = wts_mult[1] x 8, anytime AVX-style lookup into 5th table below would have bit = 0, double the corr. datum
+		// [6] [LOACC] Init = inv_mult[0] x 8, anytime AVX-style lookup into 6th table below would have bit = 1, double the corr. datum
+		nbytes = 0;
+	#elif defined(USE_AVX)
 		/* Forward-weight multipliers: */
 		tmp->d0 = 1.0;	tmp->d1 = 1.0;	tmp->d2 = 1.0;	tmp->d3 = 1.0;	++tmp;
 		tmp->d0 = .50;	tmp->d1 = 1.0;	tmp->d2 = 1.0;	tmp->d3 = 1.0;	++tmp;
@@ -667,8 +768,46 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[0];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
 		tmp->d0 = baseinv[0];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
 		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
-
+		// In LOACC mode, put wts_mult and their inverses in the first 32 slots below in place of the 1/2-stuff:
+	   #ifdef LOACC
+		/* wts_mult:*/
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[1];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[1];	++tmp;
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[1];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[1];	++tmp;
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[1];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[1];	++tmp;
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[1];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[1];	++tmp;
+		/* inv_mult: */
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[1];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[1];	++tmp;
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[1];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[1];	++tmp;
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
+		nbytes = 96 << l2_sz_vd;
+	   #else
 		nbytes = 64 << l2_sz_vd;
+	   #endif
 
 	  #elif defined(USE_SSE2)
 
@@ -693,8 +832,22 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		ctmp->re = baseinv[1];	ctmp->im = baseinv[0];	++ctmp;
 		ctmp->re = baseinv[0];	ctmp->im = baseinv[1];	++ctmp;
 		ctmp->re = baseinv[1];	ctmp->im = baseinv[1];	++ctmp;
-
+		// In LOACC mode, put wts_mult and their inverses in the first 8 slots below in place of the 1/2-stuff:
+	  #ifdef LOACC
+		/* wts_mult:*/
+		ctmp->re = wts_mult[0];	ctmp->im = wts_mult[0];	++ctmp;
+		ctmp->re = wts_mult[1];	ctmp->im = wts_mult[0];	++ctmp;
+		ctmp->re = wts_mult[0];	ctmp->im = wts_mult[1];	++ctmp;
+		ctmp->re = wts_mult[1];	ctmp->im = wts_mult[1];	++ctmp;
+		/* inv_mult:*/
+		ctmp->re = inv_mult[0];	ctmp->im = inv_mult[0];	++ctmp;
+		ctmp->re = inv_mult[1];	ctmp->im = inv_mult[0];	++ctmp;
+		ctmp->re = inv_mult[0];	ctmp->im = inv_mult[1];	++ctmp;
+		ctmp->re = inv_mult[1];	ctmp->im = inv_mult[1];	++ctmp;
+		nbytes = 24 << l2_sz_vd;
+	  #else
 		nbytes = 16 << l2_sz_vd;
+	  #endif
 
 	  #endif
 
@@ -736,12 +889,26 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 
 		nbytes = 4 << l2_sz_vd;
 
-	  #ifdef USE_AVX
+	  #ifdef USE_AVX512
+	   #ifdef CARRY_16_WAY
+		n_minus_sil   = (struct uint32x16*)sse_n + 1;
+		n_minus_silp1 = (struct uint32x16*)sse_n + 2;
+		sinwt         = (struct uint32x16*)sse_n + 3;
+		sinwtm1       = (struct uint32x16*)sse_n + 4;
+		nbytes += 256;
+	   #else
+		n_minus_sil   = (struct uint32x8 *)sse_n + 1;
+		n_minus_silp1 = (struct uint32x8 *)sse_n + 2;
+		sinwt         = (struct uint32x8 *)sse_n + 3;
+		sinwtm1       = (struct uint32x8 *)sse_n + 4;
+		nbytes += 128;
+	   #endif
+	  #elif defined(USE_AVX)
 		n_minus_sil   = (struct uint32x4 *)sse_n + 1;
 		n_minus_silp1 = (struct uint32x4 *)sse_n + 2;
 		sinwt         = (struct uint32x4 *)sse_n + 3;
 		sinwtm1       = (struct uint32x4 *)sse_n + 4;
-		nbytes += 64;;
+		nbytes += 64;
 	  #endif
 
 		// Propagate the above consts to the remaining threads:
@@ -1154,7 +1321,6 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			}
 			free((void *)_jstart ); _jstart  = 0x0;
 			free((void *)_jhi    ); _jhi     = 0x0;
-			free((void *)_maxerr); _maxerr = 0x0;
 			free((void *)_col   ); _col    = 0x0;
 			free((void *)_co2   ); _co2    = 0x0;
 			free((void *)_co3   ); _co3    = 0x0;
@@ -1177,7 +1343,6 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		for(i = 0; i < RADIX; i++) {
 			_cy[i]	= (double *)malloc(j);	ptr_prod += (uint32)(_cy[i]== 0x0);
 		}
-		_maxerr	= (double *)malloc(j);	ptr_prod += (uint32)(_maxerr== 0x0);
 
 		ASSERT(HERE, ptr_prod == 0, "FATAL: unable to allocate one or more auxiliary arrays.");
 
@@ -1226,6 +1391,7 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		}
 	#endif
 
+		first_entry=FALSE;
 	}	/* endif(first_entry) */
 
 /*...The radix-768 final DIT pass is here.	*/
@@ -1246,11 +1412,6 @@ int radix768_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	*fracmax=0;	/* init max. fractional error	*/
 	full_pass = 1;	/* set = 1 for normal carry pass, = 0 for wrapper pass	*/
 	scale = n2inv;	/* init inverse-weight scale factor  (set = 2/n for normal carry pass, = 1 for wrapper pass)	*/
-
-	for(ithread = 0; ithread < CY_THREADS; ithread++)
-	{
-		_maxerr[ithread] = 0.0;
-	}
 
 for(outer=0; outer <= 1; outer++)
 {
@@ -1279,7 +1440,7 @@ for(outer=0; outer <= 1; outer++)
 		}
 		_jstart[ithread] = ithread*NDIVR/CY_THREADS;
 		if(!full_pass)
-			_jhi[ithread] = _jstart[ithread] + 7;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
+			_jhi[ithread] = _jstart[ithread] + jhi_wrap;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
 		else
 			_jhi[ithread] = _jstart[ithread] + nwt-1;
 
@@ -1288,7 +1449,7 @@ for(outer=0; outer <= 1; outer++)
 		_co3[ithread] = _co2[ithread]-RADIX;			/* At the start of each new j-loop, co3=co2-RADIX_VEC[0]	*/
 	}
 
-#if defined(USE_SSE2) && defined(USE_PTHREAD)
+#ifdef USE_SSE2
 
 	tmp = max_err;	VEC_DBL_INIT(tmp, 0.0);
 	tm2 = tmp + cslots_in_local_store;
@@ -1326,7 +1487,7 @@ for(outer=0; outer <= 1; outer++)
 		ASSERT(HERE, tdat[ithread].nwt == nwt, "thread-local memcheck fail!");
 
 	// double data:
-		tdat[ithread].maxerr = _maxerr[ithread];
+		tdat[ithread].maxerr = 0.0;
 		tdat[ithread].scale = scale;
 
 	// pointer data:
@@ -1337,8 +1498,14 @@ for(outer=0; outer <= 1; outer++)
 	#ifdef USE_SSE2
 		ASSERT(HERE, tdat[ithread].r000 == __r0 + ithread*cslots_in_local_store, "thread-local memcheck fail!");
 		tmp = tdat[ithread].half_arr;
+	  #ifdef USE_AVX512	// In AVX-512 mode, use VRNDSCALEPD for rounding and hijack this vector-data slot for the 4 base/baseinv-consts
+		ASSERT(HERE, ((tmp-1)->d0 == base[0] && (tmp-1)->d1 == baseinv[1] && (tmp-1)->d2 == wts_mult[1] && (tmp-1)->d3 == inv_mult[0]), "thread-local memcheck failed!");
+	  #else
 		ASSERT(HERE, ((tmp-1)->d0 == crnd && (tmp-1)->d1 == crnd), "thread-local memcheck failed!");
-	  #ifdef USE_AVX
+	  #endif
+	  #ifdef USE_AVX512
+			/* No-Op */
+	  #elif defined(USE_AVX)
 		// Grab some elt of base-data [offset by, say, +32] and mpy by its inverse [+16 further]
 		dtmp = (tmp+40)->d0 * (tmp+56)->d0;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
 		dtmp = (tmp+40)->d1 * (tmp+56)->d1;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
@@ -1366,9 +1533,7 @@ for(outer=0; outer <= 1; outer++)
 
 	for(ithread = 0; ithread < CY_THREADS; ithread++)
 	{
-		/***** DEC/HP CC doesn't properly copy init value of maxerr = 0 into threads,
-		so need to set once again explicitly for each: *****/
-		maxerr = 0.0;
+		if(full_pass) maxerr = 0.0;
 	#ifdef USE_SSE2
 	//	VEC_DBL_INIT(max_err, 0.0);	*** must do this in conjunction with thread-local-data-copy
 	#endif
@@ -1385,7 +1550,19 @@ for(outer=0; outer <= 1; outer++)
 			bjmodn[l] = _bjmodn[l][ithread];
 		}
 		/* init carries	*/
-	#ifdef USE_AVX	// AVX and AVX2 both use 256-bit registers
+	#ifdef USE_AVX512
+		tmp = cy;
+		for(l = 0; l < RADIX; l += 8, ++tmp) {
+			tmp->d0 = _cy[l  ][ithread];
+			tmp->d1 = _cy[l+1][ithread];
+			tmp->d2 = _cy[l+2][ithread];
+			tmp->d3 = _cy[l+3][ithread];
+			tmp->d4 = _cy[l+4][ithread];
+			tmp->d5 = _cy[l+5][ithread];
+			tmp->d6 = _cy[l+6][ithread];
+			tmp->d7 = _cy[l+7][ithread];
+		}
+	#elif defined(USE_AVX)	// AVX and AVX2 both use 256-bit registers
 		tmp = cy;
 		for(l = 0; l < RADIX; l += 4, ++tmp) {
 			tmp->d0 = _cy[l  ][ithread];
@@ -1411,10 +1588,26 @@ for(outer=0; outer <= 1; outer++)
 		/********************************************************************************/
 		#include "radix768_main_carry_loop.h"
 
-		/* At end of each thread-processed work chunk, dump the
-		carryouts into their non-thread-private array slots:
-		*/
-	#ifdef USE_AVX	// AVX and AVX2 both use 256-bit registers
+	#ifdef USE_AVX512
+		tmp = cy;
+		for(l = 0; l < RADIX; l += 8, ++tmp) {
+			_cy[l  ][ithread] = tmp->d0;
+			_cy[l+1][ithread] = tmp->d1;
+			_cy[l+2][ithread] = tmp->d2;
+			_cy[l+3][ithread] = tmp->d3;
+			_cy[l+4][ithread] = tmp->d4;
+			_cy[l+5][ithread] = tmp->d5;
+			_cy[l+6][ithread] = tmp->d6;
+			_cy[l+7][ithread] = tmp->d7;
+		}
+		if(full_pass) {
+			t0 = MAX(max_err->d0,max_err->d1);
+			t1 = MAX(max_err->d2,max_err->d3);
+			t2 = MAX(max_err->d4,max_err->d5);
+			t3 = MAX(max_err->d6,max_err->d7);
+			maxerr = MAX( MAX(t0,t1), MAX(t2,t3) );
+		}
+	#elif defined(USE_AVX)	// AVX and AVX2 both use 256-bit registers
 		tmp = cy;
 		for(l = 0; l < RADIX; l += 4, ++tmp) {
 			_cy[l  ][ithread] = tmp->d0;
@@ -1422,25 +1615,19 @@ for(outer=0; outer <= 1; outer++)
 			_cy[l+2][ithread] = tmp->d2;
 			_cy[l+3][ithread] = tmp->d3;
 		}
-		maxerr = MAX( MAX(max_err->d0,max_err->d1) , MAX(max_err->d2,max_err->d3) );
+		if(full_pass) maxerr = MAX( MAX(max_err->d0,max_err->d1) , MAX(max_err->d2,max_err->d3) );
 	#elif defined(USE_SSE2)
 		tmp = cy;
 		for(l = 0; l < RADIX; l += 2, ++tmp) {
 			_cy[l  ][ithread] = tmp->d0;
 			_cy[l+1][ithread] = tmp->d1;
 		}
-		maxerr = MAX(max_err->d0,max_err->d1);
+		if(full_pass) maxerr = MAX(max_err->d0,max_err->d1);
 	#else
 		for(l = 0; l < RADIX; l++) {
 			_cy[l][ithread] = cy[l];
 		}
 	#endif
-
-		/* Since will lose separate maxerr values when threads are merged, save them after each pass. */
-		if(_maxerr[ithread] < maxerr)
-		{
-			_maxerr[ithread] = maxerr;
-		}
 
   #endif	// #ifdef USE_PTHREAD
 
@@ -1470,9 +1657,8 @@ for(outer=0; outer <= 1; outer++)
 	/* Copy the thread-specific output carry data back to shared memory: */
 	for(ithread = 0; ithread < CY_THREADS; ithread++)
 	{
-		_maxerr[ithread] = tdat[ithread].maxerr;
-		if(maxerr < _maxerr[ithread]) {
-			maxerr = _maxerr[ithread];
+		if(maxerr < tdat[ithread].maxerr) {
+			maxerr = tdat[ithread].maxerr;
 		}
 		for(l = 0; l < RADIX; l++) {
 			_cy[l][ithread] = tdat[ithread].cy[l];
@@ -1488,7 +1674,7 @@ for(outer=0; outer <= 1; outer++)
 
 	/*   Wraparound carry cleanup loop is here:
 
-	The cleanup carries from the end of each length-N/RADIX set of contiguous data into the beginning of the next
+	The cleanup carries from the end of each length-N/RADIX set of contiguous data into the begining of the next
 	can all be neatly processed as follows:
 
 	(1) Invert the forward DIF FFT of the first block of RADIX complex elements in A and unweight;
@@ -1512,7 +1698,7 @@ for(outer=0; outer <= 1; outer++)
 
 	full_pass = 0;
 	scale = 1;
-	j_jhi = 7;
+	j_jhi = jhi_wrap;
 
 	for(ithread = 0; ithread < CY_THREADS; ithread++)
 	{
@@ -1537,8 +1723,7 @@ for(outer=0; outer <= 1; outer++)
 		for(l = 0; l < RADIX; l++) {
 			dtmp += fabs(_cy[l][ithread]);
 		}
-		if(*fracmax < _maxerr[ithread])
-			*fracmax = _maxerr[ithread];
+		*fracmax = maxerr;
 	}
 	if(dtmp != 0.0)
 	{
@@ -1571,10 +1756,8 @@ void radix768_dif_pass1(double a[], int n)
 !   See the documentation in radix768_dif_pass for details on the twiddleless coprime-radix-DFTS setup.
 */
 	int j,j1,j2,jp,jt;
-#if USE_COMPACT_OBJ_CODE
 	int k,l,l1,l2,k0,k1,k2;
 	static int dif_triplets[144];
-#endif
 	// In order to preserve length-2 numeric-index-offset property here, use hex for digit:
 	static int NDIVR, first_entry=TRUE,
 		p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf,
@@ -1745,7 +1928,6 @@ void radix768_dif_pass1(double a[], int n)
 		o_offsets_hi1[0xe] = pc0;	o_offsets_hi2[0xe] = pb0;	o_offsets_hi3[0xe] = p10;
 		o_offsets_hi1[0xf] = pd0;	o_offsets_hi2[0xf] = pa0;	o_offsets_hi3[0xf] =   0;
 
-	#if USE_COMPACT_OBJ_CODE
 	// Index-high-bits triplets needed for compact-obj-code scheme:
 		k = 0;
 		dif_triplets[k] = p2f0; dif_triplets[k+1] = p1f0; dif_triplets[k+2] =  pf0; k += 3;
@@ -1797,22 +1979,23 @@ void radix768_dif_pass1(double a[], int n)
 		dif_triplets[k] =  p10; dif_triplets[k+1] = p210; dif_triplets[k+2] = p110; k += 3;
 		dif_triplets[k] =    0; dif_triplets[k+1] = p200; dif_triplets[k+2] = p100;
 
-	#endif
 	}
 
 /*...The radix-768 pass is here.	*/
 
 	for(j = 0; j < NDIVR; j += 2)
 	{
-	#ifdef USE_AVX
+	#ifdef USE_AVX512
+		j1 = (j & mask03) + br16[j&15];
+	#elif defined(USE_AVX)
 		j1 = (j & mask02) + br8[j&7];
 	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
 	#else
 		j1 = j;
 	#endif
-		j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-		j2 = j1+RE_IM_STRIDE;
+		j1 += ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+		j2 = j1 + RE_IM_STRIDE;
 
 	/*
 	Twiddleless version arranges 256 sets of radix-3 DFT inputs as follows: 0 in upper left corner,
@@ -1892,7 +2075,6 @@ void radix768_dif_pass1(double a[], int n)
 	To handle the wraparound of the 0-term we just need a bit of mod-256 indexing magic.
 	*/
 	/*...gather the needed data (768 64-bit complex) and do 256 radix-3 transforms - We want unit-strides in the radix768-DFT macro, so use large output strides here: */
-	#if USE_COMPACT_OBJ_CODE
 		// Loop-based compact-obj-code impl exploits above index pattern to group interior [sandwiched between single leading
 		// and 15 trailing, which also get fused into a final group] macro calls into sets of 16 with neatly cutoff index groupings:
 		l = 1; l1 = l+256; l2 = l+512;	// Skip 0-term, which gets saved for wraparound
@@ -1917,280 +2099,6 @@ void radix768_dif_pass1(double a[], int n)
 			jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, a[jt+k0],a[jp+k0],a[jt+k1],a[jp+k1],a[jt+k2],a[jp+k2], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; l &= 0xff; l1 = l+256; l2 = l+512;	// <*** needed for final-loop-pass wraparound of 0-term
 										RADIX_03_DFT(s,c3m1, a[j1+k0],a[j2+k0],a[j1+k1],a[j2+k1],a[j1+k2],a[j2+k2], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
 		}
-	#else
-		l = 0; l1 = l+256; l2 = l+512;
-									RADIX_03_DFT(s,c3m1, a[j1    ],a[j2    ],a[j1+p200],a[j2+p200],a[j1+p100],a[j2+p100], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, a[jt+p2f0],a[jp+p2f0],a[jt+p1f0],a[jp+p1f0],a[jt+pf0],a[jp+pf0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, a[jt+p2f0],a[jp+p2f0],a[jt+p1f0],a[jp+p1f0],a[jt+pf0],a[jp+pf0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, a[jt+p2f0],a[jp+p2f0],a[jt+p1f0],a[jp+p1f0],a[jt+pf0],a[jp+pf0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, a[jt+p2f0],a[jp+p2f0],a[jt+p1f0],a[jp+p1f0],a[jt+pf0],a[jp+pf0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, a[jt+p2f0],a[jp+p2f0],a[jt+p1f0],a[jp+p1f0],a[jt+pf0],a[jp+pf0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, a[jt+p2e0],a[jp+p2e0],a[jt+p1e0],a[jp+p1e0],a[jt+pe0],a[jp+pe0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, a[jt+p2e0],a[jp+p2e0],a[jt+p1e0],a[jp+p1e0],a[jt+pe0],a[jp+pe0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, a[jt+p2e0],a[jp+p2e0],a[jt+p1e0],a[jp+p1e0],a[jt+pe0],a[jp+pe0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, a[jt+p2e0],a[jp+p2e0],a[jt+p1e0],a[jp+p1e0],a[jt+pe0],a[jp+pe0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, a[jt+p2e0],a[jp+p2e0],a[jt+p1e0],a[jp+p1e0],a[jt+pe0],a[jp+pe0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, a[jt+p2d0],a[jp+p2d0],a[jt+p1d0],a[jp+p1d0],a[jt+pd0],a[jp+pd0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, a[jt+p2d0],a[jp+p2d0],a[jt+p1d0],a[jp+p1d0],a[jt+pd0],a[jp+pd0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, a[jt+p2d0],a[jp+p2d0],a[jt+p1d0],a[jp+p1d0],a[jt+pd0],a[jp+pd0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, a[jt+p2d0],a[jp+p2d0],a[jt+p1d0],a[jp+p1d0],a[jt+pd0],a[jp+pd0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, a[jt+p2d0],a[jp+p2d0],a[jt+p1d0],a[jp+p1d0],a[jt+pd0],a[jp+pd0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, a[j1+p2d0],a[j2+p2d0],a[j1+p1d0],a[j2+p1d0],a[j1+pd0],a[j2+pd0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, a[jt+p2c0],a[jp+p2c0],a[jt+p1c0],a[jp+p1c0],a[jt+pc0],a[jp+pc0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, a[jt+p2c0],a[jp+p2c0],a[jt+p1c0],a[jp+p1c0],a[jt+pc0],a[jp+pc0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, a[jt+p2c0],a[jp+p2c0],a[jt+p1c0],a[jp+p1c0],a[jt+pc0],a[jp+pc0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, a[jt+p2c0],a[jp+p2c0],a[jt+p1c0],a[jp+p1c0],a[jt+pc0],a[jp+pc0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, a[jt+p2c0],a[jp+p2c0],a[jt+p1c0],a[jp+p1c0],a[jt+pc0],a[jp+pc0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, a[jt+p2b0],a[jp+p2b0],a[jt+p1b0],a[jp+p1b0],a[jt+pb0],a[jp+pb0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, a[jt+p2b0],a[jp+p2b0],a[jt+p1b0],a[jp+p1b0],a[jt+pb0],a[jp+pb0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, a[jt+p2b0],a[jp+p2b0],a[jt+p1b0],a[jp+p1b0],a[jt+pb0],a[jp+pb0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, a[jt+p2b0],a[jp+p2b0],a[jt+p1b0],a[jp+p1b0],a[jt+pb0],a[jp+pb0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, a[jt+p2b0],a[jp+p2b0],a[jt+p1b0],a[jp+p1b0],a[jt+pb0],a[jp+pb0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, a[jt+p2a0],a[jp+p2a0],a[jt+p1a0],a[jp+p1a0],a[jt+pa0],a[jp+pa0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, a[jt+p2a0],a[jp+p2a0],a[jt+p1a0],a[jp+p1a0],a[jt+pa0],a[jp+pa0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, a[jt+p2a0],a[jp+p2a0],a[jt+p1a0],a[jp+p1a0],a[jt+pa0],a[jp+pa0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, a[jt+p2a0],a[jp+p2a0],a[jt+p1a0],a[jp+p1a0],a[jt+pa0],a[jp+pa0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, a[jt+p2a0],a[jp+p2a0],a[jt+p1a0],a[jp+p1a0],a[jt+pa0],a[jp+pa0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, a[j1+p2a0],a[j2+p2a0],a[j1+p1a0],a[j2+p1a0],a[j1+pa0],a[j2+pa0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, a[jt+p290],a[jp+p290],a[jt+p190],a[jp+p190],a[jt+p90],a[jp+p90], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, a[jt+p290],a[jp+p290],a[jt+p190],a[jp+p190],a[jt+p90],a[jp+p90], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, a[jt+p290],a[jp+p290],a[jt+p190],a[jp+p190],a[jt+p90],a[jp+p90], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, a[jt+p290],a[jp+p290],a[jt+p190],a[jp+p190],a[jt+p90],a[jp+p90], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, a[jt+p290],a[jp+p290],a[jt+p190],a[jp+p190],a[jt+p90],a[jp+p90], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, a[jt+p280],a[jp+p280],a[jt+p180],a[jp+p180],a[jt+p80],a[jp+p80], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, a[jt+p280],a[jp+p280],a[jt+p180],a[jp+p180],a[jt+p80],a[jp+p80], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, a[jt+p280],a[jp+p280],a[jt+p180],a[jp+p180],a[jt+p80],a[jp+p80], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, a[jt+p280],a[jp+p280],a[jt+p180],a[jp+p180],a[jt+p80],a[jp+p80], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, a[jt+p280],a[jp+p280],a[jt+p180],a[jp+p180],a[jt+p80],a[jp+p80], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, a[jt+p270],a[jp+p270],a[jt+p170],a[jp+p170],a[jt+p70],a[jp+p70], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, a[jt+p270],a[jp+p270],a[jt+p170],a[jp+p170],a[jt+p70],a[jp+p70], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, a[jt+p270],a[jp+p270],a[jt+p170],a[jp+p170],a[jt+p70],a[jp+p70], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, a[jt+p270],a[jp+p270],a[jt+p170],a[jp+p170],a[jt+p70],a[jp+p70], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, a[jt+p270],a[jp+p270],a[jt+p170],a[jp+p170],a[jt+p70],a[jp+p70], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, a[j1+p270],a[j2+p270],a[j1+p170],a[j2+p170],a[j1+p70],a[j2+p70], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, a[jt+p260],a[jp+p260],a[jt+p160],a[jp+p160],a[jt+p60],a[jp+p60], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, a[jt+p260],a[jp+p260],a[jt+p160],a[jp+p160],a[jt+p60],a[jp+p60], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, a[jt+p260],a[jp+p260],a[jt+p160],a[jp+p160],a[jt+p60],a[jp+p60], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, a[jt+p260],a[jp+p260],a[jt+p160],a[jp+p160],a[jt+p60],a[jp+p60], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, a[jt+p260],a[jp+p260],a[jt+p160],a[jp+p160],a[jt+p60],a[jp+p60], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, a[jt+p250],a[jp+p250],a[jt+p150],a[jp+p150],a[jt+p50],a[jp+p50], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, a[jt+p250],a[jp+p250],a[jt+p150],a[jp+p150],a[jt+p50],a[jp+p50], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, a[jt+p250],a[jp+p250],a[jt+p150],a[jp+p150],a[jt+p50],a[jp+p50], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, a[jt+p250],a[jp+p250],a[jt+p150],a[jp+p150],a[jt+p50],a[jp+p50], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, a[jt+p250],a[jp+p250],a[jt+p150],a[jp+p150],a[jt+p50],a[jp+p50], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, a[jt+p240],a[jp+p240],a[jt+p140],a[jp+p140],a[jt+p40],a[jp+p40], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, a[jt+p240],a[jp+p240],a[jt+p140],a[jp+p140],a[jt+p40],a[jp+p40], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, a[jt+p240],a[jp+p240],a[jt+p140],a[jp+p140],a[jt+p40],a[jp+p40], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, a[jt+p240],a[jp+p240],a[jt+p140],a[jp+p140],a[jt+p40],a[jp+p40], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, a[jt+p240],a[jp+p240],a[jt+p140],a[jp+p140],a[jt+p40],a[jp+p40], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, a[j1+p240],a[j2+p240],a[j1+p140],a[j2+p140],a[j1+p40],a[j2+p40], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, a[jt+p230],a[jp+p230],a[jt+p130],a[jp+p130],a[jt+p30],a[jp+p30], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, a[jt+p230],a[jp+p230],a[jt+p130],a[jp+p130],a[jt+p30],a[jp+p30], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, a[jt+p230],a[jp+p230],a[jt+p130],a[jp+p130],a[jt+p30],a[jp+p30], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, a[jt+p230],a[jp+p230],a[jt+p130],a[jp+p130],a[jt+p30],a[jp+p30], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, a[jt+p230],a[jp+p230],a[jt+p130],a[jp+p130],a[jt+p30],a[jp+p30], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, a[jt+p220],a[jp+p220],a[jt+p120],a[jp+p120],a[jt+p20],a[jp+p20], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, a[jt+p220],a[jp+p220],a[jt+p120],a[jp+p120],a[jt+p20],a[jp+p20], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, a[jt+p220],a[jp+p220],a[jt+p120],a[jp+p120],a[jt+p20],a[jp+p20], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, a[jt+p220],a[jp+p220],a[jt+p120],a[jp+p120],a[jt+p20],a[jp+p20], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, a[jt+p220],a[jp+p220],a[jt+p120],a[jp+p120],a[jt+p20],a[jp+p20], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, a[jt+p210],a[jp+p210],a[jt+p110],a[jp+p110],a[jt+p10],a[jp+p10], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, a[jt+p210],a[jp+p210],a[jt+p110],a[jp+p110],a[jt+p10],a[jp+p10], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, a[jt+p210],a[jp+p210],a[jt+p110],a[jp+p110],a[jt+p10],a[jp+p10], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, a[jt+p210],a[jp+p210],a[jt+p110],a[jp+p110],a[jt+p10],a[jp+p10], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, a[jt+p210],a[jp+p210],a[jt+p110],a[jp+p110],a[jt+p10],a[jp+p10], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, a[j1+p210],a[j2+p210],a[j1+p110],a[j2+p110],a[j1+p10],a[j2+p10], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, a[jt+p200],a[jp+p200],a[jt+p100],a[jp+p100],a[jt     ],a[jp     ], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, a[jt+p200],a[jp+p200],a[jt+p100],a[jp+p100],a[jt     ],a[jp     ], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, a[jt+p200],a[jp+p200],a[jt+p100],a[jp+p100],a[jt     ],a[jp     ], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, a[jt+p200],a[jp+p200],a[jt+p100],a[jp+p100],a[jt     ],a[jp     ], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, a[jt+p200],a[jp+p200],a[jt+p100],a[jp+p100],a[jt     ],a[jp     ], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, a[jt+p1f0],a[jp+p1f0],a[jt+pf0],a[jp+pf0],a[jt+p2f0],a[jp+p2f0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, a[jt+p1f0],a[jp+p1f0],a[jt+pf0],a[jp+pf0],a[jt+p2f0],a[jp+p2f0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, a[jt+p1f0],a[jp+p1f0],a[jt+pf0],a[jp+pf0],a[jt+p2f0],a[jp+p2f0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, a[jt+p1f0],a[jp+p1f0],a[jt+pf0],a[jp+pf0],a[jt+p2f0],a[jp+p2f0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, a[jt+p1f0],a[jp+p1f0],a[jt+pf0],a[jp+pf0],a[jt+p2f0],a[jp+p2f0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, a[jt+p1e0],a[jp+p1e0],a[jt+pe0],a[jp+pe0],a[jt+p2e0],a[jp+p2e0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, a[jt+p1e0],a[jp+p1e0],a[jt+pe0],a[jp+pe0],a[jt+p2e0],a[jp+p2e0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, a[jt+p1e0],a[jp+p1e0],a[jt+pe0],a[jp+pe0],a[jt+p2e0],a[jp+p2e0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, a[jt+p1e0],a[jp+p1e0],a[jt+pe0],a[jp+pe0],a[jt+p2e0],a[jp+p2e0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, a[jt+p1e0],a[jp+p1e0],a[jt+pe0],a[jp+pe0],a[jt+p2e0],a[jp+p2e0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, a[j1+p1e0],a[j2+p1e0],a[j1+pe0],a[j2+pe0],a[j1+p2e0],a[j2+p2e0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, a[jt+p1d0],a[jp+p1d0],a[jt+pd0],a[jp+pd0],a[jt+p2d0],a[jp+p2d0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, a[jt+p1d0],a[jp+p1d0],a[jt+pd0],a[jp+pd0],a[jt+p2d0],a[jp+p2d0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, a[jt+p1d0],a[jp+p1d0],a[jt+pd0],a[jp+pd0],a[jt+p2d0],a[jp+p2d0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, a[jt+p1d0],a[jp+p1d0],a[jt+pd0],a[jp+pd0],a[jt+p2d0],a[jp+p2d0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, a[jt+p1d0],a[jp+p1d0],a[jt+pd0],a[jp+pd0],a[jt+p2d0],a[jp+p2d0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, a[jt+p1c0],a[jp+p1c0],a[jt+pc0],a[jp+pc0],a[jt+p2c0],a[jp+p2c0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, a[jt+p1c0],a[jp+p1c0],a[jt+pc0],a[jp+pc0],a[jt+p2c0],a[jp+p2c0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, a[jt+p1c0],a[jp+p1c0],a[jt+pc0],a[jp+pc0],a[jt+p2c0],a[jp+p2c0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, a[jt+p1c0],a[jp+p1c0],a[jt+pc0],a[jp+pc0],a[jt+p2c0],a[jp+p2c0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, a[jt+p1c0],a[jp+p1c0],a[jt+pc0],a[jp+pc0],a[jt+p2c0],a[jp+p2c0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, a[jt+p1b0],a[jp+p1b0],a[jt+pb0],a[jp+pb0],a[jt+p2b0],a[jp+p2b0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, a[jt+p1b0],a[jp+p1b0],a[jt+pb0],a[jp+pb0],a[jt+p2b0],a[jp+p2b0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, a[jt+p1b0],a[jp+p1b0],a[jt+pb0],a[jp+pb0],a[jt+p2b0],a[jp+p2b0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, a[jt+p1b0],a[jp+p1b0],a[jt+pb0],a[jp+pb0],a[jt+p2b0],a[jp+p2b0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, a[jt+p1b0],a[jp+p1b0],a[jt+pb0],a[jp+pb0],a[jt+p2b0],a[jp+p2b0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, a[j1+p1b0],a[j2+p1b0],a[j1+pb0],a[j2+pb0],a[j1+p2b0],a[j2+p2b0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, a[jt+p1a0],a[jp+p1a0],a[jt+pa0],a[jp+pa0],a[jt+p2a0],a[jp+p2a0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, a[jt+p1a0],a[jp+p1a0],a[jt+pa0],a[jp+pa0],a[jt+p2a0],a[jp+p2a0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, a[jt+p1a0],a[jp+p1a0],a[jt+pa0],a[jp+pa0],a[jt+p2a0],a[jp+p2a0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, a[jt+p1a0],a[jp+p1a0],a[jt+pa0],a[jp+pa0],a[jt+p2a0],a[jp+p2a0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, a[jt+p1a0],a[jp+p1a0],a[jt+pa0],a[jp+pa0],a[jt+p2a0],a[jp+p2a0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, a[jt+p190],a[jp+p190],a[jt+p90],a[jp+p90],a[jt+p290],a[jp+p290], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, a[jt+p190],a[jp+p190],a[jt+p90],a[jp+p90],a[jt+p290],a[jp+p290], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, a[jt+p190],a[jp+p190],a[jt+p90],a[jp+p90],a[jt+p290],a[jp+p290], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, a[jt+p190],a[jp+p190],a[jt+p90],a[jp+p90],a[jt+p290],a[jp+p290], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, a[jt+p190],a[jp+p190],a[jt+p90],a[jp+p90],a[jt+p290],a[jp+p290], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, a[jt+p180],a[jp+p180],a[jt+p80],a[jp+p80],a[jt+p280],a[jp+p280], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, a[jt+p180],a[jp+p180],a[jt+p80],a[jp+p80],a[jt+p280],a[jp+p280], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, a[jt+p180],a[jp+p180],a[jt+p80],a[jp+p80],a[jt+p280],a[jp+p280], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, a[jt+p180],a[jp+p180],a[jt+p80],a[jp+p80],a[jt+p280],a[jp+p280], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, a[jt+p180],a[jp+p180],a[jt+p80],a[jp+p80],a[jt+p280],a[jp+p280], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, a[j1+p180],a[j2+p180],a[j1+p80],a[j2+p80],a[j1+p280],a[j2+p280], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, a[jt+p170],a[jp+p170],a[jt+p70],a[jp+p70],a[jt+p270],a[jp+p270], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, a[jt+p170],a[jp+p170],a[jt+p70],a[jp+p70],a[jt+p270],a[jp+p270], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, a[jt+p170],a[jp+p170],a[jt+p70],a[jp+p70],a[jt+p270],a[jp+p270], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, a[jt+p170],a[jp+p170],a[jt+p70],a[jp+p70],a[jt+p270],a[jp+p270], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, a[jt+p170],a[jp+p170],a[jt+p70],a[jp+p70],a[jt+p270],a[jp+p270], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, a[jt+p160],a[jp+p160],a[jt+p60],a[jp+p60],a[jt+p260],a[jp+p260], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, a[jt+p160],a[jp+p160],a[jt+p60],a[jp+p60],a[jt+p260],a[jp+p260], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, a[jt+p160],a[jp+p160],a[jt+p60],a[jp+p60],a[jt+p260],a[jp+p260], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, a[jt+p160],a[jp+p160],a[jt+p60],a[jp+p60],a[jt+p260],a[jp+p260], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, a[jt+p160],a[jp+p160],a[jt+p60],a[jp+p60],a[jt+p260],a[jp+p260], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, a[jt+p150],a[jp+p150],a[jt+p50],a[jp+p50],a[jt+p250],a[jp+p250], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, a[jt+p150],a[jp+p150],a[jt+p50],a[jp+p50],a[jt+p250],a[jp+p250], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, a[jt+p150],a[jp+p150],a[jt+p50],a[jp+p50],a[jt+p250],a[jp+p250], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, a[jt+p150],a[jp+p150],a[jt+p50],a[jp+p50],a[jt+p250],a[jp+p250], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, a[jt+p150],a[jp+p150],a[jt+p50],a[jp+p50],a[jt+p250],a[jp+p250], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, a[j1+p150],a[j2+p150],a[j1+p50],a[j2+p50],a[j1+p250],a[j2+p250], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, a[jt+p140],a[jp+p140],a[jt+p40],a[jp+p40],a[jt+p240],a[jp+p240], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, a[jt+p140],a[jp+p140],a[jt+p40],a[jp+p40],a[jt+p240],a[jp+p240], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, a[jt+p140],a[jp+p140],a[jt+p40],a[jp+p40],a[jt+p240],a[jp+p240], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, a[jt+p140],a[jp+p140],a[jt+p40],a[jp+p40],a[jt+p240],a[jp+p240], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, a[jt+p140],a[jp+p140],a[jt+p40],a[jp+p40],a[jt+p240],a[jp+p240], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, a[jt+p130],a[jp+p130],a[jt+p30],a[jp+p30],a[jt+p230],a[jp+p230], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, a[jt+p130],a[jp+p130],a[jt+p30],a[jp+p30],a[jt+p230],a[jp+p230], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, a[jt+p130],a[jp+p130],a[jt+p30],a[jp+p30],a[jt+p230],a[jp+p230], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, a[jt+p130],a[jp+p130],a[jt+p30],a[jp+p30],a[jt+p230],a[jp+p230], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, a[jt+p130],a[jp+p130],a[jt+p30],a[jp+p30],a[jt+p230],a[jp+p230], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, a[jt+p120],a[jp+p120],a[jt+p20],a[jp+p20],a[jt+p220],a[jp+p220], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, a[jt+p120],a[jp+p120],a[jt+p20],a[jp+p20],a[jt+p220],a[jp+p220], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, a[jt+p120],a[jp+p120],a[jt+p20],a[jp+p20],a[jt+p220],a[jp+p220], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, a[jt+p120],a[jp+p120],a[jt+p20],a[jp+p20],a[jt+p220],a[jp+p220], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, a[jt+p120],a[jp+p120],a[jt+p20],a[jp+p20],a[jt+p220],a[jp+p220], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, a[j1+p120],a[j2+p120],a[j1+p20],a[j2+p20],a[j1+p220],a[j2+p220], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, a[jt+p110],a[jp+p110],a[jt+p10],a[jp+p10],a[jt+p210],a[jp+p210], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, a[jt+p110],a[jp+p110],a[jt+p10],a[jp+p10],a[jt+p210],a[jp+p210], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, a[jt+p110],a[jp+p110],a[jt+p10],a[jp+p10],a[jt+p210],a[jp+p210], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, a[jt+p110],a[jp+p110],a[jt+p10],a[jp+p10],a[jt+p210],a[jp+p210], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, a[jt+p110],a[jp+p110],a[jt+p10],a[jp+p10],a[jt+p210],a[jp+p210], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, a[jt+p100],a[jp+p100],a[jt    ],a[jp    ],a[jt+p200],a[jp+p200], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, a[jt+p100],a[jp+p100],a[jt    ],a[jp    ],a[jt+p200],a[jp+p200], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, a[jt+p100],a[jp+p100],a[jt    ],a[jp    ],a[jt+p200],a[jp+p200], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, a[jt+p100],a[jp+p100],a[jt    ],a[jp    ],a[jt+p200],a[jp+p200], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, a[jt+p100],a[jp+p100],a[jt    ],a[jp    ],a[jt+p200],a[jp+p200], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, a[jt+pf0],a[jp+pf0],a[jt+p2f0],a[jp+p2f0],a[jt+p1f0],a[jp+p1f0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, a[jt+pf0],a[jp+pf0],a[jt+p2f0],a[jp+p2f0],a[jt+p1f0],a[jp+p1f0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, a[jt+pf0],a[jp+pf0],a[jt+p2f0],a[jp+p2f0],a[jt+p1f0],a[jp+p1f0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, a[jt+pf0],a[jp+pf0],a[jt+p2f0],a[jp+p2f0],a[jt+p1f0],a[jp+p1f0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, a[jt+pf0],a[jp+pf0],a[jt+p2f0],a[jp+p2f0],a[jt+p1f0],a[jp+p1f0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, a[j1+pf0],a[j2+pf0],a[j1+p2f0],a[j2+p2f0],a[j1+p1f0],a[j2+p1f0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, a[jt+pe0],a[jp+pe0],a[jt+p2e0],a[jp+p2e0],a[jt+p1e0],a[jp+p1e0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, a[jt+pe0],a[jp+pe0],a[jt+p2e0],a[jp+p2e0],a[jt+p1e0],a[jp+p1e0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, a[jt+pe0],a[jp+pe0],a[jt+p2e0],a[jp+p2e0],a[jt+p1e0],a[jp+p1e0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, a[jt+pe0],a[jp+pe0],a[jt+p2e0],a[jp+p2e0],a[jt+p1e0],a[jp+p1e0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, a[jt+pe0],a[jp+pe0],a[jt+p2e0],a[jp+p2e0],a[jt+p1e0],a[jp+p1e0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, a[jt+pd0],a[jp+pd0],a[jt+p2d0],a[jp+p2d0],a[jt+p1d0],a[jp+p1d0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, a[jt+pd0],a[jp+pd0],a[jt+p2d0],a[jp+p2d0],a[jt+p1d0],a[jp+p1d0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, a[jt+pd0],a[jp+pd0],a[jt+p2d0],a[jp+p2d0],a[jt+p1d0],a[jp+p1d0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, a[jt+pd0],a[jp+pd0],a[jt+p2d0],a[jp+p2d0],a[jt+p1d0],a[jp+p1d0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, a[jt+pd0],a[jp+pd0],a[jt+p2d0],a[jp+p2d0],a[jt+p1d0],a[jp+p1d0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, a[jt+pc0],a[jp+pc0],a[jt+p2c0],a[jp+p2c0],a[jt+p1c0],a[jp+p1c0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, a[jt+pc0],a[jp+pc0],a[jt+p2c0],a[jp+p2c0],a[jt+p1c0],a[jp+p1c0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, a[jt+pc0],a[jp+pc0],a[jt+p2c0],a[jp+p2c0],a[jt+p1c0],a[jp+p1c0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, a[jt+pc0],a[jp+pc0],a[jt+p2c0],a[jp+p2c0],a[jt+p1c0],a[jp+p1c0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, a[jt+pc0],a[jp+pc0],a[jt+p2c0],a[jp+p2c0],a[jt+p1c0],a[jp+p1c0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, a[j1+pc0],a[j2+pc0],a[j1+p2c0],a[j2+p2c0],a[j1+p1c0],a[j2+p1c0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, a[jt+pb0],a[jp+pb0],a[jt+p2b0],a[jp+p2b0],a[jt+p1b0],a[jp+p1b0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, a[jt+pb0],a[jp+pb0],a[jt+p2b0],a[jp+p2b0],a[jt+p1b0],a[jp+p1b0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, a[jt+pb0],a[jp+pb0],a[jt+p2b0],a[jp+p2b0],a[jt+p1b0],a[jp+p1b0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, a[jt+pb0],a[jp+pb0],a[jt+p2b0],a[jp+p2b0],a[jt+p1b0],a[jp+p1b0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, a[jt+pb0],a[jp+pb0],a[jt+p2b0],a[jp+p2b0],a[jt+p1b0],a[jp+p1b0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, a[jt+pa0],a[jp+pa0],a[jt+p2a0],a[jp+p2a0],a[jt+p1a0],a[jp+p1a0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, a[jt+pa0],a[jp+pa0],a[jt+p2a0],a[jp+p2a0],a[jt+p1a0],a[jp+p1a0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, a[jt+pa0],a[jp+pa0],a[jt+p2a0],a[jp+p2a0],a[jt+p1a0],a[jp+p1a0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, a[jt+pa0],a[jp+pa0],a[jt+p2a0],a[jp+p2a0],a[jt+p1a0],a[jp+p1a0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, a[jt+pa0],a[jp+pa0],a[jt+p2a0],a[jp+p2a0],a[jt+p1a0],a[jp+p1a0], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, a[jt+p90],a[jp+p90],a[jt+p290],a[jp+p290],a[jt+p190],a[jp+p190], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, a[jt+p90],a[jp+p90],a[jt+p290],a[jp+p290],a[jt+p190],a[jp+p190], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, a[jt+p90],a[jp+p90],a[jt+p290],a[jp+p290],a[jt+p190],a[jp+p190], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, a[jt+p90],a[jp+p90],a[jt+p290],a[jp+p290],a[jt+p190],a[jp+p190], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, a[jt+p90],a[jp+p90],a[jt+p290],a[jp+p290],a[jt+p190],a[jp+p190], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, a[j1+p90],a[j2+p90],a[j1+p290],a[j2+p290],a[j1+p190],a[j2+p190], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, a[jt+p80],a[jp+p80],a[jt+p280],a[jp+p280],a[jt+p180],a[jp+p180], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, a[jt+p80],a[jp+p80],a[jt+p280],a[jp+p280],a[jt+p180],a[jp+p180], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, a[jt+p80],a[jp+p80],a[jt+p280],a[jp+p280],a[jt+p180],a[jp+p180], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, a[jt+p80],a[jp+p80],a[jt+p280],a[jp+p280],a[jt+p180],a[jp+p180], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, a[jt+p80],a[jp+p80],a[jt+p280],a[jp+p280],a[jt+p180],a[jp+p180], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, a[jt+p70],a[jp+p70],a[jt+p270],a[jp+p270],a[jt+p170],a[jp+p170], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, a[jt+p70],a[jp+p70],a[jt+p270],a[jp+p270],a[jt+p170],a[jp+p170], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, a[jt+p70],a[jp+p70],a[jt+p270],a[jp+p270],a[jt+p170],a[jp+p170], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, a[jt+p70],a[jp+p70],a[jt+p270],a[jp+p270],a[jt+p170],a[jp+p170], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, a[jt+p70],a[jp+p70],a[jt+p270],a[jp+p270],a[jt+p170],a[jp+p170], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, a[jt+p60],a[jp+p60],a[jt+p260],a[jp+p260],a[jt+p160],a[jp+p160], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, a[jt+p60],a[jp+p60],a[jt+p260],a[jp+p260],a[jt+p160],a[jp+p160], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, a[jt+p60],a[jp+p60],a[jt+p260],a[jp+p260],a[jt+p160],a[jp+p160], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, a[jt+p60],a[jp+p60],a[jt+p260],a[jp+p260],a[jt+p160],a[jp+p160], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, a[jt+p60],a[jp+p60],a[jt+p260],a[jp+p260],a[jt+p160],a[jp+p160], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, a[j1+p60],a[j2+p60],a[j1+p260],a[j2+p260],a[j1+p160],a[j2+p160], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, a[jt+p50],a[jp+p50],a[jt+p250],a[jp+p250],a[jt+p150],a[jp+p150], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, a[jt+p50],a[jp+p50],a[jt+p250],a[jp+p250],a[jt+p150],a[jp+p150], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, a[jt+p50],a[jp+p50],a[jt+p250],a[jp+p250],a[jt+p150],a[jp+p150], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, a[jt+p50],a[jp+p50],a[jt+p250],a[jp+p250],a[jt+p150],a[jp+p150], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, a[jt+p50],a[jp+p50],a[jt+p250],a[jp+p250],a[jt+p150],a[jp+p150], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, a[jt+p40],a[jp+p40],a[jt+p240],a[jp+p240],a[jt+p140],a[jp+p140], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, a[jt+p40],a[jp+p40],a[jt+p240],a[jp+p240],a[jt+p140],a[jp+p140], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, a[jt+p40],a[jp+p40],a[jt+p240],a[jp+p240],a[jt+p140],a[jp+p140], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, a[jt+p40],a[jp+p40],a[jt+p240],a[jp+p240],a[jt+p140],a[jp+p140], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, a[jt+p40],a[jp+p40],a[jt+p240],a[jp+p240],a[jt+p140],a[jp+p140], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, a[jt+p30],a[jp+p30],a[jt+p230],a[jp+p230],a[jt+p130],a[jp+p130], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, a[jt+p30],a[jp+p30],a[jt+p230],a[jp+p230],a[jt+p130],a[jp+p130], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, a[jt+p30],a[jp+p30],a[jt+p230],a[jp+p230],a[jt+p130],a[jp+p130], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, a[jt+p30],a[jp+p30],a[jt+p230],a[jp+p230],a[jt+p130],a[jp+p130], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, a[jt+p30],a[jp+p30],a[jt+p230],a[jp+p230],a[jt+p130],a[jp+p130], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, a[j1+p30],a[j2+p30],a[j1+p230],a[j2+p230],a[j1+p130],a[j2+p130], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		// Final "tail" of 15 macro calls:
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, a[jt+p20],a[jp+p20],a[jt+p220],a[jp+p220],a[jt+p120],a[jp+p120], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, a[jt+p20],a[jp+p20],a[jt+p220],a[jp+p220],a[jt+p120],a[jp+p120], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, a[jt+p20],a[jp+p20],a[jt+p220],a[jp+p220],a[jt+p120],a[jp+p120], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, a[jt+p20],a[jp+p20],a[jt+p220],a[jp+p220],a[jt+p120],a[jp+p120], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, a[jt+p20],a[jp+p20],a[jt+p220],a[jp+p220],a[jt+p120],a[jp+p120], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, a[jt+p10],a[jp+p10],a[jt+p210],a[jp+p210],a[jt+p110],a[jp+p110], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, a[jt+p10],a[jp+p10],a[jt+p210],a[jp+p210],a[jt+p110],a[jp+p110], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, a[jt+p10],a[jp+p10],a[jt+p210],a[jp+p210],a[jt+p110],a[jp+p110], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, a[jt+p10],a[jp+p10],a[jt+p210],a[jp+p210],a[jt+p110],a[jp+p110], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, a[jt+p10],a[jp+p10],a[jt+p210],a[jp+p210],a[jt+p110],a[jp+p110], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, a[jt    ],a[jp    ],a[jt+p200],a[jp+p200],a[jt+p100],a[jp+p100], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, a[jt    ],a[jp    ],a[jt+p200],a[jp+p200],a[jt+p100],a[jp+p100], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, a[jt    ],a[jp    ],a[jt+p200],a[jp+p200],a[jt+p100],a[jp+p100], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, a[jt    ],a[jp    ],a[jt+p200],a[jp+p200],a[jt+p100],a[jp+p100], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, a[jt    ],a[jp    ],a[jt+p200],a[jp+p200],a[jt+p100],a[jp+p100], t00,t01,t02,t03,t04,t05, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im); ++l; ++l1; ++l2;
-	#endif
 
 	/*...and now do 3 radix-256 transforms, first assuming in-order output index offsets, then using the
 	resulting data-mismatch tables produced by test_fft_radix() to derive the needed output permutation:
@@ -2218,10 +2126,8 @@ void radix768_dit_pass1(double a[], int n)
 !   See the documentation in radix16_dif_pass for further details on storage and indexing.
 */
 	int j,j1,j2,jp,jt;
-#if USE_COMPACT_OBJ_CODE
 	int k,l,l1,l2,k0,k1,k2;
 	static int dit_triplets[48];	// Only need 1/3 as many here as for DIF
-#endif
 	// In order to preserve length-2 numeric-index-offset property here, use hex for digit:
 	static int NDIVR, first_entry=TRUE,
 		p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf,
@@ -2435,7 +2341,6 @@ void radix768_dit_pass1(double a[], int n)
 		i_offsets_hi1[0xe] = p90;	i_offsets_hi2[0xe] = pc0;	i_offsets_hi3[0xe] = p70;
 		i_offsets_hi1[0xf] = p80;	i_offsets_hi2[0xf] = pd0;	i_offsets_hi3[0xf] = p60;
 
-	#if USE_COMPACT_OBJ_CODE
 	// Index-high-bits triplets needed for compact-obj-code scheme:
 		k = 0;
 		dit_triplets[k] =  pf0; dit_triplets[k+1] = p1f0; dit_triplets[k+2] = p2f0; k += 3;
@@ -2454,22 +2359,24 @@ void radix768_dit_pass1(double a[], int n)
 		dit_triplets[k] = p120; dit_triplets[k+1] = p220; dit_triplets[k+2] =  p20; k += 3;
 		dit_triplets[k] = p210; dit_triplets[k+1] =  p10; dit_triplets[k+2] = p110; k += 3;
 		dit_triplets[k] =    0; dit_triplets[k+1] = p100; dit_triplets[k+2] = p200;
-	#endif
 	}
 
 /*...The radix-768 pass is here.	*/
 
 	for(j = 0; j < NDIVR; j += 2)
 	{
-	#ifdef USE_AVX
+	#ifdef USE_AVX512
+		j1 = (j & mask03) + br16[j&15];
+	#elif defined(USE_AVX)
 		j1 = (j & mask02) + br8[j&7];
 	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
 	#else
 		j1 = j;
 	#endif
-		j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-		j2 = j1+RE_IM_STRIDE;
+		j1 += ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+		j2 = j1 + RE_IM_STRIDE;
+
 	/*
 	Twiddleless version uses same linear-index-vector-form permutation as in DIF -
 	Remember, inputs to DIT are bit-reversed, so using output of test_fft_radix(),
@@ -2565,7 +2472,6 @@ void radix768_dit_pass1(double a[], int n)
 		RADIX_256_DIT((a+j1+p100),RE_IM_STRIDE,(int *)(i_offsets_lo+0x40),i_idx3,i_offsets_hi3, (double *)(t+0x200),1,o_offsets_lo,o_offsets_hi);	/* Outputs in t[200-2ff] */
 
 	/*...and now do 256 radix-3 transforms: */
-	#if USE_COMPACT_OBJ_CODE
 		// Loop-based compact-obj-code impl exploits above index pattern to group interior [sandwiched
 		// between single leading and 15 trailing] macro calls into sets of 16 with neatly cutoff index groupings:
 		l = 1; l1 = l+256; l2 = l+512;	// Skip 0-term, which gets saved for wraparound
@@ -2588,266 +2494,6 @@ void radix768_dit_pass1(double a[], int n)
 			jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+k2],a[jp+k2],a[jt+k0],a[jp+k0],a[jt+k1],a[jp+k1]); ++l; l &= 0xff; l1 = l+256; l2 = l+512;	// <*** needed for final-loop-pass wraparound of 0-term
 										RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[j1+k0],a[j2+k0],a[j1+k1],a[j2+k1],a[j1+k2],a[j2+k2]); ++l; ++l1; ++l2;
 		}
-	#else
-		l = 0;
-									RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[j1    ],a[j2    ],a[j1+p100],a[j2+p100],a[j1+p200],a[j2+p200]); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pf0],a[jp+pf0],a[jt+p1f0],a[jp+p1f0],a[jt+p2f0],a[jp+p2f0]); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1f0],a[jp+p1f0],a[jt+p2f0],a[jp+p2f0],a[jt+pf0],a[jp+pf0]); ++l; ++l1; ++l2;
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2f0],a[jp+p2f0],a[jt+pf0],a[jp+pf0],a[jt+p1f0],a[jp+p1f0]); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pf0],a[jp+pf0],a[jt+p1f0],a[jp+p1f0],a[jt+p2f0],a[jp+p2f0]); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1f0],a[jp+p1f0],a[jt+p2f0],a[jp+p2f0],a[jt+pf0],a[jp+pf0]); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2f0],a[jp+p2f0],a[jt+pf0],a[jp+pf0],a[jt+p1f0],a[jp+p1f0]); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pf0],a[jp+pf0],a[jt+p1f0],a[jp+p1f0],a[jt+p2f0],a[jp+p2f0]); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1f0],a[jp+p1f0],a[jt+p2f0],a[jp+p2f0],a[jt+pf0],a[jp+pf0]); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2f0],a[jp+p2f0],a[jt+pf0],a[jp+pf0],a[jt+p1f0],a[jp+p1f0]); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pf0],a[jp+pf0],a[jt+p1f0],a[jp+p1f0],a[jt+p2f0],a[jp+p2f0]); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1f0],a[jp+p1f0],a[jt+p2f0],a[jp+p2f0],a[jt+pf0],a[jp+pf0]); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2f0],a[jp+p2f0],a[jt+pf0],a[jp+pf0],a[jt+p1f0],a[jp+p1f0]); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pf0],a[jp+pf0],a[jt+p1f0],a[jp+p1f0],a[jt+p2f0],a[jp+p2f0]); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1f0],a[jp+p1f0],a[jt+p2f0],a[jp+p2f0],a[jt+pf0],a[jp+pf0]); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2f0],a[jp+p2f0],a[jt+pf0],a[jp+pf0],a[jt+p1f0],a[jp+p1f0]); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[j1+pf0],a[j2+pf0],a[j1+p1f0],a[j2+p1f0],a[j1+p2f0],a[j2+p2f0]); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1e0],a[jp+p1e0],a[jt+p2e0],a[jp+p2e0],a[jt+pe0],a[jp+pe0]); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2e0],a[jp+p2e0],a[jt+pe0],a[jp+pe0],a[jt+p1e0],a[jp+p1e0]); ++l; ++l1; ++l2;
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pe0],a[jp+pe0],a[jt+p1e0],a[jp+p1e0],a[jt+p2e0],a[jp+p2e0]); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1e0],a[jp+p1e0],a[jt+p2e0],a[jp+p2e0],a[jt+pe0],a[jp+pe0]); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2e0],a[jp+p2e0],a[jt+pe0],a[jp+pe0],a[jt+p1e0],a[jp+p1e0]); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pe0],a[jp+pe0],a[jt+p1e0],a[jp+p1e0],a[jt+p2e0],a[jp+p2e0]); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1e0],a[jp+p1e0],a[jt+p2e0],a[jp+p2e0],a[jt+pe0],a[jp+pe0]); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2e0],a[jp+p2e0],a[jt+pe0],a[jp+pe0],a[jt+p1e0],a[jp+p1e0]); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pe0],a[jp+pe0],a[jt+p1e0],a[jp+p1e0],a[jt+p2e0],a[jp+p2e0]); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1e0],a[jp+p1e0],a[jt+p2e0],a[jp+p2e0],a[jt+pe0],a[jp+pe0]); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2e0],a[jp+p2e0],a[jt+pe0],a[jp+pe0],a[jt+p1e0],a[jp+p1e0]); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pe0],a[jp+pe0],a[jt+p1e0],a[jp+p1e0],a[jt+p2e0],a[jp+p2e0]); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1e0],a[jp+p1e0],a[jt+p2e0],a[jp+p2e0],a[jt+pe0],a[jp+pe0]); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2e0],a[jp+p2e0],a[jt+pe0],a[jp+pe0],a[jt+p1e0],a[jp+p1e0]); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pe0],a[jp+pe0],a[jt+p1e0],a[jp+p1e0],a[jt+p2e0],a[jp+p2e0]); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[j1+p1e0],a[j2+p1e0],a[j1+p2e0],a[j2+p2e0],a[j1+pe0],a[j2+pe0]); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2d0],a[jp+p2d0],a[jt+pd0],a[jp+pd0],a[jt+p1d0],a[jp+p1d0]); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pd0],a[jp+pd0],a[jt+p1d0],a[jp+p1d0],a[jt+p2d0],a[jp+p2d0]); ++l; ++l1; ++l2;
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1d0],a[jp+p1d0],a[jt+p2d0],a[jp+p2d0],a[jt+pd0],a[jp+pd0]); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2d0],a[jp+p2d0],a[jt+pd0],a[jp+pd0],a[jt+p1d0],a[jp+p1d0]); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pd0],a[jp+pd0],a[jt+p1d0],a[jp+p1d0],a[jt+p2d0],a[jp+p2d0]); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1d0],a[jp+p1d0],a[jt+p2d0],a[jp+p2d0],a[jt+pd0],a[jp+pd0]); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2d0],a[jp+p2d0],a[jt+pd0],a[jp+pd0],a[jt+p1d0],a[jp+p1d0]); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pd0],a[jp+pd0],a[jt+p1d0],a[jp+p1d0],a[jt+p2d0],a[jp+p2d0]); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1d0],a[jp+p1d0],a[jt+p2d0],a[jp+p2d0],a[jt+pd0],a[jp+pd0]); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2d0],a[jp+p2d0],a[jt+pd0],a[jp+pd0],a[jt+p1d0],a[jp+p1d0]); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pd0],a[jp+pd0],a[jt+p1d0],a[jp+p1d0],a[jt+p2d0],a[jp+p2d0]); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1d0],a[jp+p1d0],a[jt+p2d0],a[jp+p2d0],a[jt+pd0],a[jp+pd0]); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2d0],a[jp+p2d0],a[jt+pd0],a[jp+pd0],a[jt+p1d0],a[jp+p1d0]); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pd0],a[jp+pd0],a[jt+p1d0],a[jp+p1d0],a[jt+p2d0],a[jp+p2d0]); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1d0],a[jp+p1d0],a[jt+p2d0],a[jp+p2d0],a[jt+pd0],a[jp+pd0]); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[j1+p2d0],a[j2+p2d0],a[j1+pd0],a[j2+pd0],a[j1+p1d0],a[j2+p1d0]); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pc0],a[jp+pc0],a[jt+p1c0],a[jp+p1c0],a[jt+p2c0],a[jp+p2c0]); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1c0],a[jp+p1c0],a[jt+p2c0],a[jp+p2c0],a[jt+pc0],a[jp+pc0]); ++l; ++l1; ++l2;
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2c0],a[jp+p2c0],a[jt+pc0],a[jp+pc0],a[jt+p1c0],a[jp+p1c0]); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pc0],a[jp+pc0],a[jt+p1c0],a[jp+p1c0],a[jt+p2c0],a[jp+p2c0]); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1c0],a[jp+p1c0],a[jt+p2c0],a[jp+p2c0],a[jt+pc0],a[jp+pc0]); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2c0],a[jp+p2c0],a[jt+pc0],a[jp+pc0],a[jt+p1c0],a[jp+p1c0]); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pc0],a[jp+pc0],a[jt+p1c0],a[jp+p1c0],a[jt+p2c0],a[jp+p2c0]); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1c0],a[jp+p1c0],a[jt+p2c0],a[jp+p2c0],a[jt+pc0],a[jp+pc0]); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2c0],a[jp+p2c0],a[jt+pc0],a[jp+pc0],a[jt+p1c0],a[jp+p1c0]); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pc0],a[jp+pc0],a[jt+p1c0],a[jp+p1c0],a[jt+p2c0],a[jp+p2c0]); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1c0],a[jp+p1c0],a[jt+p2c0],a[jp+p2c0],a[jt+pc0],a[jp+pc0]); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2c0],a[jp+p2c0],a[jt+pc0],a[jp+pc0],a[jt+p1c0],a[jp+p1c0]); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pc0],a[jp+pc0],a[jt+p1c0],a[jp+p1c0],a[jt+p2c0],a[jp+p2c0]); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1c0],a[jp+p1c0],a[jt+p2c0],a[jp+p2c0],a[jt+pc0],a[jp+pc0]); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2c0],a[jp+p2c0],a[jt+pc0],a[jp+pc0],a[jt+p1c0],a[jp+p1c0]); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[j1+pc0],a[j2+pc0],a[j1+p1c0],a[j2+p1c0],a[j1+p2c0],a[j2+p2c0]); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1b0],a[jp+p1b0],a[jt+p2b0],a[jp+p2b0],a[jt+pb0],a[jp+pb0]); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2b0],a[jp+p2b0],a[jt+pb0],a[jp+pb0],a[jt+p1b0],a[jp+p1b0]); ++l; ++l1; ++l2;
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pb0],a[jp+pb0],a[jt+p1b0],a[jp+p1b0],a[jt+p2b0],a[jp+p2b0]); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1b0],a[jp+p1b0],a[jt+p2b0],a[jp+p2b0],a[jt+pb0],a[jp+pb0]); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2b0],a[jp+p2b0],a[jt+pb0],a[jp+pb0],a[jt+p1b0],a[jp+p1b0]); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pb0],a[jp+pb0],a[jt+p1b0],a[jp+p1b0],a[jt+p2b0],a[jp+p2b0]); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1b0],a[jp+p1b0],a[jt+p2b0],a[jp+p2b0],a[jt+pb0],a[jp+pb0]); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2b0],a[jp+p2b0],a[jt+pb0],a[jp+pb0],a[jt+p1b0],a[jp+p1b0]); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pb0],a[jp+pb0],a[jt+p1b0],a[jp+p1b0],a[jt+p2b0],a[jp+p2b0]); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1b0],a[jp+p1b0],a[jt+p2b0],a[jp+p2b0],a[jt+pb0],a[jp+pb0]); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2b0],a[jp+p2b0],a[jt+pb0],a[jp+pb0],a[jt+p1b0],a[jp+p1b0]); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pb0],a[jp+pb0],a[jt+p1b0],a[jp+p1b0],a[jt+p2b0],a[jp+p2b0]); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1b0],a[jp+p1b0],a[jt+p2b0],a[jp+p2b0],a[jt+pb0],a[jp+pb0]); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2b0],a[jp+p2b0],a[jt+pb0],a[jp+pb0],a[jt+p1b0],a[jp+p1b0]); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pb0],a[jp+pb0],a[jt+p1b0],a[jp+p1b0],a[jt+p2b0],a[jp+p2b0]); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[j1+p1b0],a[j2+p1b0],a[j1+p2b0],a[j2+p2b0],a[j1+pb0],a[j2+pb0]); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2a0],a[jp+p2a0],a[jt+pa0],a[jp+pa0],a[jt+p1a0],a[jp+p1a0]); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pa0],a[jp+pa0],a[jt+p1a0],a[jp+p1a0],a[jt+p2a0],a[jp+p2a0]); ++l; ++l1; ++l2;
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1a0],a[jp+p1a0],a[jt+p2a0],a[jp+p2a0],a[jt+pa0],a[jp+pa0]); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2a0],a[jp+p2a0],a[jt+pa0],a[jp+pa0],a[jt+p1a0],a[jp+p1a0]); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pa0],a[jp+pa0],a[jt+p1a0],a[jp+p1a0],a[jt+p2a0],a[jp+p2a0]); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1a0],a[jp+p1a0],a[jt+p2a0],a[jp+p2a0],a[jt+pa0],a[jp+pa0]); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2a0],a[jp+p2a0],a[jt+pa0],a[jp+pa0],a[jt+p1a0],a[jp+p1a0]); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pa0],a[jp+pa0],a[jt+p1a0],a[jp+p1a0],a[jt+p2a0],a[jp+p2a0]); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1a0],a[jp+p1a0],a[jt+p2a0],a[jp+p2a0],a[jt+pa0],a[jp+pa0]); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2a0],a[jp+p2a0],a[jt+pa0],a[jp+pa0],a[jt+p1a0],a[jp+p1a0]); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pa0],a[jp+pa0],a[jt+p1a0],a[jp+p1a0],a[jt+p2a0],a[jp+p2a0]); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1a0],a[jp+p1a0],a[jt+p2a0],a[jp+p2a0],a[jt+pa0],a[jp+pa0]); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p2a0],a[jp+p2a0],a[jt+pa0],a[jp+pa0],a[jt+p1a0],a[jp+p1a0]); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+pa0],a[jp+pa0],a[jt+p1a0],a[jp+p1a0],a[jt+p2a0],a[jp+p2a0]); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p1a0],a[jp+p1a0],a[jt+p2a0],a[jp+p2a0],a[jt+pa0],a[jp+pa0]); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[j1+p2a0],a[j2+p2a0],a[j1+pa0],a[j2+pa0],a[j1+p1a0],a[j2+p1a0]); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p90],a[jp+p90],a[jt+p190],a[jp+p190],a[jt+p290],a[jp+p290]); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p190],a[jp+p190],a[jt+p290],a[jp+p290],a[jt+p90],a[jp+p90]); ++l; ++l1; ++l2;
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p290],a[jp+p290],a[jt+p90],a[jp+p90],a[jt+p190],a[jp+p190]); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p90],a[jp+p90],a[jt+p190],a[jp+p190],a[jt+p290],a[jp+p290]); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p190],a[jp+p190],a[jt+p290],a[jp+p290],a[jt+p90],a[jp+p90]); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p290],a[jp+p290],a[jt+p90],a[jp+p90],a[jt+p190],a[jp+p190]); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p90],a[jp+p90],a[jt+p190],a[jp+p190],a[jt+p290],a[jp+p290]); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p190],a[jp+p190],a[jt+p290],a[jp+p290],a[jt+p90],a[jp+p90]); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p290],a[jp+p290],a[jt+p90],a[jp+p90],a[jt+p190],a[jp+p190]); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p90],a[jp+p90],a[jt+p190],a[jp+p190],a[jt+p290],a[jp+p290]); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p190],a[jp+p190],a[jt+p290],a[jp+p290],a[jt+p90],a[jp+p90]); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p290],a[jp+p290],a[jt+p90],a[jp+p90],a[jt+p190],a[jp+p190]); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p90],a[jp+p90],a[jt+p190],a[jp+p190],a[jt+p290],a[jp+p290]); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p190],a[jp+p190],a[jt+p290],a[jp+p290],a[jt+p90],a[jp+p90]); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p290],a[jp+p290],a[jt+p90],a[jp+p90],a[jt+p190],a[jp+p190]); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[j1+p90],a[j2+p90],a[j1+p190],a[j2+p190],a[j1+p290],a[j2+p290]); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p180],a[jp+p180],a[jt+p280],a[jp+p280],a[jt+p80],a[jp+p80]); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p280],a[jp+p280],a[jt+p80],a[jp+p80],a[jt+p180],a[jp+p180]); ++l; ++l1; ++l2;
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p80],a[jp+p80],a[jt+p180],a[jp+p180],a[jt+p280],a[jp+p280]); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p180],a[jp+p180],a[jt+p280],a[jp+p280],a[jt+p80],a[jp+p80]); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p280],a[jp+p280],a[jt+p80],a[jp+p80],a[jt+p180],a[jp+p180]); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p80],a[jp+p80],a[jt+p180],a[jp+p180],a[jt+p280],a[jp+p280]); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p180],a[jp+p180],a[jt+p280],a[jp+p280],a[jt+p80],a[jp+p80]); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p280],a[jp+p280],a[jt+p80],a[jp+p80],a[jt+p180],a[jp+p180]); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p80],a[jp+p80],a[jt+p180],a[jp+p180],a[jt+p280],a[jp+p280]); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p180],a[jp+p180],a[jt+p280],a[jp+p280],a[jt+p80],a[jp+p80]); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p280],a[jp+p280],a[jt+p80],a[jp+p80],a[jt+p180],a[jp+p180]); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p80],a[jp+p80],a[jt+p180],a[jp+p180],a[jt+p280],a[jp+p280]); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p180],a[jp+p180],a[jt+p280],a[jp+p280],a[jt+p80],a[jp+p80]); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p280],a[jp+p280],a[jt+p80],a[jp+p80],a[jt+p180],a[jp+p180]); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p80],a[jp+p80],a[jt+p180],a[jp+p180],a[jt+p280],a[jp+p280]); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[j1+p180],a[j2+p180],a[j1+p280],a[j2+p280],a[j1+p80],a[j2+p80]); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p270],a[jp+p270],a[jt+p70],a[jp+p70],a[jt+p170],a[jp+p170]); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p70],a[jp+p70],a[jt+p170],a[jp+p170],a[jt+p270],a[jp+p270]); ++l; ++l1; ++l2;
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p170],a[jp+p170],a[jt+p270],a[jp+p270],a[jt+p70],a[jp+p70]); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p270],a[jp+p270],a[jt+p70],a[jp+p70],a[jt+p170],a[jp+p170]); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p70],a[jp+p70],a[jt+p170],a[jp+p170],a[jt+p270],a[jp+p270]); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p170],a[jp+p170],a[jt+p270],a[jp+p270],a[jt+p70],a[jp+p70]); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p270],a[jp+p270],a[jt+p70],a[jp+p70],a[jt+p170],a[jp+p170]); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p70],a[jp+p70],a[jt+p170],a[jp+p170],a[jt+p270],a[jp+p270]); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p170],a[jp+p170],a[jt+p270],a[jp+p270],a[jt+p70],a[jp+p70]); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p270],a[jp+p270],a[jt+p70],a[jp+p70],a[jt+p170],a[jp+p170]); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p70],a[jp+p70],a[jt+p170],a[jp+p170],a[jt+p270],a[jp+p270]); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p170],a[jp+p170],a[jt+p270],a[jp+p270],a[jt+p70],a[jp+p70]); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p270],a[jp+p270],a[jt+p70],a[jp+p70],a[jt+p170],a[jp+p170]); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p70],a[jp+p70],a[jt+p170],a[jp+p170],a[jt+p270],a[jp+p270]); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p170],a[jp+p170],a[jt+p270],a[jp+p270],a[jt+p70],a[jp+p70]); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[j1+p270],a[j2+p270],a[j1+p70],a[j2+p70],a[j1+p170],a[j2+p170]); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p60],a[jp+p60],a[jt+p160],a[jp+p160],a[jt+p260],a[jp+p260]); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p160],a[jp+p160],a[jt+p260],a[jp+p260],a[jt+p60],a[jp+p60]); ++l; ++l1; ++l2;
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p260],a[jp+p260],a[jt+p60],a[jp+p60],a[jt+p160],a[jp+p160]); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p60],a[jp+p60],a[jt+p160],a[jp+p160],a[jt+p260],a[jp+p260]); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p160],a[jp+p160],a[jt+p260],a[jp+p260],a[jt+p60],a[jp+p60]); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p260],a[jp+p260],a[jt+p60],a[jp+p60],a[jt+p160],a[jp+p160]); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p60],a[jp+p60],a[jt+p160],a[jp+p160],a[jt+p260],a[jp+p260]); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p160],a[jp+p160],a[jt+p260],a[jp+p260],a[jt+p60],a[jp+p60]); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p260],a[jp+p260],a[jt+p60],a[jp+p60],a[jt+p160],a[jp+p160]); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p60],a[jp+p60],a[jt+p160],a[jp+p160],a[jt+p260],a[jp+p260]); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p160],a[jp+p160],a[jt+p260],a[jp+p260],a[jt+p60],a[jp+p60]); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p260],a[jp+p260],a[jt+p60],a[jp+p60],a[jt+p160],a[jp+p160]); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p60],a[jp+p60],a[jt+p160],a[jp+p160],a[jt+p260],a[jp+p260]); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p160],a[jp+p160],a[jt+p260],a[jp+p260],a[jt+p60],a[jp+p60]); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p260],a[jp+p260],a[jt+p60],a[jp+p60],a[jt+p160],a[jp+p160]); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[j1+p60],a[j2+p60],a[j1+p160],a[j2+p160],a[j1+p260],a[j2+p260]); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p150],a[jp+p150],a[jt+p250],a[jp+p250],a[jt+p50],a[jp+p50]); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p250],a[jp+p250],a[jt+p50],a[jp+p50],a[jt+p150],a[jp+p150]); ++l; ++l1; ++l2;
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p50],a[jp+p50],a[jt+p150],a[jp+p150],a[jt+p250],a[jp+p250]); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p150],a[jp+p150],a[jt+p250],a[jp+p250],a[jt+p50],a[jp+p50]); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p250],a[jp+p250],a[jt+p50],a[jp+p50],a[jt+p150],a[jp+p150]); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p50],a[jp+p50],a[jt+p150],a[jp+p150],a[jt+p250],a[jp+p250]); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p150],a[jp+p150],a[jt+p250],a[jp+p250],a[jt+p50],a[jp+p50]); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p250],a[jp+p250],a[jt+p50],a[jp+p50],a[jt+p150],a[jp+p150]); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p50],a[jp+p50],a[jt+p150],a[jp+p150],a[jt+p250],a[jp+p250]); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p150],a[jp+p150],a[jt+p250],a[jp+p250],a[jt+p50],a[jp+p50]); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p250],a[jp+p250],a[jt+p50],a[jp+p50],a[jt+p150],a[jp+p150]); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p50],a[jp+p50],a[jt+p150],a[jp+p150],a[jt+p250],a[jp+p250]); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p150],a[jp+p150],a[jt+p250],a[jp+p250],a[jt+p50],a[jp+p50]); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p250],a[jp+p250],a[jt+p50],a[jp+p50],a[jt+p150],a[jp+p150]); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p50],a[jp+p50],a[jt+p150],a[jp+p150],a[jt+p250],a[jp+p250]); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[j1+p150],a[j2+p150],a[j1+p250],a[j2+p250],a[j1+p50],a[j2+p50]); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p240],a[jp+p240],a[jt+p40],a[jp+p40],a[jt+p140],a[jp+p140]); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p40],a[jp+p40],a[jt+p140],a[jp+p140],a[jt+p240],a[jp+p240]); ++l; ++l1; ++l2;
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p140],a[jp+p140],a[jt+p240],a[jp+p240],a[jt+p40],a[jp+p40]); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p240],a[jp+p240],a[jt+p40],a[jp+p40],a[jt+p140],a[jp+p140]); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p40],a[jp+p40],a[jt+p140],a[jp+p140],a[jt+p240],a[jp+p240]); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p140],a[jp+p140],a[jt+p240],a[jp+p240],a[jt+p40],a[jp+p40]); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p240],a[jp+p240],a[jt+p40],a[jp+p40],a[jt+p140],a[jp+p140]); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p40],a[jp+p40],a[jt+p140],a[jp+p140],a[jt+p240],a[jp+p240]); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p140],a[jp+p140],a[jt+p240],a[jp+p240],a[jt+p40],a[jp+p40]); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p240],a[jp+p240],a[jt+p40],a[jp+p40],a[jt+p140],a[jp+p140]); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p40],a[jp+p40],a[jt+p140],a[jp+p140],a[jt+p240],a[jp+p240]); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p140],a[jp+p140],a[jt+p240],a[jp+p240],a[jt+p40],a[jp+p40]); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p240],a[jp+p240],a[jt+p40],a[jp+p40],a[jt+p140],a[jp+p140]); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p40],a[jp+p40],a[jt+p140],a[jp+p140],a[jt+p240],a[jp+p240]); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p140],a[jp+p140],a[jt+p240],a[jp+p240],a[jt+p40],a[jp+p40]); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[j1+p240],a[j2+p240],a[j1+p40],a[j2+p40],a[j1+p140],a[j2+p140]); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p30],a[jp+p30],a[jt+p130],a[jp+p130],a[jt+p230],a[jp+p230]); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p130],a[jp+p130],a[jt+p230],a[jp+p230],a[jt+p30],a[jp+p30]); ++l; ++l1; ++l2;
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p230],a[jp+p230],a[jt+p30],a[jp+p30],a[jt+p130],a[jp+p130]); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p30],a[jp+p30],a[jt+p130],a[jp+p130],a[jt+p230],a[jp+p230]); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p130],a[jp+p130],a[jt+p230],a[jp+p230],a[jt+p30],a[jp+p30]); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p230],a[jp+p230],a[jt+p30],a[jp+p30],a[jt+p130],a[jp+p130]); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p30],a[jp+p30],a[jt+p130],a[jp+p130],a[jt+p230],a[jp+p230]); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p130],a[jp+p130],a[jt+p230],a[jp+p230],a[jt+p30],a[jp+p30]); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p230],a[jp+p230],a[jt+p30],a[jp+p30],a[jt+p130],a[jp+p130]); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p30],a[jp+p30],a[jt+p130],a[jp+p130],a[jt+p230],a[jp+p230]); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p130],a[jp+p130],a[jt+p230],a[jp+p230],a[jt+p30],a[jp+p30]); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p230],a[jp+p230],a[jt+p30],a[jp+p30],a[jt+p130],a[jp+p130]); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p30],a[jp+p30],a[jt+p130],a[jp+p130],a[jt+p230],a[jp+p230]); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p130],a[jp+p130],a[jt+p230],a[jp+p230],a[jt+p30],a[jp+p30]); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p230],a[jp+p230],a[jt+p30],a[jp+p30],a[jt+p130],a[jp+p130]); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[j1+p30],a[j2+p30],a[j1+p130],a[j2+p130],a[j1+p230],a[j2+p230]); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p120],a[jp+p120],a[jt+p220],a[jp+p220],a[jt+p20],a[jp+p20]); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p220],a[jp+p220],a[jt+p20],a[jp+p20],a[jt+p120],a[jp+p120]); ++l; ++l1; ++l2;
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p20],a[jp+p20],a[jt+p120],a[jp+p120],a[jt+p220],a[jp+p220]); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p120],a[jp+p120],a[jt+p220],a[jp+p220],a[jt+p20],a[jp+p20]); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p220],a[jp+p220],a[jt+p20],a[jp+p20],a[jt+p120],a[jp+p120]); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p20],a[jp+p20],a[jt+p120],a[jp+p120],a[jt+p220],a[jp+p220]); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p120],a[jp+p120],a[jt+p220],a[jp+p220],a[jt+p20],a[jp+p20]); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p220],a[jp+p220],a[jt+p20],a[jp+p20],a[jt+p120],a[jp+p120]); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p20],a[jp+p20],a[jt+p120],a[jp+p120],a[jt+p220],a[jp+p220]); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p120],a[jp+p120],a[jt+p220],a[jp+p220],a[jt+p20],a[jp+p20]); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p220],a[jp+p220],a[jt+p20],a[jp+p20],a[jt+p120],a[jp+p120]); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p20],a[jp+p20],a[jt+p120],a[jp+p120],a[jt+p220],a[jp+p220]); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p120],a[jp+p120],a[jt+p220],a[jp+p220],a[jt+p20],a[jp+p20]); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p220],a[jp+p220],a[jt+p20],a[jp+p20],a[jt+p120],a[jp+p120]); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p20],a[jp+p20],a[jt+p120],a[jp+p120],a[jt+p220],a[jp+p220]); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[j1+p120],a[j2+p120],a[j1+p220],a[j2+p220],a[j1+p20],a[j2+p20]); ++l; ++l1; ++l2;
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p210],a[jp+p210],a[jt+p10],a[jp+p10],a[jt+p110],a[jp+p110]); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p10],a[jp+p10],a[jt+p110],a[jp+p110],a[jt+p210],a[jp+p210]); ++l; ++l1; ++l2;
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p110],a[jp+p110],a[jt+p210],a[jp+p210],a[jt+p10],a[jp+p10]); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p210],a[jp+p210],a[jt+p10],a[jp+p10],a[jt+p110],a[jp+p110]); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p10],a[jp+p10],a[jt+p110],a[jp+p110],a[jt+p210],a[jp+p210]); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p110],a[jp+p110],a[jt+p210],a[jp+p210],a[jt+p10],a[jp+p10]); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p210],a[jp+p210],a[jt+p10],a[jp+p10],a[jt+p110],a[jp+p110]); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p10],a[jp+p10],a[jt+p110],a[jp+p110],a[jt+p210],a[jp+p210]); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p110],a[jp+p110],a[jt+p210],a[jp+p210],a[jt+p10],a[jp+p10]); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p210],a[jp+p210],a[jt+p10],a[jp+p10],a[jt+p110],a[jp+p110]); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p10],a[jp+p10],a[jt+p110],a[jp+p110],a[jt+p210],a[jp+p210]); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p110],a[jp+p110],a[jt+p210],a[jp+p210],a[jt+p10],a[jp+p10]); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p210],a[jp+p210],a[jt+p10],a[jp+p10],a[jt+p110],a[jp+p110]); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p10],a[jp+p10],a[jt+p110],a[jp+p110],a[jt+p210],a[jp+p210]); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p110],a[jp+p110],a[jt+p210],a[jp+p210],a[jt+p10],a[jp+p10]); ++l; ++l1; ++l2;
-									RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[j1+p210],a[j2+p210],a[j1+p10],a[j2+p10],a[j1+p110],a[j2+p110]); ++l; ++l1; ++l2;
-		// Final "tail" of 15 macro calls done out-of-loop:
-		jt = j1 + pf; jp = j2 + pf;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt     ],a[jp     ],a[jt+p100],a[jp+p100],a[jt+p200],a[jp+p200]); ++l; ++l1; ++l2;
-		jt = j1 + pe; jp = j2 + pe;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p100],a[jp+p100],a[jt+p200],a[jp+p200],a[jt     ],a[jp     ]); ++l; ++l1; ++l2;
-		jt = j1 + pd; jp = j2 + pd;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p200],a[jp+p200],a[jt     ],a[jp     ],a[jt+p100],a[jp+p100]); ++l; ++l1; ++l2;
-		jt = j1 + pc; jp = j2 + pc;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt     ],a[jp     ],a[jt+p100],a[jp+p100],a[jt+p200],a[jp+p200]); ++l; ++l1; ++l2;
-		jt = j1 + pb; jp = j2 + pb;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p100],a[jp+p100],a[jt+p200],a[jp+p200],a[jt     ],a[jp     ]); ++l; ++l1; ++l2;
-		jt = j1 + pa; jp = j2 + pa;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p200],a[jp+p200],a[jt     ],a[jp     ],a[jt+p100],a[jp+p100]); ++l; ++l1; ++l2;
-		jt = j1 + p9; jp = j2 + p9;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt     ],a[jp     ],a[jt+p100],a[jp+p100],a[jt+p200],a[jp+p200]); ++l; ++l1; ++l2;
-		jt = j1 + p8; jp = j2 + p8;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p100],a[jp+p100],a[jt+p200],a[jp+p200],a[jt     ],a[jp     ]); ++l; ++l1; ++l2;
-		jt = j1 + p7; jp = j2 + p7;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p200],a[jp+p200],a[jt     ],a[jp     ],a[jt+p100],a[jp+p100]); ++l; ++l1; ++l2;
-		jt = j1 + p6; jp = j2 + p6;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt     ],a[jp     ],a[jt+p100],a[jp+p100],a[jt+p200],a[jp+p200]); ++l; ++l1; ++l2;
-		jt = j1 + p5; jp = j2 + p5;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p100],a[jp+p100],a[jt+p200],a[jp+p200],a[jt     ],a[jp     ]); ++l; ++l1; ++l2;
-		jt = j1 + p4; jp = j2 + p4;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p200],a[jp+p200],a[jt     ],a[jp     ],a[jt+p100],a[jp+p100]); ++l; ++l1; ++l2;
-		jt = j1 + p3; jp = j2 + p3;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt     ],a[jp     ],a[jt+p100],a[jp+p100],a[jt+p200],a[jp+p200]); ++l; ++l1; ++l2;
-		jt = j1 + p2; jp = j2 + p2;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p100],a[jp+p100],a[jt+p200],a[jp+p200],a[jt     ],a[jp     ]); ++l; ++l1; ++l2;
-		jt = j1 + p1; jp = j2 + p1;	RADIX_03_DFT(s,c3m1, t[l].re,t[l].im,t[l1].re,t[l1].im,t[l2].re,t[l2].im, t00,t01,t02,t03,t04,t05, a[jt+p200],a[jp+p200],a[jt     ],a[jp     ],a[jt+p100],a[jp+p100]); ++l; ++l1; ++l2;
-	#endif
 	}
 }
 
@@ -2875,6 +2521,7 @@ void radix768_dit_pass1(double a[], int n)
 		p100,p110,p120,p130,p140,p150,p160,p170,p180,p190,p1a0,p1b0,p1c0,p1d0,p1e0,p1f0,
 		p200,p210,p220,p230,p240,p250,p260,p270,p280,p290,p2a0,p2b0,p2c0,p2d0,p2e0,p2f0;
 		int poff[RADIX>>2];
+		double wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
 
 		int dif_offsets_lo[64];	// 4 subsets of 16
 		// Bitfields encoding the sequence of the dif_offsets_lo subset0-3 vectors to use for each radix-256 DIF's outputs:
@@ -2889,21 +2536,36 @@ void radix768_dit_pass1(double a[], int n)
 		int dif_triplets[144], dit_triplets[48];
 
 		int j,j1,j2,k,l,l1,l2,k0,k1,k2;
-	#ifdef USE_AVX
+	#ifdef USE_AVX512
+		double t0,t1,t2,t3;
+	  #ifdef CARRY_16_WAY
+		struct uint32x16 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+	  #else
+		struct uint32x8  *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+	  #endif
+	#elif defined(USE_AVX)
 		struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
 	#else
 		int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 		double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
-		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 	#endif
 
 	#ifdef USE_SSE2
 
+		// lg(sizeof(vec_dbl)):
+	  #ifdef USE_AVX512
+		const int l2_sz_vd = 6;
+	  #elif defined(USE_AVX)
+		const int l2_sz_vd = 5;
+	  #else
+		const int l2_sz_vd = 4;
+	  #endif
 		const double crnd = 3.0*0x4000000*0x2000000;
 		double *add0,*add1,*add2,*add3;
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
 		vec_dbl *tmp,*tm1,*tm2;	// utility ptrs
-		int *itmp;			// Pointer into the bjmodn array
+		int *itmp,*itm2;			// Pointer into the bjmodn array
+		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 		vec_dbl *two,*one,*sqrt2,*isrt2, *cc0, *ss0, *cc1, *ss1, *max_err, *sse2_rnd, *half_arr,
 			// ptrs to 16 sets of twiddles shared by the 2nd-half DIF and DIT DFT macros:
 			*twid0,*twid1,*twid2,*twid3,*twid4,*twid5,*twid6,*twid7,*twid8,*twid9,*twida,*twidb,*twidc,*twidd,*twide,*twidf,
@@ -2956,6 +2618,12 @@ void radix768_dit_pass1(double a[], int n)
 		double *a = thread_arg->arrdat;
 		double *wt0 = thread_arg->wt0;
 		double *wt1 = thread_arg->wt1;
+	#ifdef LOACC
+		double *wts_mult = thread_arg->wts_mult;	// Const Intra-block wts-multiplier...
+		double *inv_mult = thread_arg->inv_mult;	// ...and 2*(its multiplicative inverse).
+		ASSERT(HERE,fabs(wts_mult[0]*inv_mult[0] - 1.0) < EPS, "wts_mults fail accuracy check!");
+		ASSERT(HERE,fabs(wts_mult[1]*inv_mult[1] - 1.0) < EPS, "wts_mults fail accuracy check!");
+	#endif
 		int *si = thread_arg->si;
 
 		/*   constant index offsets for array load/stores are here.	*/
@@ -3372,7 +3040,12 @@ void radix768_dit_pass1(double a[], int n)
 		twide  = tmp + 0x1a4;
 		twidf  = tmp + 0x1c2;
 		tmp += 0x1e0;	// += 15*30 => sc_ptr += 0xde8
-	  #ifdef USE_AVX
+	  #ifdef USE_AVX512
+		cy = tmp;		tmp += 0x60;	// RADIX/8 vec_dbl slots for carry sub-array
+		max_err = tmp + 0x00;
+		sse2_rnd= tmp + 0x01;
+		half_arr= tmp + 0x02;
+	  #elif defined(USE_AVX)
 		cy = tmp;		tmp += 0xc0;	// RADIX/4 vec_dbl slots for carry sub-array
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;	// += 0xc0 + 2 => sc_ptr += 0xeaa
@@ -3388,9 +3061,13 @@ void radix768_dit_pass1(double a[], int n)
 
 		ASSERT(HERE, (r000 == thread_arg->r000), "thread-local memcheck failed!");
 		ASSERT(HERE, (half_arr == thread_arg->half_arr), "thread-local memcheck failed!");
+	  #ifndef USE_AVX512	// In AVX-512 mode, use VRNDSCALEPD for rounding and hijack this vector-data slot for the 4 base/baseinv-consts:
 		ASSERT(HERE, (sse2_rnd->d0 == crnd && sse2_rnd->d1 == crnd), "thread-local memcheck failed!");
+	  #endif
 		tmp = half_arr;
-	  #ifdef USE_AVX
+	  #ifdef USE_AVX512
+		/* No-Op */
+	  #elif defined(USE_AVX)
 		// Grab some elt of base-data [offset by, say, +32] and mpy by its inverse [+16 further]
 		dtmp = (tmp+40)->d0 * (tmp+56)->d0;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
 		dtmp = (tmp+40)->d1 * (tmp+56)->d1;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
@@ -3405,12 +3082,26 @@ void radix768_dit_pass1(double a[], int n)
 		sse_bw  = sign_mask + RE_IM_STRIDE;	// (  #doubles in a SIMD complex) x 32-bits = RE_IM_STRIDE x 64-bits
 		sse_sw  = sse_bw    + RE_IM_STRIDE;
 		sse_n   = sse_sw    + RE_IM_STRIDE;
-	  #ifdef USE_AVX
+
+	  #ifdef USE_AVX512
+	   #ifdef CARRY_16_WAY
+		n_minus_sil   = (struct uint32x16*)sse_n + 1;
+		n_minus_silp1 = (struct uint32x16*)sse_n + 2;
+		sinwt         = (struct uint32x16*)sse_n + 3;
+		sinwtm1       = (struct uint32x16*)sse_n + 4;
+	   #else
+		n_minus_sil   = (struct uint32x8 *)sse_n + 1;
+		n_minus_silp1 = (struct uint32x8 *)sse_n + 2;
+		sinwt         = (struct uint32x8 *)sse_n + 3;
+		sinwtm1       = (struct uint32x8 *)sse_n + 4;
+	   #endif
+	  #elif defined(USE_AVX)
 		n_minus_sil   = (struct uint32x4 *)sse_n + 1;
 		n_minus_silp1 = (struct uint32x4 *)sse_n + 2;
 		sinwt         = (struct uint32x4 *)sse_n + 3;
 		sinwtm1       = (struct uint32x4 *)sse_n + 4;
-
+	  #endif
+	  #ifdef USE_AVX
 		bjmodn = (int*)(sinwtm1 + RE_IM_STRIDE);
 	  #else
 		bjmodn = (int*)(sse_n + RE_IM_STRIDE);
@@ -3433,7 +3124,19 @@ void radix768_dit_pass1(double a[], int n)
 
 		/* init carries	*/
 		addr = thread_arg->cy;
-	#ifdef USE_AVX	// AVX and AVX2 both use 256-bit registers
+	#ifdef USE_AVX512
+		tmp = cy;
+		for(l = 0; l < RADIX; l += 8, ++tmp) {
+			tmp->d0 = *(addr+l  );
+			tmp->d1 = *(addr+l+1);
+			tmp->d2 = *(addr+l+2);
+			tmp->d3 = *(addr+l+3);
+			tmp->d4 = *(addr+l+4);
+			tmp->d5 = *(addr+l+5);
+			tmp->d6 = *(addr+l+6);
+			tmp->d7 = *(addr+l+7);
+		}
+	#elif defined(USE_AVX)
 		tmp = cy;
 		for(l = 0; l < RADIX; l += 4, ++tmp) {
 			tmp->d0 = *(addr+l  );
@@ -3463,7 +3166,24 @@ void radix768_dit_pass1(double a[], int n)
 		carryouts into their non-thread-private array slots:
 		*/
 		addr = thread_arg->cy;
-	#ifdef USE_AVX
+	#ifdef USE_AVX512
+		tmp = cy;
+		for(l = 0; l < RADIX; l += 8, ++tmp) {
+			*(addr+l  ) = tmp->d0;
+			*(addr+l+1) = tmp->d1;
+			*(addr+l+2) = tmp->d2;
+			*(addr+l+3) = tmp->d3;
+			*(addr+l+4) = tmp->d4;
+			*(addr+l+5) = tmp->d5;
+			*(addr+l+6) = tmp->d6;
+			*(addr+l+7) = tmp->d7;
+		}
+		t0 = MAX(max_err->d0,max_err->d1);
+		t1 = MAX(max_err->d2,max_err->d3);
+		t2 = MAX(max_err->d4,max_err->d5);
+		t3 = MAX(max_err->d6,max_err->d7);
+		maxerr = MAX( MAX(t0,t1), MAX(t2,t3) );
+	#elif defined(USE_AVX)
 		tmp = cy;
 		for(l = 0; l < RADIX; l += 4, ++tmp) {
 			*(addr+l  ) = tmp->d0;

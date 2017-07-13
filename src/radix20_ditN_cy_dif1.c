@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2013 by Ernst W. Mayer.                                           *
+*   (C) 1997-2017 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -24,56 +24,39 @@
 
 #define RADIX 20	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
 
+#define EPS 1e-10
+
 #ifndef PFETCH_DIST
-  #ifdef USE_AVX
+  #ifdef USE_AVX512
+	#define PFETCH_DIST	64	// Feb 2017: Test on KNL point to this as best
+  #elif defined(USE_AVX)
 	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
   #else
 	#define PFETCH_DIST	32
   #endif
 #endif
 
-#ifdef MULTITHREAD
-	#ifndef USE_PTHREAD
-		#error Pthreads is only thread model currently supported!
-	#endif
-#endif
-
 #ifdef USE_SSE2
 
-  // For Mersenne-mod we need (16 [SSE2] or 64 [AVX]) + 4 added slots for the half_arr lookup tables.
-  // Add relevant number (half_arr_offset20 + RADIX) to get required value of radix20_creals_in_local_store:
+  // For Mersenne-mod need (16 [SSE2] or 64 [AVX]) + (24 [SSE2] or 68 [AVX])[LOACC] added slots for half_arr lookup tables.
+  // Max = (40 [SSE2]; 132 [AVX]), add to (half_arr_offset20 + RADIX) to get value of radix20_creals_in_local_store.
   #ifdef USE_AVX
 	const int half_arr_offset20 = 93;	// + RADIX = 113; Used for thread local-storage-integrity checking
-	const int radix20_creals_in_local_store = 172;	// (half_arr_offset20 + RADIX) + 68 and round up to nearest multiple of 4
+	const int radix20_creals_in_local_store = 248;	// (half_arr_offset20 + RADIX) + 132 and round up to nearest multiple of 4
   #else
 	const int half_arr_offset20 = 98;	// + RADIX = 118; Used for thread local-storage-integrity checking
-	const int radix20_creals_in_local_store = 140;	// (half_arr_offset20 + RADIX) + 20 and round up to nearest multiple of 4
+	const int radix20_creals_in_local_store = 160;	// (half_arr_offset20 + RADIX) + 40 and round up to nearest multiple of 4
   #endif
 
-	#define ERR_CHECK_ALL	/* #define this to do ROE checking of all convolution outputs, rather than just every 36th one */
-	#if defined(USE_AVX) && !defined(ERR_CHECK_ALL)
-		#error ERR_CHECK_ALL *required* for AVX-mode builds!
-	#endif
+  #ifdef COMPILER_TYPE_MSVC
+	#error Mlucas build requires GCC-compatible compiler!
+  #endif
 
-	#define EPS 1e-10
-
-	#ifdef COMPILER_TYPE_MSVC
-		#include "sse2_macro.h"
-	#endif
-
-	#if defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)	/* GCC-style inline ASM: */
-
-		#if OS_BITS == 32
-
-			#include "radix20_ditN_cy_dif1_gcc32.h"
-
-		#else
-
-			#include "radix20_ditN_cy_dif1_gcc64.h"
-
-		#endif
-
-	#endif
+  #if OS_BITS == 32
+	#include "radix20_ditN_cy_dif1_gcc32.h"
+  #else
+	#include "radix20_ditN_cy_dif1_gcc64.h"
+  #endif
 
 #endif	/* USE_SSE2 */
 
@@ -107,6 +90,9 @@
 		double *arrdat;			/* Main data array */
 		double *wt0;
 		double *wt1;
+	#ifdef LOACC
+		double *wts_mult, *inv_mult;
+	#endif
 		int *si;
 	#ifdef USE_SSE2
 		vec_dbl *r00;
@@ -189,18 +175,24 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
   #endif
 #endif
 	int i,j,j1,j2,jstart,jhi,full_pass,k,khi,l,outer,nbytes;
-	static uint64 psave=0;
-	static uint32 bw,sw,bjmodnini,p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19;
+	static uint64 psave = 0;
+  #ifdef LOACC
+	static double wts_mult[2], inv_mult[2];	// Const wts-multiplier and 2*(its multiplicative inverse)
+  #endif
+	double wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
+	static uint32 bw,sw,bjmodnini,p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19, nsave = 0;
+	static int poff[RADIX>>2];	// Store [RADIX/4] mults of p04 offset for loop control
 	const double	uc1 = -1.25000000000000000000,	/* [cos(u)+cos(2u)]/2-1 = -5/4; u = 2*pi/5 */
 					uc2 =  0.55901699437494742409,	/* [cos(u)-cos(2u)]/2 */
 					us1 =  0.95105651629515357211,	/*  sin(u) */
 					us2 =  1.53884176858762670130,	/* [sin(u)+sin(2u)] */
 					us3 =  0.36327126400268044292;	/* [sin(u)-sin(2u)] */
 	static double radix_inv, n2inv;
-	double scale
+	double rt,it,scale
 		,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09
 		,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19;
 	double dtmp, maxerr = 0.0;
+	int *itmp;	// Pointer into the bjmodn array
 	int err;
 	static int first_entry=TRUE;
 
@@ -216,8 +208,8 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 #ifdef USE_SSE2
 
-  #if !(defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
-	#error SSE2 code not supported for this compiler!
+  #ifndef COMPILER_TYPE_GCC
+	#error x86 SIMD build requires GCC-compatible compiler!
   #endif
 
 	static int cslots_in_local_store;
@@ -233,7 +225,7 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	const double crnd = 3.0*0x4000000*0x2000000;
 	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
-	static vec_dbl *cc1, *ss1, *cc2, *ss2, *ss3, *max_err, *sse2_rnd, *half_arr, *tmp,*tm2, *two, *r00,*r10,*r20,*r30
+	static vec_dbl *cc1, *ss1, *cc2, *ss2, *ss3, *max_err, *sse2_rnd, *half_arr, *tmp,*tm1,*tm2, *two, *r00,*r10,*r20,*r30
 		,*s1p00r,*s1p01r,*s1p02r,*s1p03r,*s1p04r,*s1p05r,*s1p06r,*s1p07r,*s1p08r,*s1p09r,*s1p10r,*s1p11r,*s1p12r,*s1p13r,*s1p14r,*s1p15r,*s1p16r,*s1p17r,*s1p18r,*s1p19r;
 
 	static int *bjmodn00,*bjmodn01,*bjmodn02,*bjmodn03,*bjmodn04,*bjmodn05,*bjmodn06,*bjmodn07,*bjmodn08,*bjmodn09,*bjmodn10,*bjmodn11,*bjmodn12,*bjmodn13,*bjmodn14,*bjmodn15,*bjmodn16,*bjmodn17,*bjmodn18,*bjmodn19;
@@ -267,11 +259,10 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	int bjmodn00,bjmodn01,bjmodn02,bjmodn03,bjmodn04,bjmodn05,bjmodn06,bjmodn07,bjmodn08,bjmodn09,bjmodn10,bjmodn11,bjmodn12,bjmodn13,bjmodn14,bjmodn15,bjmodn16,bjmodn17,bjmodn18,bjmodn19;
 	double t20,t21,t22,t23,t24,t25,t26,t27,t28,t29
 		,t30,t31,t32,t33,t34,t35,t36,t37,t38,t39;
-	double rt,it,temp,frac
+	double temp,frac
 		,a1p00r,a1p01r,a1p02r,a1p03r,a1p04r,a1p05r,a1p06r,a1p07r,a1p08r,a1p09r,a1p10r,a1p11r,a1p12r,a1p13r,a1p14r,a1p15r,a1p16r,a1p17r,a1p18r,a1p19r
 		,a1p00i,a1p01i,a1p02i,a1p03i,a1p04i,a1p05i,a1p06i,a1p07i,a1p08i,a1p09i,a1p10i,a1p11i,a1p12i,a1p13i,a1p14i,a1p15i,a1p16i,a1p17i,a1p18i,a1p19i
 		,cy00,cy01,cy02,cy03,cy04,cy05,cy06,cy07,cy08,cy09,cy10,cy11,cy12,cy13,cy14,cy15,cy16,cy17,cy18,cy19;
-
 #endif
 
 /*...stuff for the multithreaded implementation is here:	*/
@@ -281,8 +272,13 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	static int *_bjmodn00 = 0x0,*_bjmodn01 = 0x0,*_bjmodn02 = 0x0,*_bjmodn03 = 0x0,*_bjmodn04 = 0x0,*_bjmodn05 = 0x0,*_bjmodn06 = 0x0,*_bjmodn07 = 0x0,*_bjmodn08 = 0x0,*_bjmodn09 = 0x0,*_bjmodn10 = 0x0,*_bjmodn11 = 0x0,*_bjmodn12 = 0x0,*_bjmodn13 = 0x0,*_bjmodn14 = 0x0,*_bjmodn15 = 0x0,*_bjmodn16 = 0x0,*_bjmodn17 = 0x0,*_bjmodn18 = 0x0,*_bjmodn19 = 0x0;
 	static int *_bjmodnini = 0x0;
 	static int *_i, *_jstart = 0x0, *_jhi = 0x0, *_col = 0x0, *_co2 = 0x0, *_co3 = 0x0;
-	static double *_maxerr = 0x0,
-	*_cy00 = 0x0,*_cy01 = 0x0,*_cy02 = 0x0,*_cy03 = 0x0,*_cy04 = 0x0,*_cy05 = 0x0,*_cy06 = 0x0,*_cy07 = 0x0,*_cy08 = 0x0,*_cy09 = 0x0,*_cy10 = 0x0,*_cy11 = 0x0,*_cy12 = 0x0,*_cy13 = 0x0,*_cy14 = 0x0,*_cy15 = 0x0,*_cy16 = 0x0,*_cy17 = 0x0,*_cy18 = 0x0,*_cy19 = 0x0;
+	static double
+	*_cy00 = 0x0,*_cy01 = 0x0,*_cy02 = 0x0,*_cy03 = 0x0,*_cy04 = 0x0,*_cy05 = 0x0,*_cy06 = 0x0,*_cy07 = 0x0,*_cy08 = 0x0,*_cy09 = 0x0,
+	*_cy10 = 0x0,*_cy11 = 0x0,*_cy12 = 0x0,*_cy13 = 0x0,*_cy14 = 0x0,*_cy15 = 0x0,*_cy16 = 0x0,*_cy17 = 0x0,*_cy18 = 0x0,*_cy19 = 0x0;
+
+  #ifdef USE_AVX512
+	WARN(HERE, "radix20_ditN_cy_dif1: No AVX-512 support; Skipping this leading radix.", "", 1); return(ERR_RADIX0_UNAVAILABLE);
+  #endif
 
 	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
 	{
@@ -307,34 +303,65 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		return(err);
 	}
 
-	if(p != psave)
-	{
+	if(p != psave || n != nsave) {	/* Exponent or array length change triggers re-init */
 		first_entry=TRUE;
 	}
 
-/*...initialize things upon first entry	*/
+/*...initialize things upon first entry: */
 
 	if(first_entry)
 	{
-		psave = p;
-		first_entry=FALSE;
+		psave = p;	nsave = n;
 		radix_inv = qfdbl(qf_rational_quotient((int64)1, (int64)RADIX));
 		n2inv     = qfdbl(qf_rational_quotient((int64)1, (int64)(n/2)));
 
-		bw    = p%n;		/* Number of bigwords in the Crandall/Fagin mixed-radix representation = (Mersenne exponent) mod (vector length).	*/
+		bw    = p%n;	/* Number of bigwords in the Crandall/Fagin mixed-radix representation = (Mersenne exponent) mod (vector length).	*/
 		sw    = n - bw;	/* Number of smallwords.	*/
+
+	#ifdef LOACC
+	  #define CARRY_8_WAY	// Make default due to higher accuracy
+
+	  #ifdef USE_AVX	// AVX LOACC: can select between carry macros processing 4 and 8 independent carries
+	   #ifdef CARRY_8_WAY
+		i = 8;
+	   #else
+		i = 4;
+	   #endif
+	  #elif defined(USE_SSE2)	// AVX and SSE2 modes use 4-way carry macros
+		i = 4;
+	  #else	// Scalar-double mode:
+		i = 1;
+	  #endif
+
+		// For n a power of 2 don't need to worry about 32-bit integer overflow in the sw*NDIVR term,
+		// but for non-power-of-2 n we must cast-to-uint64 to avoid such overflows fubaring the result:
+		struct qfloat qt,qn;
+		qt = i64_to_q(i*(uint64)sw*NDIVR % n);
+		qn = i64_to_q((int64) n);
+		qt = qfdiv(qt, qn);		// x = (sw*NDIVR (mod n))/n
+		qt = qfmul(qt, QLN2);	// x*ln(2)...
+		qt = qfexp(qt);			// ...and get 2^x via exp[x*ln(2)].
+		wts_mult[0] = qfdbl(qt);		// a = 2^(x/n), with x = sw
+		inv_mult[0] = qfdbl(qfinv(qt));	// Double-based inversion (1.0 / wts_mult_a[0]) often gets LSB wrong
+		ASSERT(HERE,fabs(wts_mult[0]*inv_mult[0] - 1.0) < EPS, "wts_mults fail accuracy check!");
+		//curr have w, 2/w, separate-mul-by-1-or-0.5 gives [w,w/2] and [1/w,2/w] for i = 0,1, resp:
+		wts_mult[1] = 0.5*wts_mult[0];
+		inv_mult[1] = 2.0*inv_mult[0];
+		ASSERT(HERE,fabs(wts_mult[1]*inv_mult[1] - 1.0) < EPS, "wts_mults fail accuracy check!");
+
+	#endif
 
 	#ifdef MULTITHREAD
 
-		/* #Chunks ||ized in carry step is ideally a power of 2, so use the smallest
-		power of 2 that is >= the value of the global NTHREADS (but still <= MAX_THREADS):
+		/* #Chunks ||ized in carry step is ideally a power of 2, so use the largest
+		power of 2 that is <= the value of the global NTHREADS (but still <= MAX_THREADS):
 		*/
 		if(isPow2(NTHREADS))
 			CY_THREADS = NTHREADS;
 		else
 		{
 			i = leadz32(NTHREADS);
-			CY_THREADS = (((uint32)NTHREADS << i) & 0x80000000) >> (i-1);
+			CY_THREADS = (((uint32)NTHREADS << i) & 0x80000000) >> i;
 		}
 
 		if(CY_THREADS > MAX_THREADS)
@@ -342,7 +369,6 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		//	CY_THREADS = MAX_THREADS;
 			fprintf(stderr,"WARN: CY_THREADS = %d exceeds number of cores = %d\n", CY_THREADS, MAX_THREADS);
 		}
-		if(CY_THREADS < NTHREADS)	{ WARN(HERE, "CY_THREADS < NTHREADS", "", 1); return(ERR_ASSERT); }
 		if(!isPow2(CY_THREADS))		{ WARN(HERE, "CY_THREADS not a power of 2!", "", 1); return(ERR_ASSERT); }
 		if(CY_THREADS > 1)
 		{
@@ -351,33 +377,33 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		}
 
 	  #ifdef USE_PTHREAD
-
-		j = (uint32)sizeof(struct cy_thread_data_t);
-		tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, sizeof(struct cy_thread_data_t));
-
-		// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
-		// so on that platform try to be clever and interleave main-thread and threadpool-work processing
-		#if 0//def OS_TYPE_MACOSX
-
-			if(CY_THREADS > 1) {
-				main_work_units = CY_THREADS/2;
-				pool_work_units = CY_THREADS - main_work_units;
-				ASSERT(HERE, 0x0 != (tpool = threadpool_init(pool_work_units, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
-				printf("radix%d_ditN_cy_dif1: Init threadpool of %d threads\n", RADIX, pool_work_units);
-			} else {
-				main_work_units = 1;
-				printf("radix%d_ditN_cy_dif1: CY_THREADS = 1: Using main execution thread, no threadpool needed.\n", RADIX);
-			}
-
-		#else
-
-			pool_work_units = CY_THREADS;
-			ASSERT(HERE, 0x0 != (tpool = threadpool_init(CY_THREADS, MAX_THREADS, CY_THREADS, &thread_control)), "threadpool_init failed!");
-
-		#endif
-
-		fprintf(stderr,"Using %d threads in carry step\n", CY_THREADS);
-
+		if(tdat == 0x0) {
+			j = (uint32)sizeof(struct cy_thread_data_t);
+			tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, sizeof(struct cy_thread_data_t));
+	
+			// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
+			// so on that platform try to be clever and interleave main-thread and threadpool-work processing
+			#if 0//def OS_TYPE_MACOSX
+	
+				if(CY_THREADS > 1) {
+					main_work_units = CY_THREADS/2;
+					pool_work_units = CY_THREADS - main_work_units;
+					ASSERT(HERE, 0x0 != (tpool = threadpool_init(pool_work_units, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
+					printf("radix%d_ditN_cy_dif1: Init threadpool of %d threads\n", RADIX, pool_work_units);
+				} else {
+					main_work_units = 1;
+					printf("radix%d_ditN_cy_dif1: CY_THREADS = 1: Using main execution thread, no threadpool needed.\n", RADIX);
+				}
+	
+			#else
+	
+				pool_work_units = CY_THREADS;
+				ASSERT(HERE, 0x0 != (tpool = threadpool_init(CY_THREADS, MAX_THREADS, CY_THREADS, &thread_control)), "threadpool_init failed!");
+	
+			#endif
+	
+			fprintf(stderr,"Using %d threads in carry step\n", CY_THREADS);
+		}
 	  #endif
 
 	#else
@@ -388,7 +414,6 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		/* Populate the elements of the thread-specific data structs which don't change after init: */
 		for(ithread = 0; ithread < CY_THREADS; ithread++)
 		{
-			tdat[ithread].iter = iter;
 		// int data:
 			tdat[ithread].tid = ithread;
 			tdat[ithread].ndivr = NDIVR;
@@ -400,6 +425,10 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			tdat[ithread].arrdat = a;			/* Main data array */
 			tdat[ithread].wt0 = wt0;
 			tdat[ithread].wt1 = wt1;
+		#ifdef LOACC
+			tdat[ithread].wts_mult = wts_mult;
+			tdat[ithread].inv_mult = inv_mult;
+		#endif
 			tdat[ithread].si  = si;
 		}
 	#endif
@@ -519,25 +548,24 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		tmp = half_arr;
 
 	#ifdef USE_AVX
-		// For each of our four 4-bit [16-entry] lookup tables, the index of the .d* field selector
-		// indicates the bit of the 4LUT, i.e.Low-order bits at left:
-		/* Forward-weight multipliers: 1 for 0-bit, 0.5 for 1-bit: */			// Bitfield, bits ordered 0-3:
-		tmp->d0 = 1.0;	tmp->d1 = 1.0;	tmp->d2 = 1.0;	tmp->d3 = 1.0;	++tmp;	// [0000]
-		tmp->d0 = .50;	tmp->d1 = 1.0;	tmp->d2 = 1.0;	tmp->d3 = 1.0;	++tmp;	// [1000]
-		tmp->d0 = 1.0;	tmp->d1 = .50;	tmp->d2 = 1.0;	tmp->d3 = 1.0;	++tmp;	// [0100]
-		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = 1.0;	tmp->d3 = 1.0;	++tmp;	// [1100]
-		tmp->d0 = 1.0;	tmp->d1 = 1.0;	tmp->d2 = .50;	tmp->d3 = 1.0;	++tmp;	// [0010]
-		tmp->d0 = .50;	tmp->d1 = 1.0;	tmp->d2 = .50;	tmp->d3 = 1.0;	++tmp;	// [1010]
-		tmp->d0 = 1.0;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = 1.0;	++tmp;	// [0110]
-		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = 1.0;	++tmp;	// [1110]
-		tmp->d0 = 1.0;	tmp->d1 = 1.0;	tmp->d2 = 1.0;	tmp->d3 = .50;	++tmp;	// [0001]
-		tmp->d0 = .50;	tmp->d1 = 1.0;	tmp->d2 = 1.0;	tmp->d3 = .50;	++tmp;	// [1001]
-		tmp->d0 = 1.0;	tmp->d1 = .50;	tmp->d2 = 1.0;	tmp->d3 = .50;	++tmp;	// [0101]
-		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = 1.0;	tmp->d3 = .50;	++tmp;	// [1101]
-		tmp->d0 = 1.0;	tmp->d1 = 1.0;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;	// [0011]
-		tmp->d0 = .50;	tmp->d1 = 1.0;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;	// [1011]
-		tmp->d0 = 1.0;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;	// [0111]
-		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;	// [1111]
+
+		/* Forward-weight multipliers: */
+		tmp->d0 = 1.0;	tmp->d1 = 1.0;	tmp->d2 = 1.0;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = 1.0;	tmp->d2 = 1.0;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = 1.0;	tmp->d1 = .50;	tmp->d2 = 1.0;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = 1.0;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = 1.0;	tmp->d1 = 1.0;	tmp->d2 = .50;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = 1.0;	tmp->d2 = .50;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = 1.0;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = 1.0;	tmp->d1 = 1.0;	tmp->d2 = 1.0;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = 1.0;	tmp->d2 = 1.0;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = 1.0;	tmp->d1 = .50;	tmp->d2 = 1.0;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = 1.0;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = 1.0;	tmp->d1 = 1.0;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = 1.0;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = 1.0;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;
 		/* Inverse-weight multipliers (only needed for mersenne-mod): */
 		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;
 		tmp->d0 = .25;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;
@@ -589,8 +617,46 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[0];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
 		tmp->d0 = baseinv[0];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
 		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
-
+		// In LOACC mode, put wts_mult and their inverses in the first 32 slots below in place of the 1/2-stuff:
+	  #ifdef LOACC
+		/* wts_mult:*/
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[1];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[1];	++tmp;
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[1];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[1];	++tmp;
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[1];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[1];	++tmp;
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[1];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[1];	++tmp;
+		/* inv_mult: */
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[1];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[1];	++tmp;
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[1];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[1];	++tmp;
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
+		nbytes = 96 << l2_sz_vd;
+	  #else
 		nbytes = 64 << l2_sz_vd;
+	  #endif
 
 	#elif defined(USE_SSE2)
 
@@ -615,8 +681,22 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		ctmp->re = baseinv[1];	ctmp->im = baseinv[0];	++ctmp;
 		ctmp->re = baseinv[0];	ctmp->im = baseinv[1];	++ctmp;
 		ctmp->re = baseinv[1];	ctmp->im = baseinv[1];	++ctmp;
-
+		// In LOACC mode, put wts_mult and their inverses in the first 8 slots below in place of the 1/2-stuff:
+	  #ifdef LOACC
+		/* wts_mult:*/
+		ctmp->re = wts_mult[0];	ctmp->im = wts_mult[0];	++ctmp;
+		ctmp->re = wts_mult[1];	ctmp->im = wts_mult[0];	++ctmp;
+		ctmp->re = wts_mult[0];	ctmp->im = wts_mult[1];	++ctmp;
+		ctmp->re = wts_mult[1];	ctmp->im = wts_mult[1];	++ctmp;
+		/* inv_mult:*/
+		ctmp->re = inv_mult[0];	ctmp->im = inv_mult[0];	++ctmp;
+		ctmp->re = inv_mult[1];	ctmp->im = inv_mult[0];	++ctmp;
+		ctmp->re = inv_mult[0];	ctmp->im = inv_mult[1];	++ctmp;
+		ctmp->re = inv_mult[1];	ctmp->im = inv_mult[1];	++ctmp;
+		nbytes = 24 << l2_sz_vd;
+	  #else
 		nbytes = 16 << l2_sz_vd;
+	  #endif
 
 	#endif
 
@@ -662,7 +742,7 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		n_minus_silp1 = (struct uint32x4 *)sse_n + 2;
 		sinwt         = (struct uint32x4 *)sse_n + 3;
 		sinwtm1       = (struct uint32x4 *)sse_n + 4;
-		nbytes += 64;;
+		nbytes += 64;
 	#endif
 
 		// Propagate the above consts to the remaining threads:
@@ -756,6 +836,8 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		p18 = p18 + ( (p18 >> DAT_BITS) << PAD_BITS );
 		p19 = p19 + ( (p19 >> DAT_BITS) << PAD_BITS );
 
+		poff[0] =   0; poff[1] = p04; poff[2] = p08; poff[3] = p12; poff[4] = p16;
+
 		if(_cy00)	/* If it's a new exponent of a range test, need to deallocate these. */
 		{
 			free((void *)_i     ); _i      = 0x0;
@@ -804,7 +886,6 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 			free((void *)_jstart ); _jstart  = 0x0;
 			free((void *)_jhi    ); _jhi     = 0x0;
-			free((void *)_maxerr); _maxerr = 0x0;
 			free((void *)_col   ); _col    = 0x0;
 			free((void *)_co2   ); _co2    = 0x0;
 			free((void *)_co3   ); _co3    = 0x0;
@@ -863,8 +944,6 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		_cy18	= (double *)malloc(j);	ptr_prod += (uint32)(_cy18== 0x0);
 		_cy19	= (double *)malloc(j);	ptr_prod += (uint32)(_cy19== 0x0);
 
-		_maxerr	= (double *)malloc(j);	ptr_prod += (uint32)(_maxerr== 0x0);
-
 		ASSERT(HERE, ptr_prod == 0, "FATAL: unable to allocate one or more auxiliary arrays in radix20_ditN_cy_dif1.");
 
 		/* Create (THREADS + 1) copies of _bjmodnini and use the extra (uppermost) one to store the "master" increment,
@@ -896,6 +975,7 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		}
 		ASSERT(HERE, _bjmodnini[CY_THREADS] == bjmodnini,"_bjmodnini[CY_THREADS] != bjmodnini");
 
+		first_entry=FALSE;
 	}	/* endif(first_entry) */
 
 /*...The radix-20 final DIT pass is here.	*/
@@ -933,11 +1013,6 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	*fracmax=0;	/* init max. fractional error	*/
 	full_pass = 1;	/* set = 1 for normal carry pass, = 0 for wrapper pass	*/
 	scale = n2inv;	/* init inverse-weight scale factor  (set = 2/n for normal carry pass, = 1 for wrapper pass)	*/
-
-	for(ithread = 0; ithread < CY_THREADS; ithread++)
-	{
-		_maxerr[ithread] = 0.0;
-	}
 
 for(outer=0; outer <= 1; outer++)
 {
@@ -992,7 +1067,7 @@ for(outer=0; outer <= 1; outer++)
 		_co3[ithread] = _co2[ithread]-RADIX;			/* At the start of each new j-loop, co3=co2-RADIX_VEC[0]	*/
 	}
 
-#if defined(USE_SSE2) && defined(USE_PTHREAD)
+#ifdef USE_SSE2
 
 	tmp = max_err;	VEC_DBL_INIT(tmp, 0.0);
 	tm2 = tmp + cslots_in_local_store;
@@ -1013,6 +1088,7 @@ for(outer=0; outer <= 1; outer++)
 	/* Populate the thread-specific data structs - use the invariant terms as memchecks: */
 	for(ithread = 0; ithread < CY_THREADS; ithread++)
 	{
+		tdat[ithread].iter = iter;
 	// int data:
 		ASSERT(HERE, tdat[ithread].tid == ithread, "thread-local memcheck fail!");
 		ASSERT(HERE, tdat[ithread].ndivr == NDIVR, "thread-local memcheck fail!");
@@ -1029,7 +1105,7 @@ for(outer=0; outer <= 1; outer++)
 		ASSERT(HERE, tdat[ithread].nwt == nwt, "thread-local memcheck fail!");
 
 	// double data:
-		tdat[ithread].maxerr = _maxerr[ithread];
+		tdat[ithread].maxerr = 0.0;
 		tdat[ithread].scale = scale;
 
 	// pointer data:
@@ -1107,9 +1183,7 @@ for(outer=0; outer <= 1; outer++)
 
 	for(ithread = 0; ithread < CY_THREADS; ithread++)
 	{
-		/***** DEC/HP CC doesn't properly copy init value of maxerr = 0 into threads,
-		so need to set once again explicitly for each: *****/
-		maxerr = 0.0;
+		if(full_pass) maxerr = 0.0;
 	#ifdef USE_SSE2
 	//	VEC_DBL_INIT(max_err, 0.0);	*** must do this in conjunction with thread-local-data-copy
 	#endif
@@ -1221,7 +1295,7 @@ for(outer=0; outer <= 1; outer++)
 		_cy08[ithread] = cy08->d0;	_cy09[ithread] = cy08->d1;	_cy10[ithread] = cy08->d2;	_cy11[ithread] = cy08->d3;
 		_cy12[ithread] = cy12->d0;	_cy13[ithread] = cy12->d1;	_cy14[ithread] = cy12->d2;	_cy15[ithread] = cy12->d3;
 		_cy16[ithread] = cy16->d0;	_cy17[ithread] = cy16->d1;	_cy18[ithread] = cy16->d2;	_cy19[ithread] = cy16->d3;
-		maxerr = MAX( MAX(max_err->d0,max_err->d1) , MAX(max_err->d2,max_err->d3) );
+		if(full_pass) maxerr = MAX( MAX(max_err->d0,max_err->d1) , MAX(max_err->d2,max_err->d3) );
 	#elif defined(USE_SSE2)
 		_cy00[ithread] = cy00->d0;	_cy01[ithread] = cy00->d1;
 		_cy02[ithread] = cy02->d0;	_cy03[ithread] = cy02->d1;
@@ -1233,7 +1307,7 @@ for(outer=0; outer <= 1; outer++)
 		_cy14[ithread] = cy14->d0;	_cy15[ithread] = cy14->d1;
 		_cy16[ithread] = cy16->d0;	_cy17[ithread] = cy16->d1;
 		_cy18[ithread] = cy18->d0;	_cy19[ithread] = cy18->d1;
-		maxerr = MAX(max_err->d0,max_err->d1);
+		if(full_pass) maxerr = MAX(max_err->d0,max_err->d1);
 	#else
 		_cy00[ithread] = cy00;
 		_cy01[ithread] = cy01;
@@ -1256,12 +1330,6 @@ for(outer=0; outer <= 1; outer++)
 		_cy18[ithread] = cy18;
 		_cy19[ithread] = cy19;
 	#endif
-
-		/* Since will lose separate maxerr values when threads are merged, save them after each pass. */
-		if(_maxerr[ithread] < maxerr)
-		{
-			_maxerr[ithread] = maxerr;
-		}
 
   #endif	// #ifdef USE_PTHREAD
 
@@ -1292,9 +1360,8 @@ for(outer=0; outer <= 1; outer++)
 	/* Copy the thread-specific output carry data back to shared memory: */
 	for(ithread = 0; ithread < CY_THREADS; ithread++)
 	{
-		_maxerr[ithread] = tdat[ithread].maxerr;
-		if(maxerr < _maxerr[ithread]) {
-			maxerr = _maxerr[ithread];
+		if(maxerr < tdat[ithread].maxerr) {
+			maxerr = tdat[ithread].maxerr;
 		}
 
 		_cy00[ithread] = tdat[ithread].cy00;
@@ -1439,9 +1506,7 @@ for(outer=0; outer <= 1; outer++)
 	for(ithread = 0; ithread < CY_THREADS; ithread++)
 	{
 		t00 += fabs(_cy00[0])+fabs(_cy01[0])+fabs(_cy02[0])+fabs(_cy03[0])+fabs(_cy04[0])+fabs(_cy05[0])+fabs(_cy06[0])+fabs(_cy07[0])+fabs(_cy08[0])+fabs(_cy09[0])+fabs(_cy10[0])+fabs(_cy11[0])+fabs(_cy12[0])+fabs(_cy13[0])+fabs(_cy14[0])+fabs(_cy15[0])+fabs(_cy16[0])+fabs(_cy17[0])+fabs(_cy18[0])+fabs(_cy19[0]);
-
-		if(*fracmax < _maxerr[ithread])
-			*fracmax = _maxerr[ithread];
+		*fracmax = maxerr;
 	}
 
 	if(t00 != 0.0)
@@ -1456,823 +1521,6 @@ for(outer=0; outer <= 1; outer++)
 		fclose(fq);	fq = 0x0;
 		err=ERR_CARRY;
 		return(err);
-	}
-
-	return(0);
-}
-
-/***************/
-
-int radix20_ditN_cy_dif1_nochk(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], double base[], double baseinv[], int iter                 , uint64 p)
-{
-/*
-!...Acronym: DWT = Discrete Weighted Transform, DIT = Decimation In Time, DIF = Decimation In Frequency
-!
-!...Performs a final radix-20 complex DIT pass, an inverse DWT weighting, a carry propagation,
-!   a forward DWT weighting, and an initial radix-20 complex DIF pass on the data in the length-N real vector A.
-!
-!   Data enter and are returned in the A-array.
-!
-!   See the documentation in mers_mod_square and radix16_dif_pass for further details on the array
-!   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
-*/
-	int n20, bjmodn00,bjmodn01,bjmodn02,bjmodn03,bjmodn04,bjmodn05,bjmodn06,bjmodn07,bjmodn08,bjmodn09
-		,bjmodn10,bjmodn11,bjmodn12,bjmodn13,bjmodn14,bjmodn15,bjmodn16,bjmodn17,bjmodn18,bjmodn19
-		,i,j,j1,j2,jstart,jhi,iroot,root_incr,k,khi,l,outer;
-	static uint64 psave=0;
-	static uint32 bw,sw,bjmodnini,p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19;
-	const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
-	static double uc1 = -1.25000000000000000000,	/* [cos(u)+cos(2u)]/2-1 = -5/4; u = 2*pi/5 */
-					uc2 =  0.55901699437494742409,	/* [cos(u)-cos(2u)]/2 */
-					us1 =  0.95105651629515357211,	/*  sin(u) */
-					us2 =  1.53884176858762670130,	/* [sin(u)+sin(2u)] */
-					us3 =  0.36327126400268044292;	/* [sin(u)-sin(2u)] */
-	static double radix_inv, n2inv;
-	double rt,it
-		,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09
-		,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19
-		,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29
-		,t30,t31,t32,t33,t34,t35,t36,t37,t38,t39
-	,a1p00r,a1p01r,a1p02r,a1p03r,a1p04r,a1p05r,a1p06r,a1p07r,a1p08r,a1p09r,a1p10r,a1p11r,a1p12r,a1p13r,a1p14r,a1p15r,a1p16r,a1p17r,a1p18r,a1p19r
-	,a1p00i,a1p01i,a1p02i,a1p03i,a1p04i,a1p05i,a1p06i,a1p07i,a1p08i,a1p09i,a1p10i,a1p11i,a1p12i,a1p13i,a1p14i,a1p15i,a1p16i,a1p17i,a1p18i,a1p19i
-		,cy00,cy01,cy02,cy03,cy04,cy05,cy06,cy07,cy08,cy09,cy10,cy11,cy12,cy13,cy14,cy15,cy16,cy17,cy18,cy19,temp,scale;
-#if PFETCH
-	double *addr, *addp;
-#endif
-	int err;
-	static int first_entry=TRUE;
-
-/*...stuff for the reduced-length DWT weights array is here:	*/
-	int n_div_nwt;
-	int col,co2,co3,m,m2,n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
-	double wt,wtinv,wtl,wtlp1,wtn,wtnm1,wtA,wtB,wtC;
-
-	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
-	{
-		ASSERT(HERE, 0, "radix20_ditN_cy_dif1_nochk: Fermat-mod only available for radices 7,8,9,15 and their multiples!");
-	}
-
-/*...change n20 and n_div_wt to non-static to work around a gcc compiler bug. */
-	n20   = n/20;
-	n_div_nwt = n20 >> nwt_bits;
-
-	if((n_div_nwt << nwt_bits) != n20)
-	{
-		sprintf(cbuf,"FATAL: iter = %10d; NWT_BITS does not divide N/20 in radix20_ditN_cy_dif1.\n",iter);
-		if(INTERACT)fprintf(stderr,"%s",cbuf);
-		fp = mlucas_fopen(   OFILE,"a");
-		fq = mlucas_fopen(STATFILE,"a");
-		fprintf(fp,"%s",cbuf);
-		fprintf(fq,"%s",cbuf);
-		fclose(fp);	fp = 0x0;
-		fclose(fq);	fq = 0x0;
-		err=ERR_CARRY;
-		return(err);
-	}
-
-	if(p != psave)
-	{
-		first_entry=TRUE;
-	}
-
-/*...initialize things upon first entry	*/
-
-	if(first_entry)
-	{
-		psave = p;
-		first_entry=FALSE;
-		radix_inv = qfdbl(qf_rational_quotient((int64)1, (int64)20));
-		n2inv     = qfdbl(qf_rational_quotient((int64)1, (int64)(n/2)));
-
-		bw    = p%n;		/* Number of bigwords in the Crandall/Fagin mixed-radix representation = (Mersenne exponent) mod (vector length).	*/
-		sw    = n - bw;	/* Number of smallwords.	*/
-
-/*   constant index offsets for array load/stores are here.	*/
-
-		p01 = n20;
-		p02 = p01 + p01;
-		p03 = p02 + p01;
-		p04 = p03 + p01;
-		p05 = p04 + p01;
-		p06 = p05 + p01;
-		p07 = p06 + p01;
-		p08 = p07 + p01;
-		p09 = p08 + p01;
-		p10 = p09 + p01;
-		p11 = p10 + p01;
-		p12 = p11 + p01;
-		p13 = p12 + p01;
-		p14 = p13 + p01;
-		p15 = p14 + p01;
-		p16 = p15 + p01;
-		p17 = p16 + p01;
-		p18 = p17 + p01;
-		p19 = p18 + p01;
-
-		p01 = p01 + ( (p01 >> DAT_BITS) << PAD_BITS );
-		p02 = p02 + ( (p02 >> DAT_BITS) << PAD_BITS );
-		p03 = p03 + ( (p03 >> DAT_BITS) << PAD_BITS );
-		p04 = p04 + ( (p04 >> DAT_BITS) << PAD_BITS );
-		p05 = p05 + ( (p05 >> DAT_BITS) << PAD_BITS );
-		p06 = p06 + ( (p06 >> DAT_BITS) << PAD_BITS );
-		p07 = p07 + ( (p07 >> DAT_BITS) << PAD_BITS );
-		p08 = p08 + ( (p08 >> DAT_BITS) << PAD_BITS );
-		p09 = p09 + ( (p09 >> DAT_BITS) << PAD_BITS );
-		p10 = p10 + ( (p10 >> DAT_BITS) << PAD_BITS );
-		p11 = p11 + ( (p11 >> DAT_BITS) << PAD_BITS );
-		p12 = p12 + ( (p12 >> DAT_BITS) << PAD_BITS );
-		p13 = p13 + ( (p13 >> DAT_BITS) << PAD_BITS );
-		p14 = p14 + ( (p14 >> DAT_BITS) << PAD_BITS );
-		p15 = p15 + ( (p15 >> DAT_BITS) << PAD_BITS );
-		p16 = p16 + ( (p16 >> DAT_BITS) << PAD_BITS );
-		p17 = p17 + ( (p17 >> DAT_BITS) << PAD_BITS );
-		p18 = p18 + ( (p18 >> DAT_BITS) << PAD_BITS );
-		p19 = p19 + ( (p19 >> DAT_BITS) << PAD_BITS );
-
-		bjmodnini=0;
-		for(j=0; j < n20; j++)
-		{
-			bjmodnini -= sw; bjmodnini = bjmodnini + ( (-(int)((uint32)bjmodnini >> 31)) & n);
-		}
-	}
-
-/*...The radix-20 final DIT pass is here.	*/
-
-	cy00= 0;		/* init carries	*/
-	cy01= 0;
-	cy02= 0;
-	cy03= 0;
-	cy04= 0;
-	cy05= 0;
-	cy06= 0;
-	cy07= 0;
-	cy08= 0;
-	cy09= 0;
-	cy10= 0;
-	cy11= 0;
-	cy12= 0;
-	cy13= 0;
-	cy14= 0;
-	cy15= 0;
-	cy16= 0;
-	cy17= 0;
-	cy18= 0;
-	cy19= 0;
-
-	/* If an LL test, init the subtract-2: */
-	if(TEST_TYPE == TEST_TYPE_PRIMALITY)
-	{
-		cy00= -2;
-	}
-
-	iroot = 0;	/* init sincos array index	*/
-	root_incr = 1;	/* init sincos array index increment (set = 1 for normal carry pass, = 0 for wrapper pass)	*/
-	scale = n2inv;	/* init inverse-weight scale factor  (set = 2/n for normal carry pass, = 1 for wrapper pass)	*/
-
-	jstart = 0;
-	jhi = jstart+nwt-1;
-	khi = n_div_nwt;
-
-for(outer=0; outer <= 1; outer++)
-{
-	i = 1;		/* Pointer to the BASE and BASEINV arrays. lowest-order digit is always a bigword (i = 1).	*/
-
-	bjmodn00= 0;
-	bjmodn01= bjmodnini;
-	bjmodn02= bjmodn01+bjmodnini-n; bjmodn02= bjmodn02+ ( (-(int)((uint32)bjmodn02>> 31)) & n);
-	bjmodn03= bjmodn02+bjmodnini-n; bjmodn03= bjmodn03+ ( (-(int)((uint32)bjmodn03>> 31)) & n);
-	bjmodn04= bjmodn03+bjmodnini-n; bjmodn04= bjmodn04+ ( (-(int)((uint32)bjmodn04>> 31)) & n);
-	bjmodn05= bjmodn04+bjmodnini-n; bjmodn05= bjmodn05+ ( (-(int)((uint32)bjmodn05>> 31)) & n);
-	bjmodn06= bjmodn05+bjmodnini-n; bjmodn06= bjmodn06+ ( (-(int)((uint32)bjmodn06>> 31)) & n);
-	bjmodn07= bjmodn06+bjmodnini-n; bjmodn07= bjmodn07+ ( (-(int)((uint32)bjmodn07>> 31)) & n);
-	bjmodn08= bjmodn07+bjmodnini-n; bjmodn08= bjmodn08+ ( (-(int)((uint32)bjmodn08>> 31)) & n);
-	bjmodn09= bjmodn08+bjmodnini-n; bjmodn09= bjmodn09+ ( (-(int)((uint32)bjmodn09>> 31)) & n);
-	bjmodn10= bjmodn09+bjmodnini-n; bjmodn10= bjmodn10+ ( (-(int)((uint32)bjmodn10>> 31)) & n);
-	bjmodn11= bjmodn10+bjmodnini-n; bjmodn11= bjmodn11+ ( (-(int)((uint32)bjmodn11>> 31)) & n);
-	bjmodn12= bjmodn11+bjmodnini-n; bjmodn12= bjmodn12+ ( (-(int)((uint32)bjmodn12>> 31)) & n);
-	bjmodn13= bjmodn12+bjmodnini-n; bjmodn13= bjmodn13+ ( (-(int)((uint32)bjmodn13>> 31)) & n);
-	bjmodn14= bjmodn13+bjmodnini-n; bjmodn14= bjmodn14+ ( (-(int)((uint32)bjmodn14>> 31)) & n);
-	bjmodn15= bjmodn14+bjmodnini-n; bjmodn15= bjmodn15+ ( (-(int)((uint32)bjmodn15>> 31)) & n);
-	bjmodn16= bjmodn15+bjmodnini-n; bjmodn16= bjmodn16+ ( (-(int)((uint32)bjmodn16>> 31)) & n);
-	bjmodn17= bjmodn16+bjmodnini-n; bjmodn17= bjmodn17+ ( (-(int)((uint32)bjmodn17>> 31)) & n);
-	bjmodn18= bjmodn17+bjmodnini-n; bjmodn18= bjmodn18+ ( (-(int)((uint32)bjmodn18>> 31)) & n);
-	bjmodn19= bjmodn18+bjmodnini-n; bjmodn19= bjmodn19+ ( (-(int)((uint32)bjmodn19>> 31)) & n);
-
-	col=0;
-	co2=(n >> nwt_bits)-1+20;
-	co3=co2-20;		/* At the start of each new j-loop, co3=co2-radix(1)	*/
-
-	for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
-	{
-		for(j=jstart; j<jhi; j += 2)	/* Each inner loop execution processes (radix(1)*nwt) array data.	*/
-		{
-		#ifdef USE_SSE2
-			j1 = (j & mask01) + br4[j&3];
-			j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
-		#else
-			j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-		#endif
-			j2 = j1+RE_IM_STRIDE;
-	/*
-	!...gather the needed data (20 64-bit complex, i.e. 40 64-bit reals) and do a radix-20 DIT transform...
-	*/
-	#if 1
-		/*...gather the needed data (20 64-bit complex, i.e. 40 64-bit reals) and do 5 radix-4 transforms...*/
-							 /*          inputs           */ /*                                      outputs                                      */
-			RADIX_04_DIT(a[j1    ],a[j2    ],a[j1+p01],a[j2+p01],a[j1+p03],a[j2+p03],a[j1+p02],a[j2+p02],t00,t01,t10,t11,t20,t21,t30,t31,rt,it);
-			RADIX_04_DIT(a[j1+p07],a[j2+p07],a[j1+p06],a[j2+p06],a[j1+p05],a[j2+p05],a[j1+p04],a[j2+p04],t02,t03,t12,t13,t22,t23,t32,t33,rt,it);
-			RADIX_04_DIT(a[j1+p09],a[j2+p09],a[j1+p08],a[j2+p08],a[j1+p10],a[j2+p10],a[j1+p11],a[j2+p11],t04,t05,t14,t15,t24,t25,t34,t35,rt,it);
-			RADIX_04_DIT(a[j1+p14],a[j2+p14],a[j1+p15],a[j2+p15],a[j1+p12],a[j2+p12],a[j1+p13],a[j2+p13],t06,t07,t16,t17,t26,t27,t36,t37,rt,it);
-			RADIX_04_DIT(a[j1+p16],a[j2+p16],a[j1+p17],a[j2+p17],a[j1+p19],a[j2+p19],a[j1+p18],a[j2+p18],t08,t09,t18,t19,t28,t29,t38,t39,rt,it);
-
-		/*...and now do 4 radix-5 transforms...*/
-							 /*                                                inputs                                                   */ /*                 outputs                   */
-			RADIX_05_DFT(uc1,uc2,us1,us2,us3,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,a1p00r,a1p00i,a1p16r,a1p16i,a1p12r,a1p12i,a1p08r,a1p08i,a1p04r,a1p04i,rt,it);
-			RADIX_05_DFT(uc1,uc2,us1,us2,us3,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,a1p15r,a1p15i,a1p11r,a1p11i,a1p07r,a1p07i,a1p03r,a1p03i,a1p19r,a1p19i,rt,it);
-			RADIX_05_DFT(uc1,uc2,us1,us2,us3,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,a1p10r,a1p10i,a1p06r,a1p06i,a1p02r,a1p02i,a1p18r,a1p18i,a1p14r,a1p14i,rt,it);
-			RADIX_05_DFT(uc1,uc2,us1,us2,us3,t30,t31,t32,t33,t34,t35,t36,t37,t38,t39,a1p05r,a1p05i,a1p01r,a1p01i,a1p17r,a1p17i,a1p13r,a1p13i,a1p09r,a1p09i,rt,it);
-		#else
-
-		/*...Block 1:	*/
-			t00=a[j1    ];	t01=a[j2    ];
-			rt =a[j1+p01];	it =a[j2+p01];
-			t10=t00-rt;  	t00=t00+rt;
-			t11=t01-it;	t01=t01+it;
-
-			t20=a[j1+p03];	t21=a[j2+p03];
-			rt =a[j1+p02];	it =a[j2+p02];
-			t30=t20-rt;  	t20=t20+rt;
-			t31=t21-it;  	t21=t21+it;
-
-			rt =t20;	t20=t00-rt;	t00=t00+rt;
-			it =t21;	t21=t01-it;	t01=t01+it;
-
-			rt =t30;	t30=t10-t31;	t10=t10+t31;
-					t31=t11+rt;	t11=t11-rt;
-
-		/*...Block 2:	*/
-			t02=a[j1+p07];	t03=a[j2+p07];
-			rt =a[j1+p06];	it =a[j2+p06];
-			t12=t02-rt;  	t02=t02+rt;
-			t13=t03-it;	t03=t03+it;
-
-			t22=a[j1+p05];	t23=a[j2+p05];
-			rt =a[j1+p04];	it =a[j2+p04];
-			t32=t22-rt;  	t22=t22+rt;
-			t33=t23-it;  	t23=t23+it;
-
-			rt =t22;	t22=t02-rt;	t02=t02+rt;
-			it =t23;	t23=t03-it;	t03=t03+it;
-
-			rt =t32;	t32=t12-t33;	t12=t12+t33;
-					t33=t13+rt;	t13=t13-rt;
-
-		/*...Block 3:	*/
-			t04=a[j1+p09];	t05=a[j2+p09];
-			rt =a[j1+p08];	it =a[j2+p08];
-			t14=t04-rt;  	t04=t04+rt;
-			t15=t05-it;	t05=t05+it;
-
-			t24=a[j1+p10];	t25=a[j2+p10];
-			rt =a[j1+p11];	it =a[j2+p11];
-			t34=t24-rt;  	t24=t24+rt;
-			t35=t25-it;  	t25=t25+it;
-
-			rt =t24;	t24=t04-rt;	t04=t04+rt;
-			it =t25;	t25=t05-it;	t05=t05+it;
-
-			rt =t34;	t34=t14-t35;	t14=t14+t35;
-					t35=t15+rt;	t15=t15-rt;
-
-		/*...Block 4:	*/
-			t06=a[j1+p14];	t07=a[j2+p14];
-			rt =a[j1+p15];	it =a[j2+p15];
-			t16=t06-rt;  	t06=t06+rt;
-			t17=t07-it;	t07=t07+it;
-
-			t26=a[j1+p12];	t27=a[j2+p12];
-			rt =a[j1+p13];	it =a[j2+p13];
-			t36=t26-rt;  	t26=t26+rt;
-			t37=t27-it;  	t27=t27+it;
-
-			rt =t26;	t26=t06-rt;	t06=t06+rt;
-			it =t27;	t27=t07-it;	t07=t07+it;
-
-			rt =t36;	t36=t16-t37;	t16=t16+t37;
-					t37=t17+rt;	t17=t17-rt;
-
-		/*...Block 5:	*/
-			t08=a[j1+p16];	t09=a[j2+p16];
-			rt =a[j1+p17];	it =a[j2+p17];
-			t18=t08-rt;  	t08=t08+rt;
-			t19=t09-it;	t09=t09+it;
-
-			t28=a[j1+p19];	t29=a[j2+p19];
-			rt =a[j1+p18];	it =a[j2+p18];
-			t38=t28-rt;  	t28=t28+rt;
-			t39=t29-it;  	t29=t29+it;
-
-			rt =t28;	t28=t08-rt;	t08=t08+rt;
-			it =t29;	t29=t09-it;	t09=t09+it;
-
-			rt =t38;	t38=t18-t39;	t18=t18+t39;
-					t39=t19+rt;	t19=t19-rt;
-
-	/*       ...and now do four radix-5 transforms.	*/
-	/*...First radix-5 transform:	*/
-			rt  =t08;			it  =t09;
-			t08 =t02 -rt;		t09 =t03 -it;
-			t02 =t02 +rt;		t03 =t03 +it;
-			rt  =t06;			it  =t07;
-			t06 =t04 -rt;		t07 =t05 -it;
-			t04 =t04 +rt;		t05 =t05 +it;
-			rt  = t02+t04;		it  = t03+t05;
-			t00 = t00+rt;		t01 = t01+it;
-			rt  = t00+uc1*rt;		it  = t01+uc1*it;
-			t04 = uc2*(t02-t04);	t05 = uc2*(t03-t05);
-			t02 = rt+t04;		t03 = it+t05;
-			t04 = rt-t04;		t05 = it-t05;
-			rt  = us1*(t06-t08);	it  = us1*(t07-t09);
-			t06 = us2* t06;		t07 = us2* t07;
-			t08 = us3* t08;		t09 = us3* t09;
-			t06 = rt-t06;		t07 = it-t07;
-			t08 = rt+t08;		t09 = it+t09;
-			a1p00r=t00;		a1p00i=t01;
-			a1p04r=t02-t07;		a1p04i=t03+t06;
-			a1p08r=t04-t09;		a1p08i=t05+t08;
-			a1p12r=t04+t09;		a1p12i=t05-t08;
-			a1p16r=t02+t07;		a1p16i=t03-t06;
-
-	/*...Second radix-5 transform:	*/
-			rt  =t18;			it  =t19;
-			t18 =t12 -rt;		t19 =t13 -it;
-			t12 =t12 +rt;		t13 =t13 +it;
-			rt  =t16;			it  =t17;
-			t16 =t14 -rt;		t17 =t15 -it;
-			t14 =t14 +rt;		t15 =t15 +it;
-			rt  = t12+t14;		it  = t13+t15;
-			t10 = t10+rt;		t11 = t11+it;
-			rt  = t10+uc1*rt;		it  = t11+uc1*it;
-			t14 = uc2*(t12-t14);	t15 = uc2*(t13-t15);
-			t12 = rt+t14;		t13 = it+t15;
-			t14 = rt-t14;		t15 = it-t15;
-			rt  = us1*(t16-t18);	it  = us1*(t17-t19);
-			t16 = us2* t16;		t17 = us2* t17;
-			t18 = us3* t18;		t19 = us3* t19;
-			t16 = rt-t16;		t17 = it-t17;
-			t18 = rt+t18;		t19 = it+t19;
-			a1p15r=t10;		a1p15i=t11;
-			a1p19r=t12-t17;		a1p19i=t13+t16;
-			a1p03r=t14-t19;		a1p03i=t15+t18;
-			a1p07r=t14+t19;		a1p07i=t15-t18;
-			a1p11r=t12+t17;		a1p11i=t13-t16;
-
-	/*...Third radix-5 transform:	*/
-			rt  =t28;			it  =t29;
-			t28 =t22 -rt;		t29 =t23 -it;
-			t22 =t22 +rt;		t23 =t23 +it;
-			rt  =t26;			it  =t27;
-			t26 =t24 -rt;		t27 =t25 -it;
-			t24 =t24 +rt;		t25 =t25 +it;
-			rt  = t22+t24;		it  = t23+t25;
-			t20 = t20+rt;		t21 = t21+it;
-			rt  = t20+uc1*rt;		it  = t21+uc1*it;
-			t24 = uc2*(t22-t24);	t25 = uc2*(t23-t25);
-			t22 = rt+t24;		t23 = it+t25;
-			t24 = rt-t24;		t25 = it-t25;
-			rt  = us1*(t26-t28);	it  = us1*(t27-t29);
-			t26 = us2* t26;		t27 = us2* t27;
-			t28 = us3* t28;		t29 = us3* t29;
-			t26 = rt-t26;		t27 = it-t27;
-			t28 = rt+t28;		t29 = it+t29;
-			a1p10r=t20;		a1p10i=t21;
-			a1p14r=t22-t27;		a1p14i=t23+t26;
-			a1p18r=t24-t29;		a1p18i=t25+t28;
-			a1p02r=t24+t29;		a1p02i=t25-t28;
-			a1p06r=t22+t27;		a1p06i=t23-t26;
-
-	/*...Fourth radix-5 transform:	*/
-			rt  =t38;			it  =t39;
-			t38 =t32 -rt;		t39 =t33 -it;
-			t32 =t32 +rt;		t33 =t33 +it;
-			rt  =t36;			it  =t37;
-			t36 =t34 -rt;		t37 =t35 -it;
-			t34 =t34 +rt;		t35 =t35 +it;
-			rt  = t32+t34;		it  = t33+t35;
-			t30 = t30+rt;		t31 = t31+it;
-			rt  = t30+uc1*rt;		it  = t31+uc1*it;
-			t34 = uc2*(t32-t34);	t35 = uc2*(t33-t35);
-			t32 = rt+t34;		t33 = it+t35;
-			t34 = rt-t34;		t35 = it-t35;
-			rt  = us1*(t36-t38);	it  = us1*(t37-t39);
-			t36 = us2* t36;		t37 = us2* t37;
-			t38 = us3* t38;		t39 = us3* t39;
-			t36 = rt-t36;		t37 = it-t37;
-			t38 = rt+t38;		t39 = it+t39;
-			a1p05r=t30;		a1p05i=t31;
-			a1p09r=t32-t37;		a1p09i=t33+t36;
-			a1p13r=t34-t39;		a1p13i=t35+t38;
-			a1p17r=t34+t39;		a1p17i=t35-t38;
-			a1p01r=t32+t37;		a1p01i=t33-t36;
-#endif
-
-/*...Now do the carries. Since the outputs would
-	normally be getting dispatched to 20 separate blocks of the A-array, we need 20 separate carries.	*/
-
-			l= j & (nwt-1);
-			n_minus_sil   = n-si[l  ];
-			n_minus_silp1 = n-si[l+1];
-			sinwt   = si[nwt-l  ];
-			sinwtm1 = si[nwt-l-1];
-
-			wtl     =wt0[    l  ];
-			wtn     =wt0[nwt-l  ]*scale;	/* Include 1/(n/2) scale factor of inverse transform here...	*/
-			wtlp1   =wt0[    l+1];
-			wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
-
-/*...set0 is slightly different from others:	*/
-			cmplx_carry_norm_nocheck0(a1p00r,a1p00i,cy00,bjmodn00   );
-			cmplx_carry_norm_nocheck (a1p01r,a1p01i,cy01,bjmodn01,1 );
-			cmplx_carry_norm_nocheck (a1p02r,a1p02i,cy02,bjmodn02,2 );
-			cmplx_carry_norm_nocheck (a1p03r,a1p03i,cy03,bjmodn03,3 );
-			cmplx_carry_norm_nocheck (a1p04r,a1p04i,cy04,bjmodn04,4 );
-			cmplx_carry_norm_nocheck (a1p05r,a1p05i,cy05,bjmodn05,5 );
-			cmplx_carry_norm_nocheck (a1p06r,a1p06i,cy06,bjmodn06,6 );
-			cmplx_carry_norm_nocheck (a1p07r,a1p07i,cy07,bjmodn07,7 );
-			cmplx_carry_norm_nocheck (a1p08r,a1p08i,cy08,bjmodn08,8 );
-			cmplx_carry_norm_nocheck (a1p09r,a1p09i,cy09,bjmodn09,9 );
-			cmplx_carry_norm_nocheck (a1p10r,a1p10i,cy10,bjmodn10,10);
-			cmplx_carry_norm_nocheck (a1p11r,a1p11i,cy11,bjmodn11,11);
-			cmplx_carry_norm_nocheck (a1p12r,a1p12i,cy12,bjmodn12,12);
-			cmplx_carry_norm_nocheck (a1p13r,a1p13i,cy13,bjmodn13,13);
-			cmplx_carry_norm_nocheck (a1p14r,a1p14i,cy14,bjmodn14,14);
-			cmplx_carry_norm_nocheck (a1p15r,a1p15i,cy15,bjmodn15,15);
-			cmplx_carry_norm_nocheck (a1p16r,a1p16i,cy16,bjmodn16,16);
-			cmplx_carry_norm_nocheck (a1p17r,a1p17i,cy17,bjmodn17,17);
-			cmplx_carry_norm_nocheck (a1p18r,a1p18i,cy18,bjmodn18,18);
-			cmplx_carry_norm_nocheck (a1p19r,a1p19i,cy19,bjmodn19,19);
-
-			i =((uint32)(sw - bjmodn00) >> 31);	/* get ready for the next set...	*/
-			co2=co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
-				 and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).	*/
-
-	/*...The radix-20 DIF pass is here:	*/
-	#if PFETCH
-		addr = &a[j1];
-		prefetch_p_doubles(addr);
-	#endif
-
-	#if 1
-		/*...gather the needed data (20 64-bit complex, i.e. 40 64-bit reals) and do 4 radix-5 transforms...*/
-							 /*                                                inputs                                                   */ /*                 outputs                   */
-		#if PFETCH																																/*[--y3-] [--y4-] <<<<< swap last 2 outputs to undo swap of these in macro */
-			RADIX_05_DFT_PFETCH(uc1,uc2,us1,us2,us3,a1p00r,a1p00i,a1p16r,a1p16i,a1p12r,a1p12i,a1p08r,a1p08i,a1p04r,a1p04i,t00,t01,t02,t03,t04,t05,t08,t09,t06,t07,rt,it,addr,addp,p01,p02);
-			RADIX_05_DFT_PFETCH(uc1,uc2,us1,us2,us3,a1p15r,a1p15i,a1p11r,a1p11i,a1p07r,a1p07i,a1p03r,a1p03i,a1p19r,a1p19i,t10,t11,t12,t13,t14,t15,t18,t19,t16,t17,rt,it,addr,addp,p03,p04);
-			RADIX_05_DFT_PFETCH(uc1,uc2,us1,us2,us3,a1p10r,a1p10i,a1p06r,a1p06i,a1p02r,a1p02i,a1p18r,a1p18i,a1p14r,a1p14i,t20,t21,t22,t23,t24,t25,t28,t29,t26,t27,rt,it,addr,addp,p05,p06);
-			RADIX_05_DFT_PFETCH(uc1,uc2,us1,us2,us3,a1p05r,a1p05i,a1p01r,a1p01i,a1p17r,a1p17i,a1p13r,a1p13i,a1p09r,a1p09i,t30,t31,t32,t33,t34,t35,t38,t39,t36,t37,rt,it,addr,addp,p07,p08);
-		#else
-			RADIX_05_DFT       (uc1,uc2,us1,us2,us3,a1p00r,a1p00i,a1p16r,a1p16i,a1p12r,a1p12i,a1p08r,a1p08i,a1p04r,a1p04i,t00,t01,t02,t03,t04,t05,t08,t09,t06,t07,rt,it);
-			RADIX_05_DFT       (uc1,uc2,us1,us2,us3,a1p15r,a1p15i,a1p11r,a1p11i,a1p07r,a1p07i,a1p03r,a1p03i,a1p19r,a1p19i,t10,t11,t12,t13,t14,t15,t18,t19,t16,t17,rt,it);
-			RADIX_05_DFT       (uc1,uc2,us1,us2,us3,a1p10r,a1p10i,a1p06r,a1p06i,a1p02r,a1p02i,a1p18r,a1p18i,a1p14r,a1p14i,t20,t21,t22,t23,t24,t25,t28,t29,t26,t27,rt,it);
-			RADIX_05_DFT       (uc1,uc2,us1,us2,us3,a1p05r,a1p05i,a1p01r,a1p01i,a1p17r,a1p17i,a1p13r,a1p13i,a1p09r,a1p09i,t30,t31,t32,t33,t34,t35,t38,t39,t36,t37,rt,it);
-		#endif
-		/*...and now do 5 radix-4 transforms...*/
-							 /*          inputs           */ /*                                      outputs                                      */
-		#if PFETCH
-			addp = addr+p09;
-			prefetch_p_doubles(addp);
-
-			RADIX_04_DIF_PFETCH(t00,t01,t10,t11,t20,t21,t30,t31,a[j1    ],a[j2    ],a[j1+p01],a[j2+p01],a[j1+p03],a[j2+p03],a[j1+p02],a[j2+p02],rt,it,addr,addp,p10,p11);
-			RADIX_04_DIF_PFETCH(t02,t03,t12,t13,t22,t23,t32,t33,a[j1+p16],a[j2+p16],a[j1+p17],a[j2+p17],a[j1+p19],a[j2+p19],a[j1+p18],a[j2+p18],rt,it,addr,addp,p12,p13);
-			RADIX_04_DIF_PFETCH(t04,t05,t14,t15,t24,t25,t34,t35,a[j1+p14],a[j2+p14],a[j1+p15],a[j2+p15],a[j1+p12],a[j2+p12],a[j1+p13],a[j2+p13],rt,it,addr,addp,p14,p15);
-			RADIX_04_DIF_PFETCH(t06,t07,t16,t17,t26,t27,t36,t37,a[j1+p07],a[j2+p07],a[j1+p06],a[j2+p06],a[j1+p05],a[j2+p05],a[j1+p04],a[j2+p04],rt,it,addr,addp,p16,p17);
-			RADIX_04_DIF_PFETCH(t08,t09,t18,t19,t28,t29,t38,t39,a[j1+p09],a[j2+p09],a[j1+p08],a[j2+p08],a[j1+p10],a[j2+p10],a[j1+p11],a[j2+p11],rt,it,addr,addp,p18,p19);
-		#else
-			RADIX_04_DIF       (t00,t01,t10,t11,t20,t21,t30,t31,a[j1    ],a[j2    ],a[j1+p01],a[j2+p01],a[j1+p03],a[j2+p03],a[j1+p02],a[j2+p02],rt,it);
-			RADIX_04_DIF       (t02,t03,t12,t13,t22,t23,t32,t33,a[j1+p16],a[j2+p16],a[j1+p17],a[j2+p17],a[j1+p19],a[j2+p19],a[j1+p18],a[j2+p18],rt,it);
-			RADIX_04_DIF       (t04,t05,t14,t15,t24,t25,t34,t35,a[j1+p14],a[j2+p14],a[j1+p15],a[j2+p15],a[j1+p12],a[j2+p12],a[j1+p13],a[j2+p13],rt,it);
-			RADIX_04_DIF       (t06,t07,t16,t17,t26,t27,t36,t37,a[j1+p07],a[j2+p07],a[j1+p06],a[j2+p06],a[j1+p05],a[j2+p05],a[j1+p04],a[j2+p04],rt,it);
-			RADIX_04_DIF       (t08,t09,t18,t19,t28,t29,t38,t39,a[j1+p09],a[j2+p09],a[j1+p08],a[j2+p08],a[j1+p10],a[j2+p10],a[j1+p11],a[j2+p11],rt,it);
-		#endif
-
-	#else
-
-	/*...First radix-5 transform:	*/
-		/* Swap 4<->16, 8<->12 below to get permuted version of j1 + p00,04,08,12,16: */
-			t00=a1p00r;			t01=a1p00i;
-			t02=a1p16r+a1p04r;		t03=a1p16i+a1p04i;
-			t04=a1p12r+a1p08r;		t05=a1p12i+a1p08i;
-			t06=a1p12r-a1p08r;		t07=a1p12i-a1p08i;
-			t08=a1p16r-a1p04r;		t09=a1p16i-a1p04i;
-			rt = t02+t04;			it = t03+t05;
-			t00= t00+rt;			t01= t01+it;		/* y0	*/
-			rt = t00+uc1*rt;		it = t01+uc1*it;
-			t04= uc2*(t02-t04);		t05= uc2*(t03-t05);
-			t02= rt+t04;			t03= it+t05;
-			t04= rt-t04;			t05= it-t05;
-		  #if PFETCH
-			addp = addr+p01;
-			prefetch_p_doubles(addp);
-		  #endif
-			rt = us1*(t08-t06);		it = us1*(t09-t07);
-			t06= us2* t06;		t07= us2* t07;
-			t08= us3* t08;		t09= us3* t09;
-			t06= rt+t06;			t07= it+t07;
-			t08= rt-t08;			t09= it-t09;
-			rt = t06;			it = t07;
-			t06= t02+it;			t07= t03-rt;		/* y4 - note swap with y3 below!	*/
-			t02= t02-it;			t03= t03+rt;		/* y1	*/
-			rt = t08;			it = t09;
-			t08= t04+it;			t09= t05-rt;		/* y3	*/
-			t04= t04-it;			t05= t05+rt;		/* y2	*/
-		  #if PFETCH
-			addp = addr+p02;
-			prefetch_p_doubles(addp);
-		  #endif
-
-	/*...Second radix-5 transform:	*/
-		/* Swap 01->15, 05->11, 09->07, 13->03, 17->19 below to get permuted version of j1 + p01,05,09,13,17: */
-			t10=a1p15r;			t11=a1p15i;
-			t12=a1p11r+a1p19r;		t13=a1p11i+a1p19i;
-			t14=a1p07r+a1p03r;		t15=a1p07i+a1p03i;
-			t16=a1p07r-a1p03r;		t17=a1p07i-a1p03i;
-			t18=a1p11r-a1p19r;		t19=a1p11i-a1p19i;
-			rt = t12+t14;			it = t13+t15;
-			t10= t10+rt;			t11= t11+it;		/* y0	*/
-			rt = t10+uc1*rt;		it = t11+uc1*it;
-			t14= uc2*(t12-t14);		t15= uc2*(t13-t15);
-			t12= rt+t14;			t13= it+t15;
-			t14= rt-t14;			t15= it-t15;
-		  #if PFETCH
-			addp = addr+p03;
-			prefetch_p_doubles(addp);
-		  #endif
-			rt = us1*(t18-t16);		it = us1*(t19-t17);
-			t16= us2* t16;		t17= us2* t17;
-			t18= us3* t18;		t19= us3* t19;
-			t16= rt+t16;			t17= it+t17;
-			t18= rt-t18;			t19= it-t19;
-			rt = t16;			it = t17;
-			t16= t12+it;			t17= t13-rt;		/* y4 - note swap with y3 below!	*/
-			t12= t12-it;			t13= t13+rt;		/* y1	*/
-			rt = t18;			it = t19;
-			t18= t14+it;			t19= t15-rt;		/* y3	*/
-			t14= t14-it;			t15= t15+rt;		/* y2	*/
-		  #if PFETCH
-			addp = addr+p04;
-			prefetch_p_doubles(addp);
-		  #endif
-
-	/*...Third radix-5 transform:	*/
-		/* Swap 02<->10, 14<->18 below to get permuted version of j1 + p02,06,10,14,18: */
-			t20=a1p10r;			t21=a1p10i;
-			t22=a1p06r+a1p14r;		t23=a1p06i+a1p14i;
-			t24=a1p02r+a1p18r;		t25=a1p02i+a1p18i;
-			t26=a1p02r-a1p18r;		t27=a1p02i-a1p18i;
-			t28=a1p06r-a1p14r;		t29=a1p06i-a1p14i;
-			rt = t22+t24;			it = t23+t25;
-			t20= t20+rt;			t21= t21+it;		/* y0	*/
-			rt = t20+uc1*rt;		it = t21+uc1*it;
-			t24= uc2*(t22-t24);		t25= uc2*(t23-t25);
-			t22= rt+t24;			t23= it+t25;
-			t24= rt-t24;			t25= it-t25;
-		  #if PFETCH
-			addp = addr+p05;
-			prefetch_p_doubles(addp);
-		  #endif
-			rt = us1*(t28-t26);		it = us1*(t29-t27);
-			t26= us2* t26;		t27= us2* t27;
-			t28= us3* t28;		t29= us3* t29;
-			t26= rt+t26;			t27= it+t27;
-			t28= rt-t28;			t29= it-t29;
-			rt = t26;			it = t27;
-			t26= t22+it;			t27= t23-rt;		/* y4 - note swap with y3 below!	*/
-			t22= t22-it;			t23= t23+rt;		/* y1	*/
-			rt = t28;			it = t29;
-			t28= t24+it;			t29= t25-rt;		/* y3	*/
-			t24= t24-it;			t25= t25+rt;		/* y2	*/
-		  #if PFETCH
-			addp = addr+p06;
-			prefetch_p_doubles(addp);
-		  #endif
-
-	/*...Fourth radix-5 transform:	*/
-		/* Swap 03->05, 07->01, 11->17, 15->13, 19->09 below to get permuted version of j1 + p03,07,11,15,19: */
-			t30=a1p05r;			t31=a1p05i;
-			t32=a1p01r+a1p09r;		t33=a1p01i+a1p09i;
-			t34=a1p17r+a1p13r;		t35=a1p17i+a1p13i;
-			t36=a1p17r-a1p13r;		t37=a1p17i-a1p13i;
-			t38=a1p01r-a1p09r;		t39=a1p01i-a1p09i;
-			rt = t32+t34;			it = t33+t35;
-			t30= t30+rt;			t31= t31+it;		/* y0	*/
-			rt = t30+uc1*rt;		it = t31+uc1*it;
-			t34= uc2*(t32-t34);		t35= uc2*(t33-t35);
-			t32= rt+t34;			t33= it+t35;
-			t34= rt-t34;			t35= it-t35;
-		  #if PFETCH
-			addp = addr+p07;
-			prefetch_p_doubles(addp);
-		  #endif
-			rt = us1*(t38-t36);		it = us1*(t39-t37);
-			t36= us2* t36;		t37= us2* t37;
-			t38= us3* t38;		t39= us3* t39;
-			t36= rt+t36;			t37= it+t37;
-			t38= rt-t38;			t39= it-t39;
-			rt = t36;			it = t37;
-			t36= t32+it;			t37= t33-rt;		/* y4 - note swap with y3 below!	*/
-			t32= t32-it;			t33= t33+rt;		/* y1	*/
-			rt = t38;			it = t39;
-			t38= t34+it;			t39= t35-rt;		/* y3	*/
-			t34= t34-it;			t35= t35+rt;		/* y2	*/
-		  #if PFETCH
-			addp = addr+p08;
-			prefetch_p_doubles(addp);
-		  #endif
-
-	/*...and now do five radix-4 transforms:	*/
-			rt =t20;	t20=t00-rt;	t00=t00+rt;
-			it =t21;	t21=t01-it;	t01=t01+it;
-
-			rt =t30;	t30=t10-rt;	t10=t10+rt;
-			it =t31;	t31=t11-it;	t11=t11+it;
-		#if PFETCH
-			addp = addr+p09;
-			prefetch_p_doubles(addp);
-		#endif
-			a[j1    ]=t00+t10;	a[j2    ]=t01+t11;
-			a[j1+p01]=t00-t10;	a[j2+p01]=t01-t11;
-			a[j1+p03]=t20-t31;	a[j2+p03]=t21+t30;	/* mpy by I is inlined here...	*/
-			a[j1+p02]=t20+t31;	a[j2+p02]=t21-t30;
-		#if PFETCH
-			addp = addr+p10;
-			prefetch_p_doubles(addp);
-		#endif
-	/*...Block 2: */
-			rt =t22;	t22=t02-rt;	t02=t02+rt;
-			it =t23;	t23=t03-it;	t03=t03+it;
-
-			rt =t32;	t32=t12-rt;	t12=t12+rt;
-			it =t33;	t33=t13-it;	t13=t13+it;
-		#if PFETCH
-			addp = addr+p11;
-			prefetch_p_doubles(addp);
-		#endif
-			a[j1+p16]=t02+t12;	a[j2+p16]=t03+t13;
-			a[j1+p17]=t02-t12;	a[j2+p17]=t03-t13;
-			a[j1+p19]=t22-t33;	a[j2+p19]=t23+t32;	/* mpy by I is inlined here...	*/
-			a[j1+p18]=t22+t33;	a[j2+p18]=t23-t32;
-		#if PFETCH
-			addp = addr+p12;
-			prefetch_p_doubles(addp);
-		#endif
-	/*...Block 3: */
-			rt =t24;	t24=t04-rt;	t04=t04+rt;
-			it =t25;	t25=t05-it;	t05=t05+it;
-
-			rt =t34;	t34=t14-rt;	t14=t14+rt;
-			it =t35;	t35=t15-it;	t15=t15+it;
-		#if PFETCH
-			addp = addr+p13;
-			prefetch_p_doubles(addp);
-		#endif
-			a[j1+p14]=t04+t14;	a[j2+p14]=t05+t15;
-			a[j1+p15]=t04-t14;	a[j2+p15]=t05-t15;
-			a[j1+p12]=t24-t35;	a[j2+p12]=t25+t34;	/* mpy by I is inlined here...	*/
-			a[j1+p13]=t24+t35;	a[j2+p13]=t25-t34;
-		#if PFETCH
-			addp = addr+p14;
-			prefetch_p_doubles(addp);
-		#endif
-	/*...Block 4: */
-			rt =t26;	t26=t06-rt;	t06=t06+rt;
-			it =t27;	t27=t07-it;	t07=t07+it;
-
-			rt =t36;	t36=t16-rt;	t16=t16+rt;
-			it =t37;	t37=t17-it;	t17=t17+it;
-		#if PFETCH
-			addp = addr+p15;
-			prefetch_p_doubles(addp);
-		#endif
-			a[j1+p07]=t06+t16;	a[j2+p07]=t07+t17;
-			a[j1+p06]=t06-t16;	a[j2+p06]=t07-t17;
-			a[j1+p05]=t26-t37;	a[j2+p05]=t27+t36;	/* mpy by I is inlined here...	*/
-			a[j1+p04]=t26+t37;	a[j2+p04]=t27-t36;
-		#if PFETCH
-			addp = addr+p16;
-			prefetch_p_doubles(addp);
-		#endif
-	/*...Block 5: */
-			rt =t28;	t28=t08-rt;	t08=t08+rt;
-			it =t29;	t29=t09-it;	t09=t09+it;
-
-			rt =t38;	t38=t18-rt;	t18=t18+rt;
-			it =t39;	t39=t19-it;	t19=t19+it;
-		#if PFETCH
-			addp = addr+p17;
-			prefetch_p_doubles(addp);
-		#endif
-			a[j1+p09]=t08+t18;	a[j2+p09]=t09+t19;
-			a[j1+p08]=t08-t18;	a[j2+p08]=t09-t19;
-			a[j1+p10]=t28-t39;	a[j2+p10]=t29+t38;	/* mpy by I is inlined here...	*/
-			a[j1+p11]=t28+t39;	a[j2+p11]=t29-t38;
-		#if PFETCH
-			addp = addr+p18;
-			prefetch_p_doubles(addp);
-		#endif
-		#if PFETCH
-			addp = addr+p19;
-			prefetch_p_doubles(addp);
-		#endif
-
-	#endif	/* endif(1) */
-
-			iroot += root_incr;		/* increment sincos index.	*/
-
-		}
-
-		jstart += nwt;
-		jhi    += nwt;
-		col += 20;
-		co3 -= 20;
-
-	}
-
-	if(root_incr==0)break;
-
-/*   Wraparound carry cleanup loop is here: ***
-!
-!   (1) Invert the radix-36 forward DIF FFT of the first block of 36 complex elements in A and unweight;
-!   (2) Propagate cleanup carries among the real and imaginary parts of the 36 outputs of (1);
-!   (3) Reweight and perform a radix-36 forward DIF FFT on the result of (2);
-!   (4) If any of the exit carries from (2) are nonzero, advance to the next 36 elements and repeat (1-4).
-*/
-	t00 = cy19;
-	cy19= cy18;
-	cy18= cy17;
-	cy17= cy16;
-	cy16= cy15;
-	cy15= cy14;
-	cy14= cy13;
-	cy13= cy12;
-	cy12= cy11;
-	cy11= cy10;
-	cy10= cy09;
-	cy09= cy08;
-	cy08= cy07;
-	cy07= cy06;
-	cy06= cy05;
-	cy05= cy04;
-	cy04= cy03;
-	cy03= cy02;
-	cy02= cy01;
-	cy01= cy00;
-	cy00= t00 ;
-
-	iroot = 0;
-	root_incr = 0;
-	scale = 1;
-
-	jstart = 0;
-	jhi = 7;
-	khi = 1;
-
-	for(j=0; j<=jhi; j++)
-	{
-		a[j    ] *= radix_inv;
-		a[j+p01] *= radix_inv;
-		a[j+p02] *= radix_inv;
-		a[j+p03] *= radix_inv;
-		a[j+p04] *= radix_inv;
-		a[j+p05] *= radix_inv;
-		a[j+p06] *= radix_inv;
-		a[j+p07] *= radix_inv;
-		a[j+p08] *= radix_inv;
-		a[j+p09] *= radix_inv;
-		a[j+p10] *= radix_inv;
-		a[j+p11] *= radix_inv;
-		a[j+p12] *= radix_inv;
-		a[j+p13] *= radix_inv;
-		a[j+p14] *= radix_inv;
-		a[j+p15] *= radix_inv;
-		a[j+p16] *= radix_inv;
-		a[j+p17] *= radix_inv;
-		a[j+p18] *= radix_inv;
-		a[j+p19] *= radix_inv;
-	}
-}
-
-	if(fabs(cy00)+fabs(cy01)+fabs(cy02)+fabs(cy03)+fabs(cy04)+fabs(cy05)+fabs(cy06)+fabs(cy07)+fabs(cy08)+fabs(cy09)+fabs(cy10)+fabs(cy11)+fabs(cy12)+fabs(cy13)+fabs(cy14)+fabs(cy15)+fabs(cy16)+fabs(cy17)+fabs(cy18)+fabs(cy19) != 0.0)
-	{
-			sprintf(cbuf,"FATAL: iter = %10d; nonzero exit carry in radix20_ditN_cy_dif1 - input wordsize may be too small.\n",iter);
-			if(INTERACT)fprintf(stderr,"%s",cbuf);
-			fp = mlucas_fopen(   OFILE,"a");
-			fq = mlucas_fopen(STATFILE,"a");
-		fprintf(fp,"%s",cbuf);
-		fprintf(fq,"%s",cbuf);
-			fclose(fp);	fp = 0x0;
-			fclose(fq);	fq = 0x0;
-			err=ERR_CARRY;
-			return(err);
 	}
 
 	return(0);
@@ -2545,14 +1793,17 @@ void radix20_dit_pass1(double a[], int n)
 	#else
 		int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	#endif
+		double wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
+		int poff[RADIX>>2];	// Store [RADIX/4] mults of p04 offset for loop control
 
 	#ifdef USE_SSE2
 
 		uint32 p01,p02,p03,p04,p08,p12,p16;
 		double *add0, *add1, *add2, *add3;
 		const double crnd = 3.0*0x4000000*0x2000000;
+		int *itmp;	// Pointer into the bjmodn array
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
-		vec_dbl *cc1, *max_err, *sse2_rnd, *half_arr, *tmp, *r00,*r10,*r20,*r30
+		vec_dbl *cc1, *max_err, *sse2_rnd, *half_arr, *tmp,*tm1,*tm2, *r00,*r10,*r20,*r30
 			,*s1p00r,*s1p01r,*s1p02r,*s1p03r,*s1p04r,*s1p05r,*s1p06r,*s1p07r,*s1p08r,*s1p09r,*s1p10r,*s1p11r,*s1p12r,*s1p13r,*s1p14r,*s1p15r,*s1p16r,*s1p17r,*s1p18r,*s1p19r;
 		vec_dbl *cy00,*cy04,*cy08,*cy12,*cy16;
 	  #ifndef USE_AVX
@@ -2607,6 +1858,12 @@ void radix20_dit_pass1(double a[], int n)
 		double *a = thread_arg->arrdat;
 		double *wt0 = thread_arg->wt0;
 		double *wt1 = thread_arg->wt1;
+	#ifdef LOACC
+		double *wts_mult = thread_arg->wts_mult;	// Const Intra-block wts-multiplier...
+		double *inv_mult = thread_arg->inv_mult;	// ...and 2*(its multiplicative inverse).
+		ASSERT(HERE,fabs(wts_mult[0]*inv_mult[0] - 1.0) < EPS, "wts_mults fail accuracy check!");
+		ASSERT(HERE,fabs(wts_mult[1]*inv_mult[1] - 1.0) < EPS, "wts_mults fail accuracy check!");
+	#endif
 		int *si = thread_arg->si;
 
 		/*   constant index offsets for array load/stores are here.	*/
@@ -2668,6 +1925,7 @@ void radix20_dit_pass1(double a[], int n)
 		p18 = p18 + ( (p18 >> DAT_BITS) << PAD_BITS );
 		p19 = p19 + ( (p19 >> DAT_BITS) << PAD_BITS );
 	#endif	// USE_SSE2
+		poff[0] =   0; poff[1] = p04; poff[2] = p08; poff[3] = p12; poff[4] = p16;
 
 	#ifdef USE_SSE2
 		r00	= thread_arg->r00;		tmp	= r00 + 0x28;

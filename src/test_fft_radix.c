@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2015 by Ernst W. Mayer.                                           *
+*   (C) 1997-2016 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -25,11 +25,14 @@
 First, for the DFT in question, assuming it is a new under-development one,
 MAKE SURE THE OUTPUT INDEXING IS STRICLY ASCENDING-ORDERED! - The test_fft_radix() index-display assumes this.
 
-1. Edit this file (or use e.g. -DRADIX=... at compile time) to set the desired DFT params [RADIX and TTYPE]
-	and compile it via 'gcc/clang -c test_fft_radix.c';
-2. Compile util.c via 'gcc/clang -c -DTEST_FFT_RADIX util.c' [Note: If -DUSE_THREADS was used for other
-	sourcefiles in the build, need to use it here, too];
-3. Link into an Mlucas binary and run-as-if-timing-test-at-any-desired-length to test the DFT.
+1. To set desired radix for testing and test-type (see comments around TTYPE below), compile this file
+using (note the [] are just for emphasis):
+	gcc/clang -c -DRADIX=[desired radix] -DTTYPE=[desired test type] test_fft_radix.c
+
+2. Compile util.c via 'gcc/clang -c -DTEST_FFT_RADIX util.c' [Note: If -DUSE_THREADS was|was-not used for other
+	sourcefiles in the build, need to use|not-use it here, too];
+
+3. Link into an Mlucas binary and run-as-if-timing-test at any desired length to test the DFT radix.
 
 To deduce the required output-idx ordering, sort Actual-outputs data by left col-of-real-parts, move 
 resulting [re,im,i] block to file, repeat procedure for Expected-outputs, then compare the two files.
@@ -96,21 +99,52 @@ int cmp_by_idx(const void *va, const void *vb)
 // like high and low words of a 2-word multiprecision datum suffices for our present purposes:
 int cmp_by_val(const void *va, const void *vb)
 {
+	const double EPS = 1e-10;	double adiff;
+	int retval = 0;
 	const double ar = (((const struct idx_cmplx *)va)->cdat).re, ai = (((const struct idx_cmplx *)va)->cdat).im;
 	const double br = (((const struct idx_cmplx *)vb)->cdat).re, bi = (((const struct idx_cmplx *)vb)->cdat).im;
-
-	if (ar > br) return +1;
-	else if (ar < br) return -1;
-	/* If real parts equal, proceed to imaginary parts: */
-	else {
-		if (ai > bi) return +1;
-		else if (ai < bi) return -1;
+	//printf("cmp_by_val: [ar,ai] = %20.10f,%20.10f; [br,bi] = %20.10f,%20.10f\n",ar,ai,br,bi);
+	adiff = fabs(ar - br);
+	if(adiff > EPS) {
+		if (ar > br) {
+			retval = +1;	//printf("cmp_by_val: ar > br: retval = %2d\n",retval);
+		} else if (ar < br) {
+			retval = -1;	//printf("cmp_by_val: ar < br: retval = %2d\n",retval);
+		}
+		//printf("cmp_by_val: [ar-br] = %20.10e: retval = %2d\n",adiff,retval);
+		return retval;
 	}
-	return 0;
+	/* If real parts equal, proceed to imaginary parts: */
+	adiff = fabs(ai - bi);
+	if(adiff > EPS) {
+		if (ai > bi) {
+			retval = +1;	//printf("cmp_by_val: ai > bi: retval = %2d\n",retval);
+		} else if (ai < bi) {
+			retval = -1;	//printf("cmp_by_val: ai < bi: retval = %2d\n",retval);
+		}
+		//printf("cmp_by_val: [ai-bi] = %20.10e: retval = %2d\n",adiff,retval);
+		return retval;
+	}
+	//printf("cmp_by_val: complex data equal within roundoff tolerance, retval = %2d\n",retval);
+	return retval;
 }
+/*
+30 Nov 2015: Bizarre result was hosing a small-DFT test (radix-8 DIF) with 2 identical Re-part outputs, [-6,-14] and [-6,-10]:
+This one OK:
+	cmp_by_val: [ar,ai] =        -6.0000000000,      -14.0000000000; [br,bi] =        -6.0000000000,      -10.0000000000
+	cmp_by_val: ar == ai: Im-parts retval = -1
+This is BAD:
+	cmp_by_val: [ar,ai] =        -6.0000000000,      -14.0000000000; [br,bi] =        -6.0000000000,      -10.0000000000
+	cmp_by_val: ar > br: retval =  1
+Had to add ROE-tolerance 'fuzzy compare' to cure that.
+*/
 
 void matmul_double (double **, double *, double *, int, int);
 void matmul_complex(struct complex **, struct complex *, struct complex *, int, int);
+#ifdef USE_FGT61
+// Modular analog of matmul_complex, over FGT(M61^2):
+void matmul_fgtmod (uint128 **, uint128 *, uint128 *, int, int);
+#endif
 
 #define CABS(a,b)	sqrt((a)*(a) + (b)*(b))
 
@@ -275,6 +309,16 @@ void test_fft_radix(void)
 	struct complex **mat = 0x0, **matp = 0x0, **ctmpp = 0x0, *ctmp = 0x0;
 	double t0,t1,t2,t3;
 	double theta, twopi = 6.2831853071795864769;
+  #ifdef USE_FGT61
+	#if defined(USE_SSE2) || (RADIX != 16)
+	  #error Currently only Scalar-mode Radix-16 supported for FGT-test mode!
+	#endif
+	const uint64 q  = 0x1FFFFFFFFFFFFFFFull;	// q = 2^61 - 1
+	uint64 *amod = 0x0, *bmod = 0x0, *iptr = 0x0;
+	uint128 *am, *bm;
+	uint128 **matmod = 0x0, **matmodp = 0x0, **itmpp = 0x0, *itmp = 0x0;
+	uint64 order,root_re,root_im,rm,im,m0,m1,m2,m3;
+  #endif
 
 	/********* allocate all radix-dependent arrays dynamically: ********/
 	index        = ALLOC_INT(index       , RADIX);
@@ -301,6 +345,26 @@ void test_fft_radix(void)
 		mat[i] = ALIGN_COMPLEX(ctmp);
 		ctmp = 0x0;	/* Must re-init pointer so the realloc used by the ALLOC macro allocates new fresh memory for each row */
 	}
+  #ifdef USE_FGT61
+	iptr = ALLOC_UINT64(iptr, rmul*RADIX);	ASSERT(HERE, (iptr != 0x0), "FATAL: unable to allocate array AMOD in test_fft_radix.\n");
+	amod = ALIGN_UINT64(iptr);	iptr = 0x0;
+	am = (uint128 *)amod;
+	ASSERT(HERE, ((long)((void *)amod) & 63) == 0x0,"test_fft_radix: AMOD[] not aligned on 64-byte boundary!");
+	iptr = ALLOC_UINT64(iptr, rmul*RADIX);	ASSERT(HERE, (iptr != 0x0), "FATAL: unable to allocate array BMOD in test_fft_radix.\n");
+	bmod = ALIGN_UINT64(iptr);	iptr = 0x0;
+	ASSERT(HERE, ((long)((void *)bmod) & 63) == 0x0,"test_fft_radix: BMOD[] not aligned on 64-byte boundary!");
+	bm = (uint128 *)bmod;
+	iptr = ALLOC_UINT64(iptr, rmul*RADIX);	ASSERT(HERE, (iptr != 0x0), "FATAL: unable to allocate array A_iptr in test_fft_radix.\n");
+	itmpp = ALLOC_POINTER(itmpp,uint128*, RADIX);	ASSERT(HERE, (itmpp != 0x0), "FATAL: unable to allocate array MATP in test_fft_radix.\n");
+	matmodp  = ALIGN_POINTER(itmpp,uint128*);
+	itmpp = ALLOC_POINTER(itmpp,uint128*, RADIX);	ASSERT(HERE, (itmpp != 0x0), "FATAL: unable to allocate array MAT[][] in test_fft_radix.\n");
+	matmod   = ALIGN_POINTER(itmpp,uint128*);
+	for(i = 0; i < RADIX; ++i) {
+		itmp = ALLOC_UINT128(itmp, RADIX);	ASSERT(HERE, (itmp != 0x0), "FATAL: unable to allocate array Ctmp in test_fft_radix.\n");
+		matmod[i] = ALIGN_UINT128(itmp);
+		itmp = 0x0;	/* Must re-init pointer so the realloc used by the ALLOC macro allocates new fresh memory for each row */
+	}
+  #endif
 
 	fprintf(stderr, "test_fft_radix: Testing radix-%d %s dft:\n", RADIX, test_info_str[TTYPE]);
 
@@ -335,21 +399,46 @@ void test_fft_radix(void)
 	{
 		a[2*i  ] = ref[2*i  ];	t0 += ref[2*i  ];
 		a[2*i+1] = ref[2*i+1];	t1 += ref[2*i+1];
+	#ifdef USE_FGT61
+		amod[2*i  ] = ref[2*i  ];
+		amod[2*i+1] = ref[2*i+1];
+	#endif
 	}
 	printf("DC signal components: sum[Re,Im] = %15.5f  %15.5f\n",t0,t1);
 #endif
 	/* Init DFT matrix */
+#ifdef USE_FGT61
+	order = RADIX;	prim_root_q(order, &root_re,&root_im);	// RADIXth primitive root of unity
+	// primitive 16th root of unity, scaled by *8:
+	ASSERT(HERE, root_re == 1693317751237720973ull && root_im == 2283815672160731785ull,"Bad prim-root[16]!");;
+#endif
 	for(i = 0; i < RADIX; i++)
 	{
 		theta = i*twopi/RADIX;
+	#ifdef USE_FGT61
+		pow_modq((uint64)i, root_re,root_im, &m0,&m1);	// m0,m1 = Ith power of prim-root
+		if(i == 0) ASSERT(HERE, m0 == 1ull && m1 == 0ull, "Bad 0th power of prim-root!");
+		rm = 1ull;	im = 0ull;	// leftmost col has [m0,m1]^0 = [1,0]...
+	//	printf("DFT-int matrix row %d:\n",i);
+	#endif
 		for(j = 0; j < RADIX; j++)
 		{
 			mat[i][j].re = cos(j*theta);
 			mat[i][j].im = sin(j*theta);
-	/*printf("mat[%4d][%4d] = %15.10f  %15.10f\n",i,j, mat[i][j].re, mat[i][j].im);*/
+		/*	printf("mat[%4d][%4d] = %15.10f  %15.10f\n",i,j, mat[i][j].re, mat[i][j].im);*/
+		#ifdef USE_FGT61
+			matmod[i][j].d0 = rm;
+			matmod[i][j].d1 = im;
+	//	printf("\t[%2d] = %20llu, %20llu\n",j, rm,im);
+			cmul_modq(m0,m1, rm,im, &rm,&im);	// ... [j]col has [m0,m1]^j
+			rm = qreduce_full(rm);	im = qreduce_full(im);
+		#endif
 		}
 	}
 	matmul_complex(mat,ac,bc,RADIX,RADIX);
+#ifdef USE_FGT61
+	matmul_fgtmod(matmod,am,bm,RADIX,RADIX);
+#endif
 
 #ifdef USE_SSE2
 	/* In SSE2 mode re-Init data array, using [re,re,im,im] data layout: */
@@ -370,6 +459,10 @@ void test_fft_radix(void)
 		j1 = i + ( (i >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		a[j1  ] = ref[i  ];
 		a[j1+1] = ref[i+1];
+	#ifdef USE_FGT61
+		amod[j1  ] = ref[i  ];
+		amod[j1+1] = ref[i+1];
+	#endif
 	}
 #endif
 
@@ -377,8 +470,8 @@ void test_fft_radix(void)
 #if TTYPE == 3
 	for(i = 0; i < RADIX ; i++)
 	{
-		arrtmp[2*i  ] = ref[2*i  ];
-		arrtmp[2*i+1] = ref[2*i+1];
+		arrtmp[2*i  ] = ref[2*i  ];	// These data are whole-number, thus no need
+		arrtmp[2*i+1] = ref[2*i+1];	// for a separate brrtmp-array in the FGT case
 	}
 #endif
 
@@ -731,7 +824,11 @@ void test_fft_radix(void)
 	#elif RADIX == 15
 		radix15_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 16
-		radix16_dif_pass1 (a,rmul*RADIX);
+	  #ifdef USE_FGT61
+		radix16_dif_pass1 (a,amod,rmul*RADIX);
+	  #else
+		radix16_dif_pass1 (a,     rmul*RADIX);
+	  #endif
 	#elif RADIX == 18
 		radix18_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 20
@@ -777,13 +874,13 @@ void test_fft_radix(void)
 	#elif RADIX == 96
 		radix96_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 104
-		radix104_dif_pass1(a,rmul*RADIX);
+		radix104_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 112
-		radix112_dif_pass1(a,rmul*RADIX);
+		radix112_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 120
-		radix120_dif_pass1(a,rmul*RADIX);
+		radix120_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 128
-		radix128_dif_pass1(a,rmul*RADIX);
+		radix128_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 144
 		radix144_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 160
@@ -793,13 +890,13 @@ void test_fft_radix(void)
 	#elif RADIX == 192
 		radix192_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 208
-		radix208_dif_pass1(a,rmul*RADIX);
+		radix208_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 224
-		radix224_dif_pass1(a,rmul*RADIX);
+		radix224_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 240
-		radix240_dif_pass1(a,rmul*RADIX);
+		radix240_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 256
-		radix256_dif_pass1(a,rmul*RADIX);
+		radix256_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 288
 		radix288_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 320
@@ -809,13 +906,13 @@ void test_fft_radix(void)
 	#elif RADIX == 384
 		radix384_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 416
-		radix416_dif_pass1(a,rmul*RADIX);
+		radix416_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 448
-		radix448_dif_pass1(a,rmul*RADIX);
+		radix448_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 480
-		radix480_dif_pass1(a,rmul*RADIX);
+		radix480_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 512
-		radix512_dif_pass1(a,rmul*RADIX);
+		radix512_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 576
 		radix576_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 640
@@ -825,21 +922,21 @@ void test_fft_radix(void)
 	#elif RADIX == 768
 		radix768_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 832
-		radix832_dif_pass1(a,rmul*RADIX);
+		radix832_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 896
-		radix896_dif_pass1(a,rmul*RADIX);
+		radix896_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 960
-		radix960_dif_pass1(a,rmul*RADIX);
+		radix960_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 992
-		radix992_dif_pass1(a,rmul*RADIX);
+		radix992_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 1008
 		radix1008_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 1024
-		radix1024_dif_pass1(a,rmul*RADIX);
+		radix1024_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 4032
 		radix4032_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 4096
-		radix4096_dif_pass1(a,rmul*RADIX);
+		radix4096_dif_pass1 (a,rmul*RADIX);
 	#else
 		#error This DIF radix not yet implemented!
 	#endif
@@ -870,6 +967,21 @@ void test_fft_radix(void)
 		sort_arr1[i].idx = i;			sort_arr2[i].idx = i;
 		sort_arr1[i].cdat.re = a[j1];	sort_arr2[i].cdat.re = b[2*j];
 		sort_arr1[i].cdat.im = a[j2];	sort_arr2[i].cdat.im = b[2*j+1];
+	//	printf("I = %3u: DIF-ref: %20.15f  %20.15f,  Actual: %20.15f  %20.15f\n",i, b[2*j],b[2*j+1], a[j1],a[j2]);
+		// We only deploy FGT-based DFTs once the floating version has been tested, so no point doing the sorting
+		// here, just compare using the (presumably correct) output-index permutations derived for the float code:
+	#ifdef USE_FGT61
+		printf("I = %3u: DIF-ref: %20llu  %20llu,  FGT: %20llu  %20llu",i, bmod[2*j],bmod[2*j+1], amod[j1],amod[j2]);
+		if(bmod[2*j] != amod[j1] || bmod[2*j+1] != amod[j2]) {
+			if(bmod[2*j] != qreduce_full(amod[j1]) || bmod[2*j+1] != qreduce_full(amod[j2])) {
+				printf("\tDiff = %20lld  %20lld\n",bmod[2*j]-amod[j1], bmod[2*j+1]-amod[j2]);
+			} else {
+				printf("\tMatch (mod q)\n");
+			}
+		} else {
+			printf("\tMatch\n");
+		}
+	#endif
 	}
 	// Sort the 2 structified data arrays by complex value and then compare both complex data and their resp. indices...
 	qsort((void *)sort_arr1, RADIX, sz_idx_cmplx, cmp_by_val);
@@ -896,6 +1008,7 @@ void test_fft_radix(void)
 			idiff += (sort_arr1[i].idx != sort_arr2[i].idx);
 		}
 	}
+
 	// If sorted lists match, extract any needed index-perm:
 	if(!nerr && !idiff) {
 		// All is well
@@ -949,7 +1062,7 @@ void test_fft_radix(void)
 
 #endif
 
-#if TTYPE == 2
+#if TTYPE == 2	// DIT-only, as opposed to combined DIF+DIT [TTYPE = 3]
 
 	// Bit-reverse the inputs to the transform...
   #ifdef USE_SSE2
@@ -989,10 +1102,19 @@ void test_fft_radix(void)
 		arrtmp[2*i  ] = a[j1];
 		arrtmp[2*i+1] =-a[j2];
 	}
-	for(i = 0; i < rmul*RADIX ; i++)
+	// Now copy the DIT-index-scrambled data back to the A-array:
+	for(i = 0; i < rmul*RADIX ; i += 2)
 	{
-		j = i + ( (i >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-		a[j] = arrtmp[i];
+		j1 = i + ( (i >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+		j2 = j1+1;
+		a[j1] = arrtmp[i  ];
+		a[j2] = arrtmp[i+1];
+	#ifdef USE_FGT61
+		// Since we negated Im-part above, must analogize to q - (pre-negation)a[j2] here:
+		amod[j1] =             a[j1];	// Here, the cast-to-uint64 is implied by the assignment ...
+		amod[j2] = q + (uint64)a[j2];	// ...but here need explicit cast to ensure integer addition.
+		printf("DIT-in[%2u]: float = [%10.5f,%10.5f]; int = [ %llu, q - %llu]\n",i, a[j1],a[j2] ,amod[j1],q - amod[j2]);
+	#endif
 	}
 
   #endif
@@ -1030,7 +1152,11 @@ void test_fft_radix(void)
 	#elif RADIX == 15
 		radix15_dit_pass1 (a,rmul*RADIX);
 	#elif RADIX == 16
-		radix16_dit_pass1 (a,rmul*RADIX);
+	  #ifdef USE_FGT61
+		radix16_dit_pass1 (a,amod,rmul*RADIX);
+	  #else
+		radix16_dit_pass1 (a,     rmul*RADIX);
+	  #endif
 	#elif RADIX == 18
 		radix18_dit_pass1 (a,rmul*RADIX);
 	#elif RADIX == 20
@@ -1160,6 +1286,21 @@ void test_fft_radix(void)
 		sort_arr1[i].idx = i;			sort_arr2[i].idx = i;
 		sort_arr1[i].cdat.re = a[j1];	sort_arr2[i].cdat.re = b[2*i];
 		sort_arr1[i].cdat.im = a[j2];	sort_arr2[i].cdat.im =-b[2*i+1];	// Flip sign on Im-part of ref-output
+		// We only deploy FGT-based DFTs once the floating version has been tested, so no point doing the sorting
+		// here, just compare using the (presumably correct) output-index permutations derived for the float code:
+	#ifdef USE_FGT61
+		// Flip sign on Im-part of ref-outputs:
+		printf("I = %3u: DIT-ref: %20llu  %20llu,  FGT: %20llu  %20llu",i, bmod[2*i],q-bmod[2*i+1], amod[j1],amod[j2]);
+		if(bmod[2*i] != amod[j1] || q-bmod[2*i+1] != amod[j2]) {
+			if(bmod[2*i] != qreduce_full(amod[j1]) || q-bmod[2*i+1] != qreduce_full(amod[j2])) {
+				printf("\tDiff = %20lld  %20lld\n",bmod[2*i]-amod[j1], (q-bmod[2*i+1])-amod[j2]);
+			} else {
+				printf("\tMatch (mod q)\n");
+			}
+		} else {
+			printf("\tMatch\n");
+		}
+	#endif
 	}
 	// Sort the 2 structified data arrays by complex value and then compare both complex data and their resp. indices...
 	qsort((void *)sort_arr1, RADIX, sz_idx_cmplx, cmp_by_val);
@@ -1254,6 +1395,18 @@ void test_fft_radix(void)
 			++nerr;
 			printf("%4d  %25.15f  %25.15f, ERR= %15.10e\n",i,a[j1], a[j2], CABS(err_r, err_i));
 		}
+	#ifdef USE_FGT61
+		printf("I = %3u: DIF+DIT ref: [%lld,%lld],  FGT: [%20llu,%20llu]",i, (uint64)arrtmp[2*i],(uint64)arrtmp[2*i+1], amod[j1]/RADIX,amod[j2]/RADIX);
+		if((uint64)arrtmp[2*i] != amod[j1]/RADIX || (uint64)arrtmp[2*i+1] != amod[j2]/RADIX) {
+			if((uint64)arrtmp[2*i] != qreduce_full(amod[j1])/RADIX || (uint64)arrtmp[2*i+1] != qreduce_full(amod[j2])/RADIX) {
+				printf("\tMismatch! mod-outputs (mod RADIX) = [%20llu,%20llu]\n",amod[j1]%RADIX, amod[j2]%RADIX);
+			} else {
+				printf("\tMatch (mod q)\n");
+			}
+		} else {
+			printf("\tMatch\n");
+		}
+	#endif
 	}
 	avgerr *= iradix;
 	printf("test_fft_radix: %d Mismatches detected in DIF/DIT combo; maxerr = %15.10e, avgerr = %15.10e\n", nerr, maxerr, avgerr);
@@ -1312,3 +1465,31 @@ void matmul_complex(struct complex **mat, struct complex vec_in[], struct comple
 	return;
 }
 
+#ifdef USE_FGT61
+// Modular analog of matmul_complex, over FGT(M61^2):
+void matmul_fgtmod(uint128 **mat, uint128 vec_in[], uint128 vec_out[], int nrow, int ncol)
+{
+	const uint64 q  = 0x1FFFFFFFFFFFFFFFull;	// q = 2^61 - 1
+	int i,j;
+	uint64 rm,im;
+	for(i = 0; i < nrow; i++)
+	{
+	//if(!i) printf("matmul_fgtmod: DC-component inner product terms:\n");
+		vec_out[i].d0 = vec_out[i].d1 = 0ull;
+		for(j = 0; j < ncol; j++)
+		{
+			cmul_modq(mat[i][j].d0,mat[i][j].d1, vec_in[j].d0,vec_in[j].d1, &rm,&im);
+			// CMUL_MODQ outputs in 0,4b - must feed to qreduce() prior to accumulating:
+			rm = qreduce(rm);	im = qreduce(im);
+	//	if(!i) printf("\t[%2d] = [%llu,%llu] * [%llu,%llu] = [%llu,%llu]\n",j, mat[i][j].d0,mat[i][j].d1, vec_in[j].d0,vec_in[j].d1, rm,im);
+			rm += vec_out[i].d0;
+			im += vec_out[i].d1;
+			// Normalize to ensure accumulated sum in [0,q-1]:
+			vec_out[i].d0 = rm - (-(uint64)(rm >= q)) & q;
+			vec_out[i].d1 = im - (-(uint64)(im >= q)) & q;
+		}
+	}
+
+	return;
+}
+#endif

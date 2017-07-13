@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2014 by Ernst W. Mayer.                                           *
+*   (C) 1997-2017 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -25,7 +25,12 @@
 
 for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 {
-	for(j = jstart; j < jhi; j += stride)	// Stride = 4 reals for SSE2, 8 for AVX
+	/* In SIMD mode, data are arranged in [re_0,...,re_n-1,im_0,...,im_n-1] groups, not the usual [re_0,im_0],...,[re_n-1,im_n-1] pairs.
+	Thus we can still increment the j-index as if stepping through the residue array-of-doubles in strides of 2,
+	but to point to the proper real datum, we need to index-map e.g. [0,1,2,3] ==> [0,2,1,3] in 2-way SIMD mode.
+	(But only ever need to explicitly do this in debug mode).
+	*/
+	for(j = jstart; j < jhi; j += stride)
 	{
 		j1 =  j;
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
@@ -35,7 +40,68 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	*/
 	#ifdef USE_SSE2
 
-	  #if defined(COMPILER_TYPE_MSVC) || !GCC_ASM_FULL_INLINE
+	  #if COMPACT_OBJ
+
+		// Indices into above 8-elt table; each DFT-8 needs eight 3-bit indices, thus needs low 3 bytes of a uint32.
+		// Ex: 1st DFT-8 has add0-7 p01-multiple offsets 01327654; reverse that to get p_idx[0] = 45672310:
+		const uint32 p_id1[5] = {045672310,076450123,054763201,010325476,023106754};	// Leading 0s = octal consts
+		const uint8  p_od1[5] = {0,4,8,2,6};	// Indices into poff[]-array of p04-multiples
+		for(l = 0, tmp = r00; l < 5; l++, tmp+=16) {
+			i7 = p_id1[l]; i0 = i7&7; i1 = (i7>>3)&7; i2 = (i7>>6)&7; i3 = (i7>>9)&7; i4 = (i7>>12)&7; i5 = (i7>>15)&7; i6 = (i7>>18)&7; i7 = (i7>>21);
+			addr = &a[j1+poff[p_od1[l]]];
+			add0 = addr+pp07[i0]; add1 = addr+pp07[i1]; add2 = addr+pp07[i2]; add3 = addr+pp07[i3]; add4 = addr+pp07[i4]; add5 = addr+pp07[i5]; add6 = addr+pp07[i6]; add7 = addr+pp07[i7];
+		  #ifdef USE_AVX2
+			SSE2_RADIX8_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7, tmp, isrt2,two)
+		  #else
+			SSE2_RADIX8_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7, tmp, isrt2)
+		  #endif
+		}
+	/*...and now do 8 radix-5 transforms: */
+		// Bytewise array of output-pointer offsets w.r.to the s1p00 base-pointer.
+		// Radix-5 DFT outputs are (cyclic) with vec_dbl-pointer += 32 (mod 80) between successive outputs:
+		const uint8 optr_off[RADIX] = {
+			 0,32,64,16,48,
+			 50,2,34,66,18,
+			 20,52,4,36,68,
+			 70,22,54,6,38,
+			 40,72,24,56,8,
+			 10,42,74,26,58,
+			 60,12,44,76,28,
+			 30,62,14,46,78};
+		vec_dbl
+		*va0,*va1,*va2,*va3,*va4,	// I-ptrs
+		*vb0,*vb1,*vb2,*vb3,*vb4;	// O-ptrs
+	   #if OS_BITS == 64
+		vec_dbl
+		*vc0,*vc1,*vc2,*vc3,*vc4,	// I-ptrs
+		*vd0,*vd1,*vd2,*vd3,*vd4;	// O-ptrs
+		for(l = 0, tmp = r00, ntmp = 0; l < 4; l++, ntmp += 10) {
+	   #else
+		for(l = 0, tmp = r00, ntmp = 0; l < 8; l++, ntmp += 5) {
+	   #endif
+			// Input-ptrs are regular-stride offsets of r00:
+			va0 = tmp;			vb0 = s1p00r + optr_off[ntmp  ];
+			va1 = tmp + 0x10;	vb1 = s1p00r + optr_off[ntmp+1];
+			va2 = tmp + 0x20;	vb2 = s1p00r + optr_off[ntmp+2];
+			va3 = tmp + 0x30;	vb3 = s1p00r + optr_off[ntmp+3];
+			va4 = tmp + 0x40;	vb4 = s1p00r + optr_off[ntmp+4];
+		  #if OS_BITS == 64
+			vc0 = tmp + 0x02;	vd0 = s1p00r + optr_off[ntmp+5];
+			vc1 = tmp + 0x12;	vd1 = s1p00r + optr_off[ntmp+6];
+			vc2 = tmp + 0x22;	vd2 = s1p00r + optr_off[ntmp+7];
+			vc3 = tmp + 0x32;	vd3 = s1p00r + optr_off[ntmp+8];
+			vc4 = tmp + 0x42;	vd4 = s1p00r + optr_off[ntmp+9];
+			SSE2_RADIX_05_DFT_0TWIDDLE_X2(xcc1,two,
+				va0,va1,va2,va3,va4, vb0,vb1,vb2,vb3,vb4,
+				vc0,vc1,vc2,vc3,vc4, vd0,vd1,vd2,vd3,vd4)
+			tmp += 4;
+		  #else
+			SSE2_RADIX_05_DFT_0TWIDDLE(va0,va1,va2,va3,va4,xcc1,vb0,vb1,vb2,vb3,vb4)
+			tmp += 2;
+		  #endif
+		}
+
+	  #else
 
 		add0 = &a[j1    ]; add1 = add0+p01; add2 = add0+p03; add3 = add0+p02; add4 = add0+p07; add5 = add0+p06; add6 = add0+p05; add7 = add0+p04;
 	   #ifdef USE_AVX2
@@ -92,11 +158,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		SSE2_RADIX_05_DFT_0TWIDDLE(r14,r30,r46,r62,r78,xcc1,s1p15r,s1p31r,s1p07r,s1p23r,s1p39r)
 	   #endif
 
-	  #else	/* GCC-style fully-inlined ASM (64-bit only); */
-
-		add0 = &a[j1    ];
-		SSE2_RADIX40_DIT_NOTWIDDLE(add0,p01,p02,p03,p04,p08,p16,p24,p32,r00, xcc1,isrt2, s1p00r,s1p08r,s1p16r,s1p24r,s1p32r);
-
 	  #endif
 
 	#else
@@ -129,9 +190,14 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		add1 = &wt1[col  ];
 		add2 = &wt1[co2-1];
 		add3 = &wt1[co3-1];
-
-		l= j & (nwt-1);						tmp = half_arr + 64;	/* ptr to local storage for the doubled wtl,wtn terms: */
-		n_minus_sil  ->d0 = n-si[l  ];		tmp->d0 = wt0[    l  ];
+		/* ptr to local storage for the doubled wtl,wtn terms: */
+	  #ifdef USE_AVX512
+		tmp = half_arr +  32;	// No lookup-tables used in avx-512; instead use opmasked conditional-doubling; 1st 32 slots hold outputs of wtsinit call
+	  #else
+		tmp = half_arr + 128;	// 1st 64 slots are basic-4 LUTs, next 32 are the additional 2 LOACC LUTs, next 32 hold outputs of wtsinit call
+	  #endif
+		l= j & (nwt-1);						// These rcol wts-terms are for individual-double-broadcast-to-full-vector-width,
+		n_minus_sil  ->d0 = n-si[l  ];		tmp->d0 = wt0[    l  ];	// hence the mixing of fwd/inv wts, which is normally taboo.
 		n_minus_silp1->d0 = n-si[l+1];		tmp->d1 = wt0[nwt-l  ]*scale;
 		sinwt        ->d0 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
 		sinwtm1      ->d0 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
@@ -142,37 +208,143 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		sinwt        ->d1 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
 		sinwtm1      ->d1 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
 
-		l= (j+4) & (nwt-1);					++tmp;	/* Get ready for next 4 weights-related doubles... */
+		l= (j+4) & (nwt-1);					++tmp;
 		n_minus_sil  ->d2 = n-si[l  ];		tmp->d0 = wt0[    l  ];
 		n_minus_silp1->d2 = n-si[l+1];		tmp->d1 = wt0[nwt-l  ]*scale;
 		sinwt        ->d2 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
 		sinwtm1      ->d2 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
 
-		l= (j+6) & (nwt-1);					++tmp;	/* Get ready for next 4 weights-related doubles... */
+		l= (j+6) & (nwt-1);					++tmp;
 		n_minus_sil  ->d3 = n-si[l  ];		tmp->d0 = wt0[    l  ];
 		n_minus_silp1->d3 = n-si[l+1];		tmp->d1 = wt0[nwt-l  ]*scale;
 		sinwt        ->d3 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
 		sinwtm1      ->d3 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
+	  #ifdef USE_AVX512
+		l= (j+8) & (nwt-1);					tmp -= 3;	// Reset to same tmp-startval as above, now copy data into d4-7 slots of vec_dbl
+		n_minus_sil  ->d4 = n-si[l  ];		tmp->d4 = wt0[    l  ];
+		n_minus_silp1->d4 = n-si[l+1];		tmp->d5 = wt0[nwt-l  ]*scale;
+		sinwt        ->d4 = si[nwt-l  ];	tmp->d6 = wt0[    l+1];
+		sinwtm1      ->d4 = si[nwt-l-1];	tmp->d7 = wt0[nwt-l-1]*scale;
 
-	/* In AVX mode advance carry-ptrs just 1 for each vector-carry-macro call: */
+		l= (j+10) & (nwt-1);				++tmp;
+		n_minus_sil  ->d5 = n-si[l  ];		tmp->d4 = wt0[    l  ];
+		n_minus_silp1->d5 = n-si[l+1];		tmp->d5 = wt0[nwt-l  ]*scale;
+		sinwt        ->d5 = si[nwt-l  ];	tmp->d6 = wt0[    l+1];
+		sinwtm1      ->d5 = si[nwt-l-1];	tmp->d7 = wt0[nwt-l-1]*scale;
+
+		l= (j+12) & (nwt-1);				++tmp;
+		n_minus_sil  ->d6 = n-si[l  ];		tmp->d4 = wt0[    l  ];
+		n_minus_silp1->d6 = n-si[l+1];		tmp->d5 = wt0[nwt-l  ]*scale;
+		sinwt        ->d6 = si[nwt-l  ];	tmp->d6 = wt0[    l+1];
+		sinwtm1      ->d6 = si[nwt-l-1];	tmp->d7 = wt0[nwt-l-1]*scale;
+
+		l= (j+14) & (nwt-1);				++tmp;
+		n_minus_sil  ->d7 = n-si[l  ];		tmp->d4 = wt0[    l  ];
+		n_minus_silp1->d7 = n-si[l+1];		tmp->d5 = wt0[nwt-l  ]*scale;
+		sinwt        ->d7 = si[nwt-l  ];	tmp->d6 = wt0[    l+1];
+		sinwtm1      ->d7 = si[nwt-l-1];	tmp->d7 = wt0[nwt-l-1]*scale;
+	  #endif
+
+	  #ifdef LOACC
+
+		// Since use wt1-array in the wtsinit macro, need to fiddle this here:
+		co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
+					// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
+
+		AVX_cmplx_carry_fast_wtsinit_X8(add1,add2,add3, bjmodn, half_arr,sign_mask, n_minus_sil,n_minus_silp1,sinwt,sinwtm1, sse_bw,sse_n)
+
+		i = (!j);
+		tmp = s1p00r; tm1 = cy; tm2 = cy+1; itmp = bjmodn; itm2 = bjmodn+4;
+		for(l = 0; l < RADIX>>3; l++) {
+			// Each AVX carry macro call also processes 8 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l+l];
+		  #ifdef USE_AVX512	// In AVX-512 mode, the 4 doubles base[0],baseinv[1],wts_mult[1],inv_mult[0] are in the d0-3 slots of the otherwie-unused sse2_rnd vec_dbl:
+			AVX_cmplx_carry_fast_errcheck_X8(tmp, tm1    , itmp     , half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03,p04);
+			tmp += 16; tm1 += 1;           itmp += 8;            i = 0;	// CY-ptr only advances 1 in AVX-512 mode, since all 8 dbl-carries fit in a single vec_dbl
+		  #else	// USE_AVX:
+			AVX_cmplx_carry_fast_errcheck_X8(tmp, tm1,tm2, itmp,itm2, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03,p04);
+			tmp += 16; tm1 += 2; tm2 += 2; itmp += 8; itm2 += 8; i = 0;
+		  #endif
+		}
+
+	  #else	// USE_AVX: Hi-accuracy 4-way carry is the default:
+
+		/* In AVX mode advance carry-ptrs just 1 for each vector-carry-macro call: */
+		i = (!j);
 		tm1 = s1p00r; tmp = cy; itmp = bjmodn;
-		// Each AVX carry macro call also processes 4 prefetches of main-array data
-		add0 = a + j1 + pfetch_dist;
-		AVX_cmplx_carry_norm_errcheck0_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
-		tm1 += 8; tmp += 1; itmp += 4;
-		for(l = 1; l < RADIX>>2; l++) {
+		for(l = 0; l < RADIX>>2; l++) {
 			// Each AVX carry macro call also processes 4 prefetches of main-array data
 			add0 = a + j1 + pfetch_dist + poff[l];
-			AVX_cmplx_carry_norm_errcheck1_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
-			tm1 += 8; tmp += 1; itmp += 4;
+			AVX_cmplx_carry_norm_errcheck_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+			tm1 += 8; tmp += 1; itmp += 4; i = 0;
 		}
 
 		co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 					// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
 
+	  #endif	// USE_AVX: (8-way or 4-way LOACC) or (4-way HIACC) ?
+
 		i =((uint32)(sw - bjmodn[0]) >> 31);	/* get ready for the next set...	*/
 
 	#elif defined(USE_SSE2)
+
+	  #ifdef LOACC
+
+		/*** wt_re,wi_re,wt_im,wi_im inits. Cf. radix16_main_carry_loop.h for scalar-macro prototyping of this: ***/
+		uint32 k0,k1,k2,k3, nwtml;
+		l = j & (nwt-1);	nwtml = nwt-l;
+		n_minus_sil   = n-si[l  ];
+		n_minus_silp1 = n-si[l+1];
+		sinwt   = si[nwtml  ];
+		sinwtm1 = si[nwtml-1];
+		wtl     = wt0[    l  ];
+		wtn     = wt0[nwtml  ]*scale;
+		wtlp1   = wt0[    l+1];
+		wtnm1   = wt0[nwtml-1]*scale;
+
+		ctmp = (struct complex *)half_arr + 24;	// ptr to local storage for the doubled wtl,wtn terms:
+		// (j)-data occupy the 8 xmm-sized slots above the 16 used by fixed auxiliary-data, and overwrite these inits:
+		ctmp->re = ctmp->im = wtl;		ctmp += 2;
+		ctmp->re = ctmp->im = wtn;		ctmp += 2;
+		ctmp->re = ctmp->im = wtlp1;	ctmp += 2;
+		ctmp->re = ctmp->im = wtnm1;
+
+		l = (j+2) & (nwt-1);	nwtml = nwt-l;
+		k0 = n-si[l  ];
+		k1 = n-si[l+1];
+		k2 = si[nwtml  ];
+		k3 = si[nwtml-1];
+		wtl     = wt0[    l  ];
+		wtn     = wt0[nwtml  ]*scale;
+		wtlp1   = wt0[    l+1];
+		wtnm1   = wt0[nwtml-1]*scale;
+
+		ctmp = (struct complex *)half_arr + 32;	// (j+2) data start at ctmp + 8
+		ctmp->re = ctmp->im = wtl;		ctmp += 2;
+		ctmp->re = ctmp->im = wtn;		ctmp += 2;
+		ctmp->re = ctmp->im = wtlp1;	ctmp += 2;
+		ctmp->re = ctmp->im = wtnm1;
+
+		add1 = &wt1[col  ];	/* Don't use add0 here, to avoid need to reload main-array address */
+		add2 = &wt1[co2-1];
+		add3 = &wt1[co3-1];
+
+		// Since use wt1-array in the wtsinit macro, need to fiddle this here:
+		co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
+					// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
+		// *But*: since the init macro does an on-the-fly version of this between j,j+2 portions, external code co2=co3 must come *after* both ctmp-data octets are inited.
+		SSE2_cmplx_carry_fast_wtsinit(add1,add2,add3, bjmodn, half_arr,sign_mask, n_minus_sil,n_minus_silp1,sinwt,sinwtm1, k0,k1,k2,k3, sse_bw,sse_n)
+
+		i = (!j);
+		tm1 = s1p00r; tmp = cy; tm2 = cy + 1; itmp = bjmodn;
+		for(l = 0; l < RADIX>>2; l++) {
+			// Each SSE2 LOACC carry macro call also processes 4 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			SSE2_cmplx_carry_fast_errcheck(tm1,tmp,tm2,itmp,half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4; i = 0;
+		}
+
+	  #else	// Hi-accuracy is the default:
 
 		l= j & (nwt-1);
 		n_minus_sil   = n-si[l  ];
@@ -197,15 +369,14 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		add2 = &wt1[co2-1];
 		add3 = &wt1[co3-1];
 
+		i = (!j);
 		tm1 = s1p00r; tmp = cy; tm2 = cy+0x01; itmp = bjmodn;
-		// Each SSE2 carry macro call also processes 2 prefetches of main-array data
-		add0 = a + j1 + pfetch_dist;
-		SSE2_cmplx_carry_norm_errcheck0_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
-		for(l = 1; l < RADIX>>2; l++) {
+		for(l = 0; l < RADIX>>2; l++) {
 			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
 			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
 			add0 += (-(l&0x1)) & p02;	// Base-addr incr by extra p2 on odd-index passes
-			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
+			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4; i = 0;
 		}
 
 		l= (j+2) & (nwt-1);			/* We want (S*J mod N) - SI(L) for all 16 carries, so precompute	*/
@@ -236,8 +407,11 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
 			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
 			add0 += (-(l&0x1)) & p02;	// Base-addr incr by extra p2 on odd-index passes
-			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);	tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
+			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
+
+	  #endif	// LOACC or HIACC?
 
 		i =((uint32)(sw - bjmodn[0]) >> 31);	/* get ready for the next set...	*/
 
@@ -254,20 +428,37 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		wtlp1   =wt0[    l+1];
 		wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
+	  #ifdef LOACC
+
 		/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */
 		l = 0; addr = cy; itmp = bjmodn;
-	   cmplx_carry_norm_errcheck0(a[j1    ],a[j2    ],*addr,*itmp  ); ++l; ++addr; ++itmp;
+		for(ntmp = 0; ntmp < RADIX>>2; ntmp++) {
+			jt = j1 + poff[ntmp]; jp = j2 + poff[ntmp];	// poff[] = p04,08,...
+			// Re-init weights every 4th macro invocatin to keep errors under control:
+			cmplx_carry_norm_errcheck0(a[jt    ],a[jp    ],*addr,*itmp,l); ++l; ++addr; ++itmp;
+			cmplx_carry_fast_errcheck (a[jt+p01],a[jp+p01],*addr,*itmp,l); ++l; ++addr; ++itmp;
+			cmplx_carry_fast_errcheck (a[jt+p02],a[jp+p02],*addr,*itmp,l); ++l; ++addr; ++itmp;
+			cmplx_carry_fast_errcheck (a[jt+p03],a[jp+p03],*addr,*itmp,l); ++l; ++addr; ++itmp;
+		}
+
+	  #else	// Hi-accuracy is the default:
+
+		/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */
+		l = 0; addr = cy; itmp = bjmodn;
+	   cmplx_carry_norm_errcheck0(a[j1    ],a[j2    ],*addr,*itmp,0); ++l; ++addr; ++itmp;
 		cmplx_carry_norm_errcheck(a[j1+p01],a[j2+p01],*addr,*itmp,l); ++l; ++addr; ++itmp;
 		cmplx_carry_norm_errcheck(a[j1+p02],a[j2+p02],*addr,*itmp,l); ++l; ++addr; ++itmp;
 		cmplx_carry_norm_errcheck(a[j1+p03],a[j2+p03],*addr,*itmp,l); ++l; ++addr; ++itmp;
 		// Remaining quartets of macro calls done in loop:
 		for(ntmp = 1; ntmp < RADIX>>2; ntmp++) {
-			jt = j1 + poff[ntmp]; jp = j2 + poff[ntmp];	// poff[] = p04,p08,...
-			cmplx_carry_norm_errcheck(a[jt    ],a[jp    ],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_norm_errcheck(a[jt+p01],a[jp+p01],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_norm_errcheck(a[jt+p02],a[jp+p02],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_norm_errcheck(a[jt+p03],a[jp+p03],*addr,*itmp,l); ++l; ++addr; ++itmp;
+			jt = j1 + poff[ntmp]; jp = j2 + poff[ntmp];	// poff[] = p04,08,...
+			cmplx_carry_norm_errcheck (a[jt    ],a[jp    ],*addr,*itmp,l); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_errcheck (a[jt+p01],a[jp+p01],*addr,*itmp,l); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_errcheck (a[jt+p02],a[jp+p02],*addr,*itmp,l); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_errcheck (a[jt+p03],a[jp+p03],*addr,*itmp,l); ++l; ++addr; ++itmp;
 		}
+
+	  #endif
 
 		i =((uint32)(sw - bjmodn[0]) >> 31);	/* get ready for the next set...	*/
 		co2 = co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
@@ -277,30 +468,89 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 /*...The radix-40 DIF pass is here:	*/
 
-	#ifndef USE_SSE2
+	#ifdef USE_SSE2
 
-	/*...gather the needed data (40 64-bit complex) and do 8 radix-5 transforms...*/
-		tptr = t;
-		jt = j1    ; jp = j2    ;	RADIX_05_DFT(cc1,cc2,s2,ss1,ss2,a[jt    ],a[jp    ],a[jt+p32],a[jp+p32],a[jt+p24],a[jp+p24],a[jt+p16],a[jp+p16],a[jt+p08],a[jp+p08], tptr->re,tptr->im,(tptr+0x1)->re,(tptr+0x1)->im,(tptr+0x2)->re,(tptr+0x2)->im,(tptr+0x3)->re,(tptr+0x3)->im,(tptr+0x4)->re,(tptr+0x4)->im, rt,it);	tptr += 5;
-		jt = j1+p03; jp = j2+p03;	RADIX_05_DFT(cc1,cc2,s2,ss1,ss2,a[jt+p32],a[jp+p32],a[jt+p24],a[jp+p24],a[jt+p16],a[jp+p16],a[jt+p08],a[jp+p08],a[jt    ],a[jp    ], tptr->re,tptr->im,(tptr+0x1)->re,(tptr+0x1)->im,(tptr+0x2)->re,(tptr+0x2)->im,(tptr+0x3)->re,(tptr+0x3)->im,(tptr+0x4)->re,(tptr+0x4)->im, rt,it);	tptr += 5;
-		jt = j1+p06; jp = j2+p06;	RADIX_05_DFT(cc1,cc2,s2,ss1,ss2,a[jt+p24],a[jp+p24],a[jt+p16],a[jp+p16],a[jt+p08],a[jp+p08],a[jt    ],a[jp    ],a[jt+p32],a[jp+p32], tptr->re,tptr->im,(tptr+0x1)->re,(tptr+0x1)->im,(tptr+0x2)->re,(tptr+0x2)->im,(tptr+0x3)->re,(tptr+0x3)->im,(tptr+0x4)->re,(tptr+0x4)->im, rt,it);	tptr += 5;
-		jt = j1+p01; jp = j2+p01;	RADIX_05_DFT(cc1,cc2,s2,ss1,ss2,a[jt+p24],a[jp+p24],a[jt+p16],a[jp+p16],a[jt+p08],a[jp+p08],a[jt    ],a[jp    ],a[jt+p32],a[jp+p32], tptr->re,tptr->im,(tptr+0x1)->re,(tptr+0x1)->im,(tptr+0x2)->re,(tptr+0x2)->im,(tptr+0x3)->re,(tptr+0x3)->im,(tptr+0x4)->re,(tptr+0x4)->im, rt,it);	tptr += 5;
-		jt = j1+p04; jp = j2+p04;	RADIX_05_DFT(cc1,cc2,s2,ss1,ss2,a[jt+p16],a[jp+p16],a[jt+p08],a[jp+p08],a[jt    ],a[jp    ],a[jt+p32],a[jp+p32],a[jt+p24],a[jp+p24], tptr->re,tptr->im,(tptr+0x1)->re,(tptr+0x1)->im,(tptr+0x2)->re,(tptr+0x2)->im,(tptr+0x3)->re,(tptr+0x3)->im,(tptr+0x4)->re,(tptr+0x4)->im, rt,it);	tptr += 5;
-		jt = j1+p07; jp = j2+p07;	RADIX_05_DFT(cc1,cc2,s2,ss1,ss2,a[jt+p08],a[jp+p08],a[jt    ],a[jp    ],a[jt+p32],a[jp+p32],a[jt+p24],a[jp+p24],a[jt+p16],a[jp+p16], tptr->re,tptr->im,(tptr+0x1)->re,(tptr+0x1)->im,(tptr+0x2)->re,(tptr+0x2)->im,(tptr+0x3)->re,(tptr+0x3)->im,(tptr+0x4)->re,(tptr+0x4)->im, rt,it);	tptr += 5;
-		jt = j1+p02; jp = j2+p02;	RADIX_05_DFT(cc1,cc2,s2,ss1,ss2,a[jt+p08],a[jp+p08],a[jt    ],a[jp    ],a[jt+p32],a[jp+p32],a[jt+p24],a[jp+p24],a[jt+p16],a[jp+p16], tptr->re,tptr->im,(tptr+0x1)->re,(tptr+0x1)->im,(tptr+0x2)->re,(tptr+0x2)->im,(tptr+0x3)->re,(tptr+0x3)->im,(tptr+0x4)->re,(tptr+0x4)->im, rt,it);	tptr += 5;
-		jt = j1+p05; jp = j2+p05;	RADIX_05_DFT(cc1,cc2,s2,ss1,ss2,a[jt    ],a[jp    ],a[jt+p32],a[jp+p32],a[jt+p24],a[jp+p24],a[jt+p16],a[jp+p16],a[jt+p08],a[jp+p08], tptr->re,tptr->im,(tptr+0x1)->re,(tptr+0x1)->im,(tptr+0x2)->re,(tptr+0x2)->im,(tptr+0x3)->re,(tptr+0x3)->im,(tptr+0x4)->re,(tptr+0x4)->im, rt,it);
+	   #ifdef USE_AVX512
+		#define OFF1	0x20*4
+		#define OFF2	0x40*4
+		#define OFF3	0x60*4
+		#define OFF4	0x80*4
+		#define OFF5	0xa0*4
+		#define OFF6	0xc0*4
+		#define OFF7	0xe0*4
+	   #elif defined(USE_AVX)
+		#define OFF1	0x20*2
+		#define OFF2	0x40*2
+		#define OFF3	0x60*2
+		#define OFF4	0x80*2
+		#define OFF5	0xa0*2
+		#define OFF6	0xc0*2
+		#define OFF7	0xe0*2
+	   #else
+		#define OFF1	0x20
+		#define OFF2	0x40
+		#define OFF3	0x60
+		#define OFF4	0x80
+		#define OFF5	0xa0
+		#define OFF6	0xc0
+		#define OFF7	0xe0
+	   #endif
 
-	/*...and now do 5 radix-8 transforms, ***SWAPPING THE ORDER OF THE FINAL 2*** to undo the last-2-outputs-swap in the RADIX_05_DFT macro:	*/
-		tptr = t;
-		jt = j1    ; jp = j2    ;	RADIX_08_DIF(tptr->re,tptr->im,(tptr+5)->re,(tptr+5)->im,(tptr+10)->re,(tptr+10)->im,(tptr+15)->re,(tptr+15)->im,(tptr+20)->re,(tptr+20)->im,(tptr+25)->re,(tptr+25)->im,(tptr+30)->re,(tptr+30)->im,(tptr+35)->re,(tptr+35)->im, x00,x01,x10,x11,x20,x21,x30,x31,x40,x41,x50,x51,x60,x61,x70,x71,a[jt    ],a[jp    ],a[jt+p01],a[jp+p01],a[jt+p03],a[jp+p03],a[jt+p02],a[jp+p02],a[jt+p06],a[jp+p06],a[jt+p07],a[jp+p07],a[jt+p04],a[jp+p04],a[jt+p05],a[jp+p05],rt,it);	tptr++;
-		jt = j1+p32; jp = j2+p32;	RADIX_08_DIF(tptr->re,tptr->im,(tptr+5)->re,(tptr+5)->im,(tptr+10)->re,(tptr+10)->im,(tptr+15)->re,(tptr+15)->im,(tptr+20)->re,(tptr+20)->im,(tptr+25)->re,(tptr+25)->im,(tptr+30)->re,(tptr+30)->im,(tptr+35)->re,(tptr+35)->im, x00,x01,x10,x11,x20,x21,x30,x31,x40,x41,x50,x51,x60,x61,x70,x71,a[jt+p01],a[jp+p01],a[jt    ],a[jp    ],a[jt+p02],a[jp+p02],a[jt+p03],a[jp+p03],a[jt+p07],a[jp+p07],a[jt+p06],a[jp+p06],a[jt+p05],a[jp+p05],a[jt+p04],a[jp+p04],rt,it);	tptr++;
-		jt = j1+p24; jp = j2+p24;	RADIX_08_DIF(tptr->re,tptr->im,(tptr+5)->re,(tptr+5)->im,(tptr+10)->re,(tptr+10)->im,(tptr+15)->re,(tptr+15)->im,(tptr+20)->re,(tptr+20)->im,(tptr+25)->re,(tptr+25)->im,(tptr+30)->re,(tptr+30)->im,(tptr+35)->re,(tptr+35)->im, x00,x01,x10,x11,x20,x21,x30,x31,x40,x41,x50,x51,x60,x61,x70,x71,a[jt+p04],a[jp+p04],a[jt+p05],a[jp+p05],a[jt+p07],a[jp+p07],a[jt+p06],a[jp+p06],a[jt+p01],a[jp+p01],a[jt    ],a[jp    ],a[jt+p02],a[jp+p02],a[jt+p03],a[jp+p03],rt,it);	tptr++;
-		jt = j1+p16; jp = j2+p16;	RADIX_08_DIF(tptr->re,tptr->im,(tptr+5)->re,(tptr+5)->im,(tptr+10)->re,(tptr+10)->im,(tptr+15)->re,(tptr+15)->im,(tptr+20)->re,(tptr+20)->im,(tptr+25)->re,(tptr+25)->im,(tptr+30)->re,(tptr+30)->im,(tptr+35)->re,(tptr+35)->im, x00,x01,x10,x11,x20,x21,x30,x31,x40,x41,x50,x51,x60,x61,x70,x71,a[jt+p03],a[jp+p03],a[jt+p02],a[jp+p02],a[jt+p01],a[jp+p01],a[jt    ],a[jp    ],a[jt+p04],a[jp+p04],a[jt+p05],a[jp+p05],a[jt+p07],a[jp+p07],a[jt+p06],a[jp+p06],rt,it);	tptr++;
-		jt = j1+p08; jp = j2+p08;	RADIX_08_DIF(tptr->re,tptr->im,(tptr+5)->re,(tptr+5)->im,(tptr+10)->re,(tptr+10)->im,(tptr+15)->re,(tptr+15)->im,(tptr+20)->re,(tptr+20)->im,(tptr+25)->re,(tptr+25)->im,(tptr+30)->re,(tptr+30)->im,(tptr+35)->re,(tptr+35)->im, x00,x01,x10,x11,x20,x21,x30,x31,x40,x41,x50,x51,x60,x61,x70,x71,a[jt+p06],a[jp+p06],a[jt+p07],a[jp+p07],a[jt+p04],a[jp+p04],a[jt+p05],a[jp+p05],a[jt+p03],a[jp+p03],a[jt+p02],a[jp+p02],a[jt+p01],a[jp+p01],a[jt    ],a[jp    ],rt,it);
+	  #if COMPACT_OBJ
 
-	#else
+	/*...gather the needed data (40 64-bit complex, i.e. 80 64-bit reals) and do 8 radix-5 transforms...*/
+		// Bytewise array of input-pointer offsets w.r.to the s1p00 base-pointer.
+		// Radix-5 DFT inputs are (cyclic) with vec_dbl-pointer -= 16 (mod 80) between successive outputs:
+		const uint8 iptr_off[RADIX] = {
+			 0,64,48,32,16,
+			 70,54,38,22,6,
+			 60,44,28,12,76,
+			 50,34,18,2,66,
+			 40,24,8,72,56,
+			 30,14,78,62,46,
+			 20,4,68,52,36,
+			 10,74,58,42,26};
+	   #if OS_BITS == 64
+		for(l = 0, tmp = r00, ntmp = 0; l < 4; l++, ntmp += 10) {
+	   #else
+		for(l = 0, tmp = r00, ntmp = 0; l < 8; l++, ntmp += 5) {
+	   #endif
+			// Output-ptrs [va* here] are regular-stride offsets of r00:
+			va0 = tmp;			vb0 = s1p00r + iptr_off[ntmp  ];
+			va1 = tmp + 0x10;	vb1 = s1p00r + iptr_off[ntmp+1];
+			va2 = tmp + 0x20;	vb2 = s1p00r + iptr_off[ntmp+2];
+			va3 = tmp + 0x30;	vb3 = s1p00r + iptr_off[ntmp+3];
+			va4 = tmp + 0x40;	vb4 = s1p00r + iptr_off[ntmp+4];
+		  #if OS_BITS == 64
+			vc0 = tmp + 0x02;	vd0 = s1p00r + iptr_off[ntmp+5];
+			vc1 = tmp + 0x12;	vd1 = s1p00r + iptr_off[ntmp+6];
+			vc2 = tmp + 0x22;	vd2 = s1p00r + iptr_off[ntmp+7];
+			vc3 = tmp + 0x32;	vd3 = s1p00r + iptr_off[ntmp+8];
+			vc4 = tmp + 0x42;	vd4 = s1p00r + iptr_off[ntmp+9];
+			SSE2_RADIX_05_DFT_0TWIDDLE_X2(xcc1,two,
+				vb0,vb1,vb2,vb3,vb4, va0,va1,va2,va3,va4,
+				vd0,vd1,vd2,vd3,vd4, vc0,vc1,vc2,vc3,vc4)
+			tmp += 4;
+		  #else
+			SSE2_RADIX_05_DFT_0TWIDDLE(va0,va1,va2,va3,va4,xcc1,vb0,vb1,vb2,vb3,vb4)
+			tmp += 2;
+		  #endif
+		}
+	/*...and now do 5 radix-8 transforms: */
+		const uint32 p_id2[5] = {054762310,045673201,032016754,067540123,001235476};	// Leading 0s = octal consts
+		const uint8  p_od2[5] = {0,8,6,4,2};	// Indices into poff[]-array of p04-multiples
+		for(l = 0, tmp = r00; l < 5; l++, tmp+=16) {
+			i7 = p_id2[l]; i0 = i7&7; i1 = (i7>>3)&7; i2 = (i7>>6)&7; i3 = (i7>>9)&7; i4 = (i7>>12)&7; i5 = (i7>>15)&7; i6 = (i7>>18)&7; i7 = (i7>>21);
+			addr = &a[j1+poff[p_od2[l]]];
+			add0 = addr+pp07[i0]; add1 = addr+pp07[i1]; add2 = addr+pp07[i2]; add3 = addr+pp07[i3]; add4 = addr+pp07[i4]; add5 = addr+pp07[i5]; add6 = addr+pp07[i6]; add7 = addr+pp07[i7];
+		  #ifdef USE_AVX2
+			SSE2_RADIX8_DIF_0TWIDDLE(tmp,OFF1,OFF2,OFF3,OFF4,OFF5,OFF6,OFF7, add0,add1,add2,add3,add4,add5,add6,add7, isrt2,two);
+		  #else
+			SSE2_RADIX8_DIF_0TWIDDLE(tmp,OFF1,OFF2,OFF3,OFF4,OFF5,OFF6,OFF7, add0,add1,add2,add3,add4,add5,add6,add7, isrt2);
+		  #endif
+		}
 
-	  #if defined(COMPILER_TYPE_MSVC) || !GCC_ASM_FULL_INLINE
+	  #else
 
 	/*...gather the needed data (40 64-bit complex) and do 8 radix-5 transforms...*/
 	   #if OS_BITS == 64
@@ -324,24 +574,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	   #endif
 
 	/*...and now do 5 radix-8 transforms, swapping the t[48+i] <--> t[64+i] pairs to undo the last-2-outputs-swap in the RADIX_05_DFT macro:	*/
-	   #ifdef USE_AVX
-		#define OFF1	0x40
-		#define OFF2	0x80
-		#define OFF3	0xc0
-		#define OFF4	0x100
-		#define OFF5	0x140
-		#define OFF6	0x180
-		#define OFF7	0x1c0
-	   #else
-		#define OFF1	0x20
-		#define OFF2	0x40
-		#define OFF3	0x60
-		#define OFF4	0x80
-		#define OFF5	0xa0
-		#define OFF6	0xc0
-		#define OFF7	0xe0
-	   #endif
-
 		add0 = &a[j1    ]; add1 = add0+p01; add2 = add0+p03; add3 = add0+p02; add4 = add0+p06; add5 = add0+p07; add6 = add0+p04; add7 = add0+p05;
 	  #ifdef USE_AVX2
 		SSE2_RADIX8_DIF_0TWIDDLE(r00,OFF1,OFF2,OFF3,OFF4,OFF5,OFF6,OFF7, add0,add1,add2,add3,add4,add5,add6,add7, isrt2,two);
@@ -385,12 +617,28 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		#undef OFF6
 		#undef OFF7
 
-	  #else	/* GCC-style inline ASM: */
-
-		add0 = &a[j1    ];
-		SSE2_RADIX40_DIF_NOTWIDDLE(add0,p01,p02,p03,p04,p05,p06,p07,p08,p16,p24,p32,r00, xcc1,isrt2, s1p00r,s1p08r,s1p16r,s1p24r,s1p32r);
-
 	  #endif
+
+	#else
+
+	/*...gather the needed data (40 64-bit complex) and do 8 radix-5 transforms...*/
+		tptr = t;
+		jt = j1    ; jp = j2    ;	RADIX_05_DFT(cc1,cc2,s2,ss1,ss2,a[jt    ],a[jp    ],a[jt+p32],a[jp+p32],a[jt+p24],a[jp+p24],a[jt+p16],a[jp+p16],a[jt+p08],a[jp+p08], tptr->re,tptr->im,(tptr+0x1)->re,(tptr+0x1)->im,(tptr+0x2)->re,(tptr+0x2)->im,(tptr+0x3)->re,(tptr+0x3)->im,(tptr+0x4)->re,(tptr+0x4)->im, rt,it);	tptr += 5;
+		jt = j1+p03; jp = j2+p03;	RADIX_05_DFT(cc1,cc2,s2,ss1,ss2,a[jt+p32],a[jp+p32],a[jt+p24],a[jp+p24],a[jt+p16],a[jp+p16],a[jt+p08],a[jp+p08],a[jt    ],a[jp    ], tptr->re,tptr->im,(tptr+0x1)->re,(tptr+0x1)->im,(tptr+0x2)->re,(tptr+0x2)->im,(tptr+0x3)->re,(tptr+0x3)->im,(tptr+0x4)->re,(tptr+0x4)->im, rt,it);	tptr += 5;
+		jt = j1+p06; jp = j2+p06;	RADIX_05_DFT(cc1,cc2,s2,ss1,ss2,a[jt+p24],a[jp+p24],a[jt+p16],a[jp+p16],a[jt+p08],a[jp+p08],a[jt    ],a[jp    ],a[jt+p32],a[jp+p32], tptr->re,tptr->im,(tptr+0x1)->re,(tptr+0x1)->im,(tptr+0x2)->re,(tptr+0x2)->im,(tptr+0x3)->re,(tptr+0x3)->im,(tptr+0x4)->re,(tptr+0x4)->im, rt,it);	tptr += 5;
+		jt = j1+p01; jp = j2+p01;	RADIX_05_DFT(cc1,cc2,s2,ss1,ss2,a[jt+p24],a[jp+p24],a[jt+p16],a[jp+p16],a[jt+p08],a[jp+p08],a[jt    ],a[jp    ],a[jt+p32],a[jp+p32], tptr->re,tptr->im,(tptr+0x1)->re,(tptr+0x1)->im,(tptr+0x2)->re,(tptr+0x2)->im,(tptr+0x3)->re,(tptr+0x3)->im,(tptr+0x4)->re,(tptr+0x4)->im, rt,it);	tptr += 5;
+		jt = j1+p04; jp = j2+p04;	RADIX_05_DFT(cc1,cc2,s2,ss1,ss2,a[jt+p16],a[jp+p16],a[jt+p08],a[jp+p08],a[jt    ],a[jp    ],a[jt+p32],a[jp+p32],a[jt+p24],a[jp+p24], tptr->re,tptr->im,(tptr+0x1)->re,(tptr+0x1)->im,(tptr+0x2)->re,(tptr+0x2)->im,(tptr+0x3)->re,(tptr+0x3)->im,(tptr+0x4)->re,(tptr+0x4)->im, rt,it);	tptr += 5;
+		jt = j1+p07; jp = j2+p07;	RADIX_05_DFT(cc1,cc2,s2,ss1,ss2,a[jt+p08],a[jp+p08],a[jt    ],a[jp    ],a[jt+p32],a[jp+p32],a[jt+p24],a[jp+p24],a[jt+p16],a[jp+p16], tptr->re,tptr->im,(tptr+0x1)->re,(tptr+0x1)->im,(tptr+0x2)->re,(tptr+0x2)->im,(tptr+0x3)->re,(tptr+0x3)->im,(tptr+0x4)->re,(tptr+0x4)->im, rt,it);	tptr += 5;
+		jt = j1+p02; jp = j2+p02;	RADIX_05_DFT(cc1,cc2,s2,ss1,ss2,a[jt+p08],a[jp+p08],a[jt    ],a[jp    ],a[jt+p32],a[jp+p32],a[jt+p24],a[jp+p24],a[jt+p16],a[jp+p16], tptr->re,tptr->im,(tptr+0x1)->re,(tptr+0x1)->im,(tptr+0x2)->re,(tptr+0x2)->im,(tptr+0x3)->re,(tptr+0x3)->im,(tptr+0x4)->re,(tptr+0x4)->im, rt,it);	tptr += 5;
+		jt = j1+p05; jp = j2+p05;	RADIX_05_DFT(cc1,cc2,s2,ss1,ss2,a[jt    ],a[jp    ],a[jt+p32],a[jp+p32],a[jt+p24],a[jp+p24],a[jt+p16],a[jp+p16],a[jt+p08],a[jp+p08], tptr->re,tptr->im,(tptr+0x1)->re,(tptr+0x1)->im,(tptr+0x2)->re,(tptr+0x2)->im,(tptr+0x3)->re,(tptr+0x3)->im,(tptr+0x4)->re,(tptr+0x4)->im, rt,it);
+
+	/*...and now do 5 radix-8 transforms, ***SWAPPING THE ORDER OF THE FINAL 2*** to undo the last-2-outputs-swap in the RADIX_05_DFT macro:	*/
+		tptr = t;
+		jt = j1    ; jp = j2    ;	RADIX_08_DIF(tptr->re,tptr->im,(tptr+5)->re,(tptr+5)->im,(tptr+10)->re,(tptr+10)->im,(tptr+15)->re,(tptr+15)->im,(tptr+20)->re,(tptr+20)->im,(tptr+25)->re,(tptr+25)->im,(tptr+30)->re,(tptr+30)->im,(tptr+35)->re,(tptr+35)->im, x00,x01,x10,x11,x20,x21,x30,x31,x40,x41,x50,x51,x60,x61,x70,x71,a[jt    ],a[jp    ],a[jt+p01],a[jp+p01],a[jt+p03],a[jp+p03],a[jt+p02],a[jp+p02],a[jt+p06],a[jp+p06],a[jt+p07],a[jp+p07],a[jt+p04],a[jp+p04],a[jt+p05],a[jp+p05],rt,it);	tptr++;
+		jt = j1+p32; jp = j2+p32;	RADIX_08_DIF(tptr->re,tptr->im,(tptr+5)->re,(tptr+5)->im,(tptr+10)->re,(tptr+10)->im,(tptr+15)->re,(tptr+15)->im,(tptr+20)->re,(tptr+20)->im,(tptr+25)->re,(tptr+25)->im,(tptr+30)->re,(tptr+30)->im,(tptr+35)->re,(tptr+35)->im, x00,x01,x10,x11,x20,x21,x30,x31,x40,x41,x50,x51,x60,x61,x70,x71,a[jt+p01],a[jp+p01],a[jt    ],a[jp    ],a[jt+p02],a[jp+p02],a[jt+p03],a[jp+p03],a[jt+p07],a[jp+p07],a[jt+p06],a[jp+p06],a[jt+p05],a[jp+p05],a[jt+p04],a[jp+p04],rt,it);	tptr++;
+		jt = j1+p24; jp = j2+p24;	RADIX_08_DIF(tptr->re,tptr->im,(tptr+5)->re,(tptr+5)->im,(tptr+10)->re,(tptr+10)->im,(tptr+15)->re,(tptr+15)->im,(tptr+20)->re,(tptr+20)->im,(tptr+25)->re,(tptr+25)->im,(tptr+30)->re,(tptr+30)->im,(tptr+35)->re,(tptr+35)->im, x00,x01,x10,x11,x20,x21,x30,x31,x40,x41,x50,x51,x60,x61,x70,x71,a[jt+p04],a[jp+p04],a[jt+p05],a[jp+p05],a[jt+p07],a[jp+p07],a[jt+p06],a[jp+p06],a[jt+p01],a[jp+p01],a[jt    ],a[jp    ],a[jt+p02],a[jp+p02],a[jt+p03],a[jp+p03],rt,it);	tptr++;
+		jt = j1+p16; jp = j2+p16;	RADIX_08_DIF(tptr->re,tptr->im,(tptr+5)->re,(tptr+5)->im,(tptr+10)->re,(tptr+10)->im,(tptr+15)->re,(tptr+15)->im,(tptr+20)->re,(tptr+20)->im,(tptr+25)->re,(tptr+25)->im,(tptr+30)->re,(tptr+30)->im,(tptr+35)->re,(tptr+35)->im, x00,x01,x10,x11,x20,x21,x30,x31,x40,x41,x50,x51,x60,x61,x70,x71,a[jt+p03],a[jp+p03],a[jt+p02],a[jp+p02],a[jt+p01],a[jp+p01],a[jt    ],a[jp    ],a[jt+p04],a[jp+p04],a[jt+p05],a[jp+p05],a[jt+p07],a[jp+p07],a[jt+p06],a[jp+p06],rt,it);	tptr++;
+		jt = j1+p08; jp = j2+p08;	RADIX_08_DIF(tptr->re,tptr->im,(tptr+5)->re,(tptr+5)->im,(tptr+10)->re,(tptr+10)->im,(tptr+15)->re,(tptr+15)->im,(tptr+20)->re,(tptr+20)->im,(tptr+25)->re,(tptr+25)->im,(tptr+30)->re,(tptr+30)->im,(tptr+35)->re,(tptr+35)->im, x00,x01,x10,x11,x20,x21,x30,x31,x40,x41,x50,x51,x60,x61,x70,x71,a[jt+p06],a[jp+p06],a[jt+p07],a[jp+p07],a[jt+p04],a[jp+p04],a[jt+p05],a[jp+p05],a[jt+p03],a[jp+p03],a[jt+p02],a[jp+p02],a[jt+p01],a[jp+p01],a[jt    ],a[jp    ],rt,it);
 
 	#endif	/* #ifdef USE_SSE2 */
 	}

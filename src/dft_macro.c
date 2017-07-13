@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2013 by Ernst W. Mayer.                                           *
+*   (C) 1997-2017 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -1118,8 +1118,435 @@ void RADIX_32_DIT(
 		*(__B+__odx[0x1F])=__t1E-__t3F;			*(Bim+__odx[0x1F])=__t1F+__t3E;
 }
 
+// Post-twiddles out-of-place-permitting analog of above twiddleless DIT macro: 31 nontrivial complex input twiddles E01-1f [E0 assumed = 1],
+// The DIT version of this macro processes the twiddles in bit-reversed order: 0,8,4,c,2,a,6,e,1,9,5,d,3,b,7,f.
+void RADIX_32_DIT_TWIDDLE(
+	double *__A, const int *__idx,	/*  Inputs: Base address plus 32 (index) offsets */
+	double *__B, const int *__odx,	/* Outputs: Base address plus 32 (index) offsets */
+	/* Twiddles: */
+	double __c10,double __s10,
+	double __c08,double __s08,
+	double __c18,double __s18,
+	/**/
+	double __c04,double __s04,
+	double __c14,double __s14,
+	double __c0C,double __s0C,
+	double __c1C,double __s1C,
+	/**/
+	double __c02,double __s02,
+	double __c12,double __s12,
+	double __c0A,double __s0A,
+	double __c1A,double __s1A,
+	/**/
+	double __c06,double __s06,
+	double __c16,double __s16,
+	double __c0E,double __s0E,
+	double __c1E,double __s1E,
+	/**/
+	double __c01,double __s01,
+	double __c11,double __s11,
+	double __c09,double __s09,
+	double __c19,double __s19,
+	/**/
+	double __c05,double __s05,
+	double __c15,double __s15,
+	double __c0D,double __s0D,
+	double __c1D,double __s1D,
+	/**/
+	double __c03,double __s03,
+	double __c13,double __s13,
+	double __c0B,double __s0B,
+	double __c1B,double __s1B,
+	/**/
+	double __c07,double __s07,
+	double __c17,double __s17,
+	double __c0F,double __s0F,
+	double __c1F,double __s1F
+)
+{
+	double __rt,__it
+		,__t00,__t01,__t02,__t03,__t04,__t05,__t06,__t07,__t08,__t09,__t0A,__t0B,__t0C,__t0D,__t0E,__t0F
+		,__t10,__t11,__t12,__t13,__t14,__t15,__t16,__t17,__t18,__t19,__t1A,__t1B,__t1C,__t1D,__t1E,__t1F
+		,__t20,__t21,__t22,__t23,__t24,__t25,__t26,__t27,__t28,__t29,__t2A,__t2B,__t2C,__t2D,__t2E,__t2F
+		,__t30,__t31,__t32,__t33,__t34,__t35,__t36,__t37,__t38,__t39,__t3A,__t3B,__t3C,__t3D,__t3E,__t3F;
+	double *Aim = __A + RE_IM_STRIDE, *Bim = __B + RE_IM_STRIDE;
+	/* Gather the needed data (32 64-bit complex, i.e. 64 64-bit reals) and do the first set of four length-8 transforms...	*/
+	/* Each complex radix-8 subtransform needs 52 ADD, 4 MUL (not counting load/store/address-compute): */
+	/*...Block 1: */
+		__t00=*(__A+__idx[0x00]);			__t01=*(Aim+__idx[0x00]);
+		__rt =*(__A+__idx[0x01]);			__it =*(Aim+__idx[0x01]);
+		__t02=__t00-__rt;					__t03=__t01-__it;
+		__t00=__t00+__rt;					__t01=__t01+__it;
+
+		__t04=*(__A+__idx[0x02]);			__t05=*(Aim+__idx[0x02]);
+		__rt =*(__A+__idx[0x03]);			__it =*(Aim+__idx[0x03]);
+		__t06=__t04-__rt;					__t07=__t05-__it;
+		__t04=__t04+__rt;					__t05=__t05+__it;
+
+		__rt =__t04;						__it =__t05;
+		__t04=__t00-__rt;					__t05=__t01-__it;
+		__t00=__t00+__rt;					__t01=__t01+__it;
+
+		__rt =__t06;						__it =__t07;
+		__t06=__t02-__it;					__t07=__t03+__rt;
+		__t02=__t02+__it;					__t03=__t03-__rt;
+
+		__t08=*(__A+__idx[0x04]);			__t09=*(Aim+__idx[0x04]);
+		__rt =*(__A+__idx[0x05]);			__it =*(Aim+__idx[0x05]);
+		__t0A=__t08-__rt;					__t0B=__t09-__it;
+		__t08=__t08+__rt;					__t09=__t09+__it;
+
+		__t0C=*(__A+__idx[0x06]);			__t0D=*(Aim+__idx[0x06]);
+		__rt =*(__A+__idx[0x07]);			__it =*(Aim+__idx[0x07]);
+		__t0E=__t0C-__rt;					__t0F=__t0D-__it;
+		__t0C=__t0C+__rt;					__t0D=__t0D+__it;
+
+		__rt =__t0C;						__it =__t0D;
+		__t0C=__t08-__rt;					__t0D=__t09-__it;
+		__t08=__t08+__rt;					__t09=__t09+__it;
+
+		__rt =__t0E;						__it =__t0F;
+		__t0E=__t0A-__it;					__t0F=__t0B+__rt;
+		__t0A=__t0A+__it;					__t0B=__t0B-__rt;
+
+		__rt =__t08;						__it =__t09;
+		__t08=__t00-__rt;					__t09=__t01-__it;
+		__t00=__t00+__rt;					__t01=__t01+__it;
+
+		__rt =__t0C;						__it =__t0D;
+		__t0C=__t04-__it;					__t0D=__t05+__rt;
+		__t04=__t04+__it;					__t05=__t05-__rt;
+
+		__rt =(__t0A+__t0B)*ISRT2;			__it =(__t0A-__t0B)*ISRT2;
+		__t0A=__t02-__rt;					__t0B=__t03+__it;
+		__t02=__t02+__rt;					__t03=__t03-__it;
+
+		__rt =(__t0E-__t0F)*ISRT2;			__it =(__t0F+__t0E)*ISRT2;
+		__t0E=__t06+__rt;					__t0F=__t07+__it;
+		__t06=__t06-__rt;					__t07=__t07-__it;
+
+	/*...Block 2:;*/
+		__t10=*(__A+__idx[0x08]);			__t11=*(Aim+__idx[0x08]);
+		__rt =*(__A+__idx[0x09]);			__it =*(Aim+__idx[0x09]);
+		__t12=__t10-__rt;					__t13=__t11-__it;
+		__t10=__t10+__rt;					__t11=__t11+__it;
+
+		__t14=*(__A+__idx[0x0A]);			__t15=*(Aim+__idx[0x0A]);
+		__rt =*(__A+__idx[0x0B]);			__it =*(Aim+__idx[0x0B]);
+		__t16=__t14-__rt;					__t17=__t15-__it;
+		__t14=__t14+__rt;					__t15=__t15+__it;
+
+		__rt =__t14;						__it =__t15;
+		__t14=__t10-__rt;					__t15=__t11-__it;
+		__t10=__t10+__rt;					__t11=__t11+__it;
+
+		__rt =__t16;						__it =__t17;
+		__t16=__t12-__it;					__t17=__t13+__rt;
+		__t12=__t12+__it;					__t13=__t13-__rt;
+
+		__t18=*(__A+__idx[0x0C]);			__t19=*(Aim+__idx[0x0C]);
+		__rt =*(__A+__idx[0x0D]);			__it =*(Aim+__idx[0x0D]);
+		__t1A=__t18-__rt;					__t1B=__t19-__it;
+		__t18=__t18+__rt;					__t19=__t19+__it;
+
+		__t1C=*(__A+__idx[0x0E]);			__t1D=*(Aim+__idx[0x0E]);
+		__rt =*(__A+__idx[0x0F]);			__it =*(Aim+__idx[0x0F]);
+		__t1E=__t1C-__rt;					__t1F=__t1D-__it;
+		__t1C=__t1C+__rt;					__t1D=__t1D+__it;
+
+		__rt =__t1C;						__it =__t1D;
+		__t1C=__t18-__rt;					__t1D=__t19-__it;
+		__t18=__t18+__rt;					__t19=__t19+__it;
+
+		__rt =__t1E;						__it =__t1F;
+		__t1E=__t1A-__it;					__t1F=__t1B+__rt;
+		__t1A=__t1A+__it;					__t1B=__t1B-__rt;
+
+		__rt =__t18;						__it =__t19;
+		__t18=__t10-__rt;					__t19=__t11-__it;
+		__t10=__t10+__rt;					__t11=__t11+__it;
+
+		__rt =__t1C;						__it =__t1D;
+		__t1C=__t14-__it;					__t1D=__t15+__rt;
+		__t14=__t14+__it;					__t15=__t15-__rt;
+
+		__rt =(__t1A+__t1B)*ISRT2;			__it =(__t1A-__t1B)*ISRT2;
+		__t1A=__t12-__rt;					__t1B=__t13+__it;
+		__t12=__t12+__rt;					__t13=__t13-__it;
+
+		__rt =(__t1E-__t1F)*ISRT2;			__it =(__t1F+__t1E)*ISRT2;
+		__t1E=__t16+__rt;					__t1F=__t17+__it;
+		__t16=__t16-__rt;					__t17=__t17-__it;
+
+	/*...Block 3: */
+		__t20=*(__A+__idx[0x10]);			__t21=*(Aim+__idx[0x10]);
+		__rt =*(__A+__idx[0x11]);			__it =*(Aim+__idx[0x11]);
+		__t22=__t20-__rt;					__t23=__t21-__it;
+		__t20=__t20+__rt;					__t21=__t21+__it;
+
+		__t24=*(__A+__idx[0x12]);			__t25=*(Aim+__idx[0x12]);
+		__rt =*(__A+__idx[0x13]);			__it =*(Aim+__idx[0x13]);
+		__t26=__t24-__rt;					__t27=__t25-__it;
+		__t24=__t24+__rt;					__t25=__t25+__it;
+
+		__rt =__t24;						__it =__t25;
+		__t24=__t20-__rt;					__t25=__t21-__it;
+		__t20=__t20+__rt;					__t21=__t21+__it;
+
+		__rt =__t26;						__it =__t27;
+		__t26=__t22-__it;					__t27=__t23+__rt;
+		__t22=__t22+__it;					__t23=__t23-__rt;
+
+		__t28=*(__A+__idx[0x14]);			__t29=*(Aim+__idx[0x14]);
+		__rt =*(__A+__idx[0x15]);			__it =*(Aim+__idx[0x15]);
+		__t2A=__t28-__rt;					__t2B=__t29-__it;
+		__t28=__t28+__rt;					__t29=__t29+__it;
+
+		__t2C=*(__A+__idx[0x16]);			__t2D=*(Aim+__idx[0x16]);
+		__rt =*(__A+__idx[0x17]);			__it =*(Aim+__idx[0x17]);
+		__t2E=__t2C-__rt;					__t2F=__t2D-__it;
+		__t2C=__t2C+__rt;					__t2D=__t2D+__it;
+
+		__rt =__t2C;						__it =__t2D;
+		__t2C=__t28-__rt;					__t2D=__t29-__it;
+		__t28=__t28+__rt;					__t29=__t29+__it;
+
+		__rt =__t2E;						__it =__t2F;
+		__t2E=__t2A-__it;					__t2F=__t2B+__rt;
+		__t2A=__t2A+__it;					__t2B=__t2B-__rt;
+
+		__rt =__t28;						__it =__t29;
+		__t28=__t20-__rt;					__t29=__t21-__it;
+		__t20=__t20+__rt;					__t21=__t21+__it;
+
+		__rt =__t2C;						__it =__t2D;
+		__t2C=__t24-__it;					__t2D=__t25+__rt;
+		__t24=__t24+__it;					__t25=__t25-__rt;
+
+		__rt =(__t2A+__t2B)*ISRT2;			__it =(__t2A-__t2B)*ISRT2;
+		__t2A=__t22-__rt;					__t2B=__t23+__it;
+		__t22=__t22+__rt;					__t23=__t23-__it;
+
+		__rt =(__t2E-__t2F)*ISRT2;			__it =(__t2F+__t2E)*ISRT2;
+		__t2E=__t26+__rt;					__t2F=__t27+__it;
+		__t26=__t26-__rt;					__t27=__t27-__it;
+
+	/*...Block 4: */
+		__t30=*(__A+__idx[0x18]);			__t31=*(Aim+__idx[0x18]);
+		__rt =*(__A+__idx[0x19]);			__it =*(Aim+__idx[0x19]);
+		__t32=__t30-__rt;					__t33=__t31-__it;
+		__t30=__t30+__rt;					__t31=__t31+__it;
+
+		__t34=*(__A+__idx[0x1A]);			__t35=*(Aim+__idx[0x1A]);
+		__rt =*(__A+__idx[0x1B]);			__it =*(Aim+__idx[0x1B]);
+		__t36=__t34-__rt;					__t37=__t35-__it;
+		__t34=__t34+__rt;					__t35=__t35+__it;
+
+		__rt =__t34;						__it =__t35;
+		__t34=__t30-__rt;					__t35=__t31-__it;
+		__t30=__t30+__rt;					__t31=__t31+__it;
+
+		__rt =__t36;						__it =__t37;
+		__t36=__t32-__it;					__t37=__t33+__rt;
+		__t32=__t32+__it;					__t33=__t33-__rt;
+
+		__t38=*(__A+__idx[0x1C]);			__t39=*(Aim+__idx[0x1C]);
+		__rt =*(__A+__idx[0x1D]);			__it =*(Aim+__idx[0x1D]);
+		__t3A=__t38-__rt;					__t3B=__t39-__it;
+		__t38=__t38+__rt;					__t39=__t39+__it;
+
+		__t3C=*(__A+__idx[0x1E]);			__t3D=*(Aim+__idx[0x1E]);
+		__rt =*(__A+__idx[0x1F]);			__it =*(Aim+__idx[0x1F]);
+		__t3E=__t3C-__rt;					__t3F=__t3D-__it;
+		__t3C=__t3C+__rt;					__t3D=__t3D+__it;
+
+		__rt =__t3C;						__it =__t3D;
+		__t3C=__t38-__rt;					__t3D=__t39-__it;
+		__t38=__t38+__rt;					__t39=__t39+__it;
+
+		__rt =__t3E;						__it =__t3F;
+		__t3E=__t3A-__it;					__t3F=__t3B+__rt;
+		__t3A=__t3A+__it;					__t3B=__t3B-__rt;
+
+		__rt =__t38;						__it =__t39;
+		__t38=__t30-__rt;					__t39=__t31-__it;
+		__t30=__t30+__rt;					__t31=__t31+__it;
+
+		__rt =__t3C;						__it =__t3D;
+		__t3C=__t34-__it;					__t3D=__t35+__rt;
+		__t34=__t34+__it;					__t35=__t35-__rt;
+
+		__rt =(__t3A+__t3B)*ISRT2;			__it =(__t3A-__t3B)*ISRT2;
+		__t3A=__t32-__rt;					__t3B=__t33+__it;
+		__t32=__t32+__rt;					__t33=__t33-__it;
+
+		__rt =(__t3E-__t3F)*ISRT2;			__it =(__t3F+__t3E)*ISRT2;
+		__t3E=__t36+__rt;					__t3F=__t37+__it;
+		__t36=__t36-__rt;					__t37=__t37-__it;
+	/**********************************************************************************/
+	/*...and now do eight radix-4 transforms, including the internal twiddle factors: */
+	/**********************************************************************************/
+	/* Totals for the eight radix-4: 168 ADD, 72 MUL: */
+	/*...Block 1: __t00,__t10,__t20,__t30	*/
+		__rt =__t10;	__t10=__t00-__rt;	__t00=__t00+__rt;
+		__it =__t11;	__t11=__t01-__it;	__t01=__t01+__it;
+
+		__rt =__t30;	__t30=__t20-__rt;	__t20=__t20+__rt;
+		__it =__t31;	__t31=__t21-__it;	__t21=__t21+__it;
+	/* 16 ADD, 0 MUL: */
+		*(__B+__odx[0x00])=__t00+__t20;				*(Bim+__odx[0x00])=__t01+__t21;
+		__t00=__t00-__t20;		__t01  =__t01-__t21;
+		*(__B+__odx[0x10])=__t00*__c10+__t01*__s10;	*(Bim+__odx[0x10])=__t01*__c10-__t00*__s10;
+
+		__rt =__t10+__t31;		__it   =__t11-__t30;	/* mpy by E^-4 = -I is inlined here...	*/
+		__t10=__t10-__t31;		__t11  =__t11+__t30;
+		*(__B+__odx[0x08])=__rt *__c08+__it *__s08;	*(Bim+__odx[0x08])=__it *__c08-__rt *__s08;
+		*(__B+__odx[0x18])=__t10*__c18+__t11*__s18;	*(Bim+__odx[0x18])=__t11*__c18-__t10*__s18;
+
+	/*...Block 5: __t08,__t18,__t28,__t38	*/
+		__rt =__t18;	__t18=__t08-__t19;	__t08=__t08+__t19;		/* twiddle mpy by E^8 =-I	*/
+						__t19=__t09+__rt;	__t09=__t09-__rt;
+
+		__rt =(__t29+__t28)*ISRT2;	__t29=(__t29-__t28)*ISRT2;		__t28=__rt;	/* twiddle mpy by E^-4	*/
+		__rt =(__t38-__t39)*ISRT2;	__it =(__t38+__t39)*ISRT2;		/* twiddle mpy by E^4 = -E^-12 is here...	*/
+		__t38=__t28+__rt;			__t28=__t28-__rt;				/* ...and get E^-12 by flipping signs here.	*/
+		__t39=__t29+__it;			__t29=__t29-__it;
+
+		__rt =__t08+__t28;		__it   =__t09+__t29;
+		__t08=__t08-__t28;		__t09  =__t09-__t29;
+		*(__B+__odx[0x04])=__rt *__c04+__it *__s04;	*(Bim+__odx[0x04])=__it *__c04-__rt *__s04;
+		*(__B+__odx[0x14])=__t08*__c14+__t09*__s14;	*(Bim+__odx[0x14])=__t09*__c14-__t08*__s14;
+
+		__rt =__t18+__t39;		__it   =__t19-__t38;	/* mpy by E^-4 = -I is inlined here...	*/
+		__t18=__t18-__t39;		__t19  =__t19+__t38;
+		*(__B+__odx[0x0C])=__rt *__c0C+__it *__s0C;	*(Bim+__odx[0x0C])=__it *__c0C-__rt *__s0C;
+		*(__B+__odx[0x1C])=__t18*__c1C+__t19*__s1C;	*(Bim+__odx[0x1C])=__t19*__c1C-__t18*__s1C;
+
+	/*...Block 3: __t04,__t14,__t24,__t34	*/
+		__rt =(__t15+__t14)*ISRT2;	__it =(__t15-__t14)*ISRT2;			/* twiddle mpy by E^-4	*/
+		__t14=__t04-__rt;			__t04=__t04+__rt;
+		__t15=__t05-__it;			__t05=__t05+__it;
+
+		__rt =__t24*c16 + __t25*s16;		__t25=__t25*c16 - __t24*s16;		__t24=__rt;	/* twiddle mpy by E^-2	*/
+		__rt =__t34*s16 + __t35*c16;		__it =__t35*s16 - __t34*c16;			/* twiddle mpy by E^-6	*/
+		__t34=__t24-__rt;			__t24=__t24+__rt;
+		__t35=__t25-__it;			__t25=__t25+__it;
+
+		__rt =__t04+__t24;		__it   =__t05+__t25;
+		__t04=__t04-__t24;		__t05  =__t05-__t25;
+		*(__B+__odx[0x02])=__rt *__c02+__it *__s02;	*(Bim+__odx[0x02])=__it *__c02-__rt *__s02;
+		*(__B+__odx[0x12])=__t04*__c12+__t05*__s12;	*(Bim+__odx[0x12])=__t05*__c12-__t04*__s12;
+
+		__rt =__t14+__t35;		__it   =__t15-__t34;	/* mpy by E^-4 = -I is inlined here...	*/
+		__t14=__t14-__t35;		__t15  =__t15+__t34;
+		*(__B+__odx[0x0A])=__rt *__c0A+__it *__s0A;	*(Bim+__odx[0x0A])=__it *__c0A-__rt *__s0A;
+		*(__B+__odx[0x1A])=__t14*__c1A+__t15*__s1A;	*(Bim+__odx[0x1A])=__t15*__c1A-__t14*__s1A;
+
+	/*...Block 7: __t0C,__t1C,__t2C,__t3C	*/
+		__rt =(__t1C-__t1D)*ISRT2;	__it =(__t1C+__t1D)*ISRT2;			/* twiddle mpy by E^4 = -E^-12 is here...	*/
+		__t1C=__t0C+__rt;			__t0C=__t0C-__rt;				/* ...and get E^-12 by flipping signs here.	*/
+		__t1D=__t0D+__it;			__t0D=__t0D-__it;
+
+		__rt =__t2C*s16 + __t2D*c16;		__t2D=__t2D*s16 - __t2C*c16;		__t2C=__rt;	/* twiddle mpy by E^-6	*/
+		__rt =__t3C*c16 + __t3D*s16;		__it =__t3D*c16 - __t3C*s16;			/* twiddle mpy by E^-18 is here...	*/
+		__t3C=__t2C+__rt;			__t2C=__t2C-__rt;				/* ...and get E^-18 by flipping signs here.	*/
+		__t3D=__t2D+__it;			__t2D=__t2D-__it;
+
+		__rt =__t0C+__t2C;		__it   =__t0D+__t2D;
+		__t0C=__t0C-__t2C;		__t0D  =__t0D-__t2D;
+		*(__B+__odx[0x06])=__rt *__c06+__it *__s06;	*(Bim+__odx[0x06])=__it *__c06-__rt *__s06;
+		*(__B+__odx[0x16])=__t0C*__c16+__t0D*__s16;	*(Bim+__odx[0x16])=__t0D*__c16-__t0C*__s16;
+
+		__rt =__t1C+__t3D;		__it   =__t1D-__t3C;	/* mpy by E^-4 = -I is inlined here...	*/
+		__t1C=__t1C-__t3D;		__t1D  =__t1D+__t3C;
+		*(__B+__odx[0x0E])=__rt *__c0E+__it *__s0E;	*(Bim+__odx[0x0E])=__it *__c0E-__rt *__s0E;
+		*(__B+__odx[0x1E])=__t1C*__c1E+__t1D*__s1E;	*(Bim+__odx[0x1E])=__t1D*__c1E-__t1C*__s1E;
+
+	/*...Block 2: __t02,__t12,__t22,__t32	*/
+		__rt =__t12*c16 + __t13*s16;			__it =__t13*c16 - __t12*s16;
+		__t12=__t02-__rt;			__t02=__t02+__rt;
+		__t13=__t03-__it;			__t03=__t03+__it;
+
+		__rt =__t22*c32_1 + __t23*s32_1;	__t23=__t23*c32_1 - __t22*s32_1;	__t22=__rt;	/* twiddle mpy by E^-1	*/
+		__rt =__t32*c32_3 + __t33*s32_3;	__it =__t33*c32_3 - __t32*s32_3;		/* twiddle mpy by E^-3	*/
+		__t32=__t22-__rt;			__t22=__t22+__rt;
+		__t33=__t23-__it;			__t23=__t23+__it;
+
+		__rt =__t02+__t22;		__it   =__t03+__t23;
+		__t02=__t02-__t22;		__t03  =__t03-__t23;
+		*(__B+__odx[0x01])=__rt *__c01+__it *__s01;	*(Bim+__odx[0x01])=__it *__c01-__rt *__s01;
+		*(__B+__odx[0x11])=__t02*__c11+__t03*__s11;	*(Bim+__odx[0x11])=__t03*__c11-__t02*__s11;
+
+		__rt =__t12+__t33;		__it   =__t13-__t32;	/* mpy by E^-4 = -I is inlined here...	*/
+		__t12=__t12-__t33;		__t13  =__t13+__t32;
+		*(__B+__odx[0x09])=__rt *__c09+__it *__s09;	*(Bim+__odx[0x09])=__it *__c09-__rt *__s09;
+		*(__B+__odx[0x19])=__t12*__c19+__t13*__s19;	*(Bim+__odx[0x19])=__t13*__c19-__t12*__s19;
+
+	/*...Block 6: __t0A,__t1A,__t2A,__t3A	*/
+		__rt =__t1A*s16 - __t1B*c16;			__it =__t1B*s16 + __t1A*c16;
+		__t1A=__t0A+__rt;			__t0A =__t0A-__rt;				/* ...and get E^-10 by flipping signs here.	*/
+		__t1B=__t0B+__it;			__t0B =__t0B-__it;
+
+		__rt =__t2A*s32_3 + __t2B*c32_3;	__t2B=__t2B*s32_3 - __t2A*c32_3;	__t2A=__rt;	/* twiddle mpy by E^-5	*/
+		__rt =__t3A*c32_1 - __t3B*s32_1;	__it =__t3B*c32_1 + __t3A*s32_1;		/* twiddle mpy by -E^-15 is here...	*/
+		__t3A=__t2A+__rt;			__t2A=__t2A-__rt;				/* ...and get E^-15 by flipping signs here.	*/
+		__t3B=__t2B+__it;			__t2B=__t2B-__it;
+
+		__rt =__t0A+__t2A;		__it   =__t0B+__t2B;
+		__t0A=__t0A-__t2A;		__t0B  =__t0B-__t2B;
+		*(__B+__odx[0x05])=__rt *__c05+__it *__s05;	*(Bim+__odx[0x05])=__it *__c05-__rt *__s05;
+		*(__B+__odx[0x15])=__t0A*__c15+__t0B*__s15;	*(Bim+__odx[0x15])=__t0B*__c15-__t0A*__s15;
+
+		__rt =__t1A+__t3B;		__it   =__t1B-__t3A;	/* mpy by E^-4 = -I is inlined here...	*/
+		__t1A=__t1A-__t3B;		__t1B  =__t1B+__t3A;
+		*(__B+__odx[0x0D])=__rt *__c0D+__it *__s0D;	*(Bim+__odx[0x0D])=__it *__c0D-__rt *__s0D;
+		*(__B+__odx[0x1D])=__t1A*__c1D+__t1B*__s1D;	*(Bim+__odx[0x1D])=__t1B*__c1D-__t1A*__s1D;
+
+	/*...Block 4: __t06,__t16,__t26,__t36	*/
+		__rt =__t16*s16 + __t17*c16;			__it =__t17*s16 - __t16*c16;
+		__t16=__t06-__rt;			__t06 =__t06+__rt;
+		__t17=__t07-__it;			__t07 =__t07+__it;
+
+		__rt =__t26*c32_3 + __t27*s32_3;	__t27=__t27*c32_3 - __t26*s32_3;	__t26=__rt;	/* twiddle mpy by E^-3	*/
+		__rt =__t36*s32_1 - __t37*c32_1;	__it =__t37*s32_1 + __t36*c32_1;		/* twiddle mpy by -E^-9 is here...	*/
+		__t36=__t26+__rt;			__t26=__t26-__rt;				/* ...and get E^-9 by flipping signs here.	*/
+		__t37=__t27+__it;			__t27=__t27-__it;
+
+		__rt =__t06+__t26;		__it   =__t07+__t27;
+		__t06=__t06-__t26;		__t07  =__t07-__t27;
+		*(__B+__odx[0x03])=__rt *__c03+__it *__s03;	*(Bim+__odx[0x03])=__it *__c03-__rt *__s03;
+		*(__B+__odx[0x13])=__t06*__c13+__t07*__s13;	*(Bim+__odx[0x13])=__t07*__c13-__t06*__s13;
+
+		__rt =__t16+__t37;		__it   =__t17-__t36;	/* mpy by E^-4 = -I is inlined here...	*/
+		__t16=__t16-__t37;		__t17  =__t17+__t36;
+		*(__B+__odx[0x0B])=__rt *__c0B+__it *__s0B;	*(Bim+__odx[0x0B])=__it *__c0B-__rt *__s0B;
+		*(__B+__odx[0x1B])=__t16*__c1B+__t17*__s1B;	*(Bim+__odx[0x1B])=__t17*__c1B-__t16*__s1B;
+
+	/*...Block 8: __t0E,__t1E,__t2E,__t3E	*/
+		__rt =__t1E*c16 - __t1F*s16;			__it =__t1F*c16 + __t1E*s16;
+		__t1E=__t0E+__rt;			__t0E =__t0E-__rt;				/* ...and get E^-14 by flipping signs here.	*/
+		__t1F=__t0F+__it;			__t0F =__t0F-__it;
+
+		__rt =__t2E*s32_1 + __t2F*c32_1;	__t2F=__t2F*s32_1 - __t2E*c32_1;	__t2E=__rt;	/* twiddle mpy by E^-7	*/
+		__rt =__t3E*s32_3 + __t3F*c32_3;	__it =__t3F*s32_3 - __t3E*c32_3;		/* twiddle mpy by -E^-21 is here...	*/
+		__t3E=__t2E+__rt;			__t2E=__t2E-__rt;				/* ...and get E^-21 by flipping signs here.	*/
+		__t3F=__t2F+__it;			__t2F=__t2F-__it;
+
+		__rt =__t0E+__t2E;		__it   =__t0F+__t2F;
+		__t0E=__t0E-__t2E;		__t0F  =__t0F-__t2F;
+		*(__B+__odx[0x07])=__rt *__c07+__it *__s07;	*(Bim+__odx[0x07])=__it *__c07-__rt *__s07;
+		*(__B+__odx[0x17])=__t0E*__c17+__t0F*__s17;	*(Bim+__odx[0x17])=__t0F*__c17-__t0E*__s17;
+
+		__rt =__t1E+__t3F;		__it   =__t1F-__t3E;	/* mpy by E^-4 = -I is inlined here...	*/
+		__t1E=__t1E-__t3F;		__t1F  =__t1F+__t3E;
+		*(__B+__odx[0x0F])=__rt *__c0F+__it *__s0F;	*(Bim+__odx[0x0F])=__it *__c0F-__rt *__s0F;
+		*(__B+__odx[0x1F])=__t1E*__c1F+__t1F*__s1F;	*(Bim+__odx[0x1F])=__t1F*__c1F-__t1E*__s1F;
+}
+
 // With-twiddles out-of-place analog of above twiddleless DIT macro: 31 nontrivial complex input twiddles E01-1f [E0 assumed = 1],
 // The DIT version of this macro processes the twiddles in order.
+// *** NOTE: This macro is a pre-twiddles DIT, designed as the 2nd level in a large-power-of-2 DIT DFT, e.g. radix-1024. **********
+// *** It is NOT suitable as standalone radix-32 pass, since my FFT does such passes on the iFFT (DIT) side with post-twiddles. ***
 void RADIX_32_DIT_TWIDDLE_OOP(
 	double *__A, const int *__idx,	/*  Inputs: Base address plus 32 (index) offsets */
 	double *__B, const int *__odx,	/* Outputs: Base address plus 32 (index) offsets */
@@ -3426,7 +3853,9 @@ void SSE2_RADIX_63_DIF(
 			*dc0,*ds0,*dc1,*ds1,*dc2,*ds2,*dc3,*ds3,
 			*cc1,*ss1,*cc2,*ss2,*cc3m1,*ss3,*cc4,*ss4;	// 18 vec_dbl consts plus 4 padding slots = 22 slots alloc per thread
   #endif
-	vec_dbl t[126], *tmp,
+	// Unline e.g. the 64-DFTs in this file, the 63-DFT defines its own local storage for the
+	// 2x63 vec_dbl intermediates needed by each thread. That storage is pointed to by tdat:
+	vec_dbl *tdat, *tmp,
 		*va0,*va1,*va2,*va3,*va4,*va5,*va6,*va7,*va8,
 		*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8;
 	int l,k0,k1,k2,k3,k4,k5,k6,k7,k8;
@@ -3451,6 +3880,7 @@ void SSE2_RADIX_63_DIF(
 			0x10,0x0c,0x0b,0x0f,0x0e,0x0a,0x11,0x0d,0x09};
   // AVX2 (i.e. FMA) means non-Nussbaumer radix-7, uses these sincos constants:
   #if defined(USE_AVX2)
+	// AVX2 (i.e. FMA) means non-Nussbaumer radix-7, uses these sincos constants:
 	const double	uc1 = .62348980185873353053,	 /* cos(u) = Real part of exp(i*2*pi/7), the radix-7 fundamental sincos datum	*/
 					us1 = .78183148246802980870,	 /* sin(u) = Imag part of exp(i*2*pi/7).	*/
 					uc2 =-.22252093395631440426,	 /* cos(2u)	*/
@@ -3490,14 +3920,14 @@ void SSE2_RADIX_63_DIF(
 	#ifndef COMPILER_TYPE_GCC
 		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 	#endif
-		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
 		if(sc_arr) { free((void *)sc_arr); }
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 22*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		// 126 slots for DFT-63 data, 22 for DFT-7,9 consts and DFT-7 pads, 4 to allow for alignment = 152:
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 152*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	#ifdef MULTITHREAD
-		__r0 = tmp = sc_ptr;
+		__r0 = tdat = sc_ptr;	tmp = tdat + 126;
 		two    = tmp + 0x0;
 		one    = tmp + 0x1;
 		tmp += 2;
@@ -3532,17 +3962,17 @@ void SSE2_RADIX_63_DIF(
 			VEC_DBL_INIT(cc3m1, c3m1);	VEC_DBL_INIT(ss3, s3);
 			VEC_DBL_INIT(cc4  , c4  );	VEC_DBL_INIT(ss4, s4);
 		/* Move on to next thread's local store */
-			cc1   += 22;			dc0 += 22;
-			ss1   += 22;			ds0 += 22;
-			cc2   += 22;			dc1 += 22;
-			ss2   += 22;			ds1 += 22;
-			cc3m1 += 22;			dc2 += 22;
-			ss3   += 22;			ds2 += 22;
-			cc4   += 22;			dc3 += 22;
-			ss4   += 22;			ds3 += 22;
+			cc1   += 152;			dc0 += 152;
+			ss1   += 152;			ds0 += 152;
+			cc2   += 152;			dc1 += 152;
+			ss2   += 152;			ds1 += 152;
+			cc3m1 += 152;			dc2 += 152;
+			ss3   += 152;			ds2 += 152;
+			cc4   += 152;			dc3 += 152;
+			ss4   += 152;			ds3 += 152;
 		}
 	#else
-		tmp = sc_ptr;
+		tdat = sc_ptr;	tmp = tdat + 126;
 		two    = tmp + 0x0;
 		one    = tmp + 0x1;
 		tmp += 2;
@@ -3584,7 +4014,7 @@ void SSE2_RADIX_63_DIF(
 	/* If multithreaded, set the local-store pointers needed for the current thread; */
 #ifdef MULTITHREAD
 	ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
-	tmp = __r0 + thr_id*22;
+	tdat = __r0 + thr_id*152;	tmp = tdat + 126;
 	two    = tmp + 0x0;
 	one    = tmp + 0x1;
 	tmp += 2;
@@ -3613,7 +4043,7 @@ void SSE2_RADIX_63_DIF(
 		0e,05,3b,32,29,20,17
 		07,3d,34,2b,22,19,10
 	*/
-	tmp = t; iptr = dif_iperm;
+	tmp = tdat; iptr = dif_iperm;
 	for(l = 0; l < 9; l++) {
 		k0 = __idx[*iptr]; k1 = __idx[*(iptr+1)]; k2 = __idx[*(iptr+2)]; k3 = __idx[*(iptr+3)]; k4 = __idx[*(iptr+4)]; k5 = __idx[*(iptr+5)]; k6 = __idx[*(iptr+6)];
 		va0 = __A+k0; va1 = __A+k1; va2 = __A+k2; va3 = __A+k3; va4 = __A+k4; va5 = __A+k5; va6 = __A+k6;
@@ -3636,7 +4066,7 @@ void SSE2_RADIX_63_DIF(
 		15,14,18,17,13,1a,16,12,19,
 		10,0c,0b,0f,0e,0a,11,0d,09.
 	*/
-	tmp = t; iptr = dif_operm;
+	tmp = tdat; iptr = dif_operm;
 	for(l = 0; l < 7; l++) {
 		// When 63 is used to build a larger DFT radix (e.g. 1008), these indices will be permuted (nonmonotone), no simplification possible:
 		k0 = __odx[*iptr]; k1 = __odx[*(iptr+1)]; k2 = __odx[*(iptr+2)]; k3 = __odx[*(iptr+3)]; k4 = __odx[*(iptr+4)]; k5 = __odx[*(iptr+5)]; k6 = __odx[*(iptr+6)]; k7 = __odx[*(iptr+7)]; k8 = __odx[*(iptr+8)];
@@ -3673,7 +4103,9 @@ void SSE2_RADIX_63_DIT(
 			*dc0,*ds0,*dc1,*ds1,*dc2,*ds2,*dc3,*ds3,
 			*cc1,*ss1,*cc2,*ss2,*cc3m1,*ss3,*cc4,*ss4;	// 18 vec_dbl consts plus 4 padding slots = 22 slots alloc per thread
   #endif
-	vec_dbl t[126], *tmp,
+	// Unline e.g. the 64-DFTs in this file, the 63-DFT defines its own local storage for the
+	// 2x63 vec_dbl intermediates needed by each thread. That storage is pointed to by tdat:
+	vec_dbl *tdat, *tmp,
 		*va0,*va1,*va2,*va3,*va4,*va5,*va6,*va7,*va8,
 		*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8;
 	int l,k0,k1,k2,k3,k4,k5,k6,k7,k8;
@@ -3737,14 +4169,14 @@ void SSE2_RADIX_63_DIT(
 	#ifndef COMPILER_TYPE_GCC
 		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 	#endif
-		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
 		if(sc_arr) { free((void *)sc_arr); }
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 22*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		// 126 slots for DFT-63 data, 22 for DFT-7,9 consts and DFT-7 pads, 4 to allow for alignment = 152:
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 152*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	#ifdef MULTITHREAD
-		__r0 = tmp = sc_ptr;
+		__r0 = tdat = sc_ptr;	tmp = tdat + 126;
 		two    = tmp + 0x0;
 		one    = tmp + 0x1;
 		tmp += 2;
@@ -3758,7 +4190,7 @@ void SSE2_RADIX_63_DIT(
 		cc4    = tmp + 0x6;			dc3    = tmp + 0xe;
 		ss4    = tmp + 0x7;			ds3    = tmp + 0xf;
 		for(l = 0; l < max_threads; ++l) {
-			/* These remain fixed within each per-thread local store: */
+		/* These remain fixed within each per-thread local store: */
 			VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );	// 1.0,2.0 needed for FMA support
 		  #ifdef USE_AVX2
 			// AVX2 (i.e. FMA)means non-Nussbaumer radix-7, uses these sincos constants:
@@ -3779,17 +4211,17 @@ void SSE2_RADIX_63_DIT(
 			VEC_DBL_INIT(cc3m1, c3m1);	VEC_DBL_INIT(ss3, s3);
 			VEC_DBL_INIT(cc4  , c4  );	VEC_DBL_INIT(ss4, s4);
 		/* Move on to next thread's local store */
-			cc1   += 22;			dc0 += 22;
-			ss1   += 22;			ds0 += 22;
-			cc2   += 22;			dc1 += 22;
-			ss2   += 22;			ds1 += 22;
-			cc3m1 += 22;			dc2 += 22;
-			ss3   += 22;			ds2 += 22;
-			cc4   += 22;			dc3 += 22;
-			ss4   += 22;			ds3 += 22;
+			cc1   += 152;			dc0 += 152;
+			ss1   += 152;			ds0 += 152;
+			cc2   += 152;			dc1 += 152;
+			ss2   += 152;			ds1 += 152;
+			cc3m1 += 152;			dc2 += 152;
+			ss3   += 152;			ds2 += 152;
+			cc4   += 152;			dc3 += 152;
+			ss4   += 152;			ds3 += 152;
 		}
 	#else
-		tmp = sc_ptr;
+		tdat = sc_ptr;	tmp = tdat + 126;
 		two    = tmp + 0x0;
 		one    = tmp + 0x1;
 		tmp += 2;
@@ -3831,7 +4263,7 @@ void SSE2_RADIX_63_DIT(
 	/* If multithreaded, set the local-store pointers needed for the current thread; */
 #ifdef MULTITHREAD
 	ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
-	tmp = __r0 + thr_id*22;
+	tdat = __r0 + thr_id*152;	tmp = tdat + 126;
 	two    = tmp + 0x0;
 	one    = tmp + 0x1;
 	tmp += 2;
@@ -3859,7 +4291,7 @@ void SSE2_RADIX_63_DIT(
 		2a,2c,2b,27,29,28,24,26,25,
 		15,17,16,12,14,13,1a,19,18.
 	*/
-	tmp = t; iptr = dit_iperm;
+	tmp = tdat; iptr = dit_iperm;
 	for(l = 0; l < 7; l++) {
 		// When 63 is used to build a larger DFT radix (e.g. 1008), these indices will be permuted (nonmonotone), no simplification possible:
 		k0 = __idx[*iptr]; k1 = __idx[*(iptr+1)]; k2 = __idx[*(iptr+2)]; k3 = __idx[*(iptr+3)]; k4 = __idx[*(iptr+4)]; k5 = __idx[*(iptr+5)]; k6 = __idx[*(iptr+6)]; k7 = __idx[*(iptr+7)]; k8 = __idx[*(iptr+8)];
@@ -3884,7 +4316,7 @@ void SSE2_RADIX_63_DIT(
 		23,08,2c,11,35,1a,3e,
 		31,16,3a,1f,04,28,0d
 	*/
-	tmp = t; iptr = dit_operm;
+	tmp = tdat; iptr = dit_operm;
 	for(l = 0; l < 9; l++) {
 		k0 = __odx[*iptr]; k1 = __odx[*(iptr+1)]; k2 = __odx[*(iptr+2)]; k3 = __odx[*(iptr+3)]; k4 = __odx[*(iptr+4)]; k5 = __odx[*(iptr+5)]; k6 = __odx[*(iptr+6)];
 		// Since there is no vec_cmplx type, ptr-offs double those of analogous scalar code:
@@ -3900,10 +4332,6 @@ void SSE2_RADIX_63_DIT(
 }
 
 /************** RADIX-64 DIF/DIT: *****************************/
-
-//*** 27 May 2014: This appears stable - and runs appreciably faster - in || mode
-//*** without needing the #ifdef MULTITHREAD - wrapped disjoint-static-data strategy,
-//*** so disable that for now, can easily re-enable if instability turns up on some platform.
 
 void SSE2_RADIX_64_DIF(
 	const int init,	// Init consts (in 1-thread mode only!) and exit
@@ -3921,7 +4349,9 @@ void SSE2_RADIX_64_DIF(
 )
 {
 	// 'vc' = vector double = lg(sizeof(simd register)):
-#ifdef USE_AVX
+#ifdef USE_AVX512
+	const int l2_sz_vd = 6;
+#elif defined(USE_AVX)
 	const int l2_sz_vd = 5;
 #else
 	const int l2_sz_vd = 4;
@@ -3966,11 +4396,10 @@ void SSE2_RADIX_64_DIF(
 	#ifndef COMPILER_TYPE_GCC
 		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 	#endif
-		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
 		if(sc_arr) { free((void *)sc_arr); }
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x32*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	#ifdef MULTITHREAD
 		__r0 = tmp = sc_ptr;
@@ -4148,14 +4577,22 @@ void SSE2_RADIX_64_DIF(
 	 ss7	= tmp + 0x2a;		nss7	= tmp + 0x2d;
 #endif
 
-   #ifdef USE_AVX
-	#define OFF1	0x200
-	#define OFF2	0x400
-	#define OFF3	0x600
-	#define OFF4	0x800
-	#define OFF5	0xa00
-	#define OFF6	0xc00
-	#define OFF7	0xe00
+  #ifdef USE_AVX512
+	#define OFF1	4*0x100
+	#define OFF2	4*0x200
+	#define OFF3	4*0x300
+	#define OFF4	4*0x400
+	#define OFF5	4*0x500
+	#define OFF6	4*0x600
+	#define OFF7	4*0x700
+  #elif defined(USE_AVX)
+	#define OFF1	2*0x100
+	#define OFF2	2*0x200
+	#define OFF3	2*0x300
+	#define OFF4	2*0x400
+	#define OFF5	2*0x500
+	#define OFF6	2*0x600
+	#define OFF7	2*0x700
    #else
 	#define OFF1	0x100
 	#define OFF2	0x200
@@ -4346,11 +4783,10 @@ void SSE2_RADIX_64_DIT(
 	#ifndef COMPILER_TYPE_GCC
 		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 	#endif
-		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
 		if(sc_arr) { free((void *)sc_arr); }
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x32*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	#ifdef MULTITHREAD
 		__r0 = tmp = sc_ptr;
@@ -4556,7 +4992,7 @@ exit(0);
 */
 	// Apr 2014: Generalized-index scheme replaces original fixed __B-offsets 0x[0-7]0 with strides taken from
 	// o_offsets array. Due to the way the radix-64 DFTs are used to build larger pow2 and non-pow2 DFTs there
-	// is never an issue of irregular (i.e. not simple multiple of the basc stride in o_offsets[1]) strides,
+	// is never an issue of irregular (i.e. not simple multiple of the basic stride in o_offsets[1]) strides,
 	// just one of whether that basic 'unit' stride will amount to one vec_dbl pair or a larger stride. That means
 	// we only need a very small sampling of the o_offsets data - in fact just o_offsets[1-8] - to infer the rest:
 	j = off_ptr[8];	v0 = __B; v1 = __B+j; v2 = __B+(j<<1); v3 = __B+j+(j<<1);
@@ -4669,11 +5105,16 @@ void SSE2_RADIX256_DIF(
 	int p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf;
 
 // NOTE that unlike the RADIX_08_DIF_OOP() macro used for pass 1 of the radix-64 DFT, RADIX_16_DIF outputs are IN-ORDER rather than BR:
-  #ifdef USE_AVX
-	#define OFF1	0x400
-	#define OFF2	0x800
-	#define OFF3	0xc00
-	#define OFF4	0x1000
+  #ifdef USE_AVX512
+	#define OFF1	0x200*4
+	#define OFF2	0x400*4
+	#define OFF3	0x600*4
+	#define OFF4	0x800*4
+  #elif defined(USE_AVX)
+	#define OFF1	0x200*2
+	#define OFF2	0x400*2
+	#define OFF3	0x600*2
+	#define OFF4	0x800*2
   #else
 	#define OFF1	0x200
 	#define OFF2	0x400
@@ -4694,24 +5135,7 @@ void SSE2_RADIX256_DIF(
 		tm1 += 32;
 	}
 
-	#undef OFF1
-	#undef OFF2
-	#undef OFF3
-	#undef OFF4
-
 /*...and now do 16 radix-16 subtransforms, including the internal twiddle factors: */
-
-  #ifdef USE_AVX
-	#define OFF1	0x400
-	#define OFF2	0x800
-	#define OFF3	0xc00
-	#define OFF4	0x1000
-  #else
-	#define OFF1	0x200
-	#define OFF2	0x400
-	#define OFF3	0x600
-	#define OFF4	0x800
-  #endif
 
 // Block 0: has all-unity twiddles
 	// Extract index of the 16-element o_offsets_lo sub-vector to use for the current set of outputs:
@@ -4810,11 +5234,16 @@ void SSE2_RADIX256_DIT(
 	int p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf;
 
 /* Gather the needed data (256 64-bit complex, i.e. 512 64-bit reals) and do 8 twiddleless length-16 subtransforms: */
-  #ifdef USE_AVX
-	#define OFF1	0x40
-	#define OFF2	0x80
-	#define OFF3	0xc0
-	#define OFF4	0x100
+  #ifdef USE_AVX512
+	#define OFF1	0x20*4
+	#define OFF2	0x40*4
+	#define OFF3	0x60*4
+	#define OFF4	0x80*4
+  #elif defined(USE_AVX)
+	#define OFF1	0x20*2
+	#define OFF2	0x40*2
+	#define OFF3	0x60*2
+	#define OFF4	0x80*2
   #else
 	#define OFF1	0x20
 	#define OFF2	0x40
@@ -4851,11 +5280,16 @@ void SSE2_RADIX256_DIT(
 roots as in the DIF here, just fiddle with signs within the macro to effect the conjugate-multiplies. Twiddles occur
 in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 + p[0,8,4,c,2,a,6,e,1,9,5,d,3,b,7,f].
 */
-  #ifdef USE_AVX
-	#define OFF1	0x400
-	#define OFF2	0x800
-	#define OFF3	0xc00
-	#define OFF4	0x1000
+  #ifdef USE_AVX512
+	#define OFF1	0x200*4
+	#define OFF2	0x400*4
+	#define OFF3	0x600*4
+	#define OFF4	0x800*4
+  #elif defined(USE_AVX)
+	#define OFF1	0x200*2
+	#define OFF2	0x400*2
+	#define OFF3	0x600*2
+	#define OFF4	0x800*2
   #else
 	#define OFF1	0x200
 	#define OFF2	0x400

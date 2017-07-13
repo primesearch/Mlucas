@@ -80,7 +80,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 //if(!j)printf("iter %d, full = %d, a0in = %20.15f\n",iter,full_pass,a[0]/(n>>1));
 		l = 0; addr = cy_r; itmp = bjmodn;
 		jt = j1; jp = j2;
-	   cmplx_carry_norm_errcheck0(a[j1   ],a[j2   ],*addr,*itmp  ); ++l; ++addr; ++itmp;
+	   cmplx_carry_norm_errcheck0(a[j1   ],a[j2   ],*addr,*itmp,0); ++l; ++addr; ++itmp;
 		// Next 15 quartets of macro calls done in loop:
 		for(ntmp = 1; ntmp < 16; ntmp++) {
 			cmplx_carry_norm_errcheck(a[jt+p1],a[jp+p1],*addr,*itmp,l); ++l; ++addr; ++itmp;

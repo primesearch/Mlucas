@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2014 by Ernst W. Mayer.                                           *
+*   (C) 1997-2016 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -26,6 +26,11 @@
 #ifndef dft_macro_included
 #define dft_macro_included
 
+#if 0
+	NOTE: To make macros here easier to browse in a code-smart editor, temp-uncomment the placeholder-function lines:
+	//void ___RADIX...
+#endif
+
 /* All these radix-N macros are structured so that any 2 of the 3 sets of arguments (A, t, B) may point to the same set of
    addresses, i.e. so the DFT may be done in place (A == B) or re-using a single set of temporaries (A == t or B == t).
    By "in place" we mean that A == B up to an arbitrary permutation of array indices (or element subscripts). */
@@ -33,17 +38,12 @@
 /****** RADIX = 3: ALLOWS IN-PLACE ******/
 
 /* Totals: 12 ADD, 4 MUL	*/
+//void ___RADIX_03_DFT() {}	// placeholder to get macro-of-same-name locations to appear in my editor's function-display
 #define RADIX_03_DFT(\
 	__s,__c3m1,\
-	__Ar0,__Ai0,\
-	__Ar1,__Ai1,\
-	__Ar2,__Ai2,\
-	__tr0,__ti0,\
-	__tr1,__ti1,\
-	__tr2,__ti2,\
-	__Br0,__Bi0,\
-	__Br1,__Bi1,\
-	__Br2,__Bi2)\
+	__Ar0,__Ai0,__Ar1,__Ai1,__Ar2,__Ai2,\
+	__tr0,__ti0,__tr1,__ti1,__tr2,__ti2,\
+	__Br0,__Bi0,__Br1,__Bi1,__Br2,__Bi2)\
 {\
 	__tr0 =__Ar2;					__ti0 =__Ai2;\
 	__tr2 =__Ar1 - __tr0;			__ti2 =__Ai1 - __ti0;\
@@ -56,17 +56,12 @@
 }
 
 /* Totals: 12 ADD, 4 MUL	*/
+//void ___RADIX_03_DFT_PFETCH() {}
 #define RADIX_03_DFT_PFETCH(\
 	__s,__c3m1,\
-	__Ar0,__Ai0,\
-	__Ar1,__Ai1,\
-	__Ar2,__Ai2,\
-	__tr0,__ti0,\
-	__tr1,__ti1,\
-	__tr2,__ti2,\
-	__Br0,__Bi0,\
-	__Br1,__Bi1,\
-	__Br2,__Bi2,\
+	__Ar0,__Ai0,__Ar1,__Ai1,__Ar2,__Ai2,\
+	__tr0,__ti0,__tr1,__ti1,__tr2,__ti2,\
+	__Br0,__Bi0,__Br1,__Bi1,__Br2,__Bi2,\
 	__add_offset)\
 {\
 	__tr0 =__Ar2;					__ti0 =__Ai2;\
@@ -85,15 +80,10 @@
 /****** RADIX = 4: ******/
 
 /* Totals: 16 ADD, 0 MUL	*/
+//void ___RADIX_04_DIF() {}
 #define RADIX_04_DIF(\
-	__Ar0,__Ai0,\
-	__Ar1,__Ai1,\
-	__Ar2,__Ai2,\
-	__Ar3,__Ai3,\
-	__Br0,__Bi0,\
-	__Br1,__Bi1,\
-	__Br2,__Bi2,\
-	__Br3,__Bi3,\
+	__Ar0,__Ai0,__Ar1,__Ai1,__Ar2,__Ai2,__Ar3,__Ai3,\
+	__Br0,__Bi0,__Br1,__Bi1,__Br2,__Bi2,__Br3,__Bi3,\
 	__rt,__it)\
 {\
 	__rt = __Ar2;	__Ar2 =__Ar0 - __rt;	__Ar0 = __Ar0 + __rt;\
@@ -109,15 +99,10 @@
 }
 
 /* Totals: 16 ADD, 0 MUL	*/
+//void ___RADIX_04_DIF_PFETCH() {}
 #define RADIX_04_DIF_PFETCH(\
-	__Ar0,__Ai0,\
-	__Ar1,__Ai1,\
-	__Ar2,__Ai2,\
-	__Ar3,__Ai3,\
-	__Br0,__Bi0,\
-	__Br1,__Bi1,\
-	__Br2,__Bi2,\
-	__Br3,__Bi3,\
+	__Ar0,__Ai0,__Ar1,__Ai1,__Ar2,__Ai2,__Ar3,__Ai3,\
+	__Br0,__Bi0,__Br1,__Bi1,__Br2,__Bi2,__Br3,__Bi3,\
 	__rt,__it,\
 	__addr,__addp,__add_offset0,__add_offset1)\
 {\
@@ -137,16 +122,40 @@
 	__addp = __addr + __add_offset1;	prefetch_p_doubles(__addp);\
 }
 
+/* Totals: 22 ADD, 12 MUL, which is the cost of the twiddle-less version plus 3 CMUL at [2 ADD, 4 MUL] each. Combine
+8 such macro calls (2 passes of 4 calls each) to create an alternate uniform-macro version of RADIX_16_DIF_TWIDDLE,
+with Cost [176 ADD, 96 MUL], 2 more ADD and 12 more MUL, but represents a smaller optimization target, and is thus
+ideal for SIMD inline-ASM implementation.
+*/
+//void ___RADIX_04_DIF() {}
+#define RADIX_04_DIF_3TWIDDLE(\
+	__Ar0,__Ai0,__Ar1,__Ai1,__Ar2,__Ai2,__Ar3,__Ai3,\
+	__Br0,__Bi0,__Br1,__Bi1,__Br2,__Bi2,__Br3,__Bi3,\
+	__c1,__s1 ,__c2,__s2 ,__c3,__s3,\
+	__r,__i)\
+{\
+	__Br0 = __Ar0;						__Bi0 = __Ai0;\
+	__r   = __Ar2*__c2 - __Ai2*__s2;	__i   = __Ai2*__c2 + __Ar2*__s2 ;\
+	__Br1 = __Br0 - __r;				__Br0 = __Br0 + __r;\
+	__Bi1 = __Bi0 - __i;				__Bi0 = __Bi0 + __i;\
+\
+	__Br2 = __Ar1*__c1 - __Ai1*__s1;	__Bi2 = __Ai1*__c1 + __Ar1*__s1 ;\
+	__r   = __Ar3*__c3 - __Ai3*__s3;	__i   = __Ai3*__c3 + __Ar3*__s3 ;\
+	__Br3 = __Br2 - __r;				__Br2 = __Br2 + __r;\
+	__Bi3 = __Bi2 - __i;				__Bi2 = __Bi2 + __i;\
+\
+	__r = __Br2;	__Br2 = __Br0 - __r;		__Br0 = __Br0 + __r;\
+	__i = __Bi2;	__Bi2 = __Bi0 - __i;		__Bi0 = __Bi0 + __i;\
+\
+	__r = __Br3;	__Br3 = __Br1 + __Bi3;		__Br1 = __Br1 - __Bi3;\
+					__Bi3 = __Bi1 - __r;		__Bi1 = __Bi1 + __r;\
+}
+
 /* Totals: 16 ADD, 0 MUL	*/
+//void ___RADIX_04_DIT() {}
 #define RADIX_04_DIT(\
-	__Ar0,__Ai0,\
-	__Ar1,__Ai1,\
-	__Ar2,__Ai2,\
-	__Ar3,__Ai3,\
-	__Br0,__Bi0,\
-	__Br1,__Bi1,\
-	__Br2,__Bi2,\
-	__Br3,__Bi3,\
+	__Ar0,__Ai0,__Ar1,__Ai1,__Ar2,__Ai2,__Ar3,__Ai3,\
+	__Br0,__Bi0,__Br1,__Bi1,__Br2,__Bi2,__Br3,__Bi3,\
 	__rt,__it)\
 {\
 	__rt = __Ar1;	__Ar1 =__Ar0 - __rt;	__Ar0 = __Ar0 + __rt;\
@@ -161,21 +170,47 @@
 					__Bi3 = __Ai1 + __rt;	__Bi1 = __Ai1 - __rt;\
 }
 
+/* Totals: 22 ADD, 12 MUL, which is the cost of the twiddle-less version plus 3 CMUL at [2 ADD, 4 MUL] each. Combine
+8 such macro calls (2 passes of 4 calls each) to create an alternate uniform-macro version of RADIX_16_DIT_TWIDDLE,
+with Cost [176 ADD, 96 MUL], 2 more ADD and 12 more MUL, but represents a smaller optimization target, and is thus
+ideal for SIMD inline-ASM implementation.
+Notes:
+o DIF version of this uses pretwiddles; DIT uses posttwidles;
+o DIT is geared toward inverse FFT but with roots possibly shared with DIF, thus assumes roots are
+  those with a positive-signed complex exponential argument, and conjugates them in-place for DIT.
+*/
+//void ___RADIX_04_DIF() {}
+#define RADIX_04_DIT_3TWIDDLE(\
+	__Ar0,__Ai0,__Ar1,__Ai1,__Ar2,__Ai2,__Ar3,__Ai3,\
+	__Br0,__Bi0,__Br1,__Bi1,__Br2,__Bi2,__Br3,__Bi3,\
+	__c1,__s1 ,__c2,__s2 ,__c3,__s3,\
+	__r,__i)\
+{\
+	double _tr0,_ti0,_tr1,_ti1,_tr2,_ti2,_tr3,_ti3;\
+	_tr1 = __Ar0 - __Ar1;			_tr0 = __Ar0 + __Ar1;\
+	_ti1 = __Ai0 - __Ai1;			_ti0 = __Ai0 + __Ai1;\
+\
+	_tr3 = __Ar2 - __Ar3;			_tr2 = __Ar2 + __Ar3;\
+	_ti3 = __Ai2 - __Ai3;			_ti2 = __Ai2 + __Ai3;\
+\
+	__Br0 = _tr0 + _tr2;			__Bi0 = _ti0 + _ti2;\
+	 _tr0 = _tr0 - _tr2;			 _ti0 = _ti0 - _ti2;\
+	__Br2 = _tr0*__c2 + _ti0*__s2;	__Bi2 = _ti0*__c2 - _tr0*__s2;	/* twiddle = ~w2 = c2-I.s1 */\
+	/* mpy by -I is inlined here...	*/\
+	__r = _tr3;	_tr3 = _tr1 - _ti3;	_tr1 = _tr1 + _ti3;\
+				_ti3 = _ti1 + __r;	_ti1 = _ti1 - __r;\
+	__Br1 = _tr1*__c1 + _ti1*__s1;	__Bi1 = _ti1*__c1 - _tr1*__s1;	/* twiddle = ~w1 = c1-I.s1 */\
+	__Br3 = _tr3*__c3 + _ti3*__s3;	__Bi3 = _ti3*__c3 - _tr3*__s3;	/* twiddle = ~w3 = c3-I.s3 */\
+}
+
 /****** RADIX = 5: ******/
 
 /* Totals: 34 ADD, 10 MUL	*/
+//void ___RADIX_05_DFT() {}
 #define RADIX_05_DFT(\
 	__cc1, __cc2, __s2, __ss1, __ss2,\
-	__Ar0,__Ai0,\
-	__Ar1,__Ai1,\
-	__Ar2,__Ai2,\
-	__Ar3,__Ai3,\
-	__Ar4,__Ai4,\
-	__Br0,__Bi0,\
-	__Br1,__Bi1,\
-	__Br2,__Bi2,\
-	__Br3,__Bi3,\
-	__Br4,__Bi4,\
+	__Ar0,__Ai0,__Ar1,__Ai1,__Ar2,__Ai2,__Ar3,__Ai3,__Ar4,__Ai4,\
+	__Br0,__Bi0,__Br1,__Bi1,__Br2,__Bi2,__Br3,__Bi3,__Br4,__Bi4,\
 	__rt,__it)\
 {\
 	__Br0 = __Ar0;					__Bi0 = __Ai0;\
@@ -202,18 +237,11 @@
 }
 
 /* Totals: 34 ADD, 10 MUL	*/
+//void ___RADIX_05_DFT_PFETCH() {}
 #define RADIX_05_DFT_PFETCH(\
 	__cc1, __cc2, __s2, __ss1, __ss2,\
-	__Ar0,__Ai0,\
-	__Ar1,__Ai1,\
-	__Ar2,__Ai2,\
-	__Ar3,__Ai3,\
-	__Ar4,__Ai4,\
-	__Br0,__Bi0,\
-	__Br1,__Bi1,\
-	__Br2,__Bi2,\
-	__Br3,__Bi3,\
-	__Br4,__Bi4,\
+	__Ar0,__Ai0,__Ar1,__Ai1,__Ar2,__Ai2,__Ar3,__Ai3,__Ar4,__Ai4,\
+	__Br0,__Bi0,__Br1,__Bi1,__Br2,__Bi2,__Br3,__Bi3,__Br4,__Bi4,\
 	__rt,__it,\
 	__addr,__addp,__add_offset0,__add_offset1)\
 {\
@@ -247,35 +275,31 @@
 
 /****** RADIX = 7: ******/
 
-/* Simple version may be best if ADD throughput is limiting factor.
-Totals: 60 ADD, 36 MUL	*/
+/* Simple version may be best if ADD throughput is limiting factor. Totals: 60 ADD, 36 MUL	*/
+/*
+Base-root is E := exp(I*2*Pi/7), with symmetries E^(n-j) = ~E^j and E^n = E^(n mod 7).
+Thus our DFT matrix is
+
+		1	1	1	1	|	1	1	1
+		----------------|--------------
+		1	E1	E2	E3	|	E3~	E2~	E1~
+		1	E2	E3~	E1~	|	E1	E3	E2~
+		1	E3	E1~	E2	|	E2~	E1	E3~
+		----------------|--------------
+		1	E3~	E1	E2~	|	E2	E1~	E3
+		1	E2~	E3	E1	|	E1~	E3~	E2
+		1	E1~	E2~	E3~	|	E3	E2	E1 ;
+
+the upper left 3 x 3 E-submatrix gives the form of our mini-convolutions, with ~ terms having negative
+sine multipliers, i.e. Ej~ ==> -sin(2*Pi*j/7) .
+*/
+//void ___RADIX_07_DFT() {}
 #define RADIX_07_DFT(\
-	__Ar0,__Ai0,\
-	__Ar1,__Ai1,\
-	__Ar2,__Ai2,\
-	__Ar3,__Ai3,\
-	__Ar4,__Ai4,\
-	__Ar5,__Ai5,\
-	__Ar6,__Ai6,\
-	__tr0,__ti0,\
-	__tr1,__ti1,\
-	__tr2,__ti2,\
-	__tr3,__ti3,\
-	__tr4,__ti4,\
-	__tr5,__ti5,\
-	__tr6,__ti6,\
-	__Br0,__Bi0,\
-	__Br1,__Bi1,\
-	__Br2,__Bi2,\
-	__Br3,__Bi3,\
-	__Br4,__Bi4,\
-	__Br5,__Bi5,\
-	__Br6,__Bi6,\
-	__cc1,__ss1,\
-	__cc2,__ss2,\
-	__cc3,__ss3,\
-	__rt,__it,\
-	__re,__im)\
+	__Ar0,__Ai0,__Ar1,__Ai1,__Ar2,__Ai2,__Ar3,__Ai3,__Ar4,__Ai4,__Ar5,__Ai5,__Ar6,__Ai6,\
+	__tr0,__ti0,__tr1,__ti1,__tr2,__ti2,__tr3,__ti3,__tr4,__ti4,__tr5,__ti5,__tr6,__ti6,\
+	__Br0,__Bi0,__Br1,__Bi1,__Br2,__Bi2,__Br3,__Bi3,__Br4,__Bi4,__Br5,__Bi5,__Br6,__Bi6,\
+	__cc1,__ss1,__cc2,__ss2,__cc3,__ss3,\
+	__rt,__it,__re,__im)\
 {\
 	__tr0 = __Ar0;												__ti0 = __Ai0;\
 	__tr6 = __Ar1 - __Ar6;										__ti6 = __Ai1 - __Ai6;	/* x1 - x6 */\
@@ -305,34 +329,18 @@ Totals: 60 ADD, 36 MUL	*/
 }
 
 /* FMA-oriented version - above simple-structure better for FMA than Nussbaumer:
-Totals: 30 ADD, 6 MUL, 30 FMA, i.e. trade 30 ADD + 30 MUL for 30 FMA, very nice. */
+Totals: 30 ADD, 6 MUL, 30 FMA, i.e. trade 30 ADD + 30 MUL for 30 FMA, very nice.
+We can also use FMA to save registers in computing radix-2 butterflies x +- y,
+at a cost of replacing 12 ADD ==> 12 FMA, for a total of [18 ADD, 6 MUL, 42 FMA].
+(This is what we do in our AVX2 implementation in sse_macro_gcc64.h:SSE2_RADIX_07_DFT().)
+*/
+//void ___RADIX_07_DFT_FMA() {}
 #define RADIX_07_DFT_FMA(\
-	__Ar0,__Ai0,\
-	__Ar1,__Ai1,\
-	__Ar2,__Ai2,\
-	__Ar3,__Ai3,\
-	__Ar4,__Ai4,\
-	__Ar5,__Ai5,\
-	__Ar6,__Ai6,\
-	__tr0,__ti0,\
-	__tr1,__ti1,\
-	__tr2,__ti2,\
-	__tr3,__ti3,\
-	__tr4,__ti4,\
-	__tr5,__ti5,\
-	__tr6,__ti6,\
-	__Br0,__Bi0,\
-	__Br1,__Bi1,\
-	__Br2,__Bi2,\
-	__Br3,__Bi3,\
-	__Br4,__Bi4,\
-	__Br5,__Bi5,\
-	__Br6,__Bi6,\
-	__cc1,__ss1,\
-	__cc2,__ss2,\
-	__cc3,__ss3,\
-	__rt,__it,\
-	__re,__im)\
+	__Ar0,__Ai0,__Ar1,__Ai1,__Ar2,__Ai2,__Ar3,__Ai3,__Ar4,__Ai4,__Ar5,__Ai5,__Ar6,__Ai6,\
+	__tr0,__ti0,__tr1,__ti1,__tr2,__ti2,__tr3,__ti3,__tr4,__ti4,__tr5,__ti5,__tr6,__ti6,\
+	__Br0,__Bi0,__Br1,__Bi1,__Br2,__Bi2,__Br3,__Bi3,__Br4,__Bi4,__Br5,__Bi5,__Br6,__Bi6,\
+	__cc1,__ss1,__cc2,__ss2,__cc3,__ss3,\
+	__rt,__it,__re,__im)\
 {\
 	__tr0 = __Ar0;									__ti0 = __Ai0;\
 	__tr6 = __Ar1 - __Ar6;							__ti6 = __Ai1 - __Ai6;	/* x1 - x6 */\
@@ -390,32 +398,12 @@ like interleaving the accumulate-ADDs for the DC outputs Br0,Bi0 with the FMAs: 
 
 /* Low-mul Nussbaumer-style DFT implementation has 20 fewer MUL but at cost of 12 more ADD.
 Totals: 72 ADD, 16 MUL	*/
+//void ___RADIX_05_DFT_MUSS() {}
 #define RADIX_07_DFT_NUSS(\
-	__A0r,__A0i,\
-	__A1r,__A1i,\
-	__A2r,__A2i,\
-	__A3r,__A3i,\
-	__A4r,__A4i,\
-	__A5r,__A5i,\
-	__A6r,__A6i,\
-	__t0r,__t0i,\
-	__t1r,__t1i,\
-	__t2r,__t2i,\
-	__t3r,__t3i,\
-	__t4r,__t4i,\
-	__t5r,__t5i,\
-	__t6r,__t6i,\
-	__B0r,__B0i,\
-	__B1r,__B1i,\
-	__B2r,__B2i,\
-	__B3r,__B3i,\
-	__B4r,__B4i,\
-	__B5r,__B5i,\
-	__B6r,__B6i,\
-	__cx0,__sx0,\
-	__cx1,__sx1,\
-	__cx2,__sx2,\
-	__cx3,__sx3,\
+	__Ar0,__Ai0,__Ar1,__Ai1,__Ar2,__Ai2,__Ar3,__Ai3,__Ar4,__Ai4,__Ar5,__Ai5,__Ar6,__Ai6,\
+	__tr0,__ti0,__tr1,__ti1,__tr2,__ti2,__tr3,__ti3,__tr4,__ti4,__tr5,__ti5,__tr6,__ti6,\
+	__Br0,__Bi0,__Br1,__Bi1,__Br2,__Bi2,__Br3,__Bi3,__Br4,__Bi4,__Br5,__Bi5,__Br6,__Bi6,\
+	__cx0,__sx0,__cx1,__sx1,__cx2,__sx2,__cx3,__sx3,\
 	__rt,__it)\
 {\
 	__t0r = __A0r;						__t0i = __A0i;\
@@ -465,33 +453,13 @@ Totals: 72 ADD, 16 MUL	*/
 }
 
 /* Totals: 60 ADD, 36 MUL	*/
+//void ___RADIX_07_DFT_PFETCH() {}
 #define RADIX_07_DFT_PFETCH(\
-	__Ar0,__Ai0,\
-	__Ar1,__Ai1,\
-	__Ar2,__Ai2,\
-	__Ar3,__Ai3,\
-	__Ar4,__Ai4,\
-	__Ar5,__Ai5,\
-	__Ar6,__Ai6,\
-	__tr0,__ti0,\
-	__tr1,__ti1,\
-	__tr2,__ti2,\
-	__tr3,__ti3,\
-	__tr4,__ti4,\
-	__tr5,__ti5,\
-	__tr6,__ti6,\
-	__Br0,__Bi0,\
-	__Br1,__Bi1,\
-	__Br2,__Bi2,\
-	__Br3,__Bi3,\
-	__Br4,__Bi4,\
-	__Br5,__Bi5,\
-	__Br6,__Bi6,\
-	__cc1,__ss1,\
-	__cc2,__ss2,\
-	__cc3,__ss3,\
-	__rt,__it,\
-	__re,__im,\
+	__Ar0,__Ai0,__Ar1,__Ai1,__Ar2,__Ai2,__Ar3,__Ai3,__Ar4,__Ai4,__Ar5,__Ai5,__Ar6,__Ai6,\
+	__tr0,__ti0,__tr1,__ti1,__tr2,__ti2,__tr3,__ti3,__tr4,__ti4,__tr5,__ti5,__tr6,__ti6,\
+	__Br0,__Bi0,__Br1,__Bi1,__Br2,__Bi2,__Br3,__Bi3,__Br4,__Bi4,__Br5,__Bi5,__Br6,__Bi6,\
+	__cc1,__ss1,__cc2,__ss2,__cc3,__ss3,\
+	__rt,__it,__re,__im,\
 	__addr,__addp,__add_offset0,__add_offset1,__add_offset2)\
 {\
 	__tr0 = __Ar0;												__ti0 = __Ai0;\
@@ -531,31 +499,11 @@ Totals: 72 ADD, 16 MUL	*/
 /****** RADIX = 8: ******/
 
 /* Totals: 52 ADD, 4 MUL	*/
+//void ___RADIX_08_DIF() {}
 #define RADIX_08_DIF(\
-	__Ar0,__Ai0,\
-	__Ar1,__Ai1,\
-	__Ar2,__Ai2,\
-	__Ar3,__Ai3,\
-	__Ar4,__Ai4,\
-	__Ar5,__Ai5,\
-	__Ar6,__Ai6,\
-	__Ar7,__Ai7,\
-	__tr0,__ti0,\
-	__tr1,__ti1,\
-	__tr2,__ti2,\
-	__tr3,__ti3,\
-	__tr4,__ti4,\
-	__tr5,__ti5,\
-	__tr6,__ti6,\
-	__tr7,__ti7,\
-	__Br0,__Bi0,\
-	__Br1,__Bi1,\
-	__Br2,__Bi2,\
-	__Br3,__Bi3,\
-	__Br4,__Bi4,\
-	__Br5,__Bi5,\
-	__Br6,__Bi6,\
-	__Br7,__Bi7,\
+	__Ar0,__Ai0,__Ar1,__Ai1,__Ar2,__Ai2,__Ar3,__Ai3,__Ar4,__Ai4,__Ar5,__Ai5,__Ar6,__Ai6,__Ar7,__Ai7,\
+	__tr0,__ti0,__tr1,__ti1,__tr2,__ti2,__tr3,__ti3,__tr4,__ti4,__tr5,__ti5,__tr6,__ti6,__tr7,__ti7,\
+	__Br0,__Bi0,__Br1,__Bi1,__Br2,__Bi2,__Br3,__Bi3,__Br4,__Bi4,__Br5,__Bi5,__Br6,__Bi6,__Br7,__Bi7,\
 	__rt,__it)\
 {\
 	__tr0 = __Ar0;			__ti0 = __Ai0;\
@@ -615,23 +563,10 @@ Totals: 72 ADD, 16 MUL	*/
 // scalars or array locations, but the __A-naming indicates that this macro is intended to serve
 // as a prototype for a SIMD/ASM macro in which the __A-inputs are read from an array with arbitrary
 // index stride and the __t-outputs go into a block of contiguous local-allocated storage:
+//void ___RADIX_08_DIF_OOP() {}
 #define RADIX_08_DIF_OOP(\
-	__Ar0,__Ai0,\
-	__Ar1,__Ai1,\
-	__Ar2,__Ai2,\
-	__Ar3,__Ai3,\
-	__Ar4,__Ai4,\
-	__Ar5,__Ai5,\
-	__Ar6,__Ai6,\
-	__Ar7,__Ai7,\
-	__tr0,__ti0,\
-	__tr1,__ti1,\
-	__tr2,__ti2,\
-	__tr3,__ti3,\
-	__tr4,__ti4,\
-	__tr5,__ti5,\
-	__tr6,__ti6,\
-	__tr7,__ti7)\
+	__Ar0,__Ai0,__Ar1,__Ai1,__Ar2,__Ai2,__Ar3,__Ai3,__Ar4,__Ai4,__Ar5,__Ai5,__Ar6,__Ai6,__Ar7,__Ai7,\
+	__tr0,__ti0,__tr1,__ti1,__tr2,__ti2,__tr3,__ti3,__tr4,__ti4,__tr5,__ti5,__tr6,__ti6,__tr7,__ti7)\
 {\
 	double __rt,__it;\
 	__tr0 = __Ar0;			__ti0 = __Ai0;\
@@ -695,6 +630,7 @@ Totals: 72 ADD, 16 MUL	*/
 // scalars or array locations, but the __B-naming indicates that this macro is intended to serve
 // as a prototype for a SIMD/ASM macro in which the __t-inputs are read from a block of contiguous
 // local-allocated storage and the __B-outputs go into an array with arbitrary index stride:
+//void ___RADIX_08_DIF_TWIDDLE_OOP() {}
 #define RADIX_08_DIF_TWIDDLE_OOP(\
 	__tr0,__ti0,/* Inputs */\
 	__tr1,__ti1,\
@@ -782,23 +718,10 @@ Totals: 72 ADD, 16 MUL	*/
 // scalars or array locations, but the __A-naming indicates that this macro is intended to serve
 // as a prototype for a SIMD/ASM macro in which the __A-inputs are read from an array with arbitrary
 // index stride and the __t-outputs go into a block of contiguous local-allocated storage:
+//void ___RADIX_08_DIT_OOP() {}
 #define RADIX_08_DIT_OOP(\
-	__Ar0,__Ai0,\
-	__Ar1,__Ai1,\
-	__Ar2,__Ai2,\
-	__Ar3,__Ai3,\
-	__Ar4,__Ai4,\
-	__Ar5,__Ai5,\
-	__Ar6,__Ai6,\
-	__Ar7,__Ai7,\
-	__tr0,__ti0,\
-	__tr1,__ti1,\
-	__tr2,__ti2,\
-	__tr3,__ti3,\
-	__tr4,__ti4,\
-	__tr5,__ti5,\
-	__tr6,__ti6,\
-	__tr7,__ti7)\
+	__Ar0,__Ai0,__Ar1,__Ai1,__Ar2,__Ai2,__Ar3,__Ai3,__Ar4,__Ai4,__Ar5,__Ai5,__Ar6,__Ai6,__Ar7,__Ai7,\
+	__tr0,__ti0,__tr1,__ti1,__tr2,__ti2,__tr3,__ti3,__tr4,__ti4,__tr5,__ti5,__tr6,__ti6,__tr7,__ti7)\
 {\
 	double __rt,__it;\
 	__tr0 = __Ar0;			__ti0 = __Ai0;\
@@ -865,6 +788,7 @@ Totals: 72 ADD, 16 MUL	*/
 //
 #if 1	// Set = 1 to enable debug-prints in easier-to-follow 1st version
 /* Original-version code: */\
+//void ___RADIX_08_DIT_TWIDDLE_OOP() {}
 #define RADIX_08_DIT_TWIDDLE_OOP(\
 	__tr0,__ti0,/* Inputs */\
 	__tr1,__ti1,\
@@ -979,6 +903,7 @@ printf("7 = %20.10e %20.10e\n",__tr7,__ti7);\
 #else
 /* Rewrite with x86 ISA and SSE2/16-register target: Assume 16 registers _r0-f available, all arithmetic is on these: */
 /* In 16-register mode Block pairs 0/1,2/3 and 4/5,6/7 can be done at same time; 8-register mode just replace _r8-f with _r0-7. */
+//void ___RADIX_08_DIT_TWIDDLE_OOP() {}
 #define RADIX_08_DIT_TWIDDLE_OOP(\
 	__tr0,__ti0,/* Inputs */\
 	__tr1,__ti1,\
@@ -1141,31 +1066,11 @@ printf("7 = %20.10e %20.10e\n",__tr7,__ti7);\
 
 
 /* Totals: 52 ADD, 4 MUL	*/
+//void ___RADIX_08_DIF_PFETCH() {}
 #define RADIX_08_DIF_PFETCH(\
-	__Ar0,__Ai0,\
-	__Ar1,__Ai1,\
-	__Ar2,__Ai2,\
-	__Ar3,__Ai3,\
-	__Ar4,__Ai4,\
-	__Ar5,__Ai5,\
-	__Ar6,__Ai6,\
-	__Ar7,__Ai7,\
-	__tr0,__ti0,\
-	__tr1,__ti1,\
-	__tr2,__ti2,\
-	__tr3,__ti3,\
-	__tr4,__ti4,\
-	__tr5,__ti5,\
-	__tr6,__ti6,\
-	__tr7,__ti7,\
-	__Br0,__Bi0,\
-	__Br1,__Bi1,\
-	__Br2,__Bi2,\
-	__Br3,__Bi3,\
-	__Br4,__Bi4,\
-	__Br5,__Bi5,\
-	__Br6,__Bi6,\
-	__Br7,__Bi7,\
+	__Ar0,__Ai0,__Ar1,__Ai1,__Ar2,__Ai2,__Ar3,__Ai3,__Ar4,__Ai4,__Ar5,__Ai5,__Ar6,__Ai6,__Ar7,__Ai7,\
+	__tr0,__ti0,__tr1,__ti1,__tr2,__ti2,__tr3,__ti3,__tr4,__ti4,__tr5,__ti5,__tr6,__ti6,__tr7,__ti7,\
+	__Br0,__Bi0,__Br1,__Bi1,__Br2,__Bi2,__Br3,__Bi3,__Br4,__Bi4,__Br5,__Bi5,__Br6,__Bi6,__Br7,__Bi7,\
 	__rt,__it,\
 	__add_offset0,__add_offset1,__add_offset2,__add_offset3,__add_offset4)\
 {\
@@ -1233,31 +1138,11 @@ addr = add0 + __add_offset4;	prefetch_p_doubles(addr);\
 }
 
 /* Totals: 52 ADD, 4 MUL	*/
+//void ___RADIX_08_DIT() {}
 #define RADIX_08_DIT(\
-	__Ar0,__Ai0,\
-	__Ar1,__Ai1,\
-	__Ar2,__Ai2,\
-	__Ar3,__Ai3,\
-	__Ar4,__Ai4,\
-	__Ar5,__Ai5,\
-	__Ar6,__Ai6,\
-	__Ar7,__Ai7,\
-	__tr0,__ti0,\
-	__tr1,__ti1,\
-	__tr2,__ti2,\
-	__tr3,__ti3,\
-	__tr4,__ti4,\
-	__tr5,__ti5,\
-	__tr6,__ti6,\
-	__tr7,__ti7,\
-	__Br0,__Bi0,\
-	__Br1,__Bi1,\
-	__Br2,__Bi2,\
-	__Br3,__Bi3,\
-	__Br4,__Bi4,\
-	__Br5,__Bi5,\
-	__Br6,__Bi6,\
-	__Br7,__Bi7,\
+	__Ar0,__Ai0,__Ar1,__Ai1,__Ar2,__Ai2,__Ar3,__Ai3,__Ar4,__Ai4,__Ar5,__Ai5,__Ar6,__Ai6,__Ar7,__Ai7,\
+	__tr0,__ti0,__tr1,__ti1,__tr2,__ti2,__tr3,__ti3,__tr4,__ti4,__tr5,__ti5,__tr6,__ti6,__tr7,__ti7,\
+	__Br0,__Bi0,__Br1,__Bi1,__Br2,__Bi2,__Br3,__Bi3,__Br4,__Bi4,__Br5,__Bi5,__Br6,__Bi6,__Br7,__Bi7,\
 	__rt,__it)\
 {\
 	__tr0 = __Ar0;			__ti0 = __Ai0;\
@@ -1314,11 +1199,20 @@ addr = add0 + __add_offset4;	prefetch_p_doubles(addr);\
 
 /****** RADIX = 9: ******/
 
-/*...Radix-9 DIF: A/Bs are in/outputs and t's are temporaries (all doubles): */
-/* Totals: 80 ADD, 40 MUL	*/
-#define RADIX_09_DIF(__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i\
-                    ,__t00,__t01,__t02,__t03,__t04,__t05,__t06,__t07,__t08,__t09,__t0a,__t0b,__t0c,__t0d,__t0e,__t0f,__t0g,__t0h\
-                    ,__rt,__it,__tt)\
+// Radix-9 DIF: A/Bs are in/outputs and t's are temporaries (all doubles). Totals: [80 ADD, 40 MUL]
+/*
+Apr 2016: On revisiting the radix-9 DFTs (cf. FMA-oriented macros below), my test_fft_radix code
+says the below DIF outputs need to be permuted as [0,3,6,1,4,7,2,5,8], i.e. should occur in-order:
+[0,1,2,3,4,5,6,7,8] ... above scrambling permits in-place-ness w.r.to the non-array temporaries t00-t0h.
+In any event said higher radices are based on the above ordering, just something for future readers of
+this code to be aware of. If you need a radix-9 DIF macro with the proper output ordering use the
+RADIX_09_DIF_FMA-named analog of this macro below.
+*/
+//void ___RADIX_09_DIF() {}
+#define RADIX_09_DIF(\
+	__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,\
+	__t00,__t01,__t02,__t03,__t04,__t05,__t06,__t07,__t08,__t09,__t0a,__t0b,__t0c,__t0d,__t0e,__t0f,__t0g,__t0h,\
+	__rt,__it,__tt)\
 {\
 /*...gather the needed data (9 64-bit complex, i.e. 18 64-bit reals) and do three radix-3 transforms...	*/\
 	__t00 =__A0r;				__t01 =__A0i;\
@@ -1378,12 +1272,23 @@ addr = add0 + __add_offset4;	prefetch_p_doubles(addr);\
 	__t0a =__t0a-__it;			__t0b =__t0b+__rt;\
 }
 
-
-/*...Radix-9 DIT: t's are temporaries and As are outputs (all doubles) */
-/* Totals: 68 ADD, 40 MUL	*/
-#define RADIX_09_DIT(__t00,__t01,__t02,__t03,__t04,__t05,__t06,__t07,__t08,__t09,__t0a,__t0b,__t0c,__t0d,__t0e,__t0f,__t0g,__t0h\
-					,__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i\
-                    ,__rt,__it,__tt)\
+// Radix-9 DIT: t's are temporaries and As are outputs (all doubles). Totals: [80 ADD, 40 MUL]
+/*
+Apr 2016: On revisiting the radix-9 DFTs (cf. FMA-oriented macros below), my test_fft_radix code
+says the above DIT outputs need to be permuted as [0,4,8,3,7,2,6,1,5], i.e. should occur in order
+[0,3,6,1,4,7,2,5,8] ... not sure now why I use the above scrambling but suspect it has to do with
+easing the unscrambling/in-place-ness of higher-radices based on radix-9 such as 36.144,288 ...
+in the DIF version of radix-9 a similar output scrambling is justified by the outputs being written
+what are assumed to be local scalars, but that is not the case for DIT.
+In any event said higher radices are based on the above ordering, just something for futre readers of
+this code to be aware of. If you need a radix-9 DIT macro with the proper output ordering use the
+RADIX_09_DIT_FMA-named analog of this macro below.
+*/
+//void ___RADIX_09_DIT() {}
+#define RADIX_09_DIT(\
+	__t00,__t01,__t02,__t03,__t04,__t05,__t06,__t07,__t08,__t09,__t0a,__t0b,__t0c,__t0d,__t0e,__t0f,__t0g,__t0h,\
+	__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,\
+	__rt,__it,__tt)\
 {\
 /*...gather the needed data (9 64-b__it complex, i.e. 18 64-b__it reals) and do three radix-3 transforms...	*/\
 	__rt  =__t02;				__it  =__t03;\
@@ -1422,7 +1327,8 @@ addr = add0 + __add_offset4;	prefetch_p_doubles(addr);\
 	__rt  =s3*__t0c;			__it  =s3*__t0d;\
 	__A3r =__t06+__it;			__A3i =__t07-__rt;\
 	__A6r =__t06-__it;			__A6i =__t07+__rt;\
-\
+/* If A and t-terms map to same memlocs (i.e. caller doing an in-place radix-9 DIT), above
+radix-3 pass 2 output-writes just clobbered t00,1,6,7,c,d (via A0,3,6)...  */\
 	__rt  =__t08*c +__t09*s;	__it  =__t09*c -__t08*s;\
 	__tt  =__t0e*c2+__t0f*s2;	__t0f =__t0f*c2-__t0e*s2;	__t0e=__tt;\
 	__t08 =__rt+__t0e;			__t09 =__it+__t0f;\
@@ -1446,12 +1352,154 @@ addr = add0 + __add_offset4;	prefetch_p_doubles(addr);\
 	__A2r =__t0a-__it;			__A2i =__t0b+__rt;\
 }
 
+
+/* FMA-optimized Radix-9 DIF -- Totals: [84 ADD, 44 MUL], thus slightly worse than above
+two-[radix-3-triplet]-passes version for non-FMA implementation. With FMA, the cost drops
+to [44 ADD, 44 MUL/FMA], in FMA-heaviest version (but still one with no trivial FMA). The
+latter is just a tad better than the [46 ADD, 44 MUL/FMA] cost of my AVX2 implementation
+of the above two-[radix-3-triplet]-passes version.
+
+Basic approach here same as for add-prime radices, plus some added opts resulting from the
+special form of the E3-multiplied terms in rows 3,6, cols 3,6 of our matrix-multiply DFT.
+Base-root is E := exp(I*2*Pi/9), here are needed powers and symmetries:
+
+	E   =  0.7660444431189780352023926506 + 0.6427876096865393263226434099*I
+	E^2 =  0.1736481776669303488517166268 + 0.9848077530122080593667430246*I
+	E^3 = -0.5000000000000000000000000000 + 0.8660254037844386467637231707*I = [-1 + I*sqrt(3)]/2
+	E^4 = -0.9396926207859083840541092773 + 0.3420201433256687330440996146*I
+	E^5,6,78 = ~E4,3,2,1, and higher powers map to these simply via E^n = E^(n mod 9).
+
+Thus our DFT matrix is
+
+		1	1	1	1	1	|	1	1	1	1
+		--------------------|------------------
+		1	E1	E2	E3	E4	|	E4~	E3~	E2~	E1~
+		1	E2	E4	E3~	E1~	|	E1	E3	E4~	E2~
+		1	E3	E3~	1	E3	|	E3~	1	E3	E3~
+		1	E4	E1~	E3	E2~	|	E2	E3~	E1	E4~
+		--------------------|------------------
+		1	E4~	E1	E3~	E2	|	E2~	E3	E1~	E4
+		1	E3~	E3	1	E3~	|	E3	1	E3~	E3
+		1	E2~	E4~	E3	E1	|	E1~	E3~	E4	E2
+		1	E1~	E2~	E3~	E4~	|	E4	E3	E2	E1 ;
+
+the upper left 3 x 3 E-submatrix gives the form of our mini-convolutions, with ~ terms having negative
+sine multipliers, i.e. Ej~ ==> -sin(2*Pi*j/9) .
+*/
+//void ___RADIX_09_DIF_FMA() {}
+#define RADIX_09_DIF_FMA(\
+	__Ar0,__Ai0,__Ar1,__Ai1,__Ar2,__Ai2,__Ar3,__Ai3,__Ar4,__Ai4,__Ar5,__Ai5,__Ar6,__Ai6,__Ar7,__Ai7,__Ar8,__Ai8,\
+	__Br0,__Bi0,__Br1,__Bi1,__Br2,__Bi2,__Br3,__Bi3,__Br4,__Bi4,__Br5,__Bi5,__Br6,__Bi6,__Br7,__Bi7,__Br8,__Bi8,\
+	__cc1,__ss1, __cc2,__ss2, __cc3,__ss3, __cc4,__ss4)\
+{\
+double __tr0,__tr1,__tr2,__tr3,__tr4,__tr5,__tr6,__tr7, __ti0,__ti1,__ti2,__ti3,__ti4,__ti5,__ti6,__ti7, __rt,__it;\
+	__rt  = __Ar8;								__it  = __Ai8;	/* Copies needed for in-place capability */\
+	__Br8 = __Ar1 - __rt;						__Bi8 = __Ai1 - __it;	/* x1 - x8 */\
+	__Br1 = __Ar1 + __rt;						__Bi1 = __Ai1 + __it;	/* x1 + x8 */\
+	__rt  = __Ar7;								__it  = __Ai7;	/* Copies needed for in-place capability */\
+	__Br7 = __Ar2 - __rt;						__Bi7 = __Ai2 - __it;	/* x2 - x7 */\
+	__Br2 = __Ar2 + __rt;						__Bi2 = __Ai2 + __it;	/* x2 + x7 */\
+	__rt  = __Ar6;								__it  = __Ai6;	/* Copies needed for in-place capability */\
+	__Br6 = __Ar3 - __rt;						__Bi6 = __Ai3 - __it;	/* x3 - x6 */\
+	__Br3 = __Ar3 + __rt;						__Bi3 = __Ai3 + __it;	/* x3 + x6 */\
+	__rt  = __Ar5;								__it  = __Ai5;	/* Copies needed for in-place capability */\
+	__Br5 = __Ar4 - __rt;						__Bi5 = __Ai4 - __it;	/* x4 - x5 */\
+	__Br4 = __Ar4 + __rt;						__Bi4 = __Ai4 + __it;	/* x4 + x5 *//* 16 add */\
+	/* Total cost of 'mini-convo' mid-sequence: [52 add, 44 mul] for non-fma; [12 add, 44 fma] with fma.
+	Must compute A0 + cc3*B3 before B0 here since A0,B0 may coincide: */\
+	__tr3 = __Ar0 + __cc3*__Br3;				__ti3 = __Ai0 + __cc3*__Bi3;	/* 2 fma */\
+	__Br0 = __Ar0 + __Br3;						__Bi0 = __Ai0 + __Bi3;			/* 2 add */\
+	__rt  = __Br1 + __Br2 + __Br4;				__it  = __Bi1 + __Bi2 + __Bi4;	/* 4 add */\
+	__tr2 = __Br0 + __cc3*__rt;					__ti2 = __Bi0 + __cc3*__it;		/* 2 fma */\
+	__Br0 += __rt;								__Bi0 += __it;	/* DC output */	/* 2 add */\
+	__tr0 = __tr3 + __cc1*__Br1 + __cc2*__Br2 + __cc4*__Br4;	/* 6 fma (Combining counts of Re,Im-parts) */\
+	__tr1 = __tr3 + __cc2*__Br1 + __cc4*__Br2 + __cc1*__Br4;	/* 6 fma */\
+	__tr3 +=        __cc4*__Br1 + __cc1*__Br2 + __cc2*__Br4;	/* 6 fma */\
+												__ti0 = __ti3 + __cc1*__Bi1 + __cc2*__Bi2 + __cc4*__Bi4;\
+												__ti1 = __ti3 + __cc2*__Bi1 + __cc4*__Bi2 + __cc1*__Bi4;\
+												__ti3 +=        __cc4*__Bi1 + __cc1*__Bi2 + __cc2*__Bi4;\
+	__rt  = __ss3*__Br6;						__it  = __ss3*__Bi6;/* 2 mul */\
+	__tr4 =  __rt + __ss1*__Br8 + __ss2*__Br7 + __ss4*__Br5;	/* 6 fma (Combining counts of Re,Im-parts) */\
+	__tr5 = -__rt + __ss2*__Br8 + __ss4*__Br7 - __ss1*__Br5;	/* 6 fma */\
+	__tr6 =        __ss3*(__Br8 -       __Br7 +       __Br5);	/* 2 mul, 4 add */\
+	__tr7 =  __rt + __ss4*__Br8 - __ss1*__Br7 - __ss2*__Br5;	/* 6 fma */\
+												__ti4 =  __it + __ss1*__Bi8 + __ss2*__Bi7 + __ss4*__Bi5;\
+												__ti5 = -__it + __ss2*__Bi8 + __ss4*__Bi7 - __ss1*__Bi5;\
+												__ti6 =        __ss3*(__Bi8 -       __Bi7 +       __Bi5);\
+												__ti7 =  __it + __ss4*__Bi8 - __ss1*__Bi7 - __ss2*__Bi5;\
+	/* Output permutation = [0,3,6,1,4,7,2,5,8]: */\
+	__Br3 = __tr0 - __ti4;						__Bi3 = __ti0 + __tr4;\
+	__Br6 = __tr1 - __ti5;						__Bi6 = __ti1 + __tr5;\
+	__Br1 = __tr2 - __ti6;						__Bi1 = __ti2 + __tr6;\
+	__Br4 = __tr3 - __ti7;						__Bi4 = __ti3 + __tr7;\
+	__Br7 = __tr3 + __ti7;						__Bi7 = __ti3 - __tr7;\
+	__Br2 = __tr2 + __ti6;						__Bi2 = __ti2 - __tr6;\
+	__Br5 = __tr1 + __ti5;						__Bi5 = __ti1 - __tr5;\
+	__Br8 = __tr0 + __ti4;						__Bi8 = __ti0 - __tr4;	/* 16 add */\
+}
+
+//void ___RADIX_09_DIT_FMA() {}
+#define RADIX_09_DIT_FMA(\
+	__Ar0,__Ai0,__Ar1,__Ai1,__Ar2,__Ai2,__Ar3,__Ai3,__Ar4,__Ai4,__Ar5,__Ai5,__Ar6,__Ai6,__Ar7,__Ai7,__Ar8,__Ai8,\
+	__Br0,__Bi0,__Br1,__Bi1,__Br2,__Bi2,__Br3,__Bi3,__Br4,__Bi4,__Br5,__Bi5,__Br6,__Bi6,__Br7,__Bi7,__Br8,__Bi8,\
+	__cc1,__ss1, __cc2,__ss2, __cc3,__ss3, __cc4,__ss4)\
+{\
+double __tr0,__tr1,__tr2,__tr3,__tr4,__tr5,__tr6,__tr7, __ti0,__ti1,__ti2,__ti3,__ti4,__ti5,__ti6,__ti7, __rt,__it;\
+/* Input ordering [0,3,6,1,4,7,2,5,8], i.e. unpermuted index pairs 1/8,2/7,3/6,4/5 map to 3/8,6/5,1/2,4/7: */\
+	__rt  = __Ar8;								__it  = __Ai8;	/* Copies needed for in-place capability */\
+	__Br8 = __Ar3 - __rt;						__Bi8 = __Ai3 - __it;	/* x1 - x8 */\
+	__Br3 = __Ar3 + __rt;						__Bi3 = __Ai3 + __it;	/* x1 + x8 */\
+	__rt  = __Ar5;								__it  = __Ai5;	/* Copies needed for in-place capability */\
+	__Br5 = __Ar6 - __rt;						__Bi5 = __Ai6 - __it;	/* x2 - x7 */\
+	__Br6 = __Ar6 + __rt;						__Bi6 = __Ai6 + __it;	/* x2 + x7 */\
+	__rt  = __Ar2;								__it  = __Ai2;	/* Copies needed for in-place capability */\
+	__Br2 = __Ar1 - __rt;						__Bi2 = __Ai1 - __it;	/* x3 - x6 */\
+	__Br1 = __Ar1 + __rt;						__Bi1 = __Ai1 + __it;	/* x3 + x6 */\
+	__rt  = __Ar7;								__it  = __Ai7;	/* Copies needed for in-place capability */\
+	__Br7 = __Ar4 - __rt;						__Bi7 = __Ai4 - __it;	/* x4 - x5 */\
+	__Br4 = __Ar4 + __rt;						__Bi4 = __Ai4 + __it;	/* x4 + x5 */\
+/* B-terms here subject to same permutation as inputs, [0,3,6,1,4,7,2,5,8]: */\
+	/* Must compute A0 + cc3*B3 before B0 here since A0,B0 may coincide: */\
+	__tr3 = __Ar0 + __cc3*__Br1;				__ti3 = __Ai0 + __cc3*__Bi1;	\
+	__Br0 = __Ar0 + __Br1;						__Bi0 = __Ai0 + __Bi1;			\
+	__rt  = __Br3 + __Br6 + __Br4;				__it  = __Bi3 + __Bi6 + __Bi4;	\
+	__tr2 = __Br0 + __cc3*__rt;					__ti2 = __Bi0 + __cc3*__it;		\
+	__Br0 += __rt;								__Bi0 += __it;	/* DB output */	\
+	__tr0 = __tr3 + __cc1*__Br3 + __cc2*__Br6 + __cc4*__Br4;\
+	__tr1 = __tr3 + __cc2*__Br3 + __cc4*__Br6 + __cc1*__Br4;\
+	__tr3 +=        __cc4*__Br3 + __cc1*__Br6 + __cc2*__Br4;\
+												__ti0 = __ti3 + __cc1*__Bi3 + __cc2*__Bi6 + __cc4*__Bi4;\
+												__ti1 = __ti3 + __cc2*__Bi3 + __cc4*__Bi6 + __cc1*__Bi4;\
+												__ti3 +=        __cc4*__Bi3 + __cc1*__Bi6 + __cc2*__Bi4;\
+	__rt  = __ss3*__Br2;						__it  = __ss3*__Bi2;\
+	__tr4 =  __rt + __ss1*__Br8 + __ss2*__Br5 + __ss4*__Br7;\
+	__tr5 = -__rt + __ss2*__Br8 + __ss4*__Br5 - __ss1*__Br7;\
+	__tr6 =        __ss3*(__Br8 -       __Br5 +       __Br7);\
+	__tr7 =  __rt + __ss4*__Br8 - __ss1*__Br5 - __ss2*__Br7;\
+												__ti4 =  __it + __ss1*__Bi8 + __ss2*__Bi5 + __ss4*__Bi7;\
+												__ti5 = -__it + __ss2*__Bi8 + __ss4*__Bi5 - __ss1*__Bi7;\
+												__ti6 =        __ss3*(__Bi8 -       __Bi5 +       __Bi7);\
+												__ti7 =  __it + __ss4*__Bi8 - __ss1*__Bi5 - __ss2*__Bi7;\
+	/* No output permutation in DIT case - note if wanted to share roots with DIF (i.e. use non-conjugated
+	9th roots of unity here), would need to flip +- signs here: */\
+	__Br1 = __tr0 + __ti4;						__Bi1 = __ti0 - __tr4;\
+	__Br2 = __tr1 + __ti5;						__Bi2 = __ti1 - __tr5;\
+	__Br3 = __tr2 + __ti6;						__Bi3 = __ti2 - __tr6;\
+	__Br4 = __tr3 + __ti7;						__Bi4 = __ti3 - __tr7;\
+	__Br5 = __tr3 - __ti7;						__Bi5 = __ti3 + __tr7;\
+	__Br6 = __tr2 - __ti6;						__Bi6 = __ti2 + __tr6;\
+	__Br7 = __tr1 - __ti5;						__Bi7 = __ti1 + __tr5;\
+	__Br8 = __tr0 - __ti4;						__Bi8 = __ti0 + __tr4;\
+}
+
 /****** RADIX = 11: ******/
 
 /*...Simple-algo Radix-11 DFT.  Totals: 140 ADD, 100 MUL	*/
-#define RADIX_11_DFT_BASIC(__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__Aar,__Aai\
-					,__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__Bar,__Bai\
-					,_cc1,_cc2,_cc3,_cc4,_cc5,_ss1,_ss2,_ss3,_ss4,_ss5)\
+//void ___RADIX_11_DFT_BASIC() {}
+#define RADIX_11_DFT_BASIC(\
+	__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__Aar,__Aai,\
+	__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__Bar,__Bai,\
+	_cc1,_cc2,_cc3,_cc4,_cc5,_ss1,_ss2,_ss3,_ss4,_ss5)\
 {\
 	double _t0r,_t0i,_t1r,_t1i,_t2r,_t2i,_t3r,_t3i,_t4r,_t4i,_t5r,_t5i,_t6r,_t6i,_t7r,_t7i,_t8r,_t8i,_t9r,_t9i,_tar,_tai;\
 	double _cr1,_cr2,_cr3,_cr4,_cr5,_ci1,_ci2,_ci3,_ci4,_ci5,_sr1,_sr2,_sr3,_sr4,_sr5,_si1,_si2,_si3,_si4,_si5;\
@@ -1467,20 +1515,88 @@ addr = add0 + __add_offset4;	prefetch_p_doubles(addr);\
 	_t8r = __A3r -__A8r;					_t8i = __A3i - __A8i;	/* x3 - x8	*/\
 	_t9r = __A2r -__A9r;					_t9i = __A2i - __A9i;	/* x2 - x9	*/\
 	_tar = __A1r -__Aar;					_tai = __A1i - __Aai;	/* x1 - x10	*/\
+/*\
+	_cr1 = _t0r+_cc1*_t1r+_cc2*_t2r+_cc3*_t3r+_cc4*_t4r+_cc5*_t5r;	_ci1 = _t0i+_cc1*_t1i+_cc2*_t2i+_cc3*_t3i+_cc4*_t4i+_cc5*_t5i;	// C1 //\
+	_cr2 = _t0r+_cc2*_t1r+_cc4*_t2r+_cc5*_t3r+_cc3*_t4r+_cc1*_t5r;	_ci2 = _t0i+_cc2*_t1i+_cc4*_t2i+_cc5*_t3i+_cc3*_t4i+_cc1*_t5i;	// C2 //\
+	_cr3 = _t0r+_cc3*_t1r+_cc5*_t2r+_cc2*_t3r+_cc1*_t4r+_cc4*_t5r;	_ci3 = _t0i+_cc3*_t1i+_cc5*_t2i+_cc2*_t3i+_cc1*_t4i+_cc4*_t5i;	// C3 //\
+	_cr4 = _t0r+_cc4*_t1r+_cc3*_t2r+_cc1*_t3r+_cc5*_t4r+_cc2*_t5r;	_ci4 = _t0i+_cc4*_t1i+_cc3*_t2i+_cc1*_t3i+_cc5*_t4i+_cc2*_t5i;	// C4 //\
+	_cr5 = _t0r+_cc5*_t1r+_cc1*_t2r+_cc4*_t3r+_cc2*_t4r+_cc3*_t5r;	_ci5 = _t0i+_cc5*_t1i+_cc1*_t2i+_cc4*_t3i+_cc2*_t4i+_cc3*_t5i;	// C5 //\
 \
-	_cr1 = _t0r+_cc1*_t1r+_cc2*_t2r+_cc3*_t3r+_cc4*_t4r+_cc5*_t5r;	_ci1 = _t0i+_cc1*_t1i+_cc2*_t2i+_cc3*_t3i+_cc4*_t4i+_cc5*_t5i;	/* C1	*/\
-	_cr2 = _t0r+_cc2*_t1r+_cc4*_t2r+_cc5*_t3r+_cc3*_t4r+_cc1*_t5r;	_ci2 = _t0i+_cc2*_t1i+_cc4*_t2i+_cc5*_t3i+_cc3*_t4i+_cc1*_t5i;	/* C2	*/\
-	_cr3 = _t0r+_cc3*_t1r+_cc5*_t2r+_cc2*_t3r+_cc1*_t4r+_cc4*_t5r;	_ci3 = _t0i+_cc3*_t1i+_cc5*_t2i+_cc2*_t3i+_cc1*_t4i+_cc4*_t5i;	/* C3	*/\
-	_cr4 = _t0r+_cc4*_t1r+_cc3*_t2r+_cc1*_t3r+_cc5*_t4r+_cc2*_t5r;	_ci4 = _t0i+_cc4*_t1i+_cc3*_t2i+_cc1*_t3i+_cc5*_t4i+_cc2*_t5i;	/* C4	*/\
-	_cr5 = _t0r+_cc5*_t1r+_cc1*_t2r+_cc4*_t3r+_cc2*_t4r+_cc3*_t5r;	_ci5 = _t0i+_cc5*_t1i+_cc1*_t2i+_cc4*_t3i+_cc2*_t4i+_cc3*_t5i;	/* C5	*/\
+	_sr1 =      _ss1*_tar+_ss2*_t9r+_ss3*_t8r+_ss4*_t7r+_ss5*_t6r;	_si1 =      _ss1*_tai+_ss2*_t9i+_ss3*_t8i+_ss4*_t7i+_ss5*_t6i;	// S1 //\
+	_sr2 =      _ss2*_tar+_ss4*_t9r-_ss5*_t8r-_ss3*_t7r-_ss1*_t6r;	_si2 =      _ss2*_tai+_ss4*_t9i-_ss5*_t8i-_ss3*_t7i-_ss1*_t6i;	// S2 //\
+	_sr3 =      _ss3*_tar-_ss5*_t9r-_ss2*_t8r+_ss1*_t7r+_ss4*_t6r;	_si3 =      _ss3*_tai-_ss5*_t9i-_ss2*_t8i+_ss1*_t7i+_ss4*_t6i;	// S3 //\
+	_sr4 =      _ss4*_tar-_ss3*_t9r+_ss1*_t8r+_ss5*_t7r-_ss2*_t6r;	_si4 =      _ss4*_tai-_ss3*_t9i+_ss1*_t8i+_ss5*_t7i-_ss2*_t6i;	// S4 //\
+	_sr5 =      _ss5*_tar-_ss1*_t9r+_ss4*_t8r-_ss2*_t7r+_ss3*_t6r;	_si5 =      _ss5*_tai-_ss1*_t9i+_ss4*_t8i-_ss2*_t7i+_ss3*_t6i;	// S5 //\
 \
-	_sr1 =      _ss1*_tar+_ss2*_t9r+_ss3*_t8r+_ss4*_t7r+_ss5*_t6r;	_si1 =      _ss1*_tai+_ss2*_t9i+_ss3*_t8i+_ss4*_t7i+_ss5*_t6i;	/* S1	*/\
-	_sr2 =      _ss2*_tar+_ss4*_t9r-_ss5*_t8r-_ss3*_t7r-_ss1*_t6r;	_si2 =      _ss2*_tai+_ss4*_t9i-_ss5*_t8i-_ss3*_t7i-_ss1*_t6i;	/* S2	*/\
-	_sr3 =      _ss3*_tar-_ss5*_t9r-_ss2*_t8r+_ss1*_t7r+_ss4*_t6r;	_si3 =      _ss3*_tai-_ss5*_t9i-_ss2*_t8i+_ss1*_t7i+_ss4*_t6i;	/* S3	*/\
-	_sr4 =      _ss4*_tar-_ss3*_t9r+_ss1*_t8r+_ss5*_t7r-_ss2*_t6r;	_si4 =      _ss4*_tai-_ss3*_t9i+_ss1*_t8i+_ss5*_t7i-_ss2*_t6i;	/* S4	*/\
-	_sr5 =      _ss5*_tar-_ss1*_t9r+_ss4*_t8r-_ss2*_t7r+_ss3*_t6r;	_si5 =      _ss5*_tai-_ss1*_t9i+_ss4*_t8i-_ss2*_t7i+_ss3*_t6i;	/* S5	*/\
+	__B0r = _t0r+_t1r+_t2r+_t3r+_t4r+_t5r;	__B0i = _t0i+_t1i+_t2i+_t3i+_t4i+_t5i;	// X0 //\
+*/\
+	/* Try a version which aims to make it esier for the compiler to do a good job: */\
+	__B0r = _t0r;	__B0i = _t0i;	/* X0 accumulators */\
+	_cr1 = _t0r+_cc1*_t1r;	_ci1 = _t0i+_cc1*_t1i;\
+	_cr2 = _t0r+_cc2*_t1r;	_ci2 = _t0i+_cc2*_t1i;\
+	_cr3 = _t0r+_cc3*_t1r;	_ci3 = _t0i+_cc3*_t1i;\
+	_cr4 = _t0r+_cc4*_t1r;	_ci4 = _t0i+_cc4*_t1i;\
+	_cr5 = _t0r+_cc5*_t1r;	_ci5 = _t0i+_cc5*_t1i;\
+	__B0r += _t1r;	__B0i += _t1i;\
 \
-	__B0r = _t0r+_t1r+_t2r+_t3r+_t4r+_t5r;	__B0i = _t0i+_t1i+_t2i+_t3i+_t4i+_t5i;	/* X0	*/\
+	_cr1 += _cc2*_t2r;	_ci1 += _cc2*_t2i;\
+	_cr2 += _cc4*_t2r;	_ci2 += _cc4*_t2i;\
+	_cr3 += _cc5*_t2r;	_ci3 += _cc5*_t2i;\
+	_cr4 += _cc3*_t2r;	_ci4 += _cc3*_t2i;\
+	_cr5 += _cc1*_t2r;	_ci5 += _cc1*_t2i;\
+	__B0r += _t2r;	__B0i += _t2i;\
+\
+	_cr1 += _cc3*_t3r;	_ci1 += _cc3*_t3i;\
+	_cr2 += _cc5*_t3r;	_ci2 += _cc5*_t3i;\
+	_cr3 += _cc2*_t3r;	_ci3 += _cc2*_t3i;\
+	_cr4 += _cc1*_t3r;	_ci4 += _cc1*_t3i;\
+	_cr5 += _cc4*_t3r;	_ci5 += _cc4*_t3i;\
+	__B0r += _t3r;	__B0i += _t3i;\
+\
+	_cr1 += _cc4*_t4r;	_ci1 += _cc4*_t4i;\
+	_cr2 += _cc3*_t4r;	_ci2 += _cc3*_t4i;\
+	_cr3 += _cc1*_t4r;	_ci3 += _cc1*_t4i;\
+	_cr4 += _cc5*_t4r;	_ci4 += _cc5*_t4i;\
+	_cr5 += _cc2*_t4r;	_ci5 += _cc2*_t4i;\
+	__B0r += _t4r;	__B0i += _t4i;\
+\
+	_cr1 += _cc5*_t5r;	_ci1 += _cc5*_t5i;\
+	_cr2 += _cc1*_t5r;	_ci2 += _cc1*_t5i;\
+	_cr3 += _cc4*_t5r;	_ci3 += _cc4*_t5i;\
+	_cr4 += _cc2*_t5r;	_ci4 += _cc2*_t5i;\
+	_cr5 += _cc3*_t5r;	_ci5 += _cc3*_t5i;\
+	__B0r += _t5r;	__B0i += _t5i;\
+\
+	_sr1 =      _ss1*_tar;	_si1 =      _ss1*_tai;\
+	_sr2 =      _ss2*_tar;	_si2 =      _ss2*_tai;\
+	_sr3 =      _ss3*_tar;	_si3 =      _ss3*_tai;\
+	_sr4 =      _ss4*_tar;	_si4 =      _ss4*_tai;\
+	_sr5 =      _ss5*_tar;	_si5 =      _ss5*_tai;\
+\
+	_sr1 += _ss2*_t9r;	_si1 += _ss2*_t9i;\
+	_sr2 += _ss4*_t9r;	_si2 += _ss4*_t9i;\
+	_sr3 -= _ss5*_t9r;	_si3 -= _ss5*_t9i;\
+	_sr4 -= _ss3*_t9r;	_si4 -= _ss3*_t9i;\
+	_sr5 -= _ss1*_t9r;	_si5 -= _ss1*_t9i;\
+\
+	_sr1 += _ss3*_t8r;	_si1 += _ss3*_t8i;\
+	_sr2 -= _ss5*_t8r;	_si2 -= _ss5*_t8i;\
+	_sr3 -= _ss2*_t8r;	_si3 -= _ss2*_t8i;\
+	_sr4 += _ss1*_t8r;	_si4 += _ss1*_t8i;\
+	_sr5 += _ss4*_t8r;	_si5 += _ss4*_t8i;\
+\
+	_sr1 += _ss4*_t7r;	_si1 += _ss4*_t7i;\
+	_sr2 -= _ss3*_t7r;	_si2 -= _ss3*_t7i;\
+	_sr3 += _ss1*_t7r;	_si3 += _ss1*_t7i;\
+	_sr4 += _ss5*_t7r;	_si4 += _ss5*_t7i;\
+	_sr5 -= _ss2*_t7r;	_si5 -= _ss2*_t7i;\
+\
+	_sr1 += _ss5*_t6r;	_si1 += _ss5*_t6i;\
+	_sr2 -= _ss1*_t6r;	_si2 -= _ss1*_t6i;\
+	_sr3 += _ss4*_t6r;	_si3 += _ss4*_t6i;\
+	_sr4 -= _ss2*_t6r;	_si4 -= _ss2*_t6i;\
+	_sr5 += _ss3*_t6r;	_si5 += _ss3*_t6i;\
+/**/\
 	__B1r = _cr1 - _si1;					__B1i = _ci1 + _sr1;	/* X1 = C1 + I*S1	*/\
 	__B2r = _cr2 - _si2;					__B2i = _ci2 + _sr2;	/* X2 = C2 + I*S2	*/\
 	__B3r = _cr3 - _si3;					__B3i = _ci3 + _sr3;	/* X3 = C3 + I*S3	*/\
@@ -1496,9 +1612,11 @@ addr = add0 + __add_offset4;	prefetch_p_doubles(addr);\
 /* FMA-oriented version - above simple-structure better for FMA than Nussbaumer:
 Totals: 50 ADD, 10 MUL, 90 FMA, i.e. trade 90 ADD + 90 MUL for 90 FMA, very nice.
 */
-#define RADIX_11_DFT_FMA(__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__Aar,__Aai\
-					,__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__Bar,__Bai\
-					,_cc1,_cc2,_cc3,_cc4,_cc5,_ss1,_ss2,_ss3,_ss4,_ss5)\
+//void ___RADIX_11_DFT_FMA() {}
+#define RADIX_11_DFT_FMA(\
+	__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__Aar,__Aai,\
+	__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__Bar,__Bai,\
+	_cc1,_cc2,_cc3,_cc4,_cc5,_ss1,_ss2,_ss3,_ss4,_ss5)\
 {\
 	double _t0r,_t0i,_t1r,_t1i,_t2r,_t2i,_t3r,_t3i,_t4r,_t4i,_t5r,_t5i,_t6r,_t6i,_t7r,_t7i,_t8r,_t8i,_t9r,_t9i,_tar,_tai;\
 	double _cr1,_cr2,_cr3,_cr4,_cr5,_ci1,_ci2,_ci3,_ci4,_ci5,_sr1,_sr2,_sr3,_sr4,_sr5,_si1,_si2,_si3,_si4,_si5;\
@@ -1619,9 +1737,11 @@ Totals: 50 ADD, 10 MUL, 90 FMA, i.e. trade 90 ADD + 90 MUL for 90 FMA, very nice
 }
 
 /*...Radix-11 DFT using length-5 cyclic convolution scheme for the 5 x 5 matrix submultiplies.  Totals: 160 ADD,  44 MUL	*/
-#define RADIX_11_DFT(__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__Aar,__Aai\
-					,__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__Bar,__Bai\
-					,_a0,_a1,_a2,_a3,_a4,_a5,_a6,_a7,_a8,_a9, _b0,_b1,_b2,_b3,_b4,_b5,_b6,_b7,_b8,_b9)\
+//void ___RADIX_11_DFT() {}
+#define RADIX_11_DFT(\
+	__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__Aar,__Aai,\
+	__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__Bar,__Bai,\
+	_a0,_a1,_a2,_a3,_a4,_a5,_a6,_a7,_a8,_a9, _b0,_b1,_b2,_b3,_b4,_b5,_b6,_b7,_b8,_b9)\
 {\
 	double _t3,_t4,_t5,_t6,_t7,_t8,_t9,_t10,_t11,_t12,_t13,_t14,_t15,_t16,_t17,_t18,_t19,_t20,_t21,_t22;\
 	double _cr1,_cr2,_cr3,_cr4,_cr5,_ci1,_ci2,_ci3,_ci4,_ci5,_sr1,_sr2,_sr3,_sr4,_sr5,_si1,_si2,_si3,_si4,_si5;\
@@ -1722,9 +1842,11 @@ let y0 = (x1-x10) = t21,22, y4 = (x9-x2) = -t19,20, y2 = (x3-x8) = t17,18, y3 = 
 
 //...Simple-algo Radix-13 DFT, which also works well in an FMA context.  Totals: 140 ADD, 100 MUL, or 40 ADD, 100 FMA.
 //
-#define RADIX_13_DFT_BASIC(__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__Aar,__Aai,__Abr,__Abi,__Acr,__Aci\
-					,__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__Bar,__Bai,__Bbr,__Bbi,__Bcr,__Bci\
-					,_cc1,_cc2,_cc3,_cc4,_cc5,_cc6,_ss1,_ss2,_ss3,_ss4,_ss5,_ss6)\
+//void ___RADIX_13_DFT_BASIC() {}
+#define RADIX_13_DFT_BASIC(\
+	__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__Aar,__Aai,__Abr,__Abi,__Acr,__Aci,\
+	__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__Bar,__Bai,__Bbr,__Bbi,__Bcr,__Bci,\
+	_cc1,_cc2,_cc3,_cc4,_cc5,_cc6,_ss1,_ss2,_ss3,_ss4,_ss5,_ss6)\
 {\
 	double _t0r,_t0i,_t1r,_t1i,_t2r,_t2i,_t3r,_t3i,_t4r,_t4i,_t5r,_t5i,_t6r,_t6i,_t7r,_t7i,_t8r,_t8i,_t9r,_t9i,_tar,_tai,_tbr,_tbi,_tcr,_tci;\
 	double _cr1,_cr2,_cr3,_cr4,_cr5,_cr6,_ci1,_ci2,_ci3,_ci4,_ci5,_ci6,_sr1,_sr2,_sr3,_sr4,_sr5,_sr6,_si1,_si2,_si3,_si4,_si5,_si6;\
@@ -1785,9 +1907,10 @@ Output ordering is as for DIF, so for DIT caller must reverse order of last 12 B
 ASSUMES that the needed DC and DS-constants have been defined in the calling routine via
 inclusion of the radix13.h header file..
 */
-#define RADIX_13_DFT(__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__Aar,__Aai,__Abr,__Abi,__Acr,__Aci\
-					,__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__Bar,__Bai,__Bbr,__Bbi,__Bcr,__Bci\
-					)\
+//void ___RADIX_13_DFT() {}
+#define RADIX_13_DFT(\
+	__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__Aar,__Aai,__Abr,__Abi,__Acr,__Aci,\
+	__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__Bar,__Bai,__Bbr,__Bbi,__Bcr,__Bci)\
 {\
 	double _xr0, _xi0, _xr1, _xi1, _xr2, _xi2, _xr3, _xi3, _xr4, _xi4, _xr5, _xi5, _xr6, _xi6, _xr7, _xi7;\
 	double _yr1, _yi1, _yr2, _yi2, _yr3, _yi3, _yr4, _yi4, _yr5, _yi5, _yr6, _yi6;\
@@ -1814,8 +1937,8 @@ inclusion of the radix13.h header file..
 		_xr3 = _xr4+_xr7;					_xi3 = _xi4+_xi7;\
 		_xr7 = _xr4-_xr7;					_xi7 = _xi4-_xi7;\
 		_xr1 = _xr2+_xr0+_xr3;				_xi1 = _xi2+_xi0+_xi3;\
-		_xr4 = __A0r+_xr1;				_xi4 = __A0i+_xi1;\
-		__B0r = _xr4;					__B0i = _xi4;\
+		_xr4 = __A0r+_xr1;					_xi4 = __A0i+_xi1;\
+		__B0r = _xr4;						__B0i = _xi4;\
 		_xr4 +=    DC1*_xr1;				_xi4 +=    DC1*_xi1;\
 		_xr1 = _xr4+DC2*_xr2+DC3*_xr0;		_xi1 = _xi4+DC2*_xi2+DC3*_xi0;\
 		_xr2 = _xr4+DC2*_xr3+DC3*_xr2;		_xi2 = _xi4+DC2*_xi3+DC3*_xi2;\
@@ -1838,7 +1961,7 @@ inclusion of the radix13.h header file..
 		_yr4 = _yr6-_yr4;		 			_yi4 = _yi6-_yi4;\
 		_xr1 = DS1*_xr4+DS2*_yr3;			_xi1 = DS1*_xi4+DS2*_yi3;\
 /* Need to use one output as a temporary here if have just 8 registers: */\
-		__B1i = DS1*_yr3-DS2*_xr4;		__B1r = DS1*_yi3-DS2*_xi4;\
+		__B1i = DS1*_yr3-DS2*_xr4;			__B1r = DS1*_yi3-DS2*_xi4;\
 		_yr3 = _yr1+_yr2;		 			_yi3 = _yi1+_yi2;\
 		_yr6 = _yr5+_yr4;					_yi6 = _yi5+_yi4;\
 		_xr4 = DS3*_yr3-DS6*_yr6;			_xi4 = DS3*_yi3-DS6*_yi6;\
@@ -1847,7 +1970,7 @@ inclusion of the radix13.h header file..
 		_yr2 = _yr3+DSa*_yr2-DS4*_yr4;		_yi2 = _yi3+DSa*_yi2-DS4*_yi4;\
 		_yr4 = _xr4+DS5*_yr1-DS8*_yr5;		_yi4 = _xi4+DS5*_yi1-DS8*_yi5;\
 		_yr3 = _yr3+DSb*_yr1-DS5*_yr5;		_yi3 = _yi3+DSb*_yi1-DS5*_yi5;\
-		_xr4 = __B1i;					_xi4 = __B1r;\
+		_xr4 = __B1i;						_xi4 = __B1r;\
 		_yr5 = _xr1+_yr6;					_yi5 = _xi1+_yi6;\
 		_yr6 = _yr6-_xr1-_yr2;				_yi6 = _yi6-_xi1-_yi2;\
 		_yr2 = _xr1-_yr2;					_yi2 = _xi1-_yi2;\
@@ -1874,37 +1997,14 @@ inclusion of the radix13.h header file..
 /****** RADIX = 15: ******/
 
 /* Totals: 162 ADD, 50 MUL	*/
+//void ___RADIX_15_DIF() {}
 #define RADIX_15_DIF(\
-	__Ar00,__Ai00,\
-	__Ar01,__Ai01,\
-	__Ar02,__Ai02,\
-	__Ar03,__Ai03,\
-	__Ar04,__Ai04,\
-	__Ar05,__Ai05,\
-	__Ar06,__Ai06,\
-	__Ar07,__Ai07,\
-	__Ar08,__Ai08,\
-	__Ar09,__Ai09,\
-	__Ar10,__Ai10,\
-	__Ar11,__Ai11,\
-	__Ar12,__Ai12,\
-	__Ar13,__Ai13,\
-	__Ar14,__Ai14,\
-	__Br00,__Bi00,\
-	__Br01,__Bi01,\
-	__Br02,__Bi02,\
-	__Br03,__Bi03,\
-	__Br04,__Bi04,\
-	__Br05,__Bi05,\
-	__Br06,__Bi06,\
-	__Br07,__Bi07,\
-	__Br08,__Bi08,\
-	__Br09,__Bi09,\
-	__Br10,__Bi10,\
-	__Br11,__Bi11,\
-	__Br12,__Bi12,\
-	__Br13,__Bi13,\
-	__Br14,__Bi14)\
+	__Ar00,__Ai00,__Ar01,__Ai01,__Ar02,__Ai02,__Ar03,__Ai03,__Ar04,__Ai04,\
+	__Ar05,__Ai05,__Ar06,__Ai06,__Ar07,__Ai07,__Ar08,__Ai08,__Ar09,__Ai09,\
+	__Ar10,__Ai10,__Ar11,__Ai11,__Ar12,__Ai12,__Ar13,__Ai13,__Ar14,__Ai14,\
+	__Br00,__Bi00,__Br01,__Bi01,__Br02,__Bi02,__Br03,__Bi03,__Br04,__Bi04,\
+	__Br05,__Bi05,__Br06,__Bi06,__Br07,__Bi07,__Br08,__Bi08,__Br09,__Bi09,\
+	__Br10,__Bi10,__Br11,__Bi11,__Br12,__Bi12,__Br13,__Bi13,__Br14,__Bi14)\
 {\
 	double _tr00,_ti00,_tr01,_ti01,_tr02,_ti02,_tr03,_ti03,_tr04,_ti04,_tr05,_ti05,_tr06,_ti06,_tr07,_ti07,_tr08,_ti08,_tr09,_ti09,_tr10,_ti10,_tr11,_ti11,_tr12,_ti12,_tr13,_ti13,_tr14,_ti14;\
 	double _rt,_it;\
@@ -1921,7 +2021,7 @@ inclusion of the radix13.h header file..
 	_tr04 = _tr02-_rt;			_ti04 = _ti02-_it;\
 	_tr02 = _tr02+_rt;			_ti02 = _ti02+_it;\
 \
-	_rt   = _tr01+_tr02;			_it   = _ti01+_ti02;\
+	_rt   = _tr01+_tr02;		_it   = _ti01+_ti02;\
 	_tr00 = _tr00+_rt;			_ti00 = _ti00+_it;\
 	_rt   = _tr00+cn1*_rt;		_it   = _ti00+cn1*_it;\
 	_tr02 = cn2*(_tr01-_tr02);	_ti02 = cn2*(_ti01-_ti02);\
@@ -1948,7 +2048,7 @@ inclusion of the radix13.h header file..
 	_tr09 = _tr07 -_rt;			_ti09 = _ti07 -_it;\
 	_tr07 = _tr07 +_rt;			_ti07 = _ti07 +_it;\
 \
-	_rt   = _tr06+_tr07;			_it   = _ti06+_ti07;\
+	_rt   = _tr06+_tr07;		_it   = _ti06+_ti07;\
 	_tr05 = _tr05+_rt;			_ti05 = _ti05+_it;\
 	_rt   = _tr05+cn1*_rt;		_it   = _ti05+cn1*_it;\
 	_tr07 = cn2*(_tr06-_tr07);	_ti07 = cn2*(_ti06-_ti07);\
@@ -1975,7 +2075,7 @@ inclusion of the radix13.h header file..
 	_tr14 = _tr12 -_rt;			_ti14 = _ti12 -_it;\
 	_tr12 = _tr12 +_rt;			_ti12 = _ti12 +_it;\
 \
-	_rt   = _tr11+_tr12;			_it   = _ti11+_ti12;\
+	_rt   = _tr11+_tr12;		_it   = _ti11+_ti12;\
 	_tr10 = _tr10+_rt;			_ti10 = _ti10+_it;\
 	_rt   = _tr10+cn1*_rt;		_it   = _ti10+cn1*_it;\
 	_tr12 = cn2*(_tr11-_tr12);	_ti12 = cn2*(_ti11-_ti12);\
@@ -1997,10 +2097,10 @@ inclusion of the radix13.h header file..
 	_rt   = _tr10;				_it   = _ti10;\
 	_tr10 = _tr05-_rt;			_ti10 = _ti05-_it;\
 	_tr05 = _tr05+_rt;			_ti05 = _ti05+_it;\
-	_tr00 = _tr00+_tr05;			_ti00 = _ti00+_ti05;\
+	_tr00 = _tr00+_tr05;		_ti00 = _ti00+_ti05;\
 	__Br00 = _tr00;				__Bi00 = _ti00;\
 	_tr05 = _tr00+c3m1*_tr05;	_ti05 = _ti00+c3m1*_ti05;\
-	_rt   = s*_tr10;				_it   = s*_ti10;\
+	_rt   = s*_tr10;			_it   = s*_ti10;\
 	__Br01 = _tr05-_it;			__Bi01 = _ti05+_rt;\
 	__Br02 = _tr05+_it;			__Bi02 = _ti05-_rt;\
 \
@@ -2008,10 +2108,10 @@ inclusion of the radix13.h header file..
 	_rt   = _tr11;				_it   = _ti11;\
 	_tr11 = _tr06-_rt;			_ti11 = _ti06-_it;\
 	_tr06 = _tr06+_rt;			_ti06 = _ti06+_it;\
-	_tr01 = _tr01+_tr06;			_ti01 = _ti01+_ti06;\
+	_tr01 = _tr01+_tr06;		_ti01 = _ti01+_ti06;\
 	__Br13 = _tr01;				__Bi13 = _ti01;\
 	_tr06 = _tr01+c3m1*_tr06;	_ti06 = _ti01+c3m1*_ti06;\
-	_rt   = s*_tr11;				_it   = s*_ti11;\
+	_rt   = s*_tr11;			_it   = s*_ti11;\
 	__Br14 = _tr06-_it;			__Bi14 = _ti06+_rt;\
 	__Br12 = _tr06+_it;			__Bi12 = _ti06-_rt;\
 \
@@ -2019,10 +2119,10 @@ inclusion of the radix13.h header file..
 	_rt   = _tr12;				_it   = _ti12;\
 	_tr12 = _tr07-_rt;			_ti12 = _ti07-_it;\
 	_tr07 = _tr07+_rt;			_ti07 = _ti07+_it;\
-	_tr02 = _tr02+_tr07;			_ti02 = _ti02+_ti07;\
+	_tr02 = _tr02+_tr07;		_ti02 = _ti02+_ti07;\
 	__Br09 = _tr02;				__Bi09 = _ti02;\
 	_tr07 = _tr02+c3m1*_tr07;	_ti07 = _ti02+c3m1*_ti07;\
-	_rt   = s*_tr12;				_it   = s*_ti12;\
+	_rt   = s*_tr12;			_it   = s*_ti12;\
 	__Br10 = _tr07-_it;			__Bi10 = _ti07+_rt;\
 	__Br11 = _tr07+_it;			__Bi11 = _ti07-_rt;\
 \
@@ -2030,10 +2130,10 @@ inclusion of the radix13.h header file..
 	_rt   = _tr13;				_it   = _ti13;\
 	_tr13 = _tr08-_rt;			_ti13 = _ti08-_it;\
 	_tr08 = _tr08+_rt;			_ti08 = _ti08+_it;\
-	_tr03 = _tr03+_tr08;			_ti03 = _ti03+_ti08;\
+	_tr03 = _tr03+_tr08;		_ti03 = _ti03+_ti08;\
 	__Br08 = _tr03;				__Bi08 = _ti03;\
 	_tr08 = _tr03+c3m1*_tr08;	_ti08 = _ti03+c3m1*_ti08;\
-	_rt   = s*_tr13;				_it   = s*_ti13;\
+	_rt   = s*_tr13;			_it   = s*_ti13;\
 	__Br06 = _tr08-_it;			__Bi06 = _ti08+_rt;\
 	__Br07 = _tr08+_it;			__Bi07 = _ti08-_rt;\
 \
@@ -2041,46 +2141,23 @@ inclusion of the radix13.h header file..
 	_rt   = _tr14;				_it   = _ti14;\
 	_tr14 = _tr09-_rt;			_ti14 = _ti09-_it;\
 	_tr09 = _tr09+_rt;			_ti09 = _ti09+_it;\
-	_tr04 = _tr04+_tr09;			_ti04 = _ti04+_ti09;\
+	_tr04 = _tr04+_tr09;		_ti04 = _ti04+_ti09;\
 	__Br04 = _tr04;				__Bi04 = _ti04;\
 	_tr09 = _tr04+c3m1*_tr09;	_ti09 = _ti04+c3m1*_ti09;\
-	_rt   = s*_tr14;				_it   = s*_ti14;\
+	_rt   = s*_tr14;			_it   = s*_ti14;\
 	__Br05 = _tr09-_it;			__Bi05 = _ti09+_rt;\
 	__Br03 = _tr09+_it;			__Bi03 = _ti09-_rt;\
 }
 
 /* Totals: 162 ADD, 50 MUL	*/
+//void ___RADIX_15_DIT() {}
 #define RADIX_15_DIT(\
-	__Ar00,__Ai00,\
-	__Ar01,__Ai01,\
-	__Ar02,__Ai02,\
-	__Ar03,__Ai03,\
-	__Ar04,__Ai04,\
-	__Ar05,__Ai05,\
-	__Ar06,__Ai06,\
-	__Ar07,__Ai07,\
-	__Ar08,__Ai08,\
-	__Ar09,__Ai09,\
-	__Ar10,__Ai10,\
-	__Ar11,__Ai11,\
-	__Ar12,__Ai12,\
-	__Ar13,__Ai13,\
-	__Ar14,__Ai14,\
-	__Br00,__Bi00,\
-	__Br01,__Bi01,\
-	__Br02,__Bi02,\
-	__Br03,__Bi03,\
-	__Br04,__Bi04,\
-	__Br05,__Bi05,\
-	__Br06,__Bi06,\
-	__Br07,__Bi07,\
-	__Br08,__Bi08,\
-	__Br09,__Bi09,\
-	__Br10,__Bi10,\
-	__Br11,__Bi11,\
-	__Br12,__Bi12,\
-	__Br13,__Bi13,\
-	__Br14,__Bi14)\
+	__Ar00,__Ai00,__Ar01,__Ai01,__Ar02,__Ai02,__Ar03,__Ai03,__Ar04,__Ai04,\
+	__Ar05,__Ai05,__Ar06,__Ai06,__Ar07,__Ai07,__Ar08,__Ai08,__Ar09,__Ai09,\
+	__Ar10,__Ai10,__Ar11,__Ai11,__Ar12,__Ai12,__Ar13,__Ai13,__Ar14,__Ai14,\
+	__Br00,__Bi00,__Br01,__Bi01,__Br02,__Bi02,__Br03,__Bi03,__Br04,__Bi04,\
+	__Br05,__Bi05,__Br06,__Bi06,__Br07,__Bi07,__Br08,__Bi08,__Br09,__Bi09,\
+	__Br10,__Bi10,__Br11,__Bi11,__Br12,__Bi12,__Br13,__Bi13,__Br14,__Bi14)\
 {\
 	double _tr00,_ti00,_tr01,_ti01,_tr02,_ti02,_tr03,_ti03,_tr04,_ti04,_tr05,_ti05,_tr06,_ti06,_tr07,_ti07,_tr08,_ti08,_tr09,_ti09,_tr10,_ti10,_tr11,_ti11,_tr12,_ti12,_tr13,_ti13,_tr14,_ti14;\
 	double _rt,_it;\
@@ -2092,9 +2169,9 @@ inclusion of the radix13.h header file..
 	    _rt   = __Ar01;				_it   = __Ai01;\
 	    _tr02 = _tr01-_rt;			_ti02 = _ti01-_it;\
 	    _tr01 = _tr01+_rt;			_ti01 = _ti01+_it;\
-	    _tr00 = _tr00+_tr01;			_ti00 = _ti00+_ti01;\
+	    _tr00 = _tr00+_tr01;		_ti00 = _ti00+_ti01;\
 	    _tr01 = _tr00+c3m1*_tr01;	_ti01 = _ti00+c3m1*_ti01;\
-	    _rt   = s*_tr02;				_it   = s*_ti02;\
+	    _rt   = s*_tr02;			_it   = s*_ti02;\
 	    _tr02 = _tr01-_it;			_ti02 = _ti01+_rt;\
 	    _tr01 = _tr01+_it;			_ti01 = _ti01-_rt;\
 \
@@ -2104,9 +2181,9 @@ inclusion of the radix13.h header file..
 	    _rt   = __Ar06;				_it   = __Ai06;\
 	    _tr05 = _tr04-_rt;			_ti05 = _ti04-_it;\
 	    _tr04 = _tr04+_rt;			_ti04 = _ti04+_it;\
-	    _tr03 = _tr03+_tr04;			_ti03 = _ti03+_ti04;\
+	    _tr03 = _tr03+_tr04;		_ti03 = _ti03+_ti04;\
 	    _tr04 = _tr03+c3m1*_tr04;	_ti04 = _ti03+c3m1*_ti04;\
-	    _rt   = s*_tr05;				_it   = s*_ti05;\
+	    _rt   = s*_tr05;			_it   = s*_ti05;\
 	    _tr05 = _tr04-_it;			_ti05 = _ti04+_rt;\
 	    _tr04 = _tr04+_it;			_ti04 = _ti04-_rt;\
 \
@@ -2116,9 +2193,9 @@ inclusion of the radix13.h header file..
 	    _rt   = __Ar14;				_it   = __Ai14;\
 	    _tr08 = _tr07-_rt;			_ti08 = _ti07-_it;\
 	    _tr07 = _tr07+_rt;			_ti07 = _ti07+_it;\
-	    _tr06 = _tr06+_tr07;			_ti06 = _ti06+_ti07;\
+	    _tr06 = _tr06+_tr07;		_ti06 = _ti06+_ti07;\
 	    _tr07 = _tr06+c3m1*_tr07;	_ti07 = _ti06+c3m1*_ti07;\
-	    _rt   = s*_tr08;				_it   = s*_ti08;\
+	    _rt   = s*_tr08;			_it   = s*_ti08;\
 	    _tr08 = _tr07-_it;			_ti08 = _ti07+_rt;\
 	    _tr07 = _tr07+_it;			_ti07 = _ti07-_rt;\
 \
@@ -2128,9 +2205,9 @@ inclusion of the radix13.h header file..
 	    _rt   = __Ar05;				_it   = __Ai05;\
 	    _tr11 = _tr10-_rt;			_ti11 = _ti10-_it;\
 	    _tr10 = _tr10+_rt;			_ti10 = _ti10+_it;\
-	    _tr09 = _tr09+_tr10;			_ti09 = _ti09+_ti10;\
+	    _tr09 = _tr09+_tr10;		_ti09 = _ti09+_ti10;\
 	    _tr10 = _tr09+c3m1*_tr10;	_ti10 = _ti09+c3m1*_ti10;\
-	    _rt   = s*_tr11;				_it   = s*_ti11;\
+	    _rt   = s*_tr11;			_it   = s*_ti11;\
 	    _tr11 = _tr10-_it;			_ti11 = _ti10+_rt;\
 	    _tr10 = _tr10+_it;			_ti10 = _ti10-_rt;\
 \
@@ -2140,9 +2217,9 @@ inclusion of the radix13.h header file..
 	    _rt   = __Ar10;				_it   = __Ai10;\
 	    _tr14 = _tr13-_rt;			_ti14 = _ti13-_it;\
 	    _tr13 = _tr13+_rt;			_ti13 = _ti13+_it;\
-	    _tr12 = _tr12+_tr13;			_ti12 = _ti12+_ti13;\
+	    _tr12 = _tr12+_tr13;		_ti12 = _ti12+_ti13;\
 	    _tr13 = _tr12+c3m1*_tr13;	_ti13 = _ti12+c3m1*_ti13;\
-	    _rt   = s*_tr14;				_it   = s*_ti14;\
+	    _rt   = s*_tr14;			_it   = s*_ti14;\
 	    _tr14 = _tr13-_it;			_ti14 = _ti13+_rt;\
 	    _tr13 = _tr13+_it;			_ti13 = _ti13-_rt;\
 \
@@ -2156,7 +2233,7 @@ inclusion of the radix13.h header file..
 	    _tr09 = _tr06-_rt;			_ti09 = _ti06-_it;\
 	    _tr06 = _tr06+_rt;			_ti06 = _ti06+_it;\
 \
-	    _rt   = _tr03+_tr06;			_it   = _ti03+_ti06;\
+	    _rt   = _tr03+_tr06;		_it   = _ti03+_ti06;\
 	    _tr00 = _tr00+_rt;			_ti00 = _ti00+_it;\
 	    _rt   = _tr00+cn1*_rt;		_it   = _ti00+cn1*_it;\
 	    _tr06 = cn2*(_tr03-_tr06);	_ti06 = cn2*(_ti03-_ti06);\
@@ -2167,10 +2244,10 @@ inclusion of the radix13.h header file..
 	    _tr12 = _rt+sn2*_tr12;		_ti12 = _it+sn2*_ti12;\
 \
 	    __Br00 = _tr00;				__Bi00 = _ti00;\
-	    __Br09 = _tr03-_ti09;			__Bi09 = _ti03+_tr09;\
-	    __Br03 = _tr06-_ti12;			__Bi03 = _ti06+_tr12;\
-	    __Br12 = _tr06+_ti12;			__Bi12 = _ti06-_tr12;\
-	    __Br06 = _tr03+_ti09;			__Bi06 = _ti03-_tr09;\
+	    __Br09 = _tr03-_ti09;		__Bi09 = _ti03+_tr09;\
+	    __Br03 = _tr06-_ti12;		__Bi03 = _ti06+_tr12;\
+	    __Br12 = _tr06+_ti12;		__Bi12 = _ti06-_tr12;\
+	    __Br06 = _tr03+_ti09;		__Bi06 = _ti03-_tr09;\
 \
 /*...Block 2: output permutation is 5,14,8,2,11 */\
 	    _rt   = _tr13;				_it   = _ti13;\
@@ -2180,7 +2257,7 @@ inclusion of the radix13.h header file..
 	    _tr10 = _tr07-_rt;			_ti10 = _ti07-_it;\
 	    _tr07 = _tr07+_rt;			_ti07 = _ti07+_it;\
 \
-	    _rt   = _tr04+_tr07;			_it   = _ti04+_ti07;\
+	    _rt   = _tr04+_tr07;		_it   = _ti04+_ti07;\
 	    _tr01 = _tr01+_rt;			_ti01 = _ti01+_it;\
 	    _rt   = _tr01+cn1*_rt;		_it   = _ti01+cn1*_it;\
 	    _tr07 = cn2*(_tr04-_tr07);	_ti07 = cn2*(_ti04-_ti07);\
@@ -2191,10 +2268,10 @@ inclusion of the radix13.h header file..
 	    _tr13 = _rt+sn2*_tr13;		_ti13 = _it+sn2*_ti13;\
 \
 	    __Br05 = _tr01;				__Bi05 = _ti01;\
-	    __Br14 = _tr04-_ti10;			__Bi14 = _ti04+_tr10;\
-	    __Br08 = _tr07-_ti13;			__Bi08 = _ti07+_tr13;\
-	    __Br02 = _tr07+_ti13;			__Bi02 = _ti07-_tr13;\
-	    __Br11 = _tr04+_ti10;			__Bi11 = _ti04-_tr10;\
+	    __Br14 = _tr04-_ti10;		__Bi14 = _ti04+_tr10;\
+	    __Br08 = _tr07-_ti13;		__Bi08 = _ti07+_tr13;\
+	    __Br02 = _tr07+_ti13;		__Bi02 = _ti07-_tr13;\
+	    __Br11 = _tr04+_ti10;		__Bi11 = _ti04-_tr10;\
 \
 /*...Block 3: output permutation is 10,4,13,7,1 */\
 	    _rt   = _tr14;				_it   = _ti14;\
@@ -2204,7 +2281,7 @@ inclusion of the radix13.h header file..
 	    _tr11 = _tr08-_rt;			_ti11 = _ti08-_it;\
 	    _tr08 = _tr08+_rt;			_ti08 = _ti08+_it;\
 \
-	    _rt   = _tr05+_tr08;			_it   = _ti05+_ti08;\
+	    _rt   = _tr05+_tr08;		_it   = _ti05+_ti08;\
 	    _tr02 = _tr02+_rt;			_ti02 = _ti02+_it;\
 	    _rt   = _tr02+cn1*_rt;		_it   = _ti02+cn1*_it;\
 	    _tr08 = cn2*(_tr05-_tr08);	_ti08 = cn2*(_ti05-_ti08);\
@@ -2215,13 +2292,14 @@ inclusion of the radix13.h header file..
 	    _tr14 = _rt+sn2*_tr14;		_ti14 = _it+sn2*_ti14;\
 \
 	    __Br10 = _tr02;				__Bi10 = _ti02;\
-	    __Br04 = _tr05-_ti11;			__Bi04 = _ti05+_tr11;\
-	    __Br13 = _tr08-_ti14;			__Bi13 = _ti08+_tr14;\
-	    __Br07 = _tr08+_ti14;			__Bi07 = _ti08-_tr14;\
-	    __Br01 = _tr05+_ti11;			__Bi01 = _ti05-_tr11;\
+	    __Br04 = _tr05-_ti11;		__Bi04 = _ti05+_tr11;\
+	    __Br13 = _tr08-_ti14;		__Bi13 = _ti08+_tr14;\
+	    __Br07 = _tr08+_ti14;		__Bi07 = _ti08-_tr14;\
+	    __Br01 = _tr05+_ti11;		__Bi01 = _ti05-_tr11;\
 }
 
 /* Scalar-data test macros for comparing with the SSE2 radix-15 DFTs: */
+//void ___RADIX_15_DIF_B() {}
 #define RADIX_15_DIF_B(\
 	__s,__c3m1,\
 	__cn1, __cn2, __ss3, __sn1, __sn2,\
@@ -2243,6 +2321,7 @@ inclusion of the radix13.h header file..
 	RADIX_03_DFT(__s,__c3m1,_tr04,_ti04,_tr09,_ti09,_tr14,_ti14, _x0,_x1,_x2,_x3,_x4,_x5, __Br04,__Bi04,__Br05,__Bi05,__Br03,__Bi03);\
 }
 
+//void ___RADIX_15_DIT_B() {}
 #define RADIX_15_DIT_B(\
 	__s,__c3m1,\
 	__cn1, __cn2, __ss3, __sn1, __sn2,\
@@ -2266,6 +2345,7 @@ inclusion of the radix13.h header file..
 
 /* Twiddleless radix-16 DFTs: */
 /* Totals: 144 ADD, 24 MUL. With twiddles adds 30 CMUL @[4 MUL, 2 ADD] each and thus needs 174 ADD, 84 MUL. */
+//void ___RADIX_16_DIF() {}
 #define RADIX_16_DIF(\
 	__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__AAr,__AAi,__ABr,__ABi,__ACr,__ACi,__ADr,__ADi,__AEr,__AEi,__AFr,__AFi,\
 	__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__BAr,__BAi,__BBr,__BBi,__BCr,__BCi,__BDr,__BDi,__BEr,__BEi,__BFr,__BFi,\
@@ -2281,10 +2361,10 @@ inclusion of the radix13.h header file..
 	_t7 =__A4r -__ACr;	_t5 =__A4r +__ACr;\
 	_t8 =__A4i -__ACi;	_t6 =__A4i +__ACi;\
 \
-	_r =_t5;		_t5 =_t1 -_r;	_t1 =_t1 +_r;\
-	_i =_t6;		_t6 =_t2 -_i;	_t2 =_t2 +_i;\
+	_r =_t5;	_t5 =_t1 -_r;	_t1 =_t1 +_r;\
+	_i =_t6;	_t6 =_t2 -_i;	_t2 =_t2 +_i;\
 \
-	_r =_t7;		_t7 =_t3 +_t8;	_t3 =_t3 -_t8;\
+	_r =_t7;	_t7 =_t3 +_t8;	_t3 =_t3 -_t8;\
 				_t8 =_t4 -_r;	_t4 =_t4 +_r;\
 \
 	/*...Block 2: */\
@@ -2344,8 +2424,8 @@ inclusion of the radix13.h header file..
 	__B3r =_t9 +_t26;			__B3i =_t10-_t25;\
 \
 	/*...Block 3: _t5,13,21,29	*/\
-	_r =_t13;_t13=_t5 +_t14;	_t5 =_t5 -_t14;		/* Twiddle mpy by E^4 = I	*/\
-			_t14=_t6 -_r;		_t6 =_t6 +_r;\
+	_r =_t13;	_t13=_t5 +_t14;	_t5 =_t5 -_t14;		/* Twiddle mpy by E^4 = I	*/\
+				_t14=_t6 -_r;	_t6 =_t6 +_r;\
 \
 	_r =(_t21-_t22)*ISRT2;		_t22=(_t21+_t22)*ISRT2;	_t21=_r;	/* Twiddle mpy by E^2; could also do mpy by ISRT2 directly on t21,22,29,30	*/\
 	_r =(_t30+_t29)*ISRT2;		_i =(_t30-_t29)*ISRT2;	/* Twiddle mpy by -E^6 is here...	*/\
@@ -2392,6 +2472,7 @@ inclusion of the radix13.h header file..
 }
 
 /* Totals: 144 ADD, 24 MUL	*/
+//void ___RADIX_16_DIT() {}
 #define RADIX_16_DIT(\
 	__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__AAr,__AAi,__ABr,__ABi,__ACr,__ACi,__ADr,__ADi,__AEr,__AEi,__AFr,__AFi,\
 	__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__BAr,__BAi,__BBr,__BBi,__BCr,__BCi,__BDr,__BDi,__BEr,__BEi,__BFr,__BFi,\
@@ -2410,7 +2491,7 @@ inclusion of the radix13.h header file..
 	_i =_t6;		_t6 =_t2 -_i;	_t2 =_t2 +_i;\
 \
 	_r =_t7;		_t7 =_t3 -_t8;	_t3 =_t3 +_t8;\
-				_t8 =_t4 +_r;	_t4 =_t4 -_r;\
+					_t8 =_t4 +_r;	_t4 =_t4 -_r;\
 \
 	/*...Block 2: */\
 	_t11=__A4r -__A5r;	_t9 =__A4r +__A5r;\
@@ -2462,8 +2543,8 @@ inclusion of the radix13.h header file..
 	_r =_t25;	_t25=_t17-_r;	_t17=_t17+_r;\
 	_i =_t26;	_t26=_t18-_i;	_t18=_t18+_i;\
 \
-	__B0r=_t1+_t17;			__B0i =_t2+_t18;\
-	__B8r=_t1-_t17;			__B8i =_t2-_t18;\
+	__B0r=_t1+_t17;				__B0i =_t2+_t18;\
+	__B8r=_t1-_t17;				__B8i =_t2-_t18;\
 \
 	__B4r=_t9 +_t26;			__B4i =_t10-_t25;	/* mpy by E^-4 = -I is inlined here...	*/\
 	__BCr=_t9 -_t26;			__BCi =_t10+_t25;\
@@ -2472,19 +2553,19 @@ inclusion of the radix13.h header file..
 	_r =_t13;_t13=_t5 -_t14;	_t5 =_t5 +_t14;	/* Twiddle mpy by E^4 =-I	*/\
 			_t14=_t6 +_r;		_t6 =_t6 -_r;\
 \
-	_r =(_t22+_t21)*ISRT2;	_t22=(_t22-_t21)*ISRT2;	_t21=_r;	/* Twiddle mpy by E^-2	*/\
-	_r =(_t29-_t30)*ISRT2;	_i =(_t29+_t30)*ISRT2;	/* Twiddle mpy by E^2 = -E^-6 is here...	*/\
+	_r =(_t22+_t21)*ISRT2;		_t22=(_t22-_t21)*ISRT2;	_t21=_r;	/* Twiddle mpy by E^-2	*/\
+	_r =(_t29-_t30)*ISRT2;		_i =(_t29+_t30)*ISRT2;	/* Twiddle mpy by E^2 = -E^-6 is here...	*/\
 	_t29=_t21+_r;				_t21=_t21-_r;				/* ...and get E^-6 by flipping signs here.	*/\
 	_t30=_t22+_i;				_t22=_t22-_i;\
 \
-	__B2r=_t5+_t21;			__B2i =_t6+_t22;\
-	__BAr=_t5-_t21;			__BAi =_t6-_t22;\
+	__B2r=_t5+_t21;				__B2i =_t6+_t22;\
+	__BAr=_t5-_t21;				__BAi =_t6-_t22;\
 \
 	__B6r=_t13+_t30;			__B6i =_t14-_t29;			/* mpy by E^-4 =-I is inlined here...	*/\
 	__BEr=_t13-_t30;			__BEi =_t14+_t29;\
 \
 	/*...Block 2: _t3,11,19,27	*/\
-	_r =(_t12+_t11)*ISRT2;	_i =(_t12-_t11)*ISRT2;	/* Twiddle mpy by E^-2	*/\
+	_r =(_t12+_t11)*ISRT2;		_i =(_t12-_t11)*ISRT2;	/* Twiddle mpy by E^-2	*/\
 	_t11=_t3 -_r;				_t3 =_t3 +_r;\
 	_t12=_t4 -_i;				_t4 =_t4 +_i;\
 \
@@ -2493,14 +2574,14 @@ inclusion of the radix13.h header file..
 	_t27=_t19-_r;				_t19=_t19+_r;\
 	_t28=_t20-_i;				_t20=_t20+_i;\
 \
-	__B1r=_t3+_t19;			__B1i =_t4+_t20;\
-	__B9r=_t3-_t19;			__B9i =_t4-_t20;\
+	__B1r=_t3+_t19;				__B1i =_t4+_t20;\
+	__B9r=_t3-_t19;				__B9i =_t4-_t20;\
 \
 	__B5r=_t11+_t28;			__B5i =_t12-_t27;			/* mpy by E^-4 =-I is inlined here...	*/\
 	__BDr=_t11-_t28;			__BDi =_t12+_t27;\
 \
 	/*...Block 4: _t7,15,23,31	*/\
-	_r =(_t15-_t16)*ISRT2;	_i =(_t15+_t16)*ISRT2;	/* Twiddle mpy by E^2 = -E^-6 is here...	*/\
+	_r =(_t15-_t16)*ISRT2;		_i =(_t15+_t16)*ISRT2;	/* Twiddle mpy by E^2 = -E^-6 is here...	*/\
 	_t15=_t7 +_r;				_t7 =_t7 -_r;			/* ...and get E^6=(i-1)/sqrt2 by flipping signs here.	*/\
 	_t16=_t8 +_i;				_t8 =_t8 -_i;\
 \
@@ -2509,15 +2590,16 @@ inclusion of the radix13.h header file..
 	_t31=_t23+_r;				_t23=_t23-_r;			/* ...and get E^9 by flipping signs here.	*/\
 	_t32=_t24+_i;				_t24=_t24-_i;\
 \
-	__B3r=_t7+_t23;			__B3i =_t8+_t24;\
-	__BBr=_t7-_t23;			__BBi =_t8-_t24;\
+	__B3r=_t7+_t23;				__B3i =_t8+_t24;\
+	__BBr=_t7-_t23;				__BBi =_t8-_t24;\
 \
 	__B7r=_t15+_t32;			__B7i =_t16-_t31;			/* mpy by E^-4 = -I is inlined here...	*/\
 	__BFr=_t15-_t32;			__BFi =_t16+_t31;\
 }
 
 /* With-Twiddle in=place radix-16 DFTs: */
-/* Totals: 174 ADD, 84 MUL. */
+/* Totals: 174 ADD, 84 MUL, which is the cost of the twiddle-less version plus 15 CMUL at [2 ADD, 4 MUL] each. */
+//void ___RADIX_16_DIF_TWIDDLE() {}
 #define RADIX_16_DIF_TWIDDLE(\
 	__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__AAr,__AAi,__ABr,__ABi,__ACr,__ACi,__ADr,__ADi,__AEr,__AEi,__AFr,__AFi,\
 	__c1 ,__s1 ,__c2 ,__s2 ,__c3 ,__s3 ,__c4 ,__s4 ,__c5 ,__s5 ,__c6 ,__s6 ,__c7 ,__s7 ,__c8 ,__s8 ,__c9 ,__s9 ,__cA ,__sA ,__cB ,__sB ,__cC ,__sC ,__cD ,__sD ,__cE ,__sE ,__cF ,__sF ,\
@@ -2526,107 +2608,115 @@ inclusion of the radix13.h header file..
 	double _t1,_t2,_t3,_t4,_t5,_t6,_t7,_t8,_t9,_t10,_t11,_t12,_t13,_t14,_t15,_t16,_t17,_t18,_t19,_t20,_t21,_t22,_t23,_t24,_t25,_t26,_t27,_t28,_t29,_t30,_t31,_t32;\
 	double _r,_i;\
 	/* Gather the needed data (16 64-bit complex, i.e. 32 64-bit reals) and do first set of four length-4 transforms: */\
+/* Pass 1 - each sub-4-DFT costs [24 ADD, 16 MUL], except for the first, which has just 3 non-unity twiddles
+and as a result costs 2 fewer ADD and 4 fewer MUL. Total Pass 1 cost: [94 ADD, 60 MUL]. Pass 2 cost: [80 ADD, 24 MUL]
+*/\
 	/*...Block 1: */\
 	_t1 =__A0r;						_t2 =__A0i;\
-	_r =__A8r*__c8 -__A8i*__s8 ;	_i =__A8i*__c8 +__A8r*__s8 ;\
-	_t3 =_t1 -_r;						_t1 =_t1 +_r;\
-	_t4 =_t2 -_i;						_t2 =_t2 +_i;\
+	_r  =__A8r*__c8 -__A8i*__s8 ;	_i  =__A8i*__c8 +__A8r*__s8 ;\
+	_t3 =_t1 -_r;					_t1 =_t1 +_r;	/* t 1, 2: w0.x0 + w8.x8 */\
+	_t4 =_t2 -_i;					_t2 =_t2 +_i;	/* t 3, 4: w0.x0 - w8.x8 */\
 \
 	_t5 =__A4r*__c4 -__A4i*__s4 ;	_t6 =__A4i*__c4 +__A4r*__s4 ;\
-	_r =__ACr*__cC -__ACi*__sC ;	_i =__ACi*__cC +__ACr*__sC ;\
-	_t7 =_t5 -_r;							_t5 =_t5 +_r;\
-	_t8 =_t6 -_i;							_t6 =_t6 +_i;\
+	_r  =__ACr*__cC -__ACi*__sC ;	_i  =__ACi*__cC +__ACr*__sC ;\
+	_t7 =_t5 -_r;					_t5 =_t5 +_r;	/* t 5, 6: w4.x4 + wc.xc */\
+	_t8 =_t6 -_i;					_t6 =_t6 +_i;	/* t 7, 8: w4.x4 - wc.xc */\
 \
-	_r =_t5;	_t5 =_t1 -_r;					_t1 =_t1 +_r;\
-	_i =_t6;	_t6 =_t2 -_i;					_t2 =_t2 +_i;\
+	_r =_t5;	_t5 =_t1 -_r;		_t1 =_t1 +_r;	/* y0 = t 1, 2: [w0.x0 + w8.x8] +   [w4.x4 + wc.xc] */\
+	_i =_t6;	_t6 =_t2 -_i;		_t2 =_t2 +_i;	/* y2 = t 5, 6: [w0.x0 + w8.x8] -   [w4.x4 + wc.xc] */\
 \
-	_r =_t7;	_t7 =_t3 +_t8;					_t3 =_t3 -_t8;\
-			_t8 =_t4 -_r;					_t4 =_t4 +_r;\
+	_r =_t7;	_t7 =_t3 +_t8;		_t3 =_t3 -_t8;	/* y1 = t 3, 4: [w0.x0 - w8.x8] + I.[w4.x4 - wc.xc] */\
+				_t8 =_t4 -_r;		_t4 =_t4 +_r;	/* y3 = t 7, 8: [w0.x0 - w8.x8] - I.[w4.x4 - wc.xc] */\
 \
 	/*...Block 2: */\
 	_t9 =__A2r*__c2 -__A2i*__s2 ;	_t10=__A2i*__c2 +__A2r*__s2;\
-	_r =__AAr*__cA -__AAi*__sA ;	_i =__AAi*__cA +__AAr*__sA ;\
-	_t11=_t9 -_r;						_t9 =_t9 +_r;\
-	_t12=_t10-_i;						_t10=_t10+_i;\
+	_r  =__AAr*__cA -__AAi*__sA ;	_i  =__AAi*__cA +__AAr*__sA ;\
+	_t11=_t9 -_r;					_t9 =_t9 +_r;\
+	_t12=_t10-_i;					_t10=_t10+_i;	/* w2.x2 +- wa.xa */\
 \
 	_t13=__A6r*__c6 -__A6i*__s6 ;	_t14=__A6i*__c6 +__A6r*__s6;\
-	_r =__AEr*__cE -__AEi*__sE ;	_i =__AEi*__cE +__AEr*__sE ;\
-	_t15=_t13-_r;							_t13=_t13+_r;\
-	_t16=_t14-_i;							_t14=_t14+_i;\
+	_r  =__AEr*__cE -__AEi*__sE ;	_i  =__AEi*__cE +__AEr*__sE ;\
+	_t15=_t13-_r;					_t13=_t13+_r;\
+	_t16=_t14-_i;					_t14=_t14+_i;	/* w6.x6 +- we.xe */\
 \
-	_r =_t13;	_t13=_t9 -_r;				_t9 =_t9 +_r;\
-	_i =_t14;	_t14=_t10-_i;				_t10=_t10+_i;\
+	_r =_t13;	_t13=_t9 -_r;		_t9 =_t9 +_r;\
+	_i =_t14;	_t14=_t10-_i;		_t10=_t10+_i;\
 \
-	_r =_t15;	_t15=_t11+_t16;			_t11=_t11-_t16;\
-				_t16=_t12-_r;				_t12=_t12+_r;\
+	_r =_t15;	_t15=_t11+_t16;		_t11=_t11-_t16;\
+				_t16=_t12-_r;		_t12=_t12+_r;\
 \
 	/*...Block 3: */\
 	_t17=__A1r*__c1 -__A1i*__s1 ;	_t18=__A1i*__c1 +__A1r*__s1;\
-	_r =__A9r*__c9 -__A9i*__s9 ;	_i =__A9i*__c9 +__A9r*__s9;\
-	_t19=_t17-_r;						_t17=_t17+_r;\
-	_t20=_t18-_i;						_t18=_t18+_i;\
+	_r  =__A9r*__c9 -__A9i*__s9 ;	_i  =__A9i*__c9 +__A9r*__s9;\
+	_t19=_t17-_r;					_t17=_t17+_r;\
+	_t20=_t18-_i;					_t18=_t18+_i;	/* w1.x1 +- w9.x9 */\
 \
 	_t21=__A5r*__c5 -__A5i*__s5 ;	_t22=__A5i*__c5 +__A5r*__s5;\
-	_r =__ADr*__cD -__ADi*__sD ;	_i =__ADi*__cD +__ADr*__sD ;\
-	_t23=_t21-_r;							_t21=_t21+_r;\
-	_t24=_t22-_i;							_t22=_t22+_i;\
+	_r  =__ADr*__cD -__ADi*__sD ;	_i  =__ADi*__cD +__ADr*__sD ;\
+	_t23=_t21-_r;					_t21=_t21+_r;\
+	_t24=_t22-_i;					_t22=_t22+_i;	/* w5.x5 +- wd.xd */\
 \
-	_r =_t21;	_t21=_t17-_r;				_t17=_t17+_r;\
-	_i =_t22;	_t22=_t18-_i;				_t18=_t18+_i;\
+	_r =_t21;	_t21=_t17-_r;		_t17=_t17+_r;\
+	_i =_t22;	_t22=_t18-_i;		_t18=_t18+_i;\
 \
-	_r =_t23;	_t23=_t19+_t24;			_t19=_t19-_t24;\
-				_t24=_t20-_r;				_t20=_t20+_r;\
+	_r =_t23;	_t23=_t19+_t24;		_t19=_t19-_t24;\
+				_t24=_t20-_r;		_t20=_t20+_r;\
 \
 	/*...Block 4: */\
 	_t25=__A3r*__c3 -__A3i*__s3 ;	_t26=__A3i*__c3 +__A3r*__s3;\
-	_r =__ABr*__cB -__ABi*__sB ;	_i =__ABi*__cB +__ABr*__sB ;\
-	_t27=_t25-_r;						_t25=_t25+_r;\
-	_t28=_t26-_i;						_t26=_t26+_i;\
+	_r  =__ABr*__cB -__ABi*__sB ;	_i  =__ABi*__cB +__ABr*__sB ;\
+	_t27=_t25-_r;					_t25=_t25+_r;\
+	_t28=_t26-_i;					_t26=_t26+_i;	/* w3.x3 +- wb.xb */\
 \
 	_t29=__A7r*__c7 -__A7i*__s7 ;	_t30=__A7i*__c7 +__A7r*__s7;\
-	_r =__AFr*__cF -__AFi*__sF ;	_i =__AFi*__cF +__AFr*__sF ;\
-	_t31=_t29-_r;							_t29=_t29+_r;\
-	_t32=_t30-_i;							_t30=_t30+_i;\
+	_r  =__AFr*__cF -__AFi*__sF ;	_i  =__AFi*__cF +__AFr*__sF ;\
+	_t31=_t29-_r;					_t29=_t29+_r;\
+	_t32=_t30-_i;					_t30=_t30+_i;	/* w7.x7 +- wf.xf */\
 \
-	_r =_t29;	_t29=_t25-_r;				_t25=_t25+_r;\
-	_i =_t30;	_t30=_t26-_i;				_t26=_t26+_i;\
+	_r =_t29;	_t29=_t25-_r;		_t25=_t25+_r;\
+	_i =_t30;	_t30=_t26-_i;		_t26=_t26+_i;\
 \
-	_r =_t31;	_t31=_t27+_t32;			_t27=_t27-_t32;\
-				_t32=_t28-_r;				_t28=_t28+_r;\
+	_r =_t31;	_t31=_t27+_t32;		_t27=_t27-_t32;\
+				_t32=_t28-_r;		_t28=_t28+_r;\
 \
-/**************************************************************************************/\
-/*...and now do four more radix-4 transforms, including the internal twiddle factors: */\
-/**************************************************************************************/\
+/************************************************************************************/\
+/* Pass 2: Do four more radix-4 transforms, including the internal twiddle factors: */\
+/************************************************************************************/\
 \
-	/*...Block 1: _t1,9,17,25 */\
-	_r =_t9;	_t9 =_t1 -_r;	_t1 =_t1 +_r;\
-	_i =_t10;_t10=_t2 -_i;	_t2 =_t2 +_i;\
+/* Pass 1 - each sub-4-DFT costs [24 ADD, 16 MUL], except for the first, which has just 3 non-unity twiddles
+and as a result costs 2 fewer ADD and 4 fewer MUL. Total Pass 1 cost: [94 ADD, 60 MUL].
+*/\
+	/*...Block 1: Inputs y0,4,8,c: */\
+	_r =_t9;	_t9 =_t1 -_r;	_t1 =_t1 +_r;	/* t 1, 2: y0 + y4 */\
+	_i =_t10;	_t10=_t2 -_i;	_t2 =_t2 +_i;	/* t 9,10: y0 - y4 */\
 \
-	_r =_t25;_t25=_t17-_r;	_t17=_t17+_r;\
-	_i =_t26;_t26=_t18-_i;	_t18=_t18+_i;\
+	_r =_t25;	_t25=_t17-_r;	_t17=_t17+_r;	/* t17,18: y8 + yc */\
+	_i =_t26;	_t26=_t18-_i;	_t18=_t18+_i;	/* t25,26: y8 - yc */\
 \
-	__A0r=_t1+_t17;	__A0i=_t2+_t18;\
-	__A1r=_t1-_t17;	__A1i=_t2-_t18;\
+	__A0r=_t1 +_t17;	__A0i=_t2 +_t18;	/* A0: [y0 + y4] +   [y8 + yc] */\
+	__A1r=_t1 -_t17;	__A1i=_t2 -_t18;	/* A1: [y0 + y4] -   [y8 + yc] */\
 \
-	__A2r=_t9 -_t26;	__A2i=_t10+_t25;	/* mpy by E^4=i is inlined here... */\
-	__A3r=_t9 +_t26;	__A3i=_t10-_t25;\
+	__A2r=_t9 -_t26;	__A2i=_t10+_t25;	/* A2: [y0 - y4] + I.[y8 - yc] */\
+	__A3r=_t9 +_t26;	__A3i=_t10-_t25;	/* A3: [y0 - y4] - I.[y8 - yc] */\
 \
-	/*...Block 3: _t5,13,21,29 */\
-	_r =_t13;_t13=_t5 +_t14;_t5 =_t5 -_t14;		/* Twiddle mpy by E^4 = I */\
-			_t14=_t6 -_r;	_t6 =_t6 +_r;\
+	/*...Block 3: Inputs y2,6,a,e: */\
+				/* Twiddle mpy by E^4 = I: */\
+	_r =_t13;	_t13=_t5 +_t14;	_t5 =_t5 -_t14;	/* t 5, 6: y2 + I.y6 */\
+				_t14=_t6 -_r;	_t6 =_t6 +_r;	/* t13,14: y2 - I.y6 */\
 \
-	_r =(_t21-_t22)*ISRT2;_t22=(_t21+_t22)*ISRT2;	_t21=_r;	/* Twiddle mpy by E^2; could also do mpy by ISRT2 directly on t21,22,29,30 */\
-	_r =(_t30+_t29)*ISRT2;_i =(_t30-_t29)*ISRT2;		/* Twiddle mpy by -E^6 is here... */\
-	_t29=_t21+_r;			_t21=_t21-_r;			/* ...and get E^6=(i-1)/sqrt by flipping signs here. */\
-	_t30=_t22+_i;			_t22=_t22-_i;\
+	_r =(_t21-_t22)*ISRT2;	_t22=(_t21+_t22)*ISRT2;	_t21=_r;/* Twiddle mpy by E^2; could also do mpy by ISRT2 directly on t21,22,29,30: */\
+	_r =(_t30+_t29)*ISRT2;	_i  =(_t30-_t29)*ISRT2;			/* Twiddle mpy by -E^6 is here... */\
+	/* ...and get E^6 = I.E^2 = (I-1)/sqrt2 by flipping signs on _r,_i here: */\
+	_t29=_t21+_r;			_t21=_t21-_r;	/* t21,22: E^2.ya + I.E^2.ye */\
+	_t30=_t22+_i;			_t22=_t22-_i;	/* t29,30: E^2.ya - I.E^2.ye */\
 \
-	__A4r=_t5+_t21;	__A4i=_t6+_t22;\
-	__A5r=_t5-_t21;	__A5i=_t6-_t22;\
+	__A4r=_t5 +_t21;	__A4i=_t6 +_t22;	/* A4: [y2 + I.y6] +   [E^2.ya + I.E^2.ye] */\
+	__A5r=_t5 -_t21;	__A5i=_t6 -_t22;	/* A5: [y2 + I.y6] -   [E^2.ya + I.E^2.ye] */\
 \
-	__A6r=_t13-_t30;	__A6i=_t14+_t29;	/* mpy by E^4=i is inlined here... */\
-	__A7r=_t13+_t30;	__A7i=_t14-_t29;\
+	__A6r=_t13-_t30;	__A6i=_t14+_t29;	/* A6: [y2 - I.y6] + I.[E^2.ya - I.E^2.ye] */\
+	__A7r=_t13+_t30;	__A7i=_t14-_t29;	/* A7: [y2 - I.y6] + I.[E^2.ya - I.E^2.ye] */\
 \
-	/*...Block 2: _t3,11,19,27 */\
+	/*...Block 2: Inputs y1,5,9,d: */\
 	_r =(_t11-_t12)*ISRT2;_i =(_t11+_t12)*ISRT2;		/* Twiddle mpy by E^2; could also do mpy by ISRT2 directly on t11,12 */\
 	_t11=_t3 -_r;			_t3 =_t3 +_r;\
 	_t12=_t4 -_i;			_t4 =_t4 +_i;\
@@ -2642,7 +2732,7 @@ inclusion of the radix13.h header file..
 	__AAr=_t11-_t28;	__AAi=_t12+_t27;	/* mpy by E^4=i is inlined here... */\
 	__ABr=_t11+_t28;	__ABi=_t12-_t27;\
 \
-	/*...Block 4: _t7,15,23,31 */\
+	/*...Block 4: Inputs y3,7,b,f: */\
 	_r =(_t16+_t15)*ISRT2;_i =(_t16-_t15)*ISRT2;		/* Twiddle mpy by -E^6 is here... */\
 	_t15=_t7 +_r;			_t7 =_t7 -_r;			/* ...and get E^6=(i-1)/sqrt by flipping signs here. */\
 	_t16=_t8 +_i;			_t8 =_t8 -_i;\
@@ -2659,31 +2749,34 @@ inclusion of the radix13.h header file..
 	__AFr=_t15+_t32;	__AFi=_t16-_t31;\
 }
 
+/* Totals: 174 ADD, 84 MUL, which is the cost of the twiddle-less version plus 15 CMUL at [2 ADD, 4 MUL] each. */
+//void ___RADIX_16_DIT_TWIDDLE() {}
 #define RADIX_16_DIT_TWIDDLE(\
 	__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__AAr,__AAi,__ABr,__ABi,__ACr,__ACi,__ADr,__ADi,__AEr,__AEi,__AFr,__AFi,\
 	__c1 ,__s1 ,__c2 ,__s2 ,__c3 ,__s3 ,__c4 ,__s4 ,__c5 ,__s5 ,__c6 ,__s6 ,__c7 ,__s7 ,__c8 ,__s8 ,__c9 ,__s9 ,__cA ,__sA ,__cB ,__sB ,__cC ,__sC ,__cD ,__sD ,__cE ,__sE ,__cF ,__sF ,\
 	__c,__s)\
 {\
 	double _t1,_t2,_t3,_t4,_t5,_t6,_t7,_t8,_t9,_t10,_t11,_t12,_t13,_t14,_t15,_t16,_t17,_t18,_t19,_t20,_t21,_t22,_t23,_t24,_t25,_t26,_t27,_t28,_t29,_t30,_t31,_t32;\
+	double _r,_i;\
 \
 	/* Gather the needed data and do first set of four length-4 transforms: */\
 	/*...Block 1: */\
 	_t1 =__A0r;	_t2 =__A0i;\
 	_r =__A1r;	_i =__A1i;\
-	_t3 =_t1 -_r;		_t1 =_t1 +_r;\
-	_t4 =_t2 -_i;		_t2 =_t2 +_i;\
+	_t3 =_t1 -_r;		_t1 =_t1 +_r;	/* t1,2: x0 + x1 */\
+	_t4 =_t2 -_i;		_t2 =_t2 +_i;	/* t3,4: x0 - x1 */\
 \
 	_t5 =__A2r;	_t6 =__A2i;\
 	_r =__A3r;	_i =__A3i;\
-	_t7 =_t5 -_r;		_t5 =_t5 +_r;\
-	_t8 =_t6 -_i;		_t6 =_t6 +_i;\
+	_t7 =_t5 -_r;		_t5 =_t5 +_r;	/* t5,6: x2 + x3 */\
+	_t8 =_t6 -_i;		_t6 =_t6 +_i;	/* t7,8: x2 - x3 */\
 \
-	_r =_t5;	_t5 =_t1 -_r ;	_t1 =_t1 +_r;\
-	_i =_t6;	_t6 =_t2 -_i ;	_t2 =_t2 +_i;\
+	_r =_t5;	_t5 =_t1 -_r ;	_t1 =_t1 +_r;	/* t1,2: y0 = [x0 + x1] + [x2 + x3] */\
+	_i =_t6;	_t6 =_t2 -_i ;	_t2 =_t2 +_i;	/* t5,6: y2 = [x0 + x1] - [x2 + x3] */\
 \
-	_r =_t7;	_t7 =_t3 -_t8 ;	_t3 =_t3 +_t8;\
-			_t8 =_t4 +_r ;	_t4 =_t4 -_r;\
-\
+	_r =_t7;	_t7 =_t3 -_t8;	_t3 =_t3 +_t8;	/* t3,4: y1 = [x0 - x1] - I.[x2 - x3] */\
+				_t8 =_t4 +_r ;	_t4 =_t4 -_r ;	/* t7,8: y3 = [x0 - x1] + I.[x2 - x3] */\
+										/* Remaining 3 Pass 1 DFTs same, just with x,y-indices +=4 for each */\
 	/*...Block 2: */\
 	_r =__A4r;	_t10=__A4i;	_t9 =_r;\
 	_r =__A5r;	_i =__A5i;\
@@ -2695,11 +2788,11 @@ inclusion of the radix13.h header file..
 	_t15=_t13-_r;		_t13=_t13+_r;\
 	_t16=_t14-_i;		_t14=_t14+_i;\
 \
-	_r =_t13;	_t13=_t9 -_r ;	_t9 =_t9 +_r;\
-	_i =_t14;	_t14=_t10-_i ;	_t10=_t10+_i;\
+	_r =_t13;	_t13=_t9 -_r  ;	_t9 =_t9 +_r  ;	/* y4 = t9 ,10 */\
+	_i =_t14;	_t14=_t10-_i  ;	_t10=_t10+_i  ;	/* y6 = t13,14 */\
 \
-	_r =_t15;	_t15=_t11-_t16;	_t11=_t11+_t16;\
-				_t16=_t12+_r ;	_t12=_t12-_r;\
+	_r =_t15;	_t15=_t11-_t16;	_t11=_t11+_t16;	/* y5 = t11,12 */\
+				_t16=_t12+_r  ;	_t12=_t12-_r  ;	/* y7 = t15,16 */\
 \
 	/*...Block 3: */\
 	_r =__A8r;	_t18=__A8i;	_t17=_r;\
@@ -2712,11 +2805,11 @@ inclusion of the radix13.h header file..
 	_t23=_t21-_r;		_t21=_t21+_r;\
 	_t24=_t22-_i;		_t22=_t22+_i;\
 \
-	_r =_t21;	_t21=_t17-_r ;	_t17=_t17+_r;\
-	_i =_t22;	_t22=_t18-_i ;	_t18=_t18+_i;\
+	_r =_t21;	_t21=_t17-_r  ;	_t17=_t17+_r  ;	/* y8 = t17,18 */\
+	_i =_t22;	_t22=_t18-_i  ;	_t18=_t18+_i  ;	/* y9 = t19,20 */\
 \
-	_r =_t23;	_t23=_t19-_t24;	_t19=_t19+_t24;\
-				_t24=_t20+_r ;	_t20=_t20-_r;\
+	_r =_t23;	_t23=_t19-_t24;	_t19=_t19+_t24;	/* yA = t21,22 */\
+				_t24=_t20+_r  ;	_t20=_t20-_r  ;	/* yB = t23,24 */\
 \
 	/*...Block 4: */\
 	_r =__ACr;	_t26=__ACi;	_t25=_r;\
@@ -2729,146 +2822,103 @@ inclusion of the radix13.h header file..
 	_t31=_t29-_r;		_t29=_t29+_r;\
 	_t32=_t30-_i;		_t30=_t30+_i;\
 \
-	_r =_t29;	_t29=_t25-_r ;	_t25=_t25+_r;\
-	_i =_t30;	_t30=_t26-_i ;	_t26=_t26+_i;\
+	_r =_t29;	_t29=_t25-_r  ;	_t25=_t25+_r  ;	/* yC = t25,26 */\
+	_i =_t30;	_t30=_t26-_i  ;	_t26=_t26+_i  ;	/* yD = t27,28 */\
 \
-	_r =_t31;	_t31=_t27-_t32;	_t27=_t27+_t32;\
-				_t32=_t28+_r ;	_t28=_t28-_r;\
+	_r =_t31;	_t31=_t27-_t32;	_t27=_t27+_t32;	/* yE = t29,30 */\
+				_t32=_t28+_r  ;	_t28=_t28-_r  ;	/* yF = t31,32 */\
 \
 /**************************************************************************************/\
 /*...and now do four more radix-4 transforms, including the internal twiddle factors: */\
 /**************************************************************************************/\
 \
 	/*...Block 1: _t1,9,17,25 */\
-	_r =_t9;	_t9 =_t1 -_r;	_t1 =_t1 +_r;\
-	_i =_t10;	_t10=_t2 -_i;	_t2 =_t2 +_i;\
+	_r =_t9;	_t9 =_t1 -_r;		_t1 =_t1 +_r;	/* y0 + y4 */\
+	_i =_t10;	_t10=_t2 -_i;		_t2 =_t2 +_i;	/* y0 - y4 */\
 \
-	_r =_t25;	_t25=_t17-_r;	_t17=_t17+_r;\
-	_i =_t26;	_t26=_t18-_i;	_t18=_t18+_i;\
+	_r =_t25;	_t25=_t17-_r;		_t17=_t17+_r;	/* y8 + yC */\
+	_i =_t26;	_t26=_t18-_i;		_t18=_t18+_i;	/* y8 - yC */\
 \
-	__A0r = _t1+_t17;			__A0i = _t2+_t18;\
-	_t1	     =_t1-_t17;			_t2		 =_t2-_t18;\
-	__A8r = _t1 *__c8 +_t2 *__s8;	__A8i = _t2 *__c8 -_t1 *__s8;\
-\
-	_r	   =_t9 +_t26;		_i		 =_t10-_t25;	/* mpy by E^-4 = -I is inlined here... */\
-	_t9	   =_t9 -_t26;		_t10		=_t10+_t25;\
-	__A4r = _r *__c4 +_i *__s4;	__A4i = _i *__c4 -_r *__s4;\
-	__ACr = _t9 *__cC +_t10*__sC;	__ACi = _t10*__cC -_t9 *__sC;\
+	__A0r = _t1 +_t17;				__A0i = _t2 +_t18;				/* [(y0 + y4) + (y8 + yC)] */\
+	_t1   = _t1 -_t17;				_t2   = _t2 -_t18;\
+	__A8r = _t1 *__c8 +_t2 *__s8;	__A8i = _t2 *__c8 -_t1 *__s8;	/* [(y0 + y4) - (y8 + yC)].w8 */\
+	/* mpy by E^-4 = -I is inlined here... */\
+	_r    = _t9 +_t26;				_i    = _t10-_t25;	/* [(y0 - y4) - I.(y8 - yC)] */\
+	_t9   = _t9 -_t26;				_t10  = _t10+_t25;	/* [(y0 - y4) + I.(y8 - yC)] */\
+	__A4r = _r  *__c4 +_i  *__s4;	__A4i = _i  *__c4 -_r  *__s4;	/* [(y0 - y4) - I.(y8 - yC)].w4 */\
+	__ACr = _t9 *__cC +_t10*__sC;	__ACi = _t10*__cC -_t9 *__sC;	/* [(y0 - y4) + I.(y8 - yC)].wC */\
 \
 	/*...Block 3: _t5,13,21,29 */\
-	_r =_t13;	_t13=_t5 -_t14;	_t5 =_t5 +_t14;		/* Twiddle mpy by E^4 =-I */\
-		_t14=_t6 +_r;	_t6 =_t6 -_r;\
+	_r =_t13;	_t13=_t5 -_t14;		_t5 =_t5 +_t14;		/* Twiddle mpy by E^4 = -I */\
+				_t14=_t6 +_r  ;		_t6 =_t6 -_r  ;		/* y2 +- E^4.y6 = y2 -+ I.y6 */\
 \
-	_r =(_t22+_t21)*ISRT2;_t22=(_t22-_t21)*ISRT2;	_t21=_r;	/* Twiddle mpy by E^-2 */\
-	_r =(_t29-_t30)*ISRT2;_i =(_t29+_t30)*ISRT2;		/* Twiddle mpy by E^2 = -E^-6 is here... */\
-	_t29=_t21+_r;		_t21=_t21-_r;			/* ...and get E^-6 by flipping signs here. */\
-	_t30=_t22+_i;		_t22=_t22-_i;\
+	_r = (_t22+_t21)*ISRT2;	_t22 = (_t22-_t21)*ISRT2; _t21=_r;	/* E^2 = (1-I).ISRT2, thus (x+I.y).E^2 = [(y+x) + I.(y-x)].ISRT2 */\
+	_r = (_t29-_t30)*ISRT2;	_i   = (_t29+_t30)*ISRT2;			/* Twiddle mpy by -E^6 = (1+I).ISRT2, thus (x+I.y).E^2 = [(x-y) + I.(x+y)].ISRT2 is here... */\
+	_t29=_t21+_r;		_t21=_t21-_r;			/* ...and get E^6 by flipping signs here. */\
+	_t30=_t22+_i;		_t22=_t22-_i;			/* yA.E^2 +- yE.E^6 = yA.E^2 -+ yE.E^2.I */\
 \
-	_r	   =_t5 +_t21;		_i		 =_t6 +_t22;\
-	_t5	   =_t5 -_t21;		_t6		 =_t6 -_t22;\
-	__A2r = _r *__c2 +_i *__s2;	__A2i = _i *__c2 -_r *__s2;\
-	__AAr = _t5 *__cA +_t6 *__sA;	__AAi = _t6 *__cA -_t5 *__sA;\
-\
-	_r	   =_t13+_t30;		_i		 =_t14-_t29;	/* mpy by E^-4 = -I is inlined here... */\
-	_t13	  =_t13-_t30;		_t14		=_t14+_t29;\
-	__A6r = _r *__c6 +_i *__s6;	__A6i = _i *__c6 -_r *__s6;\
-	__AEr = _t13*__cE +_t14*__sE;	__AEi = _t14*__cE -_t13*__sE;\
+	_r    =_t5 +_t21;				_i    =_t6 +_t22;	/* (y2 + E^4.y6) + (yA.E^2 + yE.E^6) */\
+	_t5   =_t5 -_t21;				_t6   =_t6 -_t22;	/* (y2 + E^4.y6) - (yA.E^2 + yE.E^6) */\
+	__A2r = _r  *__c2 +_i  *__s2;	__A2i = _i  *__c2 -_r  *__s2;	/* [(y2 + E^4.y6) +   (yA.E^2 + yE.E^6)].w2 */\
+	__AAr = _t5 *__cA +_t6 *__sA;	__AAi = _t6 *__cA -_t5 *__sA;	/* [(y2 + E^4.y6) -   (yA.E^2 + yE.E^6)].wA */\
+	/* mpy by E^4 = -I is inlined here: */\
+	_r   =_t13+_t30;				_i   =_t14-_t29;	/* (y2 - E^4.y6) - I.(yA.E^2 - yE.E^6) */\
+	_t13 =_t13-_t30;				_t14 =_t14+_t29;	/* (y2 - E^4.y6) + I.(yA.E^2 - yE.E^6) */\
+	__A6r = _r  *__c6 +_i  *__s6;	__A6i = _i  *__c6 -_r  *__s6;	/* [(y2 - E^4.y6) - I.(yA.E^2 - yE.E^6)].w6 */\
+	__AEr = _t13*__cE +_t14*__sE;	__AEi = _t14*__cE -_t13*__sE;	/* [(y2 - E^4.y6) + I.(yA.E^2 - yE.E^6)].wE */\
 \
 	/*...Block 2: _t3,11,19,27 */\
-	_r =(_t12+_t11)*ISRT2;_i =(_t12-_t11)*ISRT2;		/* Twiddle mpy by E^-2 */\
-	_t11=_t3 -_r;		_t3 =_t3 +_r;\
-	_t12=_t4 -_i;		_t4 =_t4 +_i;\
+	_r =(_t12+_t11)*ISRT2;	_i =(_t12-_t11)*ISRT2;		/* Twiddle mpy by E^2 = (1-I)*ISRT2 */\
+	_t11=_t3 -_r;					_t3 =_t3 +_r;\
+	_t12=_t4 -_i;					_t4 =_t4 +_i;		/* y1 +- E^2.y5 */\
+	/* Twiddle muls by E^1 = (c-I.s) and E^3 = (s-I.c): */\
+	_r  =_t19*__c + _t20*__s;		_t20=_t20*__c - _t19*__s; _t19=_r;	/* y9.E^1 */\
+	_r  =_t27*__s + _t28*__c;		_i  =_t28*__s - _t27*__c;			/* yD.E^3 */\
+	_t27=_t19-_r;					_t19=_t19+_r;\
+	_t28=_t20-_i;					_t20=_t20+_i;		/* y9.E^1 +- yD.E^3 */\
 \
-	_r =_t19*__c + _t20*__s;	_t20=_t20*__c - _t19*__s;	_t19=_r;	/* Twiddle mpy by E^-1 */\
-	_r =_t27*__s + _t28*__c;	_i =_t28*__s - _t27*__c;		/* Twiddle mpy by E^-3 */\
-	_t27=_t19-_r;		_t19=_t19+_r;\
-	_t28=_t20-_i;		_t20=_t20+_i;\
-\
-	_r	   =_t3 +_t19;		_i		 =_t4 +_t20;\
-	_t3	   =_t3 -_t19;		_t4		 =_t4 -_t20;\
-	__A1r = _r *__c1 +_i *__s1;	__A1i = _i *__c1 -_r *__s1;\
-	__A9r = _t3 *__c9 +_t4 *__s9;	__A9i = _t4 *__c9 -_t3 *__s9;\
-\
-	_r	   =_t11+_t28;		_i		 =_t12-_t27;	/* mpy by E^-4 = -I is inlined here... */\
-	_t11	  =_t11-_t28;		_t12		=_t12+_t27;\
-	__A5r = _r *__c5 +_i *__s5;	__A5i = _i *__c5 -_r *__s5;\
-	__ADr = _t11*__cD +_t12*__sD;	__ADi = _t12*__cD -_t11*__sD;\
+	_r    =_t3 +_t19;				_i    =_t4 +_t20;	/* (y1 + E^2.y5) +   (y9.E^1 + yD.E^3) */\
+	_t3   =_t3 -_t19;				_t4   =_t4 -_t20;	/* (y1 + E^2.y5) -   (y9.E^1 + yD.E^3) */\
+	__A1r = _r  *__c1 +_i  *__s1;	__A1i = _i  *__c1 -_r  *__s1;	/* [(y1 + E^2.y5) +   (y9.E^1 + yD.E^3)].w1 */\
+	__A9r = _t3 *__c9 +_t4 *__s9;	__A9i = _t4 *__c9 -_t3 *__s9;	/* [(y1 + E^2.y5) -   (y9.E^1 + yD.E^3)].w9 */\
+	/* mpy by E^-4 = -I is inlined here: */\
+	_r    =_t11+_t28;				_i    =_t12-_t27;	/* (y1 - E^2.y5) - I.(y9.E^1 - yD.E^3) */\
+	_t11  =_t11-_t28;				_t12  =_t12+_t27;	/* (y1 - E^2.y5) + I.(y9.E^1 - yD.E^3) */\
+	__A5r = _r  *__c5 +_i  *__s5;	__A5i = _i  *__c5 -_r  *__s5;	/* [(y1 - E^2.y5) - I.(y9.E^1 - yD.E^3)].w5 */\
+	__ADr = _t11*__cD +_t12*__sD;	__ADi = _t12*__cD -_t11*__sD;	/* [(y1 - E^2.y5) + I.(y9.E^1 - yD.E^3)].wD */\
 \
 	/*...Block 4: _t7,15,23,31 */\
-	_r =(_t15-_t16)*ISRT2;_i =(_t15+_t16)*ISRT2;		/* Twiddle mpy by E^2 = -E^-6 is here... */\
-	_t15=_t7 +_r;		_t7 =_t7 -_r;			/* ...and get E^6=(i-1)/sqrt by flipping signs here. */\
-	_t16=_t8 +_i;		_t8 =_t8 -_i;\
+	_r =(_t15-_t16)*ISRT2;	_i =(_t15+_t16)*ISRT2;		/* Twiddle mpy by -E^6 = (1+I)*ISRT2 is here... */\
+	_t15=_t7 +_r;					_t7 =_t7 -_r;		/* ...and get E^6 = -(1+I)*ISRT2 by flipping signs here. */\
+	_t16=_t8 +_i;					_t8 =_t8 -_i;		/* y3 +- E^6.y7 */\
+	/* Twiddle muls by E^3 = (s-I.c) and E^9 = -E^1 = -(c-I.s): */\
+	_r  =_t23*__s + _t24*__c;		_t24=_t24*__s - _t23*__c; _t23=_r;	/* yB.E^3 */\
+	_r  =_t31*__c + _t32*__s;		_i  =_t32*__c - _t31*__s;			/* yF.E^1 = yF.(c-I.s)... */\
+	_t31=_t23+_r;					_t23=_t23-_r;		/* ... and get yF.E^9 = -yF.E^1 by flipping signs here. */\
+	_t32=_t24+_i;					_t24=_t24-_i;		/* yB.E^3 +- yF.E^9 */\
 \
-	_r =_t23*__s + _t24*__c;	_t24=_t24*__s - _t23*__c;	_t23=_r;	/* Twiddle mpy by E^-3 */\
-	_r =_t31*__c + _t32*__s;	_i =_t32*__c - _t31*__s;		/* Twiddle mpy by E^-1 = -E^-9... */\
-	_t31=_t23+_r;		_t23=_t23-_r;			/* ...and get E^9 by flipping signs here. */\
-	_t32=_t24+_i;		_t24=_t24-_i;\
-\
-	_r	   =_t7 +_t23;		_i		 =_t8 +_t24;\
-	_t7	   =_t7 -_t23;		_t8		 =_t8 -_t24;\
-	__A3r = _r *__c3 +_i *__s3;	__A3i = _i *__c3 -_r *__s3;\
-	__ABr = _t7 *__cB +_t8 *__sB;	__ABi = _t8 *__cB -_t7 *__sB;\
-\
-	_r	   =_t15+_t32;		_i		 =_t16-_t31;	/* mpy by E^-4 = -I is inlined here... */\
-	_t15	  =_t15-_t32;		_t16		=_t16+_t31;\
-	__A7r = _r *__c7 +_i *__s7;	__A7i = _i *__c7 -_r *__s7;\
-	__AFr = _t15*__cF +_t16*__sF;	__AFi = _t16*__cF -_t15*__sF;\
+	_r    =_t7 +_t23;				_i    =_t8 +_t24;	/* (y3 + E^6.y7) +   (yB.E^3 + yF.E^9) */\
+	_t7   =_t7 -_t23;				_t8   =_t8 -_t24;	/* (y3 + E^6.y7) -   (yB.E^3 + yF.E^9) */\
+	__A3r = _r  *__c3 +_i  *__s3;	__A3i = _i  *__c3 -_r  *__s3;	/* [(y3 + E^6.y7) +   (yB.E^3 + yF.E^9)].w3 */\
+	__ABr = _t7 *__cB +_t8 *__sB;	__ABi = _t8 *__cB -_t7 *__sB;	/* [(y3 + E^6.y7) +   (yB.E^3 + yF.E^9)].wB */\
+	/* mpy by E^-4 = -I is inlined here: */\
+	_r    =_t15+_t32;				_i    =_t16-_t31;\
+	_t15  =_t15-_t32;				_t16  =_t16+_t31;\
+	__A7r = _r  *__c7 +_i  *__s7;	__A7i = _i  *__c7 -_r  *__s7;	/* [(y3 - E^6.y7) - I.(yB.E^3 - yF.E^9)].w7 */\
+	__AFr = _t15*__cF +_t16*__sF;	__AFi = _t16*__cF -_t15*__sF;	/* [(y3 - E^6.y7) + I.(yB.E^3 - yF.E^9)].wF */\
 }
 
 
 // With-twiddles out-of-place analog of above twiddleless DIF macro: 15 nontrivial complex input twiddles E1-f [E0 assumed = 1],
 // The DIF version of this macro processes the twiddles in bit-reversed order: 0,8,4,c,2,a,6,e,1,9,5,d,3,b,7,f.
+//void ___RADIX_16_DIF_TWIDDLE_OOP() {}
 #define RADIX_16_DIF_TWIDDLE_OOP(\
 	/* Inputs: */\
-	__A0r,__A0i,\
-	__A1r,__A1i,\
-	__A2r,__A2i,\
-	__A3r,__A3i,\
-	__A4r,__A4i,\
-	__A5r,__A5i,\
-	__A6r,__A6i,\
-	__A7r,__A7i,\
-	__A8r,__A8i,\
-	__A9r,__A9i,\
-	__AAr,__AAi,\
-	__ABr,__ABi,\
-	__ACr,__ACi,\
-	__ADr,__ADi,\
-	__AEr,__AEi,\
-	__AFr,__AFi,\
+	__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__AAr,__AAi,__ABr,__ABi,__ACr,__ACi,__ADr,__ADi,__AEr,__AEi,__AFr,__AFi,\
 	/* Outputs: */\
-	__B0r,__B0i,\
-	__B1r,__B1i,\
-	__B2r,__B2i,\
-	__B3r,__B3i,\
-	__B4r,__B4i,\
-	__B5r,__B5i,\
-	__B6r,__B6i,\
-	__B7r,__B7i,\
-	__B8r,__B8i,\
-	__B9r,__B9i,\
-	__BAr,__BAi,\
-	__BBr,__BBi,\
-	__BCr,__BCi,\
-	__BDr,__BDi,\
-	__BEr,__BEi,\
-	__BFr,__BFi,\
-	/* Roots of unity: */\
-	__c8 ,__s8 ,\
-	__c4 ,__s4 ,\
-	__cC ,__sC ,\
-	__c2 ,__s2 ,\
-	__cA ,__sA ,\
-	__c6 ,__s6 ,\
-	__cE ,__sE ,\
-	__c1 ,__s1 ,\
-	__c9 ,__s9 ,\
-	__c5 ,__s5 ,\
-	__cD ,__sD ,\
-	__c3 ,__s3 ,\
-	__cB ,__sB ,\
-	__c7 ,__s7 ,\
-	__cF ,__sF ,\
+	__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__BAr,__BAi,__BBr,__BBi,__BCr,__BCi,__BDr,__BDi,__BEr,__BEi,__BFr,__BFi,\
+	/* Twiddles: */\
+	__c8 ,__s8 ,__c4 ,__s4 ,__cC ,__sC ,__c2 ,__s2 ,__cA ,__sA ,__c6 ,__s6 ,__cE ,__sE ,__c1 ,__s1 ,__c9 ,__s9 ,__c5 ,__s5 ,__cD ,__sD ,__c3 ,__s3 ,__cB ,__sB ,__c7 ,__s7 ,__cF ,__sF ,\
 	__c,__s)\
 {\
 	double _t1,_t2,_t3,_t4,_t5,_t6,_t7,_t8,_t9,_t10,_t11,_t12,_t13,_t14,_t15,_t16,_t17,_t18,_t19,_t20,_t21,_t22,_t23,_t24,_t25,_t26,_t27,_t28,_t29,_t30,_t31,_t32;\
@@ -3012,57 +3062,14 @@ inclusion of the radix13.h header file..
 // The DIT version of this macro processes the twiddles in-order.
 // NOTE: SINCE THIS MACRO IS SPECIFICALLY DESIGNED AS THE 2ND-PASS OF LARGE-POWER-OF-2-TWIDDLELESS DFT SYNTHESIS, THE
 // "TWIDDLES" HERE ARE PURE OF THE DFT-INTERNAL VARIETY, AND THUS APPLIED TO THE INPUTS, JUST AS FOR THE ABOVE DIF COUNTERPART.
+//void ___RADIX_16_DIT_TWIDDLE_OOP() {}
 #define RADIX_16_DIT_TWIDDLE_OOP(\
 	/* Inputs: */\
-	__A0r,__A0i,\
-	__A1r,__A1i,\
-	__A2r,__A2i,\
-	__A3r,__A3i,\
-	__A4r,__A4i,\
-	__A5r,__A5i,\
-	__A6r,__A6i,\
-	__A7r,__A7i,\
-	__A8r,__A8i,\
-	__A9r,__A9i,\
-	__AAr,__AAi,\
-	__ABr,__ABi,\
-	__ACr,__ACi,\
-	__ADr,__ADi,\
-	__AEr,__AEi,\
-	__AFr,__AFi,\
+	__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__AAr,__AAi,__ABr,__ABi,__ACr,__ACi,__ADr,__ADi,__AEr,__AEi,__AFr,__AFi,\
 	/* Outputs: */\
-	__B0r,__B0i,\
-	__B1r,__B1i,\
-	__B2r,__B2i,\
-	__B3r,__B3i,\
-	__B4r,__B4i,\
-	__B5r,__B5i,\
-	__B6r,__B6i,\
-	__B7r,__B7i,\
-	__B8r,__B8i,\
-	__B9r,__B9i,\
-	__BAr,__BAi,\
-	__BBr,__BBi,\
-	__BCr,__BCi,\
-	__BDr,__BDi,\
-	__BEr,__BEi,\
-	__BFr,__BFi,\
-	/* Roots of unity: */\
-	__c1 ,__s1 ,\
-	__c2 ,__s2 ,\
-	__c3 ,__s3 ,\
-	__c4 ,__s4 ,\
-	__c5 ,__s5 ,\
-	__c6 ,__s6 ,\
-	__c7 ,__s7 ,\
-	__c8 ,__s8 ,\
-	__c9 ,__s9 ,\
-	__cA ,__sA ,\
-	__cB ,__sB ,\
-	__cC ,__sC ,\
-	__cD ,__sD ,\
-	__cE ,__sE ,\
-	__cF ,__sF ,\
+	__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__BAr,__BAi,__BBr,__BBi,__BCr,__BCi,__BDr,__BDi,__BEr,__BEi,__BFr,__BFi,\
+	/* Twiddles: */\
+	__c1 ,__s1 ,__c2 ,__s2 ,__c3 ,__s3 ,__c4 ,__s4 ,__c5 ,__s5 ,__c6 ,__s6 ,__c7 ,__s7 ,__c8 ,__s8 ,__c9 ,__s9 ,__cA ,__sA ,__cB ,__sB ,__cC ,__sC ,__cD ,__sD ,__cE ,__sE ,__cF ,__sF ,\
 	__c,__s)\
 {\
 	double _t1,_t2,_t3,_t4,_t5,_t6,_t7,_t8,_t9,_t10,_t11,_t12,_t13,_t14,_t15,_t16,_t17,_t18,_t19,_t20,_t21,_t22,_t23,_t24,_t25,_t26,_t27,_t28,_t29,_t30,_t31,_t32;\
@@ -3217,6 +3224,7 @@ which can be computed in advance, in either raw (sincos) or "tangentized" form, 
 Total: 174 Fused mul/add [Breakdown: 87 FMA, 2 FMS, 85 FNMA, 0 FNMS.]
 */
 // Version #1 uses 4-operand FMA4 syntax, similar to what we might use for SIMD assembler on SSE5-supporting AMD CPUs:
+//void ___RADIX_16_DIF_FMA4() {}
 #define RADIX_16_DIF_FMA4(\
 	__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__AAr,__AAi,__ABr,__ABi,__ACr,__ACi,__ADr,__ADi,__AEr,__AEi,__AFr,__AFi,\
 	__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__BAr,__BAi,__BBr,__BBi,__BCr,__BCi,__BDr,__BDi,__BEr,__BEi,__BFr,__BFi,\
@@ -3398,6 +3406,7 @@ Total: 174 Fused mul/add [Breakdown: 87 FMA, 2 FMS, 85 FNMA, 0 FNMS.]
 
 // Version #2 uses a 3-operand FMA syntax in which the RIGHTmost of the 3 fused mul-add inputs -
 // that is, the addend - is overwritten with the result:
+//void ___RADIX_16_DIF_FMA() {}
 #define RADIX_16_DIF_FMA(\
 	__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__AAr,__AAi,__ABr,__ABi,__ACr,__ACi,__ADr,__ADi,__AEr,__AEi,__AFr,__AFi,\
 	__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__BAr,__BAi,__BBr,__BBi,__BCr,__BCi,__BDr,__BDi,__BEr,__BEi,__BFr,__BFi,\
@@ -3639,6 +3648,7 @@ Total: 174 Fused mul/add [Breakdown: 87 FMA, 2 FMS, 85 FNMA, 0 FNMS.]
 // This is a DIT analog of the above, specially designed for the 2nd-pass phase of large power-of-2 DIT DFTs.
 // We lump it with the DIF macros because like those, it has the twiddles applied to the inputs, and in fact
 // is based on the above DIF macro, with sign flips where needed to effect roots-of-unity conjugacy:
+//void ___RADIX_16_DIT_FMA_PRETWIDDLE() {}
 #define RADIX_16_DIT_FMA_PRETWIDDLE(\
 	__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__AAr,__AAi,__ABr,__ABi,__ACr,__ACi,__ADr,__ADi,__AEr,__AEi,__AFr,__AFi,\
 	__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__BAr,__BAi,__BBr,__BBi,__BCr,__BCi,__BDr,__BDi,__BEr,__BEi,__BFr,__BFi,\
@@ -3864,6 +3874,7 @@ Total: 174 FMA [a whopping 112 of which have a trivial unity multiplicand], 34 M
 
 Extra MUL cost vs DIF is due to the post-twiddling, which is less amenable to "multiplier absorption".
 */
+//void ___RADIX_16_DIT_FMA4() {}
 #define RADIX_16_DIT_FMA4(\
 	__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__AAr,__AAi,__ABr,__ABi,__ACr,__ACi,__ADr,__ADi,__AEr,__AEi,__AFr,__AFi,\
 	__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__BAr,__BAi,__BBr,__BBi,__BCr,__BCi,__BDr,__BDi,__BEr,__BEi,__BFr,__BFi,\
@@ -4046,6 +4057,7 @@ Extra MUL cost vs DIF is due to the post-twiddling, which is less amenable to "m
 
 // Version #2 uses a 3-operand FMA3 syntax in which the RIGHTmost of the 3 fused mul-add inputs -
 // that is, the addend - is overwritten with the result:
+//void ___RADIX_16_DIT_FMA_1() {}
 #define RADIX_16_DIT_FMA_1(\
 	__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__AAr,__AAi,__ABr,__ABi,__ACr,__ACi,__ADr,__ADi,__AEr,__AEi,__AFr,__AFi,\
 	__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__BAr,__BAi,__BBr,__BBi,__BCr,__BCi,__BDr,__BDi,__BEr,__BEi,__BFr,__BFi,\
@@ -4306,6 +4318,7 @@ Total: 174 Fused mul/add. Breakdown, and add/sub instruction each is equivalent 
 
 ***/
 
+//void ___RADIX_16_DIT_FMA() {}
 #define RADIX_16_DIT_FMA(\
 	__A0r,__A0i,__A1r,__A1i,__A2r,__A2i,__A3r,__A3i,__A4r,__A4i,__A5r,__A5i,__A6r,__A6i,__A7r,__A7i,__A8r,__A8i,__A9r,__A9i,__AAr,__AAi,__ABr,__ABi,__ACr,__ACi,__ADr,__ADi,__AEr,__AEi,__AFr,__AFi,\
 	__B0r,__B0i,__B1r,__B1i,__B2r,__B2i,__B3r,__B3i,__B4r,__B4i,__B5r,__B5i,__B6r,__B6i,__B7r,__B7i,__B8r,__B8i,__B9r,__B9i,__BAr,__BAi,__BBr,__BBi,__BCr,__BCi,__BDr,__BDi,__BEr,__BEi,__BFr,__BFi,\
@@ -4537,6 +4550,52 @@ void RADIX_32_DIF_TWIDDLE_OOP(
 void RADIX_32_DIT(
 	double *__A, const int *__idx, const int __re_im_stride_in,	/*  Inputs: Base address plus 32 (index) offsets */
 	double *__B, const int *__odx, const int __re_im_stride_out	/* Outputs: Base address plus 32 (index) offsets */
+);
+
+// Post-twiddles out-of-place-permitting analog of above twiddleless DIF macro: 31 nontrivial complex input twiddles E01-1f [E0 assumed = 1],
+// The DIF version of this macro processes the twiddles in bit-reversed order: 0,8,4,c,2,a,6,e,1,9,5,d,3,b,7,f.
+void RADIX_32_DIT_TWIDDLE(
+	double *__A, const int *__idx,	/*  Inputs: Base address plus 32 (index) offsets */
+	double *__B, const int *__odx,	/* Outputs: Base address plus 32 (index) offsets */
+	/* Twiddles: */
+	double __c10,double __s10,
+	double __c08,double __s08,
+	double __c18,double __s18,
+	/**/
+	double __c04,double __s04,
+	double __c14,double __s14,
+	double __c0C,double __s0C,
+	double __c1C,double __s1C,
+	/**/
+	double __c02,double __s02,
+	double __c12,double __s12,
+	double __c0A,double __s0A,
+	double __c1A,double __s1A,
+	/**/
+	double __c06,double __s06,
+	double __c16,double __s16,
+	double __c0E,double __s0E,
+	double __c1E,double __s1E,
+	/**/
+	double __c01,double __s01,
+	double __c11,double __s11,
+	double __c09,double __s09,
+	double __c19,double __s19,
+	/**/
+	double __c05,double __s05,
+	double __c15,double __s15,
+	double __c0D,double __s0D,
+	double __c1D,double __s1D,
+	/**/
+	double __c03,double __s03,
+	double __c13,double __s13,
+	double __c0B,double __s0B,
+	double __c1B,double __s1B,
+	/**/
+	double __c07,double __s07,
+	double __c17,double __s17,
+	double __c0F,double __s0F,
+	double __c1F,double __s1F
 );
 
 // With-twiddles out-of-place analog of above twiddleless DIT macro: 31 nontrivial complex input twiddles E01-1f [E0 assumed = 1],

@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2012 by Ernst W. Mayer.                                           *
+*   (C) 1997-2015 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -50,10 +50,11 @@ enum mode {INIT_ARRAYS, FORWARD_FFT_ONLY, AUTO_SQUARE, MUL_PRECOMPUTED};
 void  genFFT_mul(double x[], double y[], int n, int INIT_ARRAYS, int MODE);
 void  genFFT_mul_process_chunk(double a[], double ab_mul[], double cd_mul[], int n, struct complex rt0[], struct complex rt1[], int index[], int ii, int nradices_prim, int radix_prim[], int MODE);
 
+/* Nov 2015 - moved updated versions of these to Mlucas.h:
 void pairFFT_mul(double x[], double y[], int n, int INIT_ARRAYS, int FORWARD_FFT_ONLY);
 void pairFFT_mul_process_chunk(double a[], double ab_mul[], double cd_mul[], int n, struct complex rt0[], struct complex rt1[], int index[], int ii, int nradices_prim, int radix_prim[], int FORWARD_FFT_ONLY, int skip_square);
 void radix16_pairFFT_mul(double uv[], double ab_mul[], double cd_mul[], int n, int radix0, struct complex rt0[], struct complex rt1[], int ii, int nradices_prim, int radix_prim[], int nloops, int incr, int INIT_ARRAYS, int FORWARD_FFT_ONLY, int skip_square);
-
+*/
 
 /* The complex/rel wrapper and dyadic-mul step, combined with the final-fFFt/initial-iFFT radix pass: */
 void	radix16_genFFT_wrapper_mul(double uv[], double ab_mul[], double cd_mul[], int n, int radix0, struct complex rt0[], struct complex rt1[], int ii, int nradices_prim, int radix_prim[], int nloops, int incr, int MODE);

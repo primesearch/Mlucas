@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2013 by Ernst W. Mayer.                                           *
+*   (C) 1997-2016 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -32,29 +32,16 @@
 	The most common one (and the one we use in our SSEx detection) is func = 1.
 	*/
 
-  #if(defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
+  #ifdef COMPILER_TYPE_GCC
 
 	// xgetbv(ax,dx) macro: Needed for AVX support detection for OS being used: Set ecx = 0, see if xgetbv sets bits 1:2 of eax:
-	#define XGETBV(func,ax,dx)\
+	#define XGETBV(arg1,ax,dx)\
 		__asm__ __volatile__ ("xgetbv":\
-	"=a" (ax), "=d" (dx) : "c" (func));
+	"=a" (ax), "=d" (dx) : "c" (arg1));
 
-	#define CPUID(func,ax,bx,cx,dx)\
+	#define CPUID(arg1,arg2,ax,bx,cx,dx)\
 		__asm__ __volatile__ ("cpuid":\
-	"=a" (ax), "=b" (bx), "=c" (cx), "=d" (dx) : "a" (func));
-
-/*
-	uint32	get_cpuid()
-	{
-		uint32 retval = 0;
-		asm (
-		"movl     $1,%%eax	\n\t"
-		"cpuid            	\n\t"
-		"mov      %%edx,%0	\n\t"
-	: : "r" (retval) : "eax","ebx","ecx","edx","cc" );
-		return retval;
-	}
-*/
+	"=a" (ax), "=b" (bx), "=c" (cx), "=d" (dx) : "a" (arg1), "c" (arg2));
 
   #elif(defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_ICC))
 
@@ -67,9 +54,10 @@
 	}
 
 	/* For MSVC and ICC, Replace the simple mov-based macro with fancier call based on __cpuid intrisic:
-	#define CPUID(func,a,b,c,d)\
+	#define CPUID(arg1,arg2,a,b,c,d)\
 	{\
-		__asm	mov	eax, func\
+		__asm	mov	eax, arg1\
+		__asm	mov	ecx, arg2\
 		__asm	cpuid\
 		__asm	mov	a, eax\
 		__asm	mov	b, ebx\
@@ -81,7 +69,7 @@
 	#include <intrin.h>
 
 	int CPUInfo[4] = {-1};
-
+	#error CPUID needs updating to support 2-input-register-args!
 	#define CPUID(func,a,b,c,d)\
 	{\
 		__cpuid(CPUInfo, func);	\
@@ -337,8 +325,8 @@
   #else
 
 /*	#error get_cpuid() only supported for ia32 under GCC, MSVC, and Intel C!	*/
-	#define CPUID(x,a,b,c,d)	/* */
-	#define XGETBV(a,d)			/* */
+	#define CPUID(arg1,arg2,a,b,c,d)	/* */
+	#define XGETBV(arg1,a,d)			/* */
 
   #endif
 
@@ -350,7 +338,7 @@
 		/* Need 12+3*16 char for extended cpuid, add 4 more for terminator and " : " padding */
 		char cpu_str[65] = "0123456789ab : f0123456789abcdef0123456789abcdef0123456789abcdef";
 
-		CPUID(0,a,b,c,d);
+		CPUID(0,0,a,b,c,d);
 		for(i = 0; i < 4; i++)
 		{
 			shift = i*8;
@@ -359,7 +347,7 @@
 			cpu_str[i+ 8] = (char)((c >> shift) & 0xff);
 		}
 
-		CPUID(0x80000002,a,b,c,d);
+		CPUID(0x80000002,0,a,b,c,d);
 		for(i = 0; i < 4; i++)
 		{
 			j = i+15;
@@ -370,7 +358,7 @@
 			cpu_str[j+12] = (char)((d >> shift) & 0xff);
 		}
 
-		CPUID(0x80000003,a,b,c,d);
+		CPUID(0x80000003,0,a,b,c,d);
 		for(i = 0; i < 4; i++)
 		{
 			j = i+31;
@@ -381,7 +369,7 @@
 			cpu_str[j+12] = (char)((d >> shift) & 0xff);
 		}
 
-		CPUID(0x80000004,a,b,c,d);
+		CPUID(0x80000004,0,a,b,c,d);
 		for(i = 0; i < 4; i++)
 		{
 			j = i+47;
@@ -399,7 +387,7 @@
 	uint32	has_sse()
 	{
 		uint32 a,b,c,d;
-		CPUID(1,a,b,c,d);
+		CPUID(1,0,a,b,c,d);
 
 		if(d & 0x02000000)
 			return 1;
@@ -411,7 +399,7 @@
 	uint32	has_sse2()
 	{
 		uint32 a,b,c,d;
-		CPUID(1,a,b,c,d);
+		CPUID(1,0,a,b,c,d);
 
 		if(d & (1 << 26))
 			return 1;
@@ -423,7 +411,7 @@
 	uint32	has_sse3()
 	{
 		uint32 a,b,c,d;
-		CPUID(1,a,b,c,d);
+		CPUID(1,0,a,b,c,d);
 
 		if(c & 1)
 			return 1;
@@ -435,7 +423,7 @@
 	uint32	has_sse3e()
 	{
 		uint32 a,b,c,d;
-		CPUID(1,a,b,c,d);
+		CPUID(1,0,a,b,c,d);
 
 		if(c & (1 << 9))
 			return 1;
@@ -447,7 +435,7 @@
 	uint32	has_sse41()
 	{
 		uint32 a,b,c,d;
-		CPUID(1,a,b,c,d);
+		CPUID(1,0,a,b,c,d);
 
 		if(c & (1 << 19))
 			return 1;
@@ -459,7 +447,7 @@
 	uint32	has_sse42()
 	{
 		uint32 a,b,c,d;
-		CPUID(1,a,b,c,d);
+		CPUID(1,0,a,b,c,d);
 
 		if(c & (1 << 20))
 			return 1;
@@ -468,13 +456,16 @@
 	}
 
   #ifdef USE_AVX	// Need to wrap these in a #ifdef since XGETBV instruction not supported by pre-AVX CPU/OS combos.
-
+	/* NOTE: Even attempting to *compile* this code on a pre-AVX platform will give error:
+		GCC  : no such instruction: 'xgetbv'
+		Clang: invalid instruction mnemonic 'xgetbv'
+	*/
 	/* AVX requires us to check both CPU support and OS register-state-save support, which are
 	encoded in bit 28 and 27, respectively, of ECX returned by calling CPUID with input EAX = 1: */
 	uint32	has_avx()
 	{
 		uint32 a,b,c,d;
-		CPUID(1,a,b,c,d);
+		CPUID(1,0,a,b,c,d);
 
 		if(c & 0x18000000) {			// CPU supports AVX?
 			XGETBV(0,a,d);
@@ -484,16 +475,64 @@
 		}
 	}
 
+	// May 2015: Build-for-valgrind gives bad FMA-flag result on my Haswell/debian(v6)/gcc-4.4.5:
+	// a,b,c,d = 000206A7,00100800,1F9AE3BF,BFEBFBFF
+    //                                 ^ lowest bit in E = 0, expect 1!
 	/* AVX2 requires us to check both AVX and FMA support, the former of which described in has_avx() and
 	the latter of which is encoded in bit 12 of ECX returned by calling CPUID with input EAX = 1: */
 	uint32	has_avx2()
 	{
 		uint32 a,b,c,d;
-		CPUID(1,a,b,c,d);
+		CPUID(1,0,a,b,c,d);
+	//	printf("has_avx2: CPUID returns [a,b,c,d] = [%8X,%8X,%8X,%8X]\n",a,b,c,d);
 		// Since checking for > 1 lit bits here, can't simply use "is result of AND nonzero?)-style check as above:
 		if((c & 0x18001000) == 0x18001000) {			// CPU supports AVX+FMA?
 			XGETBV(0,a,d);
 			return (a & 0x6) == 0x6;	//  OS supports AVX?
+		} else {
+			return 0;
+		}
+	}
+
+	/*
+	Feb 2016: from the Intel AVX-512 Architecture Instruction Set Extensions Programming Reference:
+	
+	Processor support of AVX-512 Foundation instructions is indicated by CPUID.(EAX=07H, ECX=0):EBX.AVX512F[bit 16] = 1.
+	Detection of AVX-512 Foundation instructions operating on ZMM states and opmask registers need to follow the general
+	procedural flow in Figure 2-1.
+	
+	Prior to using AVX-512 Foundation instructions, the application must identify that the operating system supports
+	the XGETBV instruction, the ZMM register state, in addition to processor’s support for ZMM state management using
+	XSAVE/XRSTOR and AVX-512 Foundation instructions. The following simplified sequence accomplishes both and is
+	strongly recommended.
+	
+	1) Detect CPUID.1:ECX.OSXSAVE[bit 27] = 1 (XGETBV enabled for application use1)
+	2) Execute XGETBV and verify that XCR0[7:5] = ‘111b’ (OPMASK state, upper 256-bit of ZMM0-ZMM15 and ZMM16-ZMM31
+		state are enabled by OS) and that XCR0[2:1] = ‘11b’ (XMM state and YMM state are enabled by OS).
+	3) Detect CPUID.0x7.0:EBX.AVX512F[bit 16] = 1.	<*** This required an updated version of CPUID
+													which allows both a and c-regs to be arglist-set.
+
+	Oct 2016: On the shared-KNL-dev system, get this:
+		has_avx512: CPUID(1,0) returns [a,b,c,d] = [   50671,E5FF0800,7FF8F3BF,BFEBFBFF]
+		has_avx512: XGETBV(0,a,d) returns [a] =       E7
+		has_avx512: CPUID(7,0) returns [b] = 1C0D23AB
+	*/
+	uint32	has_avx512()
+	{
+		uint32 a,b,c,d;
+		CPUID(1,0,a,b,c,d);
+	//	printf("has_avx512: CPUID(1,0) returns [a,b,c,d] = [%8X,%8X,%8X,%8X]\n",a,b,c,d);
+		// Since checking for > 1 lit bits here, can't simply use "is result of AND nonzero?)-style check as above:
+		if(c & 0x08000000) {			// XGETBV enabled?
+			XGETBV(0,a,d);
+		//	printf("has_avx512: XGETBV(0,a,d) returns [a] = %8X\n",a);
+			if( (a & 0xE6) == 0xE6) {	//  OS supports AVX (via xmm/ymm-state in bits 2:1) and AVX512 (opmask/zmm.hi256 in bits 7:5) ?
+				CPUID(7,0,a,b,c,d);
+			//	printf("has_avx512: CPUID(7,0) returns [b] = %8X\n",b);
+				return (b & 0x10000);
+			} else {
+				return 0;
+			}
 		} else {
 			return 0;
 		}

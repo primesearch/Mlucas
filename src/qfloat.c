@@ -365,16 +365,11 @@ double qfdbl_wrong_way_rnd(struct qfloat q)
 }
 
 // For generic doubles (i.e. we do not know what the less-significant bits were which were rounded in),
-// need to provide a pair of functions to add/sub 1 from the LSB:
-double dbl_lsb_add1(double d)
+// simply provide a function which toggles the LSB:
+double dbl_flip_lsb(double d)
 {
-	uint64 c = *(uint64 *)&d + 1;
-	return *(double *)&c;
-}
-
-double dbl_lsb_sub1(double d)
-{
-	uint64 c = *(uint64 *)&d - 1;
+	uint64 c = *(uint64 *)&d;
+	BIT_FLIP(c,0);
 	return *(double *)&c;
 }
 

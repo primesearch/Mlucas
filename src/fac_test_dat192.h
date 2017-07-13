@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2014 by Ernst W. Mayer.                                           *
+*   (C) 1997-2015 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -41,6 +41,43 @@
 		uint64 d1;
 		uint64 d0;
 	};
+
+	/*******************************************/
+	/*      Fermat-number test factors:        */
+	/*******************************************/
+
+	// Here interpret the above testFac struct as a minimalist [n,k]-pair format,
+	// where Fn = 2^2^n+1 is the Fermat number and q = k.2^(n+2)+1 the factor:
+	// To check any particular (alleged) factor q of Fn using Pari, use Mod(2,q)^(2^n)+1.
+
+	// Testcases with factors < 2^192:
+	static const struct testFac192 ffac192[] =
+	{
+		{ 86,0ull,0ull,	   20018578522347ull},		// 2012 M. Dangler & Rodenkirch
+		{ 88,0ull,0ull,	     119942751127ull},		// 2001 T. Nohara & Durman
+		{ 90,0ull,0ull,	     198922467387ull},		// 2001 P. Grobstich & Durman
+		{ 91,0ull,0ull,	             1421ull},		// 1977 D. E. Shippee
+		{ 93,0ull,0ull,2*	        92341ull},		// 1979 R. Baillie
+		{ 94,0ull,0ull,2*	 482524552001ull},		// 2001 P. Grobstich & Durman
+		{ 96,0ull,0ull,8*	3334131633063ull},		// 2008 M. Ptáček & Durman
+		{107,0ull,0ull,4*	   1289179925ull},		// 1992 G. B. Gostin
+		{116,0ull,0ull,4*	   3433149787ull},		// 1999 T. Taura
+		{122,0ull,0ull,	          5234775ull},		// 1986 G. B. Gostin
+		{125,0ull,0ull,	                5ull},		// 1956 R. M. Robinson
+		{133,0ull,0ull,	      88075576149ull},		// 2001 P. Samidoost & Durman
+		{142,0ull,0ull,2*	      8152599ull},		// 1986 G. B. Gostin
+		{144,0ull,0ull,2*	           17ull},		// 1956 R. M. Robinson
+		{146,0ull,0ull,	         37092477ull},		// 1987 G. B. Gostin
+		{147,0ull,0ull,	             3125ull},		// 1979 G. B. Gostin & P. B. McLaughlin
+		{147,0ull,0ull,	        124567335ull},		// 1990 G. B. Gostin
+		{150,0ull,0ull,32*	         1575ull},		// 1956 R. M. Robinson
+		{150,0ull,0ull,4*	         5439ull},		// 1980 G. B. Gostin & P. B. McLaughlin & H. Suyama
+		{0,0ull,0ull,0ull}
+	};
+
+	/*******************************************/
+	/*      Mersenne-number test factors:      */
+	/*******************************************/
 
 	/* Factors > 128 but <= 160 bits. If desired, we can construct more test factors
 	by multiplying together a 64-bit factor q1 of M(p1) and a 96-bit factor q2 of M(p2)

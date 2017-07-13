@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2014 by Ernst W. Mayer.                                           *
+*   (C) 1997-2015  by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -35,8 +35,9 @@ void radix31_dif_pass1(double a[], int n)
 !
 !   See the documentation in radix16_dif_pass for further details on storage and indexing.
 */
-	int j,j1,j2,arr_offsets[31];
-	static int n31,p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19,p20,p21,p22,p23,p24,p25,p26,p27,p28,p29,p30,
+	int j,j1,j2;
+	static int arr_offsets[31],
+		n31,p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19,p20,p21,p22,p23,p24,p25,p26,p27,p28,p29,p30,
 		first_entry=TRUE;
 	double tmp[62];
 
@@ -209,7 +210,8 @@ DIT - Since the radix is prime - differs from DIF only in having the + and - of 
 void radix31_dit_pass1(double a[], int n)
 {
 	int j,j1,j2;
-	static int n31,p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19,p20,p21,p22,p23,p24,p25,p26,p27,p28,p29,p30, first_entry=TRUE;
+	static int n31,p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19,p20,p21,p22,p23,p24,p25,p26,p27,p28,p29,p30,
+		first_entry=TRUE;
 
 	if(!first_entry && (n/31) != n31)	/* New runlength?	*/
 	{

@@ -33,6 +33,41 @@
 		char q[80];
 	};
 
+	/*******************************************/
+	/*      Fermat-number test factors:        */
+	/*******************************************/
+
+	struct testFermFac{
+		uint32 n;
+		uint64 k;
+	};
+
+	// Here interpret the above testFac struct as a minimalist [n,k]-pair format,
+	// where Fn = 2^2^n+1 is the Fermat number and q = k.2^(n+2)+1 the factor:
+	// To check any particular (alleged) factor q of Fn using Pari, use Mod(2,q)^(2^n)+1.
+
+	// Testcases with factors < 2^256:
+	static const struct testFermFac ffac256[] =
+	{
+		{164,2*	    1835601567ull},		// 1993 G. B. Gostin
+		{166,8*	 2674670937447ull},		// 2012 R. Maznichenko & Rodenkirch
+		{172,	   20569603303ull},		// 2001 L. N. Durman
+		{178,	     313047661ull},		// 1991 G. B. Gostin
+		{184,2*	     117012935ull},		// 1990 G. B. Gostin
+		{195,	48595346636925ull},		// 2014 S. Batalov & Woltman
+		{201,2*	          4845ull},		// 1980 G. B. Gostin & P. B. McLaughlin
+		{205,	        232905ull},		// 1984 W. Keller
+		{207,	             3ull},		// 1956 R. M. Robinson
+		{215,	         32111ull},		// 1980 H. Suyama
+		{226,2*	            15ull},		// 1956 R. M. Robinson
+		{228,2*	            29ull},		// 1956 R. M. Robinson 
+		{0,0ull}
+	};
+
+	/*******************************************/
+	/*      Mersenne-number test factors:      */
+	/*******************************************/
+
 	/* 256-bit Factors are easier to give in character-string form: */
 	/* EWM: These are from my April 2006 shakedown runs of the P4WORD functionality -
 	ran ??? 64-65-digit test exponents up to k = 10^10; ??? had factors below this bound,

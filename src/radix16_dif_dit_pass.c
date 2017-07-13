@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2013 by Ernst W. Mayer.                                           *
+*   (C) 1997-2017 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -21,6 +21,9 @@
 *******************************************************************************/
 
 #include "Mlucas.h"
+#ifdef REFACTOR_4DFT_3TWIDDLE
+	#include "sse2_macro.h"
+#endif
 
 #define RADIX 16
 
@@ -28,7 +31,9 @@
 #define HIACC 1
 #define EPS	1e-10
 
-#ifdef USE_AVX2
+#ifdef USE_AVX512
+	#define DFT_V1
+#elif defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE)
 	#if !defined(DFT_V1) && !defined(DFT_V2)
 		#define DFT_V1	// Compile-time toggle between 2 versions of the FMA-based DFT macros - Must
 		// define one of these for AVX+FMA builds, default is V1 (slightly faster on my Haswell 4670)
@@ -39,19 +44,19 @@
   #ifdef USE_AVX
 	#define PFETCH_DIST	4096	// This seems to work best on my Haswell
   #else
-	#define PFETCH_DIST	8
+	#define PFETCH_DIST	32
   #endif
 #endif
 
 #ifdef USE_SSE2
 
-	#if(HIACC != 1)
-		#error SIMD Mode requires HIACC flag to be set!
-	#endif
+  #ifndef COMPILER_TYPE_GCC
+	#error SSE2 code not supported for this compiler!
+  #endif
 
-	#ifdef COMPILER_TYPE_MSVC
-		#include "sse2_macro.h"
-	#endif
+  #if(HIACC != 1)
+	#error SIMD Mode requires HIACC flag to be set!
+  #endif
 
 /*	Recipe for MSVC --> GCC inline ASM conversion:
 
@@ -86,19 +91,7 @@ Additional Notes:
 	- Offsets with explicit + sign, e.g. "+0x10(%%eax)", not allowed
 */
 
-	#if(defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
-
-		#if OS_BITS == 32
-
-			#include "radix16_dif_dit_pass_gcc32.h"
-
-		#else
-
-			#include "radix16_dif_dit_pass_gcc64.h"
-
-		#endif
-
-	#endif
+	#include "radix16_dif_dit_pass_asm.h"
 
 #endif
 
@@ -114,42 +107,41 @@ Additional Notes:
 !   in strides that are large powers of two and thus to minimize cache thrashing
 !   (in cache-based microprocessor architectures) or bank conflicts (in supercomputers.)
 */
-void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr, int init_sse2, int thr_id)
+#ifdef USE_FGT61
+void radix16_dif_pass	(double a[], uint64 b[], int n, struct complex rt0[], struct complex rt1[], uint128 mt0[], uint128 mt1[], int index[], int nloops, int incr, int init_sse2, int thr_id)
+#else
+void radix16_dif_pass	(double a[],             int n, struct complex rt0[], struct complex rt1[],                               int index[], int nloops, int incr, int init_sse2, int thr_id)
+#endif
 {
+	const char func[] = "radix16_dif_pass";
 	const int pfetch_dist = PFETCH_DIST;
-	int pfetch_addr;
+	int pfetch_addr;	// Since had pre-existing L1-targeting pfetch here, add numerical suffix to differentiate cache levels being targeted by the various types of prefetching
 	static int max_threads = 0;
-	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride (doubles) = 2*RE_IM_STRIDE
+	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 	// lg(stride):
-  #ifdef USE_AVX
-	const int l2_stride = 3;	// 8 doubles at a time
-  #elif defined(USE_SSE2)
-	const int l2_stride = 2;	// 4 doubles at a time
-  #else
-	const int l2_stride = 1;	// 2 doubles at a time in scalar [non-SIMD] mode
-  #endif
-
+	const int l2_stride = L2_SZ_VD-2;	// 16 doubles at a time
+#ifdef USE_FGT61
+	const uint64 q  = 0x1FFFFFFFFFFFFFFFull, q2=q+q, q3=q2+q, q4=q2+q2, q5=q4+q;	// q = 2^61 - 1, and needed small multiples
+	// primitive 16th root of unity, scaled by *8:
+	const uint64 cm = 1693317751237720973ull<<3, sm = 2283815672160731785ull<<3;
+#endif
 	const double c = 0.9238795325112867561281831, s = 0.3826834323650897717284599;	/* exp[i*(twopi/16)]*/
-#if defined(USE_SCALAR_DFT_MACRO) || defined(USE_AVX2)	// FMA-based DFT needs the tangent
+#if defined(USE_SCALAR_DFT_MACRO) || defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE)	// FMA-based DFT needs the tangent
 	const double tan = 0.41421356237309504879;
 #endif
 	int i,j,j1,j2,jlo,jhi,m,iroot_prim,iroot,k1,k2;
 	int p1,p2,p3,p4,p8,p12;
 	double rt,it,dtmp;
 	double re0,im0,re1,im1;
-	uint64 tmp64;
+	uint64 tmp64,rm,im;
+	// These needed both for scalar mode and for certain SIMD-mode inits:
+	double c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12,s13,s14,s15;
 
 #ifdef USE_SSE2
 
-  #if !(defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
-	#error SSE2 code not supported for this compiler!
-  #endif
-
 	static vec_dbl *sc_arr = 0x0, *sc_ptr;
 	double *add0, *add1, *add2;	/* Addresses into array sections */
-#ifdef COMPILER_TYPE_MSVC
-	double *add3;
-#endif
+	const double *cd_ptr0, *cd_ptr1;
 	vec_dbl *c_tmp,*s_tmp;
 
   #ifdef MULTITHREAD
@@ -157,18 +149,14 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
    #if OS_BITS == 64
 	vec_dbl *cc0, *ss0, *isrt2, *two, *r1;
    #else	// 32-bit SSE2:
-	vec_dbl *cc0, *ss0, *isrt2, *two, *r1,*r3,*r5,*r7,*r9,*r17,*r25,*c0,*c1,*c2,*c3;
+	vec_dbl *cc0, *ss0, *isrt2, *two, *r1,*r3,*r5,*r7,*r9,*r17,*r25,*_c0,*_c1,*_c2,*_c3;
    #endif
-  #elif defined(COMPILER_TYPE_GCC)
+  #else
    #if OS_BITS == 64
 	static vec_dbl *cc0, *ss0, *isrt2, *two, *r1;
    #else	// 32-bit SSE2:
-	static vec_dbl *cc0, *ss0, *isrt2, *two, *r1,*r3,*r5,*r7,*r9,*r17,*r25,*c0,*c1,*c2,*c3;
+	static vec_dbl *cc0, *ss0, *isrt2, *two, *r1,*r3,*r5,*r7,*r9,*r17,*r25,*_c0,*_c1,*_c2,*_c3;
    #endif
-  #else
-	static vec_dbl *cc0, *ss0, *isrt2, *two;
-	static vec_dbl *c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15,*s0,*s1,*s2,*s3,*s4,*s5,*s6,*s7,*s8,*s9,*s10,*s11,*s12,*s13,*s14,*s15;
-	static vec_dbl *r1,*r2,*r3,*r4,*r5,*r6,*r7,*r8,*r9,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r30,*r31,*r32;
   #endif
 
 #else
@@ -179,7 +167,10 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 	int prefetch_offset;
 	double t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t30,t31,t32;
   #endif
-	double c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12,s13,s14,s15;
+  #ifdef USE_FGT61
+	uint64 a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,b1,b2,b3,b4,b5,b6,b7,b8,b9,b10,b11,b12,b13,b14,b15
+		  ,m1,m2,m3,m4,m5,m6,m7,m8,m9,m10,m11,m12,m13,m14,m15,m16,m17,m18,m19,m20,m21,m22,m23,m24,m25,m26,m27,m28,m29,m30,m31,m32;
+  #endif
 
 #endif
 
@@ -203,7 +194,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		}
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 72*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 32 16-byte slots of sc_arr for temporaries, next 3 for the nontrivial complex 16th roots,
 	last 30 for the doubled sincos twiddles, plus at least 3 more slots to allow for 64-byte alignment of the array.
@@ -218,8 +209,8 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 			for(i = 0; i < max_threads; ++i) {
 				/* These remain fixed within each per-thread local store: */
 				VEC_DBL_INIT(isrt2, ISRT2);
-			  #ifdef USE_AVX2
-				VEC_DBL_INIT(two  , 1.0);	// Yeah, I *know" "it's a misnomer" :)
+			  #if defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE)
+				VEC_DBL_INIT(two  , 1.0);	// Yeah, I *know* it's a misnomer :)
 				// cc0,ss0 inited below for AVX2
 			  #else
 				VEC_DBL_INIT(two  , 2.0);
@@ -245,14 +236,14 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 			r9    = r1 + 0x08;
 			r17   = r1 + 0x10;
 			r25   = r1 + 0x18;
-			c0    = r1 + 0x23;
-			c1    = r1 + 0x33;
-			c2    = r1 + 0x2b;
-			c3    = r1 + 0x3b;
+			_c0   = r1 + 0x23;
+			_c1   = r1 + 0x33;
+			_c2   = r1 + 0x2b;
+			_c3   = r1 + 0x3b;
 		  #endif
 			/* These remain fixed: */
 			VEC_DBL_INIT(isrt2, ISRT2);
-		  #ifdef USE_AVX2
+		  #if defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE)
 			VEC_DBL_INIT(two  , 1.0);
 			// cc0,ss0 inited below for AVX2
 		  #else
@@ -262,54 +253,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		  #endif
 
 		#else
-	//	} else {
-																// In AVX2 mode, the 34 sincos terms between isrt2 and two will be inited
-																// as before but will end up containing derived quantitiess as shown below.
-			r1  = sc_ptr + 0x00;	  isrt2 = sc_ptr + 0x20;	// The derived-term naming reflects that in the RADIX_16_DIF_FMA macro in dft_macro.h:
-			r2  = sc_ptr + 0x01;		cc0 = sc_ptr + 0x21;	// __c1_c = c1*__c
-			r3  = sc_ptr + 0x02;		ss0 = sc_ptr + 0x22;	// __sc = __s/__c	[note this const across all blocks]
-			r4  = sc_ptr + 0x03;		c0  = sc_ptr + 0x23;	// __c1i2 = c1*ISRT2
-			r5  = sc_ptr + 0x04;		s0  = sc_ptr + 0x24;	// __c2i2 = c2*ISRT2
-			r6  = sc_ptr + 0x05;		c8  = sc_ptr + 0x25;	// __c8 [unchanged]
-			r7  = sc_ptr + 0x06;		s8  = sc_ptr + 0x26;	// __r8 = s8 /c8
-			r8  = sc_ptr + 0x07;		c4  = sc_ptr + 0x27;	// __c4 [unchanged]
-			r9  = sc_ptr + 0x08;		s4  = sc_ptr + 0x28;	// __r4 = s4 /c4
-			r10 = sc_ptr + 0x09;		c12 = sc_ptr + 0x29;	// __cC4 = __cC/__c4
-			r11 = sc_ptr + 0x0a;		s12 = sc_ptr + 0x2a;	// __rC = s12/c12
-			r12 = sc_ptr + 0x0b;		c2  = sc_ptr + 0x2b;	// __c2 [unchanged]
-			r13 = sc_ptr + 0x0c;		s2  = sc_ptr + 0x2c;	// __r2 = s2 /c2
-			r14 = sc_ptr + 0x0d;		c10 = sc_ptr + 0x2d;	// __cA2 = __cA/__c2
-			r15 = sc_ptr + 0x0e;		s10 = sc_ptr + 0x2e;	// __rA = s10/c10
-			r16 = sc_ptr + 0x0f;		c6  = sc_ptr + 0x2f;	// __c62 = __c6/__c2
-			r17 = sc_ptr + 0x10;		s6  = sc_ptr + 0x30;	// __r6 = s6 /c6
-			r18 = sc_ptr + 0x11;		c14 = sc_ptr + 0x31;	// __cE6 = __cE/__c6
-			r19 = sc_ptr + 0x12;		s14 = sc_ptr + 0x32;	// __rE = s14/c14
-			r20 = sc_ptr + 0x13;		c1  = sc_ptr + 0x33;	// __c1 [unchanged]
-			r21 = sc_ptr + 0x14;		s1  = sc_ptr + 0x34;	// __r1 = s1 /c1
-			r22 = sc_ptr + 0x15;		c9  = sc_ptr + 0x35;	// __c91 = __c9/__c1
-			r23 = sc_ptr + 0x16;		s9  = sc_ptr + 0x36;	// __r9 = s9 /c9
-			r24 = sc_ptr + 0x17;		c5  = sc_ptr + 0x37;	// __c51 = __c5/__c1
-			r25 = sc_ptr + 0x18;		s5  = sc_ptr + 0x38;	// __r5 = s5 /c5
-			r26 = sc_ptr + 0x19;		c13 = sc_ptr + 0x39;	// __cD5 = __cD/__c5
-			r27 = sc_ptr + 0x1a;		s13 = sc_ptr + 0x3a;	// __rD = s13/c13
-			r28 = sc_ptr + 0x1b;		c3  = sc_ptr + 0x3b;	// __c31 = __c3/__c1
-			r29 = sc_ptr + 0x1c;		s3  = sc_ptr + 0x3c;	// __r3 = s3 /c3
-			r30 = sc_ptr + 0x1d;		c11 = sc_ptr + 0x3d;	// __cB3 = __cB/__c3
-			r31 = sc_ptr + 0x1e;		s11 = sc_ptr + 0x3e;	// __rB = s11/c11
-			r32 = sc_ptr + 0x1f;		c7  = sc_ptr + 0x3f;	// __c73 = __c7/__c3
-										s7  = sc_ptr + 0x40;	// __r7 = s7 /c7
-										c15 = sc_ptr + 0x41;	// __cF7 = __cF/__c7
-										s15 = sc_ptr + 0x42;	// __rF = s15/c15
-										two = sc_ptr + 0x43;	// Holds 1.0 in AVX2 modeThese will need to be computed afresh for each new set of roots of unity, obviously.
-			/* These remain fixed: */
-			VEC_DBL_INIT(isrt2, ISRT2);
-		  #ifdef USE_AVX2
-			#error AVX2 build not supported for non-GCC-compliant compilers!
-		  #else
-			VEC_DBL_INIT(two  , 2.0);
-			VEC_DBL_INIT(cc0  , c);
-			VEC_DBL_INIT(ss0  , s);
-		  #endif
+		  #error Non-GCC-compatible compilers not supported for SIMD builds!
 		#endif
 	//	}
 		return;
@@ -329,10 +273,10 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		r9    = r1 + 0x08;
 		r17   = r1 + 0x10;
 		r25   = r1 + 0x18;
-		c0    = r1 + 0x23;
-		c1    = r1 + 0x33;
-		c2    = r1 + 0x2b;
-		c3    = r1 + 0x3b;
+		_c0   = r1 + 0x23;
+		_c1   = r1 + 0x33;
+		_c2   = r1 + 0x2b;
+		_c3   = r1 + 0x3b;
 	  #endif
 	#endif
 
@@ -382,10 +326,12 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 	p8 = p8 + ( (p8 >> DAT_BITS) << PAD_BITS );
 	p12= p12+ ( (p12>> DAT_BITS) << PAD_BITS );
 	// Make sure to at least one-time pre-test any index arithmetic assumptions used to save cycles in the loop
-	// body (both C and AS). Since such checks may be runlength-dependent, need to be cheap enough to leave on
+	// body (both C and ASM). Since such checks may be runlength-dependent, need to be cheap enough to leave on
 	// all the time, as here where we do them just once prior to entering the processing loop. Since DIF and DIT
 	// encounter the same sets or index strides (albeit in opposite order), can split such tests between them:
-//	ASSERT(HERE, p2  == p1+p1, "radix16_dif_pass: p2  != p1+p1!");	<*** The failure of this assertion led me to find the dependence on it in my new AVX2/FMA-based DIT macro ***
+	//*** 2014: Failure of this assertion led me to find dependence on it in my new AVX2/FMA-based DIT macro ***
+	//*** [But fix obviates said dependence, so no longer appropriate to enforce it.] ***
+//	ASSERT(HERE, p2  == p1+p1, "radix16_dif_pass: p2  != p1+p1!");
 
 	iroot_prim=(incr >> 5);		/* (incr/2)/radix_now */
 
@@ -402,15 +348,151 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 */
 #if HIACC
 
-	// In AVX2/FMA mode, since we need to replace most of the raw sincos data with derived ones,
-	// simply place one copy of each computed double in a double-sized slot of the local memory.
-	// We will be using AVX2/FMA-based Newtonian iterative inversion on the 16 doubles whose
-	// multiplicative inverse is needed (the real part of the basic root of unity c and of the
-	// 15 complex twiddles, c1-15), so store those in packed form in 4 AVX-register-sized
-	// contiguous memory locations, and the others in a separate chunk of memory. After the
-	// vector-iterative inversion we'll need to combine the 2 sets of data and place (in quadruplicate)
-	// into their final SIMD-suitable memory slots.
-	#ifdef USE_AVX2
+	#ifdef REFACTOR_4DFT_3TWIDDLE
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/* 2*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c1=re0*re1-im0*im1;	s1=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/* 3*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c2=re0*re1-im0*im1;	s2=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/* 4*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c3=re0*re1-im0*im1;	s3=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/* 5*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c4=re0*re1-im0*im1;	s4=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/* 6*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c5=re0*re1-im0*im1;	s5=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/* 7*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c6=re0*re1-im0*im1;	s6=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/* 8*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c7=re0*re1-im0*im1;	s7=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/* 9*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c8=re0*re1-im0*im1;	s8=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/*10*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c9=re0*re1-im0*im1;	s9=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/*11*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c10=re0*re1-im0*im1;	s10=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/*12*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c11=re0*re1-im0*im1;	s11=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/*13*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c12=re0*re1-im0*im1;	s12=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/*14*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c13=re0*re1-im0*im1;	s13=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/*15*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c14=re0*re1-im0*im1;	s14=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c15=re0*re1-im0*im1;	s15=re0*im1+im0*re1;
+
+		// Cf. util.c:test_radix16_dft() for details on these combos:
+		c5 =  (c1-s1)*ISRT2;	s5 = (c1+s1)*ISRT2;
+		c6 = -s2;				s6 = c2;
+		c7 = -(c3+s3)*ISRT2;	s7 = (c3-s3)*ISRT2;
+
+		c9 = c1*c-s1*s;			s9 = c1*s+s1*c;
+		c10= (c2-s2)*ISRT2;		s10= (c2+s2)*ISRT2;
+		c11= c3*s-s3*c;			s11= c3*c+s3*s;
+
+		c13= c1*s-s1*c;			s13= c1*c+s1*s;
+		c14= -(c2+s2)*ISRT2;	s14= (c2-s2)*ISRT2;
+		c15= -c3*c+s3*s;		s15= -(c3*s+s3*c);
+
+	  #ifdef USE_SSE2
+		/* Sincos data stored in terms of the following 5 contiguous-data triplets:
+			c4,s4, c8,s8, cC,sC
+			c1,s1, c2,s2, c3,s3
+			c5,s5, c6,s6, c7,s7
+			c9,s9, cA,sA, cB,sB
+			cD,sD, cE,sE, cF,sF .
+		Note that due to my layout of the SSE2_RADIX_04_DIF_3TWIDDLE_X2-macro arglist,
+		we need to swap the order of the first 2 sincos-pairs of each triplet:
+		*/
+		c_tmp = cc0; s_tmp = c_tmp+1;	/* c0,s0 */
+		VEC_DBL_INIT(c_tmp, c8 );	VEC_DBL_INIT(s_tmp, s8 );	c_tmp+=2; s_tmp+=2;
+		VEC_DBL_INIT(c_tmp, c4 );	VEC_DBL_INIT(s_tmp, s4 );	c_tmp+=2; s_tmp+=2;
+		VEC_DBL_INIT(c_tmp, c12);	VEC_DBL_INIT(s_tmp, s12);	c_tmp+=2; s_tmp+=2;
+
+		VEC_DBL_INIT(c_tmp, c2 );	VEC_DBL_INIT(s_tmp, s2 );	c_tmp+=2; s_tmp+=2;
+		VEC_DBL_INIT(c_tmp, c1 );	VEC_DBL_INIT(s_tmp, s1 );	c_tmp+=2; s_tmp+=2;
+		VEC_DBL_INIT(c_tmp, c3 );	VEC_DBL_INIT(s_tmp, s3 );	c_tmp+=2; s_tmp+=2;
+
+		VEC_DBL_INIT(c_tmp, c6 );	VEC_DBL_INIT(s_tmp, s6 );	c_tmp+=2; s_tmp+=2;
+		VEC_DBL_INIT(c_tmp, c5 );	VEC_DBL_INIT(s_tmp, s5 );	c_tmp+=2; s_tmp+=2;
+		VEC_DBL_INIT(c_tmp, c7 );	VEC_DBL_INIT(s_tmp, s7 );	c_tmp+=2; s_tmp+=2;
+
+		VEC_DBL_INIT(c_tmp, c10);	VEC_DBL_INIT(s_tmp, s10);	c_tmp+=2; s_tmp+=2;
+		VEC_DBL_INIT(c_tmp, c9 );	VEC_DBL_INIT(s_tmp, s9 );	c_tmp+=2; s_tmp+=2;
+		VEC_DBL_INIT(c_tmp, c11);	VEC_DBL_INIT(s_tmp, s11);	c_tmp+=2; s_tmp+=2;
+
+		VEC_DBL_INIT(c_tmp, c14);	VEC_DBL_INIT(s_tmp, s14);	c_tmp+=2; s_tmp+=2;
+		VEC_DBL_INIT(c_tmp, c13);	VEC_DBL_INIT(s_tmp, s13);	c_tmp+=2; s_tmp+=2;
+		VEC_DBL_INIT(c_tmp, c15);	VEC_DBL_INIT(s_tmp, s15);	c_tmp+=2; s_tmp+=2;
+	  #endif
+
+	#elif defined(USE_AVX2)
+		// In AVX2/FMA mode, since we need to replace most of the raw sincos data with derived ones,
+		// simply place one copy of each computed double in a double-sized slot of the local memory.
+		// We will be using AVX2/FMA-based Newtonian iterative inversion on the 16 doubles whose
+		// multiplicative inverse is needed (the real part of the basic root of unity c and of the
+		// 15 complex twiddles, c1-15), so store those in packed form in 4 AVX-register-sized
+		// contiguous memory locations, and the others in a separate chunk of memory. After the
+		// vector-iterative inversion we'll need to combine the 2 sets of data and place (in suitable
+		// vector-register-sized broadcast form) into their final SIMD-suitable memory slots.
 
 		add0 = (double *)cc0;	// add0 points to 16 cos-data-to-be-inverted; Need a double-ptr on lhs here
 		add1 = add0 + 16;	// add1 points to block of memory temporarily used to store the corresponding sine data
@@ -438,8 +520,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = 0.0;	// Since tan0 defined as const, use this pair of double slots to hold 1/c3 (via c3,1 on input, then invert c3 and multiply
 		*add1++ = 1.0;	// them together), which extra 1/c3 copy saves some really awkward permuting, at least in terms of the idiotic x86 ISA.
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/* 2*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -447,8 +528,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c1, for inversion
 		*add1++ = it;	// s1  slot will hold __r1 = s1 /c1
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/* 3*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -456,8 +536,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c2, for inversion
 		*add1++ = it;	// s2  slot will hold __r2 = s2 /c2
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/* 4*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -466,8 +545,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++   = rt;	// place extra copy in 0-slot as described above - put on separate line to avoid ambiguity of *(add0-3) = *add0++ = rt
 		*add1++ = it;	// s3  slot will hold __r3 = s3 /c3
 		*add2++ = rt;	// c3, will get multiplied by 1/c1 to yield __c31
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/* 5*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -475,8 +553,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c4, for inversion
 		*add1++ = it;	// s4  slot will hold __r4 = s4 /c4
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/* 6*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -484,8 +561,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c5, for inversion
 		*add1++ = it;	// s5  slot will hold __r5 = s5 /c5
 		*add2++ = rt;	// c5, will get multiplied by 1/c1 to yield __c51
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/* 7*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -494,8 +570,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add1++ = it;	// s6  slot will hold __r6 = s6 /c6
 		*add2++ = rt;	// c6, will get multiplied by 1/c2 to yield __c62
 		*add2++ = 0.0;	// 0-pad will get multiplied by 1/c3 term, remains 0-pad.
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/* 8*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -503,8 +578,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c7, for inversion
 		*add1++ = it;	// s7  slot will hold __r7 = s7 /c7
 		*add2++ = rt;	// c7, will get multiplied by 1/c3 to yield __c73
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/* 9*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -512,8 +586,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c8, for inversion
 		*add1++ = it;	// s8  slot will hold __r8 = s8 /c8
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/*10*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -521,8 +594,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c9, for inversion
 		*add1++ = it;	// s9  slot will hold __r9 = s9 /c9
 		*add2++ = rt;	// c9, will get multiplied by 1/c1 to yield __c91
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/*11*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -530,8 +602,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c10, for inversion
 		*add1++ = it;	// s10 slot will hold __rA = s10/c10
 		*add2++ = rt;	// cA, will get multiplied by 1/c2 to yield __cA2
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/*12*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -539,8 +610,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c11, for inversion
 		*add1++ = it;	// s11 slot will hold __rB = s11/c11
 		*add2++ = rt;	// cB, will get multiplied by 1/c3 to yield __cB3
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/*13*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -548,8 +618,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c12, for inversion
 		*add1++ = it;	// s12 slot will hold __rC = s12/c12
 		*add2++ = rt;	// cC, will get multiplied by 1/c4 to yield __cC4
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/*14*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -557,8 +626,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c13, for inversion
 		*add1++ = it;	// s13 slot will hold __rD = s13/c13
 		*add2++ = rt;	// cD, will get multiplied by 1/c5 to yield __cD5
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/*15*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -567,8 +635,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add1++ = it;	// s14 slot will hold __rE = s14/c14
 		*add2++ = rt;	// cE, will get multiplied by 1/c6 to yield __cE6
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
@@ -596,16 +663,16 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 		// Now send the cosine terms to the inversion routine, which also does the combine-and-populate-SIMD-slots step.
 	  #ifdef DFT_V2	// Toggle between 2 versions
-
+	
 		RADIX16_COMPUTE_FMA_SINCOS_DIF_2(cc0,two);	//*** Note 'two' contains 1.0x4 in this mode! ***
 		add0 = (double *)cc0;
-
-		/* Scalar data starting at add0 = cc0 laid out as below:
-
-		a[0x00,0x01,0x02,0x03]: add0 + 0x[  0,  8, 10, 18]: [c3 ,c1 ,c2 ,c3 ] Cosines:
-		a[0x04,0x05,0x06,0x07]: add0 + 0x[ 20, 28, 30, 38]: [c4 ,c5 ,c6 ,c7 ]
-		a[0x08,0x09,0x0a,0x0b]: add0 + 0x[ 40, 48, 50, 58]: [c8 ,c9 ,cA ,cB ]
-		a[0x0c,0x0d,0x0e,0x0f]: add0 + 0x[ 60, 68, 70, 78]: [cC ,cD ,cE ,cF ]
+	
+		/* 44 scalar-double data starting at add0 = cc0 laid out as below - * denote the 12 data unused by the V2 DIF DFT:
+	
+		a[0x00,0x01,0x02,0x03]: add0 + 0x[  0,  8, 10, 18]: [c3*,c1 ,c2 ,c3*] Cosines:
+		a[0x04,0x05,0x06,0x07]: add0 + 0x[ 20, 28, 30, 38]: [c4 ,c5*,c6*,c7*]
+		a[0x08,0x09,0x0a,0x0b]: add0 + 0x[ 40, 48, 50, 58]: [c8 ,c9*,cA*,cB*]
+		a[0x0c,0x0d,0x0e,0x0f]: add0 + 0x[ 60, 68, 70, 78]: [cC*,cD*,cE*,cF*]
 		a[0x10,0x11,0x12,0x13]: add0 + 0x[ 80, 88, 90, 98]: [-- ,r1 ,r2 ,r3 ] Tangents:
 		a[0x14,0x15,0x16,0x17]: add0 + 0x[ a0, a8, b0, b8]: [r4 ,r5 ,r6 ,r7 ]
 		a[0x18,0x19,0x1a,0x1b]: add0 + 0x[ c0, c8, d0, d8]: [r8 ,r9 ,rA ,rB ]
@@ -613,72 +680,36 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		a[0x20,0x21,0x22,0x23]: add0 + 0x[100,108,110,118]: [c31,c51,c62,  0] Cosine ratios:
 		a[0x24,0x25,0x26,0x27]: add0 + 0x[120,128,130,138]: [c73,c91,cA2,cB3]
 		a[0x28,0x29,0x2a,0x2b]: add0 + 0x[140,148,150,158]: [cC4,cD5,cE6,cF7]
-
-		Ensuing C code massages the above into a scalar-data analog of the 4-copy layout.
+	
+		V2 DIF needs 35 doubles - subtracting the 2 unused/0 slots and the 12 unused cosine-data
+		in the above leaves just 30. We get to 35 by applying the following data-munges, expressed
+		in terms of the hex double-array indices of the targeted datum:
 		*/
-		// put all overwrites-of-no-longer-needed data first, to minimize conflicts later.
-		// Data which will not be used in the FMA-based radix-16 DIF are at indices 0x[0,3,5-7,9-15,16]:
-		// Arrange the rest so RHS (read-elt) indices are ascending, then manually move
-		// up those which overwrite indices appearing further down in the RHS:
-		add0[0x00] = add0[0x01];	// c1, copy to *= __c
-		add0[0x03] = add0[0x02];	// c2, copy to *= ISRT2
-		add0[0x0a] = add0[0x02];	// copy c2 to final loc before overwriting
-		add0[0x02] = add0[0x01];	// c1, copy to *= ISRT2
-		add0[0x01] = tan;
-		add0[0x06] = add0[0x04];	// c4
-		add0[0x04] = add0[0x08];	// c8
-		add0[0x05] = add0[0x18];	// r8
-		add0[0x07] = add0[0x14];	// r4
-		add0[0x08] = add0[0x28];	// cC4
-		add0[0x09] = add0[0x1c];	// rC
-		add0[0x0b] = add0[0x12];	// r2
-		add0[0x0c] = add0[0x26];	// cA2
-		add0[0x0d] = add0[0x1a];	// rA
-		add0[0x0e] = add0[0x22];	// c62
-		add0[0x0f] = add0[0x16];	// r6
-		add0[0x10] = add0[0x2a];	// cE6
-		add0[0x16] = add0[0x21];	// c51
-		add0[0x21] = add0[0x1f];	// rF
-		add0[0x1f] = add0[0x17];	// r7
-		add0[0x17] = add0[0x15];	// r5
-		add0[0x15] = add0[0x19];	// r9
-		add0[0x19] = add0[0x1d];	// rD
-		add0[0x1d] = add0[0x1b];	// rB
-		add0[0x1b] = add0[0x13];	// r3
-		add0[0x13] = add0[0x11];	// r1
-		add0[0x11] = add0[0x1e];	// rE
-		add0[0x12] = add0[0x00];	// c1 now in [0]
-		add0[0x14] = add0[0x25];	// c91
-		add0[0x18] = add0[0x29];	// cD5
-		add0[0x1a] = add0[0x20];	// c31
-		add0[0x1c] = add0[0x27];	// cB3
-		add0[0x1e] = add0[0x24];	// c73
-		add0[0x20] = add0[0x2b];	// cF7
-		// Now mpy elts in slots 0,2,3 by __c, ISRT2, ISRT2, respectively:
-		add0[0x00] *= c;
-		add0[0x02] *= ISRT2;
-		add0[0x03] *= ISRT2;
-		// And stick a 1.0 at the end of the above block-of-doubles:
-		add0[0x22] = 1.0;
-
-		/* Yielding the following layout-of-scalar-doubles, with data above index 0x22 unused in the DIF DFT:
-
-		a[0x00,0x01,0x02,0x03]: add0 + 0x[  0,  8, 10, 18]: [c1*c,s/c,c1*ISRT2,c2*ISRT2]
-		a[0x04,0x05,0x06,0x07]: add0 + 0x[ 20, 28, 30, 38]: [c8 ,r8 ,c4 ,r4 ]
-		a[0x08,0x09,0x0a,0x0b]: add0 + 0x[ 40, 48, 50, 58]: [cC4,rC ,c2 ,r2 ]
-		a[0x0c,0x0d,0x0e,0x0f]: add0 + 0x[ 60, 68, 70, 78]: [cA2,rA ,c62,r6 ]
-		a[0x10,0x11,0x12,0x13]: add0 + 0x[ 80, 88, 90, 98]: [cE6,rE ,c1 ,r1 ]
-		a[0x14,0x15,0x16,0x17]: add0 + 0x[ a0, a8, b0, b8]: [c91,r9 ,c51,r5 ]
-		a[0x18,0x19,0x1a,0x1b]: add0 + 0x[ c0, c8, d0, d8]: [cD5,rD ,c31,r3 ]
-		a[0x1c,0x1d,0x1e,0x1f]: add0 + 0x[ e0, e8, f0, f8]: [cB3,rB ,c73,r7 ]
-		a[0x20,0x21,0x22,0x23]: add0 + 0x[100,108,110,118]: [cF7,rF ,1.0,  0]
+		add0[0x00] = 1.0;				// 1. replace 0x00 with 1.0
+		add0[0x03] = add0[0x01]*c;		// 2. replace 0x03 with c1*c
+		add0[0x05] = add0[0x01]*ISRT2;	// 3. replace 0x05,0x06 with [c1,c2]*ISRT2
+		add0[0x06] = add0[0x02]*ISRT2;
+		add0[0x10] = tan;				// 4. replace 0x10 with tan = s/c
+		/*
+		Yielding the following layout-of-scalar-doubles, with dash-marked slots unused in V2 DIF
+		and appended 'I' meaning *= ISRT2; we can see the expected 9 unused slots:
+	
+		a[0x00,0x01,0x02,0x03]: add0 + 0x[  0,  8, 10, 18]: [1.0,c1 ,c2 ,c1*c]
+		a[0x04,0x05,0x06,0x07]: add0 + 0x[ 20, 28, 30, 38]: [c4 ,c1I,c2I,---]
+		a[0x08,0x09,0x0a,0x0b]: add0 + 0x[ 40, 48, 50, 58]: [c8 ,---,---,---]
+		a[0x0c,0x0d,0x0e,0x0f]: add0 + 0x[ 60, 68, 70, 78]: [---,---,---,---]
+		a[0x10,0x11,0x12,0x13]: add0 + 0x[ 80, 88, 90, 98]: [s/c,r1 ,r2 ,r3 ] Tangents:
+		a[0x14,0x15,0x16,0x17]: add0 + 0x[ a0, a8, b0, b8]: [r4 ,r5 ,r6 ,r7 ]
+		a[0x18,0x19,0x1a,0x1b]: add0 + 0x[ c0, c8, d0, d8]: [r8 ,r9 ,rA ,rB ]
+		a[0x1c,0x1d,0x1e,0x1f]: add0 + 0x[ e0, e8, f0, f8]: [rC ,rD ,rE ,rF ]
+		a[0x20,0x21,0x22,0x23]: add0 + 0x[100,108,110,118]: [c31,c51,c62,---] Cosine ratios:
 		a[0x24,0x25,0x26,0x27]: add0 + 0x[120,128,130,138]: [c73,c91,cA2,cB3]
 		a[0x28,0x29,0x2a,0x2b]: add0 + 0x[140,148,150,158]: [cC4,cD5,cE6,cF7]
 		*/
 	  #else	// Make DFT_V1 the default here:
 
-		add0 = &c; add1 = &tan;	// GCC/Clang don't allow address-taking inlined in arglist of macros, so do it here
-		RADIX16_COMPUTE_FMA_SINCOS_DIF(cc0,two,add0,add1);
+		cd_ptr0 = &c; cd_ptr1 = &tan;	// GCC/Clang don't allow cd_address-taking inlined in arglist of macros, so do it here
+		RADIX16_COMPUTE_FMA_SINCOS_DIF(cc0,two,cd_ptr0,cd_ptr1);
 
 	  #endif
 
@@ -686,7 +717,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 	  #ifdef USE_SSE2
 		/* Due to roots-locality considerations, roots (c,s)[0-15] are offset w.r.to the thread-local ptr pair as
-		(cc0,ss0) + 0x[2,12,a,1a,6,16,e,1e,4,14,c,1c,8,18,10,20]:
+		(cc0,ss0) + 0x[2,12,a,1a, 6,16,e,1e, 4,14,c,1c, 8,18,10,20], i.e. BR-ordered [0,8,4,C, 2,A,6,E, 1,9,5,D, 3,B,7,F];:
 		*/
 		c_tmp = cc0 + 0x02; s_tmp = c_tmp+1;	/* c0,s0 */
 		rt = 1.0; it = 0.0;
@@ -694,8 +725,12 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		VEC_DBL_INIT(s_tmp, it);
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+	  #ifdef USE_FGT61
+		cmul_modq(mt0[k1].d0,mt0[k1].d1, mt1[k2].d0,mt1[k2].d1, &rm,&im);
+		// Premultiply results by 8 so ensuing twiddle-MULs can use the streamlined CMUL_MODQ8 routine:
+		a1 = qreduce_full(rm)<<3;	b1 = qreduce_full(im)<<3;
+	  #endif
 		i += iroot;			/* 2*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -708,8 +743,12 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		c1 =rt;		s1 =it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+	  #ifdef USE_FGT61
+		csqr_modq(a1,b1, &rm,&im);	// Since MODMULs are roundoff-error-free, cheaper to use a LOACC-style sequence
+						// of successive squarings to get E^2,4,8, a CMUL to get E^13, then CMUL_CONJ_MODQs to get rest.
+		a2 = qreduce_full(rm)<<3;	b2 = qreduce_full(im)<<3;
+	  #endif
 		i += iroot;			/* 3*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -722,8 +761,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		c2 =rt;		s2 =it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/* 4*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -736,8 +774,11 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		c3 =rt;		s3 =it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+	  #ifdef USE_FGT61
+		csqr_modq(a2,b2, &rm,&im);
+		a4 = qreduce_full(rm)<<3;	b4 = qreduce_full(im)<<3;
+	  #endif
 		i += iroot;			/* 5*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -750,8 +791,12 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		c4 =rt;		s4 =it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+	  #ifdef USE_FGT61
+		cmul_conj_modq(a1,b1, a4,b4, &a3,&b3, &a5,&b5);
+		a3 = qreduce_full(a3)<<3;	b3 = qreduce_full(b3)<<3;
+		a5 = qreduce_full(a5)<<3;	b5 = qreduce_full(b5)<<3;
+	  #endif
 		i += iroot;			/* 6*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -764,8 +809,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		c5 =rt;		s5 =it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/* 7*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -778,8 +822,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		c6 =rt;		s6 =it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/* 8*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -792,8 +835,11 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		c7 =rt;		s7 =it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+	  #ifdef USE_FGT61
+		csqr_modq(a4,b4, &rm,&im);
+		a8 = qreduce_full(rm)<<3;	b8 = qreduce_full(im)<<3;
+	  #endif
 		i += iroot;			/* 9*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -806,8 +852,12 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		c8 =rt;		s8 =it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+	  #ifdef USE_FGT61
+		cmul_conj_modq(a1,b1, a8,b8, &a7,&b7, &a9,&b9);
+		a7 = qreduce_full(a7)<<3;	b7 = qreduce_full(b7)<<3;
+		a9 = qreduce_full(a9)<<3;	b9 = qreduce_full(b9)<<3;
+	  #endif
 		i += iroot;			/*10*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -820,8 +870,12 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		c9 =rt;		s9 =it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+	  #ifdef USE_FGT61
+		cmul_conj_modq(a2,b2, a8,b8, &a6,&b6, &a10,&b10);
+		a6  = qreduce_full(a6 )<<3;	b6  = qreduce_full(b6 )<<3;
+		a10 = qreduce_full(a10)<<3;	b10 = qreduce_full(b10)<<3;
+	  #endif
 		i += iroot;			/*11*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -834,8 +888,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		c10=rt;		s10=it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/*12*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -848,8 +901,7 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		c11=rt;		s11=it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/*13*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -862,8 +914,11 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		c12=rt;		s12=it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+	  #ifdef USE_FGT61
+		cmul_modq(mt0[k1].d0,mt0[k1].d1, mt1[k2].d0,mt1[k2].d1, &rm,&im);
+		a13 = qreduce_full(rm)<<3;	b13 = qreduce_full(im)<<3;
+	  #endif
 		i += iroot;			/*14*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -876,8 +931,12 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		c13=rt;		s13=it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+	  #ifdef USE_FGT61
+		cmul_conj_modq(a1,b1, a13,b13, &a12,&b12, &a14,&b14);
+		a12 = qreduce_full(a12)<<3;	b12 = qreduce_full(b12)<<3;
+		a14 = qreduce_full(a14)<<3;	b14 = qreduce_full(b14)<<3;
+	  #endif
 		i += iroot;			/*15*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -890,8 +949,12 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		c14=rt;		s14=it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+	  #ifdef USE_FGT61
+		cmul_conj_modq(a2,b2, a13,b13, &a11,&b11, &a15,&b15);
+		a11 = qreduce_full(a11)<<3;	b11 = qreduce_full(b11)<<3;
+		a15 = qreduce_full(a15)<<3;	b15 = qreduce_full(b15)<<3;
+	  #endif
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
@@ -906,36 +969,31 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 	#endif	// USE_AVX2?
 
 #else
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/* 2*iroot */
 		t1=rt0[k1].re;	t2=rt0[k1].im;
 		t3=rt1[k2].re;	t4=rt1[k2].im;
 		c1=t1*t3-t2*t4;	s1=t1*t4+t2*t3;
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += i;				/* 4*iroot */
 		t1=rt0[k1].re;	t2=rt0[k1].im;
 		t3=rt1[k2].re;	t4=rt1[k2].im;
 		c2=t1*t3-t2*t4;	s2=t1*t4+t2*t3;
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += i;				/* 8*iroot */
 		t1=rt0[k1].re;	t2=rt0[k1].im;
 		t3=rt1[k2].re;	t4=rt1[k2].im;
 		c4=t1*t3-t2*t4;	s4=t1*t4+t2*t3;
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += (iroot << 2)+iroot;		/* 13*iroot */
 		t1=rt0[k1].re;	t2=rt0[k1].im;
 		t3=rt1[k2].re;	t4=rt1[k2].im;
 		c8=t1*t3-t2*t4;	s8=t1*t4+t2*t3;
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		t1=rt0[k1].re;	t2=rt0[k1].im;
 		t3=rt1[k2].re;	t4=rt1[k2].im;
 		c13=t1*t3-t2*t4;	s13=t1*t4+t2*t3;
@@ -1011,464 +1069,24 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		j1 = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		j2 = j1 + RE_IM_STRIDE;
 		pfetch_addr = p1*((j >> l2_stride) & 0x3);	// cycle prefetch-offset-address among p0,1,2,3
-			// These get added to the base addresses p0,4,8,12 in thr DFT macros, thus every 4 loop
+			// These get added to the base addresses p0,4,8,12 in the DFT macros, thus every 4 loop
 			// executions we have covered prefetches from [current address] + [pfetch distance] + p0,1,2,...15 .
 
-#ifdef USE_SSE2
-
-	#ifdef COMPILER_TYPE_MSVC
-
-	  #if 1	// if(1) - test out pure-asm version
-
-		add0 = &a[j1];
-		__asm	mov	eax, add0
-		__asm	mov	ebx, p4		// Can't get these via simple load-one-and-shift-as-needed due to array padding scheme
-		__asm	mov	ecx, p8
-		__asm	mov	edx, p12
-		__asm	shl	ebx,  3
-		__asm	shl	ecx,  3
-		__asm	shl	edx,  3
-		__asm	add	ebx, eax
-		__asm	add	ecx, eax
-		__asm	add	edx, eax
-		SSE2_RADIX4_DIF_4TWIDDLE_B(r1 ,c0)
-		__asm	mov	edi, p2		// Do things this way [rather than repeatedly adding p1] since array-padding scheme means p2 == p1+p1 not guaranteed.
-		__asm	shl	edi,  3		// 8-bytes for array-of-doubles
-		__asm	add	eax, edi	// &a[j1+p2];
-		__asm	add	ebx, edi
-		__asm	add	ecx, edi
-		__asm	add	edx, edi
-		SSE2_RADIX4_DIF_4TWIDDLE_B(r9 ,c2)
-		__asm	sub	eax, edi	// &a[j1];
-		__asm	sub	ebx, edi
-		__asm	sub	ecx, edi
-		__asm	sub	edx, edi
-		__asm	mov	edi, p1
-		__asm	shl	edi,  3		// 8-bytes for array-of-doubles
-		__asm	add	eax, edi	// &a[j1+p1];
-		__asm	add	ebx, edi
-		__asm	add	ecx, edi
-		__asm	add	edx, edi
-		SSE2_RADIX4_DIF_4TWIDDLE_B(r17,c1)
-		__asm	sub	eax, edi	// &a[j1];
-		__asm	sub	ebx, edi
-		__asm	sub	ecx, edi
-		__asm	sub	edx, edi
-		__asm	mov	edi, p3
-		__asm	shl	edi,  3		// 8-bytes for array-of-doubles
-		__asm	add	eax, edi	// &a[j1+p3];
-		__asm	add	ebx, edi
-		__asm	add	ecx, edi
-		__asm	add	edx, edi
-		SSE2_RADIX4_DIF_4TWIDDLE_B(r25,c3)
-
-	  #else
-
-	/*...Block 1: */
-		add0 = &a[j1];
-		add1 = add0+p4;
-		add2 = add0+p8;
-		add3 = add0+p12;
-
-		/* Do the p4,12 combo first. 	Cost: 24 MOVapd, 28 ADD/SUBpd, 12 MULpd */
-		__asm	mov	eax, add1
-		__asm	mov	ebx, c4
-		__asm	mov	ecx, add3
-		__asm	mov	edx, c12
-
-		__asm	movaps	xmm0,[eax     ]	/* a[jt+p4] */				__asm	movaps	xmm4,[ecx     ]	/* a[jt+p12] */
-		__asm	movaps	xmm1,[eax+0x10]	/* a[jp+p4] */				__asm	movaps	xmm5,[ecx+0x10]	/* a[jp+p12] */
-		__asm	movaps	xmm2,[eax     ]	/* xmm2 <- cpy a[jt+p4] */	__asm	movaps	xmm6,[ecx     ]	/* xmm6 <- cpy a[jt+p12] */
-		__asm	movaps	xmm3,[eax+0x10]	/* xmm3 <- cpy a[jp+p4] */	__asm	movaps	xmm7,[ecx+0x10]	/* xmm7 <- cpy a[jp+p12] */
-
-		__asm	mulpd	xmm0,[ebx     ]	/* a[jt+p4]*c4 */			__asm	mulpd	xmm4,[edx     ]	/* a[jt+p12]*c12 */
-		__asm	mulpd	xmm1,[ebx     ]	/* a[jp+p4]*c4 */			__asm	mulpd	xmm5,[edx     ]	/* a[jp+p12]*c12 */
-		__asm	mulpd	xmm2,[ebx+0x10]	/* a[jt+p4]*s4 */			__asm	mulpd	xmm6,[edx+0x10]	/* a[jt+p12]*s12 */
-		__asm	mulpd	xmm3,[ebx+0x10]	/* a[jp+p4]*s4 */			__asm	mulpd	xmm7,[edx+0x10]	/* a[jp+p12]*s12 */
-		__asm	addpd	xmm1,xmm2	/* xmm1 <- t6 */				__asm	addpd	xmm5,xmm6	/* xmm5 <- it */
-		__asm	subpd	xmm0,xmm3	/* xmm0 <- t5 */				__asm	subpd	xmm4,xmm7	/* xmm4 <- rt 	xmm6,7 free */
-		__asm	movaps	xmm3,xmm1	/* xmm3 <- cpy t6 */
-		__asm	movaps	xmm2,xmm0	/* xmm2 <- cpy t5 */
-
-		__asm	addpd	xmm0,xmm4	/* ~t5 <- t5 +rt */
-		__asm	addpd	xmm1,xmm5	/* ~t6 <- t6 +it */
-		__asm	subpd	xmm2,xmm4	/* ~t7 <- t5 -rt */
-		__asm	subpd	xmm3,xmm5	/* ~t8 <- t6 -it	xmm4,5 free */
-
-		/* Now do the p0,8 combo: */
-		__asm	mov	eax, add0
-		__asm	mov	ecx, add2
-		__asm	mov	edx, c8
-
-		__asm	movaps	xmm4,[ecx     ]	/* a[jt+p8] */
-		__asm	movaps	xmm5,[ecx+0x10]	/* a[jp+p8] */
-		__asm	movaps	xmm6,[ecx     ]	/* xmm6 <- cpy a[jt+p8] */
-		__asm	movaps	xmm7,[ecx+0x10]	/* xmm7 <- cpy a[jp+p8] */
-
-		__asm	mulpd	xmm4,[edx     ]	/* a[jt+p8]*c8 */
-		__asm	mulpd	xmm5,[edx     ]	/* a[jp+p8]*c8 */
-		__asm	mulpd	xmm6,[edx+0x10]	/* a[jt+p8]*s8 */
-		__asm	mulpd	xmm7,[edx+0x10]	/* a[jp+p8]*s8 */
-		__asm	addpd	xmm5,xmm6	/* xmm5 <- it */
-		__asm	subpd	xmm4,xmm7	/* xmm4 <- rt 	xmm6,7 free - stick t1,t2 in those */
-
-		__asm	movaps	xmm6,[eax     ]	/* t1 = a[jt   ] */
-		__asm	movaps	xmm7,[eax+0x10]	/* t2 = a[jp   ] */
-
-		__asm	subpd	xmm6,xmm4	/* ~t3 <- t1 -rt */
-		__asm	subpd	xmm7,xmm5	/* ~t4 <- t2 -it */
-		__asm	addpd	xmm4,xmm4	/*          2*rt */
-		__asm	addpd	xmm5,xmm5	/*          2*it */
-		__asm	addpd	xmm4,xmm6	/* ~t1 <- t1 +rt */
-		__asm	addpd	xmm5,xmm7	/* ~t2 <- t2 +it	xmm4,5 free */
-
-		/* Finish radix-4 butterfly and store results into temporary-array slots: */
-		__asm	mov	eax, r1
-		/*
-		~t5 =t1 -t5;		~t1 =t1 +t5;
-		~t6 =t2 -t6;		~t2 =t2 +t6;
-		*/
-		__asm	subpd	xmm4,xmm0	/*~t5 =t1 -t5 */
-		__asm	subpd	xmm5,xmm1	/*~t6 =t2 -t6 */
-		__asm	movaps	[eax+0x040],xmm4	/* a[jt+p8 ] <- ~t5 */
-		__asm	movaps	[eax+0x050],xmm5	/* a[jp+p8 ] <- ~t6 */
-		__asm	addpd	xmm0,xmm0	/* 2*t5 */
-		__asm	addpd	xmm1,xmm1	/* 2*t6 */
-		__asm	addpd	xmm0,xmm4	/*~t1 =t1 +t5 */
-		__asm	addpd	xmm1,xmm5	/*~t2 =t2 +t6 */
-		__asm	movaps	[eax      ],xmm0	/* a[jt    ] <- ~t1 */
-		__asm	movaps	[eax+0x010],xmm1	/* a[jp    ] <- ~t2 */
-
-		/*
-		~t7 =t3 +t8;		~t3 =t3 -t8;
-		~t8 =t4 -t7;		~t4 =t4 +t7;
-		*/
-		__asm	subpd	xmm6,xmm3	/*~t3 =t3 -t8 */
-		__asm	subpd	xmm7,xmm2	/*~t8 =t4 -t7 */
-		__asm	movaps	[eax+0x020],xmm6	/* a[jt+p4 ] <- ~t3 */
-		__asm	movaps	[eax+0x070],xmm7	/* a[jp+p12] <- ~t8 */
-		__asm	addpd	xmm3,xmm3	/* 2*t8 */
-		__asm	addpd	xmm2,xmm2	/* 2*t7 */
-		__asm	addpd	xmm3,xmm6	/*~t7 =t3 +t8 */
-		__asm	addpd	xmm2,xmm7	/*~t4 =t4 +t7 */
-		__asm	movaps	[eax+0x060],xmm3	/* a[jt+p12] <- ~t7 */
-		__asm	movaps	[eax+0x030],xmm2	/* a[jp+p4 ] <- ~t4 */
-
-	/*...Block 2: */
-		add0 = &a[j1+p2];
-		add1 = add0+p4;
-		add2 = add0+p8;
-		add3 = add0+p12;
-		/* 	Cost: 30 MOVapd, 28 ADD/SUBpd, 16 MULpd */
-		SSE2_RADIX4_DIF_4TWIDDLE(add0,add1,add2,add3,r9 ,c2)
-
-	/*...Block 3: */
-		add0 = &a[j1+p1];
-		add1 = add0+p4;
-		add2 = add0+p8;
-		add3 = add0+p12;
-		/* 	Cost: 30 MOVapd, 28 ADD/SUBpd, 16 MULpd */
-		SSE2_RADIX4_DIF_4TWIDDLE(add0,add1,add2,add3,r17,c1 )
-
-	/*...Block 4: */
-		add0 = &a[j1+p3];
-		add1 = add0+p4;
-		add2 = add0+p8;
-		add3 = add0+p12;
-		/* 	Cost: 30 MOVapd, 28 ADD/SUBpd, 16 MULpd */
-		SSE2_RADIX4_DIF_4TWIDDLE(add0,add1,add2,add3,r25,c3)
-
-	  #endif	/* if(1) */
-
-	/**************************************************************************************
-	!...and now do four more radix-4 transforms, including the internal twiddle factors:  !
-	**************************************************************************************/
-	/*...Block 1: t1,9,17,25	Cost: 16 MOVapd, 20 ADD/SUBpd,  0 MULpd */
-	  #if 1
-		__asm	mov eax, add0	// &a[j1]
-		__asm	mov ebx, p1
-		__asm	mov ecx, p2
-		__asm	mov edx, p3
-		__asm	shl	ebx, 3		/* Pointer offset for floating doubles */
-		__asm	shl	ecx, 3
-		__asm	shl	edx, 3
-		__asm	add ebx, eax
-		__asm	add ecx, eax
-		__asm	add edx, eax
-	  #else
-		add0 = &a[j1];
-		add1 = add0+p1;
-		add2 = add0+p2;
-		add3 = add0+p3;
-		__asm	mov	eax, add0	/* restore main-array indices */
-		__asm	mov	ebx, add1
-		__asm	mov	ecx, add2
-		__asm	mov	edx, add3
-	  #endif
-		__asm	mov	edi, r1
-		__asm	movaps	xmm0,[edi      ]	/* t1  */			__asm	movaps	xmm4,[edi+0x100]	/* t17 */
-		__asm	movaps	xmm1,[edi+0x010]	/* t2  */			__asm	movaps	xmm5,[edi+0x110]	/* t18 */
-		__asm	movaps	xmm2,[edi+0x080]	/* t9  */			__asm	movaps	xmm6,[edi+0x180]	/* t25 */
-		__asm	movaps	xmm3,[edi+0x090]	/* t10 */			__asm	movaps	xmm7,[edi+0x190]	/* t26 */
-
-		__asm	subpd	xmm0,xmm2		/* ~t9 = t1-t9 */		__asm	subpd	xmm4,xmm6		/* ~t25=t17-t25*/
-		__asm	subpd	xmm1,xmm3		/* ~t10= t2-t10*/		__asm	subpd	xmm5,xmm7		/* ~t26=t18-t26*/
-		__asm	addpd	xmm2,xmm2		/*        2*t9 */		__asm	addpd	xmm6,xmm6		/*        2*t25*/
-		__asm	addpd	xmm3,xmm3		/*        2*t10*/		__asm	addpd	xmm7,xmm7		/*        2*t26*/
-		__asm	addpd	xmm2,xmm0		/* ~t1 = t1+t9 */		__asm	addpd	xmm6,xmm4		/* ~t17=t17+t25*/
-		__asm	addpd	xmm3,xmm1		/* ~t2 = t2+t10*/		__asm	addpd	xmm7,xmm5		/* ~t18=t18+t26*/
-
-		__asm	subpd	xmm2,xmm6		/* t1  <- t1 -t17 */
-		__asm	subpd	xmm3,xmm7		/* t2  <- t2 -t18 */
-		__asm	addpd	xmm6,xmm6		/*          2*t17 */
-		__asm	addpd	xmm7,xmm7		/*          2*t18 */
-		__asm	movaps	[ebx     ],xmm2	/* a[jt+p1 ] */
-		__asm	movaps	[ebx+0x10],xmm3	/* a[jp+p1 ] */
-		__asm	addpd	xmm6,xmm2		/* t17 <- t1 +t17 */
-		__asm	addpd	xmm7,xmm3		/* t18 <- t2 +t18 */
-		__asm	movaps	[eax     ],xmm6	/* a[jt+p0 ] */
-		__asm	movaps	[eax+0x10],xmm7	/* a[jp+p0 ] */
-
-		__asm	subpd	xmm0,xmm5		/* t9  <- t9 -t26 */
-		__asm	subpd	xmm1,xmm4		/* t10 <- t10-t25 */
-		__asm	addpd	xmm5,xmm5		/*          2*t26 */
-		__asm	addpd	xmm4,xmm4		/*          2*t25 */
-		__asm	movaps	[ecx     ],xmm0	/* a[jt+p2 ] */
-		__asm	movaps	[edx+0x10],xmm1	/* a[jp+p3 ] */
-		__asm	addpd	xmm5,xmm0		/* t26 <- t9 +t26 */
-		__asm	addpd	xmm4,xmm1		/* t25 <- t10+t25 */
-		__asm	movaps	[edx     ],xmm5	/* a[jt+p3 ] */
-		__asm	movaps	[ecx+0x10],xmm4	/* a[jp+p2 ] */
-
-	/*...Block 3: t5,13,21,29	Cost: 16 MOVapd, 26 ADD/SUBpd,  4 MULpd */
-	  #if 1
-		__asm	mov	edi, p4
-		__asm	shl	edi, 3
-		__asm	add eax, edi
-		__asm	add ebx, edi
-		__asm	add ecx, edi
-		__asm	add edx, edi
-	  #else
-		add0 = &a[j1+p4];
-		add1 = add0+p1;
-		add2 = add0+p2;
-		add3 = add0+p3;
-		__asm	mov	eax, add0	/* restore main-array indices */
-		__asm	mov	ebx, add1
-		__asm	mov	ecx, add2
-		__asm	mov	edx, add3
-	  #endif
-		__asm	mov	edi, r5
-		__asm	mov	esi, isrt2
-		__asm	movaps	xmm3,[esi ]	/* isrt2 */
-																__asm	movaps	xmm4,[edi+0x100]	/* t21 */
-																__asm	movaps	xmm5,[edi+0x110]	/* t22 */
-																__asm	movaps	xmm6,[edi+0x180]	/* t29 */
-																__asm	movaps	xmm7,[edi+0x190]	/* t30 */
-																__asm	mulpd	xmm4,xmm3	/* t21 *ISRT2 */
-		__asm	movaps	xmm0,[edi      ]	/* t5  */			__asm	mulpd	xmm5,xmm3	/* t22 *ISRT2 */
-		__asm	movaps	xmm1,[edi+0x010]	/* t6  */			__asm	mulpd	xmm6,xmm3	/* t29 *ISRT2 */
-		__asm	movaps	xmm2,[edi+0x080]	/* t13 */			__asm	mulpd	xmm7,xmm3	/* t30 *ISRT2 */
-		__asm	movaps	xmm3,[edi+0x090]	/* t14; this must execute after the last mul-by-ISRT2 above */
-
-		__asm	subpd	xmm0,xmm3		/* ~t5 = t5 -t14*/		__asm	subpd	xmm4,xmm5		/* ~t21=t21-t22*/
-		__asm	subpd	xmm1,xmm2		/* ~t14= t6 -t13*/		__asm	subpd	xmm7,xmm6		/*  it =t30-t29*/
-		__asm	addpd	xmm3,xmm3		/*         2*t14*/		__asm	addpd	xmm5,xmm5		/*        2*t22*/
-		__asm	addpd	xmm2,xmm2		/*         2*t13*/		__asm	addpd	xmm6,xmm6		/*        2*t29*/
-		__asm	addpd	xmm3,xmm0		/* ~t13= t14+t5 */		__asm	addpd	xmm5,xmm4		/* ~t22=t22+t21*/
-		__asm	addpd	xmm2,xmm1		/* ~t6 = t13+t6 */		__asm	addpd	xmm6,xmm7		/*  rt =t29+t30*/
-
-		__asm	subpd	xmm4,xmm6		/* t21=t21-rt */
-		__asm	subpd	xmm5,xmm7		/* t22=t22-it */
-		__asm	addpd	xmm6,xmm6		/*      2* rt */
-		__asm	addpd	xmm7,xmm7		/*      2* it */
-		__asm	addpd	xmm6,xmm4		/* t29=t21+rt */
-		__asm	addpd	xmm7,xmm5		/* t30=t22+it */
-
-		__asm	subpd	xmm0,xmm4		/* t5 -t21 */			__asm	subpd	xmm3,xmm7		/* t13-t30 */
-		__asm	subpd	xmm2,xmm5		/* t6 -t22 */			__asm	subpd	xmm1,xmm6		/* t14-t29 */
-		__asm	addpd	xmm4,xmm4		/*   2*t21 */			__asm	addpd	xmm7,xmm7		/*   2*t30 */
-		__asm	addpd	xmm5,xmm5		/*   2*t22 */			__asm	addpd	xmm6,xmm6		/*   2*t29 */
-		__asm	movaps	[ebx     ],xmm0	/* a[jt+p1 ] */			__asm	movaps	[ecx     ],xmm3	/* a[jt+p2 ] */
-		__asm	movaps	[ebx+0x10],xmm2	/* a[jp+p1 ] */			__asm	movaps	[edx+0x10],xmm1	/* a[jp+p3 ] */
-		__asm	addpd	xmm4,xmm0		/* t5 +t21 */			__asm	addpd	xmm7,xmm3		/* t13+t30 */
-		__asm	addpd	xmm5,xmm2		/* t6 +t22 */			__asm	addpd	xmm6,xmm1		/* t14+t29 */
-		__asm	movaps	[eax     ],xmm4	/* a[jt+p0 ] */			__asm	movaps	[edx     ],xmm7	/* a[jt+p3 ] */
-		__asm	movaps	[eax+0x10],xmm5	/* a[jp+p0 ] */			__asm	movaps	[ecx+0x10],xmm6	/* a[jp+p2 ] */
-
-	/*...Block 2: t3,11,19,27	Cost: 18 MOVapd, 28 ADD/SUBpd, 10 MULpd */
-	  #if 1
-		__asm	mov	edi, p4
-		__asm	shl	edi, 3
-		__asm	add eax, edi
-		__asm	add ebx, edi
-		__asm	add ecx, edi
-		__asm	add edx, edi
-	  #else
-		add0 = &a[j1+p8];
-		add1 = add0+p1;
-		add2 = add0+p2;
-		add3 = add0+p3;
-		__asm	mov	eax, add0	/* restore main-array indices */
-		__asm	mov	ebx, add1
-		__asm	mov	ecx, add2
-		__asm	mov	edx, add3
-	  #endif
-		__asm	mov	edi, r3
-		__asm	mov	esi, cc0
-		__asm	movaps	xmm4,[edi+0x100]	/* t19 */
-		__asm	movaps	xmm5,[edi+0x110]	/* t20 */
-		__asm	movaps	xmm3,[esi      ]	/* c */
-		__asm	movaps	xmm2,[esi+0x010]	/* s */
-		__asm	movaps	xmm6,xmm4		/* copy t19 */
-		__asm	movaps	xmm7,xmm5		/* copy t20 */
-
-		__asm	mulpd	xmm4,xmm3		/* t19*c */
-		__asm	mulpd	xmm5,xmm3		/* t20*c */
-		__asm	mulpd	xmm6,xmm2		/* t19*s */				__asm	movaps	xmm0,[edi+0x180]	/* t27 */
-		__asm	mulpd	xmm7,xmm2		/* t20*s */				__asm	movaps	xmm1,[edi+0x190]	/* t28 */
-		__asm	addpd	xmm5,xmm6	/* ~t20 */					__asm	movaps	xmm6,xmm0		/* copy t27 */
-		__asm	subpd	xmm4,xmm7	/* ~t19 */					__asm	movaps	xmm7,xmm1		/* copy t28 */
-
-																__asm	mulpd	xmm6,xmm2		/* t27*s */
-																__asm	mulpd	xmm7,xmm2		/* t28*s */
-																__asm	mulpd	xmm0,xmm3		/* t27*c */
-																__asm	mulpd	xmm1,xmm3		/* t28*c */
-																__asm	addpd	xmm7,xmm0	/* it */
-																__asm	subpd	xmm6,xmm1	/* rt */
-
-		__asm	movaps	xmm2,xmm4		/* copy t19 */
-		__asm	movaps	xmm3,xmm5		/* copy t20 */
-		__asm	subpd	xmm4,xmm6		/*~t27=t19-rt */
-		__asm	subpd	xmm5,xmm7		/*~t28=t20-it */
-		__asm	addpd	xmm6,xmm2		/*~t19=t19+rt */
-		__asm	addpd	xmm7,xmm3		/*~t20=t20+it */
-
-		__asm	mov	esi, isrt2
-		__asm	movaps	xmm2,[edi+0x080]	/* t11 */
-		__asm	movaps	xmm3,[edi+0x090]	/* t12 */
-		__asm	movaps	xmm1,[esi]	/* isrt2 */
-		__asm	movaps	xmm0,xmm2	/* cpy t11 */
-		__asm	subpd	xmm2,xmm3	/*~t11=t11-t12 */
-		__asm	addpd	xmm3,xmm0	/*~t12=t12+t11 */
-		__asm	mulpd	xmm2,xmm1	/* rt = (t11-t12)*ISRT2 */
-		__asm	mulpd	xmm3,xmm1	/* it = (t12+t11)*ISRT2 */
-
-		__asm	movaps	xmm0,[edi      ]	/* t3  */
-		__asm	movaps	xmm1,[edi+0x010]	/* t4  */
-
-		__asm	subpd	xmm0,xmm2			/*~t11=t3 -rt */
-		__asm	subpd	xmm1,xmm3			/*~t12=t4 -it */
-		__asm	addpd	xmm2,xmm2			/*      2* rt */
-		__asm	addpd	xmm3,xmm3			/*      2* it */
-		__asm	addpd	xmm2,xmm0			/*~t3 =rt +t3 */
-		__asm	addpd	xmm3,xmm1			/*~t4 =it +t4 */
-
-		__asm	subpd	xmm2,xmm6		/* t3 -t19 */			__asm	subpd	xmm0,xmm5		/* t11-t28 */
-		__asm	subpd	xmm3,xmm7		/* t4 -t20 */			__asm	subpd	xmm1,xmm4		/* t12-t27 */
-		__asm	addpd	xmm6,xmm6		/*   2*t19 */			__asm	addpd	xmm5,xmm5		/*          2*t28 */
-		__asm	addpd	xmm7,xmm7		/*   2*t20 */			__asm	addpd	xmm4,xmm4		/*          2*t27 */
-		__asm	movaps	[ebx     ],xmm2	/* a[jt+p1 ] */			__asm	movaps	[ecx     ],xmm0	/* a[jt+p2 ] */
-		__asm	movaps	[ebx+0x10],xmm3	/* a[jp+p1 ] */			__asm	movaps	[edx+0x10],xmm1	/* a[jp+p3 ] */
-		__asm	addpd	xmm6,xmm2		/* t3 +t19 */			__asm	addpd	xmm5,xmm0		/* t11+t28 */
-		__asm	addpd	xmm7,xmm3		/* t4 +t20 */			__asm	addpd	xmm4,xmm1		/* t12+t27 */
-		__asm	movaps	[eax     ],xmm6	/* a[jt+p0 ] */			__asm	movaps	[edx     ],xmm5	/* a[jt+p3 ] */
-		__asm	movaps	[eax+0x10],xmm7	/* a[jp+p0 ] */			__asm	movaps	[ecx+0x10],xmm4	/* a[jp+p2 ] */
-
-	/*...Block 4: t7,15,23,31	Cost: 18 MOVapd, 28 ADD/SUBpd, 10 MULpd */
-	  #if 1
-		__asm	mov	edi, p4
-		__asm	shl	edi, 3
-		__asm	add eax, edi
-		__asm	add ebx, edi
-		__asm	add ecx, edi
-		__asm	add edx, edi
-	  #else
-		add0 = &a[j1+p12];
-		add1 = add0+p1;
-		add2 = add0+p2;
-		add3 = add0+p3;
-		__asm	mov	eax, add0	/* restore main-array indices */
-		__asm	mov	ebx, add1
-		__asm	mov	ecx, add2
-		__asm	mov	edx, add3
-	  #endif
-		__asm	mov	edi, r7
-		__asm	mov	esi, cc0
-		__asm	movaps	xmm4,[edi+0x100]	/* t23 */
-		__asm	movaps	xmm5,[edi+0x110]	/* t24 */
-		__asm	movaps	xmm2,[esi      ]	/* c */
-		__asm	movaps	xmm3,[esi+0x010]	/* s */
-		__asm	movaps	xmm6,xmm4		/* copy t23 */
-		__asm	movaps	xmm7,xmm5		/* copy t24 */
-
-		__asm	mulpd	xmm4,xmm3		/* t23*s */
-		__asm	mulpd	xmm5,xmm3		/* t24*s */
-		__asm	mulpd	xmm6,xmm2		/* t23*c */				__asm	movaps	xmm0,[edi+0x180]	/* t31 */
-		__asm	mulpd	xmm7,xmm2		/* t24*c */				__asm	movaps	xmm1,[edi+0x190]	/* t32 */
-		__asm	addpd	xmm5,xmm6	/* ~t24 */					__asm	movaps	xmm6,xmm0		/* copy t31 */
-		__asm	subpd	xmm4,xmm7	/* ~t23 */					__asm	movaps	xmm7,xmm1		/* copy t32 */
-
-																__asm	mulpd	xmm6,xmm2		/* t31*c */
-																__asm	mulpd	xmm7,xmm2		/* t32*c */
-																__asm	mulpd	xmm0,xmm3		/* t31*s */
-																__asm	mulpd	xmm1,xmm3		/* t32*s */
-																__asm	addpd	xmm7,xmm0	/* it */
-																__asm	subpd	xmm6,xmm1	/* rt */
-
-		__asm	movaps	xmm2,xmm4		/* copy t23 */
-		__asm	movaps	xmm3,xmm5		/* copy t24 */
-		__asm	subpd	xmm4,xmm6		/*~t23=t23-rt */
-		__asm	subpd	xmm5,xmm7		/*~t24=t24-it */
-		__asm	addpd	xmm6,xmm2		/*~t31=t23+rt */
-		__asm	addpd	xmm7,xmm3		/*~t32=t24+it */
-
-		__asm	mov	esi, isrt2
-		__asm	movaps	xmm2,[edi+0x080]	/* t15 */
-		__asm	movaps	xmm3,[edi+0x090]	/* t16 */
-		__asm	movaps	xmm1,[esi]	/* isrt2 */
-		__asm	movaps	xmm0,xmm2	/* cpy t15 */
-		__asm	addpd	xmm2,xmm3	/*~t15=t15+t16 */
-		__asm	subpd	xmm3,xmm0	/*~t16=t16-t15 */
-		__asm	mulpd	xmm2,xmm1	/* rt = (t15+t16)*ISRT2 */
-		__asm	mulpd	xmm3,xmm1	/* it = (t16-t15)*ISRT2 */
-
-		__asm	movaps	xmm0,[edi      ]	/* t7  */
-		__asm	movaps	xmm1,[edi+0x010]	/* t8  */
-
-		__asm	subpd	xmm0,xmm2			/*~t7 =t7 -rt */
-		__asm	subpd	xmm1,xmm3			/*~t8 =t8 -it */
-		__asm	addpd	xmm2,xmm2			/*      2* rt */
-		__asm	addpd	xmm3,xmm3			/*      2* it */
-		__asm	addpd	xmm2,xmm0			/*~t15=rt +t7 */
-		__asm	addpd	xmm3,xmm1			/*~t16=it +t8 */
-
-		__asm	subpd	xmm0,xmm4		/* t7 -t23 */			__asm	subpd	xmm2,xmm7		/* t15-t32 */
-		__asm	subpd	xmm1,xmm5		/* t8 -t24 */			__asm	subpd	xmm3,xmm6		/* t16-t31 */
-		__asm	addpd	xmm4,xmm4		/*   2*t23 */			__asm	addpd	xmm7,xmm7		/*   2*t32 */
-		__asm	addpd	xmm5,xmm5		/*   2*t24 */			__asm	addpd	xmm6,xmm6		/*   2*t31 */
-		__asm	movaps	[ebx     ],xmm0	/* a[jt+p1 ] */			__asm	movaps	[ecx     ],xmm2	/* a[jt+p2 ] */
-		__asm	movaps	[ebx+0x10],xmm1	/* a[jp+p1 ] */			__asm	movaps	[edx+0x10],xmm3	/* a[jp+p3 ] */
-		__asm	addpd	xmm4,xmm0		/* t7 +t23 */			__asm	addpd	xmm7,xmm2		/* t15+t32 */
-		__asm	addpd	xmm5,xmm1		/* t8 +t24 */			__asm	addpd	xmm6,xmm3		/* t16+t31 */
-		__asm	movaps	[eax     ],xmm4	/* a[jt+p0 ] */			__asm	movaps	[edx     ],xmm7	/* a[jt+p3 ] */
-		__asm	movaps	[eax+0x10],xmm5	/* a[jp+p0 ] */			__asm	movaps	[ecx+0x10],xmm6	/* a[jp+p2 ] */
-
-		/***************************************************/
-		/* Total Cost: 182 MOVapd, 214 ADD/SUBpd, 84 MULpd */
-		/***************************************************/
-
-	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
+	#ifdef USE_SSE2
 
 		add0 = &a[j1];
 
 	  #ifdef USE_AVX2
 
-	   #ifdef DFT_V2	// Toggle between 2 versions
+	   #ifdef REFACTOR_4DFT_3TWIDDLE
+		// Since pvsly had no non-suffixed 'SSE2_RADIX16_DIF_TWIDDLE' macro in AVX2 mode, no need for _V2 suffix here:
+		SSE2_RADIX16_DIF_TWIDDLE(add0,p1,p2,p3,p4,p8,p12,r1,two,cc0,pfetch_addr,pfetch_dist);
+
+	   #elif defined(DFT_V2)	// Toggle between 2 versions
 
 		SSE2_RADIX16_DIF_TWIDDLE_2(add0,p1,p2,p3,p4,p8,p12,r1,  cc0,pfetch_addr,pfetch_dist);
 
-	   #else
+	   #else	// Make DFT_V1 the default:
 
 		SSE2_RADIX16_DIF_TWIDDLE_1(add0,p1,p2,p3,p4,p8,p12,r1,isrt2,pfetch_addr,pfetch_dist);
 
@@ -1476,16 +1094,26 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 	  // Play with prefetch in 64-bit AVX/SSE2 versions - once find reliable pfetch scheme, propagate to 32-bit SSE2 and AVX2 macros:
 	  #elif OS_BITS == 64
+
+	   #ifdef REFACTOR_4DFT_3TWIDDLE
+
+		SSE2_RADIX16_DIF_TWIDDLE_V2(add0,p1,p2,p3,p4,p8,p12,r1,two,cc0,pfetch_addr,pfetch_dist);
+
+	   #else
+
 		SSE2_RADIX16_DIF_TWIDDLE(add0,p1,p2,p3,p4,p8,p12,r1,isrt2,pfetch_addr,pfetch_dist);
+
+	   #endif
+
 	  #else	// 32-bit SSE2:
-		SSE2_RADIX16_DIF_TWIDDLE(add0,p1,p2,p3,p4,p8,p12,r1,r3,r5,r7,r9,r17,r25,isrt2,cc0,c0,c1,c2,c3,pfetch_addr,pfetch_dist);
+
+		SSE2_RADIX16_DIF_TWIDDLE(add0,p1,p2,p3,p4,p8,p12,r1,r3,r5,r7,r9,r17,r25,isrt2,cc0,_c0,_c1,_c2,_c3,pfetch_addr,pfetch_dist);
+
 	  #endif
 
-	#endif
+	#else	// USE_SSE2 = False:
 
-#else	/* USE_SSE2 */
-
-  #ifdef USE_SCALAR_DFT_MACRO	// Must define - or not - @compile time
+	  #ifdef USE_SCALAR_DFT_MACRO	// Must define - or not - @compile time
 
 		// Test FMA-based DIF macro:
 		RADIX_16_DIF_FMA(a[j1    ],a[j2    ],a[j1+p1 ],a[j2+p1 ],a[j1+p2 ],a[j2+p2 ],a[j1+p3 ],a[j2+p3 ],a[j1+p4 ],a[j2+p4 ],a[j1+p4+p1 ],a[j2+p4+p1 ],a[j1+p4+p2 ],a[j2+p4+p2 ],a[j1+p4+p3 ],a[j2+p4+p3 ],a[j1+p8 ],a[j2+p8 ],a[j1+p8+p1 ],a[j2+p8+p1 ],a[j1+p8+p2],a[j2+p8+p2],a[j1+p8+p3],a[j2+p8+p3],a[j1+p12],a[j2+p12],a[j1+p12+p1],a[j2+p12+p1],a[j1+p12+p2],a[j2+p12+p2],a[j1+p12+p3],a[j2+p12+p3]
@@ -1493,37 +1121,277 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 						,c1,s1,c2,s2,c3,s3,c4,s4,c5,s5,c6,s6,c7,s7,c8,s8,c9,s9,c10,s10,c11,s11,c12,s12,c13,s13,c14,s14,c15,s15
 						,c1_c,tan,c1i2,c2i2)
 
-  #else		// USE_SCALAR_DFT_MACRO = False
+	  #else		// USE_SCALAR_DFT_MACRO = False
+
+	#ifdef USE_FGT61
 
 	/* gather the needed data (8 64-bit complex, i.e. 16 64-bit reals) and do the first set of four length-4 transforms.
 	   We process the sincos data in bit-reversed order.	*/
-	#ifdef PFETCH_AGGRESSIVE
+	  #ifdef PFETCH_AGGRESSIVE
 		addp = &a[j1];
-	#elif PFETCH
+	  #elif PFETCH
 		prefetch_offset = ((j >> 1) & 3)*p4 + 4;	/* Cycle among p0, p4, p8 and p12. */
-	#endif
+	  #endif
+
 	/*...Block 1: */
-
-		jt = j1;
-		jp = j2;
-
-	#ifdef PFETCH_AGGRESSIVE
+		jt = j1;		jp = j2;
+	  #ifdef PFETCH_AGGRESSIVE
 		addr = addp;
 		prefetch_p_doubles(addr);
-	#elif PFETCH
+	  #elif PFETCH
 		addp = &a[jt];
 		addr = addp+prefetch_offset;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
+		t1 =a[jt	];						t2 =a[jp	];						m1 =b[jt	];				m2 =b[jp	];			//   0, b (treat as 0,4q for simplicity's sake)
+		rt =a[jt+p8 ]*c8 -a[jp+p8 ]*s8;		it =a[jp+p8 ]*c8 +a[jt+p8 ]*s8;		cmul_modq8(b[jt+p8 ],b[jp+p8 ], a8,b8, &rm,&im);	//   0,4q
+		t3 =t1 -rt;							t1 =t1 +rt;							m3 =qreduce(m1 -rm+q4);		m4 =qreduce(m2 -im+q4);	// -4q,4q	=> 0,b
+		t4 =t2 -it;							t2 =t2 +it;							m1 =qreduce(m1 +rm   );		m2 =qreduce(m2 +im   );	//   0,8q	=> 0,b (rest similar)
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #endif
+		t5 =a[jt+p4 ]*c4 -a[jp+p4 ]*s4 ;	t6 =a[jp+p4 ]*c4 +a[jt+p4 ]*s4;		cmul_modq8(b[jt+p4 ],b[jp+p4 ],a4 ,b4 ,&m5 ,&m6 );
+		rt =a[jt+p12]*c12-a[jp+p12]*s12;	it =a[jp+p12]*c12+a[jt+p12]*s12;	cmul_modq8(b[jt+p12],b[jp+p12],a12,b12,&rm ,&im );
+		t7 =t5 -rt;							t5 =t5 +rt;							m7 =qreduce(m5 -rm+q4);		m8 =qreduce(m6 -im+q4);
+		t8 =t6 -it;							t6 =t6 +it;							m5 =qreduce(m5 +rm   );		m6 =qreduce(m6 +im   );
+																				rm =m5;						im =m6		;			// 0,b
+		rt =t5;	t5 =t1 -rt;					t1 =t1 +rt;							m5 =m1 -rm;					m6 =m2 -im	;			// -:-b,b
+		it =t6;	t6 =t2 -it;					t2 =t2 +it;							m1 =m1 +rm;					m2 =m2 +im	;			// +:0,2b (rest similar)
+																				rm =m7;						im =m8		;			
+		rt =t7;	t7 =t3 +t8;					t3 =t3 -t8;							m7 =m3 +im;					m8 =m4 -rm	;			// -:-b,b
+				t8 =t4 -rt;					t4 =t4 +rt;							m3 =m3 -im;					m4 =m4 +rm	;			// +:0,2b
+
+	/*...Block 2: */
+		jt = j1 + p2;		jp = j2 + p2;
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #elif PFETCH
+		addp = &a[jt];
+		addr = addp+prefetch_offset;
+		prefetch_p_doubles(addr);
+	  #endif
+		t9 =a[jt    ]*c2 -a[jp    ]*s2 ;	t10=a[jp    ]*c2 +a[jt    ]*s2;		cmul_modq8(b[jt    ],b[jp    ],a2 ,b2 ,&m9 ,&m10);
+		rt =a[jt+p8 ]*c10-a[jp+p8 ]*s10;	it =a[jp+p8 ]*c10+a[jt+p8 ]*s10;	cmul_modq8(b[jt+p8 ],b[jp+p8 ],a10,b10, &rm, &im);
+		t11=t9 -rt;							t9 =t9 +rt;							m11=qreduce(m9 -rm+q4);		m12=qreduce(m10-im+q4);
+		t12=t10-it;							t10=t10+it;							m9 =qreduce(m9 +rm   );		m10=qreduce(m10+im   );
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #endif
+		t13=a[jt+p4 ]*c6 -a[jp+p4 ]*s6 ;	t14=a[jp+p4 ]*c6 +a[jt+p4 ]*s6;		cmul_modq8(b[jt+p4 ],b[jp+p4 ],a6 ,b6 ,&m13,&m14);
+		rt =a[jt+p12]*c14-a[jp+p12]*s14;	it =a[jp+p12]*c14+a[jt+p12]*s14;	cmul_modq8(b[jt+p12],b[jp+p12],a14,b14, &rm, &im);
+		t15=t13-rt;							t13=t13+rt;							m15=qreduce(m13-rm+q4);		m16=qreduce(m14-im+q4);
+		t16=t14-it;							t14=t14+it;							m13=qreduce(m13+rm   );		m14=qreduce(m14+im   );
+																				rm =m13;					im =m14		;		 
+		rt =t13;	t13=t9 -rt;				t9 =t9 +rt;							m13=m9 -rm;					m14=m10-im	;			// -:-b,b
+		it =t14;	t14=t10-it;				t10=t10+it;							m9 =m9 +rm;					m10=m10+im	;			// +:0,2b
+																				rm =m15;					im =m16		;		 
+		rt =t15;	t15=t11+t16;			t11=t11-t16;						m15=m11+im;					m16=m12-rm	;			// -:-b,b
+					t16=t12-rt;				t12=t12+rt;							m11=m11-im;					m12=m12+rm	;			// +:0,2b
+
+	/*...Block 3: */
+		jt = j1 + p1;		jp = j2 + p1;
+	  #ifdef PFETCH_AGGRESSIVE
+		addr = addp + p4;
+		prefetch_p_doubles(addr);
+	  #elif PFETCH
+		addp = &a[jt];
+		addr = addp+prefetch_offset;
+		prefetch_p_doubles(addr);
+	  #endif
+		t17=a[jt    ]*c1 -a[jp    ]*s1 ;	t18=a[jp    ]*c1 +a[jt    ]*s1;		cmul_modq8(b[jt    ],b[jp    ],a1 ,b1 ,&m17,&m18);
+		rt =a[jt+p8 ]*c9 -a[jp+p8 ]*s9 ;	it =a[jp+p8 ]*c9 +a[jt+p8 ]*s9;		cmul_modq8(b[jt+p8 ],b[jp+p8 ],a9 ,b9 , &rm, &im);
+		t19=t17-rt;							t17=t17+rt;							m19=qreduce(m17-rm+q4);		m20=qreduce(m18-im+q4);
+		t20=t18-it;							t18=t18+it;							m17=qreduce(m17+rm   );		m18=qreduce(m18+im   );
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #endif
+		t21=a[jt+p4 ]*c5 -a[jp+p4 ]*s5 ;	t22=a[jp+p4 ]*c5 +a[jt+p4 ]*s5;		cmul_modq8(b[jt+p4 ],b[jp+p4 ],a5 ,b5 ,&m21,&m22);
+		rt =a[jt+p12]*c13-a[jp+p12]*s13;	it =a[jp+p12]*c13+a[jt+p12]*s13;	cmul_modq8(b[jt+p12],b[jp+p12],a13,b13, &rm, &im);
+		t23=t21-rt;							t21=t21+rt;							m23=qreduce(m21-rm+q4);		m24=qreduce(m22-im+q4);
+		t24=t22-it;							t22=t22+it;							m21=qreduce(m21+rm   );		m22=qreduce(m22+im   );
+																				rm =m21;					im =m22		;		 
+		rt =t21;	t21=t17-rt;				t17=t17+rt;							m21=m17-rm;					m22=m18-im	;			// -:-b,b
+		it =t22;	t22=t18-it;				t18=t18+it;							m17=m17+rm;					m18=m18+im	;			// +:0,2b
+																				rm =m23;					im =m24		;		 
+		rt =t23;	t23=t19+t24;			t19=t19-t24;						m23=qreduce(m19+im   );		m24=qreduce(m20-rm+q2);	// -:-b,b
+					t24=t20-rt;				t20=t20+rt;							m19=qreduce(m19-im+q2);		m20=qreduce(m20+rm   );	// +:0,2b
+																				// m19,20,23,24 are needed for CMUL, so reduce.
+	/*...Block 4: */
+		jt = j1 + p3;		jp = j2 + p3;
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #elif PFETCH
+		addp = &a[jt];
+		addr = addp+prefetch_offset;
+		prefetch_p_doubles(addr);
+	  #endif
+		t25=a[jt    ]*c3 -a[jp    ]*s3 ;	t26=a[jp    ]*c3 +a[jt    ]*s3;		cmul_modq8(b[jt    ],b[jp    ],a3 ,b3 ,&m25,&m26);
+		rt =a[jt+p8 ]*c11-a[jp+p8 ]*s11;	it =a[jp+p8 ]*c11+a[jt+p8 ]*s11;	cmul_modq8(b[jt+p8 ],b[jp+p8 ],a11,b11, &rm, &im);
+		t27=t25-rt;							t25=t25+rt;							m27=qreduce(m25-rm+q4);		m28=qreduce(m26-im+q4);
+		t28=t26-it;							t26=t26+it;							m25=qreduce(m25+rm   );		m26=qreduce(m26+im   );
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #endif
+		t29=a[jt+p4 ]*c7 -a[jp+p4 ]*s7 ;	t30=a[jp+p4 ]*c7 +a[jt+p4 ]*s7;		cmul_modq8(b[jt+p4 ],b[jp+p4 ],a7 ,b7 ,&m29,&m30);
+		rt =a[jt+p12]*c15-a[jp+p12]*s15;	it =a[jp+p12]*c15+a[jt+p12]*s15;	cmul_modq8(b[jt+p12],b[jp+p12],a15,b15, &rm, &im);
+		t31=t29-rt;							t29=t29+rt;							m31=qreduce(m29-rm+q4);		m32=qreduce(m30-im+q4);
+		t32=t30-it;							t30=t30+it;							m29=qreduce(m29+rm   );		m30=qreduce(m30+im   );
+																				rm =m29;					im =m30		;		 
+		rt =t29;	t29=t25-rt;				t25=t25+rt;							m29=m25-rm;					m30=m26-im	;			// -:-b,b
+		it =t30;	t30=t26-it;				t26=t26+it;							m25=m25+rm;					m26=m26+im	;			// +:0,2b
+																				rm =m31;					im =m32		;		 
+		rt =t31;	t31=t27+t32;			t27=t27-t32;						m31=qreduce(m27+im   );		m32=qreduce(m28-rm+q2);	// -:-b,b
+					t32=t28-rt;				t28=t28+rt;							m27=qreduce(m27-im+q2);		m28=qreduce(m28+rm   );	// +:0,2b
+																				// m27,28,31,32 are needed for CMUL, so reduce.
+	/*
+    !...and now do four more radix-4 transforms, including the internal twiddle factors:
+    !    1, exp(i* 1*twopi/16) =        ( c, s), exp(i* 2*twopi/16) = isqrt2*( 1, 1), exp(i* 3*twopi/16) =        ( s, c) (for inputs to transform block 2)
+    !    1, exp(i* 2*twopi/16) = isqrt2*( 1, 1), exp(i* 4*twopi/16) =        ( 0, 1), exp(i* 6*twopi/16) = isqrt2*(-1, 1) (for inputs to transform block 3)
+    !    1, exp(i* 3*twopi/16) =        ( s, c), exp(i* 6*twopi/16) = isqrt2*(-1, 1), exp(i* 9*twopi/16) =        (-c,-s) (for inputs to transform block 4).
+    !  (This is 4 real*complex and 4 complex*complex multiplies (= 24 FMUL), compared to 6 and 4, respectively (= 28 FMUL) for my old scheme.)
+    !   I.e. do similar as above, except inputs a[j1,2+p0:15:1) are replaced by t0:30:2,
+    !                                           a[j1,2+p0:15:1) are replaced by t1:31:2, and v.v. for outputs,
+	!   and only the last 3 inputs to each of the radix-4 transforms 2 through 4 are multiplied by non-unity twiddles.
+	*/
+													/*===============
+													Input bounds on modular terms:
+														-:-b,b: m3,5,6,8,11,13,14,16,21,22,24,29,30,32
+														+:0,2b: m1,2,4,7, 9,10,12,15,17,18,23,25,26,31
+													These are all reduced (in 0,b) because they are inputs to CMUL:
+																m19,20,23,24,27,28,31,32
+													===============*/
+	/*...Block 1: t1,9,17,25 */
+		jt = j1;		jp = j2;
+	  #ifdef PFETCH_AGGRESSIVE
+		addr = addp + p8 ;
+		prefetch_p_doubles(addr);
+	  #endif
+		rt =t9;	t9 =t1 -rt;	t1 =t1 +rt;				rm =m9;	m9 =m1 -rm;	m1 =m1 +rm;	// m 1, 2 in   0,4b
+		it =t10;t10=t2 -it;	t2 =t2 +it;				im =m10;m10=m2 -im;	m2 =m2 +im;	// m 9,10 in -2b,2b
+
+		rt =t25;t25=t17-rt;	t17=t17+rt;				rm =m25;m25=m17-rm;	m17=m17+rm;	// m17,18 in   0,4b
+		it =t26;t26=t18-it;	t18=t18+it;				im =m26;m26=m18-im;	m18=m18+im;	// m25,26 in -2b,2b
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #endif
+		/* Debug: check for overflow of + terms: */	ASSERT(HERE, m1+m17 >= m1 && m2+m18 >= m2,"Overflow of [0,8b] term!");
+		a[jt    ]= t1+t17;	a[jp    ]= t2+t18;		b[jt    ]=qreduce( m1+m17   );	b[jp    ]=qreduce( m2+m18   );	// + terms in   0,8b
+		a[jt+p1 ]= t1-t17;	a[jp+p1 ]= t2-t18;		b[jt+p1 ]=qreduce( m1-m17+q4);	b[jp+p1 ]=qreduce( m2-m18+q4);	// - terms in -4b,4b
+		// mpy by E^4=i is inlined here:
+		a[jt+p2 ]=t9 -t26;	a[jp+p2 ]=t10+t25;		b[jt+p2 ]=qreduce(m9 -m26+q4);	b[jp+p2 ]=qreduce(m10+m25+q4);	// + terms in -4b,4b
+		a[jt+p3 ]=t9 +t26;	a[jp+p3 ]=t10-t25;		b[jt+p3 ]=qreduce(m9 +m26+q4);	b[jp+p3 ]=qreduce(m10-m25+q4);	// - terms in -4b,4b
+
+	/*...Block 3: t5,13,21,29 */
+		jt = j1 + p4;		jp = j2 + p4;
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #endif
+		rt =t13;t13=t5 +t14;t5 =t5 -t14;					rm =m13;m13=m5 +m14;m5 =m5 -m14;	// m5,6,13,14
+				t14=t6 -rt;	t6 =t6 +rt;								m14=m6 -rm;	m6 =m6 +rm;		// all in -2b,2b
+	// twiddle mpy by E^2:								// All 4 +- sums in -2b,2b; add q4 to ensure MUL inputs >= 0:
+		rt =(t21-t22)*ISRT2;t22=(t21+t22)*ISRT2;			rm = mul_i2(m21-m22+q4);m22= mul_i2(m21+m22+q4);	// All 4 outs
+t21=rt;	rt =(t30+t29)*ISRT2;it =(t30-t29)*ISRT2;	m21=rm;	rm = mul_i2(m30+m29+q4);im = mul_i2(m30-m29+q4);	// in [0,b30]
+		t29=t21+rt;			t21=t21-rt;						m29=m21+rm;			m21=m21-rm;		// m21,22 in [-b30,b30]
+		t30=t22+it;			t22=t22-it;						m30=m22+im;			m22=m22-im;		// m29,30 in [0,2*b30]
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #endif
+		a[jt    ]= t5+t21;	a[jp    ]= t6+t22;		b[jt    ]=qreduce( m5+m21+q4);	b[jp    ]=qreduce( m6+m22+q4);	// 5 +-21 in [-2b,2b] + [-b30,b30] = [-2b-b30,2b+b30]
+		a[jt+p1 ]= t5-t21;	a[jp+p1 ]= t6-t22;		b[jt+p1 ]=qreduce( m5-m21+q4);	b[jp+p1 ]=qreduce( m6-m22+q4);	// 6 +-22 same
+		// mpy by E^4=i is inlined here:
+		a[jt+p2 ]=t13-t30;	a[jp+p2 ]=t14+t29;		b[jt+p2 ]=qreduce(m13-m30+q5);	b[jp+p2 ]=qreduce(m14+m29+q3);	// + in [-2b,2b] + [0,2*b30] = [-2b,2*(b+b30)]
+		a[jt+p3 ]=t13+t30;	a[jp+p3 ]=t14-t29;		b[jt+p3 ]=qreduce(m13+m30+q3);	b[jp+p3 ]=qreduce(m14-m29+q5);	// - in [-2b,2b] - [0,2*b30] = [-2*(b+b30),2b]
+
+	/*...Block 2: t3,11,19,27 */
+		jt = j1 + p8;		jp = j2 + p8;
+	  #ifdef PFETCH_AGGRESSIVE
+		addr = addp + p12;
+		prefetch_p_doubles(addr);
+	  #endif
+	// twiddle mpy by E^2							// m11-m12 in -3b,b; m11+m12 in -b,3b; rm,im in 0,b30:
+		rt =(t11-t12)*ISRT2;it =(t11+t12)*ISRT2;	rm =mul_i2(m11-m12+q4);	im =mul_i2(m11+m12+q4);
+		t11=t3 -rt;			t3 =t3 +rt;				m11=m3 -rm;				m12=m4 -im;	// m11 in -b-b30,b; m12 in -b30,2b
+		t12=t4 -it;			t4 =t4 +it;				m3 =m3 +rm;				m4 =m4 +im;	// m3  in -b,b+b30; m4 in 0,2b+b30
+
+		rt =t19*c - t20*s;	t20=t20*c + t19*s;		cmul_modq8(m19,m20, cm,sm, &m19,&m20);	// 0,4q
+t19=rt;	rt =t27*s - t28*c;	it =t28*s + t27*c;		cmul_modq8(m27,m28, sm,cm,  &rm, &im);	// 0,4q
+		t27=t19-rt;			t19=t19+rt;				m27=qreduce(m19-rm+q4);	m19=qreduce(m19+rm);	// +:   0,8q ==> 0,b
+		t28=t20-it;			t20=t20+it;				m28=qreduce(m20-im+q4);	m20=qreduce(m20+im);	// -: -4q,4q ==> 0,b
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;		prefetch_p_doubles(addr);
+	  #endif
+		a[jt    ]= t3+t19;	a[jp    ]= t4+t20;		b[jt    ]=qreduce(m3+m19+q2);	b[jp    ]=qreduce(m4+m20   );	// m3+m19 in -b,2b+b30; m4+m20 in  0,3b+b30
+		a[jt+p1 ]= t3-t19;	a[jp+p1 ]= t4-t20;		b[jt+p1 ]=qreduce(m3-m19+q4);	b[jp+p1 ]=qreduce(m4-m20+q2);	// m3-m19 in -2b,b+b30; m4-m20 in -b,2b+b30
+		// mpy by E^4=i is inlined here:
+		a[jt+p2 ]=t11-t28;	a[jp+p2 ]=t12+t27;		b[jt+p2 ]=qreduce(m11-m28+q4);	b[jp+p2 ]=qreduce(m12+m27+q2);	// m11-28 in -2b-b30,b; m12+27 in   -b30,3b
+		a[jt+p3 ]=t11+t28;	a[jp+p3 ]=t12-t27;		b[jt+p3 ]=qreduce(m11+m28+q4);	b[jp+p3 ]=qreduce(m12-m27+q4);	// m11+28 in -b-b30,2b; m12-27 in -b-b30,2b
+
+	/*...Block 4: t7,15,23,31 */
+		jt = j1 + p12;		jp = j2 + p12;
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;		prefetch_p_doubles(addr);
+	  #endif
+		/* twiddle mpy by -E^6 is here... */		// m16+m15 in -b,3b; m16-m15 in -3b,b; rm,im in 0,b30
+		rt =(t16+t15)*ISRT2;it =(t16-t15)*ISRT2;	rm =mul_i2(m16+m15+q4);	im =mul_i2(m16-m15+q4);
+		t15=t7 +rt;			t7 =t7 -rt;				m15=m7 +rm;				m16=m8 +im;	// m15 in 0,2b+b30; m16 in -b,b+b30
+		t16=t8 +it;			t8 =t8 -it;				m7 =m7 -rm;				m8 =m8 -im;	// m7  in -b30,2b ; m8  in -b-b30,b
+
+		rt =t23*s - t24*c;	t24=t24*s + t23*c;		cmul_modq8(m23,m24, sm,cm, &m23,&m24);	// 0,4q
+t23=rt;	rt =t31*c - t32*s;	it =t32*c + t31*s;		cmul_modq8(m31,m32, cm,sm,  &rm, &im);	// 0,4q
+		t31=t23+rt;			t23=t23-rt;				m31=qreduce(m23+rm);	m23=qreduce(m23-rm+q4);	// +:   0,8q ==> 0,b
+		t32=t24+it;			t24=t24-it;				m32=qreduce(m24+im);	m24=qreduce(m24-im+q4);	// -: -4q,4q ==> 0,b
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #endif
+		a[jt    ]= t7+t23;	a[jp    ]= t8+t24;		b[jt    ]=qreduce( m7+m23+q4);	b[jp    ]=qreduce( m8+m24+q4);	// 7 +-23 in [-b30, 2b] +- [0,b], handle both with +q4
+		a[jt+p1 ]= t7-t23;	a[jp+p1 ]= t8-t24;		b[jt+p1 ]=qreduce( m7-m23+q4);	b[jp+p1 ]=qreduce( m8-m24+q4);	// 8 +-24 in [-b-b30,b] +- [0,b], handle both with +q4
+		// mpy by E^4=i is inlined here:
+		a[jt+p2 ]=t15-t32;	a[jp+p2 ]=t16+t31;		b[jt+p2 ]=qreduce(m15-m32+q2);	b[jp+p2 ]=qreduce(m16+m31+q2);	// 15+-32 in [0,2b+b30] +- [0,b], handle both with +q2
+		a[jt+p3 ]=t15+t32;	a[jp+p3 ]=t16-t31;		b[jt+p3 ]=qreduce(m15+m32+q4);	b[jp+p3 ]=qreduce(m16-m31+q4);	// 16+-31 in [-b,b+b30] +- [0,b], handle both with +q4
+							// Cost (aside from basic add/sub): 19 CMUL_MODQ8,  8 MUL_I2, 80 QREDUCE
+							// My original f90 version has same 19 CMUL_MODQ8, 12 MUL_I2, 72 QREDUCE, 8 fewer reductions;
+							// Difference in MUL_I2 & QREDUCE counts due to differences in way we handle internal twiddles.
+
+			/**********************************************/
+	#else	// USE_FGT61 = False; Basic scalar-double mode:
+			/**********************************************/
+
+	/* gather the needed data (8 64-bit complex, i.e. 16 64-bit reals) and do the first set of four length-4 transforms.
+	   We process the sincos data in bit-reversed order.	*/
+	  #ifdef PFETCH_AGGRESSIVE
+		addp = &a[j1];
+	  #elif PFETCH
+		prefetch_offset = ((j >> 1) & 3)*p4 + 4;	/* Cycle among p0, p4, p8 and p12. */
+	  #endif
+
+	/*...Block 1: */
+		jt = j1;		jp = j2;
+	  #ifdef PFETCH_AGGRESSIVE
+		addr = addp;
+		prefetch_p_doubles(addr);
+	  #elif PFETCH
+		addp = &a[jt];
+		addr = addp+prefetch_offset;
+		prefetch_p_doubles(addr);
+	  #endif
 		t1 =a[jt	];						t2 =a[jp	];
 		rt =a[jt+p8 ]*c8 -a[jp+p8 ]*s8 ;	it =a[jp+p8 ]*c8 +a[jt+p8 ]*s8;
 		t3 =t1 -rt;							t1 =t1 +rt;
 		t4 =t2 -it;							t2 =t2 +it;
-
-	#ifdef PFETCH_AGGRESSIVE
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		t5 =a[jt+p4 ]*c4 -a[jp+p4 ]*s4 ;	t6 =a[jp+p4 ]*c4 +a[jt+p4 ]*s4;
 		rt =a[jt+p12]*c12-a[jp+p12]*s12;	it =a[jp+p12]*c12+a[jt+p12]*s12;
 		t7 =t5 -rt;							t5 =t5 +rt;
@@ -1536,27 +1404,23 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 				t8 =t4 -rt;					t4 =t4 +rt;
 
 	/*...Block 2: */
-
-		jt = j1 + p2;
-		jp = j2 + p2;
-
-	#ifdef PFETCH_AGGRESSIVE
+		jt = j1 + p2;		jp = j2 + p2;
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#elif PFETCH
+	  #elif PFETCH
 		addp = &a[jt];
 		addr = addp+prefetch_offset;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		t9 =a[jt    ]*c2 -a[jp    ]*s2 ;	t10=a[jp    ]*c2 +a[jt    ]*s2;
 		rt =a[jt+p8 ]*c10-a[jp+p8 ]*s10;	it =a[jp+p8 ]*c10+a[jt+p8 ]*s10;
 		t11=t9 -rt;							t9 =t9 +rt;
 		t12=t10-it;							t10=t10+it;
-
-	#ifdef PFETCH_AGGRESSIVE
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		t13=a[jt+p4 ]*c6 -a[jp+p4 ]*s6 ;	t14=a[jp+p4 ]*c6 +a[jt+p4 ]*s6;
 		rt =a[jt+p12]*c14-a[jp+p12]*s14;	it =a[jp+p12]*c14+a[jt+p12]*s14;
 		t15=t13-rt;							t13=t13+rt;
@@ -1569,27 +1433,23 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 					t16=t12-rt;				t12=t12+rt;
 
 	/*...Block 3: */
-
-		jt = j1 + p1;
-		jp = j2 + p1;
-
-	#ifdef PFETCH_AGGRESSIVE
+		jt = j1 + p1;		jp = j2 + p1;
+	  #ifdef PFETCH_AGGRESSIVE
 		addr = addp + p4;
 		prefetch_p_doubles(addr);
-	#elif PFETCH
+	  #elif PFETCH
 		addp = &a[jt];
 		addr = addp+prefetch_offset;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		t17=a[jt    ]*c1 -a[jp    ]*s1 ;	t18=a[jp    ]*c1 +a[jt    ]*s1;
 		rt =a[jt+p8 ]*c9 -a[jp+p8 ]*s9 ;	it =a[jp+p8 ]*c9 +a[jt+p8 ]*s9;
 		t19=t17-rt;							t17=t17+rt;
 		t20=t18-it;							t18=t18+it;
-
-	#ifdef PFETCH_AGGRESSIVE
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		t21=a[jt+p4 ]*c5 -a[jp+p4 ]*s5 ;	t22=a[jp+p4 ]*c5 +a[jt+p4 ]*s5;
 		rt =a[jt+p12]*c13-a[jp+p12]*s13;	it =a[jp+p12]*c13+a[jt+p12]*s13;
 		t23=t21-rt;							t21=t21+rt;
@@ -1602,27 +1462,23 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 					t24=t20-rt;				t20=t20+rt;
 
 	/*...Block 4: */
-
-		jt = j1 + p3;
-		jp = j2 + p3;
-
-	#ifdef PFETCH_AGGRESSIVE
+		jt = j1 + p3;		jp = j2 + p3;
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#elif PFETCH
+	  #elif PFETCH
 		addp = &a[jt];
 		addr = addp+prefetch_offset;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		t25=a[jt    ]*c3 -a[jp    ]*s3 ;	t26=a[jp    ]*c3 +a[jt    ]*s3;
 		rt =a[jt+p8 ]*c11-a[jp+p8 ]*s11;	it =a[jp+p8 ]*c11+a[jt+p8 ]*s11;
 		t27=t25-rt;							t25=t25+rt;
 		t28=t26-it;							t26=t26+it;
-
-	#ifdef PFETCH_AGGRESSIVE
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		t29=a[jt+p4 ]*c7 -a[jp+p4 ]*s7 ;	t30=a[jp+p4 ]*c7 +a[jt+p4 ]*s7;
 		rt =a[jt+p12]*c15-a[jp+p12]*s15;	it =a[jp+p12]*c15+a[jt+p12]*s15;
 		t31=t29-rt;							t29=t29+rt;
@@ -1635,33 +1491,29 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 					t32=t28-rt;				t28=t28+rt;
 	/*
 	!...and now do four more radix-4 transforms, including the internal twiddle factors:
-	!	1, exp(i* 1*twopi/16) =		( c, s), exp(i* 2*twopi/16) = isqrt2*( 1, 1), exp(i* 3*twopi/16) =		( s, c) (for inputs to transform block 2)
-	!	1, exp(i* 2*twopi/16) = isqrt2*( 1, 1), exp(i* 4*twopi/16) =		( 0, 1), exp(i* 6*twopi/16) = isqrt2*(-1, 1) (for inputs to transform block 3)
-	!	1, exp(i* 3*twopi/16) =		( s, c), exp(i* 6*twopi/16) = isqrt2*(-1, 1), exp(i* 9*twopi/16) =		(-c,-s) (for inputs to transform block 4).
+	!	1, exp(i* 1*twopi/16) =	       ( c, s), exp(i* 2*twopi/16) = isqrt2*( 1, 1), exp(i* 3*twopi/16) =        ( s, c) (for inputs to transform block 2)
+	!	1, exp(i* 2*twopi/16) = isqrt2*( 1, 1), exp(i* 4*twopi/16) =        ( 0, 1), exp(i* 6*twopi/16) = isqrt2*(-1, 1) (for inputs to transform block 3)
+	!	1, exp(i* 3*twopi/16) =        ( s, c), exp(i* 6*twopi/16) = isqrt2*(-1, 1), exp(i* 9*twopi/16) =        (-c,-s) (for inputs to transform block 4).
 	!  (This is 4 real*complex and 4 complex*complex multiplies (= 24 FMUL), compared to 6 and 4, respectively (= 28 FMUL) for my old scheme.)
 	!   I.e. do similar as above, except inputs a[j1,2+p0:15:1) are replaced by t0:30:2,
 	!										   a[j1,2+p0:15:1) are replaced by t1:31:2, and v.v. for outputs,
 	!   and only the last 3 inputs to each of the radix-4 transforms 2 through 4 are multiplied by non-unity twiddles.
 	*/
 	/*...Block 1: t1,9,17,25 */
-
-		jt = j1;
-		jp = j2;
-
-	#ifdef PFETCH_AGGRESSIVE
+		jt = j1;		jp = j2;
+	  #ifdef PFETCH_AGGRESSIVE
 		addr = addp + p8 ;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		rt =t9;	t9 =t1 -rt;	t1 =t1 +rt;
 		it =t10;t10=t2 -it;	t2 =t2 +it;
 
 		rt =t25;t25=t17-rt;	t17=t17+rt;
 		it =t26;t26=t18-it;	t18=t18+it;
-
-	#ifdef PFETCH_AGGRESSIVE
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		a[jt    ]=t1+t17;	a[jp    ]=t2+t18;
 		a[jt+p1 ]=t1-t17;	a[jp+p1 ]=t2-t18;
 
@@ -1669,14 +1521,11 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		a[jt+p3 ]=t9 +t26;	a[jp+p3 ]=t10-t25;
 
 	/*...Block 3: t5,13,21,29 */
-
-		jt = j1 + p4;
-		jp = j2 + p4;
-
-	#ifdef PFETCH_AGGRESSIVE
+		jt = j1 + p4;		jp = j2 + p4;
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		rt =t13;t13=t5 +t14;t5 =t5 -t14;		/* twiddle mpy by E^4 = I */
 				t14=t6 -rt;	t6 =t6 +rt;
 
@@ -1684,11 +1533,10 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt =(t30+t29)*ISRT2;it =(t30-t29)*ISRT2;		/* twiddle mpy by -E^6 is here... */
 		t29=t21+rt;			t21=t21-rt;			/* ...and get E^6=(i-1)/sqrt by flipping signs here. */
 		t30=t22+it;			t22=t22-it;
-
-	#ifdef PFETCH_AGGRESSIVE
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		a[jt    ]=t5+t21;	a[jp    ]=t6+t22;
 		a[jt+p1 ]=t5-t21;	a[jp+p1 ]=t6-t22;
 
@@ -1696,14 +1544,11 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		a[jt+p3 ]=t13+t30;	a[jp+p3 ]=t14-t29;
 
 	/*...Block 2: t3,11,19,27 */
-
-		jt = j1 + p8;
-		jp = j2 + p8;
-
-	#ifdef PFETCH_AGGRESSIVE
+		jt = j1 + p8;		jp = j2 + p8;
+	  #ifdef PFETCH_AGGRESSIVE
 		addr = addp + p12;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		rt =(t11-t12)*ISRT2;it =(t11+t12)*ISRT2;		/* twiddle mpy by E^2; could also do mpy by ISRT2 directly on t11,12 */
 		t11=t3 -rt;			t3 =t3 +rt;
 		t12=t4 -it;			t4 =t4 +it;
@@ -1712,11 +1557,10 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt =t27*s - t28*c;	it =t28*s + t27*c;		/* twiddle mpy by E^3 */
 		t27=t19-rt;			t19=t19+rt;
 		t28=t20-it;			t20=t20+it;
-
-	#ifdef PFETCH_AGGRESSIVE
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		a[jt    ]=t3+t19;	a[jp    ]=t4+t20;
 		a[jt+p1 ]=t3-t19;	a[jp+p1 ]=t4-t20;
 
@@ -1724,14 +1568,11 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		a[jt+p3 ]=t11+t28;	a[jp+p3 ]=t12-t27;
 
 	/*...Block 4: t7,15,23,31 */
-
-		jt = j1 + p12;
-		jp = j2 + p12;
-
-	#ifdef PFETCH_AGGRESSIVE
+		jt = j1 + p12;		jp = j2 + p12;
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		rt =(t16+t15)*ISRT2;it =(t16-t15)*ISRT2;		/* twiddle mpy by -E^6 is here... */
 		t15=t7 +rt;			t7 =t7 -rt;			/* ...and get E^6=(i-1)/sqrt by flipping signs here. */
 		t16=t8 +it;			t8 =t8 -it;
@@ -1740,20 +1581,21 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 		rt =t31*c - t32*s;	it =t32*c + t31*s;		/* twiddle mpy by E^1 = -E^9... */
 		t31=t23+rt;			t23=t23-rt;			/* ...and get E^9 by flipping signs here. */
 		t32=t24+it;			t24=t24-it;			/* Note: t23+rt = t23*(s+1) */
-
-	#ifdef PFETCH_AGGRESSIVE
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		a[jt    ]=t7+t23;	a[jp    ]=t8+t24;
 		a[jt+p1 ]=t7-t23;	a[jp+p1 ]=t8-t24;
 
 		a[jt+p2 ]=t15-t32;	a[jp+p2 ]=t16+t31;	/* mpy by E^4=i is inlined here... */
 		a[jt+p3 ]=t15+t32;	a[jp+p3 ]=t16-t31;
 
+	#endif	// USE_FGT61 ?
+
   #endif	// USE_SCALAR_DFT_MACRO ?
 
-#endif	/* USE_SSE2 */
+	#endif	/* USE_SSE2 */
 
 	  }	/* endfor(j=jlo; j < jhi; j += 4) */
 
@@ -1763,53 +1605,46 @@ void radix16_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 }
 
-// Try FMA-for-DIF-only, since the DIT+FMA macros are less efficient due to the post-twiddles implementation of DIT:
-#ifdef USE_AVX2
-//	#undef USE_AVX2
-#endif
-
 /***************/
 
 /*
 !...Acronym: DIT = Decimation In Time
 !...Post-twiddles implementation of radix16_dit_pass.
 */
-void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1[], int index[], int nloops, int incr, int init_sse2, int thr_id)
+#ifdef USE_FGT61
+void radix16_dit_pass	(double a[], uint64 b[], int n, struct complex rt0[], struct complex rt1[], uint128 mt0[], uint128 mt1[], int index[], int nloops, int incr, int init_sse2, int thr_id)
+#else
+void radix16_dit_pass	(double a[],             int n, struct complex rt0[], struct complex rt1[],                               int index[], int nloops, int incr, int init_sse2, int thr_id)
+#endif
 {
+	const char func[] = "radix16_dit_pass";
 	const int pfetch_dist = PFETCH_DIST;
 	int pfetch_addr;
 	static int max_threads = 0;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 	// lg(stride):
-  #ifdef USE_AVX
-	const int l2_stride = 3;	// 8 doubles at a time
-  #elif defined(USE_SSE2)
-	const int l2_stride = 2;	// 4 doubles at a time
-  #else
-	const int l2_stride = 1;	// 2 doubles at a time in scalar [non-SIMD] mode
-  #endif
-
+	const int l2_stride = L2_SZ_VD-2;	// 16 doubles at a time
+#ifdef USE_FGT61
+	const uint64 q  = 0x1FFFFFFFFFFFFFFFull, q2=q+q, q3=q2+q, q4=q2+q2, q5=q4+q, q8=q4+q4;	// q = 2^61 - 1, and needed small multiples
+	// primitive 16th root of unity, scaled by *8:
+	const uint64 cm = 1693317751237720973ull<<3, sm = 2283815672160731785ull<<3;
+#endif
 	const double c = 0.9238795325112867561281831, s = 0.3826834323650897717284599;	/* exp[i*(twopi/16)]*/
-#if defined(USE_SCALAR_DFT_MACRO) || defined(USE_AVX2)	// FMA-based DFT needs the tangent
+#if defined(USE_SCALAR_DFT_MACRO) || defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE)	// FMA-based DFT needs the tangent
 	const double tan = 0.41421356237309504879;
 #endif
 	int i,j,j1,j2,jlo,jhi,m,iroot_prim,iroot,k1,k2;
 	int p1,p2,p3,p4,p8,p12;
 	double rt,it,dtmp;
 	double re0,im0,re1,im1;
-	uint64 tmp64;
+	uint64 tmp64,rm,im;
+	// These needed both for scalar mode and for certain SIMD-mode inits:
+	double c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12,s13,s14,s15;
 
 #ifdef USE_SSE2
 
-  #if !(defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
-	#error SSE2 code not supported for this compiler!
-  #endif
-
 	static vec_dbl *sc_arr = 0x0, *sc_ptr;
 	double *add0, *add1;	/* Addresses into array sections */
-#ifdef COMPILER_TYPE_MSVC
-	double *add2, *add3;
-#endif
 	vec_dbl *c_tmp,*s_tmp;
 
   #ifdef MULTITHREAD
@@ -1817,18 +1652,14 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
    #if OS_BITS == 64
 	vec_dbl *cc0, *ss0, *isrt2, *two, *r1;
    #else	// 32-bit SSE2:
-	vec_dbl *cc0, *ss0, *isrt2, *two, *r1,*r3,*r5,*r7,*r9,*r11,*r13,*r15,*r17,*r25,*c0,*c1,*c2,*c3;
+	vec_dbl *cc0, *ss0, *isrt2, *two, *r1,*r3,*r5,*r7,*r9,*r11,*r13,*r15,*r17,*r25,*_c0,*_c1,*_c2,*_c3;
    #endif
-  #elif defined(COMPILER_TYPE_GCC)
+  #else
    #if OS_BITS == 64
 	static vec_dbl *cc0, *ss0, *isrt2, *two, *r1;
    #else	// 32-bit SSE2:
-	static vec_dbl *cc0, *ss0, *isrt2, *two, *r1,*r3,*r5,*r7,*r9,*r11,*r13,*r15,*r17,*r25,*c0,*c1,*c2,*c3;
+	static vec_dbl *cc0, *ss0, *isrt2, *two, *r1,*r3,*r5,*r7,*r9,*r11,*r13,*r15,*r17,*r25,*_c0,*_c1,*_c2,*_c3;
    #endif
-  #else
-	static vec_dbl *cc0, *ss0, *isrt2, *two;
-	static vec_dbl *c0,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15,*s0,*s1,*s2,*s3,*s4,*s5,*s6,*s7,*s8,*s9,*s10,*s11,*s12,*s13,*s14,*s15;
-	static vec_dbl *r1,*r2,*r3,*r4,*r5,*r6,*r7,*r8,*r9,*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r30,*r31,*r32;
   #endif
 
 #else
@@ -1839,7 +1670,10 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 	int prefetch_offset;
 	double t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t30,t31,t32;
   #endif
-	double c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12,s13,s14,s15;
+  #ifdef USE_FGT61
+	uint64 a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,b1,b2,b3,b4,b5,b6,b7,b8,b9,b10,b11,b12,b13,b14,b15
+		  ,m1,m2,m3,m4,m5,m6,m7,m8,m9,m10,m11,m12,m13,m14,m15,m16,m17,m18,m19,m20,m21,m22,m23,m24,m25,m26,m27,m28,m29,m30,m31,m32;
+  #endif
 
 #endif
 
@@ -1866,7 +1700,7 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		}
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 72*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 32 16-byte slots of sc_arr for temporaries, next 3 for the nontrivial complex 16th roots,
 	last 30 for the doubled sincos twiddles, plus at least 3 more slots to allow for 64-byte alignment of the array.
@@ -1881,7 +1715,7 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 			for(i = 0; i < max_threads; ++i) {
 				/* These remain fixed within each per-thread local store: */
 				VEC_DBL_INIT(isrt2, ISRT2);
-			  #ifdef USE_AVX2
+			  #if defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE)
 				VEC_DBL_INIT(two  , 1.0);	// Yeah, I *know" "it's a misnomer" :)
 				// cc0,ss0 inited below for AVX2
 			  #else
@@ -1909,14 +1743,14 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 			r15   = r1 + 0x0e;
 			r17   = r1 + 0x10;
 			r25   = r1 + 0x18;
-			c0    = r1 + 0x23;
-			c1    = r1 + 0x33;
-			c2    = r1 + 0x2b;
-			c3    = r1 + 0x3b;
+			_c0   = r1 + 0x23;
+			_c1   = r1 + 0x33;
+			_c2   = r1 + 0x2b;
+			_c3   = r1 + 0x3b;
 		  #endif
 			/* These remain fixed: */
 			VEC_DBL_INIT(isrt2, ISRT2);
-		  #ifdef USE_AVX2
+		  #if defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE)
 			VEC_DBL_INIT(two  , 1.0);	// Yeah, I *know" "it's a misnomer" :)
 			// cc0,ss0 inited below for AVX2
 		  #else
@@ -1925,54 +1759,7 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 			VEC_DBL_INIT(ss0  , s);
 		  #endif
 		#else
-	//	} else {					// DIT has roots-pair indices 4/8, 6/10, 5/9, 7/11 swapped w.r.to DIF.
-									// In AVX2 mode, the sine slots hold tangents, e.g. s4 holds s4/c4:
-			r1  = sc_ptr + 0x00;	  isrt2 = sc_ptr + 0x20;
-			r2  = sc_ptr + 0x01;		cc0 = sc_ptr + 0x21;
-			r3  = sc_ptr + 0x02;		ss0 = sc_ptr + 0x22;
-			r4  = sc_ptr + 0x03;		c0  = sc_ptr + 0x23;
-			r5  = sc_ptr + 0x04;		s0  = sc_ptr + 0x24;
-			r6  = sc_ptr + 0x05;		c4  = sc_ptr + 0x25;
-			r7  = sc_ptr + 0x06;		s4  = sc_ptr + 0x26;
-			r8  = sc_ptr + 0x07;		c8  = sc_ptr + 0x27;
-			r9  = sc_ptr + 0x08;		s8  = sc_ptr + 0x28;
-			r10 = sc_ptr + 0x09;		c12 = sc_ptr + 0x29;
-			r11 = sc_ptr + 0x0a;		s12 = sc_ptr + 0x2a;
-			r12 = sc_ptr + 0x0b;		c2  = sc_ptr + 0x2b;
-			r13 = sc_ptr + 0x0c;		s2  = sc_ptr + 0x2c;
-			r14 = sc_ptr + 0x0d;		c6  = sc_ptr + 0x2d;
-			r15 = sc_ptr + 0x0e;		s6  = sc_ptr + 0x2e;
-			r16 = sc_ptr + 0x0f;		c10 = sc_ptr + 0x2f;
-			r17 = sc_ptr + 0x10;		s10 = sc_ptr + 0x30;
-			r18 = sc_ptr + 0x11;		c14 = sc_ptr + 0x31;
-			r19 = sc_ptr + 0x12;		s14 = sc_ptr + 0x32;
-			r20 = sc_ptr + 0x13;		c1  = sc_ptr + 0x33;
-			r21 = sc_ptr + 0x14;		s1  = sc_ptr + 0x34;
-			r22 = sc_ptr + 0x15;		c5  = sc_ptr + 0x35;
-			r23 = sc_ptr + 0x16;		s5  = sc_ptr + 0x36;
-			r24 = sc_ptr + 0x17;		c9  = sc_ptr + 0x37;
-			r25 = sc_ptr + 0x18;		s9  = sc_ptr + 0x38;
-			r26 = sc_ptr + 0x19;		c13 = sc_ptr + 0x39;
-			r27 = sc_ptr + 0x1a;		s13 = sc_ptr + 0x3a;
-			r28 = sc_ptr + 0x1b;		c3  = sc_ptr + 0x3b;
-			r29 = sc_ptr + 0x1c;		s3  = sc_ptr + 0x3c;
-			r30 = sc_ptr + 0x1d;		c7  = sc_ptr + 0x3d;
-			r31 = sc_ptr + 0x1e;		s7  = sc_ptr + 0x3e;
-			r32 = sc_ptr + 0x1f;		c11 = sc_ptr + 0x3f;
-										s11 = sc_ptr + 0x40;
-										c15 = sc_ptr + 0x41;
-										s15 = sc_ptr + 0x42;
-										two = sc_ptr + 0x43;	// Holds 1.0 in AVX2 mode
-			/* These remain fixed: */
-			VEC_DBL_INIT(isrt2, ISRT2);
-		  #ifdef USE_AVX2
-			VEC_DBL_INIT(two  , 1.0);	// Yeah, I *know" "it's a misnomer" :)
-			// cc0,ss0 inited below for AVX2
-		  #else
-			VEC_DBL_INIT(two  , 2.0);
-			VEC_DBL_INIT(cc0  , c);
-			VEC_DBL_INIT(ss0  , s);
-		  #endif
+		  #error Non-GCC-compatible compilers not supported for SIMD builds!
 		#endif
 	//	}
 		return;
@@ -1995,10 +1782,10 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		r15   = r1 + 0x0e;
 		r17   = r1 + 0x10;
 		r25   = r1 + 0x18;
-		c0    = r1 + 0x23;
-		c1    = r1 + 0x33;
-		c2    = r1 + 0x2b;
-		c3    = r1 + 0x3b;
+		_c0   = r1 + 0x23;
+		_c1   = r1 + 0x33;
+		_c2   = r1 + 0x2b;
+		_c3   = r1 + 0x3b;
 	  #endif
 	#endif
 
@@ -2039,23 +1826,158 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 */
 #if HIACC
 
-	// In AVX2/FMA mode, since we need to replace most of the raw sincos data with derived ones,
-	// simply place one copy of each computed double in a double-sized slot of the local memory.
-	// We will be using AVX2/FMA-based Newtonian iterative inversion on the 16 doubles whose
-	// multiplicative inverse is needed (the real part of the basic root of unity c and of the
-	// 15 complex twiddles, c1-15), so store those in packed form in 4 AVX-register-sized
-	// contiguous memory locations, and the others in a separate chunk of memory. After the
-	// vector-iterative inversion we'll need to combine the 2 sets of data and place (in quadruplicate)
-	// into their final SIMD-suitable memory slots.
-	#ifdef USE_AVX2
+	#ifdef REFACTOR_4DFT_3TWIDDLE
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/* 2*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c1=re0*re1-im0*im1;	s1=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/* 3*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c2=re0*re1-im0*im1;	s2=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/* 4*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c3=re0*re1-im0*im1;	s3=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/* 5*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c4=re0*re1-im0*im1;	s4=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/* 6*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c5=re0*re1-im0*im1;	s5=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/* 7*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c6=re0*re1-im0*im1;	s6=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/* 8*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c7=re0*re1-im0*im1;	s7=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/* 9*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c8=re0*re1-im0*im1;	s8=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/*10*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c9=re0*re1-im0*im1;	s9=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/*11*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c10=re0*re1-im0*im1;	s10=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/*12*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c11=re0*re1-im0*im1;	s11=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/*13*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c12=re0*re1-im0*im1;	s12=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/*14*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c13=re0*re1-im0*im1;	s13=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/*15*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c14=re0*re1-im0*im1;	s14=re0*im1+im0*re1;
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		c15=re0*re1-im0*im1;	s15=re0*im1+im0*re1;
+
+		// Cf. util.c:test_radix16_dft() for details on these combos:
+		c5 =  (c1-s1)*ISRT2;	s5 = (c1+s1)*ISRT2;
+		c6 = -s2;				s6 = c2;
+		c7 = -(c3+s3)*ISRT2;	s7 = (c3-s3)*ISRT2;
+
+		c9 = c1*c-s1*s;			s9 = c1*s+s1*c;
+		c10= (c2-s2)*ISRT2;		s10= (c2+s2)*ISRT2;
+		c11= c3*s-s3*c;			s11= c3*c+s3*s;
+
+		c13= c1*s-s1*c;			s13= c1*c+s1*s;
+		c14= -(c2+s2)*ISRT2;	s14= (c2-s2)*ISRT2;
+		c15= -c3*c+s3*s;		s15= -(c3*s+s3*c);
+
+	  #ifdef USE_SSE2
+		/* Sincos data stored in terms of the following 5 contiguous-data triplets:
+			c4,s4, c8,s8, cC,sC
+			c1,s1, c2,s2, c3,s3
+			c5,s5, c6,s6, c7,s7
+			c9,s9, cA,sA, cB,sB
+			cD,sD, cE,sE, cF,sF .
+		Note that due to my layout of the SSE2_RADIX_04_DIF_3TWIDDLE_X2-macro arglist,
+		we need to swap the order of the first 2 sincos-pairs of each triplet:
+		*/
+		c_tmp = cc0; s_tmp = c_tmp+1;	/* c0,s0 */
+		VEC_DBL_INIT(c_tmp, c8 );	VEC_DBL_INIT(s_tmp, s8 );	c_tmp+=2; s_tmp+=2;
+		VEC_DBL_INIT(c_tmp, c4 );	VEC_DBL_INIT(s_tmp, s4 );	c_tmp+=2; s_tmp+=2;
+		VEC_DBL_INIT(c_tmp, c12);	VEC_DBL_INIT(s_tmp, s12);	c_tmp+=2; s_tmp+=2;
+
+		VEC_DBL_INIT(c_tmp, c2 );	VEC_DBL_INIT(s_tmp, s2 );	c_tmp+=2; s_tmp+=2;
+		VEC_DBL_INIT(c_tmp, c1 );	VEC_DBL_INIT(s_tmp, s1 );	c_tmp+=2; s_tmp+=2;
+		VEC_DBL_INIT(c_tmp, c3 );	VEC_DBL_INIT(s_tmp, s3 );	c_tmp+=2; s_tmp+=2;
+
+		VEC_DBL_INIT(c_tmp, c6 );	VEC_DBL_INIT(s_tmp, s6 );	c_tmp+=2; s_tmp+=2;
+		VEC_DBL_INIT(c_tmp, c5 );	VEC_DBL_INIT(s_tmp, s5 );	c_tmp+=2; s_tmp+=2;
+		VEC_DBL_INIT(c_tmp, c7 );	VEC_DBL_INIT(s_tmp, s7 );	c_tmp+=2; s_tmp+=2;
+
+		VEC_DBL_INIT(c_tmp, c10);	VEC_DBL_INIT(s_tmp, s10);	c_tmp+=2; s_tmp+=2;
+		VEC_DBL_INIT(c_tmp, c9 );	VEC_DBL_INIT(s_tmp, s9 );	c_tmp+=2; s_tmp+=2;
+		VEC_DBL_INIT(c_tmp, c11);	VEC_DBL_INIT(s_tmp, s11);	c_tmp+=2; s_tmp+=2;
+
+		VEC_DBL_INIT(c_tmp, c14);	VEC_DBL_INIT(s_tmp, s14);	c_tmp+=2; s_tmp+=2;
+		VEC_DBL_INIT(c_tmp, c13);	VEC_DBL_INIT(s_tmp, s13);	c_tmp+=2; s_tmp+=2;
+		VEC_DBL_INIT(c_tmp, c15);	VEC_DBL_INIT(s_tmp, s15);	c_tmp+=2; s_tmp+=2;
+	  #endif
+
+	#elif defined(USE_AVX2)
+		// In AVX2/FMA mode, since we need to replace most of the raw sincos data with derived ones,
+		// simply place one copy of each computed double in a double-sized slot of the local memory.
+		// We will be using AVX2/FMA-based Newtonian iterative inversion on the 16 doubles whose
+		// multiplicative inverse is needed (the real part of the basic root of unity c and of the
+		// 15 complex twiddles, c1-15), so store those in packed form in 4 AVX-register-sized
+		// contiguous memory locations, and the others in a separate chunk of memory. After the
+		// vector-iterative inversion we'll need to combine the 2 sets of data and place (in quadruplicate)
+		// into their final SIMD-suitable memory slots.
 
 		add0 = (double *)cc0;	// add0 points to 16 cos-data-to-be-inverted; Need a double-ptr on lhs here
 		add1 = add0 + 16;		// add1 points to block of memory temporarily used to store the corresponding sine data
 		*add0++ = c;	// Since tan0 defined as const, we can init these directly, but init with c0,s0 anyway
 		*add1++ = s;	// and use result as a check onthe accuracy of the FMA-based Newton iterative inversion.
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/* 2*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -2063,8 +1985,7 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c1, for inversion
 		*add1++ = it;	// s1  slot will hold __r1 = s1 /c1
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/* 3*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -2072,8 +1993,7 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c2, for inversion
 		*add1++ = it;	// s2  slot will hold __r2 = s2 /c2
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/* 4*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -2081,8 +2001,7 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c3, for inversion
 		*add1++ = it;	// s3  slot will hold __r3 = s3 /c3
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/* 5*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -2090,8 +2009,7 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c4, for inversion
 		*add1++ = it;	// s4  slot will hold __r4 = s4 /c4
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/* 6*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -2099,8 +2017,7 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c5, for inversion
 		*add1++ = it;	// s5  slot will hold __r5 = s5 /c5
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/* 7*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -2108,8 +2025,7 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c6, for inversion
 		*add1++ = it;	// s6  slot will hold __r6 = s6 /c6
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/* 8*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -2117,8 +2033,7 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c7, for inversion
 		*add1++ = it;	// s7  slot will hold __r7 = s7 /c7
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/* 9*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -2126,8 +2041,7 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c8, for inversion
 		*add1++ = it;	// s8  slot will hold __r8 = s8 /c8
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/*10*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -2135,8 +2049,7 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c9, for inversion
 		*add1++ = it;	// s9  slot will hold __r9 = s9 /c9
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/*11*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -2144,8 +2057,7 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c10, for inversion
 		*add1++ = it;	// s10 slot will hold __rA = s10/c10
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/*12*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -2153,8 +2065,7 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c11, for inversion
 		*add1++ = it;	// s11 slot will hold __rB = s11/c11
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/*13*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -2162,8 +2073,7 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c12, for inversion
 		*add1++ = it;	// s12 slot will hold __rC = s12/c12
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/*14*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -2171,8 +2081,7 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c13, for inversion
 		*add1++ = it;	// s13 slot will hold __rD = s13/c13
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/*15*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -2180,8 +2089,7 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		*add0++ = rt;	// c14, for inversion
 		*add1++ = it;	// s14 slot will hold __rE = s14/c14
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
@@ -2211,9 +2119,9 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		add0[0x00] = c;
 		add0[0x10] = tan;
 		add0[0x20] = 1.0;
-		ASSERT(HERE, *(add0-1) == ISRT2, "Scalar ISRT2 bad!");
+	//	ASSERT(HERE, *(add0-1) == ISRT2, "Scalar ISRT2 bad!");
 		c_tmp = cc0 + 0x22;	// 1.0 x 4
-		ASSERT(HERE, c_tmp->d0 == 1.0 && c_tmp->d0 == c_tmp->d1 && c_tmp->d0 == c_tmp->d2 && c_tmp->d0 == c_tmp->d3, "1.0 x 4 mismatch!");
+	//	ASSERT(HERE, c_tmp->d0 == 1.0 && c_tmp->d0 == c_tmp->d1 && c_tmp->d0 == c_tmp->d2 && c_tmp->d0 == c_tmp->d3, "1.0 x 4 mismatch!");
 
 		/* Scalar data starting at add0 = cc0 now laid out as below:
 
@@ -2234,7 +2142,13 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 	  #ifdef USE_SSE2
 		/* Due to roots-locality considerations, roots (c,s)[0-15] are offset w.r.to the thread-local ptr pair as
-		(cc0,ss0) + 0x[2,12,a,1a,4,14,c,1c,6,16,e,1e,8,18,10,20]; middle 2 quartet-offsets swapped [4,14,c,1c] <--> [6,16,e,1e] w.r.to DIF:
+		(cc0,ss0) + 0x[2,12,a,1a, 4,14,c,1c, 6,16,e,1e, 8,18,10,20], i.e. ordered [0,4,8,C, 2,6,A,E, 1,5,9,D, 3,7,B,F];
+		middle 2 quartet adress-offsets swapped [4,14,c,1c] <--> [6,16,e,1e] w.r.to DIF, which has effect of swapping
+		the middle 2 elements of each quartet with respect to DIF's strict BR-ordering:
+	*** May 2016: wtf was I thinking w.r.to this middle-two-roots-quartets-swap? Swapped address-offset quartets with
+		idx == 4,6 (mod 8) in inits below and fiddled SSE2_RADIX16_DIT_TWIDDLE macro correspondingly, so now DIF,DIT
+		share same layout: roots (c,s)[0-15] are offset w.r.to the thread-local ptr pair as
+		(cc0,ss0) + 0x[2,12,a,1a, 6,16,e,1e, 4,14,c,1c, 8,18,10,20], i.e. BR-ordered [0,8,4,C, 2,A,6,E, 1,9,5,D, 3,B,7,F].
 		*/
 		c_tmp = cc0 + 0x02; s_tmp = c_tmp+1;	/* c0,s0 */
 		rt = 1.0; it = 0.0;
@@ -2242,8 +2156,12 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		VEC_DBL_INIT(s_tmp, it);
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+	  #ifdef USE_FGT61
+		cmul_modq(mt0[k1].d0,mt0[k1].d1, mt1[k2].d0,mt1[k2].d1, &rm,&im);
+		// Premultiply results by 8 so ensuing twiddle-MULs can use the streamlined CMUL_MODQ8 routine:
+		a1 = qreduce_full(rm)<<3;	b1 = qreduce_full(im)<<3;
+	  #endif
 		i += iroot;			/* 2*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -2256,22 +2174,25 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		c1 =rt;		s1 =it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+	  #ifdef USE_FGT61
+		csqr_modq(a1,b1, &rm,&im);	// Since MODMULs are roundoff-error-free, cheaper to use a LOACC-style sequence
+						// of successive squarings to get E^2,4,8, a CMUL to get E^13, then CMUL_CONJ_MODQs to get rest.
+		a2 = qreduce_full(rm)<<3;	b2 = qreduce_full(im)<<3;
+	  #endif
 		i += iroot;			/* 3*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	  #ifdef USE_SSE2
-		c_tmp = cc0 + 0xa; s_tmp = c_tmp+1;
+		c_tmp = cc0 + 0x0a; s_tmp = c_tmp+1;
 		VEC_DBL_INIT(c_tmp, rt);
 		VEC_DBL_INIT(s_tmp, it);
 	  #else
 		c2 =rt;		s2 =it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/* 4*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -2284,79 +2205,30 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		c3 =rt;		s3 =it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+	  #ifdef USE_FGT61
+		csqr_modq(a2,b2, &rm,&im);
+		a4 = qreduce_full(rm)<<3;	b4 = qreduce_full(im)<<3;
+	  #endif
 		i += iroot;			/* 5*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	  #ifdef USE_SSE2
-		c_tmp = cc0 + 0x4; s_tmp = c_tmp+1;
+		c_tmp = cc0 + 0x06; s_tmp = c_tmp+1;
 		VEC_DBL_INIT(c_tmp, rt);
 		VEC_DBL_INIT(s_tmp, it);
 	  #else
 		c4 =rt;		s4 =it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+	  #ifdef USE_FGT61
+		cmul_conj_modq(a1,b1, a4,b4, &a3,&b3, &a5,&b5);
+		a3 = qreduce_full(a3)<<3;	b3 = qreduce_full(b3)<<3;
+		a5 = qreduce_full(a5)<<3;	b5 = qreduce_full(b5)<<3;
+	  #endif
 		i += iroot;			/* 6*iroot */
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	  #ifdef USE_SSE2
-		c_tmp = cc0 + 0x14; s_tmp = c_tmp+1;
-		VEC_DBL_INIT(c_tmp, rt);
-		VEC_DBL_INIT(s_tmp, it);
-	  #else
-		c5 =rt;		s5 =it;
-	  #endif
-
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
-		i += iroot;			/* 7*iroot */
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	  #ifdef USE_SSE2
-		c_tmp = cc0 + 0xc; s_tmp = c_tmp+1;
-		VEC_DBL_INIT(c_tmp, rt);
-		VEC_DBL_INIT(s_tmp, it);
-	  #else
-		c6 =rt;		s6 =it;
-	  #endif
-
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
-		i += iroot;			/* 8*iroot */
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	  #ifdef USE_SSE2
-		c_tmp = cc0 + 0x1c; s_tmp = c_tmp+1;
-		VEC_DBL_INIT(c_tmp, rt);
-		VEC_DBL_INIT(s_tmp, it);
-	  #else
-		c7 =rt;		s7 =it;
-	  #endif
-
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
-		i += iroot;			/* 9*iroot */
-		re0=rt0[k1].re;	im0=rt0[k1].im;
-		re1=rt1[k2].re;	im1=rt1[k2].im;
-		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
-	  #ifdef USE_SSE2
-		c_tmp = cc0 + 0x6; s_tmp = c_tmp+1;
-		VEC_DBL_INIT(c_tmp, rt);
-		VEC_DBL_INIT(s_tmp, it);
-	  #else
-		c8 =rt;		s8 =it;
-	  #endif
-
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
-		i += iroot;			/*10*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
@@ -2365,26 +2237,24 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		VEC_DBL_INIT(c_tmp, rt);
 		VEC_DBL_INIT(s_tmp, it);
 	  #else
-		c9 =rt;		s9 =it;
+		c5 =rt;		s5 =it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
-		i += iroot;			/*11*iroot */
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/* 7*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	  #ifdef USE_SSE2
-		c_tmp = cc0 + 0xe; s_tmp = c_tmp+1;
+		c_tmp = cc0 + 0x0e; s_tmp = c_tmp+1;
 		VEC_DBL_INIT(c_tmp, rt);
 		VEC_DBL_INIT(s_tmp, it);
 	  #else
-		c10=rt;		s10=it;
+		c6 =rt;		s6 =it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
-		i += iroot;			/*12*iroot */
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/* 8*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
@@ -2393,25 +2263,93 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		VEC_DBL_INIT(c_tmp, rt);
 		VEC_DBL_INIT(s_tmp, it);
 	  #else
+		c7 =rt;		s7 =it;
+	  #endif
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+	  #ifdef USE_FGT61
+		csqr_modq(a4,b4, &rm,&im);
+		a8 = qreduce_full(rm)<<3;	b8 = qreduce_full(im)<<3;
+	  #endif
+		i += iroot;			/* 9*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0x04; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c8 =rt;		s8 =it;
+	  #endif
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+	  #ifdef USE_FGT61
+		cmul_conj_modq(a1,b1, a8,b8, &a7,&b7, &a9,&b9);
+		a7 = qreduce_full(a7)<<3;	b7 = qreduce_full(b7)<<3;
+		a9 = qreduce_full(a9)<<3;	b9 = qreduce_full(b9)<<3;
+	  #endif
+		i += iroot;			/*10*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0x14; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c9 =rt;		s9 =it;
+	  #endif
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+	  #ifdef USE_FGT61
+		cmul_conj_modq(a2,b2, a8,b8, &a6,&b6, &a10,&b10);
+		a6  = qreduce_full(a6 )<<3;	b6  = qreduce_full(b6 )<<3;
+		a10 = qreduce_full(a10)<<3;	b10 = qreduce_full(b10)<<3;
+	  #endif
+		i += iroot;			/*11*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0x0c; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
+		c10=rt;		s10=it;
+	  #endif
+
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+		i += iroot;			/*12*iroot */
+		re0=rt0[k1].re;	im0=rt0[k1].im;
+		re1=rt1[k2].re;	im1=rt1[k2].im;
+		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
+	  #ifdef USE_SSE2
+		c_tmp = cc0 + 0x1c; s_tmp = c_tmp+1;
+		VEC_DBL_INIT(c_tmp, rt);
+		VEC_DBL_INIT(s_tmp, it);
+	  #else
 		c11=rt;		s11=it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/*13*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
 	  #ifdef USE_SSE2
-		c_tmp = cc0 + 0x8; s_tmp = c_tmp+1;
+		c_tmp = cc0 + 0x08; s_tmp = c_tmp+1;
 		VEC_DBL_INIT(c_tmp, rt);
 		VEC_DBL_INIT(s_tmp, it);
 	  #else
 		c12=rt;		s12=it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+	  #ifdef USE_FGT61
+		cmul_modq(mt0[k1].d0,mt0[k1].d1, mt1[k2].d0,mt1[k2].d1, &rm,&im);
+		a13 = qreduce_full(rm)<<3;	b13 = qreduce_full(im)<<3;
+	  #endif
 		i += iroot;			/*14*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -2424,8 +2362,12 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		c13=rt;		s13=it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+	  #ifdef USE_FGT61
+		cmul_conj_modq(a1,b1, a13,b13, &a12,&b12, &a14,&b14);
+		a12 = qreduce_full(a12)<<3;	b12 = qreduce_full(b12)<<3;
+		a14 = qreduce_full(a14)<<3;	b14 = qreduce_full(b14)<<3;
+	  #endif
 		i += iroot;			/*15*iroot */
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
@@ -2438,8 +2380,12 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		c14=rt;		s14=it;
 	  #endif
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
+	  #ifdef USE_FGT61
+		cmul_conj_modq(a2,b2, a13,b13, &a11,&b11, &a15,&b15);
+		a11 = qreduce_full(a11)<<3;	b11 = qreduce_full(b11)<<3;
+		a15 = qreduce_full(a15)<<3;	b15 = qreduce_full(b15)<<3;
+	  #endif
 		re0=rt0[k1].re;	im0=rt0[k1].im;
 		re1=rt1[k2].re;	im1=rt1[k2].im;
 		rt=re0*re1-im0*im1;	it=re0*im1+im0*re1;
@@ -2454,36 +2400,31 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 	#endif	// USE_AVX2?
 
 #else
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += iroot;			/* 2*iroot */
 		t1=rt0[k1].re;	t2=rt0[k1].im;
 		t3=rt1[k2].re;	t4=rt1[k2].im;
 		c1=t1*t3-t2*t4;	s1=t1*t4+t2*t3;
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += i;				/* 4*iroot */
 		t1=rt0[k1].re;	t2=rt0[k1].im;
 		t3=rt1[k2].re;	t4=rt1[k2].im;
 		c2=t1*t3-t2*t4;	s2=t1*t4+t2*t3;
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += i;				/* 8*iroot */
 		t1=rt0[k1].re;	t2=rt0[k1].im;
 		t3=rt1[k2].re;	t4=rt1[k2].im;
 		c4=t1*t3-t2*t4;	s4=t1*t4+t2*t3;
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		i += (iroot << 2)+iroot;		/* 13*iroot */
 		t1=rt0[k1].re;	t2=rt0[k1].im;
 		t3=rt1[k2].re;	t4=rt1[k2].im;
 		c8=t1*t3-t2*t4;	s8=t1*t4+t2*t3;
 
-		k1=(i & NRTM1);
-		k2=(i >> NRT_BITS);
+		k1=(i & NRTM1);	k2=(i >> NRT_BITS);
 		t1=rt0[k1].re;	t2=rt0[k1].im;
 		t3=rt1[k2].re;	t4=rt1[k2].im;
 		c13=t1*t3-t2*t4;	s13=t1*t4+t2*t3;
@@ -2505,7 +2446,6 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 		t1=c2*c13; t2=c2*s13; t3=s2*c13; t4=s2*s13;
 		c11=t1+t4; s11=t2-t3; c15=t1-t4; s15=t2+t3;
-
 #endif
 
 #ifndef USE_SSE2
@@ -2549,359 +2489,15 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 	#ifdef USE_SSE2
 
-	#ifdef COMPILER_TYPE_MSVC
-
-	/*...Block 1: */
-	#if 1
-		add0 = &a[j1];
-		__asm	mov eax, add0
-		__asm	mov ebx, p1
-		__asm	mov ecx, p2
-		__asm	mov edx, p3
-		__asm	mov	edi, p4		/* edi will store copy of p4 throughout */
-		__asm	shl	ebx, 3		/* Pointer offset for floating doubles */
-		__asm	shl	ecx, 3
-		__asm	shl	edx, 3
-		__asm	shl	edi, 3
-		__asm	add ebx, eax
-		__asm	add ecx, eax
-		__asm	add edx, eax
-		SSE2_RADIX4_DIT_0TWIDDLE_B(r1)
-	#else
-		add0 = &a[j1];
-		add1 = add0+p1;
-		add2 = add0+p2;
-		add3 = add0+p3;
-		/* DIT radix-4 subconvolution, sans twiddles.	Cost: 16 MOVapd, 20 ADD/SUBpd,  0 MULpd */
-		SSE2_RADIX4_DIT_0TWIDDLE(add0, add1, add2, add3, r1)
-	#endif
-
-	/*...Block 2: */
-	#if 1
-		__asm	add eax, edi
-		__asm	add ebx, edi
-		__asm	add ecx, edi
-		__asm	add edx, edi
-		SSE2_RADIX4_DIT_0TWIDDLE_B(r9)
-	#else
-		add0 = &a[j1+p4];
-		add1 = add0+p1;
-		add2 = add0+p2;
-		add3 = add0+p3;
-		/* DIT radix-4 subconvolution, sans twiddles.	Cost: 16 MOVapd, 20 ADD/SUBpd,  0 MULpd */
-		SSE2_RADIX4_DIT_0TWIDDLE(add0, add1, add2, add3, r9)
-	#endif
-
-	/*...Block 3: */
-	#if 1
-		__asm	add eax, edi
-		__asm	add ebx, edi
-		__asm	add ecx, edi
-		__asm	add edx, edi
-		SSE2_RADIX4_DIT_0TWIDDLE_B(r17)
-	#else
-		add0 = &a[j1+p8];
-		add1 = add0+p1;
-		add2 = add0+p2;
-		add3 = add0+p3;
-		/* DIT radix-4 subconvolution, sans twiddles.	Cost: 16 MOVapd, 20 ADD/SUBpd,  0 MULpd */
-		SSE2_RADIX4_DIT_0TWIDDLE(add0, add1, add2, add3, r17)
-	#endif
-
-	/*...Block 4: */
-	#if 1
-		__asm	add eax, edi
-		__asm	add ebx, edi
-		__asm	add ecx, edi
-		__asm	add edx, edi
-		SSE2_RADIX4_DIT_0TWIDDLE_B(r25)
-	#else
-		add0 = &a[j1+p12];
-		add1 = add0+p1;
-		add2 = add0+p2;
-		add3 = add0+p3;
-		/* DIT radix-4 subconvolution, sans twiddles.	Cost: 16 MOVapd, 20 ADD/SUBpd,  0 MULpd */
-		SSE2_RADIX4_DIT_0TWIDDLE(add0, add1, add2, add3, r25)
-	#endif
-
-	/****************************************************************************************************
-	!...and now do four more radix-4 transforms, including the internal and external twiddle factors:   !
-	****************************************************************************************************/
-
-	/*...Block 1: Cost: 24 MOVapd, 26 ADD/SUBpd, 12 MULpd */
-		__asm	mov eax, add0
-		__asm	mov ebx, p4
-		__asm	mov ecx, r1
-		__asm	mov edx, r9
-		__asm	mov edi, p8		/* edi will store copy of p8 throughout */
-		__asm	shl	ebx, 3		/* Pointer offset for floating doubles */
-		__asm	shl	edi, 3
-		__asm	add ebx, eax	/* add1 = add0+p4 */
-
-		__asm	movaps	xmm2,[edx      ]	/* t10 */				__asm	movaps	xmm4,[edx+0x100]	/* t30 */
-		__asm	movaps	xmm3,[edx+0x010]	/* t11 */				__asm	movaps	xmm5,[edx+0x110]	/* t31 */
-		__asm	movaps	xmm0,[ecx      ]	/* t00 */				__asm	movaps	xmm6,[ecx+0x100]	/* t20 */
-		__asm	movaps	xmm1,[ecx+0x010]	/* t01 */				__asm	movaps	xmm7,[ecx+0x110]	/* t21 */
-
-		__asm	subpd	xmm0,xmm2			/*~t10=t00-t10*/		__asm	subpd	xmm6,xmm4			/*~t30=t20-t30*/
-		__asm	subpd	xmm1,xmm3			/*~t11=t01-t11*/		__asm	subpd	xmm7,xmm5			/*~t31=t21-t31*/
-		__asm	addpd	xmm2,xmm2			/*       2*t10*/		__asm	addpd	xmm4,xmm4			/*       2*t30*/
-		__asm	addpd	xmm3,xmm3			/*       2*t11*/		__asm	addpd	xmm5,xmm5			/*       2*t31*/
-		__asm	addpd	xmm2,xmm0			/*~t00=t00+t10*/		__asm	addpd	xmm4,xmm6			/*~t20=t20+t30*/
-		__asm	addpd	xmm3,xmm1			/*~t01=t01+t11*/		__asm	addpd	xmm5,xmm7			/*~t21=t21+t31*/
-
-		SSE2_RADIX4_DIT_4TWIDDLE_2ND_HALF_B(c0)
-
-	/*...Block 2: Cost: 34 MOVapd, 36 ADD/SUBpd, 26 MULpd */
-		__asm	mov eax, add0
-		__asm	mov esi, p1
-		__asm	mov ebx, p4
-		__asm	shl	esi, 3
-		__asm	shl	ebx, 3		/* Pointer offset for floating doubles */
-		__asm	add eax, esi	/* add0 = &a[j1+p1] */
-		__asm	add ebx, eax	/* add1 = add0+p4 */
-		__asm	mov ecx, r3
-		__asm	mov edx, r11
-		__asm	add	ecx, 0x100
-		__asm	add	edx, 0x100
-		__asm	mov	esi, cc0
-
-		__asm	movaps	xmm4,[ecx      ]	/* t24 */
-		__asm	movaps	xmm5,[ecx+0x010]	/* t25 */
-		__asm	movaps	xmm2,[esi      ]	/* c */
-		__asm	movaps	xmm3,[esi+0x010]	/* s */
-		__asm	movaps	xmm6,xmm4	/* xmm2 <- cpy t24 */
-		__asm	movaps	xmm7,xmm5	/* xmm3 <- cpy t25 */
-
-		__asm	mulpd	xmm4,xmm2		/* t24*c */
-		__asm	mulpd	xmm5,xmm2		/* t25*c */
-		__asm	mulpd	xmm6,xmm3		/* t24*s */		__asm	movaps	xmm0,[edx      ]	/* t34 */
-		__asm	mulpd	xmm7,xmm3		/* t25*s */		__asm	movaps	xmm1,[edx+0x010]	/* t35 */
-		__asm	subpd	xmm5,xmm6	/* xmm1 <-~t25 */	__asm	movaps	xmm6,xmm0	/* xmm6 <- cpy t34 */
-		__asm	addpd	xmm4,xmm7	/* xmm0 <-~t24 */	__asm	movaps	xmm7,xmm1	/* xmm7 <- cpy t35 */
-
-														__asm	mulpd	xmm0,xmm3		/* t34*s */
-														__asm	mulpd	xmm1,xmm3		/* t35*s */
-														__asm	mulpd	xmm6,xmm2		/* t34*c */
-														__asm	mulpd	xmm7,xmm2		/* t35*c */
-														__asm	subpd	xmm1,xmm6	/* xmm5 <- it */
-														__asm	addpd	xmm0,xmm7	/* xmm4 <- rt */
-
-		__asm	movaps	xmm7,xmm5	/* xmm3 <- cpy~t25*/
-		__asm	movaps	xmm6,xmm4	/* xmm2 <- cpy~t24*/
-
-		__asm	addpd	xmm4,xmm0	/* ~t24 <- t24+rt */
-		__asm	addpd	xmm5,xmm1	/* ~t25 <- t25+it */
-		__asm	subpd	xmm6,xmm0	/* ~t34 <- t24-rt */
-		__asm	subpd	xmm7,xmm1	/* ~t35 <- t25-it */
-
-		__asm	sub	ecx, 0x100
-		__asm	sub	edx, 0x100
-		__asm	mov	esi, isrt2
-		__asm	movaps	xmm2,[edx      ]	/* t14 */
-		__asm	movaps	xmm3,[edx+0x010]	/* t15 */
-		__asm	movaps	xmm1,[esi]	/* isrt2 */
-		__asm	movaps	xmm0,xmm3	/* cpy t15 */
-		__asm	subpd	xmm3,xmm2	/*~t15=t15-t14 */
-		__asm	addpd	xmm2,xmm0	/*~t14=t14+t15 */
-		__asm	mulpd	xmm2,xmm1	/* rt */
-		__asm	mulpd	xmm3,xmm1	/* it */
-
-		__asm	movaps	xmm0,[ecx      ]	/* t04 */
-		__asm	movaps	xmm1,[ecx+0x010]	/* t05 */
-		__asm	subpd	xmm0,xmm2	/*~t14 <- t04- rt */
-		__asm	subpd	xmm1,xmm3	/*~t15 <- t05- it */
-		__asm	addpd	xmm2,xmm2	/*          2* rt */
-		__asm	addpd	xmm3,xmm3	/*          2* it */
-		__asm	addpd	xmm2,xmm0	/*~t04 <- t04+ rt */
-		__asm	addpd	xmm3,xmm1	/*~t05 <- t05+ it */
-
-		SSE2_RADIX4_DIT_4TWIDDLE_2ND_HALF_B(c1)
-
-	/*...Block 3: Cost: 31 MOVapd, 32 ADD/SUBpd, 20 MULpd */
-		__asm	mov eax, add0
-		__asm	mov esi, p2
-		__asm	mov ebx, p4
-		__asm	shl	esi, 3
-		__asm	shl	ebx, 3		/* Pointer offset for floating doubles */
-		__asm	add eax, esi	/* add0 = &a[j1+p2] */
-		__asm	add ebx, eax	/* add1 = add0+p4 */
-		__asm	mov ecx, r5
-		__asm	mov edx, r13
-		__asm	add	ecx, 0x100
-		__asm	add	edx, 0x100
-		__asm	mov	esi, isrt2
-		__asm	movaps	xmm2,[esi]	/* isrt2 */
-
-		__asm	movaps	xmm4,[ecx      ]	/* t28 */
-		__asm	movaps	xmm5,[ecx+0x010]	/* t29 */
-		__asm	movaps	xmm6,[edx      ]	/* t38 */
-		__asm	movaps	xmm7,[edx+0x010]	/* t39 */
-		__asm	sub	ecx, 0x100
-		__asm	sub	edx, 0x100
-		__asm	mulpd	xmm4,xmm2
-		__asm	mulpd	xmm5,xmm2
-		__asm	mulpd	xmm6,xmm2
-		__asm	mulpd	xmm7,xmm2
-
-		__asm	subpd	xmm5,xmm4			/*~t29=t29-t28*/		__asm	movaps	xmm0,[ecx      ]	/* t08 */
-		__asm	subpd	xmm6,xmm7			/* rt =t38-t39*/		__asm	movaps	xmm2,[edx+0x010]	/* t19 */
-		__asm	addpd	xmm4,xmm4			/*       2*t28*/		__asm	movaps	xmm3,[ecx+0x010]	/* t09 */
-		__asm	addpd	xmm7,xmm7			/*       2*t39*/		__asm	movaps	xmm1,[edx      ]	/* t18 */
-		__asm	addpd	xmm4,xmm5			/*~t28=t28+t29*/
-		__asm	addpd	xmm7,xmm6			/* it =t39+t38*/
-
-		__asm	subpd	xmm4,xmm6			/*~t28=t28-rt */		__asm	subpd	xmm0,xmm2			/*~t18=t08-t19*/
-		__asm	subpd	xmm5,xmm7			/*~t29=t29-it */		__asm	subpd	xmm3,xmm1			/*~t09=t09-t18*/
-		__asm	addpd	xmm6,xmm6			/*       2*rt */		__asm	addpd	xmm2,xmm2			/*       2*t08*/
-		__asm	addpd	xmm7,xmm7			/*       2*it */		__asm	addpd	xmm1,xmm1			/*       2*t09*/
-		__asm	addpd	xmm6,xmm4			/*~t38=t28+rt */		__asm	addpd	xmm2,xmm0			/*~t08=t19+t08*/
-		__asm	addpd	xmm7,xmm5			/*~t39=t29+it */		__asm	addpd	xmm1,xmm3			/*~t19=t18+t09*/
-
-		SSE2_RADIX4_DIT_4TWIDDLE_2ND_HALF_B(c2)
-
-	/*...Block 4: Cost: 34 MOVapd, 36 ADD/SUBpd, 26 MULpd */
-	#if 0
-		add0 = &a[j1+p3];
-		add1 = add0+p4;
-		add2 = add0+p8;
-		add3 = add0+p12;
-
-		__asm	mov	eax, r7
-		__asm	mov	edx, eax
-		__asm	add	eax, 0x100
-		__asm	add	edx, 0x180
-		__asm	mov	ecx, cc0
-
-		__asm	movaps	xmm4,[eax      ]	/* t2C */
-		__asm	movaps	xmm5,[eax+0x010]	/* t2D */
-		__asm	movaps	xmm3,[ecx      ]	/* c */
-		__asm	movaps	xmm2,[ecx+0x010]	/* s */
-		__asm	movaps	xmm6,xmm4	/* xmm2 <- cpy t2C */
-		__asm	movaps	xmm7,xmm5	/* xmm3 <- cpy t2D */
-
-		__asm	mulpd	xmm4,xmm2		/* t2C*s */
-		__asm	mulpd	xmm5,xmm2		/* t2D*s */
-		__asm	mulpd	xmm6,xmm3		/* t2C*c */		__asm	movaps	xmm0,[edx      ]	/* t3C */
-		__asm	mulpd	xmm7,xmm3		/* t2D*c */		__asm	movaps	xmm1,[edx+0x010]	/* t3D */
-		__asm	subpd	xmm5,xmm6	/* xmm5 <-~t2D */	__asm	movaps	xmm6,xmm0	/* xmm6 <- cpy t3C */
-		__asm	addpd	xmm4,xmm7	/* xmm4 <-~t2C */	__asm	movaps	xmm7,xmm1	/* xmm7 <- cpy t3D */
-
-														__asm	mulpd	xmm0,xmm3		/* t3C*c */
-														__asm	mulpd	xmm1,xmm3		/* t3D*c */
-														__asm	mulpd	xmm6,xmm2		/* t3C*s */
-														__asm	mulpd	xmm7,xmm2		/* t3D*s */
-														__asm	subpd	xmm1,xmm6	/* xmm1 <- it */
-														__asm	addpd	xmm0,xmm7	/* xmm0 <- rt */
-
-		__asm	movaps	xmm7,xmm5	/* xmm7 <- cpy~t2D*/
-		__asm	movaps	xmm6,xmm4	/* xmm6 <- cpy~t2C*/
-
-		__asm	addpd	xmm6,xmm0	/* ~t3C <- t2C+rt */
-		__asm	addpd	xmm7,xmm1	/* ~t3D <- t2D+it */
-		__asm	subpd	xmm4,xmm0	/* ~t2C <- t2C-rt */
-		__asm	subpd	xmm5,xmm1	/* ~t2D <- t2D-it */
-
-		__asm	sub	eax, 0x100
-		__asm	sub	edx, 0x100
-		__asm	mov	ecx, isrt2
-		__asm	movaps	xmm0,[edx      ]	/* t1C */
-		__asm	movaps	xmm1,[edx+0x010]	/* t1D */
-		__asm	movaps	xmm3,[ecx]	/* isrt2 */
-		__asm	movaps	xmm2,xmm0	/* cpy t1C */
-		__asm	subpd	xmm0,xmm1	/*~t1C=t1C-t1D */
-		__asm	addpd	xmm1,xmm2	/*~t1D=t1D+t1C */
-		__asm	mulpd	xmm0,xmm3	/* it */
-		__asm	mulpd	xmm1,xmm3	/* rt */
-
-		__asm	movaps	xmm2,[eax      ]	/* t0C */
-		__asm	movaps	xmm3,[eax+0x010]	/* t0D */
-		__asm	subpd	xmm2,xmm0	/*~t0C <- t0C- rt */
-		__asm	subpd	xmm3,xmm1	/*~t0D <- t0D- it */
-		__asm	addpd	xmm0,xmm0	/*          2* rt */
-		__asm	addpd	xmm1,xmm1	/*          2* it */
-		__asm	addpd	xmm0,xmm2	/*~t1C <- t0C+ rt */
-		__asm	addpd	xmm1,xmm3	/*~t1D <- t0D+ it */
-
-		SSE2_RADIX4_DIT_4TWIDDLE_2ND_HALF(add0, add1, add2, add3, c3)
-	#else
-		__asm	mov eax, add0
-		__asm	mov esi, p3
-		__asm	mov ebx, p4
-		__asm	shl	esi, 3
-		__asm	shl	ebx, 3		/* Pointer offset for floating doubles */
-		__asm	add eax, esi	/* add0 = &a[j1+p2] */
-		__asm	add ebx, eax	/* add1 = add0+p4 */
-		__asm	mov ecx, r7
-		__asm	mov edx, r15
-		__asm	add	ecx, 0x100
-		__asm	add	edx, 0x100
-		__asm	mov	esi, cc0
-
-		__asm	movaps	xmm4,[ecx      ]	/* t2C */
-		__asm	movaps	xmm5,[ecx+0x010]	/* t2D */
-		__asm	movaps	xmm3,[esi      ]	/* c */
-		__asm	movaps	xmm2,[esi+0x010]	/* s */
-		__asm	movaps	xmm6,xmm4	/* xmm2 <- cpy t2C */
-		__asm	movaps	xmm7,xmm5	/* xmm3 <- cpy t2D */
-
-		__asm	mulpd	xmm4,xmm2		/* t2C*s */
-		__asm	mulpd	xmm5,xmm2		/* t2D*s */
-		__asm	mulpd	xmm6,xmm3		/* t2C*c */		__asm	movaps	xmm0,[edx      ]	/* t3C */
-		__asm	mulpd	xmm7,xmm3		/* t2D*c */		__asm	movaps	xmm1,[edx+0x010]	/* t3D */
-		__asm	subpd	xmm5,xmm6	/* xmm5 <-~t2D */	__asm	movaps	xmm6,xmm0	/* xmm6 <- cpy t3C */
-		__asm	addpd	xmm4,xmm7	/* xmm4 <-~t2C */	__asm	movaps	xmm7,xmm1	/* xmm7 <- cpy t3D */
-
-														__asm	mulpd	xmm0,xmm3		/* t3C*c */
-														__asm	mulpd	xmm1,xmm3		/* t3D*c */
-														__asm	mulpd	xmm6,xmm2		/* t3C*s */
-														__asm	mulpd	xmm7,xmm2		/* t3D*s */
-														__asm	subpd	xmm1,xmm6	/* xmm1 <- it */
-														__asm	addpd	xmm0,xmm7	/* xmm0 <- rt */
-
-		__asm	movaps	xmm7,xmm5	/* xmm7 <- cpy~t2D*/
-		__asm	movaps	xmm6,xmm4	/* xmm6 <- cpy~t2C*/
-
-		__asm	addpd	xmm6,xmm0	/* ~t3C <- t2C+rt */
-		__asm	addpd	xmm7,xmm1	/* ~t3D <- t2D+it */
-		__asm	subpd	xmm4,xmm0	/* ~t2C <- t2C-rt */
-		__asm	subpd	xmm5,xmm1	/* ~t2D <- t2D-it */
-
-		__asm	sub	ecx, 0x100
-		__asm	sub	edx, 0x100
-		__asm	mov	esi, isrt2
-		__asm	movaps	xmm0,[edx      ]	/* t1C */
-		__asm	movaps	xmm1,[edx+0x010]	/* t1D */
-		__asm	movaps	xmm3,[esi]	/* isrt2 */
-		__asm	movaps	xmm2,xmm0	/* cpy t1C */
-		__asm	subpd	xmm0,xmm1	/*~t1C=t1C-t1D */
-		__asm	addpd	xmm1,xmm2	/*~t1D=t1D+t1C */
-		__asm	mulpd	xmm0,xmm3	/* it */
-		__asm	mulpd	xmm1,xmm3	/* rt */
-
-		__asm	movaps	xmm2,[ecx      ]	/* t0C */
-		__asm	movaps	xmm3,[ecx+0x010]	/* t0D */
-		__asm	subpd	xmm2,xmm0	/*~t0C <- t0C- rt */
-		__asm	subpd	xmm3,xmm1	/*~t0D <- t0D- it */
-		__asm	addpd	xmm0,xmm0	/*          2* rt */
-		__asm	addpd	xmm1,xmm1	/*          2* it */
-		__asm	addpd	xmm0,xmm2	/*~t1C <- t0C+ rt */
-		__asm	addpd	xmm1,xmm3	/*~t1D <- t0D+ it */
-
-		SSE2_RADIX4_DIT_4TWIDDLE_2ND_HALF_B(c3)
-	#endif
-
-		/***************************************************/
-		/* Total Cost: 187 MOVapd, 210 ADD/SUBpd, 84 MULpd */
-		/***************************************************/
-
-	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
-
 		add0 = &a[j1];
 
 	  #ifdef USE_AVX2
 
-	   #ifdef DFT_V1	// Toggle between 2 versions
+	   #ifdef REFACTOR_4DFT_3TWIDDLE
+		// Since pvsly had no non-suffixed 'SSE2_RADIX16_DIF_TWIDDLE' macro in AVX2 mode, no need for _V2 suffix here:
+		SSE2_RADIX16_DIT_TWIDDLE(add0,p1,p2,p3,p4,p8,p12,r1,two,cc0,pfetch_addr,pfetch_dist);
+
+	   #elif defined(DFT_V1)	// Toggle between 2 versions
 
 		SSE2_RADIX16_DIT_TWIDDLE_1(add0,p1,p2,p3,p4,p8,p12,r1,cc0,pfetch_addr,pfetch_dist);
 
@@ -2917,16 +2513,26 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 	  // SSE2 code has different macro arglists for 32 and 64-bit modes:
 	  #elif OS_BITS == 64
-		SSE2_RADIX16_DIT_TWIDDLE(add0,p1,p2,p3,p4,p8,r1,isrt2);
-	  #else
-		SSE2_RADIX16_DIT_TWIDDLE(add0,p1,p2,p3,p4,p8,r1,r3,r5,r7,r9,r11,r13,r15,r17,r25,isrt2,cc0,c0,c1,c2,c3,pfetch_addr,pfetch_dist);
+
+	   #ifdef REFACTOR_4DFT_3TWIDDLE
+
+		SSE2_RADIX16_DIT_TWIDDLE_V2(add0,p1,p2,p3,p4,p8,p12,r1,two,cc0,pfetch_addr,pfetch_dist);
+
+	   #else
+
+		SSE2_RADIX16_DIT_TWIDDLE(add0,p1,p2,p3,p4,p8,r1,isrt2,pfetch_addr,pfetch_dist);
+
+	   #endif
+
+	  #else	// 32-bit SSE2:
+
+		SSE2_RADIX16_DIT_TWIDDLE(add0,p1,p2,p3,p4,p8,r1,r3,r5,r7,r9,r11,r13,r15,r17,r25,isrt2,cc0,_c0,_c1,_c2,_c3,pfetch_addr,pfetch_dist);
+
 	  #endif
 
-	#endif
+	#else	/* USE_SSE2 */
 
-#else	/* USE_SSE2 */
-
-  #ifdef USE_SCALAR_DFT_MACRO	// Must define - or not - @compile time
+	  #ifdef USE_SCALAR_DFT_MACRO	// Must define - or not - @compile time
 
 		// Test FMA-based DIT macro: 'sine' terms here are tangents!
 		RADIX_16_DIT_FMA(a[j1    ],a[j2    ],a[j1+p1 ],a[j2+p1 ],a[j1+p2 ],a[j2+p2 ],a[j1+p3 ],a[j2+p3 ],a[j1+p4 ],a[j2+p4 ],a[j1+p4+p1 ],a[j2+p4+p1 ],a[j1+p4+p2 ],a[j2+p4+p2 ],a[j1+p4+p3 ],a[j2+p4+p3 ],a[j1+p8 ],a[j2+p8 ],a[j1+p8+p1 ],a[j2+p8+p1 ],a[j1+p8+p2],a[j2+p8+p2],a[j1+p8+p3],a[j2+p8+p3],a[j1+p12],a[j2+p12],a[j1+p12+p1],a[j2+p12+p1],a[j1+p12+p2],a[j2+p12+p2],a[j1+p12+p3],a[j2+p12+p3]
@@ -2934,37 +2540,303 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 						,c1,s1,c2,s2,c3,s3,c4,s4,c5,s5,c6,s6,c7,s7,c8,s8,c9,s9,c10,s10,c11,s11,c12,s12,c13,s13,c14,s14,c15,s15
 						,c,tan)
 
-  #else		// USE_SCALAR_DFT_MACRO = False
+	  #else		// USE_SCALAR_DFT_MACRO = False
+
+	#ifdef USE_FGT61
 
 	/* gather the needed data (8 64-bit complex, i.e. 16 64-bit reals) and do the first set of four length-4 transforms.
 	   We process the sincos data in bit-reversed order.	*/
-	#ifdef PFETCH_AGGRESSIVE
+	  #ifdef PFETCH_AGGRESSIVE
 		addp = &a[j1];
-	#elif PFETCH
+	  #elif PFETCH
 		prefetch_offset = ((j >> 1) & 3)*p1 + 4;	/* Cycle among p0, p1, p2 and p3. */
-	#endif
+	  #endif
 	/*...Block 1: */
-
-		jt = j1;
-		jp = j2;
-
-	#ifdef PFETCH_AGGRESSIVE
+		jt = j1;		jp = j2;
+	  #ifdef PFETCH_AGGRESSIVE
 		addr = addp;
 		prefetch_p_doubles(addr);
-	#elif PFETCH
+	  #elif PFETCH
 		addp = &a[jt];
 		addr = addp+prefetch_offset;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
+		t1 =a[jt ];		t2 =a[jp ];					m1 =b[jt ];		m2 =b[jp ];
+		rt =a[jt+p1 ];	it =a[jp+p1 ];				rm =b[jt+p1 ];	im =b[jp+p1 ];
+		t3 =t1 -rt;		t1 =t1 +rt;					m3 =m1 -rm;		m1 =m1 +rm;		// 1,2 in 0,2b
+		t4 =t2 -it;		t2 =t2 +it;					m4 =m2 -im;		m2 =m2 +im;		// 3,4 in -b,b
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #endif
+		t5 =a[jt+p2 ];	t6 =a[jp+p2 ];				m5 =b[jt+p2 ];	m6 =b[jp+p2 ];
+		rt =a[jt+p3 ];	it =a[jp+p3 ];				rm =b[jt+p3 ];	im =b[jp+p3 ];
+		t7 =t5 -rt;		t5 =t5 +rt;					m7 =m5 -rm;		m5 =m5 +rm;		// 5,6 in 0,2b
+		t8 =t6 -it;		t6 =t6 +it;					m8 =m6 -im;		m6 =m6 +im;		// 7,8 in -b,b
+
+		rt =t5;	t5 =t1 -rt ;	t1 =t1 +rt;			rm =m5;	m5 =m1 -rm ;	m1 =m1 +rm;	// 1,2 in   0,4b
+		it =t6;	t6 =t2 -it ;	t2 =t2 +it;			im =m6;	m6 =m2 -im ;	m2 =m2 +im;	// 5,6 in -2b,2b
+	
+		rt =t7;	t7 =t3 -t8 ;	t3 =t3 +t8;			rm =m7;	m7 =m3 -m8 ;	m3 =m3 +m8;	// 3,8 in -2b,2b
+				t8 =t4 +rt ;	t4 =t4 -rt;					m8 =m4 +rm ;	m4 =m4 -rm;	// 4,7 same
+
+	/*...Block 2: */
+		jt = j1 + p4;		jp = j2 + p4;
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #elif PFETCH
+		addp = &a[jt];
+		addr = addp+prefetch_offset;
+		prefetch_p_doubles(addr);
+	  #endif
+		t9 =a[jt    ];	t10=a[jp    ];				m9 =b[jt    ];	m10=b[jp    ];
+		rt =a[jt+p1 ];	it =a[jp+p1 ];				rm =b[jt+p1 ];	im =b[jp+p1 ];
+		t11=t9 -rt;		t9 =t9 +rt;					m11=m9 -rm;		m9 =m9 +rm;		//  9,10 in 0,2b
+		t12=t10-it;		t10=t10+it;					m12=m10-im;		m10=m10+im;		// 11,12 in -b,b
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #endif
+		t13=a[jt+p2 ];	t14=a[jp+p2 ];				m13=b[jt+p2 ];	m14=b[jp+p2 ];
+		rt =a[jt+p3 ];	it =a[jp+p3 ];				rm =b[jt+p3 ];	im =b[jp+p3 ];
+		t15=t13-rt;		t13=t13+rt;					m15=m13-rm;		m13=m13+rm;		// 13,14 in 0,2b
+		t16=t14-it;		t14=t14+it;					m16=m14-im;		m14=m14+im;		// 15,16 in -b,b
+
+		rt =t13;	t13=t9 -rt ;	t9 =t9 +rt;		rm =m13;	m13=m9 -rm ;	m9 =m9 +rm;
+		it =t14;	t14=t10-it ;	t10=t10+it;		im =m14;	m14=m10-im ;	m10=m10+im;
+
+		rt =t15;	t15=t11-t16;	t11=t11+t16;	rm =m15;	m15=m11-m16;	m11=m11+m16;
+					t16=t12+rt ;	t12=t12-rt;					m16=m12+rm ;	m12=m12-rm;
+
+	/*...Block 3: */
+		jt = j1 + p8;		jp = j2 + p8;
+	  #ifdef PFETCH_AGGRESSIVE
+		addr = addp + p4 ;
+		prefetch_p_doubles(addr);
+	  #elif PFETCH
+		addp = &a[jt];
+		addr = addp+prefetch_offset;
+		prefetch_p_doubles(addr);
+	  #endif
+		t17=a[jt    ];	t18=a[jp    ];				m17=b[jt    ];	m18=b[jp    ];
+		rt =a[jt+p1 ];	it =a[jp+p1 ];				rm =b[jt+p1 ];	im =b[jp+p1 ];
+		t19=t17-rt;		t17=t17+rt;					m19=m17-rm;		m17=m17+rm;		// 17,18 in 0,2b
+		t20=t18-it;		t18=t18+it;					m20=m18-im;		m18=m18+im;		// 19,20 in -b,b
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #endif
+		t21=a[jt+p2 ];	t22=a[jp+p2 ];				m21=b[jt+p2 ];	m22=b[jp+p2 ];
+		rt =a[jt+p3 ];	it =a[jp+p3 ];				rm =b[jt+p3 ];	im =b[jp+p3 ];
+		t23=t21-rt;		t21=t21+rt;					m23=m21-rm;		m21=m21+rm;	// 21,22 in 0,2b
+		t24=t22-it;		t22=t22+it;					m24=m22-im;		m22=m22+im;	// 23,24 in -b,b
+
+		rt =t21;	t21=t17-rt ;	t17=t17+rt;		rm =m21;	m21=m17-rm ;	m17=m17+rm;	// 17,18 in   0,4b
+		it =t22;	t22=t18-it ;	t18=t18+it;		im =m22;	m22=m18-im ;	m18=m18+im;	// 21,22 in -2b,2b
+													// Prior to qreduce(...+q4), all 4 outs here in -2b,2b:
+		rt =t23;	t23=t19-t24;	t19=t19+t24;	rm =m23;	m23=qreduce(m19-m24+q4);	m19=qreduce(m19+m24+q4);
+					t24=t20+rt ;	t20=t20-rt;					m24=qreduce(m20+rm +q4);	m20=qreduce(m20-rm +q4);
+													// m19,20,23,24 all needed for CMUL, so reduce.
+	/*...Block 4: */
+		jt = j1 + p12;		jp = j2 + p12;
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #elif PFETCH
+		addp = &a[jt];
+		addr = addp+prefetch_offset;
+		prefetch_p_doubles(addr);
+	  #endif
+		t25=a[jt    ];	t26=a[jp    ];				m25=b[jt    ];	m26=b[jp    ];
+		rt =a[jt+p1 ];	it =a[jp+p1 ];				rm =b[jt+p1 ];	im =b[jp+p1 ];
+		t27=t25-rt;		t25=t25+rt;					m27=m25-rm;		m25=m25+rm;	// 25,26 in 0,2b
+		t28=t26-it;		t26=t26+it;					m28=m26-im;		m26=m26+im;	// 27,28 in -b,b
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #endif
+		t29=a[jt+p2 ];	t30=a[jp+p2 ];				m29=b[jt+p2 ];	m30=b[jp+p2 ];
+		rt =a[jt+p3 ];	it =a[jp+p3 ];				rm =b[jt+p3 ];	im =b[jp+p3 ];
+		t31=t29-rt;		t29=t29+rt;					m31=m29-rm;		m29=m29+rm;	// 29,30 in 0,2b
+		t32=t30-it;		t30=t30+it;					m32=m30-im;		m30=m30+im;	// 31,32 in -b,b
+
+		rt =t29;	t29=t25-rt ;	t25=t25+rt;		rm =m29;	m29=m25-rm ;	m25=m25+rm;
+		it =t30;	t30=t26-it ;	t26=t26+it;		im =m30;	m30=m26-im ;	m26=m26+im;
+													// Prior to qreduce(...+q4), all 4 outs here in -2b,2b:
+		rt =t31;	t31=t27-t32;	t27=t27+t32;	rm =m31;	m31=qreduce(m27-m32+q4);	m27=qreduce(m27+m32+q4);
+					t32=t28+rt ;	t28=t28-rt;					m32=qreduce(m28+rm +q4);	m28=qreduce(m28-rm +q4);
+													// m27,28,31,32 all needed for CMUL, so reduce.
+	/*
+	!...and now do four more radix-4 transforms, including the internal twiddle factors:
+	!	1, exp(-i* 1*twopi/16) =       ( c,-s), exp(-i* 2*twopi/16) = ISRT2*( 1,-1), exp(-i* 3*twopi/16) =       ( s,-c) (for inputs to transform block 2)
+	!	1, exp(-i* 2*twopi/16) = ISRT2*( 1,-1), exp(-i* 4*twopi/16) =       ( 0,-1), exp(-i* 6*twopi/16) = ISRT2*(-1,-1) (for inputs to transform block 3)
+	!	1, exp(-i* 3*twopi/16) =       ( s,-c), exp(-i* 6*twopi/16) = ISRT2*(-1,-1), exp(-i* 9*twopi/16) =       (-c, s) (for inputs to transform block 4).
+	!  (This is 4 real*complex and 4 complex*complex multiplies (= 24 FMUL), compared to 6 and 4, respectively (= 28 FMUL) for my old scheme.)
+	!   I.e. do similar as above, except inputs a[jt  +p0:15:1) are replaced by t0:30:2,
+	!										   a[jp+p0:15:1) are replaced by t1:31:2, and v.v. for outputs,
+	!   and only the last 3 inputs to each of the radix-4 transforms 2 through 4 are multiplied by non-unity twiddles.
+	*/
+													/*===============
+													Input bounds on modular terms:
+														-2b,2b: m3-8, 11-16, 19-24, 27-32
+														  0,4b: m1,2, 9 ,10, 17,18, 25,26
+													These are all reduced (in 0,b) because they are inputs to CMUL:
+																m19,20,23,24,27,28,31,32
+													===============*/
+	/*...Block 1: t1,9,17,25 */
+		jt = j1;		jp = j2;
+	  #ifdef PFETCH_AGGRESSIVE
+		addr = addp + p8 ;
+		prefetch_p_doubles(addr);
+	  #endif							// We optimistically assume outputs bounded by 8b = 2^64 + 48 never > 2^64 in practice:
+		rt =t9 ;	t9 =t1 -rt;	t1 =t1 +rt;							rm =m9 ;	m9 =qreduce(m1 -rm+q4);	m1 =qreduce(m1 +rm);	// 1, 2 in   0,8b
+		it =t10;	t10=t2 -it;	t2 =t2 +it;							im =m10;	m10=qreduce(m2 -im+q4);	m2 =qreduce(m2 +im);	// 9,10 in -4b,4b
+
+		rt =t25;	t25=t17-rt;	t17=t17+rt;							rm =m25;	m25=qreduce(m17-rm+q4);	m17=qreduce(m17+rm);
+		it =t26;	t26=t18-it;	t18=t18+it;							im =m26;	m26=qreduce(m18-im+q4);	m18=qreduce(m18+im);
+
+		a[jt    ]=t1+t17;			a[jp    ]=t2+t18;				b[jt    ] = qreduce(m1+m17   );	b[jp    ] = qreduce(m2+m18   );
+		t1	     =t1-t17;			t2		 =t2-t18;				m1	      = qreduce(m1-m17+q2);	m2		  = qreduce(m2-m18+q2);
+		a[jt+p8 ]=t1 *c8 +t2 *s8;	a[jp+p8 ]=t2 *c8 -t1 *s8;		cmul_modq8(m1,m2, a8,q8-b8, &rm,&im);
+																	b[jt+p8 ] = qreduce(rm);	b[jp+p8 ] = qreduce(im);
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #endif
+		/* mpy by E^-4 = -I is inlined here... */
+		rt	   =t9 +t26;		it		=t10-t25;					rm  = qreduce(m9 +m26   );	im	 = qreduce(m10-m25+q2);
+		t9	   =t9 -t26;		t10		=t10+t25;					m9  = qreduce(m9 -m26+q2);	m10	 = qreduce(m10+m25   );
+		a[jt+p4 ]=rt *c4 +it *s4;	a[jp+p4 ]=it *c4 -rt *s4 ;		cmul_modq8(rm, im, a4 ,q8-b4 , &rm,&im);
+		a[jt+p12]=t9 *c12+t10*s12;	a[jp+p12]=t10*c12-t9 *s12;		cmul_modq8(m9,m10, a12,q8-b12, &m9,&m10);
+																	b[jt+p4 ] = qreduce(rm);	b[jp+p4 ] = qreduce( im);
+																	b[jt+p12] = qreduce(m9);	b[jp+p12] = qreduce(m10);
+	/*...Block 3: t5,13,21,29 */
+		jt = j1 + p2;		jp = j2 + p2;
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #endif
+		rt =t13;	t13=t5 -t14;	t5 =t5 +t14;					rm =m13;m13=qreduce(m5-m14+q4);	m5 =qreduce(m5 +m14+q4);	// all 4 outs in -4b,4b;
+					t14=t6 +rt ;	t6 =t6 -rt ;							m14=qreduce(m6+rm +q4);	m6 =qreduce(m6 -rm +q4);	// reduce all 4 to 0,b.
+
+		rt =(t22+t21)*ISRT2;t22=(t22-t21)*ISRT2;	t21=rt;			rm = mul_i2(m22+m21+q4);	m22= mul_i2(m22-m21+q4);	m21=rm;
+		rt =(t29-t30)*ISRT2;it =(t29+t30)*ISRT2;					rm = mul_i2(m29-m30+q4);	im = mul_i2(m29+m30+q4);	// m21,22,rm,im in 0,b30
+		t29=t21+rt;		t21=t21-rt;									m29 = m21+rm;		m21 = m21-rm;	// m21,22 in -b30,b30
+		t30=t22+it;		t22=t22-it;									m30 = m22+im;		m22 = m22-im;	// m29,30 in 0,2*b30
+
+		rt	   =t5 +t21;		it		 =t6 +t22;					rm = qreduce(m5 +m21+q2);	im =qreduce(m6 +m22+q2);	// rm,im in -b30,b+b30
+		t5	   =t5 -t21;		t6		 =t6 -t22;					m5 = qreduce(m5 -m21+q2);	m6 =qreduce(m6 -m22+q2);	// m5,m6 in -b30,b+b30; reduce all to 0,b
+		a[jt    ]=rt *c2 +it *s2 ;	a[jp    ]=it *c2 -rt *s2 ;		cmul_modq8(rm,im, a2 ,q8-b2 , &rm,&im);
+		a[jt+p8 ]=t5 *c10+t6 *s10;	a[jp+p8 ]=t6 *c10-t5 *s10;		cmul_modq8(m5,m6, a10,q8-b10, &m5,&m6);
+																	b[jt    ] = qreduce(rm);	b[jp    ] = qreduce(im);
+																	b[jt+p8 ] = qreduce(m5);	b[jp+p8 ] = qreduce(m6);
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #endif
+		rt	  =t13+t30;		it		=t14-t29;						rm  = qreduce(m13+m30+q4);	im  = qreduce(m14-m29+q4);	// rm,m14 in 0,b+2*b30
+		t13	  =t13-t30;		t14		=t14+t29;						m13 = qreduce(m13-m30+q4);	m14 = qreduce(m14+m29+q4);	// im,m13 in -2*b30,b
+		a[jt+p4 ]=rt *c6 +it *s6 ;	a[jp+p4 ]=it *c6 -rt *s6 ;		cmul_modq8( rm, im, a6 ,q8-b6 , &rm ,&im );
+		a[jt+p12]=t13*c14+t14*s14;	a[jp+p12]=t14*c14-t13*s14;		cmul_modq8(m13,m14, a14,q8-b14, &m13,&m14);
+																	b[jt+p4 ] = qreduce( rm);	b[jp+p4 ] = qreduce( im);
+																	b[jt+p12] = qreduce(m13);	b[jp+p12] = qreduce(m14);
+	/*...Block 2: t3,11,19,27 */
+		jt = j1 + p1;		jp = j2 + p1;
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #endif
+		rt =(t12+t11)*ISRT2;it =(t12-t11)*ISRT2;					rm = mul_i2(m12+m11+q4);im = mul_i2(m12-m11+q4);	// 0,b30
+		t11 = t3 -rt;		t3 = t3 +rt;							m11 = m3 -rm;		m3 = m3 +rm;	//  3, 4 in -2b,2b+b30
+		t12 = t4 -it;		t4 = t4 +it;							m12 = m4 -im;		m4 = m4 +im;	// 11,12 in -2b-b30,2b
+																
+		rt =t19*c + t20*s;	t20=t20*c - t19*s;	t19=rt;				cmul_modq8(m19,m20, cm,q8-sm, &m19,&m20);
+		rt =t27*s + t28*c;	it =t28*s - t27*c;						cmul_modq8(m27,m28, sm,q8-cm, &rm ,&im );
+		t27 = t19-rt;		t19 = t19+rt;							m27 =qreduce(m19-rm+q4);	m19 =qreduce(m19+rm);	// +:   0,8q ==> 0,b
+		t28 = t20-it;		t20 = t20+it;							m28 =qreduce(m20-im+q4);	m20 =qreduce(m20+im);	// -: -4q,4q ==> 0,b
+
+		rt = t3 +t19;		it = t4 +t20;							rm = qreduce(m3 +m19+q3);		im = qreduce(m4 +m20+q3);	// rm,im in [-2b,2b+b30] + [0,b] = [-2b,3b+b30], add 3q and reduce
+		t3 = t3 -t19;		t4 = t4 -t20;							m3 = qreduce(m3 -m19+q4);		m4 = qreduce(m4 -m20+q4);	// m3,m4 in [-2b,2b+b30] - [0,b] = [-3b,2b+b30], add 4q and reduce
+		a[jt    ]=rt *c1 +it *s1;	a[jp    ]=it *c1 -rt *s1;		cmul_modq8(rm,im, a1,q8-b1, &rm,&im);
+		a[jt+p8 ]=t3 *c9 +t4 *s9;	a[jp+p8 ]=t4 *c9 -t3 *s9;		cmul_modq8(m3,m4, a9,q8-b9, &m3,&m4);
+																	b[jt    ] = qreduce(rm);	b[jp    ] = qreduce(im);
+																	b[jt+p8 ] = qreduce(m3);	b[jp+p8 ] = qreduce(m4);
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #endif
+						// All 4 outs in [-2b-b30,2b] +- [-b,b] = [-3b-b30,3b]. Here we must +q5 prior to reducing since odds of
+						// 3b+5q overflowing 64-bits much less than those of -3b-b30+4q not being enough to make result >= 0.
+		rt  = t11+t28;		it  = t12-t27;							rm  = qreduce(m11+m28+q5);	im  = qreduce(m12-m27+q5);
+		t11 = t11-t28;		t12 = t12+t27;							m11 = qreduce(m11-m28+q5);	m12 = qreduce(m12+m27+q5);
+		a[jt+p4 ]=rt *c5 +it *s5;	a[jp+p4 ]=it *c5 -rt *s5;		cmul_modq8( rm, im, a5 ,q8-b5 ,  &rm, &im);
+		a[jt+p12]=t11*c13+t12*s13;	a[jp+p12]=t12*c13-t11*s13;		cmul_modq8(m11,m12, a13,q8-b13, &m11,&m12);
+																	b[jt+p4 ] = qreduce( rm);	b[jp+p4 ] = qreduce( im);
+																	b[jt+p12] = qreduce(m11);	b[jp+p12] = qreduce(m12);
+	/*...Block 4: t7,15,23,31 */
+		jt = j1 + p3;		jp = j2 + p3;
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #endif
+		rt =(t15-t16)*ISRT2;it =(t15+t16)*ISRT2;					rm = mul_i2(m15-m16+q4);im = mul_i2(m15+m16+q4);	// 0,b30
+		t15 = t7 +rt;			t7 = t7 -rt;						m15 = m7 +rm;			m7 = m7 -rm;	//  7, 8 in -2b-b30,2b
+		t16 = t8 +it;			t8 = t8 -it;						m16 = m8 +im;			m8 = m8 -im;	// 15,16 in -2b,2b+b30
+																	
+		rt =t23*s + t24*c;	t24=t24*s - t23*c;	t23=rt;				cmul_modq8(m23,m24, sm,q8-cm, &m23,&m24);
+		rt =t31*c + t32*s;	it =t32*c - t31*s;						cmul_modq8(m31,m32, cm,q8-sm, &rm ,&im );
+		t31 = t23+rt;			t23 = t23-rt;						m31 =qreduce(m23+rm);	m23 =qreduce(m23-rm+q4);// +:   0,8q ==> 0,b
+		t32 = t24+it;			t24 = t24-it;						m32 =qreduce(m24+im);	m24 =qreduce(m24-im+q4);// -: -4q,4q ==> 0,b
+
+		rt = t7 +t23;		it = t8 +t24;							rm = qreduce(m7 +m23+q4);	im = qreduce(m8 +m24+q4);	// +: [-2b-b30,2b] + [0,b] = [-2b-b30,3b], add 4q and reduce
+		t7 = t7 -t23;		t8 = t8 -t24;							m7 = qreduce(m7 -m23+q5);	m8 = qreduce(m8 -m24+q5);	// -: [-2b-b30,2b] - [0,b] = [-3b-b30,2b], add 5q and reduce
+		a[jt    ]=rt *c3 +it *s3;	a[jp    ]=it *c3 -rt *s3;		cmul_modq8(rm,im, a3 ,q8-b3 , &rm,&im);
+		a[jt+p8 ]=t7 *c11+t8 *s11;	a[jp+p8 ]=t8 *c11-t7 *s11;		cmul_modq8(m7,m8, a11,q8-b11, &m7,&m8);
+																	b[jt    ] = qreduce(rm);	b[jp    ] = qreduce(im);
+																	b[jt+p8 ] = qreduce(m7);	b[jp+p8 ] = qreduce(m8);
+	  #ifdef PFETCH_AGGRESSIVE
+		addr += p1;
+		prefetch_p_doubles(addr);
+	  #endif
+		rt  = t15+t32;		it  = t16-t31;							rm  = qreduce(m15+m32+q3);	im  = qreduce(m16-m31+q4);	// rm,m16 in [-2b,2b+b30] + [0,b] = [-2b,3b+b30], add 3q and reduce
+		t15 = t15-t32;		t16 = t16+t31;							m15 = qreduce(m15-m32+q4);	m16 = qreduce(m16+m31+q3);	// im,m15 in [-2b,2b+b30] - [0,b] = [-3b,2b+b30], add 4q and reduce
+		a[jt+p4 ]=rt *c7 +it *s7;	a[jp+p4 ]=it *c7 -rt *s7;		cmul_modq8( rm, im, a7 ,q8-b7 ,  &rm, &im);
+		a[jt+p12]=t15*c15+t16*s15;	a[jp+p12]=t16*c15-t15*s15;		cmul_modq8(m15,m16, a15,q8-b15, &m15,&m16);
+																	b[jt+p4 ] = qreduce( rm);	b[jp+p4 ] = qreduce( im);
+																	b[jt+p12] = qreduce(m15);	b[jp+p12] = qreduce(m16);
+							// Cost (aside from basic add/sub): 19 CMUL_MODQ8,  8 MUL_I2, 86 QREDUCE, 6 more reductions than DIF.
+
+			/**********************************************/
+	#else	// USE_FGT61 = False; Basic scalar-double mode:
+			/**********************************************/
+
+	/* gather the needed data (8 64-bit complex, i.e. 16 64-bit reals) and do the first set of four length-4 transforms.
+	   We process the sincos data in bit-reversed order.	*/
+	  #ifdef PFETCH_AGGRESSIVE
+		addp = &a[j1];
+	  #elif PFETCH
+		prefetch_offset = ((j >> 1) & 3)*p1 + 4;	/* Cycle among p0, p1, p2 and p3. */
+	  #endif
+
+	/*...Block 1: */
+		jt = j1;		jp = j2;
+	  #ifdef PFETCH_AGGRESSIVE
+		addr = addp;
+		prefetch_p_doubles(addr);
+	  #elif PFETCH
+		addp = &a[jt];
+		addr = addp+prefetch_offset;
+		prefetch_p_doubles(addr);
+	  #endif
 		t1 =a[jt ];	t2 =a[jp ];
 		rt =a[jt+p1 ];	it =a[jp+p1 ];
 		t3 =t1 -rt;		t1 =t1 +rt;
 		t4 =t2 -it;		t2 =t2 +it;
-
-	#ifdef PFETCH_AGGRESSIVE
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		rt =a[jt+p2 ];	t6 =a[jp+p2 ];	t5 =rt;
 		rt =a[jt+p3 ];	it =a[jp+p3 ];
 		t7 =t5 -rt;		t5 =t5 +rt;
@@ -2977,27 +2849,23 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 				t8 =t4 +rt ;	t4 =t4 -rt;
 
 	/*...Block 2: */
-
-		jt = j1 + p4;
-		jp = j2 + p4;
-
-	#ifdef PFETCH_AGGRESSIVE
+		jt = j1 + p4;		jp = j2 + p4;
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#elif PFETCH
+	  #elif PFETCH
 		addp = &a[jt];
 		addr = addp+prefetch_offset;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		rt =a[jt    ];	t10=a[jp    ];	t9 =rt;
 		rt =a[jt+p1 ];	it =a[jp+p1 ];
 		t11=t9 -rt;		t9 =t9 +rt;
 		t12=t10-it;		t10=t10+it;
-
-	#ifdef PFETCH_AGGRESSIVE
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		rt =a[jt+p2 ];	t14=a[jp+p2 ];	t13=rt;
 		rt =a[jt+p3 ];	it =a[jp+p3 ];
 		t15=t13-rt;		t13=t13+rt;
@@ -3010,27 +2878,23 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 					t16=t12+rt ;	t12=t12-rt;
 
 	/*...Block 3: */
-
-		jt = j1 + p8;
-		jp = j2 + p8;
-
-	#ifdef PFETCH_AGGRESSIVE
+		jt = j1 + p8;		jp = j2 + p8;
+	  #ifdef PFETCH_AGGRESSIVE
 		addr = addp + p4 ;
 		prefetch_p_doubles(addr);
-	#elif PFETCH
+	  #elif PFETCH
 		addp = &a[jt];
 		addr = addp+prefetch_offset;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		rt =a[jt    ];	t18=a[jp    ];	t17=rt;
 		rt =a[jt+p1 ];	it =a[jp+p1 ];
 		t19=t17-rt;		t17=t17+rt;
 		t20=t18-it;		t18=t18+it;
-
-	#ifdef PFETCH_AGGRESSIVE
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		rt =a[jt+p2 ];	t22=a[jp+p2 ];	t21=rt;
 		rt =a[jt+p3 ];	it =a[jp+p3 ];
 		t23=t21-rt;		t21=t21+rt;
@@ -3043,27 +2907,23 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 					t24=t20+rt ;	t20=t20-rt;
 
 	/*...Block 4: */
-
-		jt = j1 + p12;
-		jp = j2 + p12;
-
-	#ifdef PFETCH_AGGRESSIVE
+		jt = j1 + p12;		jp = j2 + p12;
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#elif PFETCH
+	  #elif PFETCH
 		addp = &a[jt];
 		addr = addp+prefetch_offset;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		rt =a[jt    ];	t26=a[jp    ];	t25=rt;
 		rt =a[jt+p1 ];	it =a[jp+p1 ];
 		t27=t25-rt;		t25=t25+rt;
 		t28=t26-it;		t26=t26+it;
-
-	#ifdef PFETCH_AGGRESSIVE
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		rt =a[jt+p2 ];	t30=a[jp+p2 ];	t29=rt;
 		rt =a[jt+p3 ];	it =a[jp+p3 ];
 		t31=t29-rt;		t29=t29+rt;
@@ -3085,14 +2945,11 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 	!   and only the last 3 inputs to each of the radix-4 transforms 2 through 4 are multiplied by non-unity twiddles.
 	*/
 	/*...Block 1: t1,9,17,25 */
-
-		jt = j1;
-		jp = j2;
-
-	#ifdef PFETCH_AGGRESSIVE
+		jt = j1;		jp = j2;
+	  #ifdef PFETCH_AGGRESSIVE
 		addr = addp + p8 ;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		rt =t9;	t9 =t1 -rt;	t1 =t1 +rt;
 		it =t10;	t10=t2 -it;	t2 =t2 +it;
 
@@ -3102,25 +2959,21 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		a[jt    ]=t1+t17;			a[jp    ]=t2+t18;
 		t1	     =t1-t17;			t2		 =t2-t18;
 		a[jt+p8 ]=t1 *c8 +t2 *s8;	a[jp+p8 ]=t2 *c8 -t1 *s8;
-
-	#ifdef PFETCH_AGGRESSIVE
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		rt	   =t9 +t26;		it		 =t10-t25;	/* mpy by E^-4 = -I is inlined here... */
 		t9	   =t9 -t26;		t10		=t10+t25;
 		a[jt+p4 ]=rt *c4 +it *s4;	a[jp+p4 ]=it *c4 -rt *s4;
 		a[jt+p12]=t9 *c12+t10*s12;	a[jp+p12]=t10*c12-t9 *s12;
 
 	/*...Block 3: t5,13,21,29 */
-
-		jt = j1 + p2;
-		jp = j2 + p2;
-
-	#ifdef PFETCH_AGGRESSIVE
+		jt = j1 + p2;		jp = j2 + p2;
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		rt =t13;	t13=t5 -t14;	t5 =t5 +t14;		/* twiddle mpy by E^4 =-I */
 			t14=t6 +rt;	t6 =t6 -rt;
 
@@ -3133,25 +2986,21 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		t5	   =t5 -t21;		t6		 =t6 -t22;
 		a[jt    ]=rt *c2 +it *s2;	a[jp    ]=it *c2 -rt *s2;
 		a[jt+p8 ]=t5 *c10+t6 *s10;	a[jp+p8 ]=t6 *c10-t5 *s10;
-
-	#ifdef PFETCH_AGGRESSIVE
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		rt	   =t13+t30;		it		 =t14-t29;	/* mpy by E^-4 = -I is inlined here... */
 		t13	  =t13-t30;		t14		=t14+t29;
 		a[jt+p4 ]=rt *c6 +it *s6;	a[jp+p4 ]=it *c6 -rt *s6;
 		a[jt+p12]=t13*c14+t14*s14;	a[jp+p12]=t14*c14-t13*s14;
 
 	/*...Block 2: t3,11,19,27 */
-
-		jt = j1 + p1;
-		jp = j2 + p1;
-
-	#ifdef PFETCH_AGGRESSIVE
+		jt = j1 + p1;		jp = j2 + p1;
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		rt =(t12+t11)*ISRT2;it =(t12-t11)*ISRT2;		/* twiddle mpy by E^-2 */
 		t11=t3 -rt;		t3 =t3 +rt;
 		t12=t4 -it;		t4 =t4 +it;
@@ -3165,25 +3014,21 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		t3	   =t3 -t19;		t4		 =t4 -t20;
 		a[jt    ]=rt *c1 +it *s1;	a[jp    ]=it *c1 -rt *s1;
 		a[jt+p8 ]=t3 *c9 +t4 *s9;	a[jp+p8 ]=t4 *c9 -t3 *s9;
-
-	#ifdef PFETCH_AGGRESSIVE
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		rt	   =t11+t28;		it		 =t12-t27;	/* mpy by E^-4 = -I is inlined here... */
 		t11	  =t11-t28;		t12		=t12+t27;
 		a[jt+p4 ]=rt *c5 +it *s5;	a[jp+p4 ]=it *c5 -rt *s5;
 		a[jt+p12]=t11*c13+t12*s13;	a[jp+p12]=t12*c13-t11*s13;
 
 	/*...Block 4: t7,15,23,31 */
-
-		jt = j1 + p3;
-		jp = j2 + p3;
-
-	#ifdef PFETCH_AGGRESSIVE
+		jt = j1 + p3;		jp = j2 + p3;
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		rt =(t15-t16)*ISRT2;it =(t15+t16)*ISRT2;		/* twiddle mpy by E^2 = -E^-6 is here... */
 		t15=t7 +rt;		t7 =t7 -rt;			/* ...and get E^6=(i-1)/sqrt by flipping signs here. */
 		t16=t8 +it;		t8 =t8 -it;
@@ -3197,15 +3042,16 @@ void radix16_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		t7	   =t7 -t23;		t8		 =t8 -t24;
 		a[jt    ]=rt *c3 +it *s3;	a[jp    ]=it *c3 -rt *s3;
 		a[jt+p8 ]=t7 *c11+t8 *s11;	a[jp+p8 ]=t8 *c11-t7 *s11;
-
-	#ifdef PFETCH_AGGRESSIVE
+	  #ifdef PFETCH_AGGRESSIVE
 		addr += p1;
 		prefetch_p_doubles(addr);
-	#endif
+	  #endif
 		rt	   =t15+t32;		it		 =t16-t31;	/* mpy by E^-4 = -I is inlined here... */
 		t15	  =t15-t32;		t16		=t16+t31;
 		a[jt+p4 ]=rt *c7 +it *s7;	a[jp+p4 ]=it *c7 -rt *s7;
 		a[jt+p12]=t15*c15+t16*s15;	a[jp+p12]=t16*c15-t15*s15;
+
+	#endif	// USE_FGT61 ?
 
   #endif	// USE_SCALAR_DFT_MACRO ?
 

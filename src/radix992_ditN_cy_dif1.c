@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2014 by Ernst W. Mayer.                                           *
+*   (C) 1997-2016 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -69,12 +69,6 @@ N (K)	Radices used		ROE (avg, max)			T(sec for 100 iter)
 1008	63,16,16,32		0.004876273. 0.005859375	19.5 (Was 24.5, but impl compact-obj-code cut .o from 220KB to 42KB and Core 2 timing by 20% as shown)
 1024	256,8,16,16		0.002308873. 0.002441406	12.5 (64,16,16,32 ==> T = 19.0, 1024,16,32 ==> T=19.8, both w/similar ROE)
 */
-
-#ifdef MULTITHREAD
-	#ifndef USE_PTHREAD
-		#error Pthreads is only thread model currently supported!
-	#endif
-#endif
 
 #ifdef USE_PTHREAD
 
@@ -177,8 +171,8 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	// into a single foo_array[4*(ODD_RADIX+1)], then convert what used to be disparate ODD_RADIX-sized arrays to pointers.
 	static double foo_array[(ODD_RADIX+1)<<2], *wt_arr, *wtinv_arr, *bs_arr, *bsinv_arr, bs,bsinv;
 
-	static uint64 psave=0;
-	static uint32 bw,sw,bjmodnini,p1,p2,p3;
+	static uint64 psave = 0;
+	static uint32 bw,sw,bjmodnini,p1,p2,p3, nsave = 0;
 	static int poff[RADIX>>2];
 #ifndef MULTITHREAD
 	// Need storage for circular-shifts perms of a basic 31-vector, with shift count in [0,31] that means 2*31 elts:
@@ -222,7 +216,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	double wt,wtinv,wtl,wtlp1,wtn,wtnm1,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
   #endif
-	double rt,it,wt_re,wt_im;	/* Fermat-mod weights stuff, used in both scalar and AVX mode */
+	double rt,it, wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff
 	// indices into weights arrays (mod NWT):
 	static int ii[ODD_RADIX] = {-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};
 	/* These are used in conjunction with the langth-ODD_RADIX arrays in the USE_SCALAR_CARRY code flow;
@@ -295,8 +289,8 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	uint32 ptr_prod;
 	static int *_i, *_jstart = 0x0, *_jhi = 0x0, *_col = 0x0, *_co2 = 0x0, *_co3 = 0x0;
 	static int *_bjmodnini = 0x0, *_bjmodn[RADIX];
-	static double *_maxerr = 0x0, *_cy_r[RADIX],*_cy_i[RADIX];
-	if(!_maxerr) {
+	static double *_cy_r[RADIX],*_cy_i[RADIX];
+	if(!_jhi) {
 		_cy_r[0] = 0x0;	// First of these used as an "already inited consts?" sentinel, must init = 0x0 at same time do so for non-array static ptrs
 	}
 
@@ -330,109 +324,16 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		return(err);
 	}
 
-	if(p != psave)
-	{
+	if(p != psave || n != nsave) {	/* Exponent or array length change triggers re-init */
 		first_entry=TRUE;
+		/* To-do: Support #thread change here! */
 	}
-
-/******************* AVX debug stuff: *******************/
-#if 0
-char dbg_fname[] = "a.txt";
-	dbg_fname[0] += (char)trailz32(RE_IM_STRIDE);	// Scalar = "a.txt", SSE2 = "b.txt", AVX = "c.txt"
-  #ifdef MULTITHREAD
-//	++dbg_fname[0];	// Unthreaded = "a.txt", pthread = "b.txt"
-  #endif
-if(first_entry) {
-	dbg_file = mlucas_fopen(dbg_fname, "w");
-	ASSERT(HERE, dbg_file != 0x0, "Unable to open dbg_file!");
-	fprintf(dbg_file, "%s DEBUG: fftlen = %d, SW_DIV_N = %d, NDIVR = %d\n",func,n,SW_DIV_N,NDIVR);
-	fprintf(dbg_file,"NTHREADS = %d\n", NTHREADS);
-} else {
-	ASSERT(HERE, dbg_file != 0x0, "Require open dbg_file!");
-}
-fprintf(dbg_file, "Iter = %d, Loop Inputs:\n",iter);
-#endif
-
-/******************* AVX debug stuff: *******************/
-#if 0
-int ipad;
-if(first_entry) {
-	// Use RNG to populate data array:
-	rng_isaac_init(TRUE);
-	dtmp = 1024.0*1024.0*1024.0*1024.0;
-	ipad = 0;
-	for(i = 0; i < n; i += 8) {
-		ipad = i + ( (i >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-		// All the inits are w.r.to an un-SIMD-rearranged ...,re,im,re,im,... pattern:
-	#if 0//def USE_AVX	// AVX and AVX2 both use 256-bit registers
-		a[ipad+br8[0]] = dtmp*rng_isaac_rand_double_norm_pm1();	// re0
-		a[ipad+br8[1]] = dtmp*rng_isaac_rand_double_norm_pm1();	// im0
-		a[ipad+br8[2]] = dtmp*rng_isaac_rand_double_norm_pm1();	// re1
-		a[ipad+br8[3]] = dtmp*rng_isaac_rand_double_norm_pm1();	// im1
-		a[ipad+br8[4]] = dtmp*rng_isaac_rand_double_norm_pm1();	// re2
-		a[ipad+br8[5]] = dtmp*rng_isaac_rand_double_norm_pm1();	// im2
-		a[ipad+br8[6]] = dtmp*rng_isaac_rand_double_norm_pm1();	// re3
-		a[ipad+br8[7]] = dtmp*rng_isaac_rand_double_norm_pm1();	// im3
-	#elif defined(USE_SSE2)
-		a[ipad+br4[0]  ] = dtmp*rng_isaac_rand_double_norm_pm1();	// re0
-		a[ipad+br4[1]  ] = dtmp*rng_isaac_rand_double_norm_pm1();	// im0
-		a[ipad+br4[2]  ] = dtmp*rng_isaac_rand_double_norm_pm1();	// re1
-		a[ipad+br4[3]  ] = dtmp*rng_isaac_rand_double_norm_pm1();	// im1
-		a[ipad+br4[0]+4] = dtmp*rng_isaac_rand_double_norm_pm1();	// re2
-		a[ipad+br4[1]+4] = dtmp*rng_isaac_rand_double_norm_pm1();	// im2
-		a[ipad+br4[2]+4] = dtmp*rng_isaac_rand_double_norm_pm1();	// re3
-		a[ipad+br4[3]+4] = dtmp*rng_isaac_rand_double_norm_pm1();	// im3
-	#else	// Scalar mode: Data arranged in standard (re,im) pairwise fashion
-		a[ipad+0] = dtmp*rng_isaac_rand_double_norm_pm1();	// re0
-		a[ipad+1] = dtmp*rng_isaac_rand_double_norm_pm1();	// im0
-		a[ipad+2] = dtmp*rng_isaac_rand_double_norm_pm1();	// re1
-		a[ipad+3] = dtmp*rng_isaac_rand_double_norm_pm1();	// im1
-		a[ipad+4] = dtmp*rng_isaac_rand_double_norm_pm1();	// re2
-		a[ipad+5] = dtmp*rng_isaac_rand_double_norm_pm1();	// im2
-		a[ipad+6] = dtmp*rng_isaac_rand_double_norm_pm1();	// re3
-		a[ipad+7] = dtmp*rng_isaac_rand_double_norm_pm1();	// im3
-	#endif
-  #if 0
-	#if 0//def USE_AVX	// AVX and AVX2 both use 256-bit registers
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+0,a[ipad+br8[0]]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+1,a[ipad+br8[1]]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+2,a[ipad+br8[2]]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+3,a[ipad+br8[3]]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+4,a[ipad+br8[4]]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+5,a[ipad+br8[5]]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+6,a[ipad+br8[6]]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+7,a[ipad+br8[7]]);
-	#elif defined(USE_SSE2)
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+0  ,a[ipad+br4[0]  ]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+1  ,a[ipad+br4[1]  ]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+2  ,a[ipad+br4[2]  ]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+3  ,a[ipad+br4[3]  ]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+0+4,a[ipad+br4[0]+4]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+1+4,a[ipad+br4[1]+4]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+2+4,a[ipad+br4[2]+4]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+3+4,a[ipad+br4[3]+4]);
-	#else	// Scalar mode: Data arranged in standard (re,im) pairwise fashion
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+0,a[ipad+0]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+1,a[ipad+1]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+2,a[ipad+2]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+3,a[ipad+3]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+4,a[ipad+4]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+5,a[ipad+5]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+6,a[ipad+6]);
-		fprintf(dbg_file, "A_in[%2d] = %20.10e\n",ipad+7,a[ipad+7]);
-	#endif
-  #endif
-	}
-}
-#endif
-/********************************************************/
 
 /*...initialize things upon first entry: */
 
 	if(first_entry)
 	{
-		psave = p;
-		first_entry=FALSE;
+		psave = p;	nsave = n;
 		radix_inv = qfdbl(qf_rational_quotient((int64)1, (int64)RADIX));
 		n2inv     = qfdbl(qf_rational_quotient((int64)1, (int64)(n/2)));
 
@@ -457,7 +358,6 @@ if(first_entry) {
 		//	CY_THREADS = MAX_THREADS;
 			fprintf(stderr,"WARN: CY_THREADS = %d exceeds number of cores = %d\n", CY_THREADS, MAX_THREADS);
 		}
-		if(CY_THREADS < NTHREADS)	{ WARN(HERE, "CY_THREADS < NTHREADS", "", 1); return(ERR_ASSERT); }
 		if(!isPow2(CY_THREADS))		{ WARN(HERE, "CY_THREADS not a power of 2!", "", 1); return(ERR_ASSERT); }
 		if(CY_THREADS > 1)
 		{
@@ -466,34 +366,33 @@ if(first_entry) {
 		}
 
 	  #ifdef USE_PTHREAD
-
-		j = (uint32)sizeof(struct cy_thread_data_t);
-		tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, j);
-
-		// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
-		// so on that platform try to be clever and interleave main-thread and threadpool-work processing
-		#if 0//def OS_TYPE_MACOSX
-
-			if(CY_THREADS > 1) {
-				main_work_units = CY_THREADS/2;
-				pool_work_units = CY_THREADS - main_work_units;
-				ASSERT(HERE, 0x0 != (tpool = threadpool_init(pool_work_units, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
-				printf("radix%d_ditN_cy_dif1: Init threadpool of %d threads\n", RADIX, pool_work_units);
-			} else {
-				main_work_units = 1;
-				printf("radix%d_ditN_cy_dif1: CY_THREADS = 1: Using main execution thread, no threadpool needed.\n", RADIX);
-			}
-
-		#else
-
-			main_work_units = 0;
-			pool_work_units = CY_THREADS;
-			ASSERT(HERE, 0x0 != (tpool = threadpool_init(CY_THREADS, MAX_THREADS, CY_THREADS, &thread_control)), "threadpool_init failed!");
-
-		#endif
-
-		fprintf(stderr,"Using %d threads in carry step\n", CY_THREADS);
-
+		if(tdat == 0x0) {
+			j = (uint32)sizeof(struct cy_thread_data_t);
+			tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, sizeof(struct cy_thread_data_t));
+	
+			// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
+			// so on that platform try to be clever and interleave main-thread and threadpool-work processing
+			#if 0//def OS_TYPE_MACOSX
+	
+				if(CY_THREADS > 1) {
+					main_work_units = CY_THREADS/2;
+					pool_work_units = CY_THREADS - main_work_units;
+					ASSERT(HERE, 0x0 != (tpool = threadpool_init(pool_work_units, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
+					printf("radix%d_ditN_cy_dif1: Init threadpool of %d threads\n", RADIX, pool_work_units);
+				} else {
+					main_work_units = 1;
+					printf("radix%d_ditN_cy_dif1: CY_THREADS = 1: Using main execution thread, no threadpool needed.\n", RADIX);
+				}
+	
+			#else
+	
+				pool_work_units = CY_THREADS;
+				ASSERT(HERE, 0x0 != (tpool = threadpool_init(CY_THREADS, MAX_THREADS, CY_THREADS, &thread_control)), "threadpool_init failed!");
+	
+			#endif
+	
+			fprintf(stderr,"Using %d threads in carry step\n", CY_THREADS);
+		}
 	  #endif
 
 	#else
@@ -1174,7 +1073,6 @@ if(first_entry) {
 			}
 			free((void *)_jstart ); _jstart  = 0x0;
 			free((void *)_jhi    ); _jhi     = 0x0;
-			free((void *)_maxerr); _maxerr = 0x0;
 			free((void *)_col   ); _col    = 0x0;
 			free((void *)_co2   ); _co2    = 0x0;
 			free((void *)_co3   ); _co3    = 0x0;
@@ -1199,7 +1097,6 @@ if(first_entry) {
 			_cy_r[i]	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_r[i]== 0x0);
 			_cy_i[i]	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_i[i]== 0x0);
 		}
-		_maxerr	= (double *)malloc(j);	ptr_prod += (uint32)(_maxerr== 0x0);
 
 		ASSERT(HERE, ptr_prod == 0, "FATAL: unable to allocate one or more auxiliary arrays!");
 
@@ -1495,6 +1392,7 @@ if(first_entry) {
 
 	#endif	// USE_PTHREAD
 
+		first_entry=FALSE;
 	}	/* endif(first_entry) */
 
 /*...The radix-992 final DIT pass is here.	*/
@@ -1516,11 +1414,6 @@ if(first_entry) {
 	*fracmax=0;	/* init max. fractional error	*/
 	full_pass = 1;	/* set = 1 for normal carry pass, = 0 for wrapper pass	*/
 	scale = n2inv;	/* init inverse-weight scale factor  (set = 2/n for normal carry pass, = 1 for wrapper pass)	*/
-
-	for(ithread = 0; ithread < CY_THREADS; ithread++)
-	{
-		_maxerr[ithread] = 0.0;
-	}
 
 for(outer=0; outer <= 1; outer++)
 {
@@ -1606,7 +1499,7 @@ for(outer=0; outer <= 1; outer++)
 	#endif	/* USE_SSE2 */
 	}	// 	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
 
-#if 0/*defined(USE_SSE2)*/ && defined(USE_PTHREAD)
+#if 0//def USE_SSE2
 
 	tmp = max_err;	VEC_DBL_INIT(tmp, 0.0);
 	tm2 = tmp + cslots_in_local_store;
@@ -1644,7 +1537,7 @@ for(outer=0; outer <= 1; outer++)
 		ASSERT(HERE, tdat[ithread].nwt == nwt, "thread-local memcheck fail!");
 
 	// double data:
-		tdat[ithread].maxerr = _maxerr[ithread];
+		tdat[ithread].maxerr = 0.0;
 		tdat[ithread].scale = scale;
 
 	// pointer data:
@@ -1702,9 +1595,7 @@ for(outer=0; outer <= 1; outer++)
 
 	for(ithread = 0; ithread < CY_THREADS; ithread++)
 	{
-		/***** DEC/HP CC doesn't properly copy init value of maxerr = 0 into threads,
-		so need to set once again explicitly for each: *****/
-		maxerr = 0.0;
+		if(full_pass) maxerr = 0.0;
 	#if 0//def USE_SSE2
 	//	VEC_DBL_INIT(max_err, 0.0);	*** must do this in conjunction with thread-local-data-copy
 	#endif
@@ -1759,7 +1650,7 @@ for(outer=0; outer <= 1; outer++)
 			tmp = cy_r;
 			for(l = 0; l < RADIX; l++, ++tmp) {
 				// This relies on the cy_R,i sections of the SIMD data being contiguous, i.e.
-				// step-through the cy_r data via the tmp-pointer takes us seamlessly into the cy_i:
+				// step-thru the cy_r data via the tmp-pointer takes us seamlessly into the cy_i:
 				tmp->d0 = _cy_r[l][ithread];		tmp->d1 = _cy_i[l][ithread];
 			}
 		#else
@@ -1788,14 +1679,14 @@ for(outer=0; outer <= 1; outer++)
 				_cy_r[l+2][ithread] = tmp->d2;
 				_cy_r[l+3][ithread] = tmp->d3;
 			}
-			maxerr = MAX( MAX(max_err->d0,max_err->d1) , MAX(max_err->d2,max_err->d3) );
+			if(full_pass) maxerr = MAX( MAX(max_err->d0,max_err->d1) , MAX(max_err->d2,max_err->d3) );
 		#elif 0//defined(USE_SSE2)
 			tmp = cy_r;
 			for(l = 0; l < RADIX; l += 2, ++tmp) {
 				_cy_r[l  ][ithread] = tmp->d0;
 				_cy_r[l+1][ithread] = tmp->d1;
 			}
-			maxerr = MAX(max_err->d0,max_err->d1);
+			if(full_pass) maxerr = MAX(max_err->d0,max_err->d1);
 		#else
 			for(l = 0; l < RADIX; l++) {
 				_cy_r[l][ithread] = cy_r[l];
@@ -1812,27 +1703,21 @@ for(outer=0; outer <= 1; outer++)
 				_cy_r[l+2][ithread] = tmp->d2;		_cy_i[l+2][ithread] = tm2->d2;
 				_cy_r[l+3][ithread] = tmp->d3;		_cy_i[l+3][ithread] = tm2->d3;
 			}
-			maxerr = MAX( MAX(max_err->d0,max_err->d1) , MAX(max_err->d2,max_err->d3) );
+			if(full_pass) maxerr = MAX( MAX(max_err->d0,max_err->d1) , MAX(max_err->d2,max_err->d3) );
 		#elif 0//defined(USE_SSE2)
 			// Carry pattern for Fermat-mod in SSE2 mode is kinda funky:
 			tmp = cy_r;
 			for(l = 0; l < RADIX; l++, ++tmp) {
 				// This relies on the cy_R,i sections of the SIMD data being contiguous, i.e.
-				// step-through the cy_r data via the tmp-pointer takes us seamlessly into the cy_i:
+				// step-thru the cy_r data via the tmp-pointer takes us seamlessly into the cy_i:
 				_cy_r[l][ithread] = tmp->d0;		_cy_i[l][ithread] = tmp->d1;
 			}
-			maxerr = MAX(max_err->d0,max_err->d1);
+			if(full_pass) maxerr = MAX(max_err->d0,max_err->d1);
 		#else
 			for(l = 0; l < RADIX; l++) {
 				_cy_r[l][ithread] = cy_r[l];		_cy_i[l][ithread] = cy_i[l];
 			}
 		#endif
-		}
-
-		/* Since will lose separate maxerr values when threads are merged, save them after each pass. */
-		if(_maxerr[ithread] < maxerr)
-		{
-			_maxerr[ithread] = maxerr;
 		}
 
   #endif	// #ifdef USE_PTHREAD
@@ -1862,11 +1747,9 @@ for(outer=0; outer <= 1; outer++)
 	/* Copy the thread-specific output carry data back to shared memory: */
 	for(ithread = 0; ithread < CY_THREADS; ithread++)
 	{
-		_maxerr[ithread] = tdat[ithread].maxerr;
-		if(maxerr < _maxerr[ithread]) {
-			maxerr = _maxerr[ithread];
+		if(maxerr < tdat[ithread].maxerr) {
+			maxerr = tdat[ithread].maxerr;
 		}
-
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 		{
 			for(l = 0; l < RADIX; l++) {
@@ -1891,7 +1774,7 @@ for(outer=0; outer <= 1; outer++)
 
 	/*   Wraparound carry cleanup loop is here:
 
-	The cleanup carries from the end of each length-N/RADIX set of contiguous data into the beginning of the next
+	The cleanup carries from the end of each length-N/RADIX set of contiguous data into the begining of the next
 	can all be neatly processed as follows:
 
 	(1) Invert the forward DIF FFT of the first block of RADIX complex elements in A and unweight;
@@ -1971,8 +1854,7 @@ for(outer=0; outer <= 1; outer++)
 		for(l = 0; l < RADIX; l++) {
 			dtmp += fabs(_cy_r[l][ithread]) + fabs(_cy_i[l][ithread]);
 		}
-		if(*fracmax < _maxerr[ithread])
-			*fracmax = _maxerr[ithread];
+		*fracmax = maxerr;
 	}
 	if(dtmp != 0.0)
 	{
@@ -2210,7 +2092,7 @@ void radix992_dif_pass1(double a[], int n)
 
 		00,1e,1d,1c,1b,1a,19,18,17,16,15,14,13,12,11,10,0f,0e,0d,0c,0b,0a,09,08,07,06,05,04,03,02,01 + p00
 
-	For row i, the leftward-shift count needing to be applied = i. Since i runs from 0 through 1f (= decimal 31),
+	For row i, the leftward-shift count needing to be applied = i. Since i runs from 0 thru 1f (= decimal 31),
 	by the time we get to the last of the 32 rows we reach a shift count = 31 which matches the number of elements
 	in our basic array, thus the last row (mod p32) matches the first (0) row.
 	*/
@@ -2922,7 +2804,7 @@ void radix992_dit_pass1(double a[], int n)
 		int j,j1,j2,jt,jp,k,l;
 		double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
 		int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
-		double rt,it,wt_re,wt_im;	/* Fermat-mod weights stuff, used in both scalar and AVX mode */
+		double rt,it, wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff
 
 		double *base, *baseinv, *wt_arr, *wtinv_arr, *bs_arr, *bsinv_arr, bs,bsinv, wts_idx_incr;
 		const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */

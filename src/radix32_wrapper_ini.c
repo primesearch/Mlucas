@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2013 by Ernst W. Mayer.                                           *
+*   (C) 1997-2015 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -37,14 +37,14 @@ void radix32_wrapper_ini(int n, int radix0, int iblock, int nradices_prim, int r
 	else
 		iblock_next = iblock + 2;
 
-	if(iblock == 0)		/* j1 is the real-array index (double the complex-array index) of the 1st element of each floating pair. */
+	if(iblock == 0)	// j1 = real-array index (double the complex-array index) of the 1st element of each floating pair.
 	{
-		/* I and M don't need to be inited here, since they'll be set by entry into the nested I/M loop in radix16_wrapper_square. */
+		// No need to init I and M here, since they are set by entry into the nested I/M loop in radix16_pairFFT_mul_square:
 		j1           =  0;
 		j2           = 64;
-		j2_start     = j2;	/* j2 is the real-array index (double the complex-array index) of the 2nd element of each floating pair. */
+		j2_start     = j2;	// j2 = real-array index (double the complex-array index) of 2nd element of each floating pair.
 		k            =  0;
-		blocklen     = 32;	/* This is half the actual complex blocklength, since we process two complex data for each value of the loop index L. */
+		blocklen     = 32;	// = half of complex blocklength, since process 2 complex data for each value of loop index L.
 		blocklen_sum =  0;
 
 		ws_i           [iblock] = i           ;
@@ -52,18 +52,16 @@ void radix32_wrapper_ini(int n, int radix0, int iblock, int nradices_prim, int r
 		ws_j2          [iblock] = j2          ;
 		ws_j2_start    [iblock] = j2_start    ;
 		ws_k           [iblock] = k           ;
-//	printf("init ws_k[%3d] = %10d\n",iblock,k);
 		ws_m           [iblock] = m           ;
 		ws_blocklen    [iblock] = blocklen    ;
 		ws_blocklen_sum[iblock] = blocklen_sum;
 	} else {
-//	printf("C: entering with j1 = %8d\n",j1);
 		goto jump_in;
 	}
 
-	for(i = nradices_prim-6; i >= 0; i-- )	/* Main loop: lower bound = nradices_prim-radix_now. */
-	{						/* Remember, radices get processed in reverse order here as in forward FFT. */
-		for(m = 0; m < (blocklen-1)>>1; m += 16) /* Since we now process TWO 32-element sets per loop execution, only execute the loop half as many times as before. */
+	for(i = nradices_prim-6; i >= 0; i-- )	// Main loop: lower bound = nradices_prim - radix_now.
+	{										// Remember, radices get processed in reverse order here as in forward FFT.
+		for(m = 0; m < (blocklen-1)>>1; m += 16) // Do two 32-element sets per loop, so only execute loop half as many times as before.
 		{
 			// This tells us when we've reached the end of the current data block:
 			// Apr 2014: Must store intermediate product j1*radix0 in a 64-bit int to prevent overflow!
@@ -77,12 +75,12 @@ void radix32_wrapper_ini(int n, int radix0, int iblock, int nradices_prim, int r
 				ws_m           [iblock_next] = m           ;
 				ws_blocklen    [iblock_next] = blocklen    ;
 				ws_blocklen_sum[iblock_next] = blocklen_sum;
-//	printf("%8llu  %20llu  %8llu: init ws_k[%3d] = %10d\n",j1,((uint64)j1*radix0),j2,iblock_next,k);
+			//	printf("%8llu  %20llu  %8llu: init ws_k[%3d] = %10d\n",j1,((uint64)j1*radix0),j2,iblock_next,k);
 				return;
 			}
-	jump_in:	/* Entry point for all blocks but the first. */
-			k += 2;	/* increment sincos array index */
-			/*...And update the data (j1 and j2) array indices. */
+	jump_in:	// Entry point for all blocks but the first.
+			k += 2;	// increment sincos array index
+			// And update the data (j1 and j2) array indices:
 			j1 += 64;
 			j2 -= 64;
 		}
@@ -93,9 +91,8 @@ void radix32_wrapper_ini(int n, int radix0, int iblock, int nradices_prim, int r
 	*/
 		j1 += (blocklen << 1);
 
-		if(j2_start == n-64)
-		{
-//	printf("(j2_start == n-32) return with j2_start = %d\n",j2_start);
+		if(j2_start == n-64) {
+		//	printf("(j2_start == n-32) return with j2_start = %d\n",j2_start);
 			return;
 		}
 
@@ -109,7 +106,7 @@ void radix32_wrapper_ini(int n, int radix0, int iblock, int nradices_prim, int r
 
 		j2_start += (blocklen<<2);
 		j2 = j2_start;			/* Reset j2 for start of the next block. */
-//	printf("newblock: blocklen = %8d blocklen_sum = %8d j2 = %8d\n",blocklen,blocklen_sum,j2);
+	//	printf("newblock: blocklen = %8d blocklen_sum = %8d j2 = %8d\n",blocklen,blocklen_sum,j2);
 	}	 /* End of Main loop */
 }
 

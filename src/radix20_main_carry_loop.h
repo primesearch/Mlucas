@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2014 by Ernst W. Mayer.                                           *
+*   (C) 1997-2016 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -42,69 +42,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 #ifdef USE_SSE2
 
 		add0 = &a[j1    ];
-	//	add0 = &a[j1    ]; 	add1 = add0+p01;	add2 = add0+p03;	add3 = add0+p02;
-
-	#if defined(COMPILER_TYPE_MSVC)
-
-		/* Outputs in SSE2 modes are temps 2*5*16 = 10*16 = 0x0a0 bytes apart: */
-		__asm	mov	eax, add0	/* Must use eax as base address throughout, since that is preserved in SSE2_RADIX4_DIT_0TWIDDLE_STRIDE_C */
-		__asm	mov	edx, add0
-		__asm	mov	esi, p01	/* esi will store power-of-2 multiples of p01 throughout */
-		__asm	shl	esi, 3		/* Pointer offset for floating doubles */
-		__asm	add edx, esi
-		__asm	mov ebx, edx	/* add1 = add0+p01 */
-		__asm	add edx, esi
-		__asm	mov ecx, edx	/* add3 = add0+p02 */
-		__asm	add edx, esi	/* add2 = add0+p03 */
-		SSE2_RADIX4_DIT_0TWIDDLE_STRIDE_C(eax,ebx,edx,ecx, 0x0a0, 0x140, r00)
-
-	/*	add0,1,2,3 = &a[j1+p04]+p3,2,1,0 */
-		__asm	mov	esi, p04
-		__asm	shl	esi, 3
-		__asm	add	eax, esi	/* &a[j1+p04] */
-		__asm	add ebx, esi
-		__asm	add ecx, esi
-		__asm	add edx, esi
-		SSE2_RADIX4_DIT_0TWIDDLE_STRIDE_C(edx,ecx,ebx,eax, 0x0a0, 0x140, r02)
-
-	/*	add0,1,2,3 = &a[j1+p08]+p1,0,2,3 */
-		__asm	mov	esi, p04
-		__asm	shl	esi, 3
-		__asm	add	eax, esi	/* &a[j1+p08] */
-		__asm	add ebx, esi
-		__asm	add ecx, esi
-		__asm	add edx, esi
-		SSE2_RADIX4_DIT_0TWIDDLE_STRIDE_C(ebx,eax,ecx,edx, 0x0a0, 0x140, r04)
-
-	/*	add0,1,2,3 = &a[j1+p12]+p2,3,0,1 */
-		__asm	mov	esi, p04
-		__asm	shl	esi, 3
-		__asm	add	eax, esi	/* &a[j1+p12] */
-		__asm	add ebx, esi
-		__asm	add ecx, esi
-		__asm	add edx, esi
-		SSE2_RADIX4_DIT_0TWIDDLE_STRIDE_C(ecx,edx,eax,ebx, 0x0a0, 0x140, r06)
-
-	/*	add0,1,2,3 = &a[j1+p16]+p0,1,3,2 */
-		__asm	mov	esi, p04
-		__asm	shl	esi, 3
-		__asm	add	eax, esi	/* &a[j1+p16] */
-		__asm	add ebx, esi
-		__asm	add ecx, esi
-		__asm	add edx, esi
-		SSE2_RADIX4_DIT_0TWIDDLE_STRIDE_C(eax,ebx,edx,ecx, 0x0a0, 0x140, r08)
-
-		/* Radix-5 DFT uses adjacent temps, i.e. stride = 2*16 bytes: */
-		SSE2_RADIX_05_DFT_0TWIDDLE(r00,r02,r04,r06,r08,cc1,s1p00r,s1p16r,s1p12r,s1p08r,s1p04r)
-		SSE2_RADIX_05_DFT_0TWIDDLE(r10,r12,r14,r16,r18,cc1,s1p15r,s1p11r,s1p07r,s1p03r,s1p19r)
-		SSE2_RADIX_05_DFT_0TWIDDLE(r20,r22,r24,r26,r28,cc1,s1p10r,s1p06r,s1p02r,s1p18r,s1p14r)
-		SSE2_RADIX_05_DFT_0TWIDDLE(r30,r32,r34,r36,r38,cc1,s1p05r,s1p01r,s1p17r,s1p13r,s1p09r)
-
-	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
-
 		SSE2_RADIX20_DIT_NOTWIDDLE(add0,p01,p04,r00,r10,r20,r30,cc1,s1p00r,s1p16r,s1p12r,s1p08r,s1p04r,s1p15r,s1p11r,s1p07r,s1p03r,s1p19r,s1p10r,s1p06r,s1p02r,s1p18r,s1p14r,s1p05r,s1p01r,s1p17r,s1p13r,s1p09r);
-
-	#endif
 
 #else
 						 /*          inputs           */ /*                                      outputs                                      */
@@ -126,13 +64,13 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 /*...Now do the carries. Since the outputs would
 normally be getting dispatched to 20 separate blocks of the A-array, we need 20 separate carries.	*/
 
-	#ifdef USE_AVX
+	#ifdef USE_AVX	// AVX: can select between carry macros processing 4 and 8 independent carries in LOACC mode:
 
 		add1 = &wt1[col  ];
 		add2 = &wt1[co2-1];
 		add3 = &wt1[co3-1];
 
-		l= j & (nwt-1);						tmp = half_arr + 64;	/* ptr to local storage for the doubled wtl,wtn terms: */
+		l= j & (nwt-1);						tmp = half_arr + 128;	/* ptr to local storage for the doubled wtl,wtn terms: */
 		n_minus_sil  ->d0 = n-si[l  ];		tmp->d0 = wt0[    l  ];
 		n_minus_silp1->d0 = n-si[l+1];		tmp->d1 = wt0[nwt-l  ]*scale;
 		sinwt        ->d0 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
@@ -156,24 +94,128 @@ normally be getting dispatched to 20 separate blocks of the A-array, we need 20 
 		sinwt        ->d3 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
 		sinwtm1      ->d3 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
 
+	 #ifdef LOACC
+
+		// Since use wt1-array in the wtsinit macro, need to fiddle this here:
+		co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
+					// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
+
+	  #ifdef CARRY_8_WAY
+		AVX_cmplx_carry_fast_wtsinit_X8(add1,add2,add3, bjmodn00, half_arr,sign_mask, n_minus_sil,n_minus_silp1,sinwt,sinwtm1, sse_bw,sse_n)
+	  #else
+		AVX_cmplx_carry_fast_wtsinit_X4(add1,add2,add3, bjmodn00, half_arr,sign_mask, n_minus_sil,n_minus_silp1,sinwt,sinwtm1, sse_bw,sse_n)
+	  #endif
+
+		i = (!j);
+
+	  #ifdef CARRY_8_WAY
+
+		// Each carry macro call also processes 8 prefetches of main-array data:
+		add0 = a + j1 + pfetch_dist;
+		AVX_cmplx_carry_fast_errcheck_X8(s1p00r, cy00,cy04, bjmodn00,bjmodn04, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03,p04); i = 0;
+		add0 = a + j1 + pfetch_dist + p08;	// poff[] = p0,4,8,...
+		AVX_cmplx_carry_fast_errcheck_X8(s1p08r, cy08,cy12, bjmodn08,bjmodn12, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03,p04);
+		add0 = a + j1 + pfetch_dist + p16;
+		AVX_cmplx_carry_fast_errcheck_X4(s1p16r, cy16,      bjmodn16,          half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+
+	  #else	// USE_AVX, LOACC, 4-way carry:
+	  	//*** 4-way is Lower accuracy than 8-way, thus default is to use 4-way only for cleanup, e.g. 20 = 2*8 + 4 here ***:
+
+		// Each carry macro call also processes 4 prefetches of main-array data:
+		add0 = a + j1 + pfetch_dist;
+		AVX_cmplx_carry_fast_errcheck_X4(s1p00r, cy00, bjmodn00, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03); i = 0;
+		add0 += p04;
+		AVX_cmplx_carry_fast_errcheck_X4(s1p04r, cy04, bjmodn04, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+		add0 = a + j1 + pfetch_dist + p08;
+		AVX_cmplx_carry_fast_errcheck_X4(s1p08r, cy08, bjmodn08, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+		add0 += p04;
+		AVX_cmplx_carry_fast_errcheck_X4(s1p12r, cy12, bjmodn12, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+		add0 = a + j1 + pfetch_dist + p16;
+		AVX_cmplx_carry_fast_errcheck_X4(s1p16r, cy16, bjmodn16, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+
+	  #endif	// USE_AVX, LOACC, (8-way or 4-way carry) ?
+
+	 #else	// USE_AVX: Hi-accuracy 4-way carry is the default:
+
 		// Each AVX carry macro call also processes 4 prefetches of main-array data
-		tmp = a + j1 + pfetch_dist;
-		AVX_cmplx_carry_norm_errcheck0_X4(s1p00r,add1,add2,add3,cy00,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tmp,p01,p02,p03);
-		tmp += p04;
-		AVX_cmplx_carry_norm_errcheck1_X4(s1p04r,add1,add2,add3,cy04,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tmp,p01,p02,p03);
-		tmp = a + j1 + pfetch_dist + p08;
-		AVX_cmplx_carry_norm_errcheck1_X4(s1p08r,add1,add2,add3,cy08,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tmp,p01,p02,p03);
-		tmp += p04;
-		AVX_cmplx_carry_norm_errcheck1_X4(s1p12r,add1,add2,add3,cy12,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tmp,p01,p02,p03);
-		tmp = a + j1 + pfetch_dist + p16;
-		AVX_cmplx_carry_norm_errcheck1_X4(s1p16r,add1,add2,add3,cy16,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tmp,p01,p02,p03);
+		i = (!j);
+		add0 = a + j1 + pfetch_dist;
+		AVX_cmplx_carry_norm_errcheck_X4(s1p00r,add1,add2,add3,cy00,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03); i = 0;
+		add0 += p04;
+		AVX_cmplx_carry_norm_errcheck_X4(s1p04r,add1,add2,add3,cy04,bjmodn04,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+		add0 = a + j1 + pfetch_dist + p08;
+		AVX_cmplx_carry_norm_errcheck_X4(s1p08r,add1,add2,add3,cy08,bjmodn08,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+		add0 += p04;
+		AVX_cmplx_carry_norm_errcheck_X4(s1p12r,add1,add2,add3,cy12,bjmodn12,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+		add0 = a + j1 + pfetch_dist + p16;
+		AVX_cmplx_carry_norm_errcheck_X4(s1p16r,add1,add2,add3,cy16,bjmodn16,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
 
 		co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 					// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
 
+	 #endif	// USE_AVX: (8-way or 4-way LOACC) or (4-way HIACC) ?
+
 		i =((uint32)(sw - *bjmodn00) >> 31);	/* get ready for the next set...	*/
 
 	#elif defined(USE_SSE2)
+
+	  #ifdef LOACC
+
+		/*** wt_re,wi_re,wt_im,wi_im inits. Cf. radix16_main_carry_loop.h for scalar-macro prototyping of this: ***/
+		uint32 k0,k1,k2,k3, nwtml;
+		l = j & (nwt-1);	nwtml = nwt-l;
+		n_minus_sil   = n-si[l  ];
+		n_minus_silp1 = n-si[l+1];
+		sinwt   = si[nwtml  ];
+		sinwtm1 = si[nwtml-1];
+		wtl     = wt0[    l  ];
+		wtn     = wt0[nwtml  ]*scale;
+		wtlp1   = wt0[    l+1];
+		wtnm1   = wt0[nwtml-1]*scale;
+
+		ctmp = (struct complex *)half_arr + 24;	// ptr to local storage for the doubled wtl,wtn terms:
+		// (j)-data occupy the 8 xmm-sized slots above the 16 used by fixed auxiliary-data, and overwrite these inits:
+		ctmp->re = ctmp->im = wtl;		ctmp += 2;
+		ctmp->re = ctmp->im = wtn;		ctmp += 2;
+		ctmp->re = ctmp->im = wtlp1;	ctmp += 2;
+		ctmp->re = ctmp->im = wtnm1;
+
+		l = (j+2) & (nwt-1);	nwtml = nwt-l;
+		k0 = n-si[l  ];
+		k1 = n-si[l+1];
+		k2 = si[nwtml  ];
+		k3 = si[nwtml-1];
+		wtl     = wt0[    l  ];
+		wtn     = wt0[nwtml  ]*scale;
+		wtlp1   = wt0[    l+1];
+		wtnm1   = wt0[nwtml-1]*scale;
+
+		ctmp = (struct complex *)half_arr + 32;	// (j+2) data start at ctmp + 8
+		ctmp->re = ctmp->im = wtl;		ctmp += 2;
+		ctmp->re = ctmp->im = wtn;		ctmp += 2;
+		ctmp->re = ctmp->im = wtlp1;	ctmp += 2;
+		ctmp->re = ctmp->im = wtnm1;
+
+		add1 = &wt1[col  ];	/* Don't use add0 here, to avoid need to reload main-array address */
+		add2 = &wt1[co2-1];
+		add3 = &wt1[co3-1];
+
+		// Since use wt1-array in the wtsinit macro, need to fiddle this here:
+		co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
+					// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
+		// *But*: since the init macro does an on-the-fly version of this between j,j+2 portions, external code co2=co3 must come *after* both ctmp-data octets are inited.
+		SSE2_cmplx_carry_fast_wtsinit(add1,add2,add3, bjmodn00, half_arr,sign_mask, n_minus_sil,n_minus_silp1,sinwt,sinwtm1, k0,k1,k2,k3, sse_bw,sse_n)
+
+		i = (!j);
+		tm1 = s1p00r; tmp = cy00; tm2 = cy00 + 1; itmp = bjmodn00;
+		for(l = 0; l < RADIX>>2; l++) {
+			// Each SSE2 LOACC carry macro call also processes 4 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			SSE2_cmplx_carry_fast_errcheck(tm1,tmp,tm2,itmp,half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4; i = 0;
+		}
+
+	  #else	// Hi-accuracy is the default:
 
 		l= j & (nwt-1);
 		n_minus_sil   = n-si[l  ];
@@ -198,50 +240,16 @@ normally be getting dispatched to 20 separate blocks of the A-array, we need 20 
 		add2 = &wt1[co2-1];
 		add3 = &wt1[co3-1];
 
-	  #if defined(COMPILER_TYPE_MSVC)
-
-	   #ifdef ERR_CHECK_ALL
-		SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy00,cy02,bjmodn00);
-		SSE2_cmplx_carry_norm_errcheck1_2B(s1p04r,add1,add2,add3,cy04,cy06,bjmodn04);
-		SSE2_cmplx_carry_norm_errcheck1_2B(s1p08r,add1,add2,add3,cy08,cy10,bjmodn08);
-		SSE2_cmplx_carry_norm_errcheck1_2B(s1p12r,add1,add2,add3,cy12,cy14,bjmodn12);
-		SSE2_cmplx_carry_norm_errcheck1_2B(s1p16r,add1,add2,add3,cy16,cy18,bjmodn16);
-	   #else
-		SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy00,cy02,bjmodn00);
-		SSE2_cmplx_carry_norm_nocheck1_2B (s1p04r,add1,add2,add3,cy04,cy06,bjmodn04);
-		SSE2_cmplx_carry_norm_nocheck1_2B (s1p08r,add1,add2,add3,cy08,cy10,bjmodn08);
-		SSE2_cmplx_carry_norm_nocheck1_2B (s1p12r,add1,add2,add3,cy12,cy14,bjmodn12);
-		SSE2_cmplx_carry_norm_nocheck1_2B (s1p16r,add1,add2,add3,cy16,cy18,bjmodn16);
-	   #endif
-
-	  #elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
-
-	   #ifdef ERR_CHECK_ALL
 		// Each SSE2 carry macro call also processes 2 prefetches of main-array data
-		tmp = a + j1 + pfetch_dist;
-		SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy00,cy02,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
-		tmp += p04;
-		SSE2_cmplx_carry_norm_errcheck1_2B(s1p04r,add1,add2,add3,cy04,cy06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
-		tmp = a + j1 + pfetch_dist + p08;
-		SSE2_cmplx_carry_norm_errcheck1_2B(s1p08r,add1,add2,add3,cy08,cy10,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
-		tmp += p04;
-		SSE2_cmplx_carry_norm_errcheck1_2B(s1p12r,add1,add2,add3,cy12,cy14,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
-		tmp = a + j1 + pfetch_dist + p16;
-		SSE2_cmplx_carry_norm_errcheck1_2B(s1p16r,add1,add2,add3,cy16,cy18,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
-	   #else
-		tmp = a + j1 + pfetch_dist;
-		SSE2_cmplx_carry_norm_errcheck0_2B(s1p00r,add1,add2,add3,cy00,cy02,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
-		tmp += p04;
-		SSE2_cmplx_carry_norm_nocheck1_2B (s1p04r,add1,add2,add3,cy04,cy06,bjmodn04,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
-		tmp = a + j1 + pfetch_dist + p08;
-		SSE2_cmplx_carry_norm_nocheck1_2B (s1p08r,add1,add2,add3,cy08,cy10,bjmodn08,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
-		tmp += p04;
-		SSE2_cmplx_carry_norm_nocheck1_2B (s1p12r,add1,add2,add3,cy12,cy14,bjmodn12,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
-		tmp = a + j1 + pfetch_dist + p16;
-		SSE2_cmplx_carry_norm_nocheck1_2B (s1p16r,add1,add2,add3,cy16,cy18,bjmodn16,half_arr,  n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
-	   #endif
-
-	  #endif
+		i = (!j);
+		tm1 = s1p00r; tmp = cy00; tm2 = cy00 + 1; itmp = bjmodn00;
+		for(l = 0; l < RADIX>>2; l++) {
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p02;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
+			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4; i = 0;
+		}
 
 		l= (j+2) & (nwt-1);			/* We want (S*J mod N) - SI(L) for all 16 carries, so precompute	*/
 		n_minus_sil   = n-si[l  ];		/* N - SI(L) and for each J, find N - (B*J mod N) - SI(L)		*/
@@ -266,50 +274,17 @@ normally be getting dispatched to 20 separate blocks of the A-array, we need 20 
 		add1 = &wt1[col  ];
 		add2 = &wt1[co2-1];
 
-	  #if defined(COMPILER_TYPE_MSVC)
-
-	   #ifdef ERR_CHECK_ALL
-		SSE2_cmplx_carry_norm_errcheck2_2B(s1p00r,add1,add2,     cy00,cy02,bjmodn00);
-		SSE2_cmplx_carry_norm_errcheck2_2B(s1p04r,add1,add2,     cy04,cy06,bjmodn04);
-		SSE2_cmplx_carry_norm_errcheck2_2B(s1p08r,add1,add2,     cy08,cy10,bjmodn08);
-		SSE2_cmplx_carry_norm_errcheck2_2B(s1p12r,add1,add2,     cy12,cy14,bjmodn12);
-		SSE2_cmplx_carry_norm_errcheck2_2B(s1p16r,add1,add2,     cy16,cy18,bjmodn16);
-	   #else
-		SSE2_cmplx_carry_norm_nocheck2_2B (s1p00r,add1,add2,     cy00,cy02,bjmodn00);
-		SSE2_cmplx_carry_norm_nocheck2_2B (s1p04r,add1,add2,     cy04,cy06,bjmodn04);
-		SSE2_cmplx_carry_norm_nocheck2_2B (s1p08r,add1,add2,     cy08,cy10,bjmodn08);
-		SSE2_cmplx_carry_norm_nocheck2_2B (s1p12r,add1,add2,     cy12,cy14,bjmodn12);
-		SSE2_cmplx_carry_norm_nocheck2_2B (s1p16r,add1,add2,     cy16,cy18,bjmodn16);
-	   #endif
-
-	  #elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
-
-	   #ifdef ERR_CHECK_ALL
 		// Each SSE2 carry macro call also processes 2 prefetches of main-array data
-		tmp = a + j1 + pfetch_dist;
-		SSE2_cmplx_carry_norm_errcheck2_2B(s1p00r,add1,add2,     cy00,cy02,bjmodn00,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
-		tmp += p04;
-		SSE2_cmplx_carry_norm_errcheck2_2B(s1p04r,add1,add2,     cy04,cy06,bjmodn04,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
-		tmp = a + j1 + pfetch_dist + p08;
-		SSE2_cmplx_carry_norm_errcheck2_2B(s1p08r,add1,add2,     cy08,cy10,bjmodn08,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
-		tmp += p04;
-		SSE2_cmplx_carry_norm_errcheck2_2B(s1p12r,add1,add2,     cy12,cy14,bjmodn12,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
-		tmp = a + j1 + pfetch_dist + p16;
-		SSE2_cmplx_carry_norm_errcheck2_2B(s1p16r,add1,add2,     cy16,cy18,bjmodn16,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
-	   #else
-		tmp = a + j1 + pfetch_dist;
-		SSE2_cmplx_carry_norm_nocheck2_2B (s1p00r,add1,add2,     cy00,cy02,bjmodn00,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
-		tmp += p04;
-		SSE2_cmplx_carry_norm_nocheck2_2B (s1p04r,add1,add2,     cy04,cy06,bjmodn04,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
-		tmp = a + j1 + pfetch_dist + p08;
-		SSE2_cmplx_carry_norm_nocheck2_2B (s1p08r,add1,add2,     cy08,cy10,bjmodn08,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
-		tmp += p04;
-		SSE2_cmplx_carry_norm_nocheck2_2B (s1p12r,add1,add2,     cy12,cy14,bjmodn12,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
-		tmp = a + j1 + pfetch_dist + p16;
-		SSE2_cmplx_carry_norm_nocheck2_2B (s1p16r,add1,add2,     cy16,cy18,bjmodn16,half_arr,n_minus_silp1,n_minus_sil,          sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
-	   #endif
+		tm1 = s1p00r; tmp = cy00; tm2 = cy00 + 1; itmp = bjmodn00;
+		for(l = 0; l < RADIX>>2; l++) {
+			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
+			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
+			add0 += (-(l&0x1)) & p02;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
+			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
+		}
 
-	  #endif
+	  #endif	// LOACC or HIACC?
 
 		i =((uint32)(sw - *bjmodn00) >> 31);	/* get ready for the next set...	*/
 
@@ -326,8 +301,31 @@ normally be getting dispatched to 20 separate blocks of the A-array, we need 20 
 		wtlp1   =wt0[    l+1];
 		wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
+	#ifdef LOACC
+		// Insert a HIACC-version of the cy macro every now and again to reseed weights:
+		cmplx_carry_norm_errcheck0(a1p00r,a1p00i,cy00,bjmodn00,0 );
+		cmplx_carry_fast_errcheck (a1p01r,a1p01i,cy01,bjmodn01,1 );
+		cmplx_carry_fast_errcheck (a1p02r,a1p02i,cy02,bjmodn02,2 );
+		cmplx_carry_fast_errcheck (a1p03r,a1p03i,cy03,bjmodn03,3 );
+		cmplx_carry_norm_errcheck0(a1p04r,a1p04i,cy04,bjmodn04,4 );
+		cmplx_carry_fast_errcheck (a1p05r,a1p05i,cy05,bjmodn05,5 );
+		cmplx_carry_fast_errcheck (a1p06r,a1p06i,cy06,bjmodn06,6 );
+		cmplx_carry_fast_errcheck (a1p07r,a1p07i,cy07,bjmodn07,7 );
+		cmplx_carry_norm_errcheck0(a1p08r,a1p08i,cy08,bjmodn08,8 );
+		cmplx_carry_fast_errcheck (a1p09r,a1p09i,cy09,bjmodn09,9 );
+		cmplx_carry_fast_errcheck (a1p10r,a1p10i,cy10,bjmodn10,10);
+		cmplx_carry_fast_errcheck (a1p11r,a1p11i,cy11,bjmodn11,11);
+		cmplx_carry_norm_errcheck0(a1p12r,a1p12i,cy12,bjmodn12,12);
+		cmplx_carry_fast_errcheck (a1p13r,a1p13i,cy13,bjmodn13,13);
+		cmplx_carry_fast_errcheck (a1p14r,a1p14i,cy14,bjmodn14,14);
+		cmplx_carry_fast_errcheck (a1p15r,a1p15i,cy15,bjmodn15,15);
+		cmplx_carry_norm_errcheck0(a1p16r,a1p16i,cy16,bjmodn16,16);
+		cmplx_carry_fast_errcheck (a1p17r,a1p17i,cy17,bjmodn17,17);
+		cmplx_carry_fast_errcheck (a1p18r,a1p18i,cy18,bjmodn18,18);
+		cmplx_carry_fast_errcheck (a1p19r,a1p19i,cy19,bjmodn19,19);
+	#else
 		/*...set0 is slightly different from others:	*/
-		cmplx_carry_norm_errcheck0(a1p00r,a1p00i,cy00,bjmodn00   );
+		cmplx_carry_norm_errcheck0(a1p00r,a1p00i,cy00,bjmodn00,0 );
 		cmplx_carry_norm_errcheck (a1p01r,a1p01i,cy01,bjmodn01,1 );
 		cmplx_carry_norm_errcheck (a1p02r,a1p02i,cy02,bjmodn02,2 );
 		cmplx_carry_norm_errcheck (a1p03r,a1p03i,cy03,bjmodn03,3 );
@@ -347,6 +345,7 @@ normally be getting dispatched to 20 separate blocks of the A-array, we need 20 
 		cmplx_carry_norm_errcheck (a1p17r,a1p17i,cy17,bjmodn17,17);
 		cmplx_carry_norm_errcheck (a1p18r,a1p18i,cy18,bjmodn18,18);
 		cmplx_carry_norm_errcheck (a1p19r,a1p19i,cy19,bjmodn19,19);
+	#endif
 
 		i =((uint32)(sw - bjmodn00) >> 31);	/* get ready for the next set...	*/
 		co2=co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
@@ -358,67 +357,8 @@ normally be getting dispatched to 20 separate blocks of the A-array, we need 20 
 
 	#ifdef USE_SSE2
 
-	  #if defined(COMPILER_TYPE_MSVC)
-
-		/* Index patterns of s1p-terms here are the same as in DIT DFT: */
-		SSE2_RADIX_05_DFT_0TWIDDLE(s1p00r,s1p16r,s1p12r,s1p08r,s1p04r,cc1,r00,r02,r04,r08,r06)
-		SSE2_RADIX_05_DFT_0TWIDDLE(s1p15r,s1p11r,s1p07r,s1p03r,s1p19r,cc1,r10,r12,r14,r18,r16)
-		SSE2_RADIX_05_DFT_0TWIDDLE(s1p10r,s1p06r,s1p02r,s1p18r,s1p14r,cc1,r20,r22,r24,r28,r26)
-		SSE2_RADIX_05_DFT_0TWIDDLE(s1p05r,s1p01r,s1p17r,s1p13r,s1p09r,cc1,r30,r32,r34,r38,r36)
-
-	//	add0 = &a[j1    ]; 	add1 = add0+p01;	add2 = add0+p03;	add3 = add0+p02;
-		__asm	mov	eax, add0	/* Must use eax as base address throughout, since that is preserved in SSE2_RADIX4_DIF_0TWIDDLE_STRIDE_B */
-		__asm	mov	edx, add0
-		__asm	mov	esi, p01	/* esi will store power-of-2 multiples of p01 throughout */
-		__asm	shl	esi, 3		/* Pointer offset for floating doubles */
-		__asm	add edx, esi
-		__asm	mov ebx, edx	/* add0+p01 */
-		__asm	add edx, esi
-		__asm	mov ecx, edx	/* add0+p02 */
-		__asm	add edx, esi	/* add0+p03 */
-		SSE2_RADIX4_DIF_0TWIDDLE_STRIDE_C(r00, 0x0a0, 0x140, eax,ebx,edx,ecx)
-
-	//	add0,1,2,3 = &a[j1+p16]+p0,1,3,2
-		__asm	mov	esi, p16
-		__asm	shl	esi, 3
-		__asm	add	eax, esi// &a[j1+p16]
-		__asm	add ebx, esi
-		__asm	add ecx, esi
-		__asm	add edx, esi
-		SSE2_RADIX4_DIF_0TWIDDLE_STRIDE_C(r02, 0x0a0, 0x140, eax,ebx,edx,ecx)
-
-	//	add0,1,2,3 = &a[j1+p12]+p2,3,0,1
-		__asm	mov	esi, p04
-		__asm	shl	esi, 3
-		__asm	sub	eax, esi// &a[j1+p12]
-		__asm	sub ebx, esi
-		__asm	sub ecx, esi
-		__asm	sub edx, esi
-		SSE2_RADIX4_DIF_0TWIDDLE_STRIDE_C(r04, 0x0a0, 0x140, ecx,edx,eax,ebx)
-
-	//	add0,1,2,3 = &a[j1+p04]+p3,2,1,0
-		__asm	mov	esi, p08
-		__asm	shl	esi, 3
-		__asm	sub	eax, esi// &a[j1+p04]
-		__asm	sub ebx, esi
-		__asm	sub ecx, esi
-		__asm	sub edx, esi
-		SSE2_RADIX4_DIF_0TWIDDLE_STRIDE_C(r06, 0x0a0, 0x140, edx,ecx,ebx,eax)
-
-	//	add0,1,2,3 = &a[j1+p08]+p1,0,2,3
-		__asm	mov	esi, p04
-		__asm	shl	esi, 3
-		__asm	add	eax, esi// &a[j1+p08]
-		__asm	add ebx, esi
-		__asm	add ecx, esi
-		__asm	add edx, esi
-		SSE2_RADIX4_DIF_0TWIDDLE_STRIDE_C(r08, 0x0a0, 0x140, ebx,eax,ecx,edx)
-
-	  #elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
-
+		add0 = &a[j1    ];	// re-init this, because ptr used as a prefetch address in carry step above
 		SSE2_RADIX20_DIF_NOTWIDDLE(add0,p01,p04,p08,p16,s1p00r,s1p16r,s1p12r,s1p08r,s1p04r,s1p15r,s1p11r,s1p07r,s1p03r,s1p19r,s1p10r,s1p06r,s1p02r,s1p18r,s1p14r,s1p05r,s1p01r,s1p17r,s1p13r,s1p09r,cc1,r00,r10,r20,r30)
-
-	  #endif
 
 	#else	// Scalar-double mode:
 

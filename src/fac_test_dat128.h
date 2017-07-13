@@ -41,6 +41,185 @@
 		uint64 d0;
 	};
 
+	/*******************************************/
+	/*      Fermat-number test factors:        */
+	/*******************************************/
+
+	// Here interpret the above testFac128 struct as a minimalist [n,k1,k0]-trio format,
+	// where k = k1*2^64 + k0, Fn = 2^2^n+1 is the Fermat number and q = k.2^(n+2)+1 the factor.
+	// To check any particular (alleged) factor q of Fn using Pari, use Mod(2,q)^(2^n)+1.
+
+	// Testcases with factors < 2^128:
+	static const struct testFac128 ffac128[] =
+	{
+		{ 7,        0ull,11141971095088142685ull},			// 1970 Morrison/Brillhart
+		{11,0ull, 20506415569062558ull},{11,0ull,434673084282938711ull},	// 1988 Brent
+		{13,      528ull,11889784005418124336ull},			// 1995 Brent
+		{15, 69801146ull,13376893484985149619ull},			// 1997 Crandall/van Halewyn
+		{16,       39ull, 1485176525646847404ull},			// 1996 Crandall/Dilcher
+		{18,        0ull,   77509585098133576ull},			// 1999 Crandall/McIntosh/Tardif
+		{19,971680160ull,15036099344401914846ull},			// 2009 Bessell/Woltman
+		{22,208923546ull,18410182759848881875ull},			// 2010 Bessell/Woltman
+		{31,        0ull,       5463561471303ull},			// 2001 Kruppa/Forbes
+		{37,        0ull,          1275438465ull},			// 1991 Gostin
+		{39,        0ull,    2864929972774011ull},			// 2012 Rajala/Woltman
+		{42,        0ull,     222636358286122ull},			// 2011 Maznichenko/Rodenkirch
+		{43,        0ull,        212675402445ull},			// 2000 Samidoost/Durman
+		{48,        0ull,       2139543641769ull},			// 2001 Bodschwinna/Durman
+		{52,0ull, 4119ull},{52,0ull, 21626655ull},{52,0ull,81909357657279ull},	// 1963 Wrathall, 1982 Keller, 2010 Vonck/Durman
+		{58,        0ull,                 190ull},			// 1957 Robinson
+		{61,        0ull,           439880504ull},			// 1986 Gostin
+		{62,        0ull,                 697ull},			// 1977 Shippee
+		{63,        0ull,                  36ull},			// 1956 Robinson
+		{64,        0ull,            35707278ull},			// 1986 Gostin
+		{65,        0ull,    2421791520862166ull},			// 2011 Maznichenko/Woltman
+		{66,        0ull,               15102ull},			// 1977 Shippee
+		{71,        0ull,                 683ull},			// 1977 Shippee
+		{72,        0ull,            76432329ull},			// 1986 Gostin
+		{73,        0ull,                   5ull},			// 1906 Morehead
+		{75,        0ull,             3447431ull},			// 1982 Gostin
+		{77,0ull, 425ull},{77,0ull,5940341195ull},			// 1957 Robinson/Selfridge, 1999 Taura
+		{81,        0ull,                 542ull},			// 1957 Robinson/Selfridge
+		{83,        0ull,       6383454640628ull},			// 2005 Danilov/Durman
+		{88,        0ull,        119942751127ull},			// 2001 Nohara/Durman
+		{99,        0ull,              129864ull},			// 1979 Gostin/McLaughlin/Suyama
+		{117,       0ull,                  14ull},			// 1956 Robinson
+		{0,0ull,0ull}
+	};
+
+	// Testcases with factors > 256 bits (i.e. larger than our current largest fixed-length
+	// modpow support, hence necessitating the use of the arbitrary-length mi64-code modpow).
+	// Here interpret the above testFac128 struct as a [n,pow2,k] trio, Fn = 2^2^n+1 is the
+	// Fermat number and q = k.2^pow2 + 1 the factor. Limit ourselves to n < 10000 in order
+	// to keep the resulting self-test timings reasonable.
+	// To check any particular (alleged) factor q of Fn using Pari, use Mod(2,q)^(2^n)+1.
+	static const struct testFac128 ffacBig[] =
+	{
+		{ 230, 232ull,372236097ull},
+		{ 232, 236ull,70899775ull},
+		{ 250, 252ull,403ull},
+		{ 251, 254ull,85801657ull},
+		{ 255, 257ull,629ull},
+		{ 256, 258ull,36986355ull},
+		{ 259, 262ull,36654265ull},
+		{ 267, 271ull,177ull},
+		{ 268, 276ull,21ull},
+		{ 275, 279ull,22347ull},
+		{ 284, 286ull,1061341513ull},
+		{ 286, 288ull,78472588395ull},
+		{ 287, 289ull,5915ull},
+		{ 297, 301ull,72677552745ull},
+		{ 298, 302ull,247ull},
+		{ 299, 304ull,272392805475ull},
+		{ 301, 304ull,7183437ull},
+		{ 316, 320ull,7ull},
+		{ 329, 333ull,1211ull},
+		{ 334, 341ull,27609ull},
+		{ 338, 342ull,27654487ull},
+		{ 343, 345ull,4844391185ull},
+		{ 353, 355ull,18908555ull},
+		{ 370, 373ull,573230511ull},
+		{ 375, 377ull,733251ull},
+		{ 376, 378ull,810373ull},
+		{ 380, 385ull,321116871ull},
+		{ 398, 401ull,120845ull},
+		{ 416, 419ull,38039ull},
+		{ 417, 420ull,303472680883ull},
+		{ 431, 434ull,5769285ull},
+		{ 452, 455ull,27ull},
+		{ 459, 465ull,5449229488169ull},
+		{ 468, 471ull,27114089ull},
+		{ 480, 484ull,5673968845ull},
+		{ 517, 520ull,84977118993ull},
+		{ 544, 547ull,225ull},
+		{ 547, 550ull,77377ull},
+		{ 556, 558ull,127ull},
+		{ 569, 575ull,6616590375ull},
+		{ 579, 581ull,63856313ull},
+		{ 600, 605ull,6213186413ull},
+		{ 620, 624ull,10084141ull},
+		{ 635, 645ull,4258979ull},
+		{ 637, 643ull,11969ull},
+		{ 642, 644ull,52943971ull},
+		{ 666, 668ull,217924552867ull},
+		{ 667, 669ull,491628159ull},
+		{ 692, 695ull,717ull},
+		{ 723, 730ull,554815ull},
+		{ 744, 747ull,17ull},
+		{ 851, 859ull,497531ull},
+		{ 885, 887ull,16578999ull},
+		{ 906, 908ull,57063ull},
+		{ 931, 933ull,1985ull},
+		{ 943, 954ull,4785972759ull},
+		{ 971, 976ull,541664191ull},
+		{1069,1073ull,137883ull},
+		{1082,1084ull,82165ull},
+		{1114,1116ull,11618577ull},
+		{1123,1125ull,25835ull},
+		{1132,1136ull,10111717305ull},
+		{1160,1162ull,2018719057ull},
+		{1201,1203ull,837747239ull},
+		{1225,1231ull,79707ull},
+		{1229,1233ull,29139ull},
+		{1394,1396ull,62705223ull},
+		{1451,1454ull,13143ull},
+		{1551,1553ull,291ull},
+		{1598,1600ull,10923781ull},
+		{1710,1719ull,351276975ull},
+		{1722,1724ull,364182745ull},
+		{1849,1851ull,98855ull},
+		{1945,1947ull,5ull},
+		{1990,1993ull,150863ull},
+		{2023,2027ull,29ull},
+		{2059,2063ull,591909ull},
+		{2089,2099ull,431ull},
+		{2420,2422ull,103257279ull},
+		{2456,2458ull,85ull},
+		{2606,2608ull,238451805ull},
+		{3310,3313ull,5ull},
+		{3314,3322ull,406860969ull},
+		{3335,3337ull,43714055ull},
+		{3506,3508ull,501ull},
+		{3703,3706ull,262254673ull},
+		{3723,3725ull,13308899ull},
+		{4184,4189ull,465917283ull},
+		{4250,4252ull,173373ull},
+		{4258,4262ull,1435ull},
+		{4260,4262ull,209161375ull},
+		{4265,4269ull,72179955ull},
+		{4332,4334ull,2466157ull},
+		{4652,4654ull,143918649ull},
+		{4724,4727ull,29ull},
+		{5320,5323ull,21341ull},
+		{5531,5533ull,1503975ull},
+		{5792,5794ull,8872947ull},
+		{5957,5960ull,421435ull},
+		{6208,6210ull,763ull},
+		{6355,6358ull,115185ull},
+		{6390,6393ull,303ull},
+		{6537,6539ull,17ull},
+		{6835,6838ull,19ull},
+		{6909,6912ull,6021ull},
+		{7181,7187ull,168329ull},
+		{7309,7312ull,145ull},
+		{8239,8242ull,7473ull},
+		{8269,8271ull,592131ull},
+		{8298,8300ull,1054057ull},
+		{8555,8557ull,645ull},
+		{9322,9324ull,8247ull},
+		{9428,9431ull,9ull},
+		{9447,9449ull,5505161ull},
+		{9448,9450ull,19ull},
+		{9549,9551ull,1211ull},
+		{9691,9693ull,260435ull},
+		{9747,9749ull,44670651ull},
+		{   0,   0ull,0ull}
+	};
+
+	/*******************************************/
+	/*      Mersenne-number test factors:      */
+	/*******************************************/
+
 	/* Factors > 96 but <= 128 bits. If desired, we can construct more test factors
 	by multiplying together a 63/64-bit factor q1 of M(p1) and a 65/64-bit factor q2 of M(p2)
 	and checking whether q1*q2 divides M(p1*p2).*/

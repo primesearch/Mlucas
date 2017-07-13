@@ -241,7 +241,7 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 	}
 	else
 	{
-		sprintf(cbuf, "CONFIGFILE = %s: open failed!", CONFIGFILE);
+		sprintf(cbuf, "CONFIGFILE = %s: open failed -- please run the post-build self-tests as described in the README!", CONFIGFILE);
 		ASSERT(HERE, 0 , cbuf);
 	}
 

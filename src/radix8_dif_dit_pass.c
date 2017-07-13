@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2013 by Ernst W. Mayer.                                           *
+*   (C) 1997-2017 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -31,23 +31,7 @@
 		#error SIMD Mode requires HIACC flag to be set!
 	#endif
 
-	#ifdef COMPILER_TYPE_MSVC
-		#include "sse2_macro.h"
-	#endif
-
-	#if defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)	/* GCC-style inline ASM: */
-
-		#if OS_BITS == 32
-
-			#include "radix8_dif_dit_pass_gcc32.h"
-
-		#else
-
-			#include "radix8_dif_dit_pass_gcc64.h"
-
-		#endif
-
-	#endif
+	#include "radix8_dif_dit_pass_asm.h"
 
 #endif
 
@@ -71,7 +55,7 @@ void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1
 
 #ifdef USE_SSE2
 
-  #if !(defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
+  #ifndef COMPILER_TYPE_GCC
 	#error SSE2 code not supported for this compiler!
   #endif
 
@@ -126,7 +110,7 @@ void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 36*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 16 16-byte slots of sc_arr for temporaries, next 16 for the doubled sincos twiddles,
 	next 1 for doubled 1/sqrt2, plus at least 3 more slots to allow for 64-byte alignment of the array:
@@ -176,6 +160,7 @@ void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		VEC_DBL_INIT(one  , 1.0);
 		VEC_DBL_INIT(two  , 2.0);
 	#else
+		#error Non-GCC-compatible compilers not supported for SIMD builds!
 		r0    = sc_ptr + 0x00;		c0    = sc_ptr + 0x10;
 	//	r1    = sc_ptr + 0x01;		s0    = sc_ptr + 0x11;
 	/*	r2    = sc_ptr + 0x02;	*/	c4    = sc_ptr + 0x12;
@@ -411,393 +396,6 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
 
 	#ifdef USE_SSE2
 
-	  #if defined(COMPILER_TYPE_MSVC)	/* MSVC-style inline ASM: */
-
-		/* Only need to store addresses of real element of each pair - im offset by 0x10
-		(i.e. 2 doubles) from that, due to the [re0,re1,im0,im1] ordering we use in SSE2 mode:
-		*/
-		add0 = &a[j1];
-	   #if 1
-		SSE2_RADIX8_DIF_TWIDDLE(add0,p1,p2,p4,p6,r0,c0)
-												/* 117 load/store [91 movaps], 82 add/subpd, 32 mulpd, 67 address-compute */
-
-	   #elif 1
- 		__asm	mov	eax, add0
-		__asm	mov	ebx, p2		// Can't get these via simple load-one-and-shift-as-needed due to array padding scheme
-		__asm	mov	ecx, p4
-		__asm	mov	edx, p6
-		__asm	shl	ebx,  3
-		__asm	shl	ecx,  3
-		__asm	shl	edx,  3
-		__asm	add	ebx, eax
-		__asm	add	ecx, eax
-		__asm	add	edx, eax
-		SSE2_RADIX4_DIF_4TWIDDLE_A         (r0,c4)	/* 36 load/store [30 movaps], 26 add/subpd, 14 mulpd, 21 address-compute */
-		__asm	mov	edi, p1
-		__asm	shl	edi,  3		// 8-bytes for array-of-doubles
-		__asm	add	eax, edi	// &a[j1+p1];
-		__asm	add	ebx, edi
-		__asm	add	ecx, edi
-		__asm	add	edx, edi
-		SSE2_RADIX4_DIF_4TWIDDLE_2NDOFTWO_B(r8,c1)	/* 41 load/store [35 movaps], 32 add/subpd, 20 mulpd, 23 address-compute */
-		/* Combine the 2 radix-4 subtransforms and write outputs back to main array: */
-		SSE2_RADIX8_DIF_COMBINE_RAD4_SUBS_A(r0)		/* 32 load/store [32 movaps], 24 add/subpd,  0 mulpd, 23 address-compute */
-
-												/* Totals:109 load/store [97 movaps], 82 add/subpd, 32 mulpd, 67 address-compute */
-												/* Versus 140 load/store [100movaps], 82 add/subpd, 32 mulpd, 72 address-compute for the original implementation below. */
-	   #else
-		add1 = add0+p1;
-		add2 = add0+p2;
-		add3 = add0+p3;
-		add4 = add0+p4;
-		add5 = add0+p5;
-		add6 = add0+p6;
-		add7 = add0+p7;
-
-		/*
-		t1 =a[j1   ];					t2 =a[j2   ];
-		rt =a[j1+p4]*c4 -a[j2+p4]*s4;	it =a[j2+p4]*c4 +a[j1+p4]*s4;
-		t3 =t1 -rt;				t4 =t2 -it;
-		t1 =t1 +rt;				t2 =t2 +it;
-		*/
-		__asm	mov	eax, add0
-		__asm	mov	ebx, add4
-		__asm	mov	ecx,   c4	/* &c4 */
-
-		__asm	movaps	xmm0,[eax     ]	/* t1 */
-		__asm	movaps	xmm1,[eax+0x10]	/* t2 */
-		__asm	movaps	xmm6,[eax     ]	/* cpy t1 */
-		__asm	movaps	xmm7,[eax+0x10]	/* cpy t2 */
-
-		__asm	movaps	xmm2,[ebx     ]	/* a[j1+p4] */
-		__asm	movaps	xmm3,[ebx+0x10]	/* a[j2+p4] */
-		__asm	movaps	xmm4,[ebx     ]	/* xmm4 <- cpy a[j1+p4] */
-		__asm	movaps	xmm5,[ebx+0x10]	/* xmm5 <- cpy a[j2+p4] */
-		__asm	mulpd	xmm2,[ecx     ]	/* a[j1+p4]*c4 */
-		__asm	mulpd	xmm3,[ecx     ]	/* a[j2+p4]*c4 */
-		__asm	mulpd	xmm4,[ecx+0x10]	/* a[j1+p4]*s4 */
-		__asm	mulpd	xmm5,[ecx+0x10]	/* a[j2+p4]*s4 */
-		__asm	subpd	xmm2,xmm5	/* xmm2 <- rt */
-		__asm	addpd	xmm3,xmm4	/* xmm3 <- it */
-
-		__asm	addpd	xmm0,xmm2	/* t1<-t1 +rt */
-		__asm	addpd	xmm1,xmm3	/* t2<-t2 +it */
-		__asm	subpd	xmm6,xmm2	/* t3 =t1 -rt */
-		__asm	subpd	xmm7,xmm3	/* t4 =t2 -it */
-
-		/* Store results back into original array slots: */
-		__asm	movaps	[eax     ],xmm0	/* a[j1   ] <- t1 */
-		__asm	movaps	[eax+0x10],xmm1	/* a[j2   ] <- t2 */
-		__asm	movaps	[ebx     ],xmm6	/* a[j1+p4] <- t3 */
-		__asm	movaps	[ebx+0x10],xmm7 /* a[j2+p4] <- t4 */
-
-		/*
-		t5 =a[j1+p2]*c2 -a[j2+p2]*s2;	t6 =a[j2+p2]*c2 +a[j1+p2]*s2;
-		rt =a[j1+p6]*c6 -a[j2+p6]*s6;	it =a[j2+p6]*c6 +a[j1+p6]*s6;
-		t7 =t5 -rt;				t8 =t6 -it;
-		t5 =t5 +rt;				t6 =t6 +it;
-		*/
-		__asm	mov	eax, add2
-		__asm	mov	ebx, add6
-		__asm	mov	ecx,   c2
-		__asm	mov	edx,   c6
-		__asm	movaps	xmm0,[eax     ]	/* xmm0 <- a[j1+p2] */
-		__asm	movaps	xmm2,[eax+0x10]	/* xmm2 <- a[j2+p2] */
-		__asm	movaps	xmm1,[eax     ]	/* xmm1 <- cpy a[j1+p2] */
-		__asm	movaps	xmm3,[eax+0x10]	/* xmm3 <- cpy a[j2+p2] */
-		__asm	mulpd	xmm0,[ecx     ]	/*~xmm0 <- a[j1+p2]*c2 */
-		__asm	mulpd	xmm2,[ecx+0x10]	/*~xmm2 <- a[j2+p2]*s2 */
-		__asm	mulpd	xmm1,[ecx+0x10]	/*~xmm1 <- a[j1+p2]*s2 */
-		__asm	mulpd	xmm3,[ecx     ]	/*~xmm3 <- a[j2+p2]*c2 */
-		__asm	subpd	xmm0,xmm2	/*     xmm0 <- t5  */
-		__asm	addpd	xmm1,xmm3	/*     xmm1 <- t6  */
-
-		__asm	movaps	xmm2,[ebx     ]	/* xmm2 <- a[j1+p6] */
-		__asm	movaps	xmm3,[ebx+0x10]	/* xmm3 <- a[j2+p6] */
-		__asm	movaps	xmm4,[ebx     ]	/* xmm4 <- cpy a[j1+p6] */
-		__asm	movaps	xmm5,[ebx+0x10]	/* xmm5 <- cpy a[j2+p6] */
-		__asm	mulpd	xmm2,[edx     ]	/*~xmm2 <- a[j1+p6]*c6 */
-		__asm	mulpd	xmm3,[edx+0x10]	/*~xmm3 <- a[j2+p6]*s6 */
-		__asm	mulpd	xmm4,[edx+0x10]	/*~xmm4 <- a[j1+p6]*s6 */
-		__asm	mulpd	xmm5,[edx     ]	/*~xmm5 <- a[j2+p6]*c6 */
-		__asm	subpd	xmm2,xmm3	/*     xmm2 <- rt */
-		__asm	addpd	xmm4,xmm5	/*     xmm4 <- it */
-
-		__asm	movaps	xmm3,xmm2	/*     xmm3 <- cpy rt */
-		__asm	movaps	xmm5,xmm4	/*     xmm5 <- cpy it */
-		__asm	addpd	xmm2,xmm0	/*    ~xmm2 <- t5 =t5 +rt */
-		__asm	subpd	xmm0,xmm3	/*    ~xmm0 <- t7 =t5 -rt */
-		__asm	addpd	xmm4,xmm1	/*    ~xmm4 <- t6 =t6 +it */
-		__asm	subpd	xmm1,xmm5	/*    ~xmm1 <- t8 =t6 -it */
-
-		/* Store results back into original array slots: */
-		__asm	movaps	[eax     ],xmm2	/* a[j1+p2] <- t5 */
-		__asm	movaps	[eax+0x10],xmm4	/* a[j2+p2] <- t6 */
-		__asm	movaps	[ebx     ],xmm0	/* a[j1+p6] <- t7 */
-		__asm	movaps	[ebx+0x10],xmm1	/* a[j2+p6] <- t8 */
-
-		/*
-		t9 =a[j1+p1]*c1 -a[j2+p1]*s1;	t10=a[j2+p1]*c1 +a[j1+p1]*s1;
-		rt =a[j1+p5]*c5 -a[j2+p5]*s5;	it =a[j2+p5]*c5 +a[j1+p5]*s5;
-		t11=t9 -rt;				t12=t10-it;
-		t9 =t9 +rt;				t10=t10+it;
-		*/
-		__asm	mov	eax, add1
-		__asm	mov	ebx, add5
-		__asm	mov	ecx,   c1
-		__asm	mov	edx,   c5
-		__asm	movaps	xmm0,[eax     ]	/* xmm0 <- a[j1+p1] */
-		__asm	movaps	xmm2,[eax+0x10]	/* xmm2 <- a[j2+p1] */
-		__asm	movaps	xmm1,[eax     ]	/* xmm1 <- cpy a[j1+p1] */
-		__asm	movaps	xmm3,[eax+0x10]	/* xmm3 <- cpy a[j2+p1] */
-		__asm	mulpd	xmm0,[ecx     ]	/*~xmm0 <- a[j1+p1]*c1 */
-		__asm	mulpd	xmm2,[ecx+0x10]	/*~xmm2 <- a[j2+p1]*s1 */
-		__asm	mulpd	xmm1,[ecx+0x10]	/*~xmm1 <- a[j1+p1]*s1 */
-		__asm	mulpd	xmm3,[ecx     ]	/*~xmm3 <- a[j2+p1]*c1 */
-		__asm	subpd	xmm0,xmm2	/*     xmm0 <- t5  */
-		__asm	addpd	xmm1,xmm3	/*     xmm1 <- t6  */
-
-		__asm	movaps	xmm2,[ebx     ]	/* xmm2 <- a[j1+p5] */
-		__asm	movaps	xmm3,[ebx+0x10]	/* xmm3 <- a[j2+p5] */
-		__asm	movaps	xmm4,[ebx     ]	/* xmm4 <- cpy a[j1+p5] */
-		__asm	movaps	xmm5,[ebx+0x10]	/* xmm5 <- cpy a[j2+p5] */
-		__asm	mulpd	xmm2,[edx     ]	/*    ~xmm2 <- a[j1+p5]*c5 */
-		__asm	mulpd	xmm3,[edx+0x10]	/*    ~xmm3 <- a[j2+p5]*s5 */
-		__asm	mulpd	xmm4,[edx+0x10]	/*    ~xmm4 <- a[j1+p5]*s5 */
-		__asm	mulpd	xmm5,[edx     ]	/*    ~xmm5 <- a[j2+p5]*c5 */
-		__asm	subpd	xmm2,xmm3	/*     xmm2 <- rt */
-		__asm	addpd	xmm4,xmm5	/*     xmm4 <- it */
-
-		__asm	movaps	xmm3,xmm2	/*     xmm3 <- cpy rt */
-		__asm	movaps	xmm5,xmm4	/*     xmm5 <- cpy it */
-		__asm	addpd	xmm2,xmm0	/*    ~xmm2 <- t9 =t9 +rt */
-		__asm	subpd	xmm0,xmm3	/*    ~xmm0 <- t11=t9 -rt */
-		__asm	addpd	xmm4,xmm1	/*    ~xmm4 <- t10=t10+it */
-		__asm	subpd	xmm1,xmm5	/*    ~xmm1 <- t12=t10-it */
-
-		/* Store results back into original array slots: */
-		__asm	movaps	[eax     ],xmm2	/* a[j1+p2] <- t9  */
-		__asm	movaps	[eax+0x10],xmm4	/* a[j2+p2] <- t10 */
-		__asm	movaps	[ebx     ],xmm0	/* a[j1+p6] <- t11 */
-		__asm	movaps	[ebx+0x10],xmm1	/* a[j2+p6] <- t12 */
-
-		/*
-		t13=a[j1+p3]*c3 -a[j2+p3]*s3;	t14=a[j2+p3]*c3 +a[j1+p3]*s3;
-		rt =a[j1+p7]*c7 -a[j2+p7]*s7;	it =a[j2+p7]*c7 +a[j1+p7]*s7;
-		t15=t13-rt;				t16=t14-it;
-		t13=t13+rt;				t14=t14+it;
-		*/
-		__asm	mov	eax, add3
-		__asm	mov	ebx, add7
-		__asm	mov	ecx,   c3
-		__asm	mov	edx,   c7
-		__asm	movaps	xmm0,[eax     ]	/* xmm0 <- a[j1+p2] */
-		__asm	movaps	xmm2,[eax+0x10]	/* xmm2 <- a[j2+p2] */
-		__asm	movaps	xmm1,[eax     ]	/* xmm1 <- cpy a[j1+p2] */
-		__asm	movaps	xmm3,[eax+0x10]	/* xmm3 <- cpy a[j2+p2] */
-		__asm	mulpd	xmm0,[ecx     ]	/*    ~xmm0 <- a[j1+p2]*c2 */
-		__asm	mulpd	xmm2,[ecx+0x10]	/*    ~xmm2 <- a[j2+p2]*s2 */
-		__asm	mulpd	xmm1,[ecx+0x10]	/*    ~xmm1 <- a[j1+p2]*s2 */
-		__asm	mulpd	xmm3,[ecx     ]	/*    ~xmm3 <- a[j2+p2]*c2 */
-		__asm	subpd	xmm0,xmm2	/*     xmm0 <- t5  */
-		__asm	addpd	xmm1,xmm3	/*     xmm1 <- t6  */
-
-		__asm	movaps	xmm2,[ebx     ]	/* xmm2 <- a[j1+p6] */
-		__asm	movaps	xmm3,[ebx+0x10]	/* xmm3 <- a[j2+p6] */
-		__asm	movaps	xmm4,[ebx     ]	/* xmm4 <- cpy a[j1+p6] */
-		__asm	movaps	xmm5,[ebx+0x10]	/* xmm5 <- cpy a[j2+p6] */
-		__asm	mulpd	xmm2,[edx     ]	/*    ~xmm2 <- a[j1+p6]*c6 */
-		__asm	mulpd	xmm3,[edx+0x10]	/*    ~xmm3 <- a[j2+p6]*s6 */
-		__asm	mulpd	xmm4,[edx+0x10]	/*    ~xmm4 <- a[j1+p6]*s6 */
-		__asm	mulpd	xmm5,[edx     ]	/*    ~xmm5 <- a[j2+p6]*c6 */
-		__asm	subpd	xmm2,xmm3	/*     xmm2 <- rt */
-		__asm	addpd	xmm4,xmm5	/*     xmm4 <- it */
-
-		__asm	movaps	xmm3,xmm2	/*     xmm3 <- cpy rt */
-		__asm	movaps	xmm5,xmm4	/*     xmm5 <- cpy it */
-		__asm	addpd	xmm2,xmm0	/*    ~xmm2 <- t13=t13+rt */
-		__asm	subpd	xmm0,xmm3	/*    ~xmm0 <- t15=t13-rt */
-		__asm	addpd	xmm4,xmm1	/*    ~xmm4 <- t14=t14+it */
-		__asm	subpd	xmm1,xmm5	/*    ~xmm1 <- t16=t14-it */
-
-		/* Store results back into original array slots: */
-		__asm	movaps	[eax     ],xmm2	/* a[j1+p2] <- t13 */
-		__asm	movaps	[eax+0x10],xmm4	/* a[j2+p2] <- t14 */
-		__asm	movaps	[ebx     ],xmm0	/* a[j1+p6] <- t15 */
-		__asm	movaps	[ebx+0x10],xmm1	/* a[j2+p6] <- t16 */
-
-		/*************************************************/
-		/* combine to get #1 of 2 length-4 transforms... */
-		/*************************************************/
-
-		/*
-		rt =t5;					it =t6;
-		t5 =t1 -rt;				t6 =t2 -it;
-		t1 =t1 +rt;				t2 =t2 +it;
-
-		rt =t13;				it =t14;
-		t13=t9 -rt;				t14=t10-it;
-		t9 =t9 +rt;				t10=t10+it;
-		*/
-		__asm	mov	eax, add0			/*&t1 */
-		__asm	mov	ebx, add2			/*&t5 */
-		__asm	movaps	xmm0,[eax]		/* t1 */
-		__asm	movaps	xmm1,[eax+0x10]	/* t2 */
-		__asm	movaps	xmm4,xmm0	/* copy of t1 */
-		__asm	movaps	xmm5,xmm1	/* copy of t2 */
-		/* */
-		__asm	addpd	xmm0,[ebx]		/* t1 =t1 +rt */
-		__asm	subpd	xmm4,[ebx]		/* t5 =t1 -rt */
-		/* */
-		__asm	addpd	xmm1,[ebx+0x10]	/* t2 =t2 +it */
-		__asm	subpd	xmm5,[ebx+0x10]	/* t6 =t2 -it */
-		/* Store copies of t1,2,5,6 into destination array slots: */
-		__asm	movaps	[eax     ],xmm0	/* a[j1   ]=t1 */
-		__asm	movaps	[eax+0x10],xmm1	/* a[j2   ]=t2 */
-		__asm	movaps	[ebx     ],xmm4	/* a[j1+p2]=t5 */
-		__asm	movaps	[ebx+0x10],xmm5	/* a[j2+p2]=t6 */
-
-		__asm	mov	ecx, add1			/*&t9 */
-		__asm	mov	edx, add3			/*&t13*/
-		__asm	movaps	xmm2,[ecx     ]	/* t9 */
-		__asm	movaps	xmm3,[ecx+0x10]	/* t10*/
-		__asm	movaps	xmm6,xmm2	/* copy of t9 */
-		__asm	movaps	xmm7,xmm3	/* copy of t10*/
-		/* */
-		__asm	addpd	xmm2,[edx]		/* t9 =t9 +rt */
-		__asm	subpd	xmm6,[edx]		/* t13=t9 -rt */
-		/* */
-		__asm	addpd	xmm3,[edx+0x10]	/* t10=t10+it */
-		__asm	subpd	xmm7,[edx+0x10]	/* t14=t10-it */
-
-		/* now combine the two half-transforms */
-		/*
-		a[j1   ]=t1+t9;			a[j2   ]=t2+t10;
-		a[j1+p1]=t1-t9;			a[j2+p1]=t2-t10;
-
-		a[j1+p2]=t5-t14;		a[j2+p2]=t6+t13;
-		a[j1+p3]=t5+t14;		a[j2+p3]=t6-t13;
-		*/
-		__asm	subpd	xmm0,xmm2	/* t1 <- t1-t9  */
-		__asm	subpd	xmm1,xmm3	/* t2 <- t2-t10 */
-		__asm	subpd	xmm4,xmm7	/* t5 <- t5-t14 */
-		__asm	subpd	xmm5,xmm6	/* t6 <- t6-t13 */
-
-		__asm	addpd	xmm2,[eax     ]	/* t9 <- t9 +t1 */
-		__asm	addpd	xmm3,[eax+0x10]	/* t10<- t10+t2 */
-		__asm	addpd	xmm7,[ebx     ]	/* t14<- t14+t5 */
-		__asm	addpd	xmm6,[ebx+0x10]	/* t13<- t13+t6 */
-
-		__asm	movaps	[eax     ],xmm2	/* a[j1   ]=t1+t9  */
-		__asm	movaps	[eax+0x10],xmm3	/* a[j2   ]=t2+t10 */
-		__asm	movaps	[ebx     ],xmm4	/* a[j1+p2]=t5-t14 */
-		__asm	movaps	[ebx+0x10],xmm6	/* a[j2+p2]=t6+t13 */
-
-		__asm	movaps	[ecx     ],xmm0	/* a[j1+p1]=t1-t9  */
-		__asm	movaps	[ecx+0x10],xmm1	/* a[j2+p1]=t2-t10 */
-		__asm	movaps	[edx     ],xmm7	/* a[j1+p3]=t5+t14 */
-		__asm	movaps	[edx+0x10],xmm5	/* a[j2+p3]=t6-t13 */
-
-		/*************************************************/
-		/* combine to get #2 of 2 length-4 transforms... */
-		/*************************************************/
-		/*
-		rt =t7;					it =t8;
-		t7 =t3 +it;				t8 =t4 -rt;
-		t3 =t3 -it;				t4 =t4 +rt;
-
-		rt =t15;				it =t16;
-		t15=t11+it;				t16=t12-rt;
-		t11=t11-it;				t12=t12+rt;
-		*/
-		__asm	mov	eax, add4			/*&t3 */
-		__asm	mov	ebx, add6			/*&t7 */
-		__asm	movaps	xmm0,[eax     ]	/* t3 */
-		__asm	movaps	xmm1,[eax+0x10]	/* t4 */
-		__asm	movaps	xmm4,xmm0	/* copy of t3 */
-		__asm	movaps	xmm5,xmm1	/* copy of t4 */
-		/* */
-		__asm	subpd	xmm0,[ebx+0x10]	/* t3 =t3 -it */
-		__asm	addpd	xmm4,[ebx+0x10]	/* t7 =t3 +it */
-		/* */
-		__asm	addpd	xmm1,[ebx]		/* t4 =t4 +rt */
-		__asm	subpd	xmm5,[ebx]		/* t8 =t4 -rt */
-		/* Store copies of t3,4,7,8 into destination array slots: */
-		__asm	movaps	[eax     ],xmm0	/* a[j1+p4]=t3 */
-		__asm	movaps	[eax+0x10],xmm1	/* a[j2+p4]=t4 */
-		__asm	movaps	[ebx     ],xmm4	/* a[j1+p6]=t7 */
-		__asm	movaps	[ebx+0x10],xmm5	/* a[j2+p6]=t8 */
-
-		__asm	mov	ecx, add5			/*&t11*/
-		__asm	mov	edx, add7			/*&t15*/
-		__asm	movaps	xmm2,[ecx     ]	/* t11*/
-		__asm	movaps	xmm3,[ecx+0x10]	/* t12*/
-		__asm	movaps	xmm6,xmm2	/* copy of t11*/
-		__asm	movaps	xmm7,xmm3	/* copy of t12*/
-		/* */
-		__asm	subpd	xmm2,[edx+0x10]	/* t11=t11-it */
-		__asm	addpd	xmm6,[edx+0x10]	/* t15=t11+it */
-		/* */
-		__asm	addpd	xmm3,[edx]		/* t12=t12+rt */
-		__asm	subpd	xmm7,[edx]		/* t16=t12-tt */
-
-		__asm	movaps	[edx     ],xmm4	/* a[j1+p7]=t7 (t7 ends up in xmm6) */
-		__asm	movaps	[edx+0x10],xmm5	/* a[j2+p7]=t8 (t8 ends up in xmm3) */
-
-		/* now combine the two half-transforms */
-		/*
-		rt =(t11-t12)*ISRT2;	it =(t11+t12)*ISRT2;
-		a[j1+p4]=t3+rt;			a[j2+p4]=t4+it;
-		a[j1+p5]=t3-rt;			a[j2+p5]=t4-it;
-
-		rt =(t15+t16)*ISRT2;	it =(t16-t15)*ISRT2;
-		a[j1+p6]=t7-rt;			a[j2+p6]=t8-it;
-		a[j1+p7]=t7+rt;			a[j2+p7]=t8+it;
-		*/
-		/* Use xmm5 as tmp register here, then restore from [edx+0x10]: */
-		__asm	mov	eax,isrt2	/* &ISRT2, overwrite add4 pointer value stored in register eax */
-
-		__asm	movaps	xmm5,xmm2	/* copy of t11*/
-		__asm	subpd	xmm2,xmm3	/* (t11-t12)  */
-		__asm	addpd	xmm5,xmm3	/* (t11+t12)  */
-		__asm	mulpd	xmm2,[eax]	/* rt0=(t11-t12)*ISRT2 */
-		__asm	mulpd	xmm5,[eax]	/* it0=(t11+t12)*ISRT2 */
-		__asm	movaps	xmm3,[edx+0x10]	/* xmm3 now free */
-
-		/* Use xmm4 as tmp register here, then restore from [ecx]: */
-		__asm	movaps	xmm4,xmm7	/* copy of t16*/
-		__asm	addpd	xmm4,xmm6	/* (t16+t15)  */
-		__asm	subpd	xmm7,xmm6	/* (t16-t15)  */
-		__asm	mulpd	xmm4,[eax]	/* rt1=(t16+t15)*ISRT2 */
-		__asm	mulpd	xmm7,[eax]	/* it1=(t16-t15)*ISRT2 */
-		__asm	movaps	xmm6,[edx]	/* xmm6 now free */
-
-		__asm	mov	eax, add4	/* Restore array pointer */
-
-		__asm	subpd	xmm0,xmm2	/* t3 <- t3-rt0 */
-		__asm	subpd	xmm1,xmm5	/* t4 <- t4-it0 */
-		__asm	subpd	xmm6,xmm4	/* t7 <- t7-rt1 */
-		__asm	subpd	xmm3,xmm7	/* t8 <- t8-it1 */
-
-		__asm	addpd	xmm2,[eax     ]	/* rt0<- rt0+t3 */
-		__asm	addpd	xmm5,[eax+0x10]	/* it0<- it0+t4 */
-		__asm	addpd	xmm4,[ebx     ]	/* rt1<- rt1+t7 */
-		__asm	addpd	xmm7,[ebx+0x10]	/* it1<- it1+t8 */
-
-		__asm	movaps	[eax     ],xmm2	/* a[j1+p4]=t3+rt0 */
-		__asm	movaps	[eax+0x10],xmm5	/* a[j2+p4]=t4+it0 */
-		__asm	movaps	[ebx     ],xmm6	/* a[j1+p6]=t7-rt1 */
-		__asm	movaps	[ebx+0x10],xmm3	/* a[j2+p6]=t8-it1 */
-
-		__asm	movaps	[ecx     ],xmm0	/* a[j1+p5]=t3-rt0 */
-		__asm	movaps	[ecx+0x10],xmm1	/* a[j2+p5]=t4-it0 */
-		__asm	movaps	[edx     ],xmm4	/* a[j1+p7]=t7+rt1 */
-		__asm	movaps	[edx+0x10],xmm7	/* a[j2+p7]=t8+it1 */
-														/* Totals: 140 load/store, 82 add/subpd, 32 mulpd, 72 address-compute */
-	   #endif	/* pure-ASM */
-
-	  #elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
-
 		add0 = &a[j1];
 		add1 = add0+p1;
 		add2 = add0+p2;
@@ -808,8 +406,6 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
 		add7 = add0+p7;
 
 		SSE2_RADIX8_DIF_TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7,isrt2,c1,c2,c3,c4,c5,c6,c7);
-
-	  #endif	/* MSVC or GCC */
 
 	#else	// !USE_SSE2
 
@@ -890,7 +486,8 @@ printf("radix8_dif_pass: nloops = %d  incr = %d  using %d th roots of unity.\n",
 		rt =(t15+t16)*ISRT2;	it =(t16-t15)*ISRT2;
 		a[j1+p6]=t7-rt;			a[j2+p6]=t8-it;
 		a[j1+p7]=t7+rt;			a[j2+p7]=t8+it;
-#endif	/* USE_SSE2 */
+
+	#endif	/* USE_SSE2 */
 
 	  }	/* endfor(j=jlo; j < jhi; j += 4) */
 
@@ -919,7 +516,7 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 
 #ifdef USE_SSE2
 
-  #if !(defined(COMPILER_TYPE_MSVC) || defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC))
+  #ifndef COMPILER_TYPE_GCC
 	#error SSE2 code not supported for this compiler!
   #endif
 
@@ -974,7 +571,7 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 36*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 16 16-byte slots of sc_arr for temporaries, next 16 for the doubled sincos twiddles,
 	next 1 for doubled 1/sqrt2, plus at least 3 more slots to allow for 64-byte alignment of the array:
@@ -1024,6 +621,7 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		VEC_DBL_INIT(one  , 1.0);
 		VEC_DBL_INIT(two  , 2.0);
 	#else
+		#error Non-GCC-compatible compilers not supported for SIMD builds!
 		r0    = sc_ptr + 0x00;		c0    = sc_ptr + 0x10;
 	//	r1    = sc_ptr + 0x01;		s0    = sc_ptr + 0x11;
 	/*	r2    = sc_ptr + 0x02;	*/	c4    = sc_ptr + 0x12;
@@ -1259,428 +857,6 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 
 	#ifdef USE_SSE2
 
-	  #if defined(COMPILER_TYPE_MSVC)	/* MSVC-style inline ASM: */
-
-		/* Only need to store addresses of real element of each pair - im offset by 0x10
-		(i.e. 2 doubles) from that, due to the [re0,re1,im0,im1] ordering we use in SSE2 mode:
-		*/
-		add0 = &a[j1];
-	   #if 1
-		SSE2_RADIX8_DIT_TWIDDLE(add0,p4,p5,p6,p7,r0,c4)
-												/*  97 load/store, 82 add/subpd, 32 mulpd, 67 address-compute */
-	   #elif 0
-		add1 = add0+p1;
-		add2 = add0+p2;
-		add3 = add0+p3;
-		add4 = add0+p4;
-		add5 = add0+p5;
-		add6 = add0+p6;
-		add7 = add0+p7;
-
-		SSE2_RADIX4_DIT_0TWIDDLE(add0, add1, add2, add3, r0)
-		SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO(add4, add5, add6, add7, r8)
-		SSE2_RADIX8_DIT_COMBINE_RAD4_SUBS(r0,r2,r4,r6,r8,ra,rc,re)
-
-	   #elif 0	// if(1) - test out pure-asm version
-		__asm	mov	eax, add0
-		__asm	mov	ebx, p2		// Can't get these via simple load-one-and-shift-as-needed due to array padding scheme
-		__asm	mov	ecx, p4
-		__asm	mov	edx, p6
-		__asm	shl	ebx,  3
-		__asm	shl	ecx,  3
-		__asm	shl	edx,  3
-		__asm	add	ebx, eax
-		__asm	add	ecx, eax
-		__asm	add	edx, eax
-		SSE2_RADIX4_DIF_4TWIDDLE_A         (r0,c4)	/* 36 load/store, 26 add/subpd, 14 mulpd, 21 address-compute */
-		__asm	mov	edi, p1
-		__asm	shl	edi,  3		// 8-bytes for array-of-doubles
-		__asm	add	eax, edi	// &a[j1+p1];
-		__asm	add	ebx, edi
-		__asm	add	ecx, edi
-		__asm	add	edx, edi
-		SSE2_RADIX4_DIF_4TWIDDLE_2NDOFTWO_B(r8,c1)	/* 41 load/store, 32 add/subpd, 20 mulpd, 23 address-compute */
-		/* Combine the 2 radix-4 subtransforms and write outputs back to main array: */
-		SSE2_RADIX8_DIF_COMBINE_RAD4_SUBS_A(r0)		/* 32 load/store, 24 add/subpd,  0 mulpd, 23 address-compute */
-
-												/* Totals:109 load/store, 82 add/subpd, 32 mulpd, 67 address-compute */
-												/* Versus 140 load/store, 82 add/subpd, 32 mulpd, 72 address-compute for the original implementation below. */
-	   #elif 1
-
-		add1 = add0+p1;
-		add2 = add0+p2;
-		add3 = add0+p3;
-		add4 = add0+p4;
-		add5 = add0+p5;
-		add6 = add0+p6;
-		add7 = add0+p7;
-
-		/*** 2nd of the 2 length-4 subtransforms gets done first, due to e.g. t1-+t9 combos in final step: ***/
-			/*
-			t9 =a[j1+p4];	t10=a[j2+p4];
-			t11=a[j1+p5];	t12=a[j2+p5];
-			~t11=t9 -t11;	~t12=t10-t12;
-			~t9 =t9 +t11;	~t10=t10+t12;
-			*/
-			__asm	mov	eax, add4
-			__asm	mov	ebx, add5
-			__asm	movaps	xmm0,[eax]		/* xmm0 <- a[j1+p4] = t9 */
-			__asm	movaps	xmm1,[eax+0x10]	/* xmm1 <- a[j2+p4] = t10*/
-			__asm	movaps	xmm2,xmm0		/* xmm4 <- copy of t9    */
-			__asm	movaps	xmm3,xmm1		/* xmm5 <- copy of t10   */
-			__asm	addpd	xmm2,[ebx]		/* xmm2 <- t9  */
-			__asm	addpd	xmm3,[ebx+0x10]	/* xmm3 <- t10 */
-			__asm	subpd	xmm0,[ebx]		/* xmm0 <- t11 */
-			__asm	subpd	xmm1,[ebx+0x10]	/* xmm1 <- t12 */
-			/*
-			t13=a[j1+p6];	t14=a[j2+p6];
-			rt =a[j1+p7];	it =a[j2+p7];
-			~t15=t13-t15	~t16=t14-t16
-			~t13=t13+t15	~t14=t14+t16
-			*/
-			__asm	mov	ecx, add6
-			__asm	mov	edx, add7
-			__asm	movaps	xmm4,[ecx]		/* xmm4 <- a[j1+p6] = t13*/
-			__asm	movaps	xmm5,[ecx+0x10]	/* xmm5 <- a[j2+p6] = t14*/
-			__asm	movaps	xmm6,xmm4		/* xmm6 <- copy of t13   */
-			__asm	movaps	xmm7,xmm5		/* xmm7 <- copy of t14   */
-			__asm	addpd	xmm6,[edx]		/* xmm6 <- t13 */
-			__asm	addpd	xmm7,[edx+0x10]	/* xmm7 <- t14 */
-			__asm	subpd	xmm4,[edx]		/* xmm4 <- t15 */
-			__asm	subpd	xmm5,[edx+0x10]	/* xmm5 <- t16 */
-			/* Copy t13,14 into main-array slot add6 */
-			__asm	movaps	[ecx     ],xmm6
-			__asm	movaps	[ecx+0x10],xmm7
-			/* Copy t15,16 into main-array slot add7 */
-			__asm	movaps	[edx     ],xmm4
-			__asm	movaps	[edx+0x10],xmm5
-
-		/** GPRs: ***** SSE Regs: ***** Main array: ********\
-		*	eax, add4	xmm0 <- t11		add0 <- unused		*
-		*	ebx, add5	xmm1 <- t12		add1 <- unused 		*
-		*	ecx, add6	xmm2 <- t9 		add2 <- unused		*
-		*	edx, add7	xmm3 <- t10		add3 <- unused 		*
-		*				xmm4 <- t15		add4 <- unused		*
-		*				xmm5 <- t16		add5 <- unused		*
-		*				xmm6 <- t13		add6 <- t13,14		*
-		*				xmm7 <- t14		add7 <- t15,16		*
-		\***************************************************/
-
-		/*
-		rt =t13;	t13=t9 -rt ;	t9 =t9 +rt ;	copies of t13 in add6     , xmm6
-		it =t14;	t14=t10-it ;	t10=t10+it ;	copies of t14 in add6+0x10, xmm7
-
-		rt =t15;	t15=t11-t16;	t11=t11+t16;	copies of t15 in add7     , xmm4
-					t16=t12+rt ;	t12=t12-rt ;	copies of t16 in add7+0x10, xmm5
-		*/
-		/* Move outputs t11,12 into a[j1,j2+p5], first doing the addsub and mul by ISRT2: */
-		/* Move outputs t15,16 into a[j1,j2+p7], first doing the addsub and mul by ISRT2: */
-
-			__asm	addpd	xmm6,xmm2		/* xmm6 <- ~t9  */
-			__asm	addpd	xmm7,xmm3		/* xmm7 <- ~t10 */
-			__asm	subpd	xmm2,[ecx     ]	/* xmm2 <- ~t13 */
-			__asm	subpd	xmm3,[ecx+0x10]	/* xmm3 <- ~t14 */
-			/* Move t13,14 into a[j1,j2+p6] */
-			__asm	movaps	[ecx     ],xmm2	/* add6r <- ~t13 */
-			__asm	movaps	[ecx+0x10],xmm3	/* add6i <- ~t14 */
-
-			__asm	movaps	xmm2,xmm4	/* xmm2 <- copy of t15 */
-			__asm	movaps	xmm3,xmm5	/* xmm3 <- copy of t16 */
-			__asm	addpd	xmm5,xmm0	/* xmm5 <-~t11 */
-			__asm	subpd	xmm0,xmm3	/* xmm0 <-~t15 */
-			__asm	addpd	xmm4,xmm1	/* xmm4 <-~t16 */
-			__asm	subpd	xmm1,xmm2	/* xmm1 <-~t12 */
-
-			__asm	movaps	xmm2,xmm5	/* xmm2 <- copy of~t11 */
-			__asm	movaps	xmm3,xmm1	/* xmm3 <- copy of~t12 */
-			__asm	addpd	xmm5,xmm1	/* xmm5 <-~(t11+t12), xmm1 FREE */
-			__asm	mov	ecx,isrt2
-			__asm	movaps	xmm1,[ecx]	/* xmm1 <- ISRT2 */
-			__asm	subpd	xmm2,xmm3	/* xmm2 <-~(t11-t12), xmm3 FREE */
-			__asm	mulpd	xmm5,xmm1	/* xmm5 <- (t11+t12)*ISRT2 */
-			__asm	mulpd	xmm2,xmm1	/* xmm2 <- (t11-t12)*ISRT2 */
-			__asm	movaps	xmm3,xmm0	/* xmm3 <- copy of~t15 */
-
-			__asm	movaps	[ebx     ],xmm5	/* add5r<- (t11+t12)*ISRT2, xmm5 FREE */
-			__asm	movaps	xmm5,xmm4		/* xmm5 <- copy of~t16 */
-			__asm	addpd	xmm0,xmm4	/* xmm0 <-~(t15+t16) */
-			__asm	movaps	[ebx+0x10],xmm2	/* add5i<- (t11-t12)*ISRT2 */
-			__asm	subpd	xmm3,xmm5	/* xmm3 <-~(t15-t16) */
-			__asm	mulpd	xmm0,xmm1	/* xmm0 <- (t15+t16)*ISRT2 */
-			__asm	mulpd	xmm3,xmm1	/* xmm3 <- (t15-t16)*ISRT2 */
-			__asm	movaps	[edx     ],xmm0	/* add7r<- (t15+t16)*ISRT2 */
-			__asm	movaps	[edx+0x10],xmm3	/* add7i<- (t15-t16)*ISRT2 */
-
-		/** GPRs: ***** SSE Regs: ***** Main array: ******************\
-		*    eax, add4   xmm0 unused        add0 <- unused            *
-		*    ebx, add5   xmm1 unused        add1 <- unused            *
-		*    ecx, isrt2  xmm2 unused        add2 <- unused            *
-		*    edx, add7   xmm3 unused        add3 <- unused            *
-		*                xmm4 unused        add4 <- unused            *
-		*                xmm5 unused        add5 <- (t11+-t12)*ISRT2  *
-		*                xmm6 t9            add6 <-  t13,14           *
-		*                xmm7 t10           add7 <- (t15+-t16)*ISRT2  *
-		\*************************************************************/
-
-		/**************** 1st of the 2 length-4 subtransforms... **************/
-		/*
-		t1 =a[j1   ];	t2 =a[j2   ];
-		rt =a[j1+p1];	it =a[j2+p1];
-		t3 =t1 -rt;		t4 =t2 -it;
-		t1 =t1 +rt;		t2 =t2 +it;
-		*/
-		__asm	mov	eax, add0
-		__asm	mov	ebx, add1
-
-		__asm	movaps	xmm0,[eax]		/* xmm0 <- a[j1   ] = t1 */
-		__asm	movaps	xmm1,[eax+0x10]	/* xmm1 <- a[j2   ] = t2 */
-		__asm	movaps	xmm2,xmm0		/* xmm2 <- copy of t1    */
-		__asm	movaps	xmm3,xmm1		/* xmm3 <- copy of t2    */
-		__asm	addpd	xmm2,[ebx]		/*~xmm2 <- t1  */
-		__asm	addpd	xmm3,[ebx+0x10]	/*~xmm3 <- t2  */
-		__asm	subpd	xmm0,[ebx]		/*~xmm0 <- t3  */
-		__asm	subpd	xmm1,[ebx+0x10]	/*~xmm1 <- t4  */
-
-		/* Move   t9,  t10 into a[j1,j2   ] in anticipation of final outputs t1+-t9, t2+-t10 which will go there: */
-		__asm	movaps	[eax     ],xmm6
-		__asm	movaps	[eax+0x10],xmm7	/* add0 <-  t9,t10 */
-		__asm	addpd	xmm6,xmm6		/* xmm6 <- 2*t9  */
-		__asm	addpd	xmm7,xmm7		/* xmm7 <- 2*t10 */
-		/* Move 2*t9,2*t10 into a[j1,j2+p4] in anticipation of final outputs t1+-t9, t2+-t10 which will go there: */
-		__asm	mov	ecx, add4
-		__asm	movaps	[ecx     ],xmm6	/* add4 <- 2*t9,2*t10  */
-		__asm	movaps	[ecx+0x10],xmm7	/* xmm4-7 FREE */
-		/*
-		t5 =a[j1+p2];	t6 =a[j2+p2];
-		rt =a[j1+p3];	it =a[j2+p3];
-		t7 =t5 -rt;		t8 =t6 -it;
-		t5 =t5 +rt;		t6 =t6 +it;
-		*/
-		__asm	mov	ecx, add2
-		__asm	mov	edx, add3
-		__asm	movaps	xmm4,[ecx]		/* xmm4 <- a[j1+p2] = t5 */
-		__asm	movaps	xmm5,[ecx+0x10]	/* xmm5 <- a[j2+p2] = t6 */
-		__asm	movaps	xmm6,xmm4		/* xmm6 <- copy of t5    */
-		__asm	movaps	xmm7,xmm5		/* xmm7 <- copy of t6    */
-		__asm	addpd	xmm6,[edx]		/*~xmm6 <- t5  */
-		__asm	addpd	xmm7,[edx+0x10]	/*~xmm7 <- t6  */
-		__asm	subpd	xmm4,[edx]		/*~xmm4 <- t7  */
-		__asm	subpd	xmm5,[edx+0x10]	/*~xmm5 <- t8  */
-		/* Copy t5,6 into main-array slots a[j1,j2+p2] */
-		__asm	movaps	[ecx     ],xmm6
-		__asm	movaps	[ecx+0x10],xmm7	/* add2 <-  t5,t6 */
-
-		/** GPRs: ***** SSE Regs: ***** Main array: ******************\
-		*    eax, add0   xmm0 t3            add0 <-  t9,t10           *
-		*    ebx, add1   xmm1 t4            add1 <- unused            *
-		*    ecx, add2   xmm2 t1            add2 <-  t5,t6            *
-		*    edx, add3   xmm3 t2            add3 <- unused            *
-		*                xmm4 t7            add4 <- 2*t9,2*t10        *
-		*                xmm5 t8            add5 <- (t11+-t12)*ISRT2  *
-		*                xmm6 t5            add6 <-  t13,14           *
-		*                xmm7 t6            add7 <- (t15+-t16)*ISRT2  *
-		\*************************************************************/
-
-		/*
-		rt =t5;	t5 =t1 -rt;	t1 =t1 +rt;	copies of t5 in add2     , xmm6
-		it =t6;	t6 =t2 -it;	t2 =t2 +it;	copies of t6 in add2+0x10, xmm7
-
-		rt =t7;	t7 =t3 -t8;	t3 =t3 +t8;
-				t8 =t4 +rt;	t4 =t4 -rt;
-		*/
-		__asm	addpd	xmm6,xmm2		/* xmm6 <- ~t1 */
-		__asm	addpd	xmm7,xmm3		/* xmm7 <- ~t2 */
-		__asm	subpd	xmm2,[ecx     ]	/* xmm2 <- ~t5 */
-		__asm	subpd	xmm3,[ecx+0x10]	/* xmm3 <- ~t6 */
-
-		/* Compute and dump first 2 outputs now, in order to free up 2 registers: */
-		__asm	addpd	xmm6,[eax     ]	/* t1+t9 */
-		__asm	addpd	xmm7,[eax+0x10]	/* t2+t10*/
-		__asm	movaps	[eax     ],xmm6	/* a[j1   ], DONE. */
-		__asm	movaps	[eax+0x10],xmm7	/* a[j2   ], DONE. */
-
-		__asm	mov	ebx, add4
-		__asm	subpd	xmm6,[ebx     ]	/* t1-t9  = [t1+t9 ] - 2*t9  */
-		__asm	subpd	xmm7,[ebx+0x10]	/* t2-t10 = [t2+t10] - 2*t10 */
-		__asm	movaps	[ebx     ],xmm6	/* Spill t1-t9  to a[j1+p4]. */
-		__asm	movaps	[ebx+0x10],xmm7	/* Spill t2-t10 to a[j2+p4]. */
-		__asm	movaps	[edx     ],xmm6	/* Copy: t1-t9  -> a[j1+p3]. */
-		__asm	movaps	[edx+0x10],xmm7	/* Copy: t2-t10 -> a[j2+p3]. */
-
-		__asm	movaps	xmm6,xmm4	/* xmm6 <- copy of t7 */
-		__asm	movaps	xmm7,xmm5	/* xmm7 <- copy of t8 */
-		__asm	addpd	xmm5,xmm0	/* xmm5 <- ~t3 */
-		__asm	subpd	xmm0,xmm7	/* xmm0 <- ~t7 */
-		__asm	addpd	xmm4,xmm1	/* xmm4 <- ~t8 */
-		__asm	subpd	xmm1,xmm6	/* xmm1 <- ~t4 */
-
-/** GPRs: ***** SSE Regs: ***** Main array: ******************\
-*    eax, add0   xmm0 t7            add0 <- DONE              *
-*    ebx, add4   xmm1 t4            add1 <- unused            *
-*    ecx, ----   xmm2 t5            add2 <- unused            *
-*    edx, add3   xmm3 t6            add3 <- t1-t9,t2-t10      *
-*                xmm4 t8            add4 <- t1-t9,t2-t10      *
-*                xmm5 t3            add5 <- (t11+-t12)*ISRT2  *
-*                xmm6 unused        add6 <-  t13,14           *
-*                xmm7 unused        add7 <- (t15+-t16)*ISRT2  *
-\*************************************************************/
-
-/* Now combine the two half-transforms & store outputs back into original array slots: */
-		/*
-		a[j1   ]=t1+t9;				a[j2   ]=t2+t10;	already done
-		~t1     =t1-t9;				~t2     =t2-t10;	copies in add3[edx],add4[ebx]
-		a[j1+p4]=~t1*c4 +~t2*s4;	a[j2+p4]=~t2*c4 -~t1*s4;
-		*/
-		__asm	mov	ecx,   c4	/* &c4 */
-		__asm	movaps	xmm6,[ebx     ]	/* t1-t9  <- a[j1+p4]. */
-		__asm	movaps	xmm7,[ebx+0x10]	/* t2-t10 <- a[j2+p4]. */
-		__asm	mulpd	xmm6,[ecx+0x10]	/*~t1*s4 */
-		__asm	mulpd	xmm7,[ecx+0x10]	/*~t2*s4 */
-		__asm	movaps	[ebx     ],xmm6	/* a[j1+p4] <- ~t1*s4 */
-		__asm	movaps	[ebx+0x10],xmm7	/* a[j2+p4] <- ~t2*s4 */
-
-		__asm	movaps	xmm6,[edx     ]	/* xmm6 <- cpy ~t1 */
-		__asm	movaps	xmm7,[edx+0x10]	/* xmm7 <- cpy ~t2 */
-		__asm	mulpd	xmm6,[ecx     ]	/*~t1*c4 */
-		__asm	mulpd	xmm7,[ecx     ]	/*~t2*c4 */
-		__asm	addpd	xmm6,[ebx+0x10]	/* ~t1*c4 +~t2*s4 */
-		__asm	subpd	xmm7,[ebx     ]	/* ~t2*c4 -~t1*s4 */
-
-		__asm	movaps	[ebx     ],xmm6	/* a[j1+p4] <- ~t1*c4 +~t2*s4 */
-		__asm	movaps	[ebx+0x10],xmm7	/* a[j2+p4] <- ~t2*c4 -~t1*s4 */
-
-		/*
-		rt=(t11+t12)*ISRT2;			it=(t11-t12)*ISRT2;	precomputed, in add5
-		t11     =t3+rt;				t12       =t4-it;
-		t3      =t3-rt;				t4        =t4+it;
-		a[j1+p1]=t11*c1 +t12*s1;	a[j2+p1]=t12*c1 -t11*s1;
-		a[j1+p5]=t3 *c5 +t4 *s5;	a[j2+p5]=t4 *c5 -t3 *s5;
-		*/
-		__asm	mov	eax, add1
-		__asm	mov	ebx, add5
-		__asm	mov	ecx,   c1
-		__asm	mov	edx,   c5
-		__asm	movaps	xmm6,xmm5		/* xmm6 <- copy of t3 */
-		__asm	movaps	xmm7,xmm1		/* xmm7 <- copy of t4 */
-		__asm	addpd	xmm5,[ebx     ]	/* ~t11 */
-		__asm	subpd	xmm1,[ebx+0x10]	/* ~t12 */
-		__asm	subpd	xmm6,[ebx     ]	/* ~t3  */
-		__asm	addpd	xmm7,[ebx+0x10]	/* ~t4  */
-		__asm	movaps	[ebx     ],xmm6	/* spill ~t3,t4 to add5 */
-		__asm	movaps	[ebx+0x10],xmm7
-		__asm	movaps	xmm6,xmm5	/* xmm6 <- cpy ~t11*/
-		__asm	movaps	xmm7,xmm1	/* xmm7 <- cpy ~t12*/
-
-		__asm	mulpd	xmm5,[ecx     ]	/* t11*c1 */
-		__asm	mulpd	xmm1,[ecx     ]	/* t12*c1 */
-		__asm	mulpd	xmm6,[ecx+0x10]	/* t11*s1 */
-		__asm	mulpd	xmm7,[ecx+0x10]	/* t12*s1 */
-		__asm	subpd	xmm1,xmm6	/* t12*c1 - t11*s1 */
-		__asm	addpd	xmm5,xmm7	/* t11*c1 + t12*s1 */
-		__asm	movaps	[eax+0x10],xmm1	/* a[j2+p1] */
-		__asm	movaps	[eax     ],xmm5	/* a[j1+p1] */
-
-		__asm	movaps	xmm5,[ebx     ]	/* t3 */
-		__asm	movaps	xmm1,[ebx+0x10]	/* t4 */
-		__asm	movaps	xmm6,xmm5	/* xmm6 <- copy t3 */
-		__asm	movaps	xmm7,xmm1	/* xmm7 <- copy t4 */
-
-		__asm	mulpd	xmm5,[edx     ]	/* t3 *c5 */
-		__asm	mulpd	xmm1,[edx     ]	/* t4 *c5 */
-		__asm	mulpd	xmm6,[edx+0x10]	/* t3 *s5 */
-		__asm	mulpd	xmm7,[edx+0x10]	/* t4 *s5 */
-		__asm	subpd	xmm1,xmm6	/* t4*c5 - t3*s5 */
-		__asm	addpd	xmm5,xmm7	/* t3*c5 + t4*s5 */
-		__asm	movaps	[ebx+0x10],xmm1	/* a[j2+p5] */
-		__asm	movaps	[ebx     ],xmm5	/* a[j1+p5] */	/*** xmm1,5,6,7 FREE ***/
-
-		/*
-		rt      =t5+t14;			it        =t6-t13;
-		t5      =t5-t14;			t6        =t6+t13;
-		a[j1+p2]=rt *c2 +it *s2;	a[j2+p2]=it *c2 -rt *s2;
-		a[j1+p6]=t5 *c6 +t6 *s6;	a[j2+p6]=t6 *c6 -t5 *s6;
-		*/
-		__asm	mov	eax, add2
-		__asm	mov	ebx, add6
-		__asm	mov	ecx,   c2
-		__asm	mov	edx,   c6
-		__asm	movaps	xmm6,xmm2		/* xmm6 <- copy of t5 */
-		__asm	movaps	xmm7,xmm3		/* xmm7 <- copy of t6 */
-		__asm	addpd	xmm2,[ebx+0x10]	/*  rt */
-		__asm	subpd	xmm3,[ebx     ]	/*  it */
-		__asm	subpd	xmm6,[ebx+0x10]	/* ~t5  */
-		__asm	addpd	xmm7,[ebx     ]	/* ~t6  */
-		__asm	movaps	xmm1,xmm2	/* xmm1 <- cpy rt */
-		__asm	movaps	xmm5,xmm3	/* xmm5 <- cpy it */
-
-		__asm	mulpd	xmm2,[ecx     ]	/* rt*c2 */
-		__asm	mulpd	xmm3,[ecx     ]	/* it*c2 */
-		__asm	mulpd	xmm1,[ecx+0x10]	/* rt*s2 */
-		__asm	mulpd	xmm5,[ecx+0x10]	/* it*s2 */
-		__asm	subpd	xmm3,xmm1	/* it*c2 - rt*s2 */
-		__asm	addpd	xmm2,xmm5	/* rt*c2 + it*s2 */
-		__asm	movaps	[eax+0x10],xmm3	/* a[j2+p2] */
-		__asm	movaps	[eax     ],xmm2	/* a[j1+p2] */
-
-		__asm	movaps	xmm1,xmm6	/* xmm1 <- cpy t5 */
-		__asm	movaps	xmm5,xmm7	/* xmm5 <- cpy t6 */
-
-		__asm	mulpd	xmm6,[edx     ]	/* t5*c6 */
-		__asm	mulpd	xmm7,[edx     ]	/* t6*c6 */
-		__asm	mulpd	xmm1,[edx+0x10]	/* t5*s6 */
-		__asm	mulpd	xmm5,[edx+0x10]	/* t6*s6 */
-		__asm	subpd	xmm7,xmm1	/* t6*c6 - t5*s6 */
-		__asm	addpd	xmm6,xmm5	/* t5*c6 + t6*s6 */
-		__asm	movaps	[ebx+0x10],xmm7	/* a[j2+p6] */
-		__asm	movaps	[ebx     ],xmm6	/* a[j1+p6] */
-
-		/*
-		rt=(t15-t16)*ISRT2;			it=(t15+t16)*ISRT2;	precomputed, it,rt] in add7; NOTE reversed order!
-		t15     =t7-rt;				t16       =t8-it;
-		t7      =t7+rt;				t8        =t8+it;
-		a[j1+p3]=t15*c3 +t16*s3;	a[j2+p3]=t16*c3 -t15*s3;
-		a[j1+p7]=t7 *c7 +t8 *s7;	a[j2+p7]=t8 *c7 -t7 *s7;
-		*/
-		__asm	mov	eax, add3
-		__asm	mov	ebx, add7
-		__asm	mov	ecx,   c3
-		__asm	mov	edx,   c7
-		__asm	movaps	xmm6,xmm0		/* xmm6 <- copy of t7 */
-		__asm	movaps	xmm7,xmm4		/* xmm7 <- copy of t8 */
-		__asm	subpd	xmm0,[ebx+0x10]	/* ~t15 */
-		__asm	subpd	xmm4,[ebx     ]	/* ~t16 */
-		__asm	addpd	xmm6,[ebx+0x10]	/* ~t7  */
-		__asm	addpd	xmm7,[ebx     ]	/* ~t8  */
-
-		__asm	movaps	xmm1,xmm0	/* xmm6 <- cpy t15*/
-		__asm	movaps	xmm5,xmm4	/* xmm7 <- cpy t16*/
-
-		__asm	mulpd	xmm0,[ecx     ]	/* t15*c3 */
-		__asm	mulpd	xmm4,[ecx     ]	/* t16*c3 */
-		__asm	mulpd	xmm1,[ecx+0x10]	/* t15*s3 */
-		__asm	mulpd	xmm5,[ecx+0x10]	/* t16*s3 */
-		__asm	subpd	xmm4,xmm1	/* t16*c3 -t15*s3 */
-		__asm	addpd	xmm0,xmm5	/* t15*c3 +t16*s3 */
-		__asm	movaps	[eax+0x10],xmm4	/* a[j2+p3] */
-		__asm	movaps	[eax     ],xmm0	/* a[j1+p3] */
-
-		__asm	movaps	xmm1,xmm6	/* xmm1 <- cpy t7 */
-		__asm	movaps	xmm5,xmm7	/* xmm5 <- cpy t8 */
-
-		__asm	mulpd	xmm6,[edx     ]	/* t7*c7 */
-		__asm	mulpd	xmm7,[edx     ]	/* t8*c7 */
-		__asm	mulpd	xmm1,[edx+0x10]	/* t7*s7 */
-		__asm	mulpd	xmm5,[edx+0x10]	/* t8*s7 */
-		__asm	subpd	xmm7,xmm1	/* t8*c7 - t7*s7 */
-		__asm	addpd	xmm6,xmm5	/* t7*c7 + t8*s7 */
-		__asm	movaps	[ebx+0x10],xmm7	/* a[j2+p7] */
-		__asm	movaps	[ebx     ],xmm6	/* a[j1+p7] */
-												/* Totals:121 load/store [64 movaps], 68 add/subpd, 32 mulpd, 60 address-compute */
-														/* 42 fewer movaps than DIF! [I.e. it pays to do careful register mgmt] */
-	   #endif	/* #if 1 */
-
-	  #elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
-
 		add0 = &a[j1];
 		add1 = add0+p1;
 		add2 = add0+p2;
@@ -1692,9 +868,7 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 
 		SSE2_RADIX8_DIT_TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7,isrt2,c1,c2,c3,c4,c5,c6,c7);
 
-	  #endif	/* MSVC or GCC */
-
-#else	// USE_SSE2 ?
+	#else	// USE_SSE2 ?
 
 	/*      gather the needed data (8 64-bit complex, i.e. 16 64-bit reals) and get the 4 length-2 transforms... */
 	#if PFETCH
@@ -1776,7 +950,8 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		t7      =t7+rt;				t8        =t8+it;
 		a[j1+p3]=t15*c3 +t16*s3;	a[j2+p3]=t16*c3 -t15*s3;
 		a[j1+p7]=t7 *c7 +t8 *s7;	a[j2+p7]=t8 *c7 -t7 *s7;
-#endif	/* USE_SSE2 */
+
+	#endif	/* USE_SSE2 */
 
 	  }	/* endfor(j=jlo; j < jhi; j += 4) */
 

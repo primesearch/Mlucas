@@ -3816,7 +3816,7 @@
 
 	/******************************************************************************************************************************************/
 
-	#elif defined(COMPILER_TYPE_GCC) || defined(COMPILER_TYPE_SUNC)
+	#elif defined(COMPILER_TYPE_GCC)
 
 		#if OS_BITS == 32
 

@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2009 by Ernst W. Mayer.                                           *
+*   (C) 1997-2016 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -46,6 +46,10 @@ const uint192 TWO192 = {(uint64)2, (uint64)0, (uint64)0};
 const uint256 NIL256 = {(uint64)0, (uint64)0, (uint64)0, (uint64)0};
 const uint256 ONE256 = {(uint64)1, (uint64)0, (uint64)0, (uint64)0};
 const uint256 TWO256 = {(uint64)2, (uint64)0, (uint64)0, (uint64)0};
+
+const uint512 NIL512 = {(uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0};
+const uint512 ONE512 = {(uint64)1, (uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0};
+const uint512 TWO512 = {(uint64)2, (uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0};
 
 /* Binary predicates for use of stdlib qsort(): */
 int ncmp_int(const void * a, const void * b)	// Default-int compare predicate

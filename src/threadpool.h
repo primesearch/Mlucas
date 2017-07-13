@@ -67,6 +67,7 @@ me at: heber.tomer@gmail.com
 
 #include "masterdefs.h"
 #include "types.h"
+#include "mi64.h"	// Sep 2016: Needed for enhanced affinity-setting functionality
 
 #include <pthread.h>
 

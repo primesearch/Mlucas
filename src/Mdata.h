@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2013 by Ernst W. Mayer.                                           *
+*   (C) 1997-2017 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -53,7 +53,7 @@ extern int len_a;
 
 /* These must match the smallest and largest values in the switch() in get_fft_radices(): */
 #define MIN_FFT_LENGTH_IN_K			2
-#define MAX_FFT_LENGTH_IN_K			245760
+#define MAX_FFT_LENGTH_IN_K			524288
 /* This next one should be set to log2(MAX_FFT_LENGTH_IN_K) + 10 + 4,
 i.e. max. 16 bits per digit of the transform vector: */
 #define MAX_PRIMALITY_TEST_BITS		63
@@ -161,6 +161,12 @@ representation of N, specifically for the following currently-supported modulus 
 extern char ESTRING[STR_MAX_LEN];	/* Exponent in string form */
 extern char PSTRING[STR_MAX_LEN];	/* Number being tested in string form, typically estring concatenated with several other descriptors, e.g. strcat("M",estring) for Mersennes */
 
+// The index following 'mask' here = log2(#doubles in SIMD register) = log2(#bits in SIMD register) - 6 :
+#ifdef USE_AVX512
+	extern const uint32 mask03,
+		br16[16],	// length-16 index-scramble array for mapping from scalar-complex to AVX512 (8 x re,8 x im)
+		brinv16[16];// length-16 index-unscramble array: br[brinv[i]] = brinv[br[i]] = i .
+#endif
 #ifdef USE_AVX	// AVX and AVX2 both use 256-bit registers
 	extern const uint32 mask02,
 		br8[8],		// length-8 index-scramble array for mapping from scalar-complex to AVX (re,re,re,re,im,im,im,im)
@@ -203,8 +209,8 @@ extern double AME,MME;	/* Avg and Max per-iteration fractional error for a given
 /* Iteration # at which to start collecting RO Err data for AME & MME computation: */
 #define AME_ITER_START (30u)
 
-extern uint32 PMIN;	/* minimum exponent allowed */
-extern uint32 PMAX;	/* maximum exponent allowed */
+extern uint64 PMIN;	/* minimum exponent allowed */
+extern uint64 PMAX;	/* maximum exponent allowed */
 
 /* These must be <= 255 to be compatible with bytewise savefile format! */
 extern uint32 TEST_TYPE;
@@ -220,12 +226,13 @@ extern uint32 MODULUS_TYPE;
 #define MODULUS_TYPE_MERSENNE		1	// First [MODULUS_TYPE_MAX] defines here must all be software-supported
 #define MODULUS_TYPE_MERSMERS		2
 #define MODULUS_TYPE_FERMAT			3
-#define MODULUS_TYPE_MAX			3	/* Set = to largest *supported* modulus type value */
-#define MODULUS_TYPE_GENMERSENNE	4
-#define MODULUS_TYPE_GENFERMAT		5
-#define MODULUS_TYPE_PROTH			6
-#define MODULUS_TYPE_EISENSTEIN		7
-#define MODULUS_TYPE_DIM			8	/* Set 1 larger than largest *declared* modulus_type value */
+#define MODULUS_TYPE_GENFFTMUL		4	// Generic-FFT-mul using [re,im]-paired 0-padded input vectors
+#define MODULUS_TYPE_MAX			4	/* Set = to largest *supported* modulus type value */
+#define MODULUS_TYPE_GENMERSENNE	5
+#define MODULUS_TYPE_GENFERMAT		6
+#define MODULUS_TYPE_PROTH			7
+#define MODULUS_TYPE_EISENSTEIN		8
+#define MODULUS_TYPE_DIM			9	/* Set 1 larger than largest *declared* modulus_type value */
 
 extern uint32 TRANSFORM_TYPE;
 #define REAL_WRAPPER		1
@@ -241,7 +248,10 @@ extern char RESTARTFILE[];
 extern int INTERACT;
 
 #undef LOG2
-#define LOG2	(double)0.6931471805599453
+#define LOG2	(double)0.6931471805599453094172321215
+
+#undef ILG2
+#define ILG2	(double)1.442695040888963407359924681
 
 /* Allocated/defined in util.c: */
 extern double RND_A, RND_B;	/* "Magic" numbers for fast floating-double NINT */
@@ -348,7 +358,7 @@ const uint64 q4    = 9223372036854775804ull;
 const long double inv61   = (long double)1.0/61;
 const long double inv_m61 = (long double)1.0/2305843009213693951ull;
 */
-
+#define MAX_RADIX	4096	// Largest leading-radix currently supported
 extern int NRADICES, RADIX_VEC[10];	/* RADIX[] stores sequence of complex FFT radices used.	*/
 
 extern int ROE_ITER;	// Iteration of any dangerously high ROE encountered during the current iteration interval. This must be > 0, but make signed to allow sign-flip encoding of retry-fail.
@@ -356,8 +366,13 @@ extern double ROE_VAL;	// Value (must be in (0, 0.5)) of dangerously high ROE en
 
 extern FILE *dbg_file;
 extern double*ADDR0;	// Allows for easy debug on address-read-or-write than setting a watchpoint
+
 #ifdef MULTITHREAD
-	// Alas must do one-threa-at-a-time here (and then assemble the resulting data dumps) to prevent overlapping file writes:
+	#define MAX_CORES	1024				// Must be > 0 and a multiple of 64
+	extern uint64 CORE_SET[MAX_CORES>>6];	// Bitmap for user-controlled affinity setting, as specified via the -cpu flag
+
+	// Alas must do one-thread-at-a-time here (and then assemble the resulting data dumps)
+	// to prevent overlapping file writes:
 	#define	TARG_THREAD_ID	0
 #else
 	#define	TARG_THREAD_ID	-1

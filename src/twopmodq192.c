@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2012 by Ernst W. Mayer.                                           *
+*   (C) 1997-2015 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -54,6 +54,14 @@ uint192 twopmodq192(uint192 p, uint192 q)
 	uint192 qhalf, qinv, x, lo, hi;
 	static uint192 psave = {0ull,0ull,0ull}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
+	uint32 FERMAT;
+	if(p.d2 != 0ull)
+		FERMAT = isPow2_64(p.d2) && (p.d1 == 0ull) && (p.d0 == 0ull);
+	else if(p.d1 != 0ull)
+		FERMAT = isPow2_64(p.d1) && (p.d0 == 0ull);
+	else
+		FERMAT = isPow2_64(p.d0);
+	FERMAT <<= 1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
 	RSHIFT_FAST192(q, 1, qhalf);	/* = (q-1)/2, since q odd. */
 
@@ -283,18 +291,18 @@ q*qinv*lo = |000 (192-x bits) 000||-------------------------------------- q*qinv
 		#endif
 		}
 	}
-
-	//...Double and return:
-	if(CMPUGT192(x, qhalf)){ ADD192(x, x, x); SUB192(x, q, x); }else{ ADD192(x, x, x); }
-#if FAC_DEBUG
-	if(dbg) printf("Final x = %s\n", &char_buf[convert_uint192_base10_char(char_buf, x)]);
-#endif
-
+	/*...Double and return.	These are specialized for the case
+	where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2.
+	*/
+	ADD192(x,x,x);	/* In the case of interest, x = (q+1)/2 < 2^159, so x + x cannot overflow. */
+	// For Fn with n > 50-or-so it is not uncommon to have q = b*2^64 + 1, thus need to check for borrow
+	lo.d2 = lo.d1 = 0ull; lo.d0 = FERMAT;	SUB192(q,lo,q);	// Since carry may propagate > 1 word (e.g. F133 testfac), use general SUB
+	SUB192(x,q,x);
 	return x;
 }
 
 /*** 4-trial-factor version ***/
-uint64 twopmodq192_q4(uint64*checksum1, uint64*checksum2, uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
+uint64 twopmodq192_q4(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 {
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 lo64_0, lo64_1, lo64_2, lo64_3, lead8, r;
@@ -309,6 +317,15 @@ uint64 twopmodq192_q4(uint64*checksum1, uint64*checksum2, uint64 *p_in, uint64 k
 	static uint32 start_index, zshift, first_entry = TRUE;
 
 	p.d0 = p_in[0]; p.d1 = p_in[1]; p.d2 = p_in[2];
+	uint32 FERMAT;
+	if(p.d2 != 0ull)
+		FERMAT = isPow2_64(p.d2) && (p.d1 == 0ull) && (p.d0 == 0ull);
+	else if(p.d1 != 0ull)
+		FERMAT = isPow2_64(p.d1) && (p.d0 == 0ull);
+	else
+		FERMAT = isPow2_64(p.d0);
+	FERMAT <<= 1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
+
 	// Use x0 as tmp to hold 2*p:
 	ADD192(p,p, x0);
 	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k0, (uint64 *)&q0, 3), "q must be < 2^192!");
@@ -320,8 +337,6 @@ uint64 twopmodq192_q4(uint64*checksum1, uint64*checksum2, uint64 *p_in, uint64 k
 	q1.d0 += 1;
 	q2.d0 += 1;
 	q3.d0 += 1;
-
-	*checksum1 += q0.d0 + q1.d0 + q2.d0 + q3.d0;
 
 	RSHIFT_FAST192(q0, 1, qhalf0);	/* = (q-1)/2, since q odd. */
 	RSHIFT_FAST192(q1, 1, qhalf1);
@@ -502,13 +517,25 @@ uint64 twopmodq192_q4(uint64*checksum1, uint64*checksum2, uint64 *p_in, uint64 k
 		}
 	}
 
-	//...Double and return:
-	if(CMPUGT192(x0, qhalf0)){ ADD192(x0, x0, x0); SUB192(x0, q0, x0); }else{ ADD192(x0, x0, x0); }
-	if(CMPUGT192(x1, qhalf1)){ ADD192(x1, x1, x1); SUB192(x1, q1, x1); }else{ ADD192(x1, x1, x1); }
-	if(CMPUGT192(x2, qhalf2)){ ADD192(x2, x2, x2); SUB192(x2, q2, x2); }else{ ADD192(x2, x2, x2); }
-	if(CMPUGT192(x3, qhalf3)){ ADD192(x3, x3, x3); SUB192(x3, q3, x3); }else{ ADD192(x3, x3, x3); }
-
-	*checksum2 += x0.d0 + x1.d0 + x2.d0 + x3.d0;
+	/*...Double and return.	These are specialized for the case
+	where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2.
+	*/
+	ADD192(x0 ,x0, x0);
+	ADD192(x1 ,x1, x1);
+	ADD192(x2 ,x2, x2);
+	ADD192(x3 ,x3, x3);
+	// For Fn with n > 50-or-so it is not uncommon to have q = b*2^64 + 1, thus need to check for borrow
+	if(FERMAT) {
+		lo0.d2 = lo0.d1 = 0ull; lo0.d0 = FERMAT;	// Since carry may propagate > 1 word (e.g. F133 testfac), use general SUB
+		SUB192(q0,lo0,q0);
+		SUB192(q1,lo0,q1);
+		SUB192(q2,lo0,q2);
+		SUB192(q3,lo0,q3);
+	}
+	SUB192(x0, q0, x0);
+	SUB192(x1, q1, x1);
+	SUB192(x2, q2, x2);
+	SUB192(x3, q3, x3);
 
 	/* Only do the full 192-bit (Xj== 1) check if the bottom 64 bits of Xj == 1: */
 	r = 0;
@@ -644,7 +671,8 @@ mi64_mul_vector_hi_half for moduli q = 2.k.M(p) + 1, where M(p) is a Mersenne pr
 
 #endif
 
-uint64 twopmodq192_q4_qmmp(uint64*checksum1, uint64*checksum2, uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
+// Specialized version of above _q4 modpow routine, for double-Mersenne numbers M(M(p)):
+uint64 twopmodq192_q4_qmmp(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 {
 #if FAC_DEBUG
 	int dbg = 0;//(k0==900 || k1==900 || k2==900 || k3==900);
@@ -677,8 +705,6 @@ uint64 twopmodq192_q4_qmmp(uint64*checksum1, uint64*checksum2, uint64 *p_in, uin
 	q1.d0 += 1;
 	q2.d0 += 1;
 	q3.d0 += 1;
-
-	*checksum1 += q0.d0 + q1.d0 + q2.d0 + q3.d0;
 
 	RSHIFT_FAST192(q0, 1, qhalf0);	/* = (q-1)/2, since q odd. */
 	RSHIFT_FAST192(q1, 1, qhalf1);
@@ -893,8 +919,6 @@ if(dbg) {
 	}
 #endif
 
-	*checksum2 += x0.d0 + x1.d0 + x2.d0 + x3.d0;
-
 	/* Only do the full 192-bit (Xj== 1) check if the bottom 64 bits of Xj == 1: */
 	r = 0;
 	if(x0.d0 == 1) r += ((uint64)CMPEQ192(x0, ONE192) << 0);
@@ -905,7 +929,7 @@ if(dbg) {
 }
 
 /*** 8-trial-factor version ***/
-uint64 twopmodq192_q8(uint64*checksum1, uint64*checksum2, uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7)
+uint64 twopmodq192_q8(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7)
 {
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 lo64_0, lo64_1, lo64_2, lo64_3, lo64_4, lo64_5, lo64_6, lo64_7, lead8, r;
@@ -920,6 +944,15 @@ uint64 twopmodq192_q8(uint64*checksum1, uint64*checksum2, uint64 *p_in, uint64 k
 	static uint32 start_index, zshift, first_entry = TRUE;
 
 	p.d0 = p_in[0]; p.d1 = p_in[1]; p.d2 = p_in[2];
+	uint32 FERMAT;
+	if(p.d2 != 0ull)
+		FERMAT = isPow2_64(p.d2) && (p.d1 == 0ull) && (p.d0 == 0ull);
+	else if(p.d1 != 0ull)
+		FERMAT = isPow2_64(p.d1) && (p.d0 == 0ull);
+	else
+		FERMAT = isPow2_64(p.d0);
+	FERMAT <<= 1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
+
 	// Use x0 as tmp to hold 2*p:
 	ADD192(p,p, x0);
 	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k0, (uint64 *)&q0, 3), "q must be < 2^192!");
@@ -939,8 +972,6 @@ uint64 twopmodq192_q8(uint64*checksum1, uint64*checksum2, uint64 *p_in, uint64 k
 	q5.d0 += 1;
 	q6.d0 += 1;
 	q7.d0 += 1;
-
-	*checksum1 += q0.d0 + q1.d0 + q2.d0 + q3.d0 + q4.d0 + q5.d0 + q6.d0 + q7.d0;
 
 	RSHIFT_FAST192(q0, 1, qhalf0);	/* = (q-1)/2, since q odd. */
 	RSHIFT_FAST192(q1, 1, qhalf1);
@@ -1165,17 +1196,36 @@ uint64 twopmodq192_q8(uint64*checksum1, uint64*checksum2, uint64 *p_in, uint64 k
 		}
 	}
 
-	//...Double and return:
-	if(CMPUGT192(x0, qhalf0)){ ADD192(x0, x0, x0); SUB192(x0, q0, x0); }else{ ADD192(x0, x0, x0); }
-	if(CMPUGT192(x1, qhalf1)){ ADD192(x1, x1, x1); SUB192(x1, q1, x1); }else{ ADD192(x1, x1, x1); }
-	if(CMPUGT192(x2, qhalf2)){ ADD192(x2, x2, x2); SUB192(x2, q2, x2); }else{ ADD192(x2, x2, x2); }
-	if(CMPUGT192(x3, qhalf3)){ ADD192(x3, x3, x3); SUB192(x3, q3, x3); }else{ ADD192(x3, x3, x3); }
-	if(CMPUGT192(x4, qhalf4)){ ADD192(x4, x4, x4); SUB192(x4, q4, x4); }else{ ADD192(x4, x4, x4); }
-	if(CMPUGT192(x5, qhalf5)){ ADD192(x5, x5, x5); SUB192(x5, q5, x5); }else{ ADD192(x5, x5, x5); }
-	if(CMPUGT192(x6, qhalf6)){ ADD192(x6, x6, x6); SUB192(x6, q6, x6); }else{ ADD192(x6, x6, x6); }
-	if(CMPUGT192(x7, qhalf7)){ ADD192(x7, x7, x7); SUB192(x7, q7, x7); }else{ ADD192(x7, x7, x7); }
-
-	*checksum2 += x0.d0 + x1.d0 + x2.d0 + x3.d0 + x4.d0 + x5.d0 + x6.d0 + x7.d0;
+	/*...Double and return.	These are specialized for the case
+	where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2.
+	*/
+	ADD192(x0 ,x0, x0);
+	ADD192(x1 ,x1, x1);
+	ADD192(x2 ,x2, x2);
+	ADD192(x3 ,x3, x3);
+	ADD192(x4 ,x4, x4);
+	ADD192(x5 ,x5, x5);
+	ADD192(x6 ,x6, x6);
+	ADD192(x7 ,x7, x7);
+	if(FERMAT) {
+		lo0.d2 = lo0.d1 = 0ull; lo0.d0 = FERMAT;	// Since carry may propagate > 1 word (e.g. F133 testfac), use general SUB
+		SUB192(q0,lo0,q0);
+		SUB192(q1,lo0,q1);
+		SUB192(q2,lo0,q2);
+		SUB192(q3,lo0,q3);
+		SUB192(q4,lo0,q4);
+		SUB192(q5,lo0,q5);
+		SUB192(q6,lo0,q6);
+		SUB192(q7,lo0,q7);
+	}
+	SUB192(x0, q0, x0);
+	SUB192(x1, q1, x1);
+	SUB192(x2, q2, x2);
+	SUB192(x3, q3, x3);
+	SUB192(x4, q4, x4);
+	SUB192(x5, q5, x5);
+	SUB192(x6, q6, x6);
+	SUB192(x7, q7, x7);
 
 	/* Only do the full 192-bit (Xj== 1) check if the bottom 64 bits of Xj == 1: */
 	r = 0;

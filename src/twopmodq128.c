@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2012 by Ernst W. Mayer.                                           *
+*   (C) 1997-2015 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -43,13 +43,19 @@ The key 3-operation sequence here is as follows:
 uint128 twopmodq128(uint128 p, uint128 q)
 {
 #if FAC_DEBUG
-	int dbg = (p == 0);
+	int dbg = 0;//(p.d0 == 2147483647);
 #endif
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 lo64;
 	uint128 qhalf, qinv, x, lo, hi;
 	static uint128 psave = {0ull,0ull}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
+	uint32 FERMAT;
+	if(p.d1 != 0ull)
+		FERMAT = isPow2_64(p.d1) && (p.d0 == 0ull);
+	else
+		FERMAT = isPow2_64(p.d0);
+	FERMAT <<= 1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
 #if FAC_DEBUG
 if(dbg)printf("twopmodq128:\n");
@@ -77,23 +83,22 @@ if(dbg)printf("twopmodq128:\n");
 		simplify the modmul code sequence for the first iteration.
 		Every little bit counts (literally in this case :), right?
 		*/
-		if(pshift.d1)
-		{
+		if(pshift.d1) {
 			j = leadz64(pshift.d1);
 			start_index = 128-j-7;
 			/* Extract leftmost 7 bits of pshift and subtract from 127: */
 			zshift = 127 - (((pshift.d1<<j) + (pshift.d0>>(64-j))) >> 57);
-		}
-		else
-		{
+		} else {
 			j = leadz64(pshift.d0);
 			start_index =  64-j-7;
 			zshift = 127 - ((pshift.d0<<j) >> 57);
 		}
-
-
 		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
-
+	#if FAC_DEBUG
+		if(dbg) printf("leadb = %u\n",j);
+		if(dbg) printf("zshift  = %u\n", zshift);
+		if(dbg) printf("pshift = p + %u = %s\n",128,&char_buf[convert_uint128_base10_char(char_buf,pshift)]);
+	#endif
 		pshift.d1 = ~pshift.d1;	pshift.d0 = ~pshift.d0;
 	}
 
@@ -150,11 +155,7 @@ if(dbg)printf("twopmodq128:\n");
 	j = start_index-1;
 
 	/* MULL128(zstart,qinv,lo) simply amounts to a left-shift of the bits of qinv: */
-#if FAC_DEBUG
-	if(dbg) printf("zshift  = %u\n", zshift);
-#endif
 	LSHIFT128(qinv, zshift, lo);
-
 #if FAC_DEBUG
 	if(dbg) printf("lo = %s\n", &char_buf[convert_uint128_base10_char(char_buf, lo)]);
 #endif
@@ -231,22 +232,24 @@ if(dbg)printf("j = %2d, x = %s",j, &char_buf[convert_uint128_base10_char(char_bu
 	where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2.
 	*/
 	ADD128(x,x,x);	/* In the case of interest, x = (q+1)/2 < 2^127, so x + x cannot overflow. */
+	// For Fn with n > 50-or-so it is not uncommon to have q = b*2^64 + 1, thus need to check for borrow
+	q.d0 -= FERMAT;	q.d1 -= ((q.d0 + 1ull) == 0ull);	// Only need to check for special case of subbing 2 from q.d0 = 1
 	SUB128(x,q,x);
 
 #if FAC_DEBUG
 if(dbg)printf("x0 = %s\n", &char_buf[convert_uint128_base10_char(char_buf, x)]);
 #endif
-
 	return x;
 }
 
 /*
 !...Function to find 2^(-p) mod q, where p and q are both 128-bit unsigned integers.
 */
-uint64 twopmodq128x2(uint64*checksum1, uint64*checksum2, uint64 *p_in, uint64 k)
+uint64 twopmodq128x2(uint64 *p_in, uint64 k)
 {
+	ASSERT(HERE, p_in != 0x0, "Null p_in pointer!");
 #if FAC_DEBUG
-	int dbg = STREQ(&char_buf[convert_mi64_base10_char(char_buf, p, 2)], "0");
+	int dbg = STREQ(&char_buf[convert_mi64_base10_char(char_buf, p_in, 2, 0)], "0");
 #endif
 	 int32 j;	/* This needs to be signed because of the LR binary exponentiation. */
 	uint64 lo64;
@@ -259,11 +262,17 @@ if(dbg)printf("twopmodq128x2:\n");
 #endif
 
 	p.d0 = p_in[0]; p.d1 = p_in[1];
+	uint32 FERMAT;
+	if(p.d1 != 0ull)
+		FERMAT = isPow2_64(p.d1) && (p.d0 == 0ull);
+	else
+		FERMAT = isPow2_64(p.d0);
+	FERMAT <<= 1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
+
 	// Use x as tmp to hold 2*p:
 	ADD128(p,p, x);
 	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x, k, (uint64 *)&q, 2), "q must be < 2^128!");
 	q.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
-	*checksum1 += q.d0;
 
 	RSHIFT_FAST128(q, 1, qhalf);	/* = (q-1)/2, since q odd. */
 
@@ -440,18 +449,19 @@ if(dbg)printf("twopmodq128x2:\n");
 #if FAC_DEBUG
 	if(dbg) printf("Final x = %s\n", &char_buf[convert_uint128_base10_char(char_buf, x)]);
 #endif
+	// For Fn with n > 50-or-so it is not uncommon to have q = b*2^64 + 1, thus need to check for borrow
+	q.d0 -= FERMAT;	q.d1 -= ((q.d0 + 1ull) == 0ull);	// Only need to check for special case of subbing 2 from q.d0 = 1
 	SUB128(x,q,x);
 #if FAC_DEBUG
 	if(dbg) printf("Final x*= %s\n", &char_buf[convert_uint128_base10_char(char_buf, x)]);
 #endif
-
-	*checksum2 += x.d0;
 	return (uint64)CMPEQ128(x, ONE128) ;
 }
 
 /*** 4-trial-factor version ***/
-uint64 twopmodq128_q4(uint64*checksum1, uint64*checksum2, uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
+uint64 twopmodq128_q4(uint64* p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 {
+	ASSERT(HERE, p_in != 0x0, "Null p_in pointer!");
 	 int32 j;
 	uint64 lo64_0, lo64_1, lo64_2, lo64_3, lead7, r;
 	uint128 p, q0, q1, q2, q3
@@ -463,8 +473,14 @@ uint64 twopmodq128_q4(uint64*checksum1, uint64*checksum2, uint64* p_in, uint64 k
 	static uint128 psave = {0ull,0ull}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
 
-//=================
 	p.d0 = p_in[0]; p.d1 = p_in[1];
+	uint32 FERMAT;
+	if(p.d1 != 0ull)
+		FERMAT = isPow2_64(p.d1) && (p.d0 == 0ull);
+	else
+		FERMAT = isPow2_64(p.d0);
+	FERMAT <<= 1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
+
 	// Use x0 as tmp to hold 2*p:
 	ADD128(p,p, x0);
 	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k0, (uint64 *)&q0, 2), "q must be < 2^128!");
@@ -476,8 +492,6 @@ uint64 twopmodq128_q4(uint64*checksum1, uint64*checksum2, uint64* p_in, uint64 k
 	q1.d0 += 1;
 	q2.d0 += 1;
 	q3.d0 += 1;
-
-	*checksum1 += q0.d0 + q1.d0 + q2.d0 + q3.d0;
 
 	if(first_entry || !CMPEQ128(p, psave))
 	{
@@ -667,13 +681,15 @@ uint64 twopmodq128_q4(uint64*checksum1, uint64*checksum2, uint64* p_in, uint64 k
 	ADD128(x1 ,x1, x1);
 	ADD128(x2 ,x2, x2);
 	ADD128(x3 ,x3, x3);
-
+	// For Fn with n > 50-or-so it is not uncommon to have q = b*2^64 + 1, thus need to check for borrow
+	q0.d0 -= FERMAT;	q0.d1 -= ((q0.d0 + 1ull) == 0ull);	// Only need to check for special case of subbing 2 from q.d0 = 1
+	q1.d0 -= FERMAT;	q1.d1 -= ((q1.d0 + 1ull) == 0ull);
+	q2.d0 -= FERMAT;	q2.d1 -= ((q2.d0 + 1ull) == 0ull);
+	q3.d0 -= FERMAT;	q3.d1 -= ((q3.d0 + 1ull) == 0ull);
 	SUB128(x0, q0, x0);
 	SUB128(x1, q1, x1);
 	SUB128(x2, q2, x2);
 	SUB128(x3, q3, x3);
-
-	*checksum2 += x0.d0 + x1.d0 + x2.d0 + x3.d0;
 
 	/* Only do the full 128-bit (Xj== 1) check if the bottom 64 bits of Xj == 1: */
 	r = 0;
@@ -685,8 +701,12 @@ uint64 twopmodq128_q4(uint64*checksum1, uint64*checksum2, uint64* p_in, uint64 k
 }
 
 /*** 8-trial-factor version ***/
-uint64 twopmodq128_q8(uint64*checksum1, uint64*checksum2, uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7)
+uint64 twopmodq128_q8(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7)
 {
+	ASSERT(HERE, p_in != 0x0, "Null p_in pointer!");
+#if FAC_DEBUG
+	int dbg = 0;
+#endif
 	 int32 j;
 	uint64 lo64_0, lo64_1, lo64_2, lo64_3, lo64_4, lo64_5, lo64_6, lo64_7, lead7, r;
 	uint128 p, q0, q1, q2, q3, q4, q5, q6, q7
@@ -697,12 +717,18 @@ uint64 twopmodq128_q8(uint64*checksum1, uint64*checksum2, uint64 *p_in, uint64 k
 		, hi0, hi1, hi2, hi3, hi4, hi5, hi6, hi7;
 	static uint128 psave = {0ull,0ull}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
-
 #if FAC_DEBUG
 if(dbg)printf("twopmodq128_q8:\n");
 #endif
-//=================
+
 	p.d0 = p_in[0]; p.d1 = p_in[1];
+	uint32 FERMAT;
+	if(p.d1 != 0ull)
+		FERMAT = isPow2_64(p.d1) && (p.d0 == 0ull);
+	else
+		FERMAT = isPow2_64(p.d0);
+	FERMAT <<= 1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
+
 	// Use x0 as tmp to hold 2*p:
 	ADD128(p,p, x0);
 	ASSERT(HERE, !mi64_mul_scalar((uint64 *)&x0, k0, (uint64 *)&q0, 2), "q must be < 2^128!");
@@ -722,8 +748,6 @@ if(dbg)printf("twopmodq128_q8:\n");
 	q5.d0 += 1;
 	q6.d0 += 1;
 	q7.d0 += 1;
-
-	*checksum1 += q0.d0 + q1.d0 + q2.d0 + q3.d0 + q4.d0 + q5.d0 + q6.d0 + q7.d0;
 
 	if(first_entry || !CMPEQ128(p, psave))
 	{
@@ -1034,7 +1058,17 @@ if(dbg)printf("\n");
 	ADD128(x5 ,x5, x5);
 	ADD128(x6 ,x6, x6);
 	ADD128(x7 ,x7, x7);
-
+	if(FERMAT) {
+		// For Fn with n > 50-or-so it is not uncommon to have q = b*2^64 + 1, thus need to check for borrow
+		q0.d0 -= FERMAT;	q0.d1 -= ((q0.d0 + 1ull) == 0ull);	// Only need to check for special case of subbing 2 from q.d0 = 1
+		q1.d0 -= FERMAT;	q1.d1 -= ((q1.d0 + 1ull) == 0ull);
+		q2.d0 -= FERMAT;	q2.d1 -= ((q2.d0 + 1ull) == 0ull);
+		q3.d0 -= FERMAT;	q3.d1 -= ((q3.d0 + 1ull) == 0ull);
+		q4.d0 -= FERMAT;	q4.d1 -= ((q4.d0 + 1ull) == 0ull);
+		q5.d0 -= FERMAT;	q5.d1 -= ((q5.d0 + 1ull) == 0ull);
+		q6.d0 -= FERMAT;	q6.d1 -= ((q6.d0 + 1ull) == 0ull);
+		q7.d0 -= FERMAT;	q7.d1 -= ((q7.d0 + 1ull) == 0ull);
+	}
 	SUB128(x0, q0, x0);
 	SUB128(x1, q1, x1);
 	SUB128(x2, q2, x2);
@@ -1047,8 +1081,6 @@ if(dbg)printf("\n");
 #if FAC_DEBUG
 if(dbg)printf("x0 = %20llu + 2^64* %20llu\n",x0.d0, x0.d1);
 #endif
-
-	*checksum2 += x0.d0 + x1.d0 + x2.d0 + x3.d0 + x4.d0 + x5.d0 + x6.d0 + x7.d0;
 
 	/* Only do the full 128-bit (Xj== 1) check if the bottom 64 bits of Xj == 1: */
 	r = 0;

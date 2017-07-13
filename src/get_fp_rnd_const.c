@@ -25,14 +25,11 @@
 /* Set the value of the round constant used for fast NINT emulation: */
 void	get_fp_rnd_const(double*RND_A, double*RND_B)
 {
-/* X86 64-mantissa-bit register doubles: */
-/*#if(defined(__i386__) || defined(__ia64__) || (defined(__ia64) && defined(hppa_hpc) && defined(_FPEVAL_EXTENDED)))	* Last of these is for HP C or C++ compiler for HPUX */
-#if(FP_MANTISSA_BITS_DOUBLE == 64)
+#if(FP_MANTISSA_BITS_DOUBLE == 64)	/* X86 64-mantissa-bit register doubles: */
 	*RND_A = 3.0*0x4000000*0x2000000*0x800;
 	*RND_B =12.0*0x2000000*0x1000000*0x800;
 	fprintf(stderr,"INFO: using 64-bit-significand form of floating-double rounding constant for scalar-mode DNINT emulation.\n");
-/* These assume IEEE64-compliant double-precision hardware arithmetic. */
-#else
+#else	/* These assume IEEE64-compliant double-precision hardware arithmetic: */
 	*RND_A = 3.0*0x4000000*0x2000000;
 	*RND_B =12.0*0x2000000*0x1000000;
 	fprintf(stderr,"INFO: using 53-bit-significand form of floating-double rounding constant for scalar-mode DNINT emulation. \n");

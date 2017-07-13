@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2012 by Ernst W. Mayer.                                           *
+*   (C) 1997-2015 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -41,7 +41,7 @@ The key 3-operation sequence here is as follows:
 	MULL160(lo,qinv,lo);
 	MULH160(q,lo,t);
 */
-uint64 twopmodq160(uint64*checksum1, uint64*checksum2, uint64 *p_in, uint64 k)
+uint64 twopmodq160(uint64 *p_in, uint64 k)
 {
 #if FAC_DEBUG
 	int dbg = STREQ(&char_buf[convert_uint192_base10_char(char_buf, p)], "0");
@@ -53,6 +53,13 @@ uint64 twopmodq160(uint64*checksum1, uint64*checksum2, uint64 *p_in, uint64 k)
 	static uint160 psave = {0ull,0ull,0ull}, pshift;
 	static uint32 start_index, zshift, first_entry = TRUE;
 	p.d0 = p_in[0];	p.d1 = p_in[1];	p.d2 = p_in[2];	// ... so do it the hard way here.
+	uint32 FERMAT;
+	if(p.d2 != 0ull)
+		FERMAT = isPow2_64(p.d2) && (p.d1 == 0ull) && (p.d0 == 0ull);
+	else if(p.d1 != 0ull)
+		FERMAT = isPow2_64(p.d1) && (p.d0 == 0ull);
+	else
+		FERMAT = isPow2_64(p.d0);
 
 #if FAC_DEBUG
 if(dbg)printf("twopmodq160:\n");
@@ -61,7 +68,6 @@ if(dbg)printf("twopmodq160:\n");
 	ADD128(p,p, q);
 	q.d2 = mi64_mul_scalar((uint64 *)&q, k, (uint64 *)&q, 2);
 	q.d0 += 1;	/* Since 2*p*k even, no need to check for overflow here */
-	*checksum1 += q.d0;
 
 	RSHIFT_FAST160(q, 1, qhalf);	/* = (q-1)/2, since q odd. */
 
@@ -292,12 +298,11 @@ if(dbg) printf("2x= %s\n", &char_buf[convert_uint192_base10_char(char_buf, x)]);
 #if FAC_DEBUG
 	if(dbg) printf("Final x = %s\n", &char_buf[convert_uint192_base10_char(char_buf, x)]);
 #endif
+	q.d0 -= FERMAT;
 	SUB160(x,q,x);
 #if FAC_DEBUG
 	if(dbg) printf("Final x-q=%s\n", &char_buf[convert_uint192_base10_char(char_buf, x)]);
 #endif
-
-	*checksum2 += x.d0;
 	return (uint64)CMPEQ160(x, ONE160) ;
 }
 

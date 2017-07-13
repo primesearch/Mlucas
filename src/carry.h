@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2013 by Ernst W. Mayer.                                           *
+*   (C) 1997-2016 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -26,6 +26,8 @@
 #ifndef carry_h_included
 #define carry_h_included
 
+#include "Mdata.h"	// For e.g. decls of externs FFT_MUL_BASE
+
 /*** Floating-point-based carry macros: ***/
 
 #if EWM_DEBUG
@@ -38,6 +40,59 @@
 	}
 #else
 	#define check_nint(temp, x)	/* */
+#endif
+
+/*************************************************************/
+/*************** GENERIC-FFT-MUL CARRY MACROS ****************/
+/*************************************************************/
+#if 0
+	/*
+	In the generic-FFT-mul (unmodded) carry scheme, real & imaginary parts
+	are carried separately and there are no DWT weights:
+	*/						// Idx-arg is debug-use only:vvv
+	#define genfftmul_carry_norm_pow2_errcheck(x,y,cx,cy,idx)\
+	{\
+		/* Multiply the current transform output by any scale factor: */\
+			rt = x*scale + cx;\
+			it = y*scale + cy;\
+		/* Real part: */\
+			temp = DNINT(rt);\
+			frac = fabs(rt - temp);\
+			if(frac > maxerr) {\
+	printf("Block %2u, full = %d, scale = %15.13f, j = %u: x = %20.5f, cx = %5.0f, maxerr = %7.5f\n",idx,full_pass,scale,j,x,cx,maxerr);\
+				maxerr=frac;\
+			}\
+			cx   = DNINT(temp*FFT_MUL_BASE_INV);\
+			x    = temp - cx*FFT_MUL_BASE;\
+		/* Imag part: */\
+			temp = DNINT(it);\
+			frac = fabs(it - temp);\
+			if(frac > maxerr) {\
+	printf("Block %2u, full = %d, scale = %15.13f, j = %u: y = %20.5f, cy = %5.0f, maxerr = %7.5f\n",idx,full_pass,scale,j,y,cy,maxerr);\
+				maxerr=frac;\
+			}\
+			cy   = DNINT(temp*FFT_MUL_BASE_INV);\
+			y    = temp - cy*FFT_MUL_BASE;\
+	if(j == jhi-2)printf("j = %4u ,jpad = %4u: Block %2u x,y = %10.5f, %10.5f, carryouts = %10.5f, %10.5f\n",j,j1, idx, x,y, cx,cy);\
+	/*if(full_pass && (x != 0. || y != 0.))printf("Block %2u, j = %4u: u += %6d*bpow; v += %6d*bpow; bpow *= b;\n",idx,j,(int)x,(int)y);*/\
+	}
+#else
+	/* V2 computes x-y (= a*u - b*v) on the fly and stores in the normalized x-output, setting y = 0:
+	*/						// Idx-arg is debug-use only:vvv
+	#define genfftmul_carry_norm_pow2_errcheck(x,y,cx,cy,idx)\
+	{\
+		/* Multiply the current transform output by any scale factor: */\
+			rt = (x - y)*scale + cx;\
+			temp = DNINT(rt);\
+			frac = fabs(rt - temp);\
+			if(frac > maxerr) {\
+	printf("Block %2u, full = %d, scale = %15.13f, j = %u: x = %20.5f, cx = %5.0f, maxerr = %7.5f\n",idx,full_pass,scale,j,x,cx,maxerr);\
+				maxerr=frac;\
+			}\
+			cx   = DNINT(temp*FFT_MUL_BASE_INV);\
+			x    = temp - cx*FFT_MUL_BASE;\
+			y    = 0.0;\
+	}
 #endif
 
 /*************************************************************/
@@ -228,71 +283,166 @@ with the Mersenne-mod-style IBDWT roots-of-2 weights:
 				y *= wt;\
 		}
 
-#define cmplx_carry_norm_pow2_errcheck0(x,y,cy,bjmodn)\
+#define cmplx_carry_norm_pow2_errcheck0(x,y,cy,bjmodn,set)\
 {\
-		wtA=wt1[col];\
-		wtB=wt1[co2];\
-		wtC=wt1[co3];\
-		wt   =wtl*wtA;\
-		wtinv=wtn*wtB;\
-/*		i =((uint32)(sw - bjmodn) >> 31);Don't want this for set 0. */\
-		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		x = cy+ x*wtinv;\
+		/* Must parenthesize (set) to allow arg to be an expression, since e.g. (co2 - a+b) != (co2 - (a+b)) */\
+		wtA = wt1[col+(set)];\
+		wtB = wt1[co2-(set)];\
+		wtC = wt1[co3-(set)];\
+		wt_re = wtl*wtA;	/* Use separate re/im wts in the 0-version of this macro for compatibility with cmplx_carry_fast_pow2_errcheck */\
+		wi_re = wtn*wtB;\
+/* If it's the 0-word the usual i-computation gives I == 0 here, but want I == 1; force-bigword-ness for the
+0-word only by XORing the i-result with ((j+set)==0) = 1. In all other cases (j+set) != 0, thus XOR = no-op: */\
+		i  = ((uint32)(sw - bjmodn) >> 31) ^ ((j+set)==0);/* Don't want this for set 0. */\
+		m  = ((uint32)(n_minus_sil-bjmodn) >> 31);\
+		m2 = 1 + ((uint32)(bjmodn - sinwt) >> 31);\
+/*printf("Set %u, Re: bjmodn,sinwt  , m,m2 = %u,%u, %u,%u\n",set,bjmodn,sinwt  , m,m2);*/\
+		wt_re *= one_half[m ];\
+		wi_re *= one_half[m2];\
+		x = cy + x*wi_re;\
 		temp = DNINT(x);				check_nint(temp, x);\
 		frac = fabs(x-temp);\
 		if(frac > maxerr) maxerr=frac;\
 		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
-		x = (temp-cy*base[i])*wt;\
+		x = (temp-cy*base[i])*wt_re;\
 	bjmodn = (bjmodn + bw) & nm1;\
-		wt   =wtlp1*wtA;\
-		wtinv=wtnm1*wtC;\
-		i =((uint32)(sw - bjmodn) >> 31);\
-		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		y = cy+ y*wtinv;\
+		wt_im = wtlp1*wtA;\
+		wi_im = wtnm1*wtC;\
+		i  = ((uint32)(sw - bjmodn) >> 31);\
+		m  = ((uint32)(n_minus_silp1-bjmodn) >> 31);\
+		m2 = 1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
+/*printf("Set %u, Im: bjmodn,sinwtm1, m,m2 = %u,%u, %u,%u\n",set,bjmodn,sinwtm1, m,m2);*/\
+		wt_im *= one_half[m ];\
+		wi_im *= one_half[m2];\
+		y = cy + y*wi_im;\
 		temp = DNINT(y);				check_nint(temp, y);\
 		frac = fabs(y-temp);\
 		if(frac > maxerr) maxerr=frac;\
 		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
-		y = (temp-cy*base[i])*wt;\
+		y = (temp-cy*base[i])*wt_im;\
 	bjmodn = (bjmodn + bw) & nm1;\
+/*if(j >= 0 && j < 8)printf("A: Set %u: wt_re,inv = %12.10f, %15.10e, wt_im,inv = %12.10f, %15.10e\n",set,wt_re,wi_re,wt_im,wi_im);*/\
 }
+
+// Lower-accuracy cheap-carry macro which used chained-multipliers to compute current block's weights
+// from those of the previous one. *Requires* cmplx_carry_norm_pow2_errcheck0 used on first block, as in HIACC case:
+#define cmplx_carry_fast_pow2_errcheck(x,y,cy,bjmodn,set)\
+{\
+		i = (wt_re >= inv_mult[1]);\
+		wi_re *= inv_mult[i];\
+		wt_re *= wts_mult[i];\
+		x = cy + x*wi_re;\
+		temp = DNINT(x);				check_nint(temp, x);\
+		frac = fabs(x-temp);\
+		if(frac > maxerr) maxerr=frac;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		x = (temp-cy*base[i])*wt_re;\
+	bjmodn = (bjmodn + bw) & nm1;\
+		i = (wt_im >= inv_mult[1]);\
+		wi_im *= inv_mult[i];\
+		wt_im *= wts_mult[i];\
+		y = cy + y*wi_im;\
+		temp = DNINT(y);				check_nint(temp, y);\
+		frac = fabs(y-temp);\
+		if(frac > maxerr) maxerr=frac;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		y = (temp-cy*base[i])*wt_im;\
+	bjmodn = (bjmodn + bw) & nm1;\
+/*if(j >= 0 && j < 8)printf("B: Set %u: wt_re,inv = %12.10f, %15.10e, wt_im,inv = %12.10f, %15.10e\n",set,wt_re,wi_re,wt_im,wi_im);*/\
+}
+
+// This shorter ...wtsinit() macro is actually for use by the SIMD analogs of this fast-carry macro.
+// Need a special version in avx mode since there n_minus_sil,n_minus_silp1,sinwt,sinwtm1 are typed
+// as (struct uint32x4 *) pointers rather than uint32 int-data:
+#ifdef USE_AVX
+
+	#define cmplx_carry_fast_pow2_wtsinit(__n_minus_sil,__n_minus_silp1,__sinwt,__sinwtm1, __wt_re,__wi_re,__wt_im,__wi_im, __bjmodn,set)\
+	{\
+		double __wtA,__wtB,__wtC;\
+		uint32 __m,__m2;\
+			/* Must parenthesize (set) to allow arg to be an expression, since e.g. (co2 - a+b) != (co2 - (a+b)) */\
+			__wtA = wt1[col+(set)];\
+			__wtB = wt1[co2-(set)];\
+			__wtC = wt1[co3-(set)];\
+			__wt_re = wtl*__wtA;	/* Use separate re/im wts in the 0-version of this macro for compatibility with cmplx_carry_fast_pow2_errcheck */\
+			__wi_re = wtn*__wtB;\
+			__m  = ((uint32)(__n_minus_sil-__bjmodn) >> 31);\
+			__m2 = 1 + ((uint32)(__bjmodn - __sinwt) >> 31);\
+/*printf("Set %u, Re: bjmodn,sinwt  , m,m2 = %u,%u, %u,%u\n",(set),__bjmodn,__sinwt  ,__m,__m2);*/\
+			__wt_re *= one_half[__m ];\
+			__wi_re *= one_half[__m2];\
+		__bjmodn = (__bjmodn + bw) & nm1;\
+			__wt_im = wtlp1*__wtA;\
+			__wi_im = wtnm1*__wtC;\
+			__m  = ((uint32)(__n_minus_silp1-__bjmodn) >> 31);\
+			__m2 = 1 + ((uint32)(__bjmodn - __sinwtm1) >> 31);\
+/*printf("Set %u, Im: bjmodn,sinwtm1, m,m2 = %u,%u, %u,%u\n",(set),__bjmodn,__sinwtm1,__m,__m2);*/\
+			__wt_im *= one_half[__m ];\
+			__wi_im *= one_half[__m2];\
+		__bjmodn = (__bjmodn + bw) & nm1;\
+	}
+
+#else
+
+	#define cmplx_carry_fast_pow2_wtsinit(__wt_re,__wi_re,__wt_im,__wi_im,__bjmodn,set)\
+	{\
+		double __wtA,__wtB,__wtC;\
+		uint32 __m,__m2;\
+			/* Must parenthesize (set) to allow arg to be an expression, since e.g. (co2 - a+b) != (co2 - (a+b)) */\
+			__wtA = wt1[col+(set)];\
+			__wtB = wt1[co2-(set)];\
+			__wtC = wt1[co3-(set)];\
+			__wt_re = wtl*__wtA;	/* Use separate re/im wts in the 0-version of this macro for compatibility with cmplx_carry_fast_pow2_errcheck */\
+			__wi_re = wtn*__wtB;\
+			__m  = ((uint32)(n_minus_sil-__bjmodn) >> 31);\
+			__m2 = 1 + ((uint32)(__bjmodn - sinwt) >> 31);\
+			__wt_re *= one_half[__m ];\
+			__wi_re *= one_half[__m2];\
+		__bjmodn = (__bjmodn + bw) & nm1;\
+			__wt_im = wtlp1*__wtA;\
+			__wi_im = wtnm1*__wtC;\
+			__m  = ((uint32)(n_minus_silp1-__bjmodn) >> 31);\
+			__m2 = 1 + ((uint32)(__bjmodn - sinwtm1) >> 31);\
+			__wt_im *= one_half[__m ];\
+			__wi_im *= one_half[__m2];\
+		__bjmodn = (__bjmodn + bw) & nm1;\
+	}
+
+#endif	// USE_AVX ?
 
 #define cmplx_carry_norm_pow2_errcheck(x,y,cy,bjmodn,set)\
 {\
-		wtA=wt1[col+set];\
-		wtB=wt1[co2-set];\
-		wtC=wt1[co3-set];\
+		/* Must parenthesize (set) to allow arg to be an expression, since e.g. (co2 - a+b) != (co2 - (a+b)) */\
+		wtA = wt1[col+(set)];\
+		wtB = wt1[co2-(set)];\
+		wtC = wt1[co3-(set)];\
 		wt   =wtl*wtA;\
 		wtinv=wtn*wtB;\
-		i =((uint32)(sw - bjmodn) >> 31);\
 		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
 		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
 		wt   =wt   *one_half[m];\
 		wtinv=wtinv*one_half[m2];\
-		x = cy+ x*wtinv;\
+		x = cy + x*wtinv;\
 		temp = DNINT(x);				check_nint(temp, x);\
 		frac = fabs(x-temp);\
 		if(frac > maxerr) maxerr=frac;\
+		i =((uint32)(sw - bjmodn) >> 31);\
 		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
 		x = (temp-cy*base[i])*wt;\
 	bjmodn = (bjmodn + bw) & nm1;\
 		wt   =wtlp1*wtA;\
 		wtinv=wtnm1*wtC;\
-		i =((uint32)(sw - bjmodn) >> 31);\
 		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
 		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
 		wt   =wt   *one_half[m];\
 		wtinv=wtinv*one_half[m2];\
-		y = cy+ y*wtinv;\
+		y = cy + y*wtinv;\
 		temp = DNINT(y);				check_nint(temp, y);\
 		frac = fabs(y-temp);\
 		if(frac > maxerr) maxerr=frac;\
+		i =((uint32)(sw - bjmodn) >> 31);\
 		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
 		y = (temp-cy*base[i])*wt;\
 	bjmodn = (bjmodn + bw) & nm1;\
@@ -310,7 +460,7 @@ with the Mersenne-mod-style IBDWT roots-of-2 weights:
 		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
 		wt   =wt   *one_half[m];\
 		wtinv=wtinv*one_half[m2];\
-		x = cy+ x*wtinv;\
+		x = cy + x*wtinv;\
 		temp = DNINT(x);				check_nint(temp, x);\
 		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
 		x = (temp-cy*base[i])*wt;\
@@ -322,7 +472,7 @@ with the Mersenne-mod-style IBDWT roots-of-2 weights:
 		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
 		wt   =wt   *one_half[m];\
 		wtinv=wtinv*one_half[m2];\
-		y = cy+ y*wtinv;\
+		y = cy + y*wtinv;\
 		temp = DNINT(y);				check_nint(temp, y);\
 		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
 		y = (temp-cy*base[i])*wt;\
@@ -331,9 +481,10 @@ with the Mersenne-mod-style IBDWT roots-of-2 weights:
 
 #define cmplx_carry_norm_pow2_nocheck(x,y,cy,bjmodn,set)\
 {\
-		wtA=wt1[col+set];\
-		wtB=wt1[co2-set];\
-		wtC=wt1[co3-set];\
+		/* Must parenthesize (set) to allow arg to be an expression, since e.g. (co2 - a+b) != (co2 - (a+b)) */\
+		wtA=wt1[col+(set)];\
+		wtB=wt1[co2-(set)];\
+		wtC=wt1[co3-(set)];\
 		wt   =wtl*wtA;\
 		wtinv=wtn*wtB;\
 		i =((uint32)(sw - bjmodn) >> 31);\
@@ -341,7 +492,7 @@ with the Mersenne-mod-style IBDWT roots-of-2 weights:
 		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
 		wt   =wt   *one_half[m];\
 		wtinv=wtinv*one_half[m2];\
-		x = cy+ x*wtinv;\
+		x = cy + x*wtinv;\
 		temp = DNINT(x);				check_nint(temp, x);\
 		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
 		x = (temp-cy*base[i])*wt;\
@@ -353,7 +504,7 @@ with the Mersenne-mod-style IBDWT roots-of-2 weights:
 		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
 		wt   =wt   *one_half[m];\
 		wtinv=wtinv*one_half[m2];\
-		y = cy+ y*wtinv;\
+		y = cy + y*wtinv;\
 		temp = DNINT(y);				check_nint(temp, y);\
 		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
 		y = (temp-cy*base[i])*wt;\
@@ -362,9 +513,182 @@ with the Mersenne-mod-style IBDWT roots-of-2 weights:
 
 
 /*
-Non-power-of-2 runlengths:
+Non-power-of-2 runlengths - here can't do a fast AND-based += bw (mod n),
+so replace with a branchless -= sw (+= n if result < 0):
 */
-#define cmplx_carry_norm_errcheck0(x,y,cy,bjmodn)\
+#define cmplx_carry_norm_errcheck0(x,y,cy,bjmodn,set)\
+{\
+		/* Must parenthesize (set) to allow arg to be an expression, since e.g. (co2 - a+b) != (co2 - (a+b)) */\
+		wtA = wt1[col+(set)];\
+		wtB = wt1[co2-(set)];\
+		wtC = wt1[co3-(set)];\
+		wt_re = wtl*wtA;	/* Use separate re/im wts in the 0-version of this macro for compatibility with cmplx_carry_fast_errcheck */\
+		wi_re = wtn*wtB;\
+/* If it's the 0-word the usual i-computation gives I == 0 here, but want I == 1; force-bigword-ness for the
+0-word only by XORing the i-result with ((j+set)==0) = 1. In all other cases (j+set) != 0, thus XOR = no-op: */\
+		i  = ((uint32)(sw - bjmodn) >> 31) ^ ((j+set)==0);/* Don't want this for set 0. */\
+		m  = ((uint32)(n_minus_sil-bjmodn) >> 31);\
+		m2 = 1 + ((uint32)(bjmodn - sinwt) >> 31);\
+		wt_re *= one_half[m ];\
+		wi_re *= one_half[m2];\
+		x = cy + x*wi_re;\
+		temp = DNINT(x);				check_nint(temp, x);\
+		frac = fabs(x-temp);\
+		if(frac > maxerr) maxerr=frac;\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		x = (temp-cy*base[i])*wt_re;\
+	bjmodn -= sw;\
+	bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
+		wt_im = wtlp1*wtA;\
+		wi_im = wtnm1*wtC;\
+		i  = ((uint32)(sw - bjmodn) >> 31);\
+		m  = ((uint32)(n_minus_silp1-bjmodn) >> 31);\
+		m2 = 1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
+		wt_im *= one_half[m ];\
+		wi_im *= one_half[m2];\
+		y = cy + y*wi_im;\
+		temp = DNINT(y);				check_nint(temp, y);\
+		frac = fabs(y-temp);\
+		if(frac > maxerr) maxerr=frac;\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		y = (temp-cy*base[i])*wt_im;\
+	bjmodn -= sw;\
+	bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
+}
+
+// Lower-accuracy cheap-carry macro which used chained-multipliers to compute current block's weights
+// from those of the previous one. *Requires* cmplx_carry_norm_errcheck0 used on first block, as in HIACC case:
+#define cmplx_carry_fast_errcheck(x,y,cy,bjmodn,set)\
+{\
+		i = (wt_re >= inv_mult[1]);\
+		wi_re *= inv_mult[i];\
+		wt_re *= wts_mult[i];\
+		x = cy + x*wi_re;\
+		temp = DNINT(x);				check_nint(temp, x);\
+		frac = fabs(x-temp);\
+		if(frac > maxerr) maxerr=frac;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		x = (temp-cy*base[i])*wt_re;\
+	bjmodn -= sw;\
+	bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
+		i = (wt_im >= inv_mult[1]);\
+		wi_im *= inv_mult[i];\
+		wt_im *= wts_mult[i];\
+		y = cy + y*wi_im;\
+		temp = DNINT(y);				check_nint(temp, y);\
+		frac = fabs(y-temp);\
+		if(frac > maxerr) maxerr=frac;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		y = (temp-cy*base[i])*wt_im;\
+	bjmodn -= sw;\
+	bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
+}
+
+// This shorter ...wtsinit() macro is actually for use by the SIMD analogs of this fast-carry macro:
+// Need a special version in avx mode since there n_minus_sil,n_minus_silp1,sinwt,sinwtm1 are typed
+// as (struct uint32x4 *) pointers rather than uint32 int-data:
+#ifdef USE_AVX
+
+	#define cmplx_carry_fast_wtsinit(__n_minus_sil,__n_minus_silp1,__sinwt,__sinwtm1, __wt_re,__wi_re,__wt_im,__wi_im, __bjmodn,set)\
+	{\
+		double __wtA,__wtB,__wtC;\
+		uint32 __m,__m2;\
+			/* Must parenthesize (set) to allow arg to be an expression, since e.g. (co2 - a+b) != (co2 - (a+b)) */\
+			__wtA = wt1[col+(set)];\
+			__wtB = wt1[co2-(set)];\
+			__wtC = wt1[co3-(set)];\
+			__wt_re = wtl*__wtA;	/* Use separate re/im wts in the 0-version of this macro for compatibility with cmplx_carry_fast_pow2_errcheck */\
+			__wi_re = wtn*__wtB;\
+			__m  = ((uint32)(__n_minus_sil-__bjmodn) >> 31);\
+			__m2 = 1 + ((uint32)(__bjmodn - __sinwt) >> 31);\
+/*printf("Set %u, Re: bjmodn,sinwt  , m,m2 = %u,%u, %u,%u\n",(set),__bjmodn,__sinwt  ,__m,__m2);*/\
+			__wt_re *= one_half[__m ];\
+			__wi_re *= one_half[__m2];\
+		__bjmodn -= sw;\
+		__bjmodn += ( (-(int)((uint32)__bjmodn >> 31)) & n);\
+			__wt_im = wtlp1*__wtA;\
+			__wi_im = wtnm1*__wtC;\
+			__m  = ((uint32)(__n_minus_silp1-__bjmodn) >> 31);\
+			__m2 = 1 + ((uint32)(__bjmodn - __sinwtm1) >> 31);\
+/*printf("Set %u, Im: bjmodn,sinwtm1, m,m2 = %u,%u, %u,%u\n",(set),__bjmodn,__sinwtm1,__m,__m2);*/\
+			__wt_im *= one_half[__m ];\
+			__wi_im *= one_half[__m2];\
+		__bjmodn -= sw;\
+		__bjmodn += ( (-(int)((uint32)__bjmodn >> 31)) & n);\
+	}
+
+#else
+
+	#define cmplx_carry_fast_wtsinit(__wt_re,__wi_re,__wt_im,__wi_im,__bjmodn,set)\
+	{\
+		double __wtA,__wtB,__wtC;\
+		uint32 __m,__m2;\
+			/* Must parenthesize (set) to allow arg to be an expression, since e.g. (co2 - a+b) != (co2 - (a+b)) */\
+			__wtA = wt1[col+(set)];\
+			__wtB = wt1[co2-(set)];\
+			__wtC = wt1[co3-(set)];\
+			__wt_re = wtl*__wtA;	/* Use separate re/im wts in the 0-version of this macro for compatibility with cmplx_carry_fast_errcheck */\
+			__wi_re = wtn*__wtB;\
+			__m  = ((uint32)(n_minus_sil-__bjmodn) >> 31);\
+			__m2 = 1 + ((uint32)(__bjmodn - sinwt) >> 31);\
+			__wt_re *= one_half[__m ];\
+			__wi_re *= one_half[__m2];\
+		__bjmodn -= sw;\
+		__bjmodn += ( (-(int)((uint32)__bjmodn >> 31)) & n);\
+			__wt_im = wtlp1*__wtA;\
+			__wi_im = wtnm1*__wtC;\
+			__m  = ((uint32)(n_minus_silp1-__bjmodn) >> 31);\
+			__m2 = 1 + ((uint32)(__bjmodn - sinwtm1) >> 31);\
+			__wt_im *= one_half[__m ];\
+			__wi_im *= one_half[__m2];\
+		__bjmodn -= sw;\
+		__bjmodn += ( (-(int)((uint32)__bjmodn >> 31)) & n);\
+	}
+
+#endif	// USE_AVX ?
+
+#define cmplx_carry_norm_errcheck(x,y,cy,bjmodn,set)\
+{\
+		/* Must parenthesize (set) to allow arg to be an expression, since e.g. (co2 - a+b) != (co2 - (a+b)) */\
+		wtA = wt1[col+(set)];\
+		wtB = wt1[co2-(set)];\
+		wtC = wt1[co3-(set)];\
+		wt   =wtl*wtA;\
+		wtinv=wtn*wtB;\
+		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
+		wt   =wt   *one_half[m];\
+		wtinv=wtinv*one_half[m2];\
+		x = cy + x*wtinv;\
+		temp = DNINT(x);				check_nint(temp, x);\
+		frac = fabs(x-temp);\
+		if(frac > maxerr) maxerr=frac;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		x = (temp-cy*base[i])*wt;\
+	bjmodn -= sw;\
+	bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
+		wt   =wtlp1*wtA;\
+		wtinv=wtnm1*wtC;\
+		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
+		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
+		wt   =wt   *one_half[m];\
+		wtinv=wtinv*one_half[m2];\
+		y = cy + y*wtinv;\
+		temp = DNINT(y);				check_nint(temp, y);\
+		frac = fabs(y-temp);\
+		if(frac > maxerr) maxerr=frac;\
+		i =((uint32)(sw - bjmodn) >> 31);\
+		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
+		y = (temp-cy*base[i])*wt;\
+	bjmodn -= sw;\
+	bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
+}
+
+// Chained-weights version of above 2 macros (always leave err-checking on i this case, i.e. no 'nochk' versions of these):
+#define cmplx_carry_norm_loacc0(x,y,cy,bjmodn)\
 {\
 		wtA=wt1[col];\
 		wtB=wt1[co2];\
@@ -376,46 +700,50 @@ Non-power-of-2 runlengths:
 		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
 		wt   =wt   *one_half[m];\
 		wtinv=wtinv*one_half[m2];\
-		x = cy+ x*wtinv;\
+		x = cy + x*wtinv;\
 		temp = DNINT(x);				check_nint(temp, x);\
 		frac = fabs(x-temp);\
 		if(frac > maxerr) maxerr=frac;\
 		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
-/*if(j<5) printf("x_in[%d] = %15.5f, wt,inv = %15.14f,%15.14f, base,inv = %7d, %20.15e, temp,frac,cy_out = %15.14f,%15.14f,%15.14f, a[%d]* = %15.5f\n",j,x,wt,wtinv/scale,(int)base[i],baseinv[i],temp,frac,cy,j,(temp-cy*base[i]));*/\
 		x = (temp-cy*base[i])*wt;\
 	bjmodn -= sw;\
 	bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
-		wt   =wtlp1*wtA;\
-		wtinv=wtnm1*wtC;\
+		/* m is free in the chained-mult case, so use to index into the mults-arrays: */\
+		m = (wt >= wtinv_mult_a[1]);\
+/*\
+if(full_pass && (j%4 == 0) && j < 20) {\
+	printf("J = %u\n",j);\
+	printf("wtold = %20.15f\n\n",wt);\
+}\
+*/\
+		wt    *= wts_mult_a  [m];\
+		wtinv *= wtinv_mult_a[m];	\
+/*\
+if(full_pass && (j%4 == 0) && j < 20) {\
+	printf("M = %u\n",m);\
+	printf("wt    = %20.15f\n\n",wt);\
+	printf("wtinv = %20.15f\n\n",wtinv);\
+} else if(j >= 20)\
+	exit(0);\
+*/\
 		i =((uint32)(sw - bjmodn) >> 31);\
-		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		y = cy+ y*wtinv;\
+		y = cy + y*wtinv;\
 		temp = DNINT(y);				check_nint(temp, y);\
 		frac = fabs(y-temp);\
 		if(frac > maxerr) maxerr=frac;\
 		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
-/*if(j<5) printf("y_in[%d] = %15.5f, wt,inv = %15.14f,%15.14f, base,inv = %7d, %20.15e, temp,frac,cy_out = %15.14f,%15.14f,%15.14f, a[%d]* = %15.5f\n",j+1,y,wt,wtinv/scale,(int)base[i],baseinv[i],temp,frac,cy,j+1,(temp-cy*base[i]));*/\
 		y = (temp-cy*base[i])*wt;\
 	bjmodn -= sw;\
 	bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
 }
 
-#define cmplx_carry_norm_errcheck(x,y,cy,bjmodn,set)\
+#define cmplx_carry_norm_loacc(x,y,cy,bjmodn,set)\
 {\
-		wtA=wt1[col+set];\
-		wtB=wt1[co2-set];\
-		wtC=wt1[co3-set];\
-		wt   =wtl*wtA;\
-		wtinv=wtn*wtB;\
+		m = (wt >= wtinv_mult_b[1]);\
+		wt    *= wts_mult_b  [m];\
+		wtinv *= wtinv_mult_b[m];	\
 		i =((uint32)(sw - bjmodn) >> 31);\
-		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		x = cy+ x*wtinv;\
+		x = cy + x*wtinv;\
 		temp = DNINT(x);				check_nint(temp, x);\
 		frac = fabs(x-temp);\
 		if(frac > maxerr) maxerr=frac;\
@@ -423,14 +751,11 @@ Non-power-of-2 runlengths:
 		x = (temp-cy*base[i])*wt;\
 	bjmodn -= sw;\
 	bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
-		wt   =wtlp1*wtA;\
-		wtinv=wtnm1*wtC;\
+		m = (wt >= wtinv_mult_a[1]);\
+		wt    *= wts_mult_a  [m];\
+		wtinv *= wtinv_mult_a[m];	\
 		i =((uint32)(sw - bjmodn) >> 31);\
-		m =((uint32)(n_minus_silp1-bjmodn) >> 31);\
-		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
-		wt   =wt   *one_half[m];\
-		wtinv=wtinv*one_half[m2];\
-		y = cy+ y*wtinv;\
+		y = cy + y*wtinv;\
 		temp = DNINT(y);				check_nint(temp, y);\
 		frac = fabs(y-temp);\
 		if(frac > maxerr) maxerr=frac;\
@@ -440,14 +765,16 @@ Non-power-of-2 runlengths:
 	bjmodn += ( (-(int)((uint32)bjmodn >> 31)) & n);\
 }
 
-/* A version with a slightly different sequencing, attempting to achieve better pipelining: */
+
+// Alternate version of cmplx_carry_norm_errcheck with slightly different sequencing, in hopes of achieving better pipelining:
 #define cmplx_carry_norm_errcheckB(x,y,cy,bjmodn,set)\
 {\
 		x *= wtn;\
 		y *= wtnm1;\
-		wtA=wt1[col+set];\
-		wtB=wt1[co2-set];	x *= wtB;\
-		wtC=wt1[co3-set];	y *= wtC;\
+		/* Must parenthesize (set) to allow arg to be an expression, since e.g. (co2 - a+b) != (co2 - (a+b)) */\
+		wtA=wt1[col+(set)];\
+		wtB=wt1[co2-(set)];	x *= wtB;\
+		wtC=wt1[co3-(set)];	y *= wtC;\
 		wt   =wtl*wtA;\
 		i =((uint32)(sw - bjmodn) >> 31);\
 		m =((uint32)(n_minus_sil-bjmodn) >> 31);\
@@ -488,7 +815,7 @@ Non-power-of-2 runlengths:
 		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
 		wt   =wt   *one_half[m];\
 		wtinv=wtinv*one_half[m2];\
-		x = cy+ x*wtinv;\
+		x = cy + x*wtinv;\
 		temp = DNINT(x);				check_nint(temp, x);\
 		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
 		x = (temp-cy*base[i])*wt;\
@@ -501,7 +828,7 @@ Non-power-of-2 runlengths:
 		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
 		wt   =wt   *one_half[m];\
 		wtinv=wtinv*one_half[m2];\
-		y = cy+ y*wtinv;\
+		y = cy + y*wtinv;\
 		temp = DNINT(y);				check_nint(temp, y);\
 		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
 		y = (temp-cy*base[i])*wt;\
@@ -511,9 +838,10 @@ Non-power-of-2 runlengths:
 
 #define cmplx_carry_norm_nocheck(x,y,cy,bjmodn,set)\
 {\
-		wtA=wt1[col+set];\
-		wtB=wt1[co2-set];\
-		wtC=wt1[co3-set];\
+		/* Must parenthesize (set) to allow arg to be an expression, since e.g. (co2 - a+b) != (co2 - (a+b)) */\
+		wtA=wt1[col+(set)];\
+		wtB=wt1[co2-(set)];\
+		wtC=wt1[co3-(set)];\
 		wt   =wtl*wtA;\
 		wtinv=wtn*wtB;\
 		i =((uint32)(sw - bjmodn) >> 31);\
@@ -521,7 +849,7 @@ Non-power-of-2 runlengths:
 		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
 		wt   =wt   *one_half[m];\
 		wtinv=wtinv*one_half[m2];\
-		x = cy+ x*wtinv;\
+		x = cy + x*wtinv;\
 		temp = DNINT(x);				check_nint(temp, x);\
 		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
 		x = (temp-cy*base[i])*wt;\
@@ -534,7 +862,7 @@ Non-power-of-2 runlengths:
 		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
 		wt   =wt   *one_half[m];\
 		wtinv=wtinv*one_half[m2];\
-		y = cy+ y*wtinv;\
+		y = cy + y*wtinv;\
 		temp = DNINT(y);				check_nint(temp, y);\
 		cy   = DNINT(temp*baseinv[i]);	check_nint(cy, temp*baseinv[i]);\
 		y = (temp-cy*base[i])*wt;\
@@ -567,7 +895,7 @@ uint32 dexp,bits;\
 		wt   =wt   *one_half[m];\
 		wtinv=wtinv*one_half[m2];\
 /*if(j1==0)printf("x0,cy,wtinv = %20.15e  %20.15e  %20.15e\n",x,cy,wtinv);*/\
-		x = cy+ x*wtinv;\
+		x = cy + x*wtinv;\
 bits  = swbits + i;\
 ix    = *((uint64 *)&x);\
 sign  = ix & himask;\
@@ -617,7 +945,7 @@ else\
 		wt   =wt   *one_half[m];\
 		wtinv=wtinv*one_half[m2];\
 /*if(j1==0)printf("y0,cy,wtinv = %20.15e  %20.15e  %20.15e\n",y,cy,wtinv);*/\
-		y = cy+ y*wtinv;\
+		y = cy + y*wtinv;\
 bits  = swbits + i;\
 ix    = *((uint64 *)&y);\
 sign  = ix & himask;\
@@ -657,9 +985,10 @@ else\
 
 #define Icmplx_carry_norm_errcheck(x,y,cy,bjmodn,set)\
 {\
-		wtA=wt1[col+set];\
-		wtB=wt1[co2-set];\
-		wtC=wt1[co3-set];\
+		/* Must parenthesize (set) to allow arg to be an expression, since e.g. (co2 - a+b) != (co2 - (a+b)) */\
+		wtA=wt1[col+(set)];\
+		wtB=wt1[co2-(set)];\
+		wtC=wt1[co3-(set)];\
 		wt   =wtl*wtA;\
 		wtinv=wtn*wtB;\
 		i =((uint32)(sw - bjmodn) >> 31);\
@@ -667,7 +996,7 @@ else\
 		m2=1 + ((uint32)(bjmodn - sinwt) >> 31);\
 		wt   =wt   *one_half[m];\
 		wtinv=wtinv*one_half[m2];\
-		x = cy+ x*wtinv;\
+		x = cy + x*wtinv;\
 bits  = swbits + i;\
 ix    = *((uint64 *)&x);\
 sign  = ix & himask;\
@@ -709,7 +1038,7 @@ else\
 		m2=1 + ((uint32)(bjmodn - sinwtm1) >> 31);\
 		wt   =wt   *one_half[m];\
 		wtinv=wtinv*one_half[m2];\
-		y = cy+ y*wtinv;\
+		y = cy + y*wtinv;\
 bits  = swbits + i;\
 ix    = *((uint64 *)&y);\
 sign  = ix & himask;\
@@ -810,7 +1139,7 @@ else\
 			__asm	mov		edx, __data	\
 			__asm	movaps	xmm4,[edx     ] /* x = [a.re,b.re] */	\
 			__asm	movaps	xmm2,[edx+0x10]	/* y = [a.im,b.im] */	\
-			__asm	movaps	xmm5,[ecx+0x20]	/* [scale,scale] */	\
+			__asm	movaps	xmm5,[ecx +0x20]	/* [scale,scale] */	\
 			__asm	mulpd	xmm4,xmm5	\
 			__asm	mulpd	xmm2,xmm5	\
 			__asm	movaps	xmm5,xmm4	/* x copy */	\
@@ -839,7 +1168,7 @@ else\
 			__asm	maxpd	xmm2,xmm6		/* if(frac > maxerr) maxerr=frac */	\
 			__asm	movaps	xmm6,xmm2		/* Note serialization here! */	\
 			__asm	movaps	xmm2,xmm4			/* cpy temp */	\
-			__asm	mulpd	xmm2,[ecx+0x10]		/* temp*baseinv[0] */	\
+			__asm	mulpd	xmm2,[ecx +0x10]		/* temp*baseinv[0] */	\
 			__asm	addpd	xmm2,xmm7	\
 			__asm	subpd	xmm2,xmm7			/* [cx,cy] = DNINT(temp*baseinv[0]) */	\
 			__asm	movaps	xmm3,xmm2			/* cpy [cx,cy] */	\
@@ -855,7 +1184,7 @@ else\
 			__asm	maxpd	xmm2,xmm6		/* if(frac > maxerr) maxerr=frac */	\
 			__asm	movaps	xmm6,xmm2		/* Note serialization here! */	\
 			__asm	movaps	xmm2,xmm5			/* cpy temp */	\
-			__asm	mulpd	xmm2,[ecx+0x10]		/* temp*baseinv[0] */	\
+			__asm	mulpd	xmm2,[ecx +0x10]		/* temp*baseinv[0] */	\
 			__asm	addpd	xmm2,xmm7	\
 			__asm	subpd	xmm2,xmm7			/* [cx,cy] = DNINT(temp*baseinv[0]) */	\
 			__asm	movaps	xmm3,xmm2			/* cpy [cx,cy] */	\
@@ -936,7 +1265,7 @@ else\
 			__asm	movaps	xmm4,[edx     ] /* x = [a.re,b.re] */	\
 			__asm	movaps	xmm2,[edx+0x10]	/* y = [a.im,b.im] */	\
 			__asm	add		ecx, __offset0	\
-			__asm	movaps	xmm5,[ecx+edi]	/* [wtinv0,wtinv1] */	\
+			__asm	movaps	xmm5,[ecx +edi]	/* [wtinv0,wtinv1] */	\
 			__asm	sub		ecx, __offset0	\
 			__asm	mulpd	xmm4,xmm5	\
 			__asm	mulpd	xmm2,xmm5	\
@@ -970,7 +1299,7 @@ else\
 			__asm	add		ecx, edi	\
 			__asm	shr		edi, 1	\
 			__asm	movaps	xmm2,xmm4			/* cpy temp */	\
-			__asm	mulpd	xmm2,[ecx+edi]	/* temp*baseinv[0] */	\
+			__asm	mulpd	xmm2,[ecx +edi]	/* temp*baseinv[0] */	\
 			__asm	addpd	xmm2,xmm7	\
 			__asm	subpd	xmm2,xmm7			/* [cx,cy] = DNINT(temp*baseinv[0]) */	\
 			__asm	movaps	xmm3,xmm2			/* cpy [cx,cy] */	\
@@ -988,7 +1317,7 @@ else\
 			__asm	movaps	xmm6,xmm2		/* Note serialization here! */	\
 			__asm	movaps	xmm2,xmm5			/* cpy temp */	\
 			__asm	add		ecx, __offset1	\
-			__asm	mulpd	xmm2,[ecx+edi]	/* temp*baseinv[1] */	\
+			__asm	mulpd	xmm2,[ecx +edi]	/* temp*baseinv[1] */	\
 			__asm	addpd	xmm2,xmm7	\
 			__asm	subpd	xmm2,xmm7			/* [cx,cy] = DNINT(temp*baseinv[1]) */	\
 			__asm	shl		edi, 1			/* prepare to re-subtract 2*odd_radix from local-store pointer */\
@@ -1827,7 +2156,7 @@ else\
 				__asm	mov		eax, half_arr							/* This is a real array address from the calling routine, hence no prepended __ . */\
 				__asm	movaps		xmm1,[ebx]			__asm	movaps		xmm5,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
 				__asm	movhpd		xmm2,[ecx]			__asm	movhpd		xmm6,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm2,[ecx+0x08]		__asm	movlpd		xmm6,[ecx-0x08]		/* [NOTE: movhpd/movlpd preferable to movupd/shufpd] */\
+				__asm	movlpd		xmm2,[ecx +0x08]		__asm	movlpd		xmm6,[ecx-0x08]		/* [NOTE: movhpd/movlpd preferable to movupd/shufpd] */\
 				__asm	sub		ecx, 20H	/* add1 -= 4 */\
 				__asm	mov		__wtB, ecx\
 				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
@@ -1839,7 +2168,7 @@ else\
 				__asm	mulpd		xmm1,[eax+0x100]	__asm	mulpd		xmm5,[eax+0x100]	/* wt   =wtA*wtl */\
 				__asm	mulpd		xmm2,[eax+0x110]	__asm	mulpd		xmm6,[eax+0x110]	/* wtinv=wtB*wtn */\
 				__asm	mulpd		xmm1,[edi     ]		__asm	mulpd		xmm5,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm2,[edx+0x40]		__asm	mulpd		xmm6,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
+				__asm	mulpd		xmm2,[edx+0x40]		__asm	mulpd		xmm6,[ecx +0x40]		/* wtinv=wtinv*one_half[4+m23] */\
 																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
 				__asm	mulpd		xmm0,xmm2			__asm	mulpd		xmm4,xmm6			/* x = x*wtinv */\
 				__asm	addpd		xmm0,[ecx]			__asm	addpd		xmm4,[edx]			/* x = x*wtinv + cy */\
@@ -1985,7 +2314,7 @@ else\
 				__asm	mov		eax, half_arr							/* This is a real array address from the calling routine, hence no prepended __ . */\
 				__asm	movaps		xmm1,[ebx]			__asm	movaps		xmm5,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
 				__asm	movhpd		xmm2,[ecx]			__asm	movhpd		xmm6,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm2,[ecx+0x08]		__asm	movlpd		xmm6,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
+				__asm	movlpd		xmm2,[ecx +0x08]		__asm	movlpd		xmm6,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
 				__asm	sub		ecx, 20H	/* add2 -= 4 */\
 				__asm	mov		__wtA, ebx\
 				__asm	mov		__wtC, ecx\
@@ -1998,7 +2327,7 @@ else\
 				__asm	mulpd		xmm1,[eax+0x120]	__asm	mulpd		xmm5,[eax+0x120]	/* wt   =wtA*wtlp1 */\
 				__asm	mulpd		xmm2,[eax+0x130]	__asm	mulpd		xmm6,[eax+0x130]	/* wtinv=wtC*wtnm1 */\
 				__asm	mulpd		xmm1,[edi     ]		__asm	mulpd		xmm5,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm2,[edx+0x40]		__asm	mulpd		xmm6,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
+				__asm	mulpd		xmm2,[edx+0x40]		__asm	mulpd		xmm6,[ecx +0x40]		/* wtinv=wtinv*one_half[4+m23] */\
 																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
 				__asm	mulpd		xmm0,xmm2			__asm	mulpd		xmm4,xmm6			/* y = y*wtinv */\
 				__asm	addpd		xmm0,[ecx]			__asm	addpd		xmm4,[edx]			/* y = y*wtinv + cy */\
@@ -2175,7 +2504,7 @@ else\
 				__asm	mov		eax, half_arr							/* This is a real array address from the calling routine, hence no prepended __ . */\
 				__asm	movaps		xmm1,[ebx]			__asm	movaps		xmm5,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
 				__asm	movhpd		xmm2,[ecx]			__asm	movhpd		xmm6,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm2,[ecx+0x08]		__asm	movlpd		xmm6,[ecx-0x08]				__asm	sub		ecx, 20H	/* add1 -= 4 */\
+				__asm	movlpd		xmm2,[ecx +0x08]		__asm	movlpd		xmm6,[ecx-0x08]				__asm	sub		ecx, 20H	/* add1 -= 4 */\
 				__asm	mov		__wtB, ecx\
 				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
 				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* m0 */\
@@ -2186,7 +2515,7 @@ else\
 				__asm	mulpd		xmm1,[eax+0x100]	__asm	mulpd		xmm5,[eax+0x100]	/* wt   =wtA*wtl */\
 				__asm	mulpd		xmm2,[eax+0x110]	__asm	mulpd		xmm6,[eax+0x110]	/* wtinv=wtB*wtn */\
 				__asm	mulpd		xmm1,[edi     ]		__asm	mulpd		xmm5,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm2,[edx+0x40]		__asm	mulpd		xmm6,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
+				__asm	mulpd		xmm2,[edx+0x40]		__asm	mulpd		xmm6,[ecx +0x40]		/* wtinv=wtinv*one_half[4+m23] */\
 																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
 				__asm	mulpd		xmm0,xmm2			__asm	mulpd		xmm4,xmm6			/* x = x*wtinv */\
 				__asm	addpd		xmm0,[ecx]			__asm	addpd		xmm4,[edx]			/* x = x*wtinv + cy */\
@@ -2332,7 +2661,7 @@ else\
 				__asm	mov		eax, half_arr							/* This is a real array address from the calling routine, hence no prepended __ . */\
 				__asm	movaps		xmm1,[ebx]			__asm	movaps		xmm5,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
 				__asm	movhpd		xmm2,[ecx]			__asm	movhpd		xmm6,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm2,[ecx+0x08]		__asm	movlpd		xmm6,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
+				__asm	movlpd		xmm2,[ecx +0x08]		__asm	movlpd		xmm6,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
 				__asm	sub		ecx, 20H	/* add2 -= 4 */\
 				__asm	mov		__wtA, ebx\
 				__asm	mov		__wtC, ecx\
@@ -2345,7 +2674,7 @@ else\
 				__asm	mulpd		xmm1,[eax+0x120]	__asm	mulpd		xmm5,[eax+0x120]	/* wt   =wtA*wtlp1 */\
 				__asm	mulpd		xmm2,[eax+0x130]	__asm	mulpd		xmm6,[eax+0x130]	/* wtinv=wtC*wtnm1 */\
 				__asm	mulpd		xmm1,[edi     ]		__asm	mulpd		xmm5,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm2,[edx+0x40]		__asm	mulpd		xmm6,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
+				__asm	mulpd		xmm2,[edx+0x40]		__asm	mulpd		xmm6,[ecx +0x40]		/* wtinv=wtinv*one_half[4+m23] */\
 																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
 				__asm	mulpd		xmm0,xmm2			__asm	mulpd		xmm4,xmm6			/* y = y*wtinv */\
 				__asm	addpd		xmm0,[ecx]			__asm	addpd		xmm4,[edx]			/* y = y*wtinv + cy */\
@@ -2508,7 +2837,7 @@ else\
 				__asm	mov		eax, half_arr							/* This is a real array address from the calling routine, hence no prepended __ . */\
 				__asm	movaps		xmm1,[ebx]			__asm	movaps		xmm5,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
 				__asm	movhpd		xmm2,[ecx]			__asm	movhpd		xmm6,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm2,[ecx+0x08]		__asm	movlpd		xmm6,[ecx-0x08]				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
+				__asm	movlpd		xmm2,[ecx +0x08]		__asm	movlpd		xmm6,[ecx-0x08]				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
 				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* m0 */\
 				__asm	shld	edx,esi,28				__asm	shld	ecx,esi,26\
 				__asm	and		edx, 00000030H			__asm	and		ecx, 00000030H			/* m2 */\
@@ -2517,7 +2846,7 @@ else\
 				__asm	mulpd		xmm1,[eax+0x100]	__asm	mulpd		xmm5,[eax+0x100]	/* wt   =wtA*wtl */\
 				__asm	mulpd		xmm2,[eax+0x110]	__asm	mulpd		xmm6,[eax+0x110]	/* wtinv=wtB*wtn */\
 				__asm	mulpd		xmm1,[edi     ]		__asm	mulpd		xmm5,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm2,[edx+0x40]		__asm	mulpd		xmm6,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
+				__asm	mulpd		xmm2,[edx+0x40]		__asm	mulpd		xmm6,[ecx +0x40]		/* wtinv=wtinv*one_half[4+m23] */\
 																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
 				__asm	mulpd		xmm0,xmm2			__asm	mulpd		xmm4,xmm6			/* x = x*wtinv */\
 				__asm	addpd		xmm0,[ecx]			__asm	addpd		xmm4,[edx]			/* x = x*wtinv + cy */\
@@ -2663,7 +2992,7 @@ else\
 				__asm	mov		eax, half_arr							/* This is a real array address from the calling routine, hence no prepended __ . */\
 				__asm	movaps		xmm1,[ebx]			__asm	movaps		xmm5,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
 				__asm	movhpd		xmm2,[ecx]			__asm	movhpd		xmm6,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm2,[ecx+0x08]		__asm	movlpd		xmm6,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
+				__asm	movlpd		xmm2,[ecx +0x08]		__asm	movlpd		xmm6,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
 				__asm	sub		ecx, 20H	/* add1 -= 4 */\
 				__asm	mov		__wtA, ebx\
 				__asm	mov		__wtB, ecx\
@@ -2676,7 +3005,7 @@ else\
 				__asm	mulpd		xmm1,[eax+0x120]	__asm	mulpd		xmm5,[eax+0x120]	/* wt   =wtA*wtlp1 */\
 				__asm	mulpd		xmm2,[eax+0x130]	__asm	mulpd		xmm6,[eax+0x130]	/* wtinv=wtC*wtnm1 */\
 				__asm	mulpd		xmm1,[edi     ]		__asm	mulpd		xmm5,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm2,[edx+0x40]		__asm	mulpd		xmm6,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
+				__asm	mulpd		xmm2,[edx+0x40]		__asm	mulpd		xmm6,[ecx +0x40]		/* wtinv=wtinv*one_half[4+m23] */\
 																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
 				__asm	mulpd		xmm0,xmm2			__asm	mulpd		xmm4,xmm6			/* y = y*wtinv */\
 				__asm	addpd		xmm0,[ecx]			__asm	addpd		xmm4,[edx]			/* y = y*wtinv + cy */\
@@ -2802,7 +3131,7 @@ else\
 				__asm	movaps		xmm4,[eax-0x10]		/* RND_CONST */\
 				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
 				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]		/* [NOTE: movhpd/movlpd preferable to movupd/shufpd] */\
+				__asm	movlpd		xmm3,[ecx +0x08]		__asm	movlpd		xmm7,[ecx-0x08]		/* [NOTE: movhpd/movlpd preferable to movupd/shufpd] */\
 				__asm	sub		ecx, 20H	/* add1 -= 4 */\
 				__asm	mov		__wtB, ecx\
 				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
@@ -2814,7 +3143,7 @@ else\
 				__asm	mulpd		xmm2,[eax+0x100]	__asm	mulpd		xmm6,[eax+0x100]	/* wt   =wtA*wtl */\
 				__asm	mulpd		xmm3,[eax+0x110]	__asm	mulpd		xmm7,[eax+0x110]	/* wtinv=wtB*wtn */\
 				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
+				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx +0x40]		/* wtinv=wtinv*one_half[4+m23] */\
 																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
 				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* x = x*wtinv; xmm3,xmm7 FREE */\
 				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* x = x*wtinv + cy */\
@@ -2876,7 +3205,7 @@ else\
 				__asm	mov		ecx, __wtC				/* wtB == wtC for this latter set of carries */\
 				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
 				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
+				__asm	movlpd		xmm3,[ecx +0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
 				__asm	sub		ecx, 20H	/* add2 -= 4 */\
 				__asm	mov		__wtA, ebx\
 				__asm	mov		__wtC, ecx\
@@ -2889,7 +3218,7 @@ else\
 				__asm	mulpd		xmm2,[eax+0x120]	__asm	mulpd		xmm6,[eax+0x120]	/* wt   =wtA*wtlp1 */\
 				__asm	mulpd		xmm3,[eax+0x130]	__asm	mulpd		xmm7,[eax+0x130]	/* wtinv=wtC*wtnm1 */\
 				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
+				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx +0x40]		/* wtinv=wtinv*one_half[4+m23] */\
 																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
 				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* y = y*wtinv; ymm3,ymm7 FREE */\
 				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* y = y*wtinv + cy */\
@@ -2978,7 +3307,7 @@ else\
 				__asm	movaps		xmm4,[eax-0x10]		/* RND_CONST */\
 				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
 				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]		/* [NOTE: movhpd/movlpd preferable to movupd/shufpd] */\
+				__asm	movlpd		xmm3,[ecx +0x08]		__asm	movlpd		xmm7,[ecx-0x08]		/* [NOTE: movhpd/movlpd preferable to movupd/shufpd] */\
 				__asm	sub		ecx, 20H	/* add1 -= 4 */\
 				__asm	mov		__wtB, ecx\
 				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
@@ -2990,7 +3319,7 @@ else\
 				__asm	mulpd		xmm2,[eax+0x100]	__asm	mulpd		xmm6,[eax+0x100]	/* wt   =wtA*wtl */\
 				__asm	mulpd		xmm3,[eax+0x110]	__asm	mulpd		xmm7,[eax+0x110]	/* wtinv=wtB*wtn */\
 				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
+				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx +0x40]		/* wtinv=wtinv*one_half[4+m23] */\
 																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
 				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* x = x*wtinv; xmm3,xmm7 FREE */\
 				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* x = x*wtinv + cy */\
@@ -3052,7 +3381,7 @@ else\
 				__asm	mov		ecx, __wtC				/* wtB == wtC for this latter set of carries */\
 				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
 				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
+				__asm	movlpd		xmm3,[ecx +0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
 				__asm	sub		ecx, 20H	/* add2 -= 4 */\
 				__asm	mov		__wtA, ebx\
 				__asm	mov		__wtC, ecx\
@@ -3065,7 +3394,7 @@ else\
 				__asm	mulpd		xmm2,[eax+0x120]	__asm	mulpd		xmm6,[eax+0x120]	/* wt   =wtA*wtlp1 */\
 				__asm	mulpd		xmm3,[eax+0x130]	__asm	mulpd		xmm7,[eax+0x130]	/* wtinv=wtC*wtnm1 */\
 				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
+				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx +0x40]		/* wtinv=wtinv*one_half[4+m23] */\
 																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
 				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* y = y*wtinv; ymm3,ymm7 FREE */\
 				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* y = y*wtinv + cy */\
@@ -3138,7 +3467,7 @@ else\
 				__asm	movaps		xmm4,[eax-0x10]		/* RND_CONST */\
 				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
 				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
+				__asm	movlpd		xmm3,[ecx +0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
 				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* m0 */\
 				__asm	shld	edx,esi,28				__asm	shld	ecx,esi,26\
 				__asm	and		edx, 00000030H			__asm	and		ecx, 00000030H			/* m2 */\
@@ -3147,7 +3476,7 @@ else\
 				__asm	mulpd		xmm2,[eax+0x100]	__asm	mulpd		xmm6,[eax+0x100]	/* wt   =wtA*wtl */\
 				__asm	mulpd		xmm3,[eax+0x110]	__asm	mulpd		xmm7,[eax+0x110]	/* wtinv=wtB*wtn */\
 				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
+				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx +0x40]		/* wtinv=wtinv*one_half[4+m23] */\
 																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
 				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* x = x*wtinv; xmm3,xmm7 FREE */\
 				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* x = x*wtinv + cy */\
@@ -3209,7 +3538,7 @@ else\
 				__asm	mov		ecx, __wtB				/* wtB == wtC for this latter set of carries */\
 				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
 				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
+				__asm	movlpd		xmm3,[ecx +0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
 				__asm	sub		ecx, 20H	/* add1 -= 4 */\
 				__asm	mov		__wtA, ebx\
 				__asm	mov		__wtB, ecx\
@@ -3222,7 +3551,7 @@ else\
 				__asm	mulpd		xmm2,[eax+0x120]	__asm	mulpd		xmm6,[eax+0x120]	/* wt   =wtA*wtlp1 */\
 				__asm	mulpd		xmm3,[eax+0x130]	__asm	mulpd		xmm7,[eax+0x130]	/* wtinv=wtC*wtnm1 */\
 				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
+				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx +0x40]		/* wtinv=wtinv*one_half[4+m23] */\
 																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
 				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* y = y*wtinv; ymm3,ymm7 FREE */\
 				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* y = y*wtinv + cy */\
@@ -3266,342 +3595,6 @@ else\
 																										__asm	movaps	[eax+0x10],xmm1			__asm	movaps	[eax+0x50],xmm5			/* a[jp+p0 ] */\
 				__asm	movaps	[eax     ],xmm0			__asm	movaps	[eax+0x40],xmm4			/* a[jt+p0 ] */\
 		}
-
-		/******************************************************************************************************************************************************************/
-		/********** No-ROE-Check versions of the latter 2 of the above 3 macros - the first is called too infrequently to bother with a special non-ROE version: **********/
-		/******************************************************************************************************************************************************************/
-
-		/********* Packed 32-bit-int version of SSE2_cmplx_carry_norm_pow2_errcheck1_2x:***********/
-
-		#define SSE2_cmplx_carry_norm_pow2_nocheck1_2B(__data,__wtA,__wtB,__wtC,__cyA,__cyB,__bjmod_0)\
-		{\
-		/***************Unpack the data:*************************/\
-				__asm	mov		eax, __data\
-				/* Real parts: */							__asm	movaps		xmm1,[eax     ]		__asm	movaps		xmm5,[eax+0x40]	/* r1, this is the active  xmm register */\
-				__asm	movaps		xmm2,[eax     ]		__asm	movaps		xmm6,[eax+0x40]	/* r1, this is the scratch xmm register */\
-				__asm	unpcklpd	xmm1,[eax+0x20]		__asm	unpcklpd	xmm5,[eax+0x60]	/* r1 -x- r3 (lo halves) ==> R0~ */\
-				__asm	unpckhpd	xmm2,[eax+0x20]		__asm	unpckhpd	xmm6,[eax+0x60]	/* r1 -x- r3 (hi halves) ==> R1~ */\
-				__asm	movaps		[eax+0x20],xmm2		__asm	movaps		[eax+0x60],xmm6	/* Tmp store R1~ until needed on 2nd set of SSE2_cmplx_carry.calls */\
-				/* Imag parts: */							__asm	movaps		xmm2,[eax+0x10]		__asm	movaps		xmm6,[eax+0x50]	\
-				__asm	movaps		xmm3,[eax+0x10]		__asm	movaps		xmm7,[eax+0x50]	\
-				__asm	unpcklpd	xmm2,[eax+0x30]		__asm	unpcklpd	xmm6,[eax+0x70]	/* r2 -x- r4 (lo halves) ==> I0~ */\
-				__asm	unpckhpd	xmm3,[eax+0x30]		__asm	unpckhpd	xmm7,[eax+0x70]	/* r2 -x- r4 (hi halves) ==> I1~ */\
-				__asm	movaps		[eax+0x10],xmm2		__asm	movaps		[eax+0x50],xmm6	/* Tmp store I0~ until needed by imaginary-part-processing section */\
-				__asm	movaps		[eax+0x30],xmm3		__asm	movaps		[eax+0x70],xmm7	/* Tmp store I1~ until needed on 2nd set of SSE2_cmplx_carry.calls */\
-				/* Active data in xmm1,5 here - avoid using those registers in index computation. */\
-			/**********************************************/\
-			/*          Real      parts                   */\
-			/**********************************************/\
-				__asm	mov		eax, __bjmod_0			/* Pointer to bjmodn data */\
-				__asm	movaps	xmm0,[eax]				/* bjmod[0:3] */\
-				__asm	mov		ebx, sse_sw\
-				__asm	movaps	xmm7,[ebx]				/* sw[0:3] */\
-				__asm	psubd	xmm7,xmm0				/* sw[0:3] - bjmod[0:3] */\
-				__asm	movmskps esi,xmm7				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		esi, 24					/* <i3|i2|i1|i0>; Packed indices into base,base_inv tables; move into leftmost byte[3] */\
-				__asm	movaps	xmm7,xmm0				/* bjmod[0:3] COPY */\
-				__asm	mov		ecx, n_minus_sil\
-				__asm	movd	xmm2,ecx				/* n_minus_sil in low 32 bits of xmm2 */\
-				__asm	pshufd	xmm2,xmm2,0				/* Broadcast low 32 bits of xmm2 to all 4 slots of xmm2 */\
-				__asm	psubd	xmm2,xmm0				/* n_minus_sil - bjmod[0:3] */\
-				__asm	movmskps ecx,xmm2				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		ecx, 16					/* <m3|m2|m1|m0>; Packed indices into base,base_inv tables; move into leftmost byte[2] of ecx... */\
-				__asm	add		esi, ecx				/* ....and fold into esi. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
-				__asm	mov		edx, sinwt\
-				__asm	movd	xmm3,edx				/* sinwt in low 32 bits of xmm3 */\
-				__asm	pshufd	xmm3,xmm3,0				/* Broadcast low 32 bits of xmm3 to all 4 slots of xmm3 */\
-				__asm	psubd	xmm7,xmm3				/* bjmod[0:3] - sinwt */\
-				__asm	movmskps edx,xmm7				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		edx, 8					/* <n3|n2|n1|n0>; Packed indices into base,base_inv tables; move into leftmost byte[1] of edx... */\
-				__asm	add		esi, edx				/* ....and fold into esi. */\
-		/*\
-				__asm	mov		eax, __data\
-				__asm	movaps		xmm1,[eax     ]		__asm	movaps		xmm5,[eax+0x40]		// R1~ \
-		*/\
-				/* Don't explicitly load address of sse2_rnd, since we know it's in [half_arr - 0x10]. */\
-				__asm	mov		eax, half_arr							/* This is a real array address from the calling routine, hence no prepended __ . */\
-				__asm	mov		ebx, __wtA\
-				__asm	mov		ecx, __wtB\
-				__asm	movaps		xmm4,[eax-0x10]		/* RND_CONST */\
-				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
-				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]		/* [NOTE: movhpd/movlpd preferable to movupd/shufpd] */\
-				__asm	sub		ecx, 20H	/* add1 -= 4 */\
-				__asm	mov		__wtB, ecx\
-				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
-				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* m0 */\
-				__asm	shld	edx,esi,28				__asm	shld	ecx,esi,26\
-				__asm	and		edx, 00000030H			__asm	and		ecx, 00000030H			/* m2 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax\
-				__asm	add		edx, eax				__asm	add		ecx, eax\
-				__asm	mulpd		xmm2,[eax+0x100]	__asm	mulpd		xmm6,[eax+0x100]	/* wt   =wtA*wtl */\
-				__asm	mulpd		xmm3,[eax+0x110]	__asm	mulpd		xmm7,[eax+0x110]	/* wtinv=wtB*wtn */\
-				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
-																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
-				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* x = x*wtinv; xmm3,xmm7 FREE */\
-				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* x = x*wtinv + cy */\
-				__asm	movaps		xmm3,xmm1			__asm	movaps		xmm7,xmm5			/* temp = x */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* temp = DNINT(x) */\
-				/*\
-				frac = fabs(x-temp);\
-				if(frac > maxerr) maxerr=frac;\
-				*/\
-				/* NO ROE HERE */\
-				/* cy   = DNINT(temp*baseinv[i1]) */\
-				__asm	shld	edi,esi,12				__asm	shld	ebx,esi,10				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* i0 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax				__asm	movaps		xmm1,xmm3			__asm	movaps		xmm5,xmm7			/* cpy temp */\
-				__asm	mulpd		xmm3,[edi+0xc0]		__asm	mulpd		xmm7,[ebx+0xc0]		/* temp*baseinv[i1] */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* cy_out */\
-				__asm	movaps		[ecx],xmm3			__asm	movaps		[edx],xmm7			/* store cy_out */\
-				/* x = (temp-cy*base[i1])*wt */\
-				__asm	mov		eax, __data\
-				__asm	mulpd		xmm3,[edi+0x80]		__asm	mulpd		xmm7,[ebx+0x80]		/* cy*base[i1] */\
-				__asm	subpd		xmm1,xmm3			__asm	subpd		xmm5,xmm7			/* x = (temp-cy*base[i1]) */\
-				__asm	mulpd		xmm1,xmm2			__asm	mulpd		xmm5,xmm6			/* x*= wt */\
-				__asm	movaps		[eax     ],xmm1		__asm	movaps		[eax+0x40],xmm5		/* store x */\
-				/* Get ready for next set [IM0~] : */\
-				__asm	mov		eax, sse_bw\
-				__asm	mov		ebx, sse_nm1\
-				__asm	paddd	xmm0,[eax]				/* bjmod[0:3] += bw ; must use packed-INTEGER add [not addpd!] here, severe performance penalty from using addpd. */\
-				__asm	pand	xmm0,[ebx]				/* bjmod[0:3] &= nm1; & doesn't care whether integer [pand] or floating [andpd], but data are int, so use pand for form's sake */\
-			/**********************************************/\
-			/*          Imaginary parts                   */\
-			/**********************************************/\
-				__asm	mov		edx, sse_sw\
-				__asm	movaps	xmm1,[edx]				/* sw[0:3] */\
-				__asm	psubd	xmm1,xmm0				/* sw[0:3] - bjmod[0:3] */\
-				__asm	movmskps esi,xmm1				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		esi, 24					/* <i3|i2|i1|i0>; Packed indices into base,base_inv tables; move into leftmost byte[3] */\
-				__asm	movaps	xmm1,xmm0				/* bjmod[0:3] COPY */\
-				__asm	mov		ecx, n_minus_silp1\
-				__asm	movd	xmm2,ecx				/* n_minus_silp1 in low 32 bits of xmm2 */\
-				__asm	pshufd	xmm2,xmm2,0				/* Broadcast low 32 bits of xmm2 to all 4 slots of xmm2 */\
-				__asm	psubd	xmm2,xmm0				/* n_minus_silp1 - bjmod[0:3] */\
-				__asm	movmskps ecx,xmm2				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		ecx, 16					/* <m3|m2|m1|m0>; Packed indices into base,base_inv tables; move into leftmost byte[2] of ecx... */\
-				__asm	add		esi, ecx				/* ....and fold into esi. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
-				__asm	mov		edx, sinwtm1\
-				__asm	movd	xmm3,edx				/* sinwtm1 in low 32 bits of xmm3 */\
-				__asm	pshufd	xmm3,xmm3,0				/* Broadcast low 32 bits of xmm3 to all 4 slots of xmm3 */\
-				__asm	psubd	xmm1,xmm3				/* bjmod[0:3] - sinwtm1 */\
-				__asm	movmskps edx,xmm1				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		edx, 8					/* <n3|n2|n1|n0>; Packed indices into base,base_inv tables; move into leftmost byte[1] of edx... */\
-				__asm	add		esi, edx				/* ....and fold into esi. */\
-				__asm	mov		eax, __data\
-				__asm	movaps		xmm1,[eax+0x10]		__asm	movaps		xmm5,[eax+0x50]		/* I1~ */\
-				/* Don't explicitly load address of sse2_rnd, since we know it's in [half_arr - 0x10]. */\
-				__asm	mov		eax, half_arr							/* This is a real array address from the calling routine, hence no prepended __ . */\
-				__asm	mov		ebx, __wtA\
-				__asm	mov		ecx, __wtC				/* wtB == wtC for this latter set of carries */\
-				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
-				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
-				__asm	sub		ecx, 20H	/* add2 -= 4 */\
-				__asm	mov		__wtA, ebx\
-				__asm	mov		__wtC, ecx\
-				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
-				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* m0 */\
-				__asm	shld	edx,esi,28				__asm	shld	ecx,esi,26\
-				__asm	and		edx, 00000030H			__asm	and		ecx, 00000030H			/* m2 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax\
-				__asm	add		edx, eax				__asm	add		ecx, eax\
-				__asm	mulpd		xmm2,[eax+0x120]	__asm	mulpd		xmm6,[eax+0x120]	/* wt   =wtA*wtlp1 */\
-				__asm	mulpd		xmm3,[eax+0x130]	__asm	mulpd		xmm7,[eax+0x130]	/* wtinv=wtC*wtnm1 */\
-				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
-																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
-				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* y = y*wtinv; ymm3,ymm7 FREE */\
-				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* y = y*wtinv + cy */\
-				__asm	movaps		xmm3,xmm1			__asm	movaps		xmm7,xmm5			/* temp = y */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* temp = DNINT(y) */\
-				/*\
-				frac = fabs(y-temp);\
-				if(frac > maxerr) maxerr=frac;\
-				*/\
-				/* NO ROE HERE */\
-				/* cy   = DNINT(temp*baseinv[i1]) */\
-				__asm	shld	edi,esi,12				__asm	shld	ebx,esi,10				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* i0 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax				__asm	movaps		xmm1,xmm3			__asm	movaps		xmm5,xmm7			/* cpy temp */\
-				__asm	mulpd		xmm3,[edi+0xc0]		__asm	mulpd		xmm7,[ebx+0xc0]		/* temp*baseinv[i1] */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* cy_out */\
-				__asm	movaps		[ecx],xmm3			__asm	movaps		[edx],xmm7			/* store cy_out */\
-				/* x = (temp-cy*base[i1])*wt */\
-				__asm	mov		eax, __data\
-				__asm	mulpd		xmm3,[edi+0x80]		__asm	mulpd		xmm7,[ebx+0x80]		/* cy*base[i1] */\
-				__asm	subpd		xmm1,xmm3			__asm	subpd		xmm5,xmm7			/* y = (temp-cy*base[i1]) */\
-				__asm	mulpd		xmm1,xmm2			__asm	mulpd		xmm5,xmm6			/* y*= wt */\
-				__asm	movaps		[eax+0x10],xmm1		__asm	movaps		[eax+0x50],xmm5		/* store y */\
-				/* Get ready for next set [RE1~, IM1~] : */\
-				__asm	mov		eax, sse_bw\
-				__asm	mov		ebx, sse_nm1\
-				__asm	paddd	xmm0,[eax]				/* bjmod[0:3] += bw  */\
-				__asm	pand	xmm0,[ebx]				/* bjmod[0:3] &= nm1 */\
-				__asm	mov		ecx, __bjmod_0\
-				__asm	movaps	[ecx],xmm0				/* Write bjmod[0:3] */\
-		}
-
-		/********* Packed 32-bit-int version of SSE2_cmplx_carry_norm_pow2_errcheck2_2x:***********/
-
-		#define SSE2_cmplx_carry_norm_pow2_nocheck2_2B(__data,__wtA,__wtB,__cyA,__cyB,__bjmod_0)\
-		{\
-			/**********************************************/\
-			/*          Real      parts                   */\
-			/**********************************************/\
-				__asm	mov		eax, __bjmod_0			/* Pointer to bjmodn data */\
-				__asm	movaps	xmm0,[eax]				/* bjmod[0:3] */\
-				__asm	mov		ebx, sse_sw\
-				__asm	movaps	xmm1,[ebx]				/* sw[0:3] */\
-				__asm	psubd	xmm1,xmm0				/* sw[0:3] - bjmod[0:3] */\
-				__asm	movmskps esi,xmm1				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		esi, 24					/* <i3|i2|i1|i0>; Packed indices into base,base_inv tables; move into leftmost byte[3] */\
-				__asm	movaps	xmm1,xmm0				/* bjmod[0:3] COPY */\
-				__asm	mov		ecx, n_minus_sil\
-				__asm	movd	xmm2,ecx				/* n_minus_sil in low 32 bits of xmm2 */\
-				__asm	pshufd	xmm2,xmm2,0				/* Broadcast low 32 bits of xmm2 to all 4 slots of xmm2 */\
-				__asm	psubd	xmm2,xmm0				/* n_minus_sil - bjmod[0:3] */\
-				__asm	movmskps ecx,xmm2				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		ecx, 16					/* <m3|m2|m1|m0>; Packed indices into base,base_inv tables; move into leftmost byte[2] of ecx... */\
-				__asm	add		esi, ecx				/* ....and fold into esi. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
-				__asm	mov		edx, sinwt\
-				__asm	movd	xmm3,edx				/* sinwt in low 32 bits of xmm3 */\
-				__asm	pshufd	xmm3,xmm3,0				/* Broadcast low 32 bits of xmm3 to all 4 slots of xmm3 */\
-				__asm	psubd	xmm1,xmm3				/* bjmod[0:3] - sinwt */\
-				__asm	movmskps edx,xmm1				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		edx, 8					/* <n3|n2|n1|n0>; Packed indices into base,base_inv tables; move into leftmost byte[1] of edx... */\
-				__asm	add		esi, edx				/* ....and fold into esi. */\
-				__asm	mov		eax, __data\
-				__asm	movaps		xmm1,[eax+0x20]		__asm	movaps		xmm5,[eax+0x60]		/* R1~ */\
-				/* Don't explicitly load address of sse2_rnd, since we know it's in [half_arr - 0x10]. */\
-				__asm	mov		eax, half_arr							/* This is a real array address from the calling routine, hence no prepended __ . */\
-				__asm	mov		ebx, __wtA\
-				__asm	mov		ecx, __wtB\
-				__asm	movaps		xmm4,[eax-0x10]		/* RND_CONST */\
-				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
-				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
-				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* m0 */\
-				__asm	shld	edx,esi,28				__asm	shld	ecx,esi,26\
-				__asm	and		edx, 00000030H			__asm	and		ecx, 00000030H			/* m2 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax\
-				__asm	add		edx, eax				__asm	add		ecx, eax\
-				__asm	mulpd		xmm2,[eax+0x100]	__asm	mulpd		xmm6,[eax+0x100]	/* wt   =wtA*wtl */\
-				__asm	mulpd		xmm3,[eax+0x110]	__asm	mulpd		xmm7,[eax+0x110]	/* wtinv=wtB*wtn */\
-				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
-																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
-				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* x = x*wtinv; xmm3,xmm7 FREE */\
-				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* x = x*wtinv + cy */\
-				__asm	movaps		xmm3,xmm1			__asm	movaps		xmm7,xmm5			/* temp = x */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* temp = DNINT(x) */\
-				/*\
-				frac = fabs(x-temp);\
-				if(frac > maxerr) maxerr=frac;\
-				*/\
-				/* NO ROE HERE */\
-				/* cy   = DNINT(temp*baseinv[i1]) */\
-				__asm	shld	edi,esi,12				__asm	shld	ebx,esi,10				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* i0 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax				__asm	movaps		xmm1,xmm3			__asm	movaps		xmm5,xmm7			/* cpy temp */\
-				__asm	mulpd		xmm3,[edi+0xc0]		__asm	mulpd		xmm7,[ebx+0xc0]		/* temp*baseinv[i1] */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* cy_out */\
-				__asm	movaps		[ecx],xmm3			__asm	movaps		[edx],xmm7			/* store cy_out */\
-				/* x = (temp-cy*base[i1])*wt */\
-				__asm	mov		eax, __data\
-				__asm	mulpd		xmm3,[edi+0x80]		__asm	mulpd		xmm7,[ebx+0x80]		/* cy*base[i1] */\
-				__asm	subpd		xmm1,xmm3			__asm	subpd		xmm5,xmm7			/* x = (temp-cy*base[i1]) */\
-				__asm	mulpd		xmm1,xmm2			__asm	mulpd		xmm5,xmm6			/* x*= wt */\
-				__asm	movaps		[eax+0x20],xmm1		__asm	movaps		[eax+0x60],xmm5		/* store x */\
-				/* Get ready for next set [IM0~] : */\
-				__asm	mov		eax, sse_bw\
-				__asm	mov		ebx, sse_nm1\
-				__asm	paddd	xmm0,[eax]				/* bjmod[0:3] += bw ; must use packed-INTEGER add [not addpd!] here, severe performance penalty from using addpd. */\
-				__asm	pand	xmm0,[ebx]				/* bjmod[0:3] &= nm1; & doesn't care whether integer [pand] or floating [andpd], but data are int, so use pand for form's sake */\
-			/**********************************************/\
-			/*          Imaginary parts                   */\
-			/**********************************************/\
-				__asm	mov		edx, sse_sw\
-				__asm	movaps	xmm1,[edx]				/* sw[0:3] */\
-				__asm	psubd	xmm1,xmm0				/* sw[0:3] - bjmod[0:3] */\
-				__asm	movmskps esi,xmm1				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		esi, 24					/* <i3|i2|i1|i0>; Packed indices into base,base_inv tables; move into leftmost byte[3] */\
-				__asm	movaps	xmm1,xmm0				/* bjmod[0:3] COPY */\
-				__asm	mov		ecx, n_minus_silp1\
-				__asm	movd	xmm2,ecx				/* n_minus_silp1 in low 32 bits of xmm2 */\
-				__asm	pshufd	xmm2,xmm2,0				/* Broadcast low 32 bits of xmm2 to all 4 slots of xmm2 */\
-				__asm	psubd	xmm2,xmm0				/* n_minus_silp1 - bjmod[0:3] */\
-				__asm	movmskps ecx,xmm2				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		ecx, 16					/* <m3|m2|m1|m0>; Packed indices into base,base_inv tables; move into leftmost byte[2] of ecx... */\
-				__asm	add		esi, ecx				/* ....and fold into esi. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
-				__asm	mov		edx, sinwtm1\
-				__asm	movd	xmm3,edx				/* sinwtm1 in low 32 bits of xmm3 */\
-				__asm	pshufd	xmm3,xmm3,0				/* Broadcast low 32 bits of xmm3 to all 4 slots of xmm3 */\
-				__asm	psubd	xmm1,xmm3				/* bjmod[0:3] - sinwtm1 */\
-				__asm	movmskps edx,xmm1				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		edx, 8					/* <n3|n2|n1|n0>; Packed indices into base,base_inv tables; move into leftmost byte[1] of edx... */\
-				__asm	add		esi, edx				/* ....and fold into esi. */\
-				__asm	mov		eax, __data\
-				__asm	movaps		xmm1,[eax+0x30]		__asm	movaps		xmm5,[eax+0x70]		/* I1~ */\
-				/* Don't explicitly load address of sse2_rnd, since we know it's in [half_arr - 0x10]. */\
-				__asm	mov		eax, half_arr							/* This is a real array address from the calling routine, hence no prepended __ . */\
-				__asm	mov		ebx, __wtA\
-				__asm	mov		ecx, __wtB				/* wtB == wtC for this latter set of carries */\
-				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
-				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
-				__asm	sub		ecx, 20H	/* add1 -= 4 */\
-				__asm	mov		__wtA, ebx\
-				__asm	mov		__wtB, ecx\
-				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
-				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* m0 */\
-				__asm	shld	edx,esi,28				__asm	shld	ecx,esi,26\
-				__asm	and		edx, 00000030H			__asm	and		ecx, 00000030H			/* m2 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax\
-				__asm	add		edx, eax				__asm	add		ecx, eax\
-				__asm	mulpd		xmm2,[eax+0x120]	__asm	mulpd		xmm6,[eax+0x120]	/* wt   =wtA*wtlp1 */\
-				__asm	mulpd		xmm3,[eax+0x130]	__asm	mulpd		xmm7,[eax+0x130]	/* wtinv=wtC*wtnm1 */\
-				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
-																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
-				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* y = y*wtinv; ymm3,ymm7 FREE */\
-				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* y = y*wtinv + cy */\
-				__asm	movaps		xmm3,xmm1			__asm	movaps		xmm7,xmm5			/* temp = y */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* temp = DNINT(y) */\
-				/*\
-				frac = fabs(y-temp);\
-				if(frac > maxerr) maxerr=frac;\
-				*/\
-				/* NO ROE HERE */\
-				/* cy   = DNINT(temp*baseinv[i1]) */\
-				__asm	shld	edi,esi,12				__asm	shld	ebx,esi,10				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* i0 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax				__asm	movaps		xmm1,xmm3			__asm	movaps		xmm5,xmm7			/* cpy temp */\
-				__asm	mulpd		xmm3,[edi+0xc0]		__asm	mulpd		xmm7,[ebx+0xc0]		/* temp*baseinv[i1] */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* cy_out */\
-				__asm	movaps		[ecx],xmm3			__asm	movaps		[edx],xmm7			/* store cy_out */\
-				/* x = (temp-cy*base[i1])*wt */\
-				__asm	mov		eax, __data\
-				__asm	mulpd		xmm3,[edi+0x80]		__asm	mulpd		xmm7,[ebx+0x80]		/* cy*base[i1] */\
-				__asm	subpd		xmm1,xmm3			__asm	subpd		xmm5,xmm7			/* y = (temp-cy*base[i1]) */\
-				__asm	mulpd		xmm1,xmm2			__asm	mulpd		xmm5,xmm6			/* y*= wt */\
-				__asm	movaps		[eax+0x30],xmm1		__asm	movaps		[eax+0x70],xmm5		/* store y */\
-				/* Get ready for next set [RE1~, IM1~] : */\
-				__asm	mov		eax, sse_bw\
-				__asm	mov		ebx, sse_nm1\
-				__asm	paddd	xmm0,[eax]				/* bjmod[0:3] += bw  */\
-				__asm	pand	xmm0,[ebx]				/* bjmod[0:3] &= nm1 */\
-				__asm	mov		ecx, __bjmod_0\
-				__asm	movaps	[ecx],xmm0				/* Write bjmod[0:3] */\
-		/***************Repack the data:*************************/\
-				__asm	mov		eax, __data\
-				__asm	movaps	xmm1,[eax+0x10]			__asm	movaps	xmm5,[eax+0x50]			/* reload a[jp+p0 ] */\
-				__asm	movaps	xmm0,[eax     ]			__asm	movaps	xmm4,[eax+0x40]			/* reload a[jt+p0 ] */\
-				__asm	movaps		xmm3,xmm1			__asm	movaps		xmm7,xmm5			/* cpy a[jp    ] */\
-				__asm	movaps		xmm2,xmm0			__asm	movaps		xmm6,xmm4			/* cpy a[jt    ] */\
-				__asm	unpckhpd	xmm3,[eax+0x30]		__asm	unpckhpd	xmm7,[eax+0x70]				__asm	unpcklpd	xmm1,[eax+0x30]		__asm	unpcklpd	xmm5,[eax+0x70]				__asm	movaps	[eax+0x30],xmm3			__asm	movaps	[eax+0x70],xmm7			/* Store hi imag in aj2 */\
-				__asm	unpckhpd	xmm2,[eax+0x20]		__asm	unpckhpd	xmm6,[eax+0x60]				__asm	unpcklpd	xmm0,[eax+0x20]		__asm	unpcklpd	xmm4,[eax+0x60]				__asm	movaps	[eax+0x20],xmm2			__asm	movaps	[eax+0x60],xmm6			/* Store hi real in aj2 */\
-																										__asm	movaps	[eax+0x10],xmm1			__asm	movaps	[eax+0x50],xmm5			/* a[jp+p0 ] */\
-				__asm	movaps	[eax     ],xmm0			__asm	movaps	[eax+0x40],xmm4			/* a[jt+p0 ] */\
-		}
-
 
 
 		/******************************************************************************************/
@@ -3661,7 +3654,7 @@ else\
 				__asm	movaps		xmm4,[eax-0x10]		/* RND_CONST */\
 				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
 				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]		/* [NOTE: movhpd/movlpd preferable to movupd/shufpd] */\
+				__asm	movlpd		xmm3,[ecx +0x08]		__asm	movlpd		xmm7,[ecx-0x08]		/* [NOTE: movhpd/movlpd preferable to movupd/shufpd] */\
 				__asm	sub		ecx, 20H	/* add1 -= 4 */\
 				__asm	mov		__wtB, ecx\
 				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
@@ -3673,7 +3666,7 @@ else\
 				__asm	mulpd		xmm2,[eax+0x100]	__asm	mulpd		xmm6,[eax+0x100]	/* wt   =wtA*wtl */\
 				__asm	mulpd		xmm3,[eax+0x110]	__asm	mulpd		xmm7,[eax+0x110]	/* wtinv=wtB*wtn */\
 				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
+				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx +0x40]		/* wtinv=wtinv*one_half[4+m23] */\
 																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
 				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* x = x*wtinv; xmm3,xmm7 FREE */\
 				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* x = x*wtinv + cy */\
@@ -3739,7 +3732,7 @@ else\
 				__asm	mov		ecx, __wtC				/* wtB == wtC for this latter set of carries */\
 				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
 				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
+				__asm	movlpd		xmm3,[ecx +0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
 				__asm	sub		ecx, 20H	/* add2 -= 4 */\
 				__asm	mov		__wtA, ebx\
 				__asm	mov		__wtC, ecx\
@@ -3752,7 +3745,7 @@ else\
 				__asm	mulpd		xmm2,[eax+0x120]	__asm	mulpd		xmm6,[eax+0x120]	/* wt   =wtA*wtlp1 */\
 				__asm	mulpd		xmm3,[eax+0x130]	__asm	mulpd		xmm7,[eax+0x130]	/* wtinv=wtC*wtnm1 */\
 				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
+				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx +0x40]		/* wtinv=wtinv*one_half[4+m23] */\
 																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
 				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* y = y*wtinv; ymm3,ymm7 FREE */\
 				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* y = y*wtinv + cy */\
@@ -3845,7 +3838,7 @@ else\
 				__asm	movaps		xmm4,[eax-0x10]		/* RND_CONST */\
 				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
 				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]		/* [NOTE: movhpd/movlpd preferable to movupd/shufpd] */\
+				__asm	movlpd		xmm3,[ecx +0x08]		__asm	movlpd		xmm7,[ecx-0x08]		/* [NOTE: movhpd/movlpd preferable to movupd/shufpd] */\
 				__asm	sub		ecx, 20H	/* add1 -= 4 */\
 				__asm	mov		__wtB, ecx\
 				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
@@ -3857,7 +3850,7 @@ else\
 				__asm	mulpd		xmm2,[eax+0x100]	__asm	mulpd		xmm6,[eax+0x100]	/* wt   =wtA*wtl */\
 				__asm	mulpd		xmm3,[eax+0x110]	__asm	mulpd		xmm7,[eax+0x110]	/* wtinv=wtB*wtn */\
 				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
+				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx +0x40]		/* wtinv=wtinv*one_half[4+m23] */\
 																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
 				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* x = x*wtinv; xmm3,xmm7 FREE */\
 				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* x = x*wtinv + cy */\
@@ -3923,7 +3916,7 @@ else\
 				__asm	mov		ecx, __wtC				/* wtB == wtC for this latter set of carries */\
 				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
 				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
+				__asm	movlpd		xmm3,[ecx +0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
 				__asm	sub		ecx, 20H	/* add2 -= 4 */\
 				__asm	mov		__wtA, ebx\
 				__asm	mov		__wtC, ecx\
@@ -3936,7 +3929,7 @@ else\
 				__asm	mulpd		xmm2,[eax+0x120]	__asm	mulpd		xmm6,[eax+0x120]	/* wt   =wtA*wtlp1 */\
 				__asm	mulpd		xmm3,[eax+0x130]	__asm	mulpd		xmm7,[eax+0x130]	/* wtinv=wtC*wtnm1 */\
 				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
+				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx +0x40]		/* wtinv=wtinv*one_half[4+m23] */\
 																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
 				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* y = y*wtinv; ymm3,ymm7 FREE */\
 				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* y = y*wtinv + cy */\
@@ -4013,7 +4006,7 @@ else\
 				__asm	movaps		xmm4,[eax-0x10]		/* RND_CONST */\
 				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
 				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
+				__asm	movlpd		xmm3,[ecx +0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
 				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* m0 */\
 				__asm	shld	edx,esi,28				__asm	shld	ecx,esi,26\
 				__asm	and		edx, 00000030H			__asm	and		ecx, 00000030H			/* m2 */\
@@ -4022,7 +4015,7 @@ else\
 				__asm	mulpd		xmm2,[eax+0x100]	__asm	mulpd		xmm6,[eax+0x100]	/* wt   =wtA*wtl */\
 				__asm	mulpd		xmm3,[eax+0x110]	__asm	mulpd		xmm7,[eax+0x110]	/* wtinv=wtB*wtn */\
 				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
+				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx +0x40]		/* wtinv=wtinv*one_half[4+m23] */\
 																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
 				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* x = x*wtinv; xmm3,xmm7 FREE */\
 				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* x = x*wtinv + cy */\
@@ -4088,7 +4081,7 @@ else\
 				__asm	mov		ecx, __wtB				/* wtB == wtC for this latter set of carries */\
 				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
 				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
+				__asm	movlpd		xmm3,[ecx +0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
 				__asm	sub		ecx, 20H	/* add1 -= 4 */\
 				__asm	mov		__wtA, ebx\
 				__asm	mov		__wtB, ecx\
@@ -4101,7 +4094,7 @@ else\
 				__asm	mulpd		xmm2,[eax+0x120]	__asm	mulpd		xmm6,[eax+0x120]	/* wt   =wtA*wtlp1 */\
 				__asm	mulpd		xmm3,[eax+0x130]	__asm	mulpd		xmm7,[eax+0x130]	/* wtinv=wtC*wtnm1 */\
 				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
+				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx +0x40]		/* wtinv=wtinv*one_half[4+m23] */\
 																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
 				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* y = y*wtinv; ymm3,ymm7 FREE */\
 				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* y = y*wtinv + cy */\
@@ -4149,909 +4142,6 @@ else\
 																										__asm	movaps	[eax+0x10],xmm1			__asm	movaps	[eax+0x50],xmm5			/* a[jp+p0 ] */\
 				__asm	movaps	[eax     ],xmm0			__asm	movaps	[eax+0x40],xmm4			/* a[jt+p0 ] */\
 		}
-
-		/******************************************************************************************************************************************************************/
-		/********** No-ROE-Check versions of the latter 2 of the above 3 macros - the first is called too infrequently to bother with a special non-ROE version: **********/
-		/******************************************************************************************************************************************************************/
-
-		#define SSE2_cmplx_carry_norm_nocheck1_2B(__data,__wtA,__wtB,__wtC,__cyA,__cyB,__bjmod_0)\
-		{\
-		/***************Unpack the data:*************************/\
-				__asm	mov		eax, __data\
-				/* Real parts: */							__asm	movaps		xmm1,[eax     ]		__asm	movaps		xmm5,[eax+0x40]	/* r1, this is the active  xmm register */\
-				__asm	movaps		xmm2,[eax     ]		__asm	movaps		xmm6,[eax+0x40]	/* r1, this is the scratch xmm register */\
-				__asm	unpcklpd	xmm1,[eax+0x20]		__asm	unpcklpd	xmm5,[eax+0x60]	/* r1 -x- r3 (lo halves) ==> R0~ */\
-				__asm	unpckhpd	xmm2,[eax+0x20]		__asm	unpckhpd	xmm6,[eax+0x60]	/* r1 -x- r3 (hi halves) ==> R1~ */\
-				__asm	movaps		[eax+0x20],xmm2		__asm	movaps		[eax+0x60],xmm6	/* Tmp store R1~ until needed on 2nd set of SSE2_cmplx_carry.calls */\
-				/* Imag parts: */							__asm	movaps		xmm2,[eax+0x10]		__asm	movaps		xmm6,[eax+0x50]	\
-				__asm	movaps		xmm3,[eax+0x10]		__asm	movaps		xmm7,[eax+0x50]	\
-				__asm	unpcklpd	xmm2,[eax+0x30]		__asm	unpcklpd	xmm6,[eax+0x70]	/* r2 -x- r4 (lo halves) ==> I0~ */\
-				__asm	unpckhpd	xmm3,[eax+0x30]		__asm	unpckhpd	xmm7,[eax+0x70]	/* r2 -x- r4 (hi halves) ==> I1~ */\
-				__asm	movaps		[eax+0x10],xmm2		__asm	movaps		[eax+0x50],xmm6	/* Tmp store I0~ until needed by imaginary-part-processing section */\
-				__asm	movaps		[eax+0x30],xmm3		__asm	movaps		[eax+0x70],xmm7	/* Tmp store I1~ until needed on 2nd set of SSE2_cmplx_carry.calls */\
-				/* Active data in xmm1,5 here - avoid using those registers in index computation. */\
-			/**********************************************/\
-			/*          Real      parts                   */\
-			/**********************************************/\
-				__asm	mov		eax, __bjmod_0			/* Pointer to bjmodn data */\
-				__asm	movaps	xmm0,[eax]				/* bjmod[0:3] */\
-				__asm	mov		ebx, sse_sw\
-				__asm	movaps	xmm7,[ebx]				/* sw[0:3] */\
-				__asm	psubd	xmm7,xmm0				/* sw[0:3] - bjmod[0:3] */\
-				__asm	movmskps esi,xmm7				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		esi, 24					/* <i3|i2|i1|i0>; Packed indices into base,base_inv tables; move into leftmost byte[3] */\
-				__asm	movaps	xmm7,xmm0				/* bjmod[0:3] COPY */\
-				__asm	mov		ecx, n_minus_sil\
-				__asm	movd	xmm2,ecx				/* n_minus_sil in low 32 bits of xmm2 */\
-				__asm	pshufd	xmm2,xmm2,0				/* Broadcast low 32 bits of xmm2 to all 4 slots of xmm2 */\
-				__asm	psubd	xmm2,xmm0				/* n_minus_sil - bjmod[0:3] */\
-				__asm	movmskps ecx,xmm2				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		ecx, 16					/* <m3|m2|m1|m0>; Packed indices into base,base_inv tables; move into leftmost byte[2] of ecx... */\
-				__asm	add		esi, ecx				/* ....and fold into esi. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
-				__asm	mov		edx, sinwt\
-				__asm	movd	xmm3,edx				/* sinwt in low 32 bits of xmm3 */\
-				__asm	pshufd	xmm3,xmm3,0				/* Broadcast low 32 bits of xmm3 to all 4 slots of xmm3 */\
-				__asm	psubd	xmm7,xmm3				/* bjmod[0:3] - sinwt */\
-				__asm	movmskps edx,xmm7				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		edx, 8					/* <n3|n2|n1|n0>; Packed indices into base,base_inv tables; move into leftmost byte[1] of edx... */\
-				__asm	add		esi, edx				/* ....and fold into esi. */\
-		/*\
-				__asm	mov		eax, __data\
-				__asm	movaps		xmm1,[eax     ]		__asm	movaps		xmm5,[eax+0x40]		// R1~ \
-		*/\
-				/* Don't explicitly load address of sse2_rnd, since we know it's in [half_arr - 0x10]. */\
-				__asm	mov		eax, half_arr							/* This is a real array address from the calling routine, hence no prepended __ . */\
-				__asm	mov		ebx, __wtA\
-				__asm	mov		ecx, __wtB\
-				__asm	movaps		xmm4,[eax-0x10]		/* RND_CONST */\
-				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
-				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]		/* [NOTE: movhpd/movlpd preferable to movupd/shufpd] */\
-				__asm	sub		ecx, 20H	/* add1 -= 4 */\
-				__asm	mov		__wtB, ecx\
-				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
-				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* m0 */\
-				__asm	shld	edx,esi,28				__asm	shld	ecx,esi,26\
-				__asm	and		edx, 00000030H			__asm	and		ecx, 00000030H			/* m2 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax\
-				__asm	add		edx, eax				__asm	add		ecx, eax\
-				__asm	mulpd		xmm2,[eax+0x100]	__asm	mulpd		xmm6,[eax+0x100]	/* wt   =wtA*wtl */\
-				__asm	mulpd		xmm3,[eax+0x110]	__asm	mulpd		xmm7,[eax+0x110]	/* wtinv=wtB*wtn */\
-				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
-																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
-				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* x = x*wtinv; xmm3,xmm7 FREE */\
-				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* x = x*wtinv + cy */\
-				__asm	movaps		xmm3,xmm1			__asm	movaps		xmm7,xmm5			/* temp = x */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* temp = DNINT(x) */\
-				/*\
-				frac = fabs(x-temp);\
-				if(frac > maxerr) maxerr=frac;\
-				*/\
-				/* NO ROE HERE */\
-				/* cy   = DNINT(temp*baseinv[i1]) */\
-				__asm	shld	edi,esi,12				__asm	shld	ebx,esi,10				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* i0 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax				__asm	movaps		xmm1,xmm3			__asm	movaps		xmm5,xmm7			/* cpy temp */\
-				__asm	mulpd		xmm3,[edi+0xc0]		__asm	mulpd		xmm7,[ebx+0xc0]		/* temp*baseinv[i1] */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* cy_out */\
-				__asm	movaps		[ecx],xmm3			__asm	movaps		[edx],xmm7			/* store cy_out */\
-				/* x = (temp-cy*base[i1])*wt */\
-				__asm	mov		eax, __data\
-				__asm	mulpd		xmm3,[edi+0x80]		__asm	mulpd		xmm7,[ebx+0x80]		/* cy*base[i1] */\
-				__asm	subpd		xmm1,xmm3			__asm	subpd		xmm5,xmm7			/* x = (temp-cy*base[i1]) */\
-				__asm	mulpd		xmm1,xmm2			__asm	mulpd		xmm5,xmm6			/* x*= wt */\
-				__asm	movaps		[eax     ],xmm1		__asm	movaps		[eax+0x40],xmm5		/* store x */\
-				/* Get ready for next set [IM0~] : */\
-				__asm	mov		ebx, sse_n\
-				__asm	movaps	xmm2,[ebx]\
-				__asm	mov		eax, sse_bw\
-				__asm	paddd	xmm0,[eax]				/* bjmod[0:3] += bw ; must use packed-INTEGER add [not addpd!] here, severe performance penalty from using addpd. */\
-				__asm	movaps	xmm1,xmm0				/* bjmodn COPY */\
-				__asm	pcmpgtd	xmm1,xmm2				/* (bj > n)? Gives all 1s in the 32 bit slot of xmm1 if (n < bj) for the bj in that slot of xmm0 */\
-				__asm	pand	xmm1,[ebx]				/* n in each slot of xmm1 for which bj += bw overflowed n, 0 otherwise */\
-				__asm	psubd	xmm0,xmm1				/* bjmod[0:3] % n */\
-			/**********************************************/\
-			/*          Imaginary parts                   */\
-			/**********************************************/\
-				__asm	mov		edx, sse_sw\
-				__asm	movaps	xmm1,[edx]				/* sw[0:3] */\
-				__asm	psubd	xmm1,xmm0				/* sw[0:3] - bjmod[0:3] */\
-				__asm	movmskps esi,xmm1				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		esi, 24					/* <i3|i2|i1|i0>; Packed indices into base,base_inv tables; move into leftmost byte[3] */\
-				__asm	movaps	xmm1,xmm0				/* bjmod[0:3] COPY */\
-				__asm	mov		ecx, n_minus_silp1\
-				__asm	movd	xmm2,ecx				/* n_minus_silp1 in low 32 bits of xmm2 */\
-				__asm	pshufd	xmm2,xmm2,0				/* Broadcast low 32 bits of xmm2 to all 4 slots of xmm2 */\
-				__asm	psubd	xmm2,xmm0				/* n_minus_silp1 - bjmod[0:3] */\
-				__asm	movmskps ecx,xmm2				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		ecx, 16					/* <m3|m2|m1|m0>; Packed indices into base,base_inv tables; move into leftmost byte[2] of ecx... */\
-				__asm	add		esi, ecx				/* ....and fold into esi. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
-				__asm	mov		edx, sinwtm1\
-				__asm	movd	xmm3,edx				/* sinwtm1 in low 32 bits of xmm3 */\
-				__asm	pshufd	xmm3,xmm3,0				/* Broadcast low 32 bits of xmm3 to all 4 slots of xmm3 */\
-				__asm	psubd	xmm1,xmm3				/* bjmod[0:3] - sinwtm1 */\
-				__asm	movmskps edx,xmm1				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		edx, 8					/* <n3|n2|n1|n0>; Packed indices into base,base_inv tables; move into leftmost byte[1] of edx... */\
-				__asm	add		esi, edx				/* ....and fold into esi. */\
-				__asm	mov		eax, __data\
-				__asm	movaps		xmm1,[eax+0x10]		__asm	movaps		xmm5,[eax+0x50]		/* I1~ */\
-				/* Don't explicitly load address of sse2_rnd, since we know it's in [half_arr - 0x10]. */\
-				__asm	mov		eax, half_arr							/* This is a real array address from the calling routine, hence no prepended __ . */\
-				__asm	mov		ebx, __wtA\
-				__asm	mov		ecx, __wtC				/* wtB == wtC for this latter set of carries */\
-				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
-				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
-				__asm	sub		ecx, 20H	/* add2 -= 4 */\
-				__asm	mov		__wtA, ebx\
-				__asm	mov		__wtC, ecx\
-				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
-				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* m0 */\
-				__asm	shld	edx,esi,28				__asm	shld	ecx,esi,26\
-				__asm	and		edx, 00000030H			__asm	and		ecx, 00000030H			/* m2 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax\
-				__asm	add		edx, eax				__asm	add		ecx, eax\
-				__asm	mulpd		xmm2,[eax+0x120]	__asm	mulpd		xmm6,[eax+0x120]	/* wt   =wtA*wtlp1 */\
-				__asm	mulpd		xmm3,[eax+0x130]	__asm	mulpd		xmm7,[eax+0x130]	/* wtinv=wtC*wtnm1 */\
-				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
-																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
-				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* y = y*wtinv; ymm3,ymm7 FREE */\
-				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* y = y*wtinv + cy */\
-				__asm	movaps		xmm3,xmm1			__asm	movaps		xmm7,xmm5			/* temp = y */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* temp = DNINT(y) */\
-				/*\
-				frac = fabs(y-temp);\
-				if(frac > maxerr) maxerr=frac;\
-				*/\
-				/* NO ROE HERE */\
-				/* cy   = DNINT(temp*baseinv[i1]) */\
-				__asm	shld	edi,esi,12				__asm	shld	ebx,esi,10				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* i0 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax				__asm	movaps		xmm1,xmm3			__asm	movaps		xmm5,xmm7			/* cpy temp */\
-				__asm	mulpd		xmm3,[edi+0xc0]		__asm	mulpd		xmm7,[ebx+0xc0]		/* temp*baseinv[i1] */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* cy_out */\
-				__asm	movaps		[ecx],xmm3			__asm	movaps		[edx],xmm7			/* store cy_out */\
-				/* x = (temp-cy*base[i1])*wt */\
-				__asm	mov		eax, __data\
-				__asm	mulpd		xmm3,[edi+0x80]		__asm	mulpd		xmm7,[ebx+0x80]		/* cy*base[i1] */\
-				__asm	subpd		xmm1,xmm3			__asm	subpd		xmm5,xmm7			/* y = (temp-cy*base[i1]) */\
-				__asm	mulpd		xmm1,xmm2			__asm	mulpd		xmm5,xmm6			/* y*= wt */\
-				__asm	movaps		[eax+0x10],xmm1		__asm	movaps		[eax+0x50],xmm5		/* store y */\
-				/* Get ready for next set [RE1~, IM1~] : */\
-				__asm	mov		ebx, sse_n\
-				__asm	movaps	xmm2,[ebx]\
-				__asm	mov		eax, sse_bw\
-				__asm	paddd	xmm0,[eax]				/* bjmod[0:3] += bw ; must use packed-INTEGER add [not addpd!] here, severe performance penalty from using addpd. */\
-				__asm	movaps	xmm1,xmm0				/* bjmodn COPY */\
-				__asm	pcmpgtd	xmm1,xmm2				/* (bj > n)? Gives all 1s in the 32 bit slot of xmm1 if (n < bj) for the bj in that slot of xmm0 */\
-				__asm	pand	xmm1,[ebx]				/* n in each slot of xmm1 for which bj += bw overflowed n, 0 otherwise */\
-				__asm	psubd	xmm0,xmm1				/* bjmod[0:3] % n */\
-				__asm	mov		ecx, __bjmod_0\
-				__asm	movaps	[ecx],xmm0				/* Write bjmod[0:3] */\
-		}
-
-		/********* Non-power-of-2-FFT version of SSE2_cmplx_carry_norm_pow2_nocheck2_2B:**********/
-
-		#define SSE2_cmplx_carry_norm_nocheck2_2B(__data,__wtA,__wtB,__cyA,__cyB,__bjmod_0)\
-		{\
-			/**********************************************/\
-			/*          Real      parts                   */\
-			/**********************************************/\
-				__asm	mov		eax, __bjmod_0			/* Pointer to bjmodn data */\
-				__asm	movaps	xmm0,[eax]				/* bjmod[0:3] */\
-				__asm	mov		ebx, sse_sw\
-				__asm	movaps	xmm1,[ebx]				/* sw[0:3] */\
-				__asm	psubd	xmm1,xmm0				/* sw[0:3] - bjmod[0:3] */\
-				__asm	movmskps esi,xmm1				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		esi, 24					/* <i3|i2|i1|i0>; Packed indices into base,base_inv tables; move into leftmost byte[3] */\
-				__asm	movaps	xmm1,xmm0				/* bjmod[0:3] COPY */\
-				__asm	mov		ecx, n_minus_sil\
-				__asm	movd	xmm2,ecx				/* n_minus_sil in low 32 bits of xmm2 */\
-				__asm	pshufd	xmm2,xmm2,0				/* Broadcast low 32 bits of xmm2 to all 4 slots of xmm2 */\
-				__asm	psubd	xmm2,xmm0				/* n_minus_sil - bjmod[0:3] */\
-				__asm	movmskps ecx,xmm2				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		ecx, 16					/* <m3|m2|m1|m0>; Packed indices into base,base_inv tables; move into leftmost byte[2] of ecx... */\
-				__asm	add		esi, ecx				/* ....and fold into esi. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
-				__asm	mov		edx, sinwt\
-				__asm	movd	xmm3,edx				/* sinwt in low 32 bits of xmm3 */\
-				__asm	pshufd	xmm3,xmm3,0				/* Broadcast low 32 bits of xmm3 to all 4 slots of xmm3 */\
-				__asm	psubd	xmm1,xmm3				/* bjmod[0:3] - sinwt */\
-				__asm	movmskps edx,xmm1				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		edx, 8					/* <n3|n2|n1|n0>; Packed indices into base,base_inv tables; move into leftmost byte[1] of edx... */\
-				__asm	add		esi, edx				/* ....and fold into esi. */\
-				__asm	mov		eax, __data\
-				__asm	movaps		xmm1,[eax+0x20]		__asm	movaps		xmm5,[eax+0x60]		/* R1~ */\
-				/* Don't explicitly load address of sse2_rnd, since we know it's in [half_arr - 0x10]. */\
-				__asm	mov		eax, half_arr							/* This is a real array address from the calling routine, hence no prepended __ . */\
-				__asm	mov		ebx, __wtA\
-				__asm	mov		ecx, __wtB\
-				__asm	movaps		xmm4,[eax-0x10]		/* RND_CONST */\
-				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
-				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
-				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* m0 */\
-				__asm	shld	edx,esi,28				__asm	shld	ecx,esi,26\
-				__asm	and		edx, 00000030H			__asm	and		ecx, 00000030H			/* m2 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax\
-				__asm	add		edx, eax				__asm	add		ecx, eax\
-				__asm	mulpd		xmm2,[eax+0x100]	__asm	mulpd		xmm6,[eax+0x100]	/* wt   =wtA*wtl */\
-				__asm	mulpd		xmm3,[eax+0x110]	__asm	mulpd		xmm7,[eax+0x110]	/* wtinv=wtB*wtn */\
-				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
-																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
-				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* x = x*wtinv; xmm3,xmm7 FREE */\
-				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* x = x*wtinv + cy */\
-				__asm	movaps		xmm3,xmm1			__asm	movaps		xmm7,xmm5			/* temp = x */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* temp = DNINT(x) */\
-				/*\
-				frac = fabs(x-temp);\
-				if(frac > maxerr) maxerr=frac;\
-				*/\
-				/* NO ROE HERE */\
-				/* cy   = DNINT(temp*baseinv[i1]) */\
-				__asm	shld	edi,esi,12				__asm	shld	ebx,esi,10				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* i0 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax				__asm	movaps		xmm1,xmm3			__asm	movaps		xmm5,xmm7			/* cpy temp */\
-				__asm	mulpd		xmm3,[edi+0xc0]		__asm	mulpd		xmm7,[ebx+0xc0]		/* temp*baseinv[i1] */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* cy_out */\
-				__asm	movaps		[ecx],xmm3			__asm	movaps		[edx],xmm7			/* store cy_out */\
-				/* x = (temp-cy*base[i1])*wt */\
-				__asm	mov		eax, __data\
-				__asm	mulpd		xmm3,[edi+0x80]		__asm	mulpd		xmm7,[ebx+0x80]		/* cy*base[i1] */\
-				__asm	subpd		xmm1,xmm3			__asm	subpd		xmm5,xmm7			/* x = (temp-cy*base[i1]) */\
-				__asm	mulpd		xmm1,xmm2			__asm	mulpd		xmm5,xmm6			/* x*= wt */\
-				__asm	movaps		[eax+0x20],xmm1		__asm	movaps		[eax+0x60],xmm5		/* store x */\
-				/* Get ready for next set [IM0~] : */\
-				__asm	mov		ebx, sse_n\
-				__asm	movaps	xmm2,[ebx]\
-				__asm	mov		eax, sse_bw\
-				__asm	paddd	xmm0,[eax]				/* bjmod[0:3] += bw ; must use packed-INTEGER add [not addpd!] here, severe performance penalty from using addpd. */\
-				__asm	movaps	xmm1,xmm0				/* bjmodn COPY */\
-				__asm	pcmpgtd	xmm1,xmm2				/* (bj > n)? Gives all 1s in the 32 bit slot of xmm1 if (n < bj) for the bj in that slot of xmm0 */\
-				__asm	pand	xmm1,[ebx]				/* n in each slot of xmm1 for which bj += bw overflowed n, 0 otherwise */\
-				__asm	psubd	xmm0,xmm1				/* bjmod[0:3] % n */\
-			/**********************************************/\
-			/*          Imaginary parts                   */\
-			/**********************************************/\
-				__asm	mov		edx, sse_sw\
-				__asm	movaps	xmm1,[edx]				/* sw[0:3] */\
-				__asm	psubd	xmm1,xmm0				/* sw[0:3] - bjmod[0:3] */\
-				__asm	movmskps esi,xmm1				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		esi, 24					/* <i3|i2|i1|i0>; Packed indices into base,base_inv tables; move into leftmost byte[3] */\
-				__asm	movaps	xmm1,xmm0				/* bjmod[0:3] COPY */\
-				__asm	mov		ecx, n_minus_silp1\
-				__asm	movd	xmm2,ecx				/* n_minus_silp1 in low 32 bits of xmm2 */\
-				__asm	pshufd	xmm2,xmm2,0				/* Broadcast low 32 bits of xmm2 to all 4 slots of xmm2 */\
-				__asm	psubd	xmm2,xmm0				/* n_minus_silp1 - bjmod[0:3] */\
-				__asm	movmskps ecx,xmm2				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		ecx, 16					/* <m3|m2|m1|m0>; Packed indices into base,base_inv tables; move into leftmost byte[2] of ecx... */\
-				__asm	add		esi, ecx				/* ....and fold into esi. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
-				__asm	mov		edx, sinwtm1\
-				__asm	movd	xmm3,edx				/* sinwtm1 in low 32 bits of xmm3 */\
-				__asm	pshufd	xmm3,xmm3,0				/* Broadcast low 32 bits of xmm3 to all 4 slots of xmm3 */\
-				__asm	psubd	xmm1,xmm3				/* bjmod[0:3] - sinwtm1 */\
-				__asm	movmskps edx,xmm1				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		edx, 8					/* <n3|n2|n1|n0>; Packed indices into base,base_inv tables; move into leftmost byte[1] of edx... */\
-				__asm	add		esi, edx				/* ....and fold into esi. */\
-				__asm	mov		eax, __data\
-				__asm	movaps		xmm1,[eax+0x30]		__asm	movaps		xmm5,[eax+0x70]		/* I1~ */\
-				/* Don't explicitly load address of sse2_rnd, since we know it's in [half_arr - 0x10]. */\
-				__asm	mov		eax, half_arr							/* This is a real array address from the calling routine, hence no prepended __ . */\
-				__asm	mov		ebx, __wtA\
-				__asm	mov		ecx, __wtB				/* wtB == wtC for this latter set of carries */\
-				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
-				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
-				__asm	sub		ecx, 20H	/* add1 -= 4 */\
-				__asm	mov		__wtA, ebx\
-				__asm	mov		__wtB, ecx\
-				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
-				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* m0 */\
-				__asm	shld	edx,esi,28				__asm	shld	ecx,esi,26\
-				__asm	and		edx, 00000030H			__asm	and		ecx, 00000030H			/* m2 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax\
-				__asm	add		edx, eax				__asm	add		ecx, eax\
-				__asm	mulpd		xmm2,[eax+0x120]	__asm	mulpd		xmm6,[eax+0x120]	/* wt   =wtA*wtlp1 */\
-				__asm	mulpd		xmm3,[eax+0x130]	__asm	mulpd		xmm7,[eax+0x130]	/* wtinv=wtC*wtnm1 */\
-				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
-																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
-				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* y = y*wtinv; ymm3,ymm7 FREE */\
-				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* y = y*wtinv + cy */\
-				__asm	movaps		xmm3,xmm1			__asm	movaps		xmm7,xmm5			/* temp = y */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* temp = DNINT(y) */\
-				/*\
-				frac = fabs(y-temp);\
-				if(frac > maxerr) maxerr=frac;\
-				*/\
-				/* NO ROE HERE */\
-				/* cy   = DNINT(temp*baseinv[i1]) */\
-				__asm	shld	edi,esi,12				__asm	shld	ebx,esi,10				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* i0 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax				__asm	movaps		xmm1,xmm3			__asm	movaps		xmm5,xmm7			/* cpy temp */\
-				__asm	mulpd		xmm3,[edi+0xc0]		__asm	mulpd		xmm7,[ebx+0xc0]		/* temp*baseinv[i1] */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* cy_out */\
-				__asm	movaps		[ecx],xmm3			__asm	movaps		[edx],xmm7			/* store cy_out */\
-				/* x = (temp-cy*base[i1])*wt */\
-				__asm	mov		eax, __data\
-				__asm	mulpd		xmm3,[edi+0x80]		__asm	mulpd		xmm7,[ebx+0x80]		/* cy*base[i1] */\
-				__asm	subpd		xmm1,xmm3			__asm	subpd		xmm5,xmm7			/* y = (temp-cy*base[i1]) */\
-				__asm	mulpd		xmm1,xmm2			__asm	mulpd		xmm5,xmm6			/* y*= wt */\
-				__asm	movaps		[eax+0x30],xmm1		__asm	movaps		[eax+0x70],xmm5		/* store y */\
-				/* Get ready for next set [RE1~, IM1~] : */\
-				__asm	mov		ebx, sse_n\
-				__asm	movaps	xmm2,[ebx]\
-				__asm	mov		eax, sse_bw\
-				__asm	paddd	xmm0,[eax]				/* bjmod[0:3] += bw ; must use packed-INTEGER add [not addpd!] here, severe performance penalty from using addpd. */\
-				__asm	movaps	xmm1,xmm0				/* bjmodn COPY */\
-				__asm	pcmpgtd	xmm1,xmm2				/* (bj > n)? Gives all 1s in the 32 bit slot of xmm1 if (n < bj) for the bj in that slot of xmm0 */\
-				__asm	pand	xmm1,[ebx]				/* n in each slot of xmm1 for which bj += bw overflowed n, 0 otherwise */\
-				__asm	psubd	xmm0,xmm1				/* bjmod[0:3] % n */\
-				__asm	mov		ecx, __bjmod_0\
-				__asm	movaps	[ecx],xmm0				/* Write bjmod[0:3] */\
-		/***************Repack the data:*************************/\
-				__asm	mov		eax, __data\
-				__asm	movaps	xmm1,[eax+0x10]			__asm	movaps	xmm5,[eax+0x50]			/* reload a[jp+p0 ] */\
-				__asm	movaps	xmm0,[eax     ]			__asm	movaps	xmm4,[eax+0x40]			/* reload a[jt+p0 ] */\
-				__asm	movaps		xmm3,xmm1			__asm	movaps		xmm7,xmm5			/* cpy a[jp    ] */\
-				__asm	movaps		xmm2,xmm0			__asm	movaps		xmm6,xmm4			/* cpy a[jt    ] */\
-				__asm	unpckhpd	xmm3,[eax+0x30]		__asm	unpckhpd	xmm7,[eax+0x70]				__asm	unpcklpd	xmm1,[eax+0x30]		__asm	unpcklpd	xmm5,[eax+0x70]				__asm	movaps	[eax+0x30],xmm3			__asm	movaps	[eax+0x70],xmm7			/* Store hi imag in aj2 */\
-				__asm	unpckhpd	xmm2,[eax+0x20]		__asm	unpckhpd	xmm6,[eax+0x60]				__asm	unpcklpd	xmm0,[eax+0x20]		__asm	unpcklpd	xmm4,[eax+0x60]				__asm	movaps	[eax+0x20],xmm2			__asm	movaps	[eax+0x60],xmm6			/* Store hi real in aj2 */\
-																										__asm	movaps	[eax+0x10],xmm1			__asm	movaps	[eax+0x50],xmm5			/* a[jp+p0 ] */\
-				__asm	movaps	[eax     ],xmm0			__asm	movaps	[eax+0x40],xmm4			/* a[jt+p0 ] */\
-		}
-
-		/******************************************************************************************************************************************************************/
-		/********** In-place-suitable versions of the 3 key carry routines above. *****************************************************************************************/
-		/******************************************************************************************************************************************************************/
-
-		#define SSE2_cmplx_carry_norm_errcheck0_2C(__in0,__in1,__in2,__in3,__wtA,__wtB,__wtC,__cyA,__cyB,__bjmod_0)\
-		{\
-		/***************Unpack the data:*************************/\
-				__asm	mov		eax, __in0\
-				__asm	mov		ebx, __in1\
-				__asm	mov		ecx, __in2\
-				__asm	mov		edx, __in3\
-				/* Real parts: */							__asm	movaps		xmm1,[eax     ]		__asm	movaps		xmm5,[ecx     ]	/* r1, this is the active  xmm register */\
-				__asm	movaps		xmm2,[eax     ]		__asm	movaps		xmm6,[ecx     ]	/* r1, this is the scratch xmm register */\
-				__asm	unpcklpd	xmm1,[ebx     ]		__asm	unpcklpd	xmm5,[edx     ]	/* r1 -x- r3 (lo halves) ==> R0~ */\
-				__asm	unpckhpd	xmm2,[ebx     ]		__asm	unpckhpd	xmm6,[edx     ]	/* r1 -x- r3 (hi halves) ==> R1~ */\
-				__asm	movaps		[ebx     ],xmm2		__asm	movaps		[edx     ],xmm6	/* Tmp store R1~ until needed on 2nd set of SSE2_cmplx_carry.calls */\
-				/* Imag parts: */							__asm	movaps		xmm2,[eax+0x10]		__asm	movaps		xmm6,[ecx+0x10]	\
-				__asm	movaps		xmm3,[eax+0x10]		__asm	movaps		xmm7,[ecx+0x10]	\
-				__asm	unpcklpd	xmm2,[ebx+0x10]		__asm	unpcklpd	xmm6,[edx+0x10]	/* r2 -x- r4 (lo halves) ==> I0~ */\
-				__asm	unpckhpd	xmm3,[ebx+0x10]		__asm	unpckhpd	xmm7,[edx+0x10]	/* r2 -x- r4 (hi halves) ==> I1~ */\
-				__asm	movaps		[eax+0x10],xmm2		__asm	movaps		[ecx+0x10],xmm6	/* Tmp store I0~ until needed by imaginary-part-processing section */\
-				__asm	movaps		[ebx+0x10],xmm3		__asm	movaps		[edx+0x10],xmm7	/* Tmp store I1~ until needed on 2nd set of SSE2_cmplx_carry.calls */\
-				/* Active data in xmm1,5 here - avoid using those registers in index computation. */\
-			/**********************************************/\
-			/*          Real      parts                   */\
-			/**********************************************/\
-				__asm	mov		eax, __bjmod_0			/* Pointer to bjmodn data */\
-				__asm	movaps	xmm0,[eax]				/* bjmod[0:3] */\
-				__asm	mov		ebx, sse_sw\
-				__asm	movaps	xmm7,[ebx]				/* sw[0:3] */\
-				__asm	psubd	xmm7,xmm0				/* sw[0:3] - bjmod[0:3] */\
-				__asm	movmskps esi,xmm7				/* Extract sign bits into 4-bit signmask */\
-				/* i0=i for first block: */\
-				__asm	mov		ecx, i							__asm	and		esi, 0xfffffffe			/* Mask off lowest bit */\
-				__asm	add		esi, ecx						__asm	shl		esi, 24					/* <i3|i2|i1|i0>; Packed indices into base,base_inv tables; move into leftmost byte[3] */\
-				__asm	movaps	xmm7,xmm0				/* bjmod[0:3] COPY */\
-				__asm	mov		ecx, n_minus_sil\
-				__asm	movd	xmm2,ecx				/* n_minus_sil in low 32 bits of xmm2 */\
-				__asm	pshufd	xmm2,xmm2,0				/* Broadcast low 32 bits of xmm2 to all 4 slots of xmm2 */\
-				__asm	psubd	xmm2,xmm0				/* n_minus_sil - bjmod[0:3] */\
-				__asm	movmskps ecx,xmm2				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		ecx, 16					/* <m3|m2|m1|m0>; Packed indices into base,base_inv tables; move into leftmost byte[2] of ecx... */\
-				__asm	add		esi, ecx				/* ....and fold into esi. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
-				__asm	mov		edx, sinwt\
-				__asm	movd	xmm3,edx				/* sinwt in low 32 bits of xmm3 */\
-				__asm	pshufd	xmm3,xmm3,0				/* Broadcast low 32 bits of xmm3 to all 4 slots of xmm3 */\
-				__asm	psubd	xmm7,xmm3				/* bjmod[0:3] - sinwt */\
-				__asm	movmskps edx,xmm7				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		edx, 8					/* <n3|n2|n1|n0>; Packed indices into base,base_inv tables; move into leftmost byte[1] of edx... */\
-				__asm	add		esi, edx				/* ....and fold into esi. */\
-		/*\
-				__asm	mov		eax, __data\
-				__asm	movaps		xmm1,[eax     ]		__asm	movaps		xmm5,[eax+0x40]		// R1~ \
-		*/\
-				/* Don't explicitly load address of sse2_rnd, since we know it's in [half_arr - 0x10]. */\
-				__asm	mov		eax, half_arr							/* This is a real array address from the calling routine, hence no prepended __ . */\
-				__asm	mov		ebx, __wtA\
-				__asm	mov		ecx, __wtB\
-				__asm	movaps		xmm4,[eax-0x10]		/* RND_CONST */\
-				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
-				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]		/* [NOTE: movhpd/movlpd preferable to movupd/shufpd] */\
-				__asm	sub		ecx, 20H	/* add1 -= 4 */\
-				__asm	mov		__wtB, ecx\
-				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
-				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* m0 */\
-				__asm	shld	edx,esi,28				__asm	shld	ecx,esi,26\
-				__asm	and		edx, 00000030H			__asm	and		ecx, 00000030H			/* m2 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax\
-				__asm	add		edx, eax				__asm	add		ecx, eax\
-				__asm	mulpd		xmm2,[eax+0x100]	__asm	mulpd		xmm6,[eax+0x100]	/* wt   =wtA*wtl */\
-				__asm	mulpd		xmm3,[eax+0x110]	__asm	mulpd		xmm7,[eax+0x110]	/* wtinv=wtB*wtn */\
-				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
-																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
-				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* x = x*wtinv; xmm3,xmm7 FREE */\
-				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* x = x*wtinv + cy */\
-				__asm	movaps		xmm3,xmm1			__asm	movaps		xmm7,xmm5			/* temp = x */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* temp = DNINT(x) */\
-				/*\
-				frac = fabs(x-temp);\
-				if(frac > maxerr) maxerr=frac;\
-				*/\
-				__asm	mov		ebx, sign_mask					__asm	subpd		xmm1,xmm3			__asm	subpd		xmm5,xmm7			/* x - temp */\
-				__asm	andpd		xmm1,[ebx]			__asm	andpd		xmm5,[ebx]			/* frac = fabs(x-temp) */\
-				__asm	maxpd		xmm1,xmm5					__asm	maxpd		xmm1,[eax-0x20]		/* if(frac > maxerr) maxerr=frac */\
-				__asm	movaps		[eax-0x20],xmm1		/* Note serialization here! */\
-				/* cy   = DNINT(temp*baseinv[i1]) */\
-				__asm	shld	edi,esi,12				__asm	shld	ebx,esi,10				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* i0 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax				__asm	movaps		xmm1,xmm3			__asm	movaps		xmm5,xmm7			/* cpy temp */\
-				__asm	mulpd		xmm3,[edi+0xc0]		__asm	mulpd		xmm7,[ebx+0xc0]		/* temp*baseinv[i1] */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* cy_out */\
-				__asm	movaps		[ecx],xmm3			__asm	movaps		[edx],xmm7			/* store cy_out */\
-				/* x = (temp-cy*base[i1])*wt */\
-				__asm	mov		eax, __in0\
-				__asm	mov		edx, __in2\
-				__asm	mulpd		xmm3,[edi+0x80]		__asm	mulpd		xmm7,[ebx+0x80]		/* cy*base[i1] */\
-				__asm	subpd		xmm1,xmm3			__asm	subpd		xmm5,xmm7			/* x = (temp-cy*base[i1]) */\
-				__asm	mulpd		xmm1,xmm2			__asm	mulpd		xmm5,xmm6			/* x*= wt */\
-				__asm	movaps		[eax     ],xmm1		__asm	movaps		[edx     ],xmm5		/* store x */\
-				/* Get ready for next set [IM0~] : */\
-				__asm	mov		ebx, sse_n\
-				__asm	movaps	xmm2,[ebx]\
-				__asm	mov		eax, sse_bw\
-				__asm	paddd	xmm0,[eax]				/* bjmod[0:3] += bw ; must use packed-INTEGER add [not addpd!] here, severe performance penalty from using addpd. */\
-				__asm	movaps	xmm1,xmm0				/* bjmodn COPY */\
-				__asm	pcmpgtd	xmm1,xmm2				/* (bj > n)? Gives all 1s in the 32 bit slot of xmm1 if (n < bj) for the bj in that slot of xmm0 */\
-				__asm	pand	xmm1,[ebx]				/* n in each slot of xmm1 for which bj += bw overflowed n, 0 otherwise */\
-				__asm	psubd	xmm0,xmm1				/* bjmod[0:3] % n */\
-			/**********************************************/\
-			/*          Imaginary parts                   */\
-			/**********************************************/\
-				__asm	mov		edx, sse_sw\
-				__asm	movaps	xmm1,[edx]				/* sw[0:3] */\
-				__asm	psubd	xmm1,xmm0				/* sw[0:3] - bjmod[0:3] */\
-				__asm	movmskps esi,xmm1				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		esi, 24					/* <i3|i2|i1|i0>; Packed indices into base,base_inv tables; move into leftmost byte[3] */\
-				__asm	movaps	xmm1,xmm0				/* bjmod[0:3] COPY */\
-				__asm	mov		ecx, n_minus_silp1\
-				__asm	movd	xmm2,ecx				/* n_minus_silp1 in low 32 bits of xmm2 */\
-				__asm	pshufd	xmm2,xmm2,0				/* Broadcast low 32 bits of xmm2 to all 4 slots of xmm2 */\
-				__asm	psubd	xmm2,xmm0				/* n_minus_silp1 - bjmod[0:3] */\
-				__asm	movmskps ecx,xmm2				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		ecx, 16					/* <m3|m2|m1|m0>; Packed indices into base,base_inv tables; move into leftmost byte[2] of ecx... */\
-				__asm	add		esi, ecx				/* ....and fold into esi. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
-				__asm	mov		edx, sinwtm1\
-				__asm	movd	xmm3,edx				/* sinwtm1 in low 32 bits of xmm3 */\
-				__asm	pshufd	xmm3,xmm3,0				/* Broadcast low 32 bits of xmm3 to all 4 slots of xmm3 */\
-				__asm	psubd	xmm1,xmm3				/* bjmod[0:3] - sinwtm1 */\
-				__asm	movmskps edx,xmm1				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		edx, 8					/* <n3|n2|n1|n0>; Packed indices into base,base_inv tables; move into leftmost byte[1] of edx... */\
-				__asm	add		esi, edx				/* ....and fold into esi. */\
-				__asm	mov		eax, __in0\
-				__asm	mov		edx, __in2\
-				__asm	movaps		xmm1,[eax+0x10]		__asm	movaps		xmm5,[edx+0x10]		/* I1~ */\
-				/* Don't explicitly load address of sse2_rnd, since we know it's in [half_arr - 0x10]. */\
-				__asm	mov		eax, half_arr							/* This is a real array address from the calling routine, hence no prepended __ . */\
-				__asm	mov		ebx, __wtA\
-				__asm	mov		ecx, __wtC				/* wtB == wtC for this latter set of carries */\
-				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
-				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
-				__asm	sub		ecx, 20H	/* add2 -= 4 */\
-				__asm	mov		__wtA, ebx\
-				__asm	mov		__wtC, ecx\
-				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
-				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* m0 */\
-				__asm	shld	edx,esi,28				__asm	shld	ecx,esi,26\
-				__asm	and		edx, 00000030H			__asm	and		ecx, 00000030H			/* m2 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax\
-				__asm	add		edx, eax				__asm	add		ecx, eax\
-				__asm	mulpd		xmm2,[eax+0x120]	__asm	mulpd		xmm6,[eax+0x120]	/* wt   =wtA*wtlp1 */\
-				__asm	mulpd		xmm3,[eax+0x130]	__asm	mulpd		xmm7,[eax+0x130]	/* wtinv=wtC*wtnm1 */\
-				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
-																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
-				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* y = y*wtinv; ymm3,ymm7 FREE */\
-				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* y = y*wtinv + cy */\
-				__asm	movaps		xmm3,xmm1			__asm	movaps		xmm7,xmm5			/* temp = y */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* temp = DNINT(y) */\
-				/*\
-				frac = fabs(y-temp);\
-				if(frac > maxerr) maxerr=frac;\
-				*/\
-				__asm	mov		ebx, sign_mask					__asm	subpd		xmm1,xmm3			__asm	subpd		xmm5,xmm7			/* y - temp */\
-				__asm	andpd		xmm1,[ebx]			__asm	andpd		xmm5,[ebx]			/* frac = fabs(y-temp) */\
-				__asm	maxpd		xmm1,xmm5					__asm	maxpd		xmm1,[eax-0x20]		/* if(frac > maxerr) maxerr=frac */\
-				__asm	movaps		[eax-0x20],xmm1		/* Note serialization here! */\
-				/* cy   = DNINT(temp*baseinv[i1]) */\
-				__asm	shld	edi,esi,12				__asm	shld	ebx,esi,10				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* i0 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax				__asm	movaps		xmm1,xmm3			__asm	movaps		xmm5,xmm7			/* cpy temp */\
-				__asm	mulpd		xmm3,[edi+0xc0]		__asm	mulpd		xmm7,[ebx+0xc0]		/* temp*baseinv[i1] */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* cy_out */\
-				__asm	movaps		[ecx],xmm3			__asm	movaps		[edx],xmm7			/* store cy_out */\
-				/* x = (temp-cy*base[i1])*wt */\
-				__asm	mov		eax, __in0\
-				__asm	mov		edx, __in2\
-				__asm	mulpd		xmm3,[edi+0x80]		__asm	mulpd		xmm7,[ebx+0x80]		/* cy*base[i1] */\
-				__asm	subpd		xmm1,xmm3			__asm	subpd		xmm5,xmm7			/* y = (temp-cy*base[i1]) */\
-				__asm	mulpd		xmm1,xmm2			__asm	mulpd		xmm5,xmm6			/* y*= wt */\
-				__asm	movaps		[eax+0x10],xmm1		__asm	movaps		[edx+0x10],xmm5		/* store y */\
-				/* Get ready for next set [RE1~, IM1~] : */\
-				__asm	mov		ebx, sse_n\
-				__asm	movaps	xmm2,[ebx]\
-				__asm	mov		eax, sse_bw\
-				__asm	paddd	xmm0,[eax]				/* bjmod[0:3] += bw ; must use packed-INTEGER add [not addpd!] here, severe performance penalty from using addpd. */\
-				__asm	movaps	xmm1,xmm0				/* bjmodn COPY */\
-				__asm	pcmpgtd	xmm1,xmm2				/* (bj > n)? Gives all 1s in the 32 bit slot of xmm1 if (n < bj) for the bj in that slot of xmm0 */\
-				__asm	pand	xmm1,[ebx]				/* n in each slot of xmm1 for which bj += bw overflowed n, 0 otherwise */\
-				__asm	psubd	xmm0,xmm1				/* bjmod[0:3] % n */\
-				__asm	mov		ecx, __bjmod_0\
-				__asm	movaps	[ecx],xmm0				/* Write bjmod[0:3] */\
-		}
-
-		#define SSE2_cmplx_carry_norm_nocheck1_2C(__in0,__in1,__in2,__in3,__wtA,__wtB,__wtC,__cyA,__cyB,__bjmod_0)\
-		{\
-		/***************Unpack the data:*************************/\
-				__asm	mov		eax, __in0\
-				__asm	mov		ebx, __in1\
-				__asm	mov		ecx, __in2\
-				__asm	mov		edx, __in3\
-				/* Real parts: */							__asm	movaps		xmm1,[eax     ]		__asm	movaps		xmm5,[ecx     ]	/* r1, this is the active  xmm register */\
-				__asm	movaps		xmm2,[eax     ]		__asm	movaps		xmm6,[ecx     ]	/* r1, this is the scratch xmm register */\
-				__asm	unpcklpd	xmm1,[ebx     ]		__asm	unpcklpd	xmm5,[edx     ]	/* r1 -x- r3 (lo halves) ==> R0~ */\
-				__asm	unpckhpd	xmm2,[ebx     ]		__asm	unpckhpd	xmm6,[edx     ]	/* r1 -x- r3 (hi halves) ==> R1~ */\
-				__asm	movaps		[ebx     ],xmm2		__asm	movaps		[edx     ],xmm6	/* Tmp store R1~ until needed on 2nd set of SSE2_cmplx_carry.calls */\
-				/* Imag parts: */							__asm	movaps		xmm2,[eax+0x10]		__asm	movaps		xmm6,[ecx+0x10]	\
-				__asm	movaps		xmm3,[eax+0x10]		__asm	movaps		xmm7,[ecx+0x10]	\
-				__asm	unpcklpd	xmm2,[ebx+0x10]		__asm	unpcklpd	xmm6,[edx+0x10]	/* r2 -x- r4 (lo halves) ==> I0~ */\
-				__asm	unpckhpd	xmm3,[ebx+0x10]		__asm	unpckhpd	xmm7,[edx+0x10]	/* r2 -x- r4 (hi halves) ==> I1~ */\
-				__asm	movaps		[eax+0x10],xmm2		__asm	movaps		[ecx+0x10],xmm6	/* Tmp store I0~ until needed by imaginary-part-processing section */\
-				__asm	movaps		[ebx+0x10],xmm3		__asm	movaps		[edx+0x10],xmm7	/* Tmp store I1~ until needed on 2nd set of SSE2_cmplx_carry.calls */\
-				/* Active data in xmm1,5 here - avoid using those registers in index computation. */\
-			/**********************************************/\
-			/*          Real      parts                   */\
-			/**********************************************/\
-				__asm	mov		eax, __bjmod_0			/* Pointer to bjmodn data */\
-				__asm	movaps	xmm0,[eax]				/* bjmod[0:3] */\
-				__asm	mov		ebx, sse_sw\
-				__asm	movaps	xmm7,[ebx]				/* sw[0:3] */\
-				__asm	psubd	xmm7,xmm0				/* sw[0:3] - bjmod[0:3] */\
-				__asm	movmskps esi,xmm7				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		esi, 24					/* <i3|i2|i1|i0>; Packed indices into base,base_inv tables; move into leftmost byte[3] */\
-				__asm	movaps	xmm7,xmm0				/* bjmod[0:3] COPY */\
-				__asm	mov		ecx, n_minus_sil\
-				__asm	movd	xmm2,ecx				/* n_minus_sil in low 32 bits of xmm2 */\
-				__asm	pshufd	xmm2,xmm2,0				/* Broadcast low 32 bits of xmm2 to all 4 slots of xmm2 */\
-				__asm	psubd	xmm2,xmm0				/* n_minus_sil - bjmod[0:3] */\
-				__asm	movmskps ecx,xmm2				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		ecx, 16					/* <m3|m2|m1|m0>; Packed indices into base,base_inv tables; move into leftmost byte[2] of ecx... */\
-				__asm	add		esi, ecx				/* ....and fold into esi. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
-				__asm	mov		edx, sinwt\
-				__asm	movd	xmm3,edx				/* sinwt in low 32 bits of xmm3 */\
-				__asm	pshufd	xmm3,xmm3,0				/* Broadcast low 32 bits of xmm3 to all 4 slots of xmm3 */\
-				__asm	psubd	xmm7,xmm3				/* bjmod[0:3] - sinwt */\
-				__asm	movmskps edx,xmm7				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		edx, 8					/* <n3|n2|n1|n0>; Packed indices into base,base_inv tables; move into leftmost byte[1] of edx... */\
-				__asm	add		esi, edx				/* ....and fold into esi. */\
-		/*\
-				__asm	mov		eax, __data\
-				__asm	movaps		xmm1,[eax     ]		__asm	movaps		xmm5,[eax+0x40]		// R1~ \
-		*/\
-				/* Don't explicitly load address of sse2_rnd, since we know it's in [half_arr - 0x10]. */\
-				__asm	mov		eax, half_arr							/* This is a real array address from the calling routine, hence no prepended __ . */\
-				__asm	mov		ebx, __wtA\
-				__asm	mov		ecx, __wtB\
-				__asm	movaps		xmm4,[eax-0x10]		/* RND_CONST */\
-				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
-				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]		/* [NOTE: movhpd/movlpd preferable to movupd/shufpd] */\
-				__asm	sub		ecx, 20H	/* add1 -= 4 */\
-				__asm	mov		__wtB, ecx\
-				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
-				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* m0 */\
-				__asm	shld	edx,esi,28				__asm	shld	ecx,esi,26\
-				__asm	and		edx, 00000030H			__asm	and		ecx, 00000030H			/* m2 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax\
-				__asm	add		edx, eax				__asm	add		ecx, eax\
-				__asm	mulpd		xmm2,[eax+0x100]	__asm	mulpd		xmm6,[eax+0x100]	/* wt   =wtA*wtl */\
-				__asm	mulpd		xmm3,[eax+0x110]	__asm	mulpd		xmm7,[eax+0x110]	/* wtinv=wtB*wtn */\
-				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
-																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
-				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* x = x*wtinv; xmm3,xmm7 FREE */\
-				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* x = x*wtinv + cy */\
-				__asm	movaps		xmm3,xmm1			__asm	movaps		xmm7,xmm5			/* temp = x */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* temp = DNINT(x) */\
-				/*\
-				frac = fabs(x-temp);\
-				if(frac > maxerr) maxerr=frac;\
-				*/\
-				/* NO ROE HERE */\
-				/* cy   = DNINT(temp*baseinv[i1]) */\
-				__asm	shld	edi,esi,12				__asm	shld	ebx,esi,10				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* i0 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax				__asm	movaps		xmm1,xmm3			__asm	movaps		xmm5,xmm7			/* cpy temp */\
-				__asm	mulpd		xmm3,[edi+0xc0]		__asm	mulpd		xmm7,[ebx+0xc0]		/* temp*baseinv[i1] */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* cy_out */\
-				__asm	movaps		[ecx],xmm3			__asm	movaps		[edx],xmm7			/* store cy_out */\
-				/* x = (temp-cy*base[i1])*wt */\
-				__asm	mov		eax, __in0\
-				__asm	mov		edx, __in2\
-				__asm	mulpd		xmm3,[edi+0x80]		__asm	mulpd		xmm7,[ebx+0x80]		/* cy*base[i1] */\
-				__asm	subpd		xmm1,xmm3			__asm	subpd		xmm5,xmm7			/* x = (temp-cy*base[i1]) */\
-				__asm	mulpd		xmm1,xmm2			__asm	mulpd		xmm5,xmm6			/* x*= wt */\
-				__asm	movaps		[eax     ],xmm1		__asm	movaps		[edx     ],xmm5		/* store x */\
-				/* Get ready for next set [IM0~] : */\
-				__asm	mov		ebx, sse_n\
-				__asm	movaps	xmm2,[ebx]\
-				__asm	mov		eax, sse_bw\
-				__asm	paddd	xmm0,[eax]				/* bjmod[0:3] += bw ; must use packed-INTEGER add [not addpd!] here, severe performance penalty from using addpd. */\
-				__asm	movaps	xmm1,xmm0				/* bjmodn COPY */\
-				__asm	pcmpgtd	xmm1,xmm2				/* (bj > n)? Gives all 1s in the 32 bit slot of xmm1 if (n < bj) for the bj in that slot of xmm0 */\
-				__asm	pand	xmm1,[ebx]				/* n in each slot of xmm1 for which bj += bw overflowed n, 0 otherwise */\
-				__asm	psubd	xmm0,xmm1				/* bjmod[0:3] % n */\
-			/**********************************************/\
-			/*          Imaginary parts                   */\
-			/**********************************************/\
-				__asm	mov		edx, sse_sw\
-				__asm	movaps	xmm1,[edx]				/* sw[0:3] */\
-				__asm	psubd	xmm1,xmm0				/* sw[0:3] - bjmod[0:3] */\
-				__asm	movmskps esi,xmm1				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		esi, 24					/* <i3|i2|i1|i0>; Packed indices into base,base_inv tables; move into leftmost byte[3] */\
-				__asm	movaps	xmm1,xmm0				/* bjmod[0:3] COPY */\
-				__asm	mov		ecx, n_minus_silp1\
-				__asm	movd	xmm2,ecx				/* n_minus_silp1 in low 32 bits of xmm2 */\
-				__asm	pshufd	xmm2,xmm2,0				/* Broadcast low 32 bits of xmm2 to all 4 slots of xmm2 */\
-				__asm	psubd	xmm2,xmm0				/* n_minus_silp1 - bjmod[0:3] */\
-				__asm	movmskps ecx,xmm2				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		ecx, 16					/* <m3|m2|m1|m0>; Packed indices into base,base_inv tables; move into leftmost byte[2] of ecx... */\
-				__asm	add		esi, ecx				/* ....and fold into esi. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
-				__asm	mov		edx, sinwtm1\
-				__asm	movd	xmm3,edx				/* sinwtm1 in low 32 bits of xmm3 */\
-				__asm	pshufd	xmm3,xmm3,0				/* Broadcast low 32 bits of xmm3 to all 4 slots of xmm3 */\
-				__asm	psubd	xmm1,xmm3				/* bjmod[0:3] - sinwtm1 */\
-				__asm	movmskps edx,xmm1				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		edx, 8					/* <n3|n2|n1|n0>; Packed indices into base,base_inv tables; move into leftmost byte[1] of edx... */\
-				__asm	add		esi, edx				/* ....and fold into esi. */\
-				__asm	mov		eax, __in0\
-				__asm	mov		edx, __in2\
-				__asm	movaps		xmm1,[eax+0x10]		__asm	movaps		xmm5,[edx+0x10]		/* I1~ */\
-				/* Don't explicitly load address of sse2_rnd, since we know it's in [half_arr - 0x10]. */\
-				__asm	mov		eax, half_arr							/* This is a real array address from the calling routine, hence no prepended __ . */\
-				__asm	mov		ebx, __wtA\
-				__asm	mov		ecx, __wtC				/* wtB == wtC for this latter set of carries */\
-				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
-				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
-				__asm	sub		ecx, 20H	/* add2 -= 4 */\
-				__asm	mov		__wtA, ebx\
-				__asm	mov		__wtC, ecx\
-				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
-				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* m0 */\
-				__asm	shld	edx,esi,28				__asm	shld	ecx,esi,26\
-				__asm	and		edx, 00000030H			__asm	and		ecx, 00000030H			/* m2 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax\
-				__asm	add		edx, eax				__asm	add		ecx, eax\
-				__asm	mulpd		xmm2,[eax+0x120]	__asm	mulpd		xmm6,[eax+0x120]	/* wt   =wtA*wtlp1 */\
-				__asm	mulpd		xmm3,[eax+0x130]	__asm	mulpd		xmm7,[eax+0x130]	/* wtinv=wtC*wtnm1 */\
-				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
-																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
-				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* y = y*wtinv; ymm3,ymm7 FREE */\
-				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* y = y*wtinv + cy */\
-				__asm	movaps		xmm3,xmm1			__asm	movaps		xmm7,xmm5			/* temp = y */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* temp = DNINT(y) */\
-				/*\
-				frac = fabs(y-temp);\
-				if(frac > maxerr) maxerr=frac;\
-				*/\
-				/* NO ROE HERE */\
-				/* cy   = DNINT(temp*baseinv[i1]) */\
-				__asm	shld	edi,esi,12				__asm	shld	ebx,esi,10				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* i0 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax				__asm	movaps		xmm1,xmm3			__asm	movaps		xmm5,xmm7			/* cpy temp */\
-				__asm	mulpd		xmm3,[edi+0xc0]		__asm	mulpd		xmm7,[ebx+0xc0]		/* temp*baseinv[i1] */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* cy_out */\
-				__asm	movaps		[ecx],xmm3			__asm	movaps		[edx],xmm7			/* store cy_out */\
-				/* x = (temp-cy*base[i1])*wt */\
-				__asm	mov		eax, __in0\
-				__asm	mov		edx, __in2\
-				__asm	mulpd		xmm3,[edi+0x80]		__asm	mulpd		xmm7,[ebx+0x80]		/* cy*base[i1] */\
-				__asm	subpd		xmm1,xmm3			__asm	subpd		xmm5,xmm7			/* y = (temp-cy*base[i1]) */\
-				__asm	mulpd		xmm1,xmm2			__asm	mulpd		xmm5,xmm6			/* y*= wt */\
-				__asm	movaps		[eax+0x10],xmm1		__asm	movaps		[edx+0x10],xmm5		/* store y */\
-				/* Get ready for next set [RE1~, IM1~] : */\
-				__asm	mov		ebx, sse_n\
-				__asm	movaps	xmm2,[ebx]\
-				__asm	mov		eax, sse_bw\
-				__asm	paddd	xmm0,[eax]				/* bjmod[0:3] += bw ; must use packed-INTEGER add [not addpd!] here, severe performance penalty from using addpd. */\
-				__asm	movaps	xmm1,xmm0				/* bjmodn COPY */\
-				__asm	pcmpgtd	xmm1,xmm2				/* (bj > n)? Gives all 1s in the 32 bit slot of xmm1 if (n < bj) for the bj in that slot of xmm0 */\
-				__asm	pand	xmm1,[ebx]				/* n in each slot of xmm1 for which bj += bw overflowed n, 0 otherwise */\
-				__asm	psubd	xmm0,xmm1				/* bjmod[0:3] % n */\
-				__asm	mov		ecx, __bjmod_0\
-				__asm	movaps	[ecx],xmm0				/* Write bjmod[0:3] */\
-		}
-
-		#define SSE2_cmplx_carry_norm_nocheck2_2C(__in0,__in1,__in2,__in3,__wtA,__wtB,__cyA,__cyB,__bjmod_0)\
-		{\
-			/**********************************************/\
-			/*          Real      parts                   */\
-			/**********************************************/\
-				__asm	mov		eax, __bjmod_0			/* Pointer to bjmodn data */\
-				__asm	movaps	xmm0,[eax]				/* bjmod[0:3] */\
-				__asm	mov		ebx, sse_sw\
-				__asm	movaps	xmm1,[ebx]				/* sw[0:3] */\
-				__asm	psubd	xmm1,xmm0				/* sw[0:3] - bjmod[0:3] */\
-				__asm	movmskps esi,xmm1				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		esi, 24					/* <i3|i2|i1|i0>; Packed indices into base,base_inv tables; move into leftmost byte[3] */\
-				__asm	movaps	xmm1,xmm0				/* bjmod[0:3] COPY */\
-				__asm	mov		ecx, n_minus_sil\
-				__asm	movd	xmm2,ecx				/* n_minus_sil in low 32 bits of xmm2 */\
-				__asm	pshufd	xmm2,xmm2,0				/* Broadcast low 32 bits of xmm2 to all 4 slots of xmm2 */\
-				__asm	psubd	xmm2,xmm0				/* n_minus_sil - bjmod[0:3] */\
-				__asm	movmskps ecx,xmm2				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		ecx, 16					/* <m3|m2|m1|m0>; Packed indices into base,base_inv tables; move into leftmost byte[2] of ecx... */\
-				__asm	add		esi, ecx				/* ....and fold into esi. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
-				__asm	mov		edx, sinwt\
-				__asm	movd	xmm3,edx				/* sinwt in low 32 bits of xmm3 */\
-				__asm	pshufd	xmm3,xmm3,0				/* Broadcast low 32 bits of xmm3 to all 4 slots of xmm3 */\
-				__asm	psubd	xmm1,xmm3				/* bjmod[0:3] - sinwt */\
-				__asm	movmskps edx,xmm1				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		edx, 8					/* <n3|n2|n1|n0>; Packed indices into base,base_inv tables; move into leftmost byte[1] of edx... */\
-				__asm	add		esi, edx				/* ....and fold into esi. */\
-				__asm	mov		ebx, __in1\
-				__asm	mov		edx, __in3\
-				__asm	movaps		xmm1,[ebx     ]		__asm	movaps		xmm5,[edx     ]		/* R1~ */\
-				/* Don't explicitly load address of sse2_rnd, since we know it's in [half_arr - 0x10]. */\
-				__asm	mov		eax, half_arr							/* This is a real array address from the calling routine, hence no prepended __ . */\
-				__asm	mov		ebx, __wtA\
-				__asm	mov		ecx, __wtB\
-				__asm	movaps		xmm4,[eax-0x10]		/* RND_CONST */\
-				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
-				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
-				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* m0 */\
-				__asm	shld	edx,esi,28				__asm	shld	ecx,esi,26\
-				__asm	and		edx, 00000030H			__asm	and		ecx, 00000030H			/* m2 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax\
-				__asm	add		edx, eax				__asm	add		ecx, eax\
-				__asm	mulpd		xmm2,[eax+0x100]	__asm	mulpd		xmm6,[eax+0x100]	/* wt   =wtA*wtl */\
-				__asm	mulpd		xmm3,[eax+0x110]	__asm	mulpd		xmm7,[eax+0x110]	/* wtinv=wtB*wtn */\
-				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
-																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
-				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* x = x*wtinv; xmm3,xmm7 FREE */\
-				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* x = x*wtinv + cy */\
-				__asm	movaps		xmm3,xmm1			__asm	movaps		xmm7,xmm5			/* temp = x */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* temp = DNINT(x) */\
-				/*\
-				frac = fabs(x-temp);\
-				if(frac > maxerr) maxerr=frac;\
-				*/\
-				/* NO ROE HERE */\
-				/* cy   = DNINT(temp*baseinv[i1]) */\
-				__asm	shld	edi,esi,12				__asm	shld	ebx,esi,10				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* i0 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax				__asm	movaps		xmm1,xmm3			__asm	movaps		xmm5,xmm7			/* cpy temp */\
-				__asm	mulpd		xmm3,[edi+0xc0]		__asm	mulpd		xmm7,[ebx+0xc0]		/* temp*baseinv[i1] */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* cy_out */\
-				__asm	movaps		[ecx],xmm3			__asm	movaps		[edx],xmm7			/* store cy_out */\
-				/* x = (temp-cy*base[i1])*wt */\
-				__asm	mov		eax, __in1\
-				__asm	mov		edx, __in3\
-				__asm	mulpd		xmm3,[edi+0x80]		__asm	mulpd		xmm7,[ebx+0x80]		/* cy*base[i1] */\
-				__asm	subpd		xmm1,xmm3			__asm	subpd		xmm5,xmm7			/* x = (temp-cy*base[i1]) */\
-				__asm	mulpd		xmm1,xmm2			__asm	mulpd		xmm5,xmm6			/* x*= wt */\
-				__asm	movaps		[eax     ],xmm1		__asm	movaps		[edx     ],xmm5		/* store x */\
-				/* Get ready for next set [IM0~] : */\
-				__asm	mov		ebx, sse_n\
-				__asm	movaps	xmm2,[ebx]\
-				__asm	mov		eax, sse_bw\
-				__asm	paddd	xmm0,[eax]				/* bjmod[0:3] += bw ; must use packed-INTEGER add [not addpd!] here, severe performance penalty from using addpd. */\
-				__asm	movaps	xmm1,xmm0				/* bjmodn COPY */\
-				__asm	pcmpgtd	xmm1,xmm2				/* (bj > n)? Gives all 1s in the 32 bit slot of xmm1 if (n < bj) for the bj in that slot of xmm0 */\
-				__asm	pand	xmm1,[ebx]				/* n in each slot of xmm1 for which bj += bw overflowed n, 0 otherwise */\
-				__asm	psubd	xmm0,xmm1				/* bjmod[0:3] % n */\
-			/**********************************************/\
-			/*          Imaginary parts                   */\
-			/**********************************************/\
-				__asm	mov		edx, sse_sw\
-				__asm	movaps	xmm1,[edx]				/* sw[0:3] */\
-				__asm	psubd	xmm1,xmm0				/* sw[0:3] - bjmod[0:3] */\
-				__asm	movmskps esi,xmm1				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		esi, 24					/* <i3|i2|i1|i0>; Packed indices into base,base_inv tables; move into leftmost byte[3] */\
-				__asm	movaps	xmm1,xmm0				/* bjmod[0:3] COPY */\
-				__asm	mov		ecx, n_minus_silp1\
-				__asm	movd	xmm2,ecx				/* n_minus_silp1 in low 32 bits of xmm2 */\
-				__asm	pshufd	xmm2,xmm2,0				/* Broadcast low 32 bits of xmm2 to all 4 slots of xmm2 */\
-				__asm	psubd	xmm2,xmm0				/* n_minus_silp1 - bjmod[0:3] */\
-				__asm	movmskps ecx,xmm2				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		ecx, 16					/* <m3|m2|m1|m0>; Packed indices into base,base_inv tables; move into leftmost byte[2] of ecx... */\
-				__asm	add		esi, ecx				/* ....and fold into esi. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
-				__asm	mov		edx, sinwtm1\
-				__asm	movd	xmm3,edx				/* sinwtm1 in low 32 bits of xmm3 */\
-				__asm	pshufd	xmm3,xmm3,0				/* Broadcast low 32 bits of xmm3 to all 4 slots of xmm3 */\
-				__asm	psubd	xmm1,xmm3				/* bjmod[0:3] - sinwtm1 */\
-				__asm	movmskps edx,xmm1				/* Extract sign bits into 4-bit signmask */\
-				__asm	shl		edx, 8					/* <n3|n2|n1|n0>; Packed indices into base,base_inv tables; move into leftmost byte[1] of edx... */\
-				__asm	add		esi, edx				/* ....and fold into esi. */\
-				__asm	mov		eax, __in1\
-				__asm	mov		edx, __in3\
-				__asm	movaps		xmm1,[eax+0x10]		__asm	movaps		xmm5,[edx+0x10]		/* I1~ */\
-				/* Don't explicitly load address of sse2_rnd, since we know it's in [half_arr - 0x10]. */\
-				__asm	mov		eax, half_arr							/* This is a real array address from the calling routine, hence no prepended __ . */\
-				__asm	mov		ebx, __wtA\
-				__asm	mov		ecx, __wtB				/* wtB == wtC for this latter set of carries */\
-				__asm	movaps		xmm2,[ebx]			__asm	movaps		xmm6,[ebx+0x10]		/* wtA[j  ]; ebx FREE */\
-				__asm	movhpd		xmm3,[ecx]			__asm	movhpd		xmm7,[ecx-0x10]		/* wtC[j-1]; ecx FREE */\
-				__asm	movlpd		xmm3,[ecx+0x08]		__asm	movlpd		xmm7,[ecx-0x08]				__asm	add		ebx, 20H	/* add0 += 4 */\
-				__asm	sub		ecx, 20H	/* add1 -= 4 */\
-				__asm	mov		__wtA, ebx\
-				__asm	mov		__wtB, ecx\
-				__asm	shld	edi,esi,20				__asm	shld	ebx,esi,18\
-				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* m0 */\
-				__asm	shld	edx,esi,28				__asm	shld	ecx,esi,26\
-				__asm	and		edx, 00000030H			__asm	and		ecx, 00000030H			/* m2 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax\
-				__asm	add		edx, eax				__asm	add		ecx, eax\
-				__asm	mulpd		xmm2,[eax+0x120]	__asm	mulpd		xmm6,[eax+0x120]	/* wt   =wtA*wtlp1 */\
-				__asm	mulpd		xmm3,[eax+0x130]	__asm	mulpd		xmm7,[eax+0x130]	/* wtinv=wtC*wtnm1 */\
-				__asm	mulpd		xmm2,[edi     ]		__asm	mulpd		xmm6,[ebx     ]		/* wt   =wt   *one_half[m01] */\
-				__asm	mulpd		xmm3,[edx+0x40]		__asm	mulpd		xmm7,[ecx+0x40]		/* wtinv=wtinv*one_half[4+m23] */\
-																										__asm	mov		ecx, __cyA				__asm	mov		edx, __cyB				/* cy_in */\
-				__asm	mulpd		xmm1,xmm3			__asm	mulpd		xmm5,xmm7			/* y = y*wtinv; ymm3,ymm7 FREE */\
-				__asm	addpd		xmm1,[ecx]			__asm	addpd		xmm5,[edx]			/* y = y*wtinv + cy */\
-				__asm	movaps		xmm3,xmm1			__asm	movaps		xmm7,xmm5			/* temp = y */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* temp = DNINT(y) */\
-				/*\
-				frac = fabs(y-temp);\
-				if(frac > maxerr) maxerr=frac;\
-				*/\
-				/* NO ROE HERE */\
-				/* cy   = DNINT(temp*baseinv[i1]) */\
-				__asm	shld	edi,esi,12				__asm	shld	ebx,esi,10				__asm	and		edi, 00000030H			__asm	and		ebx, 00000030H			/* i0 */\
-				__asm	add		edi, eax				__asm	add		ebx, eax				__asm	movaps		xmm1,xmm3			__asm	movaps		xmm5,xmm7			/* cpy temp */\
-				__asm	mulpd		xmm3,[edi+0xc0]		__asm	mulpd		xmm7,[ebx+0xc0]		/* temp*baseinv[i1] */\
-				__asm	addpd		xmm3,xmm4			__asm	addpd		xmm7,xmm4					__asm	subpd		xmm3,xmm4			__asm	subpd		xmm7,xmm4			/* cy_out */\
-				__asm	movaps		[ecx],xmm3			__asm	movaps		[edx],xmm7			/* store cy_out */\
-				/* x = (temp-cy*base[i1])*wt */\
-				__asm	mov		eax, __in1\
-				__asm	mov		edx, __in3\
-				__asm	mulpd		xmm3,[edi+0x80]		__asm	mulpd		xmm7,[ebx+0x80]		/* cy*base[i1] */\
-				__asm	subpd		xmm1,xmm3			__asm	subpd		xmm5,xmm7			/* y = (temp-cy*base[i1]) */\
-				__asm	mulpd		xmm1,xmm2			__asm	mulpd		xmm5,xmm6			/* y*= wt */\
-				__asm	movaps		[eax+0x10],xmm1		__asm	movaps		[edx+0x10],xmm5		/* store y */\
-				/* Get ready for next set [RE1~, IM1~] : */\
-				__asm	mov		ebx, sse_n\
-				__asm	movaps	xmm2,[ebx]\
-				__asm	mov		eax, sse_bw\
-				__asm	paddd	xmm0,[eax]				/* bjmod[0:3] += bw ; must use packed-INTEGER add [not addpd!] here, severe performance penalty from using addpd. */\
-				__asm	movaps	xmm1,xmm0				/* bjmodn COPY */\
-				__asm	pcmpgtd	xmm1,xmm2				/* (bj > n)? Gives all 1s in the 32 bit slot of xmm1 if (n < bj) for the bj in that slot of xmm0 */\
-				__asm	pand	xmm1,[ebx]				/* n in each slot of xmm1 for which bj += bw overflowed n, 0 otherwise */\
-				__asm	psubd	xmm0,xmm1				/* bjmod[0:3] % n */\
-				__asm	mov		ecx, __bjmod_0\
-				__asm	movaps	[ecx],xmm0				/* Write bjmod[0:3] */\
-		/***************Repack the data:*************************/\
-				__asm	mov		eax, __in0\
-				__asm	mov		ebx, __in1\
-				__asm	mov		ecx, __in2\
-				__asm	mov		edx, __in3\
-				__asm	movaps	xmm1,[eax+0x10]			__asm	movaps	xmm5,[ecx+0x10]			/* reload a[jp+p0 ] */\
-				__asm	movaps	xmm0,[eax     ]			__asm	movaps	xmm4,[ecx     ]			/* reload a[jt+p0 ] */\
-				__asm	movaps		xmm3,xmm1			__asm	movaps		xmm7,xmm5			/* cpy a[jp    ] */\
-				__asm	movaps		xmm2,xmm0			__asm	movaps		xmm6,xmm4			/* cpy a[jt    ] */\
-				__asm	unpckhpd	xmm3,[ebx+0x10]		__asm	unpckhpd	xmm7,[edx+0x10]				__asm	unpcklpd	xmm1,[ebx+0x10]		__asm	unpcklpd	xmm5,[edx+0x10]				__asm	movaps	[ebx+0x10],xmm3			__asm	movaps	[edx+0x10],xmm7			/* Store hi imag in aj2 */\
-				__asm	unpckhpd	xmm2,[ebx     ]		__asm	unpckhpd	xmm6,[edx     ]				__asm	unpcklpd	xmm0,[ebx     ]		__asm	unpcklpd	xmm4,[edx     ]				__asm	movaps	[ebx     ],xmm2			__asm	movaps	[edx     ],xmm6			/* Store hi real in aj2 */\
-																										__asm	movaps	[eax+0x10],xmm1			__asm	movaps	[ecx+0x10],xmm5			/* a[jp+p0 ] */\
-				__asm	movaps	[eax     ],xmm0			__asm	movaps	[ecx     ],xmm4			/* a[jt+p0 ] */\
-		}
-
-	/******************************************************************************************/
-	/******************************************************************************************/
-	/******************************************************************************************/
 
 	#else	/* GCC-style inline ASM: */
 

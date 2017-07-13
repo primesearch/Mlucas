@@ -523,8 +523,13 @@ If the shift count (__n) is >= the width of the integer type, 0 is returned.
 	}\
 }
 
+/* The store-mod-64-shift-counts-in-locals stuff here is to get GCC to finally STFU by silencing the following spurious warnings:
+	warning: right shift count >= width of type
+	warning: right shift count is negative
+*/
 #define RSHIFT192(__x, __n, __y)\
 {\
+	int __lsh,__rsh;\
 	DBG_ASSERT(HERE, (int64)__n >= 0,"RSHIFT192: (int64)__n >= 0");\
 	/* Need to handle zero shift count separately: */\
 	if(__n == 0)\
@@ -535,9 +540,11 @@ If the shift count (__n) is >= the width of the integer type, 0 is returned.
 	}\
 	else if(__n < 64)\
 	{\
-		__y.d0 = ((uint64)__x.d0 >> __n) + ((uint64)__x.d1 << (64-__n));\
-		__y.d1 = ((uint64)__x.d1 >> __n) + ((uint64)__x.d2 << (64-__n));\
-		__y.d2 = ((uint64)__x.d2 >> __n);\
+		__lsh = 64-__n;\
+		__rsh = __n&63;\
+		__y.d0 = ((uint64)__x.d0 >> __rsh) + ((uint64)__x.d1 << __lsh);\
+		__y.d1 = ((uint64)__x.d1 >> __rsh) + ((uint64)__x.d2 << __lsh);\
+		__y.d2 = ((uint64)__x.d2 >> __rsh);\
 	}\
 	else if(__n == 64)/* Need an extra n==64 case here due to << (128-n) below: */\
 	{\
@@ -547,13 +554,16 @@ If the shift count (__n) is >= the width of the integer type, 0 is returned.
 	}\
 	else if(__n < 128)\
 	{\
-		__y.d0 = ((uint64)__x.d1 >> (__n-64)) + ((uint64)__x.d2 << (128-__n));\
-		__y.d1 = ((uint64)__x.d2 >> (__n-64));\
+		__lsh = 128-__n;\
+		__rsh = (__n- 64)&63;\
+		__y.d0 = ((uint64)__x.d1 >> __rsh) + ((uint64)__x.d2 << __lsh);\
+		__y.d1 = ((uint64)__x.d2 >> __rsh);\
 		__y.d2 = (uint64)0;\
 	}\
 	else if(__n < 192)\
 	{\
-		__y.d0 = ((uint64)__x.d2 >> (__n-128));\
+		__rsh = (__n-128)&63;\
+		__y.d0 = ((uint64)__x.d2 >> __rsh);\
 		__y.d1 = (uint64)0;\
 		__y.d2 = (uint64)0;\
 	}\
@@ -6969,7 +6979,7 @@ On Alpha, this needs a total of:
 n = 147
 n++; p = 2^n-1; for (i = 1, 1000, if (isprime(p+2*i), print(p+2*i)))
 
-./Mfactor -kmax 1000000 -m 
+./Mfactor -kmax 1000000 -m
 
 lg p	p											factor k	pass
 ----	----------------------------------------	--------	----

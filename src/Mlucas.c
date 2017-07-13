@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2015 by Ernst W. Mayer.                                           *
+*   (C) 1997-2017 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -59,19 +59,31 @@ void	write_ppm1_savefiles(uint64 p, FILE*fp, uint32 ihi, uint8 arr_tmp[], uint64
 FILE *dbg_file = 0x0;
 double*ADDR0 = 0x0;	// Allows for easy debug on address-read-or-write than setting a watchpoint
 
-/* Define FFT-related globals (declared in Mdata.h) */
+// Define FFT-related globals (declared in Mdata.h):
 uint32 N2,NRT,NRT_BITS,NRTM1;
-int NRADICES, RADIX_VEC[10];	/* RADIX_VEC[] stores sequence of complex FFT radices used.	*/
-
-int ROE_ITER = 0;	// Iteration of any dangerously high ROE encountered during the current iteration interval.
-					// This must be > 0, but make signed to allow sign-flip encoding of retry-fail.
-double ROE_VAL = 0;	// Value (must be in (0, 0.5)) of dangerously high ROE encountered during the current iteration interval
+int PFETCH_BLOCK_IDX[MAX_RADIX];// Need this for prefetch-block-index arrays
+int NRADICES, RADIX_VEC[10];	// RADIX_VEC[] stores sequence of complex FFT radices used.
+#ifdef MULTITHREAD
+	uint64 CORE_SET[MAX_CORES>>6];	// Bitmap for user-controlled affinity setting, as specified via the -cpu flag
+#endif
+int ROE_ITER = 0;		// Iteration of any dangerously high ROE encountered during the current iteration interval.
+						// This must be > 0, but make signed to allow sign-flip encoding of retry-fail.
+double ROE_VAL = 0.0;	// Value (must be in (0, 0.5)) of dangerously high ROE encountered during the current iteration interval
 
 int ITERS_BETWEEN_CHECKPOINTS;	/* number of iterations between checkpoints */
 
 char ESTRING[STR_MAX_LEN];	/* Exponent in string form */
 char PSTRING[STR_MAX_LEN];	/* Number being tested in string form, typically estring concatenated with several other descriptors, e.g. strcat("M",estring) */
 
+// The index following 'mask' here = log2(#doubles in SIMD register) = log2(#bits in SIMD register) - 6.
+// The corrsponding mask masks off one my bit than this, since we are dealing with complex FFT data which
+// occupy pairs of such registers:
+#ifdef USE_AVX512
+	const uint32 mask03 = 0xfffffff0,
+		br16[16]    = {0,8,1,9,2,10,3,11,4,12,5,13,6,14,7,15},	// length-16 index-scramble array for mapping from scalar-complex to AVX512 (8 x re,8 x im)
+		brinv16[16] = {0,2,4,6,8,10,12,14,1,3,5,7,9,11,13,15};	// length-16 index-unscramble array: br[brinv[i]] = brinv[br[i]] = i .
+											// EZ way to enumerate (i)th element: 'in which slot of br16[] is i?'
+#endif
 #ifdef USE_AVX	// AVX and AVX2 both use 256-bit registers
 	const uint32 mask02 = 0xfffffff8,
 		br8[8]    = {0,4,1,5,2,6,3,7},	// length-8 index-scramble array for mapping from scalar-complex to AVX (re,re,re,re,im,im,im,im)
@@ -119,7 +131,7 @@ of the leading 3 characters of the two version strings in question.
 //				Major index = year - 2000
 //				Minor index = release # of that year, zero-indexed.
 // As before, a patch suffix of x, y, or z following the above numeric index indicates an [alpha,beta,gamma] (experimental,unstable) code.
-const char VERSION   [] = "14.1";			// Dec 2014: 2nd release of the year, thus [20]14.[--2]
+const char VERSION   [] = "17.0";			// e.g. Dec 2014 was 2nd release of that year, thus 14.1 = [20]14.[--2]
 
 const char OFILE     [] = "results.txt";	/* ASCII logfile containing FINAL RESULT ONLY for each
 											assignment - detailed intermediate results for each assignment
@@ -141,10 +153,6 @@ char CONFIGFILE[15];						/* Configuration File: contains allowed FFT lengths
 char STATFILE   [STR_MAX_LEN];	/* ASCII logfile for the current exponent */
 char RESTARTFILE[STR_MAX_LEN];	/* Restart file name(s) */
 
-#ifdef MULTITHREAD
-	const char ntfile[] = "nthreads.ini";	/* Allows us to control the no. of threads dynamically at runtime. */
-#endif
-
 int INTERACT;
 
 double AME,MME;	/* Avg and Max per-iteration fractional error for a given iteration interval */
@@ -153,8 +161,8 @@ double AME,MME;	/* Avg and Max per-iteration fractional error for a given iterat
 int MAX_THREADS = 0;		/* Max. allowable No. of threads. */
 int NTHREADS = 0;			/* actual No. of threads. If multithreading disabled, set = 1. */
 
-uint32 PMIN;		/* minimum exponent allowed */
-uint32 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
+uint64 PMIN;		/* minimum exponent allowed */
+uint64 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
 					   and will be determined at runtime, via call to given_N_get_maxP(). */
 
 /****************/
@@ -249,7 +257,6 @@ uint32	ernstMain
 	int		radix_set,
 	uint32	maxFFT,
 	uint32	iterations,	/* Use to store log2[max factor depth] in TF mode */
-	int		error_checking,
 	uint64	*sh0,	/* Reference/Computed mod-(2^64) residue */
 	uint64	*sh1,	/* Reference/Computed Selfridge/Hurwitz Residue mod 2^35-1 */
 	uint64	*sh2,	/* Reference/Computed Selfridge/Hurwitz Residue mod 2^36-1 */
@@ -265,7 +272,7 @@ uint32	ernstMain
 /*...scalars and fixed-size arrays...	*/
 	int i,j = 0,nbits;
 	/* TODO: some of these need to become 64-bit: */
-	uint32 dum,err_iter = 0,findex = 0,ierr = 0,ilo = 0,ihi = 0,iseed,isprime,kblocks = 0,maxiter = 0,n = 0,npad = 0;
+	uint32 dum,findex = 0,ierr = 0,ilo = 0,ihi = 0,iseed,isprime,kblocks = 0,maxiter = 0,n = 0,npad = 0;
 	uint64 itmp64;
 
 	/* Exponent of number to be tested - note that for trial-factoring, we represent p
@@ -280,16 +287,17 @@ uint32	ernstMain
 	uint64 sum0, sum1, sum2;
 
 /*...Known Mersenne prime exponents. This array must be null-terminated.	*/
-
+	// Jan 2015: Including M49, there are (29, 19) p = 1,3 (mod 4), resp., vs (26.2, 24.9) predicted
+	// (for p < 10^8) by the Lenstra/Wagstaff heuristic (cf. est_num_mp_in_interval() in util.c):
 	const uint32 knowns[] = {2,3,5,7,13,17,19,31,61,89,107,127,521,607,1279,2203,2281,3217,4253,4423,9689,9941
 		,11213,19937,21701,23209,44497,86243,110503,132049,216091,756839,859433,1257787,1398269,2976221,3021377,6972593
-		,13466917,20996011,24036583,25964951,30402457,32582657,37156667,42643801,43112609,57885161,0x0};
+		,13466917,20996011,24036583,25964951,30402457,32582657,37156667,42643801,43112609,57885161,74207281,0x0};
 
 /*...What a bunch of characters...	*/
 	char hex_res[17];
 
 /*...initialize logicals and factoring parameters...	*/
-	int restart = FALSE, start_run=TRUE, relax_err = 0;
+	int restart = FALSE, start_run = TRUE;
 	uint32 bit_depth_done = 0;
 
 #ifdef INCLUDE_TF
@@ -305,6 +313,9 @@ uint32	ernstMain
 /*...allocatable data arrays...	*/
 	static int32 nalloc = 0, *arrtmp = 0x0;
 	static double *a = 0x0, *a_ptmp = 0x0;
+#ifdef USE_FGT61
+	static uint64 *b = 0x0, *b_ptmp = 0x0;
+#endif
 	double final_res_offset;
 
 /*...time-related stuff. clock_t is typically an int (signed 32-bit)
@@ -316,7 +327,7 @@ uint32	ernstMain
 	/*clock_t clock1, clock2;	Moved these to mers_mod_square.c */
 	double tdiff;
 
-	#define SIZE 256
+  #define SIZE 256
 	time_t calendar_time;
 	struct tm *local_time;
 	char timebuffer[SIZE];
@@ -338,58 +349,39 @@ RANGE_BEG:
 
 	RESTARTFILE[0] = STATFILE[0] = '\0';
 	restart=FALSE;
-	relax_err=TRUE;	/* This variable determines whether roundoff error checking may be disabled after	*/
-					/* a trial number of error-checked iterations completes with no error warnings.		*/
 
-/*  ...If multithreading enabled, set max. # of threads based on # of available processors, and use
-that as the actual # of threads, unless there's a different (and smaller) user-set value of #threads
-in an nthreads.ini file : */
-
+/*  ...If multithreading enabled, set max. # of threads based on # of available (logical) processors,
+with the default #threads = 1 and affinity set to logical core 0, unless user overrides those via -nthread or -cpu:
+*/
 #ifdef MULTITHREAD
 
   #ifdef USE_OMP
-	MAX_THREADS = omp_get_num_procs();
+	// OpenMP not currently supported (attempting to build with this #define enabled barfs in
+	// preprocessing via #error in platform.h), this is merely placeholder for possible future use:
+	ASSERT(HERE, MAX_THREADS = omp_get_num_procs(), "Illegal #Cores value stored in MAX_THREADS");
   #elif(defined(USE_PTHREAD))
-	MAX_THREADS = get_num_cores();
-	ASSERT(HERE, MAX_THREADS > 0, "Illegal #Cores value stored in MAX_THREADS");
+	ASSERT(HERE, MAX_THREADS =     get_num_cores(), "Illegal #Cores value stored in MAX_THREADS");
   #else
 	#error Unrecognized multithreading model!
   #endif
 	// MAX_THREADS based on number of processing cores will most often be a power of 2, but don't assume that.
-	ASSERT(HERE, MAX_THREADS > 0,"Mlucas.c: MAX_THREADS > 0");
+	ASSERT(HERE, MAX_THREADS > 0,"MAX_THREADS must be > 0");
+	ASSERT(HERE, MAX_THREADS <= MAX_CORES,"MAX_THREADS exceeds the MAX_CORES setting in Mdata.h .");
 
-	if(!NTHREADS)	/* User may have already set via -nthread argument, in which case we skip this stuff: */
-	{
-		if (start_run) fprintf(stderr," looking for number of threads to use in %s file...\n", ntfile);
-
-		fp = mlucas_fopen(ntfile, "r");
-		if ((fp))
-		{
-			fgets(in_line, STR_MAX_LEN, fp);
-			sprintf(cbuf, "Input conversion problem in reading %s file\n", ntfile);
-			ASSERT(HERE, sscanf(in_line,"%d", &NTHREADS) == 1, cbuf);
-			fclose(fp);	fp = 0x0;
-
-			if(NTHREADS > MAX_THREADS)
-			{
-				fprintf(stderr,"NTHREADS = %d specified in %s file exceeds number of cores - reducing to %d\n", NTHREADS, ntfile, MAX_THREADS);
-				NTHREADS = MAX_THREADS;
-			}
-			if(start_run) fprintf(stderr,"NTHREADS = %d\n", NTHREADS);
-		}
-	}
-	else {	// In timing-test mode, allow #threads > #cores
-		if(NTHREADS > MAX_THREADS)
-		{
+	if(!NTHREADS) {
+		NTHREADS = 1;
+		fprintf(stderr,"No CPU set or threadcount specified ... running single-threaded.\n");
+		// Use the same affinity-setting code here as for the -cpu option, but simply for cores [0:NTHREADS-1]:
+		sprintf(cbuf,"0:%d",NTHREADS-1);
+		parseAffinityString(cbuf);
+	} else if(NTHREADS > MAX_CORES) {
+		sprintf(cbuf,"FATAL: NTHREADS = %d exceeds the MAX_CORES setting in Mdata.h = %d\n", NTHREADS, MAX_CORES);
+		ASSERT(HERE, 0, cbuf);
+	} else {	// In timing-test mode, allow #threads > #cores
+		if(NTHREADS > MAX_THREADS) {
 			fprintf(stderr,"WARN: NTHREADS = %d exceeds number of cores = %d\n", NTHREADS, MAX_THREADS);
 		}
 		if(start_run) fprintf(stderr,"NTHREADS = %d\n", NTHREADS);
-	}
-
-	if(!NTHREADS)
-	{
-		NTHREADS = MAX_THREADS;
-		fprintf(stderr,"Using NTHREADS = #CPUs = %d.\n", NTHREADS);
 	}
 
   #if 0//defined(USE_PTHREAD) && defined(OS_TYPE_MACOSX)
@@ -425,7 +417,7 @@ in an nthreads.ini file : */
 
 		MAX_THREADS = NTHREADS = 1;
 
-#endif
+#endif	// #ifdef MULTITHREAD ?
 
 	/* Make number of iterations between checkpoints dependent on #threads -
 	don't want excessively frequent savefile writes, at most 1 or 2 an hour is needed:
@@ -707,7 +699,7 @@ in an nthreads.ini file : */
 						char_addr++;
 						/* Convert the ensuing numeric digits to ulong: */
 						fft_length = strtoul(char_addr, (char**)NULL, 10);
-						kblocks = get_default_fft_length((uint32)p);	/* Default FFT length for this exponent */
+						kblocks = get_default_fft_length(p);	/* Default FFT length for this exponent */
 						/* Check that user-specified FFT length is >= default, or that p <= 1.01*(max exponent for given length): */
 						if( (kblocks > fft_length) && (p > 1.01*given_N_get_maxP(fft_length<<10)) )
 						{
@@ -913,19 +905,18 @@ in an nthreads.ini file : */
 
 	if(p < PMIN)
 	{
-		fprintf(stderr, " p must be at least %u.\n",PMIN);
+		fprintf(stderr, " p must be at least %llu.\n",PMIN);
 		return ERR_EXPONENT_ILLEGAL;
 	}
 	if(p > PMAX)
 	{
-		fprintf(stderr, " p must be no greater than %u.\n",PMAX);
+		fprintf(stderr, " p must be no greater than %llu.\n",PMAX);
 		return ERR_EXPONENT_ILLEGAL;
 	}
 
-	ASSERT(HERE, !(p >> 32), "p must be 32-bit or less!");	/* Future versions will need to loosen this p < 2^32 restriction: */
-
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 	{
+		ASSERT(HERE, !(p >> 32), "p must be 32-bit or less!");	/* Future versions will need to loosen this p < 2^32 restriction: */
 		/*  ...make sure p is prime...	*/
 		/* TODO: once factoring code is hooked in, make its small-primes table
 		a global and init it at the start of execution, then use it to trial-divide
@@ -966,7 +957,7 @@ in an nthreads.ini file : */
 
 	if(!fft_length)
 	{
-		kblocks = get_default_fft_length((uint32)p);
+		kblocks = get_default_fft_length(p);
 		if(!kblocks)
 		{
 			fprintf(stderr,"ERROR detected in get_default_fft_length for p = %u.\n", (uint32)p);
@@ -1015,11 +1006,6 @@ in an nthreads.ini file : */
 		}
 		else if(maxiter > timing_test_iters)
 			maxiter = timing_test_iters;
-
-		if(error_checking)
-			err_iter = maxiter;
-		else
-			err_iter = 0;
 	}
 	else
 	{
@@ -1055,56 +1041,17 @@ in an nthreads.ini file : */
 				}
 			}
 		}
-
-		/* See if user has set a particular value of err_iter via the ROCheckIter flag in local.ini: */
-		fp = mlucas_fopen(LOCAL_INI_FILE,"r");
-		if(fp)
-		{
-			while(fgets(in_line, STR_MAX_LEN, fp))		/* Skip over the first block of 3 comment lines, which begin with #	*/
-			{
-				if(STREQN(in_line, "ROCheckIter",11))
-				{
-					ASSERT(HERE, (char_addr = strstr(in_line, "=")) != 0x0,"Mlucas.c: expected '=' not found in -specifying line!");
-					char_addr++;
-					/* Skip any whitespace following the equals sign:*/
-					while(isspace(*char_addr))
-					{
-						++char_addr;
-					}
-					/* Copy the exponent to cbuf and null-terminate: */
-					ASSERT(HERE, isdigit(*char_addr),"Mlucas.c: isdigit(*char_addr)");
-					i = 0;
-					while(isdigit(*char_addr))
-					{
-						cbuf[i++] = *char_addr;
-						++char_addr;
-					}
-					cbuf[i++] = '\0';
-
-					/* Check #bits in the power-of-2 exponent vs. the allowed maximum: */
-					err_iter = convert_base10_char_uint64(cbuf);
-					break;
-				}
-				else
-					continue;
-			}
-			fclose(fp);	fp = 0x0;
-		}
-		else
-		{
-			fprintf(stderr, "INFO: local.ini file %s not found.\n",LOCAL_INI_FILE);
-		}
-		/* endif(found LOCAL_INI_FILE) */
 	}
 
-	/* If specified FFT length smaller than default for this exponent
-	[only an issue for user-specified FFT length], print a warning:
+	/* If specified FFT length smaller than default for this exponent [only an issue for user-specified FFT length],
+	print a warning if the p/pmax ratio > 1 to an acceptably small degree; error out if the ratio is unreasonably > 1:
 	*/
-	if(kblocks < (i = get_default_fft_length((uint32)p)))
+	if(kblocks < (i = get_default_fft_length(p)))
 	{
-		fprintf(stderr, "INFO:    maximum recommended exponent for this runlength = %u.\n",given_N_get_maxP(n));
+		uint64 pmax_rec = given_N_get_maxP(kblocks << 10);	double exp_ratio =  (double)p/pmax_rec;
+		fprintf(stderr, "INFO: Maximum recommended exponent for this runlength = %llu; p[ = %llu]/pmax_rec = %10.6f.\n",given_N_get_maxP(n),p,exp_ratio);
 		/* If it's at least close, allow it but print a warning; otherwise error out: */
-		if((i << 10) == get_nextlarger_fft_length(n))
+		if((i << 10) == get_nextlarger_fft_length(n) && exp_ratio < 1.05)
 		{
 			fprintf(stderr, "specified FFT length %d K is less than recommended %d K for this p.\n",kblocks,i);
 		}
@@ -1124,21 +1071,10 @@ in an nthreads.ini file : */
 		return ERR_FFTLENGTH_ILLEGAL;
 	}
 
-	/*...Set the array padding parameters - only use array padding elements for runlengths > 32K. */
-	if(kblocks > 32)
+	/*...If array padding turned on, check that the blocklength divides the unpadded runlength...	*/
+	if((DAT_BITS < 31) && ((n >> DAT_BITS) << DAT_BITS) != n)
 	{
-		DAT_BITS = DAT_BITS_DEF;
-		PAD_BITS = PAD_BITS_DEF;
-		/*...If array padding turned on, check that the blocklength divides the unpadded runlength...	*/
-		if((DAT_BITS < 31) && ((n >> DAT_BITS) << DAT_BITS) != n)
-		{
-			ASSERT(HERE, 0,"ERROR: blocklength does not divide runlength!");
-		}
-	}
-	else
-	{
-		DAT_BITS =31;	/* This causes the padding to go away */
-		PAD_BITS = 0;
+		ASSERT(HERE, 0,"ERROR: blocklength does not divide runlength!");
 	}
 
 	/*...Find padded array length...	*/
@@ -1148,6 +1084,9 @@ in an nthreads.ini file : */
 	{
 		ASSERT(HERE, a != 0x0 && a_ptmp != 0x0,"Mlucas.c: a != 0x0 && a_ptmp != 0x0");
 		free((void *)a_ptmp); a_ptmp=0x0; a=0x0;
+	#ifdef USE_FGT61
+		free((void *)b_ptmp); b_ptmp=0x0; b=0x0;
+	#endif
 		free((void *)arrtmp); arrtmp=0x0;
 		nalloc = 0;
 	}
@@ -1168,11 +1107,17 @@ in an nthreads.ini file : */
 		ASSERT(HERE, ((long)a & 63) == 0x0,"Mlucas.c: a[] not aligned on 64-byte boundary!");
 		if(((long)a & 127) != 0x0)
 			fprintf(stderr, "WARN: Mlucas.c: a[] = 0x%08X not aligned on 128-byte boundary!\n", (uint32)a);
-		/* Alloc this to the old-style nalloc*int size, so it'll be large
-		enough to hold either an old-style integer residue or a (more compact)
-		bytewise residue:
-		*/
-		arrtmp = (int*)malloc(nalloc* sizeof(int));	if(!arrtmp){ sprintf(cbuf, "FATAL: unable to allocate array ARRTMP in main.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+	#ifdef USE_FGT61
+		ASSERT(HERE, b == 0x0 && b_ptmp == 0x0,"Mlucas.c: b == 0x0 && b_ptmp == 0x0");
+		b_ptmp = ALLOC_UINT64(b_ptmp, nalloc);	if(!b_ptmp){ sprintf(cbuf, "FATAL: unable to allocate array B in main.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		b      = ALIGN_UINT64(b_ptmp);
+		ASSERT(HERE, ((long)b & 63) == 0x0,"Mlucas.c: b[] not aligned on 64-byte boundary!");
+		if(((long)b & 127) != 0x0)
+			fprintf(stderr, "WARN: Mlucas.c: b[] = 0x%08X not aligned on 128-byte boundary!\n", (uint32)b);
+	#endif
+
+		// Alloc this arge enough to hold a bytewise residue for an exponent 2x larger than the current one:
+		arrtmp = (int*)malloc(p>>2);	if(!arrtmp){ sprintf(cbuf, "FATAL: unable to allocate array ARRTMP with %llu bytes in main.\n",p>>2); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 	}
 
 // Multithreaded-code debug: Set address to watch:
@@ -1273,58 +1218,13 @@ READ_RESTART_FILE:
 		}	/* endif(fp) */
 	}	/* endif(!INTERACT)	*/
 
-	/* If a restart, parse the .stat file to see if any RO warnings were previously issued.	*/
-	/* If so, will require RO error checking to be performed on each iteration, even if iter > err_iter.	*/
-	if(restart)
-	{
-		fp = mlucas_fopen(STATFILE,"r");
-		if(fp)
-		{
-			for(;;)
-			{
-				if(fgets(in_line, STR_MAX_LEN, fp))
-				{
-					if(strstr(in_line,"Roundoff"))	/* If any RO warnings were issued during initial 200K iterations, leave error checking on... */
-					{
-						if(!strstr(in_line,"0.40625"))	/* ...but only if the RO errors were > 0.40625 . */
-						{
-							fprintf(stderr, "INFO: RO warnings > 0.40625 detected in first 200K iterations;\n");
-							fprintf(stderr, "Leaving error checking on for rest of the LL test of this exponent.\n");
-							relax_err = FALSE;
-							break;
-						}
-					}
-				}
-				else
-				{
-					break;
-				}
-			}
-			fclose(fp);	fp = 0x0;
-		}
-	}
-	else
-	{
+	if(!restart) {
 		/*...set initial iteration loop parameters...	*/
 		ilo=0;
 		if(INTERACT)
 			ihi=timing_test_iters;
 		else
 			ihi=ITERS_BETWEEN_CHECKPOINTS;
-	}
-
-	/*...If a restart and RO warnings were previously issued to the .stat file, require error checking
-	to be done on each iteration, even if iter > err_iter. We implement this simply by making err_iter > maxiter.	*/
-	if(!relax_err)
-	{
-		err_iter = maxiter + 1;
-	}
-
-	/* If it's not a timing test, make sure that no matter what, we do error checking for at least the first few 200k iter */
-	if(!INTERACT && err_iter < 200000)
-	{
-		err_iter = 200000;
-		fprintf(stderr, "INFO: Using default value of ROCheckIter = %u.\n", err_iter);
 	}
 
 	ASSERT(HERE,MODULUS_TYPE,"MODULUS_TYPE not set!");
@@ -1342,6 +1242,10 @@ READ_RESTART_FILE:
 
 		memset(a, 0, npad*sizeof(double));
 		a[0] = iseed;
+	#ifdef USE_FGT61
+		memset(b, 0, npad*sizeof(double));
+		b[0] = iseed;
+	#endif
 	}
 
 	if(restart)
@@ -1386,12 +1290,21 @@ READ_RESTART_FILE:
 
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 		{
-			ierr = mers_mod_square  (a, arrtmp, n, ilo, ihi, p, &err_iter, scrnFlag, &tdiff);
+		#ifdef USE_FGT61
+			ierr = mers_mod_square  (a,b, arrtmp, n, ilo, ihi, p, scrnFlag, &tdiff);
+		#else
+			ierr = mers_mod_square  (a, arrtmp, n, ilo, ihi, p, scrnFlag, &tdiff);
+		#endif
 		}
 		else if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
 		{
-			ierr = fermat_mod_square(a, arrtmp, n, ilo, ihi, p, &err_iter, scrnFlag, &tdiff);
+		#if 0//def USE_FGT61	**** First get things working for LL case ****
+			ierr = fermat_mod_square(a,b, arrtmp, n, ilo, ihi, p, scrnFlag, &tdiff);
+		#else
+			ierr = fermat_mod_square(a, arrtmp, n, ilo, ihi, p, scrnFlag, &tdiff);
+		#endif
 		}
+
 		// Roundoff-retry scheme is detailed in comments of the above fermat_mod_square() function:
 		if((ierr == ERR_ROUNDOFF) && !INTERACT) {
 			if(!ROE_ITER) {
@@ -1420,7 +1333,7 @@ READ_RESTART_FILE:
 		/*...Done?	*/
 		if(INTERACT) break;	/* C version uses zero-offset iteration counter. */
 
-		AME /= ITERS_BETWEEN_CHECKPOINTS;
+		AME /= (ihi - ilo);	// Don't /= ITERS_BETWEEN_CHECKPOINTS here since final interval is a partial one
 
 		/*...Every (ITERS_BETWEEN_CHECKPOINTS)th iteration, print timings to stdout or STATFILE.
 		If it's a regular (i.e. non-timing) test, also write current residue to restart files.
@@ -1436,10 +1349,9 @@ READ_RESTART_FILE:
 		strftime(timebuffer,SIZE,"%b %d %H:%M:%S",local_time);
 
 		/*...print runtime in hh:mm:ss format.	*/
-		sprintf(cbuf, "[%s] %s Iter# = %u clocks =%s [%8.4f sec/iter] Res%2d: %s. AvgMaxErr = %10.9f. MaxErr = %10.9f\n"
-			,timebuffer,PSTRING,ihi,get_time_str(tdiff)
-		,tdiff/(ihi - ilo),nbits,hex_res, AME, MME);
-
+		sprintf(cbuf, "[%s] %s Iter# = %u [%5.2f%% complete] clocks =%s [%8.4f sec/iter] Res%2d: %s. AvgMaxErr = %10.9f. MaxErr = %10.9f.\n"
+			, timebuffer, PSTRING, ihi, (float)ihi / (float)p * 100,get_time_str(tdiff)
+			, tdiff/(ihi - ilo), nbits, hex_res, AME, MME);
 		if(INTERACT)
 			fprintf(stderr,"%s",cbuf);
 		else
@@ -1712,16 +1624,13 @@ READ_RESTART_FILE:
 					if(fp){ fprintf(fp,"WARNING: this residue contains only %u bits\n",nbits); }
 					if(fq){ fprintf(fq,"WARNING: this residue contains only %u bits\n",nbits); }
 				}
-
+				// Only write the 3 supplemental SH residues to the .stat file:
 				sprintf(cbuf, "%s mod 2^36     = %20.0f\n",PSTRING,(double)(Res64 & (uint64)0x0000000FFFFFFFFFull));
 				if(fp){ fprintf(fp,"%s",cbuf); }
-				if(fq){ fprintf(fq,"%s",cbuf); }
 				sprintf(cbuf, "%s mod 2^35 - 1 = %20.0f\n",PSTRING,(double)Res35m1);
 				if(fp){ fprintf(fp,"%s",cbuf); }
-				if(fq){ fprintf(fq,"%s",cbuf); }
 				sprintf(cbuf, "%s mod 2^36 - 1 = %20.0f\n",PSTRING,(double)Res36m1);
 				if(fp){ fprintf(fp,"%s",cbuf); }
-				if(fq){ fprintf(fq,"%s",cbuf); }
 
 			}
 			if(fp){ fclose(fp);	fp = 0x0; }
@@ -2008,7 +1917,9 @@ uint64 	res64(double a[], int n, const uint64 p, int *nbits, char *hex_res)
 
 	for(j=n-1; j >= 0; j -= TRANSFORM_TYPE)
 	{
-	#ifdef USE_AVX
+	#ifdef USE_AVX512
+		j1 = (j & mask03) + br16[j&15];
+	#elif defined(USE_AVX)
 		j1 = (j & mask02) + br8[j&7];
 	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
@@ -2048,7 +1959,9 @@ uint64 	res64(double a[], int n, const uint64 p, int *nbits, char *hex_res)
 
 		for(j=0; j < n; j++)
 		{
-		#ifdef USE_AVX
+		#ifdef USE_AVX512
+			j1 = (j & mask03) + br16[j&15];
+		#elif defined(USE_AVX)
 			j1 = (j & mask02) + br8[j&7];
 		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
@@ -2083,7 +1996,9 @@ uint64 	res64(double a[], int n, const uint64 p, int *nbits, char *hex_res)
 
 		for(j=0; j < n; j += 2)
 		{
-		#ifdef USE_AVX
+		#ifdef USE_AVX512
+			j1 = (j & mask03) + br16[j&15];
+		#elif defined(USE_AVX)
 			j1 = (j & mask02) + br8[j&7];
 		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
@@ -2147,7 +2062,6 @@ void 	resSH(double a[], int n, const uint64 p, uint64 *Res35m1, uint64 *Res36m1)
 	int bimodn,cy,findex,ii,j,j1,pass,shift;
 	int bw,sw,bits[2];
 	uint64 base[2];	/* Assume base may be > 2^32 (e.g. for mixed FFT/FGT) but < 2^53, i.e. fits in a double */
-int bs_count[2];
 	int64 itmp;
 	uint64 curr_word = 0, mod1=0, mod2=0;
 	const uint64 two35m1 = (uint64)0x00000007FFFFFFFFull, two36m1 = (uint64)0x0000000FFFFFFFFFull;	/* 2^35,36-1 */
@@ -2203,7 +2117,9 @@ int bs_count[2];
 
 	for(j=n-1; j >= 0; j -= TRANSFORM_TYPE)
 	{
-	#ifdef USE_AVX
+	#ifdef USE_AVX512
+		j1 = (j & mask03) + br16[j&15];
+	#elif defined(USE_AVX)
 		j1 = (j & mask02) + br8[j&7];
 	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
@@ -2246,7 +2162,9 @@ int bs_count[2];
 
 		for(j = 0; j < n; j++)
 		{
-		#ifdef USE_AVX
+		#ifdef USE_AVX512
+			j1 = (j & mask03) + br16[j&15];
+		#elif defined(USE_AVX)
 			j1 = (j & mask02) + br8[j&7];
 		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
@@ -2304,13 +2222,14 @@ int bs_count[2];
 	}
 	else
 	{
-bs_count[0] = bs_count[1] = 0;
 	  for(pass = 0; pass <=1; pass++)
 	  {
 		bimodn = n;
 		for(j = pass; j < n; j += 2)
 		{
-		#ifdef USE_AVX
+		#ifdef USE_AVX512
+			j1 = (j & mask03) + br16[j&15];
+		#elif defined(USE_AVX)
 			j1 = (j & mask02) + br8[j&7];
 		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
@@ -2320,7 +2239,6 @@ bs_count[0] = bs_count[1] = 0;
 			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 
 			ii = (bimodn > sw);					/*       i = 1 if a bigword,   0 if a smallword */
-++bs_count[ii];
 			bimodn -= sw;						/* result >= 0 if a bigword, < 0 if a smallword */
 			bimodn += ( ((int)ii-1) & n);		/*       add 0 if a bigword,   N if a smallword */
 
@@ -2465,7 +2383,9 @@ void 	hex_res_printtofile(double a[], int n, const uint64 p, int timing_test_ite
 
 	for(j=n-1; j >= 0; j -= TRANSFORM_TYPE)
 	{
-	#ifdef USE_AVX
+	#ifdef USE_AVX512
+		j1 = (j & mask03) + br16[j&15];
+	#elif defined(USE_AVX)
 		j1 = (j & mask02) + br8[j&7];
 	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
@@ -2512,7 +2432,9 @@ void 	hex_res_printtofile(double a[], int n, const uint64 p, int timing_test_ite
 
 		for(j = 0; j < n; j++)
 		{
-		#ifdef USE_AVX
+		#ifdef USE_AVX512
+			j1 = (j & mask03) + br16[j&15];
+		#elif defined(USE_AVX)
 			j1 = (j & mask02) + br8[j&7];
 		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
@@ -2563,7 +2485,9 @@ void 	hex_res_printtofile(double a[], int n, const uint64 p, int timing_test_ite
 
 		for(j = pass; j < n; j += 2)
 		{
-		#ifdef USE_AVX
+		#ifdef USE_AVX512
+			j1 = (j & mask03) + br16[j&15];
+		#elif defined(USE_AVX)
 			j1 = (j & mask02) + br8[j&7];
 		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
@@ -2572,9 +2496,9 @@ void 	hex_res_printtofile(double a[], int n, const uint64 p, int timing_test_ite
 		#endif
 			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 
-ii = (bimodn > sw);					/*       i = 1 if a bigword,   0 if a smallword */
-bimodn -= sw;						/* result >= 0 if a bigword, < 0 if a smallword */
-bimodn += ( ((int)ii-1) & n);		/*       add 0 if a bigword,   N if a smallword */
+			ii = (bimodn > sw);					/*       i = 1 if a bigword,   0 if a smallword */
+			bimodn -= sw;						/* result >= 0 if a bigword, < 0 if a smallword */
+			bimodn += ( ((int)ii-1) & n);		/*       add 0 if a bigword,   N if a smallword */
 
 			itmp = (int64)(a[j1]+ cy);	/* current digit in int64 form, subtracting any borrow from the previous digit.	*/
 			if(itmp < 0)			/* If current digit < 0, add the current base and set carry into next-higher digit = -1	*/
@@ -2636,266 +2560,269 @@ bimodn += ( ((int)ii-1) & n);		/*       add 0 if a bigword,   N if a smallword *
 	#include <console.h>	/* Macintosh */
 #endif
 
+/* Number of distinct FFT lengths supported for self-tests: */
+#define numTest				120	// = sum of all the subranges below
+/* Number of FFT lengths in the various subranges of the full self-test suite: */
+#define numTiny 			32
+#define numSmall			24
+#define numMedium			24
+#define numLarge			24
+#define numHuge				16
+/* Adding larger FFT lengths to test vectors requires supporting changes to Mdata.h:MAX_FFT_LENGTH_IN_K and get_fft_radices.c */
+#define numEgregious		 0
+#define numBrobdingnagian	 0
+#define numGodzillian		 0
+#if(numTiny+numSmall+numMedium+numLarge+numHuge+numEgregious+numBrobdingnagian+numGodzillian != numTest)
+	#error Sum(numTiny+...) != numTest in main!
+#endif
+
+struct res_triplet{
+	uint64 sh0;	/* Res64 (assuming initial LL test seed = 4) for this exponent. */
+	uint64 sh1;	/* Residue mod 2^35-1 */
+	uint64 sh2;	/* Residue mod 2^36-1 */
+};
+
+/* Array of distinct test cases for Mersenne self-tests. Add one extra slot to vector for user-specified self-test exponents;
+We use p's given by given_N_get_maxP(), so maximum RO errors should be consistent and around the target 0.25 value, a little
+bit higher in SSE2 mode.
+
+The first letter of the descriptor for each size range serves as a menmonic for the -[*] option which runs the self-tests
+for that range, e.g. -s runs the [Small] range, -e the [Egregious], etc.
+
+HERE IS THE PROCEDURE FOR ADDING A BEW ENTRY TO THE EXPONENT/RESIDUE TABLE BELOW:
+
+1. Increment the num**** entry above corr. to the self-test subset which is being augmented; also ++numTest;
+
+2. Go to get_fft_radices.c and use the PARI code in the commentary immediately below given_N_get_maxP()
+	to determine maxP for the new runlength;
+
+3. Use PARI isprime() to find the largest prime <= maxP;
+
+4. Run 100 and 1000-iteration self-tests at the next-higher runlength already appearing in the self-test table;
+
+5. Use the results - specifically the hexadecimal Res64 and the mod 2^35-1 and mod 2^36-1 SH residues - for the
+	2 runs to create a table entry for the new runlength;
+
+6. Rebuild this file, re-link and repeat the 2 self-tests on the exponent in the new table row, at the new runlength.
+*/
+struct testMers{
+	int fftLength;		/* FFT length in K (i.e. 4 means an array of 4K doubles) */
+	uint32 exponent;	/* Test exponent for this FFT length. */
+	struct res_triplet	res_t[3];	/* 100,1000 and 10000-iteration SH-residue triplets */
+};
+
+struct testMers MersVec[numTest+1] =
+{
+/*                                         100-iteration residues:	                               1000-iteration residues:                */
+/*	  FFTlen(K)     p              Res64           mod 2^35-1      mod 2^36-1               Res64           mod 2^35-1      mod 2^36-1     */
+/*	    -----    --------     ----------------     -----------     -----------         ----------------     -----------     -----------    */
+	/* Tiny:                                     [%34359738367  ][%68719476735  ]                         [%34359738367  ][%68719476735  ] */
+	{     8,    173431u, { {0x85301536E4CA9B11ull,  3707224323ull, 36851834664ull}, {0x2FD5120BEC41F449ull, 28734955954ull, 23103392631ull}, {0x139D1D396F173696ull, 12716541843ull, 58117202214ull} } },
+	{     9,    194609u, { {0xC711AF1008612BC6ull,  1574019740ull, 37260026270ull}, {0x5153F6E040CD1BE6ull, 15446410924ull,  3291404673ull}, {0x33E19077F35070A3ull, 34231248547ull, 24411805292ull} } },
+	{    10,    215767u, { {0x4428783BC62760F0ull,  7466284975ull, 53916123655ull}, {0xED46A8C001908815ull,   739143119ull, 36950829937ull}, {0xCBE0AD544E96FDB9ull,  7625169722ull, 52027104104ull} } },
+	{    11,    236813u, { {0x592D849AF4D1336Full, 29025996994ull, 48905971124ull}, {0xB4EEB63BB656F424ull,  5361680901ull, 31850818767ull}, {0x5AEBAE493B085903ull, 20240457506ull, 42866015746ull} } },
+	{    12,    257903u, { {0x1D8121DE28B60996ull, 22402402961ull, 65583959369ull}, {0x54F2BE961A674CB1ull, 25601315553ull, 54298899520ull}, {0x50DFBA28D0D1A8C3ull, 17306049864ull, 68068537809ull} } },
+	{    13,    278917u, { {0xE3BC90B0E652C7C0ull, 21244206101ull, 51449948145ull}, {0x93AF8994F95F2E50ull, 16427368469ull, 10707190710ull}, {0x1674AAA04F7BD61Aull, 12079507298ull, 56593045102ull} } },
+	{    14,    299903u, { {0xDB8E39C67F8CCA0Aull, 20506717562ull, 44874927985ull}, {0x4E7CCB446371C470ull, 34135369163ull, 61575700812ull}, {0x04ACC83FFE9CEAD4ull, 26179715264ull, 65445483729ull} } },
+	{    15,    320851u, { {0xB3C5A1C03E26BB17ull, 22101045153ull,  4420560161ull}, {0x923A9870D65BC73Dull, 29411268414ull, 30739991617ull}, {0xB3F1ACF3A26C4D72ull, 32179253815ull, 68615042306ull} } },
+	{    16,    341749u, { {0x8223DF939E46A0FFull, 32377771756ull, 38218252095ull}, {0xC6A5D4B6034A34B8ull, 31917858141ull, 59888258577ull}, {0x93EF44581866E318ull, 18805111197ull,  8333640393ull} } },
+	{    18,    383521u, { {0xBF30D4AF5ADF87C8ull, 15059093425ull, 52618040649ull}, {0x9F453732B3FE3C04ull,  4385160151ull, 47987324636ull}, {0x0DBF50D7F2142148ull,  1608653720ull, 52016825449ull} } },
+	{    20,    425149u, { {0x6951388C3B99EEC0ull,  4401287495ull, 19242775142ull}, {0x501CEC2CB2080627ull, 21816565170ull, 41043945930ull}, {0x5A9A9BF4608090A2ull, 27025233803ull, 68581005187ull} } },
+	{    22,    466733u, { {0xD95F8EC0F32B4756ull, 19305723506ull, 26588871256ull}, {0xB1F58184918D94B6ull,  8443388060ull, 11738516313ull}, {0xAC4B1F499BF2C2DAull,  7322105347ull, 15747709958ull} } },
+	{    24,    508223u, { {0xDA46E41316F8BCCAull, 25471180026ull,  1635203275ull}, {0x27A5B285281466B9ull, 11438869313ull,  7226774009ull}, {0x4ABED2868B800F7Dull,  7783533092ull, 66921500486ull} } },
+	{    26,    549623u, { {0x6649D9D6CD4E0CE1ull, 25445908581ull, 26118212198ull}, {0x1A4F280627A15B3Cull, 13286323782ull, 31550278005ull}, {0x86404E236E99B3C4ull, 17401894517ull, 40934891751ull} } },
+	{    28,    590963u, { {0x4ADDB6C4A76465AFull,  6532108269ull, 54921134131ull}, {0x3063D08A7BABD7B8ull,  4777711548ull, 39733274344ull}, {0xBE2ABBB09336F32Eull, 30656127523ull, 50296089656ull} } },
+	{    30,    632251u, { {0x0811FAA40601EB1Dull, 16369365746ull,  6888026123ull}, {0xF324E4DEC564AF91ull, 10236920023ull, 34068699974ull}, {0xAA622CF2A48F6085ull, 22315931502ull,  1049914969ull} } },
+	{    32,    673469u, { {0x1A4EF8A0D172FBAAull, 32667536946ull, 11393278588ull}, {0xA4DFD62B928F68A4ull, 11900420802ull, 66610946021ull}, {0xFA3993AC9CE7BEEDull,   117685830ull, 39361570554ull} } },
+	{    36,    755737u, { {0x13B13C61298088DCull, 34092803628ull,  7584858890ull}, {0x33A2A43DE8782CCCull,  2953124985ull, 62434716987ull}, {0xD0DF76911349551Bull, 28919846011ull, 30432969648ull} } },
+	{    40,    837817u, { {0x88555D9AAD3FF2DDull,  8573348747ull, 67896670216ull}, {0xEAC1676D914878C0ull, 34312095136ull, 45077378164ull}, {0x89E1C4D06BB0F9F3ull,  6272358557ull, 24712951618ull} } },
+	{    44,    919729u, { {0x6ACC03213A37BA5Bull,  3870201113ull, 48145739792ull}, {0xDA98B49CC83C60CBull, 15886769401ull, 62221100895ull}, {0xF1DA20E7D5A89638ull,  4633752262ull, 20941274692ull} } },
+	{    48,   1001467u, { {0x6B1C76AB5431FDA4ull,  6795121241ull, 65308927583ull}, {0xBD99FD21F4136BFCull, 26386988063ull, 61607603549ull}, {0x9136554E4718BFA9ull, 18451197932ull, 37688798842ull} } },
+	{    52,   1083077u, { {0xA591637EC8CF3FE4ull,  4769775755ull, 65114872367ull}, {0xE59C08B13B00E6FFull,  1383963096ull, 26100699764ull}, {0x48CCA2242A1F9352ull, 30318043361ull, 12067176371ull} } },
+	{    56,   1164533u, { {0xEC4F2579E4533584ull,  5456769127ull, 59922459736ull}, {0xF7D2BF94C2767D36ull, 30727892629ull, 48141128220ull}, {0xE332E3891AE98AD7ull,  7024598607ull, 65691841143ull} } },
+	{    60,   1245877u, { {0xC91002E1A4EE7E07ull,  6217476228ull, 40164514288ull}, {0xEABE9E1A31DF5877ull,   831216169ull, 29591771932ull}, {0xCB85101F6857519Dull, 30425930108ull,  2198194326ull} } },
+	{    64,   1327099u, { {0xAC070112281229E0ull, 14226353454ull,  1640524016ull}, {0xF25AA54053C5BB64ull, 32455038659ull, 53547160776ull}, {0x3854D019CE12CC9Aull, 29589836279ull,  2174826233ull} } },
+	{    72,   1489223u, { {0x6674518EA19B3D6Aull, 32383400562ull, 53234746310ull}, {0xEB312091097F6C3Bull,  3980687908ull,  8568698675ull}, {0xC225FAF24A093590ull, 22407813999ull, 30924932017ull} } },
+	{    80,   1650959u, { {0xE5326E754F3202A8ull,  5593233426ull, 33337128557ull}, {0xFC3E8CDA60AF5CF8ull, 11466296968ull, 12651602524ull}, {0x4D68554B73674A60ull,  2253999911ull, 55045374456ull} } },
+	{    88,   1812347u, { {0x81BDD3AC63DF3F73ull, 19957199947ull, 61002681293ull}, {0x3D3E429D7427C4EAull, 25342898119ull, 34322985438ull}, {0x5769D7B47C49436Full,  5234049262ull, 26872574292ull} } },
+	{    96,   1973431u, { {0x901C8305DA9FF95Aull, 32611811878ull, 55986702160ull}, {0x0790CA11ADAA47E3ull, 17075140845ull, 12883521448ull}, {0xF18EADC267DE6FC1ull, 24308841307ull, 31678116890ull} } },
+	{   104,   2134201u, { {0x59BDA0D80F3279EDull, 17901153436ull,  3927067335ull}, {0x2F81B21BC680C861ull, 18443771511ull, 45465079919ull}, {0x439245FA16A38116ull, 20996570088ull,   489289103ull} } },
+	{   112,   2294731u, { {0xC44ACC96D268625Full, 10331638988ull,  2292055445ull}, {0xED20577E16E128DEull, 32248607028ull, 14903460370ull}, {0xCB862A1B42B230A2ull, 23316229090ull, 23891565685ull} } },
+	{   120,   2455003u, { {0xC5F7DB23F174A67Dull, 32991574397ull, 31642856976ull}, {0x401670254012E5ABull, 33626385418ull, 66465546971ull}, {0x20AB396E327C09C1ull, 13309965383ull, 60492105240ull} } },
+	/* Small: */
+	{   128,   2614999u, { {0x040918890E98F8DAull, 14867710211ull, 47602627318ull}, {0x1A184504D2DE2D3Cull,  5934292942ull,  4090378120ull}, {0xE7126F512D3FD742ull, 17101849610ull, 66501661438ull} } },
+	{   144,   2934479u, { {0x1B90A27301980A3Aull,  7043479338ull, 38327130996ull}, {0x8C3045C6534867C6ull, 12456621644ull, 52801948293ull}, {0xF17F4A594A281B94ull,  5970782987ull, 68371435254ull} } },
+	{   160,   3253153u, { {0x9AFD3618C164D1B4ull, 16551334620ull, 55616214582ull}, {0x1493A70897A8D058ull, 34082962858ull, 60773088284ull}, {0x57D3F1A090E78729ull, 26902546905ull, 49396480035ull} } },
+	{   176,   3571153u, { {0xA016F25779902477ull, 21500047857ull,  9150810891ull}, {0x8E6F248EC96445FFull, 22443629034ull, 16625023722ull}, {0xFFD8B840C06A5EACull, 32183737848ull, 42577197579ull} } },
+	{   192,   3888509u, { {0x71E61322CCFB396Cull, 29259839105ull, 50741070790ull}, {0x3CEDB241702D2907ull,  6177258458ull, 21951191321ull}, {0xAF407D11B2D74C3Cull, 31653650180ull, 27299459944ull} } },
+	{   208,   4205303u, { {0xC08562DA75132764ull,  7099101614ull, 36784779697ull}, {0xAD381B4FE91D46FDull,  7173420823ull, 51721175527ull}, {0xC70061EF9537C4E1ull,  9945894076ull,  2301956793ull} } },
+	{   224,   4521557u, { {0xE68210464F96D6A6ull, 20442129364ull, 11338970081ull}, {0x3B06B74F5D4C0E35ull,  7526060994ull, 28782225212ull}, {0xB720ACD1D69A7ECFull, 28103212586ull, 10983125296ull} } },
+	{   240,   4837331u, { {0xB0D0E72B7C87C174ull, 15439682274ull, 46315054895ull}, {0x3AA14E0E90D16317ull,  5730133308ull, 50944347816ull}, {0x12CFBF6001E59FF7ull, 26877054587ull, 60322521357ull} } },
+	{   256,   5152643u, { {0x074879D86679CB5Bull,  1208548964ull, 48525653083ull}, {0x98AF5E14C824A252ull,   783196824ull,  6594302302ull}, {0x7DA0D3B9EFEA4931ull, 32608975347ull, 43428286760ull} } },
+	{   288,   5782013u, { {0x9869BE81D9AB1564ull, 15509103769ull, 49640026911ull}, {0x7C998719C6001318ull, 23749848147ull, 19853218689ull}, {0xE2E246D9094EBFD7ull, 26657044660ull,  7091330955ull} } },
+	{   320,   6409849u, { {0x20739E43A693A937ull, 27970131351ull, 15334307151ull}, {0xE20A76DCEB6774A6ull, 14260757089ull, 68560882840ull}, {0xCEC786F8883D8D1Full,  5597853948ull, 57984323163ull} } },
+	{   352,   7036339u, { {0xD6A226BAB5E14D62ull,  9444972171ull, 28639488018ull}, {0x0579D28296F29D92ull, 18964853245ull, 30111685201ull}, {0xB9CF9FE489BD34CFull, 11297283566ull, 16782498229ull} } },
+	{   384,   7661567u, { {0x3A929F577AC9725Full, 23890492835ull, 64821764767ull}, {0x2ECBA785576E6D58ull, 26446200615ull, 60269798452ull}, {0x22AA4A0A7A3676A7ull, 23262227373ull, 26736591016ull} } },
+	{   416,   8285659u, { {0xDCA138D55C36E40Cull, 10452583294ull,  4308453248ull}, {0x1FEE7F79E32229A6ull, 11936075329ull, 16061515794ull}, {0x9B5324C99CCE498Dull, 14697684311ull, 16439873760ull} } },
+	{   448,   8908723u, { {0x436494C7EA194FA1ull,  2976149044ull, 21645125251ull}, {0xD2FCEDE29E818A26ull, 15260150529ull, 11678366985ull}, {0x952F59F4972F830Aull, 17286796157ull, 11216464341ull} } },
+	{   480,   9530803u, { {0x6D52BCCB796A46E9ull, 28296985362ull, 66294636306ull}, {0x786CB610A809B762ull, 24654197494ull, 57943258783ull}, {0x40564770A8540610ull, 27197548273ull, 32971949076ull} } },
+	{   512,  10151971u, { {0x7BA3DD9C38878B83ull, 24395728676ull, 12632037498ull}, {0x8E9FA3093ACD81C1ull,  6345070464ull, 65203567231ull}, {0xBBD3BD10BA9983B5ull,  7822185024ull, 14668688365ull} } },
+	{   576,  11391823u, { {0x78D8769B9F75FB2Bull,  7286184017ull, 17306427758ull}, {0x5834BDA7558DD43Cull, 11189092321ull, 23026923116ull}, {0x793D548FCB76B28Cull, 11310068490ull, 24716315416ull} } },
+	{   640,  12628613u, { {0xF951B697F5C5032Aull,  9262385660ull, 57463106915ull}, {0x93B526040205BA27ull, 30538079080ull, 32317022014ull}, {0x25544FC69ADB28F9ull, 28253742327ull,  1823182110ull} } },
+	{   704,  13862759u, { {0xBB2F69275D79A9EEull, 12230183669ull, 68684647134ull}, {0x7343ECC160AA00D5ull, 24655585170ull, 51102704879ull}, {0x1402EEF49394CDC7ull,  5500341204ull, 59999916295ull} } },
+	{   768,  15094403u, { {0xF6895EB66EADE9C5ull,  8490184692ull, 23393343807ull}, {0xF673A8D6413923A9ull, 20026779905ull, 67516766223ull}, {0xD63752CA13598971ull, 24773095342ull, 29303310893ull} } },
+	{   832,  16323773u, { {0xEB8890F379392B2Full, 27289972116ull, 63975275393ull}, {0xD681EDD3A1EC3780ull, 12515962698ull, 40155157152ull}, {0xEB9C9477368BF584ull, 13378242091ull,  9365072054ull} } },
+	{   896,  17551099u, { {0xAB1180428ED65EE0ull,  3105108668ull, 66518734167ull}, {0x31813367849BBF49ull,  9516734777ull, 18271834608ull}, {0x95C2E1F201FCE598ull,  6264820675ull, 49312303312ull} } },
+	{   960,  18776473u, { {0xCA7D81B22AE24935ull, 24317941565ull, 67706175547ull}, {0x02EB980A49E7B60Full,  5730644436ull, 48386545950ull}, {0xBC6503AA5C062308ull, 29760131532ull, 31603724687ull} } },
+	/* Medium: */
+	{  1024,  20000047u, { {0xDD61B3E031F1E0BAull,  6238131189ull, 41735145962ull}, {0x6F0542D58BE1D854ull, 33550477926ull,  4560911335ull}, {0x9E9A91D557F80C5Full, 29076755667ull, 13621706197ull} } },
+	{  1152,  22442237u, { {0x62C479B03F3E9DD9ull, 16186007845ull, 66602070649ull}, {0xF8214922C0726AA9ull,  2103619488ull, 63860960236ull}, {0x5F8D01FF76B14A0Eull, 32958097242ull, 53311861340ull} } },
+	{  1280,  24878401u, { {0x8A8644FC94CB0A8Bull, 31904286697ull, 27818942965ull}, {0xAB247C597DCD678Aull, 24768590666ull, 25504625244ull}, {0xD8E7A784DECB818Cull, 30272193643ull, 53253167596ull} } },
+	{  1408,  27309229u, { {0xCCE2DF04E61DC922ull, 20296295440ull, 23445145000ull}, {0xBC6E94B454AF005Dull, 20163791999ull, 57504620236ull}, {0x4174B336E5A09625ull, 29040357640ull, 17386583484ull} } },
+	{  1536,  29735137u, { {0x2D26046FFAAEBC2Bull,  2381591353ull, 48693163035ull}, {0x00E993C62E8A75D6ull, 18680287655ull, 52664049258ull}, {0x0F8FCD22FDBC36F0ull, 23871897314ull, 28652828421ull} } },
+	{  1664,  32156581u, { {0x77E274E6C29C203Eull,  8887595531ull,  5248686295ull}, {0xAF77EA82895CC6A8ull,  5759391333ull, 18391720566ull}, {0x55B0AB2DED7AAD7Bull, 14847950004ull,  3038669297ull} } },
+	{  1792,  34573867u, { {0x87F3FA16F713EF7Full,   679541321ull, 62692450676ull}, {0x10EA1A34F05813C6ull,  9097156999ull, 67076927840ull}, {0x0B4EB31DD0BBACA5ull, 11537813157ull, 27751793769ull} } },
+	{  1920,  36987271u, { {0x5EFE558EF126B1C8ull, 22078146080ull,   989319562ull}, {0x4865E07EB07F7CE5ull, 10419976906ull,  2724830069ull}, {0x17378BF1F1FA77C6ull, 16188722995ull, 17265726753ull} } },
+	{  2048,  39397201u, { {0x6179CD26EC3B3274ull,  8060072069ull, 29249383388ull}, {0x81AEAC0C7E6089BBull, 25132671466ull, 41950605021ull}, {0x6051C21183D4641Aull, 28647902465ull, 33966509073ull} } },
+	{  2304,  44207087u, { {0x6EE085510D8C8F39ull, 24377809749ull, 55912147302ull}, {0x821F029CE53B2FDAull, 30673953109ull, 44311760422ull}, {0xC2FA6D57AA3DF3F1ull, 33487078679ull,  6743675538ull} } },
+	{  2560,  49005071u, { {0x07EFE3EF1F78E763ull, 22407816581ull, 54111649274ull}, {0xB8D8C7CFFCF4125Cull,  8330528102ull,  6182508157ull}, {0x8E7E56F23C735CF2ull, 30575676999ull, 61872169343ull} } },
+	{  2816,  53792327u, { {0x6C658F13E0F4A102ull,  1998570299ull, 59196879534ull}, {0x95A2D7F362429603ull, 33703733096ull, 60474218222ull}, {0x72441AB2F2C6CB43ull, 16689912947ull, 15439877803ull} } },
+	{  3072,  58569809u, { {0x3CBFF8D5BC5CDDB6ull,  1737566556ull, 47007808842ull}, {0xDC08E05E46E39ECFull,  5122766298ull, 63677326652ull}, {0xECE0932BD5606DA4ull, 18373253747ull, 54193060355ull} } },
+	{  3328,  63338459u, { {0xF6D5A31C4CE769D0ull, 32776678711ull, 12897379614ull}, {0x59BA4BBB9F240C23ull, 17218869802ull, 56649053764ull}, {0x69BB5D04E781424Eull, 23615786662ull, 11819531353ull} } },
+	{  3584,  68098843u, { {0x46675D1C9B599EFEull,  8451437941ull,  2732573183ull}, {0x0AF9DBE03FE3939Full, 28618044864ull, 16348034528ull}, {0xBDF2ECE2D0779F62ull, 28829468953ull, 23851458133ull} } },
+	{  3840,  72851621u, { {0x5A313D90DECAEF25ull, 20007549674ull, 66588163113ull}, {0xE54B85058DB80689ull,  6488756762ull, 45980449388ull}, {0x6A5E70C21BE59E38ull, 21234090918ull, 60149875542ull} } },
+	{  4096,  77597293u, { {0x8CC30E314BF3E556ull, 22305398329ull, 64001568053ull}, {0x5F87421FA9DD8F1Full, 26302807323ull, 54919604018ull}, {0x79EC45C40A8ED5FDull,  8563172534ull, 54137265577ull} } },
+	{  4608,  87068977u, { {0xE6FDFBFC6600B9D8ull, 15739469668ull, 29270706514ull}, {0x1CE06D2ADF8238DCull, 32487573228ull, 43042840938ull}, {0x13BB5C9DDF0CD3D6ull, 15982066709ull, 51703797107ull} } },
+	{  5120,  96517019u, { {0x49D44A10AC9EA1D7ull,  1040777858ull, 40875102228ull}, {0xC528F96FE4E06C17ull, 12554196331ull, 58274243273ull}, {0xC7FDAD62D1222A30ull, 10839320241ull, 38515692159ull} } },
+	{  5632, 105943723u, { {0x031835135A45506Cull, 25880831521ull, 24662569542ull}, {0x52811E5306BD680Aull, 11950909209ull, 30005399045ull}, {0x2BB071A4C6F2C916ull, 10931821986ull, 66793911632ull} } },
+	{  6144, 115351063u, { {0x32246D04038A48A5ull,  3869276047ull, 58028049428ull}, {0xC2568F0B9908ACBEull, 20470377290ull, 53793586344ull}, {0x5D4C4C7C9B64916Full, 31405874499ull,  5249938757ull} } },
+	{  6656, 124740697u, { {0x0362F83AAE178D1Aull, 11483908585ull, 30666543873ull}, {0xAD454FE846C84018ull, 17578866610ull, 41948771933ull}, {0x37E8B5BF961C2C89ull, 30668750805ull, 20467188030ull} } },
+	{  7168, 134113933u, { {0x1C97C7AAEC5CB8C1ull,  2508417425ull, 49620821143ull}, {0xED969839710C0872ull, 27772820714ull, 45853381796ull}, {0x85A3BB21B2955CA8ull, 28425499327ull, 60352609191ull} } },
+	{  7680, 143472073u, { {0x8FBCF315FA8C8BDAull, 15967283992ull, 62343341476ull}, {0xA0A5A19324FB17DFull,  4384978845ull, 65655725783ull}, {0xC7B182C990710B46ull, 15508692513ull, 40776098908ull} } },
+	/* Large: */
+	{  8192, 152816047u, { {0xB58E6FA510DC5049ull, 27285140530ull, 16378703918ull}, {0x75F2841AEBE29216ull, 13527336804ull,   503424366ull}, {0x99F8960CD890E06Aull,  8967321988ull, 43646415661ull} } },
+	{  9216, 171465013u, { {0x60FE24EF89D6140Eull, 25324379967ull,  3841674711ull}, {0x6753411471AD8945ull, 17806860702ull,  3977771754ull}, {0xED3635BF88F37FEFull,  7478721112ull, 47452797377ull} } },
+	{ 10240, 190066777u, { {0x65CF47927C02AC8Eull, 33635344843ull, 67530958158ull}, {0xBADA7FD24D959D21ull, 12777066809ull, 67273129313ull}, {0x82F65495D24A985Full, 22254800275ull, 49183722280ull} } },
+	{ 11264, 208626181u, { {0x6FC0151B81E5173Full, 29164620640ull, 19126254587ull}, {0xD74AA66757A5345Eull, 17524190590ull, 14029371481ull}, {0xDCF9ED39C7EB15B8ull, 34266921309ull, 65896285387ull} } },
+	{ 12288, 227147083u, { {0xE01AE9C859ADB03Aull,  7273133358ull,   681418986ull}, {0x303F142E1E88D5B4ull, 28479237457ull, 42044197589ull}, {0x3102781BC131D263ull, 24437355640ull, 48518577431ull} } },
+	{ 13312, 245632679u, { {0x0A6ACB405ADC0354ull,    39452330ull, 38999048555ull}, {0xB38B02A4F195762Full,  3280152282ull, 30314100936ull}, {0xF020F5041AE2CABEull, 24388185991ull, 16285954298ull} } },
+	{ 14336, 264085733u, { {0x5ACE4CCE3B925A81ull,  4584210608ull, 36618317213ull}, {0x02F5EC0CBB1C2032ull, 27165893636ull,   687123146ull}, {0xC6D65BD8A6087F08ull, 15586314376ull, 54717373852ull} } },
+	{ 15360, 282508657u, { {0xE7B08ED3A92EC6ECull,   875689313ull, 41754616020ull}, {0xD08FBAFF5CA5096Full, 30398073011ull, 62088094181ull}, {0xD6B7357DF761AA51ull, 28631146088ull, 26883666300ull} } },
+	{ 16384, 300903377u, { {0xA23E8D2F532F05E6ull, 17871262795ull, 53388776441ull}, {0x14F20059083BF452ull, 16549596802ull, 56184170215ull}, {0x76B8A857EC9B3042ull, 14094306048ull, 61845793513ull} } },
+	{ 18432, 337615277u, { {0xAEB976D153A4176Bull, 15040345558ull, 14542578090ull}, {0x503B443CB1E0CD2Dull, 29149628739ull,  5785599363ull}, {0x2D3047CEFF2F5A6Dull,  6100949709ull, 36303747216ull} } },
+	{ 20480, 374233309u, { {0x6D95C0E62C8F9606ull,  3426866174ull, 39787406588ull}, {0xD08FB9031D460B7Eull, 30083048700ull, 30636357797ull}, {0x3A58018C387FBB68ull, 26771468430ull,  7763681227ull} } },
+	{ 22528, 410766953u, { {0x254572CAB2014E6Cull, 17794160487ull, 13396317974ull}, {0x6202B11AA8602531ull,  9896689730ull, 13179771096ull}, {0x57919ED698DB2058ull, 12202175362ull, 54676834262ull} } },
+	{ 24576, 447223969u, { {0x547DF462C7DAD1F6ull, 21523243373ull, 60663902864ull}, {0x06AB4D8E6FD9D69Bull, 23751736171ull, 10720018557ull}, {0x2B0DE10480A159B7ull,  8420637297ull, 56684836957ull} } },
+	{ 26624, 483610763u, { {0xED3E248A29A1C6A8ull,  3863520901ull, 56560420765ull}, {0xC29358F8206746D6ull, 28829535828ull,  8160695393ull}, {0x56442E62439686ABull, 16425477242ull, 62275447263ull} } },
+	{ 28672, 519932827u, { {0xCA7B3A76819D67F7ull,  7078504016ull, 32836389262ull}, {0x5799C8BE8E02B56Full, 22269194969ull, 11617462155ull}, {0xBA8FC230F7B5EA7Dull, 27830917747ull, 28996845727ull} } },
+	{ 30720, 556194803u, { {0x56CDF80EFF67C1C1ull, 15611746359ull, 45837150207ull}, {0xCBC88456B4B47AC0ull,  3535843471ull, 18652930008ull}, {0xB0B6B164FC22EA57ull, 23758922431ull, 63785512003ull} } },
+	{ 32768, 592400713u, { {0xD8C829884B234EB4ull, 13278383896ull, 54835531046ull}, {0x994DD6B24F452451ull, 28289805997ull, 11462134131ull}, {0x8EEAD14850955F52ull,  3931092242ull,  2483613485ull} } },
+	{ 36864, 664658101u, { {0x2A809B0C735BAC4Bull, 10513414423ull, 54347266174ull}, {0xAB2147D9BAA22BB4ull, 12259954326ull, 67125404781ull}, {0xB4CFF625B3E3FD79ull, 11392807713ull, 32757679957ull} } },
+	{ 40960, 736728527u, { {0xB9AC3EC848FF60A5ull,  7352037613ull,  7261166574ull}, {0x3D623A79D0F14EFFull, 31246254654ull, 49195074754ull}, {0x08F1C4771CDDC601ull, 26432814693ull, 42011833744ull} } },
+	{ 45056, 808631029u, { {0x9D543D67F48AF766ull,  4288733345ull, 27338399854ull}, {0x62A4DF80612E897Bull, 32232536296ull, 47296762118ull}, {0xC42E0660237238BFull,  2574282651ull, 59023604757ull} } },
+	{ 49152, 880380937u, { {0x82ED59E22D585BF6ull, 34028441473ull, 54282489944ull}, {0x7F110FD687DB7CB5ull, 14440703450ull, 57885720403ull}, {0xFB7D2A3EA41594FEull,  2563979873ull, 33101322377ull} } },
+	{ 53248, 951990961u, { {0xE98B9D69E5F350D1ull, 14692034938ull,  2987127112ull}, {0x634157BCC596287Dull, 31799414844ull, 64590776355ull}, {0x2D82590AC2DCB435ull, 25060823443ull, 13978506048ull} } },
+	{ 57344,1023472049u, { {0x960CE3D7029BDB70ull,  2075307892ull, 59259408155ull}, {0x9D98FF9A3FD21D1Bull, 10507186734ull,  3891581073ull}, {0x1CAE6ACE4720BCE8ull, 34199730716ull, 12202402908ull} } },
+	{ 61440,1094833457u, { {0x9A2592E96BC1C827ull, 18678252759ull,   949397216ull}, {0x79BF2E2F5AE7985Bull,  8407199527ull, 64114889744ull}, {0x911DB4B5D8EFD861ull,  1735549534ull, 50988019040ull} } },
+	/* Huge: */
+	{ 65536,1166083297u, { {0xA0FE3066C834E360ull, 29128713056ull,  7270151463ull}, {0x4CC11F1C55F95C9Bull, 17910403663ull, 19262812656ull}, {                 0ull,           0ull,           0ull} } },
+	{ 73728,1308275261u, { {0xE97D94366B318338ull, 27568210744ull, 15277294114ull}, {0x0913DB564B5FB2C9ull, 22759704201ull,  4713378634ull}, {                 0ull,           0ull,           0ull} } },
+	{ 81920,1450094993u, { {0x0F0945ACF6C46D21ull, 55679675681ull,  4898080803ull}, {0x12FB0E6628819A5Aull, 26252443199ull, 65921528136ull}, {                 0ull,           0ull,           0ull} } },
+	{ 90112,1591580099u, { {0xD8B487D8F5AFDF1Aull, 38481682202ull, 32203366427ull}, {0xAA5F7E4D5EC75AD3ull, 16596905178ull,  8253283767ull}, {                 0ull,           0ull,           0ull} } },
+	{ 98304,1732761197u, { {0xB3ABD7E277F6EFB4ull, 10602606516ull, 18939646037ull}, {0x2170E14E6B46F009ull, 25931343295ull, 29383122206ull}, {                 0ull,           0ull,           0ull} } },
+	{106496,1873663819u, { {0x938367CFDA83235Cull, 68090536796ull,   536356188ull}, {0xE4F8B81BD2E42112ull, 25813505565ull, 59441464991ull}, {                 0ull,           0ull,           0ull} } },
+	{114688,2014309639u, { {0x84C8DED05749A21Full,  1464443423ull,  2648601266ull}, {0xDE2C03AA5068CC6Aull, 17222310589ull, 55630799101ull}, {                 0ull,           0ull,           0ull} } },
+	{122880,2154717007u, { {0xE3056185380C64CFull, 22415172815ull, 18918434052ull}, {0x8DE279575CD1154Eull, 32123477176ull, 52211425638ull}, {                 0ull,           0ull,           0ull} } },
+	{131072,2294901977u, { {0xB8CC9297E6E7512Cull, 33938690348ull, 32834437586ull}, {0x77FB54BF318C2DBAull, 20797246137ull, 29632517743ull}, {                 0ull,           0ull,           0ull} } },
+	{147456,2574659081u, { {0x715208AF863EBA5Full, 66676767327ull, 17913296158ull}, {0xAA2E017A840AE336ull, 17798910323ull, 59557563397ull}, {                 0ull,           0ull,           0ull} } },
+	{163840,2853674573u, { {0x2DF960079E128064ull, 32716783716ull,   830562867ull}, {0x341EB1C8403CE6AEull, 11934818175ull, 64851277709ull}, {                 0ull,           0ull,           0ull} } },
+	{180224,3132023311u, { {0xD320ADB4B1483D7Eull, 20154170750ull,  9281699703ull}, {0x5008B456D49F551Full,  9130349955ull, 45637727974ull}, {                 0ull,           0ull,           0ull} } },
+	{196608,3409766351u, { {0x1760B9AA1C6C9DFDull, 43426553341ull, 28002093744ull}, {0xE831AB643E67738Aull, 17588493473ull, 38449686407ull}, {                 0ull,           0ull,           0ull} } },
+	{212992,3686954519u, { {0x9A3231FF531C8617ull, 10531609552ull, 42475524136ull}, {0x0CD00ADEE0D4D0DBull,  1995928646ull, 59987670753ull}, {                 0ull,           0ull,           0ull} } },
+	{229376,3963630893u, { {0x427266E0A64E77F8ull,   135586632ull,  3161584476ull}, {0xBA1F2CE3D59018E7ull,  3171773156ull, 31951413199ull}, {                 0ull,           0ull,           0ull} } },
+	{245760,4239832153u, { {0x05FF04CA8AEA8E54ull,   718789070ull, 67021029350ull}, {0xDCA27889AB5F4D92ull,    55229805ull, 33882881510ull}, {                 0ull,           0ull,           0ull} } },
+/* Larger require 64-bit exponent support: */
+	/* Egregious: */
+	/* Brobdingnagian: */
+	/* Godzillian: */
+	{     0,         0u, { {                 0ull,           0ull,           0ull}, {                 0ull,           0ull,           0ull} } }
+};
+
+/* PARI/GP script for generating more FFT-length/maxP entries in the above table uses condensed code from given_N_get_maxP():
+
+Bmant = 53;
+AsympConst = 0.6;
+ln2inv = 1.0/log(2.0);
+N = [some starting power of 2, e.g. 128M --> m = 2^27]
+currMult = 8; // <-- cycle through the supported FFT lengths starting with m
+N *= currMult/(currMult-1); N/1024	// <-- Get Kdoubles form of N
+ln_N=log(1.0*N);lnln_N=log(ln_N);l2_N=ln2inv*ln_N;lnl2_N=log(l2_N);l2l2_N=ln2inv*lnl2_N;lnlnln_N=log(lnln_N);l2lnln_N=ln2inv*lnlnln_N;Wbits=0.5*(Bmant-AsympConst-0.5*(l2_N+l2l2_N)-1.5*(l2lnln_N));maxExp2=Wbits*N;i=round(maxExp2-0.5)
+[Now increment i if even, then iterate until TRUE:]
+i-=2;isprime(i)
+*/
+
+struct testFerm{
+	int fftLength;		/* FFT length in K (i.e. 4 means an array of 4K doubles) */
+	int Fidx;			/* Fermat number index */
+	struct res_triplet	res_t[3];	/* 100,1000 and 10000-iteration SH-residue triplets */
+};
+
+/* Array of 100-iteration reference values for Fermat self-tests. Only allow Fidx >= 14: */
+#define FermArrayIdxOffset		14	/* Amount to subtract from m to get the prestored residues for F_m */
+#define numFerm		20
+struct testMers FermVec[numFerm+1] =
+{
+/*                                   100-iteration residues:                                  1000-iteration residues:              */
+/* FFTlen(K) Fidx           Res64           mod 2^35-1      mod 2^36-1               Res64           mod 2^35-1      mod 2^36-1     */
+/*   ------- ----      ----------------     -----------     -----------         ----------------     -----------     -----------    */
+	/*                                    [%34359738367  ][%68719476735  ]                         [%34359738367  ][%68719476735  ] */
+	{     1,  14, { {0xDB9AC520C403CB21ull,   342168579ull, 59244817440ull}, {0xF111F12732CCCB0Full, 24848612524ull, 66609820796ull}, {0x78738D068D641C2Cull, 12664273769ull, 29297626750ull} } },
+	{     2,  15, { {0x3B21A6E55ED13454ull, 28379302213ull, 15546218647ull}, {0x4784657F2A36BE74ull,   617376037ull, 44891093359ull}, {0x589BFE53458FFC14ull, 12200390606ull, 46971422957ull} } },
+	{     4,  16, { {0xAAE76C15C2B37465ull, 20013824731ull,  2261076122ull}, {0x42CC2CBE97C728E6ull, 30814966349ull, 44505312792ull}, {0xEED00D8AE6886440ull, 19057922301ull, 53800020279ull} } },
+	{     8,  17, { {0xFFA16CDC8C87483Cull, 20917337408ull, 26110327818ull}, {0x43CAB295FFB2661Full, 18197605796ull,  9842643677ull}, {0x5C7B0049549D4174ull,  8923959253ull, 40303785249ull} } },
+	{    16,  18, { {0x7C6B681485EB86DBull,  5745147782ull, 50521157289ull}, {0x8193BD41931E9DE8ull, 19662968587ull, 51102742548ull}, {0x9D6A242467D28700ull, 12912307491ull, 23293425575ull} } },
+	{    32,  19, { {0x529E54642A813995ull, 17797950508ull, 32039741221ull}, {0xE24EAE4B153EE86Bull, 11155350666ull, 49866866361ull}, {0x787FABD98DD5FEC0ull, 10784283812ull, 50254721650ull} } },
+	{    64,  20, { {0x64629CED6E218018ull,  8485981669ull, 53977437340ull}, {0xA380121F6FD26B2Aull, 15876203498ull, 36314727556ull}, {0x352CB92DABA82A8Bull,  6625203514ull, 20044302250ull} } },
+	{   128,  21, { {0x1DE0171591038250ull, 33758422990ull,  8269940507ull}, {0x1B331FBB41AF33D7ull, 17971032338ull,  2929392342ull}, {0x2E7F9D30EAFC7D47ull, 28599205675ull, 44913594527ull} } },
+	{   256,  22, { {0x9201143390F3828Dull,  1749100092ull, 46602233256ull}, {0x1B331FBB41AF33D7ull, 17971032338ull,  2929392342ull}, {0x4380A384A80C079Eull, 30799637462ull, 32805936529ull} } },
+	{   512,  23, { {0x9C3F8E29B397B32Bull,  1094055486ull, 13316822657ull}, {0xBD642EA0479D8FF0ull, 31625967305ull, 57187857233ull}, {0xC0F18B226C20AE50ull, 31325111828ull, 10029614864ull} } },
+	{  1024,  24, { {0xDB9F01963ED9DC8Bull, 27887793041ull, 13169874547ull}, {0x40F2DECE9C351236ull,  9074286032ull, 38590877049ull}, {0x84FEE61771F20003ull, 19739002855ull, 42109658313ull} } },
+	{  2048,  25, { {0x376C33921E5F675Full, 13022327996ull, 46818697393ull}, {0xA51F8577A407CB75ull,  9865976783ull, 35171498411ull}, {0x2B1D829E05C85CA3ull, 27914095914ull, 58025822027ull} } },
+	{  4096,  26, { {0xA42BECD80DAEC4CBull, 10087739060ull, 25252768685ull}, {0xECC9408A7295401Dull,  5904751941ull, 58967745948ull}, {0x0C054D0376BD8E9Eull, 24761357761ull, 23215069147ull} } },
+	{  8192,  27, { {0xFB69E377519D8CE6ull, 15449775614ull, 51221672039ull}, {0x24898E3BEB59DCE6ull, 24957168001ull,  2072452827ull}, {0x443DE289690070EDull, 30674247970ull, 29955017069ull} } },
+	{ 16384,  28, { {0xA4FF6F8C3CB38B85ull, 18933356966ull, 30899345457ull}, {0x8B451AF25E8CC50Eull,   674652743ull, 39963850167ull}, {0x0F38D26B35C6794Cull,  7003106751ull, 60469235270ull} } },
+	{ 32768,  29, { {0xAFBF110B593E26F6ull, 32666279868ull, 18995112582ull}, {0xA6B643FF24C6ADC1ull, 15753158767ull, 13965270144ull}, {0xB194096866F68C59ull, 19667273394ull,  3552165634ull} } },
+	{ 65536,  30, { {0x68B1BDA5D6BAE04Bull,  3347054148ull, 47892955488ull}, {0x361F30024AF9FE26ull, 26693502373ull, 67933083515ull}, {0x3A70D98DA3ED809Aull, 10877397803ull, 41746600776ull} } },
+	{131072,  31, { {0x00C36B4AB38FC326ull, 12487821860ull, 64847210796ull}, {0x243D46185B4FAAC8ull, 14946978930ull, 42870390813ull}, {0xDD3651B25892F424ull,  6237393494ull, 22880395670ull} } },
+	{262144,  32, { {0xFB5A3146BE2CA886ull, 33629944997ull, 19559359478ull}, {0x0479E68514EAD529ull,    59701496ull, 58397447084ull}, {0x78CD466FDDA4F156ull,  5752278548ull, 18141301956ull} } },
+	{524288,  33, { {0x25D9822BD1555EB9ull, 10052071893ull, 20645266428ull}, {0xACF521F811129C9Eull, 25612341094ull, 61523429244ull}, {0x269405A9B18B3310ull,  4910011908ull,  2895484666ull} } },
+	{     0,   0, { {                 0ull,           0ull,           0ull}, {                 0ull,           0ull,           0ull}, {                 0ull,           0ull,           0ull} } }
+};
+
+/***************************************************************************************/
+
 int 	main(int argc, char *argv[])
 {
 	int		retVal=0;
 	uint64	Res64, Res35m1, Res36m1;
 	char	stFlag[STR_MAX_LEN];
-	uint32	iters = 0, k = 0, maxFFT, expo = 0, findex = 0;
+	uint32	iarg = 0, iters = 0, k = 0, maxFFT, expo = 0, findex = 0;
 	double	darg;
 	int		new_cfg = FALSE;
-	int		i,j, iarg = 0, idum, lo, hi, start = -1, finish = -1, nargs, scrnFlag, modType = 0, testType = 0, selfTest = 0, userSetExponent = 0, xNum = 0;
-	// Force errCheck-always-on in || mode, since we only multithreaded the err-checking versions of the carry routines:
+	int		i,j, idum, lo, hi, nargs, scrnFlag;
+	int		start = -1, finish = -1, modType = 0, testType = 0, selfTest = 0, userSetExponent = 0, xNum = 0;
 #ifdef MULTITHREAD
-	int errCheck = 1;
-#else
-	int errCheck = 0;
+	// Vars for mgmt of mutually exclusive arg sets:
+	int		nthread = 0, cpu = 0;
 #endif
-	int		quick_self_test = 0;
-	int		radset = -1;
+	int		quick_self_test = 0, fftlen = 0, radset = -1;
 	double	runtime, runtime_best, tdiff;
 	double	roerr_avg, roerr_max;
-	int		radix_set, radix_best;
+	int		radix_set, radix_best, nradix_set_succeed;
 
-	/* Number of distinct FFT lengths supported for self-tests: */
-	#define numTest				120	// = sum of all the subranges below
-	/* Number of FFT lengths in the various subranges of the full self-test suite: */
-	#define numTiny 			32
-	#define numSmall			24
-	#define numMedium			24
-	#define numLarge			24
-	#define numHuge				16
-	/* Adding larger FFT lengths to test vectors requires supporting changes to Mdata.h:MAX_FFT_LENGTH_IN_K and get_fft_radices.c */
-	#define numEgregious		 0
-	#define numBrobdingnagian	 0
-	#define numGodzillian		 0
-
-	#if(numTiny+numSmall+numMedium+numLarge+numHuge+numEgregious+numBrobdingnagian+numGodzillian != numTest)
-		#error Sum(numTiny+...) != numTest in main!
-	#endif
-
-	struct res_triplet{
-		uint64 sh0;	/* Res64 (assuming initial LL test seed = 4) for this exponent. */
-		uint64 sh1;	/* Residue mod 2^35-1 */
-		uint64 sh2;	/* Residue mod 2^36-1 */
-	};
-
-	struct testMers{
-		int fftLength;		/* FFT length in K (i.e. 4 means an array of 4K doubles) */
-		uint32 exponent;	/* Test exponent for this FFT length. */
-		struct res_triplet	res_t[3];	/* 100,1000 and 10000-iteration SH-residue triplets */
-	};
 	uint32 mvec_res_t_idx = 0;	/* Lookup index into the res_triplet table */
 	uint32 new_data;
 	struct res_triplet new_res = {0ull,0ull,0ull};
-
-	/* Array of distinct test cases for Mersenne self-tests. Add one extra slot to vector for user-specified self-test exponents;
-	We use p's given by given_N_get_maxP(), so maximum RO errors should be consistent and around the target 0.25 value, a little
-	bit higher in SSE2 mode.
-
-	The first letter of the descriptor for each size range serves as a menmonic for the -[*] option which runs the self-tests
-	for that range, e.g. -s runs the [Small] range, -e the [Egregious], etc.
-
-	HERE IS THE PROCEDURE FOR ADDING A BEW ENTRY TO THE EXPONENT/RESIDUE TABLE BELOW:
-
-	1. Increment the num**** entry above corr. to the self-test subset which is being augmented; also ++numTest;
-
-	2. Go to get_fft_radices.c and use the PARI code in the commentary immediately below given_N_get_maxP()
-		to determine maxP for the new runlength;
-
-	3. Use PARI isprime() to find the largest prime <= maxP;
-
-	4. Run 100 and 1000-iteration self-tests at the next-higher runlength already appearing in the self-test table;
-
-	5. Use the results - specifically the hexadecimal Res64 and the mod 2^35-1 and mod 2^36-1 SH residues - for the
-		2 runs to create a table entry for the new runlength;
-
-	6. Rebuild this file, re-link and repeat the 2 self-tests on the exponent in the new table row, at the new runlength.
-	*/
-	struct testMers MersVec[numTest+1] =
-	{
-	/*                                         100-iteration residues:	                               1000-iteration residues:                */
-	/*	  FFTlen(K)     p              Res64           mod 2^35-1      mod 2^36-1               Res64           mod 2^35-1      mod 2^36-1     */
-	/*	    -----    --------     ----------------     -----------     -----------         ----------------     -----------     -----------    */
-		/* Tiny:                                     [%34359738367  ][%68719476735  ]                         [%34359738367  ][%68719476735  ] */
-		{     8,    173431u, { {0x85301536E4CA9B11ull,  3707224323ull, 36851834664ull}, {0x2FD5120BEC41F449ull, 28734955954ull, 23103392631ull}, {0x139D1D396F173696ull, 12716541843ull, 58117202214ull} } },
-		{     9,    194609u, { {0xC711AF1008612BC6ull,  1574019740ull, 37260026270ull}, {0x5153F6E040CD1BE6ull, 15446410924ull,  3291404673ull}, {0x33E19077F35070A3ull, 34231248547ull, 24411805292ull} } },
-		{    10,    215767u, { {0x4428783BC62760F0ull,  7466284975ull, 53916123655ull}, {0xED46A8C001908815ull,   739143119ull, 36950829937ull}, {0xCBE0AD544E96FDB9ull,  7625169722ull, 52027104104ull} } },
-		{    11,    236813u, { {0x592D849AF4D1336Full, 29025996994ull, 48905971124ull}, {0xB4EEB63BB656F424ull,  5361680901ull, 31850818767ull}, {0x5AEBAE493B085903ull, 20240457506ull, 42866015746ull} } },
-		{    12,    257903u, { {0x1D8121DE28B60996ull, 22402402961ull, 65583959369ull}, {0x54F2BE961A674CB1ull, 25601315553ull, 54298899520ull}, {0x50DFBA28D0D1A8C3ull, 17306049864ull, 68068537809ull} } },
-		{    13,    278917u, { {0xE3BC90B0E652C7C0ull, 21244206101ull, 51449948145ull}, {0x93AF8994F95F2E50ull, 16427368469ull, 10707190710ull}, {0x1674AAA04F7BD61Aull, 12079507298ull, 56593045102ull} } },
-		{    14,    299903u, { {0xDB8E39C67F8CCA0Aull, 20506717562ull, 44874927985ull}, {0x4E7CCB446371C470ull, 34135369163ull, 61575700812ull}, {0x04ACC83FFE9CEAD4ull, 26179715264ull, 65445483729ull} } },
-		{    15,    320851u, { {0xB3C5A1C03E26BB17ull, 22101045153ull,  4420560161ull}, {0x923A9870D65BC73Dull, 29411268414ull, 30739991617ull}, {0xB3F1ACF3A26C4D72ull, 32179253815ull, 68615042306ull} } },
-		{    16,    341749u, { {0x8223DF939E46A0FFull, 32377771756ull, 38218252095ull}, {0xC6A5D4B6034A34B8ull, 31917858141ull, 59888258577ull}, {0x93EF44581866E318ull, 18805111197ull,  8333640393ull} } },
-		{    18,    383521u, { {0xBF30D4AF5ADF87C8ull, 15059093425ull, 52618040649ull}, {0x9F453732B3FE3C04ull,  4385160151ull, 47987324636ull}, {0x0DBF50D7F2142148ull,  1608653720ull, 52016825449ull} } },
-		{    20,    425149u, { {0x6951388C3B99EEC0ull,  4401287495ull, 19242775142ull}, {0x501CEC2CB2080627ull, 21816565170ull, 41043945930ull}, {0x5A9A9BF4608090A2ull, 27025233803ull, 68581005187ull} } },
-		{    22,    466733u, { {0xD95F8EC0F32B4756ull, 19305723506ull, 26588871256ull}, {0xB1F58184918D94B6ull,  8443388060ull, 11738516313ull}, {0xAC4B1F499BF2C2DAull,  7322105347ull, 15747709958ull} } },
-		{    24,    508223u, { {0xDA46E41316F8BCCAull, 25471180026ull,  1635203275ull}, {0x27A5B285281466B9ull, 11438869313ull,  7226774009ull}, {0x4ABED2868B800F7Dull,  7783533092ull, 66921500486ull} } },
-		{    26,    549623u, { {0x6649D9D6CD4E0CE1ull, 25445908581ull, 26118212198ull}, {0x1A4F280627A15B3Cull, 13286323782ull, 31550278005ull}, {0x86404E236E99B3C4ull, 17401894517ull, 40934891751ull} } },
-		{    28,    590963u, { {0x4ADDB6C4A76465AFull,  6532108269ull, 54921134131ull}, {0x3063D08A7BABD7B8ull,  4777711548ull, 39733274344ull}, {0xBE2ABBB09336F32Eull, 30656127523ull, 50296089656ull} } },
-		{    30,    632251u, { {0x0811FAA40601EB1Dull, 16369365746ull,  6888026123ull}, {0xF324E4DEC564AF91ull, 10236920023ull, 34068699974ull}, {0xAA622CF2A48F6085ull, 22315931502ull,  1049914969ull} } },
-		{    32,    673469u, { {0x1A4EF8A0D172FBAAull, 32667536946ull, 11393278588ull}, {0xA4DFD62B928F68A4ull, 11900420802ull, 66610946021ull}, {0xFA3993AC9CE7BEEDull,   117685830ull, 39361570554ull} } },
-		{    36,    755737u, { {0x13B13C61298088DCull, 34092803628ull,  7584858890ull}, {0x33A2A43DE8782CCCull,  2953124985ull, 62434716987ull}, {0xD0DF76911349551Bull, 28919846011ull, 30432969648ull} } },
-		{    40,    837817u, { {0x88555D9AAD3FF2DDull,  8573348747ull, 67896670216ull}, {0xEAC1676D914878C0ull, 34312095136ull, 45077378164ull}, {0x89E1C4D06BB0F9F3ull,  6272358557ull, 24712951618ull} } },
-		{    44,    919729u, { {0x6ACC03213A37BA5Bull,  3870201113ull, 48145739792ull}, {0xDA98B49CC83C60CBull, 15886769401ull, 62221100895ull}, {0xF1DA20E7D5A89638ull,  4633752262ull, 20941274692ull} } },
-		{    48,   1001467u, { {0x6B1C76AB5431FDA4ull,  6795121241ull, 65308927583ull}, {0xBD99FD21F4136BFCull, 26386988063ull, 61607603549ull}, {0x9136554E4718BFA9ull, 18451197932ull, 37688798842ull} } },
-		{    52,   1083077u, { {0xA591637EC8CF3FE4ull,  4769775755ull, 65114872367ull}, {0xE59C08B13B00E6FFull,  1383963096ull, 26100699764ull}, {0x48CCA2242A1F9352ull, 30318043361ull, 12067176371ull} } },
-		{    56,   1164533u, { {0xEC4F2579E4533584ull,  5456769127ull, 59922459736ull}, {0xF7D2BF94C2767D36ull, 30727892629ull, 48141128220ull}, {0xE332E3891AE98AD7ull,  7024598607ull, 65691841143ull} } },
-		{    60,   1245877u, { {0xC91002E1A4EE7E07ull,  6217476228ull, 40164514288ull}, {0xEABE9E1A31DF5877ull,   831216169ull, 29591771932ull}, {0xCB85101F6857519Dull, 30425930108ull,  2198194326ull} } },
-		{    64,   1327099u, { {0xAC070112281229E0ull, 14226353454ull,  1640524016ull}, {0xF25AA54053C5BB64ull, 32455038659ull, 53547160776ull}, {0x3854D019CE12CC9Aull, 29589836279ull,  2174826233ull} } },
-		{    72,   1489223u, { {0x6674518EA19B3D6Aull, 32383400562ull, 53234746310ull}, {0xEB312091097F6C3Bull,  3980687908ull,  8568698675ull}, {0xC225FAF24A093590ull, 22407813999ull, 30924932017ull} } },
-		{    80,   1650959u, { {0xE5326E754F3202A8ull,  5593233426ull, 33337128557ull}, {0xFC3E8CDA60AF5CF8ull, 11466296968ull, 12651602524ull}, {0x4D68554B73674A60ull,  2253999911ull, 55045374456ull} } },
-		{    88,   1812347u, { {0x81BDD3AC63DF3F73ull, 19957199947ull, 61002681293ull}, {0x3D3E429D7427C4EAull, 25342898119ull, 34322985438ull}, {0x5769D7B47C49436Full,  5234049262ull, 26872574292ull} } },
-		{    96,   1973431u, { {0x901C8305DA9FF95Aull, 32611811878ull, 55986702160ull}, {0x0790CA11ADAA47E3ull, 17075140845ull, 12883521448ull}, {0xF18EADC267DE6FC1ull, 24308841307ull, 31678116890ull} } },
-		{   104,   2134201u, { {0x59BDA0D80F3279EDull, 17901153436ull,  3927067335ull}, {0x2F81B21BC680C861ull, 18443771511ull, 45465079919ull}, {0x439245FA16A38116ull, 20996570088ull,   489289103ull} } },
-		{   112,   2294731u, { {0xC44ACC96D268625Full, 10331638988ull,  2292055445ull}, {0xED20577E16E128DEull, 32248607028ull, 14903460370ull}, {0xCB862A1B42B230A2ull, 23316229090ull, 23891565685ull} } },
-		{   120,   2455003u, { {0xC5F7DB23F174A67Dull, 32991574397ull, 31642856976ull}, {0x401670254012E5ABull, 33626385418ull, 66465546971ull}, {0x20AB396E327C09C1ull, 13309965383ull, 60492105240ull} } },
-		/* Small: */
-		{   128,   2614999u, { {0x040918890E98F8DAull, 14867710211ull, 47602627318ull}, {0x1A184504D2DE2D3Cull,  5934292942ull,  4090378120ull}, {0xE7126F512D3FD742ull, 17101849610ull, 66501661438ull} } },
-		{   144,   2934479u, { {0x1B90A27301980A3Aull,  7043479338ull, 38327130996ull}, {0x8C3045C6534867C6ull, 12456621644ull, 52801948293ull}, {0xF17F4A594A281B94ull,  5970782987ull, 68371435254ull} } },
-		{   160,   3253153u, { {0x9AFD3618C164D1B4ull, 16551334620ull, 55616214582ull}, {0x1493A70897A8D058ull, 34082962858ull, 60773088284ull}, {0x57D3F1A090E78729ull, 26902546905ull, 49396480035ull} } },
-		{   176,   3571153u, { {0xA016F25779902477ull, 21500047857ull,  9150810891ull}, {0x8E6F248EC96445FFull, 22443629034ull, 16625023722ull}, {0xFFD8B840C06A5EACull, 32183737848ull, 42577197579ull} } },
-		{   192,   3888509u, { {0x71E61322CCFB396Cull, 29259839105ull, 50741070790ull}, {0x3CEDB241702D2907ull,  6177258458ull, 21951191321ull}, {0xAF407D11B2D74C3Cull, 31653650180ull, 27299459944ull} } },
-		{   208,   4205303u, { {0xC08562DA75132764ull,  7099101614ull, 36784779697ull}, {0xAD381B4FE91D46FDull,  7173420823ull, 51721175527ull}, {0xC70061EF9537C4E1ull,  9945894076ull,  2301956793ull} } },
-		{   224,   4521557u, { {0xE68210464F96D6A6ull, 20442129364ull, 11338970081ull}, {0x3B06B74F5D4C0E35ull,  7526060994ull, 28782225212ull}, {0xB720ACD1D69A7ECFull, 28103212586ull, 10983125296ull} } },
-		{   240,   4837331u, { {0xB0D0E72B7C87C174ull, 15439682274ull, 46315054895ull}, {0x3AA14E0E90D16317ull,  5730133308ull, 50944347816ull}, {0x12CFBF6001E59FF7ull, 26877054587ull, 60322521357ull} } },
-		{   256,   5152643u, { {0x074879D86679CB5Bull,  1208548964ull, 48525653083ull}, {0x98AF5E14C824A252ull,   783196824ull,  6594302302ull}, {0x7DA0D3B9EFEA4931ull, 32608975347ull, 43428286760ull} } },
-		{   288,   5782013u, { {0x9869BE81D9AB1564ull, 15509103769ull, 49640026911ull}, {0x7C998719C6001318ull, 23749848147ull, 19853218689ull}, {0xE2E246D9094EBFD7ull, 26657044660ull,  7091330955ull} } },
-		{   320,   6409849u, { {0x20739E43A693A937ull, 27970131351ull, 15334307151ull}, {0xE20A76DCEB6774A6ull, 14260757089ull, 68560882840ull}, {0xCEC786F8883D8D1Full,  5597853948ull, 57984323163ull} } },
-		{   352,   7036339u, { {0xD6A226BAB5E14D62ull,  9444972171ull, 28639488018ull}, {0x0579D28296F29D92ull, 18964853245ull, 30111685201ull}, {0xB9CF9FE489BD34CFull, 11297283566ull, 16782498229ull} } },
-		{   384,   7661567u, { {0x3A929F577AC9725Full, 23890492835ull, 64821764767ull}, {0x2ECBA785576E6D58ull, 26446200615ull, 60269798452ull}, {0x22AA4A0A7A3676A7ull, 23262227373ull, 26736591016ull} } },
-		{   416,   8285659u, { {0xDCA138D55C36E40Cull, 10452583294ull,  4308453248ull}, {0x1FEE7F79E32229A6ull, 11936075329ull, 16061515794ull}, {0x9B5324C99CCE498Dull, 14697684311ull, 16439873760ull} } },
-		{   448,   8908723u, { {0x436494C7EA194FA1ull,  2976149044ull, 21645125251ull}, {0xD2FCEDE29E818A26ull, 15260150529ull, 11678366985ull}, {0x952F59F4972F830Aull, 17286796157ull, 11216464341ull} } },
-		{   480,   9530803u, { {0x6D52BCCB796A46E9ull, 28296985362ull, 66294636306ull}, {0x786CB610A809B762ull, 24654197494ull, 57943258783ull}, {0x40564770A8540610ull, 27197548273ull, 32971949076ull} } },
-		{   512,  10151971u, { {0x7BA3DD9C38878B83ull, 24395728676ull, 12632037498ull}, {0x8E9FA3093ACD81C1ull,  6345070464ull, 65203567231ull}, {0xBBD3BD10BA9983B5ull,  7822185024ull, 14668688365ull} } },
-		{   576,  11391823u, { {0x78D8769B9F75FB2Bull,  7286184017ull, 17306427758ull}, {0x5834BDA7558DD43Cull, 11189092321ull, 23026923116ull}, {0x793D548FCB76B28Cull, 11310068490ull, 24716315416ull} } },
-		{   640,  12628613u, { {0xF951B697F5C5032Aull,  9262385660ull, 57463106915ull}, {0x93B526040205BA27ull, 30538079080ull, 32317022014ull}, {0x25544FC69ADB28F9ull, 28253742327ull,  1823182110ull} } },
-		{   704,  13862759u, { {0xBB2F69275D79A9EEull, 12230183669ull, 68684647134ull}, {0x7343ECC160AA00D5ull, 24655585170ull, 51102704879ull}, {0x1402EEF49394CDC7ull,  5500341204ull, 59999916295ull} } },
-		{   768,  15094403u, { {0xF6895EB66EADE9C5ull,  8490184692ull, 23393343807ull}, {0xF673A8D6413923A9ull, 20026779905ull, 67516766223ull}, {0xD63752CA13598971ull, 24773095342ull, 29303310893ull} } },
-		{   832,  16323773u, { {0xEB8890F379392B2Full, 27289972116ull, 63975275393ull}, {0xD681EDD3A1EC3780ull, 12515962698ull, 40155157152ull}, {0xEB9C9477368BF584ull, 13378242091ull,  9365072054ull} } },
-		{   896,  17551099u, { {0xAB1180428ED65EE0ull,  3105108668ull, 66518734167ull}, {0x31813367849BBF49ull,  9516734777ull, 18271834608ull}, {0x95C2E1F201FCE598ull,  6264820675ull, 49312303312ull} } },
-		{   960,  18776473u, { {0xCA7D81B22AE24935ull, 24317941565ull, 67706175547ull}, {0x02EB980A49E7B60Full,  5730644436ull, 48386545950ull}, {0xBC6503AA5C062308ull, 29760131532ull, 31603724687ull} } },
-		/* Medium: */
-		{  1024,  20000047u, { {0xDD61B3E031F1E0BAull,  6238131189ull, 41735145962ull}, {0x6F0542D58BE1D854ull, 33550477926ull,  4560911335ull}, {0x9E9A91D557F80C5Full, 29076755667ull, 13621706197ull} } },
-		{  1152,  22442237u, { {0x62C479B03F3E9DD9ull, 16186007845ull, 66602070649ull}, {0xF8214922C0726AA9ull,  2103619488ull, 63860960236ull}, {0x5F8D01FF76B14A0Eull, 32958097242ull, 53311861340ull} } },
-		{  1280,  24878401u, { {0x8A8644FC94CB0A8Bull, 31904286697ull, 27818942965ull}, {0xAB247C597DCD678Aull, 24768590666ull, 25504625244ull}, {0xD8E7A784DECB818Cull, 30272193643ull, 53253167596ull} } },
-		{  1408,  27309229u, { {0xCCE2DF04E61DC922ull, 20296295440ull, 23445145000ull}, {0xBC6E94B454AF005Dull, 20163791999ull, 57504620236ull}, {0x4174B336E5A09625ull, 29040357640ull, 17386583484ull} } },
-		{  1536,  29735137u, { {0x2D26046FFAAEBC2Bull,  2381591353ull, 48693163035ull}, {0x00E993C62E8A75D6ull, 18680287655ull, 52664049258ull}, {0x0F8FCD22FDBC36F0ull, 23871897314ull, 28652828421ull} } },
-		{  1664,  32156581u, { {0x77E274E6C29C203Eull,  8887595531ull,  5248686295ull}, {0xAF77EA82895CC6A8ull,  5759391333ull, 18391720566ull}, {0x55B0AB2DED7AAD7Bull, 14847950004ull,  3038669297ull} } },
-		{  1792,  34573867u, { {0x87F3FA16F713EF7Full,   679541321ull, 62692450676ull}, {0x10EA1A34F05813C6ull,  9097156999ull, 67076927840ull}, {0x0B4EB31DD0BBACA5ull, 11537813157ull, 27751793769ull} } },
-		{  1920,  36987271u, { {0x5EFE558EF126B1C8ull, 22078146080ull,   989319562ull}, {0x4865E07EB07F7CE5ull, 10419976906ull,  2724830069ull}, {0x17378BF1F1FA77C6ull, 16188722995ull, 17265726753ull} } },
-		{  2048,  39397201u, { {0x6179CD26EC3B3274ull,  8060072069ull, 29249383388ull}, {0x81AEAC0C7E6089BBull, 25132671466ull, 41950605021ull}, {0x6051C21183D4641Aull, 28647902465ull, 33966509073ull} } },
-		{  2304,  44207087u, { {0x6EE085510D8C8F39ull, 24377809749ull, 55912147302ull}, {0x821F029CE53B2FDAull, 30673953109ull, 44311760422ull}, {0xC2FA6D57AA3DF3F1ull, 33487078679ull,  6743675538ull} } },
-		{  2560,  49005071u, { {0x07EFE3EF1F78E763ull, 22407816581ull, 54111649274ull}, {0xB8D8C7CFFCF4125Cull,  8330528102ull,  6182508157ull}, {0x8E7E56F23C735CF2ull, 30575676999ull, 61872169343ull} } },
-		{  2816,  53792327u, { {0x6C658F13E0F4A102ull,  1998570299ull, 59196879534ull}, {0x95A2D7F362429603ull, 33703733096ull, 60474218222ull}, {0x72441AB2F2C6CB43ull, 16689912947ull, 15439877803ull} } },
-		{  3072,  58569809u, { {0x3CBFF8D5BC5CDDB6ull,  1737566556ull, 47007808842ull}, {0xDC08E05E46E39ECFull,  5122766298ull, 63677326652ull}, {0xECE0932BD5606DA4ull, 18373253747ull, 54193060355ull} } },
-		{  3328,  63338459u, { {0xF6D5A31C4CE769D0ull, 32776678711ull, 12897379614ull}, {0x59BA4BBB9F240C23ull, 17218869802ull, 56649053764ull}, {0x69BB5D04E781424Eull, 23615786662ull, 11819531353ull} } },
-		{  3584,  68098843u, { {0x46675D1C9B599EFEull,  8451437941ull,  2732573183ull}, {0x0AF9DBE03FE3939Full, 28618044864ull, 16348034528ull}, {0xBDF2ECE2D0779F62ull, 28829468953ull, 23851458133ull} } },
-		{  3840,  72851621u, { {0x5A313D90DECAEF25ull, 20007549674ull, 66588163113ull}, {0xE54B85058DB80689ull,  6488756762ull, 45980449388ull}, {0x6A5E70C21BE59E38ull, 21234090918ull, 60149875542ull} } },
-		{  4096,  77597293u, { {0x8CC30E314BF3E556ull, 22305398329ull, 64001568053ull}, {0x5F87421FA9DD8F1Full, 26302807323ull, 54919604018ull}, {0x79EC45C40A8ED5FDull,  8563172534ull, 54137265577ull} } },
-		{  4608,  87068977u, { {0xE6FDFBFC6600B9D8ull, 15739469668ull, 29270706514ull}, {0x1CE06D2ADF8238DCull, 32487573228ull, 43042840938ull}, {0x13BB5C9DDF0CD3D6ull, 15982066709ull, 51703797107ull} } },
-		{  5120,  96517019u, { {0x49D44A10AC9EA1D7ull,  1040777858ull, 40875102228ull}, {0xC528F96FE4E06C17ull, 12554196331ull, 58274243273ull}, {0xC7FDAD62D1222A30ull, 10839320241ull, 38515692159ull} } },
-		{  5632, 105943723u, { {0x031835135A45506Cull, 25880831521ull, 24662569542ull}, {0x52811E5306BD680Aull, 11950909209ull, 30005399045ull}, {0x2BB071A4C6F2C916ull, 10931821986ull, 66793911632ull} } },
-		{  6144, 115351063u, { {0x32246D04038A48A5ull,  3869276047ull, 58028049428ull}, {0xC2568F0B9908ACBEull, 20470377290ull, 53793586344ull}, {0x5D4C4C7C9B64916Full, 31405874499ull,  5249938757ull} } },
-		{  6656, 124740697u, { {0x0362F83AAE178D1Aull, 11483908585ull, 30666543873ull}, {0xAD454FE846C84018ull, 17578866610ull, 41948771933ull}, {0x37E8B5BF961C2C89ull, 30668750805ull, 20467188030ull} } },
-		{  7168, 134113933u, { {0x1C97C7AAEC5CB8C1ull,  2508417425ull, 49620821143ull}, {0xED969839710C0872ull, 27772820714ull, 45853381796ull}, {0x85A3BB21B2955CA8ull, 28425499327ull, 60352609191ull} } },
-		{  7680, 143472073u, { {0x8FBCF315FA8C8BDAull, 15967283992ull, 62343341476ull}, {0xA0A5A19324FB17DFull,  4384978845ull, 65655725783ull}, {0xC7B182C990710B46ull, 15508692513ull, 40776098908ull} } },
-		/* Large: */
-		{  8192, 152816047u, { {0xB58E6FA510DC5049ull, 27285140530ull, 16378703918ull}, {0x75F2841AEBE29216ull, 13527336804ull,   503424366ull}, {0x99F8960CD890E06Aull,  8967321988ull, 43646415661ull} } },
-		{  9216, 171465013u, { {0x60FE24EF89D6140Eull, 25324379967ull,  3841674711ull}, {0x6753411471AD8945ull, 17806860702ull,  3977771754ull}, {0xED3635BF88F37FEFull,  7478721112ull, 47452797377ull} } },
-		{ 10240, 190066777u, { {0x65CF47927C02AC8Eull, 33635344843ull, 67530958158ull}, {0xBADA7FD24D959D21ull, 12777066809ull, 67273129313ull}, {0x82F65495D24A985Full, 22254800275ull, 49183722280ull} } },
-		{ 11264, 208626181u, { {0x6FC0151B81E5173Full, 29164620640ull, 19126254587ull}, {0xD74AA66757A5345Eull, 17524190590ull, 14029371481ull}, {0xDCF9ED39C7EB15B8ull, 34266921309ull, 65896285387ull} } },
-		{ 12288, 227147083u, { {0xE01AE9C859ADB03Aull,  7273133358ull,   681418986ull}, {0x303F142E1E88D5B4ull, 28479237457ull, 42044197589ull}, {0x3102781BC131D263ull, 24437355640ull, 48518577431ull} } },
-		{ 13312, 245632679u, { {0x0A6ACB405ADC0354ull,    39452330ull, 38999048555ull}, {0xB38B02A4F195762Full,  3280152282ull, 30314100936ull}, {0xF020F5041AE2CABEull, 24388185991ull, 16285954298ull} } },
-		{ 14336, 264085733u, { {0x5ACE4CCE3B925A81ull,  4584210608ull, 36618317213ull}, {0x02F5EC0CBB1C2032ull, 27165893636ull,   687123146ull}, {0xC6D65BD8A6087F08ull, 15586314376ull, 54717373852ull} } },
-		{ 15360, 282508657u, { {0xE7B08ED3A92EC6ECull,   875689313ull, 41754616020ull}, {0xD08FBAFF5CA5096Full, 30398073011ull, 62088094181ull}, {0xD6B7357DF761AA51ull, 28631146088ull, 26883666300ull} } },
-		{ 16384, 300903377u, { {0xA23E8D2F532F05E6ull, 17871262795ull, 53388776441ull}, {0x14F20059083BF452ull, 16549596802ull, 56184170215ull}, {0x76B8A857EC9B3042ull, 14094306048ull, 61845793513ull} } },
-		{ 18432, 337615277u, { {0xAEB976D153A4176Bull, 15040345558ull, 14542578090ull}, {0x503B443CB1E0CD2Dull, 29149628739ull,  5785599363ull}, {0x2D3047CEFF2F5A6Dull,  6100949709ull, 36303747216ull} } },
-		{ 20480, 374233309u, { {0x6D95C0E62C8F9606ull,  3426866174ull, 39787406588ull}, {0xD08FB9031D460B7Eull, 30083048700ull, 30636357797ull}, {0x3A58018C387FBB68ull, 26771468430ull,  7763681227ull} } },
-		{ 22528, 410766953u, { {0x254572CAB2014E6Cull, 17794160487ull, 13396317974ull}, {0x6202B11AA8602531ull,  9896689730ull, 13179771096ull}, {0x57919ED698DB2058ull, 12202175362ull, 54676834262ull} } },
-		{ 24576, 447223969u, { {0x547DF462C7DAD1F6ull, 21523243373ull, 60663902864ull}, {0x06AB4D8E6FD9D69Bull, 23751736171ull, 10720018557ull}, {0x2B0DE10480A159B7ull,  8420637297ull, 56684836957ull} } },
-		{ 26624, 483610763u, { {0xED3E248A29A1C6A8ull,  3863520901ull, 56560420765ull}, {0xC29358F8206746D6ull, 28829535828ull,  8160695393ull}, {0x56442E62439686ABull, 16425477242ull, 62275447263ull} } },
-		{ 28672, 519932827u, { {0xCA7B3A76819D67F7ull,  7078504016ull, 32836389262ull}, {0x5799C8BE8E02B56Full, 22269194969ull, 11617462155ull}, {0xBA8FC230F7B5EA7Dull, 27830917747ull, 28996845727ull} } },
-		{ 30720, 556194803u, { {0x56CDF80EFF67C1C1ull, 15611746359ull, 45837150207ull}, {0xCBC88456B4B47AC0ull,  3535843471ull, 18652930008ull}, {0xB0B6B164FC22EA57ull, 23758922431ull, 63785512003ull} } },
-		{ 32768, 592400713u, { {0xD8C829884B234EB4ull, 13278383896ull, 54835531046ull}, {0x994DD6B24F452451ull, 28289805997ull, 11462134131ull}, {0x8EEAD14850955F52ull,  3931092242ull,  2483613485ull} } },
-		{ 36864, 664658101u, { {0x2A809B0C735BAC4Bull, 10513414423ull, 54347266174ull}, {0xAB2147D9BAA22BB4ull, 12259954326ull, 67125404781ull}, {0xB4CFF625B3E3FD79ull, 11392807713ull, 32757679957ull} } },
-		{ 40960, 736728527u, { {0xB9AC3EC848FF60A5ull,  7352037613ull,  7261166574ull}, {0x3D623A79D0F14EFFull, 31246254654ull, 49195074754ull}, {0x08F1C4771CDDC601ull, 26432814693ull, 42011833744ull} } },
-		{ 45056, 808631029u, { {0x9D543D67F48AF766ull,  4288733345ull, 27338399854ull}, {0x62A4DF80612E897Bull, 32232536296ull, 47296762118ull}, {0xC42E0660237238BFull,  2574282651ull, 59023604757ull} } },
-		{ 49152, 880380937u, { {0x82ED59E22D585BF6ull, 34028441473ull, 54282489944ull}, {0x7F110FD687DB7CB5ull, 14440703450ull, 57885720403ull}, {0xFB7D2A3EA41594FEull,  2563979873ull, 33101322377ull} } },
-		{ 53248, 951990961u, { {0xE98B9D69E5F350D1ull, 14692034938ull,  2987127112ull}, {0x634157BCC596287Dull, 31799414844ull, 64590776355ull}, {0x2D82590AC2DCB435ull, 25060823443ull, 13978506048ull} } },
-		{ 57344,1023472049u, { {0x960CE3D7029BDB70ull, 30108539760ull,  2075307892ull}, {0x9D98FF9A3FD21D1Bull, 10507186734ull,  3891581073ull}, {0x1CAE6ACE4720BCE8ull, 34199730716ull, 12202402908ull} } },
-		{ 61440,1094833457u, { {0x9A2592E96BC1C827ull, 40462567463ull, 18678252759ull}, {0x79BF2E2F5AE7985Bull,  8407199527ull, 64114889744ull}, {0x911DB4B5D8EFD861ull,  1735549534ull, 50988019040ull} } },
-		/* Huge: */
-		{ 65536,1166083297u, { {0xA0FE3066C834E360ull, 29128713056ull,  7270151463ull}, {0x4CC11F1C55F95C9Bull, 17910403663ull, 19262812656ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{ 73728,1308275261u, { {0xE97D94366B318338ull, 27568210744ull, 15277294114ull}, {0x0913DB564B5FB2C9ull, 22759704201ull,  4713378634ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{ 81920,1450094993u, { {0x0F0945ACF6C46D21ull, 55679675681ull,  4898080803ull}, {0x12FB0E6628819A5Aull, 26252443199ull, 65921528136ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{ 90112,1591580099u, { {0xD8B487D8F5AFDF1Aull, 38481682202ull, 32203366427ull}, {0xAA5F7E4D5EC75AD3ull, 16596905178ull,  8253283767ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{ 98304,1732761197u, { {0xB3ABD7E277F6EFB4ull, 10602606516ull, 18939646037ull}, {0x2170E14E6B46F009ull, 25931343295ull, 29383122206ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{106496,1873663819u, { {0x938367CFDA83235Cull, 68090536796ull,   536356188ull}, {0xE4F8B81BD2E42112ull, 25813505565ull, 59441464991ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{114688,2014309639u, { {0x84C8DED05749A21Full,  1464443423ull,  2648601266ull}, {0xDE2C03AA5068CC6Aull, 17222310589ull, 55630799101ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{122880,2154717007u, { {0xE3056185380C64CFull, 22415172815ull, 18918434052ull}, {0x8DE279575CD1154Eull, 32123477176ull, 52211425638ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{131072,2294901977u, { {0xB8CC9297E6E7512Cull, 33938690348ull, 32834437586ull}, {0x77FB54BF318C2DBAull, 20797246137ull, 29632517743ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{147456,2574659081u, { {0x715208AF863EBA5Full, 66676767327ull, 17913296158ull}, {0xAA2E017A840AE336ull, 17798910323ull, 59557563397ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{163840,2853674573u, { {0x2DF960079E128064ull, 32716783716ull,   830562867ull}, {0x341EB1C8403CE6AEull, 11934818175ull, 64851277709ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{180224,3132023311u, { {0xD320ADB4B1483D7Eull, 20154170750ull,  9281699703ull}, {0x5008B456D49F551Full,  9130349955ull, 45637727974ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{196608,3409766351u, { {0x1760B9AA1C6C9DFDull, 43426553341ull, 28002093744ull}, {0x0000000000000000ull,           0ull,           0ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{212992,3686954519u, { {0x9A3231FF531C8617ull, 10531609552ull, 42475524136ull}, {0x0CD00ADEE0D4D0DBull,  1995928646ull, 59987670753ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{229376,3963630893u, { {0x427266E0A64E77F8ull,   135586632ull,  3161584476ull}, {0xBA1F2CE3D59018E7ull,  3171773156ull, 31951413199ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{245760,4239832153u, { {0x05FF04CA8AEA8E54ull,   718789070ull, 67021029350ull}, {0xDCA27889AB5F4D92ull,    55229805ull, 33882881510ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-	/* Larger require 64-bit exponent support: */
-		/* Egregious: */
-		/* Brobdingnagian: */
-		/* Godzillian: */
-		{     0,         0u, { {                 0ull,           0ull,           0ull}, {                 0ull,           0ull,           0ull} } }
-	};
-
-/* PARI/GP script for generating more FFT-length/maxP entries in the above table uses condensed code from given_N_get_maxP():
-
-	Bmant = 53;
-	AsympConst = 0.6;
-	ln2inv = 1.0/log(2.0);
-	N = [some starting power of 2, e.g. 128M --> m = 2^27]
-	currMult = 8; // <-- cycle through the supported FFT lengths starting with m
-	N *= currMult/(currMult-1); N/1024	// <-- Get Kdoubles form of N
-	ln_N=log(1.0*N);lnln_N=log(ln_N);l2_N=ln2inv*ln_N;lnl2_N=log(l2_N);l2l2_N=ln2inv*lnl2_N;lnlnln_N=log(lnln_N);l2lnln_N=ln2inv*lnlnln_N;Wbits=0.5*(Bmant-AsympConst-0.5*(l2_N+l2l2_N)-1.5*(l2lnln_N));maxExp2=Wbits*N;i=round(maxExp2-0.5)
-	[Now increment i if even, then iterate until TRUE:]
-	i-=2;isprime(i)
-*/
-
-	struct testFerm{
-		int fftLength;		/* FFT length in K (i.e. 4 means an array of 4K doubles) */
-		int Fidx;			/* Fermat number index */
-		struct res_triplet	res_t[3];	/* 100,1000 and 10000-iteration SH-residue triplets */
-	};
-
-	/* Array of 100-iteration reference values for Fermat self-tests. Only allow Fidx >= 14: */
-	#define FermArrayIdxOffset		14	/* Amount to subtract from m to get the prestored residues for F_m */
-	#define numFerm		17
-	struct testMers FermVec[numFerm+1] =
-	{
-	/*                                   100-iteration residues:                                  1000-iteration residues:              */
-	/* FFTlen(K) Fidx           Res64           mod 2^35-1      mod 2^36-1               Res64           mod 2^35-1      mod 2^36-1     */
-	/*   ------- ----      ----------------     -----------     -----------         ----------------     -----------     -----------    */
-		/*                                    [%34359738367  ][%68719476735  ]                         [%34359738367  ][%68719476735  ] */
-		{     1,  14, { {0xDB9AC520C403CB21ull,   342168579ull, 59244817440ull}, {0xF111F12732CCCB0Full, 24848612524ull, 66609820796ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{     2,  15, { {0x3B21A6E55ED13454ull, 28379302213ull, 15546218647ull}, {0x4784657F2A36BE74ull,   617376037ull, 44891093359ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{     4,  16, { {0xAAE76C15C2B37465ull, 20013824731ull,  2261076122ull}, {0x42CC2CBE97C728E6ull, 30814966349ull, 44505312792ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{     8,  17, { {0xFFA16CDC8C87483Cull, 20917337408ull, 26110327818ull}, {0x43CAB295FFB2661Full, 18197605796ull,  9842643677ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{    16,  18, { {0x7C6B681485EB86DBull,  5745147782ull, 50521157289ull}, {0x8193BD41931E9DE8ull, 19662968587ull, 51102742548ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{    32,  19, { {0x529E54642A813995ull, 17797950508ull, 32039741221ull}, {0xE24EAE4B153EE86Bull, 11155350666ull, 49866866361ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{    64,  20, { {0x64629CED6E218018ull,  8485981669ull, 53977437340ull}, {0xA380121F6FD26B2Aull, 15876203498ull, 36314727556ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{   128,  21, { {0x1DE0171591038250ull, 33758422990ull,  8269940507ull}, {0x1B331FBB41AF33D7ull, 17971032338ull,  2929392342ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{   256,  22, { {0x9201143390F3828Dull,  1749100092ull, 46602233256ull}, {0x1B331FBB41AF33D7ull, 17971032338ull,  2929392342ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{   512,  23, { {0x9C3F8E29B397B32Bull,  1094055486ull, 13316822657ull}, {0xBD642EA0479D8FF0ull, 31625967305ull, 57187857233ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{  1024,  24, { {0xDB9F01963ED9DC8Bull, 27887793041ull, 13169874547ull}, {0x40F2DECE9C351236ull,  9074286032ull, 38590877049ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{  2048,  25, { {0x376C33921E5F675Full, 13022327996ull, 46818697393ull}, {0xA51F8577A407CB75ull,  9865976783ull, 35171498411ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{  4096,  26, { {0xA42BECD80DAEC4CBull, 10087739060ull, 25252768685ull}, {0xECC9408A7295401Dull,  5904751941ull, 58967745948ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{  8192,  27, { {0xFB69E377519D8CE6ull, 15449775614ull, 51221672039ull}, {0x24898E3BEB59DCE6ull, 24957168001ull,  2072452827ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{ 16384,  28, { {0xA4FF6F8C3CB38B85ull, 18933356966ull, 30899345457ull}, {0x8B451AF25E8CC50Eull,   674652743ull, 39963850167ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{ 32768,  29, { {0xAFBF110B593E26F6ull, 32666279868ull, 18995112582ull}, {0xA6B643FF24C6ADC1ull, 15753158767ull, 13965270144ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{ 65536,  30, { {0x68B1BDA5D6BAE04Bull,  3347054148ull, 47892955488ull}, {0x0000000000000000ull,           0ull,           0ull}, {0x0000000000000000ull,           0ull,           0ull} } },
-		{     0,   0, { {                 0ull,           0ull,           0ull}, {0x0000000000000000ull,           0ull,           0ull}, {0x0000000000000000ull,           0ull,           0ull} } }
-	};
 
 /* Enable this and set upper loop bound appropriately to regenerate a quick list of PRPs
 just below the upper limit for each FFT lengh in some subrange of the self-tests:
@@ -2950,61 +2877,7 @@ else
 
 	scrnFlag = 0;	/* Do Not echo output to stddev */
 
-	/* Currently only primality-test mode is supported: */
-	testType = TEST_TYPE_PRIMALITY;
-
-	if (argc == 1)	/* Default Mode */
-	{
-	ERNST_MAIN:
-		if((retVal = ernstMain(MODULUS_TYPE_MERSENNE,TEST_TYPE_PRIMALITY,0,0,0,0,0,FALSE,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime)) != 0)
-		{
-			printMlucasErrCode(retVal);
-
-			/* If need to run a timing self-test at a particular FFT length, do that and then try again... */
-			if((retVal & 0xff) == ERR_RUN_SELFTEST_FORLENGTH)
-			{
-				quick_self_test = TRUE;
-				selfTest = TRUE;
-				k = (uint32)(retVal >> 8);
-				if((i = get_fft_radices(k, 0, 0x0, 0x0, 0)) != 0)
-				{
-					sprintf(cbuf, "ERROR: FFT length %d K not available.\n",k);
-					fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
-				}
-
-			/**** IF POSSIBLE, USE ONE OF THE STANDARD TEST EXPONENTS HERE, SO CAN CHECK RES64s!!! ****/
-				for(i = 0; i < numTest; i++)
-				{
-					if(MersVec[i].fftLength == k)
-					{
-						userSetExponent = 0;
-						start = i; finish = start+1;
-						break;
-					}
-				}
-				if(i == numTest)
-				{
-					userSetExponent = 1;
-					MersVec[numTest].exponent = convert_base10_char_uint64(ESTRING);
-					MersVec[numTest].fftLength = k;
-					start = numTest; finish = start+1;
-				}
-
-				modType = MODULUS_TYPE_MERSENNE;
-				goto TIMING_TEST_LOOP;
-			}
-			/* ...Otherwise barf. */
-			else
-			{
-				fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
-			}
-		}
-		else
-		{
-			fprintf(stderr, "\n  Done ...\n\n");
-			exit(EXIT_SUCCESS);
-		}
-	}
+	testType = TEST_TYPE_PRIMALITY;	/* Currently only primality-test mode is supported: */
 
 	/******** command-line-argument processing while() loop: ********/
 	nargs = 1;
@@ -3016,12 +2889,17 @@ else
 		{
 			fprintf(stderr, "*** ERROR: Illegal command-line option %s\n", stFlag);
 			fprintf(stderr, "*** All command-line options must be of form -{flag} [argument]\n\n");
-			goto MLUCAS_HELP;
+			print_help("");
 		}
 
 		if(STREQ(stFlag, "-h"))
 		{
-			goto MLUCAS_HELP;
+			print_help("");
+		}
+
+		if(STREQ(stFlag, "-topic"))
+		{
+			print_help("topic");
 		}
 
 		/* Mersenne self-test: requires a user-set exponent, FFT length or one of the supported -s arguments below: */
@@ -3029,18 +2907,9 @@ else
 		{
 			selfTest = TRUE;
 
-		/* DEFUNCT: -s [arg] cannot be combined with any other flag except -rocheck [on|off]:
-			if(userSetExponent)
-			{
-				sprintf(cbuf  , "*** ERROR: The -s [arg] flag cannot be combined with any other except -rocheck [on|off].\n");
-				fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
-			}
-		*/
-
-			if(nargs >= argc)
-			{
+			if(nargs >= argc) {
 				fprintf(stderr, "*** ERROR: Unterminated command-line option or malformed argument.\n");
-				goto MLUCAS_HELP;
+				print_help("self_test");
 			}
 
 			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
@@ -3091,17 +2960,16 @@ else
 					break;
 				}
 				start = finish; finish += numGodzillian;
-				if(STREQ(stFlag, "b") || STREQ(stFlag, "gojira"))
+				if(STREQ(stFlag, "g") || STREQ(stFlag, "gojira"))
 				{
 					break;
 				}
 
 				fprintf(stderr, "*** ERROR: Illegal argument %s to -s flag\n", stFlag);
-				goto MLUCAS_HELP;
+				print_help("self_test");
 			}
 
 			modType  = MODULUS_TYPE_MERSENNE;
-			/* Don't break yet, since we need to see if -rocheck was invoked by the caller. */
 		}
 
 		else if(STREQ(stFlag, "-iters"))
@@ -3109,7 +2977,7 @@ else
 			if(nargs >= argc)
 			{
 				fprintf(stderr, "*** ERROR: Unterminated command-line option or malformed argument.\n");
-				goto MLUCAS_HELP;
+				print_help("iters");
 			}
 
 			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
@@ -3140,20 +3008,12 @@ else
 			iters = (uint32)iarg;
 		}
 
-	// Force errCheck-always-on in || mode, since we only multithreaded the err-checking versions of the carry routines:
-	#ifndef MULTITHREAD
-		else if(STREQ(stFlag, "-rocheck"))
-		{
-			errCheck = 1;
-		}
-	#endif
-
 		else if(STREQ(stFlag, "-fftlen"))
 		{
 			if(nargs >= argc)
 			{
 				fprintf(stderr, "*** ERROR: Unterminated command-line option or malformed argument.\n");
-				goto MLUCAS_HELP;
+				print_help("fftlen");
 			}
 
 			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
@@ -3181,23 +3041,11 @@ else
 				}
 			}
 
-			k = (uint32)iarg;
-			if((i = get_fft_radices(k, 0, 0x0, 0x0, 0)) != 0)
+			fftlen = (uint32)iarg;
+			if((i = get_fft_radices(fftlen, 0, 0x0, 0x0, 0)) != 0)
 			{
-				sprintf(cbuf  , "ERROR: FFT length %d K not available.\n",k);
+				sprintf(cbuf  , "ERROR: FFT length %d K not available.\n",fftlen);
 				fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
-			}
-
-			/* Don't set userSetExponent here, since -fftlen can be invoked without an explicit exponent */
-			if(modType == MODULUS_TYPE_FERMAT)
-			{
-				FermVec[numFerm].fftLength = k;	/* For this to work reqire any explicit mod-type invocation to occur before fftlen in input arglist */
-				start = numFerm; finish = start+1;
-			}
-			else
-			{
-				MersVec[numTest].fftLength = k;
-				start = numTest; finish = start+1;
 			}
 		}
 
@@ -3206,7 +3054,7 @@ else
 			if(nargs >= argc)
 			{
 				fprintf(stderr, "*** ERROR: Unterminated command-line option or malformed argument.\n");
-				goto MLUCAS_HELP;
+				print_help("radset");
 			}
 
 			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
@@ -3234,43 +3082,14 @@ else
 				}
 			}
 			radset = iarg;
-
-			/* Make sure user has specified an FFT length: */
-			if(modType == MODULUS_TYPE_FERMAT)
-			{
-				iarg = FermVec[numFerm].fftLength;
-			}
-			else
-			{
-				iarg = MersVec[numTest].fftLength;
-			}
-			if(iarg == 0)
-			{
-				sprintf(cbuf  , "*** ERROR: Must specify a valid FFT length on command line before -radset argument!\n");
-				fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
-			}
-
-			/* Make sure it's a valid radix set index for this FFT length: */
-			if((i = get_fft_radices(iarg, radset, &idum, 0x0, 0)) != 0)
-			{
-				if     (i == ERR_FFTLENGTH_ILLEGAL)
-					sprintf(cbuf  , "ERROR: FFT length %d K illegal!\n", iarg);
-				else if(i == ERR_RADIXSET_UNAVAILABLE)
-					sprintf(cbuf  , "ERROR: radix set index %d for FFT length %d K exceeds maximum allowable of %d.\n",radset, iarg, idum-1);
-				else
-					sprintf(cbuf  , "ERROR: Unknown error-code value %d from get_fft_radices(), called with radix set index %d, FFT length %d K\n",i,radset, iarg);
-
-				fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
-			}
 		}
-
 
 		else if(STREQ(stFlag, "-nthread"))
 		{
 			if(nargs >= argc)
 			{
 				fprintf(stderr, "*** ERROR: Unterminated command-line option or malformed argument.\n");
-				goto MLUCAS_HELP;
+				print_help("nthread");
 			}
 
 			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
@@ -3299,9 +3118,33 @@ else
 			}
 
 		#ifndef MULTITHREAD
-			fprintf(stderr,"Multithreading not enabled; ignoring -nthread argument.");
+			ASSERT(HERE,0,"Multithreading must be enabled in build to permit -nthread argument!");
 		#else
 			NTHREADS = iarg;
+			ASSERT(HERE,cpu == FALSE,"Only one of -nthread and -cpu flags permitted!");
+			nthread = TRUE;
+			// Use the same affinity-setting code here as for the -cpu option, but simply for cores [0:NTHREADS-1]:
+			sprintf(cbuf,"0:%d",NTHREADS-1);
+			parseAffinityString(cbuf);
+		#endif
+		}
+
+		else if(STREQ(stFlag, "-cpu"))
+		{
+			if(nargs >= argc)
+			{
+				fprintf(stderr, "*** ERROR: Unterminated command-line option or malformed argument.\n");
+				print_help("nthread");
+			}
+
+			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
+
+		#ifndef MULTITHREAD
+			ASSERT(HERE,0,"Multithreading must be enabled in build to permit -cpu argument!");
+		#else
+			parseAffinityString(stFlag);
+			ASSERT(HERE,nthread == FALSE,"Only one of -nthread and -cpu flags permitted!");
+			cpu = TRUE;
 		#endif
 		}
 
@@ -3314,7 +3157,7 @@ else
 			if(nargs >= argc)
 			{
 				fprintf(stderr, "*** ERROR: Unterminated command-line option or malformed argument.\n");
-				goto MLUCAS_HELP;
+				print_help("mersenne");
 			}
 
 			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
@@ -3357,7 +3200,7 @@ else
 			if(nargs >= argc)
 			{
 				fprintf(stderr, "*** ERROR: Unterminated command-line option or malformed argument.\n");
-				goto MLUCAS_HELP;
+				print_help("fermat");
 			}
 
 			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
@@ -3410,7 +3253,7 @@ else
 		else
 		{
 			fprintf(stderr, "*** ERROR: Unrecognized flag %s.\n", stFlag);
-			goto MLUCAS_HELP;
+			print_help("");
 		}
 	}	/* end of command-line-argument processing while() loop */
 
@@ -3418,24 +3261,121 @@ else
 	{
 		modType = MODULUS_TYPE_MERSENNE;
 	}
-
-	/* If user specified FFT length but no exponent, get default Mersenne exponent for that FFT length: */
-	if(modType == MODULUS_TYPE_MERSENNE)
-	{
-		/* Special case of user forcing a non-default FFT length for an exponent in the worktodo.ini file -
-		this assumes the arglist exponent matches the first entry in worktodo.ini and the specified FFT length
-		already has a best-radix-set entry in the mlucas.cfg file:
-		*/
-		// Dec 2014: Use (iters != 0) to differentiate this case from "self-test with non-default number of iterations",
-		// e.g. 'Mlucas -s m -iters 1000', which has argc == 5 and satisfies the remaining subconditions, as well:
-		if (iters == 0 && argc == 5 && MersVec[start].exponent && MersVec[start].fftLength )
+	// Now that have determined the modType, copy any user-set FFT length into the appropriate field:
+	if(fftlen) {
+		/* Don't set userSetExponent here, since -fftlen can be invoked without an explicit exponent */
+		if(modType == MODULUS_TYPE_FERMAT)
 		{
-			if((retVal = ernstMain(MODULUS_TYPE_MERSENNE,TEST_TYPE_PRIMALITY,MersVec[start].exponent,MersVec[start].fftLength,0,0,0,FALSE,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime)) != 0)
+			FermVec[numFerm].fftLength = fftlen;
+			start = numFerm; finish = start+1;
+		}
+		else
+		{
+			MersVec[numTest].fftLength = fftlen;
+			start = numTest; finish = start+1;
+		}
+	}
+	// If user has specified a radix set, make sure an FFT length has also specified:
+	if(radset != -1) {
+		if(modType == MODULUS_TYPE_FERMAT)
+		{
+			iarg = FermVec[numFerm].fftLength;
+		}
+		else
+		{
+			iarg = MersVec[numTest].fftLength;
+		}
+		if(iarg == 0)
+		{
+			sprintf(cbuf  , "*** ERROR: Must specify a valid FFT length on command line before -radset argument!\n");
+			fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+		}
+
+		/* Make sure it's a valid radix set index for this FFT length: */
+		if((i = get_fft_radices(iarg, radset, &idum, 0x0, 0)) != 0)
+		{
+			if     (i == ERR_FFTLENGTH_ILLEGAL)
+				sprintf(cbuf  , "ERROR: FFT length %d K illegal!\n", iarg);
+			else if(i == ERR_RADIXSET_UNAVAILABLE)
+				sprintf(cbuf  , "ERROR: radix set index %d for FFT length %d K exceeds maximum allowable of %d.\n",radset, iarg, idum-1);
+			else
+				sprintf(cbuf  , "ERROR: Unknown error-code value %d from get_fft_radices(), called with radix set index %d, FFT length %d K\n",i,radset, iarg);
+
+			fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+		}
+	}
+
+	// Use selfTest == TRUE or -iters (in the single-FFT-length-timing case) to differentiate between timing-test and production runs.
+	// In fact it eases the logic to explicitly set selfTest = TRUE whenever iters is set (but not nec. the converse), so do that here:
+	if(iters) selfTest = TRUE;
+
+	if(modType == MODULUS_TYPE_MERSENNE && !selfTest)
+	{
+		if(userSetExponent) {
+			ASSERT(HERE, start > 0, "userSetExponent = TRUE but self-test starting-index unset!");
+			sprintf(cbuf, "ERROR: Production-run-mode [-iters not invoked] does not allow command-line\nsetting of exponent - that must be read from the worktodo.ini file.\n");
+			ASSERT(HERE, 0,cbuf);
+		} else if(start == -1) {
+			start = numTest; finish = start+1;
+		}
+		if(radset != -1) {
+			sprintf(cbuf, "ERROR: Production-run-mode [-iters not invoked] allows command-line setting of\nFFT length, but not the radix set - that must be read from the mlucas.cfg file.\n");
+			ASSERT(HERE, 0,cbuf);
+		}
+	ERNST_MAIN:
+		if((retVal = ernstMain(MODULUS_TYPE_MERSENNE,TEST_TYPE_PRIMALITY,0,MersVec[start].fftLength,0,0,0,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime)) != 0)
+		{
+			printMlucasErrCode(retVal);
+
+			/* If need to run a timing self-test at a particular FFT length, do that and then try again... */
+			if((retVal & 0xff) == ERR_RUN_SELFTEST_FORLENGTH)
 			{
-				printMlucasErrCode(retVal);
+				quick_self_test = TRUE;
+				selfTest = TRUE;
+				k = (uint32)(retVal >> 8);
+				if((i = get_fft_radices(k, 0, 0x0, 0x0, 0)) != 0)
+				{
+					sprintf(cbuf, "ERROR: FFT length %d K not available.\n",k);
+					fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+				}
+
+			/**** IF POSSIBLE, USE ONE OF THE STANDARD TEST EXPONENTS HERE, SO CAN CHECK RES64s!!! ****/
+				for(i = 0; i < numTest; i++)
+				{
+					if(MersVec[i].fftLength == k)
+					{
+						userSetExponent = 0;
+						start = i; finish = start+1;
+						break;
+					}
+				}
+				if(i == numTest)
+				{
+					userSetExponent = 1;
+					MersVec[numTest].exponent = convert_base10_char_uint64(ESTRING);
+					MersVec[numTest].fftLength = k;
+					start = numTest; finish = start+1;
+				}
+
+				modType = MODULUS_TYPE_MERSENNE;
+				goto TIMING_TEST_LOOP;
+			}
+			/* ...Otherwise barf. */
+			else
+			{
+				fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 			}
 		}
-		else if(MersVec[start].exponent == 0)
+		else
+		{
+			fprintf(stderr, "\n  Done ...\n\n");
+			exit(EXIT_SUCCESS);
+		}
+	}
+	/* If user specified iters and FFT length but no exponent, get default Mersenne exponent for that FFT length: */
+	else if(modType == MODULUS_TYPE_MERSENNE)
+	{
+		if(MersVec[start].exponent == 0)
 		{
 			i = MersVec[start].fftLength;
 			ASSERT(HERE, i > 0                  ,"Mlucas.c: i > 0                  ");
@@ -3474,7 +3414,7 @@ else
 		/* If user specified exponent but no FFT length, get default FFT length for that exponent: */
 		else if(MersVec[numTest].exponent && (MersVec[numTest].fftLength == 0))
 		{
-			MersVec[numTest].fftLength = get_default_fft_length(MersVec[numTest].exponent);
+			MersVec[numTest].fftLength = get_default_fft_length((uint64)(MersVec[numTest].exponent));
 		}
 	}
 	else if(modType == MODULUS_TYPE_FERMAT)
@@ -3506,24 +3446,10 @@ else
 				}
 			}
 		}
-		/* If user specified exponent but no FFT length, get default power-of-2 FFT length for that exponent: */
+		/* If user specified exponent but no FFT length, get default FFT length for that exponent: */
 		else if(findex && (FermVec[numFerm].fftLength == 0))
 		{
-			FermVec[numFerm].fftLength = (uint32)1 << (findex - FermArrayIdxOffset);	/* Default is 16 bits per word, #kblocks = (f/16)/1024 */
-		/*	FermVec[numFerm].fftLength = get_default_fft_length((uint32)1 << findex);	// Default is 16 bits per word */
-
-			if(findex <= FermVec[numFerm-1].exponent)	/* Find the corresponding entry of FermVec: */
-			{
-				start = (findex - FermArrayIdxOffset); finish = start+1;
-			}
-		}
-		/* User specified both exponent and FFT length: */
-		else if(0)
-		{
-			if(findex <= FermVec[numFerm-1].exponent)	/* Find the corresponding entry of FermVec: */
-			{
-				start = (findex - FermArrayIdxOffset); finish = start+1;
-			}
+			FermVec[numFerm].fftLength = get_default_fft_length((uint64)1 << findex);
 		}
 	}
 	else
@@ -3531,18 +3457,18 @@ else
 		ASSERT(HERE, 0,"modType not recognized!");
 	}
 
-
 TIMING_TEST_LOOP:
 
-	fprintf(stderr, "\n           Mlucas selftest running.....\n\n");
-	/* We have precomputed 100, 1000 and 10000-iteration residues for the predefined self-test exponents: */
-	if( (userSetExponent && (modType == MODULUS_TYPE_MERSENNE)) || ((iters != 100) && (iters != 1000) && (iters != 10000)) )
-	{
-		fprintf(stderr, "\n**** You will need to manually verify that the Res64s output");
-		fprintf(stderr, "\n**** for this user-set p match for all FFT radix combinations!!\n\n\n");
+	if(selfTest) {
+		fprintf(stderr, "\n           Mlucas selftest running.....\n\n");
+		/* We have precomputed 100, 1000 and 10000-iteration residues for the predefined self-test exponents: */
+		if( (userSetExponent && (modType == MODULUS_TYPE_MERSENNE)) || (iters && (iters != 100) && (iters != 1000) && (iters != 10000)) )
+		{
+			fprintf(stderr, "\n********** Non-default exponent or #iters not one of [100,1000,10000] - You will have to manually  **********");
+			fprintf(stderr, "\n********** verify that the Res64s output for this self-test match for all FFT radix combinations!! **********\n\n\n");
+		}
+		fprintf(stderr, "/****************************************************************************/\n\n");
 	}
-	fprintf(stderr, "/****************************************************************************/\n\n");
-
 	/* FFT-radix configuration file is named mlucas.cfg or fermat.cfg,
 	depending on whether Mersenne or Fermat number test is being done.
 
@@ -3572,13 +3498,9 @@ TIMING_TEST_LOOP:
 	That saves us the headache of having to contemplate doing on-the-fly re-sorting of the file contents.
 	*/
 	if(modType == MODULUS_TYPE_FERMAT)
-	{
 		strcpy(CONFIGFILE,"fermat.cfg");
-	}
-	else	/* For now, anything else gets done using the Mersenne-mod .cfg file */
-	{
+	else
 		strcpy(CONFIGFILE,"mlucas.cfg");
-	}
 
 	/* Determine mode in which to open the file. There are several cases to consider here:
 
@@ -3610,7 +3532,7 @@ TIMING_TEST_LOOP:
 		a quick set of timing tests at the length will be run in order to generate one, then go back to square (b).
 	*/
 	FILE_ACCESS_MODE[0] = FILE_ACCESS_READ;
-	FILE_ACCESS_MODE[1] = FILE_ACCESS_UPDATE;	/* Include this in fopen, so can
+	FILE_ACCESS_MODE[1] = FILE_ACCESS_UPDATE;	/* Include this in mlucas_fopen, so can
 													(a) check whether it exists and is writeable;
 													(b) if so, read the first line;
 												in one fell swoop. */
@@ -3653,9 +3575,7 @@ TIMING_TEST_LOOP:
 	for (xNum = start; xNum < finish; xNum++)    /* Step through the exponents */
 	{
 		new_data = FALSE;
-		Res64   = 0ull;
-		Res36m1 = 0ull;
-		Res35m1 = 0ull;
+		Res64 = Res36m1 = Res35m1 = 0ull;
 
 		/* If it's a self-test [i.e. timing test] and user hasn't specified #iters, set to default: */
 		if(selfTest && !iters)
@@ -3675,15 +3595,14 @@ TIMING_TEST_LOOP:
 			 || (modType == MODULUS_TYPE_FERMAT   && FermVec[  xNum].res_t[mvec_res_t_idx].sh0 == 0) )	/* New self-test residue being computed */
 			{
 				new_data = TRUE;
-				new_res.sh0 = Res64  ;
-				new_res.sh1 = Res35m1;
-				new_res.sh2 = Res36m1;
+				new_res.sh0 = new_res.sh1 = new_res.sh2 = 0ull;
 			}
 		}
 
-		/* Init best-radix-set and best-runtime for this FFT length: */
+		/* Init best-radix-set, best-runtime and #radix-sets-which-succeeded for this FFT length: */
 		runtime_best = 0.0;
 		radix_best = -1;
+		nradix_set_succeed = 0;
 
 		/* If user-specified radix set, do only that one: */
 		if(radset >= 0)
@@ -3692,37 +3611,46 @@ TIMING_TEST_LOOP:
 			radix_set = 0;
 
 		if(modType == MODULUS_TYPE_MERSENNE)
-		{
 			iarg = MersVec[xNum].fftLength;
-		}
 		else if(modType == MODULUS_TYPE_FERMAT)
-		{
 			iarg = FermVec[xNum].fftLength;
-		}
 
 		while(get_fft_radices(iarg, radix_set, &NRADICES, RADIX_VEC, 10) == 0)	/* Try all the radix sets available for this FFT length. */
 		{
-
-			/* errCheck = 0/1: Error Checking is OFF/ON */
 			if     (modType == MODULUS_TYPE_FERMAT)
 			{
 				Res64   = FermVec[  xNum].res_t[mvec_res_t_idx].sh0;
 				Res35m1 = FermVec[  xNum].res_t[mvec_res_t_idx].sh1;
 				Res36m1 = FermVec[  xNum].res_t[mvec_res_t_idx].sh2;
-				retVal = ernstMain(modType,testType,(uint64)FermVec[xNum].exponent,iarg,radix_set,maxFFT,iters,errCheck,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime);
+				retVal = ernstMain(modType,testType,(uint64)FermVec[xNum].exponent,iarg,radix_set,maxFFT,iters,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime);
 			}
 			else if(modType == MODULUS_TYPE_MERSENNE)
 			{
 				Res64   = MersVec[  xNum].res_t[mvec_res_t_idx].sh0;
 				Res35m1 = MersVec[  xNum].res_t[mvec_res_t_idx].sh1;
 				Res36m1 = MersVec[  xNum].res_t[mvec_res_t_idx].sh2;
-				retVal = ernstMain(modType,testType,(uint64)MersVec[xNum].exponent,iarg,radix_set,maxFFT,iters,errCheck,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime);
+				retVal = ernstMain(modType,testType,(uint64)MersVec[xNum].exponent,iarg,radix_set,maxFFT,iters,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime);
 			}
 			else
-				ASSERT(HERE, 0,"0");
+				ASSERT(HERE, 0,"Unsupported modulus type!");
+			// If retVal != 0 relates to dangerously high ROEs, use (to-do: factor in #occurrences) maxErr to decide whether to accept the radix set.
+			// AME,MME contain avgMaxErr and maxMaxErr for iter-interval, ROE_ITER holds #maxErr > 0.40625;	ROE_VAL recapitulates MME
+			// (meaning we can use it to store some additional ROE-related measure should that become desirable in the future):
+			if(selfTest && ( !userSetExponent && ((iters == 100) || (iters == 1000) || (iters == 10000)) )
+			&&	 ( (iters ==   100 && MME >=0.40625)	// Even a single ROE unacceptable for such a short run
+				|| (iters ==  1000 && MME > 0.40625)
+				|| (iters == 10000 && MME > 0.42   ) ) )
+			{
+				fprintf(stderr, "***** Excessive level of roundoff error detected - this radix set will not be used. *****\n");
 
-			/* Bzzzzzzzzzzzt!!! That answer is incorrect. The penalty is death... */
-			if(retVal)
+				/* If user-specified radix set, do only that one: */
+				if(radset >= 0) goto DONE;
+
+				runtime = 0.0;
+				++radix_set;
+				continue;
+			}
+			else if(retVal)	/* Bzzzzzzzzzzzt!!! That answer is incorrect. The penalty is death... */
 			{
 				printMlucasErrCode(retVal);
 				if( !userSetExponent && ((iters == 100) || (iters == 1000) || (iters == 10000)) )
@@ -3730,9 +3658,9 @@ TIMING_TEST_LOOP:
 					fprintf(stderr, "Error detected - this radix set will not be used.\n");
 				}
 				/* If user-specified radix set, do only that one: */
-				if(radset >= 0)
-					goto DONE;
+				if(radset >= 0) goto DONE;
 
+				runtime = 0.0;
 				++radix_set;
 				continue;
 			}
@@ -3747,17 +3675,26 @@ TIMING_TEST_LOOP:
 					new_res.sh0 = Res64  ;
 					new_res.sh1 = Res35m1;
 					new_res.sh2 = Res36m1;
+					nradix_set_succeed++;	// This assumes when doing such a new-data-selftest the initial radset gives the correct result,
+											// which may not be justified, but we can add fancier consensus-weighing logic later, if needed.
 				}
 				else if				/* All subsequent radix sets must match to produce a consensus result: */
 				(
-					new_res.sh0 != Res64
-				 ||	new_res.sh1 != Res35m1
-				 ||	new_res.sh2 != Res36m1
+					new_res.sh0 == Res64
+				 &&	new_res.sh1 == Res35m1
+				 &&	new_res.sh2 == Res36m1
 				)
 				{
-					radix_best = -1;
-					break;
+					nradix_set_succeed++;
 				}
+				else
+				{
+					runtime = 0.0;
+					++radix_set;
+					continue;
+				}
+			} else {	// If not a new-data self-tests (i.e. it's a regular -s one), getting here means the current radset succeeded:
+				nradix_set_succeed++;
 			}
 
 			/* 16 Dec 2007: Added the (runtime != 0) here to workaround the valid-timing-test-but-runtime = 0
@@ -3779,18 +3716,24 @@ TIMING_TEST_LOOP:
 			++radix_set;
 		}
 
-		/* If get no successful reference-Res64-matching results, inform user: */
-		if(radix_best < 0 || runtime_best == 0.0)
+		// If get no successful reference-Res64-matching results, or less than half of results @this FFT length match, skip it:
+		if(radix_best < 0 || runtime_best == 0.0 || nradix_set_succeed < (radix_set+1)/2)
 		{
-			sprintf(cbuf  , "WARNING: No valid best-radix-set found for FFT length %u K.\n",iarg);
+			sprintf(cbuf, "WARNING: %d of %d radix-sets at FFT length %u K passed - skipping it. PLEASE CHECK YOUR BUILD OPTIONS.\n",nradix_set_succeed,radix_set,iarg);
 			fprintf(stderr,"%s", cbuf);
 		}
 		/* If get a nonzero best-runtime, write the corresponding radix set index to the .cfg file: */
 		else
 		{
-			/* Divide by the number of iterations done in the self-test: */
-			tdiff = runtime_best/iters;
+			sprintf(cbuf, "INFO: %d of %d radix-sets at FFT length %u K passed - writing cfg-file entry.\n",nradix_set_succeed,radix_set,iarg);
+			fprintf(stderr,"%s", cbuf);
 
+			/* Divide by the number of iterations done in the self-test: */
+		#ifdef MULTITHREAD	// In || mode the mod_square routines use getRealTime() to accumulate wall-clock time, thus CLOCKS_PER_SEC not needed
+			tdiff = runtime_best/iters;
+		#else
+			tdiff = runtime_best/((double)iters*CLOCKS_PER_SEC);
+		#endif
 			fp = mlucas_fopen(CONFIGFILE,FILE_ACCESS_MODE);
 			if(!fp)
 			{
@@ -3799,7 +3742,7 @@ TIMING_TEST_LOOP:
 			}
 
 			/* Put code version on line 1.
-			Only want to do this once; subsequent fopen/fprintf are in append mode:
+			Only want to do this once; subsequent mlucas_fopen/fprintf are in append mode:
 			*/
 			if(new_cfg && FILE_ACCESS_MODE[0]==FILE_ACCESS_WRITE)
 			{
@@ -3852,29 +3795,70 @@ TIMING_TEST_LOOP:
 DONE:
 	fprintf(stderr, "\n  Done ...\n\n");
 	return(0);
+}
 
+/******************/
 
-MLUCAS_HELP:
-	fprintf(stderr, " Mlucas command line options:\n");
+void print_help(char*option)
+{
+	int lo, hi, printall = 0;
+	if(STREQ(option,"")) printall = TRUE;
+
+	fprintf(stderr, "For the full list of command line options, run the program with the -h flag.\n\n");
+
+  if(printall)
+	fprintf(stderr, "Mlucas command line options:\n\
+	\n\
+	 Symbol and abbreviation key:\n\
+	       <CR> :  carriage return\n\
+	        |   :  separator for one-of-the-following multiple-choice menus\n\
+	       []   :  encloses optional arguments\n\
+	       {}   :  denotes user-supplied numerical arguments of the type noted.\n\
+	              ({int} means nonnegative integer, {+int} = positive int, {float} = float.)\n\
+	  -argument :  Vertical stacking indicates argument short 'nickname' options,\n\
+	  -arg      :  e.g. in this example '-arg' can be used in place of '-argument'.\n\
+	\n\
+	 Supported arguments:\n\
+	\n\
+	 <CR>        Default mode: looks for a %s file in the local\n\
+	             directory; if none found, prompts for manual keyboard entry\n\
+	\n", RANGEFILE);
+
+  if(printall || STREQ(option,"topic")) {
+	fprintf(stderr, "Help submenus by topic. No additional arguments may follow the displayed ones:\n");
+	fprintf(stderr, " -s            Post-build self-testing for various FFT-length rnages.\n");
+	fprintf(stderr, " -fftlen       FFT-length setting.\n");
+	fprintf(stderr, " -radset       FFT radix-set specification.\n");
+	fprintf(stderr, " -m[ersenne]   Mersenne-number primality testing.\n");
+	fprintf(stderr, " -f[ermat]     Fermat-number primality testing.\n");
+	fprintf(stderr, " -iters        Iteration-number setting.\n");
+	fprintf(stderr, " -nthread|cpu  Setting threadcount and CPU core affinity.\n");
 	fprintf(stderr, "\n");
-	fprintf(stderr, " Symbol and abbreviation key:\n");
-	fprintf(stderr, "       <CR> :  carriage return\n");
-	fprintf(stderr, "       []   :  encloses optional arguments\n");
-	fprintf(stderr, "       {}   :  denotes user-supplied numerical arguments of the type noted.\n");
-	fprintf(stderr, "              ({int} means nonnegative integer, {+int} = positive int, {float} = float.)\n");
-	fprintf(stderr, "  -argument :  Vertical stacking indicates argument short 'nickname' options,\n");
-	fprintf(stderr, "  -arg      :  e.g. in this example '-arg' can be used in place of '-argument'.\n");
-	fprintf(stderr, "\n");
-	fprintf(stderr, " Supported arguments:\n");
-	fprintf(stderr, "\n");
-	fprintf(stderr, " <CR>        Default mode: looks for a %s file in the local;\n", RANGEFILE);
-	fprintf(stderr, "             directory; if none found, prompts for manual keyboard entry\n");
-	fprintf(stderr, "\n");
-	fprintf(stderr, " -h          Prints this help file and exits\n");
-	fprintf(stderr, "\n");
-	fprintf(stderr, " *** NOTE: *** The following options may cause an mlucas.cfg file containing\n");
-	fprintf(stderr, "     the optimal FFT radix set for the runlength(s) tested, to be created (if one\n");
-	fprintf(stderr, "     did not exist previously) and/or appended with new timing data.\n");
+  }
+
+  if(printall || STREQ(option,"self_test")) {
+	fprintf(stderr, " *** NOTE: *** The following self-test options will cause an mlucas.cfg file containing\n\
+     the optimal FFT radix set for the runlength(s) tested to be created (if one did not\n\
+     exist previously) or appended (if one did) with new timing data. Such a file-write is\n\
+     triggered by each complete set of FFT radices available at a given FFT length being\n\
+     tested, i.e. by a self-test without a user-specified -radset argument.\n\
+     (A user-specific Mersenne exponent may be supplied via the -m flag; if none is specified,\n\
+     the program will use the largest permissible exponent for the given FFT length, based on\n\
+     its internal length-setting algorithm). The user must specify the number of iterations for\n\
+     the self-test via the -iters flag; while it is not required, it is strongly recommended to\n\
+     stick to one of the standard timing-test values of -iters = [100,1000,10000], with the larger\n\
+     values being preferred for multithreaded timing tests, in order to assure a decently large\n\
+     slice of CPU time. Similarly, it is recommended to not use the -m flag for such tests, unless\n\
+     roundoff error levels on a given compute platform are such that the default exponent at one or\n\
+     more FFT lengths of interest prevents a reasonable sampling of available radix sets at same.\n\
+        If the user lets the program set the exponent and uses one of the aforementioned standard\n\
+     self-test iteration counts, the resulting best-timing FFT radix set will only be written to the\n\
+     resulting mlucas.cfg file if the timing-test result matches the internally- stored precomputed\n\
+     one for the given default exponent at the iteration count in question, with eligible radix sets\n\
+     consisting of those for which the roundoff error remains below an acceptable threshold.\n\
+     If the user instead specifies the exponent (only allowed for a single-FFT-length timing test)****************\n\
+     and/or a non-default iteration number, the resulting best-timing FFT radix set will only be\n\
+     written to the resulting mlucas.cfg file if the timing-test results match each other? ********* check logic here *******\n");
 	fprintf(stderr, "     This is important for tuning code parameters to your particular platform.\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "   FOR BEST RESULTS, RUN ANY SELF-TESTS UNDER ZERO- OR CONSTANT-LOAD CONDITIONS\n");
@@ -3908,20 +3892,39 @@ MLUCAS_HELP:
 	fprintf(stderr, " -s all      Runs 100-iteration self-tests of all test Mersenne exponents and all FFT radix sets.\n");
 	fprintf(stderr, " -s a        This will take several hours on a fast CPU.\n");
 	fprintf(stderr, "\n");
+  }
+  if(printall || STREQ(option,"fftlen")) {
 	fprintf(stderr, " -fftlen {+int}   If {+int} is one of the available FFT lengths (in Kilodoubles), runs all\n");
-	fprintf(stderr, "             all available FFT radices available at that length, unless the -radset\n");
-	fprintf(stderr, "             flag is also invoked (see below for details). If -fftlen is invoked\n");
-	fprintf(stderr, "             with either the -m or -f flag, the self-tests will do either 100 iterations\n");
-	fprintf(stderr, "             of a Lucas-Lehmer test (-m) or Pe'pin test (-f) on the user-specified Mersenne\n");
-	fprintf(stderr, "             or Fermat number. If no user-set exponent is invoked, does 100 LL-test iterations\n");
-	fprintf(stderr, "             using the default self-test Mersenne or Fermat exponent for that FFT length\n");
+	fprintf(stderr, "             all available FFT radices available at that length, unless the -radset flag is\n");
+	fprintf(stderr, "             invoked (see below for details). If -fftlen is invoked without the -iters flag,\n");
+	fprintf(stderr, "             it is assumed the user wishes to do a production run with a non-default FFT length,\n");
+	fprintf(stderr, "             In this case the program requires a valid %s-file entry with exponent\n",RANGEFILE);
+	fprintf(stderr, "             not more than 5%% larger than the default maximum for that FFT length.\n");
+	fprintf(stderr, "                  If -fftlen is invoked with a user-supplied value of -iters but without a\n");
+	fprintf(stderr, "             user-supplied exponent, the program will do the specified number of iterations\n");
+	fprintf(stderr, "             using the default self-test Mersenne or Fermat exponent for that FFT length.\n");
+	fprintf(stderr, "                  If -fftlen is invoked with a user-supplied value of -iters and either the\n");
+	fprintf(stderr, "             -m or -f flag and a user-supplied exponent, the program will do the specified\n");
+	fprintf(stderr, "             number of iterations of either the Lucas-Lehmer test with starting value 4 (-m)\n");
+	fprintf(stderr, "             or the Pe'pin test with starting value 3 (-f) on the user-specified modulus.\n");
 	fprintf(stderr, "\n");
+	fprintf(stderr, "             In either of the latter 2 cases, the program will produce a cfg-file entry based\n");
+	fprintf(stderr, "             on the timing results, assuming at least one radix set ran the specified #iters\n");
+	fprintf(stderr, "             to completion without suffering a fatal error of some kind.\n");
 	fprintf(stderr, "             Use this to find the optimal radix set for a single FFT length on your hardware.\n");
 	fprintf(stderr, "\n");
-	fprintf(stderr, " -radset {int}    Specific index of a set of complex FFT radices to use, based on\n");
-	fprintf(stderr, "             the big select table in the function get_fft_radices(). Requires a\n");
-	fprintf(stderr, "             supported value of -fftlen to be specified.\n");
+	fprintf(stderr, "             NOTE: IF YOU USE OTHER THAN THE DEFAULT MODULUS OR #ITERS FOR SUCH A SINGLE-FFT-\n");
+	fprintf(stderr, "             LENGTH TIMING TEST, IT IS UP TO YOU TO MANUALLY VERIFY THAT THE RESIDUES OUTPUT\n");
+	fprintf(stderr, "             MATCH FOR ALL FFT RADIX COMBINATIONS AND THE ROUNDOFF ERRORS ARE REASONABLE!\n");
 	fprintf(stderr, "\n");
+  }
+  if(printall || STREQ(option,"radset")) {
+	fprintf(stderr, " -radset {int}    Specific index of a set of complex FFT radices to use, based on the big\n");
+	fprintf(stderr, "             select table in the function get_fft_radices(). Requires a supported value of\n");
+	fprintf(stderr, "             -fftlen to also be specified, as well as a value of -iters for the timing test.\n");
+	fprintf(stderr, "\n");
+  }
+  if(printall || STREQ(option,"mersenne")) {
 	fprintf(stderr, " -m [{+int}] Performs a Lucas-Lehmer primality test of the Mersenne number M(int) = 2^int - 1,\n");
 	fprintf(stderr, "             where int must be an odd prime. If -iters is also invoked, this indicates a timing test.\n");
 	fprintf(stderr, "             and requires suitable added arguments (-fftlen and, optionally, -radset) to be supplied.\n");
@@ -3939,22 +3942,66 @@ MLUCAS_HELP:
 	fprintf(stderr, "             FFT radices available at that exponent's default FFT length.\n");
 	fprintf(stderr, "                Use this to find the optimal radix set for a single given Mersenne number\n");
 	fprintf(stderr, "             exponent on your hardware, similarly to the -fftlen option.\n");
-	fprintf(stderr, "                In self-test mode 100 iteration are done, or as many as specified via the -iters flag.\n");
+	fprintf(stderr, "                Performs as many iterations as specified via the -iters flag [required].\n");
 	fprintf(stderr, "\n");
+  }
+  if(printall || STREQ(option,"fermat")) {
 	fprintf(stderr, " -f {int}    Performs a base-3 Pe'pin test on the Fermat number F(num) = 2^(2^num) + 1.\n");
 	fprintf(stderr, "                If desired this can be invoked together with the -fftlen option.\n");
 	fprintf(stderr, "             as for the Mersenne-number self-tests (see notes about the -m flag;\n");
 	fprintf(stderr, "             note that not all FFT lengths supported for -m are available for -f).\n");
 	fprintf(stderr, "             Optimal radix sets and timings are written to a fermat.cfg file.\n");
-	fprintf(stderr, "                Performs 100 iterations, or as many as specified via the -iters flag.\n");
+	fprintf(stderr, "                Performs as many iterations as specified via the -iters flag [required].\n");
 	fprintf(stderr, "\n");
+  }
+  if(printall || STREQ(option,"iters")) {
 	fprintf(stderr, " -iters {int}   Do {int} self-test iterations of the type determined by the\n");
 	fprintf(stderr, "             modulus-related options (-s/-m = Lucas-Lehmer test iterations with\n");
 	fprintf(stderr, "             initial seed 4, -f = Pe'pin-test squarings with initial seed 3.\n");
-	fprintf(stderr, "             Default is 100 iterations.\n");
 	fprintf(stderr, "\n");
-	fprintf(stderr, " -nthread {int}   For multithread-enabled builds, run with this many threads.\n");
-	return(0);
+  }
+ #ifdef MULTITHREAD
+  if(printall || STREQ(option,"nthread")) {
+	fprintf(stderr, " -nthread {int}   For multithread-enabled builds, run with this many threads.\n\
+     If the user does not specify a thread count, the default is to run single-threaded\n\
+     with that thread's affinity set to logical core 0.\n\
+     \n\
+     AFFINITY: The code will attempt to set the affinity of the resulting threads\n\
+     0:n-1 to the same-indexed processor cores - whether this means distinct physical\n\
+     cores is entirely up to the CPU vendor - E.g. Intel uses such a numbering scheme\n\
+     but AMD does not. For this reason as of v17 this option is deprecated in favor of\n\
+     the -cpu flag, whose usage is detailed below, with the online README page providing\n\
+     guidance for the core-numbering schemes of popular CPU vendors.\n\
+     \n\
+     If n exceeds the available number of logical processor cores (call it #cpu), the\n\
+     program will halt with an error message.\n\
+     \n\
+     For greater control over affinity setting, use the -cpu option, which supports two\n\
+     distinct core-specification syntaxes (which may be mixed together), as follows:\n\
+     \n\
+     -cpu {lo[:hi[:incr]]}   (All args {int} here) Set thread/CPU affinity.\n\
+     NOTE: This flag and -nthread are mutually exclusive: If -cpu is used, the threadcount\n\
+     is inferred from the numeric-argument-triplet which follows. If only the 'lo' argument\n\
+     of the triplet is supplied, this means 'run single-threaded with affinity to CPU {lo}.'\n\
+     If the increment (third) argument of the triplet is omitted, it is taken as incr = 1.\n\
+     The CPU set encoded by the integer-triplet argument to -cpu corresponds to the\n\
+     values of the integer loop index i in the C-loop for(i = lo; i <= hi; i += incr),\n\
+     excluding the loop-exit value of i. Thus '-cpu 0:3' and '-cpu 0:3:1' are both\n\
+     exactly equivalent to '-nthread 4', whereas '-cpu 0:6:2' and '-cpu 0:7:2' both\n\
+     specify affinity setting to cores 0,2,4,6, assuming said cores exist.\n\
+     Lastly, note that no whitespace is permitted within the colon-separated numeric field.\n\
+     \n\
+     -cpu {triplet0[,triplet1,...]}   This is simply an extended version of the above affinity-\n\
+     setting syntax in which each of the comma-separated 'triplet' subfields is in the above\n\
+     form and, analogously to the one-triplet-only version, no whitespace is permitted within\n\
+     the colon-and-comma-separated numeric field. Thus '-cpu 0:3,8:11' and '-cpu 0:3:1,8:11:1'\n\
+     both specify an 8-threaded run with affinity set to the core quartets 0-3 and 8-11,\n\
+     whereas '-cpu 0:3:2,8:11:2' means run 4-threaded on cores 0,2,8,10. As described for the\n\
+     -nthread option, it is an error for any core index to exceed the available number of logical\n\
+     processor cores.\n");
+  }
+ #endif
+	exit(EXIT_SUCCESS);
 }
 
 /******************/
@@ -3966,15 +4013,15 @@ via a new round of timing tests, FALSE otherwise.
 */
 int	cfgNeedsUpdating(char*in_line)
 {
-	/* For the foreseeable future, version numbers will be of form x.yz, with x a 1-digit integer,
+	/* For the foreseeable future, version numbers will be of form x.yz, with x a 2-digit integer,
 	y an int having 3 digits or less, and z an optional alphabetic suffix. We choose these such that
 	retiming is only necessary between versions that differ in x or in the leading digit of y,
-	i.e. we'd need to regenerate .cfg files in going from version 2.9 to 3.0 or from 3.0 to 3.141,
-	but not between versions 3.0x and 3.0g or between 3.1 and 3.141.
+	i.e. we'd need to regenerate .cfg files in going from version 16.9 to 17.0 or from 17.0 to 17.141,
+	but not between versions 17.0x and 17.0g or between 17.1 and 17.141.
 
-	This reduces the "retime?" decision to a simple comparison of the leading 3 characters of the version string.
+	This reduces the "retime?" decision to a simple comparison of the leading 4 characters of the version string.
 	*/
-	return STRNEQN(in_line, VERSION, 3);
+	return STRNEQN(in_line, VERSION, 4);
 }
 
 /******************/
@@ -4068,7 +4115,9 @@ int 	convert_LL_savefiles(uint64 psave, FILE*fp, uint32*ilo, uint32 ndim, int32 
 		sum2=0.0;
 		for(j=0; j < n; j++)	/* ...then move elements of residue into their normal doubles slots.	*/
 		{
-		#ifdef USE_AVX
+		#ifdef USE_AVX512
+			j1 = (j & mask03) + br16[j&15];
+		#elif defined(USE_AVX)
 			j1 = (j & mask02) + br8[j&7];
 		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
@@ -4199,31 +4248,33 @@ fp = mlucas_fopen(RESTARTFILE,"rb");
 ***/
 int	read_ppm1_savefiles(uint64 p, FILE*fp, uint32*ilo, uint8 arr_tmp[], uint64*Res64, uint64*Res35m1, uint64*Res36m1)
 {
+	const char func[] = "read_ppm1_savefiles";
 	uint32 i;
 	uint32 nbytes;
 	uint64 nsquares= 0;
 
-	ASSERT(HERE, !(p >> 32), "read_ppm1_savefiles: p must be 32-bit or less!");	/* Future versions will need to loosen this p < 2^32 restriction: */
+	sprintf(cbuf, "%s: p must be 32-bit or less!",func);
+	ASSERT(HERE, !(p >> 32), cbuf);	/* Future versions will need to loosen this p < 2^32 restriction: */
 
 	if(!file_valid(fp))
 	{
-		sprintf(cbuf, "read_ppm1_savefiles: File pointer invalid for read!\n");
-		return FALSE;
+		sprintf(cbuf, "%s: File pointer invalid for read!\n",func);
+		ASSERT(HERE, 0, cbuf); return FALSE;
 	}
 	fprintf(stderr, " INFO: restart file %s found...reading...\n",RESTARTFILE);
 	/* t: */
 	if((i = fgetc(fp)) != TEST_TYPE)
 	{
-		sprintf(cbuf, "read_ppm1_savefiles: TEST_TYPE != fgetc(fp)\n");
-	//	return FALSE;
+		sprintf(cbuf, "%s: TEST_TYPE != fgetc(fp)\n",func);
+		ASSERT(HERE, 0, cbuf); return FALSE;
 	}
 	/* m: */
 	if((i = fgetc(fp)) != MODULUS_TYPE)
 	{
 		// For some reason, this fubared in my rerun-final-F25-iterations-from-33.55m (fgetc = 176, MODULUS_TYPE = 3)
 		// but residue OK, so emit error msg but allow execution past it:
-		sprintf(cbuf, "ERROR: read_ppm1_savefiles: MODULUS_TYPE != fgetc(fp)\n");
-	//	return FALSE;
+		sprintf(cbuf, "ERROR: %s: MODULUS_TYPE != fgetc(fp)\n",func);
+		ASSERT(HERE, 0, cbuf); return FALSE;
 	}
 	/* s: */
 	for(nbytes = 0; nbytes < 8; nbytes++)
@@ -4234,8 +4285,8 @@ int	read_ppm1_savefiles(uint64 p, FILE*fp, uint32*ilo, uint8 arr_tmp[], uint64*R
 	/* For now, just make sure nsquares < 2^32 and copy to ilo: */
 	if(nsquares >= p)
 	{
-		sprintf(cbuf,"read_ppm1_savefiles: nsquares = %llu out of range, should be < p = %llu\n", nsquares, p);
-	//	return FALSE;
+		sprintf(cbuf,"%s: nsquares = %llu out of range, should be < p = %llu\n",func, nsquares, p);
+		ASSERT(HERE, 0, cbuf); return FALSE;
 	}
 	*ilo = nsquares;
 
@@ -4248,15 +4299,16 @@ int	read_ppm1_savefiles(uint64 p, FILE*fp, uint32*ilo, uint8 arr_tmp[], uint64*R
 	}
 	else if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
 	{
-		ASSERT(HERE, p % 8 == 0,"read_ppm1_savefiles: p % 8 == 0");
+		sprintf(cbuf, "%s: MODULUS_TYPE_FERMAT but (p mod 8) != 0",func);
+		ASSERT(HERE, p % 8 == 0,cbuf);
 		nbytes = (p/8) + 1;
 		TRANSFORM_TYPE = RIGHT_ANGLE;
 	}
-
+printf("%s: reading %u bytes...\n",func,nbytes);
 	i = fread(arr_tmp, sizeof(char), nbytes, fp);		/* Read bytewise residue...	*/
-	if(i != nbytes)	{ sprintf(cbuf, "read_ppm1_savefiles: Error reading bytewise residue array.\n")										; return FALSE; }
-	if(ferror(fp))	{ sprintf(cbuf, "read_ppm1_savefiles: Unknown Error reading bytewise residue array.\n")								; return FALSE; }
-	if(feof(fp))	{ sprintf(cbuf, "read_ppm1_savefiles: End-of-file encountered while attempting to read bytewise residue array.\n")	; return FALSE; }
+	if(i != nbytes)	{ sprintf(cbuf, "%s: Error reading bytewise residue array.\n",func)										; ASSERT(HERE, 0, cbuf); return FALSE; }
+	if(ferror(fp))	{ sprintf(cbuf, "%s: Unknown Error reading bytewise residue array.\n",func)								; ASSERT(HERE, 0, cbuf); return FALSE; }
+	if(feof(fp))	{ sprintf(cbuf, "%s: End-of-file encountered while attempting to read bytewise residue array.\n",func)	; ASSERT(HERE, 0, cbuf); return FALSE; }
 
 	/* 8 bytes for Res64: */
 	*Res64 = 0;
@@ -4272,7 +4324,8 @@ int	read_ppm1_savefiles(uint64 p, FILE*fp, uint32*ilo, uint8 arr_tmp[], uint64*R
 		i = fgetc(fp);
 		*Res35m1 += (uint64)i << (8*nbytes);
 	}
-	ASSERT(HERE, *Res35m1 <= 0x00000007FFFFFFFFull,"read_ppm1_savefiles: *Res35m1 <= 0x00000007ffffffff");
+	sprintf(cbuf, "%s: *Res35m1 <= 0x00000007ffffffff",func);
+	ASSERT(HERE, *Res35m1 <= 0x00000007FFFFFFFFull,cbuf);
 	/* 5 bytes for Res36m1: */
 	*Res36m1 = 0;
 	for(nbytes = 0; nbytes < 5; nbytes++)
@@ -4280,7 +4333,8 @@ int	read_ppm1_savefiles(uint64 p, FILE*fp, uint32*ilo, uint8 arr_tmp[], uint64*R
 		i = fgetc(fp);
 		*Res36m1 += (uint64)i << (8*nbytes);
 	}
-	ASSERT(HERE, *Res36m1 <= 0x0000000FFFFFFFFFull,"read_ppm1_savefiles: *Res36m1 <= 0x0000000fffffffff");
+	sprintf(cbuf, "%s: *Res36m1 <= 0x00000007ffffffff",func);
+	ASSERT(HERE, *Res36m1 <= 0x0000000FFFFFFFFFull,cbuf);
 	/* Don't deallocate arr_tmp here, since we'll need it later for savefile writes. */
 	return TRUE;
 }
@@ -4490,7 +4544,9 @@ int 	convert_res_bytewise_FP(const uint8 arr_tmp[], double a[], int n, const uin
 
 		for(j = 0; j < n; j++)
 		{
-		#ifdef USE_AVX
+		#ifdef USE_AVX512
+			j1 = (j & mask03) + br16[j&15];
+		#elif defined(USE_AVX)
 			j1 = (j & mask02) + br8[j&7];
 		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
@@ -4507,7 +4563,7 @@ int 	convert_res_bytewise_FP(const uint8 arr_tmp[], double a[], int n, const uin
 			if(rbits < bits[ii])
 			{
 				itmp = curr_wd64;
-				ASSERT(HERE, itmp < (1<<rbits),"convert_res_bytewise_FP: itmp >= 2^rbits!");
+				ASSERT(HERE, itmp < (1ull<<rbits),"convert_res_bytewise_FP: itmp >= 2^rbits!");
 
 				/* Now grab the next 64 bits of the bytewise residue... */
 				curr_wd64 = 0;
@@ -4566,7 +4622,9 @@ int 	convert_res_bytewise_FP(const uint8 arr_tmp[], double a[], int n, const uin
 
 		for(j = pass; j < n; j += 2)
 		{
-		#ifdef USE_AVX
+		#ifdef USE_AVX512
+			j1 = (j & mask03) + br16[j&15];
+		#elif defined(USE_AVX)
 			j1 = (j & mask02) + br8[j&7];
 		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
@@ -4779,7 +4837,9 @@ void	convert_res_FP_bytewise(const double a[], uint8 arr_tmp[], int n, const uin
 
 	for(j=n-1; j >= 0; j -= TRANSFORM_TYPE)
 	{
-	#ifdef USE_AVX
+	#ifdef USE_AVX512
+		j1 = (j & mask03) + br16[j&15];
+	#elif defined(USE_AVX)
 		j1 = (j & mask02) + br8[j&7];
 	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
@@ -4827,7 +4887,9 @@ void	convert_res_FP_bytewise(const double a[], uint8 arr_tmp[], int n, const uin
 
 		for(j = 0; j < n; j++)
 		{
-		#ifdef USE_AVX
+		#ifdef USE_AVX512
+			j1 = (j & mask03) + br16[j&15];
+		#elif defined(USE_AVX)
 			j1 = (j & mask02) + br8[j&7];
 		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
@@ -4907,7 +4969,9 @@ void	convert_res_FP_bytewise(const double a[], uint8 arr_tmp[], int n, const uin
 
 		for(j = pass; j < n; j += 2)
 		{
-		#ifdef USE_AVX
+		#ifdef USE_AVX512
+			j1 = (j & mask03) + br16[j&15];
+		#elif defined(USE_AVX)
 			j1 = (j & mask02) + br8[j&7];
 		#elif defined(USE_SSE2)
 			j1 = (j & mask01) + br4[j&3];
@@ -5102,7 +5166,7 @@ void write_fft_debug_data(double a[], int jlo, int jhi)
 {
 	int j,j1;
 	const char dbg_fname[] = "FFT_DEBUG.txt";
-	ASSERT(HERE, dbg_file == 0x0, "dbg_file != 0x0 prior to fopen");
+	ASSERT(HERE, dbg_file == 0x0, "dbg_file != 0x0 prior to mlucas_fopen");
 	dbg_file = mlucas_fopen(dbg_fname, "a");
 	ASSERT(HERE, dbg_file != 0x0, "Unable to open dbg_file!");
 	fprintf(dbg_file, "RE_IM_STRIDE = %d\n", RE_IM_STRIDE);
@@ -5110,7 +5174,9 @@ void write_fft_debug_data(double a[], int jlo, int jhi)
 
     for(j=jlo; j < jhi; j += 2)
     {
-	#ifdef USE_AVX
+	#ifdef USE_AVX512
+		j1 = (j & mask03) + br16[j&15];
+	#elif defined(USE_AVX)
 		j1 = (j & mask02) + br8[j&7];
 	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];

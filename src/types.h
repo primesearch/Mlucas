@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2012 by Ernst W. Mayer.                                           *
+*   (C) 1997-2016 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -156,29 +156,39 @@ logical converse holds, that is if (y2 >= x1) && (y1 <= x2).
 #define ARRAYS_OVERLAP(x, lenx, y, leny)	( (x <= y) && (x+lenx) > y ) || ( (x > y) && (y+leny) > x )
 */
 
-// 32 and 64-bit 2s-comp integer mod-add macros, compute z = (x + y)%q. Allow in-place: Any or all of x,y,z may refer to same operand.
+// 32 and 64-bit 2s-comp integer mod-add/sub macros, compute z = (x +- y)%q. Assume the inputs
+// are normalized -- x,y < q -- and allow in-place: Any or all of x,y,z may refer to same operand.
+// Only optimize (e.g. via asm ad hardware carry-flags) the 64-bit version; 32-bit built atop that:
 #define MOD_ADD32(__x, __y, __q, __z)\
 {\
-	__z = __x + __y - __q;						\
-	__z = __z + ( (-((int32)__z < 0)) & __q);	\
+	uint64 _xx = __x, _yy = __y, _qq = __q, _zz = __z;	\
+	MOD_ADD64(_xx, _yy, _qq, _zz);	\
+	__z = (uint32)_zz;	\
 }
 
 #define MOD_SUB32(__x, __y, __q, __z)\
 {\
-	__z = __x - __y;						\
-	__z = __z + ( (-((int32)__z < 0)) & __q);	\
+	uint64 _xx = __x, _yy = __y, _qq = __q, _zz = __z;	\
+	MOD_SUB64(_xx, _yy, _qq, _zz);	\
+	__z = (uint32)_zz;	\
 }
 
 #define MOD_ADD64(__x, __y, __q, __z)\
 {\
-	__z = __x + __y - __q;						\
-	__z = __z + ( (-((int64)__z < 0)) & __q);	\
+	uint64 cy,tmp;\
+	/* Need tmp for initial sum, since e.g. if x,z refer to same var the cy-check z < x always comes up 'false': */\
+	tmp = __x + __y;	cy = tmp < __x;		/* Since inputs assumed normalized (< q), cy = 1 implies q > 2^63, thus */\
+	__z = tmp - __q;	cy -= __z > tmp;	/* tmp - q guaranteed to underflow -> no need to restore-add q in this case. */\
+	__z = __z + (cy & __q);			/* Only possible values of cy = 0,-1 here; and need to restore-add q if cy = -1. */\
 }
 
 #define MOD_SUB64(__x, __y, __q, __z)\
 {\
-	__z = __x - __y;						\
-	__z = __z + ( (-((int64)__z < 0)) & __q);	\
+	uint64 bw,tmp;\
+	/* Need tmp for initial diff, since e.g. if x,z refer to same var the bw-check z > x always comes up 'false': */\
+	tmp = __x - __y;	bw = tmp > __x;		/* Since inputs assumed normalized (< q), bw = 1 implies q > 2^63, thus */\
+	__z = tmp + __q;	bw -= __z < tmp;	/* tmp + q guaranteed to overflow -> no need to restore-sub q in this case. */\
+	__z = __z - (bw & __q);			/* Only possible values of bw = 0,-1 here; and need to restore-sub q if bw = -1. */\
 }
 
 /* Slow version of nearest-int; for doubles use faster trick,
@@ -243,11 +253,15 @@ function call, since that may result in the function being called twice. */
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 
 #undef  ABS					/* 64-bit absval is not portable, so alias it. */
-#define ABS(a) ((a) < 0 ? -(a) : (a))
+#define ABS(a)	((a) < 0 ? -(a) : (a))
 
 #define IS_ODD(a)	( (int)(a) & 1)
 
 #define IS_EVEN(a)	(~(int)(a) & 1)
+
+// Apply sign bit b to argument x (0 = no change in sign; 1 = sign is flipped).
+// No check is performed whether b is strictly 0 or 1, as required for proper behavior:
+#define SGN(x,b)	((b) == 1 ? -(x) : (x))
 
 #define BIT_SET(x,b)	( (x) |= (1 << (b)) )
 
@@ -281,6 +295,10 @@ Designed so any or all of A, B, C may point to the same memory location. */
 we hope other compilers will be smart enough to properly align these
 without external prompting.
 
+NOTE: GCC alas does not respect alignment specifiers for > 16-byte boundaries,
+which means e.g. for the 32-byte alignment required by AVX aligned-MOV instructions
+we must manually enforce such alignment using the ALLOC/ALIGN macro pairs in align.h.
+
 Macros that manipulate complex (real, imag) pairs will have prefix CMPLX_
 and will have declarations residing in the header file cmplx.h ;
 
@@ -313,7 +331,7 @@ which is why we union-ize the 128-bit structs storing the relevant data.
 		double d1;
 		double d2;
 		double d3;
-	} __attribute__ ((aligned (32)));
+	} __attribute__ ((aligned (16)));
 
 	#undef double_x8
 	struct double_x8
@@ -326,7 +344,7 @@ which is why we union-ize the 128-bit structs storing the relevant data.
 		double d5;
 		double d6;
 		double d7;
-	} __attribute__ ((aligned (64)));
+	} __attribute__ ((aligned (16)));
 
 #else
 
@@ -391,6 +409,13 @@ which is why we union-ize the 128-bit structs storing the relevant data.
 		#endif
 	#endif
 
+#endif
+
+// Also need specific-vector-double-length init macros for files containing mix of SSE2/AVX/etc SIMD code:
+#ifdef USE_SSE2
+	#define VEC_DBL_INIT_8(vdbl_ptr, val)	( (vdbl_ptr)->d0 = (vdbl_ptr)->d1 = (vdbl_ptr)->d2 = (vdbl_ptr)->d3 = (vdbl_ptr)->d4 = (vdbl_ptr)->d5 = (vdbl_ptr)->d6 = (vdbl_ptr)->d7 = val )
+	#define VEC_DBL_INIT_4(vdbl_ptr, val)	( (vdbl_ptr)->d0 = (vdbl_ptr)->d1 = (vdbl_ptr)->d2 = (vdbl_ptr)->d3 = val )
+	#define VEC_DBL_INIT_2(vdbl_ptr, val)	( (vdbl_ptr)->d0 = (vdbl_ptr)->d1 = val )
 #endif
 
 /* 128-bit vector data types for AltiVec, Cell and SSE2/3:
@@ -482,51 +507,141 @@ typedef	union union192		unio192;
 
 /* 128-bit meta-int consisting of 4 uint32s: */
 #undef uint32x4
-#ifdef COMPILER_TYPE_GCC
 
 	struct uint32x4{
 		uint32 d0;
 		uint32 d1;
 		uint32 d2;
 		uint32 d3;
-	} __attribute__ ((aligned (16)));
+	}
+  #ifdef COMPILER_TYPE_GCC
+	__attribute__ ((aligned (16)));
+  #else
+	;
+  #endif
 
-#else
-
-	struct uint32x4{
-		uint32 d0;
-		uint32 d1;
-		uint32 d2;
-		uint32 d3;
-	};
-
-#endif
 // *** Don't use the above to define a uint128 since we already use 64x2 struct for that ***
 
-/* 256-bit int consisting of 4 uint32s: */
+/* 256-bit meta-int consisting of 8 uint32s: */
+#undef uint32x8
+
+	struct uint32x8{
+		uint32 d0;
+		uint32 d1;
+		uint32 d2;
+		uint32 d3;
+		uint32 d4;
+		uint32 d5;
+		uint32 d6;
+		uint32 d7;
+	}
+  #ifdef COMPILER_TYPE_GCC
+	__attribute__ ((aligned (16)));
+  #else
+	;
+  #endif
+
+// *** Don't use the above to define a uint256 since we already use 64x4 struct for that ***
+
+/* 512-bit meta-int consisting of 16 uint32s: */
+#undef uint32x16
+
+	struct uint32x16{
+		uint32 d0;
+		uint32 d1;
+		uint32 d2;
+		uint32 d3;
+		uint32 d4;
+		uint32 d5;
+		uint32 d6;
+		uint32 d7;
+		uint32 d8;
+		uint32 d9;
+		uint32 dA;
+		uint32 dB;
+		uint32 dC;
+		uint32 dD;
+		uint32 dE;
+		uint32 dF;
+	}
+  #ifdef COMPILER_TYPE_GCC
+	__attribute__ ((aligned (16)));
+  #else
+	;
+  #endif
+
+/* 256-bit int consisting of 4 uint64s: */
 #undef uint64x4
-#ifdef COMPILER_TYPE_GCC
 
 	struct uint64x4{
 		uint64 d0;
 		uint64 d1;
 		uint64 d2;
 		uint64 d3;
-	} __attribute__ ((aligned (32)));
-
-#else
-
-	struct uint64x4{
-		uint64 d0;
-		uint64 d1;
-		uint64 d2;
-		uint64 d3;
-	};
-
-#endif
+	}
+  #ifdef COMPILER_TYPE_GCC
+	__attribute__ ((aligned (16)));
+  #else
+	;
+  #endif
 
 #undef uint256
 typedef	struct uint64x4		uint256;
+
+/* 512-bit int consisting of 8 uint64s: */
+#undef uint64x8
+
+	struct uint64x8{
+		uint64 d0;
+		uint64 d1;
+		uint64 d2;
+		uint64 d3;
+		uint64 d4;
+		uint64 d5;
+		uint64 d6;
+		uint64 d7;
+	}
+  #ifdef COMPILER_TYPE_GCC
+	__attribute__ ((aligned (16)));
+  #else
+	;
+  #endif
+
+#undef uint512
+typedef	struct uint64x8		uint512;
+
+// Basic macro used to assign same uint64 initializer (val) to all subfields of a vec_u64:
+#ifdef USE_AVX512
+
+	typedef struct uint64x8	vec_u64;
+	#define VEC_U64_INIT(vu64_ptr, val)	( (vu64_ptr)->d0 = (vu64_ptr)->d1 = (vu64_ptr)->d2 = (vu64_ptr)->d3 = (vu64_ptr)->d4 = (vu64_ptr)->d5 = (vu64_ptr)->d6 = (vu64_ptr)->d7 = val )
+
+#elif defined(USE_AVX)	// AVX and AVX2 both use 256-bit registers
+
+	typedef struct uint64x4	vec_u64;
+	#define VEC_U64_INIT(vu64_ptr, val)	( (vu64_ptr)->d0 = (vu64_ptr)->d1 = (vu64_ptr)->d2 = (vu64_ptr)->d3 = val )
+
+#elif defined(USE_SSE2)
+
+	typedef struct uint64x2	vec_u64;
+	#define VEC_U64_INIT(vu64_ptr, val)	( (vu64_ptr)->d0 = (vu64_ptr)->d1 = val )
+
+#elif defined(__CUDACC__)
+
+	#ifdef __CUDA_ARCH__	// This only def'd for the device-code compilation pass
+		#if __CUDA_ARCH__ <= 120
+			#error CUDA: This code requires uint64 precision, please add `-arch compute_13` (or greater) to your compile flags and build on an arch of compute capability >= 1.3
+		#endif
+	#endif
+
+#endif
+
+// Also need specific-vector-uint64-length init macros for files containing mix of SSE2/AVX/etc SIMD code:
+#ifdef USE_SSE2
+	#define VEC_U64_INIT_8(vu64_ptr, val)	( (vu64_ptr)->d0 = (vu64_ptr)->d1 = (vu64_ptr)->d2 = (vu64_ptr)->d3 = (vu64_ptr)->d4 = (vu64_ptr)->d5 = (vu64_ptr)->d6 = (vu64_ptr)->d7 = val )
+	#define VEC_U64_INIT_4(vu64_ptr, val)	( (vu64_ptr)->d0 = (vu64_ptr)->d1 = (vu64_ptr)->d2 = (vu64_ptr)->d3 = val )
+	#define VEC_U64_INIT_2(vu64_ptr, val)	( (vu64_ptr)->d0 = (vu64_ptr)->d1 = val )
+#endif
 
 /* Useful extern constants to export (defined in types.c): */
 
@@ -549,6 +664,10 @@ extern const uint192 TWO192;
 extern const uint256 NIL256;
 extern const uint256 ONE256;
 extern const uint256 TWO256;
+
+extern const uint512 NIL512;
+extern const uint512 ONE512;
+extern const uint512 TWO512;
 
 /* Binary predicates for use of stdlib qsort(): */
 int ncmp_int   (const void * a, const void * b);	// Default-int compare predicate

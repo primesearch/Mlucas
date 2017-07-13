@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2013 by Ernst W. Mayer.                                           *
+*   (C) 1997-2016 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -66,17 +66,6 @@ in util.c), otherwise alias the entire 4-argument DBG_ASSERT invocation to "Boli
 */
 #undef  FFT_DEBUG
 #define FFT_DEBUG	0
-
-/* Numeric value controlling how many real*8 array slots separate Re and Im elements of the same complex datum
-in the vector that gets FFTed. This is to ease SIMD support. Default is 1, SSE2 = 2, AVX = 4: */
-#undef  RE_IM_STRIDE
-#ifdef USE_AVX	// AVX and AVX2 both use 256-bit registers
-	#define RE_IM_STRIDE	4
-#elif defined(USE_SSE2)
-	#define RE_IM_STRIDE	2
-#else
-	#define RE_IM_STRIDE	1
-#endif
 
 #undef  NOBRANCH
 #define NOBRANCH	1	/* Switch between branched and branchless versions of various key sequences. */
