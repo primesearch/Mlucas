@@ -37,7 +37,9 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	/*...The radix-60 DIT pass is here:	*/
 
-	  #ifdef USE_AVX512
+	  #ifdef USE_ARM_V8_SIMD
+		const uint32 OFF = 0x1e0;
+	  #elif defined(USE_AVX512)
 		#define OFF	0x1e0*4
 	  #elif defined(USE_AVX)
 		#define OFF	0x1e0*2
@@ -64,8 +66,8 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		/*...and now do 4 radix-15 transforms. */
 		// Radix-15 DFT outputs are (cyclic) with vec_dbl-pointer -= 32 (mod 120) between successive outputs
 		const uint8 optr_off[RADIX] = {
-			 0, 88,56,24,112,80,48,16,104,72,40,8,96,64,32, 
-			30,118,86,54,22,110,78,46,14,102,70,38,6,94,62, 
+			 0, 88,56,24,112,80,48,16,104,72,40,8,96,64,32,
+			30,118,86,54,22,110,78,46,14,102,70,38,6,94,62,
 			60,28,116,84,52,20,108,76,44,12,100,68,36,4,92,
 			90,58,26,114,82,50,18,106,74,42,10,98,66,34, 2};
 		vec_dbl
@@ -367,7 +369,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			ctmp->re = ctmp->im = wtn;		ctmp += 2;
 			ctmp->re = ctmp->im = wtlp1;	ctmp += 2;
 			ctmp->re = ctmp->im = wtnm1;
-	
+
 			l = (j+2) & (nwt-1);	nwtml = nwt-l;;
 			k1 = n-si[l  ];
 			k2 = n-si[l+1];
@@ -377,17 +379,17 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			wtn     = wt0[nwtml  ]*scale;
 			wtlp1   = wt0[    l+1];
 			wtnm1   = wt0[nwtml-1]*scale;
-	
+
 			ctmp = (struct complex *)half_arr + 32;	// (j+2) data start at ctmp + 8
 			ctmp->re = ctmp->im = wtl;		ctmp += 2;
 			ctmp->re = ctmp->im = wtn;		ctmp += 2;
 			ctmp->re = ctmp->im = wtlp1;	ctmp += 2;
 			ctmp->re = ctmp->im = wtnm1;
-	
+
 			add1 = &wt1[col  +ii];	/* Don't use add0 here, to avoid need to reload main-array address */
 			add2 = &wt1[co2-1-ii];
 			add3 = &wt1[co3-1-ii];
-	
+
 			// Since use wt1-array in the wtsinit macro, need to fiddle this here:
 			co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 						// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
@@ -809,7 +811,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	/* General indexing for radix-15 done as 3 radix-5 followed by 5 radix-3 is
 		RADIX_15_DIF(00,01,02,03,04,05,06,07,08,09,0A,0B,0C,0D,0E) ==>
-	
+
 		RADIX_05_DFT(i0,iC,i9,i6,i3, t0,t1,t2,t3,t4)
 		RADIX_05_DFT(iA,i7,i4,i1,iD, t5,t6,t7,t8,t9)
 		RADIX_05_DFT(i5,i2,iE,iB,i8, tA,tB,tC,tD,tE)
@@ -929,7 +931,9 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	  #endif	// COMPACT_OBJ?
 
-	  #undef OFF
+	  #ifndef USE_ARM_V8_SIMD
+		#undef OFF
+	  #endif
 
 	#else	/* !USE_SSE2 */
 

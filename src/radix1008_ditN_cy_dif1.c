@@ -28,9 +28,6 @@
 
 #define EPS 1e-10
 
-/* Use for toggling higher-accuracy version of the twiddles computation */
-//#define HIACC 0	<*** prefer to set via compile-time flag; default is FALSE [= LOACC]
-
 // Mersenne-mod takes a binary-toggle LOACC; must give a numerical value for Fermat-mod:
 #if defined(HIACC) && defined(LOACC)
 	#error Only one of LOACC and HIACC may be defined!
@@ -43,8 +40,12 @@
 	#define HIACC	1	// 32-bit mode only supports the older HIACC carry macros
   #endif
 #endif
-#if defined(HIACC) && defined(USE_AVX512)
+#ifdef HIACC
+  #ifdef USE_ARM_V8_SIMD
+	#error Currently only LOACC carry-mode supported in ARM v8 SIMD builds!
+  #elif defined(USE_AVX512)
 	#error Currently only LOACC carry-mode supported in AVX-512 builds!
+  #endif
 #endif
 #if defined(LOACC) && (OS_BITS == 32)
 	#error 32-bit mode only supports the older HIACC carry macros!
@@ -63,24 +64,6 @@
 #ifdef USE_SSE2
 
 	#define EPS 1e-10
-
-  // Radix-16 DFT local-array basic strides OFF1-4 = [1-4] * (2*sizeof(vec_dbl)) * 63 = [1-4] * [sse2:0x20, avx:0x40] * 0x3f:
-  #ifdef USE_AVX512
-	#define OFF1	0x07e0*4
-	#define OFF2	0x0fc0*4
-	#define OFF3	0x17a0*4
-	#define OFF4	0x1f80*4
-  #elif defined(USE_AVX)
-	#define OFF1	0x07e0*2
-	#define OFF2	0x0fc0*2
-	#define OFF3	0x17a0*2
-	#define OFF4	0x1f80*2
-  #else
-	#define OFF1	0x07e0
-	#define OFF2	0x0fc0
-	#define OFF3	0x17a0
-	#define OFF4	0x1f80
-  #endif
 
   // In hex, RADIX = 0x3f0, RADIX*4 = 0xfc0
   // For Mersenne-mod we need max(4*ODD_RADIX, (16 [SSE2] or 64 [AVX]) + 4) added slots for the half_arr lookup tables.
@@ -503,11 +486,11 @@ int radix1008_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 		if(tdat == 0x0) {
 			j = (uint32)sizeof(struct cy_thread_data_t);
 			tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, sizeof(struct cy_thread_data_t));
-	
+
 			// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
 			// so on that platform try to be clever and interleave main-thread and threadpool-work processing
 			#if 0//def OS_TYPE_MACOSX
-	
+
 				if(CY_THREADS > 1) {
 					main_work_units = CY_THREADS/2;
 					pool_work_units = CY_THREADS - main_work_units;
@@ -517,14 +500,14 @@ int radix1008_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 					main_work_units = 1;
 					printf("radix%d_ditN_cy_dif1: CY_THREADS = 1: Using main execution thread, no threadpool needed.\n", RADIX);
 				}
-	
+
 			#else
-	
+
 				pool_work_units = CY_THREADS;
 				ASSERT(HERE, 0x0 != (tpool = threadpool_init(CY_THREADS, MAX_THREADS, CY_THREADS, &thread_control)), "threadpool_init failed!");
-	
+
 			#endif
-	
+
 			fprintf(stderr,"Using %d threads in carry step\n", CY_THREADS);
 		}
 	  #endif
@@ -3103,15 +3086,6 @@ void radix1008_dit_pass1(double a[], int n)
 		}
 		return 0x0;
 	}
-#endif
-
-#if defined(USE_SSE2) && defined(COMPILER_TYPE_GCC) && (OS_BITS == 64)
-
-	#undef OFF1
-	#undef OFF2
-	#undef OFF3
-	#undef OFF4
-
 #endif
 
 #undef RADIX

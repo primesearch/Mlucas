@@ -53,8 +53,12 @@
 	#define HIACC	1	// 32-bit mode only supports the older HIACC carry macros
   #endif
 #endif
-#if defined(HIACC) && defined(USE_AVX512)
+#ifdef HIACC
+  #ifdef USE_ARM_V8_SIMD
+	#error Currently only LOACC carry-mode supported in ARM v8 SIMD builds!
+  #elif defined(USE_AVX512)
 	#error Currently only LOACC carry-mode supported in AVX-512 builds!
+  #endif
 #endif
 #if defined(LOACC) && (OS_BITS == 32)
 	#error 32-bit mode only supports the older HIACC carry macros!
@@ -491,11 +495,11 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 		if(tdat == 0x0) {
 			j = (uint32)sizeof(struct cy_thread_data_t);
 			tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, sizeof(struct cy_thread_data_t));
-	
+
 			// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
 			// so on that platform try to be clever and interleave main-thread and threadpool-work processing
 			#if 0//def OS_TYPE_MACOSX
-	
+
 				if(CY_THREADS > 1) {
 					main_work_units = CY_THREADS/2;
 					pool_work_units = CY_THREADS - main_work_units;
@@ -505,15 +509,15 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 					main_work_units = 1;
 					printf("radix%d_ditN_cy_dif1: CY_THREADS = 1: Using main execution thread, no threadpool needed.\n", RADIX);
 				}
-	
+
 			#else
-	
+
 				main_work_units = 0;
 				pool_work_units = CY_THREADS;
 				ASSERT(HERE, 0x0 != (tpool = threadpool_init(CY_THREADS, MAX_THREADS, CY_THREADS, &thread_control)), "threadpool_init failed!");
-	
+
 			#endif
-	
+
 			fprintf(stderr,"Using %d threads in carry step\n", CY_THREADS);
 		}
 	  #endif
@@ -2312,10 +2316,10 @@ void radix16_dif_pass1	(double a[],             int n)
 		rt =a[jt+p12];	it =a[jp+p12];					rm =b[jt+p12];	im =b[jp+p12];
 		t15=t13-rt;		t13=t13+rt;						m15=m13-rm;		m13=m13+rm;
 		t16=t14-it;		t14=t14+it;						m16=m14-im;		m14=m14+im;
-														rm =m13;		im =m14		;		 
+														rm =m13;		im =m14		;
 		rt =t13;	t13=t9 -rt;		t9 =t9 +rt;			m13=m9 -rm;		m14=m10-im	;
 		it =t14;	t14=t10-it;		t10=t10+it;			m9 =m9 +rm;		m10=m10+im	;
-														rm =m15;		im =m16		;		 
+														rm =m15;		im =m16		;
 		rt =t15;	t15=t11+t16;	t11=t11-t16;		m15=m11+im;		m16=m12-rm	;
 					t16=t12-rt;		t12=t12+rt;			m11=m11-im;		m12=m12+rm	;
 
@@ -2330,10 +2334,10 @@ void radix16_dif_pass1	(double a[],             int n)
 		rt =a[jt+p12];	it =a[jp+p12];					rm =b[jt+p12];	im =b[jp+p12];
 		t23=t21-rt;		t21=t21+rt;						m23=m21-rm;		m21=m21+rm;
 		t24=t22-it;		t22=t22+it;						m24=m22-im;		m22=m22+im;
-														rm =m21;					im =m22		;		 
+														rm =m21;					im =m22		;
 		rt =t21;	t21=t17-rt;		t17=t17+rt;			m21=m17-rm;					m22=m18-im	;
 		it =t22;	t22=t18-it;		t18=t18+it;			m17=m17+rm;					m18=m18+im	;
-														rm =m23;					im =m24		;		 
+														rm =m23;					im =m24		;
 		rt =t23;	t23=t19+t24;	t19=t19-t24;		m23=qreduce(m19+im+q4);		m24=qreduce(m20-rm+q4);	// all in -2b,2b
 					t24=t20-rt;		t20=t20+rt;			m19=qreduce(m19-im+q4);		m20=qreduce(m20+rm+q4);	// prior to reduction
 														// m19,20,23,24 are needed for CMUL, so reduce.
@@ -2348,10 +2352,10 @@ void radix16_dif_pass1	(double a[],             int n)
 		rt =a[jt+p12];	it =a[jp+p12];					rm =b[jt+p12];	im =b[jp+p12];
 		t31=t29-rt;		t29=t29+rt;						m31=m29-rm;		m29=m29+rm;
 		t32=t30-it;		t30=t30+it;						m32=m30-im;		m30=m30+im;
-														rm =m29;					im =m30		;		 
+														rm =m29;					im =m30		;
 		rt =t29;	t29=t25-rt;		t25=t25+rt;			m29=m25-rm;					m30=m26-im	;
 		it =t30;	t30=t26-it;		t26=t26+it;			m25=m25+rm;					m26=m26+im	;
-														rm =m31;					im =m32		;		 
+														rm =m31;					im =m32		;
 		rt =t31;	t31=t27+t32;	t27=t27-t32;		m31=qreduce(m27+im+q4);		m32=qreduce(m28-rm+q4);	// all in -2b,2b
 					t32=t28-rt;		t28=t28+rt;			m27=qreduce(m27-im+q4);		m28=qreduce(m28+rm+q4);	// prior to reduction
 														// m27,28,31,32 are needed for CMUL, so reduce.

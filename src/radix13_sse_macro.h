@@ -28,7 +28,241 @@
 
 #include "sse2_macro.h"
 
-#ifdef USE_AVX512	// AVX512 version; cf. comments in AVX2 block below for algo derivations here:
+#ifdef USE_ARM_V8_SIMD
+
+	// Cost: [27 LDR, 31 LDP, 37 STP], 36 FADD/SUB, 168 FMA/FMUL
+	#define SSE2_RADIX_13_DFT(Xcc, XI0,Xi1,Xi2,Xi3,Xi4,Xi5,Xi6,Xi7,Xi8,Xi9,XiA,XiB,XiC, XO0,Xo1,Xo2,Xo3,Xo4,Xo5,Xo6,Xo7,Xo8,Xo9,XoA,XoB,XoC)\
+	{\
+	__asm__ volatile (		/*** Rcol does Imaginary Parts: ***/\
+		"ldr	x13,%[__cc]	\n\t	ldp	q31,q0,[x13,#-0x10]	\n\t"/* x31 = two, x0 = one, but discard the latter */\
+	/* ...Do the + parts of the opening wave of radix-2 butterflies: */\
+		"ldr	x1 ,%[__i1]			\n\t	ldp	q1 ,q7 ,[x1]	\n\t"/* x1 */\
+		"ldr	x12,%[__iC]			\n\t	ldp	q18,q24,[x12]	\n\t"/* xC */\
+		"fadd	v1.2d,v1.2d,v18.2d	\n\t	fadd	v7.2d ,v7.2d ,v24.2d 	\n\t"/* t1 = A1 + Ac */\
+		"ldr	x2 ,%[__i2]			\n\t	ldp	q2 ,q8 ,[x2]	\n\t"/* x2 */\
+		"ldr	x11,%[__iB]			\n\t	ldp	q17,q23,[x11]	\n\t"/* xB */\
+		"fadd	v2.2d,v2.2d,v17.2d	\n\t	fadd	v8.2d ,v8.2d ,v23.2d 	\n\t"/* t2 = A2 + Ab */\
+		"ldr	x3 ,%[__i3]			\n\t	ldp	q3 ,q9 ,[x3]	\n\t"/* x3 */\
+		"ldr	x10,%[__iA]			\n\t	ldp	q16,q22,[x10]	\n\t"/* xA */\
+		"fadd	v3.2d,v3.2d,v16.2d	\n\t	fadd	v9.2d ,v9.2d ,v22.2d 	\n\t"/* t3 = A3 + Aa */\
+		"ldr	x4 ,%[__i4]			\n\t	ldp	q4 ,q10,[x4]	\n\t"/* x4 */\
+		"ldr	x9 ,%[__i9]			\n\t	ldp	q15,q21,[x9]	\n\t"/* x9 */\
+		"fadd	v4.2d,v4.2d,v15.2d	\n\t	fadd	v10.2d,v10.2d,v21.2d 	\n\t"/* t4 = A4 + A9 */\
+		"ldr	x5 ,%[__i5]			\n\t	ldp	q5 ,q11,[x5]	\n\t"/* x5 */\
+		"ldr	x8 ,%[__i8]			\n\t	ldp	q14,q20,[x8]	\n\t"/* x8 */\
+		"fadd	v5.2d,v5.2d,v14.2d	\n\t	fadd	v11.2d,v11.2d,v20.2d 	\n\t"/* t5 = A5 + A8 */\
+		"ldr	x6 ,%[__i6]			\n\t	ldp	q6 ,q12,[x6]	\n\t"/* x6 */\
+		"ldr	x7 ,%[__i7]			\n\t	ldp	q13,q19,[x7]	\n\t"/* x7 */\
+		"fadd	v6.2d,v6.2d,v13.2d	\n\t	fadd	v12.2d,v12.2d,v19.2d 	\n\t"/* t6 = A6 + A7 */\
+	/* Write resulting lower-half outputs t1-6 back to memory before ensuing FMA-block to compute - parts overwrites each + result: */\
+		"stp	q1 ,q7 ,[x1]	\n\t	fmls	v1.2d,v31.2d,v18.2d	\n\t	fmls	v7.2d ,v31.2d,v24.2d 	\n\t"/* tc = A1 - Ac */\
+		"stp	q2 ,q8 ,[x2]	\n\t	fmls	v2.2d,v31.2d,v17.2d	\n\t	fmls	v8.2d ,v31.2d,v23.2d 	\n\t"/* tb = A2 - Ab */\
+		"stp	q3 ,q9 ,[x3]	\n\t	fmls	v3.2d,v31.2d,v16.2d	\n\t	fmls	v9.2d ,v31.2d,v22.2d 	\n\t"/* ta = A3 - Aa */\
+		"stp	q4 ,q10,[x4]	\n\t	fmls	v4.2d,v31.2d,v15.2d	\n\t	fmls	v10.2d,v31.2d,v21.2d 	\n\t"/* t9 = A4 - A9 */\
+		"stp	q5 ,q11,[x5]	\n\t	fmls	v5.2d,v31.2d,v14.2d	\n\t	fmls	v11.2d,v31.2d,v20.2d 	\n\t"/* t8 = A5 - A8 */\
+		"stp	q6 ,q12,[x6]	\n\t	fmls	v6.2d,v31.2d,v13.2d	\n\t	fmls	v12.2d,v31.2d,v19.2d 	\n\t"/* t7 = A6 - A7 */\
+	/* ...And write the upper-half outputs back to memory to free up registers for the 6x6 sine-term-subconvo computation: */\
+	/*	"stp	q1 ,q7 ,[x12]	\n\t"// tcr,i */\
+		"stp	q2 ,q8 ,[x11]	\n\t"/* tbr,i */\
+		"stp	q3 ,q9 ,[x10]	\n\t"/* tar,i */\
+		"stp	q4 ,q10,[x9 ]	\n\t"/* t9r,i */\
+		"stp	q5 ,q11,[x8 ]	\n\t"/* t8r,i */\
+		"stp	q6 ,q12,[x7 ]	\n\t"/* t7r,i */\
+/*
+	S1 =      ss1*tc + ss2*tb + ss3*ta + ss4*t9 + ss5*t8 + ss6*t7
+	S2 =      ss2*tc + ss4*tb + ss6*ta - ss5*t9 - ss3*t8 - ss1*t7
+	S3 =      ss3*tc + ss6*tb - ss4*ta - ss1*t9 + ss2*t8 + ss5*t7
+	S4 =      ss4*tc - ss5*tb - ss1*ta + ss3*t9 - ss6*t8 - ss2*t7
+	S5 =      ss5*tc - ss3*tb + ss2*ta - ss6*t9 - ss1*t8 + ss4*t7
+	S6 =      ss6*tc - ss1*tb + ss5*ta - ss2*t9 + ss4*t8 - ss3*t7
+*/\
+	"add	x13,x13,#0x60	\n\t"/* Incr trig ptr to point to ss1 */\
+		"ldp	q13,q14,[x13      ]	\n\t"/* ss1,2 */\
+		"ldp	q15,q16,[x13,#0x20]	\n\t"/* ss3,4 */\
+		"ldp	q17,q18,[x13,#0x40]	\n\t"/* ss5,6 */\
+		/* S1 = tc already in v1,7 */\
+		"ldr	x12,%[__oC]	\n\t"/* load &BC; save on reg-copies by taking advantage of opening 3-operand MULs */\
+		"fmul	v2.2d,v1.2d,v14.2d 	\n\t	fmul	v8.2d ,v7.2d,v14.2d 	\n\t"/* S2  = ss2*tc; */\
+		"fmul	v3.2d,v1.2d,v15.2d 	\n\t	fmul	v9.2d ,v7.2d,v15.2d 	\n\t"/* S3  = ss3*tc; */\
+		"fmul	v4.2d,v1.2d,v16.2d 	\n\t	fmul	v10.2d,v7.2d,v16.2d 	\n\t"/* S4  = ss4*tc; */\
+		"fmul	v5.2d,v1.2d,v17.2d 	\n\t	fmul	v11.2d,v7.2d,v17.2d 	\n\t"/* S5  = ss5*tc; */\
+		"fmul	v6.2d,v1.2d,v18.2d 	\n\t	fmul	v12.2d,v7.2d,v18.2d 	\n\t"/* S6  = ss6*tc; */\
+		"fmul	v1.2d,v1.2d,v13.2d 	\n\t	fmul	v7.2d ,v7.2d,v13.2d 	\n\t"/* S1  = ss1*tc; Moved this one to last MUL slot because unmultiplied v1,7 needed by above MULs */\
+		"ldp	q19,q20,[x11] 	\n\t	ldr	x11,%[__oB]	\n\t"/* load tB, &BB */\
+		"fmla	v1.2d,v14.2d,v19.2d 	\n\t	fmla	v7.2d ,v14.2d,v20.2d 	\n\t"/* S1 += ss2*tb; */\
+		"fmla	v2.2d,v16.2d,v19.2d 	\n\t	fmla	v8.2d ,v16.2d,v20.2d 	\n\t"/* S2 += ss4*tb; */\
+		"fmla	v3.2d,v18.2d,v19.2d 	\n\t	fmla	v9.2d ,v18.2d,v20.2d 	\n\t"/* S3 += ss6*tb; */\
+		"fmls	v4.2d,v17.2d,v19.2d 	\n\t	fmls	v10.2d,v17.2d,v20.2d 	\n\t"/* S4 -= ss5*tb; */\
+		"fmls	v5.2d,v15.2d,v19.2d 	\n\t	fmls	v11.2d,v15.2d,v20.2d 	\n\t"/* S5 -= ss3*tb; */\
+		"fmls	v6.2d,v13.2d,v19.2d 	\n\t	fmls	v12.2d,v13.2d,v20.2d 	\n\t"/* S6 -= ss1*tb; */\
+		"ldp	q19,q20,[x10] 	\n\t	ldr	x10,%[__oA]	\n\t"/* load tA, &BA */\
+		"fmla	v1.2d,v15.2d,v19.2d 	\n\t	fmla	v7.2d ,v15.2d,v20.2d 	\n\t"/* S1 += ss3*ta; */\
+		"fmla	v2.2d,v18.2d,v19.2d 	\n\t	fmla	v8.2d ,v18.2d,v20.2d 	\n\t"/* S2 += ss6*ta; */\
+		"fmls	v3.2d,v16.2d,v19.2d 	\n\t	fmls	v9.2d ,v16.2d,v20.2d 	\n\t"/* S3 -= ss4*ta; */\
+		"fmls	v4.2d,v13.2d,v19.2d 	\n\t	fmls	v10.2d,v13.2d,v20.2d 	\n\t"/* S4 -= ss1*ta; */\
+		"fmla	v5.2d,v14.2d,v19.2d 	\n\t	fmla	v11.2d,v14.2d,v20.2d 	\n\t"/* S5 += ss2*ta; */\
+		"fmla	v6.2d,v17.2d,v19.2d 	\n\t	fmla	v12.2d,v17.2d,v20.2d 	\n\t"/* S6 += ss5*ta; */\
+		"ldp	q19,q20,[x9] 	\n\t	ldr	x9,%[__o9]	\n\t"/* load t9, &B9 */\
+		"fmla	v1.2d,v16.2d,v19.2d 	\n\t	fmla	v7.2d ,v16.2d,v20.2d 	\n\t"/* S1 += ss4*t9; */\
+		"fmls	v2.2d,v17.2d,v19.2d 	\n\t	fmls	v8.2d ,v17.2d,v20.2d 	\n\t"/* S2 -= ss5*t9; */\
+		"fmls	v3.2d,v13.2d,v19.2d 	\n\t	fmls	v9.2d ,v13.2d,v20.2d 	\n\t"/* S3 -= ss1*t9; */\
+		"fmla	v4.2d,v15.2d,v19.2d 	\n\t	fmla	v10.2d,v15.2d,v20.2d 	\n\t"/* S4 += ss3*t9; */\
+		"fmls	v5.2d,v18.2d,v19.2d 	\n\t	fmls	v11.2d,v18.2d,v20.2d 	\n\t"/* S5 -= ss6*t9; */\
+		"fmls	v6.2d,v14.2d,v19.2d 	\n\t	fmls	v12.2d,v14.2d,v20.2d 	\n\t"/* S6 -= ss2*t9; */\
+		"ldp	q19,q20,[x8] 	\n\t	ldr	x8,%[__o8]	\n\t"/* load t8, &B8 */\
+		"fmla	v1.2d,v17.2d,v19.2d 	\n\t	fmla	v7.2d ,v17.2d,v20.2d 	\n\t"/* S1 += ss5*t8; */\
+		"fmls	v2.2d,v15.2d,v19.2d 	\n\t	fmls	v8.2d ,v15.2d,v20.2d 	\n\t"/* S2 -= ss3*t8; */\
+		"fmla	v3.2d,v14.2d,v19.2d 	\n\t	fmla	v9.2d ,v14.2d,v20.2d 	\n\t"/* S3 += ss2*t8; */\
+		"fmls	v4.2d,v18.2d,v19.2d 	\n\t	fmls	v10.2d,v18.2d,v20.2d 	\n\t"/* S4 -= ss6*t8; */\
+		"fmls	v5.2d,v13.2d,v19.2d 	\n\t	fmls	v11.2d,v13.2d,v20.2d 	\n\t"/* S5 -= ss1*t8; */\
+		"fmla	v6.2d,v16.2d,v19.2d 	\n\t	fmla	v12.2d,v16.2d,v20.2d 	\n\t"/* S6 += ss4*t8; */\
+		"ldp	q19,q20,[x7] 	\n\t	ldr	x7,%[__o7]	\n\t"/* load t7, &B7 */\
+		"fmla	v1.2d,v18.2d,v19.2d 	\n\t	fmla	v7.2d ,v18.2d,v20.2d 	\n\t"/* S1 += ss6*t7; */\
+		"fmls	v2.2d,v13.2d,v19.2d 	\n\t	fmls	v8.2d ,v13.2d,v20.2d 	\n\t"/* S2 -= ss1*t7; */\
+		"fmla	v3.2d,v17.2d,v19.2d 	\n\t	fmla	v9.2d ,v17.2d,v20.2d 	\n\t"/* S3 += ss5*t7; */\
+		"fmls	v4.2d,v14.2d,v19.2d 	\n\t	fmls	v10.2d,v14.2d,v20.2d 	\n\t"/* S4 -= ss2*t7; */\
+		"fmla	v5.2d,v16.2d,v19.2d 	\n\t	fmla	v11.2d,v16.2d,v20.2d 	\n\t"/* S5 += ss4*t7; */\
+		"fmls	v6.2d,v15.2d,v19.2d 	\n\t	fmls	v12.2d,v15.2d,v20.2d 	\n\t"/* S6 -= ss3*t7; */\
+	/* Write sine-term-subconvo outputs back to memory to free up registers for the 6x6 cosine-term-subconvo computation: */\
+		"stp	q1 ,q7 ,[x12]	\n\t"/* s1r,i */\
+		"stp	q2 ,q8 ,[x11]	\n\t"/* s2r,i */\
+		"stp	q3 ,q9 ,[x10]	\n\t"/* s3r,i */\
+		"stp	q4 ,q10,[x9 ]	\n\t"/* s4r,i */\
+		"stp	q5 ,q11,[x8 ]	\n\t"/* s5r,i */\
+		"stp	q6 ,q12,[x7 ]	\n\t"/* s6r,i */\
+/*
+	C1 = t0 + cc1*t1 + cc2*t2 + cc3*t3 + cc4*t4 + cc5*t5 + cc6*t6
+	C2 = t0 + cc2*t1 + cc4*t2 + cc6*t3 + cc5*t4 + cc3*t5 + cc1*t6
+	C3 = t0 + cc3*t1 + cc6*t2 + cc4*t3 + cc1*t4 + cc2*t5 + cc5*t6
+	C4 = t0 + cc4*t1 + cc5*t2 + cc1*t3 + cc3*t4 + cc6*t5 + cc2*t6
+	C5 = t0 + cc5*t1 + cc3*t2 + cc2*t3 + cc6*t4 + cc1*t5 + cc4*t6
+	C6 = t0 + cc6*t1 + cc1*t2 + cc5*t3 + cc2*t4 + cc4*t5 + cc3*t6
+	B0 = t0 +     t1 +     t2 +     t3 +     t4 +     t5 +     t6	// X0
+*/\
+	"sub	x13,x13,#0x60	\n\t"/* Decr trig ptr to point to cc1 */\
+		"ldp	q13,q14,[x13      ]	\n\t"/* cc1,2 */\
+		"ldp	q15,q16,[x13,#0x20]	\n\t"/* cc3,4 */\
+		"ldp	q17,q18,[x13,#0x40]	\n\t"/* cc5,6 */\
+		"ldr	x0 ,%[__I0]		\n\t"\
+		"ldp	q1,q7,[x0] 	\n\t"	/* c1 = A0 */\
+		"mov	v2.16b,v1.16b	\n\t	mov	v8.16b ,v7.16b	\n\t"/* c2 = A0 */\
+		"mov	v3.16b,v1.16b	\n\t	mov	v9.16b ,v7.16b	\n\t"/* c3 = A0 */\
+		"mov	v4.16b,v1.16b	\n\t	mov	v10.16b,v7.16b	\n\t"/* c4 = A0 */\
+		"mov	v5.16b,v1.16b	\n\t	mov	v11.16b,v7.16b	\n\t"/* c5 = A0 */\
+		"mov	v6.16b,v1.16b	\n\t	mov	v12.16b,v7.16b	\n\t"/* c6 = A0 */\
+		"mov	v21.16b,v1.16b	\n\t	mov	v22.16b,v7.16b	\n\t"/* B0 = A0; Init registers used to accumulate DC-component */\
+		"ldp	q19,q20,[x1] 	\n\t	ldr	x1,%[__o1]	\n\t"/* load t1, &B1 */\
+		"fmla	v1.2d,v13.2d,v19.2d 	\n\t	fmla	v7.2d ,v13.2d,v20.2d 	\n\t"/* C1 += cc1*tc; */\
+		"fmla	v2.2d,v14.2d,v19.2d 	\n\t	fmla	v8.2d ,v14.2d,v20.2d 	\n\t"/* C2 += cc2*tc; */\
+		"fmla	v3.2d,v15.2d,v19.2d 	\n\t	fmla	v9.2d ,v15.2d,v20.2d 	\n\t"/* C3 += cc3*tc; */\
+		"fmla	v4.2d,v16.2d,v19.2d 	\n\t	fmla	v10.2d,v16.2d,v20.2d 	\n\t"/* C4 += cc4*tc; */\
+		"fmla	v5.2d,v17.2d,v19.2d 	\n\t	fmla	v11.2d,v17.2d,v20.2d 	\n\t"/* C5 += cc5*tc; */\
+		"fmla	v6.2d,v18.2d,v19.2d 	\n\t	fmla	v12.2d,v18.2d,v20.2d 	\n\t"/* C6 += cc6*tc; */\
+		"fadd	v21.2d,v21.2d,v19.2d \n\t	fadd	v22.2d,v22.2d,v20.2d 	\n\t"/* B0 += t1 */\
+		"ldp	q19,q20,[x2] 	\n\t	ldr	x2,%[__o2]	\n\t"/* load t2, &B2 */\
+		"fmla	v1.2d,v14.2d,v19.2d 	\n\t	fmla	v7.2d ,v14.2d,v20.2d 	\n\t"/* C1 += cc2*tb; */\
+		"fmla	v2.2d,v16.2d,v19.2d 	\n\t	fmla	v8.2d ,v16.2d,v20.2d 	\n\t"/* C2 += cc4*tb; */\
+		"fmla	v3.2d,v18.2d,v19.2d 	\n\t	fmla	v9.2d ,v18.2d,v20.2d 	\n\t"/* C3 += cc6*tb; */\
+		"fmla	v4.2d,v17.2d,v19.2d 	\n\t	fmla	v10.2d,v17.2d,v20.2d 	\n\t"/* C4 += cc5*tb; */\
+		"fmla	v5.2d,v15.2d,v19.2d 	\n\t	fmla	v11.2d,v15.2d,v20.2d 	\n\t"/* C5 += cc3*tb; */\
+		"fmla	v6.2d,v13.2d,v19.2d 	\n\t	fmla	v12.2d,v13.2d,v20.2d 	\n\t"/* C6 += cc1*tb; */\
+		"fadd	v21.2d,v21.2d,v19.2d \n\t	fadd	v22.2d,v22.2d,v20.2d 	\n\t"/* B0 += t2 */\
+		"ldp	q19,q20,[x3] 	\n\t	ldr	x3,%[__o3]	\n\t"/* load t3, &B3 */\
+		"fmla	v1.2d,v15.2d,v19.2d 	\n\t	fmla	v7.2d ,v15.2d,v20.2d 	\n\t"/* C1 += cc3*ta; */\
+		"fmla	v2.2d,v18.2d,v19.2d 	\n\t	fmla	v8.2d ,v18.2d,v20.2d 	\n\t"/* C2 += cc6*ta; */\
+		"fmla	v3.2d,v16.2d,v19.2d 	\n\t	fmla	v9.2d ,v16.2d,v20.2d 	\n\t"/* C3 += cc4*ta; */\
+		"fmla	v4.2d,v13.2d,v19.2d 	\n\t	fmla	v10.2d,v13.2d,v20.2d 	\n\t"/* C4 += cc1*ta; */\
+		"fmla	v5.2d,v14.2d,v19.2d 	\n\t	fmla	v11.2d,v14.2d,v20.2d 	\n\t"/* C5 += cc2*ta; */\
+		"fmla	v6.2d,v17.2d,v19.2d 	\n\t	fmla	v12.2d,v17.2d,v20.2d 	\n\t"/* C6 += cc5*ta; */\
+		"fadd	v21.2d,v21.2d,v19.2d \n\t	fadd	v22.2d,v22.2d,v20.2d 	\n\t"/* B0 += t3 */\
+		"ldp	q19,q20,[x4] 	\n\t	ldr	x4,%[__o4]	\n\t"/* load t4, &B4 */\
+		"fmla	v1.2d,v16.2d,v19.2d 	\n\t	fmla	v7.2d ,v16.2d,v20.2d 	\n\t"/* C1 += cc4*t9; */\
+		"fmla	v2.2d,v17.2d,v19.2d 	\n\t	fmla	v8.2d ,v17.2d,v20.2d 	\n\t"/* C2 += cc5*t9; */\
+		"fmla	v3.2d,v13.2d,v19.2d 	\n\t	fmla	v9.2d ,v13.2d,v20.2d 	\n\t"/* C3 += cc1*t9; */\
+		"fmla	v4.2d,v15.2d,v19.2d 	\n\t	fmla	v10.2d,v15.2d,v20.2d 	\n\t"/* C4 += cc3*t9; */\
+		"fmla	v5.2d,v18.2d,v19.2d 	\n\t	fmla	v11.2d,v18.2d,v20.2d 	\n\t"/* C5 += cc6*t9; */\
+		"fmla	v6.2d,v14.2d,v19.2d 	\n\t	fmla	v12.2d,v14.2d,v20.2d 	\n\t"/* C6 += cc2*t9; */\
+		"fadd	v21.2d,v21.2d,v19.2d \n\t	fadd	v22.2d,v22.2d,v20.2d 	\n\t"/* B0 += t4 */\
+		"ldp	q19,q20,[x5] 	\n\t	ldr	x5,%[__o5]	\n\t"/* load t5, &B5 */\
+		"fmla	v1.2d,v17.2d,v19.2d 	\n\t	fmla	v7.2d ,v17.2d,v20.2d 	\n\t"/* C1 += cc5*t8; */\
+		"fmla	v2.2d,v15.2d,v19.2d 	\n\t	fmla	v8.2d ,v15.2d,v20.2d 	\n\t"/* C2 += cc3*t8; */\
+		"fmla	v3.2d,v14.2d,v19.2d 	\n\t	fmla	v9.2d ,v14.2d,v20.2d 	\n\t"/* C3 += cc2*t8; */\
+		"fmla	v4.2d,v18.2d,v19.2d 	\n\t	fmla	v10.2d,v18.2d,v20.2d 	\n\t"/* C4 += cc6*t8; */\
+		"fmla	v5.2d,v13.2d,v19.2d 	\n\t	fmla	v11.2d,v13.2d,v20.2d 	\n\t"/* C5 += cc1*t8; */\
+		"fmla	v6.2d,v16.2d,v19.2d 	\n\t	fmla	v12.2d,v16.2d,v20.2d 	\n\t"/* C6 += cc4*t8; */\
+		"fadd	v21.2d,v21.2d,v19.2d \n\t	fadd	v22.2d,v22.2d,v20.2d 	\n\t"/* B0 += t5 */\
+		"ldp	q19,q20,[x6] 	\n\t	ldr	x6,%[__o6]	\n\t"/* load t6, &B6 */\
+		"fmla	v1.2d,v18.2d,v19.2d 	\n\t	fmla	v7.2d ,v18.2d,v20.2d 	\n\t"/* C1 += cc6*t7; */\
+		"fmla	v2.2d,v13.2d,v19.2d 	\n\t	fmla	v8.2d ,v13.2d,v20.2d 	\n\t"/* C2 += cc1*t7; */\
+		"fmla	v3.2d,v17.2d,v19.2d 	\n\t	fmla	v9.2d ,v17.2d,v20.2d 	\n\t"/* C3 += cc5*t7; */\
+		"fmla	v4.2d,v14.2d,v19.2d 	\n\t	fmla	v10.2d,v14.2d,v20.2d 	\n\t"/* C4 += cc2*t7; */\
+		"fmla	v5.2d,v16.2d,v19.2d 	\n\t	fmla	v11.2d,v16.2d,v20.2d 	\n\t"/* C5 += cc4*t7; */\
+		"fmla	v6.2d,v15.2d,v19.2d 	\n\t	fmla	v12.2d,v15.2d,v20.2d 	\n\t"/* C6 += cc3*t7; */\
+		"fadd	v21.2d,v21.2d,v19.2d \n\t	fadd	v22.2d,v22.2d,v20.2d 	\n\t"/* B0 += t6 */\
+		"ldr	x0 ,%[__O0]		\n\t	stp	q21,q22,[x0]	\n\t"/* Store B0 */\
+		/* Reload S-terms: */\
+		"ldp	q13,q19,[x12]	\n\t"/* s1r,i */\
+		"ldp	q14,q20,[x11]	\n\t"/* s2r,i */\
+		"ldp	q15,q21,[x10]	\n\t"/* s3r,i */\
+		"ldp	q16,q22,[x9 ]	\n\t"/* s4r,i */\
+		"ldp	q17,q23,[x8 ]	\n\t"/* s5r,i */\
+		"ldp	q18,q24,[x7 ]	\n\t"/* s6r,i */\
+	/* ...Do the lower-half-index portion of the closing wave of radix-2 butterflies: */\
+		"fsub	v1.2d,v1.2d,v19.2d 	\n\t	fadd	v7.2d ,v7.2d ,v13.2d 	\n\t"/* B1 = C1 + I*S1 */\
+		"fsub	v2.2d,v2.2d,v20.2d 	\n\t	fadd	v8.2d ,v8.2d ,v14.2d 	\n\t"/* B2 = C2 + I*S2 */\
+		"fsub	v3.2d,v3.2d,v21.2d 	\n\t	fadd	v9.2d ,v9.2d ,v15.2d 	\n\t"/* B3 = C3 + I*S3 */\
+		"fsub	v4.2d,v4.2d,v22.2d 	\n\t	fadd	v10.2d,v10.2d,v16.2d 	\n\t"/* B4 = C4 + I*S4 */\
+		"fsub	v5.2d,v5.2d,v23.2d 	\n\t	fadd	v11.2d,v11.2d,v17.2d 	\n\t"/* B5 = C5 + I*S5 */\
+		"fsub	v6.2d,v6.2d,v24.2d 	\n\t	fadd	v12.2d,v12.2d,v18.2d 	\n\t"/* B6 = C6 + I*S6 */\
+	/* Write resulting lower-half outputs B1-6 back to memory before ensuing FMA-block to compute - parts overwrites each + result: */\
+		"stp	q1 ,q7 ,[x1]	\n\t	fmla	v1.2d,v31.2d,v19.2d 	\n\t	fmls	v7.2d ,v31.2d,v13.2d 	\n\t"/* BC = C1 - I*S1 */\
+		"stp	q2 ,q8 ,[x2]	\n\t	fmla	v2.2d,v31.2d,v20.2d 	\n\t	fmls	v8.2d ,v31.2d,v14.2d 	\n\t"/* BB = C2 - I*S2 */\
+		"stp	q3 ,q9 ,[x3]	\n\t	fmla	v3.2d,v31.2d,v21.2d 	\n\t	fmls	v9.2d ,v31.2d,v15.2d 	\n\t"/* BA = C3 - I*S3 */\
+		"stp	q4 ,q10,[x4]	\n\t	fmla	v4.2d,v31.2d,v22.2d 	\n\t	fmls	v10.2d,v31.2d,v16.2d 	\n\t"/* B9 = C4 - I*S4 */\
+		"stp	q5 ,q11,[x5]	\n\t	fmla	v5.2d,v31.2d,v23.2d 	\n\t	fmls	v11.2d,v31.2d,v17.2d 	\n\t"/* B8 = C5 - I*S5 */\
+		"stp	q6 ,q12,[x6]	\n\t	fmla	v6.2d,v31.2d,v24.2d 	\n\t	fmls	v12.2d,v31.2d,v18.2d 	\n\t"/* B7 = C6 - I*S6 */\
+	/* ...And write the upper-half outputs back to memory. */\
+		"stp	q1 ,q7 ,[x12]	\n\t"/* BCr,i */\
+		"stp	q2 ,q8 ,[x11]	\n\t"/* BBr,i */\
+		"stp	q3 ,q9 ,[x10]	\n\t"/* BAr,i */\
+		"stp	q4 ,q10,[x9 ]	\n\t"/* B9r,i */\
+		"stp	q5 ,q11,[x8 ]	\n\t"/* B8r,i */\
+		"stp	q6 ,q12,[x7 ]	\n\t"/* B7r,i */\
+		:					/* outputs: none */\
+		: [__cc] "m" (Xcc)	/* All inputs from memory addresses here */\
+		 ,[__I0] "m" (XI0)\
+		 ,[__i1] "m" (Xi1)\
+		 ,[__i2] "m" (Xi2)\
+		 ,[__i3] "m" (Xi3)\
+		 ,[__i4] "m" (Xi4)\
+		 ,[__i5] "m" (Xi5)\
+		 ,[__i6] "m" (Xi6)\
+		 ,[__i7] "m" (Xi7)\
+		 ,[__i8] "m" (Xi8)\
+		 ,[__i9] "m" (Xi9)\
+		 ,[__iA] "m" (XiA)\
+		 ,[__iB] "m" (XiB)\
+		 ,[__iC] "m" (XiC)\
+		 ,[__O0] "m" (XO0)\
+		 ,[__o1] "m" (Xo1)\
+		 ,[__o2] "m" (Xo2)\
+		 ,[__o3] "m" (Xo3)\
+		 ,[__o4] "m" (Xo4)\
+		 ,[__o5] "m" (Xo5)\
+		 ,[__o6] "m" (Xo6)\
+		 ,[__o7] "m" (Xo7)\
+		 ,[__o8] "m" (Xo8)\
+		 ,[__o9] "m" (Xo9)\
+		 ,[__oA] "m" (XoA)\
+		 ,[__oB] "m" (XoB)\
+		 ,[__oC] "m" (XoC)\
+		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","x7","x8","x9","x10","x11","x12","x13",\
+			"v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11","v12","v13","v14","v15",\
+			"v16","v17","v18","v19","v20","v21","v22","v23","v24","v31"	/* Clobbered registers */\
+		);\
+	}
+
+#elif defined(USE_AVX512)	// AVX512 version; cf. comments in AVX2 block below for algo derivations here:
 
    #if DFT_13_FMA	// [1] Naive but good-ROE and FMA-friendly impl based on RADIX_13_DFT_BASIC in dft_macro.h:
 

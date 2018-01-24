@@ -21,6 +21,11 @@
 *******************************************************************************/
 
 #include "Mlucas.h"
+
+// In SSE2 mode this variant is unambiguously faster; for ARMv8 (which also sets USE_SSE2) it is the only implemented 16-DFT:
+#if defined(USE_SSE2) && !defined(USE_AVX512)	// No such macro version in avx512 mode!
+	#define REFACTOR_4DFT_3TWIDDLE
+#endif
 #ifdef REFACTOR_4DFT_3TWIDDLE
 	#include "sse2_macro.h"
 #endif
@@ -663,12 +668,12 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 
 		// Now send the cosine terms to the inversion routine, which also does the combine-and-populate-SIMD-slots step.
 	  #ifdef DFT_V2	// Toggle between 2 versions
-	
+
 		RADIX16_COMPUTE_FMA_SINCOS_DIF_2(cc0,two);	//*** Note 'two' contains 1.0x4 in this mode! ***
 		add0 = (double *)cc0;
-	
+
 		/* 44 scalar-double data starting at add0 = cc0 laid out as below - * denote the 12 data unused by the V2 DIF DFT:
-	
+
 		a[0x00,0x01,0x02,0x03]: add0 + 0x[  0,  8, 10, 18]: [c3*,c1 ,c2 ,c3*] Cosines:
 		a[0x04,0x05,0x06,0x07]: add0 + 0x[ 20, 28, 30, 38]: [c4 ,c5*,c6*,c7*]
 		a[0x08,0x09,0x0a,0x0b]: add0 + 0x[ 40, 48, 50, 58]: [c8 ,c9*,cA*,cB*]
@@ -680,7 +685,7 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 		a[0x20,0x21,0x22,0x23]: add0 + 0x[100,108,110,118]: [c31,c51,c62,  0] Cosine ratios:
 		a[0x24,0x25,0x26,0x27]: add0 + 0x[120,128,130,138]: [c73,c91,cA2,cB3]
 		a[0x28,0x29,0x2a,0x2b]: add0 + 0x[140,148,150,158]: [cC4,cD5,cE6,cF7]
-	
+
 		V2 DIF needs 35 doubles - subtracting the 2 unused/0 slots and the 12 unused cosine-data
 		in the above leaves just 30. We get to 35 by applying the following data-munges, expressed
 		in terms of the hex double-array indices of the targeted datum:
@@ -693,7 +698,7 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 		/*
 		Yielding the following layout-of-scalar-doubles, with dash-marked slots unused in V2 DIF
 		and appended 'I' meaning *= ISRT2; we can see the expected 9 unused slots:
-	
+
 		a[0x00,0x01,0x02,0x03]: add0 + 0x[  0,  8, 10, 18]: [1.0,c1 ,c2 ,c1*c]
 		a[0x04,0x05,0x06,0x07]: add0 + 0x[ 20, 28, 30, 38]: [c4 ,c1I,c2I,---]
 		a[0x08,0x09,0x0a,0x0b]: add0 + 0x[ 40, 48, 50, 58]: [c8 ,---,---,---]
@@ -1158,7 +1163,7 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 																				rm =m5;						im =m6		;			// 0,b
 		rt =t5;	t5 =t1 -rt;					t1 =t1 +rt;							m5 =m1 -rm;					m6 =m2 -im	;			// -:-b,b
 		it =t6;	t6 =t2 -it;					t2 =t2 +it;							m1 =m1 +rm;					m2 =m2 +im	;			// +:0,2b (rest similar)
-																				rm =m7;						im =m8		;			
+																				rm =m7;						im =m8		;
 		rt =t7;	t7 =t3 +t8;					t3 =t3 -t8;							m7 =m3 +im;					m8 =m4 -rm	;			// -:-b,b
 				t8 =t4 -rt;					t4 =t4 +rt;							m3 =m3 -im;					m4 =m4 +rm	;			// +:0,2b
 
@@ -1184,10 +1189,10 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 		rt =a[jt+p12]*c14-a[jp+p12]*s14;	it =a[jp+p12]*c14+a[jt+p12]*s14;	cmul_modq8(b[jt+p12],b[jp+p12],a14,b14, &rm, &im);
 		t15=t13-rt;							t13=t13+rt;							m15=qreduce(m13-rm+q4);		m16=qreduce(m14-im+q4);
 		t16=t14-it;							t14=t14+it;							m13=qreduce(m13+rm   );		m14=qreduce(m14+im   );
-																				rm =m13;					im =m14		;		 
+																				rm =m13;					im =m14		;
 		rt =t13;	t13=t9 -rt;				t9 =t9 +rt;							m13=m9 -rm;					m14=m10-im	;			// -:-b,b
 		it =t14;	t14=t10-it;				t10=t10+it;							m9 =m9 +rm;					m10=m10+im	;			// +:0,2b
-																				rm =m15;					im =m16		;		 
+																				rm =m15;					im =m16		;
 		rt =t15;	t15=t11+t16;			t11=t11-t16;						m15=m11+im;					m16=m12-rm	;			// -:-b,b
 					t16=t12-rt;				t12=t12+rt;							m11=m11-im;					m12=m12+rm	;			// +:0,2b
 
@@ -1213,10 +1218,10 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 		rt =a[jt+p12]*c13-a[jp+p12]*s13;	it =a[jp+p12]*c13+a[jt+p12]*s13;	cmul_modq8(b[jt+p12],b[jp+p12],a13,b13, &rm, &im);
 		t23=t21-rt;							t21=t21+rt;							m23=qreduce(m21-rm+q4);		m24=qreduce(m22-im+q4);
 		t24=t22-it;							t22=t22+it;							m21=qreduce(m21+rm   );		m22=qreduce(m22+im   );
-																				rm =m21;					im =m22		;		 
+																				rm =m21;					im =m22		;
 		rt =t21;	t21=t17-rt;				t17=t17+rt;							m21=m17-rm;					m22=m18-im	;			// -:-b,b
 		it =t22;	t22=t18-it;				t18=t18+it;							m17=m17+rm;					m18=m18+im	;			// +:0,2b
-																				rm =m23;					im =m24		;		 
+																				rm =m23;					im =m24		;
 		rt =t23;	t23=t19+t24;			t19=t19-t24;						m23=qreduce(m19+im   );		m24=qreduce(m20-rm+q2);	// -:-b,b
 					t24=t20-rt;				t20=t20+rt;							m19=qreduce(m19-im+q2);		m20=qreduce(m20+rm   );	// +:0,2b
 																				// m19,20,23,24 are needed for CMUL, so reduce.
@@ -1242,10 +1247,10 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 		rt =a[jt+p12]*c15-a[jp+p12]*s15;	it =a[jp+p12]*c15+a[jt+p12]*s15;	cmul_modq8(b[jt+p12],b[jp+p12],a15,b15, &rm, &im);
 		t31=t29-rt;							t29=t29+rt;							m31=qreduce(m29-rm+q4);		m32=qreduce(m30-im+q4);
 		t32=t30-it;							t30=t30+it;							m29=qreduce(m29+rm   );		m30=qreduce(m30+im   );
-																				rm =m29;					im =m30		;		 
+																				rm =m29;					im =m30		;
 		rt =t29;	t29=t25-rt;				t25=t25+rt;							m29=m25-rm;					m30=m26-im	;			// -:-b,b
 		it =t30;	t30=t26-it;				t26=t26+it;							m25=m25+rm;					m26=m26+im	;			// +:0,2b
-																				rm =m31;					im =m32		;		 
+																				rm =m31;					im =m32		;
 		rt =t31;	t31=t27+t32;			t27=t27-t32;						m31=qreduce(m27+im   );		m32=qreduce(m28-rm+q2);	// -:-b,b
 					t32=t28-rt;				t28=t28+rt;							m27=qreduce(m27-im+q2);		m28=qreduce(m28+rm   );	// +:0,2b
 																				// m27,28,31,32 are needed for CMUL, so reduce.
@@ -2576,7 +2581,7 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 
 		rt =t5;	t5 =t1 -rt ;	t1 =t1 +rt;			rm =m5;	m5 =m1 -rm ;	m1 =m1 +rm;	// 1,2 in   0,4b
 		it =t6;	t6 =t2 -it ;	t2 =t2 +it;			im =m6;	m6 =m2 -im ;	m2 =m2 +im;	// 5,6 in -2b,2b
-	
+
 		rt =t7;	t7 =t3 -t8 ;	t3 =t3 +t8;			rm =m7;	m7 =m3 -m8 ;	m3 =m3 +m8;	// 3,8 in -2b,2b
 				t8 =t4 +rt ;	t4 =t4 -rt;					m8 =m4 +rm ;	m4 =m4 -rm;	// 4,7 same
 
@@ -2750,7 +2755,7 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 		rt =(t12+t11)*ISRT2;it =(t12-t11)*ISRT2;					rm = mul_i2(m12+m11+q4);im = mul_i2(m12-m11+q4);	// 0,b30
 		t11 = t3 -rt;		t3 = t3 +rt;							m11 = m3 -rm;		m3 = m3 +rm;	//  3, 4 in -2b,2b+b30
 		t12 = t4 -it;		t4 = t4 +it;							m12 = m4 -im;		m4 = m4 +im;	// 11,12 in -2b-b30,2b
-																
+
 		rt =t19*c + t20*s;	t20=t20*c - t19*s;	t19=rt;				cmul_modq8(m19,m20, cm,q8-sm, &m19,&m20);
 		rt =t27*s + t28*c;	it =t28*s - t27*c;						cmul_modq8(m27,m28, sm,q8-cm, &rm ,&im );
 		t27 = t19-rt;		t19 = t19+rt;							m27 =qreduce(m19-rm+q4);	m19 =qreduce(m19+rm);	// +:   0,8q ==> 0,b
@@ -2783,7 +2788,7 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 		rt =(t15-t16)*ISRT2;it =(t15+t16)*ISRT2;					rm = mul_i2(m15-m16+q4);im = mul_i2(m15+m16+q4);	// 0,b30
 		t15 = t7 +rt;			t7 = t7 -rt;						m15 = m7 +rm;			m7 = m7 -rm;	//  7, 8 in -2b-b30,2b
 		t16 = t8 +it;			t8 = t8 -it;						m16 = m8 +im;			m8 = m8 -im;	// 15,16 in -2b,2b+b30
-																	
+
 		rt =t23*s + t24*c;	t24=t24*s - t23*c;	t23=rt;				cmul_modq8(m23,m24, sm,q8-cm, &m23,&m24);
 		rt =t31*c + t32*s;	it =t32*c - t31*s;						cmul_modq8(m31,m32, cm,q8-sm, &rm ,&im );
 		t31 = t23+rt;			t23 = t23-rt;						m31 =qreduce(m23+rm);	m23 =qreduce(m23-rm+q4);// +:   0,8q ==> 0,b

@@ -39,8 +39,12 @@
 	#define HIACC	1	// 32-bit mode only supports the older HIACC carry macros
   #endif
 #endif
-#if defined(HIACC) && defined(USE_AVX512)
+#ifdef HIACC
+  #ifdef USE_ARM_V8_SIMD
+	#error Currently only LOACC carry-mode supported in ARM v8 SIMD builds!
+  #elif defined(USE_AVX512)
 	#error Currently only LOACC carry-mode supported in AVX-512 builds!
+  #endif
 #endif
 #if defined(LOACC) && (OS_BITS == 32)
 	#error 32-bit mode only supports the older HIACC carry macros!
@@ -391,7 +395,7 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
 			// so on that platform try to be clever and interleave main-thread and threadpool-work processing
 			#if 0//def OS_TYPE_MACOSX
-	
+
 				if(CY_THREADS > 1) {
 					main_work_units = CY_THREADS/2;
 					pool_work_units = CY_THREADS - main_work_units;
@@ -401,13 +405,13 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 					main_work_units = 1;
 					printf("radix%d_ditN_cy_dif1: CY_THREADS = 1: Using main execution thread, no threadpool needed.\n", RADIX);
 				}
-	
+
 			#else
-	
+
 				main_work_units = 0;
 				pool_work_units = CY_THREADS;
 				ASSERT(HERE, 0x0 != (tpool = threadpool_init(CY_THREADS, MAX_THREADS, CY_THREADS, &thread_control)), "threadpool_init failed!");
-	
+
 			#endif
 		}
 	  #endif
@@ -637,9 +641,9 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			tmp64 = 0x3FC2C8106E8E613Aull;	tmp->d5 = tm2->d3 = *(double *)&tmp64;
 			tmp64 = 0x3FB917A6BC29B42Cull;	tmp->d6 = tm2->d2 = *(double *)&tmp64;
 			tmp64 = 0x3FA91F65F10DD814ull;	tmp->d7 = tm2->d1 = *(double *)&tmp64;	tmp += 2;	// tmp+8 (unused)
-	
+
 			tmp = base_negacyclic_root + 2*RADIX;	// reset to point to start of above block
-	
+
 		  #else
 			/*
 			The pattern of the negacyclic-DWT-weights ("nDWTs") applied to the RADIX complex outputs of the final-DIT-pass is like so:
@@ -2013,7 +2017,7 @@ void radix32_dit_pass1(double a[], int n)
 	  #ifndef USE_AVX512	// In AVX-512 mode, use VRNDSCALEPD for rounding and hijack this vector-data slot for the 4 base/baseinv-consts:
 		ASSERT(HERE, (sse2_rnd->d0 == crnd && sse2_rnd->d1 == crnd), "thread-local memcheck failed!");
 	  #endif
-	
+
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 		{
 			tmp = half_arr;

@@ -37,7 +37,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		j2 = j1 + RE_IM_STRIDE;
 
 	/*...The radix-32 DIT pass is here:	*/
-	
+
 	#ifdef USE_SSE2
 
 		add0 = &a[j1    ];	itmp = (int *)arr_offsets;
@@ -601,7 +601,7 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 
 		add0 = &a[j1    ];	itmp = (int *)arr_offsets;
 		SSE2_RADIX32_DIF_NOTWIDDLE(add0,itmp, r00, isrt2);
-	
+
 	#else	/* #ifdef USE_SSE2 */
 
 		RADIX_32_DIF(\

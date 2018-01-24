@@ -1269,7 +1269,16 @@ uint64 twopmodq78_3WORD_DOUBLE_q2(uint64 p, uint64 k0, uint64 k1, int init_sse2,
 	CVT_UINT78_3WORD_DOUBLE(q0 ,*fq0,*fq1,*fq2);
 	CVT_UINT78_3WORD_DOUBLE(q1 ,*gq0,*gq1,*gq2);
 
-  #if OS_BITS == 32
+  #ifdef USE_ARM_V8_SIMD
+	// No TF support on ARMv8, just supply a stub macro:
+	__asm__ volatile (\
+		"ldr x0,%[__fq0]	\n\t"\
+		:					// outputs: none
+		: [__fq0] "m" (fq0)	// All inputs from memory addresses here
+		: "cc","memory","x0"	/* Clobbered registers */\
+	);
+
+  #elif OS_BITS == 32
 
 	__asm__ volatile (\
 		"movl	%[__fq0],%%eax		\n\t"\
@@ -1386,7 +1395,16 @@ uint64 twopmodq78_3WORD_DOUBLE_q2(uint64 p, uint64 k0, uint64 k1, int init_sse2,
 	CVT_UINT78_3WORD_DOUBLE(qinv0 ,*fqinv0,*fqinv1,*fqinv2);
 	CVT_UINT78_3WORD_DOUBLE(qinv1 ,*gqinv0,*gqinv1,*gqinv2);
 
-  #if OS_BITS == 32
+  #ifdef USE_ARM_V8_SIMD
+	// No TF support on ARMv8, just supply a stub macro:
+	__asm__ volatile (\
+		"ldr x0,%[__fqinv0]	\n\t"\
+		:					// outputs: none
+		: [__fqinv0] "m" (fqinv0)	// All inputs from memory addresses here
+		: "cc","memory","x0"	/* Clobbered registers */\
+	);
+
+  #elif OS_BITS == 32
 
 	__asm__ volatile (\
 		"movl	%[__fqinv0],%%eax	\n\t"\
@@ -1572,7 +1590,16 @@ uint64 twopmodq78_3WORD_DOUBLE_q2(uint64 p, uint64 k0, uint64 k1, int init_sse2,
 
 	/* Inner loop body needs 42 movaps, 76 ADD/SUBPD, 52 MULPD, 13 MISC/ALU (ANDPD, XORPD, CMPPD, etc) */
 
-  #if OS_BITS == 32
+  #ifdef USE_ARM_V8_SIMD
+	// No TF support on ARMv8, just supply a stub macro:
+	__asm__ volatile (\
+		"ldr x0,%[__fq0]	\n\t"\
+		:					// outputs: none
+		: [__fq0] "m" (fq0)	// All inputs from memory addresses here
+		: "cc","memory","x0"	/* Clobbered registers */\
+	);
+
+  #elif OS_BITS == 32
 
 	ASSERT(HERE, (uint32)(~pshift) == 0, "p+78 must be 32-bit here for 32-bit ASM support!");
 	for(j = start_index-2; j >= 0; j--)
@@ -2381,7 +2408,16 @@ uint64 twopmodq78_3WORD_DOUBLE_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uin
 	CVT_UINT78_3WORD_DOUBLE(q2 ,*hq0,*hq1,*hq2);
 	CVT_UINT78_3WORD_DOUBLE(q3 ,*iq0,*iq1,*iq2);
 
-	#if OS_BITS == 32
+  #ifdef USE_ARM_V8_SIMD
+	// No TF support on ARMv8, just supply a stub macro:
+	__asm__ volatile (\
+		"ldr x0,%[__fq0]	\n\t"\
+		:					// outputs: none
+		: [__fq0] "m" (fq0)	// All inputs from memory addresses here
+		: "cc","memory","x0"	/* Clobbered registers */\
+	);
+
+  #elif OS_BITS == 32
 
 	__asm__ volatile (\
 		"movl	%[__fq0],%%eax						\n\t"\
@@ -2538,7 +2574,16 @@ uint64 twopmodq78_3WORD_DOUBLE_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uin
 
 	#else	/* GCC-style inline ASM: */
 
-	  #if OS_BITS == 32
+	  #ifdef USE_ARM_V8_SIMD
+		// No TF support on ARMv8, just supply a stub macro:
+		__asm__ volatile (\
+			"ldr x0,%[__fq0]	\n\t"\
+			:					// outputs: none
+			: [__fq0] "m" (fq0)	// All inputs from memory addresses here
+			: "cc","memory","x0"	/* Clobbered registers */\
+		);
+
+	  #elif OS_BITS == 32
 
 		__asm__ volatile (\
 			"movl	%[__fqinv0],%%eax	\n\t"\
@@ -2628,7 +2673,9 @@ uint64 twopmodq78_3WORD_DOUBLE_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uin
 	CVT_UINT78_3WORD_DOUBLE(x2 ,*hx0,*hx1,*hx2);
 	CVT_UINT78_3WORD_DOUBLE(x3 ,*ix0,*ix1,*ix2);
 
-	#if OS_BITS == 32
+	#ifdef USE_ARM_V8_SIMD
+		// No TF support on ARMv8
+	#elif OS_BITS == 32
 		// 32-bit loads these at start of each loop pass
 	#elif OS_BITS == 64
 
@@ -2925,7 +2972,9 @@ uint64 twopmodq78_3WORD_DOUBLE_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uin
 
 #elif defined(USE_SSE2)	/* Inner loop body needs 42 movaps, 76 ADD/SUBPD, 52 MULPD, 13 MISC/ALU (ANDPD, XORPD, CMPPD, etc) */
 
-	#if OS_BITS == 32
+	#ifdef USE_ARM_V8_SIMD
+		// No TF support on ARMv8
+	#elif OS_BITS == 32
 
 		for(j = start_index-2; j >= 0; j--)
 		{
@@ -3789,7 +3838,15 @@ uint64 twopmodq78_3WORD_DOUBLE_q4_REF(uint64 p, uint64 k0, uint64 k1, uint64 k2,
 	return(r);
 }
 
-#if defined(X64_ASM) && defined(USE_SSE2)
+#ifdef USE_ARM_V8_SIMD
+
+	// No TF support on ARMv8
+	uint64 twopmodq78_3WORD_DOUBLE_q8(uint64 p, uint64 k[], int init_sse2, int thr_id)
+	{
+		ASSERT(HERE,0,"No TF support on ARMv8!");
+	}
+
+#elif defined(X64_ASM) && defined(USE_SSE2)
 
   #if 1	// Nov 2013: Now that have prototyped 2-TF-input/4-SSE-register modmul macro, use 8-input all-float in both SSE2 and AVX mode
 		// Set = 0 here to enable hybrid (SSE2-mode only)
@@ -5336,7 +5393,7 @@ uint64 twopmodq78_3WORD_DOUBLE_q4_REF(uint64 p, uint64 k0, uint64 k1, uint64 k2,
 		if(dbg) printf("%s with p = %llu, k[] = %llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",
 					func,p,k[0x0],k[0x1],k[0x2],k[0x3],k[0x4],k[0x5],k[0x6],k[0x7],k[0x8],k[0x9],k[0xa],k[0xb],k[0xc],k[0xd],k[0xe],k[0xf]);
 	#endif
-		if(p != psave) 
+		if(p != psave)
 		{
 		//	first_entry = FALSE;
 			psave  = p;
@@ -5890,7 +5947,7 @@ uint64 twopmodq78_3WORD_DOUBLE_q4_REF(uint64 p, uint64 k0, uint64 k1, uint64 k2,
 		}
 	#endif
 
-		if(p != psave) 
+		if(p != psave)
 		{
 		//	first_entry = FALSE;
 			psave  = p;
@@ -6169,7 +6226,7 @@ o Prefer pure-integer math here in order to leverage the properties of 2s-comple
   That means first computing q = 2.p.k+1 (restricting p,k each to 52 bits for now) using floating-FMA,
   normalizing w.r.to base-2^26 balanced-digit and storing those into the fq local-store, then converting
   to base-2^23 unsigned-integer form for the ensuing mod-inverse computation.
-  
+
 o Since (at least on KNL) mod-inverses will be stored in base-2^26 balanced-digit flaoting-point form,
   desire the entire mod-inverse computation to be entirely in-register, to avoid having to set aside
   special integer local-memory storage for intermediates.
@@ -6333,7 +6390,7 @@ which gives the initial tmp32 ... and then tmp32 += MULL32(q.hi32, qinv.lo32) an
 		gives "Assembler messages: Error: junk `%k1' after register". But, inside a basic (= non-extended) macro, with the
 		escape-char-munge %% --> %, it compiles without issue. So it seems the culprit is GCC extended-asm. As far as a solution,
 		thanks to Laurent Desnogues for turning up the following StackOverflow links.
-		
+
 		[1] http://stackoverflow.com/questions/21032395/masked-vector-instructions : Recommends double-curly-braces trickeration
 			{{%%k1}} to make extended-asm play nice with AVX-512 opmask-register invocation. Alas, that hack is ICC-only; GCC gives
 			"error: invalid 'asm': nested assembly dialect alternatives". That non-portability leads us to even-uglier hack number
@@ -6494,7 +6551,7 @@ Here are details
 	"vmulpd		%%zmm0,%%zmm1,%%zmm2	\n\t"/* fhi1 = hi52*mi52 */\					259114839178117341979344896 [top 53 sigbits]
 	"vmovaps	%%zmm2,%%zmm3			\n\t"/* cpy fhi into flo-destination reg */\
 "vfmsub231pd	%%zmm0,%%zmm1,%%zmm3	\n\t"/* ftmp = fma(hi52,mi52,-fhi1) */\			7715088428
-	"vmovaps	%%zmm2,%%zmm0			\n\t"/* cpy fhi into fcy-destination reg */\	
+	"vmovaps	%%zmm2,%%zmm0			\n\t"/* cpy fhi into fcy-destination reg */\
 	"vmulpd	  0x80(%%rbx),%%zmm2,%%zmm2	\n\t"/*             fhi1*TWO52FLINV  */\		57535052095
 	"vrndscalepd $0,%%zmm2,%%zmm2		\n\t"/* fhh = DNINT(fhi1*TWO52FLINV)	This part remains in fhi1... */\
 "vfnmadd231pd 0x40(%%rbx),%%zmm2,%%zmm0	\n\t"/* fcy = fma(fhh,-TWO52FLOAT,fhi1)	Backward carry from hiA into loA */\	2333266753355776
@@ -6516,31 +6573,31 @@ Here are details
 Here is bitfield governing 2x in modpow: need low (start_index = 18) bits, 010110110100000100:
 j	bit	mod_sqr sequence																		xout			code gives same?
 --	--	------------------------------------------------------------------------------------	---------------		----
-24	
-23	
-22	
-21	
-20	
-19	
-18	
+24
+23
+22
+21
+20
+19
+18
 17	0	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x				888027481444537423	...424, 1 too large!
-16	1	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x = 2*x%q ; x	3153079875297589710	
-15	0	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x				3349662228228641186	
-14	1	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x = 2*x%q ; x	2479112533014143301	
-13	1	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x = 2*x%q ; x	1818305489032730849	
-12	0	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x				2069090628149556142	
-11	1	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x = 2*x%q ; x	3079917231797630540	
-10	1	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x = 2*x%q ; x	1571057852565897090	
-9	0	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x				2134637900068426919	
-8	1	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x = 2*x%q ; x	2814339156985005729	
-7	0	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x				2973371148533820384	
-6	0	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x				2176732355512285298	
-5	0	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x				3519776166192070528	
-4	0	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x				2305766521945167233	
-3	0	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x				1144711116339289293	
-2	1	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x = 2*x%q ; x	2014514757755243580	
-1	0	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x				740117870607009439	
-0	0	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x				2374569733890875641	
+16	1	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x = 2*x%q ; x	3153079875297589710
+15	0	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x				3349662228228641186
+14	1	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x = 2*x%q ; x	2479112533014143301
+13	1	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x = 2*x%q ; x	1818305489032730849
+12	0	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x				2069090628149556142
+11	1	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x = 2*x%q ; x	3079917231797630540
+10	1	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x = 2*x%q ; x	1571057852565897090
+9	0	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x				2134637900068426919
+8	1	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x = 2*x%q ; x	2814339156985005729
+7	0	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x				2973371148533820384
+6	0	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x				2176732355512285298
+5	0	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x				3519776166192070528
+4	0	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x				2305766521945167233
+3	0	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x				1144711116339289293
+2	1	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x = 2*x%q ; x	2014514757755243580
+1	0	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x				740117870607009439
+0	0	x *= x ; u = x%b ; h = x/b ; v = u*i%b ; l = v*q/b ; x = h-l+q*(h<l) ; x				2374569733890875641
 ...and a final mod-doubling gives x = 1, as desired.
 ====================================
 #endif
@@ -6637,7 +6694,7 @@ j	bit	mod_sqr sequence																		xout			code gives same?
 		}
 	#endif
 
-		if(p != psave) 
+		if(p != psave)
 		{
 		//	first_entry = FALSE;
 			psave  = p;
@@ -6982,7 +7039,7 @@ j	bit	mod_sqr sequence																		xout			code gives same?
 		gives "Assembler messages: Error: junk `%k1' after register". But, inside a basic (= non-extended) macro, with the
 		escape-char-munge %% --> %, it compiles without issue. So it seems the culprit is GCC extended-asm. As far as a solution,
 		thanks to Laurent Desnogues for turning up the following StackOverflow links.
-		
+
 		[1] http://stackoverflow.com/questions/21032395/masked-vector-instructions : Recommends double-curly-braces trickeration
 			{{%%k1}} to make extended-asm play nice with AVX-512 opmask-register invocation. Alas, that hack is ICC-only; GCC gives
 			"error: invalid 'asm': nested assembly dialect alternatives". That non-portability leads us to even-uglier hack number

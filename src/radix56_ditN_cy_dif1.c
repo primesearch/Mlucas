@@ -48,8 +48,12 @@
 	#define HIACC	1	// 32-bit mode only supports the older HIACC carry macros
   #endif
 #endif
-#if defined(HIACC) && defined(USE_AVX512)
+#ifdef HIACC
+  #ifdef USE_ARM_V8_SIMD
+	#error Currently only LOACC carry-mode supported in ARM v8 SIMD builds!
+  #elif defined(USE_AVX512)
 	#error Currently only LOACC carry-mode supported in AVX-512 builds!
+  #endif
 #endif
 #if defined(LOACC) && (OS_BITS == 32)
 	#error 32-bit mode only supports the older HIACC carry macros!
@@ -248,8 +252,8 @@ int radix56_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 #if !defined(USE_SSE2) && !defined(MULTITHREAD)
 	double t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,t14,t15;	// tmps for scalar-double DFT macros
 #endif
-// AVX2 (i.e. FMA) or (scalar-double) + (LO_ADD = 1 in masterdefs.h) means non-Nussbaumer radix-7, uses these sincos constants:
-#if defined(USE_AVX2) || (!defined(USE_SSE2) && defined(LO_ADD))
+// FMA-based SIMD or (scalar-double) + (LO_ADD = 1 in masterdefs.h) means non-Nussbaumer radix-7, uses these sincos constants:
+#if defined(USE_AVX2) || defined(USE_ARM_V8_SIMD) || (!defined(USE_SSE2) && defined(LO_ADD))
 
 	const double	uc1 = .62348980185873353053,	 /* cos(u) = Real part of exp(i*2*pi/7), the radix-7 fundamental sincos datum	*/
 					us1 = .78183148246802980870,	 /* sin(u) = Imag part of exp(i*2*pi/7).	*/
@@ -484,11 +488,11 @@ int radix56_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		if(tdat == 0x0) {
 			j = (uint32)sizeof(struct cy_thread_data_t);
 			tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, sizeof(struct cy_thread_data_t));
-	
+
 			// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
 			// so on that platform try to be clever and interleave main-thread and threadpool-work processing
 			#if 0//def OS_TYPE_MACOSX
-	
+
 				if(CY_THREADS > 1) {
 					main_work_units = CY_THREADS/2;
 					pool_work_units = CY_THREADS - main_work_units;
@@ -498,14 +502,14 @@ int radix56_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 					main_work_units = 1;
 					printf("radix%d_ditN_cy_dif1: CY_THREADS = 1: Using main execution thread, no threadpool needed.\n", RADIX);
 				}
-	
+
 			#else
-	
+
 				pool_work_units = CY_THREADS;
 				ASSERT(HERE, 0x0 != (tpool = threadpool_init(CY_THREADS, MAX_THREADS, CY_THREADS, &thread_control)), "threadpool_init failed!");
-	
+
 			#endif
-	
+
 			fprintf(stderr,"Using %d threads in carry step\n", CY_THREADS);
 		}
 	  #endif
@@ -672,7 +676,7 @@ int radix56_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	  #else
 		VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
 	  #endif
-	  #ifdef USE_AVX2
+	  #if defined(USE_AVX2) || defined(USE_ARM_V8_SIMD)
 		// AVX2 (i.e. FMA) means non-Nussbaumer radix-7, uses these sincos constants:
 		VEC_DBL_INIT(cc0, uc1  );	VEC_DBL_INIT(ss0, us1);
 		VEC_DBL_INIT(cc1, uc2  );	VEC_DBL_INIT(ss1, us2);
@@ -2308,7 +2312,7 @@ void radix56_dit_pass1(double a[], int n)
 		struct cy_thread_data_t* thread_arg = targ;	// Move to top because scalar-mode carry pointers taken directly from it
 		const char func[] = "radix56_ditN_cy_dif1";
 	  // LO_ADD = 1 in masterdefs.h means non-Nussbaumer radix-7, uses these sincos constants:
-	  #if defined(USE_AVX2) || (!defined(USE_SSE2) && defined(LO_ADD))
+	  #if defined(USE_AVX2) || defined(USE_ARM_V8_SIMD) || (!defined(USE_SSE2) && defined(LO_ADD))
 
 		const double	uc1 = .62348980185873353053,	 /* cos(u) = Real part of exp(i*2*pi/7), the radix-7 fundamental sincos datum	*/
 						us1 = .78183148246802980870,	 /* sin(u) = Imag part of exp(i*2*pi/7).	*/
@@ -2568,7 +2572,7 @@ void radix56_dit_pass1(double a[], int n)
 	  #endif
 
 		ASSERT(HERE, (two->d0 == 2.0 && two->d1 == 2.0), "thread-local memcheck failed!");
-	  #ifdef USE_AVX2
+	  #if defined(USE_AVX2) || defined(USE_ARM_V8_SIMD)
 		// AVX2 (i.e. FMA)means non-Nussbaumer radix-7, uses these sincos constants:
 		ASSERT(HERE, (ss3->d0 == 0.0 && ss3->d1 == 0.0), "thread-local memcheck failed!");
 	  #else

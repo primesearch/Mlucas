@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2012 by Ernst W. Mayer.                                           *
+*   (C) 1997-2017 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -1308,9 +1308,10 @@ or the with functions using them (if we declare no _-prepended variables local t
 
 #elif !defined(MUL_LOHI64_SUBROUTINE)	/* User compile-time override flag to force subroutine form rather than macro: */
 
-  #if defined(VERBOSE_HEADERS) && defined(COMPILER_TYPE_GCC)
+  #ifdef COMPILER_TYPE_GCC
+   #ifdef VERBOSE_HEADERS
 	#warning Using generic C/32-bit version of MUL64 macros
-
+   #endif
 	#define __MULL32(x32,y32     )                   ((uint32)(x32)*(uint32)(y32))
 	#define __MULH32(x32,y32     )                  (((uint32)(x32)*(uint64)(y32)) >> 32)
 	#define MULL32(  x32,y32,lo32)	lo32 = (uint32) ((uint32)(x32)*(uint32)(y32))
@@ -1335,7 +1336,7 @@ or the with functions using them (if we declare no _-prepended variables local t
 	Even though the high output for 64x32-bit is always < 2^32,
 	assume _y and _hi here are 64-bit ints to allow flexibility for caller.
 	*/
-  #if EWM_DEBUG
+   #if EWM_DEBUG
 	#define  MUL64x32(_x, _y,_lo,_hi)\
 	{\
 		char s0[21],s1[21];\
@@ -1359,7 +1360,7 @@ or the with functions using them (if we declare no _-prepended variables local t
 			ASSERT(HERE, 0,"0");\
 		}\
 	}
-  #else
+   #else
 	#define  MUL64x32(_x, _y,_lo,_hi)\
 	{\
 		uint64 _t;\
@@ -1371,7 +1372,7 @@ or the with functions using them (if we declare no _-prepended variables local t
 		_lo +=  _t;\
 		_hi += (_lo < _t);\
 	}
-  #endif
+   #endif
 
 	/* Generic 128-bit product macros: represent the inputs as
 	x = a + b*2^32, y = c + d*2^32, and then do 4 MULs and a bunch of
@@ -1622,325 +1623,325 @@ or the with functions using them (if we declare no _-prepended variables local t
 		_hi= _uy.u64;\
 	}
 
-  #if 1	// PTX-code version of MUL_LOHI64:
+	#if 1	// PTX-code version of MUL_LOHI64:
 
-	#define MUL_LOHI64(_x,_y,_lo,_hi)\
-	{\
-		union {\
-			uint32 u32[2];	/* NVCC is little-endian, LS 32 bits in [0]. */\
+		#define MUL_LOHI64(_x,_y,_lo,_hi)\
+		{\
+			union {\
+				uint32 u32[2];	/* NVCC is little-endian, LS 32 bits in [0]. */\
+				uint64 u64;\
+			} _ux,_uy;\
+		\
+			uint32 _al,_ah,_bl,_bh;\
+			uint32 _r0,_r1,_r2,_r3;\
+		\
+			_ux.u64 = _x;\
+			_al = _ux.u32[0];	/* x_lo */\
+			_ah = _ux.u32[1];	/* x_hi */\
+			_uy.u64 = _y;\
+			_bl = _uy.u32[0];	/* y_lo */\
+			_bh = _uy.u32[1];	/* y_hi */\
+		/* Old 1-line-at-a-time inline-ASM version: */\
+		/*	MULL32(_al,_bl,_r0);				// r0 =(_al*_bl).lo   , no carry-out */\
+		/*	MULH32(_al,_bl,_r1);				// r1 =(_al*_bl).hi   , no carry-out */\
+		/*	_r1 = __umad32_cc(_ah,_bl,_r1);		// r1+=(_ah*_bl).lo   , may carry-out */\
+		/*	_r2 = __umad32hic(_ah,_bl,  0);		// r2 =(_ah*_bl).hi+cy, no carry-out */\
+		/*	_r1 = __umad32_cc(_al,_bh,_r1);		// r1+=(_al*_bh).lo   , may carry-out */\
+		/*	_r2 = __umad32hic_cc(_al,_bh,_r2);	// r2+=(_al*_bh).hi+cy, may carry-out */\
+		/*	_r3 = __addc(  0,  0);				// r3 = cy, no carry-out */\
+		/*	_r2 = __umad32_cc(_ah,_bh,_r2);		// r2+=(_ah*_bh).lo   , may carry-out */\
+		/*	_r3 = __umad32hic(_ah,_bh,_r3);		// r3+=(_ah*_bh).hi+cy */\
+		/* Using straight PTX inline-ASM: */\
+		asm volatile (\
+			"mul.lo.u32		%0,%4,%6;		\n\t"/* r0 =(r4*r6).lo   , no carry-out */\
+			"mul.hi.u32		%1,%4,%6;		\n\t"/* r1 =(r4*r6).hi   , no carry-out */\
+			"mad.lo.cc.u32	%1,%5,%6,%1;	\n\t"/* r1+=(r5*r6).lo   , may carry-out */\
+			"madc.hi.u32	%2,%5,%6, 0;	\n\t"/* r2 =(r5*r6).hi+cy, no carry-out */\
+			"mad.lo.cc.u32	%1,%4,%7,%1;	\n\t"/* r1+=(r4*r7).lo   , may carry-out */\
+			"madc.hi.cc.u32	%2,%4,%7,%2;	\n\t"/* r2+=(r4*r7).hi+cy, may carry-out */\
+			"addc.u32		%3, 0, 0;		\n\t"/* r3 = cy, no carry-out */\
+			"mad.lo.cc.u32	%2,%5,%7,%2;	\n\t"/* r2+=(r5*r7).lo   , may carry-out */\
+			"madc.hi.u32	%3,%5,%7,%3;	\n\t"/* r3+=(r5*r7).hi+cy */\
+		  : "=r" (_r0) , "=r" (_r1) "=r" (_r2) , "=r" (_r3) : "r" (_al), "r" (_ah) , "r" (_bl), "r" (_bh));\
+		\
+			_ux.u32[0] = _r0;\
+			_ux.u32[1] = _r1;\
+			_lo= _ux.u64;\
+			_uy.u32[0] = _r2;\
+			_uy.u32[1] = _r3;\
+			_hi= _uy.u64;\
+		}
+
+		#define SQR_LOHI64(_x,   _lo,_hi)\
+		{\
+			union {\
+				uint32 u32[2];	/* NVCC is little-endian, LS 32 bits in [0]. */\
+				uint64 u64;\
+			} _ux,_uy;\
+		\
+			uint32 _al,_ah,_bl,_bh;\
+			uint32 _r0,_r1,_r2,_r3;\
+		\
+			_ux.u64 = _x;\
+			_al = _ux.u32[0];	/* x_lo */\
+			_ah = _ux.u32[1];	/* x_hi */\
+		\
+		asm volatile (\
+			"mul.lo.u32		%0,%4,%4;		\n\t"/* r0 =(r4*r4).lo   ,  no carry-out */\
+			"mul.hi.u32		%1,%4,%4;		\n\t"/* r1 =(r4*r4).hi   ,  no carry-out */\
+			"mad.lo.cc.u32	%1,%4,%5,%1;	\n\t"/* r1+=(r4*r5).lo   , may carry-out */\
+			"madc.hi.u32	%2,%4,%5, 0;	\n\t"/* r2 =(r4*r5).hi+cy,  no carry-out */\
+			"mad.lo.cc.u32	%1,%4,%5,%1;	\n\t"/* r1+=(r4*r5).lo   , may carry-out */\
+			"madc.hi.cc.u32	%2,%4,%5,%2;	\n\t"/* r2+=(r4*r5).hi+cy, may carry-out */\
+			"addc.u32		%3, 0, 0;		\n\t"/* r3 = cy, no carry-out */\
+			"mad.lo.cc.u32	%2,%5,%5,%2;	\n\t"/* r2+=(r5*r5).lo   , may carry-out */\
+			"madc.hi.u32	%3,%5,%5,%3;	\n\t"/* r3+=(r5*r5).hi+cy */\
+		  : "=r" (_r0) , "=r" (_r1) "=r" (_r2) , "=r" (_r3) : "r" (_al), "r" (_ah));\
+		\
+			_ux.u32[0] = _r0;\
+			_ux.u32[1] = _r1;\
+			_lo= _ux.u64;\
+			_uy.u32[0] = _r2;\
+			_uy.u32[1] = _r3;\
+			_hi= _uy.u64;\
+		}
+
+		#define MULH64_TEST(_x, _y,_hi)\
+		{\
+			union {\
+				uint32 u32[2];	/* NVCC is little-endian, LS 32 bits in [0]. */\
+				uint64 u64;\
+			} _ux,_uy;\
+		\
+			uint32 _al,_ah,_bl,_bh;\
+			uint32 _r0,_r1,_r2,_r3;\
+		\
+			_ux.u64 = _x;\
+			_al = _ux.u32[0];	/* x_lo */\
+			_ah = _ux.u32[1];	/* x_hi */\
+			_uy.u64 = _y;\
+			_bl = _uy.u32[0];	/* y_lo */\
+			_bh = _uy.u32[1];	/* y_hi */\
+		\
+			MULL32(_al,_bl,_r0);				/*printf("[1]: %10u\n",_r0);*/	/* r0 =(_al*_bl).lo   ,  no carry-out */\
+			MULH32(_al,_bl,_r1);				/*printf("[2]: %10u\n",_r1);*/	/* r1 =(_al*_bl).hi   ,  no carry-out */\
+			_r1 = __umad32_cc(_ah,_bl,_r1);		/*printf("[3]: %10u\n",_r1);*/	/* r1+=(_ah*_bl).lo   , may carry-out */\
+			_r2 = __umad32hic(_ah,_bl,  0);		/*printf("[4]: %10u\n",_r2);*/	/* r2 =(_ah*_bl).hi+cy,  no carry-out */\
+			_r1 = __umad32_cc(_al,_bh,_r1);		/*printf("[5]: %10u\n",_r1);*/	/* r1+=(_al*_bh).lo   , may carry-out */\
+			_r2 = __umad32hic_cc(_al,_bh,_r2);	/*printf("[6]: %10u\n",_r2);*/	/* r2+=(_al*_bh).hi+cy, may carry-out */\
+			_r3 = __addc(  0,  0);				/*printf("[7]: %10u\n",_r3);*/	/* r3 = cy, no carry-out */\
+			_r2 = __umad32_cc(_ah,_bh,_r2);		/*printf("[8]: %10u\n",_r2);*/	/* r2+=(_ah*_bh).lo   , may carry-out */\
+			_r3 = __umad32hic(_ah,_bh,_r3);		/*printf("[9]: %10u\n",_r3);*/	/* r3+=(_ah*_bh).hi+cy */\
+		\
+			_uy.u32[0] = _r2;\
+			_uy.u32[1] = _r3;\
+			_hi= _uy.u64;\
+		}
+		// Above test version of the MULH64 macro reveals that CY flag preservation across successive 1-line-inline-ASM calls
+		// is not guaranteed - in my tests, the crucial carry (in the sense that its loss was hosing my Mfactor self-tests)
+		// out of [5] was getting lost as written, but suddenly preserved when I added the (now-commented-out) printf statements.
+		// Having the printing on not being a practical option, we now do things the right way, namely via a single 9-instruction
+		// block of inline-ASM for the crucial MAC sequence. (Subsequently did similarly with the other MUL macros):
+		#define MULH64(_x, _y,_hi)\
+		{\
+			union {\
+				uint32 u32[2];	/* NVCC is little-endian, LS 32 bits in [0]. */\
+				uint64 u64;\
+			} _ux,_uy;\
+		\
+			uint32 _al,_ah,_bl,_bh;\
+			uint32 _r2,_r3;\
+		\
+			_ux.u64 = _x;\
+			_al = _ux.u32[0];	/* x_lo */\
+			_ah = _ux.u32[1];	/* x_hi */\
+			_uy.u64 = _y;\
+			_bl = _uy.u32[0];	/* y_lo */\
+			_bh = _uy.u32[1];	/* y_hi */\
+		\
+		/* Don't use %0 value but need for output-enum, so stick value into _al to get rid of 'unused	\
+		variable' compiler warning resulting from use of dedicated var 'r1' to hold %o output value: */\
+		asm volatile (\
+			"mul.hi.u32		%0,%3,%5;		\n\t"/* r1 =(r4*r6).hi   ,  no carry-out */\
+			"mad.lo.cc.u32	%0,%4,%5,%0;	\n\t"/* r1+=(r5*r6).lo   , may carry-out */\
+			"madc.hi.u32	%1,%4,%5, 0;	\n\t"/* r2 =(r5*r6).hi+cy,  no carry-out */\
+			"mad.lo.cc.u32	%0,%3,%6,%0;	\n\t"/* r1+=(r4*r7).lo   , may carry-out */\
+			"madc.hi.cc.u32	%1,%3,%6,%1;	\n\t"/* r2+=(r4*r7).hi+cy, may carry-out */\
+			"addc.u32		%2, 0, 0;		\n\t"/* r3 = cy, no carry-out */\
+			"mad.lo.cc.u32	%1,%4,%6,%1;	\n\t"/* r2+=(r5*r7).lo   , may carry-out */\
+			"madc.hi.u32	%2,%4,%6,%2;	\n\t"/* r3+=(r5*r7).hi+cy */\
+		  : "=r" (_al) "=r" (_r2) , "=r" (_r3) : "r" (_al), "r" (_ah) , "r" (_bl), "r" (_bh));\
+		\
+			_uy.u32[0] = _r2;\
+			_uy.u32[1] = _r3;\
+			_hi = _uy.u64;\
+		}
+
+	#else	// Generic (non-PTX-code) version of above:
+
+		#define MUL_LOHI64(_x,_y,_lo,_hi)\
+		{\
+			union {\
+				uint32 u32[2];	/* NVCC is little-endian, LS 32 bits in [0]. */\
+				uint64 u64;\
+			} _ux,_uy;\
+		\
+			uint32 ah_,al_,bh_,bl_;\
+			uint32 hahbh_,hahbl_,halbh_,halbl_,lahbh_,lahbl_,lalbh_,lalbl_;\
+			uint32 sumhh_,sumhl_,sumlh_,cy;\
+		\
+			_ux.u64 = _x;\
+			al_ = _ux.u32[0];	/* x_lo */\
+			ah_ = _ux.u32[1];	/* x_hi */\
+			_uy.u64 = _y;\
+			bl_ = _uy.u32[0];	/* y_lo */\
+			bh_ = _uy.u32[1];	/* y_hi */\
+		\
+		/* EWM: for 32-bit unsigned inputs these have a nominal latency of ?? cycles. */\
+		/* For each MUL output we include the order in which it is used in the add/carry */\
+		/* code below (6 steps, labeled (0)-(5)), in order to properly schedule the MUL: */\
+			MUL_LOHI32(ah_,bh_,lahbh_,hahbh_);	/* (x_hi*y_hi)l,h 4,2 */\
+			MUL_LOHI32(al_,bh_,lalbh_,halbh_);	/* (x_lo*y_hi)l,h 0,1 */\
+			MUL_LOHI32(ah_,bl_,lahbl_,hahbl_);	/* (x_hi*y_lo)l,h 3,1 */\
+			MUL_LOHI32(al_,bl_,lalbl_,halbl_);	/* (x_lo*y_lo)l,h -,0 */\
+		/* Bits   0- 31 : lalbl                           */\
+		/* Bits  32- 63 :*halbl + lahbl +*lalbh   (sumlh) */\
+		/* Bits  64- 95 :*hahbl +*halbh + lahbh   (sumhl) */\
+		/* Bits  96-127 : hahbh                   (sumhh) */\
+		\
+			sumlh_  = halbl_ + lalbh_;	/* (0) halbl + lalbh                       , result (partial sum) in sumlh,carryout in CY. */\
+			cy  = sumlh_ < halbl_;\
+			halbh_ += cy;\
+			cy  = halbh_ < cy;\
+			sumhl_  = hahbl_ + halbh_;	/* (1) halbh + hahbl + (carryin from sumlh), result (partial sum) in sumhl,carryout in CY. */\
+			cy += sumhl_ < hahbl_;\
+			sumhh_	= hahbh_ + cy;		/* (2)     0 + hahbh + (carryin from sumhl), result (partial sum) in sumhh,carryout in CF) bit - should be zero! */\
+		\
+			sumlh_ += lahbl_;\
+			cy  = sumlh_ < lahbl_;		/* (3) sumlh + lahbl                       , result (sumlh), carryout in CY. */\
+			lahbh_ += cy;\
+			cy  = lahbh_ < cy;\
+			sumhl_ += lahbh_;\
+			cy += sumhl_ < lahbh_;		/* (4) sumhl + lahbh + (carryin from sumlh), result (sumhl), carryout in CY. */\
+			sumhh_ += cy;				/* (5)     0 + sumhh + (carryin from sumhl), result (sumhh), carryout in CY - should be zero! [In fact assume so.] */\
+		\
+			_ux.u32[0] = sumhl_;\
+			_ux.u32[1] = sumhh_;\
+			_hi= _ux.u64;\
+			_uy.u32[0] = lalbl_;\
+			_uy.u32[1] = sumlh_;\
+			_lo= _uy.u64;\
+		}
+
+		// Compute square of uint64 x via 32-bit x = x.lo + x.hi<<32 decomposition and 32-bit arithmetic:
+		#define SQR_LOHI64(_x,_lo,_hi)\
+		{\
+			union {\
+			uint32 u32[2];\
 			uint64 u64;\
-		} _ux,_uy;\
-	\
-		uint32 _al,_ah,_bl,_bh;\
-		uint32 _r0,_r1,_r2,_r3;\
-	\
-		_ux.u64 = _x;\
-		_al = _ux.u32[0];	/* x_lo */\
-		_ah = _ux.u32[1];	/* x_hi */\
-		_uy.u64 = _y;\
-		_bl = _uy.u32[0];	/* y_lo */\
-		_bh = _uy.u32[1];	/* y_hi */\
-	/* Old 1-line-at-a-time inline-ASM version: */\
-	/*	MULL32(_al,_bl,_r0);				// r0 =(_al*_bl).lo   , no carry-out */\
-	/*	MULH32(_al,_bl,_r1);				// r1 =(_al*_bl).hi   , no carry-out */\
-	/*	_r1 = __umad32_cc(_ah,_bl,_r1);		// r1+=(_ah*_bl).lo   , may carry-out */\
-	/*	_r2 = __umad32hic(_ah,_bl,  0);		// r2 =(_ah*_bl).hi+cy, no carry-out */\
-	/*	_r1 = __umad32_cc(_al,_bh,_r1);		// r1+=(_al*_bh).lo   , may carry-out */\
-	/*	_r2 = __umad32hic_cc(_al,_bh,_r2);	// r2+=(_al*_bh).hi+cy, may carry-out */\
-	/*	_r3 = __addc(  0,  0);				// r3 = cy, no carry-out */\
-	/*	_r2 = __umad32_cc(_ah,_bh,_r2);		// r2+=(_ah*_bh).lo   , may carry-out */\
-	/*	_r3 = __umad32hic(_ah,_bh,_r3);		// r3+=(_ah*_bh).hi+cy */\
-	/* Using straight PTX inline-ASM: */\
-	asm volatile (\
-		"mul.lo.u32		%0,%4,%6;		\n\t"/* r0 =(r4*r6).lo   , no carry-out */\
-		"mul.hi.u32		%1,%4,%6;		\n\t"/* r1 =(r4*r6).hi   , no carry-out */\
-		"mad.lo.cc.u32	%1,%5,%6,%1;	\n\t"/* r1+=(r5*r6).lo   , may carry-out */\
-		"madc.hi.u32	%2,%5,%6, 0;	\n\t"/* r2 =(r5*r6).hi+cy, no carry-out */\
-		"mad.lo.cc.u32	%1,%4,%7,%1;	\n\t"/* r1+=(r4*r7).lo   , may carry-out */\
-		"madc.hi.cc.u32	%2,%4,%7,%2;	\n\t"/* r2+=(r4*r7).hi+cy, may carry-out */\
-		"addc.u32		%3, 0, 0;		\n\t"/* r3 = cy, no carry-out */\
-		"mad.lo.cc.u32	%2,%5,%7,%2;	\n\t"/* r2+=(r5*r7).lo   , may carry-out */\
-		"madc.hi.u32	%3,%5,%7,%3;	\n\t"/* r3+=(r5*r7).hi+cy */\
-	  : "=r" (_r0) , "=r" (_r1) "=r" (_r2) , "=r" (_r3) : "r" (_al), "r" (_ah) , "r" (_bl), "r" (_bh));\
-	\
-		_ux.u32[0] = _r0;\
-		_ux.u32[1] = _r1;\
-		_lo= _ux.u64;\
-		_uy.u32[0] = _r2;\
-		_uy.u32[1] = _r3;\
-		_hi= _uy.u64;\
-	}
+			} a,b;\
+		\
+			uint32 ah,al,cy;\
+			uint32 hahah,lahah,hahal,lahal,halal,lalal;\
+			uint32 sumhh,sumhl,sumlh;\
+		\
+			a.u64 = _x;\
+			ah = a.u32[1];	/* NVCC is little-endian, LS 32 bits in [0]. */\
+			al = a.u32[0];\
+		/* Compute 64-bit subproducts in (2^32.ah + al)^2 = 2^64.[ah^2] + 2^32.2.[ah.al] + [al^2]: */\
+			MULH32(ah,ah,hahah);	/* ah^2, hi half */\
+			 MULL32(ah,ah,lahah);	/* ah^2, lo half */\
+			MULH32(ah,al,hahal);	/* ah.al,hi half */\
+			 MULL32(ah,al,lahal);	/* ah.al,lo half */\
+			MULH32(al,al,halal);	/* al^2, hi half */\
+			 MULL32(al,al,lalal);	/* al^2, lo half */\
+		/* 2*<lahal,hahal>: */\
+			sumlh = lahal + lahal;\
+			sumhl = (hahal + hahal) | ((int)lahal < 0);	/* Shifts slow on most CUDA devices, so replace << 1 by add and >> 31 by signed-less-than-0 */\
+			sumhh = hahah + ((int)hahal < 0);\
+		\
+			sumlh += halal;/* (0) sumlh + halal                     , result in sumlh, carryout in CY */\
+			cy  = sumlh < halal;\
+			lahah +=    cy;/* (1) sumhl + lahah + (carryin from (0)), result in sumhl, carryout in CY */\
+			cy  = lahah < cy;\
+			sumhl += lahah;\
+			cy += sumhl < lahah;\
+			sumhh += cy;		/* (2)     0 + sumhh + (carryin from (1)), result in sumhh, carryout in CY - should be zero! (In fact assume so.) */\
+		\
+			a.u32[1] = sumhh;\
+			a.u32[0] = sumhl;\
+			_hi = a.u64;\
+			b.u32[1] = sumlh;\
+			b.u32[0] = lalal;\
+			_lo = b.u64;\
+		}
 
-	#define SQR_LOHI64(_x,   _lo,_hi)\
-	{\
-		union {\
-			uint32 u32[2];	/* NVCC is little-endian, LS 32 bits in [0]. */\
-			uint64 u64;\
-		} _ux,_uy;\
-	\
-		uint32 _al,_ah,_bl,_bh;\
-		uint32 _r0,_r1,_r2,_r3;\
-	\
-		_ux.u64 = _x;\
-		_al = _ux.u32[0];	/* x_lo */\
-		_ah = _ux.u32[1];	/* x_hi */\
-	\
-	asm volatile (\
-		"mul.lo.u32		%0,%4,%4;		\n\t"/* r0 =(r4*r4).lo   ,  no carry-out */\
-		"mul.hi.u32		%1,%4,%4;		\n\t"/* r1 =(r4*r4).hi   ,  no carry-out */\
-		"mad.lo.cc.u32	%1,%4,%5,%1;	\n\t"/* r1+=(r4*r5).lo   , may carry-out */\
-		"madc.hi.u32	%2,%4,%5, 0;	\n\t"/* r2 =(r4*r5).hi+cy,  no carry-out */\
-		"mad.lo.cc.u32	%1,%4,%5,%1;	\n\t"/* r1+=(r4*r5).lo   , may carry-out */\
-		"madc.hi.cc.u32	%2,%4,%5,%2;	\n\t"/* r2+=(r4*r5).hi+cy, may carry-out */\
-		"addc.u32		%3, 0, 0;		\n\t"/* r3 = cy, no carry-out */\
-		"mad.lo.cc.u32	%2,%5,%5,%2;	\n\t"/* r2+=(r5*r5).lo   , may carry-out */\
-		"madc.hi.u32	%3,%5,%5,%3;	\n\t"/* r3+=(r5*r5).hi+cy */\
-	  : "=r" (_r0) , "=r" (_r1) "=r" (_r2) , "=r" (_r3) : "r" (_al), "r" (_ah));\
-	\
-		_ux.u32[0] = _r0;\
-		_ux.u32[1] = _r1;\
-		_lo= _ux.u64;\
-		_uy.u32[0] = _r2;\
-		_uy.u32[1] = _r3;\
-		_hi= _uy.u64;\
-	}
+		/* Generic 128-bit multiply algorithm, returning only the upper 64 bits (high part) of the result.
+		Actual calling arguments are assumed to be 64-bit ints - user must make sure this is true.
+		Result written into hi.
+		EWM: *to-do* Currently this is just MUL_LOHI64, with the _lo-arg-related stuff cut out.
+					Need to optimize, e.g. use optimizations that generate the carry into the high half
+					without requiring exact computation of the entire lower-half partial products.
+		*/
+		#define MULH64(_x, _y,_hi)\
+		{\
+			union {\
+				uint32 u32[2];	/* NVCC is little-endian, LS 32 bits in [0]. */\
+				uint64 u64;\
+			} _ux,_uy;\
+		\
+			uint32 ah_,al_,bh_,bl_;\
+			uint32 hahbh_,hahbl_,halbh_,halbl_,lahbh_,lahbl_,lalbh_;\
+			uint32 sumhh_,sumhl_,sumlh_,cy;\
+		\
+			_ux.u64 = _x;\
+			al_ = _ux.u32[0];	/* x_lo */\
+			ah_ = _ux.u32[1];	/* x_hi */\
+			_uy.u64 = _y;\
+			bl_ = _uy.u32[0];	/* y_lo */\
+			bh_ = _uy.u32[1];	/* y_hi */\
+		\
+		/* EWM: for 32-bit unsigned inputs these have a nominal latency of ?? cycles. */\
+		/* For each MUL output we include the order in which it is used in the add/carry */\
+		/* code below (6 steps, labeled (0)-(5)), in order to properly schedule the MUL: */\
+			MUL_LOHI32(ah_,bh_,lahbh_,hahbh_);	/* (x_hi*y_hi)l,h 4,2 */\
+			MUL_LOHI32(al_,bh_,lalbh_,halbh_);	/* (x_lo*y_hi)l,h 0,1 */\
+			MUL_LOHI32(ah_,bl_,lahbl_,hahbl_);	/* (x_hi*y_lo)l,h 3,1 */\
+			MULH32    (al_,bl_,       halbl_);	/* (x_lo*y_lo)l,h -,0 */\
+		/* Bits   0- 31 : lalbl                           */\
+		/* Bits  32- 63 :*halbl + lahbl +*lalbh   (sumlh) */\
+		/* Bits  64- 95 :*hahbl +*halbh + lahbh   (sumhl) */\
+		/* Bits  96-127 : hahbh                   (sumhh) */\
+		\
+			sumlh_  = halbl_ + lalbh_;	/* (0) halbl + lalbh                       , result (partial sum) in sumlh,carryout in CY. */\
+			cy  = sumlh_ < halbl_;\
+			halbh_ += cy;\
+			cy  = halbh_ < cy;\
+			sumhl_  = hahbl_ + halbh_;	/* (1) halbh + hahbl + (carryin from sumlh), result (partial sum) in sumhl,carryout in CY. */\
+			cy += sumhl_ < hahbl_;\
+			sumhh_	= hahbh_ + cy;		/* (2)     0 + hahbh + (carryin from sumhl), result (partial sum) in sumhh,carryout in CF) bit - should be zero! */\
+		\
+			sumlh_ += lahbl_;\
+			cy  = sumlh_ < lahbl_;		/* (3) sumlh + lahbl                       , result (sumlh), carryout in CY. */\
+			lahbh_ += cy;\
+			cy  = lahbh_ < cy;\
+			sumhl_ += lahbh_;\
+			cy += sumhl_ < lahbh_;		/* (4) sumhl + lahbh + (carryin from sumlh), result (sumhl), carryout in CY. */\
+			sumhh_ += cy;				/* (5)     0 + sumhh + (carryin from sumhl), result (sumhh), carryout in CY - should be zero! [In fact assume so.] */\
+		\
+			_ux.u32[0] = sumhl_;\
+			_ux.u32[1] = sumhh_;\
+			_hi= _ux.u64;\
+		}
 
-	#define MULH64_TEST(_x, _y,_hi)\
-	{\
-		union {\
-			uint32 u32[2];	/* NVCC is little-endian, LS 32 bits in [0]. */\
-			uint64 u64;\
-		} _ux,_uy;\
-	\
-		uint32 _al,_ah,_bl,_bh;\
-		uint32 _r0,_r1,_r2,_r3;\
-	\
-		_ux.u64 = _x;\
-		_al = _ux.u32[0];	/* x_lo */\
-		_ah = _ux.u32[1];	/* x_hi */\
-		_uy.u64 = _y;\
-		_bl = _uy.u32[0];	/* y_lo */\
-		_bh = _uy.u32[1];	/* y_hi */\
-	\
-		MULL32(_al,_bl,_r0);				/*printf("[1]: %10u\n",_r0);*/	/* r0 =(_al*_bl).lo   ,  no carry-out */\
-		MULH32(_al,_bl,_r1);				/*printf("[2]: %10u\n",_r1);*/	/* r1 =(_al*_bl).hi   ,  no carry-out */\
-		_r1 = __umad32_cc(_ah,_bl,_r1);		/*printf("[3]: %10u\n",_r1);*/	/* r1+=(_ah*_bl).lo   , may carry-out */\
-		_r2 = __umad32hic(_ah,_bl,  0);		/*printf("[4]: %10u\n",_r2);*/	/* r2 =(_ah*_bl).hi+cy,  no carry-out */\
-		_r1 = __umad32_cc(_al,_bh,_r1);		/*printf("[5]: %10u\n",_r1);*/	/* r1+=(_al*_bh).lo   , may carry-out */\
-		_r2 = __umad32hic_cc(_al,_bh,_r2);	/*printf("[6]: %10u\n",_r2);*/	/* r2+=(_al*_bh).hi+cy, may carry-out */\
-		_r3 = __addc(  0,  0);				/*printf("[7]: %10u\n",_r3);*/	/* r3 = cy, no carry-out */\
-		_r2 = __umad32_cc(_ah,_bh,_r2);		/*printf("[8]: %10u\n",_r2);*/	/* r2+=(_ah*_bh).lo   , may carry-out */\
-		_r3 = __umad32hic(_ah,_bh,_r3);		/*printf("[9]: %10u\n",_r3);*/	/* r3+=(_ah*_bh).hi+cy */\
-	\
-		_uy.u32[0] = _r2;\
-		_uy.u32[1] = _r3;\
-		_hi= _uy.u64;\
-	}
-	// Above test version of the MULH64 macro reveals that CY flag preservation across successive 1-line-inline-ASM calls
-	// is not guaranteed - in my tests, the crucial carry (in the sense that its loss was hosing my Mfactor self-tests)
-	// out of [5] was getting lost as written, but suddenly preserved when I added the (now-commented-out) printf statements.
-	// Having the printing on not being a practical option, we now do things the right way, namely via a single 9-instruction
-	// block of inline-ASM for the crucial MAC sequence. (Subsequently did similarly with the other MUL macros):
-	#define MULH64(_x, _y,_hi)\
-	{\
-		union {\
-			uint32 u32[2];	/* NVCC is little-endian, LS 32 bits in [0]. */\
-			uint64 u64;\
-		} _ux,_uy;\
-	\
-		uint32 _al,_ah,_bl,_bh;\
-		uint32 _r2,_r3;\
-	\
-		_ux.u64 = _x;\
-		_al = _ux.u32[0];	/* x_lo */\
-		_ah = _ux.u32[1];	/* x_hi */\
-		_uy.u64 = _y;\
-		_bl = _uy.u32[0];	/* y_lo */\
-		_bh = _uy.u32[1];	/* y_hi */\
-	\
-	/* Don't use %0 value but need for output-enum, so stick value into _al to get rid of 'unused	\
-	variable' compiler warning resulting from use of dedicated var 'r1' to hold %o output value: */\
-	asm volatile (\
-		"mul.hi.u32		%0,%3,%5;		\n\t"/* r1 =(r4*r6).hi   ,  no carry-out */\
-		"mad.lo.cc.u32	%0,%4,%5,%0;	\n\t"/* r1+=(r5*r6).lo   , may carry-out */\
-		"madc.hi.u32	%1,%4,%5, 0;	\n\t"/* r2 =(r5*r6).hi+cy,  no carry-out */\
-		"mad.lo.cc.u32	%0,%3,%6,%0;	\n\t"/* r1+=(r4*r7).lo   , may carry-out */\
-		"madc.hi.cc.u32	%1,%3,%6,%1;	\n\t"/* r2+=(r4*r7).hi+cy, may carry-out */\
-		"addc.u32		%2, 0, 0;		\n\t"/* r3 = cy, no carry-out */\
-		"mad.lo.cc.u32	%1,%4,%6,%1;	\n\t"/* r2+=(r5*r7).lo   , may carry-out */\
-		"madc.hi.u32	%2,%4,%6,%2;	\n\t"/* r3+=(r5*r7).hi+cy */\
-	  : "=r" (_al) "=r" (_r2) , "=r" (_r3) : "r" (_al), "r" (_ah) , "r" (_bl), "r" (_bh));\
-	\
-		_uy.u32[0] = _r2;\
-		_uy.u32[1] = _r3;\
-		_hi = _uy.u64;\
-	}
+	#endif	// endif(PTX-code version of MUL_LOHI64)?
 
-  #else	// Generic (non-PTX-code) version of above:
-
-	#define MUL_LOHI64(_x,_y,_lo,_hi)\
-	{\
-		union {\
-			uint32 u32[2];	/* NVCC is little-endian, LS 32 bits in [0]. */\
-			uint64 u64;\
-		} _ux,_uy;\
-	\
-		uint32 ah_,al_,bh_,bl_;\
-		uint32 hahbh_,hahbl_,halbh_,halbl_,lahbh_,lahbl_,lalbh_,lalbl_;\
-		uint32 sumhh_,sumhl_,sumlh_,cy;\
-	\
-		_ux.u64 = _x;\
-		al_ = _ux.u32[0];	/* x_lo */\
-		ah_ = _ux.u32[1];	/* x_hi */\
-		_uy.u64 = _y;\
-		bl_ = _uy.u32[0];	/* y_lo */\
-		bh_ = _uy.u32[1];	/* y_hi */\
-	\
-	/* EWM: for 32-bit unsigned inputs these have a nominal latency of ?? cycles. */\
-	/* For each MUL output we include the order in which it is used in the add/carry */\
-	/* code below (6 steps, labeled (0)-(5)), in order to properly schedule the MUL: */\
-		MUL_LOHI32(ah_,bh_,lahbh_,hahbh_);	/* (x_hi*y_hi)l,h 4,2 */\
-		MUL_LOHI32(al_,bh_,lalbh_,halbh_);	/* (x_lo*y_hi)l,h 0,1 */\
-		MUL_LOHI32(ah_,bl_,lahbl_,hahbl_);	/* (x_hi*y_lo)l,h 3,1 */\
-		MUL_LOHI32(al_,bl_,lalbl_,halbl_);	/* (x_lo*y_lo)l,h -,0 */\
-	/* Bits   0- 31 : lalbl                           */\
-	/* Bits  32- 63 :*halbl + lahbl +*lalbh   (sumlh) */\
-	/* Bits  64- 95 :*hahbl +*halbh + lahbh   (sumhl) */\
-	/* Bits  96-127 : hahbh                   (sumhh) */\
-	\
-		sumlh_  = halbl_ + lalbh_;	/* (0) halbl + lalbh                       , result (partial sum) in sumlh,carryout in CY. */\
-		cy  = sumlh_ < halbl_;\
-		halbh_ += cy;\
-		cy  = halbh_ < cy;\
-		sumhl_  = hahbl_ + halbh_;	/* (1) halbh + hahbl + (carryin from sumlh), result (partial sum) in sumhl,carryout in CY. */\
-		cy += sumhl_ < hahbl_;\
-		sumhh_	= hahbh_ + cy;		/* (2)     0 + hahbh + (carryin from sumhl), result (partial sum) in sumhh,carryout in CF) bit - should be zero! */\
-	\
-		sumlh_ += lahbl_;\
-		cy  = sumlh_ < lahbl_;		/* (3) sumlh + lahbl                       , result (sumlh), carryout in CY. */\
-		lahbh_ += cy;\
-		cy  = lahbh_ < cy;\
-		sumhl_ += lahbh_;\
-		cy += sumhl_ < lahbh_;		/* (4) sumhl + lahbh + (carryin from sumlh), result (sumhl), carryout in CY. */\
-		sumhh_ += cy;				/* (5)     0 + sumhh + (carryin from sumhl), result (sumhh), carryout in CY - should be zero! [In fact assume so.] */\
-	\
-		_ux.u32[0] = sumhl_;\
-		_ux.u32[1] = sumhh_;\
-		_hi= _ux.u64;\
-		_uy.u32[0] = lalbl_;\
-		_uy.u32[1] = sumlh_;\
-		_lo= _uy.u64;\
-	}
-
-	// Compute square of uint64 x via 32-bit x = x.lo + x.hi<<32 decomposition and 32-bit arithmetic:
-	#define SQR_LOHI64(_x,_lo,_hi)\
-	{\
-		union {\
-		uint32 u32[2];\
-		uint64 u64;\
-		} a,b;\
-	\
-		uint32 ah,al,cy;\
-		uint32 hahah,lahah,hahal,lahal,halal,lalal;\
-		uint32 sumhh,sumhl,sumlh;\
-	\
-		a.u64 = _x;\
-		ah = a.u32[1];	/* NVCC is little-endian, LS 32 bits in [0]. */\
-		al = a.u32[0];\
-	/* Compute 64-bit subproducts in (2^32.ah + al)^2 = 2^64.[ah^2] + 2^32.2.[ah.al] + [al^2]: */\
-		MULH32(ah,ah,hahah);	/* ah^2, hi half */\
-		 MULL32(ah,ah,lahah);	/* ah^2, lo half */\
-		MULH32(ah,al,hahal);	/* ah.al,hi half */\
-		 MULL32(ah,al,lahal);	/* ah.al,lo half */\
-		MULH32(al,al,halal);	/* al^2, hi half */\
-		 MULL32(al,al,lalal);	/* al^2, lo half */\
-	/* 2*<lahal,hahal>: */\
-		sumlh = lahal + lahal;\
-		sumhl = (hahal + hahal) | ((int)lahal < 0);	/* Shifts slow on most CUDA devices, so replace << 1 by add and >> 31 by signed-less-than-0 */\
-		sumhh = hahah + ((int)hahal < 0);\
-	\
-		sumlh += halal;/* (0) sumlh + halal                     , result in sumlh, carryout in CY */\
-		cy  = sumlh < halal;\
-		lahah +=    cy;/* (1) sumhl + lahah + (carryin from (0)), result in sumhl, carryout in CY */\
-		cy  = lahah < cy;\
-		sumhl += lahah;\
-		cy += sumhl < lahah;\
-		sumhh += cy;		/* (2)     0 + sumhh + (carryin from (1)), result in sumhh, carryout in CY - should be zero! (In fact assume so.) */\
-	\
-		a.u32[1] = sumhh;\
-		a.u32[0] = sumhl;\
-		_hi = a.u64;\
-		b.u32[1] = sumlh;\
-		b.u32[0] = lalal;\
-		_lo = b.u64;\
-	}
-
-	/* Generic 128-bit multiply algorithm, returning only the upper 64 bits (high part) of the result.
-	Actual calling arguments are assumed to be 64-bit ints - user must make sure this is true.
-	Result written into hi.
-	EWM: *to-do* Currently this is just MUL_LOHI64, with the _lo-arg-related stuff cut out.
-				Need to optimize, e.g. use optimizations that generate the carry into the high half
-				without requiring exact computation of the entire lower-half partial products.
-	*/
-	#define MULH64(_x, _y,_hi)\
-	{\
-		union {\
-			uint32 u32[2];	/* NVCC is little-endian, LS 32 bits in [0]. */\
-			uint64 u64;\
-		} _ux,_uy;\
-	\
-		uint32 ah_,al_,bh_,bl_;\
-		uint32 hahbh_,hahbl_,halbh_,halbl_,lahbh_,lahbl_,lalbh_;\
-		uint32 sumhh_,sumhl_,sumlh_,cy;\
-	\
-		_ux.u64 = _x;\
-		al_ = _ux.u32[0];	/* x_lo */\
-		ah_ = _ux.u32[1];	/* x_hi */\
-		_uy.u64 = _y;\
-		bl_ = _uy.u32[0];	/* y_lo */\
-		bh_ = _uy.u32[1];	/* y_hi */\
-	\
-	/* EWM: for 32-bit unsigned inputs these have a nominal latency of ?? cycles. */\
-	/* For each MUL output we include the order in which it is used in the add/carry */\
-	/* code below (6 steps, labeled (0)-(5)), in order to properly schedule the MUL: */\
-		MUL_LOHI32(ah_,bh_,lahbh_,hahbh_);	/* (x_hi*y_hi)l,h 4,2 */\
-		MUL_LOHI32(al_,bh_,lalbh_,halbh_);	/* (x_lo*y_hi)l,h 0,1 */\
-		MUL_LOHI32(ah_,bl_,lahbl_,hahbl_);	/* (x_hi*y_lo)l,h 3,1 */\
-		MULH32    (al_,bl_,       halbl_);	/* (x_lo*y_lo)l,h -,0 */\
-	/* Bits   0- 31 : lalbl                           */\
-	/* Bits  32- 63 :*halbl + lahbl +*lalbh   (sumlh) */\
-	/* Bits  64- 95 :*hahbl +*halbh + lahbh   (sumhl) */\
-	/* Bits  96-127 : hahbh                   (sumhh) */\
-	\
-		sumlh_  = halbl_ + lalbh_;	/* (0) halbl + lalbh                       , result (partial sum) in sumlh,carryout in CY. */\
-		cy  = sumlh_ < halbl_;\
-		halbh_ += cy;\
-		cy  = halbh_ < cy;\
-		sumhl_  = hahbl_ + halbh_;	/* (1) halbh + hahbl + (carryin from sumlh), result (partial sum) in sumhl,carryout in CY. */\
-		cy += sumhl_ < hahbl_;\
-		sumhh_	= hahbh_ + cy;		/* (2)     0 + hahbh + (carryin from sumhl), result (partial sum) in sumhh,carryout in CF) bit - should be zero! */\
-	\
-		sumlh_ += lahbl_;\
-		cy  = sumlh_ < lahbl_;		/* (3) sumlh + lahbl                       , result (sumlh), carryout in CY. */\
-		lahbh_ += cy;\
-		cy  = lahbh_ < cy;\
-		sumhl_ += lahbh_;\
-		cy += sumhl_ < lahbh_;		/* (4) sumhl + lahbh + (carryin from sumlh), result (sumhl), carryout in CY. */\
-		sumhh_ += cy;				/* (5)     0 + sumhh + (carryin from sumhl), result (sumhh), carryout in CY - should be zero! [In fact assume so.] */\
-	\
-		_ux.u32[0] = sumhl_;\
-		_ux.u32[1] = sumhh_;\
-		_hi= _ux.u64;\
-	}
-
-  #endif
-
-	#define __MULL64(_x,_y)	(( uint64 _lo; MULL64(_x,_y,_lo); _lo ))
-	#define __MULH64(_x,_y)	(( uint64 _hi; MULH64(_x,_y,_hi); _hi ))
-
-   #endif	// 0 | 1 ?
+   #endif	// 0 [NVCC's emulations-via-intrinsics]] | 1 [hand-rolled 64-bit-int emulations] ?
 
   #endif	// GCC | NVCC ?
+
+	#define __MULL64(_x,_y)	({ uint64 _lo; MULL64(_x,_y,_lo); _lo; })
+	#define __MULH64(_x,_y)	({ uint64 _hi; MULH64(_x,_y,_hi); _hi; })
 
 #endif
 

@@ -32,10 +32,6 @@
   #endif
 #endif
 
-/* Use for toggling higher-accuracy version of the twiddles computation */
-//#define HIACC 0	<*** prefer to set via compile-time flag; default is FALSE [= LOACC]
-
-// Mersenne-mod takes a binary-toggle LOACC; must give a numerical value for Fermat-mod:
 #if defined(HIACC) && defined(LOACC)
 	#error Only one of LOACC and HIACC may be defined!
 #endif
@@ -47,8 +43,12 @@
 	#define HIACC	1	// 32-bit mode only supports the older HIACC carry macros
   #endif
 #endif
-#if defined(HIACC) && defined(USE_AVX512)
+#ifdef HIACC
+  #ifdef USE_ARM_V8_SIMD
+	#error Currently only LOACC carry-mode supported in ARM v8 SIMD builds!
+  #elif defined(USE_AVX512)
 	#error Currently only LOACC carry-mode supported in AVX-512 builds!
+  #endif
 #endif
 #if defined(LOACC) && (OS_BITS == 32)
 	#error 32-bit mode only supports the older HIACC carry macros!
@@ -181,7 +181,7 @@ int radix52_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 #else
 	const int sz_vd = sizeof(double), sz_vd_m1 = sz_vd-1;
 #endif
-#if (defined(USE_AVX2) && defined(HIACC)) || (!defined(USE_SSE2) && defined(HIACC))
+#if (defined(USE_AVX2) && DFT_13_FMA) || defined(USE_ARM_V8_SIMD) || (!defined(USE_SSE2) && defined(HIACC))
 const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the radix-13 fundamental sincos datum	*/
 			ss1 =  0.46472317204376854565,	/* Imag part of exp(i*2*pi/13).	*/
 			cc2 =  0.56806474673115580252,	/* cos(2u)	*/
@@ -397,11 +397,11 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 		if(tdat == 0x0) {
 			j = (uint32)sizeof(struct cy_thread_data_t);
 			tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, sizeof(struct cy_thread_data_t));
-	
+
 			// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
 			// so on that platform try to be clever and interleave main-thread and threadpool-work processing
 			#if 0//def OS_TYPE_MACOSX
-	
+
 				if(CY_THREADS > 1) {
 					main_work_units = CY_THREADS/2;
 					pool_work_units = CY_THREADS - main_work_units;
@@ -411,14 +411,14 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 					main_work_units = 1;
 					printf("radix%d_ditN_cy_dif1: CY_THREADS = 1: Using main execution thread, no threadpool needed.\n", RADIX);
 				}
-	
+
 			#else
-	
+
 				pool_work_units = CY_THREADS;
 				ASSERT(HERE, 0x0 != (tpool = threadpool_init(CY_THREADS, MAX_THREADS, CY_THREADS, &thread_control)), "threadpool_init failed!");
-	
+
 			#endif
-	
+
 			fprintf(stderr,"Using %d threads in carry step\n", CY_THREADS);
 		}
 	  #endif
@@ -566,8 +566,9 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 		tmp = rad13_const-2;		/* __cc pointer offsets: */
 		VEC_DBL_INIT(tmp,  1.0);	++tmp;	/*	-0x020 = 1.0 */
 		VEC_DBL_INIT(tmp,  2.0);	++tmp;	/*	-0x010 = 2.0 */
-	  #if defined(USE_AVX2) && defined(HIACC)	// FMA+HIACC version (like radix-11/FMA) based on simple radix-13 DFT implementation, but here (simple+FMA) is a
-	  											// tad slower than the default tangent-DFT and the latter has decent roundoff properties, so remains the default
+	  // FMA+HIACC version (like radix-11/FMA) based on simple radix-13 DFT implementation, but here (simple+FMA) is a
+	// tad slower than the default tangent-DFT and the latter has decent roundoff properties, so remains the default:
+	  #if (defined(USE_AVX2) && DFT_13_FMA) || defined(USE_ARM_V8_SIMD)
 		VEC_DBL_INIT(tmp, cc1 );	++tmp;	/*	0x000 = cc1 */
 		VEC_DBL_INIT(tmp, cc2 );	++tmp;	/*	0x010 = cc2 */
 		VEC_DBL_INIT(tmp, cc3 );	++tmp;	/*	0x020 = cc3 */

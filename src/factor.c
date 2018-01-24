@@ -38,7 +38,7 @@ To build the sieve factoring code in standalone mode, see the compile instructio
   #ifdef MULTITHREAD
 	uint64 CORE_SET[MAX_CORES>>6];	// Bitmap for user-controlled affinity setting, as specified via the -cpu flag
   #endif
-	
+
   #ifdef USE_AVX	// AVX and AVX2 both use 256-bit registers
 	const uint32 mask02 = 0xfffffff8,
 		br8[8]    = {0,4,1,5,2,6,3,7},	// length-8 index-scramble array for mapping from scalar-complex to AVX (re,re,re,re,im,im,im,im)
@@ -49,17 +49,17 @@ To build the sieve factoring code in standalone mode, see the compile instructio
 		br4[4]    = {0,2,1,3};	// length-4 index-scramble array for mapping from scalar-complex (re,im,re,im) to SSE2 (re,re,im,im)
 								// For length-4 this is its own inverse.
   #endif
-	
+
 	FILE *fp, *fq;
 	const char OFILE     [] = "results.txt";
-	
+
 	/* These should all be set to a valid (nonzero) value at the time the appropriate test is begun */
 	uint32 TEST_TYPE		= 0;
 	uint32 MODULUS_TYPE		= 0;
 	uint32 TRANSFORM_TYPE	= 0;
-		
+
 	int INTERACT;
-	
+
 #endif
 
 // Oct 2015: Play with Smarandache numbers ():
@@ -665,7 +665,7 @@ int factor(char *pstring, double bmin, double bmax)
 	#define MAX_TRYQ	 4
 #endif
 
-#if TRYQ > MAX_TRYQ
+#if (TRYQ > MAX_TRYQ) && !defined(USE_ARM_V8_SIMD)	// Ignore on ARMv8, since no TF support there anyway
 	#error TRYQ exceeds MAX_TRYQ for this build mode!
 #endif
 
@@ -2198,7 +2198,7 @@ Fermat Fn (n > 0): 0,Acceptable km-values for the ? possible pm (= p%60) values:
 		for(i = 0; i < 4; i++) {
 			/* Remember that k = 1 is in the zeroth bit here, i.e. we cycle through
 			bits 0-3 which correspond to q = 2kp+1, 4kp+1, 6kp+1, 8kp+1, respectively.
-	
+
 			We don't need to worry about overflow-on-add of (two_p + qmod8),
 			since an overflow won't affect the result, modulo 8.
 			*/

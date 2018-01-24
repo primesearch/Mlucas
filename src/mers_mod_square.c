@@ -227,7 +227,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		{
 			if(RADIX_VEC[i] == 0)
 			{
-				sprintf(cbuf, "mers_mod_square: RADIX_VEC[i = %d] zero, for i < [NRADICES = %d]!",i,NRADICES);
+				sprintf(cbuf, "%s: RADIX_VEC[i = %d] zero, for i < [NRADICES = %d]!",func,i,NRADICES);
 				ASSERT(HERE, 0, cbuf);
 			}
 			radix_set_save[i] = RADIX_VEC[i];
@@ -236,7 +236,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		{
 			if(RADIX_VEC[i] != 0)
 			{
-				sprintf(cbuf, "mers_mod_square: RADIX_VEC[i = %d] nonzero, for i >= [NRADICES = %d]!",i,NRADICES);
+				sprintf(cbuf, "%s: RADIX_VEC[i = %d] nonzero, for i >= [NRADICES = %d]!",func,i,NRADICES);
 				ASSERT(HERE, 0, cbuf);
 			}
 			radix_set_save[i] = 0;
@@ -273,7 +273,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 
 		if(retval == ERR_FFTLENGTH_ILLEGAL)
 		{
-			sprintf(cbuf,"ERROR: mers_mod_square: length %d = %d K not available.\n",n,n>>10);
+			sprintf(cbuf,"ERROR: %s: length %d = %d K not available.\n",func,n,n>>10);
 			fp = mlucas_fopen(STATFILE,"a");	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
 			fprintf(stderr,"%s", cbuf);
 			ASSERT(HERE, 0,cbuf);
@@ -283,7 +283,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			/* Since the FFT length is supported, radix set 0 should be available: */
 			if(get_fft_radices(n>>10, 0, &NRADICES, RADIX_VEC, 10)
 			{
-				sprintf(cbuf, "mers_mod_square: get_fft_radices fails with default RADIX_SET = 0 at FFT length %u K\n", n);
+				sprintf(cbuf, "%s: get_fft_radices fails with default RADIX_SET = 0 at FFT length %u K\n",func,n);
 				fprintf(stderr,"%s",cbuf);	ASSERT(HERE, 0, cbuf);
 			}
 
@@ -392,7 +392,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		index_ptmp = ALLOC_INT(index_ptmp, k);
 		if(!index_ptmp)
 		{
-			sprintf(cbuf  ,"FATAL: unable to allocate array INDEX in mers_mod_square.\n");
+			sprintf(cbuf  ,"FATAL: unable to allocate array INDEX in %s.\n",func);
 			fprintf(stderr,"%s", cbuf);
 			ASSERT(HERE, 0,cbuf);
 		}
@@ -671,7 +671,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		Assume WM(J) = 2^A. Then WM(J)^N = 2^(A*N), so A satisfies the congruence A*N == (s*j mod N) mod 61.
 		Example:
 			N=512, s*j mod N = 137. (s*j mod N) mod 61 = 15, so A*512 == 15 mod 61, hence A = 54 and WM(J) = 2^54.
-		
+
 		We can afford a brute-force search for the A's since A in [0,60]. These are then stored in a length-61 table,
 		and the appropriate element accessed using the current value of (s*j mod N) mod 61, and sent (along with the
 		digit to be multiplied by the weight factor) as a shift count to MUL_POW2_MODQ. Since WM is a power of 2, we need
@@ -727,10 +727,10 @@ nwt_bits = (uint32)(log(sqrt(1.0*n))/log(2.0) + 0.5) - 2;	// Jan 2014: -1; reduc
 		tmp = (double *)calloc(n/nwt+1       ,sizeof(double));
 		si  = (   int *)calloc(nwt+1         ,sizeof(   int));
 		*/
-		wt0_ptmp = ALLOC_DOUBLE(wt0_ptmp, nwt+1         );	if(!wt0_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array WT0 in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }; wt0 = ALIGN_DOUBLE(wt0_ptmp);
-		wt1_ptmp = ALLOC_DOUBLE(wt1_ptmp, n/nwt+radix0  );	if(!wt1_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array WT1 in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }; wt1 = ALIGN_DOUBLE(wt1_ptmp);
-		tmp_ptmp = ALLOC_DOUBLE(tmp_ptmp, n/nwt+1       );	if(!tmp_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array TMP in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }; tmp = ALIGN_DOUBLE(tmp_ptmp);
-		si_ptmp  = ALLOC_INT   ( si_ptmp, nwt+1         );	if(!si_ptmp ){ sprintf(cbuf,"FATAL: unable to allocate array SI  in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }; si  = ALIGN_INT   (si_ptmp );
+		wt0_ptmp = ALLOC_DOUBLE(wt0_ptmp, nwt+1         );	if(!wt0_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array WT0 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }; wt0 = ALIGN_DOUBLE(wt0_ptmp);
+		wt1_ptmp = ALLOC_DOUBLE(wt1_ptmp, n/nwt+radix0  );	if(!wt1_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array WT1 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }; wt1 = ALIGN_DOUBLE(wt1_ptmp);
+		tmp_ptmp = ALLOC_DOUBLE(tmp_ptmp, n/nwt+1       );	if(!tmp_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array TMP in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }; tmp = ALIGN_DOUBLE(tmp_ptmp);
+		si_ptmp  = ALLOC_INT   ( si_ptmp, nwt+1         );	if(!si_ptmp ){ sprintf(cbuf,"FATAL: unable to allocate array SI  in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }; si  = ALIGN_INT   (si_ptmp );
 
 		/******************************************************************/
 		/* Crandall/Fagin weighting factors and number of bits per digit. */
@@ -900,7 +900,7 @@ nwt_bits = (uint32)(log(sqrt(1.0*n))/log(2.0) + 0.5) - 2;	// Jan 2014: -1; reduc
 		*/
 	#ifdef USE_FGT61
 		mt0_ptmp = ALLOC_UINT128(mt0_ptmp, NRT);
-		if(!mt0_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array MT0 in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(!mt0_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array MT0 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		mt0 = ALIGN_UINT128(mt0_ptmp);
 
 		order = N2;
@@ -913,7 +913,7 @@ nwt_bits = (uint32)(log(sqrt(1.0*n))/log(2.0) + 0.5) - 2;	// Jan 2014: -1; reduc
 		}
 	#endif
 		rt0_ptmp = ALLOC_COMPLEX(rt0_ptmp, NRT);
-		if(!rt0_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array RT0 in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(!rt0_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array RT0 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		rt0 = ALIGN_COMPLEX(rt0_ptmp);
 
 		qt     = i64_to_q((int64)N2);
@@ -1008,14 +1008,14 @@ nwt_bits = (uint32)(log(sqrt(1.0*n))/log(2.0) + 0.5) - 2;	// Jan 2014: -1; reduc
 			qn = qfmul(qc, qi); qt = qfmul(qs, qr); qs   = qfadd(qn, qt); qc = qmul;
 			*/
 		}
-		printf("%s: Complex-roots arrays have %u, %u elements.\n",func,NRT,n/(2*NRT));
+	//	printf("%s: Complex-roots arrays have %u, %u elements.\n",func,NRT,n/(2*NRT));
 		/*...The rt1 array stores the (0:(n/2)/NRT-1)th powers of the [(n/2)/NRT]th root of unity
 		(and will be accessed using the upper bits, <lg(NRT):31>, of the integer sincos index):
 		*/
 	#ifdef USE_FGT61
 		order = N2/NRT;
 		mt1_ptmp = ALLOC_UINT128(mt1_ptmp, order);
-		if(!mt1_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array MT1 in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(!mt1_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array MT1 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		mt1 = ALIGN_UINT128(mt1_ptmp);
 
 		prim_root_q(order, &rm,&im);	// primitive root of order n/2
@@ -1027,7 +1027,7 @@ nwt_bits = (uint32)(log(sqrt(1.0*n))/log(2.0) + 0.5) - 2;	// Jan 2014: -1; reduc
 		}
 	#endif
 		rt1_ptmp = ALLOC_COMPLEX(rt1_ptmp, n/(2*NRT));
-		if(!rt1_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array RT1 in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(!rt1_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array RT1 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		rt1 = ALIGN_COMPLEX(rt1_ptmp);
 
 		qn     = i64_to_q((int64)NRT);
@@ -1221,7 +1221,7 @@ for(i=0; i < NRT; i++) {
 		/* 8/23/2004: Need to allocate an extra element here to account for the padding element that gets inserted when radix0 is odd: */
 
 		block_index = (int *)calloc((radix0+1),sizeof(int));
-		if(!block_index){ sprintf(cbuf,"FATAL: unable to allocate array BLOCK_INDEX in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(!block_index){ sprintf(cbuf,"FATAL: unable to allocate array BLOCK_INDEX in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		/*
 		Examples:
 
@@ -1305,7 +1305,7 @@ for(i=0; i < NRT; i++) {
 				*/
 				for(j = 0; j < 2; j++)
 				{
-					if(!(l >= 0 && l < radix0)) { sprintf(cbuf,"ERROR 10 in mers_mod_square.c\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+					if(!(l >= 0 && l < radix0)) { sprintf(cbuf,"ERROR 10 in %s.c\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 
 					if((blocklen & 1) && j == 1)
 					{
@@ -1339,14 +1339,14 @@ for(i=0; i < NRT; i++) {
 		}		/* End of Main loop */
 
 		/* arrays storing the index values needed for the parallel-block wrapper/square scheme: */
-		if( !(ws_i            = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_I            in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_j1           = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_J1           in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_j2           = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_J2           in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_j2_start     = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_J2_START     in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_k            = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_K            in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_m            = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_M            in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_blocklen     = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_BLOCKLEN     in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_blocklen_sum = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_BLOCKLEN_SUM in mers_mod_square.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_i            = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_I            in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_j1           = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_J1           in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_j2           = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_J2           in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_j2_start     = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_J2_START     in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_k            = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_K            in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_m            = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_M            in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_blocklen     = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_BLOCKLEN     in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_blocklen_sum = (int *)calloc(radix0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_BLOCKLEN_SUM in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 
 		for(ii = 0; ii < radix0; ii += 2)
 		{
@@ -1390,10 +1390,9 @@ for(i=0; i < NRT; i++) {
 
 		if(max_adiff > err_threshold)
 		{
-			fprintf(stderr, "mers_mod_square:\n");
+			fprintf(stderr, "%s:\n",func);
 			fprintf(stderr, " Max abs error between real*8 and real*16 computed values = %20.15f\n",         max_adiff);
 			fprintf(stderr, " Max bit error between real*8 and real*16 computed values = %20.0f \n", (double)max_idiff);
-
 			ASSERT(HERE, (max_adiff < 100*err_threshold),"Max error between real*8 and real*16 unacceptably high - quitting.");
 		}
 
@@ -1450,7 +1449,7 @@ for(i=0; i < NRT; i++) {
 		// MAX_THREADS is the max. no. of threads we expect to be able to make use of, at 1 thread per core.
 		ASSERT(HERE, MAX_THREADS == get_num_cores(), "MAX_THREADS not set or incorrectly set!");
 
-		if(nchunks % NTHREADS != 0) fprintf(stderr,"mers_mod_square: radix0/2 not exactly divisible by NTHREADS - This will hurt performance.\n");
+		if(nchunks % NTHREADS != 0) fprintf(stderr,"%s: radix0/2 not exactly divisible by NTHREADS - This will hurt performance.\n",func);
 
 		// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
 		// so on that platform try to be clever and interleave main-thread and threadpool-work processing
@@ -1462,9 +1461,9 @@ for(i=0; i < NRT; i++) {
 				main_work_units = nchunks/MAX_THREADS;
 				pool_work_units = nchunks - main_work_units;
 				ASSERT(HERE, 0x0 != (tpool = threadpool_init(MAX_THREADS-1, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
-				printf("Mers_mod_square: Init threadpool of %d threads\n", MAX_THREADS-1);
+				printf("%s: Init threadpool of %d threads\n",func,MAX_THREADS-1);
 			} else {
-				printf("Mers_mod_square: NTHREADS = 1: Using main execution thread, no threadpool needed.\n");
+				printf("%s: NTHREADS = 1: Using main execution thread, no threadpool needed.\n",func);
 			}
 
 		#else
@@ -1472,7 +1471,7 @@ for(i=0; i < NRT; i++) {
 			main_work_units = 0;
 			pool_work_units = nchunks;
 			ASSERT(HERE, 0x0 != (tpool = threadpool_init(NTHREADS, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
-			printf("Mers_mod_square: Init threadpool of %d threads\n", NTHREADS);
+			printf("%s: Init threadpool of %d threads\n",func,NTHREADS);
 
 		#endif
 
@@ -1944,7 +1943,7 @@ for(i=0; i < NRT; i++) {
 			j = i;
 		#endif
 			j += ( (j>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-	
+
 			l = i & (nwt-1);
 			k =    i  >> nwt_bits;
 			k2= (n-i) >> nwt_bits;	/* Inv-wt stuff not needed here, but gives a cheap debug check (plus, bizarrely, GCC build ~3% faster with it) */
@@ -1955,7 +1954,7 @@ for(i=0; i < NRT; i++) {
 			simodn += sw;	if(simodn >= n) simodn -= n;
 			bimodn += bw;	if(bimodn >= n) bimodn -= n;
 		//	if(simodn != n - bimodn) printf("I = %d: simodn[%u] != n - bimodn[%u]\n",i,simodn,n - bimodn);
-		//	ASSERT(HERE, simodn == n - bimodn, "simodn != n - bimodn");	<*** cannot require this because (for i = n-1) have simodn = 0, bimodn = n, 
+		//	ASSERT(HERE, simodn == n - bimodn, "simodn != n - bimodn");	<*** cannot require this because (for i = n-1) have simodn = 0, bimodn = n,
 			ASSERT(HERE, DNINT(a[j]) == a[j],"mers_mod_square.c: Input a[j] noninteger!");
 		#ifdef USE_FGT61
 			b[j] = a[j];						// First copy the floating-double datum into a uint64 slot...
@@ -2127,7 +2126,7 @@ for(i=0; i < NRT; i++) {
   #endif
 
   #if DBG_THREADS
-	fprintf(stderr,"mers_mod_square: NTHREADS = %3d\n", NTHREADS);
+	fprintf(stderr,"%s: NTHREADS = %3d\n",func,NTHREADS);
   #endif
 
 #endif
@@ -2348,10 +2347,6 @@ for(i=0; i < NRT; i++) {
 	/* Nonzero remaining carries are instantly fatal: */
 	if(ierr)
 		return(ierr);
-#if 0
-printf("Exiting mers_mod_square.\n");
-exit(0);
-#endif
 	/* Update Max. Max. Error: */
 	if(fracmax > MME)
 		MME  = fracmax;
@@ -2459,7 +2454,7 @@ exit(0);
 #endif
 
 #if DBG_THREADS
-	fprintf(stderr,"mers_mod_square: #Chunks processed by each thread: ");
+	fprintf(stderr,"%s: #Chunks processed by each thread: ",func);
 	for(i=0; i < NTHREADS; i++)
 	{
 		fprintf(stderr,"%d[%d] ", i, num_chunks[i]);
@@ -2651,7 +2646,7 @@ exit(0);
 	}
 	if(max_fp > 0.01)
 	{
-		fprintf(stderr,"mers_mod_square.c: max_fp > 0.01! Value = %20.10f\n", max_fp);
+		fprintf(stderr,"%s: max_fp > 0.01! Value = %20.10f\n",func,max_fp);
 		fprintf(stderr,"Check your build for inadvertent mixing of SIMD build modes!\n");
 		ASSERT(HERE, max_fp < 0.01,"mers_mod_square.c: max_fp < 0.01");
 	}

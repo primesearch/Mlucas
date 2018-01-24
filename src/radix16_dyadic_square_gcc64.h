@@ -26,7 +26,23 @@
 #ifndef radix16_dyadic_square_asm_h_included
 #define radix16_dyadic_square_asm_h_included
 
-#ifdef USE_AVX512	// AVX512 implements a 512-bit-register version of the the AVX2 ALL_FMA-macro
+#ifdef USE_ARM_V8_SIMD
+	// No Fermat-mod support on ARMv8, just supply a stub macro:
+	#define SSE2_RADIX16_DIF_DYADIC_DIT(Xadd0,Xadd1,Xr1,Xisrt2,Xpfetch_dist)\
+	{\
+	__asm__ volatile (\
+		"ldr x0,%[__add0]	\n\t"\
+		:					/* outputs: none */\
+		: [__add0] "m" (Xadd0)	/* All inputs from memory addresses here */\
+		 ,[__add1] "m" (Xadd1)\
+		 ,[__r1] "m" (Xr1)\
+		 ,[__isrt2] "m" (Xisrt2)\
+		 ,[__pfetch_dist] "m" (Xpfetch_dist)\
+		: "cc","memory","x0"	/* Clobbered registers */\
+	);\
+	}
+
+#elif defined(USE_AVX512)	// AVX512 implements a 512-bit-register version of the the AVX2 ALL_FMA-macro
 
   #ifdef USE_16_REG 	// Default is 32-SIMD-register version further down
 

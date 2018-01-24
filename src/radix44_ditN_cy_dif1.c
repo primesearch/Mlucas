@@ -32,10 +32,6 @@
   #endif
 #endif
 
-/* Use for toggling higher-accuracy version of the twiddles computation */
-//#define HIACC 0	<*** prefer to set via compile-time flag; default is FALSE [= LOACC]
-
-// Mersenne-mod takes a binary-toggle LOACC; must give a numerical value for Fermat-mod:
 #if defined(HIACC) && defined(LOACC)
 	#error Only one of LOACC and HIACC may be defined!
 #endif
@@ -47,8 +43,12 @@
 	#define HIACC	1	// 32-bit mode only supports the older HIACC carry macros
   #endif
 #endif
-#if defined(HIACC) && defined(USE_AVX512)
+#ifdef HIACC
+  #ifdef USE_ARM_V8_SIMD
+	#error Currently only LOACC carry-mode supported in ARM v8 SIMD builds!
+  #elif defined(USE_AVX512)
 	#error Currently only LOACC carry-mode supported in AVX-512 builds!
+  #endif
 #endif
 #if defined(LOACC) && (OS_BITS == 32)
 	#error 32-bit mode only supports the older HIACC carry macros!
@@ -195,7 +195,8 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	static uint64 psave = 0;
 	static uint32 bw,sw,bjmodnini,p01,p02,p03,p04,p08,p12,p16,p20,p24,p28,p32,p36,p40, nsave = 0;
 	static int poff[RADIX>>2];	// Store mults of p04 offset for loop control
-#if defined(USE_AVX2) || (!defined(USE_SSE2) && LO_ADD)	// SIMD+FMA and Scalar-double/LO_ADD use these
+// FMA-based SIMD or (scalar-double) + (LO_ADD = 1 in masterdefs.h)use these sincos constants:
+#if defined(USE_AVX2) || defined(USE_ARM_V8_SIMD) || (!defined(USE_SSE2) && defined(LO_ADD))
 	// FMA based on simple radix-11 DFT implementation, same as LO_ADD - more accurate, and with FMA, faster as well
 	const double cc1 =  0.84125353283118116886,	/* Real part of exp(i*2*pi/11), the radix-11 fundamental sincos datum	*/
 			ss1 =  0.54064081745559758210,	/* Imag part of exp(i*2*pi/11).	*/
@@ -416,11 +417,11 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		if(tdat == 0x0) {
 			j = (uint32)sizeof(struct cy_thread_data_t);
 			tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, sizeof(struct cy_thread_data_t));
-	
+
 			// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
 			// so on that platform try to be clever and interleave main-thread and threadpool-work processing
 			#if 0//def OS_TYPE_MACOSX
-	
+
 				if(CY_THREADS > 1) {
 					main_work_units = CY_THREADS/2;
 					pool_work_units = CY_THREADS - main_work_units;
@@ -430,14 +431,14 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 					main_work_units = 1;
 					printf("radix%d_ditN_cy_dif1: CY_THREADS = 1: Using main execution thread, no threadpool needed.\n", RADIX);
 				}
-	
+
 			#else
-	
+
 				pool_work_units = CY_THREADS;
 				ASSERT(HERE, 0x0 != (tpool = threadpool_init(CY_THREADS, MAX_THREADS, CY_THREADS, &thread_control)), "threadpool_init failed!");
-	
+
 			#endif
-	
+
 			fprintf(stderr,"Using %d threads in carry step\n", CY_THREADS);
 		}
 	  #endif
@@ -592,7 +593,7 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	  #endif
 
 		ASSERT(HERE, (radix44_creals_in_local_store << l2_sz_vd) >= ((long)half_arr - (long)r00) + (20 << l2_sz_vd), "radix44_creals_in_local_store checksum failed!");
-	  #ifndef USE_AVX2
+	  #if !defined(USE_AVX2) && !defined(USE_ARM_V8_SIMD)
 		//======= Test the accuracy of the radix-11 trig consts: =========
 		struct qfloat qtheta,qs,qt,qfifth,cq0,cq1,cq2,cq3,cq4,sq0,sq1,sq2,sq3,sq4;
 		qtheta = qfdiv(Q2PI, i64_to_q((uint64)11));
@@ -710,7 +711,7 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	  #endif
 		/* These remain fixed: */
 		VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );
-	  #ifdef USE_AVX2	// FMA version based on simple radix-11 DFT implementation, same as LO_ADD
+	  #if defined(USE_AVX2) || defined(USE_ARM_V8_SIMD)	// FMA version based on simple radix-11 DFT implementation, same as LO_ADD
 		tmp = five-1;
 		VEC_DBL_INIT(tmp ,2.0);		VEC_DBL_INIT(five,1.0);	// *five-1,*five used for [2.0,1.0] here
 		VEC_DBL_INIT(ua0 ,cc1);		VEC_DBL_INIT(ub0 ,0.0);	// upper 10 slots unused here; init = 0

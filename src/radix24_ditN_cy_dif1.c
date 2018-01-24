@@ -26,6 +26,38 @@
 
 #define EPS 1e-10
 
+#ifdef USE_ARM_V8_SIMD	// No radix-24 DIF|DIT macro for ARMv8; instead assemble the 24-DIFs from small macros.
+	#define USE_SMALL_MACROS	1			// Can also manually set this flag at compile time, but note that the
+	#warning Defining USE_SMALL_MACROS = 1	// SSE2_RADIX8_DIT_0TWIDDLE macro requires extra pointer-arg not set
+#endif										// up for in the code, so only allow in SSE2 and AVX modes
+#if defined(USE_AVX2) && defined(USE_SMALL_MACROS)
+	#error USE_SMALL_MACROS only allowed for 128-bit ARMv8 SIMD and x86 SSE2 and AVX builds, not for AVX2 and above!
+#endif
+
+#if defined(HIACC) && defined(LOACC)
+	#error Only one of LOACC and HIACC may be defined!
+#endif
+#if !defined(HIACC) && !defined(LOACC)
+  #ifdef USE_AVX512
+	#define HIACC	1	// Radix-20,24,28 carry routines are special, require avx-512 builds to be done in HIACC mode
+	#warning HIACC = 1
+  #elif OS_BITS == 64
+	#define LOACC	1	// Default is suitable for F29 work @ FFT length 30M
+	#warning LOACC = 1
+  #else
+	#define HIACC	1	// 32-bit mode only supports the older HIACC carry macros
+  #endif
+#endif
+#if defined(HIACC) && defined(USE_ARM_V8_SIMD)
+	#error Currently only LOACC carry-mode supported in ARM v8 SIMD builds!
+#endif
+#if defined(LOACC) && defined(USE_AVX512)
+	#error Currently only HIACC carry-mode supported in AVX-512 builds of radix-20,24,28 carry routines!
+#endif
+#if defined(LOACC) && (OS_BITS == 32)
+	#error 32-bit mode only supports the older HIACC carry macros!
+#endif
+
 #ifndef PFETCH_DIST
   #ifdef USE_AVX512
 	#define PFETCH_DIST	64	// Feb 2017: Test on KNL point to this as best
@@ -48,19 +80,13 @@
 	const int radix24_creals_in_local_store = 164;	// (half_arr_offset24 + RADIX) + 40 and round up to nearest multiple of 4
   #endif
 
-	#ifdef COMPILER_TYPE_MSVC
-		#include "sse2_macro.h"
-	#endif
-
-	#ifdef COMPILER_TYPE_GCC	/* GCC-style inline ASM: */
-
-	  #if OS_BITS == 32
-		#include "radix24_ditN_cy_dif1_gcc32.h"
-	  #else
-		#include "radix24_ditN_cy_dif1_gcc64.h"
-	  #endif
-
-	#endif
+  #if USE_SMALL_MACROS
+	#include "sse2_macro.h"
+  #elif OS_BITS == 32
+	#include "radix24_ditN_cy_dif1_gcc32.h"
+  #else
+	#include "radix24_ditN_cy_dif1_gcc64.h"
+  #endif
 
 #endif
 
@@ -99,10 +125,10 @@
 	#endif
 		int *si;
 	#ifdef USE_SSE2
-		vec_dbl *s1p00r;
+		vec_dbl *s1p00;
 		vec_dbl *half_arr;
 	#else
-		double *s1p00r;
+		double *s1p00;
 		double *half_arr;
 	#endif
 
@@ -227,7 +253,7 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	static vec_dbl *__r0;	// Base address for discrete per-thread local stores
   #else
 	double *add0, *add1, *add2, *add3;	/* Addresses into array sections */
-   #ifndef COMPILER_TYPE_GCC
+   #if USE_SMALL_MACROS
 		double *add4, *add5, *add6, *add7;
    #endif
   #endif
@@ -235,7 +261,7 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	const double crnd = 3.0*0x4000000*0x2000000;
 	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 	static vec_dbl *isrt2, *cc0, *cc3, *max_err, *sse2_rnd, *half_arr, *tmp,*tm1,*tm2;
-	static vec_dbl *s1p00r,*s1p01r,*s1p02r,*s1p03r,*s1p04r,*s1p05r,*s1p06r,*s1p07r,*s1p08r,*s1p09r,*s1p10r,*s1p11r,*s1p12r,*s1p13r,*s1p14r,*s1p15r,*s1p16r,*s1p17r,*s1p18r,*s1p19r,*s1p20r,*s1p21r,*s1p22r,*s1p23r;
+	static vec_dbl *s1p00,*s1p01,*s1p02,*s1p03,*s1p04,*s1p05,*s1p06,*s1p07,*s1p08,*s1p09,*s1p10,*s1p11,*s1p12,*s1p13,*s1p14,*s1p15,*s1p16,*s1p17,*s1p18,*s1p19,*s1p20,*s1p21,*s1p22,*s1p23;
 	/* Only explicitly reference the even-indexed carries in SSE2 mode: */
 	static vec_dbl
 		*cy00,*cy04,*cy08,*cy12,*cy16,*cy20;
@@ -386,11 +412,11 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		if(tdat == 0x0) {
 			j = (uint32)sizeof(struct cy_thread_data_t);
 			tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, sizeof(struct cy_thread_data_t));
-	
+
 			// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
 			// so on that platform try to be clever and interleave main-thread and threadpool-work processing
 			#if 0//def OS_TYPE_MACOSX
-	
+
 				if(CY_THREADS > 1) {
 					main_work_units = CY_THREADS/2;
 					pool_work_units = CY_THREADS - main_work_units;
@@ -400,14 +426,14 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 					main_work_units = 1;
 					printf("radix%d_ditN_cy_dif1: CY_THREADS = 1: Using main execution thread, no threadpool needed.\n", RADIX);
 				}
-	
+
 			#else
-	
+
 				pool_work_units = CY_THREADS;
 				ASSERT(HERE, 0x0 != (tpool = threadpool_init(CY_THREADS, MAX_THREADS, CY_THREADS, &thread_control)), "threadpool_init failed!");
-	
+
 			#endif
-	
+
 			fprintf(stderr,"Using %d threads in carry step\n", CY_THREADS);
 		}
 	  #endif
@@ -463,55 +489,55 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		__r0 = sc_ptr;
 	#endif
 	#ifdef USE_AVX
-		s1p00r = sc_ptr + 0x00;		isrt2	= sc_ptr + 0x30;
-		s1p01r = sc_ptr + 0x02;		cc3		= sc_ptr + 0x31;
-		s1p02r = sc_ptr + 0x04;		cc0  	= sc_ptr + 0x32;
-		s1p03r = sc_ptr + 0x06;		cy00	= sc_ptr + 0x33;
-		s1p04r = sc_ptr + 0x08;		cy04	= sc_ptr + 0x34;
-		s1p05r = sc_ptr + 0x0a;		cy08	= sc_ptr + 0x35;
-		s1p06r = sc_ptr + 0x0c;		cy12	= sc_ptr + 0x36;
-		s1p07r = sc_ptr + 0x0e;		cy16	= sc_ptr + 0x37;
-		s1p08r = sc_ptr + 0x10;		cy20	= sc_ptr + 0x38;
-		s1p09r = sc_ptr + 0x12;		max_err = sc_ptr + 0x39;
-		s1p10r = sc_ptr + 0x14;		sse2_rnd= sc_ptr + 0x3a;
-		s1p11r = sc_ptr + 0x16;		half_arr= sc_ptr + 0x3b;	/* This table needs 20x16 bytes */
-		s1p12r = sc_ptr + 0x18;		// half_arr = sc_ptr + 0x3b; This is where the value of half_arr_offset24 comes from
-		s1p13r = sc_ptr + 0x1a;
-		s1p14r = sc_ptr + 0x1c;
-		s1p15r = sc_ptr + 0x1e;
-		s1p16r = sc_ptr + 0x20;
-		s1p17r = sc_ptr + 0x22;
-		s1p18r = sc_ptr + 0x24;
-		s1p19r = sc_ptr + 0x26;
-		s1p20r = sc_ptr + 0x28;
-		s1p21r = sc_ptr + 0x2a;
-		s1p22r = sc_ptr + 0x2c;
-		s1p23r = sc_ptr + 0x2e;
+		s1p00 = sc_ptr + 0x00;		isrt2	= sc_ptr + 0x30;
+		s1p01 = sc_ptr + 0x02;		cc3		= sc_ptr + 0x31;
+		s1p02 = sc_ptr + 0x04;		cc0  	= sc_ptr + 0x32;
+		s1p03 = sc_ptr + 0x06;		cy00	= sc_ptr + 0x33;
+		s1p04 = sc_ptr + 0x08;		cy04	= sc_ptr + 0x34;
+		s1p05 = sc_ptr + 0x0a;		cy08	= sc_ptr + 0x35;
+		s1p06 = sc_ptr + 0x0c;		cy12	= sc_ptr + 0x36;
+		s1p07 = sc_ptr + 0x0e;		cy16	= sc_ptr + 0x37;
+		s1p08 = sc_ptr + 0x10;		cy20	= sc_ptr + 0x38;
+		s1p09 = sc_ptr + 0x12;		max_err = sc_ptr + 0x39;
+		s1p10 = sc_ptr + 0x14;		sse2_rnd= sc_ptr + 0x3a;
+		s1p11 = sc_ptr + 0x16;		half_arr= sc_ptr + 0x3b;	/* This table needs 20x16 bytes */
+		s1p12 = sc_ptr + 0x18;		// half_arr = sc_ptr + 0x3b; This is where the value of half_arr_offset24 comes from
+		s1p13 = sc_ptr + 0x1a;
+		s1p14 = sc_ptr + 0x1c;
+		s1p15 = sc_ptr + 0x1e;
+		s1p16 = sc_ptr + 0x20;
+		s1p17 = sc_ptr + 0x22;
+		s1p18 = sc_ptr + 0x24;
+		s1p19 = sc_ptr + 0x26;
+		s1p20 = sc_ptr + 0x28;
+		s1p21 = sc_ptr + 0x2a;
+		s1p22 = sc_ptr + 0x2c;
+		s1p23 = sc_ptr + 0x2e;
 	#else
-		s1p00r = sc_ptr + 0x00;		isrt2	= sc_ptr + 0x30;
-		s1p01r = sc_ptr + 0x02;		cc3		= sc_ptr + 0x31;
-		s1p02r = sc_ptr + 0x04;		cc0  	= sc_ptr + 0x32;
-		s1p03r = sc_ptr + 0x06;		cy00	= sc_ptr + 0x33;
-		s1p04r = sc_ptr + 0x08;		cy02	= sc_ptr + 0x34;
-		s1p05r = sc_ptr + 0x0a;		cy04	= sc_ptr + 0x35;
-		s1p06r = sc_ptr + 0x0c;		cy06	= sc_ptr + 0x36;
-		s1p07r = sc_ptr + 0x0e;		cy08	= sc_ptr + 0x37;
-		s1p08r = sc_ptr + 0x10;		cy10	= sc_ptr + 0x38;
-		s1p09r = sc_ptr + 0x12;		cy12	= sc_ptr + 0x39;
-		s1p10r = sc_ptr + 0x14;		cy14	= sc_ptr + 0x3a;
-		s1p11r = sc_ptr + 0x16;		cy16	= sc_ptr + 0x3b;
-		s1p12r = sc_ptr + 0x18;		cy18	= sc_ptr + 0x3c;
-		s1p13r = sc_ptr + 0x1a;		cy20	= sc_ptr + 0x3d;
-		s1p14r = sc_ptr + 0x1c;		cy22	= sc_ptr + 0x3e;
-		s1p15r = sc_ptr + 0x1e;		max_err = sc_ptr + 0x3f;
-		s1p16r = sc_ptr + 0x20;		sse2_rnd= sc_ptr + 0x40;
-		s1p17r = sc_ptr + 0x22;		half_arr= sc_ptr + 0x41;	/* This table needs 20x16 bytes */
-		s1p18r = sc_ptr + 0x24;		// half_arr = sc_ptr + 0x41; This is where the value of half_arr_offset24 comes from
-		s1p19r = sc_ptr + 0x26;
-		s1p20r = sc_ptr + 0x28;
-		s1p21r = sc_ptr + 0x2a;
-		s1p22r = sc_ptr + 0x2c;
-		s1p23r = sc_ptr + 0x2e;
+		s1p00 = sc_ptr + 0x00;		isrt2	= sc_ptr + 0x30;
+		s1p01 = sc_ptr + 0x02;		cc3		= sc_ptr + 0x31;
+		s1p02 = sc_ptr + 0x04;		cc0  	= sc_ptr + 0x32;
+		s1p03 = sc_ptr + 0x06;		cy00	= sc_ptr + 0x33;
+		s1p04 = sc_ptr + 0x08;		cy02	= sc_ptr + 0x34;
+		s1p05 = sc_ptr + 0x0a;		cy04	= sc_ptr + 0x35;
+		s1p06 = sc_ptr + 0x0c;		cy06	= sc_ptr + 0x36;
+		s1p07 = sc_ptr + 0x0e;		cy08	= sc_ptr + 0x37;
+		s1p08 = sc_ptr + 0x10;		cy10	= sc_ptr + 0x38;
+		s1p09 = sc_ptr + 0x12;		cy12	= sc_ptr + 0x39;
+		s1p10 = sc_ptr + 0x14;		cy14	= sc_ptr + 0x3a;
+		s1p11 = sc_ptr + 0x16;		cy16	= sc_ptr + 0x3b;
+		s1p12 = sc_ptr + 0x18;		cy18	= sc_ptr + 0x3c;
+		s1p13 = sc_ptr + 0x1a;		cy20	= sc_ptr + 0x3d;
+		s1p14 = sc_ptr + 0x1c;		cy22	= sc_ptr + 0x3e;
+		s1p15 = sc_ptr + 0x1e;		max_err = sc_ptr + 0x3f;
+		s1p16 = sc_ptr + 0x20;		sse2_rnd= sc_ptr + 0x40;
+		s1p17 = sc_ptr + 0x22;		half_arr= sc_ptr + 0x41;	/* This table needs 20x16 bytes */
+		s1p18 = sc_ptr + 0x24;		// half_arr = sc_ptr + 0x41; This is where the value of half_arr_offset24 comes from
+		s1p19 = sc_ptr + 0x26;
+		s1p20 = sc_ptr + 0x28;
+		s1p21 = sc_ptr + 0x2a;
+		s1p22 = sc_ptr + 0x2c;
+		s1p23 = sc_ptr + 0x2e;
 	#endif
 		/* These remain fixed: */
 		VEC_DBL_INIT(isrt2, ISRT2);
@@ -796,12 +822,12 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	  // Now use targeted copy of just the per-iteration-need-to-re-init data in the local block;
 	  // This is the older copy-whole-local-block approach:
 	  #if 0//def USE_PTHREAD
-		s1p00r = __r0 + cslots_in_local_store;
+		s1p00 = __r0 + cslots_in_local_store;
 		/* Init thread 1-CY_THREADS's local stores and pointers: */
 		for(i = 1; i < CY_THREADS; ++i) {
 			/* Only care about the constants for each thread here, but easier to just copy the entire thread0 local store: */
-			memcpy(s1p00r, __r0, cslots_in_local_store << l2_sz_vd);	// bytewise copy treats complex and uint64 subdata the same
-			s1p00r += cslots_in_local_store;
+			memcpy(s1p00, __r0, cslots_in_local_store << l2_sz_vd);	// bytewise copy treats complex and uint64 subdata the same
+			s1p00 += cslots_in_local_store;
 		}
 	  #endif
 
@@ -812,10 +838,10 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		for(ithread = 0; ithread < CY_THREADS; ithread++)
 		{
 		#ifdef USE_SSE2
-			tdat[ithread].s1p00r = __r0 + ithread*cslots_in_local_store;
-			tdat[ithread].half_arr = (long)tdat[ithread].s1p00r + ((long)half_arr - (long)s1p00r);
+			tdat[ithread].s1p00 = __r0 + ithread*cslots_in_local_store;
+			tdat[ithread].half_arr = (long)tdat[ithread].s1p00 + ((long)half_arr - (long)s1p00);
 		#else	// In scalar mode use these 2 ptrs to pass the base & baseinv arrays:
-			tdat[ithread].s1p00r   = (double *)base;
+			tdat[ithread].s1p00   = (double *)base;
 			tdat[ithread].half_arr = (double *)baseinv;
 		#endif	// USE_SSE2
 		}
@@ -1148,7 +1174,7 @@ for(outer=0; outer <= 1; outer++)
 		ASSERT(HERE, tdat[ithread].wt1 == wt1, "thread-local memcheck fail!");
 		ASSERT(HERE, tdat[ithread].si  == si, "thread-local memcheck fail!");
 	#ifdef USE_SSE2
-		ASSERT(HERE, tdat[ithread].s1p00r == __r0 + ithread*cslots_in_local_store, "thread-local memcheck fail!");
+		ASSERT(HERE, tdat[ithread].s1p00 == __r0 + ithread*cslots_in_local_store, "thread-local memcheck fail!");
 		tmp = tdat[ithread].half_arr;
 		ASSERT(HERE, ((tmp-1)->d0 == crnd && (tmp-1)->d1 == crnd), "thread-local memcheck failed!");
 	  #ifdef USE_AVX
@@ -1851,10 +1877,18 @@ void radix24_dit_pass1(double a[], int n)
 	#ifdef USE_SSE2
 
 		double *add0, *add1, *add2, *add3;
+	  #if USE_SMALL_MACROS
+		double *add4, *add5, *add6, *add7;
+	  #endif
 		const double crnd = 3.0*0x4000000*0x2000000;
 		int *itmp;	// Pointer into the bjmodn array
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
-		vec_dbl *isrt2, *cc0, *cc3, *max_err, *sse2_rnd, *half_arr, *tmp,*tm1,*tm2, *s1p00r,*s1p04r,*s1p08r,*s1p12r,*s1p16r,*s1p20r;
+		vec_dbl *isrt2, *cc0, *cc3, *max_err, *sse2_rnd, *half_arr, *tmp,*tm1,*tm2;
+	  #if USE_SMALL_MACROS
+		vec_dbl *s1p00,*s1p01,*s1p02,*s1p03,*s1p04,*s1p05,*s1p06,*s1p07,*s1p08,*s1p09,*s1p10,*s1p11,*s1p12,*s1p13,*s1p14,*s1p15,*s1p16,*s1p17,*s1p18,*s1p19,*s1p20,*s1p21,*s1p22,*s1p23;
+	  #else
+		vec_dbl *s1p00,*s1p04,*s1p08,*s1p12,*s1p16,*s1p20;
+	  #endif
 		vec_dbl *cy00,*cy04,*cy08,*cy12,*cy16,*cy20;
 	  #ifndef USE_AVX
 		vec_dbl *cy02,*cy06,*cy10,*cy14,*cy18,*cy22;
@@ -1935,46 +1969,66 @@ void radix24_dit_pass1(double a[], int n)
 		poff[0] =   0; poff[1] = p04; poff[2] = p08; poff[3] = p04+p08; poff[4] = p16; poff[5] = p04+p16;
 
 	#ifdef USE_SSE2
-		s1p00r	= thread_arg->s1p00r;
-		s1p04r	= s1p00r + 0x08;
-		s1p08r	= s1p00r + 0x10;
-		s1p12r	= s1p00r + 0x18;
-		s1p16r	= s1p00r + 0x20;
-		s1p20r	= s1p00r + 0x28;
-		isrt2	= s1p00r + 0x30;
-		cc3		= s1p00r + 0x31;
-		cc0  	= s1p00r + 0x32;
-	  #ifdef USE_AVX
-		isrt2	= s1p00r + 0x30;
-		cc3		= s1p00r + 0x31;
-		cc0  	= s1p00r + 0x32;
-		cy00	= s1p00r + 0x33;
-		cy04	= s1p00r + 0x34;
-		cy08	= s1p00r + 0x35;
-		cy12	= s1p00r + 0x36;
-		cy16	= s1p00r + 0x37;
-		cy20	= s1p00r + 0x38;
-		max_err = s1p00r + 0x39;
-		sse2_rnd= s1p00r + 0x3a;
-		half_arr= s1p00r + 0x3b;
-	  #else
-		cy00	= s1p00r + 0x33;
-		cy02	= s1p00r + 0x34;
-		cy04	= s1p00r + 0x35;
-		cy06	= s1p00r + 0x36;
-		cy08	= s1p00r + 0x37;
-		cy10	= s1p00r + 0x38;
-		cy12	= s1p00r + 0x39;
-		cy14	= s1p00r + 0x3a;
-		cy16	= s1p00r + 0x3b;
-		cy18	= s1p00r + 0x3c;
-		cy20	= s1p00r + 0x3d;
-		cy22	= s1p00r + 0x3e;
-		max_err = s1p00r + 0x3f;
-		sse2_rnd= s1p00r + 0x40;
-		half_arr= s1p00r + 0x41;	/* This table needs 20x16 bytes */
+		s1p00	= thread_arg->s1p00;
+		s1p04	= s1p00 + 0x08;
+		s1p08	= s1p00 + 0x10;
+		s1p12	= s1p00 + 0x18;
+		s1p16	= s1p00 + 0x20;
+		s1p20	= s1p00 + 0x28;
+		isrt2	= s1p00 + 0x30;
+		cc3		= s1p00 + 0x31;
+		cc0  	= s1p00 + 0x32;
+	  #if USE_SMALL_MACROS
+		s1p01  = s1p00 + 0x02;
+		s1p02  = s1p00 + 0x04;
+		s1p03  = s1p00 + 0x06;
+		s1p05  = s1p00 + 0x0a;
+		s1p06  = s1p00 + 0x0c;
+		s1p07  = s1p00 + 0x0e;
+		s1p09  = s1p00 + 0x12;
+		s1p10  = s1p00 + 0x14;
+		s1p11  = s1p00 + 0x16;
+		s1p13  = s1p00 + 0x1a;
+		s1p14  = s1p00 + 0x1c;
+		s1p15  = s1p00 + 0x1e;
+		s1p17  = s1p00 + 0x22;
+		s1p18  = s1p00 + 0x24;
+		s1p19  = s1p00 + 0x26;
+		s1p21  = s1p00 + 0x2a;
+		s1p22  = s1p00 + 0x2c;
+		s1p23  = s1p00 + 0x2e;
 	  #endif
-		ASSERT(HERE, (s1p00r == thread_arg->s1p00r), "thread-local memcheck failed!");
+	  #ifdef USE_AVX
+		isrt2	= s1p00 + 0x30;
+		cc3		= s1p00 + 0x31;
+		cc0  	= s1p00 + 0x32;
+		cy00	= s1p00 + 0x33;
+		cy04	= s1p00 + 0x34;
+		cy08	= s1p00 + 0x35;
+		cy12	= s1p00 + 0x36;
+		cy16	= s1p00 + 0x37;
+		cy20	= s1p00 + 0x38;
+		max_err = s1p00 + 0x39;
+		sse2_rnd= s1p00 + 0x3a;
+		half_arr= s1p00 + 0x3b;
+	  #else
+		cy00	= s1p00 + 0x33;
+		cy02	= s1p00 + 0x34;
+		cy04	= s1p00 + 0x35;
+		cy06	= s1p00 + 0x36;
+		cy08	= s1p00 + 0x37;
+		cy10	= s1p00 + 0x38;
+		cy12	= s1p00 + 0x39;
+		cy14	= s1p00 + 0x3a;
+		cy16	= s1p00 + 0x3b;
+		cy18	= s1p00 + 0x3c;
+		cy20	= s1p00 + 0x3d;
+		cy22	= s1p00 + 0x3e;
+		max_err = s1p00 + 0x3f;
+		sse2_rnd= s1p00 + 0x40;
+		half_arr= s1p00 + 0x41;	/* This table needs 20x16 bytes */
+	  #endif
+		ASSERT(HERE, (s1p00 == thread_arg->s1p00), "thread-local memcheck failed!");
 		ASSERT(HERE, (half_arr == thread_arg->half_arr), "thread-local memcheck failed!");
 		ASSERT(HERE, (sse2_rnd->d0 == crnd && sse2_rnd->d1 == crnd), "thread-local memcheck failed!");
 		tmp = half_arr;
@@ -1989,7 +2043,7 @@ void radix24_dit_pass1(double a[], int n)
 
 		VEC_DBL_INIT(max_err, 0.0);
 
-		sign_mask = (uint64*)(s1p00r + radix24_creals_in_local_store);
+		sign_mask = (uint64*)(s1p00 + radix24_creals_in_local_store);
 		sse_bw  = sign_mask + RE_IM_STRIDE;	// (  #doubles in a SIMD complex) x 32-bits = RE_IM_STRIDE x 64-bits
 		sse_sw  = sse_bw    + RE_IM_STRIDE;
 		sse_n   = sse_sw    + RE_IM_STRIDE;
@@ -2029,7 +2083,7 @@ void radix24_dit_pass1(double a[], int n)
 	#else
 
 		// In scalar mode use these 2 ptrs to pass the base & baseinv arrays:
-		base    = (double *)thread_arg->s1p00r  ;
+		base    = (double *)thread_arg->s1p00  ;
 		baseinv = (double *)thread_arg->half_arr;
 
 	#endif	// USE_SSE2 ?

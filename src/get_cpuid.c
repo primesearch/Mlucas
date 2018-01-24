@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2016 by Ernst W. Mayer.                                           *
+*   (C) 1997-2017 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -496,16 +496,16 @@
 
 	/*
 	Feb 2016: from the Intel AVX-512 Architecture Instruction Set Extensions Programming Reference:
-	
+
 	Processor support of AVX-512 Foundation instructions is indicated by CPUID.(EAX=07H, ECX=0):EBX.AVX512F[bit 16] = 1.
 	Detection of AVX-512 Foundation instructions operating on ZMM states and opmask registers need to follow the general
 	procedural flow in Figure 2-1.
-	
+
 	Prior to using AVX-512 Foundation instructions, the application must identify that the operating system supports
 	the XGETBV instruction, the ZMM register state, in addition to processor’s support for ZMM state management using
 	XSAVE/XRSTOR and AVX-512 Foundation instructions. The following simplified sequence accomplishes both and is
 	strongly recommended.
-	
+
 	1) Detect CPUID.1:ECX.OSXSAVE[bit 27] = 1 (XGETBV enabled for application use1)
 	2) Execute XGETBV and verify that XCR0[7:5] = ‘111b’ (OPMASK state, upper 256-bit of ZMM0-ZMM15 and ZMM16-ZMM31
 		state are enabled by OS) and that XCR0[2:1] = ‘11b’ (XMM state and YMM state are enabled by OS).

@@ -29,36 +29,36 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	{
 		j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 		j2 = j1 + RE_IM_STRIDE;
-/******************* AVX debug stuff: *******************/
-#if 0
-	int ipad, p0to3[4] = {0,p1,p2,p3};
-	for(i = 0; i < RADIX; i += 16) {	// 1 AVX-512 vec_complex and 2 AVX ones per loop exec
-		ipad = poff[i>>2] + p0to3[i&3];	// No need to pad this, since p-offsets already padded
-	  #ifdef USE_AVX512
-		printf("\tre[%3u].d0-3 = %20.10e,%20.10e,%20.10e,%20.10e\n",i,a[ipad+0x0],a[ipad+0x1],a[ipad+0x2],a[ipad+0x3]);
-		printf("\tim[%3u].d0-3 = %20.10e,%20.10e,%20.10e,%20.10e\n",i,a[ipad+0x8],a[ipad+0x9],a[ipad+0xa],a[ipad+0xb]);
-		printf("\tre[%3u].d4-7 = %20.10e,%20.10e,%20.10e,%20.10e\n",i,a[ipad+0x4],a[ipad+0x5],a[ipad+0x6],a[ipad+0x7]);
-		printf("\tim[%3u].d4-7 = %20.10e,%20.10e,%20.10e,%20.10e\n",i,a[ipad+0xc],a[ipad+0xd],a[ipad+0xe],a[ipad+0xf]);
-	  #elif defined(USE_AVX)
-		printf("\tre[%3u].d0-3 = %20.10e,%20.10e,%20.10e,%20.10e\n",i,a[ipad+0x0],a[ipad+0x1],a[ipad+0x2],a[ipad+0x3]);
-		printf("\tim[%3u].d0-3 = %20.10e,%20.10e,%20.10e,%20.10e\n",i,a[ipad+0x4],a[ipad+0x5],a[ipad+0x6],a[ipad+0x7]);
-		printf("\tre[%3u].d4-7 = %20.10e,%20.10e,%20.10e,%20.10e\n",i,a[ipad+0x8],a[ipad+0x9],a[ipad+0xa],a[ipad+0xb]);
-		printf("\tim[%3u].d4-7 = %20.10e,%20.10e,%20.10e,%20.10e\n",i,a[ipad+0xc],a[ipad+0xd],a[ipad+0xe],a[ipad+0xf]);
-	  #elif defined(USE_SSE2)
-		printf("\tre[%3u].d0-3 = %20.10e,%20.10e,%20.10e,%20.10e\n",i,a[ipad+0x0],a[ipad+0x1],a[ipad+0x4],a[ipad+0x5]);
-		printf("\tim[%3u].d0-3 = %20.10e,%20.10e,%20.10e,%20.10e\n",i,a[ipad+0x2],a[ipad+0x3],a[ipad+0x6],a[ipad+0x7]);
-		printf("\tre[%3u].d4-7 = %20.10e,%20.10e,%20.10e,%20.10e\n",i,a[ipad+0x8],a[ipad+0x9],a[ipad+0xc],a[ipad+0xd]);
-		printf("\tim[%3u].d4-7 = %20.10e,%20.10e,%20.10e,%20.10e\n",i,a[ipad+0xa],a[ipad+0xb],a[ipad+0xe],a[ipad+0xf]);
-	  #endif
-	}
-exit(0);
-#endif
-/********************************************************/
+
 	/*...The radix-1008 DIT pass is here:	*/
 
 	#ifdef USE_SSE2
 
 	//...gather the needed data (1008 64-bit complex, i.e. 2016 64-bit reals) and do 63 radix-16 transforms...
+	  // Radix-16 DFT local-array basic strides OFF1-4 = [1-4] * (2*sizeof(vec_dbl)) * 63 = [1-4] * [sse2:0x20, avx:0x40] * 0x3f:
+	  #ifdef USE_ARM_V8_SIMD
+		uint32 OFF1,OFF2,OFF3,OFF4;
+		OFF1 = 0x07e0;
+		OFF2 = 0x0fc0;
+		OFF3 = 0x17a0;
+		OFF4 = 0x1f80;
+	  #elif defined(USE_AVX512)
+		#define OFF1	0x07e0*4
+		#define OFF2	0x0fc0*4
+		#define OFF3	0x17a0*4
+		#define OFF4	0x1f80*4
+	  #elif defined(USE_AVX)
+		#define OFF1	0x07e0*2
+		#define OFF2	0x0fc0*2
+		#define OFF3	0x17a0*2
+		#define OFF4	0x1f80*2
+	  #else
+		#define OFF1	0x07e0
+		#define OFF2	0x0fc0
+		#define OFF3	0x17a0
+		#define OFF4	0x1f80
+	  #endif
+
 		tmp = r00;
 		for(l = 0; l < ODD_RADIX; ++l) {
 			i64 = dit16_iidx_lo[l];
@@ -87,16 +87,6 @@ exit(0);
 				tmp,OFF1,OFF2,OFF3,OFF4	/*** Outs 1,2,6,7,9,14,15 bad! ***/
 			);	tmp += 2;
 		}
-/*** AVX-512 debug: ***/
-#if 0
-	printf("J = %u: 63 x DIT-16 outputs:\n",j);
-	for(i = 0, tmp = r00; i < RADIX; i++) {
-		printf("\tre[%3u] = %20.10e,%20.10e\n",i,tmp->d0,tmp->d1);	tmp++;
-		printf("\tim[%3u] = %20.10e,%20.10e\n",i,tmp->d0,tmp->d1);	tmp++;
-	}
-exit(0);
-#endif
-/**********************/
 
 	//...and now do 16 radix-63 transforms:
 		tmp = r00;
@@ -114,16 +104,6 @@ exit(0);
 			);
 			tmp += (ODD_RADIX<<1);
 		}
-/*** AVX-512 debug: ***/
-#if 0
-	printf("J = %u: DIT outputs:\n",j);
-	for(i = 0, tmp = s1p00; i < RADIX; i++) {
-		printf("\tre[%3u] = %20.10e,%20.10e\n",i,tmp->d0,tmp->d1);	tmp++;
-		printf("\tim[%3u] = %20.10e,%20.10e\n",i,tmp->d0,tmp->d1);	tmp++;
-	}
-exit(0);
-#endif
-/**********************/
 
 	#else	/* !USE_SSE2 */
 
@@ -229,7 +209,7 @@ exit(0);
 			add1 = &wt1[col  +ii];	/* Don't use add0 here, to avoid need to reload main-array address */
 			add2 = &wt1[co2-1-ii];
 			add3 = &wt1[co3-1-ii];
-	
+
 			// Since use wt1-array in the wtsinit macro, need to fiddle this here:
 			co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 						// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
@@ -289,7 +269,7 @@ exit(0);
 			wtn     = wt0[nwtml  ]*scale;
 			wtlp1   = wt0[    l+1];
 			wtnm1   = wt0[nwtml-1]*scale;
-	
+
 			co2 = co2save;	// Need this for all wts-inits beynd the initial set, due to the co2 = co3 preceding the (j+2) data
 			ctmp = (struct complex *)half_arr + 24;	// ptr to local storage for the doubled wtl,wtn terms:
 			// (j)-data occupy the 8 xmm-sized slots above the 16 used by fixed auxiliary-data, and overwrite these inits:
@@ -297,7 +277,7 @@ exit(0);
 			ctmp->re = ctmp->im = wtn;		ctmp += 2;
 			ctmp->re = ctmp->im = wtlp1;	ctmp += 2;
 			ctmp->re = ctmp->im = wtnm1;
-	
+
 			l = (j+2) & (nwt-1);	nwtml = nwt-l;;
 			i0 = n-si[l  ];
 			i1 = n-si[l+1];
@@ -307,17 +287,17 @@ exit(0);
 			wtn     = wt0[nwtml  ]*scale;
 			wtlp1   = wt0[    l+1];
 			wtnm1   = wt0[nwtml-1]*scale;
-	
+
 			ctmp = (struct complex *)half_arr + 32;	// (j+2) data start at ctmp + 8
 			ctmp->re = ctmp->im = wtl;		ctmp += 2;
 			ctmp->re = ctmp->im = wtn;		ctmp += 2;
 			ctmp->re = ctmp->im = wtlp1;	ctmp += 2;
 			ctmp->re = ctmp->im = wtnm1;
-	
+
 			add1 = &wt1[col  +ii];	/* Don't use add0 here, to avoid need to reload main-array address */
 			add2 = &wt1[co2-1-ii];
 			add3 = &wt1[co3-1-ii];
-	
+
 			// Since use wt1-array in the wtsinit macro, need to fiddle this here:
 			co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 						// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
@@ -646,43 +626,6 @@ exit(0);
 				tm2 = (vec_dbl *)(a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)]);	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
 													/* (cy_i_cy_r) --vvvvvv  vvvvvvvvvvvvvvvvv--[1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
 				SSE2_fermat_carry_norm_errcheck_X8_loacc(tm0,tmp,tm1,0x1f80, 0x3c0,0x780,0xb40, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf, tm2,p1,p2,p3,p4);
-/**********************/
-#if 0
-if(j == jstart+64) exit(0);
-if(j == 16) {
-	printf("here!\n");
-}
-	vec_dbl*foo;	uint32 ncall = ntmp*(RADIX>>(3+NFOLD))+l;
-	printf("J = %u, cy-macro call[%u], *c_idx = %u,%u,%u,%u, [i-l]cycleA = %u,%u,%u,%u:\n",j  ,2*ncall, ic_idx,jc_idx,kc_idx,lc_idx, k1>>l2_sz_vd,k9>>l2_sz_vd,ka>>l2_sz_vd,kb>>l2_sz_vd);
-	for(i = 0, foo = tmp+64; i < 4; i++) {
-		printf("\tBASE[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,foo->d0,foo->d1,foo->d2,foo->d3);	foo++;
-		printf("\tBINV[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,foo->d0,foo->d1,foo->d2,foo->d3);	foo++;
-		printf("\tData.re[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,foo->d0,foo->d1,foo->d2,foo->d3);	foo++;
-		printf("\tData.im[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,foo->d0,foo->d1,foo->d2,foo->d3);	foo++;
-	}
-		printf("J = %u, cy-macro call[%u], *c_idx = %u,%u,%u,%u, [m-p]cycleA = %u,%u,%u,%u:\n",j+8,2*ncall, mc_idx,nc_idx,oc_idx,pc_idx, kc>>l2_sz_vd,kd>>l2_sz_vd,ke>>l2_sz_vd,kf>>l2_sz_vd);
-		for(i = 0; i < 4; i++) {
-			printf("\tBASE[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,foo->d0,foo->d1,foo->d2,foo->d3);	foo++;
-			printf("\tBINV[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,foo->d0,foo->d1,foo->d2,foo->d3);	foo++;
-			printf("\tData.re[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,foo->d0,foo->d1,foo->d2,foo->d3);	foo++;
-			printf("\tData.im[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,foo->d0,foo->d1,foo->d2,foo->d3);	foo++;
-		}
-	printf("J = %u, cy-macro call[%u], *c_idx = %u,%u,%u,%u, [i-l]cycleA = %u,%u,%u,%u:\n",j  ,2*ncall+1, ic_idx,jc_idx,kc_idx,lc_idx, k1>>l2_sz_vd,k9>>l2_sz_vd,ka>>l2_sz_vd,kb>>l2_sz_vd);
-	for(i = 0, foo = tmp+64; i < 4; i++) {
-		printf("\tBASE[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,foo->d4,foo->d5,foo->d6,foo->d7);	foo++;
-		printf("\tBINV[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,foo->d4,foo->d5,foo->d6,foo->d7);	foo++;
-		printf("\tData.re[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,foo->d4,foo->d5,foo->d6,foo->d7);	foo++;
-		printf("\tData.im[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,foo->d4,foo->d5,foo->d6,foo->d7);	foo++;
-	}
-		printf("J = %u, cy-macro call[%u], *c_idx = %u,%u,%u,%u, [i-l]cycleA = %u,%u,%u,%u:\n",j+8,2*ncall+1, mc_idx,nc_idx,oc_idx,pc_idx, kc>>l2_sz_vd,kd>>l2_sz_vd,ke>>l2_sz_vd,kf>>l2_sz_vd);
-		for(i = 0; i < 4; i++) {
-			printf("\tBASE[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,foo->d4,foo->d5,foo->d6,foo->d7);	foo++;
-			printf("\tBINV[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,foo->d4,foo->d5,foo->d6,foo->d7);	foo++;
-			printf("\tData.re[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,foo->d4,foo->d5,foo->d6,foo->d7);	foo++;
-			printf("\tData.im[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,foo->d4,foo->d5,foo->d6,foo->d7);	foo++;
-		}
-#endif
-/**********************/
 				tm0 += 16; tm1++;
 				MOD_ADD32(ic_idx, 8, ODD_RADIX, ic_idx);
 				MOD_ADD32(jc_idx, 8, ODD_RADIX, jc_idx);
@@ -705,19 +648,6 @@ if(j == 16) {
 				tm2 = (vec_dbl *)(a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)]);	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
 													/* (cy_i_cy_r) --vvvvvv  vvvvvvvvvvvvvvvvv--[1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
 				SSE2_fermat_carry_norm_errcheck_X4_loacc(tm0,tmp,tm1,0x1f80, 0x7e0,0xfc0,0x17a0, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7, add0,p1,p2,p3);
-/**********************/
-#if 0
-if(j == jstart+64) exit(0);
-	vec_dbl*foo;	uint32 ncall = ntmp*(RADIX>>(2+NFOLD))+l;
-	printf("\nJ = %u, cy-macro call[%u], *c_idx = %u,%u,%u,%u, [i-l]cycleA = %u,%u,%u,%u:@",j  ,ncall, ic_idx,jc_idx,kc_idx,lc_idx, k1>>l2_sz_vd,k5>>l2_sz_vd,k6>>l2_sz_vd,k7>>l2_sz_vd);
-	for(i = 0, foo = tmp+64; i < 4; i++) {
-		printf("\tBASE[%3u] = %20.10e,%20.10e,%20.10e,%20.10e@",i,foo->d0,foo->d1,foo->d2,foo->d3);	foo++;
-		printf("\tBINV[%3u] = %20.10e,%20.10e,%20.10e,%20.10e@",i,foo->d0,foo->d1,foo->d2,foo->d3);	foo++;
-		printf("\tData.re[%3u] = %20.10e,%20.10e,%20.10e,%20.10e@",i,foo->d0,foo->d1,foo->d2,foo->d3);	foo++;
-		printf("\tData.im[%3u] = %20.10e,%20.10e,%20.10e,%20.10e@",i,foo->d0,foo->d1,foo->d2,foo->d3);	foo++;
-	}
-#endif
-/**********************/
 				tm0 += 8; tm1++;
 				MOD_ADD32(ic_idx, 4, ODD_RADIX, ic_idx);
 				MOD_ADD32(jc_idx, 4, ODD_RADIX, jc_idx);
@@ -783,7 +713,7 @@ if(j == jstart+64) exit(0);
 			MOD_ADD32(ic_idx, 1, ODD_RADIX, ic_idx);
 		}
 
-	  #endif
+	  #endif	// OS_BITS == 32 OR 64
 
 	#else	// Scalar-double mode:
 
@@ -827,48 +757,6 @@ if(j == jstart+64) exit(0);
 /*...The radix-1008 DIF pass is here:	*/
 
 	#ifdef USE_SSE2
-/*** AVX-512 debug: ***/
-#if 0
-//if(!full_pass) exit(0);
-if(j == jstart+64) exit(0);
-else {
-  #ifdef USE_AVX512
-/*
-	printf("J = %u: CY outputs:\n",j);
-	for(i = 0, tmp = s1p00; i < RADIX; i++) {
-		printf("\tre[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,tmp->d0,tmp->d1,tmp->d2,tmp->d3);	tmp++;
-		printf("\tim[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,tmp->d0,tmp->d1,tmp->d2,tmp->d3);	tmp++;
-	}
-	printf("J = %u: CY outputs:\n",j+8);
-	for(i = 0, tmp = s1p00; i < RADIX; i++) {
-		printf("\tre[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,tmp->d4,tmp->d5,tmp->d6,tmp->d7);	tmp++;
-		printf("\tim[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,tmp->d4,tmp->d5,tmp->d6,tmp->d7);	tmp++;
-	}
-	for(i = 0, tmp = cy_r, tm2 = cy_i; i < RADIX/RE_IM_STRIDE; i++) {
-		printf("\tcy_re[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",2*i  ,tmp->d0,tmp->d1,tmp->d2,tmp->d3);
-		printf("\tcy_im[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",2*i  ,tm2->d0,tm2->d1,tm2->d2,tm2->d3);
-		printf("\tcy_re[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",2*i+1,tmp->d4,tmp->d5,tmp->d6,tmp->d7);	tmp++;
-		printf("\tcy_im[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",2*i+1,tm2->d4,tm2->d5,tm2->d6,tm2->d7);	tm2++;
-	}
-*/
-  #else
-/*
-	printf("J = %u: CY outputs:\n",j);
-	for(i = 0, tmp = s1p00; i < RADIX; i++) {
-		printf("\tre[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,tmp->d0,tmp->d1,tmp->d2,tmp->d3);	tmp++;
-		printf("\tim[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,tmp->d0,tmp->d1,tmp->d2,tmp->d3);	tmp++;
-	}
-   if(((j-jstart) & 15) == 8) {
-	for(i = 0, tmp = cy_r, tm2 = cy_i; i < RADIX/RE_IM_STRIDE; i++) {
-		printf("\tcy_re[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,tmp->d0,tmp->d1,tmp->d2,tmp->d3);	tmp++;
-		printf("\tcy_im[%3u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,tm2->d0,tm2->d1,tm2->d2,tm2->d3);	tm2++;
-	}
-   }
-*/
-  #endif
-}
-#endif
-/**********************/
 
 	//...gather the needed data (1008 64-bit complex, i.e 2016 64-bit reals) and do 16 radix-63 transforms...
 		tmp = r00;
@@ -915,6 +803,13 @@ else {
 			);
 			tmp += 0x2;
 		}
+
+	  #ifndef USE_ARM_V8_SIMD
+		#undef OFF1
+		#undef OFF2
+		#undef OFF3
+		#undef OFF4
+	  #endif
 
 	#else	/* !USE_SSE2 */
 

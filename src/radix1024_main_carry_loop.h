@@ -54,24 +54,19 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				(vec_dbl *)(r00 + (l<<7)), o_offsets
 			);
 		}
-#if 0
-if(full_pass && !j) {
-	o_file = fopen(dbg_fname, "w");
-	ASSERT(HERE, o_file != 0x0, "Unable to open o_file!");
-	fprintf(o_file, "DIT pass 1:\n");
-	tmp = r00; tm2 = tmp+1;
-	for(l = 0; l < RADIX; l++) {
-		fprintf(o_file, "out[%3u].re = %15.5f,%15.5f,%15.5f,%15.5f; im = %15.5f,%15.5f,%15.5f,%15.5f\n",l, tmp->d0,tmp->d1,tmp->d2,tmp->d3, tm2->d0,tm2->d1,tm2->d2,tm2->d3);
-		tmp+=2; tm2+=2;
-	}
-}
-#endif
+
 	/*...and now do 64 radix-16 subtransforms, including the internal twiddle factors - we use the same positive-power
 	roots as in the DIF here, just fiddle with signs within the macro to effect the conjugate-multiplies. Twiddles occur
 	in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 + p[0,8,4,c,2,a,6,e,1,9,5,d,3,b,7,f],
 	with each of the foregoing 16 indices being head of a (i0,i0+p20,i0+p10,i0+p30) quartet:
 	*/
-	  #ifdef USE_AVX512
+	  #ifdef USE_ARM_V8_SIMD
+		uint32 OFF1,OFF2,OFF3,OFF4;
+		OFF1 = 0x0800;
+		OFF2 = 0x1000;
+		OFF3 = 0x1800;
+		OFF4 = 0x2000;
+	  #elif defined(USE_AVX512)
 		#define OFF1	4*0x0800
 		#define OFF2	4*0x1000
 		#define OFF3	4*0x1800
@@ -89,7 +84,7 @@ if(full_pass && !j) {
 	  #endif
 
 	  #ifdef USE_AVX2
-	
+
 		// Due to tangent-twiddles scheme and resulting singularity of tangent(arg(I)) = 1/0,
 		// only last 62 of the 63 with-twiddles DFTs allow use of FMA-based macros under Intel AVX2/FMA3:
 		for(l = 0; l < 2; l++) {
@@ -106,15 +101,9 @@ if(full_pass && !j) {
 				tm1,OFF1,OFF2,OFF3,OFF4, tm2,OFF1,OFF2,OFF3,OFF4, tmp
 			);
 		}
-#if 0
-if(full_pass && !j) {
-	fprintf(o_file, "DIT pass 2:\n");
-	tmp = s1p00; tm2 = tmp+1;
-	for(l = 0; l < RADIX; l++) {	fprintf(o_file, "out[%3u].re = %15.5f,%15.5f,%15.5f,%15.5f; im = %15.5f,%15.5f,%15.5f,%15.5f\n",l, tmp->d0,tmp->d1,tmp->d2,tmp->d3, tm2->d0,tm2->d1,tm2->d2,tm2->d3);	tmp+=2; tm2+=2;	}
-}	
-#endif
+
 	  #else	// Non-FMA version:
-	
+
 		// Block 0: has all-unity twiddles, but not worth doing separately here
 		// in the "Why add extra code to save (a few %)/64?" sense:
 		for(l = 0; l < 64; l++) {
@@ -127,10 +116,12 @@ if(full_pass && !j) {
 
 	  #endif	// FMA/AVX2 ?
 
+	  #ifndef USE_ARM_V8_SIMD
 		#undef OFF1	// DIF and DIT share same radix-16 DFT strides, so def once at top and undef here at borrom
 		#undef OFF2
 		#undef OFF3
 		#undef OFF4
+	  #endif
 
 	#else
 
@@ -257,7 +248,7 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 			add1 = &wt1[col  +ii];	/* Don't use add0 here, to avoid need to reload main-array address */
 			add2 = &wt1[co2-1-ii];
 			add3 = &wt1[co3-1-ii];
-	
+
 			// Since use wt1-array in the wtsinit macro, need to fiddle this here:
 			co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 						// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
@@ -327,7 +318,7 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 			wtn     = wt0[nwtml  ]*scale;
 			wtlp1   = wt0[    l+1];
 			wtnm1   = wt0[nwtml-1]*scale;
-	
+
 			co2 = co2save;	// Need this for all wts-inits beynd the initial set, due to the co2 = co3 preceding the (j+2) data
 			ctmp = (struct complex *)half_arr + 24;	// ptr to local storage for the doubled wtl,wtn terms:
 			// (j)-data occupy the 8 xmm-sized slots above the 16 used by fixed auxiliary-data, and overwrite these inits:
@@ -335,7 +326,7 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 			ctmp->re = ctmp->im = wtn;		ctmp += 2;
 			ctmp->re = ctmp->im = wtlp1;	ctmp += 2;
 			ctmp->re = ctmp->im = wtnm1;
-	
+
 			l = (j+2) & (nwt-1);	nwtml = nwt-l;;
 			k0 = n-si[l  ];
 			k1 = n-si[l+1];
@@ -345,17 +336,17 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 			wtn     = wt0[nwtml  ]*scale;
 			wtlp1   = wt0[    l+1];
 			wtnm1   = wt0[nwtml-1]*scale;
-	
+
 			ctmp = (struct complex *)half_arr + 32;	// (j+2) data start at ctmp + 8
 			ctmp->re = ctmp->im = wtl;		ctmp += 2;
 			ctmp->re = ctmp->im = wtn;		ctmp += 2;
 			ctmp->re = ctmp->im = wtlp1;	ctmp += 2;
 			ctmp->re = ctmp->im = wtnm1;
-	
+
 			add1 = &wt1[col  +ii];	/* Don't use add0 here, to avoid need to reload main-array address */
 			add2 = &wt1[co2-1-ii];
 			add3 = &wt1[co3-1-ii];
-	
+
 			// Since use wt1-array in the wtsinit macro, need to fiddle this here:
 			co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 						// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
@@ -718,12 +709,15 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 				(double *)(r00 + (l<<7)), dif_o_offsets
 			);
 		}
-#if 0
-if(full_pass && !j) {	fprintf(o_file, "DIF pass 1:\n");	tmp = r00; tm2 = tmp+1;	for(l = 0; l < RADIX; l++) {	fprintf(o_file, "out[%3u].re = %15.5f,%15.5f,%15.5f,%15.5f; im = %15.5f,%15.5f,%15.5f,%15.5f\n",l, tmp->d0,tmp->d1,tmp->d2,tmp->d3, tm2->d0,tm2->d1,tm2->d2,tm2->d3);	tmp+=2; tm2+=2;	}	}
-#endif
+
 	//...and now do 64 radix-16 subtransforms, including the internal twiddles:
 
-	  #ifdef USE_AVX512
+	  #ifdef USE_ARM_V8_SIMD
+		OFF1 = 0x0800;
+		OFF2 = 0x1000;
+		OFF3 = 0x1800;
+		OFF4 = 0x2000;
+	  #elif defined(USE_AVX512)
 		#define OFF1	4*0x0800
 		#define OFF2	4*0x1000
 		#define OFF3	4*0x1800
@@ -741,7 +735,7 @@ if(full_pass && !j) {	fprintf(o_file, "DIF pass 1:\n");	tmp = r00; tm2 = tmp+1;	
 	  #endif
 
 	  #ifdef USE_AVX2
-	
+
 		// Due to tangent-twiddles scheme and resulting singularity of tangent(arg(I)) = 1/0,
 		// only last 62 of the 63 with-twiddles DFTs allow use of FMA-based macros under Intel AVX2/FMA3:
 		tm1 = r00;
@@ -769,24 +763,9 @@ if(full_pass && !j) {	fprintf(o_file, "DIF pass 1:\n");	tmp = r00; tm2 = tmp+1;	
 				tmp
 			);	tm1 += 2;
 		}
-#if 0
-if(full_pass && !j) {
-	fprintf(o_file, "DIF Pass 2:\n");	add0 = &a[j1];
-	for(l = 0; l < RADIX/4; l++) {
-		tmp = add0 + poff[l]; tm2 = tmp+1;
-		fprintf(o_file, "out[%3u].re = %15.5f,%15.5f,%15.5f,%15.5f; im = %15.5f,%15.5f,%15.5f,%15.5f\n",4*l+0,tmp->d0,tmp->d1,tmp->d2,tmp->d3, tm2->d0,tm2->d1,tm2->d2,tm2->d3);	tmp+=2; tm2+=2;
-		tmp = add0 + poff[l] + p1; tm2 = tmp+1;
-		fprintf(o_file, "out[%3u].re = %15.5f,%15.5f,%15.5f,%15.5f; im = %15.5f,%15.5f,%15.5f,%15.5f\n",4*l+1,tmp->d0,tmp->d1,tmp->d2,tmp->d3, tm2->d0,tm2->d1,tm2->d2,tm2->d3);	tmp+=2; tm2+=2;
-		tmp = add0 + poff[l] + p2; tm2 = tmp+1;
-		fprintf(o_file, "out[%3u].re = %15.5f,%15.5f,%15.5f,%15.5f; im = %15.5f,%15.5f,%15.5f,%15.5f\n",4*l+2,tmp->d0,tmp->d1,tmp->d2,tmp->d3, tm2->d0,tm2->d1,tm2->d2,tm2->d3);	tmp+=2; tm2+=2;
-		tmp = add0 + poff[l] + p3; tm2 = tmp+1;
-		fprintf(o_file, "out[%3u].re = %15.5f,%15.5f,%15.5f,%15.5f; im = %15.5f,%15.5f,%15.5f,%15.5f\n",4*l+3,tmp->d0,tmp->d1,tmp->d2,tmp->d3, tm2->d0,tm2->d1,tm2->d2,tm2->d3);	tmp+=2; tm2+=2;
-	}
-	fclose(o_file);	o_file = 0x0;
-}
-#endif
+
 	  #else	// Non-FMA version:
-	
+
 		tm1 = r00;
 		for(l = 0; l < 64; l++) {
 			ntmp = reverse(l,64)<<1;
@@ -803,10 +782,12 @@ if(full_pass && !j) {
 
 	  #endif	// FMA/AVX2 ?
 
+	  #ifndef USE_ARM_V8_SIMD
 		#undef OFF1	// DIF and DIT share same radix-16 DFT strides, so def once at top and undef here at borrom
 		#undef OFF2
 		#undef OFF3
 		#undef OFF4
+	  #endif
 
 	#else	/* !USE_SSE2 */
 

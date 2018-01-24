@@ -42,7 +42,13 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 /* Gather the needed data (128 64-bit complex, i.e. 256 64-bit reals) and do 8 twiddleless length-16 subtransforms: */
 
-  #ifdef USE_AVX512
+  #ifdef USE_ARM_V8_SIMD
+	uint32 OFF1,OFF2,OFF3,OFF4,OFF5,OFF6,OFF7;
+	OFF1 = 0x20;
+	OFF2 = 0x40;
+	OFF3 = 0x60;
+	OFF4 = 0x80;
+  #elif defined(USE_AVX512)
 	#define OFF1	4*0x20
 	#define OFF2	4*0x40
 	#define OFF3	4*0x60
@@ -79,10 +85,12 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		tm1 += 32;
 	}
 
+  #ifndef USE_ARM_V8_SIMD
 	#undef OFF1
 	#undef OFF2
 	#undef OFF3
 	#undef OFF4
+  #endif
 
 /*...and now do 16 radix-8 subtransforms w/internal twiddles - cf. radix64_dit_pass1 for details: */
 
@@ -369,7 +377,7 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 			add1 = &wt1[col  +ii];	/* Don't use add0 here, to avoid need to reload main-array address */
 			add2 = &wt1[co2-1-ii];
 			add3 = &wt1[co3-1-ii];
-	
+
 			// Since use wt1-array in the wtsinit macro, need to fiddle this here:
 			co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 						// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
@@ -439,7 +447,7 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 			wtn     = wt0[nwtml  ]*scale;
 			wtlp1   = wt0[    l+1];
 			wtnm1   = wt0[nwtml-1]*scale;
-	
+
 			co2 = co2save;	// Need this for all wts-inits beynd the initial set, due to the co2 = co3 preceding the (j+2) data
 			ctmp = (struct complex *)half_arr + 24;	// ptr to local storage for the doubled wtl,wtn terms:
 			// (j)-data occupy the 8 xmm-sized slots above the 16 used by fixed auxiliary-data, and overwrite these inits:
@@ -447,7 +455,7 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 			ctmp->re = ctmp->im = wtn;		ctmp += 2;
 			ctmp->re = ctmp->im = wtlp1;	ctmp += 2;
 			ctmp->re = ctmp->im = wtnm1;
-	
+
 			l = (j+2) & (nwt-1);	nwtml = nwt-l;;
 			k0 = n-si[l  ];
 			k1 = n-si[l+1];
@@ -457,17 +465,17 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 			wtn     = wt0[nwtml  ]*scale;
 			wtlp1   = wt0[    l+1];
 			wtnm1   = wt0[nwtml-1]*scale;
-	
+
 			ctmp = (struct complex *)half_arr + 32;	// (j+2) data start at ctmp + 8
 			ctmp->re = ctmp->im = wtl;		ctmp += 2;
 			ctmp->re = ctmp->im = wtn;		ctmp += 2;
 			ctmp->re = ctmp->im = wtlp1;	ctmp += 2;
 			ctmp->re = ctmp->im = wtnm1;
-	
+
 			add1 = &wt1[col  +ii];	/* Don't use add0 here, to avoid need to reload main-array address */
 			add2 = &wt1[co2-1-ii];
 			add3 = &wt1[co3-1-ii];
-	
+
 			// Since use wt1-array in the wtsinit macro, need to fiddle this here:
 			co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 						// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
@@ -819,7 +827,12 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 // Gather the needed data and do 8 twiddleless length-16 subtransforms, with p-offsets in br8 order: 04261537:
 // NOTE that unlike the RADIX_08_DIF_OOP() macro used for pass 1 of the radix-64 DFT, RADIX_16_DIF outputs are IN-ORDER rather than BR:
 
-  #ifdef USE_AVX512
+  #ifdef USE_ARM_V8_SIMD
+	OFF1 = 0x100;
+	OFF2 = 0x200;
+	OFF3 = 0x300;
+	OFF4 = 0x400;
+  #elif defined(USE_AVX512)
 	#define OFF1	4*0x100
 	#define OFF2	4*0x200
 	#define OFF3	4*0x300
@@ -835,6 +848,7 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 	#define OFF3	0x300
 	#define OFF4	0x400
   #endif
+
 // NOTE that unlike the RADIX_08_DIF_OOP() macro used for pass 1 of the radix-64 DFT, RADIX_16_DIF outputs are IN-ORDER rather than BR:
 	// Start of isrt2/cc16/ss16 triplet needed for radix-16 SSE2 DFT macros [use instead of isrt2 here]
   #if COMPACT_OBJ
@@ -857,24 +871,37 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 		tm1 += 32;
 	}
 
+  #ifndef USE_ARM_V8_SIMD
 	#undef OFF1
 	#undef OFF2
 	#undef OFF3
 	#undef OFF4
+  #endif
 
 /*...and now do 16 radix-8 subtransforms, including the internal twiddle factors: */
 
+   #ifdef USE_ARM_V8_SIMD
+	OFF1 = 0x200;
+	OFF2 = 0x400;
+	OFF3 = 0x600;
+	OFF4 = 0x800;
+	OFF5 = 0xa00;
+	OFF6 = 0xc00;
+	OFF7 = 0xe00;
+   #endif
 	/* Block 0: */
 	add0 = &a[j1]      ; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
 	/* 0-index block has all-unity twiddles: Remember, the twiddleless DIF bit-reverses both its in-and-outputs,
 	so swap index-offset pairs 1/4 and 3/6 in t*-inputs and a-outputs: */
 	SSE2_RADIX8_DIF_0TWIDDLE(
-	  #ifdef USE_AVX512
-		r00,0x2000,0x1000,0x3000,0x0800,0x2800,0x1800,0x3800,	//	r00,r40,r20,r60,r10,r50,r30,r70
+	  #ifdef USE_ARM_V8_SIMD
+		r00, OFF4,OFF2,OFF6,OFF1,OFF5,OFF3,OFF7,	//	r00,r40,r20,r60,r10,r50,r30,r70
+	  #elif defined(USE_AVX512)
+		r00,0x2000,0x1000,0x3000,0x0800,0x2800,0x1800,0x3800,
 	  #elif defined(USE_AVX)
-		r00,0x1000,0x0800,0x1800,0x0400,0x1400,0x0c00,0x1c00,	//	r00,r40,r20,r60,r10,r50,r30,r70
+		r00,0x1000,0x0800,0x1800,0x0400,0x1400,0x0c00,0x1c00,
 	  #else	// USE_SSE2
-		r00, 0x800, 0x400, 0xc00, 0x200, 0xa00, 0x600, 0xe00,	//	r00,r40,r20,r60,r10,r50,r30,r70
+		r00, 0x800, 0x400, 0xc00, 0x200, 0xa00, 0x600, 0xe00,
 	  #endif
 	  #ifdef USE_AVX2
 		add0,add1,add2,add3,add4,add5,add6,add7, isrt2,two

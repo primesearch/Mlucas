@@ -41,7 +41,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 #ifdef USE_SSE2
 
 	add0 = &a[j1];
-	SSE2_RADIX16_DIT_NOTWIDDLE(add0,p1,p2,p3,p4,r00,r02,r04,r06,r08,r0a,r10,r18,isrt2,cc0);
+	SSE2_RADIX16_DIT_NOTWIDDLE(add0,p1,p2,p3,p4,p8,r00,r02,r04,r06,r08,r0a,r10,r18,isrt2,cc0);
 
 #else	/* !USE_SSE2 */
 
@@ -620,7 +620,6 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 		// Since use wt1-array in the wtsinit macro, need to fiddle this here:
 		co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 					// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
-
 		SSE2_cmplx_carry_fast_pow2_wtsinit(add1,add2,add3, bjmodn0, half_arr,sign_mask, n_minus_sil,n_minus_silp1,sinwt,sinwtm1, k0,k1,k2,k3, sse_bw,sse_nm1)
 
 	   #else
@@ -1194,7 +1193,7 @@ if(!j) {
 
 	add0 = &a[j1    ];	// re-init this, because ptr used as a prefetch address in carry step above
 
-	SSE2_RADIX16_DIF_NOTWIDDLE(add0,p1,p2,p3,p4,r00,r02,r04,r06,r08,r0A,r0C,r0E,r10,r12,r14,r16,r18,r1A,r1C,r1E,isrt2,cc0);
+	SSE2_RADIX16_DIF_NOTWIDDLE(add0,p1,p2,p3,p4,p8,r00,r02,r04,r06,r08,r0A,r0C,r0E,r10,r12,r14,r16,r18,r1A,r1C,r1E,isrt2,cc0);
 
 #else	/* !USE_SSE2 */
 
@@ -1242,10 +1241,10 @@ if(!j) {
 		addp = addr+p3;
 		prefetch_p_doubles(addp);
 	  #endif
-														rm =m13;		im =m14		;		 
+														rm =m13;		im =m14		;
 		rt =t13;	t13=t9 -rt;		t9 =t9 +rt;			m13=m9 -rm;		m14=m10-im	;
 		it =t14;	t14=t10-it;		t10=t10+it;			m9 =m9 +rm;		m10=m10+im	;
-														rm =m15;		im =m16		;		 
+														rm =m15;		im =m16		;
 		rt =t15;	t15=t11+t16;	t11=t11-t16;		m15=m11+im;		m16=m12-rm	;
 					t16=t12-rt;		t12=t12+rt;			m11=m11-im;		m12=m12+rm	;
 	  #if PFETCH
@@ -1262,10 +1261,10 @@ if(!j) {
 		addp = addr+p5;
 		prefetch_p_doubles(addp);
 	  #endif
-														rm =m21;					im =m22		;		 
+														rm =m21;					im =m22		;
 		rt =t21;	t21=t17-rt;		t17=t17+rt;			m21=m17-rm;					m22=m18-im	;
 		it =t22;	t22=t18-it;		t18=t18+it;			m17=m17+rm;					m18=m18+im	;
-														rm =m23;					im =m24		;		 
+														rm =m23;					im =m24		;
 		rt =t23;	t23=t19+t24;	t19=t19-t24;		m23=qreduce(m19+im+q4);		m24=qreduce(m20-rm+q4);	// all in -2b,2b
 					t24=t20-rt;		t20=t20+rt;			m19=qreduce(m19-im+q4);		m20=qreduce(m20+rm+q4);	// prior to reduction
 														// m19,20,23,24 are needed for CMUL, so reduce.
@@ -1276,17 +1275,17 @@ if(!j) {
 		/*...Block 4:	*/
 		t27=a1p3r -a1pBr;	t25=a1p3r +a1pBr;			m27=b1p3r -b1pBr;	m25=b1p3r +b1pBr;
 		t28=a1p3i -a1pBi;	t26=a1p3i +a1pBi;			m28=b1p3i -b1pBi;	m26=b1p3i +b1pBi;
-	
+
 		t31=a1p7r -a1pFr;	t29=a1p7r +a1pFr;			m31=b1p7r -b1pFr;	m29=b1p7r +b1pFr;
 		t32=a1p7i -a1pFi;	t30=a1p7i +a1pFi;			m32=b1p7i -b1pFi;	m30=b1p7i +b1pFi;
 	  #if PFETCH
 		addp = addr+p7;
 		prefetch_p_doubles(addp);
 	  #endif
-														rm =m29;					im =m30		;		 
+														rm =m29;					im =m30		;
 		rt =t29;	t29=t25-rt;		t25=t25+rt;			m29=m25-rm;					m30=m26-im	;
 		it =t30;	t30=t26-it;		t26=t26+it;			m25=m25+rm;					m26=m26+im	;
-														rm =m31;					im =m32		;		 
+														rm =m31;					im =m32		;
 		rt =t31;	t31=t27+t32;	t27=t27-t32;		m31=qreduce(m27+im+q4);		m32=qreduce(m28-rm+q4);	// all in -2b,2b
 					t32=t28-rt;		t28=t28+rt;			m27=qreduce(m27-im+q4);		m28=qreduce(m28+rm+q4);	// prior to reduction
 														// m27,28,31,32 are needed for CMUL, so reduce.

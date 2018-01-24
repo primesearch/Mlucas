@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -77,7 +77,7 @@
 
 /* Some of these are currently identified via the compiler (below) rather than directly: */
 // Jun 2017: For Win-builds under msys/mingw, allow defined(__MINGW32__) to override normal windos|linux preprocessing logic:
-#if !defined(__MINGW32__) && (defined(WINDOWS) || defined(_WINDOWS) || defined(WIN32) || defined(_WIN32))
+#if !defined(__MINGW32__) && (defined(WINDOWS) || defined(_WINDOWS) || defined(WIN32) || defined(_WIN32) || defined(_WIN64))
 	#define	OS_TYPE
 	#define	OS_TYPE_WINDOWS
 #elif defined(__MINGW32__) || (defined(linux) || defined(__linux__) || defined(__linux))
@@ -205,11 +205,18 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 // AVX2, AVX and SSE2 have different versions of a common-named arithmetic macro, the fact that all of these #defines
 // are enabled yields no conflict, since the highest-level one wins, as it were:
 
+// Jun 2017: Add support for Arm Neon via USE_ARM_V8_SIMD flag, which triggers setting of the USE_SSE2 flag,
+// since those two instruction sets are both 128-bit vector, i.e. share same data-alloc-and-alignment requirements:
+#ifdef USE_ARM_V8_SIMD
+	#define USE_ARM_V8	// Also enable any non-SIMD Arm v8 instructions we may care to use in non-FFT parts of the code
+	#define USE_SSE2
+#endif
+
 // We don't allow the user to set more than one of these defines:
 #ifdef USE_AVX512_I
 	#error AVX-512 IFMA instruction extensions not yet supported!
 	#if defined(USE_AVX512) || defined(USE_AVX2) || defined(USE_AVX) || defined(USE_SSE2)
-		#error Only one of USE_SSE2 / USE_AVX / USE_AVX2 / USE_AVX512 / USE_AVX512_I may be defined at compile time!
+		#error Only one of USE_SSE2[or USE_ARM_V8_SIMD] / USE_AVX / USE_AVX2 / USE_AVX512 / USE_AVX512_I may be defined at compile time!
 	#endif
 
 	#define USE_AVX512
@@ -219,7 +226,7 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 
 #elif defined(USE_AVX512)
 	#if defined(USE_AVX2) || defined(USE_AVX) || defined(USE_SSE2)
-		#error Only one of USE_SSE2 / USE_AVX / USE_AVX2 / USE_AVX512 may be defined at compile time!
+		#error Only one of USE_SSE2[or USE_ARM_V8_SIMD] / USE_AVX / USE_AVX2 / USE_AVX512 may be defined at compile time!
 	#endif
 
 	#define USE_AVX2
@@ -228,7 +235,7 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 
 #elif defined(USE_AVX2)
 	#if defined(USE_AVX) || defined(USE_SSE2)
-		#error Only one of USE_SSE2 / USE_AVX / USE_AVX2 may be defined at compile time!
+		#error Only one of USE_SSE2[or USE_ARM_V8_SIMD] / USE_AVX / USE_AVX2 may be defined at compile time!
 	#endif
 
 	#define USE_AVX
@@ -236,15 +243,11 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 
 #elif defined(USE_AVX)
 	#if defined(USE_AVX2) || defined(USE_SSE2)
-		#error Only one of USE_SSE2 / USE_AVX / USE_AVX2 may be defined at compile time!
+		#error Only one of USE_SSE2[or USE_ARM_V8_SIMD] / USE_AVX / USE_AVX2 may be defined at compile time!
 	#endif
 
 	#define	USE_SSE2
 
-#elif defined(USE_SSE2)
-	#if defined(USE_AVX2) || defined(USE_AVX)
-		#error Only one of USE_SSE2 / USE_AVX / USE_AVX2 may be defined at compile time!
-	#endif
 #endif
 
 // At several points in the code we need to make sure the compiler is at least GCC v5 in order
@@ -413,11 +416,11 @@ o SZ_VD = sizeof(vec_dbl), SZ_VD_M1 = SZ_VD-1.
 			#define COMPILER_TYPE
 			#define COMPILER_TYPE_MWERKS
 		/* Intel C compiler: */
-		#elif(defined(__INTEL_COMPILER))
+		#elif(defined(__INTEL_COMPILER) || defined(__ICC) || defined(__ICL))	// __ICL is the predef for Windows
 			#define COMPILER_TYPE
 			#define COMPILER_TYPE_ICC
-
-			#include <xmmintrin.h>	/* Principal header file for Streaming SIMD Extensions intrinsics - we need it for the _MM_HINT predefines used in prefetch.h */
+			#define COMPILER_TYPE_GCC	// Jun 2017: Just handle Intel compiler like Clang, i.e. as "GCC compatible"
+		//	#include <xmmintrin.h>	/* Principal header file for Streaming SIMD Extensions intrinsics - we need it for the _MM_HINT predefines used in prefetch.h */
 		/* Unknown: */
 		#else
 			#error __i386__ defined for unexpected compiler type!
@@ -459,9 +462,10 @@ o SZ_VD = sizeof(vec_dbl), SZ_VD_M1 = SZ_VD-1.
 			#define COMPILER_TYPE
 			#define COMPILER_TYPE_MWERKS
 		/* Intel C compiler: */
-		#elif(defined(__INTEL_COMPILER))
+		#elif(defined(__INTEL_COMPILER) || defined(__ICC) || defined(__ICL))	// __ICL is the predef for Windows
 			#define COMPILER_TYPE
 			#define COMPILER_TYPE_ICC
+			#define COMPILER_TYPE_GCC	// Jun 2017: Just handle Intel compiler like Clang, i.e. as "GCC compatible"
 		/* MS Visual C/Studio/.NET/Whatever: */
 		#elif(defined(_MSC_VER))
 			#define COMPILER_TYPE
@@ -807,7 +811,7 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 		  #define COMPILER_TYPE_UNKNOWN
 	#endif
 
-	#if(defined(__ARM_NEON))
+	#if defined(__ARM_NEON) && __ARM_ARCH >= 8
 		  #define CPU_SUBTYPE
 		  #define CPU_SUBTYPE_VFP_HF
 		  #define CPU_SUBTYPE_NAME "ARMv8 64 bit NEON"
@@ -816,10 +820,10 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 /* 32-bit ARM: */
 #elif(defined(__ARM_ARCH))
 	/* Information are based on Debian Wiki <https://wiki.debian.org/ArmEabiPort>:
-	
+
 	   The compiler generates code using the ARM "new" Embedded ABI by ARM ltd.
 	   The new EABI enhances floating point performance with or without an FPU.
-	
+
 	   The symbol __ARM_EABI__ is not defined if compiles under the old EABI.
 	*/
 	#if !(defined(__ARMEL__) && defined(__ARM_EABI__))
@@ -1197,6 +1201,12 @@ extern int NTHREADS;
 
 	#else	// Default is to use pthreads:
 
+	 #ifdef OS_TYPE_WINDOWS
+
+		#include "winpthreads.h"
+
+	 #else
+
 		/* Online docs [e.g. http://www.kernel.org/doc/man-pages/online/pages/man2/sched_setaffinity.2.html]
 		tell us that in order to access macros for `cpu_set', we must #define _GNU_SOURCE before including <sched.h>.
 		However, whether I define the above or not, on my distro (Fedora v16), I get these compile-time warnings
@@ -1221,9 +1231,9 @@ extern int NTHREADS;
 		#define __USE_GNU
 		#include <sched.h>
 
-	#ifndef OS_TYPE_GNU_HURD
+	  #ifndef OS_TYPE_GNU_HURD
 		#include <sys/sysctl.h>
-	#endif
+	  #endif
 		#include <unistd.h>	// Needed for Posix sleep() command, among other things
 		#ifdef OS_TYPE_LINUX
 
@@ -1252,8 +1262,10 @@ extern int NTHREADS;
 
 	  #endif	// OpenMP or Pthread
 
+	 #endif	// OS_TYPE_WINDOWS?
+
 	#else
-		#error Multithreading currently only supported for Linux/GCC builds!
+		#error Multithreading currently only supported for builds using GCC and compatible compilers [LLVM/Clang and Intel C]!
 	#endif
 
 	#ifndef USE_PTHREAD
@@ -1358,7 +1370,8 @@ extern int NTHREADS;
 	#define	FP_MANTISSA_BITS_DOUBLE	53
 #endif
 
-#if(defined(COMPILER_TYPE_NVCC))
+// Ref. for compiler version number predefs: https://sourceforge.net/p/predef/wiki/Compilers/
+#ifdef COMPILER_TYPE_NVCC
   #if CMPLR_DEBUG
 	#warning	COMPILER_NAME "nVidia C++ (for GPU)"
   #endif
@@ -1371,6 +1384,15 @@ extern int NTHREADS;
 	#define COMPILER_NAME "Gnu-C-compatible [llvm/clang]"
 	#ifdef	__clang_version__
 		#define	COMPILER_VERSION	__clang_version__
+	#endif
+  #elif(defined(COMPILER_TYPE_ICC))
+   #if CMPLR_DEBUG
+	#warning	COMPILER_NAME "Gnu-C-compatible [Intel C]"
+   #endif
+	#define COMPILER_NAME "Gnu-C-compatible [Intel C]"
+	#ifdef	__INTEL_COMPILER
+		// __INTEL_COMPILER_UPDATE has the minor-rev number:
+		#define	COMPILER_VERSION	__INTEL_COMPILER/100 ## "." __INTEL_COMPILER%100 ## __INTEL_COMPILER_UPDATE ## " (build date " ## __INTEL_COMPILER_BUILD_DATE ## ")"
 	#endif
   #else
    #if CMPLR_DEBUG
@@ -1386,11 +1408,6 @@ extern int NTHREADS;
 	#warning	COMPILER_NAME "Metrowerks Codewarrior"
   #endif
 	#define COMPILER_NAME "Metrowerks Codewarrior"
-#elif(defined(COMPILER_TYPE_ICC))
-  #if CMPLR_DEBUG
-	#warning	COMPILER_NAME "Intel C"
-  #endif
-	#define COMPILER_NAME "Intel C"
 #elif(defined(COMPILER_TYPE_HPC))
   #if CMPLR_DEBUG
 	#warning	COMPILER_NAME "HP C"
@@ -1438,6 +1455,16 @@ extern int NTHREADS;
 		#define COMPILER_VERSION "7"
 	#elif(_MSC_VER <= 1400)
 		#define COMPILER_VERSION "8"
+	#elif(_MSC_VER <= 1500)
+		#define COMPILER_VERSION "9"
+	#elif(_MSC_VER <= 1600)
+		#define COMPILER_VERSION "2010"
+	#elif(_MSC_VER <= 1700)
+		#define COMPILER_VERSION "2012"
+	#elif(_MSC_VER <= 1800)
+		#define COMPILER_VERSION "2013"
+	#elif(_MSC_VER <= 1900)
+		#define COMPILER_VERSION "2015"
 	#else
 		#define COMPILER_VERSION "Unrecognized"
 	#endif
@@ -1459,6 +1486,8 @@ extern int NTHREADS;
 		#define OS_BITS 32
 	#elif __SIZEOF_LONG_LONG__ == 8
 		#define OS_BITS 64
+	#elif defined(_WIN64) || (_INTEGRAL_MAX_BITS == 64)	// Intel C, Windows
+		#define OS_BITS 64
 	#else
 		#error __SIZEOF_LONG_LONG__ defined but returns unrecognized value! Use gcc -dM -E < /dev/null | grep __SIZEOF_LONG_LONG__ to examine.
 	#endif
@@ -1466,7 +1495,7 @@ extern int NTHREADS;
 
 // SIMD code only available for 64-bit GCC build:
 #if defined(USE_SSE2) && !defined(COMPILER_TYPE_GCC)
-	#error  SIMD code only available for GCC (and compatible) build!
+	#error  SIMD code only available for GCC (or compatible compiler) build!
 #endif
 
 // SIMD+AVX code only available for 64-bit build:

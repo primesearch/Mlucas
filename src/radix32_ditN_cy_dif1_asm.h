@@ -26,7 +26,791 @@
 #ifndef radix32_ditN_cy_dif1_gcc_h_included
 #define radix32_ditN_cy_dif1_gcc_h_included
 
-#ifdef USE_AVX512	// AVX512 macros based on AVX2 ones below
+#ifdef USE_ARM_V8_SIMD
+
+	/* Both DIF and DIT macros assume needed roots of unity laid out in memory relative to the input pointer isrt2 like so:
+		Description																	Address
+		---------------------------------------------------------					----------
+		isrt2: 1/sqrt2, in terms of which thr basic 8th root of 1 = (1+i)/sqrt2		isrt2
+		cc0: Real part of basic 16th root of 1 = c16								isrt2 + 0x10
+		ss0: Real part of basic 16th root of 1 = s16								isrt2 + 0x20
+		cc1: Real part of basic 32th root of 1 = c32_1								isrt2 + 0x30
+		ss1: Real part of basic 32th root of 1 = s32_1								isrt2 + 0x40
+		cc3: Real part of 3rd   32th root of 1 = c32_3								isrt2 + 0x50
+		ss3: Real part of 3rd   32th root of 1 = s32_3								isrt2 + 0x60
+	*/
+	#define SSE2_RADIX32_DIT_NOTWIDDLE(Xadd,Xarr_offsets, Xr00, Xisrt2)\
+	{\
+	__asm__ volatile (\
+		"ldr	x14,%[__r00]		\n\t	ldr	x10,%[__isrt2]		\n\t"\
+		"ldr	w11,=0x10			\n\t	ld1r	{v29.2d},[x10],x11	\n\t"/* x10 has isrt2-ptr for LD1R, gets post-incr'ed by 0x10 to cc0 */\
+		/* arr_offsets int-ptr to arr containing p0,1,...p31; '--' in ensuing comments indicate GPRs loaded from
+		array via LDP but intended only as dummies to permit the convenient LDP-enabled byte-offset addressing: */\
+		"ldr	x8,%[__add]			\n\t	ldr	x15,%[__arr_offsets]	\n\t"\
+		"ldp	w0,w1,[x15      ]	\n\t	add	x0, x0,x8		\n\t"/* add0 + offset0 */\
+		"ldp	w2,w3,[x15,#0x08]	\n\t	add	x1, x1,x8		\n\t"/* add0 + offset1 */\
+		"ldp	w4,w5,[x15,#0x10]	\n\t	add	x2, x2,x8		\n\t"/* add0 + offset2 */\
+		"ldp	w6,w7,[x15,#0x18]	\n\t	add	x3, x3,x8		\n\t"/* add0 + offset3 */\
+		"									add	x4, x4,x8		\n\t"/* add0 + offset4 */\
+		"									add	x5, x5,x8		\n\t"/* add0 + offset5 */\
+		"									add	x6, x6,x8		\n\t"/* add0 + offset6 */\
+		"									add	x7, x7,x8		\n\t"/* add0 + offset7 */\
+	/*...Block 1: Inputs from add0 + p[0-7] (with resp. 4-DITs using the [0-3],[4-7] subsets of same), Outputs into r00 + [0-15]: */\
+		"ldp	q0,q1,[x0]			\n\t	ldp	q12,q13,[x4]			\n\t"\
+		"ldp	q8,q9,[x1]			\n\t	ldp	q20,q21,[x5]			\n\t"\
+		"fsub	v2.2d,v0.2d,v8.2d	\n\t	fsub	v14.2d,v12.2d,v20.2d	\n\t"\
+		"fsub	v3.2d,v1.2d,v9.2d	\n\t	fsub	v15.2d,v13.2d,v21.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v8.2d	\n\t	fadd	v12.2d,v12.2d,v20.2d	\n\t"\
+		"fadd	v1.2d,v1.2d,v9.2d	\n\t	fadd	v13.2d,v13.2d,v21.2d	\n\t"\
+		"ldp	q4,q5,[x2]			\n\t	ldp	q16,q17,[x6]			\n\t"\
+		"ldp	q8,q9,[x3]			\n\t	ldp	q20,q21,[x7]			\n\t"\
+		"fsub	v6.2d,v4.2d,v8.2d	\n\t	fsub	v18.2d,v16.2d,v20.2d	\n\t"\
+		"fsub	v7.2d,v5.2d,v9.2d	\n\t	fsub	v19.2d,v17.2d,v21.2d	\n\t"\
+		"fadd	v4.2d,v4.2d,v8.2d	\n\t	fadd	v16.2d,v16.2d,v20.2d	\n\t"\
+		"fadd	v5.2d,v5.2d,v9.2d	\n\t	fadd	v17.2d,v17.2d,v21.2d	\n\t"\
+		/* combine to get the 2 length-4 transforms: */\
+		"fsub	v8.2d,v0.2d,v4.2d	\n\t	fsub	v20.2d,v12.2d,v16.2d	\n\t"/* t5,13 */ \
+		"fsub	v9.2d,v1.2d,v5.2d	\n\t	fsub	v21.2d,v13.2d,v17.2d	\n\t"/* t6,14 */ \
+		"fadd	v0.2d,v0.2d,v4.2d	\n\t	fadd	v12.2d,v12.2d,v16.2d	\n\t"/* t1, 9 */ \
+		"fadd	v1.2d,v1.2d,v5.2d	\n\t	fadd	v13.2d,v13.2d,v17.2d	\n\t"/* t2,10 */ \
+		"fadd	v4.2d,v2.2d,v7.2d	\n\t	fadd	v16.2d,v14.2d,v19.2d	\n\t"/* t3,11 */\
+		"fsub	v5.2d,v3.2d,v6.2d	\n\t	fsub	v17.2d,v15.2d,v18.2d	\n\t"/* t4,12 */\
+		"fsub	v2.2d,v2.2d,v7.2d	\n\t	fsub	v14.2d,v14.2d,v19.2d	\n\t"/* t7,15 */\
+		"fadd	v3.2d,v3.2d,v6.2d	\n\t	fadd	v15.2d,v15.2d,v18.2d	\n\t"/* t8,16 */\
+	/* now combine the two half-transforms: */\
+	  /* [0]	a[j1   ]=t1+t9;				a[j2   ]=t2+t10;
+				t1      =t1-t9;				t2      =t2-t10; */\
+		"fadd	v6.2d,v0.2d,v12.2d	\n\t	fadd	v18.2d,v1.2d,v13.2d	\n\t"\
+		"fsub	v7.2d,v0.2d,v12.2d	\n\t	fsub	v19.2d,v1.2d,v13.2d	\n\t"\
+		"stp	q6,q18,[x14]		\n\t	stp	q7,q19,[x14,#0x80]		\n\t"\
+	  /* [1]	rt=(t11+t12)*ISRT2;			it=(t11-t12)*ISRT2;
+				t11     =t3+rt;				t12       =t4-it;
+				t3      =t3-rt;				t4        =t4+it; */\
+		"fadd	v6.2d,v16.2d,v17.2d	\n\t	fsub	v7.2d,v16.2d,v17.2d	\n\t"/* t3,4 = v4,5; t11,12 = v16,17 */\
+		"fmul	v16.2d,v29.2d,v6.2d	\n\t	fmul	v17.2d,v29.2d,v7.2d	\n\t"/* rt,it; */\
+		"fadd	v6.2d,v4.2d,v16.2d	\n\t	fsub	v18.2d,v5.2d,v17.2d	\n\t"/* t11,12 = v6,18 */\
+		"fsub	v7.2d,v4.2d,v16.2d	\n\t	fadd	v19.2d,v5.2d,v17.2d	\n\t"/* t3 ,4  = v7,19 */\
+		"stp	q6,q18,[x14,#0x20]	\n\t	stp	q7,q19,[x14,#0xa0]		\n\t"\
+	  /*rt      =t5+t14;			it        =t6-t13;
+		t5      =t5-t14;			t6        =t6+t13;	ARM: On input, t5,6 = v8,9; t13,14 = v20,21: */\
+		"fadd	v6.2d,v8.2d,v21.2d	\n\t	fsub	v18.2d,v9.2d,v20.2d	\n\t"/* rt,it = v6,18 */\
+		"fsub	v7.2d,v8.2d,v21.2d	\n\t	fadd	v19.2d,v9.2d,v20.2d	\n\t"/* t3,4  = v7,19 */\
+		"stp	q6,q18,[x14,#0x40]	\n\t	stp	q7,q19,[x14,#0xc0]		\n\t"\
+	  /*rt=(t15-t16)*ISRT2;			it=(t15+t16)*ISRT2;
+		t15     =t7-rt;				t16       =t8-it;
+		t7      =t7+rt;				t8        =t8+it; */\
+		"fsub	v6.2d,v14.2d,v15.2d	\n\t	fadd	v7.2d,v14.2d,v15.2d	\n\t"/* t7,8 = v2,3; t15,16 = v14,15 */\
+		"fmul	v14.2d,v29.2d,v6.2d	\n\t	fmul	v15.2d,v29.2d,v7.2d	\n\t"/* rt,it; */\
+		"fsub	v6.2d,v2.2d,v14.2d	\n\t	fsub	v18.2d,v3.2d,v15.2d	\n\t"/* t15,16 = v6,18 */\
+		"fadd	v7.2d,v2.2d,v14.2d	\n\t	fadd	v19.2d,v3.2d,v15.2d	\n\t"/* t7 ,8  = v7,19 */\
+		"stp	q6,q18,[x14,#0x60]	\n\t	stp	q7,q19,[x14,#0xe0]		\n\t"\
+		/* */\
+	/*...Block 2: Inputs from add0 + p[0-7] + p8, Outputs into r00 + [0-15] + 0x100: */\
+		/* */\
+		"add	x14,x14,#0x100		\n\t"/* r10 */\
+		"ldr	x8,%[__add]			\n\t"\
+		"ldp	w0,w1,[x15,#0x20]	\n\t	add	x0, x0,x8		\n\t"/* add0 + offset8 */\
+		"ldp	w2,w3,[x15,#0x28]	\n\t	add	x1, x1,x8		\n\t"/* add0 + offset9 */\
+		"ldp	w4,w5,[x15,#0x30]	\n\t	add	x2, x2,x8		\n\t"/* add0 + offset10 */\
+		"ldp	w6,w7,[x15,#0x38]	\n\t	add	x3, x3,x8		\n\t"/* add0 + offset11 */\
+		"									add	x4, x4,x8		\n\t"/* add0 + offset12 */\
+		"									add	x5, x5,x8		\n\t"/* add0 + offset13 */\
+		"									add	x6, x6,x8		\n\t"/* add0 + offset14 */\
+		"									add	x7, x7,x8		\n\t"/* add0 + offset15 */\
+		"ldp	q0,q1,[x0]			\n\t	ldp	q12,q13,[x4]			\n\t"\
+		"ldp	q8,q9,[x1]			\n\t	ldp	q20,q21,[x5]			\n\t"\
+		"fsub	v2.2d,v0.2d,v8.2d	\n\t	fsub	v14.2d,v12.2d,v20.2d	\n\t"\
+		"fsub	v3.2d,v1.2d,v9.2d	\n\t	fsub	v15.2d,v13.2d,v21.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v8.2d	\n\t	fadd	v12.2d,v12.2d,v20.2d	\n\t"\
+		"fadd	v1.2d,v1.2d,v9.2d	\n\t	fadd	v13.2d,v13.2d,v21.2d	\n\t"\
+		"ldp	q4,q5,[x2]			\n\t	ldp	q16,q17,[x6]			\n\t"\
+		"ldp	q8,q9,[x3]			\n\t	ldp	q20,q21,[x7]			\n\t"\
+		"fsub	v6.2d,v4.2d,v8.2d	\n\t	fsub	v18.2d,v16.2d,v20.2d	\n\t"\
+		"fsub	v7.2d,v5.2d,v9.2d	\n\t	fsub	v19.2d,v17.2d,v21.2d	\n\t"\
+		"fadd	v4.2d,v4.2d,v8.2d	\n\t	fadd	v16.2d,v16.2d,v20.2d	\n\t"\
+		"fadd	v5.2d,v5.2d,v9.2d	\n\t	fadd	v17.2d,v17.2d,v21.2d	\n\t"\
+		/* combine to get the 2 length-4 transforms: */\
+		"fsub	v8.2d,v0.2d,v4.2d	\n\t	fsub	v20.2d,v12.2d,v16.2d	\n\t"\
+		"fsub	v9.2d,v1.2d,v5.2d	\n\t	fsub	v21.2d,v13.2d,v17.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v4.2d	\n\t	fadd	v12.2d,v12.2d,v16.2d	\n\t"\
+		"fadd	v1.2d,v1.2d,v5.2d	\n\t	fadd	v13.2d,v13.2d,v17.2d	\n\t"\
+		"fadd	v4.2d,v2.2d,v7.2d	\n\t	fadd	v16.2d,v14.2d,v19.2d	\n\t"\
+		"fsub	v5.2d,v3.2d,v6.2d	\n\t	fsub	v17.2d,v15.2d,v18.2d	\n\t"\
+		"fsub	v2.2d,v2.2d,v7.2d	\n\t	fsub	v14.2d,v14.2d,v19.2d	\n\t"\
+		"fadd	v3.2d,v3.2d,v6.2d	\n\t	fadd	v15.2d,v15.2d,v18.2d	\n\t"\
+		/* now combine the two half-transforms: */\
+		"fadd	v6.2d,v0.2d,v12.2d	\n\t	fadd	v18.2d,v1.2d,v13.2d	\n\t"\
+		"fsub	v7.2d,v0.2d,v12.2d	\n\t	fsub	v19.2d,v1.2d,v13.2d	\n\t"\
+		"stp	q6,q18,[x14]		\n\t	stp	q7,q19,[x14,#0x80]		\n\t"\
+		"fadd	v6.2d,v16.2d,v17.2d	\n\t	fsub	v7.2d,v16.2d,v17.2d	\n\t"\
+		"fmul	v16.2d,v29.2d,v6.2d	\n\t	fmul	v17.2d,v29.2d,v7.2d	\n\t"\
+		"fadd	v6.2d,v4.2d,v16.2d	\n\t	fsub	v18.2d,v5.2d,v17.2d	\n\t"\
+		"fsub	v7.2d,v4.2d,v16.2d	\n\t	fadd	v19.2d,v5.2d,v17.2d	\n\t"\
+		"stp	q6,q18,[x14,#0x20]	\n\t	stp	q7,q19,[x14,#0xa0]		\n\t"\
+		"fadd	v6.2d,v8.2d,v21.2d	\n\t	fsub	v18.2d,v9.2d,v20.2d	\n\t"\
+		"fsub	v7.2d,v8.2d,v21.2d	\n\t	fadd	v19.2d,v9.2d,v20.2d	\n\t"\
+		"stp	q6,q18,[x14,#0x40]	\n\t	stp	q7,q19,[x14,#0xc0]		\n\t"\
+		"fsub	v6.2d,v14.2d,v15.2d	\n\t	fadd	v7.2d,v14.2d,v15.2d	\n\t"\
+		"fmul	v14.2d,v29.2d,v6.2d	\n\t	fmul	v15.2d,v29.2d,v7.2d	\n\t"\
+		"fsub	v6.2d,v2.2d,v14.2d	\n\t	fsub	v18.2d,v3.2d,v15.2d	\n\t"\
+		"fadd	v7.2d,v2.2d,v14.2d	\n\t	fadd	v19.2d,v3.2d,v15.2d	\n\t"\
+		"stp	q6,q18,[x14,#0x60]	\n\t	stp	q7,q19,[x14,#0xe0]		\n\t"\
+		/* */\
+	/*...Block 3: Inputs from add0 + p[0-7] + p16, Outputs into r00 + [0-15] + 0x200: */\
+		/* */\
+		"add	x14,x14,#0x100		\n\t"/* r20 */\
+		"ldr	x8,%[__add]			\n\t"\
+		"ldp	w0,w1,[x15,#0x40]	\n\t	add	x0, x0,x8		\n\t"/* add0 + offset16 */\
+		"ldp	w2,w3,[x15,#0x48]	\n\t	add	x1, x1,x8		\n\t"/* add0 + offset17 */\
+		"ldp	w4,w5,[x15,#0x50]	\n\t	add	x2, x2,x8		\n\t"/* add0 + offset18 */\
+		"ldp	w6,w7,[x15,#0x58]	\n\t	add	x3, x3,x8		\n\t"/* add0 + offset19 */\
+		"									add	x4, x4,x8		\n\t"/* add0 + offset20 */\
+		"									add	x5, x5,x8		\n\t"/* add0 + offset21 */\
+		"									add	x6, x6,x8		\n\t"/* add0 + offset22 */\
+		"									add	x7, x7,x8		\n\t"/* add0 + offset23 */\
+		"ldp	q0,q1,[x0]			\n\t	ldp	q12,q13,[x4]			\n\t"\
+		"ldp	q8,q9,[x1]			\n\t	ldp	q20,q21,[x5]			\n\t"\
+		"fsub	v2.2d,v0.2d,v8.2d	\n\t	fsub	v14.2d,v12.2d,v20.2d	\n\t"\
+		"fsub	v3.2d,v1.2d,v9.2d	\n\t	fsub	v15.2d,v13.2d,v21.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v8.2d	\n\t	fadd	v12.2d,v12.2d,v20.2d	\n\t"\
+		"fadd	v1.2d,v1.2d,v9.2d	\n\t	fadd	v13.2d,v13.2d,v21.2d	\n\t"\
+		"ldp	q4,q5,[x2]			\n\t	ldp	q16,q17,[x6]			\n\t"\
+		"ldp	q8,q9,[x3]			\n\t	ldp	q20,q21,[x7]			\n\t"\
+		"fsub	v6.2d,v4.2d,v8.2d	\n\t	fsub	v18.2d,v16.2d,v20.2d	\n\t"\
+		"fsub	v7.2d,v5.2d,v9.2d	\n\t	fsub	v19.2d,v17.2d,v21.2d	\n\t"\
+		"fadd	v4.2d,v4.2d,v8.2d	\n\t	fadd	v16.2d,v16.2d,v20.2d	\n\t"\
+		"fadd	v5.2d,v5.2d,v9.2d	\n\t	fadd	v17.2d,v17.2d,v21.2d	\n\t"\
+		/* combine to get the 2 length-4 transforms: */\
+		"fsub	v8.2d,v0.2d,v4.2d	\n\t	fsub	v20.2d,v12.2d,v16.2d	\n\t"\
+		"fsub	v9.2d,v1.2d,v5.2d	\n\t	fsub	v21.2d,v13.2d,v17.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v4.2d	\n\t	fadd	v12.2d,v12.2d,v16.2d	\n\t"\
+		"fadd	v1.2d,v1.2d,v5.2d	\n\t	fadd	v13.2d,v13.2d,v17.2d	\n\t"\
+		"fadd	v4.2d,v2.2d,v7.2d	\n\t	fadd	v16.2d,v14.2d,v19.2d	\n\t"\
+		"fsub	v5.2d,v3.2d,v6.2d	\n\t	fsub	v17.2d,v15.2d,v18.2d	\n\t"\
+		"fsub	v2.2d,v2.2d,v7.2d	\n\t	fsub	v14.2d,v14.2d,v19.2d	\n\t"\
+		"fadd	v3.2d,v3.2d,v6.2d	\n\t	fadd	v15.2d,v15.2d,v18.2d	\n\t"\
+		/* now combine the two half-transforms: */\
+		"fadd	v6.2d,v0.2d,v12.2d	\n\t	fadd	v18.2d,v1.2d,v13.2d	\n\t"\
+		"fsub	v7.2d,v0.2d,v12.2d	\n\t	fsub	v19.2d,v1.2d,v13.2d	\n\t"\
+		"stp	q6,q18,[x14]		\n\t	stp	q7,q19,[x14,#0x80]		\n\t"\
+		"fadd	v6.2d,v16.2d,v17.2d	\n\t	fsub	v7.2d,v16.2d,v17.2d	\n\t"\
+		"fmul	v16.2d,v29.2d,v6.2d	\n\t	fmul	v17.2d,v29.2d,v7.2d	\n\t"\
+		"fadd	v6.2d,v4.2d,v16.2d	\n\t	fsub	v18.2d,v5.2d,v17.2d	\n\t"\
+		"fsub	v7.2d,v4.2d,v16.2d	\n\t	fadd	v19.2d,v5.2d,v17.2d	\n\t"\
+		"stp	q6,q18,[x14,#0x20]	\n\t	stp	q7,q19,[x14,#0xa0]		\n\t"\
+		"fadd	v6.2d,v8.2d,v21.2d	\n\t	fsub	v18.2d,v9.2d,v20.2d	\n\t"\
+		"fsub	v7.2d,v8.2d,v21.2d	\n\t	fadd	v19.2d,v9.2d,v20.2d	\n\t"\
+		"stp	q6,q18,[x14,#0x40]	\n\t	stp	q7,q19,[x14,#0xc0]		\n\t"\
+		"fsub	v6.2d,v14.2d,v15.2d	\n\t	fadd	v7.2d,v14.2d,v15.2d	\n\t"\
+		"fmul	v14.2d,v29.2d,v6.2d	\n\t	fmul	v15.2d,v29.2d,v7.2d	\n\t"\
+		"fsub	v6.2d,v2.2d,v14.2d	\n\t	fsub	v18.2d,v3.2d,v15.2d	\n\t"\
+		"fadd	v7.2d,v2.2d,v14.2d	\n\t	fadd	v19.2d,v3.2d,v15.2d	\n\t"\
+		"stp	q6,q18,[x14,#0x60]	\n\t	stp	q7,q19,[x14,#0xe0]		\n\t"\
+		/* */\
+	/*...Block 4: Inputs from add0 + p[0-7] + p24, Outputs into r00 + [0-15] + 0x300: */\
+		/* */\
+		"add	x14,x14,#0x100		\n\t"/* r30 */\
+		"ldr	x8,%[__add]			\n\t"\
+		"ldp	w0,w1,[x15,#0x60]	\n\t	add	x0, x0,x8		\n\t"/* add0 + offset24 */\
+		"ldp	w2,w3,[x15,#0x68]	\n\t	add	x1, x1,x8		\n\t"/* add0 + offset25 */\
+		"ldp	w4,w5,[x15,#0x70]	\n\t	add	x2, x2,x8		\n\t"/* add0 + offset26 */\
+		"ldp	w6,w7,[x15,#0x78]	\n\t	add	x3, x3,x8		\n\t"/* add0 + offset27 */\
+		"									add	x4, x4,x8		\n\t"/* add0 + offset28 */\
+		"									add	x5, x5,x8		\n\t"/* add0 + offset29 */\
+		"									add	x6, x6,x8		\n\t"/* add0 + offset30 */\
+		"									add	x7, x7,x8		\n\t"/* add0 + offset31 */\
+		"ldp	q0,q1,[x0]			\n\t	ldp	q12,q13,[x4]			\n\t"\
+		"ldp	q8,q9,[x1]			\n\t	ldp	q20,q21,[x5]			\n\t"\
+		"fsub	v2.2d,v0.2d,v8.2d	\n\t	fsub	v14.2d,v12.2d,v20.2d	\n\t"\
+		"fsub	v3.2d,v1.2d,v9.2d	\n\t	fsub	v15.2d,v13.2d,v21.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v8.2d	\n\t	fadd	v12.2d,v12.2d,v20.2d	\n\t"\
+		"fadd	v1.2d,v1.2d,v9.2d	\n\t	fadd	v13.2d,v13.2d,v21.2d	\n\t"\
+		"ldp	q4,q5,[x2]			\n\t	ldp	q16,q17,[x6]			\n\t"\
+		"ldp	q8,q9,[x3]			\n\t	ldp	q20,q21,[x7]			\n\t"\
+		"fsub	v6.2d,v4.2d,v8.2d	\n\t	fsub	v18.2d,v16.2d,v20.2d	\n\t"\
+		"fsub	v7.2d,v5.2d,v9.2d	\n\t	fsub	v19.2d,v17.2d,v21.2d	\n\t"\
+		"fadd	v4.2d,v4.2d,v8.2d	\n\t	fadd	v16.2d,v16.2d,v20.2d	\n\t"\
+		"fadd	v5.2d,v5.2d,v9.2d	\n\t	fadd	v17.2d,v17.2d,v21.2d	\n\t"\
+		/* combine to get the 2 length-4 transforms: */\
+		"fsub	v8.2d,v0.2d,v4.2d	\n\t	fsub	v20.2d,v12.2d,v16.2d	\n\t"\
+		"fsub	v9.2d,v1.2d,v5.2d	\n\t	fsub	v21.2d,v13.2d,v17.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v4.2d	\n\t	fadd	v12.2d,v12.2d,v16.2d	\n\t"\
+		"fadd	v1.2d,v1.2d,v5.2d	\n\t	fadd	v13.2d,v13.2d,v17.2d	\n\t"\
+		"fadd	v4.2d,v2.2d,v7.2d	\n\t	fadd	v16.2d,v14.2d,v19.2d	\n\t"\
+		"fsub	v5.2d,v3.2d,v6.2d	\n\t	fsub	v17.2d,v15.2d,v18.2d	\n\t"\
+		"fsub	v2.2d,v2.2d,v7.2d	\n\t	fsub	v14.2d,v14.2d,v19.2d	\n\t"\
+		"fadd	v3.2d,v3.2d,v6.2d	\n\t	fadd	v15.2d,v15.2d,v18.2d	\n\t"\
+		/* now combine the two half-transforms: */\
+		"fadd	v6.2d,v0.2d,v12.2d	\n\t	fadd	v18.2d,v1.2d,v13.2d	\n\t"\
+		"fsub	v7.2d,v0.2d,v12.2d	\n\t	fsub	v19.2d,v1.2d,v13.2d	\n\t"\
+		"stp	q6,q18,[x14]		\n\t	stp	q7,q19,[x14,#0x80]		\n\t"\
+		"fadd	v6.2d,v16.2d,v17.2d	\n\t	fsub	v7.2d,v16.2d,v17.2d	\n\t"\
+		"fmul	v16.2d,v29.2d,v6.2d	\n\t	fmul	v17.2d,v29.2d,v7.2d	\n\t"\
+		"fadd	v6.2d,v4.2d,v16.2d	\n\t	fsub	v18.2d,v5.2d,v17.2d	\n\t"\
+		"fsub	v7.2d,v4.2d,v16.2d	\n\t	fadd	v19.2d,v5.2d,v17.2d	\n\t"\
+		"stp	q6,q18,[x14,#0x20]	\n\t	stp	q7,q19,[x14,#0xa0]		\n\t"\
+		"fadd	v6.2d,v8.2d,v21.2d	\n\t	fsub	v18.2d,v9.2d,v20.2d	\n\t"\
+		"fsub	v7.2d,v8.2d,v21.2d	\n\t	fadd	v19.2d,v9.2d,v20.2d	\n\t"\
+		"stp	q6,q18,[x14,#0x40]	\n\t	stp	q7,q19,[x14,#0xc0]		\n\t"\
+		"fsub	v6.2d,v14.2d,v15.2d	\n\t	fadd	v7.2d,v14.2d,v15.2d	\n\t"\
+		"fmul	v14.2d,v29.2d,v6.2d	\n\t	fmul	v15.2d,v29.2d,v7.2d	\n\t"\
+		"fsub	v6.2d,v2.2d,v14.2d	\n\t	fsub	v18.2d,v3.2d,v15.2d	\n\t"\
+		"fadd	v7.2d,v2.2d,v14.2d	\n\t	fadd	v19.2d,v3.2d,v15.2d	\n\t"\
+		"stp	q6,q18,[x14,#0x60]	\n\t	stp	q7,q19,[x14,#0xe0]		\n\t"\
+	/**********************************************************************************/\
+	/*...and now do eight radix-4 transforms, including the internal twiddle factors: */\
+	/**********************************************************************************/\
+		/*...Block 1: t00,t10,t20,t30	*/		/*...Block 5: t08,t18,t28,t38*/\
+		"sub	x14,x14,#0x300		\n\t"/* r00; p04 still in w8 */\
+		"ldp	q0,q1,[x14       ]		\n\t	ldp	q8 ,q9 ,[x14,#0x080]	\n\t"/* lcol: add0 + p0  */\
+		"ldp	q2,q3,[x14,#0x100]		\n\t	ldp	q10,q11,[x14,#0x180]	\n\t"/* lcol: add0 + p8  */\
+		"ldp	q4,q5,[x14,#0x200]		\n\t	ldp	q12,q20,[x14,#0x280]	\n\t"/* lcol: add0 + p16 */\
+		"ldp	q6,q7,[x14,#0x300]		\n\t	ldp	q21,q15,[x14,#0x380]	\n\t"/* lcol: add0 + p24 */\
+/* 2 */	"fadd	v16.2d,v0.2d,v2.2d		\n\t	fmul	v12.2d,v12.2d,v29.2d	\n\t"/* c *= isrt2 */\
+/* 3 */	"fadd	v17.2d,v1.2d,v3.2d		\n\t	fmul	v20.2d,v20.2d,v29.2d	\n\t"/* d *= isrt2 */\
+/* 6 */	"fadd	v18.2d,v4.2d,v6.2d		\n\t	fmul	v21.2d,v21.2d,v29.2d	\n\t"/* e *= isrt2 */\
+/* 7 */	"fadd	v19.2d,v5.2d,v7.2d		\n\t	fmul	v15.2d,v15.2d,v29.2d	\n\t"/* f *= isrt2 */\
+		"fsub	v0.2d ,v0.2d,v2.2d		\n\t	fsub	v13.2d,v20.2d,v12.2d	\n\t"/* d=d-c */\
+		"fsub	v1.2d ,v1.2d,v3.2d		\n\t	fsub	v14.2d,v21.2d,v15.2d	\n\t"/* e=e-f */\
+		"fsub	v4.2d ,v4.2d,v6.2d		\n\t	fadd	v12.2d,v20.2d,v12.2d	\n\t"/* c=d+c */\
+		"fsub	v5.2d ,v5.2d,v7.2d		\n\t	fadd	v15.2d,v21.2d,v15.2d	\n\t"/* f=e+f */\
+/*2=2-6*/"fsub	v2.2d,v16.2d,v18.2d		\n\t	fsub	v20.2d,v8.2d ,v11.2d	\n\t"/* 8=8-b */\
+/*3=3-7*/"fsub	v3.2d,v17.2d,v19.2d		\n\t	fsub	v21.2d,v9.2d ,v10.2d	\n\t"/* 9=9-a */\
+/*6=2+6*/"fadd	v6.2d,v16.2d,v18.2d		\n\t	fsub	v22.2d,v12.2d,v14.2d	\n\t"/* c=c-e */\
+/*7=3+7*/"fadd	v7.2d,v17.2d,v19.2d		\n\t	fsub	v23.2d,v13.2d,v15.2d	\n\t"/* d=d-f */\
+		"										fadd	v11.2d,v8.2d ,v11.2d	\n\t"/* b=8+b */\
+		"										fadd	v10.2d,v9.2d ,v10.2d	\n\t"/* a=9+a */\
+		"stp	q2 ,q3 ,[x14,#0x200]	\n\t	fadd	v14.2d,v12.2d,v14.2d	\n\t"/* e=c+e */\
+		"stp	q6 ,q7 ,[x14       ]	\n\t	fadd	v15.2d,v13.2d,v15.2d	\n\t"/* f=d+f */\
+/*0=0-5*/"fsub	v16.2d,v0.2d,v5.2d		\n\t	fsub	v8.2d ,v20.2d,v15.2d	\n\t"/* 8=8-f */\
+/*1=1-4*/"fsub	v17.2d,v1.2d,v4.2d		\n\t	fsub	v9.2d ,v21.2d,v23.2d	\n\t"/* 9=9-d */\
+/*5=0+5*/"fadd	v5.2d ,v0.2d,v5.2d		\n\t	fsub	v12.2d,v10.2d,v14.2d	\n\t"/* a=a-e */\
+/*4=1+4*/"fadd	v4.2d ,v1.2d,v4.2d		\n\t	fsub	v13.2d,v11.2d,v22.2d	\n\t"/* b=b-c */\
+		"										fadd	v15.2d,v20.2d,v15.2d	\n\t"/* f=8+f */\
+		"										fadd	v23.2d,v21.2d,v23.2d	\n\t"/* d=9+d */\
+		"stp	q5 ,q17,[x14,#0x100]	\n\t	fadd	v14.2d,v10.2d,v14.2d	\n\t"/* e=a+e */\
+		"stp	q16,q4 ,[x14,#0x300]	\n\t	fadd	v22.2d,v11.2d,v22.2d	\n\t"/* c=b+c ... switch a-f to decimal 10-15 in ensuing twiddle-muls to avoid confusion with sincos data */\
+		/*...Block 2: t02,t12,t22,t32	*/		/*...Block 6: t0A,t1A,t2A,t3A*/\
+/*r02:*/"add	x14,x14,#0x20			\n\t	stp	q15,q12,[x14,#0x160]	\n\t"/* rcol: addresses munged -= 0x20 b/c x14 pvsly == 0x20 in lcol */\
+		"ldp	q0,q1,[x14,#0x200]		\n\t	stp	q13,q9 ,[x14,#0x260]	\n\t"\
+		"ldp	q2,q3,[x14,#0x300]		\n\t	stp	q8 ,q14,[x14,#0x360]	\n\t"\
+/*cc1:*/"ldp	q18,q19,[x10,#0x20]		\n\t	stp	q22,q23,[x14,#0x060]	\n\t"\
+/*cc3:*/"ldp	q20,q21,[x10,#0x40]		\n\t"/* In comments, let cc1=[c,s], cc3=[a,b]: */\
+		"fmul	v4.2d,v0.2d,v18.2d		\n\t	ldp	q8 ,q9 ,[x14,#0x280]		\n\t"\
+		"fmul	v5.2d,v1.2d,v18.2d		\n\t	ldp	q10,q11,[x14,#0x380]		\n\t"\
+/*4c+5s*/"fmla	v4.2d,v1.2d,v19.2d		\n\t	fmul	v12.2d,v8.2d,v21.2d		\n\t"\
+/*5c-4s*/"fmls	v5.2d,v0.2d,v19.2d		\n\t	fmul	v13.2d,v9.2d,v21.2d		\n\t"\
+		"fmul	v16.2d,v2.2d,v20.2d		\n\t	fmla	v12.2d,v9.2d,v20.2d		\n\t"/*12b+13a*/\
+		"fmul	v17.2d,v3.2d,v20.2d		\n\t	fmls	v13.2d,v8.2d,v20.2d		\n\t"/*13b-12a*/\
+/*6a+7b*/"fmla	v16.2d,v3.2d,v21.2d		\n\t	fmul	v24.2d,v10.2d,v18.2d	\n\t"\
+/*7a-6b*/"fmls	v17.2d,v2.2d,v21.2d		\n\t	fmul	v25.2d,v11.2d,v18.2d	\n\t"\
+		"fsub	v6.2d,v4.2d,v16.2d		\n\t	fmls	v24.2d,v11.2d,v19.2d	\n\t"/*14c-15s*/\
+		"fsub	v7.2d,v5.2d,v17.2d		\n\t	fmla	v25.2d,v10.2d,v19.2d	\n\t"/*15c+14s*/\
+		"fadd	v4.2d,v4.2d,v16.2d		\n\t	fadd	v14.2d,v12.2d,v24.2d	\n\t"\
+		"fadd	v5.2d,v5.2d,v17.2d		\n\t	fadd	v15.2d,v13.2d,v25.2d	\n\t"\
+		"ldp	q0,q1,[x14       ]		\n\t	fsub	v12.2d,v12.2d,v24.2d	\n\t"\
+		"ldp	q2,q3,[x14,#0x100]		\n\t	fsub	v13.2d,v13.2d,v25.2d	\n\t"\
+		/* cc0 := [c,s]: */\
+		"ldp	q20,q21,[x10]			\n\t"\
+		"fmul	v16.2d,v2.2d,v20.2d		\n\t	ldp	q8 ,q9 ,[x14,#0x080]		\n\t"\
+		"fmul	v17.2d,v3.2d,v20.2d		\n\t	ldp	q10,q11,[x14,#0x180]		\n\t"\
+/*2c+3s*/"fmla	v16.2d,v3.2d,v21.2d		\n\t	fmul	v18.2d,v10.2d,v21.2d	\n\t"\
+/*3c-2s*/"fmls	v17.2d,v2.2d,v21.2d		\n\t	fmul	v19.2d,v11.2d,v21.2d	\n\t"\
+		"fadd	v2.2d,v0.2d,v16.2d		\n\t	fmls	v18.2d,v11.2d,v20.2d	\n\t"/*10s-11c*/\
+		"fadd	v3.2d,v1.2d,v17.2d		\n\t	fmla	v19.2d,v10.2d,v20.2d	\n\t"/*11s+10c*/\
+		"fsub	v0.2d,v0.2d,v16.2d		\n\t	fsub	v10.2d,v8.2d,v18.2d		\n\t"\
+		"fsub	v1.2d,v1.2d,v17.2d		\n\t	fsub	v11.2d,v9.2d,v19.2d		\n\t"\
+/* 0 */	"fsub	v16.2d,v0.2d,v7.2d		\n\t	fadd	v8.2d ,v8.2d,v18.2d		\n\t"\
+/* 1 */	"fsub	v17.2d,v1.2d,v6.2d		\n\t	fadd	v9.2d ,v9.2d,v19.2d		\n\t"\
+/* 2 */	"fsub	v18.2d,v2.2d,v4.2d		\n\t	fsub	v20.2d,v8.2d ,v15.2d	\n\t"/*  8 */\
+/* 3 */	"fsub	v19.2d,v3.2d,v5.2d		\n\t	fsub	v21.2d,v9.2d ,v14.2d	\n\t"/*  9 */\
+		"fadd	v7.2d,v0.2d,v7.2d		\n\t	fsub	v22.2d,v10.2d,v12.2d	\n\t"/* 10 */\
+		"fadd	v6.2d,v1.2d,v6.2d		\n\t	fsub	v23.2d,v11.2d,v13.2d	\n\t"/* 11 */\
+		"fadd	v4.2d,v2.2d,v4.2d		\n\t	fadd	v15.2d,v8.2d ,v15.2d	\n\t"\
+		"fadd	v5.2d,v3.2d,v5.2d		\n\t	fadd	v14.2d,v9.2d ,v14.2d	\n\t"\
+		"stp	q18,q19,[x14,#0x200]	\n\t	fadd	v12.2d,v10.2d,v12.2d	\n\t"\
+		"stp	q16,q6 ,[x14,#0x300]	\n\t	fadd	v13.2d,v11.2d,v13.2d	\n\t"\
+		"stp	q4 ,q5 ,[x14       ]	\n\t	stp	q22,q23,[x14,#0x280]	\n\t"\
+		"stp	q7 ,q17,[x14,#0x100]	\n\t	stp	q20,q14,[x14,#0x380]	\n\t"\
+		"										stp	q12,q13,[x14,#0x080]	\n\t"\
+		"										stp	q15,q21,[x14,#0x180]	\n\t"\
+		/*** Subsequent blocks have different internal-twiddles arithmetic, but external-
+			twiddles final stages all identical save for offsets into the twiddles-array: ***/\
+		/*...Block 3: t04,t14,t24,t34*/			/*...Block 7: t0C,t1C,t2C,t3C*/\
+		"add	x14,x14,#0x20			\n\t"/* r04 */\
+		"ldp	q0,q1,[x14,#0x200]		\n\t"\
+		"ldp	q2,q3,[x14,#0x300]		\n\t"\
+/*cc0:*/"ldp	q18,q19,[x10]			\n\t"\
+		"fmul	v4.2d,v0.2d,v18.2d		\n\t	ldp	q8 ,q9 ,[x14,#0x280]		\n\t"\
+		"fmul	v5.2d,v1.2d,v18.2d		\n\t	ldp	q10,q11,[x14,#0x380]		\n\t"\
+/*4c+5s*/"fmla	v4.2d,v1.2d,v19.2d		\n\t	fmul	v12.2d,v8.2d,v19.2d		\n\t"\
+/*5c-4s*/"fmls	v5.2d,v0.2d,v19.2d		\n\t	fmul	v13.2d,v9.2d,v19.2d		\n\t"\
+		"fmul	v16.2d,v2.2d,v19.2d		\n\t	fmla	v12.2d,v9.2d,v18.2d		\n\t"/*12s+13c*/\
+		"fmul	v17.2d,v3.2d,v19.2d		\n\t	fmls	v13.2d,v8.2d,v18.2d		\n\t"/*13s-12c*/\
+/*6s+7c*/"fmla	v16.2d,v3.2d,v18.2d		\n\t	fmul	v24.2d,v10.2d,v18.2d	\n\t"\
+/*7s-6c*/"fmls	v17.2d,v2.2d,v18.2d		\n\t	fmul	v25.2d,v11.2d,v18.2d	\n\t"\
+		"fsub	v6.2d,v4.2d,v16.2d		\n\t	fmla	v24.2d,v11.2d,v19.2d	\n\t"/*14c+15s*/\
+		"fsub	v7.2d,v5.2d,v17.2d		\n\t	fmls	v25.2d,v10.2d,v19.2d	\n\t"/*15c-14s*/\
+		"fadd	v4.2d,v4.2d,v16.2d		\n\t	fadd	v14.2d,v12.2d,v24.2d	\n\t"\
+		"fadd	v5.2d,v5.2d,v17.2d		\n\t	fadd	v15.2d,v13.2d,v25.2d	\n\t"\
+		"ldp	q0,q1,[x14       ]		\n\t	fsub	v12.2d,v12.2d,v24.2d	\n\t"\
+		"ldp	q2,q3,[x14,#0x100]		\n\t	fsub	v13.2d,v13.2d,v25.2d	\n\t"\
+		"fadd	v16.2d,v3.2d,v2.2d		\n\t	ldp	q8 ,q9 ,[x14,#0x080]		\n\t"\
+		"fsub	v17.2d,v3.2d,v2.2d		\n\t	ldp	q10,q11,[x14,#0x180]		\n\t"\
+		"fmul	v16.2d,v16.2d,v29.2d	\n\t	fsub	v18.2d,v10.2d,v11.2d	\n\t"\
+		"fmul	v17.2d,v17.2d,v29.2d	\n\t	fadd	v19.2d,v10.2d,v11.2d	\n\t"\
+		"fadd	v2.2d,v0.2d,v16.2d		\n\t	fmul	v18.2d,v18.2d,v29.2d	\n\t"\
+		"fadd	v3.2d,v1.2d,v17.2d		\n\t	fmul	v19.2d,v19.2d,v29.2d	\n\t"\
+		"fsub	v0.2d,v0.2d,v16.2d		\n\t	fsub	v10.2d,v8.2d,v18.2d		\n\t"\
+		"fsub	v1.2d,v1.2d,v17.2d		\n\t	fsub	v11.2d,v9.2d,v19.2d		\n\t"\
+/* 0 */	"fsub	v16.2d,v0.2d,v7.2d		\n\t	fadd	v8.2d ,v8.2d,v18.2d		\n\t"\
+/* 1 */	"fsub	v17.2d,v1.2d,v6.2d		\n\t	fadd	v9.2d ,v9.2d,v19.2d		\n\t"\
+/* 2 */	"fsub	v18.2d,v2.2d,v4.2d		\n\t	fsub	v20.2d,v8.2d ,v15.2d	\n\t"/*  8 */\
+/* 3 */	"fsub	v19.2d,v3.2d,v5.2d		\n\t	fsub	v21.2d,v9.2d ,v14.2d	\n\t"/*  9 */\
+		"fadd	v7.2d,v0.2d,v7.2d		\n\t	fsub	v22.2d,v10.2d,v12.2d	\n\t"/* 10 */\
+		"fadd	v6.2d,v1.2d,v6.2d		\n\t	fsub	v23.2d,v11.2d,v13.2d	\n\t"/* 11 */\
+		"fadd	v4.2d,v2.2d,v4.2d		\n\t	fadd	v15.2d,v8.2d ,v15.2d	\n\t"\
+		"fadd	v5.2d,v3.2d,v5.2d		\n\t	fadd	v14.2d,v9.2d ,v14.2d	\n\t"\
+		"stp	q18,q19,[x14,#0x200]	\n\t	fadd	v12.2d,v10.2d,v12.2d	\n\t"\
+		"stp	q16,q6 ,[x14,#0x300]	\n\t	fadd	v13.2d,v11.2d,v13.2d	\n\t"\
+		"stp	q4 ,q5 ,[x14       ]	\n\t	stp	q22,q23,[x14,#0x280]	\n\t"\
+		"stp	q7 ,q17,[x14,#0x100]	\n\t	stp	q20,q14,[x14,#0x380]	\n\t"\
+		"										stp	q12,q13,[x14,#0x080]	\n\t"\
+		"										stp	q15,q21,[x14,#0x180]	\n\t"\
+		/*...Block 4: t06,t16,t26,t36*/			/*...Block 8: t0E,t1E,t2E,t3E*/\
+		"add	x14,x14,#0x20			\n\t"/* r06 */\
+		"ldp	q0,q1,[x14,#0x200]		\n\t"\
+		"ldp	q2,q3,[x14,#0x300]		\n\t"\
+/*cc1:=[c,s]*/"ldp	q18,q19,[x10,#0x20]	\n\t"\
+/*cc3:=[a,b]*/"ldp	q20,q21,[x10,#0x40]	\n\t"\
+		"fmul	v4.2d,v0.2d,v20.2d		\n\t	ldp	q8 ,q9 ,[x14,#0x280]		\n\t"\
+		"fmul	v5.2d,v1.2d,v20.2d		\n\t	ldp	q10,q11,[x14,#0x380]		\n\t"\
+/*4a+5b*/"fmla	v4.2d,v1.2d,v21.2d		\n\t	fmul	v12.2d,v8.2d,v19.2d		\n\t"\
+/*5a-4b*/"fmls	v5.2d,v0.2d,v21.2d		\n\t	fmul	v13.2d,v9.2d,v19.2d		\n\t"\
+		"fmul	v16.2d,v2.2d,v19.2d		\n\t	fmla	v12.2d,v9.2d,v18.2d		\n\t"/*12s+13c*/\
+		"fmul	v17.2d,v3.2d,v19.2d		\n\t	fmls	v13.2d,v8.2d,v18.2d		\n\t"/*13s-12c*/\
+/*6s-7c*/"fmls	v16.2d,v3.2d,v18.2d		\n\t	fmul	v24.2d,v10.2d,v21.2d	\n\t"\
+/*7s+6c*/"fmla	v17.2d,v2.2d,v18.2d		\n\t	fmul	v25.2d,v11.2d,v21.2d	\n\t"\
+		"fadd	v6.2d,v4.2d,v16.2d		\n\t	fmla	v24.2d,v11.2d,v20.2d	\n\t"/*14b+15a*/\
+		"fadd	v7.2d,v5.2d,v17.2d		\n\t	fmls	v25.2d,v10.2d,v20.2d	\n\t"/*15b-14a*/\
+		"fsub	v4.2d,v4.2d,v16.2d		\n\t	fadd	v14.2d,v12.2d,v24.2d	\n\t"\
+		"fsub	v5.2d,v5.2d,v17.2d		\n\t	fadd	v15.2d,v13.2d,v25.2d	\n\t"\
+		"ldp	q0,q1,[x14       ]		\n\t	fsub	v12.2d,v12.2d,v24.2d	\n\t"\
+		"ldp	q2,q3,[x14,#0x100]		\n\t	fsub	v13.2d,v13.2d,v25.2d	\n\t"\
+		/* cc0 := [c,s]: */\
+		"ldp	q20,q21,[x10]			\n\t"\
+		"fmul	v16.2d,v2.2d,v21.2d		\n\t	ldp	q8 ,q9 ,[x14,#0x080]		\n\t"\
+		"fmul	v17.2d,v3.2d,v21.2d		\n\t	ldp	q10,q11,[x14,#0x180]		\n\t"\
+/*2s+3c*/"fmla	v16.2d,v3.2d,v20.2d		\n\t	fmul	v18.2d,v10.2d,v20.2d	\n\t"\
+/*3s-2c*/"fmls	v17.2d,v2.2d,v20.2d		\n\t	fmul	v19.2d,v11.2d,v20.2d	\n\t"\
+		"fadd	v2.2d,v0.2d,v16.2d		\n\t	fmls	v18.2d,v11.2d,v21.2d	\n\t"/*10c-11s*/\
+		"fadd	v3.2d,v1.2d,v17.2d		\n\t	fmla	v19.2d,v10.2d,v21.2d	\n\t"/*11c+10s*/\
+		"fsub	v0.2d,v0.2d,v16.2d		\n\t	fsub	v10.2d,v8.2d,v18.2d		\n\t"\
+		"fsub	v1.2d,v1.2d,v17.2d		\n\t	fsub	v11.2d,v9.2d,v19.2d		\n\t"\
+/* 0 */	"fsub	v16.2d,v0.2d,v7.2d		\n\t	fadd	v8.2d ,v8.2d,v18.2d		\n\t"\
+/* 1 */	"fsub	v17.2d,v1.2d,v6.2d		\n\t	fadd	v9.2d ,v9.2d,v19.2d		\n\t"\
+/* 2 */	"fsub	v18.2d,v2.2d,v4.2d		\n\t	fsub	v20.2d,v8.2d ,v15.2d	\n\t"/*  8 */\
+/* 3 */	"fsub	v19.2d,v3.2d,v5.2d		\n\t	fsub	v21.2d,v9.2d ,v14.2d	\n\t"/*  9 */\
+		"fadd	v7.2d,v0.2d,v7.2d		\n\t	fsub	v22.2d,v10.2d,v12.2d	\n\t"/* 10 */\
+		"fadd	v6.2d,v1.2d,v6.2d		\n\t	fsub	v23.2d,v11.2d,v13.2d	\n\t"/* 11 */\
+		"fadd	v4.2d,v2.2d,v4.2d		\n\t	fadd	v15.2d,v8.2d ,v15.2d	\n\t"\
+		"fadd	v5.2d,v3.2d,v5.2d		\n\t	fadd	v14.2d,v9.2d ,v14.2d	\n\t"\
+		"stp	q18,q19,[x14,#0x200]	\n\t	fadd	v12.2d,v10.2d,v12.2d	\n\t"\
+		"stp	q16,q6 ,[x14,#0x300]	\n\t	fadd	v13.2d,v11.2d,v13.2d	\n\t"\
+		"stp	q4 ,q5 ,[x14       ]	\n\t	stp	q22,q23,[x14,#0x280]	\n\t"\
+		"stp	q7 ,q17,[x14,#0x100]	\n\t	stp	q20,q14,[x14,#0x380]	\n\t"\
+		"										stp	q12,q13,[x14,#0x080]	\n\t"\
+		"										stp	q15,q21,[x14,#0x180]	\n\t"\
+		:					/* outputs: none */\
+		: [__add] "m" (Xadd)	/* All inputs from memory addresses here */\
+		 ,[__arr_offsets] "m" (Xarr_offsets)\
+		 ,[__r00] "m" (Xr00)\
+		 ,[__isrt2] "m" (Xisrt2)\
+		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","x7","x8","x10","x11","x14","x15",\
+		"v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11","v12","v13","v14","v15",\
+		"v16","v17","v18","v19","v20","v21","v22","v23","v24","v25","v26","v27", "v29"	/* Clobbered registers */\
+	);\
+	}
+
+	#define SSE2_RADIX32_DIF_NOTWIDDLE(Xadd,Xarr_offsets, Xr00, Xisrt2)\
+	{\
+	__asm__ volatile (\
+		"ldr	x14,%[__r00]		\n\t	ldr	x10,%[__isrt2]		\n\t"\
+		"ldr	w11,=0x10			\n\t	ld1r	{v29.2d},[x10],x11	\n\t"/* x10 has isrt2-ptr for LD1R, gets post-incr'ed by 0x10 to cc0 */\
+		/*...Block 1: */\
+		"ldp	q0,q1,[x14       ]	\n\t	ldp	q12,q13,[x14,#0x080]		\n\t"\
+		"ldp	q4,q5,[x14,#0x200]	\n\t	ldp	q16,q17,[x14,#0x280]		\n\t"\
+		"fsub	v2.2d,v0.2d,v4.2d	\n\t	fsub	v14.2d,v12.2d,v16.2d	\n\t"\
+		"fsub	v3.2d,v1.2d,v5.2d	\n\t	fsub	v15.2d,v13.2d,v17.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v4.2d	\n\t	fadd	v12.2d,v12.2d,v16.2d	\n\t"\
+		"fadd	v1.2d,v1.2d,v5.2d	\n\t	fadd	v13.2d,v13.2d,v17.2d	\n\t"\
+		"ldp	q4,q5,[x14,#0x100]	\n\t	ldp	q16,q17,[x14,#0x180]		\n\t"\
+		"ldp	q8,q9,[x14,#0x300]	\n\t	ldp	q20,q21,[x14,#0x380]		\n\t"\
+		"fsub	v6.2d,v4.2d,v8.2d	\n\t	fsub	v18.2d,v16.2d,v20.2d	\n\t"\
+		"fsub	v7.2d,v5.2d,v9.2d	\n\t	fsub	v19.2d,v17.2d,v21.2d	\n\t"\
+		"fadd	v4.2d,v4.2d,v8.2d	\n\t	fadd	v16.2d,v16.2d,v20.2d	\n\t"\
+		"fadd	v5.2d,v5.2d,v9.2d	\n\t	fadd	v17.2d,v17.2d,v21.2d	\n\t"\
+		/* combine to get 2 length-4 output subtransforms... */\
+		"fsub	v8.2d,v0.2d,v4.2d	\n\t	fsub	v20.2d,v12.2d,v16.2d	\n\t"\
+		"fsub	v9.2d,v1.2d,v5.2d	\n\t	fsub	v21.2d,v13.2d,v17.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v4.2d	\n\t	fadd	v12.2d,v12.2d,v16.2d	\n\t"\
+		"fadd	v1.2d,v1.2d,v5.2d	\n\t	fadd	v13.2d,v13.2d,v17.2d	\n\t"\
+		"fadd	v4.2d,v2.2d,v7.2d	\n\t	fadd	v17.2d,v14.2d,v19.2d	\n\t"\
+		"fsub	v5.2d,v3.2d,v6.2d	\n\t	fsub	v16.2d,v15.2d,v18.2d	\n\t"\
+		"fsub	v2.2d,v2.2d,v7.2d	\n\t	fsub	v14.2d,v14.2d,v19.2d	\n\t"\
+		"fadd	v3.2d,v3.2d,v6.2d	\n\t	fadd	v15.2d,v15.2d,v18.2d	\n\t"\
+		/* v6,7,18,19 free */\
+		"fsub	v6.2d,v0.2d,v12.2d	\n\t	fsub	v18.2d,v14.2d,v15.2d	\n\t"\
+		"fsub	v7.2d,v1.2d,v13.2d	\n\t	fadd	v19.2d,v14.2d,v15.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v12.2d	\n\t	fmul	v18.2d,v18.2d,v29.2d	\n\t"\
+		"fadd	v1.2d,v1.2d,v13.2d	\n\t	fmul	v19.2d,v19.2d,v29.2d	\n\t"\
+		"fsub	v12.2d,v8.2d,v21.2d	\n\t	fadd	v14.2d,v16.2d,v17.2d	\n\t"\
+		"fsub	v13.2d,v9.2d,v20.2d	\n\t	fsub	v15.2d,v16.2d,v17.2d	\n\t"\
+		"fadd	v8.2d,v8.2d,v21.2d	\n\t	fmul	v14.2d,v14.2d,v29.2d	\n\t"\
+		"fadd	v9.2d,v9.2d,v20.2d	\n\t	fmul	v15.2d,v15.2d,v29.2d	\n\t"\
+		"fsub	v16.2d,v2.2d ,v18.2d\n\t	stp	q0 ,q1 ,[x14       ]	\n\t"\
+		"fsub	v17.2d,v3.2d ,v19.2d\n\t	stp	q6 ,q7 ,[x14,#0x080]	\n\t"\
+		"fadd	v2.2d ,v2.2d ,v18.2d\n\t	stp	q12,q9 ,[x14,#0x200]	\n\t"\
+		"fadd	v3.2d ,v3.2d ,v19.2d\n\t	stp	q8 ,q13,[x14,#0x280]	\n\t"\
+		"fsub	v18.2d,v4.2d ,v14.2d\n\t	stp	q2, q3 ,[x14,#0x100]	\n\t"\
+		"fsub	v19.2d,v5.2d ,v15.2d\n\t	stp	q16,q17,[x14,#0x180]	\n\t"\
+		"fadd	v4.2d ,v4.2d ,v14.2d\n\t	stp	q18,q19,[x14,#0x300]	\n\t"\
+		"fadd	v5.2d ,v5.2d ,v15.2d\n\t	stp	q4 ,q5 ,[x14,#0x380]	\n\t"\
+	/***************************************/\
+		/*...Block 2: */\
+		"add	x14,x14,#0x20	\n\t"/* r02 */\
+		"ldp	q0,q1,[x14       ]	\n\t	ldp	q12,q13,[x14,#0x080]		\n\t"\
+		"ldp	q4,q5,[x14,#0x200]	\n\t	ldp	q16,q17,[x14,#0x280]		\n\t"\
+		"fsub	v2.2d,v0.2d,v4.2d	\n\t	fsub	v14.2d,v12.2d,v16.2d	\n\t"\
+		"fsub	v3.2d,v1.2d,v5.2d	\n\t	fsub	v15.2d,v13.2d,v17.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v4.2d	\n\t	fadd	v12.2d,v12.2d,v16.2d	\n\t"\
+		"fadd	v1.2d,v1.2d,v5.2d	\n\t	fadd	v13.2d,v13.2d,v17.2d	\n\t"\
+		"ldp	q4,q5,[x14,#0x100]	\n\t	ldp	q16,q17,[x14,#0x180]		\n\t"\
+		"ldp	q8,q9,[x14,#0x300]	\n\t	ldp	q20,q21,[x14,#0x380]		\n\t"\
+		"fsub	v6.2d,v4.2d,v8.2d	\n\t	fsub	v18.2d,v16.2d,v20.2d	\n\t"\
+		"fsub	v7.2d,v5.2d,v9.2d	\n\t	fsub	v19.2d,v17.2d,v21.2d	\n\t"\
+		"fadd	v4.2d,v4.2d,v8.2d	\n\t	fadd	v16.2d,v16.2d,v20.2d	\n\t"\
+		"fadd	v5.2d,v5.2d,v9.2d	\n\t	fadd	v17.2d,v17.2d,v21.2d	\n\t"\
+		/* combine to get 2 length-4 output subtransforms... */\
+		"fsub	v8.2d,v0.2d,v4.2d	\n\t	fsub	v20.2d,v12.2d,v16.2d	\n\t"\
+		"fsub	v9.2d,v1.2d,v5.2d	\n\t	fsub	v21.2d,v13.2d,v17.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v4.2d	\n\t	fadd	v12.2d,v12.2d,v16.2d	\n\t"\
+		"fadd	v1.2d,v1.2d,v5.2d	\n\t	fadd	v13.2d,v13.2d,v17.2d	\n\t"\
+		"fadd	v4.2d,v2.2d,v7.2d	\n\t	fadd	v17.2d,v14.2d,v19.2d	\n\t"\
+		"fsub	v5.2d,v3.2d,v6.2d	\n\t	fsub	v16.2d,v15.2d,v18.2d	\n\t"\
+		"fsub	v2.2d,v2.2d,v7.2d	\n\t	fsub	v14.2d,v14.2d,v19.2d	\n\t"\
+		"fadd	v3.2d,v3.2d,v6.2d	\n\t	fadd	v15.2d,v15.2d,v18.2d	\n\t"\
+		/* v6,7,18,19 free */\
+		"fsub	v6.2d,v0.2d,v12.2d	\n\t	fsub	v18.2d,v14.2d,v15.2d	\n\t"\
+		"fsub	v7.2d,v1.2d,v13.2d	\n\t	fadd	v19.2d,v14.2d,v15.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v12.2d	\n\t	fmul	v18.2d,v18.2d,v29.2d	\n\t"\
+		"fadd	v1.2d,v1.2d,v13.2d	\n\t	fmul	v19.2d,v19.2d,v29.2d	\n\t"\
+		"fsub	v12.2d,v8.2d,v21.2d	\n\t	fadd	v14.2d,v16.2d,v17.2d	\n\t"\
+		"fsub	v13.2d,v9.2d,v20.2d	\n\t	fsub	v15.2d,v16.2d,v17.2d	\n\t"\
+		"fadd	v8.2d,v8.2d,v21.2d	\n\t	fmul	v14.2d,v14.2d,v29.2d	\n\t"\
+		"fadd	v9.2d,v9.2d,v20.2d	\n\t	fmul	v15.2d,v15.2d,v29.2d	\n\t"\
+		"fsub	v16.2d,v2.2d ,v18.2d\n\t	stp	q0 ,q1 ,[x14       ]	\n\t"\
+		"fsub	v17.2d,v3.2d ,v19.2d\n\t	stp	q6 ,q7 ,[x14,#0x080]	\n\t"\
+		"fadd	v2.2d ,v2.2d ,v18.2d\n\t	stp	q12,q9 ,[x14,#0x200]	\n\t"\
+		"fadd	v3.2d ,v3.2d ,v19.2d\n\t	stp	q8 ,q13,[x14,#0x280]	\n\t"\
+		"fsub	v18.2d,v4.2d ,v14.2d\n\t	stp	q2, q3 ,[x14,#0x100]	\n\t"\
+		"fsub	v19.2d,v5.2d ,v15.2d\n\t	stp	q16,q17,[x14,#0x180]	\n\t"\
+		"fadd	v4.2d ,v4.2d ,v14.2d\n\t	stp	q18,q19,[x14,#0x300]	\n\t"\
+		"fadd	v5.2d ,v5.2d ,v15.2d\n\t	stp	q4 ,q5 ,[x14,#0x380]	\n\t"\
+	/***************************************/\
+		/*...Block 3: */\
+		"add	x14,x14,#0x20	\n\t"/* r04 */\
+		"ldp	q0,q1,[x14       ]	\n\t	ldp	q12,q13,[x14,#0x080]		\n\t"\
+		"ldp	q4,q5,[x14,#0x200]	\n\t	ldp	q16,q17,[x14,#0x280]		\n\t"\
+		"fsub	v2.2d,v0.2d,v4.2d	\n\t	fsub	v14.2d,v12.2d,v16.2d	\n\t"\
+		"fsub	v3.2d,v1.2d,v5.2d	\n\t	fsub	v15.2d,v13.2d,v17.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v4.2d	\n\t	fadd	v12.2d,v12.2d,v16.2d	\n\t"\
+		"fadd	v1.2d,v1.2d,v5.2d	\n\t	fadd	v13.2d,v13.2d,v17.2d	\n\t"\
+		"ldp	q4,q5,[x14,#0x100]	\n\t	ldp	q16,q17,[x14,#0x180]		\n\t"\
+		"ldp	q8,q9,[x14,#0x300]	\n\t	ldp	q20,q21,[x14,#0x380]		\n\t"\
+		"fsub	v6.2d,v4.2d,v8.2d	\n\t	fsub	v18.2d,v16.2d,v20.2d	\n\t"\
+		"fsub	v7.2d,v5.2d,v9.2d	\n\t	fsub	v19.2d,v17.2d,v21.2d	\n\t"\
+		"fadd	v4.2d,v4.2d,v8.2d	\n\t	fadd	v16.2d,v16.2d,v20.2d	\n\t"\
+		"fadd	v5.2d,v5.2d,v9.2d	\n\t	fadd	v17.2d,v17.2d,v21.2d	\n\t"\
+		/* combine to get 2 length-4 output subtransforms... */\
+		"fsub	v8.2d,v0.2d,v4.2d	\n\t	fsub	v20.2d,v12.2d,v16.2d	\n\t"\
+		"fsub	v9.2d,v1.2d,v5.2d	\n\t	fsub	v21.2d,v13.2d,v17.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v4.2d	\n\t	fadd	v12.2d,v12.2d,v16.2d	\n\t"\
+		"fadd	v1.2d,v1.2d,v5.2d	\n\t	fadd	v13.2d,v13.2d,v17.2d	\n\t"\
+		"fadd	v4.2d,v2.2d,v7.2d	\n\t	fadd	v17.2d,v14.2d,v19.2d	\n\t"\
+		"fsub	v5.2d,v3.2d,v6.2d	\n\t	fsub	v16.2d,v15.2d,v18.2d	\n\t"\
+		"fsub	v2.2d,v2.2d,v7.2d	\n\t	fsub	v14.2d,v14.2d,v19.2d	\n\t"\
+		"fadd	v3.2d,v3.2d,v6.2d	\n\t	fadd	v15.2d,v15.2d,v18.2d	\n\t"\
+		/* v6,7,18,19 free */\
+		"fsub	v6.2d,v0.2d,v12.2d	\n\t	fsub	v18.2d,v14.2d,v15.2d	\n\t"\
+		"fsub	v7.2d,v1.2d,v13.2d	\n\t	fadd	v19.2d,v14.2d,v15.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v12.2d	\n\t	fmul	v18.2d,v18.2d,v29.2d	\n\t"\
+		"fadd	v1.2d,v1.2d,v13.2d	\n\t	fmul	v19.2d,v19.2d,v29.2d	\n\t"\
+		"fsub	v12.2d,v8.2d,v21.2d	\n\t	fadd	v14.2d,v16.2d,v17.2d	\n\t"\
+		"fsub	v13.2d,v9.2d,v20.2d	\n\t	fsub	v15.2d,v16.2d,v17.2d	\n\t"\
+		"fadd	v8.2d,v8.2d,v21.2d	\n\t	fmul	v14.2d,v14.2d,v29.2d	\n\t"\
+		"fadd	v9.2d,v9.2d,v20.2d	\n\t	fmul	v15.2d,v15.2d,v29.2d	\n\t"\
+		"fsub	v16.2d,v2.2d ,v18.2d\n\t	stp	q0 ,q1 ,[x14       ]	\n\t"\
+		"fsub	v17.2d,v3.2d ,v19.2d\n\t	stp	q6 ,q7 ,[x14,#0x080]	\n\t"\
+		"fadd	v2.2d ,v2.2d ,v18.2d\n\t	stp	q12,q9 ,[x14,#0x200]	\n\t"\
+		"fadd	v3.2d ,v3.2d ,v19.2d\n\t	stp	q8 ,q13,[x14,#0x280]	\n\t"\
+		"fsub	v18.2d,v4.2d ,v14.2d\n\t	stp	q2, q3 ,[x14,#0x100]	\n\t"\
+		"fsub	v19.2d,v5.2d ,v15.2d\n\t	stp	q16,q17,[x14,#0x180]	\n\t"\
+		"fadd	v4.2d ,v4.2d ,v14.2d\n\t	stp	q18,q19,[x14,#0x300]	\n\t"\
+		"fadd	v5.2d ,v5.2d ,v15.2d\n\t	stp	q4 ,q5 ,[x14,#0x380]	\n\t"\
+	/***************************************/\
+		/*...Block 4: */\
+		"add	x14,x14,#0x20	\n\t"/* r06 */\
+		"ldp	q0,q1,[x14       ]	\n\t	ldp	q12,q13,[x14,#0x080]		\n\t"\
+		"ldp	q4,q5,[x14,#0x200]	\n\t	ldp	q16,q17,[x14,#0x280]		\n\t"\
+		"fsub	v2.2d,v0.2d,v4.2d	\n\t	fsub	v14.2d,v12.2d,v16.2d	\n\t"\
+		"fsub	v3.2d,v1.2d,v5.2d	\n\t	fsub	v15.2d,v13.2d,v17.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v4.2d	\n\t	fadd	v12.2d,v12.2d,v16.2d	\n\t"\
+		"fadd	v1.2d,v1.2d,v5.2d	\n\t	fadd	v13.2d,v13.2d,v17.2d	\n\t"\
+		"ldp	q4,q5,[x14,#0x100]	\n\t	ldp	q16,q17,[x14,#0x180]		\n\t"\
+		"ldp	q8,q9,[x14,#0x300]	\n\t	ldp	q20,q21,[x14,#0x380]		\n\t"\
+		"fsub	v6.2d,v4.2d,v8.2d	\n\t	fsub	v18.2d,v16.2d,v20.2d	\n\t"\
+		"fsub	v7.2d,v5.2d,v9.2d	\n\t	fsub	v19.2d,v17.2d,v21.2d	\n\t"\
+		"fadd	v4.2d,v4.2d,v8.2d	\n\t	fadd	v16.2d,v16.2d,v20.2d	\n\t"\
+		"fadd	v5.2d,v5.2d,v9.2d	\n\t	fadd	v17.2d,v17.2d,v21.2d	\n\t"\
+		/* combine to get 2 length-4 output subtransforms... */\
+		"fsub	v8.2d,v0.2d,v4.2d	\n\t	fsub	v20.2d,v12.2d,v16.2d	\n\t"\
+		"fsub	v9.2d,v1.2d,v5.2d	\n\t	fsub	v21.2d,v13.2d,v17.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v4.2d	\n\t	fadd	v12.2d,v12.2d,v16.2d	\n\t"\
+		"fadd	v1.2d,v1.2d,v5.2d	\n\t	fadd	v13.2d,v13.2d,v17.2d	\n\t"\
+		"fadd	v4.2d,v2.2d,v7.2d	\n\t	fadd	v17.2d,v14.2d,v19.2d	\n\t"\
+		"fsub	v5.2d,v3.2d,v6.2d	\n\t	fsub	v16.2d,v15.2d,v18.2d	\n\t"\
+		"fsub	v2.2d,v2.2d,v7.2d	\n\t	fsub	v14.2d,v14.2d,v19.2d	\n\t"\
+		"fadd	v3.2d,v3.2d,v6.2d	\n\t	fadd	v15.2d,v15.2d,v18.2d	\n\t"\
+		/* v6,7,18,19 free */\
+		"fsub	v6.2d,v0.2d,v12.2d	\n\t	fsub	v18.2d,v14.2d,v15.2d	\n\t"\
+		"fsub	v7.2d,v1.2d,v13.2d	\n\t	fadd	v19.2d,v14.2d,v15.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v12.2d	\n\t	fmul	v18.2d,v18.2d,v29.2d	\n\t"\
+		"fadd	v1.2d,v1.2d,v13.2d	\n\t	fmul	v19.2d,v19.2d,v29.2d	\n\t"\
+		"fsub	v12.2d,v8.2d,v21.2d	\n\t	fadd	v14.2d,v16.2d,v17.2d	\n\t"\
+		"fsub	v13.2d,v9.2d,v20.2d	\n\t	fsub	v15.2d,v16.2d,v17.2d	\n\t"\
+		"fadd	v8.2d,v8.2d,v21.2d	\n\t	fmul	v14.2d,v14.2d,v29.2d	\n\t"\
+		"fadd	v9.2d,v9.2d,v20.2d	\n\t	fmul	v15.2d,v15.2d,v29.2d	\n\t"\
+		"fsub	v16.2d,v2.2d ,v18.2d\n\t	stp	q0 ,q1 ,[x14       ]	\n\t"\
+		"fsub	v17.2d,v3.2d ,v19.2d\n\t	stp	q6 ,q7 ,[x14,#0x080]	\n\t"\
+		"fadd	v2.2d ,v2.2d ,v18.2d\n\t	stp	q12,q9 ,[x14,#0x200]	\n\t"\
+		"fadd	v3.2d ,v3.2d ,v19.2d\n\t	stp	q8 ,q13,[x14,#0x280]	\n\t"\
+		"fsub	v18.2d,v4.2d ,v14.2d\n\t	stp	q2, q3 ,[x14,#0x100]	\n\t"\
+		"fsub	v19.2d,v5.2d ,v15.2d\n\t	stp	q16,q17,[x14,#0x180]	\n\t"\
+		"fadd	v4.2d ,v4.2d ,v14.2d\n\t	stp	q18,q19,[x14,#0x300]	\n\t"\
+		"fadd	v5.2d ,v5.2d ,v15.2d\n\t	stp	q4 ,q5 ,[x14,#0x380]	\n\t"\
+	/**********************************************************************************/\
+	/*...and now do eight radix-4 transforms, including the internal twiddle factors: */\
+	/**********************************************************************************/\
+		"sub	x14,x14,#0x60	\n\t"/* r00 */\
+	/*...Block 1: t00,t10,t20,t30 in r00,04,02,06 - note swapped middle 2 indices! */\
+											/*...Block 5: t08,t18,t28,t38	*/\
+		/* arr_offsets int-ptr to arr containing p0,1,...p31; '--' in ensuing comments indicate GPRs loaded from
+		array via LDP but intended only as dummies to permit the convenient LDP-enabled byte-offset addressing: */\
+		"ldr	x8,%[__add]				\n\t	ldr	x15,%[__arr_offsets]	\n\t"\
+		"ldp	w0,w1,[x15,#0x00]		\n\t	add	x0, x0,x8		\n\t"/* add0 + offset0 */"	ldp	q8 ,q9 ,[x14,#0x80]		\n\t"\
+		"ldp	w2,w3,[x15,#0x08]		\n\t	add	x1, x1,x8		\n\t"/* add0 + offset1 */"	ldp	q10,q11,[x14,#0xc0]		\n\t"\
+		"ldp	w4,w5,[x15,#0x10]		\n\t	add	x2, x2,x8		\n\t"/* add0 + offset2 */"	ldp	q12,q13,[x14,#0xa0]		\n\t"\
+		"ldp	w6,w7,[x15,#0x18]		\n\t	add	x3, x3,x8		\n\t"/* add0 + offset3 */"	ldp	q14,q15,[x14,#0xe0]		\n\t"\
+		"ldp	q0,q1,[x14      ]		\n\t	add	x4, x4,x8		\n\t"/* add0 + offset4 */\
+		"ldp	q2,q3,[x14,#0x40]		\n\t	add	x5, x5,x8		\n\t"/* add0 + offset5 */\
+		"ldp	q4,q5,[x14,#0x20]		\n\t	add	x6, x6,x8		\n\t"/* add0 + offset6 */\
+		"ldp	q6,q7,[x14,#0x60]		\n\t	add	x7, x7,x8		\n\t"/* add0 + offset7 */\
+/* 2 */	"fadd	v16.2d,v0.2d,v2.2d		\n\t	fmul	v12.2d,v12.2d,v29.2d	\n\t"\
+/* 3 */	"fadd	v17.2d,v1.2d,v3.2d		\n\t	fmul	v13.2d,v13.2d,v29.2d	\n\t"\
+/* 6 */	"fadd	v18.2d,v4.2d,v6.2d		\n\t	fmul	v14.2d,v14.2d,v29.2d	\n\t"\
+/* 7 */	"fadd	v19.2d,v5.2d,v7.2d		\n\t	fmul	v15.2d,v15.2d,v29.2d	\n\t"\
+		"fsub	v0.2d ,v0.2d,v2.2d		\n\t	fadd	v20.2d,v8.2d ,v11.2d	\n\t"/* b=8+b */\
+		"fsub	v1.2d ,v1.2d,v3.2d		\n\t	fadd	v21.2d,v12.2d,v13.2d	\n\t"/* d=c+d */\
+		"fsub	v4.2d ,v4.2d,v6.2d		\n\t	fadd	v22.2d,v9.2d ,v10.2d	\n\t"/* a=9+a */\
+		"fsub	v5.2d ,v5.2d,v7.2d		\n\t	fadd	v23.2d,v15.2d,v14.2d	\n\t"/* e=f+e */\
+		"fsub	v2.2d,v16.2d,v18.2d		\n\t	fsub	v8.2d ,v8.2d ,v11.2d	\n\t"/* 2=2-6 ; 8=8-b */\
+		"fsub	v3.2d,v17.2d,v19.2d		\n\t	fsub	v12.2d,v12.2d,v13.2d	\n\t"/* 3=3-7 ; c=c-d */\
+		"fadd	v6.2d,v16.2d,v18.2d		\n\t	fsub	v9.2d ,v9.2d ,v10.2d	\n\t"/* 6=2+6 ; 9=9-a */\
+		"fadd	v7.2d,v17.2d,v19.2d		\n\t	fsub	v15.2d,v15.2d,v14.2d	\n\t"/* 7=3+7 ; f=f-e */\
+/* 0 */	"fsub	v16.2d,v0.2d,v5.2d		\n\t	fadd	v14.2d,v12.2d,v23.2d	\n\t"/* e=c+e */\
+/* 1 */	"fsub	v17.2d,v1.2d,v4.2d		\n\t	fsub	v12.2d,v12.2d,v23.2d	\n\t"/* c=c-e */\
+		"fadd	v5.2d ,v0.2d,v5.2d		\n\t	fsub	v13.2d,v21.2d,v15.2d	\n\t"/* d=d-f */\
+		"fadd	v4.2d ,v1.2d,v4.2d		\n\t	fadd	v15.2d,v21.2d,v15.2d	\n\t"/* f=d+f */\
+		/* Lcol Output order is 6,7,2,3,0,4,5,1: */\
+		"stp	q6 ,q7 ,[x0]			\n\t	fsub	v21.2d,v8.2d ,v12.2d	\n\t"/* 8=8-c */\
+		"stp	q2, q3 ,[x1]			\n\t	fsub	v10.2d,v22.2d,v13.2d	\n\t"/* a=a-d */\
+		"stp	q16,q4 ,[x2]			\n\t	fadd	v12.2d,v8.2d ,v12.2d	\n\t"/* c=8+c */\
+		"stp	q5 ,q17,[x3]			\n\t	fadd	v13.2d,v22.2d,v13.2d	\n\t"/* d=a+d */\
+		/* Rcol Output order is c,d,8,a,b,e,f,9 - fiddle actual store order to follow compute-order mandated by register-data dependencies: */\
+		"ldr	x8,%[__add]				\n\t"\
+		"ldp	w0,w1,[x15,#0x20]		\n\t	add	x0, x0,x8		\n\t"/* add0 + offset8 */\
+		"ldp	w2,w3,[x15,#0x28]		\n\t	add	x1, x1,x8		\n\t"/* add0 + offset9 */\
+		"										add	x2, x2,x8		\n\t"/* add0 + offset10 */\
+		"										add	x3, x3,x8		\n\t"/* add0 + offset11 */\
+		"			fsub	v11.2d,v20.2d,v15.2d	\n\t"/* b=b-f */"	stp	q12,q13,[x4]	\n\t"\
+		"			fsub	v22.2d,v9.2d ,v14.2d	\n\t"/* 9=9-e */"	stp	q21,q10,[x5]	\n\t"\
+		"			fadd	v15.2d,v20.2d,v15.2d	\n\t"/* f=b+f */"	stp	q15,q22,[x7]	\n\t	ldp	w4,w5,[x15,#0x30]	\n\t"\
+		"			fadd	v14.2d,v9.2d ,v14.2d	\n\t"/* e=9+e */"	stp	q11,q14,[x6]	\n\t	ldp	w6,w7,[x15,#0x38]	\n\t"\
+	/*...Block 3: t04,t14,t24,t34; outputs into add0 + p8-11: */\
+		"add	x14,x14,#0x200	\n\t"/* r20 */"	ldp	q16,q17,[x10]			\n\t"/* cc0 */\
+											/*...Block 7: t0C,t1C,t2C,t3C; outputs into add0 + p12-15: */\
+		"ldp	q0 ,q1 ,[x14      ]		\n\t	add	x4, x4,x8		\n\t"/* add0 + offset12 */\
+		"ldp	q2 ,q3 ,[x14,#0x40]		\n\t	add	x5, x5,x8		\n\t"/* add0 + offset13 */\
+		"ldp	q4 ,q5 ,[x14,#0x20]		\n\t	add	x6, x6,x8		\n\t"/* add0 + offset14 */\
+		"ldp	q20,q21,[x14,#0x60]		\n\t	add	x7, x7,x8		\n\t"/* add0 + offset15 */\
+		"fmul	v18.2d,v4.2d,v16.2d		\n\t	ldp	q8 ,q9 ,[x14,#0x80]	\n\t"\
+		"fmul	v19.2d,v5.2d,v16.2d		\n\t	ldp	q10,q11,[x14,#0xc0]	\n\t"\
+		"fmls	v18.2d,v5.2d,v17.2d		\n\t	ldp	q12,q13,[x14,#0xa0]	\n\t"\
+		"fmla	v19.2d,v4.2d,v17.2d		\n\t	ldp	q24,q25,[x14,#0xe0]	\n\t"\
+		"fmul	v6.2d,v20.2d,v17.2d		\n\t	fmul	v22.2d,v12.2d,v17.2d	\n\t"/* 12s */\
+		"fmul	v7.2d,v21.2d,v17.2d		\n\t	fmul	v23.2d,v13.2d,v17.2d	\n\t"/* 13s */\
+		"fmls	v6.2d,v21.2d,v16.2d		\n\t	fmls	v22.2d,v13.2d,v16.2d	\n\t"/* 12s-13c */\
+		"fmla	v7.2d,v20.2d,v16.2d		\n\t	fmla	v23.2d,v12.2d,v16.2d	\n\t"/* 13s+12c */\
+		"fsub	v4.2d,v18.2d,v6.2d		\n\t	fmul	v14.2d,v24.2d,v16.2d	\n\t"/* 14c */\
+		"fsub	v5.2d,v19.2d,v7.2d		\n\t	fmul	v15.2d,v25.2d,v16.2d	\n\t"/* 15c */\
+		"fadd	v6.2d,v18.2d,v6.2d		\n\t	fmls	v14.2d,v25.2d,v17.2d	\n\t"/* 14=14c-15s */\
+		"fadd	v7.2d,v19.2d,v7.2d		\n\t	fmla	v15.2d,v24.2d,v17.2d	\n\t"/* 15=15c+14s */\
+		"fsub	v20.2d,v2.2d,v3.2d		\n\t	fsub	v12.2d,v22.2d,v14.2d	\n\t"/* 12=12-14 */\
+		"fadd	v21.2d,v2.2d,v3.2d		\n\t	fsub	v13.2d,v23.2d,v15.2d	\n\t"/* 13=13-15 */\
+		"fmul	v20.2d,v20.2d,v29.2d	\n\t	fadd	v14.2d,v22.2d,v14.2d	\n\t"/* 14=12+14 */\
+		"fmul	v21.2d,v21.2d,v29.2d	\n\t	fadd	v15.2d,v23.2d,v15.2d	\n\t"/* 15=13+15 */\
+		"fadd	v2.2d,v0.2d,v20.2d		\n\t	fadd	v22.2d,v10.2d,v11.2d	\n\t"/* 10=10+11 */\
+		"fadd	v3.2d,v1.2d,v21.2d		\n\t	fsub	v23.2d,v11.2d,v10.2d	\n\t"/* 11=11-10 */\
+		"fsub	v0.2d,v0.2d,v20.2d		\n\t	fmul	v22.2d,v22.2d,v29.2d	\n\t"/* 10 *= isrt2 */\
+		"fsub	v1.2d,v1.2d,v21.2d		\n\t	fmul	v23.2d,v23.2d,v29.2d	\n\t"/* 11 *= isrt2 */\
+/* 6=2+6*/"fadd	v18.2d,v2.2d,v6.2d		\n\t	fadd	v10.2d,v8.2d,v22.2d		\n\t"/* 10=8+10 */\
+/* 7=3+7*/"fadd	v19.2d,v3.2d,v7.2d		\n\t	fadd	v11.2d,v9.2d,v23.2d		\n\t"/* 11=9+11 */\
+/* 2=2-6*/"fsub	v2.2d ,v2.2d,v6.2d		\n\t	fsub	v8.2d ,v8.2d,v22.2d		\n\t"/*  8=8-10 */\
+/* 3=3-7*/"fsub	v3.2d ,v3.2d,v7.2d		\n\t	fsub	v9.2d ,v9.2d,v23.2d		\n\t"/*  9=9-11 */\
+/* 0=0-5*/"fsub	v20.2d,v0.2d,v5.2d		\n\t	fadd	v25.2d,v10.2d,v15.2d	\n\t"/* 15=10+15 */\
+/* 4=1+4*/"fadd	v21.2d,v1.2d,v4.2d		\n\t	fadd	v24.2d,v11.2d,v14.2d	\n\t"/* 14=11+14 */\
+/* 5=0+5*/"fadd	v5.2d ,v0.2d,v5.2d		\n\t	fsub	v10.2d,v10.2d,v15.2d	\n\t"/* 10=10-15 */\
+/* 1=1-4*/"fsub	v1.2d ,v1.2d,v4.2d		\n\t	fsub	v11.2d,v11.2d,v14.2d	\n\t"/* 11=11-14 */\
+		/* Lcol Output order: 6,7,2,3,0,4,5,1: */\
+		"stp	q18,q19,[x0]			\n\t	fsub	v22.2d,v8.2d ,v12.2d	\n\t"/*  8= 8-12 */\
+		"stp	q2 ,q3 ,[x1]			\n\t	fsub	v23.2d,v9.2d ,v13.2d	\n\t"/*  9= 9-13 */\
+		"stp	q20,q21,[x2]			\n\t	fadd	v12.2d,v8.2d ,v12.2d	\n\t"/* 12= 8+12 */\
+		"stp	q5 ,q1 ,[x3]			\n\t	fadd	v13.2d,v9.2d ,v13.2d	\n\t"/* 13= 9+13 */\
+		/* Rcol Output order: 12,13,8,9,10,14,15,11; Fiddle order of Rcol stores to reflect order in which outputs computed: */\
+		"ldr	x8,%[__add]				\n\t"\
+		"ldp	w0,w1,[x15,#0x40]		\n\t	add	x0, x0,x8		\n\t"/* add0 + offset16 */\
+		"ldp	w2,w3,[x15,#0x48]		\n\t	add	x1, x1,x8		\n\t"/* add0 + offset17 */\
+		"										add	x2, x2,x8		\n\t"/* add0 + offset16 */\
+		"										add	x3, x3,x8		\n\t"/* add0 + offset19 */\
+		"										stp	q10,q24,[x6]		\n\t"\
+		"										stp	q25,q11,[x7]		\n\t"\
+		"										stp	q22,q23,[x5]		\n\t	ldp	w6,w7,[x15,#0x58]	\n\t"\
+		"										stp	q12,q13,[x4]		\n\t	ldp	w4,w5,[x15,#0x50]	\n\t"\
+	/*...Block 2: t02,t12,t22,t32: */		/*...Block 6: t0A,t1A,t2A,t3A; outputs into add0 + p20-23: */\
+		"sub	x14,x14,#0x100			\n\t"/* r10 */\
+		"ldp	q16,q17,[x10,#0x20]		\n\t	ldp	q14,q15,[x10,#0x40]		\n\t"/* cc1,cc3 */\
+		"ldp	q0 ,q1 ,[x14      ]		\n\t	add	x4, x4,x8		\n\t"/* add0 + offset20 */\
+		"ldp	q2 ,q3 ,[x14,#0x40]		\n\t	add	x5, x5,x8		\n\t"/* add0 + offset21 */\
+		"ldp	q4 ,q5 ,[x14,#0x20]		\n\t	add	x6, x6,x8		\n\t"/* add0 + offset22 */\
+		"ldp	q20,q21,[x14,#0x60]		\n\t	add	x7, x7,x8		\n\t"/* add0 + offset23 */\
+		"fmul	v18.2d,v4.2d,v16.2d		\n\t	ldp	q8 ,q9 ,[x14,#0x80]	\n\t"\
+		"fmul	v19.2d,v5.2d,v16.2d		\n\t	ldp	q10,q11,[x14,#0xc0]	\n\t"\
+		"fmls	v18.2d,v5.2d,v17.2d		\n\t	ldp	q12,q13,[x14,#0xa0]	\n\t"\
+		"fmla	v19.2d,v4.2d,v17.2d		\n\t	ldp	q24,q25,[x14,#0xe0]	\n\t"\
+		/* Next set of tewiddles swap [c,s] pairs between the 2 columns: */\
+		"fmul	v6.2d,v20.2d,v14.2d		\n\t	fmul	v22.2d,v12.2d,v15.2d	\n\t"\
+		"fmul	v7.2d,v21.2d,v14.2d		\n\t	fmul	v23.2d,v13.2d,v15.2d	\n\t"\
+		"fmls	v6.2d,v21.2d,v15.2d		\n\t	fmls	v22.2d,v13.2d,v14.2d	\n\t"\
+		"fmla	v7.2d,v20.2d,v15.2d		\n\t	fmla	v23.2d,v12.2d,v14.2d	\n\t"\
+		"fsub	v4.2d,v18.2d,v6.2d		\n\t	fmul	v14.2d,v24.2d,v16.2d	\n\t"\
+		"fsub	v5.2d,v19.2d,v7.2d		\n\t	fmul	v15.2d,v25.2d,v16.2d	\n\t"\
+		"fadd	v6.2d,v18.2d,v6.2d		\n\t	fmla	v14.2d,v25.2d,v17.2d	\n\t"\
+		"fadd	v7.2d,v19.2d,v7.2d		\n\t	fmls	v15.2d,v24.2d,v17.2d	\n\t"\
+		"ldp	q16,q17,[x10     ]		\n\t"/* cc0 */\
+		"fmul	v18.2d,v2.2d,v16.2d		\n\t	fsub	v12.2d,v22.2d,v14.2d	\n\t"\
+		"fmul	v19.2d,v3.2d,v16.2d		\n\t	fsub	v13.2d,v23.2d,v15.2d	\n\t"\
+		"fmls	v18.2d,v3.2d,v17.2d		\n\t	fadd	v14.2d,v22.2d,v14.2d	\n\t"\
+		"fmla	v19.2d,v2.2d,v17.2d		\n\t	fadd	v15.2d,v23.2d,v15.2d	\n\t"\
+		/* Post-twiddle sub-DFT sequence same as pvs blockpair, just note 2,3 in v18,v19: */\
+		"fadd	v2.2d,v0.2d,v18.2d		\n\t	fmul	v22.2d,v10.2d,v17.2d	\n\t"\
+		"fadd	v3.2d,v1.2d,v19.2d		\n\t	fmul	v23.2d,v11.2d,v17.2d	\n\t"\
+		"fsub	v0.2d,v0.2d,v18.2d		\n\t	fmla	v22.2d,v11.2d,v16.2d	\n\t"\
+		"fsub	v1.2d,v1.2d,v19.2d		\n\t	fmls	v23.2d,v10.2d,v16.2d	\n\t"\
+		"fadd	v18.2d,v2.2d,v6.2d		\n\t	fadd	v10.2d,v8.2d,v22.2d		\n\t"\
+		"fadd	v19.2d,v3.2d,v7.2d		\n\t	fadd	v11.2d,v9.2d,v23.2d		\n\t"\
+		"fsub	v2.2d ,v2.2d,v6.2d		\n\t	fsub	v8.2d ,v8.2d,v22.2d		\n\t"\
+		"fsub	v3.2d ,v3.2d,v7.2d		\n\t	fsub	v9.2d ,v9.2d,v23.2d		\n\t"\
+		"fsub	v20.2d,v0.2d,v5.2d		\n\t	fadd	v25.2d,v10.2d,v15.2d	\n\t"\
+		"fadd	v21.2d,v1.2d,v4.2d		\n\t	fadd	v24.2d,v11.2d,v14.2d	\n\t"\
+		"fadd	v5.2d ,v0.2d,v5.2d		\n\t	fsub	v10.2d,v10.2d,v15.2d	\n\t"\
+		"fsub	v1.2d ,v1.2d,v4.2d		\n\t	fsub	v11.2d,v11.2d,v14.2d	\n\t"\
+		/* Lcol Output order: 6,7,2,3,0,4,5,1: */\
+		"stp	q18,q19,[x0]			\n\t	fsub	v22.2d,v8.2d ,v12.2d	\n\t"\
+		"stp	q2 ,q3 ,[x1]			\n\t	fsub	v23.2d,v9.2d ,v13.2d	\n\t"\
+		"stp	q20,q21,[x2]			\n\t	fadd	v12.2d,v8.2d ,v12.2d	\n\t"\
+		"stp	q5 ,q1 ,[x3]			\n\t	fadd	v13.2d,v9.2d ,v13.2d	\n\t"\
+		/* Rcol Output order: 12,13,8,9,10,14,15,11; Fiddle order of Rcol stores to reflect order in which outputs computed: */\
+		"ldr	x8,%[__add]				\n\t"\
+		"ldp	w0,w1,[x15,#0x60]		\n\t	add	x0, x0,x8		\n\t"/* add0 + offset24 */\
+		"ldp	w2,w3,[x15,#0x68]		\n\t	add	x1, x1,x8		\n\t"/* add0 + offset25 */\
+		"										add	x2, x2,x8		\n\t"/* add0 + offset26 */\
+		"										add	x3, x3,x8		\n\t"/* add0 + offset27 */\
+		"										stp	q10,q24,[x6]		\n\t"\
+		"										stp	q25,q11,[x7]		\n\t"\
+		"										stp	q22,q23,[x5]		\n\t	ldp	w6,w7,[x15,#0x78]	\n\t"\
+		"										stp	q12,q13,[x4]		\n\t	ldp	w4,w5,[x15,#0x70]	\n\t"\
+	/*...Block 4: t06,t16,t26,t36: */		/*...Block 8: t0E,t1E,t2E,t3E: */\
+		"add	x14,x14,#0x200			\n\t"/* r30 */\
+		"ldp	q16,q17,[x10,#0x40]		\n\t	ldp	q14,q15,[x10,#0x20]		\n\t"/* cc3,cc1 */\
+		"ldp	q0 ,q1 ,[x14      ]		\n\t	add	x4, x4,x8		\n\t"/* add0 + offset28 */\
+		"ldp	q2 ,q3 ,[x14,#0x40]		\n\t	add	x5, x5,x8		\n\t"/* add0 + offset29 */\
+		"ldp	q4 ,q5 ,[x14,#0x20]		\n\t	add	x6, x6,x8		\n\t"/* add0 + offset30 */\
+		"ldp	q20,q21,[x14,#0x60]		\n\t	add	x7, x7,x8		\n\t"/* add0 + offset31 */\
+		"fmul	v18.2d,v4.2d,v16.2d		\n\t	ldp	q8 ,q9 ,[x14,#0x80]	\n\t"\
+		"fmul	v19.2d,v5.2d,v16.2d		\n\t	ldp	q10,q11,[x14,#0xc0]	\n\t"\
+		"fmls	v18.2d,v5.2d,v17.2d		\n\t	ldp	q12,q13,[x14,#0xa0]	\n\t"\
+		"fmla	v19.2d,v4.2d,v17.2d		\n\t	ldp	q24,q25,[x14,#0xe0]	\n\t"\
+		/* Next set of tewiddles swap [c,s] pairs between the 2 columns: */\
+		"fmul	v6.2d,v20.2d,v15.2d		\n\t	fmul	v22.2d,v12.2d,v15.2d	\n\t"\
+		"fmul	v7.2d,v21.2d,v15.2d		\n\t	fmul	v23.2d,v13.2d,v15.2d	\n\t"\
+		"fmla	v6.2d,v21.2d,v14.2d		\n\t	fmls	v22.2d,v13.2d,v14.2d	\n\t"\
+		"fmls	v7.2d,v20.2d,v14.2d		\n\t	fmla	v23.2d,v12.2d,v14.2d	\n\t"\
+		"fsub	v4.2d,v18.2d,v6.2d		\n\t	fmul	v14.2d,v24.2d,v17.2d	\n\t"\
+		"fsub	v5.2d,v19.2d,v7.2d		\n\t	fmul	v15.2d,v25.2d,v17.2d	\n\t"\
+		"fadd	v6.2d,v18.2d,v6.2d		\n\t	fmls	v14.2d,v25.2d,v16.2d	\n\t"\
+		"fadd	v7.2d,v19.2d,v7.2d		\n\t	fmla	v15.2d,v24.2d,v16.2d	\n\t"\
+		"ldp	q16,q17,[x10     ]		\n\t"/* cc0 */\
+		"fmul	v18.2d,v2.2d,v17.2d		\n\t	fsub	v12.2d,v22.2d,v14.2d	\n\t"\
+		"fmul	v19.2d,v3.2d,v17.2d		\n\t	fsub	v13.2d,v23.2d,v15.2d	\n\t"\
+		"fmls	v18.2d,v3.2d,v16.2d		\n\t	fadd	v14.2d,v22.2d,v14.2d	\n\t"\
+		"fmla	v19.2d,v2.2d,v16.2d		\n\t	fadd	v15.2d,v23.2d,v15.2d	\n\t"\
+		/* Post-twiddle sub-DFT sequence *almost* [see next comment] same as pvs blockpair, just note 2,3 in v18,v19: */\
+		"fadd	v2.2d,v0.2d,v18.2d		\n\t	fmul	v22.2d,v10.2d,v16.2d	\n\t"\
+		"fadd	v3.2d,v1.2d,v19.2d		\n\t	fmul	v23.2d,v11.2d,v16.2d	\n\t"\
+		"fsub	v0.2d,v0.2d,v18.2d		\n\t	fmla	v22.2d,v11.2d,v17.2d	\n\t"\
+		"fsub	v1.2d,v1.2d,v19.2d		\n\t	fmls	v23.2d,v10.2d,v17.2d	\n\t"\
+	/***** Key difference vs pvs 2 blockpairs - In lcol we swap reg-apirs [4,5] <--> [6,7]: *****/\
+		"fadd	v18.2d,v2.2d,v4.2d		\n\t	fadd	v10.2d,v8.2d,v22.2d		\n\t"\
+		"fadd	v19.2d,v3.2d,v5.2d		\n\t	fadd	v11.2d,v9.2d,v23.2d		\n\t"\
+		"fsub	v2.2d ,v2.2d,v4.2d		\n\t	fsub	v8.2d ,v8.2d,v22.2d		\n\t"\
+		"fsub	v3.2d ,v3.2d,v5.2d		\n\t	fsub	v9.2d ,v9.2d,v23.2d		\n\t"\
+		"fsub	v20.2d,v0.2d,v7.2d		\n\t	fadd	v25.2d,v10.2d,v15.2d	\n\t"\
+		"fadd	v21.2d,v1.2d,v6.2d		\n\t	fadd	v24.2d,v11.2d,v14.2d	\n\t"\
+		"fadd	v5.2d ,v0.2d,v7.2d		\n\t	fsub	v10.2d,v10.2d,v15.2d	\n\t"\
+		"fsub	v1.2d ,v1.2d,v6.2d		\n\t	fsub	v11.2d,v11.2d,v14.2d	\n\t"\
+		/* Lcol Output order: 6,7,2,3,0,4,5,1: */\
+		"stp	q18,q19,[x0]			\n\t	fsub	v22.2d,v8.2d ,v12.2d	\n\t"\
+		"stp	q2 ,q3 ,[x1]			\n\t	fsub	v23.2d,v9.2d ,v13.2d	\n\t"\
+		"stp	q20,q21,[x2]			\n\t	fadd	v12.2d,v8.2d ,v12.2d	\n\t"\
+		"stp	q5 ,q1 ,[x3]			\n\t	fadd	v13.2d,v9.2d ,v13.2d	\n\t"\
+		/* Rcol Output order: 12,13,8,9,10,14,15,11; Fiddle order of Rcol stores to reflect order in which outputs computed: */\
+		"										stp	q10,q24,[x6]		\n\t"/* lcol: add0 + p24 */\
+		"										stp	q25,q11,[x7]		\n\t"/* lcol: add0 + p25 */\
+		"										stp	q22,q23,[x5]		\n\t"/* lcol: add0 + p26 */\
+		"										stp	q12,q13,[x4]		\n\t"/* lcol: add0 + p27 */\
+		:					/* outputs: none */\
+		: [__add] "m" (Xadd)	/* All inputs from memory addresses here */\
+		 ,[__arr_offsets] "m" (Xarr_offsets)\
+		 ,[__r00] "m" (Xr00)\
+		 ,[__isrt2] "m" (Xisrt2)\
+		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","x7","x8","x10","x11","x14","x15",\
+		"v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11","v12","v13","v14","v15",\
+		"v16","v17","v18","v19","v20","v21","v22","v23","v24","v25", "v29"	/* Clobbered registers */\
+	);\
+	}
+
+#elif defined(USE_AVX512)	// AVX512 macros based on AVX2 ones below
 
 	// Cost [vector-ops only]: 454 MEM, 38 MUL, 198 FMA, 160 ADD
 	#define SSE2_RADIX32_DIT_NOTWIDDLE(Xadd,Xarr_offsets, Xr00, Xisrt2)\

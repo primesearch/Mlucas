@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2013 by Ernst W. Mayer.                                           *
+*   (C) 1997-2017 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -44,7 +44,7 @@
 			"leaq	(%%rax,%%rcx,8),%%rcx	/* ebx <- add0+p06 */\n\t"\
 			"leaq	(%%rax,%%rdx,8),%%rdx	/* ecx <- add0+p07 */\n\t"\
 			"movq	%[__out],%%rsi	/* s1p00r */\n\t"\
-			"/* MSVC has add8+p[7654] in abcd, here add0+p[4567], so swap a/d and b/c: */\n\t"\
+			"/* MSVC macro has add8+p[7654] in abcd, here add0+p[4567], so swap a/d and b/c: */\n\t"\
 			"/* Do the p0,p4 combo: */\n\t"\
 			"vmovaps	     (%%rdx),%%ymm0			\n\t"\
 			"vmovaps	0x020(%%rdx),%%ymm1			\n\t"\
@@ -100,7 +100,7 @@
 			"vmulpd       %%ymm1,%%ymm3,%%ymm3				\n\t"\
 			"vmovaps	%%ymm0,0x1c0(%%rsi)			\n\t"\
 			"vmovaps	%%ymm3,0x1e0(%%rsi)			\n\t"\
-			"/* MSVC has add0+p[0132] in abcd, here add0+p[0123], so swap c/d: */\n\t"\
+			"/* MSVC macro has add0+p[0132] in abcd, here add0+p[0123], so swap c/d: */\n\t"\
 			"subq	%%rdi,%%rax		/* add2 = add0     */\n\t"\
 			"subq	%%rdi,%%rbx		/* add3 = add0+p01 */\n\t"\
 			"subq	%%rdi,%%rcx		/* add1 = add0+p02 */\n\t"\
@@ -188,7 +188,7 @@
 			"addq	%%rdi,%%rcx		/* ebx <- add8+p02 */\n\t"\
 			"addq	%%rdi,%%rdx		/* eax <- add8+p03 */\n\t"\
 			"addq	$0x200,%%rsi	/* s1p08r */\n\t"\
-			"/* MSVC has add8+p[0123] in abcd, here add+p[1023], so swap a/b: */\n\t"\
+			"/* MSVC macro has add8+p[0123] in abcd, here add+p[1023], so swap a/b: */\n\t"\
 			"/* Do the p0,p4 combo: */\n\t"\
 			"vmovaps	     (%%rbx),%%ymm0			\n\t"\
 			"vmovaps	0x020(%%rbx),%%ymm1			\n\t"\
@@ -244,7 +244,7 @@
 			"vmulpd       %%ymm1,%%ymm3,%%ymm3				\n\t"\
 			"vmovaps	%%ymm0,0x1c0(%%rsi)			\n\t"\
 			"vmovaps	%%ymm3,0x1e0(%%rsi)			\n\t"\
-			"/* MSVC has add8+p[5,4,6,7] in abcd, here add8+p[4567], swap a/b: */\n\t"\
+			"/* MSVC macro has add8+p[5,4,6,7] in abcd, here add8+p[4567], swap a/b: */\n\t"\
 			"shrq	$1,%%rdi		/* p04 */\n\t"\
 			"addq	%%rdi,%%rax		/* add0 = add8+p04 */\n\t"\
 			"addq	%%rdi,%%rbx		/* add1 = add8+p05 */\n\t"\
@@ -333,7 +333,7 @@
 			"addq	%%rdi,%%rcx		/* ebx <- add16+p06 */\n\t"\
 			"addq	%%rdi,%%rdx		/* eax <- add16+p07 */\n\t"\
 			"addq	$0x200,%%rsi	/* s1p16r */\n\t"\
-			"/* MSVC has add16+p[4576] in abcd, here add16+p[4567], so swap c/d: */\n\t"\
+			"/* MSVC macro has add16+p[4576] in abcd, here add16+p[4567], so swap c/d: */\n\t"\
 			"/* Do the p0,p4 combo: */\n\t"\
 			"vmovaps	     (%%rax),%%ymm0			\n\t"\
 			"vmovaps	0x020(%%rax),%%ymm1			\n\t"\
@@ -389,7 +389,7 @@
 			"vmulpd       %%ymm1,%%ymm3,%%ymm3				\n\t"\
 			"vmovaps	%%ymm0,0x1c0(%%rsi)			\n\t"\
 			"vmovaps	%%ymm3,0x1e0(%%rsi)			\n\t"\
-			"/* MSVC has add16+p[2,3,0,1] in abcd, here add16+p[0,1,2,3], swap a/c,b/d: */\n\t"\
+			"/* MSVC macro has add16+p[2,3,0,1] in abcd, here add16+p[0,1,2,3], swap a/c,b/d: */\n\t"\
 			"shrq	$1,%%rdi		/* p04 */\n\t"\
 			"subq	%%rdi,%%rax		/* add0 = add8+p04 */\n\t"\
 			"subq	%%rdi,%%rbx		/* add1 = add8+p05 */\n\t"\

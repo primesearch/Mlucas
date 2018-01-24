@@ -1123,6 +1123,45 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 			rt =(t3E+t3F)*ISRT2;it =(t3F-t3E)*ISRT2;
 			t3E=t36+rt;		t3F=t37+it;
 			t36=t36-rt;		t37=t37-it;
+	  #if 0
+	  if(c01 != 1.0) {	// Move debug to first case w/nontrivial twiddles
+		int idbg = 0;
+		printf("j1 = %u, c1 = %15.10f: Scalar-double DIF Intermediates:\n",j1,c01);
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t00,t01);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t02,t03);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t04,t05);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t06,t07);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t08,t09);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t0A,t0B);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t0C,t0D);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t0E,t0F);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t10,t11);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t12,t13);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t14,t15);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t16,t17);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t18,t19);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t1A,t1B);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t1C,t1D);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t1E,t1F);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t20,t21);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t22,t23);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t24,t25);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t26,t27);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t28,t29);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t2A,t2B);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t2C,t2D);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t2E,t2F);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t30,t31);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t32,t33);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t34,t35);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t36,t37);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t38,t39);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t3A,t3B);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t3C,t3D);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t3E,t3F);	idbg++;
+		exit(0);
+	  }
+	  #endif
 
 	/*...and now do eight radix-4 transforms, including the internal twiddle factors:
 		1, exp(i* 1*twopi/32) =       ( c32_1, s32_1), exp(i* 2*twopi/32) =       ( c    , s    ), exp(i* 3*twopi/32) =       ( c32_3, s32_3) (for inputs to transform block 2),
@@ -1321,6 +1360,53 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 			a[jt+p02]=t1E-t3F;		a[jp+p02]=t1F+t3E;	/* mpy by E^4=i is inlined here...	*/
 			a[jt+p03]=t1E+t3F;		a[jp+p03]=t1F-t3E;
+	  #if 0
+	  if(c01 != 1.0) {	// Move debug to first case w/nontrivial twiddles
+		int idbg = 0;
+		printf("j1 = %u, c1 = %15.10f: Scalar-double DIF Outputs:\n",j1,c01);
+		jt = j1      ;	jp = j2      ;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt    ],a[jp    ]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p01],a[jp+p01]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p02],a[jp+p02]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p03],a[jp+p03]);	idbg++;
+		jt = j1 + p04;	jp = j2 + p04;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt    ],a[jp    ]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p01],a[jp+p01]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p02],a[jp+p02]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p03],a[jp+p03]);	idbg++;
+		jt = j1 + p08;	jp = j2 + p08;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt    ],a[jp    ]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p01],a[jp+p01]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p02],a[jp+p02]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p03],a[jp+p03]);	idbg++;
+		jt = j1 + p0C;	jp = j2 + p0C;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt    ],a[jp    ]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p01],a[jp+p01]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p02],a[jp+p02]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p03],a[jp+p03]);	idbg++;
+		jt = j1 + p10;	jp = j2 + p10;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt    ],a[jp    ]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p01],a[jp+p01]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p02],a[jp+p02]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p03],a[jp+p03]);	idbg++;
+		jt = j1 + p14;	jp = j2 + p14;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt    ],a[jp    ]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p01],a[jp+p01]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p02],a[jp+p02]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p03],a[jp+p03]);	idbg++;
+		jt = j1 + p18;	jp = j2 + p18;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt    ],a[jp    ]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p01],a[jp+p01]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p02],a[jp+p02]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p03],a[jp+p03]);	idbg++;
+		jt = j1 + p1C;	jp = j2 + p1C;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt    ],a[jp    ]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p01],a[jp+p01]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p02],a[jp+p02]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[jt+p03],a[jp+p03]);	idbg++;
+		exit(0);
+	  }
+	  #endif
 
 #endif	/* USE_SSE2 */
 
@@ -1499,13 +1585,11 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 
 /*...The radix-32 pass is here.	*/
 
-	iroot_prim=(incr >> 6);		/* (incr/2)/radix_now		*/
+	iroot_prim=(incr >> 6);		/* (incr/2)/radix_now */
 
-	for(m=0; m < nloops; m++)	/* NLOOPS may range from 1 (if first pass radix = 16) to P*N/32 (last pass radix = 16).x	*/
-	{				/* NLOOPS satisfies the identity NLOOPS * INCR = P*N, which says that we process the entire
-					   array each time this subroutine is executed (since P*N = vector length, sans padding.)	*/
-
-/*	here are the needed sincos data - these are processed below in bit-reversed order.	*/
+	for(m=0; m < nloops; m++)	/* NLOOPS may range from 1 (if first pass radix = 16) to P*N/32 (last pass radix = 16). NLOOPS satisfies the */
+	{				/* identity NLOOPS * INCR = P*N, which says that we process the entire array each time this subroutine is executed (since P*N = vector length, sans padding.) */
+	/*	here are the needed sincos data - these are processed below in bit-reversed order.	*/
 	  iroot = index[m]*iroot_prim;
 	  i = iroot;
 
@@ -1514,11 +1598,12 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 #if HIACC
 	#ifdef USE_SSE2
 		/* Due to roots-locality considerations, roots (c,s)[0-31] are offset w.r.to the thread-local ptr pair as
-					cc[00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10 11 12 13 14 15 16 17 18 19 1A 1B 1C 1D 1E 1F]
-		(cc0,ss0) + 0x[06,26,16,36|0e,2e,1e,3e|0a,2a,1a,3a|12,32,22,42|08,28,18,38|10,30,20,40|0c,2c,1c,3c|14,34,24,44].
-
+					cc[00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10 11 12 13 14 15 16 17 18 19 1A 1B 1C 1D 1E 1F] are in
 		(cc0,ss0) + 0x[06,26,16,36|0e,2e,1e,3e|08,28,18,38|10,30,20,40|0a,2a,1a,3a|12,32,22,42|0c,2c,1c,3c|14,34,24,44].
-	*** NOTE: This is the same pattern as for DIF version, but with the middle 2 roots octets [08-40] and [0a-42] swapped ***
+	*** NOTE: This is the same pattern as for DIF, but with the middle 2 roots octets [08-40] and [0a-42] swapped ***
+		Or, in terms of the "reverse directory" lookup:
+		(cc0,ss0) + 0x[06,08,0a,0c,0e,10,12,14,16,18,1a,1c,1e,20,22,24,26,28,2a,2c,2e,30,32,34,36,38,3a,3c,3e,40,42,44] hold
+					cc[00 08 10 18 04 0C 14 1C 02 0A 12 1A 06 0E 16 1E 01 09 11 19 05 0D 15 1D 03 0B 13 1B 07 0F 17 1F]
 		*/
 		c_tmp = cc0 + 0x06; s_tmp = c_tmp+1;	/* c0,s0 */
 		rt = 1.0; it = 0.0;
@@ -2059,167 +2144,149 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 /******************* AVX debug stuff: *******************/
 #if 0
 if(1) {
-	int ipad;
+	int idbg;
 	// Use RNG to populate data array:
 	rng_isaac_init(TRUE);
 	double dtmp = 1024.0*1024.0*1024.0*1024.0;
-	j1 = jlo;
-	j1 += ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+	int jt = jlo;
+	jt += ( (jt >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
   #ifdef USE_AVX512
-	ipad =   0;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p01;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p02;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p03;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p04;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p05;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p06;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p07;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad =   0+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p01+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p02+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p03+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p04+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p05+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p06+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p07+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad =   0+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p01+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p02+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p03+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p04+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p05+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p06+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p07+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad =   0+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p01+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p02+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p03+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p04+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p05+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p06+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p07+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg =   0;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p01;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p02;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p03;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p04;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p05;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p06;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p07;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg =   0+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p01+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p02+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p03+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p04+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p05+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p06+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p07+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg =   0+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p01+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p02+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p03+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p04+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p05+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p06+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p07+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg =   0+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p01+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p02+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p03+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p04+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p05+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p06+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p07+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br16[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
   #elif defined(USE_AVX)
-	ipad =   0;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p01;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p02;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p03;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p04;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p05;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p06;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p07;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad =   0+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p01+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p02+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p03+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p04+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p05+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p06+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p07+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad =   0+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p01+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p02+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p03+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p04+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p05+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p06+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p07+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad =   0+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p01+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p02+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p03+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p04+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p05+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p06+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p07+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg =   0;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p01;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p02;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p03;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p04;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p05;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p06;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p07;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg =   0+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p01+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p02+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p03+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p04+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p05+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p06+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p07+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg =   0+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p01+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p02+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p03+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p04+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p05+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p06+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p07+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg =   0+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p01+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p02+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p03+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p04+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p05+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p06+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p07+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br8[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
   #elif defined(USE_SSE2)
-	ipad =   0;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p01;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p02;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p03;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p04;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p05;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p06;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p07;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad =   0+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p01+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p02+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p03+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p04+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p05+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p06+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p07+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad =   0+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p01+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p02+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p03+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p04+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p05+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p06+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p07+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad =   0+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p01+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p02+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p03+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p04+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p05+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p06+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p07+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-  #else
-	ipad =   0;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p01;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p02;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p03;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p04;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p05;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p06;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p07;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad =   0+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p01+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p02+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p03+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p04+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p05+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p06+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p07+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad =   0+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p01+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p02+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p03+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p04+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p05+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p06+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p07+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad =   0+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p01+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p02+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p03+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p04+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p05+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p06+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
-	ipad = p07+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg =   0;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p01;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p02;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p03;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p04;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p05;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p06;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p07;		for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg =   0+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p01+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p02+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p03+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p04+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p05+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p06+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p07+p08;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg =   0+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p01+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p02+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p03+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p04+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p05+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p06+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p07+p10;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg =   0+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p01+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p02+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p03+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p04+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p05+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p06+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p07+p18;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[jt+idbg+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+  #else	// Force 4-slot inits [2*RE_IM_STRIDE replaced by 4] here to enable comparison vs SSE2 code:
+	idbg =   0;		for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p01;		for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p02;		for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p03;		for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p04;		for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p05;		for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p06;		for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p07;		for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg =   0+p08;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p01+p08;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p02+p08;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p03+p08;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p04+p08;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p05+p08;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p06+p08;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p07+p08;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg =   0+p10;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p01+p10;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p02+p10;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p03+p10;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p04+p10;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p05+p10;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p06+p10;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p07+p10;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg =   0+p18;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p01+p18;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p02+p18;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p03+p18;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p04+p18;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p05+p18;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p06+p18;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	idbg = p07+p18;	for(i = 0; i < 4; i++) { a[jt+idbg+i] = dtmp*rng_isaac_rand_double_norm_pm1(); }
   #endif
-  #if 0
-	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 0, a[ipad+br16[ 0]],ipad+ 0, a[ipad+ 0]);
-	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 1, a[ipad+br16[ 1]],ipad+ 1, a[ipad+ 1]);
-	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 2, a[ipad+br16[ 2]],ipad+ 2, a[ipad+ 2]);
-	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 3, a[ipad+br16[ 3]],ipad+ 3, a[ipad+ 3]);
-	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 4, a[ipad+br16[ 4]],ipad+ 4, a[ipad+ 4]);
-	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 5, a[ipad+br16[ 5]],ipad+ 5, a[ipad+ 5]);
-	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 6, a[ipad+br16[ 6]],ipad+ 6, a[ipad+ 6]);
-	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 7, a[ipad+br16[ 7]],ipad+ 7, a[ipad+ 7]);
-	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 8, a[ipad+br16[ 8]],ipad+ 8, a[ipad+ 8]);
-	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 9, a[ipad+br16[ 9]],ipad+ 9, a[ipad+ 9]);
-	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+10, a[ipad+br16[10]],ipad+10, a[ipad+10]);
-	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+11, a[ipad+br16[11]],ipad+11, a[ipad+11]);
-	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+12, a[ipad+br16[12]],ipad+12, a[ipad+12]);
-	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+13, a[ipad+br16[13]],ipad+13, a[ipad+13]);
-	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+14, a[ipad+br16[14]],ipad+14, a[ipad+14]);
-	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+15, a[ipad+br16[15]],ipad+15, a[ipad+15]);
-  #endif
-//exit(0);
 }
 #endif
 /********************************************************/
+
 	/* In SIMD mode, data are arranged in [re_0,...,re_n-1,im_0,...,im_n-1] groups, not the usual [re_0,im_0],...,[re_n-1,im_n-1] pairs.
 	Thus we can still increment the j-index as if stepping through the residue array-of-doubles in strides of 2,
 	but to point to the proper real datum, we need to index-map e.g. [0,1,2,3] ==> [0,2,1,3] in 2-way SIMD mode.
@@ -2237,26 +2304,63 @@ if(1) {
 		processing sincos data in bit-reversed order.	*/
 		add0 = &a[j1];
 		SSE2_RADIX32_DIT_TWIDDLE(add0,p01,p02,p03,p04,p05,p06,p07,p08,p10,p18,r00,r10,r20,r30,isrt2)
-/*** AVX-512 debug: ***/
-#if 0
-	printf("AVX-%u: %u x %u Untransposed DIT outputs:\n",(int)RE_IM_STRIDE << 6,RE_IM_STRIDE,RE_IM_STRIDE);
-	vec_dbl *tmp = r00;
-  #ifdef USE_AVX512
-	for(i = 0; i < 32; i++) { printf("\tre[%2u] = %20.10e,%20.10e,%20.10e,%20.10e,%20.10e,%20.10e,%20.10e,%20.10e\n",i,tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7); tmp+=2; }
-	tmp = r00+1;
-	for(i = 0; i < 32; i++) { printf("\tim[%2u] = %20.10e,%20.10e,%20.10e,%20.10e,%20.10e,%20.10e,%20.10e,%20.10e\n",i,tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7); tmp+=2; }
-  #elif defined(USE_AVX)
-	for(i = 0; i < 32; i++) { printf("\tre[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,tmp->d0,tmp->d1,tmp->d2,tmp->d3); tmp+=2; }
-	tmp = r00+1;
-	for(i = 0; i < 32; i++) { printf("\tim[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",i,tmp->d0,tmp->d1,tmp->d2,tmp->d3); tmp+=2; }
-  #elif defined(USE_SSE2)
-	for(i = 0; i < 32; i++) { printf("\tre[%2u] = %20.10e,%20.10e\n",i,tmp->d0,tmp->d1); tmp+=2; }
-	tmp = r00+1;
-	for(i = 0; i < 32; i++) { printf("\tim[%2u] = %20.10e,%20.10e\n",i,tmp->d0,tmp->d1); tmp+=2; }
-  #endif
-exit(0);
-#endif
-/**********************/
+
+	  #if 0
+	  if((cc0 + 0x26)->d0 != 1.0) {	// Move debug to first case w/nontrivial twiddles
+		int idbg;	vec_dbl*tmp = r00;
+		printf("j1 = %u, c1 = %15.10f: SSE2 32-DIT Intermediates:\n",j1,(cc0 + 0x26)->d0);
+		for(idbg = 0; idbg < 32; idbg++, tmp += 2) {
+			printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);
+		}
+		exit(0);
+	  }
+	  #elif 0
+	  if((cc0 + 0x26)->d0 != 1.0) {	// Move debug to first case w/nontrivial twiddles
+		int jt,jp,idbg = 0;	vec_dbl*tmp;
+		printf("j1 = %u, c1 = %15.10f: SSE2 DIT Outputs:\n",j1,(cc0 + 0x26)->d0);
+		jt = 0;		idbg = 0;
+		tmp = add0+jt    ;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p08;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p10;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p18;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);
+		jt = p04;	idbg = 4;
+		tmp = add0+jt    ;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p08;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p10;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p18;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);
+		jt = p01;	idbg = 1;
+		tmp = add0+jt    ;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p08;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p10;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p18;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);
+		jt = p05;	idbg = 5;
+		tmp = add0+jt    ;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p08;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p10;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p18;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);
+		jt = p02;	idbg = 2;
+		tmp = add0+jt    ;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p08;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p10;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p18;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);
+		jt = p06;	idbg = 6;
+		tmp = add0+jt    ;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p08;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p10;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p18;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);
+		jt = p03;	idbg = 3;
+		tmp = add0+jt    ;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p08;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p10;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p18;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);
+		jt = p07;	idbg = 7;
+		tmp = add0+jt    ;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p08;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p10;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg+=8;
+		tmp = add0+jt+p18;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);
+		exit(0);
+	  }
+	  #endif
 
 #else	/* USE_SSE2 */
 

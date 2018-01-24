@@ -27,10 +27,6 @@
 
 #define EPS 1e-10
 
-/* Use for toggling higher-accuracy version of the twiddles computation */
-//#define HIACC 0	<*** prefer to set via compile-time flag; default is FALSE [= LOACC]
-
-// Mersenne-mod takes a binary-toggle LOACC; must give a numerical value for Fermat-mod:
 #if defined(HIACC) && defined(LOACC)
 	#error Only one of LOACC and HIACC may be defined!
 #endif
@@ -42,8 +38,12 @@
 	#define HIACC	1	// 32-bit mode only supports the older HIACC carry macros
   #endif
 #endif
-#if defined(HIACC) && defined(USE_AVX512)
+#ifdef HIACC
+  #ifdef USE_ARM_V8_SIMD
+	#error Currently only LOACC carry-mode supported in ARM v8 SIMD builds!
+  #elif defined(USE_AVX512)
 	#error Currently only LOACC carry-mode supported in AVX-512 builds!
+  #endif
 #endif
 #if defined(LOACC) && (OS_BITS == 32)
 	#error 32-bit mode only supports the older HIACC carry macros!
@@ -60,24 +60,6 @@
 #endif
 
 #ifdef USE_SSE2
-
-  // Radix-16 DFT local-array basic strides OFF1-4 = [1-4] * sizeof(vec_dbl) [use adjacent-locs here unlike larger-strided]:
-  #ifdef USE_AVX512
-	#define OFF1	0x20*4
-	#define OFF2	0x40*4
-	#define OFF3	0x60*4
-	#define OFF4	0x80*4
-  #elif defined(USE_AVX)
-	#define OFF1	0x20*2
-	#define OFF2	0x40*2
-	#define OFF3	0x60*2
-	#define OFF4	0x80*2
-  #else
-	#define OFF1	0x20
-	#define OFF2	0x40
-	#define OFF3	0x60
-	#define OFF4	0x80
-  #endif
 
   // For Mersenne-mod need (16 [SSE2] or 64 [AVX]) + (4 [HIACC] or 40 [LOACC]) added slots for half_arr lookup tables.
   // Max = (40 [SSE2]; 132 [AVX]), add to (half_arr_offset176 + RADIX) to get required value of radix176_creals_in_local_store:
@@ -236,7 +218,8 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 #endif
 	static int poff[RADIX>>2];	// Store mults of p4 offset for loop control
 	static double radix_inv, n2inv;
-#if defined(USE_AVX2) || (!defined(USE_SSE2) && LO_ADD)
+// FMA-based SIMD or (scalar-double) + (LO_ADD = 1 in masterdefs.h)use these sincos constants:
+#if defined(USE_AVX2) || defined(USE_ARM_V8_SIMD) || (!defined(USE_SSE2) && defined(LO_ADD))
 	// FMA based on simple radix-11 DFT implementation, same as LO_ADD - more accurate, and with FMA, faster as well
 	const double cc1 =  0.84125353283118116886,	/* Real part of exp(i*2*pi/11), the radix-11 fundamental sincos datum	*/
 			ss1 =  0.54064081745559758210,	/* Imag part of exp(i*2*pi/11).	*/
@@ -469,11 +452,11 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		if(tdat == 0x0) {
 			j = (uint32)sizeof(struct cy_thread_data_t);
 			tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, sizeof(struct cy_thread_data_t));
-	
+
 			// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
 			// so on that platform try to be clever and interleave main-thread and threadpool-work processing
 			#if 0//def OS_TYPE_MACOSX
-	
+
 				if(CY_THREADS > 1) {
 					main_work_units = CY_THREADS/2;
 					pool_work_units = CY_THREADS - main_work_units;
@@ -483,14 +466,14 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 					main_work_units = 1;
 					printf("radix%d_ditN_cy_dif1: CY_THREADS = 1: Using main execution thread, no threadpool needed.\n", RADIX);
 				}
-	
+
 			#else
-	
+
 				pool_work_units = CY_THREADS;
 				ASSERT(HERE, 0x0 != (tpool = threadpool_init(CY_THREADS, MAX_THREADS, CY_THREADS, &thread_control)), "threadpool_init failed!");
-	
+
 			#endif
-	
+
 			fprintf(stderr,"Using %d threads in carry step\n", CY_THREADS);
 		}
 	  #endif
@@ -599,7 +582,7 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		half_arr= tmp + 0x02;	/* This table needs 20 x 16 bytes for Mersenne-mod, and [4*odd_radix] x 16 for Fermat-mod */
 	  #endif
 
-	  #ifndef USE_AVX2
+	  #if !defined(USE_AVX2) && !defined(USE_ARM_V8_SIMD)
 		/*======= Cf. the radix-44 routine for details on the wrong-way-rounding of a
 		selected subset of DFT-11 consts in order to improve overall accuracy: =========*/
 		/*
@@ -674,7 +657,7 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		VEC_DBL_INIT(sqrt2, SQRT2);		VEC_DBL_INIT(isrt2, ISRT2);
 	  #endif
 		VEC_DBL_INIT(cc0, c16);	VEC_DBL_INIT(ss0, s16);	// Radix-16 DFT macros assume [isrt2,cc0,ss0] memory ordering
-	  #ifdef USE_AVX2	// FMA version based on simple radix-11 DFT implementation, same as LO_ADD
+	  #if defined(USE_AVX2) || defined(USE_ARM_V8_SIMD)	// FMA version based on simple radix-11 DFT implementation, same as LO_ADD
 		tmp = five-1;
 		VEC_DBL_INIT(tmp ,2.0);		VEC_DBL_INIT(five,1.0);	// *five-1,*five used for [2.0,1.0] here
 		VEC_DBL_INIT(ua0 ,cc1);		VEC_DBL_INIT(ub0 ,0.0);	// upper 10 slots unused here; init = 0
@@ -2420,15 +2403,6 @@ void radix176_dit_pass1(double a[], int n)
 
 		return 0x0;
 	}
-#endif
-
-#ifdef USE_SSE2
-
-	#undef OFF1
-	#undef OFF2
-	#undef OFF3
-	#undef OFF4
-
 #endif
 
 #undef RADIX

@@ -848,6 +848,56 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 	/* Define the inner-loop parameters in terms of the outer-loop ones to make OpenMP's job easier: */
 	  jlo = m*incr;
 	  jhi = jlo+(incr >> 3);
+/******************* AVX debug stuff: *******************/
+#if 0
+if(1) {
+	int ipad;
+	// Use RNG to populate data array:
+	rng_isaac_init(TRUE);
+	double dtmp = 1024.0*1024.0*1024.0*1024.0;
+	j1 = jlo;
+	j1 += ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+  #ifdef USE_SSE2
+	ipad =  0;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p1;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p2;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p3;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p4;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p5;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p6;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p7;	for(i = 0; i < 2*RE_IM_STRIDE; i++) { a[j1+ipad+br4[ i]] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+  #else
+	ipad =  0;	for(i = 0; i < 4; i++) { a[j1+ipad+     i ] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p1;	for(i = 0; i < 4; i++) { a[j1+ipad+     i ] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p2;	for(i = 0; i < 4; i++) { a[j1+ipad+     i ] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p3;	for(i = 0; i < 4; i++) { a[j1+ipad+     i ] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p4;	for(i = 0; i < 4; i++) { a[j1+ipad+     i ] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p5;	for(i = 0; i < 4; i++) { a[j1+ipad+     i ] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p6;	for(i = 0; i < 4; i++) { a[j1+ipad+     i ] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+	ipad = p7;	for(i = 0; i < 4; i++) { a[j1+ipad+     i ] = dtmp*rng_isaac_rand_double_norm_pm1(); }
+  #endif
+  #if 0
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 0, a[ipad+br16[ 0]],ipad+ 0, a[ipad+ 0]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 1, a[ipad+br16[ 1]],ipad+ 1, a[ipad+ 1]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 2, a[ipad+br16[ 2]],ipad+ 2, a[ipad+ 2]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 3, a[ipad+br16[ 3]],ipad+ 3, a[ipad+ 3]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 4, a[ipad+br16[ 4]],ipad+ 4, a[ipad+ 4]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 5, a[ipad+br16[ 5]],ipad+ 5, a[ipad+ 5]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 6, a[ipad+br16[ 6]],ipad+ 6, a[ipad+ 6]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 7, a[ipad+br16[ 7]],ipad+ 7, a[ipad+ 7]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 8, a[ipad+br16[ 8]],ipad+ 8, a[ipad+ 8]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+ 9, a[ipad+br16[ 9]],ipad+ 9, a[ipad+ 9]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+10, a[ipad+br16[10]],ipad+10, a[ipad+10]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+11, a[ipad+br16[11]],ipad+11, a[ipad+11]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+12, a[ipad+br16[12]],ipad+12, a[ipad+12]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+13, a[ipad+br16[13]],ipad+13, a[ipad+13]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+14, a[ipad+br16[14]],ipad+14, a[ipad+14]);
+	printf("A_in[%2d] = %20.10e; SIMD: A_in[%2d] = %20.10e\n",ipad+15, a[ipad+br16[15]],ipad+15, a[ipad+15]);
+  #endif
+//exit(0);
+}
+#endif
+/********************************************************/
 
 	  for(j = jlo; j < jhi; j += stride)
 	  {
@@ -867,6 +917,22 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		add7 = add0+p7;
 
 		SSE2_RADIX8_DIT_TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7,isrt2,c1,c2,c3,c4,c5,c6,c7);
+	  #if 0
+	  if(c1->d0 != 1.0) {	// Move debug to first case w/nontrivial twiddles
+		int idbg = 0;	vec_dbl*tmp;
+	//	printf("j1 = %u: SSE2 DIT Intermediates:\n",j1);
+		printf("j1 = %u, c1 = %15.10f: SSE2 DIT Outputs:\n",j1,c1->d0);
+		tmp = add0       ;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg++;
+		tmp = add0+p1    ;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg++;
+		tmp = add0+p2    ;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg++;
+		tmp = add0+p3    ;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg++;
+		tmp = add0+p4    ;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg++;
+		tmp = add0+p5    ;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg++;
+		tmp = add0+p6    ;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	idbg++;
+		tmp = add0+p7    ;	printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);
+		exit(0);
+	  }
+	  #endif
 
 	#else	// USE_SSE2 ?
 
@@ -926,6 +992,19 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 	addp = addr+p6;
 	prefetch_p_doubles(addp);
 	#endif
+	  #if 0
+		int idbg = 0;
+		printf("j1 = %u: SSE2 DIT Intermediates:\n",j1);
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t1,t2);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t3,t4);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t5,t6);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t7,t8);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t9,t10);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t11,t12);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t13,t14);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,t15,t16);
+		exit(0);
+	  #endif
 /*      now combine the two half-transforms */
 		a[j1   ]=t1+t9;				a[j2   ]=t2+t10;
 		t1      =t1-t9;				t2      =t2-t10;
@@ -950,6 +1029,21 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 		t7      =t7+rt;				t8        =t8+it;
 		a[j1+p3]=t15*c3 +t16*s3;	a[j2+p3]=t16*c3 -t15*s3;
 		a[j1+p7]=t7 *c7 +t8 *s7;	a[j2+p7]=t8 *c7 -t7 *s7;
+	  #if 0
+	  if(c1->d0 != 1.0) {	// Move debug to first case w/nontrivial twiddles
+		int idbg = 0;
+		printf("j1 = %u, c1 = %15.10f: Scalar-double DIT Outputs:\n",j1);
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[j1   ],a[j2   ]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[j1+p1],a[j2+p1]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[j1+p2],a[j2+p2]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[j1+p3],a[j2+p3]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[j1+p4],a[j2+p4]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[j1+p5],a[j2+p5]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[j1+p6],a[j2+p6]);	idbg++;
+		printf("\t{re,im}[%2u] = %20.10e,%20.10e\n",idbg,a[j1+p7],a[j2+p7]);
+		exit(0);
+	  }
+	  #endif
 
 	#endif	/* USE_SSE2 */
 

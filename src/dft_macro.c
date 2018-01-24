@@ -3831,119 +3831,163 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 // SIMD code only available for 64-bit GCC build - others simply use scalar DFT macros with SIMD-compatible data layout
 #if defined(USE_SSE2) && defined(COMPILER_TYPE_GCC)
 
-/************** RADIX-63 DIF/DIT: *****************************/
+	/************** RADIX-63 DIF/DIT: *****************************/
 
-void SSE2_RADIX_63_DIF(
-	const int init,	// Init consts (in 1-thread mode only!) and exit
-	const int thr_id,
-	vec_dbl *__A, const int *__idx,	/* Inputs : Base address plus 63 (index) offsets */
-	vec_dbl *__B, const int *__odx	/* Outputs: Base address plus 63 (index) offsets */
-)
-{
-	static int max_threads = 0;
-	static vec_dbl *sc_arr = 0x0, *sc_ptr;	// Pad with 4 extra slots for scratch storage needed by SSE2_RADIX_07_DFT macro!!!
-  #ifdef MULTITHREAD
-	static vec_dbl *__r0;					// Base address for discrete per-thread local stores
-	// In || mode, only above base-pointer (shared by all threads) is static:
-	vec_dbl *two,*one,	// Needed for FMA support
-			*dc0,*ds0,*dc1,*ds1,*dc2,*ds2,*dc3,*ds3,	// radix-7 DFT roots; Use dc0-ptr as "need to init local statics?" sentinel
-			*cc1,*ss1,*cc2,*ss2,*cc3m1,*ss3,*cc4,*ss4;	// radix-9 DFT roots
-  #else
-	static vec_dbl *two,*one,
-			*dc0,*ds0,*dc1,*ds1,*dc2,*ds2,*dc3,*ds3,
-			*cc1,*ss1,*cc2,*ss2,*cc3m1,*ss3,*cc4,*ss4;	// 18 vec_dbl consts plus 4 padding slots = 22 slots alloc per thread
-  #endif
-	// Unline e.g. the 64-DFTs in this file, the 63-DFT defines its own local storage for the
-	// 2x63 vec_dbl intermediates needed by each thread. That storage is pointed to by tdat:
-	vec_dbl *tdat, *tmp,
-		*va0,*va1,*va2,*va3,*va4,*va5,*va6,*va7,*va8,
-		*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8;
-	int l,k0,k1,k2,k3,k4,k5,k6,k7,k8;
-	const uint8 *iptr,
-		dif_iperm[64] = {	// Only need 63, but pad to 64-bytes
-			0x00,0x36,0x2d,0x24,0x1b,0x12,0x09,
-			0x38,0x2f,0x26,0x1d,0x14,0x0b,0x02,
-			0x31,0x28,0x1f,0x16,0x0d,0x04,0x3a,
-			0x2a,0x21,0x18,0x0f,0x06,0x3c,0x33,
-			0x23,0x1a,0x11,0x08,0x3e,0x35,0x2c,
-			0x1c,0x13,0x0a,0x01,0x37,0x2e,0x25,
-			0x15,0x0c,0x03,0x39,0x30,0x27,0x1e,
-			0x0e,0x05,0x3b,0x32,0x29,0x20,0x17,
-			0x07,0x3d,0x34,0x2b,0x22,0x19,0x10},
-		dif_operm[64] = {	// ditto
-			0x00,0x07,0x03,0x02,0x06,0x05,0x01,0x08,0x04,
-			0x37,0x3e,0x3a,0x36,0x3d,0x39,0x38,0x3c,0x3b,
-			0x32,0x2e,0x35,0x31,0x2d,0x34,0x30,0x2f,0x33,
-			0x2a,0x29,0x25,0x2c,0x28,0x24,0x2b,0x27,0x26,
-			0x1d,0x21,0x20,0x1c,0x23,0x1f,0x1b,0x22,0x1e,
-			0x15,0x14,0x18,0x17,0x13,0x1a,0x16,0x12,0x19,
-			0x10,0x0c,0x0b,0x0f,0x0e,0x0a,0x11,0x0d,0x09};
-  // AVX2 (i.e. FMA) means non-Nussbaumer radix-7, uses these sincos constants:
-  #if defined(USE_AVX2)
-	// AVX2 (i.e. FMA) means non-Nussbaumer radix-7, uses these sincos constants:
-	const double	uc1 = .62348980185873353053,	 /* cos(u) = Real part of exp(i*2*pi/7), the radix-7 fundamental sincos datum	*/
-					us1 = .78183148246802980870,	 /* sin(u) = Imag part of exp(i*2*pi/7).	*/
-					uc2 =-.22252093395631440426,	 /* cos(2u)	*/
-					us2 = .97492791218182360702,	 /* sin(2u)	*/
-					uc3 =-.90096886790241912622,	 /* cos(3u)	*/
-					us3 = .43388373911755812050;	 /* sin(3u)	*/
-  #else
-	// Roots for radix-7 DFTs: SSE2/AVX versions assume LO_ADD = 0, i.e. the low-mul Nussbaumer-style DFT implementation:
-	const double	cx0 =-0.16666666666666666667,	/* (cc1+cc2+cc3)/3 */
-				 	cx1 = 1.52445866976115265675, 	/*  cc1-cc3		*/
-				 	cx2 = 0.67844793394610472196, 	/*  cc2-cc3		*/
-				 	cx3 = 0.73430220123575245957,	/* (cc1+cc2-2*cc3)/3	*/
-				/* Switch the sign of ss3 in these: */
-				 	sx0 = 0.44095855184409843174,	/* (ss1+ss2-ss3)/3	*/
-				 	sx1 = 1.21571522158558792920, 	/*  ss1+ss3		*/
-				 	sx2 = 1.40881165129938172752, 	/*  ss2+ss3		*/
-				 	sx3 = 0.87484229096165655224;	/* (ss1+ss2+2*ss3)/3	*/
-  #endif	// AVX2?
-	// Roots for radix-9 DFTs:
-	const double	c   =  0.76604444311897803520,	/* cos(2*pi/9) */
-					s   =  0.64278760968653932631,	/* sin(2*pi/9) */
-					c2  =  0.17364817766693034887,	/* cos(2*u) */
-					s2  =  0.98480775301220805936,	/* sin(2*u) */
-					c3m1= -1.50000000000000000000,	/* cos(3*u)-1 */
-					s3  =  0.86602540378443864677,	/* sin(3*u) */
-					c4  = -0.93969262078590838404,	/* cos(4*u) */
-					s4  =  0.34202014332566873307;	/* sin(4*u) */
-
-	// If this is first time here, init pointers and associated data:
-	if(thr_id == -1)	// Value of init stores #threads
+	void SSE2_RADIX_63_DIF(
+		const int init,	// Init consts (in 1-thread mode only!) and exit
+		const int thr_id,
+		vec_dbl *__A, const int *__idx,	/* Inputs : Base address plus 63 (index) offsets */
+		vec_dbl *__B, const int *__odx	/* Outputs: Base address plus 63 (index) offsets */
+	)
 	{
-		if(init <= max_threads) {	// Previously inited with sufficient #threads
-			ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
-			return;
-		}
-		max_threads = init;
-	#ifndef COMPILER_TYPE_GCC
-		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
-	#endif
-		if(sc_arr) { free((void *)sc_arr); }
-		// 126 slots for DFT-63 data, 22 for DFT-7,9 consts and DFT-7 pads, 4 to allow for alignment = 152:
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 152*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		static int max_threads = 0;
+		static vec_dbl *sc_arr = 0x0, *sc_ptr;	// Pad with 4 extra slots for scratch storage needed by SSE2_RADIX_07_DFT macro!!!
+	  #ifdef MULTITHREAD
+		static vec_dbl *__r0;					// Base address for discrete per-thread local stores
+		// In || mode, only above base-pointer (shared by all threads) is static:
+		vec_dbl *two,*one,	// Needed for FMA support
+				*dc0,*ds0,*dc1,*ds1,*dc2,*ds2,*dc3,*ds3,	// radix-7 DFT roots; Use dc0-ptr as "need to init local statics?" sentinel
+				*cc1,*ss1,*cc2,*ss2,*cc3m1,*ss3,*cc4,*ss4;	// radix-9 DFT roots
+	  #else
+		static vec_dbl *two,*one,
+				*dc0,*ds0,*dc1,*ds1,*dc2,*ds2,*dc3,*ds3,
+				*cc1,*ss1,*cc2,*ss2,*cc3m1,*ss3,*cc4,*ss4;	// 18 vec_dbl consts plus 4 padding slots = 22 slots alloc per thread
+	  #endif
+		// Unline e.g. the 64-DFTs in this file, the 63-DFT defines its own local storage for the
+		// 2x63 vec_dbl intermediates needed by each thread. That storage is pointed to by tdat:
+		vec_dbl *tdat, *tmp,
+			*va0,*va1,*va2,*va3,*va4,*va5,*va6,*va7,*va8,
+			*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8;
+		int l,k0,k1,k2,k3,k4,k5,k6,k7,k8;
+		const uint8 *iptr,
+			dif_iperm[64] = {	// Only need 63, but pad to 64-bytes
+				0x00,0x36,0x2d,0x24,0x1b,0x12,0x09,
+				0x38,0x2f,0x26,0x1d,0x14,0x0b,0x02,
+				0x31,0x28,0x1f,0x16,0x0d,0x04,0x3a,
+				0x2a,0x21,0x18,0x0f,0x06,0x3c,0x33,
+				0x23,0x1a,0x11,0x08,0x3e,0x35,0x2c,
+				0x1c,0x13,0x0a,0x01,0x37,0x2e,0x25,
+				0x15,0x0c,0x03,0x39,0x30,0x27,0x1e,
+				0x0e,0x05,0x3b,0x32,0x29,0x20,0x17,
+				0x07,0x3d,0x34,0x2b,0x22,0x19,0x10},
+			dif_operm[64] = {	// ditto
+				0x00,0x07,0x03,0x02,0x06,0x05,0x01,0x08,0x04,
+				0x37,0x3e,0x3a,0x36,0x3d,0x39,0x38,0x3c,0x3b,
+				0x32,0x2e,0x35,0x31,0x2d,0x34,0x30,0x2f,0x33,
+				0x2a,0x29,0x25,0x2c,0x28,0x24,0x2b,0x27,0x26,
+				0x1d,0x21,0x20,0x1c,0x23,0x1f,0x1b,0x22,0x1e,
+				0x15,0x14,0x18,0x17,0x13,0x1a,0x16,0x12,0x19,
+				0x10,0x0c,0x0b,0x0f,0x0e,0x0a,0x11,0x0d,0x09};
+	  // AVX2 (i.e. FMA) means non-Nussbaumer radix-7, uses these sincos constants:
+	  #if defined(USE_AVX2) || defined( USE_ARM_V8_SIMD)
+		// AVX2 (i.e. FMA) means non-Nussbaumer radix-7, uses these sincos constants:
+		const double	uc1 = .62348980185873353053,	 /* cos(u) = Real part of exp(i*2*pi/7), the radix-7 fundamental sincos datum	*/
+						us1 = .78183148246802980870,	 /* sin(u) = Imag part of exp(i*2*pi/7).	*/
+						uc2 =-.22252093395631440426,	 /* cos(2u)	*/
+						us2 = .97492791218182360702,	 /* sin(2u)	*/
+						uc3 =-.90096886790241912622,	 /* cos(3u)	*/
+						us3 = .43388373911755812050;	 /* sin(3u)	*/
+	  #else
+		// Roots for radix-7 DFTs: SSE2/AVX versions assume LO_ADD = 0, i.e. the low-mul Nussbaumer-style DFT implementation:
+		const double	cx0 =-0.16666666666666666667,	/* (cc1+cc2+cc3)/3 */
+						cx1 = 1.52445866976115265675, 	/*  cc1-cc3		*/
+						cx2 = 0.67844793394610472196, 	/*  cc2-cc3		*/
+						cx3 = 0.73430220123575245957,	/* (cc1+cc2-2*cc3)/3	*/
+					/* Switch the sign of ss3 in these: */
+						sx0 = 0.44095855184409843174,	/* (ss1+ss2-ss3)/3	*/
+						sx1 = 1.21571522158558792920, 	/*  ss1+ss3		*/
+						sx2 = 1.40881165129938172752, 	/*  ss2+ss3		*/
+						sx3 = 0.87484229096165655224;	/* (ss1+ss2+2*ss3)/3	*/
+	  #endif	// AVX2?
+		// Roots for radix-9 DFTs:
+		const double	c   =  0.76604444311897803520,	/* cos(2*pi/9) */
+						s   =  0.64278760968653932631,	/* sin(2*pi/9) */
+						c2  =  0.17364817766693034887,	/* cos(2*u) */
+						s2  =  0.98480775301220805936,	/* sin(2*u) */
+						c3m1= -1.50000000000000000000,	/* cos(3*u)-1 */
+						s3  =  0.86602540378443864677,	/* sin(3*u) */
+						c4  = -0.93969262078590838404,	/* cos(4*u) */
+						s4  =  0.34202014332566873307;	/* sin(4*u) */
 
-	#ifdef MULTITHREAD
-		__r0 = tdat = sc_ptr;	tmp = tdat + 126;
-		two    = tmp + 0x0;
-		one    = tmp + 0x1;
-		tmp += 2;
-		// Roots for radix-9 DFTs:	// Roots for radix-7 DFTs: MUST be followed by 4 alloc'ed padding slots needed by SSE2_RADIX_07_DFT macro!!! **************/
-		cc1    = tmp + 0x0;			dc0    = tmp + 0x8;
-		ss1    = tmp + 0x1;			ds0    = tmp + 0x9;
-		cc2    = tmp + 0x2;			dc1    = tmp + 0xa;
-		ss2    = tmp + 0x3;			ds1    = tmp + 0xb;
-		cc3m1  = tmp + 0x4;			dc2    = tmp + 0xc;
-		ss3    = tmp + 0x5;			ds2    = tmp + 0xd;
-		cc4    = tmp + 0x6;			dc3    = tmp + 0xe;
-		ss4    = tmp + 0x7;			ds3    = tmp + 0xf;
-		for(l = 0; l < max_threads; ++l) {
-		/* These remain fixed within each per-thread local store: */
+		// If this is first time here, init pointers and associated data:
+		if(thr_id == -1)	// Value of init stores #threads
+		{
+			if(init <= max_threads) {	// Previously inited with sufficient #threads
+				ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
+				return;
+			}
+			max_threads = init;
+		#ifndef COMPILER_TYPE_GCC
+			ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+		#endif
+			if(sc_arr) { free((void *)sc_arr); }
+			// 126 slots for DFT-63 data, 22 for DFT-7,9 consts and DFT-7 pads, 4 to allow for alignment = 152:
+			sc_arr = ALLOC_VEC_DBL(sc_arr, 152*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+			sc_ptr = ALIGN_VEC_DBL(sc_arr);
+			ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+
+		#ifdef MULTITHREAD
+			__r0 = tdat = sc_ptr;	tmp = tdat + 126;
+			two    = tmp + 0x0;
+			one    = tmp + 0x1;
+			tmp += 2;
+			// Roots for radix-9 DFTs:	// Roots for radix-7 DFTs: MUST be followed by 4 alloc'ed padding slots needed by SSE2_RADIX_07_DFT macro!!! **************/
+			cc1    = tmp + 0x0;			dc0    = tmp + 0x8;
+			ss1    = tmp + 0x1;			ds0    = tmp + 0x9;
+			cc2    = tmp + 0x2;			dc1    = tmp + 0xa;
+			ss2    = tmp + 0x3;			ds1    = tmp + 0xb;
+			cc3m1  = tmp + 0x4;			dc2    = tmp + 0xc;
+			ss3    = tmp + 0x5;			ds2    = tmp + 0xd;
+			cc4    = tmp + 0x6;			dc3    = tmp + 0xe;
+			ss4    = tmp + 0x7;			ds3    = tmp + 0xf;
+			for(l = 0; l < max_threads; ++l) {
+			/* These remain fixed within each per-thread local store: */
+				VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );	// 1.0,2.0 needed for FMA support
+			  #if defined(USE_AVX2) || defined( USE_ARM_V8_SIMD)
+				// FMA means non-Nussbaumer radix-7, use these sincos constants:
+				VEC_DBL_INIT(dc0, uc1  );	VEC_DBL_INIT(ds0, us1);
+				VEC_DBL_INIT(dc1, uc2  );	VEC_DBL_INIT(ds1, us2);
+				VEC_DBL_INIT(dc2, uc3  );	VEC_DBL_INIT(ds2, us3);
+				VEC_DBL_INIT(dc3, 0.0  );	VEC_DBL_INIT(ds3, 0.0);	// Unused in non-Nussbaumer mode
+			  #else
+				// Roots for radix-7 DFTs: cc2 = (cc1+cc2+cc3)/3 - 1; subtract 1 from Nussbaumer's definition in order to ease in-place computation
+				VEC_DBL_INIT(dc0, cx0-1);	VEC_DBL_INIT(ds0, sx0);
+				VEC_DBL_INIT(dc1, cx1  );	VEC_DBL_INIT(ds1, sx1);
+				VEC_DBL_INIT(dc2, cx2  );	VEC_DBL_INIT(ds2, sx2);
+				VEC_DBL_INIT(dc3, cx3  );	VEC_DBL_INIT(ds3, sx3);
+			  #endif
+				// Roots for radix-9 DFTs:
+				VEC_DBL_INIT(cc1  , c	);	VEC_DBL_INIT(ss1, s );
+				VEC_DBL_INIT(cc2  , c2  );	VEC_DBL_INIT(ss2, s2);
+				VEC_DBL_INIT(cc3m1, c3m1);	VEC_DBL_INIT(ss3, s3);
+				VEC_DBL_INIT(cc4  , c4  );	VEC_DBL_INIT(ss4, s4);
+			/* Move on to next thread's local store */
+				cc1   += 152;			dc0 += 152;
+				ss1   += 152;			ds0 += 152;
+				cc2   += 152;			dc1 += 152;
+				ss2   += 152;			ds1 += 152;
+				cc3m1 += 152;			dc2 += 152;
+				ss3   += 152;			ds2 += 152;
+				cc4   += 152;			dc3 += 152;
+				ss4   += 152;			ds3 += 152;
+			}
+		#else
+			tdat = sc_ptr;	tmp = tdat + 126;
+			two    = tmp + 0x0;
+			one    = tmp + 0x1;
+			tmp += 2;
+			// Roots for radix-9 DFTs:	// Roots for radix-7 DFTs: MUST be followed by 4 alloc'ed padding slots needed by SSE2_RADIX_07_DFT macro!!! **************/
+			cc1    = tmp + 0x0;			dc0    = tmp + 0x8;
+			ss1    = tmp + 0x1;			ds0    = tmp + 0x9;
+			cc2    = tmp + 0x2;			dc1    = tmp + 0xa;
+			ss2    = tmp + 0x3;			ds1    = tmp + 0xb;
+			cc3m1  = tmp + 0x4;			dc2    = tmp + 0xc;
+			ss3    = tmp + 0x5;			ds2    = tmp + 0xd;
+			cc4    = tmp + 0x6;			dc3    = tmp + 0xe;
+			ss4    = tmp + 0x7;			ds3    = tmp + 0xf;
+			/* These remain fixed within each per-thread local store: */
 			VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );	// 1.0,2.0 needed for FMA support
-		  #ifdef USE_AVX2
+		  #if defined(USE_AVX2) || defined( USE_ARM_V8_SIMD)
 			// AVX2 (i.e. FMA)means non-Nussbaumer radix-7, uses these sincos constants:
 			VEC_DBL_INIT(dc0, uc1  );	VEC_DBL_INIT(ds0, us1);
 			VEC_DBL_INIT(dc1, uc2  );	VEC_DBL_INIT(ds1, us2);
@@ -3961,226 +4005,19 @@ void SSE2_RADIX_63_DIF(
 			VEC_DBL_INIT(cc2  , c2  );	VEC_DBL_INIT(ss2, s2);
 			VEC_DBL_INIT(cc3m1, c3m1);	VEC_DBL_INIT(ss3, s3);
 			VEC_DBL_INIT(cc4  , c4  );	VEC_DBL_INIT(ss4, s4);
-		/* Move on to next thread's local store */
-			cc1   += 152;			dc0 += 152;
-			ss1   += 152;			ds0 += 152;
-			cc2   += 152;			dc1 += 152;
-			ss2   += 152;			ds1 += 152;
-			cc3m1 += 152;			dc2 += 152;
-			ss3   += 152;			ds2 += 152;
-			cc4   += 152;			dc3 += 152;
-			ss4   += 152;			ds3 += 152;
-		}
-	#else
-		tdat = sc_ptr;	tmp = tdat + 126;
-		two    = tmp + 0x0;
-		one    = tmp + 0x1;
-		tmp += 2;
-		// Roots for radix-9 DFTs:	// Roots for radix-7 DFTs: MUST be followed by 4 alloc'ed padding slots needed by SSE2_RADIX_07_DFT macro!!! **************/
-		cc1    = tmp + 0x0;			dc0    = tmp + 0x8;
-		ss1    = tmp + 0x1;			ds0    = tmp + 0x9;
-		cc2    = tmp + 0x2;			dc1    = tmp + 0xa;
-		ss2    = tmp + 0x3;			ds1    = tmp + 0xb;
-		cc3m1  = tmp + 0x4;			dc2    = tmp + 0xc;
-		ss3    = tmp + 0x5;			ds2    = tmp + 0xd;
-		cc4    = tmp + 0x6;			dc3    = tmp + 0xe;
-		ss4    = tmp + 0x7;			ds3    = tmp + 0xf;
-		/* These remain fixed within each per-thread local store: */
-		VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );	// 1.0,2.0 needed for FMA support
-	  #ifdef USE_AVX2
-		// AVX2 (i.e. FMA)means non-Nussbaumer radix-7, uses these sincos constants:
-		VEC_DBL_INIT(dc0, uc1  );	VEC_DBL_INIT(ds0, us1);
-		VEC_DBL_INIT(dc1, uc2  );	VEC_DBL_INIT(ds1, us2);
-		VEC_DBL_INIT(dc2, uc3  );	VEC_DBL_INIT(ds2, us3);
-		VEC_DBL_INIT(dc3, 0.0  );	VEC_DBL_INIT(ds3, 0.0);	// Unused in non-Nussbaumer mode
-	  #else
-		// Roots for radix-7 DFTs: cc2 = (cc1+cc2+cc3)/3 - 1; subtract 1 from Nussbaumer's definition in order to ease in-place computation
-		VEC_DBL_INIT(dc0, cx0-1);	VEC_DBL_INIT(ds0, sx0);
-		VEC_DBL_INIT(dc1, cx1  );	VEC_DBL_INIT(ds1, sx1);
-		VEC_DBL_INIT(dc2, cx2  );	VEC_DBL_INIT(ds2, sx2);
-		VEC_DBL_INIT(dc3, cx3  );	VEC_DBL_INIT(ds3, sx3);
-	  #endif
-		// Roots for radix-9 DFTs:
-		VEC_DBL_INIT(cc1  , c	);	VEC_DBL_INIT(ss1, s );
-		VEC_DBL_INIT(cc2  , c2  );	VEC_DBL_INIT(ss2, s2);
-		VEC_DBL_INIT(cc3m1, c3m1);	VEC_DBL_INIT(ss3, s3);
-		VEC_DBL_INIT(cc4  , c4  );	VEC_DBL_INIT(ss4, s4);
-	#endif
-		return;
-	} else {
-		ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
-	}	/* end of inits */
-
-	/* If multithreaded, set the local-store pointers needed for the current thread; */
-#ifdef MULTITHREAD
-	ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
-	tdat = __r0 + thr_id*152;	tmp = tdat + 126;
-	two    = tmp + 0x0;
-	one    = tmp + 0x1;
-	tmp += 2;
-	cc1    = tmp + 0x0;			dc0    = tmp + 0x8;
-	ss1    = tmp + 0x1;			ds0    = tmp + 0x9;
-	cc2    = tmp + 0x2;			dc1    = tmp + 0xa;
-	ss2    = tmp + 0x3;			ds1    = tmp + 0xb;
-	cc3m1  = tmp + 0x4;			dc2    = tmp + 0xc;
-	ss3    = tmp + 0x5;			ds2    = tmp + 0xd;
-	cc4    = tmp + 0x6;			dc3    = tmp + 0xe;
-	ss4    = tmp + 0x7;			ds3    = tmp + 0xf;
-#endif
-
-	//...gather the needed data (63 64-bit complex, i.e. 126 64-bit reals) and do 9 radix-7 transforms:
-	/*
-	Twiddleless version arranges 9 sets of radix-7 DFT inputs as follows: 0 in upper left corner,
-	decrement (mod 63) 9 horizontally and 7 vertically. Display result of DIF/DIT input-scramble array in hex:
-
-		00,36,2d,24,1b,12,09
-		38,2f,26,1d,14,0b,02
-		31,28,1f,16,0d,04,3a
-		2a,21,18,0f,06,3c,33
-		23,1a,11,08,3e,35,2c
-		1c,13,0a,01,37,2e,25
-		15,0c,03,39,30,27,1e
-		0e,05,3b,32,29,20,17
-		07,3d,34,2b,22,19,10
-	*/
-	tmp = tdat; iptr = dif_iperm;
-	for(l = 0; l < 9; l++) {
-		k0 = __idx[*iptr]; k1 = __idx[*(iptr+1)]; k2 = __idx[*(iptr+2)]; k3 = __idx[*(iptr+3)]; k4 = __idx[*(iptr+4)]; k5 = __idx[*(iptr+5)]; k6 = __idx[*(iptr+6)];
-		va0 = __A+k0; va1 = __A+k1; va2 = __A+k2; va3 = __A+k3; va4 = __A+k4; va5 = __A+k5; va6 = __A+k6;
-		// Since there is no vec_cmplx type, ptr-offs double those of analogous scalar code:
-		vb0 = tmp; vb1 = tmp+18; vb2 = tmp+36; vb3 = tmp+54; vb4 = tmp+72; vb5 = tmp+90; vb6 = tmp+108;
-	  #ifdef USE_AVX2
-		SSE2_RADIX_07_DFT(va0,va1,va2,va3,va4,va5,va6, dc0,two, vb0,vb1,vb2,vb3,vb4,vb5,vb6)
-	  #else
-		SSE2_RADIX_07_DFT(va0,va1,va2,va3,va4,va5,va6, dc0,     vb0,vb1,vb2,vb3,vb4,vb5,vb6)
-	  #endif
-		tmp += 2; iptr += 7;
-	}
-	/*...and now do 7 radix-9 transforms. The required output permutation is
-
-		00,07,03,02,06,05,01,08,04,
-		37,3e,3a,36,3d,39,38,3c,3b,
-		32,2e,35,31,2d,34,30,2f,33,
-		2a,29,25,2c,28,24,2b,27,26,
-		1d,21,20,1c,23,1f,1b,22,1e,
-		15,14,18,17,13,1a,16,12,19,
-		10,0c,0b,0f,0e,0a,11,0d,09.
-	*/
-	tmp = tdat; iptr = dif_operm;
-	for(l = 0; l < 7; l++) {
-		// When 63 is used to build a larger DFT radix (e.g. 1008), these indices will be permuted (nonmonotone), no simplification possible:
-		k0 = __odx[*iptr]; k1 = __odx[*(iptr+1)]; k2 = __odx[*(iptr+2)]; k3 = __odx[*(iptr+3)]; k4 = __odx[*(iptr+4)]; k5 = __odx[*(iptr+5)]; k6 = __odx[*(iptr+6)]; k7 = __odx[*(iptr+7)]; k8 = __odx[*(iptr+8)];
-		// Since there is no vec_cmplx type, ptr-offs double those of analogous scalar code:
-		va0 = tmp; va1 = tmp+2; va2 = tmp+4; va3 = tmp+6; va4 = tmp+8; va5 = tmp+10; va6 = tmp+12; va7 = tmp+14; va8 = tmp+16;
-		vb0 = __B+k0; vb1 = __B+k1; vb2 = __B+k2; vb3 = __B+k3; vb4 = __B+k4; vb5 = __B+k5; vb6 = __B+k6; vb7 = __B+k7; vb8 = __B+k8;
-		SSE2_RADIX_09_DIF(
-			va0,va1,va2,va3,va4,va5,va6,va7,va8,
-			cc1,
-			vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8
-		);	tmp += 18; iptr += 9;
-	}
-}
-
-/***************/
-
-void SSE2_RADIX_63_DIT(
-	const int init,	// Init consts (in 1-thread mode only!) and exit
-	const int thr_id,
-	vec_dbl *__A, const int *__idx,	/* Inputs : Base address plus 63 (index) offsets */
-	vec_dbl *__B, const int *__odx	/* Outputs: Base address plus 63 (index) offsets */
-)
-{
-	static int max_threads = 0;
-	static vec_dbl *sc_arr = 0x0, *sc_ptr;	// Pad with 4 extra slots for scratch storage needed by SSE2_RADIX_07_DFT macro!!!
-  #ifdef MULTITHREAD
-	static vec_dbl *__r0;					// Base address for discrete per-thread local stores
-	// In || mode, only above base-pointer (shared by all threads) is static:
-	vec_dbl *two,*one,	// Needed for FMA support
-			*dc0,*ds0,*dc1,*ds1,*dc2,*ds2,*dc3,*ds3,	// radix-7 DFT roots; Use dc0-ptr as "need to init local statics?" sentinel
-			*cc1,*ss1,*cc2,*ss2,*cc3m1,*ss3,*cc4,*ss4;	// radix-9 DFT roots
-  #else
-	static vec_dbl *two,*one,
-			*dc0,*ds0,*dc1,*ds1,*dc2,*ds2,*dc3,*ds3,
-			*cc1,*ss1,*cc2,*ss2,*cc3m1,*ss3,*cc4,*ss4;	// 18 vec_dbl consts plus 4 padding slots = 22 slots alloc per thread
-  #endif
-	// Unline e.g. the 64-DFTs in this file, the 63-DFT defines its own local storage for the
-	// 2x63 vec_dbl intermediates needed by each thread. That storage is pointed to by tdat:
-	vec_dbl *tdat, *tmp,
-		*va0,*va1,*va2,*va3,*va4,*va5,*va6,*va7,*va8,
-		*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8;
-	int l,k0,k1,k2,k3,k4,k5,k6,k7,k8;
-	const uint8 *iptr,
-		dit_iperm[64] = {	// Only need 63, but pad to 64-bytes
-			0x00,0x02,0x01,0x08,0x07,0x06,0x05,0x04,0x03,
-			0x32,0x31,0x30,0x2f,0x2e,0x2d,0x34,0x33,0x35,
-			0x1d,0x1c,0x1b,0x22,0x21,0x23,0x1f,0x1e,0x20,
-			0x10,0x0f,0x11,0x0d,0x0c,0x0e,0x0a,0x09,0x0b,
-			0x37,0x36,0x38,0x3c,0x3e,0x3d,0x39,0x3b,0x3a,
-			0x2a,0x2c,0x2b,0x27,0x29,0x28,0x24,0x26,0x25,
-			0x15,0x17,0x16,0x12,0x14,0x13,0x1a,0x19,0x18,0},
-		dit_operm[64] = {	// ditto
-			0x00,0x24,0x09,0x2d,0x12,0x36,0x1b,
-			0x0e,0x32,0x17,0x3b,0x20,0x05,0x29,
-			0x1c,0x01,0x25,0x0a,0x2e,0x13,0x37,
-			0x2a,0x0f,0x33,0x18,0x3c,0x21,0x06,
-			0x38,0x1d,0x02,0x26,0x0b,0x2f,0x14,
-			0x07,0x2b,0x10,0x34,0x19,0x3d,0x22,
-			0x15,0x39,0x1e,0x03,0x27,0x0c,0x30,
-			0x23,0x08,0x2c,0x11,0x35,0x1a,0x3e,
-			0x31,0x16,0x3a,0x1f,0x04,0x28,0x0d,0};
-  #if defined(USE_AVX2)
-	// AVX2 (i.e. FMA) means non-Nussbaumer radix-7, uses these sincos constants:
-	const double	uc1 = .62348980185873353053,	 /* cos(u) = Real part of exp(i*2*pi/7), the radix-7 fundamental sincos datum	*/
-					us1 = .78183148246802980870,	 /* sin(u) = Imag part of exp(i*2*pi/7).	*/
-					uc2 =-.22252093395631440426,	 /* cos(2u)	*/
-					us2 = .97492791218182360702,	 /* sin(2u)	*/
-					uc3 =-.90096886790241912622,	 /* cos(3u)	*/
-					us3 = .43388373911755812050;	 /* sin(3u)	*/
-  #else
-	// Roots for radix-7 DFTs: SSE2/AVX versions assume LO_ADD = 0, i.e. the low-mul Nussbaumer-style DFT implementation:
-	const double	cx0 =-0.16666666666666666667,	/* (cc1+cc2+cc3)/3 */
-				 	cx1 = 1.52445866976115265675, 	/*  cc1-cc3		*/
-				 	cx2 = 0.67844793394610472196, 	/*  cc2-cc3		*/
-				 	cx3 = 0.73430220123575245957,	/* (cc1+cc2-2*cc3)/3	*/
-				/* Switch the sign of ss3 in these: */
-				 	sx0 = 0.44095855184409843174,	/* (ss1+ss2-ss3)/3	*/
-				 	sx1 = 1.21571522158558792920, 	/*  ss1+ss3		*/
-				 	sx2 = 1.40881165129938172752, 	/*  ss2+ss3		*/
-				 	sx3 = 0.87484229096165655224;	/* (ss1+ss2+2*ss3)/3	*/
-  #endif	// AVX2?
-	// Roots for radix-9 DFTs:
-	const double	c   =  0.76604444311897803520,	/* cos(2*pi/9) */
-					s   =  0.64278760968653932631,	/* sin(2*pi/9) */
-					c2  =  0.17364817766693034887,	/* cos(2*u) */
-					s2  =  0.98480775301220805936,	/* sin(2*u) */
-					c3m1= -1.50000000000000000000,	/* cos(3*u)-1 */
-					s3  =  0.86602540378443864677,	/* sin(3*u) */
-					c4  = -0.93969262078590838404,	/* cos(4*u) */
-					s4  =  0.34202014332566873307;	/* sin(4*u) */
-
-	// If this is first time here, init pointers and associated data:
-	if(thr_id == -1)	// Value of init stores #threads
-	{
-		if(init <= max_threads) {	// Previously inited with sufficient #threads
-			ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
+		#endif
 			return;
-		}
-		max_threads = init;
-	#ifndef COMPILER_TYPE_GCC
-		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
-	#endif
-		if(sc_arr) { free((void *)sc_arr); }
-		// 126 slots for DFT-63 data, 22 for DFT-7,9 consts and DFT-7 pads, 4 to allow for alignment = 152:
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 152*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		} else {
+			ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
+		}	/* end of inits */
 
+		/* If multithreaded, set the local-store pointers needed for the current thread; */
 	#ifdef MULTITHREAD
-		__r0 = tdat = sc_ptr;	tmp = tdat + 126;
+		ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+		tdat = __r0 + thr_id*152;	tmp = tdat + 126;
 		two    = tmp + 0x0;
 		one    = tmp + 0x1;
 		tmp += 2;
-		// Roots for radix-9 DFTs:	// Roots for radix-7 DFTs: MUST be followed by 4 alloc'ed padding slots needed by SSE2_RADIX_07_DFT macro!!! **************/
 		cc1    = tmp + 0x0;			dc0    = tmp + 0x8;
 		ss1    = tmp + 0x1;			ds0    = tmp + 0x9;
 		cc2    = tmp + 0x2;			dc1    = tmp + 0xa;
@@ -4189,10 +4026,217 @@ void SSE2_RADIX_63_DIT(
 		ss3    = tmp + 0x5;			ds2    = tmp + 0xd;
 		cc4    = tmp + 0x6;			dc3    = tmp + 0xe;
 		ss4    = tmp + 0x7;			ds3    = tmp + 0xf;
-		for(l = 0; l < max_threads; ++l) {
-		/* These remain fixed within each per-thread local store: */
-			VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );	// 1.0,2.0 needed for FMA support
+	#endif
+
+		//...gather the needed data (63 64-bit complex, i.e. 126 64-bit reals) and do 9 radix-7 transforms:
+		/*
+		Twiddleless version arranges 9 sets of radix-7 DFT inputs as follows: 0 in upper left corner,
+		decrement (mod 63) 9 horizontally and 7 vertically. Display result of DIF/DIT input-scramble array in hex:
+
+			00,36,2d,24,1b,12,09
+			38,2f,26,1d,14,0b,02
+			31,28,1f,16,0d,04,3a
+			2a,21,18,0f,06,3c,33
+			23,1a,11,08,3e,35,2c
+			1c,13,0a,01,37,2e,25
+			15,0c,03,39,30,27,1e
+			0e,05,3b,32,29,20,17
+			07,3d,34,2b,22,19,10
+		*/
+		tmp = tdat; iptr = dif_iperm;
+		for(l = 0; l < 9; l++) {
+			k0 = __idx[*iptr]; k1 = __idx[*(iptr+1)]; k2 = __idx[*(iptr+2)]; k3 = __idx[*(iptr+3)]; k4 = __idx[*(iptr+4)]; k5 = __idx[*(iptr+5)]; k6 = __idx[*(iptr+6)];
+			va0 = __A+k0; va1 = __A+k1; va2 = __A+k2; va3 = __A+k3; va4 = __A+k4; va5 = __A+k5; va6 = __A+k6;
+			// Since there is no vec_cmplx type, ptr-offs double those of analogous scalar code:
+			vb0 = tmp; vb1 = tmp+18; vb2 = tmp+36; vb3 = tmp+54; vb4 = tmp+72; vb5 = tmp+90; vb6 = tmp+108;
 		  #ifdef USE_AVX2
+			SSE2_RADIX_07_DFT(va0,va1,va2,va3,va4,va5,va6, dc0,two, vb0,vb1,vb2,vb3,vb4,vb5,vb6)
+		  #else
+			SSE2_RADIX_07_DFT(va0,va1,va2,va3,va4,va5,va6, dc0,     vb0,vb1,vb2,vb3,vb4,vb5,vb6)
+		  #endif
+			tmp += 2; iptr += 7;
+		}
+		/*...and now do 7 radix-9 transforms. The required output permutation is
+
+			00,07,03,02,06,05,01,08,04,
+			37,3e,3a,36,3d,39,38,3c,3b,
+			32,2e,35,31,2d,34,30,2f,33,
+			2a,29,25,2c,28,24,2b,27,26,
+			1d,21,20,1c,23,1f,1b,22,1e,
+			15,14,18,17,13,1a,16,12,19,
+			10,0c,0b,0f,0e,0a,11,0d,09.
+		*/
+		tmp = tdat; iptr = dif_operm;
+		for(l = 0; l < 7; l++) {
+			// When 63 is used to build a larger DFT radix (e.g. 1008), these indices will be permuted (nonmonotone), no simplification possible:
+			k0 = __odx[*iptr]; k1 = __odx[*(iptr+1)]; k2 = __odx[*(iptr+2)]; k3 = __odx[*(iptr+3)]; k4 = __odx[*(iptr+4)]; k5 = __odx[*(iptr+5)]; k6 = __odx[*(iptr+6)]; k7 = __odx[*(iptr+7)]; k8 = __odx[*(iptr+8)];
+			// Since there is no vec_cmplx type, ptr-offs double those of analogous scalar code:
+			va0 = tmp; va1 = tmp+2; va2 = tmp+4; va3 = tmp+6; va4 = tmp+8; va5 = tmp+10; va6 = tmp+12; va7 = tmp+14; va8 = tmp+16;
+			vb0 = __B+k0; vb1 = __B+k1; vb2 = __B+k2; vb3 = __B+k3; vb4 = __B+k4; vb5 = __B+k5; vb6 = __B+k6; vb7 = __B+k7; vb8 = __B+k8;
+			SSE2_RADIX_09_DIF(
+				va0,va1,va2,va3,va4,va5,va6,va7,va8,
+				cc1,
+				vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8
+			);	tmp += 18; iptr += 9;
+		}
+	}
+
+	/***************/
+
+	void SSE2_RADIX_63_DIT(
+		const int init,	// Init consts (in 1-thread mode only!) and exit
+		const int thr_id,
+		vec_dbl *__A, const int *__idx,	/* Inputs : Base address plus 63 (index) offsets */
+		vec_dbl *__B, const int *__odx	/* Outputs: Base address plus 63 (index) offsets */
+	)
+	{
+		static int max_threads = 0;
+		static vec_dbl *sc_arr = 0x0, *sc_ptr;	// Pad with 4 extra slots for scratch storage needed by SSE2_RADIX_07_DFT macro!!!
+	  #ifdef MULTITHREAD
+		static vec_dbl *__r0;					// Base address for discrete per-thread local stores
+		// In || mode, only above base-pointer (shared by all threads) is static:
+		vec_dbl *two,*one,	// Needed for FMA support
+				*dc0,*ds0,*dc1,*ds1,*dc2,*ds2,*dc3,*ds3,	// radix-7 DFT roots; Use dc0-ptr as "need to init local statics?" sentinel
+				*cc1,*ss1,*cc2,*ss2,*cc3m1,*ss3,*cc4,*ss4;	// radix-9 DFT roots
+	  #else
+		static vec_dbl *two,*one,
+				*dc0,*ds0,*dc1,*ds1,*dc2,*ds2,*dc3,*ds3,
+				*cc1,*ss1,*cc2,*ss2,*cc3m1,*ss3,*cc4,*ss4;	// 18 vec_dbl consts plus 4 padding slots = 22 slots alloc per thread
+	  #endif
+		// Unline e.g. the 64-DFTs in this file, the 63-DFT defines its own local storage for the
+		// 2x63 vec_dbl intermediates needed by each thread. That storage is pointed to by tdat:
+		vec_dbl *tdat, *tmp,
+			*va0,*va1,*va2,*va3,*va4,*va5,*va6,*va7,*va8,
+			*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8;
+		int l,k0,k1,k2,k3,k4,k5,k6,k7,k8;
+		const uint8 *iptr,
+			dit_iperm[64] = {	// Only need 63, but pad to 64-bytes
+				0x00,0x02,0x01,0x08,0x07,0x06,0x05,0x04,0x03,
+				0x32,0x31,0x30,0x2f,0x2e,0x2d,0x34,0x33,0x35,
+				0x1d,0x1c,0x1b,0x22,0x21,0x23,0x1f,0x1e,0x20,
+				0x10,0x0f,0x11,0x0d,0x0c,0x0e,0x0a,0x09,0x0b,
+				0x37,0x36,0x38,0x3c,0x3e,0x3d,0x39,0x3b,0x3a,
+				0x2a,0x2c,0x2b,0x27,0x29,0x28,0x24,0x26,0x25,
+				0x15,0x17,0x16,0x12,0x14,0x13,0x1a,0x19,0x18,0},
+			dit_operm[64] = {	// ditto
+				0x00,0x24,0x09,0x2d,0x12,0x36,0x1b,
+				0x0e,0x32,0x17,0x3b,0x20,0x05,0x29,
+				0x1c,0x01,0x25,0x0a,0x2e,0x13,0x37,
+				0x2a,0x0f,0x33,0x18,0x3c,0x21,0x06,
+				0x38,0x1d,0x02,0x26,0x0b,0x2f,0x14,
+				0x07,0x2b,0x10,0x34,0x19,0x3d,0x22,
+				0x15,0x39,0x1e,0x03,0x27,0x0c,0x30,
+				0x23,0x08,0x2c,0x11,0x35,0x1a,0x3e,
+				0x31,0x16,0x3a,0x1f,0x04,0x28,0x0d,0};
+	  #if defined(USE_AVX2) || defined( USE_ARM_V8_SIMD)
+		// FMA means non-Nussbaumer radix-7, use these sincos constants:
+		const double	uc1 = .62348980185873353053,	 /* cos(u) = Real part of exp(i*2*pi/7), the radix-7 fundamental sincos datum	*/
+						us1 = .78183148246802980870,	 /* sin(u) = Imag part of exp(i*2*pi/7).	*/
+						uc2 =-.22252093395631440426,	 /* cos(2u)	*/
+						us2 = .97492791218182360702,	 /* sin(2u)	*/
+						uc3 =-.90096886790241912622,	 /* cos(3u)	*/
+						us3 = .43388373911755812050;	 /* sin(3u)	*/
+	  #else
+		// Roots for radix-7 DFTs: SSE2/AVX versions assume LO_ADD = 0, i.e. the low-mul Nussbaumer-style DFT implementation:
+		const double	cx0 =-0.16666666666666666667,	/* (cc1+cc2+cc3)/3 */
+						cx1 = 1.52445866976115265675, 	/*  cc1-cc3		*/
+						cx2 = 0.67844793394610472196, 	/*  cc2-cc3		*/
+						cx3 = 0.73430220123575245957,	/* (cc1+cc2-2*cc3)/3	*/
+					/* Switch the sign of ss3 in these: */
+						sx0 = 0.44095855184409843174,	/* (ss1+ss2-ss3)/3	*/
+						sx1 = 1.21571522158558792920, 	/*  ss1+ss3		*/
+						sx2 = 1.40881165129938172752, 	/*  ss2+ss3		*/
+						sx3 = 0.87484229096165655224;	/* (ss1+ss2+2*ss3)/3	*/
+	  #endif	// AVX2?
+		// Roots for radix-9 DFTs:
+		const double	c   =  0.76604444311897803520,	/* cos(2*pi/9) */
+						s   =  0.64278760968653932631,	/* sin(2*pi/9) */
+						c2  =  0.17364817766693034887,	/* cos(2*u) */
+						s2  =  0.98480775301220805936,	/* sin(2*u) */
+						c3m1= -1.50000000000000000000,	/* cos(3*u)-1 */
+						s3  =  0.86602540378443864677,	/* sin(3*u) */
+						c4  = -0.93969262078590838404,	/* cos(4*u) */
+						s4  =  0.34202014332566873307;	/* sin(4*u) */
+
+		// If this is first time here, init pointers and associated data:
+		if(thr_id == -1)	// Value of init stores #threads
+		{
+			if(init <= max_threads) {	// Previously inited with sufficient #threads
+				ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
+				return;
+			}
+			max_threads = init;
+		#ifndef COMPILER_TYPE_GCC
+			ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+		#endif
+			if(sc_arr) { free((void *)sc_arr); }
+			// 126 slots for DFT-63 data, 22 for DFT-7,9 consts and DFT-7 pads, 4 to allow for alignment = 152:
+			sc_arr = ALLOC_VEC_DBL(sc_arr, 152*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+			sc_ptr = ALIGN_VEC_DBL(sc_arr);
+			ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+
+		#ifdef MULTITHREAD
+			__r0 = tdat = sc_ptr;	tmp = tdat + 126;
+			two    = tmp + 0x0;
+			one    = tmp + 0x1;
+			tmp += 2;
+			// Roots for radix-9 DFTs:	// Roots for radix-7 DFTs: MUST be followed by 4 alloc'ed padding slots needed by SSE2_RADIX_07_DFT macro!!! **************/
+			cc1    = tmp + 0x0;			dc0    = tmp + 0x8;
+			ss1    = tmp + 0x1;			ds0    = tmp + 0x9;
+			cc2    = tmp + 0x2;			dc1    = tmp + 0xa;
+			ss2    = tmp + 0x3;			ds1    = tmp + 0xb;
+			cc3m1  = tmp + 0x4;			dc2    = tmp + 0xc;
+			ss3    = tmp + 0x5;			ds2    = tmp + 0xd;
+			cc4    = tmp + 0x6;			dc3    = tmp + 0xe;
+			ss4    = tmp + 0x7;			ds3    = tmp + 0xf;
+			for(l = 0; l < max_threads; ++l) {
+			/* These remain fixed within each per-thread local store: */
+				VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );	// 1.0,2.0 needed for FMA support
+			  #if defined(USE_AVX2) || defined( USE_ARM_V8_SIMD)
+				// AVX2 (i.e. FMA)means non-Nussbaumer radix-7, uses these sincos constants:
+				VEC_DBL_INIT(dc0, uc1  );	VEC_DBL_INIT(ds0, us1);
+				VEC_DBL_INIT(dc1, uc2  );	VEC_DBL_INIT(ds1, us2);
+				VEC_DBL_INIT(dc2, uc3  );	VEC_DBL_INIT(ds2, us3);
+				VEC_DBL_INIT(dc3, 0.0  );	VEC_DBL_INIT(ds3, 0.0);	// Unused in non-Nussbaumer mode
+			  #else
+				// Roots for radix-7 DFTs: cc2 = (cc1+cc2+cc3)/3 - 1; subtract 1 from Nussbaumer's definition in order to ease in-place computation
+				VEC_DBL_INIT(dc0, cx0-1);	VEC_DBL_INIT(ds0, sx0);
+				VEC_DBL_INIT(dc1, cx1  );	VEC_DBL_INIT(ds1, sx1);
+				VEC_DBL_INIT(dc2, cx2  );	VEC_DBL_INIT(ds2, sx2);
+				VEC_DBL_INIT(dc3, cx3  );	VEC_DBL_INIT(ds3, sx3);
+			  #endif
+				// Roots for radix-9 DFTs:
+				VEC_DBL_INIT(cc1  , c	);	VEC_DBL_INIT(ss1, s );
+				VEC_DBL_INIT(cc2  , c2  );	VEC_DBL_INIT(ss2, s2);
+				VEC_DBL_INIT(cc3m1, c3m1);	VEC_DBL_INIT(ss3, s3);
+				VEC_DBL_INIT(cc4  , c4  );	VEC_DBL_INIT(ss4, s4);
+			/* Move on to next thread's local store */
+				cc1   += 152;			dc0 += 152;
+				ss1   += 152;			ds0 += 152;
+				cc2   += 152;			dc1 += 152;
+				ss2   += 152;			ds1 += 152;
+				cc3m1 += 152;			dc2 += 152;
+				ss3   += 152;			ds2 += 152;
+				cc4   += 152;			dc3 += 152;
+				ss4   += 152;			ds3 += 152;
+			}
+		#else
+			tdat = sc_ptr;	tmp = tdat + 126;
+			two    = tmp + 0x0;
+			one    = tmp + 0x1;
+			tmp += 2;
+			// Roots for radix-9 DFTs:	// Roots for radix-7 DFTs: MUST be followed by 4 alloc'ed padding slots needed by SSE2_RADIX_07_DFT macro!!! **************/
+			cc1    = tmp + 0x0;			dc0    = tmp + 0x8;
+			ss1    = tmp + 0x1;			ds0    = tmp + 0x9;
+			cc2    = tmp + 0x2;			dc1    = tmp + 0xa;
+			ss2    = tmp + 0x3;			ds1    = tmp + 0xb;
+			cc3m1  = tmp + 0x4;			dc2    = tmp + 0xc;
+			ss3    = tmp + 0x5;			ds2    = tmp + 0xd;
+			cc4    = tmp + 0x6;			dc3    = tmp + 0xe;
+			ss4    = tmp + 0x7;			ds3    = tmp + 0xf;
+			/* These remain fixed within each per-thread local store: */
+			VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );	// 1.0,2.0 needed for FMA support
+		  #if defined(USE_AVX2) || defined( USE_ARM_V8_SIMD)
 			// AVX2 (i.e. FMA)means non-Nussbaumer radix-7, uses these sincos constants:
 			VEC_DBL_INIT(dc0, uc1  );	VEC_DBL_INIT(ds0, us1);
 			VEC_DBL_INIT(dc1, uc2  );	VEC_DBL_INIT(ds1, us2);
@@ -4210,22 +4254,19 @@ void SSE2_RADIX_63_DIT(
 			VEC_DBL_INIT(cc2  , c2  );	VEC_DBL_INIT(ss2, s2);
 			VEC_DBL_INIT(cc3m1, c3m1);	VEC_DBL_INIT(ss3, s3);
 			VEC_DBL_INIT(cc4  , c4  );	VEC_DBL_INIT(ss4, s4);
-		/* Move on to next thread's local store */
-			cc1   += 152;			dc0 += 152;
-			ss1   += 152;			ds0 += 152;
-			cc2   += 152;			dc1 += 152;
-			ss2   += 152;			ds1 += 152;
-			cc3m1 += 152;			dc2 += 152;
-			ss3   += 152;			ds2 += 152;
-			cc4   += 152;			dc3 += 152;
-			ss4   += 152;			ds3 += 152;
-		}
-	#else
-		tdat = sc_ptr;	tmp = tdat + 126;
+		#endif
+			return;
+		} else {
+			ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
+		}	/* end of inits */
+
+		/* If multithreaded, set the local-store pointers needed for the current thread; */
+	#ifdef MULTITHREAD
+		ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+		tdat = __r0 + thr_id*152;	tmp = tdat + 126;
 		two    = tmp + 0x0;
 		one    = tmp + 0x1;
 		tmp += 2;
-		// Roots for radix-9 DFTs:	// Roots for radix-7 DFTs: MUST be followed by 4 alloc'ed padding slots needed by SSE2_RADIX_07_DFT macro!!! **************/
 		cc1    = tmp + 0x0;			dc0    = tmp + 0x8;
 		ss1    = tmp + 0x1;			ds0    = tmp + 0x9;
 		cc2    = tmp + 0x2;			dc1    = tmp + 0xa;
@@ -4234,201 +4275,248 @@ void SSE2_RADIX_63_DIT(
 		ss3    = tmp + 0x5;			ds2    = tmp + 0xd;
 		cc4    = tmp + 0x6;			dc3    = tmp + 0xe;
 		ss4    = tmp + 0x7;			ds3    = tmp + 0xf;
-		/* These remain fixed within each per-thread local store: */
-		VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );	// 1.0,2.0 needed for FMA support
-	  #ifdef USE_AVX2
-		// AVX2 (i.e. FMA)means non-Nussbaumer radix-7, uses these sincos constants:
-		VEC_DBL_INIT(dc0, uc1  );	VEC_DBL_INIT(ds0, us1);
-		VEC_DBL_INIT(dc1, uc2  );	VEC_DBL_INIT(ds1, us2);
-		VEC_DBL_INIT(dc2, uc3  );	VEC_DBL_INIT(ds2, us3);
-		VEC_DBL_INIT(dc3, 0.0  );	VEC_DBL_INIT(ds3, 0.0);	// Unused in non-Nussbaumer mode
-	  #else
-		// Roots for radix-7 DFTs: cc2 = (cc1+cc2+cc3)/3 - 1; subtract 1 from Nussbaumer's definition in order to ease in-place computation
-		VEC_DBL_INIT(dc0, cx0-1);	VEC_DBL_INIT(ds0, sx0);
-		VEC_DBL_INIT(dc1, cx1  );	VEC_DBL_INIT(ds1, sx1);
-		VEC_DBL_INIT(dc2, cx2  );	VEC_DBL_INIT(ds2, sx2);
-		VEC_DBL_INIT(dc3, cx3  );	VEC_DBL_INIT(ds3, sx3);
-	  #endif
-		// Roots for radix-9 DFTs:
-		VEC_DBL_INIT(cc1  , c	);	VEC_DBL_INIT(ss1, s );
-		VEC_DBL_INIT(cc2  , c2  );	VEC_DBL_INIT(ss2, s2);
-		VEC_DBL_INIT(cc3m1, c3m1);	VEC_DBL_INIT(ss3, s3);
-		VEC_DBL_INIT(cc4  , c4  );	VEC_DBL_INIT(ss4, s4);
 	#endif
-		return;
-	} else {
-		ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
-	}	/* end of inits */
 
-	/* If multithreaded, set the local-store pointers needed for the current thread; */
-#ifdef MULTITHREAD
-	ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
-	tdat = __r0 + thr_id*152;	tmp = tdat + 126;
-	two    = tmp + 0x0;
-	one    = tmp + 0x1;
-	tmp += 2;
-	cc1    = tmp + 0x0;			dc0    = tmp + 0x8;
-	ss1    = tmp + 0x1;			ds0    = tmp + 0x9;
-	cc2    = tmp + 0x2;			dc1    = tmp + 0xa;
-	ss2    = tmp + 0x3;			ds1    = tmp + 0xb;
-	cc3m1  = tmp + 0x4;			dc2    = tmp + 0xc;
-	ss3    = tmp + 0x5;			ds2    = tmp + 0xd;
-	cc4    = tmp + 0x6;			dc3    = tmp + 0xe;
-	ss4    = tmp + 0x7;			ds3    = tmp + 0xf;
-#endif
+		//...gather the needed data (63 64-bit complex, i.e. 126 64-bit reals) and do 7 radix-9 transforms:
+		/*
+		Twiddleless version arranges 7 sets of radix-9 DFT inputs as follows: 0 in upper left corner,
+		decrement (mod 63) 9 horizontally and 7 vertically. Applying a further bit-reversal to that,
+		Display result of Combined DIT input-scramble array in hex:
 
-	//...gather the needed data (63 64-bit complex, i.e. 126 64-bit reals) and do 7 radix-9 transforms:
-	/*
-	Twiddleless version arranges 7 sets of radix-9 DFT inputs as follows: 0 in upper left corner,
-	decrement (mod 63) 9 horizontally and 7 vertically. Applying a further bit-reversal to that,
-	Display result of Combined DIT input-scramble array in hex:
-
-		00,02,01,08,07,06,05,04,03,
-		32,31,30,2f,2e,2d,34,33,35,
-		1d,1c,1b,22,21,23,1f,1e,20,
-		10,0f,11,0d,0c,0e,0a,09,0b,
-		37,36,38,3c,3e,3d,39,3b,3a,
-		2a,2c,2b,27,29,28,24,26,25,
-		15,17,16,12,14,13,1a,19,18.
-	*/
-	tmp = tdat; iptr = dit_iperm;
-	for(l = 0; l < 7; l++) {
-		// When 63 is used to build a larger DFT radix (e.g. 1008), these indices will be permuted (nonmonotone), no simplification possible:
-		k0 = __idx[*iptr]; k1 = __idx[*(iptr+1)]; k2 = __idx[*(iptr+2)]; k3 = __idx[*(iptr+3)]; k4 = __idx[*(iptr+4)]; k5 = __idx[*(iptr+5)]; k6 = __idx[*(iptr+6)]; k7 = __idx[*(iptr+7)]; k8 = __idx[*(iptr+8)];
-		va0 = __A+k0; va1 = __A+k1; va2 = __A+k2; va3 = __A+k3; va4 = __A+k4; va5 = __A+k5; va6 = __A+k6; va7 = __A+k7; va8 = __A+k8;
-		// Since there is no vec_cmplx type, ptr-offs double those of analogous scalar code:
-		vb0 = tmp; vb1 = tmp+2; vb2 = tmp+4; vb3 = tmp+6; vb4 = tmp+8; vb5 = tmp+10; vb6 = tmp+12; vb7 = tmp+14; vb8 = tmp+16;
-		SSE2_RADIX_09_DIT(
-			va0,va1,va2,va3,va4,va5,va6,va7,va8,
-			cc1,
-			vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8
-		);	tmp += 18; iptr += 9;
-	}
-	/*...and now do 9 radix-7 transforms. The required output permutation is
-
-		00,24,09,2d,12,36,1b,
-		0e,32,17,3b,20,05,29,
-		1c,01,25,0a,2e,13,37,
-		2a,0f,33,18,3c,21,06,
-		38,1d,02,26,0b,2f,14,
-		07,2b,10,34,19,3d,22,
-		15,39,1e,03,27,0c,30,
-		23,08,2c,11,35,1a,3e,
-		31,16,3a,1f,04,28,0d
-	*/
-	tmp = tdat; iptr = dit_operm;
-	for(l = 0; l < 9; l++) {
-		k0 = __odx[*iptr]; k1 = __odx[*(iptr+1)]; k2 = __odx[*(iptr+2)]; k3 = __odx[*(iptr+3)]; k4 = __odx[*(iptr+4)]; k5 = __odx[*(iptr+5)]; k6 = __odx[*(iptr+6)];
-		// Since there is no vec_cmplx type, ptr-offs double those of analogous scalar code:
-		va0 = tmp; va1 = tmp+18; va2 = tmp+36; va3 = tmp+54; va4 = tmp+72; va5 = tmp+90; va6 = tmp+108;
-		vb0 = __B+k0; vb1 = __B+k1; vb2 = __B+k2; vb3 = __B+k3; vb4 = __B+k4; vb5 = __B+k5; vb6 = __B+k6;
-	  #ifdef USE_AVX2
-		SSE2_RADIX_07_DFT(va0,va1,va2,va3,va4,va5,va6, dc0,two, vb0,vb1,vb2,vb3,vb4,vb5,vb6)
-	  #else
-		SSE2_RADIX_07_DFT(va0,va1,va2,va3,va4,va5,va6, dc0,     vb0,vb1,vb2,vb3,vb4,vb5,vb6)
-	  #endif
-		tmp += 2; iptr += 7;
-	}
-}
-
-/************** RADIX-64 DIF/DIT: *****************************/
-
-void SSE2_RADIX_64_DIF(
-	const int init,	// Init consts (in 1-thread mode only!) and exit
-	const int thr_id,
-	// Need to know if the DIF-64 is standalone within a contig block of 64 vec_cmplx data
-	// (as occurs if it's a standalone or part of a larger transform of length N = odd*64), or
-	// part of a larger power-of-2 transform of length N = 2^k > 64, in which we need to adjust data strides:
-	const int pow2_stride_shift,	// set = trailz(N) - trailz(64)
-	// Inputs: Base address plus index offsets:
-	double *__A, const int *i_offsets,
-	// Intermediates-storage pointer:
-	vec_dbl*r00,
-	// Outputs: Base address plus index offsets:
-	double *__B, const int *o_offsets
-)
-{
-	// 'vc' = vector double = lg(sizeof(simd register)):
-#ifdef USE_AVX512
-	const int l2_sz_vd = 6;
-#elif defined(USE_AVX)
-	const int l2_sz_vd = 5;
-#else
-	const int l2_sz_vd = 4;
-#endif
-	// Uint64 bitmaps for alternate "rounded the other way" copies of sqrt2,isrt2. Default round-to-nearest versions
-	// (SQRT2, ISRT2) end in ...3BCD. Since we round these down as ...3BCC90... --> ..3BCC, append _dn to varnames:
-	const uint64 sqrt2_dn = 0x3FF6A09E667F3BCCull, isrt2_dn = 0x3FE6A09E667F3BCCull;
-	double dtmp;
-	const int k = pow2_stride_shift;
-	int scale, k1,k2,k3,k4,k5,k6,k7;
-	static int max_threads = 0;
-	static vec_dbl *sc_arr = 0x0, *sc_ptr;	// Pad with 4 extra slots for scratch storage needed by SSE2_RADIX_07_DFT macro!!!
-  #ifdef MULTITHREAD
-	static vec_dbl *__r0;	// Base address for discrete per-thread local stores - alloc 9x2e vec_dbl slots per thread
-	// In || mode, only above base-pointer (shared by all threads) is static:
-	vec_dbl *two,*one,*sqrt2,*isrt2, *cc0,*ss0,
-		 *cc1, *ss1, *cc2, *ss2, *cc3, *ss3, *cc4, *ss4, *cc5, *ss5, *cc6, *ss6, *cc7, *ss7,
-		*nisrt2,*ncc1,*nss1,*ncc2,*nss2,*ncc3,*nss3,*ncc4,*nss4,*ncc5,*nss5,*ncc6,*nss6,*ncc7,*nss7;
-  #else
-	static vec_dbl *two,*one,*sqrt2,*isrt2, *cc0,*ss0,
-		 *cc1, *ss1, *cc2, *ss2, *cc3, *ss3, *cc4, *ss4, *cc5, *ss5, *cc6, *ss6, *cc7, *ss7,
-		*nisrt2,*ncc1,*nss1,*ncc2,*nss2,*ncc3,*nss3,*ncc4,*nss4,*ncc5,*nss5,*ncc6,*nss6,*ncc7,*nss7;
-  #endif
-	// Intermediates pointers:
-	vec_dbl *tmp, *v0,*v1,*v2,*v3,*v4,*v5,*v6,*v7,
-		// Each of these rhi-ptrs points to next 8 vec_cmplx= 16 vec_dbl data sets:
-		*r10 = r00+0x10,*r20 = r00+0x20,*r30 = r00+0x30,*r40 = r00+0x40,*r50 = r00+0x50,*r60 = r00+0x60,*r70 = r00+0x70;
-	/* Addresses into array sections */
-	double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7;
-	// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
-	int i,j;
-	const int *off_ptr;
-
-	// If this is first time here, init pointers and associated data:
-	if(thr_id == -1)	// Value of init stores #threads
-	{
-		if(init <= max_threads) {	// Previously inited with sufficient #threads
-			ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
-			return;
+			00,02,01,08,07,06,05,04,03,
+			32,31,30,2f,2e,2d,34,33,35,
+			1d,1c,1b,22,21,23,1f,1e,20,
+			10,0f,11,0d,0c,0e,0a,09,0b,
+			37,36,38,3c,3e,3d,39,3b,3a,
+			2a,2c,2b,27,29,28,24,26,25,
+			15,17,16,12,14,13,1a,19,18.
+		*/
+		tmp = tdat; iptr = dit_iperm;
+		for(l = 0; l < 7; l++) {
+			// When 63 is used to build a larger DFT radix (e.g. 1008), these indices will be permuted (nonmonotone), no simplification possible:
+			k0 = __idx[*iptr]; k1 = __idx[*(iptr+1)]; k2 = __idx[*(iptr+2)]; k3 = __idx[*(iptr+3)]; k4 = __idx[*(iptr+4)]; k5 = __idx[*(iptr+5)]; k6 = __idx[*(iptr+6)]; k7 = __idx[*(iptr+7)]; k8 = __idx[*(iptr+8)];
+			va0 = __A+k0; va1 = __A+k1; va2 = __A+k2; va3 = __A+k3; va4 = __A+k4; va5 = __A+k5; va6 = __A+k6; va7 = __A+k7; va8 = __A+k8;
+			// Since there is no vec_cmplx type, ptr-offs double those of analogous scalar code:
+			vb0 = tmp; vb1 = tmp+2; vb2 = tmp+4; vb3 = tmp+6; vb4 = tmp+8; vb5 = tmp+10; vb6 = tmp+12; vb7 = tmp+14; vb8 = tmp+16;
+			SSE2_RADIX_09_DIT(
+				va0,va1,va2,va3,va4,va5,va6,va7,va8,
+				cc1,
+				vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8
+			);	tmp += 18; iptr += 9;
 		}
-		max_threads = init;
-	#ifndef COMPILER_TYPE_GCC
-		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
-	#endif
-		if(sc_arr) { free((void *)sc_arr); }
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x32*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		/*...and now do 9 radix-7 transforms. The required output permutation is
 
-	#ifdef MULTITHREAD
-		__r0 = tmp = sc_ptr;
-		// To support FMA versions of the radix-8 macros used to build radix-64 we insert a standalone copy of the [2,1,sqrt2,isrt2] quartet:
-		two     = tmp + 0;	// AVX+ versions of various DFT macros assume consts 2.0,1.0,isrt2 laid out thusly
-		one     = tmp + 1;
-		sqrt2	= tmp + 2;
-	//	isrt2   = tmp + 3;	Unnamed slot, since previous layout below already has an iart2 pointer
-		tmp += 4;
-		nisrt2	= tmp + 0x00;	// For the +- isrt2 pair put the - datum first, thus cc0 satisfies the
-		 isrt2	= tmp + 0x01;	// same "cc-1 gets you isrt2" property as do the other +-[cc,ss] pairs.
-		 cc0	= tmp + 0x02;
-		 ss0	= tmp + 0x03;
-		 cc1	= tmp + 0x05;		ncc1	= tmp + 0x08;
-		 ss1	= tmp + 0x06;		nss1	= tmp + 0x09;
-		 cc2	= tmp + 0x0b;		ncc2	= tmp + 0x0e;
-		 ss2	= tmp + 0x0c;		nss2	= tmp + 0x0f;
-		 cc3	= tmp + 0x11;		ncc3	= tmp + 0x14;
-		 ss3	= tmp + 0x12;		nss3	= tmp + 0x15;
-		 cc4	= tmp + 0x17;		ncc4	= tmp + 0x1a;
-		 ss4	= tmp + 0x18;		nss4	= tmp + 0x1b;
-		 cc5	= tmp + 0x1d;		ncc5	= tmp + 0x20;
-		 ss5	= tmp + 0x1e;		nss5	= tmp + 0x21;
-		 cc6	= tmp + 0x23;		ncc6	= tmp + 0x26;
-		 ss6	= tmp + 0x24;		nss6	= tmp + 0x27;
-		 cc7	= tmp + 0x29;		ncc7	= tmp + 0x2c;
-		 ss7	= tmp + 0x2a;		nss7	= tmp + 0x2d;
-		for(i = 0; i < max_threads; ++i) {
-		/* These remain fixed within each per-thread local store: */
+			00,24,09,2d,12,36,1b,
+			0e,32,17,3b,20,05,29,
+			1c,01,25,0a,2e,13,37,
+			2a,0f,33,18,3c,21,06,
+			38,1d,02,26,0b,2f,14,
+			07,2b,10,34,19,3d,22,
+			15,39,1e,03,27,0c,30,
+			23,08,2c,11,35,1a,3e,
+			31,16,3a,1f,04,28,0d
+		*/
+		tmp = tdat; iptr = dit_operm;
+		for(l = 0; l < 9; l++) {
+			k0 = __odx[*iptr]; k1 = __odx[*(iptr+1)]; k2 = __odx[*(iptr+2)]; k3 = __odx[*(iptr+3)]; k4 = __odx[*(iptr+4)]; k5 = __odx[*(iptr+5)]; k6 = __odx[*(iptr+6)];
+			// Since there is no vec_cmplx type, ptr-offs double those of analogous scalar code:
+			va0 = tmp; va1 = tmp+18; va2 = tmp+36; va3 = tmp+54; va4 = tmp+72; va5 = tmp+90; va6 = tmp+108;
+			vb0 = __B+k0; vb1 = __B+k1; vb2 = __B+k2; vb3 = __B+k3; vb4 = __B+k4; vb5 = __B+k5; vb6 = __B+k6;
+		  #ifdef USE_AVX2
+			SSE2_RADIX_07_DFT(va0,va1,va2,va3,va4,va5,va6, dc0,two, vb0,vb1,vb2,vb3,vb4,vb5,vb6)
+		  #else
+			SSE2_RADIX_07_DFT(va0,va1,va2,va3,va4,va5,va6, dc0,     vb0,vb1,vb2,vb3,vb4,vb5,vb6)
+		  #endif
+			tmp += 2; iptr += 7;
+		}
+	}
+
+	/************** RADIX-64 DIF/DIT: *****************************/
+
+	void SSE2_RADIX_64_DIF(
+		const int init,	// Init consts (in 1-thread mode only!) and exit
+		const int thr_id,
+		// Need to know if the DIF-64 is standalone within a contig block of 64 vec_cmplx data
+		// (as occurs if it's a standalone or part of a larger transform of length N = odd*64), or
+		// part of a larger power-of-2 transform of length N = 2^k > 64, in which we need to adjust data strides:
+		const int pow2_stride_shift,	// set = trailz(N) - trailz(64)
+		// Inputs: Base address plus index offsets:
+		double *__A, const int *i_offsets,
+		// Intermediates-storage pointer:
+		vec_dbl*r00,
+		// Outputs: Base address plus index offsets:
+		double *__B, const int *o_offsets
+	)
+	{
+		// 'vc' = vector double = lg(sizeof(simd register)):
+	#ifdef USE_AVX512
+		const int l2_sz_vd = 6;
+	#elif defined(USE_AVX)
+		const int l2_sz_vd = 5;
+	#else
+		const int l2_sz_vd = 4;
+	#endif
+		// Uint64 bitmaps for alternate "rounded the other way" copies of sqrt2,isrt2. Default round-to-nearest versions
+		// (SQRT2, ISRT2) end in ...3BCD. Since we round these down as ...3BCC90... --> ..3BCC, append _dn to varnames:
+		const uint64 sqrt2_dn = 0x3FF6A09E667F3BCCull, isrt2_dn = 0x3FE6A09E667F3BCCull;
+		double dtmp;
+		const int k = pow2_stride_shift;
+		int scale, k1,k2,k3,k4,k5,k6,k7;
+		static int max_threads = 0;
+		static vec_dbl *sc_arr = 0x0, *sc_ptr;	// Pad with 4 extra slots for scratch storage needed by SSE2_RADIX_07_DFT macro!!!
+	  #ifdef MULTITHREAD
+		static vec_dbl *__r0;	// Base address for discrete per-thread local stores - alloc 9x2e vec_dbl slots per thread
+		// In || mode, only above base-pointer (shared by all threads) is static:
+		vec_dbl *two,*one,*sqrt2,*isrt2, *cc0,*ss0,
+			 *cc1, *ss1, *cc2, *ss2, *cc3, *ss3, *cc4, *ss4, *cc5, *ss5, *cc6, *ss6, *cc7, *ss7,
+			*nisrt2,*ncc1,*nss1,*ncc2,*nss2,*ncc3,*nss3,*ncc4,*nss4,*ncc5,*nss5,*ncc6,*nss6,*ncc7,*nss7;
+	  #else
+		static vec_dbl *two,*one,*sqrt2,*isrt2, *cc0,*ss0,
+			 *cc1, *ss1, *cc2, *ss2, *cc3, *ss3, *cc4, *ss4, *cc5, *ss5, *cc6, *ss6, *cc7, *ss7,
+			*nisrt2,*ncc1,*nss1,*ncc2,*nss2,*ncc3,*nss3,*ncc4,*nss4,*ncc5,*nss5,*ncc6,*nss6,*ncc7,*nss7;
+	  #endif
+		// Intermediates pointers:
+		vec_dbl *tmp, *v0,*v1,*v2,*v3,*v4,*v5,*v6,*v7,
+			// Each of these rhi-ptrs points to next 8 vec_cmplx= 16 vec_dbl data sets:
+			*r10 = r00+0x10,*r20 = r00+0x20,*r30 = r00+0x30,*r40 = r00+0x40,*r50 = r00+0x50,*r60 = r00+0x60,*r70 = r00+0x70;
+		/* Addresses into array sections */
+		double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7;
+		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
+		int i,j;
+		const int *off_ptr;
+
+		// If this is first time here, init pointers and associated data:
+		if(thr_id == -1)	// Value of init stores #threads
+		{
+			if(init <= max_threads) {	// Previously inited with sufficient #threads
+				ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
+				return;
+			}
+			max_threads = init;
+		#ifndef COMPILER_TYPE_GCC
+			ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+		#endif
+			if(sc_arr) { free((void *)sc_arr); }
+			sc_arr = ALLOC_VEC_DBL(sc_arr, 0x32*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+			sc_ptr = ALIGN_VEC_DBL(sc_arr);
+			ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+
+		#ifdef MULTITHREAD
+			__r0 = tmp = sc_ptr;
+			// To support FMA versions of the radix-8 macros used to build radix-64 we insert a standalone copy of the [2,1,sqrt2,isrt2] quartet:
+			two     = tmp + 0;	// AVX+ versions of various DFT macros assume consts 2.0,1.0,isrt2 laid out thusly
+			one     = tmp + 1;
+			sqrt2	= tmp + 2;
+		//	isrt2   = tmp + 3;	Unnamed slot, since previous layout below already has an iart2 pointer
+			tmp += 4;
+			nisrt2	= tmp + 0x00;	// For the +- isrt2 pair put the - datum first, thus cc0 satisfies the
+			 isrt2	= tmp + 0x01;	// same "cc-1 gets you isrt2" property as do the other +-[cc,ss] pairs.
+			 cc0	= tmp + 0x02;
+			 ss0	= tmp + 0x03;
+			 cc1	= tmp + 0x05;		ncc1	= tmp + 0x08;
+			 ss1	= tmp + 0x06;		nss1	= tmp + 0x09;
+			 cc2	= tmp + 0x0b;		ncc2	= tmp + 0x0e;
+			 ss2	= tmp + 0x0c;		nss2	= tmp + 0x0f;
+			 cc3	= tmp + 0x11;		ncc3	= tmp + 0x14;
+			 ss3	= tmp + 0x12;		nss3	= tmp + 0x15;
+			 cc4	= tmp + 0x17;		ncc4	= tmp + 0x1a;
+			 ss4	= tmp + 0x18;		nss4	= tmp + 0x1b;
+			 cc5	= tmp + 0x1d;		ncc5	= tmp + 0x20;
+			 ss5	= tmp + 0x1e;		nss5	= tmp + 0x21;
+			 cc6	= tmp + 0x23;		ncc6	= tmp + 0x26;
+			 ss6	= tmp + 0x24;		nss6	= tmp + 0x27;
+			 cc7	= tmp + 0x29;		ncc7	= tmp + 0x2c;
+			 ss7	= tmp + 0x2a;		nss7	= tmp + 0x2d;
+			for(i = 0; i < max_threads; ++i) {
+			/* These remain fixed within each per-thread local store: */
+				VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );
+				tmp = sqrt2+1;	// Unnamed copy of isrt2
+				// Alternate "rounded the other way" copies of sqrt2,isrt2:
+				dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
+				dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+			//	VEC_DBL_INIT(sqrt2, SQRT2);	VEC_DBL_INIT(tmp, ISRT2);
+				VEC_DBL_INIT(nisrt2,-dtmp);
+				VEC_DBL_INIT( isrt2, dtmp);									// Copies of +ISRT2 needed for 30-asm-macro-operand-GCC-limit workaround:
+				VEC_DBL_INIT( cc0,   1.0);		VEC_DBL_INIT( ss0,   0.0);	//	tmp =  cc0-1; ASSERT(HERE, tmp->d0 == ISRT2 && tmp->d1 == ISRT2, "tmp->d0,1 != ISRT2");	Disable to allow "round down" variant
+				VEC_DBL_INIT( cc1, c64_1);		VEC_DBL_INIT( ss1, s64_1);		tmp =  cc1-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT( cc2, c32_1);		VEC_DBL_INIT( ss2, s32_1);		tmp =  cc2-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT( cc3, c64_3);		VEC_DBL_INIT( ss3, s64_3);		tmp =  cc3-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT( cc4, c16  );		VEC_DBL_INIT( ss4, s16  );		tmp =  cc4-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT( cc5, c64_5);		VEC_DBL_INIT( ss5, s64_5);		tmp =  cc5-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT( cc6, c32_3);		VEC_DBL_INIT( ss6, s32_3);		tmp =  cc6-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT( cc7, c64_7);		VEC_DBL_INIT( ss7, s64_7);		tmp =  cc7-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT(ncc1,-c64_1);		VEC_DBL_INIT(nss1,-s64_1);		tmp = ncc1-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT(ncc2,-c32_1);		VEC_DBL_INIT(nss2,-s32_1);		tmp = ncc2-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT(ncc3,-c64_3);		VEC_DBL_INIT(nss3,-s64_3);		tmp = ncc3-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT(ncc4,-c16  );		VEC_DBL_INIT(nss4,-s16  );		tmp = ncc4-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT(ncc5,-c64_5);		VEC_DBL_INIT(nss5,-s64_5);		tmp = ncc5-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT(ncc6,-c32_3);		VEC_DBL_INIT(nss6,-s32_3);		tmp = ncc6-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT(ncc7,-c64_7);		VEC_DBL_INIT(nss7,-s64_7);		tmp = ncc7-1; VEC_DBL_INIT(tmp, dtmp);
+			/* Move on to next thread's local store */
+				 two += 0x32;
+				 one += 0x32;
+				 sqrt2 += 0x32;
+				nisrt2 += 0x32;
+				 isrt2 += 0x32;
+				 cc0 += 0x32;
+				 ss0 += 0x32;
+				 cc1 += 0x32;		ncc1 += 0x32;
+				 ss1 += 0x32;		nss1 += 0x32;
+				 cc2 += 0x32;		ncc2 += 0x32;
+				 ss2 += 0x32;		nss2 += 0x32;
+				 cc3 += 0x32;		ncc3 += 0x32;
+				 ss3 += 0x32;		nss3 += 0x32;
+				 cc4 += 0x32;		ncc4 += 0x32;
+				 ss4 += 0x32;		nss4 += 0x32;
+				 cc5 += 0x32;		ncc5 += 0x32;
+				 ss5 += 0x32;		nss5 += 0x32;
+				 cc6 += 0x32;		ncc6 += 0x32;
+				 ss6 += 0x32;		nss6 += 0x32;
+				 cc7 += 0x32;		ncc7 += 0x32;
+				 ss7 += 0x32;		nss7 += 0x32;
+			}
+		#else
+			tmp = sc_ptr;
+			// To support FMA versions of the radix-8 macros used to build radix-64 we insert a standalone copy of the [2,1,sqrt2,isrt2] quartet:
+			two     = tmp + 0;	// AVX+ versions of various DFT macros assume consts 2.0,1.0,isrt2 laid out thusly
+			one     = tmp + 1;
+			sqrt2	= tmp + 2;
+		//	isrt2   = tmp + 3;	Unnamed slot, since previous layout below already has an iart2 pointer
+			tmp += 4;
+			/* Stupidity: Since a truly general-purpose [in the sense that it can be used for our radix-128 internal-twiddles]
+			radix-8 DFT-with-twiddles macro needs 8 in-addresses [corr. to the 8 real parts of the input data], 8 o-addresses,
+			and 7 each of cosine and sine data [which cannot be assumed to occur in fixed-stride pairs - cf. our usage of
+			SSE2_RADIX8_DIT_TWIDDLE_OOP() below], that hits the GCC hard limit of 30-operands for ASM macros, but we still
+			need one more operand for the ISRT2 pointer. Only easy workaround I found for this is to stick a vector-ISRT2 copy
+			in between each +-[cc,ss] vector-data pair, thus any time we need a vector-isrt2 for the radix-8 internal twiddles
+			we get it at (vec_dbl*)cc-1.
+			/Stupidity */
+			nisrt2	= tmp + 0x00;	// For the +- isrt2 pair put the - datum first, thus cc0 satisfies the
+			 isrt2	= tmp + 0x01;	// same "cc-1 gets you isrt2" property as do the other +-[cc,ss] pairs.
+			 cc0	= tmp + 0x02;
+			 ss0	= tmp + 0x03;
+		// [copy isrt2]	= tmp + 0x04;	// [copy isrt2]	= tmp + 0x07;
+			 cc1	= tmp + 0x05;		ncc1	= tmp + 0x08;
+			 ss1	= tmp + 0x06;		nss1	= tmp + 0x09;
+		// [copy isrt2]	= tmp + 0x0a;	// [copy isrt2]	= tmp + 0x0d;
+			 cc2	= tmp + 0x0b;		ncc2	= tmp + 0x0e;
+			 ss2	= tmp + 0x0c;		nss2	= tmp + 0x0f;
+		// [copy isrt2]	= tmp + 0x10;	// [copy isrt2]	= tmp + 0x13;
+			 cc3	= tmp + 0x11;		ncc3	= tmp + 0x14;
+			 ss3	= tmp + 0x12;		nss3	= tmp + 0x15;
+		// [copy isrt2]	= tmp + 0x16;	// [copy isrt2]	= tmp + 0x19;
+			 cc4	= tmp + 0x17;		ncc4	= tmp + 0x1a;
+			 ss4	= tmp + 0x18;		nss4	= tmp + 0x1b;
+		// [copy isrt2]	= tmp + 0x1c;	// [copy isrt2]	= tmp + 0x1f;
+			 cc5	= tmp + 0x1d;		ncc5	= tmp + 0x20;
+			 ss5	= tmp + 0x1e;		nss5	= tmp + 0x21;
+		// [copy isrt2]	= tmp + 0x22;	// [copy isrt2]	= tmp + 0x25;
+			 cc6	= tmp + 0x23;		ncc6	= tmp + 0x26;
+			 ss6	= tmp + 0x24;		nss6	= tmp + 0x27;
+		// [copy isrt2]	= tmp + 0x28;	// [copy isrt2]	= tmp + 0x2b;
+			 cc7	= tmp + 0x29;		ncc7	= tmp + 0x2c;
+			 ss7	= tmp + 0x2a;		nss7	= tmp + 0x2d;
+			/* These remain fixed: */
 			VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );
 			tmp = sqrt2+1;	// Unnamed copy of isrt2
 			// Alternate "rounded the other way" copies of sqrt2,isrt2:
@@ -4452,895 +4540,841 @@ void SSE2_RADIX_64_DIF(
 			VEC_DBL_INIT(ncc5,-c64_5);		VEC_DBL_INIT(nss5,-s64_5);		tmp = ncc5-1; VEC_DBL_INIT(tmp, dtmp);
 			VEC_DBL_INIT(ncc6,-c32_3);		VEC_DBL_INIT(nss6,-s32_3);		tmp = ncc6-1; VEC_DBL_INIT(tmp, dtmp);
 			VEC_DBL_INIT(ncc7,-c64_7);		VEC_DBL_INIT(nss7,-s64_7);		tmp = ncc7-1; VEC_DBL_INIT(tmp, dtmp);
-		/* Move on to next thread's local store */
-			 two += 0x32;
-			 one += 0x32;
-			 sqrt2 += 0x32;
-			nisrt2 += 0x32;
-			 isrt2 += 0x32;
-			 cc0 += 0x32;
-			 ss0 += 0x32;
-			 cc1 += 0x32;		ncc1 += 0x32;
-			 ss1 += 0x32;		nss1 += 0x32;
-			 cc2 += 0x32;		ncc2 += 0x32;
-			 ss2 += 0x32;		nss2 += 0x32;
-			 cc3 += 0x32;		ncc3 += 0x32;
-			 ss3 += 0x32;		nss3 += 0x32;
-			 cc4 += 0x32;		ncc4 += 0x32;
-			 ss4 += 0x32;		nss4 += 0x32;
-			 cc5 += 0x32;		ncc5 += 0x32;
-			 ss5 += 0x32;		nss5 += 0x32;
-			 cc6 += 0x32;		ncc6 += 0x32;
-			 ss6 += 0x32;		nss6 += 0x32;
-			 cc7 += 0x32;		ncc7 += 0x32;
-			 ss7 += 0x32;		nss7 += 0x32;
-		}
-	#else
-		tmp = sc_ptr;
+		#endif
+		//	fprintf(stderr, "Init SSE2_RADIX_64_DIF with max_threads = %d\n",max_threads);
+			return;
+		} else {
+			ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
+		}	/* end of inits */
+
+		/* If multithreaded, set the local-store pointers needed for the current thread; */
+	#ifdef MULTITHREAD
+		ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+		tmp = __r0 + thr_id*0x32;
 		// To support FMA versions of the radix-8 macros used to build radix-64 we insert a standalone copy of the [2,1,sqrt2,isrt2] quartet:
 		two     = tmp + 0;	// AVX+ versions of various DFT macros assume consts 2.0,1.0,isrt2 laid out thusly
 		one     = tmp + 1;
 		sqrt2	= tmp + 2;
 	//	isrt2   = tmp + 3;	Unnamed slot, since previous layout below already has an iart2 pointer
 		tmp += 4;
-		/* Stupidity: Since a truly general-purpose [in the sense that it can be used for our radix-128 internal-twiddles]
-		radix-8 DFT-with-twiddles macro needs 8 in-addresses [corr. to the 8 real parts of the input data], 8 o-addresses,
-		and 7 each of cosine and sine data [which cannot be assumed to occur in fixed-stride pairs - cf. our usage of
-		SSE2_RADIX8_DIT_TWIDDLE_OOP() below], that hits the GCC hard limit of 30-operands for ASM macros, but we still
-		need one more operand for the ISRT2 pointer. Only easy workaround I found for this is to stick a vector-ISRT2 copy
-		in between each +-[cc,ss] vector-data pair, thus any time we need a vector-isrt2 for the radix-8 internal twiddles
-		we get it at (vec_dbl*)cc-1.
-		/Stupidity */
-		nisrt2	= tmp + 0x00;	// For the +- isrt2 pair put the - datum first, thus cc0 satisfies the
-		 isrt2	= tmp + 0x01;	// same "cc-1 gets you isrt2" property as do the other +-[cc,ss] pairs.
+		nisrt2	= tmp + 0x00;
+		 isrt2	= tmp + 0x01;
 		 cc0	= tmp + 0x02;
 		 ss0	= tmp + 0x03;
-	// [copy isrt2]	= tmp + 0x04;	// [copy isrt2]	= tmp + 0x07;
 		 cc1	= tmp + 0x05;		ncc1	= tmp + 0x08;
 		 ss1	= tmp + 0x06;		nss1	= tmp + 0x09;
-	// [copy isrt2]	= tmp + 0x0a;	// [copy isrt2]	= tmp + 0x0d;
 		 cc2	= tmp + 0x0b;		ncc2	= tmp + 0x0e;
 		 ss2	= tmp + 0x0c;		nss2	= tmp + 0x0f;
-	// [copy isrt2]	= tmp + 0x10;	// [copy isrt2]	= tmp + 0x13;
 		 cc3	= tmp + 0x11;		ncc3	= tmp + 0x14;
 		 ss3	= tmp + 0x12;		nss3	= tmp + 0x15;
-	// [copy isrt2]	= tmp + 0x16;	// [copy isrt2]	= tmp + 0x19;
 		 cc4	= tmp + 0x17;		ncc4	= tmp + 0x1a;
 		 ss4	= tmp + 0x18;		nss4	= tmp + 0x1b;
-	// [copy isrt2]	= tmp + 0x1c;	// [copy isrt2]	= tmp + 0x1f;
 		 cc5	= tmp + 0x1d;		ncc5	= tmp + 0x20;
 		 ss5	= tmp + 0x1e;		nss5	= tmp + 0x21;
-	// [copy isrt2]	= tmp + 0x22;	// [copy isrt2]	= tmp + 0x25;
 		 cc6	= tmp + 0x23;		ncc6	= tmp + 0x26;
 		 ss6	= tmp + 0x24;		nss6	= tmp + 0x27;
-	// [copy isrt2]	= tmp + 0x28;	// [copy isrt2]	= tmp + 0x2b;
 		 cc7	= tmp + 0x29;		ncc7	= tmp + 0x2c;
 		 ss7	= tmp + 0x2a;		nss7	= tmp + 0x2d;
-		/* These remain fixed: */
-		VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );
-		tmp = sqrt2+1;	// Unnamed copy of isrt2
-		// Alternate "rounded the other way" copies of sqrt2,isrt2:
-		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
-		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
-	//	VEC_DBL_INIT(sqrt2, SQRT2);	VEC_DBL_INIT(tmp, ISRT2);
-		VEC_DBL_INIT(nisrt2,-dtmp);
-		VEC_DBL_INIT( isrt2, dtmp);									// Copies of +ISRT2 needed for 30-asm-macro-operand-GCC-limit workaround:
-		VEC_DBL_INIT( cc0,   1.0);		VEC_DBL_INIT( ss0,   0.0);	//	tmp =  cc0-1; ASSERT(HERE, tmp->d0 == ISRT2 && tmp->d1 == ISRT2, "tmp->d0,1 != ISRT2");	Disable to allow "round down" variant
-		VEC_DBL_INIT( cc1, c64_1);		VEC_DBL_INIT( ss1, s64_1);		tmp =  cc1-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT( cc2, c32_1);		VEC_DBL_INIT( ss2, s32_1);		tmp =  cc2-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT( cc3, c64_3);		VEC_DBL_INIT( ss3, s64_3);		tmp =  cc3-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT( cc4, c16  );		VEC_DBL_INIT( ss4, s16  );		tmp =  cc4-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT( cc5, c64_5);		VEC_DBL_INIT( ss5, s64_5);		tmp =  cc5-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT( cc6, c32_3);		VEC_DBL_INIT( ss6, s32_3);		tmp =  cc6-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT( cc7, c64_7);		VEC_DBL_INIT( ss7, s64_7);		tmp =  cc7-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT(ncc1,-c64_1);		VEC_DBL_INIT(nss1,-s64_1);		tmp = ncc1-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT(ncc2,-c32_1);		VEC_DBL_INIT(nss2,-s32_1);		tmp = ncc2-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT(ncc3,-c64_3);		VEC_DBL_INIT(nss3,-s64_3);		tmp = ncc3-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT(ncc4,-c16  );		VEC_DBL_INIT(nss4,-s16  );		tmp = ncc4-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT(ncc5,-c64_5);		VEC_DBL_INIT(nss5,-s64_5);		tmp = ncc5-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT(ncc6,-c32_3);		VEC_DBL_INIT(nss6,-s32_3);		tmp = ncc6-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT(ncc7,-c64_7);		VEC_DBL_INIT(nss7,-s64_7);		tmp = ncc7-1; VEC_DBL_INIT(tmp, dtmp);
 	#endif
-	//	fprintf(stderr, "Init SSE2_RADIX_64_DIF with max_threads = %d\n",max_threads);
-		return;
-	} else {
-		ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
-	}	/* end of inits */
 
-	/* If multithreaded, set the local-store pointers needed for the current thread; */
-#ifdef MULTITHREAD
-	ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
-	tmp = __r0 + thr_id*0x32;
-	// To support FMA versions of the radix-8 macros used to build radix-64 we insert a standalone copy of the [2,1,sqrt2,isrt2] quartet:
-	two     = tmp + 0;	// AVX+ versions of various DFT macros assume consts 2.0,1.0,isrt2 laid out thusly
-	one     = tmp + 1;
-	sqrt2	= tmp + 2;
-//	isrt2   = tmp + 3;	Unnamed slot, since previous layout below already has an iart2 pointer
-	tmp += 4;
-	nisrt2	= tmp + 0x00;
-	 isrt2	= tmp + 0x01;
-	 cc0	= tmp + 0x02;
-	 ss0	= tmp + 0x03;
-	 cc1	= tmp + 0x05;		ncc1	= tmp + 0x08;
-	 ss1	= tmp + 0x06;		nss1	= tmp + 0x09;
-	 cc2	= tmp + 0x0b;		ncc2	= tmp + 0x0e;
-	 ss2	= tmp + 0x0c;		nss2	= tmp + 0x0f;
-	 cc3	= tmp + 0x11;		ncc3	= tmp + 0x14;
-	 ss3	= tmp + 0x12;		nss3	= tmp + 0x15;
-	 cc4	= tmp + 0x17;		ncc4	= tmp + 0x1a;
-	 ss4	= tmp + 0x18;		nss4	= tmp + 0x1b;
-	 cc5	= tmp + 0x1d;		ncc5	= tmp + 0x20;
-	 ss5	= tmp + 0x1e;		nss5	= tmp + 0x21;
-	 cc6	= tmp + 0x23;		ncc6	= tmp + 0x26;
-	 ss6	= tmp + 0x24;		nss6	= tmp + 0x27;
-	 cc7	= tmp + 0x29;		ncc7	= tmp + 0x2c;
-	 ss7	= tmp + 0x2a;		nss7	= tmp + 0x2d;
-#endif
+	  #ifdef USE_ARM_V8_SIMD
+		uint32 OFF1,OFF2,OFF3,OFF4,OFF5,OFF6,OFF7;
+		OFF1 = 0x100;
+		OFF2 = 0x200;
+		OFF3 = 0x300;
+		OFF4 = 0x400;
+		OFF5 = 0x500;
+		OFF6 = 0x600;
+		OFF7 = 0x700;
+	  #elif defined(USE_AVX512)
+		#define OFF1	4*0x100
+		#define OFF2	4*0x200
+		#define OFF3	4*0x300
+		#define OFF4	4*0x400
+		#define OFF5	4*0x500
+		#define OFF6	4*0x600
+		#define OFF7	4*0x700
+	  #elif defined(USE_AVX)
+		#define OFF1	2*0x100
+		#define OFF2	2*0x200
+		#define OFF3	2*0x300
+		#define OFF4	2*0x400
+		#define OFF5	2*0x500
+		#define OFF6	2*0x600
+		#define OFF7	2*0x700
+	   #else
+		#define OFF1	0x100
+		#define OFF2	0x200
+		#define OFF3	0x300
+		#define OFF4	0x400
+		#define OFF5	0x500
+		#define OFF6	0x600
+		#define OFF7	0x700
+	   #endif
+		if(i_offsets) {	/* This is geared toward radix = odd*64 DIF DFT: */
+			scale = i_offsets[1];
+		//	scale = i_offsets[1]<<1; *** should handle this in the i_offs *****	// Need 2x offset because of vec_dbl -> vec_cmplx implied cast
+			// Apr 2014: Generalized-index scheme replaces original fixed __A-offsets OFF[1-7]*[pow2 scaling] with strides
+			// taken from i_offsets array. Due to the way the radix-64 DFTs are used to build larger pow2 and non-pow2 DFTs
+			// there is never an issue of irregular (i.e. not simple multiple of the basc stride in i_offsets[1]) strides,
+			// just one of whether that basic 'unit' stride will amount to one vec_dbl pair or a larger stride. That means
+			// we only need a very small sampling of the i_offsets data - in fact just i_offsets[1-8] - to infer the rest:
+			k1 = i_offsets[0x8]<<l2_sz_vd; k2 = k1+k1; k3 = (k1<<1)+k1;
+			j = k1<<2;	k4 = j; k5 = k1+j; k6 = k2+j; k7 = k3+j;
+		} else {		/* ...and this is geared toward radix = 2^k * 64: */
+			scale = 1<<(1 + k);
+			k1 = OFF1<<k; k2 = OFF2<<k; k3 = OFF3<<k; k4 = OFF4<<k; k5 = OFF5<<k; k6 = OFF6<<k; k7 = OFF7<<k;
+		}
+		// Outs are BRed:
+		v0 = r00; v1 = v0+8; v2 = v0+4; v3 = v0+12; v4 = v0+2; v5 = v0+10; v6 = v0+6; v7 = v0+14;
+		for(i = 0; i < 8; i++) {
+			j = reverse(i,8);	// i=1/j=4 should land us in the middle of the first 1/8-chunk of the contiguous in-array __A
+							// For k = 0 __A has (64 vec_cmplex) = (128 vec_dbl) elements, thus i=1/j=4 => j*scale = 128/8 = 16.
+			tmp = (vec_dbl*)__A+j*scale;	// __A-offsets are processed in BR8 order
+		  #ifdef USE_AVX2
+			SSE2_RADIX8_DIF_0TWIDDLE_B(	// Use B-version of macro, which takes the i-strides as intvars rather than literal bytes:
+				tmp,k1,k2,k3,k4,k5,k6,k7,
+				v0,v1,v2,v3,v4,v5,v6,v7, isrt2,two
+			);
+		  #else
+			SSE2_RADIX8_DIF_0TWIDDLE_B(	// Use B-version of macro, which takes the i-strides as intvars rather than literal bytes:
+				tmp,k1,k2,k3,k4,k5,k6,k7,
+				v0,v1,v2,v3,v4,v5,v6,v7, isrt2
+			);
+		  #endif
+			v0 += 16; v1 += 16; v2 += 16; v3 += 16; v4 += 16; v5 += 16; v6 += 16; v7 += 16;
+		}
 
-  #ifdef USE_AVX512
-	#define OFF1	4*0x100
-	#define OFF2	4*0x200
-	#define OFF3	4*0x300
-	#define OFF4	4*0x400
-	#define OFF5	4*0x500
-	#define OFF6	4*0x600
-	#define OFF7	4*0x700
-  #elif defined(USE_AVX)
-	#define OFF1	2*0x100
-	#define OFF2	2*0x200
-	#define OFF3	2*0x300
-	#define OFF4	2*0x400
-	#define OFF5	2*0x500
-	#define OFF6	2*0x600
-	#define OFF7	2*0x700
-   #else
-	#define OFF1	0x100
-	#define OFF2	0x200
-	#define OFF3	0x300
-	#define OFF4	0x400
-	#define OFF5	0x500
-	#define OFF6	0x600
-	#define OFF7	0x700
-   #endif
-	if(i_offsets) {	/* This is geared toward radix = odd*64 DIF DFT: */
-		scale = i_offsets[1];
-	//	scale = i_offsets[1]<<1; *** should handle this in the i_offs *****	// Need 2x offset because of vec_dbl -> vec_cmplx implied cast
-		// Apr 2014: Generalized-index scheme replaces original fixed __A-offsets OFF[1-7]*[pow2 scaling] with strides
-		// taken from i_offsets array. Due to the way the radix-64 DFTs are used to build larger pow2 and non-pow2 DFTs
-		// there is never an issue of irregular (i.e. not simple multiple of the basc stride in i_offsets[1]) strides,
+	/*...and now do eight radix-8 subtransforms w/internal twiddles - cf. radix64_dif_pass1 for details: */
+
+	/* Block 0: */
+		tmp = r00;
+		off_ptr = o_offsets; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
+		/* 0-index block has all-unity twiddles: Remember, the twiddleless DIF bit-reverses both its in-and-outputs,
+		so swap index-offset pairs 1/4 and 3/6 in t*-inputs and a-outputs: */
+	  #ifdef USE_AVX2
+		SSE2_RADIX8_DIF_0TWIDDLE(
+			r00, OFF4,OFF2,OFF6,OFF1,OFF5,OFF3,OFF7,
+			add0,add1,add2,add3,add4,add5,add6,add7, isrt2,two
+		);
+	  #else
+		SSE2_RADIX8_DIF_0TWIDDLE(
+			r00, OFF4,OFF2,OFF6,OFF1,OFF5,OFF3,OFF7,
+			add0,add1,add2,add3,add4,add5,add6,add7, isrt2
+		);
+	  #endif
+	// Remaining 7 macro cals need explicitly named BRed iptrs with stride 16, use tmp(in place of iarg r00),r40,r20,r60,r10,r50,r30,r70:
+	/* Block 4: */
+		tmp += 8;	// r08
+		r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
+		off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
+	//...and another (needed by FMA version of macro)) kludge for the 30-arg limit: put copies of (vec_dbl)2.0,SQRT2 into the first 2 of each set of outputs.
+		VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
+		SSE2_RADIX8_DIF_TWIDDLE_OOP(
+			tmp,r40,r20,r60,r10,r50,r30,r70,
+			add0,add1,add2,add3,add4,add5,add6,add7,
+			ss0,cc0, isrt2,isrt2, nisrt2,isrt2, cc4,ss4, nss4,cc4, ss4,cc4, ncc4,ss4
+		);
+	/* Block 2: */
+		tmp -= 4;	// r04
+		r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
+		off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
+		VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
+		SSE2_RADIX8_DIF_TWIDDLE_OOP(
+			tmp,r40,r20,r60,r10,r50,r30,r70,
+			add0,add1,add2,add3,add4,add5,add6,add7,
+			isrt2,isrt2, cc4,ss4, ss4,cc4, cc2,ss2, ss6,cc6, cc6,ss6, ss2,cc2
+		);
+	/* Block 6: */
+		tmp += 8;	// r0C
+		r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
+		off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
+		VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
+		SSE2_RADIX8_DIF_TWIDDLE_OOP(
+			tmp,r40,r20,r60,r10,r50,r30,r70,
+			add0,add1,add2,add3,add4,add5,add6,add7,
+			nisrt2,isrt2, ss4,cc4, ncc4,nss4, cc6,ss6, ncc2,ss2 ,nss2,cc2, nss6,ncc6
+		);
+	/* Block 1: */
+		tmp -= 10;	// r02
+		r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
+		off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
+		VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
+		SSE2_RADIX8_DIF_TWIDDLE_OOP(
+			tmp,r40,r20,r60,r10,r50,r30,r70,
+			add0,add1,add2,add3,add4,add5,add6,add7,
+			cc4,ss4, cc2,ss2, cc6,ss6, cc1,ss1, cc5,ss5, cc3,ss3, cc7,ss7
+		);
+	/* Block 5: */
+		tmp += 8;	// r0A
+		r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
+		off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
+		VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
+		SSE2_RADIX8_DIF_TWIDDLE_OOP(
+			tmp,r40,r20,r60,r10,r50,r30,r70,
+			add0,add1,add2,add3,add4,add5,add6,add7,
+			nss4,cc4, ss6,cc6, ncc2,ss2, cc5,ss5, ncc7,ss7, ss1,cc1, ncc3,nss3
+		);
+	/* Block 3: */
+		tmp -= 4;	// r06
+		r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
+		off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
+		VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
+		SSE2_RADIX8_DIF_TWIDDLE_OOP(
+			tmp,r40,r20,r60,r10,r50,r30,r70,
+			add0,add1,add2,add3,add4,add5,add6,add7,
+			ss4,cc4, cc6,ss6, nss2,cc2, cc3,ss3, ss1,cc1, ss7,cc7, nss5,cc5
+		);
+	/* Block 7: */
+		tmp += 8;	// r0E
+		r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
+		off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
+		VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
+		SSE2_RADIX8_DIF_TWIDDLE_OOP(
+			tmp,r40,r20,r60,r10,r50,r30,r70,
+			add0,add1,add2,add3,add4,add5,add6,add7,
+			ncc4,ss4, ss2,cc2, nss6,ncc6, cc7,ss7, ncc3,nss3, nss5,cc5, ss1,ncc1
+		);
+
+	  #ifndef USE_ARM_V8_SIMD
+		#undef OFF1
+		#undef OFF2
+		#undef OFF3
+		#undef OFF4
+		#undef OFF5
+		#undef OFF6
+		#undef OFF7
+	  #endif
+	}
+
+	void SSE2_RADIX_64_DIT(
+		const int init,	// Init consts (in 1-thread mode only!) and exit
+		const int thr_id,
+		// Inputs: Base address plus index offsets:
+		double *__A, const int *i_offsets,
+		// Intermediates-storage pointer:
+		vec_dbl*r00,
+		// Outputs: Base address plus index offsets:
+		vec_dbl*__B, const int *o_offsets
+	)
+	{
+		const uint64 sqrt2_dn = 0x3FF6A09E667F3BCCull, isrt2_dn = 0x3FE6A09E667F3BCCull;
+		double dtmp;
+		static int max_threads = 0;
+		static vec_dbl *sc_arr = 0x0, *sc_ptr;	// Pad with 4 extra slots for scratch storage needed by SSE2_RADIX_07_DFT macro!!!
+	  #ifdef MULTITHREAD
+		static vec_dbl *__r0;	// Base address for discrete per-thread local stores - alloc 9x2e vec_dbl slots per thread
+		// In || mode, only above base-pointer (shared by all threads) is static:
+		vec_dbl *two,*one,*sqrt2,*isrt2, *cc0,*ss0,
+			 *cc1, *ss1, *cc2, *ss2, *cc3, *ss3, *cc4, *ss4, *cc5, *ss5, *cc6, *ss6, *cc7, *ss7,
+			*nisrt2,*ncc1,*nss1,*ncc2,*nss2,*ncc3,*nss3,*ncc4,*nss4,*ncc5,*nss5,*ncc6,*nss6,*ncc7,*nss7;
+	  #else
+		static vec_dbl *two,*one,*sqrt2,*isrt2, *cc0,*ss0,
+			 *cc1, *ss1, *cc2, *ss2, *cc3, *ss3, *cc4, *ss4, *cc5, *ss5, *cc6, *ss6, *cc7, *ss7,
+			*nisrt2,*ncc1,*nss1,*ncc2,*nss2,*ncc3,*nss3,*ncc4,*nss4,*ncc5,*nss5,*ncc6,*nss6,*ncc7,*nss7;
+	  #endif
+		// Intermediates pointers:
+		vec_dbl *tmp, *v0,*v1,*v2,*v3,*v4,*v5,*v6,*v7,
+			// Each of these rhi-ptrs points to next 8 vec_cmplx= 16 vec_dbl data sets:
+			*r10 = r00+0x10,*r20 = r00+0x20,*r30 = r00+0x30,*r40 = r00+0x40,*r50 = r00+0x50,*r60 = r00+0x60,*r70 = r00+0x70;
+		/* Addresses into array sections */
+		double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7;
+		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
+		int i,j;
+		const int *off_ptr;
+
+		// If this is first time here, init pointers and associated data:
+		if(thr_id == -1)	// Value of init stores #threads
+		{
+			if(init <= max_threads) {	// Previously inited with sufficient #threads
+				ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
+				return;
+			}
+			max_threads = init;
+		#ifndef COMPILER_TYPE_GCC
+			ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
+		#endif
+			if(sc_arr) { free((void *)sc_arr); }
+			sc_arr = ALLOC_VEC_DBL(sc_arr, 0x32*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+			sc_ptr = ALIGN_VEC_DBL(sc_arr);
+			ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+
+		#ifdef MULTITHREAD
+			__r0 = tmp = sc_ptr;
+			// To support FMA versions of the radix-8 macros used to build radix-64 we insert a standalone copy of the [2,1,sqrt2,isrt2] quartet:
+			two     = tmp + 0;	// AVX+ versions of various DFT macros assume consts 2.0,1.0,isrt2 laid out thusly
+			one     = tmp + 1;
+			sqrt2	= tmp + 2;
+		//	isrt2   = tmp + 3;	Unnamed slot, since previous layout below already has an iart2 pointer
+			tmp += 4;
+			nisrt2	= tmp + 0x00;	// For the +- isrt2 pair put the - datum first, thus cc0 satisfies the
+			 isrt2	= tmp + 0x01;	// same "cc-1 gets you isrt2" property as do the other +-[cc,ss] pairs.
+			 cc0	= tmp + 0x02;
+			 ss0	= tmp + 0x03;
+			 cc1	= tmp + 0x05;		ncc1	= tmp + 0x08;
+			 ss1	= tmp + 0x06;		nss1	= tmp + 0x09;
+			 cc2	= tmp + 0x0b;		ncc2	= tmp + 0x0e;
+			 ss2	= tmp + 0x0c;		nss2	= tmp + 0x0f;
+			 cc3	= tmp + 0x11;		ncc3	= tmp + 0x14;
+			 ss3	= tmp + 0x12;		nss3	= tmp + 0x15;
+			 cc4	= tmp + 0x17;		ncc4	= tmp + 0x1a;
+			 ss4	= tmp + 0x18;		nss4	= tmp + 0x1b;
+			 cc5	= tmp + 0x1d;		ncc5	= tmp + 0x20;
+			 ss5	= tmp + 0x1e;		nss5	= tmp + 0x21;
+			 cc6	= tmp + 0x23;		ncc6	= tmp + 0x26;
+			 ss6	= tmp + 0x24;		nss6	= tmp + 0x27;
+			 cc7	= tmp + 0x29;		ncc7	= tmp + 0x2c;
+			 ss7	= tmp + 0x2a;		nss7	= tmp + 0x2d;
+			for(i = 0; i < max_threads; ++i) {
+			/* These remain fixed within each per-thread local store: */
+				VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );
+				tmp = sqrt2+1;	// Unnamed copy of isrt2
+				// Alternate "rounded the other way" copies of sqrt2,isrt2:
+				dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
+				dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+			//	VEC_DBL_INIT(sqrt2, SQRT2);	VEC_DBL_INIT(tmp, ISRT2);
+				VEC_DBL_INIT(nisrt2,-dtmp);
+				VEC_DBL_INIT( isrt2, dtmp);									// Copies of +ISRT2 needed for 30-asm-macro-operand-GCC-limit workaround:
+				VEC_DBL_INIT( cc0,   1.0);		VEC_DBL_INIT( ss0,   0.0);	//	tmp =  cc0-1; ASSERT(HERE, tmp->d0 == ISRT2 && tmp->d1 == ISRT2, "tmp->d0,1 != ISRT2");	Disable to allow "round down" variant
+				VEC_DBL_INIT( cc1, c64_1);		VEC_DBL_INIT( ss1, s64_1);		tmp =  cc1-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT( cc2, c32_1);		VEC_DBL_INIT( ss2, s32_1);		tmp =  cc2-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT( cc3, c64_3);		VEC_DBL_INIT( ss3, s64_3);		tmp =  cc3-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT( cc4, c16  );		VEC_DBL_INIT( ss4, s16  );		tmp =  cc4-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT( cc5, c64_5);		VEC_DBL_INIT( ss5, s64_5);		tmp =  cc5-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT( cc6, c32_3);		VEC_DBL_INIT( ss6, s32_3);		tmp =  cc6-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT( cc7, c64_7);		VEC_DBL_INIT( ss7, s64_7);		tmp =  cc7-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT(ncc1,-c64_1);		VEC_DBL_INIT(nss1,-s64_1);		tmp = ncc1-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT(ncc2,-c32_1);		VEC_DBL_INIT(nss2,-s32_1);		tmp = ncc2-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT(ncc3,-c64_3);		VEC_DBL_INIT(nss3,-s64_3);		tmp = ncc3-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT(ncc4,-c16  );		VEC_DBL_INIT(nss4,-s16  );		tmp = ncc4-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT(ncc5,-c64_5);		VEC_DBL_INIT(nss5,-s64_5);		tmp = ncc5-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT(ncc6,-c32_3);		VEC_DBL_INIT(nss6,-s32_3);		tmp = ncc6-1; VEC_DBL_INIT(tmp, dtmp);
+				VEC_DBL_INIT(ncc7,-c64_7);		VEC_DBL_INIT(nss7,-s64_7);		tmp = ncc7-1; VEC_DBL_INIT(tmp, dtmp);
+			/* Move on to next thread's local store */
+				 two += 0x32;
+				 one += 0x32;
+				 sqrt2 += 0x32;
+				nisrt2 += 0x32;
+				 isrt2 += 0x32;
+				 cc0 += 0x32;
+				 ss0 += 0x32;
+				 cc1 += 0x32;		ncc1 += 0x32;
+				 ss1 += 0x32;		nss1 += 0x32;
+				 cc2 += 0x32;		ncc2 += 0x32;
+				 ss2 += 0x32;		nss2 += 0x32;
+				 cc3 += 0x32;		ncc3 += 0x32;
+				 ss3 += 0x32;		nss3 += 0x32;
+				 cc4 += 0x32;		ncc4 += 0x32;
+				 ss4 += 0x32;		nss4 += 0x32;
+				 cc5 += 0x32;		ncc5 += 0x32;
+				 ss5 += 0x32;		nss5 += 0x32;
+				 cc6 += 0x32;		ncc6 += 0x32;
+				 ss6 += 0x32;		nss6 += 0x32;
+				 cc7 += 0x32;		ncc7 += 0x32;
+				 ss7 += 0x32;		nss7 += 0x32;
+			}
+		#else
+			tmp = sc_ptr;
+			// To support FMA versions of the radix-8 macros used to build radix-64 we insert a standalone copy of the [2,1,sqrt2,isrt2] quartet:
+			two     = tmp + 0;	// AVX+ versions of various DFT macros assume consts 2.0,1.0,isrt2 laid out thusly
+			one     = tmp + 1;
+			sqrt2	= tmp + 2;
+		//	isrt2   = tmp + 3;	Unnamed slot, since previous layout below already has an iart2 pointer
+			tmp += 4;
+			/* Stupidity: Since a truly general-purpose [in the sense that it can be used for our radix-128 internal-twiddles]
+			radix-8 DFT-with-twiddles macro needs 8 in-addresses [corr. to the 8 real parts of the input data], 8 o-addresses,
+			and 7 each of cosine and sine data [which cannot be assumed to occur in fixed-stride pairs - cf. our usage of
+			SSE2_RADIX8_DIT_TWIDDLE_OOP() below], that hits the GCC hard limit of 30-operands for ASM macros, but we still
+			need one more operand for the ISRT2 pointer. Only easy workaround I found for this is to stick a vector-ISRT2 copy
+			in between each +-[cc,ss] vector-data pair, thus any time we need a vector-isrt2 for the radix-8 internal twiddles
+			we get it at (vec_dbl*)cc-1.
+			/Stupidity */
+			nisrt2	= tmp + 0x00;	// For the +- isrt2 pair put the - datum first, thus cc0 satisfies the
+			 isrt2	= tmp + 0x01;	// same "cc-1 gets you isrt2" property as do the other +-[cc,ss] pairs.
+			 cc0	= tmp + 0x02;
+			 ss0	= tmp + 0x03;
+		// [copy isrt2]	= tmp + 0x04;	// [copy isrt2]	= tmp + 0x07;
+			 cc1	= tmp + 0x05;		ncc1	= tmp + 0x08;
+			 ss1	= tmp + 0x06;		nss1	= tmp + 0x09;
+		// [copy isrt2]	= tmp + 0x0a;	// [copy isrt2]	= tmp + 0x0d;
+			 cc2	= tmp + 0x0b;		ncc2	= tmp + 0x0e;
+			 ss2	= tmp + 0x0c;		nss2	= tmp + 0x0f;
+		// [copy isrt2]	= tmp + 0x10;	// [copy isrt2]	= tmp + 0x13;
+			 cc3	= tmp + 0x11;		ncc3	= tmp + 0x14;
+			 ss3	= tmp + 0x12;		nss3	= tmp + 0x15;
+		// [copy isrt2]	= tmp + 0x16;	// [copy isrt2]	= tmp + 0x19;
+			 cc4	= tmp + 0x17;		ncc4	= tmp + 0x1a;
+			 ss4	= tmp + 0x18;		nss4	= tmp + 0x1b;
+		// [copy isrt2]	= tmp + 0x1c;	// [copy isrt2]	= tmp + 0x1f;
+			 cc5	= tmp + 0x1d;		ncc5	= tmp + 0x20;
+			 ss5	= tmp + 0x1e;		nss5	= tmp + 0x21;
+		// [copy isrt2]	= tmp + 0x22;	// [copy isrt2]	= tmp + 0x25;
+			 cc6	= tmp + 0x23;		ncc6	= tmp + 0x26;
+			 ss6	= tmp + 0x24;		nss6	= tmp + 0x27;
+		// [copy isrt2]	= tmp + 0x28;	// [copy isrt2]	= tmp + 0x2b;
+			 cc7	= tmp + 0x29;		ncc7	= tmp + 0x2c;
+			 ss7	= tmp + 0x2a;		nss7	= tmp + 0x2d;
+			/* These remain fixed: */
+			VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );	tmp = sqrt2+1;
+			tmp = sqrt2+1;	// Unnamed copy of isrt2
+			// Alternate "rounded the other way" copies of sqrt2,isrt2:
+			dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
+			dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
+		//	VEC_DBL_INIT(sqrt2, SQRT2);	VEC_DBL_INIT(tmp, ISRT2);
+			VEC_DBL_INIT(nisrt2,-dtmp);
+			VEC_DBL_INIT( isrt2, dtmp);									// Copies of +ISRT2 needed for 30-asm-macro-operand-GCC-limit workaround:
+			VEC_DBL_INIT( cc0,   1.0);		VEC_DBL_INIT( ss0,   0.0);	//	tmp =  cc0-1; ASSERT(HERE, tmp->d0 == ISRT2 && tmp->d1 == ISRT2, "tmp->d0,1 != ISRT2");	Disable to allow "round down" variant
+			VEC_DBL_INIT( cc1, c64_1);		VEC_DBL_INIT( ss1, s64_1);		tmp =  cc1-1; VEC_DBL_INIT(tmp, dtmp);
+			VEC_DBL_INIT( cc2, c32_1);		VEC_DBL_INIT( ss2, s32_1);		tmp =  cc2-1; VEC_DBL_INIT(tmp, dtmp);
+			VEC_DBL_INIT( cc3, c64_3);		VEC_DBL_INIT( ss3, s64_3);		tmp =  cc3-1; VEC_DBL_INIT(tmp, dtmp);
+			VEC_DBL_INIT( cc4, c16  );		VEC_DBL_INIT( ss4, s16  );		tmp =  cc4-1; VEC_DBL_INIT(tmp, dtmp);
+			VEC_DBL_INIT( cc5, c64_5);		VEC_DBL_INIT( ss5, s64_5);		tmp =  cc5-1; VEC_DBL_INIT(tmp, dtmp);
+			VEC_DBL_INIT( cc6, c32_3);		VEC_DBL_INIT( ss6, s32_3);		tmp =  cc6-1; VEC_DBL_INIT(tmp, dtmp);
+			VEC_DBL_INIT( cc7, c64_7);		VEC_DBL_INIT( ss7, s64_7);		tmp =  cc7-1; VEC_DBL_INIT(tmp, dtmp);
+			VEC_DBL_INIT(ncc1,-c64_1);		VEC_DBL_INIT(nss1,-s64_1);		tmp = ncc1-1; VEC_DBL_INIT(tmp, dtmp);
+			VEC_DBL_INIT(ncc2,-c32_1);		VEC_DBL_INIT(nss2,-s32_1);		tmp = ncc2-1; VEC_DBL_INIT(tmp, dtmp);
+			VEC_DBL_INIT(ncc3,-c64_3);		VEC_DBL_INIT(nss3,-s64_3);		tmp = ncc3-1; VEC_DBL_INIT(tmp, dtmp);
+			VEC_DBL_INIT(ncc4,-c16  );		VEC_DBL_INIT(nss4,-s16  );		tmp = ncc4-1; VEC_DBL_INIT(tmp, dtmp);
+			VEC_DBL_INIT(ncc5,-c64_5);		VEC_DBL_INIT(nss5,-s64_5);		tmp = ncc5-1; VEC_DBL_INIT(tmp, dtmp);
+			VEC_DBL_INIT(ncc6,-c32_3);		VEC_DBL_INIT(nss6,-s32_3);		tmp = ncc6-1; VEC_DBL_INIT(tmp, dtmp);
+			VEC_DBL_INIT(ncc7,-c64_7);		VEC_DBL_INIT(nss7,-s64_7);		tmp = ncc7-1; VEC_DBL_INIT(tmp, dtmp);
+		#endif
+		//	fprintf(stderr, "Init SSE2_RADIX_64_DIT with max_threads = %d\n",max_threads);
+			return;
+		} else {
+			ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
+		}	/* end of inits */
+
+		/* If multithreaded, set the local-store pointers needed for the current thread; */
+	#ifdef MULTITHREAD
+		ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
+		tmp = __r0 + thr_id*0x32;
+		// To support FMA versions of the radix-8 macros used to build radix-64 we insert a standalone copy of the [2,1,sqrt2,isrt2] quartet:
+		two     = tmp + 0;	// AVX+ versions of various DFT macros assume consts 2.0,1.0,isrt2 laid out thusly
+		one     = tmp + 1;
+		sqrt2	= tmp + 2;
+	//	isrt2   = tmp + 3;	Unnamed slot, since previous layout below already has an iart2 pointer
+		tmp += 4;
+		nisrt2	= tmp + 0x00;
+		 isrt2	= tmp + 0x01;
+		 cc0	= tmp + 0x02;
+		 ss0	= tmp + 0x03;
+		 cc1	= tmp + 0x05;		ncc1	= tmp + 0x08;
+		 ss1	= tmp + 0x06;		nss1	= tmp + 0x09;
+		 cc2	= tmp + 0x0b;		ncc2	= tmp + 0x0e;
+		 ss2	= tmp + 0x0c;		nss2	= tmp + 0x0f;
+		 cc3	= tmp + 0x11;		ncc3	= tmp + 0x14;
+		 ss3	= tmp + 0x12;		nss3	= tmp + 0x15;
+		 cc4	= tmp + 0x17;		ncc4	= tmp + 0x1a;
+		 ss4	= tmp + 0x18;		nss4	= tmp + 0x1b;
+		 cc5	= tmp + 0x1d;		ncc5	= tmp + 0x20;
+		 ss5	= tmp + 0x1e;		nss5	= tmp + 0x21;
+		 cc6	= tmp + 0x23;		ncc6	= tmp + 0x26;
+		 ss6	= tmp + 0x24;		nss6	= tmp + 0x27;
+		 cc7	= tmp + 0x29;		ncc7	= tmp + 0x2c;
+		 ss7	= tmp + 0x2a;		nss7	= tmp + 0x2d;
+	#endif
+
+	/* Gather the needed data (64 64-bit complex, i.e. 128 64-bit reals) and do 8 twiddleless length-8 subtransforms: */
+	// Because of roots-sign diffs between SSE2 and scalar macros, 1/7 2/6 3/5 swapped in DIT_0TWIDDLE outputs!
+
+		off_ptr = i_offsets;
+		tmp = r00;
+		for(i = 0; i < 8; i++) {
+			add0 = __A+off_ptr[0];add1 = __A+off_ptr[1];add2 = __A+off_ptr[2];add3 = __A+off_ptr[3];add4 = __A+off_ptr[4];add5 = __A+off_ptr[5];add6 = __A+off_ptr[6];add7 = __A+off_ptr[7];
+		  #ifdef USE_AVX2
+			SSE2_RADIX8_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7, tmp, isrt2,two)
+		  #else
+			SSE2_RADIX8_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7, tmp, isrt2)
+		  #endif
+			tmp += 16;
+			off_ptr += 8;
+		}
+
+	/*...and now do eight radix-8 subtransforms w/internal twiddles - cf. radix64_dit_pass1 for details.
+	Use the same positive-power roots as in the DIF here, just fiddle with signs within the macro to effect the conjugate-multiplies.
+	Twiddles occur in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 + p[0,4,2,6,1,5,3,7].
+	*/
+		// s1p[00,08,10,18,20,28,30,38]:
+		off_ptr = o_offsets;
+	/*
+	printf("off_ptr[0x8] = %2x\n",off_ptr[0x8]);	<*** 2x larger than the 0x10-mults in the 'else' below *>**
+	exit(0);
+	*/
+		// Apr 2014: Generalized-index scheme replaces original fixed __B-offsets 0x[0-7]0 with strides taken from
+		// o_offsets array. Due to the way the radix-64 DFTs are used to build larger pow2 and non-pow2 DFTs there
+		// is never an issue of irregular (i.e. not simple multiple of the basic stride in o_offsets[1]) strides,
 		// just one of whether that basic 'unit' stride will amount to one vec_dbl pair or a larger stride. That means
-		// we only need a very small sampling of the i_offsets data - in fact just i_offsets[1-8] - to infer the rest:
-		k1 = i_offsets[0x8]<<l2_sz_vd; k2 = k1+k1; k3 = (k1<<1)+k1;
-		j = k1<<2;	k4 = j; k5 = k1+j; k6 = k2+j; k7 = k3+j;
-	} else {		/* ...and this is geared toward radix = 2^k * 64: */
-		scale = 1<<(1 + k);
-		k1 = OFF1<<k; k2 = OFF2<<k; k3 = OFF3<<k; k4 = OFF4<<k; k5 = OFF5<<k; k6 = OFF6<<k; k7 = OFF7<<k;
-	}
-	// Outs are BRed:
-	v0 = r00; v1 = v0+8; v2 = v0+4; v3 = v0+12; v4 = v0+2; v5 = v0+10; v6 = v0+6; v7 = v0+14;
-	for(i = 0; i < 8; i++) {
-		j = reverse(i,8);	// i=1/j=4 should land us in the middle of the first 1/8-chunk of the contiguous in-array __A
-						// For k = 0 __A has (64 vec_cmplex) = (128 vec_dbl) elements, thus i=1/j=4 => j*scale = 128/8 = 16.
-		tmp = (vec_dbl*)__A+j*scale;	// __A-offsets are processed in BR8 order
+		// we only need a very small sampling of the o_offsets data - in fact just o_offsets[1-8] - to infer the rest:
+		j = off_ptr[8];	v0 = __B; v1 = __B+j; v2 = __B+(j<<1); v3 = __B+j+(j<<1);
+		j <<= 2;		v4 = v0+j; v5 = v1+j; v6 = v2+j; v7 = v3+j;
+	// Block 0: All unity twiddles:
 	  #ifdef USE_AVX2
-		SSE2_RADIX8_DIF_0TWIDDLE_B(	// Use B-version of macro, which takes the i-strides as intvars rather than literal bytes:
-			tmp,k1,k2,k3,k4,k5,k6,k7,
-			v0,v1,v2,v3,v4,v5,v6,v7, isrt2,two
+		SSE2_RADIX8_DIT_0TWIDDLE_OOP(	// This outputs o[07654321], so reverse o-index order of latter 7 outputs
+			r00,r10,r20,r30,r40,r50,r60,r70,
+			v0,v7,v6,v5,v4,v3,v2,v1, isrt2,two
 		);
 	  #else
-		SSE2_RADIX8_DIF_0TWIDDLE_B(	// Use B-version of macro, which takes the i-strides as intvars rather than literal bytes:
-			tmp,k1,k2,k3,k4,k5,k6,k7,
-			v0,v1,v2,v3,v4,v5,v6,v7, isrt2
+		SSE2_RADIX8_DIT_0TWIDDLE_OOP(	// This outputs o[07654321], so reverse o-index order of latter 7 outputs
+			r00,r10,r20,r30,r40,r50,r60,r70,
+			v0,v7,v6,v5,v4,v3,v2,v1, isrt2
 		);
 	  #endif
-		v0 += 16; v1 += 16; v2 += 16; v3 += 16; v4 += 16; v5 += 16; v6 += 16; v7 += 16;
+		tmp = r00;
+
+	// Note: Assumed 1-before 1st of the 14 sincos args in each call to SSE2_RADIX8_DIT_TWIDDLE_OOP is the basic isrt2 arg
+	// used for radix-8. This is a workaround of GCC's 30-arg limit for inline ASM macros, which proves a royal pain here.
+	//...and another kludge for the 30-arg limit: put a copy of (vec_dbl)2.0 into the first of each set of outputs:
+	// Block 4: jt = j1 + p04;	jp = j2 + p04;
+		// Note our r** pointers have indices that run 2x faster than the s1p** ones, e.g. r08-r00 == s1p04-s1p00:
+		j = +8;	tmp += j; r10 += j; r20 += j; r30 += j; r40 += j; r50 += j; r60 += j; r70 += j;	// tmp = r08
+		j = off_ptr[4]; v0 += j; v1 += j; v2 += j; v3 += j; v4 += j; v5 += j; v6 += j; v7 += j;	// s1p04
+		VEC_DBL_INIT(v0,2.0);
+		SSE2_RADIX8_DIT_TWIDDLE_OOP(
+			tmp,r10,r20,r30,r40,r50,r60,r70,
+			v0,v4,v2,v6,v1,v5,v3,v7,
+			ss0,cc0, isrt2,isrt2, nisrt2,isrt2, cc4,ss4, nss4,cc4, ss4,cc4, ncc4,ss4
+		);
+	// Block 2: jt = j1 + p02;	jp = j2 + p02;
+		j = +4;	tmp += j; r10 += j; r20 += j; r30 += j; r40 += j; r50 += j; r60 += j; r70 += j;	// tmp = r0C
+		j = off_ptr[2]; v0 -= j; v1 -= j; v2 -= j; v3 -= j; v4 -= j; v5 -= j; v6 -= j; v7 -= j;	// s1p02
+		VEC_DBL_INIT(v0,2.0);
+		SSE2_RADIX8_DIT_TWIDDLE_OOP(
+			tmp,r10,r20,r30,r40,r50,r60,r70,
+			v0,v4,v2,v6,v1,v5,v3,v7,
+			isrt2,isrt2,cc4,ss4,ss4,cc4,cc2,ss2,ss6,cc6,cc6,ss6,ss2,cc2
+		);
+	// Block 6: jt = j1 + p06;	jp = j2 + p06;
+		j = -8;	tmp += j; r10 += j; r20 += j; r30 += j; r40 += j; r50 += j; r60 += j; r70 += j;	// tmp = r04
+		j = off_ptr[4]; v0 += j; v1 += j; v2 += j; v3 += j; v4 += j; v5 += j; v6 += j; v7 += j;	// s1p06
+		VEC_DBL_INIT(v0,2.0);
+		SSE2_RADIX8_DIT_TWIDDLE_OOP(
+			tmp,r10,r20,r30,r40,r50,r60,r70,
+			v0,v4,v2,v6,v1,v5,v3,v7,
+			nisrt2,isrt2,ss4,cc4,ncc4,nss4,cc6,ss6,ncc2,ss2,nss2,cc2,nss6,ncc6
+		);
+	// Block 1: jt = j1 + p01;	jp = j2 + p01;
+		j =+10;	tmp += j; r10 += j; r20 += j; r30 += j; r40 += j; r50 += j; r60 += j; r70 += j;	// tmp = r0E
+		j = off_ptr[5]; v0 -= j; v1 -= j; v2 -= j; v3 -= j; v4 -= j; v5 -= j; v6 -= j; v7 -= j;	// s1p01
+		VEC_DBL_INIT(v0,2.0);
+		SSE2_RADIX8_DIT_TWIDDLE_OOP(
+			tmp,r10,r20,r30,r40,r50,r60,r70,
+			v0,v4,v2,v6,v1,v5,v3,v7,
+			cc4,ss4,cc2,ss2,cc6,ss6,cc1,ss1,cc5,ss5,cc3,ss3,cc7,ss7
+		);
+	// Block 5: jt = j1 + p05;	jp = j2 + p05;
+		j = -8;	tmp += j; r10 += j; r20 += j; r30 += j; r40 += j; r50 += j; r60 += j; r70 += j;	// tmp = r06
+		j = off_ptr[4]; v0 += j; v1 += j; v2 += j; v3 += j; v4 += j; v5 += j; v6 += j; v7 += j;	// s1p05
+		VEC_DBL_INIT(v0,2.0);
+		SSE2_RADIX8_DIT_TWIDDLE_OOP(
+			tmp,r10,r20,r30,r40,r50,r60,r70,
+			v0,v4,v2,v6,v1,v5,v3,v7,
+			nss4,cc4,ss6,cc6,ncc2,ss2,cc5,ss5,ncc7,ss7,ss1,cc1,ncc3,nss3
+		);
+	// Block 3: jt = j1 + p03;	jp = j2 + p03;
+		j = +4;	tmp += j; r10 += j; r20 += j; r30 += j; r40 += j; r50 += j; r60 += j; r70 += j;	// tmp = r0A
+		j = off_ptr[2]; v0 -= j; v1 -= j; v2 -= j; v3 -= j; v4 -= j; v5 -= j; v6 -= j; v7 -= j;	// s1p03
+		VEC_DBL_INIT(v0,2.0);
+		SSE2_RADIX8_DIT_TWIDDLE_OOP(
+			tmp,r10,r20,r30,r40,r50,r60,r70,
+			v0,v4,v2,v6,v1,v5,v3,v7,
+			ss4,cc4,cc6,ss6,nss2,cc2,cc3,ss3,ss1,cc1,ss7,cc7,nss5,cc5
+		);
+	// Block 7: jt = j1 + p07;	jp = j2 + p07;
+		j = -8;	tmp += j; r10 += j; r20 += j; r30 += j; r40 += j; r50 += j; r60 += j; r70 += j;	// tmp = r02
+		j = off_ptr[4]; v0 += j; v1 += j; v2 += j; v3 += j; v4 += j; v5 += j; v6 += j; v7 += j;	// s1p07
+		VEC_DBL_INIT(v0,2.0);
+		SSE2_RADIX8_DIT_TWIDDLE_OOP(
+			tmp,r10,r20,r30,r40,r50,r60,r70,
+			v0,v4,v2,v6,v1,v5,v3,v7,
+			ncc4,ss4,ss2,cc2,nss6,ncc6,cc7,ss7,ncc3,nss3,nss5,cc5,ss1,ncc1
+		);
 	}
 
-/*...and now do eight radix-8 subtransforms w/internal twiddles - cf. radix64_dif_pass1 for details: */
+	/************** RADIX-256 DIF/DIT: *****************************/
 
-/* Block 0: */
-	tmp = r00;
-	off_ptr = o_offsets; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
-	/* 0-index block has all-unity twiddles: Remember, the twiddleless DIF bit-reverses both its in-and-outputs,
-	so swap index-offset pairs 1/4 and 3/6 in t*-inputs and a-outputs: */
-  #ifdef USE_AVX2
-	SSE2_RADIX8_DIF_0TWIDDLE(
-		r00, OFF4,OFF2,OFF6,OFF1,OFF5,OFF3,OFF7,
-		add0,add1,add2,add3,add4,add5,add6,add7, isrt2,two
-	);
-  #else
-	SSE2_RADIX8_DIF_0TWIDDLE(
-		r00, OFF4,OFF2,OFF6,OFF1,OFF5,OFF3,OFF7,
-		add0,add1,add2,add3,add4,add5,add6,add7, isrt2
-	);
-  #endif
-// Remaining 7 macro cals need explicitly named BRed iptrs with stride 16, use tmp(in place of iarg r00),r40,r20,r60,r10,r50,r30,r70:
-/* Block 4: */
-	tmp += 8;	// r08
-	r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
-	off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
-//...and another (needed by FMA version of macro)) kludge for the 30-arg limit: put copies of (vec_dbl)2.0,SQRT2 into the first 2 of each set of outputs.
-	VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
-	SSE2_RADIX8_DIF_TWIDDLE_OOP(
-		tmp,r40,r20,r60,r10,r50,r30,r70,
-		add0,add1,add2,add3,add4,add5,add6,add7,
-		ss0,cc0, isrt2,isrt2, nisrt2,isrt2, cc4,ss4, nss4,cc4, ss4,cc4, ncc4,ss4
-	);
-/* Block 2: */
-	tmp -= 4;	// r04
-	r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
-	off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
-	VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
-	SSE2_RADIX8_DIF_TWIDDLE_OOP(
-		tmp,r40,r20,r60,r10,r50,r30,r70,
-		add0,add1,add2,add3,add4,add5,add6,add7,
-		isrt2,isrt2, cc4,ss4, ss4,cc4, cc2,ss2, ss6,cc6, cc6,ss6, ss2,cc2
-	);
-/* Block 6: */
-	tmp += 8;	// r0C
-	r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
-	off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
-	VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
-	SSE2_RADIX8_DIF_TWIDDLE_OOP(
-		tmp,r40,r20,r60,r10,r50,r30,r70,
-		add0,add1,add2,add3,add4,add5,add6,add7,
-		nisrt2,isrt2, ss4,cc4, ncc4,nss4, cc6,ss6, ncc2,ss2 ,nss2,cc2, nss6,ncc6
-	);
-/* Block 1: */
-	tmp -= 10;	// r02
-	r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
-	off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
-	VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
-	SSE2_RADIX8_DIF_TWIDDLE_OOP(
-		tmp,r40,r20,r60,r10,r50,r30,r70,
-		add0,add1,add2,add3,add4,add5,add6,add7,
-		cc4,ss4, cc2,ss2, cc6,ss6, cc1,ss1, cc5,ss5, cc3,ss3, cc7,ss7
-	);
-/* Block 5: */
-	tmp += 8;	// r0A
-	r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
-	off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
-	VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
-	SSE2_RADIX8_DIF_TWIDDLE_OOP(
-		tmp,r40,r20,r60,r10,r50,r30,r70,
-		add0,add1,add2,add3,add4,add5,add6,add7,
-		nss4,cc4, ss6,cc6, ncc2,ss2, cc5,ss5, ncc7,ss7, ss1,cc1, ncc3,nss3
-	);
-/* Block 3: */
-	tmp -= 4;	// r06
-	r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
-	off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
-	VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
-	SSE2_RADIX8_DIF_TWIDDLE_OOP(
-		tmp,r40,r20,r60,r10,r50,r30,r70,
-		add0,add1,add2,add3,add4,add5,add6,add7,
-		ss4,cc4, cc6,ss6, nss2,cc2, cc3,ss3, ss1,cc1, ss7,cc7, nss5,cc5
-	);
-/* Block 7: */
-	tmp += 8;	// r0E
-	r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
-	off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
-	VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
-	SSE2_RADIX8_DIF_TWIDDLE_OOP(
-		tmp,r40,r20,r60,r10,r50,r30,r70,
-		add0,add1,add2,add3,add4,add5,add6,add7,
-		ncc4,ss4, ss2,cc2, nss6,ncc6, cc7,ss7, ncc3,nss3, nss5,cc5, ss1,ncc1
-	);
-
-	#undef OFF1
-	#undef OFF2
-	#undef OFF3
-	#undef OFF4
-	#undef OFF5
-	#undef OFF6
-	#undef OFF7
-}
-
-void SSE2_RADIX_64_DIT(
-	const int init,	// Init consts (in 1-thread mode only!) and exit
-	const int thr_id,
-	// Inputs: Base address plus index offsets:
-	double *__A, const int *i_offsets,
-	// Intermediates-storage pointer:
-	vec_dbl*r00,
-	// Outputs: Base address plus index offsets:
-	vec_dbl*__B, const int *o_offsets
-)
-{
-	const uint64 sqrt2_dn = 0x3FF6A09E667F3BCCull, isrt2_dn = 0x3FE6A09E667F3BCCull;
-	double dtmp;
-	static int max_threads = 0;
-	static vec_dbl *sc_arr = 0x0, *sc_ptr;	// Pad with 4 extra slots for scratch storage needed by SSE2_RADIX_07_DFT macro!!!
-  #ifdef MULTITHREAD
-	static vec_dbl *__r0;	// Base address for discrete per-thread local stores - alloc 9x2e vec_dbl slots per thread
-	// In || mode, only above base-pointer (shared by all threads) is static:
-	vec_dbl *two,*one,*sqrt2,*isrt2, *cc0,*ss0,
-		 *cc1, *ss1, *cc2, *ss2, *cc3, *ss3, *cc4, *ss4, *cc5, *ss5, *cc6, *ss6, *cc7, *ss7,
-		*nisrt2,*ncc1,*nss1,*ncc2,*nss2,*ncc3,*nss3,*ncc4,*nss4,*ncc5,*nss5,*ncc6,*nss6,*ncc7,*nss7;
-  #else
-	static vec_dbl *two,*one,*sqrt2,*isrt2, *cc0,*ss0,
-		 *cc1, *ss1, *cc2, *ss2, *cc3, *ss3, *cc4, *ss4, *cc5, *ss5, *cc6, *ss6, *cc7, *ss7,
-		*nisrt2,*ncc1,*nss1,*ncc2,*nss2,*ncc3,*nss3,*ncc4,*nss4,*ncc5,*nss5,*ncc6,*nss6,*ncc7,*nss7;
-  #endif
-	// Intermediates pointers:
-	vec_dbl *tmp, *v0,*v1,*v2,*v3,*v4,*v5,*v6,*v7,
-		// Each of these rhi-ptrs points to next 8 vec_cmplx= 16 vec_dbl data sets:
-		*r10 = r00+0x10,*r20 = r00+0x20,*r30 = r00+0x30,*r40 = r00+0x40,*r50 = r00+0x50,*r60 = r00+0x60,*r70 = r00+0x70;
-	/* Addresses into array sections */
-	double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7;
-	// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
-	int i,j;
-	const int *off_ptr;
-
-	// If this is first time here, init pointers and associated data:
-	if(thr_id == -1)	// Value of init stores #threads
+	void SSE2_RADIX256_DIF(
+		// Input pointer: Base ptr of 16 local-mem:
+		vec_dbl*__A,
+		// Intermediates-storage pointer:
+		vec_dbl*r00,
+		// Pointers to base-roots data and first of 16 twiddle vectors:
+		vec_dbl*isrt2, vec_dbl*two, vec_dbl*twid0,
+		// Outputs: Base address plus 30 index offsets:
+		double *__B,
+		int *o_offsets_lo,	// Array storing  low parts of output index offsets in 16 slots
+		uint32 o_idx,	// Bitfield encoding the sequence of the o_offsets_lo sub-vectors to use for the radix-256 DFT's outputs
+		int *o_offsets_hi	// Array storing high parts of output index offsets in 16 slots
+	)
 	{
-		if(init <= max_threads) {	// Previously inited with sufficient #threads
-			ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
-			return;
-		}
-		max_threads = init;
-	#ifndef COMPILER_TYPE_GCC
-		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
-	#endif
-		if(sc_arr) { free((void *)sc_arr); }
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x32*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		sc_ptr = ALIGN_VEC_DBL(sc_arr);
-		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		// Intermediates pointers:
+		vec_dbl *tm0,*tm1,*tm2;
+		/* Addresses into array sections */
+		double *addr,*add0,*add1,*add2,*add3,*add4,*add5,*add6,*add7,*add8,*add9,*adda,*addb,*addc,*addd,*adde,*addf;
+		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
+		int i,j,nshift, *off_ptr;
+		int p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf;
 
-	#ifdef MULTITHREAD
-		__r0 = tmp = sc_ptr;
-		// To support FMA versions of the radix-8 macros used to build radix-64 we insert a standalone copy of the [2,1,sqrt2,isrt2] quartet:
-		two     = tmp + 0;	// AVX+ versions of various DFT macros assume consts 2.0,1.0,isrt2 laid out thusly
-		one     = tmp + 1;
-		sqrt2	= tmp + 2;
-	//	isrt2   = tmp + 3;	Unnamed slot, since previous layout below already has an iart2 pointer
-		tmp += 4;
-		nisrt2	= tmp + 0x00;	// For the +- isrt2 pair put the - datum first, thus cc0 satisfies the
-		 isrt2	= tmp + 0x01;	// same "cc-1 gets you isrt2" property as do the other +-[cc,ss] pairs.
-		 cc0	= tmp + 0x02;
-		 ss0	= tmp + 0x03;
-		 cc1	= tmp + 0x05;		ncc1	= tmp + 0x08;
-		 ss1	= tmp + 0x06;		nss1	= tmp + 0x09;
-		 cc2	= tmp + 0x0b;		ncc2	= tmp + 0x0e;
-		 ss2	= tmp + 0x0c;		nss2	= tmp + 0x0f;
-		 cc3	= tmp + 0x11;		ncc3	= tmp + 0x14;
-		 ss3	= tmp + 0x12;		nss3	= tmp + 0x15;
-		 cc4	= tmp + 0x17;		ncc4	= tmp + 0x1a;
-		 ss4	= tmp + 0x18;		nss4	= tmp + 0x1b;
-		 cc5	= tmp + 0x1d;		ncc5	= tmp + 0x20;
-		 ss5	= tmp + 0x1e;		nss5	= tmp + 0x21;
-		 cc6	= tmp + 0x23;		ncc6	= tmp + 0x26;
-		 ss6	= tmp + 0x24;		nss6	= tmp + 0x27;
-		 cc7	= tmp + 0x29;		ncc7	= tmp + 0x2c;
-		 ss7	= tmp + 0x2a;		nss7	= tmp + 0x2d;
-		for(i = 0; i < max_threads; ++i) {
-		/* These remain fixed within each per-thread local store: */
-			VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );
-			tmp = sqrt2+1;	// Unnamed copy of isrt2
-			// Alternate "rounded the other way" copies of sqrt2,isrt2:
-			dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
-			dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
-		//	VEC_DBL_INIT(sqrt2, SQRT2);	VEC_DBL_INIT(tmp, ISRT2);
-			VEC_DBL_INIT(nisrt2,-dtmp);
-			VEC_DBL_INIT( isrt2, dtmp);									// Copies of +ISRT2 needed for 30-asm-macro-operand-GCC-limit workaround:
-			VEC_DBL_INIT( cc0,   1.0);		VEC_DBL_INIT( ss0,   0.0);	//	tmp =  cc0-1; ASSERT(HERE, tmp->d0 == ISRT2 && tmp->d1 == ISRT2, "tmp->d0,1 != ISRT2");	Disable to allow "round down" variant
-			VEC_DBL_INIT( cc1, c64_1);		VEC_DBL_INIT( ss1, s64_1);		tmp =  cc1-1; VEC_DBL_INIT(tmp, dtmp);
-			VEC_DBL_INIT( cc2, c32_1);		VEC_DBL_INIT( ss2, s32_1);		tmp =  cc2-1; VEC_DBL_INIT(tmp, dtmp);
-			VEC_DBL_INIT( cc3, c64_3);		VEC_DBL_INIT( ss3, s64_3);		tmp =  cc3-1; VEC_DBL_INIT(tmp, dtmp);
-			VEC_DBL_INIT( cc4, c16  );		VEC_DBL_INIT( ss4, s16  );		tmp =  cc4-1; VEC_DBL_INIT(tmp, dtmp);
-			VEC_DBL_INIT( cc5, c64_5);		VEC_DBL_INIT( ss5, s64_5);		tmp =  cc5-1; VEC_DBL_INIT(tmp, dtmp);
-			VEC_DBL_INIT( cc6, c32_3);		VEC_DBL_INIT( ss6, s32_3);		tmp =  cc6-1; VEC_DBL_INIT(tmp, dtmp);
-			VEC_DBL_INIT( cc7, c64_7);		VEC_DBL_INIT( ss7, s64_7);		tmp =  cc7-1; VEC_DBL_INIT(tmp, dtmp);
-			VEC_DBL_INIT(ncc1,-c64_1);		VEC_DBL_INIT(nss1,-s64_1);		tmp = ncc1-1; VEC_DBL_INIT(tmp, dtmp);
-			VEC_DBL_INIT(ncc2,-c32_1);		VEC_DBL_INIT(nss2,-s32_1);		tmp = ncc2-1; VEC_DBL_INIT(tmp, dtmp);
-			VEC_DBL_INIT(ncc3,-c64_3);		VEC_DBL_INIT(nss3,-s64_3);		tmp = ncc3-1; VEC_DBL_INIT(tmp, dtmp);
-			VEC_DBL_INIT(ncc4,-c16  );		VEC_DBL_INIT(nss4,-s16  );		tmp = ncc4-1; VEC_DBL_INIT(tmp, dtmp);
-			VEC_DBL_INIT(ncc5,-c64_5);		VEC_DBL_INIT(nss5,-s64_5);		tmp = ncc5-1; VEC_DBL_INIT(tmp, dtmp);
-			VEC_DBL_INIT(ncc6,-c32_3);		VEC_DBL_INIT(nss6,-s32_3);		tmp = ncc6-1; VEC_DBL_INIT(tmp, dtmp);
-			VEC_DBL_INIT(ncc7,-c64_7);		VEC_DBL_INIT(nss7,-s64_7);		tmp = ncc7-1; VEC_DBL_INIT(tmp, dtmp);
-		/* Move on to next thread's local store */
-			 two += 0x32;
-			 one += 0x32;
-			 sqrt2 += 0x32;
-			nisrt2 += 0x32;
-			 isrt2 += 0x32;
-			 cc0 += 0x32;
-			 ss0 += 0x32;
-			 cc1 += 0x32;		ncc1 += 0x32;
-			 ss1 += 0x32;		nss1 += 0x32;
-			 cc2 += 0x32;		ncc2 += 0x32;
-			 ss2 += 0x32;		nss2 += 0x32;
-			 cc3 += 0x32;		ncc3 += 0x32;
-			 ss3 += 0x32;		nss3 += 0x32;
-			 cc4 += 0x32;		ncc4 += 0x32;
-			 ss4 += 0x32;		nss4 += 0x32;
-			 cc5 += 0x32;		ncc5 += 0x32;
-			 ss5 += 0x32;		nss5 += 0x32;
-			 cc6 += 0x32;		ncc6 += 0x32;
-			 ss6 += 0x32;		nss6 += 0x32;
-			 cc7 += 0x32;		ncc7 += 0x32;
-			 ss7 += 0x32;		nss7 += 0x32;
-		}
-	#else
-		tmp = sc_ptr;
-		// To support FMA versions of the radix-8 macros used to build radix-64 we insert a standalone copy of the [2,1,sqrt2,isrt2] quartet:
-		two     = tmp + 0;	// AVX+ versions of various DFT macros assume consts 2.0,1.0,isrt2 laid out thusly
-		one     = tmp + 1;
-		sqrt2	= tmp + 2;
-	//	isrt2   = tmp + 3;	Unnamed slot, since previous layout below already has an iart2 pointer
-		tmp += 4;
-		/* Stupidity: Since a truly general-purpose [in the sense that it can be used for our radix-128 internal-twiddles]
-		radix-8 DFT-with-twiddles macro needs 8 in-addresses [corr. to the 8 real parts of the input data], 8 o-addresses,
-		and 7 each of cosine and sine data [which cannot be assumed to occur in fixed-stride pairs - cf. our usage of
-		SSE2_RADIX8_DIT_TWIDDLE_OOP() below], that hits the GCC hard limit of 30-operands for ASM macros, but we still
-		need one more operand for the ISRT2 pointer. Only easy workaround I found for this is to stick a vector-ISRT2 copy
-		in between each +-[cc,ss] vector-data pair, thus any time we need a vector-isrt2 for the radix-8 internal twiddles
-		we get it at (vec_dbl*)cc-1.
-		/Stupidity */
-		nisrt2	= tmp + 0x00;	// For the +- isrt2 pair put the - datum first, thus cc0 satisfies the
-		 isrt2	= tmp + 0x01;	// same "cc-1 gets you isrt2" property as do the other +-[cc,ss] pairs.
-		 cc0	= tmp + 0x02;
-		 ss0	= tmp + 0x03;
-	// [copy isrt2]	= tmp + 0x04;	// [copy isrt2]	= tmp + 0x07;
-		 cc1	= tmp + 0x05;		ncc1	= tmp + 0x08;
-		 ss1	= tmp + 0x06;		nss1	= tmp + 0x09;
-	// [copy isrt2]	= tmp + 0x0a;	// [copy isrt2]	= tmp + 0x0d;
-		 cc2	= tmp + 0x0b;		ncc2	= tmp + 0x0e;
-		 ss2	= tmp + 0x0c;		nss2	= tmp + 0x0f;
-	// [copy isrt2]	= tmp + 0x10;	// [copy isrt2]	= tmp + 0x13;
-		 cc3	= tmp + 0x11;		ncc3	= tmp + 0x14;
-		 ss3	= tmp + 0x12;		nss3	= tmp + 0x15;
-	// [copy isrt2]	= tmp + 0x16;	// [copy isrt2]	= tmp + 0x19;
-		 cc4	= tmp + 0x17;		ncc4	= tmp + 0x1a;
-		 ss4	= tmp + 0x18;		nss4	= tmp + 0x1b;
-	// [copy isrt2]	= tmp + 0x1c;	// [copy isrt2]	= tmp + 0x1f;
-		 cc5	= tmp + 0x1d;		ncc5	= tmp + 0x20;
-		 ss5	= tmp + 0x1e;		nss5	= tmp + 0x21;
-	// [copy isrt2]	= tmp + 0x22;	// [copy isrt2]	= tmp + 0x25;
-		 cc6	= tmp + 0x23;		ncc6	= tmp + 0x26;
-		 ss6	= tmp + 0x24;		nss6	= tmp + 0x27;
-	// [copy isrt2]	= tmp + 0x28;	// [copy isrt2]	= tmp + 0x2b;
-		 cc7	= tmp + 0x29;		ncc7	= tmp + 0x2c;
-		 ss7	= tmp + 0x2a;		nss7	= tmp + 0x2d;
-		/* These remain fixed: */
-		VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );	tmp = sqrt2+1;
-		tmp = sqrt2+1;	// Unnamed copy of isrt2
-		// Alternate "rounded the other way" copies of sqrt2,isrt2:
-		dtmp = *(double *)&sqrt2_dn;	VEC_DBL_INIT(sqrt2, dtmp);
-		dtmp = *(double *)&isrt2_dn;	VEC_DBL_INIT(isrt2, dtmp);
-	//	VEC_DBL_INIT(sqrt2, SQRT2);	VEC_DBL_INIT(tmp, ISRT2);
-		VEC_DBL_INIT(nisrt2,-dtmp);
-		VEC_DBL_INIT( isrt2, dtmp);									// Copies of +ISRT2 needed for 30-asm-macro-operand-GCC-limit workaround:
-		VEC_DBL_INIT( cc0,   1.0);		VEC_DBL_INIT( ss0,   0.0);	//	tmp =  cc0-1; ASSERT(HERE, tmp->d0 == ISRT2 && tmp->d1 == ISRT2, "tmp->d0,1 != ISRT2");	Disable to allow "round down" variant
-		VEC_DBL_INIT( cc1, c64_1);		VEC_DBL_INIT( ss1, s64_1);		tmp =  cc1-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT( cc2, c32_1);		VEC_DBL_INIT( ss2, s32_1);		tmp =  cc2-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT( cc3, c64_3);		VEC_DBL_INIT( ss3, s64_3);		tmp =  cc3-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT( cc4, c16  );		VEC_DBL_INIT( ss4, s16  );		tmp =  cc4-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT( cc5, c64_5);		VEC_DBL_INIT( ss5, s64_5);		tmp =  cc5-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT( cc6, c32_3);		VEC_DBL_INIT( ss6, s32_3);		tmp =  cc6-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT( cc7, c64_7);		VEC_DBL_INIT( ss7, s64_7);		tmp =  cc7-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT(ncc1,-c64_1);		VEC_DBL_INIT(nss1,-s64_1);		tmp = ncc1-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT(ncc2,-c32_1);		VEC_DBL_INIT(nss2,-s32_1);		tmp = ncc2-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT(ncc3,-c64_3);		VEC_DBL_INIT(nss3,-s64_3);		tmp = ncc3-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT(ncc4,-c16  );		VEC_DBL_INIT(nss4,-s16  );		tmp = ncc4-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT(ncc5,-c64_5);		VEC_DBL_INIT(nss5,-s64_5);		tmp = ncc5-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT(ncc6,-c32_3);		VEC_DBL_INIT(nss6,-s32_3);		tmp = ncc6-1; VEC_DBL_INIT(tmp, dtmp);
-		VEC_DBL_INIT(ncc7,-c64_7);		VEC_DBL_INIT(nss7,-s64_7);		tmp = ncc7-1; VEC_DBL_INIT(tmp, dtmp);
-	#endif
-	//	fprintf(stderr, "Init SSE2_RADIX_64_DIT with max_threads = %d\n",max_threads);
-		return;
-	} else {
-		ASSERT(HERE, sc_arr != 0, "This function requires an initial Init-consts-mode call (in 1-thread mode only) before use!");
-	}	/* end of inits */
-
-	/* If multithreaded, set the local-store pointers needed for the current thread; */
-#ifdef MULTITHREAD
-	ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
-	tmp = __r0 + thr_id*0x32;
-	// To support FMA versions of the radix-8 macros used to build radix-64 we insert a standalone copy of the [2,1,sqrt2,isrt2] quartet:
-	two     = tmp + 0;	// AVX+ versions of various DFT macros assume consts 2.0,1.0,isrt2 laid out thusly
-	one     = tmp + 1;
-	sqrt2	= tmp + 2;
-//	isrt2   = tmp + 3;	Unnamed slot, since previous layout below already has an iart2 pointer
-	tmp += 4;
-	nisrt2	= tmp + 0x00;
-	 isrt2	= tmp + 0x01;
-	 cc0	= tmp + 0x02;
-	 ss0	= tmp + 0x03;
-	 cc1	= tmp + 0x05;		ncc1	= tmp + 0x08;
-	 ss1	= tmp + 0x06;		nss1	= tmp + 0x09;
-	 cc2	= tmp + 0x0b;		ncc2	= tmp + 0x0e;
-	 ss2	= tmp + 0x0c;		nss2	= tmp + 0x0f;
-	 cc3	= tmp + 0x11;		ncc3	= tmp + 0x14;
-	 ss3	= tmp + 0x12;		nss3	= tmp + 0x15;
-	 cc4	= tmp + 0x17;		ncc4	= tmp + 0x1a;
-	 ss4	= tmp + 0x18;		nss4	= tmp + 0x1b;
-	 cc5	= tmp + 0x1d;		ncc5	= tmp + 0x20;
-	 ss5	= tmp + 0x1e;		nss5	= tmp + 0x21;
-	 cc6	= tmp + 0x23;		ncc6	= tmp + 0x26;
-	 ss6	= tmp + 0x24;		nss6	= tmp + 0x27;
-	 cc7	= tmp + 0x29;		ncc7	= tmp + 0x2c;
-	 ss7	= tmp + 0x2a;		nss7	= tmp + 0x2d;
-#endif
-
-/* Gather the needed data (64 64-bit complex, i.e. 128 64-bit reals) and do 8 twiddleless length-8 subtransforms: */
-// Because of roots-sign diffs between SSE2 and scalar macros, 1/7 2/6 3/5 swapped in DIT_0TWIDDLE outputs!
-
-	off_ptr = i_offsets;
-	tmp = r00;
-	for(i = 0; i < 8; i++) {
-		add0 = __A+off_ptr[0];add1 = __A+off_ptr[1];add2 = __A+off_ptr[2];add3 = __A+off_ptr[3];add4 = __A+off_ptr[4];add5 = __A+off_ptr[5];add6 = __A+off_ptr[6];add7 = __A+off_ptr[7];
-	  #ifdef USE_AVX2
-		SSE2_RADIX8_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7, tmp, isrt2,two)
+	// NOTE that unlike the RADIX_08_DIF_OOP() macro used for pass 1 of the radix-64 DFT, RADIX_16_DIF outputs are IN-ORDER rather than BR:
+	  #ifdef USE_ARM_V8_SIMD
+		uint32 OFF1,OFF2,OFF3,OFF4;
+		OFF1 = 0x200;
+		OFF2 = 0x400;
+		OFF3 = 0x600;
+		OFF4 = 0x800;
+	  #elif defined(USE_AVX512)
+		#define OFF1	0x200*4
+		#define OFF2	0x400*4
+		#define OFF3	0x600*4
+		#define OFF4	0x800*4
+	  #elif defined(USE_AVX)
+		#define OFF1	0x200*2
+		#define OFF2	0x400*2
+		#define OFF3	0x600*2
+		#define OFF4	0x800*2
 	  #else
-		SSE2_RADIX8_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7, tmp, isrt2)
+		#define OFF1	0x200
+		#define OFF2	0x400
+		#define OFF3	0x600
+		#define OFF4	0x800
 	  #endif
-		tmp += 16;
-		off_ptr += 8;
-	}
-
-/*...and now do eight radix-8 subtransforms w/internal twiddles - cf. radix64_dit_pass1 for details.
-Use the same positive-power roots as in the DIF here, just fiddle with signs within the macro to effect the conjugate-multiplies.
-Twiddles occur in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 + p[0,4,2,6,1,5,3,7].
-*/
-	// s1p[00,08,10,18,20,28,30,38]:
-	off_ptr = o_offsets;
-/*
-printf("off_ptr[0x8] = %2x\n",off_ptr[0x8]);	<*** 2x larger than the 0x10-mults in the 'else' below *>**
-exit(0);
-*/
-	// Apr 2014: Generalized-index scheme replaces original fixed __B-offsets 0x[0-7]0 with strides taken from
-	// o_offsets array. Due to the way the radix-64 DFTs are used to build larger pow2 and non-pow2 DFTs there
-	// is never an issue of irregular (i.e. not simple multiple of the basic stride in o_offsets[1]) strides,
-	// just one of whether that basic 'unit' stride will amount to one vec_dbl pair or a larger stride. That means
-	// we only need a very small sampling of the o_offsets data - in fact just o_offsets[1-8] - to infer the rest:
-	j = off_ptr[8];	v0 = __B; v1 = __B+j; v2 = __B+(j<<1); v3 = __B+j+(j<<1);
-	j <<= 2;		v4 = v0+j; v5 = v1+j; v6 = v2+j; v7 = v3+j;
-// Block 0: All unity twiddles:
-  #ifdef USE_AVX2
-	SSE2_RADIX8_DIT_0TWIDDLE_OOP(	// This outputs o[07654321], so reverse o-index order of latter 7 outputs
-		r00,r10,r20,r30,r40,r50,r60,r70,
-		v0,v7,v6,v5,v4,v3,v2,v1, isrt2,two
-	);
-  #else
-	SSE2_RADIX8_DIT_0TWIDDLE_OOP(	// This outputs o[07654321], so reverse o-index order of latter 7 outputs
-		r00,r10,r20,r30,r40,r50,r60,r70,
-		v0,v7,v6,v5,v4,v3,v2,v1, isrt2
-	);
-  #endif
-	tmp = r00;
-
-// Note: Assumed 1-before 1st of the 14 sincos args in each call to SSE2_RADIX8_DIT_TWIDDLE_OOP is the basic isrt2 arg
-// used for radix-8. This is a workaround of GCC's 30-arg limit for inline ASM macros, which proves a royal pain here.
-//...and another kludge for the 30-arg limit: put a copy of (vec_dbl)2.0 into the first of each set of outputs:
-// Block 4: jt = j1 + p04;	jp = j2 + p04;
-	// Note our r** pointers have indices that run 2x faster than the s1p** ones, e.g. r08-r00 == s1p04-s1p00:
-	j = +8;	tmp += j; r10 += j; r20 += j; r30 += j; r40 += j; r50 += j; r60 += j; r70 += j;	// tmp = r08
-	j = off_ptr[4]; v0 += j; v1 += j; v2 += j; v3 += j; v4 += j; v5 += j; v6 += j; v7 += j;	// s1p04
-	VEC_DBL_INIT(v0,2.0);
-	SSE2_RADIX8_DIT_TWIDDLE_OOP(
-		tmp,r10,r20,r30,r40,r50,r60,r70,
-		v0,v4,v2,v6,v1,v5,v3,v7,
-		ss0,cc0, isrt2,isrt2, nisrt2,isrt2, cc4,ss4, nss4,cc4, ss4,cc4, ncc4,ss4
-	);
-// Block 2: jt = j1 + p02;	jp = j2 + p02;
-	j = +4;	tmp += j; r10 += j; r20 += j; r30 += j; r40 += j; r50 += j; r60 += j; r70 += j;	// tmp = r0C
-	j = off_ptr[2]; v0 -= j; v1 -= j; v2 -= j; v3 -= j; v4 -= j; v5 -= j; v6 -= j; v7 -= j;	// s1p02
-	VEC_DBL_INIT(v0,2.0);
-	SSE2_RADIX8_DIT_TWIDDLE_OOP(
-		tmp,r10,r20,r30,r40,r50,r60,r70,
-		v0,v4,v2,v6,v1,v5,v3,v7,
-		isrt2,isrt2,cc4,ss4,ss4,cc4,cc2,ss2,ss6,cc6,cc6,ss6,ss2,cc2
-	);
-// Block 6: jt = j1 + p06;	jp = j2 + p06;
-	j = -8;	tmp += j; r10 += j; r20 += j; r30 += j; r40 += j; r50 += j; r60 += j; r70 += j;	// tmp = r04
-	j = off_ptr[4]; v0 += j; v1 += j; v2 += j; v3 += j; v4 += j; v5 += j; v6 += j; v7 += j;	// s1p06
-	VEC_DBL_INIT(v0,2.0);
-	SSE2_RADIX8_DIT_TWIDDLE_OOP(
-		tmp,r10,r20,r30,r40,r50,r60,r70,
-		v0,v4,v2,v6,v1,v5,v3,v7,
-		nisrt2,isrt2,ss4,cc4,ncc4,nss4,cc6,ss6,ncc2,ss2,nss2,cc2,nss6,ncc6
-	);
-// Block 1: jt = j1 + p01;	jp = j2 + p01;
-	j =+10;	tmp += j; r10 += j; r20 += j; r30 += j; r40 += j; r50 += j; r60 += j; r70 += j;	// tmp = r0E
-	j = off_ptr[5]; v0 -= j; v1 -= j; v2 -= j; v3 -= j; v4 -= j; v5 -= j; v6 -= j; v7 -= j;	// s1p01
-	VEC_DBL_INIT(v0,2.0);
-	SSE2_RADIX8_DIT_TWIDDLE_OOP(
-		tmp,r10,r20,r30,r40,r50,r60,r70,
-		v0,v4,v2,v6,v1,v5,v3,v7,
-		cc4,ss4,cc2,ss2,cc6,ss6,cc1,ss1,cc5,ss5,cc3,ss3,cc7,ss7
-	);
-// Block 5: jt = j1 + p05;	jp = j2 + p05;
-	j = -8;	tmp += j; r10 += j; r20 += j; r30 += j; r40 += j; r50 += j; r60 += j; r70 += j;	// tmp = r06
-	j = off_ptr[4]; v0 += j; v1 += j; v2 += j; v3 += j; v4 += j; v5 += j; v6 += j; v7 += j;	// s1p05
-	VEC_DBL_INIT(v0,2.0);
-	SSE2_RADIX8_DIT_TWIDDLE_OOP(
-		tmp,r10,r20,r30,r40,r50,r60,r70,
-		v0,v4,v2,v6,v1,v5,v3,v7,
-		nss4,cc4,ss6,cc6,ncc2,ss2,cc5,ss5,ncc7,ss7,ss1,cc1,ncc3,nss3
-	);
-// Block 3: jt = j1 + p03;	jp = j2 + p03;
-	j = +4;	tmp += j; r10 += j; r20 += j; r30 += j; r40 += j; r50 += j; r60 += j; r70 += j;	// tmp = r0A
-	j = off_ptr[2]; v0 -= j; v1 -= j; v2 -= j; v3 -= j; v4 -= j; v5 -= j; v6 -= j; v7 -= j;	// s1p03
-	VEC_DBL_INIT(v0,2.0);
-	SSE2_RADIX8_DIT_TWIDDLE_OOP(
-		tmp,r10,r20,r30,r40,r50,r60,r70,
-		v0,v4,v2,v6,v1,v5,v3,v7,
-		ss4,cc4,cc6,ss6,nss2,cc2,cc3,ss3,ss1,cc1,ss7,cc7,nss5,cc5
-	);
-// Block 7: jt = j1 + p07;	jp = j2 + p07;
-	j = -8;	tmp += j; r10 += j; r20 += j; r30 += j; r40 += j; r50 += j; r60 += j; r70 += j;	// tmp = r02
-	j = off_ptr[4]; v0 += j; v1 += j; v2 += j; v3 += j; v4 += j; v5 += j; v6 += j; v7 += j;	// s1p07
-	VEC_DBL_INIT(v0,2.0);
-	SSE2_RADIX8_DIT_TWIDDLE_OOP(
-		tmp,r10,r20,r30,r40,r50,r60,r70,
-		v0,v4,v2,v6,v1,v5,v3,v7,
-		ncc4,ss4,ss2,cc2,nss6,ncc6,cc7,ss7,ncc3,nss3,nss5,cc5,ss1,ncc1
-	);
-}
-
-/************** RADIX-256 DIF/DIT: *****************************/
-
-void SSE2_RADIX256_DIF(
-	// Input pointer: Base ptr of 16 local-mem:
-	vec_dbl*__A,
-	// Intermediates-storage pointer:
-	vec_dbl*r00,
-	// Pointers to base-roots data and first of 16 twiddle vectors:
-	vec_dbl*isrt2, vec_dbl*two, vec_dbl*twid0,
-	// Outputs: Base address plus 30 index offsets:
-	double *__B,
-	int *o_offsets_lo,	// Array storing  low parts of output index offsets in 16 slots
-	uint32 o_idx,	// Bitfield encoding the sequence of the o_offsets_lo sub-vectors to use for the radix-256 DFT's outputs
-	int *o_offsets_hi	// Array storing high parts of output index offsets in 16 slots
-)
-{
-	// Intermediates pointers:
-	vec_dbl *tm0,*tm1,*tm2;
-	/* Addresses into array sections */
-	double *addr,*add0,*add1,*add2,*add3,*add4,*add5,*add6,*add7,*add8,*add9,*adda,*addb,*addc,*addd,*adde,*addf;
-	// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
-	int i,j,nshift, *off_ptr;
-	int p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf;
-
-// NOTE that unlike the RADIX_08_DIF_OOP() macro used for pass 1 of the radix-64 DFT, RADIX_16_DIF outputs are IN-ORDER rather than BR:
-  #ifdef USE_AVX512
-	#define OFF1	0x200*4
-	#define OFF2	0x400*4
-	#define OFF3	0x600*4
-	#define OFF4	0x800*4
-  #elif defined(USE_AVX)
-	#define OFF1	0x200*2
-	#define OFF2	0x400*2
-	#define OFF3	0x600*2
-	#define OFF4	0x800*2
-  #else
-	#define OFF1	0x200
-	#define OFF2	0x400
-	#define OFF3	0x600
-	#define OFF4	0x800
-  #endif
-	tm1 = r00;
-	for(i = 0; i < 16; i++) {
-		j = reverse(i,16)<<1;	// __A-offsets are processed in BR16 order
-		tm0 = __A+j;
-	#if (OS_BITS == 32)
-								 add1 = (vec_dbl*)tm1+ 2; add2 = (vec_dbl*)tm1+ 4; add3 = (vec_dbl*)tm1+ 6; add4 = (vec_dbl*)tm1+ 8; add5 = (vec_dbl*)tm1+10; add6 = (vec_dbl*)tm1+12; add7 = (vec_dbl*)tm1+14;
-		add8 = (vec_dbl*)tm1+16; add9 = (vec_dbl*)tm1+18; adda = (vec_dbl*)tm1+20; addb = (vec_dbl*)tm1+22; addc = (vec_dbl*)tm1+24; addd = (vec_dbl*)tm1+26; adde = (vec_dbl*)tm1+28; addf = (vec_dbl*)tm1+30;
-		SSE2_RADIX16_DIF_0TWIDDLE  (tm0,OFF1,OFF2,OFF3,OFF4, isrt2,two, tm1,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf);
-	#else
-		SSE2_RADIX16_DIF_0TWIDDLE_B(tm0,OFF1,OFF2,OFF3,OFF4, isrt2,two, tm1);
-	#endif
-		tm1 += 32;
-	}
-
-/*...and now do 16 radix-16 subtransforms, including the internal twiddle factors: */
-
-// Block 0: has all-unity twiddles
-	// Extract index of the 16-element o_offsets_lo sub-vector to use for the current set of outputs:
-	off_ptr = o_offsets_lo + ( (o_idx&0x3) << 4 );	// Low 2 bits of o_idx; loop below will use remaining 30 bits in ascending pairs
-	p0 = off_ptr[0x0];p1 = off_ptr[0x1];p2 = off_ptr[0x2];p3 = off_ptr[0x3];p4 = off_ptr[0x4];p5 = off_ptr[0x5];p6 = off_ptr[0x6];p7 = off_ptr[0x7];p8 = off_ptr[0x8];p9 = off_ptr[0x9];pa = off_ptr[0xa];pb = off_ptr[0xb];pc = off_ptr[0xc];pd = off_ptr[0xd];pe = off_ptr[0xe];pf = off_ptr[0xf];
-	tm1 = r00;
-	addr = __B + o_offsets_hi[0]; add0 = addr+p0; add1 = addr+p1; add2 = addr+p2; add3 = addr+p3; add4 = addr+p4; add5 = addr+p5; add6 = addr+p6; add7 = addr+p7;
-		add8 = addr+p8; add9 = addr+p9; adda = addr+pa; addb = addr+pb; addc = addr+pc; addd = addr+pd; adde = addr+pe; addf = addr+pf;
-	SSE2_RADIX16_DIF_TWIDDLE_OOP(
-		tm1,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2, twid0
-	);	tm1 += 2;
-
-  #ifdef USE_AVX2
-
-	// Due to tangent-twiddles scheme and resulting singularity of tangent(arg(I)) = 1/0,
-	// only last 14 of the 15 with-twiddles DFTs allow use of FMA-based macros under Intel AVX2/FMA3:
-// Block 8: BR twiddles = {  I.{},  C^ 8,-~C^ 8,  C^ 4,*~C^ 4, *C^ 4,-~C^ 4,  C^ 2,*~C^ 2, *C^ 6,-~C^ 6,  C^ 6,*~C^ 6, *C^ 2,-~C^ 2}
-	if(o_idx) {
-		off_ptr = o_offsets_lo + ((o_idx<<2)&0x30);	// Shorthand for 16*((o_idx>>2)&0x3)
-		p0  = off_ptr[0x0];p1  = off_ptr[0x1];p2  = off_ptr[0x2];p3  = off_ptr[0x3];p4  = off_ptr[0x4];p5  = off_ptr[0x5];p6  = off_ptr[0x6];p7  = off_ptr[0x7];p8  = off_ptr[0x8];p9  = off_ptr[0x9];pa  = off_ptr[0xa];pb  = off_ptr[0xb];pc  = off_ptr[0xc];pd  = off_ptr[0xd];pe  = off_ptr[0xe];pf  = off_ptr[0xf];
-	}
-	j = 16;	// = 8<<1; Mimics elided i = 1 pass of length-14 loop below
-	tm2 = twid0 + (j<<4)-j;	// Twid-offsets are multiples of 30 vec_dbl - this one points to twid8 [of twid0-f]
-	addr = __B + o_offsets_hi[1]; add0 = addr+p0; add1 = addr+p1; add2 = addr+p2; add3 = addr+p3; add4 = addr+p4; add5 = addr+p5; add6 = addr+p6; add7 = addr+p7;
-		add8 = addr+p8; add9 = addr+p9; adda = addr+pa; addb = addr+pb; addc = addr+pc; addd = addr+pd; adde = addr+pe; addf = addr+pf;
-	SSE2_RADIX16_DIF_TWIDDLE_OOP(
-		tm1,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2, tm2
-	);	tm1 += 2;
-
-	// Remaining 14 sets of macro calls done in loop:
-	for(i = 2; i < 16; i++) {
-		if(o_idx) {
-			nshift = i+i;	// o_idx shift counts here run as >>2,4,...,30
-			off_ptr = o_offsets_lo + ( ((o_idx>>nshift)&0x3) << 4 );
-			p0  = off_ptr[0x0];p1  = off_ptr[0x1];p2  = off_ptr[0x2];p3  = off_ptr[0x3];p4  = off_ptr[0x4];p5  = off_ptr[0x5];p6  = off_ptr[0x6];p7  = off_ptr[0x7];p8  = off_ptr[0x8];p9  = off_ptr[0x9];pa  = off_ptr[0xa];pb  = off_ptr[0xb];pc  = off_ptr[0xc];pd  = off_ptr[0xd];pe  = off_ptr[0xe];pf  = off_ptr[0xf];
+		tm1 = r00;
+		for(i = 0; i < 16; i++) {
+			j = reverse(i,16)<<1;	// __A-offsets are processed in BR16 order
+			tm0 = __A+j;
+		#if (OS_BITS == 32)
+									 add1 = (vec_dbl*)tm1+ 2; add2 = (vec_dbl*)tm1+ 4; add3 = (vec_dbl*)tm1+ 6; add4 = (vec_dbl*)tm1+ 8; add5 = (vec_dbl*)tm1+10; add6 = (vec_dbl*)tm1+12; add7 = (vec_dbl*)tm1+14;
+			add8 = (vec_dbl*)tm1+16; add9 = (vec_dbl*)tm1+18; adda = (vec_dbl*)tm1+20; addb = (vec_dbl*)tm1+22; addc = (vec_dbl*)tm1+24; addd = (vec_dbl*)tm1+26; adde = (vec_dbl*)tm1+28; addf = (vec_dbl*)tm1+30;
+			SSE2_RADIX16_DIF_0TWIDDLE  (tm0,OFF1,OFF2,OFF3,OFF4, isrt2,two, tm1,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf);
+		#else
+			SSE2_RADIX16_DIF_0TWIDDLE_B(tm0,OFF1,OFF2,OFF3,OFF4, isrt2,two, tm1);
+		#endif
+			tm1 += 32;
 		}
-		j = reverse(i,16)<<1;
-		tm2 = twid0 + (j<<4)-j;	// Twid-offsets are multiples of 30 vec_dbl
-		addr = __B + o_offsets_hi[i];	// o_offsets_hi[] = p10,p20,...,pf0
-		add0 = addr+p0; add1 = addr+p1; add2 = addr+p2; add3 = addr+p3; add4 = addr+p4; add5 = addr+p5; add6 = addr+p6; add7 = addr+p7;
+
+	/*...and now do 16 radix-16 subtransforms, including the internal twiddle factors: */
+
+	// Block 0: has all-unity twiddles
+		// Extract index of the 16-element o_offsets_lo sub-vector to use for the current set of outputs:
+		off_ptr = o_offsets_lo + ( (o_idx&0x3) << 4 );	// Low 2 bits of o_idx; loop below will use remaining 30 bits in ascending pairs
+		p0 = off_ptr[0x0];p1 = off_ptr[0x1];p2 = off_ptr[0x2];p3 = off_ptr[0x3];p4 = off_ptr[0x4];p5 = off_ptr[0x5];p6 = off_ptr[0x6];p7 = off_ptr[0x7];p8 = off_ptr[0x8];p9 = off_ptr[0x9];pa = off_ptr[0xa];pb = off_ptr[0xb];pc = off_ptr[0xc];pd = off_ptr[0xd];pe = off_ptr[0xe];pf = off_ptr[0xf];
+		tm1 = r00;
+		addr = __B + o_offsets_hi[0]; add0 = addr+p0; add1 = addr+p1; add2 = addr+p2; add3 = addr+p3; add4 = addr+p4; add5 = addr+p5; add6 = addr+p6; add7 = addr+p7;
 			add8 = addr+p8; add9 = addr+p9; adda = addr+pa; addb = addr+pb; addc = addr+pc; addd = addr+pd; adde = addr+pe; addf = addr+pf;
-		SSE2_RADIX16_DIF_FMA_OOP(
-			tm1,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, tm2
+		SSE2_RADIX16_DIF_TWIDDLE_OOP(
+			tm1,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2, twid0
 		);	tm1 += 2;
-	}
 
-  #else	// Non-FMA version:
+	  #ifdef USE_AVX2
 
-	// Remaining 15 sets of macro calls done in loop:
-	for(i = 1; i < 16; i++) {
+		// Due to tangent-twiddles scheme and resulting singularity of tangent(arg(I)) = 1/0,
+		// only last 14 of the 15 with-twiddles DFTs allow use of FMA-based macros under Intel AVX2/FMA3:
+	// Block 8: BR twiddles = {  I.{},  C^ 8,-~C^ 8,  C^ 4,*~C^ 4, *C^ 4,-~C^ 4,  C^ 2,*~C^ 2, *C^ 6,-~C^ 6,  C^ 6,*~C^ 6, *C^ 2,-~C^ 2}
 		if(o_idx) {
-			nshift = i+i;	// o_idx shift counts here run as >>2,4,...,30
-			off_ptr = o_offsets_lo + ( ((o_idx>>nshift)&0x3) << 4 );
+			off_ptr = o_offsets_lo + ((o_idx<<2)&0x30);	// Shorthand for 16*((o_idx>>2)&0x3)
 			p0  = off_ptr[0x0];p1  = off_ptr[0x1];p2  = off_ptr[0x2];p3  = off_ptr[0x3];p4  = off_ptr[0x4];p5  = off_ptr[0x5];p6  = off_ptr[0x6];p7  = off_ptr[0x7];p8  = off_ptr[0x8];p9  = off_ptr[0x9];pa  = off_ptr[0xa];pb  = off_ptr[0xb];pc  = off_ptr[0xc];pd  = off_ptr[0xd];pe  = off_ptr[0xe];pf  = off_ptr[0xf];
 		}
-		j = reverse(i,16)<<1;
-		tm2 = twid0 + (j<<4)-j;	// Twid-offsets are multiples of 30 vec_dbl
-		addr = __B + o_offsets_hi[i];	// o_offsets_hi[] = p10,p20,...,pf0
-		add0 = addr+p0; add1 = addr+p1; add2 = addr+p2; add3 = addr+p3; add4 = addr+p4; add5 = addr+p5; add6 = addr+p6; add7 = addr+p7;
+		j = 16;	// = 8<<1; Mimics elided i = 1 pass of length-14 loop below
+		tm2 = twid0 + (j<<4)-j;	// Twid-offsets are multiples of 30 vec_dbl - this one points to twid8 [of twid0-f]
+		addr = __B + o_offsets_hi[1]; add0 = addr+p0; add1 = addr+p1; add2 = addr+p2; add3 = addr+p3; add4 = addr+p4; add5 = addr+p5; add6 = addr+p6; add7 = addr+p7;
 			add8 = addr+p8; add9 = addr+p9; adda = addr+pa; addb = addr+pb; addc = addr+pc; addd = addr+pd; adde = addr+pe; addf = addr+pf;
 		SSE2_RADIX16_DIF_TWIDDLE_OOP(
 			tm1,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2, tm2
 		);	tm1 += 2;
-	}
 
-  #endif	// FMA/AVX2 ?
-
-	#undef OFF1
-	#undef OFF2
-	#undef OFF3
-	#undef OFF4
-}
-
-void SSE2_RADIX256_DIT(
-	// Inputs: Base address plus index offsets:
-	double *__A,
-	int *i_offsets_lo,	// Array storing  low parts of input index offsets in 16 slots
-	uint32 i_idx,	// Bitfield encoding the sequence of the i_offsets_lo sub-vectors to use for the radix-256 DFT's inputs
-	int *i_offsets_hi,	// Array storing high parts of input index offsets in 16 slots
-	// Intermediates-storage pointer:
-	vec_dbl*r00,
-	// Pointers to base-roots data and first of 16 twiddle vectors:
-	vec_dbl*isrt2, vec_dbl*two, vec_dbl*twid0,
-	// Output pointer: Base ptr of 16 local-mem:
-	vec_dbl*__B
-)
-{
-	// Intermediates pointers:
-	vec_dbl *tm0,*tm1,*tm2,
-						*r10 = r00+0x20,*r20 = r00+0x40,*r30 = r00+0x60,*r40 = r00+0x80,*r50 = r00+0xa0,*r60 = r00+0xc0,*r70 = r00+0xe0,
-		*r80 =r00+0x100,*r90 = r80+0x20,*ra0 = r80+0x40,*rb0 = r80+0x60,*rc0 = r80+0x80,*rd0 = r80+0xa0,*re0 = r80+0xc0,*rf0 = r80+0xe0;
-	/* Addresses into array sections */
-	double *addr, *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7, *add8, *add9, *adda, *addb, *addc, *addd, *adde, *addf;
-	// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
-	int i,j,nshift, *off_ptr;
-	int p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf;
-
-/* Gather the needed data (256 64-bit complex, i.e. 512 64-bit reals) and do 8 twiddleless length-16 subtransforms: */
-  #ifdef USE_AVX512
-	#define OFF1	0x20*4
-	#define OFF2	0x40*4
-	#define OFF3	0x60*4
-	#define OFF4	0x80*4
-  #elif defined(USE_AVX)
-	#define OFF1	0x20*2
-	#define OFF2	0x40*2
-	#define OFF3	0x60*2
-	#define OFF4	0x80*2
-  #else
-	#define OFF1	0x20
-	#define OFF2	0x40
-	#define OFF3	0x60
-	#define OFF4	0x80
-  #endif
-
-	// Extract index of the 16-element i_offsets_lo sub-vector to use for the current set of outputs:
-	off_ptr = i_offsets_lo + ( (i_idx&0x3) << 4 );	// 16*(Low 2 bits of i_idx); loop below will use remaining 30 bits in ascending pairs
-	p0  = off_ptr[0x0];p1  = off_ptr[0x1];p2  = off_ptr[0x2];p3  = off_ptr[0x3];p4  = off_ptr[0x4];p5  = off_ptr[0x5];p6  = off_ptr[0x6];p7  = off_ptr[0x7];p8  = off_ptr[0x8];p9  = off_ptr[0x9];pa  = off_ptr[0xa];pb  = off_ptr[0xb];pc  = off_ptr[0xc];pd  = off_ptr[0xd];pe  = off_ptr[0xe];pf  = off_ptr[0xf];
-
-// Gather the needed data and do 16 twiddleless length-16 subtransforms, with p-offsets in-order:
-
-	tm0 = r00;
-	for(i = 0; i < 16; i++) {
-		addr = __A + i_offsets_hi[i];	// i_offsets_hi[] = p10,p20,...,pf0
-		add0 = addr+p0; add1 = addr+p1; add2 = addr+p2; add3 = addr+p3; add4 = addr+p4; add5 = addr+p5; add6 = addr+p6; add7 = addr+p7;
-			add8 = addr+p8; add9 = addr+p9; adda = addr+pa; addb = addr+pb; addc = addr+pc; addd = addr+pd; adde = addr+pe; addf = addr+pf;
-		SSE2_RADIX16_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2,two,
-			tm0,OFF1,OFF2,OFF3,OFF4); tm0 += 32;
-		if(i_idx) {	// vvv +2 here because this is setup for next loop pass
-			nshift = i+i+2;	// i_idx shift counts here run as >>2,4,...,30
-			off_ptr = i_offsets_lo + ( ((i_idx>>nshift)&0x3) << 4 );
-			p0  = off_ptr[0x0];p1  = off_ptr[0x1];p2  = off_ptr[0x2];p3  = off_ptr[0x3];p4  = off_ptr[0x4];p5  = off_ptr[0x5];p6  = off_ptr[0x6];p7  = off_ptr[0x7];p8  = off_ptr[0x8];p9  = off_ptr[0x9];pa  = off_ptr[0xa];pb  = off_ptr[0xb];pc  = off_ptr[0xc];pd  = off_ptr[0xd];pe  = off_ptr[0xe];pf  = off_ptr[0xf];
+		// Remaining 14 sets of macro calls done in loop:
+		for(i = 2; i < 16; i++) {
+			if(o_idx) {
+				nshift = i+i;	// o_idx shift counts here run as >>2,4,...,30
+				off_ptr = o_offsets_lo + ( ((o_idx>>nshift)&0x3) << 4 );
+				p0  = off_ptr[0x0];p1  = off_ptr[0x1];p2  = off_ptr[0x2];p3  = off_ptr[0x3];p4  = off_ptr[0x4];p5  = off_ptr[0x5];p6  = off_ptr[0x6];p7  = off_ptr[0x7];p8  = off_ptr[0x8];p9  = off_ptr[0x9];pa  = off_ptr[0xa];pb  = off_ptr[0xb];pc  = off_ptr[0xc];pd  = off_ptr[0xd];pe  = off_ptr[0xe];pf  = off_ptr[0xf];
+			}
+			j = reverse(i,16)<<1;
+			tm2 = twid0 + (j<<4)-j;	// Twid-offsets are multiples of 30 vec_dbl
+			addr = __B + o_offsets_hi[i];	// o_offsets_hi[] = p10,p20,...,pf0
+			add0 = addr+p0; add1 = addr+p1; add2 = addr+p2; add3 = addr+p3; add4 = addr+p4; add5 = addr+p5; add6 = addr+p6; add7 = addr+p7;
+				add8 = addr+p8; add9 = addr+p9; adda = addr+pa; addb = addr+pb; addc = addr+pc; addd = addr+pd; adde = addr+pe; addf = addr+pf;
+			SSE2_RADIX16_DIF_FMA_OOP(
+				tm1,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, tm2
+			);	tm1 += 2;
 		}
+
+	  #else	// Non-FMA version:
+
+		// Remaining 15 sets of macro calls done in loop:
+		for(i = 1; i < 16; i++) {
+			if(o_idx) {
+				nshift = i+i;	// o_idx shift counts here run as >>2,4,...,30
+				off_ptr = o_offsets_lo + ( ((o_idx>>nshift)&0x3) << 4 );
+				p0  = off_ptr[0x0];p1  = off_ptr[0x1];p2  = off_ptr[0x2];p3  = off_ptr[0x3];p4  = off_ptr[0x4];p5  = off_ptr[0x5];p6  = off_ptr[0x6];p7  = off_ptr[0x7];p8  = off_ptr[0x8];p9  = off_ptr[0x9];pa  = off_ptr[0xa];pb  = off_ptr[0xb];pc  = off_ptr[0xc];pd  = off_ptr[0xd];pe  = off_ptr[0xe];pf  = off_ptr[0xf];
+			}
+			j = reverse(i,16)<<1;
+			tm2 = twid0 + (j<<4)-j;	// Twid-offsets are multiples of 30 vec_dbl
+			addr = __B + o_offsets_hi[i];	// o_offsets_hi[] = p10,p20,...,pf0
+			add0 = addr+p0; add1 = addr+p1; add2 = addr+p2; add3 = addr+p3; add4 = addr+p4; add5 = addr+p5; add6 = addr+p6; add7 = addr+p7;
+				add8 = addr+p8; add9 = addr+p9; adda = addr+pa; addb = addr+pb; addc = addr+pc; addd = addr+pd; adde = addr+pe; addf = addr+pf;
+			SSE2_RADIX16_DIF_TWIDDLE_OOP(
+				tm1,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2, tm2
+			);	tm1 += 2;
+		}
+
+	  #endif	// FMA/AVX2 ?
+
+	  #ifndef USE_ARM_V8_SIMD
+		#undef OFF1
+		#undef OFF2
+		#undef OFF3
+		#undef OFF4
+	  #endif
 	}
 
-	#undef OFF1
-	#undef OFF2
-	#undef OFF3
-	#undef OFF4
+	void SSE2_RADIX256_DIT(
+		// Inputs: Base address plus index offsets:
+		double *__A,
+		int *i_offsets_lo,	// Array storing  low parts of input index offsets in 16 slots
+		uint32 i_idx,	// Bitfield encoding the sequence of the i_offsets_lo sub-vectors to use for the radix-256 DFT's inputs
+		int *i_offsets_hi,	// Array storing high parts of input index offsets in 16 slots
+		// Intermediates-storage pointer:
+		vec_dbl*r00,
+		// Pointers to base-roots data and first of 16 twiddle vectors:
+		vec_dbl*isrt2, vec_dbl*two, vec_dbl*twid0,
+		// Output pointer: Base ptr of 16 local-mem:
+		vec_dbl*__B
+	)
+	{
+		// Intermediates pointers:
+		vec_dbl *tm0,*tm1,*tm2,
+							*r10 = r00+0x20,*r20 = r00+0x40,*r30 = r00+0x60,*r40 = r00+0x80,*r50 = r00+0xa0,*r60 = r00+0xc0,*r70 = r00+0xe0,
+			*r80 =r00+0x100,*r90 = r80+0x20,*ra0 = r80+0x40,*rb0 = r80+0x60,*rc0 = r80+0x80,*rd0 = r80+0xa0,*re0 = r80+0xc0,*rf0 = r80+0xe0;
+		/* Addresses into array sections */
+		double *addr, *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7, *add8, *add9, *adda, *addb, *addc, *addd, *adde, *addf;
+		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
+		int i,j,nshift, *off_ptr;
+		int p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf;
 
-/*...and now do 16 radix-16 subtransforms, including the internal twiddle factors - we use the same positive-power
-roots as in the DIF here, just fiddle with signs within the macro to effect the conjugate-multiplies. Twiddles occur
-in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 + p[0,8,4,c,2,a,6,e,1,9,5,d,3,b,7,f].
-*/
-  #ifdef USE_AVX512
-	#define OFF1	0x200*4
-	#define OFF2	0x400*4
-	#define OFF3	0x600*4
-	#define OFF4	0x800*4
-  #elif defined(USE_AVX)
-	#define OFF1	0x200*2
-	#define OFF2	0x400*2
-	#define OFF3	0x600*2
-	#define OFF4	0x800*2
-  #else
-	#define OFF1	0x200
-	#define OFF2	0x400
-	#define OFF3	0x600
-	#define OFF4	0x800
-  #endif
+	/* Gather the needed data (256 64-bit complex, i.e. 512 64-bit reals) and do 8 twiddleless length-16 subtransforms: */
+	  #ifdef USE_ARM_V8_SIMD
+		uint32 OFF1,OFF2,OFF3,OFF4;
+		OFF1 = 0x20;
+		OFF2 = 0x40;
+		OFF3 = 0x60;
+		OFF4 = 0x80;
+	  #elif defined(USE_AVX512)
+		#define OFF1	0x20*4
+		#define OFF2	0x40*4
+		#define OFF3	0x60*4
+		#define OFF4	0x80*4
+	  #elif defined(USE_AVX)
+		#define OFF1	0x20*2
+		#define OFF2	0x40*2
+		#define OFF3	0x60*2
+		#define OFF4	0x80*2
+	  #else
+		#define OFF1	0x20
+		#define OFF2	0x40
+		#define OFF3	0x60
+		#define OFF4	0x80
+	  #endif
 
-// Block 0: All unity twiddles:
-	tm1 = __B;
-	SSE2_RADIX16_DIT_0TWIDDLE(
-		r00,r10,r20,r30,r40,r50,r60,r70,r80,r90,ra0,rb0,rc0,rd0,re0,rf0, isrt2,two,
-		tm1,OFF1,OFF2,OFF3,OFF4
-	);
+		// Extract index of the 16-element i_offsets_lo sub-vector to use for the current set of outputs:
+		off_ptr = i_offsets_lo + ( (i_idx&0x3) << 4 );	// 16*(Low 2 bits of i_idx); loop below will use remaining 30 bits in ascending pairs
+		p0  = off_ptr[0x0];p1  = off_ptr[0x1];p2  = off_ptr[0x2];p3  = off_ptr[0x3];p4  = off_ptr[0x4];p5  = off_ptr[0x5];p6  = off_ptr[0x6];p7  = off_ptr[0x7];p8  = off_ptr[0x8];p9  = off_ptr[0x9];pa  = off_ptr[0xa];pb  = off_ptr[0xb];pc  = off_ptr[0xc];pd  = off_ptr[0xd];pe  = off_ptr[0xe];pf  = off_ptr[0xf];
 
-  #ifdef USE_AVX2
+	// Gather the needed data and do 16 twiddleless length-16 subtransforms, with p-offsets in-order:
 
-	// Due to tangent-twiddles scheme and resulting singularity of tangent(arg(I)) = 1/0,
-	// only last 14 of the 15 with-twiddles DFTs allow use of FMA-based macros under Intel AVX2/FMA3:
-// Block 8: BR twiddles = {  I.{},  C^ 8,-~C^ 8,  C^ 4,*~C^ 4, *C^ 4,-~C^ 4,  C^ 2,*~C^ 2, *C^ 6,-~C^ 6,  C^ 6,*~C^ 6, *C^ 2,-~C^ 2}
-	j = 8<<1;	// Mimics elided i = 1 pass of length-14 loop below
-	tm0 = r00 + j; tm1 = __B+j; tm2 = twid0 + (j<<4)-j;	// Twid-offsets are multiples of 30 vec_dbl
-	SSE2_RADIX16_DIT_TWIDDLE_OOP(
-		tm0,OFF1,OFF2,OFF3,OFF4, tm1,OFF1,OFF2,OFF3,OFF4, isrt2, tm2
-	);
-	// Remaining 14 sets of macro calls done in loop:
-	for(i = 2; i < 16; i++) {
-		j = reverse(i,16)<<1;	// __B-offsets are processed in BR16 order
-		tm0 = r00 + j; tm1 = __B+j; tm2 = twid0 + (j<<4)-j;	// Twid-offsets are multiples of 30 vec_dbl
-		SSE2_RADIX16_DIT_FMA_OOP(
-			tm0,OFF1,OFF2,OFF3,OFF4, tm1,OFF1,OFF2,OFF3,OFF4, tm2
+		tm0 = r00;
+		for(i = 0; i < 16; i++) {
+			addr = __A + i_offsets_hi[i];	// i_offsets_hi[] = p10,p20,...,pf0
+			add0 = addr+p0; add1 = addr+p1; add2 = addr+p2; add3 = addr+p3; add4 = addr+p4; add5 = addr+p5; add6 = addr+p6; add7 = addr+p7;
+				add8 = addr+p8; add9 = addr+p9; adda = addr+pa; addb = addr+pb; addc = addr+pc; addd = addr+pd; adde = addr+pe; addf = addr+pf;
+			SSE2_RADIX16_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2,two,
+				tm0,OFF1,OFF2,OFF3,OFF4); tm0 += 32;
+			if(i_idx) {	// vvv +2 here because this is setup for next loop pass
+				nshift = i+i+2;	// i_idx shift counts here run as >>2,4,...,30
+				off_ptr = i_offsets_lo + ( ((i_idx>>nshift)&0x3) << 4 );
+				p0  = off_ptr[0x0];p1  = off_ptr[0x1];p2  = off_ptr[0x2];p3  = off_ptr[0x3];p4  = off_ptr[0x4];p5  = off_ptr[0x5];p6  = off_ptr[0x6];p7  = off_ptr[0x7];p8  = off_ptr[0x8];p9  = off_ptr[0x9];pa  = off_ptr[0xa];pb  = off_ptr[0xb];pc  = off_ptr[0xc];pd  = off_ptr[0xd];pe  = off_ptr[0xe];pf  = off_ptr[0xf];
+			}
+		}
+
+	  #ifndef USE_ARM_V8_SIMD
+		#undef OFF1
+		#undef OFF2
+		#undef OFF3
+		#undef OFF4
+	  #endif
+
+	/*...and now do 16 radix-16 subtransforms, including the internal twiddle factors - we use the same positive-power
+	roots as in the DIF here, just fiddle with signs within the macro to effect the conjugate-multiplies. Twiddles occur
+	in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 + p[0,8,4,c,2,a,6,e,1,9,5,d,3,b,7,f].
+	*/
+	  #ifdef USE_ARM_V8_SIMD
+		OFF1 = 0x200;
+		OFF2 = 0x400;
+		OFF3 = 0x600;
+		OFF4 = 0x800;
+	  #elif defined(USE_AVX512)
+		#define OFF1	0x200*4
+		#define OFF2	0x400*4
+		#define OFF3	0x600*4
+		#define OFF4	0x800*4
+	  #elif defined(USE_AVX)
+		#define OFF1	0x200*2
+		#define OFF2	0x400*2
+		#define OFF3	0x600*2
+		#define OFF4	0x800*2
+	  #else
+		#define OFF1	0x200
+		#define OFF2	0x400
+		#define OFF3	0x600
+		#define OFF4	0x800
+	  #endif
+
+	// Block 0: All unity twiddles:
+		tm1 = __B;
+		SSE2_RADIX16_DIT_0TWIDDLE(
+			r00,r10,r20,r30,r40,r50,r60,r70,r80,r90,ra0,rb0,rc0,rd0,re0,rf0, isrt2,two,
+			tm1,OFF1,OFF2,OFF3,OFF4
 		);
-	}
 
-  #else	// Non-FMA version:
+	  #ifdef USE_AVX2
 
-	// Remaining 15 sets of macro calls done in loop:
-	for(i = 1; i < 16; i++) {
-		j = reverse(i,16)<<1;	// __B-offsets are processed in BR16 order
+		// Due to tangent-twiddles scheme and resulting singularity of tangent(arg(I)) = 1/0,
+		// only last 14 of the 15 with-twiddles DFTs allow use of FMA-based macros under Intel AVX2/FMA3:
+	// Block 8: BR twiddles = {  I.{},  C^ 8,-~C^ 8,  C^ 4,*~C^ 4, *C^ 4,-~C^ 4,  C^ 2,*~C^ 2, *C^ 6,-~C^ 6,  C^ 6,*~C^ 6, *C^ 2,-~C^ 2}
+		j = 8<<1;	// Mimics elided i = 1 pass of length-14 loop below
 		tm0 = r00 + j; tm1 = __B+j; tm2 = twid0 + (j<<4)-j;	// Twid-offsets are multiples of 30 vec_dbl
 		SSE2_RADIX16_DIT_TWIDDLE_OOP(
 			tm0,OFF1,OFF2,OFF3,OFF4, tm1,OFF1,OFF2,OFF3,OFF4, isrt2, tm2
 		);
+		// Remaining 14 sets of macro calls done in loop:
+		for(i = 2; i < 16; i++) {
+			j = reverse(i,16)<<1;	// __B-offsets are processed in BR16 order
+			tm0 = r00 + j; tm1 = __B+j; tm2 = twid0 + (j<<4)-j;	// Twid-offsets are multiples of 30 vec_dbl
+			SSE2_RADIX16_DIT_FMA_OOP(
+				tm0,OFF1,OFF2,OFF3,OFF4, tm1,OFF1,OFF2,OFF3,OFF4, tm2
+			);
+		}
+
+	  #else	// Non-FMA version:
+
+		// Remaining 15 sets of macro calls done in loop:
+		for(i = 1; i < 16; i++) {
+			j = reverse(i,16)<<1;	// __B-offsets are processed in BR16 order
+			tm0 = r00 + j; tm1 = __B+j; tm2 = twid0 + (j<<4)-j;	// Twid-offsets are multiples of 30 vec_dbl
+			SSE2_RADIX16_DIT_TWIDDLE_OOP(
+				tm0,OFF1,OFF2,OFF3,OFF4, tm1,OFF1,OFF2,OFF3,OFF4, isrt2, tm2
+			);
+		}
+
+	  #endif	// FMA/AVX2 ?
+
+	  #ifndef USE_ARM_V8_SIMD
+		#undef OFF1
+		#undef OFF2
+		#undef OFF3
+		#undef OFF4
+	  #endif
 	}
-
-  #endif	// FMA/AVX2 ?
-
-	#undef OFF1
-	#undef OFF2
-	#undef OFF3
-	#undef OFF4
-}
 
 #endif	// USE_SSE2 = False, or non-64-bit-GCC:
 

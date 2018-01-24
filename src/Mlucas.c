@@ -131,7 +131,7 @@ of the leading 3 characters of the two version strings in question.
 //				Major index = year - 2000
 //				Minor index = release # of that year, zero-indexed.
 // As before, a patch suffix of x, y, or z following the above numeric index indicates an [alpha,beta,gamma] (experimental,unstable) code.
-const char VERSION   [] = "17.0";			// e.g. Dec 2014 was 2nd release of that year, thus 14.1 = [20]14.[--2]
+const char VERSION   [] = "17.1";			// e.g. Dec 2014 was 2nd release of that year, thus 14.1 = [20]14.[--2]
 
 const char OFILE     [] = "results.txt";	/* ASCII logfile containing FINAL RESULT ONLY for each
 											assignment - detailed intermediate results for each assignment
@@ -139,7 +139,7 @@ const char OFILE     [] = "results.txt";	/* ASCII logfile containing FINAL RESUL
 const char RANGEFILE [] = "worktodo.ini";	/* File containing exponents to be tested. New exponents
 											may be appended at will, while the program is running. */
 
-const char LOCAL_INI_FILE[] = "local.ini";	/* File containing user-customizable configuration settings */
+const char LOCAL_INI_FILE[] = "local.ini";	/* File containing user-customizable configuration settings [currently unused] */
 
 char CONFIGFILE[15];						/* Configuration File: contains allowed FFT lengths
 											and allows user to control (at runtime, and in
@@ -936,6 +936,9 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	}
 	else if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
 	{
+	#ifdef USE_ARM_V8_SIMD
+		ASSERT(HERE, 0, "ARMv8 SIMD builds do not support Fermat-number testing!");
+	#endif
 		ASSERT(HERE, findex >=14, "Fermat number index must be at least 14!\n");
 		ASSERT(HERE, findex < 64, "Fermat number index must be < 64!\n"       );
 

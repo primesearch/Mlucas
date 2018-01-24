@@ -27,6 +27,31 @@
 
 #define EPS 1e-10
 
+// Mersenne-mod takes a binary-toggle LOACC; must give a numerical value for Fermat-mod:
+#if defined(HIACC) && defined(LOACC)
+	#error Only one of LOACC and HIACC may be defined!
+#endif
+#if !defined(HIACC) && !defined(LOACC)
+  #ifdef USE_AVX512
+	#define HIACC	1	// Radix-20,24,28 carry routines are special, require avx-512 builds to be done in HIACC mode
+	#warning HIACC = 1
+  #elif OS_BITS == 64
+	#define LOACC	1	// Default is suitable for F29 work @ FFT length 30M
+	#warning LOACC = 1
+  #else
+	#define HIACC	1	// 32-bit mode only supports the older HIACC carry macros
+  #endif
+#endif
+#if defined(HIACC) && defined(USE_ARM_V8_SIMD)
+	#error Currently only LOACC carry-mode supported in ARM v8 SIMD builds!
+#endif
+#if defined(LOACC) && defined(USE_AVX512)
+	#error Currently only HIACC carry-mode supported in AVX-512 builds of radix-20,24,28 carry routines!
+#endif
+#if defined(LOACC) && (OS_BITS == 32)
+	#error 32-bit mode only supports the older HIACC carry macros!
+#endif
+
 #ifndef PFETCH_DIST
   #ifdef USE_AVX512
 	#define PFETCH_DIST	64	// Feb 2017: Test on KNL point to this as best
@@ -201,32 +226,27 @@ Example 2: p=2^25, n = 1835008 = 7*2^18, bjmodn00 - sw = bw = p%n = 524288 which
 
 	#include "sse2_macro.h"
 
-	#if defined(COMPILER_TYPE_MSVC)
+	#if (OS_BITS == 64)
+	  #ifdef USE_AVX
+		#define GCC_ASM_FULL_INLINE  0	// 0 to use small-macros to assemble radix-28 DFTs, 1 to inline fuse macros as a few big blobs of asm
+		#define USE_64BIT_ASM_STYLE  1
+	  #else
+		#define GCC_ASM_FULL_INLINE  0
+		#define USE_64BIT_ASM_STYLE  1
+	  #endif
+	#else	// 32-bit mode
+		#define GCC_ASM_FULL_INLINE  1
+	#endif
 
-		#define GCC_ASM_FULL_INLINE  0	// Only small-macro form available under MSVC
-
-	#else	/* GCC-style inline ASM: */
-
-		#if (OS_BITS == 64)
-		  #ifdef USE_AVX
-			#define GCC_ASM_FULL_INLINE  0	// 0 to use small-macros to assemble radix-28 DFTs, 1 to inline fuse macros as a few big blobs of asm
-			#define USE_64BIT_ASM_STYLE  1
-		  #else
-			#define GCC_ASM_FULL_INLINE  0
-			#define USE_64BIT_ASM_STYLE  1
-		  #endif
-		#else	// 32-bit mode
-			#define GCC_ASM_FULL_INLINE  1
-		#endif
-
-		#if GCC_ASM_FULL_INLINE
-		  #if OS_BITS == 32
-			#include "radix28_ditN_cy_dif1_gcc32.h"
-		  #else
-			#include "radix28_ditN_cy_dif1_gcc64.h"
-		  #endif
-		#endif
-
+	#if GCC_ASM_FULL_INLINE
+	  #ifdef USE_ARM_V8_SIMD
+		#error ARMv8 build supports only small-macro-based 28-DFTs!
+	  #endif
+	  #if OS_BITS == 32
+		#include "radix28_ditN_cy_dif1_gcc32.h"
+	  #else
+		#include "radix28_ditN_cy_dif1_gcc64.h"
+	  #endif
 	#endif
 
 #endif
@@ -456,8 +476,8 @@ int radix28_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	// even though ODD_RADIX has been declared a const:
 	static double foo_array[(7+1)<<2], *wt_arr, *wtinv_arr, *bs_arr, *bsinv_arr, bs,bsinv;
 
-// AVX2 (i.e. FMA) or (scalar-double) + (LO_ADD = 1 in masterdefs.h) means non-Nussbaumer radix-7, uses these sincos constants:
-#if defined(USE_AVX2) || (!defined(USE_SSE2) && defined(LO_ADD))
+// FMA-based SIMD or (scalar-double) + (LO_ADD = 1 in masterdefs.h) means non-Nussbaumer radix-7, uses these sincos constants:
+#if defined(USE_AVX2) || defined(USE_ARM_V8_SIMD) || (!defined(USE_SSE2) && defined(LO_ADD))
 
 	const double	uc1 = .62348980185873353053,	 /* cos(u) = Real part of exp(i*2*pi/7), the radix-7 fundamental sincos datum	*/
 					us1 = .78183148246802980870,	 /* sin(u) = Imag part of exp(i*2*pi/7).	*/
@@ -693,11 +713,11 @@ int radix28_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		if(tdat == 0x0) {
 			j = (uint32)sizeof(struct cy_thread_data_t);
 			tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, sizeof(struct cy_thread_data_t));
-	
+
 			// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
 			// so on that platform try to be clever and interleave main-thread and threadpool-work processing
 			#if 0//def OS_TYPE_MACOSX
-	
+
 				if(CY_THREADS > 1) {
 					main_work_units = CY_THREADS/2;
 					pool_work_units = CY_THREADS - main_work_units;
@@ -707,14 +727,14 @@ int radix28_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 					main_work_units = 1;
 					printf("radix%d_ditN_cy_dif1: CY_THREADS = 1: Using main execution thread, no threadpool needed.\n", RADIX);
 				}
-	
+
 			#else
-	
+
 				pool_work_units = CY_THREADS;
 				ASSERT(HERE, 0x0 != (tpool = threadpool_init(CY_THREADS, MAX_THREADS, CY_THREADS, &thread_control)), "threadpool_init failed!");
-	
+
 			#endif
-	
+
 			fprintf(stderr,"Using %d threads in carry step\n", CY_THREADS);
 		}
 	  #endif
@@ -853,8 +873,8 @@ int radix28_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 		/* These remain fixed: */
 		VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );	// 1.0,2.0 needed for FMA support
-	  #ifdef USE_AVX2
-		// AVX2 (i.e. FMA)means non-Nussbaumer radix-7, uses these sincos constants:
+	  #if defined(USE_AVX2) || defined(USE_ARM_V8_SIMD)
+		// AVX2 (i.e. FMA) means non-Nussbaumer radix-7, uses these sincos constants:
 		VEC_DBL_INIT(cc0, uc1  );	VEC_DBL_INIT(ss0, us1);
 		VEC_DBL_INIT(cc1, uc2  );	VEC_DBL_INIT(ss1, us2);
 		VEC_DBL_INIT(cc2, uc3  );	VEC_DBL_INIT(ss2, us3);
@@ -3548,7 +3568,7 @@ void radix28_dit_pass1(double a[], int n)
 	  #endif
 
 		ASSERT(HERE, (two->d0 == 2.0 && two->d1 == 2.0), "thread-local memcheck failed!");
-	  #ifdef USE_AVX2
+	  #if defined(USE_AVX2) || defined(USE_ARM_V8_SIMD)
 		// AVX2 (i.e. FMA)means non-Nussbaumer radix-7, uses these sincos constants:
 		ASSERT(HERE, (ss3->d0 == 0.0 && ss3->d1 == 0.0), "thread-local memcheck failed!");
 	  #else

@@ -42,43 +42,822 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	/**************** FERMAT  -MOD CARRY MACROS ******************/
 	/*************************************************************/
 
-#ifdef USE_AVX
+#ifdef USE_ARM_V8_SIMD
+
+	// Use the following x86_64-to-ARMv8 GPR name translations: r[a-d]x,rsi,rdi -> x0-5:
+	#define SSE2_cmplx_carry_fast_pow2_wtsinit(XwtA,XwtB,XwtC, Xbjmod_0, Xhalf_arr,Xsign_mask, Xn_minus_sil,Xn_minus_silp1,Xsinwt,Xsinwtm1, Xn_minus_sil2,Xn_minus_silp2,Xsinwt2,Xsinwtm2, Xsse_bw,Xsse_nm1)\
+	{\
+	__asm__ volatile (\
+	/**********************************************/\
+	/*  (j  ),  Real      parts                   */\
+	/**********************************************/\
+		"ldr	x4,%[__half_arr]	\n\t"\
+		"ldr	q30,[x4,#0x30]		\n\t"\
+		"ldr	q31,[x4,#0x70]		\n\t"\
+		"ldr	x5,%[__sse_bw]		\n\t	ldr	q6,[x5]	\n\t"\
+		"ldr	x6,%[__sse_nm1]		\n\t	ldr	q7,[x6]	\n\t"\
+		/* For the ARMv8 sans-table-lookup impl, Here are the needed consts and opmasks.
+		[1] Fwd-wt multipliers: Init = 0.50 x 2, anytime SSE2-style lookup into 1st mini-table would have bit = 0, double the corr. datum
+		[2] Inv-wt multipliers: Init = 0.25 x 2, anytime SSE2-style lookup into 2nd mini-table would have bit = 0, double the corr. datum
+		*/\
+		"ldr	x0,%[__bjmod_0]		\n\t"/* Pointer to bjmodn data */\
+		"ldr	q0,[x0]				\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
+		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in XMM1 */\
+		"ldr	w2,%[__n_minus_sil]	\n\t	ldr	w3,%[__sinwt]	\n\t"\
+		"dup	v2.4s,w2			\n\t	dup	v3.4s,w3		\n\t"/* Broadcast via LD1R only works from *pointers*, so use DUP */\
+		"ldr	x5,%[__wtA]	\n\t"/* stash these 2 ptrs in x5,6 rather than x1,2 to make persistent, even */\
+		"ldr	x6,%[__wtB]	\n\t"/* though persistence of x6 unneeded until next block when it takes wtC */\
+		/* NB: In ARMv8 asm, '[cmp] vc,vb,va' corr. to vc = (vb [cmp] va): */\
+		"cmge	v8.4s,v2.4s,v0.4s	\n\t"/* n_minus_sil[v2] >= bjmod[0:3][v0] ? Resulting opmask bit-flipped-analog of SSE2-mode opmask stored in xmm2 */\
+		"cmge	v9.4s,v0.4s,v3.4s	\n\t"/* bjmod[0:3] [v0] >=      sinwt[v3] ? Resulting opmask bit-flipped-analog of SSE2-mode opmask stored in xmm1 */\
+		"zip1	v18.4s,v8.4s,v8.4s	\n\t	zip2	v19.4s,v8.4s,v8.4s	\n\t"/* v18 = v8[1]x2,v8[0]x2; v19 = v8[3]x2,v8[2]x2 */\
+		"zip1	v28.4s,v9.4s,v9.4s	\n\t	zip2	v29.4s,v9.4s,v9.4s	\n\t"/* v28 = v9[1]x2,v9[0]x2, v29 = v9[3]x2,v9[2]x2 */\
+		"and v18.16b,v18.16b,v30.16b\n\t	and	v19.16b,v19.16b,v30.16b	\n\t"\
+		"and v28.16b,v28.16b,v31.16b\n\t	and	v29.16b,v29.16b,v31.16b	\n\t"\
+		"fadd	v18.2d,v18.2d,v30.2d\n\t	fadd	v19.2d,v19.2d,v30.2d\n\t"/* one_half[m0-3] multiplier for wt    */\
+		"fadd	v28.2d,v28.2d,v31.2d\n\t	fadd	v29.2d,v29.2d,v31.2d\n\t"/* one_half[n0-3] multiplier for wtinv */\
+		"ldp	q2,q4,[x5]			\n\t"/* wtA[j  ] */\
+		"ldp	q5,q3,[x6,#-0x10]	\n\t"/* wtB[j-1] */\
+		"ext v3.16b,v3.16b,v3.16b,#8\n\t"\
+		"ext v5.16b,v5.16b,v5.16b,#8\n\t"/* swap lo,hi doubles within v3,v5 */\
+		"ldr	q8,[x4,#0x180]		\n\t"/* wtl */\
+		"ldr	q9,[x4,#0x1a0]		\n\t"/* wtn */\
+		"fmul	v2.2d,v8.2d ,v2.2d	\n\t	fmul	v4.2d,v8.2d ,v4.2d	\n\t"/* wt   =wtA*wtl */\
+		"fmul	v3.2d,v9.2d ,v3.2d	\n\t	fmul	v5.2d,v9.2d ,v5.2d	\n\t"/* wtinv=wtB*wtn */\
+		"fmul	v2.2d,v18.2d,v2.2d	\n\t	fmul	v4.2d,v19.2d,v4.2d	\n\t"/* wt   =wt   *one_half[m01] */\
+		"fmul	v3.2d,v28.2d,v3.2d	\n\t	fmul	v5.2d,v29.2d,v5.2d	\n\t"/* wtinv=wtinv*one_half[4+m23] */\
+		/* Results go into even-index slots, overwriting the wtl,n multipliers in the bottom 2 of same: */\
+											/* Get ready for next set [IM0~] : */\
+		"stp	q2,q4,[x4,#0x180]	\n\t	add	v0.4s ,v0.4s ,v6.4s		\n\t"/* bjmod[0:3] += bw  */\
+		"stp	q3,q5,[x4,#0x1a0]	\n\t	and	v0.16b,v0.16b,v7.16b	\n\t"/* bjmod[0:3] &= nm1 */\
+	/**********************************************/\
+	/*  (j  ),  Imaginary parts                   */\
+	/**********************************************/\
+		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in XMM1 */\
+		"ldr w2,%[__n_minus_silp1]	\n\t	ldr	w3,%[__sinwtm1]	\n\t"\
+		"dup	v2.4s,w2			\n\t	dup	v3.4s,w3		\n\t"\
+		"ldr	x6,%[__wtC]	\n\t"/* No need to reload x6 from hereon */\
+		"cmge	v8.4s,v2.4s,v0.4s	\n\t"\
+		"cmge	v9.4s,v0.4s,v3.4s	\n\t"\
+		"zip1	v18.4s,v8.4s,v8.4s	\n\t	zip2	v19.4s,v8.4s,v8.4s	\n\t"\
+		"zip1	v28.4s,v9.4s,v9.4s	\n\t	zip2	v29.4s,v9.4s,v9.4s	\n\t"\
+		"and v18.16b,v18.16b,v30.16b\n\t	and	v19.16b,v19.16b,v30.16b	\n\t"\
+		"and v28.16b,v28.16b,v31.16b\n\t	and	v29.16b,v29.16b,v31.16b	\n\t"\
+		"fadd	v18.2d,v18.2d,v30.2d\n\t	fadd	v19.2d,v19.2d,v30.2d\n\t"\
+		"fadd	v28.2d,v28.2d,v31.2d\n\t	fadd	v29.2d,v29.2d,v31.2d\n\t"\
+		"ldp	q2,q4,[x5]			\n\t"/* wtA[j  ] */\
+		"ldp	q5,q3,[x6,#-0x10]	\n\t"/* wtC[j-1] */\
+		"ext v3.16b,v3.16b,v3.16b,#8\n\t"\
+		"ext v5.16b,v5.16b,v5.16b,#8\n\t"\
+		"ldr	q8,[x4,#0x1c0]		\n\t"\
+		"ldr	q9,[x4,#0x1e0]		\n\t"\
+		"fmul	v2.2d,v8.2d ,v2.2d	\n\t	fmul	v4.2d,v8.2d ,v4.2d	\n\t"\
+		"fmul	v3.2d,v9.2d ,v3.2d	\n\t	fmul	v5.2d,v9.2d ,v5.2d	\n\t"\
+		"fmul	v2.2d,v18.2d,v2.2d	\n\t	fmul	v4.2d,v19.2d,v4.2d	\n\t"\
+		"fmul	v3.2d,v28.2d,v3.2d	\n\t	fmul	v5.2d,v29.2d,v5.2d	\n\t"\
+											/* Get ready for next set [RE1~] : */\
+		"stp	q2,q4,[x4,#0x1c0]	\n\t	add	v0.4s ,v0.4s ,v6.4s		\n\t"\
+		"stp	q3,q5,[x4,#0x1e0]	\n\t	and	v0.16b,v0.16b,v7.16b	\n\t"\
+	/**********************************************/\
+	/*  (j+2),  Real      parts                   */\
+	/**********************************************/\
+		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in XMM1 */\
+		"ldr w2,%[__n_minus_sil2]	\n\t	ldr	w3,%[__sinwt2]	\n\t"\
+		"dup	v2.4s,w2			\n\t	dup	v3.4s,w3		\n\t"\
+		"cmge	v8.4s,v2.4s,v0.4s	\n\t"\
+		"cmge	v9.4s,v0.4s,v3.4s	\n\t"\
+		"zip1	v18.4s,v8.4s,v8.4s	\n\t	zip2	v19.4s,v8.4s,v8.4s	\n\t"\
+		"zip1	v28.4s,v9.4s,v9.4s	\n\t	zip2	v29.4s,v9.4s,v9.4s	\n\t"\
+		"and v18.16b,v18.16b,v30.16b\n\t	and	v19.16b,v19.16b,v30.16b	\n\t"\
+		"and v28.16b,v28.16b,v31.16b\n\t	and	v29.16b,v29.16b,v31.16b	\n\t"\
+		"fadd	v18.2d,v18.2d,v30.2d\n\t	fadd	v19.2d,v19.2d,v30.2d\n\t"\
+		"fadd	v28.2d,v28.2d,v31.2d\n\t	fadd	v29.2d,v29.2d,v31.2d\n\t"\
+		"ldp	q2,q4,[x5]			\n\t"/* wtA[j  ] */\
+		"ldp	q5,q3,[x6,#-0x10]	\n\t"/* wtC[j-1] */\
+		"ext v3.16b,v3.16b,v3.16b,#8\n\t"\
+		"ext v5.16b,v5.16b,v5.16b,#8\n\t"\
+		"ldr	q8,[x4,#0x200]		\n\t"\
+		"ldr	q9,[x4,#0x220]		\n\t"\
+		"fmul	v2.2d,v8.2d ,v2.2d	\n\t	fmul	v4.2d,v8.2d ,v4.2d	\n\t"\
+		"fmul	v3.2d,v9.2d ,v3.2d	\n\t	fmul	v5.2d,v9.2d ,v5.2d	\n\t"\
+		"fmul	v2.2d,v18.2d,v2.2d	\n\t	fmul	v4.2d,v19.2d,v4.2d	\n\t"\
+		"fmul	v3.2d,v28.2d,v3.2d	\n\t	fmul	v5.2d,v29.2d,v5.2d	\n\t"\
+											/* Get ready for next set [IM1~] : */\
+		"stp	q2,q4,[x4,#0x200]	\n\t	add	v0.4s ,v0.4s ,v6.4s		\n\t"\
+		"stp	q3,q5,[x4,#0x220]	\n\t	and	v0.16b,v0.16b,v7.16b	\n\t"\
+	/**********************************************/\
+	/*  (j+2),  Imaginary parts                   */\
+	/**********************************************/\
+		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in XMM1 */\
+		"ldr w2,%[__n_minus_silp2]	\n\t	ldr	w3,%[__sinwtm2]	\n\t"\
+		"dup	v2.4s,w2			\n\t	dup	v3.4s,w3		\n\t"\
+		"cmge	v8.4s,v2.4s,v0.4s	\n\t"\
+		"cmge	v9.4s,v0.4s,v3.4s	\n\t"\
+		"zip1	v18.4s,v8.4s,v8.4s	\n\t	zip2	v19.4s,v8.4s,v8.4s	\n\t"\
+		"zip1	v28.4s,v9.4s,v9.4s	\n\t	zip2	v29.4s,v9.4s,v9.4s	\n\t"\
+		"and v18.16b,v18.16b,v30.16b\n\t	and	v19.16b,v19.16b,v30.16b	\n\t"\
+		"and v28.16b,v28.16b,v31.16b\n\t	and	v29.16b,v29.16b,v31.16b	\n\t"\
+		"fadd	v18.2d,v18.2d,v30.2d\n\t	fadd	v19.2d,v19.2d,v30.2d\n\t"\
+		"fadd	v28.2d,v28.2d,v31.2d\n\t	fadd	v29.2d,v29.2d,v31.2d\n\t"\
+		"ldp	q2,q4,[x5]			\n\t"/* wtA[j  ] */\
+		"ldp	q5,q3,[x6,#-0x10]	\n\t"/* wtC[j-1] */\
+		"ext v3.16b,v3.16b,v3.16b,#8\n\t"\
+		"ext v5.16b,v5.16b,v5.16b,#8\n\t"\
+		"ldr	q8,[x4,#0x240]		\n\t"\
+		"ldr	q9,[x4,#0x260]		\n\t"\
+		"fmul	v2.2d,v8.2d ,v2.2d	\n\t	fmul	v4.2d,v8.2d ,v4.2d	\n\t"\
+		"fmul	v3.2d,v9.2d ,v3.2d	\n\t	fmul	v5.2d,v9.2d ,v5.2d	\n\t"\
+		"fmul	v2.2d,v18.2d,v2.2d	\n\t	fmul	v4.2d,v19.2d,v4.2d	\n\t"\
+		"fmul	v3.2d,v28.2d,v3.2d	\n\t	fmul	v5.2d,v29.2d,v5.2d	\n\t"\
+		"stp	q2,q4,[x4,#0x240]	\n\t"\
+		"stp	q3,q5,[x4,#0x260]	\n\t"\
+		/* No final update/write of modified bjmod[0:3] back to mem here because init macro must leave them unchanged. */\
+		:					/* outputs: none */\
+		: [__wtA]		"m" (XwtA)	/* All inputs from memory addresses here */\
+		, [__wtB]		"m" (XwtB)		\
+		, [__wtC]		"m" (XwtC)		\
+		, [__bjmod_0]	"m" (Xbjmod_0)		\
+		, [__half_arr]	"m" (Xhalf_arr)		\
+		, [__sign_mask]	"m" (Xsign_mask)	\
+		, [__n_minus_sil]	"m" (Xn_minus_sil)	\
+		, [__n_minus_silp1] "m" (Xn_minus_silp1)\
+		, [__sinwt]		"m" (Xsinwt)		\
+		, [__sinwtm1]	"m" (Xsinwtm1)		\
+		, [__n_minus_sil2]	"m" (Xn_minus_sil2)	\
+		, [__n_minus_silp2] "m" (Xn_minus_silp2)\
+		, [__sinwt2]	"m" (Xsinwt2)		\
+		, [__sinwtm2]	"m" (Xsinwtm2)		\
+		, [__sse_bw]	"m" (Xsse_bw)		\
+		, [__sse_nm1]	"m" (Xsse_nm1)		\
+		: "cc","memory","x0","x1","x2","x3","x4","x5","x6"\
+		,"v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v18","v19","v28","v29","v30","v31"	/* Clobbered registers */\
+	);\
+	}
+
+	// Non-power-of-2-length version of above differs only in how we reduce (mod n) in the index computations:
+	#define SSE2_cmplx_carry_fast_wtsinit(XwtA,XwtB,XwtC, Xbjmod_0, Xhalf_arr,Xsign_mask, Xn_minus_sil,Xn_minus_silp1,Xsinwt,Xsinwtm1, Xn_minus_sil2,Xn_minus_silp2,Xsinwt2,Xsinwtm2, Xsse_bw,Xsse_n)\
+	{\
+	__asm__ volatile (\
+	/**********************************************/\
+	/*  (j  ),  Real      parts                   */\
+	/**********************************************/\
+		"ldr	x4,%[__half_arr]	\n\t"\
+		"ldr	q30,[x4,#0x30]		\n\t"\
+		"ldr	q31,[x4,#0x70]		\n\t"\
+		"ldr	x5,%[__sse_bw]		\n\t	ldr	q6,[x5]	\n\t"\
+		"ldr	x6,%[__sse_n]		\n\t	ldr	q7,[x6]	\n\t"\
+		/* For the ARMv8 sans-table-lookup impl, Here are the needed consts and opmasks.
+		[1] Fwd-wt multipliers: Init = 0.50 x 2, anytime SSE2-style lookup into 1st mini-table would have bit = 0, double the corr. datum
+		[2] Inv-wt multipliers: Init = 0.25 x 2, anytime SSE2-style lookup into 2nd mini-table would have bit = 0, double the corr. datum
+		*/\
+		"ldr	x0,%[__bjmod_0]		\n\t"/* Pointer to bjmodn data */\
+		"ldr	q0,[x0]				\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
+		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in XMM1 */\
+		"ldr	w2,%[__n_minus_sil]	\n\t	ldr	w3,%[__sinwt]	\n\t"\
+		"dup	v2.4s,w2			\n\t	dup	v3.4s,w3		\n\t"/* Broadcast via LD1R only works from *pointers*, so use DUP */\
+		"ldr	x5,%[__wtA]	\n\t"/* stash these 2 ptrs in x5,6 rather than x1,2 to make persistent, even */\
+		"ldr	x6,%[__wtB]	\n\t"/* though persistence of x6 unneeded until next block when it takes wtC */\
+		/* NB: In ARMv8 asm, '[cmp] vc,vb,va' corr. to vc = (vb [cmp] va): */\
+		"cmge	v8.4s,v2.4s,v0.4s	\n\t"/* n_minus_sil[v2] >= bjmod[0:3][v0] ? Resulting opmask bit-flipped-analog of SSE2-mode opmask stored in xmm2 */\
+		"cmge	v9.4s,v0.4s,v3.4s	\n\t"/* bjmod[0:3] [v0] >=      sinwt[v3] ? Resulting opmask bit-flipped-analog of SSE2-mode opmask stored in xmm1 */\
+		"zip1	v18.4s,v8.4s,v8.4s	\n\t	zip2	v19.4s,v8.4s,v8.4s	\n\t"/* v18 = v8[1]x2,v8[0]x2; v19 = v8[3]x2,v8[2]x2 */\
+		"zip1	v28.4s,v9.4s,v9.4s	\n\t	zip2	v29.4s,v9.4s,v9.4s	\n\t"/* v28 = v9[1]x2,v9[0]x2, v29 = v9[3]x2,v9[2]x2 */\
+		"and v18.16b,v18.16b,v30.16b\n\t	and	v19.16b,v19.16b,v30.16b	\n\t"\
+		"and v28.16b,v28.16b,v31.16b\n\t	and	v29.16b,v29.16b,v31.16b	\n\t"\
+		"fadd	v18.2d,v18.2d,v30.2d\n\t	fadd	v19.2d,v19.2d,v30.2d\n\t"/* one_half[m0-3] multiplier for wt    */\
+		"fadd	v28.2d,v28.2d,v31.2d\n\t	fadd	v29.2d,v29.2d,v31.2d\n\t"/* one_half[n0-3] multiplier for wtinv */\
+		"ldp	q2,q4,[x5]			\n\t"/* wtA[j  ] */\
+		"ldp	q5,q3,[x6,#-0x10]	\n\t"/* wtB[j-1] */\
+		"ext v3.16b,v3.16b,v3.16b,#8\n\t"\
+		"ext v5.16b,v5.16b,v5.16b,#8\n\t"/* swap lo,hi doubles within v3,v5 */\
+		"ldr	q8,[x4,#0x180]		\n\t"/* wtl */\
+		"ldr	q9,[x4,#0x1a0]		\n\t"/* wtn */\
+		"fmul	v2.2d,v8.2d ,v2.2d	\n\t	fmul	v4.2d,v8.2d ,v4.2d	\n\t"/* wt   =wtA*wtl */\
+		"fmul	v3.2d,v9.2d ,v3.2d	\n\t	fmul	v5.2d,v9.2d ,v5.2d	\n\t"/* wtinv=wtB*wtn */\
+		"fmul	v2.2d,v18.2d,v2.2d	\n\t	fmul	v4.2d,v19.2d,v4.2d	\n\t"/* wt   =wt   *one_half[m01] */\
+		"fmul	v3.2d,v28.2d,v3.2d	\n\t	fmul	v5.2d,v29.2d,v5.2d	\n\t"/* wtinv=wtinv*one_half[4+m23] */\
+		/* Results go into even-index slots, overwriting the wtl,n multipliers in the bottom 2 of same: */\
+											/* Get ready for next set [IM0~] : */\
+		"stp	q2,q4,[x4,#0x180]	\n\t	add	v0.4s ,v0.4s ,v6.4s		\n\t"/* bjmod[0:3] += bw  */\
+		"stp	q3,q5,[x4,#0x1a0]	\n\t   cmge	v8.4s, v0.4s, v7.4s		\n\t"/* bjmod[0:3][v0] >= n[v7] ? */\
+		"									and	v9.16b,v8.16b,v7.16b	\n\t"/* if(n > bjmod[0:3]) bjmod[0:3] -= n */\
+		"									sub	v0.4s, v0.4s, v9.4s		\n\t"\
+	/**********************************************/\
+	/*  (j  ),  Imaginary parts                   */\
+	/**********************************************/\
+		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in XMM1 */\
+		"ldr w2,%[__n_minus_silp1]	\n\t	ldr	w3,%[__sinwtm1]	\n\t"\
+		"dup	v2.4s,w2			\n\t	dup	v3.4s,w3		\n\t"\
+		"ldr	x6,%[__wtC]	\n\t"/* No need to reload x6 from hereon */\
+		"cmge	v8.4s,v2.4s,v0.4s	\n\t"\
+		"cmge	v9.4s,v0.4s,v3.4s	\n\t"\
+		"zip1	v18.4s,v8.4s,v8.4s	\n\t	zip2	v19.4s,v8.4s,v8.4s	\n\t"\
+		"zip1	v28.4s,v9.4s,v9.4s	\n\t	zip2	v29.4s,v9.4s,v9.4s	\n\t"\
+		"and v18.16b,v18.16b,v30.16b\n\t	and	v19.16b,v19.16b,v30.16b	\n\t"\
+		"and v28.16b,v28.16b,v31.16b\n\t	and	v29.16b,v29.16b,v31.16b	\n\t"\
+		"fadd	v18.2d,v18.2d,v30.2d\n\t	fadd	v19.2d,v19.2d,v30.2d\n\t"\
+		"fadd	v28.2d,v28.2d,v31.2d\n\t	fadd	v29.2d,v29.2d,v31.2d\n\t"\
+		"ldp	q2,q4,[x5]			\n\t"/* wtA[j  ] */\
+		"ldp	q5,q3,[x6,#-0x10]	\n\t"/* wtC[j-1] */\
+		"ext v3.16b,v3.16b,v3.16b,#8\n\t"\
+		"ext v5.16b,v5.16b,v5.16b,#8\n\t"\
+		"ldr	q8,[x4,#0x1c0]		\n\t"\
+		"ldr	q9,[x4,#0x1e0]		\n\t"\
+		"fmul	v2.2d,v8.2d ,v2.2d	\n\t	fmul	v4.2d,v8.2d ,v4.2d	\n\t"\
+		"fmul	v3.2d,v9.2d ,v3.2d	\n\t	fmul	v5.2d,v9.2d ,v5.2d	\n\t"\
+		"fmul	v2.2d,v18.2d,v2.2d	\n\t	fmul	v4.2d,v19.2d,v4.2d	\n\t"\
+		"fmul	v3.2d,v28.2d,v3.2d	\n\t	fmul	v5.2d,v29.2d,v5.2d	\n\t"\
+											/* Get ready for next set [RE1~] : */\
+		"stp	q2,q4,[x4,#0x1c0]	\n\t	add	v0.4s ,v0.4s ,v6.4s		\n\t"\
+		"stp	q3,q5,[x4,#0x1e0]	\n\t   cmge	v8.4s, v0.4s, v7.4s		\n\t"\
+		"									and	v9.16b,v8.16b,v7.16b	\n\t"\
+		"									sub	v0.4s, v0.4s, v9.4s		\n\t"\
+	/**********************************************/\
+	/*  (j+2),  Real      parts                   */\
+	/**********************************************/\
+		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in XMM1 */\
+		"ldr w2,%[__n_minus_sil2]	\n\t	ldr	w3,%[__sinwt2]	\n\t"\
+		"dup	v2.4s,w2			\n\t	dup	v3.4s,w3		\n\t"\
+		"cmge	v8.4s,v2.4s,v0.4s	\n\t"\
+		"cmge	v9.4s,v0.4s,v3.4s	\n\t"\
+		"zip1	v18.4s,v8.4s,v8.4s	\n\t	zip2	v19.4s,v8.4s,v8.4s	\n\t"\
+		"zip1	v28.4s,v9.4s,v9.4s	\n\t	zip2	v29.4s,v9.4s,v9.4s	\n\t"\
+		"and v18.16b,v18.16b,v30.16b\n\t	and	v19.16b,v19.16b,v30.16b	\n\t"\
+		"and v28.16b,v28.16b,v31.16b\n\t	and	v29.16b,v29.16b,v31.16b	\n\t"\
+		"fadd	v18.2d,v18.2d,v30.2d\n\t	fadd	v19.2d,v19.2d,v30.2d\n\t"\
+		"fadd	v28.2d,v28.2d,v31.2d\n\t	fadd	v29.2d,v29.2d,v31.2d\n\t"\
+		"ldp	q2,q4,[x5]			\n\t"/* wtA[j  ] */\
+		"ldp	q5,q3,[x6,#-0x10]	\n\t"/* wtC[j-1] */\
+		"ext v3.16b,v3.16b,v3.16b,#8\n\t"\
+		"ext v5.16b,v5.16b,v5.16b,#8\n\t"\
+		"ldr	q8,[x4,#0x200]		\n\t"\
+		"ldr	q9,[x4,#0x220]		\n\t"\
+		"fmul	v2.2d,v8.2d ,v2.2d	\n\t	fmul	v4.2d,v8.2d ,v4.2d	\n\t"\
+		"fmul	v3.2d,v9.2d ,v3.2d	\n\t	fmul	v5.2d,v9.2d ,v5.2d	\n\t"\
+		"fmul	v2.2d,v18.2d,v2.2d	\n\t	fmul	v4.2d,v19.2d,v4.2d	\n\t"\
+		"fmul	v3.2d,v28.2d,v3.2d	\n\t	fmul	v5.2d,v29.2d,v5.2d	\n\t"\
+											/* Get ready for next set [IM1~] : */\
+		"stp	q2,q4,[x4,#0x200]	\n\t	add	v0.4s ,v0.4s ,v6.4s		\n\t"\
+		"stp	q3,q5,[x4,#0x220]	\n\t   cmge	v8.4s, v0.4s, v7.4s		\n\t"\
+		"									and	v9.16b,v8.16b,v7.16b	\n\t"\
+		"									sub	v0.4s, v0.4s, v9.4s		\n\t"\
+	/**********************************************/\
+	/*  (j+2),  Imaginary parts                   */\
+	/**********************************************/\
+		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in XMM1 */\
+		"ldr w2,%[__n_minus_silp2]	\n\t	ldr	w3,%[__sinwtm2]	\n\t"\
+		"dup	v2.4s,w2			\n\t	dup	v3.4s,w3		\n\t"\
+		"cmge	v8.4s,v2.4s,v0.4s	\n\t"\
+		"cmge	v9.4s,v0.4s,v3.4s	\n\t"\
+		"zip1	v18.4s,v8.4s,v8.4s	\n\t	zip2	v19.4s,v8.4s,v8.4s	\n\t"\
+		"zip1	v28.4s,v9.4s,v9.4s	\n\t	zip2	v29.4s,v9.4s,v9.4s	\n\t"\
+		"and v18.16b,v18.16b,v30.16b\n\t	and	v19.16b,v19.16b,v30.16b	\n\t"\
+		"and v28.16b,v28.16b,v31.16b\n\t	and	v29.16b,v29.16b,v31.16b	\n\t"\
+		"fadd	v18.2d,v18.2d,v30.2d\n\t	fadd	v19.2d,v19.2d,v30.2d\n\t"\
+		"fadd	v28.2d,v28.2d,v31.2d\n\t	fadd	v29.2d,v29.2d,v31.2d\n\t"\
+		"ldp	q2,q4,[x5]			\n\t"/* wtA[j  ] */\
+		"ldp	q5,q3,[x6,#-0x10]	\n\t"/* wtC[j-1] */\
+		"ext v3.16b,v3.16b,v3.16b,#8\n\t"\
+		"ext v5.16b,v5.16b,v5.16b,#8\n\t"\
+		"ldr	q8,[x4,#0x240]		\n\t"\
+		"ldr	q9,[x4,#0x260]		\n\t"\
+		"fmul	v2.2d,v8.2d ,v2.2d	\n\t	fmul	v4.2d,v8.2d ,v4.2d	\n\t"\
+		"fmul	v3.2d,v9.2d ,v3.2d	\n\t	fmul	v5.2d,v9.2d ,v5.2d	\n\t"\
+		"fmul	v2.2d,v18.2d,v2.2d	\n\t	fmul	v4.2d,v19.2d,v4.2d	\n\t"\
+		"fmul	v3.2d,v28.2d,v3.2d	\n\t	fmul	v5.2d,v29.2d,v5.2d	\n\t"\
+		"stp	q2,q4,[x4,#0x240]	\n\t"\
+		"stp	q3,q5,[x4,#0x260]	\n\t"\
+		/* No final update/write of modified bjmod[0:3] back to mem here because init macro must leave them unchanged. */\
+		:					/* outputs: none */\
+		: [__wtA]		"m" (XwtA)	/* All inputs from memory addresses here */\
+		, [__wtB]		"m" (XwtB)		\
+		, [__wtC]		"m" (XwtC)		\
+		, [__bjmod_0]	"m" (Xbjmod_0)		\
+		, [__half_arr]	"m" (Xhalf_arr)		\
+		, [__sign_mask]	"m" (Xsign_mask)	\
+		, [__n_minus_sil]	"m" (Xn_minus_sil)	\
+		, [__n_minus_silp1] "m" (Xn_minus_silp1)\
+		, [__sinwt]		"m" (Xsinwt)		\
+		, [__sinwtm1]	"m" (Xsinwtm1)		\
+		, [__n_minus_sil2]	"m" (Xn_minus_sil2)	\
+		, [__n_minus_silp2] "m" (Xn_minus_silp2)\
+		, [__sinwt2]	"m" (Xsinwt2)		\
+		, [__sinwtm2]	"m" (Xsinwtm2)		\
+		, [__sse_bw]	"m" (Xsse_bw)		\
+		, [__sse_n]		"m" (Xsse_n)		\
+		: "cc","memory","x0","x1","x2","x3","x4","x5","x6"\
+		,"v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v18","v19","v28","v29","v30","v31"	/* Clobbered registers */\
+	);\
+	}
+
+	// "Fused" means that - like the HIACC macros - we process 4 carry chains, one from each separate array section corr.
+	// to each wide-strided final-iFFT-pass output, at a time, but fuse the [j,j+2] linear-index-within-each-array-section
+	// processing (done separately in the HIACC case by the 1_2B and 2_2B SSE2 carry macros) into a single macro. This
+	// fusion is eased by the fact that the LOACC chained-weights-computation needs no weights-reinit-from-scalar-data
+	// step for the [j+2] data.
+	//
+	#define SSE2_cmplx_carry_fast_pow2_errcheck(Xdata,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3)\
+	{\
+	__asm__ volatile (\
+		/***************Unpack the data:*************************/\
+		"ldr	x0,%[__data]		\n\t"\
+		"ldp	q0,q1,[x0      ]	\n\t	ldp	q4 ,q5 ,[x0,#0x40]	\n\t"\
+		"ldp	q8,q9,[x0,#0x20]	\n\t	ldp	q10,q11,[x0,#0x60]	\n\t"\
+		"trn2	v2.2d,v0.2d,v8.2d	\n\t	trn2	v6.2d,v4.2d,v10.2d	\n\t"\
+		"trn2	v3.2d,v1.2d,v9.2d	\n\t	trn2	v7.2d,v5.2d,v11.2d	\n\t"\
+		"trn1	v0.2d,v0.2d,v8.2d	\n\t	trn1	v4.2d,v4.2d,v10.2d	\n\t"\
+		"trn1	v1.2d,v1.2d,v9.2d	\n\t	trn1	v5.2d,v5.2d,v11.2d	\n\t"\
+		"ldr	x1,%[__bjmod_0]		\n\t"/* Pointer to bjmodn data */\
+		"ldr	x2,%[__sse_sw]		\n\t"\
+		"ldr	w3,%[__i]			\n\t"\
+		"eor v30.16b,v30.16b,v30.16b\n\t"/* Zero v11 */\
+		"ldr	q8,[x1]				\n\t"/* bjmod[0:3], PERSISTENT COPY IN V8 */\
+		"ldr	q9,[x2]				\n\t"/* sw, 4-fold, PERSISTENT COPY IN V9 */\
+		"cmge	v31.4s,v9.4s,v8.4s	\n\t"/* sw[v9] >= bjmod[0:3][v8] ? Resulting opmask bit-flipped-analog of SSE2-mode (sw < bjmod) opmask stored in xmm7 */\
+		"ins	v30.s[0],w3			\n\t"/* I == 1 if it's the 0-word, in which case we force-bigword-ness by adding I to to the low int32 lane of v9 */\
+		"ldr	x3,%[__sse_bw]		\n\t	ldr	q10,[x3]	\n\t"/* bw , 4-fold, PERSISTENT COPY IN V10 */\
+		"ldr	x4,%[__sse_nm1]		\n\t	ldr	q11,[x4]	\n\t"/* nm1, 4-fold, PERSISTENT COPY IN V11 */\
+		"add	v31.4s,v31.4s,v30.4s\n\t"/* (which == 111...111 on input in this case), thus zeroing it. Otherwise I == 0, thus the add = no-op. */\
+		"zip1	v29.4s,v31.4s,v31.4s\n\t	zip2	v31.4s,v31.4s,v31.4s\n\t"/* v29 = v31[1]x2,v31[0]x2; v31 = v31[3]x2,v31[2]x2 */\
+		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"/* negative-masks; v28-31 are ARM analogs of AVX-512 opmasks k1-4 */\
+		"ldr	x2,%[__half_arr]	\n\t"\
+		"ldr	x3,%[__cyA]			\n\t	ldr	x4,%[__cyB]			\n\t"\
+		"ldr	q14,[x2,#-0x20]		\n\t"/* maxerr, then place 2nd copy in v15, allowing both cols */\
+		"mov	v15.16b,v14.16b		\n\t"/* to do independent updates with just one merge at end */\
+		"ldr q16,[x3] \n\t ldr q17,[x4] \n\t"/* cyA,B for our 1 independent carry-chain pairs */\
+		/* Load the 4 double-pairs base[0]x2,baseinv[1]x2,wts_mult[1]x2,inv_mult[0]x2 and also compute 2x each one
+		for the BSL operations we use to effect the conditional-doublings of these consts. (The register-leaner
+		alternative is to just store the 4 lcol-loaded vectors and do an AND/ADD pair for each conditional-doubling,
+		in place of just a single BSL). ARM's 32 vector-registers come in handy here, because this carry macro is
+		sufficiently intricate that we use all 32 of the vregs: */\
+		"ldr	q20,[x2,#0x80]		\n\t"/* base[0]x2 */\
+		"ldr	q22,[x2,#0xf0]		\n\t	fadd	v21.2d,v20.2d,v20.2d\n\t"/* baseinv[1]x2 */\
+		"ldr	q24,[x2,#0x130]		\n\t	fadd	v23.2d,v22.2d,v22.2d\n\t"/* wts_mult[1]x2 */\
+		"ldr	q26,[x2,#0x140]		\n\t	fadd	v25.2d,v24.2d,v24.2d\n\t"/* inv_mult[0]x2 (needed for conditional-doubling) */\
+		"									fadd	v27.2d,v26.2d,v26.2d\n\t"/* inv_mult[1]x2 (needed for (wt_re >= inv_mult[1]) comparison) */\
+/**** 12,13,18,19 FREE ****/\
+	/*******************************/\
+	/* Do A.re pair: Data in v0,4: */\
+	/*******************************/\
+	"ldr	x5,%[__add0]		\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
+	"prfm	PLDL1KEEP,[x5]		\n\t"\
+		"ldp	q18,q19,[x2,#0x1a0]	\n\t"/* wi_re ... need to preserve these 2 regs for inv_mult-update at end of block */\
+		"fmla	v16.2d,v0.2d,v18.2d	\n\t	fmla	v17.2d,v4.2d,v19.2d	\n\t"/* x = x*wtinv + cy, overwrite cy with result to save 2 regs */\
+		"bsl v29.16b,v23.16b,v22.16b\n\t	bsl v31.16b,v23.16b,v22.16b	\n\t"/* [4] Inv-base mults */\
+		"frintn	v0.2d,v16.2d		\n\t	frintn	v4.2d,v17.2d		\n\t"/* temp = DNINT(x) */\
+		"fsub	v12.2d,v16.2d,v0.2d	\n\t	fsub	v13.2d,v17.2d,v4.2d	\n\t"/* x - temp */\
+		"fmul	v29.2d,v0.2d,v29.2d	\n\t	fmul	v31.2d,v4.2d,v31.2d	\n\t"/* temp*baseinv */\
+		"frintn	v16.2d,v29.2d		\n\t	frintn	v17.2d,v31.2d		\n\t"/* cy = DNINT(temp*baseinv[i]): */\
+		"fabs	v12.2d,v12.2d		\n\t	fabs	v13.2d,v13.2d		\n\t"/* frac = fabs(x-temp) */\
+		"fmax	v14.2d,v14.2d,v12.2d\n\t	fmax	v15.2d,v15.2d,v13.2d\n\t"/* if(frac > maxerr) maxerr=frac */\
+		"bsl v28.16b,v21.16b,v20.16b\n\t	bsl	v30.16b,v21.16b,v20.16b	\n\t"/* [3] Fwd-base mults */\
+		"ldp	q12,q13,[x2,#0x180]	\n\t"/* wt_re for our 2 independent carry-chain pairs */\
+		"fmls	v0.2d,v16.2d,v28.2d	\n\t	fmls	v4.2d,v17.2d,v30.2d	\n\t"/* x = (temp-cy*base) */\
+		/* Update and store weights: */\
+		"cmge	v29.2d,v12.2d,v27.2d\n\t	cmge	v31.2d,v13.2d,v27.2d\n\t"/* v29,31 = (wt >= inv_mult[1]) */\
+		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"/* inverse-masks */\
+		"fmul	v0.2d,v0.2d,v12.2d	\n\t	fmul	v4.2d,v4.2d,v13.2d	\n\t"/* x *= wt */\
+		"bsl v28.16b,v25.16b,v24.16b\n\t	bsl	v30.16b,v25.16b,v24.16b	\n\t"/* [5] wts_mult */\
+		"fmul	v12.2d,v12.2d,v28.2d\n\t	fmul	v13.2d,v13.2d,v30.2d\n\t"/* wt *= wts_mult[i] */\
+		"stp	q12,q13,[x2,#0x180]	\n\t"/* Store wt */\
+		"bsl v29.16b,v27.16b,v26.16b\n\t	bsl	v31.16b,v27.16b,v26.16b	\n\t"/* [6] inv_mult */\
+		"fmul	v18.2d,v18.2d,v29.2d\n\t	fmul	v19.2d,v19.2d,v31.2d\n\t"/* wi *= inv_mult[i] */\
+		"stp	q18,q19,[x2,#0x1a0]	\n\t"/* Store wi */\
+		/* Get ready for next set [IM0~] : */\
+		"add	v8.4s ,v8.4s ,v10.4s	\n\t"/* bjmod[0:3] += bw  */\
+		"and	v8.16b,v8.16b,v11.16b	\n\t"/* bjmod[0:3] &= nm1 */\
+	/*******************************/\
+	/* Do A.im pair: Data in v1,5: */\
+	/*******************************/\
+	"ldr	w6,%[__p1]	\n\t	prfm	PLDL1KEEP,[x5,x6,LSL #3]	\n\t"\
+		"cmge	v31.4s,v9.4s,v8.4s	\n\t"/* sw[v9] >= bjmod[0:3][v8] ? */\
+		"zip1	v29.4s,v31.4s,v31.4s\n\t	zip2	v31.4s,v31.4s,v31.4s\n\t"\
+		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"\
+		"ldp	q18,q19,[x2,#0x1e0]	\n\t"\
+		"fmla	v16.2d,v1.2d,v18.2d	\n\t	fmla	v17.2d,v5.2d,v19.2d	\n\t"\
+		"bsl v29.16b,v23.16b,v22.16b\n\t	bsl v31.16b,v23.16b,v22.16b	\n\t"\
+		"frintn	v1.2d,v16.2d		\n\t	frintn	v5.2d,v17.2d		\n\t"\
+		"fsub	v12.2d,v16.2d,v1.2d	\n\t	fsub	v13.2d,v17.2d,v5.2d	\n\t"\
+		"fmul	v29.2d,v1.2d,v29.2d	\n\t	fmul	v31.2d,v5.2d,v31.2d	\n\t"\
+		"frintn	v16.2d,v29.2d		\n\t	frintn	v17.2d,v31.2d		\n\t"\
+		"fabs	v12.2d,v12.2d		\n\t	fabs	v13.2d,v13.2d		\n\t"\
+		"fmax	v14.2d,v14.2d,v12.2d\n\t	fmax	v15.2d,v15.2d,v13.2d\n\t"\
+		"bsl v28.16b,v21.16b,v20.16b\n\t	bsl	v30.16b,v21.16b,v20.16b	\n\t"\
+		"ldp	q12,q13,[x2,#0x1c0]	\n\t"\
+		"fmls	v1.2d,v16.2d,v28.2d	\n\t	fmls	v5.2d,v17.2d,v30.2d	\n\t"\
+		/* Update and store weights: */\
+		"cmge	v29.2d,v12.2d,v27.2d\n\t	cmge	v31.2d,v13.2d,v27.2d\n\t"\
+		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"\
+		"fmul	v1.2d,v1.2d,v12.2d	\n\t	fmul	v5.2d,v5.2d,v13.2d	\n\t"\
+		"bsl v28.16b,v25.16b,v24.16b\n\t	bsl	v30.16b,v25.16b,v24.16b	\n\t"\
+		"fmul	v12.2d,v12.2d,v28.2d\n\t	fmul	v13.2d,v13.2d,v30.2d\n\t"\
+		"stp	q12,q13,[x2,#0x1c0]	\n\t"\
+		"bsl v29.16b,v27.16b,v26.16b\n\t	bsl	v31.16b,v27.16b,v26.16b	\n\t"\
+		"fmul	v18.2d,v18.2d,v29.2d\n\t	fmul	v19.2d,v19.2d,v31.2d\n\t"\
+		"stp	q18,q19,[x2,#0x1e0]	\n\t"\
+		/* Get ready for next set [RE1~] : */\
+		"add	v8.4s ,v8.4s ,v10.4s	\n\t"\
+		"and	v8.16b,v8.16b,v11.16b	\n\t"\
+	/**********************************************/\
+	/*          Now do the (j+2) data:            */\
+	/**********************************************/\
+	/*******************************/\
+	/* Do B.re pair: Data in v2,6: */\
+	/*******************************/\
+	"ldr	w6,%[__p2]	\n\t	prfm	PLDL1KEEP,[x5,x6,LSL #3]	\n\t"\
+		"cmge	v31.4s,v9.4s,v8.4s	\n\t"\
+		"zip1	v29.4s,v31.4s,v31.4s\n\t	zip2	v31.4s,v31.4s,v31.4s\n\t"\
+		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"\
+		"ldp	q18,q19,[x2,#0x220]	\n\t"\
+		"fmla	v16.2d,v2.2d,v18.2d	\n\t	fmla	v17.2d,v6.2d,v19.2d	\n\t"\
+		"bsl v29.16b,v23.16b,v22.16b\n\t	bsl v31.16b,v23.16b,v22.16b	\n\t"\
+		"frintn	v2.2d,v16.2d		\n\t	frintn	v6.2d,v17.2d		\n\t"\
+		"fsub	v12.2d,v16.2d,v2.2d	\n\t	fsub	v13.2d,v17.2d,v6.2d	\n\t"\
+		"fmul	v29.2d,v2.2d,v29.2d	\n\t	fmul	v31.2d,v6.2d,v31.2d	\n\t"\
+		"frintn	v16.2d,v29.2d		\n\t	frintn	v17.2d,v31.2d		\n\t"\
+		"fabs	v12.2d,v12.2d		\n\t	fabs	v13.2d,v13.2d		\n\t"\
+		"fmax	v14.2d,v14.2d,v12.2d\n\t	fmax	v15.2d,v15.2d,v13.2d\n\t"\
+		"bsl v28.16b,v21.16b,v20.16b\n\t	bsl	v30.16b,v21.16b,v20.16b	\n\t"\
+		"ldp	q12,q13,[x2,#0x200]	\n\t"\
+		"fmls	v2.2d,v16.2d,v28.2d	\n\t	fmls	v6.2d,v17.2d,v30.2d	\n\t"\
+		/* Update and store weights: */\
+		"cmge	v29.2d,v12.2d,v27.2d\n\t	cmge	v31.2d,v13.2d,v27.2d\n\t"\
+		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"\
+		"fmul	v2.2d,v2.2d,v12.2d	\n\t	fmul	v6.2d,v6.2d,v13.2d	\n\t"\
+		"bsl v28.16b,v25.16b,v24.16b\n\t	bsl	v30.16b,v25.16b,v24.16b	\n\t"\
+		"fmul	v12.2d,v12.2d,v28.2d\n\t	fmul	v13.2d,v13.2d,v30.2d\n\t"\
+		"stp	q12,q13,[x2,#0x200]	\n\t"\
+		"bsl v29.16b,v27.16b,v26.16b\n\t	bsl	v31.16b,v27.16b,v26.16b	\n\t"\
+		"fmul	v18.2d,v18.2d,v29.2d\n\t	fmul	v19.2d,v19.2d,v31.2d\n\t"\
+		"stp	q18,q19,[x2,#0x220]	\n\t"\
+		/* Get ready for next set [IM1~] : */\
+		"add	v8.4s ,v8.4s ,v10.4s	\n\t"\
+		"and	v8.16b,v8.16b,v11.16b	\n\t"\
+	/*******************************/\
+	/* Do B.im pair: Data in v3,7: */\
+	/*******************************/\
+	"ldr	w6,%[__p3]	\n\t	prfm	PLDL1KEEP,[x5,x6,LSL #3]	\n\t"\
+		"cmge	v31.4s,v9.4s,v8.4s	\n\t"\
+		"zip1	v29.4s,v31.4s,v31.4s\n\t	zip2	v31.4s,v31.4s,v31.4s\n\t"\
+		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"\
+		"ldp	q18,q19,[x2,#0x260]	\n\t"\
+		"fmla	v16.2d,v3.2d,v18.2d	\n\t	fmla	v17.2d,v7.2d,v19.2d	\n\t"\
+		"bsl v29.16b,v23.16b,v22.16b\n\t	bsl v31.16b,v23.16b,v22.16b	\n\t"\
+		"frintn	v3.2d,v16.2d		\n\t	frintn	v7.2d,v17.2d		\n\t"\
+		"fsub	v12.2d,v16.2d,v3.2d	\n\t	fsub	v13.2d,v17.2d,v7.2d	\n\t"\
+		"fmul	v29.2d,v3.2d,v29.2d	\n\t	fmul	v31.2d,v7.2d,v31.2d	\n\t"\
+		"frintn	v16.2d,v29.2d		\n\t	frintn	v17.2d,v31.2d		\n\t"\
+		"fabs	v12.2d,v12.2d		\n\t	fabs	v13.2d,v13.2d		\n\t"\
+		"fmax	v14.2d,v14.2d,v12.2d\n\t	fmax	v15.2d,v15.2d,v13.2d\n\t"\
+		"bsl v28.16b,v21.16b,v20.16b\n\t	bsl	v30.16b,v21.16b,v20.16b	\n\t"\
+		"ldp	q12,q13,[x2,#0x240]	\n\t"\
+		"fmls	v3.2d,v16.2d,v28.2d	\n\t	fmls	v7.2d,v17.2d,v30.2d	\n\t"\
+		/* Update and store weights: */\
+		"cmge	v29.2d,v12.2d,v27.2d\n\t	cmge	v31.2d,v13.2d,v27.2d\n\t"\
+		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"\
+		"fmul	v3.2d,v3.2d,v12.2d	\n\t	fmul	v7.2d,v7.2d,v13.2d	\n\t"\
+		"bsl v28.16b,v25.16b,v24.16b\n\t	bsl	v30.16b,v25.16b,v24.16b	\n\t"\
+		"fmul	v12.2d,v12.2d,v28.2d\n\t	fmul	v13.2d,v13.2d,v30.2d\n\t"\
+		"stp	q12,q13,[x2,#0x240]	\n\t"\
+		"bsl v29.16b,v27.16b,v26.16b\n\t	bsl	v31.16b,v27.16b,v26.16b	\n\t"\
+		"fmul	v18.2d,v18.2d,v29.2d\n\t	fmul	v19.2d,v19.2d,v31.2d\n\t"\
+		"stp	q18,q19,[x2,#0x260]	\n\t"\
+		/* Get ready for next set [RE2~] : */\
+		"add	v8.4s ,v8.4s ,v10.4s	\n\t"\
+		"and	v8.16b,v8.16b,v11.16b	\n\t"\
+		"str	q8,[x1]					\n\t"/* write bjmod[0:3] */\
+		"str q16,[x3] \n\t str q17,[x4] \n\t"/* write cyA,B */\
+		"fmax	v14.2d,v14.2d,v15.2d	\n\t"/* maxerr between the 2 cols */\
+		"str	q14,[x2,#-0x20]			\n\t"/* write maxerr */\
+		/**********************************************/\
+		/*              Repack the data:              */\
+		/**********************************************/\
+		"trn2	v8.2d,v0.2d,v2.2d	\n\t	trn2	v10.2d,v4.2d,v6.2d	\n\t"\
+		"trn2	v9.2d,v1.2d,v3.2d	\n\t	trn2	v11.2d,v5.2d,v7.2d	\n\t"\
+		"trn1	v0.2d,v0.2d,v2.2d	\n\t	trn1	v4.2d ,v4.2d,v6.2d	\n\t"\
+		"trn1	v1.2d,v1.2d,v3.2d	\n\t	trn1	v5.2d ,v5.2d,v7.2d	\n\t"\
+		"stp	q0,q1,[x0      ]	\n\t	stp	q4 ,q5 ,[x0,#0x40]	\n\t"\
+		"stp	q8,q9,[x0,#0x20]	\n\t	stp	q10,q11,[x0,#0x60]	\n\t"\
+		:					/* outputs: none */\
+		: [__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
+		, [__cyA]		"m" (XcyA)		\
+		, [__cyB]		"m" (XcyB)		\
+		, [__bjmod_0]	"m" (Xbjmod_0)		\
+		, [__i]			"m" (Xi)			\
+		, [__half_arr]	"m" (Xhalf_arr)		\
+		, [__sign_mask]	"m" (Xsign_mask)	\
+		, [__sse_bw]	"m" (Xsse_bw)		\
+		, [__sse_nm1]	"m" (Xsse_nm1)		\
+		, [__sse_sw]	"m" (Xsse_sw)		\
+		/* Prefetch: base address and 3 index offsets */\
+		,	[__add0] "m" (Xadd0)\
+		,	[__p1]   "m" (Xp1)\
+		,	[__p2]   "m" (Xp2)\
+		,	[__p3]   "m" (Xp3)\
+		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11","v12","v13","v14","v15",\
+					"v16","v17","v18","v19","v20","v21","v22","v23","v24","v25","v26","v27","v28","v29","v30","v31"	/* Clobbered registers */\
+	);\
+	}
+
+	// Non-power-of-2-length version of above differs only in how we reduce (mod n) in the index computations:
+	#define SSE2_cmplx_carry_fast_errcheck(Xdata,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1,Xp2,Xp3)\
+	{\
+	__asm__ volatile (\
+		/***************Unpack the data:*************************/\
+		"ldr	x0,%[__data]		\n\t"\
+		"ldp	q0,q1,[x0      ]	\n\t	ldp	q4 ,q5 ,[x0,#0x40]	\n\t"\
+		"ldp	q8,q9,[x0,#0x20]	\n\t	ldp	q10,q11,[x0,#0x60]	\n\t"\
+		"trn2	v2.2d,v0.2d,v8.2d	\n\t	trn2	v6.2d,v4.2d,v10.2d	\n\t"\
+		"trn2	v3.2d,v1.2d,v9.2d	\n\t	trn2	v7.2d,v5.2d,v11.2d	\n\t"\
+		"trn1	v0.2d,v0.2d,v8.2d	\n\t	trn1	v4.2d,v4.2d,v10.2d	\n\t"\
+		"trn1	v1.2d,v1.2d,v9.2d	\n\t	trn1	v5.2d,v5.2d,v11.2d	\n\t"\
+		"ldr	x1,%[__bjmod_0]		\n\t"/* Pointer to bjmodn data */\
+		"ldr	x2,%[__sse_sw]		\n\t"\
+		"ldr	w3,%[__i]			\n\t"\
+		"eor v30.16b,v30.16b,v30.16b\n\t"/* Zero v11 */\
+		"ldr	q8,[x1]				\n\t"/* bjmod[0:3], PERSISTENT COPY IN V8 */\
+		"ldr	q9,[x2]				\n\t"/* sw, 4-fold, PERSISTENT COPY IN V9 */\
+		"cmge	v31.4s,v9.4s,v8.4s	\n\t"/* sw[v9] >= bjmod[0:3][v8] ? Resulting opmask bit-flipped-analog of SSE2-mode (sw < bjmod) opmask stored in xmm7 */\
+		"ins	v30.s[0],w3			\n\t"/* I == 1 if it's the 0-word, in which case we force-bigword-ness by adding I to to the low int32 lane of v9 */\
+		"ldr	x3,%[__sse_bw]		\n\t	ldr	q10,[x3]	\n\t"/* bw, 4-fold, PERSISTENT COPY IN V10 */\
+		"ldr	x4,%[__sse_n]		\n\t	ldr	q11,[x4]	\n\t"/* n , 4-fold, PERSISTENT COPY IN V11 */\
+		"add	v31.4s,v31.4s,v30.4s\n\t"/* (which == 111...111 on input in this case), thus zeroing it. Otherwise I == 0, thus the add = no-op. */\
+		"zip1	v29.4s,v31.4s,v31.4s\n\t	zip2	v31.4s,v31.4s,v31.4s\n\t"/* v29 = v31[1]x2,v31[0]x2; v31 = v31[3]x2,v31[2]x2 */\
+		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"/* negative-masks; v28-31 are ARM analogs of AVX-512 opmasks k1-4 */\
+		"ldr	x2,%[__half_arr]	\n\t"\
+		"ldr	x3,%[__cyA]			\n\t	ldr	x4,%[__cyB]			\n\t"\
+		"ldr	q14,[x2,#-0x20]		\n\t"/* maxerr, then place 2nd copy in v15, allowing both cols */\
+		"mov	v15.16b,v14.16b		\n\t"/* to do independent updates with just one merge at end */\
+		"ldr q16,[x3] \n\t ldr q17,[x4] \n\t"/* cyA,B for our 1 independent carry-chain pairs */\
+		/* Load the 4 double-pairs base[0]x2,baseinv[1]x2,wts_mult[1]x2,inv_mult[0]x2 and also compute 2x each one
+		for the BSL operations we use to effect the conditional-doublings of these consts. (The register-leaner
+		alternative is to just store the 4 lcol-loaded vectors and do an AND/ADD pair for each conditional-doubling,
+		in place of just a single BSL). ARM's 32 vector-registers come in handy here, because this carry macro is
+		sufficiently intricate that we use all 32 of the vregs: */\
+		"ldr	q20,[x2,#0x80]		\n\t"/* base[0]x2 */\
+		"ldr	q22,[x2,#0xf0]		\n\t	fadd	v21.2d,v20.2d,v20.2d\n\t"/* baseinv[1]x2 */\
+		"ldr	q24,[x2,#0x130]		\n\t	fadd	v23.2d,v22.2d,v22.2d\n\t"/* wts_mult[1]x2 */\
+		"ldr	q26,[x2,#0x140]		\n\t	fadd	v25.2d,v24.2d,v24.2d\n\t"/* inv_mult[0]x2 (needed for conditional-doubling) */\
+		"									fadd	v27.2d,v26.2d,v26.2d\n\t"/* inv_mult[1]x2 (needed for (wt_re >= inv_mult[1]) comparison) */\
+/**** 12,13,18,19 FREE ****/\
+	/*******************************/\
+	/* Do A.re pair: Data in v0,4: */\
+	/*******************************/\
+	"ldr	x5,%[__add0]		\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
+	"prfm	PLDL1KEEP,[x5]		\n\t"\
+		"ldp	q18,q19,[x2,#0x1a0]	\n\t"/* wi_re ... need to preserve these 2 regs for inv_mult-update at end of block */\
+		"fmla	v16.2d,v0.2d,v18.2d	\n\t	fmla	v17.2d,v4.2d,v19.2d	\n\t"/* x = x*wtinv + cy, overwrite cy with result to save 2 regs */\
+		"bsl v29.16b,v23.16b,v22.16b\n\t	bsl v31.16b,v23.16b,v22.16b	\n\t"/* [4] Inv-base mults */\
+		"frintn	v0.2d,v16.2d		\n\t	frintn	v4.2d,v17.2d		\n\t"/* temp = DNINT(x) */\
+		"fsub	v12.2d,v16.2d,v0.2d	\n\t	fsub	v13.2d,v17.2d,v4.2d	\n\t"/* x - temp */\
+		"fmul	v29.2d,v0.2d,v29.2d	\n\t	fmul	v31.2d,v4.2d,v31.2d	\n\t"/* temp*baseinv */\
+		"frintn	v16.2d,v29.2d		\n\t	frintn	v17.2d,v31.2d		\n\t"/* cy = DNINT(temp*baseinv[i]): */\
+		"fabs	v12.2d,v12.2d		\n\t	fabs	v13.2d,v13.2d		\n\t"/* frac = fabs(x-temp) */\
+		"fmax	v14.2d,v14.2d,v12.2d\n\t	fmax	v15.2d,v15.2d,v13.2d\n\t"/* if(frac > maxerr) maxerr=frac */\
+		"bsl v28.16b,v21.16b,v20.16b\n\t	bsl	v30.16b,v21.16b,v20.16b	\n\t"/* [3] Fwd-base mults */\
+		"ldp	q12,q13,[x2,#0x180]	\n\t"/* wt_re for our 2 independent carry-chain pairs */\
+		"fmls	v0.2d,v16.2d,v28.2d	\n\t	fmls	v4.2d,v17.2d,v30.2d	\n\t"/* x = (temp-cy*base) */\
+		/* Update and store weights: */\
+		"cmge	v29.2d,v12.2d,v27.2d\n\t	cmge	v31.2d,v13.2d,v27.2d\n\t"/* v29,31 = (wt >= inv_mult[1]) */\
+		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"/* inverse-masks */\
+		"fmul	v0.2d,v0.2d,v12.2d	\n\t	fmul	v4.2d,v4.2d,v13.2d	\n\t"/* x *= wt */\
+		"bsl v28.16b,v25.16b,v24.16b\n\t	bsl	v30.16b,v25.16b,v24.16b	\n\t"/* [5] wts_mult */\
+		"fmul	v12.2d,v12.2d,v28.2d\n\t	fmul	v13.2d,v13.2d,v30.2d\n\t"/* wt *= wts_mult[i] */\
+		"stp	q12,q13,[x2,#0x180]	\n\t"/* Store wt */\
+		"bsl v29.16b,v27.16b,v26.16b\n\t	bsl	v31.16b,v27.16b,v26.16b	\n\t"/* [6] inv_mult */\
+		"fmul	v18.2d,v18.2d,v29.2d\n\t	fmul	v19.2d,v19.2d,v31.2d\n\t"/* wi *= inv_mult[i] */\
+		"stp	q18,q19,[x2,#0x1a0]	\n\t"/* Store wi */\
+		/* Get ready for next set [IM0~] : */\
+		"add	 v8.4s , v8.4s ,v10.4s	\n\t"/* bjmod[0:3] += bw  */\
+		"cmge	v18.4s , v8.4s ,v11.4s	\n\t"/* bjmod[0:3][v8] >= n[v11] ? */\
+		"and	v19.16b,v18.16b,v11.16b	\n\t"/* if(n > bjmod[0:3]) bjmod[0:3] -= n */\
+		"sub	 v8.4s , v8.4s ,v19.4s	\n\t"\
+	/*******************************/\
+	/* Do A.im pair: Data in v1,5: */\
+	/*******************************/\
+	"ldr	w6,%[__p1]	\n\t	prfm	PLDL1KEEP,[x5,x6,LSL #3]	\n\t"\
+		"cmge	v31.4s,v9.4s,v8.4s	\n\t"/* sw[v9] >= bjmod[0:3][v8] ? */\
+		"zip1	v29.4s,v31.4s,v31.4s\n\t	zip2	v31.4s,v31.4s,v31.4s\n\t"\
+		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"\
+		"ldp	q18,q19,[x2,#0x1e0]	\n\t"\
+		"fmla	v16.2d,v1.2d,v18.2d	\n\t	fmla	v17.2d,v5.2d,v19.2d	\n\t"\
+		"bsl v29.16b,v23.16b,v22.16b\n\t	bsl v31.16b,v23.16b,v22.16b	\n\t"\
+		"frintn	v1.2d,v16.2d		\n\t	frintn	v5.2d,v17.2d		\n\t"\
+		"fsub	v12.2d,v16.2d,v1.2d	\n\t	fsub	v13.2d,v17.2d,v5.2d	\n\t"\
+		"fmul	v29.2d,v1.2d,v29.2d	\n\t	fmul	v31.2d,v5.2d,v31.2d	\n\t"\
+		"frintn	v16.2d,v29.2d		\n\t	frintn	v17.2d,v31.2d		\n\t"\
+		"fabs	v12.2d,v12.2d		\n\t	fabs	v13.2d,v13.2d		\n\t"\
+		"fmax	v14.2d,v14.2d,v12.2d\n\t	fmax	v15.2d,v15.2d,v13.2d\n\t"\
+		"bsl v28.16b,v21.16b,v20.16b\n\t	bsl	v30.16b,v21.16b,v20.16b	\n\t"\
+		"ldp	q12,q13,[x2,#0x1c0]	\n\t"\
+		"fmls	v1.2d,v16.2d,v28.2d	\n\t	fmls	v5.2d,v17.2d,v30.2d	\n\t"\
+		/* Update and store weights: */\
+		"cmge	v29.2d,v12.2d,v27.2d\n\t	cmge	v31.2d,v13.2d,v27.2d\n\t"\
+		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"\
+		"fmul	v1.2d,v1.2d,v12.2d	\n\t	fmul	v5.2d,v5.2d,v13.2d	\n\t"\
+		"bsl v28.16b,v25.16b,v24.16b\n\t	bsl	v30.16b,v25.16b,v24.16b	\n\t"\
+		"fmul	v12.2d,v12.2d,v28.2d\n\t	fmul	v13.2d,v13.2d,v30.2d\n\t"\
+		"stp	q12,q13,[x2,#0x1c0]	\n\t"\
+		"bsl v29.16b,v27.16b,v26.16b\n\t	bsl	v31.16b,v27.16b,v26.16b	\n\t"\
+		"fmul	v18.2d,v18.2d,v29.2d\n\t	fmul	v19.2d,v19.2d,v31.2d\n\t"\
+		"stp	q18,q19,[x2,#0x1e0]	\n\t"\
+		/* Get ready for next set [RE1~] : */\
+		"add	 v8.4s , v8.4s ,v10.4s	\n\t"\
+		"cmge	v18.4s , v8.4s ,v11.4s	\n\t"\
+		"and	v19.16b,v18.16b,v11.16b	\n\t"\
+		"sub	 v8.4s , v8.4s ,v19.4s	\n\t"\
+	/**********************************************/\
+	/*          Now do the (j+2) data:            */\
+	/**********************************************/\
+	/*******************************/\
+	/* Do B.re pair: Data in v2,6: */\
+	/*******************************/\
+	"ldr	w6,%[__p2]	\n\t	prfm	PLDL1KEEP,[x5,x6,LSL #3]	\n\t"\
+		"cmge	v31.4s,v9.4s,v8.4s	\n\t"\
+		"zip1	v29.4s,v31.4s,v31.4s\n\t	zip2	v31.4s,v31.4s,v31.4s\n\t"\
+		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"\
+		"ldp	q18,q19,[x2,#0x220]	\n\t"\
+		"fmla	v16.2d,v2.2d,v18.2d	\n\t	fmla	v17.2d,v6.2d,v19.2d	\n\t"\
+		"bsl v29.16b,v23.16b,v22.16b\n\t	bsl v31.16b,v23.16b,v22.16b	\n\t"\
+		"frintn	v2.2d,v16.2d		\n\t	frintn	v6.2d,v17.2d		\n\t"\
+		"fsub	v12.2d,v16.2d,v2.2d	\n\t	fsub	v13.2d,v17.2d,v6.2d	\n\t"\
+		"fmul	v29.2d,v2.2d,v29.2d	\n\t	fmul	v31.2d,v6.2d,v31.2d	\n\t"\
+		"frintn	v16.2d,v29.2d		\n\t	frintn	v17.2d,v31.2d		\n\t"\
+		"fabs	v12.2d,v12.2d		\n\t	fabs	v13.2d,v13.2d		\n\t"\
+		"fmax	v14.2d,v14.2d,v12.2d\n\t	fmax	v15.2d,v15.2d,v13.2d\n\t"\
+		"bsl v28.16b,v21.16b,v20.16b\n\t	bsl	v30.16b,v21.16b,v20.16b	\n\t"\
+		"ldp	q12,q13,[x2,#0x200]	\n\t"\
+		"fmls	v2.2d,v16.2d,v28.2d	\n\t	fmls	v6.2d,v17.2d,v30.2d	\n\t"\
+		/* Update and store weights: */\
+		"cmge	v29.2d,v12.2d,v27.2d\n\t	cmge	v31.2d,v13.2d,v27.2d\n\t"\
+		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"\
+		"fmul	v2.2d,v2.2d,v12.2d	\n\t	fmul	v6.2d,v6.2d,v13.2d	\n\t"\
+		"bsl v28.16b,v25.16b,v24.16b\n\t	bsl	v30.16b,v25.16b,v24.16b	\n\t"\
+		"fmul	v12.2d,v12.2d,v28.2d\n\t	fmul	v13.2d,v13.2d,v30.2d\n\t"\
+		"stp	q12,q13,[x2,#0x200]	\n\t"\
+		"bsl v29.16b,v27.16b,v26.16b\n\t	bsl	v31.16b,v27.16b,v26.16b	\n\t"\
+		"fmul	v18.2d,v18.2d,v29.2d\n\t	fmul	v19.2d,v19.2d,v31.2d\n\t"\
+		"stp	q18,q19,[x2,#0x220]	\n\t"\
+		/* Get ready for next set [IM1~] : */\
+		"add	 v8.4s , v8.4s ,v10.4s	\n\t"\
+		"cmge	v18.4s , v8.4s ,v11.4s	\n\t"\
+		"and	v19.16b,v18.16b,v11.16b	\n\t"\
+		"sub	 v8.4s , v8.4s ,v19.4s	\n\t"\
+	/*******************************/\
+	/* Do B.im pair: Data in v3,7: */\
+	/*******************************/\
+	"ldr	w6,%[__p3]	\n\t	prfm	PLDL1KEEP,[x5,x6,LSL #3]	\n\t"\
+		"cmge	v31.4s,v9.4s,v8.4s	\n\t"\
+		"zip1	v29.4s,v31.4s,v31.4s\n\t	zip2	v31.4s,v31.4s,v31.4s\n\t"\
+		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"\
+		"ldp	q18,q19,[x2,#0x260]	\n\t"\
+		"fmla	v16.2d,v3.2d,v18.2d	\n\t	fmla	v17.2d,v7.2d,v19.2d	\n\t"\
+		"bsl v29.16b,v23.16b,v22.16b\n\t	bsl v31.16b,v23.16b,v22.16b	\n\t"\
+		"frintn	v3.2d,v16.2d		\n\t	frintn	v7.2d,v17.2d		\n\t"\
+		"fsub	v12.2d,v16.2d,v3.2d	\n\t	fsub	v13.2d,v17.2d,v7.2d	\n\t"\
+		"fmul	v29.2d,v3.2d,v29.2d	\n\t	fmul	v31.2d,v7.2d,v31.2d	\n\t"\
+		"frintn	v16.2d,v29.2d		\n\t	frintn	v17.2d,v31.2d		\n\t"\
+		"fabs	v12.2d,v12.2d		\n\t	fabs	v13.2d,v13.2d		\n\t"\
+		"fmax	v14.2d,v14.2d,v12.2d\n\t	fmax	v15.2d,v15.2d,v13.2d\n\t"\
+		"bsl v28.16b,v21.16b,v20.16b\n\t	bsl	v30.16b,v21.16b,v20.16b	\n\t"\
+		"ldp	q12,q13,[x2,#0x240]	\n\t"\
+		"fmls	v3.2d,v16.2d,v28.2d	\n\t	fmls	v7.2d,v17.2d,v30.2d	\n\t"\
+		/* Update and store weights: */\
+		"cmge	v29.2d,v12.2d,v27.2d\n\t	cmge	v31.2d,v13.2d,v27.2d\n\t"\
+		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"\
+		"fmul	v3.2d,v3.2d,v12.2d	\n\t	fmul	v7.2d,v7.2d,v13.2d	\n\t"\
+		"bsl v28.16b,v25.16b,v24.16b\n\t	bsl	v30.16b,v25.16b,v24.16b	\n\t"\
+		"fmul	v12.2d,v12.2d,v28.2d\n\t	fmul	v13.2d,v13.2d,v30.2d\n\t"\
+		"stp	q12,q13,[x2,#0x240]	\n\t"\
+		"bsl v29.16b,v27.16b,v26.16b\n\t	bsl	v31.16b,v27.16b,v26.16b	\n\t"\
+		"fmul	v18.2d,v18.2d,v29.2d\n\t	fmul	v19.2d,v19.2d,v31.2d\n\t"\
+		"stp	q18,q19,[x2,#0x260]	\n\t"\
+		/* Get ready for next set [RE2~] : */\
+		"add	 v8.4s , v8.4s ,v10.4s	\n\t"\
+		"cmge	v18.4s , v8.4s ,v11.4s	\n\t"\
+		"and	v19.16b,v18.16b,v11.16b	\n\t"\
+		"sub	 v8.4s , v8.4s ,v19.4s	\n\t"\
+		"str	q8,[x1]					\n\t"/* write bjmod[0:3] */\
+		"str q16,[x3] \n\t str q17,[x4] \n\t"/* write cyA,B */\
+		"fmax	v14.2d,v14.2d,v15.2d	\n\t"/* maxerr between the 2 cols */\
+		"str	q14,[x2,#-0x20]			\n\t"/* write maxerr */\
+		/**********************************************/\
+		/*              Repack the data:              */\
+		/**********************************************/\
+		"trn2	v8.2d,v0.2d,v2.2d	\n\t	trn2	v10.2d,v4.2d,v6.2d	\n\t"\
+		"trn2	v9.2d,v1.2d,v3.2d	\n\t	trn2	v11.2d,v5.2d,v7.2d	\n\t"\
+		"trn1	v0.2d,v0.2d,v2.2d	\n\t	trn1	v4.2d ,v4.2d,v6.2d	\n\t"\
+		"trn1	v1.2d,v1.2d,v3.2d	\n\t	trn1	v5.2d ,v5.2d,v7.2d	\n\t"\
+		"stp	q0,q1,[x0      ]	\n\t	stp	q4 ,q5 ,[x0,#0x40]	\n\t"\
+		"stp	q8,q9,[x0,#0x20]	\n\t	stp	q10,q11,[x0,#0x60]	\n\t"\
+		:					/* outputs: none */\
+		: [__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
+		, [__cyA]		"m" (XcyA)		\
+		, [__cyB]		"m" (XcyB)		\
+		, [__bjmod_0]	"m" (Xbjmod_0)		\
+		, [__i]			"m" (Xi)			\
+		, [__half_arr]	"m" (Xhalf_arr)		\
+		, [__sign_mask]	"m" (Xsign_mask)	\
+		, [__sse_bw]	"m" (Xsse_bw)		\
+		, [__sse_n]		"m" (Xsse_n)		\
+		, [__sse_sw]	"m" (Xsse_sw)		\
+		/* Prefetch: base address and 3 index offsets */\
+		,	[__add0] "m" (Xadd0)\
+		,	[__p1]   "m" (Xp1)\
+		,	[__p2]   "m" (Xp2)\
+		,	[__p3]   "m" (Xp3)\
+		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11","v12","v13","v14","v15",\
+					"v16","v17","v18","v19","v20","v21","v22","v23","v24","v25","v26","v27","v28","v29","v30","v31"	/* Clobbered registers */\
+	);\
+	}
+
+	// We don't support Fermat-mod in ARMv8 builds, just include skeleton versions of the associated 128-bit SIMD carry macros:
+	#define SSE2_fermat_carry_norm_pow2_errcheck_X2(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xhalf_arr,Xsign_mask,Xadd1,Xadd2, Xadd0,Xp1)\
+	{\
+	__asm__ volatile (\
+		"ldr	x0,%[__data]		\n\t"\
+		:						/* outputs: none */\
+		:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
+		,	[__cy]			"m" (Xcy)\
+		,	[__nrt_bits]	"m" (Xnrt_bits)\
+		,	[__nrtm1]		"m" (Xnrtm1)\
+		,	[__idx_offset]	"m" (Xidx_offset)\
+		,	[__idx_incr]	"m" (Xidx_incr)\
+		,	[__half_arr]	"m" (Xhalf_arr)\
+		,	[__sign_mask]	"m" (Xsign_mask)\
+		,	[__add1]		"m" (Xadd1)\
+		,	[__add2]		"m" (Xadd2)\
+		/* Prefetch: base address and 1 index offset */\
+		,	[__add0] "m" (Xadd0)\
+		,	[__p1] "m" (Xp1)\
+		: "cc","memory"	/* Clobbered registers */\
+	);\
+	}
+
+	#define SSE2_fermat_carry_norm_errcheck_X2(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xodd_radix,Xhalf_arr,Xsign_mask,Xadd1,Xadd2,Xicycle0,Xjcycle0,Xicycle1,Xjcycle1, Xadd0,Xp1)\
+	{\
+	__asm__ volatile (\
+		"ldr	x0,%[__data]		\n\t"\
+		:						/* outputs: none */\
+		:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
+		,	[__cy]			"m" (Xcy)\
+		,	[__nrt_bits]	"m" (Xnrt_bits)\
+		,	[__nrtm1]		"m" (Xnrtm1)\
+		,	[__idx_offset]	"m" (Xidx_offset)\
+		,	[__idx_incr]	"m" (Xidx_incr)\
+		,	[__odd_radix]	"m" (Xodd_radix)\
+		,	[__half_arr]	"m" (Xhalf_arr)\
+		,	[__sign_mask]	"m" (Xsign_mask)\
+		,	[__add1]		"m" (Xadd1)\
+		,	[__add2]		"m" (Xadd2)\
+		,	[__icycle0]		"m" (Xicycle0)\
+		,	[__jcycle0]		"m" (Xjcycle0)\
+		,	[__icycle1]		"m" (Xicycle1)\
+		,	[__jcycle1]		"m" (Xjcycle1)\
+		/* Prefetch: base address and 1 index offset */\
+		,	[__add0] "m" (Xadd0)\
+		,	[__p1]   "m" (Xp1)\
+		: "cc","memory"	/* Clobbered registers */\
+	);\
+	}
+
+#elif defined(USE_AVX)
 
 	/*
 	Use MOVUPD (or 1-byte-shorter MOVUPS) in legacy 128-bit SSE form to load 2 doubles into lo128 without touching hi128;
 	Thus can do MOVUPD m128,xmm1 to fill lo128 of ymm1, then fill hi128 from xmm2/m128 via (with imm8 = 1):
-	
+
 		VINSERTF128 imm8,src2[xmm/m128],src1[ymm1],dest[ymm2]:
 		imm8 = 0: dest.lo128 = src2, dest.hi128 = src1.hi128
 		imm8 = 1: dest.lo128 = src1.lo128, dest.hi128 = src2
-	
+
 	Once have 4 dcomplex roots loaded into 2 ymm as
 	ymm0.lo,hi = [c0,s0,c2,s2]
 	ymm1.lo,hi = [c1,s1,c3,s3] ,
-	
+
 	we interleave via
-	
+
 	vunpcklpd ymm0,ymm1,ymmA
 	vunpckhpd ymm0,ymm1,ymmB
-	
+
 	to get
-	
+
 	ymmA = [c0,c1,c2,c3]
 	ymmB = [s0,s1,s2,s3]
-	
+
 	Similarly for table2 [ = rn1 ] roots to get:
-	
+
 	ymmC = [x0,x1,x2,x3]
 	ymmD = [y0,y1,y2,y3]
-	
+
 	then do CMUL:
-	
+
 	vmulpd	ymmA,ymmD,ymmE	// ymmE = c.y
 	vmulpd	ymmA,ymmC,ymmA	// ymmA = c.x
-	
+
 	vmulpd	ymmB,ymmC,ymmC	// ymmC = s.x
 	vmulpd	ymmB,ymmD,ymmD	// ymmD = s.y
-	
+
 	vsubpd	ymmA,ymmD,ymmA	// ymmA = c.x - s.y; ymmD free
 	vsubpd	ymmC,ymmE,ymmB	// ymmB = s.x + c.y; ymmC,E free
 	*/
@@ -3635,8 +4414,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	"vpbroadcastd	0x0(%%rcx),%%zmm1	\n\t"/* Broadcast n_minus_sil to all 16 slots of zmm1 */\
 		"vpcmpd	$5,%%zmm0,%%zmm1,%%k1	\n\t"/* n_minus_sil[zmm1] >= bjmod[0:15][zmm0] ? Opmask K1 is bit-flipped-analog of AVX-mode bitmask stored in RCX */\
 		"movq	%[__sinwt]	,%%rdx		\n\t"\
-	"vpbroadcastd	0x0(%%rdx),%%zmm1	\n\t"/* Broadcast sinwt to all 16 slots of zmm2 */\
-		"vpcmpd	$5,%%zmm1,%%zmm0,%%k2	\n\t"/* bjmod[0:15][zmm0] < sinwt ?              Opmask K2 is bit-flipped-analog of AVX-mode bitmask stored in RDX */\
+	"vpbroadcastd	0x0(%%rdx),%%zmm1	\n\t"/* Broadcast sinwt to all 16 slots of zmm1, then effect sinwt < bjmod[0:15][zmm0] via */\
+		"vpcmpd	$5,%%zmm1,%%zmm0,%%k2	\n\t"/* bjmod[0:15][zmm0] >= sinwt ?             Opmask K2 is bit-flipped-analog of AVX-mode bitmask stored in RDX */\
 		"movq	%[__wtA]	,%%rax		\n\t"\
 		"movq	%[__wtB]	,%%rbx		\n\t"\
 		"vmovaps	     (%%rax),%%zmm4	\n\t	vmovaps	 0x40(%%rax),%%zmm20	\n\t"/* wtA[j  ]; ebx FREE */\
@@ -4536,8 +5315,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	"vpbroadcastd	0x0(%%rcx),%%zmm1	\n\t"/* Broadcast n_minus_sil to all 16 slots of zmm1 */\
 		"vpcmpd	$5,%%zmm0,%%zmm1,%%k1	\n\t"/* n_minus_sil[zmm1] >= bjmod[0:15][zmm0] ? Opmask K1 is bit-flipped-analog of AVX-mode bitmask stored in RCX */\
 		"movq	%[__sinwt]	,%%rdx		\n\t"\
-	"vpbroadcastd	0x0(%%rdx),%%zmm1	\n\t"/* Broadcast sinwt to all 16 slots of zmm2 */\
-		"vpcmpd	$5,%%zmm1,%%zmm0,%%k2	\n\t"/* bjmod[0:15][zmm0] < sinwt ?              Opmask K2 is bit-flipped-analog of AVX-mode bitmask stored in RDX */\
+	"vpbroadcastd	0x0(%%rdx),%%zmm1	\n\t"/* Broadcast sinwt to all 16 slots of zmm1, then effect sinwt < bjmod[0:15][zmm0] via */\
+		"vpcmpd	$5,%%zmm1,%%zmm0,%%k2	\n\t"/* bjmod[0:15][zmm0] >= sinwt ?             Opmask K2 is bit-flipped-analog of AVX-mode bitmask stored in RDX */\
 		"movq	%[__wtA]	,%%rax		\n\t"\
 		"movq	%[__wtB]	,%%rbx		\n\t"\
 		"vmovaps	     (%%rax),%%zmm4	\n\t	vmovaps	 0x40(%%rax),%%zmm20	\n\t"/* wtA[j  ]; ebx FREE */\
@@ -16164,7 +16943,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	);\
 	}
 
-#else
+#elif !defined(USE_ARM_V8_SIMD)	// 64-bit SSE2:
 
 	/********* Packed 32-bit-int version of SSE2_cmplx_carry_norm_pow2_errcheck0_2x:***********/
 	#define SSE2_cmplx_carry_norm_pow2_errcheck1_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1)\
@@ -17142,6 +17921,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 
 #endif	// #ifdef USE_AVX
 
+#if !defined(USE_ARM_V8_SIMD)	// 64-bit SSE2:
 
 	/***************************************************************************************************************************************************/
 	/********* Non-power-of-2-FFT versions of SSE2_cmplx_carry_norm_pow2_errcheck0_2B,1_2B,2_2B (only give sans-error-check version of latter 2: *******/
@@ -18115,6 +18895,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9"/* Clobbered registers */\
 	);\
 	}
+
+#endif	// !defined(USE_ARM_V8_SIMD)
 
 #endif	/* carry_gcc_h_included */
 

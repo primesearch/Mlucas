@@ -417,39 +417,39 @@ void radix16_dyadic_square(
 
 	/*=======================
 	AVX2: Try doing the roots using VGATHERDPD/VGATHERQPD gather-load and inline ASM for the CMUL:
-	
+
 	VGATHERDPD/VGATHERQPD Description:
-	
+
 	The instruction conditionally loads up to 2 or 4 double-precision floating-point values from memory addresses
 	specified by the memory operand (the second operand) and using qword indices. The memory operand uses the VSIB
 	form of the SIB byte to specify a general purpose register operand as the common base, a vector register for
 	an array of indices relative to the base and a constant scale factor.
-	
+
 	The mask operand (the third operand) specifies the conditional load operation from each memory address and the
 	corresponding update of each data element of the destination operand (the first operand). Conditionality is
 	specified by the most significant bit of each data element of the mask register. If an element’s mask bit is
 	not set, the corresponding element of the destination register is left unchanged. The width of data element in
 	the destination register and mask register are identical. The entire mask register will be set to zero by this
 	instruction unless the instruction causes an exception.
-	
+
 	Using dword indices in the lower half of the mask register, the instruction conditionally loads up to 2 or 4
 	double-precision floating-point values from the VSIB addressing memory operand, and updates the destination register.
-	
+
 	VGATHERDPD/VGATHERQPD Operation:
-	
+
 	DEST <-- SRC1;
 	BASE_ADDR: base register encoded in VSIB addressing;
 	VINDEX: the vector index register encoded by VSIB addressing;
 	SCALE: scale factor encoded by SIB:[7:6];
 	DISP: optional 1, 2, 4 byte displacement;
 	MASK <-- SRC3;
-	
+
 	EWM:
 	o We have 2 32-bit index quartets (i.e. each quartet = 128 bits) based on quads of k1 and k2 values
 	o For the k1,2-quartets the load base addresses = rt0,1, resp.
-	
+
 	VGATHERDPD (VEX.256 version):
-	
+
 		FOR j<--0 to 3 i<--j * 64;
 			IF MASK[63+i] THEN MASK[i +63:i]<--0xFFFFFFFF_FFFFFFFF; // extend from most significant bit
 			ELSE MASK[i +63:i]<--0;
@@ -459,22 +459,22 @@ void radix16_dyadic_square(
 			DEST[i +63:i]<--FETCH_64BITS(DATA_ADDR); // a fault exits the loop
 		FI;
 		MASK[i +63:i]<--0; ENDFOR
-	
+
 	And basics of VSIB:
-	
+
 	4.2	VECTOR SIB (VSIB) MEMORY ADDRESSING
 	In AVX2, an SIB byte that follows the ModR/M byte can support VSIB memory addressing to an array of linear
 	addresses. VSIB addressing is only supported in a subset of AVX2 instructions. VSIB memory addressing requires
 	32-bit or 64-bit effec- tive address. In 32-bit mode, VSIB addressing is not supported when address size attribute
 	is overridden to 16 bits. In 16-bit protected mode, VSIB memory addressing is permitted if address size attribute
 	is overridden to 32 bits. Additionally, VSIB memory addressing is supported only with VEX prefix.
-	
+
 	In VSIB memory addressing, the SIB byte consists of:
 	•	The scale field (bit 7:6) specifies the scale factor.
 	•	The index field (bits 5:3) specifies the register number of the vector index register,
 		each element in the vector register specifies an index.
 	•	The base field (bits 2:0) specifies the register number of the base register.
-	
+
 	=======================
 	*/
 		//=== Need 4-way vector-SIMD version of this ===
@@ -642,14 +642,14 @@ void radix16_dyadic_square(
 	  #elif defined(USE_AVX512)	// AVX512: need 8 sets of sincos gathered into 512-bit vectors-of-doubles
 		/*
 		Three options for the gather-four-128-bit-complex-double-data loads of our zmm-regs here:
-		
+
 		[1] In AVX512 the needed analog of VINSERTF128 is VINSERTF32x4, which loads 128-bits from the 2nd source operand
 		(xmm/mem) into the desired 128-bit quartile of the destination zmm-reg, filling the other 3 quartiles from the
 		1st source-operand (middle-operand) zmm-reg. Can do one load-low-128-bits and 3 VINSERTF32x4s for each zmm-reg.
-		
+
 		[2] Or, we can do 2 of the load-low-128-bit/VINSERTF128 pairs we use in the AVX case, each to fill a ymm-reg,
 		then a VINSERTF64x4 to merge the 2 ymm-regs into a zmm-reg.
-		
+
 		[3] Or, we can use an AVX-512 gather-load (operands in reverse of GCC inline-asm order here):
 
 			VGATHERDPD zmm1{k1},vm32y	Using signed qword indices, gather float64 data into zmm1 using OPMASK register k1 as completion mask.
@@ -667,7 +667,7 @@ void radix16_dyadic_square(
 		AT&T/GCC enhanced-inline-asm syntax example - note the required '%' escapes preceding each curly brace in the opmask-reg specifier:
 
 			vgatherdpd 0x8(%%rax,%%ymm0),%%zmm1%{%%k1%}
-		
+
 		Our base-address here will be &rt0,1 stored in a GPR; the vector-offset data will be elements of the k1,2_arr arrays.
 		How to efficiently load the latter - which are themselves vector-strided - into a zmm?
 		IDEA: rearrange the k1,2_arr data so such (currently) uniform-vector-strided elements instead occupy adjacent slots,
@@ -1319,7 +1319,16 @@ exit(0);
 #endif
 /**********************/
 
-	  #ifdef USE_AVX512
+	  #ifdef USE_ARM_V8_SIMD
+		// No Fermat-mod support on ARMv8, just supply a stub macro:
+	__asm__ volatile (\
+		"ldr x0,%[__r1]	\n\t"\
+		:					// outputs: none
+		: [__r1] "m" (r1)	// All inputs from memory addresses here
+		: "cc","memory","x0"	/* Clobbered registers */\
+	);
+
+	  #elif defined(USE_AVX512)	// AVX512 implements a 512-bit-register version of the the AVX2 ALL_FMA-macro
 
 	__asm__ volatile (\
 		"movq	%[__r1],%%rax			\n\t"\

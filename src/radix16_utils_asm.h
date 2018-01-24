@@ -499,6 +499,175 @@
 
 #elif OS_BITS == 64	// 64-bit SSE2
 
+  #ifdef USE_ARM_V8_SIMD
+
+	// SIMD-gen 15 nontrivial twiddles; 1,2,4,8,13 via 2-table-mul, remaining 10 in 5 pair-cmuls from those:
+	#define SSE2_RADIX16_CALC_TWIDDLES_LOACC(Xcc0,Xk0,Xk1,Xrt0,Xrt1)\
+	{\
+		__asm__ volatile (\
+		"ldr	w0,%[__k0]		\n\t"\
+		"ldr	w1,%[__k1]			\n\t"\
+		"ldr	x2,%[__rt0]			\n\t"\
+		"ldr	x4,%[__rt1]			\n\t"\
+		"ldr	x6,%[__cc0]			\n\t"\
+		/* c1,s1: */\
+		"ldp	w7,w8,[x0]			\n\t"/* k0_arr[0,1] */\
+		"add	x3, x2,x8			\n\t"/* rt0 + k0_arr[1], contig-data there = [re0.A,im0.A] */\
+		"add	x2, x2,x7			\n\t"/* rt0 + k0_arr[0], contig-data there = [re0.B,im0.B] */\
+		/* vector-data-to-be-interleaved are not nec. contiguous, so can't simply use 'ld2 {v0.2d,v1.2d},[base address]' to effect 2x2 transpose: */\
+		"ld2	{v0.d,v1.d}[0],[x2]	\n\t"/* m0 = [re0.A,re0.B] */\
+		"ld2	{v0.d,v1.d}[1],[x3]	\n\t"/* m1 = [im0.A,im0.B] */\
+		"ldp	w7,w8,[x1]			\n\t"/* k1_arr[0,1] */\
+		"add	x5, x4,x8			\n\t"/* rt1 + k1_arr[1], contig-data there = [re1.A,im1.A] */\
+		"add	x4, x4,x7			\n\t"/* rt1 + k1_arr[0], contig-data there = [re1.B,im1.B] */\
+		"ld2	{v2.d,v3.d}[0],[x4]	\n\t"/* m2 = [re1.A,re1.B] */\
+		"ld2	{v2.d,v3.d}[1],[x5]	\n\t"/* m3 = [im1.A,im1.B] */\
+		"fmul	v6.2d,v0.2d,v2.2d	\n\t"/* re0.re1 */\
+		"fmul	v7.2d,v1.2d,v2.2d	\n\t"/* im0.re1 */\
+		"fmls	v6.2d,v1.2d,v3.2d	\n\t"/* Re = re0.re1 - im0.im1 */\
+		"fmla	v7.2d,v0.2d,v3.2d	\n\t"/* Im = im0.re1 + re0.im1 */\
+		"stp	q6,q7,[x6,#0x120]	\n\t"/* cc0 + 0x12; keep persistent copies of c1,s1 in v6,7 */\
+		/* c2,s2: */\
+		"ldr	x2,%[__rt0]			\n\t"\
+		"ldr	x4,%[__rt1]			\n\t"\
+		"ldp	w7,w8,[x0,#0x08]	\n\t"/* k0_arr[2,3] */\
+		"add	x3, x2,x8			\n\t"\
+		"add	x2, x2,x7			\n\t"\
+		"ld2	{v0.d,v1.d}[0],[x2]	\n\t"\
+		"ld2	{v0.d,v1.d}[1],[x3]	\n\t"\
+		"ldp	w7,w8,[x1,#0x08]	\n\t"/* k1_arr[2,3] */\
+		"add	x5, x4,x8			\n\t"\
+		"add	x4, x4,x7			\n\t"\
+		"ld2	{v2.d,v3.d}[0],[x4]	\n\t"\
+		"ld2	{v2.d,v3.d}[1],[x5]	\n\t"\
+		"fmul	v8.2d,v0.2d,v2.2d	\n\t"\
+		"fmul	v9.2d,v1.2d,v2.2d	\n\t"\
+		"fmls	v8.2d,v1.2d,v3.2d	\n\t"\
+		"fmla	v9.2d,v0.2d,v3.2d	\n\t"\
+		"stp	q8,q9,[x6,#0x0a0]	\n\t"/* cc0 + 0xa; keep persistent copies of c2,s2 in v8,9 */\
+		/* c4,s4: */\
+		"ldr	x2,%[__rt0]			\n\t"\
+		"ldr	x4,%[__rt1]			\n\t"\
+		"ldp	w7,w8,[x0,#0x10]	\n\t"/* k0_arr[4,5] */\
+		"add	x3, x2,x8			\n\t"\
+		"add	x2, x2,x7			\n\t"\
+		"ld2	{v0.d,v1.d}[0],[x2]	\n\t"\
+		"ld2	{v0.d,v1.d}[1],[x3]	\n\t"\
+		"ldp	w7,w8,[x1,#0x10]	\n\t"/* k1_arr[4,5] */\
+		"add	x5, x4,x8			\n\t"\
+		"add	x4, x4,x7			\n\t"\
+		"ld2	{v2.d,v3.d}[0],[x4]	\n\t"\
+		"ld2	{v2.d,v3.d}[1],[x5]	\n\t"\
+		"fmul	v10.2d,v0.2d,v2.2d	\n\t"\
+		"fmul	v11.2d,v1.2d,v2.2d	\n\t"\
+		"fmls	v10.2d,v1.2d,v3.2d	\n\t"\
+		"fmla	v11.2d,v0.2d,v3.2d	\n\t"\
+		"stp	q10,q11,[x6,#0x060]	\n\t"/* cc0 + 0x6; keep persistent copies of c4,s4 in v10,11 */\
+		/* c8,s8: */\
+		"ldr	x2,%[__rt0]			\n\t"\
+		"ldr	x4,%[__rt1]			\n\t"\
+		"ldp	w7,w8,[x0,#0x18]	\n\t"/* k0_arr[6,7] */\
+		"add	x3, x2,x8			\n\t"\
+		"add	x2, x2,x7			\n\t"\
+		"ld2	{v0.d,v1.d}[0],[x2]	\n\t"\
+		"ld2	{v0.d,v1.d}[1],[x3]	\n\t"\
+		"ldp	w7,w8,[x1,#0x18]	\n\t"/* k1_arr[6,7] */\
+		"add	x5, x4,x8			\n\t"\
+		"add	x4, x4,x7			\n\t"\
+		"ld2	{v2.d,v3.d}[0],[x4]	\n\t"\
+		"ld2	{v2.d,v3.d}[1],[x5]	\n\t"\
+		"fmul	v12.2d,v0.2d,v2.2d	\n\t"\
+		"fmul	v13.2d,v1.2d,v2.2d	\n\t"\
+		"fmls	v12.2d,v1.2d,v3.2d	\n\t"\
+		"fmla	v13.2d,v0.2d,v3.2d	\n\t"\
+		"stp	q12,q13,[x6,#0x040]	\n\t"/* cc0 + 0x4; keep persistent copies of c8,s8 in v12,13 */\
+		/* c13,s13: */\
+		"ldr	x2,%[__rt0]			\n\t"\
+		"ldr	x4,%[__rt1]			\n\t"\
+		"ldp	w7,w8,[x0,#0x20]	\n\t"/* k0_arr[8,9] */\
+		"add	x3, x2,x8			\n\t"\
+		"add	x2, x2,x7			\n\t"\
+		"ld2	{v0.d,v1.d}[0],[x2]	\n\t"\
+		"ld2	{v0.d,v1.d}[1],[x3]	\n\t"\
+		"ldp	w7,w8,[x1,#0x20]	\n\t"/* k1_arr[8,9] */\
+		"add	x5, x4,x8			\n\t"\
+		"add	x4, x4,x7			\n\t"\
+		"ld2	{v2.d,v3.d}[0],[x4]	\n\t"\
+		"ld2	{v2.d,v3.d}[1],[x5]	\n\t"\
+		"fmul	v14.2d,v0.2d,v2.2d	\n\t"\
+		"fmul	v15.2d,v1.2d,v2.2d	\n\t"\
+		"fmls	v14.2d,v1.2d,v3.2d	\n\t"\
+		"fmla	v15.2d,v0.2d,v3.2d	\n\t"\
+		"stp	q14,q15,[x6,#0x180]	\n\t"/* cc0 + 0x18; keep persistent copies of c13,s13 in v14,15 */\
+	/* Mem-mapping: (c,s)[0-15] :  0  1 2  3 4  5 6  7 8  9 a  b c  d  e  f  */\
+	/*				(cc0,ss0) + 0x[2,12,a,1a,6,16,e,1e,4,14,c,1c,8,18,10,20] */\
+	/* SSE2_CMUL_EXPO(c1,c4 ,c3 ,c5 ): */\
+		"fmul	v0.2d,v6.2d,v10.2d	\n\t"/* c1.c4 */\
+		"fmul	v1.2d,v6.2d,v11.2d	\n\t"/* c1.s4 */\
+		"fmul	v2.2d,v7.2d,v10.2d	\n\t"/* s1.c4 */\
+		"fmul	v3.2d,v7.2d,v11.2d	\n\t"/* s1.s4 */\
+		"fsub	v4.2d,v0.2d,v3.2d	\n\t"/* c1.c4 - s1.s4 */\
+		"fadd	v5.2d,v1.2d,v2.2d	\n\t"/* c1.s4 + s1.c4 */\
+		"fadd	v0.2d,v0.2d,v3.2d	\n\t"/* c1.c4 + s1.s4 */\
+		"fsub	v1.2d,v1.2d,v2.2d	\n\t"/* c1.s4 - s1.c4 */\
+		"stp	q4,q5,[x6,#0x160]	\n\t"/* c5 = cc0 + 0x16 */\
+		"stp	q0,q1,[x6,#0x1a0]	\n\t"/* c3 = cc0 + 0x1a */\
+	/* SSE2_CMUL_EXPO(c1,c8 ,c7 ,c9 ): */\
+		"fmul	v0.2d,v6.2d,v12.2d	\n\t"\
+		"fmul	v1.2d,v6.2d,v13.2d	\n\t"\
+		"fmul	v2.2d,v7.2d,v12.2d	\n\t"\
+		"fmul	v3.2d,v7.2d,v13.2d	\n\t"\
+		"fsub	v4.2d,v0.2d,v3.2d	\n\t"\
+		"fadd	v5.2d,v1.2d,v2.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v3.2d	\n\t"\
+		"fsub	v1.2d,v1.2d,v2.2d	\n\t"\
+		"stp	q4,q5,[x6,#0x140]	\n\t"/* c9 = cc0 + 0x14 */\
+		"stp	q0,q1,[x6,#0x1e0]	\n\t"/* c7 = cc0 + 0x1e */\
+	/* SSE2_CMUL_EXPO(c2,c8 ,c6 ,c10): */\
+		"fmul	v0.2d,v8.2d,v12.2d	\n\t"\
+		"fmul	v1.2d,v8.2d,v13.2d	\n\t"\
+		"fmul	v2.2d,v9.2d,v12.2d	\n\t"\
+		"fmul	v3.2d,v9.2d,v13.2d	\n\t"\
+		"fsub	v4.2d,v0.2d,v3.2d	\n\t"\
+		"fadd	v5.2d,v1.2d,v2.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v3.2d	\n\t"\
+		"fsub	v1.2d,v1.2d,v2.2d	\n\t"\
+		"stp	q4,q5,[x6,#0x0c0]	\n\t"/* c10 = cc0 + 0xc */\
+		"stp	q0,q1,[x6,#0x0e0]	\n\t"/* c6  = cc0 + 0xe */\
+	/* SSE2_CMUL_EXPO(c1,c13,c12,c14): */\
+		"fmul	v0.2d,v6.2d,v14.2d	\n\t"\
+		"fmul	v1.2d,v6.2d,v15.2d	\n\t"\
+		"fmul	v2.2d,v7.2d,v14.2d	\n\t"\
+		"fmul	v3.2d,v7.2d,v15.2d	\n\t"\
+		"fsub	v4.2d,v0.2d,v3.2d	\n\t"\
+		"fadd	v5.2d,v1.2d,v2.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v3.2d	\n\t"\
+		"fsub	v1.2d,v1.2d,v2.2d	\n\t"\
+		"stp	q4,q5,[x6,#0x100]	\n\t"/* c14 = cc0 + 0x10 */\
+		"stp	q0,q1,[x6,#0x080]	\n\t"/* c12 = cc0 + 0x08 */\
+	/* SSE2_CMUL_EXPO(c2,c13,c11,c15): */\
+		"fmul	v0.2d,v8.2d,v14.2d	\n\t"\
+		"fmul	v1.2d,v8.2d,v15.2d	\n\t"\
+		"fmul	v2.2d,v9.2d,v14.2d	\n\t"\
+		"fmul	v3.2d,v9.2d,v15.2d	\n\t"\
+		"fsub	v4.2d,v0.2d,v3.2d	\n\t"\
+		"fadd	v5.2d,v1.2d,v2.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v3.2d	\n\t"\
+		"fsub	v1.2d,v1.2d,v2.2d	\n\t"\
+		"stp	q4,q5,[x6,#0x200]	\n\t"/* c15 = cc0 + 0x20 */\
+		"stp	q0,q1,[x6,#0x1c0]	\n\t"/* c11 = cc0 + 0x1c */\
+		:					/* outputs: none */\
+		: [__cc0] "m" (Xcc0)	/* All inputs from memory addresses here */\
+		 ,[__k0]  "m" (Xk0)\
+		 ,[__k1]  "m" (Xk1)\
+		 ,[__rt0] "m" (Xrt0)\
+		 ,[__rt1] "m" (Xrt1)\
+		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","x7","x8","v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11","v12","v13","v14","v15"	/* Clobbered registers */\
+		);\
+	}
+
+  #else	// x86 SSE2:
+
 	// SIMD-gen 15 nontrivial twiddles; 1,2,4,8,13 via 2-table-mul, remaining 10 in 5 pair-cmuls from those:
 	#define SSE2_RADIX16_CALC_TWIDDLES_LOACC(Xcc0,Xk0,Xk1,Xrt0,Xrt1)\
 	{\
@@ -729,6 +898,8 @@
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r10","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 		);\
 	}
+
+  #endif	// ARMv8 or x86_64?
 
 #elif OS_BITS == 32	// 32-bit SSE2
 

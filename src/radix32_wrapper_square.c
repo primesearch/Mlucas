@@ -44,6 +44,7 @@
 
 void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, struct complex rt0[], struct complex rt1[], int nradices_prim, int radix_prim[], int ws_i, int ws_j1, int ws_j2, int ws_j2_start, int ws_k, int ws_m, int ws_blocklen, int ws_blocklen_sum, int init_sse2, int thr_id)
 {
+	const char func[] = "radix32_wrapper_square";
 /*
 !   NOTE: In the following commentary, N refers to the COMPLEX vector length (N2 in the code),
 !   which is half the real vector length.
@@ -205,9 +206,9 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 		#ifndef COMPILER_TYPE_GCC
 			ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 		#endif
-		//	printf("max_threads = %d, NTHREADS = %d\n",max_threads, NTHREADS);
+		//	printf("%Ns: max_threads = %d, NTHREADS = %d\n",func, max_threads, NTHREADS);
 			ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
-	
+
 		#ifdef USE_SSE2
 		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
 			free((void *)sm_arr);	sm_arr=0x0;
@@ -223,10 +224,10 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x98*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
-	
+
 		/* Use low 64 vec_dbl slots of sc_arr for temporaries, next 8 for scratch, next 7 for the nontrivial complex 16th roots,
 		next 62 for the doubled sincos twiddles, next 4 for [1.0,2.0,0.25,sqrt2] and at least 3 more to allow for 64-byte alignment of the array.
-	
+
 		*** NOTE ***: Offsets below must match those in radix32_dyadic_square,
 					since routines share DFT macros which use many literal byte offsets to reduce argument count.
 		*/
@@ -831,15 +832,134 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	blocklen     = ws_blocklen    ;
 	blocklen_sum = ws_blocklen_sum;
 
-//	fprintf(stderr,"stride = %d\n",stride);
-//	fprintf(stderr,"On entry: j1,j2 = %u, %u, nradices_prim = %u, blocklen = %u\n",j1,j2,nradices_prim,blocklen);
+//	fprintf(stderr,"%s: stride = %d\n",func,stride);
+//	fprintf(stderr,"%s: On entry: j1,j2 = %u, %u, nradices_prim = %u, blocklen = %u\n",func,j1,j2,nradices_prim,blocklen);
 
 	/* If j1 == 0 we need to init the loop counters; otherwise, just jump
 	   right in and pick up where we left off on the previous pair of blocks:
 	*/
 	if(j1 > 0) {
-	//	fprintf(stderr,"Jumping into loop!\n");
+	//	fprintf(stderr,"%s: Jumping into loop!\n",func);
 		goto jump_in;
+	} else {
+	#if 0
+		rng_isaac_init(TRUE);
+		double pow2_dmult = 1024.0*128.0;	// Restrict inputs to 18 bits, which in balanced-digit representation
+											// means restricting multiplier of random-inputs-in-[-1,+1] below to 2^17
+		int ipad, imax = MIN(1024,n);
+		for(i = 0; i < imax; i += 16) {
+			ipad = i + ( (i >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+			// All the inits are w.r.to an un-SIMD-rearranged ...,re,im,re,im,... pattern:
+		#ifdef USE_AVX512
+			a[ipad+br16[ 0]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re0
+			a[ipad+br16[ 1]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im0
+			a[ipad+br16[ 2]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re1
+			a[ipad+br16[ 3]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im1
+			a[ipad+br16[ 4]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re2
+			a[ipad+br16[ 5]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im2
+			a[ipad+br16[ 6]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re3
+			a[ipad+br16[ 7]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im3
+			a[ipad+br16[ 8]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re4
+			a[ipad+br16[ 9]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im4
+			a[ipad+br16[10]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re5
+			a[ipad+br16[11]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im5
+			a[ipad+br16[12]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re6
+			a[ipad+br16[13]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im6
+			a[ipad+br16[14]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re7
+			a[ipad+br16[15]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im7
+		#elif defined(USE_AVX)
+			a[ipad+br8[0]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re0
+			a[ipad+br8[1]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im0
+			a[ipad+br8[2]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re1
+			a[ipad+br8[3]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im1
+			a[ipad+br8[4]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re2
+			a[ipad+br8[5]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im2
+			a[ipad+br8[6]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re3
+			a[ipad+br8[7]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im3
+			a[ipad+br8[0]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re4
+			a[ipad+br8[1]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im4
+			a[ipad+br8[2]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re5
+			a[ipad+br8[3]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im5
+			a[ipad+br8[4]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re6
+			a[ipad+br8[5]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im6
+			a[ipad+br8[6]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re7
+			a[ipad+br8[7]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im7
+		#elif defined(USE_SSE2)
+			a[ipad+br4[0]   ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re0
+			a[ipad+br4[1]   ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im0
+			a[ipad+br4[2]   ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re1
+			a[ipad+br4[3]   ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im1
+			a[ipad+br4[0]+4 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re2
+			a[ipad+br4[1]+4 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im2
+			a[ipad+br4[2]+4 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re3
+			a[ipad+br4[3]+4 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im3
+			a[ipad+br4[0]+8 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re4
+			a[ipad+br4[1]+8 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im4
+			a[ipad+br4[2]+8 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re5
+			a[ipad+br4[3]+8 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im5
+			a[ipad+br4[0]+12] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re6
+			a[ipad+br4[1]+12] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im6
+			a[ipad+br4[2]+12] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re7
+			a[ipad+br4[3]+12] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im7
+		#else
+			#error Debug only enabled for SSE2 and above!
+		#endif
+		#ifdef USE_AVX512
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 0, a[ipad+br16[ 0]],i+ 0, a[ipad+ 0]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 1, a[ipad+br16[ 1]],i+ 1, a[ipad+ 1]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 2, a[ipad+br16[ 2]],i+ 2, a[ipad+ 2]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 3, a[ipad+br16[ 3]],i+ 3, a[ipad+ 3]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 4, a[ipad+br16[ 4]],i+ 4, a[ipad+ 4]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 5, a[ipad+br16[ 5]],i+ 5, a[ipad+ 5]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 6, a[ipad+br16[ 6]],i+ 6, a[ipad+ 6]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 7, a[ipad+br16[ 7]],i+ 7, a[ipad+ 7]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 8, a[ipad+br16[ 8]],i+ 8, a[ipad+ 8]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 9, a[ipad+br16[ 9]],i+ 9, a[ipad+ 9]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+10, a[ipad+br16[10]],i+10, a[ipad+10]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+11, a[ipad+br16[11]],i+11, a[ipad+11]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+12, a[ipad+br16[12]],i+12, a[ipad+12]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+13, a[ipad+br16[13]],i+13, a[ipad+13]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+14, a[ipad+br16[14]],i+14, a[ipad+14]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+15, a[ipad+br16[15]],i+15, a[ipad+15]);
+		#elif defined(USE_AVX)
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+0  ,a[ipad+br8[0]  ],i+0  ,a[ipad+0  ]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+1  ,a[ipad+br8[1]  ],i+1  ,a[ipad+1  ]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+2  ,a[ipad+br8[2]  ],i+2  ,a[ipad+2  ]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+3  ,a[ipad+br8[3]  ],i+3  ,a[ipad+3  ]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+4  ,a[ipad+br8[4]  ],i+4  ,a[ipad+4  ]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+5  ,a[ipad+br8[5]  ],i+5  ,a[ipad+5  ]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+6  ,a[ipad+br8[6]  ],i+6  ,a[ipad+6  ]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+7  ,a[ipad+br8[7]  ],i+7  ,a[ipad+7  ]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+0+8,a[ipad+br8[0]+8],i+0+8,a[ipad+0+8]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+1+8,a[ipad+br8[1]+8],i+1+8,a[ipad+1+8]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+2+8,a[ipad+br8[2]+8],i+2+8,a[ipad+2+8]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+3+8,a[ipad+br8[3]+8],i+3+8,a[ipad+3+8]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+4+8,a[ipad+br8[4]+8],i+4+8,a[ipad+4+8]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+5+8,a[ipad+br8[5]+8],i+5+8,a[ipad+5+8]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+6+8,a[ipad+br8[6]+8],i+6+8,a[ipad+6+8]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+7+8,a[ipad+br8[7]+8],i+7+8,a[ipad+7+8]);
+		#elif defined(USE_SSE2)
+		  if(0) {
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+0  ,a[ipad+br4[0]   ],i+0  ,a[ipad+0  ]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+1  ,a[ipad+br4[1]   ],i+1  ,a[ipad+1  ]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+2  ,a[ipad+br4[2]   ],i+2  ,a[ipad+2  ]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+3  ,a[ipad+br4[3]   ],i+3  ,a[ipad+3  ]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+4  ,a[ipad+br4[0]+4 ],i+4  ,a[ipad+4  ]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+5  ,a[ipad+br4[1]+4 ],i+5  ,a[ipad+5  ]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+6  ,a[ipad+br4[2]+4 ],i+6  ,a[ipad+6  ]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+7  ,a[ipad+br4[3]+4 ],i+7  ,a[ipad+7  ]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+0+8,a[ipad+br4[0]+8 ],i+0+8,a[ipad+0+8]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+1+8,a[ipad+br4[1]+8 ],i+1+8,a[ipad+1+8]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+2+8,a[ipad+br4[2]+8 ],i+2+8,a[ipad+2+8]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+3+8,a[ipad+br4[3]+8 ],i+3+8,a[ipad+3+8]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+4+8,a[ipad+br4[0]+12],i+4+8,a[ipad+4+8]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+5+8,a[ipad+br4[1]+12],i+5+8,a[ipad+5+8]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+6+8,a[ipad+br4[2]+12],i+6+8,a[ipad+6+8]);
+			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+7+8,a[ipad+br4[3]+12],i+7+8,a[ipad+7+8]);
+		  }
+		#endif
+		}
+	#endif
 	}
 
 /*
@@ -863,7 +983,7 @@ for(i = nradices_prim-6; i >= 0; i-- )	/* Main loop: lower bound = nradices_prim
 		// Apr 2014: Must store intermediate product j1*radix0 in a 64-bit int to prevent overflow!
 		if(j1 && ((uint64)j1*radix0)%n == 0)
 		{
-		//	fprintf(stderr,"(j1 && j1*radix0 == 0 (mod n)) check hit: returning\n");
+		//	fprintf(stderr,"(%s: j1 && j1*radix0 == 0 (mod n)) check hit: returning\n",func);
 			return;
 		}
 
@@ -1165,7 +1285,7 @@ jump_in:	/* Entry point for all blocks but the first. */
 			memset(k2_arr, 0, 14*RE_IM_STRIDE*sizeof(uint32));
 		}
   #if 0
-	printf("Computing Twiddles with k*_arr-index K = %d, Iroot = %d\n",k,index[k]);
+	printf("%s: Computing Twiddles with k*_arr-index K = %d, Iroot = %d\n",func,k,index[k]);
   #endif
 		// 1st set:
 		iroot = index[k++];
@@ -1256,7 +1376,7 @@ jump_in:	/* Entry point for all blocks but the first. */
 			memset(k2_arr, 0, 14*RE_IM_STRIDE*sizeof(uint32));
 		}
   #if 0
-	printf("Computing Twiddles with k*_arr-index K = %d, Iroot = %d\n",k,index[k]);
+	printf("%s: Computing Twiddles with k*_arr-index K = %d, Iroot = %d\n",func,k,index[k]);
   #endif
 	// *** To-do: Vectorize the index computations below! ***
 		// 1st set:
@@ -3414,23 +3534,6 @@ addr += 4;
 		SSE2_RADIX32_WRAPPER_DIF(add0,add1,          r00,r10,r20,r30,isrt2,cc0,c00,c01,c02,c03,c05,c07)
 
 	#endif
-  #if 0
-  if(j1 < 2048) {
-	int idbg;
-	printf("AVX-%u: %u x %u DIF outputs:\n",(int)RE_IM_STRIDE << 6,RE_IM_STRIDE,RE_IM_STRIDE);
-	tmp = r00;
-	for(idbg = 0; idbg < 32; idbg++) { printf("\tre[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,tmp->d2,tmp->d3); tmp+=2; }
-	tmp = r00 +1;
-	for(idbg = 0; idbg < 32; idbg++) { printf("\tim[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,tmp->d2,tmp->d3); tmp+=2; }
-   #ifdef USE_AVX512
-	printf("AVX-%u: %u x %u DIF outputs:\n",(int)RE_IM_STRIDE << 6,RE_IM_STRIDE,RE_IM_STRIDE);
-	tmp = r00;
-	for(idbg = 0; idbg < 32; idbg++) { printf("\tre[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d4,tmp->d5,tmp->d6,tmp->d7); tmp+=2; }
-	tmp = r00 +1;
-	for(idbg = 0; idbg < 32; idbg++) { printf("\tim[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d4,tmp->d5,tmp->d6,tmp->d7); tmp+=2; }
-   #endif
-  }
-  #endif
 
 /*
 !...send the pairs of complex elements which are to be combined and sincos temporaries needed for the squaring to a
@@ -3560,7 +3663,32 @@ addr += 4;
 	#endif
 
 	// Permute the sincos-multiplier data:
-	#ifdef USE_AVX512
+	#ifdef USE_ARM_V8_SIMD
+
+	__asm__ volatile (\
+		"ldr	x0,%[tmp0]			\n\t"\
+		"ldp	q0,q1,[x0      ]	\n\t"\
+		"ldp	q2,q3,[x0,#0x20]	\n\t"\
+		"ldp	q4,q5,[x0,#0x40]	\n\t"\
+		"ldp	q6,q7,[x0,#0x60]	\n\t"\
+		"ext v0.16b,v0.16b,v0.16b,#8	\n\t"\
+		"ext v1.16b,v1.16b,v1.16b,#8	\n\t"\
+		"ext v2.16b,v2.16b,v2.16b,#8	\n\t"\
+		"ext v3.16b,v3.16b,v3.16b,#8	\n\t"\
+		"ext v4.16b,v4.16b,v4.16b,#8	\n\t"\
+		"ext v5.16b,v5.16b,v5.16b,#8	\n\t"\
+		"ext v6.16b,v6.16b,v6.16b,#8	\n\t"\
+		"ext v7.16b,v7.16b,v7.16b,#8	\n\t"\
+		"stp	q0,q1,[x0      ]	\n\t"\
+		"stp	q2,q3,[x0,#0x20]	\n\t"\
+		"stp	q4,q5,[x0,#0x40]	\n\t"\
+		"stp	q6,q7,[x0,#0x60]	\n\t"\
+		:					// outputs: none
+		: [tmp0] "m" (tmp0)	// All inputs from memory addresses here
+		: "cc","memory","x0","x1","v0","v1","v2","v3","v4","v5","v6","v7"	/* Clobbered registers */\
+	);
+
+	#elif defined(USE_AVX512)
 		// AVX-512 version has shufpd immediate = 0x55 = 01010101_2, which is the fourfold analog of the SSE2 imm8 = 1 = 01_2:
 	__asm__ volatile (\
 		"movq	%[tmp0],%%rax\n\t"\
@@ -3748,6 +3876,24 @@ addr += 4;
 		SSE2_RADIX32_WRAPPER_DIT(add0,add1
 		,isrt2,r00,r08,r10,r20,r28,r30,c00,c01,c02,c03,c04,c05,c06,c07,c08,c0A,c0C,c0E,c10,c12,c14,c16,c18,c1A,c1C,c1E)
 	  #endif
+  #if 0
+  if(j1 < 2048) {
+	int idbg, ioffset = 2;
+	printf("%s: DIT outputs 0:\n",func);
+	tmp = (vec_dbl*)add0 + ioffset;
+	for(idbg = 0; idbg < 8; idbg++, tmp+=8) {
+		if(idbg == 4) tmp = (vec_dbl*)add0 + 4 + ioffset;
+		printf("%2u:\tre = %20.10e,%20.10e\tim = %20.10e,%20.10e\n",idbg+ioffset,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);
+	}
+	printf("%s: DIT outputs 1:\n",func);
+	tmp = (vec_dbl*)add1 + ioffset;
+	for(idbg = 0; idbg < 8; idbg++, tmp+=8) {
+		if(idbg == 4) tmp = (vec_dbl*)add1 + 4 + ioffset;
+		printf("%2u:\tre = %20.10e,%20.10e\tim = %20.10e,%20.10e\n",idbg+ioffset,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);
+	}
+	exit(0);
+  }
+  #endif
 
 	#endif
   #if 0

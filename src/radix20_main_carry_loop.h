@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2016 by Ernst W. Mayer.                                           *
+*   (C) 1997-2017 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -39,12 +39,44 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		/*
 		!...gather the needed data (20 64-bit complex, i.e. 40 64-bit reals) and do a radix-20 DIT transform...
 		*/
-#ifdef USE_SSE2
+	#ifdef USE_ARM_V8_SIMD	// For x86 SIMD have radix-20 DFT macro, so only use the small-macro approach on ARMv8
+
+	  #ifdef USE_ARM_V8_SIMD
+		uint32 OFF = 0xa0;
+	  #elif defined(USE_AVX512)
+		#define OFF	0xa0*4
+	  #elif defined(USE_AVX)
+		#define OFF	0xa0*2
+	  #else
+		#define OFF	0xa0
+	  #endif
+		add0 = &a[j1];	add1 = add0+p01; add2 = add0+p02,add3 = add0+p03;
+		tmp = r00;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0,add1,add3,add2, tmp, OFF);
+		add0 += p04;	add1 = add0+p01; add2 = add0+p02,add3 = add0+p03;
+		tmp += 2;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add3,add2,add1,add0, tmp, OFF);
+		add0 += p08-p04;add1 = add0+p01; add2 = add0+p02,add3 = add0+p03;
+		tmp += 2;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add1,add0,add2,add3, tmp, OFF);
+		add0 += p04;	add1 = add0+p01; add2 = add0+p02,add3 = add0+p03;
+		tmp += 2;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add2,add3,add0,add1, tmp, OFF);
+		add0 += p16-p12;add1 = add0+p01; add2 = add0+p02,add3 = add0+p03;
+		tmp += 2;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0,add1,add3,add2, tmp, OFF);
+
+		vec_dbl *va1,*va2,*va3,*va4;
+		tmp = r00; va1 = tmp+2; va2 = tmp+4; va3 = tmp+6; va4 = tmp+8;
+		SSE2_RADIX_05_DFT_0TWIDDLE(tmp,va1,va2,va3,va4,cc1,s1p00r,s1p16r,s1p12r,s1p08r,s1p04r);
+		tmp = r10; va1 = tmp+2; va2 = tmp+4; va3 = tmp+6; va4 = tmp+8;
+		SSE2_RADIX_05_DFT_0TWIDDLE(tmp,va1,va2,va3,va4,cc1,s1p15r,s1p11r,s1p07r,s1p03r,s1p19r);
+		tmp = r20; va1 = tmp+2; va2 = tmp+4; va3 = tmp+6; va4 = tmp+8;
+		SSE2_RADIX_05_DFT_0TWIDDLE(tmp,va1,va2,va3,va4,cc1,s1p10r,s1p06r,s1p02r,s1p18r,s1p14r);
+		tmp = r30; va1 = tmp+2; va2 = tmp+4; va3 = tmp+6; va4 = tmp+8;
+		SSE2_RADIX_05_DFT_0TWIDDLE(tmp,va1,va2,va3,va4,cc1,s1p05r,s1p01r,s1p17r,s1p13r,s1p09r);
+
+	#elif defined(USE_SSE2)
 
 		add0 = &a[j1    ];
 		SSE2_RADIX20_DIT_NOTWIDDLE(add0,p01,p04,r00,r10,r20,r30,cc1,s1p00r,s1p16r,s1p12r,s1p08r,s1p04r,s1p15r,s1p11r,s1p07r,s1p03r,s1p19r,s1p10r,s1p06r,s1p02r,s1p18r,s1p14r,s1p05r,s1p01r,s1p17r,s1p13r,s1p09r);
 
-#else
+	#else
 						 /*          inputs           */ /*                                      outputs                                      */
 		RADIX_04_DIT(a[j1    ],a[j2    ],a[j1+p01],a[j2+p01],a[j1+p03],a[j2+p03],a[j1+p02],a[j2+p02],t00,t01,t10,t11,t20,t21,t30,t31,rt,it);
 		RADIX_04_DIT(a[j1+p07],a[j2+p07],a[j1+p06],a[j2+p06],a[j1+p05],a[j2+p05],a[j1+p04],a[j2+p04],t02,t03,t12,t13,t22,t23,t32,t33,rt,it);
@@ -59,7 +91,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		RADIX_05_DFT(uc1,uc2,us1,us2,us3,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,a1p10r,a1p10i,a1p06r,a1p06i,a1p02r,a1p02i,a1p18r,a1p18i,a1p14r,a1p14i,rt,it);
 		RADIX_05_DFT(uc1,uc2,us1,us2,us3,t30,t31,t32,t33,t34,t35,t36,t37,t38,t39,a1p05r,a1p05i,a1p01r,a1p01i,a1p17r,a1p17i,a1p13r,a1p13i,a1p09r,a1p09i,rt,it);
 
-#endif
+	#endif
 
 /*...Now do the carries. Since the outputs would
 normally be getting dispatched to 20 separate blocks of the A-array, we need 20 separate carries.	*/
@@ -355,7 +387,28 @@ normally be getting dispatched to 20 separate blocks of the A-array, we need 20 
 
 /*...The radix-20 DIF pass is here:	*/
 
-	#ifdef USE_SSE2
+	#ifdef USE_ARM_V8_SIMD
+
+		// swap last 2 outputs (va3 <-> va4) of the 5-DFTs to undo swap of these in macro:
+		tmp = r00; va1 = tmp+2; va2 = tmp+4; va3 = tmp+6; va4 = tmp+8;
+		SSE2_RADIX_05_DFT_0TWIDDLE(s1p00r,s1p16r,s1p12r,s1p08r,s1p04r,cc1,tmp,va1,va2,va4,va3);
+		tmp = r10; va1 = tmp+2; va2 = tmp+4; va3 = tmp+6; va4 = tmp+8;
+		SSE2_RADIX_05_DFT_0TWIDDLE(s1p15r,s1p11r,s1p07r,s1p03r,s1p19r,cc1,tmp,va1,va2,va4,va3);
+		tmp = r20; va1 = tmp+2; va2 = tmp+4; va3 = tmp+6; va4 = tmp+8;
+		SSE2_RADIX_05_DFT_0TWIDDLE(s1p10r,s1p06r,s1p02r,s1p18r,s1p14r,cc1,tmp,va1,va2,va4,va3);
+		tmp = r30; va1 = tmp+2; va2 = tmp+4; va3 = tmp+6; va4 = tmp+8;
+		SSE2_RADIX_05_DFT_0TWIDDLE(s1p05r,s1p01r,s1p17r,s1p13r,s1p09r,cc1,tmp,va1,va2,va4,va3);
+		/* Inputs in SSE2 modes are temps 2*9*16 = 18*16 = 0X120 bytes apart: */
+		tmp = r00;	add0 = &a[j1    ]; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0,add1,add3,add2, tmp, OFF)
+		tmp += 2;	add0 = &a[j1+p16]; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0,add1,add3,add2, tmp, OFF)
+		tmp += 2;	add0 = &a[j1+p12]; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add2,add3,add0,add1, tmp, OFF)
+		tmp += 2;	add0 = &a[j1+p04]; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add3,add2,add1,add0, tmp, OFF)
+		tmp += 2;	add0 = &a[j1+p08]; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add1,add0,add2,add3, tmp, OFF)
+	  #ifndef USE_ARM_V8_SIMD
+		#undef OFF
+	  #endif
+
+	#elif defined(USE_SSE2)
 
 		add0 = &a[j1    ];	// re-init this, because ptr used as a prefetch address in carry step above
 		SSE2_RADIX20_DIF_NOTWIDDLE(add0,p01,p04,p08,p16,s1p00r,s1p16r,s1p12r,s1p08r,s1p04r,s1p15r,s1p11r,s1p07r,s1p03r,s1p19r,s1p10r,s1p06r,s1p02r,s1p18r,s1p14r,s1p05r,s1p01r,s1p17r,s1p13r,s1p09r,cc1,r00,r10,r20,r30)

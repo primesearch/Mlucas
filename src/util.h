@@ -68,18 +68,22 @@ void	test_fft_radix(void);
 /* getRealTime.c: */
 double	 getRealTime();
 
-/* get_cpuid.c: x86-style CPUs */
-void	get_cpu(void);
-uint32	has_sse  (void);
-uint32	has_sse2 (void);
-uint32	has_sse3 (void);
-uint32	has_sse3e(void);
-uint32	has_sse41(void);
-uint32	has_sse42(void);
-uint32	has_avx  (void);
-uint32	has_avx2 (void);
-uint32	has_avx512(void);
-void	cpu_details(void);
+/* get_cpuid.c: x86 and other inline-ASM-targeted CPUs */
+#ifdef CPU_IS_ARM_EABI
+	int has_asimd(void);
+#elif(defined(CPU_IS_X86) || defined(CPU_IS_IA64) || defined(CPU_IS_X86_64))
+	void	get_cpu(void);
+	uint32	has_sse  (void);
+	uint32	has_sse2 (void);
+	uint32	has_sse3 (void);
+	uint32	has_sse3e(void);
+	uint32	has_sse41(void);
+	uint32	has_sse42(void);
+	uint32	has_avx  (void);
+	uint32	has_avx2 (void);
+	uint32	has_avx512(void);
+	void	cpu_details(void);
+#endif
 
 /* util.c: */
 void	host_init(void);	/* This one is a wrapper for calls to the next few: */

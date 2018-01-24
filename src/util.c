@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -201,7 +201,8 @@ const uint32 ith_set_bit8[256] = {
 #ifdef ENABLE_MPRIME_PM1_SMOOTH
 
 	/* Here are the 9366 base-2 Fermat pseudoprimes < 2^32 not divisible by 3 or 5: */
-	const uint32 fbase2psp[9366] = {	/* include contents of f2psp[] in f2psp_3_5.h here */	};
+	const uint32 fbase2psp[9366] = {
+		/* include contents of f2psp[] in f2psp_3_5.h here */	};
 	#error Must include contents of f2psp[] in f2psp_3_5.h here!
 
 	#undef psmooth
@@ -1403,10 +1404,10 @@ void host_init(void)
 #ifdef TEST_SIMD
 	printf("INFO: Timing-testing selected FFT macros...\n");
   #ifdef USE_SSE2
-//	ASSERT(HERE, test_radix4_dft() == 0, "test_radix4_dft() returns nonzero!");	*** Nov 2016: Disable these until have suitable avx-512 macros ***
+	ASSERT(HERE, test_radix4_dft() == 0, "test_radix4_dft() returns nonzero!");
   #endif
 
-//	ASSERT(HERE, test_radix16_dft() == 0, "test_radix16_dft() returns nonzero!");
+	ASSERT(HERE, test_radix16_dft() == 0, "test_radix16_dft() returns nonzero!");
 
 	#include "radix32_dif_dit_pass_asm.h"	// Commenting this out gives compile error
 //	ASSERT(HERE, test_radix32_dft() == 0, "test_radix32_dft() returns nonzero!");
@@ -1633,11 +1634,11 @@ exit(0);
 	/* Activate these in turn when a new M-prime is discovered: */
 	/************************************************************/
 #ifdef ENABLE_MPRIME_PM1_SMOOTH
-	uint32 p = 74207281;	// Jan 2016
+	uint32 p = 77232917;	// Jan 2016
 	// Uncomment the specific subfunctions you desire:
-	est_num_mp_in_interval(57885161,74207281);
+	est_num_mp_in_interval(0,p);
 //	compute_mers_best_fit();
-//	test_mp_pm1_smooth(p);
+	test_mp_pm1_smooth(p);
 //	print_mp_dec(p);
 	exit(0);
 #endif
@@ -1790,7 +1791,48 @@ void print_host_info(void)
 
 	printf("CPU Family = %s, OS = %s, %2d-bit Version, compiled with %s, Version %s.\n", CPU_NAME, OS_NAME, OS_BITS, COMPILER_NAME, COMPILER_VERSION);
 
-#if(defined(CPU_IS_X86) || defined(CPU_IS_X86_64) || defined(CPU_IS_X86_64))
+#ifdef CPU_IS_ARM_EABI	// Thanks to Laurent Desnogues for this:
+
+  #if __ARM_ARCH >= 8
+
+	#include <sys/auxv.h>
+	#include <asm/hwcap.h>
+	// Check for flag indicating CPU supports advanced SIMD instruction set.
+	// NB: For reasons unknown, when I tried putting this function def into get_cpuid.c as I do with the
+	// x86 has_sse2() and similar functions, everything compiled fine but got linker errors on the ARM,
+	// linker was unable to find the has_asimd() function. After dicking around with that problem for
+	// several hours (and hence, several hours too many), tried moving the def here, and it worked:
+	int has_asimd(void)
+	{
+		unsigned long hwcaps = getauxval(AT_HWCAP);
+	#ifndef HWCAP_ASIMD	// This is not def'd on pre-ASIMD platforms
+		const unsigned long HWCAP_ASIMD = 0;
+	#endif
+		if (hwcaps & HWCAP_ASIMD) {
+			return 1;
+		}
+		return 0;
+	}
+
+  #else	// Pre-v8 ARM does not have above asimd-headers, no point even looking for them
+
+	int has_asimd(void) { return 0; }
+
+  #endif
+
+	if(has_asimd()) {
+	#ifdef USE_ARM_V8_SIMD
+		printf("INFO: Build uses ARMv8 advanced-SIMD instruction set.\n");
+	#else
+		printf("INFO: CPU supports ARMv8 advanced-SIMD instruction set, but using scalar floating-point build.\n");
+	#endif
+	} else {
+	#ifdef USE_ARM_V8_SIMD
+		ASSERT(HERE, 0, "#define USE_ARM_V8_SIMD invoked but no advanced-SIMD support detected on this CPU!\n");
+	#endif
+	}
+
+#elif(defined(CPU_IS_X86) || defined(CPU_IS_IA64) || defined(CPU_IS_X86_64))
 
 //	get_cpu();
 
@@ -3345,28 +3387,24 @@ DEV uint32	leadz256(uint256 i)
 
 /***************/
 
-/* If the input == 2^p, returns 1; otherwise returns 0. */
-// NB: We do not consider 0 as being a power of 2, since there is no number x such that 2^x = 0:
+/* If the input == 2^p, returns 1; otherwise returns 0.
+Note: We do not consider 0 as being a power of 2, since there is no number x such that 2^x = 0.
+Algo: for unsigned twos-comp int n,
+  n&(n-1)  ('is n&(n-1) nonzero?' in boolean terms) is only 0 (false) for n a power-of-2, with exception of n = 0.
+Conversely,
+!(n&(n-1)) ('is n&(n-1) zero?' in boolean terms) is only !0 (true) for n a power-of-2, with exception of n = 0,
+which latter instance is easily special-cased, via n && !(n&(n-1)).
+
+On hardware with a fast pop-count instruction can also consider using (popcount == 1)?, but not worth the tiny cycle savings.
+*/
 DEV uint32 isPow2(uint32 i32)
 {
-	uint32 i;
-	if(i32 == 0) return 0;
-	i = trailz32(i32);
-	if((i32 >> i) != 1)
-		return 0;
-	else
-		return 1;
+	return i32 && !(i32&(i32-1));
 }
 
 DEV uint64 isPow2_64(uint64 i64)
 {
-	uint64 i;
-	if(i64 == 0ull) return 0ull;
-	i = trailz64(i64);
-	if((i64 >> i) != 1)
-		return 0ull;
-	else
-		return 1ull;
+	return i64 && !(i64&(i64-1));
 }
 
 /***************/
@@ -3374,24 +3412,12 @@ DEV uint64 isPow2_64(uint64 i64)
 /* If the input == 4^p, returns 1; otherwise returns 0. */
 DEV uint32 isPow4(uint32 i32)
 {
-	uint32 i;
-	if(i32 == 0) return 0;
-	i = trailz32(i32);
-	if((i & 1) || (i32 >> i) != 1)
-		return 0;
-	else
-		return 1;
+	return isPow2(i32) && (i32 & 0x55555555);
 }
 
 DEV uint64 isPow4_64(uint64 i64)
 {
-	uint64 i;
-	if(i64 == 0ull) return 0ull;
-	i = trailz64(i64);
-	if((i & 1) || (i64 >> i) != 1)
-		return 0ull;
-	else
-		return 1ull;
+	return isPow2_64(i64) && (i64 & 0x5555555555555555ull);
 }
 
 /***************/
@@ -3896,44 +3922,26 @@ For integers x, y with x, y > 0, returns GCD(x,y). If x or y = 0, returns max(x,
 DEV uint32 gcd32(uint32 x, uint32 y)
 {
 	uint32 q, f;
-
-	if(y == 0)
-	{
-		return x;
+	if(!y) return(x);
+	while(y) {
+		q = x/y;	/* Find quotient of current x/y and round toward zero: */
+		f = x - q*y;/* Find y' and store in temporary: */
+		x = y;		/* Find x', i.e. move the old value of y into the slots for x: */
+		y = f;		/* New value of y: */
 	}
-
-	while(y)
-	{
-		/* Find quotient of current x/y and round toward zero: */
-		q = x/y;
-		/* Find y' and store in temporary: */
-		f = x - q*y;
-		/* Find x', i.e. move the old value of y into the slots for x: */
-		x = y;
-		/* New value of y: */
-		y = f;
-	}
-
 	return(x);
 }
 
 DEV uint64 gcd64(uint64 x, uint64 y)
 {
 	uint64 q, f;
-
-	if(y == 0)
-	{
-		return x;
+	if(!y) return(x);
+	while(y) {
+		q = x/y;	/* Find quotient of current x/y and round toward zero: */
+		f = x - q*y;/* Find y' and store in temporary: */
+		x = y;		/* Find x', i.e. move the old value of y into the slots for x: */
+		y = f;		/* New value of y: */
 	}
-
-	while(y)
-	{
-		q = x/y;
-		f = x - q*y;
-		x = y;
-		y = f;
-	}
-
 	return(x);
 }
 
@@ -5708,15 +5716,22 @@ ftmp0 = ftmp;
 		int i,j,dim,imax = 10000000, nerr = 0;	// Expect radix-4 DFT to need ~1/10th the cycles of radix-32, so use 10^7 loop execs
 		int p1,p2,p3,p4;
 		static vec_dbl *sc_arr = 0x0, *sc_ptr;
-		double *add0;	/* Addresses into array sections */
+		double *add0,*add1,*add2,*add3;	/* Addresses into array sections */
 		// Each row of 16 double data corr. to expected outputs from one of up to two vector-complex 4-DFTs being done:
-		const double ref[] = {-5.,40.,163.,139.,106.,45.,38.,-4.,31.,-36.,-115.,-83.,-120.,-45.,-70.,-48.,
+		const double ref1[] = {-5.,40.,163.,139.,106.,45.,38.,-4.,31.,-36.,-115.,-83.,-120.,-45.,-70.,-48.,
 								-70.,15.,230.,158.,28.,55.,-14.,-70.,56., 3.,-116.,-102.,-6.,-61.,-68.,30.};
+		const double ref2[] = {22.,20.,20.,18.,-18.,-13.,30.,-1.,-26.,-4.,-18.,-12.,-8.,-146.,-28.,72.,
+								13.,15.,31.,16.,-17.,27.,45.,28.,6.,-25.,-24.,15.,-6.,-1.,48.,-57.};
 		vec_dbl *c_tmp,*s_tmp, *cc0,*two, *r0,*r1,*r2,*r3;
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x22);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		// Alloc 8 vector-complex elts (16 vec_dbl) per input/output block rather than 4, so can also test two radix-4 DFTs done side-by-side:
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x42);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
-		r0 = sc_ptr;
+		add0 = sc_ptr;
+		add1 = sc_ptr+0x2;
+		add2 = sc_ptr+0x4;
+		add3 = sc_ptr+0x6;
+		r0 = sc_ptr + 0x10;
 		r1 = r0 + 0x2;
 		r2 = r0 + 0x4;
 		r3 = r0 + 0x6;
@@ -5747,6 +5762,8 @@ ftmp0 = ftmp;
 		// Set inputs != 0 to prevent timings being thrown off by any 0-operand arithmetic-shortcuts the CPU may do:
 		double *dptr = (double *)r0;
 		dim = 8*RE_IM_STRIDE;	// 4 vector-complex data
+		// Copy quasirandom digits-of-Pi-data into our vec_dbl inputs:
+		for(j = 0; j < dim; j++) { *(add0+j) = ran[j]; }
 
 	// 5 May 2016: 10^7-loop timings, 1-threaded on my 2GHz Core2Duo:
 	//																comments
@@ -5762,13 +5779,82 @@ ftmp0 = ftmp;
 	// eliminate 1st twiddle-mul                            0.438	again slower ... now *that* is bizarre
 	// Added spill/reload of first output to cut regs 8,9	0.429	nice - now can do 2 such DFTs side-by-side
 	// Restructure twiddle-muls to use cotangent-scheme		0.445	slower
+	//*** 7 Jul 2017: *** out-of-place DFT allows 1-time init, i.e.
+	// no more need to subtract initial-data-copy timing:	0.232	46 cycles - note this is the 'initial timing' 8-register macro above.
+	// ARM Neon code timing (1.5 GHz Odroid C2):			0.612	93 cycles, almost exactly 2c the cycle count of SSE2 on Core2
 		// Timing loop #1:
 		clock1 = getRealTime();
 		for(i = 0; i < imax; i++) {
-			// Copy quasirandom digits-of-Pi-data into our vec_dbl inputs:
-			for(j = 0; j < dim; j++) { *(dptr+j) = ran[j]; }
+			/* 4-DFT-with-3-complex-twiddles macro. SIMD opcount:
+			x86_64 SSE2: 41 MEM (19 load[1 via mem-op in addpd], 14 store, 8 reg-copy), 22 ADDPD, 16 MULPD
+			ARM v8 Neon: 11 MEM (7 load-pair, 4 store-pair), 16 FADD, 12 FMUl/FMA
+			*/
+		#ifdef USE_ARM_V8_SIMD
 			__asm__ volatile (\
-				/* SIMD opcount: 29 MEM (= MOVAPS from/to memory), 24 ADDPD, 20 MULPD */\
+				"ldr	x0,%[__add0]		\n\t"\
+				"ldr	w1,%[__p1]			\n\t"\
+				"ldr	w2,%[__p2]			\n\t"\
+				"ldr	w3,%[__p3]			\n\t"\
+				"ldr	x4,%[__cc0]			\n\t"\
+				"ldr	x5,%[__r0]			\n\t"\
+				"add	x1, x0,x1,lsl #3	\n\t"\
+				"add	x2, x0,x2,lsl #3	\n\t"\
+				"add	x3, x0,x3,lsl #3	\n\t"\
+				/* SSE2_RADIX_04_DIF_3TWIDDLE(r0,c0): */\
+				/* Do	the p0,p2 combo: */\
+				"ldp	q4,q5,[x2]			\n\t"\
+				"ldp	q8,q9,[x4]			\n\t"/* cc0 */\
+				"ldp	q0,q1,[x0]			\n\t"\
+				"fmul	v6.2d,v4.2d,v8.2d	\n\t"/* twiddle-mul: */\
+				"fmul	v7.2d,v5.2d,v8.2d	\n\t"\
+				"fmls	v6.2d,v5.2d,v9.2d	\n\t"\
+				"fmla	v7.2d,v4.2d,v9.2d	\n\t"\
+				"fsub	v2.2d ,v0.2d,v6.2d	\n\t"/* 2 x 2 complex butterfly: */\
+				"fsub	v3.2d ,v1.2d,v7.2d	\n\t"\
+				"fadd	v10.2d,v0.2d,v6.2d	\n\t"\
+				"fadd	v11.2d,v1.2d,v7.2d	\n\t"\
+				/* Do	the p1,3 combo: */\
+				"ldp	q8,q9,[x4,#0x40]	\n\t"/* cc0+4 */\
+				"ldp	q6,q7,[x3]			\n\t"\
+				"fmul	v0.2d,v6.2d,v8.2d	\n\t"/* twiddle-mul: */\
+				"fmul	v1.2d,v7.2d,v8.2d	\n\t"\
+				"fmls	v0.2d,v7.2d,v9.2d	\n\t"\
+				"fmla	v1.2d,v6.2d,v9.2d	\n\t"\
+				"ldp	q8,q9,[x4,#0x20]	\n\t"/* cc0+2 */\
+				"ldp	q6,q7,[x1]			\n\t"\
+				"fmul	v4.2d,v6.2d,v8.2d	\n\t"/* twiddle-mul: */\
+				"fmul	v5.2d,v7.2d,v8.2d	\n\t"\
+				"fmls	v4.2d,v7.2d,v9.2d	\n\t"\
+				"fmla	v5.2d,v6.2d,v9.2d	\n\t"\
+				"fadd	v6.2d,v4.2d,v0.2d	\n\t"/* 2 x 2 complex butterfly: */\
+				"fadd	v7.2d,v5.2d,v1.2d	\n\t"\
+				"fsub	v4.2d,v4.2d,v0.2d	\n\t"\
+				"fsub	v5.2d,v5.2d,v1.2d	\n\t"\
+				/* Finish radix-4 butterfly and store results: */\
+				"fsub	v8.2d,v10.2d,v6.2d	\n\t"\
+				"fsub	v9.2d,v11.2d,v7.2d	\n\t"\
+				"fsub	v1.2d,v3.2d,v4.2d	\n\t"\
+				"fsub	v0.2d,v2.2d,v5.2d	\n\t"\
+				"fadd	v6.2d,v6.2d,v10.2d	\n\t"\
+				"fadd	v7.2d,v7.2d,v11.2d	\n\t"\
+				"fadd	v4.2d,v4.2d,v3.2d	\n\t"\
+				"fadd	v5.2d,v5.2d,v2.2d	\n\t"\
+				"stp	q6,q7,[x5      ]	\n\t"/* out 0 */\
+				"stp	q0,q4,[x5,#0x20]	\n\t"/* out 1 */\
+				"stp	q8,q9,[x5,#0x40]	\n\t"/* out 2 */\
+				"stp	q5,q1,[x5,#0x60]	\n\t"/* out 3 */\
+				:					/* outputs: none */\
+				: [__add0] "m" (add0)	/* All inputs from memory addresses here */\
+				 ,[__p1] "m" (p1)\
+				 ,[__p2] "m" (p2)\
+				 ,[__p3] "m" (p3)\
+				 ,[__two] "m" (two)\
+				 ,[__cc0] "m" (cc0)\
+				 ,[__r0] "m" (r0)\
+				: "cc","memory","x0","x1","x2","x3","x4","x5","v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11"	/* Clobbered registers */\
+			);
+		#else
+			__asm__ volatile (\
 				"movq	%[__cc0],%%rsi 		\n\t"\
 				"movq	%[__add0],%%rax		\n\t"\
 				/* NB: preshifting the p-offsets to save the *= 8 below saves nothing: */\
@@ -5816,7 +5902,7 @@ ftmp0 = ftmp;
 				"mulpd	%%xmm1,%%xmm7		\n\t"\
 				"addpd	%%xmm6,%%xmm5		\n\t"\
 				"subpd	%%xmm7,%%xmm4		\n\t"\
-				"movaps	%%xmm5,0x10(%%rdi)	\n\t"/* Spill  2*/\
+				"movaps	%%xmm5,0x10(%%rdi)	\n\t"/* Spill 2*/\
 				"movaps	%%xmm4,    (%%rdi)	\n\t"\
 				"movaps	0x20(%%rsi),%%xmm0	\n\t"\
 				"movaps	0x30(%%rsi),%%xmm1	\n\t"\
@@ -5863,7 +5949,7 @@ ftmp0 = ftmp;
 				"movaps	%%xmm7,0x10(%%rdi)	\n\t"\
 				"movaps	%%xmm4,0x30(%%rdi)	\n\t"\
 				:					/* outputs: none */\
-				: [__add0] "m" (r0)	/* All inputs from memory addresses here */\
+				: [__add0] "m" (add0)	/* All inputs from memory addresses here */\
 				 ,[__p1] "m" (p1)\
 				 ,[__p2] "m" (p2)\
 				 ,[__p3] "m" (p3)\
@@ -5872,6 +5958,7 @@ ftmp0 = ftmp;
 				 ,[__r0] "m" (r0)\
 				: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
 			);
+		#endif	// ARM_V8 or X86_64 SIMD?
 		}
 		clock2 = getRealTime();
 		tdiff = (double)(clock2 - clock1);
@@ -5882,38 +5969,39 @@ ftmp0 = ftmp;
 		for(i = 0; i < 4; i++) {
 			j = i<<2;
 		//	printf("Out%u Re.[d0,d1] = %16.12f,%16.12f, Im.[d0,d1] = %16.12f,%16.12f\n",i,*dptr,*(dptr+1),*(dptr+2),*(dptr+3));
-			nerr += (fabs(*(dptr  ) - ref[j  ]) > 1e-10);
-			nerr += (fabs(*(dptr+1) - ref[j+1]) > 1e-10);
-			nerr += (fabs(*(dptr+2) - ref[j+2]) > 1e-10);
-			nerr += (fabs(*(dptr+3) - ref[j+3]) > 1e-10);
+			nerr += (fabs(*(dptr  ) - ref1[j  ]) > 1e-10);
+			nerr += (fabs(*(dptr+1) - ref1[j+1]) > 1e-10);
+			nerr += (fabs(*(dptr+2) - ref1[j+2]) > 1e-10);
+			nerr += (fabs(*(dptr+3) - ref1[j+3]) > 1e-10);
 			dptr += 4;
 		}
 		ASSERT(HERE, nerr == 0, "Outputs mismatch ref-data!");
 
-		// Timing loop #2 - two radix-4 DFTs (operating on separate data chunks but sharing twiddles) side-by-side:
-	/* 6 May 2016, Core2:
-	Baseline single-DFT timing of loop #2 = 0.416 sec with-DFT, 0.252 sec sans-DFT ==> 1-DFT = 0.164 sec ==> 32.8 cycles
-	
-	*/
-	// 7 May 2016: 10^7-loop timings, 1-threaded on my 2GHz Core2Duo:
-	//																comments
-	// no-DFT timing (keeping just 1 address-load of macro)	0.486	97.2 cycles ... 2x as many data-inits as loop #1
-	// initial timing										0.871	126.2 - 49.2 = 77 cycles, vs 36.8 for single-column ASM
-	//											*** 2-column actually slows things down in terms of per-cycle throughput! ***
-	// rcol down 4 lines to break same-instruction blocks	0.813	66 cycles, big improvement!
-	//18 May: 2-col impl of 2x4-DFT-each-with-3-twiddles	0.791	61 cycles, better, need to get under 60
-	
-	// 9 May: GCCified George's dual complex 4-DFT macro (not a drop-in replcement candidate for mine
-	// (due to its cotangent-twiddles scheme), munged addresses, pasted underneath my opening address-
-	// computation block below, just to get a timing:		0.735	50 cycles, yowza!
-		dptr = (double *)r0;
+	// Timing loop #2 - two radix-4 DFTs (operating on separate data chunks but sharing twiddles) side-by-side:
+		/* 6 May 2016, Core2:
+		Baseline single-DFT timing of loop #2 = 0.416 sec with-DFT, 0.252 sec sans-DFT ==> 1-DFT = 0.164 sec ==> 32.8 cycles
+
+		*/
+		// 7 May 2016: 10^7-loop timings, 1-threaded on my 2GHz Core2Duo:
+		//																comments
+		// no-DFT timing (keeping just 1 address-load of macro)	0.486	97.2 cycles ... 2x as many data-inits as loop #1
+		// initial timing										0.871	126.2 - 49.2 = 77 cycles, vs 36.8 for single-column ASM
+		//											*** 2-column actually slows things down in terms of per-cycle throughput! ***
+		// rcol down 4 lines to break same-instruction blocks	0.813	66 cycles, big improvement!
+		//18 May: 2-col impl of 2x4-DFT-each-with-3-twiddles	0.791	61 cycles, better, need to get under 60
+
+		// 9 May: GCCified George's dual complex 4-DFT macro (not a drop-in replacement candidate for mine
+		// (due to its cotangent-twiddles scheme), munged addresses, pasted underneath my opening address-
+		// computation block below, just to get a timing:		0.735	50 cycles, yowza!
+		//
+		// Copy quasirandom digits-of-Pi-data into our vec_dbl inputs:
+		for(j = 0; j < dim+dim; j++) { *(add0+j) = ran[j]; }
+		int k = 0x60;
 		clock1 = getRealTime();
 		for(i = 0; i < imax; i++) {
-			// Copy quasirandom digits-of-Pi-data into our vec_dbl inputs:
-			for(j = 0; j < dim+dim; j++) { *(dptr+j) = ran[j]; }
 			j = 0x80;	// Set j to the bytewise address offset between the pointers to the first and second DFT's data
 						// 0x60 = literal-bytewise address offset between the pointers to the first and second DFT's twiddles:
-			SSE2_RADIX_04_DIF_3TWIDDLE_X2(r0,r1,r2,r3,j, two,cc0,0x60, r0,r1,r2,r3,j)
+			SSE2_RADIX_04_DIF_3TWIDDLE_X2(add0,add1,add2,add3,j, two,cc0,k, r0,r1,r2,r3,j)
 		}
 		clock2 = getRealTime();
 		tdiff = (double)(clock2 - clock1);
@@ -5924,7 +6012,53 @@ ftmp0 = ftmp;
 		for(i = 0; i < 8; i++) {
 			j = i<<2;
 		//	printf("Out%u Re.[d0,d1] = %16.12f,%16.12f, Im.[d0,d1] = %16.12f,%16.12f\n",i,*dptr,*(dptr+1),*(dptr+2),*(dptr+3));
-			nerr += (*dptr != ref[j]) + (*(dptr+1) != ref[j+1]) + (*(dptr+2) != ref[j+2]) + (*(dptr+3) != ref[j+3]);
+			nerr += (*dptr != ref1[j]) + (*(dptr+1) != ref1[j+1]) + (*(dptr+2) != ref1[j+2]) + (*(dptr+3) != ref1[j+3]);
+			dptr += 4;
+		}
+		ASSERT(HERE, nerr == 0, "Outputs mismatch ref-data!");
+
+	// Timing loop #3 - single radix-4 DIT DFT:
+		dim = 8*RE_IM_STRIDE;	// 4 vector-complex data
+		// Copy quasirandom digits-of-Pi-data into our vec_dbl inputs:
+		for(j = 0; j < dim; j++) { *(add0+j) = ran[j]; }
+		clock1 = getRealTime();
+		for(i = 0; i < imax; i++) {
+			// Single-4-DFT macro uses same arglist as paired ones, but ignores the args in the j,k,j slots:
+			SSE2_RADIX_04_DIT_3TWIDDLE_X1(add0,add1,add2,add3,j, two,cc0,k, r0,r1,r2,r3,j)
+		}
+		clock2 = getRealTime();
+		tdiff = (double)(clock2 - clock1);
+		printf("%s, loop 3: Time for %u macro calls =%s\n",func, imax, get_time_str(tdiff));
+		// Check outputs vs ref-data:
+		nerr = 0;
+		dptr = (double *)r0;
+		for(i = 0; i < 4; i++) {
+			j = i<<2;
+		//	printf("Out%u Re.[d0,d1] = %16.12f,%16.12f, Im.[d0,d1] = %16.12f,%16.12f\n",i,*dptr,*(dptr+1),*(dptr+2),*(dptr+3));
+			nerr += (*dptr != ref2[j]) + (*(dptr+1) != ref2[j+1]) + (*(dptr+2) != ref2[j+2]) + (*(dptr+3) != ref2[j+3]);
+			dptr += 4;
+		}
+		ASSERT(HERE, nerr == 0, "Outputs mismatch ref-data!");
+
+	// Timing loop #4 - two radix-4 DIT DFTs (operating on separate data chunks but sharing twiddles) side-by-side:
+		for(j = 0; j < dim+dim; j++) { *(add0+j) = ran[j]; }
+		k = 0x60;
+		clock1 = getRealTime();
+		for(i = 0; i < imax; i++) {
+			j = 0x80;	// Set j to the bytewise address offset between the pointers to the first and second DFT's data
+						// 0x60 = literal-bytewise address offset between the pointers to the first and second DFT's twiddles:
+			SSE2_RADIX_04_DIT_3TWIDDLE_X2(add0,add1,add2,add3,j, two,cc0,k, r0,r1,r2,r3,j)
+		}
+		clock2 = getRealTime();
+		tdiff = (double)(clock2 - clock1);
+		printf("%s, loop 4: Time for %u macro calls =%s\n",func, imax, get_time_str(tdiff));
+		// Check outputs vs ref-data:
+		nerr = 0;
+		dptr = (double *)r0;
+		for(i = 0; i < 8; i++) {
+			j = i<<2;
+		//	printf("Out%u Re.[d0,d1] = %16.12f,%16.12f, Im.[d0,d1] = %16.12f,%16.12f\n",i,*dptr,*(dptr+1),*(dptr+2),*(dptr+3));
+			nerr += (*dptr != ref2[j]) + (*(dptr+1) != ref2[j+1]) + (*(dptr+2) != ref2[j+2]) + (*(dptr+3) != ref2[j+3]);
 			dptr += 4;
 		}
 		ASSERT(HERE, nerr == 0, "Outputs mismatch ref-data!");
@@ -5933,7 +6067,6 @@ ftmp0 = ftmp;
 		return nerr;
 	#endif	// USE_AVX?
 	}
-  #endif	// USE_SSE2 = true?
 
 	// Timing loop for radix-16 DIF macro:
 	int	test_radix16_dft()
@@ -5943,7 +6076,7 @@ ftmp0 = ftmp;
 		double clock1, clock2;
 		double *dptr, tdiff, rt,it, dtmp, avg_err;
 		double t0,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t30,t31;
-		int i,j,j1,j2,k,imax = 1000000, nerr = 0;	// Use 10^6 loop execs
+		int i,j,j1,j2,k,imax = 10000000, nerr = 0;	// Use 10^7 loop execs
 		int p1,p2,p3,p4,p5,p6,p7,p8,p9,pA,pB,pC,pD,pE,pF;
 		const double c = 0.9238795325112867561281831, s = 0.3826834323650897717284599;	/* exp[i*(twopi/16)]*/
 	#ifdef USE_AVX2	// FMA-based DFT needs the tangent
@@ -6263,7 +6396,8 @@ ftmp0 = ftmp;
 
 		//******************* Timing loop for Radix-16 DIF transform macro: *******************
 		clock1 = getRealTime();
-		for(i = 0; i < imax; i++) {
+		for(i = 0; i < imax; i++)
+		{
 			// Copy digits of Pi-data into our vec_dbl inputs:
 			for(j1 = 0, j2 = 0; j1 < dim; j1 += stride, j2 += 8)	// j2 is base-index into ran[] input array
 			{
@@ -6315,6 +6449,7 @@ ftmp0 = ftmp;
 				a[j1+7] = ran[j2+7];	// Im3
 			#endif
 			}
+
 			j1 = 0; j2 = RE_IM_STRIDE;
 
 // 19 May 2016: 10^7-loop timings, 1-threaded on my 2GHz Core2Duo:
@@ -6341,9 +6476,6 @@ avx512:			.296	.472	.176 [229 cycles]	further fiddling with the adressing parts 
 
 			vec_dbl *add = (vec_dbl *)a;
 			SSE2_RADIX16_DIF_TWIDDLE_V2(add,p1,p2,p3,p4,p8,pC,r00,two,cc0,pfetch_addr,pfetch_dist);
-// Haswell/AVX timings:
-// With just first 1/4 of macro:	7.03
-
 /*
 #ifdef USE_AVX
 	dptr = (double *)r00;
@@ -6359,6 +6491,25 @@ avx512:			.296	.472	.176 [229 cycles]	further fiddling with the adressing parts 
 		printf("%2u Re.[d0,d1] = %16.12f,%16.12f, Im.[d0,d1] = %16.12f,%16.12f\n",i,*dptr,*(dptr+1),*(dptr+2),*(dptr+3));
 	}
 	exit(0);
+	#if 0
+		SSE2, Intermediates:
+		 0 Re.[d0,d1] =  12.996843798630, 24.930865132335, Im.[d0,d1] =   3.041415000035, 24.061237911217
+		 1 Re.[d0,d1] =  -1.967770045489, -3.960148397371, Im.[d0,d1] =  -6.012197708235, -5.001442285342
+		 2 Re.[d0,d1] =  -0.996872035772, -2.980018327208, Im.[d0,d1] =  -1.023007259458, -6.018361815583
+		 3 Re.[d0,d1] =   1.967798282632, -1.990698407756, Im.[d0,d1] =   7.993789967657, -9.041433810292
+		 4 Re.[d0,d1] =  17.937037540455, 15.972338992203, Im.[d0,d1] =  20.044361826623, 14.027564530942
+		 5 Re.[d0,d1] =   0.026036426331,  0.015342118897, Im.[d0,d1] =  -1.992277237471, -0.012241272931
+		 6 Re.[d0,d1] =   4.013790439910, 12.015332706460, Im.[d0,d1] =   2.010786096064, -1.990767874548
+		 7 Re.[d0,d1] = -13.976864406696,  3.996986182440, Im.[d0,d1] =  -8.062870685215,  3.975444616537
+		 8 Re.[d0,d1] =  15.947773027030, 21.940126671442, Im.[d0,d1] =  19.038248242231, 25.038232997648
+		 9 Re.[d0,d1] =   1.022960222909,  2.004558386725, Im.[d0,d1] =  -1.990745621227, 11.007687462509
+		10 Re.[d0,d1] =   6.039898671633,  4.022982548356, Im.[d0,d1] =  -9.001451585837,  3.010797836274
+		11 Re.[d0,d1] =  -3.010631921572, -7.967667606523, Im.[d0,d1] =   3.953948964833, -7.056718296431
+		12 Re.[d0,d1] =  24.987608157941, 30.970725010455, Im.[d0,d1] =   9.067480879677, 13.070512349057
+		13 Re.[d0,d1] =  -8.972346109218,  2.036811854087, Im.[d0,d1] =   0.969395724120, -0.007571096299
+		14 Re.[d0,d1] =  -2.999955284040, -4.989179812937, Im.[d0,d1] =   0.981587603769, -1.039861018570
+		15 Re.[d0,d1] =  -1.015306764683,  3.981642948395, Im.[d0,d1] =   0.981535792434, -0.023080234188
+	#endif
 #endif
 */
 		   #else
@@ -6463,16 +6614,17 @@ exit(0);
 		#elif defined(USE_SSE2)
 		//	printf("Out%2u Re.[d0,d1] = %16.12f,%16.12f, Im.[d0,d1] = %16.12f,%16.12f\n",j1/p1,a[j1],a[j1+1],a[j1+2],a[j1+3]);
 		//	printf("Ref%2u Re.[d0,d1] = %16.12f,%16.12f, Im.[d0,d1] = %16.12f,%16.12f\n",j1/p1,ref1[j2],ref1[j2+2],ref1[j2+1],ref1[j2+3]);
-			nerr += (fabs(a[j1  ] - ref1[j2  ]) > 1e-10);
-			nerr += (fabs(a[j1+1] - ref1[j2+2]) > 1e-10);
-			nerr += (fabs(a[j1+2] - ref1[j2+1]) > 1e-10);
-			nerr += (fabs(a[j1+3] - ref1[j2+3]) > 1e-10);
+			dtmp = fabs(a[j1  ] - ref1[j2  ]); avg_err += dtmp; if(dtmp > 1e-10){ /*printf("error Re.d0\n");*/ nerr++; };
+			dtmp = fabs(a[j1+1] - ref1[j2+2]); avg_err += dtmp; if(dtmp > 1e-10){ /*printf("error Re.d1\n");*/ nerr++; };
+			dtmp = fabs(a[j1+2] - ref1[j2+1]); avg_err += dtmp; if(dtmp > 1e-10){ /*printf("error Im.d0\n");*/ nerr++; };
+			dtmp = fabs(a[j1+3] - ref1[j2+3]); avg_err += dtmp; if(dtmp > 1e-10){ /*printf("error Im.d1\n");*/ nerr++; };
 		#else
 		//	printf("Out%2u Re,Im = %16.12f,%16.12f\n",j1/p1,a[j1],a[j1+1]);
-			nerr += (fabs(a[j1  ] - ref1[j2  ]) > 1e-10);
-			nerr += (fabs(a[j1+1] - ref1[j2+1]) > 1e-10);
+			dtmp = fabs(a[j1  ] - ref1[j2  ]); avg_err += dtmp; if(dtmp > 1e-10){ /*printf("error Re.d0\n");*/ nerr++; };
+			dtmp = fabs(a[j1+1] - ref1[j2+1]); avg_err += dtmp; if(dtmp > 1e-10){ /*printf("error Im.d0\n");*/ nerr++; };
 		#endif
 		}
+printf("DIF: nerr = %u, ",nerr);
 		ASSERT(HERE, nerr == 0, "DIF Outputs mismatch ref-data!");
 		printf("\tSummed roundoff error = %20.10e]\n",avg_err);
 
@@ -6543,7 +6695,8 @@ exit(0);
 	  #endif
 
 		clock1 = getRealTime();
-		for(i = 0; i < imax; i++) {
+		for(i = 0; i < imax; i++)
+		{
 			// Copy digits of Pi-data into our vec_dbl inputs:
 			for(j1 = 0, j2 = 0; j1 < dim; j1 += stride, j2 += 8)	// j2 is base-index into ran[] input array
 			{
@@ -6595,6 +6748,7 @@ exit(0);
 				a[j1+7] = ran[j2+7];	// Im3
 			#endif
 			}
+
 			j1 = 0; j2 = RE_IM_STRIDE;
 
 // 23 May 2016: 10^7-loop timings, 1-threaded on my 2GHz Core2Duo:
@@ -6679,6 +6833,25 @@ avx512:			.296	.489	.193 [251 cycles]	further fiddling with the adressing parts 
 		printf("%2u Re.[d0,d1] = %16.12f,%16.12f, Im.[d0,d1] = %16.12f,%16.12f\n",i,*dptr,*(dptr+1),*(dptr+2),*(dptr+3));
 	}
 	exit(0);
+	#if 0
+	SSE2, Intermediates:
+	 0 Re.[d0,d1] =  13.000000000000, 25.000000000000, Im.[d0,d1] =  10.000000000000, 16.000000000000
+	 1 Re.[d0,d1] =  -2.000383348119, -0.002684466313, Im.[d0,d1] =  -0.999232936091, -6.999999485260
+	 2 Re.[d0,d1] =   2.998465136951, -6.998463960403, Im.[d0,d1] =  -2.002300382682,  2.005368343957
+	 3 Re.[d0,d1] =  -2.003450132394, -2.008052073743, Im.[d0,d1] =  -2.997697043900, -6.997694396666
+	 4 Re.[d0,d1] =  13.000000000000, 26.000000000000, Im.[d0,d1] =  13.000000000000, 20.000000000000
+	 5 Re.[d0,d1] =  -4.242098031044,  9.903290617327, Im.[d0,d1] =   1.415840490666,  9.895697799992
+	 6 Re.[d0,d1] =   3.008436011095,  1.993863489176, Im.[d0,d1] =  10.997695793535, -8.001531627541
+	 7 Re.[d0,d1] =  -5.653596441804, -1.409331530533, Im.[d0,d1] =   2.834933380737,  4.244264911271
+	 8 Re.[d0,d1] =  26.000000000000, 26.000000000000, Im.[d0,d1] =  12.000000000000, 19.000000000000
+	 9 Re.[d0,d1] =   1.622084999221, -1.464427707060, Im.[d0,d1] =  -3.920311244697,  1.689808122478
+	10 Re.[d0,d1] = -11.313705171203,  9.195097171880, Im.[d0,d1] =   0.008677504888,  3.528482393280
+	11 Re.[d0,d1] =  -4.358901615977,  2.772957578273, Im.[d0,d1] =   7.937252465573,  1.144860807740
+	12 Re.[d0,d1] =  20.000000000000, 17.000000000000, Im.[d0,d1] =  16.000000000000, 21.000000000000
+	13 Re.[d0,d1] =   1.433541444084,  7.838131936196, Im.[d0,d1] = -11.311275742731, -3.250182725754
+	14 Re.[d0,d1] =  -1.415297834511,  9.897322648581, Im.[d0,d1] =  -1.413128458289, -2.836019109578
+	15 Re.[d0,d1] =   9.605892403457, -2.470663184755, Im.[d0,d1] =  10.085971997443,  9.689985728963
+	#endif
 //
 	dptr = (double *)a;
 	printf("DIT Outputs:\n");
@@ -6755,14 +6928,14 @@ exit(0);
 		#elif defined(USE_SSE2)
 		//	printf("Out%2u Re.[d0,d1] = %16.12f,%16.12f, Im.[d0,d1] = %16.12f,%16.12f\n",j1/p1,a[j1],a[j1+1],a[j1+2],a[j1+3]);
 		//	printf("Ref%2u Re.[d0,d1] = %16.12f,%16.12f, Im.[d0,d1] = %16.12f,%16.12f\n",j1/p1,ref1[j2],ref1[j2+2],ref1[j2+1],ref1[j2+3]);
-			nerr += (fabs(a[j1  ] - ref2[j2  ]) > 1e-10);
-			nerr += (fabs(a[j1+1] - ref2[j2+2]) > 1e-10);
-			nerr += (fabs(a[j1+2] - ref2[j2+1]) > 1e-10);
-			nerr += (fabs(a[j1+3] - ref2[j2+3]) > 1e-10);
+			dtmp = fabs(a[j1  ] - ref2[j2  ]); avg_err += dtmp; if(dtmp > 1e-10){ /*printf("error Re.d0\n");*/ nerr++; };
+			dtmp = fabs(a[j1+1] - ref2[j2+2]); avg_err += dtmp; if(dtmp > 1e-10){ /*printf("error Re.d1\n");*/ nerr++; };
+			dtmp = fabs(a[j1+2] - ref2[j2+1]); avg_err += dtmp; if(dtmp > 1e-10){ /*printf("error Im.d0\n");*/ nerr++; };
+			dtmp = fabs(a[j1+3] - ref2[j2+3]); avg_err += dtmp; if(dtmp > 1e-10){ /*printf("error Im.d1\n");*/ nerr++; };
 		#else
 		//	printf("Out%2u Re,Im = %16.12f,%16.12f\n",j1/p1,a[j1],a[j1+1]);
-			nerr += (fabs(a[j1  ] - ref2[j2  ]) > 1e-10);
-			nerr += (fabs(a[j1+1] - ref2[j2+1]) > 1e-10);
+			dtmp = fabs(a[j1  ] - ref2[j2  ]); avg_err += dtmp; if(dtmp > 1e-10){ /*printf("error Re.d0\n");*/ nerr++; };
+			dtmp = fabs(a[j1+1] - ref2[j2+1]); avg_err += dtmp; if(dtmp > 1e-10){ /*printf("error Im.d0\n");*/ nerr++; };
 		#endif
 		}
 		ASSERT(HERE, nerr == 0, "DIT Outputs mismatch ref-data!");
@@ -6773,7 +6946,9 @@ exit(0);
 	#endif
 		return nerr;
 	}
+  #endif	// USE_SSE2?
 
+  #ifndef USE_ARM_V8_SIMD
 	// Timing loop for radix-32 DIF macro:
 	int	test_radix32_dft()
 	{
@@ -6895,7 +7070,7 @@ exit(0);
 		VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1, s32_1);
 		VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3, s32_3);
 	#endif	// USE_SSE2 ?
-	
+
 		// Do these timing-test DFTs in-place, i.e. p01 = #doubles in a pair of vec_dbl:
 		p01 = RE_IM_STRIDE << 1;
 		p02 = p01 +p01;
@@ -6910,7 +7085,7 @@ exit(0);
 		p14 = p10 +p04;
 		p18 = p14 +p04;
 		p1C = p18 +p04;
-	
+
 		// Twiddles for the purpose of this timing-test are w1-15, with w := exp(2*Pi*I/2^14):
 		cc[0   ] = 1.0                           ; ss[0   ] = 0.0                             ;
 		cc[0x01] = 0.9999999264657178511447314807; ss[0x01] = 0.0003834951875713955890724616812;
@@ -7024,7 +7199,7 @@ exit(0);
 		clock2 = getRealTime();
 		tdiff = (double)(clock2 - clock1);
 		printf("%s: Time for %u DIF macro calls =%s [tdiff = %20.10e]\n",func, imax, get_time_str(tdiff), tdiff);
-	
+
 		// Check outputs vs ref-data:
 		nerr = 0;	dtmp = avg_err = 0.0;
 		for(j1 = 0, j2 = 0; j1 < dim; j1 += stride, j2 += 8)	// j2 is base-index into ref-array
@@ -7189,6 +7364,7 @@ exit(0);
 	#endif
 		return nerr;
 	}
+  #endif	// ifndef(USE_ARM_V8_SIMD?)
 
 #endif	// TEST_SIMD ?
 
@@ -7500,7 +7676,7 @@ exit(0);
 		}
 		return ncpu;
 	}
-	
+
 	/******************/
 	// Parse a single core-affinity-triplet substring and set the corresponding bits in the global CORE_SET bitmap:
 	void parseAffinityString(char*istr)

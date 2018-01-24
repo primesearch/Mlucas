@@ -470,7 +470,16 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	#ifdef USE_SSE2
 
-	   #ifdef USE_AVX512
+	  #ifdef USE_ARM_V8_SIMD
+		uint32 OFF1,OFF2,OFF3,OFF4,OFF5,OFF6,OFF7;
+		OFF1 = 0x20;
+		OFF2 = 0x40;
+		OFF3 = 0x60;
+		OFF4 = 0x80;
+		OFF5 = 0xa0;
+		OFF6 = 0xc0;
+		OFF7 = 0xe0;
+	  #elif defined(USE_AVX512)
 		#define OFF1	0x20*4
 		#define OFF2	0x40*4
 		#define OFF3	0x60*4
@@ -609,6 +618,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		SSE2_RADIX8_DIF_0TWIDDLE(r64,OFF1,OFF2,OFF3,OFF4,OFF5,OFF6,OFF7, add0,add1,add2,add3,add4,add5,add6,add7, isrt2);
 	  #endif
 
+	  #ifndef USE_ARM_V8_SIMD
 		#undef OFF1
 		#undef OFF2
 		#undef OFF3
@@ -616,6 +626,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		#undef OFF5
 		#undef OFF6
 		#undef OFF7
+	  #endif
 
 	  #endif
 

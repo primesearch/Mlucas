@@ -1018,7 +1018,16 @@ printf("\tc[%2d] = %20.15f, %20.15f,%20.15f, %20.15f, s[%2d] = %20.15f,%20.15f,%
 
 	#else	// 64-bit SIMD:
 
-	  #ifdef USE_AVX512
+	  #ifdef USE_ARM_V8_SIMD
+		// No Fermat-mod support on ARMv8, just supply a stub macro:
+		__asm__ volatile (\
+			"ldr x0,%[__r00]	\n\t"\
+			:					// outputs: none
+			: [__r00] "m" (r00)	// All inputs from memory addresses here
+			: "cc","memory","x0"	/* Clobbered registers */\
+		);
+
+	  #elif defined(USE_AVX512)	// AVX512 implements a 512-bit-register version of the the AVX2 ALL_FMA-macro
 
 		__asm__ volatile (\
 			"movq	%[__r00],%%rax			\n\t"\

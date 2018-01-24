@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2016 by Ernst W. Mayer.                                           *
+*   (C) 1997-2017 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -659,43 +659,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		idx_offset = j;
 		idx_incr = NDIVR;
 
-	  #if defined(COMPILER_TYPE_MSVC)
-
-	  /* The cy_[r|i]_idx[A|B] names here are not meaningful, each simply stores one [re,im] carry pair,
-	  e.g. cy_r01 stores the carries our of [a0.re,a0.im], cy_r23 stores the carries our of [a1.re,a1.im], etc.
-	  Here is the actual mapping between these SSE2-mode 2-vector carry pairs and the scalar carries:
-															2-vector				                                          Scalar
-															--------	 		                                           ------------- */
-		SSE2_fermat_carry_norm_errcheck(s1p00r,cy_r00,idx_offset,idx_incr,ODD_RADIX,icycle0,jcycle0,NRTM1,NRT_BITS);	/* cy_r00,cy_i00 */
-		SSE2_fermat_carry_norm_errcheck(s1p01r,cy_r02,idx_offset,idx_incr,ODD_RADIX,icycle1,jcycle1,NRTM1,NRT_BITS);	/* cy_r01,cy_i01 */
-		SSE2_fermat_carry_norm_errcheck(s1p02r,cy_r04,idx_offset,idx_incr,ODD_RADIX,icycle2,jcycle2,NRTM1,NRT_BITS);	/* cy_r02,cy_i02 */
-		SSE2_fermat_carry_norm_errcheck(s1p03r,cy_r06,idx_offset,idx_incr,ODD_RADIX,icycle3,jcycle3,NRTM1,NRT_BITS);	/* cy_r03,cy_i03 */
-		SSE2_fermat_carry_norm_errcheck(s1p04r,cy_r08,idx_offset,idx_incr,ODD_RADIX,icycle4,jcycle4,NRTM1,NRT_BITS);	/* cy_r04,cy_i04 */
-		SSE2_fermat_carry_norm_errcheck(s1p05r,cy_r10,idx_offset,idx_incr,ODD_RADIX,icycle5,jcycle5,NRTM1,NRT_BITS);	/* cy_r05,cy_i05 */
-		SSE2_fermat_carry_norm_errcheck(s1p06r,cy_r12,idx_offset,idx_incr,ODD_RADIX,icycle6,jcycle6,NRTM1,NRT_BITS);	/* cy_r06,cy_i06 */
-		SSE2_fermat_carry_norm_errcheck(s1p07r,cy_r14,idx_offset,idx_incr,ODD_RADIX,icycle0,jcycle0,NRTM1,NRT_BITS);	/* cy_r07,cy_i07 */
-		SSE2_fermat_carry_norm_errcheck(s1p08r,cy_r16,idx_offset,idx_incr,ODD_RADIX,icycle1,jcycle1,NRTM1,NRT_BITS);	/* cy_r08,cy_i08 */
-		SSE2_fermat_carry_norm_errcheck(s1p09r,cy_r18,idx_offset,idx_incr,ODD_RADIX,icycle2,jcycle2,NRTM1,NRT_BITS);	/* cy_r09,cy_i09 */
-		SSE2_fermat_carry_norm_errcheck(s1p10r,cy_r20,idx_offset,idx_incr,ODD_RADIX,icycle3,jcycle3,NRTM1,NRT_BITS);	/* cy_r10,cy_i10 */
-		SSE2_fermat_carry_norm_errcheck(s1p11r,cy_r22,idx_offset,idx_incr,ODD_RADIX,icycle4,jcycle4,NRTM1,NRT_BITS);	/* cy_r11,cy_i11 */
-		SSE2_fermat_carry_norm_errcheck(s1p12r,cy_r24,idx_offset,idx_incr,ODD_RADIX,icycle5,jcycle5,NRTM1,NRT_BITS);	/* cy_r12,cy_i12 */
-		SSE2_fermat_carry_norm_errcheck(s1p13r,cy_r26,idx_offset,idx_incr,ODD_RADIX,icycle6,jcycle6,NRTM1,NRT_BITS);	/* cy_r13,cy_i13 */
-		SSE2_fermat_carry_norm_errcheck(s1p14r,cy_i00,idx_offset,idx_incr,ODD_RADIX,icycle0,jcycle0,NRTM1,NRT_BITS);	/* cy_r14,cy_i14 */
-		SSE2_fermat_carry_norm_errcheck(s1p15r,cy_i02,idx_offset,idx_incr,ODD_RADIX,icycle1,jcycle1,NRTM1,NRT_BITS);	/* cy_r15,cy_i15 */
-		SSE2_fermat_carry_norm_errcheck(s1p16r,cy_i04,idx_offset,idx_incr,ODD_RADIX,icycle2,jcycle2,NRTM1,NRT_BITS);	/* cy_r16,cy_i16 */
-		SSE2_fermat_carry_norm_errcheck(s1p17r,cy_i06,idx_offset,idx_incr,ODD_RADIX,icycle3,jcycle3,NRTM1,NRT_BITS);	/* cy_r17,cy_i17 */
-		SSE2_fermat_carry_norm_errcheck(s1p18r,cy_i08,idx_offset,idx_incr,ODD_RADIX,icycle4,jcycle4,NRTM1,NRT_BITS);	/* cy_r18,cy_i18 */
-		SSE2_fermat_carry_norm_errcheck(s1p19r,cy_i10,idx_offset,idx_incr,ODD_RADIX,icycle5,jcycle5,NRTM1,NRT_BITS);	/* cy_r19,cy_i19 */
-		SSE2_fermat_carry_norm_errcheck(s1p20r,cy_i12,idx_offset,idx_incr,ODD_RADIX,icycle6,jcycle6,NRTM1,NRT_BITS);	/* cy_r20,cy_i20 */
-		SSE2_fermat_carry_norm_errcheck(s1p21r,cy_i14,idx_offset,idx_incr,ODD_RADIX,icycle0,jcycle0,NRTM1,NRT_BITS);	/* cy_r21,cy_i21 */
-		SSE2_fermat_carry_norm_errcheck(s1p22r,cy_i16,idx_offset,idx_incr,ODD_RADIX,icycle1,jcycle1,NRTM1,NRT_BITS);	/* cy_r22,cy_i22 */
-		SSE2_fermat_carry_norm_errcheck(s1p23r,cy_i18,idx_offset,idx_incr,ODD_RADIX,icycle2,jcycle2,NRTM1,NRT_BITS);	/* cy_r23,cy_i23 */
-		SSE2_fermat_carry_norm_errcheck(s1p24r,cy_i20,idx_offset,idx_incr,ODD_RADIX,icycle3,jcycle3,NRTM1,NRT_BITS);	/* cy_r24,cy_i24 */
-		SSE2_fermat_carry_norm_errcheck(s1p25r,cy_i22,idx_offset,idx_incr,ODD_RADIX,icycle4,jcycle4,NRTM1,NRT_BITS);	/* cy_r25,cy_i25 */
-		SSE2_fermat_carry_norm_errcheck(s1p26r,cy_i24,idx_offset,idx_incr,ODD_RADIX,icycle5,jcycle5,NRTM1,NRT_BITS);	/* cy_r26,cy_i26 */
-		SSE2_fermat_carry_norm_errcheck(s1p27r,cy_i26,idx_offset,idx_incr,ODD_RADIX,icycle6,jcycle6,NRTM1,NRT_BITS);	/* cy_r27,cy_i27 */
-
-	  #elif (OS_BITS == 32)
+	  #if (OS_BITS == 32)
 
 		// Need to stick this #def into an intvar to work around [error: invalid lvalue in asm input for constraint 'm']
 		l = ODD_RADIX << 4;	// 32-bit version needs preshifted << 4 input value

@@ -35,6 +35,30 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	#ifdef USE_SSE2
 
 	//...gather the needed data (176 64-bit complex) and do 9 radix-16 transforms:
+	  // Radix-16 DFT local-array basic strides OFF1-4 = [1-4] * sizeof(vec_dbl) [use adjacent-locs here unlike larger-strided]:
+	  #ifdef USE_ARM_V8_SIMD
+		uint32 OFF1,OFF2,OFF3,OFF4;
+		OFF1 = 0x20;
+		OFF2 = 0x40;
+		OFF3 = 0x60;
+		OFF4 = 0x80;
+	  #elif defined(USE_AVX512)
+		#define OFF1	0x20*4
+		#define OFF2	0x40*4
+		#define OFF3	0x60*4
+		#define OFF4	0x80*4
+	  #elif defined(USE_AVX)
+		#define OFF1	0x20*2
+		#define OFF2	0x40*2
+		#define OFF3	0x60*2
+		#define OFF4	0x80*2
+	  #else
+		#define OFF1	0x20
+		#define OFF2	0x40
+		#define OFF3	0x60
+		#define OFF4	0x80
+	  #endif
+
 		tmp = r00;
 		for(l = 0; l < 9; l++) {
 			i64 = dit16_iidx_lo[l];
@@ -300,7 +324,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			add1 = &wt1[col  +ii];	/* Don't use add0 here, to avoid need to reload main-array address */
 			add2 = &wt1[co2-1-ii];
 			add3 = &wt1[co3-1-ii];
-	
+
 			// Since use wt1-array in the wtsinit macro, need to fiddle this here:
 			co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 						// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
@@ -371,7 +395,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			wtn     = wt0[nwtml  ]*scale;
 			wtlp1   = wt0[    l+1];
 			wtnm1   = wt0[nwtml-1]*scale;
-	
+
 			co2 = co2save;	// Need this for all wts-inits beynd the initial set, due to the co2 = co3 preceding the (j+2) data
 			ctmp = (struct complex *)half_arr + 24;	// ptr to local storage for the doubled wtl,wtn terms:
 			// (j)-data occupy the 8 xmm-sized slots above the 16 used by fixed auxiliary-data, and overwrite these inits:
@@ -379,7 +403,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			ctmp->re = ctmp->im = wtn;		ctmp += 2;
 			ctmp->re = ctmp->im = wtlp1;	ctmp += 2;
 			ctmp->re = ctmp->im = wtnm1;
-	
+
 			l = (j+2) & (nwt-1);	nwtml = nwt-l;;
 			k0 = n-si[l  ];
 			k1 = n-si[l+1];
@@ -389,17 +413,17 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			wtn     = wt0[nwtml  ]*scale;
 			wtlp1   = wt0[    l+1];
 			wtnm1   = wt0[nwtml-1]*scale;
-	
+
 			ctmp = (struct complex *)half_arr + 32;	// (j+2) data start at ctmp + 8
 			ctmp->re = ctmp->im = wtl;		ctmp += 2;
 			ctmp->re = ctmp->im = wtn;		ctmp += 2;
 			ctmp->re = ctmp->im = wtlp1;	ctmp += 2;
 			ctmp->re = ctmp->im = wtnm1;
-	
+
 			add1 = &wt1[col  +ii];	/* Don't use add0 here, to avoid need to reload main-array address */
 			add2 = &wt1[co2-1-ii];
 			add3 = &wt1[co3-1-ii];
-	
+
 			// Since use wt1-array in the wtsinit macro, need to fiddle this here:
 			co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 						// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
@@ -669,6 +693,13 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf
 			);	tmp += 0x20;
 		}
+
+	  #ifndef USE_ARM_V8_SIMD
+		#undef OFF1
+		#undef OFF2
+		#undef OFF3
+		#undef OFF4
+	  #endif
 
 	#else	// USE_SSE2 = False:
 
