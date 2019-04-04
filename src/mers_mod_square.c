@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -242,75 +242,6 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			radix_set_save[i] = 0;
 		}
 
-		if(0)//rt0)	/* If it's a new exponent of a range test, need to deallocate these. */
-		{
-			free((void *)index_ptmp     ); index_ptmp      = 0x0; index = 0x0;
-			free((void *)si_ptmp        ); si_ptmp         = 0x0; si    = 0x0;
-			free((void *)block_index    ); block_index     = 0x0;
-			free((void *)wt0_ptmp       ); wt0_ptmp        = 0x0; wt0   = 0x0;
-			free((void *)wt1_ptmp       ); wt1_ptmp        = 0x0; wt1   = 0x0;
-			free((void *)tmp_ptmp       ); tmp_ptmp        = 0x0; tmp   = 0x0;
-			free((void *)rt0_ptmp       ); rt0_ptmp        = 0x0; rt0   = 0x0;
-			free((void *)rt1_ptmp       ); rt1_ptmp        = 0x0; rt1   = 0x0;
-		#ifdef USE_FGT61
-			free((void *)mt0_ptmp       ); mt0_ptmp        = 0x0; mt0   = 0x0;
-			free((void *)mt1_ptmp       ); mt1_ptmp        = 0x0; mt1   = 0x0;
-		#endif
-			free((void *)ws_i           ); ws_i            = 0x0;
-			free((void *)ws_j1          ); ws_j1           = 0x0;
-			free((void *)ws_j2          ); ws_j2           = 0x0;
-			free((void *)ws_j2_start    ); ws_j2_start     = 0x0;
-			free((void *)ws_k           ); ws_k            = 0x0;
-			free((void *)ws_m           ); ws_m            = 0x0;
-			free((void *)ws_blocklen    ); ws_blocklen     = 0x0;
-			free((void *)ws_blocklen_sum); ws_blocklen_sum = 0x0;
-		}
-
-	/* no longer needed due to above direct setting of RADIX_VEC, which is inited in Mlucas.c: */
-	#if 0
-		/* This call sets NRADICES and the first (NRADICES) elements of RADIX_VEC: */
-		int retval = get_fft_radices(n>>10, RADIX_SET, &NRADICES, RADIX_VEC, 10);
-
-		if(retval == ERR_FFTLENGTH_ILLEGAL)
-		{
-			sprintf(cbuf,"ERROR: %s: length %d = %d K not available.\n",func,n,n>>10);
-			fp = mlucas_fopen(STATFILE,"a");	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
-			fprintf(stderr,"%s", cbuf);
-			ASSERT(HERE, 0,cbuf);
-		}
-		else if(retval == ERR_RADIXSET_UNAVAILABLE)
-		{
-			/* Since the FFT length is supported, radix set 0 should be available: */
-			if(get_fft_radices(n>>10, 0, &NRADICES, RADIX_VEC, 10)
-			{
-				sprintf(cbuf, "%s: get_fft_radices fails with default RADIX_SET = 0 at FFT length %u K\n",func,n);
-				fprintf(stderr,"%s",cbuf);	ASSERT(HERE, 0, cbuf);
-			}
-
-			sprintf(cbuf,"WARN: radix set %10d not available - using default.\n",RADIX_SET);
-			RADIX_SET = 0;
-
-			if(INTERACT)
-			{
-				fprintf(stderr,"%s",cbuf);
-			}
-			else
-			{
-				fp = mlucas_fopen(STATFILE,"a");	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
-				if(scrnFlag)	/* Echo output to stddev */
-				{
-					fprintf(stderr,"%s",cbuf);
-				}
-			}
-		}
-		else if(retval != 0)
-		{
-			sprintf(cbuf  ,"ERROR: unknown return value %d from get_fft_radix; N = %d, kblocks = %u, radset = %u.\n", retval, n, n>>10, RADIX_SET);
-			fprintf(stderr,"%s", cbuf);
-			ASSERT(HERE, 0,cbuf);
-		}
-	#endif
-
 		/* My array padding scheme requires N/radix0 to be a power of 2, and to be >= 2^DAT_BITS, where the latter
 		parameter is set in the Mdata.h file: */
 		if(n%radix0 != 0)
@@ -334,9 +265,9 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			/* Now make sure n/radix0 is sufficiently large (unless n < 2^DAT_BITS, in which case it doesn't matter): */
 			if(i < (1 << DAT_BITS))
 			{
-				sprintf(cbuf  ,"FATAL: n/radix0 must be >= %u!\n", (1 << DAT_BITS));
-				fprintf(stderr,"%s", cbuf);
-				ASSERT(HERE, 0,cbuf);
+			//	sprintf(cbuf  ,"FATAL: n/radix0 must be >= %u!\n", (1 << DAT_BITS));	fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+				// Mar 2018: Switch to 'soft' assertion error here, e.g. for timing tests at small FFT lengths:
+				sprintf(cbuf  ,"n/radix0 must be >= %u! Skipping this radix combo.\n", (1 << DAT_BITS));	WARN(HERE, cbuf, "", 1); return(ERR_ASSERT);
 			}
 
 			/* We also have a lower limit on 2^DAT_BITS set by the wrapper_square routine: */
@@ -565,6 +496,9 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		case 288:
 			nradices_radix0 = 7;
 			radix_prim[l++] = 3; radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 320:
+			nradices_radix0 = 7;
+			radix_prim[l++] = 5; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 512 :
 			nradices_radix0 = 9;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
@@ -658,8 +592,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 				ASSERT(HERE, 0,cbuf);
 			}
 		}
-		nradices_prim = l;
-
+		nradices_prim = l;	for( ; l < 30; l++) { radix_prim[l] = 0; }	// Zero any higher elements which may have been previously set due
+								// to use of a smoother n. (Not necessary since use nradices_prim to control array access, but nice to do.
 		bw = p%n;		/* Number of bigwords in the Crandall/Fagin mixed-radix representation = (Mersenne exponent) mod (vector length).	*/
 		sw = n - bw;	/* Number of smallwords.	*/
 	#ifdef USE_FGT61
@@ -1219,7 +1153,6 @@ for(i=0; i < NRT; i++) {
 			 should operate on a dataset which fits entirely into the L2 cache of the host machine. */
 
 		/* 8/23/2004: Need to allocate an extra element here to account for the padding element that gets inserted when radix0 is odd: */
-
 		block_index = (int *)calloc((radix0+1),sizeof(int));
 		if(!block_index){ sprintf(cbuf,"FATAL: unable to allocate array BLOCK_INDEX in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		/*
@@ -1507,14 +1440,14 @@ for(i=0; i < NRT; i++) {
 		radix16_dif_pass(0x0,     0, 0x0,0x0,          0, 0, 0x0, init_sse2, thr_id);
 	#endif
 		radix32_dif_pass(0x0, 0, 0x0, 0x0, 0, 0, 0x0, init_sse2, thr_id);
-
 		/* The dyadic-square routines need a few more params passed in init-mode than do the standalone FFT-pass routines: */
+		// Dec 2017: Add rt0,rt1-pointers to the wrapper_square init calls to support USE_PRECOMPUTED_TWIDDLES build option:
 	#ifdef USE_FGT61
-		radix16_wrapper_square(0x0,0x0, arr_scratch, n, radix0, 0x0,0x0, 0x0,0x0, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id);
+		radix16_wrapper_square(0x0,0x0, arr_scratch, n, radix0, rt0,rt1, 0x0,0x0, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id);
 	#else
-		radix16_wrapper_square(0x0,     arr_scratch, n, radix0, 0x0,0x0,          nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id);
+		radix16_wrapper_square(0x0,     arr_scratch, n, radix0, rt0,rt1,          nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id);
 	#endif
-		radix32_wrapper_square(0x0, arr_scratch, n, radix0, 0x0, 0x0, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id);
+		radix32_wrapper_square(0x0, arr_scratch, n, radix0, rt0,rt1, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id);
 
 		radix8_dit_pass (0x0, 0, 0x0, 0x0, 0, 0, 0x0, init_sse2, thr_id);
 	#ifdef USE_FGT61
@@ -1921,8 +1854,9 @@ for(i=0; i < NRT; i++) {
 /********************************************************/
 	/*...At the start of each iteration cycle, need to forward-weight the array of integer residue digits.
 	*/
-	// Mar 2017: Can skip this step if it's the start of a test, i.e. ilo = 0; but need it
-	// if add RNG-input-setting above for debug, hence also check a[1] for nonzero:
+	// Mar 2017: Can skip this step if it's the start of a production test (note that any initial-residue shift
+	// in such cases is handled via single-array-word forward-DWT-weighting in the Mlucas.c shift_word() function),
+	// but need it if add RNG-input-setting above for debug, hence also check a[1] for nonzero:
 	if(ilo || a[1]) {
 		simodn = bimodn = 0;	// Init both = 0,but note for all but the 0-element they will satisfy simodn = (n - bimodn).
 	#ifdef USE_FGT61
@@ -2077,6 +2011,8 @@ for(i=0; i < NRT; i++) {
 		radix256_dif_pass1(a,n); break;
 	case 288:
 		radix288_dif_pass1(a,n); break;
+	case 320:
+		radix320_dif_pass1(a,n); break;
 	case 512 :
 		radix512_dif_pass1(a,n); break;
 	case 768 :
@@ -2131,8 +2067,8 @@ for(i=0; i < NRT; i++) {
 
 #endif
 
-	for(iter=ilo+1; iter <= ihi; iter++)
-	{
+for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
+{
 /*...perform the FFT-based squaring:
 	 Do last S-1 of S forward decimation-in-frequency transform passes.	*/
 
@@ -2234,6 +2170,9 @@ for(i=0; i < NRT; i++) {
 
 #endif
 
+	// Update RES_SHIFT via mod-doubling:
+	MOD_ADD64(RES_SHIFT,RES_SHIFT,p,RES_SHIFT);
+
 /*...Do the final inverse FFT pass, carry propagation and initial forward FFT pass in one fell swoop, er, swell loop...	*/
 
 	fracmax = 0.0;
@@ -2322,6 +2261,8 @@ for(i=0; i < NRT; i++) {
 			ierr = radix256_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
 		case 288:
 			ierr = radix288_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
+		case 320:
+			ierr = radix320_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
 		case 512 :
 			ierr = radix512_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
 		case 768 :
@@ -2385,8 +2326,8 @@ for(i=0; i < NRT; i++) {
 				fprintf(stderr,"%s",cbuf);
 			}
 
-			// In range test mode, any fractional part > 0.4375 is cause for error exit:
-			if(fracmax > 0.4375 ) {
+			// In range test mode, any fractional part >= 0.4375 is cause for error exit:
+			if(fracmax >= 0.4375 ) {
 				// Roundoff-retry scheme detailed in comments for above fermat_mod_square() function:
 				if(ROE_ITER == 0) {
 					sprintf(cbuf," Retrying iteration interval to see if roundoff error is reproducible.\n");
@@ -2400,9 +2341,9 @@ for(i=0; i < NRT; i++) {
 						ROE_VAL = 0.0;
 						ierr = ERR_ROUNDOFF;
 					} else {
-						sprintf(cbuf," The error is not reproducible, but encountered a different fatal ROE in interval-retry ... note this is an indicator of possible data corruption. Repeating interval-retry.\n");
-						ROE_ITER = iter;
-						ROE_VAL = fracmax;
+						sprintf(cbuf," The error is not reproducible, encountered a different fatal ROE in interval-retry ... note this is an indicator of possible data corruption. Switching to next-larger FFT length, or next-smaller, if currently running at larger-than-default FFT length.\n");
+						ROE_ITER = -ROE_ITER;
+						ROE_VAL = fracmax;	// Use ROE_VAL-zero-or-not to distinguish from above case
 						ierr = ERR_ROUNDOFF;
 					}
 				} else if(ROE_ITER < 0) {
@@ -2424,20 +2365,31 @@ for(i=0; i < NRT; i++) {
 		}
 	}
 
-	/*...Whew - that"s a lot of stuff that just happened.
-	computer chips don't understand the concept of "Miller time."	*/
+ 	//...Whew - that"s a lot of stuff that just happened. Luckily, computer chips don't understand the concept of "Miller time."
 
-	/* Accumulate the cycle count in a floating double on each pass to avoid problems
-	with integer overflow of the clock() result, if clock_t happens to be 32-bit int on the host platform:
-	*/
+	// Accumulate the cycle count in a floating double on each pass to avoid problems
+	// with integer overflow of the clock() result, if clock_t happens to be 32-bit int on the host platform:
 #ifdef CTIME
 	clock2 = clock();
 	*tdiff += (double)(clock2 - clock1);
 	clock1 = clock2;
 #endif
+	// Listen for interrupts:
+	if (signal(SIGINT, sig_handler) == SIG_ERR)
+		fprintf(stderr,"Can't catch SIGINT.\n");
+	else if (signal(SIGTERM, sig_handler) == SIG_ERR)
+		fprintf(stderr,"Can't catch SIGTERM.\n");
+	else if (signal(SIGHUP, sig_handler) == SIG_ERR)
+		fprintf(stderr,"Can't catch SIGHUP.\n");
+}	/* End of main for(iter....) loop	*/
 
-}	/* End of main loop	*/
-
+// On early-exit-due-to-interrupt, decrement iter since we didn't actually do the (iter)th iteration
+if(!MLUCAS_KEEP_RUNNING) iter--;
+if(iter < ihi) {
+	ASSERT(HERE, !MLUCAS_KEEP_RUNNING, "Premature iteration-loop exit due to unexpected condition!");
+	ierr = ERR_INTERRUPT;
+	ROE_ITER = iter;	// Function return value used for error code, so save number of last-iteration-completed-before-interrupt here
+}
 #if 0
 	for(i = 0; i < n; i += 16) {
 		ipad = i + ( (i >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
@@ -2566,6 +2518,8 @@ for(i=0; i < NRT; i++) {
 		radix256_dit_pass1(a,n); break;
 	case 288:
 		radix288_dit_pass1(a,n); break;
+	case 320:
+		radix320_dit_pass1(a,n); break;
 	case 512 :
 		radix512_dit_pass1(a,n); break;
 	case 768 :
@@ -2663,6 +2617,9 @@ for(i=0; i < NRT; i++) {
 	}
 #endif
 
+	if(ierr == ERR_INTERRUPT) {	// In this need to bypass [2a] check below because ROE_ITER will be set to last-iteration-done
+		return(ierr);
+	}
 	// Cf. [2a] in fermat_mod_square() function: The interval-retry is successful, i.e. suffers no fatal ROE.
 	// [action] Prior to returning, print a "retry successful" informational and rezero ROE_ITER and ROE_VAL.
 	if(!INTERACT && ROE_ITER > 0) {	// In interactive (timing-test) mode, use ROE_ITER to accumulate #iters-with-dangerous-ROEs
@@ -2681,7 +2638,6 @@ for(i=0; i < NRT; i++) {
 			fprintf(stderr,"%s",cbuf);
 		}
 	}
-
 	return(ierr);
 }
 

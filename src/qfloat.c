@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2012 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -22,7 +22,17 @@
 
 #include "qfloat.h"
 
-#undef X87_ASM
+/* Portable module providing basic 128-bit float emulation, using IEEE64 format for the most-significant
+64-bits and simply adding 64-bits to the significand length, i.e. 1 bit for sign, 11 for scaled binary
+exponent, and 117 for the significand, which includes 1 hidden bit.
+
+*** ASSUMES: ***
+1. The operands are normal - some opeartions may work with denormals, but not all;
+2. The endianness is the same for floating-point numbers as for integers.
+
+No support for NaNs of the various kinds is provided. Aagin, some ops may work fine with NaNs, but most won't.
+*/
+//#undef X87_ASM
 
 #if 0
 #if(defined(CPU_IS_X86_64) && defined(COMPILER_TYPE_GCC))
@@ -40,18 +50,18 @@
 16 Sep 2012: First precise timing tests of basic qfloat operations:
 Operation	#cycles		Comments													09/25/2012	Notes
 =========	=======		============================								========	========================
-qfdbl          3.12																	    3.04	
+qfdbl          3.12																	    3.04
 qfmul_pow2     0.01																	   24.78	Timing ballooned after added denormal handling
-qfmul         88.11		Not terrible, but each of these 3 core arithmetic ops		   74.59	
-qfadd         65.30		needs to be speeded by at least 1.5-2x; try some x86_64		   57.59	
+qfmul         88.11		Not terrible, but each of these 3 core arithmetic ops		   74.59
+qfadd         65.30		needs to be speeded by at least 1.5-2x; try some x86_64		   57.59
 qfsub        101.44		assembly code, using mix of CF-usage and sse 64-bit math.	   74.89	Cut cycles off this via inline-ASM of x86 BSR instruction
-qfsqrt      1112.69																	  558.46	
+qfsqrt      1112.69																	  558.46
 qfinv        712.05																	  347.39	Init with 64-bit x87 result, 1 N-R iter
 qfdiv        807.13																	  426.03	Init with 64-bit x87 result, 1 N-R iter
 qfsin       4117.68																	 3583.69	Replace /(Pi/2) with *(2/Pi)
 qfcos       3967.09																	 3662.32	Replace /(Pi/2) with *(2/Pi)
 qftan      11386.77		impl simply as sin/cos										 4798.56	Cut cycles via sin*isqrt(1-sin^2)
-qfcot			n/a																	 4923.35	
+qfcot			n/a																	 4923.35
 qfatan     34836.71		Cut to ~25000 using faster tan(x) ... Try AGM-based?		 5479.69	Init with 64-bit x87 result, 1 N-R iter cuts time; further adding qftan_and_cos() saves another 30%
 qflog      14013.66																	 4805.48	Init with 64-bit x87 result, 1 N-R iter
 qfexp       7347.76		Cut to ~6400 using nested-product and INC in place of ADD	 4113.49	Use cosh/sinh trick saves ~2000 cycles
@@ -59,7 +69,7 @@ qfsinh			n/a																	 3178.65
 qfcosh			n/a																	 3304.67
 qftanh			n/a																	 4159.45
 qfnint        27.89		This returns result as 2s-complement uint128				   36.70	These both slower due to cleaner range checking
-qfint         26.52																	   69.77	
+qfint         26.52																	   69.77
 
 Use of all the various speedups cuts time of 1/x, sqrt(x), x/y, exp(x), tan(x) by ~2x; log(x) by ~3x; log(x) by ~2x; atan(x) by a massive 6x!
 */
@@ -375,7 +385,7 @@ double dbl_flip_lsb(double d)
 
 /* qfloat --> long double conversion utility.
 Example: x = QLN2:
-	hi = 0x3fe62e42fefa39ef, 
+	hi = 0x3fe62e42fefa39ef,
 	lo = 0x35793c7673007e5f, low 64 bits are all-extended-mantissa bits, separate into hi11 and lo53:
 	= 00110101011 11001001111000111011001110011000000000111111001011111, lo53 have MSB = 1, so add 1 to hi11:
 	= 001 1010 1100 [rest discarded], 0-pad 1 bit at top, vie rest as 3-digit hex,
@@ -1701,10 +1711,11 @@ struct qfloat qfinv(struct qfloat x)
   #if QFDEBUG
  	ld_ptr = &ld;
   #endif
-	asm ("fldt %1;"
-		 "fld1;"
-		 "fdivp %%st(1);"
-		 "fstpt %0" : "+m"(ld) : "m"(ld));
+	asm ("fldt %1;"	/* push (log double)x onto FP stack*/
+		 "fld1;"	/* push +1.0 onto FP stack, so st0 = 1.0, st1 = x */
+		 "fdivp %%st(1);"	/* st0 = 1.0/x */
+		 "fstpt %0"	/* (long double)x = 1.0/x */
+		 : "+m"(ld) : "m"(ld));
 	xinv = ldbl_to_q(ld);
 #else
 	/* Get double-precision approximation to 1/x: */
@@ -2057,7 +2068,7 @@ struct qfloat qflog(struct qfloat x)
 	esum = fabs(qres + dres);
 	if(esum > 1e-15) {
 		rerr = fabs( (qres - dres)/esum );
-	printf("QFLOG: x = %20.10e, relerr = %20.10e\n", qfdbl(x), rerr);
+	fprintf(stderr,"QFLOG: x = %20.10e, relerr = %20.10e\n", qfdbl(x), rerr);
 		if( rerr > 1e-12 ) {
 			WARN(HERE, "High Error Level in QFLOG!\n", "", 0);
 		}
@@ -2092,7 +2103,7 @@ We could similarly modify the sine summation to get
 	sin(ix) = (ix) - (ix)^3/3! + (ix)^5/5! - ...
 
 			= i*[ x + x^3/3! + x^5/5! + ... ] , whence i*sin(ix) = -[ x + x^3/3! + x^5/5! + ... ] = -sinh(x),
-	
+
 but that doubles the work, negating the savings from the half-terms-summation property; instead use that the identity
 (sin^2 + cos^2 = 1) holds equally well for real and complex argument (or in our case, pure-imaginary arguments) to
 obtain sin(ix) from cos(ix) via
@@ -2111,13 +2122,10 @@ then do 1 or 2 of the above N-R inverse-function iterations in qfloat mode using
 */
 struct qfloat qfexp(struct qfloat x)
 {
-#if 1	// Algo A,B
-
 	 int32 pow2;
-	uint32 i, nterm,nterm_idx;
+	uint32 i;
 	double darg = qfdbl(x);
-	struct qfloat xabs, y, sinh, curr_term, mult;
-	const uint8 nterm_arr[64] = {2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,3,3,4,4,4,4,4,4,5,5,5,5,6,6,6,7,7,8,8,9,9,10,10,11,12,13,15,17,19,22,25,30,30,30,30,30,30,30};
+	struct qfloat xabs, y, sinh;
 
 	// If arg < 0 compute 1/exp(-x) to avoid cancellation in the summation
 	xabs = qfabs(x);
@@ -2129,6 +2137,7 @@ struct qfloat qfexp(struct qfloat x)
 	pow2 = (xabs.hi >> 52) - 0x3fd;
 	if(abs(pow2) > 9) {	// If arg > +- 512, check for over/underflow which occurs for |arg| ~> 700
 		if(darg > 700) {
+			fprintf(stderr,"QFEXP: xabs.hi = %16llX, pow2 = %u, darg = %10.10e\n",xabs.hi,pow2,darg);
 			ASSERT(HERE,0,"expo overflow!");
 		} else if(darg < -700) {
 			return QZRO;	// expo underflow flushes to zero
@@ -2137,6 +2146,31 @@ struct qfloat qfexp(struct qfloat x)
 	if(pow2 > 1) {
 		xabs.hi -= ((uint64)(pow2-1) << 52);
 	}
+
+#if 0	// Algo X:
+	#error *** need to add x87 high-prec exp() init ***
+	double expx = exp(qfdbl(x));
+	struct qfloat y, logy;
+	y.hi = *(uint64 *)&expx; y.lo = 0ull;
+	// Iter #1:
+	logy = qflog(y);
+	y = qfsub(y, qfmul( qfsub(logy,x) , y ) );	/*** If could get ~4 more bits in initial guess, could do just 1 iter ***/
+	// Iter #2:
+	logy = qflog(y);
+	y = qfsub(y, qfmul( qfsub(logy,x) , y ) );
+	return y;
+
+#elif 1	// Algo B:
+
+	y = qfcosh(xabs);
+	sinh = qfsqrt( qfsub(qfmul(y,y),QONE) );
+	y = qfadd(y,sinh);
+
+#elif 1	// Algo A:
+
+	uint32 nterm,nterm_idx;
+	const uint8 nterm_arr[64] = {2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,3,3,4,4,4,4,4,4,5,5,5,5,6,6,6,7,7,8,8,9,9,10,10,11,12,13,15,17,19,22,25,30,30,30,30,30,30,30};
+	struct qfloat curr_term, mult;
 	/*
 	Curve fit of #terms vs (0x3fd-capped) exp-field:
 	Exp-range	#terms (excluding the 1 + ...)
@@ -2171,14 +2205,6 @@ struct qfloat qfexp(struct qfloat x)
 		nterm = nterm_arr[nterm_idx];
 	}
 
-#if 1	// Algo B
-
-	y = qfcosh(xabs);
-	sinh = qfsqrt( qfsub(qfmul(y,y),QONE) );
-	y = qfadd(y,sinh);
-
-#else
-
 	// 2 variants of summation:
   #define NESTED_PRODUCT	1
   #if NESTED_PRODUCT
@@ -2210,8 +2236,9 @@ struct qfloat qfexp(struct qfloat x)
 
   #endif
 
-#endif	// Algo A,B
+#endif
 
+	/*** Algos A & B share this: ***/
 	// If arg < 0 compute 1/exp(-x) to avoid cancellation in the summation:
 	if((int64)x.hi < 0) {
 		y = qfinv(y);
@@ -2221,26 +2248,12 @@ struct qfloat qfexp(struct qfloat x)
 		--pow2;		y = qfmul(y,y);
 	}
 
-#else	// Algo X:
-	#error *** need to add x87 high-prec exp() init ***
-	double expx = exp(qfdbl(x));
-	struct qfloat y, logy;
-	y.hi = *(uint64 *)&expx; y.lo = 0ull;
-	// Iter #1:
-	logy = qflog(y);
-	y = qfsub(y, qfmul( qfsub(logy,x) , y ) );	/*** If could get ~4 more bits in initial guess, could do just 1 iter ***/
-	// Iter #2:
-	logy = qflog(y);
-	y = qfsub(y, qfmul( qfsub(logy,x) , y ) );
-
-#endif
-
 #if QFDEBUG
 	double qres = qfdbl(y), dres = exp(qfdbl(x));
 	double esum = fabs(qres + dres);
 	if(esum > 1e-15) {
 		double rerr = fabs( (qres - dres)/esum );
-	printf("QFEXP: x = %20.10e, relerr = %20.10e\n", qfdbl(x), rerr);
+	fprintf(stderr,"QFEXP: x = %20.10e, relerr = %20.10e\n", qfdbl(x), rerr);
 		if( rerr > 1e-12 ) {
 			WARN(HERE, "High Error Level in QFEXP!\n", "", 0);
 		}
@@ -2645,12 +2658,12 @@ struct qfloat qfcosh(struct qfloat q)
 			j = (i>>1)-1;	// i = 40 on exit from above loop, so j = 19 here
 			denoms[j-1] = qfmul(QNINV[i-1], QNINV[i  ]);
 		}
-	
+
 		/* Initialize partial sum to 1 + x^2/2... */
 		qsqr= qfmul(q, q);
 		curr_term = qfmul_pow2(qsqr, -1);
 		sum = qfadd(QONE, curr_term);
-	
+
 		/* get next term of series by multiplying current one by x^2/(i*(i-1)) */
 		for(i = 4; i < 38; i += 4)	// Must limit largest index into QNINV[] to 40, hence (i+2) < 40
 		{
@@ -2658,12 +2671,12 @@ struct qfloat qfcosh(struct qfloat q)
 			mult      = qfmul(qsqr, denoms[j-1]);
 			curr_term = qfmul(curr_term, mult);
 			q1        = curr_term;
-	
+
 			mult      = qfmul(qsqr, denoms[j  ]);
 			curr_term = qfmul(curr_term, mult);
 			q1        = qfadd(q1, curr_term);	/* First calculate the sum of the current 2 terms... */
 			sum       = qfadd(sum, q1);			/* ...and only then update the partial sum. */
-	
+
 			/* If the current term differs from the sum by more than a factor of 2^110, stop. */
 			e_sum = (uint32)((sum      .hi & ~MASK_SIGN) >> 52);
 			e_new = (uint32)((curr_term.hi & ~MASK_SIGN) >> 52);
@@ -2714,11 +2727,11 @@ struct qfloat qfsinh(struct qfloat q)
 			j = (i>>1);	// i = 39 on exit from above loop, so j = 19 here
 			denoms[j-1] = qfmul(QNINV[i-1], QNINV[i  ]);
 		}
-	
+
 		/* Initialize partial sum to x... */
 		qsqr= qfmul(q, q);
 		curr_term = sum = q;
-	
+
 		/* get next term of series by multiplying current one by x^2/(i*(i-1)) */
 		for(i = 3; i < 38; i += 4)	// Must limit largest index into QNINV[] to 40, hence (i+2) < 40
 		{
@@ -2726,12 +2739,12 @@ struct qfloat qfsinh(struct qfloat q)
 			mult      = qfmul(qsqr, denoms[j-1]);
 			curr_term = qfmul(curr_term, mult);
 			q1        = curr_term;
-	
+
 			mult      = qfmul(qsqr, denoms[j  ]);
 			curr_term = qfmul(curr_term, mult);
 			q1        = qfadd(q1, curr_term);	/* First calculate the sum of the current 2 terms... */
 			sum       = qfadd(sum, q1);			/* ...and only then update the partial sum. */
-	
+
 			/* If the current term differs from the sum by more than a factor of 2^110, stop. */
 			e_sum = (uint32)((sum      .hi & ~MASK_SIGN) >> 52);
 			e_new = (uint32)((curr_term.hi & ~MASK_SIGN) >> 52);
@@ -2813,7 +2826,7 @@ int qtest(void)
 
 	// Test I/O functions:
 	ASSERT(HERE, STREQ( qf2str(QPI), "+3.14159265358979323846264338327950289 E+000" ), "I/O test failed!");
-	
+
 	asm ("fldln2;"
 		 "fstpt %0" : "=m"(ld) : );
 	x87_mant = *ld_ptr; x87_sexp = *(ld_ptr+1) & 0x000000000000FFFFull;	// Mask off high 48 bits of x87_sexp field, as these are uninited
@@ -3370,6 +3383,7 @@ int qtest(void)
 	/* log(2^64):	Compare to precomputed log(2^64) = (same as log(2) but exp-field += 6): */
 	q = qfmul_pow2(QONE,+64);
 	q = qflog(q);
+
 #if QFDEBUG
 		printf("qlog(2^64) = %16llX  %16llX\n",q.hi,q.lo);
 #endif

@@ -316,7 +316,6 @@ or the with functions using them (if we declare no _-prepended variables local t
 		#define __MULH64(_x, _y)	\
 		  ({ uint64 _lo, _hi;		\
 		  __asm__("mulq %3" : "=a" (_lo), "=d" (_hi) : "%0" (_x), "rm" (_y)); _hi; })
-
 		#define MUL_LOHI64(_x,_y,_lo,_hi)	__asm__("mulq %3" : "=a" (_lo), "=d" (_hi) : "%0" (_x), "rm" (_y) );
 		#define MUL64x32(  _x,_y,_lo,_hi)	MUL_LOHI64(_x,(uint64)_y,_lo,_hi)
 		#define SQR_LOHI64(_x,   _lo,_hi)	MUL_LOHI64(_x,_x,_lo,_hi)
@@ -933,7 +932,32 @@ or the with functions using them (if we declare no _-prepended variables local t
 	/* 32-bit (G3 AND G4): */
 	#elif(defined(CPU_SUBTYPE_PPC32))
 
-	    /* The following optimized Mac-ros require TRYQ = 4 in factor.h
+		/* EWM: v18: Needed to prepend _ to names in e.g. MUL_LOHI64 to eliminate compiler errors related to
+		var-name collisions, e.g. qfloat.c declaring uint64 a,b,c,d,lo,hi and calling MUL_LOHI64(a,b,lo,hi)
+		collided with unnamed union '{ uint32 u32[2]; uint64 u64 } a;' decl in original form of said macro.
+		I normally make a habit of using _ and __ local--varname-prefixing in macros, but the ppc32 wide-mul
+		code was gifted to me by a ppc-expert coder at the time, and since it built and ran, aside from a few
+		comments and other tweaks, I never changed that.
+
+		The source of the problem took some ferreting out, as GCC was flagging the error rather unhelpfully as
+			error: assigning to 'uint64' (aka 'unsigned long long') from incompatible type
+				  'union <anonymous at [file,line]>'
+				...
+				  note: instantiated from:
+					a.u64 = _x;\
+		Well, _x is dummy arg-name standing for a uint64 calling argument, so where's the problem? The problem
+		is that if the calling function uses a var named 'a' for the 1st arg of the macro call, that translates as
+					a.u64 = a;\
+		and the compiler assumes th RHS 'a' refers to the aforementioned same-named locally declared union.
+		Now ppc32 builds are no longer a thing as of this writing, but still nice to maintain buildability if possible.
+		Also switched from the aforementioned union to 32-bit pointer-based access by way of initial workaround, which
+		also still used 'a' a local varname, but now of a local uint64. Once the reason for the original GCC error
+		became clear, it also became clear why the pointer-access workaround worked, it effectively resulted in this
+		assignment:
+			[local uint64 var]a = [calling function uint64]a;\
+		So kept that but still prepended _ to all macro-local varnames just by way of it being good standard practice.
+		*/
+	    /* The following optimized Macros require TRYQ = 4 in factor.h
 		   (Thanks to Klaus Kastens for initial versions of these.)
 		*/
 
@@ -965,17 +989,42 @@ or the with functions using them (if we declare no _-prepended variables local t
 			#error unknown compiler for PPC32.
 		#endif
 
-		#define	MULL64(_x,_y,_lo)	({\
-				uint32 xlo = (uint32)(_x);			\
-				uint32 ylo = (uint32)(_y);			\
-				uint32 xhi = (uint32)(_x >> 32);	\
-				uint32 yhi = (uint32)(_y >> 32);	\
+		#if 0
+			#define	MULL64(_x,_y,_lo)	({\
+				uint32 _xlo = (uint32)(_x);			\
+				uint32 _ylo = (uint32)(_y);			\
+				uint32 _xhi = (uint32)(_x >> 32);	\
+				uint32 _yhi = (uint32)(_y >> 32);	\
 				\
-				_lo = (uint64)__MULL32( xlo,ylo)	\
-					+(((uint64)__MULH32(xlo,ylo)) << 32)	\
-					+(((uint64)__MULL32( xlo,yhi) + (uint64)__MULL32( xhi,ylo)) << 32);	\
+				_lo = (uint64)__MULL32(_xlo,_ylo)	\
+					+(((uint64)__MULH32(_xlo,_ylo)) << 32)	\
+					+(((uint64)__MULL32(_xlo,_yhi) + (uint64)__MULL32(_xhi,_ylo)) << 32);	\
 				})
-
+		#else
+			#define MULL64(_x,_y,_lo)\
+			{\
+				uint32 _ah,_al,_bh,_bl;\
+				uint32 _hahbh,_hahbl,_halbh,_halbl,_lahbh,_lahbl,_lalbh,_lalbl;\
+				uint32 _sumhh,_sumhl,_sumlh;\
+				uint64 _a = _x,_b = _y;\
+				uint32 *_aptr = (uint32 *)&_a, *_bptr = (uint32 *)&_b;\
+				/* PPC is big-endian, hence hi32 at aptr, lo32 at aptr+1: */\
+				_ah = * _aptr;		/* x_hi */\
+				_al = *(_aptr+1);	/* x_lo */\
+				_bh = * _bptr;		/* y_hi */\
+				_bl = *(_bptr+1);	/* y_lo */\
+			\
+				MULL32(_al,_bl,_lalbl);	/* (x_lo*y_lo)_lo */\
+				MULH32(_al,_bl,_halbl);	/* (x_lo*y_lo)_hi */\
+				MULL32(_al,_bh,_lalbh);	/* (x_lo*y_hi)_lo */\
+				MULL32(_ah,_bl,_lahbl);	/* (x_hi*y_lo)_lo */\
+			/* Bits   0- 31 : lalbl                           */\
+			/* Bits  32- 63 : halbl + lahbl + lalbh   (no carryouts needed) */\
+				*(_bptr+1) = _lalbl;\
+				* _bptr    = _halbl + _lahbl + _lalbh;\
+				_lo = _b;\
+			}
+		#endif
 
 		/* 64x32=>96-bit product algorithm:
 		represent the inputs as x = a + b*2^32, y = c ( < 2^32), then do 4
@@ -996,69 +1045,59 @@ or the with functions using them (if we declare no _-prepended variables local t
 		*/
 		#define MUL64x32(_x, _y,_lo,_hi)\
 		{\
-			union {\
-				uint32 u32[2];	/* Due to PPC big-endian, MS 32 bits in [0]! */\
-				uint64 u64;\
-			} x,y;\
+			uint32 _a,_b,_c;\
+			uint32 _lo32,_md32,_hi32;\
+			uint32 _bclo;\
+			uint64 _a = _x,_b = _y;\
+			uint32 *_aptr = (uint32 *)&_a, *_bptr = (uint32 *)&_b;\
+			/* PPC is big-endian, hence hi32 at aptr, lo32 at aptr+1: */\
+			_b = * _aptr;		/* x_hi */\
+			_a = *(_aptr+1);	/* x_lo */\
+			_c = *(_bptr+1);	/* y_lo */\
 		\
-			uint32 a,b,c;\
-			uint32 lo32,md32,hi32;\
-			uint32 bclo;\
-		\
-			x.u64 = _x;\
-			b = x.u32[0];	/* x_hi */\
-			a = x.u32[1];	/* x_lo */\
-			y.u64 = _y;\
-			c = y.u32[1];	/* y_lo */\
-		\
-			 MULL32(a,c,lo32);		/* (a*c)_lo */\
-			MULH32(a,c,md32);		/* (a*c)_hi */\
-			 MULL32(b,c,bclo);		/* (b*c)_lo */\
-			MULH32(b,c,hi32);		/* (b*c)_hi */\
+			MULL32(_a,_c,_lo32);	/* (a*c)_lo */\
+			MULH32(_a,_c,_md32);	/* (a*c)_hi */\
+			MULL32(_b,_c,_bclo);	/* (b*c)_lo */\
+			MULH32(_b,_c,_hi32);	/* (b*c)_hi */\
 		\
 		  __asm__(\
 			"addc  %0,%2,%3\n\t"	/* (0) md32 + (b*c)_lo                     , result (middle 32 bits) in %0, carryout in XER(CA) bit. */\
 			"addze %1,%4"			/* (1)    0 + (b*c)_hi + (carryin from (0)), result ( upper 32 bits) in %1, carryout in XER(CA) bit - should be zero! */\
-			: "=r"(md32), "=r"(hi32)\
-			: "%0"(md32), "r"(bclo), "1"(hi32));\
+			: "=r"(_md32), "=r"(_hi32)\
+			: "%0"(_md32), "r"(_bclo), "1"(_hi32));\
 		\
-			x.u32[0] = md32;\
-			x.u32[1] = lo32;\
-			_lo= x.u64;\
-			y.u32[0] = 0;\
-			y.u32[1] = hi32;\
-			_hi= y.u64;\
+			* _aptr    = _md32;\
+			*(_aptr+1) = _lo32;\
+			* _bptr    = 0;\
+			*(_bptr+1) = _hi32;\
+			_lo = _a;\
+			_hi = _b;\
 		}
 
 		#define MUL_LOHI64(_x,_y,_lo,_hi)\
 		{\
-			union {\
-				uint32 u32[2];	/* Due to PPC big-endian, MS 32 bits in [0]! */\
-				uint64 u64;\
-			} a,b;\
-		\
-			uint32 ah,al,bh,bl;\
-			uint32 hahbh,hahbl,halbh,halbl,lahbh,lahbl,lalbh,lalbl;\
-			uint32 sumhh,sumhl,sumlh;\
-		\
-			a.u64 = _x;\
-			ah = a.u32[0];	/* x_hi */\
-			al = a.u32[1];	/* x_lo */\
-			b.u64 = _y;\
-			bh = b.u32[0];	/* y_hi */\
-			bl = b.u32[1];	/* y_lo */\
+			uint32 _ah,_al,_bh,_bl;\
+			uint32 _hahbh,_hahbl,_halbh,_halbl,_lahbh,_lahbl,_lalbh,_lalbl;\
+			uint32 _sumhh,_sumhl,_sumlh;\
+			uint64 _a = _x,_b = _y;\
+			uint32 *_aptr = (uint32 *)&_a, *_bptr = (uint32 *)&_b;\
+			/* PPC is big-endian, hence hi32 at aptr, lo32 at aptr+1: */\
+			_ah = * _aptr;		/* x_hi */\
+			_al = *(_aptr+1);	/* x_lo */\
+			_bh = * _bptr;		/* y_hi */\
+			_bl = *(_bptr+1);	/* y_lo */\
 		\
 		/* EWM: for 32-bit unsigned inputs these have a nominal latency of 10 cycles. */\
 		/* For each MUL output we include the order in which it is used in the add/carry */\
 		/* code below (6 steps, labeled (0)-(5)), in order to properly schedule the MUL: */\
-			MULH32(ah,bh,hahbh);	/* (x_hi*y_hi)_hi (2) */\
-			 MULL32(ah,bh,lahbh);	/* (x_hi*y_hi)_lo (4) */\
-			MULH32(al,bh,halbh);	/* (x_lo*y_hi)_hi (1) */\
-			 MULL32(al,bh,lalbh);	/* (x_lo*y_hi)_lo (0) */\
-			MULH32(ah,bl,hahbl);	/* (x_hi*y_lo)_hi (1) */\
-			 MULL32(ah,bl,lahbl);	/* (x_hi*y_lo)_lo (3) */\
-			MULH32(al,bl,halbl);	/* (x_lo*y_lo)_hi (0) */\
-			 MULL32(al,bl,lalbl);	/* (x_lo*y_lo)_lo (-) */\
+			MULH32(_ah,_bh,_hahbh);	/* (x_hi*y_hi)_hi (2) */\
+			MULL32(_ah,_bh,_lahbh);	/* (x_hi*y_hi)_lo (4) */\
+			MULH32(_al,_bh,_halbh);	/* (x_lo*y_hi)_hi (1) */\
+			MULL32(_al,_bh,_lalbh);	/* (x_lo*y_hi)_lo (0) */\
+			MULH32(_ah,_bl,_hahbl);	/* (x_hi*y_lo)_hi (1) */\
+			MULL32(_ah,_bl,_lahbl);	/* (x_hi*y_lo)_lo (3) */\
+			MULH32(_al,_bl,_halbl);	/* (x_lo*y_lo)_hi (0) */\
+			MULL32(_al,_bl,_lalbl);	/* (x_lo*y_lo)_lo (-) */\
 		/* Bits   0- 31 : lalbl                           */\
 		/* Bits  32- 63 :*halbl + lahbl +*lalbh   (sumlh) */\
 		/* Bits  64- 95 :*hahbl +*halbh + lahbh   (sumhl) */\
@@ -1070,111 +1109,105 @@ or the with functions using them (if we declare no _-prepended variables local t
 			"addc  %0,%3,%4\n\t"	/* (0) halbl + lalbh                       , result (partial sumlh) in %0, carryout in XER(CA) bit. */\
 			"adde  %1,%5,%6\n\t"	/* (1) halbh + hahbl + (carryin from sumlh), result (partial sumhl) in %1, carryout in XER(CA) bit. */\
 			"addze %2,%7"			/* (2)     0 + hahbh + (carryin from sumhl), result (partial sumhh) in %2, carryout in XER(CA) bit - should be zero! */\
-			: "=r"(sumlh), "=r"(sumhl), "=r"(sumhh)\
-			: "%r"(halbl), "r"(lalbh), "%r"(halbh), "r"(hahbl), "r"(hahbh));\
+			: "=r"(_sumlh), "=r"(_sumhl), "=r"(_sumhh)\
+			: "%r"(_halbl), "r"(_lalbh), "%r"(_halbh), "r"(_hahbl), "r"(_hahbh));\
 		\
 		  __asm__(\
 			"addc  %0,%3,%4\n\t"	/* (3) sumlh + lahbl                       , result (sumlh) in %0, carryout in XER(CA) bit. */\
 			"adde  %1,%5,%6\n\t"	/* (4) sumhl + lahbh + (carryin from sumlh), result (sumhl) in %1, carryout in XER(CA) bit. */\
 			"addze %2,%7"			/* (5)     0 + sumhh + (carryin from sumhl), result (sumhh) in %2, carryout in XER(CA) bit - should be zero! */\
-			: "=r"(sumlh), "=r"(sumhl), "=r"(sumhh)\
-			: "%0"(sumlh), "r"(lahbl), "%1"(sumhl), "r"(lahbh), "2"(sumhh));\
+			: "=r"(_sumlh), "=r"(_sumhl), "=r"(_sumhh)\
+			: "%0"(_sumlh), "r"(_lahbl), "%1"(_sumhl), "r"(_lahbh), "2"(_sumhh));\
 		\
-			a.u32[0] = sumhh;\
-			a.u32[1] = sumhl;\
-			_hi= a.u64;\
-			b.u32[0] = sumlh;\
-			b.u32[1] = lalbl;\
-			_lo= b.u64;\
+			* _aptr    = _sumhh;\
+			*(_aptr+1) = _sumhl;\
+			* _bptr    = _sumlh;\
+			*(_bptr+1) = _lalbl;\
+			_hi = _a;\
+			_lo = _b;\
 		}
 
 		#define SQR_LOHI64(_x,_lo,_hi)\
 		{\
-			union {\
-			uint32 u32[2];\
-			uint64 u64;\
-			} a,b;\
+			uint32 _ah,_al;\
+			uint32 _hahah,_lahah,_hahal,_lahal,_halal,_lalal;\
+			uint32 _sumhh,_sumhl,_sumlh;\
+			uint64 _a = _x,_b;\
+			uint32 *_aptr = (uint32 *)&_a, *_bptr = (uint32 *)&_b;\
+			/* PPC is big-endian, hence hi32 at aptr, lo32 at aptr+1: */\
+			_ah = * _aptr;		/* x_hi */\
+			_al = *(_aptr+1);	/* x_lo */\
 		\
-			uint32 ah,al;\
-			uint32 hahah,lahah,hahal,lahal,halal,lalal;\
-			uint32 sumhh,sumhl,sumlh;\
+			MULH32(_ah,_ah,_hahah);\
+			MULL32(_ah,_ah,_lahah);\
+			MULH32(_ah,_al,_hahal);\
+			MULL32(_ah,_al,_lahal);\
+			MULH32(_al,_al,_halal);\
+			MULL32(_al,_al,_lalal);\
 		\
-			a.u64 = _x;\
-			ah = a.u32[0];\
-			al = a.u32[1];\
-		\
-			MULH32(ah,ah,hahah);\
-			 MULL32(ah,ah,lahah);\
-			MULH32(ah,al,hahal);\
-			 MULL32(ah,al,lahal);\
-			MULH32(al,al,halal);\
-			 MULL32(al,al,lalal);\
-		\
-			sumlh = lahal << 1;\
-			sumhl = (hahal << 1) | (lahal >> 31);\
-			sumhh = hahah + (hahal >> 31);\
+			_sumlh =  _lahal << 1;\
+			_sumhl = (_hahal << 1) | (_lahal >> 31);\
+			_sumhh =  _hahah + (_hahal >> 31);\
 		\
 			/* adde/addze forces execution serialization! Other solution for carry propagation? */\
 		  __asm__(\
 			"addc  %0,%3,%4\n\t"\
 			"adde  %1,%5,%6\n\t"\
 			"addze %2,%7"\
-			: "=r"(sumlh), "=r"(sumhl), "=r"(sumhh)\
-			: "%0"(sumlh), "r"(halal), "%1"(sumhl), "r"(lahah), "2"(sumhh));\
+			: "=r"(_sumlh), "=r"(_sumhl), "=r"(_sumhh)\
+			: "%0"(_sumlh), "r"(_halal), "%1"(_sumhl), "r"(_lahah), "2"(_sumhh));\
 		\
-			a.u32[0] = sumhh;\
-			a.u32[1] = sumhl;\
-			_hi = a.u64;\
-			b.u32[0] = sumlh;\
-			b.u32[1] = lalal;\
-			_lo = b.u64;\
+			* _aptr    = _sumhh;\
+			*(_aptr+1) = _sumhl;\
+			* _bptr    = _sumlh;\
+			*(_bptr+1) = _lalal;\
+			_hi = _a;\
+			_lo = _b;\
 		}
 
 		#define MULH64(_x,_y,_hi)\
 		{\
-			union {\
-				uint32 u32[2];\
-				uint64 u64;\
-			} a,b;\
+			uint32 _ah,_al,_bh,_bl;\
+			uint32 _hahbh,_hahbl,_halbh,_halbl,_lahbh,_lahbl,_lalbh;\
+			uint32 _sumhh,_sumhl,_sumlh;\
+			uint64 _a = _x,_b = _y;\
+			uint32 *_aptr = (uint32 *)&_a, *_bptr = (uint32 *)&_b;\
+			/* PPC is big-endian, hence hi32 at aptr, lo32 at aptr+1: */\
+			ah = * _aptr;		/* x_hi */\
+			al = *(_aptr+1);	/* x_lo */\
+			bh = * _bptr;		/* y_hi */\
+			bl = *(_bptr+1);	/* y_lo */\
 		\
-			uint32 ah,al,bh,bl;\
-			uint32 hahbh,hahbl,halbh,halbl,lahbh,lahbl,lalbh;\
-			uint32 sumhh,sumhl,sumlh;\
-		\
-			a.u64 = _x;\
-			ah = a.u32[0];\
-			al = a.u32[1];\
-			b.u64 = _y;\
-			bh = b.u32[0];\
-			bl = b.u32[1];\
-		\
-			MULH32(ah,bh,hahbh);\
-			 MULL32(ah,bh,lahbh);\
-			MULH32(al,bh,halbh);\
-			 MULL32(al,bh,lalbh);\
-			MULH32(ah,bl,hahbl);\
-			 MULL32(ah,bl,lahbl);\
-			MULH32(al,bl,halbl);\
+			MULH32(_ah,_bh,_hahbh);\
+			MULL32(_ah,_bh,_lahbh);\
+			MULH32(_al,_bh,_halbh);\
+			MULL32(_al,_bh,_lalbh);\
+			MULH32(_ah,_bl,_hahbl);\
+			MULL32(_ah,_bl,_lahbl);\
+			MULH32(_al,_bl,_halbl);\
 		\
 			/* adde/addze forces execution serialization! Other solution for carry propagation? */\
 		  __asm__(\
 			"addc  %0,%3,%4\n\t"\
 			"adde  %1,%5,%6\n\t"\
 			"addze %2,%7"\
-			: "=r"(sumlh), "=r"(sumhl), "=r"(sumhh)\
-			: "%r"(halbl), "r"(lalbh), "%r"(halbh), "r"(hahbl), "r"(hahbh));\
+			: "=r"(_sumlh), "=r"(_sumhl), "=r"(_sumhh)\
+			: "%r"(_halbl), "r"(_lalbh), "%r"(_halbh), "r"(_hahbl), "r"(_hahbh));\
 		\
 		  __asm__(\
 			"addc  %0,%3,%4\n\t"\
 			"adde  %1,%5,%6\n\t"\
 			"addze %2,%7"\
-			: "=r"(sumlh), "=r"(sumhl), "=r"(sumhh)\
-			: "%0"(sumlh), "r"(lahbl), "%1"(sumhl), "r"(lahbh), "2"(sumhh));\
+			: "=r"(_sumlh), "=r"(_sumhl), "=r"(_sumhh)\
+			: "%0"(_sumlh), "r"(_lahbl), "%1"(_sumhl), "r"(_lahbh), "2"(_sumhh));\
 		\
-			a.u32[0] = sumhh;\
-			a.u32[1] = sumhl;\
-			_hi = a.u64;	/* return value */\
+			* _aptr    = _sumhh;\
+			*(_aptr+1) = _sumhl;\
+			_hi = a;	/* return value */\
 		}
+
+		#define	__MULL64(_x, _y)	({ uint64 _lo; MULL64((_x), (_y), _lo); _lo; })
+		#define	__MULH64(_x, _y)	({ uint64 _lo; MULH64((_x), (_y), _lo); _lo; })
 
 		#define MOD_INI_Q4(\
 		 q0,qinv0\

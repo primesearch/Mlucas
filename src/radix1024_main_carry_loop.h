@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -164,6 +164,15 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 /************ See the radix16_ditN_cy_dif1 routine for details on how the SSE2 carry stuff works **********/
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 	{
+		// Check if current index-interval contains the target index for rotated-residue carry injection.
+		// In data-init we set target_idx = -1 on wraparound-carry mini-pass, so if() only taken on full pass:
+	#ifdef USE_SSE2
+		if(target_idx == j) {
+			addr = (double *)s1p00 + target_set;
+			*addr += target_cy*(n>>1);	// target_cy = [-2 << within-word-shift]*[DWT weight]*n/2, i.e. includes fwd DWT weight and n/2 factor
+			target_idx = -1;
+		}
+	#endif
 	#ifdef USE_AVX
 		// For AVX512-and-beyond we support only the fast Mers-carry macros.
 		add1 = &wt1[col  ];
@@ -236,6 +245,7 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 		const uint32 nloop = RADIX>>3;		incr = 4;
 	  #endif
 		i = (!j);	// Need this to force 0-wod to be bigword
+		addr = &prp_mult;
 		tmp = s1p00; tm1 = cy_r; tm2 = cy_r+1; itmp = bjmodn; itm2 = bjmodn+4;	// tm2,itm2 not used in AVX-512 mode
 		for(loop = 0; loop < nloop; loop += incr)
 		{
@@ -264,14 +274,14 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 				add0 = a + j1 + pfetch_dist + poff[l+l];
 			#ifdef USE_AVX512
 			  #ifdef CARRY_16_WAY
-				AVX_cmplx_carry_fast_pow2_errcheck_X16(tmp, tm1,     itmp, half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3,p4);
+				AVX_cmplx_carry_fast_pow2_errcheck_X16(tmp, tm1,     itmp, half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3,p4, addr);
 				tmp += 32; tm1 += 2;           itmp += 16; i = 0;
 			  #else
-				AVX_cmplx_carry_fast_pow2_errcheck_X8 (tmp, tm1,     itmp, half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3,p4);
+				AVX_cmplx_carry_fast_pow2_errcheck_X8 (tmp, tm1,     itmp, half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3,p4, addr);
 				tmp += 16; tm1 += 1;           itmp += 8; i = 0;
 			  #endif
 			#else
-				AVX_cmplx_carry_fast_pow2_errcheck_X8(tmp, tm1,tm2, itmp,itm2, half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3,p4);
+				AVX_cmplx_carry_fast_pow2_errcheck_X8(tmp, tm1,tm2, itmp,itm2, half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3,p4, addr);
 				tmp += 16; tm1 += 2; tm2 += 2; itmp += 8; itm2 += 8; i = 0;
 			#endif
 			}
@@ -281,11 +291,12 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 
 		/* In AVX mode advance carry-ptrs just 1 for each vector-carry-macro call: */
 		tm1 = s1p00; tmp = cy_r; itmp = bjmodn;
+		addr = &prp_mult;
 		i = (!j);
 		for(l = 0; l < RADIX>>2; l++) {
 			// Each AVX carry macro call also processes 4 prefetches of main-array data
 			add0 = a + j1 + pfetch_dist + poff[l];
-			AVX_cmplx_carry_norm_pow2_errcheck_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3);
+			AVX_cmplx_carry_norm_pow2_errcheck_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3, addr);
 			tm1 += 8; tmp++; itmp += 4; i = 0;
 		}
 
@@ -303,6 +314,7 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 		uint32 k0,k1,k2,k3, ii,loop,nwtml, co2save = co2;
 
 		i = (!j);	// Need this to force 0-wod to be bigword
+		addr = &prp_mult;
 		tm1 = s1p00; tmp = cy_r; tm2 = cy_r+0x01; itmp = bjmodn;
 		// Beyond chain length 8, the chained-weights scheme becomes too inaccurate, so re-init seed-wts every 8th pass:
 		for(loop = 0; loop < RADIX>>2; loop += 4)
@@ -357,7 +369,7 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 			for(l = loop; l < loop+4; l++) {
 				// Each SSE2 LOACC carry macro call also processes 4 prefetches of main-array data:
 				add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
-				SSE2_cmplx_carry_fast_pow2_errcheck(tm1,tmp,tm2,itmp,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3);
+				SSE2_cmplx_carry_fast_pow2_errcheck(tm1,tmp,tm2,itmp,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3, addr);
 				tm1 += 8; tmp += 2; tm2 += 2; itmp += 4; i = 0;
 			}
 		}
@@ -386,12 +398,13 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 		add3 = &wt1[co3-1];
 
 		tm1 = s1p00; tmp = cy_r; tm2 = cy_r+0x01; itmp = bjmodn;
+		addr = &prp_mult;
 		i = (!j);
 		for(l = 0; l < RADIX>>2; l++) {
 			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
 			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
 			add0 += (-(l&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
-			SSE2_cmplx_carry_norm_pow2_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p1);
+			SSE2_cmplx_carry_norm_pow2_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p1, addr);
 			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4; i = 0;
 		}
 
@@ -422,7 +435,7 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
 			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
 			add0 += (-(l&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
-			SSE2_cmplx_carry_norm_pow2_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p2,p3);
+			SSE2_cmplx_carry_norm_pow2_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p2,p3, addr);
 			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
@@ -447,35 +460,35 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 
 		/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */
 		l = 0; addr = cy_r; itmp = bjmodn;
-	   cmplx_carry_norm_pow2_errcheck0(a[j1   ],a[j2   ],*addr,*itmp,0); ++l; ++addr; ++itmp;
-		cmplx_carry_fast_pow2_errcheck(a[j1+p1],a[j2+p1],*addr,*itmp,l); ++l; ++addr; ++itmp;
-		cmplx_carry_fast_pow2_errcheck(a[j1+p2],a[j2+p2],*addr,*itmp,l); ++l; ++addr; ++itmp;
-		cmplx_carry_fast_pow2_errcheck(a[j1+p3],a[j2+p3],*addr,*itmp,l); ++l; ++addr; ++itmp;
+	   cmplx_carry_norm_pow2_errcheck0(a[j1   ],a[j2   ],*addr,*itmp,0,prp_mult); ++l; ++addr; ++itmp;
+		cmplx_carry_fast_pow2_errcheck(a[j1+p1],a[j2+p1],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+		cmplx_carry_fast_pow2_errcheck(a[j1+p2],a[j2+p2],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+		cmplx_carry_fast_pow2_errcheck(a[j1+p3],a[j2+p3],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 		// Remaining quartets of macro calls done in loop:
 		for(ntmp = 1; ntmp < RADIX>>2; ntmp++) {
 			jt = j1 + poff[ntmp]; jp = j2 + poff[ntmp];	// poff[] = p04,08,...
 			// Re-init weights every 4th macro invocatin to keep errors under control:
-			cmplx_carry_norm_pow2_errcheck0(a[jt   ],a[jp   ],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_fast_pow2_errcheck (a[jt+p1],a[jp+p1],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_fast_pow2_errcheck (a[jt+p2],a[jp+p2],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_fast_pow2_errcheck (a[jt+p3],a[jp+p3],*addr,*itmp,l); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_pow2_errcheck0(a[jt   ],a[jp   ],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_fast_pow2_errcheck (a[jt+p1],a[jp+p1],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_fast_pow2_errcheck (a[jt+p2],a[jp+p2],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_fast_pow2_errcheck (a[jt+p3],a[jp+p3],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 		}
 
 	  #else	// Hi-accuracy is the default:
 
 		/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */
 		l = 0; addr = cy_r; itmp = bjmodn;
-	   cmplx_carry_norm_pow2_errcheck0(a[j1   ],a[j2   ],*addr,*itmp,0); ++l; ++addr; ++itmp;
-		cmplx_carry_norm_pow2_errcheck(a[j1+p1],a[j2+p1],*addr,*itmp,l); ++l; ++addr; ++itmp;
-		cmplx_carry_norm_pow2_errcheck(a[j1+p2],a[j2+p2],*addr,*itmp,l); ++l; ++addr; ++itmp;
-		cmplx_carry_norm_pow2_errcheck(a[j1+p3],a[j2+p3],*addr,*itmp,l); ++l; ++addr; ++itmp;
+	   cmplx_carry_norm_pow2_errcheck0(a[j1   ],a[j2   ],*addr,*itmp,0,prp_mult); ++l; ++addr; ++itmp;
+		cmplx_carry_norm_pow2_errcheck(a[j1+p1],a[j2+p1],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+		cmplx_carry_norm_pow2_errcheck(a[j1+p2],a[j2+p2],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+		cmplx_carry_norm_pow2_errcheck(a[j1+p3],a[j2+p3],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 		// Remaining quartets of macro calls done in loop:
 		for(ntmp = 1; ntmp < RADIX>>2; ntmp++) {
 			jt = j1 + poff[ntmp]; jp = j2 + poff[ntmp];	// poff[] = p04,08,...
-			cmplx_carry_norm_pow2_errcheck(a[jt   ],a[jp   ],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_norm_pow2_errcheck(a[jt+p1],a[jp+p1],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_norm_pow2_errcheck(a[jt+p2],a[jp+p2],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_norm_pow2_errcheck(a[jt+p3],a[jp+p3],*addr,*itmp,l); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_pow2_errcheck(a[jt   ],a[jp   ],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_pow2_errcheck(a[jt+p1],a[jp+p1],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_pow2_errcheck(a[jt+p2],a[jp+p2],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_pow2_errcheck(a[jt+p3],a[jp+p3],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 		}
 
 	  #endif
@@ -488,8 +501,10 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 	}
 	else	/* Fermat-mod carry in SIMD mode */
 	{
+	#ifdef USE_SSE2
+		add0 = &prp_mult;
+	#endif
 	#ifdef USE_AVX512
-
 		// For a description of the data movement in AVX mode, see radix28_ditN_cy_dif1.
 		tmp = half_arr+2;	// In Fermat-mod mode, use first 2 vector slots above half_arr for base and 1/base
 		VEC_DBL_INIT(tmp, scale);
@@ -572,8 +587,8 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 		tm0 = s1p00; tmp = base_negacyclic_root; tm1 = cy_r; tm2 = cy_i; l = 0x20000;
 		for(i = 0; i < RADIX>>3; i++) {	// RADIX/8 loop passes
 			// Each AVX carry macro call also processes 8 prefetches of main-array data
-			add0 = a + j1 + pfetch_dist + poff[2*i];	// Can't use tm2 as prefetch base-ptr for pow2 Fermat-mod carry-macro since that's used for cy_i
-			SSE2_fermat_carry_norm_pow2_errcheck_X8(tm0,tmp,l,tm1,tm2,half_arr,sign_mask, add0,p1,p2,p3,p4);
+			addr = a + j1 + pfetch_dist + poff[2*i];	// Can't use tm2 as prefetch base-ptr for pow2 Fermat-mod carry-macro since that's used for cy_i
+			SSE2_fermat_carry_norm_pow2_errcheck_X8(tm0,tmp,l,tm1,tm2,half_arr,sign_mask, addr,p1,p2,p3,p4, add0);
 			tm0 += 16; tm1++; tm2++; tmp += 16; l -= 0x380;
 		}
 
@@ -636,8 +651,8 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 		tm0 = s1p00; tmp = base_negacyclic_root; tm1 = cy_r; tm2 = cy_i; l = 0x10000;
 		for(i = 0; i < RADIX>>2; i++) {	// RADIX/4 loop passes
 			// Each AVX carry macro call also processes 4 prefetches of main-array data
-			add0 = a + j1 + pfetch_dist + poff[i];	// Can't use tm2 as prefetch base-ptr for pow2 Fermat-mod carry-macro since that's used for cy_i
-			SSE2_fermat_carry_norm_pow2_errcheck_X4(tm0,tmp,l,tm1,tm2,half_arr,sign_mask, add0,p1,p2,p3);
+			addr = a + j1 + pfetch_dist + poff[i];	// Can't use tm2 as prefetch base-ptr for pow2 Fermat-mod carry-macro since that's used for cy_i
+			SSE2_fermat_carry_norm_pow2_errcheck_X4(tm0,tmp,l,tm1,tm2,half_arr,sign_mask, addr,p1,p2,p3, add0);
 			tm0 += 8; tm1++; tm2++; tmp += 8; l -= 0xc0;
 		}
 
@@ -659,18 +674,18 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 	  #if (OS_BITS == 32)
 		for(l = 0; l < RADIX; l++) {	// RADIX loop passes
 			// Each SSE2 carry macro call also processes 1 prefetch of main-array data
-			add0 = a + j1 + pfetch_dist + poff[l>>2];	// poff[] = p0,4,8,...
-			add0 += (-(l&0x10)) & p2;
-			add0 += (-(l&0x01)) & p1;
-			SSE2_fermat_carry_norm_pow2_errcheck   (tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0);
+			addr = a + j1 + pfetch_dist + poff[l>>2];	// poff[] = p0,4,8,...
+			addr += (-(l&0x10)) & p2;
+			addr += (-(l&0x01)) & p1;
+			SSE2_fermat_carry_norm_pow2_errcheck   (tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, addr, add0);
 			tm1 += 2; tmp++;
 		}
 	  #else	// 64-bit SSE2
 		for(l = 0; l < RADIX>>1; l++) {	// RADIX/2 loop passes
 			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
-			add0 = a + j1 + pfetch_dist + poff[l>>1];	// poff[] = p0,4,8,...
-			add0 += (-(l&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
-			SSE2_fermat_carry_norm_pow2_errcheck_X2(tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0,p2);
+			addr = a + j1 + pfetch_dist + poff[l>>1];	// poff[] = p0,4,8,...
+			addr += (-(l&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
+			SSE2_fermat_carry_norm_pow2_errcheck_X2(tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, addr,p2, add0);
 			tm1 += 4; tmp += 2;
 		}
 	  #endif
@@ -681,10 +696,10 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 		ntmp = 0; addr = cy_r; addi = cy_i;
 		for(m = 0; m < RADIX>>2; m++) {
 			jt = j1 + poff[m]; jp = j2 + poff[m];
-			fermat_carry_norm_pow2_errcheck(a[jt   ],a[jp   ],*addr,*addi,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR; ++addr; ++addi;
-			fermat_carry_norm_pow2_errcheck(a[jt+p1],a[jp+p1],*addr,*addi,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR; ++addr; ++addi;
-			fermat_carry_norm_pow2_errcheck(a[jt+p2],a[jp+p2],*addr,*addi,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR; ++addr; ++addi;
-			fermat_carry_norm_pow2_errcheck(a[jt+p3],a[jp+p3],*addr,*addi,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR; ++addr; ++addi;
+			fermat_carry_norm_pow2_errcheck(a[jt   ],a[jp   ],*addr,*addi,ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR; ++addr; ++addi;
+			fermat_carry_norm_pow2_errcheck(a[jt+p1],a[jp+p1],*addr,*addi,ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR; ++addr; ++addi;
+			fermat_carry_norm_pow2_errcheck(a[jt+p2],a[jp+p2],*addr,*addi,ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR; ++addr; ++addi;
+			fermat_carry_norm_pow2_errcheck(a[jt+p3],a[jp+p3],*addr,*addi,ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR; ++addr; ++addi;
 		}
 
 	#endif	/* #ifdef USE_SSE2 */

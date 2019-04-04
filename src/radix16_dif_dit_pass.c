@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -43,6 +43,14 @@
 		#define DFT_V1	// Compile-time toggle between 2 versions of the FMA-based DFT macros - Must
 		// define one of these for AVX+FMA builds, default is V1 (slightly faster on my Haswell 4670)
 	#endif
+#endif
+
+#ifdef REFACTOR_4DFT_3TWIDDLE
+	#warning REFACTOR_4DFT_3TWIDDLE
+#elif defined(DFT_V2)
+	#warning DFT_V2
+#else
+	#warning DFT_V1
 #endif
 
 #ifndef PFETCH_DIST

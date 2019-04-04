@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -158,12 +158,26 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	const int pfetch_dist = PFETCH_DIST;
 #ifdef USE_SSE2
 	const int stride = (int)RE_IM_STRIDE << 4;	// main-array loop stride = 32 for SSE2, 64 for AVX, 128 for AVX-512
+	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
+	// lg(sizeof(vec_dbl)):
+  #ifdef USE_AVX512
+	const int l2_sz_vd = 6;
+  #elif defined(USE_AVX)
+	const int l2_sz_vd = 5;
+  #else
+	const int l2_sz_vd = 4;
+  #endif
 #else
 	const int stride = 32;	// In this particular routine, scalar mode has same stride as SSE2
+	const int sz_vd = sizeof(double), sz_vd_m1 = sz_vd-1;
+	const int l2_sz_vd = 3;
 #endif
 	static int max_threads = 0;
 	static int nsave = 0;
 	static int *index = 0x0, *index_ptmp = 0x0;	/* N2/16-length Bit-reversal index array. */
+#ifdef USE_PRECOMPUTED_TWIDDLES
+	static struct complex *twidl = 0x0, *twidl_ptmp = 0x0;	// N2-length precomputed-twiddles array.
+#endif
 	int *itmp = 0x0;
 	int rdum,idum, j1pad,j2pad,kp,l,iroot,k1,k2;
 	int i,j1,j2,j2_start,k,m,blocklen,blocklen_sum;
@@ -243,7 +257,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 		#endif
 			ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
-	
+
 		#ifdef USE_SSE2
 			fprintf(stderr, "%s: pfetch_dist = %d\n",func,pfetch_dist);
 			if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
@@ -260,7 +274,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			sc_arr = ALLOC_VEC_DBL(sc_arr, 0x4c*max_threads);	ASSERT(HERE, sc_arr != 0,"FATAL: unable to allocate sc_arr!");
 			sc_ptr = ALIGN_VEC_DBL(sc_arr);
 			ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
-		
+
 			/* Use low 32 16-byte slots of sc_arr for temporaries, next 4 for const = 1/4 and nontrivial complex 16th roots,
 			last 30 for the doubled sincos twiddles, plus at least 3 more slots to allow for 64-byte alignment of the array.
 			*/
@@ -403,11 +417,18 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	!   as is used for the the first of each of the two blocks of 16 complex FFT data.
 	*/
 		if(index_ptmp != 0x0) {	// Have previously-malloc'ed local storage
-			free((void *)index_ptmp);	index_ptmp=0x0;
+			free((void *)index_ptmp);	index_ptmp = 0x0;
+		#ifdef USE_PRECOMPUTED_TWIDDLES
+			free((void *)twidl_ptmp);	twidl_ptmp = 0x0;
+		#endif
 		}
-		index_ptmp = ALLOC_INT(index_ptmp, N2/16);
-		ASSERT(HERE, index_ptmp != 0,"FATAL: unable to allocate array INDEX!");
+		index_ptmp = ALLOC_INT(index_ptmp, N2/16);	ASSERT(HERE, index_ptmp != 0,"FATAL: unable to allocate array INDEX!");
 		index = ALIGN_INT(index_ptmp);
+	#ifdef USE_PRECOMPUTED_TWIDDLES
+	printf("%s: Alloc precomputed-twiddles array with %u Kdoubles.\n",func,N2*15/8);
+		twidl_ptmp = ALLOC_COMPLEX(twidl_ptmp, N2*15/16);	ASSERT(HERE, twidl_ptmp != 0,"FATAL: unable to allocate twidl_ptmp!");
+		twidl = ALIGN_COMPLEX(twidl_ptmp);	ASSERT(HERE, ((long)twidl & 0x3f) == 0, "twidl-array not 64-byte aligned!");
+	#endif
 	/*
 	!...Now rearrange FFT sincos indices using the main loop structure as a template.
 	!   The first length-2 block is a little different, since there we process the 0-15 and 16-31 array
@@ -415,44 +436,32 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	*/
 		index[0]=itmp [0];
 		index[1]=itmp [1];
-
 		k1 =16;	/* init uncompressed wrapper sincos array index */
 		k  =2;	/* init   compressed wrapper sincos array index */
-
 		blocklen=16;
 		blocklen_sum=16;
 		j2_start=96;
-
 		for(i = nradices_prim-6; i >= 0; i--)   /* Radices get processed in reverse order here as in forward FFT. */
 		{
-		  kp = k1 + blocklen;
-
-		  for(m = 0; m < (blocklen-1)>>1; m += 8)	/* Since we now process TWO 16-element sets per loop execution, only execute the loop half as many times as before. */
-		  {
-	/*...grab the next 2 FFT sincos indices: one for the lower (j1, in the actual loop) data block, one for the upper (j2) data block... */
-
-			index[k  ]=itmp[(k1  )>>3];
-			index[k+1]=itmp[(kp-8)>>3];
-
-			k1 = k1+ 8;
-			kp = kp- 8;
-
-			k  = k + 2;
-		  }
-
-		  k1 = k1 + (blocklen >> 1);
-
-		  if(j2_start == n-32)break;
-
-		  blocklen_sum = blocklen_sum + blocklen;
-		  ASSERT(HERE, i != 0,"ERROR 10!");
-		  blocklen = (radix_prim[i-1]-1)*blocklen_sum;
-
-		  j2_start = j2_start+(blocklen<<2);
+			kp = k1 + blocklen;
+			for(m = 0; m < (blocklen-1)>>1; m += 8)	/* Since we now process TWO 16-element sets per loop execution, only execute the loop half as many times as before. */
+			{
+				/*...grab the next 2 FFT sincos indices: one for the lower
+				(j1, in the actual loop) data block, one for the upper (j2) data block... */
+				index[k  ]=itmp[(k1  )>>3];
+				index[k+1]=itmp[(kp-8)>>3];
+				k1 = k1+ 8;
+				kp = kp- 8;
+				k  = k + 2;
+			}
+			k1 = k1 + (blocklen >> 1);
+			if(j2_start == n-32)break;
+			blocklen_sum = blocklen_sum + blocklen;
+			ASSERT(HERE, i != 0,"ERROR 10!");
+			blocklen = (radix_prim[i-1]-1)*blocklen_sum;
+			j2_start = j2_start+(blocklen<<2);
 		}
-
 		j1 = 0;
-
 		/* Restore zeros here, to prevent any barfing due to interpretation of the above integer values as floats,
 		in case at some future point we find it useful to be able to re-use a part of the main a-array for scratch: */
 		for(i=0; i < N2/16; i++)
@@ -460,6 +469,667 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			itmp[i]=0;
 		}
 
+	#ifdef USE_PRECOMPUTED_TWIDDLES
+
+	  // Same code as for within-loop twiddles-computation, just do a linear init-llop and store results to twiddles array.
+	  // Since this is a 1-time precomputation, revert the more-efficient SIMD roots computations to the older version which
+	  // shares code with the scalar-double build:
+	  i = -1;	// Set = -1 instead of 0 to support unit-offset array indexing
+	  for(k = 0; k < (N2>>4); )
+	  {
+		l = iroot = index[k++];
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += iroot;		 /* 2*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA1 = rt;	sA1 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 1);	/* 4*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA2 = rt;	sA2 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 2);	/* 8*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA4 = rt;	sA4 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 2) + iroot;	/* 13*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA8 = rt;	sA8 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA13= rt;	sA13= it;
+
+		/* c3,5 */
+		t1=cA1 *cA4 ;	t2=cA1 *sA4 ;	rt=sA1 *cA4 ;	it=sA1 *sA4;
+		cA3 =t1 +it;	sA3 =t2 -rt;	cA5 =t1 -it;	sA5 =t2 +rt;
+		/* c6,7,9,10 */
+		t1=cA1 *cA8 ;	t2=cA1 *sA8 ;	rt=sA1 *cA8 ;	it=sA1 *sA8;
+		cA7 =t1 +it;	sA7 =t2 -rt;	cA9 =t1 -it;	sA9 =t2 +rt;
+		t1=cA2 *cA8 ;	t2=cA2 *sA8 ;	rt=sA2 *cA8 ;	it=sA2 *sA8;
+		cA6 =t1 +it;	sA6 =t2 -rt;	cA10=t1 -it;	sA10=t2 +rt;
+		/* c11,12,14,15 */
+		t1=cA1 *cA13;	t2=cA1 *sA13;	rt=sA1 *cA13;	it=sA1 *sA13;
+		cA12=t1 +it;	sA12=t2 -rt;	cA14=t1 -it;	sA14=t2 +rt;
+		t1=cA2 *cA13;	t2=cA2 *sA13;	rt=sA2 *cA13;	it=sA2 *sA13;
+		cA11=t1 +it;	sA11=t2 -rt;	cA15=t1 -it;	sA15=t2 +rt;
+
+	  #ifndef USE_SSE2
+		// Scalar-double roots layout:
+		twidl[i+1 ].re = cA1 ;	twidl[i+1 ].im = sA1 ;
+		twidl[i+2 ].re = cA2 ;	twidl[i+2 ].im = sA2 ;
+		twidl[i+3 ].re = cA3 ;	twidl[i+3 ].im = sA3 ;
+		twidl[i+4 ].re = cA4 ;	twidl[i+4 ].im = sA4 ;
+		twidl[i+5 ].re = cA5 ;	twidl[i+5 ].im = sA5 ;
+		twidl[i+6 ].re = cA6 ;	twidl[i+6 ].im = sA6 ;
+		twidl[i+7 ].re = cA7 ;	twidl[i+7 ].im = sA7 ;
+		twidl[i+8 ].re = cA8 ;	twidl[i+8 ].im = sA8 ;
+		twidl[i+9 ].re = cA9 ;	twidl[i+9 ].im = sA9 ;
+		twidl[i+10].re = cA10;	twidl[i+10].im = sA10;
+		twidl[i+11].re = cA11;	twidl[i+11].im = sA11;
+		twidl[i+12].re = cA12;	twidl[i+12].im = sA12;
+		twidl[i+13].re = cA13;	twidl[i+13].im = sA13;
+		twidl[i+14].re = cA14;	twidl[i+14].im = sA14;
+		twidl[i+15].re = cA15;	twidl[i+15].im = sA15;
+	  #else
+		/* SIMD roots layout:
+		             c 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+		(cc0,ss0) + 0x[-,12,0a,1a,06,16,0e,1e,04,14,0c,1c,08,18,10,20].
+		Or in reverse-directory fashion:
+		(cc0,ss0) + 0x[04,06,08,0a,0c,0e,10,12,14,16,18,1a,1c,1e,20].
+		                8  4  c  2  a  6  e  1  9  5  d  3  b  7  f
+		In this compressed-data precompute mode, we have no empty slots,
+		hence the -3 twid[]-array index-fiddling, so the smallest index
+		offset in the above-detailed memory layot lands us on twid[0]:
+		*/
+		// Don't increment these base-ptrs in subsequent blocks, rather
+		// we store those results in d1,2,... struct-subfields:
+		c_tmp = (vec_dbl*)(twidl+i-3); s_tmp = c_tmp+1;
+		(c_tmp+0x12)->d0 = cA1 ;	(s_tmp+0x12)->d0 = sA1 ;
+		(c_tmp+0x0a)->d0 = cA2 ;	(s_tmp+0x0a)->d0 = sA2 ;
+		(c_tmp+0x1a)->d0 = cA3 ;	(s_tmp+0x1a)->d0 = sA3 ;
+		(c_tmp+0x06)->d0 = cA4 ;	(s_tmp+0x06)->d0 = sA4 ;
+		(c_tmp+0x16)->d0 = cA5 ;	(s_tmp+0x16)->d0 = sA5 ;
+		(c_tmp+0x0e)->d0 = cA6 ;	(s_tmp+0x0e)->d0 = sA6 ;
+		(c_tmp+0x1e)->d0 = cA7 ;	(s_tmp+0x1e)->d0 = sA7 ;
+		(c_tmp+0x04)->d0 = cA8 ;	(s_tmp+0x04)->d0 = sA8 ;
+		(c_tmp+0x14)->d0 = cA9 ;	(s_tmp+0x14)->d0 = sA9 ;
+		(c_tmp+0x0c)->d0 = cA10;	(s_tmp+0x0c)->d0 = sA10;
+		(c_tmp+0x1c)->d0 = cA11;	(s_tmp+0x1c)->d0 = sA11;
+		(c_tmp+0x08)->d0 = cA12;	(s_tmp+0x08)->d0 = sA12;
+		(c_tmp+0x18)->d0 = cA13;	(s_tmp+0x18)->d0 = sA13;
+		(c_tmp+0x10)->d0 = cA14;	(s_tmp+0x10)->d0 = sA14;
+		(c_tmp+0x20)->d0 = cA15;	(s_tmp+0x20)->d0 = sA15;
+	  #endif
+	  i += 15;
+
+	/*************************************************************/
+	/*                  2nd set of sincos:                       */
+	/*************************************************************/
+		l = iroot = index[k++];
+	// No need to use cB,sB to store results of next block in precompute-mode, just re-use cA,sA:
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += iroot;		 /* 2*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA1 = rt;	sA1 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 1);	/* 4*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA2 = rt;	sA2 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 2);	/* 8*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA4 = rt;	sA4 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 2) + iroot;	/* 13*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA8 = rt;	sA8 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA13= rt;	sA13= it;
+
+		/* c3,5 */
+		t1=cA1 *cA4 ;	t2=cA1 *sA4 ;	rt=sA1 *cA4 ;	it=sA1 *sA4;
+		cA3 =t1 +it;	sA3 =t2 -rt;	cA5 =t1 -it;	sA5 =t2 +rt;
+		/* c6,7,9,10 */
+		t1=cA1 *cA8 ;	t2=cA1 *sA8 ;	rt=sA1 *cA8 ;	it=sA1 *sA8;
+		cA7 =t1 +it;	sA7 =t2 -rt;	cA9 =t1 -it;	sA9 =t2 +rt;
+		t1=cA2 *cA8 ;	t2=cA2 *sA8 ;	rt=sA2 *cA8 ;	it=sA2 *sA8;
+		cA6 =t1 +it;	sA6 =t2 -rt;	cA10=t1 -it;	sA10=t2 +rt;
+		/* c11,12,14,15 */
+		t1=cA1 *cA13;	t2=cA1 *sA13;	rt=sA1 *cA13;	it=sA1 *sA13;
+		cA12=t1 +it;	sA12=t2 -rt;	cA14=t1 -it;	sA14=t2 +rt;
+		t1=cA2 *cA13;	t2=cA2 *sA13;	rt=sA2 *cA13;	it=sA2 *sA13;
+		cA11=t1 +it;	sA11=t2 -rt;	cA15=t1 -it;	sA15=t2 +rt;
+
+	  #ifndef USE_SSE2
+		// Scalar-double:
+		twidl[i+1 ].re = cA1 ;	twidl[i+1 ].im = sA1 ;
+		twidl[i+2 ].re = cA2 ;	twidl[i+2 ].im = sA2 ;
+		twidl[i+3 ].re = cA3 ;	twidl[i+3 ].im = sA3 ;
+		twidl[i+4 ].re = cA4 ;	twidl[i+4 ].im = sA4 ;
+		twidl[i+5 ].re = cA5 ;	twidl[i+5 ].im = sA5 ;
+		twidl[i+6 ].re = cA6 ;	twidl[i+6 ].im = sA6 ;
+		twidl[i+7 ].re = cA7 ;	twidl[i+7 ].im = sA7 ;
+		twidl[i+8 ].re = cA8 ;	twidl[i+8 ].im = sA8 ;
+		twidl[i+9 ].re = cA9 ;	twidl[i+9 ].im = sA9 ;
+		twidl[i+10].re = cA10;	twidl[i+10].im = sA10;
+		twidl[i+11].re = cA11;	twidl[i+11].im = sA11;
+		twidl[i+12].re = cA12;	twidl[i+12].im = sA12;
+		twidl[i+13].re = cA13;	twidl[i+13].im = sA13;
+		twidl[i+14].re = cA14;	twidl[i+14].im = sA14;
+		twidl[i+15].re = cA15;	twidl[i+15].im = sA15;
+	  #else
+		// SIMD:
+		(c_tmp+0x12)->d1 = cA1 ;	(s_tmp+0x12)->d1 = sA1 ;
+		(c_tmp+0x0a)->d1 = cA2 ;	(s_tmp+0x0a)->d1 = sA2 ;
+		(c_tmp+0x1a)->d1 = cA3 ;	(s_tmp+0x1a)->d1 = sA3 ;
+		(c_tmp+0x06)->d1 = cA4 ;	(s_tmp+0x06)->d1 = sA4 ;
+		(c_tmp+0x16)->d1 = cA5 ;	(s_tmp+0x16)->d1 = sA5 ;
+		(c_tmp+0x0e)->d1 = cA6 ;	(s_tmp+0x0e)->d1 = sA6 ;
+		(c_tmp+0x1e)->d1 = cA7 ;	(s_tmp+0x1e)->d1 = sA7 ;
+		(c_tmp+0x04)->d1 = cA8 ;	(s_tmp+0x04)->d1 = sA8 ;
+		(c_tmp+0x14)->d1 = cA9 ;	(s_tmp+0x14)->d1 = sA9 ;
+		(c_tmp+0x0c)->d1 = cA10;	(s_tmp+0x0c)->d1 = sA10;
+		(c_tmp+0x1c)->d1 = cA11;	(s_tmp+0x1c)->d1 = sA11;
+		(c_tmp+0x08)->d1 = cA12;	(s_tmp+0x08)->d1 = sA12;
+		(c_tmp+0x18)->d1 = cA13;	(s_tmp+0x18)->d1 = sA13;
+		(c_tmp+0x10)->d1 = cA14;	(s_tmp+0x10)->d1 = sA14;
+		(c_tmp+0x20)->d1 = cA15;	(s_tmp+0x20)->d1 = sA15;
+	  #endif
+	  i += 15;
+/*
+tmp = c_tmp+4;
+printf("Init i = %u: k = %u, sincos init:\n",i-30,k-2);
+for(l = 0; l < 15; l++) {
+	printf("%2u: Re = %20.10e,%20.10e, Im = %20.10e,%20.10e\n",l,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+}
+if(i > 100)exit(0);
+*/
+/*
+if(k == 4) {
+	i = -1;	c_tmp = (vec_dbl*)(twidl+i-3);
+	printf("After Init loop: i = %d: sincos init:\n",i);
+	tmp = c_tmp+4;
+	for(l = 0; l < 15; l++) {
+		printf("%2u: Re = %20.10e,%20.10e, Im = %20.10e,%20.10e\n",l,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+	}
+	i+= 30;	c_tmp += 30;
+	printf("After Init loop: i = %d: sincos init:\n",i);
+	tmp = c_tmp+4;
+	for(l = 0; l < 15; l++) {
+		printf("%2u: Re = %20.10e,%20.10e, Im = %20.10e,%20.10e\n",l,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+	}
+	exit(0);
+}
+*/
+	  #ifdef USE_AVX
+	/*************************************************************/
+	/*                  3rd set of sincos:                       */
+	/*************************************************************/
+		l = iroot = index[k++];
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += iroot;		 /* 2*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA1 = rt;	sA1 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 1);	/* 4*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA2 = rt;	sA2 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 2);	/* 8*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA4 = rt;	sA4 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 2) + iroot;	/* 13*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA8 = rt;	sA8 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA13= rt;	sA13= it;
+
+		/* c3,5 */
+		t1=cA1 *cA4 ;	t2=cA1 *sA4 ;	rt=sA1 *cA4 ;	it=sA1 *sA4;
+		cA3 =t1 +it;	sA3 =t2 -rt;	cA5 =t1 -it;	sA5 =t2 +rt;
+		/* c6,7,9,10 */
+		t1=cA1 *cA8 ;	t2=cA1 *sA8 ;	rt=sA1 *cA8 ;	it=sA1 *sA8;
+		cA7 =t1 +it;	sA7 =t2 -rt;	cA9 =t1 -it;	sA9 =t2 +rt;
+		t1=cA2 *cA8 ;	t2=cA2 *sA8 ;	rt=sA2 *cA8 ;	it=sA2 *sA8;
+		cA6 =t1 +it;	sA6 =t2 -rt;	cA10=t1 -it;	sA10=t2 +rt;
+		/* c11,12,14,15 */
+		t1=cA1 *cA13;	t2=cA1 *sA13;	rt=sA1 *cA13;	it=sA1 *sA13;
+		cA12=t1 +it;	sA12=t2 -rt;	cA14=t1 -it;	sA14=t2 +rt;
+		t1=cA2 *cA13;	t2=cA2 *sA13;	rt=sA2 *cA13;	it=sA2 *sA13;
+		cA11=t1 +it;	sA11=t2 -rt;	cA15=t1 -it;	sA15=t2 +rt;
+
+		(c_tmp+0x12)->d2 = cA1 ;	(s_tmp+0x12)->d2 = sA1 ;
+		(c_tmp+0x0a)->d2 = cA2 ;	(s_tmp+0x0a)->d2 = sA2 ;
+		(c_tmp+0x1a)->d2 = cA3 ;	(s_tmp+0x1a)->d2 = sA3 ;
+		(c_tmp+0x06)->d2 = cA4 ;	(s_tmp+0x06)->d2 = sA4 ;
+		(c_tmp+0x16)->d2 = cA5 ;	(s_tmp+0x16)->d2 = sA5 ;
+		(c_tmp+0x0e)->d2 = cA6 ;	(s_tmp+0x0e)->d2 = sA6 ;
+		(c_tmp+0x1e)->d2 = cA7 ;	(s_tmp+0x1e)->d2 = sA7 ;
+		(c_tmp+0x04)->d2 = cA8 ;	(s_tmp+0x04)->d2 = sA8 ;
+		(c_tmp+0x14)->d2 = cA9 ;	(s_tmp+0x14)->d2 = sA9 ;
+		(c_tmp+0x0c)->d2 = cA10;	(s_tmp+0x0c)->d2 = sA10;
+		(c_tmp+0x1c)->d2 = cA11;	(s_tmp+0x1c)->d2 = sA11;
+		(c_tmp+0x08)->d2 = cA12;	(s_tmp+0x08)->d2 = sA12;
+		(c_tmp+0x18)->d2 = cA13;	(s_tmp+0x18)->d2 = sA13;
+		(c_tmp+0x10)->d2 = cA14;	(s_tmp+0x10)->d2 = sA14;
+		(c_tmp+0x20)->d2 = cA15;	(s_tmp+0x20)->d2 = sA15;
+	  i += 15;
+
+	/*************************************************************/
+	/*                  4th set of sincos:                       */
+	/*************************************************************/
+		l = iroot = index[k++];
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += iroot;		 /* 2*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA1 = rt;	sA1 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 1);	/* 4*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA2 = rt;	sA2 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 2);	/* 8*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA4 = rt;	sA4 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 2) + iroot;	/* 13*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA8 = rt;	sA8 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA13= rt;	sA13= it;
+
+		/* c3,5 */
+		t1=cA1 *cA4 ;	t2=cA1 *sA4 ;	rt=sA1 *cA4 ;	it=sA1 *sA4;
+		cA3 =t1 +it;	sA3 =t2 -rt;	cA5 =t1 -it;	sA5 =t2 +rt;
+		/* c6,7,9,10 */
+		t1=cA1 *cA8 ;	t2=cA1 *sA8 ;	rt=sA1 *cA8 ;	it=sA1 *sA8;
+		cA7 =t1 +it;	sA7 =t2 -rt;	cA9 =t1 -it;	sA9 =t2 +rt;
+		t1=cA2 *cA8 ;	t2=cA2 *sA8 ;	rt=sA2 *cA8 ;	it=sA2 *sA8;
+		cA6 =t1 +it;	sA6 =t2 -rt;	cA10=t1 -it;	sA10=t2 +rt;
+		/* c11,12,14,15 */
+		t1=cA1 *cA13;	t2=cA1 *sA13;	rt=sA1 *cA13;	it=sA1 *sA13;
+		cA12=t1 +it;	sA12=t2 -rt;	cA14=t1 -it;	sA14=t2 +rt;
+		t1=cA2 *cA13;	t2=cA2 *sA13;	rt=sA2 *cA13;	it=sA2 *sA13;
+		cA11=t1 +it;	sA11=t2 -rt;	cA15=t1 -it;	sA15=t2 +rt;
+
+		(c_tmp+0x12)->d3 = cA1 ;	(s_tmp+0x12)->d3 = sA1 ;
+		(c_tmp+0x0a)->d3 = cA2 ;	(s_tmp+0x0a)->d3 = sA2 ;
+		(c_tmp+0x1a)->d3 = cA3 ;	(s_tmp+0x1a)->d3 = sA3 ;
+		(c_tmp+0x06)->d3 = cA4 ;	(s_tmp+0x06)->d3 = sA4 ;
+		(c_tmp+0x16)->d3 = cA5 ;	(s_tmp+0x16)->d3 = sA5 ;
+		(c_tmp+0x0e)->d3 = cA6 ;	(s_tmp+0x0e)->d3 = sA6 ;
+		(c_tmp+0x1e)->d3 = cA7 ;	(s_tmp+0x1e)->d3 = sA7 ;
+		(c_tmp+0x04)->d3 = cA8 ;	(s_tmp+0x04)->d3 = sA8 ;
+		(c_tmp+0x14)->d3 = cA9 ;	(s_tmp+0x14)->d3 = sA9 ;
+		(c_tmp+0x0c)->d3 = cA10;	(s_tmp+0x0c)->d3 = sA10;
+		(c_tmp+0x1c)->d3 = cA11;	(s_tmp+0x1c)->d3 = sA11;
+		(c_tmp+0x08)->d3 = cA12;	(s_tmp+0x08)->d3 = sA12;
+		(c_tmp+0x18)->d3 = cA13;	(s_tmp+0x18)->d3 = sA13;
+		(c_tmp+0x10)->d3 = cA14;	(s_tmp+0x10)->d3 = sA14;
+		(c_tmp+0x20)->d3 = cA15;	(s_tmp+0x20)->d3 = sA15;
+	  i += 15;
+	  #endif	// AVX?
+
+	  #ifdef USE_AVX512
+	/*************************************************************/
+	/*                  5th set of sincos:                       */
+	/*************************************************************/
+		l = iroot = index[k++];
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += iroot;		 /* 2*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA1 = rt;	sA1 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 1);	/* 4*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA2 = rt;	sA2 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 2);	/* 8*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA4 = rt;	sA4 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 2) + iroot;	/* 13*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA8 = rt;	sA8 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA13= rt;	sA13= it;
+
+		/* c3,5 */
+		t1=cA1 *cA4 ;	t2=cA1 *sA4 ;	rt=sA1 *cA4 ;	it=sA1 *sA4;
+		cA3 =t1 +it;	sA3 =t2 -rt;	cA5 =t1 -it;	sA5 =t2 +rt;
+		/* c6,7,9,10 */
+		t1=cA1 *cA8 ;	t2=cA1 *sA8 ;	rt=sA1 *cA8 ;	it=sA1 *sA8;
+		cA7 =t1 +it;	sA7 =t2 -rt;	cA9 =t1 -it;	sA9 =t2 +rt;
+		t1=cA2 *cA8 ;	t2=cA2 *sA8 ;	rt=sA2 *cA8 ;	it=sA2 *sA8;
+		cA6 =t1 +it;	sA6 =t2 -rt;	cA10=t1 -it;	sA10=t2 +rt;
+		/* c11,12,14,15 */
+		t1=cA1 *cA13;	t2=cA1 *sA13;	rt=sA1 *cA13;	it=sA1 *sA13;
+		cA12=t1 +it;	sA12=t2 -rt;	cA14=t1 -it;	sA14=t2 +rt;
+		t1=cA2 *cA13;	t2=cA2 *sA13;	rt=sA2 *cA13;	it=sA2 *sA13;
+		cA11=t1 +it;	sA11=t2 -rt;	cA15=t1 -it;	sA15=t2 +rt;
+
+		(c_tmp+0x12)->d4 = cA1 ;	(s_tmp+0x12)->d4 = sA1 ;
+		(c_tmp+0x0a)->d4 = cA2 ;	(s_tmp+0x0a)->d4 = sA2 ;
+		(c_tmp+0x1a)->d4 = cA3 ;	(s_tmp+0x1a)->d4 = sA3 ;
+		(c_tmp+0x06)->d4 = cA4 ;	(s_tmp+0x06)->d4 = sA4 ;
+		(c_tmp+0x16)->d4 = cA5 ;	(s_tmp+0x16)->d4 = sA5 ;
+		(c_tmp+0x0e)->d4 = cA6 ;	(s_tmp+0x0e)->d4 = sA6 ;
+		(c_tmp+0x1e)->d4 = cA7 ;	(s_tmp+0x1e)->d4 = sA7 ;
+		(c_tmp+0x04)->d4 = cA8 ;	(s_tmp+0x04)->d4 = sA8 ;
+		(c_tmp+0x14)->d4 = cA9 ;	(s_tmp+0x14)->d4 = sA9 ;
+		(c_tmp+0x0c)->d4 = cA10;	(s_tmp+0x0c)->d4 = sA10;
+		(c_tmp+0x1c)->d4 = cA11;	(s_tmp+0x1c)->d4 = sA11;
+		(c_tmp+0x08)->d4 = cA12;	(s_tmp+0x08)->d4 = sA12;
+		(c_tmp+0x18)->d4 = cA13;	(s_tmp+0x18)->d4 = sA13;
+		(c_tmp+0x10)->d4 = cA14;	(s_tmp+0x10)->d4 = sA14;
+		(c_tmp+0x20)->d4 = cA15;	(s_tmp+0x20)->d4 = sA15;
+	  i += 15;
+
+	/*************************************************************/
+	/*                  6th set of sincos:                       */
+	/*************************************************************/
+		l = iroot = index[k++];
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += iroot;		 /* 2*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA1 = rt;	sA1 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 1);	/* 4*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA2 = rt;	sA2 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 2);	/* 8*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA4 = rt;	sA4 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 2) + iroot;	/* 13*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA8 = rt;	sA8 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA13= rt;	sA13= it;
+
+		/* c3,5 */
+		t1=cA1 *cA4 ;	t2=cA1 *sA4 ;	rt=sA1 *cA4 ;	it=sA1 *sA4;
+		cA3 =t1 +it;	sA3 =t2 -rt;	cA5 =t1 -it;	sA5 =t2 +rt;
+		/* c6,7,9,10 */
+		t1=cA1 *cA8 ;	t2=cA1 *sA8 ;	rt=sA1 *cA8 ;	it=sA1 *sA8;
+		cA7 =t1 +it;	sA7 =t2 -rt;	cA9 =t1 -it;	sA9 =t2 +rt;
+		t1=cA2 *cA8 ;	t2=cA2 *sA8 ;	rt=sA2 *cA8 ;	it=sA2 *sA8;
+		cA6 =t1 +it;	sA6 =t2 -rt;	cA10=t1 -it;	sA10=t2 +rt;
+		/* c11,12,14,15 */
+		t1=cA1 *cA13;	t2=cA1 *sA13;	rt=sA1 *cA13;	it=sA1 *sA13;
+		cA12=t1 +it;	sA12=t2 -rt;	cA14=t1 -it;	sA14=t2 +rt;
+		t1=cA2 *cA13;	t2=cA2 *sA13;	rt=sA2 *cA13;	it=sA2 *sA13;
+		cA11=t1 +it;	sA11=t2 -rt;	cA15=t1 -it;	sA15=t2 +rt;
+
+		(c_tmp+0x12)->d5 = cA1 ;	(s_tmp+0x12)->d5 = sA1 ;
+		(c_tmp+0x0a)->d5 = cA2 ;	(s_tmp+0x0a)->d5 = sA2 ;
+		(c_tmp+0x1a)->d5 = cA3 ;	(s_tmp+0x1a)->d5 = sA3 ;
+		(c_tmp+0x06)->d5 = cA4 ;	(s_tmp+0x06)->d5 = sA4 ;
+		(c_tmp+0x16)->d5 = cA5 ;	(s_tmp+0x16)->d5 = sA5 ;
+		(c_tmp+0x0e)->d5 = cA6 ;	(s_tmp+0x0e)->d5 = sA6 ;
+		(c_tmp+0x1e)->d5 = cA7 ;	(s_tmp+0x1e)->d5 = sA7 ;
+		(c_tmp+0x04)->d5 = cA8 ;	(s_tmp+0x04)->d5 = sA8 ;
+		(c_tmp+0x14)->d5 = cA9 ;	(s_tmp+0x14)->d5 = sA9 ;
+		(c_tmp+0x0c)->d5 = cA10;	(s_tmp+0x0c)->d5 = sA10;
+		(c_tmp+0x1c)->d5 = cA11;	(s_tmp+0x1c)->d5 = sA11;
+		(c_tmp+0x08)->d5 = cA12;	(s_tmp+0x08)->d5 = sA12;
+		(c_tmp+0x18)->d5 = cA13;	(s_tmp+0x18)->d5 = sA13;
+		(c_tmp+0x10)->d5 = cA14;	(s_tmp+0x10)->d5 = sA14;
+		(c_tmp+0x20)->d5 = cA15;	(s_tmp+0x20)->d5 = sA15;
+	  i += 15;
+
+	/*************************************************************/
+	/*                  7th set of sincos:                       */
+	/*************************************************************/
+		l = iroot = index[k++];
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += iroot;		 /* 2*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA1 = rt;	sA1 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 1);	/* 4*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA2 = rt;	sA2 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 2);	/* 8*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA4 = rt;	sA4 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 2) + iroot;	/* 13*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA8 = rt;	sA8 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA13= rt;	sA13= it;
+
+		/* c3,5 */
+		t1=cA1 *cA4 ;	t2=cA1 *sA4 ;	rt=sA1 *cA4 ;	it=sA1 *sA4;
+		cA3 =t1 +it;	sA3 =t2 -rt;	cA5 =t1 -it;	sA5 =t2 +rt;
+		/* c6,7,9,10 */
+		t1=cA1 *cA8 ;	t2=cA1 *sA8 ;	rt=sA1 *cA8 ;	it=sA1 *sA8;
+		cA7 =t1 +it;	sA7 =t2 -rt;	cA9 =t1 -it;	sA9 =t2 +rt;
+		t1=cA2 *cA8 ;	t2=cA2 *sA8 ;	rt=sA2 *cA8 ;	it=sA2 *sA8;
+		cA6 =t1 +it;	sA6 =t2 -rt;	cA10=t1 -it;	sA10=t2 +rt;
+		/* c11,12,14,15 */
+		t1=cA1 *cA13;	t2=cA1 *sA13;	rt=sA1 *cA13;	it=sA1 *sA13;
+		cA12=t1 +it;	sA12=t2 -rt;	cA14=t1 -it;	sA14=t2 +rt;
+		t1=cA2 *cA13;	t2=cA2 *sA13;	rt=sA2 *cA13;	it=sA2 *sA13;
+		cA11=t1 +it;	sA11=t2 -rt;	cA15=t1 -it;	sA15=t2 +rt;
+
+		(c_tmp+0x12)->d6 = cA1 ;	(s_tmp+0x12)->d6 = sA1 ;
+		(c_tmp+0x0a)->d6 = cA2 ;	(s_tmp+0x0a)->d6 = sA2 ;
+		(c_tmp+0x1a)->d6 = cA3 ;	(s_tmp+0x1a)->d6 = sA3 ;
+		(c_tmp+0x06)->d6 = cA4 ;	(s_tmp+0x06)->d6 = sA4 ;
+		(c_tmp+0x16)->d6 = cA5 ;	(s_tmp+0x16)->d6 = sA5 ;
+		(c_tmp+0x0e)->d6 = cA6 ;	(s_tmp+0x0e)->d6 = sA6 ;
+		(c_tmp+0x1e)->d6 = cA7 ;	(s_tmp+0x1e)->d6 = sA7 ;
+		(c_tmp+0x04)->d6 = cA8 ;	(s_tmp+0x04)->d6 = sA8 ;
+		(c_tmp+0x14)->d6 = cA9 ;	(s_tmp+0x14)->d6 = sA9 ;
+		(c_tmp+0x0c)->d6 = cA10;	(s_tmp+0x0c)->d6 = sA10;
+		(c_tmp+0x1c)->d6 = cA11;	(s_tmp+0x1c)->d6 = sA11;
+		(c_tmp+0x08)->d6 = cA12;	(s_tmp+0x08)->d6 = sA12;
+		(c_tmp+0x18)->d6 = cA13;	(s_tmp+0x18)->d6 = sA13;
+		(c_tmp+0x10)->d6 = cA14;	(s_tmp+0x10)->d6 = sA14;
+		(c_tmp+0x20)->d6 = cA15;	(s_tmp+0x20)->d6 = sA15;
+	  i += 15;
+
+	/*************************************************************/
+	/*                  8th set of sincos:                       */
+	/*************************************************************/
+		l = iroot = index[k++];
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += iroot;		 /* 2*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA1 = rt;	sA1 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 1);	/* 4*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA2 = rt;	sA2 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 2);	/* 8*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA4 = rt;	sA4 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		l += (iroot << 2) + iroot;	/* 13*iroot */
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA8 = rt;	sA8 = it;
+
+		k1=(l & NRTM1);		k2=(l >> NRT_BITS);
+		re0 = rt0[k1].re;	im0 = rt0[k1].im;
+		re1 = rt1[k2].re;	im1 = rt1[k2].im;
+		rt = re0*re1 - im0*im1;	it = re0*im1 + im0*re1;
+		cA13= rt;	sA13= it;
+
+		/* c3,5 */
+		t1=cA1 *cA4 ;	t2=cA1 *sA4 ;	rt=sA1 *cA4 ;	it=sA1 *sA4;
+		cA3 =t1 +it;	sA3 =t2 -rt;	cA5 =t1 -it;	sA5 =t2 +rt;
+		/* c6,7,9,10 */
+		t1=cA1 *cA8 ;	t2=cA1 *sA8 ;	rt=sA1 *cA8 ;	it=sA1 *sA8;
+		cA7 =t1 +it;	sA7 =t2 -rt;	cA9 =t1 -it;	sA9 =t2 +rt;
+		t1=cA2 *cA8 ;	t2=cA2 *sA8 ;	rt=sA2 *cA8 ;	it=sA2 *sA8;
+		cA6 =t1 +it;	sA6 =t2 -rt;	cA10=t1 -it;	sA10=t2 +rt;
+		/* c11,12,14,15 */
+		t1=cA1 *cA13;	t2=cA1 *sA13;	rt=sA1 *cA13;	it=sA1 *sA13;
+		cA12=t1 +it;	sA12=t2 -rt;	cA14=t1 -it;	sA14=t2 +rt;
+		t1=cA2 *cA13;	t2=cA2 *sA13;	rt=sA2 *cA13;	it=sA2 *sA13;
+		cA11=t1 +it;	sA11=t2 -rt;	cA15=t1 -it;	sA15=t2 +rt;
+
+		(c_tmp+0x12)->d7 = cA1 ;	(s_tmp+0x12)->d7 = sA1 ;
+		(c_tmp+0x0a)->d7 = cA2 ;	(s_tmp+0x0a)->d7 = sA2 ;
+		(c_tmp+0x1a)->d7 = cA3 ;	(s_tmp+0x1a)->d7 = sA3 ;
+		(c_tmp+0x06)->d7 = cA4 ;	(s_tmp+0x06)->d7 = sA4 ;
+		(c_tmp+0x16)->d7 = cA5 ;	(s_tmp+0x16)->d7 = sA5 ;
+		(c_tmp+0x0e)->d7 = cA6 ;	(s_tmp+0x0e)->d7 = sA6 ;
+		(c_tmp+0x1e)->d7 = cA7 ;	(s_tmp+0x1e)->d7 = sA7 ;
+		(c_tmp+0x04)->d7 = cA8 ;	(s_tmp+0x04)->d7 = sA8 ;
+		(c_tmp+0x14)->d7 = cA9 ;	(s_tmp+0x14)->d7 = sA9 ;
+		(c_tmp+0x0c)->d7 = cA10;	(s_tmp+0x0c)->d7 = sA10;
+		(c_tmp+0x1c)->d7 = cA11;	(s_tmp+0x1c)->d7 = sA11;
+		(c_tmp+0x08)->d7 = cA12;	(s_tmp+0x08)->d7 = sA12;
+		(c_tmp+0x18)->d7 = cA13;	(s_tmp+0x18)->d7 = sA13;
+		(c_tmp+0x10)->d7 = cA14;	(s_tmp+0x10)->d7 = sA14;
+		(c_tmp+0x20)->d7 = cA15;	(s_tmp+0x20)->d7 = sA15;
+	  i += 15;
+	  #endif	// AVX512 ?
+	  } 	// endfor(twiddles init loop)
+	#endif	// USE_PRECOMPUTED_TWIDDLES ?
+/*
+i = -1;	c_tmp = (vec_dbl*)(twidl+i-3); s_tmp = c_tmp+1;
+printf("After Init loop: i = %d: sincos init:\n",i);
+tmp = c_tmp+4;
+for(l = 0; l < 15; l++) {
+	printf("%2u: Re = %20.10e,%20.10e, Im = %20.10e,%20.10e\n",l,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+}
+i+= 30;	c_tmp += 30;
+printf("After Init loop: i = %d: sincos init:\n",i);
+tmp = c_tmp+4;
+for(l = 0; l < 15; l++) {
+	printf("%2u: Re = %20.10e,%20.10e, Im = %20.10e,%20.10e\n",l,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+}
+exit(0);
+*/
 		return;
 	}	/* end of inits. */
 
@@ -762,125 +1432,6 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	if(j1 > 0) {
 	//	fprintf(stderr,"j1,j2 = %d,%d: Jumping into loop!\n",j1,j2);
 		goto jump_in;
-	} else {
-	#if 0
-		rng_isaac_init(TRUE);
-		double pow2_dmult = 1024.0*128.0;	// Restrict inputs to 18 bits, which in balanced-digit representation
-											// means restricting multiplier of random-inputs-in-[-1,+1] below to 2^17
-		int ipad, imax = MIN(1024,n);
-		for(i = 0; i < imax; i += 16) {
-			ipad = i + ( (i >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-			// All the inits are w.r.to an un-SIMD-rearranged ...,re,im,re,im,... pattern:
-		#ifdef USE_AVX512
-			a[ipad+br16[ 0]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re0
-			a[ipad+br16[ 1]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im0
-			a[ipad+br16[ 2]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re1
-			a[ipad+br16[ 3]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im1
-			a[ipad+br16[ 4]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re2
-			a[ipad+br16[ 5]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im2
-			a[ipad+br16[ 6]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re3
-			a[ipad+br16[ 7]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im3
-			a[ipad+br16[ 8]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re4
-			a[ipad+br16[ 9]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im4
-			a[ipad+br16[10]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re5
-			a[ipad+br16[11]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im5
-			a[ipad+br16[12]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re6
-			a[ipad+br16[13]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im6
-			a[ipad+br16[14]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re7
-			a[ipad+br16[15]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im7
-		#elif defined(USE_AVX)
-			a[ipad+br8[0]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re0
-			a[ipad+br8[1]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im0
-			a[ipad+br8[2]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re1
-			a[ipad+br8[3]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im1
-			a[ipad+br8[4]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re2
-			a[ipad+br8[5]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im2
-			a[ipad+br8[6]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re3
-			a[ipad+br8[7]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im3
-			a[ipad+br8[0]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re4
-			a[ipad+br8[1]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im4
-			a[ipad+br8[2]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re5
-			a[ipad+br8[3]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im5
-			a[ipad+br8[4]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re6
-			a[ipad+br8[5]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im6
-			a[ipad+br8[6]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re7
-			a[ipad+br8[7]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im7
-		#elif defined(USE_SSE2)
-			a[ipad+br4[0]   ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re0
-			a[ipad+br4[1]   ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im0
-			a[ipad+br4[2]   ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re1
-			a[ipad+br4[3]   ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im1
-			a[ipad+br4[0]+4 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re2
-			a[ipad+br4[1]+4 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im2
-			a[ipad+br4[2]+4 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re3
-			a[ipad+br4[3]+4 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im3
-			a[ipad+br4[0]+8 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re4
-			a[ipad+br4[1]+8 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im4
-			a[ipad+br4[2]+8 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re5
-			a[ipad+br4[3]+8 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im5
-			a[ipad+br4[0]+12] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re6
-			a[ipad+br4[1]+12] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im6
-			a[ipad+br4[2]+12] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re7
-			a[ipad+br4[3]+12] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im7
-		#else
-			#error Debug only enabled for SSE2 and above!
-		#endif
-		#ifdef USE_AVX512
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 0, a[ipad+br16[ 0]],i+ 0, a[ipad+ 0]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 1, a[ipad+br16[ 1]],i+ 1, a[ipad+ 1]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 2, a[ipad+br16[ 2]],i+ 2, a[ipad+ 2]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 3, a[ipad+br16[ 3]],i+ 3, a[ipad+ 3]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 4, a[ipad+br16[ 4]],i+ 4, a[ipad+ 4]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 5, a[ipad+br16[ 5]],i+ 5, a[ipad+ 5]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 6, a[ipad+br16[ 6]],i+ 6, a[ipad+ 6]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 7, a[ipad+br16[ 7]],i+ 7, a[ipad+ 7]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 8, a[ipad+br16[ 8]],i+ 8, a[ipad+ 8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 9, a[ipad+br16[ 9]],i+ 9, a[ipad+ 9]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+10, a[ipad+br16[10]],i+10, a[ipad+10]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+11, a[ipad+br16[11]],i+11, a[ipad+11]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+12, a[ipad+br16[12]],i+12, a[ipad+12]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+13, a[ipad+br16[13]],i+13, a[ipad+13]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+14, a[ipad+br16[14]],i+14, a[ipad+14]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+15, a[ipad+br16[15]],i+15, a[ipad+15]);
-		#elif defined(USE_AVX)
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+0  ,a[ipad+br8[0]  ],i+0  ,a[ipad+0  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+1  ,a[ipad+br8[1]  ],i+1  ,a[ipad+1  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+2  ,a[ipad+br8[2]  ],i+2  ,a[ipad+2  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+3  ,a[ipad+br8[3]  ],i+3  ,a[ipad+3  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+4  ,a[ipad+br8[4]  ],i+4  ,a[ipad+4  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+5  ,a[ipad+br8[5]  ],i+5  ,a[ipad+5  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+6  ,a[ipad+br8[6]  ],i+6  ,a[ipad+6  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+7  ,a[ipad+br8[7]  ],i+7  ,a[ipad+7  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+0+8,a[ipad+br8[0]+8],i+0+8,a[ipad+0+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+1+8,a[ipad+br8[1]+8],i+1+8,a[ipad+1+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+2+8,a[ipad+br8[2]+8],i+2+8,a[ipad+2+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+3+8,a[ipad+br8[3]+8],i+3+8,a[ipad+3+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+4+8,a[ipad+br8[4]+8],i+4+8,a[ipad+4+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+5+8,a[ipad+br8[5]+8],i+5+8,a[ipad+5+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+6+8,a[ipad+br8[6]+8],i+6+8,a[ipad+6+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+7+8,a[ipad+br8[7]+8],i+7+8,a[ipad+7+8]);
-		#elif defined(USE_SSE2)
-		  if(0) {
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+0  ,a[ipad+br4[0]   ],i+0  ,a[ipad+0  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+1  ,a[ipad+br4[1]   ],i+1  ,a[ipad+1  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+2  ,a[ipad+br4[2]   ],i+2  ,a[ipad+2  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+3  ,a[ipad+br4[3]   ],i+3  ,a[ipad+3  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+4  ,a[ipad+br4[0]+4 ],i+4  ,a[ipad+4  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+5  ,a[ipad+br4[1]+4 ],i+5  ,a[ipad+5  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+6  ,a[ipad+br4[2]+4 ],i+6  ,a[ipad+6  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+7  ,a[ipad+br4[3]+4 ],i+7  ,a[ipad+7  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+0+8,a[ipad+br4[0]+8 ],i+0+8,a[ipad+0+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+1+8,a[ipad+br4[1]+8 ],i+1+8,a[ipad+1+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+2+8,a[ipad+br4[2]+8 ],i+2+8,a[ipad+2+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+3+8,a[ipad+br4[3]+8 ],i+3+8,a[ipad+3+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+4+8,a[ipad+br4[0]+12],i+4+8,a[ipad+4+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+5+8,a[ipad+br4[1]+12],i+5+8,a[ipad+5+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+6+8,a[ipad+br4[2]+12],i+6+8,a[ipad+6+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+7+8,a[ipad+br4[3]+12],i+7+8,a[ipad+7+8]);
-		  }
-		#endif
-		}
-	#endif
 	}
 
 /*
@@ -912,7 +1463,71 @@ jump_in:	/* Entry point for all blocks but the first. */
 	  j1pad = j1 + ( (j1 >> DAT_BITS) << PAD_BITS );	/* floating padded-array 1st element index is here */
 	  j2pad = j2 + ( (j2 >> DAT_BITS) << PAD_BITS );	/* floating padded-array 2nd element index is here */
 
-	#ifndef USE_SSE2	// Scalar-double mode:
+	#ifdef USE_PRECOMPUTED_TWIDDLES
+
+		l = 15*k - 1;	// -1 is to support unit-offset indexing below
+
+	 #ifndef USE_SSE2
+		k += 2;
+		// Scalar-double roots layout:
+		cA1  = twidl[l+1 ].re;	sA1  = twidl[l+1 ].im;
+		cA2  = twidl[l+2 ].re;	sA2  = twidl[l+2 ].im;
+		cA3  = twidl[l+3 ].re;	sA3  = twidl[l+3 ].im;
+		cA4  = twidl[l+4 ].re;	sA4  = twidl[l+4 ].im;
+		cA5  = twidl[l+5 ].re;	sA5  = twidl[l+5 ].im;
+		cA6  = twidl[l+6 ].re;	sA6  = twidl[l+6 ].im;
+		cA7  = twidl[l+7 ].re;	sA7  = twidl[l+7 ].im;
+		cA8  = twidl[l+8 ].re;	sA8  = twidl[l+8 ].im;
+		cA9  = twidl[l+9 ].re;	sA9  = twidl[l+9 ].im;
+		cA10 = twidl[l+10].re;	sA10 = twidl[l+10].im;
+		cA11 = twidl[l+11].re;	sA11 = twidl[l+11].im;
+		cA12 = twidl[l+12].re;	sA12 = twidl[l+12].im;
+		cA13 = twidl[l+13].re;	sA13 = twidl[l+13].im;
+		cA14 = twidl[l+14].re;	sA14 = twidl[l+14].im;
+		cA15 = twidl[l+15].re;	sA15 = twidl[l+15].im;
+		RT = cA1;	IT = sA1;	// Need copies of these 2 for wrapper step
+		i += 15;
+		cB1  = twidl[l+1 ].re;	sB1  = twidl[l+1 ].im;
+		cB2  = twidl[l+2 ].re;	sB2  = twidl[l+2 ].im;
+		cB3  = twidl[l+3 ].re;	sB3  = twidl[l+3 ].im;
+		cB4  = twidl[l+4 ].re;	sB4  = twidl[l+4 ].im;
+		cB5  = twidl[l+5 ].re;	sB5  = twidl[l+5 ].im;
+		cB6  = twidl[l+6 ].re;	sB6  = twidl[l+6 ].im;
+		cB7  = twidl[l+7 ].re;	sB7  = twidl[l+7 ].im;
+		cB8  = twidl[l+8 ].re;	sB8  = twidl[l+8 ].im;
+		cB9  = twidl[l+9 ].re;	sB9  = twidl[l+9 ].im;
+		cB10 = twidl[l+10].re;	sB10 = twidl[l+10].im;
+		cB11 = twidl[l+11].re;	sB11 = twidl[l+11].im;
+		cB12 = twidl[l+12].re;	sB12 = twidl[l+12].im;
+		cB13 = twidl[l+13].re;	sB13 = twidl[l+13].im;
+		cB14 = twidl[l+14].re;	sB14 = twidl[l+14].im;
+		cB15 = twidl[l+15].re;	sB15 = twidl[l+15].im;
+	  if(j1 == 0) {   // The j1 = 0 case is special...need to overwrite above A-versions of saved trigs with B-data
+		RT = cB1;	IT = sB1;
+	  }
+
+	 #else
+		// SIMD roots layout:
+		k += RE_IM_STRIDE;
+		// Don't increment these base-ptrs in subsequent blocks, rather
+		// we store those results in d1,2,... struct-subfields:
+		// c_tmp = from-pointer:		tmp = to-pointer:
+		c_tmp = (vec_dbl*)(twidl+l+1); tmp = cc0+4;
+		memcpy(tmp, c_tmp, 30<<l2_sz_vd);	// (30 vec_dbl) worth of data
+/*
+if(thr_id < 2 && ((k-2) - thr_id*1024) <= 2) {
+	printf("Thread %u: i = %u, k = %u, sincos data:\n",thr_id,l,k-2);
+	tmp = cc0+4;
+	for(l = 0; l < 15; l++) {
+		printf("[Thr %u].%2u: Re = %20.10e,%20.10e, Im = %20.10e,%20.10e\n",thr_id,l,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+	}
+}
+*/
+	 #endif
+
+	#else	// On-the-fly twiddles computation:
+
+	 #ifndef USE_SSE2	// Scalar-double mode:
 
 	/*************************************************************/
 	/*                  1st set of sincos:                       */
@@ -1044,7 +1659,7 @@ jump_in:	/* Entry point for all blocks but the first. */
 		t1=cB2 *cB13;	t2=cB2 *sB13;	rt=sB2 *cB13;	it=sB2 *sB13;
 		cB11=t1 +it;	sB11=t2 -rt;	cB15=t1 -it;	sB15=t2 +rt;
 
-	#else	// SIMD:
+	 #else	// SIMD:
 
 		/* Due to roots-locality considerations, roots (c,s)[1-15] - note no unused (c0,s0) pair here as in the
 		Fermat-mod case -are offset w.r.to the thread-local ptr pair as
@@ -1108,7 +1723,15 @@ jump_in:	/* Entry point for all blocks but the first. */
 		// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity:
 		add0 = (double *)k1_arr; add1 = (double *)k2_arr;	// Casts are only to get rid of compiler warnings
 		SSE2_RADIX16_CALC_TWIDDLES_LOACC(cc0,add0,add1,rt0,rt1);
-
+/*
+if(thr_id < 2 && ((k-2) - thr_id*1024) <= 2) {
+	printf("Thread %u: k = %u, sincos data:\n",thr_id,k-2);
+	tmp = cc0+4;
+	for(l = 0; l < 15; l++) {
+		printf("[Thr %u].%2u: Re = %20.10e,%20.10e, Im = %20.10e,%20.10e\n",thr_id,l,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+	}
+}
+*/
 	   #endif	// 32-or-64-bit SSE2 ?
 
 	  #elif !defined(USE_AVX512)	// AVX/AVX2:
@@ -1316,7 +1939,9 @@ jump_in:	/* Entry point for all blocks but the first. */
 
 	  #endif	// SIMD mode?
 
-	#endif	// SIMD ?
+	 #endif	// SIMD ?
+
+	#endif	// USE_PRECOMPUTED_TWIDDLES &
 
 	#ifdef USE_SSE2	// Both SSE2 and AVX share this:
 
@@ -2782,6 +3407,7 @@ update_blocklen:
 	j2=j2_start;			    /* Reset j2 for start of the next block. */
 
 //	fprintf(stderr,"after update_blocklen: j1,j2 = %u, %u\n",j1,j2);
+//	fprintf(stderr,"%s[thread %u]: after update_blocklen: j1,j2 = %u,%u; k = %u\n",func,thr_id,j1,j2,k);
 
 /*printf("newblock: blocklen = %8d blocklen_sum = %8d j2 = %8d\n",blocklen,blocklen_sum,j2);*/
 }	 /* End of Main (i) loop */

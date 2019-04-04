@@ -1,0 +1,189 @@
+<HTML>
+<HEAD>
+<title>Mlucas: Descriptions of previous code releases</title>
+<LINK rel="shortcut icon" href="favicon.ico">
+<meta Name="description"		Content="">
+<meta Name="keywords"			Content="Ernst Mayer Mlucas Great Internet Mersenne Prime Search GIMPS Lucas Lehmer primality testing factoring FFT radix sse2 avx gcc inline assembler">
+<meta Http-equiv="Content-Type"	Content="text/html; charset=iso-8859-1">
+<meta Http-equiv="Content-Style-Type"	Content="text/css">
+<meta Name="author"				Content="Ernst W. Mayer">
+<meta Name="copyright"			Content="Copyright (C) 2015 Ernst W. Mayer. Permission is granted to copy, distribute and/or modify this documentunder the terms of the GNU Free Documentation License, Version 1.3 or any later version published by the Free Software Foundation; with no Invariant Sections, no Front-Cover Texts, and no Back-Cover Texts.A copy of the license is included in the section entitled 'GNU Free Documentation License'.">
+<meta Name="distribution"		Content="global">
+<meta Name="robots"		Content="index, follow">
+<meta Name="rating"		Content="Safe For Kids">
+</HEAD>
+
+<BODY>
+
+<H2>Mlucas: Descriptions of previous code releases:</H2>
+
+<HR SIZE=2>
+
+<img src="images/icons/ball_green.gif"> <A NAME="15.0patch"></A><b>07 Feb 2016: Patched source file:</b>
+
+Several users have reported a bug in the get_fft_radices.c file, which affects non-SIMD unthreaded builds (i.e. ones for which the prepocessor flag USE_ONLY_LARGE_LEAD_RADICES = False based on the logic at top of the file); my pre-release testing apparently omitted this build mode. The error message looks like this:<br>
+<i><br>
+../src/get_fft_radices.c: In function 'get_fft_radices':<br>
+../src/get_fft_radices.c:1446:3: error: duplicate case value<br>
+../src/get_fft_radices.c:1443:3: error: previously used here<br>
+</i><br>
+The fix is to either +1 increment both of the two case-values in the #ifndef USE_ONLY_LARGE_LEAD_RADICES - wrapped logic following the above line, or to use <a href="src/C/get_fft_radices.c.gz">this patched version of the file</a> (15KB, md5 checksum = db5d2504d58897229d0366f4749b4131) from my dev-branch, which fixes the duplicate case error and further adds some radix sets which should help with non-SIMD build performance.
+<br>
+
+<HR SIZE=2>
+
+<img src="images/icons/ball_yellow.gif"> <A NAME="15.0"></A><b>24 Aug 2015: Beta versions of automated build tools:</b>
+
+Thanks to Alex Vong for these, which he created as part of a proposed <a href="https://www.debian.org/">Debian</a> packaging of the Mlucas 14.1 release. The resulting tarballs also contain numerous bugfixes (mostly minor) which will also be in the upcoming v15 release.
+<br><br>
+In addition to pristine tarballs with C source files only (and manual build procedure documented below in "Download and Build the Source Code"), we provide experimental tarballs with autotools as well, which for the current release come in 2 "same package, different compression tools" tarballs: <A href="src/C/mlucas-14.1.tar.gz">mlucas-14.1.tar.gz</a> (3.4 MB) and <A href="src/C/mlucas-14.1.tar.xz">mlucas-14.1.tar.xz</a> (1.5 MB). If your Linux distro (or personal setup) has support for the <a href="https://en.wikipedia.org/wiki/Xz">Xz compression package</a>, you'll obviously want to get the second, much-smaller-compressed tarball. Once you have downloaded the desired one of the tarballs, optionally, to verify the integrity of the downloaded file, first import the needed public key via
+<br><br>
+$ gpg --keyserver pgp.mit.edu --recv-keys 93518580
+<br><br>
+Then, depending on whether you downloaded the .gz or .xz-compressed tarball, download <A href="src/C/mlucas-14.1.tar.gz.sig">mlucas-14.1.tar.gz.sig</a> or
+<A href="src/C/mlucas-14.1.tar.xz.sig">mlucas-14.1.tar.xz.sig</a>, respectively, to obtain the corresponding detached package signature. (Note that despite the extensions these are both simple ascii text files.)
+<br><br>
+Finally, verify the package using
+<br><br>
+$ gpg --verify mlucas-14.1.tar.gz.sig mlucas-14.1.tar.gz
+<br><br>
+or
+<br><br>
+$ gpg --verify mlucas-14.1.tar.xz.sig mlucas-14.1.tar.xz
+<br><br>
+A successful signature verification returns "Good signature from Alex Vong &lt;e-mail address&gt;' -- note that the ensuing
+<br>
+<blockquote>
+WARNING: This key is not certified with a trusted signature!<BR>
+There is no indication that the signature belongs to the owner.
+</blockquote>
+is expected.
+<br><br>
+The README file in the untarred package (a text file, not to be confused with this HTML page which you are reading)
+contains simple instructions on how to compile, run
+tests and install. If you do not understand the instructions, please
+consult the INSTALL file which contains detailed instructions and
+explanations. You can also search for the basic Linux make-package command sequence `./configure && make' on the
+Internet.
+<br><br>
+
+<HR SIZE=2>
+
+<img src="images/icons/ball_green.gif"> <A NAME="14.1"></A><b>11 Dec 2014: v14.1 released.</b>
+Again thanks to Mike Vang for doing independent-build and QA work. This release features significant performance and accuracy improvements for all recent x86 platforms, and especially gains for Intel Haswell (and soon, Broadwell) users.
+<p>
+First, a note on version numbering: After many years frozen at 3.0x (since my x86 code was until recently wildly uncompetitive with Prime95), now that the code is within a factor of 2 performance-wise (based on <a href="http://www.mersenneforum.org/showpost.php?p=402803&postcount=33">head-to-head comparisons</a> on Intel Haswell+), I have resumed version numbering according to the scheme:
+<p>
+<i>
+Major index = year - 2000<br>
+Minor index = release # of that year, zero-indexed.
+</i>
+<p>
+As before, a patch suffix of x, y, or z following the numeric index indicates an [alpha,beta,gamma] (experimental,unstable) code. Since I consider this release stable and it's the 2nd non-beta release of the year, thus 14.1 = [20]14.[--2][no xyz suffix].
+<p>
+<b>What's new/improved:</b>
+<ol>
+<li>Self-test now has prestored residues for 10000 iterations (at least though FFT length 18432K), in addition to the previously-supported 100 and 1000. As before, to use a non-default #iters (default is 100) for a given self-test range, add '-iters [1000 | 10000]' to the command line.
+
+<li>One no longer needs any special flags like DFT_V* for any FMA-using routines - just DUSE_THREADS to enable multithreading and DUSE_[SSE2 | AVX | AVX2] to select an x86 SIMD-vector-instruction target.
+
+<li>Propagated Fused multiply-add optimizations to all key discrete Fourier transform (DFT) and related arithmetic macros. "FMA everywhere" means Haswell users should see at least a 10% speedup for their AVX2 builds, compared to plain AVX.
+
+<li>Overall accuracy should be appreciably better, meaning users should see very few roundoff warnings, even for 10Kiter self-tests.
+
+<li>The program now only reports roundoff warnings if it encounters a fractional part > 0.40625 (previous was >= 0.4) during the carry step. Some self-tests (meaning exponents right at the upper limit for the given FFT length, by definition) were emitting slews of 0.40625 warnings, but as this error level is nearly always benign, I've silenced the warnings for it. Larger errors will still emit warnings as before;
+
+<li>The accuracy-problematic radix-11 DFTs (used to build composite leading radices such as 44 and 176) have improved accuracy in SSE2 and AVX modes, but will still emit a few roundoff warnings in longer self-tests for certain radix combos in those build types. In AVX2 mode, however, the fact that "multiplies are free" (assuming we can fuse them with adds, which we can to a very large extent in this case) allowed me implement an entirely different radix-11 algorithm which is much more multiply-heavy, but has significantly better roundoff properties. Thus AVX2 builders will see dramatically lower roundoff errors for FFT lengths using the aforementioned leading radices 44 and 176.
+
+<li>I added large-stride prefetching to all the carry routines, since the 2 DFTs (specifically the final-radix-pass of the inverse FFT, followed by the normalize/carry step, followed by the initial-radix-pass of the subsequent iteration's forward FFT) bookending the carry step in those access data in large strides and are thus problematic for the kinds of default data prefetching done by most x86 hardware. That "manual assist" prefetch should provide a nice boost (5-10% for me at FFT lengths in the Mdoubles range) for all build modes.
+</ol>
+
+<HR SIZE=2>
+
+<img src="images/icons/ball_yellow.gif"> <A NAME="14.0"></A><b>18 Sep 2014:</b>
+Special thanks to Mike Vang for doing significant amounts of QA work and making numerous feature-related suggestions for this version. This release features mostly modest changes:
+<ul>
+<li>Restoration of 32-bit USE_SSE2 build mode (GCC/clang only - no Visual Studio). But see the comments in the <A href="#download">build section</A> regarding the need to build some files using GCC (i.e. no pure-Clang builds in 32-bit mode).
+<!--
+<p>
+<font color="#0000ff">Aside: The 32-bit-restoration was motivated by necessity -- my 2009-vintage Core2 Duo macbook gave up the ghost a few months ago (motherboard flaked out), and wanting simply a similar non-fancy machine to transplant my still-fine hard drive into, I ended up buying a refurbished model of similar vintage cheap ($145, incl. shipping). But I was too hasty in my perusal of the hardware details, and when the unit arrived it proved to be a slightly older Core Duo (as in "Core1"), which only supports 32-bit OS mode. Since all my other installed software works fine in either mode and I didn't want to incur the added delay of a return-and-exchange but needed to be able to build, gdb-debug and run, I bit the bullet and went through all the legacy 32-bit inline-assembly code to make it "GCC buildable" -- but when first creating GCC-syntax versions of my original 32-bit Visual Studio inline assembly macros in 2009, in preparation for the "leap to hyperspace" (64-bit mode) for which I had bought the Core2 macbook, I only used Clang to build the 32-bit code. These days I want all the release code to be buildable using both Clang and GCC, but 32-bit GCC treats the ebx register as special, so to get rid of the <i>"PIC register `ebx' clobbered in `asm'"</i> errors emitted by GCC when confronted with inline assembly making use of ebx, I needed to eliminate ebx from all my 32-bit clobber lists. For blocks of assembly using fewer than the 6 user-available general purpose registers in 32-bit mode (eax,ebx,ecx,edx,esi,edi) one simply replaces ebx in the assembly with an unused one of the other 5 e-registers; but for assembly using all 6 of these GPRs, one must either modify the code to cut the number of GPRs used - often a nontrivial task - or use the workaround of leaving the assembly as-is but bookending it with a push/pop of ebx, which effectively "makes invisible" the use of this register as far the compiler's assembly-inlining is concerned, and thus allows one to remove ebx from the clobber list. The only rub is that Clang does not correctly handle the push/pop in every case, so one must either build all files using GCC, or at least the subset detailed in the "build" section. Since Clang is GCC-compatible such mixed-compilations are fine - in fact I've kept a GCC install handy since first using Clang, because Clang annoyingly optimizes away many needed debug symbols in debuggable-build mode, even with optimizations disabled and enhanced gdb-symbolics tured on (e.g. -O0 -g3 -ggdb). So whenever I need to debug a sourcefile, I debuggable-build it using GCC, link it to the remaining (Clang-created) object files, and then fire up gdb.</font>
+-->
+<li>A new initial-FFT-pass/final-iFFT-pass radices 288, which should provide a decent (~5%%) speedup for folks doing 100 Mdigit-range assignments (FFT length 18 Mdoubles = 18432K).
+<p>
+<li>To allow for incremental rerun of testcases (e.g. ones which fail to match an independent test done by another user/machine, which is the standard matching-double-check requirement for "exponent retirement" by GIMPS, the program now saves a unique-named bytewise restart file every millionth iteration, i.e. if you are testing the Mersenne number M(XXX), in addition to the status (log) file pXXX.stat and the pair of redundant checkpoint files pXXX and qXXX, you will also see files pXXX.1M, pXXX.2M, etc, get deposited as those iteration milestones are passed. Note that in order to avoid an unneeded file-copy and to minimize the chances of a bad disk sector from corrupting a run, the way this works is that when it comes time to write the checkpoint files for (say) iteration 1010000 (1.01M), the code simply renames the current pXXX savefile (containing data for iteration 1M) to pXXX.1M, then creates a new pXXX file to write the new-checkpoint data to. (The redundant q-savefile is unaffected by this). Note also that as these files do pile up quickly on a fast machine, especially if disk space is constrained (for instance if you are using a smallish SSD rather than a big old-style moving-parts HD), you will want to "offload" these Miteration files periodically to either a larger drive or backup media, and/or delete them if the result double-checks OK>
+</ul>
+
+<HR SIZE=2>
+
+<img src="images/icons/ball_green.gif"> <A NAME="14.x"></A><b>23 Jun 2014:</b>
+Special thanks to Stephen Searle for doing significant amounts of analysis and debug of the code in this version. This release features the following major enhancements and changes:
+<ul>
+<li>Continuing the multithread optimizations described in the previous release below, new initial-FFT-pass/final-iFFT-pass radices 128,144,160,176,192,208,224,240,256, as well as some larger experimental radices 768,960,1008 and 4032. The latter are not currently useful for LL testing (as the obligatory self-tests which create the mlucas.cfg file optimized for the user's machine will reveal, by way of absence of said radices in the best-radix-set data captured in the .cfg file), but the radices in the 128-256 range should provide a benefit for most users, especially for FFT lengths of roughly 2048 Kdoubles and larger.
+
+<li>Fused-multiply-add (FMA) support for Intel Haswell (and beyond). Since Intel released their FMA support in the same chip generation they used to deploy the AVX2 instructions, use of FMA is triggered via -DUSE_AVX2 at compile time. Currently only a limited fraction of the key code macros use FMA, but this will continue to expand as I get a better sense of where use of FMA is most likely to yield a benefit. (This depends sensitively on the details of the particular FFT implementation, for example whether a pre-twiddles or post-twiddles complex-multiply scheme is used for the various passes of the inverse FFT; Mlucas uses the latter, which is nice from a dataflow-symmetry and auxiliary-data-indexing perspective, but is not favorable for an FMA-based code speedup.)
+
+<li>A compact-object code scheme for all the carry-step-wrapping DFT radices >= 32. This yields a significant throughout boost for older and more bandwidth-limited processors such as Core2 and Sandy/Ivy Bridge. The speedups are more modest on Haswell, but even there the user will at least enjoy the slashed compile times for the larger-radix radix**_ditN_cy_dif1.c sourcefiles in question. Compile (and likely run-) times for non-SIMD (i.e. scalar-double C code) builds on non-x86 hardware will benefit similarly.
+
+<li>Multiple bugfixes, most related to self-testing and thread-safeness.
+
+<li>The format for the per-iteration timing data written to mlucas.cfg file created by the running the automated self-tests is changed from seconds to milliseconds in this version, to provide finer-grained numbers.
+</ul>
+
+<HR SIZE=2>
+
+<img src="images/icons/ball_yellow.gif"> <A NAME="13.1"></A><b>02 Oct 2013 (Patched rev1 posted 09 May 2014):</b>
+This features the following major enhancements and changes:
+<ul>
+<li>AVX-instructions-set inline assembly support for 64-bit Linux/GCC MacOS (both GCC and LLVM/clang). This yields nice speedups over the SSE2-based SIMD code on Intel chips supporting AVX (Sandy/Ivy Bridge and Haswell/Broadwell). Owners of AMD CPUs featuring AVX are welcome to try the code out, but should not get their hopes up too much, as AMD's implementation of AVX <a href="http://www.mersenneforum.org/showthread.php?t=17618">appears to be disappointing int terms of performance</a>.
+
+<li> Although the 32-bit Windows/MSVC and Linux/GCC inline assembler of the previous release is still all there, as of this version 32-bit support for x86 SIMD builds is officially discontinued. Builders using 64-bit Windows should use a *nix virtualization package such as mingw64.
+
+<li>The previously-available-by-request-only threadpool code is now included in the release. See build instructions below for details.
+
+<li>Several new carry-step-wrapping "initial FFT pass" DFT radices: 48,56,64, all fully SIMD-capable. These are added to the existing SIMD-capable radix-16,20,24,28,32,36,40,44,52,60 carry-step-wrapping DFTs. The reason I added the new radices is related to ongoing experience with multithreaded performance: In particular, leading radices greater than 32 or so tend to perform quite poorly in unthreaded-build mode and for FFT lengths < 2048 Kdoubles (which guided most of the codebase evolution until quite recently), but are standouts in multithreaded mode and for large FFT lengths. Since the parallelization strategy I use for my FFT means that "maximum number of independent thread-based work chunks" is directly related to the above leading-radix, the emerging manycore (GPU and similar) paradigm will be driving adoption of even larger DFT radices in future releases.
+
+<li> Multithreaded (pthread/threadpool) support extended to the non-SIMD (i.e. scalar-double) code. This replaces the previous and only-partially-working threading model based on the OpenMP API, with its weird (and virtually-impossible-to-debug) performance issues and opaque interface. For code such as mine, opacity of the threading-interface is not advantageous, especially in terms of basic-development-and-debug work.
+</ul>
+
+<HR SIZE=2>
+
+<img src="images/icons/ball_green.gif"> <A NAME="13.0"></A><b>04 Feb 2013:</b>
+<ul>
+<li>Lots of SSE2-related enhancements, including inline assembler optimized for 64-bit OSes via use of the full 16-XMM-register set. New SSE2-supported carry-step-wrapping DFT radices, yielding SSE2-able radix-16,20,24,28,32,36,40,44,52,60 carry steps.
+
+<li> Multithreaded (pthread/threadpool) SSE2 support! This code was used for the new-Mersenne-prime verification run described below. The threadpool code is not included in the default release; please contact the author if you wish to play with multithreaded builds of the code.
+
+<li>Mlucas SSE2 used to verify the <a href="http://www.mersenne.org">48th known Mersenne prime</a>. Note that the the author could have done the verification himself in around 11 days on his humble quad-core Sandy Bridge box, but since for new-prime verifies such as this wall-clock time is the overriding factor, it makes sense to run on the fastest hardware available, even if this is relatively less efficient than running on a fewer-core workstation. In the present case, Serge Batalov ran the verify in 6 days on a 32-core Xeon cluster kindly made available by Novartis Inc. Due to poor scaling of the parallel code beyond 4 cores, this represents significantly more total cycles (and watt-hours) than a 4-core run would need, but we find new Mersenne primes rarely enough that such cycle-wastage is justified. (And Why hog all the fun, I say - Serge said he hadn't had this much computational fun in years.)
+</ul>
+
+<HR SIZE=2>
+
+<img src="images/icons/ball_yellow.gif"> <A NAME="9.0"></A><b>06 Nov 2009:</b>
+Well, it took a full year longer than I had hoped, but a tarball of the Mlucas v3.0 beta code described in the entry below is  <a href="#download">finally available</a>. This has SSE2 inline assembly support for 32-bit Windows and 32/64-bit Linux, but no PrimeNet support (yet) ... the latter will come later this year, if things go reasonably according to plan. A GUI will have to wait for at least another year. But the code is sufficiently ready for early adopters to run on their x86 machines (Win32, 32 and 64-bit Linux and MacOS ... code is most-optimized for the latter) and for builders, profilers and assembler experts to have a look and send me feedback and suggestions for improvement.
+
+<HR SIZE=2>
+
+<img src="images/icons/ball_green.gif"> <A NAME="8.0"></A><b>15 Sep 2008:</b>
+Mlucas 3.0 used to verify <a href="http://www.mersenne.org">45th and 46th known Mersenne primes</a>. Note that the verify runs by Tom Duell and Rob Giltrap of Sun Microsystems used a pre-beta version of Mlucas 3.0, scheduled for official release later this Fall. Key new features of the upcoming release [besides a radically overhauled header-file structure and many other code cleanups and bugfixes] include:
+
+<ul>
+<li>SSE2 inline assembly support [at least for FFT lengths which are powers of 2 or divisible by the small odd primes 3, 5 and 7] - this will provide a roughly 2x speedup over the previous generic-C build on the newer x86 platforms [AMD64, Core2 and beyond]. Initial targets will be 32-bit Windows and 32/64-bit Linux, as well as MacOS..
+<li>Platform-independent compact bytewise savefile format - you can now transfer savefiles between any systems having a working 3.0 build, independently of the Endian-ness and 32-vs-64-bit-ness of the platform.
+</ul>
+
+<HR SIZE=2>
+<H3><A NAME="fdl"></A>GNU Free Documentation License</H3>
+
+Copyright (C) 2017 Ernst W. Mayer. Permission is granted to copy, distribute and/or modify this documentunder the terms of the <a href="https://www.gnu.org/licenses/fdl.html">GNU Free Documentation License</a>, Version 1.3 or any later version published by the Free Software Foundation; with no Invariant Sections, no Front-Cover Texts, and no Back-Cover Texts.
+<br>
+<br>
+
+<HR SIZE=2>
+<center>
+http://mersenneforum.org/mayer/README_oldrel.html -- Last Revised: 5 Jun 2017<BR>
+Send mail to <A HREF="mailto:ewmayer@aol.com">ewmayer@aol.com</A><BR>
+</center>
+
+</BODY>
+</HTML>
+

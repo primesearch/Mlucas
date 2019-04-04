@@ -69,10 +69,15 @@ void radix32_dyadic_square(
 	const int stride = (int)RE_IM_STRIDE << 6, stridh = (stride>>1);	// main-array loop stride = 32*RE_IM_STRIDE
 	static int max_threads = 0;
 	static int nsave = 0;
-	static int rad0save = 0, ndivrad0 = 0;
+	static int rad0save = 0, ndivrad0 = 0, ndivrad0m1 = 0;
 /*	static int *index = 0x0;	OBSOLETE: full-N2/16-length Bit-reversal index array. */
 	static int *index0 = 0x0, *index1 = 0x0, *index_ptmp0 = 0x0, *index_ptmp1 = 0x0;
-		   int index0_idx=-1, index1_idx=-1;
+	// Nov 2017: Making these static to support synthesized final-pass radices is not an option as it breaks multiheading,
+	// so instead alloc an extra slot in sm_arr and stash each thread's entry/exit values of these there:
+#ifdef MULTITHREAD
+//	int *idx0_ptr, *idx1_ptr;	// Nov 2017: Experimental code, no gain, disable
+#endif
+	       int index0_idx= 0, index1_idx= 0;
 	static int index0_mod=-1, index1_mod=-1;
 	int nradices_prim_radix0;
 	int i,j,j1,j2,l,iroot,k1,k2;
@@ -157,13 +162,21 @@ void radix32_dyadic_square(
 		nsave = n;
 		ASSERT(HERE, N2 == n/2, "N2 bad!");
 		rad0save = radix0;
-		ndivrad0 = n/radix0;
+		ndivrad0 = n/radix0;	ndivrad0m1 = ndivrad0-1;	// ndivrad0 always a power of 2, so can do a fast-mod via & (ndivrad0-1)
 		for(j = 0; j < ndivrad0; j += stride)
 		{
 			j1 = j + ( (j >> DAT_BITS) << PAD_BITS );
 			if( (j1+stridh) != (j+stridh) + ( ((j+stridh) >> DAT_BITS) << PAD_BITS ) ) {
 				printf("j, j1, stride/2 = %d,%d,%d, jpad = %d\n",j,j1, stridh, (j+stridh) + (((j+stridh) >> DAT_BITS) << PAD_BITS) );
 				ASSERT(HERE, 0 , "add1 calculation violates padded index rules!");
+			}
+		}
+		// Nov 2017: For the non-synthetic final-pass radices (16 and 32) the default contiguous-data chunksize
+		// is n/radix0 doubles. For synthesized radices we need a chunksize which corresponds to treating the
+		// product of all the upstream (non-synthesized) radices as 'radix0':
+		if(RADIX_VEC[NRADICES-1] > 32) {
+			for(j = 1; j < NRADICES-1; j++) {
+				ndivrad0 /= RADIX_VEC[j];
 			}
 		}
 		if(index_ptmp0) {
@@ -237,7 +250,9 @@ void radix32_dyadic_square(
 			free((void *)sc_arr);	sc_arr=0x0;
 		}
 		// Index vectors used in SIMD roots-computation.
-		sm_arr = ALLOC_INT(sm_arr, max_threads*14*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "FATAL: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		// Nov 2017: Add pair of int-slots per thread here ----vv, to support synthesized final-pass radices >= 256.
+	//	sm_arr = ALLOC_INT(sm_arr, max_threads*(14*RE_IM_STRIDE+2) + 16);	if(!sm_arr){ sprintf(cbuf, "FATAL: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sm_arr = ALLOC_INT(sm_arr, max_threads* 14*RE_IM_STRIDE    + 16);	if(!sm_arr){ sprintf(cbuf, "FATAL: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sm_ptr = ALIGN_INT(sm_arr);
 		ASSERT(HERE, ((uint32)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
 		// Twiddles-array:
@@ -345,6 +360,9 @@ void radix32_dyadic_square(
   #ifdef USE_SSE2
 	k1_arr =   __i0 + thr_id*14*RE_IM_STRIDE;
 	k2_arr = k1_arr + 7*RE_IM_STRIDE;
+	// Nov 2017: If synthesized final-pass radix scheme showed any gain would want to move these so as to
+	// also support them in non-SIMD mode, but no speedup observed, so leave in SIMD-only code:
+//	idx0_ptr = k2_arr + 7*RE_IM_STRIDE;	idx1_ptr = idx0_ptr+1;	index0_idx = *idx0_ptr;	index1_idx = *idx1_ptr;
 	r00 = __r0 + thr_id*148;	isrt2 = r00 + 0x48;
 /*	r02  = r00 + 0x02;*/cc0 = isrt2 + 0x01;
 /*	r04  = r00 + 0x04;*/cc1   = cc0 + 0x02;
@@ -391,13 +409,17 @@ void radix32_dyadic_square(
 	/*...If a new runlength, should not get to this point: */
 	ASSERT(HERE, n == nsave,"n != nsave");
 	ASSERT(HERE, incr == 64,"incr == 64");
-	ASSERT(HERE, ndivrad0 == n/radix0,"bad value for ndivrad0!");
+//	ASSERT(HERE, ndivrad0 == n/radix0,"bad value for ndivrad0!");	Synthesized final-pass radices break this
 	/*
 	k = ii*(ndivrad0 >> 6);
 	*/
-	index0_idx = ii;
-	index1_idx = 0;
-
+	// Nov 2017: To support synthesized final-pass radices, only reset iroot = 0 if our fiddled value of ndivrad0 is a multiple of n/radix0,
+	// or index0_idx > (radix0-1). The latter is to ensure proper reinit at beginning of each iteration.
+	//***Update: No gain, and would need to make threadsafe, so revert to old non-static vars unconditional re-init of these here:
+//	if(index0_idx >= radix0 || (ndivrad0 & ndivrad0m1) == 0) {	//if(thr_id < 2 || thr_id == (radix0-1))printf("%s: Thread %u, Reset index0,1_idx\n",func,thr_id);
+		index0_idx = ii;
+		index1_idx = 0;
+//	}	//if(thr_id < 2 || thr_id == (radix0-1))printf("%s: Thread %u, ndivrad0 = %u, stride = %u, index0,1_idx = %u,%u\n",func,thr_id,ndivrad0,stride,index0_idx,index1_idx);
 	for(j = 0; j < ndivrad0; j += stride)
 	{
 		j1 = j + ( (j >> DAT_BITS) << PAD_BITS );
@@ -535,7 +557,7 @@ void radix32_dyadic_square(
 		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[10] = k1<<4;	k2_arr[10] = k2<<4;
 		l += iroot;			/* 28*iroot */
 		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[12] = k1<<4;	k2_arr[12] = k2<<4;
-
+//if(thr_id < 2 || thr_id == (radix0-1))printf("%s: j = %u, iroot = %u\n",func,j,iroot);
 		// 2nd set:
 		iroot = index0[index0_idx] + index1[index1_idx];
 		if(++index1_idx >= index1_mod) { index1_idx -= index1_mod;	++index0_idx; }
@@ -2427,6 +2449,10 @@ add0 += 4;
 #endif	/* USE_SSE2 */
 
 	}	/* endfor() */
-
+//if(thr_id < 2 || thr_id == (radix0-1))printf("%s: on-exit index0,1_idx = %u,%u\n",func,index0_idx,index1_idx);
+#ifdef MULTITHREAD
+	// Write exit values of these 2 ints back to thread-associated storage:
+//	*idx0_ptr = index0_idx; *idx1_ptr = index1_idx;
+#endif
 }
 

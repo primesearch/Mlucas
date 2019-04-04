@@ -135,15 +135,12 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 							char_addr += 9;	// 9 chars in "radices ="
 
 							kprod = 1;	/* accumulate product of radices */
-							for(j=0; j<10; j++)	/* Read in the radices */
+							for(j = 0; j < 10; j++)	/* Read in the radices */
 							{
-								if(sscanf(char_addr, "%d", &k) != 1)
-								{
+								if(sscanf(char_addr, "%d", &k) != 1) {
 									sprintf(cbuf, "get_preferred_fft_radix: invalid format for %s file: failed to read %dth element of radix set, offending input line %s", CONFIGFILE, j, in_line);
 									ASSERT(HERE, 0, cbuf);
-								}
-								else
-								{
+								} else {
 									// Advance to next WS char following the current numeric token - since sscanf skips leading WS,
 									// Must do this in 2 steps. NOTE we *need* the trailing ; here to serve as executable-statement
 									// loop bodies, otherwise the ensuing while or if() is treated so and each while() executes just once.
@@ -154,49 +151,32 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 									while( isspace(*char_addr)) char_addr++;	// 1. First skip any WS preceding current numeric token
 									while(!isspace(*char_addr)) char_addr++;	// 2. Look for first WS char following current numeric token
 									if(j == 0)
-									{
 										ASSERT(HERE, k <= 1024, "get_preferred_fft_radix: Leading radix > 1024: out of range!");
-									}
-									else if(k)
-									{
+									else if(k) {
 										ASSERT(HERE, k <= 32  , "get_preferred_fft_radix: Intermediate radix > 32: out of range!");
 										ASSERT(HERE, isPow2(k), "get_preferred_fft_radix: Intermediate FFT radix not a power of 2!");
 									}
-
 									/* If (i == kblocks), store the data directly into the NRADICES and RADIX_VEC[] globals: */
-									if(i == kblocks)
-									{
-										if(k == 0)
-										{
+									if(i == kblocks) {
+										if(k == 0) {
 											ASSERT(HERE, !NRADICES, "Zero terminator of radix set found but NRADICES != 0 ... please check your mlucas.cfg file for duplicate FFT-length entries and remove the unwanted ones, or delete the file and rerun the self-test.");
 											NRADICES = j;
 											break;
-										}
-										else
-										{
+										} else {
 											kprod *= k;
 											RADIX_VEC[j] = k;
 										}
-									}
-									else	/* Otherwise, store radix-set data into retval in above-described compact form */
-									{
-										if(k == 0)	/* Bits <10:13> store (number of FFT radices): */
-										{
+									} else {	/* Otherwise, store radix-set data into retval in above-described compact form */
+										if(k == 0) {	/* Bits <10:13> store (number of FFT radices): */
 											if(!((retval >> 10) & 0xf))	/* Set based only position of first zero in the list */
 												retval += (j << 10);
-										}
-										else
-										{
+										} else {
 											kprod *= k;
 										}
-
 										/* Bits <0:9> store (leading radix-1): */
 										if(j == 0)
-										{
 											retval = k - 1;
-										}
-										else if(k)	/* Each successive pair of higher-order bits stores log2[(intermediate FFT radix)/8]: */
-										{
+										else if(k) {	/* Each successive pair of higher-order bits stores log2[(intermediate FFT radix)/8]: */
 											k = trailz32(k) - 3;
 											retval += (k << (12 + 2*j));
 										}

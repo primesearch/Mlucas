@@ -46,8 +46,14 @@
 /* Platform-dependent #defines summarizing key performance-related features: */
 #undef	FP_MANTISSA_BITS_DOUBLE	/* Number of significand bits of a register double.
 									Typically = 53 for IEEE-compliant RISC,
-									            64 for x86-style FPU.
-								*/
+									            64 for x86-style FPU. */
+
+#undef	USE_BIG_ENDIAN	// Define for known big-endian architectures of the ones covered in this file,
+						// unless __BYTE_ORDER__ is def'd, in which case we take the endianness from it.
+#if defined(__BYTE_ORDER__) && (__BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__)
+	#define	USE_BIG_ENDIAN
+#endif
+
 #undef	MUL64_SUCKS	/* 64-bit integer MUL available but crappy? (E.g. Sparc) */
 #undef	MULH64_FAST	/* Fast hardware support for upper half (or both halves simultaneously)
 					of 64x64=>128-bit unsigned integer product?
@@ -89,7 +95,7 @@
 #elif(defined(_AIX))
 	#define	OS_TYPE
 	#define	OS_TYPE_AIX
-#elif(defined(__FreeBSD__) || defined(__FreeBSD_kernel__))
+#elif(defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__OpenBSD__))	// Apr 2018: Thanks to Elias Mariani for the OpenBSD mods
 /* This should work for all operating systems using FreeBSD kernel,
    notable examples are FreeBSD itself and GNU/kFreeBSD  */
 	#define OS_TYPE
@@ -150,6 +156,11 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 	#undef	CPU_SUBTYPE_R15K
 
 #undef	CPU_IS_MIPSEL
+
+#undef	CPU_IS_RISCV
+	#undef	CPU_SUBTYPE_FLOAT_ABI_SOFT
+	#undef	CPU_SUBTYPE_FLOAT_ABI_SINGLE
+	#undef	CPU_SUBTYPE_FLOAT_ABI_DOUBLE
 
 #undef	CPU_IS_S390
 
@@ -254,6 +265,7 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 // to properly support the full AVX2 instruction set. Assume that is true in any AVX-512-enabled builds:
 #ifdef USE_AVX512
 	#define GCC_5PLUS
+	#define CARRY_16_WAY	// Default to 16-way carry macros in AVX-512 builds
 #endif
 
 /* SIMD register-width-related params -
@@ -363,7 +375,8 @@ o SZ_VD = sizeof(vec_dbl), SZ_VD_M1 = SZ_VD-1.
 	#elif __SIZEOF_POINTER__ == 8
 		#define OS_BITS 64
 	#else
-		#error __SIZEOF_POINTER__ defined but returns unrecognized value! Use gcc -dM -E < /dev/null | grep __SIZEOF_POINTER__ to examine.
+		// EWM: align.h here simply serves to provide a non-empty file arg to gcc, without the Mlucas-macros clutter that would result from using a .c file as arg:
+		#error __SIZEOF_POINTER__ defined but returns unrecognized value! Use gcc -dM -E align.h < /dev/null | grep __SIZEOF_POINTER__ to examine.
 	#endif
 
   // Otherwise see if can use the value of __LONG_MAX__ in limits.h to quickly and portably determine whether it's 32-bit or 64-it OS:
@@ -619,6 +632,9 @@ We Deliberately put this #elif ahead of the PowerPC one because the Power/AIX co
 	#define CPU_TYPE
 	#define CPU_IS_POWER
 
+	#ifndef	__BYTE_ORDER__
+		#define	USE_BIG_ENDIAN
+	#endif
 	#define	USE_FMADD
 
 	/* IBM XLC compiler */
@@ -648,6 +664,9 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 	#define CPU_TYPE
 	#define CPU_IS_PPC
 
+	#ifndef	__BYTE_ORDER__
+		#define	USE_BIG_ENDIAN
+	#endif
 	#define	USE_FMADD
 
 /* TODO:***do we need separate ifdefs for gcc and applec?***/
@@ -660,9 +679,9 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 		/usr/include/gcc/darwin/default/ppc_intrinsics.h .
 		The XLC compiler includes the same intrinsics automatically.
 		Under GCC and CW we need to define them ourselves. */
-#ifdef OS_TYPE_MACOSX
+	  #ifdef OS_TYPE_MACOSX
 		#include <ppc_intrinsics.h>
-#endif
+	  #endif
 
 	/* IBM XLC compiler */
 	#elif(defined(xlc) || defined(__xlc__) || defined(__xlc) || defined(XLC) || defined(__XLC__) || defined(__XLC))
@@ -673,9 +692,9 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 	#elif(defined(__MWERKS__))
 		#define COMPILER_TYPE
 		#define COMPILER_TYPE_MWERKS
-#ifdef OS_TYPE_MACOSX
+	  #ifdef OS_TYPE_MACOSX
 		#include "ppc_intrinsics.h"
-#endif
+	  #endif
 
 	/* Unknown: */
 	#else
@@ -789,6 +808,10 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 		#define CPU_SUBTYPE_ULTRA2
 		#define	CPU_SUBTYPE_NAME "Ultra2 or higher"
 	#else
+		// Sparc v9+ are bi-endian, so only flag v8 and below as big-endian:
+		#ifndef	__BYTE_ORDER__
+			#define	USE_BIG_ENDIAN
+		#endif
 		#define	CPU_SUBTYPE
 		#define CPU_VERSION_ULTRA1
 		#define	CPU_SUBTYPE_NAME "Ultra1"
@@ -862,9 +885,12 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 /* MIPS (older system in unknown mode or newer system in big-endian mode)  */
 /* Newer system will define system-specific macros to indicate its endianness,
    but this may not be available on older system.  */
-#elif(defined(__mips__) || defined(mips) ||	defined(_mips) || defined(__mips)) &&	\
-  !(defined(__MIPSEL__) || defined(MIPSEL) || defined(_MIPSEL) || defined(__MIPSEL))
+#elif(defined(__mips__) || defined(mips) || defined(_mips) || defined(__mips)) &&	\
+  !(defined(__MIPSEL__) || defined(MIPSEL) || defined(_MIPSEL) || defined(__MIPSEL))	/* Note ! preceding this 2nd conditional */
 
+	#ifndef	__BYTE_ORDER__
+		#define	USE_BIG_ENDIAN
+	#endif
 	#define CPU_TYPE
 	#define CPU_IS_MIPS
 
@@ -915,15 +941,56 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 		#endif
 	#endif
 
+/* RISC-V ISA  */
+/* Code below are based on RISC-V Toolchain Conventions:
+   <https://github.com/riscv/riscv-toolchain-conventions>  */
+#elif (defined(__riscv) || defined(__riscv__))
+
+	#define CPU_TYPE
+	#define CPU_IS_RISCV
+
+	#if (defined(__GNUC__) || defined(__GNUG__))
+		#define COMPILER_TYPE
+		#define COMPILER_TYPE_GCC
+	#else
+		#define COMPILER_TYPE
+		#define COMPILER_TYPE_UNKNOWN
+	#endif
+
+	#ifndef OS_BITS
+		#define OS_BITS __riscv_xlen
+	#endif
+	#if OS_BITS == 64
+		#define MULH64_FAST
+	#endif
+
+	#if defined(__riscv_float_abi_soft)
+		#define	CPU_SUBTYPE
+		#define CPU_SUBTYPE_FLOAT_ABI_SOFT
+		#define	CPU_SUBTYPE_NAME "soft-float ABI"
+	#elif defined(__riscv_float_abi_single)
+		#define	CPU_SUBTYPE
+		#define CPU_SUBTYPE_FLOAT_ABI_SINGLE
+		#define	CPU_SUBTYPE_NAME "single-float ABI"
+	#elif defined(__riscv_float_abi_double)
+		#define	CPU_SUBTYPE
+		#define CPU_SUBTYPE_FLOAT_ABI_DOUBLE
+		#define	CPU_SUBTYPE_NAME "double-float ABI"
+	#endif
+
 /* S/390 and zSeries  */
 #elif(defined(__s390__) || defined(__zarch__)) && !defined(__s390x__)
 
 	#ifndef OS_BITS
-		#define OS_BITS 31
+		#define OS_BITS 32
 	#endif
 
 	#define CPU_TYPE
 	#define CPU_IS_S390
+
+	#ifndef	__BYTE_ORDER__
+		#define	USE_BIG_ENDIAN
+	#endif
 
 	#if(defined(__GNUC__) || defined(__GNUG__))
 		#define COMPILER_TYPE
@@ -943,6 +1010,10 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 
 	#define CPU_TYPE
 	#define CPU_IS_S390X
+
+	#ifndef	__BYTE_ORDER__
+		#define	USE_BIG_ENDIAN
+	#endif
 
 	#if(defined(__GNUC__) || defined(__GNUG__))
 		#define COMPILER_TYPE
@@ -1253,7 +1324,7 @@ extern int NTHREADS;
 
 		#include <pthread.h>
 		// Found pthread header?
-		#if(defined(_PTHREAD_H))
+		#if(defined(_PTHREAD_H) || defined(_PTHREAD_H_))	// Apr 2018: Thanks to Elias Mariani for the OpenBSD mods
 			#define MULTITHREAD
 			#define USE_PTHREAD
 		#else
@@ -1293,6 +1364,11 @@ extern int NTHREADS;
 	#warning	CPU_NAME "Mips little-endian"
   #endif
 	#define	CPU_NAME "Mips little-endian"
+#elif defined(CPU_IS_RISCV)
+  #if CPU_DEBUG
+	#warning	CPU_NAME "RISC-V"
+  #endif
+	#define	CPU_NAME "RISC-V"
 #elif defined(CPU_IS_S390)
   #if CPU_DEBUG
 	#warning	CPU_NAME "S390"
@@ -1364,6 +1440,14 @@ extern int NTHREADS;
 	#warning	CPU_SUBTYPE_NAME	"Unknown CPU subtype"
   #endif
 	#define	CPU_SUBTYPE_NAME	"Unknown CPU subtype"
+#endif
+
+#if CPU_DEBUG
+  #ifdef USE_BIG_ENDIAN
+	#warning Assuming Big-Endian byte ordering - this will be checked at runtime.
+  #else
+	#warning Assuming Little-Endian byte ordering - this will be checked at runtime.
+  #endif
 #endif
 
 #ifndef	FP_MANTISSA_BITS_DOUBLE

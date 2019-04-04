@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2015 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -48,6 +48,7 @@
 *******************************************************************************/
 
 /* Mlucas.c: */
+void	sig_handler(int signo);
 void	Mlucas_init(void);
 uint32	ernstMain
 (
@@ -65,19 +66,16 @@ uint32	ernstMain
 	double	*runtime
 );
 
+uint64	parse_cmd_args_get_shift_value(void);
+int		is_hex_string(char*s, int len);
 void	print_help(char*option);
 int		cfgNeedsUpdating(char*in_line);
 void	printMlucasErrCode(int retVal);
-uint64	res64	(double a[], int n, const uint64 p, int *nbits, char *hex_res);
-void	resSH	(double a[], int n, const uint64 p, uint64*Res35m1, uint64*Res36m1);
-void	hex_res_printtofile(double a[], int n, const uint64 p, int timing_test_iters, FILE *fp);
-int		convert_LL_savefiles(uint64 psave, FILE*fp, uint32*ilo, uint32 ndim, int32 arr_scratch[], double a[]);
-int		read_ppm1_savefiles	(uint64 p, FILE*fp, uint32*ilo, uint8 arr_tmp[], uint64*Res64, uint64*Res35m1, uint64*Res36m1);
-/* Moved this prot to Mlucas.c:
-void	write_ppm1_savefiles(uint64 p, FILE*fp, uint32 ihi, uint8 arr_tmp[], uint64 Res64, uint64 Res35m1, uint64 Res36m1);
-*/
-int		convert_res_bytewise_FP(const uint8 arr_tmp[], double a[], int n, const uint64 p, const uint64 Res64, const uint64 Res35m1, const uint64 Res36m1);
-void	convert_res_FP_bytewise(const double a[], uint8 arr_tmp[], int n, const uint64 p,       uint64*Res64,       uint64*Res35m1,       uint64*Res36m1);
+uint64 	shift_word(double a[], int n, const uint64 p, const uint64 shift, const double cy_in);
+int	 read_ppm1_savefiles(uint64 p, int*kblocks, FILE*fp, uint32*ilo, uint8 arr_tmp[], uint64*Res64, uint64*Res35m1, uint64*Res36m1);
+void	write_ppm1_savefiles(uint64 p, int n      , FILE*fp, uint32 ihi, uint8 arr_tmp[], uint64 Res64, uint64 Res35m1, uint64 Res36m1);
+int		convert_res_bytewise_FP(const uint8 arr_tmp[], double a[], int n, const uint64 p);
+void	convert_res_FP_bytewise(const double a[], uint8 arr_tmp[], int n, const uint64 p, uint64*Res64, uint64*Res35m1, uint64*Res36m1);
 uint32	get_default_factoring_depth(uint64 p);
 void	write_fft_debug_data(double a[], int jlo, int jhi);
 
@@ -90,7 +88,7 @@ int		get_fft_radices			(uint32 kblocks, int radix_set, int *nradices, int radix_
 void	test_fft_radixtables	(void);
 uint32	get_default_fft_length	(uint64 p);
 uint32	get_nextlarger_fft_length	(uint32 n);
-uint64	given_N_get_maxP		(uint32 N);
+uint64	given_N_get_maxP		(uint32 n);
 
 /* get_preferred_fft_radix.c: */
 uint32	get_preferred_fft_radix(uint32 kblocks);
@@ -116,6 +114,7 @@ void	radix16_dif_pass1	(double a[], uint64 b[], int n);
 #else
 void	radix16_dif_pass1	(double a[],             int n);
 #endif
+void	radix17_dif_pass1	(double a[], int n);
 void	radix18_dif_pass1	(double a[], int n);
 void	radix20_dif_pass1	(double a[], int n);
 void	radix22_dif_pass1	(double a[], int n);
@@ -189,6 +188,7 @@ void	radix16_dit_pass1	(double a[], uint64 b[], int n);
 #else
 void	radix16_dit_pass1	(double a[],             int n);
 #endif
+void	radix17_dit_pass1	(double a[], int n);
 void	radix18_dit_pass1	(double a[], int n);
 void	radix20_dit_pass1	(double a[], int n);
 void	radix22_dit_pass1	(double a[], int n);
@@ -323,6 +323,7 @@ void	radix32_dit_pass	(double a[], int n, struct complex rt0[], struct complex r
 	void *mers_process_chunk  (void*targ);
 	void *fermat_process_chunk(void*targ);
 	// These are shared by both mers and fermat-mod, although the code contains switches to invoke the corr. carry macros:
+	void *cy12_process_chunk(void*targ);
 	void *cy16_process_chunk(void*targ);
 	void *cy20_process_chunk(void*targ);
 	void *cy24_process_chunk(void*targ);
@@ -407,6 +408,7 @@ version, unless it's one of the later SSE2-only radices, in which at least parti
 #else
 	int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[], double base[], double baseinv[], int iter, double *fracmax, uint64 p);
 #endif
+	int	radix17_ditN_cy_dif1		(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[],                                             double base[], double baseinv[], int iter, double *fracmax, uint64 p);
 	int	radix18_ditN_cy_dif1		(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[],                                             double base[], double baseinv[], int iter, double *fracmax, uint64 p);
 	int	radix20_ditN_cy_dif1		(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[],                                             double base[], double baseinv[], int iter, double *fracmax, uint64 p);
 	int	radix22_ditN_cy_dif1		(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[],                                             double base[], double baseinv[], int iter, double *fracmax, uint64 p);

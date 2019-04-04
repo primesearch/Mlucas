@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -111,6 +111,8 @@
 		int iter;
 		int tid;
 		int ndivr;
+		int target_idx, target_set;	// Jun 2018: Add support for residue shift. (Only LL-test needs intervention at carry-loop level).
+		double target_cy;
 
 		int khi;
 		int i;
@@ -126,6 +128,7 @@
 	// double data:
 		double maxerr;
 		double scale;
+		double prp_mult;
 
 	// pointer data:
 		double *arrdat;			/* Main data array */
@@ -234,6 +237,8 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
   #else
 	const int l2_sz_vd = 4;
   #endif
+#else
+	const int l2_sz_vd = 3;
 #endif
   #ifdef USE_AVX512
 	const int jhi_wrap_mers = 15;
@@ -258,10 +263,16 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
   #endif
 	double rt,it, wt_re,wt_im, wi_re,wi_im;	// Fermat-mod weights stuff, used in both scalar and AVX mode
 	static uint32 bjmodnini, nsave = 0;
+	// Jun 2018: Add support for residue shift. (Only LL-test needs intervention at carry-loop level).
+	int target_idx = -1, target_set,tidx_mod_stride;
+	double target_cy;
+	static double ndivr_inv;
+	uint64 itmp64;
 	static uint64 psave = 0;
 	static uint32 bw,sw,nm1,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13,p14,p15;
 	const  double c = 0.9238795325112867561281831, s = 0.3826834323650897717284599;
 	static double radix_inv,n2inv,scale;	/* Need scale to be static since in the MSVC-only pure-ASM vesrion of the carry step save the address in a static pointer below */
+	double *addr;
 	double dtmp, maxerr = 0.0;
 	double t0,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t30,t31,t32;
 	double temp,frac
@@ -285,16 +296,13 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;	// Base address for discrete per-thread local stores
   #else
-//	int i0,i1,m0,m1,m3;	/* m2 already def'd for regular carry sequence */
 	static int idx_offset, idx_incr;
-//	int i0,i1,m0,m1,m3;	/* m2 already def'd for regular carry sequence */
-	double *add0, *add1, *add2, *add3;	/* Addresses into array sections */
+	double *add0,*add1,*add2,*add3;	/* Addresses into array sections */
   #endif
 
 	const double crnd = 3.0*0x4000000*0x2000000;
 	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 	static int *bjmodn0,*bjmodn1,*bjmodn2,*bjmodn3,*bjmodn4,*bjmodn5,*bjmodn6,*bjmodn7,*bjmodn8,*bjmodn9,*bjmodnA,*bjmodnB,*bjmodnC,*bjmodnD,*bjmodnE,*bjmodnF;
-	static int *si_ptr;
 	static double *wt0_ptr, *wt1_ptr, *scale_ptr = &scale;
 	static vec_dbl *cc0, *ss0, *isrt2, *max_err, *sse2_rnd, *half_arr
 		,*r00,*r01,*r02,*r03,*r04,*r05,*r06,*r07,*r08,*r09,*r0A,*r0B,*r0C,*r0D,*r0E,*r0F
@@ -369,8 +377,20 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 	*_cy_r0 = 0x0,*_cy_r1 = 0x0,*_cy_r2 = 0x0,*_cy_r3 = 0x0,*_cy_r4 = 0x0,*_cy_r5 = 0x0,*_cy_r6 = 0x0,*_cy_r7 = 0x0,*_cy_r8 = 0x0,*_cy_r9 = 0x0,*_cy_rA = 0x0,*_cy_rB = 0x0,*_cy_rC = 0x0,*_cy_rD = 0x0,*_cy_rE = 0x0,*_cy_rF = 0x0,
 	*_cy_i0 = 0x0,*_cy_i1 = 0x0,*_cy_i2 = 0x0,*_cy_i3 = 0x0,*_cy_i4 = 0x0,*_cy_i5 = 0x0,*_cy_i6 = 0x0,*_cy_i7 = 0x0,*_cy_i8 = 0x0,*_cy_i9 = 0x0,*_cy_iA = 0x0,*_cy_iB = 0x0,*_cy_iC = 0x0,*_cy_iD = 0x0,*_cy_iE = 0x0,*_cy_iF = 0x0;
 
+	// Init these to get rid of GCC "may be used uninitialized in this function" warnings:
+	col=co2=co3=-1;
+	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
+	double prp_mult = 1.0;
+	// v18: If use residue shift in context of Pépin test, need prp_mult = 2 whenever the 'shift = 2*shift + random[0,1]' update gets a 1-bit in the random slot
+	if((TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT)
+	|| (TEST_TYPE & 0xfffffffe) == TEST_TYPE_PRP) {	// Mask off low bit to lump together PRP and PRP-C tests
+		i = (iter % ITERS_BETWEEN_CHECKPOINTS) - 1;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
+		if((BASE_MULTIPLIER_BITS[i>>6] >> (i&63)) & 1)
+			prp_mult = PRP_BASE;
+	}
+
 /*...change NDIVR and n_div_wt to non-static to work around a gcc compiler bug. */
-	NDIVR   = n/16;
+	NDIVR   = n/16;	ndivr_inv = (double)RADIX/n;
 	n_div_nwt = NDIVR >> nwt_bits;
 
 	if((n_div_nwt << nwt_bits) != NDIVR)
@@ -530,6 +550,7 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 		/* Populate the elements of the thread-specific data structs which don't change after init: */
 		for(ithread = 0; ithread < CY_THREADS; ithread++)
 		{
+			tdat[ithread].iter = iter;
 			tdat[ithread].iter = iter;
 		// int data:
 			tdat[ithread].tid = ithread;
@@ -1085,7 +1106,7 @@ half_arr+5*radix	radix		[LOACC-only] inv_mult-lut
 		{
 		#ifdef USE_SSE2
 			tdat[ithread].r00 = __r0 + ithread*cslots_in_local_store;
-			tdat[ithread].half_arr = (long)tdat[ithread].r00 + ((long)half_arr - (long)r00);
+			tdat[ithread].half_arr = (vec_dbl *)((long)tdat[ithread].r00 + ((long)half_arr - (long)r00));
 		#else	// In scalar mode use these 2 ptrs to pass the base & baseinv arrays:
 			tdat[ithread].r00      = (double *)base;
 			tdat[ithread].half_arr = (double *)baseinv;
@@ -1268,6 +1289,36 @@ half_arr+5*radix	radix		[LOACC-only] inv_mult-lut
 		first_entry=FALSE;
 	}	/* endif(first_entry) */
 
+	// Jun 2018: If LL test and shift applied, compute target index for data-processing loop.
+	// Note that only 1 thread of the carry-processing set will hit the target, but all need the same logic to check for a hit:
+	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRIMALITY) {
+		if(RES_SHIFT) {
+			itmp64 = shift_word(a, n, p, RES_SHIFT, 0.0);	// Note return value (specifically high 7 bytes thereof) is an unpadded index
+			target_idx = (int)(itmp64 >>  8);	// This still needs to be (mod NDIVR)'ed, but first use unmodded form to compute needed DWT weights
+			// Compute wt = 2^(target_idx*sw % n)/n and its reciprocal:
+			uint32 sw_idx_modn = ((uint64)target_idx*sw) % n;	// N is 32-bit, so only use 64-bit to hold intermediate product
+			double target_wtfwd = pow(2.0, sw_idx_modn*0.5*n2inv);	// 0.5*n2inv = 0.5/(n/2) = 1.0/n
+			target_set = target_idx*ndivr_inv;	// Which of the [RADIX] independent sub-carry-chains contains the target index?
+			target_idx -= target_set*NDIVR;		// Fast computation of target_idx = (target_idx % NDIVR)
+			// Now compute the doubles-pointer offset of the target double w.r.to the SIMD s1p00-... data layout:
+			tidx_mod_stride = target_idx & (stride-1);	// Stride a power of 2, so can use AND-minus-1 for mod
+			target_idx -= tidx_mod_stride;
+		//	printf("Iter %d: cy_shift = %d, target_idx,tidx_mod_stride,target_set = %d,%d,%d\n",iter,(itmp64 & 255),target_idx,tidx_mod_stride,target_set);
+		#ifdef USE_AVX512
+			tidx_mod_stride = br16[tidx_mod_stride];
+		#elif defined(USE_AVX)
+			tidx_mod_stride = br8[tidx_mod_stride];
+		#elif defined(USE_SSE2)
+			tidx_mod_stride = br4[tidx_mod_stride];
+		#endif
+			target_set = (target_set<<(l2_sz_vd-2)) + tidx_mod_stride;
+			target_cy  = target_wtfwd * ((int)-2 << (itmp64 & 255));
+		} else {
+			target_idx = target_set = 0;
+			target_cy = -2.0;
+		}
+	}
+
 /*...The radix-16 final DIT pass is here.	*/
 
 	/* init carries	*/
@@ -1290,15 +1341,16 @@ half_arr+5*radix	radix		[LOACC-only] inv_mult-lut
 		_cy_rE[ithread] = 0;	_cy_iE[ithread] = 0;
 		_cy_rF[ithread] = 0;	_cy_iF[ithread] = 0;
 	}
+  #ifndef USE_SSE2	// Non-SIMD builds don't support shifted-residue, so init LL cy_in as before:
 	/* If an LL test, init the subtract-2: */
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRIMALITY)
 	{
 		_cy_r0[0] = -2;
 	}
-
+  #endif
 	*fracmax = 0;	/* init max. fractional error	*/
 	full_pass = 1;	/* set = 1 for normal carry pass, = 0 for wrapper pass	*/
-	scale = n2inv;	/* init inverse-weight scale factor  (set = 2/n for normal carry pass, = 1 for wrapper pass)	*/
+	scale = n2inv;	// init inverse-weight scale factor = 2/n for normal carry pass, 1 for wrapper pass
 
 for(outer=0; outer <= 1; outer++)
 {
@@ -1367,6 +1419,28 @@ for(outer=0; outer <= 1; outer++)
 		}
 	}
 
+#ifdef USE_PTHREAD
+	for(ithread = 0; ithread < CY_THREADS; ++ithread) { tdat[ithread].iter = iter; }
+	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
+	{
+		// Carry-injection location for the shifted-residue -2 addend is only needed for full pass:
+		if(full_pass) {
+			tdat[0].target_idx = target_idx;
+			tdat[0].target_set = target_set;
+			tdat[0].target_cy  = target_cy;
+		} else {
+			tdat[0].target_idx = -1;
+			tdat[0].target_set = 0;
+			tdat[0].target_cy  = 0;
+		}
+		// Copy to the remaining threads:
+		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
+			tdat[ithread].target_idx = tdat[0].target_idx;
+			tdat[ithread].target_set = tdat[0].target_set;
+			tdat[ithread].target_cy  = tdat[0].target_cy;
+		}
+	}
+#endif
 #ifdef USE_SSE2
 
 	tmp = max_err;	VEC_DBL_INIT(tmp, 0.0);
@@ -1406,6 +1480,7 @@ for(outer=0; outer <= 1; outer++)
 	// double data:
 		tdat[ithread].maxerr = 0.0;
 		tdat[ithread].scale = scale;
+		tdat[ithread].prp_mult = prp_mult;
 
 	// pointer data:
 		// Dec 2015: fast-GCD usage of this routine may involve multiple 'main' arrays
@@ -2069,7 +2144,7 @@ for(outer=0; outer <= 1; outer++)
 	}
 
 	full_pass = 0;
-	scale = 1;
+	scale = prp_mult = 1;
 
 	/*
 	For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
@@ -3037,7 +3112,7 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 	#ifdef USE_SSE2
 
 		uint32 p1,p2,p3,p4,p8,p12;
-		double *add0, *add1, *add2, *add3;
+		double *addr, *add0,*add1,*add2,*add3;
 		const double crnd = 3.0*0x4000000*0x2000000;
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 		vec_dbl *cc0, *ss0, *isrt2, *max_err, *sse2_rnd, *half_arr, *tmp,*tm2
@@ -3061,7 +3136,7 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 	#else
 
 		const  double c = 0.9238795325112867561281831, s = 0.3826834323650897717284599;
-		double *base, *baseinv;
+		double *addr, *base, *baseinv;
 		uint32 p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13,p14,p15;
 		// Vars needed in scalar mode only:
 		const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
@@ -3069,7 +3144,7 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 		double wt,wtinv,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
 	  #if !USE_SCALAR_DFT_MACRO
 	   #if PFETCH
-		double *addr,*addp;
+		double *addp;
 	   #endif
 		double t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t30,t31,t32;
 	  #endif
@@ -3096,6 +3171,9 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 
 		int NDIVR = thread_arg->ndivr;
 		int n = NDIVR*RADIX, nm1 = n-1;
+		int target_idx = thread_arg->target_idx;
+		int target_set = thread_arg->target_set;
+		double target_cy  = thread_arg->target_cy;
 		int khi    = thread_arg->khi;
 		int i      = thread_arg->i;	/* Pointer to the BASE and BASEINV arrays.	*/
 		int jstart = thread_arg->jstart;
@@ -3109,6 +3187,7 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 	// double data:
 		double maxerr = thread_arg->maxerr;
 		double scale = thread_arg->scale;	int full_pass = scale < 0.5;
+		double prp_mult = thread_arg->prp_mult;
 
 	// pointer data:
 		double *a = thread_arg->arrdat;

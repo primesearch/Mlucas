@@ -69,7 +69,8 @@ static const uint8 minv8[128] = {														//  Index:
 	#define DEV /* */
 #endif
 
-/* RNG, Set-X-equal-to-Y, Set-X-equal-to-scalar-A, Set-X-equal-to-0, set selected bit: */
+/* bit-reversal, RNG, Set-X-equal-to-Y, Set-X-equal-to-scalar-A, Set-X-equal-to-0, set selected bit: */
+DEV void	mi64_brev				(uint64 x[], uint32 n);
 DEV void	mi64_rand				(uint64 x[], uint32 len);
 DEV void	mi64_set_eq				(uint64 x[], const uint64 y[], uint32 len);
 DEV void	mi64_set_eq_scalar		(uint64 x[], const uint64   a, uint32 len);
@@ -78,12 +79,13 @@ DEV void	mi64_set_bit			(uint64 x[], uint32 bit);
 DEV int		mi64_test_bit			(const uint64 x[], uint32 bit);
 
 /* bitwise shift y = (x <<|>> nbits); last 2 are specialized less-than-64-bit left and rightward shifts: */
-DEV uint64	mi64_shl 				(const uint64 x[], uint64 y[], uint32 nbits, uint32 len);
-DEV uint64	mi64_shrl				(const uint64 x[], uint64 y[], uint32 nbits, uint32 len);
-DEV uint64	mi64_shl_short_ref		(const uint64 x[], uint64 y[], uint32 nbits, uint32 len);
-DEV uint64	mi64_shl_short			(const uint64 x[], uint64 y[], uint32 nbits, uint32 len);
-DEV uint64	mi64_shrl_short_ref		(const uint64 x[], uint64 y[], uint32 nbits, uint32 len);
-DEV uint64	mi64_shrl_short			(const uint64 x[], uint64 y[], uint32 nbits, uint32 len);
+DEV uint64	mi64_shl 				(const uint64 x[], uint64 y[], uint32 nshift, uint32 len);
+DEV void	mi64_shlc				(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32 len);
+DEV uint64	mi64_shrl				(const uint64 x[], uint64 y[], uint32 nshift, uint32 len);
+DEV uint64	mi64_shl_short_ref		(const uint64 x[], uint64 y[], uint32 nshift, uint32 len);
+DEV uint64	mi64_shl_short			(const uint64 x[], uint64 y[], uint32 nshift, uint32 len);
+DEV uint64	mi64_shrl_short_ref		(const uint64 x[], uint64 y[], uint32 nshift, uint32 len);
+DEV uint64	mi64_shrl_short			(const uint64 x[], uint64 y[], uint32 nshift, uint32 len);
 
 /* unsigned compare: these are all built from just two elemental compares: < and == */
 DEV uint32	mi64_cmpult				(const uint64 x[], const uint64 y[], uint32 len);
@@ -167,6 +169,14 @@ DEV void	mi64_mul_vector_hi_fast	(const uint64 y[], const uint64 p, const uint64
 /* returns 1 if the multiword unsigned integer p is a base-z Fermat pseudoprime, 0 otherwise: */
 	uint32	mi64_pprimeF			(const uint64 p[], uint64 z, uint32 len);
 
+// Hand-rolled vector double/quad conversions which work on KNL, i.e. need just AVX512F,CD:
+DEV	void	mi64_vcvtuqq2pd(const uint64 a[], double b[]);
+DEV	void	mi64_vcvtpd2uqq(const double b[], uint64 a[]);
+// Batched 16-way[avx2] or 64-way[avx512] 53-bit vector-DP-math/FMA-based modmul:
+DEV	void	mi64_modmul53_batch(const double a[], const double b[], const double m[], double r[]);
+// Generic 64-bit modmul using x86 FPU for quotient:
+DEV uint64	mi64_modmul64(const uint64 a, const uint64 b, const uint64 m);
+
 /* Fast division based on Montgomery multiply: */
 	uint64	radix_power64(const uint64 q, const uint64 qinv, uint32 n);
 DEV int		mi64_div				(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, uint64 q[], uint64 r[]);	// Wrapper for the next 2 routines
@@ -176,7 +186,7 @@ DEV uint64	mi64_div_by_scalar64	(const uint64 x[], uint64 a, uint32 lenX, uint64
 DEV uint64	mi64_div_by_scalar64_u2	(uint64 x[], uint64 a, uint32 lenX, uint64 q[]);	// 2-way interleaved-|| loop
 DEV uint64	mi64_div_by_scalar64_u4	(uint64 x[], uint64 a, uint32 lenX, uint64 q[]);	// 4-way interleaved-|| loop
 /* Slow bit-at-a-time division to obtain quotient q = x/y and/or remainder r = x%y: */
-	int		mi64_div_binary			(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, uint64 q[], uint64 r[]);
+	int		mi64_div_binary			(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, uint64 q[], uint32*lenQ, uint64 r[]);
 
 /* Fast is-divisible-by-scalar, div-by-scalar y]: */
 DEV int		mi64_is_div_by_scalar32 (const uint32 x[], uint32 a, uint32 len);
@@ -588,7 +598,7 @@ __device__ uint32 mi64_twopmodq_gpu(
 		__out[0] = __w0; __out[1] = __w1; __out[2] = __w2; __out[3] = __w3;\
 		__out[4] = __w4; __out[5] = __w5; __out[6] = __w6; __out[7] = __w7;\
 	}
-	
+
 	#define mi64_mul_lo_half_4word(__x, __y, __lo)\
 	{\
 		uint64 __w0, __w1, __w2, __w3\
@@ -729,7 +739,7 @@ __device__ uint32 mi64_twopmodq_gpu(
 		__out[0] = __w0; __out[1] = __w1; __out[2] = __w2; __out[3] = __w3;\
 		__out[4] = __w4; __out[5] = __w5; __out[6] = __w6; __out[7] = __w7;\
 	}
-	
+
 	#define mi64_mul_lo_half_4word(__x, __y, __lo)\
 	{\
 		uint64 __w0, __w1, __w2, __w3\

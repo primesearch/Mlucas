@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2016 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -69,6 +69,16 @@ int radix18_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	int col,co2,co3,m,m2,n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	double wt,wtinv,wtl,wtlp1,wtn,wtnm1,wtA,wtB,wtC;
 	double wt_re,wt_im, wi_re,wi_im;					/* Fermat/LOACC weights stuff */
+
+	// Init these to get rid of GCC "may be used uninitialized in this function" warnings:
+	col=co2=co3=-1;
+	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
+	double prp_mult = 1.0;
+	if((TEST_TYPE & 0xfffffffe) == TEST_TYPE_PRP) {	// Mask off low bit to lump together PRP and PRP-C tests
+		i = (iter % ITERS_BETWEEN_CHECKPOINTS) - 1;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
+		if((BASE_MULTIPLIER_BITS[i>>6] >> (i&63)) & 1)
+			prp_mult = PRP_BASE;
+	}
 
 /*...change n18 and n_div_wt to non-static to work around a gcc compiler bug. */
 	n18   = n/18;
@@ -175,16 +185,12 @@ int radix18_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	{
 		cy0 = -2;
 	}
-	else
-	{
-		ASSERT(HERE,0,"Radix-18 currently only supports LL test mode!");
-	}
 
 	*fracmax=0;	/* init max. fractional error	*/
 
 	iroot = 0;	/* init sincos array index	*/
 	root_incr = 1;	/* init sincos array index increment (set = 1 for normal carry pass, = 0 for wrapper pass)	*/
-	scale = n2inv;	/* init inverse-weight scale factor  (set = 2/n for normal carry pass, = 1 for wrapper pass)	*/
+	scale = n2inv;	// init inverse-weight scale factor = 2/n for normal carry pass, 1 for wrapper pass
 
 	jstart = 0;
 	jhi = jstart+nwt-1;
@@ -414,24 +420,24 @@ for(outer=0; outer <= 1; outer++)
 			wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
 /*...set0 is slightly different from others:	*/
-		   cmplx_carry_norm_errcheck0(aj1p0r ,aj1p0i ,cy0 ,bjmodn0 ,0 );
-			cmplx_carry_norm_errcheck(aj1p1r ,aj1p1i ,cy1 ,bjmodn1 ,1 );
-			cmplx_carry_norm_errcheck(aj1p2r ,aj1p2i ,cy2 ,bjmodn2 ,2 );
-			cmplx_carry_norm_errcheck(aj1p3r ,aj1p3i ,cy3 ,bjmodn3 ,3 );
-			cmplx_carry_norm_errcheck(aj1p4r ,aj1p4i ,cy4 ,bjmodn4 ,4 );
-			cmplx_carry_norm_errcheck(aj1p5r ,aj1p5i ,cy5 ,bjmodn5 ,5 );
-			cmplx_carry_norm_errcheck(aj1p6r ,aj1p6i ,cy6 ,bjmodn6 ,6 );
-			cmplx_carry_norm_errcheck(aj1p7r ,aj1p7i ,cy7 ,bjmodn7 ,7 );
-			cmplx_carry_norm_errcheck(aj1p8r ,aj1p8i ,cy8 ,bjmodn8 ,8 );
-			cmplx_carry_norm_errcheck(aj1p9r ,aj1p9i ,cy9 ,bjmodn9 ,9 );
-			cmplx_carry_norm_errcheck(aj1p10r,aj1p10i,cy10,bjmodn10,10);
-			cmplx_carry_norm_errcheck(aj1p11r,aj1p11i,cy11,bjmodn11,11);
-			cmplx_carry_norm_errcheck(aj1p12r,aj1p12i,cy12,bjmodn12,12);
-			cmplx_carry_norm_errcheck(aj1p13r,aj1p13i,cy13,bjmodn13,13);
-			cmplx_carry_norm_errcheck(aj1p14r,aj1p14i,cy14,bjmodn14,14);
-			cmplx_carry_norm_errcheck(aj1p15r,aj1p15i,cy15,bjmodn15,15);
-			cmplx_carry_norm_errcheck(aj1p16r,aj1p16i,cy16,bjmodn16,16);
-			cmplx_carry_norm_errcheck(aj1p17r,aj1p17i,cy17,bjmodn17,17);
+		   cmplx_carry_norm_errcheck0(aj1p0r ,aj1p0i ,cy0 ,bjmodn0 ,0 ,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p1r ,aj1p1i ,cy1 ,bjmodn1 ,1 ,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p2r ,aj1p2i ,cy2 ,bjmodn2 ,2 ,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p3r ,aj1p3i ,cy3 ,bjmodn3 ,3 ,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p4r ,aj1p4i ,cy4 ,bjmodn4 ,4 ,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p5r ,aj1p5i ,cy5 ,bjmodn5 ,5 ,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p6r ,aj1p6i ,cy6 ,bjmodn6 ,6 ,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p7r ,aj1p7i ,cy7 ,bjmodn7 ,7 ,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p8r ,aj1p8i ,cy8 ,bjmodn8 ,8 ,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p9r ,aj1p9i ,cy9 ,bjmodn9 ,9 ,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p10r,aj1p10i,cy10,bjmodn10,10,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p11r,aj1p11i,cy11,bjmodn11,11,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p12r,aj1p12i,cy12,bjmodn12,12,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p13r,aj1p13i,cy13,bjmodn13,13,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p14r,aj1p14i,cy14,bjmodn14,14,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p15r,aj1p15i,cy15,bjmodn15,15,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p16r,aj1p16i,cy16,bjmodn16,16,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p17r,aj1p17i,cy17,bjmodn17,17,prp_mult);
 
 			i =((uint32)(sw - bjmodn0) >> 31);	/* get ready for the next set...	*/
 			co2=co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
@@ -699,7 +705,7 @@ else if(cy1 != 0)printf("cy1 != 0\n");
 */
 	iroot = 0;
 	root_incr = 0;
-	scale = 1;
+	scale = prp_mult = 1;
 
 	jstart = 0;
 	jhi = 7;

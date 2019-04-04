@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2016 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -87,10 +87,14 @@ double	 getRealTime();
 
 /* util.c: */
 void	host_init(void);	/* This one is a wrapper for calls to the next few: */
+double	get_time    (double tdiff);
 char*	get_time_str(double tdiff);
 void	set_stacklimit_restart(char *argv[]);
 void	print_host_info(void);
-void	set_x87_fpu_params(unsigned short FPU_MODE);
+uint32	x86_simd_mxcsr_getval(void);
+uint32	x86_simd_mxcsr_setval(uint32 MXCSR_VALUE);
+uint32	x86_simd_mxcsr_toggle(uint32 MXCSR_MASK);
+void	set_x87_fpu_params(unsigned short FPU_MODE);	// Arg is a full FPU-control word, i.e. its value replaces the current one
 void	info_x87_fpu_ctrl(uint64 FPUCTRL);
 void	check_nbits_in_types(void);
 int		test_mul(void);	/* This one is actually defined in imul_macro.c */
@@ -148,6 +152,9 @@ void	ui64_bitstr(const uint64 ui64, char*ostr);
 
 int		reverse(uint32 i, uint32 n);
 
+// 32 and 64-bit leftward circular shift, shift count n assumed unsigned < #bits-in-type:
+DEV uint32 cshft32(uint32 x, uint32 n);
+DEV uint64 cshft64(uint64 x, uint64 n);
 // 32 and 64-bit analogs of the F90 intrinsic ISHFT function:
 DEV uint32	ishft32(uint32 x, int shift);
 DEV uint64	ishft64(uint64 x, int shift);

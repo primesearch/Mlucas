@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -353,7 +353,7 @@
 		 ,[__r31] "m" (Xr31)\
 		 ,[__isrt2] "m" (Xisrt2)\
 		 ,[__cc0] "m" (Xcc0)\
-		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11",\
+		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","x7","v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11",\
 		"x8","x9","x10","x11","v12","v13","v14","v15","v16","v17","v18","v19","v20","v21","v22","v23","v24","v25", "v29","v30","v31"	/* Clobbered registers */\
 	);\
 	}

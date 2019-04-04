@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -368,6 +368,15 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 	}
 	else if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 	{
+		// Check if current index-interval contains the target index for rotated-residue carry injection.
+		// In data-init we set target_idx = -1 on wraparound-carry mini-pass, so if() only taken on full pass:
+	#ifdef USE_SSE2
+		if(target_idx == j) {
+			addr = (double *)r00 + target_set;
+			*addr += target_cy*(n>>1);	// target_cy = [-2 << within-word-shift]*[DWT weight]*n/2, i.e. includes fwd DWT weight and n/2 factor
+			target_idx = -1;
+		}
+	#endif
 	#ifdef USE_AVX
 		// For AVX512-and-beyond we support only the fast Mers-carry macros.
 		add1 = &wt1[col  ];
@@ -375,7 +384,7 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 		add3 = &wt1[co3-1];
 		/* ptr to local storage for the doubled wtl,wtn terms: */
 	  #ifdef USE_AVX512
-		tmp = half_arr +  32;	// No lookup-tables used in avx-512; instead use opmasked conditional-doubling; 1st 32 slots hold outputs of wtsinit call
+		tmp = half_arr +  64;	// No lookup-tables used in avx-512; instead use opmasked conditional-doubling; 1st 32 slots hold outputs of wtsinit call
 	  #else
 		tmp = half_arr + 128;	// 1st 64 slots are basic-4 LUTs, next 32 are the additional 2 LOACC LUTs, next 32 hold outputs of wtsinit call
 	  #endif
@@ -441,6 +450,7 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 	   #endif
 
 		i = (!j);
+		addr = &prp_mult;
 
 	  #ifdef CARRY_8_WAY
 
@@ -448,9 +458,9 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 
 		// Each carry macro call also processes 8 prefetches of main-array data:
 		add0 = a + j1 + pfetch_dist;
-		AVX_cmplx_carry_fast_pow2_errcheck_X8(r00,cy_r0,bjmodn0,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3,p4); i = 0;
+		AVX_cmplx_carry_fast_pow2_errcheck_X8(r00,cy_r0,bjmodn0,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3,p4, addr); i = 0;
 		add0 = a + j1 + pfetch_dist + p8;
-		AVX_cmplx_carry_fast_pow2_errcheck_X8(r10,cy_r8,bjmodn8,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3,p4);
+		AVX_cmplx_carry_fast_pow2_errcheck_X8(r10,cy_r8,bjmodn8,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3,p4, addr);
 
 	   #elif defined(USE_AVX2) && defined(GCC_5PLUS)
 			// gcc 4.x !support the needed AVX2 8-way int instructions (while still being fine for for the floating-FMA
@@ -461,17 +471,17 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 
 		// Each carry macro call also processes 8 prefetches of main-array data:
 		add0 = a + j1 + pfetch_dist;
-		AVX2_cmplx_carry_fast_pow2_errcheck_X8(r00,cy_r0,cy_r4,bjmodn0,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3,p4); i = 0;
+		AVX2_cmplx_carry_fast_pow2_errcheck_X8(r00,cy_r0,cy_r4,bjmodn0,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3,p4, addr); i = 0;
 		add0 = a + j1 + pfetch_dist + p8 ;	// poff[] = p0,4,8,...
-		AVX2_cmplx_carry_fast_pow2_errcheck_X8(r10,cy_r8,cy_rC,bjmodn8,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3,p4);
+		AVX2_cmplx_carry_fast_pow2_errcheck_X8(r10,cy_r8,cy_rC,bjmodn8,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3,p4, addr);
 
 	   #else	// Version targeting AVX-only and AVX2-under-gcc 4.x, which has FMA3 support, but not AVX2 8-way-int support
 
 		// Each carry macro call also processes 8 prefetches of main-array data:
 		add0 = a + j1 + pfetch_dist;
-		AVX_cmplx_carry_fast_pow2_errcheck_X8(r00,cy_r0,cy_r4,bjmodn0,bjmodn4,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3,p4); i = 0;
+		AVX_cmplx_carry_fast_pow2_errcheck_X8(r00,cy_r0,cy_r4,bjmodn0,bjmodn4,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3,p4, addr); i = 0;
 		add0 = a + j1 + pfetch_dist + p8 ;	// poff[] = p0,4,8,...
-		AVX_cmplx_carry_fast_pow2_errcheck_X8(r10,cy_r8,cy_rC,bjmodn8,bjmodnC,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3,p4);
+		AVX_cmplx_carry_fast_pow2_errcheck_X8(r10,cy_r8,cy_rC,bjmodn8,bjmodnC,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3,p4, addr);
 
 	   #endif	// ifdef GCC_5PLUS ?
 
@@ -479,13 +489,13 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 
 		// Each carry macro call also processes 4 prefetches of main-array data:
 		add0 = a + j1 + pfetch_dist;
-		AVX_cmplx_carry_fast_pow2_errcheck_X4(r00,cy_r0,bjmodn0,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3); i = 0;
+		AVX_cmplx_carry_fast_pow2_errcheck_X4(r00,cy_r0,bjmodn0,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3, addr); i = 0;
 		add0 = a + j1 + pfetch_dist + p4 ;	// poff[] = p0,4,8,...
-		AVX_cmplx_carry_fast_pow2_errcheck_X4(r08,cy_r4,bjmodn4,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3);
+		AVX_cmplx_carry_fast_pow2_errcheck_X4(r08,cy_r4,bjmodn4,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3, addr);
 		add0 = a + j1 + pfetch_dist + p8 ;	// poff[] = p0,4,8,...
-		AVX_cmplx_carry_fast_pow2_errcheck_X4(r10,cy_r8,bjmodn8,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3);
+		AVX_cmplx_carry_fast_pow2_errcheck_X4(r10,cy_r8,bjmodn8,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3, addr);
 		add0 = a + j1 + pfetch_dist + p12;	// poff[] = p0,4,8,...
-		AVX_cmplx_carry_fast_pow2_errcheck_X4(r18,cy_rC,bjmodnC,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3);
+		AVX_cmplx_carry_fast_pow2_errcheck_X4(r18,cy_rC,bjmodnC,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3, addr);
 
 	  #endif	// USE_AVX, LOACC, (8-way or 4-way carry) ?
 
@@ -493,14 +503,15 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 
 		// Each AVX carry macro call also processes 4 prefetches of main-array data
 		i = (!j);
+		addr = &prp_mult;
 		add0 = a + j1 + pfetch_dist;
-		AVX_cmplx_carry_norm_pow2_errcheck_X4(r00,add1,add2,add3,cy_r0,bjmodn0,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3); i = 0;
+		AVX_cmplx_carry_norm_pow2_errcheck_X4(r00,add1,add2,add3,cy_r0,bjmodn0,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3, addr); i = 0;
 		add0 = a + j1 + pfetch_dist + p4 ;	// poff[] = p0,4,8,...
-		AVX_cmplx_carry_norm_pow2_errcheck_X4(r08,add1,add2,add3,cy_r4,bjmodn4,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3);
+		AVX_cmplx_carry_norm_pow2_errcheck_X4(r08,add1,add2,add3,cy_r4,bjmodn4,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3, addr);
 		add0 = a + j1 + pfetch_dist + p8 ;	// poff[] = p0,4,8,...
-		AVX_cmplx_carry_norm_pow2_errcheck_X4(r10,add1,add2,add3,cy_r8,bjmodn8,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3);
+		AVX_cmplx_carry_norm_pow2_errcheck_X4(r10,add1,add2,add3,cy_r8,bjmodn8,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3, addr);
 		add0 = a + j1 + pfetch_dist + p12;	// poff[] = p0,4,8,...
-		AVX_cmplx_carry_norm_pow2_errcheck_X4(r18,add1,add2,add3,cy_rC,bjmodnC,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3);
+		AVX_cmplx_carry_norm_pow2_errcheck_X4(r18,add1,add2,add3,cy_rC,bjmodnC,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3, addr);
 
 		co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 					// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
@@ -674,15 +685,16 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 	   #endif	// SSE2 inline-asm or above scalar-double macro-call sequence
 
 		i = (!j);
+		addr = &prp_mult;
 		// Each SSE2 LOACC carry macro call also processes 4 prefetches of main-array data:
 		add0 = a + j1 + pfetch_dist;
-		SSE2_cmplx_carry_fast_pow2_errcheck(r00,cy_r0,cy_r2,bjmodn0,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3); i = 0;
+		SSE2_cmplx_carry_fast_pow2_errcheck(r00,cy_r0,cy_r2,bjmodn0,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3, addr); i = 0;
 		add0 += p4;
-		SSE2_cmplx_carry_fast_pow2_errcheck(r08,cy_r4,cy_r6,bjmodn4,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3);
+		SSE2_cmplx_carry_fast_pow2_errcheck(r08,cy_r4,cy_r6,bjmodn4,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3, addr);
 		add0 = a + j1 + pfetch_dist + p8;
-		SSE2_cmplx_carry_fast_pow2_errcheck(r10,cy_r8,cy_rA,bjmodn8,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3);
+		SSE2_cmplx_carry_fast_pow2_errcheck(r10,cy_r8,cy_rA,bjmodn8,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3, addr);
 		add0 += p4;
-		SSE2_cmplx_carry_fast_pow2_errcheck(r18,cy_rC,cy_rE,bjmodnC,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3);
+		SSE2_cmplx_carry_fast_pow2_errcheck(r18,cy_rC,cy_rE,bjmodnC,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3, addr);
 
 	  #else	// Hi-accuracy is the default:
 
@@ -709,14 +721,15 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 
 		// Each SSE2 carry macro call also processes 2 prefetches of main-array data
 		i = (!j);
+		addr = &prp_mult;
 		add0 = a + j1 + pfetch_dist;
-		SSE2_cmplx_carry_norm_pow2_errcheck1_2B(r00,add1,add2,add3,cy_r0,cy_r2,bjmodn0,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p1); i = 0;
+		SSE2_cmplx_carry_norm_pow2_errcheck1_2B(r00,add1,add2,add3,cy_r0,cy_r2,bjmodn0,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p1, addr); i = 0;
 		add0 += p4;
-		SSE2_cmplx_carry_norm_pow2_errcheck1_2B(r08,add1,add2,add3,cy_r4,cy_r6,bjmodn4,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p1);
+		SSE2_cmplx_carry_norm_pow2_errcheck1_2B(r08,add1,add2,add3,cy_r4,cy_r6,bjmodn4,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p1, addr);
 		add0 = a + j1 + pfetch_dist + p8;
-		SSE2_cmplx_carry_norm_pow2_errcheck1_2B(r10,add1,add2,add3,cy_r8,cy_rA,bjmodn8,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p1);
+		SSE2_cmplx_carry_norm_pow2_errcheck1_2B(r10,add1,add2,add3,cy_r8,cy_rA,bjmodn8,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p1, addr);
 		add0 += p4;
-		SSE2_cmplx_carry_norm_pow2_errcheck1_2B(r18,add1,add2,add3,cy_rC,cy_rE,bjmodnC,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p1);
+		SSE2_cmplx_carry_norm_pow2_errcheck1_2B(r18,add1,add2,add3,cy_rC,cy_rE,bjmodnC,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p1, addr);
 
 		l= (j+2) & (nwt-1);			/* We want (S*J mod N) - SI(L) for all 16 carries, so precompute	*/
 		n_minus_sil   = n-si[l  ];		/* N - SI(L) and for each J, find N - (B*J mod N) - SI(L)		*/
@@ -742,13 +755,13 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 
 		// Each SSE2 carry macro call also processes 2 prefetches of main-array data
 		add0 = a + j1 + pfetch_dist;
-		SSE2_cmplx_carry_norm_pow2_errcheck2_2B(r00,add1,add2,cy_r0,cy_r2,bjmodn0,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p2,p3);
+		SSE2_cmplx_carry_norm_pow2_errcheck2_2B(r00,add1,add2,cy_r0,cy_r2,bjmodn0,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p2,p3, addr);
 		add0 += p4;
-		SSE2_cmplx_carry_norm_pow2_errcheck2_2B(r08,add1,add2,cy_r4,cy_r6,bjmodn4,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p2,p3);
+		SSE2_cmplx_carry_norm_pow2_errcheck2_2B(r08,add1,add2,cy_r4,cy_r6,bjmodn4,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p2,p3, addr);
 		add0 = a + j1 + pfetch_dist + p8;
-		SSE2_cmplx_carry_norm_pow2_errcheck2_2B(r10,add1,add2,cy_r8,cy_rA,bjmodn8,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p2,p3);
+		SSE2_cmplx_carry_norm_pow2_errcheck2_2B(r10,add1,add2,cy_r8,cy_rA,bjmodn8,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p2,p3, addr);
 		add0 += p4;
-		SSE2_cmplx_carry_norm_pow2_errcheck2_2B(r18,add1,add2,cy_rC,cy_rE,bjmodnC,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p2,p3);
+		SSE2_cmplx_carry_norm_pow2_errcheck2_2B(r18,add1,add2,cy_rC,cy_rE,bjmodnC,half_arr,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_nm1,sse_sw, add0,p2,p3, addr);
 
 	  #endif	// LOACC or HIACC?
 
@@ -860,42 +873,42 @@ if(!j) {
 	  #ifdef LOACC
 
 		// Re-init weights every 4th macro invocatin to keep errors under control:
-		cmplx_carry_norm_pow2_errcheck0(a1p0r,a1p0i,cy_r0,bjmodn0,0x0);
-		cmplx_carry_fast_pow2_errcheck (a1p1r,a1p1i,cy_r1,bjmodn1,0x1);
-		cmplx_carry_fast_pow2_errcheck (a1p2r,a1p2i,cy_r2,bjmodn2,0x2);
-		cmplx_carry_fast_pow2_errcheck (a1p3r,a1p3i,cy_r3,bjmodn3,0x3);
-		cmplx_carry_norm_pow2_errcheck0(a1p4r,a1p4i,cy_r4,bjmodn4,0x4);
-		cmplx_carry_fast_pow2_errcheck (a1p5r,a1p5i,cy_r5,bjmodn5,0x5);
-		cmplx_carry_fast_pow2_errcheck (a1p6r,a1p6i,cy_r6,bjmodn6,0x6);
-		cmplx_carry_fast_pow2_errcheck (a1p7r,a1p7i,cy_r7,bjmodn7,0x7);
-		cmplx_carry_norm_pow2_errcheck0(a1p8r,a1p8i,cy_r8,bjmodn8,0x8);
-		cmplx_carry_fast_pow2_errcheck (a1p9r,a1p9i,cy_r9,bjmodn9,0x9);
-		cmplx_carry_fast_pow2_errcheck (a1pAr,a1pAi,cy_rA,bjmodnA,0xA);
-		cmplx_carry_fast_pow2_errcheck (a1pBr,a1pBi,cy_rB,bjmodnB,0xB);
-		cmplx_carry_norm_pow2_errcheck0(a1pCr,a1pCi,cy_rC,bjmodnC,0xC);
-		cmplx_carry_fast_pow2_errcheck (a1pDr,a1pDi,cy_rD,bjmodnD,0xD);
-		cmplx_carry_fast_pow2_errcheck (a1pEr,a1pEi,cy_rE,bjmodnE,0xE);
-		cmplx_carry_fast_pow2_errcheck (a1pFr,a1pFi,cy_rF,bjmodnF,0xF);
+		cmplx_carry_norm_pow2_errcheck0(a1p0r,a1p0i,cy_r0,bjmodn0,0x0,prp_mult);
+		cmplx_carry_fast_pow2_errcheck (a1p1r,a1p1i,cy_r1,bjmodn1,0x1,prp_mult);
+		cmplx_carry_fast_pow2_errcheck (a1p2r,a1p2i,cy_r2,bjmodn2,0x2,prp_mult);
+		cmplx_carry_fast_pow2_errcheck (a1p3r,a1p3i,cy_r3,bjmodn3,0x3,prp_mult);
+		cmplx_carry_norm_pow2_errcheck0(a1p4r,a1p4i,cy_r4,bjmodn4,0x4,prp_mult);
+		cmplx_carry_fast_pow2_errcheck (a1p5r,a1p5i,cy_r5,bjmodn5,0x5,prp_mult);
+		cmplx_carry_fast_pow2_errcheck (a1p6r,a1p6i,cy_r6,bjmodn6,0x6,prp_mult);
+		cmplx_carry_fast_pow2_errcheck (a1p7r,a1p7i,cy_r7,bjmodn7,0x7,prp_mult);
+		cmplx_carry_norm_pow2_errcheck0(a1p8r,a1p8i,cy_r8,bjmodn8,0x8,prp_mult);
+		cmplx_carry_fast_pow2_errcheck (a1p9r,a1p9i,cy_r9,bjmodn9,0x9,prp_mult);
+		cmplx_carry_fast_pow2_errcheck (a1pAr,a1pAi,cy_rA,bjmodnA,0xA,prp_mult);
+		cmplx_carry_fast_pow2_errcheck (a1pBr,a1pBi,cy_rB,bjmodnB,0xB,prp_mult);
+		cmplx_carry_norm_pow2_errcheck0(a1pCr,a1pCi,cy_rC,bjmodnC,0xC,prp_mult);
+		cmplx_carry_fast_pow2_errcheck (a1pDr,a1pDi,cy_rD,bjmodnD,0xD,prp_mult);
+		cmplx_carry_fast_pow2_errcheck (a1pEr,a1pEi,cy_rE,bjmodnE,0xE,prp_mult);
+		cmplx_carry_fast_pow2_errcheck (a1pFr,a1pFi,cy_rF,bjmodnF,0xF,prp_mult);
 
 	  #else	// Hi-accuracy is the default:
 
 	/*...set0 is slightly different from others:	*/
-	   cmplx_carry_norm_pow2_errcheck0(a1p0r,a1p0i,cy_r0,bjmodn0,0x0);
-		cmplx_carry_norm_pow2_errcheck(a1p1r,a1p1i,cy_r1,bjmodn1,0x1);
-		cmplx_carry_norm_pow2_errcheck(a1p2r,a1p2i,cy_r2,bjmodn2,0x2);
-		cmplx_carry_norm_pow2_errcheck(a1p3r,a1p3i,cy_r3,bjmodn3,0x3);
-		cmplx_carry_norm_pow2_errcheck(a1p4r,a1p4i,cy_r4,bjmodn4,0x4);
-		cmplx_carry_norm_pow2_errcheck(a1p5r,a1p5i,cy_r5,bjmodn5,0x5);
-		cmplx_carry_norm_pow2_errcheck(a1p6r,a1p6i,cy_r6,bjmodn6,0x6);
-		cmplx_carry_norm_pow2_errcheck(a1p7r,a1p7i,cy_r7,bjmodn7,0x7);
-		cmplx_carry_norm_pow2_errcheck(a1p8r,a1p8i,cy_r8,bjmodn8,0x8);
-		cmplx_carry_norm_pow2_errcheck(a1p9r,a1p9i,cy_r9,bjmodn9,0x9);
-		cmplx_carry_norm_pow2_errcheck(a1pAr,a1pAi,cy_rA,bjmodnA,0xA);
-		cmplx_carry_norm_pow2_errcheck(a1pBr,a1pBi,cy_rB,bjmodnB,0xB);
-		cmplx_carry_norm_pow2_errcheck(a1pCr,a1pCi,cy_rC,bjmodnC,0xC);
-		cmplx_carry_norm_pow2_errcheck(a1pDr,a1pDi,cy_rD,bjmodnD,0xD);
-		cmplx_carry_norm_pow2_errcheck(a1pEr,a1pEi,cy_rE,bjmodnE,0xE);
-		cmplx_carry_norm_pow2_errcheck(a1pFr,a1pFi,cy_rF,bjmodnF,0xF);
+	   cmplx_carry_norm_pow2_errcheck0(a1p0r,a1p0i,cy_r0,bjmodn0,0x0,prp_mult);
+		cmplx_carry_norm_pow2_errcheck(a1p1r,a1p1i,cy_r1,bjmodn1,0x1,prp_mult);
+		cmplx_carry_norm_pow2_errcheck(a1p2r,a1p2i,cy_r2,bjmodn2,0x2,prp_mult);
+		cmplx_carry_norm_pow2_errcheck(a1p3r,a1p3i,cy_r3,bjmodn3,0x3,prp_mult);
+		cmplx_carry_norm_pow2_errcheck(a1p4r,a1p4i,cy_r4,bjmodn4,0x4,prp_mult);
+		cmplx_carry_norm_pow2_errcheck(a1p5r,a1p5i,cy_r5,bjmodn5,0x5,prp_mult);
+		cmplx_carry_norm_pow2_errcheck(a1p6r,a1p6i,cy_r6,bjmodn6,0x6,prp_mult);
+		cmplx_carry_norm_pow2_errcheck(a1p7r,a1p7i,cy_r7,bjmodn7,0x7,prp_mult);
+		cmplx_carry_norm_pow2_errcheck(a1p8r,a1p8i,cy_r8,bjmodn8,0x8,prp_mult);
+		cmplx_carry_norm_pow2_errcheck(a1p9r,a1p9i,cy_r9,bjmodn9,0x9,prp_mult);
+		cmplx_carry_norm_pow2_errcheck(a1pAr,a1pAi,cy_rA,bjmodnA,0xA,prp_mult);
+		cmplx_carry_norm_pow2_errcheck(a1pBr,a1pBi,cy_rB,bjmodnB,0xB,prp_mult);
+		cmplx_carry_norm_pow2_errcheck(a1pCr,a1pCi,cy_rC,bjmodnC,0xC,prp_mult);
+		cmplx_carry_norm_pow2_errcheck(a1pDr,a1pDi,cy_rD,bjmodnD,0xD,prp_mult);
+		cmplx_carry_norm_pow2_errcheck(a1pEr,a1pEi,cy_rE,bjmodnE,0xE,prp_mult);
+		cmplx_carry_norm_pow2_errcheck(a1pFr,a1pFi,cy_rF,bjmodnF,0xF,prp_mult);
 
 	  #endif
 
@@ -911,7 +924,9 @@ if(!j) {
 	}
 	else	/* MODULUS_TYPE_FERMAT */
 	{
-
+	#ifdef USE_SSE2
+		add0 = &prp_mult;
+	#endif
 	#ifdef USE_AVX512
 
 		// For a description of the data movement in AVX mode, see radix28_ditN_cy_dif1.
@@ -992,10 +1007,10 @@ if(!j) {
 		// uses the same 0x80-byte complex up-multiplier, so the literal offsets advance (+0x200-0x80) = -0x180 bytes between macro calls:
 		l = 0x800;
 		// Each AVX carry macro call also processes 4 prefetches of main-array data
-		add0 = a + j1 + pfetch_dist;	// tmp+l = base_negacyclic_root + 2*RADIX; after each macro-invoc incr by 16 and decr by 14 (via l -= 0x380) for net incr += 2, thus covering the [rbase * (j*I*Pi)/(2*RADIX)] const-data:
-		tmp = base_negacyclic_root+  0;	SSE2_fermat_carry_norm_pow2_errcheck_X8(r00,tmp,l,cy_r0,cy_i0,half_arr,sign_mask, add0,p1,p2,p3,p4); l -= 0x380;
-		add0 = a + j1 + pfetch_dist + p8;
-		tmp = base_negacyclic_root+ 16;	SSE2_fermat_carry_norm_pow2_errcheck_X8(r10,tmp,l,cy_r8,cy_i8,half_arr,sign_mask, add0,p1,p2,p3,p4);
+		addr = a + j1 + pfetch_dist;	// tmp+l = base_negacyclic_root + 2*RADIX; after each macro-invoc incr by 16 and decr by 14 (via l -= 0x380) for net incr += 2, thus covering the [rbase * (j*I*Pi)/(2*RADIX)] const-data:
+		tmp = base_negacyclic_root+  0;	SSE2_fermat_carry_norm_pow2_errcheck_X8(r00,tmp,l,cy_r0,cy_i0,half_arr,sign_mask, addr,p1,p2,p3,p4, add0); l -= 0x380;
+		addr = a + j1 + pfetch_dist + p8;
+		tmp = base_negacyclic_root+ 16;	SSE2_fermat_carry_norm_pow2_errcheck_X8(r10,tmp,l,cy_r8,cy_i8,half_arr,sign_mask, addr,p1,p2,p3,p4, add0);
 
 	#elif defined(USE_AVX)
 
@@ -1057,14 +1072,14 @@ if(!j) {
 		// uses the same 0x40-byte complex up-multiplier, so the literal offsets advance (+0x100-0x40) = -0xc0 bytes between macro calls:
 		l = 0x400;
 		// Each AVX carry macro call also processes 4 prefetches of main-array data
-		add0 = a + j1 + pfetch_dist;	// tmp+l = base_negacyclic_root + 2*RADIX; after each macro-invoc incr by 8 and decr by 6 (via l -= 0xc0) for net incr += 2, thus covering the [rbase * (j*I*Pi)/(2*RADIX)] const-data:
-		tmp = base_negacyclic_root+  0;	SSE2_fermat_carry_norm_pow2_errcheck_X4(r00,tmp,l,cy_r0,cy_i0,half_arr,sign_mask, add0,p1,p2,p3); l -= 0xc0;
-		add0 = a + j1 + pfetch_dist + p4 ;	// poff[] = p0,4,8,...
-		tmp = base_negacyclic_root+  8;	SSE2_fermat_carry_norm_pow2_errcheck_X4(r08,tmp,l,cy_r4,cy_i4,half_arr,sign_mask, add0,p1,p2,p3); l -= 0xc0;
-		add0 = a + j1 + pfetch_dist + p8 ;	// poff[] = p0,4,8,...
-		tmp = base_negacyclic_root+ 16;	SSE2_fermat_carry_norm_pow2_errcheck_X4(r10,tmp,l,cy_r8,cy_i8,half_arr,sign_mask, add0,p1,p2,p3); l -= 0xc0;
-		add0 = a + j1 + pfetch_dist + p12;	// poff[] = p0,4,8,...
-		tmp = base_negacyclic_root+ 24;	SSE2_fermat_carry_norm_pow2_errcheck_X4(r18,tmp,l,cy_rC,cy_iC,half_arr,sign_mask, add0,p1,p2,p3);
+		addr = a + j1 + pfetch_dist;	// tmp+l = base_negacyclic_root + 2*RADIX; after each macro-invoc incr by 8 and decr by 6 (via l -= 0xc0) for net incr += 2, thus covering the [rbase * (j*I*Pi)/(2*RADIX)] const-data:
+		tmp = base_negacyclic_root+  0;	SSE2_fermat_carry_norm_pow2_errcheck_X4(r00,tmp,l,cy_r0,cy_i0,half_arr,sign_mask, addr,p1,p2,p3, add0); l -= 0xc0;
+		addr = a + j1 + pfetch_dist + p4 ;	// poff[] = p0,4,8,...
+		tmp = base_negacyclic_root+  8;	SSE2_fermat_carry_norm_pow2_errcheck_X4(r08,tmp,l,cy_r4,cy_i4,half_arr,sign_mask, addr,p1,p2,p3, add0); l -= 0xc0;
+		addr = a + j1 + pfetch_dist + p8 ;	// poff[] = p0,4,8,...
+		tmp = base_negacyclic_root+ 16;	SSE2_fermat_carry_norm_pow2_errcheck_X4(r10,tmp,l,cy_r8,cy_i8,half_arr,sign_mask, addr,p1,p2,p3, add0); l -= 0xc0;
+		addr = a + j1 + pfetch_dist + p12;	// poff[] = p0,4,8,...
+		tmp = base_negacyclic_root+ 24;	SSE2_fermat_carry_norm_pow2_errcheck_X4(r18,tmp,l,cy_rC,cy_iC,half_arr,sign_mask, addr,p1,p2,p3, add0);
 
 	#elif defined(USE_SSE2)
 
@@ -1103,83 +1118,43 @@ if(!j) {
 		idx_offset = j;
 		idx_incr = NDIVR;
 
-	  #if (OS_BITS == 32)
-
-		// Each SSE2 carry macro call also processes 1 prefetch of main-array data
-		add0 = a + j1 + pfetch_dist;
-		SSE2_fermat_carry_norm_pow2_errcheck(r00,cy_r0,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0);
-		add0 += p1;
-		SSE2_fermat_carry_norm_pow2_errcheck(r02,cy_r2,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0);
-		add0 += p2 - p1;
-		SSE2_fermat_carry_norm_pow2_errcheck(r04,cy_r4,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0);
-		add0 += p1;
-		SSE2_fermat_carry_norm_pow2_errcheck(r06,cy_r6,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0);
-		add0 = a + j1 + pfetch_dist + p4;
-		SSE2_fermat_carry_norm_pow2_errcheck(r08,cy_r8,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0);
-		add0 += p1;
-		SSE2_fermat_carry_norm_pow2_errcheck(r0A,cy_rA,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0);
-		add0 += p2 - p1;
-		SSE2_fermat_carry_norm_pow2_errcheck(r0C,cy_rC,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0);
-		add0 += p1;
-		SSE2_fermat_carry_norm_pow2_errcheck(r0E,cy_rE,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0);
-		add0 = a + j1 + pfetch_dist + p8;
-		SSE2_fermat_carry_norm_pow2_errcheck(r10,cy_i0,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0);
-		add0 += p1;
-		SSE2_fermat_carry_norm_pow2_errcheck(r12,cy_i2,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0);
-		add0 += p2 - p1;
-		SSE2_fermat_carry_norm_pow2_errcheck(r14,cy_i4,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0);
-		add0 += p1;
-		SSE2_fermat_carry_norm_pow2_errcheck(r16,cy_i6,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0);
-		add0 = a + j1 + pfetch_dist + p12;
-		SSE2_fermat_carry_norm_pow2_errcheck(r18,cy_i8,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0);
-		add0 += p1;
-		SSE2_fermat_carry_norm_pow2_errcheck(r1A,cy_iA,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0);
-		add0 += p2 - p1;
-		SSE2_fermat_carry_norm_pow2_errcheck(r1C,cy_iC,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0);
-		add0 += p1;
-		SSE2_fermat_carry_norm_pow2_errcheck(r1E,cy_iE,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0);
-
-	  #else	// 64-bit SSE2
-
 		// Each SSE2 carry macro call also processes 2 prefetches of main-array data
-		add0 = a + j1 + pfetch_dist;
-		SSE2_fermat_carry_norm_pow2_errcheck_X2(r00,cy_r0,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0,p1);
-		add0 += p2;
-		SSE2_fermat_carry_norm_pow2_errcheck_X2(r04,cy_r4,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0,p1);
-		add0 = a + j1 + pfetch_dist + p4;
-		SSE2_fermat_carry_norm_pow2_errcheck_X2(r08,cy_r8,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0,p1);
-		add0 += p2;
-		SSE2_fermat_carry_norm_pow2_errcheck_X2(r0C,cy_rC,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0,p1);
-		add0 = a + j1 + pfetch_dist + p8;
-		SSE2_fermat_carry_norm_pow2_errcheck_X2(r10,cy_i0,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0,p1);
-		add0 += p2;
-		SSE2_fermat_carry_norm_pow2_errcheck_X2(r14,cy_i4,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0,p1);
-		add0 = a + j1 + pfetch_dist + p12;
-		SSE2_fermat_carry_norm_pow2_errcheck_X2(r18,cy_i8,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0,p1);
-		add0 += p2;
-		SSE2_fermat_carry_norm_pow2_errcheck_X2(r1C,cy_iC,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, add0,p1);
-
-	  #endif
+		addr = a + j1 + pfetch_dist;
+		SSE2_fermat_carry_norm_pow2_errcheck_X2(r00,cy_r0,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, addr,p1, add0);
+		addr += p2;
+		SSE2_fermat_carry_norm_pow2_errcheck_X2(r04,cy_r4,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, addr,p1, add0);
+		addr = a + j1 + pfetch_dist + p4;
+		SSE2_fermat_carry_norm_pow2_errcheck_X2(r08,cy_r8,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, addr,p1, add0);
+		addr += p2;
+		SSE2_fermat_carry_norm_pow2_errcheck_X2(r0C,cy_rC,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, addr,p1, add0);
+		addr = a + j1 + pfetch_dist + p8;
+		SSE2_fermat_carry_norm_pow2_errcheck_X2(r10,cy_i0,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, addr,p1, add0);
+		addr += p2;
+		SSE2_fermat_carry_norm_pow2_errcheck_X2(r14,cy_i4,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, addr,p1, add0);
+		addr = a + j1 + pfetch_dist + p12;
+		SSE2_fermat_carry_norm_pow2_errcheck_X2(r18,cy_i8,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, addr,p1, add0);
+		addr += p2;
+		SSE2_fermat_carry_norm_pow2_errcheck_X2(r1C,cy_iC,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, addr,p1, add0);
 
 	#else	// Scalar-double mode:
 
 		ntmp = 0;
-		fermat_carry_norm_pow2_errcheck(a1p0r,a1p0i,cy_r0,cy_i0,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-		fermat_carry_norm_pow2_errcheck(a1p1r,a1p1i,cy_r1,cy_i1,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-		fermat_carry_norm_pow2_errcheck(a1p2r,a1p2i,cy_r2,cy_i2,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-		fermat_carry_norm_pow2_errcheck(a1p3r,a1p3i,cy_r3,cy_i3,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-		fermat_carry_norm_pow2_errcheck(a1p4r,a1p4i,cy_r4,cy_i4,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-		fermat_carry_norm_pow2_errcheck(a1p5r,a1p5i,cy_r5,cy_i5,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-		fermat_carry_norm_pow2_errcheck(a1p6r,a1p6i,cy_r6,cy_i6,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-		fermat_carry_norm_pow2_errcheck(a1p7r,a1p7i,cy_r7,cy_i7,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-		fermat_carry_norm_pow2_errcheck(a1p8r,a1p8i,cy_r8,cy_i8,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-		fermat_carry_norm_pow2_errcheck(a1p9r,a1p9i,cy_r9,cy_i9,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-		fermat_carry_norm_pow2_errcheck(a1pAr,a1pAi,cy_rA,cy_iA,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-		fermat_carry_norm_pow2_errcheck(a1pBr,a1pBi,cy_rB,cy_iB,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-		fermat_carry_norm_pow2_errcheck(a1pCr,a1pCi,cy_rC,cy_iC,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-		fermat_carry_norm_pow2_errcheck(a1pDr,a1pDi,cy_rD,cy_iD,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-		fermat_carry_norm_pow2_errcheck(a1pEr,a1pEi,cy_rE,cy_iE,ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR;
-		fermat_carry_norm_pow2_errcheck(a1pFr,a1pFi,cy_rF,cy_iF,ntmp,NRTM1,NRT_BITS);
+		fermat_carry_norm_pow2_errcheck(a1p0r,a1p0i,cy_r0,cy_i0,ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR;
+		fermat_carry_norm_pow2_errcheck(a1p1r,a1p1i,cy_r1,cy_i1,ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR;
+		fermat_carry_norm_pow2_errcheck(a1p2r,a1p2i,cy_r2,cy_i2,ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR;
+		fermat_carry_norm_pow2_errcheck(a1p3r,a1p3i,cy_r3,cy_i3,ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR;
+		fermat_carry_norm_pow2_errcheck(a1p4r,a1p4i,cy_r4,cy_i4,ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR;
+		fermat_carry_norm_pow2_errcheck(a1p5r,a1p5i,cy_r5,cy_i5,ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR;
+		fermat_carry_norm_pow2_errcheck(a1p6r,a1p6i,cy_r6,cy_i6,ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR;
+		fermat_carry_norm_pow2_errcheck(a1p7r,a1p7i,cy_r7,cy_i7,ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR;
+		fermat_carry_norm_pow2_errcheck(a1p8r,a1p8i,cy_r8,cy_i8,ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR;
+		fermat_carry_norm_pow2_errcheck(a1p9r,a1p9i,cy_r9,cy_i9,ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR;
+		fermat_carry_norm_pow2_errcheck(a1pAr,a1pAi,cy_rA,cy_iA,ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR;
+		fermat_carry_norm_pow2_errcheck(a1pBr,a1pBi,cy_rB,cy_iB,ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR;
+		fermat_carry_norm_pow2_errcheck(a1pCr,a1pCi,cy_rC,cy_iC,ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR;
+		fermat_carry_norm_pow2_errcheck(a1pDr,a1pDi,cy_rD,cy_iD,ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR;
+		fermat_carry_norm_pow2_errcheck(a1pEr,a1pEi,cy_rE,cy_iE,ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR;
+		fermat_carry_norm_pow2_errcheck(a1pFr,a1pFi,cy_rF,cy_iF,ntmp,NRTM1,NRT_BITS,prp_mult);
 
 	#endif	/* #ifdef USE_SSE2 */
 

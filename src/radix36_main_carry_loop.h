@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -82,26 +82,26 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		for(l = 0, tmp = r00, ntmp = 0; l < 4; l++, ntmp += 9) {
 	   #endif
 			// Input-ptrs are regular-stride offsets of r00:
-			va0 = tmp;		vb0 = s1p00r + optr_off[ntmp  ];
-			va1 = tmp +  2;	vb1 = s1p00r + optr_off[ntmp+1];
-			va2 = tmp +  4;	vb2 = s1p00r + optr_off[ntmp+2];
-			va3 = tmp +  6;	vb3 = s1p00r + optr_off[ntmp+3];
-			va4 = tmp +  8;	vb4 = s1p00r + optr_off[ntmp+4];
-			va5 = tmp + 10;	vb5 = s1p00r + optr_off[ntmp+5];
-			va6 = tmp + 12;	vb6 = s1p00r + optr_off[ntmp+6];
-			va7 = tmp + 14;	vb7 = s1p00r + optr_off[ntmp+7];
-			va8 = tmp + 16;	vb8 = s1p00r + optr_off[ntmp+8];
+			va0 = tmp;		vb0 = s1p00 + optr_off[ntmp  ];
+			va1 = tmp +  2;	vb1 = s1p00 + optr_off[ntmp+1];
+			va2 = tmp +  4;	vb2 = s1p00 + optr_off[ntmp+2];
+			va3 = tmp +  6;	vb3 = s1p00 + optr_off[ntmp+3];
+			va4 = tmp +  8;	vb4 = s1p00 + optr_off[ntmp+4];
+			va5 = tmp + 10;	vb5 = s1p00 + optr_off[ntmp+5];
+			va6 = tmp + 12;	vb6 = s1p00 + optr_off[ntmp+6];
+			va7 = tmp + 14;	vb7 = s1p00 + optr_off[ntmp+7];
+			va8 = tmp + 16;	vb8 = s1p00 + optr_off[ntmp+8];
 		   #ifdef USE_AVX2
 			// Pointer patterns here same as for DIF, just need to swap I/O by reversing order of tm1,tm2 --> tm2,tm1 in macro arglists:
-			rad9_optr[0] = tmp + 18;	rad9_iptr[0] = s1p00r + optr_off[ntmp+ 9];
-			rad9_optr[1] = tmp + 20;	rad9_iptr[1] = s1p00r + optr_off[ntmp+10];
-			rad9_optr[2] = tmp + 22;	rad9_iptr[2] = s1p00r + optr_off[ntmp+11];
-			rad9_optr[3] = tmp + 24;	rad9_iptr[3] = s1p00r + optr_off[ntmp+12];
-			rad9_optr[4] = tmp + 26;	rad9_iptr[4] = s1p00r + optr_off[ntmp+13];
-			rad9_optr[5] = tmp + 28;	rad9_iptr[5] = s1p00r + optr_off[ntmp+14];
-			rad9_optr[6] = tmp + 30;	rad9_iptr[6] = s1p00r + optr_off[ntmp+15];
-			rad9_optr[7] = tmp + 32;	rad9_iptr[7] = s1p00r + optr_off[ntmp+16];
-			rad9_optr[8] = tmp + 34;	rad9_iptr[8] = s1p00r + optr_off[ntmp+17];
+			rad9_optr[0] = tmp + 18;	rad9_iptr[0] = s1p00 + optr_off[ntmp+ 9];
+			rad9_optr[1] = tmp + 20;	rad9_iptr[1] = s1p00 + optr_off[ntmp+10];
+			rad9_optr[2] = tmp + 22;	rad9_iptr[2] = s1p00 + optr_off[ntmp+11];
+			rad9_optr[3] = tmp + 24;	rad9_iptr[3] = s1p00 + optr_off[ntmp+12];
+			rad9_optr[4] = tmp + 26;	rad9_iptr[4] = s1p00 + optr_off[ntmp+13];
+			rad9_optr[5] = tmp + 28;	rad9_iptr[5] = s1p00 + optr_off[ntmp+14];
+			rad9_optr[6] = tmp + 30;	rad9_iptr[6] = s1p00 + optr_off[ntmp+15];
+			rad9_optr[7] = tmp + 32;	rad9_iptr[7] = s1p00 + optr_off[ntmp+16];
+			rad9_optr[8] = tmp + 34;	rad9_iptr[8] = s1p00 + optr_off[ntmp+17];
 			SSE2_RADIX_09_DIT_X2(
 				va0,va1,va2,va3,va4,va5,va6,va7,va8,	/* inputs  1 */
 				cc1,two,	/* auxiliary-consts */
@@ -137,20 +137,20 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		tm1 = rad9_iptr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
 		tm2 = rad9_optr;
 		// Pointer patterns here same as for DIF, just need to swap I/O by reversing order of tm1,tm2 --> tm2,tm1 in macro arglists:
-		rad9_iptr[0] = s1p27r; rad9_iptr[1] = s1p23r; rad9_iptr[2] = s1p19r; rad9_iptr[3] = s1p15r; rad9_iptr[4] = s1p11r; rad9_iptr[5] = s1p07r; rad9_iptr[6] = s1p03r; rad9_iptr[7] = s1p35r; rad9_iptr[8] = s1p31r;
+		rad9_iptr[0] = s1p27; rad9_iptr[1] = s1p23; rad9_iptr[2] = s1p19; rad9_iptr[3] = s1p15; rad9_iptr[4] = s1p11; rad9_iptr[5] = s1p07; rad9_iptr[6] = s1p03; rad9_iptr[7] = s1p35; rad9_iptr[8] = s1p31;
 		rad9_optr[0] = r10; rad9_optr[1] = r12; rad9_optr[2] = r14; rad9_optr[3] = r16; rad9_optr[4] = r18; rad9_optr[5] = r1a; rad9_optr[6] = r1c; rad9_optr[7] = r1e; rad9_optr[8] = r1g;
-		SSE2_RADIX_09_DIT_X2(r00,r02,r04,r06,r08,r0a,r0c,r0e,r0g, cc1,two, s1p00r,s1p32r,s1p28r,s1p24r,s1p20r,s1p16r,s1p12r,s1p08r,s1p04r,
-				tm2,tm1)  // r10,r12,r14,r16,r18,r1a,r1c,r1e,r1g, cc1,     s1p27r,s1p23r,s1p19r,s1p15r,s1p11r,s1p07r,s1p03r,s1p35r,s1p31r)
+		SSE2_RADIX_09_DIT_X2(r00,r02,r04,r06,r08,r0a,r0c,r0e,r0g, cc1,two, s1p00,s1p32,s1p28,s1p24,s1p20,s1p16,s1p12,s1p08,s1p04,
+				tm2,tm1)  // r10,r12,r14,r16,r18,r1a,r1c,r1e,r1g, cc1,     s1p27,s1p23,s1p19,s1p15,s1p11,s1p07,s1p03,s1p35,s1p31r)
 
-		rad9_iptr[0] = s1p09r; rad9_iptr[1] = s1p05r; rad9_iptr[2] = s1p01r; rad9_iptr[3] = s1p33r; rad9_iptr[4] = s1p29r; rad9_iptr[5] = s1p25r; rad9_iptr[6] = s1p21r; rad9_iptr[7] = s1p17r; rad9_iptr[8] = s1p13r;
+		rad9_iptr[0] = s1p09; rad9_iptr[1] = s1p05; rad9_iptr[2] = s1p01; rad9_iptr[3] = s1p33; rad9_iptr[4] = s1p29; rad9_iptr[5] = s1p25; rad9_iptr[6] = s1p21; rad9_iptr[7] = s1p17; rad9_iptr[8] = s1p13;
 		rad9_optr[0] = r30; rad9_optr[1] = r32; rad9_optr[2] = r34; rad9_optr[3] = r36; rad9_optr[4] = r38; rad9_optr[5] = r3a; rad9_optr[6] = r3c; rad9_optr[7] = r3e; rad9_optr[8] = r3g;
-		SSE2_RADIX_09_DIT_X2(r20,r22,r24,r26,r28,r2a,r2c,r2e,r2g, cc1,two, s1p18r,s1p14r,s1p10r,s1p06r,s1p02r,s1p34r,s1p30r,s1p26r,s1p22r,
-				tm2,tm1)  // r30,r32,r34,r36,r38,r3a,r3c,r3e,r3g, cc1,     s1p09r,s1p05r,s1p01r,s1p33r,s1p29r,s1p25r,s1p21r,s1p17r,s1p13r)
+		SSE2_RADIX_09_DIT_X2(r20,r22,r24,r26,r28,r2a,r2c,r2e,r2g, cc1,two, s1p18,s1p14,s1p10,s1p06,s1p02,s1p34,s1p30,s1p26,s1p22,
+				tm2,tm1)  // r30,r32,r34,r36,r38,r3a,r3c,r3e,r3g, cc1,     s1p09,s1p05,s1p01,s1p33,s1p29,s1p25,s1p21,s1p17,s1p13r)
 	   #else
-		SSE2_RADIX_09_DIT(r00,r02,r04,r06,r08,r0a,r0c,r0e,r0g, cc1,     s1p00r,s1p32r,s1p28r,s1p24r,s1p20r,s1p16r,s1p12r,s1p08r,s1p04r)
-		SSE2_RADIX_09_DIT(r10,r12,r14,r16,r18,r1a,r1c,r1e,r1g, cc1,     s1p27r,s1p23r,s1p19r,s1p15r,s1p11r,s1p07r,s1p03r,s1p35r,s1p31r)
-		SSE2_RADIX_09_DIT(r20,r22,r24,r26,r28,r2a,r2c,r2e,r2g, cc1,     s1p18r,s1p14r,s1p10r,s1p06r,s1p02r,s1p34r,s1p30r,s1p26r,s1p22r)
-		SSE2_RADIX_09_DIT(r30,r32,r34,r36,r38,r3a,r3c,r3e,r3g, cc1,     s1p09r,s1p05r,s1p01r,s1p33r,s1p29r,s1p25r,s1p21r,s1p17r,s1p13r)
+		SSE2_RADIX_09_DIT(r00,r02,r04,r06,r08,r0a,r0c,r0e,r0g, cc1,     s1p00,s1p32,s1p28,s1p24,s1p20,s1p16,s1p12,s1p08,s1p04)
+		SSE2_RADIX_09_DIT(r10,r12,r14,r16,r18,r1a,r1c,r1e,r1g, cc1,     s1p27,s1p23,s1p19,s1p15,s1p11,s1p07,s1p03,s1p35,s1p31)
+		SSE2_RADIX_09_DIT(r20,r22,r24,r26,r28,r2a,r2c,r2e,r2g, cc1,     s1p18,s1p14,s1p10,s1p06,s1p02,s1p34,s1p30,s1p26,s1p22)
+		SSE2_RADIX_09_DIT(r30,r32,r34,r36,r38,r3a,r3c,r3e,r3g, cc1,     s1p09,s1p05,s1p01,s1p33,s1p29,s1p25,s1p21,s1p17,s1p13)
 	   #endif
 
 	  #endif	// COMPACT_OBJ ?
@@ -184,9 +184,18 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	#endif	// SIMD or not?
 
-/*...Now do the carries. Since the outputs would
+	/*...Now do the carries. Since the outputs would
 	normally be getting dispatched to RADIX separate blocks of the A-array, we need RADIX separate carries.	*/
 
+		// Check if current index-interval contains the target index for rotated-residue carry injection.
+		// In data-init we set target_idx = -1 on wraparound-carry mini-pass, so if() only taken on full pass:
+	#ifdef USE_SSE2
+		if(target_idx == j) {
+			addr = (double *)s1p00 + target_set;
+			*addr += target_cy*(n>>1);	// target_cy = [-2 << within-word-shift]*[DWT weight]*n/2, i.e. includes fwd DWT weight and n/2 factor
+			target_idx = -1;
+		}
+	#endif
 	#ifdef USE_AVX
 
 		add1 = &wt1[col  ];
@@ -257,15 +266,16 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		AVX_cmplx_carry_fast_wtsinit_X8(add1,add2,add3, bjmodn, half_arr,sign_mask, n_minus_sil,n_minus_silp1,sinwt,sinwtm1, sse_bw,sse_n)
 
 		i = (!j);
-		tmp = s1p00r; tm1 = cy; tm2 = cy+1; itmp = bjmodn; itm2 = bjmodn+4;
+		addr = &prp_mult;
+		tmp = s1p00; tm1 = cy; tm2 = cy+1; itmp = bjmodn; itm2 = bjmodn+4;
 		for(l = 0; l < RADIX>>3; l++) {
 			// Each AVX carry macro call also processes 8 prefetches of main-array data
 			add0 = a + j1 + pfetch_dist + poff[l+l];
 		  #ifdef USE_AVX512	// In AVX-512 mode, the 4 doubles base[0],baseinv[1],wts_mult[1],inv_mult[0] are in the d0-3 slots of the otherwie-unused sse2_rnd vec_dbl:
-			AVX_cmplx_carry_fast_errcheck_X8(tmp, tm1    , itmp     , half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03,p04);
+			AVX_cmplx_carry_fast_errcheck_X8(tmp, tm1    , itmp     , half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03,p04, addr);
 			tmp += 16; tm1 += 1;           itmp += 8;            i = 0;	// CY-ptr only advances 1 in AVX-512 mode, since all 8 dbl-carries fit in a single vec_dbl
 		  #else	// USE_AVX:
-			AVX_cmplx_carry_fast_errcheck_X8(tmp, tm1,tm2, itmp,itm2, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03,p04);
+			AVX_cmplx_carry_fast_errcheck_X8(tmp, tm1,tm2, itmp,itm2, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03,p04, addr);
 			tmp += 16; tm1 += 2; tm2 += 2; itmp += 8; itm2 += 8; i = 0;
 		  #endif
 		}
@@ -273,23 +283,24 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		add0 = a + j1 + pfetch_dist + poff[l+l];
 	   #ifdef USE_AVX512
 		// AVX-512 mode calls this macro twice, with Call 2ptr-offsets fiddled as described in comments to that version of the macro:
-		AVX_cmplx_carry_fast_errcheck_X4(tmp, tm1, itmp, half_arr,0x000, sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+		AVX_cmplx_carry_fast_errcheck_X4(tmp, tm1, itmp, half_arr,0x000, sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);
 		add0 += p04;				// prefetch of a + [prefetch offset] + p4,5,6,7
 		tmp  = (double *)tmp +  4;	// Call 2 will handle the .d4-7 doubles of our 4 input zmm register-sized vector data
-		AVX_cmplx_carry_fast_errcheck_X4(tmp, tm1, itmp, half_arr,0x800, sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);	// Call 2 wts-data pointers += 0x400
+		AVX_cmplx_carry_fast_errcheck_X4(tmp, tm1, itmp, half_arr,0x800, sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);	// Call 2 wts-data pointers += 0x400
 	   #else
-		AVX_cmplx_carry_fast_errcheck_X4(tmp, tm1, itmp, half_arr,i,     sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+		AVX_cmplx_carry_fast_errcheck_X4(tmp, tm1, itmp, half_arr,i,     sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);
 	   #endif
 
 	  #else	// USE_AVX: Hi-accuracy 4-way carry is the default:
 
 		/* In AVX mode advance carry-ptrs just 1 for each vector-carry-macro call: */
 		i = (!j);
-		tm1 = s1p00r; tmp = cy; itmp = bjmodn;
+		addr = &prp_mult;
+		tm1 = s1p00; tmp = cy; itmp = bjmodn;
 		for(l = 0; l < RADIX>>2; l++) {
 			// Each AVX carry macro call also processes 4 prefetches of main-array data
 			add0 = a + j1 + pfetch_dist + poff[l];
-			AVX_cmplx_carry_norm_errcheck_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+			AVX_cmplx_carry_norm_errcheck_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);
 			tm1 += 8; tmp += 1; itmp += 4; i = 0;
 		}
 
@@ -307,8 +318,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		/*** wt_re,wi_re,wt_im,wi_im inits. Cf. radix16_main_carry_loop.h for scalar-macro prototyping of this: ***/
 		uint32 k0,k1,k2,k3, ii,nwtml, loop,nloop = RADIX>>2, co2save = co2;
 		const uint32 *incr,inc_arr[] = {4,5};	// incr = 9 too large here, so divide into 2 nearly-equal parts
+
 		i = (!j);	// Need this to force 0-wod to be bigword
-		tm1 = s1p00r; tmp = cy; tm2 = cy+0x01; itmp = bjmodn;
+		addr = &prp_mult;
+		tm1 = s1p00; tmp = cy; tm2 = cy+0x01; itmp = bjmodn;
 		// Beyond chain length 8, the chained-weights scheme becomes too inaccurate, so re-init seed-wts every few passes:
 		incr = inc_arr;	// When RADIX/4 prime, fiddle the loop to allow e.g. 4+5+4 macro calls separated by reseeding steps.
 		for(loop = 0; loop < nloop; loop += *incr++)
@@ -363,7 +376,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			for(l = loop; l < loop+*incr; l++) {
 				// Each SSE2 LOACC carry macro call also processes 4 prefetches of main-array data:
 				add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
-				SSE2_cmplx_carry_fast_errcheck(tm1,tmp,tm2,itmp,half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+				SSE2_cmplx_carry_fast_errcheck(tm1,tmp,tm2,itmp,half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);
 				tm1 += 8; tmp += 2; tm2 += 2; itmp += 4; i = 0;
 			}
 		}
@@ -394,12 +407,13 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		add3 = &wt1[co3-1];
 
 		i = (!j);
-		tm1 = s1p00r; tmp = cy; tm2 = cy+0x01; itmp = bjmodn;
+		addr = &prp_mult;
+		tm1 = s1p00; tmp = cy; tm2 = cy+0x01; itmp = bjmodn;
 		for(l = 0; l < RADIX>>2; l++) {
 			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
 			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
 			add0 += (-(l&0x1)) & p02;	// Base-addr incr by extra p2 on odd-index passes
-			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
+			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01, addr);
 			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4; i = 0;
 		}
 
@@ -426,12 +440,12 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		add1 = &wt1[col  ];
 		add2 = &wt1[co2-1];
 
-		tm1 = s1p00r; tmp = cy; tm2 = cy+0x01; itmp = bjmodn;
+		tm1 = s1p00; tmp = cy; tm2 = cy+0x01; itmp = bjmodn;
 		for(l = 0; l < RADIX>>2; l++) {
 			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
 			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
 			add0 += (-(l&0x1)) & p02;	// Base-addr incr by extra p2 on odd-index passes
-			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
+			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03, addr);
 			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
@@ -459,27 +473,27 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		for(ntmp = 0; ntmp < RADIX>>2; ntmp++) {
 			jt = j1 + poff[ntmp]; jp = j2 + poff[ntmp];	// poff[] = p04,08,...
 			// Re-init weights every 4th macro invocatin to keep errors under control:
-			cmplx_carry_norm_errcheck0(a[jt    ],a[jp    ],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_fast_errcheck (a[jt+p01],a[jp+p01],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_fast_errcheck (a[jt+p02],a[jp+p02],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_fast_errcheck (a[jt+p03],a[jp+p03],*addr,*itmp,l); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_errcheck0(a[jt    ],a[jp    ],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_fast_errcheck (a[jt+p01],a[jp+p01],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_fast_errcheck (a[jt+p02],a[jp+p02],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_fast_errcheck (a[jt+p03],a[jp+p03],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 		}
 
 	  #else	// Hi-accuracy is the default:
 
 		/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */
 		l = 0; addr = cy; itmp = bjmodn;
-	   cmplx_carry_norm_errcheck0(a[j1    ],a[j2    ],*addr,*itmp,0); ++l; ++addr; ++itmp;
-		cmplx_carry_norm_errcheck(a[j1+p01],a[j2+p01],*addr,*itmp,l); ++l; ++addr; ++itmp;
-		cmplx_carry_norm_errcheck(a[j1+p02],a[j2+p02],*addr,*itmp,l); ++l; ++addr; ++itmp;
-		cmplx_carry_norm_errcheck(a[j1+p03],a[j2+p03],*addr,*itmp,l); ++l; ++addr; ++itmp;
+	   cmplx_carry_norm_errcheck0(a[j1    ],a[j2    ],*addr,*itmp,0,prp_mult); ++l; ++addr; ++itmp;
+		cmplx_carry_norm_errcheck(a[j1+p01],a[j2+p01],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+		cmplx_carry_norm_errcheck(a[j1+p02],a[j2+p02],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+		cmplx_carry_norm_errcheck(a[j1+p03],a[j2+p03],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 		// Remaining quartets of macro calls done in loop:
 		for(ntmp = 1; ntmp < RADIX>>2; ntmp++) {
 			jt = j1 + poff[ntmp]; jp = j2 + poff[ntmp];	// poff[] = p04,08,...
-			cmplx_carry_norm_errcheck (a[jt    ],a[jp    ],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_norm_errcheck (a[jt+p01],a[jp+p01],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_norm_errcheck (a[jt+p02],a[jp+p02],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_norm_errcheck (a[jt+p03],a[jp+p03],*addr,*itmp,l); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_errcheck (a[jt    ],a[jp    ],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_errcheck (a[jt+p01],a[jp+p01],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_errcheck (a[jt+p02],a[jp+p02],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_errcheck (a[jt+p03],a[jp+p03],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 		}
 
 	  #endif
@@ -507,26 +521,26 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		for(l = 0, tmp = r00, ntmp = 0; l < 4; l++, ntmp += 9) {
 	   #endif
 			// Input-ptrs are regular-stride offsets of r00:
-			va0 = tmp;		vb0 = s1p00r + optr_off[ntmp  ];
-			va1 = tmp +  2;	vb1 = s1p00r + optr_off[ntmp+1];
-			va2 = tmp +  4;	vb2 = s1p00r + optr_off[ntmp+2];
-			va3 = tmp +  6;	vb3 = s1p00r + optr_off[ntmp+3];
-			va4 = tmp +  8;	vb4 = s1p00r + optr_off[ntmp+4];
-			va5 = tmp + 10;	vb5 = s1p00r + optr_off[ntmp+5];
-			va6 = tmp + 12;	vb6 = s1p00r + optr_off[ntmp+6];
-			va7 = tmp + 14;	vb7 = s1p00r + optr_off[ntmp+7];
-			va8 = tmp + 16;	vb8 = s1p00r + optr_off[ntmp+8];
+			va0 = tmp;		vb0 = s1p00 + optr_off[ntmp  ];
+			va1 = tmp +  2;	vb1 = s1p00 + optr_off[ntmp+1];
+			va2 = tmp +  4;	vb2 = s1p00 + optr_off[ntmp+2];
+			va3 = tmp +  6;	vb3 = s1p00 + optr_off[ntmp+3];
+			va4 = tmp +  8;	vb4 = s1p00 + optr_off[ntmp+4];
+			va5 = tmp + 10;	vb5 = s1p00 + optr_off[ntmp+5];
+			va6 = tmp + 12;	vb6 = s1p00 + optr_off[ntmp+6];
+			va7 = tmp + 14;	vb7 = s1p00 + optr_off[ntmp+7];
+			va8 = tmp + 16;	vb8 = s1p00 + optr_off[ntmp+8];
 		   #ifdef USE_AVX2
 			// Pointer patterns here same as for DIF, just need to swap I/O by reversing order of tm1,tm2 --> tm2,tm1 in macro arglists:
-			rad9_optr[0] = tmp + 18;	rad9_iptr[0] = s1p00r + optr_off[ntmp+ 9];
-			rad9_optr[1] = tmp + 20;	rad9_iptr[1] = s1p00r + optr_off[ntmp+10];
-			rad9_optr[2] = tmp + 22;	rad9_iptr[2] = s1p00r + optr_off[ntmp+11];
-			rad9_optr[3] = tmp + 24;	rad9_iptr[3] = s1p00r + optr_off[ntmp+12];
-			rad9_optr[4] = tmp + 26;	rad9_iptr[4] = s1p00r + optr_off[ntmp+13];
-			rad9_optr[5] = tmp + 28;	rad9_iptr[5] = s1p00r + optr_off[ntmp+14];
-			rad9_optr[6] = tmp + 30;	rad9_iptr[6] = s1p00r + optr_off[ntmp+15];
-			rad9_optr[7] = tmp + 32;	rad9_iptr[7] = s1p00r + optr_off[ntmp+16];
-			rad9_optr[8] = tmp + 34;	rad9_iptr[8] = s1p00r + optr_off[ntmp+17];
+			rad9_optr[0] = tmp + 18;	rad9_iptr[0] = s1p00 + optr_off[ntmp+ 9];
+			rad9_optr[1] = tmp + 20;	rad9_iptr[1] = s1p00 + optr_off[ntmp+10];
+			rad9_optr[2] = tmp + 22;	rad9_iptr[2] = s1p00 + optr_off[ntmp+11];
+			rad9_optr[3] = tmp + 24;	rad9_iptr[3] = s1p00 + optr_off[ntmp+12];
+			rad9_optr[4] = tmp + 26;	rad9_iptr[4] = s1p00 + optr_off[ntmp+13];
+			rad9_optr[5] = tmp + 28;	rad9_iptr[5] = s1p00 + optr_off[ntmp+14];
+			rad9_optr[6] = tmp + 30;	rad9_iptr[6] = s1p00 + optr_off[ntmp+15];
+			rad9_optr[7] = tmp + 32;	rad9_iptr[7] = s1p00 + optr_off[ntmp+16];
+			rad9_optr[8] = tmp + 34;	rad9_iptr[8] = s1p00 + optr_off[ntmp+17];
 			SSE2_RADIX_09_DIF_X2(
 				vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8,	/* inputs  1 */
 				cc1,two,	/* auxiliary-consts */
@@ -561,20 +575,20 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		// Due to GCC macro argc limit of 30, to enable 16-register data-doubled version of the radix-9 macros need 2 length-9 ptr arrays:
 		tm1 = rad9_iptr;	// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity
 		tm2 = rad9_optr;
-		rad9_iptr[0] = s1p27r; rad9_iptr[1] = s1p23r; rad9_iptr[2] = s1p19r; rad9_iptr[3] = s1p15r; rad9_iptr[4] = s1p11r; rad9_iptr[5] = s1p07r; rad9_iptr[6] = s1p03r; rad9_iptr[7] = s1p35r; rad9_iptr[8] = s1p31r;
+		rad9_iptr[0] = s1p27; rad9_iptr[1] = s1p23; rad9_iptr[2] = s1p19; rad9_iptr[3] = s1p15; rad9_iptr[4] = s1p11; rad9_iptr[5] = s1p07; rad9_iptr[6] = s1p03; rad9_iptr[7] = s1p35; rad9_iptr[8] = s1p31;
 		rad9_optr[0] = r10; rad9_optr[1] = r12; rad9_optr[2] = r14; rad9_optr[3] = r16; rad9_optr[4] = r18; rad9_optr[5] = r1a; rad9_optr[6] = r1c; rad9_optr[7] = r1e; rad9_optr[8] = r1g;
-		SSE2_RADIX_09_DIF_X2(s1p00r,s1p32r,s1p28r,s1p24r,s1p20r,s1p16r,s1p12r,s1p08r,s1p04r, cc1,two, r00,r02,r04,r06,r08,r0a,r0c,r0e,r0g,
-				tm1,tm2)  // s1p27r,s1p23r,s1p19r,s1p15r,s1p11r,s1p07r,s1p03r,s1p35r,s1p31r, cc1, r10,r12,r14,r16,r18,r1a,r1c,r1e,r1g)
+		SSE2_RADIX_09_DIF_X2(s1p00,s1p32,s1p28,s1p24,s1p20,s1p16,s1p12,s1p08,s1p04, cc1,two, r00,r02,r04,r06,r08,r0a,r0c,r0e,r0g,
+				tm1,tm2)  // s1p27,s1p23,s1p19,s1p15,s1p11,s1p07,s1p03,s1p35,s1p31, cc1, r10,r12,r14,r16,r18,r1a,r1c,r1e,r1g)
 
-		rad9_iptr[0] = s1p09r; rad9_iptr[1] = s1p05r; rad9_iptr[2] = s1p01r; rad9_iptr[3] = s1p33r; rad9_iptr[4] = s1p29r; rad9_iptr[5] = s1p25r; rad9_iptr[6] = s1p21r; rad9_iptr[7] = s1p17r; rad9_iptr[8] = s1p13r;
+		rad9_iptr[0] = s1p09; rad9_iptr[1] = s1p05; rad9_iptr[2] = s1p01; rad9_iptr[3] = s1p33; rad9_iptr[4] = s1p29; rad9_iptr[5] = s1p25; rad9_iptr[6] = s1p21; rad9_iptr[7] = s1p17; rad9_iptr[8] = s1p13;
 		rad9_optr[0] = r30; rad9_optr[1] = r32; rad9_optr[2] = r34; rad9_optr[3] = r36; rad9_optr[4] = r38; rad9_optr[5] = r3a; rad9_optr[6] = r3c; rad9_optr[7] = r3e; rad9_optr[8] = r3g;
-		SSE2_RADIX_09_DIF_X2(s1p18r,s1p14r,s1p10r,s1p06r,s1p02r,s1p34r,s1p30r,s1p26r,s1p22r, cc1,two, r20,r22,r24,r26,r28,r2a,r2c,r2e,r2g,
-				tm1,tm2)  // s1p09r,s1p05r,s1p01r,s1p33r,s1p29r,s1p25r,s1p21r,s1p17r,s1p13r, cc1, r30,r32,r34,r36,r38,r3a,r3c,r3e,r3g)
+		SSE2_RADIX_09_DIF_X2(s1p18,s1p14,s1p10,s1p06,s1p02,s1p34,s1p30,s1p26,s1p22, cc1,two, r20,r22,r24,r26,r28,r2a,r2c,r2e,r2g,
+				tm1,tm2)  // s1p09,s1p05,s1p01,s1p33,s1p29,s1p25,s1p21,s1p17,s1p13, cc1, r30,r32,r34,r36,r38,r3a,r3c,r3e,r3g)
 	   #else
-		SSE2_RADIX_09_DIF(s1p00r,s1p32r,s1p28r,s1p24r,s1p20r,s1p16r,s1p12r,s1p08r,s1p04r, cc1, r00,r02,r04,r06,r08,r0a,r0c,r0e,r0g)
-		SSE2_RADIX_09_DIF(s1p27r,s1p23r,s1p19r,s1p15r,s1p11r,s1p07r,s1p03r,s1p35r,s1p31r, cc1, r10,r12,r14,r16,r18,r1a,r1c,r1e,r1g)
-		SSE2_RADIX_09_DIF(s1p18r,s1p14r,s1p10r,s1p06r,s1p02r,s1p34r,s1p30r,s1p26r,s1p22r, cc1, r20,r22,r24,r26,r28,r2a,r2c,r2e,r2g)
-		SSE2_RADIX_09_DIF(s1p09r,s1p05r,s1p01r,s1p33r,s1p29r,s1p25r,s1p21r,s1p17r,s1p13r, cc1, r30,r32,r34,r36,r38,r3a,r3c,r3e,r3g)
+		SSE2_RADIX_09_DIF(s1p00,s1p32,s1p28,s1p24,s1p20,s1p16,s1p12,s1p08,s1p04, cc1, r00,r02,r04,r06,r08,r0a,r0c,r0e,r0g)
+		SSE2_RADIX_09_DIF(s1p27,s1p23,s1p19,s1p15,s1p11,s1p07,s1p03,s1p35,s1p31, cc1, r10,r12,r14,r16,r18,r1a,r1c,r1e,r1g)
+		SSE2_RADIX_09_DIF(s1p18,s1p14,s1p10,s1p06,s1p02,s1p34,s1p30,s1p26,s1p22, cc1, r20,r22,r24,r26,r28,r2a,r2c,r2e,r2g)
+		SSE2_RADIX_09_DIF(s1p09,s1p05,s1p01,s1p33,s1p29,s1p25,s1p21,s1p17,s1p13, cc1, r30,r32,r34,r36,r38,r3a,r3c,r3e,r3g)
 	   #endif
 
 		/* Outputs in SSE2 modes are temps 2*9*16 = 18*16 = 0X120 bytes apart: */

@@ -11,7 +11,7 @@
 
 ################################################################################
 #                                                                              #
-#   (C) 2017 by Ernst W. Mayer.                                                #
+#   (C) 2017-2018 by Ernst W. Mayer.                                                #
 #                                                                              #
 #  This program is free software; you can redistribute it and/or modify it     #
 #  under the terms of the GNU General Public License as published by the       #
@@ -139,9 +139,43 @@ def unlock_file(filename):
 def primenet_fetch(num_to_get):
 	if not primenet_login:
 		return []
-	# <option value="100">Smallest available first-time tests
-	# <option value="101">Double-check tests
-	# <option value="102">World record tests
+	# As of early 2018, here is the full list of assignment-type codes supported by the Primenet server; Mlucas
+	# v18 (and thus this script) supports only the subset of these indicated by an asterisk in the left column.
+	# Supported assignment types may be specified via either their PrimeNet number code or the listed Mnemonic:
+	#			Worktype:
+	# Code		Mnemonic			Description
+	# ----	-----------------	-----------------------
+	#    0						Whatever makes the most sense
+	#    1						Trial factoring to low limits
+	#    2						Trial factoring
+	#    4						P-1 factoring
+	#    5						ECM for first factor on Mersenne numbers
+	#    6						ECM on Fermat numbers
+	#    8						ECM on mersenne cofactors
+	# *100	SmallestAvail		Smallest available first-time tests
+	# *101	DoubleCheck			Double-checking
+	# *102	WorldRecord			World record primality tests
+	# *104	100Mdigit			100M digit number to LL test (not recommended)
+	#  150						First time PRP tests (Gerbicz)
+	#  151						Doublecheck PRP tests (Gerbicz)
+	#  152						World record sized numbers to PRP test (Gerbicz)
+	#  153						100M digit number to PRP test (Gerbicz)
+	#  160						PRP on Mersenne cofactors
+	#  161						PRP double-checks on Mersenne cofactors
+
+	# Convert mnemonic-form worktypes to corresponding numeric value, check worktype value vs supported ones:
+	if options.worktype == "SmallestAvail":
+		options.worktype = "100"
+	elif options.worktype == "DoubleCheck":
+		options.worktype = "101"
+	elif options.worktype == "WorldRecord":
+		options.worktype = "102"
+	elif options.worktype == "100Mdigit":
+		options.worktype = "104"
+	supported = set(['100','101','102','104'])
+	if not options.worktype in supported:
+		debug_print("Unsupported/unrecognized worktype = " + options.worktype)
+		return []
 	assignment = {"cores": "1",
 		"num_to_get": str(num_to_get),
 		"pref": options.worktype,
@@ -164,7 +198,7 @@ def get_assignment():
 	num_to_get = num_to_fetch(tasks, int(options.num_cache))
 
 	if num_to_get < 1:
-		debug_print(workfile + "already has >= " + str(len(tasks)) + " entries, not getting new work")
+		debug_print(workfile + " already has >= " + str(len(tasks)) + " entries, not getting new work")
 		# Must write something anyway to clear the lockfile
 		new_tasks = []
 	else:
@@ -241,7 +275,7 @@ parser.add_option("-p", "--password", dest="password", help="Primenet password")
 parser.add_option("-w", "--workdir", dest="workdir", default=".", help="Working directory with worktodo.ini and results.txt, default current")
 
 # -t is reserved for timeout, instead use -T for assignment-type preference:
-parser.add_option("-T", "--worktype", dest="worktype", default="101", help="Worktype code, default %(default)s for DC, alternatively 100 (smallest available first-time LL) or 102 (world-record-sized first-time LL)")
+parser.add_option("-T", "--worktype", dest="worktype", default="101", help="Worktype code, default %(default)s for DC, alternatively 100 (smallest available first-time LL), 102 (world-record-sized first-time LL), 104 (100M digit number to LL test - not recommended)")
 
 parser.add_option("-n", "--num_cache", dest="num_cache", default="2", help="Number of assignments to cache, default 2")
 

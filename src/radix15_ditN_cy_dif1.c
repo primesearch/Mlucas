@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2016 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -75,6 +75,16 @@ int radix15_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	// Init these to get rid of GCC "may be used uninitialized in this function" warnings:
 	col=co2=co3=ii0=ii1=ii2=ii3=ii4=ii5=ii6=ii7=ii8=ii9=ii10=ii11=ii12=ii13=ii14=-1;
+
+	if(RES_SHIFT) { WARN(HERE, "CY routines with radix < 16 do not support shifted residues!", "", 1); return(ERR_ASSERT); }
+
+	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
+	double prp_mult = 1.0;
+	if((TEST_TYPE & 0xfffffffe) == TEST_TYPE_PRP) {	// Mask off low bit to lump together PRP and PRP-C tests
+		i = (iter % ITERS_BETWEEN_CHECKPOINTS) - 1;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
+		if((BASE_MULTIPLIER_BITS[i>>6] >> (i&63)) & 1)
+			prp_mult = PRP_BASE;
+	}
 
 /*...change n15 and n_div_wt to non-static to work around a gcc compiler bug. */
 	n15   = n/15;
@@ -178,7 +188,7 @@ int radix15_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	*fracmax=0;	/* init max. fractional error	*/
 	full_pass = 1;	/* set = 1 for normal carry pass, = 0 for wrapper pass	*/
-	scale = n2inv;	/* init inverse-weight scale factor  (set = 2/n for normal carry pass, = 1 for wrapper pass)	*/
+	scale = n2inv;	// init inverse-weight scale factor = 2/n for normal carry pass, 1 for wrapper pass
 
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 	{
@@ -412,21 +422,21 @@ for(outer=0; outer <= 1; outer++)
 			wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
 				/*...set0 is slightly different from others:	*/
-		   cmplx_carry_norm_errcheck0(aj1p0r ,aj1p0i ,cy_r0 ,bjmodn0 ,0 );
-			cmplx_carry_norm_errcheck(aj1p1r ,aj1p1i ,cy_r1 ,bjmodn1 ,1 );
-			cmplx_carry_norm_errcheck(aj1p2r ,aj1p2i ,cy_r2 ,bjmodn2 ,2 );
-			cmplx_carry_norm_errcheck(aj1p3r ,aj1p3i ,cy_r3 ,bjmodn3 ,3 );
-			cmplx_carry_norm_errcheck(aj1p4r ,aj1p4i ,cy_r4 ,bjmodn4 ,4 );
-			cmplx_carry_norm_errcheck(aj1p5r ,aj1p5i ,cy_r5 ,bjmodn5 ,5 );
-			cmplx_carry_norm_errcheck(aj1p6r ,aj1p6i ,cy_r6 ,bjmodn6 ,6 );
-			cmplx_carry_norm_errcheck(aj1p7r ,aj1p7i ,cy_r7 ,bjmodn7 ,7 );
-			cmplx_carry_norm_errcheck(aj1p8r ,aj1p8i ,cy_r8 ,bjmodn8 ,8 );
-			cmplx_carry_norm_errcheck(aj1p9r ,aj1p9i ,cy_r9 ,bjmodn9 ,9 );
-			cmplx_carry_norm_errcheck(aj1p10r,aj1p10i,cy_r10,bjmodn10,10);
-			cmplx_carry_norm_errcheck(aj1p11r,aj1p11i,cy_r11,bjmodn11,11);
-			cmplx_carry_norm_errcheck(aj1p12r,aj1p12i,cy_r12,bjmodn12,12);
-			cmplx_carry_norm_errcheck(aj1p13r,aj1p13i,cy_r13,bjmodn13,13);
-			cmplx_carry_norm_errcheck(aj1p14r,aj1p14i,cy_r14,bjmodn14,14);
+		   cmplx_carry_norm_errcheck0(aj1p0r ,aj1p0i ,cy_r0 ,bjmodn0 ,0 ,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p1r ,aj1p1i ,cy_r1 ,bjmodn1 ,1 ,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p2r ,aj1p2i ,cy_r2 ,bjmodn2 ,2 ,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p3r ,aj1p3i ,cy_r3 ,bjmodn3 ,3 ,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p4r ,aj1p4i ,cy_r4 ,bjmodn4 ,4 ,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p5r ,aj1p5i ,cy_r5 ,bjmodn5 ,5 ,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p6r ,aj1p6i ,cy_r6 ,bjmodn6 ,6 ,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p7r ,aj1p7i ,cy_r7 ,bjmodn7 ,7 ,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p8r ,aj1p8i ,cy_r8 ,bjmodn8 ,8 ,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p9r ,aj1p9i ,cy_r9 ,bjmodn9 ,9 ,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p10r,aj1p10i,cy_r10,bjmodn10,10,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p11r,aj1p11i,cy_r11,bjmodn11,11,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p12r,aj1p12i,cy_r12,bjmodn12,12,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p13r,aj1p13i,cy_r13,bjmodn13,13,prp_mult);
+			cmplx_carry_norm_errcheck(aj1p14r,aj1p14i,cy_r14,bjmodn14,14,prp_mult);
 
 			i =((uint32)(sw - bjmodn0) >> 31);	/* get ready for the next set...	*/
 			co2=co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
@@ -434,21 +444,21 @@ for(outer=0; outer <= 1; outer++)
 		}
 		else
 		{
-			fermat_carry_norm_errcheck(aj1p0r ,aj1p0i ,cy_r0 ,cy_i0 ,ii0 ,bjmodn0 ,0 *n15,NRTM1,NRT_BITS);
-			fermat_carry_norm_errcheck(aj1p1r ,aj1p1i ,cy_r1 ,cy_i1 ,ii1 ,bjmodn1 ,1 *n15,NRTM1,NRT_BITS);
-			fermat_carry_norm_errcheck(aj1p2r ,aj1p2i ,cy_r2 ,cy_i2 ,ii2 ,bjmodn2 ,2 *n15,NRTM1,NRT_BITS);
-			fermat_carry_norm_errcheck(aj1p3r ,aj1p3i ,cy_r3 ,cy_i3 ,ii3 ,bjmodn3 ,3 *n15,NRTM1,NRT_BITS);
-			fermat_carry_norm_errcheck(aj1p4r ,aj1p4i ,cy_r4 ,cy_i4 ,ii4 ,bjmodn4 ,4 *n15,NRTM1,NRT_BITS);
-			fermat_carry_norm_errcheck(aj1p5r ,aj1p5i ,cy_r5 ,cy_i5 ,ii5 ,bjmodn5 ,5 *n15,NRTM1,NRT_BITS);
-			fermat_carry_norm_errcheck(aj1p6r ,aj1p6i ,cy_r6 ,cy_i6 ,ii6 ,bjmodn6 ,6 *n15,NRTM1,NRT_BITS);
-			fermat_carry_norm_errcheck(aj1p7r ,aj1p7i ,cy_r7 ,cy_i7 ,ii7 ,bjmodn7 ,7 *n15,NRTM1,NRT_BITS);
-			fermat_carry_norm_errcheck(aj1p8r ,aj1p8i ,cy_r8 ,cy_i8 ,ii8 ,bjmodn8 ,8 *n15,NRTM1,NRT_BITS);
-			fermat_carry_norm_errcheck(aj1p9r ,aj1p9i ,cy_r9 ,cy_i9 ,ii9 ,bjmodn9 ,9 *n15,NRTM1,NRT_BITS);
-			fermat_carry_norm_errcheck(aj1p10r,aj1p10i,cy_r10,cy_i10,ii10,bjmodn10,10*n15,NRTM1,NRT_BITS);
-			fermat_carry_norm_errcheck(aj1p11r,aj1p11i,cy_r11,cy_i11,ii11,bjmodn11,11*n15,NRTM1,NRT_BITS);
-			fermat_carry_norm_errcheck(aj1p12r,aj1p12i,cy_r12,cy_i12,ii12,bjmodn12,12*n15,NRTM1,NRT_BITS);
-			fermat_carry_norm_errcheck(aj1p13r,aj1p13i,cy_r13,cy_i13,ii13,bjmodn13,13*n15,NRTM1,NRT_BITS);
-			fermat_carry_norm_errcheck(aj1p14r,aj1p14i,cy_r14,cy_i14,ii14,bjmodn14,14*n15,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(aj1p0r ,aj1p0i ,cy_r0 ,cy_i0 ,ii0 ,bjmodn0 ,0 *n15,NRTM1,NRT_BITS,prp_mult);
+			fermat_carry_norm_errcheck(aj1p1r ,aj1p1i ,cy_r1 ,cy_i1 ,ii1 ,bjmodn1 ,1 *n15,NRTM1,NRT_BITS,prp_mult);
+			fermat_carry_norm_errcheck(aj1p2r ,aj1p2i ,cy_r2 ,cy_i2 ,ii2 ,bjmodn2 ,2 *n15,NRTM1,NRT_BITS,prp_mult);
+			fermat_carry_norm_errcheck(aj1p3r ,aj1p3i ,cy_r3 ,cy_i3 ,ii3 ,bjmodn3 ,3 *n15,NRTM1,NRT_BITS,prp_mult);
+			fermat_carry_norm_errcheck(aj1p4r ,aj1p4i ,cy_r4 ,cy_i4 ,ii4 ,bjmodn4 ,4 *n15,NRTM1,NRT_BITS,prp_mult);
+			fermat_carry_norm_errcheck(aj1p5r ,aj1p5i ,cy_r5 ,cy_i5 ,ii5 ,bjmodn5 ,5 *n15,NRTM1,NRT_BITS,prp_mult);
+			fermat_carry_norm_errcheck(aj1p6r ,aj1p6i ,cy_r6 ,cy_i6 ,ii6 ,bjmodn6 ,6 *n15,NRTM1,NRT_BITS,prp_mult);
+			fermat_carry_norm_errcheck(aj1p7r ,aj1p7i ,cy_r7 ,cy_i7 ,ii7 ,bjmodn7 ,7 *n15,NRTM1,NRT_BITS,prp_mult);
+			fermat_carry_norm_errcheck(aj1p8r ,aj1p8i ,cy_r8 ,cy_i8 ,ii8 ,bjmodn8 ,8 *n15,NRTM1,NRT_BITS,prp_mult);
+			fermat_carry_norm_errcheck(aj1p9r ,aj1p9i ,cy_r9 ,cy_i9 ,ii9 ,bjmodn9 ,9 *n15,NRTM1,NRT_BITS,prp_mult);
+			fermat_carry_norm_errcheck(aj1p10r,aj1p10i,cy_r10,cy_i10,ii10,bjmodn10,10*n15,NRTM1,NRT_BITS,prp_mult);
+			fermat_carry_norm_errcheck(aj1p11r,aj1p11i,cy_r11,cy_i11,ii11,bjmodn11,11*n15,NRTM1,NRT_BITS,prp_mult);
+			fermat_carry_norm_errcheck(aj1p12r,aj1p12i,cy_r12,cy_i12,ii12,bjmodn12,12*n15,NRTM1,NRT_BITS,prp_mult);
+			fermat_carry_norm_errcheck(aj1p13r,aj1p13i,cy_r13,cy_i13,ii13,bjmodn13,13*n15,NRTM1,NRT_BITS,prp_mult);
+			fermat_carry_norm_errcheck(aj1p14r,aj1p14i,cy_r14,cy_i14,ii14,bjmodn14,14*n15,NRTM1,NRT_BITS,prp_mult);
 		}
 
 	/* The radix-15 DIF pass is here: */
@@ -707,7 +717,7 @@ for(outer=0; outer <= 1; outer++)
 	}
 
 	full_pass = 0;
-	scale = 1;
+	scale = prp_mult = 1;
 
 	/*
 	For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large

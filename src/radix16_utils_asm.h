@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -505,8 +505,8 @@
 	#define SSE2_RADIX16_CALC_TWIDDLES_LOACC(Xcc0,Xk0,Xk1,Xrt0,Xrt1)\
 	{\
 		__asm__ volatile (\
-		"ldr	w0,%[__k0]		\n\t"\
-		"ldr	w1,%[__k1]			\n\t"\
+		"ldr	x0,%[__k0]			\n\t"\
+		"ldr	x1,%[__k1]			\n\t"\
 		"ldr	x2,%[__rt0]			\n\t"\
 		"ldr	x4,%[__rt1]			\n\t"\
 		"ldr	x6,%[__cc0]			\n\t"\

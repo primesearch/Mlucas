@@ -1177,9 +1177,10 @@ const uint32 ith_set_bit8[256] = {
 /* Globals. Unless specified otherwise, these are declared in Mdata.h:           */
 /*********************************************************************************/
 
-/* These externs yield 64-mantissa-bit register mode (bits <9:8> = 3),
-with IEEE and truncating rounding mode set via bits <11:10> = 0 and 3,
-respectively. The other 12 bits are identical to the MSVC defaults: */
+/* These externs used in x86 builds by util.c:set_x87_fpu_params() yield 64-mantissa-bit
+floating-point register mode (bits <9:8> = 3), with IEEE and truncating rounding mode set
+via bits <11:10> = 0 and 3, respectively. The other 12 bits are identical to the MSVC defaults:
+*/
 unsigned short FPU_64RND = 0x037f, FPU_64CHOP = 0x0f7f;
 
 const int CHAROFFSET = '0';
@@ -1388,7 +1389,8 @@ void host_init(void)
 	ASSERT(HERE, ISRT2 == qfdbl(QISRT2), "1/sqrt2 precision check failed!");
 	ASSERT(HERE, SQRT2 == qfdbl(QSQRT2), "  sqrt2 precision check failed!");
 
-#ifdef CPU_IS_X86
+#ifdef CPU_IS_X86	// May 2018: It seems I only found need to call this runtime CPU-mode setting in 32-bit x86 mode, not 64-bit. But had occasion
+					// to fiddle w/rnd-mode in some x86_64 tests, so changed things so that the function is *defined* in both 32 and 64-bit modes.
 	set_x87_fpu_params(FPU_64RND);
 #endif
 	// ewm [4. Aug 2014] - move below set_x87_fpu_params(), since need rnd-const set for any DNINT-using ref-computations in the GPU self-tests:
@@ -1403,11 +1405,12 @@ void host_init(void)
 	// timing-test-of-key-SIMD-code-constructs suite):
 #ifdef TEST_SIMD
 	printf("INFO: Timing-testing selected FFT macros...\n");
-  #ifdef USE_SSE2
-	ASSERT(HERE, test_radix4_dft() == 0, "test_radix4_dft() returns nonzero!");
+
+  #if defined(USE_SSE2) && !defined(USE_AVX)	// 4-DFT is SSE2-only
+//	ASSERT(HERE, test_radix4_dft() == 0, "test_radix4_dft() returns nonzero!");
   #endif
 
-	ASSERT(HERE, test_radix16_dft() == 0, "test_radix16_dft() returns nonzero!");
+//	ASSERT(HERE, test_radix16_dft() == 0, "test_radix16_dft() returns nonzero!");
 
 	#include "radix32_dif_dit_pass_asm.h"	// Commenting this out gives compile error
 //	ASSERT(HERE, test_radix32_dft() == 0, "test_radix32_dft() returns nonzero!");
@@ -1673,7 +1676,10 @@ exit(0);
 #endif
 
 // Define TEST_FFT_RADIX at compile time to activate short-length DFT self-test [Must select params in test_fft_radix.c]
-#if defined(TEST_FFT_RADIX)	// && defined(USE_SSE2)
+#ifdef TEST_FFT_RADIX
+  #ifdef USE_SSE2
+	#error TEST_FFT_RADIX requires non-SIMD build!
+  #endif
 	test_fft_radix();
 	exit(0);
 #endif
@@ -1791,10 +1797,29 @@ void print_host_info(void)
 
 	printf("CPU Family = %s, OS = %s, %2d-bit Version, compiled with %s, Version %s.\n", CPU_NAME, OS_NAME, OS_BITS, COMPILER_NAME, COMPILER_VERSION);
 
-#ifdef CPU_IS_ARM_EABI	// Thanks to Laurent Desnogues for this:
+#ifdef CPU_IS_ARM_EABI
 
-  #if __ARM_ARCH >= 8
+	// Apr 2018: Due to portability issues, replace the system-headers-based version of the "has advanced SIMD?"
+	// check with one based on what amounts to "is the result of 'grep asimd /proc/cpuinfo' empty or not?":
+  #if 1
 
+	int has_asimd(void)
+	{
+		char in_line[STR_MAX_LEN];
+		FILE*fp = mlucas_fopen("/proc/cpuinfo", "r");
+		ASSERT(HERE, fp != 0x0, "/proc/cpuinfo file not found!");
+		while(fgets(in_line, STR_MAX_LEN, fp) != 0x0) {
+			if(strstr(in_line, "asimd") != 0)
+				return 1;
+		}
+		fclose(fp);	fp = 0x0;
+		return 0;
+	}
+
+  #elif __ARM_ARCH >= 8 // Rest of the preprocessor-conditional is the old version:
+
+	#error This system-header-based ARM-has-ASIMD code should not be used!
+	// Thanks to Laurent Desnogues for this:
 	#include <sys/auxv.h>
 	#include <asm/hwcap.h>
 	// Check for flag indicating CPU supports advanced SIMD instruction set.
@@ -2004,28 +2029,71 @@ For the purpose of completeness, the other FPU control bits are as follows
 	FSTCW stores the control register into the specified memory location.
 */
 
-/* On the Itanium, the FPU Control Register is 64-bit, and divided into 5 subfields:
+/* Re.the SIMD control word, from http://softpixel.com/~cwright/programming/simd/sse.php :
 
-	- A single 6-bit subfield (bits <5:0> containing the 6 trap disable bits;
-
-	- A quartet of 13-bit Floating-Point Status bitfields (numbered 0 through 3),
-	all having the same format
-	(A summary the precise meaning of the bits seems exorbitantly difficult to find -
-	apparently Intel doesn't want users monkeying with these),
-	but with only FPSB 0 accessible to the user, via the following intrinsics
-	defined in the <xmmintrin.h> header file:
-
-	extern unsigned __int64 _mm_getfpsr(void);
-	extern void _mm_setfpsr(unsigned __int64);	(maps to the Maps to the fsetc.sf0 hardware instruction)
-
-	Using ICC v9.0, the getfpsr function returns 0x8A70037F,
-	The least-signficant 12 bits of which are identical to the
-	default ones we use for the x87, so whatever the internal order
-	of the bitfields, it appears that the _mm_getfpsr and _mm_setfpsr
-	intrinsics munge things so the user-settable FPUCTRL bits are in
-	the same order and locations as on x87.
+	The MXCSR register is a 32-bit register containing flags for control and status information regarding SSE instructions.
+	As of SSE3, only bits 0-15 have been defined.
+														[EWM: Default value on MSVC/ia32 = 0x1FA0, so the bits marked with [x] are set:]
+	Mnemonic	Bit Location	Description				[EWM: Default value on GCC/Core2-ia64 = 0x1FA2 = 1111110100010, bits [y] are set:]
+	--------	------------	---------------------	[EWM: Default value on GCC/Haswell-ia64 = 0x9FE2 = 1111110100010, bits [z] are set:]
+		FZ		bit 15			Flush To Zero							[z]
+		R+		bit<14:13> = 10	Round Positive
+		R-		bit<14:13> = 01	Round Negative
+		RZ		bit<14:13> = 11	Round To Zero
+		RN		bit<14:13> = 00	Round To Nearest		[x]		[y]		[z]
+		PM		bit 12			Precision Mask			[x]		[y]		[z]
+		UM		bit 11			Underflow Mask			[x]		[y]		[z]
+		OM		bit 10			Overflow Mask			[x]		[y]		[z]
+		ZM		bit 9			Divide By Zero Mask		[x]		[y]		[z]
+		DM		bit 8			Denormal Mask			[x]		[y]		[z]
+		IM		bit 7			Invalid Operation Mask	[x]		[y]		[z]
+		DAZ		bit 6			Denormals Are Zero						[z]
+		PE		bit 5			Precision Flag			[x]		[y]		[z]
+		UE		bit 4			Underflow Flag
+		OE		bit 3			Overflow Flag
+		ZE		bit 2			Divide By Zero Flag
+		DE		bit 1			Denormal Flag					[y]		[z]
+		IE		bit 0			Invalid Operation Flag
 */
-#ifdef CPU_IS_X86
+// May 2018: changed things so that the function is *defined* in both 32 and 64-bit modes:
+#if defined(CPU_IS_X86) || defined(CPU_IS_X86_64)
+
+	/* Example: To flip bits 13:14 in MXCSR from their default value 00 (round-to-nearest) 11 (round-toward-0):
+		uint32 i = 0x00006000; i = x86_simd_mxcsr_toggle(i);
+	*/
+	// Return current value of the MXCSR
+	uint32 x86_simd_mxcsr_getval(void) {
+	#ifdef USE_SSE2	// Only supported if SSE is
+		uint32 MXCSR_VALUE;
+		__asm__ volatile ("stmxcsr %0" : "=m" (MXCSR_VALUE) );
+		 return MXCSR_VALUE;
+	#else
+		return 0;
+	#endif
+	}
+	// Set value of the MXCSR to the specified one. Returns the old value, to support reset-to-default:
+	uint32 x86_simd_mxcsr_setval(uint32 MXCSR_NEWVAL) {
+	#ifdef USE_SSE2	// Only supported if SSE is
+		uint32 MXCSR_OLDVAL;
+		__asm__ volatile ("stmxcsr %0" : "=m" (MXCSR_OLDVAL) );
+		__asm__ volatile ("ldmxcsr %0" :: "m" (MXCSR_NEWVAL) );
+		return MXCSR_OLDVAL;
+	#else
+		return 0;
+	#endif
+	}
+	// For every set bit in the input XOR-mask, flip the corresponding bit in the MXCSR. Returns the old value.
+	uint32 x86_simd_mxcsr_toggle(uint32 MXCSR_MASK) {
+	#ifdef USE_SSE2	// Only supported if SSE is
+		uint32 MXCSR_OLDVAL,MXCSR_NEWVAL;
+		__asm__ volatile ("stmxcsr %0" : "=m" (MXCSR_OLDVAL) );
+		MXCSR_NEWVAL = MXCSR_OLDVAL ^ MXCSR_MASK;
+		__asm__ volatile ("ldmxcsr %0" :: "m" (MXCSR_NEWVAL) );
+		return MXCSR_OLDVAL;
+	#else
+		return 0;
+	#endif
+	}
 
 	void set_x87_fpu_params(unsigned short FPU_MODE)
 	{
@@ -2038,9 +2106,9 @@ For the purpose of completeness, the other FPU control bits are as follows
 	#else
 		unsigned short FPUCTRL;
 	#endif
+		ASSERT(HERE, (FPU_MODE == FPU_64RND) || (FPU_MODE == FPU_64CHOP), "Illegal value of FPU_MODE");
 
-		ASSERT(HERE, (FPU_64RND == FPU_MODE) || (FPU_64CHOP == 0x0f7f), "Illegal value of FPU_MODE");
-
+		// Check the SIMD control word:
 	#ifdef USE_SSE2
 		#ifdef COMPILER_TYPE_MSVC
 
@@ -2164,7 +2232,7 @@ For the purpose of completeness, the other FPU control bits are as follows
 
 #endif	// CPU_IS_X86 ?
 
-/******* DEFINE GLOBALS AND TEST RND-CONST FAST-NINT: *******/
+/******* DEFINE GLOBALS, CHECK TYPE-LENGTHS AND ENDIANNESS, AND TEST RND-CONST FAST-NINT: *******/
 #define FAST_UINT32_MOD	0	// Set = 1 to enable this test
 
 void check_nbits_in_types(void)
@@ -2194,6 +2262,21 @@ void check_nbits_in_types(void)
 	ASSERT(HERE, sizeof(vec_uint16X8) == 16 , "sizeof(vec_uint16x8) != 16 ");
 	ASSERT(HERE, sizeof(vec_uint32X4) == 16 , "sizeof(vec_uint32x4) != 16 ");
 #endif
+
+	uint64 x = 0x0706050403020100ull;
+	uint8 *byte_arr = (uint8*)&x;
+	// Runtime ordering is little-endian:
+	if(byte_arr[0] == 0 && byte_arr[1] == 1 && byte_arr[2] == 2 && byte_arr[3] == 3 && byte_arr[4] == 4 && byte_arr[5] == 5 && byte_arr[6] == 6 && byte_arr[7] == 7) {
+	  #ifdef USE_BIG_ENDIAN
+		ASSERT(HERE, 0, "USE_BIG_ENDIAN set in platform.h but little-endian detected at runtime!");
+	  #endif
+	} else if(byte_arr[0] == 7 && byte_arr[1] == 6 && byte_arr[2] == 5 && byte_arr[3] == 4 && byte_arr[4] == 3 && byte_arr[5] == 2 && byte_arr[6] == 1 && byte_arr[7] == 0) {
+	  #ifndef USE_BIG_ENDIAN
+		ASSERT(HERE, 0, "USE_BIG_ENDIAN not set in platform.h but big-endian detected at runtime!");
+	  #endif
+	} else {
+		ASSERT(HERE, 0, "Endianness detected as neither big nor little-endian at runtime!");
+	}
 
 	// Init RNG:
 	rng_isaac_init(TRUE);
@@ -3064,6 +3147,23 @@ int reverse(uint32 i, uint32 n)
 
 /******* Bit-level utilities: ********/
 
+// 32 and 64-bit leftward circular shift, shift count n assumed unsigned < #bits-in-type:
+DEV uint32 cshft32(uint32 x, uint32 n)
+{
+	if(n)
+		return (x << n) + (x >> (32-n));
+	else
+		return x;
+}
+
+DEV uint64 cshft64(uint64 x, uint64 n)
+{
+	if(n)
+		return (x << n) + (x >> (64-n));
+	else
+		return x;
+}
+
 // 32 and 64-bit analogs of the F90 intrinsic ISHFT function:
 DEV uint32 ishft32(uint32 x, int shift)
 {
@@ -3195,9 +3295,15 @@ DEV uint32 popcount64(uint64 x)
 #else
 	uint8 *byte_arr = (uint8*)&x;
 	uint32 i,retval = 0;
+	// May 2018: Unrolling the for-loop in favor of an inlined 8-fold sum gave a nice speedup:
+  #if 0
 	for(i = 0; i < 8; i++) {
 		retval += pop8[byte_arr[i]];
 	}
+  #else
+	retval = pop8[byte_arr[0]] + pop8[byte_arr[1]] + pop8[byte_arr[2]] + pop8[byte_arr[3]]
+		   + pop8[byte_arr[4]] + pop8[byte_arr[5]] + pop8[byte_arr[6]] + pop8[byte_arr[7]];
+  #endif
 	return retval;
 #endif
 }
@@ -3263,11 +3369,19 @@ DEV uint32 trailz32(uint32 x)
 {
 	uint8 *byte_arr = (uint8*)&x, curr_byte;
 	uint32 i,retval = 0;
+  #ifdef USE_BIG_ENDIAN
+	for(i = 0; i < 4; i++) {
+		curr_byte = byte_arr[3-i];
+		retval += tz8[curr_byte];
+		if(curr_byte) break;
+	}
+  #else
 	for(i = 0; i < 4; i++) {
 		curr_byte = byte_arr[i];
 		retval += tz8[curr_byte];
 		if(curr_byte) break;
 	}
+  #endif
 	return retval;
 }
 
@@ -3288,11 +3402,19 @@ DEV uint32 trailz64(uint64 x)
 #else
 	uint8 *byte_arr = (uint8*)&x, curr_byte;
 	uint32 i,retval = 0;
+  #ifdef USE_BIG_ENDIAN
+	for(i = 0; i < 8; i++) {
+		curr_byte = byte_arr[7-i];
+		retval += tz8[curr_byte];
+		if(curr_byte) break;
+	}
+  #else
 	for(i = 0; i < 8; i++) {
 		curr_byte = byte_arr[i];
 		retval += tz8[curr_byte];
 		if(curr_byte) break;
 	}
+  #endif
 	return retval;
 #endif
 }
@@ -3318,11 +3440,19 @@ DEV uint32 leadz32(uint32 x)
 #else
 	uint8 *byte_arr = (uint8*)&x, curr_byte;
 	uint32 i,retval = 0;
+  #ifdef USE_BIG_ENDIAN
+	for(i = 0; i < 4; i++) {
+		curr_byte = byte_arr[i];
+		retval += lz8[curr_byte];
+		if(curr_byte) break;
+	}
+  #else
 	for(i = 0; i < 4; i++) {
 		curr_byte = byte_arr[3-i];
 		retval += lz8[curr_byte];
 		if(curr_byte) break;
 	}
+  #endif
 	return retval;
 #endif
 }
@@ -3346,11 +3476,19 @@ DEV uint32 leadz64(uint64 x)
 #else
 	uint8 *byte_arr = (uint8*)&x, curr_byte;
 	uint32 i,retval = 0;
+  #ifdef USE_BIG_ENDIAN
+	for(i = 0; i < 8; i++) {
+		curr_byte = byte_arr[i];
+		retval += lz8[curr_byte];
+		if(curr_byte) break;
+	}
+  #else
 	for(i = 0; i < 8; i++) {
 		curr_byte = byte_arr[7-i];
 		retval += lz8[curr_byte];
 		if(curr_byte) break;
 	}
+  #endif
 	return retval;
 #endif
 }
@@ -3494,22 +3632,39 @@ DEV int pprimeF(uint32 p, uint32 base)
 // 64-bit analog of pprimeF:
 DEV int pprimeF64(uint64 p, uint64 base)
 {
-	ASSERT(HERE, 0, "This function not yet implemented!");
-	return 0;
+	uint64 y = 1ull, n = p-1ull, flag;
+	uint64 z = base;
+
+	while(n)
+	{
+		flag = n & 1ull;
+		n >>= 1;
+		if(flag) y = mi64_modmul64(y,z,p);
+		z = mi64_modmul64(z,z,p);
+		if(!z) return 0;
+	}
+	return((int)(y==1ull));
 }
 
 /***************/
 
 DEV int isPRP(uint32 p)
 {
+	// Handle even-argument case separately, since the powmod routines may not accept even moduli:
+	if((p & 1) == 0)
+		return (p == 2);
 	/* TODO: replace/supplement this with a rigorous trial-divide test for p < 2^32 */
 	return(pprimeF(p,2) && pprimeF(p,3) && pprimeF(p,5) && pprimeF(p,7) && pprimeF(p,11) && pprimeF(p,13));
 }
 
+#include "factor.h"	// Needed for twopmodq64() prototype
 DEV int isPRP64(uint64 p)
 {
-	ASSERT(HERE, 0, "This function not yet implemented!");
-	return(pprimeF64(p,2) && pprimeF64(p,3) && pprimeF64(p,5) && pprimeF64(p,7) && pprimeF64(p,11) && pprimeF64(p,13));
+	// Handle even-argument case separately, since the powmod routines may not accept even moduli:
+	if((p & 1ull) == 0ull)
+		return (p == 2ull);
+	return twopmodq64(p-1,p) == 1ull;
+//	return(pprimeF64(p,2ull) && pprimeF64(p,3ull) && pprimeF64(p,5ull) && pprimeF64(p,7ull) && pprimeF64(p,11ull) && pprimeF64(p,13ull));
 }
 
 /*******************/
@@ -3959,7 +4114,7 @@ they must be copied prior to calling the function.
 DEV uint32 egcd32(uint32 *x, uint32 *y)
 {
 	uint32 g = *x, w = *y, q;
-	int    a = 1, b = 0, u = 0, v = 1;
+	uint32 a = 1, b = 0, u = 0, v = 1;
 	/* Sign of these 3 doesn't matter since they're just temporaries: */
 	uint32 d, e, f;
 
@@ -3975,18 +4130,24 @@ DEV uint32 egcd32(uint32 *x, uint32 *y)
 		// that most q's are small (~80% of q's < 4), but in practice I've found that adding even simple logic to
 		// special-case for q = 0 (e.g. if(g < w) {d = a; e = b; f = g; } else ...) slows things down:
 		q = g/w;
-//printf("egcd32: g,w = %u, %u, quotient = %u\n",g,w,q);
+//printf("egcd32: w,q = %d, %d, quotient = %d\n",w,g,q);
+//printf("a,b,g = %d,%d,%d\n",a,b,g);
+//printf("u,v,w = %d,%d,%d\n",u,v,w);
 		/* Find (u', v', w') and store in 3 temporaries: */
 		d = a - q*u;
 		e = b - q*v;
 		f = g - q*w;
+//printf("d,e,f = %d,%d,%d\n",d,e,f);
 		// Find (a', b', g'), i.e. move the old values of (u,v,w) into the slots for (a,b,g),
 		// then recover new values of (u, v, w) from the temporaries:
 		a = u;	u = d;
 		b = v;	v = e;
 		g = w;	w = f;
 	}
-	*x = a;
+	if(*y < a)	// E.g. inputs 2,2^31-1 gives a = 3221225473 = (int)-1073741823, need to add to modulus (*y) to get proper mod-inv 1073741824.
+		*x = *y + a;
+	else
+		*x = a;
 	*y = b;
 	return(g);
 }
@@ -5246,12 +5407,12 @@ ftmp0 = ftmp;
 	int	test_simd_transpose_8x8()
 	{
 		/*...time-related stuff	*/
-		clock_t clock1, clock2;
+		double clock1, clock2;
 		double tdiff, t0,t1,t2,t3;
-		int i,imax = 100000001, row,col, nerr = 0;	// Use 10^8 loop execs in effort to yield timing on order of 1 sec on target CPUs
+		int i,imax = 100000001, row,col, nerr;	// Use 10^8 loop execs in effort to yield timing on order of 1 sec on target CPUs
 			// Add 1 to make loop count odd, thus result of (imax) successive transposes equivalent to a single one
-		const int dim = 64;		// #elements in our matrix
-		vec_dbl *mem  = ALLOC_VEC_DBL(mem, dim+4);	// Add 4 pads to allow for alignment on up-to-128-byte boundary
+		const int dim = 64;	// #elements in our matrix, allocate 2x this to allow for real/imag side-by-side variant
+		vec_dbl *mem  = ALLOC_VEC_DBL(mem, 2*dim+4);	// Add 4 pads to allow for alignment on up-to-128-byte boundary
 		vec_dbl *data = ALIGN_VEC_DBL(mem);
 		ASSERT(HERE, ((long)data & 0x1f) == 0, "data not 32-byte aligned!");
 		// Init the matrix -  Input matrix has rows containing [0-7][8-15]...[56-63]:
@@ -5267,8 +5428,8 @@ ftmp0 = ftmp;
 		// Do timing loop using 2 fundamentally different methods of effecting the transpose, the 2nd of
 		// which mimics the data movement surrounding the dyadic-square and carry steps of our FFT-mul:
 
-		// [1a] Rowwise-load and in-register data shuffles:
-		clock1 = clock();
+		// [1a] Rowwise-load and in-register data shuffles. On KNL: 45 cycles per loop-exec:
+		nerr = 0; clock1 = getRealTime();
 		for(i = 0; i < imax; i++) {
 			__asm__ volatile (\
 				"movq		%[__data],%%rax		\n\t"\
@@ -5330,9 +5491,9 @@ ftmp0 = ftmp;
 				: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
-		clock2 = clock();
+		clock2 = getRealTime();
 		tdiff = (double)(clock2 - clock1);
-		printf("Method [1a]: Time for %u 8x8 matrix-of-doubles transposes using in-register shuffles =%s\n",imax, get_time_str(tdiff));
+		printf("Method [1a]: Time for %u 8x8 doubles-transposes using in-register shuffles =%s\n",imax, get_time_str(tdiff));
 		// Check the result:
 	//	printf("Output matrix:\n");
 		for(i = 0; i < dim; i += 8) {
@@ -5344,87 +5505,11 @@ ftmp0 = ftmp;
 			t0 += 32; t1 += 32; t2 += 32; t3 += 32;
 			nerr += (t0 != *(dptr+i+4)) + (t1 != *(dptr+i+5)) + (t2 != *(dptr+i+6)) + (t3 != *(dptr+i+7));
 		}
-	//	printf("#mismatches = %u\n",nerr);
+		if(nerr) printf("Outputs incorrect! #mismatches = %u\n",nerr);
 
-		// [1b] Same as [1a] but with some timing-driven fiddles:
+		// [1b] Same as [1a] but with a few reg-copies to make for a nicer indexing pattern. On KNL: 48 cycles per loop-exec:
 		for(i = 0; i < dim; i++) { *(dptr+i) = i; }	// Re-init the matrix to be untransposed
-		clock1 = clock();
-		for(i = 0; i < imax; i++) {
-			__asm__ volatile (\
-				"movq		%[__data],%%rax		\n\t"\
-				/* Read in the 8 rows of our input matrix: */\
-				"vmovaps		0x000(%%rax),%%zmm0		\n\t"\
-				"vmovaps		0x080(%%rax),%%zmm2		\n\t"\
-				"vmovaps		0x100(%%rax),%%zmm4		\n\t"\
-				"vmovaps		0x180(%%rax),%%zmm6		\n\t"\
-				/* Transpose uses regs0-7 for data, reg8 for temp: */\
-				/* [1] First step is a quartet of [UNPCKLPD,UNPCKHPD] pairs to effect transposed 2x2 submatrices - */\
-				/* indices in comments at right are [row,col] pairs, i.e. octal version of linear array indices: */
-				"vunpckhpd	0x040(%%rax),%%zmm0,%%zmm1	\n\t"/* zmm1 = 01 11 03 13 05 15 07 17 */\
-				"vunpcklpd	0x040(%%rax),%%zmm0,%%zmm8	\n\t"/* zmm8 = 00 10 02 12 04 14 06 16 */\
-				"vunpckhpd	0x0c0(%%rax),%%zmm2,%%zmm3	\n\t"/* zmm3 = 21 31 23 33 25 35 27 37 */\
-				"vunpcklpd	0x0c0(%%rax),%%zmm2,%%zmm0	\n\t"/* zmm0 = 20 30 22 32 24 34 26 36 */\
-				"vunpckhpd	0x140(%%rax),%%zmm4,%%zmm5	\n\t"/* zmm5 = 41 51 43 53 45 55 47 57 */\
-				"vunpcklpd	0x140(%%rax),%%zmm4,%%zmm2	\n\t"/* zmm2 = 40 50 42 52 44 54 46 56 */\
-				"vunpckhpd	0x1c0(%%rax),%%zmm6,%%zmm7	\n\t"/* zmm7 = 61 71 63 73 65 75 67 77 */\
-				"vunpcklpd	0x1c0(%%rax),%%zmm6,%%zmm4	\n\t"/* zmm4 = 60 70 62 72 64 74 66 76 */\
-			/**** Getting rid of reg-index-nicifying copies here means Outputs not in 0-7 but in 8,1,0,3,2,5,4,7, with 6 now free ****/\
-				/* [2] 1st layer of VSHUFF64x2, 2 outputs each with trailing index pairs [0,4],[1,5],[2,6],[3,7]. */\
-				/* Note the imm8 values expressed in terms of 2-bit index subfields again read right-to-left */\
-				/* (as for the SHUFPS imm8 values in the AVX 8x8 float code) are 221 = (3,1,3,1) and 136 = (2,0,2,0): */\
-				"vshuff64x2	$136,%%zmm0,%%zmm8,%%zmm6	\n\t"/* zmm6 = 00 10 04 14 20 30 24 34 */\
-				"vshuff64x2	$221,%%zmm0,%%zmm8,%%zmm0	\n\t"/* zmm0 = 02 12 06 16 22 32 26 36 */\
-				"vshuff64x2	$136,%%zmm3,%%zmm1,%%zmm8	\n\t"/* zmm8 = 01 11 05 15 21 31 25 35 */\
-				"vshuff64x2	$221,%%zmm3,%%zmm1,%%zmm3	\n\t"/* zmm3 = 03 13 07 17 23 33 27 37 */\
-				"vshuff64x2	$136,%%zmm4,%%zmm2,%%zmm1	\n\t"/* zmm1 = 40 50 44 54 60 70 64 74 */\
-				"vshuff64x2	$221,%%zmm4,%%zmm2,%%zmm4	\n\t"/* zmm4 = 42 52 46 56 62 72 66 76 */\
-				"vshuff64x2	$136,%%zmm7,%%zmm5,%%zmm2	\n\t"/* zmm2 = 41 51 45 55 61 71 65 75 */\
-				"vshuff64x2	$221,%%zmm7,%%zmm5,%%zmm7	\n\t"/* zmm7 = 43 53 47 57 63 73 67 77 */\
-			/**** Getting rid of reg-index-nicifying copies here means Outputs 8,1,2,5 -> 6,8,1,2, with 5 now free ***/\
-				/* [3] Last step in 2nd layer of VSHUFF64x2, now combining reg-pairs sharing same trailing index pairs. */\
-				/* Output register indices reflect trailing index of data contained therein: */\
-				"vshuff64x2	$136,%%zmm1,%%zmm6,%%zmm5	\n\t"/* zmm5 = 00 10 20 30 40 50 60 70 [row 0 of transpose-matrix] */\
-				"vshuff64x2	$221,%%zmm1,%%zmm6,%%zmm1	\n\t"/* zmm1 = 04 14 24 34 44 54 64 74 [row 4 of transpose-matrix] */\
-				"vshuff64x2	$136,%%zmm2,%%zmm8,%%zmm6	\n\t"/* zmm6 = 01 11 21 31 41 51 61 71 [row 1 of transpose-matrix] */\
-				"vshuff64x2	$221,%%zmm2,%%zmm8,%%zmm2	\n\t"/* zmm2 = 05 15 25 35 45 55 65 75 [row 5 of transpose-matrix] */\
-				"vshuff64x2	$136,%%zmm4,%%zmm0,%%zmm8	\n\t"/* zmm8 = 02 12 22 32 42 52 62 72 [row 2 of transpose-matrix] */\
-				"vshuff64x2	$221,%%zmm4,%%zmm0,%%zmm4	\n\t"/* zmm4 = 06 16 26 36 46 56 66 76 [row 6 of transpose-matrix] */\
-				"vshuff64x2	$136,%%zmm7,%%zmm3,%%zmm0	\n\t"/* zmm0 = 03 13 23 33 43 53 63 73 [row 3 of transpose-matrix] */\
-				"vshuff64x2	$221,%%zmm7,%%zmm3,%%zmm7	\n\t"/* zmm7 = 07 17 27 37 47 57 67 77 [row 7 of transpose-matrix] */\
-			/**** Getting rid of reg-index-nicifying copies here means Outputs 6,8,0,3 -> 5,6,8,0 with 3 now free ***/\
-				/* Write original columns back as rows: */\
-				"vmovaps		%%zmm5,0x000(%%rax)		\n\t"\
-				"vmovaps		%%zmm6,0x040(%%rax)		\n\t"\
-				"vmovaps		%%zmm8,0x080(%%rax)		\n\t"\
-				"vmovaps		%%zmm0,0x0c0(%%rax)		\n\t"\
-				"vmovaps		%%zmm1,0x100(%%rax)		\n\t"\
-				"vmovaps		%%zmm2,0x140(%%rax)		\n\t"\
-				"vmovaps		%%zmm4,0x180(%%rax)		\n\t"\
-				"vmovaps		%%zmm7,0x1c0(%%rax)		\n\t"\
-				:						// outputs: none
-				: [__data] "m" (data)	// All inputs from memory addresses here
-				: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
-			);
-		}
-		clock2 = clock();
-		tdiff = (double)(clock2 - clock1);
-		printf("Method [1b]: Time for %u 8x8 matrix-of-doubles transposes using in-register shuffles =%s\n",imax, get_time_str(tdiff));
-		// Check the result:
-	//	printf("Output matrix:\n");
-		for(i = 0; i < dim; i += 8) {
-			row = i>>3;
-		//	printf("Row %u: %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f\n",row,*(dptr+i),*(dptr+i+1),*(dptr+i+2),*(dptr+i+3),*(dptr+i+4),*(dptr+i+5),*(dptr+i+6),*(dptr+i+7));
-			// Expected (transposed-matrix) datum = row + 4*col
-			t0 = row; t1 = row+8; t2 = row+16; t3 = row+24;
-			nerr += (t0 != *(dptr+i+0)) + (t1 != *(dptr+i+1)) + (t2 != *(dptr+i+2)) + (t3 != *(dptr+i+3));
-			t0 += 32; t1 += 32; t2 += 32; t3 += 32;
-			nerr += (t0 != *(dptr+i+4)) + (t1 != *(dptr+i+5)) + (t2 != *(dptr+i+6)) + (t3 != *(dptr+i+7));
-		}
-	//	printf("#mismatches = %u\n",nerr);
-
-		// [1c] Same as [1a] but with a few reg-copies to make for a nicer indexing pattern:
-		for(i = 0; i < dim; i++) { *(dptr+i) = i; }	// Re-init the matrix to be untransposed
-		clock1 = clock();
+		nerr = 0; clock1 = getRealTime();
 		for(i = 0; i < imax; i++) {
 			__asm__ volatile (\
 				"movq		%[__data],%%rax		\n\t"\
@@ -5478,9 +5563,9 @@ ftmp0 = ftmp;
 				: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
-		clock2 = clock();
+		clock2 = getRealTime();
 		tdiff = (double)(clock2 - clock1);
-		printf("Method [1b]: Time for %u 8x8 matrix-of-doubles transposes using in-register shuffles =%s\n",imax, get_time_str(tdiff));
+		printf("Method [1b]: Time for %u 8x8 doubles-transposes using in-register shuffles =%s\n",imax, get_time_str(tdiff));
 		// Check the result:
 	//	printf("Output matrix:\n");
 		for(i = 0; i < dim; i += 8) {
@@ -5492,11 +5577,185 @@ ftmp0 = ftmp;
 			t0 += 32; t1 += 32; t2 += 32; t3 += 32;
 			nerr += (t0 != *(dptr+i+4)) + (t1 != *(dptr+i+5)) + (t2 != *(dptr+i+6)) + (t3 != *(dptr+i+7));
 		}
-	//	printf("#mismatches = %u\n",nerr);
+		if(nerr) printf("Outputs incorrect! #mismatches = %u\n",nerr);
 
-		// [2] Columnwise-load-and-rowwise-writeback using AVX512 gather-load functionality:
+		/* [1c; Apr 2018] Variant which GeorgeW says saves a few cycles on his Skylake-X:
+			"The idea is to use vbroadcastf64x4 to do the 256-bit shuffles. This is more
+			load uops, but the masking can be done on either port 0 or port 5which is better
+			than the vshuff64x2 it replaces which can only be done on port 5."
+		George says this saves a few cycles over the above on Skylake-X, but in my test on KNL it's even slower
+		than gather-based variant [2] - seems Agner Fog's 5-cycle latency for vbroadcastf64x4 on KNL is way low.
+		KNL: 68 cycles, over 1.5x the 44 cycles for my best 24-shuffle version [1b], and 20% slower than [2]'s 56.
+		With shuffle-passes 2 and 3 deleted (i.e. just the load, vbroadcastf64x4 and store steps), get 62 cycles,
+		which means vbroadcastf64x4 is roughly as slow as vgatherdpd[!], which differs markedly from the 5-cycle-latency,
+		2-per-cycle throughput listed for vbroadcastf64x4-on-KNL in Agner Fog's x86 instruction tables compilation.
+		That, coupled with the middle-2-col-pairs-swapped-versus-transpose nature of the output makes it a no-go for me.
+		On KNL: 62 cycles per loop-exec:
+		*/
 		for(i = 0; i < dim; i++) { *(dptr+i) = i; }	// Re-init the matrix to be untransposed
-		clock1 = clock();
+		nerr = 0; clock1 = getRealTime();
+		for(i = 0; i < imax; i++) {
+			__asm__ volatile (\
+				/* Init opmasks k2 and k3 [need only low byte of each]: */\
+				"movl	$0xf0,%%eax	\n\t	kmovw	%%eax,%%k1	\n\t"\
+				"movl	$0x0f,%%eax	\n\t	kmovw	%%eax,%%k2	\n\t"\
+				"movq		%[__data],%%rax		\n\t"\
+				/* Read in the 8 rows of our input matrix: */\
+				"vmovaps		0x000(%%rax),%%zmm2		\n\t"\
+				"vmovaps		0x040(%%rax),%%zmm4		\n\t"\
+				"vmovaps		0x080(%%rax),%%zmm5		\n\t"\
+				"vmovaps		0x0c0(%%rax),%%zmm3		\n\t"\
+				"vmovaps		0x100(%%rax),%%zmm6		\n\t"\
+				"vmovaps		0x140(%%rax),%%zmm8		\n\t"\
+				"vmovaps		0x180(%%rax),%%zmm0		\n\t"\
+				"vmovaps		0x1c0(%%rax),%%zmm7		\n\t"\
+				/* [1] Interleave lo/hi halves of rows 0-3 with those of rows 4-7, respectively: */\
+				"vbroadcastf64x4	0x100(%%rax),%%zmm2%{%%k1%}	\n\t"/* zmm2 = 00 01 02 03 40 41 42 43 */\
+				"vbroadcastf64x4	0x140(%%rax),%%zmm4%{%%k1%}	\n\t"/* zmm4 = 10 11 12 13 50 51 52 53 */\
+				"vbroadcastf64x4	0x180(%%rax),%%zmm5%{%%k1%}	\n\t"/* zmm5 = 20 21 22 23 60 61 62 63 */\
+				"vbroadcastf64x4	0x1c0(%%rax),%%zmm3%{%%k1%}	\n\t"/* zmm3 = 30 31 32 33 70 71 72 73 */\
+				"vbroadcastf64x4	0x020(%%rax),%%zmm6%{%%k2%}	\n\t"/* zmm6 = 04 05 06 07 44 45 46 47 */\
+				"vbroadcastf64x4	0x060(%%rax),%%zmm8%{%%k2%}	\n\t"/* zmm8 = 14 15 16 17 54 55 56 57 */\
+				"vbroadcastf64x4	0x0a0(%%rax),%%zmm0%{%%k2%}	\n\t"/* zmm0 = 24 25 26 27 64 65 66 67 */\
+				"vbroadcastf64x4	0x0e0(%%rax),%%zmm7%{%%k2%}	\n\t"/* zmm7 = 34 35 36 37 74 75 76 77 */\
+			/* Now a simple quartet of 4x4 transposes on the resulting four 4x4 submatrices suffices to give the
+			desired 8x8 transpose, BUT! - the 4x4 AVX transpose code uses a set of vshufpd (just as our step [2] below)
+			followed by a step based on vperm2f128, and there is no 512-bit version of the latter instruction. */\
+				/* [2] Use 8 VSHUFPD to effect transposes of the eight 2x2 submatrices: */\
+				"vshufpd	$0x00,%%zmm4,%%zmm2,%%zmm1	\n\t"/* zmm1 = 00 10 02 12 40 50 42 52 */\
+				"vshufpd	$0xff,%%zmm4,%%zmm2,%%zmm4	\n\t"/* zmm4 = 01 11 03 13 41 51 43 53 */\
+				"vshufpd	$0x00,%%zmm3,%%zmm5,%%zmm2	\n\t"/* zmm2 = 20 30 22 32 60 70 62 72 */\
+				"vshufpd	$0xff,%%zmm3,%%zmm5,%%zmm3	\n\t"/* zmm3 = 21 31 23 33 61 71 63 73 */\
+				"vshufpd	$0x00,%%zmm8,%%zmm6,%%zmm5	\n\t"/* zmm5 = 04 14 06 16 44 54 46 56 */\
+				"vshufpd	$0xff,%%zmm8,%%zmm6,%%zmm8	\n\t"/* zmm8 = 05 15 07 17 45 55 47 57 */\
+				"vshufpd	$0x00,%%zmm7,%%zmm0,%%zmm6	\n\t"/* zmm6 = 24 34 26 36 64 74 66 76 */\
+				"vshufpd	$0xff,%%zmm7,%%zmm0,%%zmm7	\n\t"/* zmm7 = 25 35 27 37 65 75 67 77 */\
+				/* [3] Last step is layer of VSHUFF64x2, now combining reg-pairs sharing same trailing index pairs. */\
+				/* Note the imm8 values expressed in terms of 2-bit index subfields again read right-to-left (as for the SHUFPS imm7 */\
+				/* values in the AVX 8x8 float code) are 0x88 = (2,0,2,0), 0xdd = (3,1,3,1), 0x22 = (0,2,0,2) and 0x77 = (1,3,1,3): */\
+				/* Output register indices reflect trailing index of data contained therein: */\
+													/****** Output col-pairs [4,5],[2,3] swapped! ******/\
+				"vshuff64x2	$0x88,%%zmm2,%%zmm1,%%zmm0	\n\t"/* zmm0 = 00 10 40 50 20 30 60 70 [row 0 of transpose-matrix] */\
+				"vshuff64x2	$0xdd,%%zmm2,%%zmm1,%%zmm2	\n\t"/* zmm2 = 02 12 42 52 22 32 62 72 [row 2 of transpose-matrix] */\
+				"vshuff64x2	$0x88,%%zmm3,%%zmm4,%%zmm1	\n\t"/* zmm1 = 01 11 41 51 21 31 61 71 [row 1 of transpose-matrix] */\
+				"vshuff64x2	$0xdd,%%zmm3,%%zmm4,%%zmm3	\n\t"/* zmm3 = 03 13 43 53 23 33 63 73 [row 3 of transpose-matrix] */\
+				"vshuff64x2	$0x88,%%zmm6,%%zmm5,%%zmm4	\n\t"/* zmm4 = 04 14 44 54 24 34 64 74 [row 4 of transpose-matrix] */\
+				"vshuff64x2	$0xdd,%%zmm6,%%zmm5,%%zmm6	\n\t"/* zmm6 = 06 16 46 56 26 36 66 76 [row 6 of transpose-matrix] */\
+				"vshuff64x2	$0x88,%%zmm7,%%zmm8,%%zmm5	\n\t"/* zmm5 = 05 15 45 55 25 35 65 75 [row 5 of transpose-matrix] */\
+				"vshuff64x2	$0xdd,%%zmm7,%%zmm8,%%zmm7	\n\t"/* zmm7 = 07 17 47 57 27 37 67 77 [row 7 of transpose-matrix] */\
+				/* Write original columns back as rows: */\
+				"vmovaps		%%zmm0,0x000(%%rax)		\n\t"\
+				"vmovaps		%%zmm1,0x040(%%rax)		\n\t"\
+				"vmovaps		%%zmm2,0x080(%%rax)		\n\t"\
+				"vmovaps		%%zmm3,0x0c0(%%rax)		\n\t"\
+				"vmovaps		%%zmm4,0x100(%%rax)		\n\t"\
+				"vmovaps		%%zmm5,0x140(%%rax)		\n\t"\
+				"vmovaps		%%zmm6,0x180(%%rax)		\n\t"\
+				"vmovaps		%%zmm7,0x1c0(%%rax)		\n\t"\
+				:						// outputs: none
+				: [__data] "m" (data)	// All inputs from memory addresses here
+				: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+			);
+		}
+		clock2 = getRealTime();
+		tdiff = (double)(clock2 - clock1);
+		// We know this version does not produce a true transpose, so just check timing:
+		printf("Method [1c]: Time for %u MIDDLE-COL-PAIR-SWAPPED 8x8 doubles-transposes using in-register shuffles =%s\n",imax, get_time_str(tdiff));
+
+		// [1d] Skylake-X-oriented variant from George. On KNL: 40 cycles per loop-exec, ~15% faster than [1a]:
+		for(i = 0; i < dim; i++) { *(dptr+i) = i; }	// Re-init the matrix to be untransposed
+		nerr = 0; clock1 = getRealTime();
+		for(i = 0; i < imax; i++) {
+			__asm__ volatile (\
+				"movl	$0b00110011,%%eax	\n\t"/* Constant for vblendmpd instructions goes into mask-reg k1 */\
+				"kmovw	%%eax,%%k1			\n\t"\
+				/* Init vector index-consts needed by vpermt2pd instructions - if regs were at a premium,
+				could also init just prior to [3] and use zmm6,7 to hold index-consts: */\
+				"movq	$0x0c040e0608000a02,%%rax	\n\t"/* zmm30 = 8+4 0+4 8+6 0+6 8+0 0+0 8+2 0+2 [msw at left] */\
+				"movq	$0x0d050f0709010b03,%%rbx	\n\t"/* zmm31 = 8+5 0+5 8+7 0+7 8+1 0+1 8+3 0+3 */\
+					"vmovq		%%rax,%%xmm0 		\n\t"\
+					"vmovq		%%rbx,%%xmm1 		\n\t"\
+					"vpmovzxbq	%%xmm0,%%zmm30		\n\t"\
+					"vpmovzxbq	%%xmm1,%%zmm31		\n\t"\
+				"movq		%[__data],%%rax		\n\t"\
+				/* Read in the 8 rows of our input matrix: */\
+				"vmovaps		0x000(%%rax),%%zmm0		\n\t"\
+				"vmovaps		0x040(%%rax),%%zmm1		\n\t"\
+				"vmovaps		0x080(%%rax),%%zmm2		\n\t"\
+				"vmovaps		0x0c0(%%rax),%%zmm3		\n\t"\
+				"vmovaps		0x100(%%rax),%%zmm4		\n\t"\
+				"vmovaps		0x140(%%rax),%%zmm5		\n\t"\
+				"vmovaps		0x180(%%rax),%%zmm6		\n\t"\
+				"vmovaps		0x1c0(%%rax),%%zmm7		\n\t"\
+				/* [1] Shuffle the 4-aparts - note the different patterning of the first and second output quartet: */\
+				"vshuff64x2	$0b01000100, %%zmm4,	%%zmm0,	%%zmm8 	\n\t"/* 00 01 02 03 40 41 42 43 */\
+				"vshuff64x2	$0b11101110, %%zmm4,	%%zmm0,	%%zmm4 	\n\t"/* 04 05 06 07 44 45 46 47 */\
+				"vshuff64x2	$0b01000100, %%zmm5,	%%zmm1,	%%zmm9	\n\t"/* 10 11 12 13 50 51 52 53 */\
+				"vshuff64x2	$0b11101110, %%zmm5,	%%zmm1,	%%zmm5	\n\t"/* 14 15 16 17 54 55 56 57 */\
+				"vshuff64x2	$0b00010001, %%zmm6,	%%zmm2,	%%zmm10	\n\t"/* 22 23 20 21 62 63 60 61 */\
+				"vshuff64x2	$0b10111011, %%zmm6,	%%zmm2,	%%zmm6	\n\t"/* 26 27 24 25 66 67 64 65 */\
+				"vshuff64x2	$0b00010001, %%zmm7,	%%zmm3,	%%zmm11	\n\t"/* 32 33 30 31 72 73 70 71 */\
+				"vshuff64x2	$0b10111011, %%zmm7,	%%zmm3,	%%zmm7	\n\t"/* 36 37 34 35 76 77 74 75 *//* data in 4-11; 0-3 free */\
+				/* [2] Blend in the 2-aparts */\
+				"vblendmpd	%%zmm8 ,	%%zmm10,	%%zmm0%{%%k1%}	\n\t"/* 00 01 20 21 40 41 60 61 */\
+				"vblendmpd	%%zmm10,	%%zmm8 ,	%%zmm8%{%%k1%}	\n\t"/* 22 23 02 03 62 63 42 43 */\
+				"vblendmpd	%%zmm4 ,	%%zmm6 ,	%%zmm1%{%%k1%}	\n\t"/* 04 05 24 25 44 45 64 65 */\
+				"vblendmpd	%%zmm6 ,	%%zmm4 ,	%%zmm4%{%%k1%}	\n\t"/* 26 27 06 07 66 67 46 47 */\
+				"vblendmpd	%%zmm9 ,	%%zmm11,	%%zmm2%{%%k1%}	\n\t"/* 10 11 30 31 50 51 70 71 */\
+				"vblendmpd	%%zmm11,	%%zmm9 ,	%%zmm9%{%%k1%}	\n\t"/* 32 33 12 13 72 73 52 53 */\
+				"vblendmpd	%%zmm5 ,	%%zmm7 ,	%%zmm3%{%%k1%}	\n\t"/* 14 15 34 35 54 55 74 75 */\
+				"vblendmpd	%%zmm7 ,	%%zmm5 ,	%%zmm5%{%%k1%}	\n\t"/* 36 37 16 17 76 77 56 57 *//* data in 0-5,8-9; 6-7,10-11 free */\
+				/* [3] Shuffle or permute in the 1-aparts */\
+				"vshufpd	$0b00000000,%%zmm2,	%%zmm0,%%zmm10 	\n\t"/* 00 10 20 30 40 50 60 70 */\
+				"vshufpd	$0b11111111,%%zmm2,	%%zmm0,%%zmm11 	\n\t"/* 01 11 21 31 41 51 61 71 */\
+				"vmovapd	%%zmm8,%%zmm2	\n\t"\
+				"vpermt2pd				%%zmm9,	%%zmm30,%%zmm2 	\n\t"/* 02 12 22 32 42 52 62 72 */\
+				"vpermt2pd				%%zmm9,	%%zmm31,%%zmm8	\n\t"/* 03 13 23 33 43 53 63 73 */\
+				"vshufpd	$0b00000000,%%zmm3,	%%zmm1,%%zmm0 	\n\t"/* 04 14 24 34 44 54 64 74 */\
+				"vshufpd	$0b11111111,%%zmm3,	%%zmm1,%%zmm1 	\n\t"/* 05 15 25 35 45 55 65 75 */\
+				"vmovapd	%%zmm4,%%zmm3	\n\t"\
+				"vpermt2pd				%%zmm5,	%%zmm30,%%zmm3 	\n\t"/* 06 16 26 36 46 56 66 76 */\
+				"vpermt2pd				%%zmm5,	%%zmm31,%%zmm4	\n\t"/* 07 17 27 37 47 57 67 77 */\
+				/* Write original columns back as rows: */\
+				"vmovaps		%%zmm10,0x000(%%rax)		\n\t"\
+				"vmovaps		%%zmm11,0x040(%%rax)		\n\t"\
+				"vmovaps		%%zmm2 ,0x080(%%rax)		\n\t"\
+				"vmovaps		%%zmm8 ,0x0c0(%%rax)		\n\t"\
+				"vmovaps		%%zmm0 ,0x100(%%rax)		\n\t"\
+				"vmovaps		%%zmm1 ,0x140(%%rax)		\n\t"\
+				"vmovaps		%%zmm3 ,0x180(%%rax)		\n\t"\
+				"vmovaps		%%zmm4, 0x1c0(%%rax)		\n\t"\
+				:						// outputs: none
+				: [__data] "m" (data)	// All inputs from memory addresses here
+				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11", "xmm30","xmm31"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+			);
+		}
+		clock2 = getRealTime();
+		tdiff = (double)(clock2 - clock1);
+		printf("Method [1d]: Time for %u 8x8 doubles-transposes using [vshuff64x2,vblendmpd,vshufpd,vpermt2pd] =%s\n",imax, get_time_str(tdiff));
+		// Check the result:
+	//	printf("Output matrix:\n");
+		for(i = 0; i < dim; i += 8) {
+			row = i>>3;
+		//	printf("Row %u: %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f\n",row,*(dptr+i),*(dptr+i+1),*(dptr+i+2),*(dptr+i+3),*(dptr+i+4),*(dptr+i+5),*(dptr+i+6),*(dptr+i+7));
+			// Expected (transposed-matrix) datum = row + 4*col
+			t0 = row; t1 = row+8; t2 = row+16; t3 = row+24;
+			nerr += (t0 != *(dptr+i+0)) + (t1 != *(dptr+i+1)) + (t2 != *(dptr+i+2)) + (t3 != *(dptr+i+3));
+			t0 += 32; t1 += 32; t2 += 32; t3 += 32;
+			nerr += (t0 != *(dptr+i+4)) + (t1 != *(dptr+i+5)) + (t2 != *(dptr+i+6)) + (t3 != *(dptr+i+7));
+		}
+		if(nerr) printf("Outputs incorrect! #mismatches = %u\n",nerr);
+
+		// [2a] Columnwise-load-and-rowwise-writeback using AVX512 gather-load functionality. On KNL: 56 cycles per loop-exec.
+		/* Compare latency/thruput/ports for shuffle and gather-based versions, using Agner Fog's KNL tables:
+		[1] vunpcklpd, vshuff64x2 both have 4-7 cycle latency, one can start every 2 cycles [3,1 on Skylake-X].
+								Thus 24 such in sequence with no wait-stalls ==> ~50 cycles, close to what I measure.
+		[2] vgatherdpd has 7-cycle latency, no data re. thruput, thus ~60 cycles per loop, again close to that observed.
+		Both [1] and [2] use port 5, but on KNL the 'empty' cycles between shuffle-op issues can be used to issue gathers,
+		which is what the side-by-ide matrix-pair [2b] variant tests.
+		*/
+		for(i = 0; i < dim; i++) { *(dptr+i) = i; }	// Re-init the matrix to be untransposed
+		nerr = 0; clock1 = getRealTime();
 		for(i = 0; i < imax; i++) {	// Nov 2016: 4.3 sec for 10^8 loops @1.3GHz ==> ~7 cycles per gather-load
 			__asm__ volatile (\
 				"movq		%[__data],%%rax		\n\t"\
@@ -5531,10 +5790,9 @@ ftmp0 = ftmp;
 				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
-		clock2 = clock();
+		clock2 = getRealTime();
 		tdiff = (double)(clock2 - clock1);
-		printf("Method [2]: Time for %u 8x8 matrix-of-doubles transposes using gather-loads =%s\n",imax, get_time_str(tdiff));
-		// Check the result:
+		printf("Method [2a]: Time for %u 8x8 doubles-transposes using gather-loads =%s\n",imax, get_time_str(tdiff));
 	//	printf("Output matrix:\n");
 		for(i = 0; i < dim; i += 8) {
 			row = i>>3;
@@ -5545,7 +5803,202 @@ ftmp0 = ftmp;
 			t0 += 32; t1 += 32; t2 += 32; t3 += 32;
 			nerr += (t0 != *(dptr+i+4)) + (t1 != *(dptr+i+5)) + (t2 != *(dptr+i+6)) + (t3 != *(dptr+i+7));
 		}
-	//	printf("#mismatches = %u\n",nerr);
+		if(nerr) printf("Outputs incorrect! #mismatches = %u\n",nerr);
+
+		// [2b] Hybrid shuffle/gather side-by-side matrix-pair [2b] variant of [2a]. On KNL this is faster
+		// than [1a]+[2a] separately, i.e. we do save some cycles by interleaving the 2 types of transposes,
+		// but still needs 1.93x the cycles of the best shuffle-based variant, thus no faster than 2 side-by-side
+		// shuffle-transposes, *and* the comparison looks likely to come out even more unfavorably on Skylake-X:
+		for(i = 0; i < 2*dim; i++) { *(dptr+i) = i; }	// Re-init the matrix to be untransposed
+		nerr = 0; clock1 = getRealTime();
+		for(i = 0; i < imax; i++) {
+			__asm__ volatile (\
+				"movq		%[__data],%%rax		\n\t"\
+				/* Lcol: read in 8 rows of matrix use by shuffle-transpose while setting up for gather-loads in rcol: */\
+				"vmovaps		0x200(%%rax),%%zmm0		\n\t	movq	$0x1c1814100c080400,%%rbx	\n\t"\
+				"vmovaps		0x240(%%rax),%%zmm1		\n\t	vmovq		%%rbx,%%xmm9 		\n\t"\
+				"vmovaps		0x280(%%rax),%%zmm2		\n\t	vpmovzxbd	%%xmm9,%%ymm9		\n\t"/* vpmovzxbd CAN ONLY USE XMM0-15! */\
+				"vmovaps		0x2c0(%%rax),%%zmm3		\n\t"\
+				"vmovaps		0x300(%%rax),%%zmm4		\n\t"\
+				"vmovaps		0x340(%%rax),%%zmm5		\n\t"\
+				"vmovaps		0x380(%%rax),%%zmm6		\n\t	vpslld	$4,%%ymm9,%%ymm9		\n\t"\
+				"vmovaps		0x3c0(%%rax),%%zmm7		\n\t	movl	$-1,%%ebx				\n\t"\
+				/* Transpose uses regs0-7 for data, reg8 for temp: */\
+									/* Gather instruction sets mask-reg = 0, so must re-init opmask prior to each invocation */
+									"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x00(%%rax,%%ymm9),%%zmm10%{%%k1%}	\n\t"/* Col 0 */\
+				"vunpcklpd		%%zmm1,%%zmm0,%%zmm8	\n\t"\
+				"vunpckhpd		%%zmm1,%%zmm0,%%zmm1	\n\t"\
+				"vunpcklpd		%%zmm3,%%zmm2,%%zmm0	\n\t"\
+									"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x08(%%rax,%%ymm9),%%zmm11%{%%k1%}	\n\t"/* Col 1 */\
+				"vunpckhpd		%%zmm3,%%zmm2,%%zmm3	\n\t"\
+				"vunpcklpd		%%zmm5,%%zmm4,%%zmm2	\n\t"\
+				"vunpckhpd		%%zmm5,%%zmm4,%%zmm5	\n\t"\
+									"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x10(%%rax,%%ymm9),%%zmm12%{%%k1%}	\n\t"/* Col 2 */\
+				"vunpcklpd		%%zmm7,%%zmm6,%%zmm4	\n\t"\
+				"vunpckhpd		%%zmm7,%%zmm6,%%zmm7	\n\t"\
+				"vshuff64x2	$136,%%zmm0,%%zmm8,%%zmm6	\n\t"\
+									"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x18(%%rax,%%ymm9),%%zmm13%{%%k1%}	\n\t"/* Col 3 */\
+				"vshuff64x2	$221,%%zmm0,%%zmm8,%%zmm0	\n\t"\
+				"vshuff64x2	$136,%%zmm3,%%zmm1,%%zmm8	\n\t"\
+				"vshuff64x2	$221,%%zmm3,%%zmm1,%%zmm3	\n\t"\
+									"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x20(%%rax,%%ymm9),%%zmm14%{%%k1%}	\n\t"/* Col 4 */\
+				"vshuff64x2	$136,%%zmm4,%%zmm2,%%zmm1	\n\t"\
+				"vshuff64x2	$221,%%zmm4,%%zmm2,%%zmm4	\n\t"\
+				"vshuff64x2	$136,%%zmm7,%%zmm5,%%zmm2	\n\t"\
+									"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x28(%%rax,%%ymm9),%%zmm15%{%%k1%}	\n\t"/* Col 5 */\
+				"vshuff64x2	$221,%%zmm7,%%zmm5,%%zmm7	\n\t"\
+				"vshuff64x2	$136,%%zmm1,%%zmm6,%%zmm5	\n\t"/* [output row 0] */\
+				"vshuff64x2	$221,%%zmm1,%%zmm6,%%zmm1	\n\t"/* [output row 4] */\
+									"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x30(%%rax,%%ymm9),%%zmm16%{%%k1%}	\n\t"/* Col 6 */\
+				"vshuff64x2	$136,%%zmm2,%%zmm8,%%zmm6	\n\t"/* [output row 1] */\
+				"vshuff64x2	$221,%%zmm2,%%zmm8,%%zmm2	\n\t"/* [output row 5] */\
+				"vshuff64x2	$136,%%zmm4,%%zmm0,%%zmm8	\n\t"/* [output row 2] */\
+									"kmovw	%%ebx,%%k1	\n\t	vgatherdpd 0x38(%%rax,%%ymm9),%%zmm17%{%%k1%}	\n\t"/* Col 7 */\
+				"vshuff64x2	$221,%%zmm4,%%zmm0,%%zmm4	\n\t"/* [output row 6] */\
+				"vshuff64x2	$136,%%zmm7,%%zmm3,%%zmm0	\n\t"/* [output row 3] */\
+				"vshuff64x2	$221,%%zmm7,%%zmm3,%%zmm7	\n\t"/* [output row 7] */\
+				/* Write original columns back as rows: */\
+				"vmovaps		%%zmm5,0x200(%%rax)		\n\t"\
+				"vmovaps		%%zmm6,0x240(%%rax)		\n\t"\
+				"vmovaps		%%zmm8,0x280(%%rax)		\n\t"\
+				"vmovaps		%%zmm0,0x2c0(%%rax)		\n\t"\
+				"vmovaps		%%zmm1,0x300(%%rax)		\n\t"\
+				"vmovaps		%%zmm2,0x340(%%rax)		\n\t"\
+				"vmovaps		%%zmm4,0x380(%%rax)		\n\t"\
+				"vmovaps		%%zmm7,0x3c0(%%rax)		\n\t"\
+																"vmovaps	%%zmm10,0x000(%%rax)	\n\t"\
+																"vmovaps	%%zmm11,0x040(%%rax)	\n\t"\
+																"vmovaps	%%zmm12,0x080(%%rax)	\n\t"\
+																"vmovaps	%%zmm13,0x0c0(%%rax)	\n\t"\
+																"vmovaps	%%zmm14,0x100(%%rax)	\n\t"\
+																"vmovaps	%%zmm15,0x140(%%rax)	\n\t"\
+																"vmovaps	%%zmm16,0x180(%%rax)	\n\t"\
+																"vmovaps	%%zmm17,0x1c0(%%rax)	\n\t"\
+				:						// outputs: none
+				: [__data] "m" (data)	// All inputs from memory addresses here
+				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+			);
+		}
+		clock2 = getRealTime();
+		tdiff = (double)(clock2 - clock1);
+		printf("Method [2b]: Time for 2 x %u 8x8 doubles-transposes using gather-loads =%s\n",imax, get_time_str(tdiff));
+		// Check the result:
+	//	printf("Output matrix 1:\n");
+		for(i = 0; i < dim; i += 8) {
+			row = i>>3;
+		//	printf("Row %u: %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f\n",row,*(dptr+i),*(dptr+i+1),*(dptr+i+2),*(dptr+i+3),*(dptr+i+4),*(dptr+i+5),*(dptr+i+6),*(dptr+i+7));
+			// Expected (transposed-matrix) datum = row + 4*col
+			t0 = row; t1 = row+8; t2 = row+16; t3 = row+24;
+			nerr += (t0 != *(dptr+i+0)) + (t1 != *(dptr+i+1)) + (t2 != *(dptr+i+2)) + (t3 != *(dptr+i+3));
+			t0 += 32; t1 += 32; t2 += 32; t3 += 32;
+			nerr += (t0 != *(dptr+i+4)) + (t1 != *(dptr+i+5)) + (t2 != *(dptr+i+6)) + (t3 != *(dptr+i+7));
+		}
+	//	printf("Output matrix 2:\n");
+		for(i = dim; i < 2*dim; i += 8) {
+			row = i>>3;
+		//	printf("Row %2u: %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f\n",row,*(dptr+i),*(dptr+i+1),*(dptr+i+2),*(dptr+i+3),*(dptr+i+4),*(dptr+i+5),*(dptr+i+6),*(dptr+i+7));
+			// Expected (transposed-matrix) datum = row + 4*col
+			t0 = row+56; t1 = row+64; t2 = row+72; t3 = row+80;
+			nerr += (t0 != *(dptr+i+0)) + (t1 != *(dptr+i+1)) + (t2 != *(dptr+i+2)) + (t3 != *(dptr+i+3));
+			t0 += 32; t1 += 32; t2 += 32; t3 += 32;
+			nerr += (t0 != *(dptr+i+4)) + (t1 != *(dptr+i+5)) + (t2 != *(dptr+i+6)) + (t3 != *(dptr+i+7));
+		}
+		if(nerr) printf("Outputs incorrect! #mismatches = %u\n",nerr);
+
+		// [2c] Side-by-side matrix-pair variant of [1d]. On KNL ?
+		for(i = 0; i < 2*dim; i++) { *(dptr+i) = i; }	// Re-init the matrix to be untransposed
+		nerr = 0; clock1 = getRealTime();
+		for(i = 0; i < imax; i++) {
+			__asm__ volatile (\
+				"movl	$0b00110011,%%eax	\n\t"/* Constant for vblendmpd instructions goes into mask-reg k1 */\
+				"kmovw	%%eax,%%k1			\n\t"\
+				/* Init vector index-consts needed by vpermt2pd instructions - if regs were at a premium,
+				could also init just prior to [3] and use zmm6,7 to hold index-consts: */\
+				"movq	$0x0c040e0608000a02,%%rax	\n\t"/* zmm30 = 8+4 0+4 8+6 0+6 8+0 0+0 8+2 0+2 [msw at left] */\
+				"movq	$0x0d050f0709010b03,%%rbx	\n\t"/* zmm31 = 8+5 0+5 8+7 0+7 8+1 0+1 8+3 0+3 */\
+					"vmovq		%%rax,%%xmm0 		\n\t"\
+					"vmovq		%%rbx,%%xmm1 		\n\t"\
+					"vpmovzxbq	%%xmm0,%%zmm30		\n\t"\
+					"vpmovzxbq	%%xmm1,%%zmm31		\n\t"\
+				"movq		%[__data],%%rax		\n\t"\
+				/* Read in the 8 rows of our input matrix: */\
+				"vmovaps		0x000(%%rax),%%zmm0					\n\t	vmovaps		0x200(%%rax),%%zmm12		\n\t"\
+				"vmovaps		0x040(%%rax),%%zmm1					\n\t	vmovaps		0x240(%%rax),%%zmm13		\n\t"\
+				"vmovaps		0x080(%%rax),%%zmm2					\n\t	vmovaps		0x280(%%rax),%%zmm14		\n\t"\
+				"vmovaps		0x0c0(%%rax),%%zmm3					\n\t	vmovaps		0x2c0(%%rax),%%zmm15		\n\t"\
+				"vmovaps		0x100(%%rax),%%zmm4					\n\t	vmovaps		0x300(%%rax),%%zmm16		\n\t"\
+				"vmovaps		0x140(%%rax),%%zmm5					\n\t	vmovaps		0x340(%%rax),%%zmm17		\n\t"\
+				"vmovaps		0x180(%%rax),%%zmm6					\n\t	vmovaps		0x380(%%rax),%%zmm18		\n\t"\
+				"vmovaps		0x1c0(%%rax),%%zmm7					\n\t	vmovaps		0x3c0(%%rax),%%zmm19		\n\t"\
+				/* [1] Shuffle the 4-aparts - note the different patterning of the first and second output quartet: */\
+				"vshuff64x2	$0b01000100, %%zmm4,	%%zmm0,	%%zmm8 	\n\t	vshuff64x2	$0b01000100, %%zmm16,%%zmm12,	%%zmm20	\n\t"\
+				"vshuff64x2	$0b11101110, %%zmm4,	%%zmm0,	%%zmm4 	\n\t	vshuff64x2	$0b11101110, %%zmm16,%%zmm12,	%%zmm16	\n\t"\
+				"vshuff64x2	$0b01000100, %%zmm5,	%%zmm1,	%%zmm9	\n\t	vshuff64x2	$0b01000100, %%zmm17,%%zmm13,	%%zmm21	\n\t"\
+				"vshuff64x2	$0b11101110, %%zmm5,	%%zmm1,	%%zmm5	\n\t	vshuff64x2	$0b11101110, %%zmm17,%%zmm13,	%%zmm17	\n\t"\
+				"vshuff64x2	$0b00010001, %%zmm6,	%%zmm2,	%%zmm10	\n\t	vshuff64x2	$0b00010001, %%zmm18,%%zmm14,	%%zmm22	\n\t"\
+				"vshuff64x2	$0b10111011, %%zmm6,	%%zmm2,	%%zmm6	\n\t	vshuff64x2	$0b10111011, %%zmm18,%%zmm14,	%%zmm18	\n\t"\
+				"vshuff64x2	$0b00010001, %%zmm7,	%%zmm3,	%%zmm11	\n\t	vshuff64x2	$0b00010001, %%zmm19,%%zmm15,	%%zmm23	\n\t"\
+				"vshuff64x2	$0b10111011, %%zmm7,	%%zmm3,	%%zmm7	\n\t	vshuff64x2	$0b10111011, %%zmm19,%%zmm15,	%%zmm19	\n\t"\
+				/* [2] Blend in the 2-aparts */\
+				"vblendmpd	%%zmm8 ,	%%zmm10,	%%zmm0%{%%k1%}	\n\t	vblendmpd	%%zmm20,	%%zmm22,	%%zmm12%{%%k1%}	\n\t"\
+				"vblendmpd	%%zmm10,	%%zmm8 ,	%%zmm8%{%%k1%}	\n\t	vblendmpd	%%zmm22,	%%zmm20,	%%zmm20%{%%k1%}	\n\t"\
+				"vblendmpd	%%zmm4 ,	%%zmm6 ,	%%zmm1%{%%k1%}	\n\t	vblendmpd	%%zmm16,	%%zmm18,	%%zmm13%{%%k1%}	\n\t"\
+				"vblendmpd	%%zmm6 ,	%%zmm4 ,	%%zmm4%{%%k1%}	\n\t	vblendmpd	%%zmm18,	%%zmm16,	%%zmm16%{%%k1%}	\n\t"\
+				"vblendmpd	%%zmm9 ,	%%zmm11,	%%zmm2%{%%k1%}	\n\t	vblendmpd	%%zmm21,	%%zmm23,	%%zmm14%{%%k1%}	\n\t"\
+				"vblendmpd	%%zmm11,	%%zmm9 ,	%%zmm9%{%%k1%}	\n\t	vblendmpd	%%zmm23,	%%zmm21,	%%zmm21%{%%k1%}	\n\t"\
+				"vblendmpd	%%zmm5 ,	%%zmm7 ,	%%zmm3%{%%k1%}	\n\t	vblendmpd	%%zmm17,	%%zmm19,	%%zmm15%{%%k1%}	\n\t"\
+				"vblendmpd	%%zmm7 ,	%%zmm5 ,	%%zmm5%{%%k1%}	\n\t	vblendmpd	%%zmm19,	%%zmm17,	%%zmm17%{%%k1%}	\n\t"\
+				/* [3] Shuffle or permute in the 1-aparts */\
+				"vshufpd	$0b00000000,%%zmm2,		%%zmm0,%%zmm10 	\n\t	vshufpd	$0b00000000,%%zmm14,	%%zmm12,%%zmm22	\n\t"\
+				"vshufpd	$0b11111111,%%zmm2,		%%zmm0,%%zmm11 	\n\t	vshufpd	$0b11111111,%%zmm14,	%%zmm12,%%zmm23	\n\t"\
+				"vmovapd	%%zmm8,%%zmm2							\n\t	vmovapd	%%zmm20,%%zmm14	\n\t"\
+				"vpermt2pd				%%zmm9,		%%zmm30,%%zmm2 	\n\t	vpermt2pd				%%zmm21,	%%zmm30,%%zmm14	\n\t"\
+				"vpermt2pd				%%zmm9,		%%zmm31,%%zmm8	\n\t	vpermt2pd				%%zmm21,	%%zmm31,%%zmm20	\n\t"\
+				"vshufpd	$0b00000000,%%zmm3,		%%zmm1,%%zmm0 	\n\t	vshufpd	$0b00000000,%%zmm15,	%%zmm13,%%zmm12	\n\t"\
+				"vshufpd	$0b11111111,%%zmm3,		%%zmm1,%%zmm1 	\n\t	vshufpd	$0b11111111,%%zmm15,	%%zmm13,%%zmm13	\n\t"\
+				"vmovapd	%%zmm4,%%zmm3							\n\t	vmovapd	%%zmm16,%%zmm15	\n\t"\
+				"vpermt2pd				%%zmm5,		%%zmm30,%%zmm3 	\n\t	vpermt2pd				%%zmm17,	%%zmm30,%%zmm15	\n\t"\
+				"vpermt2pd				%%zmm5,		%%zmm31,%%zmm4	\n\t	vpermt2pd				%%zmm17,	%%zmm31,%%zmm16	\n\t"\
+				/* Write original columns back as rows: */\
+				"vmovaps		%%zmm10,0x000(%%rax)				\n\t	vmovaps		%%zmm22,0x200(%%rax)		\n\t"\
+				"vmovaps		%%zmm11,0x040(%%rax)				\n\t	vmovaps		%%zmm23,0x240(%%rax)		\n\t"\
+				"vmovaps		%%zmm2 ,0x080(%%rax)				\n\t	vmovaps		%%zmm14,0x280(%%rax)		\n\t"\
+				"vmovaps		%%zmm8 ,0x0c0(%%rax)				\n\t	vmovaps		%%zmm20,0x2c0(%%rax)		\n\t"\
+				"vmovaps		%%zmm0 ,0x100(%%rax)				\n\t	vmovaps		%%zmm12,0x300(%%rax)		\n\t"\
+				"vmovaps		%%zmm1 ,0x140(%%rax)				\n\t	vmovaps		%%zmm13,0x340(%%rax)		\n\t"\
+				"vmovaps		%%zmm3 ,0x180(%%rax)				\n\t	vmovaps		%%zmm15,0x380(%%rax)		\n\t"\
+				"vmovaps		%%zmm4, 0x1c0(%%rax)				\n\t	vmovaps		%%zmm16,0x3c0(%%rax)		\n\t"\
+				:						// outputs: none
+				: [__data] "m" (data)	// All inputs from memory addresses here
+				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23", "xmm30","xmm31"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+			);
+		}
+		clock2 = getRealTime();
+		tdiff = (double)(clock2 - clock1);
+		printf("Method [2c]: Time for 2 x %u 8x8 doubles-transposes using side-by-side impl of algo [1d] =%s\n",imax, get_time_str(tdiff));
+		// Check the result:
+	//	printf("Output matrix 1:\n");
+		for(i = 0; i < dim; i += 8) {
+			row = i>>3;
+		//	printf("Row %u: %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f\n",row,*(dptr+i),*(dptr+i+1),*(dptr+i+2),*(dptr+i+3),*(dptr+i+4),*(dptr+i+5),*(dptr+i+6),*(dptr+i+7));
+			// Expected (transposed-matrix) datum = row + 4*col
+			t0 = row; t1 = row+8; t2 = row+16; t3 = row+24;
+			nerr += (t0 != *(dptr+i+0)) + (t1 != *(dptr+i+1)) + (t2 != *(dptr+i+2)) + (t3 != *(dptr+i+3));
+			t0 += 32; t1 += 32; t2 += 32; t3 += 32;
+			nerr += (t0 != *(dptr+i+4)) + (t1 != *(dptr+i+5)) + (t2 != *(dptr+i+6)) + (t3 != *(dptr+i+7));
+		}
+	//	printf("Output matrix 2:\n");
+		for(i = dim; i < 2*dim; i += 8) {
+			row = i>>3;
+		//	printf("Row %u: %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f\n",row,*(dptr+i),*(dptr+i+1),*(dptr+i+2),*(dptr+i+3),*(dptr+i+4),*(dptr+i+5),*(dptr+i+6),*(dptr+i+7));
+			// Expected (transposed-matrix) datum = row + 4*col
+			t0 = row+56; t1 = row+64; t2 = row+72; t3 = row+80;
+			nerr += (t0 != *(dptr+i+0)) + (t1 != *(dptr+i+1)) + (t2 != *(dptr+i+2)) + (t3 != *(dptr+i+3));
+			t0 += 32; t1 += 32; t2 += 32; t3 += 32;
+			nerr += (t0 != *(dptr+i+4)) + (t1 != *(dptr+i+5)) + (t2 != *(dptr+i+6)) + (t3 != *(dptr+i+7));
+		}
+		if(nerr) printf("Outputs incorrect! #mismatches = %u\n",nerr);
+
 		return nerr;
 	}
   #endif
@@ -5557,7 +6010,7 @@ ftmp0 = ftmp;
 	int	test_simd_transpose_4x4()
 	{
 		/*...time-related stuff	*/
-		clock_t clock1, clock2;
+		double clock1, clock2;
 		double tdiff, t0,t1,t2,t3;
 		int i,imax = 100000001, row,col, nerr = 0;	// Use 10^8 loop execs in effort to yield timing on order of 1 sec on target CPUs
 			// Add 1 to make loop count odd, thus result of (imax) successive transposes equivalent to a single one
@@ -5574,8 +6027,8 @@ ftmp0 = ftmp;
 		// Do timing loop using 2 fundamentally different methods of effecting the transpose,
 		// the 1st of which comes in 2 variants dubbed [1a] and [1b]:
 
-		// [1a] Rowwise-load and in-register data shuffles:
-		clock1 = clock();
+		// [1a] Rowwise-load and in-register data shuffles. On KNL: 23 cycles per loop-exec:
+		clock1 = getRealTime();
 		for(i = 0; i < imax; i++) {
 			__asm__ volatile (\
 				"movq		%[__data],%%rax		\n\t"\
@@ -5601,7 +6054,7 @@ ftmp0 = ftmp;
 				: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
-		clock2 = clock();
+		clock2 = getRealTime();
 		tdiff = (double)(clock2 - clock1);
 		printf("Method [1a]: Time for %u 4x4 matrix-of-doubles transposes =%s\n",imax, get_time_str(tdiff));
 		// Check the result:
@@ -5614,9 +6067,9 @@ ftmp0 = ftmp;
 		}
 	//	printf("#mismatches = %u\n",nerr);
 
-		// [1b] Rowwise-load and in-register data shuffles, using a different shuffle sequence:
+		// [1b] Rowwise-load and in-register data shuffles, using a different shuffle sequence. On KNL: 24 cycles per loop-exec:
 		for(i = 0; i < dim; i++) { *(dptr+i) = i; }	// Re-init the matrix to be untransposed
-		clock1 = clock();
+		clock1 = getRealTime();
 		for(i = 0; i < imax; i++) {
 			__asm__ volatile (\
 				"movq		%[__data],%%rax		\n\t"\
@@ -5642,7 +6095,7 @@ ftmp0 = ftmp;
 				: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
-		clock2 = clock();
+		clock2 = getRealTime();
 		tdiff = (double)(clock2 - clock1);
 		printf("Method [1b]: Time for %u 4x4 matrix-of-doubles transposes =%s\n",imax, get_time_str(tdiff));
 		// Check the result:
@@ -5655,12 +6108,12 @@ ftmp0 = ftmp;
 		}
 	//	printf("#mismatches = %u\n",nerr);
 
-		// [2] Columnwise-load-and-rowwise-writeback using AVX2 gather-load functionality:
+		// [2] Columnwise-load-and-rowwise-writeback using AVX2 gather-load functionality. On KNL: 46 cycles per loop-exec:
 	  #ifdef USE_AVX2
 	   #ifdef GCC_5PLUS	// gcc 4.x may not support the needed AVX2 instructions (while still being fine for for the FMA
 						// instructions used for the FFT), so require an added compile-time define to enable loop [2]
 		for(i = 0; i < dim; i++) { *(dptr+i) = i; }	// Re-init the matrix to be untransposed
-		clock1 = clock();
+		clock1 = getRealTime();
 		for(i = 0; i < imax; i++) {
 			__asm__ volatile (\
 				"movq		%[__data],%%rax		\n\t"\
@@ -5683,7 +6136,7 @@ ftmp0 = ftmp;
 				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
 			);
 		}
-		clock2 = clock();
+		clock2 = getRealTime();
 		tdiff = (double)(clock2 - clock1);
 		printf("Method [2]: Time for %u 4x4 matrix-of-doubles transposes =%s\n",imax, get_time_str(tdiff));
 		// Check the result:
@@ -5702,12 +6155,11 @@ ftmp0 = ftmp;
   #endif	// USE_AVX ?
 
   #ifdef USE_SSE2
-	// Timing loop for radix-4 DFT macro:
+	// Timing loop for 128-bit SIMD radix-4 DFT macro:
 	int	test_radix4_dft()
 	{
 		const char func[] = "test_radix4_dft";
-	#ifdef USE_AVX
-		printf("%s: No AVX support ... return 0.\n",func);
+	#ifdef USE_AVX	//No AVX support for macros in this function
 		return 0;
 	#else
 		/*...time-related stuff	*/
@@ -6940,7 +7392,7 @@ exit(0);
 		}
 		ASSERT(HERE, nerr == 0, "DIT Outputs mismatch ref-data!");
 		printf("\tSummed roundoff error = %20.10e]\n",avg_err);
-exit(0);
+
 	#ifdef USE_SSE2
 		free((void *)sc_arr);	sc_arr=0x0;
 	#endif
@@ -7722,6 +8174,15 @@ exit(0);
 #endif	// MULTITHREAD ?
 
 /***********************/
+
+double get_time(double tdiff)
+{
+#ifndef MULTITHREAD	// In || mode the mod_square routines use getRealTime() to accumulate wall-clock time, thus CLOCKS_PER_SEC not needed
+	return tdiff/CLOCKS_PER_SEC;	/* NB: CLOCKS_PER_SEC may be a phony value used to scale clock() ranges */
+#else
+	return tdiff;
+#endif
+}
 
 char*get_time_str(double tdiff)
 {

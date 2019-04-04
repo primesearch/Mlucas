@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -39,6 +39,15 @@ extern "C" {
 /*
 !...Module for stashing global parameters used by various Mlucas routines.
 */
+// Used to force local-data-tables-reinits in cases of suspected table-data corruption:
+extern int REINIT_LOCAL_DATA_TABLES;
+// Normally = True; set = False on quit-signal-received to allow desired code sections to and take appropriate action:
+extern int MLUCAS_KEEP_RUNNING;
+typedef void sigfunc(int);
+sigfunc *signal(int, sigfunc*);
+
+// v18: Enable access to cmd-args outside main():
+extern char **global_argv;
 
 /* X87 FPU control: */
 extern unsigned short FPU_64RND, FPU_64CHOP;
@@ -46,6 +55,7 @@ extern unsigned short FPU_64RND, FPU_64CHOP;
 /* Default length of character arrays used for I/O: */
 #define STR_MAX_LEN	1024
 
+extern const char HOMEPAGE[];
 /*...program version with patch suffix - value set in Mlucas.c: */
 extern const char VERSION[];
 extern const int CHAROFFSET;
@@ -143,7 +153,8 @@ All but the "else" stuff below is specific to factor.c built in standalone mode:
 										assumed to contain FFT length (in K) for which we need to run a timing self-test */
 #define ERR_ASSERT					12	// Assert-type fail but when we need execution to continue (e.g. self-test mode)
 #define ERR_UNKNOWN_FATAL			13	// Halt execution, do not proceed to next worktodo.ini entry (e.g. data corruption suspected)
-#define ERR_MAX	ERR_UNKNOWN_FATAL
+#define ERR_INTERRUPT				14	// On one of several interrupt SIGs, exit iteration loop prematurely, write savefiles and exit
+#define ERR_MAX	ERR_INTERRUPT
 
 /***********************************************************************************************/
 /* Globals. Unless specified otherwise, these are declared in Mdata.h and defined in Mlucas.c: */
@@ -212,14 +223,37 @@ extern double AME,MME;	/* Avg and Max per-iteration fractional error for a given
 extern uint64 PMIN;	/* minimum exponent allowed */
 extern uint64 PMAX;	/* maximum exponent allowed */
 
-/* These must be <= 255 to be compatible with bytewise savefile format! */
+// Apr 2018 - Support shift count for rotated-residue computations:
+extern uint64 RES_SHIFT;
+extern uint64 *BIGWORD_BITMAP;	/* Needed for fast how-many-residue-bits-up-to-this-array-word lookup, which the carry routines
+								use to figure out where to inject the -2 in a rotated-residue LL test using Crandall/Fagin IBDWT.
+								A 1-bit means a bigword (p/n+1 bits); 0 means a smallword (p/n bits), where p/n is integer-div. */
+extern uint32 *BIGWORD_NBITS;	/* Array in which the (k)th element stores total number of ones bits in elts 0,...,k-1 - i.e. in all
+								elts up to but not including the (k)th one - of BIGWORD_BITMAP. Init at start of LL test, then use
+								to quickly compute the double-array word of a specified hift count. Cf Mlucas.c:shift_word() for use.
+
+								For an n-word main-array, BIGWORD_BITMAP and BIGWORD_NBITS have (n/64) elts each,
+								thus need 1/64 + 1/128 the total storage of the main-array. */
+
+// For PRP tests, the base. For Pépin tests via the "FermatTest" worktype, the base defaults to 3; to do a
+// Pépin test to another base, the more-general PRP-worktype must be specified with appropriate parameters.
+extern uint32 PRP_BASE;
+extern uint64 *BASE_MULTIPLIER_BITS;
+
+// Work types. These must be <= 255 to be compatible with bytewise savefile format!
+// Make sure to bunch all the currently-supported test types at top of list, with no numerical gaps:
 extern uint32 TEST_TYPE;
 #define TEST_TYPE_PRIMALITY			1
-#define TEST_TYPE_TRIALFACTORING	2
-#define TEST_TYPE_PMINUS1			3
-#define TEST_TYPE_ECM				4
-#define TEST_TYPE_MAX				2
-#define TEST_TYPE_DIM				5	/* Set = to largest *declared* test_type value + 1 */
+// Dec 2017: Add PRP option. Note in FermatTest mode, the default Pépin test is identical to a 3-PRP; to do a
+// Pépin test to another base, the more-general PRP-worktype must be specified with appropriate parameters:
+#define TEST_TYPE_PRP				2
+#define TEST_TYPE_PRPCOFACTOR		3	// Same as PRP, but with one or more known factors also supplied for an ensuing Suyama-style cofactor-PRP test.
+#define TEST_TYPE_MAX				3	// Set = to largest currently-supported test_type
+// Remaining work types not currently supported:
+#define TEST_TYPE_TRIALFACTORING	4
+#define TEST_TYPE_PMINUS1			5
+#define TEST_TYPE_ECM				6
+#define TEST_TYPE_DIM				(TEST_TYPE_ECM + 1)	// Set = to largest *declared* test_type value + 1
 
 /* These must be <= 255 to be compatible with bytewise savefile format! */
 extern uint32 MODULUS_TYPE;
@@ -228,11 +262,12 @@ extern uint32 MODULUS_TYPE;
 #define MODULUS_TYPE_FERMAT			3
 #define MODULUS_TYPE_GENFFTMUL		4	// Generic-FFT-mul using [re,im]-paired 0-padded input vectors
 #define MODULUS_TYPE_MAX			4	/* Set = to largest *supported* modulus type value */
+// Remaining modulus types not currently supported:
 #define MODULUS_TYPE_GENMERSENNE	5
 #define MODULUS_TYPE_GENFERMAT		6
 #define MODULUS_TYPE_PROTH			7
 #define MODULUS_TYPE_EISENSTEIN		8
-#define MODULUS_TYPE_DIM			9	/* Set 1 larger than largest *declared* modulus_type value */
+#define MODULUS_TYPE_DIM			(MODULUS_TYPE_EISENSTEIN + 1)	// Set = to largest *declared* modulus_type value + 1
 
 extern uint32 TRANSFORM_TYPE;
 #define REAL_WRAPPER		1

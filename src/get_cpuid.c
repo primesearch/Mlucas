@@ -388,7 +388,6 @@
 	{
 		uint32 a,b,c,d;
 		CPUID(1,0,a,b,c,d);
-
 		if(d & 0x02000000)
 			return 1;
 		else
@@ -400,7 +399,6 @@
 	{
 		uint32 a,b,c,d;
 		CPUID(1,0,a,b,c,d);
-
 		if(d & (1 << 26))
 			return 1;
 		else
@@ -412,7 +410,6 @@
 	{
 		uint32 a,b,c,d;
 		CPUID(1,0,a,b,c,d);
-
 		if(c & 1)
 			return 1;
 		else
@@ -424,7 +421,6 @@
 	{
 		uint32 a,b,c,d;
 		CPUID(1,0,a,b,c,d);
-
 		if(c & (1 << 9))
 			return 1;
 		else
@@ -436,7 +432,6 @@
 	{
 		uint32 a,b,c,d;
 		CPUID(1,0,a,b,c,d);
-
 		if(c & (1 << 19))
 			return 1;
 		else
@@ -448,14 +443,13 @@
 	{
 		uint32 a,b,c,d;
 		CPUID(1,0,a,b,c,d);
-
 		if(c & (1 << 20))
 			return 1;
 		else
 			return 0;
 	}
 
-  #ifdef USE_AVX	// Need to wrap these in a #ifdef since XGETBV instruction not supported by pre-AVX CPU/OS combos.
+	// Need to wrap guts of functions below in '#ifdef USE_AVX' since XGETBV instruction not supported by pre-AVX CPU/OS combos.
 	/* NOTE: Even attempting to *compile* this code on a pre-AVX platform will give error:
 		GCC  : no such instruction: 'xgetbv'
 		Clang: invalid instruction mnemonic 'xgetbv'
@@ -464,15 +458,18 @@
 	encoded in bit 28 and 27, respectively, of ECX returned by calling CPUID with input EAX = 1: */
 	uint32	has_avx()
 	{
+	#ifdef USE_AVX
 		uint32 a,b,c,d;
 		CPUID(1,0,a,b,c,d);
-
 		if(c & 0x18000000) {			// CPU supports AVX?
 			XGETBV(0,a,d);
 			return (a & 0x6) == 0x6;	//  OS supports AVX?
 		} else {
 			return 0;
 		}
+	#else
+		return 0;
+	#endif
 	}
 
 	// May 2015: Build-for-valgrind gives bad FMA-flag result on my Haswell/debian(v6)/gcc-4.4.5:
@@ -482,6 +479,7 @@
 	the latter of which is encoded in bit 12 of ECX returned by calling CPUID with input EAX = 1: */
 	uint32	has_avx2()
 	{
+	#ifdef USE_AVX
 		uint32 a,b,c,d;
 		CPUID(1,0,a,b,c,d);
 	//	printf("has_avx2: CPUID returns [a,b,c,d] = [%8X,%8X,%8X,%8X]\n",a,b,c,d);
@@ -492,6 +490,9 @@
 		} else {
 			return 0;
 		}
+	#else
+		return 0;
+	#endif
 	}
 
 	/*
@@ -519,6 +520,7 @@
 	*/
 	uint32	has_avx512()
 	{
+	#ifdef USE_AVX
 		uint32 a,b,c,d;
 		CPUID(1,0,a,b,c,d);
 	//	printf("has_avx512: CPUID(1,0) returns [a,b,c,d] = [%8X,%8X,%8X,%8X]\n",a,b,c,d);
@@ -536,9 +538,10 @@
 		} else {
 			return 0;
 		}
+	#else
+		return 0;
+	#endif
 	}
-
-  #endif	// USE_AVX?
 
 #endif
 

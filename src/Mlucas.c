@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -20,21 +20,10 @@
 *                                                                              *
 *******************************************************************************/
 
-/*********************************************************************************
-*   COMPILING AND RUNNING THE PROGRAM: see http://hogranch.com/mayer/README.html *
-*********************************************************************************/
+/******************************************************************************************
+*   COMPILING AND RUNNING THE PROGRAM: see http://www.mersenneforum.org/mayer/README.html *
+******************************************************************************************/
 #include "Mlucas.h"
-
-int	is_hex_string(char*s, int len);
-
-/*** DEBUG ***/
-#define 	OLD_FORMAT	0
-#if OLD_FORMAT
-void	write_ppm1_savefiles(uint64 p, FILE*fp, uint32 ihi, uint32 n, int32 arr_tmp[], double a[]);
-#else
-void	write_ppm1_savefiles(uint64 p, FILE*fp, uint32 ihi, uint8 arr_tmp[], uint64 Res64, uint64 Res35m1, uint64 Res36m1);
-#endif
-
 #ifndef imul_macro_h_included
 	#error imul_macro.h file not included in build!
 #endif
@@ -55,6 +44,13 @@ void	write_ppm1_savefiles(uint64 p, FILE*fp, uint32 ihi, uint8 arr_tmp[], uint64
 /*********************************************************************************/
 /* Globals. Unless specified otherwise, these are declared in Mdata.h:           */
 /*********************************************************************************/
+
+// Used to force local-data-tables-reinits in cases of suspected table-data corruption:
+int REINIT_LOCAL_DATA_TABLES = 0;
+// Normally = True; set = False on quit-signal-received to allow desired code sections to and take appropriate action:
+int MLUCAS_KEEP_RUNNING = 1;
+// v18: Enable savefile-on-interrupt-signal, access to argc/argv outside main():
+char **global_argv;
 
 FILE *dbg_file = 0x0;
 double*ADDR0 = 0x0;	// Allows for easy debug on address-read-or-write than setting a watchpoint
@@ -108,12 +104,24 @@ char FILE_ACCESS_MODE[3] = {'x','y','\0'};
 /* Matrix of supported moduli/test-types - init'ed in Mlucas_init */
 int ASSIGNMENT_TYPE_MATRIX[MODULUS_TYPE_DIM][TEST_TYPE_DIM];
 
-/* Allocate storage for Globals */
+/****** Allocate storage for Globals (externs): ******/
+
+// Shift count and auxiliary arrays used to support rotated-residue computations:
+uint64 RES_SHIFT = 0xFFFFFFFFFFFFFFFFull;	// 0 is a valid value here, so init to UINT64_MAX, which value is treated as "uninited"
+uint64 *BIGWORD_BITMAP = 0x0;
+uint32 *BIGWORD_NBITS = 0x0;
+
+// For PRP tests, the base. For Pépin tests via the "FermatTest" worktype, the base defaults to 3; to do a
+// Pépin test to another base, the more-general PRP-worktype must be specified with appropriate parameters.
+uint32 PRP_BASE = 0;
+uint64 *BASE_MULTIPLIER_BITS = 0x0;	// Runtime-allocated bitwise multiply-by-base array
 
 /* These should all be set to a valid (nonzero) value at the time the appropriate test is begun */
 uint32 TEST_TYPE		= 0;
 uint32 MODULUS_TYPE		= 0;
 uint32 TRANSFORM_TYPE	= 0;
+
+const char HOMEPAGE  [] = "http://www.mersenneforum.org/mayer/README.html";
 
 /* Program version with patch suffix:
 
@@ -131,7 +139,7 @@ of the leading 3 characters of the two version strings in question.
 //				Major index = year - 2000
 //				Minor index = release # of that year, zero-indexed.
 // As before, a patch suffix of x, y, or z following the above numeric index indicates an [alpha,beta,gamma] (experimental,unstable) code.
-const char VERSION   [] = "17.1";			// e.g. Dec 2014 was 2nd release of that year, thus 14.1 = [20]14.[--2]
+const char VERSION   [] = "18.0";			// e.g. Dec 2014 was 2nd release of that year, thus 14.1 = [20]14.[--2]
 
 const char OFILE     [] = "results.txt";	/* ASCII logfile containing FINAL RESULT ONLY for each
 											assignment - detailed intermediate results for each assignment
@@ -165,6 +173,19 @@ uint64 PMIN;		/* minimum exponent allowed */
 uint64 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
 					   and will be determined at runtime, via call to given_N_get_maxP(). */
 
+void sig_handler(int signo)
+{
+	if (signo == SIGINT) {
+		fprintf(stderr,"received SIGINT signal.\n");	sprintf(cbuf,"received SIGINT signal.\n");
+	} else if(signo == SIGTERM) {
+		fprintf(stderr,"received SIGTERM signal.\n");	sprintf(cbuf,"received SIGTERM signal.\n");
+	} else if(signo == SIGHUP) {
+		fprintf(stderr,"received SIGHUP signal.\n");	sprintf(cbuf,"received SIGHUP signal.\n");
+	}
+	// Toggle a global to allow desired code sections to detect signal-received and take appropriate action:
+	MLUCAS_KEEP_RUNNING = 0;
+}
+
 /****************/
 
 /*
@@ -181,8 +202,8 @@ uint64 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
 !
 !   modulo N = 2^p - 1. If N divides s(p-2) (specifically, the (p-2)th residue == 0 modulo N), N is prime.
 !
-!   See http://hogranch.com/mayer/README.html for build instructions, recent revision history of the code
-!   and a summary of what has been changed/added/deleted in the latest release.
+!   See http://www.mersenneforum.org/mayer/README.html for build instructions, recent revision history
+!   of the code and a summary of what has been changed/added/deleted in the latest release.
 !
 !***TO DO LIST:
 !
@@ -227,8 +248,9 @@ uint64 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
 !  * Guillermo Ballester Valor - for many interesting discussions on optimization
 !       and useful suggestions for improving the code.
 !
-!  * John Pierce - for hosting the ftp archive on his hogranch.com server.
+!  * John Pierce - for hosting the ftp archive on his hogranch.com server for many years.
 !
+!  * David Stanfill - for generous access to high-end Xeon server machinery and for hosting the "GIMPS KNL".
 !
 !    ...as well as the numerous people who have been kind enough to try the code out
 !    and send timings, compiler options for various architectures and suggestions
@@ -236,7 +258,7 @@ uint64 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
 !
 !***For UPDATES, PATCHES and USAGE INSTRUCTIONS, see
 !
-!    http://hogranch.com/mayer/README.html
+!    http://www.mersenneforum.org/mayer/README.html
 !
 !***Send QUESTIONS, COMMENTS or SUGGESTIONS to me at <ewmayer@aol.com>.
 !
@@ -270,32 +292,32 @@ uint32	ernstMain
 	uint32 timing_test_iters = 0;
 
 /*...scalars and fixed-size arrays...	*/
-	int i,j = 0,nbits;
+	int i,j = 0,k,nbits;
 	/* TODO: some of these need to become 64-bit: */
 	uint32 dum,findex = 0,ierr = 0,ilo = 0,ihi = 0,iseed,isprime,kblocks = 0,maxiter = 0,n = 0,npad = 0;
 	uint64 itmp64;
 
 	/* Exponent of number to be tested - note that for trial-factoring, we represent p
 	strictly in string[STR_MAX_LEN] form in this module, only converting it to numeric
-	form in the factoring module. For all other types of assignments uint64 should suffice:
-	*/
+	form in the factoring module. For all other types of assignments uint64 should suffice: */
 	uint64 p = 0;
 	uint32 nbits_in_p = 0;
-
 	/* Res64 and Selfridge-Hurwitz residues: */
 	uint64 Res64, Res35m1, Res36m1;
 	uint64 sum0, sum1, sum2;
-
+	uint64 factor_k[16], *fac, twop, quo64,rem64;	// factor_k = Array storing factor k's (assumed < 2^64) of any known-factors for PRP-cofactor
+	// testing; fac = ptr to each mi64-converted factor input string; twop = 2*[binary exponent of modulus]; qu064,rem64 = 64-bit quotient & remainder
+	uint32 fbits, lenf, nfac, nchar;
+	uint128 p128,q128,res128;
 /*...Known Mersenne prime exponents. This array must be null-terminated.	*/
-	// Jan 2015: Including M49, there are (29, 19) p = 1,3 (mod 4), resp., vs (26.2, 24.9) predicted
+	// Dec 2018: Including M51, there are (31, 19) p = 1,3 (mod 4), resp., vs (25.8, 24.5) predicted
 	// (for p < 10^8) by the Lenstra/Wagstaff heuristic (cf. est_num_mp_in_interval() in util.c):
 	const uint32 knowns[] = {2,3,5,7,13,17,19,31,61,89,107,127,521,607,1279,2203,2281,3217,4253,4423,9689,9941
 		,11213,19937,21701,23209,44497,86243,110503,132049,216091,756839,859433,1257787,1398269,2976221,3021377,6972593
-		,13466917,20996011,24036583,25964951,30402457,32582657,37156667,42643801,43112609,57885161,74207281,0x0};
+		,13466917,20996011,24036583,25964951,30402457,32582657,37156667,42643801,43112609,57885161,74207281,77232917,82589933,0x0};
 
 /*...What a bunch of characters...	*/
-	char hex_res[17];
-
+	char *cptr = 0x0;
 /*...initialize logicals and factoring parameters...	*/
 	int restart = FALSE, start_run = TRUE;
 	uint32 bit_depth_done = 0;
@@ -315,6 +337,8 @@ uint32	ernstMain
 	static double *a = 0x0, *a_ptmp = 0x0;
 #ifdef USE_FGT61
 	static uint64 *b = 0x0, *b_ptmp = 0x0;
+#else	// Use b[] for cofactor-PRP tests:
+	static double *b = 0x0, *b_ptmp = 0x0;
 #endif
 	double final_res_offset;
 
@@ -326,14 +350,12 @@ uint32	ernstMain
 */
 	/*clock_t clock1, clock2;	Moved these to mers_mod_square.c */
 	double tdiff;
-
   #define SIZE 256
 	time_t calendar_time;
 	struct tm *local_time;
 	char timebuffer[SIZE];
 
 /*...entry point for one or more Lucas-Lehmer tests is here.	*/
-
 	MODULUS_TYPE = mod_type;
 	TEST_TYPE = test_type;
 	INTERACT = FALSE;
@@ -427,8 +449,15 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	else
 		ITERS_BETWEEN_CHECKPOINTS =  10000;
 
-/*  ...look for worktodo.ini file...	*/
+	// Alloc bitwise multiply-by-base array, needed to support PRP testing:
+	if(!BASE_MULTIPLIER_BITS) {
+		i = ((ITERS_BETWEEN_CHECKPOINTS+63) >> 6) + 1;	// Add 1 pad element in case compiler does not 64-bit align
+		BASE_MULTIPLIER_BITS = ALLOC_UINT64(BASE_MULTIPLIER_BITS, i);	if(!BASE_MULTIPLIER_BITS){ sprintf(cbuf, "FATAL: unable to allocate BASE_MULTIPLIER_BITS array in main.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		BASE_MULTIPLIER_BITS = ALIGN_UINT64(BASE_MULTIPLIER_BITS);
+		ASSERT(HERE, ((long)BASE_MULTIPLIER_BITS & 63) == 0x0,"BASE_MULTIPLIER_BITS[] not aligned on 64-byte boundary!");
+	}
 
+/*  ...look for worktodo.ini file...	*/
 	fp = 0x0;
 	if (start_run && (!exponent || (exponent!=0 && fft_length!=0 && iterations==0)))
 	{
@@ -439,8 +468,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	/****************************************/
 	/*...Automated exponent-dispatch mode...*/
 	/****************************************/
-	if (fp)
-	{
+	if (fp) {
 		if (start_run) fprintf(stderr," worktodo.ini file found...checking next exponent in range...\n");
 
 		/* 7/06/04: need to handle both exponent-only (i.e. pre-networked Mlucas) and Prime95 ini file formats:
@@ -453,10 +481,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		/* Skip any whitespace at beginning of the line: */
 		char_addr = in_line;
 		i = 0;
-		while(isspace(in_line[i]))
-		{
-			++i;
-		}
+		while(isspace(in_line[i])) { ++i; }
 
 		/* If leading char is numeric, assume it's Mersenne-exponent-only (legacy) format: */
 		if(isdigit(in_line[i]))
@@ -465,35 +490,139 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			goto GET_EXPO;
 		}
 
-		/* Otherwise assume Prime95-style ini file format, with a possible modulus-specific leading keyword: */
-		/* Default is Mersenne, unless overriden by an explicit modulus-type string: */
+		// Otherwise assume Prime95-style ini file format, with a possible modulus-specific leading keyword;
+		// Default "Test=" means Mersenne, unless "Test" preceded by an explicit modulus-type string:
 		MODULUS_TYPE = MODULUS_TYPE_MERSENNE;
+/*
+Re. the recently-added-to-Primenet PRP assignment type, On Dec 19, 2017, at 5:07 PM, George Woltman wrote:
 
-		if((char_addr = strstr(in_line, "Fermat")) != 0)
+In "PRP= xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx,1,2,75869377,-1,75,0,3,4"
+
+The first four [numeric] values are k,b,n,c as in k*b^n+c
+75 is how far factored
+0 is the number of PRP tests that will be saved if P-1 is done and finds a factor
+3 is the PRP base
+4 is the residue type.
+
+You should only need to support type-1 and type-5, which are identical if there are no cofactors (in JSON return residue type 1).
+*/
+		if((char_addr = strstr(in_line, "PRP")) != 0)
 		{
+			TEST_TYPE = TEST_TYPE_PRP;
 			/* No dicking around with whitespace allowed here: */
 			if(char_addr != in_line)
-				ASSERT(HERE, 0,"Mlucas.c: modulus type specifier must occur at beginning of worktodo.ini file entry, with no whitespace!");
+				ASSERT(HERE, 0,"Modulus type specifier must occur at beginning of worktodo.ini file entry, with no whitespace!");
+			else
+				char_addr += 3;
+
+			ASSERT(HERE, (char_addr = strstr(char_addr, "=")) != 0x0,"Expected '=' not found in assignment-specifying line!");
+			char_addr++;
+			while(isspace(*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
+			ASSERT(HERE, is_hex_string(char_addr, 32), "Expect a 32-hex-digit PrimeNet v5 assignment ID following the work type specifier!");
+			cptr = char_addr + 32;
+			/*
+			Since my code only supports Mersenne and Fermat-number moduli, check to ensure
+			that k = 1, b = 2, c = (+1 or -1) and (n prime if c = -1, n  =  2^m if c = +1):
+			*/
+			ASSERT(HERE, (char_addr = strstr(cptr, ",")) != 0x0,"Expected ',' not found in assignment-specifying line!");
+			i = (int)strtol(char_addr+1, &cptr, 10);	ASSERT(HERE, i == 1,"In modulus expression m = k*b^n+c, only k = 1 currently supported!");
+			ASSERT(HERE, (char_addr = strstr(cptr, ",")) != 0x0,"Expected ',' not found in assignment-specifying line!");
+			i = (int)strtol(char_addr+1, &cptr, 10);	ASSERT(HERE, i == 2,"In modulus expression m = k*b^n+c, only b = 2 currently supported!");
+			ASSERT(HERE, (char_addr = strstr(cptr, ",")) != 0x0,"Expected ',' not found in assignment-specifying line!");
+			p =     strtoul(char_addr+1, &cptr, 10);	ASSERT(HERE, p < PMAX,"Exponent n in modulus expression m = k*b^n+c exceeds limit! (Suggest checking for unsigned overflow.)");
+			ASSERT(HERE, (char_addr = strstr(cptr, ",")) != 0x0,"Expected ',' not found in assignment-specifying line!");
+			i = (int)strtol(char_addr+1, &cptr, 10);	ASSERT(HERE, ABS(i) == 1,"In modulus expression m = k*b^n+c, only c = +-1 currently supported!");
+			if(i == -1) {
+				MODULUS_TYPE = MODULUS_TYPE_MERSENNE;
+				ASSERT(HERE, !(p >> 32), "p must be 32-bit or less!");	// Future versions will need to loosen this p < 2^32 restriction
+				ASSERT(HERE, isPRP((uint32)p),"Mersenne exponent must be prime!");
+			} else if(i == 1) {
+				MODULUS_TYPE = MODULUS_TYPE_FERMAT;
+				ASSERT(HERE, isPow2_64(p),"Fermat exponent must be a power of 2!");
+				p = trailz64(p);	// Code below requires p contain Fermat-number *index* (not exponent), just as in a FermatTest assignment
+			}
+			/* Already asserted that there is no 'else' needed */
+			sprintf(ESTRING,"%llu",p);	// Need to init this for filenaming code
+			// Skip next 2 entries in in-string, how-far-factored and "# of PRP tests that will be saved if P-1 is done and finds a factor":
+			ASSERT(HERE, (cptr      = strstr(cptr, ",")) != 0x0,"Expected ',' not found in assignment-specifying line!");	cptr++;
+			ASSERT(HERE, (cptr      = strstr(cptr, ",")) != 0x0,"Expected ',' not found in assignment-specifying line!");	cptr++;
+			ASSERT(HERE, (char_addr = strstr(cptr, ",")) != 0x0,"Expected ',' not found in assignment-specifying line!");
+			// NB: Hit a gcc compiler bug (which left i = 0 for e.g. char_addr = ", 3 ,...") using -O0 here ... clang compiled correctly, as did gcc -O1:
+			i = (int)strtol(char_addr+1, &cptr, 10);	ASSERT(HERE, i > 1 && IS_ODD(i),"PRP-test base must be > 1 and odd!");
+			PRP_BASE = i;
+			ASSERT(HERE, (char_addr = strstr(cptr, ",")) != 0x0,"Expected ',' not found in assignment-specifying line!");
+			i = (int)strtol(char_addr+1, &cptr, 10);	ASSERT(HERE, i == 1 || i == 5,"Only PRP-tests of type 1 (PRP-only) and type 5 (PRP and subsequent cofactor-PRP check) supported!");
+			if(i == 1)
+				TEST_TYPE = TEST_TYPE_PRP;
+			else if(i == 5) {
+				TEST_TYPE = TEST_TYPE_PRPCOFACTOR;
+				// Read known factors from next line of worktodo, in double-quote-delimited "factor1,factor2,..." format:
+				ASSERT(HERE, fgets(in_line, STR_MAX_LEN, fp) != 0x0, "Hit EOF while attempting to read known factors from next line of worktodo!");
+				ASSERT(HERE, in_line[0] == '\"',"Known-factors line of worktodo must consist of a comma-separated list of such enclosed in double-quotes!");
+				cptr = in_line+1;	nfac = 0;	fac = 0x0;
+				while((char_addr = strstr(cptr, "\"")) != 0x0) {
+					nchar = char_addr - cptr;
+					strncpy(cbuf,cptr,nchar);	cbuf[nchar] = '\0';	// Extract current-factor-as-string into cbuf
+					// Convert stringified factor f to mi64 form:
+					fac = convert_base10_char_mi64(cbuf, &lenf);	// This does the mem-alloc for us
+					ASSERT(HERE, lenf > 0, "Error converting known-factor string!");
+					ASSERT(HERE, lenf < 3, "known-factor out of range, must be < 2^128!");
+					fbits = (lenf<<6) - mi64_leadz(fac, lenf);
+					// Extract the factor k and make sure k < 2^64:
+					if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
+						twop = p<<1;
+						mi64_div(fac,&twop,lenf,1,&quo64,&rem64);
+					} else {
+						twop = 1ull<<(p+1);
+						mi64_div(fac,&twop,lenf,1,&quo64,&rem64);
+					}
+					ASSERT(HERE, rem64 == 1ull,"Factor not of required form!");
+					factor_k[nfac++] = quo64;
+					// Verify that it is a factor via binary modpow - the latter routine auto-determines the modulus type based on the exponent:
+					if(lenf == 1)
+						ASSERT(HERE, twopmodq64(twop>>1,fac[0]) == 1ull,"Factor-check fails!");
+					else {
+						p128.d0 = twop>>1;	p128.d1 = 0ull;
+						q128.d0 = fac[0];	q128.d1 = fac[1];
+						res128 = twopmodq128(p128,q128);
+						ASSERT(HERE, CMPEQ128(res128,ONE128),"Factor-check fails!");
+					}
+					if(char_addr[0] == '\"' && char_addr[1] == ',' && char_addr[2] == '\"')
+						cptr = char_addr+3;
+					else if(char_addr[0] == '\"' && char_addr[1] != ',')
+						break;
+					else
+						ASSERT(HERE,0,"Unrecognized token sequence in parsing known-factors line of worktodo file!");
+				}
+				ASSERT(HERE, nfac != 0,"Must specify at least one known factor!");
+			}
+			goto PRP;
+		}
+		else if((char_addr = strstr(in_line, "Fermat")) != 0)
+		{
+			if(char_addr != in_line)
+				ASSERT(HERE, 0,"Modulus type specifier must occur at beginning of worktodo.ini file entry, with no whitespace!");
 			else
 				char_addr += 6;
 			/* Look for comma following the modulus keyword and position next-keyword search right after it: */
 			if(!STREQN(char_addr,",",1))
-				ASSERT(HERE, 0,"Mlucas.c: expected ',' not found in input following modulus type specifier!");
+				ASSERT(HERE, 0,"Expected ',' not found in input following modulus type specifier!");
 			else
 				char_addr++;
 
 			MODULUS_TYPE = MODULUS_TYPE_FERMAT;
+			PRP_BASE = 2;	// v18: If use residue shift in context of Pépin test, need this whenever the 'shift = 2*shift + random[0,1]' update gets a 1-bit in the random slot
 		}
 		/* "Mersenne" is the default and hence not required, but allow it: */
 		else if((char_addr = strstr(in_line, "Mersenne")) != 0)
 		{
 			if(char_addr != in_line)
-				ASSERT(HERE, 0,"Mlucas.c: modulus type specifier must occur at beginning of worktodo.ini file entry, with no whitespace!");
+				ASSERT(HERE, 0,"Modulus type specifier must occur at beginning of worktodo.ini file entry, with no whitespace!");
 			else
 				char_addr += 8;
 			/* Look for comma following the modulus keyword and position next-keyword search right after it: */
 			if(!STREQN(char_addr,",",1))
-				ASSERT(HERE, 0,"Mlucas.c: expected ',' not found in input following modulus type specifier!");
+				ASSERT(HERE, 0,"Expected ',' not found in input following modulus type specifier!");
 			else
 				char_addr++;
 		}
@@ -534,14 +663,14 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		else
 		{
 			sprintf(cbuf, "ERROR: Unrecognized/Unsupported option. The ini file entry was %s\n", char_addr);
-								           fprintf(stderr,"%s",cbuf);
+			fprintf(stderr,"%s",cbuf);
 			fp = mlucas_fopen(OFILE,"a"); if(fp){ fprintf(    fp,"%s",cbuf); fclose(fp);	fp = 0x0; }
 			ASSERT(HERE, 0, "");
 		}
 
 		char_addr += char_offset;
 
-		ASSERT(HERE, (char_addr = strstr(char_addr, "=")) != 0x0,"Mlucas.c: expected '=' not found in assignment-specifying line!");
+		ASSERT(HERE, (char_addr = strstr(char_addr, "=")) != 0x0,"Expected '=' not found in assignment-specifying line!");
 		char_addr++;
 		/* Skip any whitespace following the equals sign:*/
 		while(isspace(*char_addr))
@@ -560,7 +689,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		*/
 
 	/* Copy the exponent to ESTRING and null-terminate: */
-		ASSERT(HERE, isdigit(*char_addr),"Mlucas.c: isdigit(*char_addr)");
+		ASSERT(HERE, isdigit(*char_addr),"False result for isdigit(*char_addr)");
 		i = 0;
 		while(isdigit(*char_addr))
 		{
@@ -568,8 +697,9 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			++char_addr;
 		}
 		ESTRING[i++] = '\0';
-
 		p = convert_base10_char_uint64(ESTRING);
+
+	PRP:	// In PRP-test case, have already read the exponent from the worktodo line
 		/* Special case of user forcing a non-default FFT length for an exponent in the worktodo.ini file: */
 		if(exponent)
 		{
@@ -598,7 +728,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		else
 			ASSERT(HERE, 0,"MODULUS_TYPE unknown!");
 
-		ASSERT(HERE, nbits_in_p <= MAX_EXPO_BITS,"Mlucas.c: p <= MAX_EXPO_BITS");
+		ASSERT(HERE, nbits_in_p <= MAX_EXPO_BITS,"Require nbits_in_p <= MAX_EXPO_BITS");
 
 	#ifdef INCLUDE_TF
 
@@ -830,7 +960,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			ASSERT(HERE, 0, "Trial-factoring not supported for this build/platform.");
 		#endif
 		}
-		else	/* Primality test */
+		else	/* Primality or PRP test */
 		{
 		/*	fprintf(stderr, "P = %u, nbits_in_p = %d\n",p,nbits_in_p);	*/
 			ASSERT(HERE, nbits_in_p <= MAX_PRIMALITY_TEST_BITS, "Inputs this large only permitted for trial-factoring.");
@@ -854,7 +984,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	}
 	else
 	{
-		ASSERT(HERE, 0, "Illegal combination of command args - please run with -h to see help menu.");
+		ASSERT(HERE, 0, "Illegal combination of command args - please run with -h to see help menu. Note that if you are trying to run a single-FFT-length self-test, you *must* explicitly specify the iteration count, e.g. './Mlucas -fftlen 7168 -iters [100|1000|10000] [-cpu [args]]'");
 	}
 	/* endif(found RANGEFILE?)	*/
 
@@ -877,25 +1007,22 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	ASSERT(HERE,TEST_TYPE <= TEST_TYPE_MAX,"TEST_TYPE out of range!");
 
 	/* Fom this point onward the first character of restart filenames is context-dependent: */
+#ifdef INCLUDE_TF
 	if(TEST_TYPE == TEST_TYPE_TRIALFACTORING)
 	{
 		/* Do any needed Trial-Factoring and then update the worktodo.ini file appropriately: */
 		/* Let the factoring module handle the restart-file processing in this case. */
 		if(!ASSIGNMENT_TYPE_MATRIX[MODULUS_TYPE][TEST_TYPE_TRIALFACTORING])
 		{
-			sprintf(cbuf, "Mlucas.c: TEST_TYPE_TRIALFACTORING with MODULUS_TYPE = %u not supported!\n", MODULUS_TYPE);
+			sprintf(cbuf, "TEST_TYPE_TRIALFACTORING with MODULUS_TYPE = %u not supported!\n", MODULUS_TYPE);
 			ASSERT(HERE, 0, cbuf);
 		}
 
-	#ifndef INCLUDE_TF
-		sprintf(cbuf, "Mlucas.c: TEST_TYPE_TRIALFACTORING requires INCLUDE_TF flag to be defined at build time!\n");
-		ASSERT(HERE, 0, cbuf);
-	#else
 		factor(ESTRING, log2_min_factor, log2_max_factor);
 		goto GET_NEXT_ASSIGNMENT;
-	#endif
-	}
-	else if(TEST_TYPE != TEST_TYPE_PRIMALITY)
+	} else
+#endif
+	if(TEST_TYPE > TEST_TYPE_MAX)
 	{
 		ASSERT(HERE, 0,"FATAL: Unrecognized assignment type in savefile processing.\n");
 	}
@@ -903,13 +1030,10 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 
 /********************* Primality Test: ***********************************************/
 
-	if(p < PMIN)
-	{
+	if(p < PMIN) {
 		fprintf(stderr, " p must be at least %llu.\n",PMIN);
 		return ERR_EXPONENT_ILLEGAL;
-	}
-	if(p > PMAX)
-	{
+	} else if(p > PMAX) {
 		fprintf(stderr, " p must be no greater than %llu.\n",PMAX);
 		return ERR_EXPONENT_ILLEGAL;
 	}
@@ -926,7 +1050,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		if(!isPRP((uint32)p))
 		{
 			fprintf(stderr, " p is not prime!\n");
-			return ERR_EXPONENT_ILLEGAL;
+//			return ERR_EXPONENT_ILLEGAL;
 		}
 
 		TRANSFORM_TYPE = REAL_WRAPPER;
@@ -942,36 +1066,45 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		ASSERT(HERE, findex >=14, "Fermat number index must be at least 14!\n");
 		ASSERT(HERE, findex < 64, "Fermat number index must be < 64!\n"       );
 
-		/* This takes care of the number-to-char conversion and leading-whitespace-removal
-		in one step - use PSTRING for temporary storage here:
-		*/
+		// This takes care of the number-to-char conversion and leading-whitespace-removal
+		// in one step - use PSTRING for temporary storage here:
 		strcpy(ESTRING, &PSTRING[convert_uint64_base10_char(PSTRING, (uint64)findex)]);
-		ASSERT(HERE, (p >> findex) == 1,"Mlucas.c: (p >> findex) == 1");
-
+		ASSERT(HERE, (p >> findex) == 1,"Require (p >> findex) == 1");
 		TRANSFORM_TYPE = RIGHT_ANGLE;
 		sprintf(PSTRING, "F%u", findex);
-
 		maxiter = (uint32)p-1;
+		// v18: If nonzero (but 'inited', i.e. != -1) residue shift, init BASE_MULTIPLIER_BITS to random bits:
+		if((RES_SHIFT != -1ull) && !PRP_BASE) {
+			PRP_BASE = 2;	ASSERT(HERE, RES_SHIFT < p,"User-set initial shift must be less than binary exponent!");
+		} else if(RES_SHIFT == -1ull) {
+			PRP_BASE = 2;	RES_SHIFT = rng_isaac_rand() % p;
+		}
+		j = ((ITERS_BETWEEN_CHECKPOINTS+63) >> 6);
+		itmp64 = -(RES_SHIFT != 0ull);
+		// "Prime' the RNG by doing [RES_SHIFT] calls:
+		for(i = 0; i < RES_SHIFT; i++) { rng_isaac_rand(); }
+		for(i = 0; i < j; i++) { BASE_MULTIPLIER_BITS[i] = itmp64 & rng_isaac_rand(); }
+	//	printf("random-bit-array[0] = 0x%016llX\n",BASE_MULTIPLIER_BITS[0]);
 	}
 	else
 	{
 		ASSERT(HERE, 0,"Unknown Self-Test Modulus Type!");
 	}	/* endif(MODULUS_TYPE) */
 
-	if(!fft_length)
-	{
-		kblocks = get_default_fft_length(p);
-		if(!kblocks)
-		{
+	/* In production-run (INTERACT = False) mode, allow command-line-forced FFT lengths which are at most
+	"one size too large" relative to the default length for the exponent in question. Supported lengths
+	are of the form [8,9,10,11,12,13,14,15]*2^k, so base our acceptance threshold on the largest adjacent-
+	FFT-lengths ratio permitted under this schema, 9/8:
+	*/
+	kblocks = get_default_fft_length(p);
+	if(!fft_length || (!INTERACT && 8*fft_length > 9*kblocks)) {
+		if(!kblocks) {
 			fprintf(stderr,"ERROR detected in get_default_fft_length for p = %u.\n", (uint32)p);
 			return ERR_FFTLENGTH_ILLEGAL;
 		}
-	}
-	else
-	{
+	} else {
 		kblocks = fft_length;
-		if((int)kblocks <= 0)
-		{
+		if((int)kblocks <= 0) {
 			fprintf(stderr, "ERROR: %d K must be >= 0.\n",kblocks);
 			return ERR_FFTLENGTH_ILLEGAL;
 		}
@@ -1052,7 +1185,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	if(kblocks < (i = get_default_fft_length(p)))
 	{
 		uint64 pmax_rec = given_N_get_maxP(kblocks << 10);	double exp_ratio =  (double)p/pmax_rec;
-		fprintf(stderr, "INFO: Maximum recommended exponent for this runlength = %llu; p[ = %llu]/pmax_rec = %10.6f.\n",given_N_get_maxP(n),p,exp_ratio);
+		fprintf(stderr, "INFO: Maximum recommended exponent for this runlength = %llu; p[ = %llu]/pmax_rec = %12.10f.\n",given_N_get_maxP(n),p,exp_ratio);
 		/* If it's at least close, allow it but print a warning; otherwise error out: */
 		if((i << 10) == get_nextlarger_fft_length(n) && exp_ratio < 1.05)
 		{
@@ -1082,45 +1215,53 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 
 	/*...Find padded array length...	*/
 	npad = n + ( (n >> DAT_BITS) << PAD_BITS );	/* length of padded data array.	*/
-	/* If the residue data array is too small for the new assignment, deallocate it: */
+	/* If the residue and other modulus-size-dependent data arrays too small for the new assignment, deallocate them: */
 	if(nalloc > 0 && npad > nalloc)
 	{
-		ASSERT(HERE, a != 0x0 && a_ptmp != 0x0,"Mlucas.c: a != 0x0 && a_ptmp != 0x0");
+		ASSERT(HERE, a != 0x0 && a_ptmp != 0x0,"Require (a != 0x0 && a_ptmp != 0x0)");
 		free((void *)a_ptmp); a_ptmp=0x0; a=0x0;
 	#ifdef USE_FGT61
 		free((void *)b_ptmp); b_ptmp=0x0; b=0x0;
 	#endif
-		free((void *)arrtmp); arrtmp=0x0;
+		free((void *)arrtmp);	arrtmp=0x0;
+		free((void *)BIGWORD_BITMAP);	BIGWORD_BITMAP = 0x0;
+		free((void *)BIGWORD_NBITS);	BIGWORD_NBITS = 0x0;
 		nalloc = 0;
 	}
 
 	if(nalloc == 0)
 	{
-		/* If it's a multi-exponent self-test, alloc to the maximum FFT length
-		that will be used: */
+		// If it's a multi-exponent self-test, alloc to the maximum FFT length which will be used:
 		if(maxFFT > kblocks)
 		{
 			i = (maxFFT << 10);
 			npad = i + ( (i >> DAT_BITS) << PAD_BITS );
 		}
 		nalloc = npad;
-		ASSERT(HERE, a == 0x0 && a_ptmp == 0x0 && arrtmp == 0x0,"Mlucas.c: a == 0x0 && a_ptmp == 0x0 && arrtmp == 0x0");
+		ASSERT(HERE, a == 0x0 && a_ptmp == 0x0 && arrtmp == 0x0,"Require (a == 0x0 && a_ptmp == 0x0 && arrtmp == 0x0)");
 		a_ptmp = ALLOC_DOUBLE(a_ptmp, nalloc);	if(!a_ptmp){ sprintf(cbuf, "FATAL: unable to allocate array A in main.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		a      = ALIGN_DOUBLE(a_ptmp);
-		ASSERT(HERE, ((long)a & 63) == 0x0,"Mlucas.c: a[] not aligned on 64-byte boundary!");
+		ASSERT(HERE, ((long)a & 63) == 0x0,"a[] not aligned on 64-byte boundary!");
 		if(((long)a & 127) != 0x0)
-			fprintf(stderr, "WARN: Mlucas.c: a[] = 0x%08X not aligned on 128-byte boundary!\n", (uint32)a);
+			fprintf(stderr, "WARN: a[] = 0x%08X not aligned on 128-byte boundary!\n", (uint32)a);
 	#ifdef USE_FGT61
-		ASSERT(HERE, b == 0x0 && b_ptmp == 0x0,"Mlucas.c: b == 0x0 && b_ptmp == 0x0");
+		ASSERT(HERE, b == 0x0 && b_ptmp == 0x0,"Require (b == 0x0 && b_ptmp == 0x0)");
 		b_ptmp = ALLOC_UINT64(b_ptmp, nalloc);	if(!b_ptmp){ sprintf(cbuf, "FATAL: unable to allocate array B in main.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		b      = ALIGN_UINT64(b_ptmp);
-		ASSERT(HERE, ((long)b & 63) == 0x0,"Mlucas.c: b[] not aligned on 64-byte boundary!");
+		ASSERT(HERE, ((long)b & 63) == 0x0,"b[] not aligned on 64-byte boundary!");
 		if(((long)b & 127) != 0x0)
-			fprintf(stderr, "WARN: Mlucas.c: b[] = 0x%08X not aligned on 128-byte boundary!\n", (uint32)b);
+			fprintf(stderr, "WARN: b[] = 0x%08X not aligned on 128-byte boundary!\n", (uint32)b);
 	#endif
-
-		// Alloc this arge enough to hold a bytewise residue for an exponent 2x larger than the current one:
-		arrtmp = (int*)malloc(p>>2);	if(!arrtmp){ sprintf(cbuf, "FATAL: unable to allocate array ARRTMP with %llu bytes in main.\n",p>>2); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		// For this residue (and scratch) byte-array, conservatively figure at least 4 bits per float-double residue word.
+		// For multi-FFT-length self-tests, conservatively figure as many as 20 bits (2.5 bytes) per float-double residue word:
+		i = MAX(p>>2, i*2.5);
+		arrtmp = (int*)malloc(i);	if(!arrtmp){ sprintf(cbuf, "FATAL: unable to allocate array ARRTMP with %u bytes in main.\n",i); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		// For an n-word main-array, BIGWORD_BITMAP and BIGWORD_NBITS have (n/64) elts each, thus need 1/64 + 1/32 the total
+		// storage of the main-array. Use uint64 alloc-macro for both, so halve the num-elts arg for the BIGWORD_NBITS alloc.
+		// As with above arrays, for multi-length self-test, alloc based on max. FFT length used (i) rather than current length (n).
+		// Don't need any array padding on these bitmap arrays, but since nalloc includes padding, no harm in using it:
+		BIGWORD_BITMAP =           ALLOC_UINT64(BIGWORD_BITMAP, nalloc>>6);	if(!BIGWORD_BITMAP){ sprintf(cbuf, "FATAL: unable to allocate array BIGWORD_BITMAP in main.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		BIGWORD_NBITS  = (uint32 *)ALLOC_UINT64(BIGWORD_NBITS , nalloc>>7);	if(!BIGWORD_NBITS ){ sprintf(cbuf, "FATAL: unable to allocate array BIGWORD_NBITS in main.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 	}
 
 // Multithreaded-code debug: Set address to watch:
@@ -1133,17 +1274,16 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 
 READ_RESTART_FILE:
 
-	if(!INTERACT)	/* Skip the restart-file stuff if it's a self-test */
+	if(!INTERACT)	/* Only do the restart-file stuff if it's not a self-test */
 	{
 		/* See if there's a restart file: */
 		fp = mlucas_fopen(RESTARTFILE, "rb");
 		/* If so, read the savefile: */
 		if(fp)
 		{
-			i = read_ppm1_savefiles (p, fp, &ilo, (uint8*)arrtmp, &Res64, &Res35m1, &Res36m1);
+			i = read_ppm1_savefiles (p, &j, fp, &ilo, (uint8*)arrtmp, &Res64, &Res35m1, &Res36m1);
 			fclose(fp); fp = 0x0;
-
-			if(!i)	/*	&& !convert_LL_savefiles(p, fp, &ilo, n, (int32*)arrtmp, a))	*/
+			if(!i)
 			{
 				fp = mlucas_fopen(   OFILE,"a");
 				fq = mlucas_fopen(STATFILE,"a");
@@ -1167,16 +1307,22 @@ READ_RESTART_FILE:
 					goto READ_RESTART_FILE;
 				}
 				else
-					ASSERT(HERE, 0,"Mlucas.c: Failed to correctly read both primary or secondary savefile!");
+					ASSERT(HERE, 0,"Failed to correctly read both primary or secondary savefile!");
 			}
-			ASSERT(HERE, ilo > 0,"Mlucas.c: ilo <= 0!");
-			ASSERT(HERE, ilo < maxiter,"Mlucas.c: ilo >= maxiter!");
 
-			/* Allocate the floating-point residue array and convert the
-			savefile bytewise residue to the appropriate floating-point form.
-			Checksum validation is performed within the convert_res_bytewise_FP function:
+			// If FFT-length-in-K field returns nonzero and is greater than kblocks (e.g. if ROEs caused switch to larger FFT length),
+			// ***and user did not override via cmd-line*** (i.e. fft_length arg not set) reset FFT length and radix set accordingly:
+			if((j && j > kblocks) && !fft_length) {
+				kblocks = j;
+				// Clear out current FFT-radix data, since get_preferred_fft_radix() expects that:
+				for(i = 0; i < NRADICES; i++) { RADIX_VEC[i] = 0; }
+				NRADICES = 0;
+				goto SETUP_FFT;	// Do this for both ROE_ITER < 0 and > 0; in the latter case with unchanged FFT params
+			}
+			/* Allocate floating-point residue array and convert savefile bytewise residue to floating-point form, after
+			first applying required circular shift read into the global RES_SHIFT during the above bytewise-savefile read.
 			*/
-			if(!convert_res_bytewise_FP((uint8*)arrtmp, a, n, p, Res64, Res35m1, Res36m1))
+			if(!convert_res_bytewise_FP((uint8*)arrtmp, a, n, p))
 			{
 				sprintf(cbuf, "ERROR: convert_res_bytewise_FP Failed on savefile %s!\n",RESTARTFILE);
 													fprintf(stderr,"%s",cbuf);
@@ -1191,10 +1337,125 @@ READ_RESTART_FILE:
 					ASSERT(HERE, 0,"0");
 			}
 
+			ASSERT(HERE, ilo > 0,"Require ilo > 0!");
+			if(TEST_TYPE != TEST_TYPE_PRPCOFACTOR) {
+				ASSERT(HERE, ilo < maxiter,"Require ilo < maxiter!");
+				ihi = ilo+ITERS_BETWEEN_CHECKPOINTS;
+				/* If for some reason last checkpoint was at a non-multiple of ITERS_BETWEEN_CHECKPOINTS, round down: */
+				ihi-= ihi%ITERS_BETWEEN_CHECKPOINTS;
+			} else {	// Init scratch array b[] needed for cofactor-PRP test:
+INTERACT = 1;
+				ASSERT(HERE, b == 0x0 && b_ptmp == 0x0,"Require (b == 0x0 && b_ptmp == 0x0)");
+				b_ptmp = ALLOC_DOUBLE(b_ptmp, nalloc);	if(!b_ptmp){ sprintf(cbuf, "FATAL: unable to allocate array B in main.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+				b      = ALIGN_DOUBLE(b_ptmp);
+				ASSERT(HERE, ((long)b & 63) == 0x0,"b[] not aligned on 64-byte boundary!");
+				if(((long)b & 127) != 0x0)
+					fprintf(stderr, "WARN: b[] = 0x%08X not aligned on 128-byte boundary!\n", (uint32)b);
+				uint64 *ai = (uint64 *)a, *bi = (uint64 *)b, *atmp = (uint64 *)arrtmp;	// Handy 'precast' pointers
+				/* Suyama cofactor-PRP test for Fermat/Mersenne modulus N, using base-3 PRP-test to illustrate:
+					Let P = 3^[(N-1)/2] (mod N) be the base-3 Euler (Pepin-test) residue for N;
+					Let F = product of known small-prime factors of N, C the corresponding cofactor, i.e. N = F*C;
+					Let A = 3^(N-1) = P^2 (mod N) be the base-3 Fermat-PRP residue for N;
+					Let B = 3^(F-1) (mod N).
+				Then C is composite if R := (A - B) (mod C) = 0; otherwise if R = 0, C is a Fermat probable prime to base 3^F.
+				Proof: A - B = 3^(F*C-1) - 3^(F-1) = 3^(F-1) * [ 3^(F*(C-1)-1) - 1 ] == 0 (mod N) and thus also == 0 (mod C)
+				iff 3^(F*(C-1)-1) == 1 (mod C), which is just a base-3 Fermat-PRP test to base 3^F. QED
+				*/
+				fprintf(stderr,"Doing a cofactor-PRP test: maxiter = %u, savefile data are for iter = %u\n",maxiter,ilo);
+				ilo = 0;	ihi = ilo+1;	// Have checked that savefile residue is for a complete PRP test, so reset iteration counter
+				fprintf(stderr, "Doing one mod-%s squaring of iteration-%u residue [Res64 = %016llX] to get Fermat-PRP residue\n",PSTRING,ilo,Res64);
+				fprintf(stderr, "%s: using FFT length %uK = %u 8-byte floats.\n",PSTRING,kblocks,n);
+				fprintf(stderr, " this gives an average %20.15f bits per digit\n",1.0*p/n);
+				// Compute Fermat-PRP residue [A] from Euler-PRP (= Pepin-test) residue via a single mod-squaring:
+				BASE_MULTIPLIER_BITS[0] = 0ull;
+		/*A*/	ierr = fermat_mod_square(a, arrtmp, n, ilo, ihi, p, scrnFlag, &tdiff);
+				convert_res_FP_bytewise(a, (uint8*)arrtmp, n, p, &Res64, &Res35m1, &Res36m1);
+				fprintf(stderr, "Fermat-PRP residue: Res64 = %llX\n",Res64);
+				mi64_set_eq(ai,atmp,(p+63)>>6);	// Copy packed-bit result back into low ceiling(p/64) bytes of A-vec (treated as a uint64 array)
+				// Compute "prime-factor product residue" [B] from Euler-PRP (= Pepin-test) residue ... first init bitwise mul-by-base array = F, i.e. storing product of known small-prime factors:
+				ASSERT(HERE, nfac > 0,"Cofactor-PRP test requires one or more known factors!");
+				BASE_MULTIPLIER_BITS[0] = 1ull;	lenf = 1;
+				// Must recompute each factor from its k-value before multiplying with current partial product of factors:
+				uint64 curr_fac[10];
+				for(i = 0; i < nfac; i++) {
+					curr_fac[0] = factor_k[i];	curr_fac[1] = 0ull;	j = 1;	// j = number of nonzero limbs in curr_fac
+					j += mi64_mul_scalar(curr_fac, twop, curr_fac, j);	curr_fac[0] += 1ull;
+					// Multiply factor into current partial product of factors; use b-array to store product to work around none-of-3-input-pointers-may-coincide restriction in mi64_mul_vector:
+					mi64_mul_vector(BASE_MULTIPLIER_BITS,lenf, curr_fac,j, bi,&lenf);
+					mi64_set_eq(BASE_MULTIPLIER_BITS,bi,lenf);
+				}
+				// Only use curr_fac to store one individual factor at a time here, but need it for all of F later on
+				ASSERT(HERE, lenf <= 10, "Product of factors too large to fit into curr_fac[]!");
+				for(i = 0; i < lenf; i++) { b[i] = 0.0; }	// Re-zero the elts of b used as tmps in above loop
+				fbits = (lenf<<6) - mi64_leadz(BASE_MULTIPLIER_BITS, lenf);
+				// Now that have F stored in BASE_MULTIPLIER_BITS array, do powmod to get B = base^(F-1) (mod N):
+				BASE_MULTIPLIER_BITS[0] -= 1ull;	// F-1; no chance of a borrow here
+				b[0] = PRP_BASE;	ASSERT(HERE, PRP_BASE < (1 << (uint32)ceil(1.0*p/n)), "PRP_BASE out of range!");
+				ilo = 0;	ihi = fbits-1;	// LR modpow; init b[0] = PRP_BASE takes cares of leftmots bit
+/************** For mers-mod support, do we need to replace p>>6 with (p+63)>>6 in mi64 calls below? ***************/
+				mi64_brev(BASE_MULTIPLIER_BITS,ihi);	// bit-reverse low [ihi] bits of BASE_MULTIPLIER_BITS:
+		/*B*/	ierr = fermat_mod_square(b, arrtmp, n, ilo, ihi, p, scrnFlag, &tdiff);
+				convert_res_FP_bytewise(b, (uint8*)arrtmp, n, p, &Res64, &Res35m1, &Res36m1);	// Res64 = 0x25f5ab0ffc728c87
+				fprintf(stderr, "Processed %u bits in binary modpow. %u^(F-1) residue: Res64 = %llX\n",ihi,PRP_BASE,Res64);
+				mi64_set_eq(bi,atmp,p>>6);	// Copy packed-bit result back into low ceiling(p/8) bytes of A-vec (treated as a unit64 array)
+				itmp64 = mi64_sub(ai,bi, ai,p>>6);
+				// If result < 0, need to add Modulus - for N = Fm,Mp this means +-1 in LSW, respectively:
+				if(itmp64) {	ASSERT(HERE, itmp64 == 1ull,"Carryout = 1 expected!");
+					if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
+						itmp64 = mi64_sub_scalar(ai,1ull, ai,p>>6);
+					} else {
+						itmp64 = mi64_add_scalar(ai,1ull, ai,p>>6);
+					}	ASSERT(HERE, itmp64 == 0ull,"Carryout = 0 expected!");
+				}
+				// B-array again free, re-use in uint64-cast form to compute C = Fm/F and (A-B) mod C:
+				// Compute Modulus ... note mi64-vecs have no cache-oriented element padding:
+				if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
+					itmp64 =-1ull;	j = (p >> 6);	// j = uint64 vector length; init sans the leading word, which needs special handling
+					mi64_set_eq_scalar(bi,itmp64,j);
+					itmp64 >>= (p&63);	b[++j] = *((double *)&itmp64);	// Pre-increment here
+				} else {
+					itmp64 = 0ull;	j = (p >> 6);	// j = uint64 vector length; init sans the leading '1' word, then increment prior to mi64_div
+					mi64_set_eq_scalar(bi,itmp64,j);
+					itmp64 = 1ull;	b[j++] = b[0] = *((double *)&itmp64);	// Post-increment here
+				}
+		// C = N/F:
+				mi64_brev(BASE_MULTIPLIER_BITS,ihi);// 2nd BR of low [ihi] bits of BASE_MULTIPLIER_BITS to recover the factored part F-1, sans leftmost bit...
+				BASE_MULTIPLIER_BITS[lenf-1] += 1ull << (fbits-1);	// Restore leftmost bit ...
+				BASE_MULTIPLIER_BITS[     0] += 1ull;	// ... and add 1 to recover F; no chance of a carryout here
+				// Since F << N, use Mont-mul-div for C - quotient overwrites N, no rem-vec needed, just verify that F is in fact a divisor:
+				ASSERT(HERE, 1 == mi64_div(bi,BASE_MULTIPLIER_BITS, j,lenf, atmp,0x0), "C = N/F should have 0 remainder!");
+				i = (p+63)>>6;	j = mi64_getlen(atmp, j);
+				// R = (A - B) mod C in B-array; store Q = (A - B)/C in curr_fac[] in case want to remultiply and verify Q*C + R = (A - B):
+				mi64_div_binary(ai,atmp, i,j, curr_fac,(uint32 *)&j, bi);	// On return, j has quotient length
+				// For 1-word quotient q, double-check binary-div result by computing (q*denominator + r) and comparing vs numerator:
+				if(j == 1) {
+					ASSERT(HERE, 0 == mi64_mul_scalar_add_vec2(atmp, curr_fac[0], bi, atmp, i), "Unexpected carryout!");
+					ASSERT(HERE, 1 == mi64_cmp_eq(ai,atmp,i), "Q*C + R = (A - B) check fails!");
+				}
+				/* Compute S-H residues of B-array here or just use Res64 = ((uint64*)b)[0]? */
+				printf("Suyama Cofactor-PRP test of %s",PSTRING);
+				// Base-2 log of cofactor = lg(Fm/F) = lg(Fm) - lg(F) ~= 2^m - lg(F). 2^m stored in p, sub lg(F) in loop below:
+				double lg_cof = p,lg_fac,log10_2 = 0.30102999566398119521;	// Use lg_fac to store log2 of each factor as we recompute it
+				for(i = 0; i < nfac; i++) {
+					curr_fac[0] = factor_k[i];	curr_fac[1] = 0ull;	j = 1;	// j = number of nonzero limbs in curr_fac
+					j += mi64_mul_scalar(curr_fac, twop, curr_fac, j);	curr_fac[0] += 1ull;
+					printf(" / %s",&cbuf[convert_mi64_base10_char(cbuf, curr_fac, j, 0)] );
+					lg_fac  = (double)mi64_extract_lead64(curr_fac, j, &itmp64) - 64;
+					lg_fac += log((double)itmp64)*ILG2;
+					lg_cof -= lg_fac;
+				}
+				i = (p+63)>>6;	j = mi64_getlen(bi, i);	// Returns 0 iff all limbs of remainder == 0
+				printf(" with FFT length %u = %u K: Res64: %16llX.\n",n,kblocks,bi[0]);
+				i = ceil(lg_cof*log10_2);
+				if(!j)
+					printf("This cofactor is PROBABLE PRIME [PRP%u].\n",i);
+				else
+					printf("This cofactor is COMPOSITE [C%u].\n",i);
+				// Free the b-array:
+				free((void *)b_ptmp); b_ptmp=0x0; b=0x0;
+exit(0);
+			}
 			restart = TRUE;
-			ihi = ilo+ITERS_BETWEEN_CHECKPOINTS;
-			/* If for some reason last checkpoint was at a non-multiple of ITERS_BETWEEN_CHECKPOINTS, round down: */
-			ihi-= ihi%ITERS_BETWEEN_CHECKPOINTS;
 		}
 		else /* if(!fp) */
 		{
@@ -1230,39 +1491,69 @@ READ_RESTART_FILE:
 			ihi=ITERS_BETWEEN_CHECKPOINTS;
 	}
 
+	// PRP-test: Init bitwise multiply-by-base array, all bits = 1 if Mersenne and PRP-test, else all 0s:
+	if(TEST_TYPE == TEST_TYPE_PRP) {
+		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
+			itmp64 = 0xFFFFFFFFFFFFFFFFull;
+		else
+			itmp64 = 0ull;
+		for(i = 0; i < ((ITERS_BETWEEN_CHECKPOINTS+63) >> 6); i++) {
+			BASE_MULTIPLIER_BITS[i] = itmp64;
+		}
+	}
+#warning Need to set maxiter, high bit (= bit 0 in BRed form used by LR modpow) = 0 for Fermat-PRP test!
 	ASSERT(HERE,MODULUS_TYPE,"MODULUS_TYPE not set!");
 	ASSERT(HERE,MODULUS_TYPE <= MODULUS_TYPE_MAX,"MODULUS_TYPE out of range!");
 
 	/* If at the start of a p-1 or primality test, set the initial seed for the run: */
-	ASSERT(HERE, TEST_TYPE == TEST_TYPE_PMINUS1 || TEST_TYPE == TEST_TYPE_PRIMALITY,"Mlucas.c: TEST_TYPE == TEST_TYPE_PMINUS1 || TEST_TYPE == TEST_TYPE_PRIMALITY");
+	ASSERT(HERE, TEST_TYPE <= TEST_TYPE_MAX,"Given TEST_TYPE not supported!");
 	if(ilo == 0)
 	{
-		/* Always use 3 as the p-1 and Fermat-test seed, and 4 for the LL-test seed: */
-		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRIMALITY)
-			iseed = 4;
-		else
-			iseed = 3;
-
 		memset(a, 0, npad*sizeof(double));
-		a[0] = iseed;
 	#ifdef USE_FGT61
 		memset(b, 0, npad*sizeof(double));
-		b[0] = iseed;
+	#endif
+		/* Always use 3 as the p-1 and Pepin-test seed, and 4 for the LL-test seed. For PRP-test, use seed set in worktodo assignment line: */
+		if(TEST_TYPE == TEST_TYPE_PRP || TEST_TYPE == TEST_TYPE_PRPCOFACTOR)
+			iseed = PRP_BASE;
+		else if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRIMALITY)
+			iseed = 4;
+		else	// Pepin test:
+			iseed = 3;
+
+	#ifndef USE_SSE2	// Only support residue-shift for SIMD builds:
+		RES_SHIFT = 0ull; a[0] = iseed;
+	#else
+		// Apply initial-residue shift - if user has not set one via cmd-line or current value >= p, randomly choose a value in [0,p).
+		// [Note that the RNG is inited as part of the standard program-start-sequence, via function host_init().]
+		if(RES_SHIFT == -1ull || RES_SHIFT >= p)	// Since 0 a valid value of RES_SHIFT, treat -1 as "uninited"
+			RES_SHIFT = rng_isaac_rand() % p;
+		else if(RES_SHIFT == 0) {	// This is needed for multi-exponent runs in which the first assignment is a partially-complete v17 run:
+			itmp64 = parse_cmd_args_get_shift_value();
+			if(itmp64 == -1ull)	// -1 indicates "-shift not specified on command line", in which case we init-to-random since this is a v18 run-from-scratch
+				RES_SHIFT = rng_isaac_rand() % p;
+			else	// Otherwise set shift to whatever value was specified on command line
+				RES_SHIFT = itmp64 % p;
+		}
+		// Since residue is otherwise 0, use shifted-carryin function on double-precision padded-array residue:
+		itmp64 = shift_word(a, n, p, RES_SHIFT, (double)iseed);	// Note return value (specifically high 7 bytes thereof) is an unpadded index
+	 	ASSERT(HERE, (itmp64 >>  8) < n                , "Return value of shift_word(): unpadded-array-index out of range!");
+		ASSERT(HERE, (itmp64 & 255) < ceil((double)p/n), "Return value of shift_word(): bit-in-array-word value out of range!");
 	#endif
 	}
 
 	if(restart)
 	{
-		itmp64 = res64(a, n, p,&nbits,hex_res);
-		ASSERT(HERE,Res64 == itmp64,"On restart: Res64 != itmp64");
-		sprintf(cbuf, "Restarting %s at iteration = %u. Res%2d: %s\n",PSTRING,ilo,nbits,hex_res);
+		sprintf(cbuf, "Restarting %s at iteration = %u. Res64: %016llX, residue shift count = %llu\n",PSTRING,ilo,Res64,RES_SHIFT);
 	}
 
 	/*...Restart and FFT info.	*/
 	if(INTERACT)
 	{
-		fprintf(stderr, "%s: using FFT length %uK = %u 8-byte floats.\n",PSTRING,kblocks,n);
+		fprintf(stderr, "%s: using FFT length %uK = %u 8-byte floats, initial residue shift count = %llu\n",PSTRING,kblocks,n,RES_SHIFT);
 		fprintf(stderr, " this gives an average %20.15f bits per digit\n",1.0*p/n);
+		if(TEST_TYPE == TEST_TYPE_PRP || TEST_TYPE == TEST_TYPE_PRPCOFACTOR)
+			fprintf(stderr, "The test will be done in form of a %u-PRP test.\n",iseed);
 	}
 	else
 	{
@@ -1270,8 +1561,10 @@ READ_RESTART_FILE:
 		if(fp)
 		{
 			fprintf(fp,"%s",cbuf);
-			fprintf(fp,"%s: using FFT length %uK = %u 8-byte floats.\n",PSTRING,kblocks,n);
+			fprintf(fp,"%s: using FFT length %uK = %u 8-byte floats, initial residue shift count = %llu\n",PSTRING,kblocks,n,RES_SHIFT);
 			fprintf(fp," this gives an average %20.15f bits per digit\n",1.0*p/n);
+			if(TEST_TYPE == TEST_TYPE_PRP || TEST_TYPE == TEST_TYPE_PRPCOFACTOR)
+				fprintf(fp, "The test will be done in form of a %u-PRP test.\n",iseed);
 			fclose(fp);	fp = 0x0;
 		}
 	}
@@ -1280,7 +1573,7 @@ READ_RESTART_FILE:
 
 	for(;;)
 	{
-		ASSERT(HERE, (int)maxiter > 0,"Mlucas.c: (int)maxiter > 0");
+		ASSERT(HERE, (int)maxiter > 0,"Require (int)maxiter > 0");
 		if(ihi > maxiter) ihi=maxiter;
 
 		/* Here's the big one - (ITERS_BETWEEN_CHECKPOINTS) squaring steps.
@@ -1309,72 +1602,81 @@ READ_RESTART_FILE:
 		}
 
 		// Roundoff-retry scheme is detailed in comments of the above fermat_mod_square() function:
-		if((ierr == ERR_ROUNDOFF) && !INTERACT) {
-			if(!ROE_ITER) {
-				ASSERT(HERE, 0, "ERR_ROUNDOFF returned but ROE_ITER not set!");
-			} else if(ROE_ITER > 0) {
-				// [1] [condition] (ROE_ITER > 0) :
-				//     [action] Rerun the interval with the same FFT params (via goto below)
-			} else if(ROE_ITER < 0) {
-				// [2b] [condition] (ROE_ITER < 0) The error is reproducible, i.e. recurs on same iter, with same fracmax.
-				//     [action] Rerun interval needs (and the rest of the run) with the next-larger available FFT length:
-				ASSERT(HERE, ROE_VAL == 0.0, "[2b]: (ROE_ITER < 0) but (ROE_VAL != 0)");
-				ROE_ITER = 0;
-				n = get_nextlarger_fft_length(n);
-				kblocks = (n >> 10);
+		if(ierr) {
+			if((ierr == ERR_ROUNDOFF) && !INTERACT) {
+				if(!ROE_ITER) {
+					ASSERT(HERE, 0, "ERR_ROUNDOFF returned but ROE_ITER not set!");
+				} else if(ROE_ITER > 0) {
+					// [1] [condition] (ROE_ITER > 0) :
+					//     [action] Rerun the interval with the same FFT params (via goto below)
+				} else if(ROE_ITER < 0) {
+					// [2b] [condition] (ROE_ITER < 0) The error is reproducible, i.e. recurs on same iter, with same fracmax.
+					//     [action] Rerun interval needs (and the rest of the run) with the next-larger available FFT length:
+					if(ROE_VAL == 0.0)		// Case [2b]
+						n = get_nextlarger_fft_length(n);
+					else {					// Case [2c]
+						kblocks = get_default_fft_length(p);	// Default FFT length in Kdoubles for this exponent
+						if(n > (kblocks << 10))		// We are already running at a larger-than-default FFT length
+							n = kblocks << 10;
+						else
+							n = get_nextlarger_fft_length(n);
+					}
+					ROE_ITER = 0;
+					kblocks = (n >> 10);
+				}
+				// Clear out current FFT-radix data, since get_preferred_fft_radix() expects that:
+				for(i = 0; i < NRADICES; i++) { RADIX_VEC[i] = 0; }
+				NRADICES = 0;
+				goto SETUP_FFT;	// Do this for both ROE_ITER < 0 and > 0; in the latter case with unchanged FFT params
 			}
-			// Clear out current FFT-radix data, since get_preferred_fft_radix() expects that:
-			for(i = 0; i < NRADICES; i++) { RADIX_VEC[i] = 0; }
-			NRADICES = 0;
-			goto SETUP_FFT;	// Do this for both ROE_ITER < 0 and > 0; in the latter case with unchanged FFT params
+			else if(ierr == ERR_UNKNOWN_FATAL)
+				return(EXIT_FAILURE);
+			if(ierr != ERR_INTERRUPT)	// Unknown error ... try simply going to next assignment
+				goto GET_NEXT_ASSIGNMENT;
 		}
-		else if(ierr == ERR_UNKNOWN_FATAL)
-			return(EXIT_FAILURE);
-		if(ierr)
-			goto GET_NEXT_ASSIGNMENT;
+
+	/*...Every (ITERS_BETWEEN_CHECKPOINTS)th iteration, print timings to stdout or STATFILE.
+	If it's a regular (i.e. non-timing) test, also write current residue to restart files.
+	*/
+	//	if(RES_SHIFT) for(j = 0; j < n; j++) a[j] = -a[j];	// *************** DEBUG (attempted) of Fermat-mod-with-shift *******************
+		/* v18: Moved term-output below convert_res_FP_bytewise call since in the presence of cshifted residues
+		need convert_res_FP_bytewise call to remove cshift and compute SH residues: */
+		convert_res_FP_bytewise(a, (uint8*)arrtmp, n, p, &Res64, &Res35m1, &Res36m1);
+
+		// On signal, do immediate-exit-sans-savefile-write in interactive-timing-test (e.g. self-tests) mode:
+		if(INTERACT && (ierr == ERR_INTERRUPT))
+			exit(0);
+
+		// In non-interactive (production-run) mode, write savefiles and exit gracefully on signal:
+		if(ierr == ERR_INTERRUPT) {
+			fp = mlucas_fopen(STATFILE,"a");
+			if(fp){ fprintf(fp,"%s",cbuf); }	// First print the signal-handler-generated message
+			ihi = ROE_ITER;	// Last-iteration-completed-before-interrupt saved here
+			fprintf(stderr,"Iter = %u: Writing savefiles and exiting.\n",ihi);
+			sprintf(cbuf  ,"Iter = %u: Writing savefiles and exiting.\n",ihi);
+			if(fp){	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;	}
+		}
 
 		/*...Done?	*/
-		if(INTERACT) break;	/* C version uses zero-offset iteration counter. */
-
 		AME /= (ihi - ilo);	// Don't /= ITERS_BETWEEN_CHECKPOINTS here since final interval is a partial one
+		if(!INTERACT) {
+			/*...get a quick timestamp...	*/
+			calendar_time = time(NULL);
+			local_time = localtime(&calendar_time);
+			strftime(timebuffer,SIZE,"%b %d %H:%M:%S",local_time);
 
-		/*...Every (ITERS_BETWEEN_CHECKPOINTS)th iteration, print timings to stdout or STATFILE.
-		If it's a regular (i.e. non-timing) test, also write current residue to restart files.
-		*/
+			/*...print runtime in hh:mm:ss format.	*/
+			sprintf(cbuf, "[%s] %s Iter# = %u [%5.2f%% complete] clocks =%s [%8.4f msec/iter] Res64: %016llX. AvgMaxErr = %10.9f. MaxErr = %10.9f. Residue shift count = %llu.\n"
+				, timebuffer, PSTRING, ihi, (float)ihi / (float)p * 100,get_time_str(tdiff)
+				, 1000*get_time(tdiff)/(ihi - ilo), Res64, AME, MME, RES_SHIFT);
 
-		/*...get a quick mod-2^64 residue...	*/
-		Res64 = res64(a, n, p,&nbits,hex_res);
-				resSH(a, n, p, &Res35m1, &Res36m1);
-
-		/*...get a quick timestamp...	*/
-		calendar_time = time(NULL);
-		local_time = localtime(&calendar_time);
-		strftime(timebuffer,SIZE,"%b %d %H:%M:%S",local_time);
-
-		/*...print runtime in hh:mm:ss format.	*/
-		sprintf(cbuf, "[%s] %s Iter# = %u [%5.2f%% complete] clocks =%s [%8.4f sec/iter] Res%2d: %s. AvgMaxErr = %10.9f. MaxErr = %10.9f.\n"
-			, timebuffer, PSTRING, ihi, (float)ihi / (float)p * 100,get_time_str(tdiff)
-			, tdiff/(ihi - ilo), nbits, hex_res, AME, MME);
-		if(INTERACT)
-			fprintf(stderr,"%s",cbuf);
-		else
-		{
 			fp = mlucas_fopen(STATFILE,"a");	  if(fp){	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;	}
-			if (scrnFlag)	fprintf(stderr,"%s",cbuf);	/* Echo output to stddev */
+			if (scrnFlag)
+				fprintf(stderr,"%s",cbuf);	/* Echo output to stddev */
 		}
-		// For Mersennes we do not save a final residue (but this leaves the penultimate residue file intact)
-		if( (MODULUS_TYPE == MODULUS_TYPE_MERSENNE) && (ihi == maxiter) ) break;
 
-		/* We've already calculated the SH residues here, but recalculating them during floating-to-bytewise
-		residue array conversion is sufficiently cheap that the redundant calls to res64() and resSH() above don't
-		really matter - use as an extra check on convert_res_FP_bytewise():
-		*/
-		sum0 = Res64; sum1 = Res35m1; sum2 = Res36m1;
-
-		convert_res_FP_bytewise(a, (uint8*)arrtmp, n, p, &Res64, &Res35m1, &Res36m1);
-		ASSERT(HERE, sum0 == Res64  , "Res64   returned by convert_res_FP_bytewise differs from res64()!");
-		ASSERT(HERE, sum1 == Res35m1, "Res35m1 returned by convert_res_FP_bytewise differs from resSH()!");
-		ASSERT(HERE, sum2 == Res36m1, "Res36m1 returned by convert_res_FP_bytewise differs from resSH()!");
+		// For Mersennes we do not save a final residue unless cofactor-PRP mode (but this leaves the penultimate residue file intact):
+		if( (MODULUS_TYPE == MODULUS_TYPE_MERSENNE) && (ihi == maxiter) && (TEST_TYPE != TEST_TYPE_PRPCOFACTOR)) break;
 
 		// Oct 2014: Add every-10-million-iter file-checkpointing: deposit a unique-named restart file
 		//           p[exponent].xM every 10 million iterations, on top of the usual checkpointing.
@@ -1407,22 +1709,16 @@ READ_RESTART_FILE:
 		fp = mlucas_fopen(RESTARTFILE, "wb");
 		if(fp)
 		{
-		#if OLD_FORMAT
-			write_ppm1_savefiles(p, fp, ihi, n, (int32*)arrtmp, a);
-		#else
-			write_ppm1_savefiles(p, fp, ihi, (uint8*)arrtmp, Res64, Res35m1, Res36m1);
-		#endif
+			write_ppm1_savefiles(p, n, fp, ihi, (uint8*)arrtmp, Res64, Res35m1, Res36m1);
 			fclose(fp);	fp = 0x0;
 
 			/* If we're on the primary restart file, set up for secondary: */
-			if(RESTARTFILE[0] != 'q')
-			{
+			if(RESTARTFILE[0] != 'q') {
 				RESTARTFILE[0] = 'q';
 				goto WRITE_RESTART_FILE;
-			}
-			else
+			} else {
 				RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
-
+			}
 		}
 		else
 		{
@@ -1436,41 +1732,38 @@ READ_RESTART_FILE:
 			*/
 		}	/* endif(fp) */
 
-		// For Fermats, exit only after writing final-residue checkpoint file:
-		if( (MODULUS_TYPE == MODULUS_TYPE_FERMAT) && (ihi == maxiter) ) break;
+		if(ierr == ERR_INTERRUPT) exit(0);
+
+		// For Fermats and cofactor-PRP tests of either modulus type, exit only after writing final-residue checkpoint file:
+		if( ihi == maxiter ) break;
 
 		/*...reset loop parameters and begin next iteration cycle...	*/
-		ilo=ihi;
-		ihi=ilo+ITERS_BETWEEN_CHECKPOINTS;
+		ilo = ihi;
+		ihi = ilo+ITERS_BETWEEN_CHECKPOINTS;
 	}
 
 	/*...For timing tests, print timing and 64-bit residue and return timing via arglist runtime ptr...	*/
-
 	*runtime = tdiff;
-	Res64 = res64(a, n, p,&nbits,hex_res);
-			resSH(a, n, p, &Res35m1, &Res36m1);
 
 	/* If Selftest mode... */
 	if(INTERACT)
 	{
-		fprintf(stderr, "%u iterations of %s with FFT length %u = %u K\n",timing_test_iters,PSTRING,n,kblocks);
+		fprintf(stderr, "%u iterations of %s with FFT length %u = %u K, final residue shift count = %llu\n",timing_test_iters,PSTRING,n,kblocks,RES_SHIFT);
+		// If testType non-default (e.g. PRP for Mersennes), add text indicating that:
+		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRP)
+			sprintf(cbuf,"PRP-%u ",PRP_BASE);
+		else
+			sprintf(cbuf,"");
 
 		/* If Fermat number, make sure exponent a power of 2: */
 		if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
-		{
-			ASSERT(HERE, (p >> findex) == 1,"Mlucas.c: (p >> findex) == 1");
-		}
+			ASSERT(HERE, (p >> findex) == 1,"Require (p >> findex) == 1");
 
-		if(nbits < 64) fprintf(stderr, "WARNING: this residue contains only %u bits\n",nbits);
-
-		if(timing_test_iters > AME_ITER_START)
-		{
+		if(timing_test_iters > AME_ITER_START) {
 			AME /= (timing_test_iters - AME_ITER_START);
-			fprintf(stderr, "Res%2d: %s. AvgMaxErr = %10.9f. MaxErr = %10.9f. Program: E%s\n", nbits, hex_res, AME, MME, VERSION);
-		}
-		else
-		{
-			fprintf(stderr, "Res%2d: %s. AvgMaxErr N/A. MaxErr = %10.9f. Program: E%s\n", nbits, hex_res, MME, VERSION);
+			fprintf(stderr, "%sRes64: %016llX. AvgMaxErr = %10.9f. MaxErr = %10.9f. Program: E%s\n", cbuf, Res64, AME, MME, VERSION);
+		} else {
+			fprintf(stderr, "%sRes64: %016llX. AvgMaxErr N/A. MaxErr = %10.9f. Program: E%s\n", cbuf, Res64, MME, VERSION);
 		}
 		/* MSVC/.NET incorrectly output these when using uint64 and %20llu format, so cast to double and print: */
 		fprintf(stderr, "Res mod 2^36     = %20.0f\n",(double)(Res64 & (uint64)0x0000000FFFFFFFFFull));
@@ -1608,25 +1901,11 @@ READ_RESTART_FILE:
 			/*...otherwise, write the 64-bit hex residue.	*/
 			fp = mlucas_fopen(STATFILE,"a");
 			fq = mlucas_fopen(   OFILE,"a");
-			sprintf(cbuf, "%s is not prime. Res%2d: %s. Program: E%s\n",PSTRING,nbits,hex_res,VERSION);
+			sprintf(cbuf, "%s is not prime. Res64: %016llX. Program: E%s. Final residue shift count = %llu\n",PSTRING,Res64,VERSION,RES_SHIFT);
 			if(fp){ fprintf(fp,"%s",cbuf); }
 			if(fq){ fprintf(fq,"%s",cbuf); }
-			if(INTERACT)
+			if(!INTERACT)
 			{
-				if(nbits < 64) sprintf(cbuf, "WARNING: this residue contains only %u bits\n",nbits);
-				fprintf(stderr,"%s",cbuf);
-			}
-			else
-			{
-				if(nbits < 64)
-				{
-					if (scrnFlag)		/* Echo output to stddev */
-					{
-						fprintf(stderr,"%s",cbuf);
-					}
-					if(fp){ fprintf(fp,"WARNING: this residue contains only %u bits\n",nbits); }
-					if(fq){ fprintf(fq,"WARNING: this residue contains only %u bits\n",nbits); }
-				}
 				// Only write the 3 supplemental SH residues to the .stat file:
 				sprintf(cbuf, "%s mod 2^36     = %20.0f\n",PSTRING,(double)(Res64 & (uint64)0x0000000FFFFFFFFFull));
 				if(fp){ fprintf(fp,"%s",cbuf); }
@@ -1634,7 +1913,6 @@ READ_RESTART_FILE:
 				if(fp){ fprintf(fp,"%s",cbuf); }
 				sprintf(cbuf, "%s mod 2^36 - 1 = %20.0f\n",PSTRING,(double)Res36m1);
 				if(fp){ fprintf(fp,"%s",cbuf); }
-
 			}
 			if(fp){ fclose(fp);	fp = 0x0; }
 			if(fq){ fclose(fq);	fq = 0x0; }
@@ -1708,7 +1986,7 @@ GET_NEXT_ASSIGNMENT:
 				{
 					/* Factor depth assumed to follow the first comma in in_line: */
 					char_addr = strstr(char_addr, ",");
-					ASSERT(HERE, char_addr != 0x0,"Mlucas.c: char_addr");
+					ASSERT(HERE, char_addr != 0x0,"Null char_addr");
 					sprintf(++char_addr, "%u", bit_depth_done);
 					fputs(in_line, fq);
 				}
@@ -1716,10 +1994,10 @@ GET_NEXT_ASSIGNMENT:
 				{
 					/*0/1 flag indicating whether P-1 has been done assumed to follow second comma in in_line: */
 					char_addr = strstr(char_addr, ",");
-					ASSERT(HERE, char_addr != 0x0,"Mlucas.c: char_addr");
+					ASSERT(HERE, char_addr != 0x0,"Null char_addr");
 					char_addr++;
 					char_addr = strstr(char_addr, ",");
-					ASSERT(HERE, char_addr != 0x0,"Mlucas.c: char_addr");
+					ASSERT(HERE, char_addr != 0x0,"Null char_addr");
 					sprintf(++char_addr, "1");
 					fputs(in_line, fq);
 				}
@@ -1818,21 +2096,21 @@ void 	Mlucas_init(void)
 
 	/* Set min. exponent (in terms of power of 2) that can be tested: */
 	/* Check that the purported min. FFT length is actually supported: */
-	ASSERT(HERE, get_fft_radices(MIN_FFT_LENGTH_IN_K, 0, 0x0, 0x0, 0) == 0,"Mlucas.c: get_fft_radices(MIN_FFT_LENGTH_IN_K, 0) == 0");
+	ASSERT(HERE, get_fft_radices(MIN_FFT_LENGTH_IN_K, 0, 0x0, 0x0, 0) == 0,"Require get_fft_radices(MIN_FFT_LENGTH_IN_K, 0) == 0");
 	n = (MIN_FFT_LENGTH_IN_K << 10);
 	/* Make sure N didn't overflow */
-	ASSERT(HERE, (n >> 10) == MIN_FFT_LENGTH_IN_K,"Mlucas.c: (n >> 10) == MIN_FFT_LENGTH_IN_K");
+	ASSERT(HERE, (n >> 10) == MIN_FFT_LENGTH_IN_K,"Require (n >> 10) == MIN_FFT_LENGTH_IN_K");
 	PMIN = 2*n;	/* 2 bits per input is about the smallest we can test without getting nonzero-carry errors */
 
 	/* Set max. exponent (in terms of power of 2) that can be tested: */
 	/* Check that the purported max. FFT length is actually supported: */
-	ASSERT(HERE, get_fft_radices(MAX_FFT_LENGTH_IN_K, 0, 0x0, 0x0, 0) == 0,"Mlucas.c: get_fft_radices(MAX_FFT_LENGTH_IN_K, 0) == 0");
+	ASSERT(HERE, get_fft_radices(MAX_FFT_LENGTH_IN_K, 0, 0x0, 0x0, 0) == 0,"Require get_fft_radices(MAX_FFT_LENGTH_IN_K, 0) == 0");
 	n = (MAX_FFT_LENGTH_IN_K << 10);
 	/* Make sure N didn't overflow */
-	ASSERT(HERE, (n >> 10) == MAX_FFT_LENGTH_IN_K,"Mlucas.c: (n >> 10) == MAX_FFT_LENGTH_IN_K");
+	ASSERT(HERE, (n >> 10) == MAX_FFT_LENGTH_IN_K,"Require (n >> 10) == MAX_FFT_LENGTH_IN_K");
 	PMAX = given_N_get_maxP(n);
 
-	ASSERT(HERE, PMAX > PMIN,"Mlucas.c: PMAX > PMIN");
+	ASSERT(HERE, PMAX > PMIN,"Require PMAX > PMIN");
 
 #ifdef INCLUDE_TF
 	/* Simple self-tester for sieve factoring routines: */
@@ -1856,70 +2134,96 @@ void 	Mlucas_init(void)
 
 /********************/
 
-/*
-Function to take an n-digit Mersenne or Fermat-mod residue, convert it to
-positive-digit form, and pretty-print the lowest-order 16 hex digits.
+/* Needed to support circularly-shifted residues - given a bitshift value, finds the padded-array
+index of the word containing the given bit and computes the corresponding carry-in (which will be either
+the initial seed at start of the run for LL and PRP tests, or the -2 added to the convolution-
+based mod-squaring output on each ensuing LL iteration) needing to be injected into said word
+at the appropriate within-word bit offset.
+
+If first_entry == TRUE, inits the BIGWORD_BITMAP and BIGWORD_NBITS arrays and directly injects
+the carry into the residue array a[], a valid pointer to which is assumed to be supplied in the arglist.
+In this case we have cy_in != 0, and we also forward-weight the resulting shifted-carryin
+in preparation for the initial forward FFT. (This single-word init-and-fwd-weighting saves us from having
+to run through the whole-array version of same in mers_mod_square() used for fully-populated interim
+LL residues read from a savefile .)
+
+If first_entry == FALSE, uses the previously-inited BIGWORD_BITMAP and BIGWORD_NBITS arrays and
+does a fast lookup based on those. In this case whether the carry is injected into the residue array
+is up to the caller. Most commonly these subsequent calls will be made from one of the DFT/carry functions,
+in which case we do not have time for a leisurely initial-residue-array-forward-weighting as on the initial
+iteration, and thus the caller should set cy_in = 0.0. Rather, the carry routine is expected to take the
+index+shift data and use them to inject the carry into the carry-macro call sequence in appropriate fashion,
+e.g. by on-the-fly computing the corresponding forward DWT weight for the array element into which the carry
+is injected, multiplying cy_in*(n/2)*wt_fwd to match the scaling of convolution outputs prior to the carry-
+macro step, adding that scaled carry to the appropriated convolution output and then doing the carry-macro
+step as usual.
+
+OTOH during e.g. self-tests we will also be calling this function at run-start for each of the various
+sets of FFT radices being tried at a given FFT length, in which case first_entry = false but we still
+want to init a single main-array element based on the properly shifted initial LL residue. In this case
+we have cy_in != 0, and we use both the fast lookup scheme and forward-weight the resulting shifted-carryin
+in preparation for the initial forward FFT.
+
+Return value:
+o High 7 bytes store *unpadded* index of double-array word containing the bit of the specified shift;
+o Low    byte stores bit-with-that-double-array word of the specified shift.
 */
-uint64 	res64(double a[], int n, const uint64 p, int *nbits, char *hex_res)
+uint64 	shift_word(double a[], int n, const uint64 p, const uint64 shift, const double cy_in)
 {
-	int bimodn,cy,findex,ii,j,j1;
-	int bw,sw,base[2],bits[2];
-	int64  itmp;
-	uint64 retval = 0, res64;
-	int pow2_fft;
-
-	ASSERT(HERE,MODULUS_TYPE,"MODULUS_TYPE not set!");
-	ASSERT(HERE,MODULUS_TYPE <= MODULUS_TYPE_MAX,"MODULUS_TYPE out of range!");
-
-	ASSERT(HERE,TRANSFORM_TYPE,"TRANSFORM_TYPE not set!");
-	ASSERT(HERE,TRANSFORM_TYPE <= TRANSFORM_TYPE_MAX,"TRANSFORM_TYPE out of range!");
-
-	/* If Fermat number, make sure exponent a power of 2: */
-	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
-	{
-		ASSERT(HERE, TRANSFORM_TYPE == RIGHT_ANGLE,"Mlucas.c: TRANSFORM_TYPE == RIGHT_ANGLE");
-		findex = trailz64(p);
-		ASSERT(HERE, (p >> findex) == 1,"Mlucas.c: (p >> findex) == 1");
+	static int first_entry=TRUE, nsave = 0;
+	static uint64 psave = 0ull;
+	static double bits_per_word = 0.0, words_per_bit = 0.0;
+	int pow2_fft,bimodn,curr_bit64,curr_wd64,w64,curr_wd_bits,mod64,findex,i,ii,j,j1,j2;
+	uint32 bw = p%n,sw = n-bw,nwt,sw_div_n,base[2],baseinv[2],bits[2],sw_idx_modn;
+	double cy,theta,wt_fwd,wt_cos,wt_sin;
+	uint64 nbits, itmp64;
+	 int64 retval = -1;	// Make this signed to ease "not yet set?" check
+#ifdef USE_FGT61
+	ASSERT(HERE,0,"shift_word() needs to be modified to support FGT!");
+#endif
+	if(n != nsave || p != psave) {
+		first_entry = TRUE;	for(j = 0; j < (n>>6); j++) { BIGWORD_BITMAP[j] = 0ull; }	// Need to clear bitmap in case of multi-FFT-length run
 	}
-	else
-		ASSERT(HERE, TRANSFORM_TYPE == REAL_WRAPPER,"Mlucas.c: TRANSFORM_TYPE == REAL_WRAPPER");
-
-	/* Vector length a power of 2? */
-	if((n >> trailz32(n)) == 1)
-	{
-		pow2_fft = TRUE;
-	}
-	else
-	{
-		pow2_fft = FALSE;
-	}
-
-	hex_res[0]='\0';
-	hex_res[16]='\0';
-	bits[0] = p/n;
-	base[0] = 1 << bits[0];
-
-	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && pow2_fft == TRUE)
-	{
-		bits[1] =     bits[0];
-	}
-	else
-	{
-		bits[1] = 1 + bits[0];
-	}
-	base[1] = 1 << bits[1];
-
-	bw = p%n;	/* cf. mers_mod_square.c	*/
-	sw = n - bw;
-	/*
-	If most-significant digit in the balanced-representation form is < 0, add the modulus to the residue.
-	For Mersenne (2^p-1) and Fermat (2^p+1) moduli, can combine this with the normalize-to-nonnegative-digit
-	step (which we do in any event) by simply initializing the carry into the latter to -1 or +1, respectively:
-	*/
-	cy=0;		/* init carry.	*/
-
-	for(j=n-1; j >= 0; j -= TRANSFORM_TYPE)
-	{
+	// May 2018: Check that BIGWORD_BITMAP and BIGWORD_NBITS arrays have been alloc'ed and use fast lookup based on those.
+	// Timing loop on my Core2 macbook indicates this fast-lookup needs ~160 cycles @1Mdouble FFT, not horrible but slower
+	// than I'd like, likely due to cache impacts of doing random-word lookups in the resulting 128kB and 64kB BIGWORD* arrays.
+	// Also had the "adjusting..." printfs enabled during the timing tests, 0 such adjustments needed for 10^9 random-shifts:
+	if(!first_entry) {
+	//	ASSERT(HERE, BIGWORD_BITMAP != 0x0 && BIGWORD_NBITS != 0x0, "BIGWORD_BITMAP and BIGWORD_NBITS arrays not alloc'ed!");
+		// Divide [shift] by the average bits per word to get a quick estimate of which word contains the corresponding bit:
+		j = shift*words_per_bit;	w64 = j>>6; mod64 = j&63;
+		// Then exactly compute the bitcount at the resulting word, by adding the BIGWORD_NBITS-array-stored exact
+		// total bitcount at the next-lower index-multiple-of-64 to the number of bits in the next (mod64) words,
+		// not including the current word, hence (64-mod64) rather than (63-mod64) as the BIGWORD_BITMAP[w64] shift count.
+		// NOTE: That (64 - ...) shiftcount also necessitates an added AND-mask to zero the result in the mod64 == 0 case:
+		itmp64 = BIGWORD_BITMAP[w64];	i = (int)bits_per_word;
+		ii = BIGWORD_NBITS[w64] + i*mod64 + popcount64( (itmp64<<(64-mod64)) & -(mod64 != 0) );
+		// Loop up or down (should be by at most 1 word in either direction) if the resulting #bits is such that RES_SHIFT maps to a <> word:
+		curr_wd_bits = i + ( (int64)(itmp64<<(63-mod64)) < 0 );
+		// Can gain a few % speed by commenting out this correction-step code, but even though I've encountered
+		// no cases where it's used in my (admittedly quite limited) testing, better safe than sorry:
+		if(shift < ii) {
+		//	printf("shift[%llu] < ii [%u] ... adjusting downward.\n",shift,ii);
+			while(shift < ii) {
+				if(--j < 0) {	// Note j is signed
+					j += 64;	w64 = j>>6; mod64 = j&63;	// Go to next-lower word of BIGWORD_BITMAP
+				} else {
+					--mod64;
+				}
+				curr_wd_bits = i + ( (int64)(BIGWORD_BITMAP[w64]<<(63-mod64)) < 0 );
+				ii -= curr_wd_bits;
+			}
+		} else if(shift >= (ii + curr_wd_bits) ) {
+		//	printf("shift[%llu] >= (ii + curr_wd_bits) [%u] ... adjusting upward.\n",shift,(ii + curr_wd_bits));
+			while(shift >= (ii + curr_wd_bits) ) {
+				if(++j > 63) {
+					j -= 64;	w64 = j>>6; mod64 = j&63;	// Go to next-higher word of BIGWORD_BITMAP
+				} else
+					++mod64;
+				curr_wd_bits = i + ( (int64)(BIGWORD_BITMAP[w64]<<(63-mod64)) < 0 );
+				ii += curr_wd_bits;
+			}
+		}
 	#ifdef USE_AVX512
 		j1 = (j & mask03) + br16[j&15];
 	#elif defined(USE_AVX)
@@ -1930,64 +2234,99 @@ uint64 	res64(double a[], int n, const uint64 p, int *nbits, char *hex_res)
 		j1 = j;
 	#endif
 		j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-
-		if(a[j1] != 0.0)
-		{
-			if(a[j1] < 0.0)
-			{
-				if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
-				{
-					cy = -1;
-				}
-				else if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
-				{
-					cy = +1;
-				}
-			}
-			break;
+		// Any carry-in needs to be properly left-shifted w.r.to the residue word into which it goes.
+		// Since the stdlib pow() function is expensive (~100-200 cycles), wrap this bit in an if(cy_in):
+		if(cy_in) {
+			// Compute wt = 2^(j*sw % n)/n:
+			sw_idx_modn = ((uint64)j*sw) % n;	// N is 32-bit, so only use 64-bit to hold intermediate product
+			wt_fwd = pow(2.0, (double)sw_idx_modn/n);
+			a[j1] = cy_in * (double)(1ull << (shift - ii)) * wt_fwd;
 		}
+		retval = ((uint64)j<<8) + (shift - ii);
+		goto DONE;
 	}
 
-	/*...Now form the hexadecimal residue, converting digits to positive-digit form along the way...	*/
+	first_entry = FALSE;
+	psave = p; nsave = n; bits_per_word = (double)p/n; words_per_bit = 1.0/bits_per_word;
+	ASSERT(HERE,MODULUS_TYPE,"MODULUS_TYPE not set!");
+	ASSERT(HERE,MODULUS_TYPE <= MODULUS_TYPE_MAX,"MODULUS_TYPE out of range!");
+	ASSERT(HERE,TRANSFORM_TYPE,"TRANSFORM_TYPE not set!");
+	ASSERT(HERE,TRANSFORM_TYPE <= TRANSFORM_TYPE_MAX,"TRANSFORM_TYPE out of range!");
+	ASSERT(HERE,p > shift,"Specified shift count out of range!");
 
-	*nbits = 0;	/* Total bits accumulated so far in the hex residue	*/
+	/* If Fermat number, make sure exponent a power of 2: */
+	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) {
+		ASSERT(HERE, TRANSFORM_TYPE == RIGHT_ANGLE,"Require TRANSFORM_TYPE == RIGHT_ANGLE");
+		findex = trailz64(p);
+		ASSERT(HERE, (p >> findex) == 1,"Require (p >> findex) == 1");
+		/* For Fermat-mod, only need IBDWT weights table if it's a non-power-of-2-length transform, in which
+		case the table has {nwt = odd part of N} distinct elements. Avoid if() logic related to power-of-2-or-not
+		by initing a single DWT weight = 1.0 in the power-of-2 case and = 2^((j%nwt)/n) otherwise:
+		*/
+		nwt = (n >> trailz32(n));
+		sw_div_n = sw*nwt/n;
+	}
+	else
+		ASSERT(HERE, TRANSFORM_TYPE == REAL_WRAPPER,"Require TRANSFORM_TYPE == REAL_WRAPPER");
+
+	/* Vector length a power of 2? */
+	pow2_fft = (n >> trailz32(n)) == 1;
+
+	bits[0] = p/n;
+	base[0] = 1 << bits[0];	baseinv[0] = 1.0/base[0];
+
+	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && pow2_fft == TRUE)
+		bits[1] =     bits[0];
+	else
+		bits[1] = 1 + bits[0];
+
+	base[1] = 1 << bits[1];	baseinv[1] = 1.0/base[1];
+
+	nbits = 0;	/* Total bits accumulated so far in the residue words processed	*/
 
 	if(TRANSFORM_TYPE == REAL_WRAPPER)
 	{
 		bimodn = 0;
-		ii = 0;		/* Index into the BASE array. */
+		ii = 0;		/* Index storing whether current word is a bigword (ii = 1) or a littleword (ii = 0). */
 		/* If bw > 0 (i.e. n does not divide p), lowest-order digit always a bigword:	*/
 		if(bw > 0)
 			ii = 1;
-
-		for(j=0; j < n; j++)
+		curr_wd64 = -1; curr_bit64 = 0;
+		for(j = 0; j < n; j++)
 		{
-		#ifdef USE_AVX512
-			j1 = (j & mask03) + br16[j&15];
-		#elif defined(USE_AVX)
-			j1 = (j & mask02) + br8[j&7];
-		#elif defined(USE_SSE2)
-			j1 = (j & mask01) + br4[j&3];
-		#else
-			j1 = j;
-		#endif
-			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-
-			itmp = (int64)(a[j1] + cy);	/* current digit in int64 form, subtracting any borrow from the previous digit.	*/
-			if(itmp < 0)			/* If current digit < 0, add the current base and set carry into next-higher digit = -1	*/
-			{
-				itmp += (base[ii]);
-				cy = -1;
+			// Every 64th word create an entry in how-many-residue-bits-in-all-elts-below-this-one array, incr curr_wd64 and reset curr_bit64:
+			if(!(curr_bit64 & 63)) {
+				BIGWORD_NBITS[++curr_wd64] = nbits;
+				curr_bit64 = 0;
 			}
-			else
-			{
-				cy = 0;
+			nbits += bits[ii];
+			BIGWORD_BITMAP[curr_wd64] |= ((uint64)ii) << curr_bit64++;
+			// Inject the carry-in and set the return value:
+			if(nbits > shift) {
+				if(retval < 0) {	// retval has not yet been set
+					curr_wd_bits = shift - (nbits - bits[ii]);	retval = ((uint64)j<<8) + curr_wd_bits;
+					cy = cy_in;
+//printf("Hit target bit %llu in a[%u] (=> BIGWORD_BITMAP[%u]), bit %u of <0:%u>, bitmap-word bit = %u\n",shift,j,curr_wd64,curr_wd_bits,bits[ii]-1,curr_bit64-1);	ASSERT(HERE, curr_wd_bits <= bits[ii]-1,"GAH!");
+				}
+			#ifdef USE_AVX512
+				j1 = (j & mask03) + br16[j&15];
+			#elif defined(USE_AVX)
+				j1 = (j & mask02) + br8[j&7];
+			#elif defined(USE_SSE2)
+				j1 = (j & mask01) + br4[j&3];
+			#else
+				j1 = j;
+			#endif
+				j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+				// Carry-in needs to be properly left-shifted w.r.to the residue word into which it goes;
+				// don't attempt to propagate any carry which would result from a proper base-normalization of the shifted carryin:
+				if(cy) {	// Compute wt = 2^(j*sw % n)/n:
+					sw_idx_modn = ((uint64)j*sw) % n;	// N is 32-bit, so only use 64-bit to hold intermediate product
+					wt_fwd = pow(2.0, (double)sw_idx_modn/n);
+					a[j1] = cy * (double)(1ull << (shift - (nbits - bits[ii]))) * wt_fwd;
+					cy = 0.0;
+				}
 			}
-
-			retval += (itmp << *nbits);
-			*nbits += bits[ii];
-			if(*nbits >= 64){ *nbits = 64; break; }
-
 			bimodn += bw;
 			if(bimodn >= n) bimodn -= n;
 			ii = (uint32)(sw - bimodn) >> 31;
@@ -1995,565 +2334,63 @@ uint64 	res64(double a[], int n, const uint64 p, int *nbits, char *hex_res)
 	}
 	else
 	{
+		ASSERT(HERE, TRANSFORM_TYPE == RIGHT_ANGLE, "Invalid or uninited TRANSFORM_TYPE!");
+		curr_wd64 = -1; curr_bit64 = 0;
+	  for(i = 0; i < 2; i++)	// Two stride-2 loops to cover even and odd-indexed array elements, respectively:
+	  {
 		bimodn = n;
-
-		for(j=0; j < n; j += 2)
+		for(j = 0; j < n; j += 2)
 		{
-		#ifdef USE_AVX512
-			j1 = (j & mask03) + br16[j&15];
-		#elif defined(USE_AVX)
-			j1 = (j & mask02) + br8[j&7];
-		#elif defined(USE_SSE2)
-			j1 = (j & mask01) + br4[j&3];
-		#else
-			j1 = j;
-		#endif
-			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-
 			ii = (bimodn > sw);					/*       i = 1 if a bigword,   0 if a smallword */
 			bimodn -= sw;						/* result >= 0 if a bigword, < 0 if a smallword */
 			bimodn += ( ((int)ii-1) & n);		/*       add 0 if a bigword,   N if a smallword */
-
-			itmp = (int64)(a[j1]+ cy);	/* current digit in int64 form, subtracting any borrow from the previous digit.	*/
-			if(itmp < 0)			/* If current digit < 0, add the current base and set carry into next-higher digit = -1	*/
-			{
-				itmp += (base[ii]);
-				cy = -1;
+			// Every 64th word create an entry in how-many-residue-bits-in-all-elts-below-this-one array, incr curr_wd64 and reset curr_bit64:
+			if(!(curr_bit64 & 63)) {
+				BIGWORD_NBITS[++curr_wd64] = nbits;
+				curr_bit64 = 0;
 			}
-			else
-			{
-				cy = 0;
+			nbits += bits[ii];
+			BIGWORD_BITMAP[curr_wd64] |= ((uint64)ii) << curr_bit64++;
+			// Inject the carry-in and set the return value:
+			if(nbits > shift) {
+				if(retval < 0) {	// retval has not yet been set
+					curr_wd_bits = shift - (nbits - bits[ii]);	retval = ((uint64)j<<8) + curr_wd_bits;
+					cy = cy_in;
+printf("Hit target bit %llu in a[%u] (=> BIGWORD_BITMAP[%u]), bit %u of <0:%u>, bitmap-word bit = %u\n",shift,j,curr_wd64,curr_wd_bits,bits[ii]-1,curr_bit64-1);	ASSERT(HERE, curr_wd_bits <= bits[ii]-1,"GAH!");
+				}
+			#ifdef USE_AVX512
+				j1 = (j & mask03) + br16[j&15];
+			#elif defined(USE_AVX)
+				j1 = (j & mask02) + br8[j&7];
+			#elif defined(USE_SSE2)
+				j1 = (j & mask01) + br4[j&3];
+			#else
+				j1 = j;
+			#endif
+				j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+				j2 = j1 + RE_IM_STRIDE;
+				// Carry-in needs to be properly left-shifted w.r.to the residue word into which it goes;
+				// don't attempt to propagate any carry which would result from a proper base-normalization of the shifted carryin:
+				if(cy) {	// Compute both the DWT weight (if n = 2^k this = 1) and the acyclic-twisting root of unity:
+					sw_idx_modn = ((uint64)(j>>1)*sw_div_n) % nwt;	// Analogous loop in fermat_mod_square increments ii += SW_DIV_N (mod nwt) for every j += 2, so need to halve j here
+					wt_fwd = pow(2.0, (double)sw_idx_modn/nwt);
+					cy *= (double)(1ull << (shift - (nbits - bits[ii])));
+					cy *= wt_fwd;
+					theta  = j * qfdbl(QPIHALF) / n;
+					wt_cos = cos(theta);	wt_sin = sin(theta);
+					if(!i) {	// [Re,0] * exp((j/2)*Pi/n) = [ Re*cos, Re*sin]:
+						a[j1] =  cy*wt_cos;	a[j2] = cy*wt_sin;
+					} else {	// [0,Im] * exp((j/2)*Pi/n) = [-Im*sin, Im*cos]:
+						a[j1] = -cy*wt_sin;	a[j2] = cy*wt_cos;
+					}
+					cy = 0.0;
+				}
 			}
-
-			retval += (itmp << *nbits);
-			*nbits += bits[ii];
-			if(*nbits >= 64){ *nbits = 64; break; }
 		}
+	  }
 	}
-
-	res64 = retval;
-	for(ii=15; ii >= 16-(*nbits>>2); ii--)
-	{
-		hex_res[ii] = hex_chars[res64 & 15];
-		res64 >>= 4;
-	}
-	for(ii=15-(*nbits>>2); ii >= 0; ii--)
-	{
-		hex_res[ii] = 'x';
-	}
-
+DONE:
 	return retval;
-}
-
-/********************/
-
-/*
-Function to take an n-digit Mersenne or Fermat-mod residue, convert it to
-positive-digit form, and return the Selfridge-Hurwitz residues,
-i.e. the final residue mod 2^35-1 and 2^36-1.
-
-In the Mersenne-mod case it is assumed the residue digits are stored
-consecutively in the a[] array.
-
-In the Fermat-mod case we assume the digits are arranged in (j,j+n/2)
-(i.e. right-angle transform) order.
-*/
-
-void 	resSH(double a[], int n, const uint64 p, uint64 *Res35m1, uint64 *Res36m1)
-{
-	uint64 nbits;
-	int bimodn,cy,findex,ii,j,j1,pass,shift;
-	int bw,sw,bits[2];
-	uint64 base[2];	/* Assume base may be > 2^32 (e.g. for mixed FFT/FGT) but < 2^53, i.e. fits in a double */
-	int64 itmp;
-	uint64 curr_word = 0, mod1=0, mod2=0;
-	const uint64 two35m1 = (uint64)0x00000007FFFFFFFFull, two36m1 = (uint64)0x0000000FFFFFFFFFull;	/* 2^35,36-1 */
-	int pow2_fft;
-
-	ASSERT(HERE,MODULUS_TYPE,"MODULUS_TYPE not set!");
-	ASSERT(HERE,MODULUS_TYPE <= MODULUS_TYPE_MAX,"MODULUS_TYPE out of range!");
-
-	ASSERT(HERE,TRANSFORM_TYPE,"TRANSFORM_TYPE not set!");
-	ASSERT(HERE,TRANSFORM_TYPE <= TRANSFORM_TYPE_MAX,"TRANSFORM_TYPE out of range!");
-
-	/* If Fermat number, make sure exponent a power of 2: */
-	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
-	{
-		ASSERT(HERE, TRANSFORM_TYPE == RIGHT_ANGLE,"Mlucas.c: TRANSFORM_TYPE == RIGHT_ANGLE");
-		findex = trailz64(p);
-		ASSERT(HERE, (p >> findex) == 1,"Mlucas.c: (p >> findex) == 1");
-	}
-	else
-		ASSERT(HERE, TRANSFORM_TYPE == REAL_WRAPPER,"Mlucas.c: TRANSFORM_TYPE == REAL_WRAPPER");
-
-	/* Vector length a power of 2? */
-	if((n >> trailz32(n)) == 1)
-	{
-		pow2_fft = TRUE;
-	}
-	else
-	{
-		pow2_fft = FALSE;
-	}
-
-	bits[0] = p/n;
-	base[0] = 1 << bits[0];
-
-	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && pow2_fft == TRUE)
-	{
-		bits[1] =     bits[0];
-	}
-	else
-	{
-		bits[1] = 1 + bits[0];
-	}
-	base[1] = 1 << bits[1];
-
-	bw = p%n;	/* cf. mers_mod_square.c	*/
-	sw = n - bw;
-	/*
-	If most-significant digit in the balanced-representation form is < 0, add the modulus to the residue.
-	For Mersenne (2^p-1) and Fermat (2^p+1) moduli, can combine this with the normalize-to-nonnegative-digit
-	step (which we do in any event) by simply initializing the carry into the latter to -1 or +1, respectively:
-	*/
-	cy=0;		/* init carry.	*/
-
-	for(j=n-1; j >= 0; j -= TRANSFORM_TYPE)
-	{
-	#ifdef USE_AVX512
-		j1 = (j & mask03) + br16[j&15];
-	#elif defined(USE_AVX)
-		j1 = (j & mask02) + br8[j&7];
-	#elif defined(USE_SSE2)
-		j1 = (j & mask01) + br4[j&3];
-	#else
-		j1 = j;
-	#endif
-		j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-
-		if(a[j1]!= 0.0)
-		{
-			if(a[j1]< 0.0)
-			{
-				if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
-				{
-					cy = -1;
-				}
-				else if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
-				{
-					cy = +1;
-				}
-			}
-			break;
-		}
-	}
-
-	/*...Now form the SH residues, converting to positive-digit form along the way...	*/
-
-	nbits = 0;		/* Total bits accumulated so far in the residue	*/
-
-	/* For right-angle transform, need to process odd and even-index elements
-	separately, via a pair of stride-2 passes through the array:
-	*/
-	if(TRANSFORM_TYPE == REAL_WRAPPER)
-	{
-		bimodn = 0;
-		ii = 0;		/* Index into the BASE array. */
-		/* If bw > 0 (i.e. n does not divide p), lowest-order digit always a bigword:	*/
-		if(bw > 0)
-			ii = 1;
-
-		for(j = 0; j < n; j++)
-		{
-		#ifdef USE_AVX512
-			j1 = (j & mask03) + br16[j&15];
-		#elif defined(USE_AVX)
-			j1 = (j & mask02) + br8[j&7];
-		#elif defined(USE_SSE2)
-			j1 = (j & mask01) + br4[j&3];
-		#else
-			j1 = j;
-		#endif
-			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-
-			itmp = (int64)(a[j1]+ cy);	/* current digit in int64 form, subtracting any borrow from the previous digit.	*/
-			if(itmp < 0)			/* If current digit < 0, add the current base and set carry into next-higher digit = -1	*/
-			{
-				itmp += (base[ii]);
-				cy = -1;
-			}
-			else
-			{
-				cy = 0;
-			}
-
-			ASSERT(HERE, itmp >= 0,"Mlucas.c: itmp >= 0");
-
-		/* Mod-(2^35-1) residue: */
-			curr_word = (uint64)itmp;
-			/* Current word must be left-shifted by nbits%35 before folding into residue: */
-			shift = (nbits%35);
-			mod1 += (curr_word << shift) & two35m1;
-			mod1 = (mod1 >> 35) + (mod1 & two35m1);
-			curr_word >>= (35-shift);
-			while(curr_word)
-			{
-				mod1 += curr_word & two35m1;
-				mod1 = (mod1 >> 35) + (mod1 & two35m1);
-				curr_word >>= 35;
-			}
-		/* Mod-(2^36-1) residue: */
-			curr_word = (uint64)itmp;
-			/* Current word must be left-shifted by nbits%36 before folding into residue: */
-			shift = (nbits%36);
-			mod2 += (curr_word << shift) & two36m1;
-			mod2 = (mod2 >> 36) + (mod2 & two36m1);
-			curr_word >>= (36-shift);
-			while(curr_word)
-			{
-				mod2 += curr_word & two36m1;
-				mod2 = (mod2 >> 36) + (mod2 & two36m1);
-				curr_word >>= 36;
-			}
-
-			nbits += bits[ii];
-
-			bimodn += bw;
-			if(bimodn >= n) bimodn -= n;
-			ii = (uint32)(sw - bimodn) >> 31;
-		}
-	}
-	else
-	{
-	  for(pass = 0; pass <=1; pass++)
-	  {
-		bimodn = n;
-		for(j = pass; j < n; j += 2)
-		{
-		#ifdef USE_AVX512
-			j1 = (j & mask03) + br16[j&15];
-		#elif defined(USE_AVX)
-			j1 = (j & mask02) + br8[j&7];
-		#elif defined(USE_SSE2)
-			j1 = (j & mask01) + br4[j&3];
-		#else
-			j1 = j;
-		#endif
-			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-
-			ii = (bimodn > sw);					/*       i = 1 if a bigword,   0 if a smallword */
-			bimodn -= sw;						/* result >= 0 if a bigword, < 0 if a smallword */
-			bimodn += ( ((int)ii-1) & n);		/*       add 0 if a bigword,   N if a smallword */
-
-			itmp = (int64)(a[j1]+ cy);	/* current digit in int64 form, subtracting any borrow from the previous digit.	*/
-			if(itmp < 0)			/* If current digit < 0, add the current base and set carry into next-higher digit = -1	*/
-			{
-				itmp += (base[ii]);
-				cy = -1;
-			}
-			else
-			{
-				cy = 0;
-			}
-			if(itmp < 0)
-			{
-				fprintf(stderr, "Warning: itmp < 0 detected: value = %lld\n", itmp);
-				ASSERT(HERE, itmp >= 0,"Mlucas.c: itmp >= 0");
-			}
-		/* Mod-(2^35-1) residue: */
-			curr_word = (uint64)itmp;
-			/* Current word must be left-shifted by nbits%35 before folding into residue: */
-			shift = (nbits%35);
-			mod1 += (curr_word << shift) & two35m1;
-			mod1 = (mod1 >> 35) + (mod1 & two35m1);
-			curr_word >>= (35-shift);
-			while(curr_word)
-			{
-				mod1 += curr_word & two35m1;
-				mod1 = (mod1 >> 35) + (mod1 & two35m1);
-				curr_word >>= 35;
-			}
-		/* Mod-(2^36-1) residue: */
-			curr_word = (uint64)itmp;
-			/* Current word must be left-shifted by nbits%36 before folding into residue: */
-			shift = (nbits%36);
-			mod2 += (curr_word << shift) & two36m1;
-			mod2 = (mod2 >> 36) + (mod2 & two36m1);
-			curr_word >>= (36-shift);
-			while(curr_word)
-			{
-				mod2 += curr_word & two36m1;
-				mod2 = (mod2 >> 36) + (mod2 & two36m1);
-				curr_word >>= 36;
-			}
-
-			nbits += bits[ii];
-		}
-	  }
-	}
-
-	if(nbits != p)
-	{
-		sprintf(cbuf, "resSH : nbits [%llu] != p [%llu]\n",nbits,p);
-		fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
-	}
-	ASSERT(HERE, nbits == p    ,"Mlucas.c: nbits == p    ");
-	ASSERT(HERE, curr_word == 0,"Mlucas.c: curr_word == 0");
-
-	*Res35m1 = mod1;
-	*Res36m1 = mod2;
-	return;
-}
-
-/********************/
-
-/*
-Function to take an n-digit Mersenne or Fermat-mod residue and (if the file pointer
-in the argument list is non-null) pretty-print it in hex form to a file.
-*/
-void 	hex_res_printtofile(double a[], int n, const uint64 p, int timing_test_iters, FILE *fp)
-{
-	static char *hex_res;
-	static
-	char c;
-	uint64 nbits;
-	int bimodn,curr_bits,curr_hexd,cy,findex,ii,j,j1,k,pass,rbits;
-	uint64 curr_word;
-	int bw,sw,base[2],bits[2];
-	int64 itmp;
-	int pow2_fft;
-	static int first_entry=TRUE;
-
-	ASSERT(HERE, fp != 0x0,"Mlucas.c: fp != 0x0");
-
-	if(first_entry)
-	{
-		first_entry = FALSE;
-		hex_res = (char *)calloc((p+3)/4, sizeof(char));
-	}
-
-	ASSERT(HERE,MODULUS_TYPE,"MODULUS_TYPE not set!");
-	ASSERT(HERE,MODULUS_TYPE <= MODULUS_TYPE_MAX,"MODULUS_TYPE out of range!");
-
-	ASSERT(HERE,TRANSFORM_TYPE,"TRANSFORM_TYPE not set!");
-	ASSERT(HERE,TRANSFORM_TYPE <= TRANSFORM_TYPE_MAX,"TRANSFORM_TYPE out of range!");
-
-	/* If Fermat number, make sure exponent a power of 2: */
-	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
-	{
-		ASSERT(HERE, TRANSFORM_TYPE == RIGHT_ANGLE,"Mlucas.c: TRANSFORM_TYPE == RIGHT_ANGLE");
-		findex = trailz64(p);
-		ASSERT(HERE, (p >> findex) == 1,"Mlucas.c: (p >> findex) == 1");
-		fprintf(fp, "%u iterations of F%u with FFT length %u\n",timing_test_iters,findex,n);
-	}
-	else
-	{
-		ASSERT(HERE, TRANSFORM_TYPE == REAL_WRAPPER,"Mlucas.c: TRANSFORM_TYPE == REAL_WRAPPER");
-		fprintf(fp, "%u iterations of M%u with FFT length %u\n",timing_test_iters,(uint32)p,n);
-	}
-
-	/* Vector length a power of 2? */
-	if((n >> trailz32(n)) == 1)
-	{
-		pow2_fft = TRUE;
-	}
-	else
-	{
-		pow2_fft = FALSE;
-	}
-
-	bits[0] = p/n;
-	base[0] = 1 << bits[0];
-
-	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && pow2_fft == TRUE)
-	{
-		bits[1] =     bits[0];
-	}
-	else
-	{
-		bits[1] = 1 + bits[0];
-	}
-	base[1] = 1 << bits[1];
-
-	bw = p%n;	/* cf. mers_mod_square.c	*/
-	sw = n - bw;
-	/*
-	If most-significant digit in the balanced-representation form is < 0, add the modulus to the residue.
-	For Mersenne (2^p-1) and Fermat (2^p+1) moduli, can combine this with the normalize-to-nonnegative-digit
-	step (which we do in any event) by simply initializing the carry into the latter to -1 or +1, respectively:
-	*/
-	cy=0;		/* init carry.	*/
-
-	for(j=n-1; j >= 0; j -= TRANSFORM_TYPE)
-	{
-	#ifdef USE_AVX512
-		j1 = (j & mask03) + br16[j&15];
-	#elif defined(USE_AVX)
-		j1 = (j & mask02) + br8[j&7];
-	#elif defined(USE_SSE2)
-		j1 = (j & mask01) + br4[j&3];
-	#else
-		j1 = j;
-	#endif
-		j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-
-		if(a[j1]!= 0.0)
-		{
-			if(a[j1]< 0.0)
-			{
-				if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
-				{
-					cy = -1;
-				}
-				else if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
-				{
-					cy = +1;
-				}
-			}
-			break;
-		}
-	}
-
-/*...Now form the hexadecimal residue, converting digits to positive-digit form along the way...	*/
-
-	curr_hexd = 0;	/* Current digit to be written to in the hex_res array */
-	nbits = 0;		/* Total bits accumulated so far in the hex residue	*/
-	rbits = 0;		/* # of Upper bits left over from processing of previous word	*/
-	curr_word = 0;	/*      Upper bits left over from processing of previous word	*/
-
-
-	/* For right-angle transform, need to process odd and even-index elements
-	separately, via a pair of stride-2 passes through the array:
-	*/
-	if(TRANSFORM_TYPE == REAL_WRAPPER)
-	{
-		bimodn = 0;
-		ii = 0;		/* Index into the BASE array. */
-		/* If bw > 0 (i.e. n does not divide p), lowest-order digit always a bigword:	*/
-		if(bw > 0)
-			ii = 1;
-
-		for(j = 0; j < n; j++)
-		{
-		#ifdef USE_AVX512
-			j1 = (j & mask03) + br16[j&15];
-		#elif defined(USE_AVX)
-			j1 = (j & mask02) + br8[j&7];
-		#elif defined(USE_SSE2)
-			j1 = (j & mask01) + br4[j&3];
-		#else
-			j1 = j;
-		#endif
-			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-
-			itmp = (int64)(a[j1]+ cy);	/* current digit in int64 form, subtracting any borrow from the previous digit.	*/
-			if(itmp < 0)			/* If current digit < 0, add the current base and set carry into next-higher digit = -1	*/
-			{
-				itmp += (base[ii]);
-				cy = -1;
-			}
-			else
-			{
-				cy = 0;
-			}
-
-			ASSERT(HERE, itmp >= 0,"Mlucas.c: itmp >= 0");
-			ASSERT(HERE, rbits < 4,"Mlucas.c: rbits < 4");
-			ASSERT(HERE, curr_word < (1<<rbits),"Mlucas.c: curr_word >= 2^rbits!");
-
-			itmp = (itmp << rbits) + curr_word;
-			curr_bits = bits[ii] + rbits;
-
-			rbits = curr_bits;
-			for(k = 0; k < curr_bits/4; k++)
-			{
-				hex_res[curr_hexd++] = hex_chars[itmp & 15];
-				itmp >>= 4;
-				rbits -= 4;
-			}
-			curr_word = (int)itmp;
-
-			nbits += bits[ii];
-
-			bimodn += bw;
-			if(bimodn >= n) bimodn -= n;
-			ii = (uint32)(sw - bimodn) >> 31;
-		}
-	}
-	else
-	{
-	  for(pass = 0; pass <=1; pass++)
-	  {
-		bimodn = n;
-
-		for(j = pass; j < n; j += 2)
-		{
-		#ifdef USE_AVX512
-			j1 = (j & mask03) + br16[j&15];
-		#elif defined(USE_AVX)
-			j1 = (j & mask02) + br8[j&7];
-		#elif defined(USE_SSE2)
-			j1 = (j & mask01) + br4[j&3];
-		#else
-			j1 = j;
-		#endif
-			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-
-			ii = (bimodn > sw);					/*       i = 1 if a bigword,   0 if a smallword */
-			bimodn -= sw;						/* result >= 0 if a bigword, < 0 if a smallword */
-			bimodn += ( ((int)ii-1) & n);		/*       add 0 if a bigword,   N if a smallword */
-
-			itmp = (int64)(a[j1]+ cy);	/* current digit in int64 form, subtracting any borrow from the previous digit.	*/
-			if(itmp < 0)			/* If current digit < 0, add the current base and set carry into next-higher digit = -1	*/
-			{
-				itmp += (base[ii]);
-				cy = -1;
-			}
-			else
-			{
-				cy = 0;
-			}
-
-			ASSERT(HERE, itmp >= 0,"Mlucas.c: itmp >= 0");
-			ASSERT(HERE, rbits < 4,"Mlucas.c: rbits < 4");
-			ASSERT(HERE, curr_word < (1<<rbits),"Mlucas.c: curr_word >= 2^rbits!");
-
-			itmp = (itmp << rbits) + curr_word;
-			nbits += bits[ii];
-			curr_bits = bits[ii] + rbits;
-
-			rbits = curr_bits;
-			for(k = 0; k < curr_bits/4; k++)
-			{
-				hex_res[curr_hexd++] = hex_chars[itmp & 15];
-				itmp >>= 4;
-				rbits -= 4;
-			}
-			curr_word = (int)itmp;
-		}
-	  }
-	}
-
-	/* Residue should contain ceiling(p/8) bytes: */
-	ASSERT(HERE, rbits < 4, "rbits >= 4");
-	if(rbits)
-	{
-		ASSERT(HERE, curr_word < (1<<rbits),"hex_res_printtofile: curr_word >= 2^rbits!");
-		hex_res[curr_hexd++] = hex_chars[curr_word & 15];
-		curr_word >>= 4;
-	}
-	ASSERT(HERE, curr_hexd == (p+3)/4,"Mlucas.c: curr_hexd == (p+3)/4");
-	ASSERT(HERE, curr_word == 0      ,"Mlucas.c: curr_word == 0      ");
-	/* Reverse the string prior to writing to the file: */
-	for(ii = 0; ii < curr_hexd/2; ii++)
-	{
-		c = hex_res[curr_hexd-1-ii]; hex_res[curr_hexd-1-ii] = hex_res[ii]; hex_res[ii] = c;
-	}
-	fwrite(hex_res, sizeof(char), curr_hexd, fp);
-	fprintf(fp, "\n");
-	fclose(fp);	fp = 0x0;
-	free((void *)hex_res);
-	return;
 }
 
 
@@ -2567,8 +2404,8 @@ void 	hex_res_printtofile(double a[], int n, const uint64 p, int timing_test_ite
 #define numTest				120	// = sum of all the subranges below
 /* Number of FFT lengths in the various subranges of the full self-test suite: */
 #define numTiny 			32
-#define numSmall			24
-#define numMedium			24
+#define numSmall			32
+#define numMedium			16	// v18: Moved 8 from medium to small to increase starting FFTlen of -m selftests from 1024K to 2048K
 #define numLarge			24
 #define numHuge				16
 /* Adding larger FFT lengths to test vectors requires supporting changes to Mdata.h:MAX_FFT_LENGTH_IN_K and get_fft_radices.c */
@@ -2614,6 +2451,7 @@ struct testMers{
 	struct res_triplet	res_t[3];	/* 100,1000 and 10000-iteration SH-residue triplets */
 };
 
+// Reference LL-test residues:
 struct testMers MersVec[numTest+1] =
 {
 /*                                         100-iteration residues:	                               1000-iteration residues:                */
@@ -2751,6 +2589,141 @@ struct testMers MersVec[numTest+1] =
 	{     0,         0u, { {                 0ull,           0ull,           0ull}, {                 0ull,           0ull,           0ull} } }
 };
 
+// Reference Mersenne base-3 PRP residues - we use the 0-padding slot in the above MersVec[]
+// to store user-set-exponent data irrespective of whether LL-test or PRP-test, so no 0-pad here:
+struct testMers MersVecPRP[numTest] =
+{
+/*                                         100-iteration residues:	                               1000-iteration residues:                */
+/*	  FFTlen(K)     p              Res64           mod 2^35-1      mod 2^36-1               Res64           mod 2^35-1      mod 2^36-1     */
+/*	    -----    --------     ----------------     -----------     -----------         ----------------     -----------     -----------    */
+	/* Tiny:                                     [%34359738367  ][%68719476735  ]                         [%34359738367  ][%68719476735  ] */
+	{     8,    173431u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{     9,    194609u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    10,    215767u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    11,    236813u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    12,    257903u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    13,    278917u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    14,    299903u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    15,    320851u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    16,    341749u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    18,    383521u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    20,    425149u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    22,    466733u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    24,    508223u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    26,    549623u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    28,    590963u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    30,    632251u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    32,    673469u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    36,    755737u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    40,    837817u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    44,    919729u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    48,   1001467u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    52,   1083077u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    56,   1164533u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    60,   1245877u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    64,   1327099u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    72,   1489223u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    80,   1650959u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    88,   1812347u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    96,   1973431u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   104,   2134201u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   112,   2294731u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   120,   2455003u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },	/* Small: */
+	{   128,   2614999u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   144,   2934479u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   160,   3253153u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   176,   3571153u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   192,   3888509u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   208,   4205303u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   224,   4521557u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   240,   4837331u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   256,   5152643u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   288,   5782013u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   320,   6409849u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   352,   7036339u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   384,   7661567u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   416,   8285659u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   448,   8908723u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   480,   9530803u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   512,  10151971u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   576,  11391823u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   640,  12628613u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   704,  13862759u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   768,  15094403u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   832,  16323773u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   896,  17551099u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{   960,  18776473u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },	/* Medium: */
+	{  1024,  20000047u, { {0x9D7E8C7336639EC4ull, 26990419379ull, 31343788296ull}, {0xEC57D79E86049AB4ull, 14020695804ull, 57562607914ull}, {0x5CC79106F08DC6D6ull, 14144638043ull,   651426155ull} } },
+	{  1152,  22442237u, { {0xED82318E04A2A345ull,  8753176558ull, 32504299898ull}, {0x3B646DBA5F3653A2ull, 16747135485ull, 54376147696ull}, {0x2A8DCFFF3810D237ull,   597977664ull,  4018709428ull} } },
+	{  1280,  24878401u, { {0xCE58A90EAC0139F1ull, 21686423079ull, 52735040981ull}, {0xE41022DE4EBE5A0Eull, 31073614876ull, 50104107291ull}, {0x71DAC0A6112FF806ull,  1019654400ull, 54335318694ull} } },
+	{  1408,  27309229u, { {0xA070B7876AA20DA7ull, 26032112892ull, 32165824910ull}, {0x5B7DB0F2C5CA7EE0ull, 33557517402ull, 49136716314ull}, {0xC5285004A4A8738Eull, 23326684308ull, 15608345791ull} } },
+	{  1536,  29735137u, { {0x70EF0D4A10AF820Cull, 31410231016ull, 19708126433ull}, {0xBA715ACC32497841ull, 30597754543ull, 12259094014ull}, {0x5505A14DFD239B10ull,  4793841111ull, 10366011218ull} } },
+	{  1664,  32156581u, { {0x0ABAAF28B6995BF5ull, 25429439627ull, 29692330080ull}, {0xA3A513F3864F2486ull,  7487969602ull, 28002054176ull}, {0xBEAB8973C2FAAB17ull, 19372157564ull,  4721013073ull} } },
+	{  1792,  34573867u, { {0x93B9E2F8EB75BFCDull, 28229043348ull, 23811859510ull}, {0xAF09EB79E9FD2368ull, 14328542178ull, 22451054390ull}, {0xDCC79070AEFDF160ull, 28503147261ull,  9196986298ull} } },
+	{  1920,  36987271u, { {0x1FD9118DC82BEE78ull, 30917851138ull, 46406380675ull}, {0x33D7AD617976CEC1ull, 12975636226ull, 29187764572ull}, {0x5E856539865A176Cull,  9594612383ull, 46445499555ull} } },
+	{  2048,  39397201u, { {0x6D2DA75A04F538E6ull, 27183858872ull, 28453479981ull}, {0xF71AB763CBA394DDull, 20849861319ull, 65329085551ull}, {0xDCFC108BB85E2FA7ull, 24908241672ull, 53956544053ull} } },
+	{  2304,  44207087u, { {0x17A51F8EBE222971ull, 20700958815ull, 19557281705ull}, {0x9603404F386381D1ull, 13688982479ull, 15674920724ull}, {0xC7B242D05373D3CAull,  2707265651ull,  5882282433ull} } },
+	{  2560,  49005071u, { {0x778BE03E5722FE96ull, 25483813566ull, 14727845285ull}, {0x798CFC88734572AEull, 30521003775ull, 33673503490ull}, {0x9737799C41D18480ull, 18819745044ull, 37090058475ull} } },
+	{  2816,  53792327u, { {0x7BE008D91E80DB49ull,  1791708263ull,  1480510204ull}, {0xDD858F590924665Full, 26857094761ull, 17153737658ull}, {0x8139A3391FC82B64ull, 14978416401ull, 23884206625ull} } },
+	{  3072,  58569809u, { {0xECE8A3CA1F66D83Aull,  9805362291ull, 43153620706ull}, {0xFBA8C97760C5FE86ull, 11145859641ull, 16209757579ull}, {0x29FF471C9A28D07Full, 32759739090ull,  5331109071ull} } },
+	{  3328,  63338459u, { {0x24A0F7BE95910DFCull,  6775505897ull, 39005906148ull}, {0x2B63FF56792E239Cull, 15844211278ull, 37865572416ull}, {0xDAEF98E50ECF3AABull, 28953421873ull, 49571783147ull} } },
+	{  3584,  68098843u, { {0xAE2AED0851C344FFull, 29322480531ull,  7619686742ull}, {0x796289EFF35C1625ull, 20303644792ull, 16113781047ull}, {0xDEF7187C62A2FE6Eull,  1552555257ull, 23682222360ull} } },
+	{  3840,  72851621u, { {0x41BB879F5BF89744ull, 15213631662ull, 47597325409ull}, {0x13AD29D142D2DD68ull,  2896274647ull, 28918042313ull}, {0x08BFA29C23275DD5ull, 15547700048ull, 36389342409ull} } },
+	{  4096,  77597293u, { {0x5CA5EB4B2C403B40ull, 16067213695ull, 16060551561ull}, {0x8A91734601A3CA83ull, 25368547633ull, 15106685038ull}, {0x1B1628C39003FC08ull, 31104368473ull, 30825982076ull} } },
+	{  4608,  87068977u, { {0x790629521C99A54Full,  6004740145ull, 58203809974ull}, {0x8C70DA87F106F6F6ull,  5407783662ull, 22056008955ull}, {0x45DC86154DE680CDull, 23780020949ull, 25229002925ull} } },
+	{  5120,  96517019u, { {0x50BE76BDB9D43685ull, 33893245159ull, 32100820412ull}, {0x4D05925CD78F753Cull, 13802941362ull, 22609697002ull}, {0x954387C749FFA9F3ull, 14415933176ull, 19405933610ull} } },
+	{  5632, 105943723u, { {0x1236DCECCCD91F1Bull, 11308642381ull, 28977161847ull}, {0x79A6575BCA014534ull, 30115274802ull,   828334544ull}, {0x4B8E27CD1CA2ED7Bull, 14367849395ull, 43143949281ull} } },
+	{  6144, 115351063u, { {0x952594D45AC0CD66ull, 33154662725ull, 46573658072ull}, {0x71ABDF14CCB6F83Cull,  2372123324ull, 52765668028ull}, {0x82D8CD4BA692CB52ull, 14510733169ull, 67876507716ull} } },
+	{  6656, 124740697u, { {0xF8E8C1410A022709ull, 13190590977ull, 39845130919ull}, {0x36F1A6E76E58E9C0ull, 27234521341ull, 16590439770ull}, {0xEE5448CFEDDBDEFEull,  2841484794ull, 12463515449ull} } },
+	{  7168, 134113933u, { {0x1A946511EF44970Full, 21181711241ull, 30706184956ull}, {0x685E4EDB1A55944Aull,  6228216981ull, 24476904464ull}, {0xA96D930D64AA9158ull,  3314680740ull, 44392410575ull} } },
+	{  7680, 143472073u, { {0xBD65A37723E2747Dull, 22515080503ull,  9322142584ull}, {0xB97E419D5BB91AE7ull,  4358792147ull, 10943432917ull}, {0xC16E2E327A370783ull, 31343185282ull, 21808110777ull} } },	/* Large: */
+	{  8192, 152816047u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{  9216, 171465013u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 10240, 190066777u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 11264, 208626181u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 12288, 227147083u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 13312, 245632679u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 14336, 264085733u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 15360, 282508657u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 16384, 300903377u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 18432, 337615277u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 20480, 374233309u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 22528, 410766953u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 24576, 447223969u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 26624, 483610763u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 28672, 519932827u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 30720, 556194803u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 32768, 592400713u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 36864, 664658101u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 40960, 736728527u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 45056, 808631029u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 49152, 880380937u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 53248, 951990961u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 57344,1023472049u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 61440,1094833457u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	/* Huge: */
+	{ 65536,1166083297u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
+	{ 73728,1308275261u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
+	{ 81920,1450094993u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
+	{ 90112,1591580099u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
+	{ 98304,1732761197u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
+	{106496,1873663819u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
+	{114688,2014309639u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
+	{122880,2154717007u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
+	{131072,2294901977u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
+	{147456,2574659081u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
+	{163840,2853674573u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
+	{180224,3132023311u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
+	{196608,3409766351u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
+	{212992,3686954519u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
+	{229376,3963630893u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
+	{245760,4239832153u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } }
+/* Larger require 64-bit exponent support: */
+	/* Egregious: */
+	/* Brobdingnagian: */
+	/* Godzillian: */
+};
+
 /* PARI/GP script for generating more FFT-length/maxP entries in the above table uses condensed code from given_N_get_maxP():
 
 Bmant = 53;
@@ -2809,6 +2782,7 @@ int 	main(int argc, char *argv[])
 	int		retVal=0;
 	uint64	Res64, Res35m1, Res36m1;
 	char	stFlag[STR_MAX_LEN];
+	uint64	i64arg;
 	uint32	iarg = 0, iters = 0, k = 0, maxFFT, expo = 0, findex = 0;
 	double	darg;
 	int		new_cfg = FALSE;
@@ -2852,20 +2826,19 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 	// to avoid SIGSEGV faults during the alloc-heavy self-test suites.
 	set_stacklimit_restart(argv);
 	fprintf(stderr, "\n    Mlucas %s\n", VERSION);
-	fprintf(stderr, "\n    http://hogranch.com/mayer/README.html\n\n");
+	fprintf(stderr, "\n    %s\n\n", HOMEPAGE);
 
 #ifdef macintosh
 	argc = ccommand(&argv);			/* Macintosh CW */
 #endif
+	// v18: Enable access to argc/argv outside main():
+	global_argv = argv;
 
-if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
-{
-	ASSERT(HERE, (MersVec[numTest-1].fftLength != 0) &&  (MersVec[numTest].fftLength == 0), "numTest != MersVec allocated size!");
-}
-else
-{
-	ASSERT(HERE, (FermVec[numFerm-1].fftLength != 0) &&  (MersVec[numTest].fftLength == 0), "numTest != FermVec allocated size!");
-}
+	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
+		ASSERT(HERE, (MersVec[numTest-1].fftLength != 0) &&  (MersVec[numTest].fftLength == 0), "numTest != MersVec allocated size!");
+	} else {
+		ASSERT(HERE, (FermVec[numFerm-1].fftLength != 0) &&  (FermVec[numFerm].fftLength == 0), "numFerm != FermVec allocated size!");
+	}
 
 	/*...check that various data types are of the assumed length
 	and do some other basic sanity checks:
@@ -2879,8 +2852,8 @@ else
   #endif
 
 	scrnFlag = 0;	/* Do Not echo output to stddev */
-
-	testType = TEST_TYPE_PRIMALITY;	/* Currently only primality-test mode is supported: */
+	// Currently only primality-test and PRP modes supported - init to former by default, switch to PRP if -prp flag set:
+	testType = TEST_TYPE_PRIMALITY;
 
 	/******** command-line-argument processing while() loop: ********/
 	nargs = 1;
@@ -3087,6 +3060,81 @@ else
 			radset = iarg;
 		}
 
+		else if(STREQ(stFlag, "-shift"))
+		{
+		#ifndef USE_SSE2	// Only support residue-shift for SIMD builds:
+			fprintf(stderr, "*** INFO: Only support residue-shift for SIMD builds ... ignoring user-set value.\n");
+			fprintf(stderr,"%s", cbuf);
+			nargs++;
+		#else
+			if(nargs >= argc)
+			{
+				fprintf(stderr, "*** ERROR: Unterminated command-line option or malformed argument.\n");
+				print_help("shift");
+			}
+
+			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
+
+			/* Convert the shift argument to a uint64: */
+			i64arg = 0;
+			for(i = 0; i < STR_MAX_LEN && stFlag[i] != '\0'; i++)
+			{
+				if(isdigit(stFlag[i]))
+				{
+					i64arg = 10*i64arg + (stFlag[i]-CHAROFFSET);
+					/* Check for overflow: */
+					if(i64arg % (uint64)10 != (uint64)(stFlag[i]-CHAROFFSET))
+					{
+						sprintf(cbuf  , "*** ERROR: -shift argument %s overflows uint64 field.\n", stFlag);
+						fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+					}
+				}
+				else
+				{
+					sprintf(cbuf  , "*** ERROR: Non-numeric character encountered in -shift argument %s.\n", stFlag);
+					fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+				}
+			}
+			RES_SHIFT = i64arg;
+		#endif	// USE_SSE2	?
+		}
+
+		else if(STREQ(stFlag, "-prp"))
+		{
+			if(nargs >= argc)
+			{
+				fprintf(stderr, "*** ERROR: Unterminated command-line option or malformed argument.\n");
+				print_help("prp");
+			}
+
+			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
+
+			/* Convert the initial-seed argument to an int: */
+			iarg = 0;
+			darg = 0.0;
+			for(i = 0; i < STR_MAX_LEN && stFlag[i] != '\0'; i++)
+			{
+				if(isdigit(stFlag[i]))
+				{
+					darg = 10.0*darg + (stFlag[i]-CHAROFFSET);
+					iarg = (uint32)darg;
+					/* Check for overflow: */
+					if((double)iarg != darg)
+					{
+						sprintf(cbuf  , "*** ERROR: -prp argument %s overflows integer field.\n", stFlag);
+						fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+					}
+				}
+				else
+				{
+					sprintf(cbuf  , "*** ERROR: Non-numeric character encountered in -prp argument %s.\n", stFlag);
+					fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+				}
+			}
+			PRP_BASE = iarg;
+			testType = TEST_TYPE_PRP;
+		}
+
 		else if(STREQ(stFlag, "-nthread"))
 		{
 			if(nargs >= argc)
@@ -3192,6 +3240,7 @@ else
 
 			expo = (uint32)iarg;
 			userSetExponent = 1;
+			//*** use 0-pad slot in MersVec[] to store user-set-exponent data irrespective of whether LL-test or PRP-test: ***
 			MersVec[numTest].exponent = expo;
 			start = numTest; finish = start+1;
 		SET_MERS:
@@ -3306,6 +3355,7 @@ else
 
 			fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 		}
+
 	}
 
 	// Use selfTest == TRUE or -iters (in the single-FFT-length-timing case) to differentiate between timing-test and production runs.
@@ -3326,7 +3376,7 @@ else
 			ASSERT(HERE, 0,cbuf);
 		}
 	ERNST_MAIN:
-		if((retVal = ernstMain(MODULUS_TYPE_MERSENNE,TEST_TYPE_PRIMALITY,0,MersVec[start].fftLength,0,0,0,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime)) != 0)
+		if((retVal = ernstMain(modType,testType,0,MersVec[start].fftLength,0,0,0,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime)) != 0)
 		{
 			printMlucasErrCode(retVal);
 
@@ -3381,8 +3431,8 @@ else
 		if(MersVec[start].exponent == 0)
 		{
 			i = MersVec[start].fftLength;
-			ASSERT(HERE, i > 0                  ,"Mlucas.c: i > 0                  ");
-			ASSERT(HERE, i <=MAX_FFT_LENGTH_IN_K,"Mlucas.c: i <=MAX_FFT_LENGTH_IN_K");
+			ASSERT(HERE, i > 0                  ,"Require i > 0                  ");
+			ASSERT(HERE, i <=MAX_FFT_LENGTH_IN_K,"Require i <=MAX_FFT_LENGTH_IN_K");
 
 			/* If the FFT length is not represented in MersVec[],
 			find the nearest prime <= given_N_get_maxP(FFT length):
@@ -3425,8 +3475,8 @@ else
 		if(FermVec[start].exponent == 0)
 		{
 			i = FermVec[start].fftLength;
-			ASSERT(HERE, i > 0                  ,"Mlucas.c: i > 0                  ");
-			ASSERT(HERE, i <=MAX_FFT_LENGTH_IN_K,"Mlucas.c: i <=MAX_FFT_LENGTH_IN_K");
+			ASSERT(HERE, i > 0                  ,"Require i > 0                  ");
+			ASSERT(HERE, i <=MAX_FFT_LENGTH_IN_K,"Require i <=MAX_FFT_LENGTH_IN_K");
 
 			if(i > FermVec[numFerm-1].fftLength)	/* Computing a new-largest entry? */
 			{
@@ -3577,25 +3627,24 @@ TIMING_TEST_LOOP:
 
 	for (xNum = start; xNum < finish; xNum++)    /* Step through the exponents */
 	{
-		new_data = FALSE;
-		Res64 = Res36m1 = Res35m1 = 0ull;
+		new_data = FALSE;	Res64 = Res36m1 = Res35m1 = 0ull;
 
 		/* If it's a self-test [i.e. timing test] and user hasn't specified #iters, set to default: */
-		if(selfTest && !iters)
-		{
-		if(NTHREADS > 4)
-			iters = 1000;
-		else
-			iters = 100;
+		if(selfTest && !iters) {
+			if(NTHREADS >= 4)
+				iters = 1000;
+			else
+				iters = 100;
 		}
 
-		if(iters == 100 || iters == 1000 || iters == 10000)
-		{
+		if(iters == 100 || iters == 1000 || iters == 10000) {
 			mvec_res_t_idx = NINT( log((double)iters)/log(10.) ) - 2;	/* log10(iters) - 2, use slower NINT rather than DNINT here since latter needs correct rounding mode */
 			ASSERT(HERE, mvec_res_t_idx < 3,"main: mvec_res_t_idx out of range!");
-
-			if( (modType == MODULUS_TYPE_MERSENNE && MersVec[  xNum].res_t[mvec_res_t_idx].sh0 == 0)
-			 || (modType == MODULUS_TYPE_FERMAT   && FermVec[  xNum].res_t[mvec_res_t_idx].sh0 == 0) )	/* New self-test residue being computed */
+			// Since use empty-data-slot at top of MersVec[] for both primality & prp single-case tests that,
+			// rather than MersVecPRP[], appears here in the PRP-part of the conditional:
+			if( (modType == MODULUS_TYPE_MERSENNE && testType == TEST_TYPE_PRIMALITY && MersVec[xNum].res_t[mvec_res_t_idx].sh0 == 0)
+			 || (modType == MODULUS_TYPE_MERSENNE && testType == TEST_TYPE_PRP       && MersVec[xNum].res_t[mvec_res_t_idx].sh0 == 0)
+			 || (modType == MODULUS_TYPE_FERMAT   && FermVec[xNum].res_t[mvec_res_t_idx].sh0 == 0) )	/* New self-test residue being computed */
 			{
 				new_data = TRUE;
 				new_res.sh0 = new_res.sh1 = new_res.sh2 = 0ull;
@@ -3620,18 +3669,18 @@ TIMING_TEST_LOOP:
 
 		while(get_fft_radices(iarg, radix_set, &NRADICES, RADIX_VEC, 10) == 0)	/* Try all the radix sets available for this FFT length. */
 		{
-			if     (modType == MODULUS_TYPE_FERMAT)
+			if(modType == MODULUS_TYPE_FERMAT)
 			{
-				Res64   = FermVec[  xNum].res_t[mvec_res_t_idx].sh0;
-				Res35m1 = FermVec[  xNum].res_t[mvec_res_t_idx].sh1;
-				Res36m1 = FermVec[  xNum].res_t[mvec_res_t_idx].sh2;
+				Res64   = FermVec[xNum].res_t[mvec_res_t_idx].sh0;
+				Res35m1 = FermVec[xNum].res_t[mvec_res_t_idx].sh1;
+				Res36m1 = FermVec[xNum].res_t[mvec_res_t_idx].sh2;
 				retVal = ernstMain(modType,testType,(uint64)FermVec[xNum].exponent,iarg,radix_set,maxFFT,iters,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime);
 			}
-			else if(modType == MODULUS_TYPE_MERSENNE)
+			else if(modType == MODULUS_TYPE_MERSENNE && testType <= TEST_TYPE_PRP)
 			{
-				Res64   = MersVec[  xNum].res_t[mvec_res_t_idx].sh0;
-				Res35m1 = MersVec[  xNum].res_t[mvec_res_t_idx].sh1;
-				Res36m1 = MersVec[  xNum].res_t[mvec_res_t_idx].sh2;
+				Res64   = MersVec[xNum].res_t[mvec_res_t_idx].sh0;
+				Res35m1 = MersVec[xNum].res_t[mvec_res_t_idx].sh1;
+				Res36m1 = MersVec[xNum].res_t[mvec_res_t_idx].sh2;
 				retVal = ernstMain(modType,testType,(uint64)MersVec[xNum].exponent,iarg,radix_set,maxFFT,iters,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime);
 			}
 			else
@@ -3802,12 +3851,62 @@ DONE:
 
 /******************/
 
+/* v18: Add reparse-command-line-args-to-extract-desired-flag-value function for residue shift.
+Assumes the basic program-start command-parsing has been done, thus dispenses with the former's bad-arg checking.
+Can expand as needed to cover other options as the need arises.
+*/
+uint64	parse_cmd_args_get_shift_value(void)
+{
+	uint64	i64arg = -1ull;	// 0 is a valid value, so init = -1 (= 0xfff...fff in unsigned form)
+	char	stFlag[STR_MAX_LEN];
+	/******** command-line-argument processing while() loop: ********/
+	int i, nargs = 1;
+	while(global_argv[nargs])
+	{
+		strncpy(stFlag, global_argv[nargs++], STR_MAX_LEN);
+		if(STREQ(stFlag, "-shift"))
+		{
+		#ifndef USE_SSE2	// Only support residue-shift for SIMD builds:
+			fprintf(stderr, "*** INFO: Only support residue-shift for SIMD builds ... ignoring user-set value.\n");
+			fprintf(stderr,"%s", cbuf);
+			nargs++;
+		#else
+			strncpy(stFlag, global_argv[nargs++], STR_MAX_LEN);
+			/* Convert the shift argument to a uint64: */
+			i64arg = 0;
+			for(i = 0; i < STR_MAX_LEN && stFlag[i] != '\0'; i++)
+			{
+				if(isdigit(stFlag[i]))
+				{
+					i64arg = 10*i64arg + (stFlag[i]-CHAROFFSET);
+					/* Check for overflow: */
+					if(i64arg % (uint64)10 != (uint64)(stFlag[i]-CHAROFFSET))
+					{
+						sprintf(cbuf  , "*** ERROR: -shift argument %s overflows uint64 field.\n", stFlag);
+						fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+					}
+				}
+				else
+				{
+					sprintf(cbuf  , "*** ERROR: Non-numeric character encountered in -shift argument %s.\n", stFlag);
+					fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+				}
+			}
+		#endif	// USE_SSE2	?
+		}
+	}
+	return i64arg;
+}
+
+/******************/
+
 void print_help(char*option)
 {
 	int lo, hi, printall = 0;
 	if(STREQ(option,"")) printall = TRUE;
 
-	fprintf(stderr, "For the full list of command line options, run the program with the -h flag.\n\n");
+	fprintf(stderr, "For the full list of command line options, run the program with the -h flag.\n");
+	fprintf(stderr, "For a list of command-line options grouped by type, run the program with the -topic flag.\n\n");
 
   if(printall)
 	fprintf(stderr, "Mlucas command line options:\n\
@@ -3834,6 +3933,8 @@ void print_help(char*option)
 	fprintf(stderr, " -radset       FFT radix-set specification.\n");
 	fprintf(stderr, " -m[ersenne]   Mersenne-number primality testing.\n");
 	fprintf(stderr, " -f[ermat]     Fermat-number primality testing.\n");
+	fprintf(stderr, " -shift        ***SIMD builds only*** Number of bits by which to shift the initial seed (= iteration-0 residue).\n");
+	fprintf(stderr, " -prp          Probable-primality testing mode.\n");
 	fprintf(stderr, " -iters        Iteration-number setting.\n");
 	fprintf(stderr, " -nthread|cpu  Setting threadcount and CPU core affinity.\n");
 	fprintf(stderr, "\n");
@@ -3957,6 +4058,33 @@ void print_help(char*option)
 	fprintf(stderr, "                Performs as many iterations as specified via the -iters flag [required].\n");
 	fprintf(stderr, "\n");
   }
+  if(printall || STREQ(option,"shift")) {
+	fprintf(stderr, " -shift         ***SIMD builds only*** Bits by which to circular-left-shift the initial seed.\n");
+	fprintf(stderr, "             This shift count is doubled (modulo the number of bits of the modulus being tested)\n");
+	fprintf(stderr, "             each iteration. Savefile residues are rightward-shifted by the current shift count\n");
+	fprintf(stderr, "             before being written to the file; thus savefiles contain the unshifted residue, and\n");
+	fprintf(stderr, "             separately the current shift count, which the program uses to leftward-shift the\n");
+	fprintf(stderr, "             savefile residue when the program is restarted from interrupt.\n");
+	fprintf(stderr, "                The shift count is a 64-bit unsigned int (e.g. to accommodate Fermat numbers > F32).\n");
+	fprintf(stderr, "\n");
+  }
+  if(printall || STREQ(option,"prp")) {
+	fprintf(stderr, " -prp {int}     Instead of running the rigorous primality test defined for the modulus type\n");
+	fprintf(stderr, "             in question (Lucas-Lehmer test for Mersenne numbers, Pe'pin test for Fermat numbers\n");
+	fprintf(stderr, "             do a probably-primality test to the specified integer base b = {int}.\n");
+	fprintf(stderr, "                For a Mersenne number M(p), starting with initial seed x = b (which must not = 2\n");
+	fprintf(stderr, "             or a power of 2), this means do a Fermat-PRP test, consisting of (p-2) iterations of\n");
+	fprintf(stderr, "             form x = b*x^2 (mod M(p)) plus a final mod-squaring x = x^2 (mod M(p)), with M(p) being\n");
+	fprintf(stderr, "             a probable-prime to base b if the result == 1.\n");
+	fprintf(stderr, "                For a Fermat number F(m), starting with initial seed x = b (which must not = 2\n");
+	fprintf(stderr, "             or a power of 2), this means do an Euler-PRP test (referred to as a Pe'pin test for these\n");
+	fprintf(stderr, "             moduli), i.e. do 2^m-1 iterations of form x = b*x^2 (mod M(p)), with M(p) being not merely\n");
+	fprintf(stderr, "             a probable prime but in fact deterministically a prime if the result == -1. The reason we\n");
+	fprintf(stderr, "             still use the -prp flag in the Fermat case is for legacy-code compatibility: All pre-v18\n");
+	fprintf(stderr, "             Mlucas versions supported only Pe'pin testing to base b = 3; now the user can use the -prp\n");
+	fprintf(stderr, "             flag with a suitable base-value to override this default choice of base.\n");
+	fprintf(stderr, "\n");
+  }
   if(printall || STREQ(option,"iters")) {
 	fprintf(stderr, " -iters {int}   Do {int} self-test iterations of the type determined by the\n");
 	fprintf(stderr, "             modulus-related options (-s/-m = Lucas-Lehmer test iterations with\n");
@@ -4045,7 +4173,8 @@ void	printMlucasErrCode(int retVal)
 		"ERR_CARRY					",
 		"ERR_RUN_SELFTEST_FORLENGTH	",
 		"ERR_ASSERT					",
-		"ERR_UNKNOWN_FATAL			"
+		"ERR_UNKNOWN_FATAL			",
+		"ERR_INTERRUPT				"
 	};
 
 	/* Error type indicated by lowest byte: */
@@ -4064,107 +4193,6 @@ void	printMlucasErrCode(int retVal)
 		ASSERT(HERE, i==ERR_RUN_SELFTEST_FORLENGTH, "High bytes should only be nonzero if low byte == ERR_RUN_SELFTEST_FORLENGTH!");
 	}
 }
-
-/******************/
-
-/* Read the data contained in an old-style (pre-V3.0) Mlucas LL test savefile
-(as this is not in a platform-independent form, requires the savefile to have
-been generated on the the same type of system as the binary was built for)
-and then rename the old savefile file p{exponent}.bak .
-*/
-#if 0
-/*
-	EWM: For some reason the old-style savefile write combined with this gave weird extra bytes
-	in front of the exponent - simply wasn't worth any more time trying to debug, just switch to bytewise
-	savefile read/write and ask users to finish any pre-v3 assignments using their v2.8 build.
-*/
-	#error obsolete code - remove from build!
-
-int 	convert_LL_savefiles(uint64 psave, FILE*fp, uint32*ilo, uint32 ndim, int32 arr_tmp[], double a[])
-{
-	uint32 p,i,j,j1,n;
-	double sum1, sum2;
-	char BACKUPFILE[STR_MAX_LEN];
-
-	if(fp)
-	{
-		fprintf(stderr, " INFO: restart file %s found...reading...\n",RESTARTFILE);
-
-		i = fread(&p, sizeof(int), 1, fp);
-		if(i != 1)		{ fprintf(stderr, " ERROR: Error reading p.\n")										; fclose(fp);	fp = 0x0; return FALSE; }
-		/* Check that the restart-file exponent matches the passed one: */
-		if(p != psave)	{ fprintf(stderr, " ERROR: savefile p does not match passed p!\n")					; fclose(fp);	fp = 0x0; return FALSE; }
-		if(feof(fp))	{ fprintf(stderr, " ERROR: End-of-file encountered while attempting to read p.\n")	; fclose(fp);	fp = 0x0; return FALSE; }
-
-		i = fread(ilo, sizeof(int), 1, fp);
-		if(i != 1)		{ fprintf(stderr, " ERROR: Error reading ilo.\n")									; fclose(fp);	fp = 0x0; return FALSE; }
-		if(feof(fp))	{ fprintf(stderr, " ERROR: End-of-file encountered while attempting to read ilo.\n")	; fclose(fp);	fp = 0x0; return FALSE; }
-
-		i = fread(&n, sizeof(int), 1, fp);
-		if(i != 1)		{ fprintf(stderr, " ERROR: Error reading n.\n")										; fclose(fp);	fp = 0x0; return FALSE; }
-		if(feof(fp))	{ fprintf(stderr, " ERROR: End-of-file encountered while attempting to read n.\n")	; fclose(fp);	fp = 0x0; return FALSE; }
-		if(n != ndim)	{ fprintf(stderr, " ERROR: n != ndim in convert_LL_savefiles\n")					; fclose(fp);	fp = 0x0; return FALSE; }
-
-		i = fread(arr_tmp, sizeof(int), n, fp);		/* Read integer residues...	*/
-		if(i != n)		{ fprintf(stderr, "ERROR: Error reading integer residue array.\n")										; fclose(fp);	fp = 0x0; return FALSE; }
-		if(feof(fp))	{ fprintf(stderr, "ERROR: End-of-file encountered while attempting to read integer residue array.\n")	; fclose(fp);	fp = 0x0; return FALSE; }
-
-		i = fread(&sum1, sizeof(double), 1, fp);		/* ...and checksum...	*/
-		if(i != 1)		{ fprintf(stderr, "ERROR: Error reading checksum1.\n")													; fclose(fp);	fp = 0x0; return FALSE; }
-		if(feof(fp))	{ fprintf(stderr, "ERROR: End-of-file encountered while attempting to read checksum1.\n")				; fclose(fp);	fp = 0x0; return FALSE; }
-
-		fclose(fp);	fp = 0x0;
-
-		sum2=0.0;
-		for(j=0; j < n; j++)	/* ...then move elements of residue into their normal doubles slots.	*/
-		{
-		#ifdef USE_AVX512
-			j1 = (j & mask03) + br16[j&15];
-		#elif defined(USE_AVX)
-			j1 = (j & mask02) + br8[j&7];
-		#elif defined(USE_SSE2)
-			j1 = (j & mask01) + br4[j&3];
-		#else
-			j1 = j;
-		#endif
-			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-
-			a[j1]= arr_tmp[i];
-			sum2 += a[j1];
-		}
-		/* Don't deallocate arr_tmp here, since we'll need it later for savefile writes. */
-		/*...we can re-use I/O unit number 1 here since if program execution gets to this point, the savefile previously opened on unit 1 will have been closed.	*/
-
-		if(sum1 != sum2)
-		{
-										        fprintf(stderr,"ERROR: Checksum error for restart file%s\n", RESTARTFILE);
-			fp = mlucas_fopen(   OFILE,"a");	if(fp){ fprintf(	fp,"ERROR: Checksum error for restart file%s\n", RESTARTFILE); fclose(fp);	fp = 0x0; }
-			fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"ERROR: Checksum error for restart file%s\n", RESTARTFILE); fclose(fp);	fp = 0x0; }
-			return FALSE;
-		}
-	}
-	else
-	{
-									        fprintf(stderr,"ERROR: Unable to open restart file %s in convert_LL_savefiles\n", RESTARTFILE);
-		fp = mlucas_fopen(   OFILE,"a");	if(fp){ fprintf(	fp,"ERROR: Unable to open restart file %s in convert_LL_savefiles\n", RESTARTFILE); fclose(fp);	fp = 0x0; }
-		fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"ERROR: Unable to open restart file %s in convert_LL_savefiles\n", RESTARTFILE); fclose(fp);	fp = 0x0; }
-		return FALSE;
-	}
-
-	/* now rename the old savefile by appending a '.bak' to the name: */
-	strcpy(BACKUPFILE, RESTARTFILE);
-	strcat(BACKUPFILE,".bak");
-	if(!rename(RESTARTFILE, BACKUPFILE))
-	{
-		sprintf(cbuf  ,"FATAL: Unable to rename the savefile %s ==> %s\n",RESTARTFILE, BACKUPFILE);
-		fp = mlucas_fopen(   OFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf); }
-		fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf); }
-		fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
-	}
-
-	return TRUE;
-}
-#endif
 
 /******************/
 
@@ -4201,7 +4229,7 @@ EWM's notes added in {}:
 		i.e. stores the corresponding MODULUS_TYPE value as defined in Mdata.h
 		(as with TEST_TYPE field, assume a max.	value of 255.)
 
-	s:  The number of squarings of 3 {EWM: or LL iterations, or whatever}
+	s:  The number of squarings of 3 {EWM: or LL iterations, or whatever; expanded to 8 bytes}
 		that have been performed to generate said file, stored as four bytes,
 		the low byte first.
 
@@ -4241,6 +4269,14 @@ EWM's notes added in {}:
 		computation, e.g. stage bounds, possibly even a condensed run history, if more
 		than one person has contributed pieces of the full computation.
 
+	EWM - added in v18:
+	{kblocks}: 4 bytes to store the FFT length (in Kdoubles) actually
+		used at time of savefile write. This is needed to support the code auto-switching
+		to a larger-than-default FFT length during the run as a result of excessive ROE.
+
+	{shift}: 8 bytes to store the circular bitwise residue-shift value at the time of the
+		savefile write. Note that the unshifted residue is what is actually written to the file.
+
 The input arguments Res64, Res35m1, Res36m1 are 3 checksums (residue modulo 2^64, 2^35-1, 2^36-1)
 intended to be compared to the same gotten via subsequent processing (e.g. conversion to floating-
 point form) of the residue array itself. (These are essentially the Selfridge-Hurwitz residues
@@ -4249,27 +4285,42 @@ commonly used in Fermat-number primality testing, but with the mod-2^36 componen
 /*** READ: Assumes a valid file pointer has been gotten via a call of the form
 fp = mlucas_fopen(RESTARTFILE,"rb");
 ***/
-int	read_ppm1_savefiles(uint64 p, FILE*fp, uint32*ilo, uint8 arr_tmp[], uint64*Res64, uint64*Res35m1, uint64*Res36m1)
+// Dec 2017: For Fermat case the Pepin primality test is indistinguishable from an Euler-PRP test and
+// e.g. cofactor-PRP tests start from Pepin residue. Thus for this modulus type these two
+// disparate-seeming test types are acceptable; add this little utility function to enforce that:
+int test_types_compatible(uint32 t1, uint32 t2)
+{
+	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
+		return (t1 <= TEST_TYPE_MAX) && (t2 <= TEST_TYPE_MAX);
+	else	// For Mersennes cofactor-PRP test must start from a PRP, not LL, residue, so continue to enforce strict equality of test types:
+		return t1 == t2;
+}
+
+// Returns 1 on successful read, 0 otherwise:
+int read_ppm1_savefiles(uint64 p, int*kblocks, FILE*fp, uint32*ilo, uint8 arr_tmp[], uint64*Res64, uint64*Res35m1, uint64*Res36m1)
 {
 	const char func[] = "read_ppm1_savefiles";
-	uint32 i;
+	uint32 i,j;
 	uint32 nbytes;
-	uint64 nsquares= 0;
+	uint64 itmp64, nsquares = 0ull;
+	const uint64 two35m1 = (uint64)0x00000007FFFFFFFFull, two36m1 = (uint64)0x0000000FFFFFFFFFull;	/* 2^35,36-1 */
+
+	*Res64 = 0ull;	// 0 value on return indicates failure of some kind
 
 	sprintf(cbuf, "%s: p must be 32-bit or less!",func);
 	ASSERT(HERE, !(p >> 32), cbuf);	/* Future versions will need to loosen this p < 2^32 restriction: */
 
 	if(!file_valid(fp))
 	{
-		sprintf(cbuf, "%s: File pointer invalid for read!\n",func);
-		ASSERT(HERE, 0, cbuf); return FALSE;
+		sprintf(cbuf, "%s: File pointer invalid for read!\n",func);	ASSERT(HERE, 0, cbuf);
 	}
 	fprintf(stderr, " INFO: restart file %s found...reading...\n",RESTARTFILE);
 	/* t: */
-	if((i = fgetc(fp)) != TEST_TYPE)
+	i = fgetc(fp);
+	if(!test_types_compatible(i, TEST_TYPE))
 	{
 		sprintf(cbuf, "%s: TEST_TYPE != fgetc(fp)\n",func);
-		ASSERT(HERE, 0, cbuf); return FALSE;
+		return 0;
 	}
 	/* m: */
 	if((i = fgetc(fp)) != MODULUS_TYPE)
@@ -4277,7 +4328,7 @@ int	read_ppm1_savefiles(uint64 p, FILE*fp, uint32*ilo, uint8 arr_tmp[], uint64*R
 		// For some reason, this fubared in my rerun-final-F25-iterations-from-33.55m (fgetc = 176, MODULUS_TYPE = 3)
 		// but residue OK, so emit error msg but allow execution past it:
 		sprintf(cbuf, "ERROR: %s: MODULUS_TYPE != fgetc(fp)\n",func);
-		ASSERT(HERE, 0, cbuf); return FALSE;
+		return 0;
 	}
 	/* s: */
 	for(nbytes = 0; nbytes < 8; nbytes++)
@@ -4286,10 +4337,12 @@ int	read_ppm1_savefiles(uint64 p, FILE*fp, uint32*ilo, uint8 arr_tmp[], uint64*R
 		nsquares += (uint64)i << (8*nbytes);
 	}
 	/* For now, just make sure nsquares < 2^32 and copy to ilo: */
-	if(nsquares >= p)
-	{
+	if(nsquares >= p) {
 		sprintf(cbuf,"%s: nsquares = %llu out of range, should be < p = %llu\n",func, nsquares, p);
-		ASSERT(HERE, 0, cbuf); return FALSE;
+		return 0;
+	} else if(nsquares > 0xFFFFFFFFull) {
+		sprintf(cbuf,"%s: nsquares = %llu out of range, current limit = 2^32-1.\n",func, nsquares);
+		return 0;
 	}
 	*ilo = nsquares;
 
@@ -4303,18 +4356,18 @@ int	read_ppm1_savefiles(uint64 p, FILE*fp, uint32*ilo, uint8 arr_tmp[], uint64*R
 	else if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
 	{
 		sprintf(cbuf, "%s: MODULUS_TYPE_FERMAT but (p mod 8) != 0",func);
-		ASSERT(HERE, p % 8 == 0,cbuf);
-		nbytes = (p/8) + 1;
+		ASSERT(HERE, (p & 7) == 0,cbuf);
+		nbytes = (p>>3) + 1;
 		TRANSFORM_TYPE = RIGHT_ANGLE;
 	}
-printf("%s: reading %u bytes...\n",func,nbytes);
-	i = fread(arr_tmp, sizeof(char), nbytes, fp);		/* Read bytewise residue...	*/
-	if(i != nbytes)	{ sprintf(cbuf, "%s: Error reading bytewise residue array.\n",func)										; ASSERT(HERE, 0, cbuf); return FALSE; }
-	if(ferror(fp))	{ sprintf(cbuf, "%s: Unknown Error reading bytewise residue array.\n",func)								; ASSERT(HERE, 0, cbuf); return FALSE; }
-	if(feof(fp))	{ sprintf(cbuf, "%s: End-of-file encountered while attempting to read bytewise residue array.\n",func)	; ASSERT(HERE, 0, cbuf); return FALSE; }
 
+	i = fread(arr_tmp, sizeof(char), nbytes, fp);		/* Read bytewise residue...	*/
+	if(i != nbytes)	{ sprintf(cbuf, "%s: Error reading bytewise residue array.\n",func)										; return 0; }
 	/* 8 bytes for Res64: */
-	*Res64 = 0;
+	if(ferror(fp))	{ sprintf(cbuf, "%s: Unknown Error reading bytewise residue array.\n",func)								; return 0; }
+	if(feof(fp))	{ sprintf(cbuf, "%s: End-of-file encountered while attempting to read bytewise residue array.\n",func)	; return 0; }
+
+	*Res64 = 0ull;
 	for(nbytes = 0; nbytes < 8; nbytes++)
 	{
 		i = fgetc(fp);
@@ -4327,8 +4380,7 @@ printf("%s: reading %u bytes...\n",func,nbytes);
 		i = fgetc(fp);
 		*Res35m1 += (uint64)i << (8*nbytes);
 	}
-	sprintf(cbuf, "%s: *Res35m1 <= 0x00000007ffffffff",func);
-	ASSERT(HERE, *Res35m1 <= 0x00000007FFFFFFFFull,cbuf);
+	if(*Res35m1 > 0x00000007FFFFFFFFull) { sprintf(cbuf, "%s: *Res35m1 should be <= 0x00000007ffffffff",func); return 0; }
 	/* 5 bytes for Res36m1: */
 	*Res36m1 = 0;
 	for(nbytes = 0; nbytes < 5; nbytes++)
@@ -4336,62 +4388,108 @@ printf("%s: reading %u bytes...\n",func,nbytes);
 		i = fgetc(fp);
 		*Res36m1 += (uint64)i << (8*nbytes);
 	}
-	sprintf(cbuf, "%s: *Res36m1 <= 0x00000007ffffffff",func);
-	ASSERT(HERE, *Res36m1 <= 0x0000000FFFFFFFFFull,cbuf);
+	if(*Res36m1 > 0x0000000FFFFFFFFFull) { sprintf(cbuf, "%s: *Res35m1 should be <= 0x0000000fffffffff",func); return 0; }
+	// FFT length in K (3 bytes) - first added this in v18, so allow for EOF here if user resumed a pre-v18-started run using a v18 build:
+	*kblocks = 0;
+	for(nbytes = 0; nbytes < 3; nbytes++)
+	{
+		i = fgetc(fp);
+		if(i == EOF) {
+			if(!nbytes)
+				break;
+			else	// If at least the first of the 3 bytes exists, all 3 had better be there:
+			{ sprintf(cbuf, "%s: Expected 3 FFT-length-to-use bytes!",func); return 0; }
+		}
+		*kblocks += (uint64)i << (8*nbytes);
+	}
+	// Checksums: Check Res64,Res35m1,Res36m1 checksum vs the ones extracted from the residue byte-array read from the file:
+	/* Since arr_tmp may hold previous-exponent data in its high bits (if previous p > current one), need to zero
+	those out before calling any mi64 functions which treat arr_tmp as a 64-bit-limb array rather than a byte-array:
+	*/
+	nbytes = (p+7)>>3;
+	j = 8 - (nbytes&7);	// nbytes%8 = #significant bytes in high limb; j = #bytes needing zeroing at the high end of the limb
+	for(i = nbytes; i < nbytes+j; i++) arr_tmp[i] = 0;
+	i = (p+63)>>6;	// # of 64-bit limbs
+	itmp64 = ((uint64*)arr_tmp)[0];									if(*Res64 != itmp64)	{ sprintf(cbuf, "%s: On restart: Res64 checksum error! Got %llX, expected %llX\n"  ,func,itmp64,*Res64); return 0; }
+	// For big-endian CPUs, casting byte-array to uint64* gives byte-reversed limbs, so use a direct bitwise mod:
+  #ifdef USE_BIG_ENDIAN
+	/*
+	My original approach here was wrong - here was the reasoning, illustrated using the (mod 2^35-1) of the S-H mod pair:
+		For low 64-bit limb x0, x0 % two35m1 = x0.lo35 + x0.hi29. Now say our current 64-bit limb starts at bit B, i.e.
+		represents itmp64*2^B. That means we need to lcshift itmp64 by (B % 35) bits before doing the above 29|35 folding:
+		x = b63...b0, 64-bit, we seek x*2^64 (mod 2^35-1).
+	Here's why that doesn't work - consider the next-lowest 64-bit limb in our residue, call it x1:
+		2^64  = 2^29 (mod 2^35-1), thus we seek x*2^29 (mod 2^35-1), which in bitwise terms is
+		b63...b0[29 binary 0s] (mod 2^35-1), i.e. bits 35 thru 63+29 = 92 of b63...b0[29 binary 0s] get folded back by adding to low bits:
+									34.33.32.31.30.29.28.27.26.25.24.23.22.21.20.19.18.17.16.15.14.13.12.11.10.09.08.07.06.05.04.03.02.01.00
+			b5...b0[29 binary 0s]	 5. 4. 3. 2. 1. 0.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .
+		+	b40...b6				40.39.38.37.36.35.34.33.32.31.30.29.28.27.26.25.24.23.22.21.20.19.18.17.16.15.14.13.12.11.10.09.08.07.06
+		+	b63...b41				                                       63.62.61.60.59.58.57.56.55.54.43.52.51.49.48.47.46.45.44.43.42.41
+		But the circular-shift scheme instead gives
+		[b34...b0][b63...b35], folding that on the 35-bit boundary gives
+			[b5...b0][b63...b35]
+		+	[b34...b6], i.e. bits 35-40 and 41-63 end up misaligned.
+		What we really want is to start with the current value of bmod35, 29, and do like so:
+		bmod35 = 29: (x << 29) & two35m1
+					+(x >> (35-29)) & two35m1
+					+(x >> (70-29)) & two35m1
+	*/
+	int bmod35 = 0, bmod36 = 0, rshift;
+	uint64 rmod35 = 0ull, rmod36 = 0ull, cmod64;
+	for(i = 0; i < nbytes; i += 8) {
+		// Assemble 64-bit limb from byte octet:
+		itmp64 = ((uint64)arr_tmp[i]<<56)+((uint64)arr_tmp[i+1]<<48)+((uint64)arr_tmp[i+2]<<40)+((uint64)arr_tmp[i+3]<<32)
+				+((uint64)arr_tmp[i+4]<<24)+((uint64)arr_tmp[i+5]<<16)+((uint64)arr_tmp[i+6]<<8)+(uint64)arr_tmp[i+7];
+		cmod64 = (itmp64 << bmod35) & two35m1; rshift = 35 - bmod35;
+		while(rshift < 64) { cmod64 += (itmp64 >> rshift) & two35m1; rshift += 35; }
+		rmod35 += cmod64;
+		cmod64 = (itmp64 << bmod36) & two36m1; rshift = 36 - bmod36;
+		while(rshift < 64) { cmod64 += (itmp64 >> rshift) & two36m1; rshift += 36; }
+		rmod36 += cmod64;
+		MOD_ADD64(bmod35,29,35,bmod35); MOD_ADD64(bmod36,28,36,bmod36);	// bmod35|36 += 29|28 (mod 35|36)
+	}
+	rmod35 = (rmod35 & two35m1) + (rmod35 >> 35); rmod36 = (rmod36 & two36m1) + (rmod36 >> 36);	// And do a final pair of folds to get mods
+	if(*Res35m1 != rmod35)	{ sprintf(cbuf, "%s: On restart: Res35m1 checksum error! Got %llX, expected %llX\n",func,rmod35,*Res35m1); return 0; }
+	if(*Res36m1 != rmod36)	{ sprintf(cbuf, "%s: On restart: Res36m1 checksum error! Got %llX, expected %llX\n",func,rmod36,*Res36m1); return 0; }
+  #else
+	itmp64 = mi64_div_by_scalar64((uint64*)arr_tmp,two35m1,i,0x0);	if(*Res35m1 != itmp64)	{ sprintf(cbuf, "%s: On restart: Res35m1 checksum error! Got %llX, expected %llX\n",func,itmp64,*Res35m1); return 0; }
+	itmp64 = mi64_div_by_scalar64((uint64*)arr_tmp,two36m1,i,0x0);	if(*Res36m1 != itmp64)	{ sprintf(cbuf, "%s: On restart: Res36m1 checksum error! Got %llX, expected %llX\n",func,itmp64,*Res36m1); return 0; }
+  #endif
+	/* May 2018: 8 bytes for circular-shift to apply to the (unshifted) residue read from the file: */
+	RES_SHIFT = 0ull;
+	for(nbytes = 0; nbytes < 8; nbytes++)
+	{
+		i = fgetc(fp);
+		if(i == EOF) {
+			if(!nbytes)
+				break;
+			else	// If at least the first of the 8 bytes exists, all 3 had better be there:
+			{ sprintf(cbuf, "%s: Expected residue-bitshift-count bytes!",func); return 0; }
+		}
+		RES_SHIFT += (uint64)i << (8*nbytes);
+	}
 	/* Don't deallocate arr_tmp here, since we'll need it later for savefile writes. */
-	return TRUE;
+	return 1;
 }
 
-/*** WRITE:  Assumes a valid file pointer has been gotten via a call of the form
-fp = mlucas_fopen(RESTARTFILE,"wb");
-***/
-#if OLD_FORMAT
-void write_ppm1_savefiles(uint64 p, FILE*fp, uint32 ihi, uint32 n, int32 arr_tmp[], double a[])
+/* WRITE: Assumes the following:
+[1] a valid file pointer has been gotten via a call of the form
+	fp = mlucas_fopen(RESTARTFILE,"wb");
+[2] any circular shift stored in the global RES_SHIFT has been removed in the preceding call to convert_res_FP_bytewise.
+*/
+void write_ppm1_savefiles(uint64 p, int n, FILE*fp, uint32 ihi, uint8 arr_tmp[], uint64 Res64, uint64 Res35m1, uint64 Res36m1)
 {
-	double sum1 = 0.0;
-	uint32 i,j;
-	uint32 p32 = (uint32)p;
-#else
-void write_ppm1_savefiles(uint64 p, FILE*fp, uint32 ihi, uint8 arr_tmp[], uint64 Res64, uint64 Res35m1, uint64 Res36m1)
-{
-	uint32 i;
+	uint32 i,kblocks;
 	uint32 nbytes = 0;
 	uint64 itmp64;
-#endif
+
 	if(!file_valid(fp))
-	{
 		ASSERT(HERE,0,"write_ppm1_savefiles: File pointer invalid for write!");
-	}
+	// Make sure n is a proper (unpadded) FFT-length, i.e. is a multiple of 1K:
+	kblocks = (n >> 10);
+	ASSERT(HERE,n == (kblocks << 10),"Not a proper unpadded FFT length");
 
 	/* See the function read_ppm1_savefiles() for the file format here: */
-#if OLD_FORMAT
-	#error This segment of code is obsolete!
-	/* Obsolete (platform-dependent) savefile format - invoke this code only to test convert_LL_savefiles functionality: */
-	for(i = 0; i < n; i++)
-	{
-		j = i + ( (i >> DAT_BITS) << PAD_BITS );
-		arr_tmp[i]=(int)a[j];
-		sum1 += a[j];
-	}
-/********************************************
-#error This fails on fread of the same file!
-********************************************/
-	i = fwrite(&p32, sizeof(int), 1, fp);
-	ASSERT(HERE, i == 1, "write_ppm1_savefiles: Error writing p32.");
-
-	i = fwrite(&ihi, sizeof(int), 1, fp);
-	ASSERT(HERE, i == 1, "write_ppm1_savefiles: Error writing ihi.");
-
-	i = fwrite(&n, sizeof(int), 1, fp);
-	ASSERT(HERE, i == 1, "write_ppm1_savefiles: Error writing n.");
-
-	i = fwrite(arr_tmp, sizeof(int), n, fp);		/* Write integer residue...	*/
-	ASSERT(HERE, i == n, "write_ppm1_savefiles: Error writing residue.");
-
-	i = fwrite(&sum1, sizeof(double), 1, fp);		/* ...and checksum.	*/
-	ASSERT(HERE, i == 1, "write_ppm1_savefiles: Error writing checksum1.");
-#else
-	/* Bytewise (platform-independent) savefile format: */
 	/* t: */
 	fputc(TEST_TYPE, fp);
 	/* m: */
@@ -4443,16 +4541,24 @@ void write_ppm1_savefiles(uint64 p, FILE*fp, uint32 ihi, uint8 arr_tmp[], uint64
 	{
 		fputc((int)(Res36m1 >> i) & 0xff, fp);
 	}
-#endif
+	// v18: FFT length in K (3 bytes):
+	for(i = 0; i < 24; i+=8)
+	{
+		fputc((kblocks >> i) & 0xff, fp);
+	}
+	// v18: circular-shift to apply to the (unshifted) residue read from the file (8 bytes):
+	for(i = 0; i < 64; i+=8)
+	{
+		fputc((RES_SHIFT >> i) & 0xff, fp);
+	}
 }
 
 /*********************/
 
 /*
 Function to take an n-digit Mersenne or Fermat-mod residue in bytewise savefile form,
-convert it to balanced-digit floating-point form, calculate the 3 Selfridge-Hurwitz residues
-and perform checksum validation - it is assumed that the 3 residues will have been separately
-read from e.g. a savefile, and these reference values are passed as const ints.
+apply the required circular shift read into the global RES_SHIFT during the preceding
+bytewise-savefile read and convert it to balanced-digit floating-point form.
 
 In the Mersenne-mod case the residue digits are stored
 consecutively in the a[] array.
@@ -4460,11 +4566,11 @@ consecutively in the a[] array.
 In the Fermat-mod case the digits are arranged in (j,j+n/2)
 (i.e. right-angle transform) order.
 */
-int 	convert_res_bytewise_FP(const uint8 arr_tmp[], double a[], int n, const uint64 p, const uint64 Res64, const uint64 Res35m1, const uint64 Res36m1)
+int 	convert_res_bytewise_FP(const uint8 arr_tmp[], double a[], int n, const uint64 p)
 {
 	char hex_res[17];
 	uint32 nbytes;
-	uint64 nbits,sum0,sum1,sum2;
+	uint64 nbits;
 	int bimodn,curr_char,findex,ii,j = 0,j1 = 0,k,pass,rbits;
 	int bw,sw,bits[2];
 	uint64 base[2];	/* Assume base may be > 2^32 (e.g. for mixed FFT/FGT)
@@ -4500,15 +4606,11 @@ int 	convert_res_bytewise_FP(const uint8 arr_tmp[], double a[], int n, const uin
 	}
 	nbytes = (p + 7)/8;
 
+	// Apply the circular shift:
+	mi64_shlc((uint64*)arr_tmp, (uint64*)arr_tmp, p, RES_SHIFT, (p+63)>>6);
+
 	/* Vector length a power of 2? */
-	if((n >> trailz32(n)) == 1)
-	{
-		pow2_fft = TRUE;
-	}
-	else
-	{
-		pow2_fft = FALSE;
-	}
+	pow2_fft = (n >> trailz32(n)) == 1;
 
 	bits[0] = p/n;		ASSERT(HERE, bits[0] > 1,"convert_res_bytewise_FP: bits[0] > 1");
 	base[0] = 1 << bits[0];
@@ -4594,8 +4696,7 @@ int 	convert_res_bytewise_FP(const uint8 arr_tmp[], double a[], int n, const uin
 
 			itmp += cy;		/* Add in any carry from the previous digit
 							and normalize result so |current digit| <= base[ii]/2. */
-			if(itmp > 0)
-			{
+			if(itmp > 0) {
 				cy = itmp >> bits[ii];
 				itmp -= (cy << bits[ii]);
 				if(itmp > (base[ii]>>1))
@@ -4603,15 +4704,11 @@ int 	convert_res_bytewise_FP(const uint8 arr_tmp[], double a[], int n, const uin
 					itmp -= base[ii];
 					cy += 1;
 				}
-			}
-			else
-			{
+			} else {
 				cy = 0;
 			}
 			a[j1]= (double)itmp;
-
 			nbits += bits[ii];
-
 			bimodn += bw;
 			if(bimodn >= n) bimodn -= n;
 			ii = (uint32)(sw - bimodn) >> 31;
@@ -4674,8 +4771,7 @@ int 	convert_res_bytewise_FP(const uint8 arr_tmp[], double a[], int n, const uin
 
 			itmp += cy;		/* Add in any carry from the previous digit
 							and normalize result so |current digit| <= base[ii]/2. */
-			if(itmp > 0)
-			{
+			if(itmp > 0) {
 				cy = itmp >> bits[ii];
 				itmp -= (cy << bits[ii]);
 				if(itmp > (base[ii]>>1))
@@ -4683,13 +4779,10 @@ int 	convert_res_bytewise_FP(const uint8 arr_tmp[], double a[], int n, const uin
 					itmp -= base[ii];
 					cy += 1;
 				}
-			}
-			else
-			{
+			} else {
 				cy = 0;
 			}
 			a[j1]= (double)itmp;
-
 			nbits += bits[ii];
 		}
 	  }
@@ -4712,44 +4805,11 @@ int 	convert_res_bytewise_FP(const uint8 arr_tmp[], double a[], int n, const uin
 	}
 
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
-	{
 		a[0] += cy;
-	}
 	else if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
-	{
 		a[0] -= cy;
-	}
 	else
-	{
 		ASSERT(HERE, 0,"Illegal modulus type!");
-	}
-
-	/* Checksum validation: */
-	sum0 = res64(a,n,p,&j,hex_res);
-	if(Res64 != sum0)
-	{
-									        fprintf(stderr,"ERROR: Res64 Checksum error for restart file %s in convert_res_bytewise_FP\n", RESTARTFILE);
-		fp = mlucas_fopen(   OFILE,"a");	if(fp){ fprintf(	fp,"ERROR: Res64 Checksum error for restart file %s in convert_res_bytewise_FP\n", RESTARTFILE); fclose(fp);	fp = 0x0; }
-		fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"ERROR: Res64 Checksum error for restart file %s in convert_res_bytewise_FP\n", RESTARTFILE); fclose(fp);	fp = 0x0; }
-		return FALSE;
-	}
-
-	resSH(a,n,p,&sum1,&sum2);
-	if(Res35m1 != sum1)
-	{
-									        fprintf(stderr,"ERROR: Res35m1 Checksum error for restart file %s in convert_res_bytewise_FP\n", RESTARTFILE);
-		fp = mlucas_fopen(   OFILE,"a");	if(fp){ fprintf(	fp,"ERROR: Res35m1 Checksum error for restart file %s in convert_res_bytewise_FP\n", RESTARTFILE); fclose(fp);	fp = 0x0; }
-		fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"ERROR: Res35m1 Checksum error for restart file %s in convert_res_bytewise_FP\n", RESTARTFILE); fclose(fp);	fp = 0x0; }
-		return FALSE;
-	}
-	if(Res36m1 != sum2)
-	{
-									        fprintf(stderr,"ERROR: Res36m1 Checksum error for restart file %s in convert_res_bytewise_FP\n", RESTARTFILE);
-		fp = mlucas_fopen(   OFILE,"a");	if(fp){ fprintf(	fp,"ERROR: Res36m1 Checksum error for restart file %s in convert_res_bytewise_FP\n", RESTARTFILE); fclose(fp);	fp = 0x0; }
-		fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"ERROR: Res36m1 Checksum error for restart file %s in convert_res_bytewise_FP\n", RESTARTFILE); fclose(fp);	fp = 0x0; }
-		return FALSE;
-	}
-
 	return TRUE;
 }
 
@@ -4757,7 +4817,8 @@ int 	convert_res_bytewise_FP(const uint8 arr_tmp[], double a[], int n, const uin
 
 /*
 Function to take an n-digit Mersenne or Fermat-mod residue in balanced-digit
-floating-point form, convert it to bytewise form, and generate Selfridge-Hurwitz checksums.
+floating-point form, convert it to bytewise form, un-apply circular shift
+stored in the global RES_SHIFT, and generate Selfridge-Hurwitz checksums from the result.
 
 In the Mersenne-mod case the residue digits are assumed to be stored
 consecutively in the a[] array.
@@ -4771,15 +4832,11 @@ form, use the mi64_cvt_double_uint64() and mi64_cvt_uint64_double() functions in
 */
 void	convert_res_FP_bytewise(const double a[], uint8 arr_tmp[], int n, const uint64 p, uint64*Res64, uint64*Res35m1, uint64*Res36m1)
 {
-	uint64 nbits;
-	int bimodn,curr_bits,curr_char,cy,findex,ii,j,j1,k,pass,shift,rbits,msw_lt0;
-	int bw,sw,bits[2];
-	uint64 base[2];	/* Assume base may be > 2^32 (e.g. for mixed FFT/FGT)
-						but < 2^53, i.e. fits in a double */
+	int bimodn,curr_bits,curr_char,cy,findex,ii,j,j1,k,pass,rbits,msw_lt0,bw,sw,bits[2],pow2_fft;
+	uint64 nbits,curr_wd64,base[2];	/* Assume base may be > 2^32 (e.g. for mixed FFT/FGT) but < 2^53, i.e. fits in a double */
+	double atmp;
 	int64 itmp;
-	uint64 curr_word, curr_wd64, mod1=0, mod2=0;
 	const uint64 two35m1 = (uint64)0x00000007FFFFFFFFull, two36m1 = (uint64)0x0000000FFFFFFFFFull;	/* 2^35,36-1 */
-	int pow2_fft;
 
 	ASSERT(HERE,MODULUS_TYPE,"MODULUS_TYPE not set!");
 	ASSERT(HERE,MODULUS_TYPE <= MODULUS_TYPE_MAX,"MODULUS_TYPE out of range!");
@@ -4795,35 +4852,20 @@ void	convert_res_FP_bytewise(const double a[], uint8 arr_tmp[], int n, const uin
 		ASSERT(HERE, (p >> findex) == 1,"convert_res_FP_bytewise: (p >> findex) == 1");
 	}
 	else if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
-	{
 		ASSERT(HERE, TRANSFORM_TYPE == REAL_WRAPPER,"convert_res_FP_bytewise: TRANSFORM_TYPE == REAL_WRAPPER");
-	}
 	else
-	{
 		ASSERT(HERE, 0,"Illegal modulus type!");
-	}
 
 	/* Vector length a power of 2? */
-	if((n >> trailz32(n)) == 1)
-	{
-		pow2_fft = TRUE;
-	}
-	else
-	{
-		pow2_fft = FALSE;
-	}
+	pow2_fft = (n >> trailz32(n)) == 1;
 
 	bits[0] = p/n;
 	base[0] = 1 << bits[0];
 
 	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && pow2_fft == TRUE)
-	{
 		bits[1] =     bits[0];
-	}
 	else
-	{
 		bits[1] = 1 + bits[0];
-	}
 	base[1] = 1 << bits[1];
 
 	bw = p%n;	/* cf. mers_mod_square.c	*/
@@ -4837,7 +4879,7 @@ void	convert_res_FP_bytewise(const double a[], uint8 arr_tmp[], int n, const uin
 	*/
 	cy=0;		/* init carry.	*/
 	msw_lt0 = 0;
-
+	atmp = 0.0;	// To make sure the find-most-significant-nonzero-element check below actually finds a nonzero element
 	for(j=n-1; j >= 0; j -= TRANSFORM_TYPE)
 	{
 	#ifdef USE_AVX512
@@ -4850,23 +4892,48 @@ void	convert_res_FP_bytewise(const double a[], uint8 arr_tmp[], int n, const uin
 		j1 = j;
 	#endif
 		j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-
-		if(a[j1]!= 0.0)
+		atmp = a[j1];
+		if(atmp != 0.0)
 		{
-			if(a[j1]< 0.0)
+			if(atmp < 0.0)
 			{
 				msw_lt0 = 1;	/* MS word was < 0 prior to normalization */
-
 				if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
-				{
 					cy = -1;
-				}
 				else if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
-				{
 					cy = +1;
-				}
 			}
 			break;
+		}
+	}
+	// v18: In Fermat-mod case, if above loop over the odd-indexed elements (the upper residue half
+	// in the right-angle transform data layout) found no nonzero element, try the even-indexed ones:
+	if(atmp == 0.0 && TRANSFORM_TYPE == RIGHT_ANGLE) {
+		for(j = n-2; j >= 0; j -= TRANSFORM_TYPE)
+		{
+		#ifdef USE_AVX512
+			j1 = (j & mask03) + br16[j&15];
+		#elif defined(USE_AVX)
+			j1 = (j & mask02) + br8[j&7];
+		#elif defined(USE_SSE2)
+			j1 = (j & mask01) + br4[j&3];
+		#else
+			j1 = j;
+		#endif
+			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+			atmp = a[j1];
+			if(atmp != 0.0)
+			{
+				if(atmp < 0.0)
+				{
+					msw_lt0 = 1;	/* MS word was < 0 prior to normalization */
+					if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
+						cy = -1;
+					else if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
+						cy = +1;
+				}
+				break;
+			}
 		}
 	}
 
@@ -4877,9 +4944,6 @@ void	convert_res_FP_bytewise(const double a[], uint8 arr_tmp[], int n, const uin
 	rbits = 0;		/* # of Upper bits left over from processing of previous word	*/
 	curr_wd64 = 0;	/*      Upper bits left over from processing of previous word	*/
 
-	/* For right-angle transform, need to process odd and even-index elements
-	separately, via a pair of stride-2 passes through the array:
-	*/
 	if(TRANSFORM_TYPE == REAL_WRAPPER)
 	{
 		bimodn = 0;
@@ -4900,46 +4964,16 @@ void	convert_res_FP_bytewise(const double a[], uint8 arr_tmp[], int n, const uin
 			j1 = j;
 		#endif
 			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-
-			itmp = (int64)(a[j1]+ cy);	/* current digit in int64 form, subtracting any borrow from the previous digit.	*/
-			if(itmp < 0)			/* If current digit < 0, add the current base and set carry into next-higher digit = -1	*/
-			{
+			atmp = a[j1];
+			ASSERT(HERE, atmp == NINT(atmp), "Input float-residue elements must have 0 fractional part!");
+			itmp = (int64)(atmp+ cy);	/* current digit in int64 form, subtracting any borrow from the previous digit.	*/
+			if(itmp < 0) {			/* If current digit < 0, add the current base and set carry into next-higher digit = -1	*/
 				itmp += (base[ii]);
 				cy = -1;
-			}
-			else
-			{
+			} else {
 				cy = 0;
 			}
-
 			ASSERT(HERE, itmp >= 0,"convert_res_FP_bytewise: itmp >= 0");
-
-		/* Mod-(2^35-1) residue: */
-			curr_word = (uint64)itmp;
-			/* Current word must be left-shifted by nbits%35 before folding into residue: */
-			shift = (nbits%35);
-			mod1 += (curr_word << shift) & two35m1;
-			mod1 = (mod1 >> 35) + (mod1 & two35m1);
-			curr_word >>= (35-shift);
-			while(curr_word)
-			{
-				mod1 += curr_word & two35m1;
-				mod1 = (mod1 >> 35) + (mod1 & two35m1);
-				curr_word >>= 35;
-			}
-		/* Mod-(2^36-1) residue: */
-			curr_word = (uint64)itmp;
-			/* Current word must be left-shifted by nbits%36 before folding into residue: */
-			shift = (nbits%36);
-			mod2 += (curr_word << shift) & two36m1;
-			mod2 = (mod2 >> 36) + (mod2 & two36m1);
-			curr_word >>= (36-shift);
-			while(curr_word)
-			{
-				mod2 += curr_word & two36m1;
-				mod2 = (mod2 >> 36) + (mod2 & two36m1);
-				curr_word >>= 36;
-			}
 
 		/* Update 8-byte residue buffer last, since this one modifies itmp: */
 			ASSERT(HERE, rbits < 8,"convert_res_FP_bytewise: rbits < 8");
@@ -4966,12 +5000,18 @@ void	convert_res_FP_bytewise(const double a[], uint8 arr_tmp[], int n, const uin
 	}
 	else	/* Complex right-angle transform */
 	{
+	  /* For right-angle transform, need to process odd and even-index elements
+	  separately, via a pair of stride-2 passes through the array:
+	  */
 	  for(pass = 0; pass <=1; pass++)
 	  {
 		bimodn = n;
 
 		for(j = pass; j < n; j += 2)
 		{
+			ii = (bimodn > sw);					/*       i = 1 if a bigword,   0 if a smallword */
+			bimodn -= sw;						/* result >= 0 if a bigword, < 0 if a smallword */
+			bimodn += ( ((int)ii-1) & n);		/*       add 0 if a bigword,   N if a smallword */
 		#ifdef USE_AVX512
 			j1 = (j & mask03) + br16[j&15];
 		#elif defined(USE_AVX)
@@ -4982,50 +5022,16 @@ void	convert_res_FP_bytewise(const double a[], uint8 arr_tmp[], int n, const uin
 			j1 = j;
 		#endif
 			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-
-			ii = (bimodn > sw);					/*       i = 1 if a bigword,   0 if a smallword */
-			bimodn -= sw;						/* result >= 0 if a bigword, < 0 if a smallword */
-			bimodn += ( ((int)ii-1) & n);		/*       add 0 if a bigword,   N if a smallword */
-
-			itmp = (int64)(a[j1]+ cy);	/* current digit in int64 form, subtracting any borrow from the previous digit.	*/
-			if(itmp < 0)			/* If current digit < 0, add the current base and set carry into next-higher digit = -1	*/
-			{
+			atmp = a[j1];
+			ASSERT(HERE, atmp == NINT(atmp), "Input float-residue elements must have 0 fractional part!");
+			itmp = (int64)(atmp+ cy);	/* current digit in int64 form, subtracting any borrow from the previous digit.	*/
+			if(itmp < 0) {			/* If current digit < 0, add the current base and set carry into next-higher digit = -1	*/
 				itmp += (base[ii]);
 				cy = -1;
-			}
-			else
-			{
+			} else {
 				cy = 0;
 			}
-
 			ASSERT(HERE, itmp >= 0,"convert_res_FP_bytewise: itmp >= 0");
-
-		/* Mod-(2^35-1) residue: */
-			curr_word = (uint64)itmp;
-			/* Current word must be left-shifted by nbits%35 before folding into residue: */
-			shift = (nbits%35);
-			mod1 += (curr_word << shift) & two35m1;
-			mod1 = (mod1 >> 35) + (mod1 & two35m1);
-			curr_word >>= (35-shift);
-			while(curr_word)
-			{
-				mod1 += curr_word & two35m1;
-				mod1 = (mod1 >> 35) + (mod1 & two35m1);
-				curr_word >>= 35;
-			}
-		/* Mod-(2^36-1) residue: */
-			curr_word = (uint64)itmp;
-			/* Current word must be left-shifted by nbits%36 before folding into residue: */
-			shift = (nbits%36);
-			mod2 += (curr_word << shift) & two36m1;
-			mod2 = (mod2 >> 36) + (mod2 & two36m1);
-			curr_word >>= (36-shift);
-			while(curr_word)
-			{
-				mod2 += curr_word & two36m1;
-				mod2 = (mod2 >> 36) + (mod2 & two36m1);
-				curr_word >>= 36;
-			}
 
 		/* Update 8-byte residue buffer last, since this one modifies itmp: */
 			ASSERT(HERE, rbits < 8,"convert_res_FP_bytewise: rbits < 8");
@@ -5067,14 +5073,16 @@ void	convert_res_FP_bytewise(const double a[], uint8 arr_tmp[], int n, const uin
 	ASSERT(HERE, nbits == p          ,"convert_res_FP_bytewise: nbits == p          ");
 	ASSERT(HERE, curr_wd64 == 0      ,"convert_res_FP_bytewise: curr_wd64 == 0      ");
 
-	/* Checksums: */
-	*Res64 = 0;
-	for(ii= 0, j = 0; ii< 64;ii+=8, j++)
-	{
-		*Res64 += (uint64)arr_tmp[j] << ii;
+	// Remove the circular shift ... have no mi64_rshc function, so use that b-bit rightward cshift equivalent to (p-b)-bit left-cshift.
+	// (But must guard against RES_SHIFT = 0, since in that case the left-shift count == p and mi64_shlc requires shift count strictly < p):
+	j = (p+63)>>6;	// # of 64-bit limbs
+	if(RES_SHIFT) {
+		mi64_shlc((uint64*)arr_tmp, (uint64*)arr_tmp, p, p-RES_SHIFT,j);
 	}
-	*Res35m1 = mod1;
-	*Res36m1 = mod2;
+	/* Checksums: */
+	*Res64 = ((uint64*)arr_tmp)[0];
+	*Res35m1 = mi64_div_by_scalar64((uint64*)arr_tmp,two35m1,j,0x0);
+	*Res36m1 = mi64_div_by_scalar64((uint64*)arr_tmp,two36m1,j,0x0);
 }
 
 /*********************/

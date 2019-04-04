@@ -209,7 +209,7 @@ void radix96_dif_pass1(double a[], int n)
 		arr_offsets[0x0D] = p0e;		arr_offsets[0x1D] = p08+p10;
 		arr_offsets[0x0E] = p0c;		arr_offsets[0x1E] = p0b+p10;
 		arr_offsets[0x0F] = p0d;		arr_offsets[0x1F] = p0a+p10;
-		RADIX_32_DIF_OOP((double *)(r+00), a    ,arr_offsets);	/* Inouts in r[00-31] */		// Set arr_offsets for radix-32 DFT outputs:
+		RADIX_32_DIF_OOP((double *)(r+00), a    ,arr_offsets);	/* Inputs in r[00-31] */		// Set arr_offsets for radix-32 DFT outputs:
 
 		// Set arr_offsets for radix-32 DFT outputs:	[ab98fecd54762310 + p40],[fecd98ba23107645 + p50]
 		arr_offsets[0x00] = p0a;		arr_offsets[0x10] = p0f+p10;
@@ -228,7 +228,7 @@ void radix96_dif_pass1(double a[], int n)
 		arr_offsets[0x0D] = p03;		arr_offsets[0x1D] = p06+p10;
 		arr_offsets[0x0E] = p01;		arr_offsets[0x1E] = p04+p10;
 		arr_offsets[0x0F] = 0  ;		arr_offsets[0x1F] = p05+p10;
-		RADIX_32_DIF_OOP((double *)(r+32), a+p40,arr_offsets);	/* Inouts in r[32-63] */		// Set arr_offsets for radix-32 DFT outputs:
+		RADIX_32_DIF_OOP((double *)(r+32), a+p40,arr_offsets);	/* Inputs in r[32-63] */		// Set arr_offsets for radix-32 DFT outputs:
 
 		// Set arr_offsets for radix-32 DFT outputs:	[54762310fecd98ba + p30],[ab98fecd54762310 + p20]
 		arr_offsets[0x00] = p05+p10;		arr_offsets[0x10] = p0a;
@@ -247,7 +247,7 @@ void radix96_dif_pass1(double a[], int n)
 		arr_offsets[0x0D] = p08+p10;		arr_offsets[0x1D] = p03;
 		arr_offsets[0x0E] = p0b+p10;		arr_offsets[0x1E] = p01;
 		arr_offsets[0x0F] = p0a+p10;		arr_offsets[0x1F] = 0  ;
-		RADIX_32_DIF_OOP((double *)(r+64), a+p20,arr_offsets);	/* Inouts in r[64-95] */
+		RADIX_32_DIF_OOP((double *)(r+64), a+p20,arr_offsets);	/* Inputs in r[64-95] */
 	}
 }
 
@@ -416,7 +416,7 @@ void radix96_dit_pass1(double a[], int n)
 		arr_offsets[0x0F] = p06;		arr_offsets[0x1F] = p0a+p10;
 		RADIX_32_DIT_OOP(a+p40,arr_offsets, (double *)(r+64));	/* Outputs in r[64-95] */
 
-	/*...and now do 32 radix-3 transforms: 
+	/*...and now do 32 radix-3 transforms:
 
 	Use the inverse supercalafragalistic Ancient Chinese Secret index-munging formula [iSACSIMPF]
 	to properly permute the outputs of the 32 radix-3 DFTs:

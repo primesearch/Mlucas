@@ -27,7 +27,7 @@
 #endif
 
 #else
-	// EWM: Instead of error-on-compile we default to the util.c:get_time_str() function if any misconfig deteceted:
+	// EWM: Instead of error-on-compile we default to the util.c:get_time_str() function if any misconfig detected:
 	#error "Unable to define getRealTime( ) for an unknown OS."
 	#define GRT_MISCONFIG
 #endif

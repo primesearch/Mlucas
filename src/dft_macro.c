@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -30,6 +30,9 @@
 	#include "sse2_macro.h"
 	#include "radix09_sse_macro.h"
 #endif
+
+const uint8 reverse8[8] = {0,4,2,6,1,5,3,7};
+const uint8 reverse16[16] = {0,8,4,12,2,10,6,14,1,9,5,13,3,11,7,15};
 
 /************** RADIX-32 DIF/DIT: *****************************/
 
@@ -2775,11 +2778,6 @@ void RADIX_63_DIT(
 					s4  =  0.34202014332566873307;	/* sin(4*u) */
 	double re,im,rt,it, t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13;
 	struct complex t[63], *tptr;
-	/******************* AVX debug stuff: *******************/
-#if 0
-static int count = 0;
-count++;
-#endif
 
 	//...gather the needed data (63 64-bit complex, i.e. 126 64-bit reals) and do 7 radix-9 transforms:
 	/*
@@ -2799,37 +2797,11 @@ count++;
 	for(l = 0; l < 7; l++) {
 		// When 63 is used to build a larger DFT radix (e.g. 1008), these indices will be permuted (nonmonotone), no simplification possible:
 		k0 = __idx[*iptr]; k1 = __idx[*(iptr+1)]; k2 = __idx[*(iptr+2)]; k3 = __idx[*(iptr+3)]; k4 = __idx[*(iptr+4)]; k5 = __idx[*(iptr+5)]; k6 = __idx[*(iptr+6)]; k7 = __idx[*(iptr+7)]; k8 = __idx[*(iptr+8)];
-	/******************* AVX debug stuff: *******************/
-#if 0
-	fprintf(dbg_file, "Rad-9 Inputs for l = %d:\n",l);
-	fprintf(dbg_file, "0 = %20.10e %20.10e\n",*(__A+k0),*(Aim+k0));
-	fprintf(dbg_file, "1 = %20.10e %20.10e\n",*(__A+k1),*(Aim+k1));
-	fprintf(dbg_file, "2 = %20.10e %20.10e\n",*(__A+k2),*(Aim+k2));
-	fprintf(dbg_file, "3 = %20.10e %20.10e\n",*(__A+k3),*(Aim+k3));
-	fprintf(dbg_file, "4 = %20.10e %20.10e\n",*(__A+k4),*(Aim+k4));
-	fprintf(dbg_file, "5 = %20.10e %20.10e\n",*(__A+k5),*(Aim+k5));
-	fprintf(dbg_file, "6 = %20.10e %20.10e\n",*(__A+k6),*(Aim+k6));
-	fprintf(dbg_file, "7 = %20.10e %20.10e\n",*(__A+k7),*(Aim+k7));
-	fprintf(dbg_file, "8 = %20.10e %20.10e\n",*(__A+k8),*(Aim+k8));
-#endif
 		RADIX_09_DIT(
 			*(__A+k0),*(Aim+k0),*(__A+k1),*(Aim+k1),*(__A+k2),*(Aim+k2),*(__A+k3),*(Aim+k3),*(__A+k4),*(Aim+k4),*(__A+k5),*(Aim+k5),*(__A+k6),*(Aim+k6),*(__A+k7),*(Aim+k7),*(__A+k8),*(Aim+k8),
 			tptr->re,tptr->im,(tptr+1)->re,(tptr+1)->im,(tptr+2)->re,(tptr+2)->im,(tptr+3)->re,(tptr+3)->im,(tptr+4)->re,(tptr+4)->im,(tptr+5)->re,(tptr+5)->im,(tptr+6)->re,(tptr+6)->im,(tptr+7)->re,(tptr+7)->im,(tptr+8)->re,(tptr+8)->im,
 			rt,it,re
 		);
-	/******************* AVX debug stuff: *******************/
-#if 0
-	fprintf(dbg_file, "Rad-9 Outputs for l = %d:\n",l);
-	fprintf(dbg_file, "0 = %20.10e %20.10e\n",tptr->re,tptr->im);
-	fprintf(dbg_file, "1 = %20.10e %20.10e\n",(tptr+1)->re,(tptr+1)->im);
-	fprintf(dbg_file, "2 = %20.10e %20.10e\n",(tptr+2)->re,(tptr+2)->im);
-	fprintf(dbg_file, "3 = %20.10e %20.10e\n",(tptr+3)->re,(tptr+3)->im);
-	fprintf(dbg_file, "4 = %20.10e %20.10e\n",(tptr+4)->re,(tptr+4)->im);
-	fprintf(dbg_file, "5 = %20.10e %20.10e\n",(tptr+5)->re,(tptr+5)->im);
-	fprintf(dbg_file, "6 = %20.10e %20.10e\n",(tptr+6)->re,(tptr+6)->im);
-	fprintf(dbg_file, "7 = %20.10e %20.10e\n",(tptr+7)->re,(tptr+7)->im);
-	fprintf(dbg_file, "8 = %20.10e %20.10e\n",(tptr+8)->re,(tptr+8)->im);
-#endif
 		tptr += 9; iptr += 9;
 	}
 	/*...and now do 9 radix-7 transforms. The required output permutation is
@@ -2853,23 +2825,7 @@ count++;
 			*(__B+k0),*(Bim+k0),*(__B+k1),*(Bim+k1),*(__B+k2),*(Bim+k2),*(__B+k3),*(Bim+k3),*(__B+k4),*(Bim+k4),*(__B+k5),*(Bim+k5),*(__B+k6),*(Bim+k6),
 			uc1,us1,uc2,us2,uc3,us3, rt,it,re,im
 		);	tptr++; iptr += 7;
-	/******************* AVX debug stuff: *******************/
-#if 0
-	fprintf(dbg_file, "Rad-7 Outputs for l = %d:\n",l);
-	fprintf(dbg_file, "0 = %20.10e %20.10e\n",*(__B+k0),*(Bim+k0));
-	fprintf(dbg_file, "1 = %20.10e %20.10e\n",*(__B+k1),*(Bim+k1));
-	fprintf(dbg_file, "2 = %20.10e %20.10e\n",*(__B+k2),*(Bim+k2));
-	fprintf(dbg_file, "3 = %20.10e %20.10e\n",*(__B+k3),*(Bim+k3));
-	fprintf(dbg_file, "4 = %20.10e %20.10e\n",*(__B+k4),*(Bim+k4));
-	fprintf(dbg_file, "5 = %20.10e %20.10e\n",*(__B+k5),*(Bim+k5));
-	fprintf(dbg_file, "6 = %20.10e %20.10e\n",*(__B+k6),*(Bim+k6));
-#endif
 	}
-	/******************* AVX debug stuff: *******************/
-#if 0
-if(count==2)
-exit(0);
-#endif
 }
 
 // For power-of-2 radix > 32 we use a common macro for both the first-pass-of-2-pass-pow2
@@ -2884,218 +2840,50 @@ void RADIX_64_DIF(
 {
 	double __t[128];
 	double *Aim = __A + __re_im_stride_in, *Bim = __B + __re_im_stride_out;
+
 /* Gather the needed data (64 64-bit complex, i.e. 128 64-bit reals) and do 8 twiddleless length-8 subtransforms: */
-#if 0
-int i = -1,j;
-#endif
+
 	//...Block 0: jt = j1;	jp = j2;
 	RADIX_08_DIF_OOP(
 		*(__A+__idx[0x00]),*(Aim+__idx[0x00]),*(__A+__idx[0x08]),*(Aim+__idx[0x08]),*(__A+__idx[0x10]),*(Aim+__idx[0x10]),*(__A+__idx[0x18]),*(Aim+__idx[0x18]),*(__A+__idx[0x20]),*(Aim+__idx[0x20]),*(__A+__idx[0x28]),*(Aim+__idx[0x28]),*(__A+__idx[0x30]),*(Aim+__idx[0x30]),*(__A+__idx[0x38]),*(Aim+__idx[0x38])
 		,__t[0x00],__t[0x01],__t[0x02],__t[0x03],__t[0x04],__t[0x05],__t[0x06],__t[0x07],__t[0x08],__t[0x09],__t[0x0A],__t[0x0B],__t[0x0C],__t[0x0D],__t[0x0E],__t[0x0F]
 	);
-#if 0
-if(fabs(*__A) > 4) {
-	j = reverse(++i,8);	// __A-offsets are processed in BR8 order
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+0,__idx[j+0x00],*(__A+__idx[j+0x00]),*(Aim+__idx[j+0x00]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+1,__idx[j+0x08],*(__A+__idx[j+0x08]),*(Aim+__idx[j+0x08]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+2,__idx[j+0x10],*(__A+__idx[j+0x10]),*(Aim+__idx[j+0x10]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+3,__idx[j+0x18],*(__A+__idx[j+0x18]),*(Aim+__idx[j+0x18]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+4,__idx[j+0x20],*(__A+__idx[j+0x20]),*(Aim+__idx[j+0x20]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+5,__idx[j+0x28],*(__A+__idx[j+0x28]),*(Aim+__idx[j+0x28]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+6,__idx[j+0x30],*(__A+__idx[j+0x30]),*(Aim+__idx[j+0x30]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+7,__idx[j+0x38],*(__A+__idx[j+0x38]),*(Aim+__idx[j+0x38]));
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",0,__t[0x00],__t[0x01]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",1,__t[0x02],__t[0x03]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",2,__t[0x04],__t[0x05]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",3,__t[0x06],__t[0x07]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",4,__t[0x08],__t[0x09]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",5,__t[0x0A],__t[0x0B]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",6,__t[0x0C],__t[0x0D]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",7,__t[0x0E],__t[0x0F]);
-}
-#endif
 	//...Block 1: jt = j1 + p04;	jp = j2 + p04;
 	RADIX_08_DIF_OOP(
 		*(__A+__idx[0x04]),*(Aim+__idx[0x04]),*(__A+__idx[0x0c]),*(Aim+__idx[0x0c]),*(__A+__idx[0x14]),*(Aim+__idx[0x14]),*(__A+__idx[0x1c]),*(Aim+__idx[0x1c]),*(__A+__idx[0x24]),*(Aim+__idx[0x24]),*(__A+__idx[0x2c]),*(Aim+__idx[0x2c]),*(__A+__idx[0x34]),*(Aim+__idx[0x34]),*(__A+__idx[0x3c]),*(Aim+__idx[0x3c])
 		,__t[0x10],__t[0x11],__t[0x12],__t[0x13],__t[0x14],__t[0x15],__t[0x16],__t[0x17],__t[0x18],__t[0x19],__t[0x1A],__t[0x1B],__t[0x1C],__t[0x1D],__t[0x1E],__t[0x1F]
 	);
-#if 0
-if(fabs(*__A) > 4) {
-	j = reverse(++i,8);	// __A-offsets are processed in BR8 order
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+0,__idx[j+0x00],*(__A+__idx[j+0x00]),*(Aim+__idx[j+0x00]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+1,__idx[j+0x08],*(__A+__idx[j+0x08]),*(Aim+__idx[j+0x08]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+2,__idx[j+0x10],*(__A+__idx[j+0x10]),*(Aim+__idx[j+0x10]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+3,__idx[j+0x18],*(__A+__idx[j+0x18]),*(Aim+__idx[j+0x18]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+4,__idx[j+0x20],*(__A+__idx[j+0x20]),*(Aim+__idx[j+0x20]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+5,__idx[j+0x28],*(__A+__idx[j+0x28]),*(Aim+__idx[j+0x28]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+6,__idx[j+0x30],*(__A+__idx[j+0x30]),*(Aim+__idx[j+0x30]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+7,__idx[j+0x38],*(__A+__idx[j+0x38]),*(Aim+__idx[j+0x38]));
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(1<<3)+0,__t[0x10],__t[0x11]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(1<<3)+1,__t[0x12],__t[0x13]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(1<<3)+2,__t[0x14],__t[0x15]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(1<<3)+3,__t[0x16],__t[0x17]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(1<<3)+4,__t[0x18],__t[0x19]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(1<<3)+5,__t[0x1A],__t[0x1B]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(1<<3)+6,__t[0x1C],__t[0x1D]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(1<<3)+7,__t[0x1E],__t[0x1F]);
-}
-#endif
 	//...Block 2: jt = j1 + p02;	jp = j2 + p02;
 	RADIX_08_DIF_OOP(
 		*(__A+__idx[0x02]),*(Aim+__idx[0x02]),*(__A+__idx[0x0a]),*(Aim+__idx[0x0a]),*(__A+__idx[0x12]),*(Aim+__idx[0x12]),*(__A+__idx[0x1a]),*(Aim+__idx[0x1a]),*(__A+__idx[0x22]),*(Aim+__idx[0x22]),*(__A+__idx[0x2a]),*(Aim+__idx[0x2a]),*(__A+__idx[0x32]),*(Aim+__idx[0x32]),*(__A+__idx[0x3a]),*(Aim+__idx[0x3a])
 		,__t[0x20],__t[0x21],__t[0x22],__t[0x23],__t[0x24],__t[0x25],__t[0x26],__t[0x27],__t[0x28],__t[0x29],__t[0x2A],__t[0x2B],__t[0x2C],__t[0x2D],__t[0x2E],__t[0x2F]
 	);
-#if 0
-if(fabs(*__A) > 4) {
-	j = reverse(++i,8);	// __A-offsets are processed in BR8 order
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+0,__idx[j+0x00],*(__A+__idx[j+0x00]),*(Aim+__idx[j+0x00]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+1,__idx[j+0x08],*(__A+__idx[j+0x08]),*(Aim+__idx[j+0x08]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+2,__idx[j+0x10],*(__A+__idx[j+0x10]),*(Aim+__idx[j+0x10]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+3,__idx[j+0x18],*(__A+__idx[j+0x18]),*(Aim+__idx[j+0x18]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+4,__idx[j+0x20],*(__A+__idx[j+0x20]),*(Aim+__idx[j+0x20]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+5,__idx[j+0x28],*(__A+__idx[j+0x28]),*(Aim+__idx[j+0x28]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+6,__idx[j+0x30],*(__A+__idx[j+0x30]),*(Aim+__idx[j+0x30]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+7,__idx[j+0x38],*(__A+__idx[j+0x38]),*(Aim+__idx[j+0x38]));
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(2<<3)+0,__t[0x20],__t[0x21]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(2<<3)+1,__t[0x22],__t[0x23]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(2<<3)+2,__t[0x24],__t[0x25]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(2<<3)+3,__t[0x26],__t[0x27]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(2<<3)+4,__t[0x28],__t[0x29]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(2<<3)+5,__t[0x2A],__t[0x2B]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(2<<3)+6,__t[0x2C],__t[0x2D]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(2<<3)+7,__t[0x2E],__t[0x2F]);
-}
-#endif
 	//...Block 3: jt = j1 + p06;	jp = j2 + p06;
 	RADIX_08_DIF_OOP(
 		*(__A+__idx[0x06]),*(Aim+__idx[0x06]),*(__A+__idx[0x0e]),*(Aim+__idx[0x0e]),*(__A+__idx[0x16]),*(Aim+__idx[0x16]),*(__A+__idx[0x1e]),*(Aim+__idx[0x1e]),*(__A+__idx[0x26]),*(Aim+__idx[0x26]),*(__A+__idx[0x2e]),*(Aim+__idx[0x2e]),*(__A+__idx[0x36]),*(Aim+__idx[0x36]),*(__A+__idx[0x3e]),*(Aim+__idx[0x3e])
 		,__t[0x30],__t[0x31],__t[0x32],__t[0x33],__t[0x34],__t[0x35],__t[0x36],__t[0x37],__t[0x38],__t[0x39],__t[0x3A],__t[0x3B],__t[0x3C],__t[0x3D],__t[0x3E],__t[0x3F]
 	);
-#if 0
-if(fabs(*__A) > 4) {
-	j = reverse(++i,8);	// __A-offsets are processed in BR8 order
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+0,__idx[j+0x00],*(__A+__idx[j+0x00]),*(Aim+__idx[j+0x00]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+1,__idx[j+0x08],*(__A+__idx[j+0x08]),*(Aim+__idx[j+0x08]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+2,__idx[j+0x10],*(__A+__idx[j+0x10]),*(Aim+__idx[j+0x10]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+3,__idx[j+0x18],*(__A+__idx[j+0x18]),*(Aim+__idx[j+0x18]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+4,__idx[j+0x20],*(__A+__idx[j+0x20]),*(Aim+__idx[j+0x20]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+5,__idx[j+0x28],*(__A+__idx[j+0x28]),*(Aim+__idx[j+0x28]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+6,__idx[j+0x30],*(__A+__idx[j+0x30]),*(Aim+__idx[j+0x30]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+7,__idx[j+0x38],*(__A+__idx[j+0x38]),*(Aim+__idx[j+0x38]));
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(3<<3)+0,__t[0x30],__t[0x31]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(3<<3)+1,__t[0x32],__t[0x33]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(3<<3)+2,__t[0x34],__t[0x35]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(3<<3)+3,__t[0x36],__t[0x37]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(3<<3)+4,__t[0x38],__t[0x39]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(3<<3)+5,__t[0x3A],__t[0x3B]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(3<<3)+6,__t[0x3C],__t[0x3D]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(3<<3)+7,__t[0x3E],__t[0x3F]);
-}
-#endif
 	//...Block 4: jt = j1 + p01;	jp = j2 + p01;
 	RADIX_08_DIF_OOP(
 		*(__A+__idx[0x01]),*(Aim+__idx[0x01]),*(__A+__idx[0x09]),*(Aim+__idx[0x09]),*(__A+__idx[0x11]),*(Aim+__idx[0x11]),*(__A+__idx[0x19]),*(Aim+__idx[0x19]),*(__A+__idx[0x21]),*(Aim+__idx[0x21]),*(__A+__idx[0x29]),*(Aim+__idx[0x29]),*(__A+__idx[0x31]),*(Aim+__idx[0x31]),*(__A+__idx[0x39]),*(Aim+__idx[0x39])
 		,__t[0x40],__t[0x41],__t[0x42],__t[0x43],__t[0x44],__t[0x45],__t[0x46],__t[0x47],__t[0x48],__t[0x49],__t[0x4A],__t[0x4B],__t[0x4C],__t[0x4D],__t[0x4E],__t[0x4F]
 	);
-#if 0
-if(fabs(*__A) > 4) {
-	j = reverse(++i,8);	// __A-offsets are processed in BR8 order
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+0,__idx[j+0x00],*(__A+__idx[j+0x00]),*(Aim+__idx[j+0x00]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+1,__idx[j+0x08],*(__A+__idx[j+0x08]),*(Aim+__idx[j+0x08]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+2,__idx[j+0x10],*(__A+__idx[j+0x10]),*(Aim+__idx[j+0x10]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+3,__idx[j+0x18],*(__A+__idx[j+0x18]),*(Aim+__idx[j+0x18]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+4,__idx[j+0x20],*(__A+__idx[j+0x20]),*(Aim+__idx[j+0x20]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+5,__idx[j+0x28],*(__A+__idx[j+0x28]),*(Aim+__idx[j+0x28]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+6,__idx[j+0x30],*(__A+__idx[j+0x30]),*(Aim+__idx[j+0x30]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+7,__idx[j+0x38],*(__A+__idx[j+0x38]),*(Aim+__idx[j+0x38]));
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(4<<3)+0,__t[0x40],__t[0x41]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(4<<3)+1,__t[0x42],__t[0x43]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(4<<3)+2,__t[0x44],__t[0x45]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(4<<3)+3,__t[0x46],__t[0x47]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(4<<3)+4,__t[0x48],__t[0x49]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(4<<3)+5,__t[0x4A],__t[0x4B]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(4<<3)+6,__t[0x4C],__t[0x4D]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(4<<3)+7,__t[0x4E],__t[0x4F]);
-}
-#endif
 	//...Block 5: jt = j1 + p05;	jp = j2 + p05;
 	RADIX_08_DIF_OOP(
 		*(__A+__idx[0x05]),*(Aim+__idx[0x05]),*(__A+__idx[0x0d]),*(Aim+__idx[0x0d]),*(__A+__idx[0x15]),*(Aim+__idx[0x15]),*(__A+__idx[0x1d]),*(Aim+__idx[0x1d]),*(__A+__idx[0x25]),*(Aim+__idx[0x25]),*(__A+__idx[0x2d]),*(Aim+__idx[0x2d]),*(__A+__idx[0x35]),*(Aim+__idx[0x35]),*(__A+__idx[0x3d]),*(Aim+__idx[0x3d])
 		,__t[0x50],__t[0x51],__t[0x52],__t[0x53],__t[0x54],__t[0x55],__t[0x56],__t[0x57],__t[0x58],__t[0x59],__t[0x5A],__t[0x5B],__t[0x5C],__t[0x5D],__t[0x5E],__t[0x5F]
 	);
-#if 0
-if(fabs(*__A) > 4) {
-	j = reverse(++i,8);	// __A-offsets are processed in BR8 order
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+0,__idx[j+0x00],*(__A+__idx[j+0x00]),*(Aim+__idx[j+0x00]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+1,__idx[j+0x08],*(__A+__idx[j+0x08]),*(Aim+__idx[j+0x08]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+2,__idx[j+0x10],*(__A+__idx[j+0x10]),*(Aim+__idx[j+0x10]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+3,__idx[j+0x18],*(__A+__idx[j+0x18]),*(Aim+__idx[j+0x18]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+4,__idx[j+0x20],*(__A+__idx[j+0x20]),*(Aim+__idx[j+0x20]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+5,__idx[j+0x28],*(__A+__idx[j+0x28]),*(Aim+__idx[j+0x28]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+6,__idx[j+0x30],*(__A+__idx[j+0x30]),*(Aim+__idx[j+0x30]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+7,__idx[j+0x38],*(__A+__idx[j+0x38]),*(Aim+__idx[j+0x38]));
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(5<<3)+0,__t[0x50],__t[0x51]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(5<<3)+1,__t[0x52],__t[0x53]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(5<<3)+2,__t[0x54],__t[0x55]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(5<<3)+3,__t[0x56],__t[0x57]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(5<<3)+4,__t[0x58],__t[0x59]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(5<<3)+5,__t[0x5A],__t[0x5B]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(5<<3)+6,__t[0x5C],__t[0x5D]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(5<<3)+7,__t[0x5E],__t[0x5F]);
-}
-#endif
 	//...Block 6: jt = j1 + p03;	jp = j2 + p03;
 	RADIX_08_DIF_OOP(
 		*(__A+__idx[0x03]),*(Aim+__idx[0x03]),*(__A+__idx[0x0b]),*(Aim+__idx[0x0b]),*(__A+__idx[0x13]),*(Aim+__idx[0x13]),*(__A+__idx[0x1b]),*(Aim+__idx[0x1b]),*(__A+__idx[0x23]),*(Aim+__idx[0x23]),*(__A+__idx[0x2b]),*(Aim+__idx[0x2b]),*(__A+__idx[0x33]),*(Aim+__idx[0x33]),*(__A+__idx[0x3b]),*(Aim+__idx[0x3b])
 		,__t[0x60],__t[0x61],__t[0x62],__t[0x63],__t[0x64],__t[0x65],__t[0x66],__t[0x67],__t[0x68],__t[0x69],__t[0x6A],__t[0x6B],__t[0x6C],__t[0x6D],__t[0x6E],__t[0x6F]
 	);
-#if 0
-if(fabs(*__A) > 4) {
-	j = reverse(++i,8);	// __A-offsets are processed in BR8 order
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+0,__idx[j+0x00],*(__A+__idx[j+0x00]),*(Aim+__idx[j+0x00]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+1,__idx[j+0x08],*(__A+__idx[j+0x08]),*(Aim+__idx[j+0x08]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+2,__idx[j+0x10],*(__A+__idx[j+0x10]),*(Aim+__idx[j+0x10]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+3,__idx[j+0x18],*(__A+__idx[j+0x18]),*(Aim+__idx[j+0x18]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+4,__idx[j+0x20],*(__A+__idx[j+0x20]),*(Aim+__idx[j+0x20]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+5,__idx[j+0x28],*(__A+__idx[j+0x28]),*(Aim+__idx[j+0x28]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+6,__idx[j+0x30],*(__A+__idx[j+0x30]),*(Aim+__idx[j+0x30]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+7,__idx[j+0x38],*(__A+__idx[j+0x38]),*(Aim+__idx[j+0x38]));
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(6<<3)+0,__t[0x60],__t[0x61]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(6<<3)+1,__t[0x62],__t[0x63]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(6<<3)+2,__t[0x64],__t[0x65]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(6<<3)+3,__t[0x66],__t[0x67]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(6<<3)+4,__t[0x68],__t[0x69]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(6<<3)+5,__t[0x6A],__t[0x6B]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(6<<3)+6,__t[0x6C],__t[0x6D]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(6<<3)+7,__t[0x6E],__t[0x6F]);
-}
-#endif
 	//...Block 7: jt = j1 + p07;	jp = j2 + p07;
 	RADIX_08_DIF_OOP(
 		*(__A+__idx[0x07]),*(Aim+__idx[0x07]),*(__A+__idx[0x0f]),*(Aim+__idx[0x0f]),*(__A+__idx[0x17]),*(Aim+__idx[0x17]),*(__A+__idx[0x1f]),*(Aim+__idx[0x1f]),*(__A+__idx[0x27]),*(Aim+__idx[0x27]),*(__A+__idx[0x2f]),*(Aim+__idx[0x2f]),*(__A+__idx[0x37]),*(Aim+__idx[0x37]),*(__A+__idx[0x3f]),*(Aim+__idx[0x3f])
 		,__t[0x70],__t[0x71],__t[0x72],__t[0x73],__t[0x74],__t[0x75],__t[0x76],__t[0x77],__t[0x78],__t[0x79],__t[0x7A],__t[0x7B],__t[0x7C],__t[0x7D],__t[0x7E],__t[0x7F]
 	);
-#if 0
-if(fabs(*__A) > 4) {
-	j = reverse(++i,8);	// __A-offsets are processed in BR8 order
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+0,__idx[j+0x00],*(__A+__idx[j+0x00]),*(Aim+__idx[j+0x00]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+1,__idx[j+0x08],*(__A+__idx[j+0x08]),*(Aim+__idx[j+0x08]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+2,__idx[j+0x10],*(__A+__idx[j+0x10]),*(Aim+__idx[j+0x10]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+3,__idx[j+0x18],*(__A+__idx[j+0x18]),*(Aim+__idx[j+0x18]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+4,__idx[j+0x20],*(__A+__idx[j+0x20]),*(Aim+__idx[j+0x20]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+5,__idx[j+0x28],*(__A+__idx[j+0x28]),*(Aim+__idx[j+0x28]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+6,__idx[j+0x30],*(__A+__idx[j+0x30]),*(Aim+__idx[j+0x30]));
-	fprintf(dbg_file, "%3x, off-idx = %3x: %20.10e %20.10e\n",(i<<3)+7,__idx[j+0x38],*(__A+__idx[j+0x38]),*(Aim+__idx[j+0x38]));
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(7<<3)+0,__t[0x70],__t[0x71]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(7<<3)+1,__t[0x72],__t[0x73]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(7<<3)+2,__t[0x74],__t[0x75]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(7<<3)+3,__t[0x76],__t[0x77]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(7<<3)+4,__t[0x78],__t[0x79]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(7<<3)+5,__t[0x7A],__t[0x7B]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(7<<3)+6,__t[0x7C],__t[0x7D]);
-	fprintf(dbg_file, "%3x: %20.10e %20.10e\n",(7<<3)+7,__t[0x7E],__t[0x7F]);
-}
-#endif
+
 /*...and now do eight radix-8 subtransforms w/internal twiddles - cf. radix64_dif_pass1 for details: */
 
 	/* Block 0: */
@@ -3106,27 +2894,6 @@ if(fabs(*__A) > 4) {
 		__t[0x00],__t[0x01],__t[0x40],__t[0x41],__t[0x20],__t[0x21],__t[0x60],__t[0x61],__t[0x10],__t[0x11],__t[0x50],__t[0x51],__t[0x30],__t[0x31],__t[0x70],__t[0x71],
 		*(__B+__odx[0x00]),*(Bim+__odx[0x00]),*(__B+__odx[0x04]),*(Bim+__odx[0x04]),*(__B+__odx[0x02]),*(Bim+__odx[0x02]),*(__B+__odx[0x06]),*(Bim+__odx[0x06]),*(__B+__odx[0x01]),*(Bim+__odx[0x01]),*(__B+__odx[0x05]),*(Bim+__odx[0x05]),*(__B+__odx[0x03]),*(Bim+__odx[0x03]),*(__B+__odx[0x07]),*(Bim+__odx[0x07])
 	);
-#if 0
-if(fabs(*__A) > 4) {
-	fprintf(dbg_file, "In %3x: %20.10e %20.10e\n",0,__t[16*0],__t[16*0+1]);
-	fprintf(dbg_file, "In %3x: %20.10e %20.10e\n",1,__t[16*1],__t[16*1+1]);
-	fprintf(dbg_file, "In %3x: %20.10e %20.10e\n",2,__t[16*2],__t[16*2+1]);
-	fprintf(dbg_file, "In %3x: %20.10e %20.10e\n",3,__t[16*3],__t[16*3+1]);
-	fprintf(dbg_file, "In %3x: %20.10e %20.10e\n",4,__t[16*4],__t[16*4+1]);
-	fprintf(dbg_file, "In %3x: %20.10e %20.10e\n",5,__t[16*5],__t[16*5+1]);
-	fprintf(dbg_file, "In %3x: %20.10e %20.10e\n",6,__t[16*6],__t[16*6+1]);
-	fprintf(dbg_file, "In %3x: %20.10e %20.10e\n",7,__t[16*7],__t[16*7+1]);
-	fprintf(dbg_file, "Out %3x: %20.10e %20.10e\n",0,*(__B+__odx[0x00]),*(Bim+__odx[0x00]));
-	fprintf(dbg_file, "Out %3x: %20.10e %20.10e\n",1,*(__B+__odx[0x01]),*(Bim+__odx[0x01]));
-	fprintf(dbg_file, "Out %3x: %20.10e %20.10e\n",2,*(__B+__odx[0x02]),*(Bim+__odx[0x02]));
-	fprintf(dbg_file, "Out %3x: %20.10e %20.10e\n",3,*(__B+__odx[0x03]),*(Bim+__odx[0x03]));
-	fprintf(dbg_file, "Out %3x: %20.10e %20.10e\n",4,*(__B+__odx[0x04]),*(Bim+__odx[0x04]));
-	fprintf(dbg_file, "Out %3x: %20.10e %20.10e\n",5,*(__B+__odx[0x05]),*(Bim+__odx[0x05]));
-	fprintf(dbg_file, "Out %3x: %20.10e %20.10e\n",6,*(__B+__odx[0x06]),*(Bim+__odx[0x06]));
-	fprintf(dbg_file, "Out %3x: %20.10e %20.10e\n",7,*(__B+__odx[0x07]),*(Bim+__odx[0x07]));
-exit(0);
-}
-#endif
 	/* Block 4: */
 	__odx += 8;	// jt = j1 + p08;	jp = j2 + p08;
 	RADIX_08_DIF_TWIDDLE_OOP(
@@ -3711,7 +3478,7 @@ void RADIX_256_DIF(
 
 	tptr = t;
 	for(i = 0; i < 16; i++) {
-		j = reverse(i,16);	// A-array offsets processed in BR16 order = p[084c2a6e195d3b7f]
+		j = reverse16[i];	// A-array offsets processed in BR16 order = p[084c2a6e195d3b7f]
 		Are = __A + i_offsets_lo[j]; Aim = Are + __re_im_stride_in;
 		RADIX_16_DIF(
 			*(Are+p00),*(Aim+p00),*(Are+p10),*(Aim+p10),*(Are+p20),*(Aim+p20),*(Are+p30),*(Aim+p30),*(Are+p40),*(Aim+p40),*(Are+p50),*(Aim+p50),*(Are+p60),*(Aim+p60),*(Are+p70),*(Aim+p70),*(Are+p80),*(Aim+p80),*(Are+p90),*(Aim+p90),*(Are+pa0),*(Aim+pa0),*(Are+pb0),*(Aim+pb0),*(Are+pc0),*(Aim+pc0),*(Are+pd0),*(Aim+pd0),*(Are+pe0),*(Aim+pe0),*(Are+pf0),*(Aim+pf0),
@@ -3815,7 +3582,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 
 	// Remaining 15 sets of macro calls done in loop:
 	for(i = 1; i < 16; i++) {
-		j = reverse(i,16);
+		j = reverse16[i];
 		tptr = t + j;
 		Bre = __B + o_offsets_lo[j]; Bim = Bre + __re_im_stride_out;	// o_offsets_lo[] = p[084c2a6e195d3b7f]
 		addr = DFT256_TWIDDLES[i]; addi = addr+1;	// Pointer to required row of 2-D twiddles array
@@ -4384,6 +4151,19 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
 		int i,j;
 		const int *off_ptr;
+	  #ifdef USE_LOOPED_MACROS	// This seems slower than unlooped, so mke latter the default
+		vec_dbl *w0,*w1,*w2,*w3,*w4,*w5,*w6,*w7,*w8,*w9,*wa,*wb,*wc,*wd;
+		// ptr-offsets w.r.to base-ptr nisrt2:
+		const uint8 twid_offsets[112] = {
+			0x03,0x02, 0x01,0x01, 0x00,0x01, 0x17,0x18, 0x1b,0x17, 0x18,0x17, 0x1a,0x18,// ss0,cc0, isrt2,isrt2, nisrt2,isrt2, cc4,ss4, nss4,cc4, ss4,cc4, ncc4,ss4
+			0x01,0x01, 0x17,0x18, 0x18,0x17, 0x0b,0x0c, 0x24,0x23, 0x23,0x24, 0x0c,0x0b,// isrt2,isrt2, cc4,ss4, ss4,cc4, cc2,ss2, ss6,cc6, cc6,ss6, ss2,cc2
+			0x00,0x01, 0x18,0x17, 0x1a,0x1b, 0x23,0x24, 0x0e,0x0c ,0x0f,0x0b, 0x27,0x26,// nisrt2,isrt2, ss4,cc4, ncc4,nss4, cc6,ss6, ncc2,ss2 ,nss2,cc2, nss6,ncc6
+			0x17,0x18, 0x0b,0x0c, 0x23,0x24, 0x05,0x06, 0x1d,0x1e, 0x11,0x12, 0x29,0x2a,// cc4,ss4, cc2,ss2, cc6,ss6, cc1,ss1, cc5,ss5, cc3,ss3, cc7,ss7
+			0x1b,0x17, 0x24,0x23, 0x0e,0x0c, 0x1d,0x1e, 0x2c,0x2a, 0x06,0x05, 0x14,0x15,// nss4,cc4, ss6,cc6, ncc2,ss2, cc5,ss5, ncc7,ss7, ss1,cc1, ncc3,nss3
+			0x18,0x17, 0x23,0x24, 0x0f,0x0b, 0x11,0x12, 0x06,0x05, 0x2a,0x29, 0x21,0x1d,// ss4,cc4, cc6,ss6, nss2,cc2, cc3,ss3, ss1,cc1, ss7,cc7, nss5,cc5
+			0x1a,0x18, 0x0c,0x0b, 0x27,0x26, 0x29,0x2a, 0x14,0x15, 0x21,0x1d, 0x06,0x08 // ncc4,ss4, ss2,cc2, nss6,ncc6, cc7,ss7, ncc3,nss3, nss5,cc5, ss1,ncc1
+		};	uint8 *bptr;
+	  #endif
 
 		// If this is first time here, init pointers and associated data:
 		if(thr_id == -1)	// Value of init stores #threads
@@ -4628,7 +4408,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		// Outs are BRed:
 		v0 = r00; v1 = v0+8; v2 = v0+4; v3 = v0+12; v4 = v0+2; v5 = v0+10; v6 = v0+6; v7 = v0+14;
 		for(i = 0; i < 8; i++) {
-			j = reverse(i,8);	// i=1/j=4 should land us in the middle of the first 1/8-chunk of the contiguous in-array __A
+			j = reverse8[i];	// i=1/j=4 should land us in the middle of the first 1/8-chunk of the contiguous in-array __A
 							// For k = 0 __A has (64 vec_cmplex) = (128 vec_dbl) elements, thus i=1/j=4 => j*scale = 128/8 = 16.
 			tmp = (vec_dbl*)__A+j*scale;	// __A-offsets are processed in BR8 order
 		  #ifdef USE_AVX2
@@ -4664,6 +4444,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		);
 	  #endif
 	// Remaining 7 macro cals need explicitly named BRed iptrs with stride 16, use tmp(in place of iarg r00),r40,r20,r60,r10,r50,r30,r70:
+	  #ifndef USE_LOOPED_MACROS
 	/* Block 4: */
 		tmp += 8;	// r08
 		r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
@@ -4735,6 +4516,25 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 			add0,add1,add2,add3,add4,add5,add6,add7,
 			ncc4,ss4, ss2,cc2, nss6,ncc6, cc7,ss7, ncc3,nss3, nss5,cc5, ss1,ncc1
 		);
+
+	  #else	// USE_LOOPED_MACROS = True:
+
+		bptr = twid_offsets;	// Byte-pointer loops over slots in twid_offsets[] byte-array
+		for(i = 1, j = 0; i < 8; i++, j += 14) {
+			tmp = r00 + (reverse8[i] << 1);
+			r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
+			off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
+			w0 = nisrt2 + *bptr++; w1 = nisrt2 + *bptr++; w2 = nisrt2 + *bptr++; w3 = nisrt2 + *bptr++; w4 = nisrt2 + *bptr++; w5 = nisrt2 + *bptr++; w6 = nisrt2 + *bptr++; w7 = nisrt2 + *bptr++; w8 = nisrt2 + *bptr++; w9 = nisrt2 + *bptr++; wa = nisrt2 + *bptr++; wb = nisrt2 + *bptr++; wc = nisrt2 + *bptr++; wd = nisrt2 + *bptr++;
+		//...and another (needed by FMA version of macro)) kludge for the 30-arg limit: put copies of (vec_dbl)2.0,SQRT2 into the first 2 of each set of outputs.
+			VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
+			SSE2_RADIX8_DIF_TWIDDLE_OOP(
+				tmp,r40,r20,r60,r10,r50,r30,r70,
+				add0,add1,add2,add3,add4,add5,add6,add7,
+				w0,w1,w2,w3,w4,w5,w6,w7,w8,w9,wa,wb,wc,wd
+			);
+		}
+
+	  #endif
 
 	  #ifndef USE_ARM_V8_SIMD
 		#undef OFF1
@@ -5140,7 +4940,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 	  #endif
 		tm1 = r00;
 		for(i = 0; i < 16; i++) {
-			j = reverse(i,16)<<1;	// __A-offsets are processed in BR16 order
+			j = reverse16[i]<<1;	// __A-offsets are processed in BR16 order
 			tm0 = __A+j;
 		#if (OS_BITS == 32)
 									 add1 = (vec_dbl*)tm1+ 2; add2 = (vec_dbl*)tm1+ 4; add3 = (vec_dbl*)tm1+ 6; add4 = (vec_dbl*)tm1+ 8; add5 = (vec_dbl*)tm1+10; add6 = (vec_dbl*)tm1+12; add7 = (vec_dbl*)tm1+14;
@@ -5189,7 +4989,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 				off_ptr = o_offsets_lo + ( ((o_idx>>nshift)&0x3) << 4 );
 				p0  = off_ptr[0x0];p1  = off_ptr[0x1];p2  = off_ptr[0x2];p3  = off_ptr[0x3];p4  = off_ptr[0x4];p5  = off_ptr[0x5];p6  = off_ptr[0x6];p7  = off_ptr[0x7];p8  = off_ptr[0x8];p9  = off_ptr[0x9];pa  = off_ptr[0xa];pb  = off_ptr[0xb];pc  = off_ptr[0xc];pd  = off_ptr[0xd];pe  = off_ptr[0xe];pf  = off_ptr[0xf];
 			}
-			j = reverse(i,16)<<1;
+			j = reverse16[i]<<1;
 			tm2 = twid0 + (j<<4)-j;	// Twid-offsets are multiples of 30 vec_dbl
 			addr = __B + o_offsets_hi[i];	// o_offsets_hi[] = p10,p20,...,pf0
 			add0 = addr+p0; add1 = addr+p1; add2 = addr+p2; add3 = addr+p3; add4 = addr+p4; add5 = addr+p5; add6 = addr+p6; add7 = addr+p7;
@@ -5208,7 +5008,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 				off_ptr = o_offsets_lo + ( ((o_idx>>nshift)&0x3) << 4 );
 				p0  = off_ptr[0x0];p1  = off_ptr[0x1];p2  = off_ptr[0x2];p3  = off_ptr[0x3];p4  = off_ptr[0x4];p5  = off_ptr[0x5];p6  = off_ptr[0x6];p7  = off_ptr[0x7];p8  = off_ptr[0x8];p9  = off_ptr[0x9];pa  = off_ptr[0xa];pb  = off_ptr[0xb];pc  = off_ptr[0xc];pd  = off_ptr[0xd];pe  = off_ptr[0xe];pf  = off_ptr[0xf];
 			}
-			j = reverse(i,16)<<1;
+			j = reverse16[i]<<1;
 			tm2 = twid0 + (j<<4)-j;	// Twid-offsets are multiples of 30 vec_dbl
 			addr = __B + o_offsets_hi[i];	// o_offsets_hi[] = p10,p20,...,pf0
 			add0 = addr+p0; add1 = addr+p1; add2 = addr+p2; add3 = addr+p3; add4 = addr+p4; add5 = addr+p5; add6 = addr+p6; add7 = addr+p7;
@@ -5348,7 +5148,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		);
 		// Remaining 14 sets of macro calls done in loop:
 		for(i = 2; i < 16; i++) {
-			j = reverse(i,16)<<1;	// __B-offsets are processed in BR16 order
+			j = reverse16[i]<<1;	// __B-offsets are processed in BR16 order
 			tm0 = r00 + j; tm1 = __B+j; tm2 = twid0 + (j<<4)-j;	// Twid-offsets are multiples of 30 vec_dbl
 			SSE2_RADIX16_DIT_FMA_OOP(
 				tm0,OFF1,OFF2,OFF3,OFF4, tm1,OFF1,OFF2,OFF3,OFF4, tm2
@@ -5359,7 +5159,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 
 		// Remaining 15 sets of macro calls done in loop:
 		for(i = 1; i < 16; i++) {
-			j = reverse(i,16)<<1;	// __B-offsets are processed in BR16 order
+			j = reverse16[i]<<1;	// __B-offsets are processed in BR16 order
 			tm0 = r00 + j; tm1 = __B+j; tm2 = twid0 + (j<<4)-j;	// Twid-offsets are multiples of 30 vec_dbl
 			SSE2_RADIX16_DIT_TWIDDLE_OOP(
 				tm0,OFF1,OFF2,OFF3,OFF4, tm1,OFF1,OFF2,OFF3,OFF4, isrt2, tm2

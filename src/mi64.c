@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -191,6 +191,62 @@ mi64_test_bit
 
 /*******************/
 
+/* Bit-reverse the low n bits, i.e. bits <0:n-1> of the input vector : */
+#ifdef __CUDA_ARCH__
+__device__
+#endif
+#if 0
+void	mi64_brev(uint64 x[], uint32 n)
+{
+	uint32 i,j,wi,wj;	// wi,wj = words containing (i)th and (j)th bits
+	uint64 bi,bj,mi,mj, ones = 0xFFFFFFFFFFFFFFFEull;	// Bits of each swap-pair and corr. masks; ones-mask with lsb = 0
+	for(i = 0; i < (n>>1); ++i) {
+		j = n-i-1;
+		wi = i>>6;				wj = j>>6;				// The 2 words containing the bits to be swapped
+		bi = (x[wi]>>i) & 1ull;	bj = (x[wj]>>j) & 1ull;	// The bits to be swapped
+		mi = (1ull << i);		mj = (1ull << j);
+		x[wi] &= ~mi;			x[wj] &= ~mj;			// Mask off the bits to be swapped
+		x[wi] ^= bj<<i;			x[wj] ^= bi<<j;			// XOR each the just-zeroed bits with the bit-to-be-swapped-in
+	}
+printf("0x%2X,",(uint8)x[0]);
+}
+/*
+Bytewise version: consider an 11-bit (n=11) example of the above swap-bitpairs function.
+Separating things into bytes, our input is 00000000 ... 00000kji hgfedcba, result = ... 00000abc defghijk.
+If we init a table of reversed-bytes, then feed it the 2 low bytes of the input, we get [... ijk000000 abcdefgh].
+Further swapping these 2 bytes, get [... abcdefgh ijk000000]. Only need to right-shift 5 places - the number of
+leftover high-end bits in the upper byte of our 2-byte 'working set', to recover the correct result.
+*/
+#elif 1
+const uint8 brev8[256] = {
+	0x00,0x80,0x40,0xC0,0x20,0xA0,0x60,0xE0,0x10,0x90,0x50,0xD0,0x30,0xB0,0x70,0xF0,0x08,0x88,0x48,0xC8,0x28,0xA8,0x68,0xE8,0x18,0x98,0x58,0xD8,0x38,0xB8,0x78,0xF8,
+	0x04,0x84,0x44,0xC4,0x24,0xA4,0x64,0xE4,0x14,0x94,0x54,0xD4,0x34,0xB4,0x74,0xF4,0x0C,0x8C,0x4C,0xCC,0x2C,0xAC,0x6C,0xEC,0x1C,0x9C,0x5C,0xDC,0x3C,0xBC,0x7C,0xFC,
+	0x02,0x82,0x42,0xC2,0x22,0xA2,0x62,0xE2,0x12,0x92,0x52,0xD2,0x32,0xB2,0x72,0xF2,0x0A,0x8A,0x4A,0xCA,0x2A,0xAA,0x6A,0xEA,0x1A,0x9A,0x5A,0xDA,0x3A,0xBA,0x7A,0xFA,
+	0x06,0x86,0x46,0xC6,0x26,0xA6,0x66,0xE6,0x16,0x96,0x56,0xD6,0x36,0xB6,0x76,0xF6,0x0E,0x8E,0x4E,0xCE,0x2E,0xAE,0x6E,0xEE,0x1E,0x9E,0x5E,0xDE,0x3E,0xBE,0x7E,0xFE,
+	0x01,0x81,0x41,0xC1,0x21,0xA1,0x61,0xE1,0x11,0x91,0x51,0xD1,0x31,0xB1,0x71,0xF1,0x09,0x89,0x49,0xC9,0x29,0xA9,0x69,0xE9,0x19,0x99,0x59,0xD9,0x39,0xB9,0x79,0xF9,
+	0x05,0x85,0x45,0xC5,0x25,0xA5,0x65,0xE5,0x15,0x95,0x55,0xD5,0x35,0xB5,0x75,0xF5,0x0D,0x8D,0x4D,0xCD,0x2D,0xAD,0x6D,0xED,0x1D,0x9D,0x5D,0xDD,0x3D,0xBD,0x7D,0xFD,
+	0x03,0x83,0x43,0xC3,0x23,0xA3,0x63,0xE3,0x13,0x93,0x53,0xD3,0x33,0xB3,0x73,0xF3,0x0B,0x8B,0x4B,0xCB,0x2B,0xAB,0x6B,0xEB,0x1B,0x9B,0x5B,0xDB,0x3B,0xBB,0x7B,0xFB,
+	0x07,0x87,0x47,0xC7,0x27,0xA7,0x67,0xE7,0x17,0x97,0x57,0xD7,0x37,0xB7,0x77,0xF7,0x0F,0x8F,0x4F,0xCF,0x2F,0xAF,0x6F,0xEF,0x1F,0x9F,0x5F,0xDF,0x3F,0xBF,0x7F,0xFF
+};
+void	mi64_brev(uint64 x[], uint32 n)
+{
+	uint32 i,j,k, nw = (n+63)>>6,pad_bits = 64-(n&63);	// wi,wj = words containing (i)th and (j)th bits
+	uint64 mi,mj;
+	uint8 *ai,*aj, *bi=(uint8 *)&mi,*bj=(uint8 *)&mj;	// ai,aj = ptrs to in-bytes; bi,bj = ptrs to out-bytes, store in local-vars mi,mj to assemble
+	// Any 'middle word' for odd #words means redundancy in computing mi,mj, but eschew special post-loop code just to save a few ops in such cases:
+	for(i = 0; i < ((nw+1)>>1); ++i) {	// Exchange bits-reversed bytes within pairs of 64-bit words
+		j = nw-i-1;					// i,j = indices of the 2 words containing the bits to be swapped on this loop pass
+		ai = (uint8*)(x+i) + 7;	aj = (uint8*)(x+j) + 7;	// Point these to high bytes of each respective word
+		// Word which will overwrite x[i|j] consists of bit-reversed bytes of x[j|i], in reversed byte-order:
+		for(k = 0; k < 8; k++) {
+			*bi++ = brev8[*aj--];	*bj++ = brev8[*ai--];
+		}
+		x[i] = mi;				x[j] = mj;
+	}
+	mi64_shrl(x,x,pad_bits,nw);
+}
+#endif
+
 /* Fill the [len] words of the input vector with random bits. Assumes RNG
 has been inited at program start via call to util.c:host_init() : */
 #ifdef __CUDA_ARCH__
@@ -271,7 +327,7 @@ int		mi64_test_bit(const uint64 x[], uint32 bit)
 /*******************/
 
 /*
-Left-shift a base-2^64 int x[] by (nbits) bits, returning the result in y[].
+Left-shift a base-2^64 int x[] by (nshift) bits, returning the result in y[].
 Any off-shifted bits aside from the least-significant 64 are lost. No array-bounds checking is done.
 
 Returns low 64 bits of off-shifted portion.
@@ -280,15 +336,15 @@ Allows in-place operation, i.e. x == y.
 #ifdef __CUDA_ARCH__
 __device__
 #endif
-uint64	mi64_shl(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
+uint64	mi64_shl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 {
 	int i;
-	uint32 nwshift = (nbits >> 6), rembits = (nbits & 63), m64bits;
+	uint32 nwshift = (nshift >> 6), rembits = (nshift & 63), m64bits;
 	uint64 lo64 = 0ull;
 	ASSERT(HERE, len != 0, "mi64_shl: zero-length array!");
 	// Special-casing for 0 shift count:
-	if(!nbits) {
-		if(x != y) for(i = 0; i < len; i++){ y[i] = x[i]; }
+	if(!nshift) {
+		if(x != y) mi64_set_eq(y, x, len);	// Set y = x
 		return 0;
 	}
 	/* Special-casing for shift-into-Bolivian (that's Mike-Tyson-ese for "oblivion"): */
@@ -314,7 +370,7 @@ uint64	mi64_shl(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 		y[i] = 0ull;
 	}
 
-	/* If nbits not an exact multiple of the wordlength, take care of remainder: */
+	/* If nshift not an exact multiple of the wordlength, take care of remainder: */
 	if(rembits) {
 		lo64 = (lo64 << rembits) + mi64_shl_short(y,y,rembits,len);
 	}
@@ -324,7 +380,48 @@ uint64	mi64_shl(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 /*******************/
 
 /*
-Logical-right-shift of a base-2^64 int x[] by (nbits) bits, returning the result in y[].
+Circular-leftward-shift a base-2^64 int x[] containing an (nbits) modulus by (nshift) bits, returning the result in y[].
+No array-bounds checking is done.
+
+Allows in-place operation, i.e. x == y.
+*/
+#ifdef __CUDA_ARCH__
+__device__
+#endif
+void	mi64_shlc(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32 len)
+{
+	uint32 i, nwshift = (nshift+63) >> 6, nwmod = ((nbits + 63)>>6);	// Here nwshift includes any partial words in addition to fullwords
+  #ifndef __CUDA_ARCH__
+	/* Scratch array for storing off-shifted intermediate (need this to support in-place functionality): */
+	static uint64 *u = 0x0;
+	static uint32 dimU = 0;
+		// Does scratch array need allocating or reallocating? (Use realloc for both cases).
+		// Use #words in modulus (as opposed to #words-in-shift) for needs-realloc check here:
+		if(dimU < nwmod) {
+			dimU = 2*(nwmod+1);
+			// Alloc 2x the immediately-needed to avoid excessive reallocs if needed size increases incrementally
+			u = (uint64 *)realloc(u, dimU*sizeof(uint64));
+		}
+  #endif
+	ASSERT(HERE, len != 0, "mi64_shlc: zero-length array!");
+	ASSERT(HERE, nshift < nbits, "mi64_shlc: shift count must be less than bits in modulus!");	// This also ensures (nwshift < nwmod)
+	// Special-casing for 0 shift count:
+	if(!nshift) {
+		if(x != y) mi64_set_eq(y, x, len);	// Set y = x
+		return;
+	}
+	// [1] u = x >> (nbits - nshift): Off-shifted high (nshift) bits of the input ==> low bits of the scratch array via logical right-shift:
+	mi64_shrl(x, u, nbits-nshift, len);
+	// [2] y = x << nshift, and mask off all but the low (nbits % 64) bits of the resulting high word of y[]:
+	mi64_shl(x, y, nshift, len);	i = nbits&63; y[len-1] &= ~(-1ull << i);
+	// [3] y += u puts the off-shifted bits into the vacated low bits of the output:
+	mi64_add(y, u, y, nwshift);
+}
+
+/*******************/
+
+/*
+Logical-right-shift of a base-2^64 int x[] by (nshift) bits, returning the result in y[].
 Any off-shifted bits aside from the most-significant 64 are lost. No array-bounds checking is done.
 
 Returns high 64 bits of off-shifted portion.
@@ -334,15 +431,15 @@ Allows in-place operation, i.e. x == y.
 #ifdef __CUDA_ARCH__
 __device__
 #endif
-uint64	mi64_shrl(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
+uint64	mi64_shrl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 {
 	int i;
-	uint32 nwshift = (nbits >> 6), rembits = (nbits & 63), m64bits;
+	uint32 nwshift = (nshift >> 6), rembits = (nshift & 63), m64bits;
 	uint64 hi64 = 0ull;
 	ASSERT(HERE, len != 0, "mi64_shrl: zero-length array!");
 	// Special-casing for 0 shift count:
-	if(!nbits) {
-		mi64_set_eq(y, x, len);	// Set y = x
+	if(!nshift) {
+		if(x != y) mi64_set_eq(y, x, len);	// Set y = x
 		return 0ull;
 	}
 	/* Special-casing for shift-into-Bolivian (that's Mike-Tyson-ese for "oblivion"): */
@@ -369,7 +466,7 @@ uint64	mi64_shrl(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 		y[i] = 0ull;
 	}
 
-	/* If nbits not an exact multiple of the wordlength, take care of remaining shift bits: */
+	/* If nshift not an exact multiple of the wordlength, take care of remaining shift bits: */
 	if(rembits) {
 		m64bits = (64-rembits);
 		hi64 = (hi64 >> rembits) + (y[0] << m64bits);
@@ -386,7 +483,7 @@ uint64	mi64_shrl(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 /*** Short (< 1-word) shift routines ... on Core2 using ASM + SHLD,SHRD instructions 2x faster than compiled code. ***/
 
 /*
-"Short" Left-shift a base-2^64 int x[] by (nbits < 64) bits, returning the result in y[].
+"Short" Left-shift a base-2^64 int x[] by (nshift < 64) bits, returning the result in y[].
 Returns the off-shifted bits.
 Allows in-place operation, i.e. x == y.
 */
@@ -394,14 +491,14 @@ Allows in-place operation, i.e. x == y.
 __device__
 #endif
 // Pure-C reference code, useful for debugging the much-more-complex ASM-optimized production routine:
-uint64	mi64_shl_short_ref(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
+uint64	mi64_shl_short_ref(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 {
 	int i;
-	uint32 m64bits = (64-nbits);
+	uint32 m64bits = (64-nshift);
 	uint64 lo64 = 0ull;
-	ASSERT(HERE, len != 0 && nbits < 64, "mi64_shl: zero-length array or shift count >= 64!");
+	ASSERT(HERE, len != 0 && nshift < 64, "mi64_shl: zero-length array or shift count >= 64!");
 	// Special-casing for 0 shift count:
-	if(!nbits) {
+	if(!nshift) {
 		if(x != y) for(i = 0; i < len; i++){ y[i] = x[i]; }
 		return 0;
 	}
@@ -411,21 +508,21 @@ uint64	mi64_shl_short_ref(const uint64 x[], uint64 y[], uint32 nbits, uint32 len
 	// Process all but the least-significant element x[0], in downward (high-to-low-word) order.
 	// Full-vector (except for x[0]) processing loop if no ASM; high-words cleanup-loop if ASM:
 	for(i = len-1; i > 0; i--) {
-		y[i] = (x[i] << nbits) + (x[i-1] >> m64bits);
+		y[i] = (x[i] << nshift) + (x[i-1] >> m64bits);
 	}
 	// Least-significant element gets zeros shifted in from the right:
-	y[0] = (x[0] << nbits);
+	y[0] = (x[0] << nshift);
 	return lo64;
 }
 
 #if MI64_DEBUG
 	#define MI64_SHL1_DBG	0	// Set nonzero to enable debug-print in the mi64 modpow functions below
 #endif
-uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
+uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 {
 #if MI64_SHL1_DBG
 	int dbg = 0;
-	uint64 ref[1000];	if(len < 1000) ref[len] = mi64_shl_short_ref(x,ref,nbits,len);	// ref = x << nbits
+	uint64 ref[1000];	if(len < 1000) ref[len] = mi64_shl_short_ref(x,ref,nshift,len);	// ref = x << nshift
 #endif
   #ifdef USE_AVX2	// SSE2,AVX,AVX2 same in terms of processing 8 qwords per ASM-loop pass, but AVX2 must skip x[0:3]
 	const uint32 BLOCKLENM1 = 7, BASEADDRMASK = 0x1F;	uint32 minlen = 9;
@@ -435,11 +532,11 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 	const uint32 BLOCKLENM1 = 3, BASEADDRMASK = 0x07;	uint32 minlen = 5;
   #endif
 	int i, i0 = 0, i1 = 1, use_asm = FALSE, x_misalign = 0, y_misalign = 0;
-	uint32 m64bits = (64-nbits), leftover = 0;
+	uint32 m64bits = (64-nshift), leftover = 0;
 	uint64 lo64 = 0ull;
-	ASSERT(HERE, len != 0 && nbits < 64, "mi64_shl: zero-length array or shift count >= 64!");
+	ASSERT(HERE, len != 0 && nshift < 64, "mi64_shl: zero-length array or shift count >= 64!");
 	// Special-casing for 0 shift count:
-	if(!nbits) {
+	if(!nshift) {
 		if(x != y) for(i = 0; i < len; i++){ y[i] = x[i]; }
 		return 0;
 	}
@@ -454,32 +551,32 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 	Since x[0] is handled separately using C code, x[1] is where we start our SIMD-register alignment check.
 	Set the index bounds for ASM-loop processing in a way which makes the ASM-loop data chunks 32-byte[AVX2]
 	or 16-byte[SSE2/AVX] aligned, allowing us to use aligned SIMD loads, which is highly timing-friendly.
-	
+
 	Consider the case of a 13-element input vector - since the [0]-elt must be handled separately using C code,
 	we have elts [1-12] as possible candidats for SIMD vector-processing. If - using AVX2 reg-width for this example -
 	x[1] is 32-byte-aligned, we start vector processing with that. Visually, [] enclose the hex-indices of the
 	quadword octets we want the AVX2 ASM to handle:
-	
+
 		c	b	a	9	[8	7	6	5	4	3	2	1]	0
-	
+
 	That is, we want to define leftover = (len-1)%8 = 4, and use C cleanup code to process (leftover) elements at the
 	high end [9-c] via C-loop. However, we cannot assume such array alignment, so more generally at runtime we find
 	the minimum-indexed element x[i0] above x[0] which is 32-byte aligned and start vector processing with that.
 	This means i0 may range from 1-4; in the worst-case misalignment scenario we have i0 = 4 and things look like so:
-	
+
 		c	[b	a	9	8	7	6	5	4]	3	2	1	0
-	
+
 	For AVX2 our ASM shift macro does 8 elements at a time, so min-length which will trigger any ASM is len = 8 + i0,
 	and in our above example, leftover = (len - i0)%8 = 1, i.e. 1 element at the top need cleaning-up via the C code.
-	
+
 	For SSE2 and AVX - both use the same SSE2-based code since AVX only supports 128-bit vector integer operands -
 	we require just 16-byte alignment, thus i0 may = 1 or = 2; in the worst-case, i0 = 2. Since our SSE2-mode ASM-loop
 	also processes 8 elements like the AVX2-loop, we define leftover = (len - i0)%8 for the 13-element example, thus
 	we use C cleanup code to process (leftover) elements at the high end and i0 elements at the low end. Visually,
 	for the worst case, i0 = 2:
-	
+
 		c	b	a	[9	8	7	6	5	4	3	2]	1	0
-	
+
 	Since the x[0] element is off-limits for ASM-processing, for SSE2/AVX, the min-length which will trigger
 	any ASM is thus again len = 9 + i0.
 	*/
@@ -522,19 +619,19 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 
 	/* Example, using non-SIMD x86_64 build, i.e. YES_ASM = true, asm-loop data only required to be 8-byte aligned:
 	len,i0,i1,leftover = 6,1,5,0, misalign = 0, use_asm = 1; x,y = 0x400510,0x400510, base-addr for SHL macro = 0x400528
-	
+
 		* high-words cleanup-loop does words [len-1:i1] = [5:5], i.e. top leftover+1 = 1 words
 		* ASM-loop does words [i1:i0+1] = [5:2], should be doing 4:1! (that is why we get error in 1-word)
 		* low-words cleanup-loop does words [i0-1:1] = [0:1], not executed
-		* y[0] = (x[0] << nbits) done separately at end.
+		* y[0] = (x[0] << nshift) done separately at end.
 	*/
   #if MI64_SHL1_DBG
 	if(dbg)
-		printf("nshift = %u: len,i0,i1,leftover = %u,%u,%u,%u, x,y_misalign = %u,%u, use_asm = %u; x,y = 0x%X,0x%X, base-addr for SHL macro = 0x%X\n",nbits,len,i0,i1,leftover,x_misalign,y_misalign,use_asm,(uint32)x,(uint32)y,(uint32)(x+i1-2));
+		printf("nshift = %u: len,i0,i1,leftover = %u,%u,%u,%u, x,y_misalign = %u,%u, use_asm = %u; x,y = 0x%X,0x%X, base-addr for SHL macro = 0x%X\n",nshift,len,i0,i1,leftover,x_misalign,y_misalign,use_asm,(uint32)x,(uint32)y,(uint32)(x+i1-2));
   #endif
 	// Full-vector (except for x[0]) processing loop if no ASM; high-words cleanup-loop if ASM:
 	for(i = len-1; i >= i1; i--) {
-		y[i] = (x[i] << nbits) + (x[i-1] >> m64bits);
+		y[i] = (x[i] << nshift) + (x[i-1] >> m64bits);
 	}
 
 	/*
@@ -587,7 +684,7 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 		 ,[__y] "m" (y)	\
 		 ,[__i0] "m" (i0)	\
 		 ,[__i1] "m" (i1)	\
-		 ,[__n] "m" (nbits)	\
+		 ,[__n] "m" (nshift)	\
 		 ,[__nc] "m" (m64bits)	\
 		: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm14","xmm15"	/* Clobbered registers */\
 		);
@@ -631,7 +728,7 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 		 ,[__y] "m" (y)	\
 		 ,[__i0] "m" (i0)	\
 		 ,[__i1] "m" (i1)	\
-		 ,[__n] "m" (nbits)	\
+		 ,[__n] "m" (nshift)	\
 		 ,[__nc] "m" (m64bits)	\
 		: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm14","xmm15"	/* Clobbered registers */\
 		);
@@ -698,7 +795,7 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 		 ,[__y] "m" (y)	\
 		 ,[__i0] "m" (i0) \
 		 ,[__i1] "m" (i1) \
-		 ,[__n] "m" (nbits)	\
+		 ,[__n] "m" (nshift)	\
 		 ,[__nc] "m" (m64bits)	\
 		: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm14","xmm15"	/* Clobbered registers */\
 		);
@@ -763,7 +860,7 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 		 ,[__y] "m" (y)	\
 		 ,[__i0] "m" (i0) \
 		 ,[__i1] "m" (i1) \
-		 ,[__n] "m" (nbits)	\
+		 ,[__n] "m" (nshift)	\
 		 ,[__nc] "m" (m64bits)	\
 		: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm3","xmm14","xmm15"	/* Clobbered registers */\
 		);
@@ -809,7 +906,7 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 		 ,[__y] "m" (y)	\
 		 ,[__i0] "m" (i0)	\
 		 ,[__i1] "m" (i1)	\
-		 ,[__n] "m" (nbits)	\
+		 ,[__n] "m" (nshift)	\
 		: "cc","memory","rax","rbx","rcx","rsi","r10","r11"	/* Clobbered registers */\
 		);
 
@@ -820,26 +917,26 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 	// Low-end clean-up loop (only used in ASM-loop case):
 	for(i = i0-1; i > 0; i--) {
 	#if MI64_SHL1_DBG
-		if(dbg) printf("Low-end clean-up loop: x[%u,%u] = 0x%16llX,0x%16llX; <<%u,>>%u = 0x%16llX,0x%16llX\n",i,i-1,x[i],x[i-1],nbits,m64bits,(x[i] << nbits),(x[i-1] >> m64bits));
+		if(dbg) printf("Low-end clean-up loop: x[%u,%u] = 0x%16llX,0x%16llX; <<%u,>>%u = 0x%16llX,0x%16llX\n",i,i-1,x[i],x[i-1],nshift,m64bits,(x[i] << nshift),(x[i-1] >> m64bits));
 	#endif
-		y[i] = (x[i] << nbits) + (x[i-1] >> m64bits);
+		y[i] = (x[i] << nshift) + (x[i-1] >> m64bits);
 	#if MI64_SHL1_DBG
 		if(dbg) printf("    ==> y[%u] = 0x%16llX\n",i,y[i]);
 	#endif
 	}
 	// Least-significant element gets zeros shifted in from the right:
-	y[0] = (x[0] << nbits);
+	y[0] = (x[0] << nshift);
   #if MI64_SHL1_DBG
 	if(len < 1000) {
 		if(lo64 != ref[len]) { printf("SHL1 Carryout mismatch: (y[%u] = %16llX) != (ref[%u] = %16llX)\n",len,lo64,len,ref[len]); ASSERT(HERE, 0, "Exiting!"); }
-		if(!mi64_cmp_eq(y,ref,len)) { for(i = len-1; i >= 0; i--) { if(y[i] != ref[i]) { printf("(y[%u] = %16llX) != (ref[%u] = %16llX)\n",i,y[i],i,ref[i]); printf("nshift = %u: len,i0,i1,leftover = %u,%u,%u,%u, misalign = %u, use_asm = %u; x,y = 0x%X,0x%X, base-addr for SHL macro = 0x%X\n",nbits,len,i0,i1,leftover,x_misalign,use_asm,(uint32)x,(uint32)y,(uint32)(x+i1-2)); ASSERT(HERE, 0, "Exiting!"); } } }
+		if(!mi64_cmp_eq(y,ref,len)) { for(i = len-1; i >= 0; i--) { if(y[i] != ref[i]) { printf("(y[%u] = %16llX) != (ref[%u] = %16llX)\n",i,y[i],i,ref[i]); printf("nshift = %u: len,i0,i1,leftover = %u,%u,%u,%u, misalign = %u, use_asm = %u; x,y = 0x%X,0x%X, base-addr for SHL macro = 0x%X\n",nshift,len,i0,i1,leftover,x_misalign,use_asm,(uint32)x,(uint32)y,(uint32)(x+i1-2)); ASSERT(HERE, 0, "Exiting!"); } } }
 	}
   #endif
 	return lo64;
 }
 
 /*
-"Short" Logical-right-shift a base-2^64 int x[] by (nbits < 64) bits, returning the result in y[].
+"Short" Logical-right-shift a base-2^64 int x[] by (nshift < 64) bits, returning the result in y[].
 Returns the off-shifted bits.
 Allows in-place operation, i.e. x == y.
 */
@@ -847,35 +944,35 @@ Allows in-place operation, i.e. x == y.
 __device__
 #endif
 // Pure-C reference code, useful for debugging the much-more-complex ASM-optimized production routine:
-uint64	mi64_shrl_short_ref(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
+uint64	mi64_shrl_short_ref(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 {
 	int i;
-	uint32 m64bits = (64-nbits), leftover = 0;
+	uint32 m64bits = (64-nshift), leftover = 0;
 	uint64 hi64 = 0ull;
-	ASSERT(HERE, len != 0 && nbits < 64, "mi64_shl: zero-length array or shift count >= 64!");
+	ASSERT(HERE, len != 0 && nshift < 64, "mi64_shl: zero-length array or shift count >= 64!");
 	// Special-casing for 0 shift count:
-	if(!nbits) {
+	if(!nshift) {
 		if(x != y) for(i = 0; i < len; i++){ y[i] = x[i]; }
 		return 0;
 	}
 	hi64 = (x[0] << m64bits);
 	// Process all but the most-significant element, in upward (low-to-high-word) order:
 	for(i = 0; i < len-1; i++) {
-		y[i] = (x[i] >> nbits) + (x[i+1] << m64bits);
+		y[i] = (x[i] >> nshift) + (x[i+1] << m64bits);
 	}
 	// Most-significant element gets zeros shifted in from the left:
-	y[len-1] = (x[len-1] >> nbits);
+	y[len-1] = (x[len-1] >> nshift);
 	return hi64;
 }
 
 #if MI64_DEBUG
 	#define MI64_SHR1_DBG	0	// Set nonzero to enable debug-print in the mi64 modpow functions below
 #endif
-uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
+uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 {
 #if MI64_SHR1_DBG
 	int dbg = 0;
-	uint64 ref[1000];	if(len < 1000) ref[len] = mi64_shrl_short_ref(x,ref,nbits,len);	// ref = x << nbits
+	uint64 ref[1000];	if(len < 1000) ref[len] = mi64_shrl_short_ref(x,ref,nshift,len);	// ref = x << nshift
 #endif
   #ifdef USE_AVX2	// SSE2,AVX,AVX2 same in terms of processing 8 qwords per ASM-loop pass, but AVX2 must skip x[0:3]
 	const uint32 BLOCKLENM1 = 7, BASEADDRMASK = 0x1F;	uint32 minlen = 9;
@@ -885,11 +982,11 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 	const uint32 BLOCKLENM1 = 3, BASEADDRMASK = 0x07;	uint32 minlen = 5;
   #endif
 	int i, i0 = 0, i1 = 0, use_asm = FALSE, x_misalign, y_misalign;
-	uint32 m64bits = (64-nbits), leftover = 0;
+	uint32 m64bits = (64-nshift), leftover = 0;
 	uint64 hi64 = 0ull;
-	ASSERT(HERE, len != 0 && nbits < 64, "mi64_shl: zero-length array or shift count >= 64!");
+	ASSERT(HERE, len != 0 && nshift < 64, "mi64_shl: zero-length array or shift count >= 64!");
 	// Special-casing for 0 shift count:
-	if(!nbits) {
+	if(!nshift) {
 		if(x != y) for(i = 0; i < len; i++){ y[i] = x[i]; }
 		return 0;
 	}
@@ -904,32 +1001,32 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 	Set the index bounds for ASM-loop processing in a way which allows us to assume the same alignment in the ASM-loop
 	as on the 0-element of x[], i.e. by forcing x to be 32-byte[AVX2] or 16-byte[SSE2/AVX] aligned we can use aligned
 	loads in both the SSE2 and AVX processing macros, which is highly timing-friendly.
-	
+
 	Consider the case of a 13-element input vector - since the [12]-elt must be handled separately (i.e. not using ASM),
 	we have elts [0-11] as possible candidats for SIMD vector-processing. If - using AVX2 reg-width for this example -
 	x[0] is 32-byte-aligned, we start vector processing with that. Visually, [] enclose the hex-indices of the
 	quadword octets we want the AVX2 ASM to handle:
-	
+
 		c	b	a	9	8	[7	6	5	4	3	2	1	0]
-	
+
 	That is, we want to define leftover = len%8 = 5, and use C cleanup code to process (leftover) elements at the
 	high end: [8-b] via loop, [c] separately. However, we cannot assume such array alignment, so more generally
 	at runtime we find the minimum-indexed element x[i0] which is 32-byte aligned and start vector processing with it.
 	This means i0 may range from 0-3; in the worst-case misalignment scenario we have i0 = 3 and things look like so:
-	
+
 		c	b	[a	9	8	7	6	5	4	3]	2	1	0
-	
+
 	For AVX2 our ASM shift macro does 8 elements at a time, so min-length which will trigger any ASM is len = 9 + i0,
 	and in our above example, leftover = (len - i0)%8 = 2, i.e. 2 elements at the top need cleaning-up via the C code.
-	
+
 	For SSE2 and AVX - both use the same SSE2-based code since AVX only supports 128-bit vector integer operands -
 	we require just 16-byte alignment, thus i0 may = 0 or = 1; in the worst-case, i0 = 1. Since our SSE2-mode ASM-loop
 	also processes 8 elements like the AVX2-loop, we define leftover = (len - i0)%8 for the 13-element example, thus
 	we use C cleanup code to process (leftover) elements at the high end and i0 elements at the low end. Visually,
 	for the worst case, i0 = 1:
-	
+
 		c	b	a	9	[8	7	6	5	4	3	2	1]	0
-	
+
 	Since the topmost element is off-limits for ASM-processing, for SSE2/AVX, the min-length which will trigger
 	any ASM is thus again len = 9 + i0.
 	*/
@@ -971,11 +1068,11 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 
   #if MI64_SHR1_DBG
 	if(dbg)
-		printf("nshift = %u: len,i0,i1,leftover = %u,%u,%u,%u, x,y_misalign = %u,%u, use_asm = %u; x,y = 0x%X,0x%X, base-addr for SHRL macro = 0x%X\n",nbits,len,i0,i1,leftover,x_misalign,y_misalign,use_asm,(uint32)x,(uint32)y,(uint32)(x+i1-2));
+		printf("nshift = %u: len,i0,i1,leftover = %u,%u,%u,%u, x,y_misalign = %u,%u, use_asm = %u; x,y = 0x%X,0x%X, base-addr for SHRL macro = 0x%X\n",nshift,len,i0,i1,leftover,x_misalign,y_misalign,use_asm,(uint32)x,(uint32)y,(uint32)(x+i1-2));
   #endif
 	// Low-end cleanup-loop if ASM:
 	for(i = 0; i < i0; i++) {
-		y[i] = (x[i] >> nbits) + (x[i+1] << m64bits);
+		y[i] = (x[i] >> nshift) + (x[i+1] << m64bits);
 	}
 
 	if(use_asm) {	// Collect various-build-mode asm-macros indie this if()
@@ -1020,7 +1117,7 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 		 ,[__y] "m" (y)	\
 		 ,[__i0] "m" (i0)	\
 		 ,[__i1] "m" (i1)	\
-		 ,[__n] "m" (nbits)	\
+		 ,[__n] "m" (nshift)	\
 		 ,[__nc] "m" (m64bits)	\
 		: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm14","xmm15"	/* Clobbered registers */\
 		);
@@ -1071,7 +1168,7 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 		 ,[__y] "m" (y)	\
 		 ,[__i0] "m" (i0)	\
 		 ,[__i1] "m" (i1)	\
-		 ,[__n] "m" (nbits)	\
+		 ,[__n] "m" (nshift)	\
 		 ,[__nc] "m" (m64bits)	\
 		: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm14","xmm15"	/* Clobbered registers */\
 		);
@@ -1144,7 +1241,7 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 		 ,[__y] "m" (y)	\
 		 ,[__i0] "m" (i0)	\
 		 ,[__i1] "m" (i1)	\
-		 ,[__n] "m" (nbits)	\
+		 ,[__n] "m" (nshift)	\
 		 ,[__nc] "m" (m64bits)	\
 		: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm14","xmm15"	/* Clobbered registers */\
 		);
@@ -1207,7 +1304,7 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 		 ,[__y] "m" (y)	\
 		 ,[__i0] "m" (i0)	\
 		 ,[__i1] "m" (i1)	\
-		 ,[__n] "m" (nbits)	\
+		 ,[__n] "m" (nshift)	\
 		 ,[__nc] "m" (m64bits)	\
 		: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm3","xmm14","xmm15"	/* Clobbered registers */\
 		);
@@ -1263,7 +1360,7 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 		 ,[__y] "m" (y)	\
 		 ,[__i0] "m" (i0)	\
 		 ,[__i1] "m" (i1)	\
-		 ,[__n] "m" (nbits)	\
+		 ,[__n] "m" (nshift)	\
 		 ,[__nc] "m" (m64bits)	\
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","r10","r11","xmm0","xmm1","xmm2","xmm14","xmm15"	/* Clobbered registers */\
 		);
@@ -1303,7 +1400,7 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 		: [__x] "m" (x)	/* All inputs from memory addresses here */\
 		 ,[__y] "m" (y)	\
 		 ,[__i1] "m" (i1)	\
-		 ,[__n] "m" (nbits)	\
+		 ,[__n] "m" (nshift)	\
 		: "cc","memory","rax","rbx","rcx","rsi","r10","r11"	/* Clobbered registers */\
 		);
 
@@ -1313,11 +1410,11 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nbits, uint32 len)
 
 	// Full-vector processing loop if no ASM; high-end cleanup-loop if ASM:
 	for(i = i1; i < len-1; i++) {
-		y[i] = (x[i] >> nbits) + (x[i+1] << m64bits);
+		y[i] = (x[i] >> nshift) + (x[i+1] << m64bits);
 	}
 
 	/* Most-significant element gets zeros shifted in from the left: */
-	y[len-1] = (x[len-1] >> nbits);
+	y[len-1] = (x[len-1] >> nshift);
 
   #if MI64_SHR1_DBG
 	if(len < 1000) {
@@ -1800,7 +1897,7 @@ uint64	mi64_add_cyin(const uint64 x[], const uint64 y[], uint64 z[], uint32 len,
 	uint64	mi64_add(const uint64 x[], const uint64 y[], uint64 z[], uint32 len)
 	{
 	#if 0//def USE_AVX
-		#error experimental-olny code ... still needs debugging! [Jul 2016 - carry into topmost word missing]
+		#error experimental-only code ... still needs debugging! [Jul 2016 - carry into topmost word missing]
 		// Hybrid int64 / sse2 -based impl of ?-folded adc loop
 		// Unsigned quadword compare requires sse4.2 or greater, so for now wrap it in the USE_AVX flag
 		//
@@ -2265,7 +2362,7 @@ uint64	mi64_mul_scalar(const uint64 x[], uint64 a, uint64 y[], uint32 len)
 
 	There is no code to check for special values of a, e.g. 0 or 1.
 
-	Allows in-place, i.e. x == y.
+	Allows in-place, i.e. z == x or z == y.
 */
 #if MI64_DEBUG
 	#define MI64_MSAV2	0
@@ -2500,7 +2597,7 @@ void	mi64_mul_vector(const uint64 x[], uint32 lenX, const uint64 y[], uint32 len
 		if(dimU < (lenA+1)) {
 			dimU = 2*(lenA+1);
 			// Alloc 2x the immediately-needed to avoid excessive reallocs if neededsize increases incrementally
-			u = (uint64 *)realloc(u, 2*(lenA+1)*sizeof(uint64));
+			u = (uint64 *)realloc(u, dimU*sizeof(uint64));
 		}
 	#endif
 		/* Loop over remaining (lenB-1) elements of B[], multiplying A by each, and
@@ -3543,7 +3640,7 @@ especially as this routine is too slow to be useful for inputs larger than a cou
 		printf("*= %llu = %s\n", z, &cbuf[convert_mi64_base10_char(cbuf, prod, plen+1, 0)]);
 	  #endif
 //if(dbg)printf("*= %llu = %llu\n",z,prod[0]);
-			mi64_div_binary(prod, p, plen+1, plen, 0x0, y); 	// y = prod % p
+			mi64_div_binary(prod, p, plen+1, plen, 0x0,0x0, y); 	// y = prod % p
 	  #if MI64_PRP_DBG
 		printf("(mod p) = %s\n", &cbuf[convert_mi64_base10_char(cbuf, y, plen, 0)]);
 	  #endif
@@ -3562,6 +3659,807 @@ especially as this routine is too slow to be useful for inputs larger than a cou
 */
 //if(dbg)printf("retval = %u\n",retval);
 	return retval;
+}
+#endif	// __CUDA_ARCH__ ?
+
+/****************/
+
+/* Hand-rolled double/quad conversions which work on KNL (i.e. needing just AVX512F,CD); all the in-reg ops here are fast,
+highest-latency instructions are the bookending load/stores, iso e.g. an 8-way pipelined version of this should be -
+relatively speaking, since the VCVTUQQ2PD hardware instruction available under the AVX512DQ extensions will surely be
+much quicker - fast:
+
+Test harness code:
+
+	// Short-length uint64 array with 512-bit (64-byte)-aligned pointer into it:
+	uint64 i64arr[16], *iaptr = i64arr;	while((uint64)iaptr & 0x3f) { ++iaptr; }
+	for(i = 0; i < 1000; i++) {
+		for(j = 0; j < 8; j++) {
+			*(iaptr+j) = rng_isaac_rand()>>11;
+		}
+		mi64_vcvtuqq2pd(iaptr,a);
+	}
+*/
+#ifndef __CUDA_ARCH__
+void mi64_vcvtuqq2pd(const uint64 a[], double b[])
+{
+	uint32 i;
+#ifdef USE_AVX512
+	__asm__ volatile (\
+		"movq	%[__a],%%rax				\n\t	vpxorq	%%zmm30,%%zmm30,%%zmm30	\n\t"/* 0.0 */\
+		"movq	%[__b],%%rbx				\n\t	vmovaps		(%%rax),%%zmm0 	\n\t"/* Load uint64 inputs */\
+		"vpcmpuq $0,%%zmm30,%%zmm0,%%k1		\n\t"/* 0-Inputs need 0-masking of result of code below */\
+		"vplzcntq	%%zmm0,%%zmm1			\n\t"/* #leading zeros in inputs */\
+		/* IEEE64 exp-fields for 1,2[lz=63,62] = 0x3ff,0x400, so offset we add to shift-aligned data is 62-1 (the -1 accounts for the unhidden-bit becoming hidden) higher than 0x400 = 0x43D0...0 - #lz: */\
+		"movq $0x43D0000000000000,%%rcx		\n\t	vpbroadcastq	%%rcx,%%zmm31	\n\t"\
+		"vpsllvq	%%zmm1,%%zmm0,%%zmm0	\n\t"/* Left-justify inputs (since there is no variable-shift-left-or-right instruction */\
+		"vpsllq		$52,%%zmm1,%%zmm1		\n\t"/* #lz <<= 52, to align with DP-exponent field */\
+		"vpsubq		%%zmm1,%%zmm31,%%zmm1	\n\t"/* 0x43E0...0 - #lz */\
+		"vpsrlq		$11,%%zmm0,%%zmm0		\n\t"/* == inputs >> (11-lz) bits, leftmost set bit at low bit of DP-exponent field */\
+		"vpaddq		%%zmm1,%%zmm0,%%zmm0	\n\t"/* Note above rshift truncates any off-shifted low bits; results now in DP form. */
+	"vpandq	%%zmm30,%%zmm0,%%zmm0%{%%k1%}	\n\t"/* 0-Inputs need 0-masking of result */\
+		"vmovaps	%%zmm0,(%%rbx) 	\n\t"/* uint64 inputs */\
+		:					/* outputs: none */\
+		: [__a] "m" (a)	/* All inputs from memory addresses here */\
+		 ,[__b] "m" (b)\
+		: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm31"	/* Clobbered registers */\
+	);
+	for(i = 0; i < 8; i++) {
+		ASSERT(HERE, b[i] == (double)a[i], "uint64->double conversion result differs from reference!");
+	}
+#else
+	ASSERT(HERE, 0,"mi64_vcvtuqq2pd requires build with AVX512 instruction set!\n");
+#endif	// USE_AVX ?
+}
+
+void mi64_vcvtpd2uqq(const double a[], uint64 b[])
+{
+	uint32 i;
+#ifdef USE_AVX512
+	__asm__ volatile (\
+		"movq	%[__a],%%rax				\n\t"\
+		:					/* outputs: none */\
+		: [__a] "m" (a)	/* All inputs from memory addresses here */\
+		 ,[__b] "m" (b)\
+		: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm31"	/* Clobbered registers */\
+	);
+	for(i = 0; i < 8; i++) {
+		ASSERT(HERE, (double)b[i] == a[i], "double->uint64 conversion result differs from reference!");
+	}
+#else
+	ASSERT(HERE, 0,"mi64_vcvtuqq2pd requires build with AVX512 instruction set!\n");
+#endif	// USE_AVX ?
+}
+#endif	// __CUDA_ARCH__ ?
+
+/****************/
+
+/* May 2018: Just for curiosity's sake, in avx2|avx512 try a 53-bit DP-based modmul using a batch of 16|64 doubles in 4|8 vregs.
+This has negligible (i.e. 0 for 10^9 calls to macro using random inputs) error rate for 52-bit nonnegative inputs (a*b%m, a,b in [0,m-1)).
+For 53-bit nonnegative inputs error rate is ~1 in 10^4, but using balanced-digits a,b in [-m/2,+m/2), error rate is again negligible.
+
+On my 3.3 GHz Haswell the avx2 batch-of-16-modmuls needs 40 cycles for DP reciprocal and 60 for the ensuing modmul.
+On 1.3 GHz KNL, avx512 batch-of-64-modmuls needs 62 cycles for DP reciprocal, 75 for ensuing modmul, just over 1 cycle per DP modmul.
+
+Test harness code:
+
+	#ifdef USE_AVX512
+		const uint32 ndata = 64;
+	#elif defined(USE_AVX)
+		const uint32 ndata = 16;
+	#endif
+	double *a0 = a, *a1 = a+ndata, *a2 = a+2*ndata, *a3 = a+3*ndata;
+	for(k = 0; k < ndata; k++) {
+		int64 m = rng_isaac_rand()>>11;	// Restrict to modmul inputs < 2^53 for now
+		int64 x = rng_isaac_rand()>>11;
+		int64 y = rng_isaac_rand()>>11;
+		if(x > m) x %= m;
+		if(y > m) y %= m;
+		// Try balanced-digit normalization of input multiplicands:
+		x -= m & -(x >= (m>>1));
+		y -= m & -(y >= (m>>1));
+		*(a0 + k) = (double)x;
+		*(a1 + k) = (double)y;
+		*(a2 + k) = (double)m;
+	}
+	for(i = 0; i < 1; i++) {
+		for(j = 0; j < 1000000000; j++) {
+			mi64_modmul53_batch(a0,a1,a2,a3);
+		}
+	}
+*/
+#ifndef __CUDA_ARCH__
+void mi64_modmul53_batch(const double a[], const double b[], const double m[], double r[])	/* a,b,m,r are ptrs to 32-byte-aligned 256-byte-large memchunk of 32 doubles */
+{
+	// Debug: short-length arrays to gather error-correction statistics:
+	static int32 ierr[100];	static double err[72], *eptr = err;	while((uint64)eptr & 0x3f) { ++eptr; }
+	const double two = 2.0, three = 3.0;	const double *ptwo = &two, *pthree = &three;
+#ifdef USE_AVX	// ewm: wrap in AVX (not AVX2) prepro flag because my older gcc on the Haswell  barfs on the MULXs in this file when built using USE_AVX2, but is OK with the FMA3 portion of AVX2
+  #ifdef USE_AVX512
+	const uint32 ndata = 64;	uint32 i;
+	__asm__ volatile (\
+		"movq	%[__a]  ,%%rax			\n\t"\
+		"movq	%[__b]  ,%%rbx			\n\t"\
+		"movq	%[__m]  ,%%rdx			\n\t"\
+		"movq	%[__two],%%rcx		\n\t	vbroadcastsd	(%%rcx),%%zmm31	\n\t"/* 2.0 */\
+		/* load inputs-to-be-inverted (d's) into 8 AVX512 registers: */\
+		"vmovaps	     (%%rdx),%%zmm8 	\n\t"/* ewm: side-by-siding the MOVs and RCP14PDs slowed things down */\
+		"vmovaps	0x040(%%rdx),%%zmm9 	\n\t"\
+		"vmovaps	0x080(%%rdx),%%zmm10	\n\t"\
+		"vmovaps	0x0c0(%%rdx),%%zmm11	\n\t"\
+		"vmovaps	0x100(%%rdx),%%zmm12	\n\t"\
+		"vmovaps	0x140(%%rdx),%%zmm13	\n\t"\
+		"vmovaps	0x180(%%rdx),%%zmm14	\n\t"\
+		"vmovaps	0x1c0(%%rdx),%%zmm15	\n\t"\
+	/* Could use vcvtpd2ps and 2-register-merges of the results so as to need just four VRCP*PS instructions, each operating on a
+	full-width zmm-register-of-SP-data, rather than 8 VRCP*PD, but per Agner vcvtpd2ps on KNL has 7-cycle-latency and an even more
+	awful one-can-start-every-7-cycles thruput, so that would be a very bad trade. Further, using VRCP28PD rather than VRCP14PD
+	introduces the additional consideration that VRCP28PS is in fact only 23-bits accurate due to the mantissa width of SP data. */\
+		"vrcp28pd		%%zmm8 ,%%zmm0	\n\t"	/* ainv := approx 1/d to 28 bits of precision */\
+		"vrcp28pd		%%zmm9 ,%%zmm1	\n\t"\
+		"vrcp28pd		%%zmm10,%%zmm2	\n\t"\
+		"vrcp28pd		%%zmm11,%%zmm3	\n\t"\
+		"vrcp28pd		%%zmm12,%%zmm4	\n\t"\
+		"vrcp28pd		%%zmm13,%%zmm5	\n\t"\
+		"vrcp28pd		%%zmm14,%%zmm6	\n\t"\
+		"vrcp28pd		%%zmm15,%%zmm7	\n\t"\
+		/* And a single NR iteration gives maximal ~53 bits of precision: */\
+		"vmovaps	%%zmm0,%%zmm16	\n\t	vfnmadd132pd	%%zmm8 ,%%zmm31,%%zmm0 	\n\t"	/* Make a copy of ainv, then (2-d*ainv) overwrites ainv */\
+		"vmovaps	%%zmm1,%%zmm17	\n\t	vfnmadd132pd	%%zmm9 ,%%zmm31,%%zmm1 	\n\t"\
+		"vmovaps	%%zmm2,%%zmm18	\n\t	vfnmadd132pd	%%zmm10,%%zmm31,%%zmm2 	\n\t"\
+		"vmovaps	%%zmm3,%%zmm19	\n\t	vfnmadd132pd	%%zmm11,%%zmm31,%%zmm3 	\n\t"\
+		"vmovaps	%%zmm4,%%zmm20	\n\t	vfnmadd132pd	%%zmm12,%%zmm31,%%zmm4 	\n\t"\
+		"vmovaps	%%zmm5,%%zmm21	\n\t	vfnmadd132pd	%%zmm13,%%zmm31,%%zmm5 	\n\t"\
+		"vmovaps	%%zmm6,%%zmm22	\n\t	vfnmadd132pd	%%zmm14,%%zmm31,%%zmm6 	\n\t"\
+		"vmovaps	%%zmm7,%%zmm23	\n\t	vfnmadd132pd	%%zmm15,%%zmm31,%%zmm7 	\n\t"\
+		"vmulpd		%%zmm0,%%zmm16,%%zmm16	\n\t"	/* ainv*(2 - d*ainv) = 1/d accurate to ~28 bits */\
+		"vmulpd		%%zmm1,%%zmm17,%%zmm17	\n\t"\
+		"vmulpd		%%zmm2,%%zmm18,%%zmm18	\n\t"\
+		"vmulpd		%%zmm3,%%zmm19,%%zmm19	\n\t"\
+		"vmulpd		%%zmm4,%%zmm20,%%zmm20	\n\t"\
+		"vmulpd		%%zmm5,%%zmm21,%%zmm21	\n\t"\
+		"vmulpd		%%zmm6,%%zmm22,%%zmm22	\n\t"\
+		"vmulpd		%%zmm7,%%zmm23,%%zmm23	\n\t"\
+	/* Using VRCP14PD, would need 2nd NR iteration here. */\
+		/* Write the reciprocals to memory, will need these not just now but once more in the final error-correction step: */\
+		"movq	%[__r]  ,%%rsi			\n\t"/* Interleaving the writes with the MULPDs below saves a few cycles */\
+		/* Load the a-multiplicands: */\
+		"vmovaps	     (%%rax),%%zmm0	\n\t"\
+		"vmovaps	0x040(%%rax),%%zmm1	\n\t"\
+		"vmovaps	0x080(%%rax),%%zmm2	\n\t"\
+		"vmovaps	0x0c0(%%rax),%%zmm3	\n\t"\
+		"vmovaps	0x100(%%rax),%%zmm4	\n\t"\
+		"vmovaps	0x140(%%rax),%%zmm5	\n\t"\
+		"vmovaps	0x180(%%rax),%%zmm6	\n\t"\
+		"vmovaps	0x1c0(%%rax),%%zmm7	\n\t"\
+		/* a * b, high 53 bits: */\
+		"vmulpd		     (%%rbx),%%zmm0,%%zmm8 	\n\t	vmovaps	%%zmm16,     (%%rsi)	\n\t"\
+		"vmulpd		0x040(%%rbx),%%zmm1,%%zmm9 	\n\t	vmovaps	%%zmm17,0x040(%%rsi)	\n\t"\
+		"vmulpd		0x080(%%rbx),%%zmm2,%%zmm10	\n\t	vmovaps	%%zmm18,0x080(%%rsi)	\n\t"\
+		"vmulpd		0x0c0(%%rbx),%%zmm3,%%zmm11	\n\t	vmovaps	%%zmm19,0x0c0(%%rsi)	\n\t"\
+		"vmulpd		0x100(%%rbx),%%zmm4,%%zmm12	\n\t	vmovaps	%%zmm20,0x100(%%rsi)	\n\t"\
+		"vmulpd		0x140(%%rbx),%%zmm5,%%zmm13	\n\t	vmovaps	%%zmm21,0x140(%%rsi)	\n\t"\
+		"vmulpd		0x180(%%rbx),%%zmm6,%%zmm14	\n\t	vmovaps	%%zmm22,0x180(%%rsi)	\n\t"\
+		"vmulpd		0x1c0(%%rbx),%%zmm7,%%zmm15	\n\t	vmovaps	%%zmm23,0x1c0(%%rsi)	\n\t"\
+		/* quotient q = trunc(a * b / m), overwrites 1/m; */\
+		"vmulpd		%%zmm8 ,%%zmm16,%%zmm16	\n\t"\
+		"vmulpd		%%zmm9 ,%%zmm17,%%zmm17	\n\t"\
+		"vmulpd		%%zmm10,%%zmm18,%%zmm18	\n\t"\
+		"vmulpd		%%zmm11,%%zmm19,%%zmm19	\n\t"\
+		"vmulpd		%%zmm12,%%zmm20,%%zmm20	\n\t"\
+		"vmulpd		%%zmm13,%%zmm21,%%zmm21	\n\t"\
+		"vmulpd		%%zmm14,%%zmm22,%%zmm22	\n\t"\
+		"vmulpd		%%zmm15,%%zmm23,%%zmm23	\n\t"\
+		/* a * b, low 53 bits: */				/* Round quotients toward 0 rather than toward -oo, since these may be of either sign: */\
+	"vfmsub132pd	     (%%rbx),%%zmm8 ,%%zmm0	\n\t	vrndscalepd	$3,%%zmm16,%%zmm16		\n\t"\
+	"vfmsub132pd	0x040(%%rbx),%%zmm9 ,%%zmm1	\n\t	vrndscalepd	$3,%%zmm17,%%zmm17		\n\t"\
+	"vfmsub132pd	0x080(%%rbx),%%zmm10,%%zmm2	\n\t	vrndscalepd	$3,%%zmm18,%%zmm18		\n\t"\
+	"vfmsub132pd	0x0c0(%%rbx),%%zmm11,%%zmm3	\n\t	vrndscalepd	$3,%%zmm19,%%zmm19		\n\t"\
+	"vfmsub132pd	0x100(%%rbx),%%zmm12,%%zmm4	\n\t	vrndscalepd	$3,%%zmm20,%%zmm20		\n\t"\
+	"vfmsub132pd	0x140(%%rbx),%%zmm13,%%zmm5	\n\t	vrndscalepd	$3,%%zmm21,%%zmm21		\n\t"\
+	"vfmsub132pd	0x180(%%rbx),%%zmm14,%%zmm6	\n\t	vrndscalepd	$3,%%zmm22,%%zmm22		\n\t"\
+	"vfmsub132pd	0x1c0(%%rbx),%%zmm15,%%zmm7	\n\t	vrndscalepd	$3,%%zmm23,%%zmm23		\n\t"\
+		/* q * m, high 53 bits: */\
+		"vmulpd		     (%%rdx),%%zmm16,%%zmm24	\n\t"\
+		"vmulpd		0x040(%%rdx),%%zmm17,%%zmm25	\n\t"\
+		"vmulpd		0x080(%%rdx),%%zmm18,%%zmm26	\n\t"\
+		"vmulpd		0x0c0(%%rdx),%%zmm19,%%zmm27	\n\t"\
+		"vmulpd		0x100(%%rdx),%%zmm20,%%zmm28	\n\t"\
+		"vmulpd		0x140(%%rdx),%%zmm21,%%zmm29	\n\t"\
+		"vmulpd		0x180(%%rdx),%%zmm22,%%zmm30	\n\t"\
+		"vmulpd		0x1c0(%%rdx),%%zmm23,%%zmm31	\n\t"\
+		/* q * m, low 53 bits: */\
+	"vfmsub132pd	     (%%rdx),%%zmm24,%%zmm16	\n\t"\
+	"vfmsub132pd	0x040(%%rdx),%%zmm25,%%zmm17	\n\t"\
+	"vfmsub132pd	0x080(%%rdx),%%zmm26,%%zmm18	\n\t"\
+	"vfmsub132pd	0x0c0(%%rdx),%%zmm27,%%zmm19	\n\t"\
+	"vfmsub132pd	0x100(%%rdx),%%zmm28,%%zmm20	\n\t"\
+	"vfmsub132pd	0x140(%%rdx),%%zmm29,%%zmm21	\n\t"\
+	"vfmsub132pd	0x180(%%rdx),%%zmm30,%%zmm22	\n\t"\
+	"vfmsub132pd	0x1c0(%%rdx),%%zmm31,%%zmm23	\n\t"\
+		/* (a*b - q*m).hi53: */						/* (a*b - q*m).lo53: */\
+		"vsubpd		%%zmm24,%%zmm8 ,%%zmm24	\n\t	vsubpd		%%zmm16,%%zmm0,%%zmm16	\n\t"\
+		"vsubpd		%%zmm25,%%zmm9 ,%%zmm25	\n\t	vsubpd		%%zmm17,%%zmm1,%%zmm17	\n\t"\
+		"vsubpd		%%zmm26,%%zmm10,%%zmm26	\n\t	vsubpd		%%zmm18,%%zmm2,%%zmm18	\n\t"\
+		"vsubpd		%%zmm27,%%zmm11,%%zmm27	\n\t	vsubpd		%%zmm19,%%zmm3,%%zmm19	\n\t"\
+		"vsubpd		%%zmm28,%%zmm12,%%zmm28	\n\t	vsubpd		%%zmm20,%%zmm4,%%zmm20	\n\t"\
+		"vsubpd		%%zmm29,%%zmm13,%%zmm29	\n\t	vsubpd		%%zmm21,%%zmm5,%%zmm21	\n\t"\
+		"vsubpd		%%zmm30,%%zmm14,%%zmm30	\n\t	vsubpd		%%zmm22,%%zmm6,%%zmm22	\n\t"\
+		"vsubpd		%%zmm31,%%zmm15,%%zmm31	\n\t	vsubpd		%%zmm23,%%zmm7,%%zmm23	\n\t"\
+		/* And now add those hi and lo results, which equal the remainders, up to a possible small multiple of the modulus which will
+		be removed in a final error-correction step. That needs us to preserve both the hi&lo inputs here (since if the sum > 53 bits,
+		e.g. for 52/53-bit inputs and a quotient off by > +-1) we may lose >= 1 one-bits from the bottom), so write results to zmm0-3: */\
+		"vaddpd		%%zmm16,%%zmm24,%%zmm0	\n\t"\
+		"vaddpd		%%zmm17,%%zmm25,%%zmm1	\n\t"\
+		"vaddpd		%%zmm18,%%zmm26,%%zmm2	\n\t"\
+		"vaddpd		%%zmm19,%%zmm27,%%zmm3	\n\t"\
+		"vaddpd		%%zmm20,%%zmm28,%%zmm4	\n\t"\
+		"vaddpd		%%zmm21,%%zmm29,%%zmm5	\n\t"\
+		"vaddpd		%%zmm22,%%zmm30,%%zmm6	\n\t"\
+		"vaddpd		%%zmm23,%%zmm31,%%zmm7	\n\t"\
+		/* floor((a*b - q*m)/m) gives needed additional multiple of m, e*m, which must be subtracted to correct for the approximateness of q: */\
+		"vmulpd		     (%%rsi),%%zmm0,%%zmm0	\n\t"\
+		"vmulpd		0x040(%%rsi),%%zmm1,%%zmm1	\n\t"\
+		"vmulpd		0x080(%%rsi),%%zmm2,%%zmm2	\n\t"\
+		"vmulpd		0x0c0(%%rsi),%%zmm3,%%zmm3	\n\t"\
+		"vmulpd		0x100(%%rsi),%%zmm4,%%zmm4	\n\t"\
+		"vmulpd		0x140(%%rsi),%%zmm5,%%zmm5	\n\t"\
+		"vmulpd		0x180(%%rsi),%%zmm6,%%zmm6	\n\t"\
+		"vmulpd		0x1c0(%%rsi),%%zmm7,%%zmm7	\n\t"\
+		"vrndscalepd	$1,%%zmm0,%%zmm0 		\n\t"/* This rounding is towards -oo, since need floor() */\
+		"vrndscalepd	$1,%%zmm1,%%zmm1 		\n\t"\
+		"vrndscalepd	$1,%%zmm2,%%zmm2		\n\t"\
+		"vrndscalepd	$1,%%zmm3,%%zmm3		\n\t"\
+		"vrndscalepd	$1,%%zmm4,%%zmm4		\n\t"\
+		"vrndscalepd	$1,%%zmm5,%%zmm5		\n\t"\
+		"vrndscalepd	$1,%%zmm6,%%zmm6		\n\t"\
+		"vrndscalepd	$1,%%zmm7,%%zmm7		\n\t"\
+/* Debug: write errs to short-length array to gather error-correction statistics: \
+"movq	%[__err]  ,%%rdi			\n\t"\
+"vmovaps	%%zmm0,     (%%rdi)	\n\t"\
+"vmovaps	%%zmm1,0x040(%%rdi)	\n\t"\
+"vmovaps	%%zmm2,0x080(%%rdi)	\n\t"\
+"vmovaps	%%zmm3,0x0c0(%%rdi)	\n\t"\
+"vmovaps	%%zmm4,0x100(%%rdi)	\n\t"\
+"vmovaps	%%zmm5,0x140(%%rdi)	\n\t"\
+"vmovaps	%%zmm6,0x180(%%rdi)	\n\t"\
+"vmovaps	%%zmm7,0x1c0(%%rdi)	\n\t"*/\
+		/* e * m, high 53 bits: */\
+		"vmulpd		     (%%rdx),%%zmm0,%%zmm8 	\n\t"\
+		"vmulpd		0x040(%%rdx),%%zmm1,%%zmm9 	\n\t"\
+		"vmulpd		0x080(%%rdx),%%zmm2,%%zmm10	\n\t"\
+		"vmulpd		0x0c0(%%rdx),%%zmm3,%%zmm11	\n\t"\
+		"vmulpd		0x100(%%rdx),%%zmm4,%%zmm12	\n\t"\
+		"vmulpd		0x140(%%rdx),%%zmm5,%%zmm13	\n\t"\
+		"vmulpd		0x180(%%rdx),%%zmm6,%%zmm14	\n\t"\
+		"vmulpd		0x1c0(%%rdx),%%zmm7,%%zmm15	\n\t"\
+		/* e * m, low 53 bits: */\
+	"vfmsub132pd	     (%%rdx),%%zmm8 ,%%zmm0	\n\t"\
+	"vfmsub132pd	0x040(%%rdx),%%zmm9 ,%%zmm1	\n\t"\
+	"vfmsub132pd	0x080(%%rdx),%%zmm10,%%zmm2	\n\t"\
+	"vfmsub132pd	0x0c0(%%rdx),%%zmm11,%%zmm3	\n\t"\
+	"vfmsub132pd	0x100(%%rdx),%%zmm12,%%zmm4	\n\t"\
+	"vfmsub132pd	0x140(%%rdx),%%zmm13,%%zmm5	\n\t"\
+	"vfmsub132pd	0x180(%%rdx),%%zmm14,%%zmm6	\n\t"\
+	"vfmsub132pd	0x1c0(%%rdx),%%zmm15,%%zmm7	\n\t"\
+		/* Error-corrected (a*b - q*m).hi53: */\
+		"vsubpd		%%zmm8 ,%%zmm24,%%zmm24	\n\t"\
+		"vsubpd		%%zmm9 ,%%zmm25,%%zmm25	\n\t"\
+		"vsubpd		%%zmm10,%%zmm26,%%zmm26	\n\t"\
+		"vsubpd		%%zmm11,%%zmm27,%%zmm27	\n\t"\
+		"vsubpd		%%zmm12,%%zmm28,%%zmm28	\n\t"\
+		"vsubpd		%%zmm13,%%zmm29,%%zmm29	\n\t"\
+		"vsubpd		%%zmm14,%%zmm30,%%zmm30	\n\t"\
+		"vsubpd		%%zmm15,%%zmm31,%%zmm31	\n\t"\
+		/* Error-corrected (a*b - q*m).lo53 ... interleaving w/above SUB octet actually cost a smidge of time: */\
+		"vsubpd		%%zmm0,%%zmm16,%%zmm16	\n\t"\
+		"vsubpd		%%zmm1,%%zmm17,%%zmm17	\n\t"\
+		"vsubpd		%%zmm2,%%zmm18,%%zmm18	\n\t"\
+		"vsubpd		%%zmm3,%%zmm19,%%zmm19	\n\t"\
+		"vsubpd		%%zmm4,%%zmm20,%%zmm20	\n\t"\
+		"vsubpd		%%zmm5,%%zmm21,%%zmm21	\n\t"\
+		"vsubpd		%%zmm6,%%zmm22,%%zmm22	\n\t"\
+		"vsubpd		%%zmm7,%%zmm23,%%zmm23	\n\t"\
+		/* Error-corrected remainders: */\
+		"vaddpd		%%zmm16,%%zmm24,%%zmm16	\n\t"\
+		"vaddpd		%%zmm17,%%zmm25,%%zmm17	\n\t"\
+		"vaddpd		%%zmm18,%%zmm26,%%zmm18	\n\t"\
+		"vaddpd		%%zmm19,%%zmm27,%%zmm19	\n\t"\
+		"vaddpd		%%zmm20,%%zmm28,%%zmm20	\n\t"\
+		"vaddpd		%%zmm21,%%zmm29,%%zmm21	\n\t"\
+		"vaddpd		%%zmm22,%%zmm30,%%zmm22	\n\t"\
+		"vaddpd		%%zmm23,%%zmm31,%%zmm23	\n\t"\
+		/* Write 'em to memory: */\
+		"vmovaps	%%zmm16,     (%%rsi)	\n\t"\
+		"vmovaps	%%zmm17,0x040(%%rsi)	\n\t"\
+		"vmovaps	%%zmm18,0x080(%%rsi)	\n\t"\
+		"vmovaps	%%zmm19,0x0c0(%%rsi)	\n\t"\
+		"vmovaps	%%zmm20,0x100(%%rsi)	\n\t"\
+		"vmovaps	%%zmm21,0x140(%%rsi)	\n\t"\
+		"vmovaps	%%zmm22,0x180(%%rsi)	\n\t"\
+		"vmovaps	%%zmm23,0x1c0(%%rsi)	\n\t"\
+		:					/* outputs: none */\
+		: [__a] "m" (a)	/* All inputs from memory addresses here */\
+		 ,[__b] "m" (b)\
+		 ,[__m] "m" (m)\
+		 ,[__r] "m" (r)\
+		 ,[__two] "m" (ptwo)\
+		/* Debug: short-length array to gather error-correction statistics: */\
+		 ,[__err] "m" (eptr)\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"\
+											,"xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm28","xmm29","xmm30","xmm31"	/* Clobbered registers */\
+	);
+	/* Debug: bin the rounded-double errs in the err[] array into the signed-int ierr[] array ... place 0 in [50]-slot:
+	for(i = 0; i < ndata; i++) {
+		++ierr[(int32)*(eptr+i)+50];
+	}*/
+  #else
+	const uint32 ndata = 16;	uint32 i;
+	__asm__ volatile (\
+		"movq	%[__a]  ,%%rax			\n\t"\
+		"movq	%[__b]  ,%%rbx			\n\t"\
+		"movq	%[__m]  ,%%rdx			\n\t"\
+		"movq	%[__two],%%rcx		\n\t	vbroadcastsd	(%%rcx),%%ymm15	\n\t"/* 2.0 */\
+		"vmovaps	    (%%rdx),%%ymm4	\n\t"/* load inputs-to-be-inverted (d's) into 4 AVX registers */\
+		"vmovaps	0x20(%%rdx),%%ymm5	\n\t"\
+		"vmovaps	0x40(%%rdx),%%ymm6	\n\t"\
+		"vmovaps	0x60(%%rdx),%%ymm7	\n\t"\
+		"vcvtpd2ps	%%ymm4,%%xmm0	\n\t"/* convert d's to SP ... Note in AVX mode output register *must* be a 128-bit xmm! */\
+		"vcvtpd2ps	%%ymm5,%%xmm1	\n\t"\
+		"vcvtpd2ps	%%ymm6,%%xmm2	\n\t"\
+		"vcvtpd2ps	%%ymm7,%%xmm3	\n\t"\
+	/* Could use e.g. vinsertf128 $0,%%xmm0,%%ymm1,%%ymm0 to concatenate xmm0/1 and 2/3 so as to need just two vrcpps instructions,
+	each operating on a full-width ymm-register, but per Agner xmm-width vrcpps has 5-cycle-latency and 1/cycle thruput versus 7/2
+	for ymm-width vrcpps, so using two vinsertf128 and two vextractf128  to halve the number of vrcpps is unlikely to be a win: */\
+		"vrcpps		%%xmm0,%%xmm0	\n\t"	/* ainv := approx 1/d to 11-12 bits of precision */\
+		"vrcpps		%%xmm1,%%xmm1	\n\t"\
+		"vrcpps		%%xmm2,%%xmm2	\n\t"\
+		"vrcpps		%%xmm3,%%xmm3	\n\t"\
+		"vcvtps2pd	%%xmm0,%%ymm0	\n\t"	/* convert ~1/d back to DP  ... Note in AVX mode input register *must* be a 128-bit xmm!*/\
+		"vcvtps2pd	%%xmm1,%%ymm1	\n\t"\
+		"vcvtps2pd	%%xmm2,%%ymm2	\n\t"\
+		"vcvtps2pd	%%xmm3,%%ymm3	\n\t"\
+		/* 1st NR iteration gives ~23 bits of precision: */\
+		"vmovaps	%%ymm0,%%ymm8 	\n\t"	/* make a copy of ainv */\
+		"vmovaps	%%ymm1,%%ymm9 	\n\t"\
+		"vmovaps	%%ymm2,%%ymm10	\n\t"\
+		"vmovaps	%%ymm3,%%ymm11	\n\t"\
+		"vfnmadd132pd	%%ymm4,%%ymm15,%%ymm0 	\n\t"	/* 2 - d*ainv, overwrites ainv */\
+		"vfnmadd132pd	%%ymm5,%%ymm15,%%ymm1 	\n\t"\
+		"vfnmadd132pd	%%ymm6,%%ymm15,%%ymm2 	\n\t"\
+		"vfnmadd132pd	%%ymm7,%%ymm15,%%ymm3 	\n\t"\
+		"movq	%[__three],%%rcx		\n\t	vbroadcastsd	(%%rcx),%%ymm15	\n\t"/* 3.0, needed by 3rd-order update step */\
+		"vmulpd		%%ymm0,%%ymm8 ,%%ymm0	\n\t"	/* ainv*(2 - d*ainv) = 1/d accurate to ~23 bits */\
+		"vmulpd		%%ymm1,%%ymm9 ,%%ymm1	\n\t"\
+		"vmulpd		%%ymm2,%%ymm10,%%ymm2	\n\t"\
+		"vmulpd		%%ymm3,%%ymm11,%%ymm3	\n\t"\
+		/* 3rd-order update of 23-bit result needs just 2 FMA, 1 SUB, 1 MUL: */\
+		"vmovaps	%%ymm0,%%ymm8 	\n\t"	/* make a copy of ainv */\
+		"vmovaps	%%ymm1,%%ymm9 	\n\t"\
+		"vmovaps	%%ymm2,%%ymm10	\n\t"\
+		"vmovaps	%%ymm3,%%ymm11	\n\t"\
+		"vfnmadd132pd	%%ymm0,%%ymm15,%%ymm4 	\n\t"/* 1st FMA overwrites d data (inputs) with (3 - d*ainv) */\
+		"vfnmadd132pd	%%ymm1,%%ymm15,%%ymm5 	\n\t"\
+		"vfnmadd132pd	%%ymm2,%%ymm15,%%ymm6 	\n\t"\
+		"vfnmadd132pd	%%ymm3,%%ymm15,%%ymm7 	\n\t"\
+		"vsubpd		%%ymm15,%%ymm4,%%ymm0 	\n\t"/* Subtract 3 from (3 - d*ainv) to get -y = -d*ainv terms in ymm0-3 */\
+		"vsubpd		%%ymm15,%%ymm5,%%ymm1 	\n\t"\
+		"vsubpd		%%ymm15,%%ymm6,%%ymm2 	\n\t"\
+		"vsubpd		%%ymm15,%%ymm7,%%ymm3 	\n\t"\
+		"vfmadd132pd	%%ymm4,%%ymm15,%%ymm0 	\n\t"/* Positive-product FMA gives (3 - y*(3 - d*ainv)) in ymm0-3*/\
+		"vfmadd132pd	%%ymm5,%%ymm15,%%ymm1 	\n\t"\
+		"vfmadd132pd	%%ymm6,%%ymm15,%%ymm2 	\n\t"\
+		"vfmadd132pd	%%ymm7,%%ymm15,%%ymm3 	\n\t"\
+		"vmulpd		%%ymm0,%%ymm8 ,%%ymm8	\n\t"	/* ainv*(3 - y*(3 - d*ainv)) = 1/d accurate to ~53 bits */\
+		"vmulpd		%%ymm1,%%ymm9 ,%%ymm9	\n\t"\
+		"vmulpd		%%ymm2,%%ymm10,%%ymm10	\n\t"\
+		"vmulpd		%%ymm3,%%ymm11,%%ymm11	\n\t"\
+		/* Write the reciprocals to memory, will need these not just now but once more in the final error-correction step: */\
+		"movq	%[__r]  ,%%rsi			\n\t"\
+		"vmovaps	%%ymm8 ,    (%%rsi)	\n\t"\
+		"vmovaps	%%ymm9 ,0x20(%%rsi)	\n\t"\
+		"vmovaps	%%ymm10,0x40(%%rsi)	\n\t"\
+		"vmovaps	%%ymm11,0x60(%%rsi)	\n\t"\
+		/* Load the a-multiplicands: */\
+		"vmovaps	    (%%rax),%%ymm0	\n\t"\
+		"vmovaps	0x20(%%rax),%%ymm1	\n\t"\
+		"vmovaps	0x40(%%rax),%%ymm2	\n\t"\
+		"vmovaps	0x60(%%rax),%%ymm3	\n\t"\
+		/* a * b, high 53 bits: */\
+		"vmulpd		    (%%rbx),%%ymm0,%%ymm4	\n\t"\
+		"vmulpd		0x20(%%rbx),%%ymm1,%%ymm5	\n\t"\
+		"vmulpd		0x40(%%rbx),%%ymm2,%%ymm6	\n\t"\
+		"vmulpd		0x60(%%rbx),%%ymm3,%%ymm7	\n\t"\
+		/* quotient q = trunc(a * b / m), overwrites 1/m; */\
+		"vmulpd		%%ymm4,%%ymm8 ,%%ymm8	\n\t"\
+		"vmulpd		%%ymm5,%%ymm9 ,%%ymm9	\n\t"\
+		"vmulpd		%%ymm6,%%ymm10,%%ymm10	\n\t"\
+		"vmulpd		%%ymm7,%%ymm11,%%ymm11	\n\t"\
+		/* a * b, low 53 bits: */\
+	"vfmsub132pd	    (%%rbx),%%ymm4,%%ymm0	\n\t"\
+	"vfmsub132pd	0x20(%%rbx),%%ymm5,%%ymm1	\n\t"\
+	"vfmsub132pd	0x40(%%rbx),%%ymm6,%%ymm2	\n\t"\
+	"vfmsub132pd	0x60(%%rbx),%%ymm7,%%ymm3	\n\t"\
+		/* Round quotients toward 0 (since these are >= 0 could also round toward -oo); */\
+		"vroundpd	$3,%%ymm8 ,%%ymm8 		\n\t"\
+		"vroundpd	$3,%%ymm9 ,%%ymm9 		\n\t"\
+		"vroundpd	$3,%%ymm10,%%ymm10		\n\t"\
+		"vroundpd	$3,%%ymm11,%%ymm11		\n\t"\
+		/* q * m, high 53 bits: */\
+		"vmulpd		    (%%rdx),%%ymm8 ,%%ymm12	\n\t"\
+		"vmulpd		0x20(%%rdx),%%ymm9 ,%%ymm13	\n\t"\
+		"vmulpd		0x40(%%rdx),%%ymm10,%%ymm14	\n\t"\
+		"vmulpd		0x60(%%rdx),%%ymm11,%%ymm15	\n\t"\
+		/* q * m, low 53 bits: */\
+	"vfmsub132pd	    (%%rdx),%%ymm12,%%ymm8	\n\t"\
+	"vfmsub132pd	0x20(%%rdx),%%ymm13,%%ymm9	\n\t"\
+	"vfmsub132pd	0x40(%%rdx),%%ymm14,%%ymm10	\n\t"\
+	"vfmsub132pd	0x60(%%rdx),%%ymm15,%%ymm11	\n\t"\
+		/* (a*b - q*m).hi53: */\
+		"vsubpd		%%ymm12,%%ymm4,%%ymm12	\n\t"\
+		"vsubpd		%%ymm13,%%ymm5,%%ymm13	\n\t"\
+		"vsubpd		%%ymm14,%%ymm6,%%ymm14	\n\t"\
+		"vsubpd		%%ymm15,%%ymm7,%%ymm15	\n\t"\
+		/* (a*b - q*m).lo53: */\
+		"vsubpd		%%ymm8 ,%%ymm0,%%ymm8	\n\t"\
+		"vsubpd		%%ymm9 ,%%ymm1,%%ymm9	\n\t"\
+		"vsubpd		%%ymm10,%%ymm2,%%ymm10	\n\t"\
+		"vsubpd		%%ymm11,%%ymm3,%%ymm11	\n\t"\
+		/* And now add those hi and lo results, which equal the remainders, up to a possible small multiple of the modulus which will
+		be removed in a final error-correction step. That needs us to preserve both the hi&lo inputs here (since if the sum > 53 bits,
+		e.g. for 52/53-bit inputs and a quotient off by > +-1) we may lose >= 1 one-bits from the bottom), so write results to ymm0-3: */\
+		"vaddpd		%%ymm8 ,%%ymm12,%%ymm0	\n\t"\
+		"vaddpd		%%ymm9 ,%%ymm13,%%ymm1	\n\t"\
+		"vaddpd		%%ymm10,%%ymm14,%%ymm2	\n\t"\
+		"vaddpd		%%ymm11,%%ymm15,%%ymm3	\n\t"\
+		/* floor((a*b - q*m)/m) gives needed additional multiple of m, e*m, which must be subtracted to correct for the approximateness of q: */\
+		"vmulpd		    (%%rsi),%%ymm0,%%ymm0	\n\t"\
+		"vmulpd		0x20(%%rsi),%%ymm1,%%ymm1	\n\t"\
+		"vmulpd		0x40(%%rsi),%%ymm2,%%ymm2	\n\t"\
+		"vmulpd		0x60(%%rsi),%%ymm3,%%ymm3	\n\t"\
+		"vroundpd	$1,%%ymm0,%%ymm0 		\n\t"\
+		"vroundpd	$1,%%ymm1,%%ymm1 		\n\t"\
+		"vroundpd	$1,%%ymm2,%%ymm2		\n\t"\
+		"vroundpd	$1,%%ymm3,%%ymm3		\n\t"\
+		/* e * m, high 53 bits: */\
+		"vmulpd		    (%%rdx),%%ymm0,%%ymm4	\n\t"\
+		"vmulpd		0x20(%%rdx),%%ymm1,%%ymm5	\n\t"\
+		"vmulpd		0x40(%%rdx),%%ymm2,%%ymm6	\n\t"\
+		"vmulpd		0x60(%%rdx),%%ymm3,%%ymm7	\n\t"\
+		/* e * m, low 53 bits: */\
+	"vfmsub132pd	    (%%rdx),%%ymm4,%%ymm0	\n\t"\
+	"vfmsub132pd	0x20(%%rdx),%%ymm5,%%ymm1	\n\t"\
+	"vfmsub132pd	0x40(%%rdx),%%ymm6,%%ymm2	\n\t"\
+	"vfmsub132pd	0x60(%%rdx),%%ymm7,%%ymm3	\n\t"\
+		/* Error-corrected (a*b - q*m).hi53: */\
+		"vsubpd		%%ymm4,%%ymm12,%%ymm12	\n\t"\
+		"vsubpd		%%ymm5,%%ymm13,%%ymm13	\n\t"\
+		"vsubpd		%%ymm6,%%ymm14,%%ymm14	\n\t"\
+		"vsubpd		%%ymm7,%%ymm15,%%ymm15	\n\t"\
+		/* Error-corrected (a*b - q*m).lo53: */\
+		"vsubpd		%%ymm0,%%ymm8 ,%%ymm8	\n\t"\
+		"vsubpd		%%ymm1,%%ymm9 ,%%ymm9	\n\t"\
+		"vsubpd		%%ymm2,%%ymm10,%%ymm10	\n\t"\
+		"vsubpd		%%ymm3,%%ymm11,%%ymm11	\n\t"\
+		/* Error-corrected remainders: */\
+		"vaddpd		%%ymm8 ,%%ymm12,%%ymm8	\n\t"\
+		"vaddpd		%%ymm9 ,%%ymm13,%%ymm9	\n\t"\
+		"vaddpd		%%ymm10,%%ymm14,%%ymm10	\n\t"\
+		"vaddpd		%%ymm11,%%ymm15,%%ymm11	\n\t"\
+		/* Write 'em to memory: */\
+		"vmovaps	%%ymm8 ,    (%%rsi)	\n\t"\
+		"vmovaps	%%ymm9 ,0x20(%%rsi)	\n\t"\
+		"vmovaps	%%ymm10,0x40(%%rsi)	\n\t"\
+		"vmovaps	%%ymm11,0x60(%%rsi)	\n\t"\
+		:					/* outputs: none */\
+		: [__a] "m" (a)	/* All inputs from memory addresses here */\
+		 ,[__b] "m" (b)\
+		 ,[__m] "m" (m)\
+		 ,[__r] "m" (r)\
+		 ,[__two] "m" (ptwo)\
+		 ,[__three] "m" (pthree)\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+	);
+  #endif	// avx or avx512?
+  #if 1
+	// Minimal-instruction-count x86_64 version based on uint64 MUL and DIV ... needs a massive ~120 cycles on Core2 due to the
+	// horrible slowness of 64-bit DIV, but nonetheless useful for generating a reference result for the spiffier algorithms:
+	uint32 nerr = 0;	uint64 ia,ib,im,quo64,rem64;
+	for(i = 0; i < ndata; i++) {
+		ia = a[i]; ib = b[i]; im = m[i];
+		// Allow for balanced-digit normalization of input multiplicands:
+		ia += im & -((int64)ia < 0);
+		ib += im & -((int64)ib < 0);
+		__asm__ volatile (\
+			"movq	%[__a],%%rax	\n\t"\
+			"movq	%[__b],%%rbx	\n\t"\
+			"movq	%[__m],%%rcx	\n\t"\
+			"mulq	%%rbx	\n\t"/* rdx:rax = a*y */\
+			"divq	%%rcx	\n\t"/* rdx:rax = r,q */\
+			"movq	%%rax,%[__q]	\n\t"\
+			"movq	%%rdx,%[__r]	\n\t"\
+			: [__q] "=m" (quo64), [__r] "=m" (rem64)/* outputs: q,r */\
+			: [__a] "g" (ia)	/* All inputs from memory/register here */\
+			 ,[__b] "g" (ib)	\
+			 ,[__m] "g" (im)	\
+			: "cc","memory","rax","rbx","rcx","rdx"	/* Clobbered registers */\
+		);
+		if(r[i] != rem64 && r[i] != im+rem64) {	// Allow for rem to be either in [-m/2,+m/2] or in [0,m)
+			printf("[%2u/%2u]: %16llu * %16llu / %16llu = %16llu[quo], %16llu[rem], DP rem = %16.0f\n",i,ndata,ia,ib,im,quo64,rem64, r[i]);
+			if(++nerr > 1000) exit(0);
+		}
+	//	ASSERT(HERE, r[i] == rem64, "Modmul result differs from reference!");
+	}
+  #endif
+#else
+	ASSERT(HERE, 0,"mi64_modmul53_batch requires build with AVX2 instruction set!\n");
+#endif	// USE_AVX ?
+}
+#endif	// __CUDA_ARCH__ ?
+
+/****************/
+
+/* "Simple" 64-bit modmul, (x*y)%m, with a variety of algorithms explored in the various preprocessor #if
+branches. x86_64 version uses paired MUL and DIV for reference data. Caller is expected to ensure that
+m != 0 and that inputs are properly reduced (mod m), which also ensures the quotient will fit in a uint64.
+(In the x86_64 ASM, a quotient > 64-bits will trigger an EXC_ARITHMETIC, Arithmetic exception.)
+Returns remainder.
+
+Test harness code:
+
+	set_x87_fpu_params(FPU_64CHOP);
+	for(i = 0; i < 1; i++) {
+		for(j = 0; j < 1000000000; j++) {
+			uint64 m = 0ull; while(m < 0xC000000000000000ull) { m = rng_isaac_rand(); }	// Restrict to modmul inputs < 2^63 for now
+			uint64 a = 0ull; while(a < 0x8000000000000000ull) { a = rng_isaac_rand(); }
+			uint64 b = 0ull; while(b < 0x8000000000000000ull) { b = rng_isaac_rand(); }
+			if(a > m) a %= m;
+			if(b > m) b %= m;
+			uint64 r = mi64_modmul64(a,b,m);
+		//	printf("(%llu * %llu) mod %llu = %llu\n",a,b,m,r);
+		}
+	}
+*/
+#ifndef __CUDA_ARCH__
+uint64 mi64_modmul64(const uint64 a, const uint64 b, const uint64 m)
+{
+	uint64 r,i64;
+
+#if 0//def YES_ASM
+
+	static int first_entry = TRUE;
+	if(first_entry) {
+		unsigned short FPUCTRL;
+		__asm__ volatile ("fstcw %0" : "=m" (FPUCTRL) );
+		ASSERT(HERE, FPUCTRL == FPU_64CHOP, "This function requires user to set x87 FPU to truncatig-round mode!");
+		first_entry = FALSE;
+	}
+	// x86_64 modmul code using 64-bit FDIV for quotient - 2 versions, first one for 63-bit inputs, needs ~36 cycles on Core2:
+	if((int64)m > 0) {
+		__asm__ volatile (\
+			"movq	%[__m],%%rdx	\n\t"/* Load the 3 inputs in pointer form since FILD requires a memory-address input */\
+			"movq	%[__a],%%rax	\n\t"\
+			"movq	%[__b],%%rbx	\n\t"\
+			/* FILD has 6-cycle latency so batch those together: */\
+			"fildq	(%%rdx)			\n\t"/* (long double)m */\
+			"fildq	(%%rax)			\n\t"/* (long double)a */\
+			"fildq	(%%rbx)			\n\t"/* (long double)b */\
+			/* m in st2, a in st1, b in st0 */\
+			/* dereference the 3 pointers after FILDing each, since IMUL needs the actual variables: */\
+			"movq	(%%rdx),%%rdx	\n\t"/* (int64)m */\
+			"movq	(%%rax),%%rax	\n\t"/* (int64)a */\
+			"movq	(%%rbx),%%rbx	\n\t"/* (int64)b */\
+			"movq	%[__i64],%%rsi	\n\t"/* Use local-var i64 as a temp here, since FISTP requires a memory-address output */\
+			"fmulp	%%st(0),%%st(1)	\n\t"/* st1 *= st0, pop FP register stack to put result in st0, thus moving m into st1 */\
+			"fdivp	%%st(0),%%st(1)	\n\t"/* st0 = (long double)a * b / m */\
+			/* quotient q = trunc(a * b / m); note Clang barfed on FISTPQ with "error: invalid instruction mnemonic", GCC OK: */\
+			"fistpq	(%%rsi)			\n\t	movq	(%%rsi),%%rsi	\n\t"/* need to dereference the i64 pointer after FISTPing */\
+			/* remainder r = (int64_t)(a * b - q * m) % (int64_t)m . Note this may be +m too high. Only need low 64 bits
+			of the 2 products and don't care about the sign of the low-half-product instruction, thus can use pair of IMUL: */\
+			"imulq	%%rbx,%%rax		\n\t"/* rax = (int64_t)(a * b) */\
+			"imulq	%%rdx,%%rsi		\n\t"/* rsi = (int64_t)(q * m) */\
+			"subq	%%rsi,%%rax		\n\t	movq	%%rax,%%rcx		\n\t"/* rax = r; make a copy in prep. for ensuing CMOV */\
+			"subq	%%rdx,%%rcx		\n\t"/* rcx = r - m */\
+		"jc done				\n\t"/* This takes place of CMOV: skip next instruction if no borrow-from-subtract, i.e. if r < m and no subtract-m needed */\
+			"movq	%%rcx,%%rax		\n\t"/* rax = r - m */\
+		"done:					\n\t"\
+			"movq	%%rax,%[__r]	\n\t"\
+			: [__r] "=m" (r)/* output: r */\
+			: [__a] "g" (&a)	/* All inputs from memory/register here */\
+			 ,[__b] "g" (&b)	\
+			 ,[__m] "g" (&m)	\
+			 ,[__i64] "g" (&i64)	\
+			: "cc","memory","rax","rbx","rcx","rdx","rsi"	/* Clobbered registers */\
+		);
+	} else {
+		// On Core2, initial version of this added code to support 64-bit-ness upped cycles from 36 to a whopping 96,
+		// a full 32 of which[!] were due to FRNDINT. Replacing FRNDINT with a speedier integer-quotient-check-based
+		// post-adjustment lowered that to 68 cycles, still nearly 2x the 63-bit version but from 3x -> 2x still good:
+		const uint64 itwo63 = 0x8000000000000000ull;	const double two63 = (double)2.0*0x80000000*0x80000000;
+		// FILDQ assumes a signed-integer input, i.e. inputs >= 2^63 will end up being -= 2^64'ed.
+		// So subtract 2^63 to put each input into [-2^63,+2^63) and += 2^63 after loading into the FPU:
+		uint64 aa = a-itwo63, bb = b-itwo63, mm = m-itwo63;
+		__asm__ volatile (\
+			"movq	%[__itwo63],%%rcx \n\t"/* (uint64)2^63 */\
+			"movq	%[__m],%%rdi	\n\t"/* Load the 3 inputs in pointer form since FILD requires a memory-address input */\
+			"movq	%[__a],%%rax	\n\t"\
+			"movq	%[__b],%%rbx	\n\t"\
+			"movq	%[__two63] ,%%rsi \n\t"\
+			/* Load [m,a,b] - 2^63 as signed int64s and re-add 2^63 to each ...
+			FILD has 6-cycle latency so batch those together; FLD is only 3-cycle so do last: */\
+			"fildq	(%%rdi)			\n\t"/* (long double)m-2^63 */\
+			"fildq	(%%rax)			\n\t"/* (long double)a-2^63 */\
+			"fildq	(%%rbx)			\n\t"/* (long double)b-2^63 */\
+			"fldl	(%%rsi)	\n\t"/* (long double)2^63; note 'l' suffix is gcc-ese for "load from double address into 80-bit FPU reg" */\
+			/* m in st3, a in st2, b in st1, 2^63 in st0 */\
+			/* dereference the 3 pointers after FILDing each, since IMUL needs the actual variables: */\
+			"movq	(%%rdi),%%rdi	\n\t"/* (int64)m-2^63 */\
+			"movq	(%%rax),%%rax	\n\t"/* (int64)a-2^63 */\
+			"movq	(%%rbx),%%rbx	\n\t"/* (int64)b-2^63 */\
+			/* re-add 2^63 to each version of the 3 inputs: */\
+			"fadd	%%st(0),%%st(1)	\n\t	addq	%%rcx,%%rbx		\n\t"/* b */\
+			"fadd	%%st(0),%%st(2)	\n\t	addq	%%rcx,%%rax		\n\t"/* a */\
+			"fadd	%%st(0),%%st(3)	\n\t	addq	%%rcx,%%rdi		\n\t"/* m */\
+			"fstp	%%st(4)			\n\t"/* copy 2^63 into st4 and pop stack */\
+			/* a in st1, b in st0, m in st2, 2^63 in st3 */\
+			"movq	%[__i64],%%rsi	\n\t"/* Use local-var i64 as a temp here, since FISTP requires a memory-address output */\
+			"fmulp	%%st(0),%%st(1)	\n\t"/* st1 *= st0, pop FP register stack to put result in st0, thus moving m into st1 */\
+			"fdivp	%%st(0),%%st(1)	\n\t"/* st0 = (long double)a * b / m */\
+			/* Can't simply store via FISTP, since if result >= 2^63, that instruction will will output 0x8000...0000 into the destination GPR,
+			so again use -2^63 trick ... BUT, that introduces another problem: If q < 2^63, q-2^63 < 0 and the round-toward-0 effected by the
+			ensuing FISTP will cause e.g. q = 107.5 to get rounded not to 107 - 2^63 but (because the RND happens after the -= 2^63) to
+			106 - 2^63. So need to check if the integer register holding RND(q - 2^63) < 0 and if so, subtract 1: */\
+		/*	"frndint	\n\t"*/\
+			"fsub	%%st(1),%%st(0)	\n\t"/* q-2^63 */\
+			/* quotient q = trunc(a * b / m); note Clang barfed on FISTPQ with "error: invalid instruction mnemonic", GCC OK: */\
+			"fistpq	(%%rsi)			\n\t	movq	(%%rsi),%%rsi	\n\t"/* need to dereference the i64 pointer after FISTPing */\
+			"fstp	%%st(0)			\n\t	addq	%%rcx,%%rsi		\n\t"/* Pop 2^63 to empty FP stack, and re-add 2^63 to integer q */\
+			"cmpq	%%rcx,%%rsi		\n\t"/* q < 2^63 ? If so, CF gets set... */\
+			"sbbq	$0   ,%%rsi		\n\t"/* ...and this SBB decrements q, otherwise q unchanged. */\
+			/* remainder r = (uint128_t)(a * b - q * m) % (int64_t)m . Note this may be +m too high,
+			but now need full 128 bits of each product, i.e. need pair of unsigned MUL: */\
+			"mulq	%%rbx			\n\t"/* rdx:rax = (uint128_t)(a * b), will move result halves into rdi:rcx. Note that moving this MUL up ~10 instructions actually cost ~3% runtime. */\
+			/* Now need to do some fancy reg-copy footwork to work around x86's stupid unsigned-MUL outputs convention: */\
+			"movq	%%rax,%%rcx		\n\t"/* Move lo half of a*b result into rcx... */\
+			"movq	%%rdi,%%rax		\n\t"/* ...and move m into rax in prep for MUL... */\
+			"movq	%%rdi,%%rbx		\n\t"/* ...also save a copy of m in rbx... */\
+			"movq	%%rdx,%%rdi		\n\t"/* ...and now move hi half of a*b result into just-freed rdi. */\
+			"mulq	%%rsi			\n\t"/* rdx:rax = (uint128_t)(q * m)x */\
+			/* 128-bit subtract a*b[rdi:rcx] - q*m[rdx:rax]: */\
+			"subq	%%rax,%%rcx		\n\t"\
+			"sbbq	%%rdx,%%rdi		\n\t"\
+			/* Now further subtract m... */\
+			"subq	%%rbx,%%rcx		\n\t"\
+			"sbbq	$0   ,%%rdi		\n\t"\
+			/* And re-add m if the -= m yielded a borrow (in which rdi = -1): */\
+			"andq	%%rdi,%%rbx		\n\t"\
+			"addq	%%rbx,%%rcx		\n\t"\
+			"movq	%%rcx,%[__r]	\n\t"\
+			: [__r] "=m" (r)/* output: r */\
+			: [__a] "g" (&aa)	/* All inputs from memory/register here */\
+			 ,[__b] "g" (&bb)	\
+			 ,[__m] "g" (&mm)	\
+			 ,[__i64] "g" (&i64)	\
+			 ,[__two63] "g" (&two63)	\
+			 ,[__itwo63] "g" (itwo63)	\
+			: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi"	/* Clobbered registers */\
+		);
+		// For 64-bit inputs, the FDIV-produced quotient may be as much as 2 lower then the true one, e,g, for
+		// a = 13840651799219376823;b = 14847830393352455747;m = 15171746576700743959;
+		// for which the true q = 13545154436197203258, but FDIV produces 13545154436197203256.
+		// with this added check I got 10^11 sets of genuine 64-bit inputs to run sans errors:
+		if(r >= m) {
+		//	printf("a,b,m = %llu, %llu, %llu; FDIV-mod gives r = %llu\n",a,b,m,r);
+			r -= m;
+		}
+		/* This was the code to normalize one of the inputs before I used the -= 2^63 trick, so you can see the usefulness of the latter:
+			"movq	%[__two64],%%rsi \n\t	fldl	(%%rsi)	\n\t"// 2^64; note 'l' suffix is gcc-ese for "load from double address into 80-bit FPU reg"
+			...
+			// If m -= 2^64 as a result of signedness of FILDQ, restore it:
+			"fildq	(%%rdx)			\n\t	movq	(%%rdx),%%rdx	\n\t"\
+			"fld	%%st(0)			\n\t	fadd	%%st(2),%%st(0)	\n\t"// Load m-as-signed-int64, deref &m to put (uint64)m in rdx, st1 = st0 and st0 += 2^64 in prep for FCMOV
+			"fcomi	%%st(2)			\n\t"// If st0 (= (long double)(int64)m + 2^64) < st2 (= 2^64), set CF (bit 0 of EFLAGS), and we want st0 instead of st1, otherwise want st1, not st0
+			"fcmovnb %%st(1),%%st(0)\n\t	fstp	%%st(1)			\n\t"// If CF = 0 move (copy) st1 into st0, then copy st0 (the result we want) into st1 and pop FP stack
+		*/
+	} 	// 63 or 64-bit modulus?
+
+#elif 1	// Barrett-modmul-based algo. N ~140 cycles on Core2, a smidge faster than Montgomery:
+
+	// [1] Left-justify modulus so that m' = (m << shift) is in [2^63,2^64):
+
+	// [2] Newton iteration to obtain scaled reciprocal i = 2^128/m', which is in [2^64,2^65) ...
+	//     only explicitly store i' = i%2^64, high bit handled implicitly:
+	uint32 i;	uint64 mulh,twoi,diff = -1ull,ip = -m;	// Initial iterate = 2^65 - m = [1,-m] in base-2^64 twos-comp form. Init diff = UINT64_MAX
+	for(i = 0; i < 10; i++) {
+		twoi = ip + ip;					//ASSERT(HERE, twoi > ip  , "Unexpected overflow in 2*ip computation!");
+		mulh = twoi + __MULH64(ip,ip);	ASSERT(HERE, mulh > twoi, "Unexpected overflow in mulh summation!");
+		mulh = __MULH64(m,mulh);
+		diff = ip - m - mulh;
+		ip += diff;
+		if(!diff) break;
+	}
+	ASSERT(HERE, !diff, "Barrett-modmul scaled inverse computation failed to converge!");
+	uint64 lo,hi;
+  #ifdef MUL_LOHI64_SUBROUTINE
+	MUL_LOHI64(a,b,&lo,&hi);
+  #else
+	MUL_LOHI64(a,b, lo, hi);
+  #endif
+	hi += __MULH64(ip,hi);	// MULH64(i,hi) = MULH64((2^64 + i'),hi) = hi + MULH64(i',hi)
+	MULL64(m,hi,hi);
+	r = lo - hi;	// (+= 2^64 automatic if lo < hi)
+
+#elif 0	// Montgomery-modmul based algo:
+
+	// MONT_MUL64(a,b,m) gives a*b*B^(-1) % m, then  a second MONT_MUL64 of that with B^2%m gives a*b % m .
+	// This is worst-case scenario for this algo - just 1 modmul step, i.e. pre-and-post-computation dominate, needs ~150 cycles on Core2.
+	// q must be odd for Montgomery-style modmul to work, so first shift off any low 0s:
+	uint64 mask = 0ull, q = m, qinv,rem_save;	uint32 lshift, nshift = trailz64(q);
+	if(nshift) {
+		lshift = 64 - nshift;
+		mask = ((uint64)-1 >> lshift);	// Mask for bits which will be off-shifted
+		q >>= nshift;
+	}
+	// Compute 64-bit mod-inverse:
+	uint32 q32,qi32;
+	q32  = q; qi32 = minv8[(q&0xff)>>1];
+	qi32 = qi32*((uint32)2 - q32*qi32);
+	qi32 = qi32*((uint32)2 - q32*qi32);	qinv = qi32;
+	qinv = qinv*((uint64)2 - q*qinv);
+	// Do the Montgomery-mul, right-shifting the initial 128-bit product as needed if even modulus:
+	uint64 lo,hi;
+  #ifdef MUL_LOHI64_SUBROUTINE
+	MUL_LOHI64(a,b,&lo,&hi);
+  #else
+	MUL_LOHI64(a,b, lo, hi);
+  #endif
+	rem_save = lo & mask;
+	if(nshift) {
+		lo = (hi << lshift) + (lo >> nshift);
+		hi >>= nshift;
+	}
+	MULL64(qinv,lo,lo);
+	lo = __MULH64(q,lo);
+	r = hi - lo + ((-(int64)(hi < lo)) & q);	// did we have a borrow from (hi-lo)?
+	// Compute B^2 (mod m), where B = 2^64:
+	lo = radix_power64(q, qinv, 2);		//***************************** Try replacing 1/q with iterative FP-inverse! ******************
+	MONT_MUL64(r,lo,q,qinv,r);
+	// If we applied an initial right-justify shift to the modulus, restore the shift to the
+	// current (partial) remainder and re-add the off-shifted part of the true remainder.
+	r = (r << nshift) + rem_save;
+
+#else	// Generic multiword DIV using Montgomery/Hensel approach, needs ~240 cycles on Core2:
+
+	uint64 x[2];
+  #ifdef MUL_LOHI64_SUBROUTINE
+	MUL_LOHI64(a,b,x+0,x+1);
+  #else
+	MUL_LOHI64(a,b,x[0],x[1]);
+  #endif
+	r = mi64_div_by_scalar64(x,m,2,0x0);
+
+#endif
+
+#if 0//def YES_ASM
+	// Minimal-instruction-count x86_64 version based on uint64 MUL and DIV ... needs a massive ~120 cycles on Core2 due to the
+	// horrible slowness of 64-bit DIV, but nonetheless useful for generating a reference result for the spiffier algorithms:
+	__asm__ volatile (\
+		"movq	%[__a],%%rax	\n\t"\
+		"movq	%[__b],%%rbx	\n\t"\
+		"movq	%[__m],%%rcx	\n\t"\
+		"mulq	%%rbx	\n\t"/* rdx:rax = a*y */\
+		"divq	%%rcx	\n\t"/* rdx:rax = r,q */\
+		"movq	%%rdx,%[__r]	\n\t"\
+		: [__r] "=m" (i64)/* output: r */\
+		: [__a] "g" (a)	/* All inputs from memory/register here */\
+		 ,[__b] "g" (b)	\
+		 ,[__m] "g" (m)	\
+		: "cc","memory","rax","rbx","rcx","rdx"	/* Clobbered registers */\
+	);
+	ASSERT(HERE, r == i64, "Modmul result differs from reference!");
+#endif
+
+	return r;
 }
 #endif	// __CUDA_ARCH__ ?
 
@@ -3636,7 +4534,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
   #endif
 	int retval = -1;	// -1 implies uninited
 	int i,j;			// i and j must be signed
-	uint32 lenW,lenD,lenS,lenP, ybits, log2_numbits, n, p, nshift, nws = 0, nbs = 0, nc = 0;
+	uint32 lenW,lenD,lenS,lenP,lenQ, ybits, log2_numbits, n, p, nshift, nws = 0, nbs = 0, nc = 0;
 	const uint32 ncmax = 16;
 	uint64 bw,mask,lo64,itmp64;
 	double fquo;
@@ -3684,8 +4582,8 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 		hi_dbg = (uint64 *)calloc((lenX), sizeof(uint64));	ASSERT(HERE, hi_dbg != 0x0, "alloc fail!");
 		mi64_set_eq(lo_dbg,x,lenX);
 		mi64_set_eq(hi_dbg,y,lenY);
-		mi64_div_binary(lo_dbg,hi_dbg,lenX,lenY,qref,rref);
-	printf("mi64_div_mont: mi64_div_binary gives quotient  = %s\n",&s0[convert_mi64_base10_char(s0, qref, lenX, 0)]);
+		mi64_div_binary(lo_dbg,hi_dbg,lenX,lenY,qref,&lenQ,rref);
+	printf("mi64_div_mont: mi64_div_binary gives quotient  = %s\n",&s0[convert_mi64_base10_char(s0, qref, lenQ, 0)]);
 	printf("mi64_div_mont: mi64_div_binary gives remainder = %s\n",&s0[convert_mi64_base10_char(s0, rref, lenD, 0)]);
 	}
   #endif
@@ -3769,7 +4667,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 		#endif
 		//	free((void *)yinv); yinv = 0x0;	** Apr 2015: No clue why I was allowing this to be freed **
 		} else {	// (r == 0x0 || fquo >= TWO54FLOAT):
-			retval = mi64_div_binary(x,y,lenX,lenY,q,r);
+			retval = mi64_div_binary(x,y,lenX,lenY,q,&lenQ,r);
 		}
 		return retval;
 	}
@@ -3994,7 +4892,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 			// Prepare to transform back out of "Montgomery space" ... first compute B^2 mod q.
 			// B^2 overflows our double-wide scratch [lo]-array field, so compute B^2/2 mod q...
 			mi64_clear(lo,2*lenS);	lo[2*lenS-1] = 0x8000000000000000ull;
-			mi64_div_binary(lo,w,2*lenS,lenS,0,tmp);	// B^2/2 mod q returned in tmp
+			mi64_div_binary(lo,w,2*lenS,lenS,0x0,0x0,tmp);	// B^2/2 mod q returned in tmp
 			// ...and mod-double the result:
 			itmp64 = mi64_shl_short(tmp,tmp,1,lenS);
 			if(itmp64 || mi64_cmpugt(tmp,w,lenS)) {
@@ -4167,7 +5065,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 			printf("qewm = %s\n", &s0[convert_mi64_base10_char(s0, q   , lenX, 0)]);
 			ASSERT(HERE, 0, "bzzt!\n");
 		}
-	
+
 		free((void *)qref); qref = 0x0;
 		free((void *)rref);	rref = 0x0;
 		free((void *)lo_dbg); lo_dbg = 0x0;
@@ -4186,12 +5084,15 @@ Slow bit-at-a-time method to get quotient q = x/y and remainder r = x%y.
 			if supplied, must have dimension at least as large as that of Y-array, even if actual remainder is smaller.
 
 Returns: 1 if x divisible by y (remainder = 0), 0 otherwise.
+Assumes: If either the quotient-array ptr q[] or the quotient-length-ptr lenQ provided, the other of thw 2 ptrs also is.
+Side effect: Sets value of quotient-length lenQ if that input-ptr provided, irrespective of whether
+			an accompanying array to store quotient is provided.
 */
 #if MI64_DEBUG
 	#define MI64_DIV_DBG	0
 #endif
 #ifndef __CUDA_ARCH__
-int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, uint64 q[], uint64 r[])
+int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, uint64 q[], uint32*lenQ, uint64 r[])
 {
   #if MI64_DIV_DBG
 	uint32 dbg = 0;//(lenX== 6 && lenY==3) && STREQ(&s0[convert_mi64_base10_char(s0, y, lenY, 0)], "53625112691923843508117942311516428173021903300344567");
@@ -4202,7 +5103,6 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 	static uint64 *xloc = 0x0, *yloc = 0x0;
 	static uint64 *scratch = 0x0;	// "base pointer" for local storage shared by all of the above subarrays
 	static int lens = 0;	// # of 64-bit ints allocated for current scratch space
-
   #if MI64_DIV_DBG
 	if(dbg) {
 		printf("mi64_div_binary: x = %s, y = %s\n",&s0[convert_mi64_base10_char(s0, x, lenX, 0)],&s1[convert_mi64_base10_char(s1, y, lenY, 0)]);
@@ -4213,11 +5113,17 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 	ASSERT(HERE, x != y, "X and Y arrays overlap!");
 	ASSERT(HERE, r != y, "Y and Rem arrays overlap!");
 	ASSERT(HERE, q != x && q != y && (q == 0x0 || q != r), "Quotient array overlaps one of X, Y ,Rem!");
-
-	/* Init Q = 0; don't do similarly for R since we allow X and R to point to same array: */
-	if(q && (q != x)) {
+	ASSERT(HERE, (q == 0x0) == (lenQ == 0x0), "Either both or neither of quotient-array and quotient-length pointers must be provided!");
+	/* Init Q = 0; don't do similarly for R since we allow X and R to point to same array:
+	Jan 2018: No! User may feed qvec only suficient in size to hold ACTUAL QUOTIENT, based on an estimate of the latter -
+	I hit "EXC_BAD_ACCESS, Could not access memory" in a case with xlen = ylen = 2^20, qlen = 1, where I simply fed a
+	pointer-to-a-scalar-uint64 to this function to hold the resulting quotient since I knew in advance it had length = 1.
+	Instead, add an optional quotient-length pointer lenQ to arglist, set as soon as we know nshift and clear that
+	many words of the q-array if one is provided.
+	if(q) {
 		mi64_clear(q, lenX);
 	}
+	*/
 	/* And now find the actual lengths of the divide operands and use those for the computation: */
 	xlen = mi64_getlen(x, lenX);
 	ylen = mi64_getlen(y, lenY);
@@ -4236,7 +5142,9 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 		if(r != 0x0 && r != x) {
 			mi64_set_eq(r, x, lenX);
 		}
-		if(q) mi64_clear(q,lenX);
+		if(q) {
+			q[0] = 0ull;	*lenQ = 1;
+		}
 		return mi64_iszero(x, lenX);	// For x < y, y divides x iff x = 0
 	}
 
@@ -4249,7 +5157,10 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 	lz_y = mi64_leadz(yloc, max_len);
 	nshift = lz_y - lz_x;
 	ASSERT(HERE, nshift >= 0, "nshift < 0");
-
+	i = (nshift+63)>>6;
+	if(q) {
+		mi64_clear(q, i);	*lenQ = i;
+	}
 	/* Left-justify the modulus (copy) y to match x's leading bit: */
 	mi64_shl(yloc, yloc, nshift, max_len);	ylen = max_len;
 	for(i = nshift; i >= 0; --i) {
@@ -4631,17 +5542,17 @@ uint64 radix_power64(const uint64 q, const uint64 qinv, uint32 n)
 
 		// Default method uses fast floating-point mod:
 		fquo = TWO96FLOAT / (double)q;
-	
+
 	  #ifndef YES_ASM
-	
+
 		// Decompose 2^96 - (2^96 % q) = k.q is exactly divisible by q; k = floor(2^96/q) ;
 		// thus the desired mod, (2^96 % q) = 2^96 - k.q = 2^96 - q.floor(2^96/q) .
 		// But since q < 2^64 we know the mod result also fits into 64 bits, thus we can
 		// work modulo 2^64, which is automatic when using 64-bit unsigned integer math:
-	
+
 		rem64  = (uint64)fquo;	// Truncation gives rem64 = floor(2^96/q)
 		itmp64 = -(rem64 * q);	// Bottom 64 bits of 2^96 - q*(2^96/q)
-	
+
 		// Jul 2016: With q < 2^48 split out and handled separately, see no failures of the kind described below
 		// anymore, but keep the code around just in case we run into a cavalier-with-roundoff-error compiler.
 			//
@@ -4660,9 +5571,9 @@ uint64 radix_power64(const uint64 q, const uint64 qinv, uint32 n)
 				itmp64 -= q;
 			}
 		}
-	
+
 	  #else	// Use SSE2 code for manipulating 1 double in lower 64 bits of a SIMD register:
-	
+
 		const double rnd = 3.0*0x4000000*0x2000000;	// Const for DNINT(x) = (x + rnd) - rnd emulation with 53-bit
 													// SSE2-double mantissa. In hex-bitfield form: 0x4338000000000000
 		__asm__ volatile (\
@@ -4697,9 +5608,9 @@ uint64 radix_power64(const uint64 q, const uint64 qinv, uint32 n)
 		 ,[__itmp64] "m" (itmp64)	\
 		: "cc","memory","rax","rbx","rcx","rdx","xmm0","xmm1"	/* Clobbered registers */\
 		);
-	
+
 	  #endif
-	
+
 		// Floating-point computation of 2^96 % q not 100% reliable - this pure-int code is our safety net:
 		if(itmp64 > q) {
 			printf("Error correction failed: itmp64 = (int64)%lld, q = %llu [lq(q) = %6.4f]\n",(int64)itmp64,q,log(q)/log(2));
@@ -4729,13 +5640,16 @@ uint64 radix_power64(const uint64 q, const uint64 qinv, uint32 n)
 	} else {	// q < 2^32
 
 		// Use mod-doublings to get 2^64 (mod q), followed by a single MONT_SQR32:
-		uint32 q32 = q, qinv32 = qinv, itmp32 = 0x8000000000000000ull % q;	// 2^63 (mod q)
+		uint32 i32, q32 = q, qinv32 = qinv, itmp32 = 0x8000000000000000ull % q;	// 2^63 (mod q)
 		// Use simpler code sequence here than MOD_ADD64 since no chance of integer overflow-on-add:
-		itmp32 = itmp32 + itmp32 - q32;	itmp32 += (-((int32)itmp32 < 0) & q32);	// 2^64 (mod q)
+		i32 = itmp32; itmp32 = i32 + i32;
+		// These next 2 conditions are mutually exclusive, but handle sans branches:
+		itmp32 -= (-(itmp32 < i32) & q32);	// If 2*itmp32 overflowed uint32, subtract q
+		itmp32 -= (-(q32 < itmp32) & q32);	// If 2*itmp32 > q, subtract q
+											// itmp32 = 2^64 (mod q)
 		MONT_MUL32(itmp32,itmp32,q32,qinv32,itmp32);	// 2^(2*64-32) == 2^96 (mod q)
 		ASSERT(HERE, itmp32 < q32, "Pure-integer computation of 2^96 mod q fails!");
 		itmp64 = itmp32;	// promote to 64-bit
-
 	}
 
 	// Now that have B^(3/2), do a Mont-square to get B^2 % q:
@@ -5327,7 +6241,7 @@ uint64 mi64_div_by_scalar64(const uint64 x[], uint64 q, uint32 len, uint64 y[])
 {
 	const char func[] = "mi64_div_by_scalar64";
 #if MI64_DIV_MONT64
-	int dbg = IS_EVEN(q);//(q == 8040689323464953445ull);
+	int dbg = q == 0x00000007FFFFFFFFull;
 #endif
 	uint32 i,nshift,lshift = -1,ptr_incr;
 	uint64 qinv,tmp = 0,bw,cy,lo,rem64,rem_save = 0,itmp64,mask,*iptr;
@@ -5373,9 +6287,12 @@ uint64 mi64_div_by_scalar64(const uint64 x[], uint64 q, uint32 len, uint64 y[])
 #if MI64_DIV_MONT64
 	if(dbg) {
 		printf("%s: nshift = %u, Input vector: x = 0;\n",func,nshift,q);
-		for(i = 0; i < len; i++)
-			printf("i = %u; x+=%20llu<<(i<<6);\n",i,x[i]);	// Pari-debug inputs; For every i++, shift count += 64
-		printf("\n");
+		if(len > 100) {
+			printf("x[%u] = %20llu, ... x[0] = %20llu\n",len-1,x[len-1],x[0]);	// Pari-debug inputs; For every i++, shift count += 64
+		} else {
+			for(i = 0; i < len; i++) printf("i = %u; x+=%20llu<<(i<<6);\n",i,x[i]);	// Pari-debug inputs; For every i++, shift count += 64
+			printf("\n");
+		}
 		printf("q = %20llu; qinv = %20llu\n",q,qinv);
 	}
 #endif
@@ -5400,7 +6317,7 @@ uint64 mi64_div_by_scalar64(const uint64 x[], uint64 q, uint32 len, uint64 y[])
 			MUL_LOHI64(q, tmp,  tmp, cy);
 		#endif
 		#if MI64_DIV_MONT64
-			if(dbg)printf("i = %4u, lo = %20llu, hi = %20llu, bw = %1u\n",i,tmp,cy,(uint32)bw);
+	//		if(dbg)printf("i = %4u, lo = %20llu, hi = %20llu, bw = %1u\n",i,tmp,cy,(uint32)bw);
 			ASSERT(HERE, itmp64 == tmp, "Low-half product check mismatch!");
 		#endif
 		}
@@ -5428,7 +6345,7 @@ uint64 mi64_div_by_scalar64(const uint64 x[], uint64 q, uint32 len, uint64 y[])
 			MUL_LOHI64(q, tmp,  tmp, cy);
 		#endif
 		#if MI64_DIV_MONT64
-			if(dbg)printf("i = %4u, lo = %20llu, hi = %20llu, bw = %1u\n",i,tmp,cy,(uint32)bw);
+	//		if(dbg)printf("i = %4u, lo = %20llu, hi = %20llu, bw = %1u\n",i,tmp,cy,(uint32)bw);
 			ASSERT(HERE, *iptr == tmp, "Low-half product check mismatch!");
 		#endif
 		}
@@ -5438,7 +6355,7 @@ uint64 mi64_div_by_scalar64(const uint64 x[], uint64 q, uint32 len, uint64 y[])
 		cy = (cy > *iptr);
 		tmp = tmp + ((-cy)&q);
 	#if MI64_DIV_MONT64
-		if(dbg)printf("i = %4u, lo_out = %20llu\n",i,tmp);
+	//	if(dbg)printf("i = %4u, lo_out = %20llu\n",i,tmp);
 	#endif
 	}
 
@@ -5506,7 +6423,7 @@ uint64 mi64_div_by_scalar64(const uint64 x[], uint64 q, uint32 len, uint64 y[])
 		bw = 0;	cy = rem64;
 		for(i = 0; i < len; ++i) {
 		#if MI64_DIV_MONT64
-			if(dbg && i%(len>>2) == 0)printf("bw = %1llu, cy%1u = %20llu\n",bw,i/(len>>2),cy);	// Use to debug loop-folded implemntation
+	//		if(dbg && i%(len>>2) == 0)printf("bw = %1llu, cy%1u = %20llu\n",bw,i/(len>>2),cy);	// Use to debug loop-folded implemntation
 		#endif
 			tmp = x[i] - bw - cy;
 			/*  Since may be working in-place, need an extra temp here due to asymmetry of subtract: */
@@ -5521,7 +6438,7 @@ uint64 mi64_div_by_scalar64(const uint64 x[], uint64 q, uint32 len, uint64 y[])
 			MUL_LOHI64(q, tmp,  lo, cy);
 		#endif
 		#if MI64_DIV_MONT64
-			if(dbg)printf("i = %4u, quot[i] = %20llu, lo1 = %20llu, lo2 = %20llu, hi = %20llu, bw = %1u\n",i,tmp,itmp64,lo,cy,(uint32)bw);
+	//		if(dbg)printf("i = %4u, quot[i] = %20llu, lo1 = %20llu, lo2 = %20llu, hi = %20llu, bw = %1u\n",i,tmp,itmp64,lo,cy,(uint32)bw);
 			ASSERT(HERE, itmp64 == lo, "Low-half product check mismatch!");
 		#endif
 			y[i] = tmp;
@@ -5540,20 +6457,23 @@ uint64 mi64_div_by_scalar64(const uint64 x[], uint64 q, uint32 len, uint64 y[])
 			MUL_LOHI64(q, tmp,  lo, cy);
 		#endif
 		#if MI64_DIV_MONT64
-			if(dbg)printf("i = %4u, quot[i] = %20llu\n",i,tmp);
+	//		if(dbg)printf("i = %4u, quot[i] = %20llu\n",i,tmp);
 		#endif
 			y[i] = tmp;
 		}
 	}
 	ASSERT(HERE, bw == 0 && cy == 0, "bw/cy check!");
 #if MI64_DIV_MONT64
-if(dbg) {
-	printf("len = %u, q = %llu, nshift = %u, rem = %llu\n",len,q,nshift,rem64);
-	printf("Quotient y = 0;\n",func);
-	for(i = 0; i < len; i++)
-		printf("i = %u; y+=%20llu<<(i<<6);\n",i,y[i]);	// Pari-debug inputs; For every i++, shift count += 64
-	printf("\n");
-}
+	if(dbg) {
+		printf("len = %u, q = %llu, nshift = %u, rem = %llu\n",len,q,nshift,rem64);
+		if(len > 100) {
+			printf("Quotient y[%u] = %20llu, y[%u] = %20llu, ... y[0] = %20llu\n",len-1,y[len-1],len-2,y[len-2],y[0]);	// Pari-debug inputs; For every i++, shift count += 64
+		} else {
+			printf("Quotient y = 0;\n");
+			for(i = 0; i < len; i++) printf("i = %u; y+=%20llu<<(i<<6);\n",i,y[i]);	// Pari-debug inputs; For every i++, shift count += 64
+			printf("\n");
+		}
+	}
 #endif
 	return rem64;
 }
@@ -6599,7 +7519,7 @@ uint32 mi64_div_y32(uint64 x[], uint32 y, uint64 q[], uint32 len)
 		rem = tsum%y;
 	}
 	if(rem == 0 && x != q) {	// If overwrote input with quotient in above loop, skip this
-		ASSERT(HERE, mi64_is_div_by_scalar32(x, y, len), "Results of mi64_div_y32 and mi64_is_div_by_scalar32 differ!");
+		ASSERT(HERE, mi64_is_div_by_scalar32((uint32 *)x, y, len), "Results of mi64_div_y32 and mi64_is_div_by_scalar32 differ!");
 		return 0;
 	}
 	return (uint32)rem;

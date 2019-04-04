@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2013 by Ernst W. Mayer.                                           *
+*   (C) 1997-2017 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -229,83 +229,63 @@ void bit_reverse_int(int vec[], int n, int nradices, int radix[], int incr, int*
 	static int *tmp = 0x0;
 
 	/* If no scratch-space array provided, create one locally: */
-	if(arr_scratch)
-	{
+	if(arr_scratch) {
 		/* Don't allow reuse of main array for inits at this time: */
 		ASSERT(HERE, &vec[0] != &arr_scratch[0], "Array re-use not currently supported!");
-
 		tmp = arr_scratch;
-	}
-	else
-	{
+	} else {
 		tmp = (int *)malloc(n*sizeof(int));
 	}
 	memset(tmp, 0, n*sizeof(int));
 
-/*...Check that product of radices = vector length */
-
+	/*...Check that product of radices = vector length */
 	i = 0;
 	k = radix[i];
 	for(count = 1; count < nradices; count++)
 	{
-	  i += incr;
-	  k *= radix[i];
+		i += incr;
+		k *= radix[i];
+	}
+	if(k != n) {
+		printf("FATAL: product of radices [%u",radix[0]);
+		for(count = 1, i = 0; count < nradices; count++)
+		{
+			printf("*%u",radix[i]);
+			i += incr;
+		}
+		printf("] != vector length [%u] in BIT_REVERSE_INT\n",n);
+		ASSERT(HERE,0,"Exiting.");
 	}
 
-	if(k != n)
-	{
-	  printf("FATAL: product of radices != vector length in BIT_REVERSE_INT.\n");
-	  printf("Radices = ");
-	  for(count = 0, i = 0; count < nradices; count++)
-	  {
-	    printf("%4d",radix[i]);
-	    i += incr;
-	  }
-	  printf("\n");
-	  printf("Length = %10d\n",n);
-	  fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
-	}
-
-/*...We don't use the final radix for the bit reversal, we simply need it for array bounds checking. */
-
+	/*...We don't use the final radix for the bit reversal, we simply need it for array bounds checking. */
 	nblock	=n;
 	stride  =1;
 	blocklen=1;
-
 	for(count = 0, i = 0; count < nradices-1; count++)
 	{
-	  iput	=0;
-	  stride=     n/radix[i];	/* STRIDE = number of data elements between adjacent fetch locations.	*/
-	  nblock=nblock/radix[i];	/* NBLOCK = number of data blocks   between adjacent fetch locations.	*/
-
-	  for(j = 0; j < stride; j += blocklen)		/* Index of first element fetched on each pass runs through a full stride length.	*/
-	  {
-	    jstart=j;
-
-	    for(k = 0; k < radix[i]; k++)		/* On the current sweep, we fetch elements from RADIX[I] equally-spaced data blocks...	*/
-	    {
-
-	      for(l = jstart; l < jstart+blocklen; l++)	/* ...each of length BLOCKLEN.	*/
-	      {
-		tmp[iput++]=vec[l];	/* This is if we want VEC to contain the fetch locations of BR data, i.e. do BR via A=A(VEC).	*/
-/*		tmp[l]=vec[iput++];*/	/* This is if we want VEC to contain the  put  locations of BR data, i.e. do BR via A(VEC)=A.	*/
-	      }
-
-	      jstart += stride;	/* Start of next fetch block.	*/
-
-	    }
-
-	  }
-
-	  for(j = 0; j < n; j++)
-	  {
-	    vec[j] = tmp[j];	/* Put result of current pass back into VEC.	*/
-	  }
-
-	  blocklen *= radix[i];
-	  i += incr;
+		iput = 0;
+		stride =      n/radix[i];	// STRIDE  =  number of data elements between adjacent fetch locations.
+		nblock = nblock/radix[i];	// NBLOCK  =  number of data blocks   between adjacent fetch locations.
+		for(j = 0; j < stride; j += blocklen)	// Index of first element fetched on each pass runs through a full stride length.
+		{
+			jstart = j;
+			for(k = 0; k < radix[i]; k++)	// On the current sweep, we fetch elements from RADIX[I] equally-spaced data blocks...
+			{
+				for(l = jstart; l < jstart+blocklen; l++)	// ...each of length BLOCKLEN.
+				{
+					tmp[iput++] = vec[l];	// This is if we want VEC to contain the fetch locations of BR data, i.e. do BR via A = A(VEC).
+				//	tmp[l] = vec[iput++];	// This is if we want VEC to contain the  put  locations of BR data, i.e. do BR via A(VEC) = A.
+				}
+				jstart += stride;	// Start of next fetch block.
+			}
+		}
+		for(j = 0; j < n; j++)
+		{
+			vec[j] = tmp[j];	// Put result of current pass back into VEC.
+		}
+		blocklen *= radix[i];
+		i += incr;
 	}
-
 	if(!arr_scratch)
 	{
 		free(tmp); tmp = 0x0;

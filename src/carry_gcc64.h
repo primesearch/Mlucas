@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -44,6 +44,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 
 #ifdef USE_ARM_V8_SIMD
 
+	/***
+	To-Do: See if LD1 faster than LDP. Ref: https://stackoverflow.com/questions/29742844/a64-neon-simd-256-bit-comparison
+	***/
 	// Use the following x86_64-to-ARMv8 GPR name translations: r[a-d]x,rsi,rdi -> x0-5:
 	#define SSE2_cmplx_carry_fast_pow2_wtsinit(XwtA,XwtB,XwtC, Xbjmod_0, Xhalf_arr,Xsign_mask, Xn_minus_sil,Xn_minus_silp1,Xsinwt,Xsinwtm1, Xn_minus_sil2,Xn_minus_silp2,Xsinwt2,Xsinwtm2, Xsse_bw,Xsse_nm1)\
 	{\
@@ -61,8 +64,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		[2] Inv-wt multipliers: Init = 0.25 x 2, anytime SSE2-style lookup into 2nd mini-table would have bit = 0, double the corr. datum
 		*/\
 		"ldr	x0,%[__bjmod_0]		\n\t"/* Pointer to bjmodn data */\
-		"ldr	q0,[x0]				\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
-		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in XMM1 */\
+		"ldr	q0,[x0]				\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN xmm0. */\
+		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in xmm1 */\
 		"ldr	w2,%[__n_minus_sil]	\n\t	ldr	w3,%[__sinwt]	\n\t"\
 		"dup	v2.4s,w2			\n\t	dup	v3.4s,w3		\n\t"/* Broadcast via LD1R only works from *pointers*, so use DUP */\
 		"ldr	x5,%[__wtA]	\n\t"/* stash these 2 ptrs in x5,6 rather than x1,2 to make persistent, even */\
@@ -93,7 +96,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	/**********************************************/\
 	/*  (j  ),  Imaginary parts                   */\
 	/**********************************************/\
-		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in XMM1 */\
+		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in xmm1 */\
 		"ldr w2,%[__n_minus_silp1]	\n\t	ldr	w3,%[__sinwtm1]	\n\t"\
 		"dup	v2.4s,w2			\n\t	dup	v3.4s,w3		\n\t"\
 		"ldr	x6,%[__wtC]	\n\t"/* No need to reload x6 from hereon */\
@@ -121,7 +124,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	/**********************************************/\
 	/*  (j+2),  Real      parts                   */\
 	/**********************************************/\
-		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in XMM1 */\
+		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in xmm1 */\
 		"ldr w2,%[__n_minus_sil2]	\n\t	ldr	w3,%[__sinwt2]	\n\t"\
 		"dup	v2.4s,w2			\n\t	dup	v3.4s,w3		\n\t"\
 		"cmge	v8.4s,v2.4s,v0.4s	\n\t"\
@@ -148,7 +151,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	/**********************************************/\
 	/*  (j+2),  Imaginary parts                   */\
 	/**********************************************/\
-		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in XMM1 */\
+		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in xmm1 */\
 		"ldr w2,%[__n_minus_silp2]	\n\t	ldr	w3,%[__sinwtm2]	\n\t"\
 		"dup	v2.4s,w2			\n\t	dup	v3.4s,w3		\n\t"\
 		"cmge	v8.4s,v2.4s,v0.4s	\n\t"\
@@ -211,8 +214,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		[2] Inv-wt multipliers: Init = 0.25 x 2, anytime SSE2-style lookup into 2nd mini-table would have bit = 0, double the corr. datum
 		*/\
 		"ldr	x0,%[__bjmod_0]		\n\t"/* Pointer to bjmodn data */\
-		"ldr	q0,[x0]				\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
-		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in XMM1 */\
+		"ldr	q0,[x0]				\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN xmm0. */\
+		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in xmm1 */\
 		"ldr	w2,%[__n_minus_sil]	\n\t	ldr	w3,%[__sinwt]	\n\t"\
 		"dup	v2.4s,w2			\n\t	dup	v3.4s,w3		\n\t"/* Broadcast via LD1R only works from *pointers*, so use DUP */\
 		"ldr	x5,%[__wtA]	\n\t"/* stash these 2 ptrs in x5,6 rather than x1,2 to make persistent, even */\
@@ -245,7 +248,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	/**********************************************/\
 	/*  (j  ),  Imaginary parts                   */\
 	/**********************************************/\
-		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in XMM1 */\
+		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in xmm1 */\
 		"ldr w2,%[__n_minus_silp1]	\n\t	ldr	w3,%[__sinwtm1]	\n\t"\
 		"dup	v2.4s,w2			\n\t	dup	v3.4s,w3		\n\t"\
 		"ldr	x6,%[__wtC]	\n\t"/* No need to reload x6 from hereon */\
@@ -275,7 +278,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	/**********************************************/\
 	/*  (j+2),  Real      parts                   */\
 	/**********************************************/\
-		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in XMM1 */\
+		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in xmm1 */\
 		"ldr w2,%[__n_minus_sil2]	\n\t	ldr	w3,%[__sinwt2]	\n\t"\
 		"dup	v2.4s,w2			\n\t	dup	v3.4s,w3		\n\t"\
 		"cmge	v8.4s,v2.4s,v0.4s	\n\t"\
@@ -304,7 +307,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	/**********************************************/\
 	/*  (j+2),  Imaginary parts                   */\
 	/**********************************************/\
-		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in XMM1 */\
+		"mov	v1.16b,v0.16b		\n\t"/* bjmod[0:3] COPY in xmm1 */\
 		"ldr w2,%[__n_minus_silp2]	\n\t	ldr	w3,%[__sinwtm2]	\n\t"\
 		"dup	v2.4s,w2			\n\t	dup	v3.4s,w3		\n\t"\
 		"cmge	v8.4s,v2.4s,v0.4s	\n\t"\
@@ -356,7 +359,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	// fusion is eased by the fact that the LOACC chained-weights-computation needs no weights-reinit-from-scalar-data
 	// step for the [j+2] data.
 	//
-	#define SSE2_cmplx_carry_fast_pow2_errcheck(Xdata,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3)\
+	#define SSE2_cmplx_carry_fast_pow2_errcheck(Xdata,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 		/***************Unpack the data:*************************/\
@@ -370,7 +373,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"ldr	x1,%[__bjmod_0]		\n\t"/* Pointer to bjmodn data */\
 		"ldr	x2,%[__sse_sw]		\n\t"\
 		"ldr	w3,%[__i]			\n\t"\
-		"eor v30.16b,v30.16b,v30.16b\n\t"/* Zero v11 */\
+		"eor v30.16b,v30.16b,v30.16b\n\t"/* Zero v30 */\
 		"ldr	q8,[x1]				\n\t"/* bjmod[0:3], PERSISTENT COPY IN V8 */\
 		"ldr	q9,[x2]				\n\t"/* sw, 4-fold, PERSISTENT COPY IN V9 */\
 		"cmge	v31.4s,v9.4s,v8.4s	\n\t"/* sw[v9] >= bjmod[0:3][v8] ? Resulting opmask bit-flipped-analog of SSE2-mode (sw < bjmod) opmask stored in xmm7 */\
@@ -384,17 +387,18 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"ldr	x3,%[__cyA]			\n\t	ldr	x4,%[__cyB]			\n\t"\
 		"ldr	q14,[x2,#-0x20]		\n\t"/* maxerr, then place 2nd copy in v15, allowing both cols */\
 		"mov	v15.16b,v14.16b		\n\t"/* to do independent updates with just one merge at end */\
-		"ldr q16,[x3] \n\t ldr q17,[x4] \n\t"/* cyA,B for our 1 independent carry-chain pairs */\
 		/* Load the 4 double-pairs base[0]x2,baseinv[1]x2,wts_mult[1]x2,inv_mult[0]x2 and also compute 2x each one
 		for the BSL operations we use to effect the conditional-doublings of these consts. (The register-leaner
 		alternative is to just store the 4 lcol-loaded vectors and do an AND/ADD pair for each conditional-doubling,
 		in place of just a single BSL). ARM's 32 vector-registers come in handy here, because this carry macro is
 		sufficiently intricate that we use all 32 of the vregs: */\
-		"ldr	q20,[x2,#0x80]		\n\t"/* base[0]x2 */\
-		"ldr	q22,[x2,#0xf0]		\n\t	fadd	v21.2d,v20.2d,v20.2d\n\t"/* baseinv[1]x2 */\
-		"ldr	q24,[x2,#0x130]		\n\t	fadd	v23.2d,v22.2d,v22.2d\n\t"/* wts_mult[1]x2 */\
-		"ldr	q26,[x2,#0x140]		\n\t	fadd	v25.2d,v24.2d,v24.2d\n\t"/* inv_mult[0]x2 (needed for conditional-doubling) */\
-		"									fadd	v27.2d,v26.2d,v26.2d\n\t"/* inv_mult[1]x2 (needed for (wt_re >= inv_mult[1]) comparison) */\
+	/* Mar 2018: Need to free a vreg to store prp_mult, su use v21 and do v20-doublings on-the-fly: */\
+	"ldr	x5,%[__prp_mult]	\n\t	ld1r	{v21.2d},[x5]		\n\t"\
+		"ldr	q20,[x2,#0x80]		\n\t"/* base[0] */\
+		"ldr	q22,[x2,#0xf0]		\n\t"/*	fadd	v21.2d,v20.2d,v20.2d\n\t*** baseinv[1]	[base[0]x2] */\
+		"ldr	q24,[x2,#0x130]		\n\t	fadd	v23.2d,v22.2d,v22.2d\n\t"/* wts_mult[1]	baseinv[1]x2 */\
+		"ldr	q26,[x2,#0x140]		\n\t	fadd	v25.2d,v24.2d,v24.2d\n\t"/* inv_mult[0]	wts_mult[1]x2 (needed for conditional-doubling) */\
+		"									fadd	v27.2d,v26.2d,v26.2d\n\t"/* 			inv_mult[0]x2 (needed for (wt_re >= inv_mult[1]) comparison) */\
 /**** 12,13,18,19 FREE ****/\
 	/*******************************/\
 	/* Do A.re pair: Data in v0,4: */\
@@ -402,15 +406,18 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	"ldr	x5,%[__add0]		\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
 	"prfm	PLDL1KEEP,[x5]		\n\t"\
 		"ldp	q18,q19,[x2,#0x1a0]	\n\t"/* wi_re ... need to preserve these 2 regs for inv_mult-update at end of block */\
-		"fmla	v16.2d,v0.2d,v18.2d	\n\t	fmla	v17.2d,v4.2d,v19.2d	\n\t"/* x = x*wtinv + cy, overwrite cy with result to save 2 regs */\
+		"fmul	v16.2d,v0.2d,v18.2d	\n\t	fmul	v17.2d,v4.2d,v19.2d	\n\t"/* x *= wtinv */\
 		"bsl v29.16b,v23.16b,v22.16b\n\t	bsl v31.16b,v23.16b,v22.16b	\n\t"/* [4] Inv-base mults */\
-		"frintn	v0.2d,v16.2d		\n\t	frintn	v4.2d,v17.2d		\n\t"/* temp = DNINT(x) */\
-		"fsub	v12.2d,v16.2d,v0.2d	\n\t	fsub	v13.2d,v17.2d,v4.2d	\n\t"/* x - temp */\
-		"fmul	v29.2d,v0.2d,v29.2d	\n\t	fmul	v31.2d,v4.2d,v31.2d	\n\t"/* temp*baseinv */\
+		"frintn	v12.2d,v16.2d		\n\t	frintn	v13.2d,v17.2d		\n\t"/* DNINT(x) */\
+	"ldr q0,[x3] \n\t ldr q4,[x4] \n\t"/* cyA,B for our 1 independent carry-chain pairs */\
+		"fmla	v0.2d,v12.2d,v21.2d	\n\t	fmla	v4.2d,v13.2d,v21.2d	\n\t"/* temp = DNINT(x)*prp_mult + cy */\
+		"fsub v12.2d,v16.2d,v12.2d	\n\t	fsub v13.2d,v17.2d,v13.2d	\n\t"/* x - DNINT(x) */\
+		"fmul v29.2d, v0.2d,v29.2d	\n\t	fmul v31.2d, v4.2d,v31.2d	\n\t"/* temp*baseinv */\
 		"frintn	v16.2d,v29.2d		\n\t	frintn	v17.2d,v31.2d		\n\t"/* cy = DNINT(temp*baseinv[i]): */\
-		"fabs	v12.2d,v12.2d		\n\t	fabs	v13.2d,v13.2d		\n\t"/* frac = fabs(x-temp) */\
+		"fadd	v29.2d,v20.2d,v20.2d\n\t"/* base[0]x2 */\
+		"fabs	v12.2d,v12.2d		\n\t	fabs	v13.2d,v13.2d		\n\t"/* frac = fabs(x - DNINT(x)) */\
 		"fmax	v14.2d,v14.2d,v12.2d\n\t	fmax	v15.2d,v15.2d,v13.2d\n\t"/* if(frac > maxerr) maxerr=frac */\
-		"bsl v28.16b,v21.16b,v20.16b\n\t	bsl	v30.16b,v21.16b,v20.16b	\n\t"/* [3] Fwd-base mults */\
+		"bsl v28.16b,v29.16b,v20.16b\n\t	bsl	v30.16b,v29.16b,v20.16b	\n\t"/* [3] Fwd-base mults */\
 		"ldp	q12,q13,[x2,#0x180]	\n\t"/* wt_re for our 2 independent carry-chain pairs */\
 		"fmls	v0.2d,v16.2d,v28.2d	\n\t	fmls	v4.2d,v17.2d,v30.2d	\n\t"/* x = (temp-cy*base) */\
 		/* Update and store weights: */\
@@ -423,6 +430,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"bsl v29.16b,v27.16b,v26.16b\n\t	bsl	v31.16b,v27.16b,v26.16b	\n\t"/* [6] inv_mult */\
 		"fmul	v18.2d,v18.2d,v29.2d\n\t	fmul	v19.2d,v19.2d,v31.2d\n\t"/* wi *= inv_mult[i] */\
 		"stp	q18,q19,[x2,#0x1a0]	\n\t"/* Store wi */\
+		/* Apr 2018: Haven't found a way to support prp_mult in the ARMv8 macros w/o storing 2 vec-data to free
+		a reg-pair. Spilling v0,4 seems cheapest because only need to restore it for closing transpose step: */\
+		"stp	q0,q4,[x0] 			\n\t"\
 		/* Get ready for next set [IM0~] : */\
 		"add	v8.4s ,v8.4s ,v10.4s	\n\t"/* bjmod[0:3] += bw  */\
 		"and	v8.16b,v8.16b,v11.16b	\n\t"/* bjmod[0:3] &= nm1 */\
@@ -434,17 +444,20 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"zip1	v29.4s,v31.4s,v31.4s\n\t	zip2	v31.4s,v31.4s,v31.4s\n\t"\
 		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"\
 		"ldp	q18,q19,[x2,#0x1e0]	\n\t"\
-		"fmla	v16.2d,v1.2d,v18.2d	\n\t	fmla	v17.2d,v5.2d,v19.2d	\n\t"\
+		"fmul	v0.2d,v1.2d,v18.2d	\n\t	fmul	v4.2d,v5.2d,v19.2d	\n\t"/* x *= wtinv */\
+		"mov	v1.16b,v16.16b		\n\t	mov	v5.16b,v17.16b			\n\t"/* copy carries into v1,5 in prep for FMA */\
 		"bsl v29.16b,v23.16b,v22.16b\n\t	bsl v31.16b,v23.16b,v22.16b	\n\t"\
-		"frintn	v1.2d,v16.2d		\n\t	frintn	v5.2d,v17.2d		\n\t"\
-		"fsub	v12.2d,v16.2d,v1.2d	\n\t	fsub	v13.2d,v17.2d,v5.2d	\n\t"\
-		"fmul	v29.2d,v1.2d,v29.2d	\n\t	fmul	v31.2d,v5.2d,v31.2d	\n\t"\
-		"frintn	v16.2d,v29.2d		\n\t	frintn	v17.2d,v31.2d		\n\t"\
-		"fabs	v12.2d,v12.2d		\n\t	fabs	v13.2d,v13.2d		\n\t"\
-		"fmax	v14.2d,v14.2d,v12.2d\n\t	fmax	v15.2d,v15.2d,v13.2d\n\t"\
-		"bsl v28.16b,v21.16b,v20.16b\n\t	bsl	v30.16b,v21.16b,v20.16b	\n\t"\
+		"frintn	v12.2d,v0.2d		\n\t	frintn	v13.2d,v4.2d		\n\t"/* DNINT(x) */\
+		"fmla	v1.2d,v12.2d,v21.2d	\n\t	fmla	v5.2d,v13.2d,v21.2d	\n\t"/* temp = DNINT(x)*prp_mult + cy */\
+		"fsub	v12.2d,v0.2d,v12.2d	\n\t	fsub	v13.2d,v4.2d,v13.2d	\n\t"/* x - DNINT(x) */\
+		"fmul	v16.2d,v1.2d,v29.2d	\n\t	fmul	v17.2d,v5.2d,v31.2d	\n\t"/* temp*baseinv */\
+		"frintn	v16.2d,v16.2d		\n\t	frintn	v17.2d,v17.2d		\n\t"/* cy = DNINT(temp*baseinv[i]): */\
+		"fadd	v29.2d,v20.2d,v20.2d\n\t"/* base[0]x2 */\
+		"fabs	v12.2d,v12.2d		\n\t	fabs	v13.2d,v13.2d		\n\t"/* frac = fabs(x - DNINT(x)) */\
+		"fmax	v14.2d,v14.2d,v12.2d\n\t	fmax	v15.2d,v15.2d,v13.2d\n\t"/* if(frac > maxerr) maxerr=frac */\
+		"bsl v28.16b,v29.16b,v20.16b\n\t	bsl	v30.16b,v29.16b,v20.16b	\n\t"/* [3] Fwd-base mults */\
 		"ldp	q12,q13,[x2,#0x1c0]	\n\t"\
-		"fmls	v1.2d,v16.2d,v28.2d	\n\t	fmls	v5.2d,v17.2d,v30.2d	\n\t"\
+		"fmls	v1.2d,v16.2d,v28.2d	\n\t	fmls	v5.2d,v17.2d,v30.2d	\n\t"/* x = (temp-cy*base) */\
 		/* Update and store weights: */\
 		"cmge	v29.2d,v12.2d,v27.2d\n\t	cmge	v31.2d,v13.2d,v27.2d\n\t"\
 		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"\
@@ -469,15 +482,18 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"zip1	v29.4s,v31.4s,v31.4s\n\t	zip2	v31.4s,v31.4s,v31.4s\n\t"\
 		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"\
 		"ldp	q18,q19,[x2,#0x220]	\n\t"\
-		"fmla	v16.2d,v2.2d,v18.2d	\n\t	fmla	v17.2d,v6.2d,v19.2d	\n\t"\
+		"fmul	v0.2d,v2.2d,v18.2d	\n\t	fmul	v4.2d,v6.2d,v19.2d	\n\t"\
+		"mov	v2.16b,v16.16b		\n\t	mov	v6.16b,v17.16b			\n\t"/* copy carries into v2,6 in prep for FMA */\
 		"bsl v29.16b,v23.16b,v22.16b\n\t	bsl v31.16b,v23.16b,v22.16b	\n\t"\
-		"frintn	v2.2d,v16.2d		\n\t	frintn	v6.2d,v17.2d		\n\t"\
-		"fsub	v12.2d,v16.2d,v2.2d	\n\t	fsub	v13.2d,v17.2d,v6.2d	\n\t"\
-		"fmul	v29.2d,v2.2d,v29.2d	\n\t	fmul	v31.2d,v6.2d,v31.2d	\n\t"\
-		"frintn	v16.2d,v29.2d		\n\t	frintn	v17.2d,v31.2d		\n\t"\
+		"frintn	v12.2d,v0.2d		\n\t	frintn	v13.2d,v4.2d		\n\t"/* DNINT(x) */\
+		"fmla	v2.2d,v12.2d,v21.2d	\n\t	fmla	v6.2d,v13.2d,v21.2d	\n\t"/* temp = DNINT(x)*prp_mult + cy */\
+		"fsub	v12.2d,v0.2d,v12.2d	\n\t	fsub	v13.2d,v4.2d,v13.2d	\n\t"/* x - DNINT(x) */\
+		"fmul	v16.2d,v2.2d,v29.2d	\n\t	fmul	v17.2d,v6.2d,v31.2d	\n\t"/* temp*baseinv */\
+		"frintn	v16.2d,v16.2d		\n\t	frintn	v17.2d,v17.2d		\n\t"/* cy = DNINT(temp*baseinv[i]): */\
+		"fadd	v29.2d,v20.2d,v20.2d\n\t"/* base[0]x2 */\
 		"fabs	v12.2d,v12.2d		\n\t	fabs	v13.2d,v13.2d		\n\t"\
 		"fmax	v14.2d,v14.2d,v12.2d\n\t	fmax	v15.2d,v15.2d,v13.2d\n\t"\
-		"bsl v28.16b,v21.16b,v20.16b\n\t	bsl	v30.16b,v21.16b,v20.16b	\n\t"\
+		"bsl v28.16b,v29.16b,v20.16b\n\t	bsl	v30.16b,v29.16b,v20.16b	\n\t"\
 		"ldp	q12,q13,[x2,#0x200]	\n\t"\
 		"fmls	v2.2d,v16.2d,v28.2d	\n\t	fmls	v6.2d,v17.2d,v30.2d	\n\t"\
 		/* Update and store weights: */\
@@ -501,15 +517,18 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"zip1	v29.4s,v31.4s,v31.4s\n\t	zip2	v31.4s,v31.4s,v31.4s\n\t"\
 		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"\
 		"ldp	q18,q19,[x2,#0x260]	\n\t"\
-		"fmla	v16.2d,v3.2d,v18.2d	\n\t	fmla	v17.2d,v7.2d,v19.2d	\n\t"\
+		"fmul	v0.2d,v3.2d,v18.2d	\n\t	fmul	v4.2d,v7.2d,v19.2d	\n\t"\
+		"mov	v3.16b,v16.16b		\n\t	mov	v7.16b,v17.16b			\n\t"/* copy carries into v3,7 in prep for FMA */\
 		"bsl v29.16b,v23.16b,v22.16b\n\t	bsl v31.16b,v23.16b,v22.16b	\n\t"\
-		"frintn	v3.2d,v16.2d		\n\t	frintn	v7.2d,v17.2d		\n\t"\
-		"fsub	v12.2d,v16.2d,v3.2d	\n\t	fsub	v13.2d,v17.2d,v7.2d	\n\t"\
-		"fmul	v29.2d,v3.2d,v29.2d	\n\t	fmul	v31.2d,v7.2d,v31.2d	\n\t"\
-		"frintn	v16.2d,v29.2d		\n\t	frintn	v17.2d,v31.2d		\n\t"\
+		"frintn	v12.2d,v0.2d		\n\t	frintn	v13.2d,v4.2d		\n\t"/* DNINT(x) */\
+		"fmla	v3.2d,v12.2d,v21.2d	\n\t	fmla	v7.2d,v13.2d,v21.2d	\n\t"/* temp = DNINT(x)*prp_mult + cy */\
+		"fsub	v12.2d,v0.2d,v12.2d	\n\t	fsub	v13.2d,v4.2d,v13.2d	\n\t"/* x - DNINT(x) */\
+		"fmul	v16.2d,v3.2d,v29.2d	\n\t	fmul	v17.2d,v7.2d,v31.2d	\n\t"/* temp*baseinv */\
+		"frintn	v16.2d,v16.2d		\n\t	frintn	v17.2d,v17.2d		\n\t"/* cy = DNINT(temp*baseinv[i]): */\
+		"fadd	v29.2d,v20.2d,v20.2d\n\t"/* base[0]x2 */\
 		"fabs	v12.2d,v12.2d		\n\t	fabs	v13.2d,v13.2d		\n\t"\
 		"fmax	v14.2d,v14.2d,v12.2d\n\t	fmax	v15.2d,v15.2d,v13.2d\n\t"\
-		"bsl v28.16b,v21.16b,v20.16b\n\t	bsl	v30.16b,v21.16b,v20.16b	\n\t"\
+		"bsl v28.16b,v29.16b,v20.16b\n\t	bsl	v30.16b,v29.16b,v20.16b	\n\t"\
 		"ldp	q12,q13,[x2,#0x240]	\n\t"\
 		"fmls	v3.2d,v16.2d,v28.2d	\n\t	fmls	v7.2d,v17.2d,v30.2d	\n\t"\
 		/* Update and store weights: */\
@@ -532,6 +551,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/**********************************************/\
 		/*              Repack the data:              */\
 		/**********************************************/\
+		"ldp	q0,q4,[x0] 			\n\t"/* Restore earlier-spilled data pair */\
 		"trn2	v8.2d,v0.2d,v2.2d	\n\t	trn2	v10.2d,v4.2d,v6.2d	\n\t"\
 		"trn2	v9.2d,v1.2d,v3.2d	\n\t	trn2	v11.2d,v5.2d,v7.2d	\n\t"\
 		"trn1	v0.2d,v0.2d,v2.2d	\n\t	trn1	v4.2d ,v4.2d,v6.2d	\n\t"\
@@ -554,13 +574,15 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p1]   "m" (Xp1)\
 		,	[__p2]   "m" (Xp2)\
 		,	[__p3]   "m" (Xp3)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11","v12","v13","v14","v15",\
 					"v16","v17","v18","v19","v20","v21","v22","v23","v24","v25","v26","v27","v28","v29","v30","v31"	/* Clobbered registers */\
 	);\
 	}
 
 	// Non-power-of-2-length version of above differs only in how we reduce (mod n) in the index computations:
-	#define SSE2_cmplx_carry_fast_errcheck(Xdata,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1,Xp2,Xp3)\
+	#define SSE2_cmplx_carry_fast_errcheck(Xdata,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 		/***************Unpack the data:*************************/\
@@ -574,7 +596,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"ldr	x1,%[__bjmod_0]		\n\t"/* Pointer to bjmodn data */\
 		"ldr	x2,%[__sse_sw]		\n\t"\
 		"ldr	w3,%[__i]			\n\t"\
-		"eor v30.16b,v30.16b,v30.16b\n\t"/* Zero v11 */\
+		"eor v30.16b,v30.16b,v30.16b\n\t"/* Zero v30 */\
 		"ldr	q8,[x1]				\n\t"/* bjmod[0:3], PERSISTENT COPY IN V8 */\
 		"ldr	q9,[x2]				\n\t"/* sw, 4-fold, PERSISTENT COPY IN V9 */\
 		"cmge	v31.4s,v9.4s,v8.4s	\n\t"/* sw[v9] >= bjmod[0:3][v8] ? Resulting opmask bit-flipped-analog of SSE2-mode (sw < bjmod) opmask stored in xmm7 */\
@@ -588,17 +610,18 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"ldr	x3,%[__cyA]			\n\t	ldr	x4,%[__cyB]			\n\t"\
 		"ldr	q14,[x2,#-0x20]		\n\t"/* maxerr, then place 2nd copy in v15, allowing both cols */\
 		"mov	v15.16b,v14.16b		\n\t"/* to do independent updates with just one merge at end */\
-		"ldr q16,[x3] \n\t ldr q17,[x4] \n\t"/* cyA,B for our 1 independent carry-chain pairs */\
 		/* Load the 4 double-pairs base[0]x2,baseinv[1]x2,wts_mult[1]x2,inv_mult[0]x2 and also compute 2x each one
 		for the BSL operations we use to effect the conditional-doublings of these consts. (The register-leaner
 		alternative is to just store the 4 lcol-loaded vectors and do an AND/ADD pair for each conditional-doubling,
 		in place of just a single BSL). ARM's 32 vector-registers come in handy here, because this carry macro is
 		sufficiently intricate that we use all 32 of the vregs: */\
-		"ldr	q20,[x2,#0x80]		\n\t"/* base[0]x2 */\
-		"ldr	q22,[x2,#0xf0]		\n\t	fadd	v21.2d,v20.2d,v20.2d\n\t"/* baseinv[1]x2 */\
-		"ldr	q24,[x2,#0x130]		\n\t	fadd	v23.2d,v22.2d,v22.2d\n\t"/* wts_mult[1]x2 */\
-		"ldr	q26,[x2,#0x140]		\n\t	fadd	v25.2d,v24.2d,v24.2d\n\t"/* inv_mult[0]x2 (needed for conditional-doubling) */\
-		"									fadd	v27.2d,v26.2d,v26.2d\n\t"/* inv_mult[1]x2 (needed for (wt_re >= inv_mult[1]) comparison) */\
+	/* Mar 2018: Need to free a vreg to store prp_mult, su use v21 and do v20-doublings on-the-fly: */\
+	"ldr	x5,%[__prp_mult]	\n\t	ld1r	{v21.2d},[x5]		\n\t"\
+		"ldr	q20,[x2,#0x80]		\n\t"/* base[0] */\
+		"ldr	q22,[x2,#0xf0]		\n\t"/*	fadd	v21.2d,v20.2d,v20.2d\n\t*** baseinv[1]	[base[0]x2] */\
+		"ldr	q24,[x2,#0x130]		\n\t	fadd	v23.2d,v22.2d,v22.2d\n\t"/* wts_mult[1]	baseinv[1]x2 */\
+		"ldr	q26,[x2,#0x140]		\n\t	fadd	v25.2d,v24.2d,v24.2d\n\t"/* inv_mult[0]	wts_mult[1]x2 (needed for conditional-doubling) */\
+		"									fadd	v27.2d,v26.2d,v26.2d\n\t"/* 			inv_mult[0]x2 (needed for (wt_re >= inv_mult[1]) comparison) */\
 /**** 12,13,18,19 FREE ****/\
 	/*******************************/\
 	/* Do A.re pair: Data in v0,4: */\
@@ -606,15 +629,18 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	"ldr	x5,%[__add0]		\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
 	"prfm	PLDL1KEEP,[x5]		\n\t"\
 		"ldp	q18,q19,[x2,#0x1a0]	\n\t"/* wi_re ... need to preserve these 2 regs for inv_mult-update at end of block */\
-		"fmla	v16.2d,v0.2d,v18.2d	\n\t	fmla	v17.2d,v4.2d,v19.2d	\n\t"/* x = x*wtinv + cy, overwrite cy with result to save 2 regs */\
+		"fmul	v16.2d,v0.2d,v18.2d	\n\t	fmul	v17.2d,v4.2d,v19.2d	\n\t"/* x *= wtinv */\
 		"bsl v29.16b,v23.16b,v22.16b\n\t	bsl v31.16b,v23.16b,v22.16b	\n\t"/* [4] Inv-base mults */\
-		"frintn	v0.2d,v16.2d		\n\t	frintn	v4.2d,v17.2d		\n\t"/* temp = DNINT(x) */\
-		"fsub	v12.2d,v16.2d,v0.2d	\n\t	fsub	v13.2d,v17.2d,v4.2d	\n\t"/* x - temp */\
-		"fmul	v29.2d,v0.2d,v29.2d	\n\t	fmul	v31.2d,v4.2d,v31.2d	\n\t"/* temp*baseinv */\
+		"frintn	v12.2d,v16.2d		\n\t	frintn	v13.2d,v17.2d		\n\t"/* DNINT(x) */\
+	"ldr q0,[x3] \n\t ldr q4,[x4] \n\t"/* cyA,B for our 1 independent carry-chain pairs */\
+		"fmla	v0.2d,v12.2d,v21.2d	\n\t	fmla	v4.2d,v13.2d,v21.2d	\n\t"/* temp = DNINT(x)*prp_mult + cy */\
+		"fsub v12.2d,v16.2d,v12.2d	\n\t	fsub v13.2d,v17.2d,v13.2d	\n\t"/* x - DNINT(x) */\
+		"fmul v29.2d, v0.2d,v29.2d	\n\t	fmul v31.2d, v4.2d,v31.2d	\n\t"/* temp*baseinv */\
 		"frintn	v16.2d,v29.2d		\n\t	frintn	v17.2d,v31.2d		\n\t"/* cy = DNINT(temp*baseinv[i]): */\
-		"fabs	v12.2d,v12.2d		\n\t	fabs	v13.2d,v13.2d		\n\t"/* frac = fabs(x-temp) */\
+		"fadd	v29.2d,v20.2d,v20.2d\n\t"/* base[0]x2 */\
+		"fabs	v12.2d,v12.2d		\n\t	fabs	v13.2d,v13.2d		\n\t"/* frac = fabs(x - DNINT(x)) */\
 		"fmax	v14.2d,v14.2d,v12.2d\n\t	fmax	v15.2d,v15.2d,v13.2d\n\t"/* if(frac > maxerr) maxerr=frac */\
-		"bsl v28.16b,v21.16b,v20.16b\n\t	bsl	v30.16b,v21.16b,v20.16b	\n\t"/* [3] Fwd-base mults */\
+		"bsl v28.16b,v29.16b,v20.16b\n\t	bsl	v30.16b,v29.16b,v20.16b	\n\t"/* [3] Fwd-base mults */\
 		"ldp	q12,q13,[x2,#0x180]	\n\t"/* wt_re for our 2 independent carry-chain pairs */\
 		"fmls	v0.2d,v16.2d,v28.2d	\n\t	fmls	v4.2d,v17.2d,v30.2d	\n\t"/* x = (temp-cy*base) */\
 		/* Update and store weights: */\
@@ -627,6 +653,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"bsl v29.16b,v27.16b,v26.16b\n\t	bsl	v31.16b,v27.16b,v26.16b	\n\t"/* [6] inv_mult */\
 		"fmul	v18.2d,v18.2d,v29.2d\n\t	fmul	v19.2d,v19.2d,v31.2d\n\t"/* wi *= inv_mult[i] */\
 		"stp	q18,q19,[x2,#0x1a0]	\n\t"/* Store wi */\
+		/* Apr 2018: Haven't found a way to support prp_mult in the ARMv8 macros w/o storing 2 vec-data to free
+		a reg-pair. Spilling v0,4 seems cheapest because only need to restore it for closing transpose step: */\
+		"stp	q0,q4,[x0] 			\n\t"\
 		/* Get ready for next set [IM0~] : */\
 		"add	 v8.4s , v8.4s ,v10.4s	\n\t"/* bjmod[0:3] += bw  */\
 		"cmge	v18.4s , v8.4s ,v11.4s	\n\t"/* bjmod[0:3][v8] >= n[v11] ? */\
@@ -640,17 +669,20 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"zip1	v29.4s,v31.4s,v31.4s\n\t	zip2	v31.4s,v31.4s,v31.4s\n\t"\
 		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"\
 		"ldp	q18,q19,[x2,#0x1e0]	\n\t"\
-		"fmla	v16.2d,v1.2d,v18.2d	\n\t	fmla	v17.2d,v5.2d,v19.2d	\n\t"\
+		"fmul	v0.2d,v1.2d,v18.2d	\n\t	fmul	v4.2d,v5.2d,v19.2d	\n\t"/* x *= wtinv */\
+		"mov	v1.16b,v16.16b		\n\t	mov	v5.16b,v17.16b			\n\t"/* copy carries into v1,5 in prep for FMA */\
 		"bsl v29.16b,v23.16b,v22.16b\n\t	bsl v31.16b,v23.16b,v22.16b	\n\t"\
-		"frintn	v1.2d,v16.2d		\n\t	frintn	v5.2d,v17.2d		\n\t"\
-		"fsub	v12.2d,v16.2d,v1.2d	\n\t	fsub	v13.2d,v17.2d,v5.2d	\n\t"\
-		"fmul	v29.2d,v1.2d,v29.2d	\n\t	fmul	v31.2d,v5.2d,v31.2d	\n\t"\
-		"frintn	v16.2d,v29.2d		\n\t	frintn	v17.2d,v31.2d		\n\t"\
-		"fabs	v12.2d,v12.2d		\n\t	fabs	v13.2d,v13.2d		\n\t"\
-		"fmax	v14.2d,v14.2d,v12.2d\n\t	fmax	v15.2d,v15.2d,v13.2d\n\t"\
-		"bsl v28.16b,v21.16b,v20.16b\n\t	bsl	v30.16b,v21.16b,v20.16b	\n\t"\
+		"frintn	v12.2d,v0.2d		\n\t	frintn	v13.2d,v4.2d		\n\t"/* DNINT(x) */\
+		"fmla	v1.2d,v12.2d,v21.2d	\n\t	fmla	v5.2d,v13.2d,v21.2d	\n\t"/* temp = DNINT(x)*prp_mult + cy */\
+		"fsub	v12.2d,v0.2d,v12.2d	\n\t	fsub	v13.2d,v4.2d,v13.2d	\n\t"/* x - DNINT(x) */\
+		"fmul	v16.2d,v1.2d,v29.2d	\n\t	fmul	v17.2d,v5.2d,v31.2d	\n\t"/* temp*baseinv */\
+		"frintn	v16.2d,v16.2d		\n\t	frintn	v17.2d,v17.2d		\n\t"/* cy = DNINT(temp*baseinv[i]): */\
+		"fadd	v29.2d,v20.2d,v20.2d\n\t"/* base[0]x2 */\
+		"fabs	v12.2d,v12.2d		\n\t	fabs	v13.2d,v13.2d		\n\t"/* frac = fabs(x - DNINT(x)) */\
+		"fmax	v14.2d,v14.2d,v12.2d\n\t	fmax	v15.2d,v15.2d,v13.2d\n\t"/* if(frac > maxerr) maxerr=frac */\
+		"bsl v28.16b,v29.16b,v20.16b\n\t	bsl	v30.16b,v29.16b,v20.16b	\n\t"/* [3] Fwd-base mults */\
 		"ldp	q12,q13,[x2,#0x1c0]	\n\t"\
-		"fmls	v1.2d,v16.2d,v28.2d	\n\t	fmls	v5.2d,v17.2d,v30.2d	\n\t"\
+		"fmls	v1.2d,v16.2d,v28.2d	\n\t	fmls	v5.2d,v17.2d,v30.2d	\n\t"/* x = (temp-cy*base) */\
 		/* Update and store weights: */\
 		"cmge	v29.2d,v12.2d,v27.2d\n\t	cmge	v31.2d,v13.2d,v27.2d\n\t"\
 		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"\
@@ -677,15 +709,18 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"zip1	v29.4s,v31.4s,v31.4s\n\t	zip2	v31.4s,v31.4s,v31.4s\n\t"\
 		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"\
 		"ldp	q18,q19,[x2,#0x220]	\n\t"\
-		"fmla	v16.2d,v2.2d,v18.2d	\n\t	fmla	v17.2d,v6.2d,v19.2d	\n\t"\
+		"fmul	v0.2d,v2.2d,v18.2d	\n\t	fmul	v4.2d,v6.2d,v19.2d	\n\t"\
+		"mov	v2.16b,v16.16b		\n\t	mov	v6.16b,v17.16b			\n\t"/* copy carries into v2,6 in prep for FMA */\
 		"bsl v29.16b,v23.16b,v22.16b\n\t	bsl v31.16b,v23.16b,v22.16b	\n\t"\
-		"frintn	v2.2d,v16.2d		\n\t	frintn	v6.2d,v17.2d		\n\t"\
-		"fsub	v12.2d,v16.2d,v2.2d	\n\t	fsub	v13.2d,v17.2d,v6.2d	\n\t"\
-		"fmul	v29.2d,v2.2d,v29.2d	\n\t	fmul	v31.2d,v6.2d,v31.2d	\n\t"\
-		"frintn	v16.2d,v29.2d		\n\t	frintn	v17.2d,v31.2d		\n\t"\
+		"frintn	v12.2d,v0.2d		\n\t	frintn	v13.2d,v4.2d		\n\t"/* DNINT(x) */\
+		"fmla	v2.2d,v12.2d,v21.2d	\n\t	fmla	v6.2d,v13.2d,v21.2d	\n\t"/* temp = DNINT(x)*prp_mult + cy */\
+		"fsub	v12.2d,v0.2d,v12.2d	\n\t	fsub	v13.2d,v4.2d,v13.2d	\n\t"/* x - DNINT(x) */\
+		"fmul	v16.2d,v2.2d,v29.2d	\n\t	fmul	v17.2d,v6.2d,v31.2d	\n\t"/* temp*baseinv */\
+		"frintn	v16.2d,v16.2d		\n\t	frintn	v17.2d,v17.2d		\n\t"/* cy = DNINT(temp*baseinv[i]): */\
+		"fadd	v29.2d,v20.2d,v20.2d\n\t"/* base[0]x2 */\
 		"fabs	v12.2d,v12.2d		\n\t	fabs	v13.2d,v13.2d		\n\t"\
 		"fmax	v14.2d,v14.2d,v12.2d\n\t	fmax	v15.2d,v15.2d,v13.2d\n\t"\
-		"bsl v28.16b,v21.16b,v20.16b\n\t	bsl	v30.16b,v21.16b,v20.16b	\n\t"\
+		"bsl v28.16b,v29.16b,v20.16b\n\t	bsl	v30.16b,v29.16b,v20.16b	\n\t"\
 		"ldp	q12,q13,[x2,#0x200]	\n\t"\
 		"fmls	v2.2d,v16.2d,v28.2d	\n\t	fmls	v6.2d,v17.2d,v30.2d	\n\t"\
 		/* Update and store weights: */\
@@ -711,15 +746,18 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"zip1	v29.4s,v31.4s,v31.4s\n\t	zip2	v31.4s,v31.4s,v31.4s\n\t"\
 		"not	v28.16b,v29.16b		\n\t	not		v30.16b,v31.16b		\n\t"\
 		"ldp	q18,q19,[x2,#0x260]	\n\t"\
-		"fmla	v16.2d,v3.2d,v18.2d	\n\t	fmla	v17.2d,v7.2d,v19.2d	\n\t"\
+		"fmul	v0.2d,v3.2d,v18.2d	\n\t	fmul	v4.2d,v7.2d,v19.2d	\n\t"\
+		"mov	v3.16b,v16.16b		\n\t	mov	v7.16b,v17.16b			\n\t"/* copy carries into v3,7 in prep for FMA */\
 		"bsl v29.16b,v23.16b,v22.16b\n\t	bsl v31.16b,v23.16b,v22.16b	\n\t"\
-		"frintn	v3.2d,v16.2d		\n\t	frintn	v7.2d,v17.2d		\n\t"\
-		"fsub	v12.2d,v16.2d,v3.2d	\n\t	fsub	v13.2d,v17.2d,v7.2d	\n\t"\
-		"fmul	v29.2d,v3.2d,v29.2d	\n\t	fmul	v31.2d,v7.2d,v31.2d	\n\t"\
-		"frintn	v16.2d,v29.2d		\n\t	frintn	v17.2d,v31.2d		\n\t"\
+		"frintn	v12.2d,v0.2d		\n\t	frintn	v13.2d,v4.2d		\n\t"/* DNINT(x) */\
+		"fmla	v3.2d,v12.2d,v21.2d	\n\t	fmla	v7.2d,v13.2d,v21.2d	\n\t"/* temp = DNINT(x)*prp_mult + cy */\
+		"fsub	v12.2d,v0.2d,v12.2d	\n\t	fsub	v13.2d,v4.2d,v13.2d	\n\t"/* x - DNINT(x) */\
+		"fmul	v16.2d,v3.2d,v29.2d	\n\t	fmul	v17.2d,v7.2d,v31.2d	\n\t"/* temp*baseinv */\
+		"frintn	v16.2d,v16.2d		\n\t	frintn	v17.2d,v17.2d		\n\t"/* cy = DNINT(temp*baseinv[i]): */\
+		"fadd	v29.2d,v20.2d,v20.2d\n\t"/* base[0]x2 */\
 		"fabs	v12.2d,v12.2d		\n\t	fabs	v13.2d,v13.2d		\n\t"\
 		"fmax	v14.2d,v14.2d,v12.2d\n\t	fmax	v15.2d,v15.2d,v13.2d\n\t"\
-		"bsl v28.16b,v21.16b,v20.16b\n\t	bsl	v30.16b,v21.16b,v20.16b	\n\t"\
+		"bsl v28.16b,v29.16b,v20.16b\n\t	bsl	v30.16b,v29.16b,v20.16b	\n\t"\
 		"ldp	q12,q13,[x2,#0x240]	\n\t"\
 		"fmls	v3.2d,v16.2d,v28.2d	\n\t	fmls	v7.2d,v17.2d,v30.2d	\n\t"\
 		/* Update and store weights: */\
@@ -744,6 +782,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/**********************************************/\
 		/*              Repack the data:              */\
 		/**********************************************/\
+		"ldp	q0,q4,[x0] 			\n\t"/* Restore earlier-spilled data pair */\
 		"trn2	v8.2d,v0.2d,v2.2d	\n\t	trn2	v10.2d,v4.2d,v6.2d	\n\t"\
 		"trn2	v9.2d,v1.2d,v3.2d	\n\t	trn2	v11.2d,v5.2d,v7.2d	\n\t"\
 		"trn1	v0.2d,v0.2d,v2.2d	\n\t	trn1	v4.2d ,v4.2d,v6.2d	\n\t"\
@@ -766,13 +805,15 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p1]   "m" (Xp1)\
 		,	[__p2]   "m" (Xp2)\
 		,	[__p3]   "m" (Xp3)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11","v12","v13","v14","v15",\
 					"v16","v17","v18","v19","v20","v21","v22","v23","v24","v25","v26","v27","v28","v29","v30","v31"	/* Clobbered registers */\
 	);\
 	}
 
 	// We don't support Fermat-mod in ARMv8 builds, just include skeleton versions of the associated 128-bit SIMD carry macros:
-	#define SSE2_fermat_carry_norm_pow2_errcheck_X2(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xhalf_arr,Xsign_mask,Xadd1,Xadd2, Xadd0,Xp1)\
+	#define SSE2_fermat_carry_norm_pow2_errcheck_X2(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xhalf_arr,Xsign_mask,Xadd1,Xadd2, Xadd0,Xp1, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 		"ldr	x0,%[__data]		\n\t"\
@@ -790,11 +831,13 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* Prefetch: base address and 1 index offset */\
 		,	[__add0] "m" (Xadd0)\
 		,	[__p1] "m" (Xp1)\
+		/* v18: Needed to support residue-shifted Pepin tests: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory"	/* Clobbered registers */\
 	);\
 	}
 
-	#define SSE2_fermat_carry_norm_errcheck_X2(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xodd_radix,Xhalf_arr,Xsign_mask,Xadd1,Xadd2,Xicycle0,Xjcycle0,Xicycle1,Xjcycle1, Xadd0,Xp1)\
+	#define SSE2_fermat_carry_norm_errcheck_X2(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xodd_radix,Xhalf_arr,Xsign_mask,Xadd1,Xadd2,Xicycle0,Xjcycle0,Xicycle1,Xjcycle1, Xadd0,Xp1, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 		"ldr	x0,%[__data]		\n\t"\
@@ -817,6 +860,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* Prefetch: base address and 1 index offset */\
 		,	[__add0] "m" (Xadd0)\
 		,	[__p1]   "m" (Xp1)\
+		/* v18: Needed to support residue-shifted Pepin tests: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory"	/* Clobbered registers */\
 	);\
 	}
@@ -868,9 +913,11 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	(based on AVX2 version of SSE2_fermat_carry_norm_pow2_errcheck_X4):
 	NB: Inanely, VANDPS|PD are not supported in AVX-512F (support starts in AVX-512DQ), so replace with VPANDQ and hope no cycle penalty for type-mixing:
 	*/
-	#define SSE2_fermat_carry_norm_pow2_errcheck_X8(Xdata,Xbase_root,Xcmul_offset,Xcy_re,Xcy_im,Xhalf_arr,Xsign_mask, Xadd0,Xp1,Xp2,Xp3,Xp4)\
+	#define SSE2_fermat_carry_norm_pow2_errcheck_X8(Xdata,Xbase_root,Xcmul_offset,Xcy_re,Xcy_im,Xhalf_arr,Xsign_mask, Xadd0,Xp1,Xp2,Xp3,Xp4, Xprp_mult)\
 	{\
 	__asm__ volatile (\
+		"movq	%[__prp_mult]	,%%rax	\n\t"\
+		"vbroadcastsd	(%%rax),%%zmm24	\n\t"/* prp_mult, broadcast to all double-slots of zmm24 */\
 		"movq		%[__add0],%%r14		\n\t"/* base address for 8 prefetches-from-main-data-array spread through this macro */\
 		/* Base negacyclic roots at this address in [0,2,4,6,8,a,c,e]*0x40 (Re parts), [1,3,5,7,9,b,d,f]*0x40 (Imag parts) */\
 		"movq	%[__base_root] ,%%rax		\n\t"/* Won't need main-array again until output transpose, so re-use rax for base_root */\
@@ -933,7 +980,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	%%zmm1 ,0x340(%%rax)	\n\t	vmovaps		%%zmm3 ,0x3c0(%%rax)	\n\t"/* Im part */\
 	/* Apply inverse-complex-runlength scaling factor to the data as we read them in below in preparation for the 8x8 transpose: */\
 		"movq		%[__half_arr],%%rdx		\n\t"\
-		"vmovaps	0x080(%%rdx),%%zmm18	\n\t"/* ZMM18 = scale, discarded after MULs below */\
+		"vmovaps	0x080(%%rdx),%%zmm18	\n\t"/* zmm18 = scale, discarded after MULs below */\
 	/* 8-way transpose of inputs (Re, Im parts separately) uses complex-ified version of algo in util.c:test_simd_transpose_8x8(). */\
 	/* Inputs from r0/1,2/3,4/5,6/7,8/9,a/b,c/d,e/f. Outputs into zmm0/1,2/3,4/5,6/7,8/9,a/b,c/d,e/f: */\
 		"movq		%[__data],%%rax		\n\t"\
@@ -980,7 +1027,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* half_arr[0,1,2,3] = [base*2, baseinv*2,wt_re*2,wt_im*2] */\
 		"vmovaps	      (%%rdx),%%zmm20	\n\t"/* [base0-7] */\
 		"vmovaps	 0x040(%%rdx),%%zmm21	\n\t"/* [baseinv0-7] */\
-		"vmovaps	-0x080(%%rdx),%%zmm22	\n\t"/* ZMM21 = maxerr */\
+		"vmovaps	-0x080(%%rdx),%%zmm22	\n\t"/* zmm21 = maxerr */\
 		"vmovaps	%%zmm22,%%zmm23			\n\t"/* maxerr copy */\
 		"movq		%[__cy_re],%%rbx		\n\t"\
 		"movq		%[__cy_im],%%rcx		\n\t"\
@@ -995,19 +1042,18 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	"vfmadd213pd	%%zmm17,%%zmm18,%%zmm0 	\n\t"/* [a0-7.re] = x*wt_re + y*wt_im */\
 	"vfmsub213pd	%%zmm16,%%zmm18,%%zmm1 	\n\t"/* [a0-7.im] = y*wt_re - x*wt_im */\
 		/* normalize a-pair, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%zmm0 ,%%zmm0 	\n\t"/* [a0-7.re] + [cy0-7.re] */\
-		"vaddpd		(%%rcx),%%zmm1 ,%%zmm1 	\n\t"/* [a0-7.im] + [cy0-7.im] */\
 		"vmovaps	%%zmm0 ,%%zmm16			\n\t	vmovaps		%%zmm1 ,%%zmm17			\n\t"/* copy x|y */\
 		"vrndscalepd	$0,%%zmm0 ,%%zmm0 	\n\t	vrndscalepd	$0,%%zmm1 ,%%zmm1 		\n\t"/* temp = DNINT(x|y) */\
 		"movq		%[__sign_mask],%%rsi	\n\t"\
 		"vsubpd		%%zmm0 ,%%zmm16,%%zmm16	\n\t	vsubpd		%%zmm1 ,%%zmm17,%%zmm17	\n\t"/* frac = [x - temp] */\
+	"vfmadd213pd	(%%rbx),%%zmm24,%%zmm0	\n\t vfmadd213pd	(%%rcx),%%zmm24,%%zmm1	\n\t"/* temp = temp*prp_mult + cy [register args as they appear in left-to-right order: cy,prp_mult,temp] */\
 		"vpandq		(%%rsi),%%zmm16,%%zmm16	\n\t	vpandq		(%%rsi),%%zmm17,%%zmm17	\n\t"/* frac = fabs(frac) */\
 		"vmaxpd		%%zmm22,%%zmm16,%%zmm22	\n\t	vmaxpd		%%zmm23,%%zmm17,%%zmm23	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmulpd		%%zmm21,%%zmm0 ,%%zmm16	\n\t	vmulpd		%%zmm21,%%zmm1 ,%%zmm17	\n\t"/* temp*baseinv[0] */\
 		"vmaxpd		%%zmm22,%%zmm23,%%zmm23	\n\t"/* merge re|im maxerr vectors */\
 		"vrndscalepd	$0,%%zmm16,%%zmm16	\n\t	vrndscalepd	$0,%%zmm17,%%zmm17		\n\t"/* [cy0-7.re] = DNINT(temp*baseinv[0]) */\
 		"vmovaps	%%zmm16,(%%rbx)			\n\t	vmovaps		%%zmm17,(%%rcx)			\n\t"/* store [cy0-7.re|im] */\
-	"vfnmadd231pd	%%zmm20,%%zmm16,%%zmm0 	\n\t vfnmadd231pd	%%zmm20,%%zmm17,%%zmm1 	\n\t"/* XMM0|1 = [a0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
+	"vfnmadd231pd	%%zmm20,%%zmm16,%%zmm0 	\n\t vfnmadd231pd	%%zmm20,%%zmm17,%%zmm1 	\n\t"/* xmm0|1 = [a0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%zmm19,%%zmm0 ,%%zmm16	\n\t"/* wt_im*[x copy] */\
 		"vmulpd		%%zmm19,%%zmm1 ,%%zmm17	\n\t"/* wt_im*[y copy] */\
@@ -1026,18 +1072,17 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	"vfmadd213pd	%%zmm17,%%zmm18,%%zmm2 	\n\t"/* [b0-7.re] = x*wt_re + y*wt_im */\
 	"vfmsub213pd	%%zmm16,%%zmm18,%%zmm3 	\n\t"/* [b0-7.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%zmm2 ,%%zmm2 	\n\t"/* [b0-7.re] + [cy0-7.re] */\
-		"vaddpd		(%%rcx),%%zmm3 ,%%zmm3 	\n\t"/* [b0-7.im] + [cy0-7.im] */\
 		"vmovaps	%%zmm2 ,%%zmm16			\n\t	vmovaps		%%zmm3 ,%%zmm17			\n\t"/* copy x|y */\
 		"vrndscalepd	$0,%%zmm2 ,%%zmm2 	\n\t	vrndscalepd	$0,%%zmm3 ,%%zmm3 		\n\t"/* temp = DNINT(x|y) */\
 		"vsubpd		%%zmm2 ,%%zmm16,%%zmm16	\n\t	vsubpd		%%zmm3 ,%%zmm17,%%zmm17	\n\t"/* frac = [x - temp] */\
+	"vfmadd213pd	(%%rbx),%%zmm24,%%zmm2	\n\t vfmadd213pd	(%%rcx),%%zmm24,%%zmm3	\n\t"/* temp = temp*prp_mult + cy */\
 		"vpandq		(%%rsi),%%zmm16,%%zmm16	\n\t	vpandq		(%%rsi),%%zmm17,%%zmm17	\n\t"/* frac = fabs(frac) */\
 		"vmaxpd		%%zmm22,%%zmm16,%%zmm22	\n\t	vmaxpd		%%zmm23,%%zmm17,%%zmm23	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmulpd		%%zmm21,%%zmm2 ,%%zmm16	\n\t	vmulpd		%%zmm21,%%zmm3 ,%%zmm17	\n\t"/* temp*baseinv[0] */\
 		"vmaxpd		%%zmm22,%%zmm23,%%zmm23	\n\t"/* merge re|im maxerr vectors */\
 		"vrndscalepd	$0,%%zmm16,%%zmm16	\n\t	vrndscalepd	$0,%%zmm17,%%zmm17		\n\t"/* [cy0-7.re] = DNINT(temp*baseinv[0]) */\
 		"vmovaps	%%zmm16,(%%rbx)			\n\t	vmovaps		%%zmm17,(%%rcx)			\n\t"/* store [cy0-7.re|im] */\
-	"vfnmadd231pd	%%zmm20,%%zmm16,%%zmm2 	\n\t vfnmadd231pd	%%zmm20,%%zmm17,%%zmm3 	\n\t"/* XMM0|1 = [b0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
+	"vfnmadd231pd	%%zmm20,%%zmm16,%%zmm2 	\n\t vfnmadd231pd	%%zmm20,%%zmm17,%%zmm3 	\n\t"/* xmm0|1 = [b0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%zmm19,%%zmm2 ,%%zmm16	\n\t"/* wt_im*[x copy] */\
 		"vmulpd		%%zmm19,%%zmm3 ,%%zmm17	\n\t"/* wt_im*[y copy] */\
@@ -1056,18 +1101,17 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	"vfmadd213pd	%%zmm17,%%zmm18,%%zmm4 	\n\t"/* [c0-7.re] = x*wt_re + y*wt_im */\
 	"vfmsub213pd	%%zmm16,%%zmm18,%%zmm5 	\n\t"/* [c0-7.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%zmm4 ,%%zmm4 	\n\t"/* [c0-7.re] + [cy0-7.re] */\
-		"vaddpd		(%%rcx),%%zmm5 ,%%zmm5 	\n\t"/* [c0-7.im] + [cy0-7.im] */\
 		"vmovaps	%%zmm4 ,%%zmm16			\n\t	vmovaps		%%zmm5 ,%%zmm17			\n\t"/* copy x|y */\
 		"vrndscalepd	$0,%%zmm4 ,%%zmm4 	\n\t	vrndscalepd	$0,%%zmm5 ,%%zmm5 		\n\t"/* temp = DNINT(x|y) */\
 		"vsubpd		%%zmm4 ,%%zmm16,%%zmm16	\n\t	vsubpd		%%zmm5 ,%%zmm17,%%zmm17	\n\t"/* frac = [x - temp] */\
+	"vfmadd213pd	(%%rbx),%%zmm24,%%zmm4	\n\t vfmadd213pd	(%%rcx),%%zmm24,%%zmm5	\n\t"/* temp = temp*prp_mult + cy */\
 		"vpandq		(%%rsi),%%zmm16,%%zmm16	\n\t	vpandq		(%%rsi),%%zmm17,%%zmm17	\n\t"/* frac = fabs(frac) */\
 		"vmaxpd		%%zmm22,%%zmm16,%%zmm22	\n\t	vmaxpd		%%zmm23,%%zmm17,%%zmm23	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmulpd		%%zmm21,%%zmm4 ,%%zmm16	\n\t	vmulpd		%%zmm21,%%zmm5 ,%%zmm17	\n\t"/* temp*baseinv[0] */\
 		"vmaxpd		%%zmm22,%%zmm23,%%zmm23	\n\t"/* merge re|im maxerr vectors */\
 		"vrndscalepd	$0,%%zmm16,%%zmm16	\n\t	vrndscalepd	$0,%%zmm17,%%zmm17		\n\t"/* [cy0-7.re] = DNINT(temp*baseinv[0]) */\
 		"vmovaps	%%zmm16,(%%rbx)			\n\t	vmovaps		%%zmm17,(%%rcx)			\n\t"/* store [cy0-7.re|im] */\
-	"vfnmadd231pd	%%zmm20,%%zmm16,%%zmm4 	\n\t vfnmadd231pd	%%zmm20,%%zmm17,%%zmm5 	\n\t"/* XMM0|1 = [c0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
+	"vfnmadd231pd	%%zmm20,%%zmm16,%%zmm4 	\n\t vfnmadd231pd	%%zmm20,%%zmm17,%%zmm5 	\n\t"/* xmm0|1 = [c0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%zmm19,%%zmm4 ,%%zmm16	\n\t"/* wt_im*[x copy] */\
 		"vmulpd		%%zmm19,%%zmm5 ,%%zmm17	\n\t"/* wt_im*[y copy] */\
@@ -1086,18 +1130,17 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	"vfmadd213pd	%%zmm17,%%zmm18,%%zmm6 	\n\t"/* [d0-7.re] = x*wt_re + y*wt_im */\
 	"vfmsub213pd	%%zmm16,%%zmm18,%%zmm7 	\n\t"/* [d0-7.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%zmm6 ,%%zmm6 	\n\t"/* [d0-7.re] + [cy0-7.re] */\
-		"vaddpd		(%%rcx),%%zmm7 ,%%zmm7 	\n\t"/* [d0-7.im] + [cy0-7.im] */\
 		"vmovaps	%%zmm6 ,%%zmm16			\n\t	vmovaps		%%zmm7 ,%%zmm17			\n\t"/* copy x|y */\
 		"vrndscalepd	$0,%%zmm6 ,%%zmm6 	\n\t	vrndscalepd	$0,%%zmm7 ,%%zmm7 		\n\t"/* temp = DNINT(x|y) */\
 		"vsubpd		%%zmm6 ,%%zmm16,%%zmm16	\n\t	vsubpd		%%zmm7 ,%%zmm17,%%zmm17	\n\t"/* frac = [x - temp] */\
+	"vfmadd213pd	(%%rbx),%%zmm24,%%zmm6	\n\t vfmadd213pd	(%%rcx),%%zmm24,%%zmm7	\n\t"/* temp = temp*prp_mult + cy */\
 		"vpandq		(%%rsi),%%zmm16,%%zmm16	\n\t	vpandq		(%%rsi),%%zmm17,%%zmm17	\n\t"/* frac = fabs(frac) */\
 		"vmaxpd		%%zmm22,%%zmm16,%%zmm22	\n\t	vmaxpd		%%zmm23,%%zmm17,%%zmm23	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmulpd		%%zmm21,%%zmm6 ,%%zmm16	\n\t	vmulpd		%%zmm21,%%zmm7 ,%%zmm17	\n\t"/* temp*baseinv[0] */\
 		"vmaxpd		%%zmm22,%%zmm23,%%zmm23	\n\t"/* merge re|im maxerr vectors */\
 		"vrndscalepd	$0,%%zmm16,%%zmm16	\n\t	vrndscalepd	$0,%%zmm17,%%zmm17		\n\t"/* [cy0-7.re] = DNINT(temp*baseinv[0]) */\
 		"vmovaps	%%zmm16,(%%rbx)			\n\t	vmovaps		%%zmm17,(%%rcx)			\n\t"/* store [cy0-7.re|im] */\
-	"vfnmadd231pd	%%zmm20,%%zmm16,%%zmm6 	\n\t vfnmadd231pd	%%zmm20,%%zmm17,%%zmm7 	\n\t"/* XMM0|1 = [d0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
+	"vfnmadd231pd	%%zmm20,%%zmm16,%%zmm6 	\n\t vfnmadd231pd	%%zmm20,%%zmm17,%%zmm7 	\n\t"/* xmm0|1 = [d0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%zmm19,%%zmm6 ,%%zmm16	\n\t"/* wt_im*[x copy] */\
 		"vmulpd		%%zmm19,%%zmm7 ,%%zmm17	\n\t"/* wt_im*[y copy] */\
@@ -1117,18 +1160,17 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	"vfmadd213pd	%%zmm17,%%zmm18,%%zmm8 	\n\t"/* [e0-7.re] = x*wt_re + y*wt_im */\
 	"vfmsub213pd	%%zmm16,%%zmm18,%%zmm9 	\n\t"/* [e0-7.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%zmm8 ,%%zmm8 	\n\t"/* [e0-7.re] + [cy0-7.re] */\
-		"vaddpd		(%%rcx),%%zmm9 ,%%zmm9 	\n\t"/* [e0-7.im] + [cy0-7.im] */\
 		"vmovaps	%%zmm8 ,%%zmm16			\n\t	vmovaps		%%zmm9 ,%%zmm17			\n\t"/* copy x|y */\
 		"vrndscalepd	$0,%%zmm8 ,%%zmm8 	\n\t	vrndscalepd	$0,%%zmm9 ,%%zmm9 		\n\t"/* temp = DNINT(x|y) */\
 		"vsubpd		%%zmm8 ,%%zmm16,%%zmm16	\n\t	vsubpd		%%zmm9 ,%%zmm17,%%zmm17	\n\t"/* frac = [x - temp] */\
+	"vfmadd213pd	(%%rbx),%%zmm24,%%zmm8	\n\t vfmadd213pd	(%%rcx),%%zmm24,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vpandq		(%%rsi),%%zmm16,%%zmm16	\n\t	vpandq		(%%rsi),%%zmm17,%%zmm17	\n\t"/* frac = fabs(frac) */\
 		"vmaxpd		%%zmm22,%%zmm16,%%zmm22	\n\t	vmaxpd		%%zmm23,%%zmm17,%%zmm23	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmulpd		%%zmm21,%%zmm8 ,%%zmm16	\n\t	vmulpd		%%zmm21,%%zmm9 ,%%zmm17	\n\t"/* temp*baseinv[0] */\
 		"vmaxpd		%%zmm22,%%zmm23,%%zmm23	\n\t"/* merge re|im maxerr vectors */\
 		"vrndscalepd	$0,%%zmm16,%%zmm16	\n\t	vrndscalepd	$0,%%zmm17,%%zmm17		\n\t"/* [cy0-7.re] = DNINT(temp*baseinv[0]) */\
 		"vmovaps	%%zmm16,(%%rbx)			\n\t	vmovaps		%%zmm17,(%%rcx)			\n\t"/* store [cy0-7.re|im] */\
-	"vfnmadd231pd	%%zmm20,%%zmm16,%%zmm8 	\n\t vfnmadd231pd	%%zmm20,%%zmm17,%%zmm9 	\n\t"/* XMM0|1 = [e0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
+	"vfnmadd231pd	%%zmm20,%%zmm16,%%zmm8 	\n\t vfnmadd231pd	%%zmm20,%%zmm17,%%zmm9 	\n\t"/* xmm0|1 = [e0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%zmm19,%%zmm8 ,%%zmm16	\n\t"/* wt_im*[x copy] */\
 		"vmulpd		%%zmm19,%%zmm9 ,%%zmm17	\n\t"/* wt_im*[y copy] */\
@@ -1147,18 +1189,17 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	"vfmadd213pd	%%zmm17,%%zmm18,%%zmm10	\n\t"/* [f0-7.re] = x*wt_re + y*wt_im */\
 	"vfmsub213pd	%%zmm16,%%zmm18,%%zmm11	\n\t"/* [f0-7.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%zmm10,%%zmm10	\n\t"/* [f0-7.re] + [cy0-7.re] */\
-		"vaddpd		(%%rcx),%%zmm11,%%zmm11	\n\t"/* [f0-7.im] + [cy0-7.im] */\
 		"vmovaps	%%zmm10,%%zmm16			\n\t	vmovaps		%%zmm11,%%zmm17			\n\t"/* copy x|y */\
 		"vrndscalepd	$0,%%zmm10,%%zmm10	\n\t	vrndscalepd	$0,%%zmm11,%%zmm11		\n\t"/* temp = DNINT(x|y) */\
 		"vsubpd		%%zmm10,%%zmm16,%%zmm16	\n\t	vsubpd		%%zmm11,%%zmm17,%%zmm17	\n\t"/* frac = [x - temp] */\
+	"vfmadd213pd	(%%rbx),%%zmm24,%%zmm10	\n\t vfmadd213pd	(%%rcx),%%zmm24,%%zmm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vpandq		(%%rsi),%%zmm16,%%zmm16	\n\t	vpandq		(%%rsi),%%zmm17,%%zmm17	\n\t"/* frac = fabs(frac) */\
 		"vmaxpd		%%zmm22,%%zmm16,%%zmm22	\n\t	vmaxpd		%%zmm23,%%zmm17,%%zmm23	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmulpd		%%zmm21,%%zmm10,%%zmm16	\n\t	vmulpd		%%zmm21,%%zmm11,%%zmm17	\n\t"/* temp*baseinv[0] */\
 		"vmaxpd		%%zmm22,%%zmm23,%%zmm23	\n\t"/* merge re|im maxerr vectors */\
 		"vrndscalepd	$0,%%zmm16,%%zmm16	\n\t	vrndscalepd	$0,%%zmm17,%%zmm17		\n\t"/* [cy0-7.re] = DNINT(temp*baseinv[0]) */\
 		"vmovaps	%%zmm16,(%%rbx)			\n\t	vmovaps		%%zmm17,(%%rcx)			\n\t"/* store [cy0-7.re|im] */\
-	"vfnmadd231pd	%%zmm20,%%zmm16,%%zmm10	\n\t vfnmadd231pd	%%zmm20,%%zmm17,%%zmm11	\n\t"/* XMM0|1 = [f0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
+	"vfnmadd231pd	%%zmm20,%%zmm16,%%zmm10	\n\t vfnmadd231pd	%%zmm20,%%zmm17,%%zmm11	\n\t"/* xmm0|1 = [f0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%zmm19,%%zmm10,%%zmm16	\n\t"/* wt_im*[x copy] */\
 		"vmulpd		%%zmm19,%%zmm11,%%zmm17	\n\t"/* wt_im*[y copy] */\
@@ -1177,18 +1218,17 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	"vfmadd213pd	%%zmm17,%%zmm18,%%zmm12	\n\t"/* [g0-7.re] = x*wt_re + y*wt_im */\
 	"vfmsub213pd	%%zmm16,%%zmm18,%%zmm13	\n\t"/* [g0-7.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%zmm12,%%zmm12	\n\t"/* [g0-7.re] + [cy0-7.re] */\
-		"vaddpd		(%%rcx),%%zmm13,%%zmm13	\n\t"/* [g0-7.im] + [cy0-7.im] */\
 		"vmovaps	%%zmm12,%%zmm16			\n\t	vmovaps		%%zmm13,%%zmm17			\n\t"/* copy x|y */\
 		"vrndscalepd	$0,%%zmm12,%%zmm12	\n\t	vrndscalepd	$0,%%zmm13,%%zmm13		\n\t"/* temp = DNINT(x|y) */\
 		"vsubpd		%%zmm12,%%zmm16,%%zmm16	\n\t	vsubpd		%%zmm13,%%zmm17,%%zmm17	\n\t"/* frac = [x - temp] */\
+	"vfmadd213pd	(%%rbx),%%zmm24,%%zmm12	\n\t vfmadd213pd	(%%rcx),%%zmm24,%%zmm13	\n\t"/* temp = temp*prp_mult + cy */\
 		"vpandq		(%%rsi),%%zmm16,%%zmm16	\n\t	vpandq		(%%rsi),%%zmm17,%%zmm17	\n\t"/* frac = fabs(frac) */\
 		"vmaxpd		%%zmm22,%%zmm16,%%zmm22	\n\t	vmaxpd		%%zmm23,%%zmm17,%%zmm23	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmulpd		%%zmm21,%%zmm12,%%zmm16	\n\t	vmulpd		%%zmm21,%%zmm13,%%zmm17	\n\t"/* temp*baseinv[0] */\
 		"vmaxpd		%%zmm22,%%zmm23,%%zmm23	\n\t"/* merge re|im maxerr vectors */\
 		"vrndscalepd	$0,%%zmm16,%%zmm16	\n\t	vrndscalepd	$0,%%zmm17,%%zmm17		\n\t"/* [cy0-7.re] = DNINT(temp*baseinv[0]) */\
 		"vmovaps	%%zmm16,(%%rbx)			\n\t	vmovaps		%%zmm17,(%%rcx)			\n\t"/* store [cy0-7.re|im] */\
-	"vfnmadd231pd	%%zmm20,%%zmm16,%%zmm12	\n\t vfnmadd231pd	%%zmm20,%%zmm17,%%zmm13	\n\t"/* XMM0|1 = [g0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
+	"vfnmadd231pd	%%zmm20,%%zmm16,%%zmm12	\n\t vfnmadd231pd	%%zmm20,%%zmm17,%%zmm13	\n\t"/* xmm0|1 = [g0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%zmm19,%%zmm12,%%zmm16	\n\t"/* wt_im*[x copy] */\
 		"vmulpd		%%zmm19,%%zmm13,%%zmm17	\n\t"/* wt_im*[y copy] */\
@@ -1207,18 +1247,17 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	"vfmadd213pd	%%zmm17,%%zmm18,%%zmm14	\n\t"/* [h0-7.re] = x*wt_re + y*wt_im */\
 	"vfmsub213pd	%%zmm16,%%zmm18,%%zmm15	\n\t"/* [h0-7.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%zmm14,%%zmm14	\n\t"/* [h0-7.re] + [cy0-7.re] */\
-		"vaddpd		(%%rcx),%%zmm15,%%zmm15	\n\t"/* [h0-7.im] + [cy0-7.im] */\
 		"vmovaps	%%zmm14,%%zmm16			\n\t	vmovaps		%%zmm15,%%zmm17			\n\t"/* copy x|y */\
 		"vrndscalepd	$0,%%zmm14,%%zmm14	\n\t	vrndscalepd	$0,%%zmm15,%%zmm15		\n\t"/* temp = DNINT(x|y) */\
 		"vsubpd		%%zmm14,%%zmm16,%%zmm16	\n\t	vsubpd		%%zmm15,%%zmm17,%%zmm17	\n\t"/* frac = [x - temp] */\
+	"vfmadd213pd	(%%rbx),%%zmm24,%%zmm14	\n\t vfmadd213pd	(%%rcx),%%zmm24,%%zmm15	\n\t"/* temp = temp*prp_mult + cy */\
 		"vpandq		(%%rsi),%%zmm16,%%zmm16	\n\t	vpandq		(%%rsi),%%zmm17,%%zmm17	\n\t"/* frac = fabs(frac) */\
 		"vmaxpd		%%zmm22,%%zmm16,%%zmm22	\n\t	vmaxpd		%%zmm23,%%zmm17,%%zmm23	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmulpd		%%zmm21,%%zmm14,%%zmm16	\n\t	vmulpd		%%zmm21,%%zmm15,%%zmm17	\n\t"/* temp*baseinv[0] */\
 		"vmaxpd		%%zmm22,%%zmm23,%%zmm23	\n\t"/* merge re|im maxerr vectors */\
 		"vrndscalepd	$0,%%zmm16,%%zmm16	\n\t	vrndscalepd	$0,%%zmm17,%%zmm17		\n\t"/* [cy0-7.re] = DNINT(temp*baseinv[0]) */\
 		"vmovaps	%%zmm16,(%%rbx)			\n\t	vmovaps		%%zmm17,(%%rcx)			\n\t"/* store [cy0-7.re|im] */\
-	"vfnmadd231pd	%%zmm20,%%zmm16,%%zmm14	\n\t vfnmadd231pd	%%zmm20,%%zmm17,%%zmm15	\n\t"/* XMM0|1 = [h0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
+	"vfnmadd231pd	%%zmm20,%%zmm16,%%zmm14	\n\t vfnmadd231pd	%%zmm20,%%zmm17,%%zmm15	\n\t"/* xmm0|1 = [h0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%zmm19,%%zmm14,%%zmm16	\n\t"/* wt_im*[x copy] */\
 		"vmulpd		%%zmm19,%%zmm15,%%zmm17	\n\t"/* wt_im*[y copy] */\
@@ -1278,7 +1317,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p2] "m" (Xp2)\
 		,	[__p3] "m" (Xp3)\
 		,	[__p4] "m" (Xp4)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15", "xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23"	/* Clobbered registers */\
+		/* v18: Needed to support residue-shifted Pepin tests: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15", "xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24"	/* Clobbered registers */\
 	);\
 	}
 
@@ -1345,13 +1386,15 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 																			 vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv */
 	#define SSE2_fermat_carry_norm_errcheck_X8_loacc(Xdata,Xbase_root,Xcy_re,Xcy_im,Xodd_radix,Xodd_radm2,Xodd_radm3,Xhalf_arr,Xsign_mask,\
 										XicycleA,XicycleB,XicycleC,XicycleD,XicycleE,XicycleF,XicycleG,XicycleH\
-												,XjcycleA,XkcycleA,XlcycleA,XmcycleA,XncycleA,XocycleA,XpcycleA, Xadd0,Xp1,Xp2,Xp3,Xp4)\
+												,XjcycleA,XkcycleA,XlcycleA,XmcycleA,XncycleA,XocycleA,XpcycleA, Xadd0,Xp1,Xp2,Xp3,Xp4, Xprp_mult)\
 	{\
 	__asm__ volatile (\
+		"movq	%[__prp_mult]	,%%rax	\n\t"\
+		"vbroadcastsd	(%%rax),%%zmm24	\n\t"/* prp_mult, broadcast to all double-slots of zmm24 */\
 		"movq		%[__add0],%%rcx			\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
 		"movq		%[__data],%%rax			\n\t"\
 		"movq		%[__half_arr],%%rdx		\n\t"/* half_arr[0,1,2,3] = [base*2, baseinv*2,wt_re*2,wt_im*2] */\
-		"vmovaps	-0x80(%%rdx),%%zmm21	\n\t"/* XMM21 = maxerr */\
+		"vmovaps	-0x80(%%rdx),%%zmm21	\n\t"/* xmm21 = maxerr */\
 		"addq		$%c[__odd_radix],%%rdx	\n\t"/* wt|wtinv|base|baseinv data offset by icycle array slots from resp. base addresses */\
 		/* Multiply complex transform outputs [x,y] = [re,im] by inverse IBDWT weights, which include the 2/n scale factor;
 		Store the weights in the registers which will hold the Im-parts below - cf. note in ensuing transpose section re. funky indexing: */\
@@ -1425,13 +1468,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	" vfmadd231pd	%%zmm19,%%zmm17,%%zmm0 	\n\t"/* wt_im*[y copy] ...[a0-7.re] = x*wt_re + y*wt_im */\
 	"vfnmadd231pd	%%zmm19,%%zmm16,%%zmm1 	\n\t"/* wt_im*[x copy] ...[a0-7.im] = y*wt_re - x*wt_im */\
 		/* normalize a-pair, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%zmm0,%%zmm0	\n\t"/* [a0-7.re] + [cy0-7.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%zmm1,%%zmm1	\n\t"/* [a0-7.im] + [cy0-7.im] */\
 		"vmovaps	%%zmm0,%%zmm16			\n\t	vmovaps		%%zmm1,%%zmm17		\n\t"/* copy x|y */\
 		"vrndscalepd $0,%%zmm0,%%zmm0		\n\t	vrndscalepd $0,%%zmm1,%%zmm1	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%zmm20	\n\t"/* [baseinv0-7] */\
 		"vsubpd		%%zmm0 ,%%zmm16,%%zmm16	\n\t	vsubpd		%%zmm1 ,%%zmm17,%%zmm17	\n\t"/* frac = [x - temp] */\
 		"vpandq		%%zmm23,%%zmm16,%%zmm16	\n\t	vpandq		%%zmm23,%%zmm17,%%zmm17	\n\t"/* frac = fabs(frac) */\
+	"vfmadd213pd (%%rbx),%%zmm24,%%zmm0	\n\t vfmadd213pd %c[__cy_im](%%rbx),%%zmm24,%%zmm1	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm21,%%zmm16,%%zmm21	\n\t	vmaxpd		%%zmm22,%%zmm17,%%zmm22	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%zmm0 ,%%zmm16			\n\t	vmovaps		%%zmm1 ,%%zmm17			\n\t"/* cpy temp */\
 		"vmulpd		%%zmm20,%%zmm16,%%zmm16	\n\t	vmulpd		%%zmm20,%%zmm17,%%zmm17	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -1439,7 +1481,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd $0,%%zmm16,%%zmm16		\n\t	vrndscalepd $0,%%zmm17,%%zmm17		\n\t"/* [cy0-7.re] = DNINT(temp*baseinv[0]) */\
 		"vmovaps	%c[__odd_radm2](%%rdx),%%zmm21	\n\t"/* [base0-7] */\
 		"vmovaps	%%zmm16,(%%rbx)			\n\t	vmovaps		%%zmm17,%c[__cy_im](%%rbx)\n\t"/* store [cy0-7.re|im] */\
-	"vfnmadd231pd	%%zmm21,%%zmm16,%%zmm0 	\n\t vfnmadd231pd	%%zmm21,%%zmm17,%%zmm1	\n\t"/* base[0]*[cy0-7.re|im] ... XMM0|1 = [a0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
+	"vfnmadd231pd	%%zmm21,%%zmm16,%%zmm0 	\n\t vfnmadd231pd	%%zmm21,%%zmm17,%%zmm1	\n\t"/* base[0]*[cy0-7.re|im] ... xmm0|1 = [a0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
 		"vmovaps	%%zmm0 ,%%zmm16			\n\t	vmovaps		%%zmm1 ,%%zmm17			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%zmm18,%%zmm0,%%zmm0	\n\t"/* wt_re*[x     ] */\
@@ -1472,13 +1514,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	" vfmadd231pd	%%zmm19,%%zmm17,%%zmm2 	\n\t"/* wt_im*[y copy] ...[a0-7.re] = x*wt_re + y*wt_im */\
 	"vfnmadd231pd	%%zmm19,%%zmm16,%%zmm3 	\n\t"/* wt_im*[x copy] ...[a0-7.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%zmm2 ,%%zmm2 	\n\t"/* [a0-7.re] + [cy0-7.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%zmm3 ,%%zmm3 	\n\t"/* [a0-7.im] + [cy0-7.im] */\
 		"vmovaps	%%zmm2 ,%%zmm16			\n\t	vmovaps		%%zmm3 ,%%zmm17		\n\t"/* copy x|y */\
 		"vrndscalepd $0,%%zmm2 ,%%zmm2 		\n\t	vrndscalepd $0,%%zmm3 ,%%zmm3 	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%zmm20	\n\t"/* [baseinv0-7] */\
 		"vsubpd		%%zmm2 ,%%zmm16,%%zmm16	\n\t	vsubpd		%%zmm3 ,%%zmm17,%%zmm17	\n\t"/* frac = [x - temp] */\
 		"vpandq		%%zmm23,%%zmm16,%%zmm16	\n\t	vpandq		%%zmm23,%%zmm17,%%zmm17	\n\t"/* frac = fabs(frac) */\
+	"vfmadd213pd (%%rbx),%%zmm24,%%zmm2	\n\t vfmadd213pd %c[__cy_im](%%rbx),%%zmm24,%%zmm3	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm21,%%zmm16,%%zmm21	\n\t	vmaxpd		%%zmm22,%%zmm17,%%zmm22	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%zmm2 ,%%zmm16			\n\t	vmovaps		%%zmm3 ,%%zmm17			\n\t"/* cpy temp */\
 		"vmulpd		%%zmm20,%%zmm16,%%zmm16	\n\t	vmulpd		%%zmm20,%%zmm17,%%zmm17	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -1486,7 +1527,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd $0,%%zmm16,%%zmm16		\n\t	vrndscalepd $0,%%zmm17,%%zmm17		\n\t"/* [cy0-7.re] = DNINT(temp*baseinv[0]) */\
 		"vmovaps	%c[__odd_radm2](%%rdx),%%zmm21	\n\t"/* [base0-7] */\
 		"vmovaps	%%zmm16,(%%rbx)			\n\t	vmovaps		%%zmm17,%c[__cy_im](%%rbx)\n\t"/* store [cy0-7.re|im] */\
-	"vfnmadd231pd	%%zmm21,%%zmm16,%%zmm2 	\n\t vfnmadd231pd	%%zmm21,%%zmm17,%%zmm3 	\n\t"/* base[0]*[cy0-7.re|im] ... XMM0|1 = [a0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
+	"vfnmadd231pd	%%zmm21,%%zmm16,%%zmm2 	\n\t vfnmadd231pd	%%zmm21,%%zmm17,%%zmm3 	\n\t"/* base[0]*[cy0-7.re|im] ... xmm0|1 = [a0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
 		"vmovaps	%%zmm2 ,%%zmm16			\n\t	vmovaps		%%zmm3 ,%%zmm17			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%zmm18,%%zmm2 ,%%zmm2 	\n\t"/* wt_re*[x     ] */\
@@ -1519,13 +1560,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	" vfmadd231pd	%%zmm19,%%zmm17,%%zmm4 	\n\t"/* wt_im*[y copy] ...[a0-7.re] = x*wt_re + y*wt_im */\
 	"vfnmadd231pd	%%zmm19,%%zmm16,%%zmm5 	\n\t"/* wt_im*[x copy] ...[a0-7.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%zmm4 ,%%zmm4 	\n\t"/* [a0-7.re] + [cy0-7.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%zmm5 ,%%zmm5 	\n\t"/* [a0-7.im] + [cy0-7.im] */\
 		"vmovaps	%%zmm4 ,%%zmm16			\n\t	vmovaps		%%zmm5 ,%%zmm17		\n\t"/* copy x|y */\
 		"vrndscalepd $0,%%zmm4 ,%%zmm4 		\n\t	vrndscalepd $0,%%zmm5 ,%%zmm5 	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%zmm20	\n\t"/* [baseinv0-7] */\
 		"vsubpd		%%zmm4 ,%%zmm16,%%zmm16	\n\t	vsubpd		%%zmm5 ,%%zmm17,%%zmm17	\n\t"/* frac = [x - temp] */\
 		"vpandq		%%zmm23,%%zmm16,%%zmm16	\n\t	vpandq		%%zmm23,%%zmm17,%%zmm17	\n\t"/* frac = fabs(frac) */\
+	"vfmadd213pd (%%rbx),%%zmm24,%%zmm4	\n\t vfmadd213pd %c[__cy_im](%%rbx),%%zmm24,%%zmm5	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm21,%%zmm16,%%zmm21	\n\t	vmaxpd		%%zmm22,%%zmm17,%%zmm22	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%zmm4 ,%%zmm16			\n\t	vmovaps		%%zmm5 ,%%zmm17			\n\t"/* cpy temp */\
 		"vmulpd		%%zmm20,%%zmm16,%%zmm16	\n\t	vmulpd		%%zmm20,%%zmm17,%%zmm17	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -1533,7 +1573,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd $0,%%zmm16,%%zmm16		\n\t	vrndscalepd $0,%%zmm17,%%zmm17		\n\t"/* [cy0-7.re] = DNINT(temp*baseinv[0]) */\
 		"vmovaps	%c[__odd_radm2](%%rdx),%%zmm21	\n\t"/* [base0-7] */\
 		"vmovaps	%%zmm16,(%%rbx)			\n\t	vmovaps		%%zmm17,%c[__cy_im](%%rbx)\n\t"/* store [cy0-7.re|im] */\
-	"vfnmadd231pd	%%zmm21,%%zmm16,%%zmm4 	\n\t vfnmadd231pd	%%zmm21,%%zmm17,%%zmm5 	\n\t"/* base[0]*[cy0-7.re|im] ... XMM0|1 = [a0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
+	"vfnmadd231pd	%%zmm21,%%zmm16,%%zmm4 	\n\t vfnmadd231pd	%%zmm21,%%zmm17,%%zmm5 	\n\t"/* base[0]*[cy0-7.re|im] ... xmm0|1 = [a0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
 		"vmovaps	%%zmm4 ,%%zmm16			\n\t	vmovaps		%%zmm5 ,%%zmm17			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%zmm18,%%zmm4 ,%%zmm4 	\n\t"/* wt_re*[x     ] */\
@@ -1566,13 +1606,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	" vfmadd231pd	%%zmm19,%%zmm17,%%zmm6 	\n\t"/* wt_im*[y copy] ...[a0-7.re] = x*wt_re + y*wt_im */\
 	"vfnmadd231pd	%%zmm19,%%zmm16,%%zmm7 	\n\t"/* wt_im*[x copy] ...[a0-7.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%zmm6 ,%%zmm6 	\n\t"/* [a0-7.re] + [cy0-7.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%zmm7 ,%%zmm7 	\n\t"/* [a0-7.im] + [cy0-7.im] */\
 		"vmovaps	%%zmm6 ,%%zmm16			\n\t	vmovaps		%%zmm7 ,%%zmm17		\n\t"/* copy x|y */\
 		"vrndscalepd $0,%%zmm6 ,%%zmm6 		\n\t	vrndscalepd $0,%%zmm7 ,%%zmm7 	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%zmm20	\n\t"/* [baseinv0-7] */\
 		"vsubpd		%%zmm6 ,%%zmm16,%%zmm16	\n\t	vsubpd		%%zmm7 ,%%zmm17,%%zmm17	\n\t"/* frac = [x - temp] */\
 		"vpandq		%%zmm23,%%zmm16,%%zmm16	\n\t	vpandq		%%zmm23,%%zmm17,%%zmm17	\n\t"/* frac = fabs(frac) */\
+	"vfmadd213pd (%%rbx),%%zmm24,%%zmm6	\n\t vfmadd213pd %c[__cy_im](%%rbx),%%zmm24,%%zmm7	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm21,%%zmm16,%%zmm21	\n\t	vmaxpd		%%zmm22,%%zmm17,%%zmm22	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%zmm6 ,%%zmm16			\n\t	vmovaps		%%zmm7 ,%%zmm17			\n\t"/* cpy temp */\
 		"vmulpd		%%zmm20,%%zmm16,%%zmm16	\n\t	vmulpd		%%zmm20,%%zmm17,%%zmm17	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -1580,7 +1619,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd $0,%%zmm16,%%zmm16		\n\t	vrndscalepd $0,%%zmm17,%%zmm17		\n\t"/* [cy0-7.re] = DNINT(temp*baseinv[0]) */\
 		"vmovaps	%c[__odd_radm2](%%rdx),%%zmm21	\n\t"/* [base0-7] */\
 		"vmovaps	%%zmm16,(%%rbx)			\n\t	vmovaps		%%zmm17,%c[__cy_im](%%rbx)\n\t"/* store [cy0-7.re|im] */\
-	"vfnmadd231pd	%%zmm21,%%zmm16,%%zmm6 	\n\t vfnmadd231pd	%%zmm21,%%zmm17,%%zmm7 	\n\t"/* base[0]*[cy0-7.re|im] ... XMM0|1 = [a0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
+	"vfnmadd231pd	%%zmm21,%%zmm16,%%zmm6 	\n\t vfnmadd231pd	%%zmm21,%%zmm17,%%zmm7 	\n\t"/* base[0]*[cy0-7.re|im] ... xmm0|1 = [a0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
 		"vmovaps	%%zmm6 ,%%zmm16			\n\t	vmovaps		%%zmm7 ,%%zmm17			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%zmm18,%%zmm6 ,%%zmm6 	\n\t"/* wt_re*[x     ] */\
@@ -1614,13 +1653,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	" vfmadd231pd	%%zmm19,%%zmm17,%%zmm8 	\n\t"/* wt_im*[y copy] ...[e0-7.re] = x*wt_re + y*wt_im */\
 	"vfnmadd231pd	%%zmm19,%%zmm16,%%zmm9 	\n\t"/* wt_im*[x copy] ...[e0-7.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%zmm8 ,%%zmm8 	\n\t"/* [e0-7.re] + [cy0-7.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%zmm9 ,%%zmm9 	\n\t"/* [e0-7.im] + [cy0-7.im] */\
 		"vmovaps	%%zmm8 ,%%zmm16			\n\t	vmovaps		%%zmm9 ,%%zmm17		\n\t"/* copy x|y */\
 		"vrndscalepd $0,%%zmm8 ,%%zmm8 		\n\t	vrndscalepd $0,%%zmm9 ,%%zmm9 	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%zmm20	\n\t"/* [baseinv0-7] */\
 		"vsubpd		%%zmm8 ,%%zmm16,%%zmm16	\n\t	vsubpd		%%zmm9 ,%%zmm17,%%zmm17	\n\t"/* frac = [x - temp] */\
 		"vpandq		%%zmm23,%%zmm16,%%zmm16	\n\t	vpandq		%%zmm23,%%zmm17,%%zmm17	\n\t"/* frac = fabs(frac) */\
+	"vfmadd213pd (%%rbx),%%zmm24,%%zmm8	\n\t vfmadd213pd %c[__cy_im](%%rbx),%%zmm24,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm21,%%zmm16,%%zmm21	\n\t	vmaxpd		%%zmm22,%%zmm17,%%zmm22	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%zmm8 ,%%zmm16			\n\t	vmovaps		%%zmm9 ,%%zmm17			\n\t"/* cpy temp */\
 		"vmulpd		%%zmm20,%%zmm16,%%zmm16	\n\t	vmulpd		%%zmm20,%%zmm17,%%zmm17	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -1628,7 +1666,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd $0,%%zmm16,%%zmm16		\n\t	vrndscalepd $0,%%zmm17,%%zmm17		\n\t"/* [cy0-7.re] = DNINT(temp*baseinv[0]) */\
 		"vmovaps	%c[__odd_radm2](%%rdx),%%zmm21	\n\t"/* [base0-7] */\
 		"vmovaps	%%zmm16,(%%rbx)			\n\t	vmovaps		%%zmm17,%c[__cy_im](%%rbx)\n\t"/* store [cy0-7.re|im] */\
-	"vfnmadd231pd	%%zmm21,%%zmm16,%%zmm8 	\n\t vfnmadd231pd	%%zmm21,%%zmm17,%%zmm9 	\n\t"/* base[0]*[cy0-7.re|im] ... XMM0|1 = [e0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
+	"vfnmadd231pd	%%zmm21,%%zmm16,%%zmm8 	\n\t vfnmadd231pd	%%zmm21,%%zmm17,%%zmm9 	\n\t"/* base[0]*[cy0-7.re|im] ... xmm0|1 = [e0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
 		"vmovaps	%%zmm8 ,%%zmm16			\n\t	vmovaps		%%zmm9 ,%%zmm17			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%zmm18,%%zmm8 ,%%zmm8 	\n\t"/* wt_re*[x     ] */\
@@ -1661,13 +1699,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	" vfmadd231pd	%%zmm19,%%zmm17,%%zmm10	\n\t"/* wt_im*[y copy] ...[f0-7.re] = x*wt_re + y*wt_im */\
 	"vfnmadd231pd	%%zmm19,%%zmm16,%%zmm11	\n\t"/* wt_im*[x copy] ...[f0-7.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%zmm10,%%zmm10	\n\t"/* [f0-7.re] + [cy0-7.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%zmm11,%%zmm11	\n\t"/* [f0-7.im] + [cy0-7.im] */\
 		"vmovaps	%%zmm10,%%zmm16			\n\t	vmovaps		%%zmm11,%%zmm17		\n\t"/* copy x|y */\
 		"vrndscalepd $0,%%zmm10,%%zmm10		\n\t	vrndscalepd $0,%%zmm11,%%zmm11	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%zmm20	\n\t"/* [baseinv0-7] */\
 		"vsubpd		%%zmm10,%%zmm16,%%zmm16	\n\t	vsubpd		%%zmm11,%%zmm17,%%zmm17	\n\t"/* frac = [x - temp] */\
 		"vpandq		%%zmm23,%%zmm16,%%zmm16	\n\t	vpandq		%%zmm23,%%zmm17,%%zmm17	\n\t"/* frac = fabs(frac) */\
+	"vfmadd213pd (%%rbx),%%zmm24,%%zmm10	\n\t vfmadd213pd %c[__cy_im](%%rbx),%%zmm24,%%zmm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm21,%%zmm16,%%zmm21	\n\t	vmaxpd		%%zmm22,%%zmm17,%%zmm22	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%zmm10,%%zmm16			\n\t	vmovaps		%%zmm11,%%zmm17			\n\t"/* cpy temp */\
 		"vmulpd		%%zmm20,%%zmm16,%%zmm16	\n\t	vmulpd		%%zmm20,%%zmm17,%%zmm17	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -1675,7 +1712,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd $0,%%zmm16,%%zmm16		\n\t	vrndscalepd $0,%%zmm17,%%zmm17		\n\t"/* [cy0-7.re] = DNINT(temp*baseinv[0]) */\
 		"vmovaps	%c[__odd_radm2](%%rdx),%%zmm21	\n\t"/* [base0-7] */\
 		"vmovaps	%%zmm16,(%%rbx)			\n\t	vmovaps		%%zmm17,%c[__cy_im](%%rbx)\n\t"/* store [cy0-7.re|im] */\
-	"vfnmadd231pd	%%zmm21,%%zmm16,%%zmm10	\n\t vfnmadd231pd	%%zmm21,%%zmm17,%%zmm11	\n\t"/* base[0]*[cy0-7.re|im] ... XMM0|1 = [f0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
+	"vfnmadd231pd	%%zmm21,%%zmm16,%%zmm10	\n\t vfnmadd231pd	%%zmm21,%%zmm17,%%zmm11	\n\t"/* base[0]*[cy0-7.re|im] ... xmm0|1 = [f0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
 		"vmovaps	%%zmm10,%%zmm16			\n\t	vmovaps		%%zmm11,%%zmm17			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%zmm18,%%zmm10,%%zmm10	\n\t"/* wt_re*[x     ] */\
@@ -1708,13 +1745,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	" vfmadd231pd	%%zmm19,%%zmm17,%%zmm12	\n\t"/* wt_im*[y copy] ...[g0-7.re] = x*wt_re + y*wt_im */\
 	"vfnmadd231pd	%%zmm19,%%zmm16,%%zmm13	\n\t"/* wt_im*[x copy] ...[g0-7.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%zmm12,%%zmm12	\n\t"/* [g0-7.re] + [cy0-7.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%zmm13,%%zmm13	\n\t"/* [g0-7.im] + [cy0-7.im] */\
 		"vmovaps	%%zmm12,%%zmm16			\n\t	vmovaps		%%zmm13,%%zmm17		\n\t"/* copy x|y */\
 		"vrndscalepd $0,%%zmm12,%%zmm12		\n\t	vrndscalepd $0,%%zmm13,%%zmm13	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%zmm20	\n\t"/* [baseinv0-7] */\
 		"vsubpd		%%zmm12,%%zmm16,%%zmm16	\n\t	vsubpd		%%zmm13,%%zmm17,%%zmm17	\n\t"/* frac = [x - temp] */\
 		"vpandq		%%zmm23,%%zmm16,%%zmm16	\n\t	vpandq		%%zmm23,%%zmm17,%%zmm17	\n\t"/* frac = fabs(frac) */\
+	"vfmadd213pd (%%rbx),%%zmm24,%%zmm12	\n\t vfmadd213pd %c[__cy_im](%%rbx),%%zmm24,%%zmm13	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm21,%%zmm16,%%zmm21	\n\t	vmaxpd		%%zmm22,%%zmm17,%%zmm22	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%zmm12,%%zmm16			\n\t	vmovaps		%%zmm13,%%zmm17			\n\t"/* cpy temp */\
 		"vmulpd		%%zmm20,%%zmm16,%%zmm16	\n\t	vmulpd		%%zmm20,%%zmm17,%%zmm17	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -1722,7 +1758,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd $0,%%zmm16,%%zmm16		\n\t	vrndscalepd $0,%%zmm17,%%zmm17		\n\t"/* [cy0-7.re] = DNINT(temp*baseinv[0]) */\
 		"vmovaps	%c[__odd_radm2](%%rdx),%%zmm21	\n\t"/* [base0-7] */\
 		"vmovaps	%%zmm16,(%%rbx)			\n\t	vmovaps		%%zmm17,%c[__cy_im](%%rbx)\n\t"/* store [cy0-7.re|im] */\
-	"vfnmadd231pd	%%zmm21,%%zmm16,%%zmm12	\n\t vfnmadd231pd	%%zmm21,%%zmm17,%%zmm13	\n\t"/* base[0]*[cy0-7.re|im] ... XMM0|1 = [g0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
+	"vfnmadd231pd	%%zmm21,%%zmm16,%%zmm12	\n\t vfnmadd231pd	%%zmm21,%%zmm17,%%zmm13	\n\t"/* base[0]*[cy0-7.re|im] ... xmm0|1 = [g0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
 		"vmovaps	%%zmm12,%%zmm16			\n\t	vmovaps		%%zmm13,%%zmm17			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%zmm18,%%zmm12,%%zmm12	\n\t"/* wt_re*[x     ] */\
@@ -1755,13 +1791,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	" vfmadd231pd	%%zmm19,%%zmm17,%%zmm14	\n\t"/* wt_im*[y copy] ...[h0-7.re] = x*wt_re + y*wt_im */\
 	"vfnmadd231pd	%%zmm19,%%zmm16,%%zmm15	\n\t"/* wt_im*[x copy] ...[h0-7.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%zmm14,%%zmm14	\n\t"/* [h0-7.re] + [cy0-7.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%zmm15,%%zmm15	\n\t"/* [h0-7.im] + [cy0-7.im] */\
 		"vmovaps	%%zmm14,%%zmm16			\n\t	vmovaps		%%zmm15,%%zmm17		\n\t"/* copy x|y */\
 		"vrndscalepd $0,%%zmm14,%%zmm14		\n\t	vrndscalepd $0,%%zmm15,%%zmm15	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%zmm20	\n\t"/* [baseinv0-7] */\
 		"vsubpd		%%zmm14,%%zmm16,%%zmm16	\n\t	vsubpd		%%zmm15,%%zmm17,%%zmm17	\n\t"/* frac = [x - temp] */\
 		"vpandq		%%zmm23,%%zmm16,%%zmm16	\n\t	vpandq		%%zmm23,%%zmm17,%%zmm17	\n\t"/* frac = fabs(frac) */\
+	"vfmadd213pd (%%rbx),%%zmm24,%%zmm14	\n\t vfmadd213pd %c[__cy_im](%%rbx),%%zmm24,%%zmm15	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm21,%%zmm16,%%zmm21	\n\t	vmaxpd		%%zmm22,%%zmm17,%%zmm22	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%zmm14,%%zmm16			\n\t	vmovaps		%%zmm15,%%zmm17			\n\t"/* cpy temp */\
 		"vmulpd		%%zmm20,%%zmm16,%%zmm16	\n\t	vmulpd		%%zmm20,%%zmm17,%%zmm17	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -1769,7 +1804,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd $0,%%zmm16,%%zmm16		\n\t	vrndscalepd $0,%%zmm17,%%zmm17		\n\t"/* [cy0-7.re] = DNINT(temp*baseinv[0]) */\
 		"vmovaps	%c[__odd_radm2](%%rdx),%%zmm21	\n\t"/* [base0-7] */\
 		"vmovaps	%%zmm16,(%%rbx)			\n\t	vmovaps		%%zmm17,%c[__cy_im](%%rbx)\n\t"/* store [cy0-7.re|im] */\
-	"vfnmadd231pd	%%zmm21,%%zmm16,%%zmm14	\n\t vfnmadd231pd	%%zmm21,%%zmm17,%%zmm15	\n\t"/* base[0]*[cy0-7.re|im] ... XMM0|1 = [h0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
+	"vfnmadd231pd	%%zmm21,%%zmm16,%%zmm14	\n\t vfnmadd231pd	%%zmm21,%%zmm17,%%zmm15	\n\t"/* base[0]*[cy0-7.re|im] ... xmm0|1 = [h0-7.re|im] = temp - [cy0-7.re|im]*base[0] */\
 		"vmovaps	%%zmm14,%%zmm16			\n\t	vmovaps		%%zmm15,%%zmm17			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%zmm18,%%zmm14,%%zmm14	\n\t"/* wt_re*[x     ] */\
@@ -1868,16 +1903,20 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p2] "m" (Xp2)\
 		,	[__p3] "m" (Xp3)\
 		,	[__p4] "m" (Xp4)\
-		: "cc","memory","rax","rbx","rcx","rdx","r8","r9","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23"	/* Clobbered registers */\
+		/* v18: Needed to support residue-shifted Pepin tests: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","r8","r9","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24"	/* Clobbered registers */\
 	);\
 	}
 
   #elif defined(USE_AVX2)	// FMA-based versions of selected macros in this file for Intel AVX2/FMA3
 
 	// Power-of-2-runlength Fermat-mod acyclic-transform/IBDWT carry macro:
-	#define SSE2_fermat_carry_norm_pow2_errcheck_X4(Xdata,Xbase_root,Xcmul_offset,Xcy_re,Xcy_im,Xhalf_arr,Xsign_mask, Xadd0,Xp1,Xp2,Xp3)\
+	#define SSE2_fermat_carry_norm_pow2_errcheck_X4(Xdata,Xbase_root,Xcmul_offset,Xcy_re,Xcy_im,Xhalf_arr,Xsign_mask, Xadd0,Xp1,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
+		"movq	%[__prp_mult]	,%%rax	\n\t"\
+		"vbroadcastsd	(%%rax),%%ymm15	\n\t"/* prp_mult, broadcast to all double-slots of ymm15 */\
 		"movq		%[__add0],%%r14		\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
 		/* Base negacyclic roots at this address in [0,2,4,6]*0x20 (Re parts), [1,3,5,7]*0x20 (Imag parts) */\
 		"movq	%[__base_root] ,%%rax			\n\t"/* Won't need main-array again until output transpose, so re-use rax for base_root */\
@@ -1914,7 +1953,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"											vmovaps		%%ymm3 ,0x60(%%rax)		\n\t"/* Im part */\
 		"movq		%[__data],%%rax		\n\t"\
 		"movq		%[__half_arr],%%rdx		\n\t"\
-		"vmovaps	0x40(%%rdx),%%ymm12	\n\t"/* XMM12 = scale */\
+		"vmovaps	0x40(%%rdx),%%ymm12	\n\t"/* xmm12 = scale */\
 	/* Transpose uses algo [1b] in util.c:test_simd_transpose_4x4(), which is ~4 cycles faster than algo [1a]. */\
 	/* 4-way transpose of inputs (Re, Im parts separately): Inputs from r0/1,2/3,4/5.6/7. Outputs into ymm0-7: */\
 	/* Real parts use ymm0,2,4,6, ymm8 as tmp-reg:					Imag parts use ymm1,3,5,7, ymm9 as tm-reg: */\
@@ -1938,8 +1977,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* Base negacyclic roots at this address in [0,2,4,6]*0x20 (Re parts), [1,3,5,7]*0x20 (Imag parts) */\
 		"movq	%[__base_root] ,%%rax		\n\t"/* Won't need main-array again until output transpose, so re-use rax for base_root */\
 		/* half_arr[0,1,2,3] = [base*2, baseinv*2,wt_re*2,wt_im*2] */\
-		"vmovaps	-0x40(%%rdx),%%ymm13	\n\t"/* XMM13 = maxerr */\
-		"/*vmovaps	-0x20(%%rdx),%%ymm15	*/\n\t"/* rnd_const; prefer ROUNDPD in AVX mode, so ymm15 free */\
+		"vmovaps	-0x40(%%rdx),%%ymm13	\n\t"/* xmm13 = maxerr */\
+	/*	"vmovaps	-0x20(%%rdx),%%ymm15	\n\t"// rnd_const; prefer ROUNDPD in AVX mode, so ymm15 free */\
 		"vmovaps	%%ymm13,%%ymm14			\n\t"/* maxerr copy */\
 		"movq		%[__cy_re],%%rbx		\n\t"\
 		"movq		%[__cy_im],%%rcx		\n\t"\
@@ -1957,14 +1996,13 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vaddpd		%%ymm9 ,%%ymm0,%%ymm0	\n\t"/* [a0-3.re] = x*wt_re + y*wt_im */\
 		"vsubpd		%%ymm8 ,%%ymm1,%%ymm1	\n\t"/* [a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize a-pair, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		(%%rcx),%%ymm1,%%ymm1	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm0,%%ymm8			\n\t	vmovaps		%%ymm1,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm0,%%ymm0		\n\t	vroundpd	$0,%%ymm1,%%ymm1	\n\t"/* temp = DNINT(x|y) */\
 		"movq		%[__sign_mask],%%rsi	\n\t"\
 		"vmovaps	0x20(%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm0 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm1 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
 		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+	"vfmadd213pd	(%%rbx),%%ymm15,%%ymm0	\n\t vfmadd213pd	(%%rbx),%%ymm15,%%ymm1	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -1973,7 +2011,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	(%%rdx),%%ymm12	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"/* store [cy0-3.re|im] */\
 		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm9 ,%%ymm1,%%ymm1	\n\t"/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vsubpd		%%ymm8 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm9 ,%%ymm1,%%ymm1	\n\t"/* xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* wt_re*[x     ] */\
@@ -2000,13 +2038,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vaddpd		%%ymm9 ,%%ymm2,%%ymm2	\n\t"/* [a0-3.re] = x*wt_re + y*wt_im */\
 		"vsubpd		%%ymm8 ,%%ymm3,%%ymm3	\n\t"/* [a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%ymm2,%%ymm2	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		(%%rcx),%%ymm3,%%ymm3	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm2,%%ymm8			\n\t	vmovaps		%%ymm3,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm2,%%ymm2		\n\t	vroundpd	$0,%%ymm3,%%ymm3	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	0x20(%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm2 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm3 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
 		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+	"vfmadd213pd	(%%rbx),%%ymm15,%%ymm2	\n\t vfmadd213pd	(%%rbx),%%ymm15,%%ymm3	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -2015,7 +2052,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	(%%rdx),%%ymm12	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"/* store [cy0-3.re|im] */\
 		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm2,%%ymm2	\n\t	vsubpd		%%ymm9 ,%%ymm3,%%ymm3	\n\t"/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vsubpd		%%ymm8 ,%%ymm2,%%ymm2	\n\t	vsubpd		%%ymm9 ,%%ymm3,%%ymm3	\n\t"/* xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"/* wt_re*[x     ] */\
@@ -2042,13 +2079,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vaddpd		%%ymm9 ,%%ymm4,%%ymm4	\n\t"/* [a0-3.re] = x*wt_re + y*wt_im */\
 		"vsubpd		%%ymm8 ,%%ymm5,%%ymm5	\n\t"/* [a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%ymm4,%%ymm4	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		(%%rcx),%%ymm5,%%ymm5	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm4,%%ymm8			\n\t	vmovaps		%%ymm5,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm4,%%ymm4		\n\t	vroundpd	$0,%%ymm5,%%ymm5	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	0x20(%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm4 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm5 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
 		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+	"vfmadd213pd	(%%rbx),%%ymm15,%%ymm4	\n\t vfmadd213pd	(%%rbx),%%ymm15,%%ymm5	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -2057,7 +2093,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	(%%rdx),%%ymm12	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"/* store [cy0-3.re|im] */\
 		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm4,%%ymm4	\n\t	vsubpd		%%ymm9 ,%%ymm5,%%ymm5	\n\t"/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vsubpd		%%ymm8 ,%%ymm4,%%ymm4	\n\t	vsubpd		%%ymm9 ,%%ymm5,%%ymm5	\n\t"/* xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm4,%%ymm4	\n\t"/* wt_re*[x     ] */\
@@ -2084,13 +2120,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vaddpd		%%ymm9 ,%%ymm6,%%ymm6	\n\t"/* [a0-3.re] = x*wt_re + y*wt_im */\
 		"vsubpd		%%ymm8 ,%%ymm7,%%ymm7	\n\t"/* [a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%ymm6,%%ymm6	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		(%%rcx),%%ymm7,%%ymm7	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm6,%%ymm8			\n\t	vmovaps		%%ymm7,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm6,%%ymm6		\n\t	vroundpd	$0,%%ymm7,%%ymm7	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	0x20(%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm6 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm7 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
 		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+	"vfmadd213pd	(%%rbx),%%ymm15,%%ymm6	\n\t vfmadd213pd	(%%rbx),%%ymm15,%%ymm7	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -2099,7 +2134,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	(%%rdx),%%ymm12	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"/* store [cy0-3.re|im] */\
 		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm6,%%ymm6	\n\t	vsubpd		%%ymm9 ,%%ymm7,%%ymm7	\n\t"/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vsubpd		%%ymm8 ,%%ymm6,%%ymm6	\n\t	vsubpd		%%ymm9 ,%%ymm7,%%ymm7	\n\t"/* xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm6,%%ymm6	\n\t"/* wt_re*[x     ] */\
@@ -2141,7 +2176,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p1] "m" (Xp1)\
 		,	[__p2] "m" (Xp2)\
 		,	[__p3] "m" (Xp3)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14"/* Clobbered registers */\
+		/* v18: Needed to support residue-shifted Pepin tests: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
@@ -2155,7 +2192,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	The array indices i/j/k/lcycle declared int in caller but assumed to have been byte-shift-converted at time this macro called,
 	thus can use as complex-address-offsets.  Use bytewise literal offsets to save registers for several args here,as vvv-marked:
 												                                           vvvvv The [1,2,3]-multiples of odd_radix assumed << l2_sz_vd on input */
-	#define SSE2_fermat_carry_norm_errcheck_X4_hiacc(Xdata,Xbase_root,Xcmul_offset,Xcy_re,Xcy_im,Xodd_radix,Xodd_radm2,Xodd_radm3,Xhalf_arr,Xsign_mask,XicycleA,XicycleB,XicycleC,XicycleD, XjcycleA,XkcycleA,XlcycleA, Xadd0,Xp1,Xp2,Xp3)\
+	#define SSE2_fermat_carry_norm_errcheck_X4_hiacc(Xdata,Xbase_root,Xcmul_offset,Xcy_re,Xcy_im,Xodd_radix,Xodd_radm2,Xodd_radm3,Xhalf_arr,Xsign_mask,XicycleA,XicycleB,XicycleC,XicycleD, XjcycleA,XkcycleA,XlcycleA, Xadd0,Xp1,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 		"movq		%[__add0],%%rcx		\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
@@ -2166,7 +2203,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* Up-multiply quartet of negacyclic roots used in this macro invocation; store sets 2-4 back into mem, keep set 1 in ymm10,11 [that's why we do sets 1/2 after 3/4] */\
 		"vmovaps	    (%%rbx),%%ymm10		\n\t	"/* Multiply by exp(j*I*Pi/2)/RADIX, for j = 0-3 */\
 		"vmovaps	0x20(%%rbx),%%ymm11		\n\t	"/* c = Re(exp) in ymm0, s = Im(exp) in ymm1 */\
-		"/* Sets 3/4: */"\
+		/* Sets 3/4: */\
 		"vmovaps	 0x80(%%rax),%%ymm0		\n\t	vmovaps	 0xc0(%%rax),%%ymm2			\n\t"\
 		"vmovaps	 0xa0(%%rax),%%ymm1		\n\t	vmovaps	 0xe0(%%rax),%%ymm3			\n\t"\
 		"vmovaps	%%ymm0,%%ymm4			\n\t	vmovaps		%%ymm2,%%ymm6			\n\t"\
@@ -2179,7 +2216,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vaddpd		%%ymm4 ,%%ymm1,%%ymm1	\n\t	vaddpd		%%ymm6 ,%%ymm3,%%ymm3	\n\t"\
 		"vmovaps	%%ymm0 ,0x80(%%rax)		\n\t	vmovaps		%%ymm2 ,0xc0(%%rax)		\n\t"/* Store result, overwriting input base root */\
 		"vmovaps	%%ymm1 ,0xa0(%%rax)		\n\t	vmovaps		%%ymm3 ,0xe0(%%rax)		\n\t"/* Im part */\
-		"/* Sets 1/2: */"\
+		/* Sets 1/2: */\
 		"vmovaps	     (%%rax),%%ymm0		\n\t	vmovaps	 0x40(%%rax),%%ymm2			\n\t"/* x = Re part of 1st base-root quartet */\
 		"vmovaps	 0x20(%%rax),%%ymm1		\n\t	vmovaps	 0x60(%%rax),%%ymm3			\n\t"/* y = Im part */\
 		"vmovaps	%%ymm0,%%ymm4			\n\t	vmovaps		%%ymm2,%%ymm6			\n\t"/* Copy x */\
@@ -2224,11 +2261,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vperm2f128 $49,%%ymm8,%%ymm4,%%ymm4	/* Re C	*/	\n\t		vperm2f128 $49,%%ymm9,%%ymm5,%%ymm5 	/* Im C	*/	\n\t"\
 		"subq		$%c[__odd_radix],%%rdx				\n\t"\
 		/* Base negacyclic roots at this address in [0,2,4,6]*0x20 (Re parts), [1,3,5,7]*0x20 (Imag parts) */\
-		"movq		%[__sign_mask],%%rax	\n\t"\
-		"vmovaps	(%%rax),%%ymm15	\n\t"/* ymm15 free for rest of way; use to store sign_mask needed for floating ABS */\
+		"movq	%[__prp_mult]	,%%rax	\n\t"\
+		"vbroadcastsd	(%%rax),%%ymm15	\n\t"/* prp_mult, broadcast to all double-slots of ymm15 */\
+		"movq		%[__sign_mask],%%rsi	\n\t"\
 		"movq	%[__base_root] ,%%rax		\n\t"/* Won't need main-array again until output transpose, so re-use rax for base_root */\
 		/* half_arr[0,1,2,3] = [base*2, baseinv*2,wt_re*2,wt_im*2] */\
-		"vmovaps	-0x40(%%rdx),%%ymm13	\n\t"/* XMM13 = maxerr */\
+		"vmovaps	-0x40(%%rdx),%%ymm13	\n\t"/* xmm13 = maxerr */\
 		"addq		%%rdi,%%rdx				\n\t"/* icycle assumed already in left-shifted ptr-byte-offset form */\
 		"vmovaps	%%ymm13,%%ymm14			\n\t"/* maxerr copy */\
 		"movq		%[__cy_re],%%rbx		\n\t"\
@@ -2246,13 +2284,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vaddpd		%%ymm9 ,%%ymm0,%%ymm0	\n\t"/* [a0-3.re] = x*wt_re + y*wt_im */\
 		"vsubpd		%%ymm8 ,%%ymm1,%%ymm1	\n\t"/* [a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize a-pair, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%ymm0,%%ymm0	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%ymm1,%%ymm1	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm0,%%ymm8			\n\t	vmovaps		%%ymm1,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm0,%%ymm0		\n\t	vroundpd	$0,%%ymm1,%%ymm1	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm0 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm1 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
-		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+	"vfmadd213pd (%%rbx),%%ymm15,%%ymm0	\n\t vfmadd213pd %c[__cy_im](%%rbx),%%ymm15,%%ymm1	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -2261,7 +2298,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm12	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"/* store [cy0-3.re|im] */\
 		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm9 ,%%ymm1,%%ymm1	\n\t"/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vsubpd		%%ymm8 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm9 ,%%ymm1,%%ymm1	\n\t"/* xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* wt_re*[x     ] */\
@@ -2291,13 +2328,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vaddpd		%%ymm9 ,%%ymm2,%%ymm2	\n\t"/* [a0-3.re] = x*wt_re + y*wt_im */\
 		"vsubpd		%%ymm8 ,%%ymm3,%%ymm3	\n\t"/* [a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%ymm2,%%ymm2	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%ymm3,%%ymm3	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm2,%%ymm8			\n\t	vmovaps		%%ymm3,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm2,%%ymm2		\n\t	vroundpd	$0,%%ymm3,%%ymm3	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm2 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm3 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
-		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+	"vfmadd213pd (%%rbx),%%ymm15,%%ymm2	\n\t vfmadd213pd %c[__cy_im](%%rbx),%%ymm15,%%ymm3	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -2306,7 +2342,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm12	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"/* store [cy0-3.re|im] */\
 		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm2,%%ymm2	\n\t	vsubpd		%%ymm9 ,%%ymm3,%%ymm3	\n\t"/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vsubpd		%%ymm8 ,%%ymm2,%%ymm2	\n\t	vsubpd		%%ymm9 ,%%ymm3,%%ymm3	\n\t"/* xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"/* wt_re*[x     ] */\
@@ -2336,13 +2372,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vaddpd		%%ymm9 ,%%ymm4,%%ymm4	\n\t"/* [a0-3.re] = x*wt_re + y*wt_im */\
 		"vsubpd		%%ymm8 ,%%ymm5,%%ymm5	\n\t"/* [a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%ymm4,%%ymm4	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%ymm5,%%ymm5	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm4,%%ymm8			\n\t	vmovaps		%%ymm5,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm4,%%ymm4		\n\t	vroundpd	$0,%%ymm5,%%ymm5	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm4 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm5 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
-		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+	"vfmadd213pd (%%rbx),%%ymm15,%%ymm4	\n\t vfmadd213pd %c[__cy_im](%%rbx),%%ymm15,%%ymm5	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -2351,7 +2386,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm12	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"/* store [cy0-3.re|im] */\
 		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm4,%%ymm4	\n\t	vsubpd		%%ymm9 ,%%ymm5,%%ymm5	\n\t"/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vsubpd		%%ymm8 ,%%ymm4,%%ymm4	\n\t	vsubpd		%%ymm9 ,%%ymm5,%%ymm5	\n\t"/* xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm4,%%ymm4	\n\t"/* wt_re*[x     ] */\
@@ -2381,13 +2416,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vaddpd		%%ymm9 ,%%ymm6,%%ymm6	\n\t"/* [a0-3.re] = x*wt_re + y*wt_im */\
 		"vsubpd		%%ymm8 ,%%ymm7,%%ymm7	\n\t"/* [a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%ymm6,%%ymm6	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%ymm7,%%ymm7	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm6,%%ymm8			\n\t	vmovaps		%%ymm7,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm6,%%ymm6		\n\t	vroundpd	$0,%%ymm7,%%ymm7	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm6 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm7 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
-		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+	"vfmadd213pd (%%rbx),%%ymm15,%%ymm6	\n\t vfmadd213pd %c[__cy_im](%%rbx),%%ymm15,%%ymm7	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -2396,7 +2430,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm12	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"/* store [cy0-3.re|im] */\
 		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm6,%%ymm6	\n\t	vsubpd		%%ymm9 ,%%ymm7,%%ymm7	\n\t"/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vsubpd		%%ymm8 ,%%ymm6,%%ymm6	\n\t	vsubpd		%%ymm9 ,%%ymm7,%%ymm7	\n\t"/* xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm6,%%ymm6	\n\t"/* wt_re*[x     ] */\
@@ -2461,7 +2495,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p1] "m" (Xp1)\
 		,	[__p2] "m" (Xp2)\
 		,	[__p3] "m" (Xp3)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","r8","r9","r10","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"   /* Clobbered registers */\
+		/* v18: Needed to support residue-shifted Pepin tests: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"   /* Clobbered registers */\
 	);\
 	}
 
@@ -2502,7 +2538,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	The array indices i/j/k/lcycle declared int in caller but assumed to have been byte-shift-converted at time this macro called,
 	thus can use as complex-address-offsets.  Use bytewise literal offsets to save registers for several args here,as vvv-marked:
 												                             vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv */
-	#define SSE2_fermat_carry_norm_errcheck_X4_loacc(Xdata,Xbase_root,Xcy_re,Xcy_im,Xodd_radix,Xodd_radm2,Xodd_radm3,Xhalf_arr,Xsign_mask,XicycleA,XicycleB,XicycleC,XicycleD, XjcycleA,XkcycleA,XlcycleA, Xadd0,Xp1,Xp2,Xp3)\
+	#define SSE2_fermat_carry_norm_errcheck_X4_loacc(Xdata,Xbase_root,Xcy_re,Xcy_im,Xodd_radix,Xodd_radm2,Xodd_radm3,Xhalf_arr,Xsign_mask,XicycleA,XicycleB,XicycleC,XicycleD, XjcycleA,XkcycleA,XlcycleA, Xadd0,Xp1,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 		"movq		%[__add0],%%rcx		\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
@@ -2538,11 +2574,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vperm2f128 $49,%%ymm8,%%ymm4,%%ymm4	/* Re C	*/	\n\t		vperm2f128 $49,%%ymm9,%%ymm5,%%ymm5 	/* Im C	*/	\n\t"\
 		"subq		$%c[__odd_radix],%%rdx				\n\t"\
 		/* Base negacyclic roots at this address in [0,2,4,6]*0x20 (Re parts), [1,3,5,7]*0x20 (Imag parts) */\
-		"movq		%[__sign_mask],%%rax	\n\t"\
-		"vmovaps	(%%rax),%%ymm15	\n\t"/* ymm15 free for rest of way; use to store sign_mask needed for floating ABS */\
+		"movq	%[__prp_mult]	,%%rax	\n\t"\
+		"vbroadcastsd	(%%rax),%%ymm15	\n\t"/* prp_mult, broadcast to all double-slots of ymm15 */\
+		"movq		%[__sign_mask],%%rsi	\n\t"\
 		"movq	%[__base_root] ,%%rax		\n\t"/* Won't need main-array again until output transpose, so re-use rax for base_root */\
 		/* half_arr[0,1,2,3] = [base*2, baseinv*2,wt_re*2,wt_im*2] */\
-		"vmovaps	-0x40(%%rdx),%%ymm13	\n\t"/* XMM13 = maxerr */\
+		"vmovaps	-0x40(%%rdx),%%ymm13	\n\t"/* xmm13 = maxerr */\
 		"addq		%%r15,%%rdx				\n\t"/* icycle assumed already in left-shifted ptr-byte-offset form */\
 		/* Get next set of negacyclic roots: */\
 		"vmovaps	    (%%rax),%%ymm10		\n\t"/* c = Re part of 1st base-root quartet */\
@@ -2559,13 +2596,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	" vfmadd231pd	%%ymm11,%%ymm9,%%ymm0 	\n\t"/* wt_im*[y copy] ...[a0-3.re] = x*wt_re + y*wt_im */\
 	"vfnmadd231pd	%%ymm11,%%ymm8,%%ymm1 	\n\t"/* wt_im*[x copy] ...[a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize a-pair, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%ymm0,%%ymm0	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%ymm1,%%ymm1	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm0,%%ymm8			\n\t	vmovaps		%%ymm1,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm0,%%ymm0		\n\t	vroundpd	$0,%%ymm1,%%ymm1	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm0 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm1 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
-		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+	"vfmadd213pd (%%rbx),%%ymm15,%%ymm0	\n\t vfmadd213pd %c[__cy_im](%%rbx),%%ymm15,%%ymm1	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -2573,7 +2609,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
 		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm13	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"/* store [cy0-3.re|im] */\
-	"vfnmadd231pd	%%ymm13,%%ymm8,%%ymm0 	\n\t vfnmadd231pd	%%ymm13,%%ymm9,%%ymm1	\n\t"/* base[0]*[cy0-3.re|im] ... XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+	"vfnmadd231pd	%%ymm13,%%ymm8,%%ymm0 	\n\t vfnmadd231pd	%%ymm13,%%ymm9,%%ymm1	\n\t"/* base[0]*[cy0-3.re|im] ... xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* wt_re*[x     ] */\
@@ -2607,13 +2643,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	" vfmadd231pd	%%ymm11,%%ymm9,%%ymm2 	\n\t"/* wt_im*[y copy] ...[a0-3.re] = x*wt_re + y*wt_im */\
 	"vfnmadd231pd	%%ymm11,%%ymm8,%%ymm3 	\n\t"/* wt_im*[x copy] ...[a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%ymm2,%%ymm2	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%ymm3,%%ymm3	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm2,%%ymm8			\n\t	vmovaps		%%ymm3,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm2,%%ymm2		\n\t	vroundpd	$0,%%ymm3,%%ymm3	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm2 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm3 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
-		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+	"vfmadd213pd (%%rbx),%%ymm15,%%ymm2	\n\t vfmadd213pd %c[__cy_im](%%rbx),%%ymm15,%%ymm3	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -2621,7 +2656,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
 		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm13	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"/* store [cy0-3.re|im] */\
-	"vfnmadd231pd	%%ymm13,%%ymm8,%%ymm2 	\n\t vfnmadd231pd	%%ymm13,%%ymm9,%%ymm3	\n\t"/* base[0]*[cy0-3.re|im] ... XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+	"vfnmadd231pd	%%ymm13,%%ymm8,%%ymm2 	\n\t vfnmadd231pd	%%ymm13,%%ymm9,%%ymm3	\n\t"/* base[0]*[cy0-3.re|im] ... xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"/* wt_re*[x     ] */\
@@ -2655,13 +2690,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	" vfmadd231pd	%%ymm11,%%ymm9,%%ymm4 	\n\t"/* wt_im*[y copy] ...[a0-3.re] = x*wt_re + y*wt_im */\
 	"vfnmadd231pd	%%ymm11,%%ymm8,%%ymm5 	\n\t"/* wt_im*[x copy] ...[a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%ymm4,%%ymm4	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%ymm5,%%ymm5	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm4,%%ymm8			\n\t	vmovaps		%%ymm5,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm4,%%ymm4		\n\t	vroundpd	$0,%%ymm5,%%ymm5	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm4 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm5 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
-		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+	"vfmadd213pd (%%rbx),%%ymm15,%%ymm4	\n\t vfmadd213pd %c[__cy_im](%%rbx),%%ymm15,%%ymm5	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -2669,7 +2703,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
 		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm13	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"/* store [cy0-3.re|im] */\
-	"vfnmadd231pd	%%ymm13,%%ymm8,%%ymm4 	\n\t vfnmadd231pd	%%ymm13,%%ymm9,%%ymm5	\n\t"/* base[0]*[cy0-3.re|im] ... XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+	"vfnmadd231pd	%%ymm13,%%ymm8,%%ymm4 	\n\t vfnmadd231pd	%%ymm13,%%ymm9,%%ymm5	\n\t"/* base[0]*[cy0-3.re|im] ... xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm4,%%ymm4	\n\t"/* wt_re*[x     ] */\
@@ -2703,13 +2737,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	" vfmadd231pd	%%ymm11,%%ymm9,%%ymm6 	\n\t"/* wt_im*[y copy] ...[a0-3.re] = x*wt_re + y*wt_im */\
 	"vfnmadd231pd	%%ymm11,%%ymm8,%%ymm7 	\n\t"/* wt_im*[x copy] ...[a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%ymm6,%%ymm6	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%ymm7,%%ymm7	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm6,%%ymm8			\n\t	vmovaps		%%ymm7,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm6,%%ymm6		\n\t	vroundpd	$0,%%ymm7,%%ymm7	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm6 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm7 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
-		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+	"vfmadd213pd (%%rbx),%%ymm15,%%ymm6	\n\t vfmadd213pd %c[__cy_im](%%rbx),%%ymm15,%%ymm7	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -2717,7 +2750,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vroundpd	$0,%%ymm8 ,%%ymm8 		\n\t	vroundpd	$0,%%ymm9,%%ymm9		\n\t"/* [cy0-3.re] = DNINT(temp*baseinv[0]) */\
 		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm13	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"/* store [cy0-3.re|im] */\
-	"vfnmadd231pd	%%ymm13,%%ymm8,%%ymm6 	\n\t vfnmadd231pd	%%ymm13,%%ymm9,%%ymm7	\n\t"/* base[0]*[cy0-3.re|im] ... XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+	"vfnmadd231pd	%%ymm13,%%ymm8,%%ymm6 	\n\t vfnmadd231pd	%%ymm13,%%ymm9,%%ymm7	\n\t"/* base[0]*[cy0-3.re|im] ... xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm6,%%ymm6	\n\t"/* wt_re*[x     ] */\
@@ -2788,7 +2821,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p1] "m" (Xp1)\
 		,	[__p2] "m" (Xp2)\
 		,	[__p3] "m" (Xp3)\
-		: "cc","memory","rax","rbx","rcx","rdx","r8","r9","r10","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14"   /* Clobbered registers */\
+		/* v18: Needed to support residue-shifted Pepin tests: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","r8","r9","r10","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
@@ -2799,9 +2834,11 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	NOTE: The array indices i/j/k/lcycle declared int in caller but assumed to have been
 	byte-shift-converted at time this macro called, thus can use as complex-address-offsets.
 	*/
-	#define SSE2_fermat_carry_norm_pow2_errcheck_X4(Xdata,Xbase_root,Xcmul_offset,Xcy_re,Xcy_im,Xhalf_arr,Xsign_mask, Xadd0,Xp1,Xp2,Xp3)\
+	#define SSE2_fermat_carry_norm_pow2_errcheck_X4(Xdata,Xbase_root,Xcmul_offset,Xcy_re,Xcy_im,Xhalf_arr,Xsign_mask, Xadd0,Xp1,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
+		"movq	%[__prp_mult]	,%%rax	\n\t"\
+		"vbroadcastsd	(%%rax),%%ymm15	\n\t"/* prp_mult, broadcast to all double-slots of ymm15 */\
 		"movq		%[__add0],%%r14		\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
 		/* Base negacyclic roots at this address in [0,2,4,6]*0x20 (Re parts), [1,3,5,7]*0x20 (Imag parts) */\
 		"movq	%[__base_root] ,%%rax			\n\t"/* Won't need main-array again until output transpose, so re-use rax for base_root */\
@@ -2810,7 +2847,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* Up-multiply quartet of negacyclic roots used in this macro invocation; store sets 2-4 back into mem, keep set 1 in ymm10,11 [that's why we do sets 1/2 after 3/4] */\
 		"vmovaps	    (%%rbx),%%ymm10		\n\t	"/* Multiply by exp(j*I*Pi/2)/RADIX, for j = 0-3 */\
 		"vmovaps	0x20(%%rbx),%%ymm11		\n\t	"/* c = Re(exp) in ymm0, s = Im(exp) in ymm1 */\
-		"/* Sets 3/4: */"\
+		/* Sets 3/4: */\
 		"vmovaps	 0x80(%%rax),%%ymm0		\n\t	vmovaps	 0xc0(%%rax),%%ymm2			\n\t"\
 		"vmovaps	 0xa0(%%rax),%%ymm1		\n\t	vmovaps	 0xe0(%%rax),%%ymm3			\n\t"\
 		"vmovaps	%%ymm0,%%ymm4			\n\t	vmovaps		%%ymm2,%%ymm6			\n\t"\
@@ -2823,7 +2860,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vaddpd		%%ymm4 ,%%ymm1,%%ymm1	\n\t	vaddpd		%%ymm6 ,%%ymm3,%%ymm3	\n\t"\
 		"vmovaps	%%ymm0 ,0x80(%%rax)		\n\t	vmovaps		%%ymm2 ,0xc0(%%rax)		\n\t"/* Store result, overwriting input base root */\
 		"vmovaps	%%ymm1 ,0xa0(%%rax)		\n\t	vmovaps		%%ymm3 ,0xe0(%%rax)		\n\t"/* Im part */\
-		"/* Sets 1/2: */"\
+		/* Sets 1/2: */\
 		"vmovaps	     (%%rax),%%ymm0		\n\t	vmovaps	 0x40(%%rax),%%ymm2			\n\t"/* x = Re part of 1st base-root quartet */\
 		"vmovaps	 0x20(%%rax),%%ymm1		\n\t	vmovaps	 0x60(%%rax),%%ymm3			\n\t"/* y = Im part */\
 		"vmovaps	%%ymm0,%%ymm4			\n\t	vmovaps		%%ymm2,%%ymm6			\n\t"/* Copy x */\
@@ -2838,7 +2875,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"											vmovaps		%%ymm3 ,0x60(%%rax)		\n\t"/* Im part */\
 		"movq		%[__data],%%rax		\n\t"\
 		"movq		%[__half_arr],%%rdx		\n\t"\
-		"vmovaps	0x40(%%rdx),%%ymm12	\n\t"/* XMM12 = scale */\
+		"vmovaps	0x40(%%rdx),%%ymm12	\n\t"/* xmm12 = scale */\
 	/* Transpose uses algo [1b] in util.c:test_simd_transpose_4x4(), which is ~4 cycles faster than algo [1a]. */\
 	/* 4-way transpose of inputs (Re, Im parts separately): Inputs from r0/1,2/3,4/5.6/7. Outputs into ymm0-7: */\
 	/* Real parts use ymm0,2,4,6, ymm8 as tmp-reg:					Imag parts use ymm1,3,5,7, ymm9 as tm-reg: */\
@@ -2862,8 +2899,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* Base negacyclic roots at this address in [0,2,4,6]*0x20 (Re parts), [1,3,5,7]*0x20 (Imag parts) */\
 		"movq	%[__base_root] ,%%rax		\n\t"/* Won't need main-array again until output transpose, so re-use rax for base_root */\
 		/* half_arr[0,1,2,3] = [base*2, baseinv*2,wt_re*2,wt_im*2] */\
-		"vmovaps	-0x40(%%rdx),%%ymm13	\n\t"/* XMM13 = maxerr */\
-		"/*vmovaps	-0x20(%%rdx),%%ymm15	*/\n\t"/* rnd_const; prefer ROUNDPD in AVX mode, so ymm15 free */\
+		"vmovaps	-0x40(%%rdx),%%ymm13	\n\t"/* xmm13 = maxerr */\
+	/*	"vmovaps	-0x20(%%rdx),%%ymm15	\n\t"// rnd_const; prefer ROUNDPD in AVX mode, so ymm15 free */\
 		"vmovaps	%%ymm13,%%ymm14			\n\t"/* maxerr copy */\
 		"movq		%[__cy_re],%%rbx		\n\t"\
 		"movq		%[__cy_im],%%rcx		\n\t"\
@@ -2881,14 +2918,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vaddpd		%%ymm9 ,%%ymm0,%%ymm0	\n\t"/* [a0-3.re] = x*wt_re + y*wt_im */\
 		"vsubpd		%%ymm8 ,%%ymm1,%%ymm1	\n\t"/* [a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize a-pair, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		(%%rcx),%%ymm1,%%ymm1	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm0,%%ymm8			\n\t	vmovaps		%%ymm1,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm0,%%ymm0		\n\t	vroundpd	$0,%%ymm1,%%ymm1	\n\t"/* temp = DNINT(x|y) */\
 		"movq		%[__sign_mask],%%rsi	\n\t"\
 		"vmovaps	0x20(%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm0 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm1 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
 		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vmulpd		%%ymm15,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm15,%%ymm1,%%ymm1	\n\t"\
+		"vaddpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vaddpd		(%%rcx),%%ymm1,%%ymm1	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -2897,7 +2934,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	(%%rdx),%%ymm12	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"/* store [cy0-3.re|im] */\
 		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm9 ,%%ymm1,%%ymm1	\n\t"/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vsubpd		%%ymm8 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm9 ,%%ymm1,%%ymm1	\n\t"/* xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* wt_re*[x     ] */\
@@ -2924,13 +2961,13 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vaddpd		%%ymm9 ,%%ymm2,%%ymm2	\n\t"/* [a0-3.re] = x*wt_re + y*wt_im */\
 		"vsubpd		%%ymm8 ,%%ymm3,%%ymm3	\n\t"/* [a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%ymm2,%%ymm2	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		(%%rcx),%%ymm3,%%ymm3	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm2,%%ymm8			\n\t	vmovaps		%%ymm3,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm2,%%ymm2		\n\t	vroundpd	$0,%%ymm3,%%ymm3	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	0x20(%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm2 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm3 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
 		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vmulpd		%%ymm15,%%ymm2,%%ymm2	\n\t	vmulpd		%%ymm15,%%ymm3,%%ymm3	\n\t"\
+		"vaddpd		(%%rbx),%%ymm2,%%ymm2	\n\t	vaddpd		(%%rcx),%%ymm3,%%ymm3	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -2939,7 +2976,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	(%%rdx),%%ymm12	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"/* store [cy0-3.re|im] */\
 		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm2,%%ymm2	\n\t	vsubpd		%%ymm9 ,%%ymm3,%%ymm3	\n\t"/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vsubpd		%%ymm8 ,%%ymm2,%%ymm2	\n\t	vsubpd		%%ymm9 ,%%ymm3,%%ymm3	\n\t"/* xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"/* wt_re*[x     ] */\
@@ -2966,13 +3003,13 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vaddpd		%%ymm9 ,%%ymm4,%%ymm4	\n\t"/* [a0-3.re] = x*wt_re + y*wt_im */\
 		"vsubpd		%%ymm8 ,%%ymm5,%%ymm5	\n\t"/* [a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%ymm4,%%ymm4	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		(%%rcx),%%ymm5,%%ymm5	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm4,%%ymm8			\n\t	vmovaps		%%ymm5,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm4,%%ymm4		\n\t	vroundpd	$0,%%ymm5,%%ymm5	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	0x20(%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm4 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm5 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
 		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vmulpd		%%ymm15,%%ymm4,%%ymm4	\n\t	vmulpd		%%ymm15,%%ymm5,%%ymm5	\n\t"\
+		"vaddpd		(%%rbx),%%ymm4,%%ymm4	\n\t	vaddpd		(%%rcx),%%ymm5,%%ymm5	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -2981,7 +3018,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	(%%rdx),%%ymm12	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"/* store [cy0-3.re|im] */\
 		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm4,%%ymm4	\n\t	vsubpd		%%ymm9 ,%%ymm5,%%ymm5	\n\t"/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vsubpd		%%ymm8 ,%%ymm4,%%ymm4	\n\t	vsubpd		%%ymm9 ,%%ymm5,%%ymm5	\n\t"/* xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm4,%%ymm4	\n\t"/* wt_re*[x     ] */\
@@ -3008,13 +3045,13 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vaddpd		%%ymm9 ,%%ymm6,%%ymm6	\n\t"/* [a0-3.re] = x*wt_re + y*wt_im */\
 		"vsubpd		%%ymm8 ,%%ymm7,%%ymm7	\n\t"/* [a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		(%%rbx),%%ymm6,%%ymm6	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		(%%rcx),%%ymm7,%%ymm7	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm6,%%ymm8			\n\t	vmovaps		%%ymm7,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm6,%%ymm6		\n\t	vroundpd	$0,%%ymm7,%%ymm7	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	0x20(%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm6 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm7 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
 		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vmulpd		%%ymm15,%%ymm6,%%ymm6	\n\t	vmulpd		%%ymm15,%%ymm7,%%ymm7	\n\t"\
+		"vaddpd		(%%rbx),%%ymm6,%%ymm6	\n\t	vaddpd		(%%rcx),%%ymm7,%%ymm7	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -3023,7 +3060,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	(%%rdx),%%ymm12	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,(%%rcx)			\n\t"/* store [cy0-3.re|im] */\
 		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm6,%%ymm6	\n\t	vsubpd		%%ymm9 ,%%ymm7,%%ymm7	\n\t"/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vsubpd		%%ymm8 ,%%ymm6,%%ymm6	\n\t	vsubpd		%%ymm9 ,%%ymm7,%%ymm7	\n\t"/* xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm6,%%ymm6	\n\t"/* wt_re*[x     ] */\
@@ -3065,7 +3102,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p1] "m" (Xp1)\
 		,	[__p2] "m" (Xp2)\
 		,	[__p3] "m" (Xp3)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14"/* Clobbered registers */\
+		/* v18: Needed to support residue-shifted Pepin tests: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
@@ -3079,7 +3118,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	The array indices i/j/k/lcycle declared int in caller but assumed to have been byte-shift-converted at time this macro called,
 	thus can use as complex-address-offsets.  Use bytewise literal offsets to save registers for several args here,as vvv-marked:
 												                                           vvvvv The [1,2,3]-multiples of odd_radix assumed << l2_sz_vd on input */
-	#define SSE2_fermat_carry_norm_errcheck_X4_hiacc(Xdata,Xbase_root,Xcmul_offset,Xcy_re,Xcy_im,Xodd_radix,Xodd_radm2,Xodd_radm3,Xhalf_arr,Xsign_mask,XicycleA,XicycleB,XicycleC,XicycleD, XjcycleA,XkcycleA,XlcycleA, Xadd0,Xp1,Xp2,Xp3)\
+	#define SSE2_fermat_carry_norm_errcheck_X4_hiacc(Xdata,Xbase_root,Xcmul_offset,Xcy_re,Xcy_im,Xodd_radix,Xodd_radm2,Xodd_radm3,Xhalf_arr,Xsign_mask,XicycleA,XicycleB,XicycleC,XicycleD, XjcycleA,XkcycleA,XlcycleA, Xadd0,Xp1,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 		"movq		%[__add0],%%rcx		\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
@@ -3148,11 +3187,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vperm2f128 $49,%%ymm8,%%ymm4,%%ymm4	/* Re C	*/	\n\t		vperm2f128 $49,%%ymm9,%%ymm5,%%ymm5 	/* Im C	*/	\n\t"\
 		"subq		$%c[__odd_radix],%%rdx				\n\t"\
 		/* Base negacyclic roots at this address in [0,2,4,6]*0x20 (Re parts), [1,3,5,7]*0x20 (Imag parts) */\
-		"movq		%[__sign_mask],%%rax	\n\t"\
-		"vmovaps	(%%rax),%%ymm15	\n\t"/* ymm15 free for rest of way; use to store sign_mask needed for floating ABS */\
+		"movq	%[__prp_mult]	,%%rax	\n\t"\
+		"vbroadcastsd	(%%rax),%%ymm15	\n\t"/* prp_mult, broadcast to all double-slots of ymm15 */\
+		"movq		%[__sign_mask],%%rsi	\n\t"\
 		"movq	%[__base_root] ,%%rax		\n\t"/* Won't need main-array again until output transpose, so re-use rax for base_root */\
 		/* half_arr[0,1,2,3] = [base*2, baseinv*2,wt_re*2,wt_im*2] */\
-		"vmovaps	-0x40(%%rdx),%%ymm13	\n\t"/* XMM13 = maxerr */\
+		"vmovaps	-0x40(%%rdx),%%ymm13	\n\t"/* xmm13 = maxerr */\
 		"addq		%%rdi,%%rdx				\n\t"/* icycle assumed already in left-shifted ptr-byte-offset form */\
 		"vmovaps	%%ymm13,%%ymm14			\n\t"/* maxerr copy */\
 		"movq		%[__cy_re],%%rbx		\n\t"\
@@ -3170,13 +3210,13 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vaddpd		%%ymm9 ,%%ymm0,%%ymm0	\n\t"/* [a0-3.re] = x*wt_re + y*wt_im */\
 		"vsubpd		%%ymm8 ,%%ymm1,%%ymm1	\n\t"/* [a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize a-pair, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%ymm0,%%ymm0	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%ymm1,%%ymm1	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm0,%%ymm8			\n\t	vmovaps		%%ymm1,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm0,%%ymm0		\n\t	vroundpd	$0,%%ymm1,%%ymm1	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm0 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm1 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
-		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vmulpd		%%ymm15,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm15,%%ymm1,%%ymm1	\n\t"\
+		"vaddpd		(%%rbx),%%ymm0,%%ymm0	\n\t vaddpd	%c[__cy_im](%%rbx),%%ymm1,%%ymm1\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -3185,7 +3225,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm12	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"/* store [cy0-3.re|im] */\
 		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm9 ,%%ymm1,%%ymm1	\n\t"/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vsubpd		%%ymm8 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm9 ,%%ymm1,%%ymm1	\n\t"/* xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* wt_re*[x     ] */\
@@ -3215,13 +3255,13 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vaddpd		%%ymm9 ,%%ymm2,%%ymm2	\n\t"/* [a0-3.re] = x*wt_re + y*wt_im */\
 		"vsubpd		%%ymm8 ,%%ymm3,%%ymm3	\n\t"/* [a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%ymm2,%%ymm2	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%ymm3,%%ymm3	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm2,%%ymm8			\n\t	vmovaps		%%ymm3,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm2,%%ymm2		\n\t	vroundpd	$0,%%ymm3,%%ymm3	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm2 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm3 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
-		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vmulpd		%%ymm15,%%ymm2,%%ymm2	\n\t	vmulpd		%%ymm15,%%ymm3,%%ymm3	\n\t"\
+		"vaddpd		(%%rbx),%%ymm2,%%ymm2	\n\t vaddpd	%c[__cy_im](%%rbx),%%ymm3,%%ymm3\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -3230,7 +3270,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm12	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"/* store [cy0-3.re|im] */\
 		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm2,%%ymm2	\n\t	vsubpd		%%ymm9 ,%%ymm3,%%ymm3	\n\t"/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vsubpd		%%ymm8 ,%%ymm2,%%ymm2	\n\t	vsubpd		%%ymm9 ,%%ymm3,%%ymm3	\n\t"/* xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"/* wt_re*[x     ] */\
@@ -3260,13 +3300,13 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vaddpd		%%ymm9 ,%%ymm4,%%ymm4	\n\t"/* [a0-3.re] = x*wt_re + y*wt_im */\
 		"vsubpd		%%ymm8 ,%%ymm5,%%ymm5	\n\t"/* [a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%ymm4,%%ymm4	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%ymm5,%%ymm5	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm4,%%ymm8			\n\t	vmovaps		%%ymm5,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm4,%%ymm4		\n\t	vroundpd	$0,%%ymm5,%%ymm5	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm4 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm5 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
-		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vmulpd		%%ymm15,%%ymm4,%%ymm4	\n\t	vmulpd		%%ymm15,%%ymm5,%%ymm5	\n\t"\
+		"vaddpd		(%%rbx),%%ymm4,%%ymm4	\n\t vaddpd	%c[__cy_im](%%rbx),%%ymm5,%%ymm5\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -3275,7 +3315,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm12	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"/* store [cy0-3.re|im] */\
 		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm4,%%ymm4	\n\t	vsubpd		%%ymm9 ,%%ymm5,%%ymm5	\n\t"/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vsubpd		%%ymm8 ,%%ymm4,%%ymm4	\n\t	vsubpd		%%ymm9 ,%%ymm5,%%ymm5	\n\t"/* xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm4,%%ymm4	\n\t"/* wt_re*[x     ] */\
@@ -3305,13 +3345,13 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vaddpd		%%ymm9 ,%%ymm6,%%ymm6	\n\t"/* [a0-3.re] = x*wt_re + y*wt_im */\
 		"vsubpd		%%ymm8 ,%%ymm7,%%ymm7	\n\t"/* [a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%ymm6,%%ymm6	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%ymm7,%%ymm7	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm6,%%ymm8			\n\t	vmovaps		%%ymm7,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm6,%%ymm6		\n\t	vroundpd	$0,%%ymm7,%%ymm7	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm6 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm7 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
-		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vmulpd		%%ymm15,%%ymm6,%%ymm6	\n\t	vmulpd		%%ymm15,%%ymm7,%%ymm7	\n\t"\
+		"vaddpd		(%%rbx),%%ymm6,%%ymm6	\n\t vaddpd	%c[__cy_im](%%rbx),%%ymm7,%%ymm7\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -3320,7 +3360,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm12	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"/* store [cy0-3.re|im] */\
 		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm6,%%ymm6	\n\t	vsubpd		%%ymm9 ,%%ymm7,%%ymm7	\n\t"/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vsubpd		%%ymm8 ,%%ymm6,%%ymm6	\n\t	vsubpd		%%ymm9 ,%%ymm7,%%ymm7	\n\t"/* xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm6,%%ymm6	\n\t"/* wt_re*[x     ] */\
@@ -3385,7 +3425,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p1] "m" (Xp1)\
 		,	[__p2] "m" (Xp2)\
 		,	[__p3] "m" (Xp3)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","r8","r9","r10","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"   /* Clobbered registers */\
+		/* v18: Needed to support residue-shifted Pepin tests: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"   /* Clobbered registers */\
 	);\
 	}
 
@@ -3430,9 +3472,11 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	The array indices i/j/k/lcycle declared int in caller but assumed to have been byte-shift-converted at time this macro called,
 	thus can use as complex-address-offsets.  Use bytewise literal offsets to save registers for several args here,as vvv-marked:
 												                             vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv */
-	#define SSE2_fermat_carry_norm_errcheck_X4_loacc(Xdata,Xbase_root,Xcy_re,Xcy_im,Xodd_radix,Xodd_radm2,Xodd_radm3,Xhalf_arr,Xsign_mask,XicycleA,XicycleB,XicycleC,XicycleD, XjcycleA,XkcycleA,XlcycleA, Xadd0,Xp1,Xp2,Xp3)\
+	#define SSE2_fermat_carry_norm_errcheck_X4_loacc(Xdata,Xbase_root,Xcy_re,Xcy_im,Xodd_radix,Xodd_radm2,Xodd_radm3,Xhalf_arr,Xsign_mask,XicycleA,XicycleB,XicycleC,XicycleD, XjcycleA,XkcycleA,XlcycleA, Xadd0,Xp1,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
+		"movq	%[__prp_mult]	,%%rax	\n\t"\
+		"vbroadcastsd	(%%rax),%%ymm15	\n\t"/* prp_mult, broadcast to all double-slots of ymm15 */\
 		"movq		%[__add0],%%rcx		\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
 		"movq		%[__data],%%rax		\n\t"\
 		"movq		%[__half_arr],%%rdx		\n\t"\
@@ -3466,11 +3510,10 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vperm2f128 $49,%%ymm8,%%ymm4,%%ymm4	/* Re C	*/	\n\t		vperm2f128 $49,%%ymm9,%%ymm5,%%ymm5 	/* Im C	*/	\n\t"\
 		"subq		$%c[__odd_radix],%%rdx				\n\t"\
 		/* Base negacyclic roots at this address in [0,2,4,6]*0x20 (Re parts), [1,3,5,7]*0x20 (Imag parts) */\
-		"movq		%[__sign_mask],%%rax	\n\t"\
-		"vmovaps	(%%rax),%%ymm15	\n\t"/* ymm15 free for rest of way; use to store sign_mask needed for floating ABS */\
+		"movq		%[__sign_mask],%%rsi	\n\t"\
 		"movq	%[__base_root] ,%%rax		\n\t"/* Won't need main-array again until output transpose, so re-use rax for base_root */\
 		/* half_arr[0,1,2,3] = [base*2, baseinv*2,wt_re*2,wt_im*2] */\
-		"vmovaps	-0x40(%%rdx),%%ymm13	\n\t"/* XMM13 = maxerr */\
+		"vmovaps	-0x40(%%rdx),%%ymm13	\n\t"/* xmm13 = maxerr */\
 		"addq		%%r15,%%rdx				\n\t"/* icycle assumed already in left-shifted ptr-byte-offset form */\
 		/* Get next set of negacyclic roots: */\
 		"vmovaps	    (%%rax),%%ymm10		\n\t"/* c = Re part of 1st base-root quartet */\
@@ -3489,13 +3532,13 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vaddpd		%%ymm9 ,%%ymm0,%%ymm0	\n\t"/* [a0-3.re] = x*wt_re + y*wt_im */\
 		"vsubpd		%%ymm8 ,%%ymm1,%%ymm1	\n\t"/* [a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize a-pair, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%ymm0,%%ymm0	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%ymm1,%%ymm1	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm0,%%ymm8			\n\t	vmovaps		%%ymm1,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm0,%%ymm0		\n\t	vroundpd	$0,%%ymm1,%%ymm1	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm0 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm1 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
-		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vmulpd		%%ymm15,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm15,%%ymm1,%%ymm1	\n\t"\
+		"vaddpd		(%%rbx),%%ymm0,%%ymm0	\n\t vaddpd	%c[__cy_im](%%rbx),%%ymm1,%%ymm1\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -3504,7 +3547,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm12	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"/* store [cy0-3.re|im] */\
 		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm9 ,%%ymm1,%%ymm1	\n\t"/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vsubpd		%%ymm8 ,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm9 ,%%ymm1,%%ymm1	\n\t"/* xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* wt_re*[x     ] */\
@@ -3544,13 +3587,13 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vaddpd		%%ymm9 ,%%ymm2,%%ymm2	\n\t"/* [a0-3.re] = x*wt_re + y*wt_im */\
 		"vsubpd		%%ymm8 ,%%ymm3,%%ymm3	\n\t"/* [a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%ymm2,%%ymm2	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%ymm3,%%ymm3	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm2,%%ymm8			\n\t	vmovaps		%%ymm3,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm2,%%ymm2		\n\t	vroundpd	$0,%%ymm3,%%ymm3	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm2 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm3 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
-		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vmulpd		%%ymm15,%%ymm2,%%ymm2	\n\t	vmulpd		%%ymm15,%%ymm3,%%ymm3	\n\t"\
+		"vaddpd		(%%rbx),%%ymm2,%%ymm2	\n\t vaddpd	%c[__cy_im](%%rbx),%%ymm3,%%ymm3\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -3559,7 +3602,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm12	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"/* store [cy0-3.re|im] */\
 		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm2,%%ymm2	\n\t	vsubpd		%%ymm9 ,%%ymm3,%%ymm3	\n\t"/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vsubpd		%%ymm8 ,%%ymm2,%%ymm2	\n\t	vsubpd		%%ymm9 ,%%ymm3,%%ymm3	\n\t"/* xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"/* wt_re*[x     ] */\
@@ -3599,13 +3642,13 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vaddpd		%%ymm9 ,%%ymm4,%%ymm4	\n\t"/* [a0-3.re] = x*wt_re + y*wt_im */\
 		"vsubpd		%%ymm8 ,%%ymm5,%%ymm5	\n\t"/* [a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%ymm4,%%ymm4	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%ymm5,%%ymm5	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm4,%%ymm8			\n\t	vmovaps		%%ymm5,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm4,%%ymm4		\n\t	vroundpd	$0,%%ymm5,%%ymm5	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm4 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm5 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
-		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vmulpd		%%ymm15,%%ymm4,%%ymm4	\n\t	vmulpd		%%ymm15,%%ymm5,%%ymm5	\n\t"\
+		"vaddpd		(%%rbx),%%ymm4,%%ymm4	\n\t vaddpd	%c[__cy_im](%%rbx),%%ymm5,%%ymm5\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -3614,7 +3657,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm12	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"/* store [cy0-3.re|im] */\
 		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm4,%%ymm4	\n\t	vsubpd		%%ymm9 ,%%ymm5,%%ymm5	\n\t"/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vsubpd		%%ymm8 ,%%ymm4,%%ymm4	\n\t	vsubpd		%%ymm9 ,%%ymm5,%%ymm5	\n\t"/* xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm4,%%ymm4	\n\t"/* wt_re*[x     ] */\
@@ -3654,13 +3697,13 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vaddpd		%%ymm9 ,%%ymm6,%%ymm6	\n\t"/* [a0-3.re] = x*wt_re + y*wt_im */\
 		"vsubpd		%%ymm8 ,%%ymm7,%%ymm7	\n\t"/* [a0-3.im] = y*wt_re - x*wt_im */\
 		/* normalize, compute carryout, compute ROE: */\
-		"vaddpd		           (%%rbx),%%ymm6,%%ymm6	\n\t"/* [a0-3.re] + [cy0-3.re] */\
-		"vaddpd		%c[__cy_im](%%rbx),%%ymm7,%%ymm7	\n\t"/* [a0-3.im] + [cy0-3.im] */\
 		"vmovaps	%%ymm6,%%ymm8			\n\t	vmovaps		%%ymm7,%%ymm9		\n\t"/* copy x|y */\
 		"vroundpd	$0,%%ymm6,%%ymm6		\n\t	vroundpd	$0,%%ymm7,%%ymm7	\n\t"/* temp = DNINT(x|y) */\
 		"vmovaps	%c[__odd_radm3](%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm6 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm7 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
-		"vandpd		%%ymm15,%%ymm8 ,%%ymm8 	\n\t	vandpd		%%ymm15,%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
+		"vmulpd		%%ymm15,%%ymm6,%%ymm6	\n\t	vmulpd		%%ymm15,%%ymm7,%%ymm7	\n\t"\
+		"vaddpd		(%%rbx),%%ymm6,%%ymm6	\n\t vaddpd	%c[__cy_im](%%rbx),%%ymm7,%%ymm7\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -3669,7 +3712,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	%c[__odd_radm2](%%rdx),%%ymm12	\n\t"/* [base0-3] */\
 		"vmovaps	%%ymm8,(%%rbx)			\n\t	vmovaps		%%ymm9,%c[__cy_im](%%rbx)\n\t"/* store [cy0-3.re|im] */\
 		"vmulpd		%%ymm12,%%ymm8,%%ymm8	\n\t	vmulpd		%%ymm12,%%ymm9,%%ymm9	\n\t"/* base[0]*[cy0-3.re|im] */\
-		"vsubpd		%%ymm8 ,%%ymm6,%%ymm6	\n\t	vsubpd		%%ymm9 ,%%ymm7,%%ymm7	\n\t"/* XMM0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
+		"vsubpd		%%ymm8 ,%%ymm6,%%ymm6	\n\t	vsubpd		%%ymm9 ,%%ymm7,%%ymm7	\n\t"/* xmm0|1 = [a0-3.re|im] = temp - [cy0-3.re|im]*base[0] */\
 		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"/* cpy x|y */\
 		/* Forward acyclic-convo weight is (wt_re, +wt_im): */\
 		"vmulpd		%%ymm10,%%ymm6,%%ymm6	\n\t"/* wt_re*[x     ] */\
@@ -3744,7 +3787,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p1] "m" (Xp1)\
 		,	[__p2] "m" (Xp2)\
 		,	[__p3] "m" (Xp3)\
-		: "cc","memory","rax","rbx","rcx","rdx","r8","r9","r10","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14"   /* Clobbered registers */\
+		/* v18: Needed to support residue-shifted Pepin tests: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","r8","r9","r10","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
@@ -3754,124 +3799,137 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 
 	/* Power-of-2-runlength Fermat-mod acyclic-transform carry macro. (No IBDWT needed for power-of-2 runlenghts).
 	*/
-	#define SSE2_fermat_carry_norm_pow2_errcheck(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xhalf_arr,Xsign_mask,Xadd1,Xadd2, Xadd0)\
+	#define SSE2_fermat_carry_norm_pow2_errcheck(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xhalf_arr,Xsign_mask,Xadd1,Xadd2, Xadd0, Xprp_mult)\
 	{\
 	__asm__ volatile (\
+		"movq	%[__prp_mult]	,%%rax	\n\t"\
+		"movsd	(%%rax),%%xmm15		\n\t	shufpd	$0,%%xmm15,%%xmm15	\n\t"/* prp_mult, broadcast to all double-slots of xmm15 */\
 	"movq	%[__add0],%%r14	\n\t"\
 	"prefetcht0	(%%r14)		\n\t"\
-		"movslq	%[__idx_offset],%%rsi	\n\t"\
+		"movslq	%[__idx_offset],%%rsi	\n\t"/* rsi stores [j + idx_offset], idx_offset starts = 0, gets incremented by idx_incr each macro invocation */\
 		"movslq		%[__nrt_bits],%%rcx	\n\t"\
 		"movslq		%[__nrtm1],%%rdi	\n\t"\
-		"movq		%%rsi,%%rax			\n\t"\
-		"shrq		$1,%%rax			\n\t"\
+		"movq		%%rsi,%%rax			\n\t"/* j + idx_offset */\
+		"shrq		$1,%%rax			\n\t"/* l = ((j + idx_offset) >> 1) */\
 		"movq		%%rax,%%rbx			\n\t"\
-		"andq		%%rdi,%%rax	\n\t"\
-		"shrq		%%cl,%%rbx			\n\t"\
-		"shlq		$4,%%rax			\n\t"\
-		"shlq		$4,%%rbx			\n\t"\
-		"addq		%[__add1],%%rax		\n\t"\
-		"addq		%[__add2],%%rbx		\n\t"\
-		"movaps		(%%rax),%%xmm0		\n\t"\
-		"movaps		(%%rbx),%%xmm1		\n\t"\
+		"andq		%%rdi,%%rax			\n\t"/* k1 = (l & __NRTM1) */\
+		"shrq		%%cl,%%rbx			\n\t"/* k2=(l >> __NRT_BITS) */\
+		"shlq		$4,%%rax			\n\t"/* 16 bytes for array-of-complex */\
+		"shlq		$4,%%rbx			\n\t"/* 16 bytes for array-of-complex */\
+		"addq		%[__add1],%%rax		\n\t"/* rn0[k1] */\
+		"addq		%[__add2],%%rbx		\n\t"/* rn1[k2] */\
+		"movaps		(%%rax),%%xmm0		\n\t"/* [c0,s0] */\
+		"movaps		(%%rbx),%%xmm1		\n\t"/* [x0,y0] */\
 		"movq		%%rsi,%%rax			\n\t"\
-		"movaps		%%xmm1,%%xmm2		\n\t"\
-		"shufpd	$1,	%%xmm2,%%xmm2		\n\t"\
-		"mulpd		%%xmm0,%%xmm1		\n\t"\
-		"mulpd		%%xmm0,%%xmm2		\n\t"\
+		"movaps		%%xmm1,%%xmm2		\n\t"/* [x0,y0] copy */\
+		"shufpd	$1,	%%xmm2,%%xmm2		\n\t"/* [y0,x0] (swap re <--> im) */\
+		"mulpd		%%xmm0,%%xmm1		\n\t"/* [c0.x0,s0.y0] */\
+		"mulpd		%%xmm0,%%xmm2		\n\t"/* [c0.y0,s0.x0] 1,2 used */\
+		/* Get next root for interleaving with the first: */\
 		"addq		$2,%%rax			\n\t"\
-		"shrq		$1,%%rax			\n\t"\
+		"shrq		$1,%%rax			\n\t"/* l = ((j + idx_offset) >> 1) */\
 		"movq		%%rax,%%rbx			\n\t"\
-		"andq		%%rdi,%%rax	\n\t"\
-		"shrq		%%cl,%%rbx			\n\t"\
-		"shlq		$4,%%rax			\n\t"\
-		"shlq		$4,%%rbx			\n\t"\
-		"addq		%[__add1],%%rax		\n\t"\
-		"addq		%[__add2],%%rbx		\n\t"\
-		"movaps		(%%rax),%%xmm0		\n\t"\
-		"movaps		(%%rbx),%%xmm3		\n\t"\
+		"andq		%%rdi,%%rax			\n\t"/* k1 = (l & __NRTM1) */\
+		"shrq		%%cl,%%rbx			\n\t"/* k2=(l >> __NRT_BITS) */\
+		"shlq		$4,%%rax			\n\t"/* 16 bytes for array-of-complex */\
+		"shlq		$4,%%rbx			\n\t"/* 16 bytes for array-of-complex */\
+		"addq		%[__add1],%%rax		\n\t"/* rn0[k1] */\
+		"addq		%[__add2],%%rbx		\n\t"/* rn1[k2] */\
+		"movaps		(%%rax),%%xmm0		\n\t"/* [c1,s1] */\
+		"movaps		(%%rbx),%%xmm3		\n\t"/* [x1,y1] 0-3 used*/\
 		"movq		%%rsi,%%rax			\n\t"\
-		"movaps		%%xmm3,%%xmm4		\n\t"\
-		"shufpd	$1,	%%xmm4,%%xmm4		\n\t"\
-		"mulpd		%%xmm0,%%xmm3		\n\t"\
-		"mulpd		%%xmm0,%%xmm4		\n\t"\
-		"movaps		%%xmm1,%%xmm0		\n\t"\
-		"unpcklpd	%%xmm3,%%xmm0		\n\t"\
-		"unpckhpd	%%xmm3,%%xmm1		\n\t"\
-		"subpd		%%xmm1,%%xmm0		\n\t"\
-		"movaps		%%xmm2,%%xmm1		\n\t"\
-		"unpcklpd	%%xmm4,%%xmm1		\n\t"\
-		"unpckhpd	%%xmm4,%%xmm2		\n\t"\
-		"addpd		%%xmm2,%%xmm1		\n\t"\
-		"movq		%[__half_arr],%%rcx	\n\t"\
+		"movaps		%%xmm3,%%xmm4		\n\t"/* [x1,y1] copy */\
+		"shufpd	$1,	%%xmm4,%%xmm4		\n\t"/* [y1,x1] (swap re <--> im) */\
+		"mulpd		%%xmm0,%%xmm3		\n\t"/* [c1.x1,s1.y1] */\
+		"mulpd		%%xmm0,%%xmm4		\n\t"/* [c1.y1,s1.x1] 1-4 used */\
+		"movaps		%%xmm1,%%xmm0		\n\t"/* xmm0 <- copy [c0.x0,s0.y0] */\
+		"unpcklpd	%%xmm3,%%xmm0		\n\t"/* [c0.x0,c1.x1] */\
+		"unpckhpd	%%xmm3,%%xmm1		\n\t"/* [s0.y0,s1.y1], 0-2,4 used */\
+		"subpd		%%xmm1,%%xmm0		\n\t"/* xmm0 = [wt_r0,wt_r1] 0,2,4 used */\
+		"movaps		%%xmm2,%%xmm1		\n\t"/* xmm1 <- copy [c0.y0,s0.x0] 0-2,4 used */\
+		"unpcklpd	%%xmm4,%%xmm1		\n\t"/* [c0.y0,c1.y1] */\
+		"unpckhpd	%%xmm4,%%xmm2		\n\t"/* [s0.x0,s1.x1] */\
+		"addpd		%%xmm2,%%xmm1		\n\t"/* xmm1 = [wt_i0,wt_i1] 0-1 used */\
+		/* half_arr[0,1,2,3] = [base*2, baseinv*2,wt_re*2,wt_im*2] */\
+		"movq		%[__half_arr],%%rcx	\n\t"/* No longer need __NRT_BITS, so reuse rcx */\
+		/* Multiply the complex transform output [x,y] = [re,im] by any scale factor: [x,y] *= scale: */\
 		"movq		%[__data],%%rdx		\n\t"\
-		"movaps		     (%%rdx),%%xmm4	\n\t"\
-		"movaps		 0x10(%%rdx),%%xmm2	\n\t"\
-		"movaps		0x020(%%rcx),%%xmm5	\n\t"\
+		"movaps		     (%%rdx),%%xmm4	\n\t"/* x = [a.re,b.re] */\
+		"movaps		 0x10(%%rdx),%%xmm2	\n\t"/* y = [a.im,b.im] */\
+		"movaps		0x020(%%rcx),%%xmm5	\n\t"/* [scale,scale] */\
 		"mulpd		%%xmm5,%%xmm4		\n\t"\
 		"mulpd		%%xmm5,%%xmm2		\n\t"\
-		"movaps		%%xmm4,%%xmm5		\n\t"\
-		"movaps		%%xmm2,%%xmm3		\n\t"\
-		"mulpd		%%xmm0,%%xmm4		\n\t"\
-		"mulpd		%%xmm1,%%xmm3		\n\t"\
-		"mulpd		%%xmm0,%%xmm2		\n\t"\
-		"mulpd		%%xmm1,%%xmm5		\n\t"\
-		"addpd		%%xmm3,%%xmm4		\n\t"\
-		"subpd		%%xmm5,%%xmm2		\n\t"\
+		"movaps		%%xmm4,%%xmm5		\n\t"/* x copy */\
+		"movaps		%%xmm2,%%xmm3		\n\t"/* y copy */\
+		/* Inverse weight is (wt_re, -wt_im): */\
+		"mulpd		%%xmm0,%%xmm4		\n\t"/* [x     ]*wt_re */\
+		"mulpd		%%xmm1,%%xmm3		\n\t"/* [y copy]*wt_im */\
+		"mulpd		%%xmm0,%%xmm2		\n\t"/* [y     ]*wt_re */\
+		"mulpd		%%xmm1,%%xmm5		\n\t"/* [x copy]*wt_im */\
+		"addpd		%%xmm3,%%xmm4		\n\t"/* [a.re,b.re] = x*wt_re + y*wt_im */\
+		"subpd		%%xmm5,%%xmm2		\n\t"/* [a.im,b.im] = y*wt_re - x*wt_im */\
 		"movq		%[__cy],%%rbx		\n\t"\
-		"movaps		%%xmm4,%%xmm5		\n\t"\
-		"shufpd	$0,	%%xmm2,%%xmm4		\n\t"\
-		"shufpd	$3,	%%xmm2,%%xmm5		\n\t"\
-		"addpd		     (%%rbx),%%xmm4	\n\t"\
-		"movaps		-0x20(%%rcx),%%xmm6	\n\t"\
-		"movaps		-0x10(%%rcx),%%xmm7	\n\t"\
-		"movaps		%%xmm4,%%xmm2		\n\t"\
+		"movaps		%%xmm4,%%xmm5		\n\t"/* [a.re,b.re] copy */\
+		"shufpd	$0,	%%xmm2,%%xmm4		\n\t"/* xmm4 = x = [a.re,a.im] */\
+		"shufpd	$3,	%%xmm2,%%xmm5		\n\t"/* xmm5 = y = [b.re,b.im] 0,1,4,5 used */\
+		/* normalize a-pair, compute carryout, compute ROE: */\
+		"movaps		-0x20(%%rcx),%%xmm6	\n\t"/* xmm6 = maxerr */\
+		"movaps		-0x10(%%rcx),%%xmm7	\n\t"/* xmm7 = rnd_const */\
+		"movaps		%%xmm4,%%xmm2		\n\t"/* copy x */\
 		"addpd		%%xmm7,%%xmm4		\n\t"\
-		"subpd		%%xmm7,%%xmm4		\n\t"\
+		"subpd		%%xmm7,%%xmm4		\n\t"/* temp = DNINT(x) */\
 		"movq		%[__sign_mask],%%rax\n\t"\
-		"subpd		%%xmm4,%%xmm2		\n\t"\
-		"andpd		     (%%rax),%%xmm2	\n\t"\
-		"maxpd		%%xmm6,%%xmm2		\n\t"\
-		"movaps		%%xmm2,%%xmm6		\n\t"\
-		"movaps		%%xmm4,%%xmm2		\n\t"\
-		"mulpd		0x10(%%rcx),%%xmm2	\n\t"\
+		"subpd		%%xmm4,%%xmm2		\n\t"/* frac = [x - temp] */\
+		"andpd		     (%%rax),%%xmm2	\n\t"/* frac = fabs(frac) */\
+		"mulpd		%%xmm15,%%xmm4		\n\t"\
+		"addpd		(%%rbx),%%xmm4		\n\t"/* temp = temp*prp_mult + cy */\
+		"maxpd		%%xmm6,%%xmm2		\n\t"/* if(frac > maxerr) maxerr=frac */\
+		"movaps		%%xmm2,%%xmm6		\n\t"/* Note serialization here! */\
+		"movaps		%%xmm4,%%xmm2		\n\t"/* cpy temp */\
+		"mulpd		0x10(%%rcx),%%xmm2	\n\t"/* temp*baseinv[0] */\
 		"addpd		%%xmm7,%%xmm2		\n\t"\
-		"subpd		%%xmm7,%%xmm2		\n\t"\
-		"movaps		%%xmm2,%%xmm3		\n\t"\
-		"mulpd		    (%%rcx),%%xmm3	\n\t"\
-		"subpd		%%xmm3,%%xmm4		\n\t"\
-		"addpd		%%xmm2,%%xmm5		\n\t"\
-		"movaps		%%xmm5,%%xmm2		\n\t"\
+		"subpd		%%xmm7,%%xmm2		\n\t"/* [cx,cy] = DNINT(temp*baseinv[0]) */\
+		"movaps		%%xmm2,(%%rbx)		\n\t"/* save carry to mem */\
+		"movaps		%%xmm2,%%xmm3		\n\t"/* cpy [cx,cy] */\
+		"mulpd		    (%%rcx),%%xmm3	\n\t"/* [cx,cy]*base[0] */\
+		"subpd		%%xmm3,%%xmm4		\n\t"/* xmm4 = [a.re,a.im] = temp-[cx,cy]*base[0] */\
+		/* Now do b-pair: [b.re,b.im] in xmm5, carry in xmm2, xmm3 free, wt_[re,im] in xmmA,B, xmm6 free, rnd_const in xmm7: */\
+		"movaps		%%xmm5,%%xmm2		\n\t"/* copy y */\
 		"addpd		%%xmm7,%%xmm5		\n\t"\
-		"subpd		%%xmm7,%%xmm5		\n\t"\
-		"subpd		%%xmm5,%%xmm2		\n\t"\
-		"andpd		     (%%rax),%%xmm2	\n\t"\
-		"maxpd		%%xmm6,%%xmm2		\n\t"\
-		"movaps		%%xmm2,%%xmm6		\n\t"\
-		"movaps		%%xmm5,%%xmm2		\n\t"\
-		"mulpd		 0x10(%%rcx),%%xmm2	\n\t"\
+		"subpd		%%xmm7,%%xmm5		\n\t"/* temp = DNINT(y) */\
+		"subpd		%%xmm5,%%xmm2		\n\t"/* frac = [y - temp] */\
+		"andpd		     (%%rax),%%xmm2	\n\t"/* frac = fabs(frac) */\
+		"mulpd		%%xmm15,%%xmm5		\n\t"\
+		"addpd		(%%rbx),%%xmm5		\n\t"/* temp = temp*prp_mult + cy */\
+		"maxpd		%%xmm6,%%xmm2		\n\t"/* if(frac > maxerr) maxerr=frac */\
+		"movaps		%%xmm2,%%xmm6		\n\t"/* Note serialization here! */\
+		"movaps		%%xmm5,%%xmm2		\n\t"/* cpy temp */\
+		"mulpd		 0x10(%%rcx),%%xmm2	\n\t"/* temp*baseinv[0] */\
 		"addpd		%%xmm7,%%xmm2		\n\t"\
-		"subpd		%%xmm7,%%xmm2		\n\t"\
-		"movaps		%%xmm2,%%xmm3		\n\t"\
-		"mulpd		     (%%rcx),%%xmm3	\n\t"\
-		"subpd		%%xmm3,%%xmm5		\n\t"\
-		"movaps		%%xmm2,(%%rbx)		\n\t"\
-		"movaps		%%xmm4,%%xmm2		\n\t"\
-		"shufpd	$0,	%%xmm5,%%xmm4		\n\t"\
-		"shufpd	$3,	%%xmm5,%%xmm2		\n\t"\
-		"movaps		%%xmm4,%%xmm5		\n\t"\
-		"movaps		%%xmm2,%%xmm3		\n\t"\
-		"movaps		%%xmm6,-0x20(%%rcx)	\n\t"\
-		"mulpd		%%xmm0,%%xmm4		\n\t"\
-		"mulpd		%%xmm1,%%xmm3		\n\t"\
-		"mulpd		%%xmm0,%%xmm2		\n\t"\
-		"mulpd		%%xmm1,%%xmm5		\n\t"\
-		"subpd		%%xmm3,%%xmm4		\n\t"\
-		"addpd		%%xmm2,%%xmm5		\n\t"\
-		"movaps		%%xmm4,    (%%rdx)	\n\t"\
-		"movaps		%%xmm5,0x10(%%rdx)	\n\t"\
+		"subpd		%%xmm7,%%xmm2		\n\t"/* [cx,cy] = DNINT(temp*baseinv[0]) */\
+		"movaps		%%xmm2,%%xmm3		\n\t"/* cpy [cx,cy] */\
+		"mulpd		     (%%rcx),%%xmm3	\n\t"/* [cx,cy]*base[0] */\
+		"subpd		%%xmm3,%%xmm5		\n\t"/* xmm5 = [b.re,b.im] = temp-[cx,cy]*base[0] */\
+		"movaps		%%xmm2,(%%rbx)		\n\t"/* store cy_out */\
+		"movaps		%%xmm4,%%xmm2		\n\t"/* [a.re,a.im] copy */\
+		"shufpd	$0,	%%xmm5,%%xmm4		\n\t"/* x = [a.re,b.re] */\
+		"shufpd	$3,	%%xmm5,%%xmm2		\n\t"/* y = [a.im,b.im] */\
+		"movaps		%%xmm4,%%xmm5		\n\t"/* x copy */\
+		"movaps		%%xmm2,%%xmm3		\n\t"/* y copy */\
+		"movaps		%%xmm6,-0x20(%%rcx)	\n\t"/* Store maxerr */\
+		/* Forward weight is (wt_re, +wt_im): */\
+		"mulpd		%%xmm0,%%xmm4		\n\t"/* [x     ]*wt_re */\
+		"mulpd		%%xmm1,%%xmm3		\n\t"/* [y copy]*wt_im */\
+		"mulpd		%%xmm0,%%xmm2		\n\t"/* [y     ]*wt_re */\
+		"mulpd		%%xmm1,%%xmm5		\n\t"/* [x copy]*wt_im */\
+		"subpd		%%xmm3,%%xmm4		\n\t"/* rt = x*wt_re - y*wt_im */\
+		"addpd		%%xmm2,%%xmm5		\n\t"/* it = x*wt_im + y*wt_re */\
+		"movaps		%%xmm4,    (%%rdx)	\n\t"/* store rt = ~[a.re,b.re] */\
+		"movaps		%%xmm5,0x10(%%rdx)	\n\t"/* store it = ~[a.im,b.im] */\
+		/* Prepare for next pair of complex data: */\
 		"movslq	%[__idx_incr],%%rdi		\n\t"\
-		"addq	%%rdi,%%rsi		\n\t"\
-		"mov	%%esi, %[__idx_offset]	/* Store incremented idx_offset */	\n\t"\
+		"addq	%%rdi,%%rsi				\n\t"/* idx_offset += idx_incr */\
+		"mov	%%esi, %[__idx_offset]	\n\t"/* Store incremented idx_offset */\
 		:						/* outputs: none */\
 		:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
 		,	[__cy]			"m" (Xcy)\
@@ -3885,16 +3943,20 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__add2]		"m" (Xadd2)\
 		/* Prefetch address */\
 		,	[__add0] "m" (Xadd0)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r14","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"/* Clobbered registers */\
+		/* v18: Needed to support residue-shifted Pepin tests: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r14","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
 	/* Same power-of-2-transform deal as above, but use xmm8-15 to process 2 sets of carries side-by-side.
 	Data/Carry #2 assumed offset by +0x20/0x10 from #1 (which are accessed via the [__data/__cy] pointers, resp.):
 	*/
-	#define SSE2_fermat_carry_norm_pow2_errcheck_X2(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xhalf_arr,Xsign_mask,Xadd1,Xadd2, Xadd0,Xp1)\
+	#define SSE2_fermat_carry_norm_pow2_errcheck_X2(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xhalf_arr,Xsign_mask,Xadd1,Xadd2, Xadd0,Xp1, Xprp_mult)\
 	{\
 	__asm__ volatile (\
+		"movq	%[__prp_mult]	,%%rax	\n\t"\
+		"movsd	(%%rax),%%xmm15		\n\t	shufpd	$0,%%xmm15,%%xmm15	\n\t"/* prp_mult, broadcast to all double-slots of xmm15 */\
 	"movq	%[__add0],%%r14	\n\t"/* base address for 2 prefetches-from-main-data-array spread through this macro */\
 	"prefetcht0	(%%r14)	\n\t"\
 		/* lcol -> rcol index analogs: [rsi,rax,rbx] -> [r10,r11,r12], [rcx,rdx,rdi] shared */\
@@ -3963,7 +4025,6 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movaps		%%xmm4,%%xmm5		\n\t		movaps		%%xmm12,%%xmm13		\n\t"\
 		"shufpd	$0,	%%xmm2,%%xmm4		\n\t		shufpd	$0,	%%xmm10,%%xmm12		\n\t"\
 		"shufpd	$3,	%%xmm2,%%xmm5		\n\t		shufpd	$3,	%%xmm10,%%xmm13		\n\t"\
-		"addpd		     (%%rbx),%%xmm4	\n\t		addpd		 0x10(%%rbx),%%xmm12\n\t"\
 		"movaps		-0x20(%%rcx),%%xmm6	\n\t	movaps	-0x20(%%rcx),%%xmm14	/* Use 2 copies of maxerr, merge at end */\n\t"\
 		"movaps		%%xmm4,%%xmm2		\n\t		movaps		%%xmm12,%%xmm10		\n\t"\
 		"addpd		%%xmm7	,%%xmm4		\n\t		addpd		%%xmm7	,%%xmm12	\n\t"\
@@ -3972,6 +4033,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq		%[__sign_mask],%%rax/* rax shared between lcol/rcol from here */\n\t"\
 		"subpd		%%xmm4,%%xmm2		\n\t		subpd		%%xmm12,%%xmm10		\n\t"\
 		"andpd		     (%%rax),%%xmm2	\n\t		andpd		     (%%rax),%%xmm10\n\t"\
+		"mulpd		%%xmm15,%%xmm4		\n\t		mulpd		%%xmm15,%%xmm12		\n\t"\
+		"addpd		(%%rbx),%%xmm4		\n\t		addpd	0x10(%%rbx),%%xmm12		\n\t"/* temp = temp*prp_mult + cy */\
 		"maxpd		%%xmm6,%%xmm2		\n\t		maxpd		%%xmm14,%%xmm10		\n\t"\
 		"movaps		%%xmm2,%%xmm6		\n\t		movaps		%%xmm10,%%xmm14		\n\t"\
 		"movaps		%%xmm4,%%xmm2		\n\t		movaps		%%xmm12,%%xmm10		\n\t"\
@@ -3979,16 +4042,18 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"addpd		%%xmm7	,%%xmm2		\n\t		addpd		%%xmm7	,%%xmm10	\n\t"\
 		"subpd		%%xmm7	,%%xmm2		\n\t		subpd		%%xmm7	,%%xmm10	\n\t"\
 	/*	roundpd	$0,%%xmm2,%%xmm2		\n\t		roundpd	$0,%%xmm10,%%xmm10		\n\t*/\
+		"movaps		%%xmm2,    (%%rbx)	\n\t		movaps		%%xmm10,0x10(%%rbx)	\n\t"/* save carry to mem */\
 		"movaps		%%xmm2,%%xmm3		\n\t		movaps		%%xmm10,%%xmm11		\n\t"\
 		"mulpd		    (%%rcx),%%xmm3	\n\t		mulpd		    (%%rcx),%%xmm11	\n\t"\
 		"subpd		%%xmm3,%%xmm4		\n\t		subpd		%%xmm11,%%xmm12		\n\t"\
-		"addpd		%%xmm2,%%xmm5		\n\t		addpd		%%xmm10,%%xmm13		\n\t"\
 		"movaps		%%xmm5,%%xmm2		\n\t		movaps		%%xmm13,%%xmm10		\n\t"\
 		"addpd		%%xmm7	,%%xmm5		\n\t		addpd		%%xmm7	,%%xmm13	\n\t"\
 		"subpd		%%xmm7	,%%xmm5		\n\t		subpd		%%xmm7	,%%xmm13	\n\t"\
 	/*	roundpd	$0,%%xmm5,%%xmm5		\n\t		roundpd	$0,%%xmm13,%%xmm13		\n\t*/\
 		"subpd		%%xmm5,%%xmm2		\n\t		subpd		%%xmm13,%%xmm10		\n\t"\
 		"andpd		     (%%rax),%%xmm2	\n\t		andpd		     (%%rax),%%xmm10\n\t"\
+		"mulpd		%%xmm15,%%xmm5		\n\t		mulpd		%%xmm15,%%xmm13		\n\t"\
+		"addpd		    (%%rbx),%%xmm5	\n\t		addpd		0x10(%%rbx),%%xmm13	\n\t"/* temp = temp*prp_mult + cy */\
 		"maxpd		%%xmm6,%%xmm2		\n\t		maxpd		%%xmm14,%%xmm10		\n\t"\
 		"movaps		%%xmm2,%%xmm6		\n\t		movaps		%%xmm10,%%xmm14		\n\t"\
 		"movaps		%%xmm5,%%xmm2		\n\t		movaps		%%xmm13,%%xmm10		\n\t"\
@@ -4030,16 +4095,22 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* Prefetch: base address and 1 index offset */\
 		,	[__add0] "m" (Xadd0)\
 		,	[__p1] "m" (Xp1)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r10","r11","r12","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14"		/* Clobbered registers */\
+		/* v18: Needed to support residue-shifted Pepin tests: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r10","r11","r12","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
 	/* Non-power-of-2-runlength Fermat-mod acyclic-transform/IBDWT carry macro.
 	The array indices icycle0/1 declared int in caller but assumed to have been << 4 at time this macro called, thus can use as complex-address-offsets.
 	*/
-	#define SSE2_fermat_carry_norm_errcheck(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xodd_radix,Xhalf_arr,Xsign_mask,Xadd1,Xadd2,Xicycle0,Xjcycle0, Xadd0)\
+	#define SSE2_fermat_carry_norm_errcheck(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xodd_radix,Xhalf_arr,Xsign_mask,Xadd1,Xadd2,Xicycle0,Xjcycle0, Xadd0, Xprp_mult)\
 	{\
 	__asm__ volatile (\
+		"movq	%[__prp_mult]	,%%rax	\n\t"\
+		"movsd	(%%rax),%%xmm15		\n\t	shufpd	$0,%%xmm15,%%xmm15	\n\t"/* prp_mult, broadcast to all double-slots of xmm15 */\
+		"mulpd		%%xmm15,%%xmm@		\n\t"\
+		"addpd		(%%rbx),%%xmm@		\n\t"/* temp = temp*prp_mult + cy */\
 	"movq	%[__add0],%%r14	\n\t"\
 	"prefetcht0	(%%r14)	\n\t"\
 		"movslq	%[__idx_offset],%%rsi	\n\t"/* esi stores [j + idx_offset], idx_offset starts = 0, gets incremented by idx_incr each macro invocation */\
@@ -4084,11 +4155,11 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movaps		%%xmm1,%%xmm0		\n\t"/* xmm0 <- copy [c0.x0,s0.y0] */\
 		"unpcklpd	%%xmm3,%%xmm0		\n\t"/* [c0.x0,c1.x1] */\
 		"unpckhpd	%%xmm3,%%xmm1		\n\t"/* [s0.y0,s1.y1], 0-2,4 used */\
-		"subpd		%%xmm1,%%xmm0		\n\t"/* XMM0 = [wt_r0,wt_r1] 0,2,4 used */\
+		"subpd		%%xmm1,%%xmm0		\n\t"/* xmm0 = [wt_r0,wt_r1] 0,2,4 used */\
 		"movaps		%%xmm2,%%xmm1		\n\t"/* xmm1 <- copy [c0.y0,s0.x0] 0-2,4 used */\
 		"unpcklpd	%%xmm4,%%xmm1		\n\t"/* [c0.y0,c1.y1] */\
 		"unpckhpd	%%xmm4,%%xmm2		\n\t"/* [s0.x0,s1.x1] */\
-		"addpd		%%xmm2,%%xmm1		\n\t"/* XMM1 = [wt_i0,wt_i1] 0-1 used */\
+		"addpd		%%xmm2,%%xmm1		\n\t"/* xmm1 = [wt_i0,wt_i1] 0-1 used */\
 		/* half_arr[0,1,2,3] = [base*2, baseinv*2,wt_re*2,wt_im*2] */\
 		"movq		%[__half_arr],%%rcx	\n\t"/* No longer need __NRT_BITS, so reuse ecx */\
 		/* Multiply the complex transform output [x,y] = [re,im] by the inverse IBDWT weight, which includes the scale factor: [x,y] *= wtinv: */\
@@ -4111,12 +4182,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"subpd		%%xmm5,%%xmm2		\n\t"/* [a.im,b.im] = y*wt_re - x*wt_im */\
 		"movq		%[__cy],%%rbx		\n\t"\
 		"movaps		%%xmm4,%%xmm5		\n\t"/* [a.re,b.re] copy */\
-		"shufpd	$0,	%%xmm2,%%xmm4		\n\t"/* XMM4 = x = [a.re,a.im] */\
-		"shufpd	$3,	%%xmm2,%%xmm5		\n\t"/* XMM5 = y = [b.re,b.im] 0,1,4,5 uaed */\
+		"shufpd	$0,	%%xmm2,%%xmm4		\n\t"/* xmm4 = x = [a.re,a.im] */\
+		"shufpd	$3,	%%xmm2,%%xmm5		\n\t"/* xmm5 = y = [b.re,b.im] 0,1,4,5 uaed */\
 		/* normalize a-pair, compute carryout, compute ROE: */\
 		"addpd		     (%%rbx),%%xmm4	\n\t"/* [a.re,a.im] + [cx,cy] */\
-		"movaps		-0x20(%%rcx),%%xmm6	\n\t"/* XMM6 = maxerr */\
-		"movaps		-0x10(%%rcx),%%xmm7	\n\t"/* XMM7 = rnd_const */\
+		"movaps		-0x20(%%rcx),%%xmm6	\n\t"/* xmm6 = maxerr */\
+		"movaps		-0x10(%%rcx),%%xmm7	\n\t"/* xmm7 = rnd_const */\
 		"addq	   %%r10,%%rcx			\n\t"\
 		"movaps		%%xmm4,%%xmm2		\n\t"/* copy x */\
 		"shlq	   $1,%%rdi				\n\t"\
@@ -4136,7 +4207,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movaps		%%xmm2,%%xmm3		\n\t"/* cpy [cx,cy] */\
 		"mulpd		(%%rcx),%%xmm3		\n\t"/* [cx,cy]*base[0] */\
 		"subq		%%r10,%%rcx			\n\t"\
-		"subpd		%%xmm3,%%xmm4		\n\t"/* XMM4 = [a.re,a.im] = temp-[cx,cy]*base[0] */\
+		"subpd		%%xmm3,%%xmm4		\n\t"/* xmm4 = [a.re,a.im] = temp-[cx,cy]*base[0] */\
 		/* Now do b-pair: [b.re,b.im] in xmm5, carry in xmm2, xmm3 free, wt_[re,im] in xmmA,B, xmm6 free, rnd_const in xmm7: */\
 		"addpd		%%xmm2,%%xmm5		\n\t"/* [b.re,b.im] + [cx,cy] */\
 		"movaps		%%xmm5,%%xmm2		\n\t"/* copy y */\
@@ -4155,7 +4226,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movaps		%%xmm2,%%xmm3		\n\t"/* cpy [cx,cy] */\
 		"mulpd		(%%rcx),%%xmm3		\n\t"/* [cx,cy]*base[1] */\
 		"subq		%%r11,%%rcx			\n\t"\
-		"subpd		%%xmm3,%%xmm5		\n\t"/* XMM5 = [b.re,b.im] = temp-[cx,cy]*base[1] */\
+		"subpd		%%xmm3,%%xmm5		\n\t"/* xmm5 = [b.re,b.im] = temp-[cx,cy]*base[1] */\
 		"movaps		%%xmm2,(%%rbx)		\n\t"/* store cy_out */\
 		"movaps		%%xmm4,%%xmm2		\n\t"/* [a.re,a.im] copy */\
 		"shufpd	$0,	%%xmm5,%%xmm4		\n\t"/* x = [a.re,b.re] */\
@@ -4197,16 +4268,20 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__jcycle0]		"m" (Xjcycle0)\
 		/* Prefetch address */\
 		,	[__add0] "m" (Xadd0)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r10","r11","r14","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"   /* Clobbered registers */\
+		/* v18: Needed to support residue-shifted Pepin tests: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r10","r11","r14","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
 	/* Same non-power-of-2-transform deal as above, but use xmm8-15 to process 2 sets of carries side-by-side.
 	Data/Carry #2 assumed offset by +0x20/0x10 from #1 (which are accessed via the [__data/__cy] pointers, resp.)
 	i/jcycle0 and i/jcycle1 are the address offsets needed for IBDWT array indexing for the 2 resp. carries. */
-	#define SSE2_fermat_carry_norm_errcheck_X2(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xodd_radix,Xhalf_arr,Xsign_mask,Xadd1,Xadd2,Xicycle0,Xjcycle0,Xicycle1,Xjcycle1, Xadd0,Xp1)\
+	#define SSE2_fermat_carry_norm_errcheck_X2(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xodd_radix,Xhalf_arr,Xsign_mask,Xadd1,Xadd2,Xicycle0,Xjcycle0,Xicycle1,Xjcycle1, Xadd0,Xp1, Xprp_mult)\
 	{\
 	__asm__ volatile (\
+		"movq	%[__prp_mult],%%rax	\n\t"\
+		"movsd	(%%rax),%%xmm15		\n\t	shufpd	$0,%%xmm15,%%xmm15	\n\t"/* prp_mult, broadcast to all double-slots of xmm15 */\
 	"movq	%[__add0],%%r14	\n\t"/* base address for 2 prefetches-from-main-data-array spread through this macro */\
 	"prefetcht0	(%%r14)	\n\t"\
 		/* lcol -> rcol index analogs: [rsi,rax,rbx] -> [r10,r11,r12], [rcx,rdx,rdi] shared */\
@@ -4283,62 +4358,66 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movaps		%%xmm4,%%xmm5		\n\t		movaps		%%xmm12,%%xmm13		\n\t"\
 		"shufpd	$0,	%%xmm2,%%xmm4		\n\t		shufpd	$0,	%%xmm10,%%xmm12		\n\t"\
 		"shufpd	$3,	%%xmm2,%%xmm5		\n\t		shufpd	$3,	%%xmm10,%%xmm13		\n\t"\
-		"addpd		     (%%rbx),%%xmm4	\n\t		addpd		 0x10(%%rbx),%%xmm12\n\t"\
 		"movaps		-0x20(%%rcx),%%xmm6	/* maxerr, will make rcol-copy below, re-merge at end */\n\t"\
 		"addq		%%r8 ,%%rcx			\n\t		addq		%%r10,%%r12			\n\t"\
 		"movaps		%%xmm4,%%xmm2		\n\t		movaps		%%xmm12,%%xmm10		\n\t"\
 		"shlq		$1,%%rdi			\n\t		movaps		%%xmm6,%%xmm14	/* rcol-copy of maxerr */\n\t"\
 		"addpd		%%xmm7	,%%xmm4		\n\t		addpd		%%xmm7	,%%xmm12	\n\t"\
-		"subpd		%%xmm7	,%%xmm4		\n\t		subpd		%%xmm7	,%%xmm12	\n\t"\
+		"subpd		%%xmm7	,%%xmm4		\n\t		subpd		%%xmm7	,%%xmm12	\n\t"/* temp = DNINT(x) */\
 	/*	roundpd	$0,%%xmm4,%%xmm4		\n\t		roundpd	$0,%%xmm12,%%xmm12		\n\t*/\
 		"movq		%[__sign_mask],%%rax/* rax shared between lcol/rcol from here */\n\t"\
-		"subpd		%%xmm4,%%xmm2		\n\t		subpd		%%xmm12,%%xmm10		\n\t"\
-		"andpd		     (%%rax),%%xmm2	\n\t		andpd		     (%%rax),%%xmm10	\n\t"\
-		"maxpd		%%xmm6,%%xmm2		\n\t		maxpd		%%xmm14,%%xmm10		\n\t"\
+		"subpd		%%xmm4,%%xmm2		\n\t		subpd		%%xmm12,%%xmm10		\n\t"/* frac = [x - temp] */\
+		"andpd		(%%rax),%%xmm2		\n\t		andpd		(%%rax),%%xmm10		\n\t"/* frac = fabs(frac) */\
+		"mulpd		%%xmm15,%%xmm4		\n\t		mulpd		%%xmm15,%%xmm12		\n\t"\
+		"addpd		(%%rbx),%%xmm4		\n\t		addpd	0x10(%%rbx),%%xmm12		\n\t"/* temp = temp*prp_mult + cy */\
+		"maxpd		%%xmm6,%%xmm2		\n\t		maxpd		%%xmm14,%%xmm10		\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"movaps		%%xmm2,%%xmm6		\n\t		movaps		%%xmm10,%%xmm14		\n\t"\
 		"addq		%%rdi,%%rcx			\n\t		addq		%%rdi,%%r12			\n\t"\
 		"shrq		$1,%%rdi														\n\t"\
-		"movaps		%%xmm4,%%xmm2		\n\t		movaps		%%xmm12,%%xmm10		\n\t"\
-		"mulpd	(%%rcx,%%rdi),%%xmm2	\n\t		mulpd	(%%r12,%%rdi),%%xmm10	\n\t"\
+		"movaps		%%xmm4,%%xmm2		\n\t		movaps		%%xmm12,%%xmm10		\n\t"/* cpy temp */\
+		"mulpd	(%%rcx,%%rdi),%%xmm2	\n\t		mulpd	(%%r12,%%rdi),%%xmm10	\n\t"/* temp*baseinv[0] */\
 		"addpd		%%xmm7	,%%xmm2		\n\t		addpd		%%xmm7	,%%xmm10	\n\t"\
-		"subpd		%%xmm7	,%%xmm2		\n\t		subpd		%%xmm7	,%%xmm10	\n\t"\
+		"subpd		%%xmm7	,%%xmm2		\n\t		subpd		%%xmm7	,%%xmm10	\n\t"/* cy = DNINT(temp*baseinv[0]) */\
 	/*	roundpd	$0,%%xmm2,%%xmm2		\n\t		roundpd	$0,%%xmm10,%%xmm10		\n\t*/\
-		"movaps		%%xmm2,%%xmm3		\n\t		movaps		%%xmm10,%%xmm11		\n\t"\
-		"mulpd		    (%%rcx),%%xmm3	\n\t		mulpd		    (%%r12),%%xmm11	\n\t"\
+		"movaps		%%xmm2,%%xmm3		\n\t		movaps		%%xmm10,%%xmm11		\n\t"/* cpy cy */\
+		"mulpd		    (%%rcx),%%xmm3	\n\t		mulpd		    (%%r12),%%xmm11	\n\t"/* cy*base[0] */\
 		"subq		%%r8 ,%%rcx			\n\t		subq		%%r10,%%r12			\n\t"\
-		"subpd		%%xmm3,%%xmm4		\n\t		subpd		%%xmm11,%%xmm12		\n\t"\
-		"addpd		%%xmm2,%%xmm5		\n\t		addpd		%%xmm10,%%xmm13		\n\t"\
-		"movaps		%%xmm5,%%xmm2		\n\t		movaps		%%xmm13,%%xmm10		\n\t"\
+		"subpd		%%xmm3,%%xmm4		\n\t		subpd		%%xmm11,%%xmm12		\n\t"/* xmm4 = [a.re,a.im] = temp-[cx,cy]*base[0] */\
+		/* Now do b-pair: [b.re,b.im] in xmm5, carry in xmm2, xmm3 free, wt_[re,im] in xmmA,B, xmm6 free, rnd_const in xmm7: */\
+		"movaps		%%xmm2,(%%rbx)		\n\t		movaps		%%xmm10,0x10(%%rbx)	\n\t"/* With prp_mult support, must write cy since xmm2,10 get overwritten next */\
+		"movaps		%%xmm5,%%xmm2		\n\t		movaps		%%xmm13,%%xmm10		\n\t"/* cpy y */\
 		"addpd		%%xmm7	,%%xmm5		\n\t		addpd		%%xmm7	,%%xmm13	\n\t"\
-		"subpd		%%xmm7	,%%xmm5		\n\t		subpd		%%xmm7	,%%xmm13	\n\t"\
+		"subpd		%%xmm7	,%%xmm5		\n\t		subpd		%%xmm7	,%%xmm13	\n\t"/* temp = DNINT(y) */\
 	/*	roundpd	$0,%%xmm5,%%xmm5		\n\t		roundpd	$0,%%xmm13,%%xmm13		\n\t*/\
-		"subpd		%%xmm5,%%xmm2		\n\t		subpd		%%xmm13,%%xmm10		\n\t"\
-		"andpd		     (%%rax),%%xmm2	\n\t		andpd		     (%%rax),%%xmm10	\n\t"\
-		"maxpd		%%xmm6,%%xmm2		\n\t		maxpd		%%xmm14,%%xmm10		\n\t"\
+		"subpd		%%xmm5,%%xmm2		\n\t		subpd		%%xmm13,%%xmm10		\n\t"/* frac = [y - temp] */\
+		"andpd		(%%rax),%%xmm2		\n\t		andpd		(%%rax),%%xmm10		\n\t"/* frac = fabs(frac) */\
+		"mulpd		%%xmm15,%%xmm5		\n\t		mulpd		%%xmm15,%%xmm13		\n\t"\
+		"addpd		(%%rbx),%%xmm5		\n\t		addpd	0x10(%%rbx),%%xmm13		\n\t"/* temp = temp*prp_mult + cy */\
+		"maxpd		%%xmm6,%%xmm2		\n\t		maxpd		%%xmm14,%%xmm10		\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"movaps		%%xmm2,%%xmm6		\n\t		movaps		%%xmm10,%%xmm14		\n\t"\
-		"movaps		%%xmm5,%%xmm2		\n\t		movaps		%%xmm13,%%xmm10		\n\t"\
+		"movaps		%%xmm5,%%xmm2		\n\t		movaps		%%xmm13,%%xmm10		\n\t"/* cpy temp */\
 		"movslq	%[__jcycle0],%%r8 		\n\t		movslq	%[__jcycle1],%%r10		\n\t"\
 		"addq		%%r8 ,%%rcx			\n\t		addq		%%r10,%%r12			\n\t"\
-		"maxpd		%%xmm14,%%xmm6		/* Save larger of maxerr1,2: */	\n\t"\
-		"mulpd	(%%rcx,%%rdi),%%xmm2	\n\t		mulpd	(%%r12,%%rdi),%%xmm10	\n\t"\
+		"maxpd		%%xmm14,%%xmm6		\n\t"/* Save larger of maxerr1,2: */\
+		"mulpd	(%%rcx,%%rdi),%%xmm2	\n\t		mulpd	(%%r12,%%rdi),%%xmm10	\n\t"/* temp*baseinv[0] */\
 		"addpd		%%xmm7	,%%xmm2		\n\t		addpd		%%xmm7	,%%xmm10	\n\t"\
-		"subpd		%%xmm7	,%%xmm2		\n\t		subpd		%%xmm7	,%%xmm10	\n\t"\
+		"subpd		%%xmm7	,%%xmm2		\n\t		subpd		%%xmm7	,%%xmm10	\n\t"/* cy = DNINT(temp*baseinv[0]) */\
 	/*	roundpd	$0,%%xmm2,%%xmm2		\n\t		roundpd	$0,%%xmm10,%%xmm10		\n\t*/\
 		"shlq		$1,%%rdi														\n\t"\
-		"movaps		%%xmm2,%%xmm3		\n\t		movaps		%%xmm10,%%xmm11		\n\t"\
-		"mulpd		     (%%rcx),%%xmm3	\n\t		mulpd		     (%%r12),%%xmm11	\n\t"\
+		"movaps		%%xmm2,%%xmm3		\n\t		movaps		%%xmm10,%%xmm11		\n\t"/* cpy cy */\
+		"mulpd		(%%rcx),%%xmm3		\n\t		mulpd		(%%r12),%%xmm11		\n\t"/* cy*base[0] */\
 		"subq		%%r8 ,%%rcx			\n\t		subq		%%r10,%%r12			\n\t"\
-		"subpd		%%xmm3,%%xmm5		\n\t		subpd		%%xmm11,%%xmm13		\n\t"\
-		"movaps		%%xmm2,(%%rbx)		\n\t		movaps		%%xmm10,0x10(%%rbx)	\n\t"\
-		"movaps		%%xmm4,%%xmm2		\n\t		movaps		%%xmm12,%%xmm10		\n\t"\
-		"shufpd	$0,	%%xmm5,%%xmm4		\n\t		shufpd	$0,	%%xmm13,%%xmm12		\n\t"\
-		"shufpd	$3,	%%xmm5,%%xmm2		\n\t		shufpd	$3,	%%xmm13,%%xmm10		\n\t"\
-		"movaps		%%xmm4,%%xmm5		\n\t		movaps		%%xmm12,%%xmm13		\n\t"\
-		"movaps		%%xmm2,%%xmm3		\n\t		movaps		%%xmm10,%%xmm11		\n\t"\
+		"subpd		%%xmm3,%%xmm5		\n\t		subpd		%%xmm11,%%xmm13		\n\t"/* xmm5 = [b.re,b.im] = temp-[cx,cy]*base[0] */\
+		"movaps		%%xmm2,(%%rbx)		\n\t		movaps		%%xmm10,0x10(%%rbx)	\n\t"/* store cy_out */\
+		"movaps		%%xmm4,%%xmm2		\n\t		movaps		%%xmm12,%%xmm10		\n\t"/* [a.re,a.im] copy */\
+		"shufpd	$0,	%%xmm5,%%xmm4		\n\t		shufpd	$0,	%%xmm13,%%xmm12		\n\t"/* x = [a.re,b.re] */\
+		"shufpd	$3,	%%xmm5,%%xmm2		\n\t		shufpd	$3,	%%xmm13,%%xmm10		\n\t"/* y = [a.im,b.im] */\
+		"movaps		%%xmm4,%%xmm5		\n\t		movaps		%%xmm12,%%xmm13		\n\t"/* x copy */\
+		"movaps		%%xmm2,%%xmm3		\n\t		movaps		%%xmm10,%%xmm11		\n\t"/* y copy */\
 		"subq		%%rdi,%%rcx			\n\t		subq		%%rdi,%%r12	/* rcx == r12 again */\n\t"\
 		"mulpd		%%xmm0,%%xmm4		\n\t		mulpd		%%xmm8 ,%%xmm12		\n\t"\
 		"mulpd		%%xmm1,%%xmm3		\n\t		mulpd		%%xmm9 ,%%xmm11		\n\t"\
-		"movaps		%%xmm6,-0x20(%%rcx)	/* Store maxerr: */	\n\t"\
+		"movaps		%%xmm6,-0x20(%%rcx)	\n\t"/* Store maxerr: */\
 		"movslq	%[__icycle0],%%r8 		\n\t		movslq	%[__icycle1],%%r10		\n\t"\
 		"addq		%%r8 ,%%rcx			\n\t		addq		%%r10,%%r12			\n\t"\
 		"mulpd		%%xmm0,%%xmm2		\n\t		mulpd		%%xmm8 ,%%xmm10		\n\t"\
@@ -4369,7 +4448,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* Prefetch: base address and 1 index offset */\
 		,	[__add0] "m" (Xadd0)\
 		,	[__p1]   "m" (Xp1)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","r8","r10","r11","r12","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14"		/* Clobbered registers */\
+		/* v18: Needed to support residue-shifted Pepin tests: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","r8","r10","r11","r12","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
@@ -4401,7 +4482,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq $0x0001020304050607,%%rsi	\n\t"/* 64-bit register w/byte offsets 7-0, bytes ordered left-to-right in decreasing significance */\
 		"vmovq		%%rsi,%%xmm3 		\n\t"/* Copy byte pattern to low qword (64 bits) of zmm3 [NB: AVX-512 only supports MOVQ to/from 128-bit vector regs] */\
 		"vpmovzxbq	%%xmm3,%%zmm3		\n\t"/* vector-permutation-index: zmm3 = [7,6,5,4,3,2,1,0] in qwords.
-																ZMM3 PERSISTENT FROM HERE TIL END OF MACRO */\
+																zmm3 PERSISTENT FROM HERE TIL END OF MACRO */\
 		"movq	%[__half_arr],%%rdi		\n\t"\
 	/**********************************/\
 	/* Do A.re-octet:                 */\
@@ -4409,7 +4490,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	     %%zmm30,%%zmm8	\n\t	vmovaps	     %%zmm30,%%zmm24\n\t"/* Init zmm8,9,24,25 in prep for conditional-doubling */\
 		"vmovaps	     %%zmm31,%%zmm9	\n\t	vmovaps	     %%zmm31,%%zmm25\n\t"\
 		"movq	%[__bjmod_0],%%rax		\n\t"\
-		"vmovaps	(%%rax),%%zmm0		\n\t"/* bjmod[0:15]. PERSISTENT COPY OF BJMOD[0:15] REMAINS IN ZMM0. */\
+		"vmovaps	(%%rax),%%zmm0		\n\t"/* bjmod[0:15]. PERSISTENT COPY OF BJMOD[0:15] REMAINS IN zmm0. */\
 		"movq	%[__n_minus_sil],%%rcx	\n\t"\
 	"vpbroadcastd	0x0(%%rcx),%%zmm1	\n\t"/* Broadcast n_minus_sil to all 16 slots of zmm1 */\
 		"vpcmpd	$5,%%zmm0,%%zmm1,%%k1	\n\t"/* n_minus_sil[zmm1] >= bjmod[0:15][zmm0] ? Opmask K1 is bit-flipped-analog of AVX-mode bitmask stored in RCX */\
@@ -4439,7 +4520,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* Get ready for next set [IM0~] : */\
 		"movq	%[__sse_bw] ,%%rax		\n\t"/* After initial loads, rax,rbx dedicated to bw,nm1 data */\
 		"movq	%[__sse_nm1],%%rbx		\n\t"\
-		"vmovaps	(%%rax),%%zmm6		\n\t"/* PERSISTENT COPIES OF SSE_BW,NM1 REMAIN IN ZMM6,7. */\
+		"vmovaps	(%%rax),%%zmm6		\n\t"/* PERSISTENT COPIES OF SSE_BW,NM1 REMAIN IN zmm6,7. */\
 		"vmovaps	(%%rbx),%%zmm7		\n\t"\
 		"vpaddd		%%zmm6,%%zmm0,%%zmm0	\n\t"/* bjmod[0:15] += bw  */\
 		"vpandd		%%zmm7,%%zmm0,%%zmm0	\n\t"/* bjmod[0:15] &= nm1 */\
@@ -4868,14 +4949,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq $0x0001020304050607,%%rsi	\n\t"/* 64-bit register w/byte offsets 7-0, bytes ordered left-to-right in decreasing significance */\
 		"vmovq		%%rsi,%%xmm3 		\n\t"/* Copy byte pattern to low qword (64 bits) of ymm3 [NB: AVX-512 only supports MOVQ to/from 128-bit vector regs] */\
 		"vpmovzxbq	%%xmm3,%%zmm3		\n\t"/* vector-permutation-index: zmm3 = [7,6,5,4,3,2,1,0] in qwords.
-																ZMM3 PERSISTENT FROM HERE TIL END OF MACRO */\
+																zmm3 PERSISTENT FROM HERE TIL END OF MACRO */\
 		"movq	%[__half_arr],%%rdi		\n\t"\
 	/**********************************/\
 	/* Do A.re-octet:                 */\
 	/**********************************/\
 		"vmovaps	     %%zmm30,%%zmm8	\n\t	vmovaps	     %%zmm31,%%zmm9	\n\t"/* Init zmm8,9 in prep for conditional-doubling */\
 		"movq	%[__bjmod_0],%%rax		\n\t"\
-		"vmovaps	(%%rax),%%ymm0		\n\t"/* bjmod[0:7]. PERSISTENT COPY OF BJMOD[0:7] REMAINS IN YMM0. */\
+		"vmovaps	(%%rax),%%ymm0		\n\t"/* bjmod[0:7]. PERSISTENT COPY OF BJMOD[0:7] REMAINS IN ymm0. */\
 		"movq	%[__n_minus_sil],%%rcx	\n\t"\
 	"vpbroadcastd	0x0(%%rcx),%%ymm1	\n\t"/* Broadcast n_minus_sil to all 8 slots of ymm1 */\
 	/*** Compares must be at full width even though only use lower half, due to AVX512F compliance requirement" ***/\
@@ -4904,7 +4985,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* Get ready for next set [IM0~] : */\
 		"movq	%[__sse_bw] ,%%rax		\n\t"/* After initial loads, rax,rbx dedicated to bw,nm1 data */\
 		"movq	%[__sse_nm1],%%rbx		\n\t"\
-		"vmovaps	(%%rax),%%ymm6		\n\t"/* PERSISTENT COPIES OF SSE_BW,NM1 REMAIN IN YMM6,7. */\
+		"vmovaps	(%%rax),%%ymm6		\n\t"/* PERSISTENT COPIES OF SSE_BW,NM1 REMAIN IN ymm6,7. */\
 		"vmovaps	(%%rbx),%%ymm7		\n\t"\
 		"vpaddd		%%ymm6,%%ymm0,%%ymm0	\n\t"/* bjmod[0:7] += bw  */\
 		"vpand		%%ymm7,%%ymm0,%%ymm0	\n\t"/* bjmod[0:7] &= nm1 */\
@@ -5302,7 +5383,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq $0x0001020304050607,%%rsi	\n\t"/* 64-bit register w/byte offsets 7-0, bytes ordered left-to-right in decreasing significance */\
 		"vmovq		%%rsi,%%xmm3 		\n\t"/* Copy byte pattern to low qword (64 bits) of zmm3 [NB: AVX-512 only supports MOVQ to/from 128-bit vector regs] */\
 		"vpmovzxbq	%%xmm3,%%zmm3		\n\t"/* vector-permutation-index: zmm3 = [7,6,5,4,3,2,1,0] in qwords.
-																ZMM3 PERSISTENT FROM HERE TIL END OF MACRO */\
+																zmm3 PERSISTENT FROM HERE TIL END OF MACRO */\
 		"movq	%[__half_arr],%%rdi		\n\t"\
 	/**********************************/\
 	/* Do A.re-octet:                 */\
@@ -5310,7 +5391,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	     %%zmm30,%%zmm8	\n\t	vmovaps	     %%zmm30,%%zmm24\n\t"/* Init zmm8,9,24,25 in prep for conditional-doubling */\
 		"vmovaps	     %%zmm31,%%zmm9	\n\t	vmovaps	     %%zmm31,%%zmm25\n\t"\
 		"movq	%[__bjmod_0],%%rax		\n\t"\
-		"vmovaps	(%%rax),%%zmm0		\n\t"/* bjmod[0:15]. PERSISTENT COPY OF BJMOD[0:15] REMAINS IN ZMM0. */\
+		"vmovaps	(%%rax),%%zmm0		\n\t"/* bjmod[0:15]. PERSISTENT COPY OF BJMOD[0:15] REMAINS IN zmm0. */\
 		"movq	%[__n_minus_sil],%%rcx	\n\t"\
 	"vpbroadcastd	0x0(%%rcx),%%zmm1	\n\t"/* Broadcast n_minus_sil to all 16 slots of zmm1 */\
 		"vpcmpd	$5,%%zmm0,%%zmm1,%%k1	\n\t"/* n_minus_sil[zmm1] >= bjmod[0:15][zmm0] ? Opmask K1 is bit-flipped-analog of AVX-mode bitmask stored in RCX */\
@@ -5340,7 +5421,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* Get ready for next set [IM0~] : */\
 		"movq	%[__sse_bw] ,%%rax		\n\t"/* After initial loads, rax,rbx dedicated to bw,nm1 data */\
 		"movq	%[__sse_n],%%rbx		\n\t"\
-		"vmovaps	(%%rax),%%zmm6		\n\t"/* PERSISTENT COPIES OF SSE_BW,NM1 REMAIN IN ZMM6,7. */\
+		"vmovaps	(%%rax),%%zmm6		\n\t"/* PERSISTENT COPIES OF SSE_BW,NM1 REMAIN IN zmm6,7. */\
 		"vmovaps	(%%rbx),%%zmm7		\n\t"\
 		"vpaddd		%%zmm6,%%zmm0,%%zmm0	\n\t"/* bjmod[0:15] += bw */\
 		"vpcmpgtd	%%zmm7,%%zmm0,%%k1		\n\t"/* if(n > bjmod[0:15]) corr. bit in k1 set */\
@@ -5782,14 +5863,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq $0x0001020304050607,%%rsi	\n\t"/* 64-bit register w/byte offsets 7-0, bytes ordered left-to-right in decreasing significance */\
 		"vmovq		%%rsi,%%xmm3 		\n\t"/* Copy byte pattern to low qword (64 bits) of ymm3 [NB: AVX-512 only supports MOVQ to/from 128-bit vector regs] */\
 		"vpmovzxbq	%%xmm3,%%zmm3		\n\t"/* vector-permutation-index: zmm3 = [7,6,5,4,3,2,1,0] in qwords.
-																ZMM3 PERSISTENT FROM HERE TIL END OF MACRO */\
+																zmm3 PERSISTENT FROM HERE TIL END OF MACRO */\
 		"movq	%[__half_arr],%%rdi		\n\t"\
 	/**********************************/\
 	/* Do A.re-octet:                 */\
 	/**********************************/\
 		"vmovaps	     %%zmm30,%%zmm8	\n\t	vmovaps	     %%zmm31,%%zmm9	\n\t"/* Init zmm8,9 in prep for conditional-doubling */\
 		"movq	%[__bjmod_0],%%rax		\n\t"\
-		"vmovaps	(%%rax),%%ymm0		\n\t"/* bjmod[0:7]. PERSISTENT COPY OF BJMOD[0:7] REMAINS IN YMM0. */\
+		"vmovaps	(%%rax),%%ymm0		\n\t"/* bjmod[0:7]. PERSISTENT COPY OF BJMOD[0:7] REMAINS IN ymm0. */\
 		"movq	%[__n_minus_sil],%%rcx	\n\t"\
 	"vpbroadcastd	0x0(%%rcx),%%ymm1	\n\t"/* Broadcast n_minus_sil to all 8 slots of ymm1 */\
 	/*** Compares must be at full width even though only use lower half, due to AVX512F compliance requirement" ***/\
@@ -5818,7 +5899,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* Get ready for next set [IM0~] : */\
 		"movq	%[__sse_bw],%%rax		\n\t"/* After initial loads, rax,rbx dedicated to bw,nm1 data */\
 		"movq	%[__sse_n] ,%%rbx		\n\t"\
-		"vmovaps	(%%rax),%%ymm6		\n\t"/* PERSISTENT COPIES OF SSE_BW,N REMAIN IN YMM6,7. */\
+		"vmovaps	(%%rax),%%ymm6		\n\t"/* PERSISTENT COPIES OF SSE_BW,N REMAIN IN ymm6,7. */\
 		"vmovaps	(%%rbx),%%ymm7		\n\t"\
 		"vpaddd		%%ymm6,%%ymm0,%%ymm0	\n\t"/* bjmod[0:7] += bw */\
 		"vpcmpgtd	%%ymm7,%%ymm0,%%ymm1	\n\t"/* if(n > bjmod[0:7]) ymm1 = 11...11 */\
@@ -6246,7 +6327,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	/* Do A.re-quartet: Data in ymm0: */\
 	/**********************************/\
 		"movq	%[__bjmod_0],%%rax		\n\t"\
-		"vmovaps	(%%rax),%%xmm0		\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
+		"vmovaps	(%%rax),%%xmm0		\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN xmm0. */\
 		"movq	%[__n_minus_sil],%%rcx	\n\t"\
 		"vmovd		0x0(%%rcx),%%xmm1	\n\t"/* n_minus_sil in low 32 bits of xmm1 */\
 		"vpshufd	$0,%%xmm1,%%xmm1	\n\t"/* Broadcast low 32 bits of xmm1 to all 4 slots of xmm1 */\
@@ -6285,7 +6366,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* Get ready for next set [IM0~] : */\
 		"movq	%[__sse_bw]	,%%rax		\n\t"/* After initial loads, rax,rbx dedicated to bw,nm1 data */\
 		"movq	%[__sse_nm1],%%rbx		\n\t"\
-		"vmovaps	(%%rax),%%xmm6		\n\t"/* PERSISTENT COPIES OF SSE_BW,NM1 REMAIN IN XMM6,7. */\
+		"vmovaps	(%%rax),%%xmm6		\n\t"/* PERSISTENT COPIES OF SSE_BW,NM1 REMAIN IN xmm6,7. */\
 		"vmovaps	(%%rbx),%%xmm7		\n\t"\
 		"vpaddd		%%xmm6,%%xmm0,%%xmm0	\n\t"/* bjmod[0:3] += bw ; must use packed-INTEGER add [not addpd!] here, severe performance penalty from using addpd. */\
 		"vpand		%%xmm7,%%xmm0,%%xmm0	\n\t"/* bjmod[0:3] &= nm1; & doesn't care whether integer [pand] or floating [andpd], but data are int, so use pand for form's sake */\
@@ -6549,7 +6630,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	/**********************************/\
 	/* Do A.re-quartet: Data in ymm0: */\
 	/**********************************/\
-		"movq	%[__bjmod_0],%%rax		\n\t"/* bjmod[0:3][4:7]. PERSISTENT COPIES REMAIN IN XMM0,8. */\
+		"movq	%[__bjmod_0],%%rax		\n\t"/* bjmod[0:3][4:7]. PERSISTENT COPIES REMAIN IN xmm0,8. */\
 		"vmovaps	(%%rax),%%xmm0		\n\t	vmovaps	0x10(%%rax),%%xmm8	\n\t"\
 		"movq	%[__n_minus_sil],%%rcx	\n\t"\
 		"vmovd		0x0(%%rcx),%%xmm1	\n\t"/* n_minus_sil in low 32 bits of xmm1 */\
@@ -6589,7 +6670,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* Get ready for next set [IM0~] : */\
 		"movq	%[__sse_bw]	,%%rax		\n\t"/* After initial loads, rax,rbx dedicated to bw,nm1 data */\
 		"movq	%[__sse_nm1],%%rbx		\n\t"\
-		"vmovaps	(%%rax),%%xmm6		\n\t"/* PERSISTENT COPIES OF SSE_BW,NM1 REMAIN IN XMM6,7. */\
+		"vmovaps	(%%rax),%%xmm6		\n\t"/* PERSISTENT COPIES OF SSE_BW,NM1 REMAIN IN xmm6,7. */\
 		"vmovaps	(%%rbx),%%xmm7		\n\t"\
 		"vpaddd		%%xmm6,%%xmm0,%%xmm0	\n\t	vpaddd		%%xmm6,%%xmm8,%%xmm8	\n\t"/* bjmod[0:3][4:7] += bw ; must use packed-INTEGER add [not addpd!] here, severe performance penalty from using addpd. */\
 		"vpand		%%xmm7,%%xmm0,%%xmm0	\n\t	vpand		%%xmm7,%%xmm8,%%xmm8	\n\t"/* bjmod[0:3][4:7] &= nm1; & doesn't care whether integer [pand] or floating [andpd], but data are int, so use pand for form's sake */\
@@ -6861,7 +6942,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	/* Do A.re-quartet: Data in ymm0: */\
 	/**********************************/\
 		"movq	%[__bjmod_0],%%rax		\n\t"\
-		"vmovaps	(%%rax),%%xmm0		\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
+		"vmovaps	(%%rax),%%xmm0		\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN xmm0. */\
 		"movq	%[__n_minus_sil],%%rcx	\n\t"\
 		"vmovd		0x0(%%rcx),%%xmm1	\n\t"/* n_minus_sil in low 32 bits of xmm1 */\
 		"vpshufd	$0,%%xmm1,%%xmm1	\n\t"/* Broadcast low 32 bits of xmm1 to all 4 slots of xmm1 */\
@@ -6900,7 +6981,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* Get ready for next set [IM0~] : */\
 		"movq	%[__sse_bw],%%rax		\n\t"/* After initial loads, rax,rbx dedicated to bw,nm1 data */\
 		"movq	%[__sse_n] ,%%rbx		\n\t"\
-		"vmovaps	(%%rax),%%xmm6		\n\t"/* PERSISTENT COPIES OF SSE_BW,N REMAIN IN XMM6,7. */\
+		"vmovaps	(%%rax),%%xmm6		\n\t"/* PERSISTENT COPIES OF SSE_BW,N REMAIN IN xmm6,7. */\
 		"vmovaps	(%%rbx),%%xmm7		\n\t"\
 		"vpaddd		%%xmm6,%%xmm0,%%xmm0	\n\t"/* bjmod[0:3] += bw */\
 		"vpcmpgtd	%%xmm7,%%xmm0,%%xmm1	\n\t"/* if(n > bjmod[0:3]) xmm1 = 11...11 */\
@@ -7178,7 +7259,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	/**********************************/\
 	/* Do A.re-quartet: Data in ymm0: */\
 	/**********************************/\
-		"movq	%[__bjmod_0],%%rax		\n\t"/* bjmod[0:3][4:7]. PERSISTENT COPIES REMAIN IN XMM0,8. */\
+		"movq	%[__bjmod_0],%%rax		\n\t"/* bjmod[0:3][4:7]. PERSISTENT COPIES REMAIN IN xmm0,8. */\
 		"vmovaps	(%%rax),%%xmm0		\n\t	vmovaps	0x10(%%rax),%%xmm8	\n\t"\
 		"movq	%[__n_minus_sil],%%rcx	\n\t"\
 		"vmovd		0x0(%%rcx),%%xmm1	\n\t"/* n_minus_sil in low 32 bits of xmm1 */\
@@ -7218,7 +7299,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* Get ready for next set [IM0~] : */\
 		"movq	%[__sse_bw],%%rax		\n\t"/* After initial loads, rax,rbx dedicated to bw,nm1 data */\
 		"movq	%[__sse_n] ,%%rbx		\n\t"\
-		"vmovaps	(%%rax),%%xmm6		\n\t"/* PERSISTENT COPIES OF SSE_BW,N REMAIN IN XMM6,7. */\
+		"vmovaps	(%%rax),%%xmm6		\n\t"/* PERSISTENT COPIES OF SSE_BW,N REMAIN IN xmm6,7. */\
 		"vmovaps	(%%rbx),%%xmm7		\n\t"\
 		"vpaddd		%%xmm6,%%xmm0,%%xmm0	\n\t	vpaddd		%%xmm6,%%xmm8,%%xmm8	\n\t"/* bjmod[0:3][4:7] += bw ; must use packed-INTEGER add [not addpd!] here, severe performance penalty from using addpd. */\
 		"vpcmpgtd	%%xmm7,%%xmm0,%%xmm1	\n\t	vpcmpgtd	%%xmm7,%%xmm8,%%xmm9	\n\t"/* if(n > bjmod[0:3][4:7]) xmm1 = 11...11 */\
@@ -7493,7 +7574,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 #ifdef USE_AVX512
 
 	// 16-fold analog of AVX_cmplx_carry_fast_pow2_errcheck_X8 - my tests on KNL showed it's faster to let the system do the prefetching:
-	#define AVX_cmplx_carry_fast_pow2_errcheck_X16(Xdata,Xcy,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3,Xp4 )\
+	#define AVX_cmplx_carry_fast_pow2_errcheck_X16(Xdata,Xcy,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3,Xp4, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"movq	%[__add0],%%r14	\n\t"/* base address for 8 prefetches-from-main-data-array spread through this macro */\
@@ -7505,101 +7586,117 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	*/\
 	/* 8-way transpose of inputs (Re, Im parts separately) uses complex-ified version of algo in util.c:test_simd_transpose_8x8(). */\
 	/* Inputs from r0-f. Outputs into r0-f: */\
+		"movl	$0b00110011,%%eax	\n\t"/* Constant for vblendmpd instructions goes into mask-reg k1 */\
+		"kmovw	%%eax,%%k1			\n\t"\
+		/* Init vector index-consts needed by vpermt2pd instructions - if regs were at a premium,
+		could also init just prior to [3] and use zmm6,7 to hold index-consts: */\
+		"movq	$0x0c040e0608000a02,%%rax	\n\t"/* zmm30 = 8+4 0+4 8+6 0+6 8+0 0+0 8+2 0+2 [msw at left] */\
+		"movq	$0x0d050f0709010b03,%%rbx	\n\t"/* zmm31 = 8+5 0+5 8+7 0+7 8+1 0+1 8+3 0+3 */\
+			"vmovq		%%rax,%%xmm0 		\n\t"\
+			"vmovq		%%rbx,%%xmm1 		\n\t"\
+			"vpmovzxbq	%%xmm0,%%zmm30		\n\t"\
+			"vpmovzxbq	%%xmm1,%%zmm31		\n\t"\
 		"movq		%[__data],%%rax		\n\t"\
-	/* Real parts use zmm0,2,4,6,8,10,12,14,16:				Imag parts use zmm1,3,5,7,9,11,13,15,17: */\
-		/* Read in the 8 rows of our input matrix ... the funky index ordering gives ordered outputs sans reg-copying: */\
-		"vmovaps		0x000(%%rax),%%zmm6 		\n\t	vmovaps		0x040(%%rax),%%zmm7 		\n\t"\
-		"vmovaps		0x080(%%rax),%%zmm8 		\n\t	vmovaps		0x0c0(%%rax),%%zmm9 		\n\t"\
-		"vmovaps		0x100(%%rax),%%zmm10		\n\t	vmovaps		0x140(%%rax),%%zmm11		\n\t"\
-		"vmovaps		0x180(%%rax),%%zmm16		\n\t	vmovaps		0x1c0(%%rax),%%zmm17		\n\t"\
-		"vmovaps		0x200(%%rax),%%zmm12		\n\t	vmovaps		0x240(%%rax),%%zmm13		\n\t"\
-		"vmovaps		0x280(%%rax),%%zmm0 		\n\t	vmovaps		0x2c0(%%rax),%%zmm1 		\n\t"\
-		"vmovaps		0x300(%%rax),%%zmm2 		\n\t	vmovaps		0x340(%%rax),%%zmm3 		\n\t"\
-		"vmovaps		0x380(%%rax),%%zmm14		\n\t	vmovaps		0x3c0(%%rax),%%zmm15		\n\t"\
-		"\n\t"\
-		"vunpcklpd		%%zmm8 ,%%zmm6 ,%%zmm4 		\n\t	vunpcklpd		%%zmm9 ,%%zmm7 ,%%zmm5 		\n\t"\
-		"vunpckhpd		%%zmm8 ,%%zmm6 ,%%zmm8 		\n\t	vunpckhpd		%%zmm9 ,%%zmm7 ,%%zmm9 		\n\t"\
-		"vunpcklpd		%%zmm16,%%zmm10,%%zmm6 		\n\t	vunpcklpd		%%zmm17,%%zmm11,%%zmm7 		\n\t"\
-		"vunpckhpd		%%zmm16,%%zmm10,%%zmm16		\n\t	vunpckhpd		%%zmm17,%%zmm11,%%zmm17		\n\t"\
-		"vunpcklpd		%%zmm0 ,%%zmm12,%%zmm10		\n\t	vunpcklpd		%%zmm1 ,%%zmm13,%%zmm11		\n\t"\
-		"vunpckhpd		%%zmm0 ,%%zmm12,%%zmm0 		\n\t	vunpckhpd		%%zmm1 ,%%zmm13,%%zmm1 		\n\t"\
-		"vunpcklpd		%%zmm14,%%zmm2 ,%%zmm12		\n\t	vunpcklpd		%%zmm15,%%zmm3 ,%%zmm13		\n\t"\
-		"vunpckhpd		%%zmm14,%%zmm2 ,%%zmm14		\n\t	vunpckhpd		%%zmm15,%%zmm3 ,%%zmm15		\n\t"\
-		"\n\t"\
-		"vshuff64x2	$136,%%zmm6 ,%%zmm4 ,%%zmm2 	\n\t	vshuff64x2	$136,%%zmm7 ,%%zmm5 ,%%zmm3 	\n\t"\
-		"vshuff64x2	$221,%%zmm6 ,%%zmm4 ,%%zmm6 	\n\t	vshuff64x2	$221,%%zmm7 ,%%zmm5 ,%%zmm7 	\n\t"\
-		"vshuff64x2	$136,%%zmm16,%%zmm8 ,%%zmm4 	\n\t	vshuff64x2	$136,%%zmm17,%%zmm9 ,%%zmm5 	\n\t"\
-		"vshuff64x2	$221,%%zmm16,%%zmm8 ,%%zmm16	\n\t	vshuff64x2	$221,%%zmm17,%%zmm9 ,%%zmm17	\n\t"\
-		"vshuff64x2	$136,%%zmm12,%%zmm10,%%zmm8 	\n\t	vshuff64x2	$136,%%zmm13,%%zmm11,%%zmm9 	\n\t"\
-		"vshuff64x2	$221,%%zmm12,%%zmm10,%%zmm12	\n\t	vshuff64x2	$221,%%zmm13,%%zmm11,%%zmm13	\n\t"\
-		"vshuff64x2	$136,%%zmm14,%%zmm0 ,%%zmm10	\n\t	vshuff64x2	$136,%%zmm15,%%zmm1 ,%%zmm11	\n\t"\
-		"vshuff64x2	$221,%%zmm14,%%zmm0 ,%%zmm14	\n\t	vshuff64x2	$221,%%zmm15,%%zmm1 ,%%zmm15	\n\t"\
-		"\n\t"\
-		"vshuff64x2	$136,%%zmm8 ,%%zmm2 ,%%zmm0 	\n\t	vshuff64x2	$136,%%zmm9 ,%%zmm3 ,%%zmm1 	\n\t"\
-		"vshuff64x2	$221,%%zmm8 ,%%zmm2 ,%%zmm8 	\n\t	vshuff64x2	$221,%%zmm9 ,%%zmm3 ,%%zmm9 	\n\t"\
-		"vshuff64x2	$136,%%zmm10,%%zmm4 ,%%zmm2 	\n\t	vshuff64x2	$136,%%zmm11,%%zmm5 ,%%zmm3 	\n\t"\
-		"vshuff64x2	$221,%%zmm10,%%zmm4 ,%%zmm10	\n\t	vshuff64x2	$221,%%zmm11,%%zmm5 ,%%zmm11	\n\t"\
-		"vshuff64x2	$136,%%zmm12,%%zmm6 ,%%zmm4 	\n\t	vshuff64x2	$136,%%zmm13,%%zmm7 ,%%zmm5 	\n\t"\
-		"vshuff64x2	$221,%%zmm12,%%zmm6 ,%%zmm12	\n\t	vshuff64x2	$221,%%zmm13,%%zmm7 ,%%zmm13	\n\t"\
-		"vshuff64x2	$136,%%zmm14,%%zmm16,%%zmm6 	\n\t	vshuff64x2	$136,%%zmm15,%%zmm17,%%zmm7 	\n\t"\
-		"vshuff64x2	$221,%%zmm14,%%zmm16,%%zmm14	\n\t	vshuff64x2	$221,%%zmm15,%%zmm17,%%zmm15	\n\t"\
-		/* Outputs are now ordered - write 'em back to memory: */\
-		/* Real parts:																		Imag parts: */\
-		"vmovaps	%%zmm0 ,0x000(%%rax)			\n\t	vmovaps	%%zmm1 ,0x040(%%rax)	\n\t"\
-		"vmovaps	%%zmm2 ,0x080(%%rax)			\n\t	vmovaps	%%zmm3 ,0x0c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm4 ,0x100(%%rax)			\n\t	vmovaps	%%zmm5 ,0x140(%%rax)	\n\t"\
-		"vmovaps	%%zmm6 ,0x180(%%rax)			\n\t	vmovaps	%%zmm7 ,0x1c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm8 ,0x200(%%rax)			\n\t	vmovaps	%%zmm9 ,0x240(%%rax)	\n\t"\
-		"vmovaps	%%zmm10,0x280(%%rax)			\n\t	vmovaps	%%zmm11,0x2c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm12,0x300(%%rax)			\n\t	vmovaps	%%zmm13,0x340(%%rax)	\n\t"\
-		"vmovaps	%%zmm14,0x380(%%rax)			\n\t	vmovaps	%%zmm15,0x3c0(%%rax)	\n\t"\
+		/* Read in the 8 rows of our input matrix: */\
+		"vmovaps		0x000(%%rax),%%zmm0					\n\t	vmovaps		0x040(%%rax),%%zmm12		\n\t"\
+		"vmovaps		0x080(%%rax),%%zmm1					\n\t	vmovaps		0x0c0(%%rax),%%zmm13		\n\t"\
+		"vmovaps		0x100(%%rax),%%zmm2					\n\t	vmovaps		0x140(%%rax),%%zmm14		\n\t"\
+		"vmovaps		0x180(%%rax),%%zmm3					\n\t	vmovaps		0x1c0(%%rax),%%zmm15		\n\t"\
+		"vmovaps		0x200(%%rax),%%zmm4					\n\t	vmovaps		0x240(%%rax),%%zmm16		\n\t"\
+		"vmovaps		0x280(%%rax),%%zmm5					\n\t	vmovaps		0x2c0(%%rax),%%zmm17		\n\t"\
+		"vmovaps		0x300(%%rax),%%zmm6					\n\t	vmovaps		0x340(%%rax),%%zmm18		\n\t"\
+		"vmovaps		0x380(%%rax),%%zmm7					\n\t	vmovaps		0x3c0(%%rax),%%zmm19		\n\t"\
+		/* [1] Shuffle the 4-aparts - note the different patterning of the first and second output quartet: */\
+		"vshuff64x2	$0b01000100, %%zmm4,	%%zmm0,	%%zmm8 	\n\t	vshuff64x2	$0b01000100, %%zmm16,%%zmm12,	%%zmm20	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm4,	%%zmm0,	%%zmm4 	\n\t	vshuff64x2	$0b11101110, %%zmm16,%%zmm12,	%%zmm16	\n\t"\
+		"vshuff64x2	$0b01000100, %%zmm5,	%%zmm1,	%%zmm9	\n\t	vshuff64x2	$0b01000100, %%zmm17,%%zmm13,	%%zmm21	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm5,	%%zmm1,	%%zmm5	\n\t	vshuff64x2	$0b11101110, %%zmm17,%%zmm13,	%%zmm17	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm6,	%%zmm2,	%%zmm10	\n\t	vshuff64x2	$0b00010001, %%zmm18,%%zmm14,	%%zmm22	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm6,	%%zmm2,	%%zmm6	\n\t	vshuff64x2	$0b10111011, %%zmm18,%%zmm14,	%%zmm18	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm7,	%%zmm3,	%%zmm11	\n\t	vshuff64x2	$0b00010001, %%zmm19,%%zmm15,	%%zmm23	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm7,	%%zmm3,	%%zmm7	\n\t	vshuff64x2	$0b10111011, %%zmm19,%%zmm15,	%%zmm19	\n\t"\
+		/* [2] Blend in the 2-aparts */\
+		"vblendmpd	%%zmm8 ,	%%zmm10,	%%zmm0%{%%k1%}	\n\t	vblendmpd	%%zmm20,	%%zmm22,	%%zmm12%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm10,	%%zmm8 ,	%%zmm8%{%%k1%}	\n\t	vblendmpd	%%zmm22,	%%zmm20,	%%zmm20%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm4 ,	%%zmm6 ,	%%zmm1%{%%k1%}	\n\t	vblendmpd	%%zmm16,	%%zmm18,	%%zmm13%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm6 ,	%%zmm4 ,	%%zmm4%{%%k1%}	\n\t	vblendmpd	%%zmm18,	%%zmm16,	%%zmm16%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm9 ,	%%zmm11,	%%zmm2%{%%k1%}	\n\t	vblendmpd	%%zmm21,	%%zmm23,	%%zmm14%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm11,	%%zmm9 ,	%%zmm9%{%%k1%}	\n\t	vblendmpd	%%zmm23,	%%zmm21,	%%zmm21%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm5 ,	%%zmm7 ,	%%zmm3%{%%k1%}	\n\t	vblendmpd	%%zmm17,	%%zmm19,	%%zmm15%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm7 ,	%%zmm5 ,	%%zmm5%{%%k1%}	\n\t	vblendmpd	%%zmm19,	%%zmm17,	%%zmm17%{%%k1%}	\n\t"\
+		/* [3] Shuffle or permute in the 1-aparts */\
+		"vshufpd	$0b00000000,%%zmm2,		%%zmm0,%%zmm10 	\n\t	vshufpd	$0b00000000,%%zmm14,	%%zmm12,%%zmm22	\n\t"\
+		"vshufpd	$0b11111111,%%zmm2,		%%zmm0,%%zmm11 	\n\t	vshufpd	$0b11111111,%%zmm14,	%%zmm12,%%zmm23	\n\t"\
+		"vmovapd	%%zmm8,%%zmm2							\n\t	vmovapd	%%zmm20,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm30,%%zmm2 	\n\t	vpermt2pd				%%zmm21,	%%zmm30,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm31,%%zmm8	\n\t	vpermt2pd				%%zmm21,	%%zmm31,%%zmm20	\n\t"\
+		"vshufpd	$0b00000000,%%zmm3,		%%zmm1,%%zmm0 	\n\t	vshufpd	$0b00000000,%%zmm15,	%%zmm13,%%zmm12	\n\t"\
+		"vshufpd	$0b11111111,%%zmm3,		%%zmm1,%%zmm1 	\n\t	vshufpd	$0b11111111,%%zmm15,	%%zmm13,%%zmm13	\n\t"\
+		"vmovapd	%%zmm4,%%zmm3							\n\t	vmovapd	%%zmm16,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm30,%%zmm3 	\n\t	vpermt2pd				%%zmm17,	%%zmm30,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm31,%%zmm4	\n\t	vpermt2pd				%%zmm17,	%%zmm31,%%zmm16	\n\t"\
+		/* Write original columns back as rows: */\
+		"vmovaps		%%zmm10,0x000(%%rax)				\n\t	vmovaps		%%zmm22,0x040(%%rax)		\n\t"\
+		"vmovaps		%%zmm11,0x080(%%rax)				\n\t	vmovaps		%%zmm23,0x0c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm2 ,0x100(%%rax)				\n\t	vmovaps		%%zmm14,0x140(%%rax)		\n\t"\
+		"vmovaps		%%zmm8 ,0x180(%%rax)				\n\t	vmovaps		%%zmm20,0x1c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm0 ,0x200(%%rax)				\n\t	vmovaps		%%zmm12,0x240(%%rax)		\n\t"\
+		"vmovaps		%%zmm1 ,0x280(%%rax)				\n\t	vmovaps		%%zmm13,0x2c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm3 ,0x300(%%rax)				\n\t	vmovaps		%%zmm15,0x340(%%rax)		\n\t"\
+		"vmovaps		%%zmm4, 0x380(%%rax)				\n\t	vmovaps		%%zmm16,0x3c0(%%rax)		\n\t"\
+	/********************************************************************/\
 	/* Second 8-way transpose. Inputs from r10-1f. Outputs into r10-1f: */\
+	/********************************************************************/\
 		"addq		$0x400,%%rax		\n\t"\
-		"vmovaps		0x000(%%rax),%%zmm6 		\n\t	vmovaps		0x040(%%rax),%%zmm7 		\n\t"\
-		"vmovaps		0x080(%%rax),%%zmm8 		\n\t	vmovaps		0x0c0(%%rax),%%zmm9 		\n\t"\
-		"vmovaps		0x100(%%rax),%%zmm10		\n\t	vmovaps		0x140(%%rax),%%zmm11		\n\t"\
-		"vmovaps		0x180(%%rax),%%zmm16		\n\t	vmovaps		0x1c0(%%rax),%%zmm17		\n\t"\
-		"vmovaps		0x200(%%rax),%%zmm12		\n\t	vmovaps		0x240(%%rax),%%zmm13		\n\t"\
-		"vmovaps		0x280(%%rax),%%zmm0 		\n\t	vmovaps		0x2c0(%%rax),%%zmm1 		\n\t"\
-		"vmovaps		0x300(%%rax),%%zmm2 		\n\t	vmovaps		0x340(%%rax),%%zmm3 		\n\t"\
-		"vmovaps		0x380(%%rax),%%zmm14		\n\t	vmovaps		0x3c0(%%rax),%%zmm15		\n\t"\
-		"\n\t"\
-		"vunpcklpd		%%zmm8 ,%%zmm6 ,%%zmm4 		\n\t	vunpcklpd		%%zmm9 ,%%zmm7 ,%%zmm5 		\n\t"\
-		"vunpckhpd		%%zmm8 ,%%zmm6 ,%%zmm8 		\n\t	vunpckhpd		%%zmm9 ,%%zmm7 ,%%zmm9 		\n\t"\
-		"vunpcklpd		%%zmm16,%%zmm10,%%zmm6 		\n\t	vunpcklpd		%%zmm17,%%zmm11,%%zmm7 		\n\t"\
-		"vunpckhpd		%%zmm16,%%zmm10,%%zmm16		\n\t	vunpckhpd		%%zmm17,%%zmm11,%%zmm17		\n\t"\
-		"vunpcklpd		%%zmm0 ,%%zmm12,%%zmm10		\n\t	vunpcklpd		%%zmm1 ,%%zmm13,%%zmm11		\n\t"\
-		"vunpckhpd		%%zmm0 ,%%zmm12,%%zmm0 		\n\t	vunpckhpd		%%zmm1 ,%%zmm13,%%zmm1 		\n\t"\
-		"vunpcklpd		%%zmm14,%%zmm2 ,%%zmm12		\n\t	vunpcklpd		%%zmm15,%%zmm3 ,%%zmm13		\n\t"\
-		"vunpckhpd		%%zmm14,%%zmm2 ,%%zmm14		\n\t	vunpckhpd		%%zmm15,%%zmm3 ,%%zmm15		\n\t"\
-		"\n\t"\
-		"vshuff64x2	$136,%%zmm6 ,%%zmm4 ,%%zmm2 	\n\t	vshuff64x2	$136,%%zmm7 ,%%zmm5 ,%%zmm3 	\n\t"\
-		"vshuff64x2	$221,%%zmm6 ,%%zmm4 ,%%zmm6 	\n\t	vshuff64x2	$221,%%zmm7 ,%%zmm5 ,%%zmm7 	\n\t"\
-		"vshuff64x2	$136,%%zmm16,%%zmm8 ,%%zmm4 	\n\t	vshuff64x2	$136,%%zmm17,%%zmm9 ,%%zmm5 	\n\t"\
-		"vshuff64x2	$221,%%zmm16,%%zmm8 ,%%zmm16	\n\t	vshuff64x2	$221,%%zmm17,%%zmm9 ,%%zmm17	\n\t"\
-		"vshuff64x2	$136,%%zmm12,%%zmm10,%%zmm8 	\n\t	vshuff64x2	$136,%%zmm13,%%zmm11,%%zmm9 	\n\t"\
-		"vshuff64x2	$221,%%zmm12,%%zmm10,%%zmm12	\n\t	vshuff64x2	$221,%%zmm13,%%zmm11,%%zmm13	\n\t"\
-		"vshuff64x2	$136,%%zmm14,%%zmm0 ,%%zmm10	\n\t	vshuff64x2	$136,%%zmm15,%%zmm1 ,%%zmm11	\n\t"\
-		"vshuff64x2	$221,%%zmm14,%%zmm0 ,%%zmm14	\n\t	vshuff64x2	$221,%%zmm15,%%zmm1 ,%%zmm15	\n\t"\
-		"\n\t"\
-		"vshuff64x2	$136,%%zmm8 ,%%zmm2 ,%%zmm0 	\n\t	vshuff64x2	$136,%%zmm9 ,%%zmm3 ,%%zmm1 	\n\t"\
-		"vshuff64x2	$221,%%zmm8 ,%%zmm2 ,%%zmm8 	\n\t	vshuff64x2	$221,%%zmm9 ,%%zmm3 ,%%zmm9 	\n\t"\
-		"vshuff64x2	$136,%%zmm10,%%zmm4 ,%%zmm2 	\n\t	vshuff64x2	$136,%%zmm11,%%zmm5 ,%%zmm3 	\n\t"\
-		"vshuff64x2	$221,%%zmm10,%%zmm4 ,%%zmm10	\n\t	vshuff64x2	$221,%%zmm11,%%zmm5 ,%%zmm11	\n\t"\
-		"vshuff64x2	$136,%%zmm12,%%zmm6 ,%%zmm4 	\n\t	vshuff64x2	$136,%%zmm13,%%zmm7 ,%%zmm5 	\n\t"\
-		"vshuff64x2	$221,%%zmm12,%%zmm6 ,%%zmm12	\n\t	vshuff64x2	$221,%%zmm13,%%zmm7 ,%%zmm13	\n\t"\
-		"vshuff64x2	$136,%%zmm14,%%zmm16,%%zmm6 	\n\t	vshuff64x2	$136,%%zmm15,%%zmm17,%%zmm7 	\n\t"\
-		"vshuff64x2	$221,%%zmm14,%%zmm16,%%zmm14	\n\t	vshuff64x2	$221,%%zmm15,%%zmm17,%%zmm15	\n\t"\
-		/* Outputs are now ordered - write 'em back to memory: */\
-		"vmovaps	%%zmm0 ,0x000(%%rax)			\n\t	vmovaps	%%zmm1 ,0x040(%%rax)	\n\t"\
-		"vmovaps	%%zmm2 ,0x080(%%rax)			\n\t	vmovaps	%%zmm3 ,0x0c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm4 ,0x100(%%rax)			\n\t	vmovaps	%%zmm5 ,0x140(%%rax)	\n\t"\
-		"vmovaps	%%zmm6 ,0x180(%%rax)			\n\t	vmovaps	%%zmm7 ,0x1c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm8 ,0x200(%%rax)			\n\t	vmovaps	%%zmm9 ,0x240(%%rax)	\n\t"\
-		"vmovaps	%%zmm10,0x280(%%rax)			\n\t	vmovaps	%%zmm11,0x2c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm12,0x300(%%rax)			\n\t	vmovaps	%%zmm13,0x340(%%rax)	\n\t"\
-		"vmovaps	%%zmm14,0x380(%%rax)			\n\t	vmovaps	%%zmm15,0x3c0(%%rax)	\n\t"\
+		"vmovaps		0x000(%%rax),%%zmm0					\n\t	vmovaps		0x040(%%rax),%%zmm12		\n\t"\
+		"vmovaps		0x080(%%rax),%%zmm1					\n\t	vmovaps		0x0c0(%%rax),%%zmm13		\n\t"\
+		"vmovaps		0x100(%%rax),%%zmm2					\n\t	vmovaps		0x140(%%rax),%%zmm14		\n\t"\
+		"vmovaps		0x180(%%rax),%%zmm3					\n\t	vmovaps		0x1c0(%%rax),%%zmm15		\n\t"\
+		"vmovaps		0x200(%%rax),%%zmm4					\n\t	vmovaps		0x240(%%rax),%%zmm16		\n\t"\
+		"vmovaps		0x280(%%rax),%%zmm5					\n\t	vmovaps		0x2c0(%%rax),%%zmm17		\n\t"\
+		"vmovaps		0x300(%%rax),%%zmm6					\n\t	vmovaps		0x340(%%rax),%%zmm18		\n\t"\
+		"vmovaps		0x380(%%rax),%%zmm7					\n\t	vmovaps		0x3c0(%%rax),%%zmm19		\n\t"\
+		/* [1] Shuffle the 4-aparts - note the different patterning of the first and second output quartet: */\
+		"vshuff64x2	$0b01000100, %%zmm4,	%%zmm0,	%%zmm8 	\n\t	vshuff64x2	$0b01000100, %%zmm16,%%zmm12,	%%zmm20	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm4,	%%zmm0,	%%zmm4 	\n\t	vshuff64x2	$0b11101110, %%zmm16,%%zmm12,	%%zmm16	\n\t"\
+		"vshuff64x2	$0b01000100, %%zmm5,	%%zmm1,	%%zmm9	\n\t	vshuff64x2	$0b01000100, %%zmm17,%%zmm13,	%%zmm21	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm5,	%%zmm1,	%%zmm5	\n\t	vshuff64x2	$0b11101110, %%zmm17,%%zmm13,	%%zmm17	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm6,	%%zmm2,	%%zmm10	\n\t	vshuff64x2	$0b00010001, %%zmm18,%%zmm14,	%%zmm22	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm6,	%%zmm2,	%%zmm6	\n\t	vshuff64x2	$0b10111011, %%zmm18,%%zmm14,	%%zmm18	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm7,	%%zmm3,	%%zmm11	\n\t	vshuff64x2	$0b00010001, %%zmm19,%%zmm15,	%%zmm23	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm7,	%%zmm3,	%%zmm7	\n\t	vshuff64x2	$0b10111011, %%zmm19,%%zmm15,	%%zmm19	\n\t"\
+		/* [2] Blend in the 2-aparts */\
+		"vblendmpd	%%zmm8 ,	%%zmm10,	%%zmm0%{%%k1%}	\n\t	vblendmpd	%%zmm20,	%%zmm22,	%%zmm12%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm10,	%%zmm8 ,	%%zmm8%{%%k1%}	\n\t	vblendmpd	%%zmm22,	%%zmm20,	%%zmm20%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm4 ,	%%zmm6 ,	%%zmm1%{%%k1%}	\n\t	vblendmpd	%%zmm16,	%%zmm18,	%%zmm13%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm6 ,	%%zmm4 ,	%%zmm4%{%%k1%}	\n\t	vblendmpd	%%zmm18,	%%zmm16,	%%zmm16%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm9 ,	%%zmm11,	%%zmm2%{%%k1%}	\n\t	vblendmpd	%%zmm21,	%%zmm23,	%%zmm14%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm11,	%%zmm9 ,	%%zmm9%{%%k1%}	\n\t	vblendmpd	%%zmm23,	%%zmm21,	%%zmm21%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm5 ,	%%zmm7 ,	%%zmm3%{%%k1%}	\n\t	vblendmpd	%%zmm17,	%%zmm19,	%%zmm15%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm7 ,	%%zmm5 ,	%%zmm5%{%%k1%}	\n\t	vblendmpd	%%zmm19,	%%zmm17,	%%zmm17%{%%k1%}	\n\t"\
+		/* [3] Shuffle or permute in the 1-aparts */\
+		"vshufpd	$0b00000000,%%zmm2,		%%zmm0,%%zmm10 	\n\t	vshufpd	$0b00000000,%%zmm14,	%%zmm12,%%zmm22	\n\t"\
+		"vshufpd	$0b11111111,%%zmm2,		%%zmm0,%%zmm11 	\n\t	vshufpd	$0b11111111,%%zmm14,	%%zmm12,%%zmm23	\n\t"\
+		"vmovapd	%%zmm8,%%zmm2							\n\t	vmovapd	%%zmm20,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm30,%%zmm2 	\n\t	vpermt2pd				%%zmm21,	%%zmm30,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm31,%%zmm8	\n\t	vpermt2pd				%%zmm21,	%%zmm31,%%zmm20	\n\t"\
+		"vshufpd	$0b00000000,%%zmm3,		%%zmm1,%%zmm0 	\n\t	vshufpd	$0b00000000,%%zmm15,	%%zmm13,%%zmm12	\n\t"\
+		"vshufpd	$0b11111111,%%zmm3,		%%zmm1,%%zmm1 	\n\t	vshufpd	$0b11111111,%%zmm15,	%%zmm13,%%zmm13	\n\t"\
+		"vmovapd	%%zmm4,%%zmm3							\n\t	vmovapd	%%zmm16,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm30,%%zmm3 	\n\t	vpermt2pd				%%zmm17,	%%zmm30,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm31,%%zmm4	\n\t	vpermt2pd				%%zmm17,	%%zmm31,%%zmm16	\n\t"\
+		/* Write original columns back as rows: */\
+		"vmovaps		%%zmm10,0x000(%%rax)				\n\t	vmovaps		%%zmm22,0x040(%%rax)		\n\t"\
+		"vmovaps		%%zmm11,0x080(%%rax)				\n\t	vmovaps		%%zmm23,0x0c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm2 ,0x100(%%rax)				\n\t	vmovaps		%%zmm14,0x140(%%rax)		\n\t"\
+		"vmovaps		%%zmm8 ,0x180(%%rax)				\n\t	vmovaps		%%zmm20,0x1c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm0 ,0x200(%%rax)				\n\t	vmovaps		%%zmm12,0x240(%%rax)		\n\t"\
+		"vmovaps		%%zmm1 ,0x280(%%rax)				\n\t	vmovaps		%%zmm13,0x2c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm3 ,0x300(%%rax)				\n\t	vmovaps		%%zmm15,0x340(%%rax)		\n\t"\
+		"vmovaps		%%zmm4, 0x380(%%rax)				\n\t	vmovaps		%%zmm16,0x3c0(%%rax)		\n\t"\
 		"subq		$0x400,%%rax			\n\t"\
+		"movq	%[__prp_mult]	,%%rbx	\n\t"\
+		"vbroadcastsd	(%%rbx),%%zmm20	\n\t"/* prp_mult, broadcast to all double-slots of zmm20 */\
 	/********** RCOL REGISTERS NUMBERED += 16 W.R.TO ANALOGOUS LCOL-REGISTERS **********/\
 		"movq	%[__cy],%%rbx				\n\t"\
 		"vmovaps	    (%%rbx),%%zmm1		\n\t	vmovaps	0x40(%%rbx),%%zmm17		\n\t"/* zmm1,17 = Our 2 eight-double cy_in[0:7][8:15]-vectors */\
@@ -7610,11 +7707,11 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vbroadcastsd -0x40(%%rdi),%%zmm10	\n\t"\
 		"vbroadcastsd -0x38(%%rdi),%%zmm11	\n\t"\
 		"vbroadcastsd -0x30(%%rdi),%%zmm12	\n\t"\
-		"vbroadcastsd -0x28(%%rdi),%%zmm13	\n\t	vaddpd %%zmm13,%%zmm13,%%zmm14	\n\t"/* ZMM13,14 have inv_mult[0] (needed for conditional-doubling), inv_mult[1] (needed for (wt_re >= inv_mult[1]) comparison) */\
-		"movq	%[__sse_nm1],%%rbx			\n\t	vmovaps	(%%rbx),%%zmm15			\n\t"/* PERSISTENT COPY OF SSE_N  REMAINS IN ZMM15. */\
+		"vbroadcastsd -0x28(%%rdi),%%zmm13	\n\t	vaddpd %%zmm13,%%zmm13,%%zmm14	\n\t"/* zmm13,14 have inv_mult[0] (needed for conditional-doubling), inv_mult[1] (needed for (wt_re >= inv_mult[1]) comparison) */\
+		"movq	%[__sse_nm1],%%rbx			\n\t	vmovaps	(%%rbx),%%zmm15			\n\t"/* PERSISTENT COPY OF SSE_N  REMAINS IN zmm15. */\
 		"movq	%[__sse_bw] ,%%rbx			\n\t"/* RBX HOLDS ADDRESS OF SSE_BW */\
-		"movq	%[__bjmod_0],%%rsi			\n\t	vmovaps	(%%rsi),%%zmm3			\n\t"/* bjmod[0:15], PERSISTENT COPY IN ZMM3 */\
-		"movq	%[__sse_sw] ,%%rsi			\n\t	vmovaps	(%%rsi),%%zmm4			\n\t"/* sw,  16-fold PERSISTENT COPY IN ZMM4 */\
+		"movq	%[__bjmod_0],%%rsi			\n\t	vmovaps	(%%rsi),%%zmm3			\n\t"/* bjmod[0:15], PERSISTENT COPY IN zmm3 */\
+		"movq	%[__sse_sw] ,%%rsi			\n\t	vmovaps	(%%rsi),%%zmm4			\n\t"/* sw,  16-fold PERSISTENT COPY IN zmm4 */\
 		"movq	%[__sign_mask],%%rsi		\n\t	vmovaps %%zmm2,%%zmm18			\n\t"/* Rcol-copy of maxerr, allowing both cols to do independent updates with just one merge at end */\
 	/**********************************/\
 	/* Do A.re 16-tet: Data in m0,16: */\
@@ -7622,7 +7719,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x000(%%rax),%%zmm0		\n\t	vmovaps	0x400(%%rax),%%zmm16	\n\t"/* Load data */\
 		"vmovaps	0x080(%%rdi),%%zmm6		\n\t	vmovaps	0x0c0(%%rdi),%%zmm22	\n\t"/* wi */\
 		"vmovaps	0x000(%%rdi),%%zmm5		\n\t	vmovaps	0x040(%%rdi),%%zmm21	\n\t"/* wt for our 16 independent carry-chains */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"/* x *= wtinv + cy */\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"/* x *= wtinv */\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t"/* Set bit in k1 if sw < bjmod[0:7] ; Opmask K1 is analog of AVX-mode bitmask stored in R10 */\
 	"kmovw	%[__i],%%k2						\n\t"/* I == 1 if it's the 0-word, in which case we force-bigword-ness by XORing K1 (whose */\
 	"kxorw	%%k2,%%k1,%%k1					\n\t"/* low bit will == 0 on input in this case) with I. Otherwise I == 0, thus XOR = no-op. */\
@@ -7635,6 +7732,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"/* temp = DNINT(x) */\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"/* x - temp */\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"/* frac = fabs(x-temp) */\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"/* cpy temp */\
@@ -7665,7 +7763,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x040(%%rax),%%zmm0		\n\t	vmovaps	0x440(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0x180(%%rdi),%%zmm6		\n\t	vmovaps	0x1c0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0x100(%%rdi),%%zmm5		\n\t	vmovaps	0x140(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
@@ -7675,6 +7773,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
@@ -7705,7 +7804,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x080(%%rax),%%zmm0		\n\t	vmovaps	0x480(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0x280(%%rdi),%%zmm6		\n\t	vmovaps	0x2c0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0x200(%%rdi),%%zmm5		\n\t	vmovaps	0x240(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
@@ -7715,6 +7814,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
@@ -7745,7 +7845,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x0c0(%%rax),%%zmm0		\n\t	vmovaps	0x4c0(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0x380(%%rdi),%%zmm6		\n\t	vmovaps	0x3c0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0x300(%%rdi),%%zmm5		\n\t	vmovaps	0x340(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
@@ -7755,6 +7855,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
@@ -7785,7 +7886,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x100(%%rax),%%zmm0		\n\t	vmovaps	0x500(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0x480(%%rdi),%%zmm6		\n\t	vmovaps	0x4c0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0x400(%%rdi),%%zmm5		\n\t	vmovaps	0x440(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
@@ -7795,6 +7896,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
@@ -7825,7 +7927,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x140(%%rax),%%zmm0		\n\t	vmovaps	0x540(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0x580(%%rdi),%%zmm6		\n\t	vmovaps	0x5c0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0x500(%%rdi),%%zmm5		\n\t	vmovaps	0x540(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
@@ -7835,6 +7937,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
@@ -7865,7 +7968,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x180(%%rax),%%zmm0		\n\t	vmovaps	0x580(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0x680(%%rdi),%%zmm6		\n\t	vmovaps	0x6c0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0x600(%%rdi),%%zmm5		\n\t	vmovaps	0x640(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
@@ -7875,6 +7978,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
@@ -7905,7 +8009,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x1c0(%%rax),%%zmm0		\n\t	vmovaps	0x5c0(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0x780(%%rdi),%%zmm6		\n\t	vmovaps	0x7c0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0x700(%%rdi),%%zmm5		\n\t	vmovaps	0x740(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
@@ -7915,6 +8019,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
@@ -7945,7 +8050,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x200(%%rax),%%zmm0		\n\t	vmovaps	0x600(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0x880(%%rdi),%%zmm6		\n\t	vmovaps	0x8c0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0x800(%%rdi),%%zmm5		\n\t	vmovaps	0x840(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
@@ -7955,6 +8060,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
@@ -7985,7 +8091,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x240(%%rax),%%zmm0		\n\t	vmovaps	0x640(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0x980(%%rdi),%%zmm6		\n\t	vmovaps	0x9c0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0x900(%%rdi),%%zmm5		\n\t	vmovaps	0x940(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
@@ -7995,6 +8101,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
@@ -8025,7 +8132,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x280(%%rax),%%zmm0		\n\t	vmovaps	0x680(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0xa80(%%rdi),%%zmm6		\n\t	vmovaps	0xac0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0xa00(%%rdi),%%zmm5		\n\t	vmovaps	0xa40(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
@@ -8035,6 +8142,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
@@ -8065,7 +8173,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x2c0(%%rax),%%zmm0		\n\t	vmovaps	0x6c0(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0xb80(%%rdi),%%zmm6		\n\t	vmovaps	0xbc0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0xb00(%%rdi),%%zmm5		\n\t	vmovaps	0xb40(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
@@ -8075,6 +8183,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
@@ -8105,7 +8214,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x300(%%rax),%%zmm0		\n\t	vmovaps	0x700(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0xc80(%%rdi),%%zmm6		\n\t	vmovaps	0xcc0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0xc00(%%rdi),%%zmm5		\n\t	vmovaps	0xc40(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
@@ -8115,6 +8224,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
@@ -8145,7 +8255,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x340(%%rax),%%zmm0		\n\t	vmovaps	0x740(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0xd80(%%rdi),%%zmm6		\n\t	vmovaps	0xdc0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0xd00(%%rdi),%%zmm5		\n\t	vmovaps	0xd40(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
@@ -8155,6 +8265,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
@@ -8185,7 +8296,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x380(%%rax),%%zmm0		\n\t	vmovaps	0x780(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0xe80(%%rdi),%%zmm6		\n\t	vmovaps	0xec0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0xe00(%%rdi),%%zmm5		\n\t	vmovaps	0xe40(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
@@ -8195,6 +8306,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
@@ -8225,7 +8337,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x3c0(%%rax),%%zmm0		\n\t	vmovaps	0x7c0(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0xf80(%%rdi),%%zmm6		\n\t	vmovaps	0xfc0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0xf00(%%rdi),%%zmm5		\n\t	vmovaps	0xf40(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
@@ -8235,6 +8347,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
@@ -8267,101 +8380,114 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* Store maxerr, after merging the separate lcol,rcol maxerr results: */\
 		"vmaxpd	%%zmm2,%%zmm18,%%zmm2		\n\t	vmovaps	%%zmm2,-0x80(%%rdi)		\n\t"\
 	/* 8-way transpose of outputs (Re, Im parts separately): Inputs from r0-f. Outputs into r0-f: */	\
+		"movl	$0b00110011,%%eax	\n\t"/* Constant for vblendmpd instructions goes into mask-reg k1 */\
+		"kmovw	%%eax,%%k1			\n\t"\
+		/* Init vector index-consts needed by vpermt2pd instructions - if regs were at a premium,
+		could also init just prior to [3] and use zmm6,7 to hold index-consts: */\
+		"movq	$0x0c040e0608000a02,%%rax	\n\t"/* zmm30 = 8+4 0+4 8+6 0+6 8+0 0+0 8+2 0+2 [msw at left] */\
+		"movq	$0x0d050f0709010b03,%%rbx	\n\t"/* zmm31 = 8+5 0+5 8+7 0+7 8+1 0+1 8+3 0+3 */\
+			"vmovq		%%rax,%%xmm0 		\n\t"\
+			"vmovq		%%rbx,%%xmm1 		\n\t"\
+			"vpmovzxbq	%%xmm0,%%zmm30		\n\t"\
+			"vpmovzxbq	%%xmm1,%%zmm31		\n\t"\
 		"movq		%[__data],%%rax		\n\t"\
-	/* Real parts use zmm0,2,4,6,8,10,12,14, zmm16 as tmp-reg:					Imag parts use zmm1,3,5,7,9,11,13,15, zmm17 as tmp-reg: */\
 		/* Read in the 8 rows of our input matrix: */\
-		"vmovaps		0x000(%%rax),%%zmm0 									\n\t	vmovaps		0x040(%%rax),%%zmm1 	\n\t"\
-		"vmovaps		0x080(%%rax),%%zmm2 									\n\t	vmovaps		0x0c0(%%rax),%%zmm3 	\n\t"\
-		"vmovaps		0x100(%%rax),%%zmm4 									\n\t	vmovaps		0x140(%%rax),%%zmm5 	\n\t"\
-		"vmovaps		0x180(%%rax),%%zmm6 									\n\t	vmovaps		0x1c0(%%rax),%%zmm7 	\n\t"\
-		"vmovaps		0x200(%%rax),%%zmm8 									\n\t	vmovaps		0x240(%%rax),%%zmm9 	\n\t"\
-		"vmovaps		0x280(%%rax),%%zmm10									\n\t	vmovaps		0x2c0(%%rax),%%zmm11	\n\t"\
-		"vmovaps		0x300(%%rax),%%zmm12									\n\t	vmovaps		0x340(%%rax),%%zmm13	\n\t"\
-		"vmovaps		0x380(%%rax),%%zmm14									\n\t	vmovaps		0x3c0(%%rax),%%zmm15	\n\t"\
-		/* [1] First step is a quartet of [UNPCKLPD,UNPCKHPD] pairs to effect transposed 2x2 submatrices - VUNPCK latency 4-7, rthru = 2: */\
-		"vunpckhpd		 %%zmm2 ,%%zmm0 ,%%zmm16									\n\t	vunpckhpd		 %%zmm3 ,%%zmm1 ,%%zmm17									\n\t"/* zmm0  = 00 10 02 12 04 14 06 16 [after reg-copy on next line] */\
-		"vunpcklpd		 %%zmm2 ,%%zmm0 ,%%zmm0 	\n\t	vmovaps	%%zmm16,%%zmm2 	\n\t	vunpcklpd		 %%zmm3 ,%%zmm1 ,%%zmm1 	\n\t	vmovaps	%%zmm17,%%zmm3 	\n\t"/* zmm2  = 01 11 03 13 05 15 07 17 */\
-		"vunpckhpd		 %%zmm6 ,%%zmm4 ,%%zmm16									\n\t	vunpckhpd		 %%zmm7 ,%%zmm5 ,%%zmm17									\n\t"/* zmm4  = 20 30 22 32 24 34 26 36 */\
-		"vunpcklpd		 %%zmm6 ,%%zmm4 ,%%zmm4 	\n\t	vmovaps	%%zmm16,%%zmm6 	\n\t	vunpcklpd		 %%zmm7 ,%%zmm5 ,%%zmm5 	\n\t	vmovaps	%%zmm17,%%zmm7 	\n\t"/* zmm6  = 21 31 23 33 25 35 27 37 */\
-		"vunpckhpd		 %%zmm10,%%zmm8 ,%%zmm16									\n\t	vunpckhpd		 %%zmm11,%%zmm9 ,%%zmm17									\n\t"/* zmm8  = 40 50 42 52 44 54 46 56 */\
-		"vunpcklpd		 %%zmm10,%%zmm8 ,%%zmm8 	\n\t	vmovaps	%%zmm16,%%zmm10	\n\t	vunpcklpd		 %%zmm11,%%zmm9 ,%%zmm9 	\n\t	vmovaps	%%zmm17,%%zmm11	\n\t"/* zmm10 = 41 51 43 53 45 55 47 57 */\
-		"vunpckhpd		 %%zmm14,%%zmm12,%%zmm16									\n\t	vunpckhpd		 %%zmm15,%%zmm13,%%zmm17									\n\t"/* zmm12 = 60 70 62 72 64 74 66 76 */\
-		"vunpcklpd		 %%zmm14,%%zmm12,%%zmm12	\n\t	vmovaps	%%zmm16,%%zmm14	\n\t	vunpcklpd		 %%zmm15,%%zmm13,%%zmm13	\n\t	vmovaps	%%zmm17,%%zmm15	\n\t"/* zmm14 = 61 71 63 73 65 75 67 77 */\
-		/* [2] 1st layer of VSHUFF64x2, 2 outputs each with trailing index pairs [0,4],[1,5],[2,6],[3,7] - VSHUFF64x2 latency 4-7, rthru = 2: */\
-		"vshuff64x2	$136,%%zmm4 ,%%zmm0 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm5 ,%%zmm1 ,%%zmm17									\n\t"/* zmm0  = 00 10 04 14 20 30 24 34 */\
-		"vshuff64x2	$221,%%zmm4 ,%%zmm0 ,%%zmm4 	\n\t	vmovaps	%%zmm16,%%zmm0 	\n\t	vshuff64x2	$221,%%zmm5 ,%%zmm1 ,%%zmm5 	\n\t	vmovaps	%%zmm17,%%zmm1 	\n\t"/* zmm4  = 02 12 06 16 22 32 26 36 */\
-		"vshuff64x2	$136,%%zmm6 ,%%zmm2 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm7 ,%%zmm3 ,%%zmm17									\n\t"/* zmm2  = 01 11 05 15 21 31 25 35 */\
-		"vshuff64x2	$221,%%zmm6 ,%%zmm2 ,%%zmm6 	\n\t	vmovaps	%%zmm16,%%zmm2 	\n\t	vshuff64x2	$221,%%zmm7 ,%%zmm3 ,%%zmm7 	\n\t	vmovaps	%%zmm17,%%zmm3 	\n\t"/* zmm6  = 03 13 07 17 23 33 27 37 */\
-		"vshuff64x2	$136,%%zmm12,%%zmm8 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm13,%%zmm9 ,%%zmm17									\n\t"/* zmm8  = 40 50 44 54 60 70 64 74 */\
-		"vshuff64x2	$221,%%zmm12,%%zmm8 ,%%zmm12	\n\t	vmovaps	%%zmm16,%%zmm8 	\n\t	vshuff64x2	$221,%%zmm13,%%zmm9 ,%%zmm13	\n\t	vmovaps	%%zmm17,%%zmm9 	\n\t"/* zmm12 = 42 52 46 56 62 72 66 76 */\
-		"vshuff64x2	$136,%%zmm14,%%zmm10,%%zmm16									\n\t	vshuff64x2	$136,%%zmm15,%%zmm11,%%zmm17									\n\t"/* zmm10 = 41 51 45 55 61 71 65 75 */\
-		"vshuff64x2	$221,%%zmm14,%%zmm10,%%zmm14	\n\t	vmovaps	%%zmm16,%%zmm10	\n\t	vshuff64x2	$221,%%zmm15,%%zmm11,%%zmm15	\n\t	vmovaps	%%zmm17,%%zmm11	\n\t"/* zmm14 = 43 53 47 57 63 73 67 77 */\
-		/* [3] Last step in 2nd layer of VSHUFF64x2, now combining reg-pairs sharing same trailing index pairs: */\
-		"vshuff64x2	$136,%%zmm8 ,%%zmm0 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm9 ,%%zmm1 ,%%zmm17									\n\t"/* zmm0  = 00 10 20 30 40 50 60 70 */\
-		"vshuff64x2	$221,%%zmm8 ,%%zmm0 ,%%zmm8 	\n\t	vmovaps	%%zmm16,%%zmm0 	\n\t	vshuff64x2	$221,%%zmm9 ,%%zmm1 ,%%zmm9 	\n\t	vmovaps	%%zmm17,%%zmm1 	\n\t"/* zmm8  = 04 14 24 34 44 54 64 74 */\
-		"vshuff64x2	$136,%%zmm10,%%zmm2 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm11,%%zmm3 ,%%zmm17									\n\t"/* zmm2  = 01 11 21 31 41 51 61 71 */\
-		"vshuff64x2	$221,%%zmm10,%%zmm2 ,%%zmm10	\n\t	vmovaps	%%zmm16,%%zmm2 	\n\t	vshuff64x2	$221,%%zmm11,%%zmm3 ,%%zmm11	\n\t	vmovaps	%%zmm17,%%zmm3 	\n\t"/* zmm10 = 05 15 25 35 45 55 65 75 */\
-		"vshuff64x2	$136,%%zmm12,%%zmm4 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm13,%%zmm5 ,%%zmm17									\n\t"/* zmm4  = 02 12 22 32 42 52 62 72 */\
-		"vshuff64x2	$221,%%zmm12,%%zmm4 ,%%zmm12	\n\t	vmovaps	%%zmm16,%%zmm4 	\n\t	vshuff64x2	$221,%%zmm13,%%zmm5 ,%%zmm13	\n\t	vmovaps	%%zmm17,%%zmm5 	\n\t"/* zmm12 = 06 16 26 36 46 56 66 76 */\
-		"vshuff64x2	$136,%%zmm14,%%zmm6 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm15,%%zmm7 ,%%zmm17									\n\t"/* zmm6  = 03 13 23 33 43 53 63 73 */\
-		"vshuff64x2	$221,%%zmm14,%%zmm6 ,%%zmm14	\n\t	vmovaps	%%zmm16,%%zmm6 	\n\t	vshuff64x2	$221,%%zmm15,%%zmm7 ,%%zmm15	\n\t	vmovaps	%%zmm17,%%zmm7 	\n\t"/* zmm14 = 07 17 27 37 47 57 67 77 */\
-		/* And write 'em back to memory: */\
-		/* Real parts:																		Imag parts: */\
-		"vmovaps	%%zmm0 ,0x000(%%rax)											\n\t	vmovaps	%%zmm1 ,0x040(%%rax)	\n\t"\
-		"vmovaps	%%zmm2 ,0x080(%%rax)											\n\t	vmovaps	%%zmm3 ,0x0c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm4 ,0x100(%%rax)											\n\t	vmovaps	%%zmm5 ,0x140(%%rax)	\n\t"\
-		"vmovaps	%%zmm6 ,0x180(%%rax)											\n\t	vmovaps	%%zmm7 ,0x1c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm8 ,0x200(%%rax)											\n\t	vmovaps	%%zmm9 ,0x240(%%rax)	\n\t"\
-		"vmovaps	%%zmm10,0x280(%%rax)											\n\t	vmovaps	%%zmm11,0x2c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm12,0x300(%%rax)											\n\t	vmovaps	%%zmm13,0x340(%%rax)	\n\t"\
-		"vmovaps	%%zmm14,0x380(%%rax)											\n\t	vmovaps	%%zmm15,0x3c0(%%rax)	\n\t"\
+		"vmovaps		0x000(%%rax),%%zmm0					\n\t	vmovaps		0x040(%%rax),%%zmm12		\n\t"\
+		"vmovaps		0x080(%%rax),%%zmm1					\n\t	vmovaps		0x0c0(%%rax),%%zmm13		\n\t"\
+		"vmovaps		0x100(%%rax),%%zmm2					\n\t	vmovaps		0x140(%%rax),%%zmm14		\n\t"\
+		"vmovaps		0x180(%%rax),%%zmm3					\n\t	vmovaps		0x1c0(%%rax),%%zmm15		\n\t"\
+		"vmovaps		0x200(%%rax),%%zmm4					\n\t	vmovaps		0x240(%%rax),%%zmm16		\n\t"\
+		"vmovaps		0x280(%%rax),%%zmm5					\n\t	vmovaps		0x2c0(%%rax),%%zmm17		\n\t"\
+		"vmovaps		0x300(%%rax),%%zmm6					\n\t	vmovaps		0x340(%%rax),%%zmm18		\n\t"\
+		"vmovaps		0x380(%%rax),%%zmm7					\n\t	vmovaps		0x3c0(%%rax),%%zmm19		\n\t"\
+		/* [1] Shuffle the 4-aparts - note the different patterning of the first and second output quartet: */\
+		"vshuff64x2	$0b01000100, %%zmm4,	%%zmm0,	%%zmm8 	\n\t	vshuff64x2	$0b01000100, %%zmm16,%%zmm12,	%%zmm20	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm4,	%%zmm0,	%%zmm4 	\n\t	vshuff64x2	$0b11101110, %%zmm16,%%zmm12,	%%zmm16	\n\t"\
+		"vshuff64x2	$0b01000100, %%zmm5,	%%zmm1,	%%zmm9	\n\t	vshuff64x2	$0b01000100, %%zmm17,%%zmm13,	%%zmm21	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm5,	%%zmm1,	%%zmm5	\n\t	vshuff64x2	$0b11101110, %%zmm17,%%zmm13,	%%zmm17	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm6,	%%zmm2,	%%zmm10	\n\t	vshuff64x2	$0b00010001, %%zmm18,%%zmm14,	%%zmm22	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm6,	%%zmm2,	%%zmm6	\n\t	vshuff64x2	$0b10111011, %%zmm18,%%zmm14,	%%zmm18	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm7,	%%zmm3,	%%zmm11	\n\t	vshuff64x2	$0b00010001, %%zmm19,%%zmm15,	%%zmm23	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm7,	%%zmm3,	%%zmm7	\n\t	vshuff64x2	$0b10111011, %%zmm19,%%zmm15,	%%zmm19	\n\t"\
+		/* [2] Blend in the 2-aparts */\
+		"vblendmpd	%%zmm8 ,	%%zmm10,	%%zmm0%{%%k1%}	\n\t	vblendmpd	%%zmm20,	%%zmm22,	%%zmm12%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm10,	%%zmm8 ,	%%zmm8%{%%k1%}	\n\t	vblendmpd	%%zmm22,	%%zmm20,	%%zmm20%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm4 ,	%%zmm6 ,	%%zmm1%{%%k1%}	\n\t	vblendmpd	%%zmm16,	%%zmm18,	%%zmm13%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm6 ,	%%zmm4 ,	%%zmm4%{%%k1%}	\n\t	vblendmpd	%%zmm18,	%%zmm16,	%%zmm16%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm9 ,	%%zmm11,	%%zmm2%{%%k1%}	\n\t	vblendmpd	%%zmm21,	%%zmm23,	%%zmm14%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm11,	%%zmm9 ,	%%zmm9%{%%k1%}	\n\t	vblendmpd	%%zmm23,	%%zmm21,	%%zmm21%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm5 ,	%%zmm7 ,	%%zmm3%{%%k1%}	\n\t	vblendmpd	%%zmm17,	%%zmm19,	%%zmm15%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm7 ,	%%zmm5 ,	%%zmm5%{%%k1%}	\n\t	vblendmpd	%%zmm19,	%%zmm17,	%%zmm17%{%%k1%}	\n\t"\
+		/* [3] Shuffle or permute in the 1-aparts */\
+		"vshufpd	$0b00000000,%%zmm2,		%%zmm0,%%zmm10 	\n\t	vshufpd	$0b00000000,%%zmm14,	%%zmm12,%%zmm22	\n\t"\
+		"vshufpd	$0b11111111,%%zmm2,		%%zmm0,%%zmm11 	\n\t	vshufpd	$0b11111111,%%zmm14,	%%zmm12,%%zmm23	\n\t"\
+		"vmovapd	%%zmm8,%%zmm2							\n\t	vmovapd	%%zmm20,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm30,%%zmm2 	\n\t	vpermt2pd				%%zmm21,	%%zmm30,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm31,%%zmm8	\n\t	vpermt2pd				%%zmm21,	%%zmm31,%%zmm20	\n\t"\
+		"vshufpd	$0b00000000,%%zmm3,		%%zmm1,%%zmm0 	\n\t	vshufpd	$0b00000000,%%zmm15,	%%zmm13,%%zmm12	\n\t"\
+		"vshufpd	$0b11111111,%%zmm3,		%%zmm1,%%zmm1 	\n\t	vshufpd	$0b11111111,%%zmm15,	%%zmm13,%%zmm13	\n\t"\
+		"vmovapd	%%zmm4,%%zmm3							\n\t	vmovapd	%%zmm16,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm30,%%zmm3 	\n\t	vpermt2pd				%%zmm17,	%%zmm30,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm31,%%zmm4	\n\t	vpermt2pd				%%zmm17,	%%zmm31,%%zmm16	\n\t"\
+		/* Write original columns back as rows: */\
+		"vmovaps		%%zmm10,0x000(%%rax)				\n\t	vmovaps		%%zmm22,0x040(%%rax)		\n\t"\
+		"vmovaps		%%zmm11,0x080(%%rax)				\n\t	vmovaps		%%zmm23,0x0c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm2 ,0x100(%%rax)				\n\t	vmovaps		%%zmm14,0x140(%%rax)		\n\t"\
+		"vmovaps		%%zmm8 ,0x180(%%rax)				\n\t	vmovaps		%%zmm20,0x1c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm0 ,0x200(%%rax)				\n\t	vmovaps		%%zmm12,0x240(%%rax)		\n\t"\
+		"vmovaps		%%zmm1 ,0x280(%%rax)				\n\t	vmovaps		%%zmm13,0x2c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm3 ,0x300(%%rax)				\n\t	vmovaps		%%zmm15,0x340(%%rax)		\n\t"\
+		"vmovaps		%%zmm4, 0x380(%%rax)				\n\t	vmovaps		%%zmm16,0x3c0(%%rax)		\n\t"\
+	/********************************************************************/\
 	/* Second 8-way transpose. Inputs from r10-1f. Outputs into r10-1f: */\
+	/********************************************************************/\
 		"addq		$0x400,%%rax		\n\t"\
-		/* Read in the 8 rows of our input matrix: */\
-		"vmovaps		0x000(%%rax),%%zmm0 									\n\t	vmovaps		0x040(%%rax),%%zmm1 	\n\t"\
-		"vmovaps		0x080(%%rax),%%zmm2 									\n\t	vmovaps		0x0c0(%%rax),%%zmm3 	\n\t"\
-		"vmovaps		0x100(%%rax),%%zmm4 									\n\t	vmovaps		0x140(%%rax),%%zmm5 	\n\t"\
-		"vmovaps		0x180(%%rax),%%zmm6 									\n\t	vmovaps		0x1c0(%%rax),%%zmm7 	\n\t"\
-		"vmovaps		0x200(%%rax),%%zmm8 									\n\t	vmovaps		0x240(%%rax),%%zmm9 	\n\t"\
-		"vmovaps		0x280(%%rax),%%zmm10									\n\t	vmovaps		0x2c0(%%rax),%%zmm11	\n\t"\
-		"vmovaps		0x300(%%rax),%%zmm12									\n\t	vmovaps		0x340(%%rax),%%zmm13	\n\t"\
-		"vmovaps		0x380(%%rax),%%zmm14									\n\t	vmovaps		0x3c0(%%rax),%%zmm15	\n\t"\
-		/* [1]: */\
-		"vunpckhpd		 %%zmm2 ,%%zmm0 ,%%zmm16									\n\t	vunpckhpd		 %%zmm3 ,%%zmm1 ,%%zmm17									\n\t"\
-		"vunpcklpd		 %%zmm2 ,%%zmm0 ,%%zmm0 	\n\t	vmovaps	%%zmm16,%%zmm2 	\n\t	vunpcklpd		 %%zmm3 ,%%zmm1 ,%%zmm1 	\n\t	vmovaps	%%zmm17,%%zmm3 	\n\t"/* zmm2  = 01 11 03 13 05 15 07 17 */\
-		"vunpckhpd		 %%zmm6 ,%%zmm4 ,%%zmm16									\n\t	vunpckhpd		 %%zmm7 ,%%zmm5 ,%%zmm17									\n\t"/* zmm4  = 20 30 22 32 24 34 26 36 */\
-		"vunpcklpd		 %%zmm6 ,%%zmm4 ,%%zmm4 	\n\t	vmovaps	%%zmm16,%%zmm6 	\n\t	vunpcklpd		 %%zmm7 ,%%zmm5 ,%%zmm5 	\n\t	vmovaps	%%zmm17,%%zmm7 	\n\t"/* zmm6  = 21 31 23 33 25 35 27 37 */\
-		"vunpckhpd		 %%zmm10,%%zmm8 ,%%zmm16									\n\t	vunpckhpd		 %%zmm11,%%zmm9 ,%%zmm17									\n\t"/* zmm8  = 40 50 42 52 44 54 46 56 */\
-		"vunpcklpd		 %%zmm10,%%zmm8 ,%%zmm8 	\n\t	vmovaps	%%zmm16,%%zmm10	\n\t	vunpcklpd		 %%zmm11,%%zmm9 ,%%zmm9 	\n\t	vmovaps	%%zmm17,%%zmm11	\n\t"/* zmm10 = 41 51 43 53 45 55 47 57 */\
-		"vunpckhpd		 %%zmm14,%%zmm12,%%zmm16									\n\t	vunpckhpd		 %%zmm15,%%zmm13,%%zmm17									\n\t"/* zmm12 = 60 70 62 72 64 74 66 76 */\
-		"vunpcklpd		 %%zmm14,%%zmm12,%%zmm12	\n\t	vmovaps	%%zmm16,%%zmm14	\n\t	vunpcklpd		 %%zmm15,%%zmm13,%%zmm13	\n\t	vmovaps	%%zmm17,%%zmm15	\n\t"/* zmm14 = 61 71 63 73 65 75 67 77 */\
-		/* [2]: */\
-		"vshuff64x2	$136,%%zmm4 ,%%zmm0 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm5 ,%%zmm1 ,%%zmm17									\n\t"/* zmm0  = 00 10 04 14 20 30 24 34 */\
-		"vshuff64x2	$221,%%zmm4 ,%%zmm0 ,%%zmm4 	\n\t	vmovaps	%%zmm16,%%zmm0 	\n\t	vshuff64x2	$221,%%zmm5 ,%%zmm1 ,%%zmm5 	\n\t	vmovaps	%%zmm17,%%zmm1 	\n\t"/* zmm4  = 02 12 06 16 22 32 26 36 */\
-		"vshuff64x2	$136,%%zmm6 ,%%zmm2 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm7 ,%%zmm3 ,%%zmm17									\n\t"/* zmm2  = 01 11 05 15 21 31 25 35 */\
-		"vshuff64x2	$221,%%zmm6 ,%%zmm2 ,%%zmm6 	\n\t	vmovaps	%%zmm16,%%zmm2 	\n\t	vshuff64x2	$221,%%zmm7 ,%%zmm3 ,%%zmm7 	\n\t	vmovaps	%%zmm17,%%zmm3 	\n\t"/* zmm6  = 03 13 07 17 23 33 27 37 */\
-		"vshuff64x2	$136,%%zmm12,%%zmm8 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm13,%%zmm9 ,%%zmm17									\n\t"/* zmm8  = 40 50 44 54 60 70 64 74 */\
-		"vshuff64x2	$221,%%zmm12,%%zmm8 ,%%zmm12	\n\t	vmovaps	%%zmm16,%%zmm8 	\n\t	vshuff64x2	$221,%%zmm13,%%zmm9 ,%%zmm13	\n\t	vmovaps	%%zmm17,%%zmm9 	\n\t"/* zmm12 = 42 52 46 56 62 72 66 76 */\
-		"vshuff64x2	$136,%%zmm14,%%zmm10,%%zmm16									\n\t	vshuff64x2	$136,%%zmm15,%%zmm11,%%zmm17									\n\t"/* zmm10 = 41 51 45 55 61 71 65 75 */\
-		"vshuff64x2	$221,%%zmm14,%%zmm10,%%zmm14	\n\t	vmovaps	%%zmm16,%%zmm10	\n\t	vshuff64x2	$221,%%zmm15,%%zmm11,%%zmm15	\n\t	vmovaps	%%zmm17,%%zmm11	\n\t"/* zmm14 = 43 53 47 57 63 73 67 77 */\
-		/* [3]: */\
-		"vshuff64x2	$136,%%zmm8 ,%%zmm0 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm9 ,%%zmm1 ,%%zmm17									\n\t"/* zmm0  = 00 10 20 30 40 50 60 70 */\
-		"vshuff64x2	$221,%%zmm8 ,%%zmm0 ,%%zmm8 	\n\t	vmovaps	%%zmm16,%%zmm0 	\n\t	vshuff64x2	$221,%%zmm9 ,%%zmm1 ,%%zmm9 	\n\t	vmovaps	%%zmm17,%%zmm1 	\n\t"/* zmm8  = 04 14 24 34 44 54 64 74 */\
-		"vshuff64x2	$136,%%zmm10,%%zmm2 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm11,%%zmm3 ,%%zmm17									\n\t"/* zmm2  = 01 11 21 31 41 51 61 71 */\
-		"vshuff64x2	$221,%%zmm10,%%zmm2 ,%%zmm10	\n\t	vmovaps	%%zmm16,%%zmm2 	\n\t	vshuff64x2	$221,%%zmm11,%%zmm3 ,%%zmm11	\n\t	vmovaps	%%zmm17,%%zmm3 	\n\t"/* zmm10 = 05 15 25 35 45 55 65 75 */\
-		"vshuff64x2	$136,%%zmm12,%%zmm4 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm13,%%zmm5 ,%%zmm17									\n\t"/* zmm4  = 02 12 22 32 42 52 62 72 */\
-		"vshuff64x2	$221,%%zmm12,%%zmm4 ,%%zmm12	\n\t	vmovaps	%%zmm16,%%zmm4 	\n\t	vshuff64x2	$221,%%zmm13,%%zmm5 ,%%zmm13	\n\t	vmovaps	%%zmm17,%%zmm5 	\n\t"/* zmm12 = 06 16 26 36 46 56 66 76 */\
-		"vshuff64x2	$136,%%zmm14,%%zmm6 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm15,%%zmm7 ,%%zmm17									\n\t"/* zmm6  = 03 13 23 33 43 53 63 73 */\
-		"vshuff64x2	$221,%%zmm14,%%zmm6 ,%%zmm14	\n\t	vmovaps	%%zmm16,%%zmm6 	\n\t	vshuff64x2	$221,%%zmm15,%%zmm7 ,%%zmm15	\n\t	vmovaps	%%zmm17,%%zmm7 	\n\t"/* zmm14 = 07 17 27 37 47 57 67 77 */\
-		/* And write 'em back to memory: */\
-		"vmovaps	%%zmm0 ,0x000(%%rax)											\n\t	vmovaps	%%zmm1 ,0x040(%%rax)	\n\t"\
-		"vmovaps	%%zmm2 ,0x080(%%rax)											\n\t	vmovaps	%%zmm3 ,0x0c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm4 ,0x100(%%rax)											\n\t	vmovaps	%%zmm5 ,0x140(%%rax)	\n\t"\
-		"vmovaps	%%zmm6 ,0x180(%%rax)											\n\t	vmovaps	%%zmm7 ,0x1c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm8 ,0x200(%%rax)											\n\t	vmovaps	%%zmm9 ,0x240(%%rax)	\n\t"\
-		"vmovaps	%%zmm10,0x280(%%rax)											\n\t	vmovaps	%%zmm11,0x2c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm12,0x300(%%rax)											\n\t	vmovaps	%%zmm13,0x340(%%rax)	\n\t"\
-		"vmovaps	%%zmm14,0x380(%%rax)											\n\t	vmovaps	%%zmm15,0x3c0(%%rax)	\n\t"\
+		"vmovaps		0x000(%%rax),%%zmm0					\n\t	vmovaps		0x040(%%rax),%%zmm12		\n\t"\
+		"vmovaps		0x080(%%rax),%%zmm1					\n\t	vmovaps		0x0c0(%%rax),%%zmm13		\n\t"\
+		"vmovaps		0x100(%%rax),%%zmm2					\n\t	vmovaps		0x140(%%rax),%%zmm14		\n\t"\
+		"vmovaps		0x180(%%rax),%%zmm3					\n\t	vmovaps		0x1c0(%%rax),%%zmm15		\n\t"\
+		"vmovaps		0x200(%%rax),%%zmm4					\n\t	vmovaps		0x240(%%rax),%%zmm16		\n\t"\
+		"vmovaps		0x280(%%rax),%%zmm5					\n\t	vmovaps		0x2c0(%%rax),%%zmm17		\n\t"\
+		"vmovaps		0x300(%%rax),%%zmm6					\n\t	vmovaps		0x340(%%rax),%%zmm18		\n\t"\
+		"vmovaps		0x380(%%rax),%%zmm7					\n\t	vmovaps		0x3c0(%%rax),%%zmm19		\n\t"\
+		/* [1] Shuffle the 4-aparts - note the different patterning of the first and second output quartet: */\
+		"vshuff64x2	$0b01000100, %%zmm4,	%%zmm0,	%%zmm8 	\n\t	vshuff64x2	$0b01000100, %%zmm16,%%zmm12,	%%zmm20	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm4,	%%zmm0,	%%zmm4 	\n\t	vshuff64x2	$0b11101110, %%zmm16,%%zmm12,	%%zmm16	\n\t"\
+		"vshuff64x2	$0b01000100, %%zmm5,	%%zmm1,	%%zmm9	\n\t	vshuff64x2	$0b01000100, %%zmm17,%%zmm13,	%%zmm21	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm5,	%%zmm1,	%%zmm5	\n\t	vshuff64x2	$0b11101110, %%zmm17,%%zmm13,	%%zmm17	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm6,	%%zmm2,	%%zmm10	\n\t	vshuff64x2	$0b00010001, %%zmm18,%%zmm14,	%%zmm22	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm6,	%%zmm2,	%%zmm6	\n\t	vshuff64x2	$0b10111011, %%zmm18,%%zmm14,	%%zmm18	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm7,	%%zmm3,	%%zmm11	\n\t	vshuff64x2	$0b00010001, %%zmm19,%%zmm15,	%%zmm23	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm7,	%%zmm3,	%%zmm7	\n\t	vshuff64x2	$0b10111011, %%zmm19,%%zmm15,	%%zmm19	\n\t"\
+		/* [2] Blend in the 2-aparts */\
+		"vblendmpd	%%zmm8 ,	%%zmm10,	%%zmm0%{%%k1%}	\n\t	vblendmpd	%%zmm20,	%%zmm22,	%%zmm12%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm10,	%%zmm8 ,	%%zmm8%{%%k1%}	\n\t	vblendmpd	%%zmm22,	%%zmm20,	%%zmm20%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm4 ,	%%zmm6 ,	%%zmm1%{%%k1%}	\n\t	vblendmpd	%%zmm16,	%%zmm18,	%%zmm13%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm6 ,	%%zmm4 ,	%%zmm4%{%%k1%}	\n\t	vblendmpd	%%zmm18,	%%zmm16,	%%zmm16%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm9 ,	%%zmm11,	%%zmm2%{%%k1%}	\n\t	vblendmpd	%%zmm21,	%%zmm23,	%%zmm14%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm11,	%%zmm9 ,	%%zmm9%{%%k1%}	\n\t	vblendmpd	%%zmm23,	%%zmm21,	%%zmm21%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm5 ,	%%zmm7 ,	%%zmm3%{%%k1%}	\n\t	vblendmpd	%%zmm17,	%%zmm19,	%%zmm15%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm7 ,	%%zmm5 ,	%%zmm5%{%%k1%}	\n\t	vblendmpd	%%zmm19,	%%zmm17,	%%zmm17%{%%k1%}	\n\t"\
+		/* [3] Shuffle or permute in the 1-aparts */\
+		"vshufpd	$0b00000000,%%zmm2,		%%zmm0,%%zmm10 	\n\t	vshufpd	$0b00000000,%%zmm14,	%%zmm12,%%zmm22	\n\t"\
+		"vshufpd	$0b11111111,%%zmm2,		%%zmm0,%%zmm11 	\n\t	vshufpd	$0b11111111,%%zmm14,	%%zmm12,%%zmm23	\n\t"\
+		"vmovapd	%%zmm8,%%zmm2							\n\t	vmovapd	%%zmm20,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm30,%%zmm2 	\n\t	vpermt2pd				%%zmm21,	%%zmm30,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm31,%%zmm8	\n\t	vpermt2pd				%%zmm21,	%%zmm31,%%zmm20	\n\t"\
+		"vshufpd	$0b00000000,%%zmm3,		%%zmm1,%%zmm0 	\n\t	vshufpd	$0b00000000,%%zmm15,	%%zmm13,%%zmm12	\n\t"\
+		"vshufpd	$0b11111111,%%zmm3,		%%zmm1,%%zmm1 	\n\t	vshufpd	$0b11111111,%%zmm15,	%%zmm13,%%zmm13	\n\t"\
+		"vmovapd	%%zmm4,%%zmm3							\n\t	vmovapd	%%zmm16,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm30,%%zmm3 	\n\t	vpermt2pd				%%zmm17,	%%zmm30,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm31,%%zmm4	\n\t	vpermt2pd				%%zmm17,	%%zmm31,%%zmm16	\n\t"\
+		/* Write original columns back as rows: */\
+		"vmovaps		%%zmm10,0x000(%%rax)				\n\t	vmovaps		%%zmm22,0x040(%%rax)		\n\t"\
+		"vmovaps		%%zmm11,0x080(%%rax)				\n\t	vmovaps		%%zmm23,0x0c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm2 ,0x100(%%rax)				\n\t	vmovaps		%%zmm14,0x140(%%rax)		\n\t"\
+		"vmovaps		%%zmm8 ,0x180(%%rax)				\n\t	vmovaps		%%zmm20,0x1c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm0 ,0x200(%%rax)				\n\t	vmovaps		%%zmm12,0x240(%%rax)		\n\t"\
+		"vmovaps		%%zmm1 ,0x280(%%rax)				\n\t	vmovaps		%%zmm13,0x2c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm3 ,0x300(%%rax)				\n\t	vmovaps		%%zmm15,0x340(%%rax)		\n\t"\
+		"vmovaps		%%zmm4, 0x380(%%rax)				\n\t	vmovaps		%%zmm16,0x3c0(%%rax)		\n\t"\
 		:					/* outputs: none */\
 		: [__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
 		, [__cy]		"m" (Xcy)		\
@@ -8378,11 +8504,13 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p2]   "m" (Xp2)\
 		,	[__p3]   "m" (Xp3)\
 		,	[__p4]   "m" (Xp4)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm21","xmm22","xmm23","xmm24","xmm25"	/* Clobbered registers */\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
-	#define AVX_cmplx_carry_fast_pow2_errcheck_X8(Xdata,Xcy,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3,Xp4)\
+	#define AVX_cmplx_carry_fast_pow2_errcheck_X8(Xdata,Xcy,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3,Xp4, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"movq	%[__add0],%%r14	\n\t"/* base address for 8 prefetches-from-main-data-array spread through this macro */\
@@ -8394,54 +8522,66 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	*/\
 	/* 8-way transpose of inputs (Re, Im parts separately) uses complex-ified version of algo in util.c:test_simd_transpose_8x8(). */\
 	/* Inputs from r0-f. Outputs into r0-f: */\
+		"movl	$0b00110011,%%eax	\n\t"/* Constant for vblendmpd instructions goes into mask-reg k1 */\
+		"kmovw	%%eax,%%k1			\n\t"\
+		/* Init vector index-consts needed by vpermt2pd instructions - if regs were at a premium,
+		could also init just prior to [3] and use zmm6,7 to hold index-consts: */\
+		"movq	$0x0c040e0608000a02,%%rax	\n\t"/* zmm30 = 8+4 0+4 8+6 0+6 8+0 0+0 8+2 0+2 [msw at left] */\
+		"movq	$0x0d050f0709010b03,%%rbx	\n\t"/* zmm31 = 8+5 0+5 8+7 0+7 8+1 0+1 8+3 0+3 */\
+			"vmovq		%%rax,%%xmm0 		\n\t"\
+			"vmovq		%%rbx,%%xmm1 		\n\t"\
+			"vpmovzxbq	%%xmm0,%%zmm30		\n\t"\
+			"vpmovzxbq	%%xmm1,%%zmm31		\n\t"\
 		"movq		%[__data],%%rax		\n\t"\
-	/* Real parts use zmm0,2,4,6,8,10,12,14,16:				Imag parts use zmm1,3,5,7,9,11,13,15,17: */\
-		/* Read in the 8 rows of our input matrix ... the funky index ordering gives ordered outputs sans reg-copying: */\
-		"vmovaps		0x000(%%rax),%%zmm6 		\n\t	vmovaps		0x040(%%rax),%%zmm7 		\n\t"\
-		"vmovaps		0x080(%%rax),%%zmm8 		\n\t	vmovaps		0x0c0(%%rax),%%zmm9 		\n\t"\
-		"vmovaps		0x100(%%rax),%%zmm10		\n\t	vmovaps		0x140(%%rax),%%zmm11		\n\t"\
-		"vmovaps		0x180(%%rax),%%zmm16		\n\t	vmovaps		0x1c0(%%rax),%%zmm17		\n\t"\
-		"vmovaps		0x200(%%rax),%%zmm12		\n\t	vmovaps		0x240(%%rax),%%zmm13		\n\t"\
-		"vmovaps		0x280(%%rax),%%zmm0 		\n\t	vmovaps		0x2c0(%%rax),%%zmm1 		\n\t"\
-		"vmovaps		0x300(%%rax),%%zmm2 		\n\t	vmovaps		0x340(%%rax),%%zmm3 		\n\t"\
-		"vmovaps		0x380(%%rax),%%zmm14		\n\t	vmovaps		0x3c0(%%rax),%%zmm15		\n\t"\
-		"\n\t"\
-		"vunpcklpd		%%zmm8 ,%%zmm6 ,%%zmm4 		\n\t	vunpcklpd		%%zmm9 ,%%zmm7 ,%%zmm5 		\n\t"\
-		"vunpckhpd		%%zmm8 ,%%zmm6 ,%%zmm8 		\n\t	vunpckhpd		%%zmm9 ,%%zmm7 ,%%zmm9 		\n\t"\
-		"vunpcklpd		%%zmm16,%%zmm10,%%zmm6 		\n\t	vunpcklpd		%%zmm17,%%zmm11,%%zmm7 		\n\t"\
-		"vunpckhpd		%%zmm16,%%zmm10,%%zmm16		\n\t	vunpckhpd		%%zmm17,%%zmm11,%%zmm17		\n\t"\
-		"vunpcklpd		%%zmm0 ,%%zmm12,%%zmm10		\n\t	vunpcklpd		%%zmm1 ,%%zmm13,%%zmm11		\n\t"\
-		"vunpckhpd		%%zmm0 ,%%zmm12,%%zmm0 		\n\t	vunpckhpd		%%zmm1 ,%%zmm13,%%zmm1 		\n\t"\
-		"vunpcklpd		%%zmm14,%%zmm2 ,%%zmm12		\n\t	vunpcklpd		%%zmm15,%%zmm3 ,%%zmm13		\n\t"\
-		"vunpckhpd		%%zmm14,%%zmm2 ,%%zmm14		\n\t	vunpckhpd		%%zmm15,%%zmm3 ,%%zmm15		\n\t"\
-		"\n\t"\
-		"vshuff64x2	$136,%%zmm6 ,%%zmm4 ,%%zmm2 	\n\t	vshuff64x2	$136,%%zmm7 ,%%zmm5 ,%%zmm3 	\n\t"\
-		"vshuff64x2	$221,%%zmm6 ,%%zmm4 ,%%zmm6 	\n\t	vshuff64x2	$221,%%zmm7 ,%%zmm5 ,%%zmm7 	\n\t"\
-		"vshuff64x2	$136,%%zmm16,%%zmm8 ,%%zmm4 	\n\t	vshuff64x2	$136,%%zmm17,%%zmm9 ,%%zmm5 	\n\t"\
-		"vshuff64x2	$221,%%zmm16,%%zmm8 ,%%zmm16	\n\t	vshuff64x2	$221,%%zmm17,%%zmm9 ,%%zmm17	\n\t"\
-		"vshuff64x2	$136,%%zmm12,%%zmm10,%%zmm8 	\n\t	vshuff64x2	$136,%%zmm13,%%zmm11,%%zmm9 	\n\t"\
-		"vshuff64x2	$221,%%zmm12,%%zmm10,%%zmm12	\n\t	vshuff64x2	$221,%%zmm13,%%zmm11,%%zmm13	\n\t"\
-		"vshuff64x2	$136,%%zmm14,%%zmm0 ,%%zmm10	\n\t	vshuff64x2	$136,%%zmm15,%%zmm1 ,%%zmm11	\n\t"\
-		"vshuff64x2	$221,%%zmm14,%%zmm0 ,%%zmm14	\n\t	vshuff64x2	$221,%%zmm15,%%zmm1 ,%%zmm15	\n\t"\
-		"\n\t"\
-		"vshuff64x2	$136,%%zmm8 ,%%zmm2 ,%%zmm0 	\n\t	vshuff64x2	$136,%%zmm9 ,%%zmm3 ,%%zmm1 	\n\t"\
-		"vshuff64x2	$221,%%zmm8 ,%%zmm2 ,%%zmm8 	\n\t	vshuff64x2	$221,%%zmm9 ,%%zmm3 ,%%zmm9 	\n\t"\
-		"vshuff64x2	$136,%%zmm10,%%zmm4 ,%%zmm2 	\n\t	vshuff64x2	$136,%%zmm11,%%zmm5 ,%%zmm3 	\n\t"\
-		"vshuff64x2	$221,%%zmm10,%%zmm4 ,%%zmm10	\n\t	vshuff64x2	$221,%%zmm11,%%zmm5 ,%%zmm11	\n\t"\
-		"vshuff64x2	$136,%%zmm12,%%zmm6 ,%%zmm4 	\n\t	vshuff64x2	$136,%%zmm13,%%zmm7 ,%%zmm5 	\n\t"\
-		"vshuff64x2	$221,%%zmm12,%%zmm6 ,%%zmm12	\n\t	vshuff64x2	$221,%%zmm13,%%zmm7 ,%%zmm13	\n\t"\
-		"vshuff64x2	$136,%%zmm14,%%zmm16,%%zmm6 	\n\t	vshuff64x2	$136,%%zmm15,%%zmm17,%%zmm7 	\n\t"\
-		"vshuff64x2	$221,%%zmm14,%%zmm16,%%zmm14	\n\t	vshuff64x2	$221,%%zmm15,%%zmm17,%%zmm15	\n\t"\
-		/* Outputs are now ordered - write 'em back to memory: */\
-		/* Real parts:										Imag parts: */\
-		"vmovaps	%%zmm0 ,0x000(%%rax)			\n\t	vmovaps	%%zmm1 ,0x040(%%rax)	\n\t"\
-		"vmovaps	%%zmm2 ,0x080(%%rax)			\n\t	vmovaps	%%zmm3 ,0x0c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm4 ,0x100(%%rax)			\n\t	vmovaps	%%zmm5 ,0x140(%%rax)	\n\t"\
-		"vmovaps	%%zmm6 ,0x180(%%rax)			\n\t	vmovaps	%%zmm7 ,0x1c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm8 ,0x200(%%rax)			\n\t	vmovaps	%%zmm9 ,0x240(%%rax)	\n\t"\
-		"vmovaps	%%zmm10,0x280(%%rax)			\n\t	vmovaps	%%zmm11,0x2c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm12,0x300(%%rax)			\n\t	vmovaps	%%zmm13,0x340(%%rax)	\n\t"\
-		"vmovaps	%%zmm14,0x380(%%rax)			\n\t	vmovaps	%%zmm15,0x3c0(%%rax)	\n\t"\
+		/* Read in the 8 rows of our input matrix: */\
+		"vmovaps		0x000(%%rax),%%zmm0					\n\t	vmovaps		0x040(%%rax),%%zmm12		\n\t"\
+		"vmovaps		0x080(%%rax),%%zmm1					\n\t	vmovaps		0x0c0(%%rax),%%zmm13		\n\t"\
+		"vmovaps		0x100(%%rax),%%zmm2					\n\t	vmovaps		0x140(%%rax),%%zmm14		\n\t"\
+		"vmovaps		0x180(%%rax),%%zmm3					\n\t	vmovaps		0x1c0(%%rax),%%zmm15		\n\t"\
+		"vmovaps		0x200(%%rax),%%zmm4					\n\t	vmovaps		0x240(%%rax),%%zmm16		\n\t"\
+		"vmovaps		0x280(%%rax),%%zmm5					\n\t	vmovaps		0x2c0(%%rax),%%zmm17		\n\t"\
+		"vmovaps		0x300(%%rax),%%zmm6					\n\t	vmovaps		0x340(%%rax),%%zmm18		\n\t"\
+		"vmovaps		0x380(%%rax),%%zmm7					\n\t	vmovaps		0x3c0(%%rax),%%zmm19		\n\t"\
+		/* [1] Shuffle the 4-aparts - note the different patterning of the first and second output quartet: */\
+		"vshuff64x2	$0b01000100, %%zmm4,	%%zmm0,	%%zmm8 	\n\t	vshuff64x2	$0b01000100, %%zmm16,%%zmm12,	%%zmm20	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm4,	%%zmm0,	%%zmm4 	\n\t	vshuff64x2	$0b11101110, %%zmm16,%%zmm12,	%%zmm16	\n\t"\
+		"vshuff64x2	$0b01000100, %%zmm5,	%%zmm1,	%%zmm9	\n\t	vshuff64x2	$0b01000100, %%zmm17,%%zmm13,	%%zmm21	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm5,	%%zmm1,	%%zmm5	\n\t	vshuff64x2	$0b11101110, %%zmm17,%%zmm13,	%%zmm17	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm6,	%%zmm2,	%%zmm10	\n\t	vshuff64x2	$0b00010001, %%zmm18,%%zmm14,	%%zmm22	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm6,	%%zmm2,	%%zmm6	\n\t	vshuff64x2	$0b10111011, %%zmm18,%%zmm14,	%%zmm18	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm7,	%%zmm3,	%%zmm11	\n\t	vshuff64x2	$0b00010001, %%zmm19,%%zmm15,	%%zmm23	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm7,	%%zmm3,	%%zmm7	\n\t	vshuff64x2	$0b10111011, %%zmm19,%%zmm15,	%%zmm19	\n\t"\
+		/* [2] Blend in the 2-aparts */\
+		"vblendmpd	%%zmm8 ,	%%zmm10,	%%zmm0%{%%k1%}	\n\t	vblendmpd	%%zmm20,	%%zmm22,	%%zmm12%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm10,	%%zmm8 ,	%%zmm8%{%%k1%}	\n\t	vblendmpd	%%zmm22,	%%zmm20,	%%zmm20%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm4 ,	%%zmm6 ,	%%zmm1%{%%k1%}	\n\t	vblendmpd	%%zmm16,	%%zmm18,	%%zmm13%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm6 ,	%%zmm4 ,	%%zmm4%{%%k1%}	\n\t	vblendmpd	%%zmm18,	%%zmm16,	%%zmm16%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm9 ,	%%zmm11,	%%zmm2%{%%k1%}	\n\t	vblendmpd	%%zmm21,	%%zmm23,	%%zmm14%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm11,	%%zmm9 ,	%%zmm9%{%%k1%}	\n\t	vblendmpd	%%zmm23,	%%zmm21,	%%zmm21%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm5 ,	%%zmm7 ,	%%zmm3%{%%k1%}	\n\t	vblendmpd	%%zmm17,	%%zmm19,	%%zmm15%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm7 ,	%%zmm5 ,	%%zmm5%{%%k1%}	\n\t	vblendmpd	%%zmm19,	%%zmm17,	%%zmm17%{%%k1%}	\n\t"\
+		/* [3] Shuffle or permute in the 1-aparts */\
+		"vshufpd	$0b00000000,%%zmm2,		%%zmm0,%%zmm10 	\n\t	vshufpd	$0b00000000,%%zmm14,	%%zmm12,%%zmm22	\n\t"\
+		"vshufpd	$0b11111111,%%zmm2,		%%zmm0,%%zmm11 	\n\t	vshufpd	$0b11111111,%%zmm14,	%%zmm12,%%zmm23	\n\t"\
+		"vmovapd	%%zmm8,%%zmm2							\n\t	vmovapd	%%zmm20,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm30,%%zmm2 	\n\t	vpermt2pd				%%zmm21,	%%zmm30,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm31,%%zmm8	\n\t	vpermt2pd				%%zmm21,	%%zmm31,%%zmm20	\n\t"\
+		"vshufpd	$0b00000000,%%zmm3,		%%zmm1,%%zmm0 	\n\t	vshufpd	$0b00000000,%%zmm15,	%%zmm13,%%zmm12	\n\t"\
+		"vshufpd	$0b11111111,%%zmm3,		%%zmm1,%%zmm1 	\n\t	vshufpd	$0b11111111,%%zmm15,	%%zmm13,%%zmm13	\n\t"\
+		"vmovapd	%%zmm4,%%zmm3							\n\t	vmovapd	%%zmm16,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm30,%%zmm3 	\n\t	vpermt2pd				%%zmm17,	%%zmm30,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm31,%%zmm4	\n\t	vpermt2pd				%%zmm17,	%%zmm31,%%zmm16	\n\t"\
+		/* Write original columns back as rows: */\
+		"vmovaps		%%zmm10,0x000(%%rax)				\n\t	vmovaps		%%zmm22,0x040(%%rax)		\n\t"\
+		"vmovaps		%%zmm11,0x080(%%rax)				\n\t	vmovaps		%%zmm23,0x0c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm2 ,0x100(%%rax)				\n\t	vmovaps		%%zmm14,0x140(%%rax)		\n\t"\
+		"vmovaps		%%zmm8 ,0x180(%%rax)				\n\t	vmovaps		%%zmm20,0x1c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm0 ,0x200(%%rax)				\n\t	vmovaps		%%zmm12,0x240(%%rax)		\n\t"\
+		"vmovaps		%%zmm1 ,0x280(%%rax)				\n\t	vmovaps		%%zmm13,0x2c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm3 ,0x300(%%rax)				\n\t	vmovaps		%%zmm15,0x340(%%rax)		\n\t"\
+		"vmovaps		%%zmm4, 0x380(%%rax)				\n\t	vmovaps		%%zmm16,0x3c0(%%rax)		\n\t"\
+		"movq	%[__prp_mult]	,%%rbx	\n\t"\
+		"vbroadcastsd	(%%rbx),%%zmm20	\n\t"/* prp_mult, broadcast to all double-slots of zmm20 */\
 		"movq		%[__cy],%%rbx			\n\t	vmovaps	     (%%rbx),%%zmm1	\n\t"/* zmm1 = Our eight-double cy_in */\
 		/* LOACC wts-data occupy 32 zmm-sized slots starting at (vec_dbl*)half_arr + 0 : */\
 		"movq	%[__half_arr],%%rdi			\n\t	vmovaps -0x80(%%rdi),%%zmm2	\n\t"/* zmm2 = maxerr */\
@@ -8450,11 +8590,11 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vbroadcastsd -0x40(%%rdi),%%zmm10	\n\t"\
 		"vbroadcastsd -0x38(%%rdi),%%zmm11	\n\t"\
 		"vbroadcastsd -0x30(%%rdi),%%zmm12	\n\t"\
-		"vbroadcastsd -0x28(%%rdi),%%zmm13	\n\t	vaddpd %%zmm13,%%zmm13,%%zmm14	\n\t"/* YMM13,14 have inv_mult[0] (needed for conditional-doubling), inv_mult[1] (needed for (wt_re >= inv_mult[1]) comparison) */\
-		"movq	%[__sse_nm1],%%rbx			\n\t	vmovaps	(%%rbx),%%ymm15			\n\t"/* PERSISTENT COPY OF SSE_NM1 REMAINS IN YMM15. */\
+		"vbroadcastsd -0x28(%%rdi),%%zmm13	\n\t	vaddpd %%zmm13,%%zmm13,%%zmm14	\n\t"/* ymm13,14 have inv_mult[0] (needed for conditional-doubling), inv_mult[1] (needed for (wt_re >= inv_mult[1]) comparison) */\
+		"movq	%[__sse_nm1],%%rbx			\n\t	vmovaps	(%%rbx),%%ymm15			\n\t"/* PERSISTENT COPY OF SSE_NM1 REMAINS IN ymm15. */\
 		"movq	%[__sse_bw] ,%%rbx			\n\t"/* RBX HOLDS ADDRESS OF SSE_BW */\
-		"movq	%[__bjmod_0],%%rsi			\n\t	vmovaps	(%%rsi),%%ymm3			\n\t"/* bjmod[0:7], PERSISTENT COPY IN YMM3 */\
-		"movq	%[__sse_sw] ,%%rsi			\n\t	vmovaps	(%%rsi),%%ymm4			\n\t"/* sw,  8-fold PERSISTENT COPY IN YMM4 */\
+		"movq	%[__bjmod_0],%%rsi			\n\t	vmovaps	(%%rsi),%%ymm3			\n\t"/* bjmod[0:7], PERSISTENT COPY IN ymm3 */\
+		"movq	%[__sse_sw] ,%%rsi			\n\t	vmovaps	(%%rsi),%%ymm4			\n\t"/* sw,  8-fold PERSISTENT COPY IN ymm4 */\
 		"movq	%[__sign_mask],%%rsi		\n\t"\
 	/**********************************/\
 	/* Do A.re-octet: Data in zmm0 :  */\
@@ -8463,7 +8603,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x000(%%rax),%%zmm0		\n\t"\
 		"vmovaps	0x080(%%rdi),%%zmm6		\n\t"/* wi_re - 8-way carry macro only uses every other one of these local-mem-slots */\
 		"vmovaps	0x000(%%rdi),%%zmm5		\n\t"/* wt_re for our 8 independent carry-chains */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"/* x *= wtinv + cy */\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"/* x *= wtinv */\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t"/* Set bit in k1 if sw < bjmod[0:7] ; Opmask K1 is analog of AVX-mode bitmask stored in R10 */\
 	"kmovw	%[__i],%%k2						\n\t"/* I == 1 if it's the 0-word, in which case we force-bigword-ness by XORing K1 (whose */\
 	"kxorw	%%k2,%%k1,%%k1					\n\t"/* low bit will == 0 on input in this case) with I. Otherwise I == 0, thus XOR = no-op. */\
@@ -8473,6 +8613,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"/* temp = DNINT(x) */\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"/* x - temp */\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"/* frac = fabs(x-temp) */\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"/* cpy temp */\
@@ -8500,13 +8641,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x040(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0x180(%%rdi),%%zmm6		\n\t"/* wi_im */\
 		"vmovaps	0x100(%%rdi),%%zmm5		\n\t"/* wt_im for our 8 independent carry-chains */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -8536,13 +8678,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x080(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0x280(%%rdi),%%zmm6		\n\t"/* wi_re */\
 		"vmovaps	0x200(%%rdi),%%zmm5		\n\t"/* wt_re */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -8570,13 +8713,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x0c0(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0x380(%%rdi),%%zmm6		\n\t"/* wi_im */\
 		"vmovaps	0x300(%%rdi),%%zmm5		\n\t"/* wt_im */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -8606,13 +8750,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x100(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0x480(%%rdi),%%zmm6		\n\t"/* wi_re */\
 		"vmovaps	0x400(%%rdi),%%zmm5		\n\t"/* wt_re */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -8640,13 +8785,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x140(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0x580(%%rdi),%%zmm6		\n\t"/* wi_im */\
 		"vmovaps	0x500(%%rdi),%%zmm5		\n\t"/* wt_im */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -8676,13 +8822,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x180(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0x680(%%rdi),%%zmm6		\n\t"/* wi_re */\
 		"vmovaps	0x600(%%rdi),%%zmm5		\n\t"/* wt_re */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -8710,13 +8857,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x1c0(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0x780(%%rdi),%%zmm6		\n\t"/* wi_im */\
 		"vmovaps	0x700(%%rdi),%%zmm5		\n\t"/* wt_im */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -8747,13 +8895,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x200(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0x880(%%rdi),%%zmm6		\n\t"/* wi_re */\
 		"vmovaps	0x800(%%rdi),%%zmm5		\n\t"/* wt_re */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -8781,13 +8930,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x240(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0x980(%%rdi),%%zmm6		\n\t"/* wi_im */\
 		"vmovaps	0x900(%%rdi),%%zmm5		\n\t"/* wt_im */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -8817,13 +8967,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x280(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0xa80(%%rdi),%%zmm6		\n\t"/* wi_re */\
 		"vmovaps	0xa00(%%rdi),%%zmm5		\n\t"/* wt_re */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -8851,13 +9002,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x2c0(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0xb80(%%rdi),%%zmm6		\n\t"/* wi_im */\
 		"vmovaps	0xb00(%%rdi),%%zmm5		\n\t"/* wt_im */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -8887,13 +9039,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x300(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0xc80(%%rdi),%%zmm6		\n\t"/* wi_re */\
 		"vmovaps	0xc00(%%rdi),%%zmm5		\n\t"/* wt_re */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -8921,13 +9074,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x340(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0xd80(%%rdi),%%zmm6		\n\t"/* wi_im */\
 		"vmovaps	0xd00(%%rdi),%%zmm5		\n\t"/* wt_im */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -8957,13 +9111,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x380(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0xe80(%%rdi),%%zmm6		\n\t"/* wi_re */\
 		"vmovaps	0xe00(%%rdi),%%zmm5		\n\t"/* wt_re */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -8991,13 +9146,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x3c0(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0xf80(%%rdi),%%zmm6		\n\t"/* wi_im */\
 		"vmovaps	0xf00(%%rdi),%%zmm5		\n\t"/* wt_im */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -9026,54 +9182,56 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* Store maxerr: */\
 		"vmovaps	%%zmm2,-0x80(%%rdi)		\n\t"\
 	/* 8-way transpose of outputs (Re, Im parts separately): Inputs from r0-f. Outputs into r0-f: */	\
+		"movl	$0b00110011,%%eax	\n\t"/* Carry step has overwritten k1, re-init for transpose */\
+		"kmovw	%%eax,%%k1			\n\t"\
 		"movq		%[__data],%%rax		\n\t"\
-	/* Real parts use zmm0,2,4,6,8,10,12,14,16:				Imag parts use zmm1,3,5,7,9,11,13,15,17: */\
-		/* Read in the 8 rows of our input matrix ... the funky index ordering gives ordered outputs sans reg-copying: */\
-		"vmovaps		0x000(%%rax),%%zmm6 		\n\t	vmovaps		0x040(%%rax),%%zmm7 		\n\t"\
-		"vmovaps		0x080(%%rax),%%zmm8 		\n\t	vmovaps		0x0c0(%%rax),%%zmm9 		\n\t"\
-		"vmovaps		0x100(%%rax),%%zmm10		\n\t	vmovaps		0x140(%%rax),%%zmm11		\n\t"\
-		"vmovaps		0x180(%%rax),%%zmm16		\n\t	vmovaps		0x1c0(%%rax),%%zmm17		\n\t"\
-		"vmovaps		0x200(%%rax),%%zmm12		\n\t	vmovaps		0x240(%%rax),%%zmm13		\n\t"\
-		"vmovaps		0x280(%%rax),%%zmm0 		\n\t	vmovaps		0x2c0(%%rax),%%zmm1 		\n\t"\
-		"vmovaps		0x300(%%rax),%%zmm2 		\n\t	vmovaps		0x340(%%rax),%%zmm3 		\n\t"\
-		"vmovaps		0x380(%%rax),%%zmm14		\n\t	vmovaps		0x3c0(%%rax),%%zmm15		\n\t"\
-		"\n\t"\
-		"vunpcklpd		%%zmm8 ,%%zmm6 ,%%zmm4 		\n\t	vunpcklpd		%%zmm9 ,%%zmm7 ,%%zmm5 		\n\t"\
-		"vunpckhpd		%%zmm8 ,%%zmm6 ,%%zmm8 		\n\t	vunpckhpd		%%zmm9 ,%%zmm7 ,%%zmm9 		\n\t"\
-		"vunpcklpd		%%zmm16,%%zmm10,%%zmm6 		\n\t	vunpcklpd		%%zmm17,%%zmm11,%%zmm7 		\n\t"\
-		"vunpckhpd		%%zmm16,%%zmm10,%%zmm16		\n\t	vunpckhpd		%%zmm17,%%zmm11,%%zmm17		\n\t"\
-		"vunpcklpd		%%zmm0 ,%%zmm12,%%zmm10		\n\t	vunpcklpd		%%zmm1 ,%%zmm13,%%zmm11		\n\t"\
-		"vunpckhpd		%%zmm0 ,%%zmm12,%%zmm0 		\n\t	vunpckhpd		%%zmm1 ,%%zmm13,%%zmm1 		\n\t"\
-		"vunpcklpd		%%zmm14,%%zmm2 ,%%zmm12		\n\t	vunpcklpd		%%zmm15,%%zmm3 ,%%zmm13		\n\t"\
-		"vunpckhpd		%%zmm14,%%zmm2 ,%%zmm14		\n\t	vunpckhpd		%%zmm15,%%zmm3 ,%%zmm15		\n\t"\
-		"\n\t"\
-		"vshuff64x2	$136,%%zmm6 ,%%zmm4 ,%%zmm2 	\n\t	vshuff64x2	$136,%%zmm7 ,%%zmm5 ,%%zmm3 	\n\t"\
-		"vshuff64x2	$221,%%zmm6 ,%%zmm4 ,%%zmm6 	\n\t	vshuff64x2	$221,%%zmm7 ,%%zmm5 ,%%zmm7 	\n\t"\
-		"vshuff64x2	$136,%%zmm16,%%zmm8 ,%%zmm4 	\n\t	vshuff64x2	$136,%%zmm17,%%zmm9 ,%%zmm5 	\n\t"\
-		"vshuff64x2	$221,%%zmm16,%%zmm8 ,%%zmm16	\n\t	vshuff64x2	$221,%%zmm17,%%zmm9 ,%%zmm17	\n\t"\
-		"vshuff64x2	$136,%%zmm12,%%zmm10,%%zmm8 	\n\t	vshuff64x2	$136,%%zmm13,%%zmm11,%%zmm9 	\n\t"\
-		"vshuff64x2	$221,%%zmm12,%%zmm10,%%zmm12	\n\t	vshuff64x2	$221,%%zmm13,%%zmm11,%%zmm13	\n\t"\
-		"vshuff64x2	$136,%%zmm14,%%zmm0 ,%%zmm10	\n\t	vshuff64x2	$136,%%zmm15,%%zmm1 ,%%zmm11	\n\t"\
-		"vshuff64x2	$221,%%zmm14,%%zmm0 ,%%zmm14	\n\t	vshuff64x2	$221,%%zmm15,%%zmm1 ,%%zmm15	\n\t"\
-		"\n\t"\
-		"vshuff64x2	$136,%%zmm8 ,%%zmm2 ,%%zmm0 	\n\t	vshuff64x2	$136,%%zmm9 ,%%zmm3 ,%%zmm1 	\n\t"\
-		"vshuff64x2	$221,%%zmm8 ,%%zmm2 ,%%zmm8 	\n\t	vshuff64x2	$221,%%zmm9 ,%%zmm3 ,%%zmm9 	\n\t"\
-		"vshuff64x2	$136,%%zmm10,%%zmm4 ,%%zmm2 	\n\t	vshuff64x2	$136,%%zmm11,%%zmm5 ,%%zmm3 	\n\t"\
-		"vshuff64x2	$221,%%zmm10,%%zmm4 ,%%zmm10	\n\t	vshuff64x2	$221,%%zmm11,%%zmm5 ,%%zmm11	\n\t"\
-		"vshuff64x2	$136,%%zmm12,%%zmm6 ,%%zmm4 	\n\t	vshuff64x2	$136,%%zmm13,%%zmm7 ,%%zmm5 	\n\t"\
-		"vshuff64x2	$221,%%zmm12,%%zmm6 ,%%zmm12	\n\t	vshuff64x2	$221,%%zmm13,%%zmm7 ,%%zmm13	\n\t"\
-		"vshuff64x2	$136,%%zmm14,%%zmm16,%%zmm6 	\n\t	vshuff64x2	$136,%%zmm15,%%zmm17,%%zmm7 	\n\t"\
-		"vshuff64x2	$221,%%zmm14,%%zmm16,%%zmm14	\n\t	vshuff64x2	$221,%%zmm15,%%zmm17,%%zmm15	\n\t"\
+		/* Read in the 8 rows of our input matrix: */\
+		"vmovaps		0x000(%%rax),%%zmm0					\n\t	vmovaps		0x040(%%rax),%%zmm12		\n\t"\
+		"vmovaps		0x080(%%rax),%%zmm1					\n\t	vmovaps		0x0c0(%%rax),%%zmm13		\n\t"\
+		"vmovaps		0x100(%%rax),%%zmm2					\n\t	vmovaps		0x140(%%rax),%%zmm14		\n\t"\
+		"vmovaps		0x180(%%rax),%%zmm3					\n\t	vmovaps		0x1c0(%%rax),%%zmm15		\n\t"\
+		"vmovaps		0x200(%%rax),%%zmm4					\n\t	vmovaps		0x240(%%rax),%%zmm16		\n\t"\
+		"vmovaps		0x280(%%rax),%%zmm5					\n\t	vmovaps		0x2c0(%%rax),%%zmm17		\n\t"\
+		"vmovaps		0x300(%%rax),%%zmm6					\n\t	vmovaps		0x340(%%rax),%%zmm18		\n\t"\
+		"vmovaps		0x380(%%rax),%%zmm7					\n\t	vmovaps		0x3c0(%%rax),%%zmm19		\n\t"\
+		/* [1] Shuffle the 4-aparts - note the different patterning of the first and second output quartet: */\
+		"vshuff64x2	$0b01000100, %%zmm4,	%%zmm0,	%%zmm8 	\n\t	vshuff64x2	$0b01000100, %%zmm16,%%zmm12,	%%zmm20	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm4,	%%zmm0,	%%zmm4 	\n\t	vshuff64x2	$0b11101110, %%zmm16,%%zmm12,	%%zmm16	\n\t"\
+		"vshuff64x2	$0b01000100, %%zmm5,	%%zmm1,	%%zmm9	\n\t	vshuff64x2	$0b01000100, %%zmm17,%%zmm13,	%%zmm21	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm5,	%%zmm1,	%%zmm5	\n\t	vshuff64x2	$0b11101110, %%zmm17,%%zmm13,	%%zmm17	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm6,	%%zmm2,	%%zmm10	\n\t	vshuff64x2	$0b00010001, %%zmm18,%%zmm14,	%%zmm22	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm6,	%%zmm2,	%%zmm6	\n\t	vshuff64x2	$0b10111011, %%zmm18,%%zmm14,	%%zmm18	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm7,	%%zmm3,	%%zmm11	\n\t	vshuff64x2	$0b00010001, %%zmm19,%%zmm15,	%%zmm23	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm7,	%%zmm3,	%%zmm7	\n\t	vshuff64x2	$0b10111011, %%zmm19,%%zmm15,	%%zmm19	\n\t"\
+		/* [2] Blend in the 2-aparts */\
+		"vblendmpd	%%zmm8 ,	%%zmm10,	%%zmm0%{%%k1%}	\n\t	vblendmpd	%%zmm20,	%%zmm22,	%%zmm12%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm10,	%%zmm8 ,	%%zmm8%{%%k1%}	\n\t	vblendmpd	%%zmm22,	%%zmm20,	%%zmm20%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm4 ,	%%zmm6 ,	%%zmm1%{%%k1%}	\n\t	vblendmpd	%%zmm16,	%%zmm18,	%%zmm13%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm6 ,	%%zmm4 ,	%%zmm4%{%%k1%}	\n\t	vblendmpd	%%zmm18,	%%zmm16,	%%zmm16%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm9 ,	%%zmm11,	%%zmm2%{%%k1%}	\n\t	vblendmpd	%%zmm21,	%%zmm23,	%%zmm14%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm11,	%%zmm9 ,	%%zmm9%{%%k1%}	\n\t	vblendmpd	%%zmm23,	%%zmm21,	%%zmm21%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm5 ,	%%zmm7 ,	%%zmm3%{%%k1%}	\n\t	vblendmpd	%%zmm17,	%%zmm19,	%%zmm15%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm7 ,	%%zmm5 ,	%%zmm5%{%%k1%}	\n\t	vblendmpd	%%zmm19,	%%zmm17,	%%zmm17%{%%k1%}	\n\t"\
+		/* [3] Shuffle or permute in the 1-aparts */\
+		"vshufpd	$0b00000000,%%zmm2,		%%zmm0,%%zmm10 	\n\t	vshufpd	$0b00000000,%%zmm14,	%%zmm12,%%zmm22	\n\t"\
+		"vshufpd	$0b11111111,%%zmm2,		%%zmm0,%%zmm11 	\n\t	vshufpd	$0b11111111,%%zmm14,	%%zmm12,%%zmm23	\n\t"\
+		"vmovapd	%%zmm8,%%zmm2							\n\t	vmovapd	%%zmm20,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm30,%%zmm2 	\n\t	vpermt2pd				%%zmm21,	%%zmm30,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm31,%%zmm8	\n\t	vpermt2pd				%%zmm21,	%%zmm31,%%zmm20	\n\t"\
+		"vshufpd	$0b00000000,%%zmm3,		%%zmm1,%%zmm0 	\n\t	vshufpd	$0b00000000,%%zmm15,	%%zmm13,%%zmm12	\n\t"\
+		"vshufpd	$0b11111111,%%zmm3,		%%zmm1,%%zmm1 	\n\t	vshufpd	$0b11111111,%%zmm15,	%%zmm13,%%zmm13	\n\t"\
+		"vmovapd	%%zmm4,%%zmm3							\n\t	vmovapd	%%zmm16,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm30,%%zmm3 	\n\t	vpermt2pd				%%zmm17,	%%zmm30,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm31,%%zmm4	\n\t	vpermt2pd				%%zmm17,	%%zmm31,%%zmm16	\n\t"\
 		/* Outputs are now ordered - write 'em back to memory: */\
-		/* Real parts:										Imag parts: */\
-		"vmovaps	%%zmm0 ,0x000(%%rax)			\n\t	vmovaps	%%zmm1 ,0x040(%%rax)	\n\t"\
-		"vmovaps	%%zmm2 ,0x080(%%rax)			\n\t	vmovaps	%%zmm3 ,0x0c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm4 ,0x100(%%rax)			\n\t	vmovaps	%%zmm5 ,0x140(%%rax)	\n\t"\
-		"vmovaps	%%zmm6 ,0x180(%%rax)			\n\t	vmovaps	%%zmm7 ,0x1c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm8 ,0x200(%%rax)			\n\t	vmovaps	%%zmm9 ,0x240(%%rax)	\n\t"\
-		"vmovaps	%%zmm10,0x280(%%rax)			\n\t	vmovaps	%%zmm11,0x2c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm12,0x300(%%rax)			\n\t	vmovaps	%%zmm13,0x340(%%rax)	\n\t"\
-		"vmovaps	%%zmm14,0x380(%%rax)			\n\t	vmovaps	%%zmm15,0x3c0(%%rax)	\n\t"\
+		"vmovaps		%%zmm10,0x000(%%rax)				\n\t	vmovaps		%%zmm22,0x040(%%rax)		\n\t"\
+		"vmovaps		%%zmm11,0x080(%%rax)				\n\t	vmovaps		%%zmm23,0x0c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm2 ,0x100(%%rax)				\n\t	vmovaps		%%zmm14,0x140(%%rax)		\n\t"\
+		"vmovaps		%%zmm8 ,0x180(%%rax)				\n\t	vmovaps		%%zmm20,0x1c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm0 ,0x200(%%rax)				\n\t	vmovaps		%%zmm12,0x240(%%rax)		\n\t"\
+		"vmovaps		%%zmm1 ,0x280(%%rax)				\n\t	vmovaps		%%zmm13,0x2c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm3 ,0x300(%%rax)				\n\t	vmovaps		%%zmm15,0x340(%%rax)		\n\t"\
+		"vmovaps		%%zmm4, 0x380(%%rax)				\n\t	vmovaps		%%zmm16,0x3c0(%%rax)		\n\t"\
 		:					/* outputs: none */\
 		: [__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
 		, [__cy]		"m" (Xcy)		\
@@ -9090,7 +9248,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p2]   "m" (Xp2)\
 		,	[__p3]   "m" (Xp3)\
 		,	[__p4]   "m" (Xp4)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17"	/* Clobbered registers */\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -9104,7 +9264,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	// math attendant to Mersenne-mod IBDWT, so did not create a non-pow2-FFT-length analog, and left calls to
 	// this macro around just in the radix-16 carry routine I used for my comparative timing tests.
 	//
-	#define AVX2_cmplx_carry_fast_pow2_errcheck_X8(Xdata,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3,Xp4)\
+	#define AVX2_cmplx_carry_fast_pow2_errcheck_X8(Xdata,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3,Xp4, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"movq	%[__add0],%%r14	\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
@@ -9148,6 +9308,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	%%ymm2 ,0x40(%%rax)		\n\t		vmovaps	%%ymm3 ,0x60(%%rax)		\n\t"\
 		"vmovaps	%%ymm4 ,0x80(%%rax)		\n\t		vmovaps	%%ymm5 ,0xa0(%%rax)		\n\t"\
 		"vmovaps	%%ymm6 ,0xc0(%%rax)		\n\t		vmovaps	%%ymm7 ,0xe0(%%rax)		\n\t"\
+		"movq	%[__prp_mult]	,%%rbx	\n\t"\
+		"vbroadcastsd	(%%rbx),%%ymm8	\n\t"/* prp_mult, broadcast to all double-slots of just-freed ymm8 */\
 		/* And un-fiddle the base address: */\
 		"subq	$0x100,%%rax				\n\t"\
 		"movq		%[__cyA],%%rbx			\n\t	movq	%[__cyB],%%rcx	\n\t"\
@@ -9177,11 +9339,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xc40(%%rdi),%%ymm4 	\n\t	vmovaps	0xc60(%%rdi),%%ymm5 		\n\t"/* wi_re for our 4 independent carry-chains */\
 		"vmovaps	0xc00(%%rdi),%%ymm2 	\n\t	vmovaps	0xc20(%%rdi),%%ymm3 		\n\t"/* wt_re */\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"/* x *= wtinv + cy */\
+		"vmulpd		%%ymm4,%%ymm0,%%ymm0	\n\t	vmulpd	%%ymm5,%%ymm1,%%ymm1		\n\t"/* x *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"/* temp = DNINT(x) */\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"/* frac = fabs(x-temp) */\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -9226,12 +9389,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xcc0(%%rdi),%%ymm4 	\n\t	vmovaps	0xce0(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xc80(%%rdi),%%ymm2 	\n\t	vmovaps	0xca0(%%rdi),%%ymm3 		\n\t"\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"\
+		"vmulpd		%%ymm4,%%ymm0,%%ymm0	\n\t	vmulpd	%%ymm5,%%ymm1,%%ymm1		\n\t"/* x *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
-		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
 		"vmovaps	%%ymm10	,%%ymm0			\n\t	vmovaps	%%ymm11	,%%ymm1				\n\t"\
@@ -9275,12 +9438,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xd40(%%rdi),%%ymm4 	\n\t	vmovaps	0xd60(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xd00(%%rdi),%%ymm2 	\n\t	vmovaps	0xd20(%%rdi),%%ymm3 		\n\t"\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"\
+		"vmulpd		%%ymm4,%%ymm0,%%ymm0	\n\t	vmulpd	%%ymm5,%%ymm1,%%ymm1		\n\t"/* x *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
-		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
 		"vmovaps	%%ymm10	,%%ymm0			\n\t	vmovaps	%%ymm11	,%%ymm1				\n\t"\
@@ -9324,12 +9487,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xdc0(%%rdi),%%ymm4 	\n\t	vmovaps	0xde0(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xd80(%%rdi),%%ymm2 	\n\t	vmovaps	0xda0(%%rdi),%%ymm3 		\n\t"\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"\
+		"vmulpd		%%ymm4,%%ymm0,%%ymm0	\n\t	vmulpd	%%ymm5,%%ymm1,%%ymm1		\n\t"/* x *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
-		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
 		"vmovaps	%%ymm10	,%%ymm0			\n\t	vmovaps	%%ymm11	,%%ymm1				\n\t"\
@@ -9374,12 +9537,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xe40(%%rdi),%%ymm4 	\n\t	vmovaps	0xe60(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xe00(%%rdi),%%ymm2 	\n\t	vmovaps	0xe20(%%rdi),%%ymm3 		\n\t"\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"\
+		"vmulpd		%%ymm4,%%ymm0,%%ymm0	\n\t	vmulpd	%%ymm5,%%ymm1,%%ymm1		\n\t"/* x *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
-		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
 		"vmovaps	%%ymm10	,%%ymm0			\n\t	vmovaps	%%ymm11	,%%ymm1				\n\t"\
@@ -9423,12 +9586,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xec0(%%rdi),%%ymm4 	\n\t	vmovaps	0xee0(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xe80(%%rdi),%%ymm2 	\n\t	vmovaps	0xea0(%%rdi),%%ymm3 		\n\t"\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"\
+		"vmulpd		%%ymm4,%%ymm0,%%ymm0	\n\t	vmulpd	%%ymm5,%%ymm1,%%ymm1		\n\t"/* x *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
-		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
 		"vmovaps	%%ymm10	,%%ymm0			\n\t	vmovaps	%%ymm11	,%%ymm1				\n\t"\
@@ -9472,12 +9635,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xf40(%%rdi),%%ymm4 	\n\t	vmovaps	0xf60(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xf00(%%rdi),%%ymm2 	\n\t	vmovaps	0xf20(%%rdi),%%ymm3 		\n\t"\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"\
+		"vmulpd		%%ymm4,%%ymm0,%%ymm0	\n\t	vmulpd	%%ymm5,%%ymm1,%%ymm1		\n\t"/* x *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
-		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
 		"vmovaps	%%ymm10	,%%ymm0			\n\t	vmovaps	%%ymm11	,%%ymm1				\n\t"\
@@ -9521,12 +9684,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xfc0(%%rdi),%%ymm4 	\n\t	vmovaps	0xfe0(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xf80(%%rdi),%%ymm2 	\n\t	vmovaps	0xfa0(%%rdi),%%ymm3 		\n\t"\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"\
+		"vmulpd		%%ymm4,%%ymm0,%%ymm0	\n\t	vmulpd	%%ymm5,%%ymm1,%%ymm1		\n\t"/* x *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
-		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
 		"vmovaps	%%ymm10	,%%ymm0			\n\t	vmovaps	%%ymm11	,%%ymm1				\n\t"\
@@ -9616,6 +9779,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p2]   "m" (Xp2)\
 		,	[__p3]   "m" (Xp3)\
 		,	[__p4]   "m" (Xp4)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r10","r11","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"/* Clobbered registers */\
 	);\
 	}
@@ -9624,7 +9789,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 
 	// 8-way version of the AVX 4-way carry macro,
 	// analogous to the 128-bit-setting 4-way SSE2_cmplx_carry_fast_pow2_errcheck macro:
-	#define AVX_cmplx_carry_fast_pow2_errcheck_X8(Xdata,XcyA,XcyB,Xbjmod_0,Xbjmod_4,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3,Xp4)\
+	#define AVX_cmplx_carry_fast_pow2_errcheck_X8(Xdata,XcyA,XcyB,Xbjmod_0,Xbjmod_4,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3,Xp4, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"movq	%[__add0],%%r14	\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
@@ -9668,6 +9833,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	%%ymm2 ,0x40(%%rax)		\n\t		vmovaps	%%ymm3 ,0x60(%%rax)		\n\t"\
 		"vmovaps	%%ymm4 ,0x80(%%rax)		\n\t		vmovaps	%%ymm5 ,0xa0(%%rax)		\n\t"\
 		"vmovaps	%%ymm6 ,0xc0(%%rax)		\n\t		vmovaps	%%ymm7 ,0xe0(%%rax)		\n\t"\
+		"movq	%[__prp_mult]	,%%rbx	\n\t"\
+		"vbroadcastsd	(%%rbx),%%ymm8	\n\t"/* prp_mult, broadcast to all double-slots of just-freed ymm8 */\
 		/* And un-fiddle the base address: */\
 		"subq	$0x100,%%rax				\n\t"\
 	/*** mm6-9 *FREE* between here and closing un-transpose block ... each processing ***/\
@@ -9699,11 +9866,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xc40(%%rdi),%%ymm4 	\n\t	vmovaps	0xc60(%%rdi),%%ymm5 		\n\t"/* wi_re for our 4 independent carry-chains */\
 		"vmovaps	0xc00(%%rdi),%%ymm2 	\n\t	vmovaps	0xc20(%%rdi),%%ymm3 		\n\t"/* wt_re */\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"/* x *= wtinv + cy */\
+		"vmulpd		%%ymm4,%%ymm0,%%ymm0	\n\t	vmulpd	%%ymm5,%%ymm1,%%ymm1		\n\t"/* x *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"/* temp = DNINT(x) */\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"/* frac = fabs(x-temp) */\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -9746,12 +9914,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xcc0(%%rdi),%%ymm4 	\n\t	vmovaps	0xce0(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xc80(%%rdi),%%ymm2 	\n\t	vmovaps	0xca0(%%rdi),%%ymm3 		\n\t"\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"\
+		"vmulpd		%%ymm4,%%ymm0,%%ymm0	\n\t	vmulpd	%%ymm5,%%ymm1,%%ymm1		\n\t"/* x *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
-		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
 		"vmovaps	%%ymm10	,%%ymm0			\n\t	vmovaps	%%ymm11	,%%ymm1				\n\t"\
@@ -9793,12 +9961,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xd40(%%rdi),%%ymm4 	\n\t	vmovaps	0xd60(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xd00(%%rdi),%%ymm2 	\n\t	vmovaps	0xd20(%%rdi),%%ymm3 		\n\t"\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"\
+		"vmulpd		%%ymm4,%%ymm0,%%ymm0	\n\t	vmulpd	%%ymm5,%%ymm1,%%ymm1		\n\t"/* x *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
-		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
 		"vmovaps	%%ymm10	,%%ymm0			\n\t	vmovaps	%%ymm11	,%%ymm1				\n\t"\
@@ -9840,12 +10008,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xdc0(%%rdi),%%ymm4 	\n\t	vmovaps	0xde0(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xd80(%%rdi),%%ymm2 	\n\t	vmovaps	0xda0(%%rdi),%%ymm3 		\n\t"\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"\
+		"vmulpd		%%ymm4,%%ymm0,%%ymm0	\n\t	vmulpd	%%ymm5,%%ymm1,%%ymm1		\n\t"/* x *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
-		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
 		"vmovaps	%%ymm10	,%%ymm0			\n\t	vmovaps	%%ymm11	,%%ymm1				\n\t"\
@@ -9888,12 +10056,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xe40(%%rdi),%%ymm4 	\n\t	vmovaps	0xe60(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xe00(%%rdi),%%ymm2 	\n\t	vmovaps	0xe20(%%rdi),%%ymm3 		\n\t"\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"\
+		"vmulpd		%%ymm4,%%ymm0,%%ymm0	\n\t	vmulpd	%%ymm5,%%ymm1,%%ymm1		\n\t"/* x *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
-		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
 		"vmovaps	%%ymm10	,%%ymm0			\n\t	vmovaps	%%ymm11	,%%ymm1				\n\t"\
@@ -9935,12 +10103,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xec0(%%rdi),%%ymm4 	\n\t	vmovaps	0xee0(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xe80(%%rdi),%%ymm2 	\n\t	vmovaps	0xea0(%%rdi),%%ymm3 		\n\t"\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"\
+		"vmulpd		%%ymm4,%%ymm0,%%ymm0	\n\t	vmulpd	%%ymm5,%%ymm1,%%ymm1		\n\t"/* x *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
-		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
 		"vmovaps	%%ymm10	,%%ymm0			\n\t	vmovaps	%%ymm11	,%%ymm1				\n\t"\
@@ -9982,12 +10150,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xf40(%%rdi),%%ymm4 	\n\t	vmovaps	0xf60(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xf00(%%rdi),%%ymm2 	\n\t	vmovaps	0xf20(%%rdi),%%ymm3 		\n\t"\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"\
+		"vmulpd		%%ymm4,%%ymm0,%%ymm0	\n\t	vmulpd	%%ymm5,%%ymm1,%%ymm1		\n\t"/* x *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
-		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
 		"vmovaps	%%ymm10	,%%ymm0			\n\t	vmovaps	%%ymm11	,%%ymm1				\n\t"\
@@ -10029,12 +10197,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xfc0(%%rdi),%%ymm4 	\n\t	vmovaps	0xfe0(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xf80(%%rdi),%%ymm2 	\n\t	vmovaps	0xfa0(%%rdi),%%ymm3 		\n\t"\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"\
+		"vmulpd		%%ymm4,%%ymm0,%%ymm0	\n\t	vmulpd	%%ymm5,%%ymm1,%%ymm1		\n\t"/* x *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
-		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
 		"vmovaps	%%ymm10	,%%ymm0			\n\t	vmovaps	%%ymm11	,%%ymm1				\n\t"\
@@ -10125,6 +10293,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p2]   "m" (Xp2)\
 		,	[__p3]   "m" (Xp3)\
 		,	[__p4]   "m" (Xp4)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r10","r11","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"/* Clobbered registers */\
 	);\
 	}
@@ -10132,7 +10302,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
    #endif	// ifdef GCC_5PLUS ?
 
 	// Register-name choices in the non-transpose middle section reflect preparation for an 8-way version of this macro:
-	#define AVX_cmplx_carry_fast_pow2_errcheck_X4(Xdata,Xcy,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3)\
+	#define AVX_cmplx_carry_fast_pow2_errcheck_X4(Xdata,Xcy,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"movq	%[__add0],%%r14	\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
@@ -10157,6 +10327,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	%%ymm2 ,0x40(%%rax)		\n\t		vmovaps	%%ymm3 ,0x60(%%rax)		\n\t"\
 		"vmovaps	%%ymm4 ,0x80(%%rax)		\n\t		vmovaps	%%ymm5 ,0xa0(%%rax)		\n\t"\
 		"vmovaps	%%ymm6 ,0xc0(%%rax)		\n\t		vmovaps	%%ymm7 ,0xe0(%%rax)		\n\t"\
+		"movq	%[__prp_mult]	,%%rbx	\n\t"\
+		"vbroadcastsd	(%%rbx),%%ymm8	\n\t"/* prp_mult, broadcast to all double-slots of just-freed ymm8 */\
 		"movq		%[__cy],%%rbx		\n\t"\
 		"vmovaps	(%%rbx),%%ymm12		\n\t"/* ymm12 = cy_in */\
 		/* LOACC wts-data occupy 32 ymm-sized slots starting at (vec_dbl*)half_arr + 96 : */\
@@ -10168,7 +10340,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	/**********************************/\
 	"prefetcht0	(%%r14)	\n\t"\
 	"movq	%[__bjmod_0],%%rsi			\n\t"\
-	"vmovaps	(%%rsi),%%xmm15			\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM15. */\
+	"vmovaps	(%%rsi),%%xmm15			\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN xmm15. */\
 	"movq	%[__sse_sw],%%rsi			\n\t"\
 	"vmovaps	(%%rsi),%%xmm10			\n\t"/* sw[0:3] */\
 	"vpsubd		%%xmm15,%%xmm10,%%xmm10	\n\t"/* sw[0:3] - bjmod[0:3] */\
@@ -10179,13 +10351,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* This 4-way vector-carry macro uses only the even-indexed 16 of said slots, having byte offsets == 0 (mod 0x40) */\
 		"vmovaps	0xc40(%%rdi),%%ymm4 	\n\t"/* wi_re for our 4 independent carry-chains */\
 		"vmovaps	0xc00(%%rdi),%%ymm2 	\n\t"/* wt_re */\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t"/* x *= wtinv + cy */\
+		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t"/* x *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(x) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(x-temp) */\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -10224,13 +10397,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	"shlq	$5,%%rsi	\n\t"/* i0123 << 5 (= lshift to give ptr offset for ymm-size data */\
 		"vmovaps	0xcc0(%%rdi),%%ymm4 	\n\t"/* wi_im for our 4 independent carry-chains */\
 		"vmovaps	0xc80(%%rdi),%%ymm2 	\n\t"/* wt_im */\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t"/* y *= wtinv + cy */\
-		"vmovaps	%%ymm0,%%ymm10			\n\t"/* temp = y */\
+		"vmulpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t"/* y *= wtinv */\
+		"vmovaps	%%ymm0 ,%%ymm10			\n\t"/* temp = y */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(y) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* y - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(y-temp) */\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -10271,13 +10445,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"shlq	$5,%%rsi	\n\t"/* i0123 << 5 (= lshift to give ptr offset for ymm-size data */\
 		"vmovaps	0xd40(%%rdi),%%ymm4 	\n\t"/* wi_re for our 4 independent carry-chains */\
 		"vmovaps	0xd00(%%rdi),%%ymm2 	\n\t"/* wt_re */\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t"/* x *= wtinv + cy */\
-		"vmovaps	%%ymm0,%%ymm10			\n\t"/* temp = x */\
+		"vmulpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t"/* x *= wtinv */\
+		"vmovaps	%%ymm0 ,%%ymm10			\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(x) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(x-temp) */\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -10316,13 +10491,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"shlq	$5,%%rsi	\n\t"/* i0123 << 5 (= lshift to give ptr offset for ymm-size data */\
 		"vmovaps	0xdc0(%%rdi),%%ymm4 	\n\t"/* wi_im for our 4 independent carry-chains */\
 		"vmovaps	0xd80(%%rdi),%%ymm2 	\n\t"/* wt_im */\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t"/* y *= wtinv + cy */\
-		"vmovaps	%%ymm0,%%ymm10			\n\t"/* temp = y */\
+		"vmulpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t"/* y *= wtinv */\
+		"vmovaps	%%ymm0 ,%%ymm10			\n\t"/* temp = y */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(y) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* y - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(y-temp) */\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -10363,13 +10539,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"shlq	$5,%%rsi	\n\t"/* i0123 << 5 (= lshift to give ptr offset for ymm-size data */\
 		"vmovaps	0xe40(%%rdi),%%ymm4 	\n\t"/* wi_re for our 4 independent carry-chains */\
 		"vmovaps	0xe00(%%rdi),%%ymm2 	\n\t"/* wt_re */\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t"/* x *= wtinv + cy */\
-		"vmovaps	%%ymm0,%%ymm10			\n\t"/* temp = x */\
+		"vmulpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t"/* x *= wtinv */\
+		"vmovaps	%%ymm0 ,%%ymm10			\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(x) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(x-temp) */\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -10408,13 +10585,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"shlq	$5,%%rsi	\n\t"/* i0123 << 5 (= lshift to give ptr offset for ymm-size data */\
 		"vmovaps	0xec0(%%rdi),%%ymm4 	\n\t"/* wi_im for our 4 independent carry-chains */\
 		"vmovaps	0xe80(%%rdi),%%ymm2 	\n\t"/* wt_im */\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t"/* y *= wtinv + cy */\
-		"vmovaps	%%ymm0,%%ymm10			\n\t"/* temp = y */\
+		"vmulpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t"/* y *= wtinv */\
+		"vmovaps	%%ymm0 ,%%ymm10			\n\t"/* temp = y */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(y) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* y - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(y-temp) */\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -10455,13 +10633,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"shlq	$5,%%rsi	\n\t"/* i0123 << 5 (= lshift to give ptr offset for ymm-size data */\
 		"vmovaps	0xf40(%%rdi),%%ymm4 	\n\t"/* wi_re for our 4 independent carry-chains */\
 		"vmovaps	0xf00(%%rdi),%%ymm2 	\n\t"/* wt_re */\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t"/* x *= wtinv + cy */\
-		"vmovaps	%%ymm0,%%ymm10			\n\t"/* temp = x */\
+		"vmulpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t"/* x *= wtinv */\
+		"vmovaps	%%ymm0 ,%%ymm10			\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(x) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(x-temp) */\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -10500,13 +10679,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"shlq	$5,%%rsi	\n\t"/* i0123 << 5 (= lshift to give ptr offset for ymm-size data */\
 		"vmovaps	0xfc0(%%rdi),%%ymm4 	\n\t"/* wi_im for our 4 independent carry-chains */\
 		"vmovaps	0xf80(%%rdi),%%ymm2 	\n\t"/* wt_im */\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t"/* y *= wtinv + cy */\
-		"vmovaps	%%ymm0,%%ymm10			\n\t"/* temp = y */\
+		"vmulpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t"/* y *= wtinv */\
+		"vmovaps	%%ymm0 ,%%ymm10			\n\t"/* temp = y */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(y) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* y - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(y-temp) */\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -10576,6 +10756,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p1]   "m" (Xp1)\
 		,	[__p2]   "m" (Xp2)\
 		,	[__p3]   "m" (Xp3)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm12","xmm14","xmm15"/* Clobbered registers */\
 	);\
 	}
@@ -10584,7 +10766,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 
 	// 8-way version of the AVX 4-way carry macro,
 	// analogous to the 128-bit-setting 4-way SSE2_cmplx_carry_fast_pow2_errcheck macro:
-	#define AVX_cmplx_carry_fast_pow2_errcheck_X8(Xdata,XcyA,XcyB,Xbjmod_0,Xbjmod_4,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3,Xp4)\
+	#define AVX_cmplx_carry_fast_pow2_errcheck_X8(Xdata,XcyA,XcyB,Xbjmod_0,Xbjmod_4,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3,Xp4, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"movq	%[__add0],%%r14	\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
@@ -10628,6 +10810,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	%%ymm2 ,0x40(%%rax)		\n\t		vmovaps	%%ymm3 ,0x60(%%rax)		\n\t"\
 		"vmovaps	%%ymm4 ,0x80(%%rax)		\n\t		vmovaps	%%ymm5 ,0xa0(%%rax)		\n\t"\
 		"vmovaps	%%ymm6 ,0xc0(%%rax)		\n\t		vmovaps	%%ymm7 ,0xe0(%%rax)		\n\t"\
+		"movq	%[__prp_mult]	,%%rbx	\n\t"\
+		"vbroadcastsd	(%%rbx),%%ymm8	\n\t"/* prp_mult, broadcast to all double-slots of just-freed ymm8 */\
 		/* And un-fiddle the base address: */\
 		"subq	$0x100,%%rax				\n\t"\
 	/*** mm6-9 *FREE* between here and closing un-transpose block ... each processing ***/\
@@ -10660,11 +10844,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xc40(%%rdi),%%ymm4 	\n\t	vmovaps	0xc60(%%rdi),%%ymm5 		\n\t"/* wi_re for our 4 independent carry-chains */\
 		"vmovaps	0xc00(%%rdi),%%ymm2 	\n\t	vmovaps	0xc20(%%rdi),%%ymm3 		\n\t"/* wt_re */\
 		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"/* x *= wtinv */\
-		"vaddpd		%%ymm12,%%ymm0,%%ymm0	\n\t	vaddpd		%%ymm13,%%ymm1,%%ymm1	\n\t"/* x *= wtinv + cy */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"/* temp = DNINT(x) */\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"/* frac = fabs(x-temp) */\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t	vmulpd		%%ymm8 ,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t	vaddpd		%%ymm13,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -10710,11 +10895,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xcc0(%%rdi),%%ymm4 	\n\t	vmovaps	0xce0(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xc80(%%rdi),%%ymm2 	\n\t	vmovaps	0xca0(%%rdi),%%ymm3 		\n\t"\
 		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"\
-		"vaddpd		%%ymm12,%%ymm0,%%ymm0	\n\t	vaddpd		%%ymm13,%%ymm1,%%ymm1	\n\t"\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t	vmulpd		%%ymm8 ,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t	vaddpd		%%ymm13,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -10760,11 +10946,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xd40(%%rdi),%%ymm4 	\n\t	vmovaps	0xd60(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xd00(%%rdi),%%ymm2 	\n\t	vmovaps	0xd20(%%rdi),%%ymm3 		\n\t"\
 		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"\
-		"vaddpd		%%ymm12,%%ymm0,%%ymm0	\n\t	vaddpd		%%ymm13,%%ymm1,%%ymm1	\n\t"\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t	vmulpd		%%ymm8 ,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t	vaddpd		%%ymm13,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -10810,11 +10997,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xdc0(%%rdi),%%ymm4 	\n\t	vmovaps	0xde0(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xd80(%%rdi),%%ymm2 	\n\t	vmovaps	0xda0(%%rdi),%%ymm3 		\n\t"\
 		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"\
-		"vaddpd		%%ymm12,%%ymm0,%%ymm0	\n\t	vaddpd		%%ymm13,%%ymm1,%%ymm1	\n\t"\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t	vmulpd		%%ymm8 ,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t	vaddpd		%%ymm13,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -10861,11 +11049,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xe40(%%rdi),%%ymm4 	\n\t	vmovaps	0xe60(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xe00(%%rdi),%%ymm2 	\n\t	vmovaps	0xe20(%%rdi),%%ymm3 		\n\t"\
 		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"\
-		"vaddpd		%%ymm12,%%ymm0,%%ymm0	\n\t	vaddpd		%%ymm13,%%ymm1,%%ymm1	\n\t"\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t	vmulpd		%%ymm8 ,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t	vaddpd		%%ymm13,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -10911,11 +11100,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xec0(%%rdi),%%ymm4 	\n\t	vmovaps	0xee0(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xe80(%%rdi),%%ymm2 	\n\t	vmovaps	0xea0(%%rdi),%%ymm3 		\n\t"\
 		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"\
-		"vaddpd		%%ymm12,%%ymm0,%%ymm0	\n\t	vaddpd		%%ymm13,%%ymm1,%%ymm1	\n\t"\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t	vmulpd		%%ymm8 ,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t	vaddpd		%%ymm13,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -10961,11 +11151,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xf40(%%rdi),%%ymm4 	\n\t	vmovaps	0xf60(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xf00(%%rdi),%%ymm2 	\n\t	vmovaps	0xf20(%%rdi),%%ymm3 		\n\t"\
 		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"\
-		"vaddpd		%%ymm12,%%ymm0,%%ymm0	\n\t	vaddpd		%%ymm13,%%ymm1,%%ymm1	\n\t"\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t	vmulpd		%%ymm8 ,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t	vaddpd		%%ymm13,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -11011,11 +11202,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xfc0(%%rdi),%%ymm4 	\n\t	vmovaps	0xfe0(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xf80(%%rdi),%%ymm2 	\n\t	vmovaps	0xfa0(%%rdi),%%ymm3 		\n\t"\
 		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"\
-		"vaddpd		%%ymm12,%%ymm0,%%ymm0	\n\t	vaddpd		%%ymm13,%%ymm1,%%ymm1	\n\t"\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t	vmulpd		%%ymm8 ,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t	vaddpd		%%ymm13,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -11109,12 +11301,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p2]   "m" (Xp2)\
 		,	[__p3]   "m" (Xp3)\
 		,	[__p4]   "m" (Xp4)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r10","r11","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"/* Clobbered registers */\
 	);\
 	}
 
 	// Register-name choices in the non-transpose middle section reflect preparation for an 8-way version of this macro:
-	#define AVX_cmplx_carry_fast_pow2_errcheck_X4(Xdata,Xcy,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3)\
+	#define AVX_cmplx_carry_fast_pow2_errcheck_X4(Xdata,Xcy,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"movq	%[__add0],%%r14	\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
@@ -11139,6 +11333,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	%%ymm2 ,0x40(%%rax)		\n\t		vmovaps	%%ymm3 ,0x60(%%rax)		\n\t"\
 		"vmovaps	%%ymm4 ,0x80(%%rax)		\n\t		vmovaps	%%ymm5 ,0xa0(%%rax)		\n\t"\
 		"vmovaps	%%ymm6 ,0xc0(%%rax)		\n\t		vmovaps	%%ymm7 ,0xe0(%%rax)		\n\t"\
+		"movq	%[__prp_mult]	,%%rbx	\n\t"\
+		"vbroadcastsd	(%%rbx),%%ymm8	\n\t"/* prp_mult, broadcast to all double-slots of just-freed ymm8 */\
 		"movq		%[__cy],%%rbx		\n\t"\
 		"vmovaps	(%%rbx),%%ymm12		\n\t"/* ymm12 = cy_in */\
 		/* LOACC wts-data occupy 32 ymm-sized slots starting at (vec_dbl*)half_arr + 96 : */\
@@ -11150,7 +11346,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	/**********************************/\
 	"prefetcht0	(%%r14)	\n\t"\
 	"movq	%[__bjmod_0],%%rsi			\n\t"\
-	"vmovaps	(%%rsi),%%xmm15			\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM15. */\
+	"vmovaps	(%%rsi),%%xmm15			\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN xmm15. */\
 	"movq	%[__sse_sw],%%rsi			\n\t"\
 	"vmovaps	(%%rsi),%%xmm10			\n\t"/* sw[0:3] */\
 	"vpsubd		%%xmm15,%%xmm10,%%xmm10	\n\t"/* sw[0:3] - bjmod[0:3] */\
@@ -11162,13 +11358,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xc40(%%rdi),%%ymm4 	\n\t"/* wi_re for our 4 independent carry-chains */\
 		"vmovaps	0xc00(%%rdi),%%ymm2 	\n\t"/* wt_re */\
 		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t"/* x *= wtinv */\
-		"vaddpd		%%ymm12,%%ymm0,%%ymm0	\n\t"/* x *= wtinv + cy */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(x) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(x-temp) */\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -11209,13 +11406,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xcc0(%%rdi),%%ymm4 	\n\t"/* wi_im for our 4 independent carry-chains */\
 		"vmovaps	0xc80(%%rdi),%%ymm2 	\n\t"/* wt_im */\
 		"vmulpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t"/* y *= wtinv */\
-		"vaddpd		%%ymm12,%%ymm0 ,%%ymm0 	\n\t"/* y *= wtinv + cy */\
 		"vmovaps	%%ymm0 ,%%ymm10			\n\t"/* temp = y */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(y) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* y - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(y-temp) */\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -11258,13 +11456,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xd40(%%rdi),%%ymm4 	\n\t"/* wi_re for our 4 independent carry-chains */\
 		"vmovaps	0xd00(%%rdi),%%ymm2 	\n\t"/* wt_re */\
 		"vmulpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t"/* x *= wtinv */\
-		"vaddpd		%%ymm12,%%ymm0 ,%%ymm0 	\n\t"/* x *= wtinv + cy */\
 		"vmovaps	%%ymm0 ,%%ymm10			\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(x) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(x-temp) */\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -11305,13 +11504,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xdc0(%%rdi),%%ymm4 	\n\t"/* wi_im for our 4 independent carry-chains */\
 		"vmovaps	0xd80(%%rdi),%%ymm2 	\n\t"/* wt_im */\
 		"vmulpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t"/* y *= wtinv */\
-		"vaddpd		%%ymm12,%%ymm0 ,%%ymm0 	\n\t"/* y *= wtinv + cy */\
 		"vmovaps	%%ymm0 ,%%ymm10			\n\t"/* temp = y */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(y) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* y - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(y-temp) */\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -11354,13 +11554,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xe40(%%rdi),%%ymm4 	\n\t"/* wi_re for our 4 independent carry-chains */\
 		"vmovaps	0xe00(%%rdi),%%ymm2 	\n\t"/* wt_re */\
 		"vmulpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t"/* x *= wtinv */\
-		"vaddpd		%%ymm12,%%ymm0 ,%%ymm0 	\n\t"/* x *= wtinv + cy */\
 		"vmovaps	%%ymm0 ,%%ymm10			\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(x) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(x-temp) */\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -11401,13 +11602,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xec0(%%rdi),%%ymm4 	\n\t"/* wi_im for our 4 independent carry-chains */\
 		"vmovaps	0xe80(%%rdi),%%ymm2 	\n\t"/* wt_im */\
 		"vmulpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t"/* y *= wtinv */\
-		"vaddpd		%%ymm12,%%ymm0 ,%%ymm0 	\n\t"/* y *= wtinv + cy */\
 		"vmovaps	%%ymm0 ,%%ymm10			\n\t"/* temp = y */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(y) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* y - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(y-temp) */\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -11450,13 +11652,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xf40(%%rdi),%%ymm4 	\n\t"/* wi_re for our 4 independent carry-chains */\
 		"vmovaps	0xf00(%%rdi),%%ymm2 	\n\t"/* wt_re */\
 		"vmulpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t"/* x *= wtinv */\
-		"vaddpd		%%ymm12,%%ymm0 ,%%ymm0 	\n\t"/* x *= wtinv + cy */\
 		"vmovaps	%%ymm0 ,%%ymm10			\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(x) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(x-temp) */\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -11497,13 +11700,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xfc0(%%rdi),%%ymm4 	\n\t"/* wi_im for our 4 independent carry-chains */\
 		"vmovaps	0xf80(%%rdi),%%ymm2 	\n\t"/* wt_im */\
 		"vmulpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t"/* y *= wtinv */\
-		"vaddpd		%%ymm12,%%ymm0 ,%%ymm0 	\n\t"/* y *= wtinv + cy */\
 		"vmovaps	%%ymm0 ,%%ymm10			\n\t"/* temp = y */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(y) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* y - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(y-temp) */\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -11574,6 +11778,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p1]   "m" (Xp1)\
 		,	[__p2]   "m" (Xp2)\
 		,	[__p3]   "m" (Xp3)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm12","xmm14","xmm15"/* Clobbered registers */\
 	);\
 	}
@@ -11602,11 +11808,11 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 
 		"When using Intel® AVX instructions, it is important to know that mixing 256-bit Intel® AVX instructions
 		 with legacy (non VEX-encoded) Intel® SSE instructions may result in penalties that could impact performance.
-		 256-bit Intel® AVX instructions operate on the 256-bit YMM registers which are 256-bit extensions of the
-		 existing 128-bit XMM registers. 128-bit Intel® AVX instructions operate on the lower 128 bits of the YMM
-		 registers and zero the upper 128 bits. However, legacy Intel® SSE instructions operate on the XMM registers
-		 and have no knowledge of the upper 128 bits of the YMM registers. Because of this, the hardware saves the
-		 contents of the upper 128 bits of the YMM registers when transitioning from 256-bit Intel® AVX to legacy
+		 256-bit Intel® AVX instructions operate on the 256-bit ymm registers which are 256-bit extensions of the
+		 existing 128-bit xmm registers. 128-bit Intel® AVX instructions operate on the lower 128 bits of the ymm
+		 registers and zero the upper 128 bits. However, legacy Intel® SSE instructions operate on the xmm registers
+		 and have no knowledge of the upper 128 bits of the ymm registers. Because of this, the hardware saves the
+		 contents of the upper 128 bits of the ymm registers when transitioning from 256-bit Intel® AVX to legacy
 		 Intel® SSE, and then restores these values when transitioning back from Intel® SSE to Intel® AVX (256-bit
 		 or 128-bit). The save and restore operations both cause a penalty that amounts to several tens of clock
 		 cycles for each operation."
@@ -11662,7 +11868,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	code, which only suffers a ~15% runtime penalty versus the analogous Fermat-mod code.
 	*/
 	// Mar 2016: Bumped mem-offsets for broadcast-loads from 0x800-based to 0x1000-based for compatibility with new LOACC-carry memory layout
-	#define AVX_cmplx_carry_norm_pow2_errcheck_X4(Xdata,XwtA,XwtB,XwtC,Xcy,Xbjmod_0,Xhalf_arr,Xi,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3)\
+	#define AVX_cmplx_carry_norm_pow2_errcheck_X4(Xdata,XwtA,XwtB,XwtC,Xcy,Xbjmod_0,Xhalf_arr,Xi,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"movq	%[__add0],%%r14	\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
@@ -11682,6 +11888,10 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	"vinsertf128 $1,0xd0(%%rax),%%ymm8,%%ymm8	\n\t	vinsertf128 $1,0xf0(%%rax),%%ymm9,%%ymm9	\n\t"/* r1|r3.hi = 6,7,e,f */\
 	"vshufpd	$15,%%ymm8,%%ymm4,%%ymm6		\n\t	vshufpd	$15,%%ymm9,%%ymm5,%%ymm7			\n\t"/* Row 3 = 3,7,b,f */\
 	"vshufpd	$0 ,%%ymm8,%%ymm4,%%ymm4		\n\t	vshufpd	$0 ,%%ymm9,%%ymm5,%%ymm5			\n\t"/* Row 2 = 2,6,a,e */\
+		/* Move ymm7 to mem to free up a vreg: */\
+		"vmovaps	%%ymm7,0x0e0(%%rax)			\n\t"\
+		"movq	%[__prp_mult]	,%%rbx	\n\t"\
+		"vbroadcastsd	(%%rbx),%%ymm7	\n\t"/* prp_mult, broadcast to all double-slots of ymm7 */\
 		/* Won't need main-array again until output transpose, so re-use rax for half_arr */\
 		"movq	 %[__half_arr],%%rax	\n\t"\
 		/* half_arr + 16*[0,1,2,3] = [wt,wt_inv,base,baseinv] */\
@@ -11693,7 +11903,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	/**********************************/\
 	"prefetcht0	(%%r14)	\n\t"\
 		"movq	%[__bjmod_0],%%rsi		\n\t"\
-		"vmovaps	(%%rsi),	%%xmm8 		\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM8. */\
+		"vmovaps	(%%rsi),	%%xmm8 		\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN xmm8. */\
 		"movq	%[__sse_sw],%%rsi		\n\t"\
 		"vmovaps	(%%rsi),	%%xmm11		\n\t"/* sw[0:3] */\
 		"vpsubd		%%xmm8 ,%%xmm11,%%xmm11	\n\t"/* sw[0:3] - bjmod[0:3] */\
@@ -11738,13 +11948,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmulpd	0x200(%%rdx),%%ymm10,%%ymm10	\n\t"/* wtinv *= one_half[16+n0123] */\
 		"\n\t"\
 		"vmulpd		%%ymm10,%%ymm0,%%ymm0		\n\t"/* x *= wtinv; ymm10 FREE */\
-		"vaddpd		%%ymm14,%%ymm0,%%ymm0		\n\t"/* x *= wtinv + cy */\
 		"vmovaps	%%ymm0,%%ymm10		\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10	\n\t"/* temp = DNINT(x) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(x-temp) */\
+		"vmulpd		%%ymm7 ,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm14,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm15,%%ymm0,%%ymm15	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -11803,13 +12014,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmulpd	0x200(%%rdx),%%ymm10,%%ymm10	\n\t"/* wtinv *= one_half[16+n0123] */\
 		"\n\t"\
 		"vmulpd		%%ymm10,%%ymm1,%%ymm1		\n\t"/* x *= wtinv; ymm10 FREE */\
-		"vaddpd		%%ymm14,%%ymm1,%%ymm1		\n\t"/* x *= wtinv + cy */\
 		"vmovaps	%%ymm1,%%ymm10		\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10	\n\t"/* temp = DNINT(x) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm1,%%ymm1	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"/* frac = fabs(x-temp) */\
+		"vmulpd		%%ymm7 ,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm14,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm15,%%ymm1,%%ymm15	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -11864,13 +12076,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmulpd	0x200(%%rdx),%%ymm10,%%ymm10\n\t"\
 		"\n\t"\
 		"vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"\
-		"vaddpd		%%ymm14,%%ymm2,%%ymm2	\n\t"\
 		"vmovaps	%%ymm2,%%ymm10			\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vsubpd		%%ymm10,%%ymm2,%%ymm2	\n\t"\
 		"vandpd		(%%rbx),%%ymm2,%%ymm2	\n\t"\
+		"vmulpd		%%ymm7 ,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm14,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm15,%%ymm2,%%ymm15	\n\t"\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -11923,13 +12136,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmulpd	0x200(%%rdx),%%ymm10,%%ymm10\n\t"\
 		"\n\t"\
 		"vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"\
-		"vaddpd		%%ymm14,%%ymm3,%%ymm3	\n\t"\
 		"vmovaps	%%ymm3,%%ymm10			\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vsubpd		%%ymm10,%%ymm3,%%ymm3	\n\t"\
 		"vandpd		(%%rbx),%%ymm3,%%ymm3	\n\t"\
+		"vmulpd		%%ymm7 ,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm14,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm15,%%ymm3,%%ymm15	\n\t"\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -11984,13 +12198,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmulpd	0x200(%%rdx),%%ymm10,%%ymm10\n\t"\
 		"\n\t"\
 		"vmulpd		%%ymm10,%%ymm4,%%ymm4	\n\t"\
-		"vaddpd		%%ymm14,%%ymm4,%%ymm4	\n\t"\
 		"vmovaps	%%ymm4,%%ymm10			\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vsubpd		%%ymm10,%%ymm4,%%ymm4	\n\t"\
 		"vandpd		(%%rbx),%%ymm4,%%ymm4	\n\t"\
+		"vmulpd		%%ymm7 ,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm14,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm15,%%ymm4,%%ymm15	\n\t"\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -12043,13 +12258,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmulpd	0x200(%%rdx),%%ymm10,%%ymm10\n\t"\
 		"\n\t"\
 		"vmulpd		%%ymm10,%%ymm5,%%ymm5	\n\t"\
-		"vaddpd		%%ymm14,%%ymm5,%%ymm5	\n\t"\
 		"vmovaps	%%ymm5,%%ymm10			\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vsubpd		%%ymm10,%%ymm5,%%ymm5	\n\t"\
 		"vandpd		(%%rbx),%%ymm5,%%ymm5	\n\t"\
+		"vmulpd		%%ymm7 ,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm14,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm15,%%ymm5,%%ymm15	\n\t"\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -12104,13 +12320,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmulpd	0x200(%%rdx),%%ymm10,%%ymm10\n\t"\
 		"\n\t"\
 		"vmulpd		%%ymm10,%%ymm6,%%ymm6	\n\t"\
-		"vaddpd		%%ymm14,%%ymm6,%%ymm6	\n\t"\
 		"vmovaps	%%ymm6,%%ymm10			\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vsubpd		%%ymm10,%%ymm6,%%ymm6	\n\t"\
 		"vandpd		(%%rbx),%%ymm6,%%ymm6	\n\t"\
+		"vmulpd		%%ymm7 ,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm14,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm15,%%ymm6,%%ymm15	\n\t"\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -12148,6 +12365,10 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps		%%xmm8 ,%%xmm11		\n\t"\
 		"vpsubd		%%xmm10,%%xmm11,%%xmm11		\n\t"\
 		"vmovmskps	%%xmm11,%%rdx		\n\t"\
+	/* reload ymm7 from mem - this overwrites the prp_mult data, which is why we first copy the latter to just-fred ymm11: */\
+	"movq		%[__data],%%rax			\n\t"\
+	"vmovaps	%%ymm7,%%ymm11			\n\t"\
+	"vmovaps	0x0e0(%%rax),%%ymm7		\n\t"\
 		"\n\t"\
 	"shlq	$5,%%rsi	\n\t"/* i0123 */\
 	"shlq	$5,%%rcx	\n\t"/* m0123 */\
@@ -12163,13 +12384,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmulpd	0x200(%%rdx),%%ymm10,%%ymm10\n\t"\
 		"\n\t"\
 		"vmulpd		%%ymm10,%%ymm7,%%ymm7	\n\t"\
-		"vaddpd		%%ymm14,%%ymm7,%%ymm7	\n\t"\
 		"vmovaps	%%ymm7,%%ymm10			\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vsubpd		%%ymm10,%%ymm7,%%ymm7	\n\t"\
 		"vandpd		(%%rbx),%%ymm7,%%ymm7	\n\t"\
+		"vmulpd		%%ymm11,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult[now in ymm11] */\
+		"vaddpd		%%ymm14,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm15,%%ymm7,%%ymm15	\n\t"\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -12246,6 +12468,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p1]   "m" (Xp1)\
 		,	[__p2]   "m" (Xp2)\
 		,	[__p3]   "m" (Xp3)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"/* Clobbered registers */\
 	);\
 	}
@@ -12257,8 +12481,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 
 #ifdef USE_AVX512	// For AVX512, support only the fast [i.e. LOACC] Mers-carry macros:
 
-	// 16-fold analog of AVX_cmplx_carry_fast_errcheck_X8 - my tests on KNL showed it's faster to let the system do the prefetching:
-	#define AVX_cmplx_carry_fast_errcheck_X16(Xdata,Xcy,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1,Xp2,Xp3,Xp4)\
+	// 16-fold analog of AVX_cmplx_carry_fast_errcheck_X8 - early tests on KNL showed the prefetching done in this macro
+	// makes very little if ny difference versus no-prefetch.
+	// NOTE - for an earlier version of this macro with easier to follow instruction flow see v17, which suffers multiple wait-stalls
+	// due to dependent high-latency ops (addpd/mulpd/fmapd/rndscalepd) following hard upon on another. In the first [A.re] carry
+	// section of the code below I've marked such ops with an empty C-comment in the leftmost column:
+	#define AVX_cmplx_carry_fast_errcheck_X16(Xdata,Xcy,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1,Xp2,Xp3,Xp4, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"movq	%[__add0],%%r14	\n\t"/* base address for 8 prefetches-from-main-data-array spread through this macro */\
@@ -12270,101 +12498,118 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	*/\
 	/* 8-way transpose of inputs (Re, Im parts separately) uses complex-ified version of algo in util.c:test_simd_transpose_8x8(). */\
 	/* Inputs from r0-f. Outputs into r0-f: */\
-		"movq		%[__data],%%rax		\n\t"\
 	/* Real parts use zmm0,2,4,6,8,10,12,14,16:				Imag parts use zmm1,3,5,7,9,11,13,15,17: */\
-		/* Read in the 8 rows of our input matrix ... the funky index ordering gives ordered outputs sans reg-copying: */\
-		"vmovaps		0x000(%%rax),%%zmm6 		\n\t	vmovaps		0x040(%%rax),%%zmm7 		\n\t"\
-		"vmovaps		0x080(%%rax),%%zmm8 		\n\t	vmovaps		0x0c0(%%rax),%%zmm9 		\n\t"\
-		"vmovaps		0x100(%%rax),%%zmm10		\n\t	vmovaps		0x140(%%rax),%%zmm11		\n\t"\
-		"vmovaps		0x180(%%rax),%%zmm16		\n\t	vmovaps		0x1c0(%%rax),%%zmm17		\n\t"\
-		"vmovaps		0x200(%%rax),%%zmm12		\n\t	vmovaps		0x240(%%rax),%%zmm13		\n\t"\
-		"vmovaps		0x280(%%rax),%%zmm0 		\n\t	vmovaps		0x2c0(%%rax),%%zmm1 		\n\t"\
-		"vmovaps		0x300(%%rax),%%zmm2 		\n\t	vmovaps		0x340(%%rax),%%zmm3 		\n\t"\
-		"vmovaps		0x380(%%rax),%%zmm14		\n\t	vmovaps		0x3c0(%%rax),%%zmm15		\n\t"\
-		"\n\t"\
-		"vunpcklpd		%%zmm8 ,%%zmm6 ,%%zmm4 		\n\t	vunpcklpd		%%zmm9 ,%%zmm7 ,%%zmm5 		\n\t"\
-		"vunpckhpd		%%zmm8 ,%%zmm6 ,%%zmm8 		\n\t	vunpckhpd		%%zmm9 ,%%zmm7 ,%%zmm9 		\n\t"\
-		"vunpcklpd		%%zmm16,%%zmm10,%%zmm6 		\n\t	vunpcklpd		%%zmm17,%%zmm11,%%zmm7 		\n\t"\
-		"vunpckhpd		%%zmm16,%%zmm10,%%zmm16		\n\t	vunpckhpd		%%zmm17,%%zmm11,%%zmm17		\n\t"\
-		"vunpcklpd		%%zmm0 ,%%zmm12,%%zmm10		\n\t	vunpcklpd		%%zmm1 ,%%zmm13,%%zmm11		\n\t"\
-		"vunpckhpd		%%zmm0 ,%%zmm12,%%zmm0 		\n\t	vunpckhpd		%%zmm1 ,%%zmm13,%%zmm1 		\n\t"\
-		"vunpcklpd		%%zmm14,%%zmm2 ,%%zmm12		\n\t	vunpcklpd		%%zmm15,%%zmm3 ,%%zmm13		\n\t"\
-		"vunpckhpd		%%zmm14,%%zmm2 ,%%zmm14		\n\t	vunpckhpd		%%zmm15,%%zmm3 ,%%zmm15		\n\t"\
-		"\n\t"\
-		"vshuff64x2	$136,%%zmm6 ,%%zmm4 ,%%zmm2 	\n\t	vshuff64x2	$136,%%zmm7 ,%%zmm5 ,%%zmm3 	\n\t"\
-		"vshuff64x2	$221,%%zmm6 ,%%zmm4 ,%%zmm6 	\n\t	vshuff64x2	$221,%%zmm7 ,%%zmm5 ,%%zmm7 	\n\t"\
-		"vshuff64x2	$136,%%zmm16,%%zmm8 ,%%zmm4 	\n\t	vshuff64x2	$136,%%zmm17,%%zmm9 ,%%zmm5 	\n\t"\
-		"vshuff64x2	$221,%%zmm16,%%zmm8 ,%%zmm16	\n\t	vshuff64x2	$221,%%zmm17,%%zmm9 ,%%zmm17	\n\t"\
-		"vshuff64x2	$136,%%zmm12,%%zmm10,%%zmm8 	\n\t	vshuff64x2	$136,%%zmm13,%%zmm11,%%zmm9 	\n\t"\
-		"vshuff64x2	$221,%%zmm12,%%zmm10,%%zmm12	\n\t	vshuff64x2	$221,%%zmm13,%%zmm11,%%zmm13	\n\t"\
-		"vshuff64x2	$136,%%zmm14,%%zmm0 ,%%zmm10	\n\t	vshuff64x2	$136,%%zmm15,%%zmm1 ,%%zmm11	\n\t"\
-		"vshuff64x2	$221,%%zmm14,%%zmm0 ,%%zmm14	\n\t	vshuff64x2	$221,%%zmm15,%%zmm1 ,%%zmm15	\n\t"\
-		"\n\t"\
-		"vshuff64x2	$136,%%zmm8 ,%%zmm2 ,%%zmm0 	\n\t	vshuff64x2	$136,%%zmm9 ,%%zmm3 ,%%zmm1 	\n\t"\
-		"vshuff64x2	$221,%%zmm8 ,%%zmm2 ,%%zmm8 	\n\t	vshuff64x2	$221,%%zmm9 ,%%zmm3 ,%%zmm9 	\n\t"\
-		"vshuff64x2	$136,%%zmm10,%%zmm4 ,%%zmm2 	\n\t	vshuff64x2	$136,%%zmm11,%%zmm5 ,%%zmm3 	\n\t"\
-		"vshuff64x2	$221,%%zmm10,%%zmm4 ,%%zmm10	\n\t	vshuff64x2	$221,%%zmm11,%%zmm5 ,%%zmm11	\n\t"\
-		"vshuff64x2	$136,%%zmm12,%%zmm6 ,%%zmm4 	\n\t	vshuff64x2	$136,%%zmm13,%%zmm7 ,%%zmm5 	\n\t"\
-		"vshuff64x2	$221,%%zmm12,%%zmm6 ,%%zmm12	\n\t	vshuff64x2	$221,%%zmm13,%%zmm7 ,%%zmm13	\n\t"\
-		"vshuff64x2	$136,%%zmm14,%%zmm16,%%zmm6 	\n\t	vshuff64x2	$136,%%zmm15,%%zmm17,%%zmm7 	\n\t"\
-		"vshuff64x2	$221,%%zmm14,%%zmm16,%%zmm14	\n\t	vshuff64x2	$221,%%zmm15,%%zmm17,%%zmm15	\n\t"\
-		/* Outputs are now ordered - write 'em back to memory: */\
-		/* Real parts:																		Imag parts: */\
-		"vmovaps	%%zmm0 ,0x000(%%rax)			\n\t	vmovaps	%%zmm1 ,0x040(%%rax)	\n\t"\
-		"vmovaps	%%zmm2 ,0x080(%%rax)			\n\t	vmovaps	%%zmm3 ,0x0c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm4 ,0x100(%%rax)			\n\t	vmovaps	%%zmm5 ,0x140(%%rax)	\n\t"\
-		"vmovaps	%%zmm6 ,0x180(%%rax)			\n\t	vmovaps	%%zmm7 ,0x1c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm8 ,0x200(%%rax)			\n\t	vmovaps	%%zmm9 ,0x240(%%rax)	\n\t"\
-		"vmovaps	%%zmm10,0x280(%%rax)			\n\t	vmovaps	%%zmm11,0x2c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm12,0x300(%%rax)			\n\t	vmovaps	%%zmm13,0x340(%%rax)	\n\t"\
-		"vmovaps	%%zmm14,0x380(%%rax)			\n\t	vmovaps	%%zmm15,0x3c0(%%rax)	\n\t"\
+		"movl	$0b00110011,%%eax	\n\t"/* Constant for vblendmpd instructions goes into mask-reg k1 */\
+		"kmovw	%%eax,%%k1			\n\t"\
+		/* Init vector index-consts needed by vpermt2pd instructions - if regs were at a premium,
+		could also init just prior to [3] and use zmm6,7 to hold index-consts: */\
+		"movq	$0x0c040e0608000a02,%%rax	\n\t"/* zmm30 = 8+4 0+4 8+6 0+6 8+0 0+0 8+2 0+2 [msw at left] */\
+		"movq	$0x0d050f0709010b03,%%rbx	\n\t"/* zmm31 = 8+5 0+5 8+7 0+7 8+1 0+1 8+3 0+3 */\
+			"vmovq		%%rax,%%xmm0 		\n\t"\
+			"vmovq		%%rbx,%%xmm1 		\n\t"\
+			"vpmovzxbq	%%xmm0,%%zmm30		\n\t"\
+			"vpmovzxbq	%%xmm1,%%zmm31		\n\t"\
+		"movq		%[__data],%%rax		\n\t"\
+		/* Read in the 8 rows of our input matrix: */\
+		"vmovaps		0x000(%%rax),%%zmm0					\n\t	vmovaps		0x040(%%rax),%%zmm12		\n\t"\
+		"vmovaps		0x080(%%rax),%%zmm1					\n\t	vmovaps		0x0c0(%%rax),%%zmm13		\n\t"\
+		"vmovaps		0x100(%%rax),%%zmm2					\n\t	vmovaps		0x140(%%rax),%%zmm14		\n\t"\
+		"vmovaps		0x180(%%rax),%%zmm3					\n\t	vmovaps		0x1c0(%%rax),%%zmm15		\n\t"\
+		"vmovaps		0x200(%%rax),%%zmm4					\n\t	vmovaps		0x240(%%rax),%%zmm16		\n\t"\
+		"vmovaps		0x280(%%rax),%%zmm5					\n\t	vmovaps		0x2c0(%%rax),%%zmm17		\n\t"\
+		"vmovaps		0x300(%%rax),%%zmm6					\n\t	vmovaps		0x340(%%rax),%%zmm18		\n\t"\
+		"vmovaps		0x380(%%rax),%%zmm7					\n\t	vmovaps		0x3c0(%%rax),%%zmm19		\n\t"\
+		/* [1] Shuffle the 4-aparts - note the different patterning of the first and second output quartet: */\
+		"vshuff64x2	$0b01000100, %%zmm4,	%%zmm0,	%%zmm8 	\n\t	vshuff64x2	$0b01000100, %%zmm16,%%zmm12,	%%zmm20	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm4,	%%zmm0,	%%zmm4 	\n\t	vshuff64x2	$0b11101110, %%zmm16,%%zmm12,	%%zmm16	\n\t"\
+		"vshuff64x2	$0b01000100, %%zmm5,	%%zmm1,	%%zmm9	\n\t	vshuff64x2	$0b01000100, %%zmm17,%%zmm13,	%%zmm21	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm5,	%%zmm1,	%%zmm5	\n\t	vshuff64x2	$0b11101110, %%zmm17,%%zmm13,	%%zmm17	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm6,	%%zmm2,	%%zmm10	\n\t	vshuff64x2	$0b00010001, %%zmm18,%%zmm14,	%%zmm22	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm6,	%%zmm2,	%%zmm6	\n\t	vshuff64x2	$0b10111011, %%zmm18,%%zmm14,	%%zmm18	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm7,	%%zmm3,	%%zmm11	\n\t	vshuff64x2	$0b00010001, %%zmm19,%%zmm15,	%%zmm23	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm7,	%%zmm3,	%%zmm7	\n\t	vshuff64x2	$0b10111011, %%zmm19,%%zmm15,	%%zmm19	\n\t"\
+		/* [2] Blend in the 2-aparts */\
+		"vblendmpd	%%zmm8 ,	%%zmm10,	%%zmm0%{%%k1%}	\n\t	vblendmpd	%%zmm20,	%%zmm22,	%%zmm12%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm10,	%%zmm8 ,	%%zmm8%{%%k1%}	\n\t	vblendmpd	%%zmm22,	%%zmm20,	%%zmm20%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm4 ,	%%zmm6 ,	%%zmm1%{%%k1%}	\n\t	vblendmpd	%%zmm16,	%%zmm18,	%%zmm13%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm6 ,	%%zmm4 ,	%%zmm4%{%%k1%}	\n\t	vblendmpd	%%zmm18,	%%zmm16,	%%zmm16%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm9 ,	%%zmm11,	%%zmm2%{%%k1%}	\n\t	vblendmpd	%%zmm21,	%%zmm23,	%%zmm14%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm11,	%%zmm9 ,	%%zmm9%{%%k1%}	\n\t	vblendmpd	%%zmm23,	%%zmm21,	%%zmm21%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm5 ,	%%zmm7 ,	%%zmm3%{%%k1%}	\n\t	vblendmpd	%%zmm17,	%%zmm19,	%%zmm15%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm7 ,	%%zmm5 ,	%%zmm5%{%%k1%}	\n\t	vblendmpd	%%zmm19,	%%zmm17,	%%zmm17%{%%k1%}	\n\t"\
+		/* [3] Shuffle or permute in the 1-aparts */\
+		"vshufpd	$0b00000000,%%zmm2,		%%zmm0,%%zmm10 	\n\t	vshufpd	$0b00000000,%%zmm14,	%%zmm12,%%zmm22	\n\t"\
+		"vshufpd	$0b11111111,%%zmm2,		%%zmm0,%%zmm11 	\n\t	vshufpd	$0b11111111,%%zmm14,	%%zmm12,%%zmm23	\n\t"\
+		"vmovapd	%%zmm8,%%zmm2							\n\t	vmovapd	%%zmm20,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm30,%%zmm2 	\n\t	vpermt2pd				%%zmm21,	%%zmm30,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm31,%%zmm8	\n\t	vpermt2pd				%%zmm21,	%%zmm31,%%zmm20	\n\t"\
+		"vshufpd	$0b00000000,%%zmm3,		%%zmm1,%%zmm0 	\n\t	vshufpd	$0b00000000,%%zmm15,	%%zmm13,%%zmm12	\n\t"\
+		"vshufpd	$0b11111111,%%zmm3,		%%zmm1,%%zmm1 	\n\t	vshufpd	$0b11111111,%%zmm15,	%%zmm13,%%zmm13	\n\t"\
+		"vmovapd	%%zmm4,%%zmm3							\n\t	vmovapd	%%zmm16,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm30,%%zmm3 	\n\t	vpermt2pd				%%zmm17,	%%zmm30,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm31,%%zmm4	\n\t	vpermt2pd				%%zmm17,	%%zmm31,%%zmm16	\n\t"\
+		/* Write original columns back as rows: */\
+		"vmovaps		%%zmm10,0x000(%%rax)				\n\t	vmovaps		%%zmm22,0x040(%%rax)		\n\t"\
+		"vmovaps		%%zmm11,0x080(%%rax)				\n\t	vmovaps		%%zmm23,0x0c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm2 ,0x100(%%rax)				\n\t	vmovaps		%%zmm14,0x140(%%rax)		\n\t"\
+		"vmovaps		%%zmm8 ,0x180(%%rax)				\n\t	vmovaps		%%zmm20,0x1c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm0 ,0x200(%%rax)				\n\t	vmovaps		%%zmm12,0x240(%%rax)		\n\t"\
+		"vmovaps		%%zmm1 ,0x280(%%rax)				\n\t	vmovaps		%%zmm13,0x2c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm3 ,0x300(%%rax)				\n\t	vmovaps		%%zmm15,0x340(%%rax)		\n\t"\
+		"vmovaps		%%zmm4, 0x380(%%rax)				\n\t	vmovaps		%%zmm16,0x3c0(%%rax)		\n\t"\
+	/********************************************************************/\
 	/* Second 8-way transpose. Inputs from r10-1f. Outputs into r10-1f: */\
+	/********************************************************************/\
 		"addq		$0x400,%%rax		\n\t"\
-		"vmovaps		0x000(%%rax),%%zmm6 		\n\t	vmovaps		0x040(%%rax),%%zmm7 		\n\t"\
-		"vmovaps		0x080(%%rax),%%zmm8 		\n\t	vmovaps		0x0c0(%%rax),%%zmm9 		\n\t"\
-		"vmovaps		0x100(%%rax),%%zmm10		\n\t	vmovaps		0x140(%%rax),%%zmm11		\n\t"\
-		"vmovaps		0x180(%%rax),%%zmm16		\n\t	vmovaps		0x1c0(%%rax),%%zmm17		\n\t"\
-		"vmovaps		0x200(%%rax),%%zmm12		\n\t	vmovaps		0x240(%%rax),%%zmm13		\n\t"\
-		"vmovaps		0x280(%%rax),%%zmm0 		\n\t	vmovaps		0x2c0(%%rax),%%zmm1 		\n\t"\
-		"vmovaps		0x300(%%rax),%%zmm2 		\n\t	vmovaps		0x340(%%rax),%%zmm3 		\n\t"\
-		"vmovaps		0x380(%%rax),%%zmm14		\n\t	vmovaps		0x3c0(%%rax),%%zmm15		\n\t"\
-		"\n\t"\
-		"vunpcklpd		%%zmm8 ,%%zmm6 ,%%zmm4 		\n\t	vunpcklpd		%%zmm9 ,%%zmm7 ,%%zmm5 		\n\t"\
-		"vunpckhpd		%%zmm8 ,%%zmm6 ,%%zmm8 		\n\t	vunpckhpd		%%zmm9 ,%%zmm7 ,%%zmm9 		\n\t"\
-		"vunpcklpd		%%zmm16,%%zmm10,%%zmm6 		\n\t	vunpcklpd		%%zmm17,%%zmm11,%%zmm7 		\n\t"\
-		"vunpckhpd		%%zmm16,%%zmm10,%%zmm16		\n\t	vunpckhpd		%%zmm17,%%zmm11,%%zmm17		\n\t"\
-		"vunpcklpd		%%zmm0 ,%%zmm12,%%zmm10		\n\t	vunpcklpd		%%zmm1 ,%%zmm13,%%zmm11		\n\t"\
-		"vunpckhpd		%%zmm0 ,%%zmm12,%%zmm0 		\n\t	vunpckhpd		%%zmm1 ,%%zmm13,%%zmm1 		\n\t"\
-		"vunpcklpd		%%zmm14,%%zmm2 ,%%zmm12		\n\t	vunpcklpd		%%zmm15,%%zmm3 ,%%zmm13		\n\t"\
-		"vunpckhpd		%%zmm14,%%zmm2 ,%%zmm14		\n\t	vunpckhpd		%%zmm15,%%zmm3 ,%%zmm15		\n\t"\
-		"\n\t"\
-		"vshuff64x2	$136,%%zmm6 ,%%zmm4 ,%%zmm2 	\n\t	vshuff64x2	$136,%%zmm7 ,%%zmm5 ,%%zmm3 	\n\t"\
-		"vshuff64x2	$221,%%zmm6 ,%%zmm4 ,%%zmm6 	\n\t	vshuff64x2	$221,%%zmm7 ,%%zmm5 ,%%zmm7 	\n\t"\
-		"vshuff64x2	$136,%%zmm16,%%zmm8 ,%%zmm4 	\n\t	vshuff64x2	$136,%%zmm17,%%zmm9 ,%%zmm5 	\n\t"\
-		"vshuff64x2	$221,%%zmm16,%%zmm8 ,%%zmm16	\n\t	vshuff64x2	$221,%%zmm17,%%zmm9 ,%%zmm17	\n\t"\
-		"vshuff64x2	$136,%%zmm12,%%zmm10,%%zmm8 	\n\t	vshuff64x2	$136,%%zmm13,%%zmm11,%%zmm9 	\n\t"\
-		"vshuff64x2	$221,%%zmm12,%%zmm10,%%zmm12	\n\t	vshuff64x2	$221,%%zmm13,%%zmm11,%%zmm13	\n\t"\
-		"vshuff64x2	$136,%%zmm14,%%zmm0 ,%%zmm10	\n\t	vshuff64x2	$136,%%zmm15,%%zmm1 ,%%zmm11	\n\t"\
-		"vshuff64x2	$221,%%zmm14,%%zmm0 ,%%zmm14	\n\t	vshuff64x2	$221,%%zmm15,%%zmm1 ,%%zmm15	\n\t"\
-		"\n\t"\
-		"vshuff64x2	$136,%%zmm8 ,%%zmm2 ,%%zmm0 	\n\t	vshuff64x2	$136,%%zmm9 ,%%zmm3 ,%%zmm1 	\n\t"\
-		"vshuff64x2	$221,%%zmm8 ,%%zmm2 ,%%zmm8 	\n\t	vshuff64x2	$221,%%zmm9 ,%%zmm3 ,%%zmm9 	\n\t"\
-		"vshuff64x2	$136,%%zmm10,%%zmm4 ,%%zmm2 	\n\t	vshuff64x2	$136,%%zmm11,%%zmm5 ,%%zmm3 	\n\t"\
-		"vshuff64x2	$221,%%zmm10,%%zmm4 ,%%zmm10	\n\t	vshuff64x2	$221,%%zmm11,%%zmm5 ,%%zmm11	\n\t"\
-		"vshuff64x2	$136,%%zmm12,%%zmm6 ,%%zmm4 	\n\t	vshuff64x2	$136,%%zmm13,%%zmm7 ,%%zmm5 	\n\t"\
-		"vshuff64x2	$221,%%zmm12,%%zmm6 ,%%zmm12	\n\t	vshuff64x2	$221,%%zmm13,%%zmm7 ,%%zmm13	\n\t"\
-		"vshuff64x2	$136,%%zmm14,%%zmm16,%%zmm6 	\n\t	vshuff64x2	$136,%%zmm15,%%zmm17,%%zmm7 	\n\t"\
-		"vshuff64x2	$221,%%zmm14,%%zmm16,%%zmm14	\n\t	vshuff64x2	$221,%%zmm15,%%zmm17,%%zmm15	\n\t"\
-		/* Outputs are now ordered - write 'em back to memory: */\
-		"vmovaps	%%zmm0 ,0x000(%%rax)			\n\t	vmovaps	%%zmm1 ,0x040(%%rax)	\n\t"\
-		"vmovaps	%%zmm2 ,0x080(%%rax)			\n\t	vmovaps	%%zmm3 ,0x0c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm4 ,0x100(%%rax)			\n\t	vmovaps	%%zmm5 ,0x140(%%rax)	\n\t"\
-		"vmovaps	%%zmm6 ,0x180(%%rax)			\n\t	vmovaps	%%zmm7 ,0x1c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm8 ,0x200(%%rax)			\n\t	vmovaps	%%zmm9 ,0x240(%%rax)	\n\t"\
-		"vmovaps	%%zmm10,0x280(%%rax)			\n\t	vmovaps	%%zmm11,0x2c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm12,0x300(%%rax)			\n\t	vmovaps	%%zmm13,0x340(%%rax)	\n\t"\
-		"vmovaps	%%zmm14,0x380(%%rax)			\n\t	vmovaps	%%zmm15,0x3c0(%%rax)	\n\t"\
+		"vmovaps		0x000(%%rax),%%zmm0					\n\t	vmovaps		0x040(%%rax),%%zmm12		\n\t"\
+		"vmovaps		0x080(%%rax),%%zmm1					\n\t	vmovaps		0x0c0(%%rax),%%zmm13		\n\t"\
+		"vmovaps		0x100(%%rax),%%zmm2					\n\t	vmovaps		0x140(%%rax),%%zmm14		\n\t"\
+		"vmovaps		0x180(%%rax),%%zmm3					\n\t	vmovaps		0x1c0(%%rax),%%zmm15		\n\t"\
+		"vmovaps		0x200(%%rax),%%zmm4					\n\t	vmovaps		0x240(%%rax),%%zmm16		\n\t"\
+		"vmovaps		0x280(%%rax),%%zmm5					\n\t	vmovaps		0x2c0(%%rax),%%zmm17		\n\t"\
+		"vmovaps		0x300(%%rax),%%zmm6					\n\t	vmovaps		0x340(%%rax),%%zmm18		\n\t"\
+		"vmovaps		0x380(%%rax),%%zmm7					\n\t	vmovaps		0x3c0(%%rax),%%zmm19		\n\t"\
+		/* [1] Shuffle the 4-aparts - note the different patterning of the first and second output quartet: */\
+		"vshuff64x2	$0b01000100, %%zmm4,	%%zmm0,	%%zmm8 	\n\t	vshuff64x2	$0b01000100, %%zmm16,%%zmm12,	%%zmm20	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm4,	%%zmm0,	%%zmm4 	\n\t	vshuff64x2	$0b11101110, %%zmm16,%%zmm12,	%%zmm16	\n\t"\
+		"vshuff64x2	$0b01000100, %%zmm5,	%%zmm1,	%%zmm9	\n\t	vshuff64x2	$0b01000100, %%zmm17,%%zmm13,	%%zmm21	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm5,	%%zmm1,	%%zmm5	\n\t	vshuff64x2	$0b11101110, %%zmm17,%%zmm13,	%%zmm17	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm6,	%%zmm2,	%%zmm10	\n\t	vshuff64x2	$0b00010001, %%zmm18,%%zmm14,	%%zmm22	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm6,	%%zmm2,	%%zmm6	\n\t	vshuff64x2	$0b10111011, %%zmm18,%%zmm14,	%%zmm18	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm7,	%%zmm3,	%%zmm11	\n\t	vshuff64x2	$0b00010001, %%zmm19,%%zmm15,	%%zmm23	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm7,	%%zmm3,	%%zmm7	\n\t	vshuff64x2	$0b10111011, %%zmm19,%%zmm15,	%%zmm19	\n\t"\
+		/* [2] Blend in the 2-aparts */\
+		"vblendmpd	%%zmm8 ,	%%zmm10,	%%zmm0%{%%k1%}	\n\t	vblendmpd	%%zmm20,	%%zmm22,	%%zmm12%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm10,	%%zmm8 ,	%%zmm8%{%%k1%}	\n\t	vblendmpd	%%zmm22,	%%zmm20,	%%zmm20%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm4 ,	%%zmm6 ,	%%zmm1%{%%k1%}	\n\t	vblendmpd	%%zmm16,	%%zmm18,	%%zmm13%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm6 ,	%%zmm4 ,	%%zmm4%{%%k1%}	\n\t	vblendmpd	%%zmm18,	%%zmm16,	%%zmm16%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm9 ,	%%zmm11,	%%zmm2%{%%k1%}	\n\t	vblendmpd	%%zmm21,	%%zmm23,	%%zmm14%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm11,	%%zmm9 ,	%%zmm9%{%%k1%}	\n\t	vblendmpd	%%zmm23,	%%zmm21,	%%zmm21%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm5 ,	%%zmm7 ,	%%zmm3%{%%k1%}	\n\t	vblendmpd	%%zmm17,	%%zmm19,	%%zmm15%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm7 ,	%%zmm5 ,	%%zmm5%{%%k1%}	\n\t	vblendmpd	%%zmm19,	%%zmm17,	%%zmm17%{%%k1%}	\n\t"\
+		/* [3] Shuffle or permute in the 1-aparts */\
+		"vshufpd	$0b00000000,%%zmm2,		%%zmm0,%%zmm10 	\n\t	vshufpd	$0b00000000,%%zmm14,	%%zmm12,%%zmm22	\n\t"\
+		"vshufpd	$0b11111111,%%zmm2,		%%zmm0,%%zmm11 	\n\t	vshufpd	$0b11111111,%%zmm14,	%%zmm12,%%zmm23	\n\t"\
+		"vmovapd	%%zmm8,%%zmm2							\n\t	vmovapd	%%zmm20,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm30,%%zmm2 	\n\t	vpermt2pd				%%zmm21,	%%zmm30,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm31,%%zmm8	\n\t	vpermt2pd				%%zmm21,	%%zmm31,%%zmm20	\n\t"\
+		"vshufpd	$0b00000000,%%zmm3,		%%zmm1,%%zmm0 	\n\t	vshufpd	$0b00000000,%%zmm15,	%%zmm13,%%zmm12	\n\t"\
+		"vshufpd	$0b11111111,%%zmm3,		%%zmm1,%%zmm1 	\n\t	vshufpd	$0b11111111,%%zmm15,	%%zmm13,%%zmm13	\n\t"\
+		"vmovapd	%%zmm4,%%zmm3							\n\t	vmovapd	%%zmm16,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm30,%%zmm3 	\n\t	vpermt2pd				%%zmm17,	%%zmm30,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm31,%%zmm4	\n\t	vpermt2pd				%%zmm17,	%%zmm31,%%zmm16	\n\t"\
+		/* Write original columns back as rows: */\
+		"vmovaps		%%zmm10,0x000(%%rax)				\n\t	vmovaps		%%zmm22,0x040(%%rax)		\n\t"\
+		"vmovaps		%%zmm11,0x080(%%rax)				\n\t	vmovaps		%%zmm23,0x0c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm2 ,0x100(%%rax)				\n\t	vmovaps		%%zmm14,0x140(%%rax)		\n\t"\
+		"vmovaps		%%zmm8 ,0x180(%%rax)				\n\t	vmovaps		%%zmm20,0x1c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm0 ,0x200(%%rax)				\n\t	vmovaps		%%zmm12,0x240(%%rax)		\n\t"\
+		"vmovaps		%%zmm1 ,0x280(%%rax)				\n\t	vmovaps		%%zmm13,0x2c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm3 ,0x300(%%rax)				\n\t	vmovaps		%%zmm15,0x340(%%rax)		\n\t"\
+		"vmovaps		%%zmm4, 0x380(%%rax)				\n\t	vmovaps		%%zmm16,0x3c0(%%rax)		\n\t"\
 		"subq		$0x400,%%rax			\n\t"\
+		"movq	%[__prp_mult]	,%%rbx	\n\t"\
+		"vbroadcastsd	(%%rbx),%%zmm20	\n\t"/* prp_mult, broadcast to all double-slots of zmm20 */\
 	/********** RCOL REGISTERS NUMBERED += 16 W.R.TO ANALOGOUS LCOL-REGISTERS **********/\
 		"movq	%[__cy],%%rbx				\n\t"\
 		"vmovaps	    (%%rbx),%%zmm1		\n\t	vmovaps	0x40(%%rbx),%%zmm17		\n\t"/* zmm1,17 = Our 2 eight-double cy_in[0:7][8:15]-vectors */\
@@ -12372,22 +12617,23 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__half_arr],%%rdi			\n\t	vmovaps -0x80(%%rdi),%%zmm2		\n\t"/* zmm2 = maxerr */\
 		/* In AVX-512 mode, the 4 doubles base[0],baseinv[1],wts_mult[1],inv_mult[0] are in d0-3 slots
 		of otherwise-unused sse2_rnd vec_dbl, that is in -0x40(rdi) + 0x[0,8,10,18]:: */\
-		"vbroadcastsd -0x40(%%rdi),%%zmm10	\n\t"\
-		"vbroadcastsd -0x38(%%rdi),%%zmm11	\n\t"\
-		"vbroadcastsd -0x30(%%rdi),%%zmm12	\n\t"\
-		"vbroadcastsd -0x28(%%rdi),%%zmm13	\n\t	vaddpd %%zmm13,%%zmm13,%%zmm14	\n\t"/* ZMM13,14 have inv_mult[0] (needed for conditional-doubling), inv_mult[1] (needed for (wt_re >= inv_mult[1]) comparison) */\
-		"movq	%[__sse_n] ,%%rbx			\n\t	vmovaps	(%%rbx),%%zmm15			\n\t"/* PERSISTENT COPY OF SSE_N  REMAINS IN ZMM15. */\
+		"vbroadcastsd -0x40(%%rdi),%%zmm10	\n\t"/* base   [0], PERSISTENT COPY IN zmm10 */\
+		"vbroadcastsd -0x38(%%rdi),%%zmm11	\n\t"/* baseinv[1], PERSISTENT COPY IN zmm11 */\
+		"vbroadcastsd -0x30(%%rdi),%%zmm12	\n\t"/* wts_mult[1], PERSISTENT COPY IN zmm12 */\
+		"vbroadcastsd -0x28(%%rdi),%%zmm13	\n\t	vaddpd %%zmm13,%%zmm13,%%zmm14	\n\t"/* zmm13,14 have inv_mult[0] (needed for conditional-doubling), inv_mult[1] (needed for (wt_re >= inv_mult[1]) comparison) */\
+		"movq	%[__sse_n] ,%%rbx			\n\t	vmovaps	(%%rbx),%%zmm15			\n\t"/* PERSISTENT COPY OF SSE_N  REMAINS IN zmm15. */\
 		"movq	%[__sse_bw],%%rbx			\n\t"/* RBX HOLDS ADDRESS OF SSE_BW */\
-		"movq	%[__bjmod_0],%%rsi			\n\t	vmovaps	(%%rsi),%%zmm3			\n\t"/* bjmod[0:15], PERSISTENT COPY IN ZMM3 */\
-		"movq	%[__sse_sw] ,%%rsi			\n\t	vmovaps	(%%rsi),%%zmm4			\n\t"/* sw,  16-fold PERSISTENT COPY IN ZMM4 */\
+		"movq	%[__bjmod_0],%%rsi			\n\t	vmovaps	(%%rsi),%%zmm3			\n\t"/* bjmod[0:15], PERSISTENT COPY IN zmm3 */\
+		"movq	%[__sse_sw] ,%%rsi			\n\t	vmovaps	(%%rsi),%%zmm4			\n\t"/* sw,  16-fold PERSISTENT COPY IN zmm4 */\
 		"movq	%[__sign_mask],%%rsi		\n\t	vmovaps %%zmm2,%%zmm18			\n\t"/* Rcol-copy of maxerr, allowing both cols to do independent updates with just one merge at end */\
 	/**********************************/\
 	/* Do A.re 16-tet: Data in m0,16: */\
 	/**********************************/\
+	"prefetcht2	(%%r14)					\n\t"\
 		"vmovaps	0x000(%%rax),%%zmm0		\n\t	vmovaps	0x400(%%rax),%%zmm16	\n\t"/* Load data */\
 		"vmovaps	0x080(%%rdi),%%zmm6		\n\t	vmovaps	0x0c0(%%rdi),%%zmm22	\n\t"/* wi */\
 		"vmovaps	0x000(%%rdi),%%zmm5		\n\t	vmovaps	0x040(%%rdi),%%zmm21	\n\t"/* wt for our 16 independent carry-chains */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"/* x *= wtinv + cy */\
+/**/	"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"/* x *= wtinv */\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t"/* Set bit in k1 if sw < bjmod[0:7] ; Opmask K1 is analog of AVX-mode bitmask stored in R10 */\
 	"kmovw	%[__i],%%k2						\n\t"/* I == 1 if it's the 0-word, in which case we force-bigword-ness by XORing K1 (whose */\
 	"kxorw	%%k2,%%k1,%%k1					\n\t"/* low bit will == 0 on input in this case) with I. Otherwise I == 0, thus XOR = no-op. */\
@@ -12395,650 +12641,699 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"/* Upper halves of above-computed 16-bit opmasks, used for rcol operands */\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vmovaps	%%zmm11,%%zmm24			\n\t"\
+/**/	"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"/* temp = DNINT(x) */\
 	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k3%}\n\t"/* [3] Fwd-base mults */\
 	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k4%}\n\t"/* [4] Inv-base mults */\
-		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"/* temp = DNINT(x) */\
-		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"/* x - temp */\
-		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"/* frac = fabs(x-temp) */\
+/**/	"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"/* x - temp */\
+/**/	"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"/* frac = fabs(x-temp) */\
+/**/"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"/* cpy temp */\
-		"vmulpd		%%zmm8,%%zmm9,%%zmm9	\n\t	vmulpd	%%zmm24,%%zmm25,%%zmm25	\n\t"/* temp*baseinv */\
-		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"/* cy_out */\
-		/* x = (temp-cy*base[i])*wt: */\
-	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"/* x = (temp-cy*base) */\
-		/* Update and store weights: */\
+/**/	"vmulpd		%%zmm8,%%zmm9,%%zmm9	\n\t	vmulpd	%%zmm24,%%zmm25,%%zmm25	\n\t"/* temp*baseinv */\
+		/* Start update of weights while waiting for the paired MULPDs to complete: */\
 		"vcmppd	$1,%%zmm5,%%zmm14,%%k1		\n\t	vcmppd	$1,%%zmm21,%%zmm14,%%k3	\n\t"/* K1,3 = (wt >= inv_mult[1]) [Do compare as (inv_mult[1] < wt)] */\
 		"knotw	%%k1,%%k2					\n\t	knotw	%%k3,%%k4				\n\t"/* K2,4 = inverse-masks */\
-		"vmovaps	%%zmm12,%%zmm7			\n\t	vmovaps	%%zmm12,%%zmm23			\n\t"\
+		"vmovaps	%%zmm12,%%zmm26			\n\t	vmovaps	%%zmm12,%%zmm27			\n\t"\
 		"vmovaps	%%zmm13,%%zmm8			\n\t	vmovaps	%%zmm13,%%zmm24			\n\t"\
-	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k2%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k4%}\n\t"/* [5] [LOACC] wts_mult */\
-	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"/* [6] [LOACC] inv_mult */\
-		"vmulpd		%%zmm5,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"/* x *= wt */\
-		"vmulpd		%%zmm7,%%zmm5,%%zmm5	\n\t	vmulpd	%%zmm23,%%zmm21,%%zmm21	\n\t"/* wt *= wts_mult[i] */\
-		"vmulpd		%%zmm8,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
-		/* Get ready for next set [IM0~] : */\
+/**/	"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"/* cy_out */\
+	"vaddpd	%%zmm26,%%zmm26,%%zmm26%{%%k2%} \n\t vaddpd %%zmm27,%%zmm27,%%zmm27%{%%k4%}\n\t"/* [5] [LOACC] wts_mult */\
+	"vaddpd	%%zmm8 ,%%zmm8 ,%%zmm8 %{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"/* [6] [LOACC] inv_mult */\
+/**/"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"/* x = (temp-cy*base) */\
+/**/	"vmulpd		%%zmm26,%%zmm5,%%zmm26	\n\t	vmulpd	%%zmm27,%%zmm21,%%zmm27	\n\t"/* wt *= wts_mult[i] */\
+/**/	"vmulpd		%%zmm8 ,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vmovaps	%%zmm26,0x000(%%rdi)	\n\t	vmovaps	%%zmm27,0x040(%%rdi)	\n\t"/* Store wt */\
+		"vmovaps	%%zmm6 ,0x080(%%rdi)	\n\t	vmovaps	%%zmm22,0x0c0(%%rdi)	\n\t"/* Store wi */\
+		/* x = (temp-cy*base[i])*wt: */\
+/**/	"vmulpd		%%zmm5 ,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"/* x *= wt */\
+		/* Get ready for next set [IM0~] and store updated weights: */\
 		"vpaddd		(%%rbx),%%zmm3,%%zmm3	\n\t"/* bjmod[0:15] += bw */\
 		"vpcmpgtd	%%zmm15,%%zmm3,%%k1		\n\t"/* if(n > bjmod[0:15]) corr. bit in k1 set */\
 		"vpsubd	%%zmm15,%%zmm3,%%zmm3%{%%k1%}\n\t"/* if(n > bjmod[0:15]) bjmod[0:15] -= n */\
-		"vmovaps	%%zmm0,     (%%rax) 	\n\t	vmovaps	%%zmm16,0x400(%%rax) 	\n\t"/* Store normalized, fwd-weighted datum */\
-		"vmovaps	%%zmm5,0x000(%%rdi)		\n\t	vmovaps	%%zmm21,0x040(%%rdi)	\n\t"/* Store wt */\
-		"vmovaps	%%zmm6,0x080(%%rdi)		\n\t	vmovaps	%%zmm22,0x0c0(%%rdi)	\n\t"/* Store wi */\
+		"vmovaps	%%zmm0 ,     (%%rax)	\n\t	vmovaps	%%zmm16,0x400(%%rax) 	\n\t"/* Store normalized, fwd-weighted datum */\
 		"\n\t"\
 	/**********************************/\
 	/* Do A.im 16-tet: Data in m0,16: */\
 	/**********************************/\
+	"movslq		%[__p1],%%r15			\n\t"\
+	"prefetcht2	(%%r14,%%r15,8)			\n\t"\
 		"vmovaps	0x040(%%rax),%%zmm0		\n\t	vmovaps	0x440(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0x180(%%rdi),%%zmm6		\n\t	vmovaps	0x1c0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0x100(%%rdi),%%zmm5		\n\t	vmovaps	0x140(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vmovaps	%%zmm11,%%zmm24			\n\t"\
+		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k3%}\n\t"\
 	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k4%}\n\t"\
-		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
 		"vmulpd		%%zmm8,%%zmm9,%%zmm9	\n\t	vmulpd	%%zmm24,%%zmm25,%%zmm25	\n\t"\
-		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"\
-		/* x = (temp-cy*base[i])*wt: */\
-	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
-		/* Update and store weights: */\
+		/* Start update of weights while waiting for the paired MULPDs to complete: */\
 		"vcmppd	$1,%%zmm5,%%zmm14,%%k1		\n\t	vcmppd	$1,%%zmm21,%%zmm14,%%k3	\n\t"\
 		"knotw	%%k1,%%k2					\n\t	knotw	%%k3,%%k4				\n\t"\
-		"vmovaps	%%zmm12,%%zmm7			\n\t	vmovaps	%%zmm12,%%zmm23			\n\t"\
+		"vmovaps	%%zmm12,%%zmm26			\n\t	vmovaps	%%zmm12,%%zmm27			\n\t"\
 		"vmovaps	%%zmm13,%%zmm8			\n\t	vmovaps	%%zmm13,%%zmm24			\n\t"\
-	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k2%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k4%}\n\t"\
-	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
-		"vmulpd		%%zmm5,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"/* x *= wt */\
-		"vmulpd		%%zmm7,%%zmm5,%%zmm5	\n\t	vmulpd	%%zmm23,%%zmm21,%%zmm21	\n\t"/* wt *= wts_mult[i] */\
-		"vmulpd		%%zmm8,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"/* cy_out */\
+	"vaddpd	%%zmm26,%%zmm26,%%zmm26%{%%k2%} \n\t vaddpd %%zmm27,%%zmm27,%%zmm27%{%%k4%}\n\t"\
+	"vaddpd	%%zmm8 ,%%zmm8 ,%%zmm8 %{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
+	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
+		"vmulpd		%%zmm26,%%zmm5,%%zmm26	\n\t	vmulpd	%%zmm27,%%zmm21,%%zmm27	\n\t"/* wt *= wts_mult[i] */\
+		"vmulpd		%%zmm8 ,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vmovaps	%%zmm26,0x100(%%rdi)	\n\t	vmovaps	%%zmm27,0x140(%%rdi)	\n\t"/* Store wt_im */\
+		"vmovaps	%%zmm6,0x180(%%rdi)		\n\t	vmovaps	%%zmm22,0x1c0(%%rdi)	\n\t"/* Store wi_im */\
+		/* x = (temp-cy*base[i])*wt: */\
+		"vmulpd		%%zmm5 ,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"\
 		/* Get ready for next set [RE1~] : */\
 		"vpaddd		(%%rbx),%%zmm3,%%zmm3	\n\t"\
 		"vpcmpgtd	%%zmm15,%%zmm3,%%k1		\n\t"\
 		"vpsubd	%%zmm15,%%zmm3,%%zmm3%{%%k1%}\n\t"\
 		"vmovaps	%%zmm0,0x040(%%rax) 	\n\t	vmovaps	%%zmm16,0x440(%%rax) 	\n\t"/* Store normalized, fwd-weighted datum */\
-		"vmovaps	%%zmm5,0x100(%%rdi)		\n\t	vmovaps	%%zmm21,0x140(%%rdi)	\n\t"/* Store wt_im */\
-		"vmovaps	%%zmm6,0x180(%%rdi)		\n\t	vmovaps	%%zmm22,0x1c0(%%rdi)	\n\t"/* Store wi_im */\
 		"\n\t"\
 	/**********************************/\
 	/* Do B.re 16-tet: Data in m0,16: */\
 	/**********************************/\
+	"movslq		%[__p2],%%r15			\n\t"\
+	"prefetcht2	(%%r14,%%r15,8)			\n\t"\
 		"vmovaps	0x080(%%rax),%%zmm0		\n\t	vmovaps	0x480(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0x280(%%rdi),%%zmm6		\n\t	vmovaps	0x2c0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0x200(%%rdi),%%zmm5		\n\t	vmovaps	0x240(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vmovaps	%%zmm11,%%zmm24			\n\t"\
+		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k3%}\n\t"\
 	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k4%}\n\t"\
-		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
 		"vmulpd		%%zmm8,%%zmm9,%%zmm9	\n\t	vmulpd	%%zmm24,%%zmm25,%%zmm25	\n\t"\
-		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"\
-		/* x = (temp-cy*base[i])*wt: */\
-	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
-		/* Update and store weights: */\
+		/* Start update of weights while waiting for the paired MULPDs to complete: */\
 		"vcmppd	$1,%%zmm5,%%zmm14,%%k1		\n\t	vcmppd	$1,%%zmm21,%%zmm14,%%k3	\n\t"\
 		"knotw	%%k1,%%k2					\n\t	knotw	%%k3,%%k4				\n\t"\
-		"vmovaps	%%zmm12,%%zmm7			\n\t	vmovaps	%%zmm12,%%zmm23			\n\t"\
+		"vmovaps	%%zmm12,%%zmm26			\n\t	vmovaps	%%zmm12,%%zmm27			\n\t"\
 		"vmovaps	%%zmm13,%%zmm8			\n\t	vmovaps	%%zmm13,%%zmm24			\n\t"\
-	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k2%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k4%}\n\t"\
-	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
-		"vmulpd		%%zmm5,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"/* x *= wt */\
-		"vmulpd		%%zmm7,%%zmm5,%%zmm5	\n\t	vmulpd	%%zmm23,%%zmm21,%%zmm21	\n\t"/* wt *= wts_mult[i] */\
-		"vmulpd		%%zmm8,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"/* cy_out */\
+	"vaddpd	%%zmm26,%%zmm26,%%zmm26%{%%k2%} \n\t vaddpd %%zmm27,%%zmm27,%%zmm27%{%%k4%}\n\t"\
+	"vaddpd	%%zmm8 ,%%zmm8 ,%%zmm8 %{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
+	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
+		"vmulpd		%%zmm26,%%zmm5,%%zmm26	\n\t	vmulpd	%%zmm27,%%zmm21,%%zmm27	\n\t"/* wt *= wts_mult[i] */\
+		"vmulpd		%%zmm8 ,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vmovaps	%%zmm26,0x200(%%rdi)	\n\t	vmovaps	%%zmm27,0x240(%%rdi)	\n\t"\
+		"vmovaps	%%zmm6,0x280(%%rdi)		\n\t	vmovaps	%%zmm22,0x2c0(%%rdi)	\n\t"\
+		/* x = (temp-cy*base[i])*wt: */\
+		"vmulpd		%%zmm5 ,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"\
 		/* Get ready for next set [IM1~] : */\
 		"vpaddd		(%%rbx),%%zmm3,%%zmm3	\n\t"\
 		"vpcmpgtd	%%zmm15,%%zmm3,%%k1		\n\t"\
 		"vpsubd	%%zmm15,%%zmm3,%%zmm3%{%%k1%}\n\t"\
 		"vmovaps	%%zmm0,0x080(%%rax) 	\n\t	vmovaps	%%zmm16,0x480(%%rax) 	\n\t"\
-		"vmovaps	%%zmm5,0x200(%%rdi)		\n\t	vmovaps	%%zmm21,0x240(%%rdi)	\n\t"\
-		"vmovaps	%%zmm6,0x280(%%rdi)		\n\t	vmovaps	%%zmm22,0x2c0(%%rdi)	\n\t"\
 		"\n\t"\
 	/**********************************/\
 	/* Do B.im 16-tet: Data in m0,16: */\
 	/**********************************/\
+	"movslq		%[__p3],%%r15			\n\t"\
+	"prefetcht2	(%%r14,%%r15,8)			\n\t"\
 		"vmovaps	0x0c0(%%rax),%%zmm0		\n\t	vmovaps	0x4c0(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0x380(%%rdi),%%zmm6		\n\t	vmovaps	0x3c0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0x300(%%rdi),%%zmm5		\n\t	vmovaps	0x340(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vmovaps	%%zmm11,%%zmm24			\n\t"\
+		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k3%}\n\t"\
 	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k4%}\n\t"\
-		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
 		"vmulpd		%%zmm8,%%zmm9,%%zmm9	\n\t	vmulpd	%%zmm24,%%zmm25,%%zmm25	\n\t"\
-		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"\
-		/* x = (temp-cy*base[i])*wt: */\
-	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
-		/* Update and store weights: */\
+		/* Start update of weights while waiting for the paired MULPDs to complete: */\
 		"vcmppd	$1,%%zmm5,%%zmm14,%%k1		\n\t	vcmppd	$1,%%zmm21,%%zmm14,%%k3	\n\t"\
 		"knotw	%%k1,%%k2					\n\t	knotw	%%k3,%%k4				\n\t"\
-		"vmovaps	%%zmm12,%%zmm7			\n\t	vmovaps	%%zmm12,%%zmm23			\n\t"\
+		"vmovaps	%%zmm12,%%zmm26			\n\t	vmovaps	%%zmm12,%%zmm27			\n\t"\
 		"vmovaps	%%zmm13,%%zmm8			\n\t	vmovaps	%%zmm13,%%zmm24			\n\t"\
-	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k2%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k4%}\n\t"\
-	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
-		"vmulpd		%%zmm5,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"/* x *= wt */\
-		"vmulpd		%%zmm7,%%zmm5,%%zmm5	\n\t	vmulpd	%%zmm23,%%zmm21,%%zmm21	\n\t"/* wt *= wts_mult[i] */\
-		"vmulpd		%%zmm8,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"/* cy_out */\
+	"vaddpd	%%zmm26,%%zmm26,%%zmm26%{%%k2%} \n\t vaddpd %%zmm27,%%zmm27,%%zmm27%{%%k4%}\n\t"\
+	"vaddpd	%%zmm8 ,%%zmm8 ,%%zmm8 %{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
+	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
+		"vmulpd		%%zmm26,%%zmm5,%%zmm26	\n\t	vmulpd	%%zmm27,%%zmm21,%%zmm27	\n\t"/* wt *= wts_mult[i] */\
+		"vmulpd		%%zmm8 ,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vmovaps	%%zmm26,0x300(%%rdi)	\n\t	vmovaps	%%zmm27,0x340(%%rdi)	\n\t"\
+		"vmovaps	%%zmm6,0x380(%%rdi)		\n\t	vmovaps	%%zmm22,0x3c0(%%rdi)	\n\t"\
+		/* x = (temp-cy*base[i])*wt: */\
+		"vmulpd		%%zmm5 ,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"\
 		/* Get ready for next set [RE2~] : */\
 		"vpaddd		(%%rbx),%%zmm3,%%zmm3	\n\t"\
 		"vpcmpgtd	%%zmm15,%%zmm3,%%k1		\n\t"\
 		"vpsubd	%%zmm15,%%zmm3,%%zmm3%{%%k1%}\n\t"\
 		"vmovaps	%%zmm0,0x0c0(%%rax) 	\n\t	vmovaps	%%zmm16,0x4c0(%%rax) 	\n\t"\
-		"vmovaps	%%zmm5,0x300(%%rdi)		\n\t	vmovaps	%%zmm21,0x340(%%rdi)	\n\t"\
-		"vmovaps	%%zmm6,0x380(%%rdi)		\n\t	vmovaps	%%zmm22,0x3c0(%%rdi)	\n\t"\
 		"\n\t"\
 	/**********************************/\
 	/* Do C.re 16-tet: Data in m0,16: */\
 	/**********************************/\
+	"movslq		%[__p4],%%r15			\n\t"\
+	"leaq		(%%r14,%%r15,8),%%r14	\n\t"\
+	"prefetcht2	(%%r14)					\n\t"\
 		"vmovaps	0x100(%%rax),%%zmm0		\n\t	vmovaps	0x500(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0x480(%%rdi),%%zmm6		\n\t	vmovaps	0x4c0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0x400(%%rdi),%%zmm5		\n\t	vmovaps	0x440(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vmovaps	%%zmm11,%%zmm24			\n\t"\
+		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k3%}\n\t"\
 	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k4%}\n\t"\
-		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
 		"vmulpd		%%zmm8,%%zmm9,%%zmm9	\n\t	vmulpd	%%zmm24,%%zmm25,%%zmm25	\n\t"\
-		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"\
-		/* x = (temp-cy*base[i])*wt: */\
-	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
-		/* Update and store weights: */\
+		/* Start update of weights while waiting for the paired MULPDs to complete: */\
 		"vcmppd	$1,%%zmm5,%%zmm14,%%k1		\n\t	vcmppd	$1,%%zmm21,%%zmm14,%%k3	\n\t"\
 		"knotw	%%k1,%%k2					\n\t	knotw	%%k3,%%k4				\n\t"\
-		"vmovaps	%%zmm12,%%zmm7			\n\t	vmovaps	%%zmm12,%%zmm23			\n\t"\
+		"vmovaps	%%zmm12,%%zmm26			\n\t	vmovaps	%%zmm12,%%zmm27			\n\t"\
 		"vmovaps	%%zmm13,%%zmm8			\n\t	vmovaps	%%zmm13,%%zmm24			\n\t"\
-	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k2%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k4%}\n\t"\
-	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
-		"vmulpd		%%zmm5,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"/* x *= wt */\
-		"vmulpd		%%zmm7,%%zmm5,%%zmm5	\n\t	vmulpd	%%zmm23,%%zmm21,%%zmm21	\n\t"/* wt *= wts_mult[i] */\
-		"vmulpd		%%zmm8,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"/* cy_out */\
+	"vaddpd	%%zmm26,%%zmm26,%%zmm26%{%%k2%} \n\t vaddpd %%zmm27,%%zmm27,%%zmm27%{%%k4%}\n\t"\
+	"vaddpd	%%zmm8 ,%%zmm8 ,%%zmm8 %{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
+	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
+		"vmulpd		%%zmm26,%%zmm5,%%zmm26	\n\t	vmulpd	%%zmm27,%%zmm21,%%zmm27	\n\t"/* wt *= wts_mult[i] */\
+		"vmulpd		%%zmm8 ,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vmovaps	%%zmm26,0x400(%%rdi)	\n\t	vmovaps	%%zmm27,0x440(%%rdi)	\n\t"\
+		"vmovaps	%%zmm6,0x480(%%rdi)		\n\t	vmovaps	%%zmm22,0x4c0(%%rdi)	\n\t"\
+		/* x = (temp-cy*base[i])*wt: */\
+		"vmulpd		%%zmm5 ,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"\
 		/* Get ready for next set [IM2~] : */\
 		"vpaddd		(%%rbx),%%zmm3,%%zmm3	\n\t"\
 		"vpcmpgtd	%%zmm15,%%zmm3,%%k1		\n\t"\
 		"vpsubd	%%zmm15,%%zmm3,%%zmm3%{%%k1%}\n\t"\
 		"vmovaps	%%zmm0,0x100(%%rax) 	\n\t	vmovaps	%%zmm16,0x500(%%rax) 	\n\t"\
-		"vmovaps	%%zmm5,0x400(%%rdi)		\n\t	vmovaps	%%zmm21,0x440(%%rdi)	\n\t"\
-		"vmovaps	%%zmm6,0x480(%%rdi)		\n\t	vmovaps	%%zmm22,0x4c0(%%rdi)	\n\t"\
 		"\n\t"\
 	/**********************************/\
 	/* Do C.im 16-tet: Data in m0,16: */\
 	/**********************************/\
+	"movslq		%[__p1],%%r15			\n\t"\
+	"prefetcht2	(%%r14,%%r15,8)			\n\t"\
 		"vmovaps	0x140(%%rax),%%zmm0		\n\t	vmovaps	0x540(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0x580(%%rdi),%%zmm6		\n\t	vmovaps	0x5c0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0x500(%%rdi),%%zmm5		\n\t	vmovaps	0x540(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vmovaps	%%zmm11,%%zmm24			\n\t"\
+		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k3%}\n\t"\
 	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k4%}\n\t"\
-		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
 		"vmulpd		%%zmm8,%%zmm9,%%zmm9	\n\t	vmulpd	%%zmm24,%%zmm25,%%zmm25	\n\t"\
-		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"\
-		/* x = (temp-cy*base[i])*wt: */\
-	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
-		/* Update and store weights: */\
+		/* Start update of weights while waiting for the paired MULPDs to complete: */\
 		"vcmppd	$1,%%zmm5,%%zmm14,%%k1		\n\t	vcmppd	$1,%%zmm21,%%zmm14,%%k3	\n\t"\
 		"knotw	%%k1,%%k2					\n\t	knotw	%%k3,%%k4				\n\t"\
-		"vmovaps	%%zmm12,%%zmm7			\n\t	vmovaps	%%zmm12,%%zmm23			\n\t"\
+		"vmovaps	%%zmm12,%%zmm26			\n\t	vmovaps	%%zmm12,%%zmm27			\n\t"\
 		"vmovaps	%%zmm13,%%zmm8			\n\t	vmovaps	%%zmm13,%%zmm24			\n\t"\
-	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k2%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k4%}\n\t"\
-	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
-		"vmulpd		%%zmm5,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"/* x *= wt */\
-		"vmulpd		%%zmm7,%%zmm5,%%zmm5	\n\t	vmulpd	%%zmm23,%%zmm21,%%zmm21	\n\t"/* wt *= wts_mult[i] */\
-		"vmulpd		%%zmm8,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"/* cy_out */\
+	"vaddpd	%%zmm26,%%zmm26,%%zmm26%{%%k2%} \n\t vaddpd %%zmm27,%%zmm27,%%zmm27%{%%k4%}\n\t"\
+	"vaddpd	%%zmm8 ,%%zmm8 ,%%zmm8 %{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
+	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
+		"vmulpd		%%zmm26,%%zmm5,%%zmm26	\n\t	vmulpd	%%zmm27,%%zmm21,%%zmm27	\n\t"/* wt *= wts_mult[i] */\
+		"vmulpd		%%zmm8 ,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vmovaps	%%zmm26,0x500(%%rdi)	\n\t	vmovaps	%%zmm27,0x540(%%rdi)	\n\t"\
+		"vmovaps	%%zmm6,0x580(%%rdi)		\n\t	vmovaps	%%zmm22,0x5c0(%%rdi)	\n\t"\
+		/* x = (temp-cy*base[i])*wt: */\
+		"vmulpd		%%zmm5 ,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"\
 		/* Get ready for next set [RE3~] : */\
 		"vpaddd		(%%rbx),%%zmm3,%%zmm3	\n\t"\
 		"vpcmpgtd	%%zmm15,%%zmm3,%%k1		\n\t"\
 		"vpsubd	%%zmm15,%%zmm3,%%zmm3%{%%k1%}\n\t"\
 		"vmovaps	%%zmm0,0x140(%%rax) 	\n\t	vmovaps	%%zmm16,0x540(%%rax) 	\n\t"\
-		"vmovaps	%%zmm5,0x500(%%rdi)		\n\t	vmovaps	%%zmm21,0x540(%%rdi)	\n\t"\
-		"vmovaps	%%zmm6,0x580(%%rdi)		\n\t	vmovaps	%%zmm22,0x5c0(%%rdi)	\n\t"\
 		"\n\t"\
 	/**********************************/\
 	/* Do D.re 16-tet: Data in m0,16: */\
 	/**********************************/\
+	"movslq		%[__p2],%%r15			\n\t"\
+	"prefetcht2	(%%r14,%%r15,8)			\n\t"\
 		"vmovaps	0x180(%%rax),%%zmm0		\n\t	vmovaps	0x580(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0x680(%%rdi),%%zmm6		\n\t	vmovaps	0x6c0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0x600(%%rdi),%%zmm5		\n\t	vmovaps	0x640(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vmovaps	%%zmm11,%%zmm24			\n\t"\
+		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k3%}\n\t"\
 	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k4%}\n\t"\
-		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
 		"vmulpd		%%zmm8,%%zmm9,%%zmm9	\n\t	vmulpd	%%zmm24,%%zmm25,%%zmm25	\n\t"\
-		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"\
-		/* x = (temp-cy*base[i])*wt: */\
-	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
-		/* Update and store weights: */\
+		/* Start update of weights while waiting for the paired MULPDs to complete: */\
 		"vcmppd	$1,%%zmm5,%%zmm14,%%k1		\n\t	vcmppd	$1,%%zmm21,%%zmm14,%%k3	\n\t"\
 		"knotw	%%k1,%%k2					\n\t	knotw	%%k3,%%k4				\n\t"\
-		"vmovaps	%%zmm12,%%zmm7			\n\t	vmovaps	%%zmm12,%%zmm23			\n\t"\
+		"vmovaps	%%zmm12,%%zmm26			\n\t	vmovaps	%%zmm12,%%zmm27			\n\t"\
 		"vmovaps	%%zmm13,%%zmm8			\n\t	vmovaps	%%zmm13,%%zmm24			\n\t"\
-	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k2%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k4%}\n\t"\
-	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
-		"vmulpd		%%zmm5,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"/* x *= wt */\
-		"vmulpd		%%zmm7,%%zmm5,%%zmm5	\n\t	vmulpd	%%zmm23,%%zmm21,%%zmm21	\n\t"/* wt *= wts_mult[i] */\
-		"vmulpd		%%zmm8,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"/* cy_out */\
+	"vaddpd	%%zmm26,%%zmm26,%%zmm26%{%%k2%} \n\t vaddpd %%zmm27,%%zmm27,%%zmm27%{%%k4%}\n\t"\
+	"vaddpd	%%zmm8 ,%%zmm8 ,%%zmm8 %{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
+	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
+		"vmulpd		%%zmm26,%%zmm5,%%zmm26	\n\t	vmulpd	%%zmm27,%%zmm21,%%zmm27	\n\t"/* wt *= wts_mult[i] */\
+		"vmulpd		%%zmm8 ,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vmovaps	%%zmm26,0x600(%%rdi)	\n\t	vmovaps	%%zmm27,0x640(%%rdi)	\n\t"\
+		"vmovaps	%%zmm6,0x680(%%rdi)		\n\t	vmovaps	%%zmm22,0x6c0(%%rdi)	\n\t"\
+		/* x = (temp-cy*base[i])*wt: */\
+		"vmulpd		%%zmm5 ,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"\
 		/* Get ready for next set [IM3~] : */\
 		"vpaddd		(%%rbx),%%zmm3,%%zmm3	\n\t"\
 		"vpcmpgtd	%%zmm15,%%zmm3,%%k1		\n\t"\
 		"vpsubd	%%zmm15,%%zmm3,%%zmm3%{%%k1%}\n\t"\
 		"vmovaps	%%zmm0,0x180(%%rax) 	\n\t	vmovaps	%%zmm16,0x580(%%rax) 	\n\t"\
-		"vmovaps	%%zmm5,0x600(%%rdi)		\n\t	vmovaps	%%zmm21,0x640(%%rdi)	\n\t"\
-		"vmovaps	%%zmm6,0x680(%%rdi)		\n\t	vmovaps	%%zmm22,0x6c0(%%rdi)	\n\t"\
 		"\n\t"\
 	/**********************************/\
 	/* Do D.im 16-tet: Data in m0,16: */\
 	/**********************************/\
+	"movslq		%[__p3],%%r15			\n\t"\
+	"prefetcht2	(%%r14,%%r15,8)			\n\t"\
 		"vmovaps	0x1c0(%%rax),%%zmm0		\n\t	vmovaps	0x5c0(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0x780(%%rdi),%%zmm6		\n\t	vmovaps	0x7c0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0x700(%%rdi),%%zmm5		\n\t	vmovaps	0x740(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vmovaps	%%zmm11,%%zmm24			\n\t"\
+		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k3%}\n\t"\
 	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k4%}\n\t"\
-		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
 		"vmulpd		%%zmm8,%%zmm9,%%zmm9	\n\t	vmulpd	%%zmm24,%%zmm25,%%zmm25	\n\t"\
-		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"\
-		/* x = (temp-cy*base[i])*wt: */\
-	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
-		/* Update and store weights: */\
+		/* Start update of weights while waiting for the paired MULPDs to complete: */\
 		"vcmppd	$1,%%zmm5,%%zmm14,%%k1		\n\t	vcmppd	$1,%%zmm21,%%zmm14,%%k3	\n\t"\
 		"knotw	%%k1,%%k2					\n\t	knotw	%%k3,%%k4				\n\t"\
-		"vmovaps	%%zmm12,%%zmm7			\n\t	vmovaps	%%zmm12,%%zmm23			\n\t"\
+		"vmovaps	%%zmm12,%%zmm26			\n\t	vmovaps	%%zmm12,%%zmm27			\n\t"\
 		"vmovaps	%%zmm13,%%zmm8			\n\t	vmovaps	%%zmm13,%%zmm24			\n\t"\
-	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k2%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k4%}\n\t"\
-	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
-		"vmulpd		%%zmm5,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"/* x *= wt */\
-		"vmulpd		%%zmm7,%%zmm5,%%zmm5	\n\t	vmulpd	%%zmm23,%%zmm21,%%zmm21	\n\t"/* wt *= wts_mult[i] */\
-		"vmulpd		%%zmm8,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"/* cy_out */\
+	"vaddpd	%%zmm26,%%zmm26,%%zmm26%{%%k2%} \n\t vaddpd %%zmm27,%%zmm27,%%zmm27%{%%k4%}\n\t"\
+	"vaddpd	%%zmm8 ,%%zmm8 ,%%zmm8 %{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
+	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
+		"vmulpd		%%zmm26,%%zmm5,%%zmm26	\n\t	vmulpd	%%zmm27,%%zmm21,%%zmm27	\n\t"/* wt *= wts_mult[i] */\
+		"vmulpd		%%zmm8 ,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vmovaps	%%zmm26,0x700(%%rdi)	\n\t	vmovaps	%%zmm27,0x740(%%rdi)	\n\t"\
+		"vmovaps	%%zmm6,0x780(%%rdi)		\n\t	vmovaps	%%zmm22,0x7c0(%%rdi)	\n\t"\
+		/* x = (temp-cy*base[i])*wt: */\
+		"vmulpd		%%zmm5 ,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"\
 		/* Get ready for next set [RE4~] : */\
 		"vpaddd		(%%rbx),%%zmm3,%%zmm3	\n\t"\
 		"vpcmpgtd	%%zmm15,%%zmm3,%%k1		\n\t"\
 		"vpsubd	%%zmm15,%%zmm3,%%zmm3%{%%k1%}\n\t"\
 		"vmovaps	%%zmm0,0x1c0(%%rax) 	\n\t	vmovaps	%%zmm16,0x5c0(%%rax) 	\n\t"\
-		"vmovaps	%%zmm5,0x700(%%rdi)		\n\t	vmovaps	%%zmm21,0x740(%%rdi)	\n\t"\
-		"vmovaps	%%zmm6,0x780(%%rdi)		\n\t	vmovaps	%%zmm22,0x7c0(%%rdi)	\n\t"\
 		"\n\t"\
 	/**********************************/\
 	/* Do E.re 16-tet: Data in m0,16: */\
 	/**********************************/\
+	"movslq		%[__p4],%%r15			\n\t"\
+	"leaq		(%%r14,%%r15,8),%%r14	\n\t"\
+	"prefetcht2	(%%r14)					\n\t"\
 		"vmovaps	0x200(%%rax),%%zmm0		\n\t	vmovaps	0x600(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0x880(%%rdi),%%zmm6		\n\t	vmovaps	0x8c0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0x800(%%rdi),%%zmm5		\n\t	vmovaps	0x840(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vmovaps	%%zmm11,%%zmm24			\n\t"\
+		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k3%}\n\t"\
 	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k4%}\n\t"\
-		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
 		"vmulpd		%%zmm8,%%zmm9,%%zmm9	\n\t	vmulpd	%%zmm24,%%zmm25,%%zmm25	\n\t"\
-		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"\
-		/* x = (temp-cy*base[i])*wt: */\
-	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
-		/* Update and store weights: */\
+		/* Start update of weights while waiting for the paired MULPDs to complete: */\
 		"vcmppd	$1,%%zmm5,%%zmm14,%%k1		\n\t	vcmppd	$1,%%zmm21,%%zmm14,%%k3	\n\t"\
 		"knotw	%%k1,%%k2					\n\t	knotw	%%k3,%%k4				\n\t"\
-		"vmovaps	%%zmm12,%%zmm7			\n\t	vmovaps	%%zmm12,%%zmm23			\n\t"\
+		"vmovaps	%%zmm12,%%zmm26			\n\t	vmovaps	%%zmm12,%%zmm27			\n\t"\
 		"vmovaps	%%zmm13,%%zmm8			\n\t	vmovaps	%%zmm13,%%zmm24			\n\t"\
-	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k2%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k4%}\n\t"\
-	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
-		"vmulpd		%%zmm5,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"/* x *= wt */\
-		"vmulpd		%%zmm7,%%zmm5,%%zmm5	\n\t	vmulpd	%%zmm23,%%zmm21,%%zmm21	\n\t"/* wt *= wts_mult[i] */\
-		"vmulpd		%%zmm8,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"/* cy_out */\
+	"vaddpd	%%zmm26,%%zmm26,%%zmm26%{%%k2%} \n\t vaddpd %%zmm27,%%zmm27,%%zmm27%{%%k4%}\n\t"\
+	"vaddpd	%%zmm8 ,%%zmm8 ,%%zmm8 %{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
+	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
+		"vmulpd		%%zmm26,%%zmm5,%%zmm26	\n\t	vmulpd	%%zmm27,%%zmm21,%%zmm27	\n\t"/* wt *= wts_mult[i] */\
+		"vmulpd		%%zmm8 ,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vmovaps	%%zmm26,0x800(%%rdi)	\n\t	vmovaps	%%zmm27,0x840(%%rdi)	\n\t"\
+		"vmovaps	%%zmm6,0x880(%%rdi)		\n\t	vmovaps	%%zmm22,0x8c0(%%rdi)	\n\t"\
+		/* x = (temp-cy*base[i])*wt: */\
+		"vmulpd		%%zmm5 ,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"\
 		/* Get ready for next set [IM4~] : */\
 		"vpaddd		(%%rbx),%%zmm3,%%zmm3	\n\t"\
 		"vpcmpgtd	%%zmm15,%%zmm3,%%k1		\n\t"\
 		"vpsubd	%%zmm15,%%zmm3,%%zmm3%{%%k1%}\n\t"\
 		"vmovaps	%%zmm0,0x200(%%rax) 	\n\t	vmovaps	%%zmm16,0x600(%%rax) 	\n\t"\
-		"vmovaps	%%zmm5,0x800(%%rdi)		\n\t	vmovaps	%%zmm21,0x840(%%rdi)	\n\t"\
-		"vmovaps	%%zmm6,0x880(%%rdi)		\n\t	vmovaps	%%zmm22,0x8c0(%%rdi)	\n\t"\
 		"\n\t"\
 	/**********************************/\
 	/* Do E.im 16-tet: Data in m0,16: */\
 	/**********************************/\
+	"movslq		%[__p1],%%r15			\n\t"\
+	"prefetcht2	(%%r14,%%r15,8)			\n\t"\
 		"vmovaps	0x240(%%rax),%%zmm0		\n\t	vmovaps	0x640(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0x980(%%rdi),%%zmm6		\n\t	vmovaps	0x9c0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0x900(%%rdi),%%zmm5		\n\t	vmovaps	0x940(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vmovaps	%%zmm11,%%zmm24			\n\t"\
+		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k3%}\n\t"\
 	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k4%}\n\t"\
-		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
 		"vmulpd		%%zmm8,%%zmm9,%%zmm9	\n\t	vmulpd	%%zmm24,%%zmm25,%%zmm25	\n\t"\
-		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"\
-		/* x = (temp-cy*base[i])*wt: */\
-	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
-		/* Update and store weights: */\
+		/* Start update of weights while waiting for the paired MULPDs to complete: */\
 		"vcmppd	$1,%%zmm5,%%zmm14,%%k1		\n\t	vcmppd	$1,%%zmm21,%%zmm14,%%k3	\n\t"\
 		"knotw	%%k1,%%k2					\n\t	knotw	%%k3,%%k4				\n\t"\
-		"vmovaps	%%zmm12,%%zmm7			\n\t	vmovaps	%%zmm12,%%zmm23			\n\t"\
+		"vmovaps	%%zmm12,%%zmm26			\n\t	vmovaps	%%zmm12,%%zmm27			\n\t"\
 		"vmovaps	%%zmm13,%%zmm8			\n\t	vmovaps	%%zmm13,%%zmm24			\n\t"\
-	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k2%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k4%}\n\t"\
-	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
-		"vmulpd		%%zmm5,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"/* x *= wt */\
-		"vmulpd		%%zmm7,%%zmm5,%%zmm5	\n\t	vmulpd	%%zmm23,%%zmm21,%%zmm21	\n\t"/* wt *= wts_mult[i] */\
-		"vmulpd		%%zmm8,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"/* cy_out */\
+	"vaddpd	%%zmm26,%%zmm26,%%zmm26%{%%k2%} \n\t vaddpd %%zmm27,%%zmm27,%%zmm27%{%%k4%}\n\t"\
+	"vaddpd	%%zmm8 ,%%zmm8 ,%%zmm8 %{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
+	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
+		"vmulpd		%%zmm26,%%zmm5,%%zmm26	\n\t	vmulpd	%%zmm27,%%zmm21,%%zmm27	\n\t"/* wt *= wts_mult[i] */\
+		"vmulpd		%%zmm8 ,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vmovaps	%%zmm26,0x900(%%rdi)	\n\t	vmovaps	%%zmm27,0x940(%%rdi)	\n\t"\
+		"vmovaps	%%zmm6,0x980(%%rdi)		\n\t	vmovaps	%%zmm22,0x9c0(%%rdi)	\n\t"\
+		/* x = (temp-cy*base[i])*wt: */\
+		"vmulpd		%%zmm5 ,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"\
 		/* Get ready for next set [RE5~] : */\
 		"vpaddd		(%%rbx),%%zmm3,%%zmm3	\n\t"\
 		"vpcmpgtd	%%zmm15,%%zmm3,%%k1		\n\t"\
 		"vpsubd	%%zmm15,%%zmm3,%%zmm3%{%%k1%}\n\t"\
 		"vmovaps	%%zmm0,0x240(%%rax) 	\n\t	vmovaps	%%zmm16,0x640(%%rax) 	\n\t"\
-		"vmovaps	%%zmm5,0x900(%%rdi)		\n\t	vmovaps	%%zmm21,0x940(%%rdi)	\n\t"\
-		"vmovaps	%%zmm6,0x980(%%rdi)		\n\t	vmovaps	%%zmm22,0x9c0(%%rdi)	\n\t"\
 		"\n\t"\
 	/**********************************/\
 	/* Do F.re 16-tet: Data in m0,16: */\
 	/**********************************/\
+	"movslq		%[__p2],%%r15			\n\t"\
+	"prefetcht2	(%%r14,%%r15,8)			\n\t"\
 		"vmovaps	0x280(%%rax),%%zmm0		\n\t	vmovaps	0x680(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0xa80(%%rdi),%%zmm6		\n\t	vmovaps	0xac0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0xa00(%%rdi),%%zmm5		\n\t	vmovaps	0xa40(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vmovaps	%%zmm11,%%zmm24			\n\t"\
+		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k3%}\n\t"\
 	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k4%}\n\t"\
-		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
 		"vmulpd		%%zmm8,%%zmm9,%%zmm9	\n\t	vmulpd	%%zmm24,%%zmm25,%%zmm25	\n\t"\
-		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"\
-		/* x = (temp-cy*base[i])*wt: */\
-	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
-		/* Update and store weights: */\
+		/* Start update of weights while waiting for the paired MULPDs to complete: */\
 		"vcmppd	$1,%%zmm5,%%zmm14,%%k1		\n\t	vcmppd	$1,%%zmm21,%%zmm14,%%k3	\n\t"\
 		"knotw	%%k1,%%k2					\n\t	knotw	%%k3,%%k4				\n\t"\
-		"vmovaps	%%zmm12,%%zmm7			\n\t	vmovaps	%%zmm12,%%zmm23			\n\t"\
+		"vmovaps	%%zmm12,%%zmm26			\n\t	vmovaps	%%zmm12,%%zmm27			\n\t"\
 		"vmovaps	%%zmm13,%%zmm8			\n\t	vmovaps	%%zmm13,%%zmm24			\n\t"\
-	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k2%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k4%}\n\t"\
-	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
-		"vmulpd		%%zmm5,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"/* x *= wt */\
-		"vmulpd		%%zmm7,%%zmm5,%%zmm5	\n\t	vmulpd	%%zmm23,%%zmm21,%%zmm21	\n\t"/* wt *= wts_mult[i] */\
-		"vmulpd		%%zmm8,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"/* cy_out */\
+	"vaddpd	%%zmm26,%%zmm26,%%zmm26%{%%k2%} \n\t vaddpd %%zmm27,%%zmm27,%%zmm27%{%%k4%}\n\t"\
+	"vaddpd	%%zmm8 ,%%zmm8 ,%%zmm8 %{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
+	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
+		"vmulpd		%%zmm26,%%zmm5,%%zmm26	\n\t	vmulpd	%%zmm27,%%zmm21,%%zmm27	\n\t"/* wt *= wts_mult[i] */\
+		"vmulpd		%%zmm8 ,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vmovaps	%%zmm26,0xa00(%%rdi)	\n\t	vmovaps	%%zmm27,0xa40(%%rdi)	\n\t"\
+		"vmovaps	%%zmm6,0xa80(%%rdi)		\n\t	vmovaps	%%zmm22,0xac0(%%rdi)	\n\t"\
+		/* x = (temp-cy*base[i])*wt: */\
+		"vmulpd		%%zmm5 ,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"\
 		/* Get ready for next set [IM5~] : */\
 		"vpaddd		(%%rbx),%%zmm3,%%zmm3	\n\t"\
 		"vpcmpgtd	%%zmm15,%%zmm3,%%k1		\n\t"\
 		"vpsubd	%%zmm15,%%zmm3,%%zmm3%{%%k1%}\n\t"\
 		"vmovaps	%%zmm0,0x280(%%rax) 	\n\t	vmovaps	%%zmm16,0x680(%%rax) 	\n\t"\
-		"vmovaps	%%zmm5,0xa00(%%rdi)		\n\t	vmovaps	%%zmm21,0xa40(%%rdi)	\n\t"\
-		"vmovaps	%%zmm6,0xa80(%%rdi)		\n\t	vmovaps	%%zmm22,0xac0(%%rdi)	\n\t"\
 		"\n\t"\
 	/**********************************/\
 	/* Do F.im 16-tet: Data in m0,16: */\
 	/**********************************/\
+	"movslq		%[__p3],%%r15			\n\t"\
+	"prefetcht2	(%%r14,%%r15,8)			\n\t"\
 		"vmovaps	0x2c0(%%rax),%%zmm0		\n\t	vmovaps	0x6c0(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0xb80(%%rdi),%%zmm6		\n\t	vmovaps	0xbc0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0xb00(%%rdi),%%zmm5		\n\t	vmovaps	0xb40(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vmovaps	%%zmm11,%%zmm24			\n\t"\
+		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k3%}\n\t"\
 	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k4%}\n\t"\
-		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
 		"vmulpd		%%zmm8,%%zmm9,%%zmm9	\n\t	vmulpd	%%zmm24,%%zmm25,%%zmm25	\n\t"\
-		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"\
-		/* x = (temp-cy*base[i])*wt: */\
-	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
-		/* Update and store weights: */\
+		/* Start update of weights while waiting for the paired MULPDs to complete: */\
 		"vcmppd	$1,%%zmm5,%%zmm14,%%k1		\n\t	vcmppd	$1,%%zmm21,%%zmm14,%%k3	\n\t"\
 		"knotw	%%k1,%%k2					\n\t	knotw	%%k3,%%k4				\n\t"\
-		"vmovaps	%%zmm12,%%zmm7			\n\t	vmovaps	%%zmm12,%%zmm23			\n\t"\
+		"vmovaps	%%zmm12,%%zmm26			\n\t	vmovaps	%%zmm12,%%zmm27			\n\t"\
 		"vmovaps	%%zmm13,%%zmm8			\n\t	vmovaps	%%zmm13,%%zmm24			\n\t"\
-	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k2%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k4%}\n\t"\
-	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
-		"vmulpd		%%zmm5,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"/* x *= wt */\
-		"vmulpd		%%zmm7,%%zmm5,%%zmm5	\n\t	vmulpd	%%zmm23,%%zmm21,%%zmm21	\n\t"/* wt *= wts_mult[i] */\
-		"vmulpd		%%zmm8,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"/* cy_out */\
+	"vaddpd	%%zmm26,%%zmm26,%%zmm26%{%%k2%} \n\t vaddpd %%zmm27,%%zmm27,%%zmm27%{%%k4%}\n\t"\
+	"vaddpd	%%zmm8 ,%%zmm8 ,%%zmm8 %{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
+	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
+		"vmulpd		%%zmm26,%%zmm5,%%zmm26	\n\t	vmulpd	%%zmm27,%%zmm21,%%zmm27	\n\t"/* wt *= wts_mult[i] */\
+		"vmulpd		%%zmm8 ,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vmovaps	%%zmm26,0xb00(%%rdi)	\n\t	vmovaps	%%zmm27,0xb40(%%rdi)	\n\t"\
+		"vmovaps	%%zmm6,0xb80(%%rdi)		\n\t	vmovaps	%%zmm22,0xbc0(%%rdi)	\n\t"\
+		/* x = (temp-cy*base[i])*wt: */\
+		"vmulpd		%%zmm5 ,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"\
 		/* Get ready for next set [RE6~] : */\
 		"vpaddd		(%%rbx),%%zmm3,%%zmm3	\n\t"\
 		"vpcmpgtd	%%zmm15,%%zmm3,%%k1		\n\t"\
 		"vpsubd	%%zmm15,%%zmm3,%%zmm3%{%%k1%}\n\t"\
 		"vmovaps	%%zmm0,0x2c0(%%rax) 	\n\t	vmovaps	%%zmm16,0x6c0(%%rax) 	\n\t"\
-		"vmovaps	%%zmm5,0xb00(%%rdi)		\n\t	vmovaps	%%zmm21,0xb40(%%rdi)	\n\t"\
-		"vmovaps	%%zmm6,0xb80(%%rdi)		\n\t	vmovaps	%%zmm22,0xbc0(%%rdi)	\n\t"\
 		"\n\t"\
 	/**********************************/\
 	/* Do G.re 16-tet: Data in m0,16: */\
 	/**********************************/\
+	"movslq		%[__p4],%%r15			\n\t"\
+	"leaq		(%%r14,%%r15,8),%%r14	\n\t"\
+	"prefetcht2	(%%r14)					\n\t"\
 		"vmovaps	0x300(%%rax),%%zmm0		\n\t	vmovaps	0x700(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0xc80(%%rdi),%%zmm6		\n\t	vmovaps	0xcc0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0xc00(%%rdi),%%zmm5		\n\t	vmovaps	0xc40(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vmovaps	%%zmm11,%%zmm24			\n\t"\
+		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k3%}\n\t"\
 	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k4%}\n\t"\
-		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
 		"vmulpd		%%zmm8,%%zmm9,%%zmm9	\n\t	vmulpd	%%zmm24,%%zmm25,%%zmm25	\n\t"\
-		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"\
-		/* x = (temp-cy*base[i])*wt: */\
-	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
-		/* Update and store weights: */\
+		/* Start update of weights while waiting for the paired MULPDs to complete: */\
 		"vcmppd	$1,%%zmm5,%%zmm14,%%k1		\n\t	vcmppd	$1,%%zmm21,%%zmm14,%%k3	\n\t"\
 		"knotw	%%k1,%%k2					\n\t	knotw	%%k3,%%k4				\n\t"\
-		"vmovaps	%%zmm12,%%zmm7			\n\t	vmovaps	%%zmm12,%%zmm23			\n\t"\
+		"vmovaps	%%zmm12,%%zmm26			\n\t	vmovaps	%%zmm12,%%zmm27			\n\t"\
 		"vmovaps	%%zmm13,%%zmm8			\n\t	vmovaps	%%zmm13,%%zmm24			\n\t"\
-	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k2%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k4%}\n\t"\
-	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
-		"vmulpd		%%zmm5,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"/* x *= wt */\
-		"vmulpd		%%zmm7,%%zmm5,%%zmm5	\n\t	vmulpd	%%zmm23,%%zmm21,%%zmm21	\n\t"/* wt *= wts_mult[i] */\
-		"vmulpd		%%zmm8,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"/* cy_out */\
+	"vaddpd	%%zmm26,%%zmm26,%%zmm26%{%%k2%} \n\t vaddpd %%zmm27,%%zmm27,%%zmm27%{%%k4%}\n\t"\
+	"vaddpd	%%zmm8 ,%%zmm8 ,%%zmm8 %{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
+	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
+		"vmulpd		%%zmm26,%%zmm5,%%zmm26	\n\t	vmulpd	%%zmm27,%%zmm21,%%zmm27	\n\t"/* wt *= wts_mult[i] */\
+		"vmulpd		%%zmm8 ,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vmovaps	%%zmm26,0xc00(%%rdi)	\n\t	vmovaps	%%zmm27,0xc40(%%rdi)	\n\t"\
+		"vmovaps	%%zmm6,0xc80(%%rdi)		\n\t	vmovaps	%%zmm22,0xcc0(%%rdi)	\n\t"\
+		/* x = (temp-cy*base[i])*wt: */\
+		"vmulpd		%%zmm5 ,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"\
 		/* Get ready for next set [IM6~] : */\
 		"vpaddd		(%%rbx),%%zmm3,%%zmm3	\n\t"\
 		"vpcmpgtd	%%zmm15,%%zmm3,%%k1		\n\t"\
 		"vpsubd	%%zmm15,%%zmm3,%%zmm3%{%%k1%}\n\t"\
 		"vmovaps	%%zmm0,0x300(%%rax) 	\n\t	vmovaps	%%zmm16,0x700(%%rax) 	\n\t"\
-		"vmovaps	%%zmm5,0xc00(%%rdi)		\n\t	vmovaps	%%zmm21,0xc40(%%rdi)	\n\t"\
-		"vmovaps	%%zmm6,0xc80(%%rdi)		\n\t	vmovaps	%%zmm22,0xcc0(%%rdi)	\n\t"\
 		"\n\t"\
 	/**********************************/\
 	/* Do G.im 16-tet: Data in m0,16: */\
 	/**********************************/\
+	"movslq		%[__p1],%%r15			\n\t"\
+	"prefetcht2	(%%r14,%%r15,8)			\n\t"\
 		"vmovaps	0x340(%%rax),%%zmm0		\n\t	vmovaps	0x740(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0xd80(%%rdi),%%zmm6		\n\t	vmovaps	0xdc0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0xd00(%%rdi),%%zmm5		\n\t	vmovaps	0xd40(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vmovaps	%%zmm11,%%zmm24			\n\t"\
+		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k3%}\n\t"\
 	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k4%}\n\t"\
-		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
 		"vmulpd		%%zmm8,%%zmm9,%%zmm9	\n\t	vmulpd	%%zmm24,%%zmm25,%%zmm25	\n\t"\
-		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"\
-		/* x = (temp-cy*base[i])*wt: */\
-	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
-		/* Update and store weights: */\
+		/* Start update of weights while waiting for the paired MULPDs to complete: */\
 		"vcmppd	$1,%%zmm5,%%zmm14,%%k1		\n\t	vcmppd	$1,%%zmm21,%%zmm14,%%k3	\n\t"\
 		"knotw	%%k1,%%k2					\n\t	knotw	%%k3,%%k4				\n\t"\
-		"vmovaps	%%zmm12,%%zmm7			\n\t	vmovaps	%%zmm12,%%zmm23			\n\t"\
+		"vmovaps	%%zmm12,%%zmm26			\n\t	vmovaps	%%zmm12,%%zmm27			\n\t"\
 		"vmovaps	%%zmm13,%%zmm8			\n\t	vmovaps	%%zmm13,%%zmm24			\n\t"\
-	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k2%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k4%}\n\t"\
-	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
-		"vmulpd		%%zmm5,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"/* x *= wt */\
-		"vmulpd		%%zmm7,%%zmm5,%%zmm5	\n\t	vmulpd	%%zmm23,%%zmm21,%%zmm21	\n\t"/* wt *= wts_mult[i] */\
-		"vmulpd		%%zmm8,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"/* cy_out */\
+	"vaddpd	%%zmm26,%%zmm26,%%zmm26%{%%k2%} \n\t vaddpd %%zmm27,%%zmm27,%%zmm27%{%%k4%}\n\t"\
+	"vaddpd	%%zmm8 ,%%zmm8 ,%%zmm8 %{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
+	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
+		"vmulpd		%%zmm26,%%zmm5,%%zmm26	\n\t	vmulpd	%%zmm27,%%zmm21,%%zmm27	\n\t"/* wt *= wts_mult[i] */\
+		"vmulpd		%%zmm8 ,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vmovaps	%%zmm26,0xd00(%%rdi)	\n\t	vmovaps	%%zmm27,0xd40(%%rdi)	\n\t"\
+		"vmovaps	%%zmm6,0xd80(%%rdi)		\n\t	vmovaps	%%zmm22,0xdc0(%%rdi)	\n\t"\
+		/* x = (temp-cy*base[i])*wt: */\
+		"vmulpd		%%zmm5 ,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"\
 		/* Get ready for next set [RE7~] : */\
 		"vpaddd		(%%rbx),%%zmm3,%%zmm3	\n\t"\
 		"vpcmpgtd	%%zmm15,%%zmm3,%%k1		\n\t"\
 		"vpsubd	%%zmm15,%%zmm3,%%zmm3%{%%k1%}\n\t"\
 		"vmovaps	%%zmm0,0x340(%%rax) 	\n\t	vmovaps	%%zmm16,0x740(%%rax) 	\n\t"\
-		"vmovaps	%%zmm5,0xd00(%%rdi)		\n\t	vmovaps	%%zmm21,0xd40(%%rdi)	\n\t"\
-		"vmovaps	%%zmm6,0xd80(%%rdi)		\n\t	vmovaps	%%zmm22,0xdc0(%%rdi)	\n\t"\
 		"\n\t"\
 	/**********************************/\
 	/* Do H.re 16-tet: Data in m0,16: */\
 	/**********************************/\
+	"movslq		%[__p2],%%r15			\n\t"\
+	"prefetcht2	(%%r14,%%r15,8)			\n\t"\
 		"vmovaps	0x380(%%rax),%%zmm0		\n\t	vmovaps	0x780(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0xe80(%%rdi),%%zmm6		\n\t	vmovaps	0xec0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0xe00(%%rdi),%%zmm5		\n\t	vmovaps	0xe40(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vmovaps	%%zmm11,%%zmm24			\n\t"\
+		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k3%}\n\t"\
 	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k4%}\n\t"\
-		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
 		"vmulpd		%%zmm8,%%zmm9,%%zmm9	\n\t	vmulpd	%%zmm24,%%zmm25,%%zmm25	\n\t"\
-		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"\
-		/* x = (temp-cy*base[i])*wt: */\
-	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
-		/* Update and store weights: */\
+		/* Start update of weights while waiting for the paired MULPDs to complete: */\
 		"vcmppd	$1,%%zmm5,%%zmm14,%%k1		\n\t	vcmppd	$1,%%zmm21,%%zmm14,%%k3	\n\t"\
 		"knotw	%%k1,%%k2					\n\t	knotw	%%k3,%%k4				\n\t"\
-		"vmovaps	%%zmm12,%%zmm7			\n\t	vmovaps	%%zmm12,%%zmm23			\n\t"\
+		"vmovaps	%%zmm12,%%zmm26			\n\t	vmovaps	%%zmm12,%%zmm27			\n\t"\
 		"vmovaps	%%zmm13,%%zmm8			\n\t	vmovaps	%%zmm13,%%zmm24			\n\t"\
-	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k2%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k4%}\n\t"\
-	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
-		"vmulpd		%%zmm5,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"/* x *= wt */\
-		"vmulpd		%%zmm7,%%zmm5,%%zmm5	\n\t	vmulpd	%%zmm23,%%zmm21,%%zmm21	\n\t"/* wt *= wts_mult[i] */\
-		"vmulpd		%%zmm8,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"/* cy_out */\
+	"vaddpd	%%zmm26,%%zmm26,%%zmm26%{%%k2%} \n\t vaddpd %%zmm27,%%zmm27,%%zmm27%{%%k4%}\n\t"\
+	"vaddpd	%%zmm8 ,%%zmm8 ,%%zmm8 %{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
+	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
+		"vmulpd		%%zmm26,%%zmm5,%%zmm26	\n\t	vmulpd	%%zmm27,%%zmm21,%%zmm27	\n\t"/* wt *= wts_mult[i] */\
+		"vmulpd		%%zmm8 ,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vmovaps	%%zmm26,0xe00(%%rdi)	\n\t	vmovaps	%%zmm27,0xe40(%%rdi)	\n\t"\
+		"vmovaps	%%zmm6,0xe80(%%rdi)		\n\t	vmovaps	%%zmm22,0xec0(%%rdi)	\n\t"\
+		/* x = (temp-cy*base[i])*wt: */\
+		"vmulpd		%%zmm5 ,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"\
 		/* Get ready for next set [IM7~] : */\
 		"vpaddd		(%%rbx),%%zmm3,%%zmm3	\n\t"\
 		"vpcmpgtd	%%zmm15,%%zmm3,%%k1		\n\t"\
 		"vpsubd	%%zmm15,%%zmm3,%%zmm3%{%%k1%}\n\t"\
 		"vmovaps	%%zmm0,0x380(%%rax) 	\n\t	vmovaps	%%zmm16,0x780(%%rax) 	\n\t"\
-		"vmovaps	%%zmm5,0xe00(%%rdi)		\n\t	vmovaps	%%zmm21,0xe40(%%rdi)	\n\t"\
-		"vmovaps	%%zmm6,0xe80(%%rdi)		\n\t	vmovaps	%%zmm22,0xec0(%%rdi)	\n\t"\
 		"\n\t"\
 	/**********************************/\
 	/* Do H.im 16-tet: Data in m0,16: */\
 	/**********************************/\
+	"movslq		%[__p3],%%r15			\n\t"\
+	"prefetcht2	(%%r14,%%r15,8)			\n\t"\
 		"vmovaps	0x3c0(%%rax),%%zmm0		\n\t	vmovaps	0x7c0(%%rax),%%zmm16	\n\t"\
 		"vmovaps	0xf80(%%rdi),%%zmm6		\n\t	vmovaps	0xfc0(%%rdi),%%zmm22	\n\t"\
 		"vmovaps	0xf00(%%rdi),%%zmm5		\n\t	vmovaps	0xf40(%%rdi),%%zmm21	\n\t"\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t vfmadd132pd %%zmm22,%%zmm17,%%zmm16\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t	vmulpd	%%zmm22,%%zmm16,%%zmm16	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"kshiftrw	$8,%%k1,%%k3			\n\t	kshiftrw	$8,%%k2,%%k4		\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vmovaps	%%zmm10,%%zmm23			\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vmovaps	%%zmm11,%%zmm24			\n\t"\
+		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k3%}\n\t"\
 	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k4%}\n\t"\
-		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t	vrndscalepd	$0,%%zmm16,%%zmm25	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t	vsubpd	%%zmm25,%%zmm16,%%zmm16	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t	vpandq	(%%rsi),%%zmm16,%%zmm16	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t vfmadd132pd %%zmm20,%%zmm17,%%zmm25\n\t"\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t	vmaxpd	%%zmm18,%%zmm16,%%zmm18	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t	vmovaps	%%zmm25,%%zmm16			\n\t"\
 		"vmulpd		%%zmm8,%%zmm9,%%zmm9	\n\t	vmulpd	%%zmm24,%%zmm25,%%zmm25	\n\t"\
-		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"\
-		/* x = (temp-cy*base[i])*wt: */\
-	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
-		/* Update and store weights: */\
+		/* Start update of weights while waiting for the paired MULPDs to complete: */\
 		"vcmppd	$1,%%zmm5,%%zmm14,%%k1		\n\t	vcmppd	$1,%%zmm21,%%zmm14,%%k3	\n\t"\
 		"knotw	%%k1,%%k2					\n\t	knotw	%%k3,%%k4				\n\t"\
-		"vmovaps	%%zmm12,%%zmm7			\n\t	vmovaps	%%zmm12,%%zmm23			\n\t"\
+		"vmovaps	%%zmm12,%%zmm26			\n\t	vmovaps	%%zmm12,%%zmm27			\n\t"\
 		"vmovaps	%%zmm13,%%zmm8			\n\t	vmovaps	%%zmm13,%%zmm24			\n\t"\
-	"vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k2%} \n\t vaddpd %%zmm23,%%zmm23,%%zmm23%{%%k4%}\n\t"\
-	"vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
-		"vmulpd		%%zmm5,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"/* x *= wt */\
-		"vmulpd		%%zmm7,%%zmm5,%%zmm5	\n\t	vmulpd	%%zmm23,%%zmm21,%%zmm21	\n\t"/* wt *= wts_mult[i] */\
-		"vmulpd		%%zmm8,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vrndscalepd	$0,%%zmm9,%%zmm1	\n\t	vrndscalepd	$0,%%zmm25,%%zmm17	\n\t"/* cy_out */\
+	"vaddpd	%%zmm26,%%zmm26,%%zmm26%{%%k2%} \n\t vaddpd %%zmm27,%%zmm27,%%zmm27%{%%k4%}\n\t"\
+	"vaddpd	%%zmm8 ,%%zmm8 ,%%zmm8 %{%%k1%} \n\t vaddpd %%zmm24,%%zmm24,%%zmm24%{%%k3%}\n\t"\
+	"vfnmadd231pd	%%zmm7,%%zmm1,%%zmm0	\n\t vfnmadd231pd	%%zmm23,%%zmm17,%%zmm16	\n\t"\
+		"vmulpd		%%zmm26,%%zmm5,%%zmm26	\n\t	vmulpd	%%zmm27,%%zmm21,%%zmm27	\n\t"/* wt *= wts_mult[i] */\
+		"vmulpd		%%zmm8 ,%%zmm6,%%zmm6	\n\t	vmulpd	%%zmm24,%%zmm22,%%zmm22	\n\t"/* wi *= inv_mult[i] */\
+		"vmovaps	%%zmm26,0xf00(%%rdi)	\n\t	vmovaps	%%zmm27,0xf40(%%rdi)	\n\t"\
+		"vmovaps	%%zmm6,0xf80(%%rdi)		\n\t	vmovaps	%%zmm22,0xfc0(%%rdi)	\n\t"\
+		/* x = (temp-cy*base[i])*wt: */\
+		"vmulpd		%%zmm5 ,%%zmm0,%%zmm0 	\n\t	vmulpd	%%zmm21,%%zmm16,%%zmm16	\n\t"\
 		/* Get ready for next set [RE8~] : */\
 		"vpaddd		(%%rbx),%%zmm3,%%zmm3	\n\t"\
 		"vpcmpgtd	%%zmm15,%%zmm3,%%k1		\n\t"\
 		"vpsubd	%%zmm15,%%zmm3,%%zmm3%{%%k1%}\n\t"\
 		"vmovaps	%%zmm0,0x3c0(%%rax) 	\n\t	vmovaps	%%zmm16,0x7c0(%%rax) 	\n\t"\
-		"vmovaps	%%zmm5,0xf00(%%rdi)		\n\t	vmovaps	%%zmm21,0xf40(%%rdi)	\n\t"\
-		"vmovaps	%%zmm6,0xf80(%%rdi)		\n\t	vmovaps	%%zmm22,0xfc0(%%rdi)	\n\t"\
 		"\n\t"\
 		/* Store the bjmodn[0:15] index 16-tet: */\
 		"movq	%[__bjmod_0],%%rbx			\n\t	vmovaps	%%zmm3,(%%rbx)	\n\t"\
@@ -13048,101 +13343,107 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* Store maxerr, after merging the separate lcol,rcol maxerr results: */\
 		"vmaxpd	%%zmm2,%%zmm18,%%zmm2		\n\t	vmovaps	%%zmm2,-0x80(%%rdi)		\n\t"\
 	/* 8-way transpose of outputs (Re, Im parts separately): Inputs from r0-f. Outputs into r0-f: */	\
+		"movl	$0b00110011,%%eax	\n\t"/* Carry step has overwritten k1, re-init for transpose */\
+		"kmovw	%%eax,%%k1			\n\t"\
 		"movq		%[__data],%%rax		\n\t"\
-	/* Real parts use zmm0,2,4,6,8,10,12,14, zmm16 as tmp-reg:					Imag parts use zmm1,3,5,7,9,11,13,15, zmm17 as tmp-reg: */\
 		/* Read in the 8 rows of our input matrix: */\
-		"vmovaps		0x000(%%rax),%%zmm0 									\n\t	vmovaps		0x040(%%rax),%%zmm1 	\n\t"\
-		"vmovaps		0x080(%%rax),%%zmm2 									\n\t	vmovaps		0x0c0(%%rax),%%zmm3 	\n\t"\
-		"vmovaps		0x100(%%rax),%%zmm4 									\n\t	vmovaps		0x140(%%rax),%%zmm5 	\n\t"\
-		"vmovaps		0x180(%%rax),%%zmm6 									\n\t	vmovaps		0x1c0(%%rax),%%zmm7 	\n\t"\
-		"vmovaps		0x200(%%rax),%%zmm8 									\n\t	vmovaps		0x240(%%rax),%%zmm9 	\n\t"\
-		"vmovaps		0x280(%%rax),%%zmm10									\n\t	vmovaps		0x2c0(%%rax),%%zmm11	\n\t"\
-		"vmovaps		0x300(%%rax),%%zmm12									\n\t	vmovaps		0x340(%%rax),%%zmm13	\n\t"\
-		"vmovaps		0x380(%%rax),%%zmm14									\n\t	vmovaps		0x3c0(%%rax),%%zmm15	\n\t"\
-		/* [1] First step is a quartet of [UNPCKLPD,UNPCKHPD] pairs to effect transposed 2x2 submatrices - VUNPCK latency 4-7, rthru = 2: */\
-		"vunpckhpd		 %%zmm2 ,%%zmm0 ,%%zmm16									\n\t	vunpckhpd		 %%zmm3 ,%%zmm1 ,%%zmm17									\n\t"/* zmm0  = 00 10 02 12 04 14 06 16 [after reg-copy on next line] */\
-		"vunpcklpd		 %%zmm2 ,%%zmm0 ,%%zmm0 	\n\t	vmovaps	%%zmm16,%%zmm2 	\n\t	vunpcklpd		 %%zmm3 ,%%zmm1 ,%%zmm1 	\n\t	vmovaps	%%zmm17,%%zmm3 	\n\t"/* zmm2  = 01 11 03 13 05 15 07 17 */\
-		"vunpckhpd		 %%zmm6 ,%%zmm4 ,%%zmm16									\n\t	vunpckhpd		 %%zmm7 ,%%zmm5 ,%%zmm17									\n\t"/* zmm4  = 20 30 22 32 24 34 26 36 */\
-		"vunpcklpd		 %%zmm6 ,%%zmm4 ,%%zmm4 	\n\t	vmovaps	%%zmm16,%%zmm6 	\n\t	vunpcklpd		 %%zmm7 ,%%zmm5 ,%%zmm5 	\n\t	vmovaps	%%zmm17,%%zmm7 	\n\t"/* zmm6  = 21 31 23 33 25 35 27 37 */\
-		"vunpckhpd		 %%zmm10,%%zmm8 ,%%zmm16									\n\t	vunpckhpd		 %%zmm11,%%zmm9 ,%%zmm17									\n\t"/* zmm8  = 40 50 42 52 44 54 46 56 */\
-		"vunpcklpd		 %%zmm10,%%zmm8 ,%%zmm8 	\n\t	vmovaps	%%zmm16,%%zmm10	\n\t	vunpcklpd		 %%zmm11,%%zmm9 ,%%zmm9 	\n\t	vmovaps	%%zmm17,%%zmm11	\n\t"/* zmm10 = 41 51 43 53 45 55 47 57 */\
-		"vunpckhpd		 %%zmm14,%%zmm12,%%zmm16									\n\t	vunpckhpd		 %%zmm15,%%zmm13,%%zmm17									\n\t"/* zmm12 = 60 70 62 72 64 74 66 76 */\
-		"vunpcklpd		 %%zmm14,%%zmm12,%%zmm12	\n\t	vmovaps	%%zmm16,%%zmm14	\n\t	vunpcklpd		 %%zmm15,%%zmm13,%%zmm13	\n\t	vmovaps	%%zmm17,%%zmm15	\n\t"/* zmm14 = 61 71 63 73 65 75 67 77 */\
-		/* [2] 1st layer of VSHUFF64x2, 2 outputs each with trailing index pairs [0,4],[1,5],[2,6],[3,7] - VSHUFF64x2 latency 4-7, rthru = 2: */\
-		"vshuff64x2	$136,%%zmm4 ,%%zmm0 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm5 ,%%zmm1 ,%%zmm17									\n\t"/* zmm0  = 00 10 04 14 20 30 24 34 */\
-		"vshuff64x2	$221,%%zmm4 ,%%zmm0 ,%%zmm4 	\n\t	vmovaps	%%zmm16,%%zmm0 	\n\t	vshuff64x2	$221,%%zmm5 ,%%zmm1 ,%%zmm5 	\n\t	vmovaps	%%zmm17,%%zmm1 	\n\t"/* zmm4  = 02 12 06 16 22 32 26 36 */\
-		"vshuff64x2	$136,%%zmm6 ,%%zmm2 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm7 ,%%zmm3 ,%%zmm17									\n\t"/* zmm2  = 01 11 05 15 21 31 25 35 */\
-		"vshuff64x2	$221,%%zmm6 ,%%zmm2 ,%%zmm6 	\n\t	vmovaps	%%zmm16,%%zmm2 	\n\t	vshuff64x2	$221,%%zmm7 ,%%zmm3 ,%%zmm7 	\n\t	vmovaps	%%zmm17,%%zmm3 	\n\t"/* zmm6  = 03 13 07 17 23 33 27 37 */\
-		"vshuff64x2	$136,%%zmm12,%%zmm8 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm13,%%zmm9 ,%%zmm17									\n\t"/* zmm8  = 40 50 44 54 60 70 64 74 */\
-		"vshuff64x2	$221,%%zmm12,%%zmm8 ,%%zmm12	\n\t	vmovaps	%%zmm16,%%zmm8 	\n\t	vshuff64x2	$221,%%zmm13,%%zmm9 ,%%zmm13	\n\t	vmovaps	%%zmm17,%%zmm9 	\n\t"/* zmm12 = 42 52 46 56 62 72 66 76 */\
-		"vshuff64x2	$136,%%zmm14,%%zmm10,%%zmm16									\n\t	vshuff64x2	$136,%%zmm15,%%zmm11,%%zmm17									\n\t"/* zmm10 = 41 51 45 55 61 71 65 75 */\
-		"vshuff64x2	$221,%%zmm14,%%zmm10,%%zmm14	\n\t	vmovaps	%%zmm16,%%zmm10	\n\t	vshuff64x2	$221,%%zmm15,%%zmm11,%%zmm15	\n\t	vmovaps	%%zmm17,%%zmm11	\n\t"/* zmm14 = 43 53 47 57 63 73 67 77 */\
-		/* [3] Last step in 2nd layer of VSHUFF64x2, now combining reg-pairs sharing same trailing index pairs: */\
-		"vshuff64x2	$136,%%zmm8 ,%%zmm0 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm9 ,%%zmm1 ,%%zmm17									\n\t"/* zmm0  = 00 10 20 30 40 50 60 70 */\
-		"vshuff64x2	$221,%%zmm8 ,%%zmm0 ,%%zmm8 	\n\t	vmovaps	%%zmm16,%%zmm0 	\n\t	vshuff64x2	$221,%%zmm9 ,%%zmm1 ,%%zmm9 	\n\t	vmovaps	%%zmm17,%%zmm1 	\n\t"/* zmm8  = 04 14 24 34 44 54 64 74 */\
-		"vshuff64x2	$136,%%zmm10,%%zmm2 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm11,%%zmm3 ,%%zmm17									\n\t"/* zmm2  = 01 11 21 31 41 51 61 71 */\
-		"vshuff64x2	$221,%%zmm10,%%zmm2 ,%%zmm10	\n\t	vmovaps	%%zmm16,%%zmm2 	\n\t	vshuff64x2	$221,%%zmm11,%%zmm3 ,%%zmm11	\n\t	vmovaps	%%zmm17,%%zmm3 	\n\t"/* zmm10 = 05 15 25 35 45 55 65 75 */\
-		"vshuff64x2	$136,%%zmm12,%%zmm4 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm13,%%zmm5 ,%%zmm17									\n\t"/* zmm4  = 02 12 22 32 42 52 62 72 */\
-		"vshuff64x2	$221,%%zmm12,%%zmm4 ,%%zmm12	\n\t	vmovaps	%%zmm16,%%zmm4 	\n\t	vshuff64x2	$221,%%zmm13,%%zmm5 ,%%zmm13	\n\t	vmovaps	%%zmm17,%%zmm5 	\n\t"/* zmm12 = 06 16 26 36 46 56 66 76 */\
-		"vshuff64x2	$136,%%zmm14,%%zmm6 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm15,%%zmm7 ,%%zmm17									\n\t"/* zmm6  = 03 13 23 33 43 53 63 73 */\
-		"vshuff64x2	$221,%%zmm14,%%zmm6 ,%%zmm14	\n\t	vmovaps	%%zmm16,%%zmm6 	\n\t	vshuff64x2	$221,%%zmm15,%%zmm7 ,%%zmm15	\n\t	vmovaps	%%zmm17,%%zmm7 	\n\t"/* zmm14 = 07 17 27 37 47 57 67 77 */\
-		/* And write 'em back to memory: */\
-		/* Real parts:																		Imag parts: */\
-		"vmovaps	%%zmm0 ,0x000(%%rax)											\n\t	vmovaps	%%zmm1 ,0x040(%%rax)	\n\t"\
-		"vmovaps	%%zmm2 ,0x080(%%rax)											\n\t	vmovaps	%%zmm3 ,0x0c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm4 ,0x100(%%rax)											\n\t	vmovaps	%%zmm5 ,0x140(%%rax)	\n\t"\
-		"vmovaps	%%zmm6 ,0x180(%%rax)											\n\t	vmovaps	%%zmm7 ,0x1c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm8 ,0x200(%%rax)											\n\t	vmovaps	%%zmm9 ,0x240(%%rax)	\n\t"\
-		"vmovaps	%%zmm10,0x280(%%rax)											\n\t	vmovaps	%%zmm11,0x2c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm12,0x300(%%rax)											\n\t	vmovaps	%%zmm13,0x340(%%rax)	\n\t"\
-		"vmovaps	%%zmm14,0x380(%%rax)											\n\t	vmovaps	%%zmm15,0x3c0(%%rax)	\n\t"\
+		"vmovaps		0x000(%%rax),%%zmm0					\n\t	vmovaps		0x040(%%rax),%%zmm12		\n\t"\
+		"vmovaps		0x080(%%rax),%%zmm1					\n\t	vmovaps		0x0c0(%%rax),%%zmm13		\n\t"\
+		"vmovaps		0x100(%%rax),%%zmm2					\n\t	vmovaps		0x140(%%rax),%%zmm14		\n\t"\
+		"vmovaps		0x180(%%rax),%%zmm3					\n\t	vmovaps		0x1c0(%%rax),%%zmm15		\n\t"\
+		"vmovaps		0x200(%%rax),%%zmm4					\n\t	vmovaps		0x240(%%rax),%%zmm16		\n\t"\
+		"vmovaps		0x280(%%rax),%%zmm5					\n\t	vmovaps		0x2c0(%%rax),%%zmm17		\n\t"\
+		"vmovaps		0x300(%%rax),%%zmm6					\n\t	vmovaps		0x340(%%rax),%%zmm18		\n\t"\
+		"vmovaps		0x380(%%rax),%%zmm7					\n\t	vmovaps		0x3c0(%%rax),%%zmm19		\n\t"\
+		/* [1] Shuffle the 4-aparts - note the different patterning of the first and second output quartet: */\
+		"vshuff64x2	$0b01000100, %%zmm4,	%%zmm0,	%%zmm8 	\n\t	vshuff64x2	$0b01000100, %%zmm16,%%zmm12,	%%zmm20	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm4,	%%zmm0,	%%zmm4 	\n\t	vshuff64x2	$0b11101110, %%zmm16,%%zmm12,	%%zmm16	\n\t"\
+		"vshuff64x2	$0b01000100, %%zmm5,	%%zmm1,	%%zmm9	\n\t	vshuff64x2	$0b01000100, %%zmm17,%%zmm13,	%%zmm21	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm5,	%%zmm1,	%%zmm5	\n\t	vshuff64x2	$0b11101110, %%zmm17,%%zmm13,	%%zmm17	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm6,	%%zmm2,	%%zmm10	\n\t	vshuff64x2	$0b00010001, %%zmm18,%%zmm14,	%%zmm22	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm6,	%%zmm2,	%%zmm6	\n\t	vshuff64x2	$0b10111011, %%zmm18,%%zmm14,	%%zmm18	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm7,	%%zmm3,	%%zmm11	\n\t	vshuff64x2	$0b00010001, %%zmm19,%%zmm15,	%%zmm23	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm7,	%%zmm3,	%%zmm7	\n\t	vshuff64x2	$0b10111011, %%zmm19,%%zmm15,	%%zmm19	\n\t"\
+		/* [2] Blend in the 2-aparts */\
+		"vblendmpd	%%zmm8 ,	%%zmm10,	%%zmm0%{%%k1%}	\n\t	vblendmpd	%%zmm20,	%%zmm22,	%%zmm12%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm10,	%%zmm8 ,	%%zmm8%{%%k1%}	\n\t	vblendmpd	%%zmm22,	%%zmm20,	%%zmm20%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm4 ,	%%zmm6 ,	%%zmm1%{%%k1%}	\n\t	vblendmpd	%%zmm16,	%%zmm18,	%%zmm13%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm6 ,	%%zmm4 ,	%%zmm4%{%%k1%}	\n\t	vblendmpd	%%zmm18,	%%zmm16,	%%zmm16%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm9 ,	%%zmm11,	%%zmm2%{%%k1%}	\n\t	vblendmpd	%%zmm21,	%%zmm23,	%%zmm14%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm11,	%%zmm9 ,	%%zmm9%{%%k1%}	\n\t	vblendmpd	%%zmm23,	%%zmm21,	%%zmm21%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm5 ,	%%zmm7 ,	%%zmm3%{%%k1%}	\n\t	vblendmpd	%%zmm17,	%%zmm19,	%%zmm15%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm7 ,	%%zmm5 ,	%%zmm5%{%%k1%}	\n\t	vblendmpd	%%zmm19,	%%zmm17,	%%zmm17%{%%k1%}	\n\t"\
+		/* [3] Shuffle or permute in the 1-aparts */\
+		"vshufpd	$0b00000000,%%zmm2,		%%zmm0,%%zmm10 	\n\t	vshufpd	$0b00000000,%%zmm14,	%%zmm12,%%zmm22	\n\t"\
+		"vshufpd	$0b11111111,%%zmm2,		%%zmm0,%%zmm11 	\n\t	vshufpd	$0b11111111,%%zmm14,	%%zmm12,%%zmm23	\n\t"\
+		"vmovapd	%%zmm8,%%zmm2							\n\t	vmovapd	%%zmm20,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm30,%%zmm2 	\n\t	vpermt2pd				%%zmm21,	%%zmm30,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm31,%%zmm8	\n\t	vpermt2pd				%%zmm21,	%%zmm31,%%zmm20	\n\t"\
+		"vshufpd	$0b00000000,%%zmm3,		%%zmm1,%%zmm0 	\n\t	vshufpd	$0b00000000,%%zmm15,	%%zmm13,%%zmm12	\n\t"\
+		"vshufpd	$0b11111111,%%zmm3,		%%zmm1,%%zmm1 	\n\t	vshufpd	$0b11111111,%%zmm15,	%%zmm13,%%zmm13	\n\t"\
+		"vmovapd	%%zmm4,%%zmm3							\n\t	vmovapd	%%zmm16,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm30,%%zmm3 	\n\t	vpermt2pd				%%zmm17,	%%zmm30,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm31,%%zmm4	\n\t	vpermt2pd				%%zmm17,	%%zmm31,%%zmm16	\n\t"\
+		/* Outputs are now ordered - write 'em back to memory: */\
+		"vmovaps		%%zmm10,0x000(%%rax)				\n\t	vmovaps		%%zmm22,0x040(%%rax)		\n\t"\
+		"vmovaps		%%zmm11,0x080(%%rax)				\n\t	vmovaps		%%zmm23,0x0c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm2 ,0x100(%%rax)				\n\t	vmovaps		%%zmm14,0x140(%%rax)		\n\t"\
+		"vmovaps		%%zmm8 ,0x180(%%rax)				\n\t	vmovaps		%%zmm20,0x1c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm0 ,0x200(%%rax)				\n\t	vmovaps		%%zmm12,0x240(%%rax)		\n\t"\
+		"vmovaps		%%zmm1 ,0x280(%%rax)				\n\t	vmovaps		%%zmm13,0x2c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm3 ,0x300(%%rax)				\n\t	vmovaps		%%zmm15,0x340(%%rax)		\n\t"\
+		"vmovaps		%%zmm4, 0x380(%%rax)				\n\t	vmovaps		%%zmm16,0x3c0(%%rax)		\n\t"\
+	/********************************************************************/\
 	/* Second 8-way transpose. Inputs from r10-1f. Outputs into r10-1f: */\
+	/********************************************************************/\
 		"addq		$0x400,%%rax		\n\t"\
 		/* Read in the 8 rows of our input matrix: */\
-		"vmovaps		0x000(%%rax),%%zmm0 									\n\t	vmovaps		0x040(%%rax),%%zmm1 	\n\t"\
-		"vmovaps		0x080(%%rax),%%zmm2 									\n\t	vmovaps		0x0c0(%%rax),%%zmm3 	\n\t"\
-		"vmovaps		0x100(%%rax),%%zmm4 									\n\t	vmovaps		0x140(%%rax),%%zmm5 	\n\t"\
-		"vmovaps		0x180(%%rax),%%zmm6 									\n\t	vmovaps		0x1c0(%%rax),%%zmm7 	\n\t"\
-		"vmovaps		0x200(%%rax),%%zmm8 									\n\t	vmovaps		0x240(%%rax),%%zmm9 	\n\t"\
-		"vmovaps		0x280(%%rax),%%zmm10									\n\t	vmovaps		0x2c0(%%rax),%%zmm11	\n\t"\
-		"vmovaps		0x300(%%rax),%%zmm12									\n\t	vmovaps		0x340(%%rax),%%zmm13	\n\t"\
-		"vmovaps		0x380(%%rax),%%zmm14									\n\t	vmovaps		0x3c0(%%rax),%%zmm15	\n\t"\
-		/* [1]: */\
-		"vunpckhpd		 %%zmm2 ,%%zmm0 ,%%zmm16									\n\t	vunpckhpd		 %%zmm3 ,%%zmm1 ,%%zmm17									\n\t"\
-		"vunpcklpd		 %%zmm2 ,%%zmm0 ,%%zmm0 	\n\t	vmovaps	%%zmm16,%%zmm2 	\n\t	vunpcklpd		 %%zmm3 ,%%zmm1 ,%%zmm1 	\n\t	vmovaps	%%zmm17,%%zmm3 	\n\t"/* zmm2  = 01 11 03 13 05 15 07 17 */\
-		"vunpckhpd		 %%zmm6 ,%%zmm4 ,%%zmm16									\n\t	vunpckhpd		 %%zmm7 ,%%zmm5 ,%%zmm17									\n\t"/* zmm4  = 20 30 22 32 24 34 26 36 */\
-		"vunpcklpd		 %%zmm6 ,%%zmm4 ,%%zmm4 	\n\t	vmovaps	%%zmm16,%%zmm6 	\n\t	vunpcklpd		 %%zmm7 ,%%zmm5 ,%%zmm5 	\n\t	vmovaps	%%zmm17,%%zmm7 	\n\t"/* zmm6  = 21 31 23 33 25 35 27 37 */\
-		"vunpckhpd		 %%zmm10,%%zmm8 ,%%zmm16									\n\t	vunpckhpd		 %%zmm11,%%zmm9 ,%%zmm17									\n\t"/* zmm8  = 40 50 42 52 44 54 46 56 */\
-		"vunpcklpd		 %%zmm10,%%zmm8 ,%%zmm8 	\n\t	vmovaps	%%zmm16,%%zmm10	\n\t	vunpcklpd		 %%zmm11,%%zmm9 ,%%zmm9 	\n\t	vmovaps	%%zmm17,%%zmm11	\n\t"/* zmm10 = 41 51 43 53 45 55 47 57 */\
-		"vunpckhpd		 %%zmm14,%%zmm12,%%zmm16									\n\t	vunpckhpd		 %%zmm15,%%zmm13,%%zmm17									\n\t"/* zmm12 = 60 70 62 72 64 74 66 76 */\
-		"vunpcklpd		 %%zmm14,%%zmm12,%%zmm12	\n\t	vmovaps	%%zmm16,%%zmm14	\n\t	vunpcklpd		 %%zmm15,%%zmm13,%%zmm13	\n\t	vmovaps	%%zmm17,%%zmm15	\n\t"/* zmm14 = 61 71 63 73 65 75 67 77 */\
-		/* [2]: */\
-		"vshuff64x2	$136,%%zmm4 ,%%zmm0 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm5 ,%%zmm1 ,%%zmm17									\n\t"/* zmm0  = 00 10 04 14 20 30 24 34 */\
-		"vshuff64x2	$221,%%zmm4 ,%%zmm0 ,%%zmm4 	\n\t	vmovaps	%%zmm16,%%zmm0 	\n\t	vshuff64x2	$221,%%zmm5 ,%%zmm1 ,%%zmm5 	\n\t	vmovaps	%%zmm17,%%zmm1 	\n\t"/* zmm4  = 02 12 06 16 22 32 26 36 */\
-		"vshuff64x2	$136,%%zmm6 ,%%zmm2 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm7 ,%%zmm3 ,%%zmm17									\n\t"/* zmm2  = 01 11 05 15 21 31 25 35 */\
-		"vshuff64x2	$221,%%zmm6 ,%%zmm2 ,%%zmm6 	\n\t	vmovaps	%%zmm16,%%zmm2 	\n\t	vshuff64x2	$221,%%zmm7 ,%%zmm3 ,%%zmm7 	\n\t	vmovaps	%%zmm17,%%zmm3 	\n\t"/* zmm6  = 03 13 07 17 23 33 27 37 */\
-		"vshuff64x2	$136,%%zmm12,%%zmm8 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm13,%%zmm9 ,%%zmm17									\n\t"/* zmm8  = 40 50 44 54 60 70 64 74 */\
-		"vshuff64x2	$221,%%zmm12,%%zmm8 ,%%zmm12	\n\t	vmovaps	%%zmm16,%%zmm8 	\n\t	vshuff64x2	$221,%%zmm13,%%zmm9 ,%%zmm13	\n\t	vmovaps	%%zmm17,%%zmm9 	\n\t"/* zmm12 = 42 52 46 56 62 72 66 76 */\
-		"vshuff64x2	$136,%%zmm14,%%zmm10,%%zmm16									\n\t	vshuff64x2	$136,%%zmm15,%%zmm11,%%zmm17									\n\t"/* zmm10 = 41 51 45 55 61 71 65 75 */\
-		"vshuff64x2	$221,%%zmm14,%%zmm10,%%zmm14	\n\t	vmovaps	%%zmm16,%%zmm10	\n\t	vshuff64x2	$221,%%zmm15,%%zmm11,%%zmm15	\n\t	vmovaps	%%zmm17,%%zmm11	\n\t"/* zmm14 = 43 53 47 57 63 73 67 77 */\
-		/* [3]: */\
-		"vshuff64x2	$136,%%zmm8 ,%%zmm0 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm9 ,%%zmm1 ,%%zmm17									\n\t"/* zmm0  = 00 10 20 30 40 50 60 70 */\
-		"vshuff64x2	$221,%%zmm8 ,%%zmm0 ,%%zmm8 	\n\t	vmovaps	%%zmm16,%%zmm0 	\n\t	vshuff64x2	$221,%%zmm9 ,%%zmm1 ,%%zmm9 	\n\t	vmovaps	%%zmm17,%%zmm1 	\n\t"/* zmm8  = 04 14 24 34 44 54 64 74 */\
-		"vshuff64x2	$136,%%zmm10,%%zmm2 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm11,%%zmm3 ,%%zmm17									\n\t"/* zmm2  = 01 11 21 31 41 51 61 71 */\
-		"vshuff64x2	$221,%%zmm10,%%zmm2 ,%%zmm10	\n\t	vmovaps	%%zmm16,%%zmm2 	\n\t	vshuff64x2	$221,%%zmm11,%%zmm3 ,%%zmm11	\n\t	vmovaps	%%zmm17,%%zmm3 	\n\t"/* zmm10 = 05 15 25 35 45 55 65 75 */\
-		"vshuff64x2	$136,%%zmm12,%%zmm4 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm13,%%zmm5 ,%%zmm17									\n\t"/* zmm4  = 02 12 22 32 42 52 62 72 */\
-		"vshuff64x2	$221,%%zmm12,%%zmm4 ,%%zmm12	\n\t	vmovaps	%%zmm16,%%zmm4 	\n\t	vshuff64x2	$221,%%zmm13,%%zmm5 ,%%zmm13	\n\t	vmovaps	%%zmm17,%%zmm5 	\n\t"/* zmm12 = 06 16 26 36 46 56 66 76 */\
-		"vshuff64x2	$136,%%zmm14,%%zmm6 ,%%zmm16									\n\t	vshuff64x2	$136,%%zmm15,%%zmm7 ,%%zmm17									\n\t"/* zmm6  = 03 13 23 33 43 53 63 73 */\
-		"vshuff64x2	$221,%%zmm14,%%zmm6 ,%%zmm14	\n\t	vmovaps	%%zmm16,%%zmm6 	\n\t	vshuff64x2	$221,%%zmm15,%%zmm7 ,%%zmm15	\n\t	vmovaps	%%zmm17,%%zmm7 	\n\t"/* zmm14 = 07 17 27 37 47 57 67 77 */\
-		/* And write 'em back to memory: */\
-		"vmovaps	%%zmm0 ,0x000(%%rax)											\n\t	vmovaps	%%zmm1 ,0x040(%%rax)	\n\t"\
-		"vmovaps	%%zmm2 ,0x080(%%rax)											\n\t	vmovaps	%%zmm3 ,0x0c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm4 ,0x100(%%rax)											\n\t	vmovaps	%%zmm5 ,0x140(%%rax)	\n\t"\
-		"vmovaps	%%zmm6 ,0x180(%%rax)											\n\t	vmovaps	%%zmm7 ,0x1c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm8 ,0x200(%%rax)											\n\t	vmovaps	%%zmm9 ,0x240(%%rax)	\n\t"\
-		"vmovaps	%%zmm10,0x280(%%rax)											\n\t	vmovaps	%%zmm11,0x2c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm12,0x300(%%rax)											\n\t	vmovaps	%%zmm13,0x340(%%rax)	\n\t"\
-		"vmovaps	%%zmm14,0x380(%%rax)											\n\t	vmovaps	%%zmm15,0x3c0(%%rax)	\n\t"\
+		"vmovaps		0x000(%%rax),%%zmm0					\n\t	vmovaps		0x040(%%rax),%%zmm12		\n\t"\
+		"vmovaps		0x080(%%rax),%%zmm1					\n\t	vmovaps		0x0c0(%%rax),%%zmm13		\n\t"\
+		"vmovaps		0x100(%%rax),%%zmm2					\n\t	vmovaps		0x140(%%rax),%%zmm14		\n\t"\
+		"vmovaps		0x180(%%rax),%%zmm3					\n\t	vmovaps		0x1c0(%%rax),%%zmm15		\n\t"\
+		"vmovaps		0x200(%%rax),%%zmm4					\n\t	vmovaps		0x240(%%rax),%%zmm16		\n\t"\
+		"vmovaps		0x280(%%rax),%%zmm5					\n\t	vmovaps		0x2c0(%%rax),%%zmm17		\n\t"\
+		"vmovaps		0x300(%%rax),%%zmm6					\n\t	vmovaps		0x340(%%rax),%%zmm18		\n\t"\
+		"vmovaps		0x380(%%rax),%%zmm7					\n\t	vmovaps		0x3c0(%%rax),%%zmm19		\n\t"\
+		/* [1] Shuffle the 4-aparts - note the different patterning of the first and second output quartet: */\
+		"vshuff64x2	$0b01000100, %%zmm4,	%%zmm0,	%%zmm8 	\n\t	vshuff64x2	$0b01000100, %%zmm16,%%zmm12,	%%zmm20	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm4,	%%zmm0,	%%zmm4 	\n\t	vshuff64x2	$0b11101110, %%zmm16,%%zmm12,	%%zmm16	\n\t"\
+		"vshuff64x2	$0b01000100, %%zmm5,	%%zmm1,	%%zmm9	\n\t	vshuff64x2	$0b01000100, %%zmm17,%%zmm13,	%%zmm21	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm5,	%%zmm1,	%%zmm5	\n\t	vshuff64x2	$0b11101110, %%zmm17,%%zmm13,	%%zmm17	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm6,	%%zmm2,	%%zmm10	\n\t	vshuff64x2	$0b00010001, %%zmm18,%%zmm14,	%%zmm22	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm6,	%%zmm2,	%%zmm6	\n\t	vshuff64x2	$0b10111011, %%zmm18,%%zmm14,	%%zmm18	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm7,	%%zmm3,	%%zmm11	\n\t	vshuff64x2	$0b00010001, %%zmm19,%%zmm15,	%%zmm23	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm7,	%%zmm3,	%%zmm7	\n\t	vshuff64x2	$0b10111011, %%zmm19,%%zmm15,	%%zmm19	\n\t"\
+		/* [2] Blend in the 2-aparts */\
+		"vblendmpd	%%zmm8 ,	%%zmm10,	%%zmm0%{%%k1%}	\n\t	vblendmpd	%%zmm20,	%%zmm22,	%%zmm12%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm10,	%%zmm8 ,	%%zmm8%{%%k1%}	\n\t	vblendmpd	%%zmm22,	%%zmm20,	%%zmm20%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm4 ,	%%zmm6 ,	%%zmm1%{%%k1%}	\n\t	vblendmpd	%%zmm16,	%%zmm18,	%%zmm13%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm6 ,	%%zmm4 ,	%%zmm4%{%%k1%}	\n\t	vblendmpd	%%zmm18,	%%zmm16,	%%zmm16%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm9 ,	%%zmm11,	%%zmm2%{%%k1%}	\n\t	vblendmpd	%%zmm21,	%%zmm23,	%%zmm14%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm11,	%%zmm9 ,	%%zmm9%{%%k1%}	\n\t	vblendmpd	%%zmm23,	%%zmm21,	%%zmm21%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm5 ,	%%zmm7 ,	%%zmm3%{%%k1%}	\n\t	vblendmpd	%%zmm17,	%%zmm19,	%%zmm15%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm7 ,	%%zmm5 ,	%%zmm5%{%%k1%}	\n\t	vblendmpd	%%zmm19,	%%zmm17,	%%zmm17%{%%k1%}	\n\t"\
+		/* [3] Shuffle or permute in the 1-aparts */\
+		"vshufpd	$0b00000000,%%zmm2,		%%zmm0,%%zmm10 	\n\t	vshufpd	$0b00000000,%%zmm14,	%%zmm12,%%zmm22	\n\t"\
+		"vshufpd	$0b11111111,%%zmm2,		%%zmm0,%%zmm11 	\n\t	vshufpd	$0b11111111,%%zmm14,	%%zmm12,%%zmm23	\n\t"\
+		"vmovapd	%%zmm8,%%zmm2							\n\t	vmovapd	%%zmm20,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm30,%%zmm2 	\n\t	vpermt2pd				%%zmm21,	%%zmm30,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm31,%%zmm8	\n\t	vpermt2pd				%%zmm21,	%%zmm31,%%zmm20	\n\t"\
+		"vshufpd	$0b00000000,%%zmm3,		%%zmm1,%%zmm0 	\n\t	vshufpd	$0b00000000,%%zmm15,	%%zmm13,%%zmm12	\n\t"\
+		"vshufpd	$0b11111111,%%zmm3,		%%zmm1,%%zmm1 	\n\t	vshufpd	$0b11111111,%%zmm15,	%%zmm13,%%zmm13	\n\t"\
+		"vmovapd	%%zmm4,%%zmm3							\n\t	vmovapd	%%zmm16,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm30,%%zmm3 	\n\t	vpermt2pd				%%zmm17,	%%zmm30,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm31,%%zmm4	\n\t	vpermt2pd				%%zmm17,	%%zmm31,%%zmm16	\n\t"\
+		/* Outputs are now ordered - write 'em back to memory: */\
+		"vmovaps		%%zmm10,0x000(%%rax)				\n\t	vmovaps		%%zmm22,0x040(%%rax)		\n\t"\
+		"vmovaps		%%zmm11,0x080(%%rax)				\n\t	vmovaps		%%zmm23,0x0c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm2 ,0x100(%%rax)				\n\t	vmovaps		%%zmm14,0x140(%%rax)		\n\t"\
+		"vmovaps		%%zmm8 ,0x180(%%rax)				\n\t	vmovaps		%%zmm20,0x1c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm0 ,0x200(%%rax)				\n\t	vmovaps		%%zmm12,0x240(%%rax)		\n\t"\
+		"vmovaps		%%zmm1 ,0x280(%%rax)				\n\t	vmovaps		%%zmm13,0x2c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm3 ,0x300(%%rax)				\n\t	vmovaps		%%zmm15,0x340(%%rax)		\n\t"\
+		"vmovaps		%%zmm4, 0x380(%%rax)				\n\t	vmovaps		%%zmm16,0x3c0(%%rax)		\n\t"\
 		:					/* outputs: none */\
 		: [__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
 		, [__cy]		"m" (Xcy)		\
@@ -13159,11 +13460,13 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p2]   "m" (Xp2)\
 		,	[__p3]   "m" (Xp3)\
 		,	[__p4]   "m" (Xp4)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm21","xmm22","xmm23","xmm24","xmm25"	/* Clobbered registers */\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm24","xmm25","xmm26","xmm27","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
-	#define AVX_cmplx_carry_fast_errcheck_X8(Xdata,Xcy,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1,Xp2,Xp3,Xp4)\
+	#define AVX_cmplx_carry_fast_errcheck_X8(Xdata,Xcy,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1,Xp2,Xp3,Xp4, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"movq	%[__add0],%%r14	\n\t"/* base address for 8 prefetches-from-main-data-array spread through this macro */\
@@ -13175,54 +13478,66 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	*/\
 	/* 8-way transpose of inputs (Re, Im parts separately) uses complex-ified version of algo in util.c:test_simd_transpose_8x8(). */\
 	/* Inputs from r0-f. Outputs into r0-f: */\
+		"movl	$0b00110011,%%eax	\n\t"/* Constant for vblendmpd instructions goes into mask-reg k1 */\
+		"kmovw	%%eax,%%k1			\n\t"\
+		/* Init vector index-consts needed by vpermt2pd instructions - if regs were at a premium,
+		could also init just prior to [3] and use zmm6,7 to hold index-consts: */\
+		"movq	$0x0c040e0608000a02,%%rax	\n\t"/* zmm30 = 8+4 0+4 8+6 0+6 8+0 0+0 8+2 0+2 [msw at left] */\
+		"movq	$0x0d050f0709010b03,%%rbx	\n\t"/* zmm31 = 8+5 0+5 8+7 0+7 8+1 0+1 8+3 0+3 */\
+			"vmovq		%%rax,%%xmm0 		\n\t"\
+			"vmovq		%%rbx,%%xmm1 		\n\t"\
+			"vpmovzxbq	%%xmm0,%%zmm30		\n\t"\
+			"vpmovzxbq	%%xmm1,%%zmm31		\n\t"\
 		"movq		%[__data],%%rax		\n\t"\
-	/* Real parts use zmm0,2,4,6,8,10,12,14,16:				Imag parts use zmm1,3,5,7,9,11,13,15,17: */\
-		/* Read in the 8 rows of our input matrix ... the funky index ordering gives ordered outputs sans reg-copying: */\
-		"vmovaps		0x000(%%rax),%%zmm6 		\n\t	vmovaps		0x040(%%rax),%%zmm7 		\n\t"\
-		"vmovaps		0x080(%%rax),%%zmm8 		\n\t	vmovaps		0x0c0(%%rax),%%zmm9 		\n\t"\
-		"vmovaps		0x100(%%rax),%%zmm10		\n\t	vmovaps		0x140(%%rax),%%zmm11		\n\t"\
-		"vmovaps		0x180(%%rax),%%zmm16		\n\t	vmovaps		0x1c0(%%rax),%%zmm17		\n\t"\
-		"vmovaps		0x200(%%rax),%%zmm12		\n\t	vmovaps		0x240(%%rax),%%zmm13		\n\t"\
-		"vmovaps		0x280(%%rax),%%zmm0 		\n\t	vmovaps		0x2c0(%%rax),%%zmm1 		\n\t"\
-		"vmovaps		0x300(%%rax),%%zmm2 		\n\t	vmovaps		0x340(%%rax),%%zmm3 		\n\t"\
-		"vmovaps		0x380(%%rax),%%zmm14		\n\t	vmovaps		0x3c0(%%rax),%%zmm15		\n\t"\
-		"\n\t"\
-		"vunpcklpd		%%zmm8 ,%%zmm6 ,%%zmm4 		\n\t	vunpcklpd		%%zmm9 ,%%zmm7 ,%%zmm5 		\n\t"\
-		"vunpckhpd		%%zmm8 ,%%zmm6 ,%%zmm8 		\n\t	vunpckhpd		%%zmm9 ,%%zmm7 ,%%zmm9 		\n\t"\
-		"vunpcklpd		%%zmm16,%%zmm10,%%zmm6 		\n\t	vunpcklpd		%%zmm17,%%zmm11,%%zmm7 		\n\t"\
-		"vunpckhpd		%%zmm16,%%zmm10,%%zmm16		\n\t	vunpckhpd		%%zmm17,%%zmm11,%%zmm17		\n\t"\
-		"vunpcklpd		%%zmm0 ,%%zmm12,%%zmm10		\n\t	vunpcklpd		%%zmm1 ,%%zmm13,%%zmm11		\n\t"\
-		"vunpckhpd		%%zmm0 ,%%zmm12,%%zmm0 		\n\t	vunpckhpd		%%zmm1 ,%%zmm13,%%zmm1 		\n\t"\
-		"vunpcklpd		%%zmm14,%%zmm2 ,%%zmm12		\n\t	vunpcklpd		%%zmm15,%%zmm3 ,%%zmm13		\n\t"\
-		"vunpckhpd		%%zmm14,%%zmm2 ,%%zmm14		\n\t	vunpckhpd		%%zmm15,%%zmm3 ,%%zmm15		\n\t"\
-		"\n\t"\
-		"vshuff64x2	$136,%%zmm6 ,%%zmm4 ,%%zmm2 	\n\t	vshuff64x2	$136,%%zmm7 ,%%zmm5 ,%%zmm3 	\n\t"\
-		"vshuff64x2	$221,%%zmm6 ,%%zmm4 ,%%zmm6 	\n\t	vshuff64x2	$221,%%zmm7 ,%%zmm5 ,%%zmm7 	\n\t"\
-		"vshuff64x2	$136,%%zmm16,%%zmm8 ,%%zmm4 	\n\t	vshuff64x2	$136,%%zmm17,%%zmm9 ,%%zmm5 	\n\t"\
-		"vshuff64x2	$221,%%zmm16,%%zmm8 ,%%zmm16	\n\t	vshuff64x2	$221,%%zmm17,%%zmm9 ,%%zmm17	\n\t"\
-		"vshuff64x2	$136,%%zmm12,%%zmm10,%%zmm8 	\n\t	vshuff64x2	$136,%%zmm13,%%zmm11,%%zmm9 	\n\t"\
-		"vshuff64x2	$221,%%zmm12,%%zmm10,%%zmm12	\n\t	vshuff64x2	$221,%%zmm13,%%zmm11,%%zmm13	\n\t"\
-		"vshuff64x2	$136,%%zmm14,%%zmm0 ,%%zmm10	\n\t	vshuff64x2	$136,%%zmm15,%%zmm1 ,%%zmm11	\n\t"\
-		"vshuff64x2	$221,%%zmm14,%%zmm0 ,%%zmm14	\n\t	vshuff64x2	$221,%%zmm15,%%zmm1 ,%%zmm15	\n\t"\
-		"\n\t"\
-		"vshuff64x2	$136,%%zmm8 ,%%zmm2 ,%%zmm0 	\n\t	vshuff64x2	$136,%%zmm9 ,%%zmm3 ,%%zmm1 	\n\t"\
-		"vshuff64x2	$221,%%zmm8 ,%%zmm2 ,%%zmm8 	\n\t	vshuff64x2	$221,%%zmm9 ,%%zmm3 ,%%zmm9 	\n\t"\
-		"vshuff64x2	$136,%%zmm10,%%zmm4 ,%%zmm2 	\n\t	vshuff64x2	$136,%%zmm11,%%zmm5 ,%%zmm3 	\n\t"\
-		"vshuff64x2	$221,%%zmm10,%%zmm4 ,%%zmm10	\n\t	vshuff64x2	$221,%%zmm11,%%zmm5 ,%%zmm11	\n\t"\
-		"vshuff64x2	$136,%%zmm12,%%zmm6 ,%%zmm4 	\n\t	vshuff64x2	$136,%%zmm13,%%zmm7 ,%%zmm5 	\n\t"\
-		"vshuff64x2	$221,%%zmm12,%%zmm6 ,%%zmm12	\n\t	vshuff64x2	$221,%%zmm13,%%zmm7 ,%%zmm13	\n\t"\
-		"vshuff64x2	$136,%%zmm14,%%zmm16,%%zmm6 	\n\t	vshuff64x2	$136,%%zmm15,%%zmm17,%%zmm7 	\n\t"\
-		"vshuff64x2	$221,%%zmm14,%%zmm16,%%zmm14	\n\t	vshuff64x2	$221,%%zmm15,%%zmm17,%%zmm15	\n\t"\
-		/* Outputs are now ordered - write 'em back to memory: */\
-		/* Real parts:										Imag parts: */\
-		"vmovaps	%%zmm0 ,0x000(%%rax)			\n\t	vmovaps	%%zmm1 ,0x040(%%rax)	\n\t"\
-		"vmovaps	%%zmm2 ,0x080(%%rax)			\n\t	vmovaps	%%zmm3 ,0x0c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm4 ,0x100(%%rax)			\n\t	vmovaps	%%zmm5 ,0x140(%%rax)	\n\t"\
-		"vmovaps	%%zmm6 ,0x180(%%rax)			\n\t	vmovaps	%%zmm7 ,0x1c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm8 ,0x200(%%rax)			\n\t	vmovaps	%%zmm9 ,0x240(%%rax)	\n\t"\
-		"vmovaps	%%zmm10,0x280(%%rax)			\n\t	vmovaps	%%zmm11,0x2c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm12,0x300(%%rax)			\n\t	vmovaps	%%zmm13,0x340(%%rax)	\n\t"\
-		"vmovaps	%%zmm14,0x380(%%rax)			\n\t	vmovaps	%%zmm15,0x3c0(%%rax)	\n\t"\
+		/* Read in the 8 rows of our input matrix: */\
+		"vmovaps		0x000(%%rax),%%zmm0					\n\t	vmovaps		0x040(%%rax),%%zmm12		\n\t"\
+		"vmovaps		0x080(%%rax),%%zmm1					\n\t	vmovaps		0x0c0(%%rax),%%zmm13		\n\t"\
+		"vmovaps		0x100(%%rax),%%zmm2					\n\t	vmovaps		0x140(%%rax),%%zmm14		\n\t"\
+		"vmovaps		0x180(%%rax),%%zmm3					\n\t	vmovaps		0x1c0(%%rax),%%zmm15		\n\t"\
+		"vmovaps		0x200(%%rax),%%zmm4					\n\t	vmovaps		0x240(%%rax),%%zmm16		\n\t"\
+		"vmovaps		0x280(%%rax),%%zmm5					\n\t	vmovaps		0x2c0(%%rax),%%zmm17		\n\t"\
+		"vmovaps		0x300(%%rax),%%zmm6					\n\t	vmovaps		0x340(%%rax),%%zmm18		\n\t"\
+		"vmovaps		0x380(%%rax),%%zmm7					\n\t	vmovaps		0x3c0(%%rax),%%zmm19		\n\t"\
+		/* [1] Shuffle the 4-aparts - note the different patterning of the first and second output quartet: */\
+		"vshuff64x2	$0b01000100, %%zmm4,	%%zmm0,	%%zmm8 	\n\t	vshuff64x2	$0b01000100, %%zmm16,%%zmm12,	%%zmm20	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm4,	%%zmm0,	%%zmm4 	\n\t	vshuff64x2	$0b11101110, %%zmm16,%%zmm12,	%%zmm16	\n\t"\
+		"vshuff64x2	$0b01000100, %%zmm5,	%%zmm1,	%%zmm9	\n\t	vshuff64x2	$0b01000100, %%zmm17,%%zmm13,	%%zmm21	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm5,	%%zmm1,	%%zmm5	\n\t	vshuff64x2	$0b11101110, %%zmm17,%%zmm13,	%%zmm17	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm6,	%%zmm2,	%%zmm10	\n\t	vshuff64x2	$0b00010001, %%zmm18,%%zmm14,	%%zmm22	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm6,	%%zmm2,	%%zmm6	\n\t	vshuff64x2	$0b10111011, %%zmm18,%%zmm14,	%%zmm18	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm7,	%%zmm3,	%%zmm11	\n\t	vshuff64x2	$0b00010001, %%zmm19,%%zmm15,	%%zmm23	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm7,	%%zmm3,	%%zmm7	\n\t	vshuff64x2	$0b10111011, %%zmm19,%%zmm15,	%%zmm19	\n\t"\
+		/* [2] Blend in the 2-aparts */\
+		"vblendmpd	%%zmm8 ,	%%zmm10,	%%zmm0%{%%k1%}	\n\t	vblendmpd	%%zmm20,	%%zmm22,	%%zmm12%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm10,	%%zmm8 ,	%%zmm8%{%%k1%}	\n\t	vblendmpd	%%zmm22,	%%zmm20,	%%zmm20%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm4 ,	%%zmm6 ,	%%zmm1%{%%k1%}	\n\t	vblendmpd	%%zmm16,	%%zmm18,	%%zmm13%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm6 ,	%%zmm4 ,	%%zmm4%{%%k1%}	\n\t	vblendmpd	%%zmm18,	%%zmm16,	%%zmm16%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm9 ,	%%zmm11,	%%zmm2%{%%k1%}	\n\t	vblendmpd	%%zmm21,	%%zmm23,	%%zmm14%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm11,	%%zmm9 ,	%%zmm9%{%%k1%}	\n\t	vblendmpd	%%zmm23,	%%zmm21,	%%zmm21%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm5 ,	%%zmm7 ,	%%zmm3%{%%k1%}	\n\t	vblendmpd	%%zmm17,	%%zmm19,	%%zmm15%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm7 ,	%%zmm5 ,	%%zmm5%{%%k1%}	\n\t	vblendmpd	%%zmm19,	%%zmm17,	%%zmm17%{%%k1%}	\n\t"\
+		/* [3] Shuffle or permute in the 1-aparts */\
+		"vshufpd	$0b00000000,%%zmm2,		%%zmm0,%%zmm10 	\n\t	vshufpd	$0b00000000,%%zmm14,	%%zmm12,%%zmm22	\n\t"\
+		"vshufpd	$0b11111111,%%zmm2,		%%zmm0,%%zmm11 	\n\t	vshufpd	$0b11111111,%%zmm14,	%%zmm12,%%zmm23	\n\t"\
+		"vmovapd	%%zmm8,%%zmm2							\n\t	vmovapd	%%zmm20,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm30,%%zmm2 	\n\t	vpermt2pd				%%zmm21,	%%zmm30,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm31,%%zmm8	\n\t	vpermt2pd				%%zmm21,	%%zmm31,%%zmm20	\n\t"\
+		"vshufpd	$0b00000000,%%zmm3,		%%zmm1,%%zmm0 	\n\t	vshufpd	$0b00000000,%%zmm15,	%%zmm13,%%zmm12	\n\t"\
+		"vshufpd	$0b11111111,%%zmm3,		%%zmm1,%%zmm1 	\n\t	vshufpd	$0b11111111,%%zmm15,	%%zmm13,%%zmm13	\n\t"\
+		"vmovapd	%%zmm4,%%zmm3							\n\t	vmovapd	%%zmm16,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm30,%%zmm3 	\n\t	vpermt2pd				%%zmm17,	%%zmm30,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm31,%%zmm4	\n\t	vpermt2pd				%%zmm17,	%%zmm31,%%zmm16	\n\t"\
+		/* Write original columns back as rows: */\
+		"vmovaps		%%zmm10,0x000(%%rax)				\n\t	vmovaps		%%zmm22,0x040(%%rax)		\n\t"\
+		"vmovaps		%%zmm11,0x080(%%rax)				\n\t	vmovaps		%%zmm23,0x0c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm2 ,0x100(%%rax)				\n\t	vmovaps		%%zmm14,0x140(%%rax)		\n\t"\
+		"vmovaps		%%zmm8 ,0x180(%%rax)				\n\t	vmovaps		%%zmm20,0x1c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm0 ,0x200(%%rax)				\n\t	vmovaps		%%zmm12,0x240(%%rax)		\n\t"\
+		"vmovaps		%%zmm1 ,0x280(%%rax)				\n\t	vmovaps		%%zmm13,0x2c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm3 ,0x300(%%rax)				\n\t	vmovaps		%%zmm15,0x340(%%rax)		\n\t"\
+		"vmovaps		%%zmm4, 0x380(%%rax)				\n\t	vmovaps		%%zmm16,0x3c0(%%rax)		\n\t"\
+		"movq	%[__prp_mult]	,%%rbx	\n\t"\
+		"vbroadcastsd	(%%rbx),%%zmm20	\n\t"/* prp_mult, broadcast to all double-slots of zmm20 */\
 		"movq		%[__cy],%%rbx			\n\t	vmovaps	     (%%rbx),%%zmm1	\n\t"/* zmm1 = Our eight-double cy_in */\
 		/* LOACC wts-data occupy 32 zmm-sized slots starting at (vec_dbl*)half_arr + 0 : */\
 		"movq	%[__half_arr],%%rdi			\n\t	vmovaps -0x80(%%rdi),%%zmm2	\n\t"/* zmm2 = maxerr */\
@@ -13231,11 +13546,11 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vbroadcastsd -0x40(%%rdi),%%zmm10	\n\t"\
 		"vbroadcastsd -0x38(%%rdi),%%zmm11	\n\t"\
 		"vbroadcastsd -0x30(%%rdi),%%zmm12	\n\t"\
-		"vbroadcastsd -0x28(%%rdi),%%zmm13	\n\t	vaddpd %%zmm13,%%zmm13,%%zmm14	\n\t"/* YMM13,14 have inv_mult[0] (needed for conditional-doubling), inv_mult[1] (needed for (wt_re >= inv_mult[1]) comparison) */\
-		"movq	%[__sse_n] ,%%rbx			\n\t	vmovaps	(%%rbx),%%ymm15			\n\t"/* PERSISTENT COPY OF SSE_N  REMAINS IN YMM15. */\
+		"vbroadcastsd -0x28(%%rdi),%%zmm13	\n\t	vaddpd %%zmm13,%%zmm13,%%zmm14	\n\t"/* ymm13,14 have inv_mult[0] (needed for conditional-doubling), inv_mult[1] (needed for (wt_re >= inv_mult[1]) comparison) */\
+		"movq	%[__sse_n] ,%%rbx			\n\t	vmovaps	(%%rbx),%%ymm15			\n\t"/* PERSISTENT COPY OF SSE_N  REMAINS IN ymm15. */\
 		"movq	%[__sse_bw],%%rbx			\n\t"/* RBX HOLDS ADDRESS OF SSE_BW */\
-		"movq	%[__bjmod_0],%%rsi			\n\t	vmovaps	(%%rsi),%%ymm3			\n\t"/* bjmod[0:7], PERSISTENT COPY IN YMM3 */\
-		"movq	%[__sse_sw] ,%%rsi			\n\t	vmovaps	(%%rsi),%%ymm4			\n\t"/* sw,  8-fold PERSISTENT COPY IN YMM4 */\
+		"movq	%[__bjmod_0],%%rsi			\n\t	vmovaps	(%%rsi),%%ymm3			\n\t"/* bjmod[0:7], PERSISTENT COPY IN ymm3 */\
+		"movq	%[__sse_sw] ,%%rsi			\n\t	vmovaps	(%%rsi),%%ymm4			\n\t"/* sw,  8-fold PERSISTENT COPY IN ymm4 */\
 		"movq	%[__sign_mask],%%rsi		\n\t"\
 	/**********************************/\
 	/* Do A.re-octet: Data in zmm0 :  */\
@@ -13244,7 +13559,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x000(%%rax),%%zmm0		\n\t"\
 		"vmovaps	0x080(%%rdi),%%zmm6		\n\t"/* wi_re - 8-way carry macro only uses every other one of these local-mem-slots */\
 		"vmovaps	0x000(%%rdi),%%zmm5		\n\t"/* wt_re for our 8 independent carry-chains */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"/* x *= wtinv + cy */\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"/* x *= wtinv */\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t"/* Set bit in k1 if sw < bjmod[0:7] ; Opmask K1 is analog of AVX-mode bitmask stored in R10 */\
 	"kmovw	%[__i],%%k2						\n\t"/* I == 1 if it's the 0-word, in which case we force-bigword-ness by XORing K1 (whose */\
 	"kxorw	%%k2,%%k1,%%k1					\n\t"/* low bit will == 0 on input in this case) with I. Otherwise I == 0, thus XOR = no-op. */\
@@ -13254,6 +13569,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"/* temp = DNINT(x) */\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"/* x - temp */\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"/* frac = fabs(x-temp) */\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"/* cpy temp */\
@@ -13283,13 +13599,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x040(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0x180(%%rdi),%%zmm6		\n\t"/* wi_im */\
 		"vmovaps	0x100(%%rdi),%%zmm5		\n\t"/* wt_im for our 8 independent carry-chains */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -13321,13 +13638,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x080(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0x280(%%rdi),%%zmm6		\n\t"/* wi_re */\
 		"vmovaps	0x200(%%rdi),%%zmm5		\n\t"/* wt_re */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -13357,13 +13675,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x0c0(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0x380(%%rdi),%%zmm6		\n\t"/* wi_im */\
 		"vmovaps	0x300(%%rdi),%%zmm5		\n\t"/* wt_im */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -13395,13 +13714,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x100(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0x480(%%rdi),%%zmm6		\n\t"/* wi_re */\
 		"vmovaps	0x400(%%rdi),%%zmm5		\n\t"/* wt_re */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -13431,13 +13751,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x140(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0x580(%%rdi),%%zmm6		\n\t"/* wi_im */\
 		"vmovaps	0x500(%%rdi),%%zmm5		\n\t"/* wt_im */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -13469,13 +13790,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x180(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0x680(%%rdi),%%zmm6		\n\t"/* wi_re */\
 		"vmovaps	0x600(%%rdi),%%zmm5		\n\t"/* wt_re */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -13505,13 +13827,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x1c0(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0x780(%%rdi),%%zmm6		\n\t"/* wi_im */\
 		"vmovaps	0x700(%%rdi),%%zmm5		\n\t"/* wt_im */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -13544,13 +13867,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x200(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0x880(%%rdi),%%zmm6		\n\t"/* wi_re */\
 		"vmovaps	0x800(%%rdi),%%zmm5		\n\t"/* wt_re */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -13580,13 +13904,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x240(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0x980(%%rdi),%%zmm6		\n\t"/* wi_im */\
 		"vmovaps	0x900(%%rdi),%%zmm5		\n\t"/* wt_im */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -13618,13 +13943,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x280(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0xa80(%%rdi),%%zmm6		\n\t"/* wi_re */\
 		"vmovaps	0xa00(%%rdi),%%zmm5		\n\t"/* wt_re */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -13654,13 +13980,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x2c0(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0xb80(%%rdi),%%zmm6		\n\t"/* wi_im */\
 		"vmovaps	0xb00(%%rdi),%%zmm5		\n\t"/* wt_im */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -13692,13 +14019,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x300(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0xc80(%%rdi),%%zmm6		\n\t"/* wi_re */\
 		"vmovaps	0xc00(%%rdi),%%zmm5		\n\t"/* wt_re */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -13728,13 +14056,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x340(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0xd80(%%rdi),%%zmm6		\n\t"/* wi_im */\
 		"vmovaps	0xd00(%%rdi),%%zmm5		\n\t"/* wt_im */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -13766,13 +14095,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x380(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0xe80(%%rdi),%%zmm6		\n\t"/* wi_re */\
 		"vmovaps	0xe00(%%rdi),%%zmm5		\n\t"/* wt_re */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -13802,13 +14132,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x3c0(%%rax),%%zmm0 	\n\t"\
 		"vmovaps	0xf80(%%rdi),%%zmm6		\n\t"/* wi_im */\
 		"vmovaps	0xf00(%%rdi),%%zmm5		\n\t"/* wt_im */\
-	"vfmadd132pd	%%zmm6,%%zmm1,%%zmm0	\n\t"\
+		"vmulpd		%%zmm6,%%zmm0,%%zmm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vrndscalepd	$0,%%zmm0,%%zmm9	\n\t"\
 		"vsubpd		%%zmm9,%%zmm0,%%zmm0	\n\t"\
 		"vpandq		(%%rsi),%%zmm0,%%zmm0	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%zmm9,%%zmm0			\n\t"\
@@ -13839,54 +14170,56 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* Store maxerr: */\
 		"vmovaps	%%zmm2,-0x80(%%rdi)		\n\t"\
 	/* 8-way transpose of outputs (Re, Im parts separately): Inputs from r0-f. Outputs into r0-f: */	\
+		"movl	$0b00110011,%%eax	\n\t"/* Carry step has overwritten k1, re-init for transpose */\
+		"kmovw	%%eax,%%k1			\n\t"\
 		"movq		%[__data],%%rax		\n\t"\
-	/* Real parts use zmm0,2,4,6,8,10,12,14,16:				Imag parts use zmm1,3,5,7,9,11,13,15,17: */\
-		/* Read in the 8 rows of our input matrix ... the funky index ordering gives ordered outputs sans reg-copying: */\
-		"vmovaps		0x000(%%rax),%%zmm6 		\n\t	vmovaps		0x040(%%rax),%%zmm7 		\n\t"\
-		"vmovaps		0x080(%%rax),%%zmm8 		\n\t	vmovaps		0x0c0(%%rax),%%zmm9 		\n\t"\
-		"vmovaps		0x100(%%rax),%%zmm10		\n\t	vmovaps		0x140(%%rax),%%zmm11		\n\t"\
-		"vmovaps		0x180(%%rax),%%zmm16		\n\t	vmovaps		0x1c0(%%rax),%%zmm17		\n\t"\
-		"vmovaps		0x200(%%rax),%%zmm12		\n\t	vmovaps		0x240(%%rax),%%zmm13		\n\t"\
-		"vmovaps		0x280(%%rax),%%zmm0 		\n\t	vmovaps		0x2c0(%%rax),%%zmm1 		\n\t"\
-		"vmovaps		0x300(%%rax),%%zmm2 		\n\t	vmovaps		0x340(%%rax),%%zmm3 		\n\t"\
-		"vmovaps		0x380(%%rax),%%zmm14		\n\t	vmovaps		0x3c0(%%rax),%%zmm15		\n\t"\
-		"\n\t"\
-		"vunpcklpd		%%zmm8 ,%%zmm6 ,%%zmm4 		\n\t	vunpcklpd		%%zmm9 ,%%zmm7 ,%%zmm5 		\n\t"\
-		"vunpckhpd		%%zmm8 ,%%zmm6 ,%%zmm8 		\n\t	vunpckhpd		%%zmm9 ,%%zmm7 ,%%zmm9 		\n\t"\
-		"vunpcklpd		%%zmm16,%%zmm10,%%zmm6 		\n\t	vunpcklpd		%%zmm17,%%zmm11,%%zmm7 		\n\t"\
-		"vunpckhpd		%%zmm16,%%zmm10,%%zmm16		\n\t	vunpckhpd		%%zmm17,%%zmm11,%%zmm17		\n\t"\
-		"vunpcklpd		%%zmm0 ,%%zmm12,%%zmm10		\n\t	vunpcklpd		%%zmm1 ,%%zmm13,%%zmm11		\n\t"\
-		"vunpckhpd		%%zmm0 ,%%zmm12,%%zmm0 		\n\t	vunpckhpd		%%zmm1 ,%%zmm13,%%zmm1 		\n\t"\
-		"vunpcklpd		%%zmm14,%%zmm2 ,%%zmm12		\n\t	vunpcklpd		%%zmm15,%%zmm3 ,%%zmm13		\n\t"\
-		"vunpckhpd		%%zmm14,%%zmm2 ,%%zmm14		\n\t	vunpckhpd		%%zmm15,%%zmm3 ,%%zmm15		\n\t"\
-		"\n\t"\
-		"vshuff64x2	$136,%%zmm6 ,%%zmm4 ,%%zmm2 	\n\t	vshuff64x2	$136,%%zmm7 ,%%zmm5 ,%%zmm3 	\n\t"\
-		"vshuff64x2	$221,%%zmm6 ,%%zmm4 ,%%zmm6 	\n\t	vshuff64x2	$221,%%zmm7 ,%%zmm5 ,%%zmm7 	\n\t"\
-		"vshuff64x2	$136,%%zmm16,%%zmm8 ,%%zmm4 	\n\t	vshuff64x2	$136,%%zmm17,%%zmm9 ,%%zmm5 	\n\t"\
-		"vshuff64x2	$221,%%zmm16,%%zmm8 ,%%zmm16	\n\t	vshuff64x2	$221,%%zmm17,%%zmm9 ,%%zmm17	\n\t"\
-		"vshuff64x2	$136,%%zmm12,%%zmm10,%%zmm8 	\n\t	vshuff64x2	$136,%%zmm13,%%zmm11,%%zmm9 	\n\t"\
-		"vshuff64x2	$221,%%zmm12,%%zmm10,%%zmm12	\n\t	vshuff64x2	$221,%%zmm13,%%zmm11,%%zmm13	\n\t"\
-		"vshuff64x2	$136,%%zmm14,%%zmm0 ,%%zmm10	\n\t	vshuff64x2	$136,%%zmm15,%%zmm1 ,%%zmm11	\n\t"\
-		"vshuff64x2	$221,%%zmm14,%%zmm0 ,%%zmm14	\n\t	vshuff64x2	$221,%%zmm15,%%zmm1 ,%%zmm15	\n\t"\
-		"\n\t"\
-		"vshuff64x2	$136,%%zmm8 ,%%zmm2 ,%%zmm0 	\n\t	vshuff64x2	$136,%%zmm9 ,%%zmm3 ,%%zmm1 	\n\t"\
-		"vshuff64x2	$221,%%zmm8 ,%%zmm2 ,%%zmm8 	\n\t	vshuff64x2	$221,%%zmm9 ,%%zmm3 ,%%zmm9 	\n\t"\
-		"vshuff64x2	$136,%%zmm10,%%zmm4 ,%%zmm2 	\n\t	vshuff64x2	$136,%%zmm11,%%zmm5 ,%%zmm3 	\n\t"\
-		"vshuff64x2	$221,%%zmm10,%%zmm4 ,%%zmm10	\n\t	vshuff64x2	$221,%%zmm11,%%zmm5 ,%%zmm11	\n\t"\
-		"vshuff64x2	$136,%%zmm12,%%zmm6 ,%%zmm4 	\n\t	vshuff64x2	$136,%%zmm13,%%zmm7 ,%%zmm5 	\n\t"\
-		"vshuff64x2	$221,%%zmm12,%%zmm6 ,%%zmm12	\n\t	vshuff64x2	$221,%%zmm13,%%zmm7 ,%%zmm13	\n\t"\
-		"vshuff64x2	$136,%%zmm14,%%zmm16,%%zmm6 	\n\t	vshuff64x2	$136,%%zmm15,%%zmm17,%%zmm7 	\n\t"\
-		"vshuff64x2	$221,%%zmm14,%%zmm16,%%zmm14	\n\t	vshuff64x2	$221,%%zmm15,%%zmm17,%%zmm15	\n\t"\
+		/* Read in the 8 rows of our input matrix: */\
+		"vmovaps		0x000(%%rax),%%zmm0					\n\t	vmovaps		0x040(%%rax),%%zmm12		\n\t"\
+		"vmovaps		0x080(%%rax),%%zmm1					\n\t	vmovaps		0x0c0(%%rax),%%zmm13		\n\t"\
+		"vmovaps		0x100(%%rax),%%zmm2					\n\t	vmovaps		0x140(%%rax),%%zmm14		\n\t"\
+		"vmovaps		0x180(%%rax),%%zmm3					\n\t	vmovaps		0x1c0(%%rax),%%zmm15		\n\t"\
+		"vmovaps		0x200(%%rax),%%zmm4					\n\t	vmovaps		0x240(%%rax),%%zmm16		\n\t"\
+		"vmovaps		0x280(%%rax),%%zmm5					\n\t	vmovaps		0x2c0(%%rax),%%zmm17		\n\t"\
+		"vmovaps		0x300(%%rax),%%zmm6					\n\t	vmovaps		0x340(%%rax),%%zmm18		\n\t"\
+		"vmovaps		0x380(%%rax),%%zmm7					\n\t	vmovaps		0x3c0(%%rax),%%zmm19		\n\t"\
+		/* [1] Shuffle the 4-aparts - note the different patterning of the first and second output quartet: */\
+		"vshuff64x2	$0b01000100, %%zmm4,	%%zmm0,	%%zmm8 	\n\t	vshuff64x2	$0b01000100, %%zmm16,%%zmm12,	%%zmm20	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm4,	%%zmm0,	%%zmm4 	\n\t	vshuff64x2	$0b11101110, %%zmm16,%%zmm12,	%%zmm16	\n\t"\
+		"vshuff64x2	$0b01000100, %%zmm5,	%%zmm1,	%%zmm9	\n\t	vshuff64x2	$0b01000100, %%zmm17,%%zmm13,	%%zmm21	\n\t"\
+		"vshuff64x2	$0b11101110, %%zmm5,	%%zmm1,	%%zmm5	\n\t	vshuff64x2	$0b11101110, %%zmm17,%%zmm13,	%%zmm17	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm6,	%%zmm2,	%%zmm10	\n\t	vshuff64x2	$0b00010001, %%zmm18,%%zmm14,	%%zmm22	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm6,	%%zmm2,	%%zmm6	\n\t	vshuff64x2	$0b10111011, %%zmm18,%%zmm14,	%%zmm18	\n\t"\
+		"vshuff64x2	$0b00010001, %%zmm7,	%%zmm3,	%%zmm11	\n\t	vshuff64x2	$0b00010001, %%zmm19,%%zmm15,	%%zmm23	\n\t"\
+		"vshuff64x2	$0b10111011, %%zmm7,	%%zmm3,	%%zmm7	\n\t	vshuff64x2	$0b10111011, %%zmm19,%%zmm15,	%%zmm19	\n\t"\
+		/* [2] Blend in the 2-aparts */\
+		"vblendmpd	%%zmm8 ,	%%zmm10,	%%zmm0%{%%k1%}	\n\t	vblendmpd	%%zmm20,	%%zmm22,	%%zmm12%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm10,	%%zmm8 ,	%%zmm8%{%%k1%}	\n\t	vblendmpd	%%zmm22,	%%zmm20,	%%zmm20%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm4 ,	%%zmm6 ,	%%zmm1%{%%k1%}	\n\t	vblendmpd	%%zmm16,	%%zmm18,	%%zmm13%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm6 ,	%%zmm4 ,	%%zmm4%{%%k1%}	\n\t	vblendmpd	%%zmm18,	%%zmm16,	%%zmm16%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm9 ,	%%zmm11,	%%zmm2%{%%k1%}	\n\t	vblendmpd	%%zmm21,	%%zmm23,	%%zmm14%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm11,	%%zmm9 ,	%%zmm9%{%%k1%}	\n\t	vblendmpd	%%zmm23,	%%zmm21,	%%zmm21%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm5 ,	%%zmm7 ,	%%zmm3%{%%k1%}	\n\t	vblendmpd	%%zmm17,	%%zmm19,	%%zmm15%{%%k1%}	\n\t"\
+		"vblendmpd	%%zmm7 ,	%%zmm5 ,	%%zmm5%{%%k1%}	\n\t	vblendmpd	%%zmm19,	%%zmm17,	%%zmm17%{%%k1%}	\n\t"\
+		/* [3] Shuffle or permute in the 1-aparts */\
+		"vshufpd	$0b00000000,%%zmm2,		%%zmm0,%%zmm10 	\n\t	vshufpd	$0b00000000,%%zmm14,	%%zmm12,%%zmm22	\n\t"\
+		"vshufpd	$0b11111111,%%zmm2,		%%zmm0,%%zmm11 	\n\t	vshufpd	$0b11111111,%%zmm14,	%%zmm12,%%zmm23	\n\t"\
+		"vmovapd	%%zmm8,%%zmm2							\n\t	vmovapd	%%zmm20,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm30,%%zmm2 	\n\t	vpermt2pd				%%zmm21,	%%zmm30,%%zmm14	\n\t"\
+		"vpermt2pd				%%zmm9,		%%zmm31,%%zmm8	\n\t	vpermt2pd				%%zmm21,	%%zmm31,%%zmm20	\n\t"\
+		"vshufpd	$0b00000000,%%zmm3,		%%zmm1,%%zmm0 	\n\t	vshufpd	$0b00000000,%%zmm15,	%%zmm13,%%zmm12	\n\t"\
+		"vshufpd	$0b11111111,%%zmm3,		%%zmm1,%%zmm1 	\n\t	vshufpd	$0b11111111,%%zmm15,	%%zmm13,%%zmm13	\n\t"\
+		"vmovapd	%%zmm4,%%zmm3							\n\t	vmovapd	%%zmm16,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm30,%%zmm3 	\n\t	vpermt2pd				%%zmm17,	%%zmm30,%%zmm15	\n\t"\
+		"vpermt2pd				%%zmm5,		%%zmm31,%%zmm4	\n\t	vpermt2pd				%%zmm17,	%%zmm31,%%zmm16	\n\t"\
 		/* Outputs are now ordered - write 'em back to memory: */\
-		/* Real parts:										Imag parts: */\
-		"vmovaps	%%zmm0 ,0x000(%%rax)			\n\t	vmovaps	%%zmm1 ,0x040(%%rax)	\n\t"\
-		"vmovaps	%%zmm2 ,0x080(%%rax)			\n\t	vmovaps	%%zmm3 ,0x0c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm4 ,0x100(%%rax)			\n\t	vmovaps	%%zmm5 ,0x140(%%rax)	\n\t"\
-		"vmovaps	%%zmm6 ,0x180(%%rax)			\n\t	vmovaps	%%zmm7 ,0x1c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm8 ,0x200(%%rax)			\n\t	vmovaps	%%zmm9 ,0x240(%%rax)	\n\t"\
-		"vmovaps	%%zmm10,0x280(%%rax)			\n\t	vmovaps	%%zmm11,0x2c0(%%rax)	\n\t"\
-		"vmovaps	%%zmm12,0x300(%%rax)			\n\t	vmovaps	%%zmm13,0x340(%%rax)	\n\t"\
-		"vmovaps	%%zmm14,0x380(%%rax)			\n\t	vmovaps	%%zmm15,0x3c0(%%rax)	\n\t"\
+		"vmovaps		%%zmm10,0x000(%%rax)				\n\t	vmovaps		%%zmm22,0x040(%%rax)		\n\t"\
+		"vmovaps		%%zmm11,0x080(%%rax)				\n\t	vmovaps		%%zmm23,0x0c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm2 ,0x100(%%rax)				\n\t	vmovaps		%%zmm14,0x140(%%rax)		\n\t"\
+		"vmovaps		%%zmm8 ,0x180(%%rax)				\n\t	vmovaps		%%zmm20,0x1c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm0 ,0x200(%%rax)				\n\t	vmovaps		%%zmm12,0x240(%%rax)		\n\t"\
+		"vmovaps		%%zmm1 ,0x280(%%rax)				\n\t	vmovaps		%%zmm13,0x2c0(%%rax)		\n\t"\
+		"vmovaps		%%zmm3 ,0x300(%%rax)				\n\t	vmovaps		%%zmm15,0x340(%%rax)		\n\t"\
+		"vmovaps		%%zmm4, 0x380(%%rax)				\n\t	vmovaps		%%zmm16,0x3c0(%%rax)		\n\t"\
 		:					/* outputs: none */\
 		: [__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
 		, [__cy]		"m" (Xcy)		\
@@ -13903,7 +14236,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p2]   "m" (Xp2)\
 		,	[__p3]   "m" (Xp3)\
 		,	[__p4]   "m" (Xp4)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17"	/* Clobbered registers */\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm16","xmm17","xmm18","xmm19","xmm20","xmm21","xmm22","xmm23","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -13916,9 +14251,11 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	// [3] Carry and bjmod-quartets pointers are same for Call 1 and Call 2, since Call 2 propagates the same CY-quartet through the j+[8,10,12,14] data.
 	// [4] Call 2 has weights-data pointers += 0x400; this byte offset is specified via the [doff] argument.
 	// [5] Don't need to update/write the wts-data due to the final-cleanup-pass nature of this 4-way carry macro.
-	#define AVX_cmplx_carry_fast_errcheck_X4(Xdata,Xcy,Xbjmod_0, Xhalf_arr,Xdoff, Xsign_mask,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1,Xp2,Xp3)\
+	#define AVX_cmplx_carry_fast_errcheck_X4(Xdata,Xcy,Xbjmod_0, Xhalf_arr,Xdoff, Xsign_mask,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
+		"movq	%[__prp_mult]	,%%rax	\n\t"\
+		"vbroadcastsd	(%%rax),%%zmm20	\n\t"/* In order ot make use of vec-reg w/index > 15, MUST USE zmm20, I.E. IN FULL-WIDTH MODE */\
 	"movq	%[__add0],%%r14	\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
 		"movq		%[__data],%%rax		\n\t"\
 	/* Transpose uses algo [1b] in util.c:test_simd_transpose_4x4(), which is ~4 cycles faster than algo [1a]. */\
@@ -13953,11 +14290,11 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vbroadcastsd -0x40(%%rdi),%%ymm10	\n\t"\
 		"vbroadcastsd -0x38(%%rdi),%%ymm11	\n\t"\
 		"vbroadcastsd -0x30(%%rdi),%%ymm12	\n\t"\
-		"vbroadcastsd -0x28(%%rdi),%%ymm13	\n\t	vaddpd %%ymm13,%%ymm13,%%ymm14	\n\t"/* YMM13,14 have inv_mult[0] (needed for conditional-doubling), inv_mult[1] (needed for (wt_re >= inv_mult[1]) comparison) */\
-		"movq	%[__sse_n] ,%%rbx			\n\t	vmovaps	(%%rbx),%%xmm15			\n\t"/* PERSISTENT COPY OF SSE_N  REMAINS IN XMM15. */\
+		"vbroadcastsd -0x28(%%rdi),%%ymm13	\n\t	vaddpd %%ymm13,%%ymm13,%%ymm14	\n\t"/* ymm13,14 have inv_mult[0] (needed for conditional-doubling), inv_mult[1] (needed for (wt_re >= inv_mult[1]) comparison) */\
+		"movq	%[__sse_n] ,%%rbx			\n\t	vmovaps	(%%rbx),%%xmm15			\n\t"/* PERSISTENT COPY OF SSE_N  REMAINS IN xmm15. */\
 		"movq	%[__sse_bw],%%rbx			\n\t"/* RBX HOLDS ADDRESS OF SSE_BW */\
-		"movq	%[__bjmod_0],%%rsi			\n\t	vmovaps	(%%rsi),%%xmm3			\n\t"/* bjmod[0:3], PERSISTENT COPY IN XMM3 */\
-		"movq	%[__sse_sw] ,%%rsi			\n\t	vmovaps	(%%rsi),%%xmm4			\n\t"/* sw,  8-fold PERSISTENT COPY IN XMM4 */\
+		"movq	%[__bjmod_0],%%rsi			\n\t	vmovaps	(%%rsi),%%xmm3			\n\t"/* bjmod[0:3], PERSISTENT COPY IN xmm3 */\
+		"movq	%[__sse_sw] ,%%rsi			\n\t	vmovaps	(%%rsi),%%xmm4			\n\t"/* sw,  8-fold PERSISTENT COPY IN xmm4 */\
 		"movq	%[__sign_mask],%%rsi		\n\t"\
 	/**********************************/\
 	/* Do A.re-octet: Data in zmm0 :  */\
@@ -13966,7 +14303,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x000(%%rax),%%ymm0		\n\t"\
 		"vmovaps	0x080(%%rdx),%%ymm6		\n\t"/* wi_re */\
 		"vmovaps	0x000(%%rdx),%%ymm5		\n\t"/* wt_re for our 8 independent carry-chains */\
-	"vfmadd132pd	%%ymm6,%%ymm1,%%ymm0	\n\t"/* x *= wtinv + cy */\
+		"vmulpd		%%ymm6,%%ymm0,%%ymm0	\n\t"/* x *= wtinv */\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t"/* Set bit in k1 if sw < bjmod[0:3] ; Opmask K1 is analog of AVX-mode bitmask stored in R10 */\
 	"knotw	%%k1,%%k2						\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"/* [3] Fwd-base mults: Init = base[0] x 8, anytime AVX-style lookup into 3rd mini-table would have bit = 1, double the corr. datum: */\
@@ -13974,7 +14311,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vroundpd	$0,%%ymm0,%%ymm9		\n\t"/* temp = DNINT(x) */\
 		"vsubpd		%%ymm9,%%ymm0,%%ymm0	\n\t"/* x - temp */\
 		"vandpd		(%%rsi),%%ymm0,%%ymm0	\n\t"/* frac = fabs(x-temp) ... PANDQ requires full-width reg in AVX-512F so revert to ANDPD here. */\
-		"vmaxpd		%%ymm2,%%ymm0,%%ymm2	\n\t"/* if(frac > maxerr) maxerr=frac */\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy *//* Again, MUST USE MM20 IN FULL-WIDTH MODE */\
+	/* vmaxpd: AVX-512F requires full-width zmm-regs here, but only use lower 256 bits: */\
+		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%ymm9,%%ymm0			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm8,%%ymm9,%%ymm9	\n\t"/* temp*baseinv */\
@@ -13995,14 +14334,15 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x040(%%rax),%%ymm0 	\n\t"\
 		"vmovaps	0x180(%%rdx),%%ymm6		\n\t"/* wi_im */\
 		"vmovaps	0x100(%%rdx),%%ymm5		\n\t"/* wt_im for our 8 independent carry-chains */\
-	"vfmadd132pd	%%ymm6,%%ymm1,%%ymm0	\n\t"\
+		"vmulpd		%%ymm6,%%ymm0,%%ymm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vroundpd	$0,%%ymm0,%%ymm9		\n\t"\
 		"vsubpd		%%ymm9,%%ymm0,%%ymm0	\n\t"\
 		"vandpd		(%%rsi),%%ymm0,%%ymm0	\n\t"\
-		"vmaxpd		%%ymm2,%%ymm0,%%ymm2	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
+		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%ymm9,%%ymm0			\n\t"\
 		"vmulpd		%%ymm8,%%ymm9,%%ymm9	\n\t"\
@@ -14025,14 +14365,15 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x080(%%rax),%%ymm0 	\n\t"\
 		"vmovaps	0x280(%%rdx),%%ymm6		\n\t"/* wi_re */\
 		"vmovaps	0x200(%%rdx),%%ymm5		\n\t"/* wt_re */\
-	"vfmadd132pd	%%ymm6,%%ymm1,%%ymm0	\n\t"\
+		"vmulpd		%%ymm6,%%ymm0,%%ymm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vroundpd	$0,%%ymm0,%%ymm9		\n\t"\
 		"vsubpd		%%ymm9,%%ymm0,%%ymm0	\n\t"\
 		"vandpd		(%%rsi),%%ymm0,%%ymm0	\n\t"\
-		"vmaxpd		%%ymm2,%%ymm0,%%ymm2	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
+		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%ymm9,%%ymm0			\n\t"\
 		"vmulpd		%%ymm8,%%ymm9,%%ymm9	\n\t"\
@@ -14053,14 +14394,15 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x0c0(%%rax),%%ymm0 	\n\t"\
 		"vmovaps	0x380(%%rdx),%%ymm6		\n\t"/* wi_im */\
 		"vmovaps	0x300(%%rdx),%%ymm5		\n\t"/* wt_im */\
-	"vfmadd132pd	%%ymm6,%%ymm1,%%ymm0	\n\t"\
+		"vmulpd		%%ymm6,%%ymm0,%%ymm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vroundpd	$0,%%ymm0,%%ymm9		\n\t"\
 		"vsubpd		%%ymm9,%%ymm0,%%ymm0	\n\t"\
 		"vandpd		(%%rsi),%%ymm0,%%ymm0	\n\t"\
-		"vmaxpd		%%ymm2,%%ymm0,%%ymm2	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
+		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%ymm9,%%ymm0			\n\t"\
 		"vmulpd		%%ymm8,%%ymm9,%%ymm9	\n\t"\
@@ -14083,14 +14425,15 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x100(%%rax),%%ymm0 	\n\t"\
 		"vmovaps	0x480(%%rdx),%%ymm6		\n\t"/* wi_re */\
 		"vmovaps	0x400(%%rdx),%%ymm5		\n\t"/* wt_re */\
-	"vfmadd132pd	%%ymm6,%%ymm1,%%ymm0	\n\t"\
+		"vmulpd		%%ymm6,%%ymm0,%%ymm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vroundpd	$0,%%ymm0,%%ymm9		\n\t"\
 		"vsubpd		%%ymm9,%%ymm0,%%ymm0	\n\t"\
 		"vandpd		(%%rsi),%%ymm0,%%ymm0	\n\t"\
-		"vmaxpd		%%ymm2,%%ymm0,%%ymm2	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
+		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%ymm9,%%ymm0			\n\t"\
 		"vmulpd		%%ymm8,%%ymm9,%%ymm9	\n\t"\
@@ -14111,14 +14454,15 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x140(%%rax),%%ymm0 	\n\t"\
 		"vmovaps	0x580(%%rdx),%%ymm6		\n\t"/* wi_im */\
 		"vmovaps	0x500(%%rdx),%%ymm5		\n\t"/* wt_im */\
-	"vfmadd132pd	%%ymm6,%%ymm1,%%ymm0	\n\t"\
+		"vmulpd		%%ymm6,%%ymm0,%%ymm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vroundpd	$0,%%ymm0,%%ymm9		\n\t"\
 		"vsubpd		%%ymm9,%%ymm0,%%ymm0	\n\t"\
 		"vandpd		(%%rsi),%%ymm0,%%ymm0	\n\t"\
-		"vmaxpd		%%ymm2,%%ymm0,%%ymm2	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
+		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%ymm9,%%ymm0			\n\t"\
 		"vmulpd		%%ymm8,%%ymm9,%%ymm9	\n\t"\
@@ -14141,14 +14485,15 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x180(%%rax),%%ymm0 	\n\t"\
 		"vmovaps	0x680(%%rdx),%%ymm6		\n\t"/* wi_re */\
 		"vmovaps	0x600(%%rdx),%%ymm5		\n\t"/* wt_re */\
-	"vfmadd132pd	%%ymm6,%%ymm1,%%ymm0	\n\t"\
+		"vmulpd		%%ymm6,%%ymm0,%%ymm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vroundpd	$0,%%ymm0,%%ymm9		\n\t"\
 		"vsubpd		%%ymm9,%%ymm0,%%ymm0	\n\t"\
 		"vandpd		(%%rsi),%%ymm0,%%ymm0	\n\t"\
-		"vmaxpd		%%ymm2,%%ymm0,%%ymm2	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
+		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%ymm9,%%ymm0			\n\t"\
 		"vmulpd		%%ymm8,%%ymm9,%%ymm9	\n\t"\
@@ -14169,14 +14514,15 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x1c0(%%rax),%%ymm0 	\n\t"\
 		"vmovaps	0x780(%%rdx),%%ymm6		\n\t"/* wi_im */\
 		"vmovaps	0x700(%%rdx),%%ymm5		\n\t"/* wt_im */\
-	"vfmadd132pd	%%ymm6,%%ymm1,%%ymm0	\n\t"\
+		"vmulpd		%%ymm6,%%ymm0,%%ymm0	\n\t"\
 	"vpcmpd	$1,%%zmm3,%%zmm4,%%k1			\n\t	knotw	%%k1,%%k2	\n\t"\
 		"vmovaps	%%zmm10,%%zmm7			\n\t	vaddpd	%%zmm7,%%zmm7,%%zmm7%{%%k1%}	\n\t"\
 		"vmovaps	%%zmm11,%%zmm8			\n\t	vaddpd	%%zmm8,%%zmm8,%%zmm8%{%%k2%}	\n\t"\
 		"vroundpd	$0,%%ymm0,%%ymm9		\n\t"\
 		"vsubpd		%%ymm9,%%ymm0,%%ymm0	\n\t"\
 		"vandpd		(%%rsi),%%ymm0,%%ymm0	\n\t"\
-		"vmaxpd		%%ymm2,%%ymm0,%%ymm2	\n\t"\
+	"vfmadd132pd	%%zmm20,%%zmm1,%%zmm9	\n\t"/* temp = temp*prp_mult + cy */\
+		"vmaxpd		%%zmm2,%%zmm0,%%zmm2	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"vmovaps	%%ymm9,%%ymm0			\n\t"\
 		"vmulpd		%%ymm8,%%ymm9,%%ymm9	\n\t"\
@@ -14232,7 +14578,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p1]   "m" (Xp1)\
 		,	[__p2]   "m" (Xp2)\
 		,	[__p3]   "m" (Xp3)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm20"	/* Clobbered registers */\
 	);\
 	}
 
@@ -14240,7 +14588,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 
 	// 8-way version of the AVX 4-way carry macro,
 	// analogous to the 128-bit-setting 4-way SSE2_cmplx_carry_fast_errcheck macro:
-	#define AVX_cmplx_carry_fast_errcheck_X8(Xdata,XcyA,XcyB,Xbjmod_0,Xbjmod_4,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1,Xp2,Xp3,Xp4)\
+	#define AVX_cmplx_carry_fast_errcheck_X8(Xdata,XcyA,XcyB,Xbjmod_0,Xbjmod_4,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1,Xp2,Xp3,Xp4, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"movq	%[__add0],%%r14	\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
@@ -14284,6 +14632,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	%%ymm2 ,0x40(%%rax)		\n\t		vmovaps	%%ymm3 ,0x60(%%rax)		\n\t"\
 		"vmovaps	%%ymm4 ,0x80(%%rax)		\n\t		vmovaps	%%ymm5 ,0xa0(%%rax)		\n\t"\
 		"vmovaps	%%ymm6 ,0xc0(%%rax)		\n\t		vmovaps	%%ymm7 ,0xe0(%%rax)		\n\t"\
+		"movq	%[__prp_mult]	,%%rbx	\n\t"\
+		"vbroadcastsd	(%%rbx),%%ymm8	\n\t"/* prp_mult, broadcast to all double-slots of just-freed ymm8 */\
 		/* And un-fiddle the base address: */\
 		"subq	$0x100,%%rax				\n\t"\
 	/*** mm6-9 *FREE* between here and closing un-transpose block ... each processing ***/\
@@ -14315,11 +14665,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xc40(%%rdi),%%ymm4 	\n\t	vmovaps	0xc60(%%rdi),%%ymm5 		\n\t"/* wi_re for our 4 independent carry-chains */\
 		"vmovaps	0xc00(%%rdi),%%ymm2 	\n\t	vmovaps	0xc20(%%rdi),%%ymm3 		\n\t"/* wt_re */\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"/* x *= wtinv + cy */\
+		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"/* x *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"/* temp = DNINT(x) */\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"/* frac = fabs(x-temp) */\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -14366,11 +14717,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xcc0(%%rdi),%%ymm4 	\n\t	vmovaps	0xce0(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xc80(%%rdi),%%ymm2 	\n\t	vmovaps	0xca0(%%rdi),%%ymm3 		\n\t"\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"\
+		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -14417,11 +14769,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xd40(%%rdi),%%ymm4 	\n\t	vmovaps	0xd60(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xd00(%%rdi),%%ymm2 	\n\t	vmovaps	0xd20(%%rdi),%%ymm3 		\n\t"\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"\
+		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -14468,11 +14821,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xdc0(%%rdi),%%ymm4 	\n\t	vmovaps	0xde0(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xd80(%%rdi),%%ymm2 	\n\t	vmovaps	0xda0(%%rdi),%%ymm3 		\n\t"\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"\
+		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -14520,11 +14874,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xe40(%%rdi),%%ymm4 	\n\t	vmovaps	0xe60(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xe00(%%rdi),%%ymm2 	\n\t	vmovaps	0xe20(%%rdi),%%ymm3 		\n\t"\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"\
+		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -14571,11 +14926,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xec0(%%rdi),%%ymm4 	\n\t	vmovaps	0xee0(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xe80(%%rdi),%%ymm2 	\n\t	vmovaps	0xea0(%%rdi),%%ymm3 		\n\t"\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"\
+		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -14622,11 +14978,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xf40(%%rdi),%%ymm4 	\n\t	vmovaps	0xf60(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xf00(%%rdi),%%ymm2 	\n\t	vmovaps	0xf20(%%rdi),%%ymm3 		\n\t"\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"\
+		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -14673,11 +15030,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vmovaps	0xfc0(%%rdi),%%ymm4 	\n\t	vmovaps	0xfe0(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xf80(%%rdi),%%ymm2 	\n\t	vmovaps	0xfa0(%%rdi),%%ymm3 		\n\t"\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t	vfmadd132pd	%%ymm5,%%ymm13,%%ymm1	\n\t"\
+		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t	vfmadd132pd	%%ymm8,%%ymm13,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -14773,12 +15131,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p2]   "m" (Xp2)\
 		,	[__p3]   "m" (Xp3)\
 		,	[__p4]   "m" (Xp4)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r10","r11","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"/* Clobbered registers */\
 	);\
 	}
 
 	// Register-name choices in the non-transpose middle section reflect preparation for an 8-way version of this macro:
-	#define AVX_cmplx_carry_fast_errcheck_X4(Xdata,Xcy,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1,Xp2,Xp3)\
+	#define AVX_cmplx_carry_fast_errcheck_X4(Xdata,Xcy,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"movq	%[__add0],%%r14	\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
@@ -14803,6 +15163,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	%%ymm2 ,0x40(%%rax)		\n\t		vmovaps	%%ymm3 ,0x60(%%rax)		\n\t"\
 		"vmovaps	%%ymm4 ,0x80(%%rax)		\n\t		vmovaps	%%ymm5 ,0xa0(%%rax)		\n\t"\
 		"vmovaps	%%ymm6 ,0xc0(%%rax)		\n\t		vmovaps	%%ymm7 ,0xe0(%%rax)		\n\t"\
+		"movq	%[__prp_mult]	,%%rbx	\n\t"\
+		"vbroadcastsd	(%%rbx),%%ymm8	\n\t"/* prp_mult, broadcast to all double-slots of just-freed ymm8 */\
 		"movq		%[__cy],%%rbx		\n\t"\
 		"vmovaps	(%%rbx),%%ymm12		\n\t"/* ymm12 = cy_in */\
 		/* LOACC wts-data occupy 32 ymm-sized slots starting at (vec_dbl*)half_arr + 96 : */\
@@ -14814,7 +15176,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	/**********************************/\
 	"prefetcht0	(%%r14)	\n\t"\
 	"movq	%[__bjmod_0],%%rsi			\n\t"\
-	"vmovaps	(%%rsi),%%xmm15			\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM15. */\
+	"vmovaps	(%%rsi),%%xmm15			\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN xmm15. */\
 	"movq	%[__sse_sw],%%rsi			\n\t"\
 	"vmovaps	(%%rsi),%%xmm10			\n\t"/* sw[0:3] */\
 	"vpsubd		%%xmm15,%%xmm10,%%xmm10	\n\t"/* sw[0:3] - bjmod[0:3] */\
@@ -14825,13 +15187,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* This 4-way vector-carry macro uses only the even-indexed 16 of said slots, having byte offsets == 0 (mod 0x40) */\
 		"vmovaps	0xc40(%%rdi),%%ymm4 	\n\t"/* wi_re for our 4 independent carry-chains */\
 		"vmovaps	0xc00(%%rdi),%%ymm2 	\n\t"/* wt_re */\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t"/* x *= wtinv + cy */\
+		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t"/* x *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(x) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(x-temp) */\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -14874,13 +15237,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	"shlq	$5,%%rsi	\n\t"/* i0123 << 5 (= lshift to give ptr offset for ymm-size data */\
 		"vmovaps	0xcc0(%%rdi),%%ymm4 	\n\t"/* wi_im for our 4 independent carry-chains */\
 		"vmovaps	0xc80(%%rdi),%%ymm2 	\n\t"/* wt_im */\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t"/* y *= wtinv + cy */\
+		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t"/* y *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t"/* temp = y */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(y) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* y - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(y-temp) */\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -14925,13 +15289,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"shlq	$5,%%rsi	\n\t"/* i0123 << 5 (= lshift to give ptr offset for ymm-size data */\
 		"vmovaps	0xd40(%%rdi),%%ymm4 	\n\t"/* wi_re for our 4 independent carry-chains */\
 		"vmovaps	0xd00(%%rdi),%%ymm2 	\n\t"/* wt_re */\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t"/* x *= wtinv + cy */\
+		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t"/* x *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(x) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(x-temp) */\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -14974,13 +15339,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"shlq	$5,%%rsi	\n\t"/* i0123 << 5 (= lshift to give ptr offset for ymm-size data */\
 		"vmovaps	0xdc0(%%rdi),%%ymm4 	\n\t"/* wi_im for our 4 independent carry-chains */\
 		"vmovaps	0xd80(%%rdi),%%ymm2 	\n\t"/* wt_im */\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t"/* y *= wtinv + cy */\
+		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t"/* y *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t"/* temp = y */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(y) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* y - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(y-temp) */\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -15025,13 +15391,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"shlq	$5,%%rsi	\n\t"/* i0123 << 5 (= lshift to give ptr offset for ymm-size data */\
 		"vmovaps	0xe40(%%rdi),%%ymm4 	\n\t"/* wi_re for our 4 independent carry-chains */\
 		"vmovaps	0xe00(%%rdi),%%ymm2 	\n\t"/* wt_re */\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t"/* x *= wtinv + cy */\
+		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t"/* x *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(x) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(x-temp) */\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -15074,13 +15441,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"shlq	$5,%%rsi	\n\t"/* i0123 << 5 (= lshift to give ptr offset for ymm-size data */\
 		"vmovaps	0xec0(%%rdi),%%ymm4 	\n\t"/* wi_im for our 4 independent carry-chains */\
 		"vmovaps	0xe80(%%rdi),%%ymm2 	\n\t"/* wt_im */\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t"/* y *= wtinv + cy */\
+		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t"/* y *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t"/* temp = y */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(y) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* y - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(y-temp) */\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -15125,13 +15493,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"shlq	$5,%%rsi	\n\t"/* i0123 << 5 (= lshift to give ptr offset for ymm-size data */\
 		"vmovaps	0xf40(%%rdi),%%ymm4 	\n\t"/* wi_re for our 4 independent carry-chains */\
 		"vmovaps	0xf00(%%rdi),%%ymm2 	\n\t"/* wt_re */\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t"/* x *= wtinv + cy */\
+		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t"/* x *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(x) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(x-temp) */\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -15174,13 +15543,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"shlq	$5,%%rsi	\n\t"/* i0123 << 5 (= lshift to give ptr offset for ymm-size data */\
 		"vmovaps	0xfc0(%%rdi),%%ymm4 	\n\t"/* wi_im for our 4 independent carry-chains */\
 		"vmovaps	0xf80(%%rdi),%%ymm2 	\n\t"/* wt_im */\
-	"vfmadd132pd	%%ymm4,%%ymm12,%%ymm0	\n\t"/* y *= wtinv + cy */\
+		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t"/* y *= wtinv */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t"/* temp = y */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(y) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* y - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(y-temp) */\
+	"vfmadd132pd	%%ymm8,%%ymm12,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -15254,6 +15624,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p1]   "m" (Xp1)\
 		,	[__p2]   "m" (Xp2)\
 		,	[__p3]   "m" (Xp3)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm12","xmm14","xmm15"/* Clobbered registers */\
 	);\
 	}
@@ -15262,7 +15634,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 
 	// 8-way version of the AVX 4-way carry macro,
 	// analogous to the 128-bit-setting 4-way SSE2_cmplx_carry_fast_errcheck macro:
-	#define AVX_cmplx_carry_fast_errcheck_X8(Xdata,XcyA,XcyB,Xbjmod_0,Xbjmod_4,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1,Xp2,Xp3,Xp4)\
+	#define AVX_cmplx_carry_fast_errcheck_X8(Xdata,XcyA,XcyB,Xbjmod_0,Xbjmod_4,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1,Xp2,Xp3,Xp4, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"movq	%[__add0],%%r14	\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
@@ -15306,6 +15678,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	%%ymm2 ,0x40(%%rax)		\n\t		vmovaps	%%ymm3 ,0x60(%%rax)		\n\t"\
 		"vmovaps	%%ymm4 ,0x80(%%rax)		\n\t		vmovaps	%%ymm5 ,0xa0(%%rax)		\n\t"\
 		"vmovaps	%%ymm6 ,0xc0(%%rax)		\n\t		vmovaps	%%ymm7 ,0xe0(%%rax)		\n\t"\
+		"movq	%[__prp_mult]	,%%rbx	\n\t"\
+		"vbroadcastsd	(%%rbx),%%ymm8	\n\t"/* prp_mult, broadcast to all double-slots of just-freed ymm8 */\
 		/* And un-fiddle the base address: */\
 		"subq	$0x100,%%rax				\n\t"\
 	/*** mm6-9 *FREE* between here and closing un-transpose block ... each processing ***/\
@@ -15338,11 +15712,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xc40(%%rdi),%%ymm4 	\n\t	vmovaps	0xc60(%%rdi),%%ymm5 		\n\t"/* wi_re for our 4 independent carry-chains */\
 		"vmovaps	0xc00(%%rdi),%%ymm2 	\n\t	vmovaps	0xc20(%%rdi),%%ymm3 		\n\t"/* wt_re */\
 		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"/* x *= wtinv */\
-		"vaddpd		%%ymm12,%%ymm0,%%ymm0	\n\t	vaddpd		%%ymm13,%%ymm1,%%ymm1	\n\t"/* x *= wtinv + cy */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"/* temp = DNINT(x) */\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"/* frac = fabs(x-temp) */\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t	vmulpd		%%ymm8 ,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t	vaddpd		%%ymm13,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -15392,11 +15767,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xcc0(%%rdi),%%ymm4 	\n\t	vmovaps	0xce0(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xc80(%%rdi),%%ymm2 	\n\t	vmovaps	0xca0(%%rdi),%%ymm3 		\n\t"\
 		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"\
-		"vaddpd		%%ymm12,%%ymm0,%%ymm0	\n\t	vaddpd		%%ymm13,%%ymm1,%%ymm1	\n\t"\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t	vmulpd		%%ymm8 ,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t	vaddpd		%%ymm13,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -15446,11 +15822,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xd40(%%rdi),%%ymm4 	\n\t	vmovaps	0xd60(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xd00(%%rdi),%%ymm2 	\n\t	vmovaps	0xd20(%%rdi),%%ymm3 		\n\t"\
 		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"\
-		"vaddpd		%%ymm12,%%ymm0,%%ymm0	\n\t	vaddpd		%%ymm13,%%ymm1,%%ymm1	\n\t"\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t	vmulpd		%%ymm8 ,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t	vaddpd		%%ymm13,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -15500,11 +15877,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xdc0(%%rdi),%%ymm4 	\n\t	vmovaps	0xde0(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xd80(%%rdi),%%ymm2 	\n\t	vmovaps	0xda0(%%rdi),%%ymm3 		\n\t"\
 		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"\
-		"vaddpd		%%ymm12,%%ymm0,%%ymm0	\n\t	vaddpd		%%ymm13,%%ymm1,%%ymm1	\n\t"\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t	vmulpd		%%ymm8 ,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t	vaddpd		%%ymm13,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -15555,11 +15933,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xe40(%%rdi),%%ymm4 	\n\t	vmovaps	0xe60(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xe00(%%rdi),%%ymm2 	\n\t	vmovaps	0xe20(%%rdi),%%ymm3 		\n\t"\
 		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"\
-		"vaddpd		%%ymm12,%%ymm0,%%ymm0	\n\t	vaddpd		%%ymm13,%%ymm1,%%ymm1	\n\t"\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t	vmulpd		%%ymm8 ,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t	vaddpd		%%ymm13,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -15609,11 +15988,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xec0(%%rdi),%%ymm4 	\n\t	vmovaps	0xee0(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xe80(%%rdi),%%ymm2 	\n\t	vmovaps	0xea0(%%rdi),%%ymm3 		\n\t"\
 		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"\
-		"vaddpd		%%ymm12,%%ymm0,%%ymm0	\n\t	vaddpd		%%ymm13,%%ymm1,%%ymm1	\n\t"\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t	vmulpd		%%ymm8 ,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t	vaddpd		%%ymm13,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -15663,11 +16043,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xf40(%%rdi),%%ymm4 	\n\t	vmovaps	0xf60(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xf00(%%rdi),%%ymm2 	\n\t	vmovaps	0xf20(%%rdi),%%ymm3 		\n\t"\
 		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"\
-		"vaddpd		%%ymm12,%%ymm0,%%ymm0	\n\t	vaddpd		%%ymm13,%%ymm1,%%ymm1	\n\t"\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t	vmulpd		%%ymm8 ,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t	vaddpd		%%ymm13,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -15717,11 +16098,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xfc0(%%rdi),%%ymm4 	\n\t	vmovaps	0xfe0(%%rdi),%%ymm5 		\n\t"\
 		"vmovaps	0xf80(%%rdi),%%ymm2 	\n\t	vmovaps	0xfa0(%%rdi),%%ymm3 		\n\t"\
 		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t	vmulpd		%%ymm5 ,%%ymm1,%%ymm1	\n\t"\
-		"vaddpd		%%ymm12,%%ymm0,%%ymm0	\n\t	vaddpd		%%ymm13,%%ymm1,%%ymm1	\n\t"\
 		"vmovaps	%%ymm0,%%ymm10			\n\t	vmovaps	%%ymm1,%%ymm11				\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t	vroundpd	$0,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t	vsubpd		%%ymm11,%%ymm1,%%ymm1	\n\t"\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t	vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t	vmulpd		%%ymm8 ,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t	vaddpd		%%ymm13,%%ymm11,%%ymm11	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t	vmaxpd		%%ymm14,%%ymm1,%%ymm14	\n\t"\
 		/* cy = DNINT(temp*baseinv[i]): */\
 		"addq	%%rdi,%%r10					\n\t	addq	%%rdi,%%rsi					\n\t"\
@@ -15819,12 +16201,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p2]   "m" (Xp2)\
 		,	[__p3]   "m" (Xp3)\
 		,	[__p4]   "m" (Xp4)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r10","r11","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"/* Clobbered registers */\
 	);\
 	}
 
 	// Register-name choices in the non-transpose middle section reflect preparation for an 8-way version of this macro:
-	#define AVX_cmplx_carry_fast_errcheck_X4(Xdata,Xcy,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1,Xp2,Xp3)\
+	#define AVX_cmplx_carry_fast_errcheck_X4(Xdata,Xcy,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"movq	%[__add0],%%r14	\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
@@ -15849,6 +16233,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	%%ymm2 ,0x40(%%rax)		\n\t		vmovaps	%%ymm3 ,0x60(%%rax)		\n\t"\
 		"vmovaps	%%ymm4 ,0x80(%%rax)		\n\t		vmovaps	%%ymm5 ,0xa0(%%rax)		\n\t"\
 		"vmovaps	%%ymm6 ,0xc0(%%rax)		\n\t		vmovaps	%%ymm7 ,0xe0(%%rax)		\n\t"\
+		"movq	%[__prp_mult]	,%%rbx	\n\t"\
+		"vbroadcastsd	(%%rbx),%%ymm8	\n\t"/* prp_mult, broadcast to all double-slots of just-freed ymm8 */\
 		"movq		%[__cy],%%rbx		\n\t"\
 		"vmovaps	(%%rbx),%%ymm12		\n\t"/* ymm12 = cy_in */\
 		/* LOACC wts-data occupy 32 ymm-sized slots starting at (vec_dbl*)half_arr + 96 : */\
@@ -15860,7 +16246,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	/**********************************/\
 	"prefetcht0	(%%r14)	\n\t"\
 	"movq	%[__bjmod_0],%%rsi			\n\t"\
-	"vmovaps	(%%rsi),%%xmm15			\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM15. */\
+	"vmovaps	(%%rsi),%%xmm15			\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN xmm15. */\
 	"movq	%[__sse_sw],%%rsi			\n\t"\
 	"vmovaps	(%%rsi),%%xmm10			\n\t"/* sw[0:3] */\
 	"vpsubd		%%xmm15,%%xmm10,%%xmm10	\n\t"/* sw[0:3] - bjmod[0:3] */\
@@ -15872,13 +16258,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xc40(%%rdi),%%ymm4 	\n\t"/* wi_re for our 4 independent carry-chains */\
 		"vmovaps	0xc00(%%rdi),%%ymm2 	\n\t"/* wt_re */\
 		"vmulpd		%%ymm4 ,%%ymm0,%%ymm0	\n\t"/* x *= wtinv */\
-		"vaddpd		%%ymm12,%%ymm0,%%ymm0	\n\t"/* x *= wtinv + cy */\
 		"vmovaps	%%ymm0,%%ymm10			\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(x) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(x-temp) */\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -15923,13 +16310,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xcc0(%%rdi),%%ymm4 	\n\t"/* wi_im for our 4 independent carry-chains */\
 		"vmovaps	0xc80(%%rdi),%%ymm2 	\n\t"/* wt_im */\
 		"vmulpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t"/* y *= wtinv */\
-		"vaddpd		%%ymm12,%%ymm0 ,%%ymm0 	\n\t"/* y *= wtinv + cy */\
 		"vmovaps	%%ymm0 ,%%ymm10			\n\t"/* temp = y */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(y) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* y - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(y-temp) */\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -15976,13 +16364,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xd40(%%rdi),%%ymm4 	\n\t"/* wi_re for our 4 independent carry-chains */\
 		"vmovaps	0xd00(%%rdi),%%ymm2 	\n\t"/* wt_re */\
 		"vmulpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t"/* x *= wtinv */\
-		"vaddpd		%%ymm12,%%ymm0 ,%%ymm0 	\n\t"/* x *= wtinv + cy */\
 		"vmovaps	%%ymm0 ,%%ymm10			\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(x) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(x-temp) */\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -16027,13 +16416,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xdc0(%%rdi),%%ymm4 	\n\t"/* wi_im for our 4 independent carry-chains */\
 		"vmovaps	0xd80(%%rdi),%%ymm2 	\n\t"/* wt_im */\
 		"vmulpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t"/* y *= wtinv */\
-		"vaddpd		%%ymm12,%%ymm0 ,%%ymm0 	\n\t"/* y *= wtinv + cy */\
 		"vmovaps	%%ymm0 ,%%ymm10			\n\t"/* temp = y */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(y) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* y - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(y-temp) */\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -16080,13 +16470,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xe40(%%rdi),%%ymm4 	\n\t"/* wi_re for our 4 independent carry-chains */\
 		"vmovaps	0xe00(%%rdi),%%ymm2 	\n\t"/* wt_re */\
 		"vmulpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t"/* x *= wtinv */\
-		"vaddpd		%%ymm12,%%ymm0 ,%%ymm0 	\n\t"/* x *= wtinv + cy */\
 		"vmovaps	%%ymm0 ,%%ymm10			\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(x) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(x-temp) */\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -16131,13 +16522,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xec0(%%rdi),%%ymm4 	\n\t"/* wi_im for our 4 independent carry-chains */\
 		"vmovaps	0xe80(%%rdi),%%ymm2 	\n\t"/* wt_im */\
 		"vmulpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t"/* y *= wtinv */\
-		"vaddpd		%%ymm12,%%ymm0 ,%%ymm0 	\n\t"/* y *= wtinv + cy */\
 		"vmovaps	%%ymm0 ,%%ymm10			\n\t"/* temp = y */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(y) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* y - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(y-temp) */\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -16184,13 +16576,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xf40(%%rdi),%%ymm4 	\n\t"/* wi_re for our 4 independent carry-chains */\
 		"vmovaps	0xf00(%%rdi),%%ymm2 	\n\t"/* wt_re */\
 		"vmulpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t"/* x *= wtinv */\
-		"vaddpd		%%ymm12,%%ymm0 ,%%ymm0 	\n\t"/* x *= wtinv + cy */\
 		"vmovaps	%%ymm0 ,%%ymm10			\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(x) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(x-temp) */\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -16235,13 +16628,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0xfc0(%%rdi),%%ymm4 	\n\t"/* wi_im for our 4 independent carry-chains */\
 		"vmovaps	0xf80(%%rdi),%%ymm2 	\n\t"/* wt_im */\
 		"vmulpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t"/* y *= wtinv */\
-		"vaddpd		%%ymm12,%%ymm0 ,%%ymm0 	\n\t"/* y *= wtinv + cy */\
 		"vmovaps	%%ymm0 ,%%ymm10			\n\t"/* temp = y */\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"/* temp = DNINT(y) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* y - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(y-temp) */\
+		"vmulpd		%%ymm8 ,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm12,%%ymm10,%%ymm10	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm14,%%ymm0,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -16316,6 +16710,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p1]   "m" (Xp1)\
 		,	[__p2]   "m" (Xp2)\
 		,	[__p3]   "m" (Xp3)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm12","xmm14","xmm15"/* Clobbered registers */\
 	);\
 	}
@@ -16323,7 +16719,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 #endif
 
 	// Mar 2016: Bumped mem-offsets for broadcast-loads from 0x800-based to 0x1000-based for compatibility with new LOACC-carry memory layout
-	#define AVX_cmplx_carry_norm_errcheck_X4(Xdata,XwtA,XwtB,XwtC,Xcy,Xbjmod_0,Xhalf_arr,Xi,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1,Xp2,Xp3)\
+	#define AVX_cmplx_carry_norm_errcheck_X4(Xdata,XwtA,XwtB,XwtC,Xcy,Xbjmod_0,Xhalf_arr,Xi,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"movq	%[__add0],%%r14	\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
@@ -16343,6 +16739,10 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	"vinsertf128 $1,0xd0(%%rax),%%ymm8,%%ymm8	\n\t	vinsertf128 $1,0xf0(%%rax),%%ymm9,%%ymm9	\n\t"/* r1|r3.hi = 6,7,e,f */\
 	"vshufpd	$15,%%ymm8,%%ymm4,%%ymm6		\n\t	vshufpd	$15,%%ymm9,%%ymm5,%%ymm7			\n\t"/* Row 3 = 3,7,b,f */\
 	"vshufpd	$0 ,%%ymm8,%%ymm4,%%ymm4		\n\t	vshufpd	$0 ,%%ymm9,%%ymm5,%%ymm5			\n\t"/* Row 2 = 2,6,a,e */\
+		/* Move ymm7 to mem to free up a vreg: */\
+		"vmovaps	%%ymm7,0x0e0(%%rax)			\n\t"\
+		"movq	%[__prp_mult]	,%%rbx	\n\t"\
+		"vbroadcastsd	(%%rbx),%%ymm7	\n\t"/* prp_mult, broadcast to all double-slots of ymm7 */\
 		/* Won't need main-array again until output transpose, so re-use rax for half_arr */\
 		"movq	 %[__half_arr],%%rax	\n\t"\
 		/* half_arr + 16*[0,1,2,3] = [wt,wt_inv,base,baseinv] */\
@@ -16354,7 +16754,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	/**********************************/\
 	"prefetcht0	(%%r14)		\n\t"\
 		"movq	%[__bjmod_0],%%rsi		\n\t"\
-		"vmovaps	(%%rsi),	%%xmm8 		\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM8. */\
+		"vmovaps	(%%rsi),	%%xmm8 		\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN xmm8. */\
 		"movq	%[__sse_sw],%%rsi		\n\t"\
 		"vmovaps	(%%rsi),	%%xmm11		\n\t"/* sw[0:3] */\
 		"vpsubd		%%xmm8 ,%%xmm11,%%xmm11	\n\t"/* sw[0:3] - bjmod[0:3] */\
@@ -16399,13 +16799,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmulpd	0x200(%%rdx),%%ymm10,%%ymm10	\n\t"/* wtinv *= one_half[16+n0123] */\
 		"\n\t"\
 		"vmulpd		%%ymm10,%%ymm0,%%ymm0		\n\t"/* x *= wtinv; ymm10 FREE */\
-		"vaddpd		%%ymm14,%%ymm0,%%ymm0		\n\t"/* x *= wtinv + cy */\
 		"vmovaps	%%ymm0,%%ymm10		\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10	\n\t"/* temp = DNINT(x) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm0,%%ymm0	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm0,%%ymm0	\n\t"/* frac = fabs(x-temp) */\
+		"vmulpd		%%ymm7 ,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm14,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm15,%%ymm0,%%ymm15	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -16468,13 +16869,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmulpd	0x200(%%rdx),%%ymm10,%%ymm10	\n\t"/* wtinv *= one_half[16+n0123] */\
 		"\n\t"\
 		"vmulpd		%%ymm10,%%ymm1,%%ymm1		\n\t"/* x *= wtinv; ymm10 FREE */\
-		"vaddpd		%%ymm14,%%ymm1,%%ymm1		\n\t"/* x *= wtinv + cy */\
 		"vmovaps	%%ymm1,%%ymm10		\n\t"/* temp = x */\
 		"vroundpd	$0,%%ymm10,%%ymm10	\n\t"/* temp = DNINT(x) */\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx	\n\t"\
 		"vsubpd		%%ymm10,%%ymm1,%%ymm1	\n\t"/* x - temp */\
 		"vandpd		(%%rbx),%%ymm1,%%ymm1	\n\t"/* frac = fabs(x-temp) */\
+		"vmulpd		%%ymm7 ,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm14,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm15,%%ymm1,%%ymm15	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -16533,13 +16935,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmulpd	0x200(%%rdx),%%ymm10,%%ymm10\n\t"\
 		"\n\t"\
 		"vmulpd		%%ymm10,%%ymm2,%%ymm2	\n\t"\
-		"vaddpd		%%ymm14,%%ymm2,%%ymm2	\n\t"\
 		"vmovaps	%%ymm2,%%ymm10			\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vsubpd		%%ymm10,%%ymm2,%%ymm2	\n\t"\
 		"vandpd		(%%rbx),%%ymm2,%%ymm2	\n\t"\
+		"vmulpd		%%ymm7 ,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm14,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm15,%%ymm2,%%ymm15	\n\t"\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -16596,13 +16999,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmulpd	0x200(%%rdx),%%ymm10,%%ymm10\n\t"\
 		"\n\t"\
 		"vmulpd		%%ymm10,%%ymm3,%%ymm3	\n\t"\
-		"vaddpd		%%ymm14,%%ymm3,%%ymm3	\n\t"\
 		"vmovaps	%%ymm3,%%ymm10			\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vsubpd		%%ymm10,%%ymm3,%%ymm3	\n\t"\
 		"vandpd		(%%rbx),%%ymm3,%%ymm3	\n\t"\
+		"vmulpd		%%ymm7 ,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm14,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm15,%%ymm3,%%ymm15	\n\t"\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -16661,13 +17065,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmulpd	0x200(%%rdx),%%ymm10,%%ymm10\n\t"\
 		"\n\t"\
 		"vmulpd		%%ymm10,%%ymm4,%%ymm4	\n\t"\
-		"vaddpd		%%ymm14,%%ymm4,%%ymm4	\n\t"\
 		"vmovaps	%%ymm4,%%ymm10			\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vsubpd		%%ymm10,%%ymm4,%%ymm4	\n\t"\
 		"vandpd		(%%rbx),%%ymm4,%%ymm4	\n\t"\
+		"vmulpd		%%ymm7 ,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm14,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm15,%%ymm4,%%ymm15	\n\t"\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -16724,13 +17129,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmulpd	0x200(%%rdx),%%ymm10,%%ymm10\n\t"\
 		"\n\t"\
 		"vmulpd		%%ymm10,%%ymm5,%%ymm5	\n\t"\
-		"vaddpd		%%ymm14,%%ymm5,%%ymm5	\n\t"\
 		"vmovaps	%%ymm5,%%ymm10			\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vsubpd		%%ymm10,%%ymm5,%%ymm5	\n\t"\
 		"vandpd		(%%rbx),%%ymm5,%%ymm5	\n\t"\
+		"vmulpd		%%ymm7 ,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm14,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm15,%%ymm5,%%ymm15	\n\t"\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -16789,13 +17195,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmulpd	0x200(%%rdx),%%ymm10,%%ymm10\n\t"\
 		"\n\t"\
 		"vmulpd		%%ymm10,%%ymm6,%%ymm6	\n\t"\
-		"vaddpd		%%ymm14,%%ymm6,%%ymm6	\n\t"\
 		"vmovaps	%%ymm6,%%ymm10			\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vsubpd		%%ymm10,%%ymm6,%%ymm6	\n\t"\
 		"vandpd		(%%rbx),%%ymm6,%%ymm6	\n\t"\
+		"vmulpd		%%ymm7 ,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult */\
+		"vaddpd		%%ymm14,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm15,%%ymm6,%%ymm15	\n\t"\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -16837,6 +17244,10 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps		%%xmm8 ,%%xmm11		\n\t"\
 		"vpsubd		%%xmm10,%%xmm11,%%xmm11		\n\t"\
 		"vmovmskps	%%xmm11,%%rdx		\n\t"\
+	/* reload ymm7 from mem - this overwrites the prp_mult data, which is why we first copy the latter to just-fred ymm11: */\
+	"movq		%[__data],%%rax			\n\t"\
+	"vmovaps	%%ymm7,%%ymm11			\n\t"\
+	"vmovaps	0x0e0(%%rax),%%ymm7		\n\t"\
 		"\n\t"\
 	"shlq	$5,%%rsi	\n\t"/* i0123 */\
 	"shlq	$5,%%rcx	\n\t"/* m0123 */\
@@ -16852,13 +17263,14 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmulpd	0x200(%%rdx),%%ymm10,%%ymm10\n\t"\
 		"\n\t"\
 		"vmulpd		%%ymm10,%%ymm7,%%ymm7	\n\t"\
-		"vaddpd		%%ymm14,%%ymm7,%%ymm7	\n\t"\
 		"vmovaps	%%ymm7,%%ymm10			\n\t"\
 		"vroundpd	$0,%%ymm10,%%ymm10		\n\t"\
 		"\n\t"\
 		"movq	%[__sign_mask],%%rbx		\n\t"\
 		"vsubpd		%%ymm10,%%ymm7,%%ymm7	\n\t"\
 		"vandpd		(%%rbx),%%ymm7,%%ymm7	\n\t"\
+		"vmulpd		%%ymm11,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult[now in ymm11] */\
+		"vaddpd		%%ymm14,%%ymm10,%%ymm10		\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm15,%%ymm7,%%ymm15	\n\t"\
 		/* cy   = DNINT(temp*baseinv[i1]): */\
 		"addq	%%rdi,%%rsi		\n\t"\
@@ -16939,6 +17351,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p1]   "m" (Xp1)\
 		,	[__p2]   "m" (Xp2)\
 		,	[__p3]   "m" (Xp3)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"/* Clobbered registers */\
 	);\
 	}
@@ -16946,9 +17360,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 #elif !defined(USE_ARM_V8_SIMD)	// 64-bit SSE2:
 
 	/********* Packed 32-bit-int version of SSE2_cmplx_carry_norm_pow2_errcheck0_2x:***********/
-	#define SSE2_cmplx_carry_norm_pow2_errcheck1_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1)\
+	#define SSE2_cmplx_carry_norm_pow2_errcheck1_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1, Xprp_mult)\
 	{\
 	__asm__ volatile (\
+		"movq	%[__prp_mult]	,%%rax	\n\t"\
+		"movsd		(%%rax)	,	%%xmm10	\n\t"/* prp_mult */\
+		"shufpd		$0,%%xmm10,%%xmm10	\n\t"/* prp_mult, broadcast to both double-slots of xmm10 */\
 	"movq	%[__add0],%%r14	\n\t"/* base address for 2 prefetches-from-main-data-array spread through this macro */\
 	"prefetcht0	(%%r14)		\n\t"\
 	/***************Unpack the data:*************************/\
@@ -16985,7 +17402,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"psubd		%%xmm0	,%%xmm2		\n\t"/* n_minus_sil - bjmod[0:3] */\
 		"movmskps	%%xmm2	,%%rcx		\n\t"/* Extract sign bits into 4-bit signmask */\
 		"shlq	$16		,%%rcx			\n\t"/* <m3|m2|m1|m0>; Packed indices into base,base_inv tables; move into leftmost byte[2] of ecx... */\
-		"addq	%%rcx	,%%rsi			\n\t"/* ....and fold into esi. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
+		"addq	%%rcx	,%%rsi			\n\t"/* ....and fold into esi. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN xmm0. */\
 		"movslq	%[__sinwt]	,%%rdx		\n\t"\
 		"movd	%%rdx	,%%xmm3			\n\t"/* sinwt in low 32 bits of xmm3 */\
 		"pshufd	$0,	%%xmm3	,%%xmm3		\n\t"/* Broadcast low 32 bits of xmm3 to all 4 slots of xmm3 */\
@@ -17022,18 +17439,18 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"mulpd		     (%%rdi),%%xmm2	\n\t	mulpd		     (%%rbx),%%xmm6	\n\t"/* wt   =wt   *one_half[m01] */\
 		"mulpd		0x040(%%rdx),%%xmm3	\n\t	mulpd		0x040(%%rcx),%%xmm7	\n\t"/* wtinv=wtinv*one_half[4+m23] */\
 		"movq	%[__cyA]	,%%rcx		\n\t	movq	%[__cyB]	,%%rdx		\n\t"/* cy_in */\
-		"mulpd		%%xmm3	,%%xmm1		\n\t	mulpd		%%xmm7	,%%xmm5		\n\t"/* x = x*wtinv; xmm3,xmm7 FREE */\
-		"addpd		(%%rcx)	,%%xmm1		\n\t	addpd		(%%rdx)	,%%xmm5		\n\t"/* x = x*wtinv + cy */\
+		"mulpd		%%xmm3	,%%xmm1		\n\t	mulpd		%%xmm7	,%%xmm5		\n\t"/* x *= wtinv; xmm3,xmm7 FREE */\
 		"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"/* temp = x */\
 		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
 		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"/* temp = DNINT(x) */\
-		/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	***Requires SSE4.1, any tiny speed gain not worth loss of portability***/\
-		"\n\t"\
-		"movq	%[__sign_mask],%%rbx	\n\t"\
+		"movq	%[__sign_mask],%%rbx	\n\t	movaps		(%%rbx)	,	%%xmm8	\n\t"\
 		"subpd			%%xmm3	,%%xmm1	\n\t	subpd			%%xmm7	,%%xmm5	\n\t"/* x - temp */\
-		"andpd			(%%rbx)	,%%xmm1	\n\t	andpd			(%%rbx)	,%%xmm5	\n\t"/* frac = fabs(x-temp) */\
-		"maxpd			%%xmm5	,%%xmm1	\n\t	maxpd		-0x20(%%rax),%%xmm1	\n\t"/* if(frac > maxerr) maxerr=frac */\
-		"movaps		%%xmm1,-0x20(%%rax)	\n\t"/* Note serialization here! */\
+		"andpd			%%xmm8	,%%xmm1	\n\t	andpd			%%xmm8	,%%xmm5	\n\t"/* frac = fabs(x-temp) */\
+		"maxpd			%%xmm5	,%%xmm1	\n\t"\
+		"maxpd		-0x20(%%rax),%%xmm1	\n\t"\
+		"movaps		%%xmm1,-0x20(%%rax)	\n\t"/* if(frac > maxerr) maxerr=frac */\
+		"mulpd		%%xmm10,%%xmm3		\n\t	mulpd		%%xmm10,%%xmm7		\n\t"/* temp = temp*prp_mult */\
+		"addpd		(%%rcx),%%xmm3		\n\t	addpd		(%%rdx),%%xmm7		\n\t"/* temp = temp*prp_mult + cy */\
 		"\n\t"\
 		"movq	%%rsi,	%%rdi			\n\t	movq	%%rsi,	%%rbx			\n\t"\
 		"shrq	$20,	%%rdi			\n\t	shrq	$22,	%%rbx			\n\t"\
@@ -17072,7 +17489,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"psubd	%%xmm0	,%%xmm2			\n\t"/* n_minus_silp1 - bjmod[0:3] */\
 		"movmskps	%%xmm2	,%%rcx		\n\t"/* Extract sign bits into 4-bit signmask */\
 		"shlq	$16	,%%rcx				\n\t"/* <m3|m2|m1|m0>; Packed indices into base,base_inv tables; move into leftmost byte[2] of ecx... */\
-		"addq	%%rcx	,%%rsi			\n\t"/* ....and fold into esi. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
+		"addq	%%rcx	,%%rsi			\n\t"/* ....and fold into esi. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN xmm0. */\
 		"movslq	%[__sinwtm1]	,%%rdx	\n\t"\
 		"movd	%%rdx	,%%xmm3			\n\t"/* sinwtm1 in low 32 bits of xmm3 */\
 		"pshufd	$0	,%%xmm3	,%%xmm3		\n\t"/* Broadcast low 32 bits of xmm3 to all 4 slots of xmm3 */\
@@ -17110,19 +17527,20 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"mulpd	 0x130(%%rax)	,%%xmm3	\n\t	mulpd	 0x130(%%rax)	,%%xmm7	\n\t"/* wtinv=wtC*wtnm1 */\
 		"mulpd	      (%%rdi)	,%%xmm2	\n\t	mulpd	      (%%rbx)	,%%xmm6	\n\t"/* wt   =wt   *one_half[m01] */\
 		"mulpd	 0x040(%%rdx)	,%%xmm3	\n\t	mulpd	 0x040(%%rcx)	,%%xmm7	\n\t"/* wtinv=wtinv*one_half[4+m23] */\
-		"movq	%[__cyA]	,%%rcx		\n\t	movq	%[__cyB]	,%%rdx		\n\t"/* cy_in */\
-		"mulpd	%%xmm3	,%%xmm1			\n\t	mulpd	%%xmm7	,%%xmm5			\n\t"/* y = y*wtinv; ymm3,ymm7 FREE */\
-		"addpd	(%%rcx)	,%%xmm1			\n\t	addpd	(%%rdx)	,%%xmm5			\n\t"/* y = y*wtinv + cy */\
-		"movaps	%%xmm1	,%%xmm3			\n\t	movaps	%%xmm5	,%%xmm7			\n\t"/* temp = y */\
-		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
-		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"/* temp = DNINT(y) */\
-		/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\
 		"\n\t"\
-		"movq	%[__sign_mask],%%rbx	\n\t"\
-		"subpd	%%xmm3	,%%xmm1			\n\t	subpd	%%xmm7	,%%xmm5			\n\t"/* y - temp */\
-		"andpd	(%%rbx)	,%%xmm1			\n\t	andpd	(%%rbx)	,%%xmm5			\n\t"/* frac = fabs(y-temp) */\
-		"maxpd	%%xmm5	,%%xmm1			\n\t	maxpd	-0x20(%%rax)	,%%xmm1	\n\t"/* if(frac > maxerr) maxerr=frac */\
-		"movaps	%%xmm1	,-0x20(%%rax)	\n\t"/* Note serialization here! */\
+		"movq	%[__cyA]	,%%rcx		\n\t	movq	%[__cyB]	,%%rdx		\n\t"\
+		"mulpd		%%xmm3	,%%xmm1		\n\t	mulpd		%%xmm7	,%%xmm5		\n\t"/* x *= wi_re */\
+		"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"/* temp = x */\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"/* temp = DNINT(x) */\
+		/* sign_mask still in xmm8: */\
+		"subpd			%%xmm3	,%%xmm1	\n\t	subpd			%%xmm7	,%%xmm5	\n\t"/* x - temp */\
+		"andpd			%%xmm8	,%%xmm1	\n\t	andpd			%%xmm8	,%%xmm5	\n\t"/* frac = fabs(x-temp) */\
+		"maxpd			%%xmm5	,%%xmm1	\n\t"\
+		"maxpd		-0x20(%%rax),%%xmm1	\n\t"\
+		"movaps		%%xmm1,-0x20(%%rax)	\n\t"/* if(frac > maxerr) maxerr=frac */\
+		"mulpd		%%xmm10,%%xmm3		\n\t	mulpd		%%xmm10,%%xmm7		\n\t"/* temp = temp*prp_mult */\
+		"addpd		(%%rcx),%%xmm3		\n\t	addpd		(%%rdx),%%xmm7		\n\t"/* temp = temp*prp_mult + cy */\
 		"\n\t"\
 		"movq	%%rsi,	%%rdi			\n\t	movq	%%rsi,	%%rbx			\n\t"\
 		"shrq	$20,	%%rdi			\n\t	shrq	$22,	%%rbx			\n\t"\
@@ -17167,14 +17585,19 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* Prefetch: base address and 1 index offset */\
 		,	[__add0] "m" (Xadd0)\
 		,	[__p1]   "m" (Xp1)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"/* Clobbered registers */\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm10"	/* Clobbered registers */\
 	);\
 	}
 
 	/********* Packed 32-bit-int version of SSE2_cmplx_carry_norm_pow2_errcheck2_2x:***********/
-	#define SSE2_cmplx_carry_norm_pow2_errcheck2_2B(Xdata,XwtA,XwtB,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp2,Xp3)\
+	#define SSE2_cmplx_carry_norm_pow2_errcheck2_2B(Xdata,XwtA,XwtB,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
+		"movq	%[__prp_mult]	,%%rax	\n\t"\
+		"movsd		(%%rax)	,	%%xmm10	\n\t"/* prp_mult */\
+		"shufpd		$0,%%xmm10,%%xmm10	\n\t"/* prp_mult, broadcast to both double-slots of xmm10 */\
 	"movq	%[__add0],%%r14	\n\t"/* base address for 2 prefetches-from-main-data-array spread through this macro */\
 	"movslq		%[__p2],%%r15	\n\t"\
 	"prefetcht0	(%%r14,%%r15,8)	\n\t"\
@@ -17195,7 +17618,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"psubd		%%xmm0	,%%xmm2		\n\t"/* n_minus_sil - bjmod[0:3] */\
 		"movmskps	%%xmm2	,%%rcx		\n\t"/* Extract sign bits into 4-bit signmask */\
 		"shlq	$16		,%%rcx			\n\t"/* <m3|m2|m1|m0>; Packed indices into base,base_inv tables; move into leftmost byte[2] of ecx... */\
-		"addq	%%rcx	,%%rsi			\n\t"/* ....and fold into esi. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
+		"addq	%%rcx	,%%rsi			\n\t"/* ....and fold into esi. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN xmm0. */\
 		"movslq	%[__sinwt]	,%%rdx		\n\t"\
 		"movd	%%rdx	,%%xmm3			\n\t"/* sinwt in low 32 bits of xmm3 */\
 		"pshufd	$0,	%%xmm3	,%%xmm3		\n\t"/* Broadcast low 32 bits of xmm3 to all 4 slots of xmm3 */\
@@ -17231,17 +17654,17 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"mulpd		0x040(%%rdx),%%xmm3	\n\t	mulpd		0x040(%%rcx),%%xmm7	\n\t"/* wtinv=wtinv*one_half[4+m23] */\
 		"movq	%[__cyA]	,%%rcx		\n\t	movq	%[__cyB]	,%%rdx		\n\t"/* cy_in */\
 		"mulpd		%%xmm3	,%%xmm1		\n\t	mulpd		%%xmm7	,%%xmm5		\n\t"/* x = x*wtinv; xmm3,xmm7 FREE */\
-		"addpd		(%%rcx)	,%%xmm1		\n\t	addpd		(%%rdx)	,%%xmm5		\n\t"/* x = x*wtinv + cy */\
 		"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"/* temp = x */\
 		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
 		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"/* temp = DNINT(x) */\
-		/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\
-		"\n\t"\
-		"movq	%[__sign_mask],%%rbx	\n\t"\
+		"movq	%[__sign_mask],%%rbx	\n\t	movaps		(%%rbx)	,	%%xmm8	\n\t"\
 		"subpd			%%xmm3	,%%xmm1	\n\t	subpd			%%xmm7	,%%xmm5	\n\t"/* x - temp */\
-		"andpd			(%%rbx)	,%%xmm1	\n\t	andpd			(%%rbx)	,%%xmm5	\n\t"/* frac = fabs(x-temp) */\
-		"maxpd			%%xmm5	,%%xmm1	\n\t	maxpd		-0x20(%%rax),%%xmm1	\n\t"/* if(frac > maxerr) maxerr=frac */\
-		"movaps		%%xmm1,-0x20(%%rax)	\n\t"/* Note serialization here! */\
+		"andpd			%%xmm8	,%%xmm1	\n\t	andpd			%%xmm8	,%%xmm5	\n\t"/* frac = fabs(x-temp) */\
+		"maxpd			%%xmm5	,%%xmm1	\n\t"\
+		"maxpd		-0x20(%%rax),%%xmm1	\n\t"\
+		"movaps		%%xmm1,-0x20(%%rax)	\n\t"/* if(frac > maxerr) maxerr=frac */\
+		"mulpd		%%xmm10,%%xmm3		\n\t	mulpd		%%xmm10,%%xmm7		\n\t"/* temp = temp*prp_mult */\
+		"addpd		(%%rcx),%%xmm3		\n\t	addpd		(%%rdx),%%xmm7		\n\t"/* temp = temp*prp_mult + cy */\
 		"\n\t"\
 		"movq	%%rsi,	%%rdi			\n\t	movq	%%rsi,	%%rbx			\n\t"\
 		"shrq	$20,	%%rdi			\n\t	shrq	$22,	%%rbx			\n\t"\
@@ -17280,7 +17703,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"psubd	%%xmm0	,%%xmm2			\n\t"/* n_minus_silp1 - bjmod[0:3] */\
 		"movmskps	%%xmm2	,%%rcx		\n\t"/* Extract sign bits into 4-bit signmask */\
 		"shlq	$16	,%%rcx				\n\t"/* <m3|m2|m1|m0>; Packed indices into base,base_inv tables; move into leftmost byte[2] of ecx... */\
-		"addq	%%rcx	,%%rsi			\n\t"/* ....and fold into esi. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
+		"addq	%%rcx	,%%rsi			\n\t"/* ....and fold into esi. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN xmm0. */\
 		"movslq	%[__sinwtm1]	,%%rdx	\n\t"\
 		"movd	%%rdx	,%%xmm3			\n\t"/* sinwtm1 in low 32 bits of xmm3 */\
 		"pshufd	$0	,%%xmm3	,%%xmm3		\n\t"/* Broadcast low 32 bits of xmm3 to all 4 slots of xmm3 */\
@@ -17313,23 +17736,24 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"addq	%%rax,	%%rdi			\n\t	addq	%%rax,	%%rbx			\n\t"\
 		"addq	%%rax,	%%rdx			\n\t	addq	%%rax,	%%rcx			\n\t"\
 		"\n\t"\
-		"mulpd	 0x120(%%rax)	,%%xmm2	\n\t	mulpd	 0x120(%%rax)	,%%xmm6	\n\t"/* wt   =wtA*wtlp1 */\
-		"mulpd	 0x130(%%rax)	,%%xmm3	\n\t	mulpd	 0x130(%%rax)	,%%xmm7	\n\t"/* wtinv=wtC*wtnm1 */\
-		"mulpd	      (%%rdi)	,%%xmm2	\n\t	mulpd	      (%%rbx)	,%%xmm6	\n\t"/* wt   =wt   *one_half[m01] */\
-		"mulpd	 0x040(%%rdx)	,%%xmm3	\n\t	mulpd	 0x040(%%rcx)	,%%xmm7	\n\t"/* wtinv=wtinv*one_half[4+m23] */\
-		"movq	%[__cyA]	,%%rcx		\n\t	movq	%[__cyB]	,%%rdx		\n\t"/* cy_in */\
-		"mulpd	%%xmm3	,%%xmm1			\n\t	mulpd	%%xmm7	,%%xmm5			\n\t"/* y = y*wtinv; ymm3,ymm7 FREE */\
-		"addpd	(%%rcx)	,%%xmm1			\n\t	addpd	(%%rdx)	,%%xmm5			\n\t"/* y = y*wtinv + cy */\
-		"movaps	%%xmm1	,%%xmm3			\n\t	movaps	%%xmm5	,%%xmm7			\n\t"/* temp = y */\
-		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
-		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"/* temp = DNINT(y) */\
-		/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\
+		"mulpd	 0x120(%%rax)	,%%xmm2	\n\t	mulpd	 0x120(%%rax)	,%%xmm6	\n\t"\
+		"mulpd	 0x130(%%rax)	,%%xmm3	\n\t	mulpd	 0x130(%%rax)	,%%xmm7	\n\t"\
+		"mulpd	      (%%rdi)	,%%xmm2	\n\t	mulpd	      (%%rbx)	,%%xmm6	\n\t"\
+		"mulpd	 0x040(%%rdx)	,%%xmm3	\n\t	mulpd	 0x040(%%rcx)	,%%xmm7	\n\t"\
 		"\n\t"\
-		"movq	%[__sign_mask],%%rbx	\n\t"\
-		"subpd	%%xmm3	,%%xmm1			\n\t	subpd	%%xmm7	,%%xmm5			\n\t"/* y - temp */\
-		"andpd	(%%rbx)	,%%xmm1			\n\t	andpd	(%%rbx)	,%%xmm5			\n\t"/* frac = fabs(y-temp) */\
-		"maxpd	%%xmm5	,%%xmm1			\n\t	maxpd	-0x20(%%rax)	,%%xmm1	\n\t"/* if(frac > maxerr) maxerr=frac */\
-		"movaps	%%xmm1	,-0x20(%%rax)	\n\t"/* Note serialization here! */\
+		"movq	%[__cyA]	,%%rcx		\n\t	movq	%[__cyB]	,%%rdx		\n\t"\
+		"mulpd		%%xmm3	,%%xmm1		\n\t	mulpd		%%xmm7	,%%xmm5		\n\t"/* x *= wi_re */\
+		"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"/* temp = x */\
+		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"/* temp = DNINT(x) */\
+		/* sign_mask still in xmm8: */\
+		"subpd			%%xmm3	,%%xmm1	\n\t	subpd			%%xmm7	,%%xmm5	\n\t"/* x - temp */\
+		"andpd			%%xmm8	,%%xmm1	\n\t	andpd			%%xmm8	,%%xmm5	\n\t"/* frac = fabs(x-temp) */\
+		"maxpd			%%xmm5	,%%xmm1	\n\t"\
+		"maxpd		-0x20(%%rax),%%xmm1	\n\t"\
+		"movaps		%%xmm1,-0x20(%%rax)	\n\t"/* if(frac > maxerr) maxerr=frac */\
+		"mulpd		%%xmm10,%%xmm3		\n\t	mulpd		%%xmm10,%%xmm7		\n\t"/* temp = temp*prp_mult */\
+		"addpd		(%%rcx),%%xmm3		\n\t	addpd		(%%rdx),%%xmm7		\n\t"/* temp = temp*prp_mult + cy */\
 		"\n\t"\
 		"movq	%%rsi,	%%rdi			\n\t	movq	%%rsi,	%%rbx			\n\t"\
 		"shrq	$20,	%%rdi			\n\t	shrq	$22,	%%rbx			\n\t"\
@@ -17389,7 +17813,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__add0] "m" (Xadd0)\
 		,	[__p2]   "m" (Xp2)\
 		,	[__p3]   "m" (Xp3)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm10"	/* Clobbered registers */\
 	);\
 	}
 
@@ -17407,7 +17833,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	/*  (j  ),  Real      parts                   */\
 	/**********************************************/\
 		"movq	%[__bjmod_0],	%%rax	\n\t"/* Pointer to bjmodn data */\
-		"movaps		(%%rax)	,	%%xmm0	\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
+		"movaps		(%%rax)	,	%%xmm0	\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN xmm0. */\
 		"movaps		%%xmm0	,%%xmm1		\n\t"/* bjmod[0:3] COPY */\
 		"movslq	%[__n_minus_sil],%%rsi	\n\t	movslq	%[__sinwt]	,%%rdx		\n\t"\
 		"movd	%%rsi	,%%xmm2			\n\t	movd	%%rdx	,%%xmm3			\n\t"\
@@ -17578,9 +18004,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	// fusion is eased by the fact that the LOACC chained-weights-computation needs no weights-reinit-from-scalar-data
 	// step for the [j+2] data.
 	//
-	#define SSE2_cmplx_carry_fast_pow2_errcheck(Xdata,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3)\
+	#define SSE2_cmplx_carry_fast_pow2_errcheck(Xdata,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
+			"movq	%[__prp_mult]	,%%rax	\n\t"\
+			"movsd		(%%rax)	,	%%xmm10	\n\t"/* prp_mult */\
+			"shufpd		$0,%%xmm10,%%xmm10	\n\t"/* prp_mult, broadcast to both double-slots of xmm10 */\
 		"movq	%[__add0],%%r14	\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
 		"prefetcht0	(%%r14)		\n\t"\
 		/***************Unpack the data:*************************/\
@@ -17616,8 +18045,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 			"movaps	-0x10(%%rax),%%xmm4		\n\t"/* sse2_rnd */\
 			"movaps	-0x20(%%rax),%%xmm9		\n\t"/* maxerr */\
 			"movq	%[__cyA]	,%%rdi		\n\t	movq	%[__cyB]	,%%rdx		\n\t"/* cy_in */\
-			"mulpd	0x1a0(%%rax),%%xmm1		\n\t	mulpd	0x1b0(%%rax),%%xmm5		\n\t"/* x = x*wi_re */\
-			"addpd		(%%rdi)	,%%xmm1		\n\t	addpd		(%%rdx)	,%%xmm5		\n\t"/* x = x*wi_re + cy */\
+			"mulpd	0x1a0(%%rax),%%xmm1		\n\t	mulpd	0x1b0(%%rax),%%xmm5		\n\t"/* x *= wi_re */\
 			"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"/* temp = x */\
 			"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
 			"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"/* temp = DNINT(x) */\
@@ -17625,6 +18053,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 			"subpd			%%xmm3	,%%xmm1	\n\t	subpd			%%xmm7	,%%xmm5	\n\t"/* x - temp */\
 			"andpd			%%xmm8	,%%xmm1	\n\t	andpd			%%xmm8	,%%xmm5	\n\t"/* frac = fabs(x-temp) */\
 			"maxpd			%%xmm1	,%%xmm9	\n\t	maxpd			%%xmm5	,%%xmm9	\n\t"/* if(frac > maxerr) maxerr=frac */\
+			"mulpd		%%xmm10,%%xmm3		\n\t	mulpd		%%xmm10,%%xmm7		\n\t"/* temp = temp*prp_mult */\
+			"addpd		(%%rdi),%%xmm3		\n\t	addpd		(%%rdx),%%xmm7		\n\t"/* temp = temp*prp_mult + cy */\
 			"movq	%%rsi,	%%rbx													\n\t"/* byte offsets for bits <0:1> */\
 			"shlq	 $4,	%%rbx			\n\t	shlq	 $2,	%%rsi			\n\t"/* and <2:3> go into rbx, rsi */\
 			"andq	$0x30,	%%rbx			\n\t	andq	$0x30,	%%rsi			\n\t"/* respectively. */\
@@ -17672,14 +18102,15 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 			"movaps	0x1c0(%%rax),%%xmm2		\n\t	movaps	 0x1d0(%%rax),%%xmm6	\n\t"/* wt_re for our 2 independent carry-chain pairs */\
 		/*	"movaps	-0x10(%%rax),%%xmm4		\n\t"// sse2_rnd already in xmm4 */\
 			"movq	%[__cyA]	,%%rdi		\n\t	movq	%[__cyB]	,%%rdx		\n\t"/* cy_in */\
-			"mulpd	0x1e0(%%rax),%%xmm1		\n\t	mulpd	0x1f0(%%rax),%%xmm5		\n\t"/* y = y*wi_im */\
-			"addpd		(%%rdi)	,%%xmm1		\n\t	addpd		(%%rdx)	,%%xmm5		\n\t"/* y = y*wi_im + cy */\
+			"mulpd	0x1e0(%%rax),%%xmm1		\n\t	mulpd	0x1f0(%%rax),%%xmm5		\n\t"/* y *= wi_im */\
 			"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"/* temp = y */\
 			"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
 			"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"/* temp = DNINT(y) */\
 			"subpd			%%xmm3	,%%xmm1	\n\t	subpd			%%xmm7	,%%xmm5	\n\t"/* y - temp */\
 			"andpd			%%xmm8	,%%xmm1	\n\t	andpd			%%xmm8	,%%xmm5	\n\t"/* frac = fabs(y-temp) */\
 			"maxpd			%%xmm1	,%%xmm9	\n\t	maxpd			%%xmm5	,%%xmm9	\n\t"/* if(frac > maxerr) maxerr=frac */\
+			"mulpd		%%xmm10,%%xmm3		\n\t	mulpd		%%xmm10,%%xmm7		\n\t"/* temp = temp*prp_mult */\
+			"addpd		(%%rdi),%%xmm3		\n\t	addpd		(%%rdx),%%xmm7		\n\t"/* temp = temp*prp_mult + cy */\
 			"movq	%%rsi,	%%rbx													\n\t"/* byte offsets for bits <0:1> */\
 			"shlq	 $4,	%%rbx			\n\t	shlq	 $2,	%%rsi			\n\t"/* and <2:3> go into rbx, rsi */\
 			"andq	$0x30,	%%rbx			\n\t	andq	$0x30,	%%rsi			\n\t"/* respectively. */\
@@ -17730,14 +18161,15 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 			"movaps	0x200(%%rax),%%xmm2		\n\t	movaps	 0x210(%%rax),%%xmm6	\n\t"/* wt_re for our 2 independent carry-chain pairs */\
 		/*	"movaps	-0x10(%%rax),%%xmm4		\n\t"// sse2_rnd already in xmm4 */\
 			"movq	%[__cyA]	,%%rdi		\n\t	movq	%[__cyB]	,%%rdx		\n\t"/* cy_in */\
-			"mulpd	0x220(%%rax),%%xmm1		\n\t	mulpd	0x230(%%rax),%%xmm5		\n\t"/* x = x*wi_re */\
-			"addpd		(%%rdi)	,%%xmm1		\n\t	addpd		(%%rdx)	,%%xmm5		\n\t"/* x = x*wi_re + cy */\
+			"mulpd	0x220(%%rax),%%xmm1		\n\t	mulpd	0x230(%%rax),%%xmm5		\n\t"/* x *= wi_re */\
 			"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"/* temp = x */\
 			"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
 			"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"/* temp = DNINT(x) */\
 			"subpd			%%xmm3	,%%xmm1	\n\t	subpd			%%xmm7	,%%xmm5	\n\t"/* x - temp */\
 			"andpd			%%xmm8	,%%xmm1	\n\t	andpd			%%xmm8	,%%xmm5	\n\t"/* frac = fabs(x-temp) */\
 			"maxpd			%%xmm1	,%%xmm9	\n\t	maxpd			%%xmm5	,%%xmm9	\n\t"/* if(frac > maxerr) maxerr=frac */\
+			"mulpd		%%xmm10,%%xmm3		\n\t	mulpd		%%xmm10,%%xmm7		\n\t"/* temp = temp*prp_mult */\
+			"addpd		(%%rdi),%%xmm3		\n\t	addpd		(%%rdx),%%xmm7		\n\t"/* temp = temp*prp_mult + cy */\
 			"movq	%%rsi,	%%rbx													\n\t"/* byte offsets for bits <0:1> */\
 			"shlq	 $4,	%%rbx			\n\t	shlq	 $2,	%%rsi			\n\t"/* and <2:3> go into rbx, rsi */\
 			"andq	$0x30,	%%rbx			\n\t	andq	$0x30,	%%rsi			\n\t"/* respectively. */\
@@ -17785,14 +18217,15 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 			"movaps	0x240(%%rax),%%xmm2		\n\t	movaps	 0x250(%%rax),%%xmm6	\n\t"/* wt_im for our 2 independent carry-chain pairs */\
 		/*	"movaps	-0x10(%%rax),%%xmm4		\n\t"// sse2_rnd already in xmm4 */\
 			"movq	%[__cyA]	,%%rdi		\n\t	movq	%[__cyB]	,%%rdx		\n\t"/* cy_in */\
-			"mulpd	0x260(%%rax),%%xmm1		\n\t	mulpd	0x270(%%rax),%%xmm5		\n\t"/* y = y*wi_im */\
-			"addpd		(%%rdi)	,%%xmm1		\n\t	addpd		(%%rdx)	,%%xmm5		\n\t"/* y = y*wi_im + cy */\
+			"mulpd	0x260(%%rax),%%xmm1		\n\t	mulpd	0x270(%%rax),%%xmm5		\n\t"/* y *= wi_im */\
 			"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"/* temp = y */\
 			"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
 			"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"/* temp = DNINT(y) */\
 			"subpd			%%xmm3	,%%xmm1	\n\t	subpd			%%xmm7	,%%xmm5	\n\t"/* y - temp */\
 			"andpd			%%xmm8	,%%xmm1	\n\t	andpd			%%xmm8	,%%xmm5	\n\t"/* frac = fabs(y-temp) */\
 			"maxpd			%%xmm1	,%%xmm9	\n\t	maxpd			%%xmm5	,%%xmm9	\n\t"/* if(frac > maxerr) maxerr=frac */\
+			"mulpd		%%xmm10,%%xmm3		\n\t	mulpd		%%xmm10,%%xmm7		\n\t"/* temp = temp*prp_mult */\
+			"addpd		(%%rdi),%%xmm3		\n\t	addpd		(%%rdx),%%xmm7		\n\t"/* temp = temp*prp_mult + cy */\
 			"movaps		%%xmm9,-0x20(%%rax)	\n\t"/* Store maxerr */\
 			"movq	%%rsi,	%%rbx													\n\t"/* byte offsets for bits <0:1> */\
 			"shlq	 $4,	%%rbx			\n\t	shlq	 $2,	%%rsi			\n\t"/* and <2:3> go into rbx, rsi */\
@@ -17862,7 +18295,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p1]   "m" (Xp1)\
 		,	[__p2]   "m" (Xp2)\
 		,	[__p3]   "m" (Xp3)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9"/* Clobbered registers */\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10"	/* Clobbered registers */\
 	);\
 	}
 
@@ -17927,9 +18362,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	/********* Non-power-of-2-FFT versions of SSE2_cmplx_carry_norm_pow2_errcheck0_2B,1_2B,2_2B (only give sans-error-check version of latter 2: *******/
 	/***************************************************************************************************************************************************/
 
-	#define SSE2_cmplx_carry_norm_errcheck1_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1)\
+	#define SSE2_cmplx_carry_norm_errcheck1_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1, Xprp_mult)\
 	{\
 	__asm__ volatile (\
+		"movq	%[__prp_mult]	,%%rax	\n\t"\
+		"movsd		(%%rax)	,	%%xmm10	\n\t"/* prp_mult */\
+		"shufpd		$0,%%xmm10,%%xmm10	\n\t"/* prp_mult, broadcast to both double-slots of xmm10 */\
 	"movq	%[__add0],%%r14	\n\t"/* base address for 2 prefetches-from-main-data-array spread through this macro */\
 	"prefetcht0	(%%r14)		\n\t"\
 	/***************Unpack the data:*************************/\
@@ -18000,19 +18438,18 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"mulpd		0x040(%%rdx),%%xmm3	\n\t	mulpd		0x040(%%rcx),%%xmm7	\n\t"/* wtinv=wtinv*one_half[4+m23] */\
 		"\n\t"\
 		"movq	%[__cyA]	,%%rcx		\n\t	movq	%[__cyB]	,%%rdx		\n\t"\
-		"mulpd		%%xmm3	,%%xmm1		\n\t	mulpd		%%xmm7	,%%xmm5		\n\t"\
-		"addpd		(%%rcx)	,%%xmm1		\n\t	addpd		(%%rdx)	,%%xmm5		\n\t"\
-		"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"\
+		"mulpd		%%xmm3	,%%xmm1		\n\t	mulpd		%%xmm7	,%%xmm5		\n\t"/* x *= wi_re */\
+		"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"/* temp = x */\
 		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
-		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
-		/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\
-		"\n\t"\
-		"movq	%[__sign_mask],%%rbx	\n\t"\
-		"subpd			%%xmm3	,%%xmm1	\n\t	subpd			%%xmm7	,%%xmm5	\n\t"\
-		"andpd			(%%rbx)	,%%xmm1	\n\t	andpd			(%%rbx)	,%%xmm5	\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"/* temp = DNINT(x) */\
+		"movq	%[__sign_mask],%%rbx	\n\t	movaps		(%%rbx)	,	%%xmm8	\n\t"\
+		"subpd			%%xmm3	,%%xmm1	\n\t	subpd			%%xmm7	,%%xmm5	\n\t"/* x - temp */\
+		"andpd			%%xmm8	,%%xmm1	\n\t	andpd			%%xmm8	,%%xmm5	\n\t"/* frac = fabs(x-temp) */\
 		"maxpd			%%xmm5	,%%xmm1	\n\t"\
 		"maxpd		-0x20(%%rax),%%xmm1	\n\t"\
-		"movaps		%%xmm1,-0x20(%%rax)	\n\t"\
+		"movaps		%%xmm1,-0x20(%%rax)	\n\t"/* if(frac > maxerr) maxerr=frac */\
+		"mulpd		%%xmm10,%%xmm3		\n\t	mulpd		%%xmm10,%%xmm7		\n\t"/* temp = temp*prp_mult */\
+		"addpd		(%%rcx),%%xmm3		\n\t	addpd		(%%rdx),%%xmm7		\n\t"/* temp = temp*prp_mult + cy */\
 		"\n\t"\
 		"movq	%%rsi,	%%rdi			\n\t	movq	%%rsi,	%%rbx			\n\t"\
 		"shrq	$20,	%%rdi			\n\t	shrq	$22,	%%rbx			\n\t"\
@@ -18095,19 +18532,18 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"mulpd	 0x040(%%rdx)	,%%xmm3	\n\t	mulpd	 0x040(%%rcx)	,%%xmm7	\n\t"/* wtinv=wtinv*one_half[4+m23] */\
 		"\n\t"\
 		"movq	%[__cyA]	,%%rcx		\n\t	movq	%[__cyB]	,%%rdx		\n\t"\
-		"mulpd	%%xmm3	,%%xmm1			\n\t	mulpd	%%xmm7	,%%xmm5			\n\t"\
-		"addpd	(%%rcx)	,%%xmm1			\n\t	addpd	(%%rdx)	,%%xmm5			\n\t"\
-		"movaps	%%xmm1	,%%xmm3			\n\t	movaps	%%xmm5	,%%xmm7			\n\t"\
+		"mulpd		%%xmm3	,%%xmm1		\n\t	mulpd		%%xmm7	,%%xmm5		\n\t"/* x *= wi_re */\
+		"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"/* temp = x */\
 		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
-		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
-		/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\
-		"\n\t"\
-		"movq	%[__sign_mask],%%rbx	\n\t"\
-		"subpd	%%xmm3	,%%xmm1			\n\t	subpd	%%xmm7	,%%xmm5			\n\t"\
-		"andpd	(%%rbx)	,%%xmm1			\n\t	andpd	(%%rbx)	,%%xmm5			\n\t"\
-		"maxpd	%%xmm5	,%%xmm1			\n\t"\
-		"maxpd	-0x20(%%rax)	,%%xmm1	\n\t"\
-		"movaps	%%xmm1	,-0x20(%%rax)	\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"/* temp = DNINT(x) */\
+		/* sign_mask still in xmm8: */\
+		"subpd			%%xmm3	,%%xmm1	\n\t	subpd			%%xmm7	,%%xmm5	\n\t"/* x - temp */\
+		"andpd			%%xmm8	,%%xmm1	\n\t	andpd			%%xmm8	,%%xmm5	\n\t"/* frac = fabs(x-temp) */\
+		"maxpd			%%xmm5	,%%xmm1	\n\t"\
+		"maxpd		-0x20(%%rax),%%xmm1	\n\t"\
+		"movaps		%%xmm1,-0x20(%%rax)	\n\t"/* if(frac > maxerr) maxerr=frac */\
+		"mulpd		%%xmm10,%%xmm3		\n\t	mulpd		%%xmm10,%%xmm7		\n\t"/* temp = temp*prp_mult */\
+		"addpd		(%%rcx),%%xmm3		\n\t	addpd		(%%rdx),%%xmm7		\n\t"/* temp = temp*prp_mult + cy */\
 		"\n\t"\
 		"movq	%%rsi,	%%rdi			\n\t	movq	%%rsi,	%%rbx			\n\t"\
 		"shrq	$20,	%%rdi			\n\t	shrq	$22,	%%rbx			\n\t"\
@@ -18157,13 +18593,18 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		/* Prefetch: base address and 1 index offset */\
 		,	[__add0] "m" (Xadd0)\
 		,	[__p1]   "m" (Xp1)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm10"	/* Clobbered registers */\
 	);\
 	}
 
-	#define SSE2_cmplx_carry_norm_errcheck2_2B(Xdata,XwtA,XwtB,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp2,Xp3)\
+	#define SSE2_cmplx_carry_norm_errcheck2_2B(Xdata,XwtA,XwtB,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
+		"movq	%[__prp_mult]	,%%rax	\n\t"\
+		"movsd		(%%rax)	,	%%xmm10	\n\t"/* prp_mult */\
+		"shufpd		$0,%%xmm10,%%xmm10	\n\t"/* prp_mult, broadcast to both double-slots of xmm10 */\
 	"movq	%[__add0],%%r14	\n\t"/* base address for 2 prefetches-from-main-data-array spread through this macro */\
 	"movslq		%[__p2],%%r15	\n\t"\
 	"prefetcht0	(%%r14,%%r15,8)	\n\t"\
@@ -18220,19 +18661,18 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"mulpd		0x040(%%rdx),%%xmm3	\n\t	mulpd		0x040(%%rcx),%%xmm7	\n\t"\
 		"\n\t"\
 		"movq	%[__cyA]	,%%rcx		\n\t	movq	%[__cyB]	,%%rdx		\n\t"\
-		"mulpd		%%xmm3	,%%xmm1		\n\t	mulpd		%%xmm7	,%%xmm5		\n\t"\
-		"addpd		(%%rcx)	,%%xmm1		\n\t	addpd		(%%rdx)	,%%xmm5		\n\t"\
-		"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"\
+		"mulpd		%%xmm3	,%%xmm1		\n\t	mulpd		%%xmm7	,%%xmm5		\n\t"/* x *= wi_re */\
+		"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"/* temp = x */\
 		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
-		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
-		/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\
-		"\n\t"\
-		"movq	%[__sign_mask],%%rbx	\n\t"\
-		"subpd			%%xmm3	,%%xmm1	\n\t	subpd			%%xmm7	,%%xmm5	\n\t"\
-		"andpd			(%%rbx)	,%%xmm1	\n\t	andpd			(%%rbx)	,%%xmm5	\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"/* temp = DNINT(x) */\
+		"movq	%[__sign_mask],%%rbx	\n\t	movaps		(%%rbx)	,	%%xmm8	\n\t"\
+		"subpd			%%xmm3	,%%xmm1	\n\t	subpd			%%xmm7	,%%xmm5	\n\t"/* x - temp */\
+		"andpd			%%xmm8	,%%xmm1	\n\t	andpd			%%xmm8	,%%xmm5	\n\t"/* frac = fabs(x-temp) */\
 		"maxpd			%%xmm5	,%%xmm1	\n\t"\
 		"maxpd		-0x20(%%rax),%%xmm1	\n\t"\
-		"movaps		%%xmm1,-0x20(%%rax)	\n\t"\
+		"movaps		%%xmm1,-0x20(%%rax)	\n\t"/* if(frac > maxerr) maxerr=frac */\
+		"mulpd		%%xmm10,%%xmm3		\n\t	mulpd		%%xmm10,%%xmm7		\n\t"/* temp = temp*prp_mult */\
+		"addpd		(%%rcx),%%xmm3		\n\t	addpd		(%%rdx),%%xmm7		\n\t"/* temp = temp*prp_mult + cy */\
 		"\n\t"\
 		"movq	%%rsi,	%%rdi			\n\t	movq	%%rsi,	%%rbx			\n\t"\
 		"shrq	$20,	%%rdi			\n\t	shrq	$22,	%%rbx			\n\t"\
@@ -18315,19 +18755,18 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"mulpd	 0x040(%%rdx)	,%%xmm3	\n\t	mulpd	 0x040(%%rcx)	,%%xmm7	\n\t"\
 		"\n\t"\
 		"movq	%[__cyA]	,%%rcx		\n\t	movq	%[__cyB]	,%%rdx		\n\t"\
-		"mulpd	%%xmm3	,%%xmm1			\n\t	mulpd	%%xmm7	,%%xmm5			\n\t"\
-		"addpd	(%%rcx)	,%%xmm1			\n\t	addpd	(%%rdx)	,%%xmm5			\n\t"\
-		"movaps	%%xmm1	,%%xmm3			\n\t	movaps	%%xmm5	,%%xmm7			\n\t"\
+		"mulpd		%%xmm3	,%%xmm1		\n\t	mulpd		%%xmm7	,%%xmm5		\n\t"/* x *= wi_re */\
+		"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"/* temp = x */\
 		"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
-		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"\
-		/*roundpd	$0,%%xmm3,%%xmm3	\n\t	roundpd		$0,%%xmm7,%%xmm7	*/\
-		"\n\t"\
-		"movq	%[__sign_mask],%%rbx	\n\t"\
-		"subpd	%%xmm3	,%%xmm1			\n\t	subpd	%%xmm7	,%%xmm5			\n\t"\
-		"andpd	(%%rbx)	,%%xmm1			\n\t	andpd	(%%rbx)	,%%xmm5			\n\t"\
-		"maxpd	%%xmm5	,%%xmm1			\n\t"\
-		"maxpd	-0x20(%%rax)	,%%xmm1	\n\t"\
-		"movaps	%%xmm1	,-0x20(%%rax)	\n\t"\
+		"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"/* temp = DNINT(x) */\
+		/* sign_mask still in xmm8: */\
+		"subpd			%%xmm3	,%%xmm1	\n\t	subpd			%%xmm7	,%%xmm5	\n\t"/* x - temp */\
+		"andpd			%%xmm8	,%%xmm1	\n\t	andpd			%%xmm8	,%%xmm5	\n\t"/* frac = fabs(x-temp) */\
+		"maxpd			%%xmm5	,%%xmm1	\n\t"\
+		"maxpd		-0x20(%%rax),%%xmm1	\n\t"\
+		"movaps		%%xmm1,-0x20(%%rax)	\n\t"/* if(frac > maxerr) maxerr=frac */\
+		"mulpd		%%xmm10,%%xmm3		\n\t	mulpd		%%xmm10,%%xmm7		\n\t"/* temp = temp*prp_mult */\
+		"addpd		(%%rcx),%%xmm3		\n\t	addpd		(%%rdx),%%xmm7		\n\t"/* temp = temp*prp_mult + cy */\
 		"\n\t"\
 		"movq	%%rsi,	%%rdi			\n\t	movq	%%rsi,	%%rbx			\n\t"\
 		"shrq	$20,	%%rdi			\n\t	shrq	$22,	%%rbx			\n\t"\
@@ -18392,7 +18831,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__add0] "m" (Xadd0)\
 		,	[__p2]   "m" (Xp2)\
 		,	[__p3]   "m" (Xp3)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm10"	/* Clobbered registers */\
 	);\
 	}
 
@@ -18408,7 +18849,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	/*  (j  ),  Real      parts                   */\
 	/**********************************************/\
 		"movq	%[__bjmod_0],	%%rax	\n\t"/* Pointer to bjmodn data */\
-		"movaps		(%%rax)	,	%%xmm0	\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN XMM0. */\
+		"movaps		(%%rax)	,	%%xmm0	\n\t"/* bjmod[0:3]. PERSISTENT COPY OF BJMOD[0:3] REMAINS IN xmm0. */\
 		"movaps		%%xmm0	,%%xmm1		\n\t"/* bjmod[0:3] COPY */\
 		"movslq	%[__n_minus_sil],%%rsi	\n\t	movslq	%[__sinwt]	,%%rdx		\n\t"\
 		"movd	%%rsi	,%%xmm2			\n\t	movd	%%rdx	,%%xmm3			\n\t"\
@@ -18592,9 +19033,12 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	// fusion is eased by the fact that the LOACC chained-weights-computation needs no weights-reinit-from-scalar-data
 	// step for the [j+2] data.
 	//
-	#define SSE2_cmplx_carry_fast_errcheck(Xdata,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1,Xp2,Xp3)\
+	#define SSE2_cmplx_carry_fast_errcheck(Xdata,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
+			"movq	%[__prp_mult]	,%%rax	\n\t"\
+			"movsd		(%%rax)	,	%%xmm10	\n\t"/* prp_mult */\
+			"shufpd		$0,%%xmm10,%%xmm10	\n\t"/* prp_mult, broadcast to both double-slots of xmm10 */\
 		"movq	%[__add0],%%r14	\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
 		"prefetcht0	(%%r14)		\n\t"\
 		/***************Unpack the data:*************************/\
@@ -18630,8 +19074,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 			"movaps	-0x10(%%rax),%%xmm4		\n\t"/* sse2_rnd */\
 			"movaps	-0x20(%%rax),%%xmm9		\n\t"/* maxerr */\
 			"movq	%[__cyA]	,%%rdi		\n\t	movq	%[__cyB]	,%%rdx		\n\t"/* cy_in */\
-			"mulpd	0x1a0(%%rax),%%xmm1		\n\t	mulpd	0x1b0(%%rax),%%xmm5		\n\t"/* x = x*wi_re */\
-			"addpd		(%%rdi)	,%%xmm1		\n\t	addpd		(%%rdx)	,%%xmm5		\n\t"/* x = x*wi_re + cy */\
+			"mulpd	0x1a0(%%rax),%%xmm1		\n\t	mulpd	0x1b0(%%rax),%%xmm5		\n\t"/* x *= wi_re */\
 			"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"/* temp = x */\
 			"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
 			"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"/* temp = DNINT(x) */\
@@ -18639,6 +19082,8 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 			"subpd			%%xmm3	,%%xmm1	\n\t	subpd			%%xmm7	,%%xmm5	\n\t"/* x - temp */\
 			"andpd			%%xmm8	,%%xmm1	\n\t	andpd			%%xmm8	,%%xmm5	\n\t"/* frac = fabs(x-temp) */\
 			"maxpd			%%xmm1	,%%xmm9	\n\t	maxpd			%%xmm5	,%%xmm9	\n\t"/* if(frac > maxerr) maxerr=frac */\
+			"mulpd		%%xmm10,%%xmm3		\n\t	mulpd		%%xmm10,%%xmm7		\n\t"/* temp = temp*prp_mult */\
+			"addpd		(%%rdi),%%xmm3		\n\t	addpd		(%%rdx),%%xmm7		\n\t"/* temp = temp*prp_mult + cy */\
 			"movq	%%rsi,	%%rbx													\n\t"/* byte offsets for bits <0:1> */\
 			"shlq	 $4,	%%rbx			\n\t	shlq	 $2,	%%rsi			\n\t"/* and <2:3> go into rbx, rsi */\
 			"andq	$0x30,	%%rbx			\n\t	andq	$0x30,	%%rsi			\n\t"/* respectively. */\
@@ -18690,14 +19135,15 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 			"movaps	0x1c0(%%rax),%%xmm2		\n\t	movaps	 0x1d0(%%rax),%%xmm6	\n\t"/* wt_re for our 2 independent carry-chain pairs */\
 		/*	"movaps	-0x10(%%rax),%%xmm4		\n\t"// sse2_rnd already in xmm4 */\
 			"movq	%[__cyA]	,%%rdi		\n\t	movq	%[__cyB]	,%%rdx		\n\t"/* cy_in */\
-			"mulpd	0x1e0(%%rax),%%xmm1		\n\t	mulpd	0x1f0(%%rax),%%xmm5		\n\t"/* y = y*wi_im */\
-			"addpd		(%%rdi)	,%%xmm1		\n\t	addpd		(%%rdx)	,%%xmm5		\n\t"/* y = y*wi_im + cy */\
+			"mulpd	0x1e0(%%rax),%%xmm1		\n\t	mulpd	0x1f0(%%rax),%%xmm5		\n\t"/* y *= wi_im */\
 			"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"/* temp = y */\
 			"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
 			"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"/* temp = DNINT(y) */\
 			"subpd			%%xmm3	,%%xmm1	\n\t	subpd			%%xmm7	,%%xmm5	\n\t"/* y - temp */\
 			"andpd			%%xmm8	,%%xmm1	\n\t	andpd			%%xmm8	,%%xmm5	\n\t"/* frac = fabs(y-temp) */\
 			"maxpd			%%xmm1	,%%xmm9	\n\t	maxpd			%%xmm5	,%%xmm9	\n\t"/* if(frac > maxerr) maxerr=frac */\
+			"mulpd		%%xmm10,%%xmm3		\n\t	mulpd		%%xmm10,%%xmm7		\n\t"/* temp = temp*prp_mult */\
+			"addpd		(%%rdi),%%xmm3		\n\t	addpd		(%%rdx),%%xmm7		\n\t"/* temp = temp*prp_mult + cy */\
 			"movq	%%rsi,	%%rbx													\n\t"/* byte offsets for bits <0:1> */\
 			"shlq	 $4,	%%rbx			\n\t	shlq	 $2,	%%rsi			\n\t"/* and <2:3> go into rbx, rsi */\
 			"andq	$0x30,	%%rbx			\n\t	andq	$0x30,	%%rsi			\n\t"/* respectively. */\
@@ -18752,14 +19198,15 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 			"movaps	0x200(%%rax),%%xmm2		\n\t	movaps	 0x210(%%rax),%%xmm6	\n\t"/* wt_re for our 2 independent carry-chain pairs */\
 		/*	"movaps	-0x10(%%rax),%%xmm4		\n\t"// sse2_rnd already in xmm4 */\
 			"movq	%[__cyA]	,%%rdi		\n\t	movq	%[__cyB]	,%%rdx		\n\t"/* cy_in */\
-			"mulpd	0x220(%%rax),%%xmm1		\n\t	mulpd	0x230(%%rax),%%xmm5		\n\t"/* x = x*wi_re */\
-			"addpd		(%%rdi)	,%%xmm1		\n\t	addpd		(%%rdx)	,%%xmm5		\n\t"/* x = x*wi_re + cy */\
+			"mulpd	0x220(%%rax),%%xmm1		\n\t	mulpd	0x230(%%rax),%%xmm5		\n\t"/* x *= wi_re */\
 			"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"/* temp = x */\
 			"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
 			"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"/* temp = DNINT(x) */\
 			"subpd			%%xmm3	,%%xmm1	\n\t	subpd			%%xmm7	,%%xmm5	\n\t"/* x - temp */\
 			"andpd			%%xmm8	,%%xmm1	\n\t	andpd			%%xmm8	,%%xmm5	\n\t"/* frac = fabs(x-temp) */\
 			"maxpd			%%xmm1	,%%xmm9	\n\t	maxpd			%%xmm5	,%%xmm9	\n\t"/* if(frac > maxerr) maxerr=frac */\
+			"mulpd		%%xmm10,%%xmm3		\n\t	mulpd		%%xmm10,%%xmm7		\n\t"/* temp = temp*prp_mult */\
+			"addpd		(%%rdi),%%xmm3		\n\t	addpd		(%%rdx),%%xmm7		\n\t"/* temp = temp*prp_mult + cy */\
 			"movq	%%rsi,	%%rbx													\n\t"/* byte offsets for bits <0:1> */\
 			"shlq	 $4,	%%rbx			\n\t	shlq	 $2,	%%rsi			\n\t"/* and <2:3> go into rbx, rsi */\
 			"andq	$0x30,	%%rbx			\n\t	andq	$0x30,	%%rsi			\n\t"/* respectively. */\
@@ -18811,14 +19258,15 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 			"movaps	0x240(%%rax),%%xmm2		\n\t	movaps	 0x250(%%rax),%%xmm6	\n\t"/* wt_im for our 2 independent carry-chain pairs */\
 		/*	"movaps	-0x10(%%rax),%%xmm4		\n\t"// sse2_rnd already in xmm4 */\
 			"movq	%[__cyA]	,%%rdi		\n\t	movq	%[__cyB]	,%%rdx		\n\t"/* cy_in */\
-			"mulpd	0x260(%%rax),%%xmm1		\n\t	mulpd	0x270(%%rax),%%xmm5		\n\t"/* y = y*wi_im */\
-			"addpd		(%%rdi)	,%%xmm1		\n\t	addpd		(%%rdx)	,%%xmm5		\n\t"/* y = y*wi_im + cy */\
+			"mulpd	0x260(%%rax),%%xmm1		\n\t	mulpd	0x270(%%rax),%%xmm5		\n\t"/* y *= wi_im */\
 			"movaps		%%xmm1	,%%xmm3		\n\t	movaps		%%xmm5	,%%xmm7		\n\t"/* temp = y */\
 			"addpd		%%xmm4	,%%xmm3		\n\t	addpd		%%xmm4	,%%xmm7		\n\t"\
 			"subpd		%%xmm4	,%%xmm3		\n\t	subpd		%%xmm4	,%%xmm7		\n\t"/* temp = DNINT(y) */\
 			"subpd			%%xmm3	,%%xmm1	\n\t	subpd			%%xmm7	,%%xmm5	\n\t"/* y - temp */\
 			"andpd			%%xmm8	,%%xmm1	\n\t	andpd			%%xmm8	,%%xmm5	\n\t"/* frac = fabs(y-temp) */\
 			"maxpd			%%xmm1	,%%xmm9	\n\t	maxpd			%%xmm5	,%%xmm9	\n\t"/* if(frac > maxerr) maxerr=frac */\
+			"mulpd		%%xmm10,%%xmm3		\n\t	mulpd		%%xmm10,%%xmm7		\n\t"/* temp = temp*prp_mult */\
+			"addpd		(%%rdi),%%xmm3		\n\t	addpd		(%%rdx),%%xmm7		\n\t"/* temp = temp*prp_mult + cy */\
 			"movaps		%%xmm9,-0x20(%%rax)	\n\t"/* Store maxerr */\
 			"movq	%%rsi,	%%rbx													\n\t"/* byte offsets for bits <0:1> */\
 			"shlq	 $4,	%%rbx			\n\t	shlq	 $2,	%%rsi			\n\t"/* and <2:3> go into rbx, rsi */\
@@ -18892,7 +19340,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		,	[__p1]   "m" (Xp1)\
 		,	[__p2]   "m" (Xp2)\
 		,	[__p3]   "m" (Xp3)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9"/* Clobbered registers */\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10"	/* Clobbered registers */\
 	);\
 	}
 

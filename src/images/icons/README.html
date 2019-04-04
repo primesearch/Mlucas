@@ -1,0 +1,778 @@
+<html>
+<head>
+<title>Mlucas README</title>
+<link rel="shortcut icon" href="favicon.ico">
+<meta name="description" content="">
+<meta name="keywords" content="Ernst Mayer Mlucas Great Internet Mersenne Prime Search GIMPS Lucas Lehmer primality testing factoring FFT radix sse2 avx gcc inline assembler">
+<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+<meta http-equiv="Content-Style-Type" content="text/css">
+<meta name="author" content="Ernst W. Mayer">
+<meta name="copyright" content="Copyright (C) 2015 Ernst W. Mayer. Permission is granted to copy, distribute and/or modify this document under the terms of the GNU Free Documentation License, Version 1.3 or any later version published by the Free Software Foundation; with no Invariant Sections, no Front-Cover Texts, and no Back-Cover Texts.A copy of the license is included in the section entitled 'GNU Free Documentation License'.">
+<meta name="distribution" content="global">
+<meta name="robots" content="index, follow">
+<meta name="rating" content="Safe For Kids">
+</head>
+
+<body>
+
+<hr size="2">
+<a href="home.html"><img src="images/icons/up1.gif" align="left">Ernst Home</a>
+
+<h2 align="center"><img src="images/icons/ball_green.gif">
+Welcome to the the <a href="http://www.mersenne.org/prime.htm">Great Internet Mersenne Prime Search!</a> (The not-PC-only version ;)
+</h2>
+<br>
+<p>
+This ftp site contains <a href="home.html">Ernst Mayer's</a> C source code for performing Lucas-Lehmer tests of prime-exponent Mersenne numbers. It also includes a simple Python script for assignment management via the GIMPS project's Primenet server, or you can manually manage your work, if you prefer. In short, everything you need to search for <a href="http://www.utm.edu/research/primes/mersenne.shtml">Mersenne primes</a> on your Intel, AMD or non-x86-CPU-based computer!
+<br>
+<br>
+Mlucas is an open-source program for primality testing of Mersenne numbers in search of a world-record prime. You may use it to test any suitable number as you wish, but it is preferable that you do so in a coordinated fashion, as part of the <a href="mersenne.org">Great Internet Mersenne Prime Search</a> (GIMPS).  Note that on x86 processors Mlucas is not (yet) <a href="http://www.mersenneforum.org/showpost.php?p=402803&amp;postcount=33">as efficient as the main GIMPS client</a>, George Woltman's Prime95 program (a.k.a. mprime for the linux version),  but that program is not truly open-source, and requires the user to abide by the prize-sharing rules set by its author, should a user be lucky enough to find a new prime eligible for one of the monetary prizes offered by the <a href="https://www.eff.org/awards/coop">Electronic Frontier Foundation</a>. Prime95 is also only available for platforms based on the x86 processor architecture.
+</p><p>
+<b>Performance Note:</b> [Jun 2017] On AMD Ryzen, Mlucas runs only ~10% slower than Prime95. Similarly on The new Skylake-AVX512 instances of the Google Cloud, the <a href="http://www.mersenneforum.org/showthread.php?t=22367">performance is neck and neck</a> -- cf. especially post 10 by GP2 in that thread and followups.
+<br>
+</p><hr size="2">
+<form action="https://www.paypal.com/cgi-bin/webscr" method="post" target="_top">
+	<input type="hidden" name="cmd" value="_s-xclick">
+	<input type="hidden" name="hosted_button_id" value="4YBZA5NP6NGP6">
+	<input type="image" src="https://www.paypalobjects.com/en_US/i/btn/btn_donate_SM.gif" border="0" name="submit" alt="PayPal - The safer, easier way to pay online!">
+	<img alt="" border="0" src="https://www.paypalobjects.com/en_US/i/scr/pixel.gif" width="1" height="1">
+</form>
+Please consider donating to support ongoing Mlucas development. While this is a long-term labor of love, not money, donations to help defray expenses are greatly appreciated. Whatever you can spare to support this kind of open-source distributed-computing project is welcome! Note that Paypal charges [2.9% + $0.30] for each such donation, e.g. a $100 donation means $96.80 makes it to me. If you prefer to reduce or avoid these fees from eating into your hard-earned money, you have two workaround options:
+<p>
+[1] Use the Paypal "Send Money" function with my e-mail address, and mark it as Friends and Family rather than a purchase. Note that such money-sending is only fee-less if you are in the US and you use a PayPal balance or a bank account to fund the transaction. Note that "bank account" appears to include debit cards linked to such, since my Paypal account is linked to such a unified bank/checking/debit-card money-market account and I never pay to send money to US relatives. But check your transaction preview details before sending to be sure!
+<p>
+[2] E-mail me for a snail-mail address to which you can send your old-fashioned personal check for only the cost of your time and postage.
+<p>
+<b>Donations of $100 or more</b> qualify for a free <a href="images/random/gimps_shirts.jpg">GIMPS logo polo shirt</a>, made of high-quality cotton by Callaway Golf - I bought a bunch of these shirts back in 2003 and had them custom embroidered, as of this writing am down to my last handful, here are the available sizes and colors:
+<ul>
+<li> M - black (lower right in pic), canary (upper left in pic)
+<li> L - pumpkin (upper right in pic), canary
+<li> <strike>XL - sky blue (lower left in pic)</strike>
+</ul>
+Sizing is generous - I am 6'2" (187cm) tall and weigh 75kg, and a L fits me comfortably.
+<p>
+If you don't find one in your preferred size or color, consider gifting one in an available size to a math-geek spouse, relative or friend whom it will fit. Get 'em while they last!
+
+</p><hr size="2">
+
+<h2>Quick Find Guide:</h2>
+
+<ul>
+<li> <a href="#news">Recent News: v18 released</a>
+<li> <a href="#oldrel">Descriptions of older code releases</a>
+<li> <a href="#general">General Questions</a>
+<li> <a href="#windows">Windows Users</a>
+<li> <a href="#download">Download and Build the Source Code</a>
+<li> <a href="#badbuild">Common Build Issues and Workarounds</a>
+<li> <a href="#selftest">Performance-tune for your machine</a>
+<li> <a href="#reserve">Get exponents from PrimeNet</a>
+<li> <a href="#lltest">Lucas-Lehmer test</a>
+<li> <a href="#checkin">Report results</a>
+<li> <a href="#minesbigger">Tracking your contribution</a>
+<li> <a href="#faq">Just the FAQs, please (Frequently Asked Questions)</a>
+<li> <a href="#fdl">GNU Free Documentation License</a>
+</ul>
+
+<br>
+<h2><a name="news"></a>News:</h2>
+<hr size="2">
+<!--
+<img src="images/icons/new2.gif"> <b>? ??? 2019: v19.0 released:</b>
+Significant changes/enhancements/bugfixes/new-features:
+<ul>
+<li> The code now supports the probable-primality (PRP) testing assignment type recently added to the GIMPS worktype options. Both the mathematically rigorous Lucas-Lehmer test (LL) and the probabilistic PRP test will identify likely M-primes with similar accuracy - the tiny risk of a "false positive" with the PRP test is dwarfed in practice by the odds of a run going awry due to hardware error or data corruption of some kind. The major advantage of PRP is that it supports the recently-introduced <a href="http://mersenneforum.org/showthread.php?p=490360#post490360">Gerbicz checking mechanism</a>, which allows one to cheaply catch more or less all such residue-integrity errors. Note however that Mlucas v18 does not yet implement such a check of PRP residues; that is slated for deplyment in v19.
+</ul>
+<br><br>
+--->
+<img src="images/icons/new2.gif"> <b>February 2019: v18.0 released:</b> The version number is 18 rather than 19 since I originally planned to release the code in 2018, but my move last year cost me roughly 4-5 months of development time, in total.
+<p>
+Significant changes/enhancements/bugfixes/new-features:
+<ul>
+<li> A bug which was causing the standard 'medium' (./Mlucas -s m) self-tests to crash or start spitting incorrect residues at the largest FFT lengths of said test suite, 7168K and 7680K, has been fixed. The starting FFT length of the medium selftests has also been upped from 1024K to 2048K, to reflect the GIMPS double-checking wavefront (or better, "waverear") now being for exponents requiring FFT lengths above 2048K.
+
+<li> The primenet.py script has been enhance to support assignment-type specifiers (the argument following the -T flag) in human-readable form, in addition to the previous numeric form - here are the four assignment-types supported, in both their Primenet-server numeric-code and new mnemonic form:
+</p><center>
+<table border="1" cellspacing="2" cellpadding="2">
+  <tbody>
+  <tr>	<td colspan="3" align="center">Worktype:</td>  </tr>
+  <tr>	<td><u>Code</u></td>	<td align="center"><u>Mnemonic</u></td>	<td align="center"><u>Description</u></td>  </tr>
+  <tr>	<td>100</td>	<td>SmallestAvail</td>	<td>Smallest available first-time tests</td>  </tr>
+  <tr>	<td>101</td>	<td>DoubleCheck</td>	<td>Double-checking</td>  </tr>
+  <tr>	<td>102</td>	<td>WorldRecord</td>	<td>World record primality tests</td>  </tr>
+  <tr>	<td>104</td>	<td>100Mdigit</td>	<td>100M digit number to LL test (not recommended)</td>  </tr>
+</tbody></table></center>
+<br>
+<li> The code now supports residues which are leftward-circularly-shifted by a random bitcount in the range [0,p) for a candidate mersenne number M(p). This provides data randomization in the context of results double-checking - 2 runs using the same code and FFT length will process distinct FFT data on each iteration. Note that it is safe to restart a run begun with a v17 build using a v18 build; the code will simply keep the shift at 0 through the end of the current run and only begin using a nonzero shift for the next exponent. If the user does not use the new -shift [n] option to force a particular starting shift value, a random one will be chosen.
+
+<li> For FFT lengths of form 5*2<sup>k</sup> (e.g. 5120K), a new front-end (first radix of forward FFT, last radix of inverse FFT) carry-step-wrapping radix, 320, has been added. For increasing lengths such larger front-end radices allow us to keep the per-thread data-block size reasonable relative to the L1 and L2 cache sizes, so as to stay within the "sweet spot" for the latter metric on the CPU in question. However, the only architecture where I have observed radix-320 to give any performance boost at 5120K over the exiting radix-160 is ARMv8. At 10240K more kinds of CPUs show a gain, but that is still several years away in terms of the GIMPS wavefront.
+
+<li> The program now listens for several classes of signals defined in the Standard C Library. Specifically, if a SIGINT (e.g. ctrl-c), SIGHUP (close-terminal, e.g. via ctrl-w) or SIGTERM ('kill [pid]' with level < 9) is received during execution, the program now finishes the current iteration, writes savefiles and exits, rather than just dying and wasting all the iterations done since the previous savefile write. On reinvocation the program resumes from the iteration where the aforementioned termination signal was received, and resumes writing savefiles at multiples of 10000 or 100000 iterations (the latter is the default if > 4 threads are used) as before. Thanks to beta-tester Gord Palameta for suggesting this enhancement. If for some reason you need an "immediate kill without savefile-update", you can bring the process to foreground using 'fg' and use ctrl-\ to force immediate-exit, or do a 'kill -9 [pid]' of the background-running process.<br>
+NOTE: this graceful-exit-with-savefile-write is only for regular assignment-processing runs; for short-length self-tests which don't get their assignments from the worktodo.ini file, the above signals will kill the program as before, just perhaps with a tiny delay due to the complete-current-iteration-on-quit-signal modifications to the code, which are shared by all execution modes.
+
+<li> For the ARMv8 assembler, several cases of register names missing from clobber lists and incorrect-bitness GPR loads (32-bit loads of addresses instead of 64-bit) have been fixed. Many thanks to Edmund Grimley Evans for his careful inspection of the ARMv8 asm which turned these up; these may have been responsible for some or all of the "bad build" issues users reported on platforms different than the one (Odroid C2 / Ubuntu64) I used for my  ARMv8 code development and testing, which subsequently led me to post a link to a "known good" binary a user compiled under Gentoo.
+
+<li> [ARM] Due to portability issues, replaced the system-headers-based version of the "has advanced SIMD?" check with one based on what amounts to "is the result of 'grep asimd /proc/cpuinfo' empty or not?"
+
+<li> ARM-build users may be interested in this recently-started Mersenneforum thread <a href="https://www.mersenneforum.org/showthread.php?t=23998">CellPhone Compute Cluster for GIMPS</a>. Impressively, a rooted used-and-bought-on-the-cheap Samsung Galaxy S7 phone gets roughly 3x the total throughput of my odroid C2, as long as the exterior of the case (connected to the hot chips via copper internal heatpipe) is cooled via a decent amount of airflow.
+
+<li> The roundoff error threshold triggering a switch to the next-larger FFT length has been tightened. Previously, any fractional part &gt; 0.4375 detected during the step in which convolution outputs are rounded-to-nearest and carries propagated would trigger such a switch. This threshold has been changed to instead use &ge; 0.4375, which is a more significant change than it first appears since when fractional parts of the outputs (which would be pure integer if computed in exact arithmetic) get this close to the fatal 0.5 level it means the outputs have whole-number portions sufficiently large as to leave just a few low bits to represent any accumulated fractional roundoff errors. Where there is one 0.4375-error there are likely to be more, raising the odds that one of same was actually a fatal error of 0.5625 which was aliased to 0.4375 = (1 &minus; 0.5625) by the rounding-to-nearest, which computes the fractional error in each FFT-convolution output word x as |x - NINT(x)|.
+
+<li> [Thanks to GordP for suggesting this one] The program now tacks on several additional bytes to its per-exponent savefiles, storing the FFT length being used when the given checkpoint file was written. That way if a run of an exponent close to the upper limit for a given FFT length encounters dangerously high roundoff errors (pre-v18 this meant &gt; 0.4375; as noted above it now means &ge; 0.4375) which cause it to switch the next-larger available FFT length, this information will be stored in the savefile, so if the same run subsequently gets interrupted and restarted, it will restart at the same larger-than-default FFT length. If a user decides, after looking at the roundoff error warnings in the accompanying p[].stat file, that the incidence of such warnings is low enough that they prefer to chance it at the lower default FFT length they may do so by explicitly invoking the -fftlen flag on restart. Based on the experience I have gathered I estimate that the odds of a 0.4375-level error really being a fatal 0.5625 one 'in disguise' to be on the order of 0.1%, so if your .stat file for a given exponent shows just a few such error warnings (in the sense of extrapolating the partial-run count to the full-run number of iterations) reverting to the default FFT length should be fine. An extrapolated error count appreciably more than 10, on the other hand, should dissuade the user from doing so.<br>
+NOTE that the savefile-reading function only reads the added bytes if they exist at end of of the file, so it is safe to restart a run begun with a v17 build using a v18 build; the code will begin tacking on the additional bytes at the next checkpoint-file write occurrence. If for some reason (e.g. performance) you decide you want to go the other way and switch from a v18 build to an older v17 one mid-run that is OK, too - v17 will simply not read the added bytes at the end of the v18 savefile and will omit them in subsequent checkpoint writes.
+
+<li> AVX-512 builds have an improved 8 x 8 matrix-of-doubles transpose implementation courtesy of George Woltman, which saves ~8 cycles per matrix transpose. Each residue-vector double undergoes 4 such transposes per iteration, and the improved code shaves perhaps 1% runtime per iteration.
+</ul>
+<br><br>
+<img src="images/icons/ball_green.gif"> Mlucas used to verify the <a href="https://www.mersenne.org/primes/?press=M82589933/">51st known Mersenne prime</a>. Andreas H&ouml;glund did a verify run using an avx512 build of Mlucas on an 18-core AWS C5 instance at FFT length 4608K, which needed 72 hours. (The run actually used just 16 of the 18 physical cores and 2 threads per core, as that proved slightly faster than using all 18 cores at this particular FFT length. Once one gets beyond 4-8 cores, such timing oddities are not unusual.)
+<br><br>
+<img src="images/icons/ball_yellow.gif"> Mlucas used to verify the <a href="https://www.smithsonianmag.com/smart-news/largest-prime-number-we-know-180967739/">50th known Mersenne prime</a>. I did an 82-hour verify run using an avx2 build of the code at FFT length 4096K on a 32-core Xeon E5-2698 v3 @ 2.30GHz kindly made available by David Stanfill of <a href="http://www.airsquirrels.com/">Squirrels LLC</a>, which services K-12 education and other customers. Separately, Andreas H&ouml;glund did a verify run using an avx512 build on one of the recently-introduced Amazon Web Services C5 instances based on the Intel Skylake Xeon architecture and its 512-bit vector-arithmetic capability. His run actually began by using an avx2 build on a mix of C5 and the older C4 instances for the first 24 hours and was done at a larger FFT length, 4608K, than was required for this particular number. Had he used an avx512 build on C5 the whole way, and further used the optimal FFT length of 4096K, his verify would have needed ~48 hours instead of 65, but he wanted to do runs at several distinct lengths - he also did a verify @4320K using the CudaLucas program on a fast GPU - because of the very different roundoff error levels that yields for the resulting hardware primality tests. One of my goals over the next few years is to get the new-prime verify time on such commodity multicore hardware under 24 hours via improved code parallelism and cache performance.
+<br><br>
+<img src="images/icons/ball_green.gif"> <b>9 Nov 2017: v17.1 released:</b>
+This adds 128-bit SIMD-vector assembly support for the ARMv8 (Neon) family of low-power CPUs, as are featured in linux micro-PCs such as the <a href="http://www.hardkernel.com/main/products/prdt_info.php">Odroid</a> (my development platform is an Odroid C2) and the latest versions of Raspberry Pi, as well as millions of commodity e-devices such as set-top cable boxes and various internet appliances. Using the v17.1 ARM SIMD code my quad-core Odroid C2 musters only around 1/20th the total throughput of my Haswell quad running an AVX2-enabled build of the code, but the Odroid draws only a few watts under full load. The idea is to use otherwise-idle cycles on many such low-power devices to accumulate a significant amount of total processing power. There is an <a href="http://mersenneforum.org/showthread.php?goto=newpost&t=21992">ARM-related Mlucas thread over at mersenneforum.org</a> for users to share ideas on that topic (Note: first-time forum users need to have their initial post approved by a moderator, please be patient as this can take up to 24 hours). Note especially that we have encountered not-infrequent bad-build issues depending on the specific Linux distro - the to ARMv8 distros which are currently known to be good are [a] for Odroid C2, the Ubuntu 16.04 kernel that ships with the unit, [b] for Raspberry Pi3, <a href="https://github.com/sakaki-/gentoo-on-rpi3-64bit">this Gentoo build</a>. I will augment the list of known-good-distros as users reports warrant. If you own several different ARMv8-using devices you may be able to use a binary compiled on one across the others. For example a user reports that a C2 build under Ubuntu also runs under OpenSuse Leap 42.3 (JEOS) on a Raspberry PI 3 without any issues and without even needing '-static' to be added to the link command. But note that even if this works for you, <b>you should run the self-tests on each distinct platform which you use</b>. That is because even using the same binary, different hardware and OS configurations typically yield different optimal FFT parameters.
+<br><br>
+Special thanks to ARM's own Tom Womack for significant help in geting me up the steep lower potions of the ARM-assembly learning curve, and to Laurent Desnogues for help with the asm syntax as well as providing the has_asimd() utility function which checks the user's SIMD build settings against what is supported by the ARM processor on which the code is being run.
+<br><br>
+By way of reference, here is the mlucas.cfg file of best-timings and FFT parameters resulting from the post-build self-tests on my Odroid C2, using all 4 cores of that processor. Note that C2 is based on the low-end Cortex A53 architecture; the newer A57 gives around 3x the per-cycle performance, but so far as I can tell is not available in a sub-$100 micro-PC form, as is the A53, which is also used in the Raspberry Pi3. Thus, each double-check Primenet-assignment (exponent ~45m, FFT length 2560K) I am currently running on my C2 needs around 2 months, which is slow compared to any recent Intel x86 CPU, but does not compare badly on a per-watt-hour and per-hardware-dollar basis. Based on timings by other GIMPSers, it appears Pi3 runs around 2/3 the speed of C2, and scalar-double builds run ~2/3 as fast as vector-SIMD ones on all ASIMD-supporting ARM architectures:<br>
+</p><pre>
+	# mlucas.cfg file for 128-bit vector-SIMD on Odroid C2 using all 4 cores (-cpu 0:3):
+	<font color="#000080">17.1</font>
+	<font color="#000080">1024</font>  <i><font color="#a00000">msec/iter =  43.90</font>  <font color="#007000">ROE[avg,max] = [0.254687500, 0.312500000]</font></i>  <font color="#000080">radices = 256  8 16 16  0  0  0  0  0  0</font>
+	<font color="#000080">1152</font>  <i><font color="#a00000">msec/iter =  49.01</font>  <font color="#007000">ROE[avg,max] = [0.223256138, 0.281250000]</font></i>  <font color="#000080">radices = 144 16 16 16  0  0  0  0  0  0</font>
+	<font color="#000080">1280</font>  <i><font color="#a00000">msec/iter =  53.18</font>  <font color="#007000">ROE[avg,max] = [0.264508929, 0.343750000]</font></i>  <font color="#000080">radices = 160 16 16 16  0  0  0  0  0  0</font>
+	<font color="#000080">1408</font>  <i><font color="#a00000">msec/iter =  62.19</font>  <font color="#007000">ROE[avg,max] = [0.227343750, 0.265625000]</font></i>  <font color="#000080">radices = 176 16 16 16  0  0  0  0  0  0</font>
+	<font color="#000080">1536</font>  <i><font color="#a00000">msec/iter =  68.08</font>  <font color="#007000">ROE[avg,max] = [0.254241071, 0.312500000]</font></i>  <font color="#000080">radices = 192 16 16 16  0  0  0  0  0  0</font>
+	<font color="#000080">1664</font>  <i><font color="#a00000">msec/iter =  74.43</font>  <font color="#007000">ROE[avg,max] = [0.270758929, 0.312500000]</font></i>  <font color="#000080">radices = 208 16 16 16  0  0  0  0  0  0</font>
+	<font color="#000080">1792</font>  <i><font color="#a00000">msec/iter =  83.72</font>  <font color="#007000">ROE[avg,max] = [0.220532663, 0.250000000]</font></i>  <font color="#000080">radices = 224 16 16 16  0  0  0  0  0  0</font>
+	<font color="#000080">1920</font>  <i><font color="#a00000">msec/iter =  88.79</font>  <font color="#007000">ROE[avg,max] = [0.257756696, 0.312500000]</font></i>  <font color="#000080">radices = 240 16 16 16  0  0  0  0  0  0</font>
+	<font color="#000080">2048</font>  <i><font color="#a00000">msec/iter =  94.25</font>  <font color="#007000">ROE[avg,max] = [0.236921038, 0.281250000]</font></i>  <font color="#000080">radices = 256 16 16 16  0  0  0  0  0  0</font>
+	<font color="#000080">2304</font>  <i><font color="#a00000">msec/iter = 109.55</font>  <font color="#007000">ROE[avg,max] = [0.248751395, 0.312500000]</font></i>  <font color="#000080">radices = 288 16 16 16  0  0  0  0  0  0</font>
+	<font color="#000080">2560</font>  <i><font color="#a00000">msec/iter = 131.02</font>  <font color="#007000">ROE[avg,max] = [0.236908831, 0.312500000]</font></i>  <font color="#000080">radices = 160 32 16 16  0  0  0  0  0  0</font>
+	<font color="#000080">2816</font>  <i><font color="#a00000">msec/iter = 151.26</font>  <font color="#007000">ROE[avg,max] = [0.262500000, 0.312500000]</font></i>  <font color="#000080">radices = 176 32 16 16  0  0  0  0  0  0</font>
+	<font color="#000080">3072</font>  <i><font color="#a00000">msec/iter = 159.06</font>  <font color="#007000">ROE[avg,max] = [0.262111119, 0.312500000]</font></i>  <font color="#000080">radices = 192 32 16 16  0  0  0  0  0  0</font>
+	<font color="#000080">3328</font>  <i><font color="#a00000">msec/iter = 175.60</font>  <font color="#007000">ROE[avg,max] = [0.281250000, 0.375000000]</font></i>  <font color="#000080">radices = 208 32 16 16  0  0  0  0  0  0</font>
+	<font color="#000080">3584</font>  <i><font color="#a00000">msec/iter = 190.70</font>  <font color="#007000">ROE[avg,max] = [0.252343750, 0.312500000]</font></i>  <font color="#000080">radices = 224 32 16 16  0  0  0  0  0  0</font>
+	<font color="#000080">3840</font>  <i><font color="#a00000">msec/iter = 208.40</font>  <font color="#007000">ROE[avg,max] = [0.248437500, 0.343750000]</font></i>  <font color="#000080">radices = 240 32 16 16  0  0  0  0  0  0</font>
+	<font color="#000080">4096</font>  <i><font color="#a00000">msec/iter = 223.17</font>  <font color="#007000">ROE[avg,max] = [0.228655134, 0.281250000]</font></i>  <font color="#000080">radices = 256 32 16 16  0  0  0  0  0  0</font>
+	<font color="#000080">4608</font>  <i><font color="#a00000">msec/iter = 263.42</font>  <font color="#007000">ROE[avg,max] = [0.251339286, 0.281250000]</font></i>  <font color="#000080">radices = 288 32 16 16  0  0  0  0  0  0</font>
+	<font color="#000080">5120</font>  <i><font color="#a00000">msec/iter = 295.07</font>  <font color="#007000">ROE[avg,max] = [0.237137277, 0.281250000]</font></i>  <font color="#000080">radices = 160 32 32 16  0  0  0  0  0  0</font>
+	<font color="#000080">5632</font>  <i><font color="#a00000">msec/iter = 335.27</font>  <font color="#007000">ROE[avg,max] = [0.256919643, 0.312500000]</font></i>  <font color="#000080">radices = 176 32 32 16  0  0  0  0  0  0</font>
+	<font color="#000080">6144</font>  <i><font color="#a00000">msec/iter = 372.94</font>  <font color="#007000">ROE[avg,max] = [0.246651786, 0.281250000]</font></i>  <font color="#000080">radices = 192 32 32 16  0  0  0  0  0  0</font>
+	<font color="#000080">6656</font>  <i><font color="#a00000">msec/iter = 403.68</font>  <font color="#007000">ROE[avg,max] = [0.262500000, 0.312500000]</font></i>  <font color="#000080">radices = 208 32 32 16  0  0  0  0  0  0</font>
+	<font color="#000080">7168</font>  <i><font color="#a00000">msec/iter = 440.25</font>  <font color="#007000">ROE[avg,max] = [0.224874442, 0.281250000]</font></i>  <font color="#000080">radices = 224 32 32 16  0  0  0  0  0  0</font>
+	<font color="#000080">7680</font>  <i><font color="#a00000">msec/iter = 487.57</font>  <font color="#007000">ROE[avg,max] = [0.237053571, 0.281250000]</font></i>  <font color="#000080">radices = 240 32 32 16  0  0  0  0  0  0</font>
+</pre>
+
+<b>[29 Dec 2017:</b> Uploaded a patched version which fixes avx-512 build issues with several sourcefiles - radix[20,24,28]_ditN_cy_dif1.c and radix16_dif_dit_pass.c - in the original 17.1 release, as well as a build issue with the util.c file for 32-bit Raspbian and other pre-ASIMD versions of ARM OSes. <b>23 Jan 2018:</b> Uploaded patched versions of platform.h and util.c to fix build issues on pre-v7 ARM systems lacking the asind-and-other-advanced-arch-related headers.]
+<br><br>
+<img src="images/icons/ball_green.gif"> <b>15 Jun 2017: v17.0 released:</b>
+This supports Intel's next-gen AVX-512 vector arithmetic which will appear in the consumer market in form of the new Core i9 series of processors. I did all the associated code development using a crowdfunded <a href="https://www.gofundme.com/KNL4NumberTheory">Intel Knights Landing manycore workstation</a>, which means the code uses only the basic AVX-512F Foundation instruction subset - the additional instruction subsets supported in later iterations (e.g. Skylake Xeon and Core i9) offer little performance gain as far as the vector FFT code at the heart of Mlucas is concerned.
+<br><br>
+Special thanks to David Stanfill for hosting/tech-supporting the aforementioned KNL, as well as generously providing access to a 32-core AVX2-running Xeon and one of the new AMD Ryzen octocore systems for build and testing; thanks also to Mark Rose for providing a pair of Primenet-server Python scripts which I used as templates for creating my Mlucas-customized py-script for automated assignments management, and to Gord Palameta for beta-testing the release on one of the new AVX-512-capable Google Compute Engine cloud server nodes.
+<br><br>
+<b>Additional changes in 17.0:</b>
+
+<ul>
+<li> (Optional) automated Primenet assignment management: v17 adds a simple Python script named primenet.py for automated Primenet assignments management - this is to be found in the src-directory. Users who wish to eschew this can continue to use the Primenet manual testing webforms at mersenne.org as described further down on this page, but folks running multiple copies of the program will find the .py-script greatly simplifies things. See the  <a href="#reserve">Get exponents from PrimeNet</a> section for usage instructions.
+<li> Multithreading-related: The default threadcount has been changed from [number of logical cores on the system] to 1, and the simple '-nthread [n]' command-line argument (which sets affinities of the resulting n threads to logical cores 0:n-1) has been supplemented with a much more flexible '-cpu' argument, offering precise control over which cores to set thread affinities to. This offers better support for core-cluster-based architectures like NUMA, as well as processor families which use a different core-numbering scheme than Intel - for example, AMD, where physical core j (of N) is assigned logical core pair [2j,2j+1], compared to Intel's [j,j+N]. (Or logical-core quartet [j,j+N,j+2N,j+3N] on Intel Knights Landing.) Because of these changes, the 'nthread.ini'-file-contents-based threadcount-setting method has been discontinued in v17.
+<li> Previous Mlucas releases had a state-machine aspect to the runtime-arguments-processing which resulted in order constraints on certain arguments; e.g. -radset could only follow -fftlen. These constraints have been removed.
+<li> A streamlined chained-DWT-weights computation has been implemented in the carry-propagation routines. Most users should see a 3-7% speedup from this.
+<li> Fixed bug causing the iteration-interval timing to be reported as 1000x too small (i.e. essentially zero) in multithreaded (default) build mode.
+<li> Multiple bugfixes related to scalar-double (non-x86-SIMD) builds of the code, most turned up during preparation for the 2015 Debian-packaging of the v14.1 codebase. The only x86-SIMD bug turned up was in the radix44_ditN_cy_dif1.c file, which caused this radix to be unavailable in SSE2-mode builds. (Not disastrous as radix-176 is nearly always superior for FFT lengths relevant to the current GIMPS 'wavefront', and the issue was confined to the SSE2-specific code, i.e. scalar-double, AVX and AVX2 builds were unaffected.)
+<li> I have expanded the roster of radix-set combinations available for most FFT lengths, mainly to add ones where the radix set ends in 32, which tend to perform better in scalar-mode builds. Note this will increase the time needed for self-tests by as much as 20%.
+<li> The error-checking toggle (-rocheck), which was already deprecated in previous releases, is now gone. While in the early days of Mlucas doing the carry step of each iteration without roundoff error checking (and thus saving the typically expensive DNINT double-rounding operation, even when using fast add/subtract-round-constant emulation of such) often sped things up by as much as 5% or more, in recent years fast hardware support for such rounding has become more or less ubiquitous, and omitting it, especially in the x86 SIMD assembly code, gives only a tiny speedup (1% level or less), not nearly enough to justify the manifold dangers inherent in such 'high-wire acrobatics without a net'. Besides allowing automated detection and upward-adjustment of a too-small FFT length for a given exponent, roundoff checking of every convolution output on every iteration is very good at catching errors of miscompilation, mis-optimization, and hardware issues leading to data corruption, such as processor overheating. And getting rid of the _nochk version of the various radix**_ditN_cy_dif1 functions cuts a significant source of code bloat and compilation time.
+<li> Various other code-bloat reductions, such as merging of the previously separate (but differing only in a small bit-masking operation) [AVX|SSE2]_cmplx_carry_norm_*errcheck0|1 macros in the various SIMD-enabled carry routines (that is, all the radix**_ditN_cy_dif1 routines with radix &gt;= 16.)
+<li> Fixed up (non-x86-build) duplicate-case-values in big table in get_fft_radices.c, in sections wrapped inside USE_ONLY_LARGE_LEAD_RADICES preprocessor flag.
+</ul>
+
+<hr size="2">
+
+<p><img src="images/icons/ball_yellow.gif"> <b>January 2016:</b> <a href="http://www.mersenne.org/M49/74207281.htm">49th Known Mersenne prime</a> verified by Serge Batalov on an Amazon Web Services EC2 node using a multithreaded AVX2-based build of Mlucas.
+
+</p><hr size="2">
+
+<img src="images/icons/ball_yellow.gif"> <b>2015:</b> <a href="https://packages.debian.org/stretch/math/mlucas">Mlucas 14.1 becomes an official Debian package</a>. Thanks to Alex Vong for the initiative here.
+
+<hr size="2">
+
+<h2><a name="oldrel"></a>Descriptions of recent older code releases:</h2>
+
+<ul>
+<li> <a href="README_oldrel.html#15.0patch">07 Feb 2016</a>
+<li> <a href="README_oldrel.html#15.0">24 Aug 2015</a>
+<li> <a href="README_oldrel.html#14.1">11 Dec 2014</a>
+<li> <a href="README_oldrel.html#14.0">18 Sep 2014</a>
+<li> <a href="README_oldrel.html#14.x">23 Jun 2014</a>
+<li> <a href="README_oldrel.html#13.1">02 Oct 2013</a>
+<li> <a href="README_oldrel.html#13.0">04 Feb 2013</a>
+<li> <a href="README_oldrel.html#9.0">06 Nov 2009</a>
+<li> <a href="README_oldrel.html#8.0">15 Sep 2008</a>
+</ul>
+
+<br>
+<hr size="2">
+
+<h2><a name="general"></a>General Questions:</h2>
+
+<p><img src="images/icons/ball_green.gif"> For general questions about the math behind the Lucas-Lehmer test, general primality testing or related topics (and also no small number of unrelated topics, such as <a href="http://www.mersenneforum.org/showthread.php?t=20003">this one</a> following in the literary-humor footsteps of Ambrose Bierce), check out the <a href="http://www.mersenneforum.org/">Mersenne Forum.</a>
+
+</p><p><img src="images/icons/ball_yellow.gif">For discussions specifically about Mlucas at the above venue, see the <a href="http://www.mersenneforum.org/forumdisplay.php?f=118">Mlucas subforum</a> there.
+
+<br>
+
+</p><hr size="2">
+
+<h2><a name="windows"></a>Windows Users:</h2>
+
+Note that as described in this article in <i>The Hacker News</i>, Win10 <a href="http://thehackernews.com/2016/03/ubuntu-on-windows-10.html">supports Linux Bash Shell and Ubuntu Binaries</a>. In such a shell you can just follow the Linux-build instructions below using the level of SIMD vector-arithmetic appropriate for your CPU. While I hate to find myself in the business of promoting Windows in any way, the fact is that while pre-Win10 users can build the code by installing the proper Linux emulation environment as detailed in the following section, none of those emulators supports multithreaded builds and the standard Posix thread/core affinity-setting mechanisms which are crucial to getting the most out of a modern multicore CPU. So if you run Windows and you want to play with the code, you might as well upgrade to Win10 if you've not already done so, because it makes it trivial to do a Linux-style build.
+<p>
+<b>Pre-Win10</b>: If you have some good reason to not upgrade to Win10, here is your best option: Mlucas does not support build using Windows tools, but windows users can download a pair of popular freeware packages to provide themselves with a Linux/GCC-like environment in which to build and run the code. (Thanks to Mersenne-forum member <a href="http://www.mersenneforum.org/showpost.php?p=460789&amp;postcount=29">Anders Höglund for the setup</a> here.)
+<br><br>
+First, you'll need a suitable archiver utility which handles various common Linux compression formats along with the Linux 'tar' (tape-archive, its name a historic artifact) command. I use the freeware <a href="http://www.7-zip.org/">7zip</a> package, which can handle most linux compression formats including .xz, .7z and .bz2 . Download to your C-drive and run the extractor .exe .
+<br><br>
+Next, download the <a href="http://www.msys2.org/">msys2-x86_64 package</a>, which provides both the needed Linux emulation environment and the underlying MINGW compiler-tools installation. After downloading to c:, click to run the self-extractor .
+<br><br>
+Note that in the ensuing package-install and configuration steps, you will need to be connected to the Internet, and will need to quit and restart MSYS2 several times. I restart via the Start Menu &rarr; All Programs &rarr; MSYS2 64bit. When I press 'return' on the last category, a dropdown menu appears with these 3 items, of which you want the bottom-most, bold-highlighted one:
+<br><br>
+MSYS2 MinGW 32-bit<br>
+MSYS2 MinGW 64-bit<br>
+<b>MSYS2 MSYS</b><br>
+<br>
+From the resulting command shell (and with a working internet connection), run these package-management commands in MSYS2, replying 'Y' to any do-you-wish-to-go-ahead-and-install prompts:<br>
+<p><font color="#000080">
+<i>pacman -Syu </i>(then exit &amp; restart MSYS2)<br>
+<i>pacman -Su  </i>(then exit &amp; restart MSYS2)<br>
+</font>
+<p>Lastly, install the compiler and python-scripting tools:
+<p><font color="#000080">
+<i>pacman -S mingw-w64-x86_64-gcc<br>
+pacman -S mingw-w64-x86_64-python2<br></i>
+</font>
+<p>...and do one small manual edit, of the c:\msys64\etc\profile (text) file, to add the bolded snippet, including the leading :-separator, to the following line:
+<p><font color="#000080">
+<i>MSYS2_PATH="/usr/local/bin:/usr/bin:/bin<b>:/mingw64/bin</b>"<br></i>
+</font>
+<p>Then a final exit &amp; restart of MSYS2 and you are ready to go and everything is located inside the C:\msys64 folder, there is no additional c:\mingw64 folder installation needed like in MSYS.
+<br><br>
+To test that everything is set up properly, type 'which gcc' in your just-opened shell. That should point to /c/mingw/bin/gcc.exe, and 'gcc -v' should show the version of the compiler in your installation on the final line of screen output.
+<br><br>
+
+<hr size="2">
+
+
+<center>
+<h2><a name="download"></a>STEP 1 - DOWNLOAD AND BUILD THE CODE</h2>
+</center>
+
+<p>To do Lucas-Lehmer tests, you'll need to build the latest Mlucas C source code release. First get the release tarball, available in 2 different-zip-based forms - Windows users (again, pre-Win10) should have already downloaded the above-linked 7zip freeware archiver utility, so should just use that in conjunction with the smaller xz-compressed tarchive:
+
+<!-- Procedure on macbook to create code tarballs: these cmds all from ~/Mlucas/SRC:
+[One dir above the dev-src dir:]
+	mkdir mlucas_v18
+	mkdir mlucas_v18/src
+	[copy *.h *.c, *.py files from dev-src dir to mlucas_v18/src]
+	tar cjf mlucas_v18.tbz2 mlucas_v18/src/*
+[If xz is part of the OS install:]
+	tar cJf mlucas_v18.txz mlucas_v18/src/*
+[If xz not part of the OS install:]
+	tar cf mlucas_v18.tar mlucas_v18/src/*
+	xz mlucas_v18.tar
+	mv mlucas_v18.tar.xz mlucas_v18.txz
+[On macos:]
+	md5 *v18.*z*
+[On linux:]
+	md5sum *v18.*z*
+--->
+</p>
+<ul>
+<!--
+<li> <b>ARM users:</b> Due to the commonness of users not using one of the 'known good' distros hitting bad-build errors (typically, code builds but segfaults at runtime due to bad compiler instruction-issue), here are links to two precompiled binaries from my own Odroid C2, built under the standard Ubuntu 16.04 bundle which ships with the C2. We've had good success with users running these on Odroid (including the new <a href="https://forum.odroid.com/viewtopic.php?t=29932">Odroid N1</a> with its hybrid big/little dual-socket design, in which the 'big' CPU is a 2-core a72 and the 'little' one a 4-core a53) as well as on non-Odroid platforms. If your system supports ARMv8 asimd (<font color="#000080"><i>grep asimd /proc/cpuinfo</i></font> returns something), grab
+<a href="src/C/Mlucas_c2simd.bz2">Mlucas_c2simd.bz2</a> (01 Mar 2018, 1.58 MB, md5 checksum = 9e1968500124877de7adf95972aafbb2); otherwise grab
+<a href="src/C/Mlucas_nosimd.bz2">Mlucas_nosimd.bz2</a> (01 Mar 2018, 1.65 MB, md5 checksum = 6da33ca022ab67e5b9715a088bf10e5a). Once you've downloaded and 'bzip2 -d'ed the desired build, proceed to the <a href="#selftest">Performance-tune for your machine</a> section.
+<p>
+<li> If your system has Xzip installed (do 'which xz' and see if that comes up empty or with a path-to-binary), get <a href="src/C/mlucas_v17.1.txz">mlucas_v17.1.txz</a> (23 Jan 2018, 1.53 MB, md5 checksum = bbccac8460cedb598b78c9705a9de8ec). (If the file extension looks unfamiliar, note that some people prefer a 'tar.xz' extension, as would result from a 2-step 'first tar, then Xzip-compress' procedure). Then use 'tar xJf mlucas_v17.1.txz' to one-step uncompress/unpack the archive.
+<p>
+<li> Otherwise, get
+-->
+<li> Get the bzip2-compressed <a href="src/C/mlucas_v18.tbz2">mlucas_v18.tbz2</a> (20 Feb 2019, 2.70 MB, md5 checksum = ???). (If the file extension looks unfamiliar, note that some people prefer a 'tar.bz2' extension, as would result from a 2-step 'first tar, then bzip2-compress' procedure). Then use 'tar xjf mlucas_v18.tbz2' to one-step uncompress/unpack the archive.
+</ul>
+That unpacking will create a directory next to the .txz or .tgz2 file whose name is the same as the prefix of the compressed tarchive, e.g. mlucas_v18 for v18. Inside that you will a directory 'src' containing the various C source and header files, along with a Python-script textfile named primenet.py and a copy of this README page. If you wish to view any of these sourcefiles in an editor, I recommend using a 4-column tab setting, since much of the C code and especially the inline-assembly contained in various .h files is in multicolumn form and needs a 4-column tab setting to line up properly for viewing.
+
+<hr size="2">
+<img src="images/icons/ball_green.gif"> <b>Windows (pre-Win10) Users:</b> Assuming you successfully installed MSYS2 as described above, everything below should work for you, except that the MSYS2/MINGW emulation environment <b>does not support multithreaded builds</b>. Thus just select the appropriate SIMD vector-mode for your x86 processor using the /proc/cpuinfo-based procedure described below (or none if non-x86), and omit -DUSE_THREADS from your compile statement.
+<br><br>
+Once you have the Mlucas tarball downloaded and unzipped to your c-drive, you cd to it in the MSYS2 shell, via 'cd /c/mlucas_v18/src', where '/c' is MSYS2's syntax for the C: drive. (Similarly, /e points to the removable-media mount point, which is handy for unnetworked 'sneakernetting' of files between your MSYS2-rendered Windows filesystem and a USB flash drive). Type 'ls' to list the files in your src-subdirectory
+<hr size="2">
+<img src="images/icons/ball_green.gif"> <b>Determining the SIMD build mode using the /proc/cpuinfo file:</b> To see if your x86 CPU (either Intel or AMD) supports single-instruction-multiple-data (SIMD) vector arithmetic (and if so, what the highest-supported relevant SIMD level is), type the following regular-expression-search commands, stopping as soon as you get a hit (a line of text containing the substring-being-searched-for will be echoed to stdout):
+<p><font color="#000080"><i>
+grep avx512 /proc/cpuinfo<br>
+grep avx2 /proc/cpuinfo<br>
+grep avx /proc/cpuinfo<br>
+grep sse2 /proc/cpuinfo
+</i></font>
+
+<p>Whichever of these gave you the first hit, you will use -DUSE_[capitalized search substring] in your compile command line, e.g. if grepping for 'avx2' gave you the first hit, you use -DUSE_AVX2 in your compile command.
+<br><br>
+<b>Mac OS X</b> has no /proc/cpuinfo file, so Mac users will need to [Apple Icon] &rarr; About This Mac, then compare the processor type displayed in the resulting dialog box against the following Wikipedia entries:<br><br>
+• <a href="https://en.wikipedia.org/wiki/AVX-512#CPUs_with_AVX-512">CPUs with AVX-512</a>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;• <a href="https://en.wikipedia.org/wiki/AVX2#CPUs_with_AVX2">CPUs with AVX2</a>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;• <a href="https://en.wikipedia.org/wiki/AVX2#CPUs_with_AVX">CPUs with AVX</a>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;• <a href="https://en.wikipedia.org/wiki/SSE2#CPU_support">CPUs with SSE2</a><br>
+<br>
+<b>ARM users:</b> <font color="#000080"><i>grep asimd /proc/cpuinfo</i></font> to see if your CPU is ARMv8, i.e. supports the advanced SIMD instructions for which I added assembly-code support as of v17.1. Even if your CPU lacks ASIMD, you can still build Mlucas, you will just be restricted to a generic-C-code (non-SIMD) build. On my Odroid C2 I built both version and the generic-C (non-SIMD) one runs at around 2/3 the speed of the SIMD one. This is less of a difference than builds with and without SSE2-assembly on my old Intel Core2, because the latter has dedicated high-throughput functional units to support te SSE2 SIMD whereas the ARM, being ruthlessly optimized for minimal power consumption and 'shared silicon', has both the non-SIMD and SIMD arithmetic instructions share the same underlying functional units, e.g. a pair of 64-bit hardware floating-point adders, which can be used to execute two 64-bit FADDs per cycle in non-SIMD mode or a paired 64-bit vector FADD in SIMD mode. The maximum floating-point arithmetic throughput is thus the same for both kinds of builds - the speedup I mentioned for SIMD builds is all due to the optimized inline-assembly making better usage of the available functional units than the compiler-optimized generic-C-code builds.
+<br>
+<hr size="2">
+<img src="images/icons/ball_green.gif"> <b>Building:</b> The build procedure is so simple, there is little point in the extra script-infrastructure and maintenance work needed by the usual linux ./configure-then-make procedure - let's illustrate using a multithreaded x86/SSE2 build under 64-bit Linux. (Again, pre-Win10 Windows users must omit -DUSE_THREADS from their compile statement; Win10 users should simply be following the Linux build instructions using the built-in Bash shell support.) Within the directory resulting from the unpacking of the compressed source tarball, I suggest creating an 'obj' subdir next to the src-directory (or specific-build-mode-named object-subdirs if you want to try multiple build modes, say obj_avx2 and obj_avx512 on newer Intel x86 systems), the cd'ing into the obj-dir and doing like so (again, this example is specifically for an SSE2 vector-SIMD-arithmetic build):
+<p>
+<font color="#000080"><i>gcc -c -O3 -DUSE_SSE2 -DUSE_THREADS ../src/*.c &gt;&amp; build.log<br>
+grep -i error build.log</i></font><br>
+[Assuming above grep comes up empty] <font color="#000080"><i>gcc -o Mlucas *.o -lm -lpthread -lrt</i></font>
+
+<p>The various other (including non-x86) build modes are all slight variants of the above example procedure:
+<ul>
+<li> For AVX builds on e.g. Intel Sandy/Ivy Bridge, use -DUSE_AVX -mavx instead of -DUSE_SSE2;<br>
+<li> For AVX2+FMA3 (Intel Haswell/Broadwell/Skylake or AMD Ryzen): use -DUSE_AVX2 -mavx2 instead of -DUSE_SSE2;<br>
+<li> For AVX512 (Intel Knights Landing, Skylake Xeon and core-i9): use -DUSE_AVX512 instead of -DUSE_SSE2, and the following target-architecture flag, depending on CPU family: -march=knl for Knights Landing, -march=skylake-avx512 for Skylake Xeon and Core-i9;<br>
+<li> For ARMv8 SIMD builds (assuming 'grep asimd /proc/cpuinfo' comes up non-empty) -DUSE_ARM_V8_SIMD instead of -DUSE_SSE2;<br>
+<li> For non-x86-SIMD (i.e. scalar-double) builds, remove -DUSE_SSE2 in the above;<br>
+<li> If using Clang under MacOS, replace 'gcc' with 'clang' in the above, and append '-Xlinker --no-demangle' to the link step. (Note Clang does not need explicit library-linkage of the math, pthread and realtime libraries, i.e. does not need the user to invoke -lm -lpthread -lrt at link time, although doing so is not a problem).
+<li> For 32-bit SIMD builds (scalar-double and SSE2 only, no AVX or beyond), note that if you are using Clang in 32-bit-mode under OS X, you will likely need to use GCC to compile a small subset of files (most commonly radix*square*c in my builds on a 2010-vintage CoreDuo-based Macbook using Clang 2.0 under OS X 10.6.8) in order to work around Clang 32-bit miscompilation of those files, which lead to "Bus Error" crashes and segfaults at runtime. If you still get crashes, I suggest using GCC to build all files, even though the build time will be 3-5x larger.<br>
+</ul>
+
+<br>
+<hr size="2">
+<center>
+<h2><a name="badbuild"></a>COMMON BUILD ISSUES AND WORKAROUNDS</h2>
+</center>
+
+<ul>
+<li> <b>[All platforms]</b> Those of you masochistic enough to delve deeper into the build.log should file expect to see some compiler warnings, mostly of the "type-punned pointer", "signed/unsigned int", "unused variable" and "variable set but not used" (the latter with GCC 4.7 and later) varieties. (I try to keep on top of the latter kinds but with multiple build modes which which use various partially-overlapping subsets of variables, were I to set a goal of no such warnings, it would be a nearly full-time job and leave little time for actual new-code development). The first of these is related to the quad-float emulation code used for high-precision double-float-const-initializations. Other are mainly of the following kinds:
+<br><br>
+<font color="#000080"><i>
+[various]: warning: cast from pointer to integer of different size<br><br>
+twopmodq80.c: In function `twopmodq78_3WORD_DOUBLE':<br>
+twopmodq80.c:1032: warning: right shift count &gt;= width of type<br>
+twopmodq80.c:1032: warning: left shift count is negative<br>
+</i></font><br>
+These are similarly benign - the cast warnings are due to some array-alignment code which only needs the bottom few bits of a pointer, and the shift-count warnings are a result of compiler speculation-type optimizations.
+<p>
+<li> <b>[ARM]</b> ARM builders have encountered not-infrequent bad-build issues depending on the specific Linux distro - the to ARMv8 distros which are currently known to be good are [a] for Odroid C2, the Ubuntu 16.04 kernel that ships with the unit, [b] for Raspberry Pi3, <a href="https://github.com/sakaki-/gentoo-on-rpi3-64bit">this Gentoo build</a>. I will augment the list of known-good-distros as users reports warrant. Further, an Odroid XU4 user notes "I was only able to link the binary on the default Odroid Ubuntu image, not on the Debian image supplied by synclound. But the compiled binary works also on the Debian image."
+<p>
+<li> <b>[ARM]</b>
+Some users have reported needing to specify the specific ARM architecture in your compile command to avoid runtime segfaulting. The GCC manpage gives the laundry list: "Permissible names are: armv2, armv2a, armv3, armv3m, armv4, armv4t, armv5, armv5t, armv5e, armv5te, armv6, armv6j, armv6t2, armv6z, armv6kz, armv6-m, armv7, armv7-a, armv7-r, armv7-m, armv7e-m, armv7ve, armv8-a, armv8-a+crc, armv8.1-a, armv8.1-a+crc, iwmmxt, iwmmxt2, ep9312." Check your system details against this list, remove any build.log file from a previous build and then add '-march=<i>[version]</i>' to the compile-all-sourcefiles command.
+</ul>
+<!--
+<br><br>
+The 'rm -f rng*.o util.o qfloat.o' command line and the 'gcc -c -O1 rng*.c util.c qfloat.c' following it perform a rebuild of a trio of accuracy/optimization-sensitive files at a lower opt-level. None of these files is critical for performance, so it is recommended to always do this step even though many builds of all files with the higher opt level work just fine.
+-->
+<br><br>
+
+Once you have successfully linked a binary, I suggest you first try a spot-check at some smallish FFT length, say
+<p><font color="#000080"><i>
+./Mlucas -fftlen 192 -iters 100 -radset 0<br>
+</i></font><br>
+You will want to look through the resulting informational output for a line reading <i>"INFO: System has [X] available processor cores."</i>, which I have bolded below in the sample output from my Core2 macbook. Here, the number reported refers to *logical* (virtual) processor cores. Intel and AMD users, if this number is double the number of physical system cores, that means your CPU supports hyperthreading. This is important in the "Performance Tune for Your Machine" section below.
+<p>
+This particular testcase should produce the following 100-iteration residues, with some platform-dependent variability in the roundoff errors :<br>
+
+<pre><b>INFO: System has 2 available processor cores.</b>
+...
+100 iterations of M3888517 with FFT length 196608 = 192 K
+Res64: 579D593FCE0707B2. AvgMaxErr = 0.260239955. MaxErr = 0.343750000. Program: E14.1
+Res mod 2^36     =          67881076658
+Res mod 2^35 - 1 =          21674900403
+Res mod 2^36 - 1 =          42893438228
+</pre>
+[If the residues differ from these internally-pretabulated 100-iteration ones, the code will emit a visually-loud error message.]<br>
+If that works, try rerunning the same case, now with 2 threads rather than the default single-threaded:
+<p><font color="#000080"><i>
+./Mlucas -fftlen 192 -iters 100 -radset 0 -nthread 2<br>
+</i></font>
+<br>
+On non-hyperthreaded CPUs, this should nearly double the throughput (= half the runtime) versus the initial single-threaded (default) run. On hyperthreaded x86 processors, Intel users should see a nearly 2-fold speedup running this way, but AMD users won't. That's because '-nthread 2' really translates to 'run 2-threaded, with thread affinities set to logical CPU cores 0 and 1'. By 'logical cores' we mean the multiple (typically 2, but sometimes more) 'virtual cores' mapped to each physical CPU core in modern 'hyperthreaded' (Intel's term) CPU architectures. The Intel numbering system here is that on a system with n physical cores, physical CPU core 0 maps to logical cores 0 and n; physical CPU core 1 maps to logical cores 1 and n+1, etc.  AMD uses a different logical-core numbering convention than Intel, whereby physical CPU core 0 maps to logical cores 0 and 1; physical CPU core 1 maps to logical cores 2 and 3, and so forth. The Intel-specificity of the Mlucas -nthread option is one reason is deprecated (still supported but recommended-against) in v17 and beyond; another is that it does not permit, e.g., setting the processor affinity of one job to physical core 0, a second to physical core 1, etc.
+<br><br>
+For these reasons v17 introduces a new and much-more-flexible flag '-cpu', which accepts any mix of comma-separated individual core indices and core-index ranges of form <i>low:high</i> and <i>low:high:stride</i>, where if stride is omitted it defaults to 1, and if high is also omitted, it means "run 1 thread on logical core [low]". Thus for our Intel user, -nthread 2 is equivalent to -cpu 0:1, but now our user can run a second 2-threaded job using -cpu 2:3 and be sure that the two runs are not competing for the same CPU cores. Our AMD user will similarly see no runtime benefit from replacing -nthread 2 with -cpu 0:1 (since on AMD both have the same effect of overloading a single physical CPU core), but will find that -cpu 0,2 (or in colon-delimited syntax, 0:2:2, i.e. 'use cores 0 though 2 in increments of 2') gives the expected 2-threaded speedup.
+<br>
+<br>
+
+<hr size="2">
+<center>
+<h2><a name="selftest"></a>STEP 2 - PERFORMANCE-TUNE FOR YOUR MACHINE</h2>
+</center>
+
+<p>[Advanced users: For a complete list of Mlucas command line options, type 'Mlucas -h'; note the topical help-submenu options, new in v17.]
+
+</p><p>After building the source code, the first thing that should be done is a set of self-tests to make sure the binary works properly on your system. During these self-tests, the code also collects various timing data which allow it to configure itself for optimal performance on your hardware. It does this by saving data about the optimal FFT radix combination at each FFT length tried in the self-test to a configuration file, named <font color="#000080"><i>mlucas.cfg</i></font>. Once this file has been generated, it will be read whenever the program is invoked to get the optimal-FFT data (specifically, the optimal set of radices into which to subdivide each FFT length) for the exponent currently being tested.
+
+</p><p>To perform the needed self-tests for a typical-user setup (which implies that you'll be either doing double-checking or first-time LL testing), <b>first remove or rename any existing mlucas.cfg file from a previous code build/release in the run directory</b>, then type - note you'll want to insert a specific set of -cpu options from the list below in place of the <i>[-cpu flags]</i> placeholder - the following to run a bunch of self-tests (this needs from a few minutes on fast Intel hardware to upwards of an hour on humbler CPUs such as my little Odroid):
+
+</p><p><font color="#000080"><i>Mlucas -s m [-cpu flags] &gt;&amp; selftest.log</i></font>
+
+</p><p>Here is what to enter in the <i>[-cpu flags]</i> field for several common hardware types, if your goal is to maximize total throughput of your system:
+<ul>
+<li> Non-hyperthreaded x86 CPUs: no -cpu flags needed, i.e. you will be running single-threaded (but you will be running one job per physical core of your CPU, once you complete the self-test);<br>
+<li> Hyperthreaded x86 CPUs: If Intel, use <i>-cpu 0:n</i>, where n is the number of <b>physical</b> cores on your system (e.g. -cpu 0:4 for a <i>Skylake</i> or other quad). This will run 2 software threads on the single physical core which maps to logical cores 0 and 4, in Intel's core-numbering convention. If AMD, such overloading of a physical core with 2 software threads is counterproductive (but if you wish to try it you'd use <i>-cpu 0:1</i>, in AMD's core-numbering convention), just omit the -cpu argument and run single-threaded;<br>
+<li> For ARM CPUs, there is no hyperthreading, you want to use 4 threads, one on each physical core: use <i>-cpu 0:3</i>. On a multisocket system such as an octocore use the same 4-thread mode for your self-tests, as you'll want to run as many Mlucas jobs as there are sockets, e.g. two 4-threaded jobs on an octocore, the first with -cpu 0:3, the second with -cpu 4:7. For users of hybrid multisocket systems such as the Odroid N1, have a look at your /proc/cpuinfo file to see which core indices are assigned to each socket. For instance on the N1, cores 0-3 map to the 'little' a53 CPU and cores 4-5 to the 'big' a72 CPU, thus assuming the system can handle the resulting thermal load without excessive throttling, a typical total-throughput-maximizing production run setup would be having the big CPU crunching one assignment using its 2 cores ('... -cpu 4:5') and the little CPU crunching another with its 4 cores ('... -cpu 0:3'), with each of the 2 jobs launched from its own run directory containing the CPU-appropriate mlucas.cfg file. (The 2 CPUs can share a common binary, or just also place one copy of this binary into each rundir);<br>
+<li> For other non-x86, I suggest doing as on ARM, or experimenting yourself to find the optimal setup.<br>
+</ul>
+
+</p><p>The above 'Mlucas -s m' command tells the program to perform a series of self-tests for FFT lengths in the 'medium' range, which currently means FFT lengths from 1024K-7680K, covering Mersenne numbers with exponents from 20M - 143M. You should run the self-tests under unloaded or constant-load conditions before starting work on any real assignments, so as to get the most-reliable optimal-FFT data for your machine, and to be able to identify and work around any anomalous timing data. (See example below for illustration of that). This may take a while, especially in single-threaded mode; you can monitor progress of the process by opening the mlucas.cfg file in an editor and watching the various-FFT-length entries get added as each set of tests at a given FFT length completes. When done, <b>please check the resulting selftest.log file for error messages</b>. You should expect to see a few messages of the form
+<p><i>
+***** Excessive level of roundoff error detected - this radix set will not be used. *****
+</i>
+<p>but a whole lot of such, or residue-mismatch or other kinds of errors means that something has likely gone awry in your build. This can be something as mundane as the compiler using unsafe optimizations for one or more FFT-radix functions, or something more serious. In such cases, please contact me, the program author, and attach zipped copies of your build.log and selftest.log, along with information about your compiler version and compute platform (CPU and OS).
+
+<p>If for some reason you want to generate optimal-FFT-params data for a single FFT length not covered by the standard self-tests, you can do using the following command template:
+<p><i>
+./Mlucas -fftlen [n] -iters [100|1000|10000] [-cpu [args]]
+</i>
+First specify the FFT length, in units of Kdoubles - the supported lengths are of the form [8,9,10,11,12,13,14,15]*2<sup>k</sup>, with k some integer &ge;10. Then replace the [-cpu [args]] placeholder in the command block below with the desired cores-to-use specifiers: nothing for 1-threaded self-test, -cpu [args] for multithreadedLastly, if you are trying to run a single-FFT-length self-test, you must explicitly specify the iteration count via '-iters [100|1000|10000]' -- 100 is OK for 1-thread tests, but I suggest using 1000 for thread counts between 4 and 15, and 10000 for &ge; 16 threads, in order to reduce the thread-and-data-tables-initialization overhead to a reasonable level:
+<p>Each single-length self-test should add 1 line to your mlucas.cfg file. The cfg-file lines appended by such single-length self-tests will have some additional residue data following the "radices = " listing, which you can ignore, since Mlucas stops parsing of these lines after reading in the radices.
+
+<hr size="2">
+
+<p><img src="images/icons/ball_green.gif"> <b>Format of the mlucas.cfg file:</b>
+
+</p><p>If you are running multiple copies of Mlucas, a copy of the mlucas.cfg file should be placed into each working directory, along with a worktodo.ini file containing assignments from the Primenet server which will be done by a copy of the Mlucas executable run from that working directory. Note that the program can run without the .cfg file, but with a proper configuration file (in particular one which was run under unloaded or constant-load conditions) it will run optimally at each runlength.
+
+</p><p>What is contained in the configuration file? Well, let's let one speak for itself. The following mlucas.cfg file was generated on a 2.8 GHz AMD Opteron running RedHat 64-bit linux.  I've italicized and colorized the comments to set them off from the actual optimal-FFT-radix data:<br>
+
+</p><pre>
+	#
+	# mlucas.cfg file
+	# Insert comments as desired in lines beginning with a # or // symbol, as long as such commenting occurs below line 1, which is reserved.
+	#
+	# First non-comment line contains program version used to generate this mlucas.cfg file;
+	<font color="#000080">14.1</font>
+	#
+	# Remaining non-comment lines contain data about the optimal FFT parameters at each runlength on the host platform.
+	# Each line below contains an FFT length in units of Kdoubles (i.e. the number of 8-byte floats used to store the
+	# LL test residues for the exponent being tested), the best timing achieved at that FFT length on the host platform
+	# and the range of per-iteration worst-case roundoff errors encountered (these should not exceed 0.35 or so), and the
+	# optimal set of complex-FFT radices (whose product divided by 512 equals the FFT length in Kdoubles) yielding that timing.
+	#
+	<font color="#000080">2048</font>  <i><font color="#a00000">sec/iter =    0.134</font>  <font color="#007000">ROE[min,max] = [0.281250000, 0.343750000]</font></i>  <font color="#000080">radices =  32 32 32 32  0  0  0  0  0  0</font>  [Any text offset from the list-ending 0 by whitespace is ignored]
+	<font color="#000080">2304</font>  <i><font color="#a00000">sec/iter =    0.148</font>  <font color="#007000">ROE[min,max] = [0.242187500, 0.281250000]</font></i>  <font color="#000080">radices =  36  8 16 16 16  0  0  0  0  0</font>
+	<font color="#000080">2560</font>  <i><font color="#a00000">sec/iter =    0.166</font>  <font color="#007000">ROE[min,max] = [0.281250000, 0.312500000]</font></i>  <font color="#000080">radices =  40  8 16 16 16  0  0  0  0  0</font>
+	<font color="#000080">2816</font>  <i><font color="#a00000">sec/iter =    0.188</font>  <font color="#007000">ROE[min,max] = [0.328125000, 0.343750000]</font></i>  <font color="#000080">radices =  44  8 16 16 16  0  0  0  0  0</font>
+	<font color="#000080">3072</font>  <i><font color="#a00000">sec/iter =    0.222</font>  <font color="#007000">ROE[min,max] = [0.250000000, 0.250000000]</font></i>  <font color="#000080">radices =  24 16 16 16 16  0  0  0  0  0</font>
+	<font color="#000080">3584</font>  <i><font color="#a00000">sec/iter =    0.264</font>  <font color="#007000">ROE[min,max] = [0.281250000, 0.281250000]</font></i>  <font color="#000080">radices =  28 16 16 16 16  0  0  0  0  0</font>
+	<font color="#000080">4096</font>  <i><font color="#a00000">sec/iter =    0.300</font>  <font color="#007000">ROE[min,max] = [0.250000000, 0.312500000]</font></i>  <font color="#000080">radices =  16 16 16 16 32  0  0  0  0  0</font>
+</pre>
+Note that as of Jun 2014 the per-iteration timing data written to mlucas.cfg file have been changed from seconds to milliseconds, but that change in scaling is immaterial with respect to the notes below.
+<p>
+You are free to modify or append data to the right of the # signs in the .cfg file and to add or delete comment lines beginning with a # as desired. For instance, one useful thing is to add information about the specific build and platform at the top of the file. Any text to the right of the 0-terminated radices list for each FFT length is similarly ignored, whether it is preceded by a # or // or not. (But there must be a whitespace separator between the list-ending 0 and any following text).
+
+</p><p><b>One important thing</b> to look for in a .cfg file generated on your local system is non-monotone timing entries in the sec/iter (seconds per iteration at the particular FFT length) data. for instance, consider the following snippet from an example mlucas.cfg file (to which I've added some boldface highlighting):
+
+</p><pre>	<font color="#000080">1536</font>  <font color="#a00000"><i>sec/iter =    0.225</i></font>
+	<font color="#000080">1664</font>  <font color="#a00000"><i>sec/iter =    0.244</i></font>
+	<font color="#000080">1792</font>  <font color="#a00000"><i>sec/iter =    0.253</i></font>
+<b>	<font color="#000080">1920</font>  <font color="#a00000"><i>sec/iter =    0.299</i></font></b>
+	<font color="#000080">2048</font>  <font color="#a00000"><i>sec/iter =    0.284</i></font>
+</pre>
+
+<p>We see that the per-iteration time for runlength 1920K is actually greater than that for the next-larger vector length that follows it. If you encounter such occurrences in the mlucas.cfg file generated by the self-test run on your system, don't worry about it -- when parsing the cfg file the program always "looks one FFT length beyond" the default one for the exponent in question. If the timing for the next-larger-available runlength is less than that for the default FFT length, the program will use the larger runlength. The only genuinely problematic case with this scheme is if both the default and next-larger FFT lengths are slower than an even larger runlength further down in the file, but this scenario is exceedingly rare. (If you do encounter it, please notify the author and in the meantime just let the run proceed).
+
+</p><p><b>Aside:</b> This type of thing most often occurs for FFT lengths with non-power-of-2 leading radices (which are algorithmically less efficient than power-of-2 radices) just slightly less than a power-of-2 FFT length (e.g. 2048K = 2<sup>21</sup>), and for FFT lengths involving a radix which is an odd prime greater than 7.  It can also happen if for some reason the compiler does a relatively poorer job of optimization on a particular FFT radix, or if some FFT radix combinations happen to give better or worse memory-access and cache behavior on the system in question. Such nonmonotonicities have gotten more rare with each recent Mlucas release, and especially so at larger (say, &gt; 1024K) FFT lengths, but they do still crop up now and again.
+
+</p><hr size="2">
+</p><hr size="2">
+<p><img src="images/icons/ball_green.gif"><img src="images/icons/ball_green.gif"><img src="images/icons/ball_green.gif">
+<p>Users who just want to start doing GIMPS work after completing the above build self-test should skip down to the <a href="#reserve">Reserve exponents from PrimeNet</a> section. Those who want to see if multithreaded running (other then the 2-threads-per-physical-core described above, specifically for hyperthreaded Intel CPUs offers any gain on their system should read the following subsection.
+<p><img src="images/icons/ball_green.gif"><img src="images/icons/ball_green.gif"><img src="images/icons/ball_green.gif">
+</p><hr size="2">
+</p><hr size="2">
+<b>Advanced Users:</b>
+<p>Note that the default in automated self-test mode is the same as for production run mode: to use a single thread running on a single physical core, using 100-iteration timing runs of the various FFT lengths and radix combinations at each length. You may also explicitly specify the desired number of self-test iterations, but for this to produce a .cfg file you must use one of the 3 standard values, '-iters 100', '-iters 1000' or '-iters 10000' for which the code stores pretabulated results which it uses to validate (or reject) self-test results. 100 is nice for 1- and perhaps 2-thread testing, but on fast systems with &gt;= 2 threads, 1000 is better, because it yields a more-precise timing and is better at catching radix sets which may yield an unsafely high level of roundoff error for exponents near the upper limit of what the code allows for a given FFT length.
+
+Thus, to run the small, medium and large self-tests 2-threaded and with 1000 iterations per individual subtest, <b>first save the 1-threaded mlucas.cfg file under a different name, e.g. mlucas.cfg.1thr</b>. Then, on Intel systems:
+<p>
+<font color="#000080"><i>./Mlucas -s m -iters 1000 -nthread 2</i></font>
+<p>
+or, equivalently:
+<p>
+<font color="#000080"><i>./Mlucas -s m -iters 1000 -cpu 0:1</i></font>
+<p>
+On systems using a different core-numbering system than Intel you will need to modify the core indices in multithread runs suitably, e.g. on AMD our 2-threaded timings should use
+<p>
+<font color="#000080"><i>./Mlucas -s m -iters 1000 -cpu 0,2</i></font> (Note: 0,2 not 0:2 -- the latter means "use cores 0,1,2" but we want only cores 0 and 2 here)
+<p>
+On systems other than Intel and AMD a quick single-case timing experiment should suffice to reveal whether the physical-core-numbering scheme is like that of Intel or AMD, or perhaps something else. Compare the runtimes for these:
+<br><br>
+<font color="#000080"><i>./Mlucas -fftlen 192 -iters 100 -radset 0</i></font> [This is your 1-thread baseline timing]<br>
+<font color="#000080"><i>./Mlucas -fftlen 192 -iters 100 -radset 0 -cpu 0:1</i></font><br>
+<font color="#000080"><i>./Mlucas -fftlen 192 -iters 100 -radset 0 -cpu 0,2</i></font><br>
+<br>
+If -cpu 0:1 gives a clearly better timing - in the sense that the runtimes are on average &lt; 0.5x the 1-thread ones - than 1-thread and -cpu 0,2, use the former (Intel) core-numbering scheme. If -cpu 0,2 gives the clear best timing, use the AMD numbering scheme. If neither of the 2-threaded runs gives a timing better than (say) 0.6x the 1-thread timing, you should stick to single-threaded running, 1 job per physical core.
+<br><br>
+Once your 2-threaded self-tests complete, for the total system throughput to beat the simple one-single-threaded-job-per-physical-CPU, the per-iteration timings in the 2-thread .cfg file need to be on average half those in the single-thread .cfg file. If they are not, it's probably best to just go single-threaded. Rename the 2-threaded mlucas.cfg file mlucas.cfg.2thr, and either remove the .1thr extension you added to the 1-thread .cfg file, or place a soft-link to that one in each of your production run directories, under the alias mlucas.cfg. (E.g. 'mkdir run0 &amp;&amp; cd run0 &amp;&amp; ln -s ../mlucas.cfg.1thr mlucas.cfg'.)
+<br><br>
+To follow the 2-threaded self-test with a 4-threaded one for purposes of timing comparison, first move the 2-threaded mlucas.cfg file under a different name, e.g. mlucas.cfg.2thr. Then on Intel:
+<br><br>
+<font color="#000080"><i>./Mlucas -s m -iters 1000 -cpu 0:3</i></font>
+<br><br>
+or on AMD, where the following 3 -cpu argument sets are all equivalent, and illustrate the various available syntaxes:
+<br><br>
+<font color="#000080"><i>./Mlucas -s m -iters 1000 -cpu 0,2,4,6</i></font><br>
+<font color="#000080"><i>./Mlucas -s m -iters 1000 -cpu 0:6:2</i></font><br>
+<font color="#000080"><i>./Mlucas -s m -iters 1000 -cpu 0:7:2</i></font> [think of C loop of form for(i = 0; i &lt;= 7; i += 2)]<br><br>
+And don't forget to
+<br><br>
+<font color="#000080"><i>mv mlucas.cfg mlucas.cfg.4thr</i></font>
+<br><br>
+For 4-threaded to give better total throughput than four single-threaded jobs, the .4thr timings need to be roughly 3.5x or more faster than the .1thr ones. The fuzzy-factor here is due to memory contention effects, whereby multiple 1-thread runs will compete for the same system memory bandwidth and slow each other down. Starting four 1-thread production runs and letting them run through the first several 10000-iteration checkpoints will give you per-iteration timings you can more fairly compare to those for the same FFT length in the mlucas.cfg.4thr file.
+
+<p><b>Additional Notes:</b>
+
+</p><p>If you want to do the self-tests of the various available radix sets for one particular FFT length, enter
+
+</p><p><font color="#000080"><i>Mlucas -s {FFT length in K} -iters [100 | 1000 | 10000]</i></font>
+
+</p><p>For instance, to test all FFT-radix combo supported for FFT length 704K for 10000 iterations each, enter
+
+</p><p><font color="#000080"><i>Mlucas -s 704 -iters 10000</i></font>
+
+</p><p>The above single-FFT-length self-test feature is particularly handy if the binary you are using throws errors for one or more particular FFT lengths, which interrupt the complete self-test before it has a chance to complete the configuration file. In that case, after notifying me (please!) the user must skip the offending FFT length and go on to the next-higher one, and in this fashion build a .cfg file one FFT length at a time. (Note that each such test appends to any existing mlucas.cfg file, so make sure to comment out or delete any older entries for a given FFT length after running any new timing tests, if you plan to do any actual "production" LL testing.
+
+</p><p><b>Overloading of Physical Cores:</b>
+
+</p><p>On some platforms running 2 threads per physical core may offer some performance benefit. It is difficult to predict in advance when this will be the case: For example, on my Intel Haswell quad I get the best performance from running one  thread per physical core, but on my dual-core Intel Broadwell NUC, using 4 threads, thus 2 threads per physical core, gives a 5-10% throughput boost over 1-thread per physical core. On AMD Ryzen, I not only see no gain from, but observe a pronounced deterioration in throughput from running more than 1 thread per physical core. On the just-released <a href="http://www.mersenneforum.org/showthread.php?t=22367">Google Cloud Skylake Xeon instances</a> (which support the new AVX-512 instruction set), my code gets a huge (nearly 2-fold) throughput boost from using 2 threads per physical core.
+
+</p><p>To experiment with this yourself, you can again use a small set of self-tests, though I recommend using an FFT length for these which is reflect of current GIMPS assignments (As I write this, that means 4096 and 4608K FFT length for first-time tests and 2304K and 2560K for double-checks). It is also crucial to understand the CPU vendor's core numbering scheme here: On an Intel n-physical-core system, threads 0 and n map to physical core 0, threads 1 and n+1 map to physical core 1, and so forth through phydical core n-1. On AMD, threads 0 and 1 map to physical core 0, threads 2 and 3 map to physical core 1, etc. Thus if you want to gauge whether overloading will help for your GIMPS assignment, e.g. if you are testing at 4096K, try a targeted single-FFT-length set of self-tests at that length (again, after saving any existing mlucas.cfg file under a suitable name to keep it from being appended to by this test):
+
+</p><p>Intel n-core: <font color="#000080"><i>./Mlucas -fftlen 4096 -iters 1000 -cpu 0,n-1</i></font> (Insert your system's value of n, e.g. on a quad-core use -cpu 0,4 - and note the comma-separator here in place of the colon!)
+
+</p><p>AMD n-core: <font color="#000080"><i>./Mlucas -fftlen 4096 -iters 1000 -cpu 0:1</i></font>
+
+</p><p>Then compare the resulting mlucas.cfg file entry's timing against that for the same FFT length in the mlucas.cfg.1thr file you should have saved previously.
+
+</p><hr size="2">
+<b>Advanced Usage: Manycore Systems and Multihreaded Runs:</b>
+
+<p>Note that the -cpu flag supports logical-core parametrization not only via standalone <i>low:high:stride</i> triplets, but also comma-separated triplets. This allows for a highly flexible affinity-setting schema. Let's say I find on my 32-physical-core system that running four Mlucas instances (labeled w0-w3, where w stands for 'worker'), each using eight index-adjacent physical cores and either 8 threads or 16 threads (in the second case we are thus overloading each physical core with 2 software threads) gives the best total system throughput. Then here are the resulting -cpu arguments for each of our 4 jobs (program instances), for the Intel and AMD logical-core-numbering schemes, in both 1-thread-per-physical-core and 2-thread-per-physical-core modes, in terms of -cpu assignments:
+</p><center>
+<table border="2" cellpadding="2">
+  <tbody>
+  <tr>
+	<td colspan="3">1 thread per physical core:</td>	<td colspan="3">2 threads per physical core:</td>
+	</tr><tr><td align="center"><b>Worker</b></td><td align="center"><b>Intel</b></td><td align="center"><b>AMD</b>			</td><td align="center"><b>Worker</b></td><td align="center"><b>Intel</b></td><td align="center"><b>AMD</b>
+	</td></tr><tr><td align="center"><b>w0:</b></td><td align="center">-cpu  0:7 </td><td align="center">-cpu  0:14:2</td>	<td align="center"><b>w0:</b></td><td align="center">-cpu  0:7,32:39 </td><td align="center">-cpu  0:15</td>
+	</tr><tr><td align="center"><b>w1:</b></td><td align="center">-cpu  8:15</td><td align="center">-cpu 16:30:2</td>	<td align="center"><b>w1:</b></td><td align="center">-cpu  8:15,40:47</td><td align="center">-cpu 16:31</td>
+	</tr><tr><td align="center"><b>w2:</b></td><td align="center">-cpu 16:23</td><td align="center">-cpu 32:46:2</td>	<td align="center"><b>w2:</b></td><td align="center">-cpu 16:23,48:55</td><td align="center">-cpu 32:47</td>
+	</tr><tr><td align="center"><b>w3:</b></td><td align="center">-cpu 24:31</td><td align="center">-cpu 48:62:2</td>	<td align="center"><b>w3:</b></td><td align="center">-cpu 24:31,56:63</td><td align="center">-cpu 48:63</td>
+  </tr>
+</tbody></table></center>
+
+
+<br>
+<br>
+</p><hr size="2">
+<center>
+<h2><a name="reserve"></a>STEP 3 - RESERVE EXPONENTS FROM PRIMENET</h2>
+</center>
+
+<p>Assuming your self-tests ran successfully, reserve a range of exponents from the GIMPS PrimeNet server.
+<br><br>
+By far the easiest way to do this and also submit results as they become available is to use the Python script named primenet.py for automated Primenet assignments management - this is to be found in the Mlucas src-directory. <p><b>NOTE:</b> The current version of the script only supports pre-v3 Python; if v3 is the default on your system, you will need to find which pre-v3 Python binaries are available (e.g. if 'which python' shows /usr/bin/python, then 'ls -l /usr/bin/python*' to see all versions.)
+
+</p><p>After you create however many run-subdirectories you want to run jobs from (say, one per physical CPU core of your system) and copy the mlucas.cfg file resulting from the post-build self-tests into each, you also place a copy of src/primenet.py into each rundir (or prepend 'primenet.py' below with the - absolute or relative - path to the src-directory). Then just cd into each rundir in turn and - assuming you have a valid primenet user account with user ID 'uid' and and password 'pwd' (see below on how to create one, if not) - run the script like so, after filling in the [] fileds with your own preferences and login credentials:
+
+<p><font color="#000080"><i>python primenet.py -d [-T [worktype]] -u [uid] -p [pwd] [-t [frequency]]&amp;</I></font>
+
+<p>Here, -d enables some useful debug diagnostics, nice to use on your first usage of the script. The available worktype arguments for the -T flag are detailed in the table near the top of this page describing the v18 release. If the -T argument is omitted the script will use the default for this, which is DoubleCheck (numeric value 101. You must be connected to the internet when you launch the script; once it has done its initial work-fetching you can be offline most of the time; the program will simply periodically check whether there are any new results in the run directory in which it was launched; if yes *and* it is able to connect to the primenet server it will submit the new results (usually just one, unless you are offline nearly all the time) and fetch new work; otherwise it will sleep and retry later. The default is to check for 'results to submit/work to get?' every 6 hours; you may override this via the -t option, followed by your desired time interval in seconds. '-t 0' means run a single-shot get-work-to-do and quit, if for some reason you prefer to periodically run the the script manually yourself.
+<p>
+If the script runs successfully you should see a worktodo.ini file (if none existed already, the script creates it; otherwise it appends new work to the existing version of the file) with at least 2 LL-test assignments in it. The script will also periodically check the results.txt file in each run-subdirectory in which it is invoked. Whenever one or more new results are found and a connection to the internet is active during  one of these periodic checks, the result is automatically submitted to the Primenet server, and the worktodo.ini file in the run directory 'topped up' to make sure it has at least 2 valid entries, the first of which will correspond to the currently ongoing job. Thus, the first time you use it, just need to run the py-script in each local run directory to grab work to be done, then  <a href="#lltest">invoke the Mlucas binary</a> to start the Lucas-Lehmer testing.
+
+</p><p>
+<b>Offline Testing:</b>
+</p><p>
+Users who wish to eschew this can continue to use the Primenet manual testing webforms at mersenne.org as described further down on this page, but folks running multiple copies of the program will find the .py-script greatly simplifies things. See the </p><li> <a href="#reserve">Get exponents from PrimeNet</a> section for the simple instructions.
+, but not sure whether that will work from a cloud setup. Easy to try, though, a
+
+Here's the procedure (for less-experienced users, I suggest toggling between the PrimeNet links and my explanatory comments):
+
+<ul>
+<li>	<b>A) CREATE AN ACCOUNT.</b> If you do not already have a PrimeNet account, you must <a href="http://www.mersenne.org/gettingstarted/">create one</a>. PrimeNet will not check out test exponent assignments to you or accept results without an account.
+<br><br>
+<li>	<b>B) CHECK OUT EXPONENTS.</b> After logging in to your Primenet account, go to the <a href="http://www.mersenne.org/manual_assignment">IPS Manual Test Assignments Check Out</a>. page and enter the number of cores (e.g. a Core2Duo machine is 2 cores) and the desired assignment type. (Mlucas users should select "World record tests", "Smallest available first-time tests" or "Double-check tests").
+</ul>
+
+<p>Each PrimeNet work assigment output line is in the form
+<br>
+<br>
+<b>{assignment type}={Unique assignment ID},{Mersenne exponent},{known to have no factors with base-2 logarithm less than},{p-1 factoring has/has-not been tried}</b>
+<br>
+<br>
+</p><p>A pair of typical assignments returned by the server follows:
+<br>
+<br>
+</p><center>
+<table border="2" cellpadding="2">
+  <tbody>
+  <tr>
+    <td align="center"><b>Assignment</b>
+    </td><td align="center"><b>Explanation</b>
+  </td></tr><tr>
+    <td align="left" bgcolor="#7fff00"><b>Test=DDD21F2A0B252E499A9F9020E02FE232,48295213,69,0</b>
+    </td><td align="left">M48295213 has not been previously LL-tested (otherwise the assignment would begin with "DoubleCheck=" instead of "Test="). The long hexadecimal string is a unique assignment ID generated by the PrimeNet v5 server as an anti-poaching measure. The ",69" indicates that M48295213 has been trial-factored to depth 2<sup>69</sup>, and had a default amount of p-1 factoring effort done with no factors found.
+	The 0 following the 69 indicates that p-1 still needs to be done, but Mlucas currently does not support p-1 factoring, so perform a first-time LL test of M48295213.<br>
+  </td></tr><tr>
+    <td align="left" bgcolor="#ffff00"><b>DoubleCheck=B83D23BF447184F586470457AD1E03AF,22831811,66,1</b>
+    </td><td align="left"><br>M22831811 has already had a first-time LL test performed, been trial-factored to a depth of 2<sup>66</sup>, and has had p-1 factoring attempted with no small factors found, so perform a second LL test of M22831811 in order to validate the result of the initial test. (Or refute it - in case of mismatching residues for the first-time test and the double-check a triple-check assignment would be generated by the server, whose format would however still read "Doublecheck")<br>
+  </td></tr>
+</tbody></table></center>
+
+<p>Copy the Test=... or DoubleCheck=... lines returned by the server into the worktodo.ini file, which must be in the same directory as the Mlucas executable (or contain a symbolic link to it) and the mlucas.cfg file. If this file does not yet exist, create it. If this file already has some existing entries, append any new ones below them.
+
+</p><p>Note that Mlucas makes no distinction between first-time LL tests and double-checks - this distinction is only important to the Primenet server.
+
+</p><p>Most exponents handed out by the PrimeNet server have already been trial-factored to the recommended depth (i.e. will be of the 'Test' or 'DoubleCheck' assignment type), so in most cases, no additional factoring effort is necessary. If you have exponents that require additional trial factoring, you'll want to either return those assignments or, if you have a fast GPU installed on your system, download the appropriate GPU client from the <a href="http://www.gpu72.com/">GPU72 project</a> to do the trial factoring, as those platforms are now much more efficient for such work than using Prime95's TF option on a PC.  Mlucas does have trial factoring capability, but that functionality requires significant added work to to make it suitable for general-public use, thus it is not part of the current executable build. I plan to address that in a future release, depending on how that part of the code shapes up.
+
+</p><p>If you wish to test some non-server-assigned prime exponent, you can simple enter the raw exponent on a line by itself in the worktodo.ini file.
+
+
+<br>
+<br>
+</p><hr size="2">
+<center>
+<h2><a name="lltest"></a>STEP 4 - LUCAS-LEHMER TESTING</h2>
+</center>
+Your run setup depends on how many instances of the code you will be running - as with the build-self-test section above, I will gear things toward a typical GIMPS user who wishes to maximize overal system throughput, even if that means the individual instance run more slowly than they would by giving them software threads on multiple physical cores.
+<p>
+<b> Intel quad-core:</b>
+<p>You'll want to create 4 rundirs (say run0,run1,run2,run3) - I usually do this inside the dir where the Mlucas exe and the mlucas.cfg built from it reside, so my examples assume this. Within you'll want to soft-link to the master cfg file, and create a worktodo.ini file - you can do that by running the primenet.py script, if you like. I'm going to assume your dir structure is similar to mine, and that you are working from within the obj-dir which contains the Mlucas binary - customize to suit if you use a different one. Then, e.g. for run0:
+<p><font color="#000080"><i>
+mkdir run0 && cd run0 && ln -s ../mlucas.cfg<br>
+python primenet.py -d -T 100 -u [uid] -p [pwd]
+</i></font>
+<p>If your Intel CPU is hyperthreaded, i.e. 2-threads-per-physical-core gives a boost on your system, then run 'nice ../Mlucas -cpu 0,4 &', otherwise if non-hyperthreaded, use 'nice ./Mlucas -cpu 0 &'.
+
+Then do similarly to set up dirs run1, run2, run3, and use these run commands from within each in turn:
+<p><font color="#000080"><i>
+run1: nice ../Mlucas -cpu 1,5 &<br>
+run2: nice ../Mlucas -cpu 2,6 &<br>
+run3: nice ../Mlucas -cpu 3,7 &<br>
+</i></font>
+<p>If non-hyperthreaded Intel, just use -cpu 1, -cpu 2 and -cpu 3, respectively.
+<br>
+<b>
+<p>AMD multi-core:</b>
+<p>On AMD you want just one single-threaded job per physical core, but the core affinities set by the -cpu flag depend on Whether your AMD CPU supports hyperthreading or not. For a hyperthreaded CPU, your runs from directories run0,1,2,... should use -cpu 0,2,4,..., i.e. each job sets the core-index of the affinity setting 2 higher than the preceding one. For a non-hyperthreaded AMD, the indices increment by one: runs from directories run0,1,2,... should use -cpu 0,1,2,... .
+<p>
+<b> ARM v8 or above:</b>
+<p>You want one Mlucas job for each quad-core socket of your system. For example on a 2-socket octocore system you set up run directories run0 and run1, then from within each in turn:
+<p><font color="#000080"><i>
+run0: nice ../Mlucas -cpu 0:3 &<br>
+run1: nice ../Mlucas -cpu 4:7 &<br>
+</i></font>
+If your system is a hybrid BIG.little 2-socket with a mix of per-socket core counts, you'll want to first consult the /proc/cpuinfo file to check the core-to-socket numbering scheme, then fiddle the -cpu arguments above suitably. For example on a prototype Odroid N1 system I did a build on in early 2017, cores 0-3 belonged to the 'little' Cortex a53 CPU and cores 5-6 to the 'BIG' Cortex a72 CPU. On such systems one almost always wants a different Mlucas job running on each CPU, so on the N1 I simply modified the core assignments for the second run above to '4:5'. On some systems - multicore smartphones are a common example of this - one may have an even wider variety of configurations: 3-socket, one 'main' processor whose cores are partially reserved for system jobs (e.g. only 2 of 4 physical cores of the CPU appear in /proc/cpuinfo), etc. Users interested in running Mlucas on such systems should first have a read-through of the Mersenneforum <a href="https://www.mersenneforum.org/showthread.php?t=23998">CellPhone Compute Cluster for GIMPS</a> thread.
+
+<hr size="2">
+</p><p><b>Windows (pre-Win10) Users:</b> Since the emulated Posix build setup does not support multithreaded builds, you will simply need to start as many single-threaded jobs as there are physical cores and instead of setting affinity via the -cpu flag, rely on the operating system to manage job/core affinity. Windows Task Wanager and timings (compared to your self-test ones) will give you a good idea as to whether the OS is up to the task.
+<hr size="2">
+
+<p>The program will run silently in background, leaving you free to do other things or to log out. Every 10000 iterations (or every 100000 if &gt; 4 threads are used), the program writes a timing to the "p{exponent}.stat" file (which is automatically created for each exponent), and writes the current residue and all other data it needs to pick up at this point (in case of a crash or powerdown) to a pair of restart files, named "p{exponent}" and "q{exponent}." (The second is a backup, in the rare event the first is corrupt.) When the exponent finishes, the program writes the least significant 64 bits of the final residue (in hexadecimal form, just like Prime95) to the .stat and results.txt (master output) file. Any round-off or FFT convolution error warnings are written as they are detected both to the status and to the output file, thus preserving a record of them when the Lucas-Lehmer test of the current exponent is completed.<br>
+<br>
+<i>Dec 2014: The program also saves a persistent p-savefile every 10M iterations, with extensions .10M, .20M, ..., reflecting which iteration the file contains restart data for. This allows for a partial-rerun - even in parallel 10Miter subinterval reruns, if desired - in case the final result proves suspect.</i>
+
+</p><p><b>ADDING NEW EXPONENTS TO THE WORKTODO.INI FILE:</b>
+You may add or modify ALL BUT THE FIRST EXPONENT (i.e. the current one) in the worktodo.ini file while the program is running. When the current exponent finishes, the program opens the file, deletes the first entry and, if there is another exponent on what was line 2 (and now is line 1), starts work on that one.
+
+<br>
+<br>
+</p><hr size="2">
+<center>
+<h2><a name="checkin"></a>STEP 5 - SEND YOUR RESULTS TO PRIMENET</h2>
+</center>
+
+<p>For users who prefer not to use the automated Python assignments-management script, to report results (either after finishing a range, or as they come in), login to your PrimeNet account and then proceed to the <a href="http://www.mersenne.org/manual_result">Manual Test Results Check In</a>. Paste the results you wish to report, that is, one or more lines of the results.txt file (any results which were added since your last checkin from that file) into the large window immediately below.
+
+</p><p>If for some reason you need more time than the 180-day default to complete a particular assignment, go to the <a href="http://www.mersenne.org/manual_extension">Manual Test Time Extension</a>.page and enter the assignment there.
+
+<br>
+<br>
+</p><hr size="2">
+<center>
+<h2><a name="minesbigger"></a>TRACKING YOUR CONTRIBUTION</h2>
+</center>
+
+<p>You can track your overall progress (for both automated and manual testing work) at the
+<a href="http://www.mersenne.org/report_top_500/">PrimeNet server's producer page.</a> Note that this does not include pre-v5-server manual test results. (That includes most of my GIMPS work, in case you were feeling personally slighted ;).
+
+
+<br>
+<br>
+</p><hr size="2">
+<center>
+<h2><a name="faq"></a>ALGORITHMIC Q &amp; A</h2>
+</center>
+
+<ul>
+<li><b> 1) What type of an algorithm does Mlucas use?</b>
+<p> It uses the well-known Lucas-Lehmer test for Mersenne numbers, which involves selecting an initial seed number (typically 4, but other values, such as 10, also work), then repeatedly squaring and subtracting 2, with the result of each squaring being reduced modulo M(p), the number under test. This square/subtract-2 step is done exactly p-2 times. If the result (modulo M(p)) is zero, M(p) is prime. For an excellent and much more in-depth discussion of the Lucas-Lehmer test and many other prime-related topics, please visit <a href="http://www.utm.edu/research/primes/mersenne.shtml">Chris Caldwell's web page on Mersenne numbers.</a>
+</p>
+
+<li><b> 2) Where does the code spend most of its time?</b>
+<p> Since the numbers being tested (and hence the intermediate residues in the LL test) are so large that they typically must be distributed across millions of computer words, by far the most time-consuming part of the LL test is the modular squaring.
+</p>
+
+<li><b> 3) How does the code accomplish the squaring?</b>
+<p> For a large integer occupying N computer words, a simple digit-by-digit ("grammar school") multiply operation (which needs on the order of N<sup>2</sup> machine operations) is much too slow to be practical. Rather, the code uses a multiply algorithm based on <i>discrete convolution</i>. (Math-geek joke: A discrete convolution is one which doesn't kiss and tell.) The discrete convolution algorithm is best-known from the field of signal processing, but also proves to have a surprising and very nifty application to the task of multi-precision multiplication. Long story short, recasting the bignum multiply as a discrete convolution allows one to use highly efficient discrete-convolution-effecting algorithms, the best-known of which is the fast Fourier transform (FFT), which is described in many numerical analysis texts, such as the well-known Numerical Recipes (NR) books. (NR even has a set of so-called multiprecision integer routines, but I suggest staying away from them - they're awful in efficiency terms.) For a back-of-the-envelope-style worked example illustrating the procedure, <a href="http://www.mersenneforum.org/showthread.php?t=120">see here</a>.
+
+</p><p> The code also uses the now-well-known Discrete Weighted Transform technique of Crandall and Fagin to implicitly do the modding. This permits one to "fill" the digits of the input vector to the FFT-based squaring, and thus to reduce the vector length by a factor of 2 or more relative to any pre-1994 codes.  For a detailed reference, see <a href="http://www.faginfamily.net/barry/Papers/DiscreteWeightedTransforms.pdf">the original 1994 Crandall/Fagin DWT paper</a>, kindly posted online by Barry Fagin. For a plausible discrete-convolution roundoff error heuristic built atop this, see <a href="F24.pdf">this research paper</a> - in fact Mlucas uses said heuristic to automate the selection of FFT length based on the Mersenne exponent, in the given_N_get_maxP() function in get_fft_radices.c.
+
+</p><p>The upshot is, to write the world's fastest Mersenne testing program, one must write (or make use of) the world's fastest FFT algorithm.
+</p>
+
+<li><b> 4) What type of FFT algorithm does Mlucas use?</b>
+<p> Mlucas uses a custom FFT implementation written by me (EWM). I first started on this algorithmic journey in the late summer of 1996, and being a complete novice at transform-based arithmetic at the time, the first FFT routines I used were those from NR. Since then, the code has greatly evolved, and the FFT I currently use looks absolutely nothing like the original one, although it is doing basically the same thing (except for the non-power-of-2 vector length routines - NR has nothing along those lines.) In recent years I have also augmented the original generic high-level C-code FFT implementation with inline assembly code to take advantage of the more-recent x86 processors` <a href="http://en.wikipedia.org/wiki/SSE2">SIMD vector processing capabilities</a>. This more than doubles the program per-cycle throughput on AMD64 and Intel CPUs supporting SSE2 (roughly, Opteron through Core2), and nearly doubles it again on Intel CPUs supporting the newer AVX instruction set with its 256-bit-wide registers, each of which can hold 4 doubles.
+
+</p><li><b> 5) How does the Mlucas FFT compare to other high-performance FFT implementations, such as <a href="http://www.fftw.org/">the FFTW package?</a></b>
+<p> I have not had time or desire to package the FFT core of Mlucas into a form suitable for inclusion in the FFTW benchmarks, but my own comparisons indicate that the Mlucas FFT is typically at least twice as fast as FFTW for the vector lengths of interest to Mersenne prime searchers (real vectors of length 128K and larger, where K=2<sup>10</sup>=1024) running on comparable hardware.
+
+</p><li><b> 6) What is the largest Mersenne number testable by Mlucas?</b>
+<p> As of this writing (v17), Mlucas can test Mersenne numbers M(p) = 2<sup>p</sup>-1 with prime exponents up to 32 bits in size; thus p may be as large as 4294967291 (the largest prime less than 2<sup>32</sup>), which M(p) has 1292913985 decimal digits. But I strongly urge users against attempting testing of such behemoths so far beyond the GIMPS first-time-test "wavefront". Even the smallest billion-digit M(p) with p = 3321928097 (for which Mlucas requires an FFT length of 192 Mdoubles) would require around 20 years of runtime on a cutting-edge manycore Xeon server or Knights Landing workstation, and the number of such exponents which needs to be tried to yield a new Mersenne prime increases roughly linearly with p, in averaged terms. If anyone claims to you to be able to test such a number appreciably faster, insist on trying their code for yourself, pick a prime p at least as large as that and try a 1000-LL-iteration (with 'iteration 0' representing the initial LL-test seed of 4) timing test using said code. If that completes, I will be happy to check the resulting Res64 (low 64 bits of the residue) for you using my own code - or you may do so yourself, assuming you have suitable compute hardware - for such a shallow timing test, pretty much any halfway-decent PC with at least 4 GB of RAM should suffice. You'll need to figure out which FFT length to use - here is how to do that: Open the source file get_fft_radices.c in your favorite text editor, preferably one which has C-code syntax highlighting support. Go to the function given_N_get_maxP, the last function defined in that file. Right below that function you will see a long table inside a comment, containing several data columns. The leftmost column, N, is FFT length in Kdoubles. Immediately to the right of it there is a column labeled "AC = 0.6" - that lists the maximum permitted exponent for each FFT length. Scroll down until you find the smallest number in that column which is greater than or equal to your exponent. The corresponding N-column value is what you will enter as an argument to the -fftlen flag in your command line. For really big FFT lengths, the first available combination of FFT radices (-radset 0) is generally best. Thus for the above smallest billion-digit M(p):
+
+</p><pre>./Mlucas -m 3321928097 -iters 1000 -fftlen 196608 -radset 0 [-cpu or -nthread, with appropriate arguments]</pre>
+
+and you will also want to supply either the -cpu or -nthread flag with appropriate arguments in order to maximize throughput on your multicore hardware. By way of example, the above test needs a tad under 10 minutes on a modest (by current standards) 8-core AMD Ryzen system, using -cpu 0:15:2 to run 1 thread per physical core, using the previously described AMD core numbering convention, and yields the following result:
+
+<pre>NTHREADS = 8
+M3321928097: using FFT length 196608K = 201326592 8-byte floats.
+ this gives an average   16.500195349256199 bits per digit
+Using complex FFT radices       768        16        16        16        32
+mers_mod_square: Complex-roots arrays have 8192, 12288 elements.
+Mers_mod_square: Init threadpool of 8 threads
+radix16_dif_dit_pass pfetch_dist = 4096
+radix16_wrapper_square: pfetch_dist = 4096
+Using 8 threads in carry step
+
+1000 iterations of M3321928097 with FFT length 201326592 = 196608 K
+Res64: 39E25DF480D46237. AvgMaxErr = 0.158501615. MaxErr = 0.187500000. Program: E17.0
+Res mod 2^36     =          19341271607
+Res mod 2^35 - 1 =          10199050979
+Res mod 2^36 - 1 =          66182425439
+Clocks = 00:09:17.186</pre>
+
+<br>
+<br>
+<hr size="2">
+<br>
+<center>
+Happy hunting - perhaps you will be the person to discover the next Mersenne prime!
+</center>
+
+<br>
+
+<hr size="2">
+<h3><a name="fdl"></a>GNU Free Documentation License</h3>
+
+Copyright (C) 2018 Ernst W. Mayer. Permission is granted to copy, distribute and/or modify this document under the terms of the <a href="https://www.gnu.org/licenses/fdl.html">GNU Free Documentation License</a>, Version 1.3 or any later version published by the Free Software Foundation; with no Invariant Sections, no Front-Cover Texts, and no Back-Cover Texts.
+<br>
+<br>
+
+<hr size="2">
+<center>
+README.html -- Last Revised: 20 Feb 2019<br>
+Send mail to <a href="mailto:ewmayer@aol.com">ewmayer@aol.com</a><br>
+</center>
+
+</body>
+</html>

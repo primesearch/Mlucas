@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2015 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -35,7 +35,7 @@
 #if 1	// Experimental low-reg version with just 1-push/pop and 2 compiler-visible GPR clobbers (max allowed by the fermat-mod
 		// carry code in compact-obj-code loop-wrapped form, and even 2-reg is too mch for GCC, so this is clang--buildable-only):
 
-	#define SSE2_fermat_carry_norm_pow2_errcheck(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xhalf_arr,Xsign_mask,Xadd1,Xadd2, Xadd0)\
+	#define SSE2_fermat_carry_norm_pow2_errcheck(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xhalf_arr,Xsign_mask,Xadd1,Xadd2, Xadd0, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
@@ -166,13 +166,15 @@
 	,	[__add2]		"m" (Xadd2)\
 	/* Prefetch address */\
 	,	[__add0] "m" (Xadd0)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory","eax",/*"ebx",*/"ecx","edx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
 
 #else
 
-	#define SSE2_fermat_carry_norm_pow2_errcheck(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xhalf_arr,Xsign_mask,Xadd1,Xadd2, Xadd0)\
+	#define SSE2_fermat_carry_norm_pow2_errcheck(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xhalf_arr,Xsign_mask,Xadd1,Xadd2, Xadd0, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"movl		%[__add0],%%ecx		\n\t"/* base address for prefetch-from-main-data-array */\
@@ -301,6 +303,8 @@
 	,	[__add2]		"m" (Xadd2)\
 	/* Prefetch address */\
 	,	[__add0] "m" (Xadd0)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory","eax","esi","ecx","edx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
@@ -325,7 +329,7 @@
 			"pushl %%ebx    \n\t"## Explicit save/restore of PIC register ##\
 			^
 	<inline asm>:22:9: note: instantiated into assembly here
-			shrl    $(%ebx),%ebx                    
+			shrl    $(%ebx),%ebx
 					  ^
 
 	i.e. problem is that compiler is storing __nrt_bits in ebx on input, collides with above syntax. (I believe this lack of
@@ -335,7 +339,7 @@
 	same self-tests once more ... and it worked! Difference proved to be the addition of the -g3 -ggdb flags to the -Os opt-level
 	in the compile args. *** Need to see if this "accdental workaround" is more generally usefu;. ***
 	*/
-	#define SSE2_fermat_carry_norm_errcheck(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xodd_radix,Xhalf_arr,Xsign_mask,Xadd1,Xadd2,Xoffset0,Xoffset1, Xadd0)\
+	#define SSE2_fermat_carry_norm_errcheck(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xodd_radix,Xhalf_arr,Xsign_mask,Xadd1,Xadd2,Xoffset0,Xoffset1, Xadd0, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
@@ -491,13 +495,15 @@
 	,	[__offset1]		"m" (Xoffset1)\
 	/* Prefetch address */\
 	,	[__add0] "m" (Xadd0)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory","eax",/*"ebx",*/"ecx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
 
 #else
 
-	#define SSE2_fermat_carry_norm_errcheck(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xodd_radix,Xhalf_arr,Xsign_mask,Xadd1,Xadd2,Xoffset0,Xoffset1, Xadd0)\
+	#define SSE2_fermat_carry_norm_errcheck(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xodd_radix,Xhalf_arr,Xsign_mask,Xadd1,Xadd2,Xoffset0,Xoffset1, Xadd0, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
@@ -649,18 +655,74 @@
 	,	[__offset1]		"m" (Xoffset1)\
 	/* Prefetch address */\
 	,	[__add0] "m" (Xadd0)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory","eax",/*"ebx",*/"ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
 
 #endif
 
+	// We don't support Fermat-mod in 32-bit SIMD builds, just include skeleton versions of the associated 128-bit SIMD carry macros:
+	#define SSE2_fermat_carry_norm_pow2_errcheck_X2(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xhalf_arr,Xsign_mask,Xadd1,Xadd2, Xadd0,Xp1, Xprp_mult)\
+	{\
+	__asm__ volatile (\
+		"movl		%[__data],%%eax		\n\t"\
+		:						/* outputs: none */\
+		:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
+		,	[__cy]			"m" (Xcy)\
+		,	[__nrt_bits]	"m" (Xnrt_bits)\
+		,	[__nrtm1]		"m" (Xnrtm1)\
+		,	[__idx_offset]	"m" (Xidx_offset)\
+		,	[__idx_incr]	"m" (Xidx_incr)\
+		,	[__half_arr]	"m" (Xhalf_arr)\
+		,	[__sign_mask]	"m" (Xsign_mask)\
+		,	[__add1]		"m" (Xadd1)\
+		,	[__add2]		"m" (Xadd2)\
+		/* Prefetch: base address and 1 index offset */\
+		,	[__add0] "m" (Xadd0)\
+		,	[__p1] "m" (Xp1)\
+		/* v18: Needed to support residue-shifted Pepin tests: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory"	/* Clobbered registers */\
+	);\
+	}
+
+	#define SSE2_fermat_carry_norm_errcheck_X2(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xodd_radix,Xhalf_arr,Xsign_mask,Xadd1,Xadd2,Xicycle0,Xjcycle0,Xicycle1,Xjcycle1, Xadd0,Xp1, Xprp_mult)\
+	{\
+	__asm__ volatile (\
+		"movl		%[__data],%%eax		\n\t"\
+		:						/* outputs: none */\
+		:	[__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
+		,	[__cy]			"m" (Xcy)\
+		,	[__nrt_bits]	"m" (Xnrt_bits)\
+		,	[__nrtm1]		"m" (Xnrtm1)\
+		,	[__idx_offset]	"m" (Xidx_offset)\
+		,	[__idx_incr]	"m" (Xidx_incr)\
+		,	[__odd_radix]	"m" (Xodd_radix)\
+		,	[__half_arr]	"m" (Xhalf_arr)\
+		,	[__sign_mask]	"m" (Xsign_mask)\
+		,	[__add1]		"m" (Xadd1)\
+		,	[__add2]		"m" (Xadd2)\
+		,	[__icycle0]		"m" (Xicycle0)\
+		,	[__jcycle0]		"m" (Xjcycle0)\
+		,	[__icycle1]		"m" (Xicycle1)\
+		,	[__jcycle1]		"m" (Xjcycle1)\
+		/* Prefetch: base address and 1 index offset */\
+		,	[__add0] "m" (Xadd0)\
+		,	[__p1]   "m" (Xp1)\
+		/* v18: Needed to support residue-shifted Pepin tests: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory"	/* Clobbered registers */\
+	);\
+	}
+
 	/*************************************************************/
 	/**************** MERSENNE-MOD CARRY MACROS ******************/
 	/*************************************************************/
 
 	/********* Packed 32-bit-int version of SSE2_cmplx_carry_norm_pow2_errcheck0_2x:***********/
-	#define SSE2_cmplx_carry_norm_pow2_errcheck1_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1)\
+	#define SSE2_cmplx_carry_norm_pow2_errcheck1_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
@@ -875,12 +937,14 @@
 	/* Prefetch: base address and 1 index offsets */\
 	,	[__add0] "m" (Xadd0)\
 	,	[__p1] "m" (Xp1)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory","eax","ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
 
 	/********* Packed 32-bit-int version of SSE2_cmplx_carry_norm_pow2_errcheck2_2x:***********/
-	#define SSE2_cmplx_carry_norm_pow2_errcheck2_2B(Xdata,XwtA,XwtB,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp2,Xp3)\
+	#define SSE2_cmplx_carry_norm_pow2_errcheck2_2B(Xdata,XwtA,XwtB,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
@@ -1096,6 +1160,8 @@
 	,	[__add0] "m" (Xadd0)\
 	,	[__p2] "m" (Xp2)\
 	,	[__p3] "m" (Xp3)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory","eax","ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
@@ -1107,7 +1173,7 @@
 	// fusion is eased by the fact that the LOACC chained-weights-computation needs no weights-reinit-from-scalar-data
 	// step for the [j+2] data.
 	//
-	#define SSE2_cmplx_carry_fast_pow2_errcheck(Xdata,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3)\
+	#define SSE2_cmplx_carry_fast_pow2_errcheck(Xdata,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xsign_mask,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 		"movl	%[__add0],%%esi	\n\t"/* base address for 4 prefetches-from-main-data-array spread through this macro */\
@@ -1399,6 +1465,8 @@
 		,	[__p1] "m" (Xp1)\
 		,	[__p2] "m" (Xp2)\
 		,	[__p3] "m" (Xp3)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory","eax","ebx","ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
@@ -1407,7 +1475,7 @@
 	/********* Non-power-of-2-FFT versions of SSE2_cmplx_carry_norm_pow2_errcheck0_2B,1_2B,2_2B (only give sans-error-check version of latter 2: *******/
 	/***************************************************************************************************************************************************/
 
-	#define SSE2_cmplx_carry_norm_errcheck1_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1)\
+	#define SSE2_cmplx_carry_norm_errcheck1_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
@@ -1630,11 +1698,13 @@
 	/* Prefetch: base address and 1 index offsets */\
 	,	[__add0] "m" (Xadd0)\
 	,	[__p1] "m" (Xp1)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory","eax","ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
 
-	#define SSE2_cmplx_carry_norm_errcheck2_2B(Xdata,XwtA,XwtB,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp2,Xp3)\
+	#define SSE2_cmplx_carry_norm_errcheck2_2B(Xdata,XwtA,XwtB,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp2,Xp3, Xprp_mult)\
 	{\
 	__asm__ volatile (\
 	"pushl %%ebx	\n\t"/* Explicit save/restore of PIC register */\
@@ -1858,6 +1928,8 @@
 	,	[__add0] "m" (Xadd0)\
 	,	[__p2] "m" (Xp2)\
 	,	[__p3] "m" (Xp3)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
 		: "cc","memory","eax","ecx","edx","edi","esi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}

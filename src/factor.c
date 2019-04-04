@@ -233,8 +233,8 @@ int restart;
 	char PSTRING[STR_MAX_LEN];	/* [exponent | index] of [Mersenne | Fermat ] Number being tested in string form, typically
 								 estring concatenated with other descriptors, e.g. strcat("M",estring) for Mersenne case
 								*/
-	uint32 PMIN;	/* minimum #bits allowed for FFT-based mul */
-	uint32 PMAX;	/* maximum #bits allowed depends on max. FFT length allowed
+	uint64 PMIN;	/* minimum #bits allowed for FFT-based mul */
+	uint64 PMAX;	/* maximum #bits allowed depends on max. FFT length allowed
 					  and will be determined at runtime, via call to given_N_get_maxP(). */
 	char cbuf[STR_MAX_LEN];
 	char in_line[STR_MAX_LEN];
@@ -1901,6 +1901,22 @@ printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that
 	// Oct 2015: Play with Smarandache numbers ():
 	i = 2000000;	ASSERT(HERE, i <= nprime, "prime limit exceded in testSmarandache!");
 	testSmarandache(100001,101000, pdiff, i);
+	exit(0);
+#endif
+#if 1
+	// Oct 2018: Play with "sieve survivors" stats: lim(n --> oo) prod_(p <= n)(1-1/p)/(1/ln(p^2))
+	i = 1000000000;	ASSERT(HERE, i <= MAX_SIEVING_PRIME, "prime limit exceded in testSieveProdAsymp!");
+	struct qfloat qfprod = QHALF, qt;
+	double prod = 0.5, log_psq = log((double)i*i);
+	for(m = 0, curr_p = 3; m < nprime; m++) {
+		curr_p += (pdiff[m] << 1);
+		if(curr_p > i) break;
+		prod *= (1-1./curr_p);
+//	printf("p = %u: prod = %18.15f\n",curr_p,prod);
+		qt = qfsub(QONE,qf_rational_quotient(1ull,(uint64)curr_p));
+		qfprod = qfmul(qfprod,qt);
+	}
+	printf("Used primes <= %u: 1/ln(p^2) = %18.15f, prod_(p <= n)(1-1/p) = %18.15f, ratio = %18.15f, qfprod = %18.15f\n",i,log_psq,prod,log_psq*qfdbl(qfprod),qfdbl(qfprod));
 	exit(0);
 #endif
 /* Time the vector trialdiv stuff: */

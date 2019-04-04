@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2016 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -20,12 +20,21 @@
 *                                                                              *
 *******************************************************************************/
 
+// See C-style comment below for how-to-set-TTYPE-at-compile-time. Supported values:
+// 0 = Show input-index-scramblings-needed for DIF and DIT
+// 1 = DIF
+// 2 = DIT
+// 3 = DIF+DIT (which should return the original inputs after dividing by N)
+#ifndef TTYPE
+	#define TTYPE	3	// Default is combined DIF+DIT test
+#endif
+
 /* To test a particular DFT routine:
 
 First, for the DFT in question, assuming it is a new under-development one,
 MAKE SURE THE OUTPUT INDEXING IS STRICLY ASCENDING-ORDERED! - The test_fft_radix() index-display assumes this.
 
-1. To set desired radix for testing and test-type (see comments around TTYPE below), compile this file
+1. To set desired radix for testing and test-type (see comments around TTYPE above), compile this file
 using (note the [] are just for emphasis):
 	gcc/clang -c -DRADIX=[desired radix] -DTTYPE=[desired test type] test_fft_radix.c
 
@@ -34,7 +43,7 @@ using (note the [] are just for emphasis):
 
 3. Link into an Mlucas binary and run-as-if-timing-test at any desired length to test the DFT radix.
 
-To deduce the required output-idx ordering, sort Actual-outputs data by left col-of-real-parts, move 
+To deduce the required output-idx ordering, sort Actual-outputs data by left col-of-real-parts, move
 resulting [re,im,i] block to file, repeat procedure for Expected-outputs, then compare the two files.
 If they differ only in their respective rcol indices, those two cols give the required index mapping,
 i.e. the desired output-index mapping.
@@ -42,7 +51,8 @@ i.e. the desired output-index mapping.
 
 #include "Mlucas.h"
 
-#ifndef RADIX
+#ifndef RADIX	// Use #warning rather than #error here so as to not prevent Clang from creating .o files for other compiled sourcefiles:
+	#warning Please use -DRADIX to set the desired DFT radix for testing!
 	#define RADIX	1024
 #endif
 
@@ -51,11 +61,6 @@ i.e. the desired output-index mapping.
 // to 4096 and quadruple the digits-of-Pi used as entries in our test-inputs const array:
 #if RADIX > 4096
 	#error ref-digits const array needs expanding, and radix_prim array needs dimension > 12!
-#endif
-
-#ifndef TTYPE
-	#define TTYPE	3	// 0 = Show input-index-scramblings-needed for DIF and DIT, 1 = DIF, 2 = DIT,
-						// 3 = DIF+DIT (which should return the original inputs after dividing by N)
 #endif
 
 // Structs used in index-permutation extraction:
@@ -372,7 +377,7 @@ void test_fft_radix(void)
 	pow2 = 1 << trailz32(RADIX);
 	podd = RADIX >> trailz32(RADIX);
 	ASSERT(HERE, RADIX == pow2*podd, "Radix decomposition failed!");
-	ASSERT(HERE, (podd < 16 || podd == 31 || podd == 63), "test_fft_radix: Illegal radix; must be odd*2^n with odd = [3,5,7,9,11,13,15,31,63]");
+	ASSERT(HERE, (podd < 16 || podd == 17 || podd == 31 || podd == 63), "test_fft_radix: Illegal radix; must be odd*2^n with odd = [3,5,7,9,11,13,15,31,63]");
 	/* These may not have been init'ed yet, so do it here: */
 	DAT_BITS = DAT_BITS_DEF;
 	PAD_BITS = PAD_BITS_DEF;
@@ -525,6 +530,9 @@ void test_fft_radix(void)
 	case 16 :
 		nradices = 4;
 		radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+	case 17 :
+		nradices = 1;
+		radix_prim[l++] =17; break;
 	case 18 :
 		nradices = 3;
 		radix_prim[l++] = 3; radix_prim[l++] = 3; radix_prim[l++] = 2; break;
@@ -829,6 +837,8 @@ void test_fft_radix(void)
 	  #else
 		radix16_dif_pass1 (a,     rmul*RADIX);
 	  #endif
+	#elif RADIX == 17
+		radix17_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 18
 		radix18_dif_pass1 (a,rmul*RADIX);
 	#elif RADIX == 20
@@ -1037,7 +1047,7 @@ void test_fft_radix(void)
 			j2 = (2*i+1)*RE_IM_STRIDE;
 			j1 += ( (j1 >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 			j2 += ( (j2 >> DAT_BITS) << PAD_BITS );
-	
+
 			err_r = fabs(a[j1]-b[2*j]);  err_i = fabs(a[j2]-b[2*j+1]);
 			abserr = CABS(err_r, err_i);
 
@@ -1049,7 +1059,7 @@ void test_fft_radix(void)
 				printf("%15.10f  %15.10f  %4d  %15.10f  %15.10f  %4d  (%4d), ERR= %15.10e\n",a[j1],a[j2],i, b[2*j],b[2*j+1],i,j, abserr);
 				// Early-abort if DC components fail to match:
 				if(i == 0) {
-					printf("DC components fail to match ... aborting.");
+					printf("DC components fail to match ... aborting.\n");
 					exit(0);
 				}
 			}
@@ -1157,6 +1167,8 @@ void test_fft_radix(void)
 	  #else
 		radix16_dit_pass1 (a,     rmul*RADIX);
 	  #endif
+	#elif RADIX == 17
+		radix17_dit_pass1 (a,rmul*RADIX);
 	#elif RADIX == 18
 		radix18_dit_pass1 (a,rmul*RADIX);
 	#elif RADIX == 20
@@ -1360,7 +1372,7 @@ void test_fft_radix(void)
 				printf("%15.10f  %15.10f  %4d  %15.10f  %15.10f  %4d, ERR= %15.10e\n",a[j1],a[j2],i, b[2*i],-b[2*i+1],i, abserr);
 				// Early-abort if DC components fail to match:
 				if(i == 0) {
-					printf("DC components fail to match ... aborting.");
+					printf("DC components fail to match ... aborting.\n");
 					exit(0);
 				}
 			}

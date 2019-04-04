@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2016 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -81,6 +81,19 @@ int radix9_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], 
 	double wt,wtinv,wtl,wtlp1,wtn,wtnm1,wtA,wtB,wtC;
 	double wt_re,wt_im, wi_re,wi_im;					/* Fermat/LOACC weights stuff */
 
+	// Init these to get rid of GCC "may be used uninitialized in this function" warnings:
+	col=co2=co3=-1;
+
+	if(RES_SHIFT) { WARN(HERE, "CY routines with radix < 16 do not support shifted residues!", "", 1); return(ERR_ASSERT); }
+
+	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
+	double prp_mult = 1.0;
+	if((TEST_TYPE & 0xfffffffe) == TEST_TYPE_PRP) {	// Mask off low bit to lump together PRP and PRP-C tests
+		i = (iter % ITERS_BETWEEN_CHECKPOINTS) - 1;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
+		if((BASE_MULTIPLIER_BITS[i>>6] >> (i&63)) & 1)
+			prp_mult = PRP_BASE;
+	}
+
 /*...change n9 and n_div_wt to non-static to work around a gcc compiler bug. */
 	n9   = n/9;
 	n_div_nwt = n9 >> nwt_bits;
@@ -144,31 +157,19 @@ int radix9_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], 
 
 /*...The radix-9 final DIT pass is here.	*/
 
-	cy0 = 0;		/* init carries	*/
-	cy1 = 0;
-	cy2 = 0;
-	cy3 = 0;
-	cy4 = 0;
-	cy5 = 0;
-	cy6 = 0;
-	cy7 = 0;
-	cy8 = 0;
+	cy0 = cy1 = cy2 = cy3 = cy4 = cy5 = cy6 = cy7 = cy8 = 0;	/* init carries	*/
 
 	/* If an LL test, init the subtract-2: */
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRIMALITY)
 	{
 		cy0 = -2;
 	}
-	else
-	{
-		ASSERT(HERE,0,"Radix-9 currently only supports LL test mode!");
-	}
 
 	*fracmax=0;	/* init max. fractional error	*/
 
 	iroot = 0;	/* init sincos array index	*/
 	root_incr = 1;	/* init sincos array index increment (set = 1 for normal carry pass, = 0 for wrapper pass)	*/
-	scale = n2inv;	/* init inverse-weight scale factor  (set = 2/n for normal carry pass, = 1 for wrapper pass)	*/
+	scale = n2inv;	// init inverse-weight scale factor = 2/n for normal carry pass, 1 for wrapper pass
 
 	jstart = 0;
 	jhi = jstart+nwt-1;
@@ -364,25 +365,25 @@ for(outer=0; outer <= 1; outer++)
 	    wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
 /*...set0 is slightly different from others:	*/
-	   cmplx_carry_norm_errcheck0(aj1p0r ,aj1p0i ,cy0 ,bjmodn0 ,0 );
-	    cmplx_carry_norm_errcheck(aj1p1r ,aj1p1i ,cy1 ,bjmodn1 ,1 );
-	    cmplx_carry_norm_errcheck(aj1p2r ,aj1p2i ,cy2 ,bjmodn2 ,2 );
-	    cmplx_carry_norm_errcheck(aj1p3r ,aj1p3i ,cy3 ,bjmodn3 ,3 );
-	    cmplx_carry_norm_errcheck(aj1p4r ,aj1p4i ,cy4 ,bjmodn4 ,4 );
-	    cmplx_carry_norm_errcheck(aj1p5r ,aj1p5i ,cy5 ,bjmodn5 ,5 );
-	    cmplx_carry_norm_errcheck(aj1p6r ,aj1p6i ,cy6 ,bjmodn6 ,6 );
-	    cmplx_carry_norm_errcheck(aj1p7r ,aj1p7i ,cy7 ,bjmodn7 ,7 );
-	    cmplx_carry_norm_errcheck(aj1p8r ,aj1p8i ,cy8 ,bjmodn8 ,8 );
+	   cmplx_carry_norm_errcheck0(aj1p0r ,aj1p0i ,cy0 ,bjmodn0 ,0 ,prp_mult);
+	    cmplx_carry_norm_errcheck(aj1p1r ,aj1p1i ,cy1 ,bjmodn1 ,1 ,prp_mult);
+	    cmplx_carry_norm_errcheck(aj1p2r ,aj1p2i ,cy2 ,bjmodn2 ,2 ,prp_mult);
+	    cmplx_carry_norm_errcheck(aj1p3r ,aj1p3i ,cy3 ,bjmodn3 ,3 ,prp_mult);
+	    cmplx_carry_norm_errcheck(aj1p4r ,aj1p4i ,cy4 ,bjmodn4 ,4 ,prp_mult);
+	    cmplx_carry_norm_errcheck(aj1p5r ,aj1p5i ,cy5 ,bjmodn5 ,5 ,prp_mult);
+	    cmplx_carry_norm_errcheck(aj1p6r ,aj1p6i ,cy6 ,bjmodn6 ,6 ,prp_mult);
+	    cmplx_carry_norm_errcheck(aj1p7r ,aj1p7i ,cy7 ,bjmodn7 ,7 ,prp_mult);
+	    cmplx_carry_norm_errcheck(aj1p8r ,aj1p8i ,cy8 ,bjmodn8 ,8 ,prp_mult);
 
 	    i =((uint32)(sw - bjmodn0) >> 31);	/* get ready for the next set...	*/
 	    co2=co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 			   and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).	*/
 
-/*...The radix-9 DIF pass is here:	*/
-#if PFETCH
-add0 = &a[j1];
-prefetch_p_doubles(add0);
-#endif
+	/*...The radix-9 DIF pass is here:	*/
+	#if PFETCH
+	add0 = &a[j1];
+	prefetch_p_doubles(add0);
+	#endif
 
 #if LO_ADD
 	  t1 =aj1p0r;			t2 =aj1p0i;
@@ -393,10 +394,10 @@ prefetch_p_doubles(add0);
 	  rt =s3*t5;			it =s3*t6;
 	  t5 =t3+it;			t6 =t4-rt;
 	  t3 =t3-it;			t4 =t4+rt;
-#if PFETCH
-addr = add0+p1;
-prefetch_p_doubles(addr);
-#endif
+	#if PFETCH
+	addr = add0+p1;
+	prefetch_p_doubles(addr);
+	#endif
 	  t7 =aj1p1r;			t8 =aj1p1i;
 	  t9 =aj1p4r+aj1p7r;	t10=aj1p4i+aj1p7i;
 	  t11=aj1p4r-aj1p7r;	t12=aj1p4i-aj1p7i;
@@ -405,10 +406,10 @@ prefetch_p_doubles(addr);
 	  rt =s3*t11;			it =s3*t12;
 	  t11=t9+it;			t12=t10-rt;
 	  t9 =t9-it;			t10=t10+rt;
-#if PFETCH
-addr = add0+p2;
-prefetch_p_doubles(addr);
-#endif
+	#if PFETCH
+	addr = add0+p2;
+	prefetch_p_doubles(addr);
+	#endif
 	  t13=aj1p2r;			t14=aj1p2i;
 	  t15=aj1p5r+aj1p8r;	t16=aj1p5i+aj1p8i;
 	  t17=aj1p5r-aj1p8r;	t18=aj1p5i-aj1p8i;
@@ -417,10 +418,10 @@ prefetch_p_doubles(addr);
 	  rt =s3*t17;			it =s3*t18;
 	  t17=t15+it;			t18=t16-rt;
 	  t15=t15-it;			t16=t16+rt;
-#if PFETCH
-addr = add0+p3;
-prefetch_p_doubles(addr);
-#endif
+	#if PFETCH
+	addr = add0+p3;
+	prefetch_p_doubles(addr);
+	#endif
 /*
 !...and now do three more radix-3 transforms, including the twiddle factors:
 !                                           1, exp(i*2*pi/9), exp(i*4*pi/9) (for inputs to transform block 2)
@@ -438,46 +439,46 @@ prefetch_p_doubles(addr);
 	  rt =s3*t13;			it =s3*t14;
 	  a[j1+p1]=t7-it;		a[j2+p1]=t8+rt;
 	  a[j1+p2]=t7+it;		a[j2+p2]=t8-rt;
-#if PFETCH
-addr = add0+p4;
-prefetch_p_doubles(addr);
-#endif
+	#if PFETCH
+	addr = add0+p4;
+	prefetch_p_doubles(addr);
+	#endif
 	  rt =t9 *c -t10*s;		it =t9 *s +t10*c;		/* twiddle mpy by E^-1	*/
 	  re =t15*c2-t16*s2;	t16=t15*s2+t16*c2;	t15=re;	/* twiddle mpy by E^-2	*/
 	  t9 =rt+t15;			t10=it+t16;
 	  t15=rt-t15;			t16=it-t16;
 	  t3 =t3+t9;			t4 =t4+t10;
-#if PFETCH
-addr = add0+p5;
-prefetch_p_doubles(addr);
-#endif
+	#if PFETCH
+	addr = add0+p5;
+	prefetch_p_doubles(addr);
+	#endif
 	  a[j1+p3]=t3;			a[j2+p3]=t4;
 	  t9 =t3+c3m1*t9;		t10=t4+c3m1*t10;
 	  rt =s3*t15;			it =s3*t16;
 	  a[j1+p4]=t9-it;		a[j2+p4]=t10+rt;
 	  a[j1+p5]=t9+it;		a[j2+p5]=t10-rt;
-#if PFETCH
-addr = add0+p6;
-prefetch_p_doubles(addr);
-#endif
+	#if PFETCH
+	addr = add0+p6;
+	prefetch_p_doubles(addr);
+	#endif
 	  rt =t11*c2-t12*s2;	it =t11*s2+t12*c2;		/* twiddle mpy by E^-2	*/
 	  re =t17*c4-t18*s4;	t18=t17*s4+t18*c4;	t17=re;	/* twiddle mpy by E^-4	*/
 	  t11=rt+t17;			t12=it+t18;
 	  t17=rt-t17;			t18=it-t18;
 	  t5 =t5+t11;			t6 =t6+t12;
-#if PFETCH
-addr = add0+p7;
-prefetch_p_doubles(addr);
-#endif
+	#if PFETCH
+	addr = add0+p7;
+	prefetch_p_doubles(addr);
+	#endif
 	  a[j1+p6]=t5;			a[j2+p6]=t6;
 	  t11=t5+c3m1*t11;		t12=t6+c3m1*t12;
 	  rt =s3*t17;			it =s3*t18;
 	  a[j1+p7]=t11-it;		a[j2+p7]=t12+rt;
 	  a[j1+p8]=t11+it;		a[j2+p8]=t12-rt;
-#if PFETCH
-addr = add0+p8;
-prefetch_p_doubles(addr);
-#endif
+	#if PFETCH
+	addr = add0+p8;
+	prefetch_p_doubles(addr);
+	#endif
 
 #else
 /*...gather the needed data and do a subconvolution-based transform. */
@@ -487,18 +488,18 @@ prefetch_p_doubles(addr);
 	  t5 =aj1p2r+aj1p7r;	t6 =aj1p2i+aj1p7i;	/* x2 + x7	*/
 	  t7 =aj1p3r+aj1p6r;	t8 =aj1p3i+aj1p6i;	/* x3 + x6	*/
 	  t9 =aj1p4r+aj1p5r;	t10=aj1p4i+aj1p5i;	/* x4 + x5	*/
-#if PFETCH
-addr = add0+p1;
-prefetch_p_doubles(addr);
-#endif
+	#if PFETCH
+	addr = add0+p1;
+	prefetch_p_doubles(addr);
+	#endif
 	  t11=aj1p4r-aj1p5r;	t12=aj1p4i-aj1p5i;	/* x4 - x5	*/
 	  t13=aj1p3r-aj1p6r;	t14=aj1p3i-aj1p6i;	/* x3 - x6	*/
 	  t15=aj1p2r-aj1p7r;	t16=aj1p2i-aj1p7i;	/* x2 - x7	*/
 	  t17=aj1p1r-aj1p8r;	t18=aj1p1i-aj1p8i;	/* x1 - x8	*/
-#if PFETCH
-addr = add0+p2;
-prefetch_p_doubles(addr);
-#endif
+	#if PFETCH
+	addr = add0+p2;
+	prefetch_p_doubles(addr);
+	#endif
 	  rt = t1+t7;			it = t2+t8;
 	  r2 = t3+t5+t9;		i2 = t4+t6+t10;
 	  a[j1   ] = rt+r2;		a[j1+ 1] = it+i2;		/* X0	*/
@@ -507,10 +508,10 @@ prefetch_p_doubles(addr);
 	  t7 = rt-0.5*r2;		t8 = it-0.5*i2;			/* C3 calculated separately. */
 	  t3 = t3-t5;			t4 = t4 -t6;
 	  t5 = t9-t5;			t6 = t10-t6;
-#if PFETCH
-addr = add0+p3;
-prefetch_p_doubles(addr);
-#endif
+	#if PFETCH
+	addr = add0+p3;
+	prefetch_p_doubles(addr);
+	#endif
 	  t9 =(t3+t5)*cx3;		t10=(t4+t6)*cx3;
 	  t3 = t3*cx1;			t4 = t4*cx1;
 	  t5 = t5*cx2;			t6 = t6*cx2;
@@ -520,19 +521,19 @@ prefetch_p_doubles(addr);
 	  t3 = re-rt-t5;		t4 = im-it-t6;	/* C2 */
 	  t5 = re+t5;			t6 = im+t6;	/* C4 */
 	  t1 = re+rt;			t2 = im+it;	/* C1 */
-#if PFETCH
-addr = add0+p4;
-prefetch_p_doubles(addr);
-#endif
+	#if PFETCH
+	addr = add0+p4;
+	prefetch_p_doubles(addr);
+	#endif
 	/* For sine convo, replace t3,t5,t9 --> t17,-t15,t11 on input */
 	  re = t13*ss3;			im = t14*ss3;
 	  t13= (t17-t15+t11)*ss3;t14= (t18-t16+t12)*ss3;		/* S3 calculated separately. */
 	  t17= t17+t15;			t18= t18+t16;
 	  t15= t11+t15;			t16= t12+t16;
-#if PFETCH
-addr = add0+p5;
-prefetch_p_doubles(addr);
-#endif
+	#if PFETCH
+	addr = add0+p5;
+	prefetch_p_doubles(addr);
+	#endif
 	  t11=(t17+t15)*sx3;	t12=(t18+t16)*sx3;
 	  t17= t17*sx1;			t18= t18*sx1;
 	  t15= t15*sx2;			t16= t16*sx2;
@@ -542,10 +543,10 @@ prefetch_p_doubles(addr);
 	  t17= re-rt-t15;		t18= im-it-t16;	/*-S2 */
 	  t15= re+t15;			t16= im+t16;	/* S4 */
 	  t9 = re+rt;			t10= im+it;	/* S1 */
-#if PFETCH
-addr = add0+p6;
-prefetch_p_doubles(addr);
-#endif
+	#if PFETCH
+	addr = add0+p6;
+	prefetch_p_doubles(addr);
+	#endif
 /*...Inline multiply of sine parts by +-I into finishing phase.
      We desire an output order [0,3,6,1,4,7,2,5,8], so scramble array indices accordingly. */
 
@@ -553,18 +554,18 @@ prefetch_p_doubles(addr);
 	  a[j1+p6]=t3+t18;		a[j2+p6]=t4-t17;	/* X2 = C2 + I*S2	*/
 	  a[j1+p1]=t7-t14;		a[j2+p1]=t8+t13;	/* X3 = C3 + I*S3	*/
 	  a[j1+p4]=t5-t16;		a[j2+p4]=t6+t15;	/* X4 = C4 + I*S4	*/
-#if PFETCH
-addr = add0+p7;
-prefetch_p_doubles(addr);
-#endif
+	#if PFETCH
+	addr = add0+p7;
+	prefetch_p_doubles(addr);
+	#endif
 	  a[j1+p7]=t5+t16;		a[j2+p7]=t6-t15;	/* X5 =	C4 - I*S4	*/
 	  a[j1+p2]=t7+t14;		a[j2+p2]=t8-t13;	/* X6 =	C3 - I*S3	*/
 	  a[j1+p5]=t3-t18;		a[j2+p5]=t4+t17;	/* X7 =	C2 - I*S2	*/
 	  a[j1+p8]=t1+t10;		a[j2+p8]=t2-t9 ;	/* X8 =	C1 - I*S1	*/
-#if PFETCH
-addr = add0+p8;
-prefetch_p_doubles(addr);
-#endif
+	#if PFETCH
+	addr = add0+p8;
+	prefetch_p_doubles(addr);
+	#endif
 
 #endif
 	  iroot += root_incr;		/* increment sincos index.	*/
@@ -600,7 +601,7 @@ prefetch_p_doubles(addr);
 
 	iroot = 0;
 	root_incr = 0;
-	scale = 1;
+	scale = prp_mult = 1;
 
 	jstart = 0;
 	jhi = 7;
@@ -791,7 +792,7 @@ void radix9_dif_pass1(double a[], int n)
 		rt =s3*t5;			it =s3*t6;
 		t5 =t3+it;			t6 =t4-rt;
 		t3 =t3-it;			t4 =t4+rt;
-		
+
 		t7 =a[j1+p1];			t8 =a[j2+p1];
 		t9 =a[j1+p4]+a[j1+p7];t10=a[j2+p4]+a[j2+p7];
 		t11=a[j1+p4]-a[j1+p7];t12=a[j2+p4]-a[j2+p7];
@@ -800,7 +801,7 @@ void radix9_dif_pass1(double a[], int n)
 		rt =s3*t11;			it =s3*t12;
 		t11=t9+it;			t12=t10-rt;
 		t9 =t9-it;			t10=t10+rt;
-		
+
 		t13=a[j1+p2];			t14=a[j2+p2];
 		t15=a[j1+p5]+a[j1+p8];t16=a[j2+p5]+a[j2+p8];
 		t17=a[j1+p5]-a[j1+p8];t18=a[j2+p5]-a[j2+p8];

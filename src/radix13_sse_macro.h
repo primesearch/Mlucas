@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -30,7 +30,7 @@
 
 #ifdef USE_ARM_V8_SIMD
 
-	// Cost: [27 LDR, 31 LDP, 37 STP], 36 FADD/SUB, 168 FMA/FMUL
+	// Cost: [36 ADD, 168 MUL/FMA, 68 LDP/STP], better than general target of 1 vector-memref per vec_dbl arithmetic op.
 	#define SSE2_RADIX_13_DFT(Xcc, XI0,Xi1,Xi2,Xi3,Xi4,Xi5,Xi6,Xi7,Xi8,Xi9,XiA,XiB,XiC, XO0,Xo1,Xo2,Xo3,Xo4,Xo5,Xo6,Xo7,Xo8,Xo9,XoA,XoB,XoC)\
 	{\
 	__asm__ volatile (		/*** Rcol does Imaginary Parts: ***/\

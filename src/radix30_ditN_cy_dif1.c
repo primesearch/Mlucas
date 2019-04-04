@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -81,6 +81,13 @@ int radix30_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	// Init these to get rid of GCC "may be used uninitialized in this function" warnings:
 	col=co2=co3=-1;
+	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
+	double prp_mult = 1.0;
+	if((TEST_TYPE & 0xfffffffe) == TEST_TYPE_PRP) {	// Mask off low bit to lump together PRP and PRP-C tests
+		i = (iter % ITERS_BETWEEN_CHECKPOINTS) - 1;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
+		if((BASE_MULTIPLIER_BITS[i>>6] >> (i&63)) & 1)
+			prp_mult = PRP_BASE;
+	}
 
 /*...change NDIVR and n_div_wt to non-static to work around a gcc compiler bug. */
 	NDIVR   = n/RADIX;
@@ -189,7 +196,7 @@ int radix30_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	iroot = 0;	/* init sincos array index	*/
 	root_incr = 1;	/* init sincos array index increment (set = 1 for normal carry pass, = 0 for wrapper pass)	*/
-	scale = n2inv;	/* init inverse-weight scale factor  (set = 2/n for normal carry pass, = 1 for wrapper pass)	*/
+	scale = n2inv;	// init inverse-weight scale factor = 2/n for normal carry pass, 1 for wrapper pass
 
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 	{
@@ -627,17 +634,17 @@ int full_pass = (root_incr!=0);
 
 			/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */
 			l = 0; addr = cy_r; itmp = bjmodn;
-		   cmplx_carry_norm_errcheck0(a[j1    ],a[j2    ],*addr,*itmp,0); ++l; ++addr; ++itmp;
+		   cmplx_carry_norm_errcheck0(a[j1    ],a[j2    ],*addr,*itmp,0,prp_mult); ++l; ++addr; ++itmp;
 			// Middle 7 quartets of macro calls done in loop:
 			jt = j1; jp = j2;
 			for(ntmp = 1; ntmp < 8; ntmp++) {
-				cmplx_carry_norm_errcheck(a[jt+p01],a[jp+p01],*addr,*itmp,l); ++l; ++addr; ++itmp;
-				cmplx_carry_norm_errcheck(a[jt+p02],a[jp+p02],*addr,*itmp,l); ++l; ++addr; ++itmp;
-				cmplx_carry_norm_errcheck(a[jt+p03],a[jp+p03],*addr,*itmp,l); ++l; ++addr; ++itmp;
+				cmplx_carry_norm_errcheck(a[jt+p01],a[jp+p01],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+				cmplx_carry_norm_errcheck(a[jt+p02],a[jp+p02],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+				cmplx_carry_norm_errcheck(a[jt+p03],a[jp+p03],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 				jt = j1 + poff[ntmp]; jp = j2 + poff[ntmp];	// poff[] = p04,p08,...
-				cmplx_carry_norm_errcheck(a[jt    ],a[jp    ],*addr,*itmp,l); ++l; ++addr; ++itmp;
+				cmplx_carry_norm_errcheck(a[jt    ],a[jp    ],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 			}
-			cmplx_carry_norm_errcheck(a[j1+p29],a[j2+p29],*addr,*itmp,l);
+			cmplx_carry_norm_errcheck(a[j1+p29],a[j2+p29],*addr,*itmp,l,prp_mult);
 			i =((uint32)(sw - bjmodn[0]) >> 31);	/* get ready for the next set...	*/
 			co2=co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 					 and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).	*/
@@ -648,13 +655,13 @@ int full_pass = (root_incr!=0);
 			ntmp = 0; addr = cy_r; addi = cy_i; ic = 0;	// ic = idx into ii-array
 			for(m = 0; m < 7; m++) {
 				jt = j1 + poff[m]; jp = j2 + poff[m];	// poff[] = p04,p08,...
-				fermat_carry_norm_errcheck(a[jt    ],a[jp    ],*addr,*addi,ii[ic],bjmodn[ic],ntmp,NRTM1,NRT_BITS);	ic++; ntmp += NDIVR; ++addr; ++addi;
-				fermat_carry_norm_errcheck(a[jt+p01],a[jp+p01],*addr,*addi,ii[ic],bjmodn[ic],ntmp,NRTM1,NRT_BITS);	ic++; ntmp += NDIVR; ++addr; ++addi;
-				fermat_carry_norm_errcheck(a[jt+p02],a[jp+p02],*addr,*addi,ii[ic],bjmodn[ic],ntmp,NRTM1,NRT_BITS);	ic++; ntmp += NDIVR; ++addr; ++addi;
-				fermat_carry_norm_errcheck(a[jt+p03],a[jp+p03],*addr,*addi,ii[ic],bjmodn[ic],ntmp,NRTM1,NRT_BITS);	ic++; ntmp += NDIVR; ++addr; ++addi;
+				fermat_carry_norm_errcheck(a[jt    ],a[jp    ],*addr,*addi,ii[ic],bjmodn[ic],ntmp,NRTM1,NRT_BITS,prp_mult);	ic++; ntmp += NDIVR; ++addr; ++addi;
+				fermat_carry_norm_errcheck(a[jt+p01],a[jp+p01],*addr,*addi,ii[ic],bjmodn[ic],ntmp,NRTM1,NRT_BITS,prp_mult);	ic++; ntmp += NDIVR; ++addr; ++addi;
+				fermat_carry_norm_errcheck(a[jt+p02],a[jp+p02],*addr,*addi,ii[ic],bjmodn[ic],ntmp,NRTM1,NRT_BITS,prp_mult);	ic++; ntmp += NDIVR; ++addr; ++addi;
+				fermat_carry_norm_errcheck(a[jt+p03],a[jp+p03],*addr,*addi,ii[ic],bjmodn[ic],ntmp,NRTM1,NRT_BITS,prp_mult);	ic++; ntmp += NDIVR; ++addr; ++addi;
 			}
-			fermat_carry_norm_errcheck(a[j1+p28],a[j2+p28],*addr,*addi,ii[ic],bjmodn[ic],ntmp,NRTM1,NRT_BITS);	ic++; ntmp += NDIVR; ++addr; ++addi;
-			fermat_carry_norm_errcheck(a[j1+p29],a[j2+p29],*addr,*addi,ii[ic],bjmodn[ic],ntmp,NRTM1,NRT_BITS);
+			fermat_carry_norm_errcheck(a[j1+p28],a[j2+p28],*addr,*addi,ii[ic],bjmodn[ic],ntmp,NRTM1,NRT_BITS,prp_mult);	ic++; ntmp += NDIVR; ++addr; ++addi;
+			fermat_carry_norm_errcheck(a[j1+p29],a[j2+p29],*addr,*addi,ii[ic],bjmodn[ic],ntmp,NRTM1,NRT_BITS,prp_mult);
 		}
 
 	/*...The radix-30 DIF pass is here:	*/
@@ -750,7 +757,7 @@ int full_pass = (root_incr!=0);
 
 	iroot = 0;
 	root_incr = 0;
-	scale = 1;
+	scale = prp_mult = 1;
 
 	jstart = 0;
 	/*

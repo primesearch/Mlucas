@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -1243,7 +1243,8 @@
 		 ,[c5] "m" (Xc5),[s5] "m" (Xs5)\
 		 ,[c6] "m" (Xc6),[s6] "m" (Xs6)\
 		 ,[c7] "m" (Xc7),[s7] "m" (Xs7)\
-		: "cc","memory","x0"\
+		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","x7","x10","x11","x12","x13",\
+		"v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11","v12","v13","v14","v15","v16","v17","v18","v19","v20","v21","v22","v23","v29"	/* Clobbered registers */\
 	);\
 	}
 
@@ -1357,7 +1358,7 @@
 		 ,[c6] "m" (Xc6),[s6] "m" (Xs6)\
 		 ,[c7] "m" (Xc7),[s7] "m" (Xs7)\
 		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","x7","x10","x11","x12","x13",\
-		"v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v12","v13","v14","v15","v16","v17","v18","v19","v20","v21","v23","v24","v29"	/* Clobbered registers */\
+		"v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11","v12","v13","v14","v15","v16","v17","v18","v19","v20","v21","v22","v23","v29"	/* Clobbered registers */\
 	);\
 	}
 
@@ -1706,7 +1707,7 @@
 		,[__outf] "m" (Xoutf)\
 		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","x7","x8","x9","x10","x11","x12","x13","x14","x15","x16",\
 			"v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11",\
-			"v12","v13","v14","v15","v16","v17","v18","v19","v20","v21","v22","v23", "v29","v30","v31"	/* Clobbered registers */\
+			"v12","v13","v14","v15","v16","v17","v18","v19","v20","v21","v22","v23","v24","v25", "v29","v30","v31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -1858,7 +1859,7 @@
 		,[__out0] "m" (Xout0)\
 		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","x7","x8","x9","x10","x11","x12","x13","x14","x15","x16",\
 			"v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11",\
-			"v12","v13","v14","v15","v16","v17","v18","v19","v20","v21","v22","v23", "v29","v30","v31"	/* Clobbered registers */\
+			"v12","v13","v14","v15","v16","v17","v18","v19","v20","v21","v22","v23","v24","v25", "v29","v30","v31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -2101,7 +2102,7 @@
 		 ,[__c1] "m" (Xc1)\
 		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","x7","x8","x9","x10","x11","x12","x13","x14","x15","x16",\
 			"v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11",\
-			"v12","v13","v14","v15","v16","v17","v18","v19","v20","v21","v22","v23", "v29","v30","v31"	/* Clobbered registers */\
+			"v12","v13","v14","v15","v16","v17","v18","v19","v20","v21","v22","v23", "v28","v29","v30","v31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -2321,7 +2322,7 @@
 		 ,[__c1] "m" (Xc1)\
 		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","x7","x8","x9","x10","x11","x12","x13","x14","x15","x16",\
 			"v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11",\
-			"v12","v13","v14","v15","v16","v17","v18","v19","v20","v21","v22","v23", "v29","v30","v31"	/* Clobbered registers */\
+			"v12","v13","v14","v15","v16","v17","v18","v19","v20","v21","v22","v23","v24","v25", "v29","v30","v31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -18440,20 +18441,20 @@
 		"							movq	%[s1],%%r13	\n\t	movq	%[s5],%%r15	\n\t"\
 		"											movaps	    (%%r10)	,%%xmm8 	\n\t"\
 		"movq		%[i0]	,%%rax		\n\t		movaps	0x10(%%r10)	,%%xmm10	\n\t"\
-		"movq		%[i4]	,%%rbx		\n\t		movaps	    (%%r10)	,%%xmm9 	\n\t"\
-		"movq		%[c4]	,%%rcx		\n\t		movaps	0x10(%%r10)	,%%xmm11	\n\t"\
+		"movq		%[i4]	,%%rbx		\n\t		movaps		%%xmm8 ,%%xmm9 	\n\t"\
+		"movq		%[c4]	,%%rcx		\n\t		movaps		%%xmm10,%%xmm11	\n\t"\
 		"movq		%[s4]	,%%rsi		\n\t"\
 	/* [rsi] (and if needed rdi) points to sine components of each sincos pair, which is not really a pair here in terms of relative addressing: */\
 		"movaps	    (%%rax)	,%%xmm0		\n\t		mulpd	    (%%r12)	,%%xmm8 	\n\t"\
 		"movaps	0x10(%%rax)	,%%xmm1		\n\t		mulpd	    (%%r13)	,%%xmm10	\n\t"\
-		"movaps	    (%%rax)	,%%xmm6		\n\t		mulpd	    (%%r13)	,%%xmm9 	\n\t"\
-		"movaps	0x10(%%rax)	,%%xmm7		\n\t		mulpd	    (%%r12)	,%%xmm11	\n\t"\
+		"movaps		%%xmm0	,%%xmm6		\n\t		mulpd	    (%%r13)	,%%xmm9 	\n\t"\
+		"movaps		%%xmm1	,%%xmm7		\n\t		mulpd	    (%%r12)	,%%xmm11	\n\t"\
 		"movaps	    (%%rbx)	,%%xmm2		\n\t		subpd	%%xmm10		,%%xmm8 	\n\t"\
 		"movaps	0x10(%%rbx)	,%%xmm3		\n\t		addpd	%%xmm11		,%%xmm9 	\n\t"\
-		"movaps	    (%%rbx)	,%%xmm4		\n\t		movaps	    (%%r11)	,%%xmm10	\n\t"\
-		"movaps	0x10(%%rbx)	,%%xmm5		\n\t		movaps	0x10(%%r11)	,%%xmm11	\n\t"\
-		"mulpd	    (%%rcx)	,%%xmm2		\n\t		movaps	    (%%r11)	,%%xmm12	\n\t"\
-		"mulpd	    (%%rcx)	,%%xmm3		\n\t		movaps	0x10(%%r11)	,%%xmm13	\n\t"\
+		"movaps		%%xmm2	,%%xmm4		\n\t		movaps	    (%%r11)	,%%xmm10	\n\t"\
+		"movaps		%%xmm3	,%%xmm5		\n\t		movaps	0x10(%%r11)	,%%xmm11	\n\t"\
+		"mulpd	    (%%rcx)	,%%xmm2		\n\t		movaps		%%xmm10	,%%xmm12	\n\t"\
+		"mulpd	    (%%rcx)	,%%xmm3		\n\t		movaps		%%xmm11	,%%xmm13	\n\t"\
 		"mulpd	    (%%rsi)	,%%xmm4		\n\t		mulpd	    (%%r14)	,%%xmm10	\n\t"\
 		"mulpd	    (%%rsi)	,%%xmm5		\n\t		mulpd	    (%%r15)	,%%xmm11	\n\t"\
 		"subpd	%%xmm5		,%%xmm2		\n\t		mulpd	    (%%r15)	,%%xmm12	\n\t"\
@@ -18472,22 +18473,22 @@
 		"movq %[c6],%%rdx \n\t movq %[s6],%%rdi	\n\t	movaps	%%xmm9,0x10(%%r11)	\n\t"\
 		"movaps	    (%%rax)	,%%xmm0		\n\t		movq		%[i3]	,%%r10		\n\t"\
 		"movaps	0x10(%%rax)	,%%xmm2		\n\t		movq		%[i7]	,%%r11		\n\t"\
-		"movaps	    (%%rax)	,%%xmm1		\n\t	movq %[c3],%%r12 \n\t movq %[s3],%%r13	\n\t"\
-		"movaps	0x10(%%rax)	,%%xmm3		\n\t	movq %[c7],%%r14 \n\t movq %[s7],%%r15	\n\t"\
+		"movaps		%%xmm0	,%%xmm1		\n\t	movq %[c3],%%r12 \n\t movq %[s3],%%r13	\n\t"\
+		"movaps		%%xmm2	,%%xmm3		\n\t	movq %[c7],%%r14 \n\t movq %[s7],%%r15	\n\t"\
 		"mulpd	    (%%rcx)	,%%xmm0		\n\t		movaps	    (%%r10)	,%%xmm8 	\n\t"\
 		"mulpd	    (%%rsi)	,%%xmm2		\n\t		movaps	0x10(%%r10)	,%%xmm10	\n\t"\
-		"mulpd	    (%%rsi)	,%%xmm1		\n\t		movaps	    (%%r10)	,%%xmm9 	\n\t"\
-		"mulpd	    (%%rcx)	,%%xmm3		\n\t		movaps	0x10(%%r10)	,%%xmm11	\n\t"\
+		"mulpd	    (%%rsi)	,%%xmm1		\n\t		movaps		%%xmm8	,%%xmm9 	\n\t"\
+		"mulpd	    (%%rcx)	,%%xmm3		\n\t		movaps		%%xmm10	,%%xmm11	\n\t"\
 		"subpd	%%xmm2		,%%xmm0		\n\t		mulpd	    (%%r12)	,%%xmm8 	\n\t"\
 		"addpd	%%xmm3		,%%xmm1		\n\t		mulpd	    (%%r13)	,%%xmm10	\n\t"\
 		"movaps	    (%%rbx)	,%%xmm2		\n\t		mulpd	    (%%r13)	,%%xmm9 	\n\t"\
 		"movaps	0x10(%%rbx)	,%%xmm3		\n\t		mulpd	    (%%r12)	,%%xmm11	\n\t"\
-		"movaps	    (%%rbx)	,%%xmm4		\n\t		subpd	%%xmm10		,%%xmm8 	\n\t"\
-		"movaps	0x10(%%rbx)	,%%xmm5		\n\t		addpd	%%xmm11		,%%xmm9 	\n\t"\
+		"movaps		%%xmm2	,%%xmm4		\n\t		subpd	%%xmm10		,%%xmm8 	\n\t"\
+		"movaps		%%xmm3	,%%xmm5		\n\t		addpd	%%xmm11		,%%xmm9 	\n\t"\
 		"mulpd	    (%%rdx)	,%%xmm2		\n\t		movaps	    (%%r11)	,%%xmm10	\n\t"\
 		"mulpd	    (%%rdi)	,%%xmm3		\n\t		movaps	0x10(%%r11)	,%%xmm11	\n\t"\
-		"mulpd	    (%%rdi)	,%%xmm4		\n\t		movaps	    (%%r11)	,%%xmm12	\n\t"\
-		"mulpd	    (%%rdx)	,%%xmm5		\n\t		movaps	0x10(%%r11)	,%%xmm13	\n\t"\
+		"mulpd	    (%%rdi)	,%%xmm4		\n\t		movaps		%%xmm10	,%%xmm12	\n\t"\
+		"mulpd	    (%%rdx)	,%%xmm5		\n\t		movaps		%%xmm11	,%%xmm13	\n\t"\
 		"subpd	%%xmm3		,%%xmm2		\n\t		mulpd	    (%%r14)	,%%xmm10	\n\t"\
 		"addpd	%%xmm5		,%%xmm4		\n\t		mulpd	    (%%r15)	,%%xmm11	\n\t"\
 		"movaps	%%xmm2		,%%xmm3		\n\t		mulpd	    (%%r15)	,%%xmm12	\n\t"\

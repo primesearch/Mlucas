@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -121,6 +121,15 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 	{
+		// Check if current index-interval contains the target index for rotated-residue carry injection.
+		// In data-init we set target_idx = -1 on wraparound-carry mini-pass, so if() only taken on full pass:
+	#ifdef USE_SSE2
+		if(target_idx == j) {
+			addr = (double *)s1p00 + target_set;
+			*addr += target_cy*(n>>1);	// target_cy = [-2 << within-word-shift]*[DWT weight]*n/2, i.e. includes fwd DWT weight and n/2 factor
+			target_idx = -1;
+		}
+	#endif
 	#ifdef USE_AVX
 
 		add1 = &wt1[col  ];
@@ -193,6 +202,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		const uint32 nloop = RADIX>>3;		incr = 7;
 	  #endif
 		i = (!j);	// Need this to force 0-wod to be bigword
+		addr = &prp_mult;
 		tmp = s1p00; tm1 = cy_r; tm2 = cy_r+1; itmp = bjmodn; itm2 = bjmodn+4;	// tm2,itm2 not used in AVX-512 mode
 		for(loop = 0; loop < nloop; loop += incr)
 		{
@@ -205,7 +215,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			add1 = &wt1[col  +ii];	/* Don't use add0 here, to avoid need to reload main-array address */
 			add2 = &wt1[co2-1-ii];
 			add3 = &wt1[co3-1-ii];
-	
+
 			// Since use wt1-array in the wtsinit macro, need to fiddle this here:
 			co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 						// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
@@ -221,14 +231,14 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			  // In AVX-512 mode, the 4 doubles base[0],baseinv[1],wts_mult[1],inv_mult[0] are in the d0-3 slots of the otherwise-unused sse2_rnd vec_dbl:
 			  #ifdef USE_AVX512
 			   #ifdef CARRY_16_WAY
-				AVX_cmplx_carry_fast_errcheck_X16(tmp, tm1    , itmp     , half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p1,p2,p3,p4);
+				AVX_cmplx_carry_fast_errcheck_X16(tmp, tm1    , itmp     , half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p1,p2,p3,p4, addr);
 				tmp += 32; tm1 += 2;           itmp += 16;           i = 0;
 			   #else
-				AVX_cmplx_carry_fast_errcheck_X8 (tmp, tm1    , itmp     , half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p1,p2,p3,p4);
+				AVX_cmplx_carry_fast_errcheck_X8 (tmp, tm1    , itmp     , half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p1,p2,p3,p4, addr);
 				tmp += 16; tm1 += 1;           itmp +=  8;           i = 0;	// CY-ptr only advances 1 in AVX-512/CARRY_8_WAY mode, since all 8 dbl-carries fit in a single vec_dbl
 			   #endif
 			  #else	// USE_AVX:
-				AVX_cmplx_carry_fast_errcheck_X8(tmp, tm1,tm2, itmp,itm2, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p1,p2,p3,p4);
+				AVX_cmplx_carry_fast_errcheck_X8(tmp, tm1,tm2, itmp,itm2, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p1,p2,p3,p4, addr);
 				tmp += 16; tm1 += 2; tm2 += 2; itmp += 8; itm2 += 8; i = 0;
 			  #endif
 			}
@@ -239,10 +249,11 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		/* In AVX mode advance carry-ptrs just 1 for each vector-carry-macro call: */
 		tm1 = s1p00; tmp = cy_r; itmp = bjmodn;
 		i = (!j);
+		addr = &prp_mult;
 		for(l = 0; l < RADIX>>2; l++) {
 			// Each AVX carry macro call also processes 4 prefetches of main-array data
 			tm2 = (vec_dbl *)(a + j1 + pfetch_dist + poff[l]);	// poff[] = p0,4,8,...
-			AVX_cmplx_carry_norm_errcheck_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tm2,p1,p2,p3);
+			AVX_cmplx_carry_norm_errcheck_X4(tm1,add1,add2,add3,tmp,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, tm2,p1,p2,p3, addr);
 			tm1 += 8; tmp += 1; itmp += 4; i = 0;
 		}
 
@@ -260,6 +271,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		uint32 i0,i1,i2,i3, ii,incr,nwtml, loop,nloop = RADIX>>2, co2save = co2;
 
 		i = (!j);	// Need this to force 0-wod to be bigword
+		addr = &prp_mult;
 		tm1 = s1p00; tmp = cy_r; tm2 = cy_r+0x01; itmp = bjmodn;
 		// Beyond chain length 8, the chained-weights scheme becomes too inaccurate, so re-init seed-wts every few passes:
 		incr = 4;	// incr must divide radix/4 = 56!
@@ -284,7 +296,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			ctmp->re = ctmp->im = wtn;		ctmp += 2;
 			ctmp->re = ctmp->im = wtlp1;	ctmp += 2;
 			ctmp->re = ctmp->im = wtnm1;
-	
+
 			l = (j+2) & (nwt-1);	nwtml = nwt-l;;
 			i0 = n-si[l  ];
 			i1 = n-si[l+1];
@@ -294,17 +306,17 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			wtn     = wt0[nwtml  ]*scale;
 			wtlp1   = wt0[    l+1];
 			wtnm1   = wt0[nwtml-1]*scale;
-	
+
 			ctmp = (struct complex *)half_arr + 32;	// (j+2) data start at ctmp + 8
 			ctmp->re = ctmp->im = wtl;		ctmp += 2;
 			ctmp->re = ctmp->im = wtn;		ctmp += 2;
 			ctmp->re = ctmp->im = wtlp1;	ctmp += 2;
 			ctmp->re = ctmp->im = wtnm1;
-	
+
 			add1 = &wt1[col  +ii];	/* Don't use add0 here, to avoid need to reload main-array address */
 			add2 = &wt1[co2-1-ii];
 			add3 = &wt1[co3-1-ii];
-	
+
 			// Since use wt1-array in the wtsinit macro, need to fiddle this here:
 			co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 						// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
@@ -315,7 +327,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			for(l = loop; l < loop+incr; l++) {
 				// Each SSE2 LOACC carry macro call also processes 4 prefetches of main-array data:
 				add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
-				SSE2_cmplx_carry_fast_errcheck(tm1,tmp,tm2,itmp,half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p1,p2,p3);
+				SSE2_cmplx_carry_fast_errcheck(tm1,tmp,tm2,itmp,half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p1,p2,p3, addr);
 				tm1 += 8; tmp += 2; tm2 += 2; itmp += 4; i = 0;
 			}
 		}
@@ -345,11 +357,12 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		tm1 = s1p00; tmp = cy_r; tm2 = cy_r+0x01; itmp = bjmodn;
 		i = (!j);
+		addr = &prp_mult;
 		for(l = 0; l < RADIX>>2; l++) {
 			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
 			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
 			add0 += (-(l&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
-			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p1);
+			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p1, addr);
 			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4; i = 0;
 		}
 
@@ -383,7 +396,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
 			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
 			add0 += (-(l&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
-			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p2,p3);
+			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p2,p3, addr);
 			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
@@ -411,27 +424,27 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		for(ntmp = 0; ntmp < RADIX>>2; ntmp++) {
 			jt = j1 + poff[ntmp]; jp = j2 + poff[ntmp];	// poff[] = p04,08,...
 			// Re-init weights every 4th macro invocatin to keep errors under control:
-			cmplx_carry_norm_errcheck0(a[jt   ],a[jp   ],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_fast_errcheck (a[jt+p1],a[jp+p1],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_fast_errcheck (a[jt+p2],a[jp+p2],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_fast_errcheck (a[jt+p3],a[jp+p3],*addr,*itmp,l); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_errcheck0(a[jt   ],a[jp   ],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_fast_errcheck (a[jt+p1],a[jp+p1],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_fast_errcheck (a[jt+p2],a[jp+p2],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_fast_errcheck (a[jt+p3],a[jp+p3],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 		}
 
 	  #else	// Hi-accuracy is the default:
 
 		/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */
 		l = 0; addr = cy_r; itmp = bjmodn;
-	   cmplx_carry_norm_errcheck0(a[j1   ],a[j2   ],*addr,*itmp,0); ++l; ++addr; ++itmp;
-		cmplx_carry_norm_errcheck(a[j1+p1],a[j2+p1],*addr,*itmp,l); ++l; ++addr; ++itmp;
-		cmplx_carry_norm_errcheck(a[j1+p2],a[j2+p2],*addr,*itmp,l); ++l; ++addr; ++itmp;
-		cmplx_carry_norm_errcheck(a[j1+p3],a[j2+p3],*addr,*itmp,l); ++l; ++addr; ++itmp;
+	   cmplx_carry_norm_errcheck0(a[j1   ],a[j2   ],*addr,*itmp,0,prp_mult); ++l; ++addr; ++itmp;
+		cmplx_carry_norm_errcheck(a[j1+p1],a[j2+p1],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+		cmplx_carry_norm_errcheck(a[j1+p2],a[j2+p2],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+		cmplx_carry_norm_errcheck(a[j1+p3],a[j2+p3],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 		// Remaining quartets of macro calls done in loop:
 		for(ntmp = 1; ntmp < RADIX>>2; ntmp++) {
 			jt = j1 + poff[ntmp]; jp = j2 + poff[ntmp];	// poff[] = p04,08,...
-			cmplx_carry_norm_errcheck (a[jt   ],a[jp   ],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_norm_errcheck (a[jt+p1],a[jp+p1],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_norm_errcheck (a[jt+p2],a[jp+p2],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_norm_errcheck (a[jt+p3],a[jp+p3],*addr,*itmp,l); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_errcheck (a[jt   ],a[jp   ],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_errcheck (a[jt+p1],a[jp+p1],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_errcheck (a[jt+p2],a[jp+p2],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_errcheck (a[jt+p3],a[jp+p3],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 		}
 
 	  #endif
@@ -445,6 +458,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	}		/************************************************************************/
 	else	/*                MODULUS_TYPE_FERMAT:                                 */
 	{		/************************************************************************/
+		addr = &prp_mult;
 
 		// AVX-custom 4-way carry macro - each macro call contains 4 of the RADIX stride-n/RADIX-separated carries
 		// (processed independently in parallel), and steps through sequential-data indices j,j+2,j+4,j+6.
@@ -518,7 +532,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			// Each AVX carry macro call also processes 4 prefetches of main-array data
 			tm2 = (vec_dbl *)(a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)]);	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
 																		/* vvvvvvvvvvvvvvv [1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
-			SSE2_fermat_carry_norm_errcheck_X4_hiacc(tm0,tmp,l,tm1,0x700, 0xe0,0x1c0,0x2a0, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7, tm2,p1,p2,p3);
+			SSE2_fermat_carry_norm_errcheck_X4_hiacc(tm0,tmp,l,tm1,0x700, 0xe0,0x1c0,0x2a0, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7, tm2,p1,p2,p3, addr);
 			tm0 += 8; tm1++; tmp += 8; l -= 0xc0;
 			MOD_ADD32(ic_idx, 4, ODD_RADIX, ic_idx);
 			MOD_ADD32(jc_idx, 4, ODD_RADIX, jc_idx);
@@ -625,7 +639,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				// Each AVX carry macro call also processes 4 prefetches of main-array data
 				tm2 = (vec_dbl *)(a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)]);	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
 													/* (cy_i_cy_r) --vvvvv  vvvvvvvvvvvvvvvvv--[1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
-				SSE2_fermat_carry_norm_errcheck_X8_loacc(tm0,tmp,tm1,0x700, 0x1c0,0x380,0x540, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf, tm2,p1,p2,p3,p4);
+				SSE2_fermat_carry_norm_errcheck_X8_loacc(tm0,tmp,tm1,0x700, 0x1c0,0x380,0x540, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf, tm2,p1,p2,p3,p4, addr);
 				tm0 += 16; tm1++;
 				MOD_ADD32(ic_idx, 8, ODD_RADIX, ic_idx);
 				MOD_ADD32(jc_idx, 8, ODD_RADIX, jc_idx);
@@ -648,7 +662,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				// Each AVX carry macro call also processes 4 prefetches of main-array data
 				tm2 = (vec_dbl *)(a + j1 + pfetch_dist + poff[(int)(tm1-cy_r)]);	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
 													/* (cy_i_cy_r) --vvvvv  vvvvvvvvvvvvvvvvv--[1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
-				SSE2_fermat_carry_norm_errcheck_X4_loacc(tm0,tmp,tm1,0x700, 0xe0,0x1c0,0x2a0, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7, tm2,p1,p2,p3);
+				SSE2_fermat_carry_norm_errcheck_X4_loacc(tm0,tmp,tm1,0x700, 0xe0,0x1c0,0x2a0, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7, tm2,p1,p2,p3, addr);
 				tm0 += 8; tm1++;
 				MOD_ADD32(ic_idx, 4, ODD_RADIX, ic_idx);
 				MOD_ADD32(jc_idx, 4, ODD_RADIX, jc_idx);
@@ -671,8 +685,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		idx_offset = j;
 		idx_incr = NDIVR;
 
-	  #if (OS_BITS == 64)
-
 		// [ijkl]c = indices into icycle mini-arrays, gets incremented (mod ODD_RADIX) between macro calls; replace the
 		// icycle[ic],jcycle[ic],icycle[ic+1],jcycle[ic+1] of the non-looped version with icycle[ic],jcycle[ic],icycle[jc],jcycle[jc]:
 		ic_idx = 0; jc_idx = 1;
@@ -687,34 +699,11 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
 			tm2 = (vec_dbl *)(a + j1 + pfetch_dist + poff[(int)(tmp-cy_r)>>2]);	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
 			tm2 += (-((int)((tmp-cy_r)>>1)&0x1)) & p2;	// Base-addr incr by extra p2 on odd-index passes
-			SSE2_fermat_carry_norm_errcheck_X2(tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,k1,k2,k3,k4, tm2,p1);
+			SSE2_fermat_carry_norm_errcheck_X2(tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,k1,k2,k3,k4, tm2,p1, addr);
 			tm1 += 4; tmp += 2;
 			MOD_ADD32(ic_idx, 2, ODD_RADIX, ic_idx);
 			MOD_ADD32(jc_idx, 2, ODD_RADIX, jc_idx);
 		}
-
-	  #else // Mar 2014: Worked around the out-of-regs compiler issues with the _X2 version of this macro (the
-			// code in carry_gcc64.h has details), but keep non-X2 version in case hit out-of-regs again at some point
-
-		ic_idx = 0;	// ic_idx = idx into [i|j]cycle mini-arrays, gets incremented (mod ODD_RADIX) between macro calls
-		tm1 = s1p00; tmp = cy_r;	// <*** Again rely on contiguity of cy_r,i here ***
-		// Need to stick this #def into an intvar to work around [error: invalid lvalue in asm input for constraint 'm']
-		l = ODD_RADIX << 4;	// 32-bit version needs preshifted << 4 input value
-		while((int)(tmp-cy_r) < RADIX) {
-			//Sep 2014: Even with reduced-register version of the 32-bit Fermat-mod carry macro,
-			// GCC runs out of registers on this one, without some playing-around-with-alternate code-sequences ...
-			// Pulling the array-refs out of the carry-macro call like so solves the problem:
-			k1 = icycle[ic_idx];
-			k2 = jcycle[ic_idx];
-			// Each SSE2 carry macro call also processes 1 prefetch of main-array data
-			tm2 = (vec_dbl *)(a + j1 + pfetch_dist + poff[(int)(tmp-cy_r)>>2]);	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
-			tm2 += p1*((int)(tmp-cy_r)&0x3);	// Added offset cycles among p0,1,2,3
-			SSE2_fermat_carry_norm_errcheck(tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,k1,k2, tm2);
-			tm1 += 2; tmp++;
-			MOD_ADD32(ic_idx, 1, ODD_RADIX, ic_idx);
-		}
-
-	  #endif
 
 	#else	// Scalar-double mode:
 
@@ -722,10 +711,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		ntmp = 0; addr = cy_r; addi = cy_i; ic_idx = 0;	// ic_idx = idx into icycle mini-array, gets incremented (mod ODD_RADIX) between macro calls
 		for(m = 0; m < RADIX>>2; m++) {
 			jt = j1 + poff[m]; jp = j2 + poff[m];	// poff[] = p4,p8,...,p56
-			fermat_carry_norm_errcheckB(a[jt   ],a[jp   ],*addr,*addi,icycle[ic_idx],ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR; ++addr; ++addi; MOD_ADD32(ic_idx, 1, ODD_RADIX, ic_idx);
-			fermat_carry_norm_errcheckB(a[jt+p1],a[jp+p1],*addr,*addi,icycle[ic_idx],ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR; ++addr; ++addi; MOD_ADD32(ic_idx, 1, ODD_RADIX, ic_idx);
-			fermat_carry_norm_errcheckB(a[jt+p2],a[jp+p2],*addr,*addi,icycle[ic_idx],ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR; ++addr; ++addi; MOD_ADD32(ic_idx, 1, ODD_RADIX, ic_idx);
-			fermat_carry_norm_errcheckB(a[jt+p3],a[jp+p3],*addr,*addi,icycle[ic_idx],ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR; ++addr; ++addi; MOD_ADD32(ic_idx, 1, ODD_RADIX, ic_idx);
+			fermat_carry_norm_errcheckB(a[jt   ],a[jp   ],*addr,*addi,icycle[ic_idx],ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR; ++addr; ++addi; MOD_ADD32(ic_idx, 1, ODD_RADIX, ic_idx);
+			fermat_carry_norm_errcheckB(a[jt+p1],a[jp+p1],*addr,*addi,icycle[ic_idx],ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR; ++addr; ++addi; MOD_ADD32(ic_idx, 1, ODD_RADIX, ic_idx);
+			fermat_carry_norm_errcheckB(a[jt+p2],a[jp+p2],*addr,*addi,icycle[ic_idx],ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR; ++addr; ++addi; MOD_ADD32(ic_idx, 1, ODD_RADIX, ic_idx);
+			fermat_carry_norm_errcheckB(a[jt+p3],a[jp+p3],*addr,*addi,icycle[ic_idx],ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR; ++addr; ++addi; MOD_ADD32(ic_idx, 1, ODD_RADIX, ic_idx);
 		}
 		for(ntmp = 0; ntmp < ODD_RADIX; ntmp++) {
 			icycle[ntmp] += wts_idx_incr;	// Inside the loop use this, as it is faster than general-mod '% nwt'

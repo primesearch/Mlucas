@@ -71,7 +71,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		wtlp1   =wt0[    l+1];
 		wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
-		/*...set0 is slightly different from others; divide work into blocks of RADIX/4 macro calls, 1st set of which gets pulled out of loop: */		
+		/*...set0 is slightly different from others; divide work into blocks of RADIX/4 macro calls, 1st set of which gets pulled out of loop: */
 // Apr 2014: Fermat-mod works fine, but mers-mod barfs immediately with what looks like a bad a0 value,
 // div-by-n/2 should give 16, but instead see
 //	iter 1, full = 1, a0in =   15.492078993055555
@@ -80,18 +80,18 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 //if(!j)printf("iter %d, full = %d, a0in = %20.15f\n",iter,full_pass,a[0]/(n>>1));
 		l = 0; addr = cy_r; itmp = bjmodn;
 		jt = j1; jp = j2;
-	   cmplx_carry_norm_errcheck0(a[j1   ],a[j2   ],*addr,*itmp,0); ++l; ++addr; ++itmp;
+	   cmplx_carry_norm_errcheck0(a[j1   ],a[j2   ],*addr,*itmp,0,prp_mult); ++l; ++addr; ++itmp;
 		// Next 15 quartets of macro calls done in loop:
 		for(ntmp = 1; ntmp < 16; ntmp++) {
-			cmplx_carry_norm_errcheck(a[jt+p1],a[jp+p1],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_norm_errcheck(a[jt+p2],a[jp+p2],*addr,*itmp,l); ++l; ++addr; ++itmp;
-			cmplx_carry_norm_errcheck(a[jt+p3],a[jp+p3],*addr,*itmp,l); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_errcheck(a[jt+p1],a[jp+p1],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_errcheck(a[jt+p2],a[jp+p2],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_errcheck(a[jt+p3],a[jp+p3],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 			jt = j1 + p[ntmp<<2]; jp = j2 + p[ntmp<<2];
-			cmplx_carry_norm_errcheck(a[jt   ],a[jp   ],*addr,*itmp,l); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_errcheck(a[jt   ],a[jp   ],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 		}
 		// Cleanup of final 2 sets of carries:
-		cmplx_carry_norm_errcheck(a[jt+p1],a[jp+p1],*addr,*itmp,l); ++l; ++addr; ++itmp;
-		cmplx_carry_norm_errcheck(a[jt+p2],a[jp+p2],*addr,*itmp,l); ++l; ++addr; ++itmp;
+		cmplx_carry_norm_errcheck(a[jt+p1],a[jp+p1],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+		cmplx_carry_norm_errcheck(a[jt+p2],a[jp+p2],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 //if(!j)printf("iter %d, full = %d, a0out = %20.15f\n",iter,full_pass,a[0]);
 		i =((uint32)(sw - bjmodn[0]) >> 31);	/* get ready for the next set...	*/
 		co2 = co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
@@ -102,15 +102,15 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		// Can't use l as loop index here, since it gets used in the Fermat-mod carry macro (as are k1,k2):
 		ntmp = 0; addr = cy_r; addi = cy_i; ic = 0;	// ic = idx into icycle mini-array, gets incremented (mod ODD_RADIX) between macro calls
 		jt = j1; jp = j2;
-		fermat_carry_norm_errcheckB(a[jt   ],a[jp   ],*addr,*addi,icycle[ic],ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR; ++addr; ++addi; ++ic;
-		fermat_carry_norm_errcheckB(a[jt+p1],a[jp+p1],*addr,*addi,icycle[ic],ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR; ++addr; ++addi; ++ic;
-		fermat_carry_norm_errcheckB(a[jt+p2],a[jp+p2],*addr,*addi,icycle[ic],ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR; ++addr; ++addi; ++ic;
+		fermat_carry_norm_errcheckB(a[jt   ],a[jp   ],*addr,*addi,icycle[ic],ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR; ++addr; ++addi; ++ic;
+		fermat_carry_norm_errcheckB(a[jt+p1],a[jp+p1],*addr,*addi,icycle[ic],ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR; ++addr; ++addi; ++ic;
+		fermat_carry_norm_errcheckB(a[jt+p2],a[jp+p2],*addr,*addi,icycle[ic],ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR; ++addr; ++addi; ++ic;
 		for(m = 1; m < 16; m++) {
-			fermat_carry_norm_errcheckB(a[jt+p3],a[jp+p3],*addr,*addi,icycle[ic],ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR; ++addr; ++addi; ++ic;
+			fermat_carry_norm_errcheckB(a[jt+p3],a[jp+p3],*addr,*addi,icycle[ic],ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR; ++addr; ++addi; ++ic;
 			jt = j1 + p[m<<2]; jp = j2 + p[m<<2];
-			fermat_carry_norm_errcheckB(a[jt   ],a[jp   ],*addr,*addi,icycle[ic],ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR; ++addr; ++addi; ++ic;
-			fermat_carry_norm_errcheckB(a[jt+p1],a[jp+p1],*addr,*addi,icycle[ic],ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR; ++addr; ++addi; ++ic;
-			fermat_carry_norm_errcheckB(a[jt+p2],a[jp+p2],*addr,*addi,icycle[ic],ntmp,NRTM1,NRT_BITS);	ntmp += NDIVR; ++addr; ++addi; ++ic;
+			fermat_carry_norm_errcheckB(a[jt   ],a[jp   ],*addr,*addi,icycle[ic],ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR; ++addr; ++addi; ++ic;
+			fermat_carry_norm_errcheckB(a[jt+p1],a[jp+p1],*addr,*addi,icycle[ic],ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR; ++addr; ++addi; ++ic;
+			fermat_carry_norm_errcheckB(a[jt+p2],a[jp+p2],*addr,*addi,icycle[ic],ntmp,NRTM1,NRT_BITS,prp_mult);	ntmp += NDIVR; ++addr; ++addi; ++ic;
 		}
 		for(l = 0; l < ODD_RADIX; l++) {
 			icycle[l] += wts_idx_incr;	/* Inside the loop use this, as it is faster than general-mod '% nwt' */

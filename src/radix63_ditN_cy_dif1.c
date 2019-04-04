@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2016 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -194,6 +194,13 @@ int radix63_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	// Init these to get rid of GCC "may be used uninitialized in this function" warnings:
 	col=co2=co3=-1;
+	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
+	double prp_mult = 1.0;
+	if((TEST_TYPE & 0xfffffffe) == TEST_TYPE_PRP) {	// Mask off low bit to lump together PRP and PRP-C tests
+		i = (iter % ITERS_BETWEEN_CHECKPOINTS) - 1;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
+		if((BASE_MULTIPLIER_BITS[i>>6] >> (i&63)) & 1)
+			prp_mult = PRP_BASE;
+	}
 
 /*...change NDIVR and n_div_wt to non-static to work around a gcc compiler bug. */
 	NDIVR   = n/RADIX;
@@ -257,11 +264,11 @@ int radix63_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		if(tdat == 0x0) {
 			j = (uint32)sizeof(struct cy_thread_data_t);
 			tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, sizeof(struct cy_thread_data_t));
-	
+
 			// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
 			// so on that platform try to be clever and interleave main-thread and threadpool-work processing
 			#if 0//def OS_TYPE_MACOSX
-	
+
 				if(CY_THREADS > 1) {
 					main_work_units = CY_THREADS/2;
 					pool_work_units = CY_THREADS - main_work_units;
@@ -271,14 +278,14 @@ int radix63_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 					main_work_units = 1;
 					printf("radix%d_ditN_cy_dif1: CY_THREADS = 1: Using main execution thread, no threadpool needed.\n", RADIX);
 				}
-	
+
 			#else
-	
+
 				pool_work_units = CY_THREADS;
 				ASSERT(HERE, 0x0 != (tpool = threadpool_init(CY_THREADS, MAX_THREADS, CY_THREADS, &thread_control)), "threadpool_init failed!");
-	
+
 			#endif
-	
+
 			fprintf(stderr,"Using %d threads in carry step\n", CY_THREADS);
 		}
 	  #endif
@@ -299,7 +306,7 @@ int radix63_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			tdat[ithread].nwt = nwt;
 
 		// pointer data:
-			tdat[ithread].arrdat = a;			/* Main data array */
+		//	tdat[ithread].arrdat = a;			/* Main data array */
 			tdat[ithread].wt0 = wt0;
 			tdat[ithread].wt1 = wt1;
 			tdat[ithread].si  = si;
@@ -537,7 +544,7 @@ int radix63_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	*fracmax=0;	/* init max. fractional error	*/
 	full_pass = 1;	/* set = 1 for normal carry pass, = 0 for wrapper pass	*/
-	scale = n2inv;	/* init inverse-weight scale factor  (set = 2/n for normal carry pass, = 1 for wrapper pass)	*/
+	scale = n2inv;	// init inverse-weight scale factor = 2/n for normal carry pass, 1 for wrapper pass
 
 	for(ithread = 0; ithread < CY_THREADS; ithread++)
 	{
@@ -625,9 +632,10 @@ for(outer=0; outer <= 1; outer++)
 	// double data:
 		tdat[ithread].maxerr = _maxerr[ithread];
 		tdat[ithread].scale = scale;
+		tdat[ithread].prp_mult = prp_mult;
 
 	// pointer data:
-		ASSERT(HERE, tdat[ithread].arrdat == a, "thread-local memcheck fail!");			/* Main data array */
+		tdat[ithread].arrdat = a;			/* Main data array */
 		ASSERT(HERE, tdat[ithread].wt0 == wt0, "thread-local memcheck fail!");
 		ASSERT(HERE, tdat[ithread].wt1 == wt1, "thread-local memcheck fail!");
 		ASSERT(HERE, tdat[ithread].si  == si, "thread-local memcheck fail!");
@@ -819,7 +827,7 @@ for(outer=0; outer <= 1; outer++)
 	}
 
 	full_pass = 0;
-	scale = 1;
+	scale = prp_mult = 1;
 
 	/*
 	For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large

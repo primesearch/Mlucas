@@ -25,7 +25,7 @@
 *******************************************************************************/
 
 // [2] The version is started with was sent by , whose latest analogs of
-// same are available at 
+// same are available at
 // http://sourceforge.net/p/msieve/code/HEAD/tree/trunk/include/thread.h [header]
 // http://sourceforge.net/p/msieve/code/HEAD/tree/trunk/common/thread.c [C source].
 
@@ -37,7 +37,7 @@ errors.
 
 Optionally, please be nice and tell me if you find this source to be
 useful. Again optionally, if you add to the functionality present here
-please consider making those additions public too, so that others may 
+please consider making those additions public too, so that others may
 benefit from your work.
 
 $Id$
@@ -256,7 +256,7 @@ me at: heber.tomer@gmail.com
 	 */
 	#if defined(__GNUC__) && (__GNUC__ > 4 || __GNUC__ == 4 && __GNUC_MINOR__>1)
 
-	/* gcc on win32 needs to force 16-byte stack alignment on 
+	/* gcc on win32 needs to force 16-byte stack alignment on
 	   thread entry, as this exceeds what windows may provide; see
 
 	   http://sourceware.org/ml/pthreads-win32/2008/msg00053.html
@@ -272,8 +272,14 @@ me at: heber.tomer@gmail.com
 		task_control_t *task;
 
 		// Set CPU affinity masks of the thread:
-	#ifdef __FreeBSD__
-	#error BSD affinity code needs debug & test!
+	#ifdef __OpenBSD__
+
+	  #warning OpenBSD has no user-affinity-setting support ... affinity-setting is up to the OS.
+
+	#elif defined(__FreeBSD__)
+
+	  #warning FreeBSD affinity code needs debug & test!
+
 		int i,errcode;
 		cpuset_t cpu_set;
 

@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -50,15 +50,15 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	  #else
 		#define OFF	0xa0
 	  #endif
-		add0 = &a[j1];	add1 = add0+p01; add2 = add0+p02,add3 = add0+p03;
+		add0 = &a[j1];	add1 = add0+p01; add2 = add0+p02; add3 = add0+p03;
 		tmp = r00;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0,add1,add3,add2, tmp, OFF);
-		add0 += p04;	add1 = add0+p01; add2 = add0+p02,add3 = add0+p03;
+		add0 += p04;	add1 = add0+p01; add2 = add0+p02; add3 = add0+p03;
 		tmp += 2;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add3,add2,add1,add0, tmp, OFF);
-		add0 += p08-p04;add1 = add0+p01; add2 = add0+p02,add3 = add0+p03;
+		add0 += p08-p04;add1 = add0+p01; add2 = add0+p02; add3 = add0+p03;
 		tmp += 2;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add1,add0,add2,add3, tmp, OFF);
-		add0 += p04;	add1 = add0+p01; add2 = add0+p02,add3 = add0+p03;
+		add0 += p04;	add1 = add0+p01; add2 = add0+p02; add3 = add0+p03;
 		tmp += 2;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add2,add3,add0,add1, tmp, OFF);
-		add0 += p16-p12;add1 = add0+p01; add2 = add0+p02,add3 = add0+p03;
+		add0 += p16-p12;add1 = add0+p01; add2 = add0+p02; add3 = add0+p03;
 		tmp += 2;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0,add1,add3,add2, tmp, OFF);
 
 		vec_dbl *va1,*va2,*va3,*va4;
@@ -93,9 +93,18 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	#endif
 
-/*...Now do the carries. Since the outputs would
-normally be getting dispatched to 20 separate blocks of the A-array, we need 20 separate carries.	*/
+	/*...Now do the carries. Since the outputs would
+	normally be getting dispatched to 20 separate blocks of the A-array, we need 20 separate carries.	*/
 
+		// Check if current index-interval contains the target index for rotated-residue carry injection.
+		// In data-init we set target_idx = -1 on wraparound-carry mini-pass, so if() only taken on full pass:
+	#ifdef USE_SSE2
+		if(target_idx == j) {
+			addr = (double *)s1p00r + target_set;
+			*addr += target_cy*(n>>1);	// target_cy = [-2 << within-word-shift]*[DWT weight]*n/2, i.e. includes fwd DWT weight and n/2 factor
+			target_idx = -1;
+		}
+	#endif
 	#ifdef USE_AVX	// AVX: can select between carry macros processing 4 and 8 independent carries in LOACC mode:
 
 		add1 = &wt1[col  ];
@@ -139,31 +148,32 @@ normally be getting dispatched to 20 separate blocks of the A-array, we need 20 
 	  #endif
 
 		i = (!j);
+		addr = &prp_mult;
 
 	  #ifdef CARRY_8_WAY
 
 		// Each carry macro call also processes 8 prefetches of main-array data:
 		add0 = a + j1 + pfetch_dist;
-		AVX_cmplx_carry_fast_errcheck_X8(s1p00r, cy00,cy04, bjmodn00,bjmodn04, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03,p04); i = 0;
+		AVX_cmplx_carry_fast_errcheck_X8(s1p00r, cy00,cy04, bjmodn00,bjmodn04, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03,p04, addr); i = 0;
 		add0 = a + j1 + pfetch_dist + p08;	// poff[] = p0,4,8,...
-		AVX_cmplx_carry_fast_errcheck_X8(s1p08r, cy08,cy12, bjmodn08,bjmodn12, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03,p04);
+		AVX_cmplx_carry_fast_errcheck_X8(s1p08r, cy08,cy12, bjmodn08,bjmodn12, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03,p04, addr);
 		add0 = a + j1 + pfetch_dist + p16;
-		AVX_cmplx_carry_fast_errcheck_X4(s1p16r, cy16,      bjmodn16,          half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+		AVX_cmplx_carry_fast_errcheck_X4(s1p16r, cy16,      bjmodn16,          half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);
 
 	  #else	// USE_AVX, LOACC, 4-way carry:
 	  	//*** 4-way is Lower accuracy than 8-way, thus default is to use 4-way only for cleanup, e.g. 20 = 2*8 + 4 here ***:
 
 		// Each carry macro call also processes 4 prefetches of main-array data:
 		add0 = a + j1 + pfetch_dist;
-		AVX_cmplx_carry_fast_errcheck_X4(s1p00r, cy00, bjmodn00, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03); i = 0;
+		AVX_cmplx_carry_fast_errcheck_X4(s1p00r, cy00, bjmodn00, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr); i = 0;
 		add0 += p04;
-		AVX_cmplx_carry_fast_errcheck_X4(s1p04r, cy04, bjmodn04, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+		AVX_cmplx_carry_fast_errcheck_X4(s1p04r, cy04, bjmodn04, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);
 		add0 = a + j1 + pfetch_dist + p08;
-		AVX_cmplx_carry_fast_errcheck_X4(s1p08r, cy08, bjmodn08, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+		AVX_cmplx_carry_fast_errcheck_X4(s1p08r, cy08, bjmodn08, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);
 		add0 += p04;
-		AVX_cmplx_carry_fast_errcheck_X4(s1p12r, cy12, bjmodn12, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+		AVX_cmplx_carry_fast_errcheck_X4(s1p12r, cy12, bjmodn12, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);
 		add0 = a + j1 + pfetch_dist + p16;
-		AVX_cmplx_carry_fast_errcheck_X4(s1p16r, cy16, bjmodn16, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+		AVX_cmplx_carry_fast_errcheck_X4(s1p16r, cy16, bjmodn16, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);
 
 	  #endif	// USE_AVX, LOACC, (8-way or 4-way carry) ?
 
@@ -171,16 +181,17 @@ normally be getting dispatched to 20 separate blocks of the A-array, we need 20 
 
 		// Each AVX carry macro call also processes 4 prefetches of main-array data
 		i = (!j);
+		addr = &prp_mult;
 		add0 = a + j1 + pfetch_dist;
-		AVX_cmplx_carry_norm_errcheck_X4(s1p00r,add1,add2,add3,cy00,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03); i = 0;
+		AVX_cmplx_carry_norm_errcheck_X4(s1p00r,add1,add2,add3,cy00,bjmodn00,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr); i = 0;
 		add0 += p04;
-		AVX_cmplx_carry_norm_errcheck_X4(s1p04r,add1,add2,add3,cy04,bjmodn04,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+		AVX_cmplx_carry_norm_errcheck_X4(s1p04r,add1,add2,add3,cy04,bjmodn04,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);
 		add0 = a + j1 + pfetch_dist + p08;
-		AVX_cmplx_carry_norm_errcheck_X4(s1p08r,add1,add2,add3,cy08,bjmodn08,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+		AVX_cmplx_carry_norm_errcheck_X4(s1p08r,add1,add2,add3,cy08,bjmodn08,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);
 		add0 += p04;
-		AVX_cmplx_carry_norm_errcheck_X4(s1p12r,add1,add2,add3,cy12,bjmodn12,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+		AVX_cmplx_carry_norm_errcheck_X4(s1p12r,add1,add2,add3,cy12,bjmodn12,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);
 		add0 = a + j1 + pfetch_dist + p16;
-		AVX_cmplx_carry_norm_errcheck_X4(s1p16r,add1,add2,add3,cy16,bjmodn16,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+		AVX_cmplx_carry_norm_errcheck_X4(s1p16r,add1,add2,add3,cy16,bjmodn16,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);
 
 		co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 					// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
@@ -239,11 +250,12 @@ normally be getting dispatched to 20 separate blocks of the A-array, we need 20 
 		SSE2_cmplx_carry_fast_wtsinit(add1,add2,add3, bjmodn00, half_arr,sign_mask, n_minus_sil,n_minus_silp1,sinwt,sinwtm1, k0,k1,k2,k3, sse_bw,sse_n)
 
 		i = (!j);
+		addr = &prp_mult;
 		tm1 = s1p00r; tmp = cy00; tm2 = cy00 + 1; itmp = bjmodn00;
 		for(l = 0; l < RADIX>>2; l++) {
 			// Each SSE2 LOACC carry macro call also processes 4 prefetches of main-array data
 			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
-			SSE2_cmplx_carry_fast_errcheck(tm1,tmp,tm2,itmp,half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03);
+			SSE2_cmplx_carry_fast_errcheck(tm1,tmp,tm2,itmp,half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p01,p02,p03, addr);
 			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4; i = 0;
 		}
 
@@ -274,12 +286,13 @@ normally be getting dispatched to 20 separate blocks of the A-array, we need 20 
 
 		// Each SSE2 carry macro call also processes 2 prefetches of main-array data
 		i = (!j);
+		addr = &prp_mult;
 		tm1 = s1p00r; tmp = cy00; tm2 = cy00 + 1; itmp = bjmodn00;
 		for(l = 0; l < RADIX>>2; l++) {
 			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
 			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
 			add0 += (-(l&0x1)) & p02;	// Base-addr incr by extra p2 on odd-index passes
-			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01);
+			SSE2_cmplx_carry_norm_errcheck1_2B(tm1,add1,add2,add3,tmp,tm2,itmp,half_arr,i,n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p01, addr);
 			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4; i = 0;
 		}
 
@@ -312,7 +325,7 @@ normally be getting dispatched to 20 separate blocks of the A-array, we need 20 
 			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
 			add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
 			add0 += (-(l&0x1)) & p02;	// Base-addr incr by extra p2 on odd-index passes
-			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03);
+			SSE2_cmplx_carry_norm_errcheck2_2B(tm1,add1,add2,     tmp,tm2,itmp,half_arr,  n_minus_silp1,n_minus_sil,sign_mask,sinwt,sinwtm1,sse_bw,sse_n,sse_sw, add0,p02,p03, addr);
 			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
@@ -335,48 +348,48 @@ normally be getting dispatched to 20 separate blocks of the A-array, we need 20 
 
 	#ifdef LOACC
 		// Insert a HIACC-version of the cy macro every now and again to reseed weights:
-		cmplx_carry_norm_errcheck0(a1p00r,a1p00i,cy00,bjmodn00,0 );
-		cmplx_carry_fast_errcheck (a1p01r,a1p01i,cy01,bjmodn01,1 );
-		cmplx_carry_fast_errcheck (a1p02r,a1p02i,cy02,bjmodn02,2 );
-		cmplx_carry_fast_errcheck (a1p03r,a1p03i,cy03,bjmodn03,3 );
-		cmplx_carry_norm_errcheck0(a1p04r,a1p04i,cy04,bjmodn04,4 );
-		cmplx_carry_fast_errcheck (a1p05r,a1p05i,cy05,bjmodn05,5 );
-		cmplx_carry_fast_errcheck (a1p06r,a1p06i,cy06,bjmodn06,6 );
-		cmplx_carry_fast_errcheck (a1p07r,a1p07i,cy07,bjmodn07,7 );
-		cmplx_carry_norm_errcheck0(a1p08r,a1p08i,cy08,bjmodn08,8 );
-		cmplx_carry_fast_errcheck (a1p09r,a1p09i,cy09,bjmodn09,9 );
-		cmplx_carry_fast_errcheck (a1p10r,a1p10i,cy10,bjmodn10,10);
-		cmplx_carry_fast_errcheck (a1p11r,a1p11i,cy11,bjmodn11,11);
-		cmplx_carry_norm_errcheck0(a1p12r,a1p12i,cy12,bjmodn12,12);
-		cmplx_carry_fast_errcheck (a1p13r,a1p13i,cy13,bjmodn13,13);
-		cmplx_carry_fast_errcheck (a1p14r,a1p14i,cy14,bjmodn14,14);
-		cmplx_carry_fast_errcheck (a1p15r,a1p15i,cy15,bjmodn15,15);
-		cmplx_carry_norm_errcheck0(a1p16r,a1p16i,cy16,bjmodn16,16);
-		cmplx_carry_fast_errcheck (a1p17r,a1p17i,cy17,bjmodn17,17);
-		cmplx_carry_fast_errcheck (a1p18r,a1p18i,cy18,bjmodn18,18);
-		cmplx_carry_fast_errcheck (a1p19r,a1p19i,cy19,bjmodn19,19);
+		cmplx_carry_norm_errcheck0(a1p00r,a1p00i,cy00,bjmodn00,0 ,prp_mult);
+		cmplx_carry_fast_errcheck (a1p01r,a1p01i,cy01,bjmodn01,1 ,prp_mult);
+		cmplx_carry_fast_errcheck (a1p02r,a1p02i,cy02,bjmodn02,2 ,prp_mult);
+		cmplx_carry_fast_errcheck (a1p03r,a1p03i,cy03,bjmodn03,3 ,prp_mult);
+		cmplx_carry_norm_errcheck0(a1p04r,a1p04i,cy04,bjmodn04,4 ,prp_mult);
+		cmplx_carry_fast_errcheck (a1p05r,a1p05i,cy05,bjmodn05,5 ,prp_mult);
+		cmplx_carry_fast_errcheck (a1p06r,a1p06i,cy06,bjmodn06,6 ,prp_mult);
+		cmplx_carry_fast_errcheck (a1p07r,a1p07i,cy07,bjmodn07,7 ,prp_mult);
+		cmplx_carry_norm_errcheck0(a1p08r,a1p08i,cy08,bjmodn08,8 ,prp_mult);
+		cmplx_carry_fast_errcheck (a1p09r,a1p09i,cy09,bjmodn09,9 ,prp_mult);
+		cmplx_carry_fast_errcheck (a1p10r,a1p10i,cy10,bjmodn10,10,prp_mult);
+		cmplx_carry_fast_errcheck (a1p11r,a1p11i,cy11,bjmodn11,11,prp_mult);
+		cmplx_carry_norm_errcheck0(a1p12r,a1p12i,cy12,bjmodn12,12,prp_mult);
+		cmplx_carry_fast_errcheck (a1p13r,a1p13i,cy13,bjmodn13,13,prp_mult);
+		cmplx_carry_fast_errcheck (a1p14r,a1p14i,cy14,bjmodn14,14,prp_mult);
+		cmplx_carry_fast_errcheck (a1p15r,a1p15i,cy15,bjmodn15,15,prp_mult);
+		cmplx_carry_norm_errcheck0(a1p16r,a1p16i,cy16,bjmodn16,16,prp_mult);
+		cmplx_carry_fast_errcheck (a1p17r,a1p17i,cy17,bjmodn17,17,prp_mult);
+		cmplx_carry_fast_errcheck (a1p18r,a1p18i,cy18,bjmodn18,18,prp_mult);
+		cmplx_carry_fast_errcheck (a1p19r,a1p19i,cy19,bjmodn19,19,prp_mult);
 	#else
 		/*...set0 is slightly different from others:	*/
-		cmplx_carry_norm_errcheck0(a1p00r,a1p00i,cy00,bjmodn00,0 );
-		cmplx_carry_norm_errcheck (a1p01r,a1p01i,cy01,bjmodn01,1 );
-		cmplx_carry_norm_errcheck (a1p02r,a1p02i,cy02,bjmodn02,2 );
-		cmplx_carry_norm_errcheck (a1p03r,a1p03i,cy03,bjmodn03,3 );
-		cmplx_carry_norm_errcheck (a1p04r,a1p04i,cy04,bjmodn04,4 );
-		cmplx_carry_norm_errcheck (a1p05r,a1p05i,cy05,bjmodn05,5 );
-		cmplx_carry_norm_errcheck (a1p06r,a1p06i,cy06,bjmodn06,6 );
-		cmplx_carry_norm_errcheck (a1p07r,a1p07i,cy07,bjmodn07,7 );
-		cmplx_carry_norm_errcheck (a1p08r,a1p08i,cy08,bjmodn08,8 );
-		cmplx_carry_norm_errcheck (a1p09r,a1p09i,cy09,bjmodn09,9 );
-		cmplx_carry_norm_errcheck (a1p10r,a1p10i,cy10,bjmodn10,10);
-		cmplx_carry_norm_errcheck (a1p11r,a1p11i,cy11,bjmodn11,11);
-		cmplx_carry_norm_errcheck (a1p12r,a1p12i,cy12,bjmodn12,12);
-		cmplx_carry_norm_errcheck (a1p13r,a1p13i,cy13,bjmodn13,13);
-		cmplx_carry_norm_errcheck (a1p14r,a1p14i,cy14,bjmodn14,14);
-		cmplx_carry_norm_errcheck (a1p15r,a1p15i,cy15,bjmodn15,15);
-		cmplx_carry_norm_errcheck (a1p16r,a1p16i,cy16,bjmodn16,16);
-		cmplx_carry_norm_errcheck (a1p17r,a1p17i,cy17,bjmodn17,17);
-		cmplx_carry_norm_errcheck (a1p18r,a1p18i,cy18,bjmodn18,18);
-		cmplx_carry_norm_errcheck (a1p19r,a1p19i,cy19,bjmodn19,19);
+		cmplx_carry_norm_errcheck0(a1p00r,a1p00i,cy00,bjmodn00,0 ,prp_mult);
+		cmplx_carry_norm_errcheck (a1p01r,a1p01i,cy01,bjmodn01,1 ,prp_mult);
+		cmplx_carry_norm_errcheck (a1p02r,a1p02i,cy02,bjmodn02,2 ,prp_mult);
+		cmplx_carry_norm_errcheck (a1p03r,a1p03i,cy03,bjmodn03,3 ,prp_mult);
+		cmplx_carry_norm_errcheck (a1p04r,a1p04i,cy04,bjmodn04,4 ,prp_mult);
+		cmplx_carry_norm_errcheck (a1p05r,a1p05i,cy05,bjmodn05,5 ,prp_mult);
+		cmplx_carry_norm_errcheck (a1p06r,a1p06i,cy06,bjmodn06,6 ,prp_mult);
+		cmplx_carry_norm_errcheck (a1p07r,a1p07i,cy07,bjmodn07,7 ,prp_mult);
+		cmplx_carry_norm_errcheck (a1p08r,a1p08i,cy08,bjmodn08,8 ,prp_mult);
+		cmplx_carry_norm_errcheck (a1p09r,a1p09i,cy09,bjmodn09,9 ,prp_mult);
+		cmplx_carry_norm_errcheck (a1p10r,a1p10i,cy10,bjmodn10,10,prp_mult);
+		cmplx_carry_norm_errcheck (a1p11r,a1p11i,cy11,bjmodn11,11,prp_mult);
+		cmplx_carry_norm_errcheck (a1p12r,a1p12i,cy12,bjmodn12,12,prp_mult);
+		cmplx_carry_norm_errcheck (a1p13r,a1p13i,cy13,bjmodn13,13,prp_mult);
+		cmplx_carry_norm_errcheck (a1p14r,a1p14i,cy14,bjmodn14,14,prp_mult);
+		cmplx_carry_norm_errcheck (a1p15r,a1p15i,cy15,bjmodn15,15,prp_mult);
+		cmplx_carry_norm_errcheck (a1p16r,a1p16i,cy16,bjmodn16,16,prp_mult);
+		cmplx_carry_norm_errcheck (a1p17r,a1p17i,cy17,bjmodn17,17,prp_mult);
+		cmplx_carry_norm_errcheck (a1p18r,a1p18i,cy18,bjmodn18,18,prp_mult);
+		cmplx_carry_norm_errcheck (a1p19r,a1p19i,cy19,bjmodn19,19,prp_mult);
 	#endif
 
 		i =((uint32)(sw - bjmodn00) >> 31);	/* get ready for the next set...	*/
@@ -398,7 +411,7 @@ normally be getting dispatched to 20 separate blocks of the A-array, we need 20 
 		SSE2_RADIX_05_DFT_0TWIDDLE(s1p10r,s1p06r,s1p02r,s1p18r,s1p14r,cc1,tmp,va1,va2,va4,va3);
 		tmp = r30; va1 = tmp+2; va2 = tmp+4; va3 = tmp+6; va4 = tmp+8;
 		SSE2_RADIX_05_DFT_0TWIDDLE(s1p05r,s1p01r,s1p17r,s1p13r,s1p09r,cc1,tmp,va1,va2,va4,va3);
-		/* Inputs in SSE2 modes are temps 2*9*16 = 18*16 = 0X120 bytes apart: */
+
 		tmp = r00;	add0 = &a[j1    ]; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0,add1,add3,add2, tmp, OFF)
 		tmp += 2;	add0 = &a[j1+p16]; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0,add1,add3,add2, tmp, OFF)
 		tmp += 2;	add0 = &a[j1+p12]; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add2,add3,add0,add1, tmp, OFF)

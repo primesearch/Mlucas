@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2016 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -22,7 +22,139 @@
 
 #include "Mlucas.h"
 
-/***************/
+#define RADIX 12	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
+
+#define EPS 1e-10
+
+#if defined(HIACC) && defined(LOACC)
+	#error Only one of LOACC and HIACC may be defined!
+#endif
+#if !defined(HIACC) && !defined(LOACC)
+  #ifdef USE_AVX512
+	#define HIACC	1	// Radix-12,20,24,28 carry routines are special, require avx-512 builds to be done in HIACC mode
+	#warning HIACC = 1
+  #elif OS_BITS == 64
+	#define LOACC	1	// Default is suitable for F29 work @ FFT length 30M
+	#warning LOACC = 1
+  #else
+	#define HIACC	1	// 32-bit mode only supports the older HIACC carry macros
+  #endif
+#endif
+#if defined(HIACC) && defined(USE_ARM_V8_SIMD)
+	#error Currently only LOACC carry-mode supported in ARM v8 SIMD builds!
+#endif
+#if defined(LOACC) && defined(USE_AVX512)
+	#error Currently only HIACC carry-mode supported in AVX-512 builds of radix-12,20,24,28 carry routines!
+#endif
+#if defined(LOACC) && (OS_BITS == 32)
+	#error 32-bit mode only supports the older HIACC carry macros!
+#endif
+
+#ifndef PFETCH_DIST
+  #ifdef USE_AVX512
+	#define PFETCH_DIST	64	// Feb 2017: Test on KNL point to this as best
+  #elif defined(USE_AVX)
+	#define PFETCH_DIST	32	// This seems to work best on my Haswell, even though 64 bytes seems more logical in AVX mode
+  #else
+	#define PFETCH_DIST	32
+  #endif
+#endif
+
+#ifdef USE_SSE2
+
+  // For Mersenne-mod need (16 [SSE2] or 64 [AVX]) + (24 [SSE2] or 68 [AVX])[LOACC] added slots for half_arr lookup tables.
+  // Max = (40 = 0x28 [SSE2]; 132 = 0x84 [AVX]), add to (half_arr_offset12 + RADIX) to get value of radix12_creals_in_local_store.
+  #ifdef USE_AVX
+	const int half_arr_offset12 = 0x38;	// + RADIX = 0x44; Used for thread local-storage-integrity checking
+	const int radix12_creals_in_local_store = 0xbc;	// (half_arr_offset12 + RADIX) + 132 and round up to nearest multiple of 4
+  #else
+	const int half_arr_offset12 = 0x3b;	// + RADIX = 0x47; Used for thread local-storage-integrity checking
+	const int radix12_creals_in_local_store = 0x64;	// (half_arr_offset12 + RADIX) + 40 and round up to nearest multiple of 4
+  #endif
+
+  #ifdef COMPILER_TYPE_MSVC
+	#error Mlucas build requires GCC-compatible compiler!
+  #endif
+
+	#include "sse2_macro.h"
+
+#endif	/* USE_SSE2 */
+
+#ifdef USE_PTHREAD
+
+	// Use non-pooled simple spawn/rejoin thread-team model
+	#include "threadpool.h"
+
+	struct cy_thread_data_t{
+	// int data:
+		int iter;
+		int tid;
+		int ndivr;
+		int target_idx, target_set;	// Jun 2018: Add support for residue shift. (Only LL-test needs intervention at carry-loop level).
+		double target_cy;
+		int _pad0;	// Pads to make sizeof this struct a multiple of 16 bytes
+
+		int khi;
+		int i;
+		int jstart;
+		int jhi;
+		int col;
+		int co2;
+		int co3;
+		int sw;
+		int nwt;
+
+	// double data:
+		double maxerr;
+		double scale;
+		double prp_mult;
+
+	// pointer data:
+		double *arrdat;			/* Main data array */
+		double *wt0;
+		double *wt1;
+	#ifdef LOACC
+		double *wts_mult, *inv_mult;
+	#endif
+		int *si;
+	#ifdef USE_SSE2
+		vec_dbl *r00;
+		vec_dbl *half_arr;
+	#else
+		double *r00;
+		double *half_arr;
+	#endif
+
+		int bjmodn00;
+		int bjmodn01;
+		int bjmodn02;
+		int bjmodn03;
+		int bjmodn04;
+		int bjmodn05;
+		int bjmodn06;
+		int bjmodn07;
+		int bjmodn08;
+		int bjmodn09;
+		int bjmodn10;
+		int bjmodn11;
+		/* carries: */
+		double cy00;
+		double cy01;
+		double cy02;
+		double cy03;
+		double cy04;
+		double cy05;
+		double cy06;
+		double cy07;
+		double cy08;
+		double cy09;
+		double cy10;
+		double cy11;
+	};
+
+#endif
+
+/**************/
 
 int radix12_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], double base[], double baseinv[], int iter, double *fracmax, uint64 p)
 {
@@ -30,43 +162,153 @@ int radix12_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !...Acronym: DWT = Discrete Weighted Transform, DIT = Decimation In Time, DIF = Decimation In Frequency
 !
 !...Performs a final radix-12 complex DIT pass, an inverse DWT weighting, a carry propagation,
-!   a forward DWT weighting, and an initial radix-14 complex DIF pass on the data in
-!   the length-N real vector A.
+!   a forward DWT weighting, and an initial radix-12 complex DIF pass on the data in the length-N real vector A.
 !
 !   Data enter and are returned in the A-array.
 !
 !   See the documentation in mers_mod_square and radix16_dif_pass for further details on the array
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
-	int n12,bjmodn0,bjmodn1,bjmodn2,bjmodn3,bjmodn4,bjmodn5,bjmodn6,bjmodn7,bjmodn8,bjmodn9,bjmodn10
-		,bjmodn11,i,j,j1,j2,jstart,jhi,iroot,root_incr,k,khi,l,outer;
-	static uint64 psave = 0;
-	static uint32 bw,sw,bjmodnini,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11, nsave = 0;
-	const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
-	static double c = .86602540378443864676, c4m1 = -1.5, radix_inv, n2inv;
-	double rt,it
-		,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24
-		,aj1p0r,aj1p1r,aj1p2r,aj1p3r,aj1p4r,aj1p5r,aj1p6r,aj1p7r,aj1p8r,aj1p9r,aj1p10r,aj1p11r
-		,aj1p0i,aj1p1i,aj1p2i,aj1p3i,aj1p4i,aj1p5i,aj1p6i,aj1p7i,aj1p8i,aj1p9i,aj1p10i,aj1p11i
-		,cy0,cy1,cy2,cy3,cy4,cy5,cy6,cy7,cy8,cy9,cy10,cy11,temp,frac,scale;
-	double maxerr = 0.0;
-#if PFETCH
-	double *add0, *addr;
+	static	int NDIVR;
+	const int pfetch_dist = PFETCH_DIST;
+	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
+#ifdef USE_SSE2
+	const int sz_vd = sizeof(vec_dbl);
+	// lg(sizeof(vec_dbl)):
+  #ifdef USE_AVX
+	const int l2_sz_vd = 5;
+  #else
+	const int l2_sz_vd = 4;
+  #endif
+#else
+	const int l2_sz_vd = 3;
 #endif
+	int i,j,j1,j2,jstart,jhi,full_pass,k,khi,l,outer,nbytes;
+	// Jun 2018: Add support for residue shift. (Only LL-test needs intervention at carry-loop level).
+	int target_idx = -1, target_set,tidx_mod_stride;
+	double target_cy;
+	static double ndivr_inv;
+	uint64 itmp64;
+	static uint64 psave = 0;
+  #ifdef LOACC
+	static double wts_mult[2], inv_mult[2];	// Const wts-multiplier and 2*(its multiplicative inverse)
+  #endif
+	double wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
+	static uint32 bw,sw,bjmodnini,p1,p2,p3,p4,p8, nsave = 0;
+	static int poff[RADIX>>2];	// Store [RADIX/4] mults of p4 offset for loop control
+	const double	c3m1= -1.50000000000000000000,	/* cos(twopi/3)-1	*/
+					s   =  0.86602540378443864675;	/* sin(twopi/3)		*/
+	static double radix_inv, n2inv;
+	double rt,it,scale
+		,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11;
+	double dtmp, maxerr = 0.0;
+	int *itmp;	// Pointer into the bjmodn array
 	int err;
 	static int first_entry=TRUE;
 
 /*...stuff for the reduced-length DWT weights array is here:	*/
 	int n_div_nwt;
-	int col,co2,co3,m,m2,n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
-	double wt,wtinv,wtl,wtlp1,wtn,wtnm1,wtA,wtB,wtC;
-	double wt_re,wt_im, wi_re,wi_im;					/* Fermat/LOACC weights stuff */
+	int col,co2,co3;
+  #ifdef USE_AVX
+	static struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+  #else
+	int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
+	double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
+  #endif
 
-/*...change n12 and n_div_wt to non-static to work around a gcc compiler bug. */
-	n12   = n/12;
-	n_div_nwt = n12 >> nwt_bits;
+#ifdef USE_SSE2
 
-	if((n_div_nwt << nwt_bits) != n12)
+  #ifndef COMPILER_TYPE_GCC
+	#error x86 SIMD build requires GCC-compatible compiler!
+  #endif
+
+	static int cslots_in_local_store;
+	static vec_dbl *sc_arr = 0x0, *sc_ptr;
+	static uint64 *sm_ptr, *sign_mask, *sse_bw, *sse_sw, *sse_n;
+	uint64 tmp64;
+
+  #ifdef MULTITHREAD
+	static vec_dbl *__r0;	// Base address for discrete per-thread local stores
+  #else
+	double *addr, *add0,*add1,*add2,*add3;	/* Addresses into array sections */
+  #endif
+
+	const double crnd = 3.0*0x4000000*0x2000000;
+	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
+	static vec_dbl *cc0, *cc3, *max_err, *sse2_rnd, *half_arr, *tmp,*tm1,*tm2, *two
+		,*r00,*r01,*r02,*r03,*r04,*r05,*r06,*r07,*r08,*r09,*r10,*r11
+		,*s1p00,*s1p01,*s1p02,*s1p03,*s1p04,*s1p05,*s1p06,*s1p07,*s1p08,*s1p09,*s1p10,*s1p11;
+
+	static int *bjmodn00,*bjmodn01,*bjmodn02,*bjmodn03,*bjmodn04,*bjmodn05,*bjmodn06,*bjmodn07,*bjmodn08,*bjmodn09,*bjmodn10,*bjmodn11;
+	static vec_dbl *cy00,*cy04,*cy08;
+  #ifndef USE_AVX
+	static vec_dbl *cy02,*cy06,*cy10;
+  #endif
+
+#endif
+
+#ifdef MULTITHREAD
+
+	static struct cy_thread_data_t *tdat = 0x0;
+	// Threadpool-based dispatch stuff:
+	static int main_work_units = 0, pool_work_units = 0;
+	static struct threadpool *tpool = 0x0;
+	static int task_is_blocking = TRUE;
+	static thread_control_t thread_control = {0,0,0};
+	// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
+	static task_control_t   task_control = {NULL, (void*)cy12_process_chunk, NULL, 0x0};
+
+#elif !defined(USE_SSE2)
+
+	// Vars needed in scalar mode only:
+  #if PFETCH
+	double *addr, *addp;
+  #endif
+	const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
+	double wt,wtinv,wtA,wtB,wtC;
+	int jt,jp,m,m2;
+	int bjmodn00,bjmodn01,bjmodn02,bjmodn03,bjmodn04,bjmodn05,bjmodn06,bjmodn07,bjmodn08,bjmodn09,bjmodn10,bjmodn11,bjmodn12,bjmodn13,bjmodn14,bjmodn15,bjmodn16,bjmodn17,bjmodn18,bjmodn19;
+	double t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23;
+	double temp,frac
+		,a1p00r,a1p01r,a1p02r,a1p03r,a1p04r,a1p05r,a1p06r,a1p07r,a1p08r,a1p09r,a1p10r,a1p11r
+		,a1p00i,a1p01i,a1p02i,a1p03i,a1p04i,a1p05i,a1p06i,a1p07i,a1p08i,a1p09i,a1p10i,a1p11i
+		,cy00,cy01,cy02,cy03,cy04,cy05,cy06,cy07,cy08,cy09,cy10,cy11;
+#endif
+
+/*...stuff for the multithreaded implementation is here:	*/
+	static uint32 CY_THREADS,pini;
+	int ithread;
+	uint32 ptr_prod;
+	static int *_bjmodn00 = 0x0,*_bjmodn01 = 0x0,*_bjmodn02 = 0x0,*_bjmodn03 = 0x0,*_bjmodn04 = 0x0,*_bjmodn05 = 0x0,*_bjmodn06 = 0x0,*_bjmodn07 = 0x0,*_bjmodn08 = 0x0,*_bjmodn09 = 0x0,*_bjmodn10 = 0x0,*_bjmodn11 = 0x0;
+	static int *_bjmodnini = 0x0;
+	static int *_i, *_jstart = 0x0, *_jhi = 0x0, *_col = 0x0, *_co2 = 0x0, *_co3 = 0x0;
+	static double
+	*_cy00 = 0x0,*_cy01 = 0x0,*_cy02 = 0x0,*_cy03 = 0x0,*_cy04 = 0x0,*_cy05 = 0x0,*_cy06 = 0x0,*_cy07 = 0x0,*_cy08 = 0x0,*_cy09 = 0x0,*_cy10 = 0x0,*_cy11 = 0x0;
+
+  #ifdef USE_AVX512
+	WARN(HERE, "radix12_ditN_cy_dif1: No AVX-512 support; Skipping this leading radix.", "", 1); return(ERR_RADIX0_UNAVAILABLE);
+  #endif
+
+	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
+	{
+		ASSERT(HERE, 0, "radix12_ditN_cy_dif1: Fermat-mod only available for radices 7,8,9,15 and their multiples!");
+	}
+
+	// Init these to get rid of GCC "may be used uninitialized in this function" warnings:
+	col=co2=co3=-1;
+	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
+	double prp_mult = 1.0;
+	if((TEST_TYPE & 0xfffffffe) == TEST_TYPE_PRP) {	// Mask off low bit to lump together PRP and PRP-C tests
+		i = (iter % ITERS_BETWEEN_CHECKPOINTS) - 1;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
+		if((BASE_MULTIPLIER_BITS[i>>6] >> (i&63)) & 1)
+			prp_mult = PRP_BASE;
+	}
+
+/*...change NDIVR and n_div_wt to non-static to work around a gcc compiler bug. */
+	NDIVR   = n/RADIX;	ndivr_inv = (double)RADIX/n;
+	n_div_nwt = NDIVR >> nwt_bits;
+
+	if((n_div_nwt << nwt_bits) != NDIVR)
 	{
 		sprintf(cbuf,"FATAL: iter = %10d; NWT_BITS does not divide N/12 in radix12_ditN_cy_dif1.\n",iter);
 		if(INTERACT)fprintf(stderr,"%s",cbuf);
@@ -84,443 +326,1068 @@ int radix12_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		first_entry=TRUE;
 	}
 
-/*...initialize things upon first entry	*/
+/*...initialize things upon first entry: */
 
 	if(first_entry)
 	{
 		psave = p;	nsave = n;
-		first_entry=FALSE;
-		radix_inv = qfdbl(qf_rational_quotient((int64)1, (int64)12));
+		radix_inv = qfdbl(qf_rational_quotient((int64)1, (int64)RADIX));
 		n2inv     = qfdbl(qf_rational_quotient((int64)1, (int64)(n/2)));
 
-		bw    = p%n;		/* Number of bigwords in the Crandall/Fagin mixed-radix representation = (Mersenne exponent) mod (vector length).	*/
+		bw    = p%n;	/* Number of bigwords in the Crandall/Fagin mixed-radix representation = (Mersenne exponent) mod (vector length).	*/
 		sw    = n - bw;	/* Number of smallwords.	*/
 
-/*   constant index offsets for array load/stores are here.	*/
+	#ifdef LOACC
 
-		p1 = n12;
-		p2 = p1 +p1;
-		p3 = p2 +p1;
-		p4 = p3 +p1;
-		p5 = p4 +p1;
-		p6 = p5 +p1;
-		p7 = p6 +p1;
-		p8 = p7 +p1;
-		p9 = p8 +p1;
-		p10= p9 +p1;
-		p11= p10+p1;
+	  #ifdef USE_SSE2	// For this small radix, all vector modes use 4-way carry macros
+		i = 4;
+	  #else	// Scalar-double mode:
+		i = 1;
+	  #endif
+
+		// For n a power of 2 don't need to worry about 32-bit integer overflow in the sw*NDIVR term,
+		// but for non-power-of-2 n we must cast-to-uint64 to avoid such overflows fubaring the result:
+		struct qfloat qt,qn;
+		qt = i64_to_q(i*(uint64)sw*NDIVR % n);
+		qn = i64_to_q((int64) n);
+		qt = qfdiv(qt, qn);		// x = (sw*NDIVR (mod n))/n
+		qt = qfmul(qt, QLN2);	// x*ln(2)...
+		qt = qfexp(qt);			// ...and get 2^x via exp[x*ln(2)].
+		wts_mult[0] = qfdbl(qt);		// a = 2^(x/n), with x = sw
+		inv_mult[0] = qfdbl(qfinv(qt));	// Double-based inversion (1.0 / wts_mult_a[0]) often gets LSB wrong
+		ASSERT(HERE,fabs(wts_mult[0]*inv_mult[0] - 1.0) < EPS, "wts_mults fail accuracy check!");
+		//curr have w, 2/w, separate-mul-by-1-or-0.5 gives [w,w/2] and [1/w,2/w] for i = 0,1, resp:
+		wts_mult[1] = 0.5*wts_mult[0];
+		inv_mult[1] = 2.0*inv_mult[0];
+		ASSERT(HERE,fabs(wts_mult[1]*inv_mult[1] - 1.0) < EPS, "wts_mults fail accuracy check!");
+
+	#endif
+
+	#ifdef MULTITHREAD
+
+		/* #Chunks ||ized in carry step is ideally a power of 2, so use the largest
+		power of 2 that is <= the value of the global NTHREADS (but still <= MAX_THREADS):
+		*/
+		if(isPow2(NTHREADS))
+			CY_THREADS = NTHREADS;
+		else
+		{
+			i = leadz32(NTHREADS);
+			CY_THREADS = (((uint32)NTHREADS << i) & 0x80000000) >> i;
+		}
+
+		if(CY_THREADS > MAX_THREADS)
+		{
+		//	CY_THREADS = MAX_THREADS;
+			fprintf(stderr,"WARN: CY_THREADS = %d exceeds number of cores = %d\n", CY_THREADS, MAX_THREADS);
+		}
+		if(!isPow2(CY_THREADS))		{ WARN(HERE, "CY_THREADS not a power of 2!", "", 1); return(ERR_ASSERT); }
+		if(CY_THREADS > 1)
+		{
+			if(NDIVR    %CY_THREADS != 0) { WARN(HERE, "NDIVR    %CY_THREADS != 0", "", 1); return(ERR_ASSERT); }
+			if(n_div_nwt%CY_THREADS != 0) { WARN(HERE, "n_div_nwt%CY_THREADS != 0", "", 1); return(ERR_ASSERT); }
+		}
+
+	  #ifdef USE_PTHREAD
+		if(tdat == 0x0) {
+			j = (uint32)sizeof(struct cy_thread_data_t);
+			tdat = (struct cy_thread_data_t *)calloc(CY_THREADS, sizeof(struct cy_thread_data_t));
+
+			// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
+			// so on that platform try to be clever and interleave main-thread and threadpool-work processing
+			#if 0//def OS_TYPE_MACOSX
+
+				if(CY_THREADS > 1) {
+					main_work_units = CY_THREADS/2;
+					pool_work_units = CY_THREADS - main_work_units;
+					ASSERT(HERE, 0x0 != (tpool = threadpool_init(pool_work_units, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
+					printf("radix%d_ditN_cy_dif1: Init threadpool of %d threads\n", RADIX, pool_work_units);
+				} else {
+					main_work_units = 1;
+					printf("radix%d_ditN_cy_dif1: CY_THREADS = 1: Using main execution thread, no threadpool needed.\n", RADIX);
+				}
+
+			#else
+
+				pool_work_units = CY_THREADS;
+				ASSERT(HERE, 0x0 != (tpool = threadpool_init(CY_THREADS, MAX_THREADS, CY_THREADS, &thread_control)), "threadpool_init failed!");
+
+			#endif
+
+			fprintf(stderr,"Using %d threads in carry step\n", CY_THREADS);
+		}
+	  #endif
+
+	#else
+		CY_THREADS = 1;
+	#endif
+
+	#ifdef USE_PTHREAD
+		/* Populate the elements of the thread-specific data structs which don't change after init: */
+		for(ithread = 0; ithread < CY_THREADS; ithread++)
+		{
+			tdat[ithread].iter = iter;
+		// int data:
+			tdat[ithread].tid = ithread;
+			tdat[ithread].ndivr = NDIVR;
+
+			tdat[ithread].sw  = sw;
+			tdat[ithread].nwt = nwt;
+
+		// pointer data:
+		//	tdat[ithread].arrdat = a;			/* Main data array */
+			tdat[ithread].wt0 = wt0;
+			tdat[ithread].wt1 = wt1;
+		#ifdef LOACC
+			tdat[ithread].wts_mult = wts_mult;
+			tdat[ithread].inv_mult = inv_mult;
+		#endif
+			tdat[ithread].si  = si;
+		}
+	#endif
+
+	#ifdef USE_SSE2
+
+		ASSERT(HERE, ((long)wt0    & 0x3f) == 0, "wt0[]  not 64-byte aligned!");
+		ASSERT(HERE, ((long)wt1    & 0x3f) == 0, "wt1[]  not 64-byte aligned!");
+
+		// Use double-complex type size (16 bytes) to alloc a block of local storage
+		// consisting of 88 dcomplex and (12+RADIX/2) uint64 element slots per thread
+		// (Add as many padding elts to the latter as needed to make it a multiple of 4):
+		cslots_in_local_store = radix12_creals_in_local_store + (((12+RADIX/2)/2 + 3) & ~0x3);
+		sc_arr = ALLOC_VEC_DBL(sc_arr, cslots_in_local_store*CY_THREADS);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_ptr = ALIGN_VEC_DBL(sc_arr);
+		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
+		sm_ptr = (uint64*)(sc_ptr + radix12_creals_in_local_store);
+		ASSERT(HERE, ((long)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
+
+	/* Use low 48 16-byte slots of sc_arr for temporaries, next 2 for the nontrivial complex roots,
+	next 6 for the doubled carry pairs, next 2 for ROE and RND_CONST, next 20 for the half_arr table lookup stuff,
+	plus at least 3 more slots to allow for 64-byte alignment of the array:
+	*/
+	#ifdef USE_PTHREAD
+		__r0 = sc_ptr;
+	#endif
+	#ifdef USE_AVX
+									tmp	= sc_ptr + 0x18;
+		r00	= sc_ptr + 0x00;		s1p00 = tmp + 0x00;		two     = tmp + 0x18;
+		r01	= sc_ptr + 0x02;		s1p01 = tmp + 0x02;		cc3     = tmp + 0x19;
+		r02	= sc_ptr + 0x04;		s1p02 = tmp + 0x04;		cc0     = tmp + 0x1a;
+		r03	= sc_ptr + 0x06;		s1p03 = tmp + 0x06;		cy00    = tmp + 0x1b;
+		r04	= sc_ptr + 0x08;		s1p04 = tmp + 0x08;		cy04    = tmp + 0x1c;
+		r05	= sc_ptr + 0x0a;		s1p05 = tmp + 0x0a;		cy08    = tmp + 0x1d;
+		r06	= sc_ptr + 0x0c;		s1p06 = tmp + 0x0c;
+		r07	= sc_ptr + 0x0e;		s1p07 = tmp + 0x0e;
+		r08	= sc_ptr + 0x10;		s1p08 = tmp + 0x10;
+		r09	= sc_ptr + 0x12;		s1p09 = tmp + 0x12;		max_err = tmp + 0x1e;
+		r10	= sc_ptr + 0x14;		s1p10 = tmp + 0x14;		sse2_rnd= tmp + 0x1f;
+		r11	= sc_ptr + 0x16;		s1p11 = tmp + 0x16;		half_arr= tmp + 0x20;	/* This table needs 20x16 bytes */
+																// half_ar = sc_ptr + 0x38; This is where the value of half_arr_offset12 comes from
+	#else
+									tmp	= sc_ptr + 0x18;
+		r00	= sc_ptr + 0x00;		s1p00 = tmp + 0x00;		two     = tmp + 0x18;
+		r01	= sc_ptr + 0x02;		s1p01 = tmp + 0x02;		cc3     = tmp + 0x19;
+		r02	= sc_ptr + 0x04;		s1p02 = tmp + 0x04;		cc0     = tmp + 0x1a;
+		r03	= sc_ptr + 0x06;		s1p03 = tmp + 0x06;		cy00    = tmp + 0x1b;
+		r04	= sc_ptr + 0x08;		s1p04 = tmp + 0x08;		cy02    = tmp + 0x1c;
+		r05	= sc_ptr + 0x0a;		s1p05 = tmp + 0x0a;		cy04    = tmp + 0x1d;
+		r06	= sc_ptr + 0x0c;		s1p06 = tmp + 0x0c;		cy06    = tmp + 0x1e;
+		r07	= sc_ptr + 0x0e;		s1p07 = tmp + 0x0e;		cy08    = tmp + 0x1f;
+		r08	= sc_ptr + 0x10;		s1p08 = tmp + 0x10;		cy10    = tmp + 0x20;
+		r09	= sc_ptr + 0x12;		s1p09 = tmp + 0x12;		max_err = tmp + 0x21;
+		r10	= sc_ptr + 0x14;		s1p10 = tmp + 0x14;		sse2_rnd= tmp + 0x22;
+		r11	= sc_ptr + 0x16;		s1p11 = tmp + 0x16;		half_arr= tmp + 0x23;	/* This table needs 20x16 bytes */
+																// half_arr = sc_ptr + 0x3b; This is where the value of half_arr_offset12 comes from
+	#endif
+		/* These remain fixed: */
+		VEC_DBL_INIT(two, 2.0);
+		VEC_DBL_INIT(cc3  , c3m1 );
+		VEC_DBL_INIT(cc0  , s    );
+		VEC_DBL_INIT(sse2_rnd,crnd);
+
+		// Propagate the above consts to the remaining threads:
+		nbytes = (long)cc0 - (long)two + sz_vd;	// #bytes in above sincos block of data
+		tmp = two;
+		tm2 = tmp + cslots_in_local_store;
+		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
+			memcpy(tm2, tmp, nbytes);
+			tmp = tm2;		tm2 += cslots_in_local_store;
+		}
+		nbytes = sz_vd;	// sse2_rnd is a solo (in the SIMD-vector) datum
+		tmp = sse2_rnd;
+		tm2 = tmp + cslots_in_local_store;
+		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
+			memcpy(tm2, tmp, nbytes);
+			tmp = tm2;		tm2 += cslots_in_local_store;
+		}
+
+		/* SSE2 version of the one_half array - we have a 2-bit lookup, low bit is from the low word of the carry pair,
+		high bit from the high, i.e. based on this lookup index [listed with LSB at right], we have:
+
+			index	half_lo	half_hi
+			00		1.0		1.0
+			01		.50		1.0
+			10		1.0		.50
+			11		.50		.50
+
+		The inverse-weights computation uses a similar table, but with all entries multiplied by .50:
+
+			index2	half_lo	half_hi
+			00		.50		.50
+			01		.25		.50
+			10		.50		.25
+			11		.25		.25
+
+		We do similarly for the base[] and baseinv[] table lookups - each of these get 4 further slots in half_arr.
+		We also allocate a further 4 16-byte slots [uninitialized] for storage of the wtl,wtn,wtlp1,wtnm1 locals.
+		*/
+		tmp = half_arr;
+
+	#ifdef USE_AVX
+
+		/* Forward-weight multipliers: */
+		tmp->d0 = 1.0;	tmp->d1 = 1.0;	tmp->d2 = 1.0;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = 1.0;	tmp->d2 = 1.0;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = 1.0;	tmp->d1 = .50;	tmp->d2 = 1.0;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = 1.0;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = 1.0;	tmp->d1 = 1.0;	tmp->d2 = .50;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = 1.0;	tmp->d2 = .50;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = 1.0;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = 1.0;	++tmp;
+		tmp->d0 = 1.0;	tmp->d1 = 1.0;	tmp->d2 = 1.0;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = 1.0;	tmp->d2 = 1.0;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = 1.0;	tmp->d1 = .50;	tmp->d2 = 1.0;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = 1.0;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = 1.0;	tmp->d1 = 1.0;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = 1.0;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = 1.0;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;
+		/* Inverse-weight multipliers (only needed for mersenne-mod): */
+		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .25;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .25;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .25;	tmp->d1 = .25;	tmp->d2 = .50;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = .25;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .25;	tmp->d1 = .50;	tmp->d2 = .25;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .25;	tmp->d2 = .25;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .25;	tmp->d1 = .25;	tmp->d2 = .25;	tmp->d3 = .50;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = .25;	++tmp;
+		tmp->d0 = .25;	tmp->d1 = .50;	tmp->d2 = .50;	tmp->d3 = .25;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .25;	tmp->d2 = .50;	tmp->d3 = .25;	++tmp;
+		tmp->d0 = .25;	tmp->d1 = .25;	tmp->d2 = .50;	tmp->d3 = .25;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .50;	tmp->d2 = .25;	tmp->d3 = .25;	++tmp;
+		tmp->d0 = .25;	tmp->d1 = .50;	tmp->d2 = .25;	tmp->d3 = .25;	++tmp;
+		tmp->d0 = .50;	tmp->d1 = .25;	tmp->d2 = .25;	tmp->d3 = .25;	++tmp;
+		tmp->d0 = .25;	tmp->d1 = .25;	tmp->d2 = .25;	tmp->d3 = .25;	++tmp;
+		/* Forward-base[] multipliers: */
+		tmp->d0 = base   [0];	tmp->d1 = base   [0];	tmp->d2 = base   [0];	tmp->d3 = base   [0];	++tmp;
+		tmp->d0 = base   [1];	tmp->d1 = base   [0];	tmp->d2 = base   [0];	tmp->d3 = base   [0];	++tmp;
+		tmp->d0 = base   [0];	tmp->d1 = base   [1];	tmp->d2 = base   [0];	tmp->d3 = base   [0];	++tmp;
+		tmp->d0 = base   [1];	tmp->d1 = base   [1];	tmp->d2 = base   [0];	tmp->d3 = base   [0];	++tmp;
+		tmp->d0 = base   [0];	tmp->d1 = base   [0];	tmp->d2 = base   [1];	tmp->d3 = base   [0];	++tmp;
+		tmp->d0 = base   [1];	tmp->d1 = base   [0];	tmp->d2 = base   [1];	tmp->d3 = base   [0];	++tmp;
+		tmp->d0 = base   [0];	tmp->d1 = base   [1];	tmp->d2 = base   [1];	tmp->d3 = base   [0];	++tmp;
+		tmp->d0 = base   [1];	tmp->d1 = base   [1];	tmp->d2 = base   [1];	tmp->d3 = base   [0];	++tmp;
+		tmp->d0 = base   [0];	tmp->d1 = base   [0];	tmp->d2 = base   [0];	tmp->d3 = base   [1];	++tmp;
+		tmp->d0 = base   [1];	tmp->d1 = base   [0];	tmp->d2 = base   [0];	tmp->d3 = base   [1];	++tmp;
+		tmp->d0 = base   [0];	tmp->d1 = base   [1];	tmp->d2 = base   [0];	tmp->d3 = base   [1];	++tmp;
+		tmp->d0 = base   [1];	tmp->d1 = base   [1];	tmp->d2 = base   [0];	tmp->d3 = base   [1];	++tmp;
+		tmp->d0 = base   [0];	tmp->d1 = base   [0];	tmp->d2 = base   [1];	tmp->d3 = base   [1];	++tmp;
+		tmp->d0 = base   [1];	tmp->d1 = base   [0];	tmp->d2 = base   [1];	tmp->d3 = base   [1];	++tmp;
+		tmp->d0 = base   [0];	tmp->d1 = base   [1];	tmp->d2 = base   [1];	tmp->d3 = base   [1];	++tmp;
+		tmp->d0 = base   [1];	tmp->d1 = base   [1];	tmp->d2 = base   [1];	tmp->d3 = base   [1];	++tmp;
+		/* Inverse-base[] multipliers: */
+		tmp->d0 = baseinv[0];	tmp->d1 = baseinv[0];	tmp->d2 = baseinv[0];	tmp->d3 = baseinv[0];	++tmp;
+		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[0];	tmp->d2 = baseinv[0];	tmp->d3 = baseinv[0];	++tmp;
+		tmp->d0 = baseinv[0];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[0];	tmp->d3 = baseinv[0];	++tmp;
+		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[0];	tmp->d3 = baseinv[0];	++tmp;
+		tmp->d0 = baseinv[0];	tmp->d1 = baseinv[0];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[0];	++tmp;
+		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[0];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[0];	++tmp;
+		tmp->d0 = baseinv[0];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[0];	++tmp;
+		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[0];	++tmp;
+		tmp->d0 = baseinv[0];	tmp->d1 = baseinv[0];	tmp->d2 = baseinv[0];	tmp->d3 = baseinv[1];	++tmp;
+		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[0];	tmp->d2 = baseinv[0];	tmp->d3 = baseinv[1];	++tmp;
+		tmp->d0 = baseinv[0];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[0];	tmp->d3 = baseinv[1];	++tmp;
+		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[0];	tmp->d3 = baseinv[1];	++tmp;
+		tmp->d0 = baseinv[0];	tmp->d1 = baseinv[0];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
+		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[0];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
+		tmp->d0 = baseinv[0];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
+		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
+		// In LOACC mode, put wts_mult and their inverses in the first 32 slots below in place of the 1/2-stuff:
+	  #ifdef LOACC
+		/* wts_mult:*/
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[0];	++tmp;
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[1];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[1];	++tmp;
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[1];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[1];	++tmp;
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[1];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[1];	++tmp;
+		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[1];	++tmp;
+		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[1];	tmp->d2 = wts_mult[1];	tmp->d3 = wts_mult[1];	++tmp;
+		/* inv_mult: */
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[0];	++tmp;
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[1];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[1];	++tmp;
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[1];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[0];	tmp->d3 = inv_mult[1];	++tmp;
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
+		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
+		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
+		nbytes = 96 << l2_sz_vd;
+	  #else
+		nbytes = 64 << l2_sz_vd;
+	  #endif
+
+	#elif defined(USE_SSE2)
+
+		ctmp = (struct complex *)tmp;
+		/* Forward-weight multipliers: */
+		ctmp->re = 1.0;	ctmp->im = 1.0;	++ctmp;
+		ctmp->re = .50;	ctmp->im = 1.0;	++ctmp;
+		ctmp->re = 1.0;	ctmp->im = .50;	++ctmp;
+		ctmp->re = .50;	ctmp->im = .50;	++ctmp;
+		/* Inverse-weight multipliers (only needed for mersenne-mod): */
+		ctmp->re = .50;	ctmp->im = .50;	++ctmp;
+		ctmp->re = .25;	ctmp->im = .50;	++ctmp;
+		ctmp->re = .50;	ctmp->im = .25;	++ctmp;
+		ctmp->re = .25;	ctmp->im = .25;	++ctmp;
+		/* Forward-base[] multipliers: */
+		ctmp->re = base   [0];	ctmp->im = base   [0];	++ctmp;
+		ctmp->re = base   [1];	ctmp->im = base   [0];	++ctmp;
+		ctmp->re = base   [0];	ctmp->im = base   [1];	++ctmp;
+		ctmp->re = base   [1];	ctmp->im = base   [1];	++ctmp;
+		/* Inverse-base[] multipliers: */
+		ctmp->re = baseinv[0];	ctmp->im = baseinv[0];	++ctmp;
+		ctmp->re = baseinv[1];	ctmp->im = baseinv[0];	++ctmp;
+		ctmp->re = baseinv[0];	ctmp->im = baseinv[1];	++ctmp;
+		ctmp->re = baseinv[1];	ctmp->im = baseinv[1];	++ctmp;
+		// In LOACC mode, put wts_mult and their inverses in the first 8 slots below in place of the 1/2-stuff:
+	  #ifdef LOACC
+		/* wts_mult:*/
+		ctmp->re = wts_mult[0];	ctmp->im = wts_mult[0];	++ctmp;
+		ctmp->re = wts_mult[1];	ctmp->im = wts_mult[0];	++ctmp;
+		ctmp->re = wts_mult[0];	ctmp->im = wts_mult[1];	++ctmp;
+		ctmp->re = wts_mult[1];	ctmp->im = wts_mult[1];	++ctmp;
+		/* inv_mult:*/
+		ctmp->re = inv_mult[0];	ctmp->im = inv_mult[0];	++ctmp;
+		ctmp->re = inv_mult[1];	ctmp->im = inv_mult[0];	++ctmp;
+		ctmp->re = inv_mult[0];	ctmp->im = inv_mult[1];	++ctmp;
+		ctmp->re = inv_mult[1];	ctmp->im = inv_mult[1];	++ctmp;
+		nbytes = 24 << l2_sz_vd;
+	  #else
+		nbytes = 16 << l2_sz_vd;
+	  #endif
+
+	#endif
+
+		// Propagate the above consts to the remaining threads:
+		tmp = half_arr;
+		tm2 = tmp + cslots_in_local_store;
+		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
+			memcpy(tm2, tmp, nbytes);
+			tmp = tm2;		tm2 += cslots_in_local_store;
+		}
+
+		/* Floating-point sign mask used for FABS on packed doubles: */
+		sign_mask = sm_ptr;
+		for(i = 0; i < RE_IM_STRIDE; ++i) {
+			*(sign_mask+i) = (uint64)0x7FFFFFFFFFFFFFFFull;
+		}
+		// Set up the SIMD-tupled-32-bit-int SSE constants used by the carry macros:
+		sse_bw  = sm_ptr + RE_IM_STRIDE;	// (#doubles in a SIMD complex) x 32-bits = RE_IM_STRIDE x 64-bits
+		tmp64 = (uint64)bw;
+		tmp64 = tmp64 + (tmp64 << 32);
+		for(i = 0; i < RE_IM_STRIDE; ++i) {
+			*(sse_bw+i) = tmp64;
+		}
+
+		sse_sw  = sse_bw + RE_IM_STRIDE;
+		tmp64 = (uint64)sw;
+		tmp64 = tmp64 + (tmp64 << 32);
+		for(i = 0; i < RE_IM_STRIDE; ++i) {
+			*(sse_sw+i) = tmp64;
+		}
+
+		sse_n   = sse_sw + RE_IM_STRIDE;
+		tmp64 = (uint64)n;
+		tmp64 = tmp64 + (tmp64 << 32);
+		for(i = 0; i < RE_IM_STRIDE; ++i) {
+			*(sse_n +i) = tmp64;
+		}
+
+		nbytes = 4 << l2_sz_vd;
+
+	#ifdef USE_AVX
+		n_minus_sil   = (struct uint32x4 *)sse_n + 1;
+		n_minus_silp1 = (struct uint32x4 *)sse_n + 2;
+		sinwt         = (struct uint32x4 *)sse_n + 3;
+		sinwtm1       = (struct uint32x4 *)sse_n + 4;
+		nbytes += 64;
+	#endif
+
+		// Propagate the above consts to the remaining threads:
+		tmp = (vec_dbl *)sm_ptr;
+		tm2 = tmp + cslots_in_local_store;
+		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
+			memcpy(tm2, tmp, nbytes);
+			tmp = tm2;		tm2 += cslots_in_local_store;
+		}
+
+	#ifdef USE_AVX
+		bjmodn00 = (int*)(sinwtm1 + RE_IM_STRIDE);
+	#else
+		bjmodn00 = (int*)(sse_n   + RE_IM_STRIDE);
+	#endif
+		bjmodn01 = bjmodn00 + 1;
+		bjmodn02 = bjmodn01 + 1;
+		bjmodn03 = bjmodn02 + 1;
+		bjmodn04 = bjmodn03 + 1;
+		bjmodn05 = bjmodn04 + 1;
+		bjmodn06 = bjmodn05 + 1;
+		bjmodn07 = bjmodn06 + 1;
+		bjmodn08 = bjmodn07 + 1;
+		bjmodn09 = bjmodn08 + 1;
+		bjmodn10 = bjmodn09 + 1;
+		bjmodn11 = bjmodn10 + 1;
+
+	#endif	// USE_SSE2
+
+	#ifdef USE_PTHREAD
+		/* Populate the elements of the thread-specific data structs which don't change after init: */
+		for(ithread = 0; ithread < CY_THREADS; ithread++)
+		{
+		#ifdef USE_SSE2
+			tdat[ithread].r00 = __r0 + ithread*cslots_in_local_store;
+			tdat[ithread].half_arr = (vec_dbl *)((long)tdat[ithread].r00 + ((long)half_arr - (long)r00));
+		#else	// In scalar mode use these 2 ptrs to pass the base & baseinv arrays:
+			tdat[ithread].r00      = (double *)base;
+			tdat[ithread].half_arr = (double *)baseinv;
+		#endif	// USE_SSE2
+		}
+	#endif
+
+	/*   constant index offsets for array load/stores are here.	*/
+		pini = NDIVR/CY_THREADS;
+		p1 = NDIVR;
+		p2 = p1 + p1;
+		p3 = p2 + p1;
+		p4 = p3 + p1;
+		p8 = p4 + p4;
 
 		p1 = p1 + ( (p1 >> DAT_BITS) << PAD_BITS );
 		p2 = p2 + ( (p2 >> DAT_BITS) << PAD_BITS );
 		p3 = p3 + ( (p3 >> DAT_BITS) << PAD_BITS );
 		p4 = p4 + ( (p4 >> DAT_BITS) << PAD_BITS );
-		p5 = p5 + ( (p5 >> DAT_BITS) << PAD_BITS );
-		p6 = p6 + ( (p6 >> DAT_BITS) << PAD_BITS );
-		p7 = p7 + ( (p7 >> DAT_BITS) << PAD_BITS );
 		p8 = p8 + ( (p8 >> DAT_BITS) << PAD_BITS );
-		p9 = p9 + ( (p9 >> DAT_BITS) << PAD_BITS );
-		p10= p10+ ( (p10>> DAT_BITS) << PAD_BITS );
-		p11= p11+ ( (p11>> DAT_BITS) << PAD_BITS );
 
+		poff[0] =   0; poff[1] = p4; poff[2] = p8;
+
+		if(_cy00)	/* If it's a new exponent of a range test, need to deallocate these. */
+		{
+			free((void *)_i     ); _i      = 0x0;
+
+			free((void *)_bjmodn00); _bjmodn00 = 0x0;
+			free((void *)_bjmodn01); _bjmodn01 = 0x0;
+			free((void *)_bjmodn02); _bjmodn02 = 0x0;
+			free((void *)_bjmodn03); _bjmodn03 = 0x0;
+			free((void *)_bjmodn04); _bjmodn04 = 0x0;
+			free((void *)_bjmodn05); _bjmodn05 = 0x0;
+			free((void *)_bjmodn06); _bjmodn06 = 0x0;
+			free((void *)_bjmodn07); _bjmodn07 = 0x0;
+			free((void *)_bjmodn08); _bjmodn08 = 0x0;
+			free((void *)_bjmodn09); _bjmodn09 = 0x0;
+			free((void *)_bjmodn10); _bjmodn10 = 0x0;
+			free((void *)_bjmodn11); _bjmodn11 = 0x0;
+
+			free((void *)_cy00); _cy00 = 0x0;
+			free((void *)_cy01); _cy01 = 0x0;
+			free((void *)_cy02); _cy02 = 0x0;
+			free((void *)_cy03); _cy03 = 0x0;
+			free((void *)_cy04); _cy04 = 0x0;
+			free((void *)_cy05); _cy05 = 0x0;
+			free((void *)_cy06); _cy06 = 0x0;
+			free((void *)_cy07); _cy07 = 0x0;
+			free((void *)_cy08); _cy08 = 0x0;
+			free((void *)_cy09); _cy09 = 0x0;
+			free((void *)_cy10); _cy10 = 0x0;
+			free((void *)_cy11); _cy11 = 0x0;
+
+			free((void *)_jstart ); _jstart  = 0x0;
+			free((void *)_jhi    ); _jhi     = 0x0;
+			free((void *)_col   ); _col    = 0x0;
+			free((void *)_co2   ); _co2    = 0x0;
+			free((void *)_co3   ); _co3    = 0x0;
+
+			free((void *)_bjmodnini); _bjmodnini = 0x0;
+		}
+
+		ptr_prod = (uint32)0;	/* Store bitmask for allocatable-array ptrs here, check vs 0 after all alloc calls finish */
+		j = CY_THREADS*sizeof(int);
+		_i       	= (int *)malloc(j);	ptr_prod += (uint32)(_i== 0x0);
+		_bjmodn00	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn00== 0x0);
+		_bjmodn01	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn01== 0x0);
+		_bjmodn02	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn02== 0x0);
+		_bjmodn03	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn03== 0x0);
+		_bjmodn04	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn04== 0x0);
+		_bjmodn05	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn05== 0x0);
+		_bjmodn06	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn06== 0x0);
+		_bjmodn07	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn07== 0x0);
+		_bjmodn08	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn08== 0x0);
+		_bjmodn09	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn09== 0x0);
+		_bjmodn10	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn10== 0x0);
+		_bjmodn11	= (int *)malloc(j);	ptr_prod += (uint32)(_bjmodn11== 0x0);
+		_jstart  	= (int *)malloc(j);	ptr_prod += (uint32)(_jstart  == 0x0);
+		_jhi     	= (int *)malloc(j);	ptr_prod += (uint32)(_jhi     == 0x0);
+		_col     	= (int *)malloc(j);	ptr_prod += (uint32)(_col     == 0x0);
+		_co2     	= (int *)malloc(j);	ptr_prod += (uint32)(_co2     == 0x0);
+		_co3     	= (int *)malloc(j);	ptr_prod += (uint32)(_co3     == 0x0);
+
+		j = CY_THREADS*sizeof(double);
+		_cy00	= (double *)malloc(j);	ptr_prod += (uint32)(_cy00== 0x0);
+		_cy01	= (double *)malloc(j);	ptr_prod += (uint32)(_cy01== 0x0);
+		_cy02	= (double *)malloc(j);	ptr_prod += (uint32)(_cy02== 0x0);
+		_cy03	= (double *)malloc(j);	ptr_prod += (uint32)(_cy03== 0x0);
+		_cy04	= (double *)malloc(j);	ptr_prod += (uint32)(_cy04== 0x0);
+		_cy05	= (double *)malloc(j);	ptr_prod += (uint32)(_cy05== 0x0);
+		_cy06	= (double *)malloc(j);	ptr_prod += (uint32)(_cy06== 0x0);
+		_cy07	= (double *)malloc(j);	ptr_prod += (uint32)(_cy07== 0x0);
+		_cy08	= (double *)malloc(j);	ptr_prod += (uint32)(_cy08== 0x0);
+		_cy09	= (double *)malloc(j);	ptr_prod += (uint32)(_cy09== 0x0);
+		_cy10	= (double *)malloc(j);	ptr_prod += (uint32)(_cy10== 0x0);
+		_cy11	= (double *)malloc(j);	ptr_prod += (uint32)(_cy11== 0x0);
+
+		ASSERT(HERE, ptr_prod == 0, "FATAL: unable to allocate one or more auxiliary arrays in radix12_ditN_cy_dif1.");
+
+		/* Create (THREADS + 1) copies of _bjmodnini and use the extra (uppermost) one to store the "master" increment,
+		i.e. the one that n2/20-separated FFT outputs need:
+		*/
+		_bjmodnini = (int *)malloc((CY_THREADS + 1)*sizeof(int));	if(!_bjmodnini){ sprintf(cbuf,"FATAL: unable to allocate array _bjmodnini in radix12_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		_bjmodnini[0] = 0;
+		_bjmodnini[1] = 0;
+
+		jhi = NDIVR/CY_THREADS;
+
+		for(j=0; j < jhi; j++)
+		{
+			_bjmodnini[1] -= sw; _bjmodnini[1] = _bjmodnini[1] + ( (-(int)((uint32)_bjmodnini[1] >> 31)) & n);
+		}
+
+		if(CY_THREADS > 1)
+		{
+			for(ithread = 2; ithread <= CY_THREADS; ithread++)
+			{
+				_bjmodnini[ithread] = _bjmodnini[ithread-1] + _bjmodnini[1] - n; _bjmodnini[ithread] = _bjmodnini[ithread] + ( (-(int)((uint32)_bjmodnini[ithread] >> 31)) & n);
+			}
+		}
+		/* Check upper element against scalar value, as precomputed in single-thread mode: */
 		bjmodnini=0;
-		for(j=0; j < n12; j++)
+		for(j=0; j < jhi*CY_THREADS; j++)
 		{
 			bjmodnini -= sw; bjmodnini = bjmodnini + ( (-(int)((uint32)bjmodnini >> 31)) & n);
+		}
+		ASSERT(HERE, _bjmodnini[CY_THREADS] == bjmodnini,"_bjmodnini[CY_THREADS] != bjmodnini");
+
+		first_entry=FALSE;
+	}	/* endif(first_entry) */
+
+	// Jun 2018: If LL test and shift applied, compute target index for data-processing loop.
+	// Note that only 1 thread of the carry-processing set will hit the target, but all need the same logic to check for a hit:
+	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRIMALITY) {
+		if(RES_SHIFT) {
+			itmp64 = shift_word(a, n, p, RES_SHIFT, 0.0);	// Note return value (specifically high 7 bytes thereof) is an unpadded index
+			target_idx = (int)(itmp64 >>  8);	// This still needs to be (mod NDIVR)'ed, but first use unmodded form to compute needed DWT weights
+			// Compute wt = 2^(target_idx*sw % n)/n and its reciprocal:
+			uint32 sw_idx_modn = ((uint64)target_idx*sw) % n;	// N is 32-bit, so only use 64-bit to hold intermediate product
+			double target_wtfwd = pow(2.0, sw_idx_modn*0.5*n2inv);	// 0.5*n2inv = 0.5/(n/2) = 1.0/n
+			target_set = target_idx*ndivr_inv;	// Which of the [RADIX] independent sub-carry-chains contains the target index?
+			target_idx -= target_set*NDIVR;		// Fast computation of target_idx = (target_idx % NDIVR)
+			// Now compute the doubles-pointer offset of the target double w.r.to the SIMD s1p00-... data layout:
+			tidx_mod_stride = target_idx & (stride-1);	// Stride a power of 2, so can use AND-minus-1 for mod
+			target_idx -= tidx_mod_stride;
+		//	printf("Iter %d: cy_shift = %d, target_idx,tidx_mod_stride,target_set = %d,%d,%d\n",iter,(itmp64 & 255),target_idx,tidx_mod_stride,target_set);
+		#ifdef USE_AVX512
+			tidx_mod_stride = br16[tidx_mod_stride];
+		#elif defined(USE_AVX)
+			tidx_mod_stride = br8[tidx_mod_stride];
+		#elif defined(USE_SSE2)
+			tidx_mod_stride = br4[tidx_mod_stride];
+		#endif
+			target_set = (target_set<<(l2_sz_vd-2)) + tidx_mod_stride;
+			target_cy  = target_wtfwd * ((int)-2 << (itmp64 & 255));
+		} else {
+			target_idx = target_set = 0;
+			target_cy = -2.0;
 		}
 	}
 
 /*...The radix-12 final DIT pass is here.	*/
 
-	cy0 = 0;		/* init carries	*/
-	cy1 = 0;
-	cy2 = 0;
-	cy3 = 0;
-	cy4 = 0;
-	cy5 = 0;
-	cy6 = 0;
-	cy7 = 0;
-	cy8 = 0;
-	cy9 = 0;
-	cy10= 0;
-	cy11= 0;
-
+	/* init carries	*/
+	for(ithread = 0; ithread < CY_THREADS; ithread++)
+	{
+		_cy00[ithread] = 0;
+		_cy01[ithread] = 0;
+		_cy02[ithread] = 0;
+		_cy03[ithread] = 0;
+		_cy04[ithread] = 0;
+		_cy05[ithread] = 0;
+		_cy06[ithread] = 0;
+		_cy07[ithread] = 0;
+		_cy08[ithread] = 0;
+		_cy09[ithread] = 0;
+		_cy10[ithread] = 0;
+		_cy11[ithread] = 0;
+	}
+  #ifndef USE_SSE2	// Non-SIMD builds don't support shifted-residue, so init LL cy_in as before:
 	/* If an LL test, init the subtract-2: */
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRIMALITY)
 	{
-		cy0 = -2;
+		_cy00[0] = -2;
 	}
-	else
-	{
-		ASSERT(HERE,0,"Radix-12 currently only supports LL test mode!");
-	}
-
+  #endif
 	*fracmax=0;	/* init max. fractional error	*/
-
-	iroot = 0;	/* init sincos array index	*/
-	root_incr = 1;	/* init sincos array index increment (set = 1 for normal carry pass, = 0 for wrapper pass)	*/
-	scale = n2inv;	/* init inverse-weight scale factor  (set = 2/n for normal carry pass, = 1 for wrapper pass)	*/
-
-	jstart = 0;
-	jhi = jstart+nwt-1;
-	khi = n_div_nwt;
+	full_pass = 1;	/* set = 1 for normal carry pass, = 0 for wrapper pass	*/
+	scale = n2inv;	// init inverse-weight scale factor = 2/n for normal carry pass, 1 for wrapper pass
 
 for(outer=0; outer <= 1; outer++)
 {
-	i = 1;		/* Pointer to the BASE and BASEINV arrays. lowest-order digit is always a bigword (i = 1).	*/
+	_i[0] = 1;		/* Pointer to the BASE and BASEINV arrays. If n does not divide p, lowest-order digit is always a bigword (_i[0] = 1).	*/
 
-	bjmodn0 = 0;
-	bjmodn1 = bjmodnini;
-	bjmodn2 = bjmodn1 +bjmodnini-n; bjmodn2 = bjmodn2 + ( (-(int)((uint32)bjmodn2 >> 31)) & n);
-	bjmodn3 = bjmodn2 +bjmodnini-n; bjmodn3 = bjmodn3 + ( (-(int)((uint32)bjmodn3 >> 31)) & n);
-	bjmodn4 = bjmodn3 +bjmodnini-n; bjmodn4 = bjmodn4 + ( (-(int)((uint32)bjmodn4 >> 31)) & n);
-	bjmodn5 = bjmodn4 +bjmodnini-n; bjmodn5 = bjmodn5 + ( (-(int)((uint32)bjmodn5 >> 31)) & n);
-	bjmodn6 = bjmodn5 +bjmodnini-n; bjmodn6 = bjmodn6 + ( (-(int)((uint32)bjmodn6 >> 31)) & n);
-	bjmodn7 = bjmodn6 +bjmodnini-n; bjmodn7 = bjmodn7 + ( (-(int)((uint32)bjmodn7 >> 31)) & n);
-	bjmodn8 = bjmodn7 +bjmodnini-n; bjmodn8 = bjmodn8 + ( (-(int)((uint32)bjmodn8 >> 31)) & n);
-	bjmodn9 = bjmodn8 +bjmodnini-n; bjmodn9 = bjmodn9 + ( (-(int)((uint32)bjmodn9 >> 31)) & n);
-	bjmodn10= bjmodn9 +bjmodnini-n; bjmodn10= bjmodn10+ ( (-(int)((uint32)bjmodn10>> 31)) & n);
-	bjmodn11= bjmodn10+bjmodnini-n; bjmodn11= bjmodn11+ ( (-(int)((uint32)bjmodn11>> 31)) & n);
-
-	col=0;
-	co2=(n >> nwt_bits)-1+12;
-	co3=co2-12;		/* At the start of each new j-loop, co3=co2-radix(1)	*/
-
-	for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
+	if(CY_THREADS > 1)
 	{
-		for(j=jstart; j<jhi; j += 2)	/* Each inner loop execution processes (radix(1)*nwt) array data.	*/
+		for(ithread = 1; ithread < CY_THREADS; ithread++)
 		{
-		#ifdef USE_SSE2
-			j1 = (j & mask01) + br4[j&3];
-			j1 =j1 + ( (j1>> DAT_BITS) << PAD_BITS );
-		#else
-			j1 = j + ( (j >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-		#endif
-			j2 = j1+RE_IM_STRIDE;
+			_i[ithread] = ((uint32)(sw - _bjmodnini[ithread]) >> 31);
+		}
+	}
 
-	/*...Block 1:	*/
-			t1 =a[j1    ];			t2 =a[j2    ];
-			rt =a[j1+p1 ];			it =a[j2+p1 ];
-			t3 =t1 -rt;				t1 =t1 +rt;
-			t4 =t2 -it;				t2 =t2 +it;
-
-			t5 =a[j1+p3 ];			t6 =a[j2+p3 ];
-			rt =a[j1+p2 ];			it =a[j2+p2 ];
-			t7 =t5 -rt;  			t5 =t5 +rt;
-			t8 =t6 -it;  			t6 =t6 +it;
-
-			rt =t5;	t5 =t1 -rt;		t1 =t1 +rt;
-			it =t6;	t6 =t2 -it;		t2 =t2 +it;
-
-			rt =t7;	t7 =t3 -t8;		t3 =t3 +t8;
-					t8 =t4 +rt;		t4 =t4 -rt;
-	/*...Block 2:	*/
-			t9 =a[j1+p6 ];			t10=a[j2+p6 ];
-			rt =a[j1+p7 ];			it =a[j2+p7 ];
-			t11=t9 -rt;				t9 =t9 +rt;
-			t12=t10-it;				t10=t10+it;
-
-			t13=a[j1+p4 ];			t14=a[j2+p4 ];
-			rt =a[j1+p5 ];			it =a[j2+p5 ];
-			t15=t13-rt;  			t13=t13+rt;
-			t16=t14-it;				t14=t14+it;
-
-			rt =t13;	t13=t9 -rt;	t9 =t9 +rt;
-			it =t14;	t14=t10-it;	t10=t10+it;
-
-			rt =t15;	t15=t11-t16;t11=t11+t16;
-						t16=t12+rt;	t12=t12-rt;
-	/*...Block 3:	*/
-			t17=a[j1+p9 ];			t18=a[j2+p9 ];
-			rt =a[j1+p8 ];			it =a[j2+p8 ];
-			t19=t17-rt;  			t17=t17+rt;
-			t20=t18-it;				t18=t18+it;
-
-			t21=a[j1+p10];			t22=a[j2+p10];
-			rt =a[j1+p11];			it =a[j2+p11];
-			t23=t21-rt;  			t21=t21+rt;
-			t24=t22-it;				t22=t22+it;
-
-			rt =t21;	t21=t17-rt;	t17=t17+rt;
-			it =t22;	t22=t18-it;	t18=t18+it;
-
-			rt =t23;	t23=t19-t24;t19=t19+t24;
-			t24=t20+rt;	t20=t20-rt;
 	/*
-	!...and now do four radix-3 transforms:
+	Moved this inside the outer-loop, so on cleanup pass can use it to reset _col,_co2,_co3 starting values,
+	then simply overwrite it with 1 prior to starting the k-loop.
 	*/
-	/*...Block 1: t1,9,17	*/
-			rt =t9;					it =t10;
-			t9 =rt+t17;				t10=it+t18;
-			t17=rt-t17;				t18=it-t18;
-			t1 =t1+t9;				t2 =t2+t10;
-			aj1p0r =t1;				aj1p0i =t2;
-			t9 =t1+c4m1*t9;			t10=t2+c4m1*t10;
-			rt =c*t17;				it =c*t18;
-			aj1p4r =t9+it;			aj1p4i =t10-rt;
-			aj1p8r =t9-it;			aj1p8i =t10+rt;
-	/*...Block 2: t3,11,19	*/
-			rt =t11;				it =t12;
-			t11=rt+t19;				t12=it+t20;
-			t19=rt-t19;				t20=it-t20;
-			t3 =t3+t11;				t4 =t4+t12;
-			aj1p3r =t3;				aj1p3i =t4;
-			t11=t3+c4m1*t11;		t12=t4+c4m1*t12;
-			rt =c*t19;				it =c*t20;
-			aj1p7r =t11+it;			aj1p7i =t12-rt;
-			aj1p11r=t11-it;			aj1p11i=t12+rt;
-	/*...Block 3: t5,13,21	*/
-			rt =t13;				it =t14;
-			t13=rt+t21;				t14=it+t22;
-			t21=rt-t21;				t22=it-t22;
-			t5 =t5+t13;				t6 =t6+t14;
-			aj1p6r =t5;				aj1p6i =t6;
-			t13=t5+c4m1*t13;		t14=t6+c4m1*t14;
-			rt =c*t21;				it =c*t22;
-			aj1p10r=t13+it;			aj1p10i=t14-rt;
-			aj1p2r =t13-it;			aj1p2i =t14+rt;
-	/*...Block 3: t7,15,23	*/
-			rt =t15;				it =t16;
-			t15=rt+t23;				t16=it+t24;
-			t23=rt-t23;				t24=it-t24;
-			t7 =t7+t15;				t8 =t8+t16;
-			aj1p9r =t7;				aj1p9i =t8;
-			t15=t7+c4m1*t15;		t16=t8+c4m1*t16;
-			rt =c*t23;				it =c*t24;
-			aj1p1r =t15+it;			aj1p1i =t16-rt;
-			aj1p5r =t15-it;			aj1p5i =t16+rt;
+	khi = n_div_nwt/CY_THREADS;
+	j = _bjmodnini[CY_THREADS];
+	// Include 0-thread here ... bjmodn terms all 0 for that, but need jhi computed for all threads:
+	for(ithread = 0; ithread < CY_THREADS; ithread++)
+	{
+		_bjmodn00[ithread] = _bjmodnini[ithread];
+		MOD_ADD32(_bjmodn00[ithread], j, n, _bjmodn01[ithread]);
+		MOD_ADD32(_bjmodn01[ithread], j, n, _bjmodn02[ithread]);
+		MOD_ADD32(_bjmodn02[ithread], j, n, _bjmodn03[ithread]);
+		MOD_ADD32(_bjmodn03[ithread], j, n, _bjmodn04[ithread]);
+		MOD_ADD32(_bjmodn04[ithread], j, n, _bjmodn05[ithread]);
+		MOD_ADD32(_bjmodn05[ithread], j, n, _bjmodn06[ithread]);
+		MOD_ADD32(_bjmodn06[ithread], j, n, _bjmodn07[ithread]);
+		MOD_ADD32(_bjmodn07[ithread], j, n, _bjmodn08[ithread]);
+		MOD_ADD32(_bjmodn08[ithread], j, n, _bjmodn09[ithread]);
+		MOD_ADD32(_bjmodn09[ithread], j, n, _bjmodn10[ithread]);
+		MOD_ADD32(_bjmodn10[ithread], j, n, _bjmodn11[ithread]);
 
-/*...Now do the carries. Since the outputs would
-    normally be getting dispatched to 12 separate blocks of the A-array, we need 12 separate carries.	*/
+		_jstart[ithread] = ithread*NDIVR/CY_THREADS;
+		if(!full_pass)
+			_jhi[ithread] = _jstart[ithread] + 7;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
+		else
+			_jhi[ithread] = _jstart[ithread] + nwt-1;
 
-			l= j & (nwt-1);
-			n_minus_sil   = n-si[l  ];
-			n_minus_silp1 = n-si[l+1];
-			sinwt   = si[nwt-l  ];
-			sinwtm1 = si[nwt-l-1];
+		_col[ithread] = ithread*(khi*RADIX);			/* col gets incremented by RADIX_VEC[0] on every pass through the k-loop */
+		_co2[ithread] = (n>>nwt_bits)-1+RADIX - _col[ithread];	/* co2 gets decremented by RADIX_VEC[0] on every pass through the k-loop */
+		_co3[ithread] = _co2[ithread]-RADIX;			/* At the start of each new j-loop, co3=co2-RADIX_VEC[0]	*/
+	}
 
-			wtl     =wt0[    l  ];
-			wtn     =wt0[nwt-l  ]*scale;	/* Include 1/(n/2) scale factor of inverse transform here...	*/
-			wtlp1   =wt0[    l+1];
-			wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
-
-/*...set0 is slightly different from others:	*/
-		   cmplx_carry_norm_errcheck0(aj1p0r ,aj1p0i ,cy0 ,bjmodn0 ,0 );
-			cmplx_carry_norm_errcheck(aj1p1r ,aj1p1i ,cy1 ,bjmodn1 ,1 );
-			cmplx_carry_norm_errcheck(aj1p2r ,aj1p2i ,cy2 ,bjmodn2 ,2 );
-			cmplx_carry_norm_errcheck(aj1p3r ,aj1p3i ,cy3 ,bjmodn3 ,3 );
-			cmplx_carry_norm_errcheck(aj1p4r ,aj1p4i ,cy4 ,bjmodn4 ,4 );
-			cmplx_carry_norm_errcheck(aj1p5r ,aj1p5i ,cy5 ,bjmodn5 ,5 );
-			cmplx_carry_norm_errcheck(aj1p6r ,aj1p6i ,cy6 ,bjmodn6 ,6 );
-			cmplx_carry_norm_errcheck(aj1p7r ,aj1p7i ,cy7 ,bjmodn7 ,7 );
-			cmplx_carry_norm_errcheck(aj1p8r ,aj1p8i ,cy8 ,bjmodn8 ,8 );
-			cmplx_carry_norm_errcheck(aj1p9r ,aj1p9i ,cy9 ,bjmodn9 ,9 );
-			cmplx_carry_norm_errcheck(aj1p10r,aj1p10i,cy10,bjmodn10,10);
-			cmplx_carry_norm_errcheck(aj1p11r,aj1p11i,cy11,bjmodn11,11);
-
-			i =((uint32)(sw - bjmodn0) >> 31);	/* get ready for the next set...	*/
-			co2=co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
-				 and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).	*/
-
-/*...The radix-12 DIF pass is here:	*/
-
-/*...gather the needed data (12 64-bit complex, i.e. 24 64-bit reals) and do four radix-3 transforms...	*/
-/* Twiddleless version requires us to swap inputs x4 <-> x8, x2 <-> x6, x7 <-> x11, x1 <-> x9... */
-#if PFETCH
-add0 = &a[j1];
-prefetch_p_doubles(add0);
+#ifdef USE_PTHREAD
+	for(ithread = 0; ithread < CY_THREADS; ++ithread) { tdat[ithread].iter = iter; }
+	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
+	{
+		// Carry-injection location for the shifted-residue -2 addend is only needed for full pass:
+		if(full_pass) {
+			tdat[0].target_idx = target_idx;
+			tdat[0].target_set = target_set;
+			tdat[0].target_cy  = target_cy;
+		} else {
+			tdat[0].target_idx = -1;
+			tdat[0].target_set = 0;
+			tdat[0].target_cy  = 0;
+		}
+		// Copy to the remaining threads:
+		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
+			tdat[ithread].target_idx = tdat[0].target_idx;
+			tdat[ithread].target_set = tdat[0].target_set;
+			tdat[ithread].target_cy  = tdat[0].target_cy;
+		}
+	}
 #endif
-			t1 =aj1p0r;				t2 =aj1p0i;
-			t3 =aj1p8r +aj1p4r;		t4 =aj1p8i +aj1p4i;
-			t5 =aj1p8r -aj1p4r;		t6 =aj1p8i -aj1p4i;
-			t1 =t1+t3;				t2 =t2+t4;
-			t3 =t1+c4m1*t3;			t4 =t2+c4m1*t4;
-			rt =c*t5;				it =c*t6;
-			t5 =t3+it;				t6 =t4-rt;
-			t3 =t3-it;				t4 =t4+rt;
-#if PFETCH
-addr = add0+p1;
-prefetch_p_doubles(addr);
-#endif
+#ifdef USE_SSE2
 
-			t7 =aj1p9r;				t8 =aj1p9i;
-			t9 =aj1p5r +aj1p1r;		t10=aj1p5i +aj1p1i;
-			t11=aj1p5r -aj1p1r;		t12=aj1p5i -aj1p1i;
-			t7 =t7+t9;				t8 =t8+t10;
-			t9 =t7+c4m1*t9;			t10=t8+c4m1*t10;
-			rt =c*t11;				it =c*t12;
-			t11=t9+it;				t12=t10-rt;
-			t9 =t9-it;				t10=t10+rt;
-#if PFETCH
-addr = add0+p2;
-prefetch_p_doubles(addr);
-#endif
+	tmp = max_err;	VEC_DBL_INIT(tmp, 0.0);
+	tm2 = tmp + cslots_in_local_store;
+	for(ithread = 1; ithread < CY_THREADS; ++ithread) {
+		memcpy(tm2, tmp, sz_vd);
+		tmp = tm2;		tm2 += cslots_in_local_store;
+	}
 
-			t13=aj1p6r;				t14=aj1p6i;
-			t15=aj1p2r +aj1p10r;	t16=aj1p2i +aj1p10i;
-			t17=aj1p2r -aj1p10r;	t18=aj1p2i -aj1p10i;
-			t13=t13+t15;			t14=t14+t16;
-			t15=t13+c4m1*t15;		t16=t14+c4m1*t16;
-			rt =c*t17;				it =c*t18;
-			t17=t15+it;				t18=t16-rt;
-			t15=t15-it;				t16=t16+rt;
-#if PFETCH
-addr = add0+p3;
-prefetch_p_doubles(addr);
-#endif
+#endif	// USE_PTHREAD
 
-			t19=aj1p3r;				t20=aj1p3i;
-			t21=aj1p11r+aj1p7r;		t22=aj1p11i+aj1p7i;
-			t23=aj1p11r-aj1p7r;		t24=aj1p11i-aj1p7i;
-			t19=t19+t21;			t20=t20+t22;
-			t21=t19+c4m1*t21;		t22=t20+c4m1*t22;
-			rt =c*t23;				it =c*t24;
-			t23=t21+it;				t24=t22-rt;
-			t21=t21-it;				t22=t22+rt;
-#if PFETCH
-addr = add0+p4;
-prefetch_p_doubles(addr);
-#endif
-/*
-!...and now do three radix-4 transforms:
-*/
-/*...Block 1: t1,7,13,19	*/
-			rt =t13;	t13=t1 -rt;	t1 =t1 +rt;	/* t 1, 2 = b0+b6	*/
-			it =t14 ;	t14=t2 -it;	t2 =t2 +it;	/* t13,14 = b0-b6	*/
+	/* Move this cleanup-pass-specific khi setting here, since need regular-pass khi value for above inits: */
+	if(!full_pass)
+	{
+		khi = 1;
+	}
 
-			rt =t19;	t19=t7 -rt;	t7 =t7 +rt;	/* t 7, 8 = b3+b9	*/
-			it =t20;	t20=t8 -it;	t8 =t8 +it;	/* t19,20 = b3-b9	*/
-#if PFETCH
-addr = add0+p5;
-prefetch_p_doubles(addr);
-#endif
-			a[j1    ]=t1+t7;		a[j2    ]=t2+t8;	/* b0+b3+b6+b9	*/
-			a[j1+p1 ]=t1-t7;		a[j2+p1 ]=t2-t8;	/* b0-b3+b6-b9	*/
+#ifdef USE_PTHREAD
+	/* Populate the thread-specific data structs - use the invariant terms as memchecks: */
+	for(ithread = 0; ithread < CY_THREADS; ithread++)
+	{
+		tdat[ithread].iter = iter;
+	// int data:
+		ASSERT(HERE, tdat[ithread].tid == ithread, "thread-local memcheck fail!");
+		ASSERT(HERE, tdat[ithread].ndivr == NDIVR, "thread-local memcheck fail!");
 
-			a[j1+p2 ]=t13-t20;		a[j2+p2 ]=t14+t19;	/* mpy by I is inlined here...	*/
-			a[j1+p3 ]=t13+t20;		a[j2+p3 ]=t14-t19;
-#if PFETCH
-addr = add0+p6;
-prefetch_p_doubles(addr);
+		tdat[ithread].khi    = khi;
+		tdat[ithread].i      = _i[ithread];	/* Pointer to the BASE and BASEINV arrays.	*/
+		tdat[ithread].jstart = _jstart[ithread];
+		tdat[ithread].jhi    = _jhi[ithread];
+
+		tdat[ithread].col = _col[ithread];
+		tdat[ithread].co2 = _co2[ithread];
+		tdat[ithread].co3 = _co3[ithread];
+		ASSERT(HERE, tdat[ithread].sw  == sw, "thread-local memcheck fail!");
+		ASSERT(HERE, tdat[ithread].nwt == nwt, "thread-local memcheck fail!");
+
+	// double data:
+		tdat[ithread].maxerr = 0.0;
+		tdat[ithread].scale = scale;
+		tdat[ithread].prp_mult = prp_mult;
+
+	// pointer data:
+		tdat[ithread].arrdat = a;			/* Main data array */
+		ASSERT(HERE, tdat[ithread].wt0 == wt0, "thread-local memcheck fail!");
+		ASSERT(HERE, tdat[ithread].wt1 == wt1, "thread-local memcheck fail!");
+		ASSERT(HERE, tdat[ithread].si  == si, "thread-local memcheck fail!");
+	#ifdef USE_SSE2
+		ASSERT(HERE, tdat[ithread].r00 == __r0 + ithread*cslots_in_local_store, "thread-local memcheck fail!");
+		tmp = tdat[ithread].half_arr;
+		ASSERT(HERE, ((tmp-1)->d0 == crnd && (tmp-1)->d1 == crnd), "thread-local memcheck failed!");
+	  #ifdef USE_AVX
+		// Grab some elt of base-data [offset by, say, +32] and mpy by its inverse [+16 further]
+		dtmp = (tmp+40)->d0 * (tmp+56)->d0;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+		dtmp = (tmp+40)->d1 * (tmp+56)->d1;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+	  #else	// SSE2:
+		dtmp = (tmp+10)->d0 * (tmp+14)->d0;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+		dtmp = (tmp+10)->d1 * (tmp+14)->d1;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+	  #endif
+	#endif
+
+		tdat[ithread].bjmodn00 = _bjmodn00[ithread];
+		tdat[ithread].bjmodn01 = _bjmodn01[ithread];
+		tdat[ithread].bjmodn02 = _bjmodn02[ithread];
+		tdat[ithread].bjmodn03 = _bjmodn03[ithread];
+		tdat[ithread].bjmodn04 = _bjmodn04[ithread];
+		tdat[ithread].bjmodn05 = _bjmodn05[ithread];
+		tdat[ithread].bjmodn06 = _bjmodn06[ithread];
+		tdat[ithread].bjmodn07 = _bjmodn07[ithread];
+		tdat[ithread].bjmodn08 = _bjmodn08[ithread];
+		tdat[ithread].bjmodn09 = _bjmodn09[ithread];
+		tdat[ithread].bjmodn10 = _bjmodn10[ithread];
+		tdat[ithread].bjmodn11 = _bjmodn11[ithread];
+		/* init carries	*/
+		tdat[ithread].cy00 = _cy00[ithread];
+		tdat[ithread].cy01 = _cy01[ithread];
+		tdat[ithread].cy02 = _cy02[ithread];
+		tdat[ithread].cy03 = _cy03[ithread];
+		tdat[ithread].cy04 = _cy04[ithread];
+		tdat[ithread].cy05 = _cy05[ithread];
+		tdat[ithread].cy06 = _cy06[ithread];
+		tdat[ithread].cy07 = _cy07[ithread];
+		tdat[ithread].cy08 = _cy08[ithread];
+		tdat[ithread].cy09 = _cy09[ithread];
+		tdat[ithread].cy10 = _cy10[ithread];
+		tdat[ithread].cy11 = _cy11[ithread];
+	}
 #endif
 
-/*...Block 2: t3,9,15,21	*/
-			rt =t15;	t15=t3 -rt;	t3 =t3 +rt;
-			it =t16;	t16=t4 -it;	t4 =t4 +it;
+#ifdef USE_PTHREAD
 
-			rt =t21;	t21=t9 -rt;	t9 =t9 +rt;
-			it =t22;	t22=t10-it;	t10=t10+it;
-#if PFETCH
-addr = add0+p7;
-prefetch_p_doubles(addr);
-#endif
-			a[j1+p9 ]=t3+t9;		a[j2+p9 ]=t4+t10;
-			a[j1+p8 ]=t3-t9;		a[j2+p8 ]=t4-t10;
+	// If also using main thread to do work units, that task-dispatch occurs after all the threadpool-task launches:
+	for(ithread = 0; ithread < pool_work_units; ithread++)
+	{
+		task_control.data = (void*)(&tdat[ithread]);
+		threadpool_add_task(tpool, &task_control, task_is_blocking);
 
-			a[j1+p11]=t15-t22;		a[j2+p11]=t16+t21;	/* mpy by I is inlined here...	*/
-			a[j1+p10]=t15+t22;		a[j2+p10]=t16-t21;
-#if PFETCH
-addr = add0+p8;
-prefetch_p_doubles(addr);
-#endif
+#else
 
-/*...Block 3: t5,11,17,23	*/
-			rt =t17;	t17=t5 -rt;	t5 =t5 +rt;
-			it =t18;	t18=t6 -it;	t6 =t6 +it;
+	for(ithread = 0; ithread < CY_THREADS; ithread++)
+	{
+		if(full_pass) maxerr = 0.0;
+	#ifdef USE_SSE2
+	//	VEC_DBL_INIT(max_err, 0.0);	*** must do this in conjunction with thread-local-data-copy
+	#endif
 
-			rt =t23;	t23=t11-rt;	t11=t11+rt;
-			it =t24;	t24=t12-it;	t12=t12+it;
-#if PFETCH
-addr = add0+p9;
-prefetch_p_doubles(addr);
-#endif
-			a[j1+p6 ]=t5+t11;		a[j2+p6 ]=t6+t12;
-			a[j1+p7 ]=t5-t11;		a[j2+p7 ]=t6-t12;
+		i      = _i[ithread];	/* Pointer to the BASE and BASEINV arrays.	*/
+		jstart = _jstart[ithread];
+		jhi    = _jhi[ithread];
 
-			a[j1+p5 ]=t17-t24;		a[j2+p5 ]=t18+t23;	/* mpy by I is inlined here...	*/
-			a[j1+p4 ]=t17+t24;		a[j2+p4 ]=t18-t23;
-#if PFETCH
-addr = add0+p10;
-prefetch_p_doubles(addr);
-#endif
+		col = _col[ithread];
+		co2 = _co2[ithread];
+		co3 = _co3[ithread];
 
-#if PFETCH
-addr = add0+p11;
-prefetch_p_doubles(addr);
-#endif
-		iroot += root_incr;		/* increment sincos index.	*/
+	#ifdef USE_SSE2
+		*bjmodn00 = _bjmodn00[ithread];
+		*bjmodn01 = _bjmodn01[ithread];
+		*bjmodn02 = _bjmodn02[ithread];
+		*bjmodn03 = _bjmodn03[ithread];
+		*bjmodn04 = _bjmodn04[ithread];
+		*bjmodn05 = _bjmodn05[ithread];
+		*bjmodn06 = _bjmodn06[ithread];
+		*bjmodn07 = _bjmodn07[ithread];
+		*bjmodn08 = _bjmodn08[ithread];
+		*bjmodn09 = _bjmodn09[ithread];
+		*bjmodn10 = _bjmodn10[ithread];
+		*bjmodn11 = _bjmodn11[ithread];
+	#else
+		bjmodn00 = _bjmodn00[ithread];
+		bjmodn01 = _bjmodn01[ithread];
+		bjmodn02 = _bjmodn02[ithread];
+		bjmodn03 = _bjmodn03[ithread];
+		bjmodn04 = _bjmodn04[ithread];
+		bjmodn05 = _bjmodn05[ithread];
+		bjmodn06 = _bjmodn06[ithread];
+		bjmodn07 = _bjmodn07[ithread];
+		bjmodn08 = _bjmodn08[ithread];
+		bjmodn09 = _bjmodn09[ithread];
+		bjmodn10 = _bjmodn10[ithread];
+		bjmodn11 = _bjmodn11[ithread];
+	#endif
+		/* init carries	*/
+	#ifdef USE_AVX//def USE_AVX	// AVX and AVX2 both use 256-bit registers
+		cy00->d0 = _cy00[ithread];	cy00->d1 = _cy01[ithread];	cy00->d2 = _cy02[ithread];	cy00->d3 = _cy03[ithread];
+		cy04->d0 = _cy04[ithread];	cy04->d1 = _cy05[ithread];	cy04->d2 = _cy06[ithread];	cy04->d3 = _cy07[ithread];
+		cy08->d0 = _cy08[ithread];	cy08->d1 = _cy09[ithread];	cy08->d2 = _cy10[ithread];	cy08->d3 = _cy11[ithread];
+	#elif defined(USE_SSE2)
+		cy00->d0 = _cy00[ithread];	cy00->d1 = _cy01[ithread];
+		cy02->d0 = _cy02[ithread];	cy02->d1 = _cy03[ithread];
+		cy04->d0 = _cy04[ithread];	cy04->d1 = _cy05[ithread];
+		cy06->d0 = _cy06[ithread];	cy06->d1 = _cy07[ithread];
+		cy08->d0 = _cy08[ithread];	cy08->d1 = _cy09[ithread];
+		cy10->d0 = _cy10[ithread];	cy10->d1 = _cy11[ithread];
+	#else
+		cy00 = _cy00[ithread];
+		cy01 = _cy01[ithread];
+		cy02 = _cy02[ithread];
+		cy03 = _cy03[ithread];
+		cy04 = _cy04[ithread];
+		cy05 = _cy05[ithread];
+		cy06 = _cy06[ithread];
+		cy07 = _cy07[ithread];
+		cy08 = _cy08[ithread];
+		cy09 = _cy09[ithread];
+		cy10 = _cy10[ithread];
+		cy11 = _cy11[ithread];
+	#endif
 
+		/********************************************************************************/
+		/* This main loop is same for un-and-multithreaded, so stick into a header file */
+		/* (can't use a macro because of the #if-enclosed stuff).                       */
+		/********************************************************************************/
+		#include "radix12_main_carry_loop.h"
+
+		/* At end of each thread-processed work chunk, dump the
+		carryouts into their non-thread-private array slots:
+		*/
+	#ifdef USE_AVX
+		_cy00[ithread] = cy00->d0;	_cy01[ithread] = cy00->d1;	_cy02[ithread] = cy00->d2;	_cy03[ithread] = cy00->d3;
+		_cy04[ithread] = cy04->d0;	_cy05[ithread] = cy04->d1;	_cy06[ithread] = cy04->d2;	_cy07[ithread] = cy04->d3;
+		_cy08[ithread] = cy08->d0;	_cy09[ithread] = cy08->d1;	_cy10[ithread] = cy08->d2;	_cy11[ithread] = cy08->d3;
+		if(full_pass) maxerr = MAX( MAX(max_err->d0,max_err->d1) , MAX(max_err->d2,max_err->d3) );
+	#elif defined(USE_SSE2)
+		_cy00[ithread] = cy00->d0;	_cy01[ithread] = cy00->d1;
+		_cy02[ithread] = cy02->d0;	_cy03[ithread] = cy02->d1;
+		_cy04[ithread] = cy04->d0;	_cy05[ithread] = cy04->d1;
+		_cy06[ithread] = cy06->d0;	_cy07[ithread] = cy06->d1;
+		_cy08[ithread] = cy08->d0;	_cy09[ithread] = cy08->d1;
+		_cy10[ithread] = cy10->d0;	_cy11[ithread] = cy10->d1;
+		if(full_pass) maxerr = MAX(max_err->d0,max_err->d1);
+	#else
+		_cy00[ithread] = cy00;
+		_cy01[ithread] = cy01;
+		_cy02[ithread] = cy02;
+		_cy03[ithread] = cy03;
+		_cy04[ithread] = cy04;
+		_cy05[ithread] = cy05;
+		_cy06[ithread] = cy06;
+		_cy07[ithread] = cy07;
+		_cy08[ithread] = cy08;
+		_cy09[ithread] = cy09;
+		_cy10[ithread] = cy10;
+		_cy11[ithread] = cy11;
+	#endif
+
+  #endif	// #ifdef USE_PTHREAD
+
+	}	/******* END OF PARALLEL FOR-LOOP ********/
+
+#ifdef USE_PTHREAD	// End of threadpool-based dispatch: Add a small wait-loop to ensure all threads complete
+
+  #if 0//def OS_TYPE_MACOSX
+
+	/*** Main execution thread executes remaining chunks in serial fashion (but in || with the pool threads): ***/
+	for(j = 0; j < main_work_units; ++j)
+	{
+	//	printf("adding main task %d\n",j + pool_work_units);
+		ASSERT(HERE, 0x0 == cy12_process_chunk( (void*)(&tdat[j + pool_work_units]) ), "Main-thread task failure!");
+	}
+
+  #endif
+
+	struct timespec ns_time;	// We want a sleep interval of 0.1 mSec here...
+	ns_time.tv_sec  =      0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
+	ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
+
+	while(tpool && tpool->free_tasks_queue.num_tasks != pool_work_units) {
+		ASSERT(HERE, 0 == nanosleep(&ns_time, 0x0), "nanosleep fail!");
+	}
+
+	/* Copy the thread-specific output carry data back to shared memory: */
+	for(ithread = 0; ithread < CY_THREADS; ithread++)
+	{
+		if(maxerr < tdat[ithread].maxerr) {
+			maxerr = tdat[ithread].maxerr;
 		}
 
-		jstart += nwt;
-		jhi    += nwt;
-		col += 12;
-		co3 -= 12;
+		_cy00[ithread] = tdat[ithread].cy00;
+		_cy01[ithread] = tdat[ithread].cy01;
+		_cy02[ithread] = tdat[ithread].cy02;
+		_cy03[ithread] = tdat[ithread].cy03;
+		_cy04[ithread] = tdat[ithread].cy04;
+		_cy05[ithread] = tdat[ithread].cy05;
+		_cy06[ithread] = tdat[ithread].cy06;
+		_cy07[ithread] = tdat[ithread].cy07;
+		_cy08[ithread] = tdat[ithread].cy08;
+		_cy09[ithread] = tdat[ithread].cy09;
+		_cy10[ithread] = tdat[ithread].cy10;
+		_cy11[ithread] = tdat[ithread].cy11;
+	}
+#endif
 
+	if(full_pass) {
+	//	printf("Iter = %d, maxerr = %20.15f\n",iter,maxerr);
+	} else {
+		break;
 	}
 
-	if(root_incr==0)break;
+	/*   Wraparound carry cleanup loop is here: ***
+	!
+	!   (1) Invert the radix-12 forward DIF FFT of the first block of 12 complex elements in A and unweight;
+	!   (2) Propagate cleanup carries among the real and imaginary parts of the 12 outputs of (1);
+	!   (3) Reweight and perform a radix-12 forward DIF FFT on the result of (2);
+	!   (4) If any of the exit carries from (2) are nonzero, advance to the next 12 elements and repeat (1-4).
+	*/
+	t00= _cy00[CY_THREADS - 1];
+	t01= _cy01[CY_THREADS - 1];
+	t02= _cy02[CY_THREADS - 1];
+	t03= _cy03[CY_THREADS - 1];
+	t04= _cy04[CY_THREADS - 1];
+	t05= _cy05[CY_THREADS - 1];
+	t06= _cy06[CY_THREADS - 1];
+	t07= _cy07[CY_THREADS - 1];
+	t08= _cy08[CY_THREADS - 1];
+	t09= _cy09[CY_THREADS - 1];
+	t10= _cy10[CY_THREADS - 1];
+	t11= _cy11[CY_THREADS - 1];
 
-/*   Wraparound carry cleanup loop is here: ***
-!
-!   (1) Invert the radix-12 forward DIF FFT of the first block of 12 complex elements in A and unweight;
-!   (2) Propagate cleanup carries among the real and imaginary parts of the 12 outputs of (1);
-!   (3) Reweight and perform a radix-12 forward DIF FFT on the result of (2);
-!   (4) If any of the exit carries from (2) are nonzero, advance to the next 12 elements and repeat (1-4).
-*/
+	for(ithread = CY_THREADS - 1; ithread > 0; ithread--)
+	{
+		ASSERT(HERE, CY_THREADS > 1,"radix20_ditN_cy_dif1.c: ");	/* Make sure loop only gets executed if multiple threads */
+		_cy00[ithread] = _cy00[ithread-1];
+		_cy01[ithread] = _cy01[ithread-1];
+		_cy02[ithread] = _cy02[ithread-1];
+		_cy03[ithread] = _cy03[ithread-1];
+		_cy04[ithread] = _cy04[ithread-1];
+		_cy05[ithread] = _cy05[ithread-1];
+		_cy06[ithread] = _cy06[ithread-1];
+		_cy07[ithread] = _cy07[ithread-1];
+		_cy08[ithread] = _cy08[ithread-1];
+		_cy09[ithread] = _cy09[ithread-1];
+		_cy10[ithread] = _cy10[ithread-1];
+		_cy11[ithread] = _cy11[ithread-1];
+	}
 
-	t1  = cy11;
-	cy11= cy10;
-	cy10= cy9;
-	cy9 = cy8;
-	cy8 = cy7;
-	cy7 = cy6;
-	cy6 = cy5;
-	cy5 = cy4;
-	cy4 = cy3;
-	cy3 = cy2;
-	cy2 = cy1;
-	cy1 = cy0;
-	cy0 = t1;
+	_cy00[0] =+t11;	/* ...The wraparound carry is here: */
+	_cy01[0] = t00;
+	_cy02[0] = t01;
+	_cy03[0] = t02;
+	_cy04[0] = t03;
+	_cy05[0] = t04;
+	_cy06[0] = t05;
+	_cy07[0] = t06;
+	_cy08[0] = t07;
+	_cy09[0] = t08;
+	_cy10[0] = t09;
+	_cy11[0] = t10;
 
-	iroot = 0;
-	root_incr = 0;
-	scale = 1;
+	full_pass = 0;
+	scale = prp_mult = 1;
 
-	jstart = 0;
 	jhi = 7;
-	khi = 1;
 
-	for(j=0; j<=jhi; j++)
+	for(ithread = 0; ithread < CY_THREADS; ithread++)
 	{
-		a[j    ] *= radix_inv;
-		a[j+p1 ] *= radix_inv;
-		a[j+p2 ] *= radix_inv;
-		a[j+p3 ] *= radix_inv;
-		a[j+p4 ] *= radix_inv;
-		a[j+p5 ] *= radix_inv;
-		a[j+p6 ] *= radix_inv;
-		a[j+p7 ] *= radix_inv;
-		a[j+p8 ] *= radix_inv;
-		a[j+p9 ] *= radix_inv;
-		a[j+p10] *= radix_inv;
-		a[j+p11] *= radix_inv;
+		for(j = ithread*pini; j <= ithread*pini + jhi; j++)
+		{
+			// Generate padded version of j, since prepadding pini is thread-count unsafe:
+			j2 = j + ( (j >> DAT_BITS) << PAD_BITS );
+			a[j2      ] *= radix_inv;
+			a[j2+p1   ] *= radix_inv;
+			a[j2+p2   ] *= radix_inv;
+			a[j2+p3   ] *= radix_inv;
+			a[j2+p4   ] *= radix_inv;
+			a[j2+p1+p4] *= radix_inv;
+			a[j2+p2+p4] *= radix_inv;
+			a[j2+p3+p4] *= radix_inv;
+			a[j2+p8   ] *= radix_inv;
+			a[j2+p1+p8] *= radix_inv;
+			a[j2+p2+p8] *= radix_inv;
+			a[j2+p3+p8] *= radix_inv;
+		}
 	}
-}
+}	/* endfor(outer) */
 
-	if(fabs(cy0)+fabs(cy1)+fabs(cy2)+fabs(cy3)+fabs(cy4)+fabs(cy5)+fabs(cy6)+fabs(cy7)+fabs(cy8)+fabs(cy9)+fabs(cy10)+fabs(cy11) != 0.0)
+	t00 = 0;
+	for(ithread = 0; ithread < CY_THREADS; ithread++)
 	{
-			sprintf(cbuf,"FATAL: iter = %10d; nonzero exit carry in radix12_ditN_cy_dif1 - input wordsize may be too small.\n",iter);
-			if(INTERACT)fprintf(stderr,"%s",cbuf);
-			fp = mlucas_fopen(   OFILE,"a");
-			fq = mlucas_fopen(STATFILE,"a");
+		t00 += fabs(_cy00[0])+fabs(_cy01[0])+fabs(_cy02[0])+fabs(_cy03[0])+fabs(_cy04[0])+fabs(_cy05[0])+fabs(_cy06[0])+fabs(_cy07[0])+fabs(_cy08[0])+fabs(_cy09[0])+fabs(_cy10[0])+fabs(_cy11[0]);
+		*fracmax = maxerr;
+	}
+
+	if(t00 != 0.0)
+	{
+		sprintf(cbuf,"FATAL: iter = %10d; nonzero exit carry in radix12_ditN_cy_dif1 - input wordsize may be too small.\n",iter);
+		if(INTERACT)fprintf(stderr,"%s",cbuf);
+		fp = mlucas_fopen(   OFILE,"a");
+		fq = mlucas_fopen(STATFILE,"a");
 		fprintf(fp,"%s",cbuf);
 		fprintf(fq,"%s",cbuf);
-			fclose(fp);	fp = 0x0;
-			fclose(fq);	fq = 0x0;
-			err=ERR_CARRY;
-			return(err);
+		fclose(fp);	fp = 0x0;
+		fclose(fq);	fq = 0x0;
+		err=ERR_CARRY;
+		return(err);
 	}
-	*fracmax = maxerr;
+
 	return(0);
 }
 
@@ -539,7 +1406,8 @@ void radix12_dif_pass1(double a[], int n)
 */
 	int j,j1,j2;
 	static int n12,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11, first_entry=TRUE;
-	static double c = .86602540378443864676, c4m1 = -1.5;
+	const double	c3m1= -1.50000000000000000000,	/* cos(twopi/3)-1	*/
+					s   =  0.86602540378443864675;	/* sin(twopi/3)		*/
 	double rt,it
 		,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24;
 
@@ -608,8 +1476,8 @@ I.e. start out with first triplet of indices {0,4,8}, permute those according to
 		t3 =a[j1+p8 ]+a[j1+p4 ];	t4 =a[j2+p8 ]+a[j2+p4 ];
 		t5 =a[j1+p8 ]-a[j1+p4 ];	t6 =a[j2+p8 ]-a[j2+p4 ];
 		t1 =t1+t3;					t2 =t2+t4;
-		t3 =t1+c4m1*t3;				t4 =t2+c4m1*t4;
-		rt =c*t5;					it =c*t6;
+		t3 =t1+c3m1*t3;				t4 =t2+c3m1*t4;
+		rt =s*t5;					it =s*t6;
 		t5 =t3+it;					t6 =t4-rt;
 		t3 =t3-it;					t4 =t4+rt;
 
@@ -617,8 +1485,8 @@ I.e. start out with first triplet of indices {0,4,8}, permute those according to
 		t9 =a[j1+p5 ]+a[j1+p1 ];	t10=a[j2+p5 ]+a[j2+p1 ];
 		t11=a[j1+p5 ]-a[j1+p1 ];	t12=a[j2+p5 ]-a[j2+p1 ];
 		t7 =t7+t9;					t8 =t8+t10;
-		t9 =t7+c4m1*t9;				t10=t8+c4m1*t10;
-		rt =c*t11;					it =c*t12;
+		t9 =t7+c3m1*t9;				t10=t8+c3m1*t10;
+		rt =s*t11;					it =s*t12;
 		t11=t9+it;					t12=t10-rt;
 		t9 =t9-it;					t10=t10+rt;
 
@@ -626,8 +1494,8 @@ I.e. start out with first triplet of indices {0,4,8}, permute those according to
 		t15=a[j1+p2 ]+a[j1+p10];	t16=a[j2+p2 ]+a[j2+p10];
 		t17=a[j1+p2 ]-a[j1+p10];	t18=a[j2+p2 ]-a[j2+p10];
 		t13=t13+t15;				t14=t14+t16;
-		t15=t13+c4m1*t15;			t16=t14+c4m1*t16;
-		rt =c*t17;					it =c*t18;
+		t15=t13+c3m1*t15;			t16=t14+c3m1*t16;
+		rt =s*t17;					it =s*t18;
 		t17=t15+it;					t18=t16-rt;
 		t15=t15-it;					t16=t16+rt;
 
@@ -635,8 +1503,8 @@ I.e. start out with first triplet of indices {0,4,8}, permute those according to
 		t21=a[j1+p11]+a[j1+p7 ];	t22=a[j2+p11]+a[j2+p7 ];
 		t23=a[j1+p11]-a[j1+p7 ];	t24=a[j2+p11]-a[j2+p7 ];
 		t19=t19+t21;				t20=t20+t22;
-		t21=t19+c4m1*t21;			t22=t20+c4m1*t22;
-		rt =c*t23;					it =c*t24;
+		t21=t19+c3m1*t21;			t22=t20+c3m1*t22;
+		rt =s*t23;					it =s*t24;
 		t23=t21+it;					t24=t22-rt;
 		t21=t21-it;					t22=t22+rt;
 /*
@@ -681,7 +1549,7 @@ I.e. start out with first triplet of indices {0,4,8}, permute those according to
 		a[j1+p5 ]=t17-t24;			a[j2+p5 ]=t18+t23;	/* mpy by I is inlined here...	*/
 		a[j1+p4 ]=t17+t24;			a[j2+p4 ]=t18-t23;
 								/* Totals: 96 FADD, 16 FMUL	*/
-#else
+#elif 0
 /*
 Alternatively, can use the 3-decrement version:
 indices  0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11
@@ -696,8 +1564,8 @@ This requires us to swap output pairs 4/5 and 10/11 w.r.to the increment version
 		t3 =a[j1+p8 ]+a[j1+p4 ];	t4 =a[j2+p8 ]+a[j2+p4 ];
 		t5 =a[j1+p8 ]-a[j1+p4 ];	t6 =a[j2+p8 ]-a[j2+p4 ];
 		t1 =t1+t3;					t2 =t2+t4;
-		t3 =t1+c4m1*t3;				t4 =t2+c4m1*t4;
-		rt =c*t5;					it =c*t6;
+		t3 =t1+c3m1*t3;				t4 =t2+c3m1*t4;
+		rt =s*t5;					it =s*t6;
 		t5 =t3+it;					t6 =t4-rt;
 		t3 =t3-it;					t4 =t4+rt;
 
@@ -705,8 +1573,8 @@ This requires us to swap output pairs 4/5 and 10/11 w.r.to the increment version
 		t9 =a[j1+p11]+a[j1+p7 ];	t10=a[j2+p11]+a[j2+p7 ];
 		t11=a[j1+p11]-a[j1+p7 ];	t12=a[j2+p11]-a[j2+p7 ];
 		t7 =t7+t9;					t8 =t8+t10;
-		t9 =t7+c4m1*t9;				t10=t8+c4m1*t10;
-		rt =c*t11;					it =c*t12;
+		t9 =t7+c3m1*t9;				t10=t8+c3m1*t10;
+		rt =s*t11;					it =s*t12;
 		t11=t9+it;					t12=t10-rt;
 		t9 =t9-it;					t10=t10+rt;
 
@@ -714,8 +1582,8 @@ This requires us to swap output pairs 4/5 and 10/11 w.r.to the increment version
 		t15=a[j1+p2 ]+a[j1+p10];	t16=a[j2+p2 ]+a[j2+p10];
 		t17=a[j1+p2 ]-a[j1+p10];	t18=a[j2+p2 ]-a[j2+p10];
 		t13=t13+t15;				t14=t14+t16;
-		t15=t13+c4m1*t15;			t16=t14+c4m1*t16;
-		rt =c*t17;					it =c*t18;
+		t15=t13+c3m1*t15;			t16=t14+c3m1*t16;
+		rt =s*t17;					it =s*t18;
 		t17=t15+it;					t18=t16-rt;
 		t15=t15-it;					t16=t16+rt;
 
@@ -723,52 +1591,65 @@ This requires us to swap output pairs 4/5 and 10/11 w.r.to the increment version
 		t21=a[j1+p5 ]+a[j1+p1 ];	t22=a[j2+p5 ]+a[j2+p1 ];
 		t23=a[j1+p5 ]-a[j1+p1 ];	t24=a[j2+p5 ]-a[j2+p1 ];
 		t19=t19+t21;				t20=t20+t22;
-		t21=t19+c4m1*t21;			t22=t20+c4m1*t22;
-		rt =c*t23;					it =c*t24;
+		t21=t19+c3m1*t21;			t22=t20+c3m1*t22;
+		rt =s*t23;					it =s*t24;
 		t23=t21+it;					t24=t22-rt;
 		t21=t21-it;					t22=t22+rt;
 /*
 !...and now do three radix-4 transforms:
 */
 /*...Block 1: t1,7,13,19	*/
-			rt =t13;	t13=t1 -rt;	t1 =t1 +rt;
-			it =t14 ;	t14=t2 -it;	t2 =t2 +it;
+		rt =t13;	t13=t1 -rt;	t1 =t1 +rt;
+		it =t14 ;	t14=t2 -it;	t2 =t2 +it;
 
-			rt =t19;	t19=t7 -rt;	t7 =t7 +rt;
-			it =t20;	t20=t8 -it;	t8 =t8 +it;
+		rt =t19;	t19=t7 -rt;	t7 =t7 +rt;
+		it =t20;	t20=t8 -it;	t8 =t8 +it;
 
-			a[j1    ]=t1+t7;		a[j2    ]=t2+t8;
-			a[j1+p1 ]=t1-t7;		a[j2+p1 ]=t2-t8;
+		a[j1    ]=t1+t7;		a[j2    ]=t2+t8;
+		a[j1+p1 ]=t1-t7;		a[j2+p1 ]=t2-t8;
 
-			a[j1+p2 ]=t13-t20;		a[j2+p2 ]=t14+t19;	/* mpy by I is inlined here...	*/
-			a[j1+p3 ]=t13+t20;		a[j2+p3 ]=t14-t19;
+		a[j1+p2 ]=t13-t20;		a[j2+p2 ]=t14+t19;	/* mpy by I is inlined here...	*/
+		a[j1+p3 ]=t13+t20;		a[j2+p3 ]=t14-t19;
 
 /*...Block 2: t3,9,15,21	*/
-			rt =t15;	t15=t3 -rt;	t3 =t3 +rt;
-			it =t16;	t16=t4 -it;	t4 =t4 +it;
+		rt =t15;	t15=t3 -rt;	t3 =t3 +rt;
+		it =t16;	t16=t4 -it;	t4 =t4 +it;
 
-			rt =t21;	t21=t9 -rt;	t9 =t9 +rt;
-			it =t22;	t22=t10-it;	t10=t10+it;
+		rt =t21;	t21=t9 -rt;	t9 =t9 +rt;
+		it =t22;	t22=t10-it;	t10=t10+it;
 
-			a[j1+p9 ]=t3+t9;		a[j2+p9 ]=t4+t10;
-			a[j1+p8 ]=t3-t9;		a[j2+p8 ]=t4-t10;
+		a[j1+p9 ]=t3+t9;		a[j2+p9 ]=t4+t10;
+		a[j1+p8 ]=t3-t9;		a[j2+p8 ]=t4-t10;
 
-			a[j1+p10]=t15-t22;		a[j2+p10]=t16+t21;	/* mpy by I is inlined here...	*/
-			a[j1+p11]=t15+t22;		a[j2+p11]=t16-t21;
+		a[j1+p10]=t15-t22;		a[j2+p10]=t16+t21;	/* mpy by I is inlined here...	*/
+		a[j1+p11]=t15+t22;		a[j2+p11]=t16-t21;
 
 /*...Block 3: t5,11,17,23	*/
-			rt =t17;	t17=t5 -rt;	t5 =t5 +rt;
-			it =t18;	t18=t6 -it;	t6 =t6 +it;
+		rt =t17;	t17=t5 -rt;	t5 =t5 +rt;
+		it =t18;	t18=t6 -it;	t6 =t6 +it;
 
-			rt =t23;	t23=t11-rt;	t11=t11+rt;
-			it =t24;	t24=t12-it;	t12=t12+it;
+		rt =t23;	t23=t11-rt;	t11=t11+rt;
+		it =t24;	t24=t12-it;	t12=t12+it;
 
-			a[j1+p6 ]=t5+t11;		a[j2+p6 ]=t6+t12;
-			a[j1+p7 ]=t5-t11;		a[j2+p7 ]=t6-t12;
+		a[j1+p6 ]=t5+t11;		a[j2+p6 ]=t6+t12;
+		a[j1+p7 ]=t5-t11;		a[j2+p7 ]=t6-t12;
 
-			a[j1+p4 ]=t17-t24;		a[j2+p4 ]=t18+t23;	/* mpy by I is inlined here...	*/
-			a[j1+p5 ]=t17+t24;		a[j2+p5 ]=t18-t23;
+		a[j1+p4 ]=t17-t24;		a[j2+p4 ]=t18+t23;	/* mpy by I is inlined here...	*/
+		a[j1+p5 ]=t17+t24;		a[j2+p5 ]=t18-t23;
 								/* Totals: 96 FADD, 16 FMUL	*/
+#else
+		int jt,jp;
+		double u1,u2,u3,u4,u5,u6
+			,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09;
+		// Twiddleless version requires us to swap inputs [0,4,8|1,5,9|2,6,10|3,7,11] => [0,8,4|9,5,1|6,2,10|3,11,7]:
+		RADIX_03_DFT(s,c3m1,a[j1   ],a[j2   ],a[j1+p8 ],a[j2+p8 ],a[j1+p4 ],a[j2+p4 ],u1,u2,u3,u4,u5,u6,t00,t01,t02,t03,t04,t05);	jt = j1+p1; jp = j2+p1;
+		RADIX_03_DFT(s,c3m1,a[jt+p8],a[jp+p8],a[jt+p4 ],a[jp+p4 ],a[jt    ],a[jp    ],u1,u2,u3,u4,u5,u6,t06,t07,t08,t09,t10,t11);	jt = j1+p2; jp = j2+p2;
+		RADIX_03_DFT(s,c3m1,a[jt+p4],a[jp+p4],a[jt    ],a[jp    ],a[jt+p8 ],a[jp+p8 ],u1,u2,u3,u4,u5,u6,t12,t13,t14,t15,t16,t17);	jt = j1+p3; jp = j2+p3;
+		RADIX_03_DFT(s,c3m1,a[jt   ],a[jp   ],a[jt+p8 ],a[jp+p8 ],a[jt+p4 ],a[jp+p4 ],u1,u2,u3,u4,u5,u6,t18,t19,t20,t21,t22,t23);
+		// And do a trio of 4-DFTs; Required output index permutation = [0,1,2,3|9,8,b,a|6,7,5,4]:
+		RADIX_04_DIF(t00,t01,t06,t07,t12,t13,t18,t19,a[j1   ],a[j2   ],a[j1+p1],a[j2+p1],a[j1+p2],a[j2+p2],a[j1+p3],a[j2+p3],rt,it);	jt = j1+p8; jp = j2+p8;
+		RADIX_04_DIF(t02,t03,t08,t09,t14,t15,t20,t21,a[jt+p1],a[jp+p1],a[jt   ],a[jp   ],a[jt+p3],a[jp+p3],a[jt+p2],a[jp+p2],rt,it);	jt = j1+p4; jp = j2+p4;
+		RADIX_04_DIF(t04,t05,t10,t11,t16,t17,t22,t23,a[jt+p2],a[jp+p2],a[jt+p3],a[jp+p3],a[jt+p1],a[jp+p1],a[jt   ],a[jp   ],rt,it);
 #endif
 	}
 }
@@ -788,7 +1669,8 @@ void radix12_dit_pass1(double a[], int n)
 */
 	int j,j1,j2;
 	static int n12,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11, first_entry=TRUE;
-	static double c = .86602540378443864676, c4m1 = -1.5;
+	const double	c3m1= -1.50000000000000000000,	/* cos(twopi/3)-1	*/
+					s   =  0.86602540378443864675;	/* sin(twopi/3)		*/
 	double rt,it
 		,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24;
 
@@ -864,100 +1746,412 @@ void radix12_dit_pass1(double a[], int n)
 	swapping x7 and x10 means swapping a[5] and a[7];
 	swapping x2 and x8  means swapping a[8] and a[9].
 	*/
+#if 0
 	/*...Block 1:	*/
-			t1 =a[j1    ];		t2 =a[j2    ];
-			rt =a[j1+p1 ];		it =a[j2+p1 ];
-			t3 =t1 -rt;  		t1 =t1 +rt;
-			t4 =t2 -it;			t2 =t2 +it;
+		t1 =a[j1    ];		t2 =a[j2    ];
+		rt =a[j1+p1 ];		it =a[j2+p1 ];
+		t3 =t1 -rt;  		t1 =t1 +rt;
+		t4 =t2 -it;			t2 =t2 +it;
 
-			t5 =a[j1+p3 ];		t6 =a[j2+p3 ];
-			rt =a[j1+p2 ];		it =a[j2+p2 ];
-			t7 =t5 -rt;  		t5 =t5 +rt;
-			t8 =t6 -it;  		t6 =t6 +it;
+		t5 =a[j1+p3 ];		t6 =a[j2+p3 ];
+		rt =a[j1+p2 ];		it =a[j2+p2 ];
+		t7 =t5 -rt;  		t5 =t5 +rt;
+		t8 =t6 -it;  		t6 =t6 +it;
 
-			rt =t5;	t5 =t1 -rt;	t1 =t1 +rt;
-			it =t6;	t6 =t2 -it;	t2 =t2 +it;
+		rt =t5;	t5 =t1 -rt;	t1 =t1 +rt;
+		it =t6;	t6 =t2 -it;	t2 =t2 +it;
 
-			rt =t7;	t7 =t3 -t8;	t3 =t3 +t8;
-					t8 =t4 +rt;	t4 =t4 -rt;
+		rt =t7;	t7 =t3 -t8;	t3 =t3 +t8;
+				t8 =t4 +rt;	t4 =t4 -rt;
 
 	/*...Block 2:	*/
-			t9 =a[j1+p6 ];		t10=a[j2+p6 ];
-			rt =a[j1+p7 ];		it =a[j2+p7 ];
-			t11=t9 -rt;  		t9 =t9 +rt;
-			t12=t10-it;			t10=t10+it;
+		t9 =a[j1+p6 ];		t10=a[j2+p6 ];
+		rt =a[j1+p7 ];		it =a[j2+p7 ];
+		t11=t9 -rt;  		t9 =t9 +rt;
+		t12=t10-it;			t10=t10+it;
 
-			t13=a[j1+p4 ];		t14=a[j2+p4 ];
-			rt =a[j1+p5 ];		it =a[j2+p5 ];
-			t15=t13-rt;  		t13=t13+rt;
-			t16=t14-it;			t14=t14+it;
+		t13=a[j1+p4 ];		t14=a[j2+p4 ];
+		rt =a[j1+p5 ];		it =a[j2+p5 ];
+		t15=t13-rt;  		t13=t13+rt;
+		t16=t14-it;			t14=t14+it;
 
-			rt =t13;t13=t9 -rt;	t9 =t9 +rt;
-			it =t14;t14=t10-it;	t10=t10+it;
+		rt =t13;t13=t9 -rt;	t9 =t9 +rt;
+		it =t14;t14=t10-it;	t10=t10+it;
 
-			rt =t15;t15=t11-t16;t11=t11+t16;
-					t16=t12+rt;	t12=t12-rt;
+		rt =t15;t15=t11-t16;t11=t11+t16;
+				t16=t12+rt;	t12=t12-rt;
 
 	/*...Block 3:	*/
-			t17=a[j1+p9 ];		t18=a[j2+p9 ];
-			rt =a[j1+p8 ];		it =a[j2+p8 ];
-			t19=t17-rt;  		t17=t17+rt;
-			t20=t18-it;			t18=t18+it;
+		t17=a[j1+p9 ];		t18=a[j2+p9 ];
+		rt =a[j1+p8 ];		it =a[j2+p8 ];
+		t19=t17-rt;  		t17=t17+rt;
+		t20=t18-it;			t18=t18+it;
 
-			t21=a[j1+p10];		t22=a[j2+p10];
-			rt =a[j1+p11];		it =a[j2+p11];
-			t23=t21-rt;  		t21=t21+rt;
-			t24=t22-it;			t22=t22+it;
+		t21=a[j1+p10];		t22=a[j2+p10];
+		rt =a[j1+p11];		it =a[j2+p11];
+		t23=t21-rt;  		t21=t21+rt;
+		t24=t22-it;			t22=t22+it;
 
-			rt =t21;t21=t17-rt;	t17=t17+rt;
-			it =t22;t22=t18-it;	t18=t18+it;
+		rt =t21;t21=t17-rt;	t17=t17+rt;
+		it =t22;t22=t18-it;	t18=t18+it;
 
-			rt =t23;t23=t19-t24;t19=t19+t24;
-					t24=t20+rt;	t20=t20-rt;
+		rt =t23;t23=t19-t24;t19=t19+t24;
+				t24=t20+rt;	t20=t20-rt;
 	/*
 	!...and now do four radix-3 transforms.
 	*/
 	/*...Block 1: t1,9,17	*/
-			rt =t9;				it =t10;
-			t9 =rt+t17;			t10=it+t18;
-			t17=rt-t17;			t18=it-t18;
-			t1 =t1+t9;			t2 =t2+t10;
-			a[j1    ]=t1;		a[j2    ]=t2;
-			t9 =t1+c4m1*t9;		t10=t2+c4m1*t10;
-			rt =c*t17;			it =c*t18;
-			a[j1+p4 ]=t9+it;	a[j2+p4 ]=t10-rt;
-			a[j1+p8 ]=t9-it;	a[j2+p8 ]=t10+rt;
+		rt =t9;				it =t10;
+		t9 =rt+t17;			t10=it+t18;
+		t17=rt-t17;			t18=it-t18;
+		t1 =t1+t9;			t2 =t2+t10;
+		a[j1    ]=t1;		a[j2    ]=t2;
+		t9 =t1+c3m1*t9;		t10=t2+c3m1*t10;
+		rt =s*t17;			it =s*t18;
+		a[j1+p4 ]=t9+it;	a[j2+p4 ]=t10-rt;
+		a[j1+p8 ]=t9-it;	a[j2+p8 ]=t10+rt;
 	/*...Block 2: t3,11,19	*/
-			rt =t11;			it =t12;
-			t11=rt+t19;			t12=it+t20;
-			t19=rt-t19;			t20=it-t20;
-			t3 =t3+t11;			t4 =t4+t12;
-			a[j1+p3 ]=t3;		a[j2+p3 ]=t4;
-			t11=t3+c4m1*t11;	t12=t4+c4m1*t12;
-			rt =c*t19;			it =c*t20;
-			a[j1+p7 ]=t11+it;	a[j2+p7 ]=t12-rt;
-			a[j1+p11]=t11-it;	a[j2+p11]=t12+rt;
+		rt =t11;			it =t12;
+		t11=rt+t19;			t12=it+t20;
+		t19=rt-t19;			t20=it-t20;
+		t3 =t3+t11;			t4 =t4+t12;
+		a[j1+p3 ]=t3;		a[j2+p3 ]=t4;
+		t11=t3+c3m1*t11;	t12=t4+c3m1*t12;
+		rt =s*t19;			it =s*t20;
+		a[j1+p7 ]=t11+it;	a[j2+p7 ]=t12-rt;
+		a[j1+p11]=t11-it;	a[j2+p11]=t12+rt;
 	/*...Block 3: t5,13,21	*/
-			rt =t13;			it =t14;
-			t13=rt+t21;			t14=it+t22;
-			t21=rt-t21;			t22=it-t22;
-			t5 =t5+t13;			t6 =t6+t14;
-			a[j1+p6 ]=t5;		a[j2+p6 ]=t6;
-			t13=t5+c4m1*t13;	t14=t6+c4m1*t14;
-			rt =c*t21;			it =c*t22;
-			a[j1+p10]=t13+it;	a[j2+p10]=t14-rt;
-			a[j1+p2 ]=t13-it;	a[j2+p2 ]=t14+rt;
+		rt =t13;			it =t14;
+		t13=rt+t21;			t14=it+t22;
+		t21=rt-t21;			t22=it-t22;
+		t5 =t5+t13;			t6 =t6+t14;
+		a[j1+p6 ]=t5;		a[j2+p6 ]=t6;
+		t13=t5+c3m1*t13;	t14=t6+c3m1*t14;
+		rt =s*t21;			it =s*t22;
+		a[j1+p10]=t13+it;	a[j2+p10]=t14-rt;
+		a[j1+p2 ]=t13-it;	a[j2+p2 ]=t14+rt;
 	/*...Block 3: t7,15,23	*/
-			rt =t15;			it =t16;
-			t15=rt+t23;			t16=it+t24;
-			t23=rt-t23;			t24=it-t24;
-			t7 =t7+t15;			t8 =t8+t16;
-			a[j1+p9 ]=t7;		a[j2+p9 ]=t8;
-			t15=t7+c4m1*t15;	t16=t8+c4m1*t16;
-			rt =c*t23;			it =c*t24;
-			a[j1+p1 ]=t15+it;	a[j2+p1 ]=t16-rt;
-			a[j1+p5 ]=t15-it;	a[j2+p5 ]=t16+rt;
-							/* Totals: 96 FADD, 16 FMUL.	*/
+		rt =t15;			it =t16;
+		t15=rt+t23;			t16=it+t24;
+		t23=rt-t23;			t24=it-t24;
+		t7 =t7+t15;			t8 =t8+t16;
+		a[j1+p9 ]=t7;		a[j2+p9 ]=t8;
+		t15=t7+c3m1*t15;	t16=t8+c3m1*t16;
+		rt =s*t23;			it =s*t24;
+		a[j1+p1 ]=t15+it;	a[j2+p1 ]=t16-rt;
+		a[j1+p5 ]=t15-it;	a[j2+p5 ]=t16+rt;
+						/* Totals: 96 FADD, 16 FMUL.	*/
+#else
+		int jt,jp;
+		double u1,u2,u3,u4,u5,u6
+			,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09;
+		// Do a trio of 4-DFTs; combined DIT input-scramble array = [0,1,3,2|9,8,a,b|6,7,4,5]:
+		RADIX_04_DIT(a[j1   ],a[j2   ],a[j1+p1],a[j2+p1],a[j1+p3],a[j2+p3],a[j1+p2],a[j2+p2],t00,t01,t06,t07,t12,t13,t18,t19,rt,it);	jt = j1+p8; jp = j2+p8;
+		RADIX_04_DIT(a[jt+p1],a[jp+p1],a[jt   ],a[jp   ],a[jt+p2],a[jp+p2],a[jt+p3],a[jp+p3],t02,t03,t08,t09,t14,t15,t20,t21,rt,it);	jt = j1+p4; jp = j2+p4;
+		RADIX_04_DIT(a[jt+p2],a[jp+p2],a[jt+p3],a[jp+p3],a[jt   ],a[jp   ],a[jt+p1],a[jp+p1],t04,t05,t10,t11,t16,t17,t22,t23,rt,it);
+		/* And now do a quarter of 3-DFTs. Required output index permutation: [0,1,2,3,4,5,6,7,8,9,a,b] => [0,3,6,9,4,7,a,1,8,b,2,5],
+		i.e. in terms of our trial-output ordering into trios, [0,4,8|1,5,9|2,6,a|3,7,b] => [0,4,8|3,7,b|6,a,2|9,1,5]:
+		*/
+		RADIX_03_DFT(s,c3m1,t00,t01,t02,t03,t04,t05,u1,u2,u3,u4,u5,u6,a[j1   ],a[j2   ],a[j1+p4],a[j2+p4],a[j1+p8],a[j2+p8]);	jt = j1+p3; jp = j2+p3;
+		RADIX_03_DFT(s,c3m1,t06,t07,t08,t09,t10,t11,u1,u2,u3,u4,u5,u6,a[jt   ],a[jp   ],a[jt+p4],a[jp+p4],a[jt+p8],a[jp+p8]);	jt = j1+p2; jp = j2+p2;
+		RADIX_03_DFT(s,c3m1,t12,t13,t14,t15,t16,t17,u1,u2,u3,u4,u5,u6,a[jt+p4],a[jp+p4],a[jt+p8],a[jp+p8],a[jt   ],a[jp   ]);	jt = j1+p1; jp = j2+p1;
+		RADIX_03_DFT(s,c3m1,t18,t19,t20,t21,t22,t23,u1,u2,u3,u4,u5,u6,a[jt+p8],a[jp+p8],a[jt   ],a[jp   ],a[jt+p4],a[jp+p4]);
+#endif
 	}
 }
 
+/******************** Multithreaded function body - NO STATIC VARS BELOW THIS POINT!: ***************************/
+
+#ifdef USE_PTHREAD
+
+	#ifndef COMPILER_TYPE_GCC
+		#error pthreaded carry code requires GCC build!
+	#endif
+
+	void*
+	cy12_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+	{
+		const int pfetch_dist = PFETCH_DIST;
+		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
+		uint32 p1,p2,p3,p4,p8;
+		int poff[RADIX>>2];	// Store [RADIX/4] mults of p4 offset for loop control
+		int j,j1,j2,k,l;
+		double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
+	#ifdef USE_AVX
+		struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+	#else
+		int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
+	#endif
+		double wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
+
+	#ifdef USE_SSE2
+
+		double *addr, *add0,*add1,*add2,*add3;
+		const double crnd = 3.0*0x4000000*0x2000000;
+		int *itmp;	// Pointer into the bjmodn array
+		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
+		vec_dbl *cc0, *cc3, *max_err, *sse2_rnd, *half_arr, *tmp,*tm1,*tm2, *two
+			,*r00,*r01,*r02,*r03,*r04,*r05,*r06,*r07,*r08,*r09,*r10,*r11
+			,*s1p00,*s1p01,*s1p02,*s1p03,*s1p04,*s1p05,*s1p06,*s1p07,*s1p08,*s1p09,*s1p10,*s1p11;
+		vec_dbl *cy00,*cy04,*cy08;
+	  #ifndef USE_AVX
+		vec_dbl *cy02,*cy06,*cy10;
+	  #endif
+		int *bjmodn00,*bjmodn01,*bjmodn02,*bjmodn03,*bjmodn04,*bjmodn05,*bjmodn06,*bjmodn07,*bjmodn08,*bjmodn09,*bjmodn10,*bjmodn11;
+		double dtmp;
+		uint64 *sign_mask, *sse_bw, *sse_sw, *sse_n;
+
+	#else
+
+		const double	c3m1= -1.50000000000000000000,	/* cos(twopi/3)-1	*/
+						s   =  0.86602540378443864675;	/* sin(twopi/3)		*/
+		double *add0,*addr, *base, *baseinv;
+		const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
+		int jt,jp,m,m2;
+		double wt,wtinv,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
+		double rt,it,temp,frac
+			,t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23
+			,a1p00r,a1p01r,a1p02r,a1p03r,a1p04r,a1p05r,a1p06r,a1p07r,a1p08r,a1p09r,a1p10r,a1p11r
+			,a1p00i,a1p01i,a1p02i,a1p03i,a1p04i,a1p05i,a1p06i,a1p07i,a1p08i,a1p09i,a1p10i,a1p11i
+			,cy00,cy01,cy02,cy03,cy04,cy05,cy06,cy07,cy08,cy09,cy10,cy11;
+		int bjmodn00,bjmodn01,bjmodn02,bjmodn03,bjmodn04,bjmodn05,bjmodn06,bjmodn07,bjmodn08,bjmodn09,bjmodn10,bjmodn11;
+
+	#endif
+
+		struct cy_thread_data_t* thread_arg = targ;
+	// int data:
+		int iter = thread_arg->iter;
+		int NDIVR = thread_arg->ndivr;
+		int n = NDIVR*RADIX;
+		int target_idx = thread_arg->target_idx;
+		int target_set = thread_arg->target_set;
+		double target_cy  = thread_arg->target_cy;
+		int khi    = thread_arg->khi;
+		int i      = thread_arg->i;	/* Pointer to the BASE and BASEINV arrays.	*/
+		int jstart = thread_arg->jstart;
+		int jhi    = thread_arg->jhi;
+		int col = thread_arg->col;
+		int co2 = thread_arg->co2;
+		int co3 = thread_arg->co3;
+		int sw  = thread_arg->sw;
+		int nwt = thread_arg->nwt;
+
+	// double data:
+		double maxerr = thread_arg->maxerr;
+		double scale = thread_arg->scale;	int full_pass = scale < 0.5;
+		double prp_mult = thread_arg->prp_mult;
+
+	// pointer data:
+		double *a = thread_arg->arrdat;
+		double *wt0 = thread_arg->wt0;
+		double *wt1 = thread_arg->wt1;
+	#ifdef LOACC
+		double *wts_mult = thread_arg->wts_mult;	// Const Intra-block wts-multiplier...
+		double *inv_mult = thread_arg->inv_mult;	// ...and 2*(its multiplicative inverse).
+		ASSERT(HERE,fabs(wts_mult[0]*inv_mult[0] - 1.0) < EPS, "wts_mults fail accuracy check!");
+		ASSERT(HERE,fabs(wts_mult[1]*inv_mult[1] - 1.0) < EPS, "wts_mults fail accuracy check!");
+	#endif
+		int *si = thread_arg->si;
+
+		/*   constant index offsets for array load/stores are here.	*/
+		p1 = NDIVR;
+		p2 = p1 + p1;
+		p3 = p2 + p1;
+		p4 = p3 + p1;
+		p8 = p4 + p4;
+
+		p1 = p1 + ( (p1 >> DAT_BITS) << PAD_BITS );
+		p2 = p2 + ( (p2 >> DAT_BITS) << PAD_BITS );
+		p3 = p3 + ( (p3 >> DAT_BITS) << PAD_BITS );
+		p4 = p4 + ( (p4 >> DAT_BITS) << PAD_BITS );
+		p8 = p8 + ( (p8 >> DAT_BITS) << PAD_BITS );
+
+		poff[0] =   0; poff[1] = p4; poff[2] = p8;
+
+	#ifdef USE_SSE2
+		r00	= thread_arg->r00;
+	#ifdef USE_AVX
+								tmp	= r00 + 0x18;
+								s1p00 = tmp + 0x00;		two     = tmp + 0x18;
+		r01	= r00 + 0x02;		s1p01 = tmp + 0x02;		cc3     = tmp + 0x19;
+		r02	= r00 + 0x04;		s1p02 = tmp + 0x04;		cc0     = tmp + 0x1a;
+		r03	= r00 + 0x06;		s1p03 = tmp + 0x06;		cy00    = tmp + 0x1b;
+		r04	= r00 + 0x08;		s1p04 = tmp + 0x08;		cy04    = tmp + 0x1c;
+		r05	= r00 + 0x0a;		s1p05 = tmp + 0x0a;		cy08    = tmp + 0x1d;
+		r06	= r00 + 0x0c;		s1p06 = tmp + 0x0c;
+		r07	= r00 + 0x0e;		s1p07 = tmp + 0x0e;
+		r08	= r00 + 0x10;		s1p08 = tmp + 0x10;
+		r09	= r00 + 0x12;		s1p09 = tmp + 0x12;		max_err = tmp + 0x1e;
+		r10	= r00 + 0x14;		s1p10 = tmp + 0x14;		sse2_rnd= tmp + 0x1f;
+		r11	= r00 + 0x16;		s1p11 = tmp + 0x16;		half_arr= tmp + 0x20;	/* This table needs 20x16 bytes */
+																// half_ar = r00 + 0x38; This is where the value of half_arr_offset12 comes from
+	#else
+								tmp	= r00 + 0x18;
+								s1p00 = tmp + 0x00;		two     = tmp + 0x18;
+		r01	= r00 + 0x02;		s1p01 = tmp + 0x02;		cc3     = tmp + 0x19;
+		r02	= r00 + 0x04;		s1p02 = tmp + 0x04;		cc0     = tmp + 0x1a;
+		r03	= r00 + 0x06;		s1p03 = tmp + 0x06;		cy00    = tmp + 0x1b;
+		r04	= r00 + 0x08;		s1p04 = tmp + 0x08;		cy02    = tmp + 0x1c;
+		r05	= r00 + 0x0a;		s1p05 = tmp + 0x0a;		cy04    = tmp + 0x1d;
+		r06	= r00 + 0x0c;		s1p06 = tmp + 0x0c;		cy06    = tmp + 0x1e;
+		r07	= r00 + 0x0e;		s1p07 = tmp + 0x0e;		cy08    = tmp + 0x1f;
+		r08	= r00 + 0x10;		s1p08 = tmp + 0x10;		cy10    = tmp + 0x20;
+		r09	= r00 + 0x12;		s1p09 = tmp + 0x12;		max_err = tmp + 0x21;
+		r10	= r00 + 0x14;		s1p10 = tmp + 0x14;		sse2_rnd= tmp + 0x22;
+		r11	= r00 + 0x16;		s1p11 = tmp + 0x16;		half_arr= tmp + 0x23;	/* This table needs 20x16 bytes */
+																// half_arr = r00 + 0x3b; This is where the value of half_arr_offset12 comes from
+	#endif
+		ASSERT(HERE, (r00 == thread_arg->r00), "thread-local memcheck failed!");
+		ASSERT(HERE, (half_arr == thread_arg->half_arr), "thread-local memcheck failed!");
+		ASSERT(HERE, (sse2_rnd->d0 == crnd && sse2_rnd->d1 == crnd), "thread-local memcheck failed!");
+		tmp = half_arr;
+	  #ifdef USE_AVX
+		// Grab some elt of base-data [offset by, say, +32] and mpy by its inverse [+16 further]
+		dtmp = (tmp+40)->d0 * (tmp+56)->d0;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+		dtmp = (tmp+40)->d1 * (tmp+56)->d1;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+	  #else	// SSE2:
+		dtmp = (tmp+10)->d0 * (tmp+14)->d0;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+		dtmp = (tmp+10)->d1 * (tmp+14)->d1;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
+	  #endif
+
+		VEC_DBL_INIT(max_err, 0.0);
+
+		sign_mask = (uint64*)(r00 + radix12_creals_in_local_store);
+		sse_bw  = sign_mask + RE_IM_STRIDE;	// (#doubles in a SIMD complex) x 32-bits = RE_IM_STRIDE x 64-bits
+		sse_sw  = sse_bw    + RE_IM_STRIDE;
+		sse_n   = sse_sw    + RE_IM_STRIDE;
+	  #ifdef USE_AVX
+		n_minus_sil   = (struct uint32x4 *)sse_n + 1;
+		n_minus_silp1 = (struct uint32x4 *)sse_n + 2;
+		sinwt         = (struct uint32x4 *)sse_n + 3;
+		sinwtm1       = (struct uint32x4 *)sse_n + 4;
+
+		bjmodn00 = (int*)(sinwtm1 + RE_IM_STRIDE);
+	  #else
+		bjmodn00 = (int*)(sse_n + RE_IM_STRIDE);
+	  #endif
+		bjmodn01 = bjmodn00 +  1;
+		bjmodn02 = bjmodn00 +  2;
+		bjmodn03 = bjmodn00 +  3;
+		bjmodn04 = bjmodn00 +  4;
+		bjmodn05 = bjmodn00 +  5;
+		bjmodn06 = bjmodn00 +  6;
+		bjmodn07 = bjmodn00 +  7;
+		bjmodn08 = bjmodn00 +  8;
+		bjmodn09 = bjmodn00 +  9;
+		bjmodn10 = bjmodn00 + 10;
+		bjmodn11 = bjmodn00 + 11;
+	#else
+
+		// In scalar mode use these 2 ptrs to pass the base & baseinv arrays:
+		base    = (double *)thread_arg->r00     ;
+		baseinv = (double *)thread_arg->half_arr;
+
+	#endif	// USE_SSE2 ?
+
+		/* Init DWT-indices: */	/* init carries	*/
+	#ifdef USE_AVX
+		*bjmodn00 = thread_arg->bjmodn00;		cy00->d0 = thread_arg->cy00;
+		*bjmodn01 = thread_arg->bjmodn01;		cy00->d1 = thread_arg->cy01;
+		*bjmodn02 = thread_arg->bjmodn02;		cy00->d2 = thread_arg->cy02;
+		*bjmodn03 = thread_arg->bjmodn03;		cy00->d3 = thread_arg->cy03;
+		*bjmodn04 = thread_arg->bjmodn04;		cy04->d0 = thread_arg->cy04;
+		*bjmodn05 = thread_arg->bjmodn05;		cy04->d1 = thread_arg->cy05;
+		*bjmodn06 = thread_arg->bjmodn06;		cy04->d2 = thread_arg->cy06;
+		*bjmodn07 = thread_arg->bjmodn07;		cy04->d3 = thread_arg->cy07;
+		*bjmodn08 = thread_arg->bjmodn08;		cy08->d0 = thread_arg->cy08;
+		*bjmodn09 = thread_arg->bjmodn09;		cy08->d1 = thread_arg->cy09;
+		*bjmodn10 = thread_arg->bjmodn10;		cy08->d2 = thread_arg->cy10;
+		*bjmodn11 = thread_arg->bjmodn11;		cy08->d3 = thread_arg->cy11;
+	#elif defined(USE_SSE2)
+		*bjmodn00 = thread_arg->bjmodn00;		cy00->d0 = thread_arg->cy00;
+		*bjmodn01 = thread_arg->bjmodn01;		cy00->d1 = thread_arg->cy01;
+		*bjmodn02 = thread_arg->bjmodn02;		cy02->d0 = thread_arg->cy02;
+		*bjmodn03 = thread_arg->bjmodn03;		cy02->d1 = thread_arg->cy03;
+		*bjmodn04 = thread_arg->bjmodn04;		cy04->d0 = thread_arg->cy04;
+		*bjmodn05 = thread_arg->bjmodn05;		cy04->d1 = thread_arg->cy05;
+		*bjmodn06 = thread_arg->bjmodn06;		cy06->d0 = thread_arg->cy06;
+		*bjmodn07 = thread_arg->bjmodn07;		cy06->d1 = thread_arg->cy07;
+		*bjmodn08 = thread_arg->bjmodn08;		cy08->d0 = thread_arg->cy08;
+		*bjmodn09 = thread_arg->bjmodn09;		cy08->d1 = thread_arg->cy09;
+		*bjmodn10 = thread_arg->bjmodn10;		cy10->d0 = thread_arg->cy10;
+		*bjmodn11 = thread_arg->bjmodn11;		cy10->d1 = thread_arg->cy11;
+	#else
+		bjmodn00 = thread_arg->bjmodn00;		cy00 = thread_arg->cy00;
+		bjmodn01 = thread_arg->bjmodn01;		cy01 = thread_arg->cy01;
+		bjmodn02 = thread_arg->bjmodn02;		cy02 = thread_arg->cy02;
+		bjmodn03 = thread_arg->bjmodn03;		cy03 = thread_arg->cy03;
+		bjmodn04 = thread_arg->bjmodn04;		cy04 = thread_arg->cy04;
+		bjmodn05 = thread_arg->bjmodn05;		cy05 = thread_arg->cy05;
+		bjmodn06 = thread_arg->bjmodn06;		cy06 = thread_arg->cy06;
+		bjmodn07 = thread_arg->bjmodn07;		cy07 = thread_arg->cy07;
+		bjmodn08 = thread_arg->bjmodn08;		cy08 = thread_arg->cy08;
+		bjmodn09 = thread_arg->bjmodn09;		cy09 = thread_arg->cy09;
+		bjmodn10 = thread_arg->bjmodn10;		cy10 = thread_arg->cy10;
+		bjmodn11 = thread_arg->bjmodn11;		cy11 = thread_arg->cy11;
+	#endif	// SSE2 or AVX?
+
+		/********************************************************************************/
+		/* This main loop is same for un-and-multithreaded, so stick into a header file */
+		/* (can't use a macro because of the #if-enclosed stuff).                       */
+		/********************************************************************************/
+		#include "radix12_main_carry_loop.h"
+
+		/* At end of each thread-processed work chunk, dump the
+		carryouts into their non-thread-private array slots:
+		*/
+	#ifdef USE_AVX
+		thread_arg->cy00 = cy00->d0;
+		thread_arg->cy01 = cy00->d1;
+		thread_arg->cy02 = cy00->d2;
+		thread_arg->cy03 = cy00->d3;
+		thread_arg->cy04 = cy04->d0;
+		thread_arg->cy05 = cy04->d1;
+		thread_arg->cy06 = cy04->d2;
+		thread_arg->cy07 = cy04->d3;
+		thread_arg->cy08 = cy08->d0;
+		thread_arg->cy09 = cy08->d1;
+		thread_arg->cy10 = cy08->d2;
+		thread_arg->cy11 = cy08->d3;
+		maxerr = MAX( MAX(max_err->d0,max_err->d1) , MAX(max_err->d2,max_err->d3) );
+	#elif defined(USE_SSE2)
+		thread_arg->cy00 = cy00->d0;
+		thread_arg->cy01 = cy00->d1;
+		thread_arg->cy02 = cy02->d0;
+		thread_arg->cy03 = cy02->d1;
+		thread_arg->cy04 = cy04->d0;
+		thread_arg->cy05 = cy04->d1;
+		thread_arg->cy06 = cy06->d0;
+		thread_arg->cy07 = cy06->d1;
+		thread_arg->cy08 = cy08->d0;
+		thread_arg->cy09 = cy08->d1;
+		thread_arg->cy10 = cy10->d0;
+		thread_arg->cy11 = cy10->d1;
+		maxerr = MAX(max_err->d0,max_err->d1);
+	#else
+		thread_arg->cy00 = cy00;
+		thread_arg->cy01 = cy01;
+		thread_arg->cy02 = cy02;
+		thread_arg->cy03 = cy03;
+		thread_arg->cy04 = cy04;
+		thread_arg->cy05 = cy05;
+		thread_arg->cy06 = cy06;
+		thread_arg->cy07 = cy07;
+		thread_arg->cy08 = cy08;
+		thread_arg->cy09 = cy09;
+		thread_arg->cy10 = cy10;
+		thread_arg->cy11 = cy11;
+	#endif	// SSE2 or AVX?
+
+		/* Since will lose separate maxerr values when threads are merged, save them after each pass. */
+		if(thread_arg->maxerr < maxerr)
+		{
+			thread_arg->maxerr = maxerr;
+		}
+
+		return 0x0;
+	}
+#endif
+
+#undef RADIX
+#undef PFETCH_DIST

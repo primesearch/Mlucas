@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2016 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -30,6 +30,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <math.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>

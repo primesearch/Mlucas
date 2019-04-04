@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -112,6 +112,8 @@
 		int iter;
 		int tid;
 		int ndivr;
+		int target_idx, target_set;	// Jun 2018: Add support for residue shift. (Only LL-test needs intervention at carry-loop level).
+		double target_cy;
 
 		int khi;
 		int i;
@@ -141,6 +143,7 @@
 	// double data:
 		double maxerr;
 		double scale;
+		double prp_mult;
 
 	// pointer data:
 		double *arrdat;			/* Main data array */
@@ -239,6 +242,11 @@ int radix60_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	even though ODD_RADIX has been declared a const: */
 	static double foo_array[(ODD_RADIX+1)<<2], *wt_arr, *wtinv_arr, *bs_arr, *bsinv_arr, bs,bsinv;
 
+	// Jun 2018: Add support for residue shift. (Only LL-test needs intervention at carry-loop level).
+	int target_idx = -1, target_set,tidx_mod_stride;
+	double target_cy;
+	static double ndivr_inv;
+	uint64 itmp64;
 	static uint64 psave = 0;
 	static uint32 bw,sw,bjmodnini,p01,p02,p03,p04,p08,p12,p16,p20,p24,p28,p32,p36,p40,p44,p48,p52,p56, nsave = 0;
 	static int poff[RADIX>>2];
@@ -356,6 +364,10 @@ int radix60_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	static int *_i, *_jstart = 0x0, *_jhi = 0x0, *_col = 0x0, *_co2 = 0x0, *_co3 = 0x0;
 	static int *_bjmodnini = 0x0, *_bjmodn[RADIX];
 	static double *_cy_r[RADIX],*_cy_i[RADIX];
+  #if defined(USE_AVX512) && !defined(USE_THREADS)
+	WARN(HERE, "radix60_ditN_cy_dif1: AVX-512 support requires multithreaded build (-DUSE_THREADS); Skipping this leading radix.", "", 1); return(ERR_RADIX0_UNAVAILABLE);
+  #endif
+
 	if(!_jhi) {
 		_cy_r[0] = 0x0;	// First of these used as an "already inited consts?" sentinel, must init = 0x0 at same time do so for non-array static ptrs
 	}
@@ -371,9 +383,18 @@ int radix60_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	// Init these to get rid of GCC "may be used uninitialized in this function" warnings:
 	col=co2=co3=-1;
+	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
+	double prp_mult = 1.0;
+	// v18: If use residue shift in context of Pépin test, need prp_mult = 2 whenever the 'shift = 2*shift + random[0,1]' update gets a 1-bit in the random slot
+	if((TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT)
+	|| (TEST_TYPE & 0xfffffffe) == TEST_TYPE_PRP) {	// Mask off low bit to lump together PRP and PRP-C tests
+		i = (iter % ITERS_BETWEEN_CHECKPOINTS) - 1;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
+		if((BASE_MULTIPLIER_BITS[i>>6] >> (i&63)) & 1)
+			prp_mult = PRP_BASE;
+	}
 
 /*...change NDIVR and n_div_wt to non-static to work around a gcc compiler bug. */
-	NDIVR   = n/RADIX;
+	NDIVR   = n/RADIX;	ndivr_inv = (double)RADIX/n;
 	n_div_nwt = NDIVR >> nwt_bits;
 
 	if((n_div_nwt << nwt_bits) != NDIVR)
@@ -498,6 +519,7 @@ int radix60_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		/* Populate the elements of the thread-specific data structs which don't change after init: */
 		for(ithread = 0; ithread < CY_THREADS; ithread++)
 		{
+			tdat[ithread].iter = iter;
 		// int data:
 			tdat[ithread].tid = ithread;
 			tdat[ithread].ndivr = NDIVR;
@@ -506,7 +528,7 @@ int radix60_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			tdat[ithread].nwt = nwt;
 
 		// pointer data:
-			tdat[ithread].arrdat = a;			/* Main data array */
+		//	tdat[ithread].arrdat = a;			/* Main data array */
 			tdat[ithread].wt0 = wt0;
 			tdat[ithread].wt1 = wt1;
 		#ifdef LOACC
@@ -1439,7 +1461,7 @@ int radix60_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			tdat[ithread].bjmodn0 = _bjmodnini[ithread];
 		#ifdef USE_SSE2
 			tdat[ithread].r00    = __r0 + ithread*cslots_in_local_store;
-			tdat[ithread].half_arr = (long)tdat[ithread].r00 + ((long)half_arr - (long)r00);
+			tdat[ithread].half_arr = (vec_dbl *)((long)tdat[ithread].r00 + ((long)half_arr - (long)r00));
 		#else
 			// In scalar mode use these 2 ptrs to pass wts_idx_incr and the base/baseinv/etc array-ptrs:
 			tdat[ithread].r00    = (double *)foo_array;
@@ -1476,7 +1498,7 @@ int radix60_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 				jhi = NDIVR/CY_THREADS;	// Earlier setting = NDIVR/CY_THREADS/2 was for simulating bjmodn evolution, need 2x that here
 				// Get value of (negative) increment resulting from (jhi-jstart)/stride execs of *cycle[] += wts_idx_inc* (mod nwt*):
 			#ifndef USE_SSE2
-				j = ((int64)wts_idx_incr * ( (jhi-jstart)>>(l2_sz_vd-2) ) % nwt16);	// []>>(l2_sz_vd-2) is fast subst. for []/stride
+				j = ((int64)wts_idx_incr * ( (jhi-jstart)>>(l2_sz_vd-2) ) % nwt  );	// []>>(l2_sz_vd-2) is fast subst. for []/stride
 			#else
 				j = ((int64)wts_idx_inc2 * ( (jhi-jstart)>>(l2_sz_vd-2) ) % nwt16);	// Cast wts_idx_inc* to signed 64-bit to avoid
 						// overflow of product; further compute (jhi-jstart)/stride prior to multiply to gain more bits-to-spare.
@@ -1542,6 +1564,36 @@ int radix60_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		first_entry=FALSE;
 	}	/* endif(first_entry) */
 
+	// Jun 2018: If LL test and shift applied, compute target index for data-processing loop.
+	// Note that only 1 thread of the carry-processing set will hit the target, but all need the same logic to check for a hit:
+	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRIMALITY) {
+		if(RES_SHIFT) {
+			itmp64 = shift_word(a, n, p, RES_SHIFT, 0.0);	// Note return value (specifically high 7 bytes thereof) is an unpadded index
+			target_idx = (int)(itmp64 >>  8);	// This still needs to be (mod NDIVR)'ed, but first use unmodded form to compute needed DWT weights
+			// Compute wt = 2^(target_idx*sw % n)/n and its reciprocal:
+			uint32 sw_idx_modn = ((uint64)target_idx*sw) % n;	// N is 32-bit, so only use 64-bit to hold intermediate product
+			double target_wtfwd = pow(2.0, sw_idx_modn*0.5*n2inv);	// 0.5*n2inv = 0.5/(n/2) = 1.0/n
+			target_set = target_idx*ndivr_inv;	// Which of the [RADIX] independent sub-carry-chains contains the target index?
+			target_idx -= target_set*NDIVR;		// Fast computation of target_idx = (target_idx % NDIVR)
+			// Now compute the doubles-pointer offset of the target double w.r.to the SIMD s1p00-... data layout:
+			tidx_mod_stride = target_idx & (stride-1);	// Stride a power of 2, so can use AND-minus-1 for mod
+			target_idx -= tidx_mod_stride;
+		//	printf("Iter %d: cy_shift = %d, target_idx,tidx_mod_stride,target_set = %d,%d,%d\n",iter,(itmp64 & 255),target_idx,tidx_mod_stride,target_set);
+		#ifdef USE_AVX512
+			tidx_mod_stride = br16[tidx_mod_stride];
+		#elif defined(USE_AVX)
+			tidx_mod_stride = br8[tidx_mod_stride];
+		#elif defined(USE_SSE2)
+			tidx_mod_stride = br4[tidx_mod_stride];
+		#endif
+			target_set = (target_set<<(l2_sz_vd-2)) + tidx_mod_stride;
+			target_cy  = target_wtfwd * ((int)-2 << (itmp64 & 255));
+		} else {
+			target_idx = target_set = 0;
+			target_cy = -2.0;
+		}
+	}
+
 /*...The radix-60 final DIT pass is here.	*/
 
 	/* init carries	*/
@@ -1552,15 +1604,16 @@ int radix60_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			_cy_i[i][ithread] = 0;
 		}
 	}
+  #ifndef USE_SSE2	// Non-SIMD builds don't support shifted-residue, so init LL cy_in as before:
 	/* If an LL test, init the subtract-2: */
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRIMALITY)
 	{
 		_cy_r[0][0] = -2;
 	}
-
+  #endif
 	*fracmax=0;	/* init max. fractional error	*/
 	full_pass = 1;	/* set = 1 for normal carry pass, = 0 for wrapper pass	*/
-	scale = n2inv;	/* init inverse-weight scale factor  (set = 2/n for normal carry pass, = 1 for wrapper pass)	*/
+	scale = n2inv;	// init inverse-weight scale factor = 2/n for normal carry pass, 1 for wrapper pass
 
 for(outer=0; outer <= 1; outer++)
 {
@@ -1659,6 +1712,28 @@ for(outer=0; outer <= 1; outer++)
 	#endif	// USE_SSE2 ?
 	}	// MODULUS_TYPE_FERMAT ?
 
+#ifdef USE_PTHREAD
+	for(ithread = 0; ithread < CY_THREADS; ++ithread) { tdat[ithread].iter = iter; }
+	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
+	{
+		// Carry-injection location for the shifted-residue -2 addend is only needed for full pass:
+		if(full_pass) {
+			tdat[0].target_idx = target_idx;
+			tdat[0].target_set = target_set;
+			tdat[0].target_cy  = target_cy;
+		} else {
+			tdat[0].target_idx = -1;
+			tdat[0].target_set = 0;
+			tdat[0].target_cy  = 0;
+		}
+		// Copy to the remaining threads:
+		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
+			tdat[ithread].target_idx = tdat[0].target_idx;
+			tdat[ithread].target_set = tdat[0].target_set;
+			tdat[ithread].target_cy  = tdat[0].target_cy;
+		}
+	}
+#endif
 #ifdef USE_SSE2
 
 	tmp = max_err;	VEC_DBL_INIT(tmp, 0.0);
@@ -1699,9 +1774,10 @@ for(outer=0; outer <= 1; outer++)
 	// double data:
 		tdat[ithread].maxerr = 0.0;
 		tdat[ithread].scale = scale;
+		tdat[ithread].prp_mult = prp_mult;
 
 	// pointer data:
-		ASSERT(HERE, tdat[ithread].arrdat == a, "thread-local memcheck fail!");			/* Main data array */
+		tdat[ithread].arrdat = a;			/* Main data array */
 		ASSERT(HERE, tdat[ithread].wt0 == wt0, "thread-local memcheck fail!");
 		ASSERT(HERE, tdat[ithread].wt1 == wt1, "thread-local memcheck fail!");
 		ASSERT(HERE, tdat[ithread].si  == si, "thread-local memcheck fail!");
@@ -2049,7 +2125,7 @@ for(outer=0; outer <= 1; outer++)
 	}
 
 	full_pass = 0;
-	scale = 1;
+	scale = prp_mult = 1;
 
 	// For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large:
 	if(TRANSFORM_TYPE == RIGHT_ANGLE)
@@ -2500,6 +2576,9 @@ void radix60_dit_pass1(double a[], int n)
 		int iter = thread_arg->iter;
 		int NDIVR = thread_arg->ndivr;
 		int n = NDIVR*RADIX;
+		int target_idx = thread_arg->target_idx;
+		int target_set = thread_arg->target_set;
+		double target_cy  = thread_arg->target_cy;
 		int khi    = thread_arg->khi;
 		int i      = thread_arg->i;	/* Pointer to the BASE and BASEINV arrays.	*/
 		int jstart = thread_arg->jstart;
@@ -2509,9 +2588,12 @@ void radix60_dit_pass1(double a[], int n)
 		int co3 = thread_arg->co3;
 		int sw  = thread_arg->sw;
 		int nwt = thread_arg->nwt;
+
 	// double data:
 		double maxerr = thread_arg->maxerr;
 		double scale = thread_arg->scale;	int full_pass = scale < 0.5;
+		double prp_mult = thread_arg->prp_mult;
+
 	// pointer data:
 		double *a = thread_arg->arrdat;
 		double *wt0 = thread_arg->wt0;

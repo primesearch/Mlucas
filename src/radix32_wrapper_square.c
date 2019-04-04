@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2018 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -841,125 +841,6 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	if(j1 > 0) {
 	//	fprintf(stderr,"%s: Jumping into loop!\n",func);
 		goto jump_in;
-	} else {
-	#if 0
-		rng_isaac_init(TRUE);
-		double pow2_dmult = 1024.0*128.0;	// Restrict inputs to 18 bits, which in balanced-digit representation
-											// means restricting multiplier of random-inputs-in-[-1,+1] below to 2^17
-		int ipad, imax = MIN(1024,n);
-		for(i = 0; i < imax; i += 16) {
-			ipad = i + ( (i >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-			// All the inits are w.r.to an un-SIMD-rearranged ...,re,im,re,im,... pattern:
-		#ifdef USE_AVX512
-			a[ipad+br16[ 0]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re0
-			a[ipad+br16[ 1]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im0
-			a[ipad+br16[ 2]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re1
-			a[ipad+br16[ 3]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im1
-			a[ipad+br16[ 4]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re2
-			a[ipad+br16[ 5]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im2
-			a[ipad+br16[ 6]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re3
-			a[ipad+br16[ 7]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im3
-			a[ipad+br16[ 8]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re4
-			a[ipad+br16[ 9]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im4
-			a[ipad+br16[10]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re5
-			a[ipad+br16[11]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im5
-			a[ipad+br16[12]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re6
-			a[ipad+br16[13]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im6
-			a[ipad+br16[14]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re7
-			a[ipad+br16[15]] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im7
-		#elif defined(USE_AVX)
-			a[ipad+br8[0]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re0
-			a[ipad+br8[1]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im0
-			a[ipad+br8[2]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re1
-			a[ipad+br8[3]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im1
-			a[ipad+br8[4]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re2
-			a[ipad+br8[5]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im2
-			a[ipad+br8[6]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re3
-			a[ipad+br8[7]  ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im3
-			a[ipad+br8[0]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re4
-			a[ipad+br8[1]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im4
-			a[ipad+br8[2]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re5
-			a[ipad+br8[3]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im5
-			a[ipad+br8[4]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re6
-			a[ipad+br8[5]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im6
-			a[ipad+br8[6]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re7
-			a[ipad+br8[7]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im7
-		#elif defined(USE_SSE2)
-			a[ipad+br4[0]   ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re0
-			a[ipad+br4[1]   ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im0
-			a[ipad+br4[2]   ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re1
-			a[ipad+br4[3]   ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im1
-			a[ipad+br4[0]+4 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re2
-			a[ipad+br4[1]+4 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im2
-			a[ipad+br4[2]+4 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re3
-			a[ipad+br4[3]+4 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im3
-			a[ipad+br4[0]+8 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re4
-			a[ipad+br4[1]+8 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im4
-			a[ipad+br4[2]+8 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re5
-			a[ipad+br4[3]+8 ] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im5
-			a[ipad+br4[0]+12] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re6
-			a[ipad+br4[1]+12] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im6
-			a[ipad+br4[2]+12] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re7
-			a[ipad+br4[3]+12] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im7
-		#else
-			#error Debug only enabled for SSE2 and above!
-		#endif
-		#ifdef USE_AVX512
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 0, a[ipad+br16[ 0]],i+ 0, a[ipad+ 0]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 1, a[ipad+br16[ 1]],i+ 1, a[ipad+ 1]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 2, a[ipad+br16[ 2]],i+ 2, a[ipad+ 2]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 3, a[ipad+br16[ 3]],i+ 3, a[ipad+ 3]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 4, a[ipad+br16[ 4]],i+ 4, a[ipad+ 4]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 5, a[ipad+br16[ 5]],i+ 5, a[ipad+ 5]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 6, a[ipad+br16[ 6]],i+ 6, a[ipad+ 6]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 7, a[ipad+br16[ 7]],i+ 7, a[ipad+ 7]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 8, a[ipad+br16[ 8]],i+ 8, a[ipad+ 8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+ 9, a[ipad+br16[ 9]],i+ 9, a[ipad+ 9]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+10, a[ipad+br16[10]],i+10, a[ipad+10]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+11, a[ipad+br16[11]],i+11, a[ipad+11]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+12, a[ipad+br16[12]],i+12, a[ipad+12]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+13, a[ipad+br16[13]],i+13, a[ipad+13]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+14, a[ipad+br16[14]],i+14, a[ipad+14]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+15, a[ipad+br16[15]],i+15, a[ipad+15]);
-		#elif defined(USE_AVX)
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+0  ,a[ipad+br8[0]  ],i+0  ,a[ipad+0  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+1  ,a[ipad+br8[1]  ],i+1  ,a[ipad+1  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+2  ,a[ipad+br8[2]  ],i+2  ,a[ipad+2  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+3  ,a[ipad+br8[3]  ],i+3  ,a[ipad+3  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+4  ,a[ipad+br8[4]  ],i+4  ,a[ipad+4  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+5  ,a[ipad+br8[5]  ],i+5  ,a[ipad+5  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+6  ,a[ipad+br8[6]  ],i+6  ,a[ipad+6  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+7  ,a[ipad+br8[7]  ],i+7  ,a[ipad+7  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+0+8,a[ipad+br8[0]+8],i+0+8,a[ipad+0+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+1+8,a[ipad+br8[1]+8],i+1+8,a[ipad+1+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+2+8,a[ipad+br8[2]+8],i+2+8,a[ipad+2+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+3+8,a[ipad+br8[3]+8],i+3+8,a[ipad+3+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+4+8,a[ipad+br8[4]+8],i+4+8,a[ipad+4+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+5+8,a[ipad+br8[5]+8],i+5+8,a[ipad+5+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+6+8,a[ipad+br8[6]+8],i+6+8,a[ipad+6+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+7+8,a[ipad+br8[7]+8],i+7+8,a[ipad+7+8]);
-		#elif defined(USE_SSE2)
-		  if(0) {
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+0  ,a[ipad+br4[0]   ],i+0  ,a[ipad+0  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+1  ,a[ipad+br4[1]   ],i+1  ,a[ipad+1  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+2  ,a[ipad+br4[2]   ],i+2  ,a[ipad+2  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+3  ,a[ipad+br4[3]   ],i+3  ,a[ipad+3  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+4  ,a[ipad+br4[0]+4 ],i+4  ,a[ipad+4  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+5  ,a[ipad+br4[1]+4 ],i+5  ,a[ipad+5  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+6  ,a[ipad+br4[2]+4 ],i+6  ,a[ipad+6  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+7  ,a[ipad+br4[3]+4 ],i+7  ,a[ipad+7  ]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+0+8,a[ipad+br4[0]+8 ],i+0+8,a[ipad+0+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+1+8,a[ipad+br4[1]+8 ],i+1+8,a[ipad+1+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+2+8,a[ipad+br4[2]+8 ],i+2+8,a[ipad+2+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+3+8,a[ipad+br4[3]+8 ],i+3+8,a[ipad+3+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+4+8,a[ipad+br4[0]+12],i+4+8,a[ipad+4+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+5+8,a[ipad+br4[1]+12],i+5+8,a[ipad+5+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+6+8,a[ipad+br4[2]+12],i+6+8,a[ipad+6+8]);
-			printf("A_in[%3d] = %20.10e; SIMD: A_in[%3d] = %20.10e\n",i+7+8,a[ipad+br4[3]+12],i+7+8,a[ipad+7+8]);
-		  }
-		#endif
-		}
-	#endif
 	}
 
 /*
@@ -1665,111 +1546,6 @@ Scalar-dbl:	r0	i0	r1	i1	r2	i2	r3	i3	r4	i4	r5	i5	r6	i6	r7	i7	r8	i8	r9	i9	r10	i10	
 		[0,16,8,24,4,20,12,28], [2,18,10,26,6,22,14,30], [1,17,9,25,5,21,13,29] and [3,19,11,27,7,23,15,31].
 	Must fiddle the linear-idx jump w.r.to the index strides of the same inputs in the non-SIMD layout ... the #ifs below accomplish that:
 	*/
-  #if 0
-  if(j1 < 1024) {
-	int idbg;
-	printf("j1,j2 = %d,%d: Using scalar-double DFT\n",j1,j2);
-   #ifdef USE_AVX512
-	idbg = j1pad+ 0;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 0;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 1;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 1;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 2;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 2;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 3;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 3;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 4;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 4;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 5;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 5;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 6;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 6;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 7;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 7;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+16;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+16;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+17;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+17;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+18;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+18;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+19;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+19;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+20;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+20;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+21;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+21;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+22;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+22;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+23;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+23;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+32;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+32;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+33;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+33;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+34;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+34;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+35;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+35;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+36;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+36;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+37;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+37;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+38;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+38;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+39;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+39;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+48;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+48;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+49;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+49;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+50;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+50;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+51;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+51;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+52;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+52;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+53;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+53;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+54;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+54;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+55;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+55;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-   #elif defined(USE_AVX)
-	idbg = j1pad+ 0;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 0;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 1;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 1;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 2;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 2;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 3;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 3;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 8;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 8;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 9;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 9;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+10;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+10;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+11;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+11;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+16;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+16;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+17;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+17;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+18;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+18;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+19;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+19;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+24;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+24;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+25;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+25;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+26;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+26;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+27;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+27;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+32;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+32;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+33;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+33;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+34;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+34;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+35;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+35;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+40;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+40;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+41;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+41;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+42;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+42;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+43;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+43;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+48;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+48;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+49;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+49;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+50;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+50;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+51;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+51;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+56;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+56;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+57;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+57;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+58;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+58;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+59;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+59;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-   #endif
-	printf("Twiddles:\n");
-	printf("\tc,sA01 = %20.15f, %20.15f\tc,sB01 = %20.15f, %20.15f\n",cA01,sA01, cB01,sB01);
-	printf("\tc,sA02 = %20.15f, %20.15f\tc,sB02 = %20.15f, %20.15f\n",cA02,sA02, cB02,sB02);
-	printf("\tc,sA03 = %20.15f, %20.15f\tc,sB03 = %20.15f, %20.15f\n",cA03,sA03, cB03,sB03);
-	printf("\tc,sA04 = %20.15f, %20.15f\tc,sB04 = %20.15f, %20.15f\n",cA04,sA04, cB04,sB04);
-	printf("\tc,sA05 = %20.15f, %20.15f\tc,sB05 = %20.15f, %20.15f\n",cA05,sA05, cB05,sB05);
-	printf("\tc,sA06 = %20.15f, %20.15f\tc,sB06 = %20.15f, %20.15f\n",cA06,sA06, cB06,sB06);
-	printf("\tc,sA07 = %20.15f, %20.15f\tc,sB07 = %20.15f, %20.15f\n",cA07,sA07, cB07,sB07);
-	printf("\tc,sA08 = %20.15f, %20.15f\tc,sB08 = %20.15f, %20.15f\n",cA08,sA08, cB08,sB08);
-	printf("\tc,sA09 = %20.15f, %20.15f\tc,sB09 = %20.15f, %20.15f\n",cA09,sA09, cB09,sB09);
-	printf("\tc,sA0A = %20.15f, %20.15f\tc,sB0A = %20.15f, %20.15f\n",cA0A,sA0A, cB0A,sB0A);
-	printf("\tc,sA0B = %20.15f, %20.15f\tc,sB0B = %20.15f, %20.15f\n",cA0B,sA0B, cB0B,sB0B);
-	printf("\tc,sA0C = %20.15f, %20.15f\tc,sB0C = %20.15f, %20.15f\n",cA0C,sA0C, cB0C,sB0C);
-	printf("\tc,sA0D = %20.15f, %20.15f\tc,sB0D = %20.15f, %20.15f\n",cA0D,sA0D, cB0D,sB0D);
-	printf("\tc,sA0E = %20.15f, %20.15f\tc,sB0E = %20.15f, %20.15f\n",cA0E,sA0E, cB0E,sB0E);
-	printf("\tc,sA0F = %20.15f, %20.15f\tc,sB0F = %20.15f, %20.15f\n",cA0F,sA0F, cB0F,sB0F);
-	printf("\tc,sA10 = %20.15f, %20.15f\tc,sB10 = %20.15f, %20.15f\n",cA10,sA10, cB10,sB10);
-	printf("\tc,sA11 = %20.15f, %20.15f\tc,sB11 = %20.15f, %20.15f\n",cA11,sA11, cB11,sB11);
-	printf("\tc,sA12 = %20.15f, %20.15f\tc,sB12 = %20.15f, %20.15f\n",cA12,sA12, cB12,sB12);
-	printf("\tc,sA13 = %20.15f, %20.15f\tc,sB13 = %20.15f, %20.15f\n",cA13,sA13, cB13,sB13);
-	printf("\tc,sA14 = %20.15f, %20.15f\tc,sB14 = %20.15f, %20.15f\n",cA14,sA14, cB14,sB14);
-	printf("\tc,sA15 = %20.15f, %20.15f\tc,sB15 = %20.15f, %20.15f\n",cA15,sA15, cB15,sB15);
-	printf("\tc,sA16 = %20.15f, %20.15f\tc,sB16 = %20.15f, %20.15f\n",cA16,sA16, cB16,sB16);
-	printf("\tc,sA17 = %20.15f, %20.15f\tc,sB17 = %20.15f, %20.15f\n",cA17,sA17, cB17,sB17);
-	printf("\tc,sA18 = %20.15f, %20.15f\tc,sB18 = %20.15f, %20.15f\n",cA18,sA18, cB18,sB18);
-	printf("\tc,sA19 = %20.15f, %20.15f\tc,sB19 = %20.15f, %20.15f\n",cA19,sA19, cB19,sB19);
-	printf("\tc,sA1A = %20.15f, %20.15f\tc,sB1A = %20.15f, %20.15f\n",cA1A,sA1A, cB1A,sB1A);
-	printf("\tc,sA1B = %20.15f, %20.15f\tc,sB1B = %20.15f, %20.15f\n",cA1B,sA1B, cB1B,sB1B);
-	printf("\tc,sA1C = %20.15f, %20.15f\tc,sB1C = %20.15f, %20.15f\n",cA1C,sA1C, cB1C,sB1C);
-	printf("\tc,sA1D = %20.15f, %20.15f\tc,sB1D = %20.15f, %20.15f\n",cA1D,sA1D, cB1D,sB1D);
-	printf("\tc,sA1E = %20.15f, %20.15f\tc,sB1E = %20.15f, %20.15f\n",cA1E,sA1E, cB1E,sB1E);
-	printf("\tc,sA1F = %20.15f, %20.15f\tc,sB1F = %20.15f, %20.15f\n",cA1F,sA1F, cB1F,sB1F);
-  }
-  #endif
 		rdum = j1pad;
 		idum = j1pad+RE_IM_STRIDE;
 
@@ -2458,16 +2234,16 @@ Scalar-dbl:	r0	i0	r1	i1	r2	i2	r3	i3	r4	i4	r5	i5	r6	i6	r7	i7	r8	i8	r9	i9	r10	i10	
 	/*************************************************************/
 		rdum = j1pad;
 		idum = j1pad+RE_IM_STRIDE;
-#if PFETCH
-addr = &a[rdum+64];
-#endif
-	/*   gather the needed data (32 64-bit complex, i.e. 64 64-bit reals) and do the first set of four length-8 IDIT transforms... */
+	#if PFETCH
+	addr = &a[rdum+64];
+	#endif
+		/*   gather the needed data (32 64-bit complex, i.e. 64 64-bit reals) and do the first set of four length-8 IDIT transforms... */
 
-	/*...Block 1: */
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
+		/*...Block 1: */
+	#if PFETCH
+	prefetch_p_doubles(addr);
+	addr += 4;
+	#endif
 		t02=a1p00r-a1p01r;	t03=a1p00i-a1p01i;
 		t00=a1p00r+a1p01r;	t01=a1p00i+a1p01i;
 		t06=a1p02r-a1p03r;	t07=a1p02i-a1p03i;
@@ -2488,12 +2264,12 @@ addr += 4;
 		rt =t0E;		it =t0F;
 		t0E=t0A-it;		t0F=t0B+rt;
 		t0A=t0A+it;		t0B=t0B-rt;
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
+	#if PFETCH
+		#if(CACHE_LINE_DOUBLES == 4)
+		prefetch_p_doubles(addr);
+		#endif
+	addr += 4;
 	#endif
-addr += 4;
-#endif
 		rt =t08;		it =t09;
 		t08=t00-rt;		t09=t01-it;
 		t00=t00+rt;		t01=t01+it;
@@ -2507,10 +2283,10 @@ addr += 4;
 		t0E=t06+rt;		t0F=t07+it;
 		t06=t06-rt;		t07=t07-it;
 	/*...Block 2:	*/
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
+	#if PFETCH
+	prefetch_p_doubles(addr);
+	addr += 4;
+	#endif
 		t12=a1p08r-a1p09r;	t13=a1p08i-a1p09i;
 		t10=a1p08r+a1p09r;	t11=a1p08i+a1p09i;
 		t16=a1p0Ar-a1p0Br;	t17=a1p0Ai-a1p0Bi;
@@ -2531,12 +2307,12 @@ addr += 4;
 		rt =t1E;		it =t1F;
 		t1E=t1A-it;		t1F=t1B+rt;
 		t1A=t1A+it;		t1B=t1B-rt;
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
+	#if PFETCH
+		#if(CACHE_LINE_DOUBLES == 4)
+		prefetch_p_doubles(addr);
+		#endif
+	addr += 4;
 	#endif
-addr += 4;
-#endif
 		rt =t18;		it =t19;
 		t18=t10-rt;		t19=t11-it;
 		t10=t10+rt;		t11=t11+it;
@@ -2550,10 +2326,10 @@ addr += 4;
 		t1E=t16+rt;		t1F=t17+it;
 		t16=t16-rt;		t17=t17-it;
 	/*...Block 3:	*/
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
+	#if PFETCH
+	prefetch_p_doubles(addr);
+	addr += 4;
+	#endif
 		t22=a1p10r-a1p11r;	t23=a1p10i-a1p11i;
 		t20=a1p10r+a1p11r;	t21=a1p10i+a1p11i;
 		t26=a1p12r-a1p13r;	t27=a1p12i-a1p13i;
@@ -2574,12 +2350,12 @@ addr += 4;
 		rt =t2E;		it =t2F;
 		t2E=t2A-it;		t2F=t2B+rt;
 		t2A=t2A+it;		t2B=t2B-rt;
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
+	#if PFETCH
+		#if(CACHE_LINE_DOUBLES == 4)
+		prefetch_p_doubles(addr);
+		#endif
+	addr += 4;
 	#endif
-addr += 4;
-#endif
 		rt =t28;		it =t29;
 		t28=t20-rt;		t29=t21-it;
 		t20=t20+rt;		t21=t21+it;
@@ -2593,10 +2369,10 @@ addr += 4;
 		t2E=t26+rt;		t2F=t27+it;
 		t26=t26-rt;		t27=t27-it;
 	/*...Block 4:	*/
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
+	#if PFETCH
+	prefetch_p_doubles(addr);
+	addr += 4;
+	#endif
 		t32=a1p18r-a1p19r;	t33=a1p18i-a1p19i;
 		t30=a1p18r+a1p19r;	t31=a1p18i+a1p19i;
 		t36=a1p1Ar-a1p1Br;	t37=a1p1Ai-a1p1Bi;
@@ -2617,12 +2393,12 @@ addr += 4;
 		rt =t3E;		it =t3F;
 		t3E=t3A-it;		t3F=t3B+rt;
 		t3A=t3A+it;		t3B=t3B-rt;
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
+	#if PFETCH
+		#if(CACHE_LINE_DOUBLES == 4)
+		prefetch_p_doubles(addr);
+		#endif
+	addr += 4;
 	#endif
-addr += 4;
-#endif
 		rt =t38;		it =t39;
 		t38=t30-rt;		t39=t31-it;
 		t30=t30+rt;		t31=t31+it;
@@ -2637,10 +2413,10 @@ addr += 4;
 		t36=t36-rt;		t37=t37-it;
 	//...and now do eight radix-4 transforms, including the internal twiddle factors:
 	/*...Block 1: t00,t10,t20,t30	*/
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
+	#if PFETCH
+	prefetch_p_doubles(addr);
+	addr += 4;
+	#endif
 		rt =t10;	t10=t00-rt;	t00=t00+rt;
 		it =t11;	t11=t01-it;	t01=t01+it;
 		rt =t30;	t30=t20-rt;	t20=t20+rt;
@@ -2653,15 +2429,15 @@ addr += 4;
 		a[rdum+16]=rt *cA08+it *sA08;	a[idum+16]=it *cA08-rt *sA08;
 		a[rdum+48]=t10*cA18+t11*sA18;	a[idum+48]=t11*cA18-t10*sA18;
 	/*...Block 5: t08,t18,t28,t38	*/
-#ifdef USE_AVX512
-	rdum -= 4;	idum -= 4;
-#endif
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
 	#endif
-addr += 4;
-#endif
+	#if PFETCH
+		#if(CACHE_LINE_DOUBLES == 4)
+		prefetch_p_doubles(addr);
+		#endif
+	addr += 4;
+	#endif
 		rt =t18;	t18=t08-t19;	t08=t08+t19;
 					t19=t09+rt;		t09=t09-rt;
 		rt =(t29+t28)*ISRT2;		t29=(t29-t28)*ISRT2;		t28=rt;
@@ -2682,10 +2458,10 @@ addr += 4;
 	#elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
 	#endif
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
+	#if PFETCH
+	prefetch_p_doubles(addr);
+	addr += 4;
+	#endif
 		rt =(t15+t14)*ISRT2;		it =(t15-t14)*ISRT2;
 		t14=t04-rt;					t04=t04+rt;
 		t15=t05-it;					t05=t05+it;
@@ -2702,15 +2478,15 @@ addr += 4;
 		a[rdum+20]=rt *cA0A+it *sA0A;	a[idum+20]=it *cA0A-rt *sA0A;
 		a[rdum+52]=t14*cA1A+t15*sA1A;	a[idum+52]=t15*cA1A-t14*sA1A;
 	/*...Block 7: t0C,t1C,t2C,t3C	*/
-#ifdef USE_AVX512
-	rdum -= 4;	idum -= 4;
-#endif
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
 	#endif
-addr += 4;
-#endif
+	#if PFETCH
+		#if(CACHE_LINE_DOUBLES == 4)
+		prefetch_p_doubles(addr);
+		#endif
+	addr += 4;
+	#endif
 		rt =(t1C-t1D)*ISRT2;		it =(t1C+t1D)*ISRT2;
 		t1C=t0C+rt;					t0C=t0C-rt;
 		t1D=t0D+it;					t0D=t0D-it;
@@ -2734,10 +2510,10 @@ addr += 4;
 	#elif defined(USE_SSE2)
 		--rdum;	--idum;
 	#endif
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
+	#if PFETCH
+	prefetch_p_doubles(addr);
+	addr += 4;
+	#endif
 		rt =t12*c + t13*s;			it =t13*c - t12*s;
 		t12=t02-rt;					t02=t02+rt;
 		t13=t03-it;					t03=t03+it;
@@ -2754,15 +2530,15 @@ addr += 4;
 		a[rdum+18]=rt *cA09+it *sA09;	a[idum+18]=it *cA09-rt *sA09;
 		a[rdum+50]=t12*cA19+t13*sA19;	a[idum+50]=t13*cA19-t12*sA19;
 	/*...Block 6: t0A,t1A,t2A,t3A	*/
-#ifdef USE_AVX512
-	rdum -= 4;	idum -= 4;
-#endif
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
 	#endif
-addr += 4;
-#endif
+	#if PFETCH
+		#if(CACHE_LINE_DOUBLES == 4)
+		prefetch_p_doubles(addr);
+		#endif
+	addr += 4;
+	#endif
 		rt =t1A*s - t1B*c;			it =t1B*s + t1A*c;
 		t1A=t0A+rt;					t0A =t0A-rt;
 		t1B=t0B+it;					t0B =t0B-it;
@@ -2784,10 +2560,10 @@ addr += 4;
 	#elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
 	#endif
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
+	#if PFETCH
+	prefetch_p_doubles(addr);
+	addr += 4;
+	#endif
 		rt =t16*s + t17*c;			it =t17*s - t16*c;
 		t16=t06-rt;					t06 =t06+rt;
 		t17=t07-it;					t07 =t07+it;
@@ -2804,15 +2580,15 @@ addr += 4;
 		a[rdum+22]=rt *cA0B+it *sA0B;	a[idum+22]=it *cA0B-rt *sA0B;
 		a[rdum+54]=t16*cA1B+t17*sA1B;	a[idum+54]=t17*cA1B-t16*sA1B;
 	/*...Block 8: t0E,t1E,t2E,t3E	*/
-#ifdef USE_AVX512
-	rdum -= 4;	idum -= 4;
-#endif
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
 	#endif
-addr += 4;
-#endif
+	#if PFETCH
+		#if(CACHE_LINE_DOUBLES == 4)
+		prefetch_p_doubles(addr);
+		#endif
+	addr += 4;
+	#endif
 		rt =t1E*c - t1F*s;			it =t1F*c + t1E*s;
 		t1E=t0E+rt;					t0E =t0E-rt;
 		t1F=t0F+it;					t0F =t0F-it;
@@ -2833,14 +2609,14 @@ addr += 4;
 	/*************************************************************/
 		rdum = j2pad;
 		idum = j2pad+RE_IM_STRIDE;
-#if PFETCH
-addr = &a[rdum-64];
-#endif
-	/*...Block 1: */
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
+	#if PFETCH
+	addr = &a[rdum-64];
+	#endif
+		/*...Block 1: */
+	#if PFETCH
+	prefetch_p_doubles(addr);
+	addr += 4;
+	#endif
 	/*...Block 1:	*/
 		t02=a2p00r-a2p01r;	t03=a2p00i-a2p01i;
 		t00=a2p00r+a2p01r;	t01=a2p00i+a2p01i;
@@ -2862,12 +2638,12 @@ addr += 4;
 		rt =t0E;		it =t0F;
 		t0E=t0A-it;		t0F=t0B+rt;
 		t0A=t0A+it;		t0B=t0B-rt;
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
+	#if PFETCH
+		#if(CACHE_LINE_DOUBLES == 4)
+		prefetch_p_doubles(addr);
+		#endif
+	addr += 4;
 	#endif
-addr += 4;
-#endif
 		rt =t08;		it =t09;
 		t08=t00-rt;		t09=t01-it;
 		t00=t00+rt;		t01=t01+it;
@@ -2881,10 +2657,10 @@ addr += 4;
 		t0E=t06+rt;		t0F=t07+it;
 		t06=t06-rt;		t07=t07-it;
 	/*...Block 2:	*/
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
+	#if PFETCH
+	prefetch_p_doubles(addr);
+	addr += 4;
+	#endif
 		t12=a2p08r-a2p09r;	t13=a2p08i-a2p09i;
 		t10=a2p08r+a2p09r;	t11=a2p08i+a2p09i;
 		t16=a2p0Ar-a2p0Br;	t17=a2p0Ai-a2p0Bi;
@@ -2905,12 +2681,12 @@ addr += 4;
 		rt =t1E;		it =t1F;
 		t1E=t1A-it;		t1F=t1B+rt;
 		t1A=t1A+it;		t1B=t1B-rt;
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
+	#if PFETCH
+		#if(CACHE_LINE_DOUBLES == 4)
+		prefetch_p_doubles(addr);
+		#endif
+	addr += 4;
 	#endif
-addr += 4;
-#endif
 		rt =t18;		it =t19;
 		t18=t10-rt;		t19=t11-it;
 		t10=t10+rt;		t11=t11+it;
@@ -2924,10 +2700,10 @@ addr += 4;
 		t1E=t16+rt;		t1F=t17+it;
 		t16=t16-rt;		t17=t17-it;
 	/*...Block 3:	*/
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
+	#if PFETCH
+	prefetch_p_doubles(addr);
+	addr += 4;
+	#endif
 		t22=a2p10r-a2p11r;	t23=a2p10i-a2p11i;
 		t20=a2p10r+a2p11r;	t21=a2p10i+a2p11i;
 		t26=a2p12r-a2p13r;	t27=a2p12i-a2p13i;
@@ -2948,12 +2724,12 @@ addr += 4;
 		rt =t2E;		it =t2F;
 		t2E=t2A-it;		t2F=t2B+rt;
 		t2A=t2A+it;		t2B=t2B-rt;
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
+	#if PFETCH
+		#if(CACHE_LINE_DOUBLES == 4)
+		prefetch_p_doubles(addr);
+		#endif
+	addr += 4;
 	#endif
-addr += 4;
-#endif
 		rt =t28;		it =t29;
 		t28=t20-rt;		t29=t21-it;
 		t20=t20+rt;		t21=t21+it;
@@ -2967,10 +2743,10 @@ addr += 4;
 		t2E=t26+rt;		t2F=t27+it;
 		t26=t26-rt;		t27=t27-it;
 	/*...Block 4:	*/
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
+	#if PFETCH
+	prefetch_p_doubles(addr);
+	addr += 4;
+	#endif
 		t32=a2p18r-a2p19r;	t33=a2p18i-a2p19i;
 		t30=a2p18r+a2p19r;	t31=a2p18i+a2p19i;
 		t36=a2p1Ar-a2p1Br;	t37=a2p1Ai-a2p1Bi;
@@ -2991,12 +2767,12 @@ addr += 4;
 		rt =t3E;		it =t3F;
 		t3E=t3A-it;		t3F=t3B+rt;
 		t3A=t3A+it;		t3B=t3B-rt;
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
+	#if PFETCH
+		#if(CACHE_LINE_DOUBLES == 4)
+		prefetch_p_doubles(addr);
+		#endif
+	addr += 4;
 	#endif
-addr += 4;
-#endif
 		rt =t38;		it =t39;
 		t38=t30-rt;		t39=t31-it;
 		t30=t30+rt;		t31=t31+it;
@@ -3011,10 +2787,10 @@ addr += 4;
 		t36=t36-rt;		t37=t37-it;
 	//...and now do eight radix-4 transforms, including the internal twiddle factors:
 	/*...Block 1: t00,t10,t20,t30	*/
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
+	#if PFETCH
+	prefetch_p_doubles(addr);
+	addr += 4;
+	#endif
 		rt =t10;	t10=t00-rt;	t00=t00+rt;
 		it =t11;	t11=t01-it;	t01=t01+it;
 		rt =t30;	t30=t20-rt;	t20=t20+rt;
@@ -3027,15 +2803,15 @@ addr += 4;
 		a[rdum+16]=rt *cB08+it *sB08;	a[idum+16]=it *cB08-rt *sB08;
 		a[rdum+48]=t10*cB18+t11*sB18;	a[idum+48]=t11*cB18-t10*sB18;
 	/*...Block 5: t08,t18,t28,t38	*/
-#ifdef USE_AVX512
-	rdum -= 4;	idum -= 4;
-#endif
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
 	#endif
-addr += 4;
-#endif
+	#if PFETCH
+		#if(CACHE_LINE_DOUBLES == 4)
+		prefetch_p_doubles(addr);
+		#endif
+	addr += 4;
+	#endif
 		rt =t18;	t18=t08-t19;	t08=t08+t19;
 					t19=t09+rt;		t09=t09-rt;
 		rt =(t29+t28)*ISRT2;		t29=(t29-t28)*ISRT2;		t28=rt;
@@ -3056,10 +2832,10 @@ addr += 4;
 	#elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
 	#endif
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
+	#if PFETCH
+	prefetch_p_doubles(addr);
+	addr += 4;
+	#endif
 		rt =(t15+t14)*ISRT2;		it =(t15-t14)*ISRT2;
 		t14=t04-rt;					t04=t04+rt;
 		t15=t05-it;					t05=t05+it;
@@ -3076,15 +2852,15 @@ addr += 4;
 		a[rdum+20]=rt *cB0A+it *sB0A;	a[idum+20]=it *cB0A-rt *sB0A;
 		a[rdum+52]=t14*cB1A+t15*sB1A;	a[idum+52]=t15*cB1A-t14*sB1A;
 	/*...Block 7: t0C,t1C,t2C,t3C	*/
-#ifdef USE_AVX512
-	rdum -= 4;	idum -= 4;
-#endif
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
 	#endif
-addr += 4;
-#endif
+	#if PFETCH
+		#if(CACHE_LINE_DOUBLES == 4)
+		prefetch_p_doubles(addr);
+		#endif
+	addr += 4;
+	#endif
 		rt =(t1C-t1D)*ISRT2;		it =(t1C+t1D)*ISRT2;
 		t1C=t0C+rt;					t0C=t0C-rt;
 		t1D=t0D+it;					t0D=t0D-it;
@@ -3108,10 +2884,10 @@ addr += 4;
 	#elif defined(USE_SSE2)
 		--rdum;	--idum;
 	#endif
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
+	#if PFETCH
+	prefetch_p_doubles(addr);
+	addr += 4;
+	#endif
 		rt =t12*c + t13*s;			it =t13*c - t12*s;
 		t12=t02-rt;					t02=t02+rt;
 		t13=t03-it;					t03=t03+it;
@@ -3128,15 +2904,15 @@ addr += 4;
 		a[rdum+18]=rt *cB09+it *sB09;	a[idum+18]=it *cB09-rt *sB09;
 		a[rdum+50]=t12*cB19+t13*sB19;	a[idum+50]=t13*cB19-t12*sB19;
 	/*...Block 6: t0A,t1A,t2A,t3A	*/
-#ifdef USE_AVX512
-	rdum -= 4;	idum -= 4;
-#endif
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
 	#endif
-addr += 4;
-#endif
+	#if PFETCH
+		#if(CACHE_LINE_DOUBLES == 4)
+		prefetch_p_doubles(addr);
+		#endif
+	addr += 4;
+	#endif
 		rt =t1A*s - t1B*c;			it =t1B*s + t1A*c;
 		t1A=t0A+rt;					t0A =t0A-rt;
 		t1B=t0B+it;					t0B =t0B-it;
@@ -3158,10 +2934,10 @@ addr += 4;
 	#elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
 	#endif
-#if PFETCH
-prefetch_p_doubles(addr);
-addr += 4;
-#endif
+	#if PFETCH
+	prefetch_p_doubles(addr);
+	addr += 4;
+	#endif
 		rt =t16*s + t17*c;			it =t17*s - t16*c;
 		t16=t06-rt;					t06 =t06+rt;
 		t17=t07-it;					t07 =t07+it;
@@ -3178,15 +2954,15 @@ addr += 4;
 		a[rdum+22]=rt *cB0B+it *sB0B;	a[idum+22]=it *cB0B-rt *sB0B;
 		a[rdum+54]=t16*cB1B+t17*sB1B;	a[idum+54]=t17*cB1B-t16*sB1B;
 	/*...Block 8: t0E,t1E,t2E,t3E	*/
-#ifdef USE_AVX512
-	rdum -= 4;	idum -= 4;
-#endif
-#if PFETCH
-	#if(CACHE_LINE_DOUBLES == 4)
-	prefetch_p_doubles(addr);
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
 	#endif
-addr += 4;
-#endif
+	#if PFETCH
+		#if(CACHE_LINE_DOUBLES == 4)
+		prefetch_p_doubles(addr);
+		#endif
+	addr += 4;
+	#endif
 		rt =t1E*c - t1F*s;			it =t1F*c + t1E*s;
 		t1E=t0E+rt;					t0E =t0E-rt;
 		t1F=t0F+it;					t0F =t0F-it;
@@ -3202,79 +2978,6 @@ addr += 4;
 		t1E       =t1E-t3F;			t1F       =t1F+t3E;
 		a[rdum+30]=rt *cB0F+it *sB0F;	a[idum+30]=it *cB0F-rt *sB0F;
 		a[rdum+62]=t1E*cB1F+t1F*sB1F;	a[idum+62]=t1F*cB1F-t1E*sB1F;
-  #if 0
-  if(j1 < 1024) {
-	int idbg;
-	printf("j1,j2 = %d,%d: DFT outputs:\n",j1,j2);
-   #ifdef USE_AVX512
-	idbg = j1pad+ 0;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 0;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 1;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 1;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 2;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 2;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 3;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 3;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 4;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 4;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 5;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 5;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 6;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 6;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 7;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 7;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+16;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+16;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+17;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+17;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+18;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+18;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+19;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+19;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+20;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+20;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+21;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+21;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+22;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+22;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+23;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+23;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+32;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+32;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+33;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+33;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+34;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+34;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+35;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+35;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+36;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+36;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+37;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+37;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+38;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+38;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+39;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+39;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+48;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+48;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+49;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+49;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+50;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+50;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+51;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+51;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+52;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+52;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+53;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+53;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+54;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+54;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+55;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+55;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-   #elif defined(USE_AVX)
-	idbg = j1pad+ 0;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 0;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 1;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 1;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 2;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 2;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 3;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 3;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 8;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 8;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+ 9;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+ 9;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+10;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+10;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+11;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+11;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+16;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+16;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+17;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+17;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+18;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+18;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+19;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+19;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+24;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+24;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+25;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+25;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+26;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+26;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+27;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+27;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+32;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+32;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+33;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+33;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+34;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+34;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+35;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+35;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+40;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+40;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+41;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+41;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+42;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+42;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+43;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+43;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+48;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+48;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+49;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+49;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+50;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+50;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+51;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+51;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+56;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+56;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+57;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+57;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+58;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+58;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	idbg = j1pad+59;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = j2pad+59;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-   #endif
-  }
-  #endif
 
 #ifdef USE_SSE2
 
@@ -3331,194 +3034,9 @@ addr += 4;
 
 	It's not clear whether there is a preference for one or the other instruction sequence based on resulting performance.
 	*/
-  #if 0
-  if(j1 < 2048) {
-	int idbg,idx1,idx2;
-	printf("j1,j2 = %d,%d: Using SIMD DFT\n",j1,j2);
-	// High-block array index runs from j2pad-32 to j2pad+32 for AVX, j2pad-96 to j2pad+32 for AVX-512:
-   #ifdef USE_AVX512
-	printf("Dbg-Loop bounds: j1 = [%u,%u), j2_0 = %u\n",j1pad,j1pad+256,j2pad-192);
-	for(idx1 = j1pad, idx2 = j2pad-192; idx1 < (j1pad+256); idx1 += 64, idx2 += 64) {
-		printf("Loop: j1,j2 = %u,%u\n",idx1,idx2);
-		idbg = idx1+ 0;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 0;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 1;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 1;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 2;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 2;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 3;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 3;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 4;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 4;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 5;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 5;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 6;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 6;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 7;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 7;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+16;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+16;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+17;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+17;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+18;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+18;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+19;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+19;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+20;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+20;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+21;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+21;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+22;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+22;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+23;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+23;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+32;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+32;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+33;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+33;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+34;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+34;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+35;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+35;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+36;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+36;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+37;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+37;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+38;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+38;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+39;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+39;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+48;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+48;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+49;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+49;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+50;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+50;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+51;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+51;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+52;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+52;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+53;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+53;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+54;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+54;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+55;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+55;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	  if(idx1 == (j1pad+64)) {
-		printf("Twiddles:\n");
-		printf("\tc00.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c00->d0,(c00+1)->d0,c00->d1,(c00+1)->d1,c00->d2,(c00+1)->d2,c00->d3,(c00+1)->d3);
-		printf("\tc01.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c01->d0,(c01+1)->d0,c01->d1,(c01+1)->d1,c01->d2,(c01+1)->d2,c01->d3,(c01+1)->d3);
-		printf("\tc02.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c02->d0,(c02+1)->d0,c02->d1,(c02+1)->d1,c02->d2,(c02+1)->d2,c02->d3,(c02+1)->d3);
-		printf("\tc03.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c03->d0,(c03+1)->d0,c03->d1,(c03+1)->d1,c03->d2,(c03+1)->d2,c03->d3,(c03+1)->d3);
-		printf("\tc04.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c04->d0,(c04+1)->d0,c04->d1,(c04+1)->d1,c04->d2,(c04+1)->d2,c04->d3,(c04+1)->d3);
-		printf("\tc05.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c05->d0,(c05+1)->d0,c05->d1,(c05+1)->d1,c05->d2,(c05+1)->d2,c05->d3,(c05+1)->d3);
-		printf("\tc06.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c06->d0,(c06+1)->d0,c06->d1,(c06+1)->d1,c06->d2,(c06+1)->d2,c06->d3,(c06+1)->d3);
-		printf("\tc07.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c07->d0,(c07+1)->d0,c07->d1,(c07+1)->d1,c07->d2,(c07+1)->d2,c07->d3,(c07+1)->d3);
-		printf("\tc08.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c08->d0,(c08+1)->d0,c08->d1,(c08+1)->d1,c08->d2,(c08+1)->d2,c08->d3,(c08+1)->d3);
-		printf("\tc09.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c09->d0,(c09+1)->d0,c09->d1,(c09+1)->d1,c09->d2,(c09+1)->d2,c09->d3,(c09+1)->d3);
-		printf("\tc0A.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c0A->d0,(c0A+1)->d0,c0A->d1,(c0A+1)->d1,c0A->d2,(c0A+1)->d2,c0A->d3,(c0A+1)->d3);
-		printf("\tc0B.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c0B->d0,(c0B+1)->d0,c0B->d1,(c0B+1)->d1,c0B->d2,(c0B+1)->d2,c0B->d3,(c0B+1)->d3);
-		printf("\tc0C.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c0C->d0,(c0C+1)->d0,c0C->d1,(c0C+1)->d1,c0C->d2,(c0C+1)->d2,c0C->d3,(c0C+1)->d3);
-		printf("\tc0D.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c0D->d0,(c0D+1)->d0,c0D->d1,(c0D+1)->d1,c0D->d2,(c0D+1)->d2,c0D->d3,(c0D+1)->d3);
-		printf("\tc0E.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c0E->d0,(c0E+1)->d0,c0E->d1,(c0E+1)->d1,c0E->d2,(c0E+1)->d2,c0E->d3,(c0E+1)->d3);
-		printf("\tc0F.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c0F->d0,(c0F+1)->d0,c0F->d1,(c0F+1)->d1,c0F->d2,(c0F+1)->d2,c0F->d3,(c0F+1)->d3);
-		printf("\tc10.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c10->d0,(c10+1)->d0,c10->d1,(c10+1)->d1,c10->d2,(c10+1)->d2,c10->d3,(c10+1)->d3);
-		printf("\tc11.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c11->d0,(c11+1)->d0,c11->d1,(c11+1)->d1,c11->d2,(c11+1)->d2,c11->d3,(c11+1)->d3);
-		printf("\tc12.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c12->d0,(c12+1)->d0,c12->d1,(c12+1)->d1,c12->d2,(c12+1)->d2,c12->d3,(c12+1)->d3);
-		printf("\tc13.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c13->d0,(c13+1)->d0,c13->d1,(c13+1)->d1,c13->d2,(c13+1)->d2,c13->d3,(c13+1)->d3);
-		printf("\tc14.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c14->d0,(c14+1)->d0,c14->d1,(c14+1)->d1,c14->d2,(c14+1)->d2,c14->d3,(c14+1)->d3);
-		printf("\tc15.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c15->d0,(c15+1)->d0,c15->d1,(c15+1)->d1,c15->d2,(c15+1)->d2,c15->d3,(c15+1)->d3);
-		printf("\tc16.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c16->d0,(c16+1)->d0,c16->d1,(c16+1)->d1,c16->d2,(c16+1)->d2,c16->d3,(c16+1)->d3);
-		printf("\tc17.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c17->d0,(c17+1)->d0,c17->d1,(c17+1)->d1,c17->d2,(c17+1)->d2,c17->d3,(c17+1)->d3);
-		printf("\tc18.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c18->d0,(c18+1)->d0,c18->d1,(c18+1)->d1,c18->d2,(c18+1)->d2,c18->d3,(c18+1)->d3);
-		printf("\tc19.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c19->d0,(c19+1)->d0,c19->d1,(c19+1)->d1,c19->d2,(c19+1)->d2,c19->d3,(c19+1)->d3);
-		printf("\tc1A.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c1A->d0,(c1A+1)->d0,c1A->d1,(c1A+1)->d1,c1A->d2,(c1A+1)->d2,c1A->d3,(c1A+1)->d3);
-		printf("\tc1B.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c1B->d0,(c1B+1)->d0,c1B->d1,(c1B+1)->d1,c1B->d2,(c1B+1)->d2,c1B->d3,(c1B+1)->d3);
-		printf("\tc1C.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c1C->d0,(c1C+1)->d0,c1C->d1,(c1C+1)->d1,c1C->d2,(c1C+1)->d2,c1C->d3,(c1C+1)->d3);
-		printf("\tc1D.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c1D->d0,(c1D+1)->d0,c1D->d1,(c1D+1)->d1,c1D->d2,(c1D+1)->d2,c1D->d3,(c1D+1)->d3);
-		printf("\tc1E.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c1E->d0,(c1E+1)->d0,c1E->d1,(c1E+1)->d1,c1E->d2,(c1E+1)->d2,c1E->d3,(c1E+1)->d3);
-		printf("\tc1F.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c1F->d0,(c1F+1)->d0,c1F->d1,(c1F+1)->d1,c1F->d2,(c1F+1)->d2,c1F->d3,(c1F+1)->d3);
-	  } else if(idx1 == (j1pad+192)) {
-		printf("Twiddles:\n");
-		printf("\tc00.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c00->d4,(c00+1)->d4,c00->d5,(c00+1)->d5,c00->d6,(c00+1)->d6,c00->d7,(c00+1)->d7);
-		printf("\tc01.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c01->d4,(c01+1)->d4,c01->d5,(c01+1)->d5,c01->d6,(c01+1)->d6,c01->d7,(c01+1)->d7);
-		printf("\tc02.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c02->d4,(c02+1)->d4,c02->d5,(c02+1)->d5,c02->d6,(c02+1)->d6,c02->d7,(c02+1)->d7);
-		printf("\tc03.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c03->d4,(c03+1)->d4,c03->d5,(c03+1)->d5,c03->d6,(c03+1)->d6,c03->d7,(c03+1)->d7);
-		printf("\tc04.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c04->d4,(c04+1)->d4,c04->d5,(c04+1)->d5,c04->d6,(c04+1)->d6,c04->d7,(c04+1)->d7);
-		printf("\tc05.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c05->d4,(c05+1)->d4,c05->d5,(c05+1)->d5,c05->d6,(c05+1)->d6,c05->d7,(c05+1)->d7);
-		printf("\tc06.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c06->d4,(c06+1)->d4,c06->d5,(c06+1)->d5,c06->d6,(c06+1)->d6,c06->d7,(c06+1)->d7);
-		printf("\tc07.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c07->d4,(c07+1)->d4,c07->d5,(c07+1)->d5,c07->d6,(c07+1)->d6,c07->d7,(c07+1)->d7);
-		printf("\tc08.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c08->d4,(c08+1)->d4,c08->d5,(c08+1)->d5,c08->d6,(c08+1)->d6,c08->d7,(c08+1)->d7);
-		printf("\tc09.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c09->d4,(c09+1)->d4,c09->d5,(c09+1)->d5,c09->d6,(c09+1)->d6,c09->d7,(c09+1)->d7);
-		printf("\tc0A.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c0A->d4,(c0A+1)->d4,c0A->d5,(c0A+1)->d5,c0A->d6,(c0A+1)->d6,c0A->d7,(c0A+1)->d7);
-		printf("\tc0B.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c0B->d4,(c0B+1)->d4,c0B->d5,(c0B+1)->d5,c0B->d6,(c0B+1)->d6,c0B->d7,(c0B+1)->d7);
-		printf("\tc0C.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c0C->d4,(c0C+1)->d4,c0C->d5,(c0C+1)->d5,c0C->d6,(c0C+1)->d6,c0C->d7,(c0C+1)->d7);
-		printf("\tc0D.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c0D->d4,(c0D+1)->d4,c0D->d5,(c0D+1)->d5,c0D->d6,(c0D+1)->d6,c0D->d7,(c0D+1)->d7);
-		printf("\tc0E.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c0E->d4,(c0E+1)->d4,c0E->d5,(c0E+1)->d5,c0E->d6,(c0E+1)->d6,c0E->d7,(c0E+1)->d7);
-		printf("\tc0F.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c0F->d4,(c0F+1)->d4,c0F->d5,(c0F+1)->d5,c0F->d6,(c0F+1)->d6,c0F->d7,(c0F+1)->d7);
-		printf("\tc10.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c10->d4,(c10+1)->d4,c10->d5,(c10+1)->d5,c10->d6,(c10+1)->d6,c10->d7,(c10+1)->d7);
-		printf("\tc11.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c11->d4,(c11+1)->d4,c11->d5,(c11+1)->d5,c11->d6,(c11+1)->d6,c11->d7,(c11+1)->d7);
-		printf("\tc12.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c12->d4,(c12+1)->d4,c12->d5,(c12+1)->d5,c12->d6,(c12+1)->d6,c12->d7,(c12+1)->d7);
-		printf("\tc13.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c13->d4,(c13+1)->d4,c13->d5,(c13+1)->d5,c13->d6,(c13+1)->d6,c13->d7,(c13+1)->d7);
-		printf("\tc14.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c14->d4,(c14+1)->d4,c14->d5,(c14+1)->d5,c14->d6,(c14+1)->d6,c14->d7,(c14+1)->d7);
-		printf("\tc15.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c15->d4,(c15+1)->d4,c15->d5,(c15+1)->d5,c15->d6,(c15+1)->d6,c15->d7,(c15+1)->d7);
-		printf("\tc16.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c16->d4,(c16+1)->d4,c16->d5,(c16+1)->d5,c16->d6,(c16+1)->d6,c16->d7,(c16+1)->d7);
-		printf("\tc17.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c17->d4,(c17+1)->d4,c17->d5,(c17+1)->d5,c17->d6,(c17+1)->d6,c17->d7,(c17+1)->d7);
-		printf("\tc18.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c18->d4,(c18+1)->d4,c18->d5,(c18+1)->d5,c18->d6,(c18+1)->d6,c18->d7,(c18+1)->d7);
-		printf("\tc19.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c19->d4,(c19+1)->d4,c19->d5,(c19+1)->d5,c19->d6,(c19+1)->d6,c19->d7,(c19+1)->d7);
-		printf("\tc1A.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c1A->d4,(c1A+1)->d4,c1A->d5,(c1A+1)->d5,c1A->d6,(c1A+1)->d6,c1A->d7,(c1A+1)->d7);
-		printf("\tc1B.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c1B->d4,(c1B+1)->d4,c1B->d5,(c1B+1)->d5,c1B->d6,(c1B+1)->d6,c1B->d7,(c1B+1)->d7);
-		printf("\tc1C.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c1C->d4,(c1C+1)->d4,c1C->d5,(c1C+1)->d5,c1C->d6,(c1C+1)->d6,c1C->d7,(c1C+1)->d7);
-		printf("\tc1D.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c1D->d4,(c1D+1)->d4,c1D->d5,(c1D+1)->d5,c1D->d6,(c1D+1)->d6,c1D->d7,(c1D+1)->d7);
-		printf("\tc1E.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c1E->d4,(c1E+1)->d4,c1E->d5,(c1E+1)->d5,c1E->d6,(c1E+1)->d6,c1E->d7,(c1E+1)->d7);
-		printf("\tc1F.d[4-7] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c1F->d4,(c1F+1)->d4,c1F->d5,(c1F+1)->d5,c1F->d6,(c1F+1)->d6,c1F->d7,(c1F+1)->d7);
-	  }
-	}
-   #elif defined(USE_AVX)
-	printf("Dbg-Loop bounds: j1 = [%u,%u), j2_0 = %u\n",j1pad,j1pad+128,j2pad-64);
-	for(idx1 = j1pad, idx2 = j2pad-64; idx1 < (j1pad+128); idx1 += 64, idx2 += 64) {
-		printf("Loop: j1,j2 = %u,%u\n",idx1,idx2);
-		idbg = idx1+ 0;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 0;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 1;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 1;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 2;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 2;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 3;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 3;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 8;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 8;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 9;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 9;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+10;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+10;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+11;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+11;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+16;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+16;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+17;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+17;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+18;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+18;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+19;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+19;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+24;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+24;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+25;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+25;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+26;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+26;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+27;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+27;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+32;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+32;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+33;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+33;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+34;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+34;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+35;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+35;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+40;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+40;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+41;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+41;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+42;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+42;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+43;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+43;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+48;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+48;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+49;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+49;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+50;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+50;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+51;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+51;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+56;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+56;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+57;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+57;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+58;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+58;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+59;	printf("A_in[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+59;	printf("B_in[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	}
-	printf("Twiddles:\n");
-	printf("\tc00.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c00->d0,(c00+1)->d0,c00->d1,(c00+1)->d1,c00->d2,(c00+1)->d2,c00->d3,(c00+1)->d3);
-	printf("\tc01.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c01->d0,(c01+1)->d0,c01->d1,(c01+1)->d1,c01->d2,(c01+1)->d2,c01->d3,(c01+1)->d3);
-	printf("\tc02.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c02->d0,(c02+1)->d0,c02->d1,(c02+1)->d1,c02->d2,(c02+1)->d2,c02->d3,(c02+1)->d3);
-	printf("\tc03.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c03->d0,(c03+1)->d0,c03->d1,(c03+1)->d1,c03->d2,(c03+1)->d2,c03->d3,(c03+1)->d3);
-	printf("\tc04.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c04->d0,(c04+1)->d0,c04->d1,(c04+1)->d1,c04->d2,(c04+1)->d2,c04->d3,(c04+1)->d3);
-	printf("\tc05.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c05->d0,(c05+1)->d0,c05->d1,(c05+1)->d1,c05->d2,(c05+1)->d2,c05->d3,(c05+1)->d3);
-	printf("\tc06.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c06->d0,(c06+1)->d0,c06->d1,(c06+1)->d1,c06->d2,(c06+1)->d2,c06->d3,(c06+1)->d3);
-	printf("\tc07.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c07->d0,(c07+1)->d0,c07->d1,(c07+1)->d1,c07->d2,(c07+1)->d2,c07->d3,(c07+1)->d3);
-	printf("\tc08.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c08->d0,(c08+1)->d0,c08->d1,(c08+1)->d1,c08->d2,(c08+1)->d2,c08->d3,(c08+1)->d3);
-	printf("\tc09.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c09->d0,(c09+1)->d0,c09->d1,(c09+1)->d1,c09->d2,(c09+1)->d2,c09->d3,(c09+1)->d3);
-	printf("\tc0A.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c0A->d0,(c0A+1)->d0,c0A->d1,(c0A+1)->d1,c0A->d2,(c0A+1)->d2,c0A->d3,(c0A+1)->d3);
-	printf("\tc0B.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c0B->d0,(c0B+1)->d0,c0B->d1,(c0B+1)->d1,c0B->d2,(c0B+1)->d2,c0B->d3,(c0B+1)->d3);
-	printf("\tc0C.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c0C->d0,(c0C+1)->d0,c0C->d1,(c0C+1)->d1,c0C->d2,(c0C+1)->d2,c0C->d3,(c0C+1)->d3);
-	printf("\tc0D.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c0D->d0,(c0D+1)->d0,c0D->d1,(c0D+1)->d1,c0D->d2,(c0D+1)->d2,c0D->d3,(c0D+1)->d3);
-	printf("\tc0E.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c0E->d0,(c0E+1)->d0,c0E->d1,(c0E+1)->d1,c0E->d2,(c0E+1)->d2,c0E->d3,(c0E+1)->d3);
-	printf("\tc0F.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c0F->d0,(c0F+1)->d0,c0F->d1,(c0F+1)->d1,c0F->d2,(c0F+1)->d2,c0F->d3,(c0F+1)->d3);
-	printf("\tc10.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c10->d0,(c10+1)->d0,c10->d1,(c10+1)->d1,c10->d2,(c10+1)->d2,c10->d3,(c10+1)->d3);
-	printf("\tc11.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c11->d0,(c11+1)->d0,c11->d1,(c11+1)->d1,c11->d2,(c11+1)->d2,c11->d3,(c11+1)->d3);
-	printf("\tc12.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c12->d0,(c12+1)->d0,c12->d1,(c12+1)->d1,c12->d2,(c12+1)->d2,c12->d3,(c12+1)->d3);
-	printf("\tc13.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c13->d0,(c13+1)->d0,c13->d1,(c13+1)->d1,c13->d2,(c13+1)->d2,c13->d3,(c13+1)->d3);
-	printf("\tc14.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c14->d0,(c14+1)->d0,c14->d1,(c14+1)->d1,c14->d2,(c14+1)->d2,c14->d3,(c14+1)->d3);
-	printf("\tc15.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c15->d0,(c15+1)->d0,c15->d1,(c15+1)->d1,c15->d2,(c15+1)->d2,c15->d3,(c15+1)->d3);
-	printf("\tc16.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c16->d0,(c16+1)->d0,c16->d1,(c16+1)->d1,c16->d2,(c16+1)->d2,c16->d3,(c16+1)->d3);
-	printf("\tc17.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c17->d0,(c17+1)->d0,c17->d1,(c17+1)->d1,c17->d2,(c17+1)->d2,c17->d3,(c17+1)->d3);
-	printf("\tc18.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c18->d0,(c18+1)->d0,c18->d1,(c18+1)->d1,c18->d2,(c18+1)->d2,c18->d3,(c18+1)->d3);
-	printf("\tc19.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c19->d0,(c19+1)->d0,c19->d1,(c19+1)->d1,c19->d2,(c19+1)->d2,c19->d3,(c19+1)->d3);
-	printf("\tc1A.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c1A->d0,(c1A+1)->d0,c1A->d1,(c1A+1)->d1,c1A->d2,(c1A+1)->d2,c1A->d3,(c1A+1)->d3);
-	printf("\tc1B.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c1B->d0,(c1B+1)->d0,c1B->d1,(c1B+1)->d1,c1B->d2,(c1B+1)->d2,c1B->d3,(c1B+1)->d3);
-	printf("\tc1C.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c1C->d0,(c1C+1)->d0,c1C->d1,(c1C+1)->d1,c1C->d2,(c1C+1)->d2,c1C->d3,(c1C+1)->d3);
-	printf("\tc1D.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c1D->d0,(c1D+1)->d0,c1D->d1,(c1D+1)->d1,c1D->d2,(c1D+1)->d2,c1D->d3,(c1D+1)->d3);
-	printf("\tc1E.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c1E->d0,(c1E+1)->d0,c1E->d1,(c1E+1)->d1,c1E->d2,(c1E+1)->d2,c1E->d3,(c1E+1)->d3);
-	printf("\tc1F.d[0-3] = %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f, %20.15f,%20.15f\n",c1F->d0,(c1F+1)->d0,c1F->d1,(c1F+1)->d1,c1F->d2,(c1F+1)->d2,c1F->d3,(c1F+1)->d3);
-   #endif
-  }
-  #endif
-
 	  #ifdef USE_AVX512	// The generic pre-dyadic-square macro needs 8 main-array addresses in AVX mode
 	  					// because (add[1,3,5,7]-add[0,2,4,6]) have opposite signs for Fermat and Mersenne-mod:
-
+//if(j1<10240)printf("j1 = %u: add0 offsets = %llX,%llX,%llX,%llX,%llX,%llX,%llX\n",j1,(uint64)add1-(uint64)add0,(uint64)add2-(uint64)add0,(uint64)add3-(uint64)add0,(uint64)add4-(uint64)add0,(uint64)add5-(uint64)add0,(uint64)add6-(uint64)add0,(uint64)add7-(uint64)add0);
 		// process 8 main-array blocks of 8 vec_dbl [= 8 x 8 = 64 doubles each] in AVX mode, total = 512 float64
 		SSE2_RADIX32_WRAPPER_DIF(add0,add1,add2,add3,add4,add5,add6,add7
 													,r00,r10,r20,r30,isrt2,cc0,c00,c01,c02,c03,c05,c07)
@@ -3838,23 +3356,6 @@ addr += 4;
 	/************************************************************************/
 	/*...And do an inverse DIT radix-32 pass on the squared-data blocks.	*/
 	/************************************************************************/
-  #if 0
-  if(j1 < 2048) {
-	int idbg;
-	printf("AVX-%u: %u x %u DIT inputs:\n",(int)RE_IM_STRIDE << 6,RE_IM_STRIDE,RE_IM_STRIDE);
-	tmp = r00;
-	for(idbg = 0; idbg < 32; idbg++) { printf("\tre[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,tmp->d2,tmp->d3); tmp+=2; }
-	tmp = r00 +1;
-	for(idbg = 0; idbg < 32; idbg++) { printf("\tim[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,tmp->d2,tmp->d3); tmp+=2; }
-   #ifdef USE_AVX512
-	printf("AVX-%u: %u x %u DIT inputs:\n",(int)RE_IM_STRIDE << 6,RE_IM_STRIDE,RE_IM_STRIDE);
-	tmp = r00;
-	for(idbg = 0; idbg < 32; idbg++) { printf("\tre[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d4,tmp->d5,tmp->d6,tmp->d7); tmp+=2; }
-	tmp = r00 +1;
-	for(idbg = 0; idbg < 32; idbg++) { printf("\tim[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d4,tmp->d5,tmp->d6,tmp->d7); tmp+=2; }
-   #endif
-  }
-  #endif
 
 	#ifdef USE_AVX512	// The generic pre-dyadic-square macro needs 8 main-array addresses in AVX mode
 	  					// because (add[1,3,5,7]-add[0,2,4,6]) have opposite signs for Fermat and Mersenne-mod:
@@ -3876,114 +3377,14 @@ addr += 4;
 		SSE2_RADIX32_WRAPPER_DIT(add0,add1
 		,isrt2,r00,r08,r10,r20,r28,r30,c00,c01,c02,c03,c04,c05,c06,c07,c08,c0A,c0C,c0E,c10,c12,c14,c16,c18,c1A,c1C,c1E)
 	  #endif
-  #if 0
-  if(j1 < 2048) {
-	int idbg, ioffset = 2;
-	printf("%s: DIT outputs 0:\n",func);
-	tmp = (vec_dbl*)add0 + ioffset;
-	for(idbg = 0; idbg < 8; idbg++, tmp+=8) {
-		if(idbg == 4) tmp = (vec_dbl*)add0 + 4 + ioffset;
-		printf("%2u:\tre = %20.10e,%20.10e\tim = %20.10e,%20.10e\n",idbg+ioffset,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);
-	}
-	printf("%s: DIT outputs 1:\n",func);
-	tmp = (vec_dbl*)add1 + ioffset;
-	for(idbg = 0; idbg < 8; idbg++, tmp+=8) {
-		if(idbg == 4) tmp = (vec_dbl*)add1 + 4 + ioffset;
-		printf("%2u:\tre = %20.10e,%20.10e\tim = %20.10e,%20.10e\n",idbg+ioffset,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);
-	}
-	exit(0);
-  }
-  #endif
 
 	#endif
-  #if 0
-  if(j1 < 2048) {
-	int idbg,idx1,idx2;
-	printf("j1,j2 = %d,%d: SIMD DIT outputs\n",j1,j2);
-	// High-block array index runs from j2pad-32 to j2pad+32 for AVX, j2pad-96 to j2pad+32 for AVX-512:
-   #ifdef USE_AVX512
-	for(idx1 = j1pad, idx2 = j2pad-192; idx1 < (j1pad+256); idx1 += 64, idx2 += 64) {
-		idbg = idx1+ 0;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 0;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 1;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 1;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 2;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 2;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 3;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 3;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 4;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 4;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 5;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 5;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 6;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 6;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 7;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 7;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+16;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+16;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+17;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+17;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+18;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+18;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+19;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+19;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+20;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+20;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+21;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+21;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+22;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+22;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+23;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+23;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+32;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+32;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+33;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+33;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+34;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+34;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+35;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+35;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+36;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+36;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+37;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+37;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+38;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+38;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+39;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+39;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+48;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+48;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+49;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+49;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+50;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+50;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+51;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+51;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+52;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+52;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+53;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+53;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+54;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+54;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+55;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+55;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	}
-   #elif defined(USE_AVX)
-	for(idx1 = j1pad, idx2 = j2pad-64; idx1 < (j1pad+128); idx1 += 64, idx2 += 64) {
-		idbg = idx1+ 0;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 0;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 1;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 1;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 2;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 2;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 3;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 3;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 8;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 8;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+ 9;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+ 9;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+10;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+10;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+11;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+11;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+16;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+16;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+17;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+17;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+18;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+18;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+19;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+19;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+24;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+24;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+25;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+25;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+26;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+26;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+27;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+27;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+32;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+32;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+33;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+33;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+34;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+34;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+35;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+35;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+40;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+40;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+41;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+41;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+42;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+42;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+43;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+43;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+48;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+48;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+49;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+49;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+50;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+50;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+51;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+51;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+56;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+56;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+57;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+57;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+58;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+58;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-		idbg = idx1+59;	printf("A_out[%3d,%3d] = %20.10e,%20.10e\t\t",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);	idbg = idx2+59;	printf("B_out[%3d,%3d] = %20.10e,%20.10e\n",idbg,idbg+RE_IM_STRIDE,a[idbg],a[idbg+RE_IM_STRIDE]);
-	}
-   #endif
-  }
-  #endif
-
 	}	// endif(j1 == 0)
 
 #endif	/* USE_SSE2 */
 
 /*...Update the data (j1 and j2) array indices. */
 loop:
-#if 0
-if(j1 < 2048) { printf("loop: j1,j2 = %d,%d, updating ... ",j1,j2);
-#endif
 	#ifdef USE_AVX
 	  if(j1 <= 320) {
 	#else
@@ -4007,13 +3408,6 @@ if(j1 < 2048) { printf("loop: j1,j2 = %d,%d, updating ... ",j1,j2);
 		j1 = j1+stride;
 		j2 = j2-stride;
 	  }
-#if 0
-printf("j1,j2 = %d,%d\n",j1,j2);
-} else {
-	printf("j1,j2 = %d,%d ... exiting debug loop.\n",j1,j2);
-	exit(0);
-}
-#endif
 	}	/* endfor(m-loop) */
 
 /*
@@ -4024,13 +3418,9 @@ printf("j1,j2 = %d,%d\n",j1,j2);
 update_blocklen:
 
 	j1 = j1+(blocklen << 1);
-
-//	fprintf(stderr,"(j2_start == %d\n",j2_start);
-
 	if(j2_start == n-64)
 	{
 		j1 = 0;
-//	fprintf(stderr,"(j2_start == n-64) check hit: returning\n");	exit(0);
 		return;
 	}
 
