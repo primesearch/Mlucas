@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -407,7 +407,7 @@ int radix1008_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 	// v18: If use residue shift in context of Pépin test, need prp_mult = 2 whenever the 'shift = 2*shift + random[0,1]' update gets a 1-bit in the random slot
 	if((TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT)
 	|| (TEST_TYPE & 0xfffffffe) == TEST_TYPE_PRP) {	// Mask off low bit to lump together PRP and PRP-C tests
-		i = (iter % ITERS_BETWEEN_CHECKPOINTS) - 1;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
+		i = (iter-1) % ITERS_BETWEEN_CHECKPOINTS;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
 		if((BASE_MULTIPLIER_BITS[i>>6] >> (i&63)) & 1)
 			prp_mult = PRP_BASE;
 	}
@@ -418,15 +418,11 @@ int radix1008_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 //	printf("CY-step: n_div_nwt = %u\n",n_div_nwt);
 	if((n_div_nwt << nwt_bits) != NDIVR)
 	{
-		sprintf(cbuf,"FATAL: iter = %10d; NWT_BITS does not divide N/%d in %s.\n", iter,RADIX,func);
-		if(INTERACT)fprintf(stderr,"%s",cbuf);
-		fp = mlucas_fopen(   OFILE,"a");
-		fq = mlucas_fopen(STATFILE,"a");
-		fprintf(fp,"%s",cbuf);
-		fprintf(fq,"%s",cbuf);
-		fclose(fp);	fp = 0x0;
-		fclose(fq);	fq = 0x0;
-		err=ERR_CARRY;
+		sprintf(cbuf,"FATAL: iter = %10d; NWT_BITS does not divide N/RADIX in %s.\n",iter,func);
+		if(INTERACT) fprintf(stderr,"%s",cbuf);
+		fp = mlucas_fopen(   OFILE,"a");	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
+		fq = mlucas_fopen(STATFILE,"a");	fprintf(fq,"%s",cbuf);	fclose(fq);	fq = 0x0;
+		err = ERR_SKIP_RADIX_SET;
 		return(err);
 	}
 
@@ -1666,129 +1662,6 @@ for(outer=0; outer <= 1; outer++)
 	}
 #endif
 
-/******************* AVX debug stuff: *******************/
-#if 0
-	int ipad;
-	ASSERT(HERE, p1 >= 16, "Smallest array-stride must be large enough to hold an AVX-512 vec_cmplx!");
-	// Use RNG to populate data array:
-	rng_isaac_init(TRUE);
-	double dtmp = 1024.0*1024.0*1024.0*1024.0;
-	for(i = 0; i < n; i += 16) {
-		ipad = i + ( (i >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-		// All the inits are w.r.to an un-SIMD-rearranged ...,re,im,re,im,... pattern:
-	#ifdef USE_AVX512
-		a[ipad+br16[ 0]] = dtmp*rng_isaac_rand_double_norm_pm1();	// re0
-		a[ipad+br16[ 1]] = dtmp*rng_isaac_rand_double_norm_pm1();	// im0
-		a[ipad+br16[ 2]] = dtmp*rng_isaac_rand_double_norm_pm1();	// re1
-		a[ipad+br16[ 3]] = dtmp*rng_isaac_rand_double_norm_pm1();	// im1
-		a[ipad+br16[ 4]] = dtmp*rng_isaac_rand_double_norm_pm1();	// re2
-		a[ipad+br16[ 5]] = dtmp*rng_isaac_rand_double_norm_pm1();	// im2
-		a[ipad+br16[ 6]] = dtmp*rng_isaac_rand_double_norm_pm1();	// re3
-		a[ipad+br16[ 7]] = dtmp*rng_isaac_rand_double_norm_pm1();	// im3
-		a[ipad+br16[ 8]] = dtmp*rng_isaac_rand_double_norm_pm1();	// re4
-		a[ipad+br16[ 9]] = dtmp*rng_isaac_rand_double_norm_pm1();	// im4
-		a[ipad+br16[10]] = dtmp*rng_isaac_rand_double_norm_pm1();	// re5
-		a[ipad+br16[11]] = dtmp*rng_isaac_rand_double_norm_pm1();	// im5
-		a[ipad+br16[12]] = dtmp*rng_isaac_rand_double_norm_pm1();	// re6
-		a[ipad+br16[13]] = dtmp*rng_isaac_rand_double_norm_pm1();	// im6
-		a[ipad+br16[14]] = dtmp*rng_isaac_rand_double_norm_pm1();	// re7
-		a[ipad+br16[15]] = dtmp*rng_isaac_rand_double_norm_pm1();	// im7
-	#elif defined(USE_AVX)
-		a[ipad+br8[0]  ] = dtmp*rng_isaac_rand_double_norm_pm1();	// re0
-		a[ipad+br8[1]  ] = dtmp*rng_isaac_rand_double_norm_pm1();	// im0
-		a[ipad+br8[2]  ] = dtmp*rng_isaac_rand_double_norm_pm1();	// re1
-		a[ipad+br8[3]  ] = dtmp*rng_isaac_rand_double_norm_pm1();	// im1
-		a[ipad+br8[4]  ] = dtmp*rng_isaac_rand_double_norm_pm1();	// re2
-		a[ipad+br8[5]  ] = dtmp*rng_isaac_rand_double_norm_pm1();	// im2
-		a[ipad+br8[6]  ] = dtmp*rng_isaac_rand_double_norm_pm1();	// re3
-		a[ipad+br8[7]  ] = dtmp*rng_isaac_rand_double_norm_pm1();	// im3
-		a[ipad+br8[0]+8] = dtmp*rng_isaac_rand_double_norm_pm1();	// re4
-		a[ipad+br8[1]+8] = dtmp*rng_isaac_rand_double_norm_pm1();	// im4
-		a[ipad+br8[2]+8] = dtmp*rng_isaac_rand_double_norm_pm1();	// re5
-		a[ipad+br8[3]+8] = dtmp*rng_isaac_rand_double_norm_pm1();	// im5
-		a[ipad+br8[4]+8] = dtmp*rng_isaac_rand_double_norm_pm1();	// re6
-		a[ipad+br8[5]+8] = dtmp*rng_isaac_rand_double_norm_pm1();	// im6
-		a[ipad+br8[6]+8] = dtmp*rng_isaac_rand_double_norm_pm1();	// re7
-		a[ipad+br8[7]+8] = dtmp*rng_isaac_rand_double_norm_pm1();	// im7
-	#elif defined(USE_SSE2)
-		a[ipad+br4[0]   ] = dtmp*rng_isaac_rand_double_norm_pm1();	// re0
-		a[ipad+br4[1]   ] = dtmp*rng_isaac_rand_double_norm_pm1();	// im0
-		a[ipad+br4[2]   ] = dtmp*rng_isaac_rand_double_norm_pm1();	// re1
-		a[ipad+br4[3]   ] = dtmp*rng_isaac_rand_double_norm_pm1();	// im1
-		a[ipad+br4[0]+ 4] = dtmp*rng_isaac_rand_double_norm_pm1();	// re2
-		a[ipad+br4[1]+ 4] = dtmp*rng_isaac_rand_double_norm_pm1();	// im2
-		a[ipad+br4[2]+ 4] = dtmp*rng_isaac_rand_double_norm_pm1();	// re3
-		a[ipad+br4[3]+ 4] = dtmp*rng_isaac_rand_double_norm_pm1();	// im3
-		a[ipad+br4[0]+ 8] = dtmp*rng_isaac_rand_double_norm_pm1();	// re4
-		a[ipad+br4[1]+ 8] = dtmp*rng_isaac_rand_double_norm_pm1();	// im4
-		a[ipad+br4[2]+ 8] = dtmp*rng_isaac_rand_double_norm_pm1();	// re5
-		a[ipad+br4[3]+ 8] = dtmp*rng_isaac_rand_double_norm_pm1();	// im5
-		a[ipad+br4[0]+12] = dtmp*rng_isaac_rand_double_norm_pm1();	// re6
-		a[ipad+br4[1]+12] = dtmp*rng_isaac_rand_double_norm_pm1();	// im6
-		a[ipad+br4[2]+12] = dtmp*rng_isaac_rand_double_norm_pm1();	// re7
-		a[ipad+br4[3]+12] = dtmp*rng_isaac_rand_double_norm_pm1();	// im7
-	#else
-		#error Debug only enabled for SIMD builds!
-	#endif
-  #if 0	// print DFT inputs in linear array fashion, 1st w.r.to non-SIMD {re,im,re,im,...} layout, then w.r.to actual SIMD layout:
-	#ifdef USE_AVX512
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i, 0, a[ipad+br16[ 0]],ipad+ 0, a[ipad+ 0]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i, 1, a[ipad+br16[ 1]],ipad+ 1, a[ipad+ 1]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i, 2, a[ipad+br16[ 2]],ipad+ 2, a[ipad+ 2]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i, 3, a[ipad+br16[ 3]],ipad+ 3, a[ipad+ 3]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i, 4, a[ipad+br16[ 4]],ipad+ 4, a[ipad+ 4]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i, 5, a[ipad+br16[ 5]],ipad+ 5, a[ipad+ 5]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i, 6, a[ipad+br16[ 6]],ipad+ 6, a[ipad+ 6]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i, 7, a[ipad+br16[ 7]],ipad+ 7, a[ipad+ 7]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i, 8, a[ipad+br16[ 8]],ipad+ 8, a[ipad+ 8]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i, 9, a[ipad+br16[ 9]],ipad+ 9, a[ipad+ 9]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,10, a[ipad+br16[10]],ipad+10, a[ipad+10]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,11, a[ipad+br16[11]],ipad+11, a[ipad+11]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,12, a[ipad+br16[12]],ipad+12, a[ipad+12]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,13, a[ipad+br16[13]],ipad+13, a[ipad+13]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,14, a[ipad+br16[14]],ipad+14, a[ipad+14]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,15, a[ipad+br16[15]],ipad+15, a[ipad+15]);
-	#elif defined(USE_AVX)
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,0  ,a[ipad+br8[0]  ],ipad+0  ,a[ipad+0  ]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,1  ,a[ipad+br8[1]  ],ipad+1  ,a[ipad+1  ]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,2  ,a[ipad+br8[2]  ],ipad+2  ,a[ipad+2  ]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,3  ,a[ipad+br8[3]  ],ipad+3  ,a[ipad+3  ]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,4  ,a[ipad+br8[4]  ],ipad+4  ,a[ipad+4  ]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,5  ,a[ipad+br8[5]  ],ipad+5  ,a[ipad+5  ]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,6  ,a[ipad+br8[6]  ],ipad+6  ,a[ipad+6  ]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,7  ,a[ipad+br8[7]  ],ipad+7  ,a[ipad+7  ]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,0+8,a[ipad+br8[0]+8],ipad+0+8,a[ipad+0+8]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,1+8,a[ipad+br8[1]+8],ipad+1+8,a[ipad+1+8]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,2+8,a[ipad+br8[2]+8],ipad+2+8,a[ipad+2+8]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,3+8,a[ipad+br8[3]+8],ipad+3+8,a[ipad+3+8]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,4+8,a[ipad+br8[4]+8],ipad+4+8,a[ipad+4+8]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,5+8,a[ipad+br8[5]+8],ipad+5+8,a[ipad+5+8]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,6+8,a[ipad+br8[6]+8],ipad+6+8,a[ipad+6+8]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,7+8,a[ipad+br8[7]+8],ipad+7+8,a[ipad+7+8]);
-	#elif defined(USE_SSE2)
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,0   ,a[ipad+br4[0]   ],ipad+0   ,a[ipad+0   ]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,1   ,a[ipad+br4[1]   ],ipad+1   ,a[ipad+1   ]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,2   ,a[ipad+br4[2]   ],ipad+2   ,a[ipad+2   ]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,3   ,a[ipad+br4[3]   ],ipad+3   ,a[ipad+3   ]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,0+ 4,a[ipad+br4[0]+ 4],ipad+0+ 4,a[ipad+0+ 4]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,1+ 4,a[ipad+br4[1]+ 4],ipad+1+ 4,a[ipad+1+ 4]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,2+ 4,a[ipad+br4[2]+ 4],ipad+2+ 4,a[ipad+2+ 4]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,3+ 4,a[ipad+br4[3]+ 4],ipad+3+ 4,a[ipad+3+ 4]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,0+ 8,a[ipad+br4[0]+ 8],ipad+0+ 8,a[ipad+0+ 8]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,1+ 8,a[ipad+br4[1]+ 8],ipad+1+ 8,a[ipad+1+ 8]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,2+ 8,a[ipad+br4[2]+ 8],ipad+2+ 8,a[ipad+2+ 8]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,3+ 8,a[ipad+br4[3]+ 8],ipad+3+ 8,a[ipad+3+ 8]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,0+12,a[ipad+br4[0]+12],ipad+0+12,a[ipad+0+12]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,1+12,a[ipad+br4[1]+12],ipad+1+12,a[ipad+1+12]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,2+12,a[ipad+br4[2]+12],ipad+2+12,a[ipad+2+12]);
-		printf("A[%3d][%2d] = %20.10e; SIMD: A[%2d] = %20.10e\n",i,3+12,a[ipad+br4[3]+12],ipad+3+12,a[ipad+3+12]);
-	#endif
-	if(i+16 >= n) exit(0);	// If printing the above inputs, exit immediately.
-  #endif
-	}
-#endif
-/********************************************************/
-
 #ifdef USE_PTHREAD
 
 	// If also using main thread to do work units, that task-dispatch occurs after all the threadpool-task launches:
@@ -2009,7 +1882,7 @@ for(outer=0; outer <= 1; outer++)
 	ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
 
 	while(tpool && tpool->free_tasks_queue.num_tasks != pool_work_units) {
-		ASSERT(HERE, 0 == nanosleep(&ns_time, 0x0), "nanosleep fail!");
+		ASSERT(HERE, 0 == mlucas_nanosleep(&ns_time), "nanosleep fail!");
 	}
 
 	/* Copy the thread-specific output carry data back to shared memory: */
@@ -2127,14 +2000,10 @@ for(outer=0; outer <= 1; outer++)
 	if(dtmp != 0.0)
 	{
 		sprintf(cbuf,"FATAL: iter = %10d; nonzero exit carry in %s - input wordsize may be too small.\n",iter,func);
-		if(INTERACT)fprintf(stderr,"%s",cbuf);
-		fp = mlucas_fopen(   OFILE,"a");
-		fq = mlucas_fopen(STATFILE,"a");
-		fprintf(fp,"%s",cbuf);
-		fprintf(fq,"%s",cbuf);
-		fclose(fp);	fp = 0x0;
-		fclose(fq);	fq = 0x0;
-		err=ERR_CARRY;
+		if(INTERACT) fprintf(stderr,"%s",cbuf);
+		fp = mlucas_fopen(   OFILE,"a");	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
+		fq = mlucas_fopen(STATFILE,"a");	fprintf(fq,"%s",cbuf);	fclose(fq);	fq = 0x0;
+		err = ERR_CARRY;
 		return(err);
 	}
 	return(0);

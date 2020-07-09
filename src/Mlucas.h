@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -68,12 +68,17 @@ uint32	ernstMain
 
 uint64	parse_cmd_args_get_shift_value(void);
 int		is_hex_string(char*s, int len);
+void	generate_JSON_report(const uint32 isprime, const uint64 p, const uint32 n, const uint64 Res64, const char*timebuffer, char*cstr);
 void	print_help(char*option);
 int		cfgNeedsUpdating(char*in_line);
-void	printMlucasErrCode(int retVal);
+void	returnMlucasErrCode(uint32 ierr, char*s);
+void	printMlucasErrCode(uint32 ierr);
 uint64 	shift_word(double a[], int n, const uint64 p, const uint64 shift, const double cy_in);
-int	 read_ppm1_savefiles(uint64 p, int*kblocks, FILE*fp, uint32*ilo, uint8 arr_tmp[], uint64*Res64, uint64*Res35m1, uint64*Res36m1);
-void	write_ppm1_savefiles(uint64 p, int n      , FILE*fp, uint32 ihi, uint8 arr_tmp[], uint64 Res64, uint64 Res35m1, uint64 Res36m1);
+int		test_types_compatible(uint32 t1, uint32 t2);
+int		read_ppm1_residue(const uint32 nbytes, FILE*fp, uint8 arr_tmp[], uint64*Res64, uint64*Res35m1, uint64*Res36m1);
+int		read_ppm1_savefiles(uint64 p, int*kblocks, FILE*fp, uint32*ilo, uint8 arr1[], uint64*Res64, uint64*Res35m1, uint64*Res36m1, uint8 arr2[], uint64*i1, uint64*i2, uint64*i3);
+void	write_ppm1_residue(const uint32 nbytes, FILE*fp, const uint8 arr_tmp[], const uint64 Res64, const uint64 Res35m1, const uint64 Res36m1);
+void	write_ppm1_savefiles(uint64 p, int n     , FILE*fp, uint32 ihi, uint8 arr1[], uint64 Res64, uint64 Res35m1, uint64 Res36m1, uint8 arr2[], uint64 i1, uint64 i2, uint64 i3);
 int		convert_res_bytewise_FP(const uint8 arr_tmp[], double a[], int n, const uint64 p);
 void	convert_res_FP_bytewise(const double a[], uint8 arr_tmp[], int n, const uint64 p, uint64*Res64, uint64*Res35m1, uint64*Res36m1);
 uint32	get_default_factoring_depth(uint64 p);
@@ -266,9 +271,9 @@ void	radix32_dit_pass	(double a[], int n, struct complex rt0[], struct complex r
 
 /* mers_mod_square.c: */
 #ifdef USE_FGT61
-	int	mers_mod_square		(double a[], uint64 b[], int arr_scratch[], int n, int ilo, int ihi, uint64 p, int scrnFlag, double *tdiff);
+	int	mers_mod_square		(double a[], uint64 b[], int arr_scratch[], int n, int ilo, int ihi, uint64 fwd_fft_only, uint64 p, int scrnFlag, double *tdiff, int update_shift);
 #else
-	int	mers_mod_square		(double a[],             int arr_scratch[], int n, int ilo, int ihi, uint64 p, int scrnFlag, double *tdiff);
+	int	mers_mod_square		(double a[],             int arr_scratch[], int n, int ilo, int ihi, uint64 fwd_fft_only, uint64 p, int scrnFlag, double *tdiff, int update_shift);
 #endif
 
 	/* radix{16|32|64}_wrapper_square.c: */
@@ -277,22 +282,25 @@ void	radix32_dit_pass	(double a[], int n, struct complex rt0[], struct complex r
 						  uint64 *u1, uint64 *v1, uint64 *u2, uint64 *v2, uint64 a, uint64 b);
 #else
 	void	pair_square  (double *x1, double *y1, double *x2, double *y2, double c, double s);
+	void	pair_mul(
+		double *x1, double *y1, double *x2, double *y2, const double sx3, const double sy3, const double sx4, const double sy4,
+		const double c, const double s);
 #endif
 	void	pair_square2A(double *x1, double *y1, double *x2, double *y2, double *x3, double *y3, double *x4, double *y4, double c, double s);
 	void	pair_square2B(double *x1, double *y1, double *x2, double *y2, double *x3, double *y3, double *x4, double *y4, double c, double s);
 
 	void	radix16_wrapper_ini		(int n, int radix0, int iblock, int nradices_prim, int radix_prim[], int i[], int j1[], int j2[], int j2_start[], int k[], int m[], int blocklen[], int blocklen_sum[]);
 #ifdef USE_FGT61
-	void	radix16_wrapper_square	(double a[], uint64 b[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], uint128 mt0[], uint128 mt1[], int nradices_prim, int radix_prim[], int ws_i, int ws_j1, int ws_j2, int ws_j2_start, int ws_k, int ws_m, int ws_blocklen, int ws_blocklen_sum, int init_sse2, int thr_id);
+	void	radix16_wrapper_square	(double a[], uint64 b[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], uint128 mt0[], uint128 mt1[], int nradices_prim, int radix_prim[], int ws_i, int ws_j1, int ws_j2, int ws_j2_start, int ws_k, int ws_m, int ws_blocklen, int ws_blocklen_sum, int init_sse2, int thr_id, uint64 fwd_fft_only);
 #else
-	void	radix16_wrapper_square	(double a[],             int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[],                               int nradices_prim, int radix_prim[], int ws_i, int ws_j1, int ws_j2, int ws_j2_start, int ws_k, int ws_m, int ws_blocklen, int ws_blocklen_sum, int init_sse2, int thr_id);
+	void	radix16_wrapper_square	(double a[],             int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[],                               int nradices_prim, int radix_prim[], int ws_i, int ws_j1, int ws_j2, int ws_j2_start, int ws_k, int ws_m, int ws_blocklen, int ws_blocklen_sum, int init_sse2, int thr_id, uint64 fwd_fft_only);
 #endif
 
 	void	radix32_wrapper_ini		(int n, int radix0, int iblock, int nradices_prim, int radix_prim[], int i[], int j1[], int j2[], int j2_start[], int k[], int m[], int blocklen[], int blocklen_sum[]);
-	void	radix32_wrapper_square	(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int nradices_prim, int radix_prim[], int ws_i, int ws_j1, int ws_j2, int ws_j2_start, int ws_k, int ws_m, int ws_blocklen, int ws_blocklen_sum, int init_sse2, int thr_id);
+	void	radix32_wrapper_square	(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int nradices_prim, int radix_prim[], int ws_i, int ws_j1, int ws_j2, int ws_j2_start, int ws_k, int ws_m, int ws_blocklen, int ws_blocklen_sum, int init_sse2, int thr_id, uint64 fwd_fft_only);
 
 	void	radix64_wrapper_ini		(int n, int radix0, int iblock, int nradices_prim, int radix_prim[], int i[], int j1[], int j2[], int j2_start[], int k[], int m[], int blocklen[], int blocklen_sum[]);
-	void	radix64_wrapper_square	(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int nradices_prim, int radix_prim[], int ws_i, int ws_j1, int ws_j2, int ws_j2_start, int ws_k, int ws_m, int ws_blocklen, int ws_blocklen_sum, int init_sse2, int thr_id);
+	void	radix64_wrapper_square	(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int nradices_prim, int radix_prim[], int ws_i, int ws_j1, int ws_j2, int ws_j2_start, int ws_k, int ws_m, int ws_blocklen, int ws_blocklen_sum, int init_sse2, int thr_id, uint64 fwd_fft_only);
 
 	/* radix{16|32|64}_pairFFT_mul.c: */
 	void	radix16_pairFFT_mul_ini	(int n, int radix0, int iblock, int nradices_prim, int radix_prim[], int i[], int j1[], int j2[], int j2_start[], int k[], int m[], int blocklen[], int blocklen_sum[]);
@@ -376,9 +384,9 @@ void	radix32_dit_pass	(double a[], int n, struct complex rt0[], struct complex r
 	void *cy4096_process_chunk(void*targ);
 #else
   #ifdef USE_FGT61
-	void mers_process_chunk  (double a[], int arr_scratch[], int n, struct complex rt0[], struct complex rt1[], uint128 mt0[], uint128 mt1[], int index[], int block_index[], int ii, int nradices_prim, int radix_prim[], int ws_i[], int ws_j1[], int ws_j2[], int ws_j2_start[], int ws_k[], int ws_m[], int ws_blocklen[], int ws_blocklen_sum[]);
+	void mers_process_chunk  (double a[], int arr_scratch[], int n, struct complex rt0[], struct complex rt1[], uint128 mt0[], uint128 mt1[], int index[], int block_index[], int ii, int nradices_prim, int radix_prim[], int ws_i[], int ws_j1[], int ws_j2[], int ws_j2_start[], int ws_k[], int ws_m[], int ws_blocklen[], int ws_blocklen_sum[], uint64 fwd_fft_only);
   #else
-	void mers_process_chunk  (double a[], int arr_scratch[], int n, struct complex rt0[], struct complex rt1[],                               int index[], int block_index[], int ii, int nradices_prim, int radix_prim[], int ws_i[], int ws_j1[], int ws_j2[], int ws_j2_start[], int ws_k[], int ws_m[], int ws_blocklen[], int ws_blocklen_sum[]);
+	void mers_process_chunk  (double a[], int arr_scratch[], int n, struct complex rt0[], struct complex rt1[],                               int index[], int block_index[], int ii, int nradices_prim, int radix_prim[], int ws_i[], int ws_j1[], int ws_j2[], int ws_j2_start[], int ws_k[], int ws_m[], int ws_blocklen[], int ws_blocklen_sum[], uint64 fwd_fft_only);
   #endif
 
 	void fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex rt0[], struct complex rt1[], int index[],                    int ii, int nradices_prim, int radix_prim[]);

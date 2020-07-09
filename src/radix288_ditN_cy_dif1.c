@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -190,7 +190,23 @@ int radix288_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
   #else
 	const int jhi_wrap =  7;
   #endif
-	int NDIVR,i,j,j1,j2,jt,jp,jstart,jhi,full_pass,k,khi,l,ntmp,outer,nbytes;
+	int NDIVR,i,incr,j,j1,j2,jt,jp,jstart,jhi,full_pass,k,khi,l,ntmp,outer,nbytes;
+	// incr = Carry-chain wts-multipliers recurrence length, which must divide
+	// RADIX/[n-wayness of carry macro], e.g. RADIX/[16|8|4] = 18|36|72 for avx512,avx,sse, respectively:
+  #ifdef USE_AVX512	// Oddly, FMA-based builds appear to need slightly shorter chains for radices 144,288
+	const int incr_long =  9,incr_med = 6,incr_short = 3;
+  #elif defined(USE_AVX2)
+	const int incr_long = 12,incr_med = 6,incr_short = 4;
+  #else
+	const int incr_long = 18,incr_med = 9,incr_short = 6;
+  #endif
+	// Allows cy-macro error data to be used to fiddle incr on the fly to a smaller, safer value if necessary
+	if(USE_SHORT_CY_CHAIN == 0)
+		incr = incr_long;
+	else if(USE_SHORT_CY_CHAIN == 1)
+		incr = incr_med;
+	else
+		incr = incr_short;
 	// Jun 2018: Add support for residue shift. (Only LL-test needs intervention at carry-loop level).
 	int target_idx = -1, target_set,tidx_mod_stride;
 	double target_cy;
@@ -323,7 +339,7 @@ int radix288_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
 	double prp_mult = 1.0;
 	if((TEST_TYPE & 0xfffffffe) == TEST_TYPE_PRP) {	// Mask off low bit to lump together PRP and PRP-C tests
-		i = (iter % ITERS_BETWEEN_CHECKPOINTS) - 1;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
+		i = (iter-1) % ITERS_BETWEEN_CHECKPOINTS;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
 		if((BASE_MULTIPLIER_BITS[i>>6] >> (i&63)) & 1)
 			prp_mult = PRP_BASE;
 	}
@@ -335,14 +351,10 @@ int radix288_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	if((n_div_nwt << nwt_bits) != NDIVR)
 	{
 		sprintf(cbuf,"FATAL: iter = %10d; NWT_BITS does not divide N/RADIX in %s.\n",iter,func);
-		if(INTERACT)fprintf(stderr,"%s",cbuf);
-		fp = mlucas_fopen(   OFILE,"a");
-		fq = mlucas_fopen(STATFILE,"a");
-		fprintf(fp,"%s",cbuf);
-		fprintf(fq,"%s",cbuf);
-		fclose(fp);	fp = 0x0;
-		fclose(fq);	fq = 0x0;
-		err=ERR_CARRY;
+		if(INTERACT) fprintf(stderr,"%s",cbuf);
+		fp = mlucas_fopen(   OFILE,"a");	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
+		fq = mlucas_fopen(STATFILE,"a");	fprintf(fq,"%s",cbuf);	fclose(fq);	fq = 0x0;
+		err = ERR_SKIP_RADIX_SET;
 		return(err);
 	}
 
@@ -545,7 +557,7 @@ int radix288_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x(492 + 90 + 2) = 0x524; This is where the value of half_arr_offset288 comes from
 		half_arr= tmp + 0x02;
 	  #endif
-		ASSERT(HERE, (radix288_creals_in_local_store << l2_sz_vd) >= ((long)half_arr - (long)r00) + (20 << l2_sz_vd), "radix208_creals_in_local_store checksum failed!");
+		ASSERT(HERE, (radix288_creals_in_local_store << l2_sz_vd) >= ((long)half_arr - (long)r00) + (20 << l2_sz_vd), "radix288_creals_in_local_store checksum failed!");
 		/* These remain fixed: */
 		VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );
 		VEC_DBL_INIT(sqrt2, SQRT2);	VEC_DBL_INIT(isrt2, ISRT2);
@@ -1969,7 +1981,7 @@ for(outer=0; outer <= 1; outer++)
 	ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
 
 	while(tpool && tpool->free_tasks_queue.num_tasks != pool_work_units) {
-		ASSERT(HERE, 0 == nanosleep(&ns_time, 0x0), "nanosleep fail!");
+		ASSERT(HERE, 0 == mlucas_nanosleep(&ns_time), "nanosleep fail!");
 	}
 
 	/* Copy the thread-specific output carry data back to shared memory: */
@@ -2046,14 +2058,10 @@ for(outer=0; outer <= 1; outer++)
 	if(dtmp != 0.0)
 	{
 		sprintf(cbuf,"FATAL: iter = %10d; nonzero exit carry in %s - input wordsize may be too small.\n",iter,func);
-		if(INTERACT)fprintf(stderr,"%s",cbuf);
-		fp = mlucas_fopen(   OFILE,"a");
-		fq = mlucas_fopen(STATFILE,"a");
-		fprintf(fp,"%s",cbuf);
-		fprintf(fq,"%s",cbuf);
-		fclose(fp);	fp = 0x0;
-		fclose(fq);	fq = 0x0;
-		err=ERR_CARRY;
+		if(INTERACT) fprintf(stderr,"%s",cbuf);
+		fp = mlucas_fopen(   OFILE,"a");	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
+		fq = mlucas_fopen(STATFILE,"a");	fprintf(fq,"%s",cbuf);	fclose(fq);	fq = 0x0;
+		err = ERR_CARRY;
 		return(err);
 	}
 
@@ -2099,7 +2107,6 @@ void radix288_dif_pass1(double a[], int n)
 		first_entry=FALSE;
 		NDIVR = n/RADIX;
 		/*   constant index offsets for array load/stores are here.	*/
-		/*   constant index offsets for array load/stores are here.	*/
 		p1 = NDIVR;		p10 = NDIVR<<4;		p100 = NDIVR<<8;
 		p2 = p1 + p1;	p20 = p10 + p10;	p110 = p100 + p10;
 		p3 = p2 + p1;	p30 = p20 + p10;
@@ -2133,9 +2140,9 @@ void radix288_dif_pass1(double a[], int n)
 		pf += ( (pf >> DAT_BITS) << PAD_BITS );		pf0 += ( (pf0 >> DAT_BITS) << PAD_BITS );
 													p100 += ( (p100 >> DAT_BITS) << PAD_BITS );
 													p110 += ( (p110 >> DAT_BITS) << PAD_BITS );
-		i = 0;
-		dif_phi[i++] =   0;
-		dif_phi[i++] = p100;
+		i = 0;				// p-offsets for outputs have 'big' part of form p[0,16,10,4,14,8,2,12,6]0,
+		dif_phi[i++] =   0;	// i.e. multiple-of-16 part gets decremented by 6 (mod 16) each term of the
+		dif_phi[i++] = p100;// sequence, aside from the initial pair of terms, 0,16.
 		dif_phi[i++] = pa0;
 		dif_phi[i++] = p40;
 		dif_phi[i++] = pe0;
@@ -2145,7 +2152,7 @@ void radix288_dif_pass1(double a[], int n)
 		dif_phi[i++] = p60;
 
 		// Set array offsets for radix-32 DFT in/outputs:
-		// t_offsets w.r.to: t-array, same for all 9 DFTs:
+		// t_offsets w.r.to: t-array, same for all 9 32-DFTs:
 		t_offsets[0x00] = 0x00<<1;	t_offsets[0x10] = 0x10<<1;
 		t_offsets[0x01] = 0x01<<1;	t_offsets[0x11] = 0x11<<1;
 		t_offsets[0x02] = 0x02<<1;	t_offsets[0x12] = 0x12<<1;
@@ -2191,7 +2198,7 @@ void radix288_dif_pass1(double a[], int n)
 		while(i < 4*ODD_RADIX-2) {
 			dif_p20_cperms[i] = dif_p20_cperms[i - ODD_RADIX]; ++i;
 		}
-		// Low parts, i.e. (mod p20) of the p-index offsets in the above circ-perm-indexing scheme for the radix-9 DFTs.
+		// Low parts, i.e. (mod p20) of the p-index offsets in the below circ-perm-indexing scheme for the radix-9 DFTs.
 		// Each elt of form p[0-f] + [evn|odd]0-8; use high-bit-toggle to encode the [evn|odd] selector, low 4 bits for
 		// the 0-8 index, bits <4:30> for the p0-f:
 		i = 0;
@@ -2444,7 +2451,7 @@ void radix288_dif_pass1(double a[], int n)
 	//...gather the needed data (288 64-bit complex) and do 32 radix-9 transforms:
 	/*
 	Twiddleless version arranges 32 sets of radix-9 DFT inputs as follows: 0 in upper left corner,
-	decrement (mod 288 = 0xa0) 32 (= 0x20) horizontally and 9 vertically.
+	decrement 32 (= 0x20) horizontally and 9 vertically, all indexing done (mod 288 = 0x120).
 
 	Indexing in hex for clarity and using [evn|odd]0-8 notation in the rightmost column to flag reusable
 	9-perms [in fact simple circular (0-8)-element shifts of evn = [000,100,0e0,0c0,0a0,080,060,040,020]
@@ -2731,7 +2738,7 @@ void radix288_dit_pass1(double a[], int n)
 		dit_offsets[i+0x02] = p6+p10;		dit_offsets[i+0x12] = p6;
 		dit_offsets[i+0x03] = p7+p10;		dit_offsets[i+0x13] = p7;
 		dit_offsets[i+0x04] = p1+p10;		dit_offsets[i+0x14] = p1;
-		dit_offsets[i+0x05] = p10;		dit_offsets[i+0x15] =  0;
+		dit_offsets[i+0x05] =    p10;		dit_offsets[i+0x15] =  0;
 		dit_offsets[i+0x06] = p2+p10;		dit_offsets[i+0x16] = p2;
 		dit_offsets[i+0x07] = p3+p10;		dit_offsets[i+0x17] = p3;
 		dit_offsets[i+0x08] = p9+p10;		dit_offsets[i+0x18] = p9;
@@ -2746,7 +2753,7 @@ void radix288_dit_pass1(double a[], int n)
 		i += 32;
 		dit_offsets[i+0x00] = pa;		dit_offsets[i+0x10] = p2+p10;
 		dit_offsets[i+0x01] = pb;		dit_offsets[i+0x11] = p3+p10;
-		dit_offsets[i+0x02] = p8;		dit_offsets[i+0x12] = p10;
+		dit_offsets[i+0x02] = p8;		dit_offsets[i+0x12] =    p10;
 		dit_offsets[i+0x03] = p9;		dit_offsets[i+0x13] = p1+p10;
 		dit_offsets[i+0x04] = pc;		dit_offsets[i+0x14] = p4+p10;
 		dit_offsets[i+0x05] = pd;		dit_offsets[i+0x15] = p5+p10;
@@ -2773,7 +2780,7 @@ void radix288_dit_pass1(double a[], int n)
 		dit_offsets[i+0x08] = pb;		dit_offsets[i+0x18] = p3+p10;
 		dit_offsets[i+0x09] = pa;		dit_offsets[i+0x19] = p2+p10;
 		dit_offsets[i+0x0a] = p9;		dit_offsets[i+0x1a] = p1+p10;
-		dit_offsets[i+0x0b] = p8;		dit_offsets[i+0x1b] = p10;
+		dit_offsets[i+0x0b] = p8;		dit_offsets[i+0x1b] =    p10;
 		dit_offsets[i+0x0c] = pd;		dit_offsets[i+0x1c] = p5+p10;
 		dit_offsets[i+0x0d] = pc;		dit_offsets[i+0x1d] = p4+p10;
 		dit_offsets[i+0x0e] = pe;		dit_offsets[i+0x1e] = p6+p10;
@@ -2781,7 +2788,7 @@ void radix288_dit_pass1(double a[], int n)
 		// Set 4: [1,0,2,3,6,7,4,5,e,f,c,d,a,b,8,9 + pb0],[1,0,2,3,6,7,4,5,e,f,c,d,a,b,8,9 + pa0]
 		i += 32;
 		dit_offsets[i+0x00] = p1+p10;		dit_offsets[i+0x10] = p1;
-		dit_offsets[i+0x01] = p10;		dit_offsets[i+0x11] =  0;
+		dit_offsets[i+0x01] =    p10;		dit_offsets[i+0x11] =  0;
 		dit_offsets[i+0x02] = p2+p10;		dit_offsets[i+0x12] = p2;
 		dit_offsets[i+0x03] = p3+p10;		dit_offsets[i+0x13] = p3;
 		dit_offsets[i+0x04] = p6+p10;		dit_offsets[i+0x14] = p6;
@@ -2810,7 +2817,7 @@ void radix288_dit_pass1(double a[], int n)
 		dit_offsets[i+0x09] = p5+p10;		dit_offsets[i+0x19] = p5;
 		dit_offsets[i+0x0a] = p7+p10;		dit_offsets[i+0x1a] = p7;
 		dit_offsets[i+0x0b] = p6+p10;		dit_offsets[i+0x1b] = p6;
-		dit_offsets[i+0x0c] = p10;		dit_offsets[i+0x1c] =  0;
+		dit_offsets[i+0x0c] =    p10;		dit_offsets[i+0x1c] =  0;
 		dit_offsets[i+0x0d] = p1+p10;		dit_offsets[i+0x1d] = p1;
 		dit_offsets[i+0x0e] = p3+p10;		dit_offsets[i+0x1e] = p3;
 		dit_offsets[i+0x0f] = p2+p10;		dit_offsets[i+0x1f] = p2;
@@ -2829,7 +2836,7 @@ void radix288_dit_pass1(double a[], int n)
 		dit_offsets[i+0x0a] = pe;		dit_offsets[i+0x1a] = p6+p10;
 		dit_offsets[i+0x0b] = pf;		dit_offsets[i+0x1b] = p7+p10;
 		dit_offsets[i+0x0c] = p9;		dit_offsets[i+0x1c] = p1+p10;
-		dit_offsets[i+0x0d] = p8;		dit_offsets[i+0x1d] = p10;
+		dit_offsets[i+0x0d] = p8;		dit_offsets[i+0x1d] =    p10;
 		dit_offsets[i+0x0e] = pa;		dit_offsets[i+0x1e] = p2+p10;
 		dit_offsets[i+0x0f] = pb;		dit_offsets[i+0x1f] = p3+p10;
 		// Set 7: [e,f,c,d,a,b,8,9,6,7,4,5,2,3,0,1 + pc0],[6,7,4,5,2,3,0,1,a,b,8,9,c,d,f,e + pd0]
@@ -2840,7 +2847,7 @@ void radix288_dit_pass1(double a[], int n)
 		dit_offsets[i+0x03] = pd;		dit_offsets[i+0x13] = p5+p10;
 		dit_offsets[i+0x04] = pa;		dit_offsets[i+0x14] = p2+p10;
 		dit_offsets[i+0x05] = pb;		dit_offsets[i+0x15] = p3+p10;
-		dit_offsets[i+0x06] = p8;		dit_offsets[i+0x16] = p10;
+		dit_offsets[i+0x06] = p8;		dit_offsets[i+0x16] =    p10;
 		dit_offsets[i+0x07] = p9;		dit_offsets[i+0x17] = p1+p10;
 		dit_offsets[i+0x08] = p6;		dit_offsets[i+0x18] = pa+p10;
 		dit_offsets[i+0x09] = p7;		dit_offsets[i+0x19] = pb+p10;
@@ -2860,7 +2867,7 @@ void radix288_dit_pass1(double a[], int n)
 		dit_offsets[i+0x05] = pe+p10;		dit_offsets[i+0x15] = pe;
 		dit_offsets[i+0x06] = pd+p10;		dit_offsets[i+0x16] = pd;
 		dit_offsets[i+0x07] = pc+p10;		dit_offsets[i+0x17] = pc;
-		dit_offsets[i+0x08] = p10;		dit_offsets[i+0x18] =  0;
+		dit_offsets[i+0x08] =    p10;		dit_offsets[i+0x18] =  0;
 		dit_offsets[i+0x09] = p1+p10;		dit_offsets[i+0x19] = p1;
 		dit_offsets[i+0x0a] = p3+p10;		dit_offsets[i+0x1a] = p3;
 		dit_offsets[i+0x0b] = p2+p10;		dit_offsets[i+0x1b] = p2;
@@ -3005,11 +3012,27 @@ void radix288_dit_pass1(double a[], int n)
 		double rt,it,re;
 		int poff[RADIX>>2];	// Store [RADIX/4] mults of p04 offset for loop control
 		int t_offsets[32];
-		// Need storage for 2 circular-shifts perms of a basic 5-vector, with shift count in [0,4] that means 2*9 elts:
+		// Need storage for 2 circular-shifts perms of a basic 9-vector, with shift count in [0,8] that means 2*17 elts:
 		int dif_offsets[RADIX], dif_p20_cperms[34], dif_p20_lo_offset[32], dif_phi[ODD_RADIX];
 		int dit_offsets[RADIX], dit_p20_cperms[34], dit_p20_lo_offset[32], dit_phi[ODD_RADIX];
 
-		int j,j1,j2,jt,jp,k,l,ntmp;
+		int incr,j,j1,j2,jt,jp,k,l,ntmp;
+		// incr = Carry-chain wts-multipliers recurrence length, which must divide
+		// RADIX/[n-wayness of carry macro], e.g. RADIX/[16|8|4] = 18|36|72 for avx512,avx,sse, respectively:
+	  #ifdef USE_AVX512	// Oddly, FMA-based builds appear to need slightly shorter chains for radices 144,288
+		const int incr_long =  9,incr_med = 6,incr_short = 3;
+	  #elif defined(USE_AVX2)
+		const int incr_long = 12,incr_med = 6,incr_short = 4;
+	  #else
+		const int incr_long = 18,incr_med = 9,incr_short = 6;
+	  #endif
+		// Allows cy-macro error data to be used to fiddle incr on the fly to a smaller, safer value if necessary
+		if(USE_SHORT_CY_CHAIN == 0)
+			incr = incr_long;
+		else if(USE_SHORT_CY_CHAIN == 1)
+			incr = incr_med;
+		else
+			incr = incr_short;
 		double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
 	#ifdef USE_AVX512
 		double t0,t1,t2,t3;

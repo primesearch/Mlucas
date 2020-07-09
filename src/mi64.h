@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2016 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -78,9 +78,12 @@ DEV void	mi64_clear				(uint64 x[], uint32 len);
 DEV void	mi64_set_bit			(uint64 x[], uint32 bit);
 DEV int		mi64_test_bit			(const uint64 x[], uint32 bit);
 
-/* bitwise shift y = (x <<|>> nbits); last 2 are specialized less-than-64-bit left and rightward shifts: */
-DEV uint64	mi64_shl 				(const uint64 x[], uint64 y[], uint32 nshift, uint32 len);
+/* bitwise shift y = (x <<|>> nbits); '..._short()' are specialized less-than-64-bit left and rightward shifts: */
 DEV void	mi64_shlc				(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32 len);
+DEV void	mi64_shrc				(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32 len);
+DEV uint32	mi64_shlc_bits_align	(const uint64 x[], uint64 y[], uint32 nbits);	// This actually a hybrid of circular-shift and compare
+DEV uint32	mi64_shlc_bits_limb0	(const uint64 x0, const uint64 y[], uint32 nbits);
+DEV uint64	mi64_shl 				(const uint64 x[], uint64 y[], uint32 nshift, uint32 len);
 DEV uint64	mi64_shrl				(const uint64 x[], uint64 y[], uint32 nshift, uint32 len);
 DEV uint64	mi64_shl_short_ref		(const uint64 x[], uint64 y[], uint32 nshift, uint32 len);
 DEV uint64	mi64_shl_short			(const uint64 x[], uint64 y[], uint32 nshift, uint32 len);

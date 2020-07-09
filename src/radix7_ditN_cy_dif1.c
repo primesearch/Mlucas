@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -92,12 +92,16 @@ int radix7_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], 
 	// Init these to get rid of GCC "may be used uninitialized in this function" warnings:
 	col=co2=co3=ii0=ii1=ii2=ii3=ii4=ii5=ii6=0;
 
-	if(RES_SHIFT) { WARN(HERE, "CY routines with radix < 16 do not support shifted residues!", "", 1); return(ERR_ASSERT); }
+	if(RES_SHIFT) {
+	//	WARN(HERE, "CY routines with radix < 16 do not support shifted residues!", "", 1);
+	//	return(ERR_ASSERT);
+		ASSERT(HERE, 0,"CY routines with radix < 16 do not support shifted residues!");
+	}
 
 	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
 	double prp_mult = 1.0;
 	if((TEST_TYPE & 0xfffffffe) == TEST_TYPE_PRP) {	// Mask off low bit to lump together PRP and PRP-C tests
-		i = (iter % ITERS_BETWEEN_CHECKPOINTS) - 1;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
+		i = (iter-1) % ITERS_BETWEEN_CHECKPOINTS;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
 		if((BASE_MULTIPLIER_BITS[i>>6] >> (i&63)) & 1)
 			prp_mult = PRP_BASE;
 	}

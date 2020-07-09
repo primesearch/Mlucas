@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2015 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -214,6 +214,64 @@
 \
 	__aj2pCi = (__aj2pCi+__jt0);	/* <*** ~JT1*/\
 	__aj1pCi = (__aj1pCi+__it1);\
+}
+
+/* 4-way version of pair_mul() macro in radix16_wrapper_square.c, equivalent to interleaving the 4 calls
+	pair_mul(*ax1, *ay1, *ax2, *ay2, ax3, ay3, ax4, ay4, c0, s0);
+	pair_mul(*bx1, *by1, *bx2, *by2, bx3, by3, bx4, by4,-s0, c0);
+	pair_mul(*cx1, *cy1, *cx2, *cy2, cx3, cy3, cx4, cy4,-c1, s1);
+	pair_mul(*dx1, *dy1, *dx2, *dy2, dx3, dy3, dx4, dy4, s1, c1);
+...and we rearrange the input args in our implementation below to group pairs of inputs in the same manner which said
+inputs will experience in the SSE2 vector version of the code, whose inline-asm pair-mul macro is derived from this one.
+Specifically, in the SSE2 version the inputs would be paired as [a|b][0,1,2,3][d0,d1] and we swap the d0,d1 components
+of [a|b][2,3] after loading those data into xmm registers:
+*/
+#define PAIR_MUL_4(\
+	__a0rd0, __a0id0, __a3rd1, __a3id1, __b0rd0, __b0id0, __b3rd1, __b3id1,\
+	__a0rd1, __a0id1, __a3rd0, __a3id0, __b0rd1, __b0id1, __b3rd0, __b3id0,\
+	__a1rd0, __a1id0, __a2rd1, __a2id1, __b1rd0, __b1id0, __b2rd1, __b2id1,\
+	__a1rd1, __a1id1, __a2rd0, __a2id0, __b1rd1, __b1id1, __b2rd0, __b2id0, __c0, __s0, __c1, __s1\
+)\
+{\
+	double __cc0 = __c0*.25,__ss0 = __s0*.25, __cc1 = __c1*.25,__ss1 = __s1*.25;\
+	double __t0d0,__t0d1, __t1d0,__t1d1, __t2d0,__t2d1, __t3d0,__t3d1, __t4d0,__t4d1, __t5d0,__t5d1;\
+/* calculate 2nd square-like term and store in temp...these don't care if the [a,b][2|3] data are d0,1-swapped or not, but do those
+   swaps because the following 'calculate difference terms' *does* need such a [lo,hi] double-data swap in the vector version: */\
+	__t0d0 = __a3rd1*__b3rd1 - __a3id1*__b3id1;	__t2d0 = __a3rd1*__b3id1 + __a3id1*__b3rd1;\
+	__t0d1 = __a3rd0*__b3rd0 - __a3id0*__b3id0;	__t2d1 = __a3rd0*__b3id0 + __a3id0*__b3rd0;\
+	__t1d0 = __a2rd1*__b2rd1 - __a2id1*__b2id1;	__t3d0 = __a2rd1*__b2id1 + __a2id1*__b2rd1;\
+	__t1d1 = __a2rd0*__b2rd0 - __a2id0*__b2id0;	__t3d1 = __a2rd0*__b2id0 + __a2id0*__b2rd0;\
+/* calculate difference terms...these need the [a,b][2|3] vector-data to be d0,1-swapped: */\
+	__a3rd1 = __a0rd0 - __a3rd1;	__a3id1 = __a0id0 + __a3id1;	__b3rd1 = __b0rd0 - __b3rd1;	__b3id1 = __b0id0 + __b3id1;\
+	__a3rd0 = __a0rd1 - __a3rd0;	__a3id0 = __a0id1 + __a3id0;	__b3rd0 = __b0rd1 - __b3rd0;	__b3id0 = __b0id1 + __b3id0;\
+	__a2rd1 = __a1rd0 - __a2rd1;	__a2id1 = __a1id0 + __a2id1;	__b2rd1 = __b1rd0 - __b2rd1;	__b2id1 = __b1id0 + __b2id1;\
+	__a2rd0 = __a1rd1 - __a2rd0;	__a2id0 = __a1id1 + __a2id0;	__b2rd0 = __b1rd1 - __b2rd0;	__b2id0 = __b1id1 + __b2id0;\
+/* now calculate 1st square-like term and store back in H(j) slot... */\
+	__t4d0 = __a0rd0*__b0rd0 - __a0id0*__b0id0;	__a0id0 = __a0rd0*__b0id0 + __a0id0*__b0rd0; __a0rd0 = __t4d0;\
+	__t4d1 = __a0rd1*__b0rd1 - __a0id1*__b0id1;	__a0id1 = __a0rd1*__b0id1 + __a0id1*__b0rd1; __a0rd1 = __t4d1;\
+	__t5d0 = __a1rd0*__b1rd0 - __a1id0*__b1id0;	__a1id0 = __a1rd0*__b1id0 + __a1id0*__b1rd0; __a1rd0 = __t5d0;\
+	__t5d1 = __a1rd1*__b1rd1 - __a1id1*__b1id1;	__a1id1 = __a1rd1*__b1id1 + __a1id1*__b1rd1; __a1rd1 = __t5d1;\
+/* calculate the complex products to build the second term... */\
+	__t4d0 = __a3rd1*__b3rd1 - __a3id1*__b3id1;	__a3id1 = __a3rd1*__b3id1 + __a3id1*__b3rd1;\
+	__t4d1 = __a3rd0*__b3rd0 - __a3id0*__b3id0;	__a3id0 = __a3rd0*__b3id0 + __a3id0*__b3rd0;\
+	__t5d0 = __a2rd1*__b2rd1 - __a2id1*__b2id1;	__a2id1 = __a2rd1*__b2id1 + __a2id1*__b2rd1;\
+	__t5d1 = __a2rd0*__b2rd0 - __a2id0*__b2id0;	__a2id0 = __a2rd0*__b2id0 + __a2id0*__b2rd0;\
+/* Note: precomputing the +-0.25 combos here means trading 2 adds here for (1 add, 1 mul) of precomputation, i.e. no point.
+   Note also the mixing of the [cc0,ss1],[ss0,cc1] sincos data in the vector version of this sequence: */\
+	__a3rd1 = ((__cc0+0.25)*__t4d0 - __ss0*__a3id1);	__a3id1 = (__ss0*__t4d0 + (__cc0+0.25)*__a3id1);	/*  __cc0,__ss0 */\
+	__a3rd0 = ((__ss1+0.25)*__t4d1 - __cc1*__a3id0);	__a3id0 = (__cc1*__t4d1 + (__ss1+0.25)*__a3id0);	/*  __ss1,__cc1 */\
+	__a2rd1 = ((0.25-__ss0)*__t5d0 - __cc0*__a2id1);	__a2id1 = (__cc0*__t5d0 + (0.25-__ss0)*__a2id1);	/* -__ss0,__cc0 */\
+	__a2rd0 = ((0.25-__cc1)*__t5d1 - __ss1*__a2id0);	__a2id0 = (__ss1*__t5d1 + (0.25-__cc1)*__a2id0);	/* -__cc1,__ss1 */\
+/* and now complete and store the results. */\
+	__a0rd0 = (__a0rd0-__a3rd1);	__a0id0 = (__a0id0-__a3id1);\
+	__a0rd1 = (__a0rd1-__a3rd0);	__a0id1 = (__a0id1-__a3id0);\
+	__a1rd0 = (__a1rd0-__a2rd1);	__a1id0 = (__a1id0-__a2id1);\
+	__a1rd1 = (__a1rd1-__a2rd0);	__a1id1 = (__a1id1-__a2id0);\
+/* N-j terms: */\
+	__a3rd1 = (__t0d0-__a3rd1);	__a3id1 = (__t2d0+__a3id1);\
+	__a3rd0 = (__t0d1-__a3rd0);	__a3id0 = (__t2d1+__a3id0);\
+	__a2rd1 = (__t1d0-__a2rd1);	__a2id1 = (__t3d0+__a2id1);\
+	__a2rd0 = (__t1d1-__a2rd0);	__a2id0 = (__t3d1+__a2id0);\
 }
 
 #endif	/* #ifndef pair_square_included */

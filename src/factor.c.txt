@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2016 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -204,7 +204,9 @@ void testSmarandache(const uint32 imin, const uint32 imax, const uint8 pdiff[], 
 	#define TF_CLSHIFT	12
 #endif
 
-#undef	USE_FMADD	// Need to add 100-bit modpow routines before enabling this for build of this file
+#ifdef	USE_FMADD	// Need to add 100-bit modpow routines before enabling this for build of this file
+	#warning USE_FMADD set in factor.c ... Using 100-bit FMA-based modpow.
+#endif
 
 #define SPOT_CHECK	0	// Enable periodic Spot-check (PRP or composite) of factor candidates
 
@@ -420,7 +422,7 @@ Unlike for (mod 60), use simple utility functions to manage these, rather than a
                 say on the order of ten 64-bit words) via enhancements to the mi64 library.
                 Invoke by defining NWORD, e.g. via -DNWORD.
 
-	2009-2011	Added support for x86 SSE2 floating-double SIMD hardware; improved inline ASM for x86 uint64 mode.
+	2009-2019	Added support for x86 SSE2 floating-double SIMD hardware; improved inline ASM for x86 uint64 mode.
 
 	2013		Added support for AVX to float-based (78-bit modmul) routines.
 
@@ -2591,7 +2593,7 @@ candidate factors that survive sieving.	*/
 
 		while(tpool->free_tasks_queue.num_tasks != NTHREADS) {
 			// Posix sleep() too granular here; use finer-resolution, declared in <time.h>; cf. http://linux.die.net/man/2/nanosleep
-			ASSERT(HERE, 0 == nanosleep(&ns_time, 0x0), "nanosleep fail!");
+			ASSERT(HERE, 0 == mlucas_nanosleep(&ns_time), "nanosleep fail!");
 		}
 		fprintf(stderr,"\n");	// For pretty-printing, have the inline-pass-printing reflect || work, newlines reflect sync-points
 	};	// wave-loop

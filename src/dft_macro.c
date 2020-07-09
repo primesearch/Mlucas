@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -24,7 +24,8 @@
 #include "Mdata.h"
 #include "align.h"
 #include "dft_macro.h"
-#include "radix256.h"	// Include largest-needed po2 radix; this recursively includes all lower powers of 2
+#include "radix128_twiddles.h"
+#include "radix256_twiddles.h"
 // SIMD code only available for 64-bit GCC build - others simply use scalar DFT macros with SIMD-compatible data layout
 #if defined(USE_SSE2) && defined(COMPILER_TYPE_GCC)
 	#include "sse2_macro.h"
@@ -3070,185 +3071,44 @@ void RADIX_128_DIF(
 	double *__B, const int *__odx, const int __re_im_stride_out	/* Outputs: Base address plus 128 (index) offsets */
 )
 {
-	double
-		__t00r,__t00i,__t01r,__t01i,__t02r,__t02i,__t03r,__t03i,__t04r,__t04i,__t05r,__t05i,__t06r,__t06i,__t07r,__t07i,__t08r,__t08i,__t09r,__t09i,__t0ar,__t0ai,__t0br,__t0bi,__t0cr,__t0ci,__t0dr,__t0di,__t0er,__t0ei,__t0fr,__t0fi,
-		__t10r,__t10i,__t11r,__t11i,__t12r,__t12i,__t13r,__t13i,__t14r,__t14i,__t15r,__t15i,__t16r,__t16i,__t17r,__t17i,__t18r,__t18i,__t19r,__t19i,__t1ar,__t1ai,__t1br,__t1bi,__t1cr,__t1ci,__t1dr,__t1di,__t1er,__t1ei,__t1fr,__t1fi,
-		__t20r,__t20i,__t21r,__t21i,__t22r,__t22i,__t23r,__t23i,__t24r,__t24i,__t25r,__t25i,__t26r,__t26i,__t27r,__t27i,__t28r,__t28i,__t29r,__t29i,__t2ar,__t2ai,__t2br,__t2bi,__t2cr,__t2ci,__t2dr,__t2di,__t2er,__t2ei,__t2fr,__t2fi,
-		__t30r,__t30i,__t31r,__t31i,__t32r,__t32i,__t33r,__t33i,__t34r,__t34i,__t35r,__t35i,__t36r,__t36i,__t37r,__t37i,__t38r,__t38i,__t39r,__t39i,__t3ar,__t3ai,__t3br,__t3bi,__t3cr,__t3ci,__t3dr,__t3di,__t3er,__t3ei,__t3fr,__t3fi,
-		__t40r,__t40i,__t41r,__t41i,__t42r,__t42i,__t43r,__t43i,__t44r,__t44i,__t45r,__t45i,__t46r,__t46i,__t47r,__t47i,__t48r,__t48i,__t49r,__t49i,__t4ar,__t4ai,__t4br,__t4bi,__t4cr,__t4ci,__t4dr,__t4di,__t4er,__t4ei,__t4fr,__t4fi,
-		__t50r,__t50i,__t51r,__t51i,__t52r,__t52i,__t53r,__t53i,__t54r,__t54i,__t55r,__t55i,__t56r,__t56i,__t57r,__t57i,__t58r,__t58i,__t59r,__t59i,__t5ar,__t5ai,__t5br,__t5bi,__t5cr,__t5ci,__t5dr,__t5di,__t5er,__t5ei,__t5fr,__t5fi,
-		__t60r,__t60i,__t61r,__t61i,__t62r,__t62i,__t63r,__t63i,__t64r,__t64i,__t65r,__t65i,__t66r,__t66i,__t67r,__t67i,__t68r,__t68i,__t69r,__t69i,__t6ar,__t6ai,__t6br,__t6bi,__t6cr,__t6ci,__t6dr,__t6di,__t6er,__t6ei,__t6fr,__t6fi,
-		__t70r,__t70i,__t71r,__t71i,__t72r,__t72i,__t73r,__t73i,__t74r,__t74i,__t75r,__t75i,__t76r,__t76i,__t77r,__t77i,__t78r,__t78i,__t79r,__t79i,__t7ar,__t7ai,__t7br,__t7bi,__t7cr,__t7ci,__t7dr,__t7di,__t7er,__t7ei,__t7fr,__t7fi;
-	double *Aim = __A + __re_im_stride_in, *Bim = __B + __re_im_stride_out;
+	int i,j,nshift, *off_ptr;
+	struct complex t[128], *tptr;
+	const struct complex *cd_ptr;
+	double *Are = __A,*Aim = __A + __re_im_stride_in, *Bre = __B,*Bim = __B + __re_im_stride_out;
+	int p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf;
 
 // Gather the needed data and do 8 twiddleless length-16 subtransforms, with p-offsets in br8 order: 04261537:
+	tptr = t;
+	for(i = 0; i < 8; i++) {
+		j = reverse8[i];	// A-array offsets processed in BR8 order = p[04261537]
+		p0 = __idx[j+0x00]; p1 = __idx[j+0x08]; p2 = __idx[j+0x10]; p3 = __idx[j+0x18]; p4 = __idx[j+0x20]; p5 = __idx[j+0x28]; p6 = __idx[j+0x30]; p7 = __idx[j+0x38]; p8 = __idx[j+0x40]; p9 = __idx[j+0x48]; pa = __idx[j+0x50]; pb = __idx[j+0x58]; pc = __idx[j+0x60]; pd = __idx[j+0x68]; pe = __idx[j+0x70]; pf = __idx[j+0x78];
+		RADIX_16_DIF(
+			*(Are+p0),*(Aim+p0),*(Are+p1),*(Aim+p1),*(Are+p2),*(Aim+p2),*(Are+p3),*(Aim+p3),*(Are+p4),*(Aim+p4),*(Are+p5),*(Aim+p5),*(Are+p6),*(Aim+p6),*(Are+p7),*(Aim+p7),*(Are+p8),*(Aim+p8),*(Are+p9),*(Aim+p9),*(Are+pa),*(Aim+pa),*(Are+pb),*(Aim+pb),*(Are+pc),*(Aim+pc),*(Are+pd),*(Aim+pd),*(Are+pe),*(Aim+pe),*(Are+pf),*(Aim+pf),
+			tptr->re,tptr->im,(tptr+0x1)->re,(tptr+0x1)->im,(tptr+0x2)->re,(tptr+0x2)->im,(tptr+0x3)->re,(tptr+0x3)->im,(tptr+0x4)->re,(tptr+0x4)->im,(tptr+0x5)->re,(tptr+0x5)->im,(tptr+0x6)->re,(tptr+0x6)->im,(tptr+0x7)->re,(tptr+0x7)->im,(tptr+0x8)->re,(tptr+0x8)->im,(tptr+0x9)->re,(tptr+0x9)->im,(tptr+0xa)->re,(tptr+0xa)->im,(tptr+0xb)->re,(tptr+0xb)->im,(tptr+0xc)->re,(tptr+0xc)->im,(tptr+0xd)->re,(tptr+0xd)->im,(tptr+0xe)->re,(tptr+0xe)->im,(tptr+0xf)->re,(tptr+0xf)->im,
+			c16,s16
+		);	tptr += 16;
+	}
 
-	//...Block 0: jt = j1;	jp = j2;
-	RADIX_16_DIF(
-		*(__A+__idx[0x00]),*(Aim+__idx[0x00]),*(__A+__idx[0x08]),*(Aim+__idx[0x08]),*(__A+__idx[0x10]),*(Aim+__idx[0x10]),*(__A+__idx[0x18]),*(Aim+__idx[0x18]),*(__A+__idx[0x20]),*(Aim+__idx[0x20]),*(__A+__idx[0x28]),*(Aim+__idx[0x28]),*(__A+__idx[0x30]),*(Aim+__idx[0x30]),*(__A+__idx[0x38]),*(Aim+__idx[0x38]),*(__A+__idx[0x40]),*(Aim+__idx[0x40]),*(__A+__idx[0x48]),*(Aim+__idx[0x48]),*(__A+__idx[0x50]),*(Aim+__idx[0x50]),*(__A+__idx[0x58]),*(Aim+__idx[0x58]),*(__A+__idx[0x60]),*(Aim+__idx[0x60]),*(__A+__idx[0x68]),*(Aim+__idx[0x68]),*(__A+__idx[0x70]),*(Aim+__idx[0x70]),*(__A+__idx[0x78]),*(Aim+__idx[0x78]),
-		__t00r,__t00i,__t01r,__t01i,__t02r,__t02i,__t03r,__t03i,__t04r,__t04i,__t05r,__t05i,__t06r,__t06i,__t07r,__t07i,__t08r,__t08i,__t09r,__t09i,__t0ar,__t0ai,__t0br,__t0bi,__t0cr,__t0ci,__t0dr,__t0di,__t0er,__t0ei,__t0fr,__t0fi,
-		c16,s16
-	);
-	//...Block 1: jt = j1 + p04;	jp = j2 + p04;
-	RADIX_16_DIF(
-		*(__A+__idx[0x04]),*(Aim+__idx[0x04]),*(__A+__idx[0x0c]),*(Aim+__idx[0x0c]),*(__A+__idx[0x14]),*(Aim+__idx[0x14]),*(__A+__idx[0x1c]),*(Aim+__idx[0x1c]),*(__A+__idx[0x24]),*(Aim+__idx[0x24]),*(__A+__idx[0x2c]),*(Aim+__idx[0x2c]),*(__A+__idx[0x34]),*(Aim+__idx[0x34]),*(__A+__idx[0x3c]),*(Aim+__idx[0x3c]),*(__A+__idx[0x44]),*(Aim+__idx[0x44]),*(__A+__idx[0x4c]),*(Aim+__idx[0x4c]),*(__A+__idx[0x54]),*(Aim+__idx[0x54]),*(__A+__idx[0x5c]),*(Aim+__idx[0x5c]),*(__A+__idx[0x64]),*(Aim+__idx[0x64]),*(__A+__idx[0x6c]),*(Aim+__idx[0x6c]),*(__A+__idx[0x74]),*(Aim+__idx[0x74]),*(__A+__idx[0x7c]),*(Aim+__idx[0x7c]),
-		__t10r,__t10i,__t11r,__t11i,__t12r,__t12i,__t13r,__t13i,__t14r,__t14i,__t15r,__t15i,__t16r,__t16i,__t17r,__t17i,__t18r,__t18i,__t19r,__t19i,__t1ar,__t1ai,__t1br,__t1bi,__t1cr,__t1ci,__t1dr,__t1di,__t1er,__t1ei,__t1fr,__t1fi,
-		c16,s16
-	);
-	//...Block 2: jt = j1 + p02;	jp = j2 + p02;
-	RADIX_16_DIF(
-		*(__A+__idx[0x02]),*(Aim+__idx[0x02]),*(__A+__idx[0x0a]),*(Aim+__idx[0x0a]),*(__A+__idx[0x12]),*(Aim+__idx[0x12]),*(__A+__idx[0x1a]),*(Aim+__idx[0x1a]),*(__A+__idx[0x22]),*(Aim+__idx[0x22]),*(__A+__idx[0x2a]),*(Aim+__idx[0x2a]),*(__A+__idx[0x32]),*(Aim+__idx[0x32]),*(__A+__idx[0x3a]),*(Aim+__idx[0x3a]),*(__A+__idx[0x42]),*(Aim+__idx[0x42]),*(__A+__idx[0x4a]),*(Aim+__idx[0x4a]),*(__A+__idx[0x52]),*(Aim+__idx[0x52]),*(__A+__idx[0x5a]),*(Aim+__idx[0x5a]),*(__A+__idx[0x62]),*(Aim+__idx[0x62]),*(__A+__idx[0x6a]),*(Aim+__idx[0x6a]),*(__A+__idx[0x72]),*(Aim+__idx[0x72]),*(__A+__idx[0x7a]),*(Aim+__idx[0x7a]),
-		__t20r,__t20i,__t21r,__t21i,__t22r,__t22i,__t23r,__t23i,__t24r,__t24i,__t25r,__t25i,__t26r,__t26i,__t27r,__t27i,__t28r,__t28i,__t29r,__t29i,__t2ar,__t2ai,__t2br,__t2bi,__t2cr,__t2ci,__t2dr,__t2di,__t2er,__t2ei,__t2fr,__t2fi,
-		c16,s16
-	);
-	//...Block 3: jt = j1 + p06;	jp = j2 + p06;
-	RADIX_16_DIF(
-		*(__A+__idx[0x06]),*(Aim+__idx[0x06]),*(__A+__idx[0x0e]),*(Aim+__idx[0x0e]),*(__A+__idx[0x16]),*(Aim+__idx[0x16]),*(__A+__idx[0x1e]),*(Aim+__idx[0x1e]),*(__A+__idx[0x26]),*(Aim+__idx[0x26]),*(__A+__idx[0x2e]),*(Aim+__idx[0x2e]),*(__A+__idx[0x36]),*(Aim+__idx[0x36]),*(__A+__idx[0x3e]),*(Aim+__idx[0x3e]),*(__A+__idx[0x46]),*(Aim+__idx[0x46]),*(__A+__idx[0x4e]),*(Aim+__idx[0x4e]),*(__A+__idx[0x56]),*(Aim+__idx[0x56]),*(__A+__idx[0x5e]),*(Aim+__idx[0x5e]),*(__A+__idx[0x66]),*(Aim+__idx[0x66]),*(__A+__idx[0x6e]),*(Aim+__idx[0x6e]),*(__A+__idx[0x76]),*(Aim+__idx[0x76]),*(__A+__idx[0x7e]),*(Aim+__idx[0x7e]),
-		__t30r,__t30i,__t31r,__t31i,__t32r,__t32i,__t33r,__t33i,__t34r,__t34i,__t35r,__t35i,__t36r,__t36i,__t37r,__t37i,__t38r,__t38i,__t39r,__t39i,__t3ar,__t3ai,__t3br,__t3bi,__t3cr,__t3ci,__t3dr,__t3di,__t3er,__t3ei,__t3fr,__t3fi,
-		c16,s16
-	);
-	//...Block 4: jt = j1 + p01;	jp = j2 + p01;
-	RADIX_16_DIF(
-		*(__A+__idx[0x01]),*(Aim+__idx[0x01]),*(__A+__idx[0x09]),*(Aim+__idx[0x09]),*(__A+__idx[0x11]),*(Aim+__idx[0x11]),*(__A+__idx[0x19]),*(Aim+__idx[0x19]),*(__A+__idx[0x21]),*(Aim+__idx[0x21]),*(__A+__idx[0x29]),*(Aim+__idx[0x29]),*(__A+__idx[0x31]),*(Aim+__idx[0x31]),*(__A+__idx[0x39]),*(Aim+__idx[0x39]),*(__A+__idx[0x41]),*(Aim+__idx[0x41]),*(__A+__idx[0x49]),*(Aim+__idx[0x49]),*(__A+__idx[0x51]),*(Aim+__idx[0x51]),*(__A+__idx[0x59]),*(Aim+__idx[0x59]),*(__A+__idx[0x61]),*(Aim+__idx[0x61]),*(__A+__idx[0x69]),*(Aim+__idx[0x69]),*(__A+__idx[0x71]),*(Aim+__idx[0x71]),*(__A+__idx[0x79]),*(Aim+__idx[0x79]),
-		__t40r,__t40i,__t41r,__t41i,__t42r,__t42i,__t43r,__t43i,__t44r,__t44i,__t45r,__t45i,__t46r,__t46i,__t47r,__t47i,__t48r,__t48i,__t49r,__t49i,__t4ar,__t4ai,__t4br,__t4bi,__t4cr,__t4ci,__t4dr,__t4di,__t4er,__t4ei,__t4fr,__t4fi,
-		c16,s16
-	);
-	//...Block 5: jt = j1 + p05;	jp = j2 + p05;
-	RADIX_16_DIF(
-		*(__A+__idx[0x05]),*(Aim+__idx[0x05]),*(__A+__idx[0x0d]),*(Aim+__idx[0x0d]),*(__A+__idx[0x15]),*(Aim+__idx[0x15]),*(__A+__idx[0x1d]),*(Aim+__idx[0x1d]),*(__A+__idx[0x25]),*(Aim+__idx[0x25]),*(__A+__idx[0x2d]),*(Aim+__idx[0x2d]),*(__A+__idx[0x35]),*(Aim+__idx[0x35]),*(__A+__idx[0x3d]),*(Aim+__idx[0x3d]),*(__A+__idx[0x45]),*(Aim+__idx[0x45]),*(__A+__idx[0x4d]),*(Aim+__idx[0x4d]),*(__A+__idx[0x55]),*(Aim+__idx[0x55]),*(__A+__idx[0x5d]),*(Aim+__idx[0x5d]),*(__A+__idx[0x65]),*(Aim+__idx[0x65]),*(__A+__idx[0x6d]),*(Aim+__idx[0x6d]),*(__A+__idx[0x75]),*(Aim+__idx[0x75]),*(__A+__idx[0x7d]),*(Aim+__idx[0x7d]),
-		__t50r,__t50i,__t51r,__t51i,__t52r,__t52i,__t53r,__t53i,__t54r,__t54i,__t55r,__t55i,__t56r,__t56i,__t57r,__t57i,__t58r,__t58i,__t59r,__t59i,__t5ar,__t5ai,__t5br,__t5bi,__t5cr,__t5ci,__t5dr,__t5di,__t5er,__t5ei,__t5fr,__t5fi,
-		c16,s16
-	);
-	//...Block 6: jt = j1 + p03;	jp = j2 + p03;
-	RADIX_16_DIF(
-		*(__A+__idx[0x03]),*(Aim+__idx[0x03]),*(__A+__idx[0x0b]),*(Aim+__idx[0x0b]),*(__A+__idx[0x13]),*(Aim+__idx[0x13]),*(__A+__idx[0x1b]),*(Aim+__idx[0x1b]),*(__A+__idx[0x23]),*(Aim+__idx[0x23]),*(__A+__idx[0x2b]),*(Aim+__idx[0x2b]),*(__A+__idx[0x33]),*(Aim+__idx[0x33]),*(__A+__idx[0x3b]),*(Aim+__idx[0x3b]),*(__A+__idx[0x43]),*(Aim+__idx[0x43]),*(__A+__idx[0x4b]),*(Aim+__idx[0x4b]),*(__A+__idx[0x53]),*(Aim+__idx[0x53]),*(__A+__idx[0x5b]),*(Aim+__idx[0x5b]),*(__A+__idx[0x63]),*(Aim+__idx[0x63]),*(__A+__idx[0x6b]),*(Aim+__idx[0x6b]),*(__A+__idx[0x73]),*(Aim+__idx[0x73]),*(__A+__idx[0x7b]),*(Aim+__idx[0x7b]),
-		__t60r,__t60i,__t61r,__t61i,__t62r,__t62i,__t63r,__t63i,__t64r,__t64i,__t65r,__t65i,__t66r,__t66i,__t67r,__t67i,__t68r,__t68i,__t69r,__t69i,__t6ar,__t6ai,__t6br,__t6bi,__t6cr,__t6ci,__t6dr,__t6di,__t6er,__t6ei,__t6fr,__t6fi,
-		c16,s16
-	);
-	//...Block 7: jt = j1 + p07;	jp = j2 + p07;
-	RADIX_16_DIF(
-		*(__A+__idx[0x07]),*(Aim+__idx[0x07]),*(__A+__idx[0x0f]),*(Aim+__idx[0x0f]),*(__A+__idx[0x17]),*(Aim+__idx[0x17]),*(__A+__idx[0x1f]),*(Aim+__idx[0x1f]),*(__A+__idx[0x27]),*(Aim+__idx[0x27]),*(__A+__idx[0x2f]),*(Aim+__idx[0x2f]),*(__A+__idx[0x37]),*(Aim+__idx[0x37]),*(__A+__idx[0x3f]),*(Aim+__idx[0x3f]),*(__A+__idx[0x47]),*(Aim+__idx[0x47]),*(__A+__idx[0x4f]),*(Aim+__idx[0x4f]),*(__A+__idx[0x57]),*(Aim+__idx[0x57]),*(__A+__idx[0x5f]),*(Aim+__idx[0x5f]),*(__A+__idx[0x67]),*(Aim+__idx[0x67]),*(__A+__idx[0x6f]),*(Aim+__idx[0x6f]),*(__A+__idx[0x77]),*(Aim+__idx[0x77]),*(__A+__idx[0x7f]),*(Aim+__idx[0x7f]),
-		__t70r,__t70i,__t71r,__t71i,__t72r,__t72i,__t73r,__t73i,__t74r,__t74i,__t75r,__t75i,__t76r,__t76i,__t77r,__t77i,__t78r,__t78i,__t79r,__t79i,__t7ar,__t7ai,__t7br,__t7bi,__t7cr,__t7ci,__t7dr,__t7di,__t7er,__t7ei,__t7fr,__t7fi,
-		c16,s16
-	);
-
-/*...and now do 16 radix-8 subtransforms w/internal twiddles - cf. radi1284_dif_pass1 for details: */
-
-	/* Block 0: */
-	// jt = j1;	jp = j2;
-	// Remember, the twiddleless DIT also bit-reverses its outputs, so a_p* terms appear in BR-order here [swap index pairs 1/4 and 3/6]:
+/*...and now do 16 radix-8 subtransforms w/internal twiddles - cf. radi1024_dif_pass1 for details. Process blocks in BR16 order: */
+	tptr = t;	j = 0;
+	/* Block 0 gets pulled out of parametrized-loop to take advantage of its unity-twiddles-ness: */
+	// Remember, the twiddleless DIF also bit-reverses its outputs, so a_p* terms appear in BR-order here [swap index pairs 1/4 and 3/6]:
 	RADIX_08_DIF_OOP(
-		__t00r,__t00i,__t40r,__t40i,__t20r,__t20i,__t60r,__t60i,__t10r,__t10i,__t50r,__t50i,__t30r,__t30i,__t70r,__t70i,
-		*(__B+__odx[0x00]),*(Bim+__odx[0x00]),*(__B+__odx[0x04]),*(Bim+__odx[0x04]),*(__B+__odx[0x02]),*(Bim+__odx[0x02]),*(__B+__odx[0x06]),*(Bim+__odx[0x06]),*(__B+__odx[0x01]),*(Bim+__odx[0x01]),*(__B+__odx[0x05]),*(Bim+__odx[0x05]),*(__B+__odx[0x03]),*(Bim+__odx[0x03]),*(__B+__odx[0x07]),*(Bim+__odx[0x07])
-	);
-	/* Block 8: */
-	__odx += 8;	// jt = j1 + p08;	jp = j2 + p08;
-	RADIX_08_DIF_TWIDDLE_OOP(
-		__t01r,__t01i,__t11r,__t11i,__t21r,__t21i,__t31r,__t31i,__t41r,__t41i,__t51r,__t51i,__t61r,__t61i,__t71r,__t71i,
-		*(__B+__odx[0x00]),*(Bim+__odx[0x00]),*(__B+__odx[0x01]),*(Bim+__odx[0x01]),*(__B+__odx[0x02]),*(Bim+__odx[0x02]),*(__B+__odx[0x03]),*(Bim+__odx[0x03]),*(__B+__odx[0x04]),*(Bim+__odx[0x04]),*(__B+__odx[0x05]),*(Bim+__odx[0x05]),*(__B+__odx[0x06]),*(Bim+__odx[0x06]),*(__B+__odx[0x07]),*(Bim+__odx[0x07]),
-		0,1,ISRT2,ISRT2,-ISRT2,ISRT2,c16,s16,-s16,c16,s16,c16,-c16,s16
-	);
-	/* Block 4: */
-	__odx += 8;	// jt = j1 + p10;	jp = j2 + p10;
-	RADIX_08_DIF_TWIDDLE_OOP(
-		__t02r,__t02i,__t12r,__t12i,__t22r,__t22i,__t32r,__t32i,__t42r,__t42i,__t52r,__t52i,__t62r,__t62i,__t72r,__t72i,
-		*(__B+__odx[0x00]),*(Bim+__odx[0x00]),*(__B+__odx[0x01]),*(Bim+__odx[0x01]),*(__B+__odx[0x02]),*(Bim+__odx[0x02]),*(__B+__odx[0x03]),*(Bim+__odx[0x03]),*(__B+__odx[0x04]),*(Bim+__odx[0x04]),*(__B+__odx[0x05]),*(Bim+__odx[0x05]),*(__B+__odx[0x06]),*(Bim+__odx[0x06]),*(__B+__odx[0x07]),*(Bim+__odx[0x07]),
-		ISRT2,ISRT2,c16,s16,s16,c16,c32_1,s32_1,s32_3,c32_3,c32_3,s32_3,s32_1,c32_1
-	);
-	/* Block c: */
-	__odx += 8;	// jt = j1 + p18;	jp = j2 + p18;
-	RADIX_08_DIF_TWIDDLE_OOP(
-		__t03r,__t03i,__t13r,__t13i,__t23r,__t23i,__t33r,__t33i,__t43r,__t43i,__t53r,__t53i,__t63r,__t63i,__t73r,__t73i,
-		*(__B+__odx[0x00]),*(Bim+__odx[0x00]),*(__B+__odx[0x01]),*(Bim+__odx[0x01]),*(__B+__odx[0x02]),*(Bim+__odx[0x02]),*(__B+__odx[0x03]),*(Bim+__odx[0x03]),*(__B+__odx[0x04]),*(Bim+__odx[0x04]),*(__B+__odx[0x05]),*(Bim+__odx[0x05]),*(__B+__odx[0x06]),*(Bim+__odx[0x06]),*(__B+__odx[0x07]),*(Bim+__odx[0x07]),
-		-ISRT2,ISRT2,s16,c16,-c16,-s16,c32_3,s32_3,-c32_1,s32_1,-s32_1,c32_1,-s32_3,-c32_3
-	);
-	/* Block 2: */
-	__odx += 8;	// jt = j1 + p20;	jp = j2 + p20;
-	RADIX_08_DIF_TWIDDLE_OOP(
-		__t04r,__t04i,__t14r,__t14i,__t24r,__t24i,__t34r,__t34i,__t44r,__t44i,__t54r,__t54i,__t64r,__t64i,__t74r,__t74i,
-		*(__B+__odx[0x00]),*(Bim+__odx[0x00]),*(__B+__odx[0x01]),*(Bim+__odx[0x01]),*(__B+__odx[0x02]),*(Bim+__odx[0x02]),*(__B+__odx[0x03]),*(Bim+__odx[0x03]),*(__B+__odx[0x04]),*(Bim+__odx[0x04]),*(__B+__odx[0x05]),*(Bim+__odx[0x05]),*(__B+__odx[0x06]),*(Bim+__odx[0x06]),*(__B+__odx[0x07]),*(Bim+__odx[0x07]),
-		c16,s16,c32_1,s32_1,c32_3,s32_3,c64_1,s64_1,c64_5,s64_5,c64_3,s64_3,c64_7,s64_7
-	);
-	/* Block a: */
-	__odx += 8;	// jt = j1 + p28;	jp = j2 + p28;
-	RADIX_08_DIF_TWIDDLE_OOP(
-		__t05r,__t05i,__t15r,__t15i,__t25r,__t25i,__t35r,__t35i,__t45r,__t45i,__t55r,__t55i,__t65r,__t65i,__t75r,__t75i,
-		*(__B+__odx[0x00]),*(Bim+__odx[0x00]),*(__B+__odx[0x01]),*(Bim+__odx[0x01]),*(__B+__odx[0x02]),*(Bim+__odx[0x02]),*(__B+__odx[0x03]),*(Bim+__odx[0x03]),*(__B+__odx[0x04]),*(Bim+__odx[0x04]),*(__B+__odx[0x05]),*(Bim+__odx[0x05]),*(__B+__odx[0x06]),*(Bim+__odx[0x06]),*(__B+__odx[0x07]),*(Bim+__odx[0x07]),
-		-s16,c16,s32_3,c32_3,-c32_1,s32_1,c64_5,s64_5,-c64_7,s64_7,s64_1,c64_1,-c64_3,-s64_3
-	);
-	/* Block 6: */
-	__odx += 8;	// jt = j1 + p30;	jp = j2 + p30;
-	RADIX_08_DIF_TWIDDLE_OOP(
-		__t06r,__t06i,__t16r,__t16i,__t26r,__t26i,__t36r,__t36i,__t46r,__t46i,__t56r,__t56i,__t66r,__t66i,__t76r,__t76i,
-		*(__B+__odx[0x00]),*(Bim+__odx[0x00]),*(__B+__odx[0x01]),*(Bim+__odx[0x01]),*(__B+__odx[0x02]),*(Bim+__odx[0x02]),*(__B+__odx[0x03]),*(Bim+__odx[0x03]),*(__B+__odx[0x04]),*(Bim+__odx[0x04]),*(__B+__odx[0x05]),*(Bim+__odx[0x05]),*(__B+__odx[0x06]),*(Bim+__odx[0x06]),*(__B+__odx[0x07]),*(Bim+__odx[0x07]),
-		s16,c16,c32_3,s32_3,-s32_1,c32_1,c64_3,s64_3,s64_1,c64_1,s64_7,c64_7,-s64_5,c64_5
-	);
-	/* Block e: */
-	__odx += 8;	// jt = j1 + p38;	jp = j2 + p38;
-	RADIX_08_DIF_TWIDDLE_OOP(
-		__t07r,__t07i,__t17r,__t17i,__t27r,__t27i,__t37r,__t37i,__t47r,__t47i,__t57r,__t57i,__t67r,__t67i,__t77r,__t77i,
-		*(__B+__odx[0x00]),*(Bim+__odx[0x00]),*(__B+__odx[0x01]),*(Bim+__odx[0x01]),*(__B+__odx[0x02]),*(Bim+__odx[0x02]),*(__B+__odx[0x03]),*(Bim+__odx[0x03]),*(__B+__odx[0x04]),*(Bim+__odx[0x04]),*(__B+__odx[0x05]),*(Bim+__odx[0x05]),*(__B+__odx[0x06]),*(Bim+__odx[0x06]),*(__B+__odx[0x07]),*(Bim+__odx[0x07]),
-		-c16,s16,s32_1,c32_1,-s32_3,-c32_3,c64_7,s64_7,-c64_3,-s64_3,-s64_5,c64_5,s64_1,-c64_1
-	);
-
-/***************************** ODD-ORDER TWIDDLES ROWS: *****************************/
-
-	/* Block 1: */
-	__odx += 8;	// jt = j1 + p40;	jp = j2 + p40;
-	RADIX_08_DIF_TWIDDLE_OOP(
-		__t08r,__t08i,__t18r,__t18i,__t28r,__t28i,__t38r,__t38i,__t48r,__t48i,__t58r,__t58i,__t68r,__t68i,__t78r,__t78i,
-		*(__B+__odx[0x00]),*(Bim+__odx[0x00]),*(__B+__odx[0x01]),*(Bim+__odx[0x01]),*(__B+__odx[0x02]),*(Bim+__odx[0x02]),*(__B+__odx[0x03]),*(Bim+__odx[0x03]),*(__B+__odx[0x04]),*(Bim+__odx[0x04]),*(__B+__odx[0x05]),*(Bim+__odx[0x05]),*(__B+__odx[0x06]),*(Bim+__odx[0x06]),*(__B+__odx[0x07]),*(Bim+__odx[0x07]),
-		c32_1,s32_1, c64_1,s64_1, c64_3,s64_3, c128_1,s128_1, c128_5,s128_5, c128_3,s128_3, c128_7,s128_7
-	);
-	/* Block 9: */
-	__odx += 8;	// jt = j1 + p48;	jp = j2 + p48;
-	RADIX_08_DIF_TWIDDLE_OOP(
-		__t09r,__t09i,__t19r,__t19i,__t29r,__t29i,__t39r,__t39i,__t49r,__t49i,__t59r,__t59i,__t69r,__t69i,__t79r,__t79i,
-		*(__B+__odx[0x00]),*(Bim+__odx[0x00]),*(__B+__odx[0x01]),*(Bim+__odx[0x01]),*(__B+__odx[0x02]),*(Bim+__odx[0x02]),*(__B+__odx[0x03]),*(Bim+__odx[0x03]),*(__B+__odx[0x04]),*(Bim+__odx[0x04]),*(__B+__odx[0x05]),*(Bim+__odx[0x05]),*(__B+__odx[0x06]),*(Bim+__odx[0x06]),*(__B+__odx[0x07]),*(Bim+__odx[0x07]),
-		-s32_1,c32_1, s64_7,c64_7, -c64_5,s64_5, c128_9,s128_9, -s128_d,c128_d, s128_5,c128_5, -c128_1,s128_1
-	);
-	/* Block 5: */
-	__odx += 8;	// jt = j1 + p50;	jp = j2 + p50;
-	RADIX_08_DIF_TWIDDLE_OOP(
-		__t0ar,__t0ai,__t1ar,__t1ai,__t2ar,__t2ai,__t3ar,__t3ai,__t4ar,__t4ai,__t5ar,__t5ai,__t6ar,__t6ai,__t7ar,__t7ai,
-		*(__B+__odx[0x00]),*(Bim+__odx[0x00]),*(__B+__odx[0x01]),*(Bim+__odx[0x01]),*(__B+__odx[0x02]),*(Bim+__odx[0x02]),*(__B+__odx[0x03]),*(Bim+__odx[0x03]),*(__B+__odx[0x04]),*(Bim+__odx[0x04]),*(__B+__odx[0x05]),*(Bim+__odx[0x05]),*(__B+__odx[0x06]),*(Bim+__odx[0x06]),*(__B+__odx[0x07]),*(Bim+__odx[0x07]),
-		s32_3,c32_3, c64_5,s64_5, s64_1,c64_1, c128_5,s128_5, s128_7,c128_7, c128_f,s128_f, -s128_3,c128_3
-	);
-	/* Block d: */
-	__odx += 8;	// jt = j1 + p58;	jp = j2 + p58;
-	RADIX_08_DIF_TWIDDLE_OOP(
-		__t0br,__t0bi,__t1br,__t1bi,__t2br,__t2bi,__t3br,__t3bi,__t4br,__t4bi,__t5br,__t5bi,__t6br,__t6bi,__t7br,__t7bi,
-		*(__B+__odx[0x00]),*(Bim+__odx[0x00]),*(__B+__odx[0x01]),*(Bim+__odx[0x01]),*(__B+__odx[0x02]),*(Bim+__odx[0x02]),*(__B+__odx[0x03]),*(Bim+__odx[0x03]),*(__B+__odx[0x04]),*(Bim+__odx[0x04]),*(__B+__odx[0x05]),*(Bim+__odx[0x05]),*(__B+__odx[0x06]),*(Bim+__odx[0x06]),*(__B+__odx[0x07]),*(Bim+__odx[0x07]),
-		-c32_3,s32_3, s64_3,c64_3, -c64_7,-s64_7, c128_d,s128_d, -c128_1,-s128_1, -s128_7,c128_7, -s128_5,-c128_5
-	);
-	/* Block 3: */
-	__odx += 8;	// jt = j1 + p60;	jp = j2 + p60;
-	RADIX_08_DIF_TWIDDLE_OOP(
-		__t0cr,__t0ci,__t1cr,__t1ci,__t2cr,__t2ci,__t3cr,__t3ci,__t4cr,__t4ci,__t5cr,__t5ci,__t6cr,__t6ci,__t7cr,__t7ci,
-		*(__B+__odx[0x00]),*(Bim+__odx[0x00]),*(__B+__odx[0x01]),*(Bim+__odx[0x01]),*(__B+__odx[0x02]),*(Bim+__odx[0x02]),*(__B+__odx[0x03]),*(Bim+__odx[0x03]),*(__B+__odx[0x04]),*(Bim+__odx[0x04]),*(__B+__odx[0x05]),*(Bim+__odx[0x05]),*(__B+__odx[0x06]),*(Bim+__odx[0x06]),*(__B+__odx[0x07]),*(Bim+__odx[0x07]),
-		c32_3,s32_3, c64_3,s64_3, s64_7,c64_7, c128_3,s128_3, c128_f,s128_f, c128_9,s128_9, s128_b,c128_b
-	);
-	/* Block b: */
-	__odx += 8;	// jt = j1 + p68;	jp = j2 + p68;
-	RADIX_08_DIF_TWIDDLE_OOP(
-		__t0dr,__t0di,__t1dr,__t1di,__t2dr,__t2di,__t3dr,__t3di,__t4dr,__t4di,__t5dr,__t5di,__t6dr,__t6di,__t7dr,__t7di,
-		*(__B+__odx[0x00]),*(Bim+__odx[0x00]),*(__B+__odx[0x01]),*(Bim+__odx[0x01]),*(__B+__odx[0x02]),*(Bim+__odx[0x02]),*(__B+__odx[0x03]),*(Bim+__odx[0x03]),*(__B+__odx[0x04]),*(Bim+__odx[0x04]),*(__B+__odx[0x05]),*(Bim+__odx[0x05]),*(__B+__odx[0x06]),*(Bim+__odx[0x06]),*(__B+__odx[0x07]),*(Bim+__odx[0x07]),
-		-s32_3,c32_3, s64_5,c64_5, -c64_1,-s64_1, c128_b,s128_b, -c128_9,s128_9, -s128_1,c128_1, -c128_d,-s128_d
-	);
-	/* Block 7: */
-	__odx += 8;	// jt = j1 + p70;	jp = j2 + p70;
-	RADIX_08_DIF_TWIDDLE_OOP(
-		__t0er,__t0ei,__t1er,__t1ei,__t2er,__t2ei,__t3er,__t3ei,__t4er,__t4ei,__t5er,__t5ei,__t6er,__t6ei,__t7er,__t7ei,
-		*(__B+__odx[0x00]),*(Bim+__odx[0x00]),*(__B+__odx[0x01]),*(Bim+__odx[0x01]),*(__B+__odx[0x02]),*(Bim+__odx[0x02]),*(__B+__odx[0x03]),*(Bim+__odx[0x03]),*(__B+__odx[0x04]),*(Bim+__odx[0x04]),*(__B+__odx[0x05]),*(Bim+__odx[0x05]),*(__B+__odx[0x06]),*(Bim+__odx[0x06]),*(__B+__odx[0x07]),*(Bim+__odx[0x07]),
-		s32_1,c32_1, c64_7,s64_7, -s64_5,c64_5, c128_7,s128_7, -s128_3,c128_3, s128_b,c128_b, -c128_f,s128_f
-	);
-	/* Block f: */
-	__odx += 8;	// jt = j1 + p78;	jp = j2 + p78;
-	RADIX_08_DIF_TWIDDLE_OOP(
-		__t0fr,__t0fi,__t1fr,__t1fi,__t2fr,__t2fi,__t3fr,__t3fi,__t4fr,__t4fi,__t5fr,__t5fi,__t6fr,__t6fi,__t7fr,__t7fi,
-		*(__B+__odx[0x00]),*(Bim+__odx[0x00]),*(__B+__odx[0x01]),*(Bim+__odx[0x01]),*(__B+__odx[0x02]),*(Bim+__odx[0x02]),*(__B+__odx[0x03]),*(Bim+__odx[0x03]),*(__B+__odx[0x04]),*(Bim+__odx[0x04]),*(__B+__odx[0x05]),*(Bim+__odx[0x05]),*(__B+__odx[0x06]),*(Bim+__odx[0x06]),*(__B+__odx[0x07]),*(Bim+__odx[0x07]),
-		-c32_1,s32_1, s64_1,c64_1, -s64_3,-c64_3, c128_f,s128_f, -c128_b,-s128_b, -s128_d,c128_d, s128_9,-c128_9
-	);
+		 tptr      ->re, tptr      ->im,(tptr+0x40)->re,(tptr+0x40)->im,(tptr+0x20)->re,(tptr+0x20)->im,(tptr+0x60)->re,(tptr+0x60)->im,
+		(tptr+0x10)->re,(tptr+0x10)->im,(tptr+0x50)->re,(tptr+0x50)->im,(tptr+0x30)->re,(tptr+0x30)->im,(tptr+0x70)->re,(tptr+0x70)->im,
+		*(Bre+__odx[0x00]),*(Bim+__odx[0x00]),*(Bre+__odx[0x04]),*(Bim+__odx[0x04]),*(Bre+__odx[0x02]),*(Bim+__odx[0x02]),*(Bre+__odx[0x06]),*(Bim+__odx[0x06]),*(Bre+__odx[0x01]),*(Bim+__odx[0x01]),*(Bre+__odx[0x05]),*(Bim+__odx[0x05]),*(Bre+__odx[0x03]),*(Bim+__odx[0x03]),*(Bre+__odx[0x07]),*(Bim+__odx[0x07])
+	); tptr++;
+	/* Blocks 84c2a6e195d3b7f processed via loop: */
+	cd_ptr = (struct complex *)DFT128_TWIDDLES[1];
+	for(i = 1; i < 16; i++) {
+		j += 8;	// jt = j1 + p08;	jp = j2 + p08;
+		p0 = __odx[j]; p1 = __odx[j+1]; p2 = __odx[j+2]; p3 = __odx[j+3]; p4 = __odx[j+4]; p5 = __odx[j+5]; p6 = __odx[j+6]; p7 = __odx[j+7];
+		RADIX_08_DIF_TWIDDLE_OOP(
+			tptr->re,tptr->im,(tptr+0x10)->re,(tptr+0x10)->im,(tptr+0x20)->re,(tptr+0x20)->im,(tptr+0x30)->re,(tptr+0x30)->im,(tptr+0x40)->re,(tptr+0x40)->im,(tptr+0x50)->re,(tptr+0x50)->im,(tptr+0x60)->re,(tptr+0x60)->im,(tptr+0x70)->re,(tptr+0x70)->im,
+			*(Bre+p0),*(Bim+p0),*(Bre+p1),*(Bim+p1),*(Bre+p2),*(Bim+p2),*(Bre+p3),*(Bim+p3),*(Bre+p4),*(Bim+p4),*(Bre+p5),*(Bim+p5),*(Bre+p6),*(Bim+p6),*(Bre+p7),*(Bim+p7),
+			cd_ptr->re,cd_ptr->im,(cd_ptr+1)->re,(cd_ptr+1)->im,(cd_ptr+2)->re,(cd_ptr+2)->im,(cd_ptr+3)->re,(cd_ptr+3)->im,(cd_ptr+4)->re,(cd_ptr+4)->im,(cd_ptr+5)->re,(cd_ptr+5)->im,(cd_ptr+6)->re,(cd_ptr+6)->im
+		); tptr++; cd_ptr += 7;
+	}
 }
 
 void RADIX_128_DIT(
@@ -3256,191 +3116,45 @@ void RADIX_128_DIT(
 	double *__B, const int *__odx, const int __re_im_stride_out	/* Outputs: Base address plus 128 (index) offsets */
 )
 {
-	double
-		__t00r,__t00i,__t01r,__t01i,__t02r,__t02i,__t03r,__t03i,__t04r,__t04i,__t05r,__t05i,__t06r,__t06i,__t07r,__t07i,__t08r,__t08i,__t09r,__t09i,__t0ar,__t0ai,__t0br,__t0bi,__t0cr,__t0ci,__t0dr,__t0di,__t0er,__t0ei,__t0fr,__t0fi,
-		__t10r,__t10i,__t11r,__t11i,__t12r,__t12i,__t13r,__t13i,__t14r,__t14i,__t15r,__t15i,__t16r,__t16i,__t17r,__t17i,__t18r,__t18i,__t19r,__t19i,__t1ar,__t1ai,__t1br,__t1bi,__t1cr,__t1ci,__t1dr,__t1di,__t1er,__t1ei,__t1fr,__t1fi,
-		__t20r,__t20i,__t21r,__t21i,__t22r,__t22i,__t23r,__t23i,__t24r,__t24i,__t25r,__t25i,__t26r,__t26i,__t27r,__t27i,__t28r,__t28i,__t29r,__t29i,__t2ar,__t2ai,__t2br,__t2bi,__t2cr,__t2ci,__t2dr,__t2di,__t2er,__t2ei,__t2fr,__t2fi,
-		__t30r,__t30i,__t31r,__t31i,__t32r,__t32i,__t33r,__t33i,__t34r,__t34i,__t35r,__t35i,__t36r,__t36i,__t37r,__t37i,__t38r,__t38i,__t39r,__t39i,__t3ar,__t3ai,__t3br,__t3bi,__t3cr,__t3ci,__t3dr,__t3di,__t3er,__t3ei,__t3fr,__t3fi,
-		__t40r,__t40i,__t41r,__t41i,__t42r,__t42i,__t43r,__t43i,__t44r,__t44i,__t45r,__t45i,__t46r,__t46i,__t47r,__t47i,__t48r,__t48i,__t49r,__t49i,__t4ar,__t4ai,__t4br,__t4bi,__t4cr,__t4ci,__t4dr,__t4di,__t4er,__t4ei,__t4fr,__t4fi,
-		__t50r,__t50i,__t51r,__t51i,__t52r,__t52i,__t53r,__t53i,__t54r,__t54i,__t55r,__t55i,__t56r,__t56i,__t57r,__t57i,__t58r,__t58i,__t59r,__t59i,__t5ar,__t5ai,__t5br,__t5bi,__t5cr,__t5ci,__t5dr,__t5di,__t5er,__t5ei,__t5fr,__t5fi,
-		__t60r,__t60i,__t61r,__t61i,__t62r,__t62i,__t63r,__t63i,__t64r,__t64i,__t65r,__t65i,__t66r,__t66i,__t67r,__t67i,__t68r,__t68i,__t69r,__t69i,__t6ar,__t6ai,__t6br,__t6bi,__t6cr,__t6ci,__t6dr,__t6di,__t6er,__t6ei,__t6fr,__t6fi,
-		__t70r,__t70i,__t71r,__t71i,__t72r,__t72i,__t73r,__t73i,__t74r,__t74i,__t75r,__t75i,__t76r,__t76i,__t77r,__t77i,__t78r,__t78i,__t79r,__t79i,__t7ar,__t7ai,__t7br,__t7bi,__t7cr,__t7ci,__t7dr,__t7di,__t7er,__t7ei,__t7fr,__t7fi;
-	double *Aim = __A + __re_im_stride_in, *Bim = __B + __re_im_stride_out;
+	int i,j,nshift, *off_ptr;
+	struct complex t[128], *tptr;
+	const struct complex *cd_ptr;
+	double *Are = __A,*Aim = __A + __re_im_stride_in, *Bre = __B,*Bim = __B + __re_im_stride_out;
+	int p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf;
 
-// Gather the needed data and do 8 twiddleless length-16 subtransforms:
-	/*...Block 0: */
-	// jt = j1;	jp = j2;
-	RADIX_16_DIT(
-		*(__A+__idx[0x0]),*(Aim+__idx[0x0]),*(__A+__idx[0x1]),*(Aim+__idx[0x1]),*(__A+__idx[0x2]),*(Aim+__idx[0x2]),*(__A+__idx[0x3]),*(Aim+__idx[0x3]),*(__A+__idx[0x4]),*(Aim+__idx[0x4]),*(__A+__idx[0x5]),*(Aim+__idx[0x5]),*(__A+__idx[0x6]),*(Aim+__idx[0x6]),*(__A+__idx[0x7]),*(Aim+__idx[0x7]),*(__A+__idx[0x8]),*(Aim+__idx[0x8]),*(__A+__idx[0x9]),*(Aim+__idx[0x9]),*(__A+__idx[0xa]),*(Aim+__idx[0xa]),*(__A+__idx[0xb]),*(Aim+__idx[0xb]),*(__A+__idx[0xc]),*(Aim+__idx[0xc]),*(__A+__idx[0xd]),*(Aim+__idx[0xd]),*(__A+__idx[0xe]),*(Aim+__idx[0xe]),*(__A+__idx[0xf]),*(Aim+__idx[0xf]),
-		__t00r,__t00i,__t01r,__t01i,__t02r,__t02i,__t03r,__t03i,__t04r,__t04i,__t05r,__t05i,__t06r,__t06i,__t07r,__t07i,__t08r,__t08i,__t09r,__t09i,__t0ar,__t0ai,__t0br,__t0bi,__t0cr,__t0ci,__t0dr,__t0di,__t0er,__t0ei,__t0fr,__t0fi,
-		c16,s16
-	);
-	/*...Block 1: */
-	__idx += 16;	// jt = j1 + p10;	jp = j2 + p10;
-	RADIX_16_DIT(
-		*(__A+__idx[0x0]),*(Aim+__idx[0x0]),*(__A+__idx[0x1]),*(Aim+__idx[0x1]),*(__A+__idx[0x2]),*(Aim+__idx[0x2]),*(__A+__idx[0x3]),*(Aim+__idx[0x3]),*(__A+__idx[0x4]),*(Aim+__idx[0x4]),*(__A+__idx[0x5]),*(Aim+__idx[0x5]),*(__A+__idx[0x6]),*(Aim+__idx[0x6]),*(__A+__idx[0x7]),*(Aim+__idx[0x7]),*(__A+__idx[0x8]),*(Aim+__idx[0x8]),*(__A+__idx[0x9]),*(Aim+__idx[0x9]),*(__A+__idx[0xa]),*(Aim+__idx[0xa]),*(__A+__idx[0xb]),*(Aim+__idx[0xb]),*(__A+__idx[0xc]),*(Aim+__idx[0xc]),*(__A+__idx[0xd]),*(Aim+__idx[0xd]),*(__A+__idx[0xe]),*(Aim+__idx[0xe]),*(__A+__idx[0xf]),*(Aim+__idx[0xf]),
-		__t10r,__t10i,__t11r,__t11i,__t12r,__t12i,__t13r,__t13i,__t14r,__t14i,__t15r,__t15i,__t16r,__t16i,__t17r,__t17i,__t18r,__t18i,__t19r,__t19i,__t1ar,__t1ai,__t1br,__t1bi,__t1cr,__t1ci,__t1dr,__t1di,__t1er,__t1ei,__t1fr,__t1fi,
-		c16,s16
-	);
-	/*...Block 2: */
-	__idx += 16;	// jt = j1 + p20;	jp = j2 + p20;
-	RADIX_16_DIT(
-		*(__A+__idx[0x0]),*(Aim+__idx[0x0]),*(__A+__idx[0x1]),*(Aim+__idx[0x1]),*(__A+__idx[0x2]),*(Aim+__idx[0x2]),*(__A+__idx[0x3]),*(Aim+__idx[0x3]),*(__A+__idx[0x4]),*(Aim+__idx[0x4]),*(__A+__idx[0x5]),*(Aim+__idx[0x5]),*(__A+__idx[0x6]),*(Aim+__idx[0x6]),*(__A+__idx[0x7]),*(Aim+__idx[0x7]),*(__A+__idx[0x8]),*(Aim+__idx[0x8]),*(__A+__idx[0x9]),*(Aim+__idx[0x9]),*(__A+__idx[0xa]),*(Aim+__idx[0xa]),*(__A+__idx[0xb]),*(Aim+__idx[0xb]),*(__A+__idx[0xc]),*(Aim+__idx[0xc]),*(__A+__idx[0xd]),*(Aim+__idx[0xd]),*(__A+__idx[0xe]),*(Aim+__idx[0xe]),*(__A+__idx[0xf]),*(Aim+__idx[0xf]),
-		__t20r,__t20i,__t21r,__t21i,__t22r,__t22i,__t23r,__t23i,__t24r,__t24i,__t25r,__t25i,__t26r,__t26i,__t27r,__t27i,__t28r,__t28i,__t29r,__t29i,__t2ar,__t2ai,__t2br,__t2bi,__t2cr,__t2ci,__t2dr,__t2di,__t2er,__t2ei,__t2fr,__t2fi,
-		c16,s16
-	);
-	/*...Block 3: */
-	__idx += 16;	// jt = j1 + p30;	jp = j2 + p30;
-	RADIX_16_DIT(
-		*(__A+__idx[0x0]),*(Aim+__idx[0x0]),*(__A+__idx[0x1]),*(Aim+__idx[0x1]),*(__A+__idx[0x2]),*(Aim+__idx[0x2]),*(__A+__idx[0x3]),*(Aim+__idx[0x3]),*(__A+__idx[0x4]),*(Aim+__idx[0x4]),*(__A+__idx[0x5]),*(Aim+__idx[0x5]),*(__A+__idx[0x6]),*(Aim+__idx[0x6]),*(__A+__idx[0x7]),*(Aim+__idx[0x7]),*(__A+__idx[0x8]),*(Aim+__idx[0x8]),*(__A+__idx[0x9]),*(Aim+__idx[0x9]),*(__A+__idx[0xa]),*(Aim+__idx[0xa]),*(__A+__idx[0xb]),*(Aim+__idx[0xb]),*(__A+__idx[0xc]),*(Aim+__idx[0xc]),*(__A+__idx[0xd]),*(Aim+__idx[0xd]),*(__A+__idx[0xe]),*(Aim+__idx[0xe]),*(__A+__idx[0xf]),*(Aim+__idx[0xf]),
-		__t30r,__t30i,__t31r,__t31i,__t32r,__t32i,__t33r,__t33i,__t34r,__t34i,__t35r,__t35i,__t36r,__t36i,__t37r,__t37i,__t38r,__t38i,__t39r,__t39i,__t3ar,__t3ai,__t3br,__t3bi,__t3cr,__t3ci,__t3dr,__t3di,__t3er,__t3ei,__t3fr,__t3fi,
-		c16,s16
-	);
-	/*...Block 4: */
-	__idx += 16;	// jt = j1 + p40;	jp = j2 + p40;
-	RADIX_16_DIT(
-		*(__A+__idx[0x0]),*(Aim+__idx[0x0]),*(__A+__idx[0x1]),*(Aim+__idx[0x1]),*(__A+__idx[0x2]),*(Aim+__idx[0x2]),*(__A+__idx[0x3]),*(Aim+__idx[0x3]),*(__A+__idx[0x4]),*(Aim+__idx[0x4]),*(__A+__idx[0x5]),*(Aim+__idx[0x5]),*(__A+__idx[0x6]),*(Aim+__idx[0x6]),*(__A+__idx[0x7]),*(Aim+__idx[0x7]),*(__A+__idx[0x8]),*(Aim+__idx[0x8]),*(__A+__idx[0x9]),*(Aim+__idx[0x9]),*(__A+__idx[0xa]),*(Aim+__idx[0xa]),*(__A+__idx[0xb]),*(Aim+__idx[0xb]),*(__A+__idx[0xc]),*(Aim+__idx[0xc]),*(__A+__idx[0xd]),*(Aim+__idx[0xd]),*(__A+__idx[0xe]),*(Aim+__idx[0xe]),*(__A+__idx[0xf]),*(Aim+__idx[0xf]),
-		__t40r,__t40i,__t41r,__t41i,__t42r,__t42i,__t43r,__t43i,__t44r,__t44i,__t45r,__t45i,__t46r,__t46i,__t47r,__t47i,__t48r,__t48i,__t49r,__t49i,__t4ar,__t4ai,__t4br,__t4bi,__t4cr,__t4ci,__t4dr,__t4di,__t4er,__t4ei,__t4fr,__t4fi,
-		c16,s16
-	);
-	/*...Block 5: */
-	__idx += 16;	// jt = j1 + p50;	jp = j2 + p50;
-	RADIX_16_DIT(
-		*(__A+__idx[0x0]),*(Aim+__idx[0x0]),*(__A+__idx[0x1]),*(Aim+__idx[0x1]),*(__A+__idx[0x2]),*(Aim+__idx[0x2]),*(__A+__idx[0x3]),*(Aim+__idx[0x3]),*(__A+__idx[0x4]),*(Aim+__idx[0x4]),*(__A+__idx[0x5]),*(Aim+__idx[0x5]),*(__A+__idx[0x6]),*(Aim+__idx[0x6]),*(__A+__idx[0x7]),*(Aim+__idx[0x7]),*(__A+__idx[0x8]),*(Aim+__idx[0x8]),*(__A+__idx[0x9]),*(Aim+__idx[0x9]),*(__A+__idx[0xa]),*(Aim+__idx[0xa]),*(__A+__idx[0xb]),*(Aim+__idx[0xb]),*(__A+__idx[0xc]),*(Aim+__idx[0xc]),*(__A+__idx[0xd]),*(Aim+__idx[0xd]),*(__A+__idx[0xe]),*(Aim+__idx[0xe]),*(__A+__idx[0xf]),*(Aim+__idx[0xf]),
-		__t50r,__t50i,__t51r,__t51i,__t52r,__t52i,__t53r,__t53i,__t54r,__t54i,__t55r,__t55i,__t56r,__t56i,__t57r,__t57i,__t58r,__t58i,__t59r,__t59i,__t5ar,__t5ai,__t5br,__t5bi,__t5cr,__t5ci,__t5dr,__t5di,__t5er,__t5ei,__t5fr,__t5fi,
-		c16,s16
-	);
-	/*...Block 6: */
-	__idx += 16;	// jt = j1 + p60;	jp = j2 + p60;
-	RADIX_16_DIT(
-		*(__A+__idx[0x0]),*(Aim+__idx[0x0]),*(__A+__idx[0x1]),*(Aim+__idx[0x1]),*(__A+__idx[0x2]),*(Aim+__idx[0x2]),*(__A+__idx[0x3]),*(Aim+__idx[0x3]),*(__A+__idx[0x4]),*(Aim+__idx[0x4]),*(__A+__idx[0x5]),*(Aim+__idx[0x5]),*(__A+__idx[0x6]),*(Aim+__idx[0x6]),*(__A+__idx[0x7]),*(Aim+__idx[0x7]),*(__A+__idx[0x8]),*(Aim+__idx[0x8]),*(__A+__idx[0x9]),*(Aim+__idx[0x9]),*(__A+__idx[0xa]),*(Aim+__idx[0xa]),*(__A+__idx[0xb]),*(Aim+__idx[0xb]),*(__A+__idx[0xc]),*(Aim+__idx[0xc]),*(__A+__idx[0xd]),*(Aim+__idx[0xd]),*(__A+__idx[0xe]),*(Aim+__idx[0xe]),*(__A+__idx[0xf]),*(Aim+__idx[0xf]),
-		__t60r,__t60i,__t61r,__t61i,__t62r,__t62i,__t63r,__t63i,__t64r,__t64i,__t65r,__t65i,__t66r,__t66i,__t67r,__t67i,__t68r,__t68i,__t69r,__t69i,__t6ar,__t6ai,__t6br,__t6bi,__t6cr,__t6ci,__t6dr,__t6di,__t6er,__t6ei,__t6fr,__t6fi,
-		c16,s16
-	);
-	/*...Block 7: */
-	__idx += 16;	// jt = j1 + p70;	jp = j2 + p70;
-	RADIX_16_DIT(
-		*(__A+__idx[0x0]),*(Aim+__idx[0x0]),*(__A+__idx[0x1]),*(Aim+__idx[0x1]),*(__A+__idx[0x2]),*(Aim+__idx[0x2]),*(__A+__idx[0x3]),*(Aim+__idx[0x3]),*(__A+__idx[0x4]),*(Aim+__idx[0x4]),*(__A+__idx[0x5]),*(Aim+__idx[0x5]),*(__A+__idx[0x6]),*(Aim+__idx[0x6]),*(__A+__idx[0x7]),*(Aim+__idx[0x7]),*(__A+__idx[0x8]),*(Aim+__idx[0x8]),*(__A+__idx[0x9]),*(Aim+__idx[0x9]),*(__A+__idx[0xa]),*(Aim+__idx[0xa]),*(__A+__idx[0xb]),*(Aim+__idx[0xb]),*(__A+__idx[0xc]),*(Aim+__idx[0xc]),*(__A+__idx[0xd]),*(Aim+__idx[0xd]),*(__A+__idx[0xe]),*(Aim+__idx[0xe]),*(__A+__idx[0xf]),*(Aim+__idx[0xf]),
-		__t70r,__t70i,__t71r,__t71i,__t72r,__t72i,__t73r,__t73i,__t74r,__t74i,__t75r,__t75i,__t76r,__t76i,__t77r,__t77i,__t78r,__t78i,__t79r,__t79i,__t7ar,__t7ai,__t7br,__t7bi,__t7cr,__t7ci,__t7dr,__t7di,__t7er,__t7ei,__t7fr,__t7fi,
-		c16,s16
-	);
+// Gather the needed data and do 8 twiddleless length-16 subtransforms, with p-offsets in ascendingorder:
+	tptr = t;
+	for(i = 0; i < 8; i++) {
+		j = i<<4;
+		p0 = __idx[j]; p1 = __idx[j+0x1]; p2 = __idx[j+0x2]; p3 = __idx[j+0x3]; p4 = __idx[j+0x4]; p5 = __idx[j+0x5]; p6 = __idx[j+0x6]; p7 = __idx[j+0x7]; p8 = __idx[j+0x8]; p9 = __idx[j+0x9]; pa = __idx[j+0xa]; pb = __idx[j+0xb]; pc = __idx[j+0xc]; pd = __idx[j+0xd]; pe = __idx[j+0xe]; pf = __idx[j+0xf];
+		RADIX_16_DIT(
+			*(Are+p0),*(Aim+p0),*(Are+p1),*(Aim+p1),*(Are+p2),*(Aim+p2),*(Are+p3),*(Aim+p3),*(Are+p4),*(Aim+p4),*(Are+p5),*(Aim+p5),*(Are+p6),*(Aim+p6),*(Are+p7),*(Aim+p7),*(Are+p8),*(Aim+p8),*(Are+p9),*(Aim+p9),*(Are+pa),*(Aim+pa),*(Are+pb),*(Aim+pb),*(Are+pc),*(Aim+pc),*(Are+pd),*(Aim+pd),*(Are+pe),*(Aim+pe),*(Are+pf),*(Aim+pf),
+			tptr->re,tptr->im,(tptr+0x1)->re,(tptr+0x1)->im,(tptr+0x2)->re,(tptr+0x2)->im,(tptr+0x3)->re,(tptr+0x3)->im,(tptr+0x4)->re,(tptr+0x4)->im,(tptr+0x5)->re,(tptr+0x5)->im,(tptr+0x6)->re,(tptr+0x6)->im,(tptr+0x7)->re,(tptr+0x7)->im,(tptr+0x8)->re,(tptr+0x8)->im,(tptr+0x9)->re,(tptr+0x9)->im,(tptr+0xa)->re,(tptr+0xa)->im,(tptr+0xb)->re,(tptr+0xb)->im,(tptr+0xc)->re,(tptr+0xc)->im,(tptr+0xd)->re,(tptr+0xd)->im,(tptr+0xe)->re,(tptr+0xe)->im,(tptr+0xf)->re,(tptr+0xf)->im,
+			c16,s16
+		);	tptr += 16;
+	}
 
 /*...and now do 16 radix-8 subtransforms w/internal twiddles - cf. radix128_dit_pass1 for details: */
-
-	/* Block 0: 0-index block has all-unity twiddles: Remember, the twiddleless DIT also bit-reverses its outputs, so a_p* terms appear in-order here: */
-	// jt = j1;	jp = j2;
+	tptr = t;
+	/* Block 0 gets pulled out of parametrized-loop to take advantage of its unity-twiddles-ness: */
+	// Remember, the twiddleless DIT also bit-reverses its outputs, so a_p* terms appear in-order here:
 	RADIX_08_DIT_OOP(
-		__t00r,__t00i,__t10r,__t10i,__t20r,__t20i,__t30r,__t30i,__t40r,__t40i,__t50r,__t50i,__t60r,__t60i,__t70r,__t70i,
-		*(__B+__odx[0x00]),*(Bim+__odx[0x00]),*(__B+__odx[0x10]),*(Bim+__odx[0x10]),*(__B+__odx[0x20]),*(Bim+__odx[0x20]),*(__B+__odx[0x30]),*(Bim+__odx[0x30]),*(__B+__odx[0x40]),*(Bim+__odx[0x40]),*(__B+__odx[0x50]),*(Bim+__odx[0x50]),*(__B+__odx[0x60]),*(Bim+__odx[0x60]),*(__B+__odx[0x70]),*(Bim+__odx[0x70])
+		 tptr      ->re, tptr      ->im,(tptr+0x10)->re,(tptr+0x10)->im,(tptr+0x20)->re,(tptr+0x20)->im,(tptr+0x30)->re,(tptr+0x30)->im,
+		(tptr+0x40)->re,(tptr+0x40)->im,(tptr+0x50)->re,(tptr+0x50)->im,(tptr+0x60)->re,(tptr+0x60)->im,(tptr+0x70)->re,(tptr+0x70)->im,
+		*(Bre+__odx[0x00]),*(Bim+__odx[0x00]),*(Bre+__odx[0x10]),*(Bim+__odx[0x10]),*(Bre+__odx[0x20]),*(Bim+__odx[0x20]),*(Bre+__odx[0x30]),*(Bim+__odx[0x30]),*(Bre+__odx[0x40]),*(Bim+__odx[0x40]),*(Bre+__odx[0x50]),*(Bim+__odx[0x50]),*(Bre+__odx[0x60]),*(Bim+__odx[0x60]),*(Bre+__odx[0x70]),*(Bim+__odx[0x70])
 	);
-	/* Block 8: */
-	// jt = j1 + p08;	jp = j2 + p08;
-	RADIX_08_DIT_TWIDDLE_OOP(
-		__t08r,__t08i,__t18r,__t18i,__t28r,__t28i,__t38r,__t38i,__t48r,__t48i,__t58r,__t58i,__t68r,__t68i,__t78r,__t78i,
-		*(__B+__odx[0x08]),*(Bim+__odx[0x08]),*(__B+__odx[0x48]),*(Bim+__odx[0x48]),*(__B+__odx[0x28]),*(Bim+__odx[0x28]),*(__B+__odx[0x68]),*(Bim+__odx[0x68]),*(__B+__odx[0x18]),*(Bim+__odx[0x18]),*(__B+__odx[0x58]),*(Bim+__odx[0x58]),*(__B+__odx[0x38]),*(Bim+__odx[0x38]),*(__B+__odx[0x78]),*(Bim+__odx[0x78]),
-		0,1,ISRT2,ISRT2,-ISRT2,ISRT2,c16,s16,-s16,c16,s16,c16,-c16,s16
-	);
-	/* Block 4: */
-	// jt = j1 + p04;	jp = j2 + p04;
-	RADIX_08_DIT_TWIDDLE_OOP(
-		__t04r,__t04i,__t14r,__t14i,__t24r,__t24i,__t34r,__t34i,__t44r,__t44i,__t54r,__t54i,__t64r,__t64i,__t74r,__t74i,
-		*(__B+__odx[0x04]),*(Bim+__odx[0x04]),*(__B+__odx[0x44]),*(Bim+__odx[0x44]),*(__B+__odx[0x24]),*(Bim+__odx[0x24]),*(__B+__odx[0x64]),*(Bim+__odx[0x64]),*(__B+__odx[0x14]),*(Bim+__odx[0x14]),*(__B+__odx[0x54]),*(Bim+__odx[0x54]),*(__B+__odx[0x34]),*(Bim+__odx[0x34]),*(__B+__odx[0x74]),*(Bim+__odx[0x74]),
-		ISRT2,ISRT2,c16,s16,s16,c16,c32_1,s32_1,s32_3,c32_3,c32_3,s32_3,s32_1,c32_1
-	);
-	/* Block c: */
-	// jt = j1 + p0c;	jp = j2 + p0c;
-	RADIX_08_DIT_TWIDDLE_OOP(
-		__t0cr,__t0ci,__t1cr,__t1ci,__t2cr,__t2ci,__t3cr,__t3ci,__t4cr,__t4ci,__t5cr,__t5ci,__t6cr,__t6ci,__t7cr,__t7ci,
-		*(__B+__odx[0x0c]),*(Bim+__odx[0x0c]),*(__B+__odx[0x4c]),*(Bim+__odx[0x4c]),*(__B+__odx[0x2c]),*(Bim+__odx[0x2c]),*(__B+__odx[0x6c]),*(Bim+__odx[0x6c]),*(__B+__odx[0x1c]),*(Bim+__odx[0x1c]),*(__B+__odx[0x5c]),*(Bim+__odx[0x5c]),*(__B+__odx[0x3c]),*(Bim+__odx[0x3c]),*(__B+__odx[0x7c]),*(Bim+__odx[0x7c]),
-		-ISRT2,ISRT2,s16,c16,-c16,-s16,c32_3,s32_3,-c32_1,s32_1,-s32_1,c32_1,-s32_3,-c32_3
-	);
-	/* Block 2: */
-	// jt = j1 + p02;	jp = j2 + p02;
-	RADIX_08_DIT_TWIDDLE_OOP(
-		__t02r,__t02i,__t12r,__t12i,__t22r,__t22i,__t32r,__t32i,__t42r,__t42i,__t52r,__t52i,__t62r,__t62i,__t72r,__t72i,
-		*(__B+__odx[0x02]),*(Bim+__odx[0x02]),*(__B+__odx[0x42]),*(Bim+__odx[0x42]),*(__B+__odx[0x22]),*(Bim+__odx[0x22]),*(__B+__odx[0x62]),*(Bim+__odx[0x62]),*(__B+__odx[0x12]),*(Bim+__odx[0x12]),*(__B+__odx[0x52]),*(Bim+__odx[0x52]),*(__B+__odx[0x32]),*(Bim+__odx[0x32]),*(__B+__odx[0x72]),*(Bim+__odx[0x72]),
-		c16,s16,c32_1,s32_1,c32_3,s32_3,c64_1,s64_1,c64_5,s64_5,c64_3,s64_3,c64_7,s64_7
-	);
-	/* Block a: */
-	// jt = j1 + p0a;	jp = j2 + p0a;
-	RADIX_08_DIT_TWIDDLE_OOP(
-		__t0ar,__t0ai,__t1ar,__t1ai,__t2ar,__t2ai,__t3ar,__t3ai,__t4ar,__t4ai,__t5ar,__t5ai,__t6ar,__t6ai,__t7ar,__t7ai,
-		*(__B+__odx[0x0a]),*(Bim+__odx[0x0a]),*(__B+__odx[0x4a]),*(Bim+__odx[0x4a]),*(__B+__odx[0x2a]),*(Bim+__odx[0x2a]),*(__B+__odx[0x6a]),*(Bim+__odx[0x6a]),*(__B+__odx[0x1a]),*(Bim+__odx[0x1a]),*(__B+__odx[0x5a]),*(Bim+__odx[0x5a]),*(__B+__odx[0x3a]),*(Bim+__odx[0x3a]),*(__B+__odx[0x7a]),*(Bim+__odx[0x7a]),
-		-s16,c16,s32_3,c32_3,-c32_1,s32_1,c64_5,s64_5,-c64_7,s64_7,s64_1,c64_1,-c64_3,-s64_3
-	);
-	/* Block 6: */
-	// jt = j1 + p06;	jp = j2 + p06;
-	RADIX_08_DIT_TWIDDLE_OOP(
-		__t06r,__t06i,__t16r,__t16i,__t26r,__t26i,__t36r,__t36i,__t46r,__t46i,__t56r,__t56i,__t66r,__t66i,__t76r,__t76i,
-		*(__B+__odx[0x06]),*(Bim+__odx[0x06]),*(__B+__odx[0x46]),*(Bim+__odx[0x46]),*(__B+__odx[0x26]),*(Bim+__odx[0x26]),*(__B+__odx[0x66]),*(Bim+__odx[0x66]),*(__B+__odx[0x16]),*(Bim+__odx[0x16]),*(__B+__odx[0x56]),*(Bim+__odx[0x56]),*(__B+__odx[0x36]),*(Bim+__odx[0x36]),*(__B+__odx[0x76]),*(Bim+__odx[0x76]),
-		s16,c16,c32_3,s32_3,-s32_1,c32_1,c64_3,s64_3,s64_1,c64_1,s64_7,c64_7,-s64_5,c64_5
-	);
-	/* Block e: */
-	// jt = j1 + p0e;	jp = j2 + p0e;
-	RADIX_08_DIT_TWIDDLE_OOP(
-		__t0er,__t0ei,__t1er,__t1ei,__t2er,__t2ei,__t3er,__t3ei,__t4er,__t4ei,__t5er,__t5ei,__t6er,__t6ei,__t7er,__t7ei,
-		*(__B+__odx[0x0e]),*(Bim+__odx[0x0e]),*(__B+__odx[0x4e]),*(Bim+__odx[0x4e]),*(__B+__odx[0x2e]),*(Bim+__odx[0x2e]),*(__B+__odx[0x6e]),*(Bim+__odx[0x6e]),*(__B+__odx[0x1e]),*(Bim+__odx[0x1e]),*(__B+__odx[0x5e]),*(Bim+__odx[0x5e]),*(__B+__odx[0x3e]),*(Bim+__odx[0x3e]),*(__B+__odx[0x7e]),*(Bim+__odx[0x7e]),
-		-c16,s16,s32_1,c32_1,-s32_3,-c32_3,c64_7,s64_7,-c64_3,-s64_3,-s64_5,c64_5,s64_1,-c64_1
-	);
-
-/***************************** ODD-ORDER TWIDDLES ROWS: *****************************/
-
-	/* Block 1: */
-	// jt = j1 + p01;	jp = j2 + p01;
-	RADIX_08_DIT_TWIDDLE_OOP(
-		__t01r,__t01i,__t11r,__t11i,__t21r,__t21i,__t31r,__t31i,__t41r,__t41i,__t51r,__t51i,__t61r,__t61i,__t71r,__t71i,
-		*(__B+__odx[0x01]),*(Bim+__odx[0x01]),*(__B+__odx[0x41]),*(Bim+__odx[0x41]),*(__B+__odx[0x21]),*(Bim+__odx[0x21]),*(__B+__odx[0x61]),*(Bim+__odx[0x61]),*(__B+__odx[0x11]),*(Bim+__odx[0x11]),*(__B+__odx[0x51]),*(Bim+__odx[0x51]),*(__B+__odx[0x31]),*(Bim+__odx[0x31]),*(__B+__odx[0x71]),*(Bim+__odx[0x71]),
-		c32_1,s32_1, c64_1,s64_1, c64_3,s64_3, c128_1,s128_1, c128_5,s128_5, c128_3,s128_3, c128_7,s128_7
-	);
-	/* Block 9: */
-	// jt = j1 + p09;	jp = j2 + p09;
-	RADIX_08_DIT_TWIDDLE_OOP(
-		__t09r,__t09i,__t19r,__t19i,__t29r,__t29i,__t39r,__t39i,__t49r,__t49i,__t59r,__t59i,__t69r,__t69i,__t79r,__t79i,
-		*(__B+__odx[0x09]),*(Bim+__odx[0x09]),*(__B+__odx[0x49]),*(Bim+__odx[0x49]),*(__B+__odx[0x29]),*(Bim+__odx[0x29]),*(__B+__odx[0x69]),*(Bim+__odx[0x69]),*(__B+__odx[0x19]),*(Bim+__odx[0x19]),*(__B+__odx[0x59]),*(Bim+__odx[0x59]),*(__B+__odx[0x39]),*(Bim+__odx[0x39]),*(__B+__odx[0x79]),*(Bim+__odx[0x79]),
-		-s32_1,c32_1, s64_7,c64_7, -c64_5,s64_5, c128_9,s128_9, -s128_d,c128_d, s128_5,c128_5, -c128_1,s128_1
-	);
-	/* Block 5: */
-	// jt = j1 + p05;	jp = j2 + p05;
-	RADIX_08_DIT_TWIDDLE_OOP(
-		__t05r,__t05i,__t15r,__t15i,__t25r,__t25i,__t35r,__t35i,__t45r,__t45i,__t55r,__t55i,__t65r,__t65i,__t75r,__t75i,
-		*(__B+__odx[0x05]),*(Bim+__odx[0x05]),*(__B+__odx[0x45]),*(Bim+__odx[0x45]),*(__B+__odx[0x25]),*(Bim+__odx[0x25]),*(__B+__odx[0x65]),*(Bim+__odx[0x65]),*(__B+__odx[0x15]),*(Bim+__odx[0x15]),*(__B+__odx[0x55]),*(Bim+__odx[0x55]),*(__B+__odx[0x35]),*(Bim+__odx[0x35]),*(__B+__odx[0x75]),*(Bim+__odx[0x75]),
-		s32_3,c32_3, c64_5,s64_5, s64_1,c64_1, c128_5,s128_5, s128_7,c128_7, c128_f,s128_f, -s128_3,c128_3
-	);
-	/* Block d: */
-	// jt = j1 + p0d;	jp = j2 + p0d;
-	RADIX_08_DIT_TWIDDLE_OOP(
-		__t0dr,__t0di,__t1dr,__t1di,__t2dr,__t2di,__t3dr,__t3di,__t4dr,__t4di,__t5dr,__t5di,__t6dr,__t6di,__t7dr,__t7di,
-		*(__B+__odx[0x0d]),*(Bim+__odx[0x0d]),*(__B+__odx[0x4d]),*(Bim+__odx[0x4d]),*(__B+__odx[0x2d]),*(Bim+__odx[0x2d]),*(__B+__odx[0x6d]),*(Bim+__odx[0x6d]),*(__B+__odx[0x1d]),*(Bim+__odx[0x1d]),*(__B+__odx[0x5d]),*(Bim+__odx[0x5d]),*(__B+__odx[0x3d]),*(Bim+__odx[0x3d]),*(__B+__odx[0x7d]),*(Bim+__odx[0x7d]),
-		-c32_3,s32_3, s64_3,c64_3, -c64_7,-s64_7, c128_d,s128_d, -c128_1,-s128_1, -s128_7,c128_7, -s128_5,-c128_5
-	);
-	/* Block 3: */
-	// jt = j1 + p03;	jp = j2 + p03;
-	RADIX_08_DIT_TWIDDLE_OOP(
-		__t03r,__t03i,__t13r,__t13i,__t23r,__t23i,__t33r,__t33i,__t43r,__t43i,__t53r,__t53i,__t63r,__t63i,__t73r,__t73i,
-		*(__B+__odx[0x03]),*(Bim+__odx[0x03]),*(__B+__odx[0x43]),*(Bim+__odx[0x43]),*(__B+__odx[0x23]),*(Bim+__odx[0x23]),*(__B+__odx[0x63]),*(Bim+__odx[0x63]),*(__B+__odx[0x13]),*(Bim+__odx[0x13]),*(__B+__odx[0x53]),*(Bim+__odx[0x53]),*(__B+__odx[0x33]),*(Bim+__odx[0x33]),*(__B+__odx[0x73]),*(Bim+__odx[0x73]),
-		c32_3,s32_3, c64_3,s64_3, s64_7,c64_7, c128_3,s128_3, c128_f,s128_f, c128_9,s128_9, s128_b,c128_b
-	);
-	/* Block b: */
-	// jt = j1 + p0b;	jp = j2 + p0b;
-	RADIX_08_DIT_TWIDDLE_OOP(
-		__t0br,__t0bi,__t1br,__t1bi,__t2br,__t2bi,__t3br,__t3bi,__t4br,__t4bi,__t5br,__t5bi,__t6br,__t6bi,__t7br,__t7bi,
-		*(__B+__odx[0x0b]),*(Bim+__odx[0x0b]),*(__B+__odx[0x4b]),*(Bim+__odx[0x4b]),*(__B+__odx[0x2b]),*(Bim+__odx[0x2b]),*(__B+__odx[0x6b]),*(Bim+__odx[0x6b]),*(__B+__odx[0x1b]),*(Bim+__odx[0x1b]),*(__B+__odx[0x5b]),*(Bim+__odx[0x5b]),*(__B+__odx[0x3b]),*(Bim+__odx[0x3b]),*(__B+__odx[0x7b]),*(Bim+__odx[0x7b]),
-		-s32_3,c32_3, s64_5,c64_5, -c64_1,-s64_1, c128_b,s128_b, -c128_9,s128_9, -s128_1,c128_1, -c128_d,-s128_d
-	);
-	/* Block 7: */
-	// jt = j1 + p07;	jp = j2 + p07;
-	RADIX_08_DIT_TWIDDLE_OOP(
-		__t07r,__t07i,__t17r,__t17i,__t27r,__t27i,__t37r,__t37i,__t47r,__t47i,__t57r,__t57i,__t67r,__t67i,__t77r,__t77i,
-		*(__B+__odx[0x07]),*(Bim+__odx[0x07]),*(__B+__odx[0x47]),*(Bim+__odx[0x47]),*(__B+__odx[0x27]),*(Bim+__odx[0x27]),*(__B+__odx[0x67]),*(Bim+__odx[0x67]),*(__B+__odx[0x17]),*(Bim+__odx[0x17]),*(__B+__odx[0x57]),*(Bim+__odx[0x57]),*(__B+__odx[0x37]),*(Bim+__odx[0x37]),*(__B+__odx[0x77]),*(Bim+__odx[0x77]),
-		s32_1,c32_1, c64_7,s64_7, -s64_5,c64_5, c128_7,s128_7, -s128_3,c128_3, s128_b,c128_b, -c128_f,s128_f
-	);
-	/* Block f: */
-	// jt = j1 + p0f;	jp = j2 + p0f;
-	RADIX_08_DIT_TWIDDLE_OOP(
-		__t0fr,__t0fi,__t1fr,__t1fi,__t2fr,__t2fi,__t3fr,__t3fi,__t4fr,__t4fi,__t5fr,__t5fi,__t6fr,__t6fi,__t7fr,__t7fi,
-		*(__B+__odx[0x0f]),*(Bim+__odx[0x0f]),*(__B+__odx[0x4f]),*(Bim+__odx[0x4f]),*(__B+__odx[0x2f]),*(Bim+__odx[0x2f]),*(__B+__odx[0x6f]),*(Bim+__odx[0x6f]),*(__B+__odx[0x1f]),*(Bim+__odx[0x1f]),*(__B+__odx[0x5f]),*(Bim+__odx[0x5f]),*(__B+__odx[0x3f]),*(Bim+__odx[0x3f]),*(__B+__odx[0x7f]),*(Bim+__odx[0x7f]),
-		-c32_1,s32_1, s64_1,c64_1, -s64_3,-c64_3, c128_f,s128_f, -c128_b,-s128_b, -s128_d,c128_d, s128_9,-c128_9
-	);
+	/* Blocks 84c2a6e195d3b7f processed via loop: */
+	cd_ptr = (struct complex *)DFT128_TWIDDLES[1];
+	for(i = 1; i < 16; i++) {
+		j = reverse16[i];
+		tptr = t+j;
+		p0 = __odx[j]; p1 = __odx[j+0x40]; p2 = __odx[j+0x20]; p3 = __odx[j+0x60]; p4 = __odx[j+0x10]; p5 = __odx[j+0x50]; p6 = __odx[j+0x30]; p7 = __odx[j+0x70];
+		RADIX_08_DIT_TWIDDLE_OOP(
+			tptr->re,tptr->im,(tptr+0x10)->re,(tptr+0x10)->im,(tptr+0x20)->re,(tptr+0x20)->im,(tptr+0x30)->re,(tptr+0x30)->im,(tptr+0x40)->re,(tptr+0x40)->im,(tptr+0x50)->re,(tptr+0x50)->im,(tptr+0x60)->re,(tptr+0x60)->im,(tptr+0x70)->re,(tptr+0x70)->im,
+			*(Bre+p0),*(Bim+p0),*(Bre+p1),*(Bim+p1),*(Bre+p2),*(Bim+p2),*(Bre+p3),*(Bim+p3),*(Bre+p4),*(Bim+p4),*(Bre+p5),*(Bim+p5),*(Bre+p6),*(Bim+p6),*(Bre+p7),*(Bim+p7),
+			cd_ptr->re,cd_ptr->im,(cd_ptr+1)->re,(cd_ptr+1)->im,(cd_ptr+2)->re,(cd_ptr+2)->im,(cd_ptr+3)->re,(cd_ptr+3)->im,(cd_ptr+4)->re,(cd_ptr+4)->im,(cd_ptr+5)->re,(cd_ptr+5)->im,(cd_ptr+6)->re,(cd_ptr+6)->im
+		); cd_ptr += 7;
+	}
 }
 
 /************** RADIX-256 DIF/DIT: *****************************/
@@ -3463,7 +3177,6 @@ void RADIX_256_DIF(
 	int *o_offsets_hi	// Array storing high parts of output index offsets in 16 slots
 )
 {
-	#include "radix256_twiddles.h"
 	struct complex t[256], *tptr;
 	const double *addr, *addi;
 	double *Are,*Aim, *Bre,*Bim;
@@ -3534,7 +3247,6 @@ void RADIX_256_DIT(
 	int *o_offsets_hi	// Array storing high parts of output index offsets in 16 slots
 )
 {
-	#include "radix256_twiddles.h"
 	struct complex t[256], *tptr;
 	const double *addr, *addi;
 	double *Are,*Aim, *Bre,*Bim;
@@ -4889,6 +4601,259 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 			v0,v4,v2,v6,v1,v5,v3,v7,
 			ncc4,ss4,ss2,cc2,nss6,ncc6,cc7,ss7,ncc3,nss3,nss5,cc5,ss1,ncc1
 		);
+	}
+
+	/************** RADIX-128 DIF/DIT: *****************************/
+
+	void SSE2_RADIX128_DIF(
+		// Input pointer: Base ptr of 16 local-mem:
+		vec_dbl*__A,
+		// Intermediates-storage pointer:
+		vec_dbl*tmp,
+		// Pointers to base-roots data and first of 16 twiddle vectors:
+		vec_dbl*isrt2, vec_dbl*two, vec_dbl*twid0,
+		// Outputs: Base address plus 30 index offsets:
+		double *__B,
+		int *o_offsets	// Array storing output index offsets
+	)
+	{
+		// Intermediates pointers:
+		vec_dbl *tm0,*tm1,
+			*u0,*u1,*u2,*u3,*u4,*u5,*u6,*u7, *v0,*v1,*v2,*v3,*v4,*v5,*v6,*v7,
+			*c1,*s1,*c2,*s2,*c3,*s3,*c4,*s4,*c5,*s5,*c6,*s6,*c7,*s7;
+		/* Addresses into array sections */
+		double *addr,*add0,*add1,*add2,*add3,*add4,*add5,*add6,*add7,*add8,*add9,*adda,*addb,*addc,*addd,*adde,*addf;
+		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
+		int i,j, *off_ptr;
+		int p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf;
+
+	// Gather the needed data and do 8 twiddleless length-16 subtransforms, with p-offsets in br8 order: 04261537:
+	// NOTE that unlike the RADIX_08_DIF_OOP() macro used for pass 1 of the radix-64 DFT, RADIX_16_DIF outputs are IN-ORDER rather than BR:
+
+	  #ifdef USE_ARM_V8_SIMD
+		uint32 OFF1,OFF2,OFF3,OFF4,OFF5,OFF6,OFF7;
+		OFF1 = 0x100;
+		OFF2 = 0x200;
+		OFF3 = 0x300;
+		OFF4 = 0x400;
+	  #elif defined(USE_AVX512)
+		#define OFF1	4*0x100
+		#define OFF2	4*0x200
+		#define OFF3	4*0x300
+		#define OFF4	4*0x400
+	  #elif defined(USE_AVX)
+		#define OFF1	0x200
+		#define OFF2	0x400
+		#define OFF3	0x600
+		#define OFF4	0x800
+	  #else
+		#define OFF1	0x100
+		#define OFF2	0x200
+		#define OFF3	0x300
+		#define OFF4	0x400
+	  #endif
+		// NOTE that unlike the RADIX_08_DIF_OOP() macro used for pass 1 of the radix-64 DFT, RADIX_16_DIF outputs are IN-ORDER rather than BR:
+		// Use that [isrt2] ptr heads up the needed isrt2/cc16/ss16 pointer-triplet
+		// (actually a quartet in AVX2 mode, since there need sqrt2 preceding isrt2)
+		tm1 = tmp;	// Outputs of 16-DFTs into local scratch storage
+//printf("B: Pass 1 inputs:\n");
+		for(i = 0; i < 8; i++) {
+			j = reverse8[i]<<1;	// __A-offsets are processed in BR8 order
+			tm0 = __A+j;
+//for(j = 0; j < 16; j += 2) { printf("%2x: %15.5f,%15.5f, %15.5f,%15.5f\n",i*16+j,(tm0+j)->d0,(tm0+j)->d1,(tm0+j+1)->d0,(tm0+j+1)->d1); };
+		#if (OS_BITS == 32)
+									  add1 = (double*)(tm0+ 2); add2 = (double*)(tm0+ 4); add3 = (double*)(tm0+ 6); add4 = (double*)(tm0+ 8); add5 = (double*)(tm0+10); add6 = (double*)(tm0+12); add7 = (double*)(tm0+14);
+			add8 = (double*)(tm0+16); add9 = (double*)(tm0+18); adda = (double*)(tm0+20); addb = (double*)(tm0+22); addc = (double*)(tm0+24); addd = (double*)(tm0+26); adde = (double*)(tm0+28); addf = (double*)(tm0+30);
+			SSE2_RADIX16_DIF_0TWIDDLE  (tm0,OFF1,OFF2,OFF3,OFF4, isrt2,two, tm1,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf);
+		#else
+			SSE2_RADIX16_DIF_0TWIDDLE_B(tm0,OFF1,OFF2,OFF3,OFF4, isrt2,two, tm1);
+		#endif
+			tm1 += 32;
+		}
+//exit(0);
+	  #ifndef USE_ARM_V8_SIMD
+		#undef OFF1
+		#undef OFF2
+		#undef OFF3
+		#undef OFF4
+	  #endif
+
+	/*...and now do 16 radix-8 subtransforms, including the internal twiddle factors: */
+/*printf("B: Pass 2 inputs:\n");
+for(i = 0; i < 256; i += 2) { printf("%2x: %15.5f,%15.5f, %15.5f,%15.5f\n",i,(tmp+i)->d0,(tmp+i)->d1,(tmp+i+1)->d0,(tmp+i+1)->d1); };
+exit(0);*/
+	   #ifdef USE_ARM_V8_SIMD
+		OFF1 = 0x200;
+		OFF2 = 0x400;
+		OFF3 = 0x600;
+		OFF4 = 0x800;
+		OFF5 = 0xa00;
+		OFF6 = 0xc00;
+		OFF7 = 0xe00;
+	   #endif
+		/* Block 0: */
+		off_ptr = o_offsets;
+		p0 = off_ptr[0x0];p1 = off_ptr[0x1];p2 = off_ptr[0x2];p3 = off_ptr[0x3];p4 = off_ptr[0x4];p5 = off_ptr[0x5];p6 = off_ptr[0x6];p7 = off_ptr[0x7];
+		addr = __B; add0 = addr+p0; add1 = addr+p1; add2 = addr+p2; add3 = addr+p3; add4 = addr+p4; add5 = addr+p5; add6 = addr+p6; add7 = addr+p7;
+		/* 0-index block has all-unity twiddles: Remember, the twiddleless DIF bit-reverses both its in-and-outputs,
+		so swap index-offset pairs 1/4 and 3/6 in t*-inputs and a-outputs: */
+		SSE2_RADIX8_DIF_0TWIDDLE(
+		  #ifdef USE_ARM_V8_SIMD
+			tmp, OFF4,OFF2,OFF6,OFF1,OFF5,OFF3,OFF7,	//	tmp,r40,r20,r60,r10,r50,r30,r70
+		  #elif defined(USE_AVX512)
+			tmp,0x2000,0x1000,0x3000,0x0800,0x2800,0x1800,0x3800,
+		  #elif defined(USE_AVX)
+			tmp,0x1000,0x0800,0x1800,0x0400,0x1400,0x0c00,0x1c00,
+		  #else	// USE_SSE2
+			tmp, 0x800, 0x400, 0xc00, 0x200, 0xa00, 0x600, 0xe00,
+		  #endif
+		  #ifdef USE_AVX2
+			add0,add1,add2,add3,add4,add5,add6,add7, isrt2,two
+		  #else
+			add0,add1,add2,add3,add4,add5,add6,add7, isrt2
+		  #endif
+		);
+
+		// Remaining 15 sets of macro calls done in loop:
+		for(i = 1; i < 16; i++) {
+			off_ptr += 8;
+			j = reverse16[i];
+			// I-ptrs and sincos-ptrs; Twid-offsets are multiples of 21 vec_dbl; +1 to point to cos [middle] term of each [isrt2,c,s] triplet
+			tm1 = tmp + (i<<1); tm0 = twid0 + (j<<4)+(j<<2)+j;
+			u0 = tm1; u1 = tm1 + 0x80; u2 = tm1 + 0x40; u3 = tm1 + 0xc0; u4 = tm1 + 0x20; u5 = tm1 + 0xa0; u6 = tm1 + 0x60; u7 = tm1 + 0xe0;
+			c1=tm0+1;s1=tm0+2; c2=c1+3;s2=c1+4; c3=c2+3;s3=c2+4; c4=c3+3;s4=c3+4; c5=c4+3;s5=c4+4; c6=c5+3;s6=c5+4; c7=c6+3;s7=c6+4;
+			// O-ptrs: a[j1] offset here = p08,p10,p18,...
+			p0 = off_ptr[0x0];p1 = off_ptr[0x1];p2 = off_ptr[0x2];p3 = off_ptr[0x3];p4 = off_ptr[0x4];p5 = off_ptr[0x5];p6 = off_ptr[0x6];p7 = off_ptr[0x7];
+			addr = __B; add0 = addr+p0; add1 = addr+p1; add2 = addr+p2; add3 = addr+p3; add4 = addr+p4; add5 = addr+p5; add6 = addr+p6; add7 = addr+p7;
+			VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
+
+			SSE2_RADIX8_DIF_TWIDDLE_OOP(
+				u0,u1,u2,u3,u4,u5,u6,u7,
+				add0,add1,add2,add3,add4,add5,add6,add7,
+				c1,s1, c2,s2, c3,s3, c4,s4, c5,s5, c6,s6, c7,s7
+			);
+		}
+
+	  #ifndef USE_ARM_V8_SIMD
+		#undef OFF1
+		#undef OFF2
+		#undef OFF3
+		#undef OFF4
+	  #endif
+	}
+
+	void SSE2_RADIX128_DIT(
+		// Inputs: Base address plus index offsets:
+		double *__A,
+		int *i_offsets,	// Array storing input index offsets
+		// Intermediates-storage pointer:
+		vec_dbl*tmp,
+		// Pointers to base-roots data and first of 16 twiddle vectors:
+		vec_dbl*isrt2, vec_dbl*two, vec_dbl*twid0,
+		// Output pointer: Base ptr of 16 local-mem:
+		vec_dbl*__B
+	)
+	{
+		// Intermediates pointers:
+		vec_dbl *tm0,*tm1,*tm2,
+			*u0,*u1,*u2,*u3,*u4,*u5,*u6,*u7, *v0,*v1,*v2,*v3,*v4,*v5,*v6,*v7,
+			*c1,*s1,*c2,*s2,*c3,*s3,*c4,*s4,*c5,*s5,*c6,*s6,*c7,*s7;
+		/* Addresses into array sections */
+		double *addr,*add0,*add1,*add2,*add3,*add4,*add5,*add6,*add7,*add8,*add9,*adda,*addb,*addc,*addd,*adde,*addf;
+		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
+		int i,j, *off_ptr;
+		int p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf;
+
+	/* Gather the needed data (128 64-bit complex, i.e. 256 64-bit reals) and do 8 twiddleless length-16 subtransforms: */
+
+	  #ifdef USE_ARM_V8_SIMD
+		uint32 OFF1,OFF2,OFF3,OFF4,OFF5,OFF6,OFF7;
+		OFF1 = 0x20;
+		OFF2 = 0x40;
+		OFF3 = 0x60;
+		OFF4 = 0x80;
+	  #elif defined(USE_AVX512)
+		#define OFF1	4*0x20
+		#define OFF2	4*0x40
+		#define OFF3	4*0x60
+		#define OFF4	4*0x80
+	  #elif defined(USE_AVX)
+		#define OFF1	2*0x20
+		#define OFF2	2*0x40
+		#define OFF3	2*0x60
+		#define OFF4	2*0x80
+	  #else
+		#define OFF1	0x20
+		#define OFF2	0x40
+		#define OFF3	0x60
+		#define OFF4	0x80
+	  #endif
+
+		// Start of isrt2/cc16/ss16 triplet needed for radix-16 SSE2 DFT macros [use instead of isrt2 here]
+		// Use that [isrt2] ptr heads up the needed isrt2/cc16/ss16 pointer-triplet
+		// (actually a quartet in AVX2 mode, since there need sqrt2 preceding isrt2)
+		tm1 = tmp;	// Outputs of 16-DFTs into local scratch storage
+		off_ptr = i_offsets;
+		for(i = 0; i < 8; i++) {
+			// I-ptrs: a[j1] offset here = p08,p10,p18,...
+			p0 = off_ptr[0x0];p1 = off_ptr[0x1];p2 = off_ptr[0x2];p3 = off_ptr[0x3];p4 = off_ptr[0x4];p5 = off_ptr[0x5];p6 = off_ptr[0x6];p7 = off_ptr[0x7];p8 = off_ptr[0x8];p9 = off_ptr[0x9];pa = off_ptr[0xa];pb = off_ptr[0xb];pc = off_ptr[0xc];pd = off_ptr[0xd];pe = off_ptr[0xe];pf = off_ptr[0xf];
+			addr = __A; add0 = addr+p0; add1 = addr+p1; add2 = addr+p2; add3 = addr+p3; add4 = addr+p4; add5 = addr+p5; add6 = addr+p6; add7 = addr+p7;
+				add8 = addr+p8; add9 = addr+p9; adda = addr+pa; addb = addr+pb; addc = addr+pc; addd = addr+pd; adde = addr+pe; addf = addr+pf;
+			SSE2_RADIX16_DIT_0TWIDDLE(
+				add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2,two,
+				tm1,OFF1,OFF2,OFF3,OFF4
+			);
+			tm1 += 32;
+			off_ptr += 16;
+		}
+
+	  #ifndef USE_ARM_V8_SIMD
+		#undef OFF1
+		#undef OFF2
+		#undef OFF3
+		#undef OFF4
+	  #endif
+
+	/*...and now do 16 radix-8 subtransforms w/internal twiddles - cf. radix64_dit_pass1 for details: */
+
+	/* Block 0: */
+		tm0 = tmp; tm1 = __B;
+		u0 = tm0; u1 = tm0 + 0x20; u2 = tm0 + 0x40; u3 = tm0 + 0x60; u4 = tm0 + 0x80; u5 = tm0 + 0xa0; u6 = tm0 + 0xc0; u7 = tm0 + 0xe0;
+		v0 = tm1; v1 = tm1 + 0xe0; v2 = tm1 + 0xc0; v3 = tm1 + 0xa0; v4 = tm1 + 0x80; v5 = tm1 + 0x60; v6 = tm1 + 0x40; v7 = tm1 + 0x20;
+	  #ifdef USE_AVX2
+		SSE2_RADIX8_DIT_0TWIDDLE_OOP(	// This outputs o[07654321], so reverse o-index order of latter 7 outputs
+			u0,u1,u2,u3,u4,u5,u6,u7,
+			v0,v1,v2,v3,v4,v5,v6,v7,
+			isrt2,two
+		);
+	  #else
+		SSE2_RADIX8_DIT_0TWIDDLE_OOP(	// This outputs o[07654321], so reverse o-index order of latter 7 outputs
+			u0,u1,u2,u3,u4,u5,u6,u7,
+			v0,v1,v2,v3,v4,v5,v6,v7,
+			isrt2
+		);
+	  #endif
+
+	// Note: 1st of the 15 sincos args in each call to SSE2_RADIX8_DIT_TWIDDLE_OOP is the basic isrt2 needed for
+	// radix-8. This is a workaround of GCC's 30-arg limit for inline ASM macros, which proves a royal pain here.
+
+		// Remaining 15 sets of macro calls done in loop:
+		for(i = 1; i < 16; i++) {
+			j = reverse16[i];
+			// Twid-offsets are multiples of 21 vec_dbl; +1 to point to cos [middle] term of each [isrt2,c,s] triplet
+			/*** Unlike 128-DIF, need added ptr tm2 here to avid overwriting tmp-intermdiates ptr: ***/
+			tm0 = tmp + (j<<1); tm1 = __B + (j<<1); tm2 = twid0 + (j<<4)+(j<<2)+j;
+			VEC_DBL_INIT(tm1,2.0);
+			u0 = tm0; u1 = tm0 + 0x20; u2 = tm0 + 0x40; u3 = tm0 + 0x60; u4 = tm0 + 0x80; u5 = tm0 + 0xa0; u6 = tm0 + 0xc0; u7 = tm0 + 0xe0;
+			v0 = tm1; v1 = tm1 + 0x80; v2 = tm1 + 0x40; v3 = tm1 + 0xc0; v4 = tm1 + 0x20; v5 = tm1 + 0xa0; v6 = tm1 + 0x60; v7 = tm1 + 0xe0;
+			// 7 [c,s] pointer-pairs, +=3 between pairs; c0 = tm2+1 to point to cos [middle] term of each [isrt2,c,s] triplet:
+			c1=tm2+1;s1=tm2+2; c2=c1+3;s2=c1+4; c3=c2+3;s3=c2+4; c4=c3+3;s4=c3+4; c5=c4+3;s5=c4+4; c6=c5+3;s6=c5+4; c7=c6+3;s7=c6+4;
+			SSE2_RADIX8_DIT_TWIDDLE_OOP(
+				u0,u1,u2,u3,u4,u5,u6,u7,
+				v0,v1,v2,v3,v4,v5,v6,v7,
+				c1,s1, c2,s2, c3,s3, c4,s4, c5,s5, c6,s6, c7,s7
+			);
+		}
 	}
 
 	/************** RADIX-256 DIF/DIT: *****************************/

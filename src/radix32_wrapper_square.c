@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -42,7 +42,18 @@
 
 /***************/
 
-void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, struct complex rt0[], struct complex rt1[], int nradices_prim, int radix_prim[], int ws_i, int ws_j1, int ws_j2, int ws_j2_start, int ws_k, int ws_m, int ws_blocklen, int ws_blocklen_sum, int init_sse2, int thr_id)
+/* v19: To support Gerbicz check (and later, p-1) need 2-input FFT-mul - added fwd_fft_only flag, which takes 3 distinct possible values:
+	  0 - Do normal FFT-autosquare(a) for (ilo-ihi) successive iterations;
+	  1 - Do forward FFT(a) only and store result in a[], skipping dyadic-square and inv-FFT steps. In this case ilo = ihi;
+	> 1 - The fwd_fft_only arg contains a pointer to an array b[] in previously-forward-FFTed form, i.e. FFT(b). In this
+		  case we do the final-radix pass of FFT(a), then dyadic-multiply FFT(a) * FFT(b) (storing the result in a[]) in place
+		  of the usual pair_square step, then do the initial-radix pass of the iFFT of the result.
+*/
+void radix32_wrapper_square(
+	double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[],
+	int nradices_prim, int radix_prim[], int ws_i, int ws_j1, int ws_j2, int ws_j2_start, int ws_k, int ws_m, int ws_blocklen, int ws_blocklen_sum,
+	int init_sse2, int thr_id, uint64 fwd_fft_only
+)
 {
 	const char func[] = "radix32_wrapper_square";
 /*
@@ -111,11 +122,11 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	double *addr;
 #endif
 	int rdum,idum,j1pad,j2pad,kp,l,iroot,k1,k2;
-	int i,j1,j2,j2_start,k,m,blocklen,blocklen_sum;
+	int i,j1,j2,j2_start,k,m,blocklen,blocklen_sum,nbytes;
 	const double c     = 0.92387953251128675613, s     = 0.38268343236508977173	/* exp[  i*(twopi/16)]	*/
 				,c32_1 = 0.98078528040323044912, s32_1 = 0.19509032201612826784		/* exp(  i*twopi/32), the radix-32 fundamental sincos datum	*/
 				,c32_3 = 0.83146961230254523708, s32_3 = 0.55557023301960222473;	/* exp(3*i*twopi/32)	*/
-	double rt,it,re = 0.0, im= 0.0;
+	double rt,it,re = 0.0, im= 0.0,dmult;
 	double re0,im0,re1,im1;
 	// sincos for 1st set of scalar-mode inputs
 	double cA01,cA02,cA03,cA04,cA05,cA06,cA07,cA08,cA09,cA0A,cA0B,cA0C,cA0D,cA0E,cA0F,cA10,cA11,cA12,cA13,cA14,cA15,cA16,cA17,cA18,cA19,cA1A,cA1B,cA1C,cA1D,cA1E,cA1F
@@ -134,7 +145,15 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	,a2p00r,a2p01r,a2p02r,a2p03r,a2p04r,a2p05r,a2p06r,a2p07r,a2p08r,a2p09r,a2p0Ar,a2p0Br,a2p0Cr,a2p0Dr,a2p0Er,a2p0Fr
 	,a2p10r,a2p11r,a2p12r,a2p13r,a2p14r,a2p15r,a2p16r,a2p17r,a2p18r,a2p19r,a2p1Ar,a2p1Br,a2p1Cr,a2p1Dr,a2p1Er,a2p1Fr
 	,a2p00i,a2p01i,a2p02i,a2p03i,a2p04i,a2p05i,a2p06i,a2p07i,a2p08i,a2p09i,a2p0Ai,a2p0Bi,a2p0Ci,a2p0Di,a2p0Ei,a2p0Fi
-	,a2p10i,a2p11i,a2p12i,a2p13i,a2p14i,a2p15i,a2p16i,a2p17i,a2p18i,a2p19i,a2p1Ai,a2p1Bi,a2p1Ci,a2p1Di,a2p1Ei,a2p1Fi;
+	,a2p10i,a2p11i,a2p12i,a2p13i,a2p14i,a2p15i,a2p16i,a2p17i,a2p18i,a2p19i,a2p1Ai,a2p1Bi,a2p1Ci,a2p1Di,a2p1Ei,a2p1Fi
+	,b1p00r,b1p01r,b1p02r,b1p03r,b1p04r,b1p05r,b1p06r,b1p07r,b1p08r,b1p09r,b1p0Ar,b1p0Br,b1p0Cr,b1p0Dr,b1p0Er,b1p0Fr
+	,b1p10r,b1p11r,b1p12r,b1p13r,b1p14r,b1p15r,b1p16r,b1p17r,b1p18r,b1p19r,b1p1Ar,b1p1Br,b1p1Cr,b1p1Dr,b1p1Er,b1p1Fr
+	,b1p00i,b1p01i,b1p02i,b1p03i,b1p04i,b1p05i,b1p06i,b1p07i,b1p08i,b1p09i,b1p0Ai,b1p0Bi,b1p0Ci,b1p0Di,b1p0Ei,b1p0Fi
+	,b1p10i,b1p11i,b1p12i,b1p13i,b1p14i,b1p15i,b1p16i,b1p17i,b1p18i,b1p19i,b1p1Ai,b1p1Bi,b1p1Ci,b1p1Di,b1p1Ei,b1p1Fi
+	,b2p00r,b2p01r,b2p02r,b2p03r,b2p04r,b2p05r,b2p06r,b2p07r,b2p08r,b2p09r,b2p0Ar,b2p0Br,b2p0Cr,b2p0Dr,b2p0Er,b2p0Fr
+	,b2p10r,b2p11r,b2p12r,b2p13r,b2p14r,b2p15r,b2p16r,b2p17r,b2p18r,b2p19r,b2p1Ar,b2p1Br,b2p1Cr,b2p1Dr,b2p1Er,b2p1Fr
+	,b2p00i,b2p01i,b2p02i,b2p03i,b2p04i,b2p05i,b2p06i,b2p07i,b2p08i,b2p09i,b2p0Ai,b2p0Bi,b2p0Ci,b2p0Di,b2p0Ei,b2p0Fi
+	,b2p10i,b2p11i,b2p12i,b2p13i,b2p14i,b2p15i,b2p16i,b2p17i,b2p18i,b2p19i,b2p1Ai,b2p1Bi,b2p1Ci,b2p1Di,b2p1Ei,b2p1Fi;
 
 #ifdef USE_SSE2
 
@@ -145,15 +164,17 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 		// to alloc storage here for all cases, even though that leaves upper array halves unused for sub-AVX512.
 	static uint32 *sm_arr = 0x0,*sm_ptr;	// Base-ptr to arrays of k1,k2-index-vectors used in SIMD roots-computation.
 	static vec_dbl *sc_arr = 0x0, *sc_ptr;
-	double *add0, *add1;	/* Addresses into array sections */
+	double *add0,*add1, *bdd0,*bdd1;	/* Addresses into array sections */
   #ifdef USE_AVX
-	double *add2, *add3;
+	double *add2,*add3, *bdd2,*bdd3;
   #endif
   #ifdef USE_AVX512
-	double *add4, *add5, *add6, *add7;
+	double *add4,*add5,*add6,*add7, *bdd4,*bdd5,*bdd6,*bdd7;
   #endif
-	vec_dbl *c_tmp,*s_tmp;
-	vec_dbl *tmp;
+	vec_dbl *tmp, *c_tmp,*s_tmp, *bpt0,*bpt1,*bpt2,*bpt3;
+  #ifdef USE_AVX2
+	vec_dbl *bpt4,*bpt5,*bpt6,*bpt7;
+  #endif
 
   #ifdef MULTITHREAD
 	// Base addresses for discrete per-thread local stores ... 'r' for double-float data, 'i' for int:
@@ -161,8 +182,8 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 	static uint32  *__i0;
 	// In || mode, only above base-pointer (shared by all threads) is static:
 	uint32  *k1_arr, *k2_arr;
-	vec_dbl *isrt2,*sqrt2,*one,*two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3
-		, *forth, *tmp0, *tmp1, *tmp2, *tmp3, *tmp4, *tmp5, *tmp6, *tmp7
+	vec_dbl *isrt2,*sqrt2,*one,*two, *cc0,*ss0,*cc1,*ss1,*cc3,*ss3
+		,*forth,*tmp0,*tmp1,*tmp2,*tmp3,*tmp4,*tmp5,*tmp6,*tmp7
 		,*c00,*c01,*c02,*c03,*c04,*c05,*c06,*c07,*c08,*c09,*c0A,*c0B,*c0C,*c0D,*c0E,*c0F
 		,*c10,*c11,*c12,*c13,*c14,*c15,*c16,*c17,*c18,*c19,*c1A,*c1B,*c1C,*c1D,*c1E,*c1F
 		,*r00,*r02,*r04,*r06,*r08,*r0A,*r0C,*r0E
@@ -171,8 +192,8 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 		,*r30,*r32,*r34,*r36,*r38,*r3A,*r3C,*r3E;
   #else		// Same list of ptrs as above (except for base-ptr), but now make them static:
 	static uint32  *k1_arr, *k2_arr;
-	static vec_dbl *isrt2,*sqrt2,*one,*two, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3
-		, *forth, *tmp0, *tmp1, *tmp2, *tmp3, *tmp4, *tmp5, *tmp6, *tmp7
+	static vec_dbl *isrt2,*sqrt2,*one,*two, *cc0,*ss0,*cc1,*ss1,*cc3,*ss3
+		,*forth,*tmp0,*tmp1,*tmp2,*tmp3,*tmp4,*tmp5,*tmp6,*tmp7
 		,*c00,*c01,*c02,*c03,*c04,*c05,*c06,*c07,*c08,*c09,*c0A,*c0B,*c0C,*c0D,*c0E,*c0F
 		,*c10,*c11,*c12,*c13,*c14,*c15,*c16,*c17,*c18,*c19,*c1A,*c1B,*c1C,*c1D,*c1E,*c1F
 		,*r00,*r02,*r04,*r06,*r08,*r0A,*r0C,*r0E
@@ -186,6 +207,10 @@ void radix32_wrapper_square(double a[], int arr_scratch[],int n, int radix0, str
 /*...If a new runlength or first-pass radix, it is assumed this function has been first-called with init_sse2 = true to
      initialize static data and lcoal-storage prior to actual use in computing a transform-based result.
 */
+	// For case of 2-input modmul, pointer to 2nd (presumed already fwd-FFTed) input array is supplied via fwd_fft_only argument:
+	double *b = 0x0;
+	if(fwd_fft_only > 1)
+		b = (double *)fwd_fft_only;
 
 	/* In order to eschew complex thread-block-and-sync logic related to the local-store-init step in multithread mode,
 	switch to a special-init-mode-call paradigm, in which the function is inited once (for as many threads as needed)
@@ -1440,6 +1465,7 @@ jump_in:	/* Entry point for all blocks but the first. */
 
 	  #else	// SSE2:
 
+		// process 2 main-array blocks of [32 vec_dbl = 32 x 2 = 64 doubles] each in SSE2 mode, total = 64 vec_dbl = 32 vec_cmplx
 		add0 = a + j1pad;
 		add1 = a + j2pad;
 
@@ -2127,6 +2153,412 @@ Scalar-dbl:	r0	i0	r1	i1	r2	i2	r3	i3	r4	i4	r5	i5	r6	i6	r7	i7	r8	i8	r9	i9	r10	i10	
 		a2p1Er = t1E-t3F;		a2p1Ei = t1F+t3E;
 		a2p1Fr = t1E+t3F;		a2p1Fi = t1F-t3E;
 
+	// v19: If fwd_fft_only = 1, write fwd-FFT result back to input array, skipping dyadic-square and inv-FFT steps:
+	if(fwd_fft_only == 1)
+	{
+	/*************************************************************/
+	/*                  1st set of inputs:                       */
+	/*************************************************************/
+		rdum = j1pad;
+		idum = j1pad+RE_IM_STRIDE;
+	/*...Block 1: t00,t10,t20,t30	*/
+		a[rdum   ]=a1p00r;	a[idum   ]=a1p00i;
+		a[rdum+32]=a1p01r;	a[idum+32]=a1p01i;
+		a[rdum+16]=a1p02r;	a[idum+16]=a1p02i;
+		a[rdum+48]=a1p03r;	a[idum+48]=a1p03i;
+	/*...Block 5: t08,t18,t28,t38	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a[rdum+8 ]=a1p04r;	a[idum+8 ]=a1p04i;
+		a[rdum+40]=a1p05r;	a[idum+40]=a1p05i;
+		a[rdum+24]=a1p06r;	a[idum+24]=a1p06i;
+		a[rdum+56]=a1p07r;	a[idum+56]=a1p07i;
+	/*...Block 3: t04,t14,t24,t34	*/
+	#ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	#elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	#endif
+		a[rdum+4 ]=a1p08r;	a[idum+4 ]=a1p08i;
+		a[rdum+36]=a1p09r;	a[idum+36]=a1p09i;
+		a[rdum+20]=a1p0Ar;	a[idum+20]=a1p0Ai;
+		a[rdum+52]=a1p0Br;	a[idum+52]=a1p0Bi;
+	/*...Block 7: t0C,t1C,t2C,t3C	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a[rdum+12]=a1p0Cr;	a[idum+12]=a1p0Ci;
+		a[rdum+44]=a1p0Dr;	a[idum+44]=a1p0Di;
+		a[rdum+28]=a1p0Er;	a[idum+28]=a1p0Ei;
+		a[rdum+60]=a1p0Fr;	a[idum+60]=a1p0Fi;
+	/*...Block 2: t02,t12,t22,t32	*/
+	#ifdef USE_AVX512
+		rdum += 5;	idum += 5;
+	#elif defined(USE_AVX)
+		++rdum;	++idum;
+	#elif defined(USE_SSE2)
+		--rdum;	--idum;
+	#endif
+		a[rdum+2 ]=a1p10r;	a[idum+2 ]=a1p10i;
+		a[rdum+34]=a1p11r;	a[idum+34]=a1p11i;
+		a[rdum+18]=a1p12r;	a[idum+18]=a1p12i;
+		a[rdum+50]=a1p13r;	a[idum+50]=a1p13i;
+	/*...Block 6: t0A,t1A,t2A,t3A	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a[rdum+10]=a1p14r;	a[idum+10]=a1p14i;
+		a[rdum+42]=a1p15r;	a[idum+42]=a1p15i;
+		a[rdum+26]=a1p16r;	a[idum+26]=a1p16i;
+		a[rdum+58]=a1p17r;	a[idum+58]=a1p17i;
+	/*...Block 4: t06,t16,t26,t36	*/
+	#ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	#elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	#endif
+		a[rdum+6 ]=a1p18r;	a[idum+6 ]=a1p18i;
+		a[rdum+38]=a1p19r;	a[idum+38]=a1p19i;
+		a[rdum+22]=a1p1Ar;	a[idum+22]=a1p1Ai;
+		a[rdum+54]=a1p1Br;	a[idum+54]=a1p1Bi;
+	/*...Block 8: t0E,t1E,t2E,t3E	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a[rdum+14]=a1p1Cr;	a[idum+14]=a1p1Ci;
+		a[rdum+46]=a1p1Dr;	a[idum+46]=a1p1Di;
+		a[rdum+30]=a1p1Er;	a[idum+30]=a1p1Ei;
+		a[rdum+62]=a1p1Fr;	a[idum+62]=a1p1Fi;
+	/*************************************************************/
+	/*                  2nd set of inputs:                       */
+	/*************************************************************/
+		rdum = j2pad;
+		idum = j2pad+RE_IM_STRIDE;
+	/*...Block 1: t00,t10,t20,t30	*/
+		a[rdum   ]=a2p00r;	a[idum   ]=a2p00i;
+		a[rdum+32]=a2p01r;	a[idum+32]=a2p01i;
+		a[rdum+16]=a2p02r;	a[idum+16]=a2p02i;
+		a[rdum+48]=a2p03r;	a[idum+48]=a2p03i;
+	/*...Block 5: t08,t18,t28,t38	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a[rdum+8 ]=a2p04r;	a[idum+8 ]=a2p04i;
+		a[rdum+40]=a2p05r;	a[idum+40]=a2p05i;
+		a[rdum+24]=a2p06r;	a[idum+24]=a2p06i;
+		a[rdum+56]=a2p07r;	a[idum+56]=a2p07i;
+	/*...Block 3: t04,t14,t24,t34	*/
+	#ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	#elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	#endif
+		a[rdum+4 ]=a2p08r;	a[idum+4 ]=a2p08i;
+		a[rdum+36]=a2p09r;	a[idum+36]=a2p09i;
+		a[rdum+20]=a2p0Ar;	a[idum+20]=a2p0Ai;
+		a[rdum+52]=a2p0Br;	a[idum+52]=a2p0Bi;
+	/*...Block 7: t0C,t1C,t2C,t3C	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a[rdum+12]=a2p0Cr;	a[idum+12]=a2p0Ci;
+		a[rdum+44]=a2p0Dr;	a[idum+44]=a2p0Di;
+		a[rdum+28]=a2p0Er;	a[idum+28]=a2p0Ei;
+		a[rdum+60]=a2p0Fr;	a[idum+60]=a2p0Fi;
+	/*...Block 2: t02,t12,t22,t32	*/
+	#ifdef USE_AVX512
+		rdum += 5;	idum += 5;
+	#elif defined(USE_AVX)
+		++rdum;	++idum;
+	#elif defined(USE_SSE2)
+		--rdum;	--idum;
+	#endif
+		a[rdum+2 ]=a2p10r;	a[idum+2 ]=a2p10i;
+		a[rdum+34]=a2p11r;	a[idum+34]=a2p11i;
+		a[rdum+18]=a2p12r;	a[idum+18]=a2p12i;
+		a[rdum+50]=a2p13r;	a[idum+50]=a2p13i;
+	/*...Block 6: t0A,t1A,t2A,t3A	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a[rdum+10]=a2p14r;	a[idum+10]=a2p14i;
+		a[rdum+42]=a2p15r;	a[idum+42]=a2p15i;
+		a[rdum+26]=a2p16r;	a[idum+26]=a2p16i;
+		a[rdum+58]=a2p17r;	a[idum+58]=a2p17i;
+	/*...Block 4: t06,t16,t26,t36	*/
+	#ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	#elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	#endif
+		a[rdum+6 ]=a2p18r;	a[idum+6 ]=a2p18i;
+		a[rdum+38]=a2p19r;	a[idum+38]=a2p19i;
+		a[rdum+22]=a2p1Ar;	a[idum+22]=a2p1Ai;
+		a[rdum+54]=a2p1Br;	a[idum+54]=a2p1Bi;
+	/*...Block 8: t0E,t1E,t2E,t3E	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a[rdum+14]=a2p1Cr;	a[idum+14]=a2p1Ci;
+		a[rdum+46]=a2p1Dr;	a[idum+46]=a2p1Di;
+		a[rdum+30]=a2p1Er;	a[idum+30]=a2p1Ei;
+		a[rdum+62]=a2p1Fr;	a[idum+62]=a2p1Fi;
+		goto loop;	// Skip dyadic-mul and iFFT
+
+	} else if (fwd_fft_only) {	// 2-input modmul: fwdFFT data dyadic-mul'ed with precomputed 2nd-vector stored in fwd-FFTed form in b[]:
+
+	/*************************************************************/
+	/*                  1st set of inputs:                       */
+	/*************************************************************/
+		rdum = j1pad;
+		idum = j1pad+RE_IM_STRIDE;
+	/*...Block 1: t00,t10,t20,t30	*/
+		b1p00r=b[rdum   ];	b1p00i=b[idum   ];
+		b1p01r=b[rdum+32];	b1p01i=b[idum+32];
+		b1p02r=b[rdum+16];	b1p02i=b[idum+16];
+		b1p03r=b[rdum+48];	b1p03i=b[idum+48];
+	/*...Block 5: t08,t18,t28,t38	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		b1p04r=b[rdum+8 ];	b1p04i=b[idum+8 ];
+		b1p05r=b[rdum+40];	b1p05i=b[idum+40];
+		b1p06r=b[rdum+24];	b1p06i=b[idum+24];
+		b1p07r=b[rdum+56];	b1p07i=b[idum+56];
+	/*...Block 3: t04,t14,t24,t34	*/
+	#ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	#elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	#endif
+		b1p08r=b[rdum+4 ];	b1p08i=b[idum+4 ];
+		b1p09r=b[rdum+36];	b1p09i=b[idum+36];
+		b1p0Ar=b[rdum+20];	b1p0Ai=b[idum+20];
+		b1p0Br=b[rdum+52];	b1p0Bi=b[idum+52];
+	/*...Block 7: t0C,t1C,t2C,t3C	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		b1p0Cr=b[rdum+12];	b1p0Ci=b[idum+12];
+		b1p0Dr=b[rdum+44];	b1p0Di=b[idum+44];
+		b1p0Er=b[rdum+28];	b1p0Ei=b[idum+28];
+		b1p0Fr=b[rdum+60];	b1p0Fi=b[idum+60];
+	/*...Block 2: t02,t12,t22,t32	*/
+	#ifdef USE_AVX512
+		rdum += 5;	idum += 5;
+	#elif defined(USE_AVX)
+		++rdum;	++idum;
+	#elif defined(USE_SSE2)
+		--rdum;	--idum;
+	#endif
+		b1p10r=b[rdum+2 ];	b1p10i=b[idum+2 ];
+		b1p11r=b[rdum+34];	b1p11i=b[idum+34];
+		b1p12r=b[rdum+18];	b1p12i=b[idum+18];
+		b1p13r=b[rdum+50];	b1p13i=b[idum+50];
+	/*...Block 6: t0A,t1A,t2A,t3A	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		b1p14r=b[rdum+10];	b1p14i=b[idum+10];
+		b1p15r=b[rdum+42];	b1p15i=b[idum+42];
+		b1p16r=b[rdum+26];	b1p16i=b[idum+26];
+		b1p17r=b[rdum+58];	b1p17i=b[idum+58];
+	/*...Block 4: t06,t16,t26,t36	*/
+	#ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	#elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	#endif
+		b1p18r=b[rdum+6 ];	b1p18i=b[idum+6 ];
+		b1p19r=b[rdum+38];	b1p19i=b[idum+38];
+		b1p1Ar=b[rdum+22];	b1p1Ai=b[idum+22];
+		b1p1Br=b[rdum+54];	b1p1Bi=b[idum+54];
+	/*...Block 8: t0E,t1E,t2E,t3E	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		b1p1Cr=b[rdum+14];	b1p1Ci=b[idum+14];
+		b1p1Dr=b[rdum+46];	b1p1Di=b[idum+46];
+		b1p1Er=b[rdum+30];	b1p1Ei=b[idum+30];
+		b1p1Fr=b[rdum+62];	b1p1Fi=b[idum+62];
+	/*************************************************************/
+	/*                  2nd set of inputs:                       */
+	/*************************************************************/
+		rdum = j2pad;
+		idum = j2pad+RE_IM_STRIDE;
+	/*...Block 1: t00,t10,t20,t30	*/
+		b2p00r=b[rdum   ];	b2p00i=b[idum   ];
+		b2p01r=b[rdum+32];	b2p01i=b[idum+32];
+		b2p02r=b[rdum+16];	b2p02i=b[idum+16];
+		b2p03r=b[rdum+48];	b2p03i=b[idum+48];
+	/*...Block 5: t08,t18,t28,t38	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		b2p04r=b[rdum+8 ];	b2p04i=b[idum+8 ];
+		b2p05r=b[rdum+40];	b2p05i=b[idum+40];
+		b2p06r=b[rdum+24];	b2p06i=b[idum+24];
+		b2p07r=b[rdum+56];	b2p07i=b[idum+56];
+	/*...Block 3: t04,t14,t24,t34	*/
+	#ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	#elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	#endif
+		b2p08r=b[rdum+4 ];	b2p08i=b[idum+4 ];
+		b2p09r=b[rdum+36];	b2p09i=b[idum+36];
+		b2p0Ar=b[rdum+20];	b2p0Ai=b[idum+20];
+		b2p0Br=b[rdum+52];	b2p0Bi=b[idum+52];
+	/*...Block 7: t0C,t1C,t2C,t3C	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		b2p0Cr=b[rdum+12];	b2p0Ci=b[idum+12];
+		b2p0Dr=b[rdum+44];	b2p0Di=b[idum+44];
+		b2p0Er=b[rdum+28];	b2p0Ei=b[idum+28];
+		b2p0Fr=b[rdum+60];	b2p0Fi=b[idum+60];
+	/*...Block 2: t02,t12,t22,t32	*/
+	#ifdef USE_AVX512
+		rdum += 5;	idum += 5;
+	#elif defined(USE_AVX)
+		++rdum;	++idum;
+	#elif defined(USE_SSE2)
+		--rdum;	--idum;
+	#endif
+		b2p10r=b[rdum+2 ];	b2p10i=b[idum+2 ];
+		b2p11r=b[rdum+34];	b2p11i=b[idum+34];
+		b2p12r=b[rdum+18];	b2p12i=b[idum+18];
+		b2p13r=b[rdum+50];	b2p13i=b[idum+50];
+	/*...Block 6: t0A,t1A,t2A,t3A	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		b2p14r=b[rdum+10];	b2p14i=b[idum+10];
+		b2p15r=b[rdum+42];	b2p15i=b[idum+42];
+		b2p16r=b[rdum+26];	b2p16i=b[idum+26];
+		b2p17r=b[rdum+58];	b2p17i=b[idum+58];
+	/*...Block 4: t06,t16,t26,t36	*/
+	#ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	#elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	#endif
+		b2p18r=b[rdum+6 ];	b2p18i=b[idum+6 ];
+		b2p19r=b[rdum+38];	b2p19i=b[idum+38];
+		b2p1Ar=b[rdum+22];	b2p1Ai=b[idum+22];
+		b2p1Br=b[rdum+54];	b2p1Bi=b[idum+54];
+	/*...Block 8: t0E,t1E,t2E,t3E	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		b2p1Cr=b[rdum+14];	b2p1Ci=b[idum+14];
+		b2p1Dr=b[rdum+46];	b2p1Di=b[idum+46];
+		b2p1Er=b[rdum+30];	b2p1Ei=b[idum+30];
+		b2p1Fr=b[rdum+62];	b2p1Fi=b[idum+62];
+
+	  if(j1 == 0)	/* NB: mustn't use re, im as temps in exe1-3 section, since those contain saved sincos data for exe4 block. */
+	  {				// Jul 2015: Now moot since to avoid name-clashes in FGT61-mode, have renamed the doubles re,im -> RT,IT
+		/*...j = 0 (for which M(0) = Re{H(0)}*Re{I(0)} + i*Im{H(0)}*Im{I(0)}) is done separately...*/
+		rt = a1p00r;
+		a1p00r = (rt + a1p00i)*(b1p00r + b1p00i);
+		a1p00i = (rt - a1p00i)*(b1p00r - b1p00i);
+		rt = a1p00r;
+		a1p00r = 0.5*(rt + a1p00i);
+		a1p00i = 0.5*(rt - a1p00i);
+		/*
+		!...as is j = N/2 (for which M(j) = H(j)*I(j)). Note that under bit-reversal the N/2 element gets mapped into
+		!   the second complex data slot, i.e. is adjacent to the starting element.
+		*/
+		rt = a1p01r;
+		a1p01r = rt*b1p01r - a1p01i*b1p01i;
+		a1p01i = rt*b1p01i + a1p01i*b1p01r;
+		// exe1:
+		pair_mul(&a1p02r,&a1p02i,&a1p03r,&a1p03i, b1p02r,b1p02i,b1p03r,b1p03i,0.0,1.0);		rt=ISRT2;	it=ISRT2;
+		// exe2:
+		pair_mul(&a1p04r,&a1p04i,&a1p07r,&a1p07i, b1p04r,b1p04i,b1p07r,b1p07i, rt, it);		t03=c; t04=0; t05=s; t06=0;
+		pair_mul(&a1p06r,&a1p06i,&a1p05r,&a1p05i, b1p06r,b1p06i,b1p05r,b1p05i,-it, rt);		rt=t03-t04;		it=t05+t06;
+		// exe3:
+		pair_mul(&a1p08r,&a1p08i,&a1p0Fr,&a1p0Fi, b1p08r,b1p08i,b1p0Fr,b1p0Fi, rt, it);
+		pair_mul(&a1p0Ar,&a1p0Ai,&a1p0Dr,&a1p0Di, b1p0Ar,b1p0Ai,b1p0Dr,b1p0Di,-it, rt);		rt=t05-t06;		it=t03+t04;
+		pair_mul(&a1p0Cr,&a1p0Ci,&a1p0Br,&a1p0Bi, b1p0Cr,b1p0Ci,b1p0Br,b1p0Bi, rt, it);		t03=c32_1; t04=0; t05=s32_1; t06=0;
+		pair_mul(&a1p0Er,&a1p0Ei,&a1p09r,&a1p09i, b1p0Er,b1p0Ei,b1p09r,b1p09i,-it, rt);		rt=t03-t04;		it=t05+t06;
+		// exe4:
+		pair_mul(&a1p10r,&a1p10i,&a1p1Fr,&a1p1Fi, b1p10r,b1p10i,b1p1Fr,b1p1Fi, rt, it);		t07=c32_3; t08=0; t09=s32_3; t0A=0;
+		pair_mul(&a1p12r,&a1p12i,&a1p1Dr,&a1p1Di, b1p12r,b1p12i,b1p1Dr,b1p1Di,-it, rt);		rt=t09-t0A;		it=t07+t08;
+		pair_mul(&a1p14r,&a1p14i,&a1p1Br,&a1p1Bi, b1p14r,b1p14i,b1p1Br,b1p1Bi, rt, it);
+		pair_mul(&a1p16r,&a1p16i,&a1p19r,&a1p19i, b1p16r,b1p16i,b1p19r,b1p19i,-it, rt);		rt=t07-t08;		it=t09+t0A;
+		pair_mul(&a1p18r,&a1p18i,&a1p17r,&a1p17i, b1p18r,b1p18i,b1p17r,b1p17i, rt, it);
+		pair_mul(&a1p1Ar,&a1p1Ai,&a1p15r,&a1p15i, b1p1Ar,b1p1Ai,b1p15r,b1p15i,-it, rt);		rt=t05-t06;		it=t03+t04;
+		pair_mul(&a1p1Cr,&a1p1Ci,&a1p13r,&a1p13i, b1p1Cr,b1p1Ci,b1p13r,b1p13i, rt, it);
+		pair_mul(&a1p1Er,&a1p1Ei,&a1p11r,&a1p11i, b1p1Er,b1p1Ei,b1p11r,b1p11i,-it, rt);
+		// exe5:
+		pair_mul(&a2p00r,&a2p00i,&a2p1Fr,&a2p1Fi, b2p00r,b2p00i,b2p1Fr,b2p1Fi, re, im);
+		pair_mul(&a2p02r,&a2p02i,&a2p1Dr,&a2p1Di, b2p02r,b2p02i,b2p1Dr,b2p1Di,-im, re);		rt=(re-im)*ISRT2;	it=(re+im)*ISRT2;
+		pair_mul(&a2p04r,&a2p04i,&a2p1Br,&a2p1Bi, b2p04r,b2p04i,b2p1Br,b2p1Bi, rt, it);		t03=re*c; t04=im*s; t05=re*s; t06=im*c;
+		pair_mul(&a2p06r,&a2p06i,&a2p19r,&a2p19i, b2p06r,b2p06i,b2p19r,b2p19i,-it, rt);		rt=t03-t04;		it=t05+t06;
+		pair_mul(&a2p08r,&a2p08i,&a2p17r,&a2p17i, b2p08r,b2p08i,b2p17r,b2p17i, rt, it);
+		pair_mul(&a2p0Ar,&a2p0Ai,&a2p15r,&a2p15i, b2p0Ar,b2p0Ai,b2p15r,b2p15i,-it, rt);		rt=t05-t06;		it=t03+t04;
+		pair_mul(&a2p0Cr,&a2p0Ci,&a2p13r,&a2p13i, b2p0Cr,b2p0Ci,b2p13r,b2p13i, rt, it);		t03=re*c32_1; t04=im*s32_1; t05=re*s32_1; t06=im*c32_1;
+		pair_mul(&a2p0Er,&a2p0Ei,&a2p11r,&a2p11i, b2p0Er,b2p0Ei,b2p11r,b2p11i,-it, rt);		rt=t03-t04;		it=t05+t06;
+		pair_mul(&a2p10r,&a2p10i,&a2p0Fr,&a2p0Fi, b2p10r,b2p10i,b2p0Fr,b2p0Fi, rt, it);		t07=re*c32_3; t08=im*s32_3; t09=re*s32_3; t0A=im*c32_3;
+		pair_mul(&a2p12r,&a2p12i,&a2p0Dr,&a2p0Di, b2p12r,b2p12i,b2p0Dr,b2p0Di,-it, rt);		rt=t09-t0A;		it=t07+t08;
+		pair_mul(&a2p14r,&a2p14i,&a2p0Br,&a2p0Bi, b2p14r,b2p14i,b2p0Br,b2p0Bi, rt, it);
+		pair_mul(&a2p16r,&a2p16i,&a2p09r,&a2p09i, b2p16r,b2p16i,b2p09r,b2p09i,-it, rt);		rt=t07-t08;		it=t09+t0A;
+		pair_mul(&a2p18r,&a2p18i,&a2p07r,&a2p07i, b2p18r,b2p18i,b2p07r,b2p07i, rt, it);
+		pair_mul(&a2p1Ar,&a2p1Ai,&a2p05r,&a2p05i, b2p1Ar,b2p1Ai,b2p05r,b2p05i,-it, rt);		rt=t05-t06;		it=t03+t04;
+		pair_mul(&a2p1Cr,&a2p1Ci,&a2p03r,&a2p03i, b2p1Cr,b2p1Ci,b2p03r,b2p03i, rt, it);
+		pair_mul(&a2p1Er,&a2p1Ei,&a2p01r,&a2p01i, b2p1Er,b2p1Ei,b2p01r,b2p01i,-it, rt);
+	  }
+	  else
+	  {
+		t01=(re-im)*ISRT2;	t02=(re+im)*ISRT2;
+		re0=re*c;	im0=im*s;	re1=re*s;	im1=im*c;
+		t03=re0-im0;	t04=re1+im1;
+		t05=re1-im1;	t06=re0+im0;
+		re0=re*c32_1;	im0=im*s32_1;	re1=re*s32_1;	im1=im*c32_1;
+		t07=re0-im0;	t08=re1+im1;
+		t09=re1-im1;	t0A=re0+im0;
+		re0=re*c32_3;	im0=im*s32_3;	re1=re*s32_3;	im1=im*c32_3;
+		t0B=re1-im1;	t0C=re0+im0;
+		t0D=re0-im0;	t0E=re1+im1;
+
+		PAIR_MUL_4( a1p00r,a1p00i,a2p1Fr,a2p1Fi, b1p00r,b1p00i,b2p1Fr,b2p1Fi,
+					a2p00r,a2p00i,a1p1Fr,a1p1Fi, b2p00r,b2p00i,b1p1Fr,b1p1Fi,
+					a1p02r,a1p02i,a2p1Dr,a2p1Di, b1p02r,b1p02i,b2p1Dr,b2p1Di,
+					a2p02r,a2p02i,a1p1Dr,a1p1Di, b2p02r,b2p02i,b1p1Dr,b1p1Di,  re, im, t09,t0A);
+		PAIR_MUL_4( a1p04r,a1p04i,a2p1Br,a2p1Bi, b1p04r,b1p04i,b2p1Br,b2p1Bi,
+					a2p04r,a2p04i,a1p1Br,a1p1Bi, b2p04r,b2p04i,b1p1Br,b1p1Bi,
+					a1p06r,a1p06i,a2p19r,a2p19i, b1p06r,b1p06i,b2p19r,b2p19i,
+					a2p06r,a2p06i,a1p19r,a1p19i, b2p06r,b2p06i,b1p19r,b1p19i, t01,t02, t0D,t0E);
+		PAIR_MUL_4( a1p08r,a1p08i,a2p17r,a2p17i, b1p08r,b1p08i,b2p17r,b2p17i,
+					a2p08r,a2p08i,a1p17r,a1p17i, b2p08r,b2p08i,b1p17r,b1p17i,
+					a1p0Ar,a1p0Ai,a2p15r,a2p15i, b1p0Ar,b1p0Ai,b2p15r,b2p15i,
+					a2p0Ar,a2p0Ai,a1p15r,a1p15i, b2p0Ar,b2p0Ai,b1p15r,b1p15i, t03,t04, t0B,t0C);
+		PAIR_MUL_4( a1p0Cr,a1p0Ci,a2p13r,a2p13i, b1p0Cr,b1p0Ci,b2p13r,b2p13i,
+					a2p0Cr,a2p0Ci,a1p13r,a1p13i, b2p0Cr,b2p0Ci,b1p13r,b1p13i,
+					a1p0Er,a1p0Ei,a2p11r,a2p11i, b1p0Er,b1p0Ei,b2p11r,b2p11i,
+					a2p0Er,a2p0Ei,a1p11r,a1p11i, b2p0Er,b2p0Ei,b1p11r,b1p11i, t05,t06, t07,t08);
+		PAIR_MUL_4( a1p10r,a1p10i,a2p0Fr,a2p0Fi, b1p10r,b1p10i,b2p0Fr,b2p0Fi,
+					a2p10r,a2p10i,a1p0Fr,a1p0Fi, b2p10r,b2p10i,b1p0Fr,b1p0Fi,
+					a1p12r,a1p12i,a2p0Dr,a2p0Di, b1p12r,b1p12i,b2p0Dr,b2p0Di,
+					a2p12r,a2p12i,a1p0Dr,a1p0Di, b2p12r,b2p12i,b1p0Dr,b1p0Di, t07,t08, t05,t06);
+		PAIR_MUL_4( a1p14r,a1p14i,a2p0Br,a2p0Bi, b1p14r,b1p14i,b2p0Br,b2p0Bi,
+					a2p14r,a2p14i,a1p0Br,a1p0Bi, b2p14r,b2p14i,b1p0Br,b1p0Bi,
+					a1p16r,a1p16i,a2p09r,a2p09i, b1p16r,b1p16i,b2p09r,b2p09i,
+					a2p16r,a2p16i,a1p09r,a1p09i, b2p16r,b2p16i,b1p09r,b1p09i, t0B,t0C, t03,t04);
+		PAIR_MUL_4( a1p18r,a1p18i,a2p07r,a2p07i, b1p18r,b1p18i,b2p07r,b2p07i,
+					a2p18r,a2p18i,a1p07r,a1p07i, b2p18r,b2p18i,b1p07r,b1p07i,
+					a1p1Ar,a1p1Ai,a2p05r,a2p05i, b1p1Ar,b1p1Ai,b2p05r,b2p05i,
+					a2p1Ar,a2p1Ai,a1p05r,a1p05i, b2p1Ar,b2p1Ai,b1p05r,b1p05i, t0D,t0E, t01,t02);
+		PAIR_MUL_4( a1p1Cr,a1p1Ci,a2p03r,a2p03i, b1p1Cr,b1p1Ci,b2p03r,b2p03i,
+					a2p1Cr,a2p1Ci,a1p03r,a1p03i, b2p1Cr,b2p1Ci,b1p03r,b1p03i,
+					a1p1Er,a1p1Ei,a2p01r,a2p01i, b1p1Er,b1p1Ei,b2p01r,b2p01i,
+					a2p1Er,a2p1Ei,a1p01r,a1p01i, b2p1Er,b2p1Ei,b1p01r,b1p01i, t09,t0A,  re, im);
+	  }
+
+	} else {	// fwd_fft_only = 0: Normal execution, dyadic-squaring followed by iFFT:
+
 	/*...send the pairs of complex elements which are to be combined and sincos temporaries needed for the squaring to a
      small subroutine. The j1 = 0 case is again exceptional.	*/
 
@@ -2226,6 +2658,8 @@ Scalar-dbl:	r0	i0	r1	i1	r2	i2	r3	i3	r4	i4	r5	i5	r6	i6	r7	i7	r8	i8	r9	i9	r10	i10	
 		PAIR_SQUARE_4(a1p1Cr,a1p1Ci,a2p03r,a2p03i,a1p1Er,a1p1Ei,a2p01r,a2p01i,t09,t0A
 					, a2p1Er,a2p1Ei,a1p01r,a1p01i,a2p1Cr,a2p1Ci,a1p03r,a1p03i, re, im);
 	  }	/* endif(j1==0)	*/
+
+	}	// endif(fwd_fft_only == 1)
 
 	/*...And do an inverse DIT radix-32 pass on the squared-data blocks.	*/
 
@@ -2986,7 +3420,7 @@ Scalar-dbl:	r0	i0	r1	i1	r2	i2	r3	i3	r4	i4	r5	i5	r6	i6	r7	i7	r8	i8	r9	i9	r10	i10	
 		re = c01->d0;	im = (c01+1)->d0;	// Save copies of these 2 for wrapper step
 
 	/* [cf. the radix-16 analog if this file for notes on the AVX data-alyout]
-	In sse2 mode, the input data are arranged in memory like so, where we view things in 16-byte chunks:
+	In sse2 mode, the input data are laid out in memory like so, where we view things in 16-byte chunks:
 
 		&a[j1]	a0.re,a1.re		&a[j2]	b0.re,b1.re
 		+0x010	a0.im,a1.im		+0x010	b0.im,b1.im
@@ -3036,7 +3470,7 @@ Scalar-dbl:	r0	i0	r1	i1	r2	i2	r3	i3	r4	i4	r5	i5	r6	i6	r7	i7	r8	i8	r9	i9	r10	i10	
 	*/
 	  #ifdef USE_AVX512	// The generic pre-dyadic-square macro needs 8 main-array addresses in AVX mode
 	  					// because (add[1,3,5,7]-add[0,2,4,6]) have opposite signs for Fermat and Mersenne-mod:
-//if(j1<10240)printf("j1 = %u: add0 offsets = %llX,%llX,%llX,%llX,%llX,%llX,%llX\n",j1,(uint64)add1-(uint64)add0,(uint64)add2-(uint64)add0,(uint64)add3-(uint64)add0,(uint64)add4-(uint64)add0,(uint64)add5-(uint64)add0,(uint64)add6-(uint64)add0,(uint64)add7-(uint64)add0);
+
 		// process 8 main-array blocks of 8 vec_dbl [= 8 x 8 = 64 doubles each] in AVX mode, total = 512 float64
 		SSE2_RADIX32_WRAPPER_DIF(add0,add1,add2,add3,add4,add5,add6,add7
 													,r00,r10,r20,r30,isrt2,cc0,c00,c01,c02,c03,c05,c07)
@@ -3053,10 +3487,120 @@ Scalar-dbl:	r0	i0	r1	i1	r2	i2	r3	i3	r4	i4	r5	i5	r6	i6	r7	i7	r8	i8	r9	i9	r10	i10	
 
 	#endif
 
-/*
-!...send the pairs of complex elements which are to be combined and sincos temporaries needed for the squaring to a
-!   small subroutine. The j1 = 0 case is again exceptional. [For this reason we don't supply SSE2 code it - not worth the work].
-*/
+	// v19: If fwd_fft_only = 1, write fwd-FFT result back to input array, skipping dyadic-square and inv-FFT steps:
+	if(fwd_fft_only == 1)
+	{
+	#ifdef USE_AVX512	// The generic pre-dyadic-square macro needs 8 main-array addresses in AVX512 mode
+
+		// process 8 main-array blocks of [8 vec_dbl = 8 x 8 = 64 doubles] each in AVX512 mode, total = 64 vec_dbl = 32 vec_cmplx
+		nbytes = (long)r08 - (long)r00;
+		memcpy(add0, r00, nbytes);	// add0 = a + j1pad;
+		memcpy(add2, r10, nbytes);	// add2 = add0 + 64;	// add2 = add0 + [64 doubles, equiv to 8 AVX-512 registers]
+		memcpy(add4, r20, nbytes);	// add4 = add2 + 64;
+		memcpy(add6, r30, nbytes);	// add6 = add4 + 64;
+		memcpy(add1, r08, nbytes);	// add1 = a + j2pad;
+		memcpy(add3, r18, nbytes);	// add3 = add1 - 64;	// Last 4 offsets run in descending order for Mers-mod
+		memcpy(add5, r28, nbytes);	// add5 = add3 - 64;
+		memcpy(add7, r38, nbytes);	// add7 = add5 - 64;
+
+	#elif defined(USE_AVX)	// The generic pre-dyadic-square macro needs 4 main-array addresses in AVX mode
+	  						// because (add1-add0) and (add3-add2) have opposite signs for fermat and mersenne-mod:
+
+		// process 4 main-array blocks of [16 vec_dbl = 16 x 4 = 64 doubles] each in AVX mode, total = 64 vec_dbl = 32 vec_cmplx
+		nbytes = (long)r10 - (long)r00;
+		memcpy(add0, r00, nbytes);	// add0 = a + j1pad;
+		memcpy(add1, r10, nbytes);	// add1 = a + j2pad;
+		memcpy(add2, r20, nbytes);	// add2 = add0 + 64;	// add2 = add0 + [64 doubles, equiv to 8 AVX registers]
+		memcpy(add3, r30, nbytes);	// add3 = add1 - 64;	// Last 2 offsets run in descending order for Mers-mod
+
+	#else	// SSE2:
+
+		// process 2 main-array blocks of [32 vec_dbl = 32 x 2 = 64 doubles] each in SSE2 mode, total = 64 vec_dbl = 32 vec_cmplx
+		nbytes = (long)r20 - (long)r00;
+		memcpy(add0, r00, nbytes);	// add0 = a + j1pad;
+		memcpy(add1, r20, nbytes);	// add1 = a + j2pad;
+
+	#endif
+		goto loop;	// Skip dyadic-mul and iFFT
+
+	} else {
+
+	  // Structure remaining 2 options as nested if() subclause to allow sharing of several hundred lines of sincos-multiplier-related code:
+
+	  if (fwd_fft_only) {	// 2-input modmul: fwdFFT data dyadic-mul'ed with precomputed 2nd-vector stored in fwdFFTed form at address stored in (uint64)-cast form in fwd_fft_only
+
+	  #ifdef USE_AVX512	// The generic pre-dyadic-square macro needs 8 main-array addresses in AVX512 mode
+
+		// process 8 main-array blocks of [8 vec_dbl = 8 x 8 = 64 doubles] each in AVX512 mode, total = 64 vec_dbl = 32 vec_cmplx
+		bdd0 = b + j1pad;
+		bdd2 = bdd0 + 64;	// bdd2 = bdd0 + [64 doubles, equiv to 4 AVX-512 registers]
+		bdd4 = bdd2 + 64;
+		bdd6 = bdd4 + 64;
+		bdd1 = b + j2pad;
+		bdd3 = bdd1 - 64;	// Last 4 offsets run in descending order for Mers-mod
+		bdd5 = bdd3 - 64;
+		bdd7 = bdd5 - 64;
+
+	  #elif defined(USE_AVX)	// The generic pre-dyadic-square macro needs 4 main-array addresses in AVX mode
+	  						// because (add1-add0) and (add3-add2) have opposite signs for fermat and mersenne-mod:
+
+		// process 4 main-array blocks of [16 vec_dbl = 16 x 4 = 64 doubles] each in AVX mode, total = 64 vec_dbl = 32 vec_cmplx
+		bdd0 = b + j1pad;
+		bdd1 = b + j2pad;
+		bdd2 = bdd0 + 64;	// bdd2 = bdd0 + [64 doubles, equiv to 8 AVX registers]
+		bdd3 = bdd1 - 64;	// Last 2 offsets run in descending order for Mers-mod
+
+	  #else	// SSE2:
+
+		// process 2 main-array blocks of [32 vec_dbl = 32 x 2 = 64 doubles] each in SSE2 mode, total = 64 vec_dbl = 32 vec_cmplx
+		bdd0 = b + j1pad;
+		bdd1 = b + j2pad;
+
+	  #endif
+		/* In SSE2 mode, data laid out in memory as described in "Normal execution" section below, with b-inputs similar to
+		a-inputs, just with r00-31 and r32-63 replaced by offsets relative to b-array addresses bdd0 and bdd1, respectively:
+							A-data:									B-data[SSE2]:				B-data[AVX]:			B-data[AVX-512]:
+			r00:a1p00r,a2p00r		r01:a1p00i,a2p00i			bdd0+0x000,bdd0+0x010		bdd0+0x000,bdd0+0x020		bdd0+0x000,bdd0+0x040
+			r02:a1p10r,a2p10r		r03:a1p10i,a2p10i			bdd0+0x020,bdd0+0x030		bdd0+0x040,bdd0+0x060		bdd0+0x080,bdd0+0x0c0
+			r04:a1p08r,a2p08r		r05:a1p08i,a2p08i			bdd0+0x040,bdd0+0x050		bdd0+0x080,bdd0+0x0a0		bdd0+0x100,bdd1+0x140
+			r06:a1p18r,a2p18r		r07:a1p18i,a2p18i			bdd0+0x060,bdd0+0x070		bdd0+0x0c0,bdd0+0x0e0		bdd0+0x180,bdd1+0x1c0
+			r08:a1p04r,a2p04r		r09:a1p04i,a2p04i			bdd0+0x080,bdd0+0x090		bdd0+0x100,bdd0+0x120		bdd1+0x000,bdd2+0x040
+			r0A:a1p14r,a2p14r		r0B:a1p14i,a2p14i			bdd0+0x0a0,bdd0+0x0b0		bdd0+0x140,bdd0+0x160		bdd1+0x080,bdd2+0x0c0
+			r0C:a1p0Cr,a2p0Cr		r0D:a1p0Ci,a2p0Ci			bdd0+0x0c0,bdd0+0x0d0		bdd0+0x180,bdd0+0x1a0		bdd1+0x100,bdd3+0x140
+			r0E:a1p1Cr,a2p1Cr		r0F:a1p1Ci,a2p1Ci			bdd0+0x0e0,bdd0+0x0f0		bdd0+0x1c0,bdd0+0x1e0		bdd1+0x180,bdd3+0x1c0
+			r10:a1p02r,a2p02r		r11:a1p02i,a2p02i			bdd0+0x100,bdd0+0x110		bdd1+0x000,bdd1+0x020		bdd2+0x000,bdd4+0x040
+			r12:a1p12r,a2p12r		r13:a1p12i,a2p12i			bdd0+0x120,bdd0+0x130		bdd1+0x040,bdd1+0x060		bdd2+0x080,bdd4+0x0c0
+			r14:a1p0Ar,a2p0Ar		r15:a1p0Ai,a2p0Ai			bdd0+0x140,bdd0+0x150		bdd1+0x080,bdd1+0x0a0		bdd2+0x100,bdd5+0x140
+			r16:a1p1Ar,a2p1Ar		r17:a1p1Ai,a2p1Ai			bdd0+0x160,bdd0+0x170		bdd1+0x0c0,bdd1+0x0e0		bdd2+0x180,bdd5+0x1c0
+			r18:a1p06r,a2p06r		r19:a1p06i,a2p06i			bdd0+0x180,bdd0+0x190		bdd1+0x100,bdd1+0x120		bdd3+0x000,bdd6+0x040
+			r1A:a1p16r,a2p16r		r1B:a1p16i,a2p16i			bdd0+0x1a0,bdd0+0x1b0		bdd1+0x140,bdd1+0x160		bdd3+0x080,bdd6+0x0c0
+			r1C:a1p0Er,a2p0Er		r1D:a1p0Ei,a2p0Ei			bdd0+0x1c0,bdd0+0x1d0		bdd1+0x180,bdd1+0x1a0		bdd3+0x100,bdd7+0x140
+			r1E:a1p1Er,a2p1Er		r1F:a1p1Ei,a2p1Ei .			bdd0+0x1e0,bdd0+0x1f0		bdd1+0x1c0,bdd1+0x1e0		bdd3+0x180,bdd7+0x1c0
+			r20:a1p01r,a2p01r		r21:a1p01i,a2p01i			bdd1+0x000,bdd1+0x010		bdd2+0x000,bdd2+0x020		bdd4+0x000,bdd0+0x040
+			r22:a1p11r,a2p11r		r23:a1p11i,a2p11i			bdd1+0x020,bdd1+0x030		bdd2+0x040,bdd2+0x060		bdd4+0x080,bdd0+0x0c0
+			r24:a1p09r,a2p09r		r25:a1p09i,a2p09i			bdd1+0x040,bdd1+0x050		bdd2+0x080,bdd2+0x0a0		bdd4+0x100,bdd1+0x140
+			r26:a1p19r,a2p19r		r27:a1p19i,a2p19i			bdd1+0x060,bdd1+0x070		bdd2+0x0c0,bdd2+0x0e0		bdd4+0x180,bdd1+0x1c0
+			r28:a1p05r,a2p05r		r29:a1p05i,a2p05i			bdd1+0x080,bdd1+0x090		bdd2+0x100,bdd2+0x120		bdd5+0x000,bdd2+0x040
+			r2A:a1p15r,a2p15r		r2B:a1p15i,a2p15i			bdd1+0x0a0,bdd1+0x0b0		bdd2+0x140,bdd2+0x160		bdd5+0x080,bdd2+0x0c0
+			r2C:a1p0Dr,a2p0Dr		r2D:a1p0Di,a2p0Di			bdd1+0x0c0,bdd1+0x0d0		bdd2+0x180,bdd2+0x1a0		bdd5+0x100,bdd3+0x140
+			r2E:a1p1Dr,a2p1Dr		r2F:a1p1Di,a2p1Di			bdd1+0x0e0,bdd1+0x0f0		bdd2+0x1c0,bdd2+0x1e0		bdd5+0x180,bdd3+0x1c0
+			r30:a1p03r,a2p03r		r31:a1p03i,a2p03i			bdd1+0x100,bdd1+0x110		bdd3+0x000,bdd3+0x020		bdd6+0x000,bdd4+0x040
+			r32:a1p13r,a2p13r		r33:a1p13i,a2p13i			bdd1+0x120,bdd1+0x130		bdd3+0x040,bdd3+0x060		bdd6+0x080,bdd4+0x0c0
+			r34:a1p0Br,a2p0Br		r35:a1p0Bi,a2p0Bi			bdd1+0x140,bdd1+0x150		bdd3+0x080,bdd3+0x0a0		bdd6+0x100,bdd5+0x140
+			r36:a1p1Br,a2p1Br		r37:a1p1Bi,a2p1Bi			bdd1+0x160,bdd1+0x170		bdd3+0x0c0,bdd3+0x0e0		bdd6+0x180,bdd5+0x1c0
+			r38:a1p07r,a2p07r		r39:a1p07i,a2p07i			bdd1+0x180,bdd1+0x190		bdd3+0x100,bdd3+0x120		bdd7+0x000,bdd6+0x040
+			r3A:a1p17r,a2p17r		r3B:a1p17i,a2p17i			bdd1+0x1a0,bdd1+0x1b0		bdd3+0x140,bdd3+0x160		bdd7+0x080,bdd6+0x0c0
+			r3C:a1p0Fr,a2p0Fr		r3D:a1p0Fi,a2p0Fi			bdd1+0x1c0,bdd1+0x1d0		bdd3+0x180,bdd3+0x1a0		bdd7+0x100,bdd7+0x140
+			r3E:a1p1Fr,a2p1Fr		r3F:a1p1Fi,a2p1Fi .			bdd1+0x1e0,bdd1+0x1f0		bdd3+0x1c0,bdd3+0x1e0		bdd7+0x180,bdd7+0x1c0
+		The modified call sequence below takes advantage of that, by processing data which are in 8 XMM registers in-place.
+		*/
+		// Premultiply RT,IT by 0.25 here to avoid awkward mul-by-0.25s in PAIR_MUL_4 macros:
+		dmult = 0.25;
+	  } else {
+		dmult = 1.0;
+	  }	// endif(fwd_fft_only != 0 or == 0)
+
+		re *= dmult;	im *= dmult;
 		t01=(re-im)*ISRT2;	t02=(re+im)*ISRT2;
 
 		re0=re*c;	im0=im*s;	re1=re*s;	im1=im*c;
@@ -3083,8 +3627,8 @@ Scalar-dbl:	r0	i0	r1	i1	r2	i2	r3	i3	r4	i4	r5	i5	r6	i6	r7	i7	r8	i8	r9	i9	r10	i10	
 		tmp6->d0 =t05;		tmp7->d0 =t06;
 		tmp6->d1 =t08;		tmp7->d1 =t07;
 
-	#ifdef USE_AVX
-		re = c01->d2;		im = (c01+1)->d2;	// Notice we only use even-indexed ->d* values to set RT,IT in SIMD mode
+	  #ifdef USE_AVX
+		re = dmult*c01->d2;	im = dmult*(c01+1)->d2;	// Notice we only use even-indexed ->d* values to set RT,IT in SIMD mode
 		t01=(re-im)*ISRT2;	t02=(re+im)*ISRT2;
 
 		re0=re*c;	im0=im*s;	re1=re*s;	im1=im*c;
@@ -3110,10 +3654,10 @@ Scalar-dbl:	r0	i0	r1	i1	r2	i2	r3	i3	r4	i4	r5	i5	r6	i6	r7	i7	r8	i8	r9	i9	r10	i10	
 
 		tmp6->d2 =t05;		tmp7->d2 =t06;
 		tmp6->d3 =t08;		tmp7->d3 =t07;
-	#endif
+	  #endif
 
-	#ifdef USE_AVX512
-		re = c01->d4;		im = (c01+1)->d4;	// AVX-512 uses d4...
+	  #ifdef USE_AVX512
+		re = dmult*c01->d4;	im = dmult*(c01+1)->d4;	// AVX-512 uses d4...
 		t01=(re-im)*ISRT2;	t02=(re+im)*ISRT2;
 
 		re0=re*c;	im0=im*s;	re1=re*s;	im1=im*c;
@@ -3140,7 +3684,7 @@ Scalar-dbl:	r0	i0	r1	i1	r2	i2	r3	i3	r4	i4	r5	i5	r6	i6	r7	i7	r8	i8	r9	i9	r10	i10	
 		tmp6->d4 =t05;		tmp7->d4 =t06;
 		tmp6->d5 =t08;		tmp7->d5 =t07;
 
-		re = c01->d6;		im = (c01+1)->d6;	// ...and d6.
+		re = dmult*c01->d6;	im = dmult*(c01+1)->d6;	// ...and d6.
 		t01=(re-im)*ISRT2;	t02=(re+im)*ISRT2;
 
 		re0=re*c;	im0=im*s;	re1=re*s;	im1=im*c;
@@ -3166,192 +3710,251 @@ Scalar-dbl:	r0	i0	r1	i1	r2	i2	r3	i3	r4	i4	r5	i5	r6	i6	r7	i7	r8	i8	r9	i9	r10	i10	
 
 		tmp6->d6 =t05;		tmp7->d6 =t06;
 		tmp6->d7 =t08;		tmp7->d7 =t07;
-	#endif
+	  #endif
 
-	#ifdef USE_AVX2
+	  if (fwd_fft_only) {	// 2-input modmul: fwdFFT data dyadic-mul'ed with precomputed 2nd-vector stored in fwdFFTed form at address stored in (uint64)-cast form in fwd_fft_only
+
+	  #ifdef USE_AVX512		// Register blocks beginning with r00,08,10,18,20,28,30,38 map to memlocs bdd0-7, no offsets >= 8:
+		bpt0 = (vec_dbl*)bdd0+0x0; bpt1 = (vec_dbl*)bdd2+0x0; bpt2 = (vec_dbl*)bdd5+0x6; bpt3 = (vec_dbl*)bdd7+0x6;	// 00,10,2E,3E
+	  #elif defined(USE_AVX)// Register blocks beginning with r00,10,20,30 map to memlocs bdd0-3, no offsets >= 16:
+		bpt0 = (vec_dbl*)bdd0+0x0; bpt1 = (vec_dbl*)bdd1+0x0; bpt2 = (vec_dbl*)bdd2+0xe; bpt3 = (vec_dbl*)bdd3+0xe;	// 00,10,2E,3E
+	  #else			// SSE2: Register blocks beginning with r00,r20 map to memlocs bdd0-1, no offsets >= 32:
+		bpt0 = (vec_dbl*)bdd0+0x0; bpt1 = (vec_dbl*)bdd0+0x10; bpt2 = (vec_dbl*)bdd1+0xe; bpt3 = (vec_dbl*)bdd1+0x1e;	// 00,10,2E,3E
+	  #endif
+		PAIR_MUL_4_SSE2(r00,r10,r2E,r3E, bpt0,bpt1,bpt2,bpt3, tmp0,tmp1,forth);
+
+	  #ifdef USE_AVX512		// Register blocks beginning with r00,08,10,18,20,28,30,38 map to memlocs bdd0-7, no offsets >= 8:
+		bpt0 = (vec_dbl*)bdd1+0x0; bpt1 = (vec_dbl*)bdd3+0x0; bpt2 = (vec_dbl*)bdd4+0x6; bpt3 = (vec_dbl*)bdd6+0x6;	// 08,18,26,36
+	  #elif defined(USE_AVX)// Register blocks beginning with r00,10,20,30 map to memlocs bdd0-3, no offsets >= 16:
+		bpt0 = (vec_dbl*)bdd0+0x8; bpt1 = (vec_dbl*)bdd1+0x8; bpt2 = (vec_dbl*)bdd2+0x6; bpt3 = (vec_dbl*)bdd3+0x6;	// 08,18,26,36
+	  #else			// SSE2: Register blocks beginning with r00,r20 map to memlocs bdd0-1, no offsets >= 32:
+		bpt0 = (vec_dbl*)bdd0+0x8; bpt1 = (vec_dbl*)bdd0+0x18; bpt2 = (vec_dbl*)bdd1+0x6; bpt3 = (vec_dbl*)bdd1+0x16;	// 08,18,26,36
+	  #endif
+		PAIR_MUL_4_SSE2(r08,r18,r26,r36, bpt0,bpt1,bpt2,bpt3, tmp2,tmp3,forth);
+
+	  #ifdef USE_AVX512		// Register blocks beginning with r1,5,9,13,17,21,25,29 map to memlocs bdd0-7, no offsets >= 4:
+		bpt0 = (vec_dbl*)bdd0+0x4; bpt1 = (vec_dbl*)bdd2+0x4; bpt2 = (vec_dbl*)bdd5+0x2; bpt3 = (vec_dbl*)bdd7+0x2;	// 04,14,2A,3A
+	  #elif defined(USE_AVX)// Register blocks beginning with r1,9,17,25 map to memlocs bdd0-3, no offsets >= 8:
+		bpt0 = (vec_dbl*)bdd0+0x4; bpt1 = (vec_dbl*)bdd1+0x4; bpt2 = (vec_dbl*)bdd2+0xa; bpt3 = (vec_dbl*)bdd3+0xa;	// 04,14,2A,3A
+	  #else			// SSE2: Register blocks beginning with r1,17 map to memlocs bdd0-1, no offsets >= 16:
+		bpt0 = (vec_dbl*)bdd0+0x4; bpt1 = (vec_dbl*)bdd0+0x14; bpt2 = (vec_dbl*)bdd1+0xa; bpt3 = (vec_dbl*)bdd1+0x1a;	// 04,14,2A,3A
+	  #endif
+		PAIR_MUL_4_SSE2(r04,r14,r2A,r3A, bpt0,bpt1,bpt2,bpt3, tmp4,tmp5,forth);
+
+	  #ifdef USE_AVX512		// Register blocks beginning with r1,5,9,13,17,21,25,29 map to memlocs bdd0-7, no offsets >= 4:
+		bpt0 = (vec_dbl*)bdd1+0x4; bpt1 = (vec_dbl*)bdd3+0x4; bpt2 = (vec_dbl*)bdd4+0x2; bpt3 = (vec_dbl*)bdd6+0x2;	// 0C,1C,22,32
+	  #elif defined(USE_AVX)// Register blocks beginning with r1,9,17,25 map to memlocs bdd0-3, no offsets >= 8:
+		bpt0 = (vec_dbl*)bdd0+0xc; bpt1 = (vec_dbl*)bdd1+0xc; bpt2 = (vec_dbl*)bdd2+0x2; bpt3 = (vec_dbl*)bdd3+0x2;	// 0C,1C,22,32
+	  #else			// SSE2: Register blocks beginning with r1,17 map to memlocs bdd0-1, no offsets >= 16:
+		bpt0 = (vec_dbl*)bdd0+0xc; bpt1 = (vec_dbl*)bdd0+0x1c; bpt2 = (vec_dbl*)bdd1+0x2; bpt3 = (vec_dbl*)bdd1+0x12;	// 0C,1C,22,32
+	  #endif
+		PAIR_MUL_4_SSE2(r0C,r1C,r22,r32, bpt0,bpt1,bpt2,bpt3, tmp6,tmp7,forth);
+
+	  } else {	// fwd_fft_only = 0: Normal execution, dyadic-squaring followed by iFFT:
+
+		/*
+		!...send the pairs of complex elements which are to be combined and sincos temporaries needed for the squaring to a
+		!   small subroutine. The j1 = 0 case is again exceptional. [For this reason we don't supply SSE2 code it - not worth the work].
+		*/
+	  #ifdef USE_AVX2
 		PAIR_SQUARE_4_AVX2(r00,r10,r2E,r3E, tmp0,tmp1,
 						   r08,r18,r26,r36, tmp2,tmp3,forth);
 		PAIR_SQUARE_4_AVX2(r04,r14,r2A,r3A, tmp4,tmp5,
 						   r0C,r1C,r22,r32, tmp6,tmp7,forth);
-	#else
+	  #else
 		PAIR_SQUARE_4_SSE2(r00,r10,r2E,r3E, tmp0,tmp1,forth);
 		PAIR_SQUARE_4_SSE2(r08,r18,r26,r36, tmp2,tmp3,forth);
 		PAIR_SQUARE_4_SSE2(r04,r14,r2A,r3A, tmp4,tmp5,forth);
 		PAIR_SQUARE_4_SSE2(r0C,r1C,r22,r32, tmp6,tmp7,forth);
-	#endif
+	  #endif
 
-	// Permute the sincos-multiplier data:
-	#ifdef USE_ARM_V8_SIMD
+	  }	// endif(fwd_fft_only != 0 or == 0)
 
-	__asm__ volatile (\
-		"ldr	x0,%[tmp0]			\n\t"\
-		"ldp	q0,q1,[x0      ]	\n\t"\
-		"ldp	q2,q3,[x0,#0x20]	\n\t"\
-		"ldp	q4,q5,[x0,#0x40]	\n\t"\
-		"ldp	q6,q7,[x0,#0x60]	\n\t"\
-		"ext v0.16b,v0.16b,v0.16b,#8	\n\t"\
-		"ext v1.16b,v1.16b,v1.16b,#8	\n\t"\
-		"ext v2.16b,v2.16b,v2.16b,#8	\n\t"\
-		"ext v3.16b,v3.16b,v3.16b,#8	\n\t"\
-		"ext v4.16b,v4.16b,v4.16b,#8	\n\t"\
-		"ext v5.16b,v5.16b,v5.16b,#8	\n\t"\
-		"ext v6.16b,v6.16b,v6.16b,#8	\n\t"\
-		"ext v7.16b,v7.16b,v7.16b,#8	\n\t"\
-		"stp	q0,q1,[x0      ]	\n\t"\
-		"stp	q2,q3,[x0,#0x20]	\n\t"\
-		"stp	q4,q5,[x0,#0x40]	\n\t"\
-		"stp	q6,q7,[x0,#0x60]	\n\t"\
-		:					// outputs: none
-		: [tmp0] "m" (tmp0)	// All inputs from memory addresses here
-		: "cc","memory","x0","x1","v0","v1","v2","v3","v4","v5","v6","v7"	/* Clobbered registers */\
-	);
+	  // Permute the sincos-multiplier data:
+	  #ifdef USE_ARM_V8_SIMD
 
-	#elif defined(USE_AVX512)
+		__asm__ volatile (\
+			"ldr	x0,%[tmp0]			\n\t"\
+			"ldp	q0,q1,[x0      ]	\n\t"\
+			"ldp	q2,q3,[x0,#0x20]	\n\t"\
+			"ldp	q4,q5,[x0,#0x40]	\n\t"\
+			"ldp	q6,q7,[x0,#0x60]	\n\t"\
+			"ext v0.16b,v0.16b,v0.16b,#8	\n\t"\
+			"ext v1.16b,v1.16b,v1.16b,#8	\n\t"\
+			"ext v2.16b,v2.16b,v2.16b,#8	\n\t"\
+			"ext v3.16b,v3.16b,v3.16b,#8	\n\t"\
+			"ext v4.16b,v4.16b,v4.16b,#8	\n\t"\
+			"ext v5.16b,v5.16b,v5.16b,#8	\n\t"\
+			"ext v6.16b,v6.16b,v6.16b,#8	\n\t"\
+			"ext v7.16b,v7.16b,v7.16b,#8	\n\t"\
+			"stp	q0,q1,[x0      ]	\n\t"\
+			"stp	q2,q3,[x0,#0x20]	\n\t"\
+			"stp	q4,q5,[x0,#0x40]	\n\t"\
+			"stp	q6,q7,[x0,#0x60]	\n\t"\
+			:					// outputs: none
+			: [tmp0] "m" (tmp0)	// All inputs from memory addresses here
+			: "cc","memory","x0","x1","v0","v1","v2","v3","v4","v5","v6","v7"	/* Clobbered registers */\
+		);
+
+	  #elif defined(USE_AVX512)
 		// AVX-512 version has shufpd immediate = 0x55 = 01010101_2, which is the fourfold analog of the SSE2 imm8 = 1 = 01_2:
-	__asm__ volatile (\
-		"movq	%[tmp0],%%rax\n\t"\
-		"vmovaps	     (%%rax),%%zmm0\n\t"\
-		"vmovaps	0x040(%%rax),%%zmm1\n\t"\
-		"vmovaps	0x080(%%rax),%%zmm2\n\t"\
-		"vmovaps	0x0c0(%%rax),%%zmm3\n\t"\
-		"vmovaps	0x100(%%rax),%%zmm4\n\t"\
-		"vmovaps	0x140(%%rax),%%zmm5\n\t"\
-		"vmovaps	0x180(%%rax),%%zmm6\n\t"\
-		"vmovaps	0x1c0(%%rax),%%zmm7\n\t"\
-		"vshufpd	$0x55,%%zmm0,%%zmm0,%%zmm0\n\t"\
-		"vshufpd	$0x55,%%zmm1,%%zmm1,%%zmm1\n\t"\
-		"vshufpd	$0x55,%%zmm2,%%zmm2,%%zmm2\n\t"\
-		"vshufpd	$0x55,%%zmm3,%%zmm3,%%zmm3\n\t"\
-		"vshufpd	$0x55,%%zmm4,%%zmm4,%%zmm4\n\t"\
-		"vshufpd	$0x55,%%zmm5,%%zmm5,%%zmm5\n\t"\
-		"vshufpd	$0x55,%%zmm6,%%zmm6,%%zmm6\n\t"\
-		"vshufpd	$0x55,%%zmm7,%%zmm7,%%zmm7\n\t"\
-		"vmovaps	%%zmm0,     (%%rax)\n\t"\
-		"vmovaps	%%zmm1,0x040(%%rax)\n\t"\
-		"vmovaps	%%zmm2,0x080(%%rax)\n\t"\
-		"vmovaps	%%zmm3,0x0c0(%%rax)\n\t"\
-		"vmovaps	%%zmm4,0x100(%%rax)\n\t"\
-		"vmovaps	%%zmm5,0x140(%%rax)\n\t"\
-		"vmovaps	%%zmm6,0x180(%%rax)\n\t"\
-		"vmovaps	%%zmm7,0x1c0(%%rax)\n\t"\
-		:					// outputs: none
-		: [tmp0] "m" (tmp0)	// All inputs from memory addresses here
-		: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
-	);
+		__asm__ volatile (\
+			"movq	%[tmp0],%%rax\n\t"\
+			"vmovaps	     (%%rax),%%zmm0\n\t"\
+			"vmovaps	0x040(%%rax),%%zmm1\n\t"\
+			"vmovaps	0x080(%%rax),%%zmm2\n\t"\
+			"vmovaps	0x0c0(%%rax),%%zmm3\n\t"\
+			"vmovaps	0x100(%%rax),%%zmm4\n\t"\
+			"vmovaps	0x140(%%rax),%%zmm5\n\t"\
+			"vmovaps	0x180(%%rax),%%zmm6\n\t"\
+			"vmovaps	0x1c0(%%rax),%%zmm7\n\t"\
+			"vshufpd	$0x55,%%zmm0,%%zmm0,%%zmm0\n\t"\
+			"vshufpd	$0x55,%%zmm1,%%zmm1,%%zmm1\n\t"\
+			"vshufpd	$0x55,%%zmm2,%%zmm2,%%zmm2\n\t"\
+			"vshufpd	$0x55,%%zmm3,%%zmm3,%%zmm3\n\t"\
+			"vshufpd	$0x55,%%zmm4,%%zmm4,%%zmm4\n\t"\
+			"vshufpd	$0x55,%%zmm5,%%zmm5,%%zmm5\n\t"\
+			"vshufpd	$0x55,%%zmm6,%%zmm6,%%zmm6\n\t"\
+			"vshufpd	$0x55,%%zmm7,%%zmm7,%%zmm7\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)\n\t"\
+			"vmovaps	%%zmm2,0x080(%%rax)\n\t"\
+			"vmovaps	%%zmm3,0x0c0(%%rax)\n\t"\
+			"vmovaps	%%zmm4,0x100(%%rax)\n\t"\
+			"vmovaps	%%zmm5,0x140(%%rax)\n\t"\
+			"vmovaps	%%zmm6,0x180(%%rax)\n\t"\
+			"vmovaps	%%zmm7,0x1c0(%%rax)\n\t"\
+			:					// outputs: none
+			: [tmp0] "m" (tmp0)	// All inputs from memory addresses here
+			: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		);
 
-	#elif defined(USE_AVX)	// 64-bit AVX build
+	  #elif defined(USE_AVX)	// 64-bit AVX build
 
-	// AVX version has shufpd immediate = 5 = 0101_2, which is the doubled analog of the SSE2 imm8 = 1 = 01_2:
-	__asm__ volatile (\
-		"movq	%[tmp0],%%rax\n\t"\
-		"vmovaps	    (%%rax),%%ymm0\n\t"\
-		"vmovaps	0x20(%%rax),%%ymm1\n\t"\
-		"vmovaps	0x40(%%rax),%%ymm2\n\t"\
-		"vmovaps	0x60(%%rax),%%ymm3\n\t"\
-		"vmovaps	0x80(%%rax),%%ymm4\n\t"\
-		"vmovaps	0xa0(%%rax),%%ymm5\n\t"\
-		"vmovaps	0xc0(%%rax),%%ymm6\n\t"\
-		"vmovaps	0xe0(%%rax),%%ymm7\n\t"\
-		"vshufpd	$5,%%ymm0,%%ymm0,%%ymm0\n\t"\
-		"vshufpd	$5,%%ymm1,%%ymm1,%%ymm1\n\t"\
-		"vshufpd	$5,%%ymm2,%%ymm2,%%ymm2\n\t"\
-		"vshufpd	$5,%%ymm3,%%ymm3,%%ymm3\n\t"\
-		"vshufpd	$5,%%ymm4,%%ymm4,%%ymm4\n\t"\
-		"vshufpd	$5,%%ymm5,%%ymm5,%%ymm5\n\t"\
-		"vshufpd	$5,%%ymm6,%%ymm6,%%ymm6\n\t"\
-		"vshufpd	$5,%%ymm7,%%ymm7,%%ymm7\n\t"\
-		"vmovaps	%%ymm0,    (%%rax)\n\t"\
-		"vmovaps	%%ymm1,0x20(%%rax)\n\t"\
-		"vmovaps	%%ymm2,0x40(%%rax)\n\t"\
-		"vmovaps	%%ymm3,0x60(%%rax)\n\t"\
-		"vmovaps	%%ymm4,0x80(%%rax)\n\t"\
-		"vmovaps	%%ymm5,0xa0(%%rax)\n\t"\
-		"vmovaps	%%ymm6,0xc0(%%rax)\n\t"\
-		"vmovaps	%%ymm7,0xe0(%%rax)\n\t"\
-		:					// outputs: none
-		: [tmp0] "m" (tmp0)	// All inputs from memory addresses here
-		: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
-	);
+		// AVX version has shufpd immediate = 5 = 0101_2, which is the doubled analog of the SSE2 imm8 = 1 = 01_2:
+		__asm__ volatile (\
+			"movq	%[tmp0],%%rax\n\t"\
+			"vmovaps	    (%%rax),%%ymm0\n\t"\
+			"vmovaps	0x20(%%rax),%%ymm1\n\t"\
+			"vmovaps	0x40(%%rax),%%ymm2\n\t"\
+			"vmovaps	0x60(%%rax),%%ymm3\n\t"\
+			"vmovaps	0x80(%%rax),%%ymm4\n\t"\
+			"vmovaps	0xa0(%%rax),%%ymm5\n\t"\
+			"vmovaps	0xc0(%%rax),%%ymm6\n\t"\
+			"vmovaps	0xe0(%%rax),%%ymm7\n\t"\
+			"vshufpd	$5,%%ymm0,%%ymm0,%%ymm0\n\t"\
+			"vshufpd	$5,%%ymm1,%%ymm1,%%ymm1\n\t"\
+			"vshufpd	$5,%%ymm2,%%ymm2,%%ymm2\n\t"\
+			"vshufpd	$5,%%ymm3,%%ymm3,%%ymm3\n\t"\
+			"vshufpd	$5,%%ymm4,%%ymm4,%%ymm4\n\t"\
+			"vshufpd	$5,%%ymm5,%%ymm5,%%ymm5\n\t"\
+			"vshufpd	$5,%%ymm6,%%ymm6,%%ymm6\n\t"\
+			"vshufpd	$5,%%ymm7,%%ymm7,%%ymm7\n\t"\
+			"vmovaps	%%ymm0,    (%%rax)\n\t"\
+			"vmovaps	%%ymm1,0x20(%%rax)\n\t"\
+			"vmovaps	%%ymm2,0x40(%%rax)\n\t"\
+			"vmovaps	%%ymm3,0x60(%%rax)\n\t"\
+			"vmovaps	%%ymm4,0x80(%%rax)\n\t"\
+			"vmovaps	%%ymm5,0xa0(%%rax)\n\t"\
+			"vmovaps	%%ymm6,0xc0(%%rax)\n\t"\
+			"vmovaps	%%ymm7,0xe0(%%rax)\n\t"\
+			:					// outputs: none
+			: [tmp0] "m" (tmp0)	// All inputs from memory addresses here
+			: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		);
 
-	#elif OS_BITS == 64		// 64-bit SSE2 build
+	  #elif OS_BITS == 64		// 64-bit SSE2 build
 
-	__asm__ volatile (\
-		"movq	%[tmp0],%%rax\n\t"\
-		"movaps	    (%%rax),%%xmm0\n\t"\
-		"movaps	0x10(%%rax),%%xmm1\n\t"\
-		"movaps	0x20(%%rax),%%xmm2\n\t"\
-		"movaps	0x30(%%rax),%%xmm3\n\t"\
-		"movaps	0x40(%%rax),%%xmm4\n\t"\
-		"movaps	0x50(%%rax),%%xmm5\n\t"\
-		"movaps	0x60(%%rax),%%xmm6\n\t"\
-		"movaps	0x70(%%rax),%%xmm7\n\t"\
-		"shufpd	$1	,%%xmm0	,%%xmm0\n\t"\
-		"shufpd	$1	,%%xmm1	,%%xmm1\n\t"\
-		"shufpd	$1	,%%xmm2	,%%xmm2\n\t"\
-		"shufpd	$1	,%%xmm3	,%%xmm3\n\t"\
-		"shufpd	$1	,%%xmm4	,%%xmm4\n\t"\
-		"shufpd	$1	,%%xmm5	,%%xmm5\n\t"\
-		"shufpd	$1	,%%xmm6	,%%xmm6\n\t"\
-		"shufpd	$1	,%%xmm7	,%%xmm7\n\t"\
-		"movaps	%%xmm0,    (%%rax)\n\t"\
-		"movaps	%%xmm1,0x10(%%rax)\n\t"\
-		"movaps	%%xmm2,0x20(%%rax)\n\t"\
-		"movaps	%%xmm3,0x30(%%rax)\n\t"\
-		"movaps	%%xmm4,0x40(%%rax)\n\t"\
-		"movaps	%%xmm5,0x50(%%rax)\n\t"\
-		"movaps	%%xmm6,0x60(%%rax)\n\t"\
-		"movaps	%%xmm7,0x70(%%rax)\n\t"\
-		:					// outputs: none
-		: [tmp0] "m" (tmp0)	// All inputs from memory addresses here
-		: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"				// Clobbered registers
-	);
+		__asm__ volatile (\
+			"movq	%[tmp0],%%rax\n\t"\
+			"movaps	    (%%rax),%%xmm0\n\t"\
+			"movaps	0x10(%%rax),%%xmm1\n\t"\
+			"movaps	0x20(%%rax),%%xmm2\n\t"\
+			"movaps	0x30(%%rax),%%xmm3\n\t"\
+			"movaps	0x40(%%rax),%%xmm4\n\t"\
+			"movaps	0x50(%%rax),%%xmm5\n\t"\
+			"movaps	0x60(%%rax),%%xmm6\n\t"\
+			"movaps	0x70(%%rax),%%xmm7\n\t"\
+			"shufpd	$1	,%%xmm0	,%%xmm0\n\t"\
+			"shufpd	$1	,%%xmm1	,%%xmm1\n\t"\
+			"shufpd	$1	,%%xmm2	,%%xmm2\n\t"\
+			"shufpd	$1	,%%xmm3	,%%xmm3\n\t"\
+			"shufpd	$1	,%%xmm4	,%%xmm4\n\t"\
+			"shufpd	$1	,%%xmm5	,%%xmm5\n\t"\
+			"shufpd	$1	,%%xmm6	,%%xmm6\n\t"\
+			"shufpd	$1	,%%xmm7	,%%xmm7\n\t"\
+			"movaps	%%xmm0,    (%%rax)\n\t"\
+			"movaps	%%xmm1,0x10(%%rax)\n\t"\
+			"movaps	%%xmm2,0x20(%%rax)\n\t"\
+			"movaps	%%xmm3,0x30(%%rax)\n\t"\
+			"movaps	%%xmm4,0x40(%%rax)\n\t"\
+			"movaps	%%xmm5,0x50(%%rax)\n\t"\
+			"movaps	%%xmm6,0x60(%%rax)\n\t"\
+			"movaps	%%xmm7,0x70(%%rax)\n\t"\
+			:					// outputs: none
+			: [tmp0] "m" (tmp0)	// All inputs from memory addresses here
+			: "cc","memory","rax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"				// Clobbered registers
+		);
 
-	#else					// 32-bit SSE2 build
+	  #else					// 32-bit SSE2 build
+		#error 32-bit SSE2 build no longer supported as of Mlucas v19!
+	  #endif
 
-	__asm__ volatile (\
-		"movl	%[tmp0],%%eax\n\t"\
-		"movaps	    (%%eax),%%xmm0\n\t"\
-		"movaps	0x10(%%eax),%%xmm1\n\t"\
-		"movaps	0x20(%%eax),%%xmm2\n\t"\
-		"movaps	0x30(%%eax),%%xmm3\n\t"\
-		"movaps	0x40(%%eax),%%xmm4\n\t"\
-		"movaps	0x50(%%eax),%%xmm5\n\t"\
-		"movaps	0x60(%%eax),%%xmm6\n\t"\
-		"movaps	0x70(%%eax),%%xmm7\n\t"\
-		"shufpd	$1	,%%xmm0	,%%xmm0\n\t"\
-		"shufpd	$1	,%%xmm1	,%%xmm1\n\t"\
-		"shufpd	$1	,%%xmm2	,%%xmm2\n\t"\
-		"shufpd	$1	,%%xmm3	,%%xmm3\n\t"\
-		"shufpd	$1	,%%xmm4	,%%xmm4\n\t"\
-		"shufpd	$1	,%%xmm5	,%%xmm5\n\t"\
-		"shufpd	$1	,%%xmm6	,%%xmm6\n\t"\
-		"shufpd	$1	,%%xmm7	,%%xmm7\n\t"\
-		"movaps	%%xmm0,    (%%eax)\n\t"\
-		"movaps	%%xmm1,0x10(%%eax)\n\t"\
-		"movaps	%%xmm2,0x20(%%eax)\n\t"\
-		"movaps	%%xmm3,0x30(%%eax)\n\t"\
-		"movaps	%%xmm4,0x40(%%eax)\n\t"\
-		"movaps	%%xmm5,0x50(%%eax)\n\t"\
-		"movaps	%%xmm6,0x60(%%eax)\n\t"\
-		"movaps	%%xmm7,0x70(%%eax)\n\t"\
-		:					// outputs: none
-		: [tmp0] "m" (tmp0)	// All inputs from memory addresses here
-		: "cc","memory","eax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	// Clobbered registers
-	);
+	  if (fwd_fft_only) {	// 2-input modmul: fwdFFT data dyadic-mul'ed with precomputed 2nd-vector stored in fwdFFTed form at address stored in (uint64)-cast form in fwd_fft_only
 
-	#endif
+	  #ifdef USE_AVX512		// Register blocks beginning with r00,08,10,18,20,28,30,38 map to memlocs bdd0-7, no offsets >= 8:
+		bpt0 = (vec_dbl*)bdd0+0x2; bpt1 = (vec_dbl*)bdd2+0x2; bpt2 = (vec_dbl*)bdd5+0x4; bpt3 = (vec_dbl*)bdd7+0x4;	// 02,12,2C,3C
+	  #elif defined(USE_AVX)// Register blocks beginning with r00,10,20,30 map to memlocs bdd0-3, no offsets >= 16:
+		bpt0 = (vec_dbl*)bdd0+0x2; bpt1 = (vec_dbl*)bdd1+0x2; bpt2 = (vec_dbl*)bdd2+0xc; bpt3 = (vec_dbl*)bdd3+0xc;	// 02,12,2C,3C
+	  #else			// SSE2: Register blocks beginning with r00,r20 map to memlocs bdd0-1, no offsets >= 32:
+		bpt0 = (vec_dbl*)bdd0+0x2; bpt1 = (vec_dbl*)bdd0+0x12; bpt2 = (vec_dbl*)bdd1+0xc; bpt3 = (vec_dbl*)bdd1+0x1c;	// 02,12,2C,3C
+	  #endif
+		PAIR_MUL_4_SSE2(r02,r12,r2C,r3C, bpt0,bpt1,bpt2,bpt3, tmp7,tmp6,forth);
 
-	#ifdef USE_AVX2
+	  #ifdef USE_AVX512		// Register blocks beginning with r00,08,10,18,20,28,30,38 map to memlocs bdd0-7, no offsets >= 8:
+		bpt0 = (vec_dbl*)bdd1+0x2; bpt1 = (vec_dbl*)bdd3+0x2; bpt2 = (vec_dbl*)bdd4+0x4; bpt3 = (vec_dbl*)bdd6+0x4;	// 0A,1A,24,34
+	  #elif defined(USE_AVX)// Register blocks beginning with r00,10,20,30 map to memlocs bdd0-3, no offsets >= 16:
+		bpt0 = (vec_dbl*)bdd0+0xa; bpt1 = (vec_dbl*)bdd1+0xa; bpt2 = (vec_dbl*)bdd2+0x4; bpt3 = (vec_dbl*)bdd3+0x4;	// 0A,1A,24,34
+	  #else			// SSE2: Register blocks beginning with r00,r20 map to memlocs bdd0-1, no offsets >= 32:
+		bpt0 = (vec_dbl*)bdd0+0xa; bpt1 = (vec_dbl*)bdd0+0x1a; bpt2 = (vec_dbl*)bdd1+0x4; bpt3 = (vec_dbl*)bdd1+0x14;	// 0A,1A,24,34
+	  #endif
+		PAIR_MUL_4_SSE2(r0A,r1A,r24,r34, bpt0,bpt1,bpt2,bpt3, tmp5,tmp4,forth);
+
+	  #ifdef USE_AVX512		// Register blocks beginning with r00,08,10,18,20,28,30,38 map to memlocs bdd0-7, no offsets >= 8:
+		bpt0 = (vec_dbl*)bdd0+0x6; bpt1 = (vec_dbl*)bdd2+0x6; bpt2 = (vec_dbl*)bdd5+0x0; bpt3 = (vec_dbl*)bdd7+0x0;	// 06,16,28,38
+	  #elif defined(USE_AVX)// Register blocks beginning with r00,10,20,30 map to memlocs bdd0-3, no offsets >= 16:
+		bpt0 = (vec_dbl*)bdd0+0x6; bpt1 = (vec_dbl*)bdd1+0x6; bpt2 = (vec_dbl*)bdd2+0x8; bpt3 = (vec_dbl*)bdd3+0x8;	// 06,16,28,38
+	  #else			// SSE2: Register blocks beginning with r00,r20 map to memlocs bdd0-1, no offsets >= 32:
+		bpt0 = (vec_dbl*)bdd0+0x6; bpt1 = (vec_dbl*)bdd0+0x16; bpt2 = (vec_dbl*)bdd1+0x8; bpt3 = (vec_dbl*)bdd1+0x18;	// 06,16,28,38
+	  #endif
+		PAIR_MUL_4_SSE2(r06,r16,r28,r38, bpt0,bpt1,bpt2,bpt3, tmp3,tmp2,forth);
+
+	  #ifdef USE_AVX512		// Register blocks beginning with r00,08,10,18,20,28,30,38 map to memlocs bdd0-7, no offsets >= 8:
+		bpt0 = (vec_dbl*)bdd1+0x6; bpt1 = (vec_dbl*)bdd3+0x6; bpt2 = (vec_dbl*)bdd4+0x0; bpt3 = (vec_dbl*)bdd6+0x0;	// 0E,1E,20,30
+	  #elif defined(USE_AVX)// Register blocks beginning with r00,10,20,30 map to memlocs bdd0-3, no offsets >= 16:
+		bpt0 = (vec_dbl*)bdd0+0xe; bpt1 = (vec_dbl*)bdd1+0xe; bpt2 = (vec_dbl*)bdd2+0x0; bpt3 = (vec_dbl*)bdd3+0x0;	// 0E,1E,20,30
+	  #else			// SSE2: Register blocks beginning with r00,r20 map to memlocs bdd0-1, no offsets >= 32:
+		bpt0 = (vec_dbl*)bdd0+0xe; bpt1 = (vec_dbl*)bdd0+0x1e; bpt2 = (vec_dbl*)bdd1+0x0; bpt3 = (vec_dbl*)bdd1+0x10;	// 0E,1E,20,30
+	  #endif
+		PAIR_MUL_4_SSE2(r0E,r1E,r20,r30, bpt0,bpt1,bpt2,bpt3, tmp1,tmp0,forth);
+
+	  } else {	// fwd_fft_only = 0: Normal execution, dyadic-squaring followed by iFFT:
+
+	  #ifdef USE_AVX2
 		PAIR_SQUARE_4_AVX2(r02,r12,r2C,r3C, tmp7,tmp6,
 						   r0A,r1A,r24,r34, tmp5,tmp4,forth);
 		PAIR_SQUARE_4_AVX2(r06,r16,r28,r38, tmp3,tmp2,
 						   r0E,r1E,r20,r30, tmp1,tmp0,forth);
-	#else
+	  #else
 		PAIR_SQUARE_4_SSE2(r02,r12,r2C,r3C, tmp7,tmp6,forth);
 		PAIR_SQUARE_4_SSE2(r0A,r1A,r24,r34, tmp5,tmp4,forth);
 		PAIR_SQUARE_4_SSE2(r06,r16,r28,r38, tmp3,tmp2,forth);
 		PAIR_SQUARE_4_SSE2(r0E,r1E,r20,r30, tmp1,tmp0,forth);
-	#endif
+	  #endif
+
+	  }	// endif(fwd_fft_only != 0 or == 0)
+
+	}	// endif(fwd_fft_only == 1)
 
 	/************************************************************************/
 	/*...And do an inverse DIT radix-32 pass on the squared-data blocks.	*/

@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2012 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -33,7 +33,7 @@ extern "C" {
 /*********** Small-prime-generation stuff: ************/
 
 /* There are 10403 ( = 101*103) base-2 Fermat pseudoprimes < 2^32.
-[Cf. http://home.att.net/~numericana/answer/pseudo.htm#pseudoprime for this and
+[Cf. http://www.numericana.com/answer/pseudo.htm#pseudoprime for this and
 other tables related to the pseudoprimes of various types].
 We split these into 2 subsets - [1] those divisible by 3 or 5 and [2] those not.
 

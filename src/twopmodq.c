@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2015 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -293,8 +293,8 @@ uint64 twopmodq63(uint64 p, uint64 q)
 */
 	jshift = leadz64(pshift);
 	// Extract leftmost 6 bits of pshift and subtract from 64:
-	leadb = ((pshift<<jshift) >> (64-6));
-	start_index = (64-6)-jshift;	/* Leftward bit at which to start the l-r binary powering, assuming
+	leadb = ((pshift<<jshift) >> 58);
+	start_index = 58-jshift;	/* Leftward bit at which to start the l-r binary powering, assuming
 							 the leftmost 6 bits have already been processed via a shift (see next). */
 	zshift = 63 - leadb;	/* Since 6 bits with leftmost bit = 1 is guaranteed
 	 to be in [32,63], the shift count here is in [0, 31].
@@ -441,8 +441,8 @@ uint64 twopmodq63_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	pshift = p + 64;
 	jshift = leadz64(pshift);
 	// Extract leftmost 6 bits of pshift and subtract from 64:
-	leadb = ((pshift<<jshift) >> (64-6));
-	start_index = (64-6)-jshift;
+	leadb = ((pshift<<jshift) >> 58);
+	start_index = 58-jshift;
 	zshift = 63 - leadb;
 	zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
 	pshift = ~pshift;
@@ -624,8 +624,8 @@ uint64 twopmodq63_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 	pshift = p + 64;
 	jshift = leadz64(pshift);
 	// Extract leftmost 6 bits of pshift and subtract from 64:
-	leadb = ((pshift<<jshift) >> (64-6));
-	start_index = (64-6)-jshift;
+	leadb = ((pshift<<jshift) >> 58);
+	start_index = 58-jshift;
 	zshift = 63 - leadb;
 	zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
 	pshift = ~pshift;
@@ -1161,80 +1161,78 @@ uint64 twopmodq63_x8(uint64 q0, uint64 q1, uint64 q2, uint64 q3, uint64 q4, uint
 /***********************************************************************************/
 
 // Conventional positive-power version of twopmodq, returns true mod:
+/*
+Ex:  p = 110527 = 11010111110111111_2
+	p + 64 = 11010111111111111_2
+	jshift = leadz64(p+64) = 47
+Extract leftmost 6 bits of p+64:
+	leadb = ((p+64)<<jshift) >> (64-6) = 53
+	start_index = (64-6)-jshift = 11
+Leftmost 6 bits of = 110101 = 53, so can do those in 1-shot by init x = 2^53;
+Then compute rsqr = R^2 (mod q) = 2^128 (mod q);
+x = mont_mul64(x,rsqr) gives x *= R (mod q), so each ensuing mont_mul64 will preserve the extra power of R.
+Then loop over low (start_index) = 11 bits of p (*not* pshift) = 11110111111_2 from left to right;
+for each bit do an update x = mont_sqr64(x) and mod-double the result if the corrent bit of pshift = 1:
+j	bit	power (+64)
+--	---	------
+10	1	107
+ 9	1	215
+ 8	1	431
+ 7	1	863
+ 6	0	1726
+ 5	1	3453
+ 4	1	6907
+ 3	1	13815
+ 2	1	27631
+ 1	1	55263
+ 0	1	110527
+and a final mont_unity_mul64(x) subtracts 64 from the power, leaving the desired power p = 110527.
+*/
 uint64 twopmmodq64(uint64 p, uint64 q)
 {
-	 int32 j,nshift;
+	 int32 j = leadz64(p);
+	uint32 leadb, start_index, nshift;
 	uint64 qhalf, qinv, x, rsqr;
-	uint64 pshift;
-	uint32 jshift, leadb, start_index, zshift;
-
-	pshift = p + 64;
-	jshift = leadz64(pshift);
-	// Extract leftmost 6 bits of pshift and subtract from 64:
-	leadb = ((pshift<<jshift) >> (64-6));
-	start_index = (64-6)-jshift;
-	zshift = 63 - leadb;
-	zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
-	pshift = ~pshift;
-
+	// Extract leftmost 6 bits of p and subtract from 64:
+	leadb = (p<<j) >> 58;
+	start_index = 58-j;
 	qhalf  = q>>1;	/* = (q-1)/2, since q odd. */
 	nshift = trailz64(q);
 	if(nshift)
 	{
-		ASSERT(HERE, p >= nshift, "twopmodq64 : Must add code to explicitly save offshifted low bits of modulus!");
+		ASSERT(HERE, p >= nshift, "twopmodq64 : Must add code to explicitly save off-shifted low bits of modulus!");
 		q >>= nshift;
 		p -= nshift;	// Must also right-shift dividend by (nshift) bits; for 2^p this means subtracting nshift from p
 	}
 	/* q must be odd for Montgomery-style modmul to work: */
-	ASSERT(HERE, q & 0x1, "q must be odd!");
+	ASSERT(HERE, (q & 0x1) && (q > 1), "q must be odd > 1!");
 	qinv = (q+q+q) ^ (uint64)2;
 	for(j = 0; j < 4; j++)
-	{
 		qinv = qinv*((uint64)2 - q*qinv);
-	}
-
 	/*...Initialize the binary powering...*/
-	// Since zshift is a power of two < 2^128, use streamlined code sequence for 1st iteration:
-	j = start_index-1;
-	x = qinv << zshift;	// MULL64(1 << zshift, qinv, lo) simply amounts to a left-shift of the bits of qinv
-  #ifdef MUL_LOHI64_SUBROUTINE
-	x = __MULH64(q,x);
-  #else
-	MULH64(q,x,x);
-  #endif
-	// hi =  in this instance, which simplifies things:
-	x = q - x;
-	if((pshift >> j) & (uint64)1)
-	{
-		x = x + x - (q & -(x >= qhalf));
-	}
-
+	x = 1ull << leadb;
 	rsqr = radix_power64(q,qinv,2);	// Compute R^2 (mod q) in prep. for Mont-mul with initial seed...
-
 	MONT_MUL64(x,rsqr, q,qinv, x);	// x*R (mod q) = MONT_MUL(x,R^2 (mod q),q,qinv)
-	for(j = start_index-2; j >= 0; j--)
+//	printf("Initial power = 2^(%u+64) mod q = %llu\n",leadb,x);
+	for(j = start_index-1; j >= 0; j--)
 	{
 		MONT_SQR64(x,q,qinv,x);
-		if((p >> j) & (uint64)1)
-		{
-			if(x > qhalf)	/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
-			{
+//	printf("Bit %u = %u\n",j,(p >> j) & (uint64)1);
+		if((p >> j) & (uint64)1) {
+			if(x > qhalf) {	/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 				x = x + x;
 				x -= q;
-			}
-			else
+			} else {
 				x = x + x;
+			}
 		}
 	}
 	MONT_UNITY_MUL64(x,q,qinv,x);	// Un-scale the loop output
-
 	// If we applied an initial right-justify shift to the modulus, restore the shift to the
 	// current (partial) remainder and re-add the off-shifted part of the true remainder.
-	if(nshift)
-	{
+	if(nshift) {
 		x = (x << nshift);// + rem_save;
 	}
-
 	return x;
 }
 
@@ -1296,21 +1294,16 @@ uint64 twopmmodq64(uint64 p, uint64 q)
 // This variant returns the 4 true mods, overwriting the inputs
 void twopmmodq64_q4(uint64 p, uint64 *i0, uint64 *i1, uint64 *i2, uint64 *i3, uint64 *qi0, uint64 *qi1, uint64 *qi2, uint64 *qi3)
 {
-	int32 j;
+	 int32 j = leadz64(p);
 	uint64 q0 = *i0, q1 = *i1, q2 = *i2, q3 = *i3
 	, qinv0, qinv1, qinv2, qinv3
 	, x0, x1, x2, x3
 	, y0, y1, y2, y3;
-	uint64 pshift;
-	uint32 jshift, leadb, start_index, zshift;
+	uint32 leadb, start_index;
 
-	pshift = p + 64;
-	jshift = leadz64(pshift);
-	// Extract leftmost 6 bits of pshift and subtract from 64:
-	leadb = ((pshift<<jshift) >> (64-6));
-	start_index = (64-6)-jshift;
-	zshift = 63 - leadb;
-	pshift = ~pshift;
+	// Extract leftmost 6 bits of p and subtract from 64:
+	leadb = (p<<j) >> 58;
+	start_index = 58-j;
 
 	/* q must be odd for Montgomery-style modmul to work: */
 	ASSERT(HERE, q1 > 1 && q1 > 1 && q2 > 1 && q3 > 1 , "modulus must be > 1!");
@@ -1327,7 +1320,7 @@ void twopmmodq64_q4(uint64 p, uint64 *i0, uint64 *i1, uint64 *i2, uint64 *i3, ui
 		qinv2 = qinv2*((uint64)2 - q2*qinv2);
 		qinv3 = qinv3*((uint64)2 - q3*qinv3);
 	}
-	x0 = x1 = x2 = x3 = 1ull << zshift;
+	x0 = x1 = x2 = x3 = 1ull << leadb;
 	y0 = radix_power64(q0,qinv0,2);	// Compute R^2 (mod q) in prep. for Mont-mul with initial seed...
 	y1 = radix_power64(q1,qinv1,2);
 	y2 = radix_power64(q2,qinv2,2);
@@ -1540,8 +1533,8 @@ uint64 twopmodq64(uint64 p, uint64 q)
 	pshift = p + 64;
 	jshift = leadz64(pshift);
 	// Extract leftmost 6 bits of pshift and subtract from 64:
-	leadb = ((pshift<<jshift) >> (64-6));
-	start_index = (64-6)-jshift;
+	leadb = ((pshift<<jshift) >> 58);
+	start_index = 58-jshift;
 	zshift = 63 - leadb;
 	zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
 	pshift = ~pshift;
@@ -1623,8 +1616,8 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	pshift = p + 64;
 	jshift = leadz64(pshift);
 	// Extract leftmost 6 bits of pshift and subtract from 64:
-	leadb = ((pshift<<jshift) >> (64-6));
-	start_index = (64-6)-jshift;
+	leadb = ((pshift<<jshift) >> 58);
+	start_index = 58-jshift;
 	zshift = 63 - leadb;
 	zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
 	pshift = ~pshift;
@@ -1796,8 +1789,8 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 	pshift = p + 64;
 	jshift = leadz64(pshift);
 	// Extract leftmost 6 bits of pshift and subtract from 64:
-	leadb = ((pshift<<jshift) >> (64-6));
-	start_index = (64-6)-jshift;
+	leadb = ((pshift<<jshift) >> 58);
+	start_index = 58-jshift;
 	zshift = 63 - leadb;
 	zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
 	pshift = ~pshift;
@@ -2061,8 +2054,8 @@ uint64 twopmodq65(uint64 p, uint64 k)
 	pshift = p + 64;
 	jshift = leadz64(pshift);
 	// Extract leftmost 6 bits of pshift and subtract from 64:
-	leadb = ((pshift<<jshift) >> (64-6));
-	start_index = (64-6)-jshift;
+	leadb = ((pshift<<jshift) >> 58);
+	start_index = 58-jshift;
 	zshift = 63 - leadb;
 	pshift = ~pshift;
 
@@ -2213,8 +2206,8 @@ uint64 twopmodq65_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 	pshift = p + 64;
 	jshift = leadz64(pshift);
 	// Extract leftmost 6 bits of pshift and subtract from 64:
-	leadb = ((pshift<<jshift) >> (64-6));
-	start_index = (64-6)-jshift;
+	leadb = ((pshift<<jshift) >> 58);
+	start_index = 58-jshift;
 	zshift = 63 - leadb;
 	pshift = ~pshift;
 
@@ -2364,8 +2357,8 @@ uint64 twopmodq65_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 	pshift = p + 64;
 	jshift = leadz64(pshift);
 	// Extract leftmost 6 bits of pshift and subtract from 64:
-	leadb = ((pshift<<jshift) >> (64-6));
-	start_index = (64-6)-jshift;
+	leadb = ((pshift<<jshift) >> 58);
+	start_index = 58-jshift;
 	zshift = 63 - leadb;
 	pshift = ~pshift;
 

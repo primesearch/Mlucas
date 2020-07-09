@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2016 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -6233,7 +6233,7 @@ o Since (at least on KNL) mod-inverses will be stored in base-2^26 balanced-digi
 
 The second column [*] indicates whether the instruction in question is part of the AVX-512
 Foundation subset (i.e. available on KNL) or some future-deployment subset, as noted.
-The third column [||] indicates the instruction's degree of parallelism with respect to
+The third column [||] indicates the instruction`s degree of parallelism with respect to
 full-register-width AVX-512.
 
 Instruction	*	||	Description
@@ -6258,7 +6258,7 @@ illustrate using a 78-bit example, the largest known factor of MM31,
 	= 9650<<64 + 10298917214042272751
 	= 39528686<<52 + 54962424<<26 + 35992559 :
 
-0. Vector-load of need qinv 8-bit inits from the minv8[] byte-table def'd in mi64.h. This gather-load must needs
+0. Vector-load of need qinv 8-bit inits from the minv8[] byte-table def`d in mi64.h. This gather-load must needs
    use the VPGATHERDD instruction, but no need to mask-off the high 3 bytes of each dword datum gathered
    in the resulting vector because of the self-correcting nature of the ensuing qinv-computing iteration:
 
@@ -6299,7 +6299,7 @@ Based on the above arithmetic structure, we should be able to use 32-bit MULs, c
 	qinv.hi32 = MULL32(-qinv.lo32, tmp32);		2687464443 (this = 5580892910975415291.lo32 and gives 96-bits-good qinv; truncate as desired.)
 
 The only one of the resulting truncated-operand MULs needing restructuring to exploit the capabilities of AVX vec-int arithmetic is the first;
-let's break it down into 32-bit operand sub-multiplies and see how the resulting bits line up:
+let`s break it down into 32-bit operand sub-multiplies and see how the resulting bits line up:
 
 	(q.lo64 * qinv) = (2^32*q.md32 + q.lo32) * (2^32*qinv.md32 + qinv.lo32)
 

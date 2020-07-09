@@ -5,13 +5,13 @@
 # EWM: adapted from https://github.com/MarkRose/primetools/blob/master/mfloop.py by teknohog and Mark Rose, with help rom Gord Palameta.
 
 # This only handles LL testing (first-time and double-check) for now.
-# To-do: Add support for trial factoring work.
+# To-do: Add support for PRP-testing.
 
 # This version can run in parallel with Mlucas, as it uses lockfiles to avoid conflicts when updating files.
 
 ################################################################################
 #                                                                              #
-#   (C) 2017-2018 by Ernst W. Mayer.                                                #
+#   (C) 2017-2019 by Ernst W. Mayer.                                                #
 #                                                                              #
 #  This program is free software; you can redistribute it and/or modify it     #
 #  under the terms of the GNU General Public License as published by the       #
@@ -56,6 +56,7 @@ except ImportError:
     from urllib2 import build_opener
     from urllib2 import HTTPCookieProcessor
 
+primenet_v5_burl = b"http://v5.mersenne.org/v5server/?v=0.95&px=GIMPS"
 primenet_baseurl = b"https://www.mersenne.org/"
 primenet_login = False
 
@@ -63,7 +64,7 @@ def ass_generate(assignment):
 	output = ""
 	for key in assignment:
 		output += key + "=" + assignment[key] + "&"
-	#return output.rstrip("&")
+	# return output.rstrip("&")
 	return output
 
 def debug_print(text):
@@ -156,10 +157,10 @@ def primenet_fetch(num_to_get):
 	# *101	DoubleCheck			Double-checking
 	# *102	WorldRecord			World record primality tests
 	# *104	100Mdigit			100M digit number to LL test (not recommended)
-	#  150						First time PRP tests (Gerbicz)
-	#  151						Doublecheck PRP tests (Gerbicz)
-	#  152						World record sized numbers to PRP test (Gerbicz)
-	#  153						100M digit number to PRP test (Gerbicz)
+	# *150	SmallestAvailPRP	First time PRP tests (Gerbicz)
+	# *151	DoubleCheckPRP		Doublecheck PRP tests (Gerbicz)
+	# *152	WorldRecordPRP		World record sized numbers to PRP test (Gerbicz)
+	# *153	100MdigitPRP		100M digit number to PRP test (Gerbicz)
 	#  160						PRP on Mersenne cofactors
 	#  161						PRP double-checks on Mersenne cofactors
 
@@ -172,7 +173,15 @@ def primenet_fetch(num_to_get):
 		options.worktype = "102"
 	elif options.worktype == "100Mdigit":
 		options.worktype = "104"
-	supported = set(['100','101','102','104'])
+	if options.worktype == "SmallestAvailPRP":
+		options.worktype = "150"
+	elif options.worktype == "DoubleCheckPRP":
+		options.worktype = "151"
+	elif options.worktype == "WorldRecordPRP":
+		options.worktype = "152"
+	elif options.worktype == "100MdigitPRP":
+		options.worktype = "153"
+	supported = set(['100','101','102','104','150','151','152','153'])
 	if not options.worktype in supported:
 		debug_print("Unsupported/unrecognized worktype = " + options.worktype)
 		return []
@@ -183,7 +192,9 @@ def primenet_fetch(num_to_get):
 		"exp_hi": "",
 	}
 	try:
-		r = primenet.open(primenet_baseurl + "manual_assignment/?" + ass_generate(assignment) + "B1=Get+Assignments")
+		openurl = primenet_baseurl + "manual_assignment/?" + ass_generate(assignment) + "B1=Get+Assignments"
+		# debug_print("Fetching work via URL = "+openurl)
+		r = primenet.open(openurl)
 		return greplike(workpattern, r.readlines())
 	except URLError:
 		debug_print("URL open error at primenet_fetch")
@@ -205,10 +216,95 @@ def get_assignment():
 		debug_print("Fetching " + str(num_to_get) + " assignments")
 		new_tasks = primenet_fetch(num_to_get)
 
+	num_fetched = len(new_tasks)
+	# debug_print("Fetched " + str() + " new_tasks: " + str(new_tasks))
 	write_list_file(workfile, new_tasks, "a")
+	if num_fetched < num_to_get:
+		debug_print("Error: Failed to obtain requested number of new assignments, " + str(num_to_get) + " requested, " + str(num_fetched) + " successfully retrieved")
 
 def mersenne_find(line, complete=True):
-	return re.search(r"Program:", line)
+	# Pre-v19 old-style HRF-formatted result used "Program:..."; starting w/v19 JSON-formatted result uses "program",
+	# so take the intersection of those to regexp strings:
+	return re.search(r"rogram", line)
+
+def update_progress():
+	w = read_list_file(workfile)
+	unlock_file(workfile)
+
+	tasks = greplike(workpattern, w)
+	found = re.search('=(.+?),', tasks[0])
+	if found:
+		assignment_id = found.group(1)
+		# debug_print("update_progress: assignment_id = " + assignment_id)
+	else:
+		debug_print("update_progress: Unable to extract valid Primenet assignment ID from first entry in " + workfile + ": " + tasks[0])
+		return []
+	found = re.search(',(.+?),', tasks[0])
+	if found:
+		p = found.group(1)
+		statfile = 'p' + p + '.stat'
+		w = read_list_file(statfile)
+		unlock_file(statfile)
+		# Extract iteration from most-recent statfile entry:
+		found = re.search('= (.+?) ', w[len(w)-1])
+		if found:
+			iter = found.group(1)
+			# debug_print("Iteration = " + iter)
+			percent = str(100*float(iter)/float(p))
+			percent = percent[0:4]
+			# debug_print("% done = " + percent)
+		else:
+			debug_print("update_progress: Unable to find .stat file corresponding to first entry in " + workfile + ": " + tasks[0])
+			return []
+	else:
+		debug_print("update_progress: Unable to extract valid exponent substring from first entry in " + workfile + ": " + tasks[0])
+		return []
+	# Found eligible current-assignment in workfile and a matching p*.stat file with last-entry containing "Iteration = ":
+	mach_id = ""
+	# debug_print("len(mach_id) = " + str(len(mach_id)))
+	w = read_list_file(localfile)
+	unlock_file(localfile)
+	# debug_print("len(localfile) = " + str(len(w)))
+	for i in range(len(w)):
+		found = re.search('mach_id', w[i])
+		if found:
+			j = len(w[i])
+			# Assume primenet-assigned guid is 32 chars, at end of line:
+			mach_id = w[i][j-32:j]
+			break
+	# debug_print("len(mach_id) = " + str(len(mach_id)))
+	if len(mach_id) == 0:
+		debug_print("update_progress: Unable to extract valid mach_id entry from " + localfile)
+		return []
+
+	# Assignment Progress fields:
+	# g= the machine's GUID (32 chars, assigned by Primenet on 1st-contact from a given machine, stored in 'mach_id = ' entry of local.ini file of rundir)
+	# k= the assignment ID (32 chars, follows '=' in Primenet-geerated workfile entries)
+	# stage= LL in this case, although an LL test may be doing TF or P-1 work first so it's possible to be something besides LL
+	# c= the worker thread of the machine ... always sets = 1 for now, elaborate later is desired
+	# p= progress in %-done, 4-char format = xy.z
+	# d= when the client is expected to check in again (in seconds ... 86400 = 24 hours)
+	# e= the ETA of completion - I just set it to 86400/24 hours as an example
+	#
+	ap_url = primenet_v5_burl + "&t=ap&g=" + mach_id + "&k=" + assignment_id + "&stage=LL&c=1&p=" + percent + "&d=86400&e=86400"
+	debug_print("ap_url: " + ap_url)
+	try:
+		r = primenet.open(ap_url)
+		page = r.readlines();
+		# debug_print("update_progress returns: " + str(len(page)) + " lines:")
+		for i in range(len(page)):
+			# debug_print("line[" + str(i) + "] = " + page[i])
+			found = re.search('SUCCESS', page[i])
+			if found:
+				# debug_print("Current-assignment [p = " + p + "] update_progress was successful.")
+				return []
+		# debug_print("Current-assignment [p = " + p + "] update_progress may have failed; return value:")
+		# for i in range(len(page)):
+		#	debug_print("line[" + str(i) + "] = " + page[i])
+	except URLError:
+		debug_print("update_progress: URL open error")
+
+	return []
 
 def submit_work():
 	# Only submit completed work, i.e. the exponent must not exist in worktodo file any more
@@ -251,8 +347,8 @@ def submit_work():
 				post_data = urlencode({"data": sendline})
 				r = primenet.open(primenet_baseurl + "manual_result/default.php", post_data)
 				res = r.read()
-				if "Error code" in res:
-					ibeg = res.find("Error code")
+				if "Error" in res:
+					ibeg = res.find("Error")
 					iend = res.find("</div>", ibeg)
 					print("Submission failed: '" + res[ibeg:iend] + "'")
 				elif "Accepted" in res:
@@ -275,7 +371,7 @@ parser.add_option("-p", "--password", dest="password", help="Primenet password")
 parser.add_option("-w", "--workdir", dest="workdir", default=".", help="Working directory with worktodo.ini and results.txt, default current")
 
 # -t is reserved for timeout, instead use -T for assignment-type preference:
-parser.add_option("-T", "--worktype", dest="worktype", default="101", help="Worktype code, default %(default)s for DC, alternatively 100 (smallest available first-time LL), 102 (world-record-sized first-time LL), 104 (100M digit number to LL test - not recommended)")
+parser.add_option("-T", "--worktype", dest="worktype", default="101", help="Worktype code, default %(default)s for double-check LL, alternatively 100 (smallest available first-time LL), 102 (world-record-sized first-time LL), 104 (100M digit number to LL test - not recommended), 150 (smallest available first-time PRP), 151 (double-check PRP), 152 (world-record-sized first-time PRP), 153 (100M digit number to PRP test - not recommended)")
 
 parser.add_option("-n", "--num_cache", dest="num_cache", default="2", help="Number of assignments to cache, default 2")
 
@@ -287,13 +383,58 @@ progname = os.path.basename(sys.argv[0])
 workdir = os.path.expanduser(options.workdir)
 timeout = int(options.timeout)
 
+localfile = os.path.join(workdir, "local.ini")
 workfile = os.path.join(workdir, "worktodo.ini")
 resultsfile = os.path.join(workdir, "results.txt")
 
 # A cumulative backup
 sentfile = os.path.join(workdir, "results_sent.txt")
 
-workpattern = r"(DoubleCheck|Test)=.*(,[0-9]+){3}"
+# Good refs re. Python regexp: https://www.geeksforgeeks.org/pattern-matching-python-regex/, https://www.python-course.eu/re.php
+# pre-v19 only handled LL-test assignments starting with either DoubleCheck or Test, followed by =, and ending with 3 ,number pairs:
+#
+#	workpattern = r"(DoubleCheck|Test)=.*(,[0-9]+){3}"
+#
+# v19 we add PRP-test support - both first-time and DC of these start with PRP=, the DCs tack on 2 more ,number pairs representing
+# the PRP base to use and the PRP test-tyoe (the latter is a bit complex to explain here). Sample of the 4 worktypes supported by v19:
+#
+#	Test=7A30B8B6C0FC79C534A271D9561F7DCC,89459323,76,1
+#	DoubleCheck=92458E009609BD9E10577F83C2E9639C,50549549,73,1
+#	PRP=BC914675C81023F252E92CF034BEFF6C,1,2,96364649,-1,76,0
+#	PRP=51D650F0A3566D6C256B1679C178163E,1,2,81348457,-1,75,0,3,1
+#
+# and the obvious regexp pattern-modification is
+#
+#	workpattern = r"(DoubleCheck|Test|PRP)=.*(,[0-9]+){3}"
+#
+# Here is where we get to the kind of complication the late baseball-philosopher Yogi Berra captured via his aphorism,
+# "In theory, theory and practice are the same. In practice, they're different". Namely, while the above regexp pattern
+# should work on all 4 assignment patterns, since each has a string of at least 3 comma-separated nonnegative ints somewhere
+# between the 32-hexchar assignment ID and end of the line, said pattern failed on the 3rd of the above 4 assignments,
+# apparently because when the regexp is done via the 'greplike' below, the (,[0-9]+){3} part of the pattern gets implicitly
+# tiled to the end of the input line. Assignment # 3 above happens to have a negative number among the final 3, thus the
+# grep fails. This weird behavior is not reproducible running Python in console mode:
+#
+#	>>> import re
+#	>>> s1 = "DoubleCheck=92458E009609BD9E10577F83C2E9639C,50549549,73,1"
+#	>>> s2 = "Test=7A30B8B6C0FC79C534A271D9561F7DCC,89459323,76,1"
+#	>>> s3 = "PRP=BC914675C81023F252E92CF034BEFF6C,1,2,96364649,-1,76,0"
+#	>>> s4 = "PRP=51D650F0A3566D6C256B1679C178163E,1,2,81348457,-1,75,0,3,1"
+#	>>> print re.search(r"(DoubleCheck|Test|PRP)=.*(,[0-9]+){3}" , s1)
+#	<_sre.SRE_Match object at 0x1004bd250>
+#	>>> print re.search(r"(DoubleCheck|Test|PRP)=.*(,[0-9]+){3}" , s2)
+#	<_sre.SRE_Match object at 0x1004bd250>
+#	>>> print re.search(r"(DoubleCheck|Test|PRP)=.*(,[0-9]+){3}" , s3)
+#	<_sre.SRE_Match object at 0x1004bd250>
+#	>>> print re.search(r"(DoubleCheck|Test|PRP)=.*(,[0-9]+){3}" , s4)
+#	<_sre.SRE_Match object at 0x1004bd250>
+#
+# Anyhow, based on that I modified the grep pattern to work around the weirdness, by appending .* to the pattern, thus
+# changing things to "look for 3 comma-separated nonnegative ints somewhere in the assignment, followed by anything",
+# also now to specifically look for a 32-hexchar assignment ID preceding such a triplet, and to allow whitespace around
+# the =. The latter bit is not  needed based on current server assignment format, just a personal aesthetic bias of mine:
+#
+workpattern = r"(DoubleCheck|Test|PRP)\s*=\s*([0-9A-F]){32}(,[0-9]+){3}.*"
 
 # mersenne.org limit is about 4 KB; stay on the safe side
 sendlimit = 3000
@@ -321,6 +462,9 @@ while True:
 			debug_print("Login failed.")
 		else:
 			primenet_login = True
+			#while update_progress() == "locked":
+			#	debug_print("Waiting for workfile access...")
+			#	sleep(2)
 			while submit_work() == "locked":
 				debug_print("Waiting for results file access...")
 				sleep(2)

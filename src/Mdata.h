@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -70,6 +70,8 @@ i.e. max. 16 bits per digit of the transform vector: */
 
 #define MAX_SELFTEST_ITERS			1000000
 extern int ITERS_BETWEEN_CHECKPOINTS;	/* number of iterations between checkpoints */
+extern int ITERS_BETWEEN_GCHECK_UPDATES;	// #iterations between Gerbicz-checksum updates
+extern int ITERS_BETWEEN_GCHECKS;			// #iterations between Gerbicz-checksum residue-integrity checks
 
 #undef	FACTOR_PASS_MAX
 #define	FACTOR_PASS_MAX	16
@@ -153,8 +155,10 @@ All but the "else" stuff below is specific to factor.c built in standalone mode:
 										assumed to contain FFT length (in K) for which we need to run a timing self-test */
 #define ERR_ASSERT					12	// Assert-type fail but when we need execution to continue (e.g. self-test mode)
 #define ERR_UNKNOWN_FATAL			13	// Halt execution, do not proceed to next worktodo.ini entry (e.g. data corruption suspected)
-#define ERR_INTERRUPT				14	// On one of several interrupt SIGs, exit iteration loop prematurely, write savefiles and exit
-#define ERR_MAX	ERR_INTERRUPT
+#define ERR_SKIP_RADIX_SET			14	// In context of self-testing, not fatal for run overall but skip the current set of FFT radices
+#define ERR_INTERRUPT				15	// On one of several interrupt SIGs, exit iteration loop prematurely, write savefiles and exit
+#define ERR_GERBICZ_CHECK			16
+#define ERR_MAX	ERR_GERBICZ_CHECK
 
 /***********************************************************************************************/
 /* Globals. Unless specified otherwise, these are declared in Mdata.h and defined in Mlucas.c: */
@@ -224,7 +228,7 @@ extern uint64 PMIN;	/* minimum exponent allowed */
 extern uint64 PMAX;	/* maximum exponent allowed */
 
 // Apr 2018 - Support shift count for rotated-residue computations:
-extern uint64 RES_SHIFT;
+extern uint64 RES_SHIFT, GCHECK_SHIFT;
 extern uint64 *BIGWORD_BITMAP;	/* Needed for fast how-many-residue-bits-up-to-this-array-word lookup, which the carry routines
 								use to figure out where to inject the -2 in a rotated-residue LL test using Crandall/Fagin IBDWT.
 								A 1-bit means a bigword (p/n+1 bits); 0 means a smallword (p/n bits), where p/n is integer-div. */
@@ -245,11 +249,43 @@ extern uint64 *BASE_MULTIPLIER_BITS;
 extern uint32 TEST_TYPE;
 #define TEST_TYPE_PRIMALITY			1
 // Dec 2017: Add PRP option. Note in FermatTest mode, the default Pépin test is identical to a 3-PRP; to do a
-// Pépin test to another base, the more-general PRP-worktype must be specified with appropriate parameters:
+// Pépin test to another base, the more-general PRP-worktype must be specified with appropriate parameters.
+/*
+July 2019: e-mail from George W. re. the different kinds of PRP residues supported by the Primenet server:
+
+Prime95 uses a few final GMP steps to produce the same residue as if you had done a standard PRP step.
+If I decipher the code below properly, if you do not do this you would be calculating residue type 3.
+I've tried to convince everyone to return a standard Fermat PRP residue, gpuowl returned type 4 for quite a while.
+
+From the code, here is the description of the 5 residue types --- quite a mess.  Ignore the "mul interim" phase as that has to do with printing interim residues.
+
+	Below is some pseudo-code to show how various input numbers are handled for each PRP residue type (rt=residue type,
+	a=PRP base, E is number for the binary exponentiation code, KF=known factors).  We can do Gerbicz error checking if b=2 and
+	there are a long string of squarings -- which also greatly reduces the number of mul-by-small-consts when c<0.
+
+	   k * 2^n + c
+	if rt=1,5 E=k*2^n, gerbicz after a^k, mul interim by a^-1 if c<0, mul final by a^(c-1), compare to 1
+	if rt=2   E=k*2^(n-1), gerbicz after a^k, mul interim by a^-1 if c<0, mul final by a^((c-1)/2), compare to +/-1
+	if rt=3   E=k*2^n, gerbicz after a^k, mul interim by a^-1 if c<0, compare to a^-(c-1)
+	if rt=4   E=k*2^(n-1), gerbicz after a^k, mul interim by a^-1 if c<0, compare to +/-a^-((c-1)/2)
+
+	   (k * 2^n + c) / KF
+	if rt=1-4 go to general case
+	if rt=5   E=k*2^n, gerbicz after a^k, mul interim by a^-1 if c<0, mul final by a^(c-1), compare to a^(KF-1) mod (N/KF)
+
+	   (k * b^n + c) / KF
+	if rt=1   E=(k*b^n+c)/KF-1, compare to 1
+	if rt=2   E=((k*b^n+c)/KF-1)/2, compare to +/-1
+	if rt=3   E=(k*b^n+c)/KF+1, compare to a^2	 (pointless case, make rt=1)
+	if rt=4   E=((k*b^n+c)/KF+1)/2, compare to +/-a	 (pointless case, make rt=2)
+	if rt=5   E=k*b^n+c-1, compare mod (N/KF) to a^(KF-1)
+
+EWM: For the v19 release, Mlucas will support only PRP type 1|5 (these 2 only differ when accompanied by an ensuing cofactor-PRP test).
+*/
 #define TEST_TYPE_PRP				2
-#define TEST_TYPE_PRPCOFACTOR		3	// Same as PRP, but with one or more known factors also supplied for an ensuing Suyama-style cofactor-PRP test.
-#define TEST_TYPE_MAX				3	// Set = to largest currently-supported test_type
+#define TEST_TYPE_MAX				2	// Set = to largest currently-supported test_type
 // Remaining work types not currently supported:
+#define TEST_TYPE_PRPCOFACTOR		3	// Same as PRP, but with one or more known factors also supplied for an ensuing Suyama-style cofactor-PRP test.
 #define TEST_TYPE_TRIALFACTORING	4
 #define TEST_TYPE_PMINUS1			5
 #define TEST_TYPE_ECM				6
@@ -398,6 +434,8 @@ extern int NRADICES, RADIX_VEC[10];	/* RADIX[] stores sequence of complex FFT ra
 
 extern int ROE_ITER;	// Iteration of any dangerously high ROE encountered during the current iteration interval. This must be > 0, but make signed to allow sign-flip encoding of retry-fail.
 extern double ROE_VAL;	// Value (must be in (0, 0.5)) of dangerously high ROE encountered during the current iteration interval
+extern int USE_SHORT_CY_CHAIN;
+#define USE_SHORT_CY_CHAIN_MAX	2	// This is a fixed const built into the carry-step implementation via the incr_long|med|short values
 
 extern FILE *dbg_file;
 extern double*ADDR0;	// Allows for easy debug on address-read-or-write than setting a watchpoint

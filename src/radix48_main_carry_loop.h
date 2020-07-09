@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -339,13 +339,12 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	  #ifdef LOACC
 
-		uint32 k0,k1,k2,k3, ii,incr,nwtml, loop,nloop = RADIX>>2, co2save = co2;
+		uint32 k0,k1,k2,k3, ii,nwtml, loop,nloop = RADIX>>2, co2save = co2;
 
 		i = (!j);	// Need this to force 0-wod to be bigword
 		addr = &prp_mult;
 		tm1 = s1p00r; tmp = cy; tm2 = cy+0x01; itmp = bjmodn;
 		// Beyond chain length 8, the chained-weights scheme becomes too inaccurate, so re-init seed-wts every few passes:
-		incr = 6;
 		for(loop = 0; loop < nloop; loop += incr)
 		{
 			ii = loop << 2;	// Reflects 4 independent carry chains being done in each SSE2_cmplx_carry_fast_pow2_errcheck call

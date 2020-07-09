@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -1030,16 +1030,16 @@
 		"vmovaps	%%ymm1,%%ymm6				\n\t	vmovaps	%%ymm9 ,%%ymm14					\n\t"/* cpy c1 */\
 		"vsubpd	%%ymm2,%%ymm3,%%ymm3			\n\t	vsubpd	%%ymm10,%%ymm11,%%ymm11			\n\t"/* c4 = t7 -t5 */\
 		"vmovaps	%%ymm1,%%ymm7				\n\t	vmovaps	%%ymm9 ,%%ymm15					\n\t"/* cpy c1 */\
-		"vmulpd	      (%%rsi),%%ymm1,%%ymm1		\n\t	vmulpd	      (%%rsi),%%ymm9 ,%%ymm9	\n\t"/* a0.c1 */\
+	/*	"vmulpd	      (%%rsi),%%ymm1,%%ymm1		\n\t	vmulpd	      (%%rsi),%%ymm9 ,%%ymm9	\n\t"// a0.c1 */\
 		"vmovaps	%%ymm1,(%%r11)				\n\t	vmovaps	%%ymm9 ,0x20(%%r11)				\n\t"/* store copy of a0.c1 in mem */\
 		"vsubpd	%%ymm2,%%ymm4,%%ymm4			\n\t	vsubpd	%%ymm10,%%ymm12,%%ymm12			\n\t"/* c5 = t9-t5 */\
 		"vaddpd	%%ymm5,%%ymm6,%%ymm6			\n\t	vaddpd	%%ymm13,%%ymm14,%%ymm14			\n\t"/* c3 = c1+c2 */\
 		"vsubpd	%%ymm3,%%ymm7,%%ymm7			\n\t	vsubpd	%%ymm11,%%ymm15,%%ymm15			\n\t"/* c7 = c1-c4 */\
-		"vmulpd	 0x0c0(%%rsi),%%ymm7,%%ymm7		\n\t	vmulpd	 0x0c0(%%rsi),%%ymm15,%%ymm15	\n\t"/* a6.c7 */\
+	/*	"vmulpd	 0x0c0(%%rsi),%%ymm7,%%ymm7		\n\t	vmulpd	 0x0c0(%%rsi),%%ymm15,%%ymm15	\n\t"// a6.c7 */\
 		"vmovaps	%%ymm7,(%%r13)				\n\t	vmovaps	%%ymm15,0x20(%%r13)				\n\t"/* store copy of a6.c7 in mem */\
 		"vmovaps	%%ymm3,%%ymm1				\n\t	vmovaps	%%ymm11,%%ymm9					\n\t"/* cpy c4 */\
 		"vaddpd	%%ymm4,%%ymm3,%%ymm3			\n\t	vaddpd	%%ymm12,%%ymm11,%%ymm11			\n\t"/* c6 = c4+c5 */\
-		"vmulpd	 0x060(%%rsi),%%ymm1,%%ymm1		\n\t	vmulpd	 0x060(%%rsi),%%ymm9 ,%%ymm9	\n\t"/* a3.c4 */\
+	/*	"vmulpd	 0x060(%%rsi),%%ymm1,%%ymm1		\n\t	vmulpd	 0x060(%%rsi),%%ymm9 ,%%ymm9	\n\t"// a3.c4 */\
 		"vmovaps	%%ymm1,(%%r12)				\n\t	vmovaps	%%ymm9 ,0x20(%%r12)				\n\t"/* store copy of a3.c4 in mem */\
 		"vmovaps	%%ymm5,%%ymm7				\n\t	vmovaps	%%ymm13,%%ymm15					\n\t"/* cpy c2 */\
 		"vsubpd	%%ymm4,%%ymm5,%%ymm5			\n\t	vsubpd	%%ymm12,%%ymm13,%%ymm13			\n\t"/* c8 = c2-c5 */\
@@ -1056,9 +1056,13 @@
 	"vfmadd132pd 0x080(%%rsi),%%ymm3,%%ymm4		\n\t vfmadd132pd 0x080(%%rsi),%%ymm11,%%ymm12	\n\t"/* c5 = a4.c5+c6 */\
 	"vfmadd132pd 0x0e0(%%rsi),%%ymm6,%%ymm5		\n\t vfmadd132pd 0x0e0(%%rsi),%%ymm14,%%ymm13	\n\t"/* c8 = a7.c8+c9 */\
 	"vfmadd132pd 0x120(%%rsi),%%ymm0,%%ymm2		\n\t vfmadd132pd 0x120(%%rsi),%%ymm8 ,%%ymm10	\n\t"/* c10= a9.c10+B0 */\
-		"vaddpd	(%%r11),%%ymm1,%%ymm1			\n\t	vaddpd	0x20(%%r11),%%ymm9 ,%%ymm9		\n\t"/* c1 = a0.c1+c3 */\
-		"vaddpd	(%%r12),%%ymm3,%%ymm3			\n\t	vaddpd	0x20(%%r12),%%ymm11,%%ymm11		\n\t"/* c4 = a3.c4+c6 */\
-		"vaddpd	(%%r13),%%ymm6,%%ymm6			\n\t	vaddpd	0x20(%%r13),%%ymm14,%%ymm14		\n\t"/* c7 = a6.c7+c9 */\
+/* ymm0,8 free - use to reload c1,4,7 prior to FMA: */\
+		"vmovaps 	(%%r11),%%ymm0				\n\t	vmovaps	0x20(%%r11),%%ymm8	\n\t"\
+	"vfmadd231pd      (%%rsi),%%ymm0,%%ymm1		\n\t vfmadd231pd      (%%r11),%%ymm8 ,%%ymm9 	\n\t"/* c1 = a0.c1+c3 */\
+		"vmovaps 	(%%r12),%%ymm0				\n\t	vmovaps	0x20(%%r12),%%ymm8	\n\t"\
+	"vfmadd231pd 0x060(%%rsi),%%ymm0,%%ymm3		\n\t vfmadd231pd 0x060(%%r12),%%ymm8 ,%%ymm11	\n\t"/* c4 = a3.c4+c6 */\
+		"vmovaps	 (%%r13),%%ymm0				\n\t	vmovaps	0x20(%%r13),%%ymm8	\n\t"\
+	"vfmadd231pd 0x0c0(%%rsi),%%ymm0,%%ymm6		\n\t vfmadd231pd 0x0c0(%%r13),%%ymm8 ,%%ymm14	\n\t"/* c7 = a6.c7+c9 */\
 		"vmovaps	%%ymm2,%%ymm0				\n\t	vmovaps	%%ymm10,%%ymm8					\n\t"/* cpy c10 */\
 		"vsubpd	%%ymm1,%%ymm2,%%ymm2			\n\t	vsubpd	%%ymm9 ,%%ymm10,%%ymm10			\n\t"/* c10-c1 */\
 		"vaddpd	%%ymm0,%%ymm1,%%ymm1			\n\t	vaddpd	%%ymm8 ,%%ymm9 ,%%ymm9			\n\t"/* c10+c1 */\

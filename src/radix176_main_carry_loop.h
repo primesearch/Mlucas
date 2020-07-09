@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -271,18 +271,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		uint32 ii,loop, co2save = co2;
 		// Beyond chain length 8, the chained-weights scheme becomes too inaccurate, so re-init seed-wts every 8th pass or better:
-		// incr must divide nloop [RADIX/8 or RADIX/16, depending on whether we use 8-or-16-way carry macros]!
 	  #ifdef CARRY_16_WAY
 		const uint32 nloop = RADIX>>4;
-		// Normally, fixed-incr must divide RADIX/16 = 11, but that means choice here of 11 (too large) and
-		// 1 (too small). So 'divide 11 into two' via this 2-element increment-array summing to RADIX/16:
-		const uint32 *incr,inc_arr[2] = {6,5};		// Make incr a ptr here ... cf. comment below re. that
 	  #else
 		const uint32 nloop = RADIX>>3;
-		// Normally, fixed-incr must divide RADIX/8 = 22, but that means choice here of 11 (too large) and
-		// 2 (too small). So 'divide 22 into four' via this 4-element increment-array summing to RADIX/8:
-	//	const uint32 *incr,inc_arr[4] = {6,5,6,5};	// Make incr a ptr here ... cf. comment below re. that
-		const uint32 *incr,inc_arr[5] = {4,5,4,5,4};
 	  #endif
 		i = (!j);	// Need this to force 0-wod to be bigword
 		addr = &prp_mult;
@@ -352,14 +344,11 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	  #ifdef LOACC
 
 		uint32 k0,k1,k2,k3, ii,nwtml, loop,nloop = RADIX>>2, co2save = co2;
-	//	const uint32 *incr,inc_arr[] = {4,3,4,4,3,4,4,3,4,4,3,4};	// Array elts must sum to RADIX/4 = 44
-		const uint32 *incr,inc_arr[] = {4,3,3,4,3,3,4,3,3,4,3,3,4};	// Array elts must sum to RADIX/4 = 44
 		i = (!j);	// Need this to force 0-wod to be bigword
 		addr = &prp_mult;
 		tm1 = s1p00; tmp = cy; tm2 = cy+0x01; itmp = bjmodn;
 		// Beyond chain length 8, the chained-weights scheme becomes too inaccurate, so re-init seed-wts every few passes:
-		incr = inc_arr;	// Normally, fixed-incr must divide RADIX/8, but that means choice here of 11 (too large) and
-					// 2 (too small). So 'divide 11 into two' via this 4-element increment-array summing to RADIX/8 = 22.
+		incr = inc_arr;
 		for(loop = 0; loop < nloop; loop += *incr++)
 		{
 			ii = loop << 2;	// Reflects 4 independent carry chains being done in each SSE2_cmplx_carry_fast_pow2_errcheck call

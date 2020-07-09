@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -195,7 +195,7 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 	*/
 	if(init_sse2)	// Just check (init_sse2 != 0) here, to allow the *value* of init_sse2 to store #threads
 	{
-		fprintf(stderr, "radix16_dif_dit_pass pfetch_dist = %d\n", pfetch_dist);
+	//	fprintf(stderr, "radix16_dif_dit_pass pfetch_dist = %d\n", pfetch_dist);
 		max_threads = init_sse2;
 	#ifndef COMPILER_TYPE_GCC
 		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");

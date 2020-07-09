@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -259,7 +259,17 @@ int radix256_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	const int jhi_wrap_mers =  7;
 	const int jhi_wrap_ferm = 15;	// For right-angle transform need *complex* elements for wraparound, so jhi needs to be twice as large
   #endif
-	int NDIVR,i,j,j1,j2,jt,jp,jstart,jhi,full_pass,k,khi,l,ntmp,outer,nbytes;
+	int NDIVR,i,incr,j,j1,j2,jt,jp,jstart,jhi,full_pass,k,khi,l,ntmp,outer,nbytes;
+	// incr = Carry-chain wts-multipliers recurrence length, which must divide
+	// RADIX/[n-wayness of carry macro], e.g. RADIX/[16|8|4] = 64|128|256 for avx512,avx,sse, respectively:
+	const int incr_long = 16,incr_med = 8,incr_short = 4;
+	// Allows cy-macro error data to be used to fiddle incr on the fly to a smaller, safer value if necessary
+	if(USE_SHORT_CY_CHAIN == 0)
+		incr = incr_long;
+	else if(USE_SHORT_CY_CHAIN == 1)
+		incr = incr_med;
+	else
+		incr = incr_short;
 	int k1,k2;
 	int col,co2,co3;
   #ifdef USE_AVX512
@@ -413,7 +423,7 @@ int radix256_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	// v18: If use residue shift in context of Pépin test, need prp_mult = 2 whenever the 'shift = 2*shift + random[0,1]' update gets a 1-bit in the random slot
 	if((TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT)
 	|| (TEST_TYPE & 0xfffffffe) == TEST_TYPE_PRP) {	// Mask off low bit to lump together PRP and PRP-C tests
-		i = (iter % ITERS_BETWEEN_CHECKPOINTS) - 1;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
+		i = (iter-1) % ITERS_BETWEEN_CHECKPOINTS;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
 		if((BASE_MULTIPLIER_BITS[i>>6] >> (i&63)) & 1)
 			prp_mult = PRP_BASE;
 	}
@@ -425,14 +435,10 @@ int radix256_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	if((n_div_nwt << nwt_bits) != NDIVR)
 	{
 		sprintf(cbuf,"FATAL: iter = %10d; NWT_BITS does not divide N/RADIX in %s.\n",iter,func);
-		if(INTERACT)fprintf(stderr,"%s",cbuf);
-		fp = mlucas_fopen(   OFILE,"a");
-		fq = mlucas_fopen(STATFILE,"a");
-		fprintf(fp,"%s",cbuf);
-		fprintf(fq,"%s",cbuf);
-		fclose(fp);	fp = 0x0;
-		fclose(fq);	fq = 0x0;
-		err=ERR_CARRY;
+		if(INTERACT) fprintf(stderr,"%s",cbuf);
+		fp = mlucas_fopen(   OFILE,"a");	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
+		fq = mlucas_fopen(STATFILE,"a");	fprintf(fq,"%s",cbuf);	fclose(fq);	fq = 0x0;
+		err = ERR_SKIP_RADIX_SET;
 		return(err);
 	}
 
@@ -2098,7 +2104,7 @@ for(outer=0; outer <= 1; outer++)
 	ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
 
 	while(tpool && tpool->free_tasks_queue.num_tasks != pool_work_units) {
-		ASSERT(HERE, 0 == nanosleep(&ns_time, 0x0), "nanosleep fail!");
+		ASSERT(HERE, 0 == mlucas_nanosleep(&ns_time), "nanosleep fail!");
 	}
 //	printf("%s end  ; #tasks = %d, #free_tasks = %d\n",func, tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
 
@@ -2214,14 +2220,10 @@ for(outer=0; outer <= 1; outer++)
 	if(dtmp != 0.0)
 	{
 		sprintf(cbuf,"FATAL: iter = %10d; nonzero exit carry in %s - input wordsize may be too small.\n",iter,func);
-		if(INTERACT)fprintf(stderr,"%s",cbuf);
-		fp = mlucas_fopen(   OFILE,"a");
-		fq = mlucas_fopen(STATFILE,"a");
-		fprintf(fp,"%s",cbuf);
-		fprintf(fq,"%s",cbuf);
-		fclose(fp);	fp = 0x0;
-		fclose(fq);	fq = 0x0;
-		err=ERR_CARRY;
+		if(INTERACT) fprintf(stderr,"%s",cbuf);
+		fp = mlucas_fopen(   OFILE,"a");	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
+		fq = mlucas_fopen(STATFILE,"a");	fprintf(fq,"%s",cbuf);	fclose(fq);	fq = 0x0;
+		err = ERR_CARRY;
 		return(err);
 	}
 	return(0);
@@ -2516,7 +2518,17 @@ void radix256_dit_pass1(double a[], int n)
 	#if !USE_SCALAR_DFT_MACRO || !defined(USE_SSE2)	// SIMD build uses these for radix-256 DFTs; Scalar-double build uses these for carry-macro loops
 		int po_br[16];
 	#endif
-		int j,j1,j2,jt,jp,k,l;
+		int incr,j,j1,j2,jt,jp,k,l;
+		// incr = Carry-chain wts-multipliers recurrence length, which must divide
+		// RADIX/[n-wayness of carry macro], e.g. RADIX/[16|8|4] = 64|128|256 for avx512,avx,sse, respectively:
+		const int incr_long = 16,incr_med = 8,incr_short = 4;
+		// Allows cy-macro error data to be used to fiddle incr on the fly to a smaller, safer value if necessary
+		if(USE_SHORT_CY_CHAIN == 0)
+			incr = incr_long;
+		else if(USE_SHORT_CY_CHAIN == 1)
+			incr = incr_med;
+		else
+			incr = incr_short;
 		double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
 	#ifdef USE_AVX512
 		double t0,t1,t2,t3;

@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -236,13 +236,13 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 
 	  #ifdef LOACC
 
-		uint32 ii,incr,loop, co2save = co2;
+		uint32 ii,loop, co2save = co2;
 		// Beyond chain length 8, the chained-weights scheme becomes too inaccurate, so re-init seed-wts every 8th pass or better:
 		// incr must divide nloop [RADIX/8 = 128 or RADIX/16 = 64, depending on whether we use 8-or-16-way carry macros]!
 	  #ifdef CARRY_16_WAY
-		const uint32 nloop = RADIX>>4;		incr = 4;
+		const uint32 nloop = RADIX>>4;
 	  #else
-		const uint32 nloop = RADIX>>3;		incr = 4;
+		const uint32 nloop = RADIX>>3;
 	  #endif
 		i = (!j);	// Need this to force 0-wod to be bigword
 		addr = &prp_mult;
@@ -317,7 +317,7 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 		addr = &prp_mult;
 		tm1 = s1p00; tmp = cy_r; tm2 = cy_r+0x01; itmp = bjmodn;
 		// Beyond chain length 8, the chained-weights scheme becomes too inaccurate, so re-init seed-wts every 8th pass:
-		for(loop = 0; loop < RADIX>>2; loop += 4)
+		for(loop = 0; loop < RADIX>>2; loop += incr)
 		{
 			ii = loop << 2;	// Reflects 4 independent carry chains being done in eah SSE2_cmplx_carry_fast_pow2_errcheck call
 			/*** wt_re,wi_re,wt_im,wi_im inits. Cf. radix16_main_carry_loop.h for scalar-macro prototyping of this: ***/
@@ -366,7 +366,7 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 			add0 = (double*)(bjmodn+ii);
 			SSE2_cmplx_carry_fast_pow2_wtsinit(add1,add2,add3, add0, half_arr,sign_mask, n_minus_sil,n_minus_silp1,sinwt,sinwtm1, k0,k1,k2,k3, sse_bw,sse_nm1)
 
-			for(l = loop; l < loop+4; l++) {
+			for(l = loop; l < loop+incr; l++) {
 				// Each SSE2 LOACC carry macro call also processes 4 prefetches of main-array data:
 				add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
 				SSE2_cmplx_carry_fast_pow2_errcheck(tm1,tmp,tm2,itmp,half_arr,i,sign_mask,sse_bw,sse_nm1,sse_sw, add0,p1,p2,p3, addr);

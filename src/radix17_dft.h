@@ -466,6 +466,25 @@ void RADIX_17_DFT(
 	-	S2 = +b5*z0+b4*z1+b3*z2+b2*z3+b1*z4+b0*z5-b7*z6-b6*z7
 		S7 = +b6*z0+b5*z1+b4*z2+b3*z3+b2*z4+b1*z5+b0*z6-b7*z7
 		S1 = +b7*z0+b6*z1+b5*z2+b4*z3+b3*z4+b2*z5+b1*z6+b0*z7
+
+	Alternatively, we can negating the first 3 rows above - here with resulting #terms-with-minus-sign tabulated in rcol:
+		S5 = -b0*z0+b7*z1+b6*z2+b5*z3+b4*z4+b3*z5+b2*z6+b1*z7	1
+		S8 = -b1*z0-b0*z1+b7*z2+b6*z3+b5*z4+b4*z5+b3*z6+b2*z7	1
+		S6 = -b2*z0-b1*z1-b0*z2+b7*z3+b6*z4+b5*z5+b4*z6+b3*z7	3
+		S4 = +b3*z0+b2*z1+b1*z2+b0*z3-b7*z4-b6*z5-b5*z6-b4*z7	4
+		S3 = +b4*z0+b3*z1+b2*z2+b1*z3+b0*z4-b7*z5-b6*z6-b5*z7	3
+		S2 = +b5*z0+b4*z1+b3*z2+b2*z3+b1*z4+b0*z5-b7*z6-b6*z7	2
+		S7 = +b6*z0+b5*z1+b4*z2+b3*z3+b2*z4+b1*z5+b0*z6-b7*z7	1
+		S1 = +b7*z0+b6*z1+b5*z2+b4*z3+b3*z4+b2*z5+b1*z6+b0*z7	0
+	We then do a *cyclic* convo, which ignores all the minus signs, and follow that with 16 += 2.b*.z* adds
+	to sign-flip the 16 terms with - signs in the above [0,1,1,2,2,3,3,4]-zeros-per-row formulation:
+		S5 = -b0*z0
+		S8 = -b1*z0-b0*z1
+		S6 = -b2*z0-b1*z1-b0*z2
+		S4 = -b7*z4-b6*z5-b5*z6-b4*z7
+		S3 = -b7*z5-b6*z6-b5*z7
+		S2 = -b7*z6-b6*z7
+		S7 = -b7*z7
 	*/
 	y0r = A6r-Abr;
 	y1r = A8r-A9r;

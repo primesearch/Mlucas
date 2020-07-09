@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -193,18 +193,18 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	  #ifdef LOACC
 
-		uint32 ii,incr,loop, co2save = co2;
+		uint32 ii,loop, co2save = co2;
 		// Beyond chain length 8, the chained-weights scheme becomes too inaccurate, so re-init seed-wts every 8th pass or better:
-		// incr must divide nloop [RADIX/8 = 28 or RADIX/16 = 14, depending on whether we use 8-or-16-way carry macros]!
 	  #ifdef CARRY_16_WAY
-		const uint32 nloop = RADIX>>4;		incr = 7;
+		const uint32 nloop = RADIX>>4;
 	  #else
-		const uint32 nloop = RADIX>>3;		incr = 7;
+		const uint32 nloop = RADIX>>3;
 	  #endif
 		i = (!j);	// Need this to force 0-wod to be bigword
 		addr = &prp_mult;
 		tmp = s1p00; tm1 = cy_r; tm2 = cy_r+1; itmp = bjmodn; itm2 = bjmodn+4;	// tm2,itm2 not used in AVX-512 mode
-		for(loop = 0; loop < nloop; loop += incr)
+		incr = inc_arr;
+		for(loop = 0; loop < nloop; loop += *incr++)
 		{
 			co2 = co2save;	// Need this for all wts-inits beynd the initial set, due to the co2 = co3 preceding the (j+2) data
 		  #ifdef CARRY_16_WAY
@@ -225,7 +225,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		  #else
 			AVX_cmplx_carry_fast_wtsinit_X8 (add1,add2,add3, itmp, half_arr,sign_mask, n_minus_sil,n_minus_silp1,sinwt,sinwtm1, sse_bw,sse_n)
 		  #endif
-			for(l = loop; l < loop+incr; l++) {
+			for(l = loop; l < loop+*incr; l++) {
 				// Each AVX carry macro call also processes 8 prefetches of main-array data
 				add0 = a + j1 + pfetch_dist + poff[l+l];
 			  // In AVX-512 mode, the 4 doubles base[0],baseinv[1],wts_mult[1],inv_mult[0] are in the d0-3 slots of the otherwise-unused sse2_rnd vec_dbl:
@@ -268,14 +268,14 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	  #ifdef LOACC
 
-		uint32 i0,i1,i2,i3, ii,incr,nwtml, loop,nloop = RADIX>>2, co2save = co2;
+		uint32 i0,i1,i2,i3, ii,nwtml, loop,nloop = RADIX>>2, co2save = co2;
 
 		i = (!j);	// Need this to force 0-wod to be bigword
 		addr = &prp_mult;
 		tm1 = s1p00; tmp = cy_r; tm2 = cy_r+0x01; itmp = bjmodn;
 		// Beyond chain length 8, the chained-weights scheme becomes too inaccurate, so re-init seed-wts every few passes:
-		incr = 4;	// incr must divide radix/4 = 56!
-		for(loop = 0; loop < nloop; loop += incr)
+		incr = inc_arr;
+		for(loop = 0; loop < nloop; loop += *incr++)
 		{
 			ii = loop << 2;	// Reflects 4 independent carry chains being done in each SSE2_cmplx_carry_fast_pow2_errcheck call
 			/*** wt_re,wi_re,wt_im,wi_im inits. Cf. radix16_main_carry_loop.h for scalar-macro prototyping of this: ***/
@@ -324,7 +324,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			add0 = (double*)(bjmodn+ii);
 			SSE2_cmplx_carry_fast_wtsinit(add1,add2,add3, add0, half_arr,sign_mask, n_minus_sil,n_minus_silp1,sinwt,sinwtm1, i0,i1,i2,i3, sse_bw,sse_n)
 
-			for(l = loop; l < loop+incr; l++) {
+			for(l = loop; l < loop+*incr; l++) {
 				// Each SSE2 LOACC carry macro call also processes 4 prefetches of main-array data:
 				add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...
 				SSE2_cmplx_carry_fast_errcheck(tm1,tmp,tm2,itmp,half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p1,p2,p3, addr);

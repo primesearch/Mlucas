@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -381,9 +381,54 @@ uint64	mi64_shl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 
 /*
 Circular-leftward-shift a base-2^64 int x[] containing an (nbits) modulus by (nshift) bits, returning the result in y[].
+Assumes the high word of x, x[len-1] has at most the low nbits%64 bits set - this is checked on entry.
 No array-bounds checking is done.
 
 Allows in-place operation, i.e. x == y.
+-------------------------
+	Question - can we do this shift without scratch array? Consider 26-element example:
+
+		abcdefghijklmnopqrstuvwxyz [written in alphabetic order ... indices run 0-25 left-to-right], clshift 16 places:
+		klmnopqrstuvwxyzabcdefghij
+
+	so e.g. a goes into q-slot, q goes into g-slot, k goes into a-slot. What if start by placing a-j into their dest-slots
+	and temporarily moving the elements they replace into the old slot of the replacing element, i.e. using 2-swaps? That gives
+
+		qrstuvwxyz klmnopabcdefghij, now move k-p into u-z slots via 2-swaps:
+		qrstklmnop uvwxyzabcdefghij ... not looking promising.
+
+	Alternatively, consider a "hop 'til you drop" algorithm: start with a single elt - say, a - put it in its
+	destination-slot, then put the elt it displaced in *its* dest-slot, etc, until hit an already-moved elt.
+	For src-idx i, dest-idx j = (i+s)%n, where s = left-shift count, n = array dimension, here s = 16, n = 26:
+
+		Indices:
+	elt	src	dst	displaces
+	---	---	---	---
+	a	0	16	q
+	q	16	6	g
+	g	6	22	w
+	w	22	12	m
+	m	12	2	c
+	c	2	18	s
+	s	18	8	i
+	i	8	24	y
+	y	24	14	o
+	o	14	4	e
+	e	4	20	u
+	u	20	10	k
+	k	10	0	a, hit same index we had at start, which marks the end of the current 13-element subsequence.
+
+	Why length-13? Because n/gcd(s,n) = 26/gcd(16,26) = 26/2 = 13. We must traverse gcd(s,n) such subsequences to complete the process.
+	In this case have 2 subseqs, the second simply starts with a+1 = b:
+
+	b	1	17	r
+	r	17	7	h
+	h	7	23	x, etc. Same as above, just with all indices +1.
+
+	So could use this as a basis for a practical algorithm, but 3 big strikes against it:
+	1. Code logic much more invloved than segmentwise-shift using auxiliary array to temp-store displaced elts;
+	2. Can't leverage any of the existing mi64-package functions, such as current mi64_shlc (which uses mi64_shrl,mi64_shl,mi64_add) does;
+	3. For large arrays and shift counts, above algo is going to be very cache-unfriendly.
 */
 #ifdef __CUDA_ARCH__
 __device__
@@ -391,6 +436,10 @@ __device__
 void	mi64_shlc(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32 len)
 {
 	uint32 i, nwshift = (nshift+63) >> 6, nwmod = ((nbits + 63)>>6);	// Here nwshift includes any partial words in addition to fullwords
+	ASSERT(HERE, x && len, "mi64_shlc: null input pointer or zero-length array!");
+	// W/o the extra "& (nbits&63)" this assumes nbits != 0, i.e. unsuitable for Fermats:
+	uint64 mask64 = (-1ull << (nbits&63)) & (uint64)(nbits&63);
+	ASSERT(HERE, (x[len-1] & mask64) == 0ull, "mi64_shlc: x[] has set bits beyond [nbits] position in high word!");
   #ifndef __CUDA_ARCH__
 	/* Scratch array for storing off-shifted intermediate (need this to support in-place functionality): */
 	static uint64 *u = 0x0;
@@ -403,10 +452,9 @@ void	mi64_shlc(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32
 			u = (uint64 *)realloc(u, dimU*sizeof(uint64));
 		}
   #endif
-	ASSERT(HERE, len != 0, "mi64_shlc: zero-length array!");
-	ASSERT(HERE, nshift < nbits, "mi64_shlc: shift count must be less than bits in modulus!");	// This also ensures (nwshift < nwmod)
-	// Special-casing for 0 shift count:
-	if(!nshift) {
+	ASSERT(HERE, nshift <= nbits, "mi64_shlc: shift count must be <= than bits in modulus!");	// This also ensures (nwshift < nwmod)
+	// Special-casing for 0 shift count, which includes the 1-full-rotation case nshift == nbits:
+	if(!nshift || (nshift == nbits)) {
 		if(x != y) mi64_set_eq(y, x, len);	// Set y = x
 		return;
 	}
@@ -416,6 +464,123 @@ void	mi64_shlc(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32
 	mi64_shl(x, y, nshift, len);	i = nbits&63; y[len-1] &= ~(-1ull << i);
 	// [3] y += u puts the off-shifted bits into the vacated low bits of the output:
 	mi64_add(y, u, y, nwshift);
+}
+
+// Circular-rightward-shift uses that [i-bit rcshift] == [(nbits-i)-bit lcshift]:
+#ifdef __CUDA_ARCH__
+__device__
+#endif
+void	mi64_shrc(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32 len)
+{
+	return mi64_shlc(x,y,nbits,nbits-nshift,len);
+}
+
+/*
+If inputs x and y are identical modulo a circular shift, returns number of bits y needs to be circular-leftward-shifted
+in order to match x. If there are multiple such matches, returns the one which minimizes the number of bits y must be
+circular-rightward-shifted in order to match x. If x and y are not identical-modulo-cshift, returns -1.
+
+Assumes the high words of x,y x,y[len-1] have at most the low nbits%64 bits set.
+
+The y-input is typed writable, even though it is returned unmodified: if a 64-bit subword match is found in the opening
+quick-check phase, the corresponding full-vector-match is checked via full-vector shift of y[], which is subsequently undone.
+No array-bounds checking is done, but it is assumed y is dimensioned so as to allow insertion of a padding limb at the high end.
+
+Allows in-place operation, i.e. x == y - in this case no temporary y-modifications are done, we simply detect the pointer-
+equality x == y and return 0.
+*/
+#ifdef __CUDA_ARCH__
+__device__
+#endif
+uint32	mi64_shlc_bits_align(const uint64 x[], uint64 y[], uint32 nbits)
+{
+	uint64 x0,y0,ywindow64;
+	uint32 len = (nbits+63)>>6, i,match = 0, curr_word,curr_bit,main_part,high_part,hi_word_bits = nbits&63;
+	// W/o the extra "& (nbits&63)" this assumes nbits != 0, i.e. unsuitable for Fermats:
+	uint64 mask64 = (-1ull << (nbits&63)) & (uint64)(nbits&63);
+	ASSERT(HERE, x && y && len, "mi64_shlc_bits_align: null input pointer or zero-length array!");
+	ASSERT(HERE, (x[len-1] & mask64) == 0ull && (y[len-1] & mask64) == 0ull, "mi64_shlc_bits_align: x or y has set bits beyond [nbits] position in high word!");
+	// Special-casing for in-place and 0-length case:
+	if(!nbits || (x == y)) return 0;
+	// Special-casing for single-word inputs:
+	if(nbits <= 64) {
+		x0 = x[0];	y0 = y[0];
+		for(i = 0; i < nbits; i++) {
+			if(y0 == x0)	// 64-bit comparison window moves leftward; when get a match, need [y ~>> i] == [y ~<< (nbits-i)]:
+				return (nbits-i) % nbits;
+			// Bit-to-be-shifted-in-from-left is the low bit:
+			y0 = ((y0 & 1ull)<<(nbits-1)) + (y0>>1);
+		}
+		return -1;
+	}
+	// x[0] is reference limb for the opening quick-check phase. To avoid expensive full-vector shifts,
+	// start with 0-shifted y, i.e. y[0], then move 64-bit residue window 1 bit leftward each loop pass:
+	x0 = x[0];	y0 = ywindow64 = y[0];
+	for(i = 0; i < nbits; i++) {	// Note the leftmost 64 bits in the loop need special handling
+		if(y0 == x0) {	// Found a 64-bit-word match; see if current shift yields a full-vector match
+			// Have moved 64-bit window i bits leftward in y, need i-bit rcshift of y for full-match check:
+			mi64_shrc(y, y, nbits, i, len);	// i == 0 not a problem here since mi64_shlc special-cases for shift count == nbits
+			if(mi64_cmp_eq(x, y, len)) match = TRUE;
+			mi64_shlc(y, y, nbits, i, len);	// undo the lcshift of y prior to return or loop-continuation
+			if(match) return (nbits-i) % nbits;
+		}
+		// For main part of vector (i < nbits-64), bit-to-be-shifted-in-from-left is in next-higher word.
+		// For final 64 loop execs - if make it that far - bit-to-be-shifted-in-from-left is in lowest (rightmost) word - in
+		// this case, for i = nbits-64 want 0-bit of y[0], for i = nbits-1 want the 63-bit, i.e. curr_bit = i - (nbits-64):
+		main_part = -(i < (nbits-64));	high_part = ~main_part;
+		curr_word = ((i>>6)+1) & main_part;
+		curr_bit = ((i&63) & main_part) + ((i - (nbits-64)) & high_part);	// Branchless selector between the 2 options
+		y0 = ((y[curr_word]>>curr_bit)<<63) + (y0>>1);
+	}
+	return -1;
+}
+
+/* Single-target-limb version of above - returns bit position of target limb x0 in vector y[], i.e. number of bits
+y needs to be circular-leftward-shifted in order for the 0-limb of the resulting y-vector to match the target limb x0.
+If there are multiple such matches, returns the one which minimizes the number of bits y must be
+circular-rightward-shifted in order to produce such a 0-limb match. If there is no such cshift, returns -1.
+
+Assumes the high word of y, y[len-1], has at most the low nbits%64 bits set.
+*/
+#ifdef __CUDA_ARCH__
+__device__
+#endif
+uint32	mi64_shlc_bits_limb0(const uint64 x0, const uint64 y[], uint32 nbits)
+{
+	uint64 y0,ywindow64;
+	uint32 len = (nbits+63)>>6, i, curr_word,curr_bit,main_part,high_part,hi_word_bits = nbits&63;
+	// W/o the extra "& (nbits&63)" this assumes nbits != 0, i.e. unsuitable for Fermats:
+	uint64 mask64 = (-1ull << (nbits&63)) & (uint64)(nbits&63);
+	ASSERT(HERE, y && len, "mi64_shlc_bits_limb0: null input pointer or zero-length array!");
+	ASSERT(HERE, (nbits > 64 || (x0 & mask64) == 0ull) && (y[len-1] & mask64) == 0ull, "mi64_shlc_bits_limb0: x or y has set bits beyond [nbits] position in high word!");
+	// Special-casing for 0-length case:
+	if(!nbits) return 0;
+	// Special-casing for single-word inputs:
+	if(nbits <= 64) {
+		y0 = y[0];
+		for(i = 0; i < nbits; i++) {
+			if(y0 == x0)	// 64-bit comparison window moves leftward; when get a match, need [y ~>> i] == [y ~<< (nbits-i)]:
+				return (nbits-i) % nbits;
+			// Bit-to-be-shifted-in-from-left is the low bit:
+			y0 = ((y0 & 1ull)<<(nbits-1)) + (y0>>1);
+		}
+		return -1;
+	}
+	// Start with 0-shifted y, i.e. y[0], then move 64-bit residue window 1 bit leftward each loop pass:
+	y0 = ywindow64 = y[0];
+	for(i = 0; i < nbits; i++) {	// Note the leftmost 64 bits in the loop need special handling
+		if(y0 == x0) {	// Found a 64-bit-word match
+			return (nbits-i) % nbits;
+		}
+		// For main part of vector (i < nbits-64), bit-to-be-shifted-in-from-left is in next-higher word.
+		// For final 64 loop execs - if make it that far - bit-to-be-shifted-in-from-left is in lowest (rightmost) word - in
+		// this case, for i = nbits-64 want 0-bit of y[0], for i = nbits-1 want the 63-bit, i.e. curr_bit = i - (nbits-64):
+		main_part = -(i < (nbits-64));	high_part = ~main_part;
+		curr_word = ((i>>6)+1) & main_part;
+		curr_bit = ((i&63) & main_part) + ((i - (nbits-64)) & high_part);	// Branchless selector between the 2 options
+		y0 = ((y[curr_word]>>curr_bit)<<63) + (y0>>1);
+	}
+	return -1;
 }
 
 /*******************/
@@ -2356,7 +2521,7 @@ uint64	mi64_mul_scalar(const uint64 x[], uint64 a, uint64 y[], uint32 len)
 /*******************/
 
 /*
-	Unsigned multiply (vector * scalar) and add result to vector, a*X + Y = Z .
+	Unsigned multiply (vector * scalar) and add result to vector, z = a*x + y .
 	Return any exit carry, rather than automatically storing it in a hypothetical
 	[len+1]st array slot - up to user to determine what to do if this is nonzero.
 
@@ -4465,7 +4630,7 @@ uint64 mi64_modmul64(const uint64 a, const uint64 b, const uint64 m)
 
 /****************/
 
-/* Fast division using Montgomery-modmul. First implemented: May 2012 */
+/* Fast division using Montgomery-modmul: x/y, (optional) quotient q, remainder r. First implemented: May 2012 */
 // Oct 2015:
 // Changed return type of all 3 multiword-div routines (mi64_div, mi64_div_mont, mi64_div_binary) from void to int -
 // Now retval = 1|0 if the remainder = 0 or not, allowing user to check divisibility w/o passing a remainder array.
@@ -5113,7 +5278,7 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 	ASSERT(HERE, x != y, "X and Y arrays overlap!");
 	ASSERT(HERE, r != y, "Y and Rem arrays overlap!");
 	ASSERT(HERE, q != x && q != y && (q == 0x0 || q != r), "Quotient array overlaps one of X, Y ,Rem!");
-	ASSERT(HERE, (q == 0x0) == (lenQ == 0x0), "Either both or neither of quotient-array and quotient-length pointers must be provided!");
+	if(q) ASSERT(HERE, lenQ != 0x0, "If quotient requested, quotient-length pointer must be provided!");
 	/* Init Q = 0; don't do similarly for R since we allow X and R to point to same array:
 	Jan 2018: No! User may feed qvec only suficient in size to hold ACTUAL QUOTIENT, based on an estimate of the latter -
 	I hit "EXC_BAD_ACCESS, Could not access memory" in a case with xlen = ylen = 2^20, qlen = 1, where I simply fed a
@@ -6246,7 +6411,12 @@ uint64 mi64_div_by_scalar64(const uint64 x[], uint64 q, uint32 len, uint64 y[])
 	uint32 i,nshift,lshift = -1,ptr_incr;
 	uint64 qinv,tmp = 0,bw,cy,lo,rem64,rem_save = 0,itmp64,mask,*iptr;
 	double fquo,fqinv;
-
+/* Debug:
+printf("x[]/q, quotient q = %llu, base b = 2^64\n",q);
+for(i = 0; i < len; i++)
+	printf("x[%u] = %20llu;\n",i,x[i]);
+printf("\n");
+*/
 	ASSERT(HERE, (x != 0) && (len != 0), "Null input array or length parameter!");
 	ASSERT(HERE, q > 0, "0 modulus!");
 	// Unit modulus needs special handling to return proper 0 remainder rather than 1:

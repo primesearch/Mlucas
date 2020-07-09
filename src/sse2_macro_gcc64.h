@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -172,6 +172,8 @@
 		"fadd	v7.2d,v7.2d,v3.2d	\n\t"/* (__tCi+ ~jt) */\
 		"stp	q4,q5,[x3]	\n\t"\
 		"stp	q6,q7,[x2]	\n\t"\
+		/* Cost (FMA = MUL): [43 vector-load/store (20 pairwise, 3 ld1), 12 shufpd, 34 addpd, 28 mulpd, 2 vector-register-copy] */\
+		/* Compare w/PAIR_MUL[35 vector-load/store (32 pairwise, 3 ld1), 12 shufpd, 18 addpd, 32 mulpd, 1 vector-register-copy] ... using more vregs in PAIR_MUL_4 worth it! */\
 		:					/* outputs: none */\
 		: [__tAr] "m" (XtAr)	/* All inputs from memory addresses here */\
 		 ,[__tBr] "m" (XtBr)\
@@ -181,6 +183,148 @@
 		 ,[__s] "m" (Xs)\
 		 ,[__forth] "m" (Xforth)\
 		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","v0","v1","v2","v3","v4","v5","v6","v7","v8"	/* Clobbered registers */\
+	);\
+	}
+
+	// Sep 2019: 2-input FFT(a)*FFT(b) version of above PAIR_SQUARE_4_SSE2 macro, based on PAIR_MUL_4 macro in pair_square.h:
+	// NOTE: Unlike the PAIR_SQUARE_4 version of this macro, the MUL version assumes the sincos terms premultiplied by 1/4!
+	#define PAIR_MUL_4_SSE2(XA0,XA1,XA2,XA3, XB0,XB1,XB2,XB3, Xc,Xs,Xforth)\
+	{\
+	__asm__ volatile (\
+		/* Load a2,a3 and b2,b3, d0,d1-swap, then compute
+			t0 = ~a3r*~b3r - ~a3i*~b3i, t2 = ~a3r*~b3i + ~a3i*~b3r
+			t1 = ~a2r*~b2r - ~a2i*~b2i, t3 = ~a2r*~b2i + ~a2i*~b2r
+		*/\
+		"ldr	x2,%[__A2]	\n\t"\
+		"ldr	x3,%[__A3]	\n\t"\
+		"ldr	x4,%[__B2]	\n\t"\
+		"ldr	x5,%[__B3]	\n\t"\
+		/* Must load double-pairs-to-be-swapped into regs first, since SHUFPD takes low double from DEST and high from SRC: */\
+		"ldp	q0,q1,[x2]	\n\t"/* a2 */\
+		"ldp	q4,q5,[x4]	\n\t"/* b2 */\
+		"ext v0.16b,v0.16b,v0.16b,#8	\n\t	ext v1.16b,v1.16b,v1.16b,#8	\n\t"/* ~a2 */\
+		"ext v4.16b,v4.16b,v4.16b,#8	\n\t	ext v5.16b,v5.16b,v5.16b,#8	\n\t"/* ~b2 */\
+		"ldp	q2,q3,[x3]	\n\t"/* a3 */\
+		"ldp	q6,q7,[x5]	\n\t"/* b3 */\
+		"ext v2.16b,v2.16b,v2.16b,#8	\n\t	ext v3.16b,v3.16b,v3.16b,#8	\n\t"/* ~a3 */\
+		"ext v6.16b,v6.16b,v6.16b,#8	\n\t	ext v7.16b,v7.16b,v7.16b,#8	\n\t"/* ~b3 */\
+		"fmul	v8.2d ,v4.2d,v0.2d	\n\t"/* ~a2r*~b2r */\
+		"fmul	v9.2d ,v5.2d,v0.2d	\n\t"/* ~a2r*~b2i */\
+		"fmul	v10.2d,v6.2d,v2.2d	\n\t"/* ~a3r*~b3r */\
+		"fmul	v11.2d,v7.2d,v2.2d	\n\t"/* ~a3r*~b3i */\
+		"fmls	v8.2d ,v5.2d,v1.2d	\n\t"/* t1 = ~a2r*~b2r - ~a2i*~b2i */\
+		"fmla	v9.2d ,v4.2d,v1.2d	\n\t"/* t3 = ~a2r*~b2i + ~a2i*~b2r */\
+		"fmls	v10.2d,v7.2d,v3.2d	\n\t"/* t0 = ~a3r*~b3r - ~a3i*~b3i */\
+		"fmla	v11.2d,v6.2d,v3.2d	\n\t"/* t2 = ~a3r*~b3i + ~a3i*~b3r */\
+		/* t1,3 and t0,2 not needed until final butterfly sequence, so write back to A2,3 memlocs: */\
+		"stp	q8 ,q9 ,[x2]	\n\t"\
+		"stp	q10,q11,[x3]	\n\t"\
+	/* a2,3 in v0-3, b2,3 in v4-7, t1,3 in (x2), t0,2 in (x3) */\
+		/* calculate difference terms...these need the [a,b][2|3] vector-data to be d0,1-swapped:
+			~a3r -= a0r, ~a3i += a0i,
+			~a2r -= a1r, ~a2i += a1i, similar for b-data, but move ~b2 -+ b1 down to just before a1*b1 cmul to free up 2 regs.
+		*/\
+/*** Need ~a3r = a0r - ~a3r, not ~a3r -= a0r! [Similar for a2r,b3r,b2r] ***
+************** As currently, a2r,a3r,b2r,b3r all negated! ****************/\
+		"ldr	x0,%[__A0]	\n\t"\
+		"ldr	x1,%[__A1]	\n\t"\
+		"ldr	x4,%[__B0]	\n\t"\
+		"ldr	x5,%[__B1]	\n\t"\
+		"ldp	q16,q17,[x0]	\n\t"/* a0 */\
+		"ldp	q18,q19,[x1]	\n\t"/* a1 */\
+		"ldp	q12,q13,[x4]	\n\t"/* b0 */\
+		"ldp	q14,q15,[x5]	\n\t"/* b1 */\
+		"fsub	v2.2d,v2.2d,v16.2d	\n\t"/* ~a3r -= a0r */\
+		"fadd	v3.2d,v3.2d,v17.2d	\n\t"/* ~a3i += a0i */\
+		"fsub	v0.2d,v0.2d,v18.2d	\n\t"/* ~a2r -= a1r */\
+		"fadd	v1.2d,v1.2d,v19.2d	\n\t"/* ~a2i += a1i */\
+		"fsub	v6.2d,v6.2d,v12.2d	\n\t"/* ~b3r -= b0r */\
+		"fadd	v7.2d,v7.2d,v13.2d	\n\t"/* ~b3i += b0i */\
+		"fsub	v4.2d,v4.2d,v14.2d	\n\t"/* ~b2r -= b1r */\
+		"fadd	v5.2d,v5.2d,v15.2d	\n\t"/* ~b2i += b1i */\
+		/* now calculate 1st square-like term and store back in H(j) slot:
+			t4 = a0r*b0r - a0i*b0i, a0i = a0r*b0i + a0i*b0r, a0r = t4
+			t5 = a1r*b1r - a1i*b1i, a1i = a1r*b1i + a1i*b1r, a1r = t5
+		*/\
+		"fmul	v8.2d ,v12.2d,v16.2d	\n\t"/* a0r*b0r */\
+		"fmul	v9.2d ,v13.2d,v16.2d	\n\t"/* a0r*b0i */\
+		"fmul	v10.2d,v14.2d,v18.2d	\n\t"/* a1r*b1r */\
+		"fmul	v11.2d,v15.2d,v18.2d	\n\t"/* a1r*b1i */\
+		"fmls	v8.2d ,v13.2d,v17.2d	\n\t"/* a0r' = a0r*b0r - a0i*b0i */\
+		"fmla	v9.2d ,v12.2d,v17.2d	\n\t"/* a0i' = a0r*b0i + a0i*b0r */\
+		"fmls	v10.2d,v15.2d,v19.2d	\n\t"/* a1r' = a1r*b1r - a1i*b1i */\
+		"fmla	v11.2d,v14.2d,v19.2d	\n\t"/* a1i' = a1r*b1i + a1i*b1r */\
+	/* a0,1 in v8-11, a2,3 in v0-3, b2,3 in v4-7, t1,3 in (x2), t0,2 in (x3) */\
+		/* calculate the complex products to build the second term:
+			t4 = ~a3r*~b3r - ~a3i*~b3i, ~a3i = ~a3r*~b3i + ~a3i*~b3r, ~a3r,i in v2,3, ~b3r,i in v6,7
+			t5 = ~a2r*~b2r - ~a2i*~b2i, ~a2i = ~a2r*~b2i + ~a2i*~b2r, ~arr,i in v0,1, ~b2r,i in v4,5
+		*/\
+/****************** a2r,a3r,b2r,b3r being negated means a2i,a3i come out negated ****************/\
+		"fmul	v12.2d,v4.2d,v0.2d	\n\t"/* ~a2r*~b2r */\
+		"fmul	v13.2d,v5.2d,v0.2d	\n\t"/* ~a2r*~b2i */\
+		"fmul	v14.2d,v6.2d,v2.2d	\n\t"/* ~a3r*~b3r */\
+		"fmul	v15.2d,v7.2d,v2.2d	\n\t"/* ~a3r*~b3i */\
+		"fmls	v12.2d,v5.2d,v1.2d	\n\t"/* t5   = ~a2r*~b2r - ~a2i*~b2i */\
+		"fmla	v13.2d,v4.2d,v1.2d	\n\t"/* ~a2i = ~a2r*~b2i + ~a2i*~b2r */\
+		"fmls	v14.2d,v7.2d,v3.2d	\n\t"/* t4   = ~a3r*~b3r - ~a3i*~b3i */\
+		"fmla	v15.2d,v6.2d,v3.2d	\n\t"/* ~a3i = ~a3r*~b3i + ~a3i*~b3r */\
+/*** sse2 code has t4,~a3i in xmm2,3, t5,~a2i in xmm0,1 ***/\
+		/* v0-7 free */\
+		/* Assume [c0,s1],[s0,c1] sincos vector-data are in the [c] and [s]-input-pointers, then compute
+			~a3r = [cc+0.25]*t4 - [ss]*~a3i, ~a3i = [ss]*t4 + [cc+0.25]*~a3i
+			~a2r = [0.25-ss]*t5 - [cc]*~a2i, ~a2i = [cc]*t5 + [0.25-ss]*~a2i ,
+		where cc = 0.25*[c0,s1] and ss = 0.25*[s0,c1]:
+		*/\
+/****************** a2i,a3i being negated requires +- sign swap in this next computation ****************/\
+		"ldr	x4,%[__forth]		\n\t	ld1	{v6.16b},[x4]	\n\t	mov	v7.16b,v6.16b	\n\t"/* 2 copies of 0.25 */\
+		"ldr	x4,%[__c]			\n\t	ld1	{v4.16b},[x4]	\n\t"/*	cc assumed premultiplied by 0.25 */\
+		"ldr	x5,%[__s]			\n\t	ld1	{v5.16b},[x5]	\n\t"/*	ss assumed premultiplied by 0.25 */\
+		"fadd	v6.2d,v6.2d,v4.2d	\n\t	fsub	v7.2d,v7.2d,v5.2d	\n\t"/* [cc+0.25],[0.25-ss] in v6,7 */\
+		"fmul	v2.2d,v6.2d,v14.2d	\n\t"/*   t4*[cc+0.25] */\
+		"fmul	v3.2d,v5.2d,v14.2d	\n\t"/*   t4*[ss] */\
+		"fmul	v0.2d,v7.2d,v12.2d	\n\t"/*   t5*[0.25-ss] */\
+		"fmul	v1.2d,v4.2d,v12.2d	\n\t"/*   t5*[cc] */\
+		"fmla	v2.2d,v5.2d,v15.2d	\n\t"/* ~a3i*[ss] */\
+		"fmls	v3.2d,v6.2d,v15.2d	\n\t"/* ~a3i*[cc+0.25]; ~a3r,~a3i in v2,3 */\
+		"fmla	v0.2d,v4.2d,v13.2d	\n\t"/* ~a2i*[cc] */\
+		"fmls	v1.2d,v7.2d,v13.2d	\n\t"/* ~a2i*[0.25-ss]; ~a2r,~a2i in v0,1 */\
+	/* a0,1 in v8-11, a2,3 in v0-3, t1,3 in (x2), t0,2 in (x3) */\
+		"ldp	q4,q5,[x3]	\n\t"/* t0,2 */\
+		"ldp	q6,q7,[x2]	\n\t"/* t1,3 */\
+	/* and now complete and store the results:
+		a0r -= ~a3r, a0i -= ~a3i
+		a1r -= ~a2r, a1i -= ~a2i
+	N-j terms:
+		~a3r = t0 - ~a3r, ~a3i += t2
+		~a2r = t1 - ~a2r, ~a2i += t3
+	*/\
+/****************** a2i,a3i in v1,3; *NOT* negated as in the sse2 case ****************/\
+		"fsub	v8.2d ,v8.2d ,v2.2d	\n\t	fsub	v9.2d ,v9.2d ,v3.2d	\n\t"	/* a0r,i in v8 ,9 ; ~a3r,i in v2,3 */\
+		"fsub	v10.2d,v10.2d,v0.2d	\n\t	fsub	v11.2d,v11.2d,v1.2d	\n\t"	/* a1r,i in v10,11; ~a2r,i in v0,1 */\
+		"fsub	v4.2d ,v4.2d ,v2.2d	\n\t	fadd	v5.2d ,v5.2d ,v3.2d	\n\t"	/* t0,2 in v4,5 */\
+		"fsub	v6.2d ,v6.2d ,v0.2d	\n\t	fadd	v7.2d ,v7.2d ,v1.2d	\n\t"	/* t1,3 in v6,7 */\
+	/* Interleave writes of a0,a1 with un-shufflings of ~a2,~a3: */\
+		"stp	q8 ,q9 ,[x0]	\n\t"\
+		"stp	q10,q11,[x1]	\n\t"\
+		"ext v4.16b,v4.16b,v4.16b,#8	\n\t	ext v5.16b,v5.16b,v5.16b,#8	\n\t"/* ~a3 */\
+		"ext v6.16b,v6.16b,v6.16b,#8	\n\t	ext v7.16b,v7.16b,v7.16b,#8	\n\t"/* ~a2 */\
+		"stp	q4 ,q5 ,[x3]	\n\t"\
+		"stp	q6 ,q7 ,[x2]	\n\t"\
+		/* Cost (FMA = MUL): [35 vector-load/store (32 pairwise, 3 ld1), 12 shufpd, 18 addpd, 32 mulpd,  1 vector-register-copy] */\
+		/* Compare vs. SSE2: [35 vector-load/store (0 implicit)        , 12 shufpd, 34 addpd, 32 mulpd, 21 vector-register-copy] */\
+		:					/* outputs: none */\
+		: [__A0] "m" (XA0)	/* All inputs from memory addresses here */\
+		 ,[__A1] "m" (XA1)\
+		 ,[__A2] "m" (XA2)\
+		 ,[__A3] "m" (XA3)\
+		 ,[__B0] "m" (XB0)\
+		 ,[__B1] "m" (XB1)\
+		 ,[__B2] "m" (XB2)\
+		 ,[__B3] "m" (XB3)\
+		 ,[__c] "m" (Xc)\
+		 ,[__s] "m" (Xs)\
+		 ,[__forth] "m" (Xforth)\
+		: "cc","memory","x0","x1","x2","x3","x4","x5","v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11","v12","v13","v14","v15","v16","v17","v18","v19"	/* Clobbered registers */\
 	);\
 	}
 
@@ -6376,6 +6520,146 @@
 	);\
 	}
 
+	// Sep 2019: 2-input FFT(a)*FFT(b) version of above PAIR_SQUARE_4_SSE2 macro, based on above ARM SIMD version of PAIR_MUL_4_SSE2.
+	// NOTE: Unlike the PAIR_SQUARE_4 version of this macro, the MUL version assumes the sincos terms premultiplied by 1/4!
+	// AVX-512 version has shufpd immediate = 0x55 = 01010101_2, which is the doubled analog of the AVX imm8 = 0x5 = 0101_2:
+	#define PAIR_MUL_4_SSE2(XA0,XA1,XA2,XA3, XB0,XB1,XB2,XB3, Xc,Xs,Xforth)\
+	{\
+	__asm__ volatile (\
+		/* Load a2,a3 and b2,b3, d0,d1-swap, then compute
+			t0 = ~a3r*~b3r - ~a3i*~b3i, t2 = ~a3r*~b3i + ~a3i*~b3r
+			t1 = ~a2r*~b2r - ~a2i*~b2i, t3 = ~a2r*~b2i + ~a2i*~b2r
+		*/\
+		"movq	%[__A2]	,%%rcx	\n\t"\
+		"movq	%[__A3]	,%%rdx	\n\t"\
+		"movq	%[__B2]	,%%rdi	\n\t"\
+		"movq	%[__B3]	,%%rsi	\n\t"\
+		/* Must load double-pairs-to-be-swapped into regs first, since SHUFPD takes low double from DEST and high from SRC: */\
+		"vmovaps	    (%%rcx),%%zmm0		\n\t	vshufpd	$0x55,%%zmm0,%%zmm0,%%zmm0	\n\t"/* ~a2r */\
+		"vmovaps	0x40(%%rcx),%%zmm1		\n\t	vshufpd	$0x55,%%zmm1,%%zmm1,%%zmm1	\n\t"/* ~a2i */\
+		"vmovaps	    (%%rdi),%%zmm4		\n\t	vshufpd	$0x55,%%zmm4,%%zmm4,%%zmm4	\n\t"/* ~b2r */\
+		"vmovaps	0x40(%%rdi),%%zmm5		\n\t	vshufpd	$0x55,%%zmm5,%%zmm5,%%zmm5	\n\t"/* ~b2i */\
+		"vmovaps	    (%%rdx),%%zmm2		\n\t	vshufpd	$0x55,%%zmm2,%%zmm2,%%zmm2	\n\t"/* ~a3r */\
+		"vmovaps	0x40(%%rdx),%%zmm3		\n\t	vshufpd	$0x55,%%zmm3,%%zmm3,%%zmm3	\n\t"/* ~a3i */\
+		"vmovaps	    (%%rsi),%%zmm6		\n\t	vshufpd	$0x55,%%zmm6,%%zmm6,%%zmm6	\n\t"/* ~b3r */\
+		"vmovaps	0x40(%%rsi),%%zmm7		\n\t	vshufpd	$0x55,%%zmm7,%%zmm7,%%zmm7	\n\t"/* ~b3i */\
+		"vmulpd		%%zmm0	,%%zmm4	,%%zmm8	\n\t"/* ~a2r*~b2r */\
+		"vmulpd		%%zmm0	,%%zmm5	,%%zmm9	\n\t"/* ~a2r*~b2i */\
+		"vmulpd		%%zmm2	,%%zmm6	,%%zmm10\n\t"/* ~a3r*~b3r */\
+		"vmulpd		%%zmm2	,%%zmm7	,%%zmm11\n\t"/* ~a3r*~b3i */\
+	"vfnmadd231pd	%%zmm1	,%%zmm5	,%%zmm8	\n\t"/* t1 = ~a2r*~b2r - ~a2i*~b2i */\
+	"vfmadd231pd	%%zmm1	,%%zmm4	,%%zmm9	\n\t"/* t3 = ~a2r*~b2i + ~a2i*~b2r */\
+	"vfnmadd231pd	%%zmm3	,%%zmm7	,%%zmm10\n\t"/* t0 = ~a3r*~b3r - ~a3i*~b3i */\
+	"vfmadd231pd	%%zmm3	,%%zmm6	,%%zmm11\n\t"/* t2 = ~a3r*~b3i + ~a3i*~b3r */\
+		/* t1,3 and t0,2 not needed until final butterfly sequence, so write back to A2,3 memlocs: */\
+		"vmovaps	%%zmm8	,    (%%rcx)	\n\t	movq	%[__A0]	,%%rax	\n\t"\
+		"vmovaps	%%zmm9	,0x40(%%rcx)	\n\t	movq	%[__A1]	,%%rbx	\n\t"\
+		"vmovaps	%%zmm10	,    (%%rdx)	\n\t	movq	%[__B0]	,%%rdi	\n\t"\
+		"vmovaps	%%zmm11	,0x40(%%rdx)	\n\t	movq	%[__B1]	,%%rsi	\n\t"\
+	/* a2,3 in zmm0-3, b2,3 in zmm4-7, t1,3 in (rcx), t0,2 in (rdx) */\
+		/* calculate difference terms...these need the [a,b][2|3] vector-data to be d0,1-swapped:
+			~a3r -= a0r, ~a3i += a0i,
+			~a2r -= a1r, ~a2i += a1i, similar for b-data, but move ~b2 -+ b1 down to just before a1*b1 cmul to free up 2 regs.
+		*/\
+/*** Need ~a3r = a0r - ~a3r, not ~a3r -= a0r! [Similar for a2r,b3r,b2r] ***
+************** As currently, a2r,a3r,b2r,b3r all negated! ****************/\
+		"vmovaps	    (%%rax)	,%%zmm8		\n\t	vsubpd	%%zmm8	,%%zmm2	,%%zmm2	\n\t"/* ~a3r -= a0r */\
+		"vmovaps	0x40(%%rax)	,%%zmm9		\n\t	vaddpd	%%zmm9	,%%zmm3	,%%zmm3	\n\t"/* ~a3i += a0i */\
+		"vmovaps	    (%%rbx)	,%%zmm10	\n\t	vsubpd	%%zmm10	,%%zmm0	,%%zmm0	\n\t"/* ~a2r -= a1r */\
+		"vmovaps	0x40(%%rbx)	,%%zmm11	\n\t	vaddpd	%%zmm11	,%%zmm1	,%%zmm1	\n\t"/* ~a2i += a1i */\
+		"vmovaps	    (%%rdi)	,%%zmm12	\n\t	vsubpd	%%zmm12	,%%zmm6	,%%zmm6	\n\t"/* ~b3r -= b0r */\
+		"vmovaps	0x40(%%rdi)	,%%zmm13	\n\t	vaddpd	%%zmm13	,%%zmm7	,%%zmm7	\n\t"/* ~b3i += b0i */\
+		"vmovaps	    (%%rsi)	,%%zmm14	\n\t	vsubpd	%%zmm14	,%%zmm4	,%%zmm4	\n\t"/* ~b2r -= b1r */\
+		"vmovaps	0x40(%%rsi)	,%%zmm15	\n\t	vaddpd	%%zmm15	,%%zmm5	,%%zmm5	\n\t"/* ~b2i += b1i */\
+		/* now calculate 1st square-like term and store back in H(j) slot:
+			t4 = a0r*b0r - a0i*b0i, a0i = a0r*b0i + a0i*b0r, a0r = t4
+			t5 = a1r*b1r - a1i*b1i, a1i = a1r*b1i + a1i*b1r, a1r = t5
+		*/\
+		"vmulpd		    (%%rax)	,%%zmm12,%%zmm8	\n\t"/* a0r*b0r */\
+		"vmulpd		    (%%rax)	,%%zmm13,%%zmm9	\n\t"/* a0r*b0i */\
+		"vmulpd		    (%%rbx)	,%%zmm14,%%zmm10\n\t"/* a1r*b1r */\
+		"vmulpd		    (%%rbx)	,%%zmm15,%%zmm11\n\t"/* a1r*b1i */\
+	"vfnmadd231pd	0x40(%%rax)	,%%zmm13,%%zmm8	\n\t"/* a0r' = a0r*b0r - a0i*b0i */\
+	"vfmadd231pd	0x40(%%rax)	,%%zmm12,%%zmm9	\n\t"/* a0i' = a0r*b0i + a0i*b0r */\
+	"vfnmadd231pd	0x40(%%rbx)	,%%zmm15,%%zmm10\n\t"/* a1r' = a1r*b1r - a1i*b1i */\
+	"vfmadd231pd	0x40(%%rbx)	,%%zmm14,%%zmm11\n\t"/* a1i' = a1r*b1i + a1i*b1r */\
+	/* a0,1 in zmm8-11, a2,3 in zmm0-3, b2,3 in zmm4-7, t1,3 in (rcx), t0,2 in (rdx) */\
+		/* calculate the complex products to build the second term:
+			t4 = ~a3r*~b3r - ~a3i*~b3i, ~a3i = ~a3r*~b3i + ~a3i*~b3r, ~a3r,i in zmm2,3, ~b3r,i in zmm6,7
+			t5 = ~a2r*~b2r - ~a2i*~b2i, ~a2i = ~a2r*~b2i + ~a2i*~b2r, ~arr,i in zmm0,1, ~b2r,i in zmm4,5
+		*/\
+/****************** a2r,a3r,b2r,b3r being negated means a2i,a3i come out negated ****************/\
+		"vmulpd		%%zmm0	,%%zmm4	,%%zmm12\n\t"/* ~a2r*~b2r */\
+		"vmulpd		%%zmm0	,%%zmm5	,%%zmm13\n\t"/* ~a2r*~b2i */\
+		"vmulpd		%%zmm2	,%%zmm6	,%%zmm14\n\t"/* ~a3r*~b3r */\
+		"vmulpd		%%zmm2	,%%zmm7	,%%zmm15\n\t"/* ~a3r*~b3i */\
+	"vfnmadd231pd	%%zmm1	,%%zmm5	,%%zmm12\n\t"/* t5   = ~a2r*~b2r - ~a2i*~b2i */\
+	"vfmadd231pd	%%zmm1	,%%zmm4	,%%zmm13\n\t"/* ~a2i = ~a2r*~b2i + ~a2i*~b2r */\
+	"vfnmadd231pd	%%zmm3	,%%zmm7	,%%zmm14\n\t"/* t4   = ~a3r*~b3r - ~a3i*~b3i */\
+	"vfmadd231pd	%%zmm3	,%%zmm6	,%%zmm15\n\t"/* ~a3i = ~a3r*~b3i + ~a3i*~b3r */\
+		/* zmm0-7 free */\
+		/* Assume [c0,s1],[s0,c1] sincos vector-data are in the [c] and [s]-input-pointers, then compute
+			~a3r = [cc+0.25]*t4 - [ss]*~a3i, ~a3i = [ss]*t4 + [cc+0.25]*~a3i
+			~a2r = [0.25-ss]*t5 - [cc]*~a2i, ~a2i = [cc]*t5 + [0.25-ss]*~a2i ,
+		where cc = 0.25*[c0,s1] and ss = 0.25*[s0,c1]:
+		*/\
+/****************** a2i,a3i being negated requires +- sign swap in this next computation ****************/\
+		"movq	%[__forth],%%rdi		\n\t	vmovaps	(%%rdi),%%zmm6		\n\t	vmovaps	%%zmm6,%%zmm7	\n\t"/* 2 copies of 0.25 */\
+		"movq	%[__c]	,%%rdi			\n\t	vmovaps	(%%rdi),%%zmm4		\n\t"/*	cc assumed premultiplied by 0.25 */\
+		"movq	%[__s]	,%%rsi			\n\t	vmovaps	(%%rsi),%%zmm5		\n\t"/*	ss assumed premultiplied by 0.25 */\
+		"vaddpd	%%zmm4	,%%zmm6	,%%zmm6	\n\t	vsubpd	%%zmm5	,%%zmm7	,%%zmm7	\n\t"	/* [cc+0.25],[0.25-ss] in zmm6,7 */\
+		"vmulpd		%%zmm14	,%%zmm6	,%%zmm2	\n\t"/*   t4*[cc+0.25] */\
+		"vmulpd		%%zmm14	,%%zmm5	,%%zmm3	\n\t"/*   t4*[ss] */\
+		"vmulpd		%%zmm12	,%%zmm7	,%%zmm0	\n\t"/*   t5*[0.25-ss] */\
+		"vmulpd		%%zmm12	,%%zmm4	,%%zmm1	\n\t"/*   t5*[cc] */\
+	"vfmadd231pd	%%zmm15	,%%zmm5	,%%zmm2	\n\t"/* ~a3r = [cc+0.25]*t4 - [ss]*~a3i in zmm2 */\
+	"vfnmadd231pd	%%zmm15	,%%zmm6	,%%zmm3	\n\t"/* ~a3i = [cc+0.25]*~a3i - [ss]*t4 in zmm3 */\
+	"vfmadd231pd	%%zmm13	,%%zmm4	,%%zmm0	\n\t"/* ~a2r = [0.25-ss]*t5 - [cc]*~a2i in zmm0 */\
+	"vfnmadd231pd	%%zmm13	,%%zmm7	,%%zmm1	\n\t"/* ~a2i = [0.25-ss]*~a2i - [cc]*t5 in zmm1 */\
+/****************** a2i,a3i in zmm1,3; *NOT* negated as in the sse2|avx case ****************/\
+	/* a0,1 in zmm8-11, a2,3 in zmm0-3, t1,3 in (rcx), t0,2 in (rdx) */\
+		"vmovaps	    (%%rdx)	,%%zmm4		\n\t"/* t0 */\
+		"vmovaps	0x40(%%rdx)	,%%zmm5		\n\t"/* t2 */\
+		"vmovaps	    (%%rcx)	,%%zmm6		\n\t"/* t1 */\
+		"vmovaps	0x40(%%rcx)	,%%zmm7		\n\t"/* t3 */\
+	/* and now complete and store the results:
+		a0r -= ~a3r, a0i -= ~a3i
+		a1r -= ~a2r, a1i -= ~a2i
+	N-j terms:
+		~a3r = t0 - ~a3r, ~a3i += t2
+		~a2r = t1 - ~a2r, ~a2i += t3
+	*/\
+/****************** a2i,a3i negated means in rcol instead computing a0,1i += ~a3,2i, a3,2i = t2,3 - a3,2i ****************/\
+		"vsubpd	%%zmm2	,%%zmm8	,%%zmm8	\n\t	vsubpd	%%zmm3	,%%zmm9	,%%zmm9	\n\t"	/* a0r,i in v8 ,9 ; ~a3r,i in v2,3 */\
+		"vsubpd	%%zmm0	,%%zmm10,%%zmm10\n\t	vsubpd	%%zmm1	,%%zmm11,%%zmm11\n\t"	/* a1r,i in v10,11; ~a2r,i in v0,1 */\
+		"vsubpd	%%zmm2	,%%zmm4	,%%zmm4	\n\t	vaddpd	%%zmm3	,%%zmm5	,%%zmm5	\n\t"	/* t0,2 in v4,5 */\
+		"vsubpd	%%zmm0	,%%zmm6	,%%zmm6	\n\t	vaddpd	%%zmm1	,%%zmm7	,%%zmm7	\n\t"	/* t1,3 in v6,7 */\
+	/* Interleave writes of a0,a1 with un-shufflings of ~a2,~a3: */\
+		"vmovaps	%%zmm8	,    (%%rax)	\n\t	vshufpd	$0x55	,%%zmm4	,%%zmm4,%%zmm4	\n\t"/* ~a3r */\
+		"vmovaps	%%zmm9	,0x40(%%rax)	\n\t	vshufpd	$0x55	,%%zmm5	,%%zmm5,%%zmm5	\n\t"/* ~a3i */\
+		"vmovaps	%%zmm10	,    (%%rbx)	\n\t	vshufpd	$0x55	,%%zmm6	,%%zmm6,%%zmm6	\n\t"/* ~a2r */\
+		"vmovaps	%%zmm11	,0x40(%%rbx)	\n\t	vshufpd	$0x55	,%%zmm7	,%%zmm7,%%zmm7	\n\t"/* ~a2i */\
+		"vmovaps	%%zmm4	,    (%%rdx)	\n\t"\
+		"vmovaps	%%zmm5	,0x40(%%rdx)	\n\t"\
+		"vmovaps	%%zmm6	,    (%%rcx)	\n\t"\
+		"vmovaps	%%zmm7	,0x40(%%rcx)	\n\t"\
+		/* Cost (FMA = MUL): [43 vector-load/store (8 implicit), 12 shufpd, 18 addpd, 32 mulpd, 1 vector-register-copy] */\
+		:					/* outputs: none */\
+		: [__A0] "m" (XA0)	/* All inputs from memory addresses here */\
+		 ,[__A1] "m" (XA1)\
+		 ,[__A2] "m" (XA2)\
+		 ,[__A3] "m" (XA3)\
+		 ,[__B0] "m" (XB0)\
+		 ,[__B1] "m" (XB1)\
+		 ,[__B2] "m" (XB2)\
+		 ,[__B3] "m" (XB3)\
+		 ,[__c] "m" (Xc)\
+		 ,[__s] "m" (Xs)\
+		 ,[__forth] "m" (Xforth)\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+	);\
+	}
+
 #elif defined(USE_AVX)	// Some macros shared between AVX/AVX2 builds, so differentiate those inside this larger clause
 
   #ifdef USE_AVX2	// FMA-based versions of selected macros in this file for Intel AVX2/FMA3
@@ -7541,6 +7825,146 @@
 		 ,[__s] "m" (Xs)\
 		 ,[__forth] "m" (Xforth)\
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+	);\
+	}
+
+	// Sep 2019: 2-input FFT(a)*FFT(b) version of above PAIR_SQUARE_4_SSE2 macro, based on above ARM SIMD version of PAIR_MUL_4_SSE2.
+	// NOTE: Unlike the PAIR_SQUARE_4 version of this macro, the MUL version assumes the sincos terms premultiplied by 1/4!
+	// AVX version has shufpd immediate = 0x5 = 0101_2, which is the doubled analog of the SSE2 imm8 = 1 = 01_2:
+	#define PAIR_MUL_4_SSE2(XA0,XA1,XA2,XA3, XB0,XB1,XB2,XB3, Xc,Xs,Xforth)\
+	{\
+	__asm__ volatile (\
+		/* Load a2,a3 and b2,b3, d0,d1-swap, then compute
+			t0 = ~a3r*~b3r - ~a3i*~b3i, t2 = ~a3r*~b3i + ~a3i*~b3r
+			t1 = ~a2r*~b2r - ~a2i*~b2i, t3 = ~a2r*~b2i + ~a2i*~b2r
+		*/\
+		"movq	%[__A2]	,%%rcx	\n\t"\
+		"movq	%[__A3]	,%%rdx	\n\t"\
+		"movq	%[__B2]	,%%rdi	\n\t"\
+		"movq	%[__B3]	,%%rsi	\n\t"\
+		/* Must load double-pairs-to-be-swapped into regs first, since SHUFPD takes low double from DEST and high from SRC: */\
+		"vmovaps	    (%%rcx),%%ymm0		\n\t	vshufpd	$5,%%ymm0,%%ymm0,%%ymm0	\n\t"/* ~a2r */\
+		"vmovaps	0x20(%%rcx),%%ymm1		\n\t	vshufpd	$5,%%ymm1,%%ymm1,%%ymm1	\n\t"/* ~a2i */\
+		"vmovaps	    (%%rdi),%%ymm4		\n\t	vshufpd	$5,%%ymm4,%%ymm4,%%ymm4	\n\t"/* ~b2r */\
+		"vmovaps	0x20(%%rdi),%%ymm5		\n\t	vshufpd	$5,%%ymm5,%%ymm5,%%ymm5	\n\t"/* ~b2i */\
+		"vmovaps	    (%%rdx),%%ymm2		\n\t	vshufpd	$5,%%ymm2,%%ymm2,%%ymm2	\n\t"/* ~a3r */\
+		"vmovaps	0x20(%%rdx),%%ymm3		\n\t	vshufpd	$5,%%ymm3,%%ymm3,%%ymm3	\n\t"/* ~a3i */\
+		"vmovaps	    (%%rsi),%%ymm6		\n\t	vshufpd	$5,%%ymm6,%%ymm6,%%ymm6	\n\t"/* ~b3r */\
+		"vmovaps	0x20(%%rsi),%%ymm7		\n\t	vshufpd	$5,%%ymm7,%%ymm7,%%ymm7	\n\t"/* ~b3i */\
+		"vmulpd		%%ymm0	,%%ymm4	,%%ymm8	\n\t"/* ~a2r*~b2r */\
+		"vmulpd		%%ymm0	,%%ymm5	,%%ymm9	\n\t"/* ~a2r*~b2i */\
+		"vmulpd		%%ymm2	,%%ymm6	,%%ymm10\n\t"/* ~a3r*~b3r */\
+		"vmulpd		%%ymm2	,%%ymm7	,%%ymm11\n\t"/* ~a3r*~b3i */\
+	"vfnmadd231pd	%%ymm1	,%%ymm5	,%%ymm8	\n\t"/* t1 = ~a2r*~b2r - ~a2i*~b2i */\
+	"vfmadd231pd	%%ymm1	,%%ymm4	,%%ymm9	\n\t"/* t3 = ~a2r*~b2i + ~a2i*~b2r */\
+	"vfnmadd231pd	%%ymm3	,%%ymm7	,%%ymm10\n\t"/* t0 = ~a3r*~b3r - ~a3i*~b3i */\
+	"vfmadd231pd	%%ymm3	,%%ymm6	,%%ymm11\n\t"/* t2 = ~a3r*~b3i + ~a3i*~b3r */\
+		/* t1,3 and t0,2 not needed until final butterfly sequence, so write back to A2,3 memlocs: */\
+		"vmovaps	%%ymm8	,    (%%rcx)	\n\t	movq	%[__A0]	,%%rax	\n\t"\
+		"vmovaps	%%ymm9	,0x20(%%rcx)	\n\t	movq	%[__A1]	,%%rbx	\n\t"\
+		"vmovaps	%%ymm10	,    (%%rdx)	\n\t	movq	%[__B0]	,%%rdi	\n\t"\
+		"vmovaps	%%ymm11	,0x20(%%rdx)	\n\t	movq	%[__B1]	,%%rsi	\n\t"\
+	/* a2,3 in ymm0-3, b2,3 in ymm4-7, t1,3 in (rcx), t0,2 in (rdx) */\
+		/* calculate difference terms...these need the [a,b][2|3] vector-data to be d0,1-swapped:
+			~a3r -= a0r, ~a3i += a0i,
+			~a2r -= a1r, ~a2i += a1i, similar for b-data, but move ~b2 -+ b1 down to just before a1*b1 cmul to free up 2 regs.
+		*/\
+/*** Need ~a3r = a0r - ~a3r, not ~a3r -= a0r! [Similar for a2r,b3r,b2r] ***
+************** As currently, a2r,a3r,b2r,b3r all negated! ****************/\
+		"vmovaps	    (%%rax)	,%%ymm8		\n\t	vsubpd	%%ymm8	,%%ymm2	,%%ymm2	\n\t"/* ~a3r -= a0r */\
+		"vmovaps	0x20(%%rax)	,%%ymm9		\n\t	vaddpd	%%ymm9	,%%ymm3	,%%ymm3	\n\t"/* ~a3i += a0i */\
+		"vmovaps	    (%%rbx)	,%%ymm10	\n\t	vsubpd	%%ymm10	,%%ymm0	,%%ymm0	\n\t"/* ~a2r -= a1r */\
+		"vmovaps	0x20(%%rbx)	,%%ymm11	\n\t	vaddpd	%%ymm11	,%%ymm1	,%%ymm1	\n\t"/* ~a2i += a1i */\
+		"vmovaps	    (%%rdi)	,%%ymm12	\n\t	vsubpd	%%ymm12	,%%ymm6	,%%ymm6	\n\t"/* ~b3r -= b0r */\
+		"vmovaps	0x20(%%rdi)	,%%ymm13	\n\t	vaddpd	%%ymm13	,%%ymm7	,%%ymm7	\n\t"/* ~b3i += b0i */\
+		"vmovaps	    (%%rsi)	,%%ymm14	\n\t	vsubpd	%%ymm14	,%%ymm4	,%%ymm4	\n\t"/* ~b2r -= b1r */\
+		"vmovaps	0x20(%%rsi)	,%%ymm15	\n\t	vaddpd	%%ymm15	,%%ymm5	,%%ymm5	\n\t"/* ~b2i += b1i */\
+		/* now calculate 1st square-like term and store back in H(j) slot:
+			t4 = a0r*b0r - a0i*b0i, a0i = a0r*b0i + a0i*b0r, a0r = t4
+			t5 = a1r*b1r - a1i*b1i, a1i = a1r*b1i + a1i*b1r, a1r = t5
+		*/\
+		"vmulpd		    (%%rax)	,%%ymm12,%%ymm8	\n\t"/* a0r*b0r */\
+		"vmulpd		    (%%rax)	,%%ymm13,%%ymm9	\n\t"/* a0r*b0i */\
+		"vmulpd		    (%%rbx)	,%%ymm14,%%ymm10\n\t"/* a1r*b1r */\
+		"vmulpd		    (%%rbx)	,%%ymm15,%%ymm11\n\t"/* a1r*b1i */\
+	"vfnmadd231pd	0x20(%%rax)	,%%ymm13,%%ymm8	\n\t"/* a0r' = a0r*b0r - a0i*b0i */\
+	"vfmadd231pd	0x20(%%rax)	,%%ymm12,%%ymm9	\n\t"/* a0i' = a0r*b0i + a0i*b0r */\
+	"vfnmadd231pd	0x20(%%rbx)	,%%ymm15,%%ymm10\n\t"/* a1r' = a1r*b1r - a1i*b1i */\
+	"vfmadd231pd	0x20(%%rbx)	,%%ymm14,%%ymm11\n\t"/* a1i' = a1r*b1i + a1i*b1r */\
+	/* a0,1 in ymm8-11, a2,3 in ymm0-3, b2,3 in ymm4-7, t1,3 in (rcx), t0,2 in (rdx) */\
+		/* calculate the complex products to build the second term:
+			t4 = ~a3r*~b3r - ~a3i*~b3i, ~a3i = ~a3r*~b3i + ~a3i*~b3r, ~a3r,i in ymm2,3, ~b3r,i in ymm6,7
+			t5 = ~a2r*~b2r - ~a2i*~b2i, ~a2i = ~a2r*~b2i + ~a2i*~b2r, ~arr,i in ymm0,1, ~b2r,i in ymm4,5
+		*/\
+/****************** a2r,a3r,b2r,b3r being negated means a2i,a3i come out negated ****************/\
+		"vmulpd		%%ymm0	,%%ymm4	,%%ymm12\n\t"/* ~a2r*~b2r */\
+		"vmulpd		%%ymm0	,%%ymm5	,%%ymm13\n\t"/* ~a2r*~b2i */\
+		"vmulpd		%%ymm2	,%%ymm6	,%%ymm14\n\t"/* ~a3r*~b3r */\
+		"vmulpd		%%ymm2	,%%ymm7	,%%ymm15\n\t"/* ~a3r*~b3i */\
+	"vfnmadd231pd	%%ymm1	,%%ymm5	,%%ymm12\n\t"/* t5   = ~a2r*~b2r - ~a2i*~b2i */\
+	"vfmadd231pd	%%ymm1	,%%ymm4	,%%ymm13\n\t"/* ~a2i = ~a2r*~b2i + ~a2i*~b2r */\
+	"vfnmadd231pd	%%ymm3	,%%ymm7	,%%ymm14\n\t"/* t4   = ~a3r*~b3r - ~a3i*~b3i */\
+	"vfmadd231pd	%%ymm3	,%%ymm6	,%%ymm15\n\t"/* ~a3i = ~a3r*~b3i + ~a3i*~b3r */\
+		/* ymm0-7 free */\
+		/* Assume [c0,s1],[s0,c1] sincos vector-data are in the [c] and [s]-input-pointers, then compute
+			~a3r = [cc+0.25]*t4 - [ss]*~a3i, ~a3i = [ss]*t4 + [cc+0.25]*~a3i
+			~a2r = [0.25-ss]*t5 - [cc]*~a2i, ~a2i = [cc]*t5 + [0.25-ss]*~a2i ,
+		where cc = 0.25*[c0,s1] and ss = 0.25*[s0,c1]:
+		*/\
+/****************** a2i,a3i being negated requires +- sign swap in this next computation ****************/\
+		"movq	%[__forth],%%rdi		\n\t	vmovaps	(%%rdi),%%ymm6		\n\t	vmovaps	%%ymm6,%%ymm7	\n\t"/* 2 copies of 0.25 */\
+		"movq	%[__c]	,%%rdi			\n\t	vmovaps	(%%rdi),%%ymm4		\n\t"/*	cc assumed premultiplied by 0.25 */\
+		"movq	%[__s]	,%%rsi			\n\t	vmovaps	(%%rsi),%%ymm5		\n\t"/*	ss assumed premultiplied by 0.25 */\
+		"vaddpd	%%ymm4	,%%ymm6	,%%ymm6	\n\t	vsubpd	%%ymm5	,%%ymm7	,%%ymm7	\n\t"	/* [cc+0.25],[0.25-ss] in ymm6,7 */\
+		"vmulpd		%%ymm14	,%%ymm6	,%%ymm2	\n\t"/*   t4*[cc+0.25] */\
+		"vmulpd		%%ymm14	,%%ymm5	,%%ymm3	\n\t"/*   t4*[ss] */\
+		"vmulpd		%%ymm12	,%%ymm7	,%%ymm0	\n\t"/*   t5*[0.25-ss] */\
+		"vmulpd		%%ymm12	,%%ymm4	,%%ymm1	\n\t"/*   t5*[cc] */\
+	"vfmadd231pd	%%ymm15	,%%ymm5	,%%ymm2	\n\t"/* ~a3r = [cc+0.25]*t4 - [ss]*~a3i in ymm2 */\
+	"vfnmadd231pd	%%ymm15	,%%ymm6	,%%ymm3	\n\t"/* ~a3i = [cc+0.25]*~a3i - [ss]*t4 in ymm3 */\
+	"vfmadd231pd	%%ymm13	,%%ymm4	,%%ymm0	\n\t"/* ~a2r = [0.25-ss]*t5 - [cc]*~a2i in ymm0 */\
+	"vfnmadd231pd	%%ymm13	,%%ymm7	,%%ymm1	\n\t"/* ~a2i = [0.25-ss]*~a2i - [cc]*t5 in ymm1 */\
+/****************** a2i,a3i in ymm1,3; *NOT* negated as in the sse2|avx case ****************/\
+	/* a0,1 in ymm8-11, a2,3 in ymm0-3, t1,3 in (rcx), t0,2 in (rdx) */\
+		"vmovaps	    (%%rdx)	,%%ymm4		\n\t"/* t0 */\
+		"vmovaps	0x20(%%rdx)	,%%ymm5		\n\t"/* t2 */\
+		"vmovaps	    (%%rcx)	,%%ymm6		\n\t"/* t1 */\
+		"vmovaps	0x20(%%rcx)	,%%ymm7		\n\t"/* t3 */\
+	/* and now complete and store the results:
+		a0r -= ~a3r, a0i -= ~a3i
+		a1r -= ~a2r, a1i -= ~a2i
+	N-j terms:
+		~a3r = t0 - ~a3r, ~a3i += t2
+		~a2r = t1 - ~a2r, ~a2i += t3
+	*/\
+/****************** a2i,a3i negated means in rcol instead computing a0,1i += ~a3,2i, a3,2i = t2,3 - a3,2i ****************/\
+		"vsubpd	%%ymm2	,%%ymm8	,%%ymm8	\n\t	vsubpd	%%ymm3	,%%ymm9	,%%ymm9	\n\t"	/* a0r,i in v8 ,9 ; ~a3r,i in v2,3 */\
+		"vsubpd	%%ymm0	,%%ymm10,%%ymm10\n\t	vsubpd	%%ymm1	,%%ymm11,%%ymm11\n\t"	/* a1r,i in v10,11; ~a2r,i in v0,1 */\
+		"vsubpd	%%ymm2	,%%ymm4	,%%ymm4	\n\t	vaddpd	%%ymm3	,%%ymm5	,%%ymm5	\n\t"	/* t0,2 in v4,5 */\
+		"vsubpd	%%ymm0	,%%ymm6	,%%ymm6	\n\t	vaddpd	%%ymm1	,%%ymm7	,%%ymm7	\n\t"	/* t1,3 in v6,7 */\
+	/* Interleave writes of a0,a1 with un-shufflings of ~a2,~a3: */\
+		"vmovaps	%%ymm8	,    (%%rax)	\n\t	vshufpd	$5	,%%ymm4	,%%ymm4,%%ymm4	\n\t"/* ~a3r */\
+		"vmovaps	%%ymm9	,0x20(%%rax)	\n\t	vshufpd	$5	,%%ymm5	,%%ymm5,%%ymm5	\n\t"/* ~a3i */\
+		"vmovaps	%%ymm10	,    (%%rbx)	\n\t	vshufpd	$5	,%%ymm6	,%%ymm6,%%ymm6	\n\t"/* ~a2r */\
+		"vmovaps	%%ymm11	,0x20(%%rbx)	\n\t	vshufpd	$5	,%%ymm7	,%%ymm7,%%ymm7	\n\t"/* ~a2i */\
+		"vmovaps	%%ymm4	,    (%%rdx)	\n\t"\
+		"vmovaps	%%ymm5	,0x20(%%rdx)	\n\t"\
+		"vmovaps	%%ymm6	,    (%%rcx)	\n\t"\
+		"vmovaps	%%ymm7	,0x20(%%rcx)	\n\t"\
+		/* Cost (FMA = MUL): [43 vector-load/store (8 implicit), 12 shufpd, 18 addpd, 32 mulpd, 1 vector-register-copy] */\
+		:					/* outputs: none */\
+		: [__A0] "m" (XA0)	/* All inputs from memory addresses here */\
+		 ,[__A1] "m" (XA1)\
+		 ,[__A2] "m" (XA2)\
+		 ,[__A3] "m" (XA3)\
+		 ,[__B0] "m" (XB0)\
+		 ,[__B1] "m" (XB1)\
+		 ,[__B2] "m" (XB2)\
+		 ,[__B3] "m" (XB3)\
+		 ,[__c] "m" (Xc)\
+		 ,[__s] "m" (Xs)\
+		 ,[__forth] "m" (Xforth)\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
@@ -9474,6 +9898,158 @@
 		 ,[__s] "m" (Xs)\
 		 ,[__forth] "m" (Xforth)\
 		: "cc","memory","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+	);\
+	}
+
+	// Sep 2019: 2-input FFT(a)*FFT(b) version of above PAIR_SQUARE_4_SSE2 macro, based on SSE2 version of PAIR_MUL_4_SSE2.
+	// NOTE: Unlike the PAIR_SQUARE_4 version of this macro, the MUL version assumes the sincos terms premultiplied by 1/4!
+	// AVX version has shufpd immediate = 5 = 0101_2, which is the doubled analog of the SSE2 imm8 = 1 = 01_2:
+	#define PAIR_MUL_4_SSE2(XA0,XA1,XA2,XA3, XB0,XB1,XB2,XB3, Xc,Xs,Xforth)\
+	{\
+	__asm__ volatile (\
+		/* Load a2,a3 and b2,b3, d0,d1-swap, then compute
+			t0 = ~a3r*~b3r - ~a3i*~b3i, t2 = ~a3r*~b3i + ~a3i*~b3r
+			t1 = ~a2r*~b2r - ~a2i*~b2i, t3 = ~a2r*~b2i + ~a2i*~b2r
+		*/\
+		"movq	%[__A2]	,%%rcx	\n\t"\
+		"movq	%[__A3]	,%%rdx	\n\t"\
+		"movq	%[__B2]	,%%rdi	\n\t"\
+		"movq	%[__B3]	,%%rsi	\n\t"\
+		/* Must load double-pairs-to-be-swapped into regs first, since SHUFPD takes low double from DEST and high from SRC: */\
+		"vmovaps	    (%%rcx),%%ymm0		\n\t	vshufpd	$5,%%ymm0,%%ymm0,%%ymm0	\n\t"/* ~a2r */\
+		"vmovaps	0x20(%%rcx),%%ymm1		\n\t	vshufpd	$5,%%ymm1,%%ymm1,%%ymm1	\n\t"/* ~a2i */\
+		"vmovaps	    (%%rdi),%%ymm4		\n\t	vshufpd	$5,%%ymm4,%%ymm4,%%ymm4	\n\t"/* ~b2r */\
+		"vmovaps	0x20(%%rdi),%%ymm5		\n\t	vshufpd	$5,%%ymm5,%%ymm5,%%ymm5	\n\t"/* ~b2i */\
+		"vmovaps	%%ymm0	,%%ymm8			\n\t	vmulpd	%%ymm4	,%%ymm8	,%%ymm8	\n\t"/* ~a2r*~b2r */\
+		"vmovaps	%%ymm1	,%%ymm10		\n\t	vmulpd	%%ymm5	,%%ymm10,%%ymm10\n\t"/* ~a2i*~b2i */\
+		"vmovaps	%%ymm5	,%%ymm11		\n\t	vmulpd	%%ymm0	,%%ymm11,%%ymm11\n\t"/* ~a2r*~b2i */\
+		"vmovaps	%%ymm4	,%%ymm9			\n\t	vmulpd	%%ymm1	,%%ymm9	,%%ymm9	\n\t"/* ~a2i*~b2r */\
+		"vsubpd		%%ymm10	,%%ymm8	,%%ymm8	\n\t	vaddpd	%%ymm11	,%%ymm9	,%%ymm9	\n\t"/* t1,t3 */\
+		"vmovaps	    (%%rdx),%%ymm2		\n\t	vshufpd	$5,%%ymm2,%%ymm2,%%ymm2	\n\t"/* ~a3r */\
+		"vmovaps	0x20(%%rdx),%%ymm3		\n\t	vshufpd	$5,%%ymm3,%%ymm3,%%ymm3	\n\t"/* ~a3i */\
+		"vmovaps	    (%%rsi),%%ymm6		\n\t	vshufpd	$5,%%ymm6,%%ymm6,%%ymm6	\n\t"/* ~b3r */\
+		"vmovaps	0x20(%%rsi),%%ymm7		\n\t	vshufpd	$5,%%ymm7,%%ymm7,%%ymm7	\n\t"/* ~b3i */\
+		/* t1,3 not needed until final butterfly sequence, so write back to A2,3 memlocs: */\
+		"vmovaps	%%ymm8	,    (%%rcx)	\n\t	movq	%[__A0]	,%%rax	\n\t"\
+		"vmovaps	%%ymm9	,0x20(%%rcx)	\n\t	movq	%[__A1]	,%%rbx	\n\t"\
+		"vmovaps	%%ymm2	,%%ymm8			\n\t	vmulpd	%%ymm6	,%%ymm8	,%%ymm8	\n\t"/* ~a3r*~b3r */\
+		"vmovaps	%%ymm3	,%%ymm10		\n\t	vmulpd	%%ymm7	,%%ymm10,%%ymm10\n\t"/* ~a3i*~b3i */\
+		"vmovaps	%%ymm7	,%%ymm11		\n\t	vmulpd	%%ymm2	,%%ymm11,%%ymm11\n\t"/* ~a3r*~b3i */\
+		"vmovaps	%%ymm6	,%%ymm9			\n\t	vmulpd	%%ymm3	,%%ymm9	,%%ymm9	\n\t"/* ~a3i*~b3r */\
+		"vsubpd		%%ymm10	,%%ymm8	,%%ymm8	\n\t	vaddpd	%%ymm11	,%%ymm9	,%%ymm9	\n\t"/* t0,t2 */\
+		/* t0,2 not needed until final butterfly sequence, so write back to A2,3 memlocs: */\
+		"vmovaps	%%ymm8	,    (%%rdx)	\n\t	movq	%[__B0]	,%%rdi	\n\t"\
+		"vmovaps	%%ymm9	,0x20(%%rdx)	\n\t	movq	%[__B1]	,%%rsi	\n\t"\
+	/* a2,3 in ymm0-3, b2,3 in ymm4-7, t1,3 in (rcx), t0,2 in (rdx) */\
+		/* calculate difference terms...these need the [a,b][2|3] vector-data to be d0,1-swapped:
+			~a3r -= a0r, ~a3i += a0i,
+			~a2r -= a1r, ~a2i += a1i, similar for b-data, but move ~b2 -+ b1 down to just before a1*b1 cmul to free up 2 regs.
+		*/\
+/*** Need ~a3r = a0r - ~a3r, not ~a3r -= a0r! [Similar for a2r,b3r,b2r] ***
+************** As currently, a2r,a3r,b2r,b3r all negated! ****************/\
+		"vmovaps	    (%%rax)	,%%ymm8		\n\t	vsubpd	%%ymm8	,%%ymm2	,%%ymm2	\n\t"/* ~a3r -= a0r */\
+		"vmovaps	0x20(%%rax)	,%%ymm9		\n\t	vaddpd	%%ymm9	,%%ymm3	,%%ymm3	\n\t"/* ~a3i += a0i */\
+		"vmovaps	    (%%rbx)	,%%ymm10	\n\t	vsubpd	%%ymm10	,%%ymm0	,%%ymm0	\n\t"/* ~a2r -= a1r */\
+		"vmovaps	0x20(%%rbx)	,%%ymm11	\n\t	vaddpd	%%ymm11	,%%ymm1	,%%ymm1	\n\t"/* ~a2i += a1i */\
+		"vmovaps	    (%%rdi)	,%%ymm14	\n\t	vsubpd	%%ymm14	,%%ymm6	,%%ymm6	\n\t"/* ~b3r -= b0r */\
+		"vmovaps	0x20(%%rdi)	,%%ymm15	\n\t	vaddpd	%%ymm15	,%%ymm7	,%%ymm7	\n\t"/* ~b3i += b0i */\
+		/* now calculate 1st square-like term and store back in H(j) slot:
+			t4 = a0r*b0r - a0i*b0i, a0i = a0r*b0i + a0i*b0r, a0r = t4
+			t5 = a1r*b1r - a1i*b1i, a1i = a1r*b1i + a1i*b1r, a1r = t5
+		*/\
+		"vmovaps	%%ymm8	,%%ymm12		\n\t	vmulpd	%%ymm14	,%%ymm8	,%%ymm8	\n\t"/* a0r*b0r */\
+		"vmovaps	%%ymm9	,%%ymm13		\n\t	vmulpd	%%ymm15	,%%ymm13,%%ymm13\n\t"/* a0i*b0i */\
+		"											vmulpd	%%ymm15	,%%ymm12,%%ymm12\n\t"/* a0r*b0i */\
+		"											vmulpd	%%ymm14	,%%ymm9	,%%ymm9	\n\t"/* a0i*b0r */\
+		"vsubpd	%%ymm13	,%%ymm8	,%%ymm8		\n\t	vaddpd	%%ymm12	,%%ymm9	,%%ymm9	\n\t"	/* a0r,i in ymm8,9 */\
+	/*** Consider overlapping these 2 cmul to better hide latency ***/\
+		"vmovaps	    (%%rsi)	,%%ymm14	\n\t	vsubpd	%%ymm14	,%%ymm4	,%%ymm4	\n\t"/* ~b2r -= b1r */\
+		"vmovaps	0x20(%%rsi)	,%%ymm15	\n\t	vaddpd	%%ymm15	,%%ymm5	,%%ymm5	\n\t"/* ~b2i += b1i */\
+		"vmovaps	%%ymm10	,%%ymm12		\n\t	vmulpd	%%ymm14	,%%ymm10,%%ymm10\n\t"/* a1r*b1r */\
+		"vmovaps	%%ymm11	,%%ymm13		\n\t	vmulpd	%%ymm15	,%%ymm13,%%ymm13\n\t"/* a1i*b1i */\
+		"											vmulpd	%%ymm15	,%%ymm12,%%ymm12\n\t"/* a1r*b1i */\
+		"											vmulpd	%%ymm14	,%%ymm11,%%ymm11\n\t"/* a1i*b1r */\
+		"vsubpd	%%ymm13	,%%ymm10,%%ymm10	\n\t	vaddpd	%%ymm12	,%%ymm11,%%ymm11\n\t"	/* a1r,i in ymm10,11 */\
+	/* a0,1 in ymm8-11, a2,3 in ymm0-3, b2,3 in ymm4-7, t1,3 in (rcx), t0,2 in (rdx) */\
+		/* calculate the complex products to build the second term:
+			t4 = ~a3r*~b3r - ~a3i*~b3i, ~a3i = ~a3r*~b3i + ~a3i*~b3r, ~a3r,i in ymm2,3, ~b3r,i in ymm6,7
+			t5 = ~a2r*~b2r - ~a2i*~b2i, ~a2i = ~a2r*~b2i + ~a2i*~b2r, ~arr,i in ymm0,1, ~b2r,i in ymm4,5
+		*/\
+/****************** a2r,a3r,b2r,b3r being negated means a2i,a3i come out negated ****************/\
+		"vmovaps	%%ymm2	,%%ymm12		\n\t	vmulpd	%%ymm6	,%%ymm2	,%%ymm2	\n\t"/* ~a3r*~b3r */\
+		"vmovaps	%%ymm3	,%%ymm13		\n\t	vmulpd	%%ymm7	,%%ymm13,%%ymm13\n\t"/* ~a3i*~b3i */\
+		"											vmulpd	%%ymm7	,%%ymm12,%%ymm12\n\t"/* ~a3r*~b3i */\
+		"											vmulpd	%%ymm6	,%%ymm3	,%%ymm3	\n\t"/* ~a3i*~b3r */\
+		"vsubpd	%%ymm13	,%%ymm2	,%%ymm2		\n\t	vaddpd	%%ymm12	,%%ymm3	,%%ymm3	\n\t"	/* t4,~a3i in ymm2,3 */\
+	/*** Consider overlapping these 2 cmul to better hide latency ***/\
+		"vmovaps	%%ymm0	,%%ymm14		\n\t	vmulpd	%%ymm4	,%%ymm0	,%%ymm0	\n\t"/* ~a2r*~b2r */\
+		"vmovaps	%%ymm1	,%%ymm15		\n\t	vmulpd	%%ymm5	,%%ymm15,%%ymm15\n\t"/* ~a2i*~b2i */\
+		"											vmulpd	%%ymm5	,%%ymm14,%%ymm14\n\t"/* ~a2r*~b2i */\
+		"											vmulpd	%%ymm4	,%%ymm1	,%%ymm1	\n\t"/* ~a2i*~b2r */\
+		"vsubpd	%%ymm15	,%%ymm0	,%%ymm0		\n\t	vaddpd	%%ymm14	,%%ymm1	,%%ymm1	\n\t"	/* t5,~a2i in ymm0,1 */\
+		/* ymm4-7,12-15 free */\
+		/* Assume [c0,s1],[s0,c1] sincos vector-data are in the [c] and [s]-input-pointers, then compute
+			~a3r = [cc+0.25]*t4 - [ss]*~a3i, ~a3i = [ss]*t4 + [cc+0.25]*~a3i
+			~a2r = [0.25-ss]*t5 - [cc]*~a2i, ~a2i = [cc]*t5 + [0.25-ss]*~a2i ,
+		where cc = 0.25*[c0,s1] and ss = 0.25*[s0,c1]:
+		*/\
+/****************** a2i,a3i being negated requires +- sign swap in this next computation ****************/\
+		"movq	%[__forth],%%rdi		\n\t	vmovaps	(%%rdi),%%ymm6		\n\t	vmovaps	%%ymm6,%%ymm7	\n\t"/* 2 copies of 0.25 */\
+		"movq	%[__c]	,%%rdi			\n\t	vmovaps	(%%rdi),%%ymm4		\n\t"/*	cc assumed premultiplied by 0.25 */\
+		"movq	%[__s]	,%%rsi			\n\t	vmovaps	(%%rsi),%%ymm5		\n\t"/*	ss assumed premultiplied by 0.25 */\
+		"vaddpd	%%ymm4	,%%ymm6	,%%ymm6	\n\t	vsubpd	%%ymm5	,%%ymm7	,%%ymm7	\n\t"	/* [cc+0.25],[0.25-ss] in ymm6,7 */\
+		"vmovaps	%%ymm2	,%%ymm12		\n\t	vmulpd	%%ymm6	,%%ymm2	,%%ymm2	\n\t"/*   t4*[cc+0.25] */\
+		"vmovaps	%%ymm3	,%%ymm13		\n\t	vmulpd	%%ymm5	,%%ymm13,%%ymm13\n\t"/* ~a3i*[ss] */\
+		"											vmulpd	%%ymm5	,%%ymm12,%%ymm12\n\t"/*   t4*[ss] */\
+		"											vmulpd	%%ymm6	,%%ymm3	,%%ymm3	\n\t"/* ~a3i*[cc+0.25] */\
+		"vaddpd	%%ymm13	,%%ymm2	,%%ymm2		\n\t	vsubpd	%%ymm12	,%%ymm3	,%%ymm3	\n\t"	/* ~a3r = [cc+0.25]*t4 - [ss]*~a3i, ~a3i = [cc+0.25]*~a3i - [ss]*t4 in ymm2,3 */\
+	/*** Consider overlapping these 2 cmul to better hide latency ***/\
+		"vmovaps	%%ymm0	,%%ymm14		\n\t	vmulpd	%%ymm7	,%%ymm0	,%%ymm0	\n\t"/*   t5*[0.25-ss] */\
+		"vmovaps	%%ymm1	,%%ymm15		\n\t	vmulpd	%%ymm4	,%%ymm15,%%ymm15\n\t"/* ~a2i*[cc] */\
+		"											vmulpd	%%ymm4	,%%ymm14,%%ymm14\n\t"/*   t5*[cc] */\
+		"											vmulpd	%%ymm7	,%%ymm1	,%%ymm1	\n\t"/* ~a2i*[0.25-ss] */\
+		"vaddpd	%%ymm15	,%%ymm0	,%%ymm0		\n\t	vsubpd	%%ymm14	,%%ymm1	,%%ymm1	\n\t"	/* ~a2r = [0.25-ss]*t5 - [cc]*~a2i, ~a2i = [0.25-ss]*~a2i - [cc]*t5 in ymm0,1 */\
+/****************** a2i,a3i negated ****************/\
+	/* a0,1 in ymm8-11, a2,3 in ymm0-3, t1,3 in (rcx), t0,2 in (rdx) */\
+		"vmovaps	    (%%rdx)	,%%ymm4		\n\t"/* t0 */\
+		"vmovaps	0x20(%%rdx)	,%%ymm5		\n\t"/* t2 */\
+		"vmovaps	    (%%rcx)	,%%ymm6		\n\t"/* t1 */\
+		"vmovaps	0x20(%%rcx)	,%%ymm7		\n\t"/* t3 */\
+	/* and now complete and store the results:
+		a0r -= ~a3r, a0i -= ~a3i
+		a1r -= ~a2r, a1i -= ~a2i
+	N-j terms:
+		~a3r = t0 - ~a3r, ~a3i += t2
+		~a2r = t1 - ~a2r, ~a2i += t3
+	*/\
+/****************** a2i,a3i negated means in rcol instead computing a0,1i += ~a3,2i, a3,2i = t2,3 - a3,2i ****************/\
+		"vsubpd	%%ymm2	,%%ymm8	,%%ymm8	\n\t	vaddpd	%%ymm3	,%%ymm9	,%%ymm9	\n\t"	/* a0r,i in ymm8,9 */\
+		"vsubpd	%%ymm0	,%%ymm10,%%ymm10\n\t	vaddpd	%%ymm1	,%%ymm11,%%ymm11\n\t"	/* a1r,i in ymm10,11 */\
+		"vsubpd	%%ymm2	,%%ymm4	,%%ymm4	\n\t	vsubpd	%%ymm3	,%%ymm5	,%%ymm5	\n\t"	/* ~a3r,i in ymm4,5 */\
+		"vsubpd	%%ymm0	,%%ymm6	,%%ymm6	\n\t	vsubpd	%%ymm1	,%%ymm7	,%%ymm7	\n\t"	/* ~a2r,i in ymm6,7 */\
+	/* Interleave writes of a0,a1 with un-shufflings of ~a2,~a3: */\
+		"vmovaps	%%ymm8	,    (%%rax)	\n\t	vshufpd	$5	,%%ymm4	,%%ymm4,%%ymm4	\n\t"/* ~a3r */\
+		"vmovaps	%%ymm9	,0x20(%%rax)	\n\t	vshufpd	$5	,%%ymm5	,%%ymm5,%%ymm5	\n\t"/* ~a3i */\
+		"vmovaps	%%ymm10	,    (%%rbx)	\n\t	vshufpd	$5	,%%ymm6	,%%ymm6,%%ymm6	\n\t"/* ~a2r */\
+		"vmovaps	%%ymm11	,0x20(%%rbx)	\n\t	vshufpd	$5	,%%ymm7	,%%ymm7,%%ymm7	\n\t"/* ~a2i */\
+		"vmovaps	%%ymm4	,    (%%rdx)	\n\t"\
+		"vmovaps	%%ymm5	,0x20(%%rdx)	\n\t"\
+		"vmovaps	%%ymm6	,    (%%rcx)	\n\t"\
+		"vmovaps	%%ymm7	,0x20(%%rcx)	\n\t"\
+		/* Cost: [35 vector-load/store (0 implicit), 12 shufpd, 34 addpd, 32 mulpd, 21 vector-register-copy] */\
+		:					/* outputs: none */\
+		: [__A0] "m" (XA0)	/* All inputs from memory addresses here */\
+		 ,[__A1] "m" (XA1)\
+		 ,[__A2] "m" (XA2)\
+		 ,[__A3] "m" (XA3)\
+		 ,[__B0] "m" (XB0)\
+		 ,[__B1] "m" (XB1)\
+		 ,[__B2] "m" (XB2)\
+		 ,[__B3] "m" (XB3)\
+		 ,[__c] "m" (Xc)\
+		 ,[__s] "m" (Xs)\
+		 ,[__forth] "m" (Xforth)\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
@@ -16539,12 +17115,39 @@
 	}
 
 	/*
-	SSE2-ified version of PAIR_SQUARE_4. Data enter in [__tAr, ~tAr], [__tAi, ~tAi], pairs, where the imaginary part
+	SSE2-ified version of PAIR_SQUARE_4. Data enter in [tAr, ~tDr], [tBr, ~tCr] pointer-pairs, where the imaginary part
 	of each input pair is assumed offset +0x10 in memory from the real part, i.e. needs no explicit pointer reference.
+	In terms of the scalar-double pair_square() function, [tAr, ~tDr] represent one set of data-double 128-bit-wide
+	H[j],H~[N-j] data-to-be-combined, and [tBr, ~tCr] a second such set. Here is the processing flow in pair_square():
+
+		// H[j]-H~[N-j] = (r1-r2,i1+i2); ()^2 = [(r1-r2)^2-(i1+i2)^2] + 2.I.[(r1-r2).(i1+i2)]
+	// calculate 2nd square-like term and store in temp...
+		re = (r2+i2)*(r2-i2);	// re := Re{H(n2-j)^2}
+		im = r2*i2 + i2*r2;		// im := Im{H(n2-j)^2}
+	// calculate difference terms...
+		r2 = r1 - r2;			// r2 := Re{H(j)-H~(n2-j)}
+		i2 = i1 + i2;			// i2 := Im{H(j)-H~(n2-j)}
+	// now calculate 1st square-like term and store back in H(j) slot...
+		tt = (r1+i1)*(r1-i1);		// r1 := Re{H(j)^2}
+		i1 = r1*i1 + i1*r1; r1 = tt;// i1 := Im{H(j)^2}
+	// calculate the complex products to build the second term...
+		tt = (r2+i2)*(r2-i2);		// Re{(H[j] - H~[N/2-j])^2}
+		i2 = r2*i2 + i2*r2; r2 = tt;// Im{(H[j] - H~[N/2-j])^2}
+		tt = (cc*r2 - ss*i2);	// Re{(1 + exp(4*pi*I*j/N)) * (H[j] - H~[N/2-j])^2/4}
+		i2 = (ss*r2 + cc*i2);	// Im{(1 + exp(4*pi*I*j/N)) * (H[j] - H~[N/2-j])^2/4}
+	// and now complete and store the results.
+		*x1 = (r1-tt);	// Re{M(j)}
+		*y1 = (i1-i2);	// Im{M(j)}
+	// N-j terms are as above, but with the replacements: r1<-->r2, i1<-->i2, i3|-->-i3.
+		*x2 = (re-tt);	// Re{M(N-j)}
+		*y2 = (im+i2);	// Im{M(N-j)}
 
 	For the sincos twiddles: using the notation of the scalar PAIR_SQUARE_4() macro,"__c" means [c0,s1], "__s" means [s0,c1].
 	For these, due to the buterfly indexing pattern, we cannot assume that __s = __c + 0x10, so feed both pointers explicitly.
 
+	NOTE: '~' in the above complex-arithmetic description and in the SIMD annotations below mean DIFFERENT THINGS.
+	In the above complex-arithmetic ~ means complex conjugation; in the SIMD annotations below ~ means [lo,hi] doubles swapped in
+	the SSE2 register, corresponding j1,j2-indexed data swaps in the input-argument ordering.
 	We use shufpd xmm, xmm, 1 to swap lo and hi doubles of an xmm register for the various operations with one swapped input.
 	*/
 	#define PAIR_SQUARE_4_SSE2(XtAr, XtBr, XtCr, XtDr, Xc, Xs, Xforth)\
@@ -16759,6 +17362,7 @@
 		"movaps	%%xmm5	,0x10(%%rdx)	/* store >__tDi */\n\t"\
 		"movaps	%%xmm6	,    (%%rcx)	/* store >__tCr */\n\t"\
 		"movaps	%%xmm7	,0x10(%%rcx)	/* store >__tCi */\n\t"\
+		/* Cost: [64 vector-load/store (16 implicit), 12 shufpd, 48 addpd, 28 mulpd, 4 vector-register-copy] */\
 		:					/* outputs: none */\
 		: [__tAr] "m" (XtAr)	/* All inputs from memory addresses here */\
 		 ,[__tBr] "m" (XtBr)\
@@ -16768,6 +17372,157 @@
 		 ,[__s] "m" (Xs)\
 		 ,[__forth] "m" (Xforth)\
 		: "cc","memory","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+	);\
+	}
+
+	// Sep 2019: 2-input FFT(a)*FFT(b) version of above PAIR_SQUARE_4_SSE2 macro, based on PAIR_MUL_4 macro in pair_square.h:
+	// NOTE: Unlike the PAIR_SQUARE_4 version of this macro, the MUL version assumes the sincos terms premultiplied by 1/4!
+	#define PAIR_MUL_4_SSE2(XA0,XA1,XA2,XA3, XB0,XB1,XB2,XB3, Xc,Xs,Xforth)\
+	{\
+	__asm__ volatile (\
+		/* Load a2,a3 and b2,b3, d0,d1-swap, then compute
+			t0 = ~a3r*~b3r - ~a3i*~b3i, t2 = ~a3r*~b3i + ~a3i*~b3r
+			t1 = ~a2r*~b2r - ~a2i*~b2i, t3 = ~a2r*~b2i + ~a2i*~b2r
+		*/\
+		"movq	%[__A2]	,%%rcx	\n\t"\
+		"movq	%[__A3]	,%%rdx	\n\t"\
+		"movq	%[__B2]	,%%rdi	\n\t"\
+		"movq	%[__B3]	,%%rsi	\n\t"\
+		/* Must load double-pairs-to-be-swapped into regs first, since SHUFPD takes low double from DEST and high from SRC: */\
+		"movaps	    (%%rcx),%%xmm0		\n\t	shufpd	$1,%%xmm0,%%xmm0	\n\t"/* ~a2r */\
+		"movaps	0x10(%%rcx),%%xmm1		\n\t	shufpd	$1,%%xmm1,%%xmm1	\n\t"/* ~a2i */\
+		"movaps	    (%%rdi),%%xmm4		\n\t	shufpd	$1,%%xmm4,%%xmm4	\n\t"/* ~b2r */\
+		"movaps	0x10(%%rdi),%%xmm5		\n\t	shufpd	$1,%%xmm5,%%xmm5	\n\t"/* ~b2i */\
+		"movaps	%%xmm0	,%%xmm8			\n\t	mulpd	%%xmm4	,%%xmm8		\n\t"/* ~a2r*~b2r */\
+		"movaps	%%xmm1	,%%xmm10		\n\t	mulpd	%%xmm5	,%%xmm10	\n\t"/* ~a2i*~b2i */\
+		"movaps	%%xmm5	,%%xmm11		\n\t	mulpd	%%xmm0	,%%xmm11	\n\t"/* ~a2r*~b2i */\
+		"movaps	%%xmm4	,%%xmm9			\n\t	mulpd	%%xmm1	,%%xmm9		\n\t"/* ~a2i*~b2r */\
+		"subpd	%%xmm10	,%%xmm8			\n\t	addpd	%%xmm11	,%%xmm9		\n\t"/* t1,t3 */\
+		"movaps	    (%%rdx),%%xmm2		\n\t	shufpd	$1,%%xmm2,%%xmm2	\n\t"/* ~a3r */\
+		"movaps	0x10(%%rdx),%%xmm3		\n\t	shufpd	$1,%%xmm3,%%xmm3	\n\t"/* ~a3i */\
+		"movaps	    (%%rsi),%%xmm6		\n\t	shufpd	$1,%%xmm6,%%xmm6	\n\t"/* ~b3r */\
+		"movaps	0x10(%%rsi),%%xmm7		\n\t	shufpd	$1,%%xmm7,%%xmm7	\n\t"/* ~b3i */\
+		/* t1,3 not needed until final butterfly sequence, so write back to A2,3 memlocs: */\
+		"movaps	%%xmm8	,    (%%rcx)	\n\t	movq	%[__A0]	,%%rax	\n\t"\
+		"movaps	%%xmm9	,0x10(%%rcx)	\n\t	movq	%[__A1]	,%%rbx	\n\t"\
+		"movaps	%%xmm2	,%%xmm8			\n\t	mulpd	%%xmm6	,%%xmm8		\n\t"/* ~a3r*~b3r */\
+		"movaps	%%xmm3	,%%xmm10		\n\t	mulpd	%%xmm7	,%%xmm10	\n\t"/* ~a3i*~b3i */\
+		"movaps	%%xmm7	,%%xmm11		\n\t	mulpd	%%xmm2	,%%xmm11	\n\t"/* ~a3r*~b3i */\
+		"movaps	%%xmm6	,%%xmm9			\n\t	mulpd	%%xmm3	,%%xmm9		\n\t"/* ~a3i*~b3r */\
+		"subpd	%%xmm10	,%%xmm8			\n\t	addpd	%%xmm11	,%%xmm9		\n\t"/* t0,t2 */\
+		/* t0,2 not needed until final butterfly sequence, so write back to A2,3 memlocs: */\
+		"movaps	%%xmm8	,    (%%rdx)	\n\t	movq	%[__B0]	,%%rdi	\n\t"\
+		"movaps	%%xmm9	,0x10(%%rdx)	\n\t	movq	%[__B1]	,%%rsi	\n\t"\
+	/* a2,3 in xmm0-3, b2,3 in xmm4-7, t1,3 in (rcx), t0,2 in (rdx) */\
+		/* calculate difference terms...these need the [a,b][2|3] vector-data to be d0,1-swapped:
+			~a3r -= a0r, ~a3i += a0i,
+			~a2r -= a1r, ~a2i += a1i, similar for b-data, but move ~b2 -+ b1 down to just before a1*b1 cmul to free up 2 regs.
+		*/\
+/*** Need ~a3r = a0r - ~a3r, not ~a3r -= a0r! [Similar for a2r,b3r,b2r] ***
+************** As currently, a2r,a3r,b2r,b3r all negated! ****************/\
+		"movaps	    (%%rax)	,%%xmm8		\n\t	subpd	%%xmm8	,%%xmm2		\n\t"/* ~a3r -= a0r */\
+		"movaps	0x10(%%rax)	,%%xmm9		\n\t	addpd	%%xmm9	,%%xmm3		\n\t"/* ~a3i += a0i */\
+		"movaps	    (%%rbx)	,%%xmm10	\n\t	subpd	%%xmm10	,%%xmm0		\n\t"/* ~a2r -= a1r */\
+		"movaps	0x10(%%rbx)	,%%xmm11	\n\t	addpd	%%xmm11	,%%xmm1		\n\t"/* ~a2i += a1i */\
+		"movaps	    (%%rdi)	,%%xmm14	\n\t	subpd	%%xmm14	,%%xmm6		\n\t"/* ~b3r -= b0r */\
+		"movaps	0x10(%%rdi)	,%%xmm15	\n\t	addpd	%%xmm15	,%%xmm7		\n\t"/* ~b3i += b0i */\
+		/* now calculate 1st square-like term and store back in H(j) slot:
+			t4 = a0r*b0r - a0i*b0i, a0i = a0r*b0i + a0i*b0r, a0r = t4
+			t5 = a1r*b1r - a1i*b1i, a1i = a1r*b1i + a1i*b1r, a1r = t5
+		*/\
+		"movaps	%%xmm8	,%%xmm12		\n\t	mulpd	%%xmm14	,%%xmm8		\n\t"/* a0r*b0r */\
+		"movaps	%%xmm9	,%%xmm13		\n\t	mulpd	%%xmm15	,%%xmm13	\n\t"/* a0i*b0i */\
+		"										mulpd	%%xmm15	,%%xmm12	\n\t"/* a0r*b0i */\
+		"										mulpd	%%xmm14	,%%xmm9		\n\t"/* a0i*b0r */\
+		"subpd	%%xmm13	,%%xmm8			\n\t	addpd	%%xmm12	,%%xmm9		\n\t"	/* a0r,i in xmm8,9 */\
+	/*** Consider overlapping these 2 cmul to better hide latency ***/\
+		"movaps	    (%%rsi)	,%%xmm14	\n\t	subpd	%%xmm14	,%%xmm4		\n\t"/* ~b2r -= b1r */\
+		"movaps	0x10(%%rsi)	,%%xmm15	\n\t	addpd	%%xmm15	,%%xmm5		\n\t"/* ~b2i += b1i */\
+		"movaps	%%xmm10	,%%xmm12		\n\t	mulpd	%%xmm14	,%%xmm10	\n\t"/* a1r*b1r */\
+		"movaps	%%xmm11	,%%xmm13		\n\t	mulpd	%%xmm15	,%%xmm13	\n\t"/* a1i*b1i */\
+		"										mulpd	%%xmm15	,%%xmm12	\n\t"/* a1r*b1i */\
+		"										mulpd	%%xmm14	,%%xmm11	\n\t"/* a1i*b1r */\
+		"subpd	%%xmm13	,%%xmm10		\n\t	addpd	%%xmm12	,%%xmm11	\n\t"	/* a1r,i in xmm10,11 */\
+	/* a0,1 in xmm8-11, a2,3 in xmm0-3, b2,3 in xmm4-7, t1,3 in (rcx), t0,2 in (rdx) */\
+		/* calculate the complex products to build the second term:
+			t4 = ~a3r*~b3r - ~a3i*~b3i, ~a3i = ~a3r*~b3i + ~a3i*~b3r, ~a3r,i in xmm2,3, ~b3r,i in xmm6,7
+			t5 = ~a2r*~b2r - ~a2i*~b2i, ~a2i = ~a2r*~b2i + ~a2i*~b2r, ~arr,i in xmm0,1, ~b2r,i in xmm4,5
+		*/\
+/****************** a2r,a3r,b2r,b3r being negated means a2i,a3i come out negated ****************/\
+		"movaps	%%xmm2	,%%xmm12		\n\t	mulpd	%%xmm6	,%%xmm2		\n\t"/* ~a3r*~b3r */\
+		"movaps	%%xmm3	,%%xmm13		\n\t	mulpd	%%xmm7	,%%xmm13	\n\t"/* ~a3i*~b3i */\
+		"										mulpd	%%xmm7	,%%xmm12	\n\t"/* ~a3r*~b3i */\
+		"										mulpd	%%xmm6	,%%xmm3		\n\t"/* ~a3i*~b3r */\
+		"subpd	%%xmm13	,%%xmm2			\n\t	addpd	%%xmm12	,%%xmm3		\n\t"	/* t4,~a3i in xmm2,3 */\
+	/*** Consider overlapping these 2 cmul to better hide latency ***/\
+		"movaps	%%xmm0	,%%xmm14		\n\t	mulpd	%%xmm4	,%%xmm0		\n\t"/* ~a2r*~b2r */\
+		"movaps	%%xmm1	,%%xmm15		\n\t	mulpd	%%xmm5	,%%xmm15	\n\t"/* ~a2i*~b2i */\
+		"										mulpd	%%xmm5	,%%xmm14	\n\t"/* ~a2r*~b2i */\
+		"										mulpd	%%xmm4	,%%xmm1		\n\t"/* ~a2i*~b2r */\
+		"subpd	%%xmm15	,%%xmm0			\n\t	addpd	%%xmm14	,%%xmm1		\n\t"	/* t5,~a2i in xmm0,1 */\
+		/* xmm4-7,12-15 free */\
+		/* Assume [c0,s1],[s0,c1] sincos vector-data are in the [c] and [s]-input-pointers, then compute
+			~a3r = [cc+0.25]*t4 - [ss]*~a3i, ~a3i = [ss]*t4 + [cc+0.25]*~a3i
+			~a2r = [0.25-ss]*t5 - [cc]*~a2i, ~a2i = [cc]*t5 + [0.25-ss]*~a2i ,
+		where cc = 0.25*[c0,s1] and ss = 0.25*[s0,c1]:
+		*/\
+/****************** a2i,a3i being negated requires +- sign swap in this next computation ****************/\
+		"movq	%[__forth],%%rdi		\n\t	movaps	(%%rdi),%%xmm6		\n\t	movaps	%%xmm6,%%xmm7	\n\t"/* 2 copies of 0.25 */\
+		"movq	%[__c]	,%%rdi			\n\t	movaps	(%%rdi),%%xmm4		\n\t"/*	cc assumed premultiplied by 0.25 */\
+		"movq	%[__s]	,%%rsi			\n\t	movaps	(%%rsi),%%xmm5		\n\t"/*	ss assumed premultiplied by 0.25 */\
+		"addpd	%%xmm4	,%%xmm6			\n\t	subpd	%%xmm5	,%%xmm7		\n\t"	/* [cc+0.25],[0.25-ss] in xmm6,7 */\
+		"movaps	%%xmm2	,%%xmm12		\n\t	mulpd	%%xmm6	,%%xmm2		\n\t"/*   t4*[cc+0.25] */\
+		"movaps	%%xmm3	,%%xmm13		\n\t	mulpd	%%xmm5	,%%xmm13	\n\t"/* ~a3i*[ss] */\
+		"										mulpd	%%xmm5	,%%xmm12	\n\t"/*   t4*[ss] */\
+		"										mulpd	%%xmm6	,%%xmm3		\n\t"/* ~a3i*[cc+0.25] */\
+		"addpd	%%xmm13	,%%xmm2			\n\t	subpd	%%xmm12	,%%xmm3		\n\t"	/* ~a3r = [cc+0.25]*t4 - [ss]*~a3i, ~a3i = [cc+0.25]*~a3i - [ss]*t4 in xmm2,3 */\
+	/*** Consider overlapping these 2 cmul to better hide latency ***/\
+		"movaps	%%xmm0	,%%xmm14		\n\t	mulpd	%%xmm7	,%%xmm0		\n\t"/*   t5*[0.25-ss] */\
+		"movaps	%%xmm1	,%%xmm15		\n\t	mulpd	%%xmm4	,%%xmm15	\n\t"/* ~a2i*[cc] */\
+		"										mulpd	%%xmm4	,%%xmm14	\n\t"/*   t5*[cc] */\
+		"										mulpd	%%xmm7	,%%xmm1		\n\t"/* ~a2i*[0.25-ss] */\
+		"addpd	%%xmm15	,%%xmm0			\n\t	subpd	%%xmm14	,%%xmm1		\n\t"	/* ~a2r = [0.25-ss]*t5 - [cc]*~a2i, ~a2i = [0.25-ss]*~a2i - [cc]*t5 in xmm0,1 */\
+/****************** a2i,a3i negated ****************/\
+	/* a0,1 in xmm8-11, a2,3 in xmm0-3, t1,3 in (rcx), t0,2 in (rdx) */\
+		"movaps	    (%%rdx)	,%%xmm4		\n\t"/* t0 */\
+		"movaps	0x10(%%rdx)	,%%xmm5		\n\t"/* t2 */\
+		"movaps	    (%%rcx)	,%%xmm6		\n\t"/* t1 */\
+		"movaps	0x10(%%rcx)	,%%xmm7		\n\t"/* t3 */\
+	/* and now complete and store the results:
+		a0r -= ~a3r, a0i -= ~a3i
+		a1r -= ~a2r, a1i -= ~a2i
+	N-j terms:
+		~a3r = t0 - ~a3r, ~a3i += t2
+		~a2r = t1 - ~a2r, ~a2i += t3
+	*/\
+/****************** a2i,a3i negated means in rcol instead computing a0,1i += ~a3,2i, a3,2i = t2,3 - a3,2i ****************/\
+		"subpd	%%xmm2	,%%xmm8			\n\t	addpd	%%xmm3	,%%xmm9		\n\t"	/* a0r,i in xmm8,9 */\
+		"subpd	%%xmm0	,%%xmm10		\n\t	addpd	%%xmm1	,%%xmm11	\n\t"	/* a1r,i in xmm10,11 */\
+		"subpd	%%xmm2	,%%xmm4			\n\t	subpd	%%xmm3	,%%xmm5		\n\t"	/* ~a3r,i in xmm4,5 */\
+		"subpd	%%xmm0	,%%xmm6			\n\t	subpd	%%xmm1	,%%xmm7		\n\t"	/* ~a2r,i in xmm6,7 */\
+	/* Interleave writes of a0,a1 with un-shufflings of ~a2,~a3: */\
+		"movaps	%%xmm8	,    (%%rax)	\n\t	shufpd	$1	,%%xmm4	,%%xmm4	\n\t"/* ~a3r */\
+		"movaps	%%xmm9	,0x10(%%rax)	\n\t	shufpd	$1	,%%xmm5	,%%xmm5	\n\t"/* ~a3i */\
+		"movaps	%%xmm10	,    (%%rbx)	\n\t	shufpd	$1	,%%xmm6	,%%xmm6	\n\t"/* ~a2r */\
+		"movaps	%%xmm11	,0x10(%%rbx)	\n\t	shufpd	$1	,%%xmm7	,%%xmm7	\n\t"/* ~a2i */\
+		"movaps	%%xmm4	,    (%%rdx)	\n\t"\
+		"movaps	%%xmm5	,0x10(%%rdx)	\n\t"\
+		"movaps	%%xmm6	,    (%%rcx)	\n\t"\
+		"movaps	%%xmm7	,0x10(%%rcx)	\n\t"\
+		/* Cost: [35 vector-load/store (0 implicit), 12 shufpd, 34 addpd, 32 mulpd, 21 vector-register-copy] */\
+		:					/* outputs: none */\
+		: [__A0] "m" (XA0)	/* All inputs from memory addresses here */\
+		 ,[__A1] "m" (XA1)\
+		 ,[__A2] "m" (XA2)\
+		 ,[__A3] "m" (XA3)\
+		 ,[__B0] "m" (XB0)\
+		 ,[__B1] "m" (XB1)\
+		 ,[__B2] "m" (XB2)\
+		 ,[__B3] "m" (XB3)\
+		 ,[__c] "m" (Xc)\
+		 ,[__s] "m" (Xs)\
+		 ,[__forth] "m" (Xforth)\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 

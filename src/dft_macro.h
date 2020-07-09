@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2016 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -4767,6 +4767,30 @@ void SSE2_RADIX_64_DIT(
 	vec_dbl*r00,
 	// Outputs: Base address plus index offsets:
 	vec_dbl*__B, const int *o_offsets
+);
+
+void SSE2_RADIX128_DIF(
+	// Input pointer:
+	vec_dbl*__A,
+	// Intermediates-storage pointer:
+	vec_dbl*tmp,
+	// Pointers to base-roots data and first of 16 twiddle vectors:
+	vec_dbl*isrt2, vec_dbl*two, vec_dbl*twid0,
+	// Outputs: Base address plus index offsets:
+	double *__B,
+	int *o_offsets	// Array storing output index offsets
+);
+
+void SSE2_RADIX128_DIT(
+	// Inputs: Base address plus index offsets:
+	double *__A,
+	int *i_offsets,	// Array storing input index offsets
+	// Intermediates-storage pointer:
+	vec_dbl*tmp,
+	// Pointers to base-roots data and first of 16 twiddle vectors:
+	vec_dbl*isrt2, vec_dbl*two, vec_dbl*twid0,
+	// Output pointer: Base ptr of 16 local-mem:
+	vec_dbl*__B
 );
 
 void SSE2_RADIX256_DIF(

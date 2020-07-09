@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2017 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -555,7 +555,7 @@ void radix16_dyadic_square(
 
 		// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity:
 		add0 = (double *)k1_arr; add1 = (double *)k2_arr;	// Casts are only to get rid of compiler warnings
-		SSE2_RADI16_CALC_TWIDDLES_1_2_4_8_13(cc0,add0,add1,rt0,rt1);
+		SSE2_RADIX16_CALC_TWIDDLES_1_2_4_8_13(cc0,add0,add1,rt0,rt1);
 		// Due to register paucity in 32-bit mode, use separate smaller asm macros to first compute the set of 5
 		// 'anchor twiddles' using full 2-table complex multiplies, then the remaining 10, done in 5-pairs fashion:
 		SSE2_CMUL_EXPO(c1,c4 ,c3 ,c5 );

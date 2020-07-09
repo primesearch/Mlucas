@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -489,13 +489,13 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	  #ifdef LOACC
 
-		uint32 ii,incr,loop, co2save = co2;
+		uint32 ii,loop, co2save = co2;
 		// Beyond chain length 8, the chained-weights scheme becomes too inaccurate, so re-init seed-wts every 8th pass or better:
 		// incr must divide nloop [RADIX/8 = 30 or RADIX/16 = 15, depending on whether we use 8-or-16-way carry macros]!
 	  #ifdef CARRY_16_WAY
-		const uint32 nloop = RADIX>>4;		incr = 5;
+		const uint32 nloop = RADIX>>4;
 	  #else
-		const uint32 nloop = RADIX>>3;		incr = 6;
+		const uint32 nloop = RADIX>>3;
 	  #endif
 		i = (!j);	// Need this to force 0-wod to be bigword
 		addr = &prp_mult;
@@ -564,13 +564,12 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	  #ifdef LOACC
 
-		uint32 i0,i1,i2,i3, ii,incr,nwtml, loop,nloop = RADIX>>2, co2save = co2;
+		uint32 i0,i1,i2,i3, ii,nwtml, loop,nloop = RADIX>>2, co2save = co2;
 
 		i = (!j);	// Need this to force 0-wod to be bigword
 		addr = &prp_mult;
 		tm1 = s1p00; tmp = cy_r; tm2 = cy_r+0x01; itmp = bjmodn;
 		// Beyond chain length 8, the chained-weights scheme becomes too inaccurate, so re-init seed-wts every few passes:
-		incr = 6;	// incr must divide radix/4!
 		for(loop = 0; loop < nloop; loop += incr)
 		{
 			ii = loop << 2;	// Reflects 4 independent carry chains being done in each SSE2_cmplx_carry_fast_pow2_errcheck call

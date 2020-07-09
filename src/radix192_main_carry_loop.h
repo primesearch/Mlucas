@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -284,13 +284,13 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	  #ifdef LOACC
 
-		uint32 ii,incr,loop, co2save = co2;
+		uint32 ii,loop, co2save = co2;
 		// Beyond chain length 8, the chained-weights scheme becomes too inaccurate, so re-init seed-wts every 8th pass or better:
 		// incr must divide nloop [RADIX/8 = 24 or RADIX/16 = 12, depending on whether we use 8-or-16-way carry macros]!
 	  #ifdef CARRY_16_WAY
-		const uint32 nloop = RADIX>>4;		incr = 6;
+		const uint32 nloop = RADIX>>4;
 	  #else
-		const uint32 nloop = RADIX>>3;		incr = 6;
+		const uint32 nloop = RADIX>>3;
 	  #endif
 		i = (!j);	// Need this to force 0-wod to be bigword
 		addr = &prp_mult;
@@ -360,13 +360,12 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	  #ifdef LOACC
 
 		// DIF/DIT loops use k1,k2 and there those mustbbe signed, so use i0-3 here:
-		uint32 i0,i1,i2,i3, ii,incr,nwtml, loop,nloop = RADIX>>2, co2save = co2;
+		uint32 i0,i1,i2,i3, ii,nwtml, loop,nloop = RADIX>>2, co2save = co2;
 
 		i = (!j);	// Need this to force 0-wod to be bigword
 		addr = &prp_mult;
 		tm1 = s1p00; tmp = cy; tm2 = cy+0x01; itmp = bjmodn;
 		// Beyond chain length 8, the chained-weights scheme becomes too inaccurate, so re-init seed-wts every few passes:
-		incr = 4;	// incr must divide radix/4!
 		for(loop = 0; loop < nloop; loop += incr)
 		{
 			ii = loop << 2;	// Reflects 4 independent carry chains being done in each SSE2_cmplx_carry_fast_pow2_errcheck call
@@ -415,7 +414,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			// *But*: since the init macro does an on-the-fly version of this between j,j+2 portions, external code co2=co3 must come *after* both ctmp-data octets are inited.
 			add0 = (double*)(bjmodn+ii);
 			SSE2_cmplx_carry_fast_wtsinit(add1,add2,add3, add0, half_arr,sign_mask, n_minus_sil,n_minus_silp1,sinwt,sinwtm1, i0,i1,i2,i3, sse_bw,sse_n)
-
 			for(l = loop; l < loop+incr; l++) {
 				// Each SSE2 LOACC carry macro call also processes 4 prefetches of main-array data:
 				add0 = a + j1 + pfetch_dist + poff[l];	// poff[] = p0,4,8,...

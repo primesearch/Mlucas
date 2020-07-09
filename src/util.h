@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -86,6 +86,7 @@ double	 getRealTime();
 #endif
 
 /* util.c: */
+int		mlucas_nanosleep(const struct timespec *req);
 void	host_init(void);	/* This one is a wrapper for calls to the next few: */
 double	get_time    (double tdiff);
 char*	get_time_str(double tdiff);
@@ -192,7 +193,9 @@ DEV uint64	twompmodq64(uint64 p, uint64 q);	// 2^-p % q
 DEV uint32	gcd32(uint32 x, uint32 y);
 DEV uint64	gcd64(uint64 x, uint64 y);
 DEV uint32	egcd32	(uint32 *x, uint32 *y);
+DEV uint64	egcd64	(uint64 *x, uint64 *y);
 DEV int		modinv32(uint32 z, uint32 n);
+DEV int64	modinv64(uint64 z, uint64 n);
 
 struct	complex cmul(struct complex *, struct complex *);
 

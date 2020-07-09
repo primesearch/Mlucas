@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2016 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -185,10 +185,14 @@ logical converse holds, that is if (y2 >= x1) && (y1 <= x2).
 #define MOD_SUB64(__x, __y, __q, __z)\
 {\
 	uint64 bw,tmp;\
+printf("MOD_SUB64: x,y,q = %llu,%llu,%llu",__x, __y, __q);\
 	/* Need tmp for initial diff, since e.g. if x,z refer to same var the bw-check z > x always comes up 'false': */\
 	tmp = __x - __y;	bw = tmp > __x;		/* Since inputs assumed normalized (< q), bw = 1 implies q > 2^63, thus */\
+printf("MOD_SUB64: x-y,bw = %llu,%llu",tmp,bw);\
 	__z = tmp + __q;	bw -= __z < tmp;	/* tmp + q guaranteed to overflow -> no need to restore-sub q in this case. */\
+printf("MOD_SUB64: __z,bw = %llu,%llu",__z,bw);\
 	__z = __z - (bw & __q);			/* Only possible values of bw = 0,-1 here; and need to restore-sub q if bw = -1. */\
+printf("MOD_SUB64: result = %llu",__z);\
 }
 
 /* Slow version of nearest-int; for doubles use faster trick,

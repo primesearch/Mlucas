@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -29,14 +29,7 @@
 	#define	DBG_THREADS	0	/* Turn on to collect stats about how much work done by each thread */
 	#define RTIME	/* In multithreaded mode, need to use real (wall-clock) time */
 
-  #ifdef USE_PTHREAD
-
-	#define USE_THREADPOOL	// Undef to use non-pooled simple spawn/rejoin thread-team model
-	#ifdef USE_THREADPOOL
-		#include "threadpool.h"
-	#else
-		#error Requires threadpool!
-	#endif
+	#include "threadpool.h"
 
 	struct mers_thread_data_t{
 		int tid;
@@ -65,9 +58,8 @@
 		int*ws_m;
 		int*ws_blocklen;
 		int*ws_blocklen_sum;
+		uint64 fwd_fft;
 	};
-  #endif
-
 #else
 	#define CTIME	/* In single-thread mode, prefer cycle-based time because of its finer granularity */
 #endif
@@ -80,10 +72,74 @@
 
 /***************/
 
+/* v19: To support Gerbicz check (and later, p-1) and its need for 2-input FFT-mul, added fwd_fft_only flag, which consists
+of 2 separate sub-bitfields:
+
+	Low 2 bits:	a mode_flag whose low and high bit controls whether [forward-DWT-weighting and initial-fFFT-pass] and
+				undo-[forward-DWT-weighting and initial-fFFT-pass] are performed on entry and exit, respectively:
+		mode_flag		description/effects:
+		---------	---------------------------------------
+		bit 0		Value [0|1] indicates that input [a]-array [!has | has] initial pass of fwd-FFT done upon entry.
+					0 means [a]-data need to undergo initial-DWT-weighting and initial-fwd-FFT-pass, as is
+					the case at the start of a typical multi-iteration interval. 1 means [a]-data are in the
+					same form they have as a result of a call to the applicable fused-carry-pass routine.
+		bit 1		Value [0|1] indicates that output [a]-array [has | !has] initial pass of fwd-FFT undone prior to exit.
+					0 means [a]-data undergo initial-fwd-FFT-pass-rollback and initial-DWT-unweighting prior
+					to return, as is the case at the end of a typical multi-iteration interval.
+					1 means [a]-data are left in the same form they have as a result of the preceding call to the applicable
+					fused-carry-pass routine, i.e. [a]-data left in a [forward-DWT-weighting and initial-fFFT-pass]-done state.
+
+	High 62 bits (store these in a uint64 fwd_fft):
+		o If = 0, do (ihi - ilo) FFT-based autosquarings, with input and output-handling as encoded by the mode_flag;
+		o If = 1, this means "Do forward FFT only and store result in a[]". In this case we expect ilo == ihi, and in this case
+			only the low bit of above-described mode_flag is meaningful, i.e. do input-handling as encoded by bit0 of mode_flag;
+		o If = 2, this means "Undo first pass of forward FFT and DWT-weighting only and store result in a[]". Expect ilo == ihi,
+			and in this case the above-described mode_flag is ignored. This special case is needed to support interrupt handling;
+		o Otherwise: fwd_fft contains a pointer to an array b[] in already-forward-FFTed form:
+				(double *)(fwd_fft_only - mode_flag) = FFT(b).
+			In this case we compute FFT(a), then dyadic-multiply FFT(a) * FFT(b) (storing the result in a[]) in place
+			of the usual pair_square step, then iFFT the result. The 2 bits of the mode_flag contain details about the
+			state of the input [a]-array (the one needing some form of fwd-FFTing) and of the state of the resulting
+			iFFTed data array, respectively:
+
+	In a typical PRP-test/Gerbicz-check scenario, a long sequence of PRP-test FFT mod-squarings - say iteration 0 to 10000 -
+	will be interrupted every 1000 iterations to update the Gerbicz checkproduct. Here is the state of the two residues -
+	PRP-test one [a] and the Gerbicz-checkproduct [b] - at the key multiple-of-1000 iterations in said interval:
+
+		iteration
+		---------	---------------------------------------
+			0		Both [a],[b] in pure-integer form; do fwt-weight and initial-fwd-FFT-pass of [a], followed by 1000 FFT mod-squarings.
+					mode_flag = 0 for all this since we are FFT-auto-squaring, not FFT-based 2-input modmul.
+			1000	Set up for first G-checkproduct update of the current 10000-iteration interval, by calling this routine with [b] as
+					the main-array argument and fwd_fft_only = 100_2: Do fwt-weight and initial-fwd-FFT-pass of [b], then fwd-FFT and exit.
+					We then put a copy of [a] into a third array [c] and call this function with [c] as
+					the main-array argument and fwd_fft_only = ([b] + 01_2), i.e. with mode_flag indicating
+					that [c] has had the fwd-weighting and initial pass of fwd-FFT done on entry: Skip those preliminary steps,
+					proceed directly to FFT-based 2-input modmul FFT(c) * FFT(b), storing the result in [c], i.e. in the
+					input a[]-array argument), iFFT the result and - since the high bit of mode_flag = 0 - leave the output-array
+					data in forward-weighted and initial pass-of-fwd-FFT-done form, i.e. in the form they have as a result of the
+					call to the applicable fused-carry-pass routine.
+					Then proceed to next 1000 autosquare-[a] iterations.
+		[2-9]000	Set up for first G-checkproduct update of the current 10000-iteration interval, by calling this routine with [b] as
+					the main-array argument and fwd_fft_only = 101_2: Skip fwt-weight and initial-fwd-FFT-pass of [b], proceed directly
+					to remaining passes of fwd-FFT and exit. Remainder of checkproduct update is just as for the 1000-iter case:
+					Again put a copy of [a] into a third array [c], &c.
+			10000	Just as for the [2-9]000-iteration case, but end by calling this function with [c] as
+					the main-array argument and fwd_fft_only = ([b] + 11_2), i.e. with mode_flag indicating
+					that [c] has had the fwd-weighting and initial pass of fwd-FFT done on entry, but at end of the iFFT we now
+					undo the initial pass-of-fwd-FFT and the forward-weighting, i.e. our output is the updated checkproduct array
+					in pure-integer form.
+					Then proceed to the interim-checkpointing step, consisting of savefile-writing, *without* an accompanying Gerbicz check.
+			...
+			k*10^6	Every millionth iteration, accompany the G-checkproduct update with an actual Gerbicz-check secondary powering. If the
+					check passes, update the usual checkpoint-savefiles and also write the current residue+checkproduct to a special
+					p[exponent].M savefile.
+					if the check fails, skip the savefile-writing and instead roll back and restart the PRP test from the p[exponent].M file.
+*/
 #ifdef USE_FGT61
-int	mers_mod_square(double a[], uint64 b[], int arr_scratch[], int n, int ilo, int ihi, uint64 p, int scrnFlag, double *tdiff)
+int	mers_mod_square(double a[], uint64 b[], int arr_scratch[], int n, int ilo, int ihi, uint64 fwd_fft_only, uint64 p, int scrnFlag, double *tdiff, int update_shift)
 #else
-int	mers_mod_square(double a[],             int arr_scratch[], int n, int ilo, int ihi, uint64 p, int scrnFlag, double *tdiff)
+int	mers_mod_square(double a[],             int arr_scratch[], int n, int ilo, int ihi, uint64 fwd_fft_only, uint64 p, int scrnFlag, double *tdiff, int update_shift)
 #endif
 {
 	const char func[] = "mers_mod_square";
@@ -165,33 +221,34 @@ The scratch array (2nd input argument) is only needed for data table initializat
 //	time_t clock1, clock2;
 	double clock1, clock2;	// Jun 2014: Switched to getRealTime() code
 #endif
-
+	uint32 mode_flag = fwd_fft_only & 3;
+	uint64 fwd_fft = fwd_fft_only - (uint64)mode_flag;
+	if(fwd_fft_only > 3 && fwd_fft_only < 16) {
+		fwd_fft = fwd_fft_only >> 2;
+		if(fwd_fft == 1ull)
+			ASSERT(HERE, mode_flag < 2, "Only low bit of mode_flag field may be used in this case!");
+		else
+			ASSERT(HERE, fwd_fft < 3, "Only fwd_fft = 1 and 2 supported!");
+	}
 	/* These came about as a result of multithreading, but now are needed whether built unthreaded or multithreaded */
 	static int init_sse2 = FALSE;
 	int saved_init_sse2, thr_id = -1;	// No multithread support yet.
 
 #ifdef MULTITHREAD
 
-	#ifdef USE_PTHREAD
+	int isum;
+	static int *thr_ret = 0x0;
+	static pthread_t *thread = 0x0;
+	static pthread_attr_t attr;
+	static struct mers_thread_data_t *tdat = 0x0;
 
-		int isum;
-		static int *thr_ret = 0x0;
-		static pthread_t *thread = 0x0;
-		static pthread_attr_t attr;
-		static struct mers_thread_data_t *tdat = 0x0;
-
-	  #ifdef USE_THREADPOOL	// Threadpool-based dispatch:
-
-		static int main_work_units = 0, pool_work_units = 0;
-		static struct threadpool *tpool = 0x0;
-		static int task_is_blocking = TRUE;
-		static thread_control_t thread_control = {0,0,0};
-		// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
-		static task_control_t   task_control = {NULL, (void*)mers_process_chunk, NULL, 0x0};
-
-	  #endif
-
-	#endif
+	// Threadpool-based dispatch:
+	static int main_work_units = 0, pool_work_units = 0;
+	static struct threadpool *tpool = 0x0;
+	static int task_is_blocking = TRUE;
+	static thread_control_t thread_control = {0,0,0};
+	// First 3 subfields same for all threads, 4th provides thread-specifc data, will be inited at thread dispatch:
+	static task_control_t   task_control = {NULL, (void*)mers_process_chunk, NULL, 0x0};
 
 #endif
 
@@ -499,6 +556,12 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		case 320:
 			nradices_radix0 = 7;
 			radix_prim[l++] = 5; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 352:
+			nradices_radix0 = 6;
+			radix_prim[l++] =11; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
+		case 384:
+			nradices_radix0 = 8;
+			radix_prim[l++] = 3; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		case 512 :
 			nradices_radix0 = 9;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
@@ -529,19 +592,17 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			ASSERT(HERE, 0,cbuf);
 		}
 
-		for(i=1; i < NRADICES; i++)
+		for(i = 1; i < NRADICES; i++)
 		{
 			/*...Allocate and initialize an index array containing MM indices...	*/
-
-			if(i<(NRADICES-1))
+			if(i < (NRADICES-1))
 			{
-				mm=mm*RADIX_VEC[i-1];	/* MM = product of all the preceding radices	*/
-
-				for(m=0; m < mm; m++)
+				mm *= RADIX_VEC[i-1];	/* MM = product of all the preceding radices	*/
+			//	printf("Init index[%u-%u]...\n",k,k+mm-1);
+				for(m = 0; m < mm; m++)
 				{
-					index[k+m]=m;
+					index[k+m] = m;
 				}
-
 				/*...then bit-reverse INDEX with respect to the accumulated radices.
 				The order of radices sent to bit_reverse_int is the reverse of that in which these radices are processed
 				in the forward (decimation in frequency) FFT. This is moot for a power-of-2 FFT (or any FFT whose length
@@ -550,34 +611,20 @@ The scratch array (2nd input argument) is only needed for data table initializat
 				If the current (Ith) radix is composite with distinct prime factors (e.g. 15 = 3*5), we must specify these
 				factors here in the opposite order from that which is used in the actual FFT-pass routine. For example,
 				if the radix-15 pass implementation does 5 radix-3 DFTs, followed by 3 radix-5 DFTs, then we send (3,5)
-				as the corresponding reverse-ordered prime radices to the bit-reversal routine, not (5,3).	*/
-
+				as the corresponding reverse-ordered prime radices to the bit-reversal routine, not (5,3).
+				*/
 				bit_reverse_int(&index[k],mm,l,&radix_prim[l-1],-1,(int *)arr_scratch);
-
+			//	printf("index[%u-%u] = ",k,k+mm-1); { for(m = 0; m < mm; m++) { printf("%u.",index[k+m]); } printf("\n"); }
 				k += mm;
 			}
-
 			/*...All radices beyond the initial-pass one are assumed to be powers of 2 in [8,32]:	*/
-
 			switch(RADIX_VEC[i]) {
-		/*
-			case 2 :
-				radix_prim[l++] = 2; break;
-			case 4 :
-				radix_prim[l++] = 2; radix_prim[l++] = 2; break;
-		*/
 			case 8 :
 				radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 			case 16 :
 				radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 			case 32 :
 				radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
-		/*
-			case 64 :
-				radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
-			case 128 :
-				radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2;
-		*/
 			default :
 				sprintf(cbuf  ,"FATAL: intermediate radix %d not available. Halting...\n",RADIX_VEC[i]);
 				fprintf(stderr,"%s", cbuf);
@@ -892,7 +939,6 @@ nwt_bits = (uint32)(log(sqrt(1.0*n))/log(2.0) + 0.5) - 2;	// Jan 2014: -1; reduc
 		}
 
 		qt = QZRO;
-
 		for(i = 0; i < NRT; i++)
 		{
 			qc = qfcos(qt);
@@ -1331,8 +1377,6 @@ for(i=0; i < NRT; i++) {
 
 	#ifdef MULTITHREAD
 
-	  #ifdef USE_PTHREAD
-
 		free((void *)thr_ret); thr_ret = 0x0;
 		free((void *)thread ); thread  = 0x0;
 		free((void *)tdat   ); tdat    = 0x0;
@@ -1345,12 +1389,12 @@ for(i=0; i < NRT; i++) {
 		pthread_attr_init(&attr);
 		pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 
-		/* Populate the thread-specific data structs: */
+		/* Populate the parts of the thread-specific data structs which remain fixed from one call to the next: */
 		for(i = 0; i < nchunks; ++i)
 		{
 			tdat[i].tid = i;
 			tdat[i].retval = &thr_ret[i];
-			tdat[i].arrdat = a;			// Main data array
+		//	tdat[i].arrdat = a;			// Main data array *** v19: Need to make updatable to support mix of mod_square and mod_mul calls ***
 		#ifdef USE_FGT61
 			tdat[i].brrdat = b;			// Modular data in here
 		#endif
@@ -1375,42 +1419,20 @@ for(i=0; i < NRT; i++) {
 			tdat[i].ws_blocklen = ws_blocklen;
 			tdat[i].ws_blocklen_sum = ws_blocklen_sum;
 		}
-	  #endif
 
-	  #ifdef USE_THREADPOOL	// Threadpool-based dispatch:
+	// Threadpool-based dispatch:
 
 		// MAX_THREADS is the max. no. of threads we expect to be able to make use of, at 1 thread per core.
 		ASSERT(HERE, MAX_THREADS == get_num_cores(), "MAX_THREADS not set or incorrectly set!");
 
 		if(nchunks % NTHREADS != 0) fprintf(stderr,"%s: radix0/2 not exactly divisible by NTHREADS - This will hurt performance.\n",func);
 
-		// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
-		// so on that platform try to be clever and interleave main-thread and threadpool-work processing
-		#if 0//def OS_TYPE_MACOSX
+		main_work_units = 0;
+		pool_work_units = nchunks;
+		ASSERT(HERE, 0x0 != (tpool = threadpool_init(NTHREADS, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
+		printf("%s: Init threadpool of %d threads\n",func,NTHREADS);
 
-			// Under OS X we want one core dispatching serial non-pool threads while the others crunch pool threads,
-			// in a manner which balances the load optimally:
-			if(NTHREADS > 1) {
-				main_work_units = nchunks/MAX_THREADS;
-				pool_work_units = nchunks - main_work_units;
-				ASSERT(HERE, 0x0 != (tpool = threadpool_init(MAX_THREADS-1, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
-				printf("%s: Init threadpool of %d threads\n",func,MAX_THREADS-1);
-			} else {
-				printf("%s: NTHREADS = 1: Using main execution thread, no threadpool needed.\n",func);
-			}
-
-		#else
-
-			main_work_units = 0;
-			pool_work_units = nchunks;
-			ASSERT(HERE, 0x0 != (tpool = threadpool_init(NTHREADS, MAX_THREADS, pool_work_units, &thread_control)), "threadpool_init failed!");
-			printf("%s: Init threadpool of %d threads\n",func,NTHREADS);
-
-		#endif
-
-	  #endif
-
-	#endif
+	#endif	// MULTITHREAD?
 	}
 
 	/* 	This set of init-mode calls needs to go below above init-block because several
@@ -1425,9 +1447,9 @@ for(i=0; i < NRT; i++) {
 	#ifdef USE_FGT61
 		radix16_wrapper_square(0x0,0x0, arr_scratch, n, radix0, 0x0,0x0, 0x0,0x0, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id);
 	#else
-		radix16_wrapper_square(0x0,     arr_scratch, n, radix0, 0x0,0x0,          nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id);
+		radix16_wrapper_square(0x0,     arr_scratch, n, radix0, 0x0,0x0,          nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id, FALSE);
 	#endif
-		radix32_wrapper_square(0x0, arr_scratch, n, radix0, 0x0, 0x0, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id);
+		radix32_wrapper_square(0x0, arr_scratch, n, radix0, 0x0, 0x0, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id, FALSE);
 	}
 	if(init_sse2 == FALSE || (saved_init_sse2 < nchunks)) {		// New run, or need to up #threads in local-store inits
 	//	init_sse2 = TRUE;
@@ -1445,9 +1467,9 @@ for(i=0; i < NRT; i++) {
 	#ifdef USE_FGT61
 		radix16_wrapper_square(0x0,0x0, arr_scratch, n, radix0, rt0,rt1, 0x0,0x0, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id);
 	#else
-		radix16_wrapper_square(0x0,     arr_scratch, n, radix0, rt0,rt1,          nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id);
+		radix16_wrapper_square(0x0,     arr_scratch, n, radix0, rt0,rt1,          nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id, FALSE);
 	#endif
-		radix32_wrapper_square(0x0, arr_scratch, n, radix0, rt0,rt1, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id);
+		radix32_wrapper_square(0x0, arr_scratch, n, radix0, rt0,rt1, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id, FALSE);
 
 		radix8_dit_pass (0x0, 0, 0x0, 0x0, 0, 0, 0x0, init_sse2, thr_id);
 	#ifdef USE_FGT61
@@ -1737,8 +1759,13 @@ for(i=0; i < NRT; i++) {
      Use small-tables multiply to get powers 1,2,3,6,11,18,25,32,39,46,53,60;
      get 4 via 2^2, {5,7} via 6-+1; {8,14,9,13,10,12} via 11-+{3,2,1}, rest similar.
 */
-
 /**********************************************************************/
+
+	// v19: Add support for mod_mul with one input being in precomputed fwd-FFTed form:
+#ifdef MULTITHREAD
+	for(i = 0; i < nchunks; ++i) { tdat[i].arrdat = a; tdat[i].fwd_fft = fwd_fft; }
+//	printf("Thread 0: arrdat = 0x%llX, fwd_fft = 0x%llX\n",tdat[0].arrdat,tdat[0].fwd_fft);
+#endif
 
 	/*...Init clock counter:	*/
 	ASSERT(HERE, tdiff != 0,"mers_mod_square.c: NULL tdiff ptr!");
@@ -1756,11 +1783,16 @@ for(i=0; i < NRT; i++) {
 #endif
 
 /******************* AVX debug stuff: *******************/
+	static int rng_init = 0;
 	int ipad;
-	double avg_abs_val = 0;
 #if 0
+if(fwd_fft) {
 	// Use RNG to populate data array:
-	rng_isaac_init(TRUE);
+	if(!rng_init) {
+		fprintf(stderr,"%s: Init RNG.\n",func);
+		rng_isaac_init(TRUE);
+		rng_init = 1;
+	}
 	double pow2_dmult = 1024.0*128.0;	// Restrict inputs to 18 bits, which in balanced-digit representation
 										// means restricting multiplier of random-inputs-in-[-1,+1] below to 2^17
 	for(i = 0; i < n; i += 16) {
@@ -1800,8 +1832,40 @@ for(i=0; i < NRT; i++) {
 		a[ipad+br8[5]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im6
 		a[ipad+br8[6]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re7
 		a[ipad+br8[7]+8] = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im7
+	#elif defined(USE_SSE2)
+		a[ipad+br4[0]   ]= DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re0
+		a[ipad+br4[1]   ]= DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im0
+		a[ipad+br4[2]   ]= DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re1
+		a[ipad+br4[3]   ]= DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im1
+		a[ipad+br4[0]+4 ]= DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re2
+		a[ipad+br4[1]+4 ]= DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im2
+		a[ipad+br4[2]+4 ]= DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re3
+		a[ipad+br4[3]+4 ]= DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im3
+		a[ipad+br4[0]+8 ]= DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re4
+		a[ipad+br4[1]+8 ]= DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im4
+		a[ipad+br4[2]+8 ]= DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re5
+		a[ipad+br4[3]+8 ]= DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im5
+		a[ipad+br4[0]+12]= DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re6
+		a[ipad+br4[1]+12]= DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im6
+		a[ipad+br4[2]+12]= DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re7
+		a[ipad+br4[3]+12]= DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im7
 	#else
-		#error Debug only enabled for AVX and above!
+		a[ipad+ 0]       = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re0
+		a[ipad+ 1]       = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im0
+		a[ipad+ 2]       = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re1
+		a[ipad+ 3]       = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im1
+		a[ipad+ 4]       = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re2
+		a[ipad+ 5]       = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im2
+		a[ipad+ 6]       = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re3
+		a[ipad+ 7]       = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im3
+		a[ipad+ 8]       = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re4
+		a[ipad+ 9]       = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im4
+		a[ipad+10]       = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re5
+		a[ipad+11]       = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im5
+		a[ipad+12]       = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re6
+		a[ipad+13]       = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im6
+		a[ipad+14]       = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// re7
+		a[ipad+15]       = DNINT( rng_isaac_rand_double_norm_pm1() * pow2_dmult );	// im7
 	#endif
   #if 0
 	  if(i < 1024) {
@@ -1839,202 +1903,338 @@ for(i=0; i < NRT; i++) {
 		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+5+8,a[ipad+br8[5]+8],ipad+5+8,a[ipad+5+8]);
 		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+6+8,a[ipad+br8[6]+8],ipad+6+8,a[ipad+6+8]);
 		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+7+8,a[ipad+br8[7]+8],ipad+7+8,a[ipad+7+8]);
+	#elif defined(USE_SSE2)
+		printf("A_in[%2d] = %20.5f\n",ipad+0  ,a[ipad+br4[0]   ]);
+		printf("A_in[%2d] = %20.5f\n",ipad+1  ,a[ipad+br4[1]   ]);
+		printf("A_in[%2d] = %20.5f\n",ipad+2  ,a[ipad+br4[2]   ]);
+		printf("A_in[%2d] = %20.5f\n",ipad+3  ,a[ipad+br4[3]   ]);
+		printf("A_in[%2d] = %20.5f\n",ipad+4  ,a[ipad+br4[0]+4 ]);
+		printf("A_in[%2d] = %20.5f\n",ipad+5  ,a[ipad+br4[1]+4 ]);
+		printf("A_in[%2d] = %20.5f\n",ipad+6  ,a[ipad+br4[2]+4 ]);
+		printf("A_in[%2d] = %20.5f\n",ipad+7  ,a[ipad+br4[3]+4 ]);
+		printf("A_in[%2d] = %20.5f\n",ipad+0+8,a[ipad+br4[0]+8 ]);
+		printf("A_in[%2d] = %20.5f\n",ipad+1+8,a[ipad+br4[1]+8 ]);
+		printf("A_in[%2d] = %20.5f\n",ipad+2+8,a[ipad+br4[2]+8 ]);
+		printf("A_in[%2d] = %20.5f\n",ipad+3+8,a[ipad+br4[3]+8 ]);
+		printf("A_in[%2d] = %20.5f\n",ipad+4+8,a[ipad+br4[0]+12]);
+		printf("A_in[%2d] = %20.5f\n",ipad+5+8,a[ipad+br4[1]+12]);
+		printf("A_in[%2d] = %20.5f\n",ipad+6+8,a[ipad+br4[2]+12]);
+		printf("A_in[%2d] = %20.5f\n",ipad+7+8,a[ipad+br4[3]+12]);
+	/*
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+0  ,a[ipad+br4[0]   ],ipad+0  ,a[ipad+0  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+1  ,a[ipad+br4[1]   ],ipad+1  ,a[ipad+1  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+2  ,a[ipad+br4[2]   ],ipad+2  ,a[ipad+2  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+3  ,a[ipad+br4[3]   ],ipad+3  ,a[ipad+3  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+4  ,a[ipad+br4[0]+4 ],ipad+4  ,a[ipad+4  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+5  ,a[ipad+br4[1]+4 ],ipad+5  ,a[ipad+5  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+6  ,a[ipad+br4[2]+4 ],ipad+6  ,a[ipad+6  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+7  ,a[ipad+br4[3]+4 ],ipad+7  ,a[ipad+7  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+0+8,a[ipad+br4[0]+8 ],ipad+0+8,a[ipad+0+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+1+8,a[ipad+br4[1]+8 ],ipad+1+8,a[ipad+1+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+2+8,a[ipad+br4[2]+8 ],ipad+2+8,a[ipad+2+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+3+8,a[ipad+br4[3]+8 ],ipad+3+8,a[ipad+3+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+4+8,a[ipad+br4[0]+12],ipad+4+8,a[ipad+4+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+5+8,a[ipad+br4[1]+12],ipad+5+8,a[ipad+5+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+6+8,a[ipad+br4[2]+12],ipad+6+8,a[ipad+6+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+7+8,a[ipad+br4[3]+12],ipad+7+8,a[ipad+7+8]);
+	*/
+	#else
+		printf("A_in[%2d] = %20.5f\n",ipad+ 0, a[ipad+ 0]);
+		printf("A_in[%2d] = %20.5f\n",ipad+ 1, a[ipad+ 1]);
+		printf("A_in[%2d] = %20.5f\n",ipad+ 2, a[ipad+ 2]);
+		printf("A_in[%2d] = %20.5f\n",ipad+ 3, a[ipad+ 3]);
+		printf("A_in[%2d] = %20.5f\n",ipad+ 4, a[ipad+ 4]);
+		printf("A_in[%2d] = %20.5f\n",ipad+ 5, a[ipad+ 5]);
+		printf("A_in[%2d] = %20.5f\n",ipad+ 6, a[ipad+ 6]);
+		printf("A_in[%2d] = %20.5f\n",ipad+ 7, a[ipad+ 7]);
+		printf("A_in[%2d] = %20.5f\n",ipad+ 8, a[ipad+ 8]);
+		printf("A_in[%2d] = %20.5f\n",ipad+ 9, a[ipad+ 9]);
+		printf("A_in[%2d] = %20.5f\n",ipad+10, a[ipad+10]);
+		printf("A_in[%2d] = %20.5f\n",ipad+11, a[ipad+11]);
+		printf("A_in[%2d] = %20.5f\n",ipad+12, a[ipad+12]);
+		printf("A_in[%2d] = %20.5f\n",ipad+13, a[ipad+13]);
+		printf("A_in[%2d] = %20.5f\n",ipad+14, a[ipad+14]);
+		printf("A_in[%2d] = %20.5f\n",ipad+15, a[ipad+15]);
 	#endif
 	  }
   #endif
 	}
-  #if 0
+}	// if(fwd_fft_only)
+#elif 0	// Print-inputs only:
+if(fwd_fft_only > 1) {
 	for(i = 0; i < n; i += 16) {
 		ipad = i + ( (i >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-		avg_abs_val += fabs(a[ipad])+fabs(a[ipad+1])+fabs(a[ipad+2])+fabs(a[ipad+3])+fabs(a[ipad+4])+fabs(a[ipad+5])+fabs(a[ipad+6])+fabs(a[ipad+7])+fabs(a[ipad+8])+fabs(a[ipad+9])+fabs(a[ipad+10])+fabs(a[ipad+11])+fabs(a[ipad+12])+fabs(a[ipad+13])+fabs(a[ipad+14])+fabs(a[ipad+15]);
+		// All the inits are w.r.to an un-SIMD-rearranged ...,re,im,re,im,... pattern:
+	  if(i < 1024) {
+	#ifdef USE_AVX512
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+ 0, a[ipad+br16[ 0]],ipad+ 0, a[ipad+ 0]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+ 1, a[ipad+br16[ 1]],ipad+ 1, a[ipad+ 1]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+ 2, a[ipad+br16[ 2]],ipad+ 2, a[ipad+ 2]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+ 3, a[ipad+br16[ 3]],ipad+ 3, a[ipad+ 3]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+ 4, a[ipad+br16[ 4]],ipad+ 4, a[ipad+ 4]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+ 5, a[ipad+br16[ 5]],ipad+ 5, a[ipad+ 5]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+ 6, a[ipad+br16[ 6]],ipad+ 6, a[ipad+ 6]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+ 7, a[ipad+br16[ 7]],ipad+ 7, a[ipad+ 7]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+ 8, a[ipad+br16[ 8]],ipad+ 8, a[ipad+ 8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+ 9, a[ipad+br16[ 9]],ipad+ 9, a[ipad+ 9]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+10, a[ipad+br16[10]],ipad+10, a[ipad+10]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+11, a[ipad+br16[11]],ipad+11, a[ipad+11]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+12, a[ipad+br16[12]],ipad+12, a[ipad+12]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+13, a[ipad+br16[13]],ipad+13, a[ipad+13]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+14, a[ipad+br16[14]],ipad+14, a[ipad+14]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+15, a[ipad+br16[15]],ipad+15, a[ipad+15]);
+	#elif defined(USE_AVX)
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+0  ,a[ipad+br8[0]  ],ipad+0  ,a[ipad+0  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+1  ,a[ipad+br8[1]  ],ipad+1  ,a[ipad+1  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+2  ,a[ipad+br8[2]  ],ipad+2  ,a[ipad+2  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+3  ,a[ipad+br8[3]  ],ipad+3  ,a[ipad+3  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+4  ,a[ipad+br8[4]  ],ipad+4  ,a[ipad+4  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+5  ,a[ipad+br8[5]  ],ipad+5  ,a[ipad+5  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+6  ,a[ipad+br8[6]  ],ipad+6  ,a[ipad+6  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+7  ,a[ipad+br8[7]  ],ipad+7  ,a[ipad+7  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+0+8,a[ipad+br8[0]+8],ipad+0+8,a[ipad+0+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+1+8,a[ipad+br8[1]+8],ipad+1+8,a[ipad+1+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+2+8,a[ipad+br8[2]+8],ipad+2+8,a[ipad+2+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+3+8,a[ipad+br8[3]+8],ipad+3+8,a[ipad+3+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+4+8,a[ipad+br8[4]+8],ipad+4+8,a[ipad+4+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+5+8,a[ipad+br8[5]+8],ipad+5+8,a[ipad+5+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+6+8,a[ipad+br8[6]+8],ipad+6+8,a[ipad+6+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+7+8,a[ipad+br8[7]+8],ipad+7+8,a[ipad+7+8]);
+	#elif defined(USE_SSE2)
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+0  ,a[ipad+br4[0]   ],ipad+0  ,a[ipad+0  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+1  ,a[ipad+br4[1]   ],ipad+1  ,a[ipad+1  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+2  ,a[ipad+br4[2]   ],ipad+2  ,a[ipad+2  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+3  ,a[ipad+br4[3]   ],ipad+3  ,a[ipad+3  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+4  ,a[ipad+br4[0]+4 ],ipad+4  ,a[ipad+4  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+5  ,a[ipad+br4[1]+4 ],ipad+5  ,a[ipad+5  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+6  ,a[ipad+br4[2]+4 ],ipad+6  ,a[ipad+6  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+7  ,a[ipad+br4[3]+4 ],ipad+7  ,a[ipad+7  ]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+0+8,a[ipad+br4[0]+8 ],ipad+0+8,a[ipad+0+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+1+8,a[ipad+br4[1]+8 ],ipad+1+8,a[ipad+1+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+2+8,a[ipad+br4[2]+8 ],ipad+2+8,a[ipad+2+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+3+8,a[ipad+br4[3]+8 ],ipad+3+8,a[ipad+3+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+4+8,a[ipad+br4[0]+12],ipad+4+8,a[ipad+4+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+5+8,a[ipad+br4[1]+12],ipad+5+8,a[ipad+5+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+6+8,a[ipad+br4[2]+12],ipad+6+8,a[ipad+6+8]);
+		printf("A_in[%2d] = %20.5f; SIMD: A_in[%2d] = %20.5f\n",ipad+7+8,a[ipad+br4[3]+12],ipad+7+8,a[ipad+7+8]);
+	#else
+		printf("A_in[%2d] = %20.5f\n",ipad+ 0, a[ipad+ 0]);
+		printf("A_in[%2d] = %20.5f\n",ipad+ 1, a[ipad+ 1]);
+		printf("A_in[%2d] = %20.5f\n",ipad+ 2, a[ipad+ 2]);
+		printf("A_in[%2d] = %20.5f\n",ipad+ 3, a[ipad+ 3]);
+		printf("A_in[%2d] = %20.5f\n",ipad+ 4, a[ipad+ 4]);
+		printf("A_in[%2d] = %20.5f\n",ipad+ 5, a[ipad+ 5]);
+		printf("A_in[%2d] = %20.5f\n",ipad+ 6, a[ipad+ 6]);
+		printf("A_in[%2d] = %20.5f\n",ipad+ 7, a[ipad+ 7]);
+		printf("A_in[%2d] = %20.5f\n",ipad+ 8, a[ipad+ 8]);
+		printf("A_in[%2d] = %20.5f\n",ipad+ 9, a[ipad+ 9]);
+		printf("A_in[%2d] = %20.5f\n",ipad+10, a[ipad+10]);
+		printf("A_in[%2d] = %20.5f\n",ipad+11, a[ipad+11]);
+		printf("A_in[%2d] = %20.5f\n",ipad+12, a[ipad+12]);
+		printf("A_in[%2d] = %20.5f\n",ipad+13, a[ipad+13]);
+		printf("A_in[%2d] = %20.5f\n",ipad+14, a[ipad+14]);
+		printf("A_in[%2d] = %20.5f\n",ipad+15, a[ipad+15]);
+	#endif
+	  }
 	}
-	printf("Avg abs-val of RNG inputs = %20.10f\n",avg_abs_val);
-  #endif
+}	// if(fwd_fft_only > 1)
 #endif
 /********************************************************/
+
 	/*...At the start of each iteration cycle, need to forward-weight the array of integer residue digits.
 	*/
-	// Mar 2017: Can skip this step if it's the start of a production test (note that any initial-residue shift
-	// in such cases is handled via single-array-word forward-DWT-weighting in the Mlucas.c shift_word() function),
-	// but need it if add RNG-input-setting above for debug, hence also check a[1] for nonzero:
-	if(ilo || a[1]) {
-		simodn = bimodn = 0;	// Init both = 0,but note for all but the 0-element they will satisfy simodn = (n - bimodn).
-	#ifdef USE_FGT61
-		simodnmod61 = 0;
-	uint32 bimodnmod61 = 0;
-	#endif
-		ii     = 1;		/* Pointer to the BASE and BASEINV arrays. If n does not divide p, lowest-order digit is always a bigword (ii = 1).	*/
-		for(i=0; i < n; i++)
-		{
-		// Apr 2014: Thanks to Stephen Searle [SMUS] for the missing-AVX-index-munge bugfix:
-		#ifdef USE_AVX512
-			j = (i & mask03) + br16[i&15];
-		#elif defined(USE_AVX)
-			j = (i & mask02) + br8[i&7];
-		#elif defined(USE_SSE2)
-			j = (i & mask01) + br4[i&3];
-		#else
-			j = i;
-		#endif
-			j += ( (j>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-
-			l = i & (nwt-1);
-			k =    i  >> nwt_bits;
-			k2= (n-i) >> nwt_bits;	/* Inv-wt stuff not needed here, but gives a cheap debug check (plus, bizarrely, GCC build ~3% faster with it) */
-			m =       (uint32)(simodn-si[    l])  >> 31;	/* Cast diff to unsigned int, to ensure vacated bits filled with 0 on right-shifting. */
-			m2= 1 + (((uint32)(bimodn-si[nwt-l])) >> 31);
-			wt    = wt0[    l]*tmp[k ]*one_half[m ];
-			wtinv = wt0[nwt-l]*tmp[k2]*one_half[m2]*radix_inv;
-			simodn += sw;	if(simodn >= n) simodn -= n;
-			bimodn += bw;	if(bimodn >= n) bimodn -= n;
-		//	if(simodn != n - bimodn) printf("I = %d: simodn[%u] != n - bimodn[%u]\n",i,simodn,n - bimodn);
-		//	ASSERT(HERE, simodn == n - bimodn, "simodn != n - bimodn");	<*** cannot require this because (for i = n-1) have simodn = 0, bimodn = n,
-			ASSERT(HERE, DNINT(a[j]) == a[j],"mers_mod_square.c: Input a[j] noninteger!");
-		#ifdef USE_FGT61
-			b[j] = a[j];						// First copy the floating-double datum into a uint64 slot...
-			b[j] += (-(b[j] >> 63) & q);		// ...add q if it's < 0...
-			b[j] = mul_pow2_modq(b[j], mod_wt_exp[simodnmod61]);	// ...and apply modular forward weighting.
-		//simodnmod61=mod(simodn,61)								// Is there a faster way to do the mod 61?
-			simodnmod61 = simodn*inv61;	simodnmod61 = simodn - 61*simodnmod61;	// Indeed there is.
-		bimodnmod61 = bimodn*inv61;	bimodnmod61 = bimodn - 61*bimodnmod61;
-		if(i < 20)printf("I = %2u: s,bimodnmod61 = %u,%u\n",i,bimodnmod61,simodnmod61);
-		#endif
-			fracmax = fabs( wt*wtinv*radix0 - 1.0 );
-			ASSERT(HERE, fracmax < 1e-10, "wt*wtinv check failed!");
-			a[j] *= wt;
-			ii =((uint32)(sw - bimodn) >> 31);
-		}
-	}
-
-/*...and perform the initial pass of the forward transform.	*/
-
-/*...NOTE: If the first radix to be processed is 2, 4 or 8, it is assumed that a power-of-2 FFT is being performed,
-     hence no small-prime version of the corresponding pass1 routines is needed.	*/
-
-	switch(radix0)
+	// Sep 2019: Add support for fwd_fft_only|mode_flag as described in top-of-function comments
+	if(fwd_fft == 2ull)
+		goto undo_initial_ffft_pass;
+	if((mode_flag & 1) == 0)
 	{
-	case 5 :
-		 radix5_dif_pass1(a,n); break;
-	case 6 :
-		 radix6_dif_pass1(a,n); break;
-	case 7 :
-		 radix7_dif_pass1(a,n); break;
-	case 8 :
-		 radix8_dif_pass1(a,n); break;
-	case 9 :
-		 radix9_dif_pass1(a,n); break;
-	case 10 :
-		radix10_dif_pass1(a,n); break;
-	case 11 :
-		radix11_dif_pass1(a,n); break;
-	case 12 :
-		radix12_dif_pass1(a,n); break;
-	case 13 :
-		radix13_dif_pass1(a,n); break;
-	case 14 :
-		radix14_dif_pass1(a,n); break;
-	case 15 :
-		radix15_dif_pass1(a,n); break;
-	case 16 :
-	#ifdef USE_FGT61
-		radix16_dif_pass1(a,b,n); break;
-	#else
-		radix16_dif_pass1(a,  n); break;
-	#endif
-	case 18 :
-		radix18_dif_pass1(a,n); break;
-	case 20 :
-		radix20_dif_pass1(a,n); break;
-	case 22 :
-		radix22_dif_pass1(a,n); break;
-	case 24 :
-		radix24_dif_pass1(a,n); break;
-	case 26 :
-		radix26_dif_pass1(a,n); break;
-	case 28 :
-		radix28_dif_pass1(a,n); break;
-	case 30 :
-		radix30_dif_pass1(a,n); break;
-	case 32 :
-		radix32_dif_pass1(a,n); break;
-	case 36 :
-		radix36_dif_pass1(a,n); break;
-	case 40 :
-		radix40_dif_pass1(a,n); break;
-	case 44 :
-		radix44_dif_pass1(a,n); break;
-	case 48 :
-		radix48_dif_pass1(a,n); break;
-	case 52 :
-		radix52_dif_pass1(a,n); break;
-	case 56 :
-		radix56_dif_pass1(a,n); break;
-	case 60 :
-		radix60_dif_pass1(a,n); break;
-	case 63 :
-		radix63_dif_pass1(a,n); break;
-	case 64 :
-		radix64_dif_pass1(a,n); break;
+	//	fprintf(stderr,"Array = 0x%llX, Iter = %u, Fwd-WT: mode_flag = 0x%X, ilo = %u, a[1] = %18.10f\n",(uint64)a,ilo+1,mode_flag,ilo,a[1]);
+		// Mar 2017: Can skip this step if it's the start of a production test (note that any initial-residue shift
+		// in such cases is handled via single-array-word forward-DWT-weighting in the Mlucas.c shift_word() function),
+		// but need it if add RNG-input-setting above for debug, hence also check a[1] for nonzero:
+		if(ilo || a[1]) {
+			simodn = bimodn = 0;	// Init both = 0,but note for all but the 0-element they will satisfy simodn = (n - bimodn).
+		#ifdef USE_FGT61
+			simodnmod61 = 0;
+		uint32 bimodnmod61 = 0;
+		#endif
+			ii     = 1;		/* Pointer to the BASE and BASEINV arrays. If n does not divide p, lowest-order digit is always a bigword (ii = 1).	*/
+			for(i=0; i < n; i++)
+			{
+			// Apr 2014: Thanks to Stephen Searle [SMUS] for the missing-AVX-index-munge bugfix:
+			#ifdef USE_AVX512
+				j = (i & mask03) + br16[i&15];
+			#elif defined(USE_AVX)
+				j = (i & mask02) + br8[i&7];
+			#elif defined(USE_SSE2)
+				j = (i & mask01) + br4[i&3];
+			#else
+				j = i;
+			#endif
+				j += ( (j>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+
+				l = i & (nwt-1);
+				k =    i  >> nwt_bits;
+				k2= (n-i) >> nwt_bits;	/* Inv-wt stuff not needed here, but gives a cheap debug check (plus, bizarrely, GCC build ~3% faster with it) */
+				m =       (uint32)(simodn-si[    l])  >> 31;	/* Cast diff to unsigned int, to ensure vacated bits filled with 0 on right-shifting. */
+				m2= 1 + (((uint32)(bimodn-si[nwt-l])) >> 31);
+				wt    = wt0[    l]*tmp[k ]*one_half[m ];
+				wtinv = wt0[nwt-l]*tmp[k2]*one_half[m2]*radix_inv;
+				simodn += sw;	if(simodn >= n) simodn -= n;
+				bimodn += bw;	if(bimodn >= n) bimodn -= n;
+			//	if(simodn != n - bimodn) printf("I = %d: simodn[%u] != n - bimodn[%u]\n",i,simodn,n - bimodn);
+			//	ASSERT(HERE, simodn == n - bimodn, "simodn != n - bimodn");	<*** cannot require this because (for i = n-1) have simodn = 0, bimodn = n,
+				ASSERT(HERE, DNINT(a[j]) == a[j],"mers_mod_square.c: Input a[j] noninteger!");
+			#ifdef USE_FGT61
+				b[j] = a[j];						// First copy the floating-double datum into a uint64 slot...
+				b[j] += (-(b[j] >> 63) & q);		// ...add q if it's < 0...
+				b[j] = mul_pow2_modq(b[j], mod_wt_exp[simodnmod61]);	// ...and apply modular forward weighting.
+			//simodnmod61=mod(simodn,61)								// Is there a faster way to do the mod 61?
+				simodnmod61 = simodn*inv61;	simodnmod61 = simodn - 61*simodnmod61;	// Indeed there is.
+			bimodnmod61 = bimodn*inv61;	bimodnmod61 = bimodn - 61*bimodnmod61;
+			if(i < 20)printf("I = %2u: s,bimodnmod61 = %u,%u\n",i,bimodnmod61,simodnmod61);
+			#endif
+				fracmax = fabs( wt*wtinv*radix0 - 1.0 );
+				ASSERT(HERE, fracmax < 1e-10, "wt*wtinv check failed!");
+				a[j] *= wt;
+				ii =((uint32)(sw - bimodn) >> 31);
+			}
+		}
+
+		/*...and perform the initial pass of the forward transform.	*/
+
+		/*...NOTE: If the first radix to be processed is 2, 4 or 8, it is assumed that a power-of-2 FFT is being performed,
+		 hence no small-prime version of the corresponding pass1 routines is needed.	*/
+
+		switch(radix0)
+		{
+		case 5 :
+			 radix5_dif_pass1(a,n); break;
+		case 6 :
+			 radix6_dif_pass1(a,n); break;
+		case 7 :
+			 radix7_dif_pass1(a,n); break;
+		case 8 :
+			 radix8_dif_pass1(a,n); break;
+		case 9 :
+			 radix9_dif_pass1(a,n); break;
+		case 10 :
+			radix10_dif_pass1(a,n); break;
+		case 11 :
+			radix11_dif_pass1(a,n); break;
+		case 12 :
+			radix12_dif_pass1(a,n); break;
+		case 13 :
+			radix13_dif_pass1(a,n); break;
+		case 14 :
+			radix14_dif_pass1(a,n); break;
+		case 15 :
+			radix15_dif_pass1(a,n); break;
+		case 16 :
+		#ifdef USE_FGT61
+			radix16_dif_pass1(a,b,n); break;
+		#else
+			radix16_dif_pass1(a,  n); break;
+		#endif
+		case 18 :
+			radix18_dif_pass1(a,n); break;
+		case 20 :
+			radix20_dif_pass1(a,n); break;
+		case 22 :
+			radix22_dif_pass1(a,n); break;
+		case 24 :
+			radix24_dif_pass1(a,n); break;
+		case 26 :
+			radix26_dif_pass1(a,n); break;
+		case 28 :
+			radix28_dif_pass1(a,n); break;
+		case 30 :
+			radix30_dif_pass1(a,n); break;
+		case 32 :
+			radix32_dif_pass1(a,n); break;
+		case 36 :
+			radix36_dif_pass1(a,n); break;
+		case 40 :
+			radix40_dif_pass1(a,n); break;
+		case 44 :
+			radix44_dif_pass1(a,n); break;
+		case 48 :
+			radix48_dif_pass1(a,n); break;
+		case 52 :
+			radix52_dif_pass1(a,n); break;
+		case 56 :
+			radix56_dif_pass1(a,n); break;
+		case 60 :
+			radix60_dif_pass1(a,n); break;
+		case 63 :
+			radix63_dif_pass1(a,n); break;
+		case 64 :
+			radix64_dif_pass1(a,n); break;
+		/*
+		case 72 :
+			radix72_dif_pass1(a,n); break;
+		case 80 :
+			radix80_dif_pass1(a,n); break;
+		case 88 :
+			radix88_dif_pass1(a,n); break;
+		case 96 :
+			radix96_dif_pass1(a,n); break;
+		case 104:
+			radix104_dif_pass1(a,n); break;
+		case 112:
+			radix112_dif_pass1(a,n); break;
+		case 120:
+			radix120_dif_pass1(a,n); break;
+		*/
+		case 128:
+			radix128_dif_pass1(a,n); break;
+		case 144:
+			radix144_dif_pass1(a,n); break;
+		case 160:
+			radix160_dif_pass1(a,n); break;
+		case 176:
+			radix176_dif_pass1(a,n); break;
+		case 192:
+			radix192_dif_pass1(a,n); break;
+		case 208:
+			radix208_dif_pass1(a,n); break;
+		case 224:
+			radix224_dif_pass1(a,n); break;
+		case 240 :
+			radix240_dif_pass1(a,n); break;
+		case 256 :
+			radix256_dif_pass1(a,n); break;
+		case 288:
+			radix288_dif_pass1(a,n); break;
+		case 320:
+			radix320_dif_pass1(a,n); break;
+		case 352:
+			radix352_dif_pass1(a,n); break;
+		case 384:
+			radix384_dif_pass1(a,n); break;
+		case 512 :
+			radix512_dif_pass1(a,n); break;
+		case 768 :
+			radix768_dif_pass1(a,n); break;
+		case 960 :
+			radix960_dif_pass1(a,n); break;
+		case 992 :
+			radix992_dif_pass1(a,n); break;
+		case 1008:
+			radix1008_dif_pass1(a,n); break;
+		case 1024:
+			radix1024_dif_pass1(a,n); break;
+		case 4032:
+			radix4032_dif_pass1(a,n); break;
 	/*
-	case 72 :
-		radix72_dif_pass1(a,n); break;
-	case 80 :
-		radix80_dif_pass1(a,n); break;
-	case 88 :
-		radix88_dif_pass1(a,n); break;
-	case 96 :
-		radix96_dif_pass1(a,n); break;
-	case 104:
-		radix104_dif_pass1(a,n); break;
-	case 112:
-		radix112_dif_pass1(a,n); break;
-	case 120:
-		radix120_dif_pass1(a,n); break;
+		case 4096:
+			radix4096_dif_pass1(a,n); break;
 	*/
-	case 128:
-		radix128_dif_pass1(a,n); break;
-	case 144:
-		radix144_dif_pass1(a,n); break;
-	case 160:
-		radix160_dif_pass1(a,n); break;
-	case 176:
-		radix176_dif_pass1(a,n); break;
-	case 192:
-		radix192_dif_pass1(a,n); break;
-	case 208:
-		radix208_dif_pass1(a,n); break;
-	case 224:
-		radix224_dif_pass1(a,n); break;
-	case 240 :
-		radix240_dif_pass1(a,n); break;
-	case 256 :
-		radix256_dif_pass1(a,n); break;
-	case 288:
-		radix288_dif_pass1(a,n); break;
-	case 320:
-		radix320_dif_pass1(a,n); break;
-	case 512 :
-		radix512_dif_pass1(a,n); break;
-	case 768 :
-		radix768_dif_pass1(a,n); break;
-	case 960 :
-		radix960_dif_pass1(a,n); break;
-	case 992 :
-		radix992_dif_pass1(a,n); break;
-	case 1008:
-		radix1008_dif_pass1(a,n); break;
-	case 1024:
-		radix1024_dif_pass1(a,n); break;
-	case 4032:
-		radix4032_dif_pass1(a,n); break;
-/*
-	case 4096:
-		radix4096_dif_pass1(a,n); break;
-*/
-	default :
-		sprintf(cbuf,"FATAL: radix %d not available for dif_pass1. Halting...\n",radix0);
-		fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
-	}
+		default :
+			sprintf(cbuf,"FATAL: radix %d not available for dif_pass1. Halting...\n",radix0);
+			fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+		}
+	}	// if(low bit of mode_flag unset)
 
 /**********************************************************************/
 
@@ -2045,27 +2245,9 @@ for(i=0; i < NRT; i++) {
 
 	ASSERT(HERE, ihi > ilo,"mers_mod_square.c: ihi <= ilo!");
 
-#ifdef MULTITHREAD
-
-  #if(defined(USE_PTHREAD))
-	/* Pthread stuff defined above, with other variables */
-  #elif(defined(USE_OMP))
-	// OpenMP currently not supported - *** To-Do: Port mers_mod_square OpenMP stuff to here ****.
-	#error OpenMP currently not supported - Please recheck thread-related defines in platform.h file.
-	omp_set_num_threads(NTHREADS);
-	for(i=0; i < NTHREADS; i++)
-	{
-		num_chunks[i] = 0;
-	}
-  #else
-	#error MULTITHREAD defined but USE_PTHREAD not - Please recheck thread-related defines in platform.h file.
-  #endif
-
   #if DBG_THREADS
 	fprintf(stderr,"%s: NTHREADS = %3d\n",func,NTHREADS);
   #endif
-
-#endif
 
 for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 {
@@ -2080,98 +2262,51 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 
 #ifdef MULTITHREAD
 
-  #ifdef USE_PTHREAD
-
 	/* create nchunks = radix0/2 new threads each of which will execute 'mers_process_chunk()' over some specified index
 	subrange. In order to match the threads executing at any given time to the available CPUs, divide the thread execution into
 	[NTHREADS] 'work shifts' ( <= #CPus), each with its threads starting and completing their work before the next shift begins:
 	*/
-	if(NTHREADS > 0) {	/******* Change 0 --> to test thread-team/join overhead ******/
-		isum = 0;
-
-	// MacOS does weird things with threading (e.g. Idle" main thread burning 100% of 1 CPU)
-	// so on that platform try to be clever and interleave main-thread and threadpool-work processing
-	#if 0//def OS_TYPE_MACOSX
-
-		if(NTHREADS > 1) {
-			for(thr_id = 0; thr_id < pool_work_units; ++thr_id)
-			{
-			/*** As does each of the (NTHREADS - 1) pool threads: ***/
-				task_control.data = (void*)(&tdat[thr_id]);
-			//	printf("adding pool task %d\n",thr_id);
-				threadpool_add_task(tpool, &task_control, task_is_blocking);
-			}
-
-			/*** Main execution thread executes remaining chunks in serial fashion (but in || with the pool threads): ***/
-			for(j = 0; j < main_work_units; ++j)
-			{
-			//	printf("adding main task %d\n",j + pool_work_units);
-				mers_process_chunk( (void*)(&tdat[j + pool_work_units]) );
-			}
-
-			struct timespec ns_time;	// We want a sleep interval of 0.1 mSec here...
-			ns_time.tv_sec  =      0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
-			ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
-
-			while(tpool->free_tasks_queue.num_tasks != pool_work_units) {
-				// Finer-resolution, declared in <time.h>; cf. http://linux.die.net/man/2/nanosleep
-				ASSERT(HERE, 0 == nanosleep(&ns_time, 0x0), "nanosleep fail!");
-			}
-		} else {
-			for(thr_id = 0; thr_id < nchunks; ++thr_id)
-			{
-				mers_process_chunk( (void*)(&tdat[thr_id]) );
-			}
-		}
-
-	#elif defined(USE_THREADPOOL)	// Threadpool-based dispatch for generic (non OS X) Linux
-
-			for(thr_id = 0; thr_id < pool_work_units; ++thr_id)
-			{
-				task_control.data = (void*)(&tdat[thr_id]);
-			//	printf("adding pool task %d\n",thr_id);
-				threadpool_add_task(tpool, &task_control, task_is_blocking);
-			//	printf("; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
-			}
-
-		//	printf("start; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
-			struct timespec ns_time;	// We want a sleep interval of 0.1 mSec here...
-			ns_time.tv_sec  =      0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
-			ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
-
-		//	while(tpool->tasks_queue.num_tasks != 0) {	//*** not safe, since can have #tasks == 0 with some tasks still in flight ***
-			while(tpool->free_tasks_queue.num_tasks != pool_work_units) {
-			//		sleep(1);	//*** too granular ***
-				// Finer-resolution, declared in <time.h>; cf. http://linux.die.net/man/2/nanosleep
-				ASSERT(HERE, 0 == nanosleep(&ns_time, 0x0), "nanosleep fail!");
-			//	printf("sleep; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
-			}
-		//	printf("end  ; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
-
-	#endif
-
-	} else {
-		/* Single-threaded version: */
-		for(ii = 0; ii < nchunks; ++ii)
-		{
-			mers_process_chunk((void*)(&tdat[ii]));
-		}
+	// Threadpool-based dispatch
+	for(thr_id = 0; thr_id < pool_work_units; ++thr_id)
+	{
+		task_control.data = (void*)(&tdat[thr_id]);
+	//	printf("adding pool task %d\n",thr_id);
+		threadpool_add_task(tpool, &task_control, task_is_blocking);
+	//	printf("; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
 	}
 
-  #endif
+//	printf("start; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
+	int	ns_retval;
+	struct timespec ns_time,ns_err;	// We want a sleep interval of 0.1 mSec here...
+	ns_time.tv_sec  =      0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
+	ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
+
+//	while(tpool->tasks_queue.num_tasks != 0) {	//*** not safe, since can have #tasks == 0 with some tasks still in flight ***
+	while(tpool->free_tasks_queue.num_tasks != pool_work_units) {
+	//		sleep(1);	//*** too granular ***
+		// Finer-resolution, declared in <time.h>; cf. http://linux.die.net/man/2/nanosleep
+		ASSERT(HERE, 0 == mlucas_nanosleep(&ns_time), "nanosleep re-call-on-signal fail!");
+	//	printf("sleep; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
+	}
+//	printf("end  ; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
 
 #else
 
 	/* Unthreaded version: */
 	for(ii = 0; ii < radix0; ii += 2)
 	{
-		mers_process_chunk(a,arr_scratch,n,rt0,rt1,index,block_index,ii,nradices_prim,radix_prim,ws_i,ws_j1,ws_j2,ws_j2_start,ws_k,ws_m,ws_blocklen,ws_blocklen_sum);
+		mers_process_chunk(a,arr_scratch,n,rt0,rt1,index,block_index,ii,nradices_prim,radix_prim,ws_i,ws_j1,ws_j2,ws_j2_start,ws_k,ws_m,ws_blocklen,ws_blocklen_sum, fwd_fft);
 	}
 
 #endif
 
-	// Update RES_SHIFT via mod-doubling:
-	MOD_ADD64(RES_SHIFT,RES_SHIFT,p,RES_SHIFT);
+	if(fwd_fft == 1)
+		return 0;	// Skip carry step [and preceding inverse-FFT] in this case
+
+	// Update RES_SHIFT via mod-doubling, *** BUT ONLY IF IT'S AN AUTOSQUARE ***:
+	if(update_shift) {
+		MOD_ADD64(RES_SHIFT,RES_SHIFT,p,RES_SHIFT);
+	}
 
 /*...Do the final inverse FFT pass, carry propagation and initial forward FFT pass in one fell swoop, er, swell loop...	*/
 
@@ -2263,6 +2398,10 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 			ierr = radix288_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
 		case 320:
 			ierr = radix320_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
+		case 352:
+			ierr = radix352_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
+		case 384:
+			ierr = radix384_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,        base,baseinv,iter,&fracmax,p); break;
 		case 512 :
 			ierr = radix512_ditN_cy_dif1     (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;
 		case 768 :
@@ -2285,9 +2424,10 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 			sprintf(cbuf,"FATAL: radix %d not available for ditN_cy_dif1. Halting...\n",radix0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 	}
 
-	/* Nonzero remaining carries are instantly fatal: */
+	// v19: Nonzero exit carries used to be fatal, added retry-from-last-savefile handling for these
 	if(ierr)
 		return(ierr);
+
 	/* Update Max. Max. Error: */
 	if(fracmax > MME)
 		MME  = fracmax;
@@ -2311,6 +2451,11 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 				fprintf(stderr," FATAL ERROR...Halting test of exponent %u\n",(uint32)p);
 				ierr = ERR_ROUNDOFF;
 				return(ierr);
+			} else if(USE_SHORT_CY_CHAIN < USE_SHORT_CY_CHAIN_MAX) {
+				const char*arr_sml[] = {"long","medium","short"};
+				USE_SHORT_CY_CHAIN++;	MME = 0.4;	// On switch to more-accurate-DWT-weights mode, reset MME to 0.4 to 'erase' history
+				sprintf(cbuf," Reducing DWT-multipliers chain length from [%s] to [%s] in carry step to see if this prevents further 0.4375-level fractional parts.\n",arr_sml[USE_SHORT_CY_CHAIN-1],arr_sml[USE_SHORT_CY_CHAIN]);
+				fprintf(stderr,"%s",cbuf);
 			} else {
 				// ***To-do:*** Accumulate number-of-worrisome-ROEs (rather than a specific iteration number) in a new global
 			}
@@ -2326,8 +2471,14 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 				fprintf(stderr,"%s",cbuf);
 			}
 
+			// v19: Before entering retry-interval/switch-to-larger-FFT-length logic, try reducing the DWT-multipliers chain length:
+			if(fracmax == 0.4375 && !USE_SHORT_CY_CHAIN) {
+				USE_SHORT_CY_CHAIN = 1;
+				sprintf(cbuf," Reducing DWT-multipliers chain length in carry step to see if this prevents further 0.4375-level fractional parts.\n");
+				fprintf(fp,"%s",cbuf);
+				fprintf(fq,"%s",cbuf);
 			// In range test mode, any fractional part >= 0.4375 is cause for error exit:
-			if(fracmax >= 0.4375 ) {
+			} else if(fracmax >= 0.4375 ) {
 				// Roundoff-retry scheme detailed in comments for above fermat_mod_square() function:
 				if(ROE_ITER == 0) {
 					sprintf(cbuf," Retrying iteration interval to see if roundoff error is reproducible.\n");
@@ -2365,7 +2516,7 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 		}
 	}
 
- 	//...Whew - that"s a lot of stuff that just happened. Luckily, computer chips don't understand the concept of "Miller time."
+	//...Whew - that"s a lot of stuff that just happened. Luckily, computer chips don't understand the concept of "Miller time."
 
 	// Accumulate the cycle count in a floating double on each pass to avoid problems
 	// with integer overflow of the clock() result, if clock_t happens to be 32-bit int on the host platform:
@@ -2381,6 +2532,12 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 		fprintf(stderr,"Can't catch SIGTERM.\n");
 	else if (signal(SIGHUP, sig_handler) == SIG_ERR)
 		fprintf(stderr,"Can't catch SIGHUP.\n");
+	else if (signal(SIGALRM, sig_handler) == SIG_ERR)
+		fprintf(stderr,"Can't catch SIGALRM.\n");
+	else if (signal(SIGUSR1, sig_handler) == SIG_ERR)
+		fprintf(stderr,"Can't catch SIGUSR1.\n");
+	else if (signal(SIGUSR2, sig_handler) == SIG_ERR)
+		fprintf(stderr,"Can't catch SIGUSR2.\n");
 }	/* End of main for(iter....) loop	*/
 
 // On early-exit-due-to-interrupt, decrement iter since we didn't actually do the (iter)th iteration
@@ -2389,14 +2546,8 @@ if(iter < ihi) {
 	ASSERT(HERE, !MLUCAS_KEEP_RUNNING, "Premature iteration-loop exit due to unexpected condition!");
 	ierr = ERR_INTERRUPT;
 	ROE_ITER = iter;	// Function return value used for error code, so save number of last-iteration-completed-before-interrupt here
+	mode_flag ^= 0x2;	// v19: In case of interrupt-exit override any mode_flag "skip undo of initial DIF pass" setting
 }
-#if 0
-	for(i = 0; i < n; i += 16) {
-		ipad = i + ( (i >> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-		avg_abs_val += fabs(a[ipad])+fabs(a[ipad+1])+fabs(a[ipad+2])+fabs(a[ipad+3])+fabs(a[ipad+4])+fabs(a[ipad+5])+fabs(a[ipad+6])+fabs(a[ipad+7])+fabs(a[ipad+8])+fabs(a[ipad+9])+fabs(a[ipad+10])+fabs(a[ipad+11])+fabs(a[ipad+12])+fabs(a[ipad+13])+fabs(a[ipad+14])+fabs(a[ipad+15]);
-	}
-	printf("Final-iteration: Avg abs-val of residue-array digits = %20.10f\n",avg_abs_val);
-#endif
 
 #ifdef RTIME
 //	clock2 = time(0x0);
@@ -2416,194 +2567,204 @@ if(iter < ihi) {
 
 /**********************************************************************/
 
-/*...At the end of each iteration cycle, need to undo the initial DIF FFT pass...	*/
-
-	switch(radix0)
+	/*...At the end of each iteration cycle, need to undo the initial DIF FFT pass...	*/
+	// Sep 2019: Add support for fwd_fft_only|mode_flag as described in top-of-function comments
+undo_initial_ffft_pass:
+//	printf("Iter %u: ierr = %u, fwd_fft = %llu, mode_flag = %u\n",iter,ierr,fwd_fft,mode_flag);
+	if((mode_flag >> 1) == 0)
 	{
-	case  5 :
-		 radix5_dit_pass1(a,n); break;
-	case  6 :
-		 radix6_dit_pass1(a,n); break;
-	case  7 :
-		 radix7_dit_pass1(a,n); break;
-	case  8 :
-		 radix8_dit_pass1(a,n); break;
-	case  9 :
-		 radix9_dit_pass1(a,n); break;
-	case 10 :
-		radix10_dit_pass1(a,n); break;
-	case 11 :
-		radix11_dit_pass1(a,n); break;
-	case 12 :
-		radix12_dit_pass1(a,n); break;
-	case 13 :
-		radix13_dit_pass1(a,n); break;
-	case 14 :
-		radix14_dit_pass1(a,n); break;
-	case 15 :
-		radix15_dit_pass1(a,n); break;
-	case 16 :
-	#ifdef USE_FGT61
-		radix16_dit_pass1(a,b,n); break;
-	#else
-		radix16_dit_pass1(a,  n); break;
-	#endif
-	case 18 :
-		radix18_dit_pass1(a,n); break;
-	case 20 :
-		radix20_dit_pass1(a,n); break;
-	case 22 :
-		radix22_dit_pass1(a,n); break;
-	case 24 :
-		radix24_dit_pass1(a,n); break;
-	case 26 :
-		radix26_dit_pass1(a,n); break;
-	case 28 :
-		radix28_dit_pass1(a,n); break;
-	case 30 :
-		radix30_dit_pass1(a,n); break;
-	case 32 :
-		radix32_dit_pass1(a,n); break;
-	case 36 :
-		radix36_dit_pass1(a,n); break;
-	case 40 :
-		radix40_dit_pass1(a,n); break;
-	case 44 :
-		radix44_dit_pass1(a,n); break;
-	case 48 :
-		radix48_dit_pass1(a,n); break;
-	case 52 :
-		radix52_dit_pass1(a,n); break;
-	case 56 :
-		radix56_dit_pass1(a,n); break;
-	case 60 :
-		radix60_dit_pass1(a,n); break;
-	case 63 :
-		radix63_dit_pass1(a,n); break;
-	case 64 :
-		radix64_dit_pass1(a,n); break;
-/*
-	case 72 :
-		radix72_dit_pass1(a,n); break;
-	case 80 :
-		radix80_dit_pass1(a,n); break;
-	case 88 :
-		radix88_dit_pass1(a,n); break;
-	case 96 :
-		radix96_dit_pass1(a,n); break;
-	case 104:
-		radix104_dit_pass1(a,n); break;
-	case 112:
-		radix112_dit_pass1(a,n); break;
-	case 120:
-		radix120_dit_pass1(a,n); break;
-*/
-	case 128:
-		radix128_dit_pass1(a,n); break;
-	case 144:
-		radix144_dit_pass1(a,n); break;
-	case 160:
-		radix160_dit_pass1(a,n); break;
-	case 176:
-		radix176_dit_pass1(a,n); break;
-	case 192:
-		radix192_dit_pass1(a,n); break;
-	case 208:
-		radix208_dit_pass1(a,n); break;
-	case 224:
-		radix224_dit_pass1(a,n); break;
-	case 240 :
-		radix240_dit_pass1(a,n); break;
-	case 256 :
-		radix256_dit_pass1(a,n); break;
-	case 288:
-		radix288_dit_pass1(a,n); break;
-	case 320:
-		radix320_dit_pass1(a,n); break;
-	case 512 :
-		radix512_dit_pass1(a,n); break;
-	case 768 :
-		radix768_dit_pass1(a,n); break;
-	case 960 :
-		radix960_dit_pass1(a,n); break;
-	case 992 :
-		radix992_dit_pass1(a,n); break;
-	case 1008 :
-		radix1008_dit_pass1(a,n); break;
-	case 1024:
-		radix1024_dit_pass1(a,n); break;
-	case 4032 :
-		radix4032_dit_pass1(a,n); break;
-/*
-	case 4096:
-		radix4096_dit_pass1(a,n); break;
-*/
-	default :
-		sprintf(cbuf,"FATAL: radix %d not available for dit_pass1. Halting...\n",radix0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
-	}
-
-/*...and unweight the data array.	*/
-
-	bimodn = 0;
-#ifdef USE_FGT61
-	simodnmod61 = 0;
-#endif
-	ii     = 1;		/* Pointer to the BASE and BASEINV arrays. If n does not divide p, lowest-order digit is always a bigword (ii = 1).	*/
-	for(i=0; i < n; i++)
-	{
-	#ifdef USE_AVX512
-		j = (i & mask03) + br16[i&15];
-	#elif defined(USE_AVX)
-		j = (i & mask02) + br8[i&7];
-	#elif defined(USE_SSE2)
-		j = (i & mask01) + br4[i&3];
-	#else
-		j = i;
-	#endif
-		j = j + ( (j>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
-
-		l = i & (nwt-1);
-		k2= (n-i) >> nwt_bits;
-
-		/* Cast result of subtract to unsigned int, to ensure vacated bits filled with 0 on right-shifting.
-		Of course C has these screwed-up precedence rules which mean we've got to enclose the shift in (), too.
-		*/
-		m2= 1 + (((uint32)(bimodn-si[nwt-l])) >> 31);
-		wtinv=wt0[nwt-l]*tmp[k2]*one_half[m2]*radix_inv;
-		atmp = a[j]*wtinv;
-		a[j] = DNINT(atmp);	// Jul 2015: This was an 'NINT' - not sure why I was using that slow macro, as opposed to DNINT
-		frac_fp = fabs(a[j]-atmp);
-		if(frac_fp > max_fp)
-			max_fp = frac_fp;
-		if(fabs(2*a[j]) > base[ii]) {
-		#ifdef USE_AVX
-			printf("Output a[i = %d, j = %d, jpad = %d] = %20.5f out of range: base[%d] = %15.0f\n",i,(i & mask02) + br8[i&7],j,a[j],ii,base[ii]);
-		#elif defined(USE_SSE2)
-			printf("Output a[i = %d, j = %d, jpad = %d] = %20.5f out of range: base[%d] = %15.0f\n",i,(i & mask01) + br4[i&3],j,a[j],ii,base[ii]);
+	//	fprintf(stderr,"Array = 0x%llX, Iter = %u, Inv-WT: mode_flag = 0x%X\n",(uint64)a,iter,mode_flag);
+		switch(radix0)
+		{
+		case  5 :
+			 radix5_dit_pass1(a,n); break;
+		case  6 :
+			 radix6_dit_pass1(a,n); break;
+		case  7 :
+			 radix7_dit_pass1(a,n); break;
+		case  8 :
+			 radix8_dit_pass1(a,n); break;
+		case  9 :
+			 radix9_dit_pass1(a,n); break;
+		case 10 :
+			radix10_dit_pass1(a,n); break;
+		case 11 :
+			radix11_dit_pass1(a,n); break;
+		case 12 :
+			radix12_dit_pass1(a,n); break;
+		case 13 :
+			radix13_dit_pass1(a,n); break;
+		case 14 :
+			radix14_dit_pass1(a,n); break;
+		case 15 :
+			radix15_dit_pass1(a,n); break;
+		case 16 :
+		#ifdef USE_FGT61
+			radix16_dit_pass1(a,b,n); break;
 		#else
-			printf("Output a[i = %d, jpad = %d] = %20.5f out of range: base[%d] = %15.0f\n",i,j,a[j],ii,base[ii]);
+			radix16_dit_pass1(a,  n); break;
 		#endif
-			ASSERT(HERE, 0, "Output out of range!");
+		case 18 :
+			radix18_dit_pass1(a,n); break;
+		case 20 :
+			radix20_dit_pass1(a,n); break;
+		case 22 :
+			radix22_dit_pass1(a,n); break;
+		case 24 :
+			radix24_dit_pass1(a,n); break;
+		case 26 :
+			radix26_dit_pass1(a,n); break;
+		case 28 :
+			radix28_dit_pass1(a,n); break;
+		case 30 :
+			radix30_dit_pass1(a,n); break;
+		case 32 :
+			radix32_dit_pass1(a,n); break;
+		case 36 :
+			radix36_dit_pass1(a,n); break;
+		case 40 :
+			radix40_dit_pass1(a,n); break;
+		case 44 :
+			radix44_dit_pass1(a,n); break;
+		case 48 :
+			radix48_dit_pass1(a,n); break;
+		case 52 :
+			radix52_dit_pass1(a,n); break;
+		case 56 :
+			radix56_dit_pass1(a,n); break;
+		case 60 :
+			radix60_dit_pass1(a,n); break;
+		case 63 :
+			radix63_dit_pass1(a,n); break;
+		case 64 :
+			radix64_dit_pass1(a,n); break;
+	/*
+		case 72 :
+			radix72_dit_pass1(a,n); break;
+		case 80 :
+			radix80_dit_pass1(a,n); break;
+		case 88 :
+			radix88_dit_pass1(a,n); break;
+		case 96 :
+			radix96_dit_pass1(a,n); break;
+		case 104:
+			radix104_dit_pass1(a,n); break;
+		case 112:
+			radix112_dit_pass1(a,n); break;
+		case 120:
+			radix120_dit_pass1(a,n); break;
+	*/
+		case 128:
+			radix128_dit_pass1(a,n); break;
+		case 144:
+			radix144_dit_pass1(a,n); break;
+		case 160:
+			radix160_dit_pass1(a,n); break;
+		case 176:
+			radix176_dit_pass1(a,n); break;
+		case 192:
+			radix192_dit_pass1(a,n); break;
+		case 208:
+			radix208_dit_pass1(a,n); break;
+		case 224:
+			radix224_dit_pass1(a,n); break;
+		case 240 :
+			radix240_dit_pass1(a,n); break;
+		case 256 :
+			radix256_dit_pass1(a,n); break;
+		case 288:
+			radix288_dit_pass1(a,n); break;
+		case 320:
+			radix320_dit_pass1(a,n); break;
+		case 352:
+			radix352_dit_pass1(a,n); break;
+		case 384:
+			radix384_dit_pass1(a,n); break;
+		case 512 :
+			radix512_dit_pass1(a,n); break;
+		case 768 :
+			radix768_dit_pass1(a,n); break;
+		case 960 :
+			radix960_dit_pass1(a,n); break;
+		case 992 :
+			radix992_dit_pass1(a,n); break;
+		case 1008 :
+			radix1008_dit_pass1(a,n); break;
+		case 1024:
+			radix1024_dit_pass1(a,n); break;
+		case 4032 :
+			radix4032_dit_pass1(a,n); break;
+	/*
+		case 4096:
+			radix4096_dit_pass1(a,n); break;
+	*/
+		default :
+			sprintf(cbuf,"FATAL: radix %d not available for dit_pass1. Halting...\n",radix0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 		}
-		bimodn += bw;	if(bimodn >= n) bimodn -= n;
-		simodn = n - bimodn;
+
+	/*...and unweight the data array.	*/
+
+		bimodn = 0;
 	#ifdef USE_FGT61
-		b[j] += (-(b[j] >> 63) & q);		// Add q if modular digit < 0...
-		b[j] = mul_pow2_modq(b[j], 61-mod_wt_exp[simodnmod61]);	// ...and apply modular inverse weighting.
-		b[j] = mul_pow2_modq(b[j], 61-radix0);				// ...multiply by the modular inverse of radix0...
-		if(b[j] >= qhalf) b[j] -= 0x1FFFFFFFFFFFFFFFull;		// ...and balance, i.e. put into [-qhalf, (q-1)/2].
-		simodnmod61 = simodn*inv61;	simodnmod61 = simodn - 61*simodnmod61;
-	// DEBUG: Compare vs floating result:
-		ASSERT(HERE, a[j] == b[j], "ERROR: Floating and Modular outputs mismatch!");
+		simodnmod61 = 0;
 	#endif
-		ii =((uint32)(sw - bimodn) >> 31);
-	}
-	if(max_fp > 0.01)
-	{
-		fprintf(stderr,"%s: max_fp > 0.01! Value = %20.10f\n",func,max_fp);
-		fprintf(stderr,"Check your build for inadvertent mixing of SIMD build modes!\n");
-		ASSERT(HERE, max_fp < 0.01,"mers_mod_square.c: max_fp < 0.01");
-	}
+		ii     = 1;		/* Pointer to the BASE and BASEINV arrays. If n does not divide p, lowest-order digit is always a bigword (ii = 1).	*/
+		for(i=0; i < n; i++)
+		{
+		#ifdef USE_AVX512
+			j = (i & mask03) + br16[i&15];
+		#elif defined(USE_AVX)
+			j = (i & mask02) + br8[i&7];
+		#elif defined(USE_SSE2)
+			j = (i & mask01) + br4[i&3];
+		#else
+			j = i;
+		#endif
+			j = j + ( (j>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+
+			l = i & (nwt-1);
+			k2= (n-i) >> nwt_bits;
+
+			/* Cast result of subtract to unsigned int, to ensure vacated bits filled with 0 on right-shifting.
+			Of course C has these screwed-up precedence rules which mean we've got to enclose the shift in (), too.
+			*/
+			m2= 1 + (((uint32)(bimodn-si[nwt-l])) >> 31);
+			wtinv=wt0[nwt-l]*tmp[k2]*one_half[m2]*radix_inv;
+			atmp = a[j]*wtinv;
+			a[j] = DNINT(atmp);	// Jul 2015: This was an 'NINT' - not sure why I was using that slow macro, as opposed to DNINT
+			frac_fp = fabs(a[j]-atmp);
+			if(frac_fp > max_fp)
+				max_fp = frac_fp;
+			if(fabs(2*a[j]) > base[ii]) {
+			#ifdef USE_AVX
+				printf("Output a[i = %d, j = %d, jpad = %d] = %20.5f out of range: base[%d] = %15.0f\n",i,(i & mask02) + br8[i&7],j,a[j],ii,base[ii]);
+			#elif defined(USE_SSE2)
+				printf("Output a[i = %d, j = %d, jpad = %d] = %20.5f out of range: base[%d] = %15.0f\n",i,(i & mask01) + br4[i&3],j,a[j],ii,base[ii]);
+			#else
+				printf("Output a[i = %d, jpad = %d] = %20.5f out of range: base[%d] = %15.0f\n",i,j,a[j],ii,base[ii]);
+			#endif
+				ASSERT(HERE, 0, "Output out of range!");
+			}
+			bimodn += bw;	if(bimodn >= n) bimodn -= n;
+			simodn = n - bimodn;
+		#ifdef USE_FGT61
+			b[j] += (-(b[j] >> 63) & q);		// Add q if modular digit < 0...
+			b[j] = mul_pow2_modq(b[j], 61-mod_wt_exp[simodnmod61]);	// ...and apply modular inverse weighting.
+			b[j] = mul_pow2_modq(b[j], 61-radix0);				// ...multiply by the modular inverse of radix0...
+			if(b[j] >= qhalf) b[j] -= 0x1FFFFFFFFFFFFFFFull;		// ...and balance, i.e. put into [-qhalf, (q-1)/2].
+			simodnmod61 = simodn*inv61;	simodnmod61 = simodn - 61*simodnmod61;
+		// DEBUG: Compare vs floating result:
+			ASSERT(HERE, a[j] == b[j], "ERROR: Floating and Modular outputs mismatch!");
+		#endif
+			ii =((uint32)(sw - bimodn) >> 31);
+		}
+		if(max_fp > 0.01)
+		{
+			fprintf(stderr,"%s: max_fp > 0.01! Value = %20.10f\n",func,max_fp);
+			fprintf(stderr,"Check your build for inadvertent mixing of SIMD build modes!\n");
+			ASSERT(HERE, max_fp < 0.01,"mers_mod_square.c: max_fp < 0.01");
+		}
+	}	// if(high bit of mode_flag unset)
 
 #if 0//CTIME
 	dt_supp = dt_fwd;
@@ -2616,13 +2777,13 @@ if(iter < ihi) {
 		fprintf(stderr,"%s",cbuf);
 	}
 #endif
-
 	if(ierr == ERR_INTERRUPT) {	// In this need to bypass [2a] check below because ROE_ITER will be set to last-iteration-done
 		return(ierr);
 	}
 	// Cf. [2a] in fermat_mod_square() function: The interval-retry is successful, i.e. suffers no fatal ROE.
 	// [action] Prior to returning, print a "retry successful" informational and rezero ROE_ITER and ROE_VAL.
-	if(!INTERACT && ROE_ITER > 0) {	// In interactive (timing-test) mode, use ROE_ITER to accumulate #iters-with-dangerous-ROEs
+	// *** v19: For PRP-test Must make sure we are at end of checkpoint-file iteration interval, not one of the Gerbicz-update subintervals ***
+	if(!INTERACT && ROE_ITER > 0 && ihi%ITERS_BETWEEN_CHECKPOINTS == 0) {	// In interactive (timing-test) mode, use ROE_ITER to accumulate #iters-with-dangerous-ROEs
 		ASSERT(HERE, (ierr == 0) && (iter = ihi+1), "[2a] sanity check failed!");
 		ROE_ITER = 0;
 		ROE_VAL = 0.0;
@@ -2643,7 +2804,7 @@ if(iter < ihi) {
 
 /***************/
 
-#if(defined(MULTITHREAD) && defined(USE_PTHREAD))
+#ifdef MULTITHREAD
 
 void*
 mers_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and specialized inside the function
@@ -2674,6 +2835,7 @@ mers_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and s
 	int*ws_m            = thread_arg->ws_m;
 	int*ws_blocklen     = thread_arg->ws_blocklen;
 	int*ws_blocklen_sum = thread_arg->ws_blocklen_sum;
+	uint64 fwd_fft      = thread_arg->fwd_fft;
 
 #else
 
@@ -2681,13 +2843,13 @@ mers_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and s
 void mers_process_chunk(
 	double a[], int arr_scratch[], int n, struct complex rt0[], struct complex rt1[], uint128 mt0[], uint128 mt1[],
 	int index[], int block_index[], int ii, int nradices_prim, int radix_prim[],
-	int ws_i[], int ws_j1[], int ws_j2[], int ws_j2_start[], int ws_k[], int ws_m[], int ws_blocklen[], int ws_blocklen_sum[]
+	int ws_i[], int ws_j1[], int ws_j2[], int ws_j2_start[], int ws_k[], int ws_m[], int ws_blocklen[], int ws_blocklen_sum[], uint64 fwd_fft
 )
 #else
 void mers_process_chunk(
 	double a[], int arr_scratch[], int n, struct complex rt0[], struct complex rt1[],
 	int index[], int block_index[], int ii, int nradices_prim, int radix_prim[],
-	int ws_i[], int ws_j1[], int ws_j2[], int ws_j2_start[], int ws_k[], int ws_m[], int ws_blocklen[], int ws_blocklen_sum[]
+	int ws_i[], int ws_j1[], int ws_j2[], int ws_j2_start[], int ws_k[], int ws_m[], int ws_blocklen[], int ws_blocklen_sum[], uint64 fwd_fft
 )
 #endif
 {
@@ -2753,9 +2915,9 @@ void mers_process_chunk(
 	}	/* end j-loop */
 
 	/*...Final DIF pass, wrapper/squaring and initial DIT pass are all done in-place.
+	wrapper_square, i.e. we must call this routine a second time to process data in the l2-block.
 	This combines data from both the l1 and l2-block, except in the case ii = 0
 	for even radix0, for which the l1 = 0 and l2 = 1 blocks are processed separately within
-	wrapper_square, i.e. we must call this routine a second time to process data in the l2-block.
 	*/
 #ifdef CTIME
 	clock_supp = clock();
@@ -2769,14 +2931,14 @@ void mers_process_chunk(
 		{
 		case 16 :
 		#ifdef USE_FGT61
-			radix16_wrapper_square(a,b,arr_scratch,n,radix0,rt0,rt1,mt0,mt1,nradices_prim,radix_prim, ws_i[l], ws_j1[l], ws_j2[l], ws_j2_start[l], ws_k[l], ws_m[l], ws_blocklen[l], ws_blocklen_sum[l],init_sse2,thr_id); break;
+			radix16_wrapper_square(a,b,arr_scratch,n,radix0,rt0,rt1,mt0,mt1,nradices_prim,radix_prim, ws_i[l], ws_j1[l], ws_j2[l], ws_j2_start[l], ws_k[l], ws_m[l], ws_blocklen[l], ws_blocklen_sum[l],init_sse2,thr_id, fwd_fft); break;
 		#else
-			radix16_wrapper_square(a,  arr_scratch,n,radix0,rt0,rt1,        nradices_prim,radix_prim, ws_i[l], ws_j1[l], ws_j2[l], ws_j2_start[l], ws_k[l], ws_m[l], ws_blocklen[l], ws_blocklen_sum[l],init_sse2,thr_id); break;
+			radix16_wrapper_square(a,  arr_scratch,n,radix0,rt0,rt1,        nradices_prim,radix_prim, ws_i[l], ws_j1[l], ws_j2[l], ws_j2_start[l], ws_k[l], ws_m[l], ws_blocklen[l], ws_blocklen_sum[l],init_sse2,thr_id, fwd_fft); break;
 		#endif
 		case 32 :
-			radix32_wrapper_square(a,arr_scratch,n,radix0,rt0,rt1,nradices_prim,radix_prim, ws_i[l], ws_j1[l], ws_j2[l], ws_j2_start[l], ws_k[l], ws_m[l], ws_blocklen[l], ws_blocklen_sum[l],init_sse2,thr_id); break;
+			radix32_wrapper_square(a,arr_scratch,n,radix0,rt0,rt1,nradices_prim,radix_prim, ws_i[l], ws_j1[l], ws_j2[l], ws_j2_start[l], ws_k[l], ws_m[l], ws_blocklen[l], ws_blocklen_sum[l],init_sse2,thr_id, fwd_fft); break;
 	/*	case 64 :
-			radix64_wrapper_square(a,arr_scratch,n,radix0,rt0,rt1,nradices_prim,radix_prim, ws_i[l], ws_j1[l], ws_j2[l], ws_j2_start[l], ws_k[l], ws_m[l], ws_blocklen[l], ws_blocklen_sum[l],init_sse2,thr_id); break;
+			radix64_wrapper_square(a,arr_scratch,n,radix0,rt0,rt1,nradices_prim,radix_prim, ws_i[l], ws_j1[l], ws_j2[l], ws_j2_start[l], ws_k[l], ws_m[l], ws_blocklen[l], ws_blocklen_sum[l],init_sse2,thr_id, fwd_fft); break;
 		*/
 		default :
 			sprintf(cbuf,"FATAL: radix %d not available for wrapper/square. Halting...\n",RADIX_VEC[NRADICES-1]); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
@@ -2786,6 +2948,15 @@ void mers_process_chunk(
 #ifdef CTIME
 	dt_sqr += (double)(clock() - clock_supp);
 #endif
+
+	if(fwd_fft == 1) {
+	#ifdef MULTITHREAD
+		*(thread_arg->retval) = 0;	// 0 indicates successful return of current thread
+		return 0x0;
+	#else
+		return;
+	#endif
+	}
 
 	/*...Rest of inverse decimation-in-time (DIT) transform. Note that during IFFT we process the radices in reverse
 	order. The first array sent to each pass routine is assumed to contain the bit-reversed floating data.	*/
@@ -2853,15 +3024,9 @@ void mers_process_chunk(
 	}	/* end j-loop */
 
 #ifdef MULTITHREAD
-
 	*(thread_arg->retval) = 0;	// 0 indicates successful return of current thread
 //	printf("Return from Thread %d ... ", ii);
-  #ifdef USE_THREADPOOL
 	return 0x0;
-  #else
-	pthread_exit(NULL);
-  #endif
-
 #endif
 }
 

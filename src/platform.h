@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -457,7 +457,7 @@ o SZ_VD = sizeof(vec_dbl), SZ_VD_M1 = SZ_VD-1.
 	// x86_64 only has FMA support (we speak here specifically of FMA3, since we're not interested
 	// in AMD's brief fling with FMA4) as of Intel AVX2+FMA3:
 	#ifdef USE_AVX2
-//	  #define	USE_FMADD
+	  #define	USE_FMADD
 	#endif
 
 	#ifndef COMPILER_TYPE	// NVCC may already have been defined
@@ -822,6 +822,7 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 	#ifndef OS_BITS
 		  #define OS_BITS 64
 	#endif
+	#define	USE_FMADD
 
 	#define CPU_TYPE
 	#define CPU_IS_ARM_EABI

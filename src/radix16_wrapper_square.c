@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -54,49 +54,17 @@
 
 /***************/
 
-/*
-Macro versions of these are in sse2_macro.h, since radix32_wrapper_square.c also needs to inline those:
-SSE2 macros for this are in sse2_macro.h.
+/* v19: To support Gerbicz check (and later, p-1) need 2-input FFT-mul - added fwd_fft_only flag, which takes 3 distinct possible values:
+	  0 - Do normal FFT-autosquare(a) for (ilo-ihi) successive iterations;
+	  1 - Do forward FFT(a) only and store result in a[], skipping dyadic-square and inv-FFT steps. In this case ilo = ihi;
+	> 1 - The fwd_fft_only arg contains a pointer to an array b[] in previously-forward-FFTed form, i.e. FFT(b). In this
+		  case we do the final-radix pass of FFT(a), then dyadic-multiply FFT(a) * FFT(b) (storing the result in a[]) in place
+		  of the usual pair_square step, then do the initial-radix pass of the iFFT of the result.
 */
-void pair_square(double *x1, double *y1, double *x2, double *y2, double c, double s)
-{
-/*
-!   Given complex scalars H[j] = (x1,y1) and H[N-j] = (x2,y2) along with complex exponential E = (c,s),
-!   calculates I[j] = H[j]^2 + {1 + exp(2*pi*I*j/N)}*{H[j]-H~[N-j]}^2/4 and its complex conjugate I~,
-!   returns the former in H[j] and the latter in H[N-j].
-*/
-	double rt0,rt1,rt2,rt3,it1,it2,it3;
-
-	rt1 = *x1;	it1 = *y1;	rt2 = *x2;	it2 = *y2;
-
-	// Calculate cross product terms:
-	rt3 = rt1*rt2 + it1*it2; rt3 = rt3 + rt3;
-	it3 = it1*rt2 - rt1*it2; it3 = it3 + it3;
-
-	// Now calculate square terms and store back in the same temporaries:
-	rt0 = (rt1 + it1)*(rt1 - it1); it1 = rt1*it1; it1 = it1 + it1; rt1 = rt0;
-	rt0 = (rt2 + it2)*(rt2 - it2); it2 = rt2*it2; it2 = it2 + it2; rt2 = rt0;
-
-	// Use that (H[j] - H~[N-j])^2 = H(j)^2 - 2*H(j)*H~(N-j) + H~(N-j)^2:
-	rt3 = rt1 + rt2 - rt3;
-	it3 = it1 - it2 - it3;
-	rt0 = ((c + 1.0)*rt3 - s*it3)*0.25;
-	it3 = (s*rt3 + (c + 1.0)*it3)*0.25;
-
-	// And now complete and store the results:
-	*x1 = (rt1 - rt0);
-	*y1 = (it1 - it3);
-	// N-j terms are as above, but with the replacements: rt1<-->rt2, it1<-->it2, it3|-->-it3:
-	*x2 = (rt2 - rt0);
-	*y2 = (it2 + it3);
-}
-
-/***************/
-
 void radix16_wrapper_square(
 	double a[],             int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[],
 	int nradices_prim, int radix_prim[], int ws_i, int ws_j1, int ws_j2, int ws_j2_start, int ws_k, int ws_m, int ws_blocklen, int ws_blocklen_sum,
-	int init_sse2, int thr_id
+	int init_sse2, int thr_id, uint64 fwd_fft_only
 )
 {
 	const char func[] = "radix16_wrapper_square";
@@ -180,7 +148,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 #endif
 	int *itmp = 0x0;
 	int rdum,idum, j1pad,j2pad,kp,l,iroot,k1,k2;
-	int i,j1,j2,j2_start,k,m,blocklen,blocklen_sum;
+	int i,j1,j2,j2_start,k,m,blocklen,blocklen_sum,nbytes;
 	/*int ndivrad0m1;*/
 	const double c = 0.9238795325112867561281831, s = 0.3826834323650897717284599;	/* exp[i*(twopi/16)] */
 	double rt,it, RT = 0.0,IT = 0.0;	// Caps used to highlight roots terms which need saving-for-squaring-step
@@ -188,10 +156,14 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	double cA1,cA2,cA3,cA4,cA5,cA6,cA7,cA8,cA9,cA10,cA11,cA12,cA13,cA14,cA15,sA1,sA2,sA3,sA4,sA5,sA6,sA7,sA8,sA9,sA10,sA11,sA12,sA13,sA14,sA15;
 	double cB1,cB2,cB3,cB4,cB5,cB6,cB7,cB8,cB9,cB10,cB11,cB12,cB13,cB14,cB15,sB1,sB2,sB3,sB4,sB5,sB6,sB7,sB8,sB9,sB10,sB11,sB12,sB13,sB14,sB15;
 	double t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t30,t31,t32;
-	double aj1p0r,aj1p1r,aj1p2r,aj1p3r,aj1p4r,aj1p5r,aj1p6r,aj1p7r,aj1p8r,aj1p9r,aj1p10r,aj1p11r,aj1p12r,aj1p13r,aj1p14r,aj1p15r
-			,aj1p0i,aj1p1i,aj1p2i,aj1p3i,aj1p4i,aj1p5i,aj1p6i,aj1p7i,aj1p8i,aj1p9i,aj1p10i,aj1p11i,aj1p12i,aj1p13i,aj1p14i,aj1p15i;
-	double aj2p0r,aj2p1r,aj2p2r,aj2p3r,aj2p4r,aj2p5r,aj2p6r,aj2p7r,aj2p8r,aj2p9r,aj2p10r,aj2p11r,aj2p12r,aj2p13r,aj2p14r,aj2p15r
-			,aj2p0i,aj2p1i,aj2p2i,aj2p3i,aj2p4i,aj2p5i,aj2p6i,aj2p7i,aj2p8i,aj2p9i,aj2p10i,aj2p11i,aj2p12i,aj2p13i,aj2p14i,aj2p15i;
+	double	 aj1p0r,aj1p1r,aj1p2r,aj1p3r,aj1p4r,aj1p5r,aj1p6r,aj1p7r,aj1p8r,aj1p9r,aj1pAr,aj1pBr,aj1pCr,aj1pDr,aj1pEr,aj1pFr
+			,aj1p0i,aj1p1i,aj1p2i,aj1p3i,aj1p4i,aj1p5i,aj1p6i,aj1p7i,aj1p8i,aj1p9i,aj1pAi,aj1pBi,aj1pCi,aj1pDi,aj1pEi,aj1pFi
+			,aj2p0r,aj2p1r,aj2p2r,aj2p3r,aj2p4r,aj2p5r,aj2p6r,aj2p7r,aj2p8r,aj2p9r,aj2pAr,aj2pBr,aj2pCr,aj2pDr,aj2pEr,aj2pFr
+			,aj2p0i,aj2p1i,aj2p2i,aj2p3i,aj2p4i,aj2p5i,aj2p6i,aj2p7i,aj2p8i,aj2p9i,aj2pAi,aj2pBi,aj2pCi,aj2pDi,aj2pEi,aj2pFi;
+	double	 bj1p0r,bj1p1r,bj1p2r,bj1p3r,bj1p4r,bj1p5r,bj1p6r,bj1p7r,bj1p8r,bj1p9r,bj1pAr,bj1pBr,bj1pCr,bj1pDr,bj1pEr,bj1pFr
+			,bj1p0i,bj1p1i,bj1p2i,bj1p3i,bj1p4i,bj1p5i,bj1p6i,bj1p7i,bj1p8i,bj1p9i,bj1pAi,bj1pBi,bj1pCi,bj1pDi,bj1pEi,bj1pFi
+			,bj2p0r,bj2p1r,bj2p2r,bj2p3r,bj2p4r,bj2p5r,bj2p6r,bj2p7r,bj2p8r,bj2p9r,bj2pAr,bj2pBr,bj2pCr,bj2pDr,bj2pEr,bj2pFr
+			,bj2p0i,bj2p1i,bj2p2i,bj2p3i,bj2p4i,bj2p5i,bj2p6i,bj2p7i,bj2p8i,bj2p9i,bj2pAi,bj2pBi,bj2pCi,bj2pDi,bj2pEi,bj2pFi;
 #if PFETCH
 	double *addr;
 #endif
@@ -203,15 +175,17 @@ The scratch array (2nd input argument) is only needed for data table initializat
   #endif
 	static uint32 *sm_arr = 0x0,*sm_ptr;	// Base-ptr to arrays of k1,k2-index-vectors used in SIMD roots-computation.
 	static vec_dbl *sc_arr = 0x0, *sc_ptr;
-	double *add0, *add1;	/* Addresses into array sections */
+	double *add0,*add1, *bdd0,*bdd1;	/* Addresses into array sections */
   #ifdef USE_AVX
-	double *add2, *add3;
+	double *add2,*add3, *bdd2,*bdd3;
   #endif
   #ifdef USE_AVX512
-	double *add4, *add5, *add6, *add7;
+	double *add4,*add5,*add6,*add7, *bdd4,*bdd5,*bdd6,*bdd7;
   #endif
-	vec_dbl *c_tmp,*s_tmp;
-	vec_dbl *tmp;
+	vec_dbl *tmp, *c_tmp,*s_tmp, *bpt0,*bpt1,*bpt2,*bpt3;
+  #ifdef USE_AVX2
+	vec_dbl *bpt4,*bpt5,*bpt6,*bpt7;
+  #endif
 
   #ifdef MULTITHREAD
 	// Base addresses for discrete per-thread local stores ... 'r' for double-float data, 'i' for int:
@@ -219,13 +193,13 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	static uint32  *__i0;
 	// In || mode, only above base-pointer (shared by all threads) is static:
 	uint32  *k1_arr, *k2_arr;
-	vec_dbl *cc0, *ss0, *isrt2,*one,*two,*forth, *tmp0, *tmp1, *tmp2, *tmp3
+	vec_dbl *cc0, *ss0, *isrt2,*one,*two,*forth, *tmp0,*tmp1,*tmp2,*tmp3
 			,*r1,*r3,*r5,*r7,*r9,*r11,*r13,*r15,*r17,*r19,*r21,*r23,*r25,*r27,*r29,*r31
 			,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15;
   #else
 	// Same list of ptrs (sans base-address) as above, but now make them static:
 	static uint32  *k1_arr, *k2_arr;
-	static vec_dbl *cc0, *ss0, *isrt2,*one,*two,*forth, *tmp0, *tmp1, *tmp2, *tmp3
+	static vec_dbl *cc0, *ss0, *isrt2,*one,*two,*forth, *tmp0,*tmp1,*tmp2,*tmp3
 			,*r1,*r3,*r5,*r7,*r9,*r11,*r13,*r15,*r17,*r19,*r21,*r23,*r25,*r27,*r29,*r31
 			,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15;
   #endif
@@ -236,6 +210,10 @@ The scratch array (2nd input argument) is only needed for data table initializat
 /*...If a new runlength or first-pass radix, it is assumed this function has been first-called with init_sse2 = true to
      initialize static data and lcoal-storage prior to actual use in computing a transform-based result.
 */
+	// For case of 2-input modmul, pointer to 2nd (presumed already fwd-FFTed) input array is supplied via fwd_fft_only argument:
+	double *b = 0x0;
+	if(fwd_fft_only > 1)
+		b = (double *)fwd_fft_only;
 
 	/* In order to eschew complex thread-block-and-sync logic related to the local-store-init step in multithread mode,
 	switch to a special-init-mode-call paradigm, in which the function is inited once (for as many threads as needed)
@@ -259,7 +237,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
 
 		#ifdef USE_SSE2
-			fprintf(stderr, "%s: pfetch_dist = %d\n",func,pfetch_dist);
+		//	fprintf(stderr, "%s: pfetch_dist = %d\n",func,pfetch_dist);
 			if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
 				free((void *)sm_arr);	sm_arr=0x0;
 				free((void *)sc_arr);	sc_arr=0x0;
@@ -665,31 +643,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		(c_tmp+0x20)->d1 = cA15;	(s_tmp+0x20)->d1 = sA15;
 	  #endif
 	  i += 15;
-/*
-tmp = c_tmp+4;
-printf("Init i = %u: k = %u, sincos init:\n",i-30,k-2);
-for(l = 0; l < 15; l++) {
-	printf("%2u: Re = %20.10e,%20.10e, Im = %20.10e,%20.10e\n",l,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
-}
-if(i > 100)exit(0);
-*/
-/*
-if(k == 4) {
-	i = -1;	c_tmp = (vec_dbl*)(twidl+i-3);
-	printf("After Init loop: i = %d: sincos init:\n",i);
-	tmp = c_tmp+4;
-	for(l = 0; l < 15; l++) {
-		printf("%2u: Re = %20.10e,%20.10e, Im = %20.10e,%20.10e\n",l,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
-	}
-	i+= 30;	c_tmp += 30;
-	printf("After Init loop: i = %d: sincos init:\n",i);
-	tmp = c_tmp+4;
-	for(l = 0; l < 15; l++) {
-		printf("%2u: Re = %20.10e,%20.10e, Im = %20.10e,%20.10e\n",l,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
-	}
-	exit(0);
-}
-*/
+
 	  #ifdef USE_AVX
 	/*************************************************************/
 	/*                  3rd set of sincos:                       */
@@ -1115,21 +1069,6 @@ if(k == 4) {
 	  #endif	// AVX512 ?
 	  } 	// endfor(twiddles init loop)
 	#endif	// USE_PRECOMPUTED_TWIDDLES ?
-/*
-i = -1;	c_tmp = (vec_dbl*)(twidl+i-3); s_tmp = c_tmp+1;
-printf("After Init loop: i = %d: sincos init:\n",i);
-tmp = c_tmp+4;
-for(l = 0; l < 15; l++) {
-	printf("%2u: Re = %20.10e,%20.10e, Im = %20.10e,%20.10e\n",l,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
-}
-i+= 30;	c_tmp += 30;
-printf("After Init loop: i = %d: sincos init:\n",i);
-tmp = c_tmp+4;
-for(l = 0; l < 15; l++) {
-	printf("%2u: Re = %20.10e,%20.10e, Im = %20.10e,%20.10e\n",l,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
-}
-exit(0);
-*/
 		return;
 	}	/* end of inits. */
 
@@ -1514,15 +1453,6 @@ jump_in:	/* Entry point for all blocks but the first. */
 		// c_tmp = from-pointer:		tmp = to-pointer:
 		c_tmp = (vec_dbl*)(twidl+l+1); tmp = cc0+4;
 		memcpy(tmp, c_tmp, 30<<l2_sz_vd);	// (30 vec_dbl) worth of data
-/*
-if(thr_id < 2 && ((k-2) - thr_id*1024) <= 2) {
-	printf("Thread %u: i = %u, k = %u, sincos data:\n",thr_id,l,k-2);
-	tmp = cc0+4;
-	for(l = 0; l < 15; l++) {
-		printf("[Thr %u].%2u: Re = %20.10e,%20.10e, Im = %20.10e,%20.10e\n",thr_id,l,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
-	}
-}
-*/
 	 #endif
 
 	#else	// On-the-fly twiddles computation:
@@ -1723,15 +1653,7 @@ if(thr_id < 2 && ((k-2) - thr_id*1024) <= 2) {
 		// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity:
 		add0 = (double *)k1_arr; add1 = (double *)k2_arr;	// Casts are only to get rid of compiler warnings
 		SSE2_RADIX16_CALC_TWIDDLES_LOACC(cc0,add0,add1,rt0,rt1);
-/*
-if(thr_id < 2 && ((k-2) - thr_id*1024) <= 2) {
-	printf("Thread %u: k = %u, sincos data:\n",thr_id,k-2);
-	tmp = cc0+4;
-	for(l = 0; l < 15; l++) {
-		printf("[Thr %u].%2u: Re = %20.10e,%20.10e, Im = %20.10e,%20.10e\n",thr_id,l,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
-	}
-}
-*/
+
 	   #endif	// 32-or-64-bit SSE2 ?
 
 	  #elif !defined(USE_AVX512)	// AVX/AVX2:
@@ -1968,6 +1890,7 @@ if(thr_id < 2 && ((k-2) - thr_id*1024) <= 2) {
 
 	  #else	// SSE2:
 
+		// process 2 main-array blocks of [16 vec_dbl = 16 x 2 = 32 doubles] each in SSE2 mode, total = 32 vec_dbl = 16 vec_cmplx
 		add0 = a + j1pad;
 		add1 = a + j2pad;
 
@@ -2191,8 +2114,8 @@ Scalar-dbl:	r0*	i0	r1	i1	r2	i2	r3	i3	r4*	i4	r5	i5	r6	i6	r7	i7	r8*	i8	r9	i9	r10	i
 		aj1p8r =t3+t19;	aj1p8i =t4+t20;
 		aj1p9r =t3-t19;	aj1p9i =t4-t20;
 
-		aj1p10r=t11-t28;	aj1p10i=t12+t27;
-		aj1p11r=t11+t28;	aj1p11i=t12-t27;
+		aj1pAr=t11-t28;	aj1pAi=t12+t27;
+		aj1pBr=t11+t28;	aj1pBi=t12-t27;
 
 	/*...Block 4: t7,15,23,31 */
 		rt =(t16+t15)*ISRT2;it =(t16-t15)*ISRT2;
@@ -2204,11 +2127,11 @@ Scalar-dbl:	r0*	i0	r1	i1	r2	i2	r3	i3	r4*	i4	r5	i5	r6	i6	r7	i7	r8*	i8	r9	i9	r10	i
 		t31=t23+rt;	t23=t23-rt;
 		t32=t24+it;	t24=t24-it;
 
-		aj1p12r=t7+t23;	aj1p12i=t8+t24;
-		aj1p13r=t7-t23;	aj1p13i=t8-t24;
+		aj1pCr=t7+t23;	aj1pCi=t8+t24;
+		aj1pDr=t7-t23;	aj1pDi=t8-t24;
 
-		aj1p14r=t15-t32;	aj1p14i=t16+t31;
-		aj1p15r=t15+t32;	aj1p15i=t16-t31;
+		aj1pEr=t15-t32;	aj1pEi=t16+t31;
+		aj1pFr=t15+t32;	aj1pFi=t16-t31;
 
 	/*************************************************************/
 	/*                  2nd set of inputs:                       */
@@ -2353,8 +2276,8 @@ Scalar-dbl:	r0*	i0	r1	i1	r2	i2	r3	i3	r4*	i4	r5	i5	r6	i6	r7	i7	r8*	i8	r9	i9	r10	i
 		aj2p8r =t3+t19;	aj2p8i =t4+t20;
 		aj2p9r =t3-t19;	aj2p9i =t4-t20;
 
-		aj2p10r=t11-t28;	aj2p10i=t12+t27;
-		aj2p11r=t11+t28;	aj2p11i=t12-t27;
+		aj2pAr=t11-t28;	aj2pAi=t12+t27;
+		aj2pBr=t11+t28;	aj2pBi=t12-t27;
 
 	/*...Block 4: t7,15,23,31 */
 		rt =(t16+t15)*ISRT2;it =(t16-t15)*ISRT2;
@@ -2366,16 +2289,506 @@ Scalar-dbl:	r0*	i0	r1	i1	r2	i2	r3	i3	r4*	i4	r5	i5	r6	i6	r7	i7	r8*	i8	r9	i9	r10	i
 		t31=t23+rt;	t23=t23-rt;
 		t32=t24+it;	t24=t24-it;
 
-		aj2p12r=t7+t23;	aj2p12i=t8+t24;
-		aj2p13r=t7-t23;	aj2p13i=t8-t24;
+		aj2pCr=t7+t23;	aj2pCi=t8+t24;
+		aj2pDr=t7-t23;	aj2pDi=t8-t24;
 
-		aj2p14r=t15-t32;	aj2p14i=t16+t31;
-		aj2p15r=t15+t32;	aj2p15i=t16-t31;
+		aj2pEr=t15-t32;	aj2pEi=t16+t31;
+		aj2pFr=t15+t32;	aj2pFi=t16-t31;
 
+	// v19: If fwd_fft_only = 1, write fwd-FFT result back to input array, skipping dyadic-square and inv-FFT steps:
+	if(fwd_fft_only == 1)
+	{
+	/*************************************************************/
+	/*                  1st set of inputs:                       */
+	/*************************************************************/
+		rdum = j1pad;
+		idum = j1pad+RE_IM_STRIDE;
+	/*...Block 1: t1,9,17,25 */
+		a[rdum   ]=aj1p0r;	a[idum   ]=aj1p0i;
+		a[rdum+16]=aj1p1r;	a[idum+16]=aj1p1i;
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a[rdum+8 ]=aj1p2r;	a[idum+8 ]=aj1p2i;
+		a[rdum+24]=aj1p3r;	a[idum+24]=aj1p3i;
+	/*...Block 3: t5,13,21,29 */
+	#ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	#elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	#endif
+		a[rdum+4 ]=aj1p4r;	a[idum+4 ]=aj1p4i;
+		a[rdum+20]=aj1p5r;	a[idum+20]=aj1p5i;
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a[rdum+12]=aj1p6r;	a[idum+12]=aj1p6i;
+		a[rdum+28]=aj1p7r;	a[idum+28]=aj1p7i;
+	/*...Block 2: t3,11,19,27 */
+	#ifdef USE_AVX512
+		rdum += 5;	idum += 5;
+	#elif defined(USE_AVX)
+		++rdum;	++idum;
+	#elif defined(USE_SSE2)
+		--rdum;	--idum;
+	#endif
+		a[rdum+2 ]=aj1p8r;	a[idum+2 ]=aj1p8i;
+		a[rdum+18]=aj1p9r;	a[idum+18]=aj1p9i;
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a[rdum+10]=aj1pAr;	a[idum+10]=aj1pAi;
+		a[rdum+26]=aj1pBr;	a[idum+26]=aj1pBi;
+	/*...Block 4: t7,15,23,31 */
+	#ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	#elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	#endif
+		a[rdum+6 ]=aj1pCr;	a[idum+6 ]=aj1pCi;
+		a[rdum+22]=aj1pDr;	a[idum+22]=aj1pDi;
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a[rdum+14]=aj1pEr;	a[idum+14]=aj1pEi;
+		a[rdum+30]=aj1pFr;	a[idum+30]=aj1pFi;
+	/*************************************************************/
+	/*                  2nd set of inputs:                       */
+	/*************************************************************/
+		rdum = j2pad;
+		idum = j2pad+RE_IM_STRIDE;
+	/*...Block 1: t1,9,17,25 */
+		a[rdum   ]=aj2p0r;	a[idum   ]=aj2p0i;
+		a[rdum+16]=aj2p1r;	a[idum+16]=aj2p1i;
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a[rdum+8 ]=aj2p2r;	a[idum+8 ]=aj2p2i;
+		a[rdum+24]=aj2p3r;	a[idum+24]=aj2p3i;
+	/*...Block 3: t5,13,21,29 */
+	#ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	#elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	#endif
+		a[rdum+4 ]=aj2p4r;	a[idum+4 ]=aj2p4i;
+		a[rdum+20]=aj2p5r;	a[idum+20]=aj2p5i;
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a[rdum+12]=aj2p6r;	a[idum+12]=aj2p6i;
+		a[rdum+28]=aj2p7r;	a[idum+28]=aj2p7i;
+	/*...Block 2: t3,11,19,27 */
+	#ifdef USE_AVX512
+		rdum += 5;	idum += 5;
+	#elif defined(USE_AVX)
+		++rdum;	++idum;
+	#elif defined(USE_SSE2)
+		--rdum;	--idum;
+	#endif
+		a[rdum+2 ]=aj2p8r;	a[idum+2 ]=aj2p8i;
+		a[rdum+18]=aj2p9r;	a[idum+18]=aj2p9i;
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a[rdum+10]=aj2pAr;	a[idum+10]=aj2pAi;
+		a[rdum+26]=aj2pBr;	a[idum+26]=aj2pBi;
+	/*...Block 4: t7,15,23,31 */
+	#ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	#elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	#endif
+		a[rdum+6 ]=aj2pCr;	a[idum+6 ]=aj2pCi;
+		a[rdum+22]=aj2pDr;	a[idum+22]=aj2pDi;
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a[rdum+14]=aj2pEr;	a[idum+14]=aj2pEi;
+		a[rdum+30]=aj2pFr;	a[idum+30]=aj2pFi;
 /*
-!...send the pairs of complex elements which are to be combined and sincos temporaries needed for the squaring to a
-!   small subroutine. The j1 = 0 case is again exceptional.
+if(j1pad < 100000) {
+	if(!j1pad)printf("Saving fwd-FFT data to 0x%llX:\n",(uint64)a);
+	printf("Fwd-FFT data for j1,j2 = [%u],[%u]:\n",j1pad,j2pad);
+	printf("0: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p0r,aj1p0i,aj2p0r,aj2p0i);
+	printf("1: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p1r,aj1p1i,aj2p1r,aj2p1i);
+	printf("2: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p2r,aj1p2i,aj2p2r,aj2p2i);
+	printf("3: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p3r,aj1p3i,aj2p3r,aj2p3i);
+	printf("4: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p4r,aj1p4i,aj2p4r,aj2p4i);
+	printf("5: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p5r,aj1p5i,aj2p5r,aj2p5i);
+	printf("6: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p6r,aj1p6i,aj2p6r,aj2p6i);
+	printf("7: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p7r,aj1p7i,aj2p7r,aj2p7i);
+	printf("8: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p8r,aj1p8i,aj2p8r,aj2p8i);
+	printf("9: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p9r,aj1p9i,aj2p9r,aj2p9i);
+	printf("A: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pAr,aj1pAi,aj2pAr,aj2pAi);
+	printf("B: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pBr,aj1pBi,aj2pBr,aj2pBi);
+	printf("C: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pCr,aj1pCi,aj2pCr,aj2pCi);
+	printf("D: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pDr,aj1pDi,aj2pDr,aj2pDi);
+	printf("E: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pEr,aj1pEi,aj2pEr,aj2pEi);
+	printf("F: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pFr,aj1pFi,aj2pFr,aj2pFi);
+}
 */
+		goto loop;	// Skip dyadic-mul and iFFT
+
+	} else if (fwd_fft_only) {	// 2-input modmul: fwdFFT data dyadic-mul'ed with precomputed 2nd-vector stored in fwd-FFTed form in b[]:
+
+	/*************************************************************/
+	/*                  1st set of inputs:                       */
+	/*************************************************************/
+		rdum = j1pad;
+		idum = j1pad+RE_IM_STRIDE;
+	/*...Block 1: t1,9,17,25 */
+		bj1p0r  = b[rdum   ];	bj1p0i  = b[idum   ];
+		bj1p1r  = b[rdum+16];	bj1p1i  = b[idum+16];
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		bj1p2r  = b[rdum+8 ];	bj1p2i  = b[idum+8 ];
+		bj1p3r  = b[rdum+24];	bj1p3i  = b[idum+24];
+	/*...Block 3: t5,13,21,29 */
+	#ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	#elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	#endif
+		bj1p4r  = b[rdum+4 ];	bj1p4i  = b[idum+4 ];
+		bj1p5r  = b[rdum+20];	bj1p5i  = b[idum+20];
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		bj1p6r  = b[rdum+12];	bj1p6i  = b[idum+12];
+		bj1p7r  = b[rdum+28];	bj1p7i  = b[idum+28];
+	/*...Block 2: t3,11,19,27 */
+	#ifdef USE_AVX512
+		rdum += 5;	idum += 5;
+	#elif defined(USE_AVX)
+		++rdum;	++idum;
+	#elif defined(USE_SSE2)
+		--rdum;	--idum;
+	#endif
+		bj1p8r  = b[rdum+2 ];	bj1p8i  = b[idum+2 ];
+		bj1p9r  = b[rdum+18];	bj1p9i  = b[idum+18];
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		bj1pAr = b[rdum+10];	bj1pAi = b[idum+10];
+		bj1pBr = b[rdum+26];	bj1pBi = b[idum+26];
+	/*...Block 4: t7,15,23,31 */
+	#ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	#elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	#endif
+		bj1pCr = b[rdum+6 ];	bj1pCi = b[idum+6 ];
+		bj1pDr = b[rdum+22];	bj1pDi = b[idum+22];
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		bj1pEr = b[rdum+14];	bj1pEi = b[idum+14];
+		bj1pFr = b[rdum+30];	bj1pFi = b[idum+30];
+	/*************************************************************/
+	/*                  2nd set of inputs:                       */
+	/*************************************************************/
+		rdum = j2pad;
+		idum = j2pad+RE_IM_STRIDE;
+	/*...Block 1: t1,9,17,25 */
+		bj2p0r  = b[rdum   ];	bj2p0i  = b[idum   ];
+		bj2p1r  = b[rdum+16];	bj2p1i  = b[idum+16];
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		bj2p2r  = b[rdum+8 ];	bj2p2i  = b[idum+8 ];
+		bj2p3r  = b[rdum+24];	bj2p3i  = b[idum+24];
+	/*...Block 3: t5,13,21,29 */
+	#ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	#elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	#endif
+		bj2p4r  = b[rdum+4 ];	bj2p4i  = b[idum+4 ];
+		bj2p5r  = b[rdum+20];	bj2p5i  = b[idum+20];
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		bj2p6r  = b[rdum+12];	bj2p6i  = b[idum+12];
+		bj2p7r  = b[rdum+28];	bj2p7i  = b[idum+28];
+	/*...Block 2: t3,11,19,27 */
+	#ifdef USE_AVX512
+		rdum += 5;	idum += 5;
+	#elif defined(USE_AVX)
+		++rdum;	++idum;
+	#elif defined(USE_SSE2)
+		--rdum;	--idum;
+	#endif
+		bj2p8r  = b[rdum+2 ];	bj2p8i  = b[idum+2 ];
+		bj2p9r  = b[rdum+18];	bj2p9i  = b[idum+18];
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		bj2pAr = b[rdum+10];	bj2pAi = b[idum+10];
+		bj2pBr = b[rdum+26];	bj2pBi = b[idum+26];
+	/*...Block 4: t7,15,23,31 */
+	#ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	#elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	#endif
+		bj2pCr = b[rdum+6 ];	bj2pCi = b[idum+6 ];
+		bj2pDr = b[rdum+22];	bj2pDi = b[idum+22];
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		bj2pEr = b[rdum+14];	bj2pEi = b[idum+14];
+		bj2pFr = b[rdum+30];	bj2pFi = b[idum+30];
+
+	  if(j1 == 0)	/* NB: mustn't use re, im as temps in exe1-3 section, since those contain saved sincos data for exe4 block. */
+	  {				// Jul 2015: Now moot since to avoid name-clashes in FGT61-mode, have renamed the doubles re,im -> RT,IT
+		/*...j = 0 (for which M(0) = Re{H(0)}*Re{I(0)} + i*Im{H(0)}*Im{I(0)}) is done separately...*/
+		rt = aj1p0r;
+		aj1p0r = (rt + aj1p0i)*(bj1p0r + bj1p0i);
+		aj1p0i = (rt - aj1p0i)*(bj1p0r - bj1p0i);
+		rt = aj1p0r;
+		aj1p0r = 0.5*(rt + aj1p0i);
+		aj1p0i = 0.5*(rt - aj1p0i);
+		/*
+		!...as is j = N/2 (for which M(j) = H(j)*I(j)). Note that under bit-reversal the N/2 element gets mapped into
+		!   the second complex data slot, i.e. is adjacent to the starting element.
+		*/
+		rt = aj1p1r;
+		aj1p1r = rt*bj1p1r - aj1p1i*bj1p1i;
+		aj1p1i = rt*bj1p1i + aj1p1i*bj1p1r;
+
+		pair_mul(&aj1p2r,&aj1p2i,&aj1p3r,&aj1p3i, bj1p2r,bj1p2i,bj1p3r,bj1p3i,0.0,1.0);	/* exe1 */
+
+		rt = it = ISRT2;
+		pair_mul(&aj1p4r,&aj1p4i,&aj1p7r,&aj1p7i, bj1p4r,bj1p4i,bj1p7r,bj1p7i, rt, it);	/* exe2 */
+		pair_mul(&aj1p6r,&aj1p6i,&aj1p5r,&aj1p5i, bj1p6r,bj1p6i,bj1p5r,bj1p5i,-it, rt);	/* exe2 */
+
+		pair_mul(&aj1p8r,&aj1p8i,&aj1pFr,&aj1pFi, bj1p8r,bj1p8i,bj1pFr,bj1pFi, c, s);	/* exe3 */
+		pair_mul(&aj1pAr,&aj1pAi,&aj1pDr,&aj1pDi, bj1pAr,bj1pAi,bj1pDr,bj1pDi,-s, c);	/* exe3 */
+
+		pair_mul(&aj1pCr,&aj1pCi,&aj1pBr,&aj1pBi, bj1pCr,bj1pCi,bj1pBr,bj1pBi, s, c);	/* exe3 */
+		pair_mul(&aj1pEr,&aj1pEi,&aj1p9r,&aj1p9i, bj1pEr,bj1pEi,bj1p9r,bj1p9i,-c, s);	/* exe3 */
+
+		/* exe4: */
+		pair_mul(&aj2p0r,&aj2p0i,&aj2pFr,&aj2pFi, bj2p0r,bj2p0i,bj2pFr,bj2pFi, RT, IT);
+		pair_mul(&aj2p2r,&aj2p2i,&aj2pDr,&aj2pDi, bj2p2r,bj2p2i,bj2pDr,bj2pDi,-IT, RT);
+
+		rt = (RT - IT)*ISRT2;	it = (RT + IT)*ISRT2;
+		pair_mul(&aj2p4r,&aj2p4i,&aj2pBr,&aj2pBi, bj2p4r,bj2p4i,bj2pBr,bj2pBi, rt, it);
+		pair_mul(&aj2p6r,&aj2p6i,&aj2p9r,&aj2p9i, bj2p6r,bj2p6i,bj2p9r,bj2p9i,-it, rt);
+
+		t3 = RT*c;	t4 = IT*s;	t5 = RT*s;	t6 = IT*c;
+		rt = t3 - t4;	it = t5 + t6;
+		pair_mul(&aj2p8r,&aj2p8i,&aj2p7r,&aj2p7i, bj2p8r,bj2p8i,bj2p7r,bj2p7i, rt, it);
+		pair_mul(&aj2pAr,&aj2pAi,&aj2p5r,&aj2p5i, bj2pAr,bj2pAi,bj2p5r,bj2p5i,-it, rt);
+
+		rt = t5 - t6;	it = t3 + t4;
+		pair_mul(&aj2pCr,&aj2pCi,&aj2p3r,&aj2p3i, bj2pCr,bj2pCi,bj2p3r,bj2p3i, rt, it);
+		pair_mul(&aj2pEr,&aj2pEi,&aj2p1r,&aj2p1i, bj2pEr,bj2pEi,bj2p1r,bj2p1i,-it, rt);
+	  }
+	  else
+	  {
+	  #if 0
+		pair_mul(&aj1p0r,&aj1p0i,&aj2pFr,&aj2pFi, bj1p0r,bj1p0i,bj2pFr,bj2pFi,  RT, IT);	// 0
+		pair_mul(&aj2pEr,&aj2pEi,&aj1p1r,&aj1p1i, bj2pEr,bj2pEi,bj1p1r,bj1p1i, -RT, IT);	// 1
+		pair_mul(&aj1p2r,&aj1p2i,&aj2pDr,&aj2pDi, bj1p2r,bj1p2i,bj2pDr,bj2pDi, -IT, RT);	// 2
+		pair_mul(&aj2pCr,&aj2pCi,&aj1p3r,&aj1p3i, bj2pCr,bj2pCi,bj1p3r,bj1p3i,  IT, RT);	// 3
+
+		t1 = (RT - IT)*ISRT2;	t2 = (RT + IT)*ISRT2;
+		pair_mul(&aj1p4r,&aj1p4i,&aj2pBr,&aj2pBi, bj1p4r,bj1p4i,bj2pBr,bj2pBi,  t1, t2);	// 4
+		pair_mul(&aj2pAr,&aj2pAi,&aj1p5r,&aj1p5i, bj2pAr,bj2pAi,bj1p5r,bj1p5i, -t1, t2);	// 5
+		pair_mul(&aj1p6r,&aj1p6i,&aj2p9r,&aj2p9i, bj1p6r,bj1p6i,bj2p9r,bj2p9i, -t2, t1);	// 6
+		pair_mul(&aj2p8r,&aj2p8i,&aj1p7r,&aj1p7i, bj2p8r,bj2p8i,bj1p7r,bj1p7i,  t2, t1);	// 7
+
+		re0 = RT*c;	im0 = IT*s;	re1 = RT*s;	im1 = IT*c;
+		t3 = re0 - im0;	t4 = re1 + im1;
+		pair_mul(&aj1p8r,&aj1p8i,&aj2p7r,&aj2p7i, bj1p8r,bj1p8i,bj2p7r,bj2p7i,  t3, t4);	// 8
+		pair_mul(&aj2p6r,&aj2p6i,&aj1p9r,&aj1p9i, bj2p6r,bj2p6i,bj1p9r,bj1p9i, -t3, t4);	// 9
+		pair_mul(&aj1pAr,&aj1pAi,&aj2p5r,&aj2p5i, bj1pAr,bj1pAi,bj2p5r,bj2p5i, -t4, t3);	// A
+		pair_mul(&aj2p4r,&aj2p4i,&aj1pBr,&aj1pBi, bj2p4r,bj2p4i,bj1pBr,bj1pBi,  t4, t3);	// B
+
+		t5 = re1 - im1;	t6 = re0 + im0;
+		pair_mul(&aj1pCr,&aj1pCi,&aj2p3r,&aj2p3i, bj1pCr,bj1pCi,bj2p3r,bj2p3i,  t5, t6);	// C
+		pair_mul(&aj2p2r,&aj2p2i,&aj1pDr,&aj1pDi, bj2p2r,bj2p2i,bj1pDr,bj1pDi, -t5, t6);	// D
+		pair_mul(&aj1pEr,&aj1pEi,&aj2p1r,&aj2p1i, bj1pEr,bj1pEi,bj2p1r,bj2p1i, -t6, t5);	// E
+		pair_mul(&aj2p0r,&aj2p0i,&aj1pFr,&aj1pFi, bj2p0r,bj2p0i,bj1pFr,bj1pFi,  t6, t5);	// F
+	  #else
+		t1 = (RT - IT)*ISRT2;	t2 = (RT + IT)*ISRT2;
+		re0 = RT*c;	im0 = IT*s;	re1 = RT*s;	im1 = IT*c;
+		t3 = re0 - im0;	t4 = re1 + im1;
+		t5 = re1 - im1;	t6 = re0 + im0;
+		/*
+		if(j1 <= 1024) {
+			printf("j1,j2 = [%u],[%u]: Inputs to PAIR_MUL_4:\n",j1pad,j2pad);
+			printf("rt,it: %18.10e,%18.10e\n",RT,IT);
+			printf("t1-t6: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",t1,t2,t3,t4,t5,t6);
+			printf("0: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p0r,aj2p0r,aj1p0i,aj2p0i,bj1p0r,bj2p0r,bj1p0i,bj2p0i);
+			printf("1: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p8r,aj2p8r,aj1p8i,aj2p8i,bj1p8r,bj2p8r,bj1p8i,bj2p8i);
+			printf("2: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p4r,aj2p4r,aj1p4i,aj2p4i,bj1p4r,bj2p4r,bj1p4i,bj2p4i);
+			printf("3: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pCr,aj2pCr,aj1pCi,aj2pCi,bj1pCr,bj2pCr,bj1pCi,bj2pCi);
+			printf("4: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p2r,aj2p2r,aj1p2i,aj2p2i,bj1p2r,bj2p2r,bj1p2i,bj2p2i);
+			printf("5: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pAr,aj2pAr,aj1pAi,aj2pAi,bj1pAr,bj2pAr,bj1pAi,bj2pAi);
+			printf("6: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p6r,aj2p6r,aj1p6i,aj2p6i,bj1p6r,bj2p6r,bj1p6i,bj2p6i);
+			printf("7: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pEr,aj2pEr,aj1pEi,aj2pEi,bj1pEr,bj2pEr,bj1pEi,bj2pEi);
+			printf("8: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p1r,aj2p1r,aj1p1i,aj2p1i,bj1p1r,bj2p1r,bj1p1i,bj2p1i);
+			printf("9: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p9r,aj2p9r,aj1p9i,aj2p9i,bj1p9r,bj2p9r,bj1p9i,bj2p9i);
+			printf("A: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p5r,aj2p5r,aj1p5i,aj2p5i,bj1p5r,bj2p5r,bj1p5i,bj2p5i);
+			printf("B: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pDr,aj2pDr,aj1pDi,aj2pDi,bj1pDr,bj2pDr,bj1pDi,bj2pDi);
+			printf("C: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p3r,aj2p3r,aj1p3i,aj2p3i,bj1p3r,bj2p3r,bj1p3i,bj2p3i);
+			printf("D: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pBr,aj2pBr,aj1pBi,aj2pBi,bj1pBr,bj2pBr,bj1pBi,bj2pBi);
+			printf("E: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p7r,aj2p7r,aj1p7i,aj2p7i,bj1p7r,bj2p7r,bj1p7i,bj2p7i);
+			printf("F: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pFr,aj2pFr,aj1pFi,aj2pFi,bj1pFr,bj2pFr,bj1pFi,bj2pFi);
+		//	exit(0);
+		}
+		*/
+		/* j1[ 0, 2,13,15] combined with j2[15,13, 2, 0]:								In terms of our above 0-F pair_mul() indexing:
+		pair_mul(&aj1p0r,&aj1p0i,&aj2pFr,&aj2pFi, bj1p0r,bj1p0i,bj2pFr,bj2pFi,  RT, IT);	// 0
+		pair_mul(&aj1p2r,&aj1p2i,&aj2pDr,&aj2pDi, bj1p2r,bj1p2i,bj2pDr,bj2pDi, -IT, RT);	// 2
+		pair_mul(&aj2p2r,&aj2p2i,&aj1pDr,&aj1pDi, bj2p2r,bj2p2i,bj1pDr,bj1pDi, -t5, t6);	// D
+		pair_mul(&aj2p0r,&aj2p0i,&aj1pFr,&aj1pFi, bj2p0r,bj2p0i,bj1pFr,bj1pFi,  t6, t5);	// F
+		*/
+		PAIR_MUL_4( aj1p0r,aj1p0i,aj2pFr,aj2pFi, bj1p0r,bj1p0i,bj2pFr,bj2pFi,
+					aj2p0r,aj2p0i,aj1pFr,aj1pFi, bj2p0r,bj2p0i,bj1pFr,bj1pFi,
+					aj1p2r,aj1p2i,aj2pDr,aj2pDi, bj1p2r,bj1p2i,bj2pDr,bj2pDi,
+					aj2p2r,aj2p2i,aj1pDr,aj1pDi, bj2p2r,bj2p2i,bj1pDr,bj1pDi,  RT, IT,  t5, t6);	// 0,2,D,F
+
+		/* j1[ 4, 6, 9,11] combined with j2[11, 9, 6, 4]:
+		pair_mul(&aj1p4r,&aj1p4i,&aj2pBr,&aj2pBi, bj1p4r,bj1p4i,bj2pBr,bj2pBi,  t1, t2);	// 4
+		pair_mul(&aj1p6r,&aj1p6i,&aj2p9r,&aj2p9i, bj1p6r,bj1p6i,bj2p9r,bj2p9i, -t2, t1);	// 6
+		pair_mul(&aj2p6r,&aj2p6i,&aj1p9r,&aj1p9i, bj2p6r,bj2p6i,bj1p9r,bj1p9i, -t3, t4);	// 9
+		pair_mul(&aj2p4r,&aj2p4i,&aj1pBr,&aj1pBi, bj2p4r,bj2p4i,bj1pBr,bj1pBi,  t4, t3);	// B
+		*/
+		PAIR_MUL_4( aj1p4r,aj1p4i,aj2pBr,aj2pBi, bj1p4r,bj1p4i,bj2pBr,bj2pBi,
+					aj2p4r,aj2p4i,aj1pBr,aj1pBi, bj2p4r,bj2p4i,bj1pBr,bj1pBi,
+					aj1p6r,aj1p6i,aj2p9r,aj2p9i, bj1p6r,bj1p6i,bj2p9r,bj2p9i,
+					aj2p6r,aj2p6i,aj1p9r,aj1p9i, bj2p6r,bj2p6i,bj1p9r,bj1p9i,  t1, t2,  t3, t4);	// 4,6,9,B
+
+		/* j1[ 8,10, 5, 7] combined with j2[ 7, 5,10, 8]:
+		pair_mul(&aj1p8r,&aj1p8i,&aj2p7r,&aj2p7i, bj1p8r,bj1p8i,bj2p7r,bj2p7i,  t3, t4);	// 8
+		pair_mul(&aj1pAr,&aj1pAi,&aj2p5r,&aj2p5i, bj1pAr,bj1pAi,bj2p5r,bj2p5i, -t4, t3);	// A
+		pair_mul(&aj2pAr,&aj2pAi,&aj1p5r,&aj1p5i, bj2pAr,bj2pAi,bj1p5r,bj1p5i, -t1, t2);	// 5
+		pair_mul(&aj2p8r,&aj2p8i,&aj1p7r,&aj1p7i, bj2p8r,bj2p8i,bj1p7r,bj1p7i,  t2, t1);	// 7
+		*/
+		PAIR_MUL_4( aj1p8r,aj1p8i,aj2p7r,aj2p7i, bj1p8r,bj1p8i,bj2p7r,bj2p7i,
+					aj2p8r,aj2p8i,aj1p7r,aj1p7i, bj2p8r,bj2p8i,bj1p7r,bj1p7i,
+					aj1pAr,aj1pAi,aj2p5r,aj2p5i, bj1pAr,bj1pAi,bj2p5r,bj2p5i,
+					aj2pAr,aj2pAi,aj1p5r,aj1p5i, bj2pAr,bj2pAi,bj1p5r,bj1p5i,  t3, t4,  t1, t2);	// 8,A,5,7
+
+		/* j1[12,14, 1, 3] combined with j2[ 3, 1,14,12]:
+		pair_mul(&aj1pCr,&aj1pCi,&aj2p3r,&aj2p3i, bj1pCr,bj1pCi,bj2p3r,bj2p3i,  t5, t6);	// C
+		pair_mul(&aj1pEr,&aj1pEi,&aj2p1r,&aj2p1i, bj1pEr,bj1pEi,bj2p1r,bj2p1i, -t6, t5);	// E
+		pair_mul(&aj2pEr,&aj2pEi,&aj1p1r,&aj1p1i, bj2pEr,bj2pEi,bj1p1r,bj1p1i, -RT, IT);	// 1
+		pair_mul(&aj2pCr,&aj2pCi,&aj1p3r,&aj1p3i, bj2pCr,bj2pCi,bj1p3r,bj1p3i,  IT, RT);	// 3
+		*/
+		PAIR_MUL_4( aj1pCr,aj1pCi,aj2p3r,aj2p3i, bj1pCr,bj1pCi,bj2p3r,bj2p3i,
+					aj2pCr,aj2pCi,aj1p3r,aj1p3i, bj2pCr,bj2pCi,bj1p3r,bj1p3i,
+					aj1pEr,aj1pEi,aj2p1r,aj2p1i, bj1pEr,bj1pEi,bj2p1r,bj2p1i,
+					aj2pEr,aj2pEi,aj1p1r,aj1p1i, bj2pEr,bj2pEi,bj1p1r,bj1p1i,  t5, t6,  RT, IT);	// C,E,1,3
+		/*
+		if(j1 <= 1024) {
+			printf("j1,j2 = [%u],[%u]: Outputs of PAIR_MUL_4:\n",j1pad,j2pad);
+			printf("0: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p0r,aj2p0r,aj1p0i,aj2p0i);
+			printf("1: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p8r,aj2p8r,aj1p8i,aj2p8i);
+			printf("2: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p4r,aj2p4r,aj1p4i,aj2p4i);
+			printf("3: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pCr,aj2pCr,aj1pCi,aj2pCi);
+			printf("4: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p2r,aj2p2r,aj1p2i,aj2p2i);
+			printf("5: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pAr,aj2pAr,aj1pAi,aj2pAi);
+			printf("6: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p6r,aj2p6r,aj1p6i,aj2p6i);
+			printf("7: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pEr,aj2pEr,aj1pEi,aj2pEi);
+			printf("8: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p1r,aj2p1r,aj1p1i,aj2p1i);
+			printf("9: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p9r,aj2p9r,aj1p9i,aj2p9i);
+			printf("A: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p5r,aj2p5r,aj1p5i,aj2p5i);
+			printf("B: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pDr,aj2pDr,aj1pDi,aj2pDi);
+			printf("C: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p3r,aj2p3r,aj1p3i,aj2p3i);
+			printf("D: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pBr,aj2pBr,aj1pBi,aj2pBi);
+			printf("E: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p7r,aj2p7r,aj1p7i,aj2p7i);
+			printf("F: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pFr,aj2pFr,aj1pFi,aj2pFi);
+		}
+		if(j1 >= 1024) exit(0);
+		*/
+	  #endif
+	  }
+
+	} else {	// fwd_fft_only = 0: Normal execution, dyadic-squaring followed by iFFT:
+	/*
+	!...send the pairs of complex elements which are to be combined and sincos temporaries needed for the squaring to a
+	!   small subroutine. The j1 = 0 case is again exceptional.
+	*/
+#if 0	//********************* TEST NEW PAIR_MUL CODE ************************
+	  if(j1 == 0)	/* NB: mustn't use re, im as temps in exe1-3 section, since those contain saved sincos data for exe4 block. */
+	  {				// Jul 2015: Now moot since to avoid name-clashes in FGT61-mode, have renamed the doubles re,im -> RT,IT
+		/*...j = 0 (for which M(0) = Re{H(0)}*Re{I(0)} + i*Im{H(0)}*Im{I(0)}) is done separately...*/
+		rt = aj1p0r;
+		aj1p0r = (rt + aj1p0i)*(rt + aj1p0i);
+		aj1p0i = (rt - aj1p0i)*(rt - aj1p0i);
+		rt = aj1p0r;
+		aj1p0r = 0.5*(rt + aj1p0i);
+		aj1p0i = 0.5*(rt - aj1p0i);
+		/*
+		!...as is j = N/2 (for which M(j) = H(j)*I(j)). Note that under bit-reversal the N/2 element gets mapped into
+		!   the second complex data slot, i.e. is adjacent to the starting element.
+		*/
+		rt = aj1p1r*aj1p1i;
+		aj1p1r = (aj1p1r + aj1p1i)*(aj1p1r - aj1p1i);
+		aj1p1i = rt + rt;
+
+		pair_mul(&aj1p2r,&aj1p2i,&aj1p3r,&aj1p3i, aj1p2r,aj1p2i,aj1p3r,aj1p3i, 0.0,1.0);	/* exe1 */
+
+		rt = it = ISRT2;
+		pair_mul(&aj1p4r,&aj1p4i,&aj1p7r,&aj1p7i, aj1p4r,aj1p4i,aj1p7r,aj1p7i, rt, it);	/* exe2 */
+		pair_mul(&aj1p6r,&aj1p6i,&aj1p5r,&aj1p5i, aj1p6r,aj1p6i,aj1p5r,aj1p5i,-it, rt);	/* exe2 */
+
+		pair_mul(&aj1p8r,&aj1p8i,&aj1pFr,&aj1pFi, aj1p8r,aj1p8i,aj1pFr,aj1pFi, c, s);		/* exe3 */
+		pair_mul(&aj1pAr,&aj1pAi,&aj1pDr,&aj1pDi, aj1pAr,aj1pAi,aj1pDr,aj1pDi,-s, c);	/* exe3 */
+
+		pair_mul(&aj1pCr,&aj1pCi,&aj1pBr,&aj1pBi, aj1pCr,aj1pCi,aj1pBr,aj1pBi, s, c);		/* exe3 */
+		pair_mul(&aj1pEr,&aj1pEi,&aj1p9r,&aj1p9i, aj1pEr,aj1pEi,aj1p9r,aj1p9i,-c, s);	/* exe3 */
+
+		/* exe4: */
+		pair_mul(&aj2p0r,&aj2p0i,&aj2pFr,&aj2pFi, aj2p0r,aj2p0i,aj2pFr,aj2pFi, RT, IT);
+		pair_mul(&aj2p2r,&aj2p2i,&aj2pDr,&aj2pDi, aj2p2r,aj2p2i,aj2pDr,aj2pDi,-IT, RT);
+
+		rt = (RT- IT)*ISRT2;	it = (RT + IT)*ISRT2;
+		pair_mul(&aj2p4r,&aj2p4i,&aj2pBr,&aj2pBi, aj2p4r,aj2p4i,aj2pBr,aj2pBi, rt, it);
+		pair_mul(&aj2p6r,&aj2p6i,&aj2p9r,&aj2p9i, aj2p6r,aj2p6i,aj2p9r,aj2p9i,-it, rt);
+
+		t3 = RT*c;	t4 = IT*s;	t5 = RT*s;	t6 = IT*c;
+		rt = t3- t4;	it = t5 + t6;
+		pair_mul(&aj2p8r,&aj2p8i,&aj2p7r,&aj2p7i, aj2p8r,aj2p8i,aj2p7r,aj2p7i, rt, it);
+		pair_mul(&aj2pAr,&aj2pAi,&aj2p5r,&aj2p5i, aj2pAr,aj2pAi,aj2p5r,aj2p5i,-it, rt);
+
+		rt = t5- t6;	it = t3 + t4;
+		pair_mul(&aj2pCr,&aj2pCi,&aj2p3r,&aj2p3i, aj2pCr,aj2pCi,aj2p3r,aj2p3i, rt, it);
+		pair_mul(&aj2pEr,&aj2pEi,&aj2p1r,&aj2p1i, aj2pEr,aj2pEi,aj2p1r,aj2p1i,-it, rt);
+	  }
+	  else
+	  {
+		pair_mul(&aj1p0r,&aj1p0i,&aj2pFr,&aj2pFi, aj1p0r,aj1p0i,aj2pFr,aj2pFi, RT, IT);
+		pair_mul(&aj2pEr,&aj2pEi,&aj1p1r,&aj1p1i, aj2pEr,aj2pEi,aj1p1r,aj1p1i,-RT, IT);
+		pair_mul(&aj1p2r,&aj1p2i,&aj2pDr,&aj2pDi, aj1p2r,aj1p2i,aj2pDr,aj2pDi,-IT, RT);
+		pair_mul(&aj2pCr,&aj2pCi,&aj1p3r,&aj1p3i, aj2pCr,aj2pCi,aj1p3r,aj1p3i, IT, RT);
+
+		t1 = (RT- IT)*ISRT2;	t2 = (RT + IT)*ISRT2;
+		pair_mul(&aj1p4r,&aj1p4i,&aj2pBr,&aj2pBi, aj1p4r,aj1p4i,aj2pBr,aj2pBi, t1, t2);
+		pair_mul(&aj2pAr,&aj2pAi,&aj1p5r,&aj1p5i, aj2pAr,aj2pAi,aj1p5r,aj1p5i,-t1, t2);
+		pair_mul(&aj1p6r,&aj1p6i,&aj2p9r,&aj2p9i, aj1p6r,aj1p6i,aj2p9r,aj2p9i,-t2, t1);
+		pair_mul(&aj2p8r,&aj2p8i,&aj1p7r,&aj1p7i, aj2p8r,aj2p8i,aj1p7r,aj1p7i, t2, t1);
+
+		re0 = RT*c;	im0 = IT*s;	re1 = RT*s;	im1 = IT*c;
+		t3 = re0- im0;	t4 = re1 + im1;
+		pair_mul(&aj1p8r,&aj1p8i,&aj2p7r,&aj2p7i, aj1p8r,aj1p8i,aj2p7r,aj2p7i, t3, t4);
+		pair_mul(&aj2p6r,&aj2p6i,&aj1p9r,&aj1p9i, aj2p6r,aj2p6i,aj1p9r,aj1p9i,-t3, t4);
+		pair_mul(&aj1pAr,&aj1pAi,&aj2p5r,&aj2p5i, aj1pAr,aj1pAi,aj2p5r,aj2p5i,-t4, t3);
+		pair_mul(&aj2p4r,&aj2p4i,&aj1pBr,&aj1pBi, aj2p4r,aj2p4i,aj1pBr,aj1pBi, t4, t3);
+
+		t5 = re1- im1;	t6 = re0 + im0;
+		pair_mul(&aj1pCr,&aj1pCi,&aj2p3r,&aj2p3i, aj1pCr,aj1pCi,aj2p3r,aj2p3i, t5, t6);
+		pair_mul(&aj2p2r,&aj2p2i,&aj1pDr,&aj1pDi, aj2p2r,aj2p2i,aj1pDr,aj1pDi,-t5, t6);
+		pair_mul(&aj1pEr,&aj1pEi,&aj2p1r,&aj2p1i, aj1pEr,aj1pEi,aj2p1r,aj2p1i,-t6, t5);
+		pair_mul(&aj2p0r,&aj2p0i,&aj1pFr,&aj1pFi, aj2p0r,aj2p0i,aj1pFr,aj1pFi, t6, t5);
+	  }
+#else
 	  if(j1 == 0)	/* NB: mustn't use re, im as temps in exe1-3 section, since those contain saved sincos data for exe4 block. */
 	  {				// Jul 2015: Now moot since to avoid name-clashes in FGT61-mode, have renamed the doubles re,im -> RT,IT
 		/*...j = 0 (for which I(0) = Re{H(0)}^2 + i*Im{H(0)}^2) is done separately... */
@@ -2390,40 +2803,69 @@ Scalar-dbl:	r0*	i0	r1	i1	r2	i2	r3	i3	r4*	i4	r5	i5	r6	i6	r7	i7	r8*	i8	r9	i9	r10	i
 		!   the second complex data slot, i.e. is adjacent to the starting element.
 		*/
 		rt = aj1p1r*aj1p1i;
-		aj1p1r = (aj1p1r + aj1p1i)*(aj1p1r - aj1p1i);
+		aj1p1r = (aj1p1r + aj1p1i)*(aj1p1r- aj1p1i);
 		aj1p1i = rt + rt;
 
-		pair_square(&aj1p2r ,&aj1p2i ,&aj1p3r ,&aj1p3i ,0.0,1.0);	/* exe1 */
+		pair_square(&aj1p2r,&aj1p2i,&aj1p3r,&aj1p3i,0.0,1.0);	/* exe1 */
 
 		rt = it = ISRT2;
-		pair_square(&aj1p4r ,&aj1p4i ,&aj1p7r ,&aj1p7i , rt, it);	/* exe2 */
-		pair_square(&aj1p6r ,&aj1p6i ,&aj1p5r ,&aj1p5i , -it, rt);	/* exe2 */
+		pair_square(&aj1p4r,&aj1p4i,&aj1p7r,&aj1p7i, rt, it);	/* exe2 */
+		pair_square(&aj1p6r,&aj1p6i,&aj1p5r,&aj1p5i,-it, rt);	/* exe2 */
 
-		pair_square(&aj1p8r ,&aj1p8i ,&aj1p15r,&aj1p15i, c, s);		/* exe3 */
-		pair_square(&aj1p10r,&aj1p10i,&aj1p13r,&aj1p13i, -s, c);	/* exe3 */
+		pair_square(&aj1p8r,&aj1p8i,&aj1pFr,&aj1pFi, c, s);		/* exe3 */
+		pair_square(&aj1pAr,&aj1pAi,&aj1pDr,&aj1pDi,-s, c);	/* exe3 */
 
-		pair_square(&aj1p12r,&aj1p12i,&aj1p11r,&aj1p11i, s, c);		/* exe3 */
-		pair_square(&aj1p14r,&aj1p14i,&aj1p9r ,&aj1p9i , -c, s);	/* exe3 */
+		pair_square(&aj1pCr,&aj1pCi,&aj1pBr,&aj1pBi, s, c);		/* exe3 */
+		pair_square(&aj1pEr,&aj1pEi,&aj1p9r,&aj1p9i,-c, s);	/* exe3 */
 
 		/* exe4: */
-		pair_square(&aj2p0r ,&aj2p0i ,&aj2p15r,&aj2p15i, RT, IT);
-		pair_square(&aj2p2r ,&aj2p2i ,&aj2p13r,&aj2p13i, -IT, RT);
+		pair_square(&aj2p0r,&aj2p0i,&aj2pFr,&aj2pFi, RT, IT);
+		pair_square(&aj2p2r,&aj2p2i,&aj2pDr,&aj2pDi,-IT, RT);
 
-		rt = (RT - IT)*ISRT2;	it = (RT + IT)*ISRT2;
-		pair_square(&aj2p4r ,&aj2p4i ,&aj2p11r,&aj2p11i, rt, it);
-		pair_square(&aj2p6r ,&aj2p6i ,&aj2p9r ,&aj2p9i , -it, rt);
+		rt = (RT- IT)*ISRT2;	it = (RT + IT)*ISRT2;
+		pair_square(&aj2p4r,&aj2p4i,&aj2pBr,&aj2pBi, rt, it);
+		pair_square(&aj2p6r,&aj2p6i,&aj2p9r,&aj2p9i,-it, rt);
 
 		t3 = RT*c;	t4 = IT*s;	t5 = RT*s;	t6 = IT*c;
-		rt = t3 - t4;	it = t5 + t6;
-		pair_square(&aj2p8r ,&aj2p8i ,&aj2p7r ,&aj2p7i , rt, it);
-		pair_square(&aj2p10r,&aj2p10i,&aj2p5r ,&aj2p5i , -it, rt);
+		rt = t3- t4;	it = t5 + t6;
+		pair_square(&aj2p8r,&aj2p8i,&aj2p7r,&aj2p7i, rt, it);
+		pair_square(&aj2pAr,&aj2pAi,&aj2p5r,&aj2p5i,-it, rt);
 
-		rt = t5 - t6;	it = t3 + t4;
-		pair_square(&aj2p12r,&aj2p12i,&aj2p3r ,&aj2p3i , rt, it);
-		pair_square(&aj2p14r,&aj2p14i,&aj2p1r ,&aj2p1i , -it, rt);
+		rt = t5- t6;	it = t3 + t4;
+		pair_square(&aj2pCr,&aj2pCi,&aj2p3r,&aj2p3i, rt, it);
+		pair_square(&aj2pEr,&aj2pEi,&aj2p1r,&aj2p1i,-it, rt);
 	  }
 	  else
 	  {
+	  #if 0	// Old version of the code, before SSE2-friendly rearrangement:
+		#warning radix16_wrapper square: please use SSE2-style pair_square call sequence!
+	// Index pair_square() calls 0-F:
+0,1		pair_square(&aj1p0r,&aj1p0i,&aj2pFr,&aj2pFi, RT, IT);	pair_square(&aj2pEr,&aj2pEi,&aj1p1r,&aj1p1i,-RT, IT);
+2,3		pair_square(&aj1p2r,&aj1p2i,&aj2pDr,&aj2pDi,-IT, RT);	pair_square(&aj2pCr,&aj2pCi,&aj1p3r,&aj1p3i, IT, RT);
+	//	PAIR_SQUARE2A(aj1p0r,aj1p0i,aj2pFr,aj2pFi,aj1p2r,aj1p2i,aj2pDr,aj2pDi, RT, IT);
+	//	PAIR_SQUARE2B(aj2pEr,aj2pEi,aj1p1r,aj1p1i,aj2pCr,aj2pCi,aj1p3r,aj1p3i, RT, IT);
+
+		t1 = (RT- IT)*ISRT2;	t2 = (RT + IT)*ISRT2;
+4,5		pair_square(&aj1p4r,&aj1p4i,&aj2pBr,&aj2pBi, t1, t2);	pair_square(&aj2pAr,&aj2pAi,&aj1p5r,&aj1p5i,-t1, t2);
+6,7		pair_square(&aj1p6r,&aj1p6i,&aj2p9r,&aj2p9i,-t2, t1);	pair_square(&aj2p8r,&aj2p8i,&aj1p7r,&aj1p7i, t2, t1);
+	//	PAIR_SQUARE2A(aj1p4r,aj1p4i,aj2pBr,aj2pBi,aj1p6r,aj1p6i,aj2p9r,aj2p9i, t1, t2);
+	//	PAIR_SQUARE2B(aj2pAr,aj2pAi,aj1p5r,aj1p5i,aj2p8r,aj2p8i,aj1p7r,aj1p7i, t1, t2);
+
+		re0 = RT*c;	im0 = IT*s;	re1 = RT*s;	im1 = IT*c;
+		t3 = re0- im0;	t4 = re1 + im1;
+8,9		pair_square(&aj1p8r,&aj1p8i,&aj2p7r,&aj2p7i, t3, t4);	pair_square(&aj2p6r,&aj2p6i,&aj1p9r,&aj1p9i,-t3, t4);
+A,B		pair_square(&aj1pAr,&aj1pAi,&aj2p5r,&aj2p5i,-t4, t3);	pair_square(&aj2p4r,&aj2p4i,&aj1pBr,&aj1pBi, t4, t3);
+	//	PAIR_SQUARE2A(aj1p8r,aj1p8i,aj2p7r,aj2p7i,aj1pAr,aj1pAi,aj2p5r,aj2p5i, t3, t4);
+	//	PAIR_SQUARE2B(aj2p6r,aj2p6i,aj1p9r,aj1p9i,aj2p4r,aj2p4i,aj1pBr,aj1pBi, t3, t4);
+
+		t5 = re1- im1;	t6 = re0 + im0;
+C,D		pair_square(&aj1pCr,&aj1pCi,&aj2p3r,&aj2p3i, t5, t6);	pair_square(&aj2p2r,&aj2p2i,&aj1pDr,&aj1pDi,-t5, t6);
+E,F		pair_square(&aj1pEr,&aj1pEi,&aj2p1r,&aj2p1i,-t6, t5);	pair_square(&aj2p0r,&aj2p0i,&aj1pFr,&aj1pFi, t6, t5);
+	//	PAIR_SQUARE2A(aj1pCr,aj1pCi,aj2p3r ,aj2p3i ,aj1pEr,aj1pEi,aj2p1r ,aj2p1i , t5, t6);
+	//	PAIR_SQUARE2B(aj2p2r ,aj2p2i ,aj1pDr,aj1pDi,aj2p0r ,aj2p0i ,aj1pFr,aj1pFi, t5, t6);
+
+	  #else
+
 		t1 = (RT - IT)*ISRT2;	t2 = (RT + IT)*ISRT2;
 
 		re0 = RT*c;	im0 = IT*s;	re1 = RT*s;	im1 = IT*c;
@@ -2433,53 +2875,79 @@ Scalar-dbl:	r0*	i0	r1	i1	r2	i2	r3	i3	r4*	i4	r5	i5	r6	i6	r7	i7	r8*	i8	r9	i9	r10	i
 		/*
 		In SSE2 mode, the data are laid out in memory as
 
-			t1:	aj1p0r,aj2p0r		t2: aj1p0i,aj2p0i
-			t3:	aj1p1r,aj2p1r		t4: aj1p1i,aj2p1i
-			t5:	aj1p2r,aj2p2r		t6: aj1p2i,aj2p2i
-			t7:	aj1p3r,aj2p3r		t8: aj1p3i,aj2p3i
-			t9:	aj1p4r,aj2p4r		t10:aj1p4i,aj2p4i
-			t11:aj1p5r,aj2p5r		t12:aj1p5i,aj2p5i
-			t13:aj1p6r,aj2p6r		t14:aj1p6i,aj2p6i
-			t15:aj1p7r,aj2p7r		t16:aj1p7i,aj2p7i
-			t17:aj1p8r,aj2p8r		t18:aj1p8i,aj2p8i
-			t19:aj1p9r,aj2p9r		t20:aj1p9i,aj2p9i
-			t21:aj1pAr,aj2pAr		t22:aj1pAi,aj2pAi
-			t23:aj1pBr,aj2pBr		t24:aj1pBi,aj2pBi
-			t25:aj1pCr,aj2pCr		t26:aj1pCi,aj2pCi
-			t27:aj1pDr,aj2pDr		t28:aj1pDi,aj2pDi
-			t29:aj1pEr,aj2pEr		t30:aj1pEi,aj2pEi
-			t31:aj1pFr,aj2pFr		t32:aj1pFi,aj2pFi .
+			r1:	aj1p0r,aj2p0r		r2: aj1p0i,aj2p0i
+			r3:	aj1p8r,aj2p8r		r4: aj1p8i,aj2p8i
+			r5:	aj1p4r,aj2p4r		r6: aj1p4i,aj2p4i
+			r7:	aj1pCr,aj2pCr		r8: aj1pCi,aj2pCi
+			r9:	aj1p2r,aj2p2r		r10:aj1p2i,aj2p2i
+			r11:aj1pAr,aj2pAr		r12:aj1pAi,aj2pAi
+			r13:aj1p6r,aj2p6r		r14:aj1p6i,aj2p6i
+			r15:aj1pEr,aj2pEr		r16:aj1pEi,aj2pEi
+			r17:aj1p1r,aj2p1r		r18:aj1p1i,aj2p1i
+			r19:aj1p9r,aj2p9r		r20:aj1p9i,aj2p9i
+			r21:aj1p5r,aj2p5r		r22:aj1p5i,aj2p5i
+			r23:aj1pDr,aj2pDr		r24:aj1pDi,aj2pDi
+			r25:aj1p3r,aj2p3r		r26:aj1p3i,aj2p3i
+			r27:aj1pBr,aj2pBr		r28:aj1pBi,aj2pBi
+			r29:aj1p7r,aj2p7r		r30:aj1p7i,aj2p7i
+			r31:aj1pFr,aj2pFr		r32:aj1pFi,aj2pFi .
 
 		The modified call sequence below takes advantage of that, by processing data which are in 8 XMM registers in-place.
 		*/
-		/* j1[ 0, 2,13,15] combined with j2[15,13, 2, 0]:
-		PAIR_SQUARE2A(aj1p0r ,aj1p0i ,aj2p15r,aj2p15i,aj1p2r ,aj1p2i ,aj2p13r,aj2p13i, RT, IT);
-		PAIR_SQUARE2B(aj2p2r ,aj2p2i ,aj1p13r,aj1p13i,aj2p0r ,aj2p0i ,aj1p15r,aj1p15i, t5, t6);
+		/* j1[ 0, 2,13,15] combined with j2[15,13, 2, 0]:								In terms of our above 0-F pair_square() indexing:
+		PAIR_SQUARE2A(aj1p0r ,aj1p0i ,aj2pFr,aj2pFi,aj1p2r ,aj1p2i ,aj2pDr,aj2pDi, RT, IT);
+		PAIR_SQUARE2B(aj2p2r ,aj2p2i ,aj1pDr,aj1pDi,aj2p0r ,aj2p0i ,aj1pFr,aj1pFi, t5, t6);
 		*/
-		PAIR_SQUARE_4(aj1p0r ,aj1p0i ,aj2p15r,aj2p15i,aj1p2r ,aj1p2i ,aj2p13r,aj2p13i, RT, IT
-					, aj2p2r ,aj2p2i ,aj1p13r,aj1p13i,aj2p0r ,aj2p0i ,aj1p15r,aj1p15i, t5, t6);
+		PAIR_SQUARE_4(aj1p0r ,aj1p0i ,aj2pFr,aj2pFi,aj1p2r ,aj1p2i ,aj2pDr,aj2pDi, RT, IT
+					, aj2p2r ,aj2p2i ,aj1pDr,aj1pDi,aj2p0r ,aj2p0i ,aj1pFr,aj1pFi, t5, t6);	// 0,2,D,F
 
 		/* j1[ 4, 6, 9,11] combined with j2[11, 9, 6, 4]:
-		PAIR_SQUARE2A(aj1p4r ,aj1p4i ,aj2p11r,aj2p11i,aj1p6r ,aj1p6i ,aj2p9r ,aj2p9i , t1, t2);
-		PAIR_SQUARE2B(aj2p6r ,aj2p6i ,aj1p9r ,aj1p9i ,aj2p4r ,aj2p4i ,aj1p11r,aj1p11i, t3, t4);
+		PAIR_SQUARE2A(aj1p4r ,aj1p4i ,aj2pBr,aj2pBi,aj1p6r ,aj1p6i ,aj2p9r ,aj2p9i , t1, t2);
+		PAIR_SQUARE2B(aj2p6r ,aj2p6i ,aj1p9r ,aj1p9i ,aj2p4r ,aj2p4i ,aj1pBr,aj1pBi, t3, t4);
 		*/
-		PAIR_SQUARE_4(aj1p4r ,aj1p4i ,aj2p11r,aj2p11i,aj1p6r ,aj1p6i ,aj2p9r ,aj2p9i , t1, t2
-					, aj2p6r ,aj2p6i ,aj1p9r ,aj1p9i ,aj2p4r ,aj2p4i ,aj1p11r,aj1p11i, t3, t4);
+		PAIR_SQUARE_4(aj1p4r ,aj1p4i ,aj2pBr,aj2pBi,aj1p6r ,aj1p6i ,aj2p9r ,aj2p9i , t1, t2
+					, aj2p6r ,aj2p6i ,aj1p9r ,aj1p9i ,aj2p4r ,aj2p4i ,aj1pBr,aj1pBi, t3, t4);	// 4,6,9,B
 
 		/* j1[ 8,10, 5, 7] combined with j2[ 7, 5,10, 8]:
-		PAIR_SQUARE2A(aj1p8r ,aj1p8i ,aj2p7r ,aj2p7i ,aj1p10r,aj1p10i,aj2p5r ,aj2p5i , t3, t4);
-		PAIR_SQUARE2B(aj2p10r,aj2p10i,aj1p5r ,aj1p5i ,aj2p8r ,aj2p8i ,aj1p7r ,aj1p7i , t1, t2);
+		PAIR_SQUARE2A(aj1p8r ,aj1p8i ,aj2p7r ,aj2p7i ,aj1pAr,aj1pAi,aj2p5r ,aj2p5i , t3, t4);
+		PAIR_SQUARE2B(aj2pAr,aj2pAi,aj1p5r ,aj1p5i ,aj2p8r ,aj2p8i ,aj1p7r ,aj1p7i , t1, t2);
 		*/
-		PAIR_SQUARE_4(aj1p8r ,aj1p8i ,aj2p7r ,aj2p7i ,aj1p10r,aj1p10i,aj2p5r ,aj2p5i , t3, t4
-					, aj2p10r,aj2p10i,aj1p5r ,aj1p5i ,aj2p8r ,aj2p8i ,aj1p7r ,aj1p7i , t1, t2);
+		PAIR_SQUARE_4(aj1p8r ,aj1p8i ,aj2p7r ,aj2p7i ,aj1pAr,aj1pAi,aj2p5r ,aj2p5i , t3, t4
+					, aj2pAr,aj2pAi,aj1p5r ,aj1p5i ,aj2p8r ,aj2p8i ,aj1p7r ,aj1p7i , t1, t2);	// 8,A,5,7
 
 		/* j1[12,14, 1, 3] combined with j2[ 3, 1,14,12]:
-		PAIR_SQUARE2A(aj1p12r,aj1p12i,aj2p3r ,aj2p3i ,aj1p14r,aj1p14i,aj2p1r ,aj2p1i , t5, t6);
-		PAIR_SQUARE2B(aj2p14r,aj2p14i,aj1p1r ,aj1p1i ,aj2p12r,aj2p12i,aj1p3r ,aj1p3i , RT, IT);
+		PAIR_SQUARE2A(aj1pCr,aj1pCi,aj2p3r ,aj2p3i ,aj1pEr,aj1pEi,aj2p1r ,aj2p1i , t5, t6);
+		PAIR_SQUARE2B(aj2pEr,aj2pEi,aj1p1r ,aj1p1i ,aj2pCr,aj2pCi,aj1p3r ,aj1p3i , RT, IT);
 		*/
-		PAIR_SQUARE_4(aj1p12r,aj1p12i,aj2p3r ,aj2p3i ,aj1p14r,aj1p14i,aj2p1r ,aj2p1i , t5, t6
-					, aj2p14r,aj2p14i,aj1p1r ,aj1p1i ,aj2p12r,aj2p12i,aj1p3r ,aj1p3i , RT, IT);
+		PAIR_SQUARE_4(aj1pCr,aj1pCi,aj2p3r ,aj2p3i ,aj1pEr,aj1pEi,aj2p1r ,aj2p1i , t5, t6
+					, aj2pEr,aj2pEi,aj1p1r ,aj1p1i ,aj2pCr,aj2pCi,aj1p3r ,aj1p3i , RT, IT);	// C,E,1,3
+
+	  #endif
 	  }
+#endif	//**************************** endif(TEST NEW PAIR_MUL CODE) **************************
+
+/*
+if(j1pad < 100) {
+	printf("j1,2 = [%u],[%u]: dyad-squares are:\n",j1pad,j2pad);
+	printf("0: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p0r ,aj1p0i ,aj2p0r ,aj2p0i );
+	printf("1: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p1r ,aj1p1i ,aj2p1r ,aj2p1i );
+	printf("2: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p2r ,aj1p2i ,aj2p2r ,aj2p2i );
+	printf("3: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p3r ,aj1p3i ,aj2p3r ,aj2p3i );
+	printf("4: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p4r ,aj1p4i ,aj2p4r ,aj2p4i );
+	printf("5: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p5r ,aj1p5i ,aj2p5r ,aj2p5i );
+	printf("6: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p6r ,aj1p6i ,aj2p6r ,aj2p6i );
+	printf("7: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p7r ,aj1p7i ,aj2p7r ,aj2p7i );
+	printf("8: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p8r ,aj1p8i ,aj2p8r ,aj2p8i );
+	printf("9: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1p9r ,aj1p9i ,aj2p9r ,aj2p9i );
+	printf("A: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pAr,aj1pAi,aj2pAr,aj2pAi);
+	printf("B: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pBr,aj1pBi,aj2pBr,aj2pBi);
+	printf("C: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pCr,aj1pCi,aj2pCr,aj2pCi);
+	printf("D: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pDr,aj1pDi,aj2pDr,aj2pDi);
+	printf("E: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pEr,aj1pEi,aj2pEr,aj2pEi);
+	printf("F: %18.10e,%18.10e,%18.10e,%18.10e\n",aj1pFr,aj1pFi,aj2pFr,aj2pFi);
+}
+*/
+	}	// endif(fwd_fft_only == 1)
 
 /*...And do an inverse DIT radix-16 pass on the squared-data blocks. */
 
@@ -2537,8 +3005,8 @@ Scalar-dbl:	r0*	i0	r1	i1	r2	i2	r3	i3	r4*	i4	r5	i5	r6	i6	r7	i7	r8*	i8	r9	i9	r10	i
 		t19=aj1p8r-aj1p9r;	t20=aj1p8i-aj1p9i;
 		t17=aj1p8r+aj1p9r;	t18=aj1p8i+aj1p9i;
 
-		t23=aj1p10r-aj1p11r;	t24=aj1p10i-aj1p11i;
-		t21=aj1p10r+aj1p11r;	t22=aj1p10i+aj1p11i;
+		t23=aj1pAr-aj1pBr;	t24=aj1pAi-aj1pBi;
+		t21=aj1pAr+aj1pBr;	t22=aj1pAi+aj1pBi;
 
 		rt =t21;	t21=t17-rt;	t17=t17+rt;
 		it =t22;	t22=t18-it;	t18=t18+it;
@@ -2553,11 +3021,11 @@ Scalar-dbl:	r0*	i0	r1	i1	r2	i2	r3	i3	r4*	i4	r5	i5	r6	i6	r7	i7	r8*	i8	r9	i9	r10	i
 		#endif
 		addr += 4;
 	#endif
-		t27=aj1p12r-aj1p13r;	t28=aj1p12i-aj1p13i;
-		t25=aj1p12r+aj1p13r;	t26=aj1p12i+aj1p13i;
+		t27=aj1pCr-aj1pDr;	t28=aj1pCi-aj1pDi;
+		t25=aj1pCr+aj1pDr;	t26=aj1pCi+aj1pDi;
 
-		t31=aj1p14r-aj1p15r;	t32=aj1p14i-aj1p15i;
-		t29=aj1p14r+aj1p15r;	t30=aj1p14i+aj1p15i;
+		t31=aj1pEr-aj1pFr;	t32=aj1pEi-aj1pFi;
+		t29=aj1pEr+aj1pFr;	t30=aj1pEi+aj1pFi;
 
 		rt =t29;	t29=t25-rt;	t25=t25+rt;
 		it =t30;	t30=t26-it;	t26=t26+it;
@@ -2747,8 +3215,8 @@ Scalar-dbl:	r0*	i0	r1	i1	r2	i2	r3	i3	r4*	i4	r5	i5	r6	i6	r7	i7	r8*	i8	r9	i9	r10	i
 		t19=aj2p8r-aj2p9r;	t20=aj2p8i-aj2p9i;
 		t17=aj2p8r+aj2p9r;	t18=aj2p8i+aj2p9i;
 
-		t23=aj2p10r-aj2p11r;	t24=aj2p10i-aj2p11i;
-		t21=aj2p10r+aj2p11r;	t22=aj2p10i+aj2p11i;
+		t23=aj2pAr-aj2pBr;	t24=aj2pAi-aj2pBi;
+		t21=aj2pAr+aj2pBr;	t22=aj2pAi+aj2pBi;
 
 		rt =t21;	t21=t17-rt;	t17=t17+rt;
 		it =t22;	t22=t18-it;	t18=t18+it;
@@ -2763,11 +3231,11 @@ Scalar-dbl:	r0*	i0	r1	i1	r2	i2	r3	i3	r4*	i4	r5	i5	r6	i6	r7	i7	r8*	i8	r9	i9	r10	i
 		#endif
 		addr += 4;
 	#endif
-		t27=aj2p12r-aj2p13r;	t28=aj2p12i-aj2p13i;
-		t25=aj2p12r+aj2p13r;	t26=aj2p12i+aj2p13i;
+		t27=aj2pCr-aj2pDr;	t28=aj2pCi-aj2pDi;
+		t25=aj2pCr+aj2pDr;	t26=aj2pCi+aj2pDi;
 
-		t31=aj2p14r-aj2p15r;	t32=aj2p14i-aj2p15i;
-		t29=aj2p14r+aj2p15r;	t30=aj2p14i+aj2p15i;
+		t31=aj2pEr-aj2pFr;	t32=aj2pEi-aj2pFi;
+		t29=aj2pEr+aj2pFr;	t30=aj2pEi+aj2pFi;
 
 		rt =t29;	t29=t25-rt;	t25=t25+rt;
 		it =t30;	t30=t26-it;	t26=t26+it;
@@ -2990,29 +3458,559 @@ Scalar-dbl:	r0*	i0	r1	i1	r2	i2	r3	i3	r4*	i4	r5	i5	r6	i6	r7	i7	r8*	i8	r9	i9	r10	i
 
 	#endif
 
-/*
-!...send the pairs of complex elements which are to be combined and sincos temporaries needed for the squaring to a
-!   small subroutine. The j1 = 0 case is again exceptional. [For this reason we don't supply SSE2 code for it - not worth the work].
-*/
+	// v19: If fwd_fft_only = 1, write fwd-FFT result back to input array, skipping dyadic-square and inv-FFT steps:
+	if(fwd_fft_only == 1)
+	{
+	#ifdef USE_AVX512	// The generic pre-dyadic-square macro needs 8 main-array addresses in AVX512 mode
+
+		// process 8 main-array blocks of [4 vec_dbl = 4 x 8 = 32 doubles] each in AVX512 mode, total = 32 vec_dbl = 16 vec_cmplx
+		nbytes = (long)r5 - (long)r1;
+		memcpy(add0, r1 , nbytes);	// add0 = a + j1pad;
+		memcpy(add2, r9 , nbytes);	// add2 = add0 + 32;	// add2 = add0 + [32 doubles, equiv to 4 AVX-512 registers]
+		memcpy(add4, r17, nbytes);	// add4 = add2 + 32;
+		memcpy(add6, r25, nbytes);	// add6 = add4 + 32;
+		memcpy(add1, r5 , nbytes);	// add1 = a + j2pad;
+		memcpy(add3, r13, nbytes);	// add3 = add1 - 32;	// Last 4 offsets run in descending order for Mers-mod
+		memcpy(add5, r21, nbytes);	// add5 = add3 - 32;
+		memcpy(add7, r29, nbytes);	// add7 = add5 - 32;
+
+	#elif defined(USE_AVX)	// The generic pre-dyadic-square macro needs 4 main-array addresses in AVX mode
+	  						// because (add1-add0) and (add3-add2) have opposite signs for fermat and mersenne-mod:
+
+		// process 4 main-array blocks of [8 vec_dbl = 8 x 4 = 32 doubles] each in AVX mode, total = 32 vec_dbl = 16 vec_cmplx
+		nbytes = (long)r9 - (long)r1;
+		memcpy(add0, r1 , nbytes);	// add0 = a + j1pad;
+		memcpy(add1, r9 , nbytes);	// add1 = a + j2pad;
+		memcpy(add2, r17, nbytes);	// add2 = add0 + 32;	// add2 = add0 + [32 doubles, equiv to 8 AVX registers]
+		memcpy(add3, r25, nbytes);	// add3 = add1 - 32;	// Last 2 offsets run in descending order for Mers-mod
+
+	#else	// SSE2:
+
+		// process 2 main-array blocks of [16 vec_dbl = 16 x 2 = 32 doubles] each in SSE2 mode, total = 32 vec_dbl = 16 vec_cmplx
+		nbytes = (long)r17 - (long)r1;
+		memcpy(add0, r1 , nbytes);	// add0 = a + j1pad;
+		memcpy(add1, r17, nbytes);	// add1 = a + j2pad;
+
+	#endif
+		goto loop;	// Skip dyadic-mul and iFFT
+
+	} else if (fwd_fft_only) {	// 2-input modmul: fwdFFT data dyadic-mul'ed with precomputed 2nd-vector stored in fwdFFTed form at address stored in (uint64)-cast form in fwd_fft_only
+
+	  #ifdef USE_AVX512	// The generic pre-dyadic-square macro needs 8 main-array addresses in AVX512 mode
+
+		// process 8 main-array blocks of [4 vec_dbl = 4 x 8 = 32 doubles] each in AVX512 mode, total = 32 vec_dbl = 16 vec_cmplx
+		bdd0 = b + j1pad;
+		bdd2 = bdd0 + 32;	// bdd2 = bdd0 + [32 doubles, equiv to 4 AVX-512 registers]
+		bdd4 = bdd2 + 32;
+		bdd6 = bdd4 + 32;
+		bdd1 = b + j2pad;
+		bdd3 = bdd1 - 32;	// Last 4 offsets run in descending order for Mers-mod
+		bdd5 = bdd3 - 32;
+		bdd7 = bdd5 - 32;
+
+	  #elif defined(USE_AVX)	// The generic pre-dyadic-square macro needs 4 main-array addresses in AVX mode
+	  						// because (add1-add0) and (add3-add2) have opposite signs for fermat and mersenne-mod:
+
+		// process 4 main-array blocks of [8 vec_dbl = 8 x 4 = 32 doubles] each in AVX mode, total = 32 vec_dbl = 16 vec_cmplx
+		bdd0 = b + j1pad;
+		bdd1 = b + j2pad;
+		bdd2 = bdd0 + 32;	// bdd2 = bdd0 + [32 doubles, equiv to 8 AVX registers]
+		bdd3 = bdd1 - 32;	// Last 2 offsets run in descending order for Mers-mod
+
+	  #else	// SSE2:
+
+		// process 2 main-array blocks of [16 vec_dbl = 16 x 2 = 32 doubles] each in SSE2 mode, total = 32 vec_dbl = 16 vec_cmplx
+		bdd0 = b + j1pad;
+		bdd1 = b + j2pad;
+
+	  #endif
+		/* In SSE2 mode, data laid out in memory as described in "Normal execution" section below, with b-inputs similar to
+		a-inputs, just with r1-16 and r17-32 replaced by offsets relative to b-array addresses bdd0 and bdd1, respectively:
+							A-data:									B-data[SSE2]:			B-data[AVX]:		B-data[AVX-512]:
+			r1:	aj1p0r,aj2p0r		r2: aj1p0i,aj2p0i			bdd0+0x00,bdd0+0x10		bdd0+0x00,bdd0+0x20		bdd0+0x00,bdd0+0x40
+			r3:	aj1p8r,aj2p8r		r4: aj1p8i,aj2p8i			bdd0+0x20,bdd0+0x30		bdd0+0x40,bdd0+0x60		bdd0+0x80,bdd0+0xc0
+			r5:	aj1p4r,aj2p4r		r6: aj1p4i,aj2p4i			bdd0+0x40,bdd0+0x50		bdd0+0x80,bdd0+0xa0		bdd1+0x00,bdd1+0x40
+			r7:	aj1pCr,aj2pCr		r8: aj1pCi,aj2pCi			bdd0+0x60,bdd0+0x70		bdd0+0xc0,bdd0+0xe0		bdd1+0x80,bdd1+0xc0
+			r9:	aj1p2r,aj2p2r		r10:aj1p2i,aj2p2i			bdd0+0x80,bdd0+0x90		bdd1+0x00,bdd1+0x20		bdd2+0x00,bdd2+0x40
+			r11:aj1pAr,aj2pAr		r12:aj1pAi,aj2pAi			bdd0+0xa0,bdd0+0xb0		bdd1+0x40,bdd1+0x60		bdd2+0x80,bdd2+0xc0
+			r13:aj1p6r,aj2p6r		r14:aj1p6i,aj2p6i			bdd0+0xc0,bdd0+0xd0		bdd1+0x80,bdd1+0xa0		bdd3+0x00,bdd3+0x40
+			r15:aj1pEr,aj2pEr		r16:aj1pEi,aj2pEi			bdd0+0xe0,bdd0+0xf0		bdd1+0xc0,bdd1+0xe0		bdd3+0x80,bdd3+0xc0
+			r17:aj1p1r,aj2p1r		r18:aj1p1i,aj2p1i			bdd1+0x00,bdd1+0x10		bdd2+0x00,bdd2+0x20		bdd4+0x00,bdd4+0x40
+			r19:aj1p9r,aj2p9r		r20:aj1p9i,aj2p9i			bdd1+0x20,bdd1+0x30		bdd2+0x40,bdd2+0x60		bdd4+0x80,bdd4+0xc0
+			r21:aj1p5r,aj2p5r		r22:aj1p5i,aj2p5i			bdd1+0x40,bdd1+0x50		bdd2+0x80,bdd2+0xa0		bdd5+0x00,bdd5+0x40
+			r23:aj1pDr,aj2pDr		r24:aj1pDi,aj2pDi			bdd1+0x60,bdd1+0x70		bdd2+0xc0,bdd2+0xe0		bdd5+0x80,bdd5+0xc0
+			r25:aj1p3r,aj2p3r		r26:aj1p3i,aj2p3i			bdd1+0x80,bdd1+0x90		bdd3+0x00,bdd3+0x20		bdd6+0x00,bdd6+0x40
+			r27:aj1pBr,aj2pBr		r28:aj1pBi,aj2pBi			bdd1+0xa0,bdd1+0xb0		bdd3+0x40,bdd3+0x60		bdd6+0x80,bdd6+0xc0
+			r29:aj1p7r,aj2p7r		r30:aj1p7i,aj2p7i			bdd1+0xc0,bdd1+0xd0		bdd3+0x80,bdd3+0xa0		bdd7+0x00,bdd7+0x40
+			r31:aj1pFr,aj2pFr		r32:aj1pFi,aj2pFi .			bdd1+0xe0,bdd1+0xf0		bdd3+0xc0,bdd3+0xe0		bdd7+0x80,bdd7+0xc0
+
+		The modified call sequence below takes advantage of that, by processing data which are in 8 XMM registers in-place.
+		*/
+		// Premultiply RT,IT by 0.25 here to avoid awkward mul-by-0.25s in PAIR_MUL_4 macros:
+		RT *= 0.25;			IT *= 0.25;
+		t1=(RT-IT)*ISRT2;	t2=(RT+IT)*ISRT2;
+
+		re0=RT*c;	im0=IT*s;	re1=RT*s;	im1=IT*c;
+		t3=re0-im0;	t4=re1+im1;
+		t5=re1-im1;	t6=re0+im0;
+
+		tmp0->d0 = RT;		tmp1->d0 = IT;
+		tmp0->d1 = t6;		tmp1->d1 = t5;
+
+		tmp2->d0 = t1;		tmp3->d0 = t2;
+		tmp2->d1 = t4;		tmp3->d1 = t3;
+
+	#ifdef USE_AVX
+		RT = 0.25*c1->d2;	IT = 0.25*(c1+1)->d2;	// Notice we only use even-indexed ->d* values to set RT,IT in SIMD mode
+		t1=(RT-IT)*ISRT2;	t2=(RT+IT)*ISRT2;
+
+		re0=RT*c;	im0=IT*s;	re1=RT*s;	im1=IT*c;
+		t3=re0-im0;	t4=re1+im1;
+		t5=re1-im1;	t6=re0+im0;
+
+		tmp0->d2 = RT;		tmp1->d2 = IT;
+		tmp0->d3 = t6;		tmp1->d3 = t5;
+
+		tmp2->d2 = t1;		tmp3->d2 = t2;
+		tmp2->d3 = t4;		tmp3->d3 = t3;
+	#endif
+
+	#ifdef USE_AVX512
+		RT = 0.25*c1->d4;	IT = 0.25*(c1+1)->d4;
+		t1=(RT-IT)*ISRT2;	t2=(RT+IT)*ISRT2;
+
+		re0=RT*c;	im0=IT*s;	re1=RT*s;	im1=IT*c;
+		t3=re0-im0;	t4=re1+im1;
+		t5=re1-im1;	t6=re0+im0;
+
+		tmp0->d4 = RT;		tmp1->d4 = IT;
+ 		tmp0->d5 = t6;		tmp1->d5 = t5;
+
+		tmp2->d4 = t1;		tmp3->d4 = t2;
+		tmp2->d5 = t4;		tmp3->d5 = t3;
+
+		RT = 0.25*c1->d6;	IT = 0.25*(c1+1)->d6;
+		t1=(RT-IT)*ISRT2;	t2=(RT+IT)*ISRT2;
+
+		re0=RT*c;	im0=IT*s;	re1=RT*s;	im1=IT*c;
+		t3=re0-im0;	t4=re1+im1;
+		t5=re1-im1;	t6=re0+im0;
+
+		tmp0->d6 = RT;		tmp1->d6 = IT;
+		tmp0->d7 = t6;		tmp1->d7 = t5;
+
+		tmp2->d6 = t1;		tmp3->d6 = t2;
+		tmp2->d7 = t4;		tmp3->d7 = t3;
+	#endif
+		/*
+		if(j1 <= 1024) {
+			printf("j1,j2 = [%u],[%u]: Inputs to PAIR_MUL_4_SSE2:\n",j1pad,j2pad);
+		#ifdef USE_AVX512
+			printf("t0: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp0->d0,tmp0->d1,tmp0->d2,tmp0->d3,tmp0->d4,tmp0->d5,tmp0->d6,tmp0->d7);
+			printf("t1: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp1->d0,tmp1->d1,tmp1->d2,tmp1->d3,tmp1->d4,tmp1->d5,tmp1->d6,tmp1->d7);
+			printf("t2: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp2->d0,tmp2->d1,tmp2->d2,tmp2->d3,tmp2->d4,tmp2->d5,tmp2->d6,tmp2->d7);
+			printf("t3: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp3->d0,tmp3->d1,tmp3->d2,tmp3->d3,tmp3->d4,tmp3->d5,tmp3->d6,tmp3->d7);
+		#elif defined(USE_AVX)
+			printf("t0: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp0->d0,tmp0->d1,tmp0->d2,tmp0->d3);
+			printf("t1: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp1->d0,tmp1->d1,tmp1->d2,tmp1->d3);
+			printf("t2: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp2->d0,tmp2->d1,tmp2->d2,tmp2->d3);
+			printf("t3: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp3->d0,tmp3->d1,tmp3->d2,tmp3->d3);
+		#elif defined(USE_SSE2)
+			printf("t0: %18.10e,%18.10e\n",tmp0->d0,tmp0->d1);
+			printf("t1: %18.10e,%18.10e\n",tmp1->d0,tmp1->d1);
+			printf("t2: %18.10e,%18.10e\n",tmp2->d0,tmp2->d1);
+			printf("t3: %18.10e,%18.10e\n",tmp3->d0,tmp3->d1);
+		#endif
+			tmp = r1;	bpt0 = (vec_dbl*)bdd0;
+		  #ifdef USE_AVX512
+			printf("0a: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("0b: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,bpt0->d4,bpt0->d5,bpt0->d6,bpt0->d7,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3,(bpt0+1)->d4,(bpt0+1)->d5,(bpt0+1)->d6,(bpt0+1)->d7);	bpt0 += 2;
+			printf("1a: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("1b: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,bpt0->d4,bpt0->d5,bpt0->d6,bpt0->d7,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3,(bpt0+1)->d4,(bpt0+1)->d5,(bpt0+1)->d6,(bpt0+1)->d7);	bpt0 += 2;
+		  #elif defined(USE_AVX)
+			printf("0a: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("0b: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3);	bpt0 += 2;
+			printf("1a: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("1b: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3);	bpt0 += 2;
+		  #elif defined(USE_SSE2)
+			printf("0a: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("0b: %18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,(bpt0+1)->d0,(bpt0+1)->d1);	bpt0 += 2;
+			printf("1a: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("1b: %18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,(bpt0+1)->d0,(bpt0+1)->d1);	bpt0 += 2;
+		  #endif
+		  #ifdef USE_AVX512
+			bpt0 = (vec_dbl*)bdd1;
+		  #endif
+		  #ifdef USE_AVX512
+			printf("2a: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("2b: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,bpt0->d4,bpt0->d5,bpt0->d6,bpt0->d7,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3,(bpt0+1)->d4,(bpt0+1)->d5,(bpt0+1)->d6,(bpt0+1)->d7);	bpt0 += 2;
+			printf("3a: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("3b: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,bpt0->d4,bpt0->d5,bpt0->d6,bpt0->d7,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3,(bpt0+1)->d4,(bpt0+1)->d5,(bpt0+1)->d6,(bpt0+1)->d7);	bpt0 += 2;
+		  #elif defined(USE_AVX)
+			printf("2a: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("2b: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3);	bpt0 += 2;
+			printf("3a: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("3b: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3);	bpt0 += 2;
+		  #elif defined(USE_SSE2)
+			printf("2a: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("2b: %18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,(bpt0+1)->d0,(bpt0+1)->d1);	bpt0 += 2;
+			printf("3a: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("3b: %18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,(bpt0+1)->d0,(bpt0+1)->d1);	bpt0 += 2;
+		  #endif
+		  #ifdef USE_AVX512
+			bpt0 = (vec_dbl*)bdd2;
+		  #elif defined(USE_AVX)	// This also includes AVX2
+			bpt0 = (vec_dbl*)bdd1;
+		  #endif
+		  #ifdef USE_AVX512
+			printf("4a: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("4b: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,bpt0->d4,bpt0->d5,bpt0->d6,bpt0->d7,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3,(bpt0+1)->d4,(bpt0+1)->d5,(bpt0+1)->d6,(bpt0+1)->d7);	bpt0 += 2;
+			printf("5a: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("5b: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,bpt0->d4,bpt0->d5,bpt0->d6,bpt0->d7,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3,(bpt0+1)->d4,(bpt0+1)->d5,(bpt0+1)->d6,(bpt0+1)->d7);	bpt0 += 2;
+		  #elif defined(USE_AVX)
+			printf("4a: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("4b: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3);	bpt0 += 2;
+			printf("5a: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("5b: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3);	bpt0 += 2;
+		  #elif defined(USE_SSE2)
+			printf("4a: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("4b: %18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,(bpt0+1)->d0,(bpt0+1)->d1);	bpt0 += 2;
+			printf("5a: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("5b: %18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,(bpt0+1)->d0,(bpt0+1)->d1);	bpt0 += 2;
+		  #endif
+		  #ifdef USE_AVX512
+			bpt0 = (vec_dbl*)bdd3;
+		  #endif
+		  #ifdef USE_AVX512
+			printf("6a: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("6b: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,bpt0->d4,bpt0->d5,bpt0->d6,bpt0->d7,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3,(bpt0+1)->d4,(bpt0+1)->d5,(bpt0+1)->d6,(bpt0+1)->d7);	bpt0 += 2;
+			printf("7a: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("7b: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,bpt0->d4,bpt0->d5,bpt0->d6,bpt0->d7,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3,(bpt0+1)->d4,(bpt0+1)->d5,(bpt0+1)->d6,(bpt0+1)->d7);	bpt0 += 2;
+		  #elif defined(USE_AVX)
+			printf("6a: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("6b: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3);	bpt0 += 2;
+			printf("7a: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("7b: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3);	bpt0 += 2;
+		  #elif defined(USE_SSE2)
+			printf("6a: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("6b: %18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,(bpt0+1)->d0,(bpt0+1)->d1);	bpt0 += 2;
+			printf("7a: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("7b: %18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,(bpt0+1)->d0,(bpt0+1)->d1);	bpt0 += 2;
+		  #endif
+		  #ifdef USE_AVX512
+			bpt0 = (vec_dbl*)bdd4;
+		  #elif defined(USE_AVX)	// This also includes AVX2
+			bpt0 = (vec_dbl*)bdd2;
+		  #else	// USE_SSE2
+			bpt0 = (vec_dbl*)bdd1;
+		  #endif
+		  #ifdef USE_AVX512
+			printf("8a: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("8b: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,bpt0->d4,bpt0->d5,bpt0->d6,bpt0->d7,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3,(bpt0+1)->d4,(bpt0+1)->d5,(bpt0+1)->d6,(bpt0+1)->d7);	bpt0 += 2;
+			printf("9a: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("9b: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,bpt0->d4,bpt0->d5,bpt0->d6,bpt0->d7,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3,(bpt0+1)->d4,(bpt0+1)->d5,(bpt0+1)->d6,(bpt0+1)->d7);	bpt0 += 2;
+		  #elif defined(USE_AVX)
+			printf("8a: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("8b: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3);	bpt0 += 2;
+			printf("9a: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("9b: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3);	bpt0 += 2;
+		  #elif defined(USE_SSE2)
+			printf("8a: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("8b: %18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,(bpt0+1)->d0,(bpt0+1)->d1);	bpt0 += 2;
+			printf("9a: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("9b: %18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,(bpt0+1)->d0,(bpt0+1)->d1);	bpt0 += 2;
+		  #endif
+		  #ifdef USE_AVX512
+			bpt0 = (vec_dbl*)bdd5;
+		  #endif
+		  #ifdef USE_AVX512
+			printf("Aa: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("Ab: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,bpt0->d4,bpt0->d5,bpt0->d6,bpt0->d7,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3,(bpt0+1)->d4,(bpt0+1)->d5,(bpt0+1)->d6,(bpt0+1)->d7);	bpt0 += 2;
+			printf("Ba: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("Bb: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,bpt0->d4,bpt0->d5,bpt0->d6,bpt0->d7,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3,(bpt0+1)->d4,(bpt0+1)->d5,(bpt0+1)->d6,(bpt0+1)->d7);	bpt0 += 2;
+		  #elif defined(USE_AVX)
+			printf("Aa: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("Ab: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3);	bpt0 += 2;
+			printf("Ba: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("Bb: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3);	bpt0 += 2;
+		  #elif defined(USE_SSE2)
+			printf("Aa: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("Ab: %18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,(bpt0+1)->d0,(bpt0+1)->d1);	bpt0 += 2;
+			printf("Ba: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("Bb: %18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,(bpt0+1)->d0,(bpt0+1)->d1);	bpt0 += 2;
+		  #endif
+		  #ifdef USE_AVX512
+			bpt0 = (vec_dbl*)bdd6;
+		  #elif defined(USE_AVX)	// This also includes AVX2
+			bpt0 = (vec_dbl*)bdd3;
+		  #endif
+		  #ifdef USE_AVX512
+			printf("Ca: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("Cb: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,bpt0->d4,bpt0->d5,bpt0->d6,bpt0->d7,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3,(bpt0+1)->d4,(bpt0+1)->d5,(bpt0+1)->d6,(bpt0+1)->d7);	bpt0 += 2;
+			printf("Da: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("Db: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,bpt0->d4,bpt0->d5,bpt0->d6,bpt0->d7,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3,(bpt0+1)->d4,(bpt0+1)->d5,(bpt0+1)->d6,(bpt0+1)->d7);	bpt0 += 2;
+		  #elif defined(USE_AVX)
+			printf("Ca: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("Cb: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3);	bpt0 += 2;
+			printf("Da: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("Db: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3);	bpt0 += 2;
+		  #elif defined(USE_SSE2)
+			printf("Ca: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("Cb: %18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,(bpt0+1)->d0,(bpt0+1)->d1);	bpt0 += 2;
+			printf("Da: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("Db: %18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,(bpt0+1)->d0,(bpt0+1)->d1);	bpt0 += 2;
+		  #endif
+		  #ifdef USE_AVX512
+			bpt0 = (vec_dbl*)bdd7;
+		  #endif
+		  #ifdef USE_AVX512
+			printf("Ea: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("Eb: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,bpt0->d4,bpt0->d5,bpt0->d6,bpt0->d7,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3,(bpt0+1)->d4,(bpt0+1)->d5,(bpt0+1)->d6,(bpt0+1)->d7);	bpt0 += 2;
+			printf("Fa: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("Fb: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,bpt0->d4,bpt0->d5,bpt0->d6,bpt0->d7,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3,(bpt0+1)->d4,(bpt0+1)->d5,(bpt0+1)->d6,(bpt0+1)->d7);	bpt0 += 2;
+		  #elif defined(USE_AVX)
+			printf("Ea: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("Eb: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3);	bpt0 += 2;
+			printf("Fa: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("Fb: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,bpt0->d2,bpt0->d3,(bpt0+1)->d0,(bpt0+1)->d1,(bpt0+1)->d2,(bpt0+1)->d3);	bpt0 += 2;
+		  #elif defined(USE_SSE2)
+			printf("Ea: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("Eb: %18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,(bpt0+1)->d0,(bpt0+1)->d1);	bpt0 += 2;
+			printf("Fa: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("Fb: %18.10e,%18.10e,%18.10e,%18.10e\n",bpt0->d0,bpt0->d1,(bpt0+1)->d0,(bpt0+1)->d1);	bpt0 += 2;
+		  #endif
+		//	exit(0);
+		}
+		*/
+
+	  #ifdef USE_AVX512		// Register blocks beginning with r1,5,9,13,17,21,25,29 map to memlocs bdd0-7, no offsets >= 4:
+		bpt0 = (vec_dbl*)bdd0+0x0; bpt1 = (vec_dbl*)bdd2+0x0; bpt2 = (vec_dbl*)bdd5+0x2; bpt3 = (vec_dbl*)bdd7+0x2;
+	  #elif defined(USE_AVX)// Register blocks beginning with r1,9,17,25 map to memlocs bdd0-3, no offsets >= 8:
+		bpt0 = (vec_dbl*)bdd0+0x0; bpt1 = (vec_dbl*)bdd1+0x0; bpt2 = (vec_dbl*)bdd2+0x6; bpt3 = (vec_dbl*)bdd3+0x6;
+	  #else			// SSE2: Register blocks beginning with r1,17 map to memlocs bdd0-1, no offsets >= 16:
+		bpt0 = (vec_dbl*)bdd0+0x0; bpt1 = (vec_dbl*)bdd0+0x8; bpt2 = (vec_dbl*)bdd1+0x6; bpt3 = (vec_dbl*)bdd1+0xe;
+	  #endif
+		PAIR_MUL_4_SSE2( r1, r9,r23,r31, bpt0,bpt1,bpt2,bpt3, tmp0,tmp1,forth);
+
+	  #ifdef USE_AVX512		// Register blocks beginning with r1,5,9,13,17,21,25,29 map to memlocs bdd0-7, no offsets >= 4:
+		bpt0 = (vec_dbl*)bdd1+0x0; bpt1 = (vec_dbl*)bdd3+0x0; bpt2 = (vec_dbl*)bdd4+0x2; bpt3 = (vec_dbl*)bdd6+0x2;
+	  #elif defined(USE_AVX)// Register blocks beginning with r1,9,17,25 map to memlocs bdd0-3, no offsets >= 8:
+		bpt0 = (vec_dbl*)bdd0+0x4; bpt1 = (vec_dbl*)bdd1+0x4; bpt2 = (vec_dbl*)bdd2+0x2; bpt3 = (vec_dbl*)bdd3+0x2;
+	  #else			// SSE2: Register blocks beginning with r1,17 map to memlocs bdd0-1, no offsets >= 16:
+		bpt0 = (vec_dbl*)bdd0+0x4; bpt1 = (vec_dbl*)bdd0+0xc; bpt2 = (vec_dbl*)bdd1+0x2; bpt3 = (vec_dbl*)bdd1+0xa;
+	  #endif
+		PAIR_MUL_4_SSE2( r5,r13,r19,r27, bpt0,bpt1,bpt2,bpt3, tmp2,tmp3,forth);
+
+	// Permute the sincos-multiplier data:
+	#ifdef USE_ARM_V8_SIMD
+
+		// V2: Pinged ARM's Tom Womack re. possible single-instruction-per-swap alternatives,
+		// His reply: "I have asked some of the gurus at work. The answer: make a temp vector
+		// by concatenating Vsrc and Vsrc, then extract bytes (8+15)..8 from it into Vdest".
+		// Repeater-loop-enclosed timings of the 2 variants shows this EXT-based one needing ~20% fewer cycles:
+		__asm__ volatile (\
+			"ldr	x0,%[tmp0]	\n\t"\
+			"ldr	x1,%[tmp2]	\n\t"\
+			"ldp	q0,q1,[x0]	\n\t"/* tmp0,1 occupy adjacent vec_dbl slots... */\
+			"ldp	q2,q3,[x1]	\n\t"/* ...as do tmp2,3. (Though those *not* adj. to tmp0,1). */\
+			"ext v0.16b,v0.16b,v0.16b,#8	\n\t"\
+			"ext v1.16b,v1.16b,v1.16b,#8	\n\t"\
+			"ext v2.16b,v2.16b,v2.16b,#8	\n\t"\
+			"ext v3.16b,v3.16b,v3.16b,#8	\n\t"\
+			"stp	q0,q1,[x0]	\n\t"\
+			"stp	q2,q3,[x1]	\n\t"\
+			:					// outputs: none
+			: [tmp0] "m" (tmp0)	// All inputs from memory addresses here
+			 ,[tmp2] "m" (tmp2)
+			: "cc","memory","x0","x1","v0","v1","v2","v3"	/* Clobbered registers */\
+		);
+
+	#elif defined(USE_AVX512)
+		// AVX-512 version has shufpd immediate = 0x55 = 01010101_2, which is the fourfold analog of the SSE2 imm8 = 1 = 01_2:
+		__asm__ volatile (\
+			"movq	%[tmp0],%%rax\n\t"\
+			"movq	%[tmp1],%%rbx\n\t"\
+			"movq	%[tmp2],%%rcx\n\t"\
+			"movq	%[tmp3],%%rdx\n\t"\
+			"vmovaps	(%%rax),%%zmm0\n\t"\
+			"vmovaps	(%%rbx),%%zmm1\n\t"\
+			"vmovaps	(%%rcx),%%zmm2\n\t"\
+			"vmovaps	(%%rdx),%%zmm3\n\t"\
+			"vshufpd	$0x55,%%zmm0,%%zmm0,%%zmm0\n\t"\
+			"vshufpd	$0x55,%%zmm1,%%zmm1,%%zmm1\n\t"\
+			"vshufpd	$0x55,%%zmm2,%%zmm2,%%zmm2\n\t"\
+			"vshufpd	$0x55,%%zmm3,%%zmm3,%%zmm3\n\t"\
+			"vmovaps	%%zmm0,(%%rax)\n\t"\
+			"vmovaps	%%zmm1,(%%rbx)\n\t"\
+			"vmovaps	%%zmm2,(%%rcx)\n\t"\
+			"vmovaps	%%zmm3,(%%rdx)\n\t"\
+			:					// outputs: none
+			: [tmp0] "m" (tmp0)	// All inputs from memory addresses here
+			 ,[tmp1] "m" (tmp1)
+			 ,[tmp2] "m" (tmp2)
+			 ,[tmp3] "m" (tmp3)
+			: "cc","memory","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3"		/* Clobbered registers */\
+		);
+
+	#elif defined(USE_AVX)
+		// AVX version has shufpd immediate = 5 = 0101_2, which is the doubled analog of the SSE2 imm8 = 1 = 01_2:
+		__asm__ volatile (\
+			"movq	%[tmp0],%%rax\n\t"\
+			"movq	%[tmp1],%%rbx\n\t"\
+			"movq	%[tmp2],%%rcx\n\t"\
+			"movq	%[tmp3],%%rdx\n\t"\
+			"vmovaps	(%%rax),%%ymm0\n\t"\
+			"vmovaps	(%%rbx),%%ymm1\n\t"\
+			"vmovaps	(%%rcx),%%ymm2\n\t"\
+			"vmovaps	(%%rdx),%%ymm3\n\t"\
+			"vshufpd	$5,%%ymm0,%%ymm0,%%ymm0\n\t"\
+			"vshufpd	$5,%%ymm1,%%ymm1,%%ymm1\n\t"\
+			"vshufpd	$5,%%ymm2,%%ymm2,%%ymm2\n\t"\
+			"vshufpd	$5,%%ymm3,%%ymm3,%%ymm3\n\t"\
+			"vmovaps	%%ymm0,(%%rax)\n\t"\
+			"vmovaps	%%ymm1,(%%rbx)\n\t"\
+			"vmovaps	%%ymm2,(%%rcx)\n\t"\
+			"vmovaps	%%ymm3,(%%rdx)\n\t"\
+			:					// outputs: none
+			: [tmp0] "m" (tmp0)	// All inputs from memory addresses here
+			 ,[tmp1] "m" (tmp1)
+			 ,[tmp2] "m" (tmp2)
+			 ,[tmp3] "m" (tmp3)
+			: "cc","memory","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3"		/* Clobbered registers */\
+		);
+
+	#elif(OS_BITS == 64)	// 64-bit SSE2 build
+
+		__asm__ volatile (\
+			"movq	%[tmp0],%%rax\n\t"\
+			"movq	%[tmp1],%%rbx\n\t"\
+			"movq	%[tmp2],%%rcx\n\t"\
+			"movq	%[tmp3],%%rdx\n\t"\
+			"movaps	(%%rax),%%xmm0\n\t"\
+			"movaps	(%%rbx),%%xmm1\n\t"\
+			"movaps	(%%rcx),%%xmm2\n\t"\
+			"movaps	(%%rdx),%%xmm3\n\t"\
+			"shufpd	$1	,%%xmm0	,%%xmm0\n\t"\
+			"shufpd	$1	,%%xmm1	,%%xmm1\n\t"\
+			"shufpd	$1	,%%xmm2	,%%xmm2\n\t"\
+			"shufpd	$1	,%%xmm3	,%%xmm3\n\t"\
+			"movaps	%%xmm0,(%%rax)\n\t"\
+			"movaps	%%xmm1,(%%rbx)\n\t"\
+			"movaps	%%xmm2,(%%rcx)\n\t"\
+			"movaps	%%xmm3,(%%rdx)\n\t"\
+			:					// outputs: none
+			: [tmp0] "m" (tmp0)	// All inputs from memory addresses here
+			 ,[tmp1] "m" (tmp1)
+			 ,[tmp2] "m" (tmp2)
+			 ,[tmp3] "m" (tmp3)
+			: "cc","memory","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3"		/* Clobbered registers */\
+		);
+
+	#else					// 32-bit SSE2 build
+		#error 32-bit SSE2 build no longer supported as of Mlucas v19!
+	#endif
+
+	  #ifdef USE_AVX512		// Register blocks beginning with r1,5,9,13,17,21,25,29 map to memlocs bdd0-7, no offsets >= 4:
+		bpt0 = (vec_dbl*)bdd0+0x2; bpt1 = (vec_dbl*)bdd2+0x2; bpt2 = (vec_dbl*)bdd5+0x0; bpt3 = (vec_dbl*)bdd7+0x0;
+	  #elif defined(USE_AVX)// Register blocks beginning with r1,9,17,25 map to memlocs bdd0-3, no offsets >= 8:
+		bpt0 = (vec_dbl*)bdd0+0x2; bpt1 = (vec_dbl*)bdd1+0x2; bpt2 = (vec_dbl*)bdd2+0x4; bpt3 = (vec_dbl*)bdd3+0x4;
+	  #else			// SSE2: Register blocks beginning with r1,17 map to memlocs bdd0-1, no offsets >= 16:
+		bpt0 = (vec_dbl*)bdd0+0x2; bpt1 = (vec_dbl*)bdd0+0xa; bpt2 = (vec_dbl*)bdd1+0x4; bpt3 = (vec_dbl*)bdd1+0xc;
+	  #endif
+		PAIR_MUL_4_SSE2( r3,r11,r21,r29, bpt0,bpt1,bpt2,bpt3, tmp3,tmp2,forth);
+
+	  #ifdef USE_AVX512		// Register blocks beginning with r1,5,9,13,17,21,25,29 map to memlocs bdd0-7, no offsets >= 4:
+		bpt0 = (vec_dbl*)bdd1+0x2; bpt1 = (vec_dbl*)bdd3+0x2; bpt2 = (vec_dbl*)bdd4+0x0; bpt3 = (vec_dbl*)bdd6+0x0;
+	  #elif defined(USE_AVX)// Register blocks beginning with r1,9,17,25 map to memlocs bdd0-3, no offsets >= 8:
+		bpt0 = (vec_dbl*)bdd0+0x6; bpt1 = (vec_dbl*)bdd1+0x6; bpt2 = (vec_dbl*)bdd2+0x0; bpt3 = (vec_dbl*)bdd3+0x0;
+	  #else			// SSE2: Register blocks beginning with r1,17 map to memlocs bdd0-1, no offsets >= 16:
+		bpt0 = (vec_dbl*)bdd0+0x6; bpt1 = (vec_dbl*)bdd0+0xe; bpt2 = (vec_dbl*)bdd1+0x0; bpt3 = (vec_dbl*)bdd1+0x8;
+	  #endif
+		PAIR_MUL_4_SSE2( r7,r15,r17,r25, bpt0,bpt1,bpt2,bpt3, tmp1,tmp0,forth);
+		/*
+		if(j1 <= 1024) {
+			printf("j1,j2 = [%u],[%u]: Outputs of PAIR_MUL_4_SSE2:\n",j1pad,j2pad);
+			tmp = r1;
+		#ifdef USE_AVX512
+			printf("0: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("1: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("2: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("3: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("4: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("5: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("6: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("7: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("8: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("9: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("A: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("B: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("C: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("D: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("E: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+			printf("F: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,tmp->d4,tmp->d5,tmp->d6,tmp->d7,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3,(tmp+1)->d4,(tmp+1)->d5,(tmp+1)->d6,(tmp+1)->d7);	tmp += 2;
+		#elif defined(USE_AVX)
+			printf("0: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("1: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("2: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("3: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("4: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("5: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("6: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("7: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("8: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("9: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("A: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("B: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("C: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("D: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("E: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+			printf("F: %18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,tmp->d2,tmp->d3,(tmp+1)->d0,(tmp+1)->d1,(tmp+1)->d2,(tmp+1)->d3);	tmp += 2;
+		#elif defined(USE_SSE2)
+			printf("0: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("1: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("2: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("3: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("4: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("5: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("6: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("7: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("8: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("9: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("A: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("B: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("C: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("D: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("E: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+			printf("F: %18.10e,%18.10e,%18.10e,%18.10e\n",tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1);	tmp += 2;
+		#endif
+		}
+		if(j1 >= 1024) exit(0);
+		*/
+
+	} else {	// fwd_fft_only = 0: Normal execution, dyadic-squaring followed by iFFT:
+	/*
+	!...send the pairs of complex elements which are to be combined and sincos temporaries needed for the squaring to a
+	!   small subroutine. The j1 = 0 case is again exceptional. [For this reason we don't supply SSE2 code for it - not worth the work].
+	*/
 		/*
 		In SSE2 mode, the data are laid out in memory as
 
-			t1 :aj1p0r,aj2p0r		t2 :aj1p0i,aj2p0i
-			t3 :aj1p1r,aj2p1r		t4 :aj1p1i,aj2p1i
-			t5 :aj1p2r,aj2p2r		t6 :aj1p2i,aj2p2i
-			t7 :aj1p3r,aj2p3r		t8 :aj1p3i,aj2p3i
-			t9 :aj1p4r,aj2p4r		t10:aj1p4i,aj2p4i
-			t11:aj1p5r,aj2p5r		t12:aj1p5i,aj2p5i
-			t13:aj1p6r,aj2p6r		t14:aj1p6i,aj2p6i
-			t15:aj1p7r,aj2p7r		t16:aj1p7i,aj2p7i
-			t17:aj1p8r,aj2p8r		t18:aj1p8i,aj2p8i
-			t19:aj1p9r,aj2p9r		t20:aj1p9i,aj2p9i
-			t21:aj1pAr,aj2pAr		t22:aj1pAi,aj2pAi
-			t23:aj1pBr,aj2pBr		t24:aj1pBi,aj2pBi
-			t25:aj1pCr,aj2pCr		t26:aj1pCi,aj2pCi
-			t27:aj1pDr,aj2pDr		t28:aj1pDi,aj2pDi
-			t29:aj1pEr,aj2pEr		t30:aj1pEi,aj2pEi
-			t31:aj1pFr,aj2pFr		t32:aj1pFi,aj2pFi .
+			r1:	aj1p0r,aj2p0r		r2: aj1p0i,aj2p0i
+			r3:	aj1p8r,aj2p8r		r4: aj1p8i,aj2p8i
+			r5:	aj1p4r,aj2p4r		r6: aj1p4i,aj2p4i
+			r7:	aj1pCr,aj2pCr		r8: aj1pCi,aj2pCi
+			r9:	aj1p2r,aj2p2r		r10:aj1p2i,aj2p2i
+			r11:aj1pAr,aj2pAr		r12:aj1pAi,aj2pAi
+			r13:aj1p6r,aj2p6r		r14:aj1p6i,aj2p6i
+			r15:aj1pEr,aj2pEr		r16:aj1pEi,aj2pEi
+			r17:aj1p1r,aj2p1r		r18:aj1p1i,aj2p1i
+			r19:aj1p9r,aj2p9r		r20:aj1p9i,aj2p9i
+			r21:aj1p5r,aj2p5r		r22:aj1p5i,aj2p5i
+			r23:aj1pDr,aj2pDr		r24:aj1pDi,aj2pDi
+			r25:aj1p3r,aj2p3r		r26:aj1p3i,aj2p3i
+			r27:aj1pBr,aj2pBr		r28:aj1pBi,aj2pBi
+			r29:aj1p7r,aj2p7r		r30:aj1p7i,aj2p7i
+			r31:aj1pFr,aj2pFr		r32:aj1pFi,aj2pFi .
 
 		The modified call sequence below takes advantage of that, by processing data which are in 8 XMM registers in-place.
 		*/
@@ -3273,6 +4271,7 @@ Scalar-dbl:	r0*	i0	r1	i1	r2	i2	r3	i3	r4*	i4	r5	i5	r6	i6	r7	i7	r8*	i8	r9	i9	r10	i
 	/******** NB: The cost of each PAIR_SQUARE_4 call costs ~1/4 the cost of a single radix-16 DIF or DIT pass,
 			  so this entire sequence costs ~= 1 radix-16 pass, thus the entire function costs ~3 radix-16 passes.
 	*********/
+	}	// endif(fwd_fft_only == 1)
 
 	/*********************************************************************/
 	/*...And do an inverse DIT radix-16 pass on the squared-data blocks: */
@@ -3291,7 +4290,7 @@ Scalar-dbl:	r0*	i0	r1	i1	r2	i2	r3	i3	r4*	i4	r5	i5	r6	i6	r7	i7	r8*	i8	r9	i9	r10	i
 
 		SSE2_RADIX16_WRAPPER_DIT(add0,add1
 								,r1,r9,r17,r25,isrt2,cc0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15)
-	  #if 0	// Debug:
+		/*
 		if(j1 < 1024) {
 			int idbg;
 			printf("j1 = %u: SSE2 DIT outputs:\n",j1);
@@ -3302,7 +4301,7 @@ Scalar-dbl:	r0*	i0	r1	i1	r2	i2	r3	i3	r4*	i4	r5	i5	r6	i6	r7	i7	r8*	i8	r9	i9	r10	i
 			for(idbg = 0; idbg < 16; idbg++) { printf("\t{re,im}[%2u] = %20.10e,%20.10e,%20.10e,%20.10e\n",idbg,tmp->d0,tmp->d1,(tmp+1)->d0,(tmp+1)->d1); tmp+=2; }
 			exit(0);
 		}
-	  #endif
+		*/
 	#endif // AVX or SSE2?
 
 	}	// endif(j1 == 0)

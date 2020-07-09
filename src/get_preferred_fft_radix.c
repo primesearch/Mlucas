@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2013 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -129,7 +129,7 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 						{
 							if((char_addr = strstr(in_line, "radices =")) == 0x0)
 							{
-								sprintf(cbuf, "get_preferred_fft_radix: invalid format for %s file: 'radices =' not found in timing-data line %s", CONFIGFILE, in_line);
+								snprintf(cbuf,STR_MAX_LEN,"get_preferred_fft_radix: invalid format for %s file: 'radices =' not found in timing-data line %s", CONFIGFILE, in_line);
 								ASSERT(HERE, 0, cbuf);
 							}
 							char_addr += 9;	// 9 chars in "radices ="
@@ -138,7 +138,7 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 							for(j = 0; j < 10; j++)	/* Read in the radices */
 							{
 								if(sscanf(char_addr, "%d", &k) != 1) {
-									sprintf(cbuf, "get_preferred_fft_radix: invalid format for %s file: failed to read %dth element of radix set, offending input line %s", CONFIGFILE, j, in_line);
+									snprintf(cbuf,STR_MAX_LEN,"get_preferred_fft_radix: invalid format for %s file: failed to read %dth element of radix set, offending input line %s", CONFIGFILE, j, in_line);
 									ASSERT(HERE, 0, cbuf);
 								} else {
 									// Advance to next WS char following the current numeric token - since sscanf skips leading WS,
@@ -190,7 +190,7 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 							kprod *= 2;
 							if((kprod & 1023) != 0)
 							{
-								sprintf(cbuf, "get_preferred_fft_radix: illegal data in %s file: product of complex radices (%d) not a multiple of 1K! Offending input line %s", CONFIGFILE, kprod, in_line);
+								snprintf(cbuf,STR_MAX_LEN,"get_preferred_fft_radix: illegal data in %s file: product of complex radices (%d) not a multiple of 1K! Offending input line %s", CONFIGFILE, kprod, in_line);
 								ASSERT(HERE, 0, cbuf);
 							}
 							kprod >>= 10;
@@ -202,7 +202,7 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 								/* Product of radices must equal complex vector length (n/2): */
 								if(kprod != kblocks)
 								{
-									sprintf(cbuf, "get_preferred_fft_radix: mismatching data in %s file: (product of complex radices)/2^10 (%d) != kblocks/2 (%d), offending input line %s", CONFIGFILE, kprod, kblocks/2, in_line);
+									snprintf(cbuf,STR_MAX_LEN,"get_preferred_fft_radix: mismatching data in %s file: (product of complex radices)/2^10 (%d) != kblocks/2 (%d), offending input line %s", CONFIGFILE, kprod, kblocks/2, in_line);
 									ASSERT(HERE, 0, cbuf);
 								}
 

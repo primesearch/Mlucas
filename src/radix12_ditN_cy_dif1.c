@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -169,6 +169,7 @@ int radix12_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 !   See the documentation in mers_mod_square and radix16_dif_pass for further details on the array
 !   storage scheme, and radix8_ditN_cy_dif1 for details on the reduced-length weights array scheme.
 */
+	const char func[] = "radix12_ditN_cy_dif1";
 	static	int NDIVR;
 	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
@@ -299,7 +300,7 @@ int radix12_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
 	double prp_mult = 1.0;
 	if((TEST_TYPE & 0xfffffffe) == TEST_TYPE_PRP) {	// Mask off low bit to lump together PRP and PRP-C tests
-		i = (iter % ITERS_BETWEEN_CHECKPOINTS) - 1;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
+		i = (iter-1) % ITERS_BETWEEN_CHECKPOINTS;	// Bit we need to read...iter-counter is unit-offset w.r.to iter-interval, hence the -1
 		if((BASE_MULTIPLIER_BITS[i>>6] >> (i&63)) & 1)
 			prp_mult = PRP_BASE;
 	}
@@ -310,15 +311,11 @@ int radix12_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	if((n_div_nwt << nwt_bits) != NDIVR)
 	{
-		sprintf(cbuf,"FATAL: iter = %10d; NWT_BITS does not divide N/12 in radix12_ditN_cy_dif1.\n",iter);
-		if(INTERACT)fprintf(stderr,"%s",cbuf);
-		fp = mlucas_fopen(   OFILE,"a");
-		fq = mlucas_fopen(STATFILE,"a");
-		fprintf(fp,"%s",cbuf);
-		fprintf(fq,"%s",cbuf);
-		fclose(fp);	fp = 0x0;
-		fclose(fq);	fq = 0x0;
-		err=ERR_CARRY;
+		sprintf(cbuf,"FATAL: iter = %10d; NWT_BITS does not divide N/RADIX in %s.\n",iter,func);
+		if(INTERACT) fprintf(stderr,"%s",cbuf);
+		fp = mlucas_fopen(   OFILE,"a");	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
+		fq = mlucas_fopen(STATFILE,"a");	fprintf(fq,"%s",cbuf);	fclose(fq);	fq = 0x0;
+		err = ERR_SKIP_RADIX_SET;
 		return(err);
 	}
 
@@ -1259,7 +1256,7 @@ for(outer=0; outer <= 1; outer++)
 	ns_time.tv_nsec = 100000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
 
 	while(tpool && tpool->free_tasks_queue.num_tasks != pool_work_units) {
-		ASSERT(HERE, 0 == nanosleep(&ns_time, 0x0), "nanosleep fail!");
+		ASSERT(HERE, 0 == mlucas_nanosleep(&ns_time), "nanosleep fail!");
 	}
 
 	/* Copy the thread-specific output carry data back to shared memory: */
@@ -1376,15 +1373,11 @@ for(outer=0; outer <= 1; outer++)
 
 	if(t00 != 0.0)
 	{
-		sprintf(cbuf,"FATAL: iter = %10d; nonzero exit carry in radix12_ditN_cy_dif1 - input wordsize may be too small.\n",iter);
-		if(INTERACT)fprintf(stderr,"%s",cbuf);
-		fp = mlucas_fopen(   OFILE,"a");
-		fq = mlucas_fopen(STATFILE,"a");
-		fprintf(fp,"%s",cbuf);
-		fprintf(fq,"%s",cbuf);
-		fclose(fp);	fp = 0x0;
-		fclose(fq);	fq = 0x0;
-		err=ERR_CARRY;
+		sprintf(cbuf,"FATAL: iter = %10d; nonzero exit carry in %s - input wordsize may be too small.\n",iter,func);
+		if(INTERACT) fprintf(stderr,"%s",cbuf);
+		fp = mlucas_fopen(   OFILE,"a");	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
+		fq = mlucas_fopen(STATFILE,"a");	fprintf(fq,"%s",cbuf);	fclose(fq);	fq = 0x0;
+		err = ERR_CARRY;
 		return(err);
 	}
 

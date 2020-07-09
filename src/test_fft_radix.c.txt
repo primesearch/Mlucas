@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2018 by Ernst W. Mayer.                                           *
+*   (C) 1997-2019 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -19,6 +19,9 @@
 *  02111-1307, USA.                                                            *
 *                                                                              *
 *******************************************************************************/
+#ifdef USE_SSE2
+	#error TEST_FFT_RADIX requires non-SIMD build!
+#endif
 
 // See C-style comment below for how-to-set-TTYPE-at-compile-time. Supported values:
 // 0 = Show input-index-scramblings-needed for DIF and DIT
