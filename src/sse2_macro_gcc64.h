@@ -1281,25 +1281,45 @@
 
 	// SSE2 analog of dft_macro.h::RADIX_08_DIF_TWIDDLE_OOP - Result of adding separate I/O addressing to
 	// radix8_dif_dit_pass_gcc64.h::SSE2_RADIX8_DIF_TWIDDLE:
-	#define SSE2_RADIX8_DIF_TWIDDLE_OOP(Xi0,Xi1,Xi2,Xi3,Xi4,Xi5,Xi6,Xi7, Xo0,Xo1,Xo2,Xo3,Xo4,Xo5,Xo6,Xo7 ,Xc1,Xs1,Xc2,Xs2,Xc3,Xs3,Xc4,Xs4,Xc5,Xs5,Xc6,Xs6,Xc7,Xs7)\
+	/* Dec 2020: Need to cut #args for Apple M1/Clang builds on Arm64 - do similar on x86 to avoid
+	multiple versions of the macro having different arglists.
+	Inputs i0-7 are always ptrs to BRed addresses add[0,4,2,6,1,5,3,7], thus we need the following bfly-address-pairs:
+		lcol:			rcol:
+		i0,4 = add0,1	i1,5 = add4,5
+		i2,6 = add2,3	i3,7 = add6,7
+	i.e. within each column we have linear address-access: lcol = in0+[0,i1,i2,i3], rcol = [in0+i4]+[0,i1,i2,i3]
+	Thus, in the #arg-reduced version of the macro, input-addresses are computed from in0 and [i1,i2,i4],
+	where in0 is a memory base-address and the i's are LITERAL [BYTE] OFFSETS.
+
+	Output addresses are nonlinear first due to our main-array index-padding scheme used to avoid cache conflicts,
+	and secondly because e.g. radix-192,320 use permuted O-address octets, so in place of the previous
+	passing of the 8 O-addresses as separate args we now send base-address for each O-address octet and pointer
+	to local length-8 array array containing the double* index-offsets, and do the output-address
+	pointer arithmetic inside the macro:
+
+	ASSUMES: (vec_dbl)ISRT2 has been loaded into SIMD register v29 via preceding call to SSE2_RADIX8_DIF_0TWIDDLE.
+	*/
+	#define SSE2_RADIX8_DIF_TWIDDLE_OOP(Xin0,Xi1, Xout0,Xoff, Xtwid_ptrs, Xtwo)\
 	{\
 	__asm__ volatile (\
-		"ldr	x0,%[i0]			\n\t	ldr	x4,%[i1]			\n\t"\
-		"ldr	x1,%[i4]			\n\t	ldr	x5,%[i5]			\n\t"\
-		"ldr	x2,%[i2]			\n\t	ldr	x6,%[i3]			\n\t"\
-		"ldr	x3,%[i6]			\n\t	ldr	x7,%[i7]			\n\t"\
-		"									ldr	x12,%[c4]			\n\t"\
-		"									ldr	x13,%[s4]			\n\t"\
+	/* Compute input addresses: x0 = base-address in0; i1 is base byte-offset, no need to lshift it prior to add: */\
+		"ldr	x0,%[in0]			\n\t	ldr	x8,%[twid_ptrs]		\n\t"\
+		"ldr	w7,%[i1]	\n\t"/* i1-offset goes in x7, which is overwritten via sum-with-base-address last */\
+		"add	x4,x0,x7,lsl #2		\n\t"/* x4 = in0+i4 */\
+		"add	x1,x0,x7			\n\t	add	x5,x4,x7			\n\t"/* x[1,5] = in0 + i1,5 */\
+		"add	x2,x0,x7,lsl #1		\n\t	add	x6,x4,x7,lsl #1		\n\t"/* x[2,6] = in0 + i2,6 */\
+		"add	x3,x2,x7			\n\t	add	x7,x6,x7			\n\t"/* x[3,7] = in0 + i3,7 */\
+		"ldp	x10,x11,[x8]		\n\t	ldp	x12,x13,[x8,#0x30]	\n\t"/* [c1,s1],[c4,s4]-pointers */\
 		"									ld1r	{v16.2d},[x12]	\n\t"\
 		"									ld1r	{v17.2d},[x13]	\n\t"\
-		"ldr	x10,%[c1]			\n\t	ldp	q12,q13,[x4]				\n\t"\
-		"ldr	x11,%[s1]			\n\t	ldp	q14,q15,[x5]				\n\t"\
+		"									ldp	q12,q13,[x4]				\n\t"\
+		"									ldp	q14,q15,[x5]				\n\t"\
 		"ld1r	{v8.2d},[x10]		\n\t	fmul	v18.2d,v12.2d,v16.2d	\n\t"\
 		"ld1r	{v9.2d},[x11]		\n\t	fmul	v19.2d,v13.2d,v16.2d	\n\t"\
 		"ldp	q0,q1,[x0]			\n\t	fmls	v18.2d,v13.2d,v17.2d	\n\t"\
 		"ldp	q2,q3,[x1]			\n\t	fmla	v19.2d,v12.2d,v17.2d	\n\t"\
-		"fmul	v4.2d,v2.2d,v8.2d	\n\t	ldr	x12,%[c5]			\n\t"\
-		"fmul	v5.2d,v3.2d,v8.2d	\n\t	ldr	x13,%[s5]			\n\t"\
+		"fmul	v4.2d,v2.2d,v8.2d	\n\t	ldp	x12,x13,[x8,#0x40]	\n\t"/* [c5,s5]-pointers */\
+		"fmul	v5.2d,v3.2d,v8.2d	\n\t"\
 		"fmls	v4.2d,v3.2d,v9.2d	\n\t	ld1r	{v16.2d},[x12]	\n\t"\
 		"fmla	v5.2d,v2.2d,v9.2d	\n\t	ld1r	{v17.2d},[x13]	\n\t"\
 		"fsub	v2.2d,v0.2d,v4.2d	\n\t	fmul	v12.2d,v14.2d,v16.2d	\n\t"\
@@ -1308,20 +1328,20 @@
 		"fadd	v1.2d,v1.2d,v5.2d	\n\t	fmla	v13.2d,v14.2d,v17.2d	\n\t"\
 		"ldp	q4,q5,[x2]			\n\t	fsub	v14.2d,v18.2d,v12.2d	\n\t"\
 		"ldp	q6,q7,[x3]			\n\t	fsub	v15.2d,v19.2d,v13.2d	\n\t"\
-		"ldr	x10,%[c2]			\n\t	fadd	v12.2d,v18.2d,v12.2d	\n\t"\
-		"ldr	x11,%[s2]			\n\t	fadd	v13.2d,v19.2d,v13.2d	\n\t"\
+		"ldp	x10,x11,[x8,#0x10]	\n\t	fadd	v12.2d,v18.2d,v12.2d	\n\t"/* lcol: [c2,s2]-pointers */\
+		"									fadd	v13.2d,v19.2d,v13.2d	\n\t"\
 		"ld1r	{v8.2d},[x10]		\n\t	ldp	q16,q17,[x6]				\n\t"\
 		"ld1r	{v9.2d},[x11]		\n\t	ldp	q18,q19,[x7]				\n\t"\
-		"fmul	v10.2d,v4.2d,v8.2d	\n\t	ldr	x12,%[c6]			\n\t"\
-		"fmul	v11.2d,v5.2d,v8.2d	\n\t	ldr	x13,%[s6]			\n\t"\
+		"fmul	v10.2d,v4.2d,v8.2d	\n\t	ldp	x12,x13,[x8,#0x50]	\n\t"/* [c6,s6]-pointers */\
+		"fmul	v11.2d,v5.2d,v8.2d	\n\t"\
 		"fmls	v10.2d,v5.2d,v9.2d	\n\t	ld1r	{v20.2d},[x12]	\n\t"\
 		"fmla	v11.2d,v4.2d,v9.2d	\n\t	ld1r	{v21.2d},[x13]	\n\t"\
-		"ldr	x10,%[c3]			\n\t	fmul	v22.2d,v16.2d,v20.2d	\n\t"\
-		"ldr	x11,%[s3]			\n\t	fmul	v23.2d,v17.2d,v20.2d	\n\t"\
+		"ldp	x10,x11,[x8,#0x20]	\n\t	fmul	v22.2d,v16.2d,v20.2d	\n\t"/* lcol: [c3,s3]-pointers */\
+		"									fmul	v23.2d,v17.2d,v20.2d	\n\t"\
 		"ld1r	{v8.2d},[x10]		\n\t	fmls	v22.2d,v17.2d,v21.2d	\n\t"\
 		"ld1r	{v9.2d},[x11]		\n\t	fmla	v23.2d,v16.2d,v21.2d	\n\t"\
-		"fmul	v4.2d,v6.2d,v8.2d	\n\t	ldr	x12,%[c7]			\n\t"\
-		"fmul	v5.2d,v7.2d,v8.2d	\n\t	ldr	x13,%[s7]			\n\t"\
+		"fmul	v4.2d,v6.2d,v8.2d	\n\t	ldp	x12,x13,[x8,#0x60]	\n\t"/* [c7,s7]-pointers */\
+		"fmul	v5.2d,v7.2d,v8.2d	\n\t"\
 		"fmls	v4.2d,v7.2d,v9.2d	\n\t	ld1r	{v20.2d},[x12]	\n\t"\
 		"fmla	v5.2d,v6.2d,v9.2d	\n\t	ld1r	{v21.2d},[x13]	\n\t"\
 		"fsub	v6.2d,v10.2d,v4.2d	\n\t	fmul	v16.2d,v18.2d,v20.2d	\n\t"\
@@ -1341,15 +1361,24 @@
 		"fsub	v5.2d,v3.2d,v6.2d	\n\t	fsub	v16.2d,v15.2d,v18.2d	\n\t"\
 		"fsub	v2.2d,v2.2d,v7.2d	\n\t	fsub	v14.2d,v14.2d,v19.2d	\n\t"\
 		"fadd	v3.2d,v3.2d,v6.2d	\n\t	fadd	v15.2d,v15.2d,v18.2d	\n\t"\
-	/* v6,7,18,19 free */\
-		"fsub	v6.2d,v0.2d,v12.2d		\n\t	ldr	x0,%[o0]	\n\t	fsub	v18.2d,v14.2d,v15.2d	\n\t"\
-		"fsub	v7.2d,v1.2d,v13.2d		\n\t	ldr	x1,%[o1]	\n\t	fadd	v19.2d,v14.2d,v15.2d	\n\t"\
-		"fadd	v0.2d,v0.2d,v12.2d		\n\t	ldr	x2,%[o2]	\n\t	fmul	v18.2d,v18.2d,v29.2d	\n\t"\
-		"fadd	v1.2d,v1.2d,v13.2d		\n\t	ldr	x3,%[o3]	\n\t	fmul	v19.2d,v19.2d,v29.2d	\n\t"\
-		"fsub	v12.2d,v8.2d,v21.2d		\n\t	ldr	x4,%[o4]	\n\t	fadd	v14.2d,v16.2d,v17.2d	\n\t"\
-		"fsub	v13.2d,v9.2d,v20.2d		\n\t	ldr	x5,%[o5]	\n\t	fsub	v15.2d,v16.2d,v17.2d	\n\t"\
-		"fadd	v8.2d,v8.2d,v21.2d		\n\t	ldr	x6,%[o6]	\n\t	fmul	v14.2d,v14.2d,v29.2d	\n\t"\
-		"fadd	v9.2d,v9.2d,v20.2d		\n\t	ldr	x7,%[o7]	\n\t	fmul	v15.2d,v15.2d,v29.2d	\n\t"\
+	/* Compute output addresses: */\
+		/* Load output base-address into x10 and offset-array pointer into x11: */\
+		"ldr	x10,%[out0]			\n\t	ldr	x11,%[off]			\n\t"\
+	/* v6,7,18,19 free - interleave O-address computations with floating-double vector ones */\
+		"ldp	w0,w1,[x11]				\n\t	ldp	w4,w5,[x11,#0x10]	\n\t"/* off[0|1,4|5] */\
+		"fsub	v6.2d,v0.2d,v12.2d		\n\t	fsub	v18.2d,v14.2d,v15.2d	\n\t"\
+		"fsub	v7.2d,v1.2d,v13.2d		\n\t	fadd	v19.2d,v14.2d,v15.2d	\n\t"\
+		"ldp	w2,w3,[x11,#0x08]		\n\t	ldp	w6,w7,[x11,#0x18]	\n\t"/* off[2|3,6|7] */\
+		"fadd	v0.2d,v0.2d,v12.2d		\n\t	fmul	v18.2d,v18.2d,v29.2d	\n\t"\
+		"fadd	v1.2d,v1.2d,v13.2d		\n\t	fmul	v19.2d,v19.2d,v29.2d	\n\t"\
+		"add	x0,x10,x0,lsl #3		\n\t	add	x4,x10,x4,lsl #3\n\t"/* x[0,4] = (double *)out0 + off[0,4] */\
+		"fsub	v12.2d,v8.2d,v21.2d		\n\t	fadd	v14.2d,v16.2d,v17.2d	\n\t"\
+		"add	x1,x10,x1,lsl #3		\n\t	add	x5,x10,x5,lsl #3\n\t"/* x[1,5] = (double *)out0 + off[1,5] */\
+		"fsub	v13.2d,v9.2d,v20.2d		\n\t	fsub	v15.2d,v16.2d,v17.2d	\n\t"\
+		"add	x2,x10,x2,lsl #3		\n\t	add	x6,x10,x6,lsl #3\n\t"/* x[2,6] = (double *)out0 + off[2,6] */\
+		"fadd	v8.2d,v8.2d,v21.2d		\n\t	fmul	v14.2d,v14.2d,v29.2d	\n\t"\
+		"add	x3,x10,x3,lsl #3		\n\t	add	x7,x10,x7,lsl #3\n\t"/* x[3,7] = (double *)out0 + off[3,7] */\
+		"fadd	v9.2d,v9.2d,v20.2d		\n\t	fmul	v15.2d,v15.2d,v29.2d	\n\t"\
 		"fsub	v16.2d,v2.2d ,v18.2d	\n\t	stp	q0 ,q1 ,[x0]	\n\t"\
 		"fsub	v17.2d,v3.2d ,v19.2d	\n\t	stp	q6 ,q7 ,[x1]	\n\t"\
 		"fadd	v2.2d ,v2.2d ,v18.2d	\n\t	stp	q12,q9 ,[x2]	\n\t"\
@@ -1359,35 +1388,18 @@
 		"fadd	v4.2d ,v4.2d ,v14.2d	\n\t	stp	q18,q19,[x6]	\n\t"\
 		"fadd	v5.2d ,v5.2d ,v15.2d	\n\t	stp	q4 ,q5 ,[x7]	\n\t"\
 		:					/* outputs: none */\
-		: [i0] "m" (Xi0)	/* All inputs from memory addresses here */\
+		: [in0] "m" (Xin0)	/* All 'm'-inputs from memory addresses here... */\
 		 ,[i1] "m" (Xi1)\
-		 ,[i2] "m" (Xi2)\
-		 ,[i3] "m" (Xi3)\
-		 ,[i4] "m" (Xi4)\
-		 ,[i5] "m" (Xi5)\
-		 ,[i6] "m" (Xi6)\
-		 ,[i7] "m" (Xi7)\
-		 ,[o0] "m" (Xo0)\
-		 ,[o1] "m" (Xo1)\
-		 ,[o2] "m" (Xo2)\
-		 ,[o3] "m" (Xo3)\
-		 ,[o4] "m" (Xo4)\
-		 ,[o5] "m" (Xo5)\
-		 ,[o6] "m" (Xo6)\
-		 ,[o7] "m" (Xo7)\
+		 ,[out0] "m" (Xout0) /* output-address-octet base pointer */\
+		 ,[off] "m" (Xoff)	/* and pointer to uint32 array of 8 double* index offsets */\
 	/* Re-use first-coded DIT version of this macro, just swap FMA/FMS in CMULs, BR input order,replace DIT's v17+-v16 in final set of
 	bflys with v16+-v17, and un-fiddle the Im-parts-swap of o6/o7, which also necessitated the STP instructions for those 2 outputs to
 	be swapped due to register-dependencies.
 		Comment: Dunno why SSE2 version of this macro had target argnames [c,s{1-7}] BRed, since not BRing them allows DIT
 	sincos index-ordering to be used, but in any event undo that arglist-BRing in this ARM implementation of the macro code's: */\
-		 ,[c1] "m" (Xc1),[s1] "m" (Xs1)\
-		 ,[c2] "m" (Xc2),[s2] "m" (Xs2)\
-		 ,[c3] "m" (Xc3),[s3] "m" (Xs3)\
-		 ,[c4] "m" (Xc4),[s4] "m" (Xs4)\
-		 ,[c5] "m" (Xc5),[s5] "m" (Xs5)\
-		 ,[c6] "m" (Xc6),[s6] "m" (Xs6)\
-		 ,[c7] "m" (Xc7),[s7] "m" (Xs7)\
-		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","x7","x10","x11","x12","x13",\
+		 ,[twid_ptrs] "m" (Xtwid_ptrs)\
+		 ,[two] "m" (Xtwo)/* Only used in x86/FMA implementations of this macro */\
+		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","x7","x8","x10","x11","x12","x13",\
 		"v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11","v12","v13","v14","v15","v16","v17","v18","v19","v20","v21","v22","v23","v29"	/* Clobbered registers */\
 	);\
 	}
@@ -1399,26 +1411,40 @@
 	// SSE2 SIMD Opcount: 102 load/store [30 implicit], 66 add/sub, 50 mul. Compare to DFT macros used for radix-8-pass-with-twiddles:
 	// DIF opcount : 140 load/store [56 implicit], 66 add/sub, 32 mul
 	// DIT opcount :  85 load/store [36 implicit], 68 add/sub, 32 mul .
-	//
-	#define SSE2_RADIX8_DIT_TWIDDLE_OOP(Xi0,Xi1,Xi2,Xi3,Xi4,Xi5,Xi6,Xi7, Xo0,Xo1,Xo2,Xo3,Xo4,Xo5,Xo6,Xo7 ,Xc1,Xs1,Xc2,Xs2,Xc3,Xs3,Xc4,Xs4,Xc5,Xs5,Xc6,Xs6,Xc7,Xs7)\
+	/* Dec 2020: Needed to cut #args in defs of SSE2_RADIX8_DIF_TWIDDLE_OOP and SSE2_RADIX8_DIT_TWIDDLE_OOP
+	from 30 to < 24 for Apple M1/Clang builds on Arm64 - do similar on x86 to avoid multiple versions of the
+	macro having different arglists.
+	The DIT version uses fixed-multiple pointer-offsets for both in-and-output address octets,
+	because it is only ever used with small local data arrays as IOs, not the main residue array with its wide
+	strides and index-padding scheme. So #def the needed basic strides in the 'calling' routine, then:
+	I-addresses are in-order, i.e. what were formerly pointers [i0-7] are now computed as
+		in0  + {0,i[1-7]} =  in0 + {0,i[1,2,2+2, 4,4+1,4+2,4+1+2]}
+	O-addresses are BRed, i.e. what were formerly pointers [o0-7] are now computed as
+		out0 + {0,o_off[4,2,6,1,5,3,7]} .
+
+	ASSUMES: (vec_dbl)ISRT2 has been loaded into SIMD register v29 via preceding call to SSE2_RADIX8_DIT_0TWIDDLE_OOP.
+	*/
+	#define SSE2_RADIX8_DIT_TWIDDLE_OOP(Xin0,Xi1, Xout0,Xo_off, Xtwid_ptrs, Xtwo)\
 	{\
 	__asm__ volatile (\
-		"ldr	x0,%[i0]			\n\t	ldr	x4,%[i4]			\n\t"\
-		"ldr	x1,%[i1]			\n\t	ldr	x5,%[i5]			\n\t"\
-		"ldr	x2,%[i2]			\n\t	ldr	x6,%[i6]			\n\t"\
-		"ldr	x3,%[i3]			\n\t	ldr	x7,%[i7]			\n\t"\
-		"									ldr	x12,%[c4]			\n\t"\
-		"									ldr	x13,%[s4]			\n\t"\
+	/* Compute input addresses: x0 = base-address in0; i1 is base byte-offset, no need to lshift it prior to add: */\
+		"ldr	x0,%[in0]			\n\t	ldr	x8,%[twid_ptrs]		\n\t"\
+		"ldr	w7,%[i1]	\n\t"/* i1-offset goes in x7, which is overwritten via sum-with-base-address last */\
+		"add	x4,x0,x7,lsl #2		\n\t"/* x4 = in0+i4 */\
+		"add	x1,x0,x7			\n\t	add	x5,x4,x7			\n\t"/* x[1,5] = in0 + i1,5 */\
+		"add	x2,x0,x7,lsl #1		\n\t	add	x6,x4,x7,lsl #1		\n\t"/* x[2,6] = in0 + i2,6 */\
+		"add	x3,x2,x7			\n\t	add	x7,x6,x7			\n\t"/* x[3,7] = in0 + i3,7 */\
+		"ldp	x10,x11,[x8]		\n\t	ldp	x12,x13,[x8,#0x30]	\n\t"/* [c1,s1],[c4,s4]-pointers */\
 		"									ld1r	{v16.2d},[x12]	\n\t"\
 		"									ld1r	{v17.2d},[x13]	\n\t"\
-		"ldr	x10,%[c1]			\n\t	ldp	q12,q13,[x4]				\n\t"\
-		"ldr	x11,%[s1]			\n\t	ldp	q14,q15,[x5]				\n\t"\
+		"									ldp	q12,q13,[x4]				\n\t"\
+		"									ldp	q14,q15,[x5]				\n\t"\
 		"ld1r	{v8.2d},[x10]		\n\t	fmul	v18.2d,v12.2d,v16.2d	\n\t"\
 		"ld1r	{v9.2d},[x11]		\n\t	fmul	v19.2d,v13.2d,v16.2d	\n\t"\
 		"ldp	q0,q1,[x0]			\n\t	fmla	v18.2d,v13.2d,v17.2d	\n\t"\
 		"ldp	q2,q3,[x1]			\n\t	fmls	v19.2d,v12.2d,v17.2d	\n\t"\
-		"fmul	v4.2d,v2.2d,v8.2d	\n\t	ldr	x12,%[c5]			\n\t"\
-		"fmul	v5.2d,v3.2d,v8.2d	\n\t	ldr	x13,%[s5]			\n\t"\
+		"fmul	v4.2d,v2.2d,v8.2d	\n\t	ldp	x12,x13,[x8,#0x40]	\n\t"/* [c5,s5]-pointers */\
+		"fmul	v5.2d,v3.2d,v8.2d	\n\t"\
 		"fmla	v4.2d,v3.2d,v9.2d	\n\t	ld1r	{v16.2d},[x12]	\n\t"\
 		"fmls	v5.2d,v2.2d,v9.2d	\n\t	ld1r	{v17.2d},[x13]	\n\t"\
 		"fsub	v2.2d,v0.2d,v4.2d	\n\t	fmul	v12.2d,v14.2d,v16.2d	\n\t"\
@@ -1427,20 +1453,20 @@
 		"fadd	v1.2d,v1.2d,v5.2d	\n\t	fmls	v13.2d,v14.2d,v17.2d	\n\t"\
 		"ldp	q4,q5,[x2]			\n\t	fsub	v14.2d,v18.2d,v12.2d	\n\t"\
 		"ldp	q6,q7,[x3]			\n\t	fsub	v15.2d,v19.2d,v13.2d	\n\t"\
-		"ldr	x10,%[c2]			\n\t	fadd	v12.2d,v18.2d,v12.2d	\n\t"\
-		"ldr	x11,%[s2]			\n\t	fadd	v13.2d,v19.2d,v13.2d	\n\t"\
+		"ldp	x10,x11,[x8,#0x10]	\n\t	fadd	v12.2d,v18.2d,v12.2d	\n\t"/* lcol: [c2,s2]-pointers */\
+		"									fadd	v13.2d,v19.2d,v13.2d	\n\t"\
 		"ld1r	{v8.2d},[x10]		\n\t	ldp	q16,q17,[x6]				\n\t"\
 		"ld1r	{v9.2d},[x11]		\n\t	ldp	q18,q19,[x7]				\n\t"\
-		"fmul	v10.2d,v4.2d,v8.2d	\n\t	ldr	x12,%[c6]			\n\t"\
-		"fmul	v11.2d,v5.2d,v8.2d	\n\t	ldr	x13,%[s6]			\n\t"\
+		"fmul	v10.2d,v4.2d,v8.2d	\n\t	ldp	x12,x13,[x8,#0x50]	\n\t"/* [c6,s6]-pointers */\
+		"fmul	v11.2d,v5.2d,v8.2d	\n\t"\
 		"fmla	v10.2d,v5.2d,v9.2d	\n\t	ld1r	{v20.2d},[x12]	\n\t"\
 		"fmls	v11.2d,v4.2d,v9.2d	\n\t	ld1r	{v21.2d},[x13]	\n\t"\
-		"ldr	x10,%[c3]			\n\t	fmul	v22.2d,v16.2d,v20.2d	\n\t"\
-		"ldr	x11,%[s3]			\n\t	fmul	v23.2d,v17.2d,v20.2d	\n\t"\
+		"ldp	x10,x11,[x8,#0x20]	\n\t	fmul	v22.2d,v16.2d,v20.2d	\n\t"/* lcol: [c3,s3]-pointers */\
+		"									fmul	v23.2d,v17.2d,v20.2d	\n\t"\
 		"ld1r	{v8.2d},[x10]		\n\t	fmla	v22.2d,v17.2d,v21.2d	\n\t"\
 		"ld1r	{v9.2d},[x11]		\n\t	fmls	v23.2d,v16.2d,v21.2d	\n\t"\
-		"fmul	v4.2d,v6.2d,v8.2d	\n\t	ldr	x12,%[c7]			\n\t"\
-		"fmul	v5.2d,v7.2d,v8.2d	\n\t	ldr	x13,%[s7]			\n\t"\
+		"fmul	v4.2d,v6.2d,v8.2d	\n\t	ldp	x12,x13,[x8,#0x60]	\n\t"/* [c7,s7]-pointers */\
+		"fmul	v5.2d,v7.2d,v8.2d	\n\t"\
 		"fmla	v4.2d,v7.2d,v9.2d	\n\t	ld1r	{v20.2d},[x12]	\n\t"\
 		"fmls	v5.2d,v6.2d,v9.2d	\n\t	ld1r	{v21.2d},[x13]	\n\t"\
 		"fsub	v6.2d,v10.2d,v4.2d	\n\t	fmul	v16.2d,v18.2d,v20.2d	\n\t"\
@@ -1461,14 +1487,22 @@
 		"fsub	v2.2d,v2.2d,v7.2d	\n\t	fsub	v14.2d,v14.2d,v19.2d	\n\t"\
 		"fadd	v3.2d,v3.2d,v6.2d	\n\t	fadd	v15.2d,v15.2d,v18.2d	\n\t"\
 	/* v6,7,18,19 free */\
-		"fsub	v6.2d,v0.2d,v12.2d		\n\t	ldr	x0,%[o0]	\n\t	fsub	v18.2d,v14.2d,v15.2d	\n\t"\
-		"fsub	v7.2d,v1.2d,v13.2d		\n\t	ldr	x1,%[o1]	\n\t	fadd	v19.2d,v14.2d,v15.2d	\n\t"\
-		"fadd	v0.2d,v0.2d,v12.2d		\n\t	ldr	x2,%[o2]	\n\t	fmul	v18.2d,v18.2d,v29.2d	\n\t"\
-		"fadd	v1.2d,v1.2d,v13.2d		\n\t	ldr	x3,%[o3]	\n\t	fmul	v19.2d,v19.2d,v29.2d	\n\t"\
-		"fsub	v12.2d,v8.2d,v21.2d		\n\t	ldr	x4,%[o4]	\n\t	fadd	v14.2d,v17.2d,v16.2d	\n\t"\
-		"fsub	v13.2d,v9.2d,v20.2d		\n\t	ldr	x5,%[o5]	\n\t	fsub	v15.2d,v17.2d,v16.2d	\n\t"\
-		"fadd	v8.2d,v8.2d,v21.2d		\n\t	ldr	x6,%[o6]	\n\t	fmul	v14.2d,v14.2d,v29.2d	\n\t"\
-		"fadd	v9.2d,v9.2d,v20.2d		\n\t	ldr	x7,%[o7]	\n\t	fmul	v15.2d,v15.2d,v29.2d	\n\t"\
+	/* Dec 2020: O-addresses are BRed, i.e. what were formerly pointers [o0-7] = out0 + {0,off[4,2,6,1,5,3,7]}
+	are now computed as out0 + {0,off[4,2,4+2, 1,4+1,1+2,4+1+2]} */\
+		"ldr	x0,%[out0]			\n\t	ldr	x4,%[o_off]			\n\t"/* out0 is O-base-address; o_off is unit bytewise O-offset, still need multiples 2-7 */\
+		"add	x6,x4,x4			\n\t	add	x7,x6,x6			\n\t"/* O-offset multiples 2,4 go in x6,7, which are overwritten via sum-with-base-address last */\
+		"add	x4,x0,x4			\n\t"/* x4 = out0+i1; loading separate i1,2,4-offsets allows us to reduce instruction serialization, which can't hurt */\
+		"add	x1,x0,x7			\n\t	add	x5,x4,x7			\n\t"/* x[1,5] = out0 + i4,5 */\
+		"add	x2,x0,x6			\n\t	add	x6,x4,x6			\n\t"/* x[2,6] = out0 + i2,3 */\
+		"add	x3,x2,x7			\n\t	add	x7,x6,x7			\n\t"/* x[3,7] = out0 + i6,7 */\
+		"fsub	v6.2d,v0.2d,v12.2d		\n\t	fsub	v18.2d,v14.2d,v15.2d	\n\t"\
+		"fsub	v7.2d,v1.2d,v13.2d		\n\t	fadd	v19.2d,v14.2d,v15.2d	\n\t"\
+		"fadd	v0.2d,v0.2d,v12.2d		\n\t	fmul	v18.2d,v18.2d,v29.2d	\n\t"\
+		"fadd	v1.2d,v1.2d,v13.2d		\n\t	fmul	v19.2d,v19.2d,v29.2d	\n\t"\
+		"fsub	v12.2d,v8.2d,v21.2d		\n\t	fadd	v14.2d,v17.2d,v16.2d	\n\t"\
+		"fsub	v13.2d,v9.2d,v20.2d		\n\t	fsub	v15.2d,v17.2d,v16.2d	\n\t"\
+		"fadd	v8.2d,v8.2d,v21.2d		\n\t	fmul	v14.2d,v14.2d,v29.2d	\n\t"\
+		"fadd	v9.2d,v9.2d,v20.2d		\n\t	fmul	v15.2d,v15.2d,v29.2d	\n\t"\
 		"fsub	v16.2d,v2.2d ,v18.2d	\n\t	stp	q0 ,q1 ,[x0]	\n\t"\
 		"fsub	v17.2d,v3.2d ,v19.2d	\n\t	stp	q6 ,q7 ,[x1]	\n\t"\
 		"fadd	v2.2d ,v2.2d ,v18.2d	\n\t	stp	q12,q9 ,[x3]	\n\t"\
@@ -1478,30 +1512,13 @@
 		"fadd	v4.2d ,v4.2d ,v14.2d	\n\t	stp	q4 ,q19,[x4]	\n\t"\
 		"fadd	v5.2d ,v5.2d ,v15.2d	\n\t	stp	q18,q5 ,[x5]	\n\t"\
 		:					/* outputs: none */\
-		: [i0] "m" (Xi0)	/* All inputs from memory addresses here */\
+		: [in0] "m" (Xin0)	/* All 'm'-inputs from memory addresses here... */\
 		 ,[i1] "m" (Xi1)\
-		 ,[i2] "m" (Xi2)\
-		 ,[i3] "m" (Xi3)\
-		 ,[i4] "m" (Xi4)\
-		 ,[i5] "m" (Xi5)\
-		 ,[i6] "m" (Xi6)\
-		 ,[i7] "m" (Xi7)\
-		 ,[o0] "m" (Xo0)\
-		 ,[o1] "m" (Xo1)\
-		 ,[o2] "m" (Xo2)\
-		 ,[o3] "m" (Xo3)\
-		 ,[o4] "m" (Xo4)\
-		 ,[o5] "m" (Xo5)\
-		 ,[o6] "m" (Xo6)\
-		 ,[o7] "m" (Xo7)\
-		 ,[c1] "m" (Xc1),[s1] "m" (Xs1)\
-		 ,[c2] "m" (Xc2),[s2] "m" (Xs2)\
-		 ,[c3] "m" (Xc3),[s3] "m" (Xs3)\
-		 ,[c4] "m" (Xc4),[s4] "m" (Xs4)\
-		 ,[c5] "m" (Xc5),[s5] "m" (Xs5)\
-		 ,[c6] "m" (Xc6),[s6] "m" (Xs6)\
-		 ,[c7] "m" (Xc7),[s7] "m" (Xs7)\
-		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","x7","x10","x11","x12","x13",\
+		 ,[out0] "m" (Xout0)\
+		 ,[o_off] "m" (Xo_off)/* O-address pointer-stride */\
+		 ,[twid_ptrs] "m" (Xtwid_ptrs)\
+		 ,[two] "m" (Xtwo)/* Only used in FMA implementations of this macro */\
+		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","x7","x8","x10","x11","x12","x13",\
 		"v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11","v12","v13","v14","v15","v16","v17","v18","v19","v20","v21","v22","v23","v29"	/* Clobbered registers */\
 	);\
 	}
@@ -1513,25 +1530,26 @@
 	// __01; this allows us to cut GP-register usage, which is absolutely a must for the 32-bit version
 	// of the macro, and is a benefit to the 64-bit versions which code-fold to yield 2 side-by-side
 	// streams of independently executable instructions, one for data in xmm0-7, the other using xmm8-15.
-	#define SSE2_RADIX16_DIT_0TWIDDLE(Xin0,Xin1,Xin2,Xin3,Xin4,Xin5,Xin6,Xin7,Xin8,Xin9,Xina,Xinb,Xinc,Xind,Xine,Xinf, Xisrt2,Xtwo, Xout0,Xo1,Xo2,Xo3,Xo4)\
+	#define SSE2_RADIX16_DIT_0TWIDDLE(Xin0,Xoff, Xisrt2,Xtwo, Xout0,Xo1,Xo2,Xo3,Xo4)\
 	{\
 	__asm__ volatile (\
+		"ldr	x16,%[in0]	\n\t	ldr	x17,%[off]	\n\t"/* Load input base-address into x16 and int32[16] offset-array pointer into x17 */\
 		/* isrt2,cc0,ss0 not needed until pass 2, but use GPR x7 to load three vector-regs now: */\
 		"ldr	x7,%[__isrt2]		\n\t	ld1r	{v29.2d},[x7]	\n\t"\
 		"ldp	q30,q31,[x7,#0x10]	\n\t"/* cc0,ss0 */\
-		"ldr	x20,%[__i0]			\n\t"/* Use x20-27 for I-addresses, x0-15 for O-addresses */\
-		"ldr	x21,%[__i1]			\n\t"\
-		"ldr	x22,%[__i2]			\n\t"\
-		"ldr	x23,%[__i3]			\n\t"\
+		"ldp	w8 ,w9 ,[x17]		\n\t"/* Use x8 -27 for I-addresses, x0-15 for O-addresses */\
+		"ldp	w10,w11,[x17,#0x08]	\n\t"/* i[0-3] */\
+		"add	x8 ,x16,x8 ,lsl #3	\n\t	add	x9 ,x16,x9 ,lsl #3	\n\t"\
+		"add	x10,x16,x10,lsl #3	\n\t	add	x11,x16,x11,lsl #3	\n\t"\
 		/* SSE2_RADIX4_DIT_0TWIDDLE_B(r1 ):	SSE2_RADIX4_DIT_0TWIDDLE_B(r9 ): */\
-		"ldp	q8 ,q9 ,[x20]		\n\t	ldr	x24,%[__i4]			\n\t"\
-		"ldp	q0 ,q1 ,[x21]		\n\t	ldr	x25,%[__i5]			\n\t"\
-		"ldp	q10,q11,[x22]		\n\t	ldr	x26,%[__i6]			\n\t"\
-		"ldp	q4 ,q5 ,[x23]		\n\t	ldr	x27,%[__i7]			\n\t"\
-		"fsub	v2.2d ,v8.2d ,v0.2d	\n\t	ldp	q20,q21,[x24]		\n\t"\
-		"fsub	v3.2d ,v9.2d ,v1.2d	\n\t	ldp	q12,q13,[x25]		\n\t"\
-		"fadd	v0.2d ,v8.2d ,v0.2d	\n\t	ldp	q22,q23,[x26]		\n\t"\
-		"fadd	v1.2d ,v9.2d ,v1.2d	\n\t	ldp	q16,q17,[x27]		\n\t"\
+		"ldp	q8 ,q9 ,[x8 ]		\n\t	ldp	w12,w13,[x17,#0x10]	\n\t"/* i[4-7] */\
+		"ldp	q0 ,q1 ,[x9 ]		\n\t	ldp	w14,w15,[x17,#0x18]	\n\t"\
+		"ldp	q10,q11,[x10]		\n\t	add	x12,x16,x12,lsl #3	\n\t	add	x13,x16,x13,lsl #3	\n\t"\
+		"ldp	q4 ,q5 ,[x11]		\n\t	add	x14,x16,x14,lsl #3	\n\t	add	x15,x16,x15,lsl #3	\n\t"\
+		"fsub	v2.2d ,v8.2d ,v0.2d	\n\t	ldp	q20,q21,[x12]		\n\t"\
+		"fsub	v3.2d ,v9.2d ,v1.2d	\n\t	ldp	q12,q13,[x13]		\n\t"\
+		"fadd	v0.2d ,v8.2d ,v0.2d	\n\t	ldp	q22,q23,[x14]		\n\t"\
+		"fadd	v1.2d ,v9.2d ,v1.2d	\n\t	ldp	q16,q17,[x15]		\n\t"\
 		"fsub	v6.2d ,v10.2d,v4.2d	\n\t	fsub	v14.2d,v20.2d,v12.2d	\n\t"\
 		"fsub	v7.2d ,v11.2d,v5.2d	\n\t	fsub	v15.2d,v21.2d,v13.2d	\n\t"\
 		"fadd	v4.2d ,v10.2d,v4.2d	\n\t	fadd	v12.2d,v20.2d,v12.2d	\n\t"\
@@ -1544,27 +1562,28 @@
 		"fsub	v11.2d,v3.2d,v6.2d	\n\t	fsub	v21.2d,v13.2d,v17.2d	\n\t"\
 		"fadd	v7.2d ,v2.2d,v7.2d	\n\t	fadd	v16.2d,v12.2d,v16.2d	\n\t"\
 		"fadd	v6.2d ,v3.2d,v6.2d	\n\t	fadd	v17.2d,v13.2d,v17.2d	\n\t"\
-		"ldr	x0,%[__out0]		\n\t	ldr	w15,%[__o4]			\n\t"\
+		"ldr	x0,%[__out0]		\n\t	ldr	w7,%[__o4]			\n\t"\
 		"ldr	w1,%[__o1]			\n\t	add	x1,x0,x1			\n\t"\
 		"ldr	w2,%[__o2]			\n\t	add	x2,x0,x2			\n\t"\
 		"ldr	w3,%[__o3]			\n\t	add	x3,x0,x3			\n\t"\
-/* o0 */"stp	q4 ,q5 ,[x0]	\n\t	add	x4,x0,x15	\n\t	fsub	v22.2d,v14.2d,v19.2d	\n\t"\
-/* o1 */"stp	q7 ,q11,[x1]	\n\t	add	x5,x1,x15	\n\t	fsub	v23.2d,v15.2d,v18.2d	\n\t"\
-/* o2 */"stp	q8 ,q9 ,[x2]	\n\t	add	x6,x2,x15	\n\t	fadd	v19.2d,v14.2d,v19.2d	\n\t"\
-/* o3 */"stp	q10,q6 ,[x3]	\n\t	add	x7,x3,x15	\n\t	fadd	v18.2d,v15.2d,v18.2d	\n\t"\
-		"ldr	x20,%[__i8]			\n\t	stp	q16,q17,[x4]	\n\t"/* o4 */\
-		"ldr	x21,%[__i9]			\n\t	stp	q19,q23,[x5]	\n\t"/* o5 */\
-		"ldr	x22,%[__ia]			\n\t	stp	q20,q21,[x6]	\n\t"/* o6 */\
-		"ldr	x23,%[__ib]			\n\t	stp	q22,q18,[x7]	\n\t"/* o7 */\
+/* o0 */"stp	q4 ,q5 ,[x0]	\n\t	add	x4,x0,x7	\n\t	fsub	v22.2d,v14.2d,v19.2d	\n\t"\
+/* o1 */"stp	q7 ,q11,[x1]	\n\t	add	x5,x1,x7	\n\t	fsub	v23.2d,v15.2d,v18.2d	\n\t"\
+/* o2 */"stp	q8 ,q9 ,[x2]	\n\t	add	x6,x2,x7	\n\t	fadd	v19.2d,v14.2d,v19.2d	\n\t"\
+/* o3 */"stp	q10,q6 ,[x3]	\n\t	add	x7,x3,x7	\n\t	fadd	v18.2d,v15.2d,v18.2d	\n\t"\
+/*i8-b*/"ldp	w8 ,w9 ,[x17,#0x20]	\n\t									stp	q16,q17,[x4]	\n\t"/* o4 */\
+		"ldp	w10,w11,[x17,#0x28]	\n\t									stp	q19,q23,[x5]	\n\t"/* o5 */\
+		"add	x8 ,x16,x8 ,lsl #3	\n\t	add	x9 ,x16,x9 ,lsl #3	\n\t	stp	q20,q21,[x6]	\n\t"/* o6 */\
+		"add	x10,x16,x10,lsl #3	\n\t	add	x11,x16,x11,lsl #3	\n\t	stp	q22,q18,[x7]	\n\t"/* o7 */\
 		/* SSE2_RADIX4_DIT_0TWIDDLE_B(r17):	SSE2_RADIX4_DIT_0TWIDDLE_B(r25): */\
-		"ldp	q8 ,q9 ,[x20]		\n\t	ldr	x24,%[__ic]			\n\t"\
-		"ldp	q0 ,q1 ,[x21]		\n\t	ldr	x25,%[__id]			\n\t"\
-		"ldp	q10,q11,[x22]		\n\t	ldr	x26,%[__ie]			\n\t"\
-		"ldp	q4 ,q5 ,[x23]		\n\t	ldr	x27,%[__if]			\n\t"\
-		"fsub	v2.2d ,v8.2d ,v0.2d	\n\t	ldp	q20,q21,[x24]		\n\t"\
-		"fsub	v3.2d ,v9.2d ,v1.2d	\n\t	ldp	q12,q13,[x25]		\n\t"\
-		"fadd	v0.2d ,v8.2d ,v0.2d	\n\t	ldp	q22,q23,[x26]		\n\t"\
-		"fadd	v1.2d ,v9.2d ,v1.2d	\n\t	ldp	q16,q17,[x27]		\n\t"\
+		"ldp	q8 ,q9 ,[x8 ]		\n\t	ldp	w12,w13,[x17,#0x30]	\n\t"/* i[c-f] */\
+		"ldp	q0 ,q1 ,[x9 ]		\n\t	ldp	w14,w15,[x17,#0x38]	\n\t"\
+		"ldp	q10,q11,[x10]		\n\t	add	x12,x16,x12,lsl #3	\n\t	add	x13,x16,x13,lsl #3	\n\t"\
+		"ldp	q4 ,q5 ,[x11]		\n\t	add	x14,x16,x14,lsl #3	\n\t	add	x15,x16,x15,lsl #3	\n\t"\
+		"fsub	v2.2d ,v8.2d ,v0.2d	\n\t	ldp	q20,q21,[x12]		\n\t"\
+		"fsub	v3.2d ,v9.2d ,v1.2d	\n\t	ldp	q12,q13,[x13]		\n\t"\
+		"fadd	v0.2d ,v8.2d ,v0.2d	\n\t	ldp	q22,q23,[x14]		\n\t"\
+		"fadd	v1.2d ,v9.2d ,v1.2d	\n\t	ldp	q16,q17,[x15]		\n\t"\
+/*** done with Input-address reads ***/\
 		"fsub	v6.2d ,v10.2d,v4.2d	\n\t	fsub	v14.2d,v20.2d,v12.2d	\n\t"\
 		"fsub	v7.2d ,v11.2d,v5.2d	\n\t	fsub	v15.2d,v21.2d,v13.2d	\n\t"\
 		"fadd	v4.2d ,v10.2d,v4.2d	\n\t	fadd	v12.2d,v20.2d,v12.2d	\n\t"\
@@ -1577,6 +1596,7 @@
 		"fsub	v11.2d,v3.2d,v6.2d	\n\t	fsub	v21.2d,v13.2d,v17.2d	\n\t"\
 		"fadd	v7.2d ,v2.2d,v7.2d	\n\t	fadd	v16.2d,v12.2d,v16.2d	\n\t"\
 		"fadd	v6.2d ,v3.2d,v6.2d	\n\t	fadd	v17.2d,v13.2d,v17.2d	\n\t"\
+		"ldr	w15,%[__o4]			\n\t"\
 /* o8 */"add	x8 ,x4,x15	\n\t	stp	q4 ,q5 ,[x8 ]	\n\t"\
 /* o9 */"add	x9 ,x5,x15	\n\t	stp	q7 ,q11,[x9 ]	\n\t"\
 /* oa */"add	x10,x6,x15	\n\t	stp	q8 ,q9 ,[x10]	\n\t"\
@@ -1661,22 +1681,8 @@
 		"									stp	q18,q15,[x7 ]		\n\t"\
 		"									stp	q14,q19,[x15]		\n\t"\
 		:					/* outputs: none */\
-		:[__i0] "m" (Xin0)	/* All inputs from memory addresses here */\
-		,[__i1] "m" (Xin1)\
-		,[__i2] "m" (Xin2)\
-		,[__i3] "m" (Xin3)\
-		,[__i4] "m" (Xin4)\
-		,[__i5] "m" (Xin5)\
-		,[__i6] "m" (Xin6)\
-		,[__i7] "m" (Xin7)\
-		,[__i8] "m" (Xin8)\
-		,[__i9] "m" (Xin9)\
-		,[__ia] "m" (Xina)\
-		,[__ib] "m" (Xinb)\
-		,[__ic] "m" (Xinc)\
-		,[__id] "m" (Xind)\
-		,[__ie] "m" (Xine)\
-		,[__if] "m" (Xinf)\
+		:[in0] "m" (Xin0)	/* Input-address-16-tet base pointer */\
+		,[off] "m" (Xoff)	/* and pointer to uint32 array of 16 double* index offsets */\
 		,[__isrt2] "m" (Xisrt2)\
 		,[__two] "m" (Xtwo)\
 		,[__out0] "m" (Xout0)\
@@ -1684,13 +1690,16 @@
 		,[__o2] "m" (Xo2)\
 		,[__o3] "m" (Xo3)\
 		,[__o4] "m" (Xo4)\
-		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","x7","x8","x9","x10","x11","x12","x13","x14","x15",\
-			"x20","x21","x22","x23","x24","x25","x26","x27", "v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11",\
-			"v12","v13","v14","v15","v16","v17","v18","v19","v20","v21","v22","v23", "v28","v29","v30","v31"	/* Clobbered registers */\
+		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","x7","x8","x9","x10","x11","x12","x13","x14","x15","x16","x17",\
+			"v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11","v12","v13","v14","v15",\
+			"v16","v17","v18","v19","v20","v21","v22","v23", "v28","v29","v30","v31"	/* Clobbered registers - x18,x29 are reserved on Apple platforms */\
 	);\
 	}
 
-	#define SSE2_RADIX16_DIF_0TWIDDLE(Xin0,Xi1,Xi2,Xi3,Xi4, Xisrt2,Xtwo, Xout0,Xout1,Xout2,Xout3,Xout4,Xout5,Xout6,Xout7,Xout8,Xout9,Xouta,Xoutb,Xoutc,Xoutd,Xoute,Xoutf)\
+	/* Dec 2020: Needed to cut #args for Apple M1/Clang builds on Arm64 - do similar on x86 to avoid
+	multiple versions of the macro having different arglists. Replace 16 O-addresses with O-base-address
+	out0 and pointer to array of 16 int offset-indices: */
+	#define SSE2_RADIX16_DIF_0TWIDDLE(Xin0,Xi1,Xi2,Xi3,Xi4, Xisrt2,Xtwo, Xout0,Xoff)\
 	{\
 	__asm__ volatile (\
 		/* isrt2,cc0,ss0 not needed until pass 2, but use GPR x7 to load three vector-regs now: */\
@@ -1759,27 +1768,30 @@
 		"mov	v14.16b,v20.16b		\n\t	mov	v15.16b,v21.16b	\n\t"/* 6,7 */\
 		"stp	q19,q23,[x15]		\n\t	ldp	q22,q23,[x8 ]	\n\t"/* 0,1 - load this pair last because need to wait for lcol writes of q22,23 to issue */\
 	/*** Now do four pass-2 4-DFTs, inputs from local store, outputs back to main-array: ***/\
+	/* Use GPRs x0-15 with O-addresses after data-reload from each sub-quartet of those I-addresses finishes */\
+		/* Load output base-address into x16 and offset-array pointer into x17: */\
+		"ldr	x16,%[out0]			\n\t	ldr	x17,%[off]			\n\t"\
 		/* Block 0:							Block 2 (loads for same above): */\
 		"ldp	q8 ,q9 ,[x0 ]		\n\t	fsub	v16.2d,v12.2d,v13.2d	\n\t"\
 		"ldp	q2 ,q3 ,[x2 ]		\n\t	fadd	v17.2d,v12.2d,v13.2d	\n\t"\
 		"ldp	q10,q11,[x1 ]		\n\t	fadd	v18.2d,v15.2d,v14.2d	\n\t"\
 		"ldp	q6 ,q7 ,[x3 ]		\n\t	fsub	v19.2d,v15.2d,v14.2d	\n\t"\
-		"fsub	v0.2d ,v8.2d ,v2.2d	\n\t	fmul	v20.2d,v29.2d,v16.2d	\n\t	ldr	x0,%[__out0]	\n\t"\
-		"fsub	v1.2d ,v9.2d ,v3.2d	\n\t	fmul	v21.2d,v29.2d,v17.2d	\n\t	ldr	x1,%[__out1]	\n\t"\
-		"fadd	v2.2d ,v8.2d ,v2.2d	\n\t	fmul	v18.2d,v29.2d,v18.2d	\n\t	ldr	x2,%[__out2]	\n\t"\
-		"fadd	v3.2d ,v9.2d ,v3.2d	\n\t	fmul	v19.2d,v29.2d,v19.2d	\n\t	ldr	x3,%[__out3]	\n\t"\
-		"fsub	v4.2d ,v10.2d,v6.2d	\n\t	fsub	v12.2d,v22.2d,v25.2d	\n\t"\
-		"fsub	v5.2d ,v11.2d,v7.2d	\n\t	fsub	v13.2d,v23.2d,v24.2d	\n\t"\
-		"fadd	v6.2d ,v10.2d,v6.2d	\n\t	fadd	v14.2d,v23.2d,v24.2d	\n\t"\
-		"fadd	v7.2d ,v11.2d,v7.2d	\n\t	fadd	v15.2d,v22.2d,v25.2d	\n\t"\
-		"fsub	v8.2d ,v2.2d,v6.2d	\n\t	fsub	v16.2d,v20.2d,v18.2d	\n\t"\
-		"fsub	v9.2d ,v3.2d,v7.2d	\n\t	fsub	v17.2d,v21.2d,v19.2d	\n\t"\
-		"fadd	v6.2d ,v2.2d,v6.2d	\n\t	fadd	v18.2d,v20.2d,v18.2d	\n\t"\
-		"fadd	v7.2d ,v3.2d,v7.2d	\n\t	fadd	v19.2d,v21.2d,v19.2d	\n\t"\
-		"fsub	v10.2d,v0.2d,v5.2d	\n\t	fsub	v20.2d,v12.2d,v16.2d	\n\t	ldr	x8 ,%[__out4]	\n\t"\
-		"fsub	v11.2d,v1.2d,v4.2d	\n\t	fadd	v16.2d,v12.2d,v16.2d	\n\t	ldr	x9 ,%[__out5]	\n\t"\
-		"fadd	v5.2d ,v0.2d,v5.2d	\n\t	fsub	v21.2d,v14.2d,v17.2d	\n\t	ldr	x10,%[__out6]	\n\t"\
-		"fadd	v4.2d ,v1.2d,v4.2d	\n\t	fadd	v17.2d,v14.2d,v17.2d	\n\t	ldr	x11,%[__out7]	\n\t"\
+		"fsub	v0.2d ,v8.2d ,v2.2d	\n\t	fmul	v20.2d,v29.2d,v16.2d	\n\t"\
+		"fsub	v1.2d ,v9.2d ,v3.2d	\n\t	fmul	v21.2d,v29.2d,v17.2d	\n\t"\
+		"fadd	v2.2d ,v8.2d ,v2.2d	\n\t	fmul	v18.2d,v29.2d,v18.2d	\n\t"\
+		"fadd	v3.2d ,v9.2d ,v3.2d	\n\t	fmul	v19.2d,v29.2d,v19.2d	\n\t"\
+		"fsub	v4.2d ,v10.2d,v6.2d	\n\t	fsub	v12.2d,v22.2d,v25.2d	\n\t	ldp	w0,w1,[x17]			\n\t"/* off[0|1] */\
+		"fsub	v5.2d ,v11.2d,v7.2d	\n\t	fsub	v13.2d,v23.2d,v24.2d	\n\t	ldp	w2,w3,[x17,#0x08]	\n\t"/* off[2|3] */\
+		"fadd	v6.2d ,v10.2d,v6.2d	\n\t	fadd	v14.2d,v23.2d,v24.2d	\n\t	add	x0,x16,x0,lsl #3	\n\t"/* out0 + off[0] */\
+		"fadd	v7.2d ,v11.2d,v7.2d	\n\t	fadd	v15.2d,v22.2d,v25.2d	\n\t	add	x1,x16,x1,lsl #3	\n\t"/* out0 + off[1] */\
+		"fsub	v8.2d ,v2.2d,v6.2d	\n\t	fsub	v16.2d,v20.2d,v18.2d	\n\t	add	x2,x16,x2,lsl #3	\n\t"/* out0 + off[2] */\
+		"fsub	v9.2d ,v3.2d,v7.2d	\n\t	fsub	v17.2d,v21.2d,v19.2d	\n\t	add	x3,x16,x3,lsl #3	\n\t"/* out0 + off[3] */\
+		"fadd	v6.2d ,v2.2d,v6.2d	\n\t	fadd	v18.2d,v20.2d,v18.2d	\n\t	ldp	w8 ,w9 ,[x17,#0x10]	\n\t"/* off[4|5] */\
+		"fadd	v7.2d ,v3.2d,v7.2d	\n\t	fadd	v19.2d,v21.2d,v19.2d	\n\t	ldp	w10,w11,[x17,#0x18]	\n\t"/* off[6|7] */\
+		"fsub	v10.2d,v0.2d,v5.2d	\n\t	fsub	v20.2d,v12.2d,v16.2d	\n\t	add	x8 ,x16,x8 ,lsl #3	\n\t"/* out0 + off[4] */\
+		"fsub	v11.2d,v1.2d,v4.2d	\n\t	fadd	v16.2d,v12.2d,v16.2d	\n\t	add	x9 ,x16,x9 ,lsl #3	\n\t"/* out0 + off[5] */\
+		"fadd	v5.2d ,v0.2d,v5.2d	\n\t	fsub	v21.2d,v14.2d,v17.2d	\n\t	add	x10,x16,x10,lsl #3	\n\t"/* out0 + off[6] */\
+		"fadd	v4.2d ,v1.2d,v4.2d	\n\t	fadd	v17.2d,v14.2d,v17.2d	\n\t	add	x11,x16,x11,lsl #3	\n\t"/* out0 + off[7] */\
 		"stp	q6 ,q7 ,[x0]		\n\t	fsub	v22.2d,v13.2d,v18.2d	\n\t"\
 		"stp	q8 ,q9 ,[x1]		\n\t	fadd	v18.2d,v13.2d,v18.2d	\n\t"\
 		"stp	q10,q4 ,[x2]		\n\t	fsub	v23.2d,v15.2d,v19.2d	\n\t"\
@@ -1801,22 +1813,22 @@
 		"fsub	v5.2d,v9.2d,v7.2d	\n\t	fmul	v23.2d,v19.2d,v30.2d \n\t"\
 		"fadd	v6.2d,v8.2d,v6.2d	\n\t	fmls	v22.2d,v19.2d,v31.2d \n\t"\
 		"fadd	v7.2d,v9.2d,v7.2d	\n\t	fmla	v23.2d,v18.2d,v31.2d \n\t"\
-		"fsub	v8.2d,v2.2d,v3.2d	\n\t	fsub	v16.2d,v20.2d,v22.2d \n\t	ldr	x0,%[__out8]	\n\t"\
-		"fadd	v9.2d,v2.2d,v3.2d	\n\t	fsub	v17.2d,v21.2d,v23.2d \n\t	ldr	x1,%[__out9]	\n\t"\
-		"fmul	v8.2d,v8.2d,v29.2d	\n\t	fadd	v18.2d,v20.2d,v22.2d \n\t	ldr	x2,%[__outa]	\n\t"\
-		"fmul	v9.2d,v9.2d,v29.2d	\n\t	fadd	v19.2d,v21.2d,v23.2d \n\t	ldr	x3,%[__outb]	\n\t"\
-		"fadd	v2.2d,v0.2d,v8.2d	\n\t	fadd	v20.2d,v15.2d,v14.2d \n\t"\
-		"fadd	v3.2d,v1.2d,v9.2d	\n\t	fsub	v21.2d,v15.2d,v14.2d \n\t"\
-		"fsub	v0.2d,v0.2d,v8.2d	\n\t	fmul	v20.2d,v20.2d,v29.2d \n\t"\
-		"fsub	v1.2d,v1.2d,v9.2d	\n\t	fmul	v21.2d,v21.2d,v29.2d \n\t"\
-		"fadd	v8.2d,v2.2d,v6.2d	\n\t	fadd	v14.2d,v12.2d,v20.2d \n\t"\
-		"fadd	v9.2d,v3.2d,v7.2d	\n\t	fadd	v15.2d,v13.2d,v21.2d \n\t"\
-		"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v12.2d,v12.2d,v20.2d \n\t"\
-		"fsub	v3.2d,v3.2d,v7.2d	\n\t	fsub	v13.2d,v13.2d,v21.2d \n\t"\
-		"fadd	v10.2d,v0.2d,v5.2d	\n\t	fadd	v20.2d,v12.2d,v16.2d \n\t	ldr	x8 ,%[__outc]	\n\t"\
-		"fadd	v11.2d,v1.2d,v4.2d	\n\t	fadd	v21.2d,v13.2d,v17.2d \n\t	ldr	x9 ,%[__outd]	\n\t"\
-		"fsub	v0.2d,v0.2d,v5.2d	\n\t	fsub	v12.2d,v12.2d,v16.2d \n\t	ldr	x10,%[__oute]	\n\t"\
-		"fsub	v1.2d,v1.2d,v4.2d	\n\t	fsub	v13.2d,v13.2d,v17.2d \n\t	ldr	x11,%[__outf]	\n\t"\
+		"fsub	v8.2d,v2.2d,v3.2d	\n\t	fsub	v16.2d,v20.2d,v22.2d \n\t	ldp	w0,w1,[x17,#0x20]	\n\t"/* off[8|9] */\
+		"fadd	v9.2d,v2.2d,v3.2d	\n\t	fsub	v17.2d,v21.2d,v23.2d \n\t	ldp	w2,w3,[x17,#0x28]	\n\t"/* off[a|b] */\
+		"fmul	v8.2d,v8.2d,v29.2d	\n\t	fadd	v18.2d,v20.2d,v22.2d \n\t	add	x0,x16,x0,lsl #3	\n\t"/* out0 + off[8] */\
+		"fmul	v9.2d,v9.2d,v29.2d	\n\t	fadd	v19.2d,v21.2d,v23.2d \n\t	add	x1,x16,x1,lsl #3	\n\t"/* out0 + off[9] */\
+		"fadd	v2.2d,v0.2d,v8.2d	\n\t	fadd	v20.2d,v15.2d,v14.2d \n\t	add	x2,x16,x2,lsl #3	\n\t"/* out0 + off[a] */\
+		"fadd	v3.2d,v1.2d,v9.2d	\n\t	fsub	v21.2d,v15.2d,v14.2d \n\t	add	x3,x16,x3,lsl #3	\n\t"/* out0 + off[b] */\
+		"fsub	v0.2d,v0.2d,v8.2d	\n\t	fmul	v20.2d,v20.2d,v29.2d \n\t	ldp	w8 ,w9 ,[x17,#0x30]	\n\t"/* off[c|d] */\
+		"fsub	v1.2d,v1.2d,v9.2d	\n\t	fmul	v21.2d,v21.2d,v29.2d \n\t	ldp	w10,w11,[x17,#0x38]	\n\t"/* off[e|f] */\
+		"fadd	v8.2d,v2.2d,v6.2d	\n\t	fadd	v14.2d,v12.2d,v20.2d \n\t	add	x8 ,x16,x8 ,lsl #3	\n\t"/* out0 + off[c] */\
+		"fadd	v9.2d,v3.2d,v7.2d	\n\t	fadd	v15.2d,v13.2d,v21.2d \n\t	add	x9 ,x16,x9 ,lsl #3	\n\t"/* out0 + off[d] */\
+		"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v12.2d,v12.2d,v20.2d \n\t	add	x10,x16,x10,lsl #3	\n\t"/* out0 + off[e] */\
+		"fsub	v3.2d,v3.2d,v7.2d	\n\t	fsub	v13.2d,v13.2d,v21.2d \n\t	add	x11,x16,x11,lsl #3	\n\t"/* out0 + off[f] */\
+		"fadd	v10.2d,v0.2d,v5.2d	\n\t	fadd	v20.2d,v12.2d,v16.2d \n\t"\
+		"fadd	v11.2d,v1.2d,v4.2d	\n\t	fadd	v21.2d,v13.2d,v17.2d \n\t"\
+		"fsub	v0.2d,v0.2d,v5.2d	\n\t	fsub	v12.2d,v12.2d,v16.2d \n\t"\
+		"fsub	v1.2d,v1.2d,v4.2d	\n\t	fsub	v13.2d,v13.2d,v17.2d \n\t"\
 		"stp	q8 ,q9 ,[x0]		\n\t	fadd	v22.2d,v14.2d,v19.2d \n\t"\
 		"stp	q2 ,q3 ,[x1]		\n\t	fadd	v23.2d,v15.2d,v18.2d \n\t"\
 		"stp	q0 ,q11,[x2]		\n\t	fsub	v14.2d,v14.2d,v19.2d \n\t"\
@@ -1833,25 +1845,11 @@
 		,[__i4] "m" (Xi4)\
 		,[__isrt2] "m" (Xisrt2)\
 		,[__two] "m" (Xtwo)\
-		,[__out0] "m" (Xout0)\
-		,[__out1] "m" (Xout1)\
-		,[__out2] "m" (Xout2)\
-		,[__out3] "m" (Xout3)\
-		,[__out4] "m" (Xout4)\
-		,[__out5] "m" (Xout5)\
-		,[__out6] "m" (Xout6)\
-		,[__out7] "m" (Xout7)\
-		,[__out8] "m" (Xout8)\
-		,[__out9] "m" (Xout9)\
-		,[__outa] "m" (Xouta)\
-		,[__outb] "m" (Xoutb)\
-		,[__outc] "m" (Xoutc)\
-		,[__outd] "m" (Xoutd)\
-		,[__oute] "m" (Xoute)\
-		,[__outf] "m" (Xoutf)\
-		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","x7","x8","x9","x10","x11","x12","x13","x14","x15","x16",\
-			"v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11",\
-			"v12","v13","v14","v15","v16","v17","v18","v19","v20","v21","v22","v23","v24","v25", "v29","v30","v31"	/* Clobbered registers */\
+		,[out0] "m" (Xout0) /* output-address-octet base pointer */\
+		,[off] "m" (Xoff)	/* and pointer to uint32 array of 8 double* index offsets */\
+		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","x7","x8","x9","x10","x11","x12","x13","x14","x15","x16","x17",\
+			"v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11","v12","v13","v14","v15",\
+			"v16","v17","v18","v19","v20","v21","v22","v23","v24","v25", "v29","v30","v31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -2251,14 +2249,14 @@
 	}
 
 	// DIF version of above shares same sincos layout & data:
-	#define SSE2_RADIX16_DIF_TWIDDLE_OOP(Xin0,Xi1,Xi2,Xi3,Xi4, Xout0,Xout1,Xout2,Xout3,Xout4,Xout5,Xout6,Xout7,Xout8,Xout9,Xouta,Xoutb,Xoutc,Xoutd,Xoute,Xoutf, Xisrt2,Xc1)\
+	#define SSE2_RADIX16_DIF_TWIDDLE_OOP(Xin0,Xi1,Xi4, Xout0,Xoff, Xisrt2,Xc1)\
 	{\
 	__asm__ volatile (\
 	/*...Blocks 0,1: Do in-place, i.e. outputs into __in0 + [0,1,2,3]*istride: */\
-		"ldr	x0,%[__in0]			\n\t	ldr	w15,%[__i4]			\n\t"\
-		"ldr	w1,%[__i1]			\n\t	add	x1 ,x1,x0			\n\t"\
-		"ldr	w2,%[__i2]			\n\t	add	x2 ,x2,x0			\n\t"\
-		"ldr	w3,%[__i3]			\n\t	add	x3 ,x3,x0			\n\t"\
+		"ldr	x0,%[__in0]		\n\t	ldr	w3,%[__i1]	\n\t	ldr	w15,%[__i4]	\n\t"\
+		"add	x1 ,x3,x0		\n\t"/* x1 = __in0 +   istride */\
+		"add	x2 ,x3,x1		\n\t"/* x2 = __in0 + 2*istride */\
+		"add	x3 ,x3,x2		\n\t"/* x3 = __in0 + 3*istride */\
 		/* Compute rcol addresses in lcol here, to mix adds and loads: */\
 		"add	x4,x0,x15			\n\t	ldr	x16,%[__c1]			\n\t"\
 		"add	x5,x1,x15			\n\t	ldp	q16,q17,[x16,#0x60]	\n\t"/* c4 */\
@@ -2309,15 +2307,15 @@
 	/*...Blocks 2,3: */\
 		"add	x16,x16,#0xe0		\n\t"\
 		/* x8-11 = in0 + i8-11: */\
-		"add	x8 ,x4,x15			\n\t"	/* x12-15 = in0 + i12-15: */\
-		"add	x9 ,x5,x15			\n\t	add	x12,x8 ,x15			\n\t"\
-		"add	x10,x6,x15			\n\t	add	x13,x9 ,x15			\n\t"\
-		"add	x11,x7,x15			\n\t	add	x14,x10,x15			\n\t"\
-/* c8 */"ldp	q8,q9,[x16]			\n\t	add	x15,x11,x15			\n\t"\
-		"ldp	q4,q5,[x8]			\n\t"\
-		"ldp	q2,q3,[x9]			\n\t	ldp	q16,q17,[x16,#0x80]	\n\t"/* c12 */\
-		"fmul	v0.2d,v4.2d,v8.2d	\n\t	ldp	q12,q13,[x12]				\n\t"\
-		"fmul	v1.2d,v5.2d,v8.2d	\n\t	ldp	q14,q15,[x13]				\n\t"\
+		"add	x0 ,x4,x15			\n\t"	/* x12-15 = in0 + i12-15: */\
+		"add	x1 ,x5,x15			\n\t	add	x4 ,x0 ,x15			\n\t"\
+		"add	x2 ,x6,x15			\n\t	add	x5 ,x1 ,x15			\n\t"\
+		"add	x3 ,x7,x15			\n\t	add	x6 ,x2 ,x15			\n\t"\
+/* c8 */"ldp	q8,q9,[x16]			\n\t	add	x7 ,x3 ,x15			\n\t"\
+		"ldp	q4,q5,[x0]			\n\t"\
+		"ldp	q2,q3,[x1]			\n\t	ldp	q16,q17,[x16,#0x80]	\n\t"/* c12 */\
+		"fmul	v0.2d,v4.2d,v8.2d	\n\t	ldp	q12,q13,[x4]				\n\t"\
+		"fmul	v1.2d,v5.2d,v8.2d	\n\t	ldp	q14,q15,[x5]				\n\t"\
 		"fmls	v0.2d,v5.2d,v9.2d	\n\t	fmul	v18.2d,v12.2d,v16.2d	\n\t"\
 		"fmla	v1.2d,v4.2d,v9.2d	\n\t	fmul	v19.2d,v13.2d,v16.2d	\n\t"\
 /* c9 */"ldp	q8,q9,[x16,#0x20]	\n\t	fmls	v18.2d,v13.2d,v17.2d	\n\t"\
@@ -2329,10 +2327,10 @@
 		"fsub	v3.2d,v1.2d,v5.2d	\n\t	fmla	v13.2d,v14.2d,v17.2d	\n\t"\
 		"fadd	v0.2d,v0.2d,v4.2d	\n\t	fsub	v14.2d,v18.2d,v12.2d	\n\t"\
 		"fadd	v1.2d,v1.2d,v5.2d	\n\t	fsub	v15.2d,v19.2d,v13.2d	\n\t"\
-		"ldp	q4,q5,[x10]			\n\t	fadd	v12.2d,v18.2d,v12.2d	\n\t"\
-		"ldp	q6,q7,[x11]			\n\t	fadd	v13.2d,v19.2d,v13.2d	\n\t"\
-/* c10*/"ldp	q8,q9,[x16,#0x40]	\n\t	ldp	q16,q17,[x14]				\n\t"\
-		"fmul	v10.2d,v4.2d,v8.2d	\n\t	ldp	q18,q19,[x15]				\n\t"\
+		"ldp	q4,q5,[x2]			\n\t	fadd	v12.2d,v18.2d,v12.2d	\n\t"\
+		"ldp	q6,q7,[x3]			\n\t	fadd	v13.2d,v19.2d,v13.2d	\n\t"\
+/* c10*/"ldp	q8,q9,[x16,#0x40]	\n\t	ldp	q16,q17,[x6]				\n\t"\
+		"fmul	v10.2d,v4.2d,v8.2d	\n\t	ldp	q18,q19,[x7]				\n\t"\
 		"fmul	v11.2d,v5.2d,v8.2d	\n\t	ldp	q20,q21,[x16,#0xc0]	\n\t"/* c14 */\
 		"fmls	v10.2d,v5.2d,v9.2d	\n\t	fmul	v22.2d,v16.2d,v20.2d	\n\t"\
 		"fmla	v11.2d,v4.2d,v9.2d	\n\t	fmul	v23.2d,v17.2d,v20.2d	\n\t"\
@@ -2350,30 +2348,44 @@
 		"fsub	v9.2d,v1.2d,v5.2d	\n\t"/* output subtransforms... */\
 		"fadd	v0.2d,v0.2d,v4.2d	\n\t	fsub	v20.2d,v12.2d,v16.2d	\n\t"\
 		"fadd	v1.2d,v1.2d,v5.2d	\n\t	fsub	v21.2d,v13.2d,v17.2d	\n\t"\
-		"stp	q8,q9,[x9 ]			\n\t	fadd	v12.2d,v12.2d,v16.2d	\n\t"\
+		"stp	q8,q9,[x1]			\n\t	fadd	v12.2d,v12.2d,v16.2d	\n\t"\
 		"fadd	v4.2d,v2.2d,v7.2d	\n\t	fadd	v13.2d,v13.2d,v17.2d	\n\t"\
-		"fsub	v5.2d,v3.2d,v6.2d	\n\t	stp	q20,q21,[x13]				\n\t"\
-		"stp	q0,q1,[x8 ]			\n\t	fadd	v17.2d,v14.2d,v19.2d	\n\t"\
+		"fsub	v5.2d,v3.2d,v6.2d	\n\t	stp	q20,q21,[x5]				\n\t"\
+		"stp	q0,q1,[x0]			\n\t	fadd	v17.2d,v14.2d,v19.2d	\n\t"\
 		"fsub	v2.2d,v2.2d,v7.2d	\n\t	fsub	v16.2d,v15.2d,v18.2d	\n\t"\
-		"fadd	v3.2d,v3.2d,v6.2d	\n\t	stp	q12,q13,[x12]				\n\t"\
-		"stp	q4,q5,[x11]			\n\t	fsub	v14.2d,v14.2d,v19.2d	\n\t"\
-		"stp	q2,q3,[x10]			\n\t	fadd	v15.2d,v15.2d,v18.2d	\n\t"\
-		"									stp	q17,q16,[x15]				\n\t"\
-		"									stp	q14,q15,[x14]				\n\t"\
+		"fadd	v3.2d,v3.2d,v6.2d	\n\t	stp	q12,q13,[x4]				\n\t"\
+		"stp	q4,q5,[x3]			\n\t	fsub	v14.2d,v14.2d,v19.2d	\n\t"\
+		"stp	q2,q3,[x2]			\n\t	fadd	v15.2d,v15.2d,v18.2d	\n\t"\
+		"									stp	q17,q16,[x7]				\n\t"\
+		"									stp	q14,q15,[x6]				\n\t"\
 	/*************************************************************************************/\
 	/*  And now do four more radix-4 transforms, including the internal twiddle factors: */\
 	/*************************************************************************************/\
 		"ldr	x16,%[__isrt2]		\n\t	ld1r	{v29.2d},[x16]	\n\t"\
-		"ldp	q30,q31,[x16,#0x10]	\n\t"/* cc0,ss0 */\
+		"ldp	q30,q31,[x16,#0x10]	\n\t"/* cc0,ss0 - Done with x16-for-twiddles, re-use below for O-addresses */\
+/* Recompute __in0 + [0,4,8,12]*istride into x0-3, __in0 + [1,5,9,13]*istride into x4-7. 4*istride still in x15.
+Use x0-7 for I-addresses, x8-15 for O-addresses - by the time we need x15 for outf, are done with I-addressing: */\
+		"ldr	x0,%[__in0]		\n\t"/* __in0 + [0,4,8,12]*istride */\
+		"add	x1,x15,x0		\n\t"\
+		"add	x2,x15,x1		\n\t"\
+		"add	x3,x15,x2		\n\t	ldr	w15,%[__i1]	\n\t"/* Done with __i4, re-use x15 for __i1 */\
+		"add	x4,x15,x0		\n\t"/* __in0 + [1,5,9,13]*istride */\
+		"add	x5,x15,x1		\n\t"\
+		"add	x6,x15,x2		\n\t"\
+		"add	x7,x15,x3		\n\t	add x15,x15,x15	\n\t"/* Done with __i1, re-use x15 for __i2 */\
+	/* Load output base-address into x16 and offset-array pointer into x17: */\
+		"ldr	x16,%[__out0]	\n\t	ldr	x17,%[__off]		\n\t"\
+		"ldp	w8 ,w9 ,[x17]	\n\t	ldp	w10,w11,[x17,#0x08]	\n\t"/* off0-3 */\
 		/* Block 0:			Block 2 - this is hacked from the 2nd half of SSE2_RADIX16_DIF_0TWIDDLE_B: */\
-		"ldp	q8 ,q9 ,[x0 ]		\n\t	ldr	x0 ,%[__out0]		\n\t"\
-		"ldp	q2 ,q3 ,[x4 ]		\n\t	ldr	x4 ,%[__out1]		\n\t"\
-		"ldp	q10,q11,[x8 ]		\n\t	ldr	x8 ,%[__out2]		\n\t"\
-		"ldp	q6 ,q7 ,[x12]		\n\t	ldr	x12,%[__out3]		\n\t"\
-/* 22,23 have 0,1 */"ldp	q22,q23,[x1 ]	\n\t	ldr	x1 ,%[__out4]	\n\t"\
-/* 24,25 have 2,3 */"ldp	q24,q25,[x5 ]	\n\t	ldr	x5 ,%[__out5]	\n\t"\
-/* 12,13 have 4,5 */"ldp	q12,q13,[x9 ]	\n\t	ldr	x9 ,%[__out6]	\n\t"\
-/* 14,15 have 6,7 */"ldp	q14,q15,[x13]	\n\t	ldr	x13,%[__out7]	\n\t"\
+		"ldp	q8 ,q9 ,[x0]	\n\t	add	x8 ,x16,x8 ,lsl #3	\n\t"/* out0-3 = (double *)out0 + o0-3 */\
+		"ldp	q2 ,q3 ,[x1]	\n\t	add	x9 ,x16,x9 ,lsl #3	\n\t"\
+		"ldp	q10,q11,[x2]	\n\t	add	x10,x16,x10,lsl #3	\n\t"\
+		"ldp	q6 ,q7 ,[x3]	\n\t	add	x11,x16,x11,lsl #3	\n\t"\
+		"ldp	w12,w13,[x17,#0x10]		\n\t	ldp	w14,w15,[x17,#0x18]		\n\t"/* off4-7 */\
+/* 22,23 have 0,1 */"ldp	q22,q23,[x4]	\n\t	add	x12,x16,x12,lsl #3	\n\t"/* out4-7 */\
+/* 24,25 have 2,3 */"ldp	q24,q25,[x5]	\n\t	add	x13,x16,x13,lsl #3	\n\t"\
+/* 12,13 have 4,5 */"ldp	q12,q13,[x6]	\n\t	add	x14,x16,x14,lsl #3	\n\t"\
+/* 14,15 have 6,7 */"ldp	q14,q15,[x7]	\n\t	add	x15,x16,x15,lsl #3	\n\t"\
 		"									fsub	v16.2d,v12.2d,v13.2d	\n\t"\
 		"									fadd	v17.2d,v12.2d,v13.2d	\n\t"\
 		"									fadd	v18.2d,v15.2d,v14.2d	\n\t"\
@@ -2394,20 +2406,33 @@
 		"fsub	v11.2d,v1.2d,v4.2d	\n\t	fadd	v16.2d,v12.2d,v16.2d	\n\t"\
 		"fadd	v5.2d ,v0.2d,v5.2d	\n\t	fsub	v21.2d,v14.2d,v17.2d	\n\t"\
 		"fadd	v4.2d ,v1.2d,v4.2d	\n\t	fadd	v17.2d,v14.2d,v17.2d	\n\t"\
-		"stp	q6 ,q7 ,[x0 ]		\n\t	fsub	v22.2d,v13.2d,v18.2d	\n\t"\
-		"stp	q8 ,q9 ,[x4 ]		\n\t	fadd	v18.2d,v13.2d,v18.2d	\n\t"\
-		"stp	q10,q4 ,[x8 ]		\n\t	fsub	v23.2d,v15.2d,v19.2d	\n\t"\
-		"stp	q5 ,q11,[x12]		\n\t	fadd	v19.2d,v15.2d,v19.2d	\n\t"\
+		"stp	q6 ,q7 ,[x8 ]		\n\t	fsub	v22.2d,v13.2d,v18.2d	\n\t"\
+		"stp	q8 ,q9 ,[x9 ]		\n\t	fadd	v18.2d,v13.2d,v18.2d	\n\t"\
+		"stp	q10,q4 ,[x10]		\n\t	fsub	v23.2d,v15.2d,v19.2d	\n\t"\
+		"stp	q5 ,q11,[x11]		\n\t	fadd	v19.2d,v15.2d,v19.2d	\n\t"\
 		/* Block 1:							Block 3: */\
-		"ldp	q0 ,q1 ,[x2 ]	\n\t	ldr	x2 ,%[__out8]\n\t	stp	q16,q17,[x1 ]			\n\t"\
-		"ldp	q2 ,q3 ,[x6 ]	\n\t	ldr	x6 ,%[__out9]\n\t	stp	q20,q21,[x5 ]			\n\t"\
-		"ldp	q4 ,q5 ,[x10]	\n\t	ldr	x10,%[__outa]\n\t	stp	q23,q18,[x9 ]			\n\t"\
-		"ldp	q10,q11,[x14]	\n\t	ldr	x14,%[__outb]\n\t	stp	q19,q22,[x13]			\n\t"\
-											/* Block 3: */\
-		"fmul	v8.2d,v4.2d,v30.2d	\n\t	ldp	q12,q13,[x3 ]	\n\t	ldr	x3 ,%[__outc]\n\t"\
-		"fmul	v9.2d,v5.2d,v30.2d	\n\t	ldp	q14,q15,[x7 ]	\n\t	ldr	x7 ,%[__outd]\n\t"\
-		"fmls	v8.2d,v5.2d,v31.2d	\n\t	ldp	q16,q17,[x11]	\n\t	ldr	x11,%[__oute]\n\t"\
-		"fmla	v9.2d,v4.2d,v31.2d	\n\t	ldp	q18,q19,[x15]	\n\t	ldr	x15,%[__outf]\n\t"\
+		"ldr	w16,%[__i1]	\n\t	add x16,x16,x16	\n\t"/* Need x16 for __i2 here */\
+		"add	x0,x16,x0		\n\t"/* __in0 + [2,6,10,14]*istride */\
+		"add	x1,x16,x1		\n\t"\
+		"add	x2,x16,x2		\n\t"\
+		"add	x3,x16,x3		\n\t"\
+		"add	x4,x16,x4		\n\t"/* __in0 + [3,7,11,16]*istride */\
+		"add	x5,x16,x5		\n\t"\
+		"add	x6,x16,x6		\n\t"\
+		"add	x7,x16,x7		\n\t"/* Done with x16 for I-addressing */\
+	/* Reload output base-address into x16: */\
+		"ldr	x16,%[__out0]		\n\t"\
+		"ldp	w8 ,w9 ,[x17,#0x20]	\n\t	ldp	w10,w11,[x17,#0x28]	\n\t"/* off8-b */\
+		"ldp	q0 ,q1 ,[x0]	\n\t	add	x8 ,x16,x8 ,lsl #3	\n\t	stp	q16,q17,[x12]	\n\t"\
+		"ldp	q2 ,q3 ,[x1]	\n\t	add	x9 ,x16,x9 ,lsl #3	\n\t	stp	q20,q21,[x13]	\n\t"\
+		"ldp	q4 ,q5 ,[x2]	\n\t	add	x10,x16,x10,lsl #3	\n\t	stp	q23,q18,[x14]	\n\t"\
+		"ldp	q10,q11,[x3]	\n\t	add	x11,x16,x11,lsl #3	\n\t	stp	q19,q22,[x15]	\n\t"\
+											/* Block 3: */				/*     outc-f:     */\
+		"ldp	w12,w13,[x17,#0x30]		\n\t	ldp	w14,w15,[x17,#0x38]		\n\t"/* offc-f */\
+		"fmul	v8.2d,v4.2d,v30.2d	\n\t	ldp	q12,q13,[x4]	\n\t	add	x12,x16,x12,lsl #3	\n\t"\
+		"fmul	v9.2d,v5.2d,v30.2d	\n\t	ldp	q14,q15,[x5]	\n\t	add	x13,x16,x13,lsl #3	\n\t"\
+		"fmls	v8.2d,v5.2d,v31.2d	\n\t	ldp	q16,q17,[x6]	\n\t	add	x14,x16,x14,lsl #3	\n\t"\
+		"fmla	v9.2d,v4.2d,v31.2d	\n\t	ldp	q18,q19,[x7]	\n\t	add	x15,x16,x15,lsl #3	\n\t"\
 		"fmul	v6.2d,v10.2d,v31.2d	\n\t	fmul	v20.2d,v16.2d,v31.2d \n\t"\
 		"fmul	v7.2d,v11.2d,v31.2d	\n\t	fmul	v21.2d,v17.2d,v31.2d \n\t"\
 		"fmls	v6.2d,v11.2d,v30.2d	\n\t	fmls	v20.2d,v17.2d,v30.2d \n\t"\
@@ -2432,39 +2457,23 @@
 		"fadd	v11.2d,v1.2d,v4.2d	\n\t	fadd	v21.2d,v13.2d,v17.2d \n\t"\
 		"fsub	v0.2d,v0.2d,v5.2d	\n\t	fsub	v12.2d,v12.2d,v16.2d \n\t"\
 		"fsub	v1.2d,v1.2d,v4.2d	\n\t	fsub	v13.2d,v13.2d,v17.2d \n\t"\
-		"stp	q8 ,q9 ,[x2 ]		\n\t	fadd	v22.2d,v14.2d,v19.2d \n\t"\
-		"stp	q2 ,q3 ,[x6 ]		\n\t	fadd	v23.2d,v15.2d,v18.2d \n\t"\
+		"stp	q8 ,q9 ,[x8 ]		\n\t	fadd	v22.2d,v14.2d,v19.2d \n\t"\
+		"stp	q2 ,q3 ,[x9 ]		\n\t	fadd	v23.2d,v15.2d,v18.2d \n\t"\
 		"stp	q0 ,q11,[x10]		\n\t	fsub	v14.2d,v14.2d,v19.2d \n\t"\
-		"stp	q10,q1 ,[x14]		\n\t	fsub	v15.2d,v15.2d,v18.2d \n\t"\
-		"									stp	q20,q21,[x3 ]			\n\t"\
-		"									stp	q12,q13,[x7 ]			\n\t"\
-		"									stp	q14,q23,[x11]			\n\t"\
+		"stp	q10,q1 ,[x11]		\n\t	fsub	v15.2d,v15.2d,v18.2d \n\t"\
+		"									stp	q20,q21,[x12]			\n\t"\
+		"									stp	q12,q13,[x13]			\n\t"\
+		"									stp	q14,q23,[x14]			\n\t"\
 		"									stp	q22,q15,[x15]			\n\t"\
 		:					/* outputs: none */\
 		: [__in0] "m" (Xin0)	/* All inputs from memory addresses here */\
 		 ,[__i1] "m" (Xi1)\
-		 ,[__i2] "m" (Xi2)\
-		 ,[__i3] "m" (Xi3)\
 		 ,[__i4] "m" (Xi4)\
 		 ,[__out0] "m" (Xout0)\
-		 ,[__out1] "m" (Xout1)\
-		 ,[__out2] "m" (Xout2)\
-		 ,[__out3] "m" (Xout3)\
-		 ,[__out4] "m" (Xout4)\
-		 ,[__out5] "m" (Xout5)\
-		 ,[__out6] "m" (Xout6)\
-		 ,[__out7] "m" (Xout7)\
-		 ,[__out8] "m" (Xout8)\
-		 ,[__out9] "m" (Xout9)\
-		 ,[__outa] "m" (Xouta)\
-		 ,[__outb] "m" (Xoutb)\
-		 ,[__outc] "m" (Xoutc)\
-		 ,[__outd] "m" (Xoutd)\
-		 ,[__oute] "m" (Xoute)\
-		 ,[__outf] "m" (Xoutf)\
+		 ,[__off] "m" (Xoff)\
 		 ,[__isrt2] "m" (Xisrt2)\
 		 ,[__c1] "m" (Xc1)\
-		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","x7","x8","x9","x10","x11","x12","x13","x14","x15","x16",\
+		: "cc","memory","x0","x1","x2","x3","x4","x5","x6","x7","x8","x9","x10","x11","x12","x13","x14","x15","x16","x17",\
 			"v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11",\
 			"v12","v13","v14","v15","v16","v17","v18","v19","v20","v21","v22","v23","v24","v25", "v29","v30","v31"	/* Clobbered registers */\
 	);\
@@ -3344,16 +3353,20 @@
 
 	// AVX analog of dft_macro.h::RADIX_08_DIF_TWIDDLE_OOP - Result of adding separate I/O addressing to
 	// radix8_dif_dit_pass_gcc64.h::SSE2_RADIX8_DIF_TWIDDLE.
+	//*** Dec 2020: For guide to updated reduced-#arg IO address computation, cf. the SSE2 version of this macro. ***
 	//
 	// [rsi] (and if needed rdi) points to sine components of each sincos pair, which is not really a pair here in terms of relative addressing.
 	//
-	#define SSE2_RADIX8_DIF_TWIDDLE_OOP(Xi0,Xi1,Xi2,Xi3,Xi4,Xi5,Xi6,Xi7, Xo0,Xo1,Xo2,Xo3,Xo4,Xo5,Xo6,Xo7 ,Xc1,Xs1,Xc2,Xs2,Xc3,Xs3,Xc4,Xs4,Xc5,Xs5,Xc6,Xs6,Xc7,Xs7)\
+	#define SSE2_RADIX8_DIF_TWIDDLE_OOP(Xin0,Xi1, Xout0,Xoff, Xtwid_ptrs, Xtwo)\
 	{\
 	__asm__ volatile (\
-		"movq		%[i0]	,%%rax				\n\t		movq		%[i1]	,%%r10				\n\t"\
-		"movq		%[i4]	,%%rbx				\n\t		movq		%[i5]	,%%r11				\n\t"\
-		"movq		%[c4]	,%%rcx				\n\t	movq	%[c1],%%r12	\n\t	movq	%[c5],%%r14	\n\t"\
-		"movq		%[s4]	,%%rsi				\n\t	movq	%[s1],%%r13	\n\t	movq	%[s5],%%r15	\n\t"\
+		"xorq	%%r8,%%r8	\n\t	leaq	%c[i1](%%r8),%%r8	\n\t"/* movq|movslq of literal %c[i1] both segfaulted, workaround via LEA */\
+		"movq	%[in0],%%rax		\n\t	leaq	(%%rax,%%r8,4),%%r10	\n\t"/* [lcol,rcol] base-addresses = in0 + [0,4*istride] */\
+		"movq	%[twid_ptrs],%%rsi	\n\t"\
+		"leaq	(%%rax,%%r8),%%rbx	\n\t	leaq	(%%r10,%%r8  ),%%r11	\n\t"\
+		/* The twid_ptrs[] array holds ptrs to 14 complex twiddles in BR order: (c,s)[4,2,6,1,5,3,7]: */\
+		"movq	0x30(%%rsi),%%r12	\n\t	movq	0x40(%%rsi),%%r14	\n\t	movq	    (%%rsi),%%rcx	\n\t"/* c1,5,4 */\
+		"movq	0x38(%%rsi),%%r13	\n\t	movq	0x48(%%rsi),%%r15	\n\t	movq	0x08(%%rsi),%%rsi	\n\t"/* s1,5,4 ... do c4,s4 last because s4-result overwrites rsi */\
 		"vmovaps	    (%%rbx)	,%%zmm2			\n\t		vmovaps	    (%%r10)	,%%zmm8 			\n\t"\
 		"vmovaps	0x40(%%rbx)	,%%zmm3			\n\t		vmovaps	0x40(%%r10)	,%%zmm10			\n\t"\
 		"vmovaps		%%zmm2	,%%zmm4			\n\t		vmovaps		%%zmm8 	,%%zmm9 			\n\t"\
@@ -3374,12 +3387,13 @@
 		"vmovaps	%%zmm1		,0x40(%%rax)	\n\t		vsubpd	%%zmm11		,%%zmm8 ,%%zmm8 	\n\t"\
 		"vmovaps	%%zmm6		,    (%%rbx)	\n\t		vaddpd	%%zmm9 		,%%zmm12,%%zmm12	\n\t"\
 		"vmovaps	%%zmm7		,0x40(%%rbx)	\n\t		vsubpd	%%zmm13		,%%zmm9 ,%%zmm9 	\n\t"\
-		"movq		%[i2]	,%%rax				\n\t		vmovaps	%%zmm10		,    (%%r10)	\n\t"\
-		"movq		%[i6]	,%%rbx				\n\t		vmovaps	%%zmm12		,0x40(%%r10)	\n\t"\
-		"movq		%[c2]	,%%rcx				\n\t		vmovaps	%%zmm8 		,    (%%r11)	\n\t"\
-		"movq		%[c6]	,%%rdx				\n\t		vmovaps	%%zmm9 		,0x40(%%r11)	\n\t"\
-		"movq		%[s2]	,%%rsi				\n\t	movq %[i3],%%r10	\n\t	movq %[c3],%%r12	\n\t	movq %[s3],%%r13	\n\t"\
-		"movq		%[s6]	,%%rdi				\n\t	movq %[i7],%%r11	\n\t	movq %[c7],%%r14	\n\t	movq %[s7],%%r15	\n\t"\
+		"leaq	(%%rax,%%r8,2),%%rax			\n\t		vmovaps	%%zmm10		,    (%%r10)	\n\t"\
+		"leaq	(%%rbx,%%r8,2),%%rbx			\n\t		vmovaps	%%zmm12		,0x40(%%r10)	\n\t"\
+		"movq	%[twid_ptrs],%%r15				\n\t"\
+		"movq		0x10(%%r15),%%rcx			\n\t		vmovaps	%%zmm8 		,    (%%r11)	\n\t"/* c2 */\
+		"movq		0x20(%%r15),%%rdx			\n\t		vmovaps	%%zmm9 		,0x40(%%r11)	\n\t"/* c6 */\
+		"movq		0x18(%%r15),%%rsi	\n\t	leaq	(%%r10,%%r8,2),%%r10	\n\t	movq 0x50(%%r15),%%r12 \n\t movq 0x58(%%r15),%%r13	\n\t"/* s2, c3,s3 */\
+		"movq		0x28(%%r15),%%rdi	\n\t	leaq	(%%r11,%%r8,2),%%r11	\n\t	movq 0x60(%%r15),%%r14 \n\t movq 0x68(%%r15),%%r15	\n\t"/* s6, c7,s7 */\
 		"vmovaps	    (%%rax)	,%%zmm0			\n\t		vmovaps	    (%%r10)	,%%zmm8 			\n\t"\
 		"vmovaps	0x40(%%rax)	,%%zmm2			\n\t		vmovaps	0x40(%%r10)	,%%zmm10			\n\t"\
 		"vmovaps		%%zmm0	,%%zmm1			\n\t		vmovaps		%%zmm8 	,%%zmm9 			\n\t"\
@@ -3406,82 +3420,79 @@
 		"vmovaps	%%zmm4		,0x40(%%rax)	\n\t		vmovaps	%%zmm12		,0x40(%%r10)	\n\t"\
 		"vmovaps	%%zmm0		,    (%%rbx)	\n\t		vmovaps	%%zmm8 		,    (%%r11)	\n\t"\
 		"vmovaps	%%zmm1		,0x40(%%rbx)	\n\t		vmovaps	%%zmm9 		,0x40(%%r11)	\n\t"\
-	/* combine to get 2 length-4 output subtransforms... */\
-		"movq		%[i0]	,%%rax				\n\t		movq		%[i4]	,%%r10				\n\t"\
-		"movq		%[i2]	,%%rbx				\n\t		movq		%[i6]	,%%r11				\n\t"\
-		"vmovaps	    (%%rbx)	,%%zmm0			\n\t		vmovaps	    (%%r11)	,%%zmm9 			\n\t"\
-		"vmovaps	0x40(%%rbx)	,%%zmm1			\n\t		vmovaps	0x40(%%r11)	,%%zmm12			\n\t"\
-		"vmovaps	    (%%rax)	,%%zmm4			\n\t		vmovaps	    (%%r10)	,%%zmm8 			\n\t"\
-		"vmovaps	0x40(%%rax)	,%%zmm5			\n\t		vmovaps	0x40(%%r10)	,%%zmm13			\n\t"\
-		"movq		%[i1]	,%%rcx				\n\t		movq		%[i5]	,%%r12				\n\t"\
-		"movq		%[i3]	,%%rdx				\n\t		movq		%[i7]	,%%r13				\n\t"\
+	/* combine to get 2 length-4 output subtransforms.
+	In this step 2 of the 8-dft, we need address-pairs
+		lcol:		rcol:
+		i0,2,1,3	i4,6,5,7
+		o0,2,1,3	o4,6,5,7
+	At this point r[a|b]x have i2,3, r1[0|1] have i6,7, but cleaner to reload add0 and go from there.
+	Since we will be loading o-addresses into regs starting with r[a|b]x and r1[0|1], use r[c|d]x and r1[2|3]
+	for the I-address pairs here: */\
+	"movq	%[in0],%%rcx			\n\t		leaq	(%%rcx,%%r8  ),%%r12	\n\t"/* [lcol,rcol] base-addresses = in0 + [0,1*istride] */\
+	"leaq	(%%rcx,%%r8,2),%%rdx	\n\t		leaq	(%%r12,%%r8,2),%%r13	\n\t"/* in0 + [2,3*istride] */\
+		"vmovaps	    (%%rdx)	,%%zmm0			\n\t		vmovaps	    (%%r13)	,%%zmm9 			\n\t"\
+		"vmovaps	0x40(%%rdx)	,%%zmm1			\n\t		vmovaps	0x40(%%r13)	,%%zmm12			\n\t"\
+		"vmovaps	    (%%rcx)	,%%zmm4			\n\t		vmovaps	    (%%r12)	,%%zmm8 			\n\t"\
+		"vmovaps	0x40(%%rcx)	,%%zmm5			\n\t		vmovaps	0x40(%%r12)	,%%zmm13			\n\t"\
+	"shlq	$2,%%r8			\n\t"/* From here on only need offset i4 = 4*i1 */\
+	"addq	%%r8,%%rdx				\n\t		addq	%%r8,%%r13				\n\t"/* in0 + [6,7*istride] */\
+	"addq	%%r8,%%rcx				\n\t		addq	%%r8,%%r12				\n\t"/* in0 + [4,5*istride] */\
 		"vmovaps	    (%%rdx)	,%%zmm2			\n\t		vmovaps	    (%%r13)	,%%zmm11			\n\t"\
 		"vmovaps	0x40(%%rdx)	,%%zmm3			\n\t		vmovaps	0x40(%%r13)	,%%zmm14			\n\t"\
 		"vmovaps	    (%%rcx)	,%%zmm6			\n\t		vmovaps	    (%%r12)	,%%zmm10			\n\t"\
 		"vmovaps	0x40(%%rcx)	,%%zmm7			\n\t		vmovaps	0x40(%%r12)	,%%zmm15			\n\t"\
-		"movq		%[o0]	,%%rax				\n\t		movq		%[o4]	,%%r10				\n\t"/* [o0] has 2.0 on input */\
-		"movq		%[o2]	,%%rbx				\n\t		movq		%[o6]	,%%r11				\n\t"\
+	"movq	%[out0]	,%%rsi			\n\t	movq	%[off]	,%%rdi			\n\t"/* Load output base-address into rsi and offset-array pointer into rdi */\
+	"movslq		    (%%rdi),%%rax	\n\t	movslq		0x10(%%rdi),%%r10	\n\t"/*        off[0,4] */\
+	"leaq	(%%rsi,%%rax,8),%%rax	\n\t	leaq	(%%rsi,%%r10,8),%%r10	\n\t"/* out0 + off[0,4] */\
+	"movslq		0x08(%%rdi),%%rbx	\n\t	movslq		0x18(%%rdi),%%r11	\n\t"\
+	"leaq	(%%rsi,%%rbx,8),%%rbx	\n\t	leaq	(%%rsi,%%r11,8),%%r11	\n\t"/* out0 + off[2,6] */\
 		"vsubpd		%%zmm0	,%%zmm4,%%zmm4		\n\t		vsubpd		%%zmm9 ,%%zmm13,%%zmm13		\n\t"\
 		"vsubpd		%%zmm1	,%%zmm5,%%zmm5		\n\t		vsubpd		%%zmm12,%%zmm8 ,%%zmm8 		\n\t"\
 		"vsubpd		%%zmm2	,%%zmm6,%%zmm6		\n\t		vsubpd		%%zmm11,%%zmm15,%%zmm15		\n\t"\
 		"vsubpd		%%zmm3	,%%zmm7,%%zmm7		\n\t		vsubpd		%%zmm14,%%zmm10,%%zmm10		\n\t"\
-	"vmovaps	%%zmm14,(%%rbx) 	\n\t"/* spill zmm14 to make room for 2.0 */"	vmovaps	 (%%rax),%%zmm14	\n\t"/* two */\
+	"movq	%[two]	,%%r15			\n\t"\
+	"vmovaps	%%zmm14,(%%rbx) 	\n\t"/* spill zmm14 to make room for 2.0 */"	vmovaps	 (%%r15),%%zmm14	\n\t"/* two */\
 	"vfmadd132pd	%%zmm14,%%zmm4,%%zmm0		\n\t	vfmadd132pd		%%zmm14,%%zmm13,%%zmm9 		\n\t"\
 	"vfmadd132pd	%%zmm14,%%zmm5,%%zmm1		\n\t	vfmadd132pd		%%zmm14,%%zmm8 ,%%zmm12		\n\t"\
 	"vfmadd132pd	%%zmm14,%%zmm6,%%zmm2		\n\t	vfmadd132pd		%%zmm14,%%zmm15,%%zmm11		\n\t"\
 	"vfmadd132pd	%%zmm14,%%zmm7,%%zmm3		\n\t	vfmadd132pd		(%%rbx),%%zmm10,%%zmm14		\n\t"\
 		"vsubpd	%%zmm2		,%%zmm0,%%zmm0		\n\t		vsubpd	%%zmm11		,%%zmm10,%%zmm10	\n\t"\
 		"vsubpd	%%zmm3		,%%zmm1,%%zmm1		\n\t		vsubpd	%%zmm14		,%%zmm15,%%zmm15	\n\t"\
-		"vsubpd	%%zmm7		,%%zmm4,%%zmm4		\n\t		vfmadd132pd	(%%rax) ,%%zmm10,%%zmm11	\n\t"\
-		"vsubpd	%%zmm6		,%%zmm5,%%zmm5		\n\t		vfmadd132pd	(%%rax) ,%%zmm15,%%zmm14	\n\t"\
-		"movq		%[o1]	,%%rcx				\n\t		movq		%[o5]	,%%r12				\n\t"/* [o1] has SQRT2 on input */\
-		"movq		%[o3]	,%%rdx				\n\t		movq		%[o7]	,%%r13				\n\t"\
+		"vsubpd	%%zmm7		,%%zmm4,%%zmm4		\n\t		vfmadd132pd	(%%r15) ,%%zmm10,%%zmm11	\n\t"\
+		"vsubpd	%%zmm6		,%%zmm5,%%zmm5		\n\t		vfmadd132pd	(%%r15) ,%%zmm15,%%zmm14	\n\t"\
+	"movslq		0x04(%%rdi),%%rcx	\n\t	movslq		0x14(%%rdi),%%r12	\n\t"\
+	"leaq	(%%rsi,%%rcx,8),%%rcx	\n\t	leaq	(%%rsi,%%r12,8),%%r12	\n\t"/* out0 + off[1,5] */\
+	"movslq		0x0c(%%rdi),%%rdx	\n\t	movslq		0x1c(%%rdi),%%r13	\n\t"\
+	"leaq	(%%rsi,%%rdx,8),%%rdx	\n\t	leaq	(%%rsi,%%r13,8),%%r13	\n\t"/* out0 + off[3,7] */\
 	/* Use the cosine term of the [c1,s1] pair, which is the *middle* [4th of 7] of our 7 input pairs, in terms \
 	of the input-arg bit-reversal reordering defined in the __X[c,s] --> [c,s] mapping below and happens to \
 	always in fact *be* a true cosine term, which is a requirement for our "decr 1 gives isrt2" data-copy scheme: */\
-		"movq	%[c1],%%r14	\n\t				\n\t"\
-		"subq	$0x40,%%r14	\n\t"/* isrt2 in [c1]-1 */\
-	"vfmadd132pd	(%%rax),%%zmm0,%%zmm2		\n\t	vfnmadd231pd	(%%r14),%%zmm10,%%zmm8 		\n\t"/* .isrt2 */\
-	"vfmadd132pd	(%%rax),%%zmm1,%%zmm3		\n\t	vfnmadd231pd	(%%r14),%%zmm15,%%zmm13		\n\t"\
-	"vfmadd132pd	(%%rax),%%zmm5,%%zmm6		\n\t	vfnmadd231pd	(%%r14),%%zmm11,%%zmm9 		\n\t"\
-	"vfmadd132pd	(%%rax),%%zmm4,%%zmm7		\n\t	vfnmadd231pd	(%%r14),%%zmm14,%%zmm12		\n\t"\
-		"vmovaps	%%zmm2,    (%%rax)	\n\t"/* [o0].re */"	vmovaps	%%zmm8 ,    (%%r12)	\n\t"/* [o5].re */\
-		"vmovaps	%%zmm3,0x40(%%rax)	\n\t"/* [o0].im */"	vmovaps	%%zmm13,0x40(%%r11)	\n\t"/* [o6].im */\
+		"movq	%[twid_ptrs],%%r14		\n\t	movq	0x30(%%r14),%%r14	\n\t"\
+		"										subq	$0x40,%%r14	\n\t"/* isrt2 in [c1]-1 */\
+	"vfmadd132pd	(%%r15),%%zmm0,%%zmm2		\n\t	vfnmadd231pd	(%%r14),%%zmm10,%%zmm8 		\n\t"/* .isrt2 */\
+	"vfmadd132pd	(%%r15),%%zmm1,%%zmm3		\n\t	vfnmadd231pd	(%%r14),%%zmm15,%%zmm13		\n\t"\
+	"vfmadd132pd	(%%r15),%%zmm5,%%zmm6		\n\t	vfnmadd231pd	(%%r14),%%zmm11,%%zmm9 		\n\t"\
+	"vfmadd132pd	(%%r15),%%zmm4,%%zmm7		\n\t	vfnmadd231pd	(%%r14),%%zmm14,%%zmm12		\n\t"\
+		"vmovaps	%%zmm2,    (%%rax)	\n\t"/* [o0].re */"	vmovaps	%%zmm8 ,    (%%r12)	\n\t"/* [o5].re */	"vmovaps	(%%r14),%%zmm2		\n\t"/* zmm2 = ISRT2 */\
+		"vmovaps	%%zmm3,0x40(%%rax)	\n\t"/* [o0].im */"	vmovaps	%%zmm13,0x40(%%r11)	\n\t"/* [o6].im */	"vaddpd	%%zmm2,%%zmm2,%%zmm2	\n\t"/* zmm2 = SQRT2; */\
 		"vmovaps	%%zmm6,0x40(%%rbx)	\n\t"/* [o2].im */"	vmovaps	%%zmm9 ,0x40(%%r12)	\n\t"/* [o5].im */\
 		"vmovaps	%%zmm7,    (%%rdx)	\n\t"/* [o3].re */"	vmovaps	%%zmm12,    (%%r11)	\n\t"/* [o6].re */\
-		"												 vfmadd132pd	(%%rcx),%%zmm8 ,%%zmm10		\n\t"/* .sqrt2 */\
-		"												 vfmadd132pd	(%%rcx),%%zmm13,%%zmm15		\n\t"\
-		"												 vfmadd132pd	(%%rcx),%%zmm9 ,%%zmm11		\n\t"\
-		"												 vfmadd132pd	(%%rcx),%%zmm12,%%zmm14		\n\t"\
+		"												 vfmadd132pd	%%zmm2,%%zmm8 ,%%zmm10		\n\t"/* .sqrt2 */\
+		"												 vfmadd132pd	%%zmm2,%%zmm13,%%zmm15		\n\t"\
+		"												 vfmadd132pd	%%zmm2,%%zmm9 ,%%zmm11		\n\t"\
+		"												 vfmadd132pd	%%zmm2,%%zmm12,%%zmm14		\n\t"\
 		"vmovaps	%%zmm0,    (%%rcx)	\n\t"/* [o1].re */"	vmovaps	%%zmm10,    (%%r10)	\n\t"/* [o4].re */\
 		"vmovaps	%%zmm1,0x40(%%rcx)	\n\t"/* [o1].im */"	vmovaps	%%zmm15,0x40(%%r13)	\n\t"/* [o7].im */\
 		"vmovaps	%%zmm4,    (%%rbx)	\n\t"/* [o2].re */"	vmovaps	%%zmm11,0x40(%%r10)	\n\t"/* [o4].im */\
 		"vmovaps	%%zmm5,0x40(%%rdx)	\n\t"/* [o3].im */"	vmovaps	%%zmm14,    (%%r13)	\n\t"/* [o7].re */\
 		:					/* outputs: none */\
-		: [i0] "m" (Xi0)	/* All inputs from memory addresses here */\
-		 ,[i1] "m" (Xi1)\
-		 ,[i2] "m" (Xi2)\
-		 ,[i3] "m" (Xi3)\
-		 ,[i4] "m" (Xi4)\
-		 ,[i5] "m" (Xi5)\
-		 ,[i6] "m" (Xi6)\
-		 ,[i7] "m" (Xi7)\
-		 ,[o0] "m" (Xo0)\
-		 ,[o1] "m" (Xo1)\
-		 ,[o2] "m" (Xo2)\
-		 ,[o3] "m" (Xo3)\
-		 ,[o4] "m" (Xo4)\
-		 ,[o5] "m" (Xo5)\
-		 ,[o6] "m" (Xo6)\
-		 ,[o7] "m" (Xo7)\
-		 ,[c4] "m" (Xc1),[s4] "m" (Xs1)\
-		 ,[c2] "m" (Xc2),[s2] "m" (Xs2)\
-		 ,[c6] "m" (Xc3),[s6] "m" (Xs3)\
-		 ,[c1] "m" (Xc4),[s1] "m" (Xs4)\
-		 ,[c5] "m" (Xc5),[s5] "m" (Xs5)\
-		 ,[c3] "m" (Xc6),[s3] "m" (Xs6)\
-		 ,[c7] "m" (Xc7),[s7] "m" (Xs7)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+		: [in0] "m" (Xin0)	/* All 'm'-inputs from memory addresses here... */\
+		 ,[i1] "e" (Xi1)	/* ...except for 'e'-inputs which are literal byte offsets */\
+		 ,[out0] "m" (Xout0) /* output-address-octet base pointer */\
+		 ,[off] "m" (Xoff)	/* and pointer to uint32 array of 8 double* index offsets */\
+		 ,[twid_ptrs] "m" (Xtwid_ptrs)\
+		 ,[two] "m" (Xtwo)/* Only used in FMA implementations of this macro */\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
@@ -3652,14 +3663,21 @@
 	}
 
 	// AVX2 Opcount: 84 vec MEM [30 implicit], 31 ADD/SUB, 50 MUL, 36 FMA, i.e. trade 36 ADD+MUL for 36 FMA (plus one more ADD to generate SQRT2 from ISRT2).
-	#define SSE2_RADIX8_DIT_TWIDDLE_OOP(Xi0,Xi1,Xi2,Xi3,Xi4,Xi5,Xi6,Xi7, Xo0,Xo1,Xo2,Xo3,Xo4,Xo5,Xo6,Xo7 ,Xc1,Xs1,Xc2,Xs2,Xc3,Xs3,Xc4,Xs4,Xc5,Xs5,Xc6,Xs6,Xc7,Xs7)\
+	//*** Dec 2020: For guide to updated reduced-#arg IO address computation, cf. the SSE2 version of this macro. ***
+	#define SSE2_RADIX8_DIT_TWIDDLE_OOP(Xin0,Xi1, Xout0,Xo_off, Xtwid_ptrs, Xtwo)\
 	{\
-	__asm__ volatile (																		/* Blocks 2/3 use separate register subset, can be done overlapped with 0/1: */\
-	/* Block 0/1 has just one twiddle-CMUL: */											"	movq		%[i2],%%rcx				\n\t	movq		%[i3],%%rdx				\n\t"\
-	"movq		%[i0],%%rax				\n\t												movq		%[c2],%%r10				\n\t	movq		%[c3],%%r12				\n\t"\
-	"movq		%[i1],%%rbx				\n\t												movq		%[s2],%%r11				\n\t	movq		%[s3],%%r13				\n\t"\
-	"movq		%[c1],%%rdi	\n\t/* [rdi,rsi] -> [c,s] components of each sincos pair, */	vmovaps		(%%rcx),%%zmm8 			\n\t	vmovaps		0x40(%%rcx),%%zmm9 		\n\t"\
-	"movq		%[s1],%%rsi	\n\t/* (not truly a pair here in terms of rel-addresses). */	vmovaps	%%zmm9 ,%%zmm10				\n\t	vmovaps		%%zmm8 ,%%zmm11			\n\t"\
+	__asm__ volatile (\
+	/* i1 is base byte-offset, no need to lshift it prior to add: */\
+		"xorq	%%r8,%%r8	\n\t	leaq	%c[i1](%%r8),%%r8	\n\t"/* movq|movslq of literal %c[i1] both segfaulted, workaround via LEA */\
+		/* The twid_ptrs[] array holds ptrs to 14 complex twiddles in-order: (c,s)[1,2,3,4,5,6,7]: */\
+		"movq	%[twid_ptrs],%%r14	\n\t"\
+	/* Block 0/1 has just one twiddle-CMUL: 												/* Blocks 2/3 use separate register subset, can be done overlapped with 0/1: */\
+	"movq		%[in0],%%rax		\n\t"\
+		"leaq	(%%rax,%%r8  ),%%rbx	\n\t"\
+		"leaq	(%%rax,%%r8,2),%%rcx	\n\t											movq	0x10(%%r14),%%r10				\n\t	movq	0x20(%%r14),%%r12			\n\t"/* c2,c3 */\
+		"leaq	(%%rcx,%%r8  ),%%rdx	\n\t											movq	0x18(%%r14),%%r11				\n\t	movq	0x28(%%r14),%%r13			\n\t"/* s2,s3 */\
+	"movq	    (%%r14),%%rdi	\n\t/* [rdi,rsi] -> [c,s] components of each sincos pair, */	vmovaps		(%%rcx),%%zmm8 		\n\t	vmovaps		0x40(%%rcx),%%zmm9 		\n\t"/* lcol: c1,s1 */\
+	"movq	0x08(%%r14),%%rsi	\n\t/* (not truly a pair here in terms of rel-addresses). */	vmovaps	%%zmm9 ,%%zmm10			\n\t	vmovaps		%%zmm8 ,%%zmm11			\n\t"\
 	"vmovaps	    (%%rbx),%%zmm4 		\n\t	vmovaps		0x40(%%rbx),%%zmm5 		\n\t	vmovaps		(%%rdx),%%zmm12			\n\t	vmovaps		0x40(%%rdx),%%zmm13		\n\t"\
 	"vmovaps	    (%%rax),%%zmm0 		\n\t	vmovaps		0x40(%%rax),%%zmm1 		\n\t	vmovaps	%%zmm13,%%zmm14				\n\t	vmovaps		%%zmm12,%%zmm15			\n\t"\
 	"vmovaps	%%zmm5 ,%%zmm6 			\n\t	vmovaps		%%zmm4 ,%%zmm7 			\n\t	vmulpd		(%%r10),%%zmm8 ,%%zmm8 	\n\t	vmulpd		(%%r10),%%zmm9 ,%%zmm9 	\n\t"\
@@ -3672,16 +3690,23 @@
 	"vmovaps	%%zmm2 ,    (%%rbx)		\n\t	vmovaps		%%zmm3 ,0x40(%%rbx)		\n\t	vmovaps		%%zmm8 ,    (%%rcx)		\n\t	vmovaps		%%zmm9 ,0x40(%%rcx)		\n\t"\
 														/* Now do radix-2 butterfly: */	"	vmovaps		%%zmm10,    (%%rdx)		\n\t	vmovaps		%%zmm11,0x40(%%rdx)		\n\t"\
 	/* Blocks 4/5: */																		/* Blocks 6/7 use separate register subset, can be done overlapped with 4/5: */\
-	"movq		%[i4],%%rax				\n\t												movq		%[i6],%%rcx				\n\t"\
-	"movq		%[i5],%%rbx				\n\t												movq		%[i7],%%rdx				\n\t"\
-	"movq		%[c4],%%rdi				\n\t												movq		%[c6],%%r10				\n\t"\
-	"movq		%[c5],%%r8 				\n\t												movq		%[c7],%%r12				\n\t"\
-	"movq		%[s4],%%rsi				\n\t												movq		%[s6],%%r11				\n\t"\
-	"movq		%[s5],%%r9 				\n\t												movq		%[s7],%%r13				\n\t"\
+	"shlq	$2,%%r8			\n\t"/* From here on only need offset i4 = 4*i1 */\
+	"addq	%%r8,%%rax		\n\t"/* Remaining 4 I-address-calculations are in-place += i4, so use ADD, faster than LEA */\
+	"addq	%%r8,%%rbx		\n\t"\
+	"addq	%%r8,%%rcx		\n\t"\
+	"addq	%%r8,%%rdx		\n\t"\
 	"vmovaps		(%%rax),%%zmm0 		\n\t	vmovaps		0x40(%%rax),%%zmm1 		\n\t	vmovaps		(%%rcx),%%zmm8 			\n\t	vmovaps		0x40(%%rcx),%%zmm9 		\n\t"\
 	"vmovaps	%%zmm1 ,%%zmm2 			\n\t	vmovaps		%%zmm0 ,%%zmm3 			\n\t	vmovaps		%%zmm9 ,%%zmm10			\n\t	vmovaps		%%zmm8 ,%%zmm11			\n\t"\
 	"vmovaps		(%%rbx),%%zmm4 		\n\t	vmovaps		0x40(%%rbx),%%zmm5 		\n\t	vmovaps		(%%rdx),%%zmm12			\n\t	vmovaps		0x40(%%rdx),%%zmm13		\n\t"\
 	"vmovaps	%%zmm5 ,%%zmm6 			\n\t	vmovaps		%%zmm4 ,%%zmm7 			\n\t	vmovaps		%%zmm13,%%zmm14			\n\t	vmovaps		%%zmm12,%%zmm15			\n\t"\
+	"subq		%%r8,%%rax			\n\t"\
+	"subq		%%r8,%%rbx			\n\t"\
+	"subq		%%r8,%%rcx			\n\t"\
+	"subq		%%r8,%%rdx			\n\t"\
+	"movq	0x30(%%r14),%%rdi			\n\t												movq	0x50(%%r14),%%r10				\n\t"/* c4,c6 */\
+	"movq	0x40(%%r14),%%r8 			\n\t												movq	0x60(%%r14),%%r12				\n\t"/* c5,c7 */\
+	"movq	0x38(%%r14),%%rsi			\n\t												movq	0x58(%%r14),%%r11				\n\t"/* s4,s6 */\
+	"movq	0x48(%%r14),%%r9 			\n\t												movq	0x68(%%r14),%%r13				\n\t"/* s5,s7 */\
 	"vmulpd		 (%%rdi),%%zmm0 ,%%zmm0 \n\t	vmulpd		 (%%rdi),%%zmm1 ,%%zmm1 \n\t	vmulpd		(%%r10),%%zmm8 ,%%zmm8 	\n\t	vmulpd		 (%%r10),%%zmm9 ,%%zmm9 \n\t"\
 	"vmulpd		 (%%r8 ),%%zmm4 ,%%zmm4 \n\t	vmulpd		 (%%r8 ),%%zmm5 ,%%zmm5 \n\t	vmulpd		(%%r12),%%zmm12,%%zmm12	\n\t	vmulpd		 (%%r12),%%zmm13,%%zmm13\n\t"\
 	"vfmadd231pd (%%rsi),%%zmm2 ,%%zmm0 \n\t	vfnmadd231pd (%%rsi),%%zmm3 ,%%zmm1 \n\t	vfmadd231pd (%%r11),%%zmm10,%%zmm8 	\n\t	vfnmadd231pd (%%r11),%%zmm11,%%zmm9 \n\t"\
@@ -3691,21 +3716,19 @@
 	"vaddpd		%%zmm4 ,%%zmm0 ,%%zmm0 	\n\t	vaddpd		%%zmm5 ,%%zmm1 ,%%zmm1 	\n\t	vaddpd		%%zmm12,%%zmm8 ,%%zmm8 	\n\t	vaddpd		%%zmm13,%%zmm9 ,%%zmm9 	\n\t"\
 	"vsubpd		%%zmm4 ,%%zmm2 ,%%zmm2 	\n\t	vsubpd		%%zmm5 ,%%zmm3 ,%%zmm3 	\n\t	vsubpd		%%zmm12,%%zmm10,%%zmm10	\n\t	vsubpd		%%zmm13,%%zmm11,%%zmm11	\n\t"\
 	/* Reload Block 0-3 outputs into r4-7,c-f, combine to get the 2 length-4 subtransform... */\
-	"movq		%[i0],%%rax				\n\t"\
-	"movq		%[i1],%%rbx				\n\t"\
-	"movq		%[i2],%%rcx				\n\t"\
-	"movq		%[i3],%%rdx				\n\t"\
 	"vmovaps		(%%rax),%%zmm4 		\n\t	vmovaps		0x40(%%rax),%%zmm5 		\n\t"\
 	"vmovaps		(%%rbx),%%zmm6 		\n\t	vmovaps		0x40(%%rbx),%%zmm7 		\n\t"\
 	"vmovaps		(%%rcx),%%zmm12		\n\t	vmovaps		0x40(%%rcx),%%zmm13		\n\t"\
 	"vmovaps		(%%rdx),%%zmm14		\n\t	vmovaps		0x40(%%rdx),%%zmm15		\n\t"\
-	"movq		%[o0],%%rax				\n\t"/* Assumes user stuck a (vec_dbl)2.0 into this output slot prior to macro call. */\
+	"movq		%[out0],%%rax			\n\t	movq		%[o_off],%%r8		\n\t"/* out0, off1 */\
+	"movq		%[two],%%rsi			\n\t	leaq		(%%r8,%%r8),%%r9	\n\t"/* (vec_dbl)2.0, off2 */\
+		"										leaq		(%%r9,%%r9),%%r10	\n\t"/* off4 */\
 	"vsubpd		%%zmm12,%%zmm4 ,%%zmm4 	\n\t	vsubpd		%%zmm13,%%zmm5 ,%%zmm5 	\n\t"\
 	"vsubpd		%%zmm15,%%zmm6 ,%%zmm6 	\n\t	vsubpd		%%zmm14,%%zmm7 ,%%zmm7 	\n\t"\
 	"vsubpd		%%zmm8 ,%%zmm0 ,%%zmm0 	\n\t	vsubpd		%%zmm9 ,%%zmm1 ,%%zmm1 	\n\t"\
 	"vsubpd		%%zmm11,%%zmm2 ,%%zmm2 	\n\t	vsubpd		%%zmm10,%%zmm3 ,%%zmm3 	\n\t"\
 	/* We hope the microcode execution engine inlines the MULs with the above SUBs: */\
-	"vmovaps	%%zmm10,(%%rdx) 	\n\t"/* spill zmm14 to make room for 2.0 */"	vmovaps	(%%rax),%%zmm10 \n\t"/* two */\
+	"vmovaps	%%zmm10,(%%rdx) 	\n\t"/* spill zmm14 to make room for 2.0 */"	vmovaps	(%%rsi),%%zmm10 \n\t"/* two */\
 	"vfmadd132pd %%zmm10,%%zmm4,%%zmm12	\n\t	vfmadd132pd %%zmm10,%%zmm5 ,%%zmm13	\n\t"\
 	"vfmadd132pd %%zmm10,%%zmm6,%%zmm15	\n\t	vfmadd132pd %%zmm10,%%zmm7 ,%%zmm14	\n\t"\
 	"vfmadd132pd %%zmm10,%%zmm0,%%zmm8 	\n\t	vfmadd132pd %%zmm10,%%zmm1 ,%%zmm9 	\n\t"\
@@ -3716,16 +3739,16 @@
 	"vsubpd		%%zmm3 ,%%zmm11,%%zmm11	\n\t	vsubpd		%%zmm10,%%zmm2 ,%%zmm2 	\n\t"\
 	"vsubpd		%%zmm8 ,%%zmm12,%%zmm12	\n\t	vsubpd		%%zmm9 ,%%zmm13,%%zmm13	\n\t"\
 	"vsubpd		%%zmm1 ,%%zmm4 ,%%zmm4 	\n\t	vsubpd		%%zmm0 ,%%zmm5 ,%%zmm5 	\n\t"\
-	"vmovaps	%%zmm0 ,(%%rdx) 	\n\t"/* spill zmm14 to make room for 2.0 */"	vmovaps	(%%rax),%%zmm0  \n\t"/* two */\
+	"vmovaps	%%zmm0 ,(%%rdx) 	\n\t"/* spill zmm14 to make room for 2.0 */"	vmovaps	(%%rsi),%%zmm0  \n\t"/* two */\
 	"vfmadd132pd %%zmm0,%%zmm11,%%zmm3 	\n\t	vfmadd132pd %%zmm0 ,%%zmm2 ,%%zmm10	\n\t"\
 	"vfmadd132pd %%zmm0,%%zmm12,%%zmm8 	\n\t	vfmadd132pd %%zmm0 ,%%zmm13,%%zmm9 	\n\t"\
 	"vfmadd132pd %%zmm0,%%zmm4 ,%%zmm1 	\n\t	vfmadd132pd (%%rdx),%%zmm5 ,%%zmm0 	\n\t"\
 	/*movq		%[o0],%%rax		[o0] already in rax */	\
-	"movq		%[o1],%%rbx				\n\t"\
-	"movq		%[o2],%%rcx				\n\t"\
-	"movq		%[o3],%%rdx				\n\t"\
+	"leaq	(%%rax,%%r9 ),%%rcx		\n\t"/* out0 + off2, compute first to allow time for LEA to finish before += off4 to get out0 + off6 */\
+	"leaq	(%%rax,%%r10),%%rbx		\n\t"/* out0 + off4 */\
+	"leaq	(%%rcx,%%r10),%%rdx		\n\t"/* out0 + off6 */\
 	"vmovaps	%%zmm12,    (%%rbx)		\n\t	vmovaps		%%zmm13,0x40(%%rbx)		\n\t"/* __Br1 = _rc;	__Bi1 = _rd; */\
-	/* Use that _rc,d free to stick 2.0 into _rc and that [c4] in rdi to load ISRT2 from c4-1 into _rd: */\
+	/* Use that _rc,d free to stick ISRT2 into _rc and SQRT2 into _rd: */\
 	"vmovaps	-0x40(%%rdi),%%zmm12	\n\t	vaddpd	%%zmm12,%%zmm12,%%zmm13		\n\t"/* zmm12 = ISRT2;	zmm13 = SQRT2; */\
 	"vmovaps	%%zmm4 ,    (%%rdx)		\n\t	vmovaps		%%zmm0 ,0x40(%%rdx)		\n\t"/* __Br3 = _r4;	__Bi3 = _r0; */\
 	"vmovaps	%%zmm8 ,    (%%rax)		\n\t	vmovaps		%%zmm9 ,0x40(%%rax)		\n\t"/* __Br0 = _r8;	__Bi0 = _r9; */\
@@ -3734,39 +3757,22 @@
 	"vfnmadd231pd %%zmm12,%%zmm2,%%zmm6	\n\t	vfnmadd231pd %%zmm12,%%zmm10,%%zmm14\n\t"\
 	" vfmadd132pd %%zmm13,%%zmm15,%%zmm3\n\t	 vfmadd132pd %%zmm13,%%zmm7 ,%%zmm11\n\t"\
 	" vfmadd132pd %%zmm13,%%zmm6 ,%%zmm2\n\t	 vfmadd132pd %%zmm13,%%zmm14,%%zmm10\n\t"\
-	"movq		%[o4],%%rax				\n\t"\
-	"movq		%[o5],%%rbx				\n\t"\
-	"movq		%[o6],%%rcx				\n\t"\
-	"movq		%[o7],%%rdx				\n\t"\
+	"addq		%%r8 ,%%rax			\n\t"/* out0 + off[1,5,3,7] */\
+	"addq		%%r8 ,%%rbx			\n\t"\
+	"addq		%%r8 ,%%rcx			\n\t"\
+	"addq		%%r8 ,%%rdx			\n\t"\
 	"vmovaps	%%zmm3 ,    (%%rax)		\n\t	vmovaps		%%zmm7 ,0x40(%%rax)		\n\t"/* __Br4 = _r3;	__Bi4 = _r7; */\
 	"vmovaps	%%zmm15,    (%%rbx)		\n\t	vmovaps		%%zmm11,0x40(%%rbx)		\n\t"/* __Br5 = _rf;	__Bi5 = _rb; */\
 	"vmovaps	%%zmm6 ,    (%%rcx)		\n\t	vmovaps		%%zmm14,0x40(%%rcx)		\n\t"/* __Br6 = _r6;	__Bi6 = _re; */\
 	"vmovaps	%%zmm2 ,    (%%rdx)		\n\t	vmovaps		%%zmm10,0x40(%%rdx)		\n\t"/* __Br7 = _r2;	__Bi7 = _ra; */\
 		:					/* outputs: none */\
-		: [i0] "m" (Xi0)	/* All inputs from memory addresses here */\
-		 ,[i1] "m" (Xi1)\
-		 ,[i2] "m" (Xi2)\
-		 ,[i3] "m" (Xi3)\
-		 ,[i4] "m" (Xi4)\
-		 ,[i5] "m" (Xi5)\
-		 ,[i6] "m" (Xi6)\
-		 ,[i7] "m" (Xi7)\
-		 ,[o0] "m" (Xo0)\
-		 ,[o1] "m" (Xo1)\
-		 ,[o2] "m" (Xo2)\
-		 ,[o3] "m" (Xo3)\
-		 ,[o4] "m" (Xo4)\
-		 ,[o5] "m" (Xo5)\
-		 ,[o6] "m" (Xo6)\
-		 ,[o7] "m" (Xo7)\
-		 ,[c1] "m" (Xc1),[s1] "m" (Xs1)\
-		 ,[c2] "m" (Xc2),[s2] "m" (Xs2)\
-		 ,[c3] "m" (Xc3),[s3] "m" (Xs3)\
-		 ,[c4] "m" (Xc4),[s4] "m" (Xs4)\
-		 ,[c5] "m" (Xc5),[s5] "m" (Xs5)\
-		 ,[c6] "m" (Xc6),[s6] "m" (Xs6)\
-		 ,[c7] "m" (Xc7),[s7] "m" (Xs7)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+		: [in0] "m" (Xin0)	/* All 'm'-inputs from memory addresses here... */\
+		 ,[i1] "e" (Xi1)	/* ...except for 'e'-inputs which are literal byte offsets */\
+		 ,[out0] "m" (Xout0)\
+		 ,[o_off] "m" (Xo_off)/* O-address pointer-stride */\
+		 ,[twid_ptrs] "m" (Xtwid_ptrs)\
+		 ,[two] "m" (Xtwo)/* Only used in FMA implementations of this macro */\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
@@ -3775,7 +3781,10 @@
 	// Based on the SSE2_RADIX16_DIF_NOTWIDDLE macro in radix16_ditN_cy_dif1_gcc64.h, but with completely
 	// specifiable 16-output addressing required for usage as the power-of-2 component of a twiddleless
 	// radix = [odd*2^n] DFT routine.
-	#define SSE2_RADIX16_DIF_0TWIDDLE(Xin0,Xi1,Xi2,Xi3,Xi4, Xisrt2,Xtwo, Xout0,Xout1,Xout2,Xout3,Xout4,Xout5,Xout6,Xout7,Xout8,Xout9,Xouta,Xoutb,Xoutc,Xoutd,Xoute,Xoutf)\
+	/* Dec 2020: Needed to cut #args for Apple M1/Clang builds on Arm64 - do similar on x86 to avoid
+	multiple versions of the macro having different arglists. Replace 16 O-addresses with O-base-address
+	out0 and pointer to array of 16 int offset-indices: */
+	#define SSE2_RADIX16_DIF_0TWIDDLE(Xin0,Xi1,Xi2,Xi3,Xi4, Xisrt2,Xtwo, Xout0,Xoff)\
 	{\
 	__asm__ volatile (\
 		"movq	%[__two],%%r15	\n\t"/* two, used for FMA-based double-and-ADD/SUBs */\
@@ -3819,10 +3828,10 @@
 		"vmovaps	%%zmm7,    (%%rdx)							\n\t	vmovaps	%%zmm15,    (%%r13)	\n\t"\
 		"vmovaps	%%zmm6,0x40(%%rcx)							\n\t	vmovaps	%%zmm14,0x40(%%r12)	\n\t"\
 	/* Block 1: SSE2_RADIX4_DIF_IN_PLACE(r3 , r19, r11, r27): */	/* Block 3: SSE2_RADIX4_DIF_IN_PLACE(r7 , r23, r15, r31): */\
-		"leaq	%c[__i1](%%rax),%%rax	\n\t"/* addr += 1*ostride */"	leaq	%c[__i2](%%rax),%%r10	\n\t"/* addr += 2*ostride */\
-		"leaq	%c[__i1](%%rbx),%%rbx	\n\t"/* w.r.to to Block 0 */"	leaq	%c[__i2](%%rbx),%%r11	\n\t"/* w.r.to to Block 1 */\
-		"leaq	%c[__i1](%%rcx),%%rcx							\n\t	leaq	%c[__i2](%%rcx),%%r12	\n\t"\
-		"leaq	%c[__i1](%%rdx),%%rdx							\n\t	leaq	%c[__i2](%%rdx),%%r13	\n\t"\
+		"addq	$%c[__i1],%%rax	\n\t"/* addr += 1*ostride */"	addq	$%c[__i1],%%r10	\n\t"/* addr += 1*ostride */\
+		"addq	$%c[__i1],%%rbx	\n\t"/* w.r.to to Block 0 */"	addq	$%c[__i1],%%r12	\n\t"/* w.r.to to Block 2 */\
+		"addq	$%c[__i1],%%rcx							\n\t	addq	$%c[__i1],%%r11	\n\t"\
+		"addq	$%c[__i1],%%rdx							\n\t	addq	$%c[__i1],%%r13	\n\t"\
 		"vmovaps	    (%%rbx),%%zmm0							\n\t	vmovaps	    (%%r11),%%zmm8 	\n\t"\
 		"vmovaps	0x40(%%rbx),%%zmm1							\n\t	vmovaps	0x40(%%r11),%%zmm9 	\n\t"\
 		"vmovaps	    (%%rax),%%zmm2							\n\t	vmovaps	    (%%r10),%%zmm10	\n\t"\
@@ -3857,16 +3866,16 @@
 		"vmovaps	%%zmm5,0x40(%%rax)							\n\t	vmovaps	%%zmm13,0x40(%%r10)	\n\t"\
 		"vmovaps	%%zmm7,    (%%rdx)							\n\t	vmovaps	%%zmm15,    (%%r13)	\n\t"\
 		"vmovaps	%%zmm6,0x40(%%rcx)							\n\t	vmovaps	%%zmm14,0x40(%%r12)	\n\t"\
-	/******************************************************************************/\
-	/*** Now do 4 DFTs with internal twiddles on the 4*stride - separated data. ***/\
-	/*** Order 0,2,1,3 allows incr-only of rsi-datum from 1 block to the next: ****/\
-	/******************************************************************************/\
+	/*****************************************************************************************
+	**** Now do 4 DFTs with internal twiddles on the 1*stride - separated data. Do blocks ****
+	**** in order 0,2,1,3 to allow increment-only of rsi-datum from 1 block to the next:  ****
+	*****************************************************************************************/\
+	/* Problem: In the sse2 and avx versions of the reduced-#args macro with their single columns of
+	instructions, had plenty of GPRs to store both I and O-addresses simultaneously. In the 2-column avx2
+	and avx-512 versions, don't have enough GPRs. But since we don't need the O-addresses until we are ready
+	to write outputs, just move the O-address computations down to that part of each 4-DFT sub-block: */\
 	/* Block 0: r0-3 */												/* Block 1: r8-b */\
-		"movq	%[__in0],%%rsi	\n\t	leaq %c[__i4](%%rsi),%%r8 \n\t leaq %c[__i4](%%r8 ),%%r8 \n\t"/* __in0+8*ostride */\
-		"movq	%[__out0],%%rax									\n\t	movq	%[__out4],%%r10		\n\t"\
-		"movq	%[__out1],%%rbx									\n\t	movq	%[__out5],%%r11		\n\t"\
-		"movq	%[__out2],%%rcx									\n\t	movq	%[__out6],%%r12		\n\t"\
-		"movq	%[__out3],%%rdx									\n\t	movq	%[__out7],%%r13		\n\t"\
+		"movq	%[__in0],%%rsi	\n\t	leaq %c[__i4](%%rsi),%%r8 \n\t addq $%c[__i4],%%r8 \n\t"/* __in0+[0,8]*ostride */\
 	/* Need separate address for Im parts of outputs due to literal-offsets below: */\
 		"leaq	0x40(%%rsi),%%rdi								\n\t	leaq	0x40(%%r8 ),%%r9 	\n\t"\
 		"vmovaps	        (%%rsi),%%zmm0						\n\t	vmovaps	        (%%r8 ),%%zmm8 	\n\t"/* ar */\
@@ -3877,7 +3886,7 @@
 		"vmovaps	%c[__i1](%%rdi),%%zmm5						\n\t	vmovaps	%c[__i1](%%r9 ),%%zmm13	\n\t"/* ci */\
 		"vmovaps	%c[__i3](%%rsi),%%zmm6						\n\t	vmovaps	%c[__i3](%%r8 ),%%zmm14	\n\t"/* dr */\
 		"vmovaps	%c[__i3](%%rdi),%%zmm7						\n\t	vmovaps	%c[__i3](%%r9 ),%%zmm15	\n\t"/* di */\
-		"																movq	%[__isrt2],%%r9 	\n\t"\
+		"																movq	%[__isrt2],%%r14	\n\t"\
 		"vsubpd		%%zmm2 ,%%zmm0,%%zmm0						\n\t	vsubpd		%%zmm11,%%zmm8 ,%%zmm8 	\n\t"/* ar-bi */\
 		"vsubpd		%%zmm3 ,%%zmm1,%%zmm1						\n\t	vsubpd		%%zmm10,%%zmm9 ,%%zmm9 	\n\t"/* ai-br */\
 		"vsubpd		%%zmm6 ,%%zmm4,%%zmm4						\n\t	vsubpd		%%zmm13,%%zmm12,%%zmm12	\n\t"/* cr-ci */\
@@ -3889,30 +3898,35 @@
 	"vfmadd132pd	%%zmm14,%%zmm5,%%zmm7						\n\t	vfmadd132pd	(%%rax),%%zmm15,%%zmm14	\n\t"/* di+dr */\
 		"																	vsubpd	%%zmm14,%%zmm12,%%zmm12		\n\t"\
 		"																	vsubpd	%%zmm15,%%zmm13,%%zmm13		\n\t"\
+	"movq	%[out0],%%r8	\n\t	movq	%[off],%%r9	\n\t"/* Load output base-address into r8 and offset-array pointer into r9 */\
+		"movslq		    (%%r9),%%rax	\n\t"/*        off0 */"movslq	0x10(%%r9),%%r10	\n\t"/*        off4 */\
+		"movslq		0x04(%%r9),%%rbx	\n\t"/*        off1 */"movslq	0x14(%%r9),%%r11	\n\t"/*        off5 */\
+		"movslq		0x08(%%r9),%%rcx	\n\t"/*        off2 */"movslq	0x18(%%r9),%%r12	\n\t"/*        off6 */\
+		"movslq		0x0c(%%r9),%%rdx	\n\t"/*        off3 */"movslq	0x1c(%%r9),%%r13	\n\t"/*        off7 */\
+		"leaq	(%%r8,%%rax,8),%%rax	\n\t"/* out0 + off0 */"leaq	(%%r8,%%r10,8),%%r10	\n\t"/* out0 + off4 */\
+		"leaq	(%%r8,%%rbx,8),%%rbx	\n\t"/* out0 + off1 */"leaq	(%%r8,%%r11,8),%%r11	\n\t"/* out0 + off5 */\
+		"leaq	(%%r8,%%rcx,8),%%rcx	\n\t"/* out0 + off2 */"leaq	(%%r8,%%r12,8),%%r12	\n\t"/* out0 + off6 */\
+		"leaq	(%%r8,%%rdx,8),%%rdx	\n\t"/* out0 + off3 */"leaq	(%%r8,%%r13,8),%%r13	\n\t"/* out0 + off7 */\
 		"vsubpd		%%zmm6,%%zmm2,%%zmm2						\n\t	vfmadd132pd	(%%r15),%%zmm12,%%zmm14		\n\t"\
 		"vsubpd		%%zmm7,%%zmm3,%%zmm3						\n\t	vfmadd132pd	(%%r15),%%zmm13,%%zmm15		\n\t"\
-		"vsubpd		%%zmm5,%%zmm0,%%zmm0						\n\t	vfnmadd231pd	(%%r9 ),%%zmm12,%%zmm8 	\n\t"/* x = x - y.isrt2 */\
-		"vsubpd		%%zmm4,%%zmm1,%%zmm1						\n\t	vfnmadd231pd	(%%r9 ),%%zmm13,%%zmm10	\n\t"\
-		"vmovaps	%%zmm2,    (%%rbx)							\n\t	vfnmadd231pd	(%%r9 ),%%zmm14,%%zmm9 	\n\t"\
-		"vmovaps	%%zmm3,0x40(%%rbx)							\n\t	vfnmadd231pd	(%%r9 ),%%zmm15,%%zmm11	\n\t"\
+		"vsubpd		%%zmm5,%%zmm0,%%zmm0						\n\t	vfnmadd231pd	(%%r14),%%zmm12,%%zmm8 	\n\t"/* x = x - y.isrt2 */\
+		"vsubpd		%%zmm4,%%zmm1,%%zmm1						\n\t	vfnmadd231pd	(%%r14),%%zmm13,%%zmm10	\n\t"\
+		"vmovaps	%%zmm2,    (%%rbx)							\n\t	vfnmadd231pd	(%%r14),%%zmm14,%%zmm9 	\n\t"\
+		"vmovaps	%%zmm3,0x40(%%rbx)							\n\t	vfnmadd231pd	(%%r14),%%zmm15,%%zmm11	\n\t"\
 		"vmovaps	%%zmm0,    (%%rcx)							\n\t	vmovaps	%%zmm8 ,    (%%r11)	\n\t"\
 		"vmovaps	%%zmm1,0x40(%%rdx)							\n\t	vmovaps	%%zmm10,0x40(%%r11)	\n\t"\
 	"vfmadd132pd	(%%r15),%%zmm2,%%zmm6						\n\t	vmovaps	%%zmm9 ,0x40(%%r13)	\n\t"\
 	"vfmadd132pd	(%%r15),%%zmm3,%%zmm7						\n\t	vmovaps	%%zmm11,    (%%r12)	\n\t"\
-	"vfmadd132pd	(%%r15),%%zmm0,%%zmm5						\n\t	vfmadd132pd	-0x40(%%r9),%%zmm8 ,%%zmm12	\n\t"/* y = x + y.sqrt2 = x + y.isrt2 */\
-	"vfmadd132pd	(%%r15),%%zmm1,%%zmm4						\n\t	vfmadd132pd	-0x40(%%r9),%%zmm10,%%zmm13	\n\t"\
-		"vmovaps	%%zmm6,    (%%rax)							\n\t	vfmadd132pd	-0x40(%%r9),%%zmm11,%%zmm15	\n\t"\
-		"vmovaps	%%zmm7,0x40(%%rax)							\n\t	vfmadd132pd	-0x40(%%r9),%%zmm9 ,%%zmm14	\n\t"\
+	"vfmadd132pd	(%%r15),%%zmm0,%%zmm5						\n\t	vfmadd132pd	-0x40(%%r14),%%zmm8 ,%%zmm12	\n\t"/* y = x + y.sqrt2 = x + y.isrt2 */\
+	"vfmadd132pd	(%%r15),%%zmm1,%%zmm4						\n\t	vfmadd132pd	-0x40(%%r14),%%zmm10,%%zmm13	\n\t"\
+		"vmovaps	%%zmm6,    (%%rax)							\n\t	vfmadd132pd	-0x40(%%r14),%%zmm11,%%zmm15	\n\t"\
+		"vmovaps	%%zmm7,0x40(%%rax)							\n\t	vfmadd132pd	-0x40(%%r14),%%zmm9 ,%%zmm14	\n\t"\
 		"vmovaps	%%zmm5,    (%%rdx)							\n\t	vmovaps	%%zmm12,    (%%r10)	\n\t"\
 		"vmovaps	%%zmm4,0x40(%%rcx)							\n\t	vmovaps	%%zmm13,0x40(%%r10)	\n\t"\
 		"																vmovaps	%%zmm15,    (%%r13)	\n\t"\
 		"																vmovaps	%%zmm14,0x40(%%r12)	\n\t"\
 	/* Block 2: */													/* Block 3: */\
-		"leaq	%c[__i4](%%rsi),%%rsi	\n\t"/* __in0+4*ostride */	"	leaq	%c[__i4](%%r8 ),%%r8 	\n\t"/* __in0+c*ostride */\
-		"movq	%[__out8],%%rax									\n\t	movq	%[__outc],%%r10		\n\t"\
-		"movq	%[__out9],%%rbx									\n\t	movq	%[__outd],%%r11		\n\t"\
-		"movq	%[__outa],%%rcx									\n\t	movq	%[__oute],%%r12		\n\t"\
-		"movq	%[__outb],%%rdx									\n\t	movq	%[__outf],%%r13		\n\t"\
+		"addq	$%c[__i4],%%rsi	\n\t	leaq %c[__i4](%%rsi),%%r8 \n\t addq $%c[__i4],%%r8 \n\t"/* __in0+[4,c]*ostride */\
 		"leaq	0x40(%%rsi),%%rdi								\n\t	leaq	0x40(%%r8 ),%%r9 	\n\t"\
 		"vmovaps	%c[__i1](%%rsi),%%zmm4						\n\t	vmovaps	%c[__i1](%%r8 ),%%zmm12	\n\t"\
 		"vmovaps	%c[__i3](%%rsi),%%zmm6						\n\t	vmovaps	%c[__i3](%%r8 ),%%zmm14	\n\t"\
@@ -3948,6 +3962,15 @@
 	"vfnmadd231pd		 (%%r9),%%zmm3,%%zmm1				\n\t	vfnmadd231pd		 (%%r9),%%zmm11,%%zmm9 	\n\t"\
 	" vfmadd132pd	-0x40(%%r9),%%zmm0,%%zmm2				\n\t	 vfmadd132pd	-0x40(%%r9),%%zmm8 ,%%zmm10	\n\t"/* y = x + y.sqrt2 = x + y.isrt2 */\
 	" vfmadd132pd	-0x40(%%r9),%%zmm1,%%zmm3				\n\t	 vfmadd132pd	-0x40(%%r9),%%zmm9 ,%%zmm11	\n\t"\
+	"movq	%[out0],%%r8	\n\t	movq	%[off],%%r9	\n\t"/* Load output base-address into r8 and offset-array pointer into r9 */\
+		"movslq		0x20(%%r9),%%rax	\n\t"/*        off8 */"movslq	0x30(%%r9),%%r10	\n\t"/*        offc */\
+		"movslq		0x24(%%r9),%%rbx	\n\t"/*        off9 */"movslq	0x34(%%r9),%%r11	\n\t"/*        offd */\
+		"movslq		0x28(%%r9),%%rcx	\n\t"/*        offa */"movslq	0x38(%%r9),%%r12	\n\t"/*        offe */\
+		"movslq		0x2c(%%r9),%%rdx	\n\t"/*        offb */"movslq	0x3c(%%r9),%%r13	\n\t"/*        offf */\
+		"leaq	(%%r8,%%rax,8),%%rax	\n\t"/* out0 + off8 */"leaq	(%%r8,%%r10,8),%%r10	\n\t"/* out0 + offc */\
+		"leaq	(%%r8,%%rbx,8),%%rbx	\n\t"/* out0 + off9 */"leaq	(%%r8,%%r11,8),%%r11	\n\t"/* out0 + offd */\
+		"leaq	(%%r8,%%rcx,8),%%rcx	\n\t"/* out0 + offa */"leaq	(%%r8,%%r12,8),%%r12	\n\t"/* out0 + offe */\
+		"leaq	(%%r8,%%rdx,8),%%rdx	\n\t"/* out0 + offb */"leaq	(%%r8,%%r13,8),%%r13	\n\t"/* out0 + offf */\
 		"vsubpd	%%zmm6,%%zmm2,%%zmm2							\n\t	vsubpd	%%zmm12,%%zmm8 ,%%zmm8 		\n\t"\
 		"vsubpd	%%zmm7,%%zmm3,%%zmm3							\n\t	vsubpd	%%zmm13,%%zmm9 ,%%zmm9 		\n\t"\
 		"vsubpd	%%zmm5,%%zmm0,%%zmm0							\n\t	vsubpd	%%zmm15,%%zmm10,%%zmm10	\n\t"\
@@ -3973,23 +3996,9 @@
 		,[__i4] "e" (Xi4)\
 		,[__isrt2] "m" (Xisrt2)\
 		,[__two] "m" (Xtwo)\
-		,[__out0] "m" (Xout0)\
-		,[__out1] "m" (Xout1)\
-		,[__out2] "m" (Xout2)\
-		,[__out3] "m" (Xout3)\
-		,[__out4] "m" (Xout4)\
-		,[__out5] "m" (Xout5)\
-		,[__out6] "m" (Xout6)\
-		,[__out7] "m" (Xout7)\
-		,[__out8] "m" (Xout8)\
-		,[__out9] "m" (Xout9)\
-		,[__outa] "m" (Xouta)\
-		,[__outb] "m" (Xoutb)\
-		,[__outc] "m" (Xoutc)\
-		,[__outd] "m" (Xoutd)\
-		,[__oute] "m" (Xoute)\
-		,[__outf] "m" (Xoutf)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+		,[out0] "m" (Xout0) /* output-address-octet base pointer */\
+		,[off] "m" (Xoff)	/* and pointer to uint32 array of 8 double* index offsets */\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
@@ -4206,18 +4215,24 @@
 	// of the macro, and is a benefit to the 64-bit versions which code-fold to yield 2 side-by-side
 	// streams of independently executable instructions, one for data in xmm0-7, the other using xmm8-15.
 	//
-	#define SSE2_RADIX16_DIT_0TWIDDLE(Xin0,Xin1,Xin2,Xin3,Xin4,Xin5,Xin6,Xin7,Xin8,Xin9,Xina,Xinb,Xinc,Xind,Xine,Xinf, Xisrt2,Xtwo, Xout0,Xo1,Xo2,Xo3,Xo4)\
+	#define SSE2_RADIX16_DIT_0TWIDDLE(Xin0,Xoff, Xisrt2,Xtwo, Xout0,Xo1,Xo2,Xo3,Xo4)\
 	{\
 	__asm__ volatile (\
+		"movq	%[__two],%%r15	\n\t	vmovaps	(%%r15),%%zmm31	\n\t"/* two */\
+	"movq	%[in0],%%r14	\n\t	movq	%[off],%%r15	\n\t"/* Load input base-address into r14 and int32[16] offset-array pointer into r15 */\
+		"movslq		    (%%r15),%%rax	\n\t	movslq		0x20(%%r15),%%r10	\n\t"/* off[0-3],[8-b] */\
+		"movslq		0x04(%%r15),%%rbx	\n\t	movslq		0x24(%%r15),%%r11	\n\t"\
+		"movslq		0x08(%%r15),%%rcx	\n\t	movslq		0x28(%%r15),%%r12	\n\t"\
+		"movslq		0x0c(%%r15),%%rdx	\n\t	movslq		0x2c(%%r15),%%r13	\n\t"\
+		"leaq	(%%r14,%%rax,8),%%rax	\n\t	leaq	(%%r14,%%r10,8),%%r10	\n\t"/* in0 + off[0-3],[8-b] */\
+		"leaq	(%%r14,%%rbx,8),%%rbx	\n\t	leaq	(%%r14,%%r11,8),%%r11	\n\t"\
+		"leaq	(%%r14,%%rcx,8),%%rcx	\n\t	leaq	(%%r14,%%r12,8),%%r12	\n\t"\
+		"leaq	(%%r14,%%rdx,8),%%rdx	\n\t	leaq	(%%r14,%%r13,8),%%r13	\n\t"\
+	"prefetcht1	0x200(%%rax)	\n\t"\
 		/* Need separate address Im parts of outputs due to literal-offsets below */\
-		"movq	%[__two],%%r15	\n\t"/* two, used for FMA-based double-and-ADD/SUBs */\
 		"movq	%[__out0],%%rsi									\n\t	leaq	%c[__o4](%%rsi),%%r8 	\n\t"\
-		"leaq	0x40(%%rsi),%%rdi								\n\t	leaq	%c[__o4](%%r8 ),%%r8 	\n\t"/* out0+8*ostride */\
-		"movq	%[__in0],%%rax									\n\t	leaq	0x40(%%r8 ),%%r9 	\n\t"\
-		"movq	%[__in1],%%rbx									\n\t	movq	%[__in8],%%r10			\n\t"\
-		"movq	%[__in2],%%rcx									\n\t	movq	%[__in9],%%r11			\n\t"\
-		"movq	%[__in3],%%rdx									\n\t	movq	%[__ina],%%r12			\n\t"\
-	"prefetcht1	0x200(%%rax)									\n\t	movq	%[__inb],%%r13			\n\t"\
+		"leaq	0x40(%%rsi),%%rdi								\n\t	addq	$%c[__o4],%%r8	 	\n\t"/* out0+8*ostride */\
+		"																leaq	0x40(%%r8 ),%%r9 	\n\t"\
 		/* SSE2_RADIX4_DIT_0TWIDDLE_B(r0 ): */							/* SSE2_RADIX4_DIT_0TWIDDLE_B(r16): */\
 		"vmovaps	    (%%rax),%%zmm2							\n\t	vmovaps	    (%%r10),%%zmm10	\n\t"\
 		"vmovaps	    (%%rcx),%%zmm6							\n\t	vmovaps	    (%%r12),%%zmm14	\n\t"\
@@ -4231,36 +4246,39 @@
 		"vsubpd	%%zmm4,%%zmm6,%%zmm6							\n\t	vsubpd	%%zmm12,%%zmm14,%%zmm14		\n\t"\
 		"vsubpd	%%zmm1,%%zmm3,%%zmm3							\n\t	vsubpd	%%zmm9 ,%%zmm11,%%zmm11		\n\t"\
 		"vsubpd	%%zmm5,%%zmm7,%%zmm7							\n\t	vsubpd	%%zmm13,%%zmm15,%%zmm15		\n\t"\
-	"vmovaps	%%zmm13,(%%rax) 	\n\t"/* spill zmm13 to make room for 2.0 */"	vmovaps	(%%r15),%%zmm13	\n\t"/* two */\
-	"vfmadd132pd	%%zmm13,%%zmm2,%%zmm0						\n\t	vfmadd132pd	%%zmm13,%%zmm10,%%zmm8 		\n\t"\
-	"vfmadd132pd	%%zmm13,%%zmm6,%%zmm4						\n\t	vfmadd132pd	%%zmm13,%%zmm14,%%zmm12		\n\t"\
-	"vfmadd132pd	%%zmm13,%%zmm3,%%zmm1						\n\t	vfmadd132pd	%%zmm13,%%zmm11,%%zmm9 		\n\t"\
-	"vfmadd132pd	%%zmm13,%%zmm7,%%zmm5						\n\t	vfmadd132pd	(%%rax),%%zmm15,%%zmm13		\n\t"\
+		/* Remember, v8_double(2.0) in zmm31: */\
+	"vfmadd132pd	%%zmm31,%%zmm2,%%zmm0						\n\t	vfmadd132pd	%%zmm31,%%zmm10,%%zmm8 		\n\t"\
+	"vfmadd132pd	%%zmm31,%%zmm6,%%zmm4						\n\t	vfmadd132pd	%%zmm31,%%zmm14,%%zmm12		\n\t"\
+	"vfmadd132pd	%%zmm31,%%zmm3,%%zmm1						\n\t	vfmadd132pd	%%zmm31,%%zmm11,%%zmm9 		\n\t"\
+	"vfmadd132pd	%%zmm31,%%zmm7,%%zmm5						\n\t	vfmadd132pd	%%zmm31,%%zmm15,%%zmm13		\n\t"\
 		"vsubpd	%%zmm4,%%zmm0,%%zmm0							\n\t	vsubpd	%%zmm12,%%zmm8 ,%%zmm8 		\n\t"\
 		"vsubpd	%%zmm7,%%zmm2,%%zmm2							\n\t	vsubpd	%%zmm15,%%zmm10,%%zmm10		\n\t"\
 		"vsubpd	%%zmm5,%%zmm1,%%zmm1							\n\t	vsubpd	%%zmm13,%%zmm9 ,%%zmm9 		\n\t"\
 		"vsubpd	%%zmm6,%%zmm3,%%zmm3							\n\t	vsubpd	%%zmm14,%%zmm11,%%zmm11		\n\t"\
 	"prefetcht1	0x200(%%rcx)								\n\t	prefetcht1	0x200(%%r12)	\n\t"\
-	"vmovaps	%%zmm14,(%%rax) 	\n\t"/* spill zmm14 to make room for 2.0 */"	vmovaps	(%%r15),%%zmm14	\n\t"/* two */\
 		"vmovaps	%%zmm0,%c[__o2](%%rsi)						\n\t	vmovaps	%%zmm8 ,%c[__o2](%%r8 )	\n\t"\
 		"vmovaps	%%zmm2,%c[__o3](%%rsi)						\n\t	vmovaps	%%zmm10,%c[__o3](%%r8 )	\n\t"\
 		"vmovaps	%%zmm1,%c[__o2](%%rdi)						\n\t	vmovaps	%%zmm9 ,%c[__o2](%%r9 )	\n\t"\
 		"vmovaps	%%zmm3,%c[__o1](%%rdi)						\n\t	vmovaps	%%zmm11,%c[__o1](%%r9 )	\n\t"\
-	"vfmadd132pd	%%zmm14,%%zmm0,%%zmm4						\n\t	vfmadd132pd	%%zmm14,%%zmm8 ,%%zmm12		\n\t"\
-	"vfmadd132pd	%%zmm14,%%zmm2,%%zmm7						\n\t	vfmadd132pd	%%zmm14,%%zmm10,%%zmm15		\n\t"\
-	"vfmadd132pd	%%zmm14,%%zmm1,%%zmm5						\n\t	vfmadd132pd	%%zmm14,%%zmm9 ,%%zmm13		\n\t"\
-	"vfmadd132pd	%%zmm14,%%zmm3,%%zmm6						\n\t	vfmadd132pd	(%%rax),%%zmm11,%%zmm14		\n\t"\
+	"vfmadd132pd	%%zmm31,%%zmm0,%%zmm4						\n\t	vfmadd132pd	%%zmm31,%%zmm8 ,%%zmm12		\n\t"\
+	"vfmadd132pd	%%zmm31,%%zmm2,%%zmm7						\n\t	vfmadd132pd	%%zmm31,%%zmm10,%%zmm15		\n\t"\
+	"vfmadd132pd	%%zmm31,%%zmm1,%%zmm5						\n\t	vfmadd132pd	%%zmm31,%%zmm9 ,%%zmm13		\n\t"\
+	"vfmadd132pd	%%zmm31,%%zmm3,%%zmm6						\n\t	vfmadd132pd	%%zmm31,%%zmm11,%%zmm14		\n\t"\
 		"vmovaps	%%zmm4,        (%%rsi)						\n\t	vmovaps	%%zmm12,        (%%r8 )	\n\t"\
 		"vmovaps	%%zmm7,%c[__o1](%%rsi)						\n\t	vmovaps	%%zmm15,%c[__o1](%%r8 )	\n\t"\
 		"vmovaps	%%zmm5,        (%%rdi)						\n\t	vmovaps	%%zmm13,        (%%r9 )	\n\t"\
 		"vmovaps	%%zmm6,%c[__o3](%%rdi)						\n\t	vmovaps	%%zmm14,%c[__o3](%%r9 )	\n\t"\
-	"prefetcht1	0x200(%%rax)									\n\tprefetcht1	0x200(%%r10)\n\t"\
+	"prefetcht1	0x200(%%rax)								\n\t	prefetcht1	0x200(%%r10)\n\t"\
 		/* SSE2_RADIX4_DIT_0TWIDDLE_B(r8 ): */						/* SSE2_RADIX4_DIT_0TWIDDLE_B(r24): */\
-		"leaq %c[__o4](%%rsi),%%rsi	\n\t"/* out0+4*ostride */"	\n\t	leaq	%c[__o4](%%r8 ),%%r8 	\n\t"/* out0+c*ostride */\
-		"movq	%[__in4],%%rax									\n\t	movq	%[__inc],%%r10			\n\t"\
-		"movq	%[__in5],%%rbx									\n\t	movq	%[__ind],%%r11			\n\t"\
-		"movq	%[__in6],%%rcx									\n\t	movq	%[__ine],%%r12			\n\t"\
-		"movq	%[__in7],%%rdx									\n\t	movq	%[__inf],%%r13			\n\t"\
+		"movslq		0x10(%%r15),%%rax	\n\t	movslq		0x30(%%r15),%%r10	\n\t"/* off[4-7],[c-f] */\
+		"movslq		0x14(%%r15),%%rbx	\n\t	movslq		0x34(%%r15),%%r11	\n\t"\
+		"movslq		0x18(%%r15),%%rcx	\n\t	movslq		0x38(%%r15),%%r12	\n\t"\
+		"movslq		0x1c(%%r15),%%rdx	\n\t	movslq		0x3c(%%r15),%%r13	\n\t"\
+		"leaq	(%%r14,%%rax,8),%%rax	\n\t	leaq	(%%r14,%%r10,8),%%r10	\n\t"/* in0 + off[4-7],[c-f] */\
+		"leaq	(%%r14,%%rbx,8),%%rbx	\n\t	leaq	(%%r14,%%r11,8),%%r11	\n\t"\
+		"leaq	(%%r14,%%rcx,8),%%rcx	\n\t	leaq	(%%r14,%%r12,8),%%r12	\n\t"\
+		"leaq	(%%r14,%%rdx,8),%%rdx	\n\t	leaq	(%%r14,%%r13,8),%%r13	\n\t"\
+		"addq	$%c[__o4],%%rsi			\n\t	addq	$%c[__o4],%%r8	 	\n\t"/* out0+[4,c]*ostride */\
 		"vmovaps	    (%%rax),%%zmm2							\n\t	vmovaps	    (%%r10),%%zmm10	\n\t"\
 		"vmovaps	    (%%rcx),%%zmm6							\n\t	vmovaps	    (%%r12),%%zmm14	\n\t"\
 		"vmovaps	0x40(%%rax),%%zmm3							\n\t	vmovaps	0x40(%%r10),%%zmm11	\n\t"\
@@ -4273,26 +4291,24 @@
 		"vsubpd	%%zmm4,%%zmm6,%%zmm6							\n\t	vsubpd	%%zmm12,%%zmm14,%%zmm14		\n\t"\
 		"vsubpd	%%zmm1,%%zmm3,%%zmm3							\n\t	vsubpd	%%zmm9 ,%%zmm11,%%zmm11		\n\t"\
 		"vsubpd	%%zmm5,%%zmm7,%%zmm7							\n\t	vsubpd	%%zmm13,%%zmm15,%%zmm15		\n\t"\
-	"vmovaps	%%zmm13,(%%rax) 	\n\t"/* spill zmm13 to make room for 2.0 */"	vmovaps	(%%r15),%%zmm13	\n\t"/* two */\
-	"vfmadd132pd	%%zmm13,%%zmm2,%%zmm0						\n\t	vfmadd132pd	%%zmm13,%%zmm10,%%zmm8 		\n\t"\
-	"vfmadd132pd	%%zmm13,%%zmm6,%%zmm4						\n\t	vfmadd132pd	%%zmm13,%%zmm14,%%zmm12		\n\t"\
-	"vfmadd132pd	%%zmm13,%%zmm3,%%zmm1						\n\t	vfmadd132pd	%%zmm13,%%zmm11,%%zmm9 		\n\t"\
-	"vfmadd132pd	%%zmm13,%%zmm7,%%zmm5						\n\t	vfmadd132pd	(%%rax),%%zmm15,%%zmm13		\n\t"\
+	"vfmadd132pd	%%zmm31,%%zmm2,%%zmm0						\n\t	vfmadd132pd	%%zmm31,%%zmm10,%%zmm8 		\n\t"\
+	"vfmadd132pd	%%zmm31,%%zmm6,%%zmm4						\n\t	vfmadd132pd	%%zmm31,%%zmm14,%%zmm12		\n\t"\
+	"vfmadd132pd	%%zmm31,%%zmm3,%%zmm1						\n\t	vfmadd132pd	%%zmm31,%%zmm11,%%zmm9 		\n\t"\
+	"vfmadd132pd	%%zmm31,%%zmm7,%%zmm5						\n\t	vfmadd132pd	%%zmm31,%%zmm15,%%zmm13		\n\t"\
 		"vsubpd	%%zmm4,%%zmm0,%%zmm0							\n\t	vsubpd	%%zmm12,%%zmm8 ,%%zmm8 		\n\t"\
 		"vsubpd	%%zmm7,%%zmm2,%%zmm2							\n\t	vsubpd	%%zmm15,%%zmm10,%%zmm10		\n\t"\
 		"vsubpd	%%zmm5,%%zmm1,%%zmm1							\n\t	vsubpd	%%zmm13,%%zmm9 ,%%zmm9 		\n\t"\
 		"vsubpd	%%zmm6,%%zmm3,%%zmm3							\n\t	vsubpd	%%zmm14,%%zmm11,%%zmm11		\n\t"\
 	"prefetcht1	0x200(%%rcx)								\n\t	prefetcht1	0x200(%%r12)	\n\t"\
 		"leaq	0x40(%%rsi),%%rdi								\n\t	leaq	0x40(%%r8 ),%%r9 	\n\t"\
-	"vmovaps	%%zmm14,(%%rax) 	\n\t"/* spill zmm14 to make room for 2.0 */"	vmovaps	(%%r15),%%zmm14	\n\t"/* two */\
 		"vmovaps	%%zmm0,%c[__o2](%%rsi)						\n\t	vmovaps	%%zmm8 ,%c[__o2](%%r8 )	\n\t"\
 		"vmovaps	%%zmm2,%c[__o3](%%rsi)						\n\t	vmovaps	%%zmm10,%c[__o3](%%r8 )	\n\t"\
 		"vmovaps	%%zmm1,%c[__o2](%%rdi)						\n\t	vmovaps	%%zmm9 ,%c[__o2](%%r9 )	\n\t"\
 		"vmovaps	%%zmm3,%c[__o1](%%rdi)						\n\t	vmovaps	%%zmm11,%c[__o1](%%r9 )	\n\t"\
-	"vfmadd132pd	%%zmm14,%%zmm0,%%zmm4						\n\t	vfmadd132pd	%%zmm14,%%zmm8 ,%%zmm12		\n\t"\
-	"vfmadd132pd	%%zmm14,%%zmm2,%%zmm7						\n\t	vfmadd132pd	%%zmm14,%%zmm10,%%zmm15		\n\t"\
-	"vfmadd132pd	%%zmm14,%%zmm1,%%zmm5						\n\t	vfmadd132pd	%%zmm14,%%zmm9 ,%%zmm13		\n\t"\
-	"vfmadd132pd	%%zmm14,%%zmm3,%%zmm6						\n\t	vfmadd132pd	(%%rax),%%zmm11,%%zmm14		\n\t"\
+	"vfmadd132pd	%%zmm31,%%zmm0,%%zmm4						\n\t	vfmadd132pd	%%zmm31,%%zmm8 ,%%zmm12		\n\t"\
+	"vfmadd132pd	%%zmm31,%%zmm2,%%zmm7						\n\t	vfmadd132pd	%%zmm31,%%zmm10,%%zmm15		\n\t"\
+	"vfmadd132pd	%%zmm31,%%zmm1,%%zmm5						\n\t	vfmadd132pd	%%zmm31,%%zmm9 ,%%zmm13		\n\t"\
+	"vfmadd132pd	%%zmm31,%%zmm3,%%zmm6						\n\t	vfmadd132pd	%%zmm31,%%zmm11,%%zmm14		\n\t"\
 		"vmovaps	%%zmm4,        (%%rsi)						\n\t	vmovaps	%%zmm12,        (%%r8 )	\n\t"\
 		"vmovaps	%%zmm7,%c[__o1](%%rsi)						\n\t	vmovaps	%%zmm15,%c[__o1](%%r8 )	\n\t"\
 		"vmovaps	%%zmm5,        (%%rdi)						\n\t	vmovaps	%%zmm13,        (%%r9 )	\n\t"\
@@ -4301,12 +4317,14 @@
 	/******************************************************************************/\
 	/*** Now do 4 DFTs with internal twiddles on the 4*stride - separated data: ***/\
 	/******************************************************************************/\
+		/* From here onward, no longer need r14,r15 for I-addressing */\
 		/* Block 0: */												/* Block 2: */\
 		"movq	%[__out0],%%rax									\n\t	leaq	%c[__o2](%%rax),%%r10	\n\t"/* All addresses += 2*ostride */\
 	"leaq %c[__o4](%%rax),%%rbx \n\t"/* out0+  [4*ostride] */"	\n\t	leaq	%c[__o2](%%rbx),%%r11	\n\t"\
 	"leaq %c[__o4](%%rbx),%%rcx \n\t"/* out0+2*[4*ostride] */"	\n\t	leaq	%c[__o2](%%rcx),%%r12	\n\t"\
 	"leaq %c[__o4](%%rcx),%%rdx \n\t"/* out0+3*[4*ostride] */"	\n\t	leaq	%c[__o2](%%rdx),%%r13	\n\t"\
-		"														\n\t	movq	%[__isrt2],%%rdi	\n\t"\
+		"movq	%[__isrt2],%%rdi	\n\t"/* Stick isrt2 and sqrt2 into zmm29.30,resp: */\
+		"vmovaps	(%%rdi),%%zmm29	\n\t	vmovaps	-0x40(%%rdi),%%zmm30 	\n\t"\
 		"vmovaps	    (%%rax),%%zmm0							\n\t	vmovaps	    (%%r10),%%zmm8 	\n\t"/* ar */\
 		"vmovaps	0x40(%%rax),%%zmm1							\n\t	vmovaps	0x40(%%r10),%%zmm9 	\n\t"/* ai */\
 		"vmovaps	    (%%rbx),%%zmm2							\n\t	vmovaps	    (%%r11),%%zmm10	\n\t"/* br */\
@@ -4319,36 +4337,35 @@
 		"vsubpd	    %%zmm3 ,%%zmm1,%%zmm1						\n\t	vsubpd	    %%zmm10,%%zmm9 ,%%zmm9 	\n\t"/* ai-br */\
 		"vsubpd	    %%zmm6 ,%%zmm4,%%zmm4						\n\t	vsubpd	    %%zmm12,%%zmm13,%%zmm13	\n\t"/* ci-cr */\
 		"vsubpd	    %%zmm7 ,%%zmm5,%%zmm5						\n\t	vsubpd	    %%zmm15,%%zmm14,%%zmm14	\n\t"/* dr-di */\
-	"vmovaps	%%zmm15,(%%rax) 	\n\t"/* spill zmm15 to make room for 2.0 */"	vmovaps	(%%r15),%%zmm15	\n\t"/* two */\
-		"vfmadd132pd	%%zmm15,%%zmm0,%%zmm2					\n\t	vfmadd132pd	%%zmm15,%%zmm8 ,%%zmm11	\n\t"/* ar+bi */\
-		"vfmadd132pd	%%zmm15,%%zmm1,%%zmm3					\n\t	vfmadd132pd	%%zmm15,%%zmm9 ,%%zmm10	\n\t"/* ai+br */\
-		"vfmadd132pd	%%zmm15,%%zmm4,%%zmm6					\n\t	vfmadd132pd	%%zmm15,%%zmm13,%%zmm12	\n\t"/* ci+cr */\
-		"vfmadd132pd	%%zmm15,%%zmm5,%%zmm7					\n\t	vfmadd132pd	(%%rax),%%zmm14,%%zmm15	\n\t"/* dr+di */\
+		"vfmadd132pd	%%zmm31,%%zmm0,%%zmm2					\n\t	vfmadd132pd	%%zmm31,%%zmm8 ,%%zmm11	\n\t"/* ar+bi */\
+		"vfmadd132pd	%%zmm31,%%zmm1,%%zmm3					\n\t	vfmadd132pd	%%zmm31,%%zmm9 ,%%zmm10	\n\t"/* ai+br */\
+		"vfmadd132pd	%%zmm31,%%zmm4,%%zmm6					\n\t	vfmadd132pd	%%zmm31,%%zmm13,%%zmm12	\n\t"/* ci+cr */\
+		"vfmadd132pd	%%zmm31,%%zmm5,%%zmm7					\n\t	vfmadd132pd	%%zmm31,%%zmm14,%%zmm15	\n\t"/* dr+di */\
 		"														\n\t		vsubpd	%%zmm14,%%zmm12,%%zmm12		\n\t"\
 		"														\n\t		vsubpd	%%zmm15,%%zmm13,%%zmm13		\n\t"\
-		"vsubpd	%%zmm5,%%zmm0,%%zmm0							\n\t	vfmadd132pd	(%%r15),%%zmm12,%%zmm14		\n\t"\
-		"vsubpd	%%zmm4,%%zmm1,%%zmm1							\n\t	vfmadd132pd	(%%r15),%%zmm13,%%zmm15		\n\t"\
-		"vsubpd	%%zmm6,%%zmm2,%%zmm2							\n\t	vfnmadd231pd	(%%rdi),%%zmm12,%%zmm11		\n\t"/* x = x - y.isrt2 */\
-		"vsubpd	%%zmm7,%%zmm3,%%zmm3							\n\t	vfnmadd231pd	(%%rdi),%%zmm13,%%zmm9 		\n\t"\
-		"vmovaps	%%zmm0,    (%%rdx)							\n\t	vfnmadd231pd	(%%rdi),%%zmm14,%%zmm10		\n\t"\
-		"vmovaps	%%zmm1,0x40(%%rbx)							\n\t	vfnmadd231pd	(%%rdi),%%zmm15,%%zmm8 		\n\t"\
+		"vsubpd	%%zmm5,%%zmm0,%%zmm0							\n\t	vfmadd132pd	%%zmm31,%%zmm12,%%zmm14		\n\t"\
+		"vsubpd	%%zmm4,%%zmm1,%%zmm1							\n\t	vfmadd132pd	%%zmm31,%%zmm13,%%zmm15		\n\t"\
+		"vsubpd	%%zmm6,%%zmm2,%%zmm2							\n\t	vfnmadd231pd	%%zmm29,%%zmm12,%%zmm11		\n\t"/* x = x - y.isrt2 */\
+		"vsubpd	%%zmm7,%%zmm3,%%zmm3							\n\t	vfnmadd231pd	%%zmm29,%%zmm13,%%zmm9 		\n\t"\
+		"vmovaps	%%zmm0,    (%%rdx)							\n\t	vfnmadd231pd	%%zmm29,%%zmm14,%%zmm10		\n\t"\
+		"vmovaps	%%zmm1,0x40(%%rbx)							\n\t	vfnmadd231pd	%%zmm29,%%zmm15,%%zmm8 		\n\t"\
 		"vmovaps	%%zmm2,    (%%rcx)							\n\t		vmovaps	%%zmm11,    (%%r12)	\n\t"\
 		"vmovaps	%%zmm3,0x40(%%rcx)							\n\t		vmovaps	%%zmm9 ,0x40(%%r12)	\n\t"\
-	"vfmadd132pd	(%%r15),%%zmm0,%%zmm5						\n\t		vmovaps	%%zmm10,0x40(%%r11)	\n\t"\
-	"vfmadd132pd	(%%r15),%%zmm1,%%zmm4						\n\t		vmovaps	%%zmm8 ,    (%%r13)	\n\t"\
-	"vfmadd132pd	(%%r15),%%zmm2,%%zmm6						\n\t	vfmadd132pd	-0x40(%%rdi),%%zmm11,%%zmm12	\n\t"/* y = x + y.sqrt2 = x + y.isrt2 */\
-	"vfmadd132pd	(%%r15),%%zmm3,%%zmm7						\n\t	vfmadd132pd	-0x40(%%rdi),%%zmm9 ,%%zmm13	\n\t"\
-		"vmovaps	%%zmm5,    (%%rbx)							\n\t	vfmadd132pd	-0x40(%%rdi),%%zmm10,%%zmm14	\n\t"\
-		"vmovaps	%%zmm4,0x40(%%rdx)							\n\t	vfmadd132pd	-0x40(%%rdi),%%zmm8 ,%%zmm15	\n\t"\
+	"vfmadd132pd	%%zmm31,%%zmm0,%%zmm5						\n\t		vmovaps	%%zmm10,0x40(%%r11)	\n\t"\
+	"vfmadd132pd	%%zmm31,%%zmm1,%%zmm4						\n\t		vmovaps	%%zmm8 ,    (%%r13)	\n\t"\
+	"vfmadd132pd	%%zmm31,%%zmm2,%%zmm6						\n\t	vfmadd132pd	%%zmm30,%%zmm11,%%zmm12	\n\t"/* y = x + y.sqrt2 = x + y.isrt2 */\
+	"vfmadd132pd	%%zmm31,%%zmm3,%%zmm7						\n\t	vfmadd132pd	%%zmm30,%%zmm9 ,%%zmm13	\n\t"\
+		"vmovaps	%%zmm5,    (%%rbx)							\n\t	vfmadd132pd	%%zmm30,%%zmm10,%%zmm14	\n\t"\
+		"vmovaps	%%zmm4,0x40(%%rdx)							\n\t	vfmadd132pd	%%zmm30,%%zmm8 ,%%zmm15	\n\t"\
 		"vmovaps	%%zmm6,    (%%rax)							\n\t		vmovaps	%%zmm12,    (%%r10)	\n\t"\
 		"vmovaps	%%zmm7,0x40(%%rax)							\n\t		vmovaps	%%zmm13,0x40(%%r10)	\n\t"\
 		"														\n\t		vmovaps	%%zmm14,0x40(%%r13)	\n\t"\
 		"														\n\t		vmovaps	%%zmm15,    (%%r11)	\n\t"\
 		/* Block 1: */												/* Block 3: */\
-	"leaq %c[__o1](%%rax),%%rax\n\t"/* addr += 1*ostride */"\n\t	leaq	%c[__o2](%%rax),%%r10	\n\t"/* All addresses += 1*ostride */\
-	"leaq %c[__o1](%%rbx),%%rbx\n\t"/* relative to Block 0 */"\n\t	leaq	%c[__o2](%%rbx),%%r11	\n\t"/* relative to Block 1 */\
-	"leaq %c[__o1](%%rcx),%%rcx								\n\t	leaq	%c[__o2](%%rcx),%%r12	\n\t"\
-	"leaq %c[__o1](%%rdx),%%rdx								\n\t	leaq	%c[__o2](%%rdx),%%r13	\n\t"\
+	"addq $%c[__o1],%%rax\n\t"/* addr += 1*ostride */"	\n\t	leaq	%c[__o2](%%rax),%%r10	\n\t"/* All addresses += 1*ostride */\
+	"addq $%c[__o1],%%rbx\n\t"/* relative to Block 0 */"\n\t	leaq	%c[__o2](%%rbx),%%r11	\n\t"/* relative to Block 1 */\
+	"addq $%c[__o1],%%rcx								\n\t	leaq	%c[__o2](%%rcx),%%r12	\n\t"\
+	"addq $%c[__o1],%%rdx								\n\t	leaq	%c[__o2](%%rdx),%%r13	\n\t"\
 		"leaq	0x40(%%rdi),%%rsi	\n\t"/* cc0, from isrt2 [rdi,rsi shared by both cols] */\
 		"vmovaps	    (%%rdx),%%zmm0							\n\t	vmovaps	    (%%r13),%%zmm8 	\n\t"\
 		"vmovaps	0x40(%%rdx),%%zmm1							\n\t	vmovaps	0x40(%%r13),%%zmm9 	\n\t"\
@@ -4379,10 +4396,10 @@
 		"vmovaps	0x40(%%rax),%%zmm1							\n\t	vmovaps	0x40(%%r10),%%zmm9 	\n\t"\
 		"vaddpd	0x40(%%rbx),%%zmm2,%%zmm2						\n\t	vsubpd	0x40(%%r11),%%zmm10,%%zmm10	\n\t"\
 		"vsubpd	    (%%rbx),%%zmm3,%%zmm3						\n\t	vaddpd	    (%%r11),%%zmm11,%%zmm11	\n\t"\
-	"vfnmadd231pd		 (%%rdi),%%zmm2,%%zmm0				\n\t	vfnmadd231pd		 (%%rdi),%%zmm10,%%zmm8 	\n\t"/* x = x - y.isrt2 */\
-	"vfnmadd231pd		 (%%rdi),%%zmm3,%%zmm1				\n\t	vfnmadd231pd		 (%%rdi),%%zmm11,%%zmm9 	\n\t"\
-	" vfmadd132pd	-0x40(%%rdi),%%zmm0,%%zmm2				\n\t	 vfmadd132pd	-0x40(%%rdi),%%zmm8 ,%%zmm10	\n\t"/* y = x + y.sqrt2 = x + y.isrt2 */\
-	" vfmadd132pd	-0x40(%%rdi),%%zmm1,%%zmm3				\n\t	 vfmadd132pd	-0x40(%%rdi),%%zmm9 ,%%zmm11	\n\t"\
+	"vfnmadd231pd	%%zmm29,%%zmm2,%%zmm0						\n\t	vfnmadd231pd	%%zmm29,%%zmm10,%%zmm8 	\n\t"/* x = x - y.isrt2 */\
+	"vfnmadd231pd	%%zmm29,%%zmm3,%%zmm1						\n\t	vfnmadd231pd	%%zmm29,%%zmm11,%%zmm9 	\n\t"\
+	" vfmadd132pd	%%zmm30,%%zmm0,%%zmm2						\n\t	 vfmadd132pd	%%zmm30,%%zmm8 ,%%zmm10	\n\t"/* y = x + y.sqrt2 = x + y.isrt2 */\
+	" vfmadd132pd	%%zmm30,%%zmm1,%%zmm3						\n\t	 vfmadd132pd	%%zmm30,%%zmm9 ,%%zmm11	\n\t"\
 		"vsubpd	%%zmm7,%%zmm0,%%zmm0							\n\t	vsubpd	%%zmm13,%%zmm10,%%zmm10		\n\t"\
 		"vsubpd	%%zmm6,%%zmm1,%%zmm1							\n\t	vsubpd	%%zmm12,%%zmm11,%%zmm11		\n\t"\
 		"vsubpd	%%zmm4,%%zmm2,%%zmm2							\n\t	vsubpd	%%zmm14,%%zmm8 ,%%zmm8 		\n\t"\
@@ -4391,32 +4408,17 @@
 		"vmovaps	%%zmm1,0x40(%%rbx)							\n\t	vmovaps	%%zmm11,0x40(%%r11)	\n\t"\
 		"vmovaps	%%zmm2,    (%%rcx)							\n\t	vmovaps	%%zmm8 ,    (%%r12)	\n\t"\
 		"vmovaps	%%zmm3,0x40(%%rcx)							\n\t	vmovaps	%%zmm9 ,0x40(%%r12)	\n\t"\
-	"vmovaps	%%zmm15,(%%rax) 	\n\t"/* spill zmm15 to make room for 2.0 */"	vmovaps	(%%r15),%%zmm15	\n\t"/* two */\
-	"vfmadd132pd	%%zmm15,%%zmm0,%%zmm7						\n\t	vfmadd132pd	%%zmm15,%%zmm10,%%zmm13		\n\t"\
-	"vfmadd132pd	%%zmm15,%%zmm1,%%zmm6						\n\t	vfmadd132pd	%%zmm15,%%zmm11,%%zmm12		\n\t"\
-	"vfmadd132pd	%%zmm15,%%zmm2,%%zmm4						\n\t	vfmadd132pd	%%zmm15,%%zmm8 ,%%zmm14		\n\t"\
-	"vfmadd132pd	%%zmm15,%%zmm3,%%zmm5						\n\t	vfmadd132pd	(%%rax),%%zmm9 ,%%zmm15		\n\t"\
+	"vfmadd132pd	%%zmm31,%%zmm0,%%zmm7						\n\t	vfmadd132pd	%%zmm31,%%zmm10,%%zmm13		\n\t"\
+	"vfmadd132pd	%%zmm31,%%zmm1,%%zmm6						\n\t	vfmadd132pd	%%zmm31,%%zmm11,%%zmm12		\n\t"\
+	"vfmadd132pd	%%zmm31,%%zmm2,%%zmm4						\n\t	vfmadd132pd	%%zmm31,%%zmm8 ,%%zmm14		\n\t"\
+	"vfmadd132pd	%%zmm31,%%zmm3,%%zmm5						\n\t	vfmadd132pd	%%zmm31,%%zmm9 ,%%zmm15		\n\t"\
 		"vmovaps	%%zmm7,    (%%rbx)							\n\t	vmovaps	%%zmm13,    (%%r11)	\n\t"\
 		"vmovaps	%%zmm6,0x40(%%rdx)							\n\t	vmovaps	%%zmm12,0x40(%%r13)	\n\t"\
 		"vmovaps	%%zmm4,    (%%rax)							\n\t	vmovaps	%%zmm14,    (%%r10)	\n\t"\
 		"vmovaps	%%zmm5,0x40(%%rax)							\n\t	vmovaps	%%zmm15,0x40(%%r10)	\n\t"\
 		:					/* outputs: none */\
-		:[__in0] "m" (Xin0)	/* All inputs from memory addresses here */\
-		,[__in1] "m" (Xin1)\
-		,[__in2] "m" (Xin2)\
-		,[__in3] "m" (Xin3)\
-		,[__in4] "m" (Xin4)\
-		,[__in5] "m" (Xin5)\
-		,[__in6] "m" (Xin6)\
-		,[__in7] "m" (Xin7)\
-		,[__in8] "m" (Xin8)\
-		,[__in9] "m" (Xin9)\
-		,[__ina] "m" (Xina)\
-		,[__inb] "m" (Xinb)\
-		,[__inc] "m" (Xinc)\
-		,[__ind] "m" (Xind)\
-		,[__ine] "m" (Xine)\
-		,[__inf] "m" (Xinf)\
+		:[in0] "m" (Xin0)	/* Input-address-16-tet base pointer */\
+		,[off] "m" (Xoff)	/* and pointer to uint32 array of 16 double* index offsets */\
 		,[__isrt2] "m" (Xisrt2)\
 		,[__two] "m" (Xtwo)\
 		,[__out0] "m" (Xout0)\
@@ -4424,7 +4426,7 @@
 		,[__o2] "e" (Xo2)\
 		,[__o3] "e" (Xo3)\
 		,[__o4] "e" (Xo4)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15","xmm29","xmm30","xmm31"	/* Clobbered registers */\
 	);\
 	}
 
@@ -5066,14 +5068,14 @@
 	}
 
 	// DIF version of above shares same sincos layout & data:
-	#define SSE2_RADIX16_DIF_TWIDDLE_OOP(Xin0,Xi1,Xi2,Xi3,Xi4, Xout0,Xout1,Xout2,Xout3,Xout4,Xout5,Xout6,Xout7,Xout8,Xout9,Xouta,Xoutb,Xoutc,Xoutd,Xoute,Xoutf, Xisrt2,Xc1)\
+	#define SSE2_RADIX16_DIF_TWIDDLE_OOP(Xin0,Xi1,Xi4, Xout0,Xoff, Xisrt2,Xc1)\
 	{\
 	__asm__ volatile (\
 	/*...Block 0: Do in-place, i.e. outputs into __in0 + [0,1,2,3]*istride: */\
 		"movq	%[__in0],%%rax		\n\t"\
 		"leaq	%c[__i1](%%rax),%%rcx	\n\t"/* __in0 +   istride */\
-		"leaq	%c[__i2](%%rax),%%rbx	\n\t"/* __in0 + 2*istride */\
-		"leaq	%c[__i3](%%rax),%%rdx	\n\t"/* __in0 + 3*istride */\
+		"leaq	%c[__i1](%%rcx),%%rbx	\n\t"/* __in0 + 2*istride */\
+		"leaq	%c[__i1](%%rbx),%%rdx	\n\t"/* __in0 + 3*istride */\
 		"/* Do	the p0,1 combo: */	\n\t"\
 		"movq	%[__c1],%%rsi 	/* Roots sets c1-15 same as for DIT, w/c1 as base-ptr */\n\t"\
 		"vmovaps	    (%%rax),%%zmm0	\n\t"\
@@ -5438,10 +5440,17 @@
 		"vsubpd	%%zmm7,%%zmm3,%%zmm3		\n\t"\
 		"vaddpd	%%zmm6,%%zmm6,%%zmm6		\n\t"\
 		"vaddpd	%%zmm7,%%zmm7,%%zmm7		\n\t"\
-		"movq	%[__out0],%%r10		\n\t"\
-		"movq	%[__out1],%%r11		\n\t"\
-		"movq	%[__out2],%%r12		\n\t"\
-		"movq	%[__out3],%%r13		\n\t"\
+	/* Load output base-address into r8 and offset-array pointer into r9: */\
+	"movq	%[__out0],%%r8	\n\t	movq	%[__off],%%r9	\n\t"\
+	/* Block 0: r0-3 */\
+		"movslq		    (%%r9),%%r10	\n\t"/* off0-3 */\
+		"movslq		0x04(%%r9),%%r11	\n\t"\
+		"movslq		0x08(%%r9),%%r12	\n\t"\
+		"movslq		0x0c(%%r9),%%r13	\n\t"\
+		"leaq	(%%r8,%%r10,8),%%r10	\n\t"/* out0 + off0-3 */\
+		"leaq	(%%r8,%%r11,8),%%r11	\n\t"\
+		"leaq	(%%r8,%%r12,8),%%r12	\n\t"\
+		"leaq	(%%r8,%%r13,8),%%r13	\n\t"\
 	"prefetcht1	0x200(%%r11)\n\t"\
 		"vmovaps	%%zmm2,    (%%r11)	\n\t"\
 		"vmovaps	%%zmm3,0x40(%%r11)	\n\t"\
@@ -5459,7 +5468,7 @@
 		"vaddpd	%%zmm1,%%zmm4,%%zmm4	\n\t"\
 		"vmovaps	%%zmm5,    (%%r13)	\n\t"\
 		"vmovaps	%%zmm4,0x40(%%r12)	\n\t"\
-	"/* Block 2: Combine 2-output of each radix-4, i.e. inputs from __in0 + [4,5,6,7]*istride: */\n\t"\
+	/* Block 2: Combine 2-output of each radix-4, i.e. inputs from __in0 + [4,5,6,7]*istride: */\
 		"movq	%[__isrt2],%%rsi 	\n\t"\
 		"vmovaps	(%%rsi),%%zmm3	/* isrt2 */\n\t"\
 		"addq	$%c[__i1],%%rax	\n\t"/* __in0 + 1*istride */\
@@ -5505,10 +5514,14 @@
 		"vaddpd	%%zmm7,%%zmm7,%%zmm7		\n\t"\
 		"vaddpd	%%zmm5,%%zmm5,%%zmm5		\n\t"\
 		"vaddpd	%%zmm6,%%zmm6,%%zmm6		\n\t"\
-		"movq	%[__out4],%%r10		\n\t"\
-		"movq	%[__out5],%%r11		\n\t"\
-		"movq	%[__out6],%%r12		\n\t"\
-		"movq	%[__out7],%%r13		\n\t"\
+		"movslq		0x10(%%r9),%%r10	\n\t"/* off4-7 */\
+		"movslq		0x14(%%r9),%%r11	\n\t"\
+		"movslq		0x18(%%r9),%%r12	\n\t"\
+		"movslq		0x1c(%%r9),%%r13	\n\t"\
+		"leaq	(%%r8,%%r10,8),%%r10	\n\t"/* out0 + off4-7 */\
+		"leaq	(%%r8,%%r11,8),%%r11	\n\t"\
+		"leaq	(%%r8,%%r12,8),%%r12	\n\t"\
+		"leaq	(%%r8,%%r13,8),%%r13	\n\t"\
 	"prefetcht1	0x200(%%r11)\n\t"\
 		"vmovaps	%%zmm0,    (%%r11)	\n\t"\
 		"vmovaps	%%zmm3,    (%%r12)	\n\t"\
@@ -5522,7 +5535,7 @@
 		"vmovaps	%%zmm7,    (%%r13)	\n\t"\
 		"vmovaps	%%zmm5,0x40(%%r10)	\n\t"\
 		"vmovaps	%%zmm6,0x40(%%r12)	\n\t"\
-	"/* Block 1: Combine 1-output of each radix-4, i.e. inputs from __in0 + [8,9,a,b]*istride: */\n\t"\
+	/* Block 1: Combine 1-output of each radix-4, i.e. inputs from __in0 + [8,9,a,b]*istride: */\
 		"addq	$%c[__i1],%%rax	\n\t"/* __in0 + 2*istride */\
 		"addq	$%c[__i1],%%rbx	\n\t"/* __in0 + 6*istride */\
 		"addq	$%c[__i1],%%rcx	\n\t"/* __in0 + a*istride */\
@@ -5580,10 +5593,14 @@
 		"vaddpd	%%zmm5,%%zmm5,%%zmm5		\n\t"\
 		"vaddpd	%%zmm7,%%zmm7,%%zmm7		\n\t"\
 		"vaddpd	%%zmm4,%%zmm4,%%zmm4		\n\t"\
-		"movq	%[__out8],%%r10		\n\t"\
-		"movq	%[__out9],%%r11		\n\t"\
-		"movq	%[__outa],%%r12		\n\t"\
-		"movq	%[__outb],%%r13		\n\t"\
+		"movslq		0x20(%%r9),%%r10	\n\t"/* off8-b */\
+		"movslq		0x24(%%r9),%%r11	\n\t"\
+		"movslq		0x28(%%r9),%%r12	\n\t"\
+		"movslq		0x2c(%%r9),%%r13	\n\t"\
+		"leaq	(%%r8,%%r10,8),%%r10	\n\t"/* out0 + off8-b */\
+		"leaq	(%%r8,%%r11,8),%%r11	\n\t"\
+		"leaq	(%%r8,%%r12,8),%%r12	\n\t"\
+		"leaq	(%%r8,%%r13,8),%%r13	\n\t"\
 	"prefetcht1	0x200(%%r11)\n\t"\
 		"vmovaps	%%zmm2,    (%%r11)	\n\t"\
 		"vmovaps	%%zmm0,    (%%r12)	\n\t"\
@@ -5597,7 +5614,7 @@
 		"vmovaps	%%zmm5,    (%%r13)	\n\t"\
 		"vmovaps	%%zmm7,0x40(%%r10)	\n\t"\
 		"vmovaps	%%zmm4,0x40(%%r12)	\n\t"\
-	"/* Block 3: Combine 3-output of each radix-4, i.e. inputs from __in0 + [c,d,e,f]*istride: */\n\t"\
+	/* Block 3: Combine 3-output of each radix-4, i.e. inputs from __in0 + [c,d,e,f]*istride: */\
 		"addq	$%c[__i1],%%rax	\n\t"/* __in0 + 3*istride */\
 		"addq	$%c[__i1],%%rbx	\n\t"/* __in0 + 7*istride */\
 		"addq	$%c[__i1],%%rcx	\n\t"/* __in0 + b*istride */\
@@ -5655,10 +5672,14 @@
 		"vaddpd	%%zmm7,%%zmm7,%%zmm7		\n\t"\
 		"vaddpd	%%zmm5,%%zmm5,%%zmm5		\n\t"\
 		"vaddpd	%%zmm6,%%zmm6,%%zmm6		\n\t"\
-		"movq	%[__outc],%%r10		\n\t"\
-		"movq	%[__outd],%%r11		\n\t"\
-		"movq	%[__oute],%%r12		\n\t"\
-		"movq	%[__outf],%%r13		\n\t"\
+		"movslq		0x30(%%r9),%%r10	\n\t"/* offc-f */\
+		"movslq		0x34(%%r9),%%r11	\n\t"\
+		"movslq		0x38(%%r9),%%r12	\n\t"\
+		"movslq		0x3c(%%r9),%%r13	\n\t"\
+		"leaq	(%%r8,%%r10,8),%%r10	\n\t"/* out0 + offc-f */\
+		"leaq	(%%r8,%%r11,8),%%r11	\n\t"\
+		"leaq	(%%r8,%%r12,8),%%r12	\n\t"\
+		"leaq	(%%r8,%%r13,8),%%r13	\n\t"\
 	"prefetcht1	0x200(%%r11)\n\t"\
 		"vmovaps	%%zmm0,    (%%r11)	\n\t"\
 		"vmovaps	%%zmm2,    (%%r12)	\n\t"\
@@ -5676,28 +5697,12 @@
 		:					/* outputs: none */\
 		: [__in0] "m" (Xin0)	/* All inputs from memory addresses here */\
 		 ,[__i1] "e" (Xi1)\
-		 ,[__i2] "e" (Xi2)\
-		 ,[__i3] "e" (Xi3)\
 		 ,[__i4] "e" (Xi4)\
 		 ,[__out0] "m" (Xout0)\
-		 ,[__out1] "m" (Xout1)\
-		 ,[__out2] "m" (Xout2)\
-		 ,[__out3] "m" (Xout3)\
-		 ,[__out4] "m" (Xout4)\
-		 ,[__out5] "m" (Xout5)\
-		 ,[__out6] "m" (Xout6)\
-		 ,[__out7] "m" (Xout7)\
-		 ,[__out8] "m" (Xout8)\
-		 ,[__out9] "m" (Xout9)\
-		 ,[__outa] "m" (Xouta)\
-		 ,[__outb] "m" (Xoutb)\
-		 ,[__outc] "m" (Xoutc)\
-		 ,[__outd] "m" (Xoutd)\
-		 ,[__oute] "m" (Xoute)\
-		 ,[__outf] "m" (Xoutf)\
+		 ,[__off] "m" (Xoff)\
 		 ,[__isrt2] "m" (Xisrt2)\
 		 ,[__c1] "m" (Xc1)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","r8","r9","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
 	);\
 	}
 
@@ -8396,18 +8401,22 @@
 	);\
 	}
 
-	// AVX analog of dft_macro.h::RADIX_08_DIF_TWIDDLE_OOP - Result of adding separate I/O addressing to
+	// AVX2 analog of dft_macro.h::RADIX_08_DIF_TWIDDLE_OOP - Result of adding separate I/O addressing to
 	// radix8_dif_dit_pass_gcc64.h::SSE2_RADIX8_DIF_TWIDDLE.
+	//*** Dec 2020: For guide to updated reduced-#arg IO address computation, cf. the SSE2 version of this macro. ***
 	//
 	// [rsi] (and if needed rdi) points to sine components of each sincos pair, which is not really a pair here in terms of relative addressing.
 	//
-	#define SSE2_RADIX8_DIF_TWIDDLE_OOP(Xi0,Xi1,Xi2,Xi3,Xi4,Xi5,Xi6,Xi7, Xo0,Xo1,Xo2,Xo3,Xo4,Xo5,Xo6,Xo7 ,Xc1,Xs1,Xc2,Xs2,Xc3,Xs3,Xc4,Xs4,Xc5,Xs5,Xc6,Xs6,Xc7,Xs7)\
+	#define SSE2_RADIX8_DIF_TWIDDLE_OOP(Xin0,Xi1, Xout0,Xoff, Xtwid_ptrs, Xtwo)\
 	{\
 	__asm__ volatile (\
-		"movq		%[i0]	,%%rax				\n\t		movq		%[i1]	,%%r10				\n\t"\
-		"movq		%[i4]	,%%rbx				\n\t		movq		%[i5]	,%%r11				\n\t"\
-		"movq		%[c4]	,%%rcx				\n\t	movq	%[c1],%%r12	\n\t	movq	%[c5],%%r14	\n\t"\
-		"movq		%[s4]	,%%rsi				\n\t	movq	%[s1],%%r13	\n\t	movq	%[s5],%%r15	\n\t"\
+		"xorq	%%r8,%%r8	\n\t	leaq	%c[i1](%%r8),%%r8	\n\t"/* movq|movslq of literal %c[i1] both segfaulted, workaround via LEA */\
+		"movq	%[in0],%%rax		\n\t	leaq	(%%rax,%%r8,4),%%r10	\n\t"/* [lcol,rcol] base-addresses = in0 + [0,4*istride] */\
+		"movq	%[twid_ptrs],%%rsi	\n\t"\
+		"leaq	(%%rax,%%r8),%%rbx	\n\t	leaq	(%%r10,%%r8  ),%%r11	\n\t"\
+		/* The twid_ptrs[] array holds ptrs to 14 complex twiddles in BR order: (c,s)[4,2,6,1,5,3,7]: */\
+		"movq	0x30(%%rsi),%%r12	\n\t	movq	0x40(%%rsi),%%r14	\n\t	movq	    (%%rsi),%%rcx	\n\t"/* c1,5,4 */\
+		"movq	0x38(%%rsi),%%r13	\n\t	movq	0x48(%%rsi),%%r15	\n\t	movq	0x08(%%rsi),%%rsi	\n\t"/* s1,5,4 ... do c4,s4 last because s4-result overwrites rsi */\
 		"vmovaps	    (%%rbx)	,%%ymm2			\n\t		vmovaps	    (%%r10)	,%%ymm8 			\n\t"\
 		"vmovaps	0x20(%%rbx)	,%%ymm3			\n\t		vmovaps	0x20(%%r10)	,%%ymm10			\n\t"\
 		"vmovaps		%%ymm2	,%%ymm4			\n\t		vmovaps		%%ymm8 	,%%ymm9 			\n\t"\
@@ -8428,12 +8437,13 @@
 		"vmovaps	%%ymm1		,0x20(%%rax)	\n\t		vsubpd	%%ymm11		,%%ymm8 ,%%ymm8 	\n\t"\
 		"vmovaps	%%ymm6		,    (%%rbx)	\n\t		vaddpd	%%ymm9 		,%%ymm12,%%ymm12	\n\t"\
 		"vmovaps	%%ymm7		,0x20(%%rbx)	\n\t		vsubpd	%%ymm13		,%%ymm9 ,%%ymm9 	\n\t"\
-		"movq		%[i2]	,%%rax				\n\t		vmovaps	%%ymm10		,    (%%r10)	\n\t"\
-		"movq		%[i6]	,%%rbx				\n\t		vmovaps	%%ymm12		,0x20(%%r10)	\n\t"\
-		"movq		%[c2]	,%%rcx				\n\t		vmovaps	%%ymm8 		,    (%%r11)	\n\t"\
-		"movq		%[c6]	,%%rdx				\n\t		vmovaps	%%ymm9 		,0x20(%%r11)	\n\t"\
-		"movq		%[s2]	,%%rsi				\n\t	movq %[i3],%%r10	\n\t	movq %[c3],%%r12	\n\t	movq %[s3],%%r13	\n\t"\
-		"movq		%[s6]	,%%rdi				\n\t	movq %[i7],%%r11	\n\t	movq %[c7],%%r14	\n\t	movq %[s7],%%r15	\n\t"\
+		"leaq	(%%rax,%%r8,2),%%rax			\n\t		vmovaps	%%ymm10		,    (%%r10)	\n\t"\
+		"leaq	(%%rbx,%%r8,2),%%rbx			\n\t		vmovaps	%%ymm12		,0x20(%%r10)	\n\t"\
+		"movq	%[twid_ptrs],%%r15				\n\t"\
+		"movq		0x10(%%r15),%%rcx			\n\t		vmovaps	%%ymm8 		,    (%%r11)	\n\t"/* c2 */\
+		"movq		0x20(%%r15),%%rdx			\n\t		vmovaps	%%ymm9 		,0x20(%%r11)	\n\t"/* c6 */\
+		"movq		0x18(%%r15),%%rsi	\n\t	leaq	(%%r10,%%r8,2),%%r10	\n\t	movq 0x50(%%r15),%%r12 \n\t movq 0x58(%%r15),%%r13	\n\t"/* s2, c3,s3 */\
+		"movq		0x28(%%r15),%%rdi	\n\t	leaq	(%%r11,%%r8,2),%%r11	\n\t	movq 0x60(%%r15),%%r14 \n\t movq 0x68(%%r15),%%r15	\n\t"/* s6, c7,s7 */\
 		"vmovaps	    (%%rax)	,%%ymm0			\n\t		vmovaps	    (%%r10)	,%%ymm8 			\n\t"\
 		"vmovaps	0x20(%%rax)	,%%ymm2			\n\t		vmovaps	0x20(%%r10)	,%%ymm10			\n\t"\
 		"vmovaps		%%ymm0	,%%ymm1			\n\t		vmovaps		%%ymm8 	,%%ymm9 			\n\t"\
@@ -8460,82 +8470,79 @@
 		"vmovaps	%%ymm4		,0x20(%%rax)	\n\t		vmovaps	%%ymm12		,0x20(%%r10)	\n\t"\
 		"vmovaps	%%ymm0		,    (%%rbx)	\n\t		vmovaps	%%ymm8 		,    (%%r11)	\n\t"\
 		"vmovaps	%%ymm1		,0x20(%%rbx)	\n\t		vmovaps	%%ymm9 		,0x20(%%r11)	\n\t"\
-	/* combine to get 2 length-4 output subtransforms... */\
-		"movq		%[i0]	,%%rax				\n\t		movq		%[i4]	,%%r10				\n\t"\
-		"movq		%[i2]	,%%rbx				\n\t		movq		%[i6]	,%%r11				\n\t"\
-		"vmovaps	    (%%rbx)	,%%ymm0			\n\t		vmovaps	    (%%r11)	,%%ymm9 			\n\t"\
-		"vmovaps	0x20(%%rbx)	,%%ymm1			\n\t		vmovaps	0x20(%%r11)	,%%ymm12			\n\t"\
-		"vmovaps	    (%%rax)	,%%ymm4			\n\t		vmovaps	    (%%r10)	,%%ymm8 			\n\t"\
-		"vmovaps	0x20(%%rax)	,%%ymm5			\n\t		vmovaps	0x20(%%r10)	,%%ymm13			\n\t"\
-		"movq		%[i1]	,%%rcx				\n\t		movq		%[i5]	,%%r12				\n\t"\
-		"movq		%[i3]	,%%rdx				\n\t		movq		%[i7]	,%%r13				\n\t"\
+	/* combine to get 2 length-4 output subtransforms.
+	In this step 2 of the 8-dft, we need address-pairs
+		lcol:		rcol:
+		i0,2,1,3	i4,6,5,7
+		o0,2,1,3	o4,6,5,7
+	At this point r[a|b]x have i2,3, r1[0|1] have i6,7, but cleaner to reload add0 and go from there.
+	Since we will be loading o-addresses into regs starting with r[a|b]x and r1[0|1], use r[c|d]x and r1[2|3]
+	for the I-address pairs here: */\
+	"movq	%[in0],%%rcx			\n\t		leaq	(%%rcx,%%r8  ),%%r12	\n\t"/* [lcol,rcol] base-addresses = in0 + [0,1*istride] */\
+	"leaq	(%%rcx,%%r8,2),%%rdx	\n\t		leaq	(%%r12,%%r8,2),%%r13	\n\t"/* in0 + [2,3*istride] */\
+		"vmovaps	    (%%rdx)	,%%ymm0			\n\t		vmovaps	    (%%r13)	,%%ymm9 			\n\t"\
+		"vmovaps	0x20(%%rdx)	,%%ymm1			\n\t		vmovaps	0x20(%%r13)	,%%ymm12			\n\t"\
+		"vmovaps	    (%%rcx)	,%%ymm4			\n\t		vmovaps	    (%%r12)	,%%ymm8 			\n\t"\
+		"vmovaps	0x20(%%rcx)	,%%ymm5			\n\t		vmovaps	0x20(%%r12)	,%%ymm13			\n\t"\
+	"shlq	$2,%%r8			\n\t"/* From here on only need offset i4 = 4*i1 */\
+	"addq	%%r8,%%rdx				\n\t		addq	%%r8,%%r13				\n\t"/* in0 + [6,7*istride] */\
+	"addq	%%r8,%%rcx				\n\t		addq	%%r8,%%r12				\n\t"/* in0 + [4,5*istride] */\
 		"vmovaps	    (%%rdx)	,%%ymm2			\n\t		vmovaps	    (%%r13)	,%%ymm11			\n\t"\
 		"vmovaps	0x20(%%rdx)	,%%ymm3			\n\t		vmovaps	0x20(%%r13)	,%%ymm14			\n\t"\
 		"vmovaps	    (%%rcx)	,%%ymm6			\n\t		vmovaps	    (%%r12)	,%%ymm10			\n\t"\
 		"vmovaps	0x20(%%rcx)	,%%ymm7			\n\t		vmovaps	0x20(%%r12)	,%%ymm15			\n\t"\
-		"movq		%[o0]	,%%rax				\n\t		movq		%[o4]	,%%r10				\n\t"/* [o0] has 2.0 on input */\
-		"movq		%[o2]	,%%rbx				\n\t		movq		%[o6]	,%%r11				\n\t"\
+	"movq	%[out0]	,%%rsi			\n\t	movq	%[off]	,%%rdi			\n\t"/* Load output base-address into rsi and offset-array pointer into rdi */\
+	"movslq		    (%%rdi),%%rax	\n\t	movslq		0x10(%%rdi),%%r10	\n\t"/*        off[0,4] */\
+	"leaq	(%%rsi,%%rax,8),%%rax	\n\t	leaq	(%%rsi,%%r10,8),%%r10	\n\t"/* out0 + off[0,4] */\
+	"movslq		0x08(%%rdi),%%rbx	\n\t	movslq		0x18(%%rdi),%%r11	\n\t"\
+	"leaq	(%%rsi,%%rbx,8),%%rbx	\n\t	leaq	(%%rsi,%%r11,8),%%r11	\n\t"/* out0 + off[2,6] */\
 		"vsubpd		%%ymm0	,%%ymm4,%%ymm4		\n\t		vsubpd		%%ymm9 ,%%ymm13,%%ymm13		\n\t"\
 		"vsubpd		%%ymm1	,%%ymm5,%%ymm5		\n\t		vsubpd		%%ymm12,%%ymm8 ,%%ymm8 		\n\t"\
 		"vsubpd		%%ymm2	,%%ymm6,%%ymm6		\n\t		vsubpd		%%ymm11,%%ymm15,%%ymm15		\n\t"\
 		"vsubpd		%%ymm3	,%%ymm7,%%ymm7		\n\t		vsubpd		%%ymm14,%%ymm10,%%ymm10		\n\t"\
-	"vmovaps	%%ymm14,(%%rbx) 	\n\t"/* spill ymm14 to make room for 2.0 */"	vmovaps	 (%%rax),%%ymm14	\n\t"/* two */\
+	"movq	%[two]	,%%r15			\n\t"\
+	"vmovaps	%%ymm14,(%%rbx) 	\n\t"/* spill ymm14 to make room for 2.0 */"	vmovaps	 (%%r15),%%ymm14	\n\t"/* two */\
 	"vfmadd132pd	%%ymm14,%%ymm4,%%ymm0		\n\t	vfmadd132pd		%%ymm14,%%ymm13,%%ymm9 		\n\t"\
 	"vfmadd132pd	%%ymm14,%%ymm5,%%ymm1		\n\t	vfmadd132pd		%%ymm14,%%ymm8 ,%%ymm12		\n\t"\
 	"vfmadd132pd	%%ymm14,%%ymm6,%%ymm2		\n\t	vfmadd132pd		%%ymm14,%%ymm15,%%ymm11		\n\t"\
 	"vfmadd132pd	%%ymm14,%%ymm7,%%ymm3		\n\t	vfmadd132pd		(%%rbx),%%ymm10,%%ymm14		\n\t"\
 		"vsubpd	%%ymm2		,%%ymm0,%%ymm0		\n\t		vsubpd	%%ymm11		,%%ymm10,%%ymm10	\n\t"\
 		"vsubpd	%%ymm3		,%%ymm1,%%ymm1		\n\t		vsubpd	%%ymm14		,%%ymm15,%%ymm15	\n\t"\
-		"vsubpd	%%ymm7		,%%ymm4,%%ymm4		\n\t		vfmadd132pd	(%%rax) ,%%ymm10,%%ymm11	\n\t"\
-		"vsubpd	%%ymm6		,%%ymm5,%%ymm5		\n\t		vfmadd132pd	(%%rax) ,%%ymm15,%%ymm14	\n\t"\
-		"movq		%[o1]	,%%rcx				\n\t		movq		%[o5]	,%%r12				\n\t"/* [o1] has SQRT2 on input */\
-		"movq		%[o3]	,%%rdx				\n\t		movq		%[o7]	,%%r13				\n\t"\
+		"vsubpd	%%ymm7		,%%ymm4,%%ymm4		\n\t		vfmadd132pd	(%%r15) ,%%ymm10,%%ymm11	\n\t"\
+		"vsubpd	%%ymm6		,%%ymm5,%%ymm5		\n\t		vfmadd132pd	(%%r15) ,%%ymm15,%%ymm14	\n\t"\
+	"movslq		0x04(%%rdi),%%rcx	\n\t	movslq		0x14(%%rdi),%%r12	\n\t"\
+	"leaq	(%%rsi,%%rcx,8),%%rcx	\n\t	leaq	(%%rsi,%%r12,8),%%r12	\n\t"/* out0 + off[1,5] */\
+	"movslq		0x0c(%%rdi),%%rdx	\n\t	movslq		0x1c(%%rdi),%%r13	\n\t"\
+	"leaq	(%%rsi,%%rdx,8),%%rdx	\n\t	leaq	(%%rsi,%%r13,8),%%r13	\n\t"/* out0 + off[3,7] */\
 	/* Use the cosine term of the [c1,s1] pair, which is the *middle* [4th of 7] of our 7 input pairs, in terms \
 	of the input-arg bit-reversal reordering defined in the __X[c,s] --> [c,s] mapping below and happens to \
 	always in fact *be* a true cosine term, which is a requirement for our "decr 1 gives isrt2" data-copy scheme: */\
-		"movq	%[c1],%%r14	\n\t				\n\t"\
-		"subq	$0x20,%%r14	\n\t"/* isrt2 in [c1]-1 */\
-	"vfmadd132pd	(%%rax),%%ymm0,%%ymm2		\n\t	vfnmadd231pd	(%%r14),%%ymm10,%%ymm8 		\n\t"/* .isrt2 */\
-	"vfmadd132pd	(%%rax),%%ymm1,%%ymm3		\n\t	vfnmadd231pd	(%%r14),%%ymm15,%%ymm13		\n\t"\
-	"vfmadd132pd	(%%rax),%%ymm5,%%ymm6		\n\t	vfnmadd231pd	(%%r14),%%ymm11,%%ymm9 		\n\t"\
-	"vfmadd132pd	(%%rax),%%ymm4,%%ymm7		\n\t	vfnmadd231pd	(%%r14),%%ymm14,%%ymm12		\n\t"\
-		"vmovaps	%%ymm2,    (%%rax)	\n\t"/* [o0].re */"	vmovaps	%%ymm8 ,    (%%r12)	\n\t"/* [o5].re */\
-		"vmovaps	%%ymm3,0x20(%%rax)	\n\t"/* [o0].im */"	vmovaps	%%ymm13,0x20(%%r11)	\n\t"/* [o6].im */\
+		"movq	%[twid_ptrs],%%r14		\n\t	movq	0x30(%%r14),%%r14	\n\t"\
+		"										subq	$0x20,%%r14	\n\t"/* isrt2 in [c1]-1 */\
+	"vfmadd132pd	(%%r15),%%ymm0,%%ymm2		\n\t	vfnmadd231pd	(%%r14),%%ymm10,%%ymm8 		\n\t"/* .isrt2 */\
+	"vfmadd132pd	(%%r15),%%ymm1,%%ymm3		\n\t	vfnmadd231pd	(%%r14),%%ymm15,%%ymm13		\n\t"\
+	"vfmadd132pd	(%%r15),%%ymm5,%%ymm6		\n\t	vfnmadd231pd	(%%r14),%%ymm11,%%ymm9 		\n\t"\
+	"vfmadd132pd	(%%r15),%%ymm4,%%ymm7		\n\t	vfnmadd231pd	(%%r14),%%ymm14,%%ymm12		\n\t"\
+		"vmovaps	%%ymm2,    (%%rax)	\n\t"/* [o0].re */"	vmovaps	%%ymm8 ,    (%%r12)	\n\t"/* [o5].re */	"vmovaps	(%%r14),%%ymm2		\n\t"/* ymm2 = ISRT2 */\
+		"vmovaps	%%ymm3,0x20(%%rax)	\n\t"/* [o0].im */"	vmovaps	%%ymm13,0x20(%%r11)	\n\t"/* [o6].im */	"vaddpd	%%ymm2,%%ymm2,%%ymm2	\n\t"/* ymm2 = SQRT2; */\
 		"vmovaps	%%ymm6,0x20(%%rbx)	\n\t"/* [o2].im */"	vmovaps	%%ymm9 ,0x20(%%r12)	\n\t"/* [o5].im */\
 		"vmovaps	%%ymm7,    (%%rdx)	\n\t"/* [o3].re */"	vmovaps	%%ymm12,    (%%r11)	\n\t"/* [o6].re */\
-		"												 vfmadd132pd	(%%rcx),%%ymm8 ,%%ymm10		\n\t"/* .sqrt2 */\
-		"												 vfmadd132pd	(%%rcx),%%ymm13,%%ymm15		\n\t"\
-		"												 vfmadd132pd	(%%rcx),%%ymm9 ,%%ymm11		\n\t"\
-		"												 vfmadd132pd	(%%rcx),%%ymm12,%%ymm14		\n\t"\
+		"												 vfmadd132pd	%%ymm2,%%ymm8 ,%%ymm10		\n\t"/* .sqrt2 */\
+		"												 vfmadd132pd	%%ymm2,%%ymm13,%%ymm15		\n\t"\
+		"												 vfmadd132pd	%%ymm2,%%ymm9 ,%%ymm11		\n\t"\
+		"												 vfmadd132pd	%%ymm2,%%ymm12,%%ymm14		\n\t"\
 		"vmovaps	%%ymm0,    (%%rcx)	\n\t"/* [o1].re */"	vmovaps	%%ymm10,    (%%r10)	\n\t"/* [o4].re */\
 		"vmovaps	%%ymm1,0x20(%%rcx)	\n\t"/* [o1].im */"	vmovaps	%%ymm15,0x20(%%r13)	\n\t"/* [o7].im */\
 		"vmovaps	%%ymm4,    (%%rbx)	\n\t"/* [o2].re */"	vmovaps	%%ymm11,0x20(%%r10)	\n\t"/* [o4].im */\
 		"vmovaps	%%ymm5,0x20(%%rdx)	\n\t"/* [o3].im */"	vmovaps	%%ymm14,    (%%r13)	\n\t"/* [o7].re */\
 		:					/* outputs: none */\
-		: [i0] "m" (Xi0)	/* All inputs from memory addresses here */\
-		 ,[i1] "m" (Xi1)\
-		 ,[i2] "m" (Xi2)\
-		 ,[i3] "m" (Xi3)\
-		 ,[i4] "m" (Xi4)\
-		 ,[i5] "m" (Xi5)\
-		 ,[i6] "m" (Xi6)\
-		 ,[i7] "m" (Xi7)\
-		 ,[o0] "m" (Xo0)\
-		 ,[o1] "m" (Xo1)\
-		 ,[o2] "m" (Xo2)\
-		 ,[o3] "m" (Xo3)\
-		 ,[o4] "m" (Xo4)\
-		 ,[o5] "m" (Xo5)\
-		 ,[o6] "m" (Xo6)\
-		 ,[o7] "m" (Xo7)\
-		 ,[c4] "m" (Xc1),[s4] "m" (Xs1)\
-		 ,[c2] "m" (Xc2),[s2] "m" (Xs2)\
-		 ,[c6] "m" (Xc3),[s6] "m" (Xs3)\
-		 ,[c1] "m" (Xc4),[s1] "m" (Xs4)\
-		 ,[c5] "m" (Xc5),[s5] "m" (Xs5)\
-		 ,[c3] "m" (Xc6),[s3] "m" (Xs6)\
-		 ,[c7] "m" (Xc7),[s7] "m" (Xs7)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+		: [in0] "m" (Xin0)	/* All 'm'-inputs from memory addresses here... */\
+		 ,[i1] "e" (Xi1)	/* ...except for 'e'-inputs which are literal byte offsets */\
+		 ,[out0] "m" (Xout0) /* output-address-octet base pointer */\
+		 ,[off] "m" (Xoff)	/* and pointer to uint32 array of 8 double* index offsets */\
+		 ,[twid_ptrs] "m" (Xtwid_ptrs)\
+		 ,[two] "m" (Xtwo)/* Only used in FMA implementations of this macro */\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
@@ -8706,14 +8713,21 @@
 	}
 
 	// AVX2 Opcount: 84 vec MEM [30 implicit], 31 ADD/SUB, 50 MUL, 36 FMA, i.e. trade 36 ADD+MUL for 36 FMA (plus one more ADD to generate SQRT2 from ISRT2).
-	#define SSE2_RADIX8_DIT_TWIDDLE_OOP(Xi0,Xi1,Xi2,Xi3,Xi4,Xi5,Xi6,Xi7, Xo0,Xo1,Xo2,Xo3,Xo4,Xo5,Xo6,Xo7 ,Xc1,Xs1,Xc2,Xs2,Xc3,Xs3,Xc4,Xs4,Xc5,Xs5,Xc6,Xs6,Xc7,Xs7)\
+	//*** Dec 2020: For guide to updated reduced-#arg IO address computation, cf. the SSE2 version of this macro. ***
+	#define SSE2_RADIX8_DIT_TWIDDLE_OOP(Xin0,Xi1, Xout0,Xo_off, Xtwid_ptrs, Xtwo)\
 	{\
-	__asm__ volatile (																		/* Blocks 2/3 use separate register subset, can be done overlapped with 0/1: */\
-	/* Block 0/1 has just one twiddle-CMUL: */											"	movq		%[i2],%%rcx				\n\t	movq		%[i3],%%rdx				\n\t"\
-	"movq		%[i0],%%rax				\n\t												movq		%[c2],%%r10				\n\t	movq		%[c3],%%r12				\n\t"\
-	"movq		%[i1],%%rbx				\n\t												movq		%[s2],%%r11				\n\t	movq		%[s3],%%r13				\n\t"\
-	"movq		%[c1],%%rdi	\n\t/* [rdi,rsi] -> [c,s] components of each sincos pair, */	vmovaps		(%%rcx),%%ymm8 			\n\t	vmovaps		0x20(%%rcx),%%ymm9 		\n\t"\
-	"movq		%[s1],%%rsi	\n\t/* (not truly a pair here in terms of rel-addresses). */	vmovaps	%%ymm9 ,%%ymm10				\n\t	vmovaps		%%ymm8 ,%%ymm11			\n\t"\
+	__asm__ volatile (\
+	/* i1 is base byte-offset, no need to lshift it prior to add: */\
+		"xorq	%%r8,%%r8	\n\t	leaq	%c[i1](%%r8),%%r8	\n\t"/* movq|movslq of literal %c[i1] both segfaulted, workaround via LEA */\
+		/* The twid_ptrs[] array holds ptrs to 14 complex twiddles in-order: (c,s)[1,2,3,4,5,6,7]: */\
+		"movq	%[twid_ptrs],%%r14	\n\t"\
+	/* Block 0/1 has just one twiddle-CMUL: 												/* Blocks 2/3 use separate register subset, can be done overlapped with 0/1: */\
+	"movq		%[in0],%%rax		\n\t"\
+		"leaq	(%%rax,%%r8  ),%%rbx	\n\t"\
+		"leaq	(%%rax,%%r8,2),%%rcx	\n\t											movq	0x10(%%r14),%%r10				\n\t	movq	0x20(%%r14),%%r12			\n\t"/* c2,c3 */\
+		"leaq	(%%rcx,%%r8  ),%%rdx	\n\t											movq	0x18(%%r14),%%r11				\n\t	movq	0x28(%%r14),%%r13			\n\t"/* s2,s3 */\
+	"movq	    (%%r14),%%rdi	\n\t/* [rdi,rsi] -> [c,s] components of each sincos pair, */	vmovaps		(%%rcx),%%ymm8 		\n\t	vmovaps		0x20(%%rcx),%%ymm9 		\n\t"/* lcol: c1,s1 */\
+	"movq	0x08(%%r14),%%rsi	\n\t/* (not truly a pair here in terms of rel-addresses). */	vmovaps	%%ymm9 ,%%ymm10			\n\t	vmovaps		%%ymm8 ,%%ymm11			\n\t"\
 	"vmovaps	    (%%rbx),%%ymm4 		\n\t	vmovaps		0x20(%%rbx),%%ymm5 		\n\t	vmovaps		(%%rdx),%%ymm12			\n\t	vmovaps		0x20(%%rdx),%%ymm13		\n\t"\
 	"vmovaps	    (%%rax),%%ymm0 		\n\t	vmovaps		0x20(%%rax),%%ymm1 		\n\t	vmovaps	%%ymm13,%%ymm14				\n\t	vmovaps		%%ymm12,%%ymm15			\n\t"\
 	"vmovaps	%%ymm5 ,%%ymm6 			\n\t	vmovaps		%%ymm4 ,%%ymm7 			\n\t	vmulpd		(%%r10),%%ymm8 ,%%ymm8 	\n\t	vmulpd		(%%r10),%%ymm9 ,%%ymm9 	\n\t"\
@@ -8726,16 +8740,23 @@
 	"vmovaps	%%ymm2 ,    (%%rbx)		\n\t	vmovaps		%%ymm3 ,0x20(%%rbx)		\n\t	vmovaps		%%ymm8 ,    (%%rcx)		\n\t	vmovaps		%%ymm9 ,0x20(%%rcx)		\n\t"\
 														/* Now do radix-2 butterfly: */	"	vmovaps		%%ymm10,    (%%rdx)		\n\t	vmovaps		%%ymm11,0x20(%%rdx)		\n\t"\
 	/* Blocks 4/5: */																		/* Blocks 6/7 use separate register subset, can be done overlapped with 4/5: */\
-	"movq		%[i4],%%rax				\n\t												movq		%[i6],%%rcx				\n\t"\
-	"movq		%[i5],%%rbx				\n\t												movq		%[i7],%%rdx				\n\t"\
-	"movq		%[c4],%%rdi				\n\t												movq		%[c6],%%r10				\n\t"\
-	"movq		%[c5],%%r8 				\n\t												movq		%[c7],%%r12				\n\t"\
-	"movq		%[s4],%%rsi				\n\t												movq		%[s6],%%r11				\n\t"\
-	"movq		%[s5],%%r9 				\n\t												movq		%[s7],%%r13				\n\t"\
+	"shlq	$2,%%r8			\n\t"/* From here on only need offset i4 = 4*i1 */\
+	"addq	%%r8,%%rax		\n\t"/* Remaining 4 I-address-calculations are in-place += i4, so use ADD, faster than LEA */\
+	"addq	%%r8,%%rbx		\n\t"\
+	"addq	%%r8,%%rcx		\n\t"\
+	"addq	%%r8,%%rdx		\n\t"\
 	"vmovaps		(%%rax),%%ymm0 		\n\t	vmovaps		0x20(%%rax),%%ymm1 		\n\t	vmovaps		(%%rcx),%%ymm8 			\n\t	vmovaps		0x20(%%rcx),%%ymm9 		\n\t"\
 	"vmovaps	%%ymm1 ,%%ymm2 			\n\t	vmovaps		%%ymm0 ,%%ymm3 			\n\t	vmovaps		%%ymm9 ,%%ymm10			\n\t	vmovaps		%%ymm8 ,%%ymm11			\n\t"\
 	"vmovaps		(%%rbx),%%ymm4 		\n\t	vmovaps		0x20(%%rbx),%%ymm5 		\n\t	vmovaps		(%%rdx),%%ymm12			\n\t	vmovaps		0x20(%%rdx),%%ymm13		\n\t"\
 	"vmovaps	%%ymm5 ,%%ymm6 			\n\t	vmovaps		%%ymm4 ,%%ymm7 			\n\t	vmovaps		%%ymm13,%%ymm14			\n\t	vmovaps		%%ymm12,%%ymm15			\n\t"\
+	"subq		%%r8,%%rax			\n\t"\
+	"subq		%%r8,%%rbx			\n\t"\
+	"subq		%%r8,%%rcx			\n\t"\
+	"subq		%%r8,%%rdx			\n\t"\
+	"movq	0x30(%%r14),%%rdi			\n\t												movq	0x50(%%r14),%%r10				\n\t"/* c4,c6 */\
+	"movq	0x40(%%r14),%%r8 			\n\t												movq	0x60(%%r14),%%r12				\n\t"/* c5,c7 */\
+	"movq	0x38(%%r14),%%rsi			\n\t												movq	0x58(%%r14),%%r11				\n\t"/* s4,s6 */\
+	"movq	0x48(%%r14),%%r9 			\n\t												movq	0x68(%%r14),%%r13				\n\t"/* s5,s7 */\
 	"vmulpd		 (%%rdi),%%ymm0 ,%%ymm0 \n\t	vmulpd		 (%%rdi),%%ymm1 ,%%ymm1 \n\t	vmulpd		(%%r10),%%ymm8 ,%%ymm8 	\n\t	vmulpd		 (%%r10),%%ymm9 ,%%ymm9 \n\t"\
 	"vmulpd		 (%%r8 ),%%ymm4 ,%%ymm4 \n\t	vmulpd		 (%%r8 ),%%ymm5 ,%%ymm5 \n\t	vmulpd		(%%r12),%%ymm12,%%ymm12	\n\t	vmulpd		 (%%r12),%%ymm13,%%ymm13\n\t"\
 	"vfmadd231pd (%%rsi),%%ymm2 ,%%ymm0 \n\t	vfnmadd231pd (%%rsi),%%ymm3 ,%%ymm1 \n\t	vfmadd231pd (%%r11),%%ymm10,%%ymm8 	\n\t	vfnmadd231pd (%%r11),%%ymm11,%%ymm9 \n\t"\
@@ -8745,21 +8766,19 @@
 	"vaddpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t	vaddpd		%%ymm5 ,%%ymm1 ,%%ymm1 	\n\t	vaddpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vaddpd		%%ymm13,%%ymm9 ,%%ymm9 	\n\t"\
 	"vsubpd		%%ymm4 ,%%ymm2 ,%%ymm2 	\n\t	vsubpd		%%ymm5 ,%%ymm3 ,%%ymm3 	\n\t	vsubpd		%%ymm12,%%ymm10,%%ymm10	\n\t	vsubpd		%%ymm13,%%ymm11,%%ymm11	\n\t"\
 	/* Reload Block 0-3 outputs into r4-7,c-f, combine to get the 2 length-4 subtransform... */\
-	"movq		%[i0],%%rax				\n\t"\
-	"movq		%[i1],%%rbx				\n\t"\
-	"movq		%[i2],%%rcx				\n\t"\
-	"movq		%[i3],%%rdx				\n\t"\
 	"vmovaps		(%%rax),%%ymm4 		\n\t	vmovaps		0x20(%%rax),%%ymm5 		\n\t"\
 	"vmovaps		(%%rbx),%%ymm6 		\n\t	vmovaps		0x20(%%rbx),%%ymm7 		\n\t"\
 	"vmovaps		(%%rcx),%%ymm12		\n\t	vmovaps		0x20(%%rcx),%%ymm13		\n\t"\
 	"vmovaps		(%%rdx),%%ymm14		\n\t	vmovaps		0x20(%%rdx),%%ymm15		\n\t"\
-	"movq		%[o0],%%rax				\n\t"/* Assumes user stuck a (vec_dbl)2.0 into this output slot prior to macro call. */\
+	"movq		%[out0],%%rax			\n\t	movq		%[o_off],%%r8		\n\t"/* out0, off1 */\
+	"movq		%[two],%%rsi			\n\t	leaq		(%%r8,%%r8),%%r9	\n\t"/* (vec_dbl)2.0, off2 */\
+		"										leaq		(%%r9,%%r9),%%r10	\n\t"/* off4 */\
 	"vsubpd		%%ymm12,%%ymm4 ,%%ymm4 	\n\t	vsubpd		%%ymm13,%%ymm5 ,%%ymm5 	\n\t"\
 	"vsubpd		%%ymm15,%%ymm6 ,%%ymm6 	\n\t	vsubpd		%%ymm14,%%ymm7 ,%%ymm7 	\n\t"\
 	"vsubpd		%%ymm8 ,%%ymm0 ,%%ymm0 	\n\t	vsubpd		%%ymm9 ,%%ymm1 ,%%ymm1 	\n\t"\
 	"vsubpd		%%ymm11,%%ymm2 ,%%ymm2 	\n\t	vsubpd		%%ymm10,%%ymm3 ,%%ymm3 	\n\t"\
 	/* We hope the microcode execution engine inlines the MULs with the above SUBs: */\
-	"vmovaps	%%ymm10,(%%rdx) 	\n\t"/* spill ymm14 to make room for 2.0 */"	vmovaps	(%%rax),%%ymm10 \n\t"/* two */\
+	"vmovaps	%%ymm10,(%%rdx) 	\n\t"/* spill ymm14 to make room for 2.0 */"	vmovaps	(%%rsi),%%ymm10 \n\t"/* two */\
 	"vfmadd132pd %%ymm10,%%ymm4,%%ymm12	\n\t	vfmadd132pd %%ymm10,%%ymm5 ,%%ymm13	\n\t"\
 	"vfmadd132pd %%ymm10,%%ymm6,%%ymm15	\n\t	vfmadd132pd %%ymm10,%%ymm7 ,%%ymm14	\n\t"\
 	"vfmadd132pd %%ymm10,%%ymm0,%%ymm8 	\n\t	vfmadd132pd %%ymm10,%%ymm1 ,%%ymm9 	\n\t"\
@@ -8770,16 +8789,16 @@
 	"vsubpd		%%ymm3 ,%%ymm11,%%ymm11	\n\t	vsubpd		%%ymm10,%%ymm2 ,%%ymm2 	\n\t"\
 	"vsubpd		%%ymm8 ,%%ymm12,%%ymm12	\n\t	vsubpd		%%ymm9 ,%%ymm13,%%ymm13	\n\t"\
 	"vsubpd		%%ymm1 ,%%ymm4 ,%%ymm4 	\n\t	vsubpd		%%ymm0 ,%%ymm5 ,%%ymm5 	\n\t"\
-	"vmovaps	%%ymm0 ,(%%rdx) 	\n\t"/* spill ymm14 to make room for 2.0 */"	vmovaps	(%%rax),%%ymm0  \n\t"/* two */\
+	"vmovaps	%%ymm0 ,(%%rdx) 	\n\t"/* spill ymm14 to make room for 2.0 */"	vmovaps	(%%rsi),%%ymm0  \n\t"/* two */\
 	"vfmadd132pd %%ymm0,%%ymm11,%%ymm3 	\n\t	vfmadd132pd %%ymm0 ,%%ymm2 ,%%ymm10	\n\t"\
 	"vfmadd132pd %%ymm0,%%ymm12,%%ymm8 	\n\t	vfmadd132pd %%ymm0 ,%%ymm13,%%ymm9 	\n\t"\
 	"vfmadd132pd %%ymm0,%%ymm4 ,%%ymm1 	\n\t	vfmadd132pd (%%rdx),%%ymm5 ,%%ymm0 	\n\t"\
 	/*movq		%[o0],%%rax		[o0] already in rax */	\
-	"movq		%[o1],%%rbx				\n\t"\
-	"movq		%[o2],%%rcx				\n\t"\
-	"movq		%[o3],%%rdx				\n\t"\
+	"leaq	(%%rax,%%r9 ),%%rcx		\n\t"/* out0 + off2, compute first to allow time for LEA to finish before += off4 to get out0 + off6 */\
+	"leaq	(%%rax,%%r10),%%rbx		\n\t"/* out0 + off4 */\
+	"leaq	(%%rcx,%%r10),%%rdx		\n\t"/* out0 + off6 */\
 	"vmovaps	%%ymm12,    (%%rbx)		\n\t	vmovaps		%%ymm13,0x20(%%rbx)		\n\t"/* __Br1 = _rc;	__Bi1 = _rd; */\
-	/* Use that _rc,d free to stick 2.0 into _rc and that [c4] in rdi to load ISRT2 from c4-1 into _rd: */\
+	/* Use that _rc,d free to stick ISRT2 into _rc and SQRT2 into _rd: */\
 	"vmovaps	-0x20(%%rdi),%%ymm12	\n\t	vaddpd	%%ymm12,%%ymm12,%%ymm13		\n\t"/* ymm12 = ISRT2;	ymm13 = SQRT2; */\
 	"vmovaps	%%ymm4 ,    (%%rdx)		\n\t	vmovaps		%%ymm0 ,0x20(%%rdx)		\n\t"/* __Br3 = _r4;	__Bi3 = _r0; */\
 	"vmovaps	%%ymm8 ,    (%%rax)		\n\t	vmovaps		%%ymm9 ,0x20(%%rax)		\n\t"/* __Br0 = _r8;	__Bi0 = _r9; */\
@@ -8788,39 +8807,22 @@
 	"vfnmadd231pd %%ymm12,%%ymm2,%%ymm6	\n\t	vfnmadd231pd %%ymm12,%%ymm10,%%ymm14\n\t"\
 	" vfmadd132pd %%ymm13,%%ymm15,%%ymm3\n\t	 vfmadd132pd %%ymm13,%%ymm7 ,%%ymm11\n\t"\
 	" vfmadd132pd %%ymm13,%%ymm6 ,%%ymm2\n\t	 vfmadd132pd %%ymm13,%%ymm14,%%ymm10\n\t"\
-	"movq		%[o4],%%rax				\n\t"\
-	"movq		%[o5],%%rbx				\n\t"\
-	"movq		%[o6],%%rcx				\n\t"\
-	"movq		%[o7],%%rdx				\n\t"\
+	"addq		%%r8 ,%%rax			\n\t"/* out0 + off[1,5,3,7] */\
+	"addq		%%r8 ,%%rbx			\n\t"\
+	"addq		%%r8 ,%%rcx			\n\t"\
+	"addq		%%r8 ,%%rdx			\n\t"\
 	"vmovaps	%%ymm3 ,    (%%rax)		\n\t	vmovaps		%%ymm7 ,0x20(%%rax)		\n\t"/* __Br4 = _r3;	__Bi4 = _r7; */\
 	"vmovaps	%%ymm15,    (%%rbx)		\n\t	vmovaps		%%ymm11,0x20(%%rbx)		\n\t"/* __Br5 = _rf;	__Bi5 = _rb; */\
 	"vmovaps	%%ymm6 ,    (%%rcx)		\n\t	vmovaps		%%ymm14,0x20(%%rcx)		\n\t"/* __Br6 = _r6;	__Bi6 = _re; */\
 	"vmovaps	%%ymm2 ,    (%%rdx)		\n\t	vmovaps		%%ymm10,0x20(%%rdx)		\n\t"/* __Br7 = _r2;	__Bi7 = _ra; */\
 		:					/* outputs: none */\
-		: [i0] "m" (Xi0)	/* All inputs from memory addresses here */\
-		 ,[i1] "m" (Xi1)\
-		 ,[i2] "m" (Xi2)\
-		 ,[i3] "m" (Xi3)\
-		 ,[i4] "m" (Xi4)\
-		 ,[i5] "m" (Xi5)\
-		 ,[i6] "m" (Xi6)\
-		 ,[i7] "m" (Xi7)\
-		 ,[o0] "m" (Xo0)\
-		 ,[o1] "m" (Xo1)\
-		 ,[o2] "m" (Xo2)\
-		 ,[o3] "m" (Xo3)\
-		 ,[o4] "m" (Xo4)\
-		 ,[o5] "m" (Xo5)\
-		 ,[o6] "m" (Xo6)\
-		 ,[o7] "m" (Xo7)\
-		 ,[c1] "m" (Xc1),[s1] "m" (Xs1)\
-		 ,[c2] "m" (Xc2),[s2] "m" (Xs2)\
-		 ,[c3] "m" (Xc3),[s3] "m" (Xs3)\
-		 ,[c4] "m" (Xc4),[s4] "m" (Xs4)\
-		 ,[c5] "m" (Xc5),[s5] "m" (Xs5)\
-		 ,[c6] "m" (Xc6),[s6] "m" (Xs6)\
-		 ,[c7] "m" (Xc7),[s7] "m" (Xs7)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+		: [in0] "m" (Xin0)	/* All 'm'-inputs from memory addresses here... */\
+		 ,[i1] "e" (Xi1)	/* ...except for 'e'-inputs which are literal byte offsets */\
+		 ,[out0] "m" (Xout0)\
+		 ,[o_off] "m" (Xo_off)/* O-address pointer-stride */\
+		 ,[twid_ptrs] "m" (Xtwid_ptrs)\
+		 ,[two] "m" (Xtwo)/* Only used in FMA implementations of this macro */\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
@@ -8829,7 +8831,10 @@
 	// Based on the SSE2_RADIX16_DIF_NOTWIDDLE macro in radix16_ditN_cy_dif1_gcc64.h, but with completely
 	// specifiable 16-output addressing required for usage as the power-of-2 component of a twiddleless
 	// radix = [odd*2^n] DFT routine.
-	#define SSE2_RADIX16_DIF_0TWIDDLE(Xin0,Xi1,Xi2,Xi3,Xi4, Xisrt2,Xtwo, Xout0,Xout1,Xout2,Xout3,Xout4,Xout5,Xout6,Xout7,Xout8,Xout9,Xouta,Xoutb,Xoutc,Xoutd,Xoute,Xoutf)\
+	/* Dec 2020: Needed to cut #args for Apple M1/Clang builds on Arm64 - do similar on x86 to avoid
+	multiple versions of the macro having different arglists. Replace 16 O-addresses with O-base-address
+	out0 and pointer to array of 16 int offset-indices: */
+	#define SSE2_RADIX16_DIF_0TWIDDLE(Xin0,Xi1,Xi2,Xi3,Xi4, Xisrt2,Xtwo, Xout0,Xoff)\
 	{\
 	__asm__ volatile (\
 		"movq	%[__two],%%r15	\n\t"/* two, used for FMA-based double-and-ADD/SUBs */\
@@ -8873,10 +8878,10 @@
 		"vmovaps	%%ymm7,    (%%rdx)							\n\t	vmovaps	%%ymm15,    (%%r13)	\n\t"\
 		"vmovaps	%%ymm6,0x20(%%rcx)							\n\t	vmovaps	%%ymm14,0x20(%%r12)	\n\t"\
 	/* Block 1: SSE2_RADIX4_DIF_IN_PLACE(r3 , r19, r11, r27): */	/* Block 3: SSE2_RADIX4_DIF_IN_PLACE(r7 , r23, r15, r31): */\
-		"leaq	%c[__i1](%%rax),%%rax	\n\t"/* addr += 1*ostride */"	leaq	%c[__i2](%%rax),%%r10	\n\t"/* addr += 2*ostride */\
-		"leaq	%c[__i1](%%rbx),%%rbx	\n\t"/* w.r.to to Block 0 */"	leaq	%c[__i2](%%rbx),%%r11	\n\t"/* w.r.to to Block 1 */\
-		"leaq	%c[__i1](%%rcx),%%rcx							\n\t	leaq	%c[__i2](%%rcx),%%r12	\n\t"\
-		"leaq	%c[__i1](%%rdx),%%rdx							\n\t	leaq	%c[__i2](%%rdx),%%r13	\n\t"\
+		"addq	$%c[__i1],%%rax	\n\t"/* addr += 1*ostride */"	addq	$%c[__i1],%%r10	\n\t"/* addr += 1*ostride */\
+		"addq	$%c[__i1],%%rbx	\n\t"/* w.r.to to Block 0 */"	addq	$%c[__i1],%%r12	\n\t"/* w.r.to to Block 2 */\
+		"addq	$%c[__i1],%%rcx							\n\t	addq	$%c[__i1],%%r11	\n\t"\
+		"addq	$%c[__i1],%%rdx							\n\t	addq	$%c[__i1],%%r13	\n\t"\
 		"vmovaps	    (%%rbx),%%ymm0							\n\t	vmovaps	    (%%r11),%%ymm8 	\n\t"\
 		"vmovaps	0x20(%%rbx),%%ymm1							\n\t	vmovaps	0x20(%%r11),%%ymm9 	\n\t"\
 		"vmovaps	    (%%rax),%%ymm2							\n\t	vmovaps	    (%%r10),%%ymm10	\n\t"\
@@ -8911,16 +8916,16 @@
 		"vmovaps	%%ymm5,0x20(%%rax)							\n\t	vmovaps	%%ymm13,0x20(%%r10)	\n\t"\
 		"vmovaps	%%ymm7,    (%%rdx)							\n\t	vmovaps	%%ymm15,    (%%r13)	\n\t"\
 		"vmovaps	%%ymm6,0x20(%%rcx)							\n\t	vmovaps	%%ymm14,0x20(%%r12)	\n\t"\
-	/******************************************************************************/\
-	/*** Now do 4 DFTs with internal twiddles on the 4*stride - separated data. ***/\
-	/*** Order 0,2,1,3 allows incr-only of rsi-datum from 1 block to the next: ****/\
-	/******************************************************************************/\
+	/*****************************************************************************************
+	**** Now do 4 DFTs with internal twiddles on the 1*stride - separated data. Do blocks ****
+	**** in order 0,2,1,3 to allow increment-only of rsi-datum from 1 block to the next:  ****
+	*****************************************************************************************/\
+	/* Problem: In the sse2 and avx versions of the reduced-#args macro with their single columns of
+	instructions, had plenty of GPRs to store both I and O-addresses simultaneously. In the 2-column avx2
+	and avx-512 versions, don't have enough GPRs. But since we don't need the O-addresses until we are ready
+	to write outputs, just move the O-address computations down to that part of each 4-DFT sub-block: */\
 	/* Block 0: r0-3 */												/* Block 1: r8-b */\
-		"movq	%[__in0],%%rsi	\n\t	leaq %c[__i4](%%rsi),%%r8 \n\t leaq %c[__i4](%%r8 ),%%r8 \n\t"/* __in0+8*ostride */\
-		"movq	%[__out0],%%rax									\n\t	movq	%[__out4],%%r10		\n\t"\
-		"movq	%[__out1],%%rbx									\n\t	movq	%[__out5],%%r11		\n\t"\
-		"movq	%[__out2],%%rcx									\n\t	movq	%[__out6],%%r12		\n\t"\
-		"movq	%[__out3],%%rdx									\n\t	movq	%[__out7],%%r13		\n\t"\
+		"movq	%[__in0],%%rsi	\n\t	leaq %c[__i4](%%rsi),%%r8 \n\t addq $%c[__i4],%%r8 \n\t"/* __in0+[0,8]*ostride */\
 	/* Need separate address for Im parts of outputs due to literal-offsets below: */\
 		"leaq	0x20(%%rsi),%%rdi								\n\t	leaq	0x20(%%r8 ),%%r9 	\n\t"\
 		"vmovaps	        (%%rsi),%%ymm0						\n\t	vmovaps	        (%%r8 ),%%ymm8 	\n\t"/* ar */\
@@ -8931,7 +8936,7 @@
 		"vmovaps	%c[__i1](%%rdi),%%ymm5						\n\t	vmovaps	%c[__i1](%%r9 ),%%ymm13	\n\t"/* ci */\
 		"vmovaps	%c[__i3](%%rsi),%%ymm6						\n\t	vmovaps	%c[__i3](%%r8 ),%%ymm14	\n\t"/* dr */\
 		"vmovaps	%c[__i3](%%rdi),%%ymm7						\n\t	vmovaps	%c[__i3](%%r9 ),%%ymm15	\n\t"/* di */\
-		"																movq	%[__isrt2],%%r9 	\n\t"\
+		"																movq	%[__isrt2],%%r14	\n\t"\
 		"vsubpd		%%ymm2 ,%%ymm0,%%ymm0						\n\t	vsubpd		%%ymm11,%%ymm8 ,%%ymm8 	\n\t"/* ar-bi */\
 		"vsubpd		%%ymm3 ,%%ymm1,%%ymm1						\n\t	vsubpd		%%ymm10,%%ymm9 ,%%ymm9 	\n\t"/* ai-br */\
 		"vsubpd		%%ymm6 ,%%ymm4,%%ymm4						\n\t	vsubpd		%%ymm13,%%ymm12,%%ymm12	\n\t"/* cr-ci */\
@@ -8943,30 +8948,35 @@
 	"vfmadd132pd	%%ymm14,%%ymm5,%%ymm7						\n\t	vfmadd132pd	(%%rax),%%ymm15,%%ymm14	\n\t"/* di+dr */\
 		"																	vsubpd	%%ymm14,%%ymm12,%%ymm12		\n\t"\
 		"																	vsubpd	%%ymm15,%%ymm13,%%ymm13		\n\t"\
+	"movq	%[out0],%%r8	\n\t	movq	%[off],%%r9	\n\t"/* Load output base-address into r8 and offset-array pointer into r9 */\
+		"movslq		    (%%r9),%%rax	\n\t"/*        off0 */"movslq	0x10(%%r9),%%r10	\n\t"/*        off4 */\
+		"movslq		0x04(%%r9),%%rbx	\n\t"/*        off1 */"movslq	0x14(%%r9),%%r11	\n\t"/*        off5 */\
+		"movslq		0x08(%%r9),%%rcx	\n\t"/*        off2 */"movslq	0x18(%%r9),%%r12	\n\t"/*        off6 */\
+		"movslq		0x0c(%%r9),%%rdx	\n\t"/*        off3 */"movslq	0x1c(%%r9),%%r13	\n\t"/*        off7 */\
+		"leaq	(%%r8,%%rax,8),%%rax	\n\t"/* out0 + off0 */"leaq	(%%r8,%%r10,8),%%r10	\n\t"/* out0 + off4 */\
+		"leaq	(%%r8,%%rbx,8),%%rbx	\n\t"/* out0 + off1 */"leaq	(%%r8,%%r11,8),%%r11	\n\t"/* out0 + off5 */\
+		"leaq	(%%r8,%%rcx,8),%%rcx	\n\t"/* out0 + off2 */"leaq	(%%r8,%%r12,8),%%r12	\n\t"/* out0 + off6 */\
+		"leaq	(%%r8,%%rdx,8),%%rdx	\n\t"/* out0 + off3 */"leaq	(%%r8,%%r13,8),%%r13	\n\t"/* out0 + off7 */\
 		"vsubpd		%%ymm6,%%ymm2,%%ymm2						\n\t	vfmadd132pd	(%%r15),%%ymm12,%%ymm14		\n\t"\
 		"vsubpd		%%ymm7,%%ymm3,%%ymm3						\n\t	vfmadd132pd	(%%r15),%%ymm13,%%ymm15		\n\t"\
-		"vsubpd		%%ymm5,%%ymm0,%%ymm0						\n\t	vfnmadd231pd	(%%r9 ),%%ymm12,%%ymm8 	\n\t"/* x = x - y.isrt2 */\
-		"vsubpd		%%ymm4,%%ymm1,%%ymm1						\n\t	vfnmadd231pd	(%%r9 ),%%ymm13,%%ymm10	\n\t"\
-		"vmovaps	%%ymm2,    (%%rbx)							\n\t	vfnmadd231pd	(%%r9 ),%%ymm14,%%ymm9 	\n\t"\
-		"vmovaps	%%ymm3,0x20(%%rbx)							\n\t	vfnmadd231pd	(%%r9 ),%%ymm15,%%ymm11	\n\t"\
+		"vsubpd		%%ymm5,%%ymm0,%%ymm0						\n\t	vfnmadd231pd	(%%r14),%%ymm12,%%ymm8 	\n\t"/* x = x - y.isrt2 */\
+		"vsubpd		%%ymm4,%%ymm1,%%ymm1						\n\t	vfnmadd231pd	(%%r14),%%ymm13,%%ymm10	\n\t"\
+		"vmovaps	%%ymm2,    (%%rbx)							\n\t	vfnmadd231pd	(%%r14),%%ymm14,%%ymm9 	\n\t"\
+		"vmovaps	%%ymm3,0x20(%%rbx)							\n\t	vfnmadd231pd	(%%r14),%%ymm15,%%ymm11	\n\t"\
 		"vmovaps	%%ymm0,    (%%rcx)							\n\t	vmovaps	%%ymm8 ,    (%%r11)	\n\t"\
 		"vmovaps	%%ymm1,0x20(%%rdx)							\n\t	vmovaps	%%ymm10,0x20(%%r11)	\n\t"\
 	"vfmadd132pd	(%%r15),%%ymm2,%%ymm6						\n\t	vmovaps	%%ymm9 ,0x20(%%r13)	\n\t"\
 	"vfmadd132pd	(%%r15),%%ymm3,%%ymm7						\n\t	vmovaps	%%ymm11,    (%%r12)	\n\t"\
-	"vfmadd132pd	(%%r15),%%ymm0,%%ymm5						\n\t	vfmadd132pd	-0x20(%%r9),%%ymm8 ,%%ymm12	\n\t"/* y = x + y.sqrt2 = x + y.isrt2 */\
-	"vfmadd132pd	(%%r15),%%ymm1,%%ymm4						\n\t	vfmadd132pd	-0x20(%%r9),%%ymm10,%%ymm13	\n\t"\
-		"vmovaps	%%ymm6,    (%%rax)							\n\t	vfmadd132pd	-0x20(%%r9),%%ymm11,%%ymm15	\n\t"\
-		"vmovaps	%%ymm7,0x20(%%rax)							\n\t	vfmadd132pd	-0x20(%%r9),%%ymm9 ,%%ymm14	\n\t"\
+	"vfmadd132pd	(%%r15),%%ymm0,%%ymm5						\n\t	vfmadd132pd	-0x20(%%r14),%%ymm8 ,%%ymm12	\n\t"/* y = x + y.sqrt2 = x + y.isrt2 */\
+	"vfmadd132pd	(%%r15),%%ymm1,%%ymm4						\n\t	vfmadd132pd	-0x20(%%r14),%%ymm10,%%ymm13	\n\t"\
+		"vmovaps	%%ymm6,    (%%rax)							\n\t	vfmadd132pd	-0x20(%%r14),%%ymm11,%%ymm15	\n\t"\
+		"vmovaps	%%ymm7,0x20(%%rax)							\n\t	vfmadd132pd	-0x20(%%r14),%%ymm9 ,%%ymm14	\n\t"\
 		"vmovaps	%%ymm5,    (%%rdx)							\n\t	vmovaps	%%ymm12,    (%%r10)	\n\t"\
 		"vmovaps	%%ymm4,0x20(%%rcx)							\n\t	vmovaps	%%ymm13,0x20(%%r10)	\n\t"\
 		"																vmovaps	%%ymm15,    (%%r13)	\n\t"\
 		"																vmovaps	%%ymm14,0x20(%%r12)	\n\t"\
 	/* Block 2: */													/* Block 3: */\
-		"leaq	%c[__i4](%%rsi),%%rsi	\n\t"/* __in0+4*ostride */	"	leaq	%c[__i4](%%r8 ),%%r8 	\n\t"/* __in0+c*ostride */\
-		"movq	%[__out8],%%rax									\n\t	movq	%[__outc],%%r10		\n\t"\
-		"movq	%[__out9],%%rbx									\n\t	movq	%[__outd],%%r11		\n\t"\
-		"movq	%[__outa],%%rcx									\n\t	movq	%[__oute],%%r12		\n\t"\
-		"movq	%[__outb],%%rdx									\n\t	movq	%[__outf],%%r13		\n\t"\
+		"addq	$%c[__i4],%%rsi	\n\t	leaq %c[__i4](%%rsi),%%r8 \n\t addq $%c[__i4],%%r8 \n\t"/* __in0+[4,c]*ostride */\
 		"leaq	0x20(%%rsi),%%rdi								\n\t	leaq	0x20(%%r8 ),%%r9 	\n\t"\
 		"vmovaps	%c[__i1](%%rsi),%%ymm4						\n\t	vmovaps	%c[__i1](%%r8 ),%%ymm12	\n\t"\
 		"vmovaps	%c[__i3](%%rsi),%%ymm6						\n\t	vmovaps	%c[__i3](%%r8 ),%%ymm14	\n\t"\
@@ -9002,6 +9012,15 @@
 	"vfnmadd231pd		 (%%r9),%%ymm3,%%ymm1				\n\t	vfnmadd231pd		 (%%r9),%%ymm11,%%ymm9 	\n\t"\
 	" vfmadd132pd	-0x20(%%r9),%%ymm0,%%ymm2				\n\t	 vfmadd132pd	-0x20(%%r9),%%ymm8 ,%%ymm10	\n\t"/* y = x + y.sqrt2 = x + y.isrt2 */\
 	" vfmadd132pd	-0x20(%%r9),%%ymm1,%%ymm3				\n\t	 vfmadd132pd	-0x20(%%r9),%%ymm9 ,%%ymm11	\n\t"\
+	"movq	%[out0],%%r8	\n\t	movq	%[off],%%r9	\n\t"/* Load output base-address into r8 and offset-array pointer into r9 */\
+		"movslq		0x20(%%r9),%%rax	\n\t"/*        off8 */"movslq	0x30(%%r9),%%r10	\n\t"/*        offc */\
+		"movslq		0x24(%%r9),%%rbx	\n\t"/*        off9 */"movslq	0x34(%%r9),%%r11	\n\t"/*        offd */\
+		"movslq		0x28(%%r9),%%rcx	\n\t"/*        offa */"movslq	0x38(%%r9),%%r12	\n\t"/*        offe */\
+		"movslq		0x2c(%%r9),%%rdx	\n\t"/*        offb */"movslq	0x3c(%%r9),%%r13	\n\t"/*        offf */\
+		"leaq	(%%r8,%%rax,8),%%rax	\n\t"/* out0 + off8 */"leaq	(%%r8,%%r10,8),%%r10	\n\t"/* out0 + offc */\
+		"leaq	(%%r8,%%rbx,8),%%rbx	\n\t"/* out0 + off9 */"leaq	(%%r8,%%r11,8),%%r11	\n\t"/* out0 + offd */\
+		"leaq	(%%r8,%%rcx,8),%%rcx	\n\t"/* out0 + offa */"leaq	(%%r8,%%r12,8),%%r12	\n\t"/* out0 + offe */\
+		"leaq	(%%r8,%%rdx,8),%%rdx	\n\t"/* out0 + offb */"leaq	(%%r8,%%r13,8),%%r13	\n\t"/* out0 + offf */\
 		"vsubpd	%%ymm6,%%ymm2,%%ymm2							\n\t	vsubpd	%%ymm12,%%ymm8 ,%%ymm8 		\n\t"\
 		"vsubpd	%%ymm7,%%ymm3,%%ymm3							\n\t	vsubpd	%%ymm13,%%ymm9 ,%%ymm9 		\n\t"\
 		"vsubpd	%%ymm5,%%ymm0,%%ymm0							\n\t	vsubpd	%%ymm15,%%ymm10,%%ymm10	\n\t"\
@@ -9027,23 +9046,9 @@
 		,[__i4] "e" (Xi4)\
 		,[__isrt2] "m" (Xisrt2)\
 		,[__two] "m" (Xtwo)\
-		,[__out0] "m" (Xout0)\
-		,[__out1] "m" (Xout1)\
-		,[__out2] "m" (Xout2)\
-		,[__out3] "m" (Xout3)\
-		,[__out4] "m" (Xout4)\
-		,[__out5] "m" (Xout5)\
-		,[__out6] "m" (Xout6)\
-		,[__out7] "m" (Xout7)\
-		,[__out8] "m" (Xout8)\
-		,[__out9] "m" (Xout9)\
-		,[__outa] "m" (Xouta)\
-		,[__outb] "m" (Xoutb)\
-		,[__outc] "m" (Xoutc)\
-		,[__outd] "m" (Xoutd)\
-		,[__oute] "m" (Xoute)\
-		,[__outf] "m" (Xoutf)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+		,[out0] "m" (Xout0) /* output-address-octet base pointer */\
+		,[off] "m" (Xoff)	/* and pointer to uint32 array of 8 double* index offsets */\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
@@ -9260,18 +9265,30 @@
 	// of the macro, and is a benefit to the 64-bit versions which code-fold to yield 2 side-by-side
 	// streams of independently executable instructions, one for data in xmm0-7, the other using xmm8-15.
 	//
-	#define SSE2_RADIX16_DIT_0TWIDDLE(Xin0,Xin1,Xin2,Xin3,Xin4,Xin5,Xin6,Xin7,Xin8,Xin9,Xina,Xinb,Xinc,Xind,Xine,Xinf, Xisrt2,Xtwo, Xout0,Xo1,Xo2,Xo3,Xo4)\
+	#define SSE2_RADIX16_DIT_0TWIDDLE(Xin0,Xoff, Xisrt2,Xtwo, Xout0,Xo1,Xo2,Xo3,Xo4)\
 	{\
 	__asm__ volatile (\
+		/* Jan 2021: In reduced-#args revamp of this macro, Due to GPR-usage constraints, instead of
+		keeping a ptr to vec_dbl*two in GPR r15 throughout, create 2.0 in low double, of an XMM, copy
+		to an MMX via MOVDQ2Q, and copy-back-via-MOVQ2DQ/shuffle-propagate-to-rest-of-XMM as needed: */\
+		"vpcmpeqw	%%xmm0,%%xmm0,%%xmm0\n\t"\
+		"vpsllq		$63,%%xmm0,%%xmm0	\n\t"\
+		"vpsrlq		$01,%%xmm0,%%xmm0	\n\t"\
+		"movdq2q	%%xmm0,%%mm0		\n\t"\
+	"movq	%[in0],%%r14	\n\t	movq	%[off],%%r15	\n\t"/* Load input base-address into r14 and int32[16] offset-array pointer into r15 */\
+		"movslq		    (%%r15),%%rax	\n\t	movslq		0x20(%%r15),%%r10	\n\t"/* off[0-3],[8-b] */\
+		"movslq		0x04(%%r15),%%rbx	\n\t	movslq		0x24(%%r15),%%r11	\n\t"\
+		"movslq		0x08(%%r15),%%rcx	\n\t	movslq		0x28(%%r15),%%r12	\n\t"\
+		"movslq		0x0c(%%r15),%%rdx	\n\t	movslq		0x2c(%%r15),%%r13	\n\t"\
+		"leaq	(%%r14,%%rax,8),%%rax	\n\t	leaq	(%%r14,%%r10,8),%%r10	\n\t"/* in0 + off[0-3],[8-b] */\
+		"leaq	(%%r14,%%rbx,8),%%rbx	\n\t	leaq	(%%r14,%%r11,8),%%r11	\n\t"\
+		"leaq	(%%r14,%%rcx,8),%%rcx	\n\t	leaq	(%%r14,%%r12,8),%%r12	\n\t"\
+		"leaq	(%%r14,%%rdx,8),%%rdx	\n\t	leaq	(%%r14,%%r13,8),%%r13	\n\t"\
+	"prefetcht1	0x100(%%rax)	\n\t"\
 		/* Need separate address Im parts of outputs due to literal-offsets below */\
-		"movq	%[__two],%%r15	\n\t"/* two, used for FMA-based double-and-ADD/SUBs */\
 		"movq	%[__out0],%%rsi									\n\t	leaq	%c[__o4](%%rsi),%%r8 	\n\t"\
-		"leaq	0x20(%%rsi),%%rdi								\n\t	leaq	%c[__o4](%%r8 ),%%r8 	\n\t"/* out0+8*ostride */\
-		"movq	%[__in0],%%rax									\n\t	leaq	0x20(%%r8 ),%%r9 	\n\t"\
-		"movq	%[__in1],%%rbx									\n\t	movq	%[__in8],%%r10			\n\t"\
-		"movq	%[__in2],%%rcx									\n\t	movq	%[__in9],%%r11			\n\t"\
-		"movq	%[__in3],%%rdx									\n\t	movq	%[__ina],%%r12			\n\t"\
-	"prefetcht1	0x100(%%rax)									\n\t	movq	%[__inb],%%r13			\n\t"\
+		"leaq	0x20(%%rsi),%%rdi								\n\t	addq	$%c[__o4],%%r8	 	\n\t"/* out0+8*ostride */\
+		"																leaq	0x20(%%r8 ),%%r9 	\n\t"\
 		/* SSE2_RADIX4_DIT_0TWIDDLE_B(r0 ): */							/* SSE2_RADIX4_DIT_0TWIDDLE_B(r16): */\
 		"vmovaps	    (%%rax),%%ymm2							\n\t	vmovaps	    (%%r10),%%ymm10	\n\t"\
 		"vmovaps	    (%%rcx),%%ymm6							\n\t	vmovaps	    (%%r12),%%ymm14	\n\t"\
@@ -9285,7 +9302,8 @@
 		"vsubpd	%%ymm4,%%ymm6,%%ymm6							\n\t	vsubpd	%%ymm12,%%ymm14,%%ymm14		\n\t"\
 		"vsubpd	%%ymm1,%%ymm3,%%ymm3							\n\t	vsubpd	%%ymm9 ,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd	%%ymm5,%%ymm7,%%ymm7							\n\t	vsubpd	%%ymm13,%%ymm15,%%ymm15		\n\t"\
-	"vmovaps	%%ymm13,(%%rax) 	\n\t"/* spill ymm13 to make room for 2.0 */"	vmovaps	(%%r15),%%ymm13	\n\t"/* two */\
+	"vmovaps	%%ymm13,(%%rax) 	\n\t"/* spill ymm13 to make room for 2.0 */\
+	"movq2dq	%%mm0,%%xmm13	\n\t	vbroadcastsd	%%xmm13,%%ymm13	\n\t"/* reload 2.0 from MMX0 */\
 	"vfmadd132pd	%%ymm13,%%ymm2,%%ymm0						\n\t	vfmadd132pd	%%ymm13,%%ymm10,%%ymm8 		\n\t"\
 	"vfmadd132pd	%%ymm13,%%ymm6,%%ymm4						\n\t	vfmadd132pd	%%ymm13,%%ymm14,%%ymm12		\n\t"\
 	"vfmadd132pd	%%ymm13,%%ymm3,%%ymm1						\n\t	vfmadd132pd	%%ymm13,%%ymm11,%%ymm9 		\n\t"\
@@ -9295,7 +9313,8 @@
 		"vsubpd	%%ymm5,%%ymm1,%%ymm1							\n\t	vsubpd	%%ymm13,%%ymm9 ,%%ymm9 		\n\t"\
 		"vsubpd	%%ymm6,%%ymm3,%%ymm3							\n\t	vsubpd	%%ymm14,%%ymm11,%%ymm11		\n\t"\
 	"prefetcht1	0x100(%%rcx)								\n\t	prefetcht1	0x100(%%r12)	\n\t"\
-	"vmovaps	%%ymm14,(%%rax) 	\n\t"/* spill ymm14 to make room for 2.0 */"	vmovaps	(%%r15),%%ymm14	\n\t"/* two */\
+	"vmovaps	%%ymm14,(%%rax) 	\n\t"/* spill ymm14 to make room for 2.0 */\
+	"movq2dq	%%mm0,%%xmm14	\n\t	vbroadcastsd	%%xmm14,%%ymm14	\n\t"/* reload 2.0 from MMX0 */\
 		"vmovaps	%%ymm0,%c[__o2](%%rsi)						\n\t	vmovaps	%%ymm8 ,%c[__o2](%%r8 )	\n\t"\
 		"vmovaps	%%ymm2,%c[__o3](%%rsi)						\n\t	vmovaps	%%ymm10,%c[__o3](%%r8 )	\n\t"\
 		"vmovaps	%%ymm1,%c[__o2](%%rdi)						\n\t	vmovaps	%%ymm9 ,%c[__o2](%%r9 )	\n\t"\
@@ -9310,11 +9329,15 @@
 		"vmovaps	%%ymm6,%c[__o3](%%rdi)						\n\t	vmovaps	%%ymm14,%c[__o3](%%r9 )	\n\t"\
 	"prefetcht1	0x100(%%rax)									\n\tprefetcht1	0x100(%%r10)\n\t"\
 		/* SSE2_RADIX4_DIT_0TWIDDLE_B(r8 ): */						/* SSE2_RADIX4_DIT_0TWIDDLE_B(r24): */\
-		"leaq %c[__o4](%%rsi),%%rsi	\n\t"/* out0+4*ostride */"	\n\t	leaq	%c[__o4](%%r8 ),%%r8 	\n\t"/* out0+c*ostride */\
-		"movq	%[__in4],%%rax									\n\t	movq	%[__inc],%%r10			\n\t"\
-		"movq	%[__in5],%%rbx									\n\t	movq	%[__ind],%%r11			\n\t"\
-		"movq	%[__in6],%%rcx									\n\t	movq	%[__ine],%%r12			\n\t"\
-		"movq	%[__in7],%%rdx									\n\t	movq	%[__inf],%%r13			\n\t"\
+		"movslq		0x10(%%r15),%%rax	\n\t	movslq		0x30(%%r15),%%r10	\n\t"/* off[4-7],[c-f] */\
+		"movslq		0x14(%%r15),%%rbx	\n\t	movslq		0x34(%%r15),%%r11	\n\t"\
+		"movslq		0x18(%%r15),%%rcx	\n\t	movslq		0x38(%%r15),%%r12	\n\t"\
+		"movslq		0x1c(%%r15),%%rdx	\n\t	movslq		0x3c(%%r15),%%r13	\n\t"\
+		"leaq	(%%r14,%%rax,8),%%rax	\n\t	leaq	(%%r14,%%r10,8),%%r10	\n\t"/* in0 + off[4-7],[c-f] */\
+		"leaq	(%%r14,%%rbx,8),%%rbx	\n\t	leaq	(%%r14,%%r11,8),%%r11	\n\t"\
+		"leaq	(%%r14,%%rcx,8),%%rcx	\n\t	leaq	(%%r14,%%r12,8),%%r12	\n\t"\
+		"leaq	(%%r14,%%rdx,8),%%rdx	\n\t	leaq	(%%r14,%%r13,8),%%r13	\n\t"\
+		"addq	$%c[__o4],%%rsi			\n\t	addq	$%c[__o4],%%r8	 	\n\t"/* out0+[4,c]*ostride */\
 		"vmovaps	    (%%rax),%%ymm2							\n\t	vmovaps	    (%%r10),%%ymm10	\n\t"\
 		"vmovaps	    (%%rcx),%%ymm6							\n\t	vmovaps	    (%%r12),%%ymm14	\n\t"\
 		"vmovaps	0x20(%%rax),%%ymm3							\n\t	vmovaps	0x20(%%r10),%%ymm11	\n\t"\
@@ -9327,7 +9350,8 @@
 		"vsubpd	%%ymm4,%%ymm6,%%ymm6							\n\t	vsubpd	%%ymm12,%%ymm14,%%ymm14		\n\t"\
 		"vsubpd	%%ymm1,%%ymm3,%%ymm3							\n\t	vsubpd	%%ymm9 ,%%ymm11,%%ymm11		\n\t"\
 		"vsubpd	%%ymm5,%%ymm7,%%ymm7							\n\t	vsubpd	%%ymm13,%%ymm15,%%ymm15		\n\t"\
-	"vmovaps	%%ymm13,(%%rax) 	\n\t"/* spill ymm13 to make room for 2.0 */"	vmovaps	(%%r15),%%ymm13	\n\t"/* two */\
+	"vmovaps	%%ymm13,(%%rax) 	\n\t"/* spill ymm13 to make room for 2.0 */\
+	"movq2dq	%%mm0,%%xmm13	\n\t	vbroadcastsd	%%xmm13,%%ymm13	\n\t"/* reload 2.0 from MMX0 */\
 	"vfmadd132pd	%%ymm13,%%ymm2,%%ymm0						\n\t	vfmadd132pd	%%ymm13,%%ymm10,%%ymm8 		\n\t"\
 	"vfmadd132pd	%%ymm13,%%ymm6,%%ymm4						\n\t	vfmadd132pd	%%ymm13,%%ymm14,%%ymm12		\n\t"\
 	"vfmadd132pd	%%ymm13,%%ymm3,%%ymm1						\n\t	vfmadd132pd	%%ymm13,%%ymm11,%%ymm9 		\n\t"\
@@ -9338,7 +9362,8 @@
 		"vsubpd	%%ymm6,%%ymm3,%%ymm3							\n\t	vsubpd	%%ymm14,%%ymm11,%%ymm11		\n\t"\
 	"prefetcht1	0x100(%%rcx)								\n\t	prefetcht1	0x100(%%r12)	\n\t"\
 		"leaq	0x20(%%rsi),%%rdi								\n\t	leaq	0x20(%%r8 ),%%r9 	\n\t"\
-	"vmovaps	%%ymm14,(%%rax) 	\n\t"/* spill ymm14 to make room for 2.0 */"	vmovaps	(%%r15),%%ymm14	\n\t"/* two */\
+	"vmovaps	%%ymm14,(%%rax) 	\n\t"/* spill ymm14 to make room for 2.0 */\
+	"movq2dq	%%mm0,%%xmm14	\n\t	vbroadcastsd	%%xmm14,%%ymm14	\n\t"/* reload 2.0 from MMX0 */\
 		"vmovaps	%%ymm0,%c[__o2](%%rsi)						\n\t	vmovaps	%%ymm8 ,%c[__o2](%%r8 )	\n\t"\
 		"vmovaps	%%ymm2,%c[__o3](%%rsi)						\n\t	vmovaps	%%ymm10,%c[__o3](%%r8 )	\n\t"\
 		"vmovaps	%%ymm1,%c[__o2](%%rdi)						\n\t	vmovaps	%%ymm9 ,%c[__o2](%%r9 )	\n\t"\
@@ -9355,6 +9380,7 @@
 	/******************************************************************************/\
 	/*** Now do 4 DFTs with internal twiddles on the 4*stride - separated data: ***/\
 	/******************************************************************************/\
+		"movq	%[__two],%%r15	\n\t"/* No longer need r14,r15 for I-addressing */\
 		/* Block 0: */												/* Block 2: */\
 		"movq	%[__out0],%%rax									\n\t	leaq	%c[__o2](%%rax),%%r10	\n\t"/* All addresses += 2*ostride */\
 	"leaq %c[__o4](%%rax),%%rbx \n\t"/* out0+  [4*ostride] */"	\n\t	leaq	%c[__o2](%%rbx),%%r11	\n\t"\
@@ -9399,10 +9425,10 @@
 		"														\n\t		vmovaps	%%ymm14,0x20(%%r13)	\n\t"\
 		"														\n\t		vmovaps	%%ymm15,    (%%r11)	\n\t"\
 		/* Block 1: */												/* Block 3: */\
-	"leaq %c[__o1](%%rax),%%rax\n\t"/* addr += 1*ostride */"\n\t	leaq	%c[__o2](%%rax),%%r10	\n\t"/* All addresses += 1*ostride */\
-	"leaq %c[__o1](%%rbx),%%rbx\n\t"/* relative to Block 0 */"\n\t	leaq	%c[__o2](%%rbx),%%r11	\n\t"/* relative to Block 1 */\
-	"leaq %c[__o1](%%rcx),%%rcx								\n\t	leaq	%c[__o2](%%rcx),%%r12	\n\t"\
-	"leaq %c[__o1](%%rdx),%%rdx								\n\t	leaq	%c[__o2](%%rdx),%%r13	\n\t"\
+	"addq $%c[__o1],%%rax\n\t"/* addr += 1*ostride */"	\n\t	leaq	%c[__o2](%%rax),%%r10	\n\t"/* All addresses += 1*ostride */\
+	"addq $%c[__o1],%%rbx\n\t"/* relative to Block 0 */"\n\t	leaq	%c[__o2](%%rbx),%%r11	\n\t"/* relative to Block 1 */\
+	"addq $%c[__o1],%%rcx								\n\t	leaq	%c[__o2](%%rcx),%%r12	\n\t"\
+	"addq $%c[__o1],%%rdx								\n\t	leaq	%c[__o2](%%rdx),%%r13	\n\t"\
 		"leaq	0x20(%%rdi),%%rsi	\n\t"/* cc0, from isrt2 [rdi,rsi shared by both cols] */\
 		"vmovaps	    (%%rdx),%%ymm0							\n\t	vmovaps	    (%%r13),%%ymm8 	\n\t"\
 		"vmovaps	0x20(%%rdx),%%ymm1							\n\t	vmovaps	0x20(%%r13),%%ymm9 	\n\t"\
@@ -9455,22 +9481,8 @@
 		"vmovaps	%%ymm4,    (%%rax)							\n\t	vmovaps	%%ymm14,    (%%r10)	\n\t"\
 		"vmovaps	%%ymm5,0x20(%%rax)							\n\t	vmovaps	%%ymm15,0x20(%%r10)	\n\t"\
 		:					/* outputs: none */\
-		:[__in0] "m" (Xin0)	/* All inputs from memory addresses here */\
-		,[__in1] "m" (Xin1)\
-		,[__in2] "m" (Xin2)\
-		,[__in3] "m" (Xin3)\
-		,[__in4] "m" (Xin4)\
-		,[__in5] "m" (Xin5)\
-		,[__in6] "m" (Xin6)\
-		,[__in7] "m" (Xin7)\
-		,[__in8] "m" (Xin8)\
-		,[__in9] "m" (Xin9)\
-		,[__ina] "m" (Xina)\
-		,[__inb] "m" (Xinb)\
-		,[__inc] "m" (Xinc)\
-		,[__ind] "m" (Xind)\
-		,[__ine] "m" (Xine)\
-		,[__inf] "m" (Xinf)\
+		:[in0] "m" (Xin0)	/* Input-address-16-tet base pointer */\
+		,[off] "m" (Xoff)	/* and pointer to uint32 array of 16 double* index offsets */\
 		,[__isrt2] "m" (Xisrt2)\
 		,[__two] "m" (Xtwo)\
 		,[__out0] "m" (Xout0)\
@@ -9478,7 +9490,7 @@
 		,[__o2] "e" (Xo2)\
 		,[__o3] "e" (Xo3)\
 		,[__o4] "e" (Xo4)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+		: "cc","memory","mm0","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
@@ -10423,18 +10435,20 @@
 
 	// AVX analog of dft_macro.h::RADIX_08_DIF_TWIDDLE_OOP - Result of adding separate I/O addressing to
 	// radix8_dif_dit_pass_gcc64.h::SSE2_RADIX8_DIF_TWIDDLE:
-	#define SSE2_RADIX8_DIF_TWIDDLE_OOP(Xi0,Xi1,Xi2,Xi3,Xi4,Xi5,Xi6,Xi7, Xo0,Xo1,Xo2,Xo3,Xo4,Xo5,Xo6,Xo7 ,Xc1,Xs1,Xc2,Xs2,Xc3,Xs3,Xc4,Xs4,Xc5,Xs5,Xc6,Xs6,Xc7,Xs7)\
+	#define SSE2_RADIX8_DIF_TWIDDLE_OOP(Xin0,Xi1, Xout0,Xoff, Xtwid_ptrs, Xtwo)\
 	{\
 	__asm__ volatile (\
-		"													movq		%[i1]	,%%r10				\n\t"\
-		"													movq		%[i5]	,%%r11				\n\t"\
-		"											movq	%[c1],%%r12	\n\t	movq	%[c5],%%r14	\n\t"\
-		"											movq	%[s1],%%r13	\n\t	movq	%[s5],%%r15	\n\t"\
-		"													vmovaps	    (%%r10)	,%%ymm8 			\n\t"\
-		"movq		%[i0]	,%%rax				\n\t		vmovaps	0x20(%%r10)	,%%ymm10			\n\t"\
-		"movq		%[i4]	,%%rbx				\n\t		vmovaps	    (%%r10)	,%%ymm9 			\n\t"\
-		"movq		%[c4]	,%%rcx				\n\t		vmovaps	0x20(%%r10)	,%%ymm11			\n\t"\
-		"movq		%[s4]	,%%rsi			\n\t"\
+	/* i1 is base byte-offset, no need to lshift it prior to add: */\
+		"xorq	%%r8,%%r8	\n\t	leaq	%c[i1](%%r8),%%r8	\n\t"/* movq|movslq of literal %c[i1] both segfaulted, workaround via LEA */\
+		"movq	%[in0],%%rax		\n\t	leaq	(%%rax,%%r8,4),%%r10	\n\t"/* [lcol,rcol] base-addresses = in0 + [0,4*istride] */\
+		"movq	%[twid_ptrs],%%rsi	\n\t			leaq	(%%r10,%%r8  ),%%r11		\n\t"\
+		/* The twid_ptrs[] array holds ptrs to 14 complex twiddles in BR order: (c,s)[4,2,6,1,5,3,7]: */\
+		"				movq	0x30(%%rsi),%%r12	\n\t	movq	0x40(%%rsi),%%r14	\n\t"/* c1,c5 */\
+		"				movq	0x38(%%rsi),%%r13	\n\t	movq	0x48(%%rsi),%%r15	\n\t"/* s1,s5 */\
+		"											vmovaps	    (%%r10)	,%%ymm8 	\n\t"\
+		"leaq	(%%rax,%%r8),%%rbx		\n\t		vmovaps	0x20(%%r10)	,%%ymm10	\n\t"\
+		"movq	    (%%rsi),%%rcx	\n\t"/* c4 */"	vmovaps		%%ymm8 ,%%ymm9 	\n\t"\
+		"movq	0x08(%%rsi),%%rsi	\n\t"/* s4 */"	vmovaps		%%ymm10,%%ymm11	\n\t"\
 	/* [rsi] (and if needed rdi) points to sine components of each sincos pair, which is not really a pair here in terms of relative addressing: */\
 		"vmovaps	    (%%rax)	,%%ymm0			\n\t		vmulpd	    (%%r12)	,%%ymm8 ,%%ymm8 	\n\t"\
 		"vmovaps	0x20(%%rax)	,%%ymm1			\n\t		vmulpd	    (%%r13)	,%%ymm10,%%ymm10	\n\t"\
@@ -10458,14 +10472,15 @@
 		"vmovaps	%%ymm1		,0x20(%%rax)	\n\t		vsubpd	%%ymm11		,%%ymm8 ,%%ymm8 	\n\t"\
 		"vmovaps	%%ymm6		,    (%%rbx)	\n\t		vaddpd	%%ymm9 		,%%ymm12,%%ymm12	\n\t"\
 		"vmovaps	%%ymm7		,0x20(%%rbx)	\n\t		vsubpd	%%ymm13		,%%ymm9 ,%%ymm9 	\n\t"\
-		"movq		%[i2]	,%%rax				\n\t		vmovaps	%%ymm10		,    (%%r10)	\n\t"\
-		"movq		%[i6]	,%%rbx				\n\t		vmovaps	%%ymm12		,0x20(%%r10)	\n\t"\
-		"movq %[c2],%%rcx \n\t movq %[s2],%%rsi	\n\t		vmovaps	%%ymm8 		,    (%%r11)	\n\t"\
-		"movq %[c6],%%rdx \n\t movq %[s6],%%rdi	\n\t		vmovaps	%%ymm9 		,0x20(%%r11)	\n\t"\
-		"vmovaps	    (%%rax)	,%%ymm0			\n\t		movq		%[i3]	,%%r10				\n\t"\
-		"vmovaps	0x20(%%rax)	,%%ymm2			\n\t		movq		%[i7]	,%%r11				\n\t"\
-		"vmovaps	    (%%rax)	,%%ymm1			\n\t		movq %[c3],%%r12 \n\t movq %[s3],%%r13	\n\t"\
-		"vmovaps	0x20(%%rax)	,%%ymm3			\n\t		movq %[c7],%%r14 \n\t movq %[s7],%%r15	\n\t"\
+		"leaq	(%%rax,%%r8,2),%%rax			\n\t		vmovaps	%%ymm10	,    (%%r10)	\n\t"\
+		"leaq	(%%rbx,%%r8,2),%%rbx			\n\t		vmovaps	%%ymm12	,0x20(%%r10)	\n\t"\
+		"movq	%[twid_ptrs],%%r15	\n\t			leaq	(%%r10,%%r8  ),%%r11		\n\t"\
+		"movq 0x10(%%r15),%%rcx \n\t movq 0x18(%%r15),%%rsi	\n\t	vmovaps	%%ymm8,    (%%r11)	\n\t"/* c2,s2 */\
+		"movq 0x20(%%r15),%%rdx \n\t movq 0x28(%%r15),%%rdi	\n\t	vmovaps	%%ymm9,0x20(%%r11)	\n\t"/* c6,s6 */\
+		"vmovaps	    (%%rax)	,%%ymm0			\n\t		leaq	(%%r10,%%r8,2),%%r10		\n\t"\
+		"vmovaps	0x20(%%rax)	,%%ymm2			\n\t		leaq	(%%r11,%%r8,2),%%r11		\n\t"\
+		"vmovaps		%%ymm0	,%%ymm1		\n\t	movq 0x50(%%r15),%%r12 \n\t movq 0x58(%%r15),%%r13	\n\t"/* c3,s3 */\
+		"vmovaps		%%ymm2	,%%ymm3		\n\t	movq 0x60(%%r15),%%r14 \n\t movq 0x68(%%r15),%%r15	\n\t"/* c7,s7 */\
 		"vmulpd	    (%%rcx)	,%%ymm0,%%ymm0		\n\t		vmovaps	    (%%r10)	,%%ymm8 			\n\t"\
 		"vmulpd	    (%%rsi)	,%%ymm2,%%ymm2		\n\t		vmovaps	0x20(%%r10)	,%%ymm10			\n\t"\
 		"vmulpd	    (%%rsi)	,%%ymm1,%%ymm1		\n\t		vmovaps	    (%%r10)	,%%ymm9 			\n\t"\
@@ -10496,41 +10511,53 @@
 		"													vmovaps	%%ymm12		,0x20(%%r10)	\n\t"\
 		"													vmovaps	%%ymm8 		,    (%%r11)	\n\t"\
 		"													vmovaps	%%ymm9 		,0x20(%%r11)	\n\t"\
-/* combine to get 2 length-4 output subtransforms... */\
-		"movq		%[i0]	,%%rax				\n\t		movq		%[i4]	,%%r10				\n\t"\
-		"movq		%[i2]	,%%rbx				\n\t		movq		%[i6]	,%%r11				\n\t"\
-		"vmovaps	    (%%rax)	,%%ymm0			\n\t		vmovaps	    (%%r10)	,%%ymm8 			\n\t"\
-		"vmovaps	0x20(%%rax)	,%%ymm1			\n\t		vmovaps	0x20(%%r10)	,%%ymm9 			\n\t"\
+	/* combine to get 2 length-4 output subtransforms.
+	In this step 2 of the 8-dft, we need address-pairs
+		lcol:		rcol:
+		i0,2,1,3	i4,6,5,7
+		o0,2,1,3	o4,6,5,7
+	At this point r[a|b]x have i2,3, r1[0|1] have i6,7, but cleaner to reload add0 and go from there.
+	Since we will be loading o-addresses into regs starting with r[a|b]x and r1[0|1], use r[c|d]x and r1[2|3]
+	for the I-address pairs here: */\
+		"movq	%[in0],%%rcx				\n\t		leaq	(%%rcx,%%r8  ),%%r12	\n\t"/* [lcol,rcol] base-addresses = in0 + [0,1*istride] */\
+		"leaq	(%%rcx,%%r8,2),%%rdx		\n\t		leaq	(%%r12,%%r8,2),%%r13	\n\t"/* in0 + [2,3*istride] */\
+		"vmovaps	    (%%rcx)	,%%ymm0		\n\t		vmovaps	    (%%r12)	,%%ymm8 	\n\t"\
+		"vmovaps	0x20(%%rcx)	,%%ymm1		\n\t		vmovaps	0x20(%%r12)	,%%ymm9 	\n\t"\
 		"vmovaps	%%ymm0		,%%ymm4			\n\t		vmovaps	%%ymm8 		,%%ymm12			\n\t"\
 		"vmovaps	%%ymm1		,%%ymm5			\n\t		vmovaps	%%ymm9 		,%%ymm13			\n\t"\
-		"vaddpd	    (%%rbx)	,%%ymm0,%%ymm0		\n\t		vsubpd	0x20(%%r11)	,%%ymm8 ,%%ymm8 	\n\t"\
-		"vsubpd	    (%%rbx)	,%%ymm4,%%ymm4		\n\t		vaddpd	0x20(%%r11)	,%%ymm12,%%ymm12	\n\t"\
-		"vaddpd	0x20(%%rbx)	,%%ymm1,%%ymm1		\n\t		vaddpd	    (%%r11)	,%%ymm9 ,%%ymm9 	\n\t"\
-		"vsubpd	0x20(%%rbx)	,%%ymm5,%%ymm5		\n\t		vsubpd	    (%%r11)	,%%ymm13,%%ymm13	\n\t"\
-		"movq		%[o0]	,%%rax				\n\t		movq		%[o4]	,%%r10				\n\t"\
-		"movq		%[o2]	,%%rbx				\n\t		movq		%[o6]	,%%r11				\n\t"\
+		"movq	%[out0]	,%%rsi			\n\t	movq	%[off]	,%%rdi			\n\t"/* Load output base-address into rsi and offset-array pointer into rdi */\
+		"movslq		    (%%rdi),%%rax	\n\t	movslq		0x10(%%rdi),%%r10	\n\t"/*        off[0,4] */\
+		"leaq	(%%rsi,%%rax,8),%%rax	\n\t	leaq	(%%rsi,%%r10,8),%%r10	\n\t"/* out0 + off[0,4] */\
+		"vaddpd	    (%%rdx)	,%%ymm0,%%ymm0		\n\t		vsubpd	0x20(%%r13)	,%%ymm8 ,%%ymm8 	\n\t"\
+		"vsubpd	    (%%rdx)	,%%ymm4,%%ymm4		\n\t		vaddpd	0x20(%%r13)	,%%ymm12,%%ymm12	\n\t"\
+		"vaddpd	0x20(%%rdx)	,%%ymm1,%%ymm1		\n\t		vaddpd	    (%%r13)	,%%ymm9 ,%%ymm9 	\n\t"\
+		"vsubpd	0x20(%%rdx)	,%%ymm5,%%ymm5		\n\t		vsubpd	    (%%r13)	,%%ymm13,%%ymm13	\n\t"\
+		"movslq		0x08(%%rdi),%%rbx	\n\t	movslq		0x18(%%rdi),%%r11	\n\t"\
+		"leaq	(%%rsi,%%rbx,8),%%rbx	\n\t	leaq	(%%rsi,%%r11,8),%%r11	\n\t"/* out0 + off[2,6] */\
 		"vmovaps	%%ymm0		,    (%%rax)	\n\t		vmovaps	%%ymm8 		,    (%%r10)	\n\t"\
 		"vmovaps	%%ymm1		,0x20(%%rax)	\n\t		vmovaps	%%ymm9 		,0x20(%%r10)	\n\t"\
 		"vmovaps	%%ymm4		,    (%%rbx)	\n\t		vmovaps	%%ymm12		,    (%%r11)	\n\t"\
 		"vmovaps	%%ymm5		,0x20(%%rbx)	\n\t		vmovaps	%%ymm13		,0x20(%%r11)	\n\t"\
-		"movq		%[i1]	,%%rcx				\n\t		movq		%[i5]	,%%r12				\n\t"\
-		"movq		%[i3]	,%%rdx				\n\t		movq		%[i7]	,%%r13				\n\t"\
+		"leaq	(%%rcx,%%r8,4),%%rcx		\n\t		leaq	(%%r12,%%r8,4),%%r12	\n\t"/* in0 + [4,5*istride] */\
+		"leaq	(%%rdx,%%r8,4),%%rdx		\n\t		leaq	(%%r13,%%r8,4),%%r13	\n\t"/* in0 + [6,7*istride] */\
 		"vmovaps	    (%%rcx)	,%%ymm2			\n\t		vmovaps	    (%%r12)	,%%ymm10			\n\t"\
 		"vmovaps	0x20(%%rcx)	,%%ymm3			\n\t		vmovaps	0x20(%%r12)	,%%ymm11			\n\t"\
+		"movslq		0x04(%%rdi),%%rcx	\n\t	movslq		0x14(%%rdi),%%r12	\n\t"\
+		"leaq	(%%rsi,%%rcx,8),%%rcx	\n\t	leaq	(%%rsi,%%r12,8),%%r12	\n\t"/* out0 + off[1,5] */\
 		"vmovaps	%%ymm2		,%%ymm6			\n\t		vmovaps	%%ymm10		,%%ymm14			\n\t"\
 		"vmovaps	%%ymm3		,%%ymm7			\n\t		vmovaps	%%ymm11		,%%ymm15			\n\t"\
 		"vaddpd	    (%%rdx)	,%%ymm2,%%ymm2		\n\t		vsubpd	0x20(%%r13)	,%%ymm10,%%ymm10	\n\t"\
 		"vsubpd	    (%%rdx)	,%%ymm6,%%ymm6		\n\t		vaddpd	0x20(%%r13)	,%%ymm14,%%ymm14	\n\t"\
 		"vaddpd	0x20(%%rdx)	,%%ymm3,%%ymm3		\n\t		vaddpd	    (%%r13)	,%%ymm11,%%ymm11	\n\t"\
 		"vsubpd	0x20(%%rdx)	,%%ymm7,%%ymm7		\n\t		vsubpd	    (%%r13)	,%%ymm15,%%ymm15	\n\t"\
-		"movq		%[o1]	,%%rcx				\n\t		movq		%[o5]	,%%r12				\n\t"\
-		"movq		%[o3]	,%%rdx				\n\t		movq		%[o7]	,%%r13				\n\t"\
+		"movslq		0x0c(%%rdi),%%rdx	\n\t	movslq		0x1c(%%rdi),%%r13	\n\t"\
+		"leaq	(%%rsi,%%rdx,8),%%rdx	\n\t	leaq	(%%rsi,%%r13,8),%%r13	\n\t"/* out0 + off[3,7] */\
 		"vsubpd	%%ymm2		,%%ymm0,%%ymm0		\n\t		vmovaps	%%ymm12		,    (%%r13)	\n\t"\
 		"vsubpd	%%ymm3		,%%ymm1,%%ymm1		\n\t		vmovaps	%%ymm13		,0x20(%%r13)	\n\t"\
 	/* Use the cosine term of the [c1,s1] pair, which is the *middle* [4th of 7] of our 7 input pairs, in terms \
 	of the input-arg bit-reversal reordering defined in the __X[c,s] --> [c,s] mapping below and happens to \
 	always in fact *be* a true cosine term, which is a requirement for our "decr 1 gives isrt2" data-copy scheme: */\
-		"												movq	%[c1],%%r14	\n\t"\
+		"movq	%[twid_ptrs],%%r14		\n\t	movq	0x30(%%r14),%%r14	\n\t"\
 		"vsubpd	%%ymm7		,%%ymm4,%%ymm4		\n\t	subq	$0x20,%%r14	\n\t"/* isrt2 in [c1]-1 */\
 		"vsubpd	%%ymm6		,%%ymm5,%%ymm5		\n\t		vmovaps	%%ymm10		,%%ymm13			\n\t"\
 		"vaddpd	    (%%rax)	,%%ymm2,%%ymm2		\n\t		vsubpd	%%ymm11		,%%ymm10,%%ymm10	\n\t"\
@@ -10561,30 +10588,13 @@
 		"													vmovaps	%%ymm12,    (%%r13)	\n\t"/* [o7].re */\
 		"													vmovaps	%%ymm15,0x20(%%r13)	\n\t"/* [o7].im */\
 		:					/* outputs: none */\
-		: [i0] "m" (Xi0)	/* All inputs from memory addresses here */\
-		 ,[i1] "m" (Xi1)\
-		 ,[i2] "m" (Xi2)\
-		 ,[i3] "m" (Xi3)\
-		 ,[i4] "m" (Xi4)\
-		 ,[i5] "m" (Xi5)\
-		 ,[i6] "m" (Xi6)\
-		 ,[i7] "m" (Xi7)\
-		 ,[o0] "m" (Xo0)\
-		 ,[o1] "m" (Xo1)\
-		 ,[o2] "m" (Xo2)\
-		 ,[o3] "m" (Xo3)\
-		 ,[o4] "m" (Xo4)\
-		 ,[o5] "m" (Xo5)\
-		 ,[o6] "m" (Xo6)\
-		 ,[o7] "m" (Xo7)\
-		 ,[c4] "m" (Xc1),[s4] "m" (Xs1)\
-		 ,[c2] "m" (Xc2),[s2] "m" (Xs2)\
-		 ,[c6] "m" (Xc3),[s6] "m" (Xs3)\
-		 ,[c1] "m" (Xc4),[s1] "m" (Xs4)\
-		 ,[c5] "m" (Xc5),[s5] "m" (Xs5)\
-		 ,[c3] "m" (Xc6),[s3] "m" (Xs6)\
-		 ,[c7] "m" (Xc7),[s7] "m" (Xs7)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+		: [in0] "m" (Xin0)	/* All 'm'-inputs from memory addresses here... */\
+		 ,[i1] "e" (Xi1)	/* ...except for 'e'-inputs which are literal byte offsets */\
+		 ,[out0] "m" (Xout0) /* output-address-octet base pointer */\
+		 ,[off] "m" (Xoff)	/* and pointer to uint32 array of 8 double* index offsets */\
+		 ,[twid_ptrs] "m" (Xtwid_ptrs)\
+		 ,[two] "m" (Xtwo)/* Only used in FMA implementations of this macro */\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
@@ -10822,15 +10832,21 @@
 	}
 
 	// AVX Opcount: 84 vec MEM [30 implicit], 66 ADD/SUB, 50 MUL.
-	#define SSE2_RADIX8_DIT_TWIDDLE_OOP(Xi0,Xi1,Xi2,Xi3,Xi4,Xi5,Xi6,Xi7, Xo0,Xo1,Xo2,Xo3,Xo4,Xo5,Xo6,Xo7 ,Xc1,Xs1,Xc2,Xs2,Xc3,Xs3,Xc4,Xs4,Xc5,Xs5,Xc6,Xs6,Xc7,Xs7)\
+	#define SSE2_RADIX8_DIT_TWIDDLE_OOP(Xin0,Xi1, Xout0,Xo_off, Xtwid_ptrs, Xtwo)\
 	{\
-	__asm__ volatile (																		/* Blocks 2/3 use separate register subset, can be done overlapped with 0/1: */\
-	/* Block 0/1 has just one twiddle-CMUL: */											"	movq		%[i2],%%rcx				\n\t"\
-	"movq		%[i0],%%rax				\n\t												movq		%[i3],%%rdx				\n\t"\
-	"movq		%[i1],%%rbx				\n\t												movq		%[c2],%%r10				\n\t"\
-	"movq		%[c1],%%rdi	\n\t/* [rdi,rsi] -> [c,s] components of each sincos pair, */	movq		%[c3],%%r12				\n\t"\
-	"movq		%[s1],%%rsi	\n\t/* (not truly a pair here in terms of rel-addresses). */	movq		%[s2],%%r11				\n\t"\
-	"vmovaps	    (%%rbx),%%ymm4 		\n\t	vmovaps		0x20(%%rbx),%%ymm5 		\n\t	movq		%[s3],%%r13				\n\t"\
+	__asm__ volatile (\
+	/* i1 is base byte-offset, no need to lshift it prior to add: */\
+		"xorq	%%r8,%%r8	\n\t	leaq	%c[i1](%%r8),%%r8	\n\t"/* movq|movslq of literal %c[i1] both segfaulted, workaround via LEA */\
+		/* The twid_ptrs[] array holds ptrs to 14 complex twiddles in-order: (c,s)[1,2,3,4,5,6,7]: */\
+		"movq	%[twid_ptrs],%%r14	\n\t"\
+	/* Block 0/1 has just one twiddle-CMUL: 												/* Blocks 2/3 use separate register subset, can be done overlapped with 0/1: */\
+	"movq		%[in0],%%rax		\n\t"\
+		"leaq	(%%rax,%%r8  ),%%rbx	\n\t"\
+		"leaq	(%%rax,%%r8,2),%%rcx	\n\t"\
+		"leaq	(%%rcx,%%r8  ),%%rdx	\n\t												movq	0x10(%%r14),%%r10				\n\t"/* c2 */\
+	"movq	    (%%r14),%%rdi	\n\t/* [rdi,rsi] -> [c,s] components of each sincos pair, */movq	0x20(%%r14),%%r12				\n\t"/* c3 */\
+	"movq	0x08(%%r14),%%rsi	\n\t/* (not truly a pair here in terms of rel-addresses). */movq	0x18(%%r14),%%r11				\n\t"/* s2 */\
+	"vmovaps	    (%%rbx),%%ymm4 		\n\t	vmovaps		0x20(%%rbx),%%ymm5 		\n\t	movq	0x28(%%r14),%%r13				\n\t"/* s3 */\
 	"vmovaps	    (%%rax),%%ymm0 		\n\t	vmovaps		0x20(%%rax),%%ymm1 		\n\t	vmovaps		(%%rcx),%%ymm8 			\n\t	vmovaps		0x20(%%rcx),%%ymm9 		\n\t"\
 	"vmovaps	%%ymm5 ,%%ymm6 			\n\t	vmovaps		%%ymm4 ,%%ymm7 			\n\t	vmovaps	%%ymm9 ,%%ymm10				\n\t	vmovaps		%%ymm8 ,%%ymm11			\n\t"\
 	"vmulpd		(%%rdi),%%ymm4 ,%%ymm4 	\n\t	vmulpd		(%%rdi),%%ymm5 ,%%ymm5 	\n\t	vmovaps		(%%rdx),%%ymm12			\n\t	vmovaps		0x20(%%rdx),%%ymm13		\n\t"\
@@ -10848,16 +10864,23 @@
 																						"	vmovaps		%%ymm8 ,    (%%rcx)		\n\t	vmovaps		%%ymm9 ,0x20(%%rcx)		\n\t"\
 																						"	vmovaps		%%ymm10,    (%%rdx)		\n\t	vmovaps		%%ymm11,0x20(%%rdx)		\n\t"\
 	/* Blocks 4/5: */																		/* Blocks 6/7 use separate register subset, can be done overlapped with 4/5: */\
-	"movq		%[i4],%%rax				\n\t												movq		%[i6],%%rcx				\n\t"\
-	"movq		%[i5],%%rbx				\n\t												movq		%[i7],%%rdx				\n\t"\
-	"movq		%[c4],%%rdi				\n\t												movq		%[c6],%%r10				\n\t"\
-	"movq		%[c5],%%r8 				\n\t												movq		%[c7],%%r12				\n\t"\
-	"movq		%[s4],%%rsi				\n\t												movq		%[s6],%%r11				\n\t"\
-	"movq		%[s5],%%r9 				\n\t												movq		%[s7],%%r13				\n\t"\
+	"shlq	$2,%%r8			\n\t"/* From here on only need offset i4 = 4*i1 */\
+	"addq	%%r8,%%rax		\n\t"/* Remaining 4 I-address-calculations are in-place += i4, so use ADD, faster than LEA */\
+	"addq	%%r8,%%rbx		\n\t"\
+	"addq	%%r8,%%rcx		\n\t"\
+	"addq	%%r8,%%rdx		\n\t"\
 	"vmovaps		(%%rax),%%ymm0 		\n\t	vmovaps		0x20(%%rax),%%ymm1 		\n\t	vmovaps		(%%rcx),%%ymm8 			\n\t	vmovaps		0x20(%%rcx),%%ymm9 		\n\t"\
 	"vmovaps	%%ymm1 ,%%ymm2 			\n\t	vmovaps		%%ymm0 ,%%ymm3 			\n\t	vmovaps		%%ymm9 ,%%ymm10			\n\t	vmovaps		%%ymm8 ,%%ymm11			\n\t"\
 	"vmovaps		(%%rbx),%%ymm4 		\n\t	vmovaps		0x20(%%rbx),%%ymm5 		\n\t	vmovaps		(%%rdx),%%ymm12			\n\t	vmovaps		0x20(%%rdx),%%ymm13		\n\t"\
 	"vmovaps	%%ymm5 ,%%ymm6 			\n\t	vmovaps		%%ymm4 ,%%ymm7 			\n\t	vmovaps		%%ymm13,%%ymm14			\n\t	vmovaps		%%ymm12,%%ymm15			\n\t"\
+	"subq		%%r8,%%rax			\n\t"\
+	"subq		%%r8,%%rbx			\n\t"\
+	"subq		%%r8,%%rcx			\n\t"\
+	"subq		%%r8,%%rdx			\n\t"\
+	"movq	0x30(%%r14),%%rdi	/* c4 */\n\t												movq	0x50(%%r14),%%r10		\n\t"/* c6 */\
+	"movq	0x40(%%r14),%%r8 	/* c5 */\n\t												movq	0x60(%%r14),%%r12		\n\t"/* c7 */\
+	"movq	0x38(%%r14),%%rsi	/* s4 */\n\t												movq	0x58(%%r14),%%r11		\n\t"/* s6 */\
+	"movq	0x48(%%r14),%%r9 	/* s5 */\n\t												movq	0x68(%%r14),%%r13		\n\t"/* s7 */\
 	"vmulpd		(%%rdi),%%ymm0 ,%%ymm0 	\n\t	vmulpd		(%%rdi),%%ymm1 ,%%ymm1 	\n\t	vmulpd		(%%r10),%%ymm8 ,%%ymm8 	\n\t	vmulpd		(%%r10),%%ymm9 ,%%ymm9 	\n\t"\
 	"vmulpd		(%%r8 ),%%ymm4 ,%%ymm4 	\n\t	vmulpd		(%%r8 ),%%ymm5 ,%%ymm5 	\n\t	vmulpd		(%%r12),%%ymm12,%%ymm12	\n\t	vmulpd		(%%r12),%%ymm13,%%ymm13	\n\t"\
 	"vmulpd		(%%r9 ),%%ymm6 ,%%ymm6 	\n\t	vmulpd		(%%r9 ),%%ymm7 ,%%ymm7 	\n\t	vmulpd		(%%r13),%%ymm14,%%ymm14	\n\t	vmulpd		(%%r13),%%ymm15,%%ymm15	\n\t"\
@@ -10869,21 +10892,19 @@
 	"vaddpd		%%ymm4 ,%%ymm0 ,%%ymm0 	\n\t	vaddpd		%%ymm5 ,%%ymm1 ,%%ymm1 	\n\t	vaddpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vaddpd		%%ymm13,%%ymm9 ,%%ymm9 	\n\t"\
 	"vsubpd		%%ymm4 ,%%ymm2 ,%%ymm2 	\n\t	vsubpd		%%ymm5 ,%%ymm3 ,%%ymm3 	\n\t	vsubpd		%%ymm12,%%ymm10,%%ymm10	\n\t	vsubpd		%%ymm13,%%ymm11,%%ymm11	\n\t"\
 	/* Reload Block 0-3 outputs into r4-7,c-f, combine to get the 2 length-4 subtransform... */\
-	"movq		%[i0],%%rax				\n\t"\
-	"movq		%[i1],%%rbx				\n\t"\
-	"movq		%[i2],%%rcx				\n\t"\
-	"movq		%[i3],%%rdx				\n\t"\
 	"vmovaps		(%%rax),%%ymm4 		\n\t	vmovaps		0x20(%%rax),%%ymm5 		\n\t"\
 	"vmovaps		(%%rbx),%%ymm6 		\n\t	vmovaps		0x20(%%rbx),%%ymm7 		\n\t"\
 	"vmovaps		(%%rcx),%%ymm12		\n\t	vmovaps		0x20(%%rcx),%%ymm13		\n\t"\
 	"vmovaps		(%%rdx),%%ymm14		\n\t	vmovaps		0x20(%%rdx),%%ymm15		\n\t"\
-	"movq		%[o0],%%rax				\n\t"/* Assumes user stuck a (vec_dbl)2.0 into this output slot prior to macro call. */\
+	"movq		%[out0],%%rax			\n\t	movq		%[o_off],%%r8		\n\t"/* out0, off1 */\
+	"movq		%[two],%%rsi			\n\t	leaq		(%%r8,%%r8),%%r9	\n\t"/* (vec_dbl)2.0, off2 */\
+		"										leaq		(%%r9,%%r9),%%r10	\n\t"/* off4 */\
 	"vsubpd		%%ymm12,%%ymm4 ,%%ymm4 	\n\t	vsubpd		%%ymm13,%%ymm5 ,%%ymm5 	\n\t"\
 	"vsubpd		%%ymm15,%%ymm6 ,%%ymm6 	\n\t	vsubpd		%%ymm14,%%ymm7 ,%%ymm7 	\n\t"\
 	"vsubpd		%%ymm8 ,%%ymm0 ,%%ymm0 	\n\t	vsubpd		%%ymm9 ,%%ymm1 ,%%ymm1 	\n\t"\
 	"vsubpd		%%ymm11,%%ymm2 ,%%ymm2 	\n\t	vsubpd		%%ymm10,%%ymm3 ,%%ymm3 	\n\t"\
 	/* We hope the microcode execution engine inlines the MULs with the above SUBs: */\
-	"vmovaps	%%ymm10,(%%rdx) 	\n\t"/* spill ymm14 to make room for 2.0 */"	vmovaps	(%%rax),%%ymm10 	\n\t"/* two */\
+	"vmovaps	%%ymm10,(%%rdx) 	\n\t"/* spill ymm14 to make room for 2.0 */"	vmovaps	(%%rsi),%%ymm10 	\n\t"/* two */\
 	"vmulpd		%%ymm10,%%ymm12,%%ymm12	\n\t	vmulpd		%%ymm10,%%ymm13,%%ymm13	\n\t"\
 	"vmulpd		%%ymm10,%%ymm15,%%ymm15	\n\t	vmulpd		%%ymm10,%%ymm14,%%ymm14	\n\t"\
 	"vmulpd		%%ymm10,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm10,%%ymm9 ,%%ymm9 	\n\t"\
@@ -10898,7 +10919,7 @@
 	"vsubpd		%%ymm3 ,%%ymm11,%%ymm11	\n\t	vsubpd		%%ymm10,%%ymm2 ,%%ymm2 	\n\t"\
 	"vsubpd		%%ymm8 ,%%ymm12,%%ymm12	\n\t	vsubpd		%%ymm9 ,%%ymm13,%%ymm13	\n\t"\
 	"vsubpd		%%ymm1 ,%%ymm4 ,%%ymm4 	\n\t	vsubpd		%%ymm0 ,%%ymm5 ,%%ymm5 	\n\t"\
-	"vmovaps	%%ymm0 ,(%%rdx) 	\n\t"/* spill ymm14 to make room for 2.0 */"	vmovaps	(%%rax),%%ymm0  	\n\t"/* two */\
+	"vmovaps	%%ymm0 ,(%%rdx) 	\n\t"/* spill ymm14 to make room for 2.0 */"	vmovaps	(%%rsi),%%ymm0  	\n\t"/* two */\
 	"vmulpd		%%ymm0 ,%%ymm3 ,%%ymm3 	\n\t	vmulpd		%%ymm0 ,%%ymm10,%%ymm10	\n\t"\
 	"vmulpd		%%ymm0 ,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm0 ,%%ymm9 ,%%ymm9 	\n\t"\
 	"vmulpd		%%ymm0 ,%%ymm1 ,%%ymm1 	\n\t	vmulpd		(%%rdx),%%ymm0 ,%%ymm0 	\n\t"\
@@ -10906,12 +10927,12 @@
 	"vaddpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vaddpd		%%ymm13,%%ymm9 ,%%ymm9 	\n\t"\
 	"vaddpd		%%ymm4 ,%%ymm1 ,%%ymm1 	\n\t	vaddpd		%%ymm5 ,%%ymm0 ,%%ymm0 	\n\t"\
 	/*movq		%[o0],%%rax		[o0] already in rax */	\
-	"movq		%[o1],%%rbx				\n\t"\
-	"movq		%[o2],%%rcx				\n\t"\
-	"movq		%[o3],%%rdx				\n\t"\
+	"leaq	(%%rax,%%r9 ),%%rcx		\n\t"/* out0 + off2, compute first to allow time for LEA to finish before += off4 to get out0 + off6 */\
+	"leaq	(%%rax,%%r10),%%rbx		\n\t"/* out0 + off4 */\
+	"leaq	(%%rcx,%%r10),%%rdx		\n\t"/* out0 + off6 */\
 	"vmovaps	%%ymm12,    (%%rbx)		\n\t	vmovaps		%%ymm13,0x20(%%rbx)		\n\t"/* __Br1 = _rc;	__Bi1 = _rd; */\
 	/* Use that _rc,d free to stick 2.0 into _rc and that [c4] in rdi to load ISRT2 from c4-1 into _rd: */\
-	"vmovaps		(%%rax),%%ymm12		\n\t	vmovaps		-0x20(%%rdi),%%ymm13	\n\t"/* _rc = 2.0;		_rd = ISRT2; */\
+	"vmovaps		(%%rsi),%%ymm12		\n\t	vmovaps		-0x20(%%rdi),%%ymm13	\n\t"/* _rc = 2.0;		_rd = ISRT2; */\
 	"vmovaps	%%ymm4 ,    (%%rdx)		\n\t	vmovaps		%%ymm0 ,0x20(%%rdx)		\n\t"/* __Br3 = _r4;	__Bi3 = _r0; */\
 	"vmovaps	%%ymm8 ,    (%%rax)		\n\t	vmovaps		%%ymm9 ,0x20(%%rax)		\n\t"/* __Br0 = _r8;	__Bi0 = _r9; */\
 	"vmovaps	%%ymm1 ,    (%%rcx)		\n\t	vmovaps		%%ymm5 ,0x20(%%rcx)		\n\t"/* __Br2 = _r1;	__Bi2 = _r5; */\
@@ -10923,39 +10944,22 @@
 	"vmulpd		%%ymm12,%%ymm2 ,%%ymm2 	\n\t	vmulpd		%%ymm12,%%ymm10,%%ymm10	\n\t"\
 	"vaddpd		%%ymm15,%%ymm3 ,%%ymm3 	\n\t	vaddpd		%%ymm7 ,%%ymm11,%%ymm11	\n\t"\
 	"vaddpd		%%ymm6 ,%%ymm2 ,%%ymm2 	\n\t	vaddpd		%%ymm14,%%ymm10,%%ymm10	\n\t"\
-	"movq		%[o4],%%rax				\n\t"\
-	"movq		%[o5],%%rbx				\n\t"\
-	"movq		%[o6],%%rcx				\n\t"\
-	"movq		%[o7],%%rdx				\n\t"\
+	"addq		%%r8 ,%%rax			\n\t"/* out0 + off[1,5,3,7] */\
+	"addq		%%r8 ,%%rbx			\n\t"\
+	"addq		%%r8 ,%%rcx			\n\t"\
+	"addq		%%r8 ,%%rdx			\n\t"\
 	"vmovaps	%%ymm3 ,    (%%rax)		\n\t	vmovaps		%%ymm7 ,0x20(%%rax)		\n\t"/* __Br4 = _r3;	__Bi4 = _r7; */\
 	"vmovaps	%%ymm15,    (%%rbx)		\n\t	vmovaps		%%ymm11,0x20(%%rbx)		\n\t"/* __Br5 = _rf;	__Bi5 = _rb; */\
 	"vmovaps	%%ymm6 ,    (%%rcx)		\n\t	vmovaps		%%ymm14,0x20(%%rcx)		\n\t"/* __Br6 = _r6;	__Bi6 = _re; */\
 	"vmovaps	%%ymm2 ,    (%%rdx)		\n\t	vmovaps		%%ymm10,0x20(%%rdx)		\n\t"/* __Br7 = _r2;	__Bi7 = _ra; */\
 		:					/* outputs: none */\
-		: [i0] "m" (Xi0)	/* All inputs from memory addresses here */\
-		 ,[i1] "m" (Xi1)\
-		 ,[i2] "m" (Xi2)\
-		 ,[i3] "m" (Xi3)\
-		 ,[i4] "m" (Xi4)\
-		 ,[i5] "m" (Xi5)\
-		 ,[i6] "m" (Xi6)\
-		 ,[i7] "m" (Xi7)\
-		 ,[o0] "m" (Xo0)\
-		 ,[o1] "m" (Xo1)\
-		 ,[o2] "m" (Xo2)\
-		 ,[o3] "m" (Xo3)\
-		 ,[o4] "m" (Xo4)\
-		 ,[o5] "m" (Xo5)\
-		 ,[o6] "m" (Xo6)\
-		 ,[o7] "m" (Xo7)\
-		 ,[c1] "m" (Xc1),[s1] "m" (Xs1)\
-		 ,[c2] "m" (Xc2),[s2] "m" (Xs2)\
-		 ,[c3] "m" (Xc3),[s3] "m" (Xs3)\
-		 ,[c4] "m" (Xc4),[s4] "m" (Xs4)\
-		 ,[c5] "m" (Xc5),[s5] "m" (Xs5)\
-		 ,[c6] "m" (Xc6),[s6] "m" (Xs6)\
-		 ,[c7] "m" (Xc7),[s7] "m" (Xs7)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+		: [in0] "m" (Xin0)	/* All 'm'-inputs from memory addresses here... */\
+		 ,[i1] "e" (Xi1)	/* ...except for 'e'-inputs which are literal byte offsets */\
+		 ,[out0] "m" (Xout0)\
+		 ,[o_off] "m" (Xo_off)/* O-address pointer-stride */\
+		 ,[twid_ptrs] "m" (Xtwid_ptrs)\
+		 ,[two] "m" (Xtwo)/* Only used in FMA implementations of this macro */\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 
@@ -10964,10 +10968,13 @@
 	// Based on the SSE2_RADIX16_DIF_NOTWIDDLE macro in radix16_ditN_cy_dif1_gcc64.h, but with completely
 	// specifiable 16-output addressing required for usage as the power-of-2 component of a twiddleless
 	// radix = [odd*2^n] DFT routine.
-	#define SSE2_RADIX16_DIF_0TWIDDLE(Xin0,Xi1,Xi2,Xi3,Xi4, Xisrt2,Xtwo, Xout0,Xout1,Xout2,Xout3,Xout4,Xout5,Xout6,Xout7,Xout8,Xout9,Xouta,Xoutb,Xoutc,Xoutd,Xoute,Xoutf)\
+	/* Dec 2020: Needed to cut #args for Apple M1/Clang builds on Arm64 - do similar on x86 to avoid
+	multiple versions of the macro having different arglists. Replace 16 O-addresses with O-base-address
+	out0 and pointer to array of 16 int offset-indices: */
+	#define SSE2_RADIX16_DIF_0TWIDDLE(Xin0,Xi1,Xi2,Xi3,Xi4, Xisrt2,Xtwo, Xout0,Xoff)\
 	{\
 	__asm__ volatile (\
-		/* SSE2_RADIX4_DIF_IN_PLACE(r1 , r17, r9 , r25): */\
+	/* SSE2_RADIX4_DIF_IN_PLACE(r1 , r17, r9 , r25): */\
 		"movq	%[__in0],%%rax		\n\t"\
 		"leaq	%c[__i4](%%rax),%%rcx	\n\t"/* __in0 +   [4*istride]; note BR of [a,b,c,d]-ptrs, i.e. b/c swap */\
 		"leaq	%c[__i4](%%rcx),%%rbx	\n\t"/* __in0 + 2*[4*istride] */\
@@ -11008,11 +11015,11 @@
 		"vaddpd	%%ymm3,%%ymm6,%%ymm6		\n\t"\
 		"vmovaps	%%ymm7,    (%%rdx)	\n\t"\
 		"vmovaps	%%ymm6,0x20(%%rcx)	\n\t"\
-		/* SSE2_RADIX4_DIF_IN_PLACE(r5 , r21, r13, r29): */\
-		"leaq	%c[__i2](%%rax),%%rax	\n\t"/* All addresses += 2*ostride */\
-		"leaq	%c[__i2](%%rbx),%%rbx	\n\t"\
-		"leaq	%c[__i2](%%rcx),%%rcx	\n\t"\
-		"leaq	%c[__i2](%%rdx),%%rdx	\n\t"\
+	/* SSE2_RADIX4_DIF_IN_PLACE(r5 , r21, r13, r29): */\
+		"addq	$%c[__i2],%%rax	\n\t"/* All addresses += 2*ostride */\
+		"addq	$%c[__i2],%%rbx	\n\t"\
+		"addq	$%c[__i2],%%rcx	\n\t"\
+		"addq	$%c[__i2],%%rdx	\n\t"\
 		"vmovaps	    (%%rax),%%ymm0		\n\t"\
 		"vmovaps	0x20(%%rax),%%ymm1		\n\t"\
 		"vmovaps	    (%%rax),%%ymm2	\n\t"\
@@ -11049,11 +11056,11 @@
 		"vaddpd	%%ymm3,%%ymm6,%%ymm6		\n\t"\
 		"vmovaps	%%ymm7,    (%%rdx)	\n\t"\
 		"vmovaps	%%ymm6,0x20(%%rcx)	\n\t"\
-		/* SSE2_RADIX4_DIF_IN_PLACE(r3 , r19, r11, r27): */\
-		"leaq	-%c[__i1](%%rax),%%rax	\n\t"/* All addresses -= 1*ostride */\
-		"leaq	-%c[__i1](%%rbx),%%rbx	\n\t"\
-		"leaq	-%c[__i1](%%rcx),%%rcx	\n\t"\
-		"leaq	-%c[__i1](%%rdx),%%rdx	\n\t"\
+	/* SSE2_RADIX4_DIF_IN_PLACE(r3 , r19, r11, r27): */\
+		"subq	$%c[__i1],%%rax	\n\t"/* All addresses -= 1*ostride */\
+		"subq	$%c[__i1],%%rbx	\n\t"\
+		"subq	$%c[__i1],%%rcx	\n\t"\
+		"subq	$%c[__i1],%%rdx	\n\t"\
 		"vmovaps	    (%%rax),%%ymm0	\n\t"\
 		"vmovaps	0x20(%%rax),%%ymm1	\n\t"\
 		"vmovaps	    (%%rax),%%ymm2	\n\t"\
@@ -11090,11 +11097,11 @@
 		"vaddpd	%%ymm3,%%ymm6,%%ymm6		\n\t"\
 		"vmovaps	%%ymm7,    (%%rdx)	\n\t"\
 		"vmovaps	%%ymm6,0x20(%%rcx)	\n\t"\
-		/* SSE2_RADIX4_DIF_IN_PLACE(r7 , r23, r15, r31): */\
-		"leaq	%c[__i2](%%rax),%%rax	\n\t"/* All addresses += 2*ostride */\
-		"leaq	%c[__i2](%%rbx),%%rbx	\n\t"\
-		"leaq	%c[__i2](%%rcx),%%rcx	\n\t"\
-		"leaq	%c[__i2](%%rdx),%%rdx	\n\t"\
+	/* SSE2_RADIX4_DIF_IN_PLACE(r7 , r23, r15, r31): */\
+		"addq	$%c[__i2],%%rax	\n\t"/* All addresses += 2*ostride */\
+		"addq	$%c[__i2],%%rbx	\n\t"\
+		"addq	$%c[__i2],%%rcx	\n\t"\
+		"addq	$%c[__i2],%%rdx	\n\t"\
 		"vmovaps	    (%%rax),%%ymm0		\n\t"\
 		"vmovaps	0x20(%%rax),%%ymm1		\n\t"\
 		"vmovaps	    (%%rax),%%ymm2	\n\t"\
@@ -11131,13 +11138,21 @@
 		"vaddpd	%%ymm3,%%ymm6,%%ymm6		\n\t"\
 		"vmovaps	%%ymm7,    (%%rdx)	\n\t"\
 		"vmovaps	%%ymm6,0x20(%%rcx)	\n\t"\
-	/*** Now do 4 DFTs with internal twiddles on the 1*stride - separated data. Do blocks in order 0,2,1,3 to allow increment-only of rsi-datum from 1 block to the next: ***/\
-		/* Block 0: r0-3 */\
-		"movq	%[__in0],%%rsi	\n\t"\
-		"movq	%[__out0],%%rax		\n\t"\
-		"movq	%[__out1],%%rbx		\n\t"\
-		"movq	%[__out2],%%rcx		\n\t"\
-		"movq	%[__out3],%%rdx		\n\t"\
+	/*****************************************************************************************
+	**** Now do 4 DFTs with internal twiddles on the 1*stride - separated data. Do blocks ****
+	**** in order 0,2,1,3 to allow increment-only of rsi-datum from 1 block to the next:  ****
+	*****************************************************************************************/\
+	"movq	%[__in0],%%rsi	\n\t"\
+	"movq	%[out0],%%r8	\n\t	movq	%[off],%%r9	\n\t"/* Load output base-address into r8 and offset-array pointer into r9 */\
+	/* Block 0: r0-3 */\
+		"movslq		    (%%r9),%%rax	\n\t"/*        off0 */\
+		"movslq		0x04(%%r9),%%rbx	\n\t"/*        off1 */\
+		"movslq		0x08(%%r9),%%rcx	\n\t"/*        off2 */\
+		"movslq		0x0c(%%r9),%%rdx	\n\t"/*        off3 */\
+		"leaq	(%%r8,%%rax,8),%%rax	\n\t"/* out0 + off0 */\
+		"leaq	(%%r8,%%rbx,8),%%rbx	\n\t"/* out0 + off1 */\
+		"leaq	(%%r8,%%rcx,8),%%rcx	\n\t"/* out0 + off2 */\
+		"leaq	(%%r8,%%rdx,8),%%rdx	\n\t"/* out0 + off3 */\
 		"leaq	0x20(%%rsi),%%rdi	\n\t"/* Need separate address Im parts of outputs due to literal-offsets below */\
 		"vmovaps	        (%%rsi),%%ymm0	\n\t"\
 		"vmovaps	        (%%rdi),%%ymm1	\n\t"\
@@ -11175,11 +11190,16 @@
 		"vaddpd	%%ymm1,%%ymm4,%%ymm4	\n\t"\
 		"vmovaps	%%ymm5,    (%%rdx)	\n\t"\
 		"vmovaps	%%ymm4,0x20(%%rcx)	\n\t"\
-		/* Block 2: */\
-		"movq	%[__out8],%%rax		\n\t	leaq	%c[__i4](%%rsi),%%rsi	\n\t"/* __in0 + 4*ostride */\
-		"movq	%[__out9],%%rbx		\n\t"\
-		"movq	%[__outa],%%rcx		\n\t"\
-		"movq	%[__outb],%%rdx		\n\t"\
+	/* Block 2: */\
+		"movslq		0x20(%%r9),%%rax	\n\t"/* off8-b */\
+		"movslq		0x24(%%r9),%%rbx	\n\t"\
+		"movslq		0x28(%%r9),%%rcx	\n\t"\
+		"movslq		0x2c(%%r9),%%rdx	\n\t"\
+		"leaq	(%%r8,%%rax,8),%%rax	\n\t"\
+		"leaq	(%%r8,%%rbx,8),%%rbx	\n\t"\
+		"leaq	(%%r8,%%rcx,8),%%rcx	\n\t"\
+		"leaq	(%%r8,%%rdx,8),%%rdx	\n\t"\
+		"addq	$%c[__i4],%%rsi	\n\t"/* __in0 + 4*ostride */\
 		"leaq	0x20(%%rsi),%%rdi	\n\t"\
 		"vmovaps	%c[__i1](%%rsi),%%ymm4	\n\t"\
 		"vmovaps	%c[__i3](%%rsi),%%ymm6	\n\t"\
@@ -11244,11 +11264,16 @@
 		"vaddpd	%%ymm1,%%ymm4,%%ymm4	\n\t"\
 		"vmovaps	%%ymm5,    (%%rdx)	\n\t"\
 		"vmovaps	%%ymm4,0x20(%%rcx)	\n\t"\
-		/* Block 1: r8-b */\
-		"movq	%[__out4],%%rax		\n\t	leaq	%c[__i4](%%rsi),%%rsi	\n\t"/* __in0 + 8*ostride */\
-		"movq	%[__out5],%%rbx		\n\t"\
-		"movq	%[__out6],%%rcx		\n\t"\
-		"movq	%[__out7],%%rdx		\n\t"\
+	/* Block 1: r8-b */\
+		"movslq		0x10(%%r9),%%rax	\n\t"/* off4-7 */\
+		"movslq		0x14(%%r9),%%rbx	\n\t"\
+		"movslq		0x18(%%r9),%%rcx	\n\t"\
+		"movslq		0x1c(%%r9),%%rdx	\n\t"\
+		"leaq	(%%r8,%%rax,8),%%rax	\n\t"\
+		"leaq	(%%r8,%%rbx,8),%%rbx	\n\t"\
+		"leaq	(%%r8,%%rcx,8),%%rcx	\n\t"\
+		"leaq	(%%r8,%%rdx,8),%%rdx	\n\t"\
+		"addq	$%c[__i4],%%rsi	\n\t"/* __in0 + 8*ostride */\
 		"leaq	0x20(%%rsi),%%rdi	\n\t"\
 		"vmovaps	        (%%rsi),%%ymm0	\n\t"\
 		"vmovaps	        (%%rdi),%%ymm1	\n\t"\
@@ -11297,11 +11322,16 @@
 		"vaddpd	%%ymm1,%%ymm6,%%ymm6	\n\t"\
 		"vmovaps	%%ymm7,    (%%rdx)	\n\t"\
 		"vmovaps	%%ymm6,0x20(%%rcx)	\n\t"\
-		/* Block 3: */\
-		"movq	%[__outc],%%rax		\n\t	leaq	%c[__i4](%%rsi),%%rsi	\n\t"/* __in0 + c*ostride */\
-		"movq	%[__outd],%%rbx		\n\t"\
-		"movq	%[__oute],%%rcx		\n\t"\
-		"movq	%[__outf],%%rdx		\n\t"\
+	/* Block 3: */\
+		"movslq		0x30(%%r9),%%rax	\n\t"/* offc-f */\
+		"movslq		0x34(%%r9),%%rbx	\n\t"\
+		"movslq		0x38(%%r9),%%rcx	\n\t"\
+		"movslq		0x3c(%%r9),%%rdx	\n\t"\
+		"leaq	(%%r8,%%rax,8),%%rax	\n\t"\
+		"leaq	(%%r8,%%rbx,8),%%rbx	\n\t"\
+		"leaq	(%%r8,%%rcx,8),%%rcx	\n\t"\
+		"leaq	(%%r8,%%rdx,8),%%rdx	\n\t"\
+		"addq	$%c[__i4],%%rsi	\n\t"/* __in0 + c*ostride */\
 		"leaq	0x20(%%rsi),%%rdi	\n\t"\
 		"vmovaps	%c[__i1](%%rsi),%%ymm4	\n\t"\
 		"vmovaps	%c[__i3](%%rsi),%%ymm6	\n\t"\
@@ -11374,23 +11404,9 @@
 		,[__i4] "e" (Xi4)\
 		,[__isrt2] "m" (Xisrt2)\
 		,[__two] "m" (Xtwo)\
-		,[__out0] "m" (Xout0)\
-		,[__out1] "m" (Xout1)\
-		,[__out2] "m" (Xout2)\
-		,[__out3] "m" (Xout3)\
-		,[__out4] "m" (Xout4)\
-		,[__out5] "m" (Xout5)\
-		,[__out6] "m" (Xout6)\
-		,[__out7] "m" (Xout7)\
-		,[__out8] "m" (Xout8)\
-		,[__out9] "m" (Xout9)\
-		,[__outa] "m" (Xouta)\
-		,[__outb] "m" (Xoutb)\
-		,[__outc] "m" (Xoutc)\
-		,[__outd] "m" (Xoutd)\
-		,[__oute] "m" (Xoute)\
-		,[__outf] "m" (Xoutf)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		,[out0] "m" (Xout0) /* output-address-octet base pointer */\
+		,[off] "m" (Xoff)	/* and pointer to uint32 array of 8 double* index offsets */\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r8","r9","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
 
@@ -12046,15 +12062,20 @@
 	// __01; this allows us to cut GP-register usage, which is absolutely a must for the 32-bit version
 	// of the macro, and is a benefit to the 64-bit versions which code-fold to yield 2 side-by-side
 	// streams of independently executable instructions, one for data in xmm0-7, the other using xmm8-15.
-	#define SSE2_RADIX16_DIT_0TWIDDLE(Xin0,Xin1,Xin2,Xin3,Xin4,Xin5,Xin6,Xin7,Xin8,Xin9,Xina,Xinb,Xinc,Xind,Xine,Xinf, Xisrt2,Xtwo, Xout0,Xo1,Xo2,Xo3,Xo4)\
+	#define SSE2_RADIX16_DIT_0TWIDDLE(Xin0,Xoff, Xisrt2,Xtwo, Xout0,Xo1,Xo2,Xo3,Xo4)\
 	{\
 	__asm__ volatile (\
-		"movq	%[__in0],%%rax		\n\t"\
-		"movq	%[__in1],%%rbx		\n\t"\
-		"movq	%[__in2],%%rcx		\n\t"\
-		"movq	%[__in3],%%rdx		\n\t"\
+	"movq	%[in0],%%r8	\n\t	movq	%[off],%%r9	\n\t"/* Load input base-address into r8 and int32[16] offset-array pointer into r9 */\
+		"movslq		    (%%r9),%%rax	\n\t"/* off[0-3] */\
+		"movslq		0x04(%%r9),%%rbx	\n\t"\
+		"movslq		0x08(%%r9),%%rcx	\n\t"\
+		"movslq		0x0c(%%r9),%%rdx	\n\t"\
+		"leaq	(%%r8,%%rax,8),%%rax	\n\t"/* in0 + off[0-3] */\
+		"leaq	(%%r8,%%rbx,8),%%rbx	\n\t"\
+		"leaq	(%%r8,%%rcx,8),%%rcx	\n\t"\
+		"leaq	(%%r8,%%rdx,8),%%rdx	\n\t"\
 	"prefetcht1	0x100(%%rax)\n\t"\
-		/* SSE2_RADIX4_DIT_0TWIDDLE_B(r0 ): */\
+	/* SSE2_RADIX4_DIT_0TWIDDLE_B(r0 ): */\
 		"vmovaps	    (%%rax),%%ymm2	\n\t"\
 		"vmovaps	    (%%rcx),%%ymm6		\n\t"\
 		"vmovaps	0x20(%%rax),%%ymm3	\n\t"\
@@ -12099,11 +12120,16 @@
 		"vmovaps	%%ymm5,        (%%rdi)	\n\t"\
 		"vmovaps	%%ymm6,%c[__o3](%%rdi)	\n\t"\
 	"prefetcht1	0x100(%%rax)\n\t"\
-		/* SSE2_RADIX4_DIT_0TWIDDLE_B(r8 ): */\
-		"movq	%[__in4],%%rax		\n\t	leaq	%c[__o4](%%rsi),%%rsi	\n\t"/* __out0 + 4*ostride */\
-		"movq	%[__in5],%%rbx		\n\t"\
-		"movq	%[__in6],%%rcx		\n\t"\
-		"movq	%[__in7],%%rdx		\n\t"\
+	/* SSE2_RADIX4_DIT_0TWIDDLE_B(r8 ): */\
+		"movslq		0x10(%%r9),%%rax	\n\t"/* off[4-7] */\
+		"movslq		0x14(%%r9),%%rbx	\n\t"\
+		"movslq		0x18(%%r9),%%rcx	\n\t"\
+		"movslq		0x1c(%%r9),%%rdx	\n\t"\
+		"leaq	(%%r8,%%rax,8),%%rax	\n\t"/* in0 + off[4-7] */\
+		"leaq	(%%r8,%%rbx,8),%%rbx	\n\t"\
+		"leaq	(%%r8,%%rcx,8),%%rcx	\n\t"\
+		"leaq	(%%r8,%%rdx,8),%%rdx	\n\t"\
+		"leaq	%c[__o4](%%rsi),%%rsi		\n\t"/* __out0 + 4*ostride */\
 		"vmovaps	    (%%rax),%%ymm2	\n\t"\
 		"vmovaps	    (%%rcx),%%ymm6	\n\t"\
 		"vmovaps	0x20(%%rax),%%ymm3	\n\t"\
@@ -12147,11 +12173,16 @@
 		"vmovaps	%%ymm5,        (%%rdi)	\n\t"\
 		"vmovaps	%%ymm6,%c[__o3](%%rdi)	\n\t"\
 	"prefetcht1	0x100(%%rax)\n\t"\
-		/* SSE2_RADIX4_DIT_0TWIDDLE_B(r16): */\
-		"movq	%[__in8],%%rax			\n\t	leaq	%c[__o4](%%rsi),%%rsi	\n\t"/* __out0 + 8*ostride */\
-		"movq	%[__in9],%%rbx			\n\t"\
-		"movq	%[__ina],%%rcx			\n\t"\
-		"movq	%[__inb],%%rdx			\n\t"\
+	/* SSE2_RADIX4_DIT_0TWIDDLE_B(r16): */\
+		"movslq		0x20(%%r9),%%rax	\n\t"/* off[8-b] */\
+		"movslq		0x24(%%r9),%%rbx	\n\t"\
+		"movslq		0x28(%%r9),%%rcx	\n\t"\
+		"movslq		0x2c(%%r9),%%rdx	\n\t"\
+		"leaq	(%%r8,%%rax,8),%%rax	\n\t"/* in0 + off[8-b] */\
+		"leaq	(%%r8,%%rbx,8),%%rbx	\n\t"\
+		"leaq	(%%r8,%%rcx,8),%%rcx	\n\t"\
+		"leaq	(%%r8,%%rdx,8),%%rdx	\n\t"\
+		"leaq	%c[__o4](%%rsi),%%rsi		\n\t"/* __out0 + 8*ostride */\
 		"vmovaps	    (%%rax),%%ymm2	\n\t"\
 		"vmovaps	    (%%rcx),%%ymm6	\n\t"\
 		"vmovaps	0x20(%%rax),%%ymm3	\n\t"\
@@ -12195,11 +12226,16 @@
 		"vmovaps	%%ymm5,        (%%rdi)	\n\t"\
 		"vmovaps	%%ymm6,%c[__o3](%%rdi)	\n\t"\
 	"prefetcht1	0x100(%%rax)\n\t"\
-		/* SSE2_RADIX4_DIT_0TWIDDLE_B(r24): */\
-		"movq	%[__inc],%%rax			\n\t	leaq	%c[__o4](%%rsi),%%rsi	\n\t"/* __out0 + c*ostride */\
-		"movq	%[__ind],%%rbx			\n\t"\
-		"movq	%[__ine],%%rcx			\n\t"\
-		"movq	%[__inf],%%rdx			\n\t"\
+	/* SSE2_RADIX4_DIT_0TWIDDLE_B(r24): */\
+		"movslq		0x30(%%r9),%%rax	\n\t"/* off[c-f] */\
+		"movslq		0x34(%%r9),%%rbx	\n\t"\
+		"movslq		0x38(%%r9),%%rcx	\n\t"\
+		"movslq		0x3c(%%r9),%%rdx	\n\t"\
+		"leaq	(%%r8,%%rax,8),%%rax	\n\t"/* in0 + off[c-f] */\
+		"leaq	(%%r8,%%rbx,8),%%rbx	\n\t"\
+		"leaq	(%%r8,%%rcx,8),%%rcx	\n\t"\
+		"leaq	(%%r8,%%rdx,8),%%rdx	\n\t"\
+		"leaq	%c[__o4](%%rsi),%%rsi		\n\t"/* __out0 + c*ostride */\
 		"vmovaps	    (%%rax),%%ymm2	\n\t"\
 		"vmovaps	    (%%rcx),%%ymm6	\n\t"\
 		"vmovaps	0x20(%%rax),%%ymm3	\n\t"\
@@ -12285,10 +12321,10 @@
 		"vmovaps	%%ymm5,    (%%rbx)	\n\t"\
 		"vmovaps	%%ymm4,0x20(%%rdx)	\n\t"\
 		/* Block 2: */\
-		"leaq	%c[__o2](%%rax),%%rax	\n\t"/* All addresses += 2*ostride */\
-		"leaq	%c[__o2](%%rbx),%%rbx	\n\t"\
-		"leaq	%c[__o2](%%rcx),%%rcx	\n\t"\
-		"leaq	%c[__o2](%%rdx),%%rdx	\n\t"\
+		"addq	$%c[__o2],%%rax		\n\t"/* All addresses += 2*ostride */\
+		"addq	$%c[__o2],%%rbx		\n\t"\
+		"addq	$%c[__o2],%%rcx		\n\t"\
+		"addq	$%c[__o2],%%rdx		\n\t"\
 		"movq	%[__isrt2],%%rdi	\n\t"\
 		"vmovaps	(%%rdi),%%ymm2		\n\t"\
 		"vmovaps	    (%%rcx),%%ymm4	\n\t"\
@@ -12338,10 +12374,10 @@
 		"vmovaps	%%ymm7,    (%%rbx)	\n\t"\
 		"vmovaps	%%ymm6,0x20(%%rdx)	\n\t"\
 		/* Block 1: */\
-		"leaq	-%c[__o1](%%rax),%%rax	\n\t"/* All addresses -= 1*ostride */\
-		"leaq	-%c[__o1](%%rbx),%%rbx	\n\t"\
-		"leaq	-%c[__o1](%%rcx),%%rcx	\n\t"\
-		"leaq	-%c[__o1](%%rdx),%%rdx	\n\t"\
+		"subq	$%c[__o1],%%rax		\n\t"/* All subresses += 1*ostride */\
+		"subq	$%c[__o1],%%rbx		\n\t"\
+		"subq	$%c[__o1],%%rcx		\n\t"\
+		"subq	$%c[__o1],%%rdx		\n\t"\
 		"leaq	0x20(%%rdi),%%rsi	\n\t"/* cc0 */\
 		"vmovaps	    (%%rdx),%%ymm0	\n\t"\
 		"vmovaps	0x20(%%rdx),%%ymm1	\n\t"\
@@ -12404,10 +12440,10 @@
 		"vmovaps	%%ymm7,    (%%rbx)	\n\t"\
 		"vmovaps	%%ymm6,0x20(%%rdx)	\n\t"\
 		/* Block 3: */\
-		"leaq	%c[__o2](%%rax),%%rax	\n\t"/* All addresses += 2*ostride */\
-		"leaq	%c[__o2](%%rbx),%%rbx	\n\t"\
-		"leaq	%c[__o2](%%rcx),%%rcx	\n\t"\
-		"leaq	%c[__o2](%%rdx),%%rdx	\n\t"\
+		"addq	$%c[__o2],%%rax		\n\t"/* All addresses += 2*ostride */\
+		"addq	$%c[__o2],%%rbx		\n\t"\
+		"addq	$%c[__o2],%%rcx		\n\t"\
+		"addq	$%c[__o2],%%rdx		\n\t"\
 		"vmovaps	    (%%rdx),%%ymm0	\n\t"\
 		"vmovaps	0x20(%%rdx),%%ymm1	\n\t"\
 		"vmovaps	    (%%rdx),%%ymm2	\n\t"\
@@ -12469,22 +12505,8 @@
 		"vmovaps	%%ymm5,    (%%rbx)	\n\t"\
 		"vmovaps	%%ymm4,0x20(%%rdx)	\n\t"\
 		:					/* outputs: none */\
-		:[__in0] "m" (Xin0)	/* All inputs from memory addresses here */\
-		,[__in1] "m" (Xin1)\
-		,[__in2] "m" (Xin2)\
-		,[__in3] "m" (Xin3)\
-		,[__in4] "m" (Xin4)\
-		,[__in5] "m" (Xin5)\
-		,[__in6] "m" (Xin6)\
-		,[__in7] "m" (Xin7)\
-		,[__in8] "m" (Xin8)\
-		,[__in9] "m" (Xin9)\
-		,[__ina] "m" (Xina)\
-		,[__inb] "m" (Xinb)\
-		,[__inc] "m" (Xinc)\
-		,[__ind] "m" (Xind)\
-		,[__ine] "m" (Xine)\
-		,[__inf] "m" (Xinf)\
+		:[in0] "m" (Xin0)	/* Input-address-16-tet base pointer */\
+		,[off] "m" (Xoff)	/* and pointer to uint32 array of 16 double* index offsets */\
 		,[__isrt2] "m" (Xisrt2)\
 		,[__two] "m" (Xtwo)\
 		,[__out0] "m" (Xout0)\
@@ -12492,7 +12514,7 @@
 		,[__o2] "e" (Xo2)\
 		,[__o3] "e" (Xo3)\
 		,[__o4] "e" (Xo4)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r8","r9","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
 	);\
 	}
 
@@ -13136,14 +13158,14 @@
 	}
 
 	// DIF version of above shares same sincos layout & data:
-	#define SSE2_RADIX16_DIF_TWIDDLE_OOP(Xin0,Xi1,Xi2,Xi3,Xi4, Xout0,Xout1,Xout2,Xout3,Xout4,Xout5,Xout6,Xout7,Xout8,Xout9,Xouta,Xoutb,Xoutc,Xoutd,Xoute,Xoutf, Xisrt2,Xc1)\
+	#define SSE2_RADIX16_DIF_TWIDDLE_OOP(Xin0,Xi1,Xi4, Xout0,Xoff, Xisrt2,Xc1)\
 	{\
 	__asm__ volatile (\
 	/*...Block 0: Do in-place, i.e. outputs into __in0 + [0,1,2,3]*istride: */\
 		"movq	%[__in0],%%rax		\n\t"\
 		"leaq	%c[__i1](%%rax),%%rcx	\n\t"/* __in0 +   istride */\
-		"leaq	%c[__i2](%%rax),%%rbx	\n\t"/* __in0 + 2*istride */\
-		"leaq	%c[__i3](%%rax),%%rdx	\n\t"/* __in0 + 3*istride */\
+		"leaq	%c[__i1](%%rcx),%%rbx	\n\t"/* __in0 + 2*istride */\
+		"leaq	%c[__i1](%%rbx),%%rdx	\n\t"/* __in0 + 3*istride */\
 		"/* Do	the p0,1 combo: */	\n\t"\
 		"movq	%[__c1],%%rsi 	/* Roots sets c1-15 same as for DIT, w/c1 as base-ptr */\n\t"\
 		"vmovaps	    (%%rax),%%ymm0	\n\t"\
@@ -13508,10 +13530,17 @@
 		"vsubpd	%%ymm7,%%ymm3,%%ymm3		\n\t"\
 		"vaddpd	%%ymm6,%%ymm6,%%ymm6		\n\t"\
 		"vaddpd	%%ymm7,%%ymm7,%%ymm7		\n\t"\
-		"movq	%[__out0],%%r10		\n\t"\
-		"movq	%[__out1],%%r11		\n\t"\
-		"movq	%[__out2],%%r12		\n\t"\
-		"movq	%[__out3],%%r13		\n\t"\
+	/* Load output base-address into r8 and offset-array pointer into r9: */\
+	"movq	%[__out0],%%r8	\n\t	movq	%[__off],%%r9	\n\t"\
+	/* Block 0: r0-3 */\
+		"movslq		    (%%r9),%%r10	\n\t"/* off0-3 */\
+		"movslq		0x04(%%r9),%%r11	\n\t"\
+		"movslq		0x08(%%r9),%%r12	\n\t"\
+		"movslq		0x0c(%%r9),%%r13	\n\t"\
+		"leaq	(%%r8,%%r10,8),%%r10	\n\t"/* out0 + off0-3 */\
+		"leaq	(%%r8,%%r11,8),%%r11	\n\t"\
+		"leaq	(%%r8,%%r12,8),%%r12	\n\t"\
+		"leaq	(%%r8,%%r13,8),%%r13	\n\t"\
 	"prefetcht1	0x100(%%r11)\n\t"\
 		"vmovaps	%%ymm2,    (%%r11)	\n\t"\
 		"vmovaps	%%ymm3,0x20(%%r11)	\n\t"\
@@ -13529,7 +13558,7 @@
 		"vaddpd	%%ymm1,%%ymm4,%%ymm4	\n\t"\
 		"vmovaps	%%ymm5,    (%%r13)	\n\t"\
 		"vmovaps	%%ymm4,0x20(%%r12)	\n\t"\
-	"/* Block 2: Combine 2-output of each radix-4, i.e. inputs from __in0 + [4,5,6,7]*istride: */\n\t"\
+	/* Block 2: Combine 2-output of each radix-4, i.e. inputs from __in0 + [4,5,6,7]*istride: */\
 		"movq	%[__isrt2],%%rsi 	\n\t"\
 		"vmovaps	(%%rsi),%%ymm3	/* isrt2 */\n\t"\
 		"addq	$%c[__i1],%%rax	\n\t"/* __in0 + 1*istride */\
@@ -13575,10 +13604,14 @@
 		"vaddpd	%%ymm7,%%ymm7,%%ymm7		\n\t"\
 		"vaddpd	%%ymm5,%%ymm5,%%ymm5		\n\t"\
 		"vaddpd	%%ymm6,%%ymm6,%%ymm6		\n\t"\
-		"movq	%[__out4],%%r10		\n\t"\
-		"movq	%[__out5],%%r11		\n\t"\
-		"movq	%[__out6],%%r12		\n\t"\
-		"movq	%[__out7],%%r13		\n\t"\
+		"movslq		0x10(%%r9),%%r10	\n\t"/* off4-7 */\
+		"movslq		0x14(%%r9),%%r11	\n\t"\
+		"movslq		0x18(%%r9),%%r12	\n\t"\
+		"movslq		0x1c(%%r9),%%r13	\n\t"\
+		"leaq	(%%r8,%%r10,8),%%r10	\n\t"/* out0 + off4-7 */\
+		"leaq	(%%r8,%%r11,8),%%r11	\n\t"\
+		"leaq	(%%r8,%%r12,8),%%r12	\n\t"\
+		"leaq	(%%r8,%%r13,8),%%r13	\n\t"\
 	"prefetcht1	0x100(%%r11)\n\t"\
 		"vmovaps	%%ymm0,    (%%r11)	\n\t"\
 		"vmovaps	%%ymm3,    (%%r12)	\n\t"\
@@ -13592,7 +13625,7 @@
 		"vmovaps	%%ymm7,    (%%r13)	\n\t"\
 		"vmovaps	%%ymm5,0x20(%%r10)	\n\t"\
 		"vmovaps	%%ymm6,0x20(%%r12)	\n\t"\
-	"/* Block 1: Combine 1-output of each radix-4, i.e. inputs from __in0 + [8,9,a,b]*istride: */\n\t"\
+	/* Block 1: Combine 1-output of each radix-4, i.e. inputs from __in0 + [8,9,a,b]*istride: */\
 		"addq	$%c[__i1],%%rax	\n\t"/* __in0 + 2*istride */\
 		"addq	$%c[__i1],%%rbx	\n\t"/* __in0 + 6*istride */\
 		"addq	$%c[__i1],%%rcx	\n\t"/* __in0 + a*istride */\
@@ -13650,10 +13683,14 @@
 		"vaddpd	%%ymm5,%%ymm5,%%ymm5		\n\t"\
 		"vaddpd	%%ymm7,%%ymm7,%%ymm7		\n\t"\
 		"vaddpd	%%ymm4,%%ymm4,%%ymm4		\n\t"\
-		"movq	%[__out8],%%r10		\n\t"\
-		"movq	%[__out9],%%r11		\n\t"\
-		"movq	%[__outa],%%r12		\n\t"\
-		"movq	%[__outb],%%r13		\n\t"\
+		"movslq		0x20(%%r9),%%r10	\n\t"/* off8-b */\
+		"movslq		0x24(%%r9),%%r11	\n\t"\
+		"movslq		0x28(%%r9),%%r12	\n\t"\
+		"movslq		0x2c(%%r9),%%r13	\n\t"\
+		"leaq	(%%r8,%%r10,8),%%r10	\n\t"/* out0 + off8-b */\
+		"leaq	(%%r8,%%r11,8),%%r11	\n\t"\
+		"leaq	(%%r8,%%r12,8),%%r12	\n\t"\
+		"leaq	(%%r8,%%r13,8),%%r13	\n\t"\
 	"prefetcht1	0x100(%%r11)\n\t"\
 		"vmovaps	%%ymm2,    (%%r11)	\n\t"\
 		"vmovaps	%%ymm0,    (%%r12)	\n\t"\
@@ -13667,7 +13704,7 @@
 		"vmovaps	%%ymm5,    (%%r13)	\n\t"\
 		"vmovaps	%%ymm7,0x20(%%r10)	\n\t"\
 		"vmovaps	%%ymm4,0x20(%%r12)	\n\t"\
-	"/* Block 3: Combine 3-output of each radix-4, i.e. inputs from __in0 + [c,d,e,f]*istride: */\n\t"\
+	/* Block 3: Combine 3-output of each radix-4, i.e. inputs from __in0 + [c,d,e,f]*istride: */\
 		"addq	$%c[__i1],%%rax	\n\t"/* __in0 + 3*istride */\
 		"addq	$%c[__i1],%%rbx	\n\t"/* __in0 + 7*istride */\
 		"addq	$%c[__i1],%%rcx	\n\t"/* __in0 + b*istride */\
@@ -13725,10 +13762,14 @@
 		"vaddpd	%%ymm7,%%ymm7,%%ymm7		\n\t"\
 		"vaddpd	%%ymm5,%%ymm5,%%ymm5		\n\t"\
 		"vaddpd	%%ymm6,%%ymm6,%%ymm6		\n\t"\
-		"movq	%[__outc],%%r10		\n\t"\
-		"movq	%[__outd],%%r11		\n\t"\
-		"movq	%[__oute],%%r12		\n\t"\
-		"movq	%[__outf],%%r13		\n\t"\
+		"movslq		0x30(%%r9),%%r10	\n\t"/* offc-f */\
+		"movslq		0x34(%%r9),%%r11	\n\t"\
+		"movslq		0x38(%%r9),%%r12	\n\t"\
+		"movslq		0x3c(%%r9),%%r13	\n\t"\
+		"leaq	(%%r8,%%r10,8),%%r10	\n\t"/* out0 + offc-f */\
+		"leaq	(%%r8,%%r11,8),%%r11	\n\t"\
+		"leaq	(%%r8,%%r12,8),%%r12	\n\t"\
+		"leaq	(%%r8,%%r13,8),%%r13	\n\t"\
 	"prefetcht1	0x100(%%r11)\n\t"\
 		"vmovaps	%%ymm0,    (%%r11)	\n\t"\
 		"vmovaps	%%ymm2,    (%%r12)	\n\t"\
@@ -13746,28 +13787,12 @@
 		:					/* outputs: none */\
 		: [__in0] "m" (Xin0)	/* All inputs from memory addresses here */\
 		 ,[__i1] "e" (Xi1)\
-		 ,[__i2] "e" (Xi2)\
-		 ,[__i3] "e" (Xi3)\
 		 ,[__i4] "e" (Xi4)\
 		 ,[__out0] "m" (Xout0)\
-		 ,[__out1] "m" (Xout1)\
-		 ,[__out2] "m" (Xout2)\
-		 ,[__out3] "m" (Xout3)\
-		 ,[__out4] "m" (Xout4)\
-		 ,[__out5] "m" (Xout5)\
-		 ,[__out6] "m" (Xout6)\
-		 ,[__out7] "m" (Xout7)\
-		 ,[__out8] "m" (Xout8)\
-		 ,[__out9] "m" (Xout9)\
-		 ,[__outa] "m" (Xouta)\
-		 ,[__outb] "m" (Xoutb)\
-		 ,[__outc] "m" (Xoutc)\
-		 ,[__outd] "m" (Xoutd)\
-		 ,[__oute] "m" (Xoute)\
-		 ,[__outf] "m" (Xoutf)\
+		 ,[__off] "m" (Xoff)\
 		 ,[__isrt2] "m" (Xisrt2)\
 		 ,[__c1] "m" (Xc1)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","r8","r9","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
 	);\
 	}
 
@@ -14199,15 +14224,23 @@
 	// __01; this allows us to cut GP-register usage, which is absolutely a must for the 32-bit version
 	// of the macro, and is a benefit to the 64-bit versions which code-fold to yield 2 side-by-side
 	// streams of independently executable instructions, one for data in xmm0-7, the other using xmm8-15.
-	#define SSE2_RADIX16_DIT_0TWIDDLE(Xin0,Xin1,Xin2,Xin3,Xin4,Xin5,Xin6,Xin7,Xin8,Xin9,Xina,Xinb,Xinc,Xind,Xine,Xinf, Xisrt2,Xtwo, Xout0,Xo1,Xo2,Xo3,Xo4)\
+	/* Dec 2020: Needed to cut #args for Apple M1/Clang builds on Arm64 - do similar on x86 to avoid
+	multiple versions of the macro having different arglists. Replace 16 I-addresses with I-base-address
+	in0 and pointer to array of 16 int offset-indices: */
+	#define SSE2_RADIX16_DIT_0TWIDDLE(Xin0,Xoff, Xisrt2,Xtwo, Xout0,Xo1,Xo2,Xo3,Xo4)\
 	{\
 	__asm__ volatile (\
-		"movq	%[__in0],%%rax		\n\t"\
-		"movq	%[__in1],%%rbx		\n\t"\
-		"movq	%[__in2],%%rcx		\n\t"\
-		"movq	%[__in3],%%rdx		\n\t"\
+	"movq	%[in0],%%r8	\n\t	movq	%[off],%%r9	\n\t"/* Load output base-address into r8 and int32[16] offset-array pointer into r9 */\
+		"movslq		    (%%r9),%%rax	\n\t"/* off[0-3] */\
+		"movslq		0x04(%%r9),%%rbx	\n\t"\
+		"movslq		0x08(%%r9),%%rcx	\n\t"\
+		"movslq		0x0c(%%r9),%%rdx	\n\t"\
+		"leaq	(%%r8,%%rax,8),%%rax	\n\t"/* in0 + off[0-3] */\
+		"leaq	(%%r8,%%rbx,8),%%rbx	\n\t"\
+		"leaq	(%%r8,%%rcx,8),%%rcx	\n\t"\
+		"leaq	(%%r8,%%rdx,8),%%rdx	\n\t"\
 	"prefetcht1	0x100(%%rax)\n\t"\
-		"/* SSE2_RADIX4_DIT_0TWIDDLE_B(r0 ): */\n\t"\
+	/* SSE2_RADIX4_DIT_0TWIDDLE_B(r0 ): */\
 		"movaps	    (%%rax),%%xmm2	\n\t"\
 		"movaps	    (%%rcx),%%xmm6	\n\t"\
 		"movaps	0x10(%%rax),%%xmm3	\n\t"\
@@ -14251,11 +14284,16 @@
 		"movaps	%%xmm7,%c[__o1](%%rsi)	\n\t"\
 		"movaps	%%xmm5,        (%%rdi)	\n\t"\
 		"movaps	%%xmm6,%c[__o3](%%rdi)	\n\t"\
-		"/* SSE2_RADIX4_DIT_0TWIDDLE_B(r8 ): */\n\t"\
-		"movq	%[__in4],%%rax		\n\t	leaq	%c[__o4](%%rsi),%%rsi	\n\t"/* __out0 + 4*ostride */\
-		"movq	%[__in5],%%rbx		\n\t"\
-		"movq	%[__in6],%%rcx		\n\t"\
-		"movq	%[__in7],%%rdx		\n\t"\
+	/* SSE2_RADIX4_DIT_0TWIDDLE_B(r8 ): */\
+		"movslq		0x10(%%r9),%%rax	\n\t"/* off[4-7] */\
+		"movslq		0x14(%%r9),%%rbx	\n\t"\
+		"movslq		0x18(%%r9),%%rcx	\n\t"\
+		"movslq		0x1c(%%r9),%%rdx	\n\t"\
+		"leaq	(%%r8,%%rax,8),%%rax	\n\t"/* in0 + off[4-7] */\
+		"leaq	(%%r8,%%rbx,8),%%rbx	\n\t"\
+		"leaq	(%%r8,%%rcx,8),%%rcx	\n\t"\
+		"leaq	(%%r8,%%rdx,8),%%rdx	\n\t"\
+		"addq	$%c[__o4],%%rsi		\n\t"/* __out0 + 4*ostride */\
 	"prefetcht1	0x100(%%rax)\n\t"\
 		"movaps	    (%%rax),%%xmm2	\n\t"\
 		"movaps	    (%%rcx),%%xmm6	\n\t"\
@@ -14299,11 +14337,16 @@
 		"movaps	%%xmm7,%c[__o1](%%rsi)	\n\t"\
 		"movaps	%%xmm5,        (%%rdi)	\n\t"\
 		"movaps	%%xmm6,%c[__o3](%%rdi)	\n\t"\
-		"/* SSE2_RADIX4_DIT_0TWIDDLE_B(r16): */\n\t"\
-		"movq	%[__in8],%%rax			\n\t	leaq	%c[__o4](%%rsi),%%rsi	\n\t"/* __out0 + 8*ostride */\
-		"movq	%[__in9],%%rbx			\n\t"\
-		"movq	%[__ina],%%rcx			\n\t"\
-		"movq	%[__inb],%%rdx			\n\t"\
+	/* SSE2_RADIX4_DIT_0TWIDDLE_B(r16): */\
+		"movslq		0x20(%%r9),%%rax	\n\t"/* off[8-b] */\
+		"movslq		0x24(%%r9),%%rbx	\n\t"\
+		"movslq		0x28(%%r9),%%rcx	\n\t"\
+		"movslq		0x2c(%%r9),%%rdx	\n\t"\
+		"leaq	(%%r8,%%rax,8),%%rax	\n\t"/* in0 + off[8-b] */\
+		"leaq	(%%r8,%%rbx,8),%%rbx	\n\t"\
+		"leaq	(%%r8,%%rcx,8),%%rcx	\n\t"\
+		"leaq	(%%r8,%%rdx,8),%%rdx	\n\t"\
+		"addq	$%c[__o4],%%rsi		\n\t"/* __out0 + 8*ostride */\
 	"prefetcht1	0x100(%%rax)\n\t"\
 		"movaps	    (%%rax),%%xmm2	\n\t"\
 		"movaps	    (%%rcx),%%xmm6	\n\t"\
@@ -14347,11 +14390,16 @@
 		"movaps	%%xmm7,%c[__o1](%%rsi)	\n\t"\
 		"movaps	%%xmm5,        (%%rdi)	\n\t"\
 		"movaps	%%xmm6,%c[__o3](%%rdi)	\n\t"\
-		"/* SSE2_RADIX4_DIT_0TWIDDLE_B(r24): */\n\t"\
-		"movq	%[__inc],%%rax			\n\t	leaq	%c[__o4](%%rsi),%%rsi	\n\t"/* __out0 + c*ostride */\
-		"movq	%[__ind],%%rbx			\n\t"\
-		"movq	%[__ine],%%rcx			\n\t"\
-		"movq	%[__inf],%%rdx			\n\t"\
+	/* SSE2_RADIX4_DIT_0TWIDDLE_B(r24): */\
+		"movslq		0x30(%%r9),%%rax	\n\t"/* off[c-f] */\
+		"movslq		0x34(%%r9),%%rbx	\n\t"\
+		"movslq		0x38(%%r9),%%rcx	\n\t"\
+		"movslq		0x3c(%%r9),%%rdx	\n\t"\
+		"leaq	(%%r8,%%rax,8),%%rax	\n\t"/* in0 + off[c-f] */\
+		"leaq	(%%r8,%%rbx,8),%%rbx	\n\t"\
+		"leaq	(%%r8,%%rcx,8),%%rcx	\n\t"\
+		"leaq	(%%r8,%%rdx,8),%%rdx	\n\t"\
+		"addq	$%c[__o4],%%rsi		\n\t"/* __out0 + c*ostride */\
 	"prefetcht1	0x100(%%rax)\n\t"\
 		"movaps	    (%%rax),%%xmm2	\n\t"\
 		"movaps	    (%%rcx),%%xmm6	\n\t"\
@@ -14417,7 +14465,6 @@
 		"subpd	0x10(%%rdx),%%xmm5	\n\t"\
 		"addpd	    (%%rcx),%%xmm6	\n\t"\
 		"addpd	0x10(%%rcx),%%xmm7	\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm6,%%xmm2		\n\t"\
 		"subpd	%%xmm7,%%xmm3		\n\t"\
 		"movaps	%%xmm2,    (%%rcx)	\n\t"\
@@ -14428,7 +14475,6 @@
 		"addpd	%%xmm3,%%xmm7		\n\t"\
 		"movaps	%%xmm6,    (%%rax)	\n\t"\
 		"movaps	%%xmm7,0x10(%%rax)	\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm5,%%xmm0		\n\t"\
 		"subpd	%%xmm4,%%xmm1		\n\t"\
 		"movaps	%%xmm0,    (%%rdx)	\n\t"\
@@ -14439,20 +14485,17 @@
 		"addpd	%%xmm1,%%xmm4		\n\t"\
 		"movaps	%%xmm5,    (%%rbx)	\n\t"\
 		"movaps	%%xmm4,0x10(%%rdx)	\n\t"\
-		"							\n\t"\
 		/* Block 2: */\
-		"leaq	%c[__o2](%%rax),%%rax	\n\t"/* All addresses += 2*ostride */\
-		"leaq	%c[__o2](%%rbx),%%rbx	\n\t"\
-		"leaq	%c[__o2](%%rcx),%%rcx	\n\t"\
-		"leaq	%c[__o2](%%rdx),%%rdx	\n\t"\
+		"addq	$%c[__o2],%%rax		\n\t"/* All addresses += 2*ostride */\
+		"addq	$%c[__o2],%%rbx		\n\t"\
+		"addq	$%c[__o2],%%rcx		\n\t"\
+		"addq	$%c[__o2],%%rdx		\n\t"\
 		"movq	%[__isrt2],%%rdi	\n\t"\
 		"movaps	(%%rdi),%%xmm2		\n\t"\
-		"							\n\t"\
 		"movaps	    (%%rcx),%%xmm4	\n\t"\
 		"movaps	0x10(%%rcx),%%xmm5	\n\t"\
 		"movaps	    (%%rdx),%%xmm0	\n\t"\
 		"movaps	0x10(%%rdx),%%xmm1	\n\t"\
-		"						\n\t"\
 		"addpd	0x10(%%rcx),%%xmm4	\n\t"\
 		"subpd	    (%%rcx),%%xmm5	\n\t"\
 		"subpd	0x10(%%rdx),%%xmm0	\n\t"\
@@ -14463,22 +14506,18 @@
 		"mulpd	%%xmm2,%%xmm1		\n\t"\
 		"movaps	%%xmm4,%%xmm6		\n\t"\
 		"movaps	%%xmm5,%%xmm7		\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm0,%%xmm4		\n\t"\
 		"subpd	%%xmm1,%%xmm5		\n\t"\
 		"addpd	%%xmm0,%%xmm6		\n\t"\
 		"addpd	%%xmm1,%%xmm7		\n\t"\
-		"							\n\t"\
 		"movaps	    (%%rax),%%xmm0	\n\t"\
 		"movaps	0x10(%%rax),%%xmm1	\n\t"\
 		"movaps	    (%%rbx),%%xmm2	\n\t"\
 		"movaps	0x10(%%rbx),%%xmm3	\n\t"\
-		"							\n\t"\
 		"subpd	0x10(%%rbx),%%xmm0	\n\t"\
 		"subpd	    (%%rbx),%%xmm1	\n\t"\
 		"addpd	    (%%rax),%%xmm3	\n\t"\
 		"addpd	0x10(%%rax),%%xmm2	\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm4,%%xmm3		\n\t"\
 		"subpd	%%xmm5,%%xmm1		\n\t"\
 		"movaps	%%xmm3,    (%%rcx)	\n\t"\
@@ -14489,7 +14528,6 @@
 		"addpd	%%xmm1,%%xmm5		\n\t"\
 		"movaps	%%xmm4,    (%%rax)	\n\t"\
 		"movaps	%%xmm5,0x10(%%rax)	\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm7,%%xmm0		\n\t"\
 		"subpd	%%xmm6,%%xmm2		\n\t"\
 		"movaps	%%xmm0,    (%%rdx)	\n\t"\
@@ -14500,31 +14538,26 @@
 		"addpd	%%xmm2,%%xmm6		\n\t"\
 		"movaps	%%xmm7,    (%%rbx)	\n\t"\
 		"movaps	%%xmm6,0x10(%%rdx)	\n\t"\
-		"							\n\t"\
 		/* Block 1: */\
-		"leaq	-%c[__o1](%%rax),%%rax	\n\t"/* All addresses -= 1*ostride */\
-		"leaq	-%c[__o1](%%rbx),%%rbx	\n\t"\
-		"leaq	-%c[__o1](%%rcx),%%rcx	\n\t"\
-		"leaq	-%c[__o1](%%rdx),%%rdx	\n\t"\
+		"subq	$%c[__o1],%%rax		\n\t"/* All subresses -= 1*ostride */\
+		"subq	$%c[__o1],%%rbx		\n\t"\
+		"subq	$%c[__o1],%%rcx		\n\t"\
+		"subq	$%c[__o1],%%rdx		\n\t"\
 		"leaq	0x10(%%rdi),%%rsi	\n\t"/* cc0 */\
-		"							\n\t"\
 		"movaps	    (%%rdx),%%xmm0	\n\t"\
 		"movaps	0x10(%%rdx),%%xmm1	\n\t"\
 		"movaps	    (%%rdx),%%xmm2	\n\t"\
 		"movaps	0x10(%%rdx),%%xmm3	\n\t"\
-		"							\n\t"\
 		"mulpd	0x10(%%rsi),%%xmm0	\n\t"\
 		"mulpd	0x10(%%rsi),%%xmm1	\n\t"\
 		"mulpd	    (%%rsi),%%xmm2	\n\t"\
 		"mulpd	    (%%rsi),%%xmm3	\n\t"\
 		"subpd	%%xmm2,%%xmm1		\n\t"\
 		"addpd	%%xmm3,%%xmm0		\n\t"\
-		"							\n\t"\
 		"movaps	    (%%rcx),%%xmm4	\n\t"\
 		"movaps	0x10(%%rcx),%%xmm5	\n\t"\
 		"movaps	    (%%rcx),%%xmm6	\n\t"\
 		"movaps	0x10(%%rcx),%%xmm7	\n\t"\
-		"							\n\t"\
 		"mulpd	    (%%rsi),%%xmm4	\n\t"\
 		"mulpd	    (%%rsi),%%xmm5	\n\t"\
 		"mulpd	0x10(%%rsi),%%xmm6	\n\t"\
@@ -14533,12 +14566,10 @@
 		"addpd	%%xmm7,%%xmm4		\n\t"\
 		"movaps	%%xmm5,%%xmm7		\n\t"\
 		"movaps	%%xmm4,%%xmm6		\n\t"\
-		"							\n\t"\
 		"addpd	%%xmm0,%%xmm4		\n\t"\
 		"addpd	%%xmm1,%%xmm5		\n\t"\
 		"subpd	%%xmm0,%%xmm6		\n\t"\
 		"subpd	%%xmm1,%%xmm7		\n\t"\
-		"							\n\t"\
 		"movaps	    (%%rbx),%%xmm2	\n\t"\
 		"movaps	0x10(%%rbx),%%xmm3	\n\t"\
 		"movaps	    (%%rax),%%xmm0	\n\t"\
@@ -14547,14 +14578,12 @@
 		"subpd	    (%%rbx),%%xmm3	\n\t"\
 		"mulpd	    (%%rdi),%%xmm2	\n\t"\
 		"mulpd	    (%%rdi),%%xmm3	\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm2,%%xmm0		\n\t"\
 		"subpd	%%xmm3,%%xmm1		\n\t"\
 		"addpd	%%xmm2,%%xmm2		\n\t"\
 		"addpd	%%xmm3,%%xmm3		\n\t"\
 		"addpd	%%xmm0,%%xmm2		\n\t"\
 		"addpd	%%xmm1,%%xmm3		\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm4,%%xmm2		\n\t"\
 		"subpd	%%xmm5,%%xmm3		\n\t"\
 		"movaps	%%xmm2,    (%%rcx)	\n\t"\
@@ -14565,7 +14594,6 @@
 		"addpd	%%xmm3,%%xmm5		\n\t"\
 		"movaps	%%xmm4,    (%%rax)	\n\t"\
 		"movaps	%%xmm5,0x10(%%rax)	\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm7,%%xmm0		\n\t"\
 		"subpd	%%xmm6,%%xmm1		\n\t"\
 		"movaps	%%xmm0,    (%%rdx)	\n\t"\
@@ -14576,30 +14604,25 @@
 		"addpd	%%xmm1,%%xmm6		\n\t"\
 		"movaps	%%xmm7,    (%%rbx)	\n\t"\
 		"movaps	%%xmm6,0x10(%%rdx)	\n\t"\
-		"							\n\t"\
 		/* Block 3: */\
-		"leaq	%c[__o2](%%rax),%%rax	\n\t"/* All addresses += 2*ostride */\
-		"leaq	%c[__o2](%%rbx),%%rbx	\n\t"\
-		"leaq	%c[__o2](%%rcx),%%rcx	\n\t"\
-		"leaq	%c[__o2](%%rdx),%%rdx	\n\t"\
-		"							\n\t"\
+		"addq	$%c[__o2],%%rax		\n\t"/* All addresses += 2*ostride */\
+		"addq	$%c[__o2],%%rbx		\n\t"\
+		"addq	$%c[__o2],%%rcx		\n\t"\
+		"addq	$%c[__o2],%%rdx		\n\t"\
 		"movaps	    (%%rdx),%%xmm0	\n\t"\
 		"movaps	0x10(%%rdx),%%xmm1	\n\t"\
 		"movaps	    (%%rdx),%%xmm2	\n\t"\
 		"movaps	0x10(%%rdx),%%xmm3	\n\t"\
-		"						\n\t"\
 		"mulpd	    (%%rsi),%%xmm0	\n\t"\
 		"mulpd	    (%%rsi),%%xmm1	\n\t"\
 		"mulpd	0x10(%%rsi),%%xmm2	\n\t"\
 		"mulpd	0x10(%%rsi),%%xmm3	\n\t"\
 		"subpd	%%xmm2,%%xmm1		\n\t"\
 		"addpd	%%xmm3,%%xmm0		\n\t"\
-		"							\n\t"\
 		"movaps	    (%%rcx),%%xmm4	\n\t"\
 		"movaps	0x10(%%rcx),%%xmm5	\n\t"\
 		"movaps	    (%%rcx),%%xmm6	\n\t"\
 		"movaps	0x10(%%rcx),%%xmm7	\n\t"\
-		"						\n\t"\
 		"mulpd	0x10(%%rsi),%%xmm4	\n\t"\
 		"mulpd	0x10(%%rsi),%%xmm5	\n\t"\
 		"mulpd	    (%%rsi),%%xmm6	\n\t"\
@@ -14608,12 +14631,10 @@
 		"addpd	%%xmm7,%%xmm4		\n\t"\
 		"movaps	%%xmm5,%%xmm7		\n\t"\
 		"movaps	%%xmm4,%%xmm6		\n\t"\
-		"							\n\t"\
 		"addpd	%%xmm0,%%xmm4		\n\t"\
 		"addpd	%%xmm1,%%xmm5		\n\t"\
 		"subpd	%%xmm0,%%xmm6		\n\t"\
 		"subpd	%%xmm1,%%xmm7		\n\t"\
-		"							\n\t"\
 		"movaps	    (%%rbx),%%xmm2	\n\t"\
 		"movaps	0x10(%%rbx),%%xmm3	\n\t"\
 		"movaps	    (%%rax),%%xmm0	\n\t"\
@@ -14622,14 +14643,12 @@
 		"addpd	    (%%rbx),%%xmm3	\n\t"\
 		"mulpd	    (%%rdi),%%xmm2	\n\t"\
 		"mulpd	    (%%rdi),%%xmm3	\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm2,%%xmm0		\n\t"\
 		"subpd	%%xmm3,%%xmm1		\n\t"\
 		"addpd	%%xmm2,%%xmm2		\n\t"\
 		"addpd	%%xmm3,%%xmm3		\n\t"\
 		"addpd	%%xmm0,%%xmm2		\n\t"\
 		"addpd	%%xmm1,%%xmm3		\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm6,%%xmm0		\n\t"\
 		"subpd	%%xmm7,%%xmm1		\n\t"\
 		"movaps	%%xmm0,    (%%rcx)	\n\t"\
@@ -14640,7 +14659,6 @@
 		"addpd	%%xmm1,%%xmm7		\n\t"\
 		"movaps	%%xmm6,    (%%rax)	\n\t"\
 		"movaps	%%xmm7,0x10(%%rax)	\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm5,%%xmm2		\n\t"\
 		"subpd	%%xmm4,%%xmm3		\n\t"\
 		"movaps	%%xmm2,    (%%rdx)	\n\t"\
@@ -14652,22 +14670,8 @@
 		"movaps	%%xmm5,    (%%rbx)	\n\t"\
 		"movaps	%%xmm4,0x10(%%rdx)	\n\t"\
 		:					/* outputs: none */\
-		:[__in0] "m" (Xin0)	/* All inputs from memory addresses here */\
-		,[__in1] "m" (Xin1)\
-		,[__in2] "m" (Xin2)\
-		,[__in3] "m" (Xin3)\
-		,[__in4] "m" (Xin4)\
-		,[__in5] "m" (Xin5)\
-		,[__in6] "m" (Xin6)\
-		,[__in7] "m" (Xin7)\
-		,[__in8] "m" (Xin8)\
-		,[__in9] "m" (Xin9)\
-		,[__ina] "m" (Xina)\
-		,[__inb] "m" (Xinb)\
-		,[__inc] "m" (Xinc)\
-		,[__ind] "m" (Xind)\
-		,[__ine] "m" (Xine)\
-		,[__inf] "m" (Xinf)\
+		:[in0] "m" (Xin0)	/* Input-address-16-tet base pointer */\
+		,[off] "m" (Xoff)	/* and pointer to uint32 array of 16 double* index offsets */\
 		,[__isrt2] "m" (Xisrt2)\
 		,[__two] "m" (Xtwo)\
 		,[__out0] "m" (Xout0)\
@@ -14675,42 +14679,40 @@
 		,[__o2] "e" (Xo2)\
 		,[__o3] "e" (Xo3)\
 		,[__o4] "e" (Xo4)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r8","r9","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"	/* Clobbered registers */\
 	);\
 	}
 
 	// Based on the SSE2_RADIX16_DIF_NOTWIDDLE macro in radix16_ditN_cy_dif1_gcc64.h, but with completely
 	// specifiable 16-output addressing required for usage as the power-of-2 component of a twiddleless
 	// radix = [odd*2^n] DFT routine.
-	#define SSE2_RADIX16_DIF_0TWIDDLE(Xin0,Xi1,Xi2,Xi3,Xi4, Xisrt2,Xtwo, Xout0,Xout1,Xout2,Xout3,Xout4,Xout5,Xout6,Xout7,Xout8,Xout9,Xouta,Xoutb,Xoutc,Xoutd,Xoute,Xoutf)\
+	/* Dec 2020: Needed to cut #args for Apple M1/Clang builds on Arm64 - do similar on x86 to avoid
+	multiple versions of the macro having different arglists. Replace 16 O-addresses with O-base-address
+	out0 and pointer to array of 16 int offset-indices: */
+	#define SSE2_RADIX16_DIF_0TWIDDLE(Xin0,Xi1,Xi2,Xi3,Xi4, Xisrt2,Xtwo, Xout0,Xoff)\
 	{\
 	__asm__ volatile (\
-		"/* SSE2_RADIX4_DIF_IN_PLACE(r1 , r17, r9 , r25): */\n\t"\
+	/* SSE2_RADIX4_DIF_IN_PLACE(r1 , r17, r9 , r25): */\
 		"movq	%[__in0],%%rax		\n\t"\
 		"leaq	%c[__i4](%%rax),%%rcx	\n\t"/* __in0 +   [4*istride]; note BR of [a,b,c,d]-ptrs, i.e. b/c swap */\
 		"leaq	%c[__i4](%%rcx),%%rbx	\n\t"/* __in0 + 2*[4*istride] */\
 		"leaq	%c[__i4](%%rbx),%%rdx	\n\t"/* __in0 + 3*[4*istride] */\
-		"							\n\t"\
 		"movaps	    (%%rax),%%xmm0	\n\t"\
 		"movaps	0x10(%%rax),%%xmm1	\n\t"\
 		"movaps	    (%%rax),%%xmm2	\n\t"\
 		"movaps	0x10(%%rax),%%xmm3	\n\t"\
-		"							\n\t"\
 		"addpd	    (%%rbx),%%xmm0	\n\t"\
 		"addpd	0x10(%%rbx),%%xmm1	\n\t"\
 		"subpd	    (%%rbx),%%xmm2	\n\t"\
 		"subpd	0x10(%%rbx),%%xmm3	\n\t"\
-		"							\n\t"\
 		"movaps	    (%%rcx),%%xmm4	\n\t"\
 		"movaps	0x10(%%rcx),%%xmm5	\n\t"\
 		"movaps	    (%%rcx),%%xmm6	\n\t"\
 		"movaps	0x10(%%rcx),%%xmm7	\n\t"\
-		"							\n\t"\
 		"addpd	    (%%rdx),%%xmm4	\n\t"\
 		"addpd	0x10(%%rdx),%%xmm5	\n\t"\
 		"subpd	    (%%rdx),%%xmm6	\n\t"\
 		"subpd	0x10(%%rdx),%%xmm7	\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm4,%%xmm0		\n\t"\
 		"subpd	%%xmm5,%%xmm1		\n\t"\
 		"movaps	%%xmm0,    (%%rbx)	\n\t"\
@@ -14721,7 +14723,6 @@
 		"addpd	%%xmm1,%%xmm5		\n\t"\
 		"movaps	%%xmm4,    (%%rax)	\n\t"\
 		"movaps	%%xmm5,0x10(%%rax)	\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm7,%%xmm2		\n\t"\
 		"subpd	%%xmm6,%%xmm3		\n\t"\
 		"movaps	%%xmm2,    (%%rcx)	\n\t"\
@@ -14732,32 +14733,27 @@
 		"addpd	%%xmm3,%%xmm6		\n\t"\
 		"movaps	%%xmm7,    (%%rdx)	\n\t"\
 		"movaps	%%xmm6,0x10(%%rcx)	\n\t"\
-		"/* SSE2_RADIX4_DIF_IN_PLACE(r5 , r21, r13, r29): */\n\t"\
-		"leaq	%c[__i2](%%rax),%%rax	\n\t"/* All addresses += 2*ostride */\
-		"leaq	%c[__i2](%%rbx),%%rbx	\n\t"\
-		"leaq	%c[__i2](%%rcx),%%rcx	\n\t"\
-		"leaq	%c[__i2](%%rdx),%%rdx	\n\t"\
-		"							\n\t"\
+	/* SSE2_RADIX4_DIF_IN_PLACE(r5 , r21, r13, r29): */\
+		"addq	$%c[__i2],%%rax	\n\t"/* All addresses += 2*ostride */\
+		"addq	$%c[__i2],%%rbx	\n\t"\
+		"addq	$%c[__i2],%%rcx	\n\t"\
+		"addq	$%c[__i2],%%rdx	\n\t"\
 		"movaps	    (%%rax),%%xmm0	\n\t"\
 		"movaps	0x10(%%rax),%%xmm1	\n\t"\
 		"movaps	    (%%rax),%%xmm2	\n\t"\
 		"movaps	0x10(%%rax),%%xmm3	\n\t"\
-		"							\n\t"\
 		"addpd	    (%%rbx),%%xmm0	\n\t"\
 		"addpd	0x10(%%rbx),%%xmm1	\n\t"\
 		"subpd	    (%%rbx),%%xmm2	\n\t"\
 		"subpd	0x10(%%rbx),%%xmm3	\n\t"\
-		"							\n\t"\
 		"movaps	    (%%rcx),%%xmm4	\n\t"\
 		"movaps	0x10(%%rcx),%%xmm5	\n\t"\
 		"movaps	    (%%rcx),%%xmm6	\n\t"\
 		"movaps	0x10(%%rcx),%%xmm7	\n\t"\
-		"							\n\t"\
 		"addpd	    (%%rdx),%%xmm4	\n\t"\
 		"addpd	0x10(%%rdx),%%xmm5	\n\t"\
 		"subpd	    (%%rdx),%%xmm6	\n\t"\
 		"subpd	0x10(%%rdx),%%xmm7	\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm4,%%xmm0		\n\t"\
 		"subpd	%%xmm5,%%xmm1		\n\t"\
 		"movaps	%%xmm0,    (%%rbx)	\n\t"\
@@ -14768,7 +14764,6 @@
 		"addpd	%%xmm1,%%xmm5		\n\t"\
 		"movaps	%%xmm4,    (%%rax)	\n\t"\
 		"movaps	%%xmm5,0x10(%%rax)	\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm7,%%xmm2		\n\t"\
 		"subpd	%%xmm6,%%xmm3		\n\t"\
 		"movaps	%%xmm2,    (%%rcx)	\n\t"\
@@ -14779,32 +14774,27 @@
 		"addpd	%%xmm3,%%xmm6		\n\t"\
 		"movaps	%%xmm7,    (%%rdx)	\n\t"\
 		"movaps	%%xmm6,0x10(%%rcx)	\n\t"\
-		"/* SSE2_RADIX4_DIF_IN_PLACE(r3 , r19, r11, r27): */\n\t"\
-		"leaq	-%c[__i1](%%rax),%%rax	\n\t"/* All addresses -= 1*ostride */\
-		"leaq	-%c[__i1](%%rbx),%%rbx	\n\t"\
-		"leaq	-%c[__i1](%%rcx),%%rcx	\n\t"\
-		"leaq	-%c[__i1](%%rdx),%%rdx	\n\t"\
-		"							\n\t"\
+	/* SSE2_RADIX4_DIF_IN_PLACE(r3 , r19, r11, r27): */\
+		"subq	$%c[__i1],%%rax	\n\t"/* All addresses -= 1*ostride */\
+		"subq	$%c[__i1],%%rbx	\n\t"\
+		"subq	$%c[__i1],%%rcx	\n\t"\
+		"subq	$%c[__i1],%%rdx	\n\t"\
 		"movaps	    (%%rax),%%xmm0	\n\t"\
 		"movaps	0x10(%%rax),%%xmm1	\n\t"\
 		"movaps	    (%%rax),%%xmm2	\n\t"\
 		"movaps	0x10(%%rax),%%xmm3	\n\t"\
-		"							\n\t"\
 		"addpd	    (%%rbx),%%xmm0	\n\t"\
 		"addpd	0x10(%%rbx),%%xmm1	\n\t"\
 		"subpd	    (%%rbx),%%xmm2	\n\t"\
 		"subpd	0x10(%%rbx),%%xmm3	\n\t"\
-		"							\n\t"\
 		"movaps	    (%%rcx),%%xmm4	\n\t"\
 		"movaps	0x10(%%rcx),%%xmm5	\n\t"\
 		"movaps	    (%%rcx),%%xmm6	\n\t"\
 		"movaps	0x10(%%rcx),%%xmm7	\n\t"\
-		"							\n\t"\
 		"addpd	    (%%rdx),%%xmm4	\n\t"\
 		"addpd	0x10(%%rdx),%%xmm5	\n\t"\
 		"subpd	    (%%rdx),%%xmm6	\n\t"\
 		"subpd	0x10(%%rdx),%%xmm7	\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm4,%%xmm0		\n\t"\
 		"subpd	%%xmm5,%%xmm1		\n\t"\
 		"movaps	%%xmm0,    (%%rbx)	\n\t"\
@@ -14815,7 +14805,6 @@
 		"addpd	%%xmm1,%%xmm5		\n\t"\
 		"movaps	%%xmm4,    (%%rax)	\n\t"\
 		"movaps	%%xmm5,0x10(%%rax)	\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm7,%%xmm2		\n\t"\
 		"subpd	%%xmm6,%%xmm3		\n\t"\
 		"movaps	%%xmm2,    (%%rcx)	\n\t"\
@@ -14826,32 +14815,27 @@
 		"addpd	%%xmm3,%%xmm6		\n\t"\
 		"movaps	%%xmm7,    (%%rdx)	\n\t"\
 		"movaps	%%xmm6,0x10(%%rcx)	\n\t"\
-		"/* SSE2_RADIX4_DIF_IN_PLACE(r7 , r23, r15, r31): */\n\t"\
-		"leaq	%c[__i2](%%rax),%%rax	\n\t"/* All addresses += 2*ostride */\
-		"leaq	%c[__i2](%%rbx),%%rbx	\n\t"\
-		"leaq	%c[__i2](%%rcx),%%rcx	\n\t"\
-		"leaq	%c[__i2](%%rdx),%%rdx	\n\t"\
-		"							\n\t"\
+	/* SSE2_RADIX4_DIF_IN_PLACE(r7 , r23, r15, r31): */\
+		"addq	$%c[__i2],%%rax	\n\t"/* All addresses += 2*ostride */\
+		"addq	$%c[__i2],%%rbx	\n\t"\
+		"addq	$%c[__i2],%%rcx	\n\t"\
+		"addq	$%c[__i2],%%rdx	\n\t"\
 		"movaps	    (%%rax),%%xmm0	\n\t"\
 		"movaps	0x10(%%rax),%%xmm1	\n\t"\
 		"movaps	    (%%rax),%%xmm2	\n\t"\
 		"movaps	0x10(%%rax),%%xmm3	\n\t"\
-		"							\n\t"\
 		"addpd	    (%%rbx),%%xmm0	\n\t"\
 		"addpd	0x10(%%rbx),%%xmm1	\n\t"\
 		"subpd	    (%%rbx),%%xmm2	\n\t"\
 		"subpd	0x10(%%rbx),%%xmm3	\n\t"\
-		"							\n\t"\
 		"movaps	    (%%rcx),%%xmm4	\n\t"\
 		"movaps	0x10(%%rcx),%%xmm5	\n\t"\
 		"movaps	    (%%rcx),%%xmm6	\n\t"\
 		"movaps	0x10(%%rcx),%%xmm7	\n\t"\
-		"							\n\t"\
 		"addpd	    (%%rdx),%%xmm4	\n\t"\
 		"addpd	0x10(%%rdx),%%xmm5	\n\t"\
 		"subpd	    (%%rdx),%%xmm6	\n\t"\
 		"subpd	0x10(%%rdx),%%xmm7	\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm4,%%xmm0		\n\t"\
 		"subpd	%%xmm5,%%xmm1		\n\t"\
 		"movaps	%%xmm0,    (%%rbx)	\n\t"\
@@ -14862,7 +14846,6 @@
 		"addpd	%%xmm1,%%xmm5		\n\t"\
 		"movaps	%%xmm4,    (%%rax)	\n\t"\
 		"movaps	%%xmm5,0x10(%%rax)	\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm7,%%xmm2		\n\t"\
 		"subpd	%%xmm6,%%xmm3		\n\t"\
 		"movaps	%%xmm2,    (%%rcx)	\n\t"\
@@ -14873,36 +14856,38 @@
 		"addpd	%%xmm3,%%xmm6		\n\t"\
 		"movaps	%%xmm7,    (%%rdx)	\n\t"\
 		"movaps	%%xmm6,0x10(%%rcx)	\n\t"\
-		"							\n\t"\
-	/*** Now do 4 DFTs with internal twiddles on the 1*stride - separated data. Do blocks in order 0,2,1,3 to allow increment-only of rsi-datum from 1 block to the next: ***/\
-		/* Block 0: r0-3 */\
-		"movq	%[__in0],%%rsi	\n\t"\
-		"movq	%[__out0],%%rax		\n\t"\
-		"movq	%[__out1],%%rbx		\n\t"\
-		"movq	%[__out2],%%rcx		\n\t"\
-		"movq	%[__out3],%%rdx		\n\t"\
-		"							\n\t"\
+	/*****************************************************************************************
+	**** Now do 4 DFTs with internal twiddles on the 1*stride - separated data. Do blocks ****
+	**** in order 0,2,1,3 to allow increment-only of rsi-datum from 1 block to the next:  ****
+	*****************************************************************************************/\
+	"movq	%[__in0],%%rsi	\n\t"\
+	"movq	%[out0],%%r8	\n\t	movq	%[off],%%r9	\n\t"/* Load output base-address into r8 and offset-array pointer into r9 */\
+	/* Block 0: r0-3 */\
+		"movslq		    (%%r9),%%rax	\n\t"/*        off0 */\
+		"movslq		0x04(%%r9),%%rbx	\n\t"/*        off1 */\
+		"movslq		0x08(%%r9),%%rcx	\n\t"/*        off2 */\
+		"movslq		0x0c(%%r9),%%rdx	\n\t"/*        off3 */\
+		"leaq	(%%r8,%%rax,8),%%rax	\n\t"/* out0 + off0 */\
+		"leaq	(%%r8,%%rbx,8),%%rbx	\n\t"/* out0 + off1 */\
+		"leaq	(%%r8,%%rcx,8),%%rcx	\n\t"/* out0 + off2 */\
+		"leaq	(%%r8,%%rdx,8),%%rdx	\n\t"/* out0 + off3 */\
 		"leaq	0x10(%%rsi),%%rdi	\n\t"/* Need separate address Im parts of outputs due to literal-offsets below */\
 		"movaps	        (%%rsi),%%xmm0	\n\t"\
 		"movaps	        (%%rdi),%%xmm1	\n\t"\
 		"movaps	%c[__i2](%%rsi),%%xmm2	\n\t"\
 		"movaps	%c[__i2](%%rdi),%%xmm3	\n\t"\
-		"						\n\t"\
 		"subpd	%c[__i2](%%rsi),%%xmm0	\n\t"\
 		"subpd	%c[__i2](%%rdi),%%xmm1	\n\t"\
 		"addpd	        (%%rsi),%%xmm2	\n\t"\
 		"addpd	        (%%rdi),%%xmm3	\n\t"\
-		"						\n\t"\
 		"movaps	%c[__i1](%%rsi),%%xmm4	\n\t"\
 		"movaps	%c[__i1](%%rdi),%%xmm5	\n\t"\
 		"movaps	%c[__i3](%%rsi),%%xmm6	\n\t"\
 		"movaps	%c[__i3](%%rdi),%%xmm7	\n\t"\
-		"						\n\t"\
 		"subpd	%c[__i3](%%rsi),%%xmm4	\n\t"\
 		"subpd	%c[__i3](%%rdi),%%xmm5	\n\t"\
 		"addpd	%c[__i1](%%rsi),%%xmm6	\n\t"\
 		"addpd	%c[__i1](%%rdi),%%xmm7	\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm6,%%xmm2		\n\t"\
 		"subpd	%%xmm7,%%xmm3		\n\t"\
 		"addpd	%%xmm6,%%xmm6		\n\t"\
@@ -14923,11 +14908,16 @@
 		"addpd	%%xmm1,		%%xmm4	\n\t"\
 		"movaps	%%xmm5,    (%%rdx)	\n\t"\
 		"movaps	%%xmm4,0x10(%%rcx)	\n\t"\
-		/* Block 2: */\
-		"movq	%[__out8],%%rax		\n\t	leaq	%c[__i4](%%rsi),%%rsi	\n\t"/* __in0 + 4*ostride */\
-		"movq	%[__out9],%%rbx		\n\t"\
-		"movq	%[__outa],%%rcx		\n\t"\
-		"movq	%[__outb],%%rdx		\n\t"\
+	/* Block 2: */\
+		"movslq		0x20(%%r9),%%rax	\n\t"/* off8-b */\
+		"movslq		0x24(%%r9),%%rbx	\n\t"\
+		"movslq		0x28(%%r9),%%rcx	\n\t"\
+		"movslq		0x2c(%%r9),%%rdx	\n\t"\
+		"leaq	(%%r8,%%rax,8),%%rax	\n\t"\
+		"leaq	(%%r8,%%rbx,8),%%rbx	\n\t"\
+		"leaq	(%%r8,%%rcx,8),%%rcx	\n\t"\
+		"leaq	(%%r8,%%rdx,8),%%rdx	\n\t"\
+		"addq	$%c[__i4],%%rsi	\n\t"/* __in0 + 4*ostride */\
 		"leaq	0x10(%%rsi),%%rdi	\n\t"\
 		"movaps	%c[__i1](%%rsi),%%xmm4	\n\t"\
 		"movaps	%c[__i3](%%rsi),%%xmm6	\n\t"\
@@ -14937,7 +14927,6 @@
 		"movaps	%%xmm6,%%xmm2		\n\t"\
 		"movaps	%%xmm5,%%xmm1		\n\t"\
 		"movaps	%%xmm7,%%xmm3		\n\t"\
-		"							\n\t"\
 		"movq	%[__isrt2],%%rdi	\n\t"\
 		"addq	$0x10,%%rdi	\n\t"/* cc0 */\
 		"mulpd	    (%%rdi),%%xmm4	\n\t"\
@@ -14952,14 +14941,12 @@
 		"subpd	%%xmm3,%%xmm6		\n\t"\
 		"addpd	%%xmm0,%%xmm5		\n\t"\
 		"addpd	%%xmm2,%%xmm7		\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm6,%%xmm4		\n\t"\
 		"subpd	%%xmm7,%%xmm5		\n\t"\
 		"addpd	%%xmm6,%%xmm6		\n\t"\
 		"addpd	%%xmm7,%%xmm7		\n\t"\
 		"addpd	%%xmm4,%%xmm6		\n\t"\
 		"addpd	%%xmm5,%%xmm7		\n\t"\
-		"							\n\t"\
 		"leaq	0x10(%%rsi),%%rdi	\n\t"\
 		"movaps	%c[__i2](%%rsi),%%xmm2	\n\t"\
 		"movaps	%c[__i2](%%rdi),%%xmm3	\n\t"\
@@ -14968,7 +14955,6 @@
 		"movq	%[__isrt2],%%rdi	\n\t"\
 		"mulpd	(%%rdi),%%xmm2	\n\t"/* mul by isrt2 */\
 		"mulpd	(%%rdi),%%xmm3	\n\t"\
-		"							\n\t"\
 		"leaq	0x10(%%rsi),%%rdi	\n\t"\
 		"movaps	        (%%rsi),%%xmm0	\n\t"\
 		"movaps	        (%%rdi),%%xmm1	\n\t"\
@@ -14976,7 +14962,6 @@
 		"subpd	%%xmm3,%%xmm1		\n\t"\
 		"addpd	        (%%rsi),%%xmm2	\n\t"\
 		"addpd	        (%%rdi),%%xmm3	\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm6,%%xmm2		\n\t"\
 		"subpd	%%xmm7,%%xmm3		\n\t"\
 		"addpd	%%xmm6,%%xmm6		\n\t"\
@@ -14997,50 +14982,48 @@
 		"addpd	%%xmm1,		%%xmm4	\n\t"\
 		"movaps	%%xmm5,    (%%rdx)	\n\t"\
 		"movaps	%%xmm4,0x10(%%rcx)	\n\t"\
-		/* Block 1: r8-b */\
-		"movq	%[__out4],%%rax		\n\t	leaq	%c[__i4](%%rsi),%%rsi	\n\t"/* __in0 + 8*ostride */\
-		"movq	%[__out5],%%rbx		\n\t"\
-		"movq	%[__out6],%%rcx		\n\t"\
-		"movq	%[__out7],%%rdx		\n\t"\
+	/* Block 1: r8-b */\
+		"movslq		0x10(%%r9),%%rax	\n\t"/* off4-7 */\
+		"movslq		0x14(%%r9),%%rbx	\n\t"\
+		"movslq		0x18(%%r9),%%rcx	\n\t"\
+		"movslq		0x1c(%%r9),%%rdx	\n\t"\
+		"leaq	(%%r8,%%rax,8),%%rax	\n\t"\
+		"leaq	(%%r8,%%rbx,8),%%rbx	\n\t"\
+		"leaq	(%%r8,%%rcx,8),%%rcx	\n\t"\
+		"leaq	(%%r8,%%rdx,8),%%rdx	\n\t"\
+		"addq	$%c[__i4],%%rsi	\n\t"/* __in0 + 8*ostride */\
 		"leaq	0x10(%%rsi),%%rdi	\n\t"\
 		"movaps	        (%%rsi),%%xmm0	\n\t"\
 		"movaps	        (%%rdi),%%xmm1	\n\t"\
 		"movaps	%c[__i2](%%rsi),%%xmm2	\n\t"\
 		"movaps	%c[__i2](%%rdi),%%xmm3	\n\t"\
-		"						\n\t"\
 		"subpd	%c[__i2](%%rdi),%%xmm0	\n\t"\
 		"subpd	%c[__i2](%%rsi),%%xmm1	\n\t"\
 		"addpd	        (%%rdi),%%xmm2	\n\t"\
 		"addpd	        (%%rsi),%%xmm3	\n\t"\
-		"						\n\t"\
 		"movaps	%c[__i1](%%rsi),%%xmm4	\n\t"\
 		"movaps	%c[__i1](%%rdi),%%xmm5	\n\t"\
 		"movaps	%c[__i3](%%rsi),%%xmm6	\n\t"\
 		"movaps	%c[__i3](%%rdi),%%xmm7	\n\t"\
-		"						\n\t"\
 		"subpd	%c[__i1](%%rdi),%%xmm4	\n\t"\
 		"addpd	%c[__i1](%%rsi),%%xmm5	\n\t"\
 		"addpd	%c[__i3](%%rdi),%%xmm6	\n\t"\
 		"subpd	%c[__i3](%%rsi),%%xmm7	\n\t"\
-		"							\n\t"\
 		"movq	%[__isrt2],%%rdi	\n\t"\
 		"mulpd	(%%rdi),%%xmm4		\n\t"\
 		"mulpd	(%%rdi),%%xmm5		\n\t"\
 		"mulpd	(%%rdi),%%xmm6		\n\t"\
 		"mulpd	(%%rdi),%%xmm7		\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm6,%%xmm4		\n\t"\
 		"subpd	%%xmm7,%%xmm5		\n\t"\
 		"addpd	%%xmm6,%%xmm6		\n\t"\
 		"addpd	%%xmm7,%%xmm7		\n\t"\
 		"addpd	%%xmm4,%%xmm6		\n\t"\
 		"addpd	%%xmm5,%%xmm7		\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm4,%%xmm0		\n\t"\
 		"subpd	%%xmm5,%%xmm2		\n\t"\
 		"addpd	%%xmm4,%%xmm4		\n\t"\
 		"addpd	%%xmm5,%%xmm5		\n\t"\
-		"							\n\t"\
 		"movaps	%%xmm0,    (%%rbx)	\n\t"\
 		"movaps	%%xmm2,0x10(%%rbx)	\n\t"\
 		"addpd	%%xmm0,		%%xmm4	\n\t"\
@@ -15057,11 +15040,16 @@
 		"addpd	%%xmm1,		%%xmm6	\n\t"\
 		"movaps	%%xmm7,    (%%rdx)	\n\t"\
 		"movaps	%%xmm6,0x10(%%rcx)	\n\t"\
-		/* Block 3: */\
-		"movq	%[__outc],%%rax		\n\t	leaq	%c[__i4](%%rsi),%%rsi	\n\t"/* __in0 + c*ostride */\
-		"movq	%[__outd],%%rbx		\n\t"\
-		"movq	%[__oute],%%rcx		\n\t"\
-		"movq	%[__outf],%%rdx		\n\t"\
+	/* Block 3: */\
+		"movslq		0x30(%%r9),%%rax	\n\t"/* offc-f */\
+		"movslq		0x34(%%r9),%%rbx	\n\t"\
+		"movslq		0x38(%%r9),%%rcx	\n\t"\
+		"movslq		0x3c(%%r9),%%rdx	\n\t"\
+		"leaq	(%%r8,%%rax,8),%%rax	\n\t"\
+		"leaq	(%%r8,%%rbx,8),%%rbx	\n\t"\
+		"leaq	(%%r8,%%rcx,8),%%rcx	\n\t"\
+		"leaq	(%%r8,%%rdx,8),%%rdx	\n\t"\
+		"addq	$%c[__i4],%%rsi	\n\t"/* __in0 + c*ostride */\
 		"leaq	0x10(%%rsi),%%rdi	\n\t"\
 		"movaps	%c[__i1](%%rsi),%%xmm4	\n\t"\
 		"movaps	%c[__i3](%%rsi),%%xmm6	\n\t"\
@@ -15071,7 +15059,6 @@
 		"movaps	%%xmm6,%%xmm2		\n\t"\
 		"movaps	%%xmm5,%%xmm1		\n\t"\
 		"movaps	%%xmm7,%%xmm3		\n\t"\
-		"							\n\t"\
 		"movq	%[__isrt2],%%rdi	\n\t"\
 		"addq	$0x10,%%rdi	\n\t"/* cc0 */\
 		"mulpd	0x10(%%rdi),%%xmm4	\n\t"\
@@ -15086,14 +15073,12 @@
 		"subpd	%%xmm3,%%xmm6		\n\t"\
 		"addpd	%%xmm0,%%xmm5		\n\t"\
 		"addpd	%%xmm2,%%xmm7		\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm6,%%xmm4		\n\t"\
 		"subpd	%%xmm7,%%xmm5		\n\t"\
 		"addpd	%%xmm6,%%xmm6		\n\t"\
 		"addpd	%%xmm7,%%xmm7		\n\t"\
 		"addpd	%%xmm4,%%xmm6		\n\t"\
 		"addpd	%%xmm5,%%xmm7		\n\t"\
-		"							\n\t"\
 		"leaq	0x10(%%rsi),%%rdi	\n\t"\
 		"movaps	%c[__i2](%%rsi),%%xmm2	\n\t"\
 		"movaps	%c[__i2](%%rdi),%%xmm3	\n\t"\
@@ -15102,7 +15087,6 @@
 		"movq	%[__isrt2],%%rdi	\n\t"\
 		"mulpd	(%%rdi),%%xmm2	\n\t"/* mul by isrt2 */\
 		"mulpd	(%%rdi),%%xmm3	\n\t"\
-		"							\n\t"\
 		"leaq	0x10(%%rsi),%%rdi	\n\t"\
 		"movaps	        (%%rsi),%%xmm0	\n\t"\
 		"movaps	        (%%rdi),%%xmm1	\n\t"\
@@ -15110,7 +15094,6 @@
 		"subpd	%%xmm3,%%xmm1		\n\t"\
 		"addpd	        (%%rsi),%%xmm2	\n\t"\
 		"addpd	        (%%rdi),%%xmm3	\n\t"\
-		"							\n\t"\
 		"subpd	%%xmm4,%%xmm0		\n\t"\
 		"subpd	%%xmm5,%%xmm1		\n\t"\
 		"addpd	%%xmm4,%%xmm4		\n\t"\
@@ -15139,262 +15122,13 @@
 		,[__i4] "e" (Xi4)\
 		,[__isrt2] "m" (Xisrt2)\
 		,[__two] "m" (Xtwo)\
-		,[__out0] "m" (Xout0)\
-		,[__out1] "m" (Xout1)\
-		,[__out2] "m" (Xout2)\
-		,[__out3] "m" (Xout3)\
-		,[__out4] "m" (Xout4)\
-		,[__out5] "m" (Xout5)\
-		,[__out6] "m" (Xout6)\
-		,[__out7] "m" (Xout7)\
-		,[__out8] "m" (Xout8)\
-		,[__out9] "m" (Xout9)\
-		,[__outa] "m" (Xouta)\
-		,[__outb] "m" (Xoutb)\
-		,[__outc] "m" (Xoutc)\
-		,[__outd] "m" (Xoutd)\
-		,[__oute] "m" (Xoute)\
-		,[__outf] "m" (Xoutf)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		,[out0] "m" (Xout0) /* output-address-16-tet base pointer */\
+		,[off] "m" (Xoff)	/* and pointer to uint32 array of 16 double* index offsets */\
+		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r8","r9","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
 	);\
 	}
 
 	// Same as above, but with specifiable I-addresses and regularly spaced O-addresses:
-
-  #if 0	// 16-register version: This proves slower than 8-reg in both my SSE2/Core2 ad AVX/Haswell tests:
-
-	#define SSE2_RADIX16_DIF_0TWIDDLE_B(Xin0,Xin1,Xin2,Xin3,Xin4,Xin5,Xin6,Xin7,Xin8,Xin9,Xina,Xinb,Xinc,Xind,Xine,Xinf, Xisrt2,Xtwo, Xout0,Xout1,Xout2,Xout3)\
-	{\
-	__asm__ volatile (\
-	/* SSE2_RADIX4_DIF_IN_PLACE(r1,r17,r9,r25) 	SSE2_RADIX4_DIF_IN_PLACE(r3,r19,r11,r27): */\
-		"movq	%[__in0],%%rax		\n\t		movq	%[__in1],%%r10		\n\t"\
-		"movq	%[__in8],%%rbx		\n\t		movq	%[__in9],%%r11		\n\t"\
-		"movq	%[__in4],%%rcx		\n\t		movq	%[__in5],%%r12		\n\t"\
-		"movq	%[__inc],%%rdx		\n\t		movq	%[__ind],%%r13		\n\t"\
-		"movaps	    (%%rax),%%xmm0	\n\t		movaps	    (%%r10),%%xmm8	\n\t"\
-		"movaps	0x10(%%rax),%%xmm1	\n\t		movaps	0x10(%%r10),%%xmm9	\n\t"\
-		"movaps	    (%%rax),%%xmm2	\n\t		movaps	    (%%r10),%%xmm10	\n\t"\
-		"movaps	0x10(%%rax),%%xmm3	\n\t		movaps	0x10(%%r10),%%xmm11	\n\t"\
-		"addpd	    (%%rbx),%%xmm0	\n\t		addpd	    (%%r11),%%xmm8	\n\t"\
-		"addpd	0x10(%%rbx),%%xmm1	\n\t		addpd	0x10(%%r11),%%xmm9	\n\t"\
-		"subpd	    (%%rbx),%%xmm2	\n\t		subpd	    (%%r11),%%xmm10	\n\t"\
-		"subpd	0x10(%%rbx),%%xmm3	\n\t		subpd	0x10(%%r11),%%xmm11	\n\t"\
-		"movaps	    (%%rcx),%%xmm4	\n\t		movaps	    (%%r12),%%xmm12	\n\t"\
-		"movaps	0x10(%%rcx),%%xmm5	\n\t		movaps	0x10(%%r12),%%xmm13	\n\t"\
-		"movaps	    (%%rcx),%%xmm6	\n\t		movaps	    (%%r12),%%xmm14	\n\t"\
-		"movaps	0x10(%%rcx),%%xmm7	\n\t		movaps	0x10(%%r12),%%xmm15	\n\t"\
-		"addpd	    (%%rdx),%%xmm4	\n\t		addpd	    (%%r13),%%xmm12	\n\t"\
-		"addpd	0x10(%%rdx),%%xmm5	\n\t		addpd	0x10(%%r13),%%xmm13	\n\t"\
-		"subpd	    (%%rdx),%%xmm6	\n\t		subpd	    (%%r13),%%xmm14	\n\t"\
-		"subpd	0x10(%%rdx),%%xmm7	\n\t		subpd	0x10(%%r13),%%xmm15	\n\t"\
-		"subpd	%%xmm4,%%xmm0		\n\t		subpd	%%xmm12,%%xmm8		\n\t"\
-		"subpd	%%xmm5,%%xmm1		\n\t		subpd	%%xmm13,%%xmm9		\n\t"\
-		"movaps	%%xmm0,    (%%rbx)	\n\t		movaps	%%xmm8,    (%%r11)	\n\t"\
-		"movaps	%%xmm1,0x10(%%rbx)	\n\t		movaps	%%xmm9,0x10(%%r11)	\n\t"\
-		"addpd	%%xmm4,%%xmm4		\n\t		addpd	%%xmm12,%%xmm12		\n\t"\
-		"addpd	%%xmm5,%%xmm5		\n\t		addpd	%%xmm13,%%xmm13		\n\t"\
-		"addpd	%%xmm0,%%xmm4		\n\t		addpd	%%xmm8,%%xmm12		\n\t"\
-		"addpd	%%xmm1,%%xmm5		\n\t		addpd	%%xmm9,%%xmm13		\n\t"\
-		"movaps	%%xmm4,    (%%rax)	\n\t		movaps	%%xmm12,    (%%r10)	\n\t"\
-		"movaps	%%xmm5,0x10(%%rax)	\n\t		movaps	%%xmm13,0x10(%%r10)	\n\t"\
-		"subpd	%%xmm7,%%xmm2		\n\t		subpd	%%xmm15,%%xmm10		\n\t"\
-		"subpd	%%xmm6,%%xmm3		\n\t		subpd	%%xmm14,%%xmm11		\n\t"\
-		"movaps	%%xmm2,    (%%rcx)	\n\t		movaps	%%xmm10,    (%%r12)	\n\t"\
-		"movaps	%%xmm3,0x10(%%rdx)	\n\t		movaps	%%xmm11,0x10(%%r13)	\n\t"\
-		"addpd	%%xmm7,%%xmm7		\n\t		addpd	%%xmm15,%%xmm15		\n\t"\
-		"addpd	%%xmm6,%%xmm6		\n\t		addpd	%%xmm14,%%xmm14		\n\t"\
-		"addpd	%%xmm2,%%xmm7		\n\t		addpd	%%xmm10,%%xmm15		\n\t"\
-		"addpd	%%xmm3,%%xmm6		\n\t		addpd	%%xmm11,%%xmm14		\n\t"\
-		"movaps	%%xmm7,    (%%rdx)	\n\t		movaps	%%xmm15,    (%%r13)	\n\t"\
-		"movaps	%%xmm6,0x10(%%rcx)	\n\t		movaps	%%xmm14,0x10(%%r12)	\n\t"\
-	/* SSE2_RADIX4_DIF_IN_PLACE(r5,r21,r13,r29)	SSE2_RADIX4_DIF_IN_PLACE(r7,r23,r15,r31): */\
-		"movq	%[__in2],%%rax		\n\t		movq	%[__in3],%%r10		\n\t"\
-		"movq	%[__ina],%%rbx		\n\t		movq	%[__inb],%%r11		\n\t"\
-		"movq	%[__in6],%%rcx		\n\t		movq	%[__in7],%%r12		\n\t"\
-		"movq	%[__ine],%%rdx		\n\t		movq	%[__inf],%%r13		\n\t"\
-		"movaps	    (%%rax),%%xmm0	\n\t		movaps	    (%%r10),%%xmm8	\n\t"\
-		"movaps	0x10(%%rax),%%xmm1	\n\t		movaps	0x10(%%r10),%%xmm9	\n\t"\
-		"movaps	    (%%rax),%%xmm2	\n\t		movaps	    (%%r10),%%xmm10	\n\t"\
-		"movaps	0x10(%%rax),%%xmm3	\n\t		movaps	0x10(%%r10),%%xmm11	\n\t"\
-		"addpd	    (%%rbx),%%xmm0	\n\t		addpd	    (%%r11),%%xmm8	\n\t"\
-		"addpd	0x10(%%rbx),%%xmm1	\n\t		addpd	0x10(%%r11),%%xmm9	\n\t"\
-		"subpd	    (%%rbx),%%xmm2	\n\t		subpd	    (%%r11),%%xmm10	\n\t"\
-		"subpd	0x10(%%rbx),%%xmm3	\n\t		subpd	0x10(%%r11),%%xmm11	\n\t"\
-		"movaps	    (%%rcx),%%xmm4	\n\t		movaps	    (%%r12),%%xmm12	\n\t"\
-		"movaps	0x10(%%rcx),%%xmm5	\n\t		movaps	0x10(%%r12),%%xmm13	\n\t"\
-		"movaps	    (%%rcx),%%xmm6	\n\t		movaps	    (%%r12),%%xmm14	\n\t"\
-		"movaps	0x10(%%rcx),%%xmm7	\n\t		movaps	0x10(%%r12),%%xmm15	\n\t"\
-		"addpd	    (%%rdx),%%xmm4	\n\t		addpd	    (%%r13),%%xmm12	\n\t"\
-		"addpd	0x10(%%rdx),%%xmm5	\n\t		addpd	0x10(%%r13),%%xmm13	\n\t"\
-		"subpd	    (%%rdx),%%xmm6	\n\t		subpd	    (%%r13),%%xmm14	\n\t"\
-		"subpd	0x10(%%rdx),%%xmm7	\n\t		subpd	0x10(%%r13),%%xmm15	\n\t"\
-		"subpd	%%xmm4,%%xmm0		\n\t		subpd	%%xmm12,%%xmm8		\n\t"\
-		"subpd	%%xmm5,%%xmm1		\n\t		subpd	%%xmm13,%%xmm9		\n\t"\
-		"movaps	%%xmm0,    (%%rbx)	\n\t		movaps	%%xmm8,    (%%r11)	\n\t"\
-		"movaps	%%xmm1,0x10(%%rbx)	\n\t		movaps	%%xmm9,0x10(%%r11)	\n\t"\
-		"addpd	%%xmm4,%%xmm4		\n\t		addpd	%%xmm12,%%xmm12		\n\t"\
-		"addpd	%%xmm5,%%xmm5		\n\t		addpd	%%xmm13,%%xmm13		\n\t"\
-		"addpd	%%xmm0,%%xmm4		\n\t		addpd	%%xmm8,%%xmm12		\n\t"\
-		"addpd	%%xmm1,%%xmm5		\n\t		addpd	%%xmm9,%%xmm13		\n\t"\
-		"movaps	%%xmm4,    (%%rax)	\n\t		movaps	%%xmm12,    (%%r10)	\n\t"\
-		"movaps	%%xmm5,0x10(%%rax)	\n\t		movaps	%%xmm13,0x10(%%r10)	\n\t"\
-		"subpd	%%xmm7,%%xmm2		\n\t		subpd	%%xmm15,%%xmm10		\n\t"\
-		"subpd	%%xmm6,%%xmm3		\n\t		subpd	%%xmm14,%%xmm11		\n\t"\
-		"movaps	%%xmm2,    (%%rcx)	\n\t		movaps	%%xmm10,    (%%r12)	\n\t"\
-		"movaps	%%xmm3,0x10(%%rdx)	\n\t		movaps	%%xmm11,0x10(%%r13)	\n\t"\
-		"addpd	%%xmm7,%%xmm7		\n\t		addpd	%%xmm15,%%xmm15		\n\t"\
-		"addpd	%%xmm6,%%xmm6		\n\t		addpd	%%xmm14,%%xmm14		\n\t"\
-		"addpd	%%xmm2,%%xmm7		\n\t		addpd	%%xmm10,%%xmm15		\n\t"\
-		"addpd	%%xmm3,%%xmm6		\n\t		addpd	%%xmm11,%%xmm14		\n\t"\
-		"movaps	%%xmm7,    (%%rdx)	\n\t		movaps	%%xmm15,    (%%r13)	\n\t"\
-		"movaps	%%xmm6,0x10(%%rcx)	\n\t		movaps	%%xmm14,0x10(%%r12)	\n\t"\
-	/*** Now do 4 DFTs with internal twiddles on the 1*stride - separated data. Do blocks in order 0,2,1,3 to allow increment-only of rsi-datum from 1 block to the next: ***/\
-		"movq	%[__isrt2],%%rdi	\n\t"\
-	/* Block 0: r0-3 */						/* Block 1: r8-b */\
-		"movq	%[__out0],%%rsi		\n\t		movq	%[__out1],%%r8		\n\t"\
-		"movq	%[__in0],%%rax		\n\t		movq	%[__in8],%%r10		\n\t"\
-		"movq	%[__in2],%%rbx		\n\t		movq	%[__ina],%%r11		\n\t"\
-		"movq	%[__in1],%%rcx		\n\t		movq	%[__in9],%%r12		\n\t"\
-		"movq	%[__in3],%%rdx		\n\t		movq	%[__inb],%%r13		\n\t"\
-		"movaps	    (%%rax),%%xmm0	\n\t		movaps	    (%%r10),%%xmm8	\n\t"\
-		"movaps	0x10(%%rax),%%xmm1	\n\t		movaps	0x10(%%r10),%%xmm9	\n\t"\
-		"movaps		(%%rbx),%%xmm2	\n\t		movaps		(%%r11),%%xmm10	\n\t"\
-		"movaps	0x10(%%rbx),%%xmm3	\n\t		movaps	0x10(%%r11),%%xmm11	\n\t"\
-		"subpd		(%%rbx),%%xmm0	\n\t		subpd	0x10(%%r11),%%xmm8	\n\t"\
-		"subpd	0x10(%%rbx),%%xmm1	\n\t		subpd		(%%r11),%%xmm9	\n\t"\
-		"addpd	    (%%rax),%%xmm2	\n\t		addpd	0x10(%%r10),%%xmm10	\n\t"\
-		"addpd	0x10(%%rax),%%xmm3	\n\t		addpd		(%%r10),%%xmm11	\n\t"\
-		"movaps		(%%rcx),%%xmm4	\n\t		movaps		(%%r12),%%xmm12	\n\t"\
-		"movaps	0x10(%%rcx),%%xmm5	\n\t		movaps	0x10(%%r12),%%xmm13	\n\t"\
-		"movaps	    (%%rdx),%%xmm6	\n\t		movaps	    (%%r13),%%xmm14	\n\t"\
-		"movaps	0x10(%%rdx),%%xmm7	\n\t		movaps	0x10(%%r13),%%xmm15	\n\t"\
-		"subpd		(%%rdx),%%xmm4	\n\t		subpd	0x10(%%r12),%%xmm12	\n\t"\
-		"subpd	0x10(%%rdx),%%xmm5	\n\t		addpd		(%%r12),%%xmm13	\n\t"\
-		"addpd	    (%%rcx),%%xmm6	\n\t		addpd	0x10(%%r13),%%xmm14	\n\t"\
-		"addpd	0x10(%%rcx),%%xmm7	\n\t		subpd		(%%r13),%%xmm15	\n\t"\
-		"subpd	%%xmm6,%%xmm2		\n\t		mulpd	(%%rdi),%%xmm12		\n\t"\
-		"subpd	%%xmm7,%%xmm3		\n\t		mulpd	(%%rdi),%%xmm13		\n\t"\
-		"addpd	%%xmm6,%%xmm6		\n\t		mulpd	(%%rdi),%%xmm14		\n\t"\
-		"addpd	%%xmm7,%%xmm7		\n\t		mulpd	(%%rdi),%%xmm15		\n\t"\
-		"movaps	%%xmm2,0x20(%%rsi)	\n\t		subpd	%%xmm14,%%xmm12		\n\t"\
-		"movaps	%%xmm3,0x30(%%rsi)	\n\t		subpd	%%xmm15,%%xmm13		\n\t"\
-		"addpd	%%xmm2,%%xmm6		\n\t		addpd	%%xmm14,%%xmm14		\n\t"\
-		"addpd	%%xmm3,%%xmm7		\n\t		addpd	%%xmm15,%%xmm15		\n\t"\
-		"movaps	%%xmm6,    (%%rsi)	\n\t		addpd	%%xmm12,%%xmm14		\n\t"\
-		"movaps	%%xmm7,0x10(%%rsi)	\n\t		addpd	%%xmm13,%%xmm15		\n\t"\
-		"subpd	%%xmm5,%%xmm0		\n\t		subpd	%%xmm12,%%xmm8		\n\t"\
-		"subpd	%%xmm4,%%xmm1		\n\t		subpd	%%xmm13,%%xmm10		\n\t"\
-		"addpd	%%xmm5,%%xmm5		\n\t		addpd	%%xmm12,%%xmm12		\n\t"\
-		"addpd	%%xmm4,%%xmm4		\n\t		addpd	%%xmm13,%%xmm13		\n\t"\
-		"movaps	%%xmm0,0x40(%%rsi)	\n\t		movaps	%%xmm8,0x20(%%r8)	\n\t"\
-		"movaps	%%xmm1,0x70(%%rsi)	\n\t		movaps	%%xmm10,0x30(%%r8)	\n\t"\
-		"addpd	%%xmm0,%%xmm5		\n\t		addpd	%%xmm8,%%xmm12		\n\t"\
-		"addpd	%%xmm1,%%xmm4		\n\t		addpd	%%xmm10,%%xmm13		\n\t"\
-		"movaps	%%xmm5,0x60(%%rsi)	\n\t		movaps	%%xmm12,    (%%r8)	\n\t"\
-		"movaps	%%xmm4,0x50(%%rsi)	\n\t		movaps	%%xmm13,0x10(%%r8)	\n\t"\
-	/* Block 2: */							"	subpd	%%xmm15,%%xmm11		\n\t"\
-		"movq	%[__out2],%%rsi		\n\t		subpd	%%xmm14,%%xmm9		\n\t"\
-		"movq	%[__in4],%%rax		\n\t		addpd	%%xmm15,%%xmm15		\n\t"\
-		"movq	%[__in6],%%rbx		\n\t		addpd	%%xmm14,%%xmm14		\n\t"\
-		"movq	%[__in5],%%rcx		\n\t		movaps	%%xmm11,0x40(%%r8)	\n\t"\
-		"movq	%[__in7],%%rdx		\n\t		movaps	%%xmm9,0x70(%%r8)	\n\t"\
-		"movaps	    (%%rcx),%%xmm4	\n\t		addpd	%%xmm11,%%xmm15		\n\t"\
-		"movaps		(%%rdx),%%xmm6	\n\t		addpd	%%xmm9,%%xmm14		\n\t"\
-		"movaps	0x10(%%rcx),%%xmm5	\n\t		movaps	%%xmm15,0x60(%%r8)	\n\t"\
-		"movaps	0x10(%%rdx),%%xmm7	\n\t		movaps	%%xmm14,0x50(%%r8)	\n\t"\
-		"movaps	%%xmm4,%%xmm0		\n\t"	/* Block 3: */\
-		"movaps	%%xmm6,%%xmm2		\n\t		movq	%[__out3],%%r8		\n\t"\
-		"movaps	%%xmm5,%%xmm1		\n\t		movq	%[__inc],%%r10		\n\t"\
-		"movaps	%%xmm7,%%xmm3		\n\t		movq	%[__ine],%%r11		\n\t"\
-		/* cc0,ss0 = 0x[1,2]0(%%rdi): */	"	movq	%[__ind],%%r12		\n\t"\
-		"mulpd	0x10(%%rdi),%%xmm4	\n\t		movq	%[__inf],%%r13		\n\t"\
-		"mulpd	0x20(%%rdi),%%xmm6	\n\t		movaps	    (%%r12),%%xmm12	\n\t"\
-		"mulpd	0x20(%%rdi),%%xmm1	\n\t		movaps		(%%r13),%%xmm14	\n\t"\
-		"mulpd	0x10(%%rdi),%%xmm3	\n\t		movaps	0x10(%%r12),%%xmm13	\n\t"\
-		"mulpd	0x10(%%rdi),%%xmm5	\n\t		movaps	0x10(%%r13),%%xmm15	\n\t"\
-		"mulpd	0x20(%%rdi),%%xmm7	\n\t		movaps	%%xmm12,%%xmm8		\n\t"\
-		"mulpd	0x20(%%rdi),%%xmm0	\n\t		movaps	%%xmm14,%%xmm10		\n\t"\
-		"mulpd	0x10(%%rdi),%%xmm2	\n\t		movaps	%%xmm13,%%xmm9		\n\t"\
-		"subpd	%%xmm1,%%xmm4		\n\t		movaps	%%xmm15,%%xmm11		\n\t"\
-		"subpd	%%xmm3,%%xmm6		\n\t		mulpd	0x20(%%rdi),%%xmm12	\n\t"\
-		"addpd	%%xmm0,%%xmm5		\n\t		mulpd	0x10(%%rdi),%%xmm14	\n\t"\
-		"addpd	%%xmm2,%%xmm7		\n\t		mulpd	0x10(%%rdi),%%xmm9	\n\t"\
-		"subpd	%%xmm6,%%xmm4		\n\t		mulpd	0x20(%%rdi),%%xmm11	\n\t"\
-		"subpd	%%xmm7,%%xmm5		\n\t		mulpd	0x20(%%rdi),%%xmm13	\n\t"\
-		"addpd	%%xmm6,%%xmm6		\n\t		mulpd	0x10(%%rdi),%%xmm15	\n\t"\
-		"addpd	%%xmm7,%%xmm7		\n\t		mulpd	0x10(%%rdi),%%xmm8	\n\t"\
-		"addpd	%%xmm4,%%xmm6		\n\t		mulpd	0x20(%%rdi),%%xmm10	\n\t"\
-		"addpd	%%xmm5,%%xmm7		\n\t		subpd	%%xmm9,%%xmm12		\n\t"\
-		"movaps	    (%%rbx),%%xmm2	\n\t		subpd	%%xmm11,%%xmm14		\n\t"\
-		"movaps	0x10(%%rbx),%%xmm3	\n\t		addpd	%%xmm8,%%xmm13		\n\t"\
-		"subpd	0x10(%%rbx),%%xmm2	\n\t		addpd	%%xmm10,%%xmm15		\n\t"\
-		"addpd		(%%rbx),%%xmm3	\n\t		subpd	%%xmm14,%%xmm12		\n\t"\
-		"mulpd	(%%rdi),%%xmm2		\n\t		subpd	%%xmm15,%%xmm13		\n\t"\
-		"mulpd	(%%rdi),%%xmm3		\n\t		addpd	%%xmm14,%%xmm14		\n\t"\
-		"movaps	    (%%rax),%%xmm0	\n\t		addpd	%%xmm15,%%xmm15		\n\t"\
-		"movaps	0x10(%%rax),%%xmm1	\n\t		addpd	%%xmm12,%%xmm14		\n\t"\
-		"subpd	%%xmm2,%%xmm0		\n\t		addpd	%%xmm13,%%xmm15		\n\t"\
-		"subpd	%%xmm3,%%xmm1		\n\t		movaps	    (%%r11),%%xmm10	\n\t"\
-		"addpd	    (%%rax),%%xmm2	\n\t		movaps	0x10(%%r11),%%xmm11	\n\t"\
-		"addpd	0x10(%%rax),%%xmm3	\n\t		addpd	0x10(%%r11),%%xmm10	\n\t"\
-		"subpd	%%xmm6,%%xmm2		\n\t		subpd	    (%%r11),%%xmm11	\n\t"\
-		"subpd	%%xmm7,%%xmm3		\n\t		mulpd	(%%rdi),%%xmm10		\n\t"/* mul by isrt2 */\
-		"addpd	%%xmm6,%%xmm6		\n\t		mulpd	(%%rdi),%%xmm11		\n\t"\
-		"addpd	%%xmm7,%%xmm7		\n\t		movaps	    (%%r10),%%xmm8	\n\t"\
-		"movaps	%%xmm2,0x20(%%rsi)	\n\t		movaps	0x10(%%r10),%%xmm9	\n\t"\
-		"movaps	%%xmm3,0x30(%%rsi)	\n\t		subpd	%%xmm10,%%xmm8		\n\t"\
-		"addpd	%%xmm2,%%xmm6		\n\t		subpd	%%xmm11,%%xmm9		\n\t"\
-		"addpd	%%xmm3,%%xmm7		\n\t		addpd	    (%%r10),%%xmm10	\n\t"\
-		"movaps	%%xmm6,    (%%rsi)	\n\t		addpd	0x10(%%r10),%%xmm11	\n\t"\
-		"movaps	%%xmm7,0x10(%%rsi)	\n\t		subpd	%%xmm12,%%xmm8		\n\t"\
-		"subpd	%%xmm5,%%xmm0		\n\t		subpd	%%xmm13,%%xmm9		\n\t"\
-		"subpd	%%xmm4,%%xmm1		\n\t		addpd	%%xmm12,%%xmm12		\n\t"\
-		"addpd	%%xmm5,%%xmm5		\n\t		addpd	%%xmm13,%%xmm13		\n\t"\
-		"addpd	%%xmm4,%%xmm4		\n\t		movaps	%%xmm8,0x20(%%r8)	\n\t"\
-		"movaps	%%xmm0,0x40(%%rsi)	\n\t		movaps	%%xmm9,0x30(%%r8)	\n\t"\
-		"movaps	%%xmm1,0x70(%%rsi)	\n\t		addpd	%%xmm8,%%xmm12		\n\t"\
-		"addpd	%%xmm0,%%xmm5		\n\t		addpd	%%xmm9,%%xmm13		\n\t"\
-		"addpd	%%xmm1,%%xmm4		\n\t		movaps	%%xmm12,    (%%r8)	\n\t"\
-		"movaps	%%xmm5,0x60(%%rsi)	\n\t		movaps	%%xmm13,0x10(%%r8)	\n\t"\
-		"movaps	%%xmm4,0x50(%%rsi)	\n\t		subpd	%%xmm15,%%xmm10		\n\t"\
-		"										subpd	%%xmm14,%%xmm11		\n\t"\
-		"										addpd	%%xmm15,%%xmm15		\n\t"\
-		"										addpd	%%xmm14,%%xmm14		\n\t"\
-		"										movaps	%%xmm10,0x40(%%r8)	\n\t"\
-		"										movaps	%%xmm11,0x70(%%r8)	\n\t"\
-		"										addpd	%%xmm10,%%xmm15		\n\t"\
-		"										addpd	%%xmm11,%%xmm14		\n\t"\
-		"										movaps	%%xmm15,0x60(%%r8)	\n\t"\
-		"										movaps	%%xmm14,0x50(%%r8)	\n\t"\
-		:					/* outputs: none */\
-		:[__in0] "m" (Xin0)	/* All inputs from memory addresses here */\
-		,[__in1] "m" (Xin1)\
-		,[__in2] "m" (Xin2)\
-		,[__in3] "m" (Xin3)\
-		,[__in4] "m" (Xin4)\
-		,[__in5] "m" (Xin5)\
-		,[__in6] "m" (Xin6)\
-		,[__in7] "m" (Xin7)\
-		,[__in8] "m" (Xin8)\
-		,[__in9] "m" (Xin9)\
-		,[__ina] "m" (Xina)\
-		,[__inb] "m" (Xinb)\
-		,[__inc] "m" (Xinc)\
-		,[__ind] "m" (Xind)\
-		,[__ine] "m" (Xine)\
-		,[__inf] "m" (Xinf)\
-		,[__isrt2] "m" (Xisrt2)\
-		,[__two] "m" (Xtwo)\
-		,[__out0] "m" (Xout0)\
-		,[__out1] "m" (Xout1)\
-		,[__out2] "m" (Xout2)\
-		,[__out3] "m" (Xout3)\
-		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","r8","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"		/* Clobbered registers */\
-	);\
-	}
-
-  #else
-
 	#define SSE2_RADIX16_DIF_0TWIDDLE_B(Xin0,Xi1,Xi2,Xi3,Xi4, Xisrt2,Xtwo, Xout0)\
 	{\
 	__asm__ volatile (\
@@ -15801,8 +15535,6 @@
 		: "cc","memory","rax","rbx","rcx","rdx","rdi","rsi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10"		/* Clobbered registers */\
 	);\
 	}
-
-  #endif	// 8/16-reg versions of SSE2_RADIX16_DIF_0TWIDDLE_B
 
 	/* With-twiddles out-of-place analog of above twiddleless DIT macro: 15 nontrivial complex input twiddles E1-f [E0 assumed = 1],
 	The DIT version of this macro processes the twiddles in-order.
@@ -16441,14 +16173,20 @@
 	}
 
 	// DIF version of above shares same sincos layout & data:
-	#define SSE2_RADIX16_DIF_TWIDDLE_OOP(Xin0,Xi1,Xi2,Xi3,Xi4, Xout0,Xout1,Xout2,Xout3,Xout4,Xout5,Xout6,Xout7,Xout8,Xout9,Xouta,Xoutb,Xoutc,Xoutd,Xoute,Xoutf, Xisrt2,Xc1)\
+	/* Jan 2021: To restore Clang-on-Armv8 builbadility, needed to cut total [#args + #GPRs] substantially;
+	not necessary for Clang/x86_64 builds, but want to preserve same-macro-interface-ness. Use that for this
+	particular macro, the original 4 input offsets are const-multiple stride*[1,2,3,4] - keep just stride*[1,4].
+	What were formerly 16 are padded-index, and possibly permuted, i.e. base_ptr + perm(p[0-f];
+	these we now input via base-pointer and (int *)offset-array pointer. Thus we save total 2+14 = 16 args.
+	*/
+	#define SSE2_RADIX16_DIF_TWIDDLE_OOP(Xin0,Xi1,Xi4, Xout0,Xoff, Xisrt2,Xc1)\
 	{\
 	__asm__ volatile (\
 	/*...Block 0: Do in-place, i.e. outputs into __in0 + [0,1,2,3]*istride: */\
 		"movq	%[__in0],%%rax		\n\t"\
 		"leaq	%c[__i1](%%rax),%%rcx	\n\t"/* __in0 +   istride */\
-		"leaq	%c[__i2](%%rax),%%rbx	\n\t"/* __in0 + 2*istride */\
-		"leaq	%c[__i3](%%rax),%%rdx	\n\t"/* __in0 + 3*istride */\
+		"leaq	%c[__i1](%%rcx),%%rbx	\n\t"/* __in0 + 2*istride */\
+		"leaq	%c[__i1](%%rbx),%%rdx	\n\t"/* __in0 + 3*istride */\
 		"/* Do	the p0,1 combo: */	\n\t"\
 		"movq	%[__c1],%%rsi 	/* Roots sets c1-15 same as for DIT, w/c1 as base-ptr */\n\t"\
 		"movaps	    (%%rax),%%xmm0	\n\t"\
@@ -16813,10 +16551,17 @@
 		"subpd	%%xmm7,%%xmm3		\n\t"\
 		"addpd	%%xmm6,%%xmm6		\n\t"\
 		"addpd	%%xmm7,%%xmm7		\n\t"\
-		"movq	%[__out0],%%r10		\n\t"\
-		"movq	%[__out1],%%r11		\n\t"\
-		"movq	%[__out2],%%r12		\n\t"\
-		"movq	%[__out3],%%r13		\n\t"\
+	/* Load output base-address into r8 and offset-array pointer into r9: */\
+	"movq	%[__out0],%%r8	\n\t	movq	%[__off],%%r9	\n\t"\
+	/* Block 0: r0-3 */\
+		"movslq		    (%%r9),%%r10	\n\t"/* off0-3 */\
+		"movslq		0x04(%%r9),%%r11	\n\t"\
+		"movslq		0x08(%%r9),%%r12	\n\t"\
+		"movslq		0x0c(%%r9),%%r13	\n\t"\
+		"leaq	(%%r8,%%r10,8),%%r10	\n\t"/* out0 + off0-3 */\
+		"leaq	(%%r8,%%r11,8),%%r11	\n\t"\
+		"leaq	(%%r8,%%r12,8),%%r12	\n\t"\
+		"leaq	(%%r8,%%r13,8),%%r13	\n\t"\
 	"prefetcht1	0x100(%%r11)\n\t"\
 		"movaps	%%xmm2,    (%%r11)	\n\t"\
 		"movaps	%%xmm3,0x10(%%r11)	\n\t"\
@@ -16834,7 +16579,7 @@
 		"addpd	%%xmm1,	%%xmm4	\n\t"\
 		"movaps	%%xmm5,    (%%r13)	\n\t"\
 		"movaps	%%xmm4,0x10(%%r12)	\n\t"\
-	"/* Block 2: Combine 2-output of each radix-4, i.e. inputs from __in0 + [4,5,6,7]*istride: */\n\t"\
+	/* Block 2: Combine 2-output of each radix-4, i.e. inputs from __in0 + [4,5,6,7]*istride: */\
 		"movq	%[__isrt2],%%rsi 	\n\t"\
 		"movaps	(%%rsi),%%xmm3	/* isrt2 */\n\t"\
 		"addq	$%c[__i1],%%rax	\n\t"/* __in0 + 1*istride */\
@@ -16880,10 +16625,14 @@
 		"addpd	%%xmm7,%%xmm7		\n\t"\
 		"addpd	%%xmm5,%%xmm5		\n\t"\
 		"addpd	%%xmm6,%%xmm6		\n\t"\
-		"movq	%[__out4],%%r10		\n\t"\
-		"movq	%[__out5],%%r11		\n\t"\
-		"movq	%[__out6],%%r12		\n\t"\
-		"movq	%[__out7],%%r13		\n\t"\
+		"movslq		0x10(%%r9),%%r10	\n\t"/* off4-7 */\
+		"movslq		0x14(%%r9),%%r11	\n\t"\
+		"movslq		0x18(%%r9),%%r12	\n\t"\
+		"movslq		0x1c(%%r9),%%r13	\n\t"\
+		"leaq	(%%r8,%%r10,8),%%r10	\n\t"/* out0 + off4-7 */\
+		"leaq	(%%r8,%%r11,8),%%r11	\n\t"\
+		"leaq	(%%r8,%%r12,8),%%r12	\n\t"\
+		"leaq	(%%r8,%%r13,8),%%r13	\n\t"\
 	"prefetcht1	0x100(%%r11)\n\t"\
 		"movaps	%%xmm0,    (%%r11)	\n\t"\
 		"movaps	%%xmm3,    (%%r12)	\n\t"\
@@ -16897,7 +16646,7 @@
 		"movaps	%%xmm7,    (%%r13)	\n\t"\
 		"movaps	%%xmm5,0x10(%%r10)	\n\t"\
 		"movaps	%%xmm6,0x10(%%r12)	\n\t"\
-	"/* Block 1: Combine 1-output of each radix-4, i.e. inputs from __in0 + [8,9,a,b]*istride: */\n\t"\
+	/* Block 1: Combine 1-output of each radix-4, i.e. inputs from __in0 + [8,9,a,b]*istride: */\
 		"addq	$%c[__i1],%%rax	\n\t"/* __in0 + 2*istride */\
 		"addq	$%c[__i1],%%rbx	\n\t"/* __in0 + 6*istride */\
 		"addq	$%c[__i1],%%rcx	\n\t"/* __in0 + a*istride */\
@@ -16955,10 +16704,14 @@
 		"addpd	%%xmm5,%%xmm5		\n\t"\
 		"addpd	%%xmm7,%%xmm7		\n\t"\
 		"addpd	%%xmm4,%%xmm4		\n\t"\
-		"movq	%[__out8],%%r10		\n\t"\
-		"movq	%[__out9],%%r11		\n\t"\
-		"movq	%[__outa],%%r12		\n\t"\
-		"movq	%[__outb],%%r13		\n\t"\
+		"movslq		0x20(%%r9),%%r10	\n\t"/* off8-b */\
+		"movslq		0x24(%%r9),%%r11	\n\t"\
+		"movslq		0x28(%%r9),%%r12	\n\t"\
+		"movslq		0x2c(%%r9),%%r13	\n\t"\
+		"leaq	(%%r8,%%r10,8),%%r10	\n\t"/* out0 + off8-b */\
+		"leaq	(%%r8,%%r11,8),%%r11	\n\t"\
+		"leaq	(%%r8,%%r12,8),%%r12	\n\t"\
+		"leaq	(%%r8,%%r13,8),%%r13	\n\t"\
 	"prefetcht1	0x100(%%r11)\n\t"\
 		"movaps	%%xmm2,    (%%r11)	\n\t"\
 		"movaps	%%xmm0,    (%%r12)	\n\t"\
@@ -17030,10 +16783,14 @@
 		"addpd	%%xmm7,%%xmm7		\n\t"\
 		"addpd	%%xmm5,%%xmm5		\n\t"\
 		"addpd	%%xmm6,%%xmm6		\n\t"\
-		"movq	%[__outc],%%r10		\n\t"\
-		"movq	%[__outd],%%r11		\n\t"\
-		"movq	%[__oute],%%r12		\n\t"\
-		"movq	%[__outf],%%r13		\n\t"\
+		"movslq		0x30(%%r9),%%r10	\n\t"/* offc-f */\
+		"movslq		0x34(%%r9),%%r11	\n\t"\
+		"movslq		0x38(%%r9),%%r12	\n\t"\
+		"movslq		0x3c(%%r9),%%r13	\n\t"\
+		"leaq	(%%r8,%%r10,8),%%r10	\n\t"/* out0 + offc-f */\
+		"leaq	(%%r8,%%r11,8),%%r11	\n\t"\
+		"leaq	(%%r8,%%r12,8),%%r12	\n\t"\
+		"leaq	(%%r8,%%r13,8),%%r13	\n\t"\
 	"prefetcht1	0x100(%%r11)\n\t"\
 		"movaps	%%xmm0,    (%%r11)	\n\t"\
 		"movaps	%%xmm2,    (%%r12)	\n\t"\
@@ -17051,28 +16808,12 @@
 		:					/* outputs: none */\
 		: [__in0] "m" (Xin0)	/* All inputs from memory addresses here */\
 		 ,[__i1] "e" (Xi1)\
-		 ,[__i2] "e" (Xi2)\
-		 ,[__i3] "e" (Xi3)\
 		 ,[__i4] "e" (Xi4)\
 		 ,[__out0] "m" (Xout0)\
-		 ,[__out1] "m" (Xout1)\
-		 ,[__out2] "m" (Xout2)\
-		 ,[__out3] "m" (Xout3)\
-		 ,[__out4] "m" (Xout4)\
-		 ,[__out5] "m" (Xout5)\
-		 ,[__out6] "m" (Xout6)\
-		 ,[__out7] "m" (Xout7)\
-		 ,[__out8] "m" (Xout8)\
-		 ,[__out9] "m" (Xout9)\
-		 ,[__outa] "m" (Xouta)\
-		 ,[__outb] "m" (Xoutb)\
-		 ,[__outc] "m" (Xoutc)\
-		 ,[__outd] "m" (Xoutd)\
-		 ,[__oute] "m" (Xoute)\
-		 ,[__outf] "m" (Xoutf)\
+		 ,[__off] "m" (Xoff)\
 		 ,[__isrt2] "m" (Xisrt2)\
 		 ,[__c1] "m" (Xc1)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","r8","r9","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7"		/* Clobbered registers */\
 	);\
 	}
 
@@ -18444,7 +18185,6 @@
 		"addpd	%%xmm5,%%xmm0		\n\t"\
 		"movaps	%%xmm1,    (%%rcx)	\n\t"\
 		"movaps	%%xmm0,0x10(%%rbx)	\n\t"\
-		"							\n\t"\
 		:					/* outputs: none */\
 		: [__i0] "m" (Xi0)	/* All inputs from memory addresses here */\
 		 ,[__i1] "m" (Xi1)\
@@ -19184,21 +18924,36 @@
 
 	// SSE2 analog of dft_macro.h::RADIX_08_DIF_TWIDDLE_OOP - Result of adding separate I/O addressing to
 	// radix8_dif_dit_pass_gcc64.h::SSE2_RADIX8_DIF_TWIDDLE:
+	/* Dec 2020: Need to cut #args for Apple M1/Clang builds on Arm64 - do similar on x86 to avoid
+	multiple versions of the macro having different arglists.
+	Inputs i0-7 are always ptrs to BRed addresses add[0,4,2,6,1,5,3,7], thus we need the following bfly-address-pairs:
+		lcol:			rcol:
+		i0,4 = add0,1	i1,5 = add4,5
+		i2,6 = add2,3	i3,7 = add6,7
+	i.e. within each column we have linear address-access: lcol = in0+[0,i1,i2,i3], rcol = [in0+i4]+[0,i1,i2,i3]
+	Thus, in the #arg-reduced version of the macro, input-addresses are computed from in0 and [i1,i2,i4],
+	where in0 is a memory base-address and the i's are LITERAL [BYTE] OFFSETS.
 
-  #if 1	// 16-register version:
-
-	#define SSE2_RADIX8_DIF_TWIDDLE_OOP(Xi0,Xi1,Xi2,Xi3,Xi4,Xi5,Xi6,Xi7, Xo0,Xo1,Xo2,Xo3,Xo4,Xo5,Xo6,Xo7 ,Xc1,Xs1,Xc2,Xs2,Xc3,Xs3,Xc4,Xs4,Xc5,Xs5,Xc6,Xs6,Xc7,Xs7)\
+	Output addresses are nonlinear first due to our main-array index-padding scheme used to avoid cache conflicts,
+	and secondly because e.g. radix-192,320 use permuted O-address octets, so in place of the previous
+	passing of the 8 O-addresses as separate args we now send base-address for each O-address octet and pointer
+	to local length-8 array array containing the double* index-offsets, and do the output-address
+	pointer arithmetic inside the macro:
+	*/
+	#define SSE2_RADIX8_DIF_TWIDDLE_OOP(Xin0,Xi1, Xout0,Xoff, Xtwid_ptrs, Xtwo)\
 	{\
 	__asm__ volatile (\
-		"											movq		%[i1]	,%%r10		\n\t"\
-		"											movq		%[i5]	,%%r11		\n\t"\
-		"							movq	%[c1],%%r12	\n\t	movq	%[c5],%%r14	\n\t"\
-		"							movq	%[s1],%%r13	\n\t	movq	%[s5],%%r15	\n\t"\
+	/* i1 is base byte-offset, no need to lshift it prior to add: */\
+		"xorq	%%r8,%%r8	\n\t	leaq	%c[i1](%%r8),%%r8	\n\t"/* movq|movslq of literal %c[i1] both segfaulted, workaround via LEA */\
+		"movq	%[in0],%%rax		\n\t			leaq	(%%rax,%%r8,4),%%r10		\n\t"/* [lcol,rcol] base-addresses = in0 + [0,4*istride] */\
+		"movq	%[twid_ptrs],%%rsi	\n\t			leaq	(%%r10,%%r8  ),%%r11		\n\t"\
+		/* The twid_ptrs[] array holds ptrs to 14 complex twiddles in BR order: (c,s)[4,2,6,1,5,3,7]: */\
+		"				movq	0x30(%%rsi),%%r12	\n\t	movq	0x40(%%rsi),%%r14	\n\t"/* c1,c5 */\
+		"				movq	0x38(%%rsi),%%r13	\n\t	movq	0x48(%%rsi),%%r15	\n\t"/* s1,s5 */\
 		"											movaps	    (%%r10)	,%%xmm8 	\n\t"\
-		"movq		%[i0]	,%%rax		\n\t		movaps	0x10(%%r10)	,%%xmm10	\n\t"\
-		"movq		%[i4]	,%%rbx		\n\t		movaps		%%xmm8 ,%%xmm9 	\n\t"\
-		"movq		%[c4]	,%%rcx		\n\t		movaps		%%xmm10,%%xmm11	\n\t"\
-		"movq		%[s4]	,%%rsi		\n\t"\
+		"leaq	(%%rax,%%r8  ),%%rbx	\n\t		movaps	0x10(%%r10)	,%%xmm10	\n\t"\
+		"movq	    (%%rsi),%%rcx	\n\t"/* c4 */"	movaps		%%xmm8 ,%%xmm9 	\n\t"\
+		"movq	0x08(%%rsi),%%rsi	\n\t"/* s4 */"	movaps		%%xmm10,%%xmm11	\n\t"\
 	/* [rsi] (and if needed rdi) points to sine components of each sincos pair, which is not really a pair here in terms of relative addressing: */\
 		"movaps	    (%%rax)	,%%xmm0		\n\t		mulpd	    (%%r12)	,%%xmm8 	\n\t"\
 		"movaps	0x10(%%rax)	,%%xmm1		\n\t		mulpd	    (%%r13)	,%%xmm10	\n\t"\
@@ -19222,14 +18977,15 @@
 		"movaps	%%xmm1	,0x10(%%rax)	\n\t		subpd	%%xmm11	,%%xmm8 		\n\t"\
 		"movaps	%%xmm6	,    (%%rbx)	\n\t		addpd	%%xmm9 	,%%xmm12		\n\t"\
 		"movaps	%%xmm7	,0x10(%%rbx)	\n\t		subpd	%%xmm13	,%%xmm9 		\n\t"\
-		"movq		%[i2]	,%%rax		\n\t		movaps	%%xmm10	,    (%%r10)	\n\t"\
-		"movq		%[i6]	,%%rbx		\n\t		movaps	%%xmm12	,0x10(%%r10)	\n\t"\
-		"movq %[c2],%%rcx \n\t movq %[s2],%%rsi	\n\t	movaps	%%xmm8,    (%%r11)	\n\t"\
-		"movq %[c6],%%rdx \n\t movq %[s6],%%rdi	\n\t	movaps	%%xmm9,0x10(%%r11)	\n\t"\
-		"movaps	    (%%rax)	,%%xmm0		\n\t		movq		%[i3]	,%%r10		\n\t"\
-		"movaps	0x10(%%rax)	,%%xmm2		\n\t		movq		%[i7]	,%%r11		\n\t"\
-		"movaps		%%xmm0	,%%xmm1		\n\t	movq %[c3],%%r12 \n\t movq %[s3],%%r13	\n\t"\
-		"movaps		%%xmm2	,%%xmm3		\n\t	movq %[c7],%%r14 \n\t movq %[s7],%%r15	\n\t"\
+		"leaq	(%%rax,%%r8,2),%%rax	\n\t		movaps	%%xmm10	,    (%%r10)	\n\t"\
+		"leaq	(%%rbx,%%r8,2),%%rbx	\n\t		movaps	%%xmm12	,0x10(%%r10)	\n\t"\
+		"movq	%[twid_ptrs],%%r15	\n\t			leaq	(%%r10,%%r8  ),%%r11		\n\t"\
+		"movq 0x10(%%r15),%%rcx \n\t movq 0x18(%%r15),%%rsi	\n\t	movaps	%%xmm8,    (%%r11)	\n\t"/* c2,s2 */\
+		"movq 0x20(%%r15),%%rdx \n\t movq 0x28(%%r15),%%rdi	\n\t	movaps	%%xmm9,0x10(%%r11)	\n\t"/* c6,s6 */\
+		"movaps	    (%%rax)	,%%xmm0		\n\t		leaq	(%%r10,%%r8,2),%%r10	\n\t"\
+		"movaps	0x10(%%rax)	,%%xmm2		\n\t		leaq	(%%r11,%%r8,2),%%r11	\n\t"\
+		"movaps		%%xmm0	,%%xmm1		\n\t	movq 0x50(%%r15),%%r12 \n\t movq 0x58(%%r15),%%r13	\n\t"/* c3,s3 */\
+		"movaps		%%xmm2	,%%xmm3		\n\t	movq 0x60(%%r15),%%r14 \n\t movq 0x68(%%r15),%%r15	\n\t"/* c7,s7 */\
 		"mulpd	    (%%rcx)	,%%xmm0		\n\t		movaps	    (%%r10)	,%%xmm8 	\n\t"\
 		"mulpd	    (%%rsi)	,%%xmm2		\n\t		movaps	0x10(%%r10)	,%%xmm10	\n\t"\
 		"mulpd	    (%%rsi)	,%%xmm1		\n\t		movaps		%%xmm8	,%%xmm9 	\n\t"\
@@ -19260,42 +19016,54 @@
 		"											movaps	%%xmm12	,0x10(%%r10)	\n\t"\
 		"											movaps	%%xmm8 	,    (%%r11)	\n\t"\
 		"											movaps	%%xmm9 	,0x10(%%r11)	\n\t"\
-/* combine to get 2 length-4 output subtransforms... */\
-		"movq		%[i0]	,%%rax		\n\t		movq		%[i4]	,%%r10		\n\t"\
-		"movq		%[i2]	,%%rbx		\n\t		movq		%[i6]	,%%r11		\n\t"\
-		"movaps	    (%%rax)	,%%xmm0		\n\t		movaps	    (%%r10)	,%%xmm8 	\n\t"\
-		"movaps	0x10(%%rax)	,%%xmm1		\n\t		movaps	0x10(%%r10)	,%%xmm9 	\n\t"\
+	/* combine to get 2 length-4 output subtransforms.
+	In this step 2 of the 8-dft, we need address-pairs
+		lcol:		rcol:
+		i0,2,1,3	i4,6,5,7
+		o0,2,1,3	o4,6,5,7
+	At this point r[a|b]x have i2,3, r1[0|1] have i6,7, but cleaner to reload add0 and go from there.
+	Since we will be loading o-addresses into regs starting with r[a|b]x and r1[0|1], use r[c|d]x and r1[2|3]
+	for the I-address pairs here: */\
+		"movq	%[in0],%%rcx			\n\t		leaq	(%%rcx,%%r8  ),%%r12	\n\t"/* [lcol,rcol] base-addresses = in0 + [0,1*istride] */\
+		"leaq	(%%rcx,%%r8,2),%%rdx	\n\t		leaq	(%%r12,%%r8,2),%%r13	\n\t"/* in0 + [2,3*istride] */\
+		"movaps	    (%%rcx)	,%%xmm0		\n\t		movaps	    (%%r12)	,%%xmm8 	\n\t"\
+		"movaps	0x10(%%rcx)	,%%xmm1		\n\t		movaps	0x10(%%r12)	,%%xmm9 	\n\t"\
 		"movaps	%%xmm0		,%%xmm4		\n\t		movaps	%%xmm8 		,%%xmm12	\n\t"\
 		"movaps	%%xmm1		,%%xmm5		\n\t		movaps	%%xmm9 		,%%xmm13	\n\t"\
-		"addpd	    (%%rbx)	,%%xmm0		\n\t		subpd	0x10(%%r11)	,%%xmm8 	\n\t"\
-		"subpd	    (%%rbx)	,%%xmm4		\n\t		addpd	0x10(%%r11)	,%%xmm12	\n\t"\
-		"addpd	0x10(%%rbx)	,%%xmm1		\n\t		addpd	    (%%r11)	,%%xmm9 	\n\t"\
-		"subpd	0x10(%%rbx)	,%%xmm5		\n\t		subpd	    (%%r11)	,%%xmm13	\n\t"\
-		"movq		%[o0]	,%%rax		\n\t		movq		%[o4]	,%%r10		\n\t"\
-		"movq		%[o2]	,%%rbx		\n\t		movq		%[o6]	,%%r11		\n\t"\
+		"movq	%[out0]	,%%rsi			\n\t	movq	%[off]	,%%rdi			\n\t"/* Load output base-address into rsi and offset-array pointer into rdi */\
+		"movslq		    (%%rdi),%%rax	\n\t	movslq		0x10(%%rdi),%%r10	\n\t"/*        off[0,4] */\
+		"leaq	(%%rsi,%%rax,8),%%rax	\n\t	leaq	(%%rsi,%%r10,8),%%r10	\n\t"/* out0 + off[0,4] */\
+		"addpd	    (%%rdx)	,%%xmm0		\n\t		subpd	0x10(%%r13)	,%%xmm8 	\n\t"\
+		"subpd	    (%%rdx)	,%%xmm4		\n\t		addpd	0x10(%%r13)	,%%xmm12	\n\t"\
+		"addpd	0x10(%%rdx)	,%%xmm1		\n\t		addpd	    (%%r13)	,%%xmm9 	\n\t"\
+		"subpd	0x10(%%rdx)	,%%xmm5		\n\t		subpd	    (%%r13)	,%%xmm13	\n\t"\
+		"movslq		0x08(%%rdi),%%rbx	\n\t	movslq		0x18(%%rdi),%%r11	\n\t"\
+		"leaq	(%%rsi,%%rbx,8),%%rbx	\n\t	leaq	(%%rsi,%%r11,8),%%r11	\n\t"/* out0 + off[2,6] */\
 		"movaps	%%xmm0,    (%%rax)		\n\t		movaps	%%xmm8 	,    (%%r10)	\n\t"\
 		"movaps	%%xmm1,0x10(%%rax)		\n\t		movaps	%%xmm9 	,0x10(%%r10)	\n\t"\
 		"movaps	%%xmm4,    (%%rbx)		\n\t		movaps	%%xmm12	,    (%%r11)	\n\t"\
 		"movaps	%%xmm5,0x10(%%rbx)		\n\t		movaps	%%xmm13	,0x10(%%r11)	\n\t"\
-		"movq		%[i1]	,%%rcx		\n\t		movq		%[i5]	,%%r12		\n\t"\
-		"movq		%[i3]	,%%rdx		\n\t		movq		%[i7]	,%%r13		\n\t"\
+		"leaq	(%%rcx,%%r8,4),%%rcx	\n\t		leaq	(%%r12,%%r8,4),%%r12	\n\t"/* in0 + [4,5*istride] */\
+		"leaq	(%%rdx,%%r8,4),%%rdx	\n\t		leaq	(%%r13,%%r8,4),%%r13	\n\t"/* in0 + [6,7*istride] */\
 		"movaps	    (%%rcx)	,%%xmm2		\n\t		movaps	    (%%r12)	,%%xmm10	\n\t"\
 		"movaps	0x10(%%rcx)	,%%xmm3		\n\t		movaps	0x10(%%r12)	,%%xmm11	\n\t"\
+		"movslq		0x04(%%rdi),%%rcx	\n\t	movslq		0x14(%%rdi),%%r12	\n\t"\
+		"leaq	(%%rsi,%%rcx,8),%%rcx	\n\t	leaq	(%%rsi,%%r12,8),%%r12	\n\t"/* out0 + off[1,5] */\
 		"movaps	%%xmm2		,%%xmm6		\n\t		movaps	%%xmm10		,%%xmm14	\n\t"\
 		"movaps	%%xmm3		,%%xmm7		\n\t		movaps	%%xmm11		,%%xmm15	\n\t"\
 		"addpd	    (%%rdx)	,%%xmm2		\n\t		subpd	0x10(%%r13)	,%%xmm10	\n\t"\
 		"subpd	    (%%rdx)	,%%xmm6		\n\t		addpd	0x10(%%r13)	,%%xmm14	\n\t"\
 		"addpd	0x10(%%rdx)	,%%xmm3		\n\t		addpd	    (%%r13)	,%%xmm11	\n\t"\
 		"subpd	0x10(%%rdx)	,%%xmm7		\n\t		subpd	    (%%r13)	,%%xmm15	\n\t"\
-		"movq		%[o1]	,%%rcx		\n\t		movq		%[o5]	,%%r12		\n\t"\
-		"movq		%[o3]	,%%rdx		\n\t		movq		%[o7]	,%%r13		\n\t"\
+		"movslq		0x0c(%%rdi),%%rdx	\n\t	movslq		0x1c(%%rdi),%%r13	\n\t"\
+		"leaq	(%%rsi,%%rdx,8),%%rdx	\n\t	leaq	(%%rsi,%%r13,8),%%r13	\n\t"/* out0 + off[3,7] */\
 		"subpd	%%xmm2		,%%xmm0		\n\t		movaps	%%xmm12	,    (%%r13)	\n\t"\
 		"subpd	%%xmm3		,%%xmm1		\n\t		movaps	%%xmm13	,0x10(%%r13)	\n\t"\
 	/* Use the cosine term of the [c1,s1] pair, which is the *middle* [4th of 7] of our 7 input pairs, in terms \
 	of the input-arg bit-reversal reordering defined in the __X[c,s] --> [c,s] mapping below and happens to \
 	always in fact *be* a true cosine term, which is a requirement for our "decr 1 gives isrt2" data-copy scheme: */\
-		"										movq	%[c1],%%r14	\n\t"\
-		"subpd	%%xmm7		,%%xmm4		\n\t	subq	$0x10,%%r14	\n\t"/* isrt2 in [c1]-1 */\
+		"movq	%[twid_ptrs],%%r15		\n\t	movq	0x30(%%r15),%%r14	\n\t"\
+		"subpd	%%xmm7		,%%xmm4		\n\t	subq	$0x10,%%r14			\n\t"/* isrt2 in [c1]-1 */\
 		"subpd	%%xmm6		,%%xmm5		\n\t		movaps	%%xmm10		,%%xmm13	\n\t"\
 		"addpd	    (%%rax)	,%%xmm2		\n\t		subpd	%%xmm11		,%%xmm10	\n\t"\
 		"addpd	0x10(%%rax)	,%%xmm3		\n\t		addpd	%%xmm11		,%%xmm13	\n\t"\
@@ -19325,338 +19093,15 @@
 		"											movaps	%%xmm12,    (%%r13) \n\t"/* [o7].r */\
 		"											movaps	%%xmm15,0x10(%%r13) \n\t"/* [o7].i */\
 		:					/* outputs: none */\
-		: [i0] "m" (Xi0)	/* All inputs from memory addresses here */\
-		 ,[i1] "m" (Xi1)\
-		 ,[i2] "m" (Xi2)\
-		 ,[i3] "m" (Xi3)\
-		 ,[i4] "m" (Xi4)\
-		 ,[i5] "m" (Xi5)\
-		 ,[i6] "m" (Xi6)\
-		 ,[i7] "m" (Xi7)\
-		 ,[o0] "m" (Xo0)\
-		 ,[o1] "m" (Xo1)\
-		 ,[o2] "m" (Xo2)\
-		 ,[o3] "m" (Xo3)\
-		 ,[o4] "m" (Xo4)\
-		 ,[o5] "m" (Xo5)\
-		 ,[o6] "m" (Xo6)\
-		 ,[o7] "m" (Xo7)\
-		 ,[c4] "m" (Xc1),[s4] "m" (Xs1)\
-		 ,[c2] "m" (Xc2),[s2] "m" (Xs2)\
-		 ,[c6] "m" (Xc3),[s6] "m" (Xs3)\
-		 ,[c1] "m" (Xc4),[s1] "m" (Xs4)\
-		 ,[c5] "m" (Xc5),[s5] "m" (Xs5)\
-		 ,[c3] "m" (Xc6),[s3] "m" (Xs6)\
-		 ,[c7] "m" (Xc7),[s7] "m" (Xs7)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+		: [in0] "m" (Xin0)	/* All 'm'-inputs from memory addresses here... */\
+		 ,[i1] "e" (Xi1)	/* ...except for 'e'-inputs which are literal byte offsets */\
+		 ,[out0] "m" (Xout0) /* output-address-octet base pointer */\
+		 ,[off] "m" (Xoff)	/* and pointer to uint32 array of 8 double* index offsets */\
+		 ,[twid_ptrs] "m" (Xtwid_ptrs)\
+		 ,[two] "m" (Xtwo)/* Only used in FMA implementations of this macro */\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
-
-  #else
-
-	#define SSE2_RADIX8_DIF_TWIDDLE_OOP(Xi0,Xi1,Xi2,Xi3,Xi4,Xi5,Xi6,Xi7, Xo0,Xo1,Xo2,Xo3,Xo4,Xo5,Xo6,Xo7 ,Xc1,Xs1,Xc2,Xs2,Xc3,Xs3,Xc4,Xs4,Xc5,Xs5,Xc6,Xs6,Xc7,Xs7)\
-	{\
-	__asm__ volatile (\
-		/* Block 0,4: */\
-		"movq		%[i0]	,%%rax			\n\t"\
-		"movq		%[i4]	,%%rbx			\n\t"\
-		"movq		%[c4]	,%%rcx			\n\t"\
-		"movq		%[s4]	,%%rsi			\n\t"\
-	/* [rsi] (and if needed rdi) points to sine components of each sincos pair, which is not really a pair here in terms of relative addressing: */\
-		"movaps		    (%%rbx)	,%%xmm2		\n\t"\
-		"movaps		0x10(%%rbx)	,%%xmm3		\n\t"\
-		"movaps		(%%rcx)	,%%xmm0		\n\t"\
-		"movaps		(%%rsi)	,%%xmm1		\n\t"\
-		"movaps		%%xmm2	,%%xmm4		\n\t"\
-		"movaps		%%xmm3	,%%xmm5		\n\t"\
-		"mulpd		%%xmm0	,%%xmm2		\n\t"\
-		"mulpd		%%xmm0	,%%xmm3		\n\t"\
-		"mulpd		%%xmm1	,%%xmm4		\n\t"\
-		"mulpd		%%xmm1	,%%xmm5		\n\t"\
-		"movaps		    (%%rax)	,%%xmm0		\n\t"\
-		"movaps		0x10(%%rax)	,%%xmm1		\n\t"\
-		"subpd		%%xmm5		,%%xmm2		\n\t"\
-		"addpd		%%xmm4		,%%xmm3		\n\t"\
-		"movaps		%%xmm0	,%%xmm6		\n\t"\
-		"movaps		%%xmm1	,%%xmm7		\n\t"\
-		"addpd		%%xmm2		,%%xmm0		\n\t"\
-		"addpd		%%xmm3		,%%xmm1		\n\t"\
-		"subpd		%%xmm2		,%%xmm6		\n\t"\
-		"subpd		%%xmm3		,%%xmm7		\n\t"\
-		"movaps		%%xmm0		,    (%%rax)	\n\t"\
-		"movaps		%%xmm1		,0x10(%%rax)	\n\t"\
-		"movaps		%%xmm6		,    (%%rbx)	\n\t"\
-		"movaps		%%xmm7		,0x10(%%rbx)	\n\t"\
-		/* Block 2,6: */\
-		"movq		%[i2]	,%%rax			\n\t"\
-		"movq		%[i6]	,%%rbx			\n\t"\
-		"movq		%[c2]	,%%rcx			\n\t"\
-		"movq		%[c6]	,%%rdx			\n\t"\
-		"movq		%[s2]	,%%rsi			\n\t"\
-		"movq		%[s6]	,%%rdi			\n\t"\
-		"movaps		    (%%rax)	,%%xmm0		\n\t"\
-		"movaps		0x10(%%rax)	,%%xmm2		\n\t"\
-		"movaps		(%%rcx)	,%%xmm6		\n\t"\
-		"movaps		(%%rsi)	,%%xmm7		\n\t"\
-		"movaps		%%xmm0	,%%xmm1		\n\t"\
-		"movaps		%%xmm2	,%%xmm3		\n\t"\
-		"mulpd		%%xmm6	,%%xmm0		\n\t"\
-		"mulpd		%%xmm7	,%%xmm2		\n\t"\
-		"mulpd		%%xmm7	,%%xmm1		\n\t"\
-		"mulpd		%%xmm6	,%%xmm3		\n\t"\
-		"subpd		%%xmm2		,%%xmm0		\n\t"\
-		"addpd		%%xmm3		,%%xmm1		\n\t"\
-		"movaps		    (%%rbx)	,%%xmm2		\n\t"\
-		"movaps		0x10(%%rbx)	,%%xmm3		\n\t"\
-		"movaps		(%%rdx)	,%%xmm6		\n\t"\
-		"movaps		(%%rdi)	,%%xmm7		\n\t"\
-		"movaps		%%xmm2	,%%xmm4		\n\t"\
-		"movaps		%%xmm3	,%%xmm5		\n\t"\
-		"mulpd		%%xmm6	,%%xmm2		\n\t"\
-		"mulpd		%%xmm7	,%%xmm3		\n\t"\
-		"mulpd		%%xmm7	,%%xmm4		\n\t"\
-		"mulpd		%%xmm6	,%%xmm5		\n\t"\
-		"subpd		%%xmm3		,%%xmm2		\n\t"\
-		"addpd		%%xmm5		,%%xmm4		\n\t"\
-		"movaps		%%xmm2		,%%xmm3		\n\t"\
-		"movaps		%%xmm4		,%%xmm5		\n\t"\
-		"addpd		%%xmm0		,%%xmm2		\n\t"\
-		"subpd		%%xmm3		,%%xmm0		\n\t"\
-		"addpd		%%xmm1		,%%xmm4		\n\t"\
-		"subpd		%%xmm5		,%%xmm1		\n\t"\
-		"movaps		%%xmm2		,    (%%rax)	\n\t"\
-		"movaps		%%xmm4		,0x10(%%rax)	\n\t"\
-		"movaps		%%xmm0		,    (%%rbx)	\n\t"\
-		"movaps		%%xmm1		,0x10(%%rbx)	\n\t"\
-		/* Block 1,5: */\
-		"movq		%[i1]	,%%rax			\n\t"\
-		"movq		%[i5]	,%%rbx			\n\t"\
-		"movq		%[c1]	,%%rcx			\n\t"\
-		"movq		%[c5]	,%%rdx			\n\t"\
-		"movq		%[s1]	,%%rsi			\n\t"\
-		"movq		%[s5]	,%%rdi			\n\t"\
-		"movaps		    (%%rax)	,%%xmm0		\n\t"\
-		"movaps		0x10(%%rax)	,%%xmm2		\n\t"\
-		"movaps		(%%rcx)	,%%xmm6		\n\t"\
-		"movaps		(%%rsi)	,%%xmm7		\n\t"\
-		"movaps		%%xmm0	,%%xmm1		\n\t"\
-		"movaps		%%xmm2	,%%xmm3		\n\t"\
-		"mulpd		%%xmm6	,%%xmm0		\n\t"\
-		"mulpd		%%xmm7	,%%xmm2		\n\t"\
-		"mulpd		%%xmm7	,%%xmm1		\n\t"\
-		"mulpd		%%xmm6	,%%xmm3		\n\t"\
-		"subpd		%%xmm2		,%%xmm0		\n\t"\
-		"addpd		%%xmm3		,%%xmm1		\n\t"\
-		"movaps		    (%%rbx)	,%%xmm2		\n\t"\
-		"movaps		0x10(%%rbx)	,%%xmm3		\n\t"\
-		"movaps		(%%rdx)	,%%xmm6		\n\t"\
-		"movaps		(%%rdi)	,%%xmm7		\n\t"\
-		"movaps		%%xmm2	,%%xmm4		\n\t"\
-		"movaps		%%xmm3	,%%xmm5		\n\t"\
-		"mulpd		%%xmm6	,%%xmm2		\n\t"\
-		"mulpd		%%xmm7	,%%xmm3		\n\t"\
-		"mulpd		%%xmm7	,%%xmm4		\n\t"\
-		"mulpd		%%xmm6	,%%xmm5		\n\t"\
-		"subpd		%%xmm3		,%%xmm2		\n\t"\
-		"addpd		%%xmm5		,%%xmm4		\n\t"\
-		"movaps		%%xmm2		,%%xmm3		\n\t"\
-		"movaps		%%xmm4		,%%xmm5		\n\t"\
-		"addpd		%%xmm0		,%%xmm2		\n\t"\
-		"subpd		%%xmm3		,%%xmm0		\n\t"\
-		"addpd		%%xmm1		,%%xmm4		\n\t"\
-		"subpd		%%xmm5		,%%xmm1		\n\t"\
-		"movaps		%%xmm2		,    (%%rax)	\n\t"\
-		"movaps		%%xmm4		,0x10(%%rax)	\n\t"\
-		"movaps		%%xmm0		,    (%%rbx)	\n\t"\
-		"movaps		%%xmm1		,0x10(%%rbx)	\n\t"\
-		/* Block 3,7: */\
-		"movq		%[i3]	,%%rax			\n\t"\
-		"movq		%[i7]	,%%rbx			\n\t"\
-		"movq		%[c3]	,%%rcx			\n\t"\
-		"movq		%[c7]	,%%rdx			\n\t"\
-		"movq		%[s3]	,%%rsi			\n\t"\
-		"movq		%[s7]	,%%rdi			\n\t"\
-		"movaps		    (%%rax)	,%%xmm0		\n\t"\
-		"movaps		0x10(%%rax)	,%%xmm2		\n\t"\
-		"movaps		(%%rcx)	,%%xmm6		\n\t"\
-		"movaps		(%%rsi)	,%%xmm7		\n\t"\
-		"movaps		%%xmm0	,%%xmm1		\n\t"\
-		"movaps		%%xmm2	,%%xmm3		\n\t"\
-		"mulpd		%%xmm6	,%%xmm0		\n\t"\
-		"mulpd		%%xmm7	,%%xmm2		\n\t"\
-		"mulpd		%%xmm7	,%%xmm1		\n\t"\
-		"mulpd		%%xmm6	,%%xmm3		\n\t"\
-		"subpd		%%xmm2		,%%xmm0		\n\t"\
-		"addpd		%%xmm3		,%%xmm1		\n\t"\
-		"movaps		    (%%rbx)	,%%xmm2		\n\t"\
-		"movaps		0x10(%%rbx)	,%%xmm3		\n\t"\
-		"movaps		(%%rdx)	,%%xmm6		\n\t"\
-		"movaps		(%%rdi)	,%%xmm7		\n\t"\
-		"movaps		%%xmm2	,%%xmm4		\n\t"\
-		"movaps		%%xmm3	,%%xmm5		\n\t"\
-		"mulpd		%%xmm6	,%%xmm2		\n\t"\
-		"mulpd		%%xmm7	,%%xmm3		\n\t"\
-		"mulpd		%%xmm7	,%%xmm4		\n\t"\
-		"mulpd		%%xmm6	,%%xmm5		\n\t"\
-		"subpd		%%xmm3		,%%xmm2		\n\t"\
-		"addpd		%%xmm5		,%%xmm4		\n\t"\
-		"movaps		%%xmm2		,%%xmm3		\n\t"\
-		"movaps		%%xmm4		,%%xmm5		\n\t"\
-		"addpd		%%xmm0		,%%xmm2		\n\t"\
-		"subpd		%%xmm3		,%%xmm0		\n\t"\
-		"addpd		%%xmm1		,%%xmm4		\n\t"\
-		"subpd		%%xmm5		,%%xmm1		\n\t"\
-		"movaps		%%xmm2		,    (%%rax)	\n\t"\
-		"movaps		%%xmm4		,0x10(%%rax)	\n\t"\
-		"movaps		%%xmm0		,    (%%rbx)	\n\t"\
-		"movaps		%%xmm1		,0x10(%%rbx)	\n\t"\
-		/* Now combine the 2 half-transforms: */\
-		/* Combo 1: */\
-		"movq		%[i0]	,%%rax			\n\t"\
-		"movq		%[i2]	,%%rbx			\n\t"\
-		"movaps		    (%%rax)	,%%xmm0		\n\t"\
-		"movaps		0x10(%%rax)	,%%xmm1		\n\t"\
-		"movaps		    (%%rbx)	,%%xmm2		\n\t"\
-		"movaps		0x10(%%rbx)	,%%xmm3		\n\t"\
-		"movaps		%%xmm0		,%%xmm4		\n\t"\
-		"movaps		%%xmm1		,%%xmm5		\n\t"\
-		"addpd		%%xmm2	,%%xmm0		\n\t"\
-		"subpd		%%xmm2	,%%xmm4		\n\t"\
-		"addpd		%%xmm3	,%%xmm1		\n\t"\
-		"subpd		%%xmm3	,%%xmm5		\n\t"\
-		"movaps		%%xmm0		,    (%%rax)	\n\t"\
-		"movaps		%%xmm1		,0x10(%%rax)	\n\t"\
-		"movaps		%%xmm4		,    (%%rbx)	\n\t"\
-		"movaps		%%xmm5		,0x10(%%rbx)	\n\t"\
-		"movq		%[i1]	,%%rcx			\n\t"\
-		"movq		%[i3]	,%%rdx			\n\t"\
-		"movaps		    (%%rcx)	,%%xmm2		\n\t"\
-		"movaps		0x10(%%rcx)	,%%xmm3		\n\t"\
-		"movaps		    (%%rdx)	,%%xmm8		\n\t"/* Use xtra 64-bit reg xmm8 here */\
-		"movaps		0x10(%%rdx)	,%%xmm9		\n\t"/* Use xtra 64-bit reg xmm9 here */\
-		"movq		%[o1]	,%%rcx			\n\t"\
-		"movq		%[o3]	,%%rdx			\n\t"\
-		"movaps		%%xmm2		,%%xmm6		\n\t"\
-		"movaps		%%xmm3		,%%xmm7		\n\t"\
-		"addpd		%%xmm8	,%%xmm2		\n\t"\
-		"subpd		%%xmm8	,%%xmm6		\n\t"\
-		"addpd		%%xmm9	,%%xmm3		\n\t"\
-		"subpd		%%xmm9	,%%xmm7		\n\t"\
-		"subpd		%%xmm2		,%%xmm0		\n\t"\
-		"subpd		%%xmm3		,%%xmm1		\n\t"\
-		"subpd		%%xmm7		,%%xmm4		\n\t"\
-		"subpd		%%xmm6		,%%xmm5		\n\t"\
-		"addpd			(%%rax)	,%%xmm2		\n\t"\
-		"addpd		0x10(%%rax)	,%%xmm3		\n\t"\
-		"addpd			(%%rbx)	,%%xmm7		\n\t"\
-		"addpd		0x10(%%rbx)	,%%xmm6		\n\t"\
-		"movq		%[o0]	,%%rax			\n\t"\
-		"movq		%[o2]	,%%rbx			\n\t"\
-		"movaps		%%xmm2		,    (%%rax)	\n\t"/* [o0].re */\
-		"movaps		%%xmm3		,0x10(%%rax)	\n\t"/* [o0].im */\
-		"movaps		%%xmm4		,    (%%rbx)	\n\t"/* [o2].re */\
-		"movaps		%%xmm6		,0x10(%%rbx)	\n\t"/* [o2].im */\
-		"movaps		%%xmm0		,    (%%rcx)	\n\t"/* [o1].re */\
-		"movaps		%%xmm1		,0x10(%%rcx)	\n\t"/* [o1].im */\
-		"movaps		%%xmm7		,    (%%rdx)	\n\t"/* [o3].re */\
-		"movaps		%%xmm5		,0x10(%%rdx)	\n\t"/* [o3].im */\
-		/* Combo 2: */\
-		"movq		%[i4]	,%%rax			\n\t"\
-		"movq		%[i6]	,%%rbx			\n\t"\
-		"movaps		    (%%rax)	,%%xmm0		\n\t"\
-		"movaps		0x10(%%rax)	,%%xmm1		\n\t"\
-		"movaps		    (%%rbx)	,%%xmm2		\n\t"\
-		"movaps		0x10(%%rbx)	,%%xmm3		\n\t"\
-		"movaps		%%xmm0		,%%xmm4		\n\t"\
-		"movaps		%%xmm1		,%%xmm5		\n\t"\
-		"subpd		%%xmm3	,%%xmm0		\n\t"\
-		"addpd		%%xmm3	,%%xmm4		\n\t"\
-		"addpd		%%xmm2	,%%xmm1		\n\t"\
-		"subpd		%%xmm2	,%%xmm5		\n\t"\
-		"movaps		%%xmm0		,    (%%rax)	\n\t"\
-		"movaps		%%xmm1		,0x10(%%rax)	\n\t"\
-		"movaps		%%xmm4		,    (%%rbx)	\n\t"\
-		"movaps		%%xmm5		,0x10(%%rbx)	\n\t"\
-		"movq		%[i5]	,%%rcx			\n\t"\
-		"movq		%[i7]	,%%rdx			\n\t"\
-		"movaps		    (%%rcx)	,%%xmm2		\n\t"\
-		"movaps		0x10(%%rcx)	,%%xmm3		\n\t"\
-		"movaps		    (%%rdx)	,%%xmm8		\n\t"/* Use xtra 64-bit reg xmm8 here */\
-		"movaps		0x10(%%rdx)	,%%xmm9		\n\t"/* Use xtra 64-bit reg xmm9 here */\
-		"movaps		%%xmm2		,%%xmm6		\n\t"\
-		"movaps		%%xmm3		,%%xmm7		\n\t"\
-		"subpd		%%xmm9	,%%xmm2		\n\t"\
-		"addpd		%%xmm9	,%%xmm6		\n\t"\
-		"addpd		%%xmm8	,%%xmm3		\n\t"\
-		"subpd		%%xmm8	,%%xmm7		\n\t"\
-		"movaps		%%xmm4		,    (%%rdx)	\n\t"\
-		"movaps		%%xmm5		,0x10(%%rdx)	\n\t"\
-	/* Use the cosine term of the [c1,s1] pair, which is the *middle* [4th of 7] of our 7 input pairs, in terms \
-	of the input-arg bit-reversal reordering defined in the __X[c,s] --> [c,s] mapping below and happens to \
-	always in fact *be* a true cosine term, which is a requirement for our "decr 1 gives isrt2" data-copy scheme: */\
-		"movq		%[c1],%%rsi			\n\t"/* isrt2 in [c1]-1 */\
-		"movaps	-0x10(%%rsi),%%xmm8		\n\t"/* Use xtra 64-bit reg xmm8 here */\
-		"movaps		%%xmm2		,%%xmm5		\n\t"\
-		"subpd		%%xmm3		,%%xmm2		\n\t"\
-		"addpd		%%xmm3		,%%xmm5		\n\t"\
-		"mulpd			%%xmm8	,%%xmm2		\n\t"\
-		"mulpd			%%xmm8	,%%xmm5		\n\t"\
-		"movaps		0x10(%%rdx)	,%%xmm3		\n\t"\
-		"movaps		%%xmm7		,%%xmm4		\n\t"\
-		"addpd		%%xmm6		,%%xmm4		\n\t"\
-		"subpd		%%xmm6		,%%xmm7		\n\t"\
-		"mulpd			%%xmm8	,%%xmm4		\n\t"\
-		"mulpd			%%xmm8	,%%xmm7		\n\t"\
-		"movaps			(%%rdx)	,%%xmm6		\n\t"/* last ref to rdx-for-in-address */\
-		"movq		%[o5]	,%%rcx			\n\t"\
-		"movq		%[o7]	,%%rdx			\n\t"\
-		"subpd		%%xmm2		,%%xmm0		\n\t"\
-		"subpd		%%xmm5		,%%xmm1		\n\t"\
-		"subpd		%%xmm4		,%%xmm6		\n\t"\
-		"subpd		%%xmm7		,%%xmm3		\n\t"\
-		"addpd			(%%rax)	,%%xmm2		\n\t"\
-		"addpd		0x10(%%rax)	,%%xmm5		\n\t"\
-		"addpd			(%%rbx)	,%%xmm4		\n\t"\
-		"addpd		0x10(%%rbx)	,%%xmm7		\n\t"\
-		"movq		%[o4]	,%%rax			\n\t"\
-		"movq		%[o6]	,%%rbx			\n\t"\
-		"movaps		%%xmm2		,    (%%rax)	\n\t"/* [o4].re */\
-		"movaps		%%xmm5		,0x10(%%rax)	\n\t"/* [o4].im */\
-		"movaps		%%xmm6		,    (%%rbx)	\n\t"/* [o6].re */\
-		"movaps		%%xmm3		,0x10(%%rbx)	\n\t"/* [o6].im */\
-		"movaps		%%xmm0		,    (%%rcx)	\n\t"/* [o5].re */\
-		"movaps		%%xmm1		,0x10(%%rcx)	\n\t"/* [o5].im */\
-		"movaps		%%xmm4		,    (%%rdx)	\n\t"/* [o7].re */\
-		"movaps		%%xmm7		,0x10(%%rdx)	\n\t"/* [o7].im */\
-		:					/* outputs: none */\
-		: [i0] "m" (Xi0)	/* All inputs from memory addresses here */\
-		 ,[i1] "m" (Xi1)\
-		 ,[i2] "m" (Xi2)\
-		 ,[i3] "m" (Xi3)\
-		 ,[i4] "m" (Xi4)\
-		 ,[i5] "m" (Xi5)\
-		 ,[i6] "m" (Xi6)\
-		 ,[i7] "m" (Xi7)\
-		 ,[o0] "m" (Xo0)\
-		 ,[o1] "m" (Xo1)\
-		 ,[o2] "m" (Xo2)\
-		 ,[o3] "m" (Xo3)\
-		 ,[o4] "m" (Xo4)\
-		 ,[o5] "m" (Xo5)\
-		 ,[o6] "m" (Xo6)\
-		 ,[o7] "m" (Xo7)\
-		 ,[c4] "m" (Xc1),[s4] "m" (Xs1)\
-		 ,[c2] "m" (Xc2),[s2] "m" (Xs2)\
-		 ,[c6] "m" (Xc3),[s6] "m" (Xs3)\
-		 ,[c1] "m" (Xc4),[s1] "m" (Xs4)\
-		 ,[c5] "m" (Xc5),[s5] "m" (Xs5)\
-		 ,[c3] "m" (Xc6),[s3] "m" (Xs6)\
-		 ,[c7] "m" (Xc7),[s7] "m" (Xs7)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9"	/* Clobbered registers */\
-	);\
-	}
-
-  #endif	// 8/16-reg version
 
 	// SSE2 analog of dft_macro.h::RADIX_08_DIT_TWIDDLE_OOP - Result of sign-flippage and adding separate I/O addressing to
 	// radix8_dif_dit_pass_gcc64.h::SSE2_RADIX8_DIF_TWIDDLE. We begin with the DIF macro here because we need a pre-twiddles
@@ -19666,14 +19111,29 @@
 	// DIF opcount : 140 load/store [56 implicit], 66 add/sub, 32 mul
 	// DIT opcount :  85 load/store [36 implicit], 68 add/sub, 32 mul .
 	//
-	#define SSE2_RADIX8_DIT_TWIDDLE_OOP(Xi0,Xi1,Xi2,Xi3,Xi4,Xi5,Xi6,Xi7, Xo0,Xo1,Xo2,Xo3,Xo4,Xo5,Xo6,Xo7 ,Xc1,Xs1,Xc2,Xs2,Xc3,Xs3,Xc4,Xs4,Xc5,Xs5,Xc6,Xs6,Xc7,Xs7)\
+	/* Dec 2020: Needed to cut #args in defs of SSE2_RADIX8_DIF_TWIDDLE_OOP and SSE2_RADIX8_DIT_TWIDDLE_OOP
+	from 30 to < 24 for Apple M1/Clang builds on Arm64 - do similar on x86 to avoid multiple versions of the
+	macro having different arglists.
+	The DIT version uses fixed-multiple pointer-offsets for both in-and-output address octets,
+	because it is only ever used with small local data arrays as IOs, not the main residue array with its wide
+	strides and index-padding scheme. So #def the needed basic strides in the 'calling' routine, then:
+	I-addresses are in-order, i.e. what were formerly pointers [i0-7] are now computed as
+		in0  + {0,i[1-7]} =  in0 + {0,i[1,2,2+2, 4,4+1,4+2,4+1+2]}
+	O-addresses are BRed, i.e. what were formerly pointers [o0-7] are now computed as
+		out0 + {0,o_off[4,2,6,1,5,3,7]} .
+	*/
+	#define SSE2_RADIX8_DIT_TWIDDLE_OOP(Xin0,Xi1, Xout0,Xo_off, Xtwid_ptrs, Xtwo)\
 	{\
 	__asm__ volatile (\
+	/* i1 is base byte-offset, no need to lshift it prior to add: */\
+		"xorq	%%r8,%%r8	\n\t	leaq	%c[i1](%%r8),%%r8	\n\t"/* movq|movslq of literal %c[i1] both segfaulted, workaround via LEA */\
+		/* The twid_ptrs[] array holds ptrs to 14 complex twiddles in-order: (c,s)[1,2,3,4,5,6,7]: */\
+		"movq	%[twid_ptrs],%%r14	\n\t"\
 	/* Block 0/1 has just one twiddle-CMUL: */\
-		"movq		%[i0],%%rax			\n\t"\
-		"movq		%[i1],%%rbx			\n\t"\
-		"movq		%[c1],%%rdi			\n\t"/* [rdi,rsi] point to [cos,sin] components of each sincos pair, */\
-		"movq		%[s1],%%rsi			\n\t"/* which is not really a pair here in terms of relative addressing: */\
+		"movq		%[in0],%%rax		\n\t"\
+		"leaq	(%%rax,%%r8),%%rbx		\n\t"\
+		"movq	    (%%r14),%%rdi		\n\t"/* [c1,s1]: [rdi,rsi] point to [cos,sin] components of each sincos pair, */\
+		"movq	0x08(%%r14),%%rsi		\n\t"/* which is not really a pair here in terms of relative addressing: */\
 		"movaps		    (%%rbx),%%xmm4 	\n\t	movaps		0x10(%%rbx),%%xmm5 	\n\t"/* _r4  = __tr1;	_r5  = __ti1; */\
 		"movaps		    (%%rax),%%xmm0 	\n\t	movaps		0x10(%%rax),%%xmm1 	\n\t"/* _r0  = __tr0;	_r1  = __ti0; */\
 		"movaps		%%xmm5 ,%%xmm6 		\n\t	movaps		%%xmm4 ,%%xmm7 		\n\t"/* _r6  = _r5;		_r7  = _r4;		** [r4,r5] = CMUL(__t1,__W1): */\
@@ -19686,17 +19146,17 @@
 		"movaps		%%xmm0 ,    (%%rax)	\n\t	movaps		%%xmm1 ,0x10(%%rax)	\n\t"/* __tr0 = _r0;	__ti0 = _r1; */\
 		"movaps		%%xmm2 ,    (%%rbx)	\n\t	movaps		%%xmm3 ,0x10(%%rbx)	\n\t"/* __tr1 = _r2;	__ti1 = _r3; */\
 	/* Blocks 2/3 use separate register subset, can be done overlapped with 0/1: */\
-		"movq		%[i2],%%rcx			\n\t"\
-		"movq		%[c2],%%r10			\n\t"\
-		"movq		%[s2],%%r11			\n\t"/* [r8,r9] = CMUL(__t2,__W2): */\
+		"leaq	(%%rax,%%r8,2),%%rcx	\n\t"\
+		"movq	0x10(%%r14),%%r10		\n\t"/* [c2,s2] */\
+		"movq	0x18(%%r14),%%r11		\n\t"/* [r8,r9] = CMUL(__t2,__W2): */\
 		"movaps		    (%%rcx),%%xmm8 	\n\t	movaps		0x10(%%rcx),%%xmm9 	\n\t"/* _r8  = __tr2;	_r9  = __ti2; */\
 		"movaps		%%xmm9 ,%%xmm10		\n\t	movaps		%%xmm8 ,%%xmm11		\n\t"/* _ra  = _r9;		_rb  = _r8; */\
 		"mulpd		(%%r10),%%xmm8 		\n\t	mulpd		(%%r10),%%xmm9 		\n\t"/* _r8 *= __Wr2;	_r9 *= __Wr2; */\
 		"mulpd		(%%r11),%%xmm10		\n\t	mulpd		(%%r11),%%xmm11		\n\t"/* _ra *= __Wi2;	_rb *= __Wi2; */\
 		"addpd		%%xmm10,%%xmm8 		\n\t	subpd		%%xmm11,%%xmm9 		\n\t"/* _r8 += _ra;		_r9 -= _rb; */\
-		"movq		%[i3],%%rdx			\n\t"\
-		"movq		%[c3],%%r12			\n\t"\
-		"movq		%[s3],%%r13			\n\t"/* [rc,rd] = CMUL(__t3,__W3): */\
+		"leaq	(%%rcx,%%r8),%%rdx		\n\t"\
+		"movq	0x20(%%r14),%%r12		\n\t"/* [c3,s3] */\
+		"movq	0x28(%%r14),%%r13		\n\t"/* [rc,rd] = CMUL(__t3,__W3): */\
 		"movaps		    (%%rdx),%%xmm12	\n\t	movaps		0x10(%%rdx),%%xmm13	\n\t"/* _rc  = __tr3;	_rd  = __ti3; */\
 		"movaps		%%xmm13,%%xmm14		\n\t	movaps		%%xmm12,%%xmm15		\n\t"/* _re  = _rd;		_rf  = _rc; */\
 		"mulpd		(%%r12),%%xmm12		\n\t	mulpd		(%%r12),%%xmm13		\n\t"/* _rc *= __Wr3;	_rd *= __Wr3; */\
@@ -19709,38 +19169,39 @@
 		"movaps		%%xmm8 ,    (%%rcx)	\n\t	movaps		%%xmm9 ,0x10(%%rcx)	\n\t"/* __tr2 = _r8;	__ti2 = _r9; */\
 		"movaps		%%xmm10,    (%%rdx)	\n\t	movaps		%%xmm11,0x10(%%rdx)	\n\t"/* __tr3 = _ra;	__ti3 = _rb; */\
 	/* Blocks 4/5: */\
-		"movq		%[i4],%%rax			\n\t"\
-		"movq		%[c4],%%rdi			\n\t"\
-		"movq		%[s4],%%rsi			\n\t"/* [r0,r1] = CMUL(__t4,__W4): */\
+		"shlq	$2,%%r8			\n\t"/* From here on only need offset i4 = 4*i1 */\
+		"addq	%%r8,%%rax		\n\t"/* Remaining 4 I-address-calculations are in-place += i4, so use ADD, faster than LEA */\
+		"movq	0x30(%%r14),%%rdi		\n\t"/* [c4,s4] */\
+		"movq	0x38(%%r14),%%rsi		\n\t"/* [r0,r1] = CMUL(__t4,__W4): */\
 		"movaps		    (%%rax),%%xmm0 	\n\t	movaps		0x10(%%rax),%%xmm1 	\n\t"/* _r0  = __tr4;	_r1  = __ti4; */\
 		"movaps		%%xmm1 ,%%xmm2 		\n\t	movaps		%%xmm0 ,%%xmm3 		\n\t"/* _r2  = _r1;		_r3  = _r0; */\
 		"mulpd		(%%rdi),%%xmm0 		\n\t	mulpd		(%%rdi),%%xmm1 		\n\t"/* _r0 *= __Wr4;	_r1 *= __Wr4; */\
 		"mulpd		(%%rsi),%%xmm2 		\n\t	mulpd		(%%rsi),%%xmm3 		\n\t"/* _r2 *= __Wi4;	_r3 *= __Wi4; */\
 		"addpd		%%xmm2 ,%%xmm0 		\n\t	subpd		%%xmm3 ,%%xmm1 		\n\t"/* _r0 += _r2;		_r1 -= _r3; */\
-		"movq		%[i5],%%rbx			\n\t"\
-		"movq		%[c5],%%r8 			\n\t"\
-		"movq		%[s5],%%r9 			\n\t"/* [r4,r5] = CMUL(__t5,__W5): */\
+		"addq	%%r8,%%rbx		\n\t"\
+		"movq	0x40(%%r14),%%r10		\n\t"/* [c5,s5] */\
+		"movq	0x48(%%r14),%%r11		\n\t"/* [r4,r5] = CMUL(__t5,__W5): */\
 		"movaps		    (%%rbx),%%xmm4 	\n\t	movaps		0x10(%%rbx),%%xmm5 	\n\t"/* _r4  = __tr5;	_r5  = __ti5; */\
 		"movaps		%%xmm5 ,%%xmm6 		\n\t	movaps		%%xmm4 ,%%xmm7 		\n\t"/* _r6  = _r5;		_r7  = _r4; */\
-		"mulpd		(%%r8 ),%%xmm4 		\n\t	mulpd		(%%r8 ),%%xmm5 		\n\t"/* _r4 *= __Wr5;	_r5 *= __Wr5; */\
-		"mulpd		(%%r9 ),%%xmm6 		\n\t	mulpd		(%%r9 ),%%xmm7 		\n\t"/* _r6 *= __Wi5;	_r7 *= __Wi5; */\
+		"mulpd		(%%r10),%%xmm4 		\n\t	mulpd		(%%r10),%%xmm5 		\n\t"/* _r4 *= __Wr5;	_r5 *= __Wr5; */\
+		"mulpd		(%%r11),%%xmm6 		\n\t	mulpd		(%%r11),%%xmm7 		\n\t"/* _r6 *= __Wi5;	_r7 *= __Wi5; */\
 		"addpd		%%xmm6 ,%%xmm4 		\n\t	subpd		%%xmm7 ,%%xmm5 		\n\t"/* _r4 += _r6;		_r5 -= _r7; */\
 		/* Now do radix-2 butterfly: */\
 		"movaps		%%xmm0 ,%%xmm2 		\n\t	movaps		%%xmm1 ,%%xmm3 		\n\t"/* _r2  = _r0;		_r3  = _r1; */\
 		"addpd		%%xmm4 ,%%xmm0 		\n\t	addpd		%%xmm5 ,%%xmm1 		\n\t"/* _r0 += _r4;		_r1 += _r5; */\
 		"subpd		%%xmm4 ,%%xmm2 		\n\t	subpd		%%xmm5 ,%%xmm3 		\n\t"/* _r2 -= _r4;		_r3 -= _r5; */\
 	/* Blocks 6/7 use separate register subset, can be done overlapped with 4/5: */\
-		"movq		%[i6],%%rcx			\n\t"\
-		"movq		%[c6],%%r10			\n\t"\
-		"movq		%[s6],%%r11			\n\t"/* [r8,r9] = CMUL(__t6,__W6): */\
+		"addq	%%r8,%%rcx		\n\t"\
+		"movq	0x50(%%r14),%%r10		\n\t"/* [c6,s6] */\
+		"movq	0x58(%%r14),%%r11		\n\t"/* [r8,r9] = CMUL(__t6,__W6): */\
 		"movaps		    (%%rcx),%%xmm8 	\n\t	movaps		0x10(%%rcx),%%xmm9 	\n\t"/* _r8  = __tr6;	_r9  = __ti6; */\
 		"movaps		%%xmm9 ,%%xmm10		\n\t	movaps		%%xmm8 ,%%xmm11		\n\t"/* _ra  = _r9;		_rb  = _r8; */\
 		"mulpd		(%%r10),%%xmm8 		\n\t	mulpd		(%%r10),%%xmm9 		\n\t"/* _r8 *= __Wr6;	_r9 *= __Wr6; */\
 		"mulpd		(%%r11),%%xmm10		\n\t	mulpd		(%%r11),%%xmm11		\n\t"/* _ra *= __Wi6;	_rb *= __Wi6; */\
 		"addpd		%%xmm10,%%xmm8 		\n\t	subpd		%%xmm11,%%xmm9 		\n\t"/* _r8 += _ra;		_r9 -= _rb; */\
-		"movq		%[i7],%%rdx			\n\t"\
-		"movq		%[c7],%%r12			\n\t"\
-		"movq		%[s7],%%r13			\n\t"/* [rc,rd] = CMUL(__t7,__W7): */\
+		"addq	%%r8,%%rdx		\n\t"\
+		"movq	0x60(%%r14),%%r12		\n\t"/* [c7,s7] */\
+		"movq	0x68(%%r14),%%r13		\n\t"/* [rc,rd] = CMUL(__t7,__W7): */\
 		"movaps		    (%%rdx),%%xmm12	\n\t	movaps		0x10(%%rdx),%%xmm13	\n\t"/* _rc  = __tr7;	_rd  = __ti7; */\
 		"movaps		%%xmm13,%%xmm14		\n\t	movaps		%%xmm12,%%xmm15		\n\t"/* _re  = _rd;		_rf  = _rc; */\
 		"mulpd		(%%r12),%%xmm12		\n\t	mulpd		(%%r12),%%xmm13		\n\t"/* _rc *= __Wr7;	_rd *= __Wr7; */\
@@ -19751,24 +19212,26 @@
 		"addpd		%%xmm12,%%xmm8 		\n\t	addpd		%%xmm13,%%xmm9 		\n\t"/* _r8 += _rc;		_r9 += _rd; */\
 		"subpd		%%xmm12,%%xmm10		\n\t	subpd		%%xmm13,%%xmm11		\n\t"/* _ra -= _rc;		_rb -= _rd; */\
 	/* Reload Block 0-3 outputs into r4-7,c-f, combine to get the 2 length-4 subtransform... */\
-		"movq		%[i0],%%rax			\n\t"\
-		"movq		%[i1],%%rbx			\n\t"\
-		"movq		%[i2],%%rcx			\n\t"\
-		"movq		%[i3],%%rdx			\n\t"\
+		"subq		%%r8,%%rax			\n\t"\
+		"subq		%%r8,%%rbx			\n\t"\
+		"subq		%%r8,%%rcx			\n\t"\
+		"subq		%%r8,%%rdx			\n\t"\
 		"movaps		    (%%rax),%%xmm4 	\n\t	movaps		0x10(%%rax),%%xmm5 	\n\t"/* _r4 = __tr0;	_r5 = __ti0; */\
 		"movaps		    (%%rbx),%%xmm6 	\n\t	movaps		0x10(%%rbx),%%xmm7 	\n\t"/* _r6 = __tr1;	_r7 = __ti1; */\
 		"movaps		    (%%rcx),%%xmm12	\n\t	movaps		0x10(%%rcx),%%xmm13	\n\t"/* _rc = __tr2;	_rd = __ti2; */\
 		"movaps		    (%%rdx),%%xmm14	\n\t	movaps		0x10(%%rdx),%%xmm15	\n\t"/* _re = __tr3;	_rf = __ti3; */\
-		"movq		%[o0],%%rax			\n\t"/* Assumes user stuck a (vec_dbl)2.0 into this output slot prior to macro call. */\
+	"movq		%[out0],%%rax			\n\t	movq		%[o_off],%%r8		\n\t"/* out0, off1 */\
+	"movq		%[two],%%rsi			\n\t	leaq		(%%r8,%%r8),%%r9	\n\t"/* (vec_dbl)2.0, off2 */\
+		"										leaq		(%%r9,%%r9),%%r10	\n\t"/* off4 */\
 		"subpd		%%xmm12,%%xmm4 		\n\t	subpd		%%xmm13,%%xmm5 		\n\t"/* _r4 -= _rc;		_r5 -= _rd; */\
 		"subpd		%%xmm15,%%xmm6 		\n\t	subpd		%%xmm14,%%xmm7 		\n\t"/* _r6 -= _rf;		_r7 -= _re; */\
 		"subpd		%%xmm8 ,%%xmm0 		\n\t	subpd		%%xmm9 ,%%xmm1 		\n\t"/* _r0 -= _r8;		_r1 -= _r9; */\
 		"subpd		%%xmm11,%%xmm2 		\n\t	subpd		%%xmm10,%%xmm3 		\n\t"/* _r2 -= _rb;		_r3 -= _ra; */\
-		/* We hope the microcode execution engine sticks the datum at (%%rax) into a virtual register and inlines the MULs with the above SUBs: */\
-		"mulpd		(%%rax),%%xmm12		\n\t	mulpd		(%%rax),%%xmm13		\n\t"/* _rc *= _two;	_rd *= _two; */\
-		"mulpd		(%%rax),%%xmm15		\n\t	mulpd		(%%rax),%%xmm14		\n\t"/* _rf *= _two;	_re *= _two; */\
-		"mulpd		(%%rax),%%xmm8 		\n\t	mulpd		(%%rax),%%xmm9 		\n\t"/* _r8 *= _two;	_r9 *= _two; */\
-		"mulpd		(%%rax),%%xmm11		\n\t	mulpd		(%%rax),%%xmm10		\n\t"/* _rb *= _two;	_ra *= _two; */\
+		/* We hope the microcode execution engine sticks the datum at (%%rsi) into a virtual register and inlines the MULs with the above SUBs: */\
+		"mulpd		(%%rsi),%%xmm12		\n\t	mulpd		(%%rsi),%%xmm13		\n\t"/* _rc *= _two;	_rd *= _two; */\
+		"mulpd		(%%rsi),%%xmm15		\n\t	mulpd		(%%rsi),%%xmm14		\n\t"/* _rf *= _two;	_re *= _two; */\
+		"mulpd		(%%rsi),%%xmm8 		\n\t	mulpd		(%%rsi),%%xmm9 		\n\t"/* _r8 *= _two;	_r9 *= _two; */\
+		"mulpd		(%%rsi),%%xmm11		\n\t	mulpd		(%%rsi),%%xmm10		\n\t"/* _rb *= _two;	_ra *= _two; */\
 		"addpd		%%xmm4 ,%%xmm12		\n\t	addpd		%%xmm5 ,%%xmm13		\n\t"/* _rc += _r4;		_rd += _r5; */\
 		"addpd		%%xmm6 ,%%xmm15		\n\t	addpd		%%xmm7 ,%%xmm14		\n\t"/* _rf += _r6;		_re += _r7; */\
 		"addpd		%%xmm0 ,%%xmm8 		\n\t	addpd		%%xmm1 ,%%xmm9 		\n\t"/* _r8 += _r0;		_r9 += _r1; */\
@@ -19779,19 +19242,19 @@
 		"subpd		%%xmm3 ,%%xmm11		\n\t	subpd		%%xmm10,%%xmm2 		\n\t"/* _rb -= _r3;		_r2 -= _ra; */\
 		"subpd		%%xmm8 ,%%xmm12		\n\t	subpd		%%xmm9 ,%%xmm13		\n\t"/* _rc -= _r8;		_rd -= _r9; */\
 		"subpd		%%xmm1 ,%%xmm4 		\n\t	subpd		%%xmm0 ,%%xmm5 		\n\t"/* _r4 -= _r1;		_r5 -= _r0; */\
-		"mulpd		(%%rax),%%xmm3 		\n\t	mulpd		(%%rax),%%xmm10		\n\t"/* _r3 *= _two;	_ra *= _two; */\
-		"mulpd		(%%rax),%%xmm8 		\n\t	mulpd		(%%rax),%%xmm9 		\n\t"/* _r8 *= _two;	_r9 *= _two; */\
-		"mulpd		(%%rax),%%xmm1 		\n\t	mulpd		(%%rax),%%xmm0 		\n\t"/* _r1 *= _two;	_r0 *= _two; */\
+		"mulpd		(%%rsi),%%xmm3 		\n\t	mulpd		(%%rsi),%%xmm10		\n\t"/* _r3 *= _two;	_ra *= _two; */\
+		"mulpd		(%%rsi),%%xmm8 		\n\t	mulpd		(%%rsi),%%xmm9 		\n\t"/* _r8 *= _two;	_r9 *= _two; */\
+		"mulpd		(%%rsi),%%xmm1 		\n\t	mulpd		(%%rsi),%%xmm0 		\n\t"/* _r1 *= _two;	_r0 *= _two; */\
 		"addpd		%%xmm11,%%xmm3 		\n\t	addpd		%%xmm2 ,%%xmm10		\n\t"/* _r3 += _rb;		_ra += _r2; */\
 		"addpd		%%xmm12,%%xmm8 		\n\t	addpd		%%xmm13,%%xmm9 		\n\t"/* _r8 += _rc;		_r9 += _rd; */\
 		"addpd		%%xmm4 ,%%xmm1 		\n\t	addpd		%%xmm5 ,%%xmm0 		\n\t"/* _r1 += _r4;		_r0 += _r5; */\
 		/*movq		%[o0],%%rax		[o0] already in rax */	\
-		"movq		%[o1],%%rbx			\n\t"\
-		"movq		%[o2],%%rcx			\n\t"\
-		"movq		%[o3],%%rdx			\n\t"\
+		"leaq	(%%rax,%%r9 ),%%rcx		\n\t"/* out0 + off2, compute first to allow time for LEA to finish before += off4 to get out0 + off6 */\
+		"leaq	(%%rax,%%r10),%%rbx		\n\t"/* out0 + off4 */\
+		"leaq	(%%rcx,%%r10),%%rdx		\n\t"/* out0 + off6 */\
 		"movaps		%%xmm12,    (%%rbx)	\n\t	movaps		%%xmm13,0x10(%%rbx)	\n\t"/* __Br1 = _rc;	__Bi1 = _rd; */\
 		/* Use that _rc,d free to stick 2.0 into _rc and that [c4] in rdi to load ISRT2 from c4-1 into _rd: */\
-		"movaps		    (%%rax),%%xmm12	\n\t	movaps		-0x10(%%rdi),%%xmm13\n\t"/* _rc = 2.0;		_rd = ISRT2; */\
+		"movaps		    (%%rsi),%%xmm12	\n\t	movaps		-0x10(%%rdi),%%xmm13\n\t"/* _rc = 2.0;		_rd = ISRT2; */\
 		"movaps		%%xmm4 ,    (%%rdx)	\n\t	movaps		%%xmm0 ,0x10(%%rdx)	\n\t"/* __Br3 = _r4;	__Bi3 = _r0; */\
 		"movaps		%%xmm8 ,    (%%rax)	\n\t	movaps		%%xmm9 ,0x10(%%rax)	\n\t"/* __Br0 = _r8;	__Bi0 = _r9; */\
 		"movaps		%%xmm1 ,    (%%rcx)	\n\t	movaps		%%xmm5 ,0x10(%%rcx)	\n\t"/* __Br2 = _r1;	__Bi2 = _r5; */\
@@ -19803,39 +19266,22 @@
 		"mulpd		%%xmm12,%%xmm2 		\n\t	mulpd		%%xmm12,%%xmm10		\n\t"/* _r2 *= _two;	_ra *= _two; */\
 		"addpd		%%xmm15,%%xmm3 		\n\t	addpd		%%xmm7 ,%%xmm11		\n\t"/* _r3 += _rf;		_rb += _r7; */\
 		"addpd		%%xmm6 ,%%xmm2 		\n\t	addpd		%%xmm14,%%xmm10		\n\t"/* _r2 += _r6;		_ra += _re; */\
-		"movq		%[o4],%%rax			\n\t"\
-		"movq		%[o5],%%rbx			\n\t"\
-		"movq		%[o6],%%rcx			\n\t"\
-		"movq		%[o7],%%rdx			\n\t"\
+		"addq		%%r8 ,%%rax			\n\t"/* out0 + off[1,5,3,7] */\
+		"addq		%%r8 ,%%rbx			\n\t"\
+		"addq		%%r8 ,%%rcx			\n\t"\
+		"addq		%%r8 ,%%rdx			\n\t"\
 		"movaps		%%xmm3 ,    (%%rax)	\n\t	movaps		%%xmm7 ,0x10(%%rax)	\n\t"/* __Br4 = _r3;	__Bi4 = _r7; */\
 		"movaps		%%xmm15,    (%%rbx)	\n\t	movaps		%%xmm11,0x10(%%rbx)	\n\t"/* __Br5 = _rf;	__Bi5 = _rb; */\
 		"movaps		%%xmm6 ,    (%%rcx)	\n\t	movaps		%%xmm14,0x10(%%rcx)	\n\t"/* __Br6 = _r6;	__Bi6 = _re; */\
 		"movaps		%%xmm2 ,    (%%rdx)	\n\t	movaps		%%xmm10,0x10(%%rdx)	\n\t"/* __Br7 = _r2;	__Bi7 = _ra; */\
 		:					/* outputs: none */\
-		: [i0] "m" (Xi0)	/* All inputs from memory addresses here */\
-		 ,[i1] "m" (Xi1)\
-		 ,[i2] "m" (Xi2)\
-		 ,[i3] "m" (Xi3)\
-		 ,[i4] "m" (Xi4)\
-		 ,[i5] "m" (Xi5)\
-		 ,[i6] "m" (Xi6)\
-		 ,[i7] "m" (Xi7)\
-		 ,[o0] "m" (Xo0)\
-		 ,[o1] "m" (Xo1)\
-		 ,[o2] "m" (Xo2)\
-		 ,[o3] "m" (Xo3)\
-		 ,[o4] "m" (Xo4)\
-		 ,[o5] "m" (Xo5)\
-		 ,[o6] "m" (Xo6)\
-		 ,[o7] "m" (Xo7)\
-		 ,[c1] "m" (Xc1),[s1] "m" (Xs1)\
-		 ,[c2] "m" (Xc2),[s2] "m" (Xs2)\
-		 ,[c3] "m" (Xc3),[s3] "m" (Xs3)\
-		 ,[c4] "m" (Xc4),[s4] "m" (Xs4)\
-		 ,[c5] "m" (Xc5),[s5] "m" (Xs5)\
-		 ,[c6] "m" (Xc6),[s6] "m" (Xs6)\
-		 ,[c7] "m" (Xc7),[s7] "m" (Xs7)\
-		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+		: [in0] "m" (Xin0)	/* All 'm'-inputs from memory addresses here... */\
+		 ,[i1] "e" (Xi1)	/* ...except for 'e'-inputs which are literal byte offsets */\
+		 ,[out0] "m" (Xout0)\
+		 ,[o_off] "m" (Xo_off)/* O-address pointer-stride */\
+		 ,[twid_ptrs] "m" (Xtwid_ptrs)\
+		 ,[two] "m" (Xtwo)/* Only used in FMA implementations of this macro */\
+		: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
 	);\
 	}
 

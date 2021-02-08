@@ -84,13 +84,14 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	#define OFF3	0x60
 	#define OFF4	0x80
   #endif
+	uint32 *ui32_ptr = &(po_lin[0]);	// Kludge - with just po_lin as macro arg, gcc was feeding the low 8 bytes of po_lin
+	// po_lin[1,0]as arg to the macro, rather than po_lin-as-pointer. Can't feed the latter directly as arg to macro, because that causes gcc to
+	// emit "error: memory input 5 is not directly addressable" error.
 	tmp = r00;
 	for(l = 0; l < 16; l++) {
-		add0 = &a[j1] + poff[l<<2];	// poff[4*i] = p10,p20,...,pf0
-		add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-			add8 = add0+p08; add9 = add1+p08; adda = add2+p08; addb = add3+p08; addc = add4+p08; addd = add5+p08; adde = add6+p08; addf = add7+p08;
+		addr = &a[j1] + poff[l<<2];	// poff[4*i] = p10,p20,...,pf0
 		SSE2_RADIX16_DIT_0TWIDDLE(
-			add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf,
+			addr,ui32_ptr,
 			isrt2,two,
 			tmp,OFF1,OFF2,OFF3,OFF4
 		); tmp += 32;
@@ -129,8 +130,14 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 	#define OFF4	0x800
   #endif
 // Block 0: All unity twiddles:
+	// Jan 2020: For reduced-#args version of macro, need base-pointer r00 and array of 16
+	// double-array-equivalent index offsets corr. to the address strides between r00 and r10,r20...,
+	// which are 32 vec_dbl = 32*RE_IM_STRIDE doubles apart:
+	const int dd = RE_IM_STRIDE<<5, offs[16] = {0,dd,2*dd,3*dd,4*dd,5*dd,6*dd,7*dd,8*dd,9*dd,10*dd,11*dd,12*dd,13*dd,14*dd,15*dd};
+	const int *off_ptr = &(offs[0]);
 	SSE2_RADIX16_DIT_0TWIDDLE(
-		r00,r10,r20,r30,r40,r50,r60,r70,r80,r90,ra0,rb0,rc0,rd0,re0,rf0, isrt2,two,
+		r00,off_ptr,
+		isrt2,two,
 		s1p00,OFF1,OFF2,OFF3,OFF4
 	);
 
@@ -933,13 +940,7 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 	for(l = 0; l < 16; l++) {
 		k1 = reverse(l,16)<<1;
 		tm2 = s1p00 + k1;
-	#if (OS_BITS == 32)
-								  add1 = (double*)(tmp+ 2); add2 = (double*)(tmp+ 4); add3 = (double*)(tmp+ 6); add4 = (double*)(tmp+ 8); add5 = (double*)(tmp+10); add6 = (double*)(tmp+12); add7 = (double*)(tmp+14);
-		add8 = (double*)(tmp+16); add9 = (double*)(tmp+18); adda = (double*)(tmp+20); addb = (double*)(tmp+22); addc = (double*)(tmp+24); addd = (double*)(tmp+26); adde = (double*)(tmp+28); addf = (double*)(tmp+30);
-		SSE2_RADIX16_DIF_0TWIDDLE  (tm2,OFF1,OFF2,OFF3,OFF4, isrt2,two, tmp,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf);
-	#else
 		SSE2_RADIX16_DIF_0TWIDDLE_B(tm2,OFF1,OFF2,OFF3,OFF4, isrt2,two, tmp);
-	#endif
 		tmp += 32;
 	}
 
@@ -973,21 +974,25 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 	#define OFF3	0x600
 	#define OFF4	0x800
   #endif
+	const int off_arr[16] = {0,p01,p02,p03,p04,p05,p06,p07,p08,p09,p0a,p0b,p0c,p0d,p0e,p0f};
+	off_ptr = &(off_arr[0]);	// off_ptr declared at top in DIT section
 // Block 0: has all-unity twiddles
-	add0 = &a[j1]      ; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-		add8 = add0+p08; add9 = add1+p08; adda = add2+p08; addb = add3+p08; addc = add4+p08; addd = add5+p08; adde = add6+p08; addf = add7+p08;
+	add0 = &a[j1];
 	SSE2_RADIX16_DIF_TWIDDLE_OOP(
-		r00,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2, twid0
+		r00,OFF1,OFF4,
+		add0,off_ptr,
+		isrt2,twid0
 	);
 
   #ifdef USE_AVX2	// Must define - or not - @compile time
 
 /*** Only last 14 of the 15 with-twiddles DFTs allow use of FMA-based macros under Intel AVX2/FMA3: ***/
 // Block 8: BR twiddles = {  I.{},  C^ 8,-~C^ 8,  C^ 4,*~C^ 4, *C^ 4,-~C^ 4,  C^ 2,*~C^ 2, *C^ 6,-~C^ 6,  C^ 6,*~C^ 6, *C^ 2,-~C^ 2}
-	add0 = &a[j1] + p10; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-		add8 = add0+p08; add9 = add1+p08; adda = add2+p08; addb = add3+p08; addc = add4+p08; addd = add5+p08; adde = add6+p08; addf = add7+p08;
+	add0 = &a[j1] + p10;
 	SSE2_RADIX16_DIF_TWIDDLE_OOP(
-		r01,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2, twid8
+		r01,OFF1,OFF4,
+		add0,off_ptr,
+		isrt2,twid8
 	);
 
 	// Remaining 14 sets of macro calls done in loop:
@@ -1011,10 +1016,10 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 		k1 = reverse(l,16)<<1;
 		tmp = twid0 + (k1<<4)-k1;	// Twid-offsets are multiples of 30 vec_dbl
 		add0 = &a[j1] + poff[l<<2];	// poff[4*i] = p10,p20,...,pf0
-			add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-		add8 = add0+p08; add9 = add1+p08; adda = add2+p08; addb = add3+p08; addc = add4+p08; addd = add5+p08; adde = add6+p08; addf = add7+p08;
 		SSE2_RADIX16_DIF_TWIDDLE_OOP(
-			tm1,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2, tmp
+			tm1,OFF1,OFF4,
+			add0,off_ptr,
+			isrt2,tmp
 		);	tm1 += 2;
 	}
 

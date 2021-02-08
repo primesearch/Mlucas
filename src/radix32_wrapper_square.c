@@ -25,18 +25,15 @@
 
 #ifdef USE_SSE2
 
-	#include "sse2_macro.h"
+	#include "sse2_macro_gcc64.h"
 	#include "radix32_utils_asm.h"
 
 	#ifndef COMPILER_TYPE_GCC
 		#error X86 SIMD build requires GCC-compatible compiler!
 	#endif	/* GCC-style inline ASM: */
 
-	#if OS_BITS == 32
-		#include "radix32_wrapper_square_gcc32.h"
-	#else
-		#include "radix32_wrapper_square_gcc64.h"
-	#endif
+	#include "radix32_wrapper_square_gcc64.h"
+
 
 #endif	/* USE_SSE2 */
 
@@ -232,7 +229,6 @@ void radix32_wrapper_square(
 			ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 		#endif
 		//	printf("%Ns: max_threads = %d, NTHREADS = %d\n",func, max_threads, NTHREADS);
-			ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
 
 		#ifdef USE_SSE2
 		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
@@ -1149,37 +1145,9 @@ jump_in:	/* Entry point for all blocks but the first. */
 		l += iroot;			/* 28*iroot */
 		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[13] = k1<<4;	k2_arr[13] = k2<<4;
 
-	   #if OS_BITS == 32	// In 32-bit mode we only support SSE2 SIMD:
-
-		// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity:
-		add0 = (double *)k1_arr; add1 = (double *)k2_arr;	// Casts are only to get rid of compiler warnings
-		// Due to register paucity in 32-bit mode, use separate smaller asm macros to first compute the set of 7
-		// 'anchor twiddles' using full 2-table complex multiplies, then the remaining 24, done in 12-pairs fashion:
-		SSE2_RADIX32_CALC_TWIDDLES_1_2_3_7_14_21_28(cc0,add0,add1,rt0,rt1);
-
-		SSE2_CMUL_EXPO(c01,c07,c06,c08)
-		SSE2_CMUL_EXPO(c02,c07,c05,c09)
-		SSE2_CMUL_EXPO(c03,c07,c04,c0A)
-
-		SSE2_CMUL_EXPO(c01,c0E,c0D,c0F)
-		SSE2_CMUL_EXPO(c02,c0E,c0C,c10)
-		SSE2_CMUL_EXPO(c03,c0E,c0B,c11)
-
-		SSE2_CMUL_EXPO(c01,c15,c14,c16)
-		SSE2_CMUL_EXPO(c02,c15,c13,c17)
-		SSE2_CMUL_EXPO(c03,c15,c12,c18)
-
-		SSE2_CMUL_EXPO(c01,c1C,c1B,c1D)
-		SSE2_CMUL_EXPO(c02,c1C,c1A,c1E)
-		SSE2_CMUL_EXPO(c03,c1C,c19,c1F)
-
-	   #else	// 64-bit SSE2:
-
 		// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity:
 		add0 = (double *)k1_arr; add1 = (double *)k2_arr;	// Casts are only to get rid of compiler warnings
 		SSE2_RADIX32_CALC_TWIDDLES_LOACC(cc0,add0,add1,rt0,rt1);
-
-	   #endif	// 32-or-64-bit SSE2 ?
 
 	  #elif !defined(USE_AVX512)	// AVX/AVX2:
 
@@ -3973,13 +3941,8 @@ Scalar-dbl:	r0	i0	r1	i1	r2	i2	r3	i3	r4	i4	r5	i5	r6	i6	r7	i7	r8	i8	r9	i9	r10	i10	
 
 	#else	// SSE2:
 
-	  #if OS_BITS == 64
 		SSE2_RADIX32_WRAPPER_DIT(add0,add1
-		,isrt2,r00,r08,r10,r20,r28,r30    ,c01,c02    ,c04    ,c06    ,c08,c0A,c0C,c0E,c10,c12,c14,c16,c18,c1A,c1C,c1E)
-	  #else	// 32-bit SSE2:
-		SSE2_RADIX32_WRAPPER_DIT(add0,add1
-		,isrt2,r00,r08,r10,r20,r28,r30,c00,c01,c02,c03,c04,c05,c06,c07,c08,c0A,c0C,c0E,c10,c12,c14,c16,c18,c1A,c1C,c1E)
-	  #endif
+		,isrt2,r00,r08,r10                ,c01,c02    ,c04    ,c06    ,c08,c0A,c0C,c0E,c10,c12,c14,c16,c18,c1A,c1C,c1E)
 
 	#endif
 	}	// endif(j1 == 0)

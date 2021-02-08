@@ -1168,7 +1168,7 @@ if(!j) {
 
 	add0 = &a[j1    ];	// re-init this, because ptr used as a prefetch address in carry step above
 
-	SSE2_RADIX16_DIF_NOTWIDDLE(add0,p1,p2,p3,p4,p8,r00,r02,r04,r06,r08,r0A,r0C,r0E,r10,r12,r14,r16,r18,r1A,r1C,r1E,isrt2,cc0);
+	SSE2_RADIX16_DIF_NOTWIDDLE(add0,p1,p2,p3,p4,p8,r00,isrt2,cc0);
 
 #else	/* !USE_SSE2 */
 

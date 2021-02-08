@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -68,17 +68,52 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	}
 
 	/*...and now do eight radix-8 subtransforms w/internal twiddles - cf. radix64_dit_pass1 for details.
-	Note: 1st of the 15 sincos args in each call to SSE2_RADIX8_DIT_TWIDDLE_OOP is the basic isrt2 needed for
-	radix-8. This is a workaround of GCC's 30-arg limit for inline ASM macros, which proves a royal pain here.
-	...and another kludge for the 30-arg limit: put a copy of (vec_dbl)2.0 into the first of each s1p*r outputs:
+	Note: Each of the 7 sincos-pairs sent to SSE2_RADIX8_DIT_TWIDDLE_OOP is actually a vector-data triplet
+	whose first (unnamed) member contains the isrt2 needed for radix-8.
+	This is a workaround of GCC's 30-arg limit for inline ASM macros, which proves a royal pain here.
 	*/
-	VEC_DBL_INIT(s1p01,2.0);
-	VEC_DBL_INIT(s1p02,2.0);
-	VEC_DBL_INIT(s1p03,2.0);
-	VEC_DBL_INIT(s1p04,2.0);
-	VEC_DBL_INIT(s1p05,2.0);
-	VEC_DBL_INIT(s1p06,2.0);
-	VEC_DBL_INIT(s1p07,2.0);
+	/* Dec 2020: Needed to cut #args in defs of SSE2_RADIX8_DIF_TWIDDLE_OOP and SSE2_RADIX8_DIT_TWIDDLE_OOP
+	from 30 to < 24 for Apple M1/Clang builds on Arm64 - do similar on x86 to avoid multiple versions of the
+	macro having different arglists.
+	Turns out that the DIT version uses identical fixed pointer-offsets for both in-and-output address octets,
+	because it is only ever used with small local data arrays as IOs, not the main residue array with its wide
+	strides and index-padding scheme. So #def the needed basic stride and its 2 and 4-multiples here, use for
+	both I-and-Os in the SSE2_RADIX8_DIT_TWIDDLE_OOP and for inputs in the calls to SSE2_RADIX8_DIF_TWIDDLE_OOP:
+	*/
+   #ifdef USE_ARM_V8_SIMD
+	const uint32 OFF1 = 0x100;
+	const uint32 OFF2 = 0x200;
+	const uint32 OFF3 = 0x300;
+	const uint32 OFF4 = 0x400;
+	const uint32 OFF5 = 0x500;
+	const uint32 OFF6 = 0x600;
+	const uint32 OFF7 = 0x700;
+   #elif defined(USE_AVX512)
+	#define OFF1	4*0x100
+	#define OFF2	4*0x200
+	#define OFF3	4*0x300
+	#define OFF4	4*0x400
+	#define OFF5	4*0x500
+	#define OFF6	4*0x600
+	#define OFF7	4*0x700
+   #elif defined(USE_AVX)
+	#define OFF1	2*0x100
+	#define OFF2	2*0x200
+	#define OFF3	2*0x300
+	#define OFF4	2*0x400
+	#define OFF5	2*0x500
+	#define OFF6	2*0x600
+	#define OFF7	2*0x700
+   #else
+	#define OFF1	0x100
+	#define OFF2	0x200
+	#define OFF3	0x300
+	#define OFF4	0x400
+	#define OFF5	0x500
+	#define OFF6	0x600
+	#define OFF7	0x700
+   #endif
+	uint64 dit_o_ptr_stride = (uint64)OFF1;
 
 	/* NOTE: THE ABOVE 0-TWIDDLES SIMD MACRO HERE RETURNS OUTPUTS INDEX-REVERSED W.R.TO THE SCALAR ANALOG -- THIS REVERSAL IS
 	REFLECTED IN THE INPUT-ARGS TO THE ENSUING DFTS-WITH-TWIDDLES, I.E. INSTEAD OF THOSE BEING ORDERED 0,4,2,6,1,5,3,7,
@@ -99,47 +134,53 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	// The with-twiddles macros have distinct impls for AVX and AVX2, but same 'prototype'
 	// (No room for added 'two' arg since we are already maxed out at 30 args, and feed the 2.0 via the above kludge):
 	// Block 4: jt = j1 + p04;	jp = j2 + p04;
+	twid_ptrs = &(w[0]);
 	SSE2_RADIX8_DIT_TWIDDLE_OOP(
-		r08,r18,r28,r38,r48,r58,r68,r78,
-		s1p04,s1p24,s1p14,s1p34,s1p0c,s1p2c,s1p1c,s1p3c,
-		/* c1,s1	c2,s2		c3,s3		c4,s4		c5,s5	c6,s6	c7,s7 (in terms of roots-naming in this macro) */
-		ss0,cc0, isrt2,isrt2, nisrt2,isrt2, cc4,ss4, nss4,cc4, ss4,cc4, ncc4,ss4
+		r08,OFF1,
+		s1p04,dit_o_ptr_stride,
+		twid_ptrs, two
 	);
 	// Block 2: jt = j1 + p02;	jp = j2 + p02;
+	twid_ptrs += 14;
 	SSE2_RADIX8_DIT_TWIDDLE_OOP(
-		r0C,r1C,r2C,r3C,r4C,r5C,r6C,r7C,	// 2/6 swap ==> r*4 / r*C swap
-		s1p02,s1p22,s1p12,s1p32,s1p0a,s1p2a,s1p1a,s1p3a,
-		isrt2,isrt2, cc4,ss4, ss4,cc4, cc2,ss2, ss6,cc6, cc6,ss6, ss2,cc2
+		r0C,OFF1,	// 2/6 swap ==> r*4 / r*C swap
+		s1p02,dit_o_ptr_stride,
+		twid_ptrs, two
 	);
 	// Block 6: jt = j1 + p06;	jp = j2 + p06;
+	twid_ptrs += 14;
 	SSE2_RADIX8_DIT_TWIDDLE_OOP(
-		r04,r14,r24,r34,r44,r54,r64,r74,	// 2/6 swap ==> r*4 / r*C swap
-		s1p06,s1p26,s1p16,s1p36,s1p0e,s1p2e,s1p1e,s1p3e,
-		nisrt2,isrt2, ss4,cc4, ncc4,nss4, cc6,ss6, ncc2,ss2, nss2,cc2, nss6,ncc6
+		r04,OFF1,	// 2/6 swap ==> r*4 / r*C swap
+		s1p06,dit_o_ptr_stride,
+		twid_ptrs, two
 	);
 	// Block 1: jt = j1 + p01;	jp = j2 + p01;
+	twid_ptrs += 14;
 	SSE2_RADIX8_DIT_TWIDDLE_OOP(
-		r0E,r1E,r2E,r3E,r4E,r5E,r6E,r7E,	// 1/7 swap ==> r*2 / r*E swap
-		s1p01,s1p21,s1p11,s1p31,s1p09,s1p29,s1p19,s1p39,
-		cc4,ss4, cc2,ss2, cc6,ss6, cc1,ss1, cc5,ss5, cc3,ss3, cc7,ss7
+		r0E,OFF1,	// 1/7 swap ==> r*2 / r*E swap
+		s1p01,dit_o_ptr_stride,
+		twid_ptrs, two
 	);
 	// Block 5: jt = j1 + p05;	jp = j2 + p05;
+	twid_ptrs += 14;
 	SSE2_RADIX8_DIT_TWIDDLE_OOP(
-		r06,r16,r26,r36,r46,r56,r66,r76,
-		s1p05,s1p25,s1p15,s1p35,s1p0d,s1p2d,s1p1d,s1p3d,
-		nss4,cc4, ss6,cc6, ncc2,ss2, cc5,ss5, ncc7,ss7, ss1,cc1, ncc3,nss3
+		r06,OFF1,
+		s1p05,dit_o_ptr_stride,
+		twid_ptrs, two
 	);
 	// Block 3: jt = j1 + p03;	jp = j2 + p03;
+	twid_ptrs += 14;
 	SSE2_RADIX8_DIT_TWIDDLE_OOP(
-		r0A,r1A,r2A,r3A,r4A,r5A,r6A,r7A,	// 3/5 swap ==> r*6 / r*A swap
-		s1p03,s1p23,s1p13,s1p33,s1p0b,s1p2b,s1p1b,s1p3b,
-		ss4,cc4, cc6,ss6, nss2,cc2, cc3,ss3, ss1,cc1, ss7,cc7, nss5,cc5
+		r0A,OFF1,	// 3/5 swap ==> r*6 / r*A swap
+		s1p03,dit_o_ptr_stride,
+		twid_ptrs, two
 	);
 	// Block 7: jt = j1 + p07;	jp = j2 + p07;
+	twid_ptrs += 14;
 	SSE2_RADIX8_DIT_TWIDDLE_OOP(
-		r02,r12,r22,r32,r42,r52,r62,r72,	// 1/7 swap ==> r*2 / r*E swap
-		s1p07,s1p27,s1p17,s1p37,s1p0f,s1p2f,s1p1f,s1p3f,
-		ncc4,ss4, ss2,cc2, nss6,ncc6, cc7,ss7, ncc3,nss3, nss5,cc5, ss1,ncc1
+		r02,OFF1,	// 1/7 swap ==> r*2 / r*E swap
+		s1p07,dit_o_ptr_stride,
+		twid_ptrs, two
 	);
 
   #endif
@@ -715,7 +756,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 	SSE2_RADIX_64_DIF( FALSE, thr_id,
 		0,
 		// Input pointer: Base ptr of 8 local-mem:
-		s1p00, c_offsets,	// If want to use this, need a valid i_offsets array/pointer here!
+		(double*)s1p00, c_offsets,	// If want to use this, need a valid i_offsets array/pointer here!
 		// Intermediates base pointer:
 		r00,
 		// Outputs: Base address plus index offset lo/hi-half arrays:
@@ -724,39 +765,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 
   #else
 
-   #ifdef USE_ARM_V8_SIMD
-	const uint32 OFF1 = 0x100;
-	const uint32 OFF2 = 0x200;
-	const uint32 OFF3 = 0x300;
-	const uint32 OFF4 = 0x400;
-	const uint32 OFF5 = 0x500;
-	const uint32 OFF6 = 0x600;
-	const uint32 OFF7 = 0x700;
-   #elif defined(USE_AVX512)
-	#define OFF1	4*0x100
-	#define OFF2	4*0x200
-	#define OFF3	4*0x300
-	#define OFF4	4*0x400
-	#define OFF5	4*0x500
-	#define OFF6	4*0x600
-	#define OFF7	4*0x700
-   #elif defined(USE_AVX)
-	#define OFF1	2*0x100
-	#define OFF2	2*0x200
-	#define OFF3	2*0x300
-	#define OFF4	2*0x400
-	#define OFF5	2*0x500
-	#define OFF6	2*0x600
-	#define OFF7	2*0x700
-   #else
-	#define OFF1	0x100
-	#define OFF2	0x200
-	#define OFF3	0x300
-	#define OFF4	0x400
-	#define OFF5	0x500
-	#define OFF6	0x600
-	#define OFF7	0x700
-   #endif
+	/***************** Re-use the same OFF* address offsets as for above Radix-8-DIT-with-twiddles ****************/
 
    // Unlike for DIT, reducing obj-code size here by wrapping SSE2_RADIX8_DIF_0TWIDDLE in a loop hurt performance on SSE2:
    #if 1	// Jan 2016: Loop version sign. faster on KNL under AVX-512, make that the default moving forward
@@ -814,12 +823,13 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 
     #endif	// 0?
 
-/*...and now do eight radix-8 subtransforms w/internal twiddles - cf. radix64_dif_pass1 for details.
-Note: 1st of the 15 sincos args in each call to SSE2_RADIX8_DIT_TWIDDLE_OOP is the basic isrt2 needed for
-radix-8. This is a workaround of GCC's 30-arg limit for inline ASM macros, which proves a royal pain here.
-*/
+	/*...and now do eight radix-8 subtransforms w/internal twiddles - cf. radix64_dif_pass1 for details.
+	Note: Each of the 7 sincos-pairs sent to SSE2_RADIX8_DIF_TWIDDLE_OOP is actually a vector-data triplet
+	whose first (unnamed) member contains the isrt2 needed for radix-8.
+	This is a workaround of GCC's 30-arg limit for inline ASM macros, which proves a royal pain here.
+	*/
 	/* Block 0: */
-	add0 = &a[j1]      ; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
+	add0 = &a[j1]; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
 	/* 0-index block has all-unity twiddles: Remember, the twiddleless DIF bit-reverses both its in-and-outputs,
 	so swap index-offset pairs 1/4 and 3/6 in t*-inputs and a-outputs: */
   #ifdef USE_AVX2
@@ -833,62 +843,78 @@ radix-8. This is a workaround of GCC's 30-arg limit for inline ASM macros, which
 		add0,add1,add2,add3,add4,add5,add6,add7, isrt2
 	);
   #endif
+	/*** Dec 2020 PATCH: Laurent Desnogues reports Clang on Apple M1 (Arm64 128-bit SIMD) hits
+	ran-out-of-registers errors on this macro due to 30-args being more than its optimizer can cope with.
+	That platform needs us to cut SSE2_RADIX8_DIF_TWIDDLE_OOP #args from 30 to < 24:
+	This radix-64 routine uses linear-addressing for add0-7 to macro, but e.g. radix-192,320 use
+	permuted O-address octets, so use linear-addressing for I-addresses to cut 4 of those, and instead
+	of sending 8 O-addresses as separate args, send base-address for each O-address octet and pointer
+	to local length-8 array array containing the double* index-offsets, and do the output-address
+	pointer arithmetic inside the macro.
+		And while I'm at it - since the above changes cut #args to well under 30, also got rid of the
+	old kludges of sticking vector 2.0 in the add0 slot and vector sqrt2 into the add1 slot prior to
+	each macro invocation - now send pointer 'two' as explicit arg, and compute sqrt2 when needed in
+	the asm as isrt2+isrt2.
+	***/
 	/* Block 4: */
-	add0 = &a[j1] + p08; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-//...and another kludge for the 30-arg limit: put copies of (vec_dbl)2.0,SQRT2 into the first 2 of each set of outputs.
-	VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
+	add0 = &a[j1] + p08;
+	//...and another kludge for the 30-arg limit: put copies of (vec_dbl)2.0,SQRT2 into the first 2 of each set of outputs.
+	tmp = (vec_dbl*)&(po_lin[0]);	// Kludge for Arm-SIMD builds - with just po_lin as macro arg, gcc was feeding the low 8 bytes of po_lin
+	// po_lin[1,0]as arg to the macro, rather than po_lin-as-pointer. Can't feed the latter directly as arg to macro, because that causes gcc to
+	// emit "error: memory input 5 is not directly addressable" error.
+	twid_ptrs = &(w[0]);
 	SSE2_RADIX8_DIF_TWIDDLE_OOP(
-		r08,r48,r28,r68,r18,r58,r38,r78,
-		add0,add1,add2,add3,add4,add5,add6,add7,
-		ss0,cc0, isrt2,isrt2, nisrt2,isrt2, cc4,ss4, nss4,cc4, ss4,cc4, ncc4,ss4
+		r08,OFF1,
+		add0,tmp,
+		twid_ptrs, two
 	);
 	/* Block 2: */
-	add0 = &a[j1] + p10; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-	VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
+	add0 = &a[j1] + p10;
+	twid_ptrs += 14;
 	SSE2_RADIX8_DIF_TWIDDLE_OOP(
-		r04,r44,r24,r64,r14,r54,r34,r74,
-		add0,add1,add2,add3,add4,add5,add6,add7,
-		isrt2,isrt2, cc4,ss4, ss4,cc4, cc2,ss2, ss6,cc6, cc6,ss6, ss2,cc2
+		r04,OFF1,
+		add0,tmp,
+		twid_ptrs, two
 	);
 	/* Block 6: */
-	add0 = &a[j1] + p18; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-	VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
+	add0 = &a[j1] + p18;
+	twid_ptrs += 14;
 	SSE2_RADIX8_DIF_TWIDDLE_OOP(
-		r0C,r4C,r2C,r6C,r1C,r5C,r3C,r7C,
-		add0,add1,add2,add3,add4,add5,add6,add7,
-		nisrt2,isrt2, ss4,cc4, ncc4,nss4, cc6,ss6, ncc2,ss2 ,nss2,cc2, nss6,ncc6
+		r0C,OFF1,
+		add0,tmp,
+		twid_ptrs, two
 	);
 	/* Block 1: */
-	add0 = &a[j1] + p20; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-	VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
+	add0 = &a[j1] + p20;
+	twid_ptrs += 14;
 	SSE2_RADIX8_DIF_TWIDDLE_OOP(
-		r02,r42,r22,r62,r12,r52,r32,r72,
-		add0,add1,add2,add3,add4,add5,add6,add7,
-		cc4,ss4, cc2,ss2, cc6,ss6, cc1,ss1, cc5,ss5, cc3,ss3, cc7,ss7
+		r02,OFF1,
+		add0,tmp,
+		twid_ptrs, two
 	);
 	/* Block 5: */
-	add0 = &a[j1] + p28; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-	VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
+	add0 = &a[j1] + p28;
+	twid_ptrs += 14;
 	SSE2_RADIX8_DIF_TWIDDLE_OOP(
-		r0A,r4A,r2A,r6A,r1A,r5A,r3A,r7A,
-		add0,add1,add2,add3,add4,add5,add6,add7,
-		nss4,cc4, ss6,cc6, ncc2,ss2, cc5,ss5, ncc7,ss7, ss1,cc1, ncc3,nss3
+		r0A,OFF1,
+		add0,tmp,
+		twid_ptrs, two
 	);
 	/* Block 3: */
-	add0 = &a[j1] + p30; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-	VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
+	add0 = &a[j1] + p30;
+	twid_ptrs += 14;
 	SSE2_RADIX8_DIF_TWIDDLE_OOP(
-		r06,r46,r26,r66,r16,r56,r36,r76,
-		add0,add1,add2,add3,add4,add5,add6,add7,
-		ss4,cc4, cc6,ss6, nss2,cc2, cc3,ss3, ss1,cc1, ss7,cc7, nss5,cc5
+		r06,OFF1,
+		add0,tmp,
+		twid_ptrs, two
 	);
 	/* Block 7: */
-	add0 = &a[j1] + p38; add1 = add0+p01; add2 = add0+p02; add3 = add0+p03; add4 = add0+p04; add5 = add0+p05; add6 = add0+p06; add7 = add0+p07;
-	VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
+	add0 = &a[j1] + p38;
+	twid_ptrs += 14;
 	SSE2_RADIX8_DIF_TWIDDLE_OOP(
-		r0E,r4E,r2E,r6E,r1E,r5E,r3E,r7E,
-		add0,add1,add2,add3,add4,add5,add6,add7,
-		ncc4,ss4, ss2,cc2, nss6,ncc6, cc7,ss7, ncc3,nss3, nss5,cc5, ss1,ncc1
+		r0E,OFF1,
+		add0,tmp,
+		twid_ptrs, two
 	);
 
    #ifndef USE_ARM_V8_SIMD

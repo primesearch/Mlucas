@@ -28,8 +28,12 @@
 #include "radix256_twiddles.h"
 // SIMD code only available for 64-bit GCC build - others simply use scalar DFT macros with SIMD-compatible data layout
 #if defined(USE_SSE2) && defined(COMPILER_TYPE_GCC)
-	#include "sse2_macro.h"
+	#include "sse2_macro_gcc64.h"
 	#include "radix09_sse_macro.h"
+#endif
+
+#ifndef COMPACT_OBJ	// Toggle for parametrized-loop-DFT compact-object code scheme
+	#define COMPACT_OBJ	1
 #endif
 
 const uint8 reverse8[8] = {0,4,2,6,1,5,3,7};
@@ -3827,14 +3831,6 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		double *__B, const int *o_offsets
 	)
 	{
-		// 'vc' = vector double = lg(sizeof(simd register)):
-	#ifdef USE_AVX512
-		const int l2_sz_vd = 6;
-	#elif defined(USE_AVX)
-		const int l2_sz_vd = 5;
-	#else
-		const int l2_sz_vd = 4;
-	#endif
 		// Uint64 bitmaps for alternate "rounded the other way" copies of sqrt2,isrt2. Default round-to-nearest versions
 		// (SQRT2, ISRT2) end in ...3BCD. Since we round these down as ...3BCC90... --> ..3BCC, append _dn to varnames:
 		const uint64 sqrt2_dn = 0x3FF6A09E667F3BCCull, isrt2_dn = 0x3FE6A09E667F3BCCull;
@@ -3863,8 +3859,8 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
 		int i,j;
 		const int *off_ptr;
-	  #ifdef USE_LOOPED_MACROS	// This seems slower than unlooped, so mke latter the default
-		vec_dbl *w0,*w1,*w2,*w3,*w4,*w5,*w6,*w7,*w8,*w9,*wa,*wb,*wc,*wd;
+	  #if COMPACT_OBJ	// This seems slower than unlooped, so mke latter the default
+		vec_dbl *w[14], **twid_ptrs = &(w[0]);	// Array of 14 SIMD twiddles-pointers for the reduced-#args version of SSE2_RADIX8_DIF_TWIDDLE_OOP
 		// ptr-offsets w.r.to base-ptr nisrt2:
 		const uint8 twid_offsets[112] = {
 			0x03,0x02, 0x01,0x01, 0x00,0x01, 0x17,0x18, 0x1b,0x17, 0x18,0x17, 0x1a,0x18,// ss0,cc0, isrt2,isrt2, nisrt2,isrt2, cc4,ss4, nss4,cc4, ss4,cc4, ncc4,ss4
@@ -3874,7 +3870,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 			0x1b,0x17, 0x24,0x23, 0x0e,0x0c, 0x1d,0x1e, 0x2c,0x2a, 0x06,0x05, 0x14,0x15,// nss4,cc4, ss6,cc6, ncc2,ss2, cc5,ss5, ncc7,ss7, ss1,cc1, ncc3,nss3
 			0x18,0x17, 0x23,0x24, 0x0f,0x0b, 0x11,0x12, 0x06,0x05, 0x2a,0x29, 0x21,0x1d,// ss4,cc4, cc6,ss6, nss2,cc2, cc3,ss3, ss1,cc1, ss7,cc7, nss5,cc5
 			0x1a,0x18, 0x0c,0x0b, 0x27,0x26, 0x29,0x2a, 0x14,0x15, 0x21,0x1d, 0x06,0x08 // ncc4,ss4, ss2,cc2, nss6,ncc6, cc7,ss7, ncc3,nss3, nss5,cc5, ss1,ncc1
-		};	uint8 *bptr;
+		}, *bptr;
 	  #endif
 
 		// If this is first time here, init pointers and associated data:
@@ -3978,7 +3974,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 			/* Stupidity: Since a truly general-purpose [in the sense that it can be used for our radix-128 internal-twiddles]
 			radix-8 DFT-with-twiddles macro needs 8 in-addresses [corr. to the 8 real parts of the input data], 8 o-addresses,
 			and 7 each of cosine and sine data [which cannot be assumed to occur in fixed-stride pairs - cf. our usage of
-			SSE2_RADIX8_DIT_TWIDDLE_OOP() below], that hits the GCC hard limit of 30-operands for ASM macros, but we still
+			SSE2_RADIX8_DIF_TWIDDLE_OOP() below], that hits the GCC hard limit of 30-operands for ASM macros, but we still
 			need one more operand for the ISRT2 pointer. Only easy workaround I found for this is to stick a vector-ISRT2 copy
 			in between each +-[cc,ss] vector-data pair, thus any time we need a vector-isrt2 for the radix-8 internal twiddles
 			we get it at (vec_dbl*)cc-1.
@@ -4111,7 +4107,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 			// there is never an issue of irregular (i.e. not simple multiple of the basc stride in i_offsets[1]) strides,
 			// just one of whether that basic 'unit' stride will amount to one vec_dbl pair or a larger stride. That means
 			// we only need a very small sampling of the i_offsets data - in fact just i_offsets[1-8] - to infer the rest:
-			k1 = i_offsets[0x8]<<l2_sz_vd; k2 = k1+k1; k3 = (k1<<1)+k1;
+			k1 = i_offsets[0x8]<<L2_SZ_VD; k2 = k1+k1; k3 = (k1<<1)+k1;
 			j = k1<<2;	k4 = j; k5 = k1+j; k6 = k2+j; k7 = k3+j;
 		} else {		/* ...and this is geared toward radix = 2^k * 64: */
 			scale = 1<<(1 + k);
@@ -4156,95 +4152,79 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		);
 	  #endif
 	// Remaining 7 macro cals need explicitly named BRed iptrs with stride 16, use tmp(in place of iarg r00),r40,r20,r60,r10,r50,r30,r70:
-	  #ifndef USE_LOOPED_MACROS
-	/* Block 4: */
-		tmp += 8;	// r08
-		r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
-		off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
-	//...and another (needed by FMA version of macro)) kludge for the 30-arg limit: put copies of (vec_dbl)2.0,SQRT2 into the first 2 of each set of outputs.
-		VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
-		SSE2_RADIX8_DIF_TWIDDLE_OOP(
-			tmp,r40,r20,r60,r10,r50,r30,r70,
-			add0,add1,add2,add3,add4,add5,add6,add7,
-			ss0,cc0, isrt2,isrt2, nisrt2,isrt2, cc4,ss4, nss4,cc4, ss4,cc4, ncc4,ss4
-		);
-	/* Block 2: */
-		tmp -= 4;	// r04
-		r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
-		off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
-		VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
-		SSE2_RADIX8_DIF_TWIDDLE_OOP(
-			tmp,r40,r20,r60,r10,r50,r30,r70,
-			add0,add1,add2,add3,add4,add5,add6,add7,
-			isrt2,isrt2, cc4,ss4, ss4,cc4, cc2,ss2, ss6,cc6, cc6,ss6, ss2,cc2
-		);
-	/* Block 6: */
-		tmp += 8;	// r0C
-		r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
-		off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
-		VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
-		SSE2_RADIX8_DIF_TWIDDLE_OOP(
-			tmp,r40,r20,r60,r10,r50,r30,r70,
-			add0,add1,add2,add3,add4,add5,add6,add7,
-			nisrt2,isrt2, ss4,cc4, ncc4,nss4, cc6,ss6, ncc2,ss2 ,nss2,cc2, nss6,ncc6
-		);
-	/* Block 1: */
-		tmp -= 10;	// r02
-		r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
-		off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
-		VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
-		SSE2_RADIX8_DIF_TWIDDLE_OOP(
-			tmp,r40,r20,r60,r10,r50,r30,r70,
-			add0,add1,add2,add3,add4,add5,add6,add7,
-			cc4,ss4, cc2,ss2, cc6,ss6, cc1,ss1, cc5,ss5, cc3,ss3, cc7,ss7
-		);
-	/* Block 5: */
-		tmp += 8;	// r0A
-		r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
-		off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
-		VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
-		SSE2_RADIX8_DIF_TWIDDLE_OOP(
-			tmp,r40,r20,r60,r10,r50,r30,r70,
-			add0,add1,add2,add3,add4,add5,add6,add7,
-			nss4,cc4, ss6,cc6, ncc2,ss2, cc5,ss5, ncc7,ss7, ss1,cc1, ncc3,nss3
-		);
-	/* Block 3: */
-		tmp -= 4;	// r06
-		r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
-		off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
-		VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
-		SSE2_RADIX8_DIF_TWIDDLE_OOP(
-			tmp,r40,r20,r60,r10,r50,r30,r70,
-			add0,add1,add2,add3,add4,add5,add6,add7,
-			ss4,cc4, cc6,ss6, nss2,cc2, cc3,ss3, ss1,cc1, ss7,cc7, nss5,cc5
-		);
-	/* Block 7: */
-		tmp += 8;	// r0E
-		r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
-		off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
-		VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
-		SSE2_RADIX8_DIF_TWIDDLE_OOP(
-			tmp,r40,r20,r60,r10,r50,r30,r70,
-			add0,add1,add2,add3,add4,add5,add6,add7,
-			ncc4,ss4, ss2,cc2, nss6,ncc6, cc7,ss7, ncc3,nss3, nss5,cc5, ss1,ncc1
-		);
-
-	  #else	// USE_LOOPED_MACROS = True:
+	  #if COMPACT_OBJ
 
 		bptr = twid_offsets;	// Byte-pointer loops over slots in twid_offsets[] byte-array
 		for(i = 1, j = 0; i < 8; i++, j += 14) {
 			tmp = r00 + (reverse8[i] << 1);
-			r10 = tmp+0x10;r20 = tmp+0x20;r30 = tmp+0x30;r40 = tmp+0x40;r50 = tmp+0x50;r60 = tmp+0x60;r70 = tmp+0x70;
-			off_ptr += 8; add0 = __B+off_ptr[0];add1 = __B+off_ptr[1];add2 = __B+off_ptr[2];add3 = __B+off_ptr[3];add4 = __B+off_ptr[4];add5 = __B+off_ptr[5];add6 = __B+off_ptr[6];add7 = __B+off_ptr[7];
-			w0 = nisrt2 + *bptr++; w1 = nisrt2 + *bptr++; w2 = nisrt2 + *bptr++; w3 = nisrt2 + *bptr++; w4 = nisrt2 + *bptr++; w5 = nisrt2 + *bptr++; w6 = nisrt2 + *bptr++; w7 = nisrt2 + *bptr++; w8 = nisrt2 + *bptr++; w9 = nisrt2 + *bptr++; wa = nisrt2 + *bptr++; wb = nisrt2 + *bptr++; wc = nisrt2 + *bptr++; wd = nisrt2 + *bptr++;
-		//...and another (needed by FMA version of macro)) kludge for the 30-arg limit: put copies of (vec_dbl)2.0,SQRT2 into the first 2 of each set of outputs.
-			VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
+			off_ptr += 8;
+			w[0x0] = nisrt2 + *bptr++; w[0x1] = nisrt2 + *bptr++; w[0x2] = nisrt2 + *bptr++; w[0x3] = nisrt2 + *bptr++; w[0x4] = nisrt2 + *bptr++; w[0x5] = nisrt2 + *bptr++; w[0x6] = nisrt2 + *bptr++; w[0x7] = nisrt2 + *bptr++; w[0x8] = nisrt2 + *bptr++; w[0x9] = nisrt2 + *bptr++; w[0xa] = nisrt2 + *bptr++; w[0xb] = nisrt2 + *bptr++; w[0xc] = nisrt2 + *bptr++; w[0xd] = nisrt2 + *bptr++;
 			SSE2_RADIX8_DIF_TWIDDLE_OOP(
-				tmp,r40,r20,r60,r10,r50,r30,r70,
-				add0,add1,add2,add3,add4,add5,add6,add7,
-				w0,w1,w2,w3,w4,w5,w6,w7,w8,w9,wa,wb,wc,wd
+				tmp,OFF1,
+				__B,off_ptr,	// Do the output-address pointer arithmetic inside the macro
+				twid_ptrs, two
 			);
 		}
+
+	  #else	// COMPACT_OBJ = False:
+		#error SSE2_RADIX8_DIF_TWIDDLE_OOP in this section need twiddles collected into w[]-array as above!
+	/* Block 4: */
+		tmp += 8;	// r08
+		off_ptr += 8;
+	//...and another (needed by FMA version of macro)) kludge for the 30-arg limit: put copies of (vec_dbl)2.0,SQRT2 into the first 2 of each set of outputs.
+			SSE2_RADIX8_DIF_TWIDDLE_OOP(
+			tmp,OFF1,
+			__B,off_ptr,
+			ss0,cc0, isrt2,isrt2, nisrt2,isrt2, cc4,ss4, nss4,cc4, ss4,cc4, ncc4,ss4, two
+		);
+	/* Block 2: */
+		tmp -= 4;	// r04
+		off_ptr += 8;
+			SSE2_RADIX8_DIF_TWIDDLE_OOP(
+			tmp,OFF1,
+			__B,off_ptr,
+			isrt2,isrt2, cc4,ss4, ss4,cc4, cc2,ss2, ss6,cc6, cc6,ss6, ss2,cc2, two
+		);
+	/* Block 6: */
+		tmp += 8;	// r0C
+		off_ptr += 8;
+			SSE2_RADIX8_DIF_TWIDDLE_OOP(
+			tmp,OFF1,
+			__B,off_ptr,
+			nisrt2,isrt2, ss4,cc4, ncc4,nss4, cc6,ss6, ncc2,ss2 ,nss2,cc2, nss6,ncc6, two
+		);
+	/* Block 1: */
+		tmp -= 10;	// r02
+		off_ptr += 8;
+			SSE2_RADIX8_DIF_TWIDDLE_OOP(
+			tmp,OFF1,
+			__B,off_ptr,
+			cc4,ss4, cc2,ss2, cc6,ss6, cc1,ss1, cc5,ss5, cc3,ss3, cc7,ss7, two
+		);
+	/* Block 5: */
+		tmp += 8;	// r0A
+		off_ptr += 8;
+			SSE2_RADIX8_DIF_TWIDDLE_OOP(
+			tmp,OFF1,
+			__B,off_ptr,
+			nss4,cc4, ss6,cc6, ncc2,ss2, cc5,ss5, ncc7,ss7, ss1,cc1, ncc3,nss3, two
+		);
+	/* Block 3: */
+		tmp -= 4;	// r06
+		off_ptr += 8;
+			SSE2_RADIX8_DIF_TWIDDLE_OOP(
+			tmp,OFF1,
+			__B,off_ptr,
+			ss4,cc4, cc6,ss6, nss2,cc2, cc3,ss3, ss1,cc1, ss7,cc7, nss5,cc5, two
+		);
+	/* Block 7: */
+		tmp += 8;	// r0E
+		off_ptr += 8;
+			SSE2_RADIX8_DIF_TWIDDLE_OOP(
+			tmp,OFF1,
+			__B,off_ptr,
+			ncc4,ss4, ss2,cc2, nss6,ncc6, cc7,ss7, ncc3,nss3, nss5,cc5, ss1,ncc1, two
+		);
 
 	  #endif
 
@@ -4288,7 +4268,8 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		// Intermediates pointers:
 		vec_dbl *tmp, *v0,*v1,*v2,*v3,*v4,*v5,*v6,*v7,
 			// Each of these rhi-ptrs points to next 8 vec_cmplx= 16 vec_dbl data sets:
-			*r10 = r00+0x10,*r20 = r00+0x20,*r30 = r00+0x30,*r40 = r00+0x40,*r50 = r00+0x50,*r60 = r00+0x60,*r70 = r00+0x70;
+			*r10 = r00+0x10,*r20 = r00+0x20,*r30 = r00+0x30,*r40 = r00+0x40,*r50 = r00+0x50,*r60 = r00+0x60,*r70 = r00+0x70,
+			*w[14], **twid_ptrs = &(w[0]);	// Array of 14 SIMD twiddles-pointers for the reduced-#args version of SSE2_RADIX8_DIF_TWIDDLE_OOP
 		/* Addresses into array sections */
 		double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7;
 		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
@@ -4509,16 +4490,22 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 	*/
 		// s1p[00,08,10,18,20,28,30,38]:
 		off_ptr = o_offsets;
-	/*
-	printf("off_ptr[0x8] = %2x\n",off_ptr[0x8]);	<*** 2x larger than the 0x10-mults in the 'else' below *>**
-	exit(0);
-	*/
+/*const char dat[128] = {
+	3,1,4,1,5,9,2,6,5,3,5,8,9,7,9,3,2,3,8,4,6,2,6,4,3,3,8,3,2,7,9,5,0,2,8,8,4,1,9,7,1,6,9,3,9,9,3,7,5,1,0,5,8,2,0,9,7,4,9,4,4,5,9,2,
+	3,0,7,8,1,6,4,0,6,2,8,6,2,0,8,9,9,8,6,2,8,0,3,4,8,2,5,3,4,2,1,1,7,0,6,7,9,8,2,1,4,8,0,8,6,5,1,3,2,8,2,3,0,6,6,4,7,0,9,3,8,4,4,6
+};
+tmp = r00;
+for(i = 0; i < 128; i++) { VEC_DBL_INIT(tmp++,(double)dat[i]); }*/
+		tmp = r00;
 		// Apr 2014: Generalized-index scheme replaces original fixed __B-offsets 0x[0-7]0 with strides taken from
 		// o_offsets array. Due to the way the radix-64 DFTs are used to build larger pow2 and non-pow2 DFTs there
 		// is never an issue of irregular (i.e. not simple multiple of the basic stride in o_offsets[1]) strides,
 		// just one of whether that basic 'unit' stride will amount to one vec_dbl pair or a larger stride. That means
 		// we only need a very small sampling of the o_offsets data - in fact just o_offsets[1-8] - to infer the rest:
 		j = off_ptr[8];	v0 = __B; v1 = __B+j; v2 = __B+(j<<1); v3 = __B+j+(j<<1);
+		uint64 dit_o_ptr_stride = (uint64)v1-(uint64)v0;
+//printf("r0-7 separated by ptr_diff = 0x%llX:\n",(uint64)r10-(uint64)r00);
+//printf("v0-7 separated by index-stride %u, ptr_diff = 0x%llX:\n",j,dit_o_ptr_stride);
 		j <<= 2;		v4 = v0+j; v5 = v1+j; v6 = v2+j; v7 = v3+j;
 	// Block 0: All unity twiddles:
 	  #ifdef USE_AVX2
@@ -4532,75 +4519,109 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 			v0,v7,v6,v5,v4,v3,v2,v1, isrt2
 		);
 	  #endif
+//printf("Block %u:\n",0);printf("\tv0 = [%15.10f,%15.10f]\n",v0->d0,(v0+1)->d0);printf("\tv1 = [%15.10f,%15.10f]\n",v1->d0,(v1+1)->d0);printf("\tv2 = [%15.10f,%15.10f]\n",v2->d0,(v2+1)->d0);printf("\tv3 = [%15.10f,%15.10f]\n",v3->d0,(v3+1)->d0);printf("\tv4 = [%15.10f,%15.10f]\n",v4->d0,(v4+1)->d0);printf("\tv5 = [%15.10f,%15.10f]\n",v5->d0,(v5+1)->d0);printf("\tv6 = [%15.10f,%15.10f]\n",v6->d0,(v6+1)->d0);printf("\tv7 = [%15.10f,%15.10f]\n",v7->d0,(v7+1)->d0);
 		tmp = r00;
-
 	// Note: Assumed 1-before 1st of the 14 sincos args in each call to SSE2_RADIX8_DIT_TWIDDLE_OOP is the basic isrt2 arg
 	// used for radix-8. This is a workaround of GCC's 30-arg limit for inline ASM macros, which proves a royal pain here.
 	//...and another kludge for the 30-arg limit: put a copy of (vec_dbl)2.0 into the first of each set of outputs:
+	   #ifdef USE_ARM_V8_SIMD
+		uint32 OFF1 = 0x100;
+	  #elif defined(USE_AVX512)
+		#define OFF1	0x400
+	  #elif defined(USE_AVX)
+		#define OFF1	0x200
+	  #else
+		#define OFF1	0x100
+	   #endif
 	// Block 4: jt = j1 + p04;	jp = j2 + p04;
 		// Note our r** pointers have indices that run 2x faster than the s1p** ones, e.g. r08-r00 == s1p04-s1p00:
-		j = +8;	tmp += j; r10 += j; r20 += j; r30 += j; r40 += j; r50 += j; r60 += j; r70 += j;	// tmp = r08
-		j = off_ptr[4]; v0 += j; v1 += j; v2 += j; v3 += j; v4 += j; v5 += j; v6 += j; v7 += j;	// s1p04
-		VEC_DBL_INIT(v0,2.0);
+		j = +8;	tmp += j;	// tmp = r08
+		j = off_ptr[4]; v0 += j;	// s1p04
+		i = 0; w[i++]=ss0; w[i++]=cc0; w[i++]= isrt2; w[i++]=isrt2; w[i++]= nisrt2; w[i++]=isrt2; w[i++]= cc4; w[i++]=ss4; w[i++]= nss4; w[i++]=cc4; w[i++]= ss4; w[i++]=cc4; w[i++]= ncc4; w[i++]=ss4;
 		SSE2_RADIX8_DIT_TWIDDLE_OOP(
-			tmp,r10,r20,r30,r40,r50,r60,r70,
-			v0,v4,v2,v6,v1,v5,v3,v7,
-			ss0,cc0, isrt2,isrt2, nisrt2,isrt2, cc4,ss4, nss4,cc4, ss4,cc4, ncc4,ss4
+			tmp,OFF1,
+			v0,dit_o_ptr_stride,
+			twid_ptrs, two
 		);
+//v1 += j; v2 += j; v3 += j; v4 += j; v5 += j; v6 += j; v7 += j;
+//printf("Block %u: v0-v7 = %llX,%llX,%llX,%llX,%llX,%llX,%llX,%llX\n",4,v0,v1,v2,v3,v4,v5,v6,v7);
+//printf("Block %u:\n",4);printf("\tv0 = [%15.10f,%15.10f]\n",v0->d0,(v0+1)->d0);printf("\tv1 = [%15.10f,%15.10f]\n",v1->d0,(v1+1)->d0);printf("\tv2 = [%15.10f,%15.10f]\n",v2->d0,(v2+1)->d0);printf("\tv3 = [%15.10f,%15.10f]\n",v3->d0,(v3+1)->d0);printf("\tv4 = [%15.10f,%15.10f]\n",v4->d0,(v4+1)->d0);printf("\tv5 = [%15.10f,%15.10f]\n",v5->d0,(v5+1)->d0);printf("\tv6 = [%15.10f,%15.10f]\n",v6->d0,(v6+1)->d0);printf("\tv7 = [%15.10f,%15.10f]\n",v7->d0,(v7+1)->d0);
 	// Block 2: jt = j1 + p02;	jp = j2 + p02;
-		j = +4;	tmp += j; r10 += j; r20 += j; r30 += j; r40 += j; r50 += j; r60 += j; r70 += j;	// tmp = r0C
-		j = off_ptr[2]; v0 -= j; v1 -= j; v2 -= j; v3 -= j; v4 -= j; v5 -= j; v6 -= j; v7 -= j;	// s1p02
-		VEC_DBL_INIT(v0,2.0);
+		j = +4;	tmp += j;	// tmp = r0C
+		j = off_ptr[2]; v0 -= j;	// s1p02
+		i = 0; w[i++]=isrt2; w[i++]=isrt2; w[i++]=cc4; w[i++]=ss4; w[i++]=ss4; w[i++]=cc4; w[i++]=cc2; w[i++]=ss2; w[i++]=ss6; w[i++]=cc6; w[i++]=cc6; w[i++]=ss6; w[i++]=ss2; w[i++]=cc2;
 		SSE2_RADIX8_DIT_TWIDDLE_OOP(
-			tmp,r10,r20,r30,r40,r50,r60,r70,
-			v0,v4,v2,v6,v1,v5,v3,v7,
-			isrt2,isrt2,cc4,ss4,ss4,cc4,cc2,ss2,ss6,cc6,cc6,ss6,ss2,cc2
+			tmp,OFF1,
+			v0,dit_o_ptr_stride,
+			twid_ptrs, two
 		);
+//v1 -= j; v2 -= j; v3 -= j; v4 -= j; v5 -= j; v6 -= j; v7 -= j;
+//printf("Block %u: v0-v7 = %llX,%llX,%llX,%llX,%llX,%llX,%llX,%llX\n",2,v0,v1,v2,v3,v4,v5,v6,v7);
+//printf("Block %u:\n",2);printf("\tv0 = [%15.10f,%15.10f]\n",v0->d0,(v0+1)->d0);printf("\tv1 = [%15.10f,%15.10f]\n",v1->d0,(v1+1)->d0);printf("\tv2 = [%15.10f,%15.10f]\n",v2->d0,(v2+1)->d0);printf("\tv3 = [%15.10f,%15.10f]\n",v3->d0,(v3+1)->d0);printf("\tv4 = [%15.10f,%15.10f]\n",v4->d0,(v4+1)->d0);printf("\tv5 = [%15.10f,%15.10f]\n",v5->d0,(v5+1)->d0);printf("\tv6 = [%15.10f,%15.10f]\n",v6->d0,(v6+1)->d0);printf("\tv7 = [%15.10f,%15.10f]\n",v7->d0,(v7+1)->d0);
 	// Block 6: jt = j1 + p06;	jp = j2 + p06;
-		j = -8;	tmp += j; r10 += j; r20 += j; r30 += j; r40 += j; r50 += j; r60 += j; r70 += j;	// tmp = r04
-		j = off_ptr[4]; v0 += j; v1 += j; v2 += j; v3 += j; v4 += j; v5 += j; v6 += j; v7 += j;	// s1p06
-		VEC_DBL_INIT(v0,2.0);
+		j = -8;	tmp += j;	// tmp = r04
+		j = off_ptr[4]; v0 += j;	// s1p06
+		i = 0; w[i++]=nisrt2; w[i++]=isrt2; w[i++]=ss4; w[i++]=cc4; w[i++]=ncc4; w[i++]=nss4; w[i++]=cc6; w[i++]=ss6; w[i++]=ncc2; w[i++]=ss2; w[i++]=nss2; w[i++]=cc2; w[i++]=nss6; w[i++]=ncc6;
 		SSE2_RADIX8_DIT_TWIDDLE_OOP(
-			tmp,r10,r20,r30,r40,r50,r60,r70,
-			v0,v4,v2,v6,v1,v5,v3,v7,
-			nisrt2,isrt2,ss4,cc4,ncc4,nss4,cc6,ss6,ncc2,ss2,nss2,cc2,nss6,ncc6
+			tmp,OFF1,
+			v0,dit_o_ptr_stride,
+			twid_ptrs, two
 		);
+//v1 += j; v2 += j; v3 += j; v4 += j; v5 += j; v6 += j; v7 += j;
+//printf("Block %u: v0-v7 = %llX,%llX,%llX,%llX,%llX,%llX,%llX,%llX\n",6,v0,v1,v2,v3,v4,v5,v6,v7);
+//printf("Block %u:\n",6);printf("\tv0 = [%15.10f,%15.10f]\n",v0->d0,(v0+1)->d0);printf("\tv1 = [%15.10f,%15.10f]\n",v1->d0,(v1+1)->d0);printf("\tv2 = [%15.10f,%15.10f]\n",v2->d0,(v2+1)->d0);printf("\tv3 = [%15.10f,%15.10f]\n",v3->d0,(v3+1)->d0);printf("\tv4 = [%15.10f,%15.10f]\n",v4->d0,(v4+1)->d0);printf("\tv5 = [%15.10f,%15.10f]\n",v5->d0,(v5+1)->d0);printf("\tv6 = [%15.10f,%15.10f]\n",v6->d0,(v6+1)->d0);printf("\tv7 = [%15.10f,%15.10f]\n",v7->d0,(v7+1)->d0);
 	// Block 1: jt = j1 + p01;	jp = j2 + p01;
-		j =+10;	tmp += j; r10 += j; r20 += j; r30 += j; r40 += j; r50 += j; r60 += j; r70 += j;	// tmp = r0E
-		j = off_ptr[5]; v0 -= j; v1 -= j; v2 -= j; v3 -= j; v4 -= j; v5 -= j; v6 -= j; v7 -= j;	// s1p01
-		VEC_DBL_INIT(v0,2.0);
+		j =+10;	tmp += j;	// tmp = r0E
+		j = off_ptr[5]; v0 -= j;	// s1p01
+		i = 0; w[i++]=cc4; w[i++]=ss4; w[i++]=cc2; w[i++]=ss2; w[i++]=cc6; w[i++]=ss6; w[i++]=cc1; w[i++]=ss1; w[i++]=cc5; w[i++]=ss5; w[i++]=cc3; w[i++]=ss3; w[i++]=cc7; w[i++]=ss7;
 		SSE2_RADIX8_DIT_TWIDDLE_OOP(
-			tmp,r10,r20,r30,r40,r50,r60,r70,
-			v0,v4,v2,v6,v1,v5,v3,v7,
-			cc4,ss4,cc2,ss2,cc6,ss6,cc1,ss1,cc5,ss5,cc3,ss3,cc7,ss7
+			tmp,OFF1,
+			v0,dit_o_ptr_stride,
+			twid_ptrs, two
 		);
+//v1 -= j; v2 -= j; v3 -= j; v4 -= j; v5 -= j; v6 -= j; v7 -= j;
+//printf("Block %u: v0-v7 = %llX,%llX,%llX,%llX,%llX,%llX,%llX,%llX\n",1,v0,v1,v2,v3,v4,v5,v6,v7);
+//printf("Block %u:\n",1);printf("\tv0 = [%15.10f,%15.10f]\n",v0->d0,(v0+1)->d0);printf("\tv1 = [%15.10f,%15.10f]\n",v1->d0,(v1+1)->d0);printf("\tv2 = [%15.10f,%15.10f]\n",v2->d0,(v2+1)->d0);printf("\tv3 = [%15.10f,%15.10f]\n",v3->d0,(v3+1)->d0);printf("\tv4 = [%15.10f,%15.10f]\n",v4->d0,(v4+1)->d0);printf("\tv5 = [%15.10f,%15.10f]\n",v5->d0,(v5+1)->d0);printf("\tv6 = [%15.10f,%15.10f]\n",v6->d0,(v6+1)->d0);printf("\tv7 = [%15.10f,%15.10f]\n",v7->d0,(v7+1)->d0);
 	// Block 5: jt = j1 + p05;	jp = j2 + p05;
-		j = -8;	tmp += j; r10 += j; r20 += j; r30 += j; r40 += j; r50 += j; r60 += j; r70 += j;	// tmp = r06
-		j = off_ptr[4]; v0 += j; v1 += j; v2 += j; v3 += j; v4 += j; v5 += j; v6 += j; v7 += j;	// s1p05
-		VEC_DBL_INIT(v0,2.0);
+		j = -8;	tmp += j;	// tmp = r06
+		j = off_ptr[4]; v0 += j;	// s1p05
+		i = 0; w[i++]=nss4; w[i++]=cc4; w[i++]=ss6; w[i++]=cc6; w[i++]=ncc2; w[i++]=ss2; w[i++]=cc5; w[i++]=ss5; w[i++]=ncc7; w[i++]=ss7; w[i++]=ss1; w[i++]=cc1; w[i++]=ncc3; w[i++]=nss3;
 		SSE2_RADIX8_DIT_TWIDDLE_OOP(
-			tmp,r10,r20,r30,r40,r50,r60,r70,
-			v0,v4,v2,v6,v1,v5,v3,v7,
-			nss4,cc4,ss6,cc6,ncc2,ss2,cc5,ss5,ncc7,ss7,ss1,cc1,ncc3,nss3
+			tmp,OFF1,
+			v0,dit_o_ptr_stride,
+			twid_ptrs, two
 		);
+//v1 += j; v2 += j; v3 += j; v4 += j; v5 += j; v6 += j; v7 += j;
+//printf("Block %u: v0-v7 = %llX,%llX,%llX,%llX,%llX,%llX,%llX,%llX\n",5,v0,v1,v2,v3,v4,v5,v6,v7);
+//printf("Block %u:\n",5);printf("\tv0 = [%15.10f,%15.10f]\n",v0->d0,(v0+1)->d0);printf("\tv1 = [%15.10f,%15.10f]\n",v1->d0,(v1+1)->d0);printf("\tv2 = [%15.10f,%15.10f]\n",v2->d0,(v2+1)->d0);printf("\tv3 = [%15.10f,%15.10f]\n",v3->d0,(v3+1)->d0);printf("\tv4 = [%15.10f,%15.10f]\n",v4->d0,(v4+1)->d0);printf("\tv5 = [%15.10f,%15.10f]\n",v5->d0,(v5+1)->d0);printf("\tv6 = [%15.10f,%15.10f]\n",v6->d0,(v6+1)->d0);printf("\tv7 = [%15.10f,%15.10f]\n",v7->d0,(v7+1)->d0);
 	// Block 3: jt = j1 + p03;	jp = j2 + p03;
-		j = +4;	tmp += j; r10 += j; r20 += j; r30 += j; r40 += j; r50 += j; r60 += j; r70 += j;	// tmp = r0A
-		j = off_ptr[2]; v0 -= j; v1 -= j; v2 -= j; v3 -= j; v4 -= j; v5 -= j; v6 -= j; v7 -= j;	// s1p03
-		VEC_DBL_INIT(v0,2.0);
+		j = +4;	tmp += j;	// tmp = r0A
+		j = off_ptr[2]; v0 -= j;	// s1p03
+		i = 0; w[i++]=ss4; w[i++]=cc4; w[i++]=cc6; w[i++]=ss6; w[i++]=nss2; w[i++]=cc2; w[i++]=cc3; w[i++]=ss3; w[i++]=ss1; w[i++]=cc1; w[i++]=ss7; w[i++]=cc7; w[i++]=nss5; w[i++]=cc5;
 		SSE2_RADIX8_DIT_TWIDDLE_OOP(
-			tmp,r10,r20,r30,r40,r50,r60,r70,
-			v0,v4,v2,v6,v1,v5,v3,v7,
-			ss4,cc4,cc6,ss6,nss2,cc2,cc3,ss3,ss1,cc1,ss7,cc7,nss5,cc5
+			tmp,OFF1,
+			v0,dit_o_ptr_stride,
+			twid_ptrs, two
 		);
+//v1 -= j; v2 -= j; v3 -= j; v4 -= j; v5 -= j; v6 -= j; v7 -= j;
+//printf("Block %u: v0-v7 = %llX,%llX,%llX,%llX,%llX,%llX,%llX,%llX\n",3,v0,v1,v2,v3,v4,v5,v6,v7);
+//printf("Block %u:\n",3);printf("\tv0 = [%15.10f,%15.10f]\n",v0->d0,(v0+1)->d0);printf("\tv1 = [%15.10f,%15.10f]\n",v1->d0,(v1+1)->d0);printf("\tv2 = [%15.10f,%15.10f]\n",v2->d0,(v2+1)->d0);printf("\tv3 = [%15.10f,%15.10f]\n",v3->d0,(v3+1)->d0);printf("\tv4 = [%15.10f,%15.10f]\n",v4->d0,(v4+1)->d0);printf("\tv5 = [%15.10f,%15.10f]\n",v5->d0,(v5+1)->d0);printf("\tv6 = [%15.10f,%15.10f]\n",v6->d0,(v6+1)->d0);printf("\tv7 = [%15.10f,%15.10f]\n",v7->d0,(v7+1)->d0);
 	// Block 7: jt = j1 + p07;	jp = j2 + p07;
-		j = -8;	tmp += j; r10 += j; r20 += j; r30 += j; r40 += j; r50 += j; r60 += j; r70 += j;	// tmp = r02
-		j = off_ptr[4]; v0 += j; v1 += j; v2 += j; v3 += j; v4 += j; v5 += j; v6 += j; v7 += j;	// s1p07
-		VEC_DBL_INIT(v0,2.0);
+		j = -8;	tmp += j;	// tmp = r02
+		j = off_ptr[4]; v0 += j;	// s1p07
+		i = 0; w[i++]=ncc4; w[i++]=ss4; w[i++]=ss2; w[i++]=cc2; w[i++]=nss6; w[i++]=ncc6; w[i++]=cc7; w[i++]=ss7; w[i++]=ncc3; w[i++]=nss3; w[i++]=nss5; w[i++]=cc5; w[i++]=ss1; w[i++]=ncc1;
 		SSE2_RADIX8_DIT_TWIDDLE_OOP(
-			tmp,r10,r20,r30,r40,r50,r60,r70,
-			v0,v4,v2,v6,v1,v5,v3,v7,
-			ncc4,ss4,ss2,cc2,nss6,ncc6,cc7,ss7,ncc3,nss3,nss5,cc5,ss1,ncc1
+			tmp,OFF1,
+			v0,dit_o_ptr_stride,
+			twid_ptrs, two
 		);
+//v1 += j; v2 += j; v3 += j; v4 += j; v5 += j; v6 += j; v7 += j;
+//printf("Block %u: v0-v7 = %llX,%llX,%llX,%llX,%llX,%llX,%llX,%llX\n",7,v0,v1,v2,v3,v4,v5,v6,v7);
+//printf("Block %u:\n",7);printf("\tv0 = [%15.10f,%15.10f]\n",v0->d0,(v0+1)->d0);printf("\tv1 = [%15.10f,%15.10f]\n",v1->d0,(v1+1)->d0);printf("\tv2 = [%15.10f,%15.10f]\n",v2->d0,(v2+1)->d0);printf("\tv3 = [%15.10f,%15.10f]\n",v3->d0,(v3+1)->d0);printf("\tv4 = [%15.10f,%15.10f]\n",v4->d0,(v4+1)->d0);printf("\tv5 = [%15.10f,%15.10f]\n",v5->d0,(v5+1)->d0);printf("\tv6 = [%15.10f,%15.10f]\n",v6->d0,(v6+1)->d0);printf("\tv7 = [%15.10f,%15.10f]\n",v7->d0,(v7+1)->d0);
+//exit(0);
+	  #ifndef USE_ARM_V8_SIMD
+		#undef OFF1
+	  #endif
 	}
 
 	/************** RADIX-128 DIF/DIT: *****************************/
@@ -4620,7 +4641,7 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		// Intermediates pointers:
 		vec_dbl *tm0,*tm1,
 			*u0,*u1,*u2,*u3,*u4,*u5,*u6,*u7, *v0,*v1,*v2,*v3,*v4,*v5,*v6,*v7,
-			*c1,*s1,*c2,*s2,*c3,*s3,*c4,*s4,*c5,*s5,*c6,*s6,*c7,*s7;
+			*w[14], **twid_ptrs = &(w[0]);	// Array of 14 SIMD twiddles-pointers for the reduced-#args version of SSE2_RADIX8_DIF_TWIDDLE_OOP
 		/* Addresses into array sections */
 		double *addr,*add0,*add1,*add2,*add3,*add4,*add5,*add6,*add7,*add8,*add9,*adda,*addb,*addc,*addd,*adde,*addf;
 		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
@@ -4656,21 +4677,15 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 		// Use that [isrt2] ptr heads up the needed isrt2/cc16/ss16 pointer-triplet
 		// (actually a quartet in AVX2 mode, since there need sqrt2 preceding isrt2)
 		tm1 = tmp;	// Outputs of 16-DFTs into local scratch storage
-//printf("B: Pass 1 inputs:\n");
+	//	printf("B: Pass 1 inputs:\n");
 		for(i = 0; i < 8; i++) {
 			j = reverse8[i]<<1;	// __A-offsets are processed in BR8 order
 			tm0 = __A+j;
-//for(j = 0; j < 16; j += 2) { printf("%2x: %15.5f,%15.5f, %15.5f,%15.5f\n",i*16+j,(tm0+j)->d0,(tm0+j)->d1,(tm0+j+1)->d0,(tm0+j+1)->d1); };
-		#if (OS_BITS == 32)
-									  add1 = (double*)(tm0+ 2); add2 = (double*)(tm0+ 4); add3 = (double*)(tm0+ 6); add4 = (double*)(tm0+ 8); add5 = (double*)(tm0+10); add6 = (double*)(tm0+12); add7 = (double*)(tm0+14);
-			add8 = (double*)(tm0+16); add9 = (double*)(tm0+18); adda = (double*)(tm0+20); addb = (double*)(tm0+22); addc = (double*)(tm0+24); addd = (double*)(tm0+26); adde = (double*)(tm0+28); addf = (double*)(tm0+30);
-			SSE2_RADIX16_DIF_0TWIDDLE  (tm0,OFF1,OFF2,OFF3,OFF4, isrt2,two, tm1,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf);
-		#else
+	//	for(j = 0; j < 16; j += 2) { printf("%2x: %15.5f,%15.5f, %15.5f,%15.5f\n",i*16+j,(tm0+j)->d0,(tm0+j)->d1,(tm0+j+1)->d0,(tm0+j+1)->d1); };
 			SSE2_RADIX16_DIF_0TWIDDLE_B(tm0,OFF1,OFF2,OFF3,OFF4, isrt2,two, tm1);
-		#endif
 			tm1 += 32;
 		}
-//exit(0);
+	//	exit(0);
 	  #ifndef USE_ARM_V8_SIMD
 		#undef OFF1
 		#undef OFF2
@@ -4679,9 +4694,9 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 	  #endif
 
 	/*...and now do 16 radix-8 subtransforms, including the internal twiddle factors: */
-/*printf("B: Pass 2 inputs:\n");
-for(i = 0; i < 256; i += 2) { printf("%2x: %15.5f,%15.5f, %15.5f,%15.5f\n",i,(tmp+i)->d0,(tmp+i)->d1,(tmp+i+1)->d0,(tmp+i+1)->d1); };
-exit(0);*/
+	//	printf("B: Pass 2 inputs:\n");
+	//	for(i = 0; i < 256; i += 2) { printf("%2x: %15.5f,%15.5f, %15.5f,%15.5f\n",i,(tmp+i)->d0,(tmp+i)->d1,(tmp+i+1)->d0,(tmp+i+1)->d1); };
+	//	exit(0);
 	   #ifdef USE_ARM_V8_SIMD
 		OFF1 = 0x200;
 		OFF2 = 0x400;
@@ -4714,31 +4729,38 @@ exit(0);*/
 		  #endif
 		);
 
+	   #ifdef USE_ARM_V8_SIMD
+		OFF1 = 0x200;
+	  #elif defined(USE_AVX512)
+		#define OFF1	0x800
+	  #elif defined(USE_AVX)
+		#define OFF1	0x400
+	  #else
+		#define OFF1	0x200
+	   #endif
 		// Remaining 15 sets of macro calls done in loop:
 		for(i = 1; i < 16; i++) {
 			off_ptr += 8;
 			j = reverse16[i];
 			// I-ptrs and sincos-ptrs; Twid-offsets are multiples of 21 vec_dbl; +1 to point to cos [middle] term of each [isrt2,c,s] triplet
 			tm1 = tmp + (i<<1); tm0 = twid0 + (j<<4)+(j<<2)+j;
-			u0 = tm1; u1 = tm1 + 0x80; u2 = tm1 + 0x40; u3 = tm1 + 0xc0; u4 = tm1 + 0x20; u5 = tm1 + 0xa0; u6 = tm1 + 0x60; u7 = tm1 + 0xe0;
-			c1=tm0+1;s1=tm0+2; c2=c1+3;s2=c1+4; c3=c2+3;s3=c2+4; c4=c3+3;s4=c3+4; c5=c4+3;s5=c4+4; c6=c5+3;s6=c5+4; c7=c6+3;s7=c6+4;
+			w[0x0] = tm0+ 1; w[0x1] = tm0+ 2;
+			w[0x2] = tm0+ 4; w[0x3] = tm0+ 5;
+			w[0x4] = tm0+ 7; w[0x5] = tm0+ 8;
+			w[0x6] = tm0+10; w[0x7] = tm0+11;
+			w[0x8] = tm0+13; w[0x9] = tm0+14;
+			w[0xa] = tm0+16; w[0xb] = tm0+17;
+			w[0xc] = tm0+19; w[0xd] = tm0+20;
 			// O-ptrs: a[j1] offset here = p08,p10,p18,...
-			p0 = off_ptr[0x0];p1 = off_ptr[0x1];p2 = off_ptr[0x2];p3 = off_ptr[0x3];p4 = off_ptr[0x4];p5 = off_ptr[0x5];p6 = off_ptr[0x6];p7 = off_ptr[0x7];
-			addr = __B; add0 = addr+p0; add1 = addr+p1; add2 = addr+p2; add3 = addr+p3; add4 = addr+p4; add5 = addr+p5; add6 = addr+p6; add7 = addr+p7;
-			VEC_DBL_INIT((vec_dbl *)add0,2.0);	VEC_DBL_INIT((vec_dbl *)add1,SQRT2);
-
 			SSE2_RADIX8_DIF_TWIDDLE_OOP(
-				u0,u1,u2,u3,u4,u5,u6,u7,
-				add0,add1,add2,add3,add4,add5,add6,add7,
-				c1,s1, c2,s2, c3,s3, c4,s4, c5,s5, c6,s6, c7,s7
+				tm1,OFF1,
+				__B,off_ptr,	// Do the output-address pointer arithmetic inside the macro
+				twid_ptrs, two
 			);
 		}
 
 	  #ifndef USE_ARM_V8_SIMD
 		#undef OFF1
-		#undef OFF2
-		#undef OFF3
-		#undef OFF4
 	  #endif
 	}
 
@@ -4757,7 +4779,7 @@ exit(0);*/
 		// Intermediates pointers:
 		vec_dbl *tm0,*tm1,*tm2,
 			*u0,*u1,*u2,*u3,*u4,*u5,*u6,*u7, *v0,*v1,*v2,*v3,*v4,*v5,*v6,*v7,
-			*c1,*s1,*c2,*s2,*c3,*s3,*c4,*s4,*c5,*s5,*c6,*s6,*c7,*s7;
+			*w[14], **twid_ptrs = &(w[0]);	// Array of 14 SIMD twiddles-pointers for the reduced-#args version of SSE2_RADIX8_DIT_TWIDDLE_OOP
 		/* Addresses into array sections */
 		double *addr,*add0,*add1,*add2,*add3,*add4,*add5,*add6,*add7,*add8,*add9,*adda,*addb,*addc,*addd,*adde,*addf;
 		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
@@ -4796,11 +4818,9 @@ exit(0);*/
 		off_ptr = i_offsets;
 		for(i = 0; i < 8; i++) {
 			// I-ptrs: a[j1] offset here = p08,p10,p18,...
-			p0 = off_ptr[0x0];p1 = off_ptr[0x1];p2 = off_ptr[0x2];p3 = off_ptr[0x3];p4 = off_ptr[0x4];p5 = off_ptr[0x5];p6 = off_ptr[0x6];p7 = off_ptr[0x7];p8 = off_ptr[0x8];p9 = off_ptr[0x9];pa = off_ptr[0xa];pb = off_ptr[0xb];pc = off_ptr[0xc];pd = off_ptr[0xd];pe = off_ptr[0xe];pf = off_ptr[0xf];
-			addr = __A; add0 = addr+p0; add1 = addr+p1; add2 = addr+p2; add3 = addr+p3; add4 = addr+p4; add5 = addr+p5; add6 = addr+p6; add7 = addr+p7;
-				add8 = addr+p8; add9 = addr+p9; adda = addr+pa; addb = addr+pb; addc = addr+pc; addd = addr+pd; adde = addr+pe; addf = addr+pf;
 			SSE2_RADIX16_DIT_0TWIDDLE(
-				add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2,two,
+				__A,off_ptr,
+				isrt2,two,
 				tm1,OFF1,OFF2,OFF3,OFF4
 			);
 			tm1 += 32;
@@ -4834,26 +4854,42 @@ exit(0);*/
 		);
 	  #endif
 
-	// Note: 1st of the 15 sincos args in each call to SSE2_RADIX8_DIT_TWIDDLE_OOP is the basic isrt2 needed for
+	// Note: 1st of the 14 sincos args in each call to SSE2_RADIX8_DIT_TWIDDLE_OOP is the basic isrt2 needed for
 	// radix-8. This is a workaround of GCC's 30-arg limit for inline ASM macros, which proves a royal pain here.
 
+	   #ifdef USE_ARM_V8_SIMD
+		OFF1 = 0x200;
+	  #elif defined(USE_AVX512)
+		#define OFF1	0x800
+	  #elif defined(USE_AVX)
+		#define OFF1	0x400
+	  #else
+		#define OFF1	0x200
+	   #endif
+		uint64 dit_o_ptr_stride = (uint64)OFF1;	// Dec 2020: Do we need to generalize this as in Radix-64 DIT, as called e.g. by radix-960 carry routine?
 		// Remaining 15 sets of macro calls done in loop:
 		for(i = 1; i < 16; i++) {
 			j = reverse16[i];
 			// Twid-offsets are multiples of 21 vec_dbl; +1 to point to cos [middle] term of each [isrt2,c,s] triplet
 			/*** Unlike 128-DIF, need added ptr tm2 here to avid overwriting tmp-intermdiates ptr: ***/
 			tm0 = tmp + (j<<1); tm1 = __B + (j<<1); tm2 = twid0 + (j<<4)+(j<<2)+j;
-			VEC_DBL_INIT(tm1,2.0);
-			u0 = tm0; u1 = tm0 + 0x20; u2 = tm0 + 0x40; u3 = tm0 + 0x60; u4 = tm0 + 0x80; u5 = tm0 + 0xa0; u6 = tm0 + 0xc0; u7 = tm0 + 0xe0;
-			v0 = tm1; v1 = tm1 + 0x80; v2 = tm1 + 0x40; v3 = tm1 + 0xc0; v4 = tm1 + 0x20; v5 = tm1 + 0xa0; v6 = tm1 + 0x60; v7 = tm1 + 0xe0;
 			// 7 [c,s] pointer-pairs, +=3 between pairs; c0 = tm2+1 to point to cos [middle] term of each [isrt2,c,s] triplet:
-			c1=tm2+1;s1=tm2+2; c2=c1+3;s2=c1+4; c3=c2+3;s3=c2+4; c4=c3+3;s4=c3+4; c5=c4+3;s5=c4+4; c6=c5+3;s6=c5+4; c7=c6+3;s7=c6+4;
+			w[0x0] = tm2+ 1; w[0x1] = tm2+ 2;
+			w[0x2] = tm2+ 4; w[0x3] = tm2+ 5;
+			w[0x4] = tm2+ 7; w[0x5] = tm2+ 8;
+			w[0x6] = tm2+10; w[0x7] = tm2+11;
+			w[0x8] = tm2+13; w[0x9] = tm2+14;
+			w[0xa] = tm2+16; w[0xb] = tm2+17;
+			w[0xc] = tm2+19; w[0xd] = tm2+20;
 			SSE2_RADIX8_DIT_TWIDDLE_OOP(
-				u0,u1,u2,u3,u4,u5,u6,u7,
-				v0,v1,v2,v3,v4,v5,v6,v7,
-				c1,s1, c2,s2, c3,s3, c4,s4, c5,s5, c6,s6, c7,s7
+				tm0,OFF1,
+				tm1,dit_o_ptr_stride,
+				twid_ptrs, two
 			);
 		}
+	  #ifndef USE_ARM_V8_SIMD
+		#undef OFF1
+	  #endif
 	}
 
 	/************** RADIX-256 DIF/DIT: *****************************/
@@ -4907,27 +4943,22 @@ exit(0);*/
 		for(i = 0; i < 16; i++) {
 			j = reverse16[i]<<1;	// __A-offsets are processed in BR16 order
 			tm0 = __A+j;
-		#if (OS_BITS == 32)
-									 add1 = (vec_dbl*)tm1+ 2; add2 = (vec_dbl*)tm1+ 4; add3 = (vec_dbl*)tm1+ 6; add4 = (vec_dbl*)tm1+ 8; add5 = (vec_dbl*)tm1+10; add6 = (vec_dbl*)tm1+12; add7 = (vec_dbl*)tm1+14;
-			add8 = (vec_dbl*)tm1+16; add9 = (vec_dbl*)tm1+18; adda = (vec_dbl*)tm1+20; addb = (vec_dbl*)tm1+22; addc = (vec_dbl*)tm1+24; addd = (vec_dbl*)tm1+26; adde = (vec_dbl*)tm1+28; addf = (vec_dbl*)tm1+30;
-			SSE2_RADIX16_DIF_0TWIDDLE  (tm0,OFF1,OFF2,OFF3,OFF4, isrt2,two, tm1,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf);
-		#else
 			SSE2_RADIX16_DIF_0TWIDDLE_B(tm0,OFF1,OFF2,OFF3,OFF4, isrt2,two, tm1);
-		#endif
 			tm1 += 32;
 		}
 
 	/*...and now do 16 radix-16 subtransforms, including the internal twiddle factors: */
 
 	// Block 0: has all-unity twiddles
-		// Extract index of the 16-element o_offsets_lo sub-vector to use for the current set of outputs:
+		// Extract index of the 16-element o_offsets_lo sub-vector to use for the current set of outputs -
+		// the 16 p-offsets p0-pf will be in some permuted order starting at off_ptr:
 		off_ptr = o_offsets_lo + ( (o_idx&0x3) << 4 );	// Low 2 bits of o_idx; loop below will use remaining 30 bits in ascending pairs
-		p0 = off_ptr[0x0];p1 = off_ptr[0x1];p2 = off_ptr[0x2];p3 = off_ptr[0x3];p4 = off_ptr[0x4];p5 = off_ptr[0x5];p6 = off_ptr[0x6];p7 = off_ptr[0x7];p8 = off_ptr[0x8];p9 = off_ptr[0x9];pa = off_ptr[0xa];pb = off_ptr[0xb];pc = off_ptr[0xc];pd = off_ptr[0xd];pe = off_ptr[0xe];pf = off_ptr[0xf];
 		tm1 = r00;
-		addr = __B + o_offsets_hi[0]; add0 = addr+p0; add1 = addr+p1; add2 = addr+p2; add3 = addr+p3; add4 = addr+p4; add5 = addr+p5; add6 = addr+p6; add7 = addr+p7;
-			add8 = addr+p8; add9 = addr+p9; adda = addr+pa; addb = addr+pb; addc = addr+pc; addd = addr+pd; adde = addr+pe; addf = addr+pf;
+		addr = __B + o_offsets_hi[0];
 		SSE2_RADIX16_DIF_TWIDDLE_OOP(
-			tm1,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2, twid0
+			tm1,OFF1,OFF4,
+			addr,off_ptr,
+			isrt2,twid0
 		);	tm1 += 2;
 
 	  #ifdef USE_AVX2
@@ -4937,14 +4968,14 @@ exit(0);*/
 	// Block 8: BR twiddles = {  I.{},  C^ 8,-~C^ 8,  C^ 4,*~C^ 4, *C^ 4,-~C^ 4,  C^ 2,*~C^ 2, *C^ 6,-~C^ 6,  C^ 6,*~C^ 6, *C^ 2,-~C^ 2}
 		if(o_idx) {
 			off_ptr = o_offsets_lo + ((o_idx<<2)&0x30);	// Shorthand for 16*((o_idx>>2)&0x3)
-			p0  = off_ptr[0x0];p1  = off_ptr[0x1];p2  = off_ptr[0x2];p3  = off_ptr[0x3];p4  = off_ptr[0x4];p5  = off_ptr[0x5];p6  = off_ptr[0x6];p7  = off_ptr[0x7];p8  = off_ptr[0x8];p9  = off_ptr[0x9];pa  = off_ptr[0xa];pb  = off_ptr[0xb];pc  = off_ptr[0xc];pd  = off_ptr[0xd];pe  = off_ptr[0xe];pf  = off_ptr[0xf];
 		}
 		j = 16;	// = 8<<1; Mimics elided i = 1 pass of length-14 loop below
 		tm2 = twid0 + (j<<4)-j;	// Twid-offsets are multiples of 30 vec_dbl - this one points to twid8 [of twid0-f]
-		addr = __B + o_offsets_hi[1]; add0 = addr+p0; add1 = addr+p1; add2 = addr+p2; add3 = addr+p3; add4 = addr+p4; add5 = addr+p5; add6 = addr+p6; add7 = addr+p7;
-			add8 = addr+p8; add9 = addr+p9; adda = addr+pa; addb = addr+pb; addc = addr+pc; addd = addr+pd; adde = addr+pe; addf = addr+pf;
+		addr = __B + o_offsets_hi[1];
 		SSE2_RADIX16_DIF_TWIDDLE_OOP(
-			tm1,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2, tm2
+			tm1,OFF1,OFF4,
+			addr,off_ptr,
+			isrt2,tm2
 		);	tm1 += 2;
 
 		// Remaining 14 sets of macro calls done in loop:
@@ -4971,15 +5002,14 @@ exit(0);*/
 			if(o_idx) {
 				nshift = i+i;	// o_idx shift counts here run as >>2,4,...,30
 				off_ptr = o_offsets_lo + ( ((o_idx>>nshift)&0x3) << 4 );
-				p0  = off_ptr[0x0];p1  = off_ptr[0x1];p2  = off_ptr[0x2];p3  = off_ptr[0x3];p4  = off_ptr[0x4];p5  = off_ptr[0x5];p6  = off_ptr[0x6];p7  = off_ptr[0x7];p8  = off_ptr[0x8];p9  = off_ptr[0x9];pa  = off_ptr[0xa];pb  = off_ptr[0xb];pc  = off_ptr[0xc];pd  = off_ptr[0xd];pe  = off_ptr[0xe];pf  = off_ptr[0xf];
 			}
 			j = reverse16[i]<<1;
 			tm2 = twid0 + (j<<4)-j;	// Twid-offsets are multiples of 30 vec_dbl
-			addr = __B + o_offsets_hi[i];	// o_offsets_hi[] = p10,p20,...,pf0
-			add0 = addr+p0; add1 = addr+p1; add2 = addr+p2; add3 = addr+p3; add4 = addr+p4; add5 = addr+p5; add6 = addr+p6; add7 = addr+p7;
-				add8 = addr+p8; add9 = addr+p9; adda = addr+pa; addb = addr+pb; addc = addr+pc; addd = addr+pd; adde = addr+pe; addf = addr+pf;
+			addr = __B + o_offsets_hi[i];
 			SSE2_RADIX16_DIF_TWIDDLE_OOP(
-				tm1,OFF1,OFF2,OFF3,OFF4, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2, tm2
+				tm1,OFF1,OFF4,
+				addr,off_ptr,
+				isrt2,tm2
 			);	tm1 += 2;
 		}
 
@@ -5014,7 +5044,8 @@ exit(0);*/
 		/* Addresses into array sections */
 		double *addr, *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7, *add8, *add9, *adda, *addb, *addc, *addd, *adde, *addf;
 		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
-		int i,j,nshift, *off_ptr;
+		int i,j,nshift;
+		const int *off_ptr;
 		int p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf;
 
 	/* Gather the needed data (256 64-bit complex, i.e. 512 64-bit reals) and do 8 twiddleless length-16 subtransforms: */
@@ -5043,21 +5074,20 @@ exit(0);*/
 
 		// Extract index of the 16-element i_offsets_lo sub-vector to use for the current set of outputs:
 		off_ptr = i_offsets_lo + ( (i_idx&0x3) << 4 );	// 16*(Low 2 bits of i_idx); loop below will use remaining 30 bits in ascending pairs
-		p0  = off_ptr[0x0];p1  = off_ptr[0x1];p2  = off_ptr[0x2];p3  = off_ptr[0x3];p4  = off_ptr[0x4];p5  = off_ptr[0x5];p6  = off_ptr[0x6];p7  = off_ptr[0x7];p8  = off_ptr[0x8];p9  = off_ptr[0x9];pa  = off_ptr[0xa];pb  = off_ptr[0xb];pc  = off_ptr[0xc];pd  = off_ptr[0xd];pe  = off_ptr[0xe];pf  = off_ptr[0xf];
 
 	// Gather the needed data and do 16 twiddleless length-16 subtransforms, with p-offsets in-order:
 
 		tm0 = r00;
 		for(i = 0; i < 16; i++) {
 			addr = __A + i_offsets_hi[i];	// i_offsets_hi[] = p10,p20,...,pf0
-			add0 = addr+p0; add1 = addr+p1; add2 = addr+p2; add3 = addr+p3; add4 = addr+p4; add5 = addr+p5; add6 = addr+p6; add7 = addr+p7;
-				add8 = addr+p8; add9 = addr+p9; adda = addr+pa; addb = addr+pb; addc = addr+pc; addd = addr+pd; adde = addr+pe; addf = addr+pf;
-			SSE2_RADIX16_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2,two,
-				tm0,OFF1,OFF2,OFF3,OFF4); tm0 += 32;
+			SSE2_RADIX16_DIT_0TWIDDLE(
+				addr,off_ptr,
+				isrt2,two,
+				tm0,OFF1,OFF2,OFF3,OFF4
+			); tm0 += 32;
 			if(i_idx) {	// vvv +2 here because this is setup for next loop pass
 				nshift = i+i+2;	// i_idx shift counts here run as >>2,4,...,30
 				off_ptr = i_offsets_lo + ( ((i_idx>>nshift)&0x3) << 4 );
-				p0  = off_ptr[0x0];p1  = off_ptr[0x1];p2  = off_ptr[0x2];p3  = off_ptr[0x3];p4  = off_ptr[0x4];p5  = off_ptr[0x5];p6  = off_ptr[0x6];p7  = off_ptr[0x7];p8  = off_ptr[0x8];p9  = off_ptr[0x9];pa  = off_ptr[0xa];pb  = off_ptr[0xb];pc  = off_ptr[0xc];pd  = off_ptr[0xd];pe  = off_ptr[0xe];pf  = off_ptr[0xf];
 			}
 		}
 
@@ -5096,8 +5126,14 @@ exit(0);*/
 
 	// Block 0: All unity twiddles:
 		tm1 = __B;
+		// Jan 2020: For reduced-#args version of macro, need base-pointer r00 and array of 16
+		// double-array-equivalent index offsets corr. to the address strides between r00 and r10,r20...,
+		// which are 32 vec_dbl = 32*RE_IM_STRIDE doubles apart:
+		const int dd = RE_IM_STRIDE<<5, offs[16] = {0,dd,2*dd,3*dd,4*dd,5*dd,6*dd,7*dd,8*dd,9*dd,10*dd,11*dd,12*dd,13*dd,14*dd,15*dd};
+		off_ptr = &(offs[0]);
 		SSE2_RADIX16_DIT_0TWIDDLE(
-			r00,r10,r20,r30,r40,r50,r60,r70,r80,r90,ra0,rb0,rc0,rd0,re0,rf0, isrt2,two,
+			r00,off_ptr,
+			isrt2,two,
 			tm1,OFF1,OFF2,OFF3,OFF4
 		);
 

@@ -1086,9 +1086,9 @@ Others are optional and in some cases mutually exclusive:
 		// Apr 2015: Init-calls to any inline-asm-using modpow functions:
 		int thr_id = -1;
 		twopmodq96_q4(0ull, 0ull, 0ull, 0ull, 0ull, NTHREADS, thr_id);
+	  #ifdef USE_SSE2
 		twopmodq78_3WORD_DOUBLE_q2 (0ull, 0ull,0ull, NTHREADS, thr_id);
 		twopmodq78_3WORD_DOUBLE_q4 (0ull, 0ull,0ull,0ull,0ull, NTHREADS, thr_id);
-	  #ifdef USE_SSE2
 		twopmodq78_3WORD_DOUBLE_q8 (0ull, k_to_try, NTHREADS, thr_id);
 	  #endif
 	  #ifdef USE_AVX
@@ -1905,9 +1905,9 @@ printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that
 	testSmarandache(100001,101000, pdiff, i);
 	exit(0);
 #endif
-#if 1
+#if 0
 	// Oct 2018: Play with "sieve survivors" stats: lim(n --> oo) prod_(p <= n)(1-1/p)/(1/ln(p^2))
-	i = 1000000000;	ASSERT(HERE, i <= MAX_SIEVING_PRIME, "prime limit exceded in testSieveProdAsymp!");
+	i = 1000000000;	ASSERT(HERE, i <= MAX_SIEVING_PRIME, "prime limit exceeded in testSieveProdAsymp!");
 	struct qfloat qfprod = QHALF, qt;
 	double prod = 0.5, log_psq = log((double)i*i);
 	for(m = 0, curr_p = 3; m < nprime; m++) {

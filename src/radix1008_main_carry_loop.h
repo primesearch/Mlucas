@@ -63,26 +63,25 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		for(l = 0; l < ODD_RADIX; ++l) {
 			i64 = dit16_iidx_lo[l];
 			// p-offset indices encoded in little-endian hex-char fashion:
-			k0 = plo[(i64 >> 60)&0xf];
-			k1 = plo[(i64 >> 56)&0xf];
-			k2 = plo[(i64 >> 52)&0xf];
-			k3 = plo[(i64 >> 48)&0xf];
-			k4 = plo[(i64 >> 44)&0xf];
-			k5 = plo[(i64 >> 40)&0xf];
-			k6 = plo[(i64 >> 36)&0xf];
-			k7 = plo[(i64 >> 32)&0xf];
-			k8 = plo[(i64 >> 28)&0xf];
-			k9 = plo[(i64 >> 24)&0xf];
-			ka = plo[(i64 >> 20)&0xf];
-			kb = plo[(i64 >> 16)&0xf];
-			kc = plo[(i64 >> 12)&0xf];
-			kd = plo[(i64 >>  8)&0xf];
-			ke = plo[(i64 >>  4)&0xf];
-			kf = plo[(i64      )&0xf];
+			po_kperm[0x0] = plo[(i64 >> 60)&0xf];
+			po_kperm[0x1] = plo[(i64 >> 56)&0xf];
+			po_kperm[0x2] = plo[(i64 >> 52)&0xf];
+			po_kperm[0x3] = plo[(i64 >> 48)&0xf];
+			po_kperm[0x4] = plo[(i64 >> 44)&0xf];
+			po_kperm[0x5] = plo[(i64 >> 40)&0xf];
+			po_kperm[0x6] = plo[(i64 >> 36)&0xf];
+			po_kperm[0x7] = plo[(i64 >> 32)&0xf];
+			po_kperm[0x8] = plo[(i64 >> 28)&0xf];
+			po_kperm[0x9] = plo[(i64 >> 24)&0xf];
+			po_kperm[0xa] = plo[(i64 >> 20)&0xf];
+			po_kperm[0xb] = plo[(i64 >> 16)&0xf];
+			po_kperm[0xc] = plo[(i64 >> 12)&0xf];
+			po_kperm[0xd] = plo[(i64 >>  8)&0xf];
+			po_kperm[0xe] = plo[(i64 >>  4)&0xf];
+			po_kperm[0xf] = plo[(i64      )&0xf];
 			addr = &a[j1] + phi[dit_phi[l]];
-			add0=addr+k0; add1=addr+k1; add2=addr+k2; add3=addr+k3; add4=addr+k4; add5=addr+k5; add6=addr+k6; add7=addr+k7; add8=addr+k8; add9=addr+k9; adda=addr+ka; addb=addr+kb; addc=addr+kc; addd=addr+kd; adde=addr+ke; addf=addr+kf;
 			SSE2_RADIX16_DIT_0TWIDDLE(
-				add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf,
+				addr,po_ptr,
 				isrt2,two,
 				tmp,OFF1,OFF2,OFF3,OFF4	/*** Outs 1,2,6,7,9,14,15 bad! ***/
 			);	tmp += 2;
@@ -685,8 +684,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		idx_offset = j;
 		idx_incr = NDIVR;
 
-	  #if (OS_BITS == 64)
-
 		// [ijkl]c = indices into icycle mini-arrays, gets incremented (mod ODD_RADIX) between macro calls; replace the
 		// icycle[ic],jcycle[ic],icycle[ic+1],jcycle[ic+1] of the non-looped version with icycle[ic],jcycle[ic],icycle[jc],jcycle[jc]:
 		ic_idx = 0; jc_idx = 1;
@@ -706,28 +703,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			MOD_ADD32(ic_idx, 2, ODD_RADIX, ic_idx);
 			MOD_ADD32(jc_idx, 2, ODD_RADIX, jc_idx);
 		}
-
-	  #else // Mar 2014: Worked around the out-of-regs compiler issues with the _X2 version of this macro (the
-			// code in carry_gcc64.h has details), but keep non-X2 version in case hit out-of-regs again at some point
-
-		ic_idx = 0;	// ic_idx = idx into [i|j]cycle mini-arrays, gets incremented (mod ODD_RADIX) between macro calls
-		tm1 = s1p00; tmp = cy_r;	// <*** Again rely on contiguity of cy_r,i here ***
-		l = ODD_RADIX << 4;	// 32-bit version needs preshifted << 4 input value
-		while((int)(tmp-cy_r) < RADIX) {
-			//Sep 2014: Even with reduced-register version of the 32-bit Fermat-mod carry macro,
-			// GCC runs out of registers on this one, without some playing-around-with-alternate code-sequences ...
-			// Pulling the array-refs out of the carry-macro call like so solves the problem:
-			k1 = icycle[ic_idx];
-			k2 = jcycle[ic_idx];
-			// Each SSE2 carry macro call also processes 1 prefetch of main-array data
-			tm2 = (vec_dbl *)(a + j1 + pfetch_dist + poff[(int)(tmp-cy_r)>>2]);	// poff[] = p0,4,8,...; (tm1-cy_r) acts as a linear loop index running from 0,...,RADIX-1 here.
-			tm2 += p1*((int)(tmp-cy_r)&0x3);	// Added offset cycles among p0,1,2,3
-			SSE2_fermat_carry_norm_errcheck(tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,l,half_arr,sign_mask,add1,add2,k1,k2, tm2, addr);
-			tm1 += 2; tmp++;
-			MOD_ADD32(ic_idx, 1, ODD_RADIX, ic_idx);
-		}
-
-	  #endif	// OS_BITS == 32 OR 64
 
 	#else	// Scalar-double mode:
 
@@ -792,28 +767,27 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		for(l = 0; l < ODD_RADIX; ++l) {
 			i64 = dif16_oidx_lo[l];
 			// p-offset indices encoded in little-endian hex-char fashion:
-			k0 = plo[(i64 >> 60)&0xf];
-			k1 = plo[(i64 >> 56)&0xf];
-			k2 = plo[(i64 >> 52)&0xf];
-			k3 = plo[(i64 >> 48)&0xf];
-			k4 = plo[(i64 >> 44)&0xf];
-			k5 = plo[(i64 >> 40)&0xf];
-			k6 = plo[(i64 >> 36)&0xf];
-			k7 = plo[(i64 >> 32)&0xf];
-			k8 = plo[(i64 >> 28)&0xf];
-			k9 = plo[(i64 >> 24)&0xf];
-			ka = plo[(i64 >> 20)&0xf];
-			kb = plo[(i64 >> 16)&0xf];
-			kc = plo[(i64 >> 12)&0xf];
-			kd = plo[(i64 >>  8)&0xf];
-			ke = plo[(i64 >>  4)&0xf];
-			kf = plo[(i64      )&0xf];
+			po_kperm[0x0] = plo[(i64 >> 60)&0xf];
+			po_kperm[0x1] = plo[(i64 >> 56)&0xf];
+			po_kperm[0x2] = plo[(i64 >> 52)&0xf];
+			po_kperm[0x3] = plo[(i64 >> 48)&0xf];
+			po_kperm[0x4] = plo[(i64 >> 44)&0xf];
+			po_kperm[0x5] = plo[(i64 >> 40)&0xf];
+			po_kperm[0x6] = plo[(i64 >> 36)&0xf];
+			po_kperm[0x7] = plo[(i64 >> 32)&0xf];
+			po_kperm[0x8] = plo[(i64 >> 28)&0xf];
+			po_kperm[0x9] = plo[(i64 >> 24)&0xf];
+			po_kperm[0xa] = plo[(i64 >> 20)&0xf];
+			po_kperm[0xb] = plo[(i64 >> 16)&0xf];
+			po_kperm[0xc] = plo[(i64 >> 12)&0xf];
+			po_kperm[0xd] = plo[(i64 >>  8)&0xf];
+			po_kperm[0xe] = plo[(i64 >>  4)&0xf];
+			po_kperm[0xf] = plo[(i64      )&0xf];
 			addr = &a[j1] + phi[dif_phi[l]];
-			add0=addr+k0; add1=addr+k1; add2=addr+k2; add3=addr+k3; add4=addr+k4; add5=addr+k5; add6=addr+k6; add7=addr+k7; add8=addr+k8; add9=addr+k9; adda=addr+ka; addb=addr+kb; addc=addr+kc; addd=addr+kd; adde=addr+ke; addf=addr+kf;
 			SSE2_RADIX16_DIF_0TWIDDLE(
 				tmp,OFF1,OFF2,OFF3,OFF4,
 				isrt2,two,
-				add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf
+				addr,po_ptr
 			);
 			tmp += 0x2;
 		}

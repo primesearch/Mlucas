@@ -29,11 +29,11 @@
 
 // Using a flag-value (rather than 'defined or not?' scheme allows us to override the enclosed default at compile time:
 #ifdef USE_AVX2
-  #ifndef DFT_13_FMA	// To force VanBuskirk-DFT [120 ADD, 78 FMA] over [12 ADD, 192 FMA]-DFT, use -DDFT_13_FMA=0 at compile time
-	#define DFT_13_FMA	1	// Toggle between the 'naive' but good ROE properties DFT and the low-total-arithmetic-opcount
-							// but high-ROE van Buskirk-style 'tangent' DFT. Toggle only respected for build modes - that
-							// means ones where FMA instructions exist - which allow both options. With FMA, the 'naive'
-							// DFT has a comparable opcount to the VB one, since it yields a target-rich environment for FMA.
+  #ifndef DFT_13_FMA	// To force non-default value of toggle, use -DDFT_13_FMA=1 at compile time
+	#define DFT_13_FMA	0	// Toggle between 'naive' but lower-ROE DFT [36 ADD, 168 FMA (incl 12 MUL), 268 memref] and lower-opcount
+							// but higher-ROE van Buskirk-style 'tangent' DFT [120 ADD, 78 FMA (incl 34 MUL), 168 memref].
+							// Toggle only respected for build modes where FMA instructions exist. With FMA, 'naive' DFT has
+							// a comparable opcount to VB one, since it yields a target-rich environment for FMA.
   #endif
 #endif
 
@@ -54,9 +54,6 @@
   #elif defined(USE_AVX512)
 	#error Currently only LOACC carry-mode supported in AVX-512 builds!
   #endif
-#endif
-#if defined(LOACC) && (OS_BITS == 32)
-	#error 32-bit mode only supports the older HIACC carry macros!
 #endif
 
 #ifndef PFETCH_DIST
@@ -84,7 +81,7 @@
 	const int radix208_creals_in_local_store = 0x4bc;	// (half_arr_offset + RADIX) = 40 and round up to nearest multiple of 4
   #endif
 
-	#include "sse2_macro.h"
+	#include "sse2_macro_gcc64.h"
 	#include "radix13_sse_macro.h"
 
 #endif	// SSE2
@@ -172,21 +169,8 @@ int radix208_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	const char func[] = "radix208_ditN_cy_dif1";
 	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
-#ifdef USE_SSE2
-	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
-	// lg(sizeof(vec_dbl)):
-  #ifdef USE_AVX512
-	const int l2_sz_vd = 6;
-  #elif defined(USE_AVX)
-	const int l2_sz_vd = 5;
-  #else
-	const int l2_sz_vd = 4;
-  #endif
-#else
-	const int sz_vd = sizeof(double), sz_vd_m1 = sz_vd-1;
-	const int l2_sz_vd = 3;
-#endif
 #if DFT_13_FMA || defined(USE_ARM_V8_SIMD)
+  #warning Using FMA-heavy / lo-add 13-DFT
 const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the radix-13 fundamental sincos datum	*/
 			ss1 =  0.46472317204376854565,	/* Imag part of exp(i*2*pi/13).	*/
 			cc2 =  0.56806474673115580252,	/* cos(2u)	*/
@@ -200,6 +184,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 			cc6 = -0.97094181742605202714,	/* cos(6u)	*/
 			ss6 =  0.23931566428755776718;	/* sin(6u)	*/
 #else	// Consts for van Buskirk-style tangent DFT in this header:
+  #warning Using FMA-lite / hi-add 13-DFT
 	#include "radix13.h"
 #endif
   #ifdef LOACC
@@ -251,7 +236,9 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 	// circ-shift count of basic array needed for stage 1:
 	const int dif_ncshft[16] = {0x0,0x1,0x2,0x3,0x4,0x5,0x5,0x6,0x7,0x8,0x9,0x9,0xa,0xb,0xc,0x0},
 		// dif_pcshft has 13 base elts followed by repeat of first 12 of those to support circ-shift perms
-		dif_pcshft[25] = {0x0,0xc,0xb,0xa,0x9,0x8,0x7,0x6,0x5,0x4,0x3,0x2,0x1,0x0,0xc,0xb,0xa,0x9,0x8,0x7,0x6,0x5,0x4,0x3,0x2};
+		dif_pcshft[25] = {0x0,0xc,0xb,0xa,0x9,0x8,0x7,0x6,0x5,0x4,0x3,0x2,0x1,0x0,0xc,0xb,0xa,0x9,0x8,0x7,0x6,0x5,0x4,0x3,0x2},
+		// Jan 2021: need 2nd version of dif_pcshft[] with elts pre-shifted by <<(L2_SZ_VD+5) to support simple additive-address-offset computation in revised 11-DFT macro:
+		dif_pcshft2[25] = {0x0,0xc<<(L2_SZ_VD+5),0xb<<(L2_SZ_VD+5),0xa<<(L2_SZ_VD+5),0x9<<(L2_SZ_VD+5),0x8<<(L2_SZ_VD+5),0x7<<(L2_SZ_VD+5),0x6<<(L2_SZ_VD+5),0x5<<(L2_SZ_VD+5),0x4<<(L2_SZ_VD+5),0x3<<(L2_SZ_VD+5),0x2<<(L2_SZ_VD+5),0x1<<(L2_SZ_VD+5),0x0<<(L2_SZ_VD+5),0xc<<(L2_SZ_VD+5),0xb<<(L2_SZ_VD+5),0xa<<(L2_SZ_VD+5),0x9<<(L2_SZ_VD+5),0x8<<(L2_SZ_VD+5),0x7<<(L2_SZ_VD+5),0x6<<(L2_SZ_VD+5),0x5<<(L2_SZ_VD+5),0x4<<(L2_SZ_VD+5),0x3<<(L2_SZ_VD+5),0x2<<(L2_SZ_VD+5)};
 // DIT:
 	const uint64 dit16_iidx_lo[13] = {
 		0x01327654fedcba98ull, 0x76543210ba98dcefull, 0xba98dcef32105467ull, 0x32105467dcef98abull, 0xdcef98ab54671023ull,
@@ -261,12 +248,15 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 	// circ-shift count of basic array needed for stage 2:
 	const int dit_ncshft[16] = {0x0,0xb,0xc,0x0,0x1,0x2,0x3,0x4,0x5,0x6,0x7,0x8,0x9,0xa,0xb,0xc},
 		// dit_pcshft has 13 base elts followed by repeat of first 12 of those to support circ-shift perms
-		dit_pcshft[25] = {0x0,0x9,0x5,0x1,0xa,0x6,0x2,0xb,0x7,0x3,0xc,0x8,0x4,0x0,0x9,0x5,0x1,0xa,0x6,0x2,0xb,0x7,0x3,0xc,0x8};
+		dit_pcshft[25] = {0x0,0x9,0x5,0x1,0xa,0x6,0x2,0xb,0x7,0x3,0xc,0x8,0x4,0x0,0x9,0x5,0x1,0xa,0x6,0x2,0xb,0x7,0x3,0xc,0x8},
+		// Jan 2021: need 2nd version of dit_pcshft[] with elts pre-shifted by <<(L2_SZ_VD+5) to support simple additive-address-offset computation in revised SIMD 11-DFT macro:
+		dit_pcshft2[25] = {0x0,0x9<<(L2_SZ_VD+5),0x5<<(L2_SZ_VD+5),0x1<<(L2_SZ_VD+5),0xa<<(L2_SZ_VD+5),0x6<<(L2_SZ_VD+5),0x2<<(L2_SZ_VD+5),0xb<<(L2_SZ_VD+5),0x7<<(L2_SZ_VD+5),0x3<<(L2_SZ_VD+5),0xc<<(L2_SZ_VD+5),0x8<<(L2_SZ_VD+5),0x4<<(L2_SZ_VD+5),0x0<<(L2_SZ_VD+5),0x9<<(L2_SZ_VD+5),0x5<<(L2_SZ_VD+5),0x1<<(L2_SZ_VD+5),0xa<<(L2_SZ_VD+5),0x6<<(L2_SZ_VD+5),0x2<<(L2_SZ_VD+5),0xb<<(L2_SZ_VD+5),0x7<<(L2_SZ_VD+5),0x3<<(L2_SZ_VD+5),0xc<<(L2_SZ_VD+5),0x8<<(L2_SZ_VD+5),};
 // Shared by both DIF+DIT:
 	static int plo[16],phi[13];
 	uint64 i64;
 	const int *iptr;
-	int kk, k0,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf;
+	int kk, k0,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf,po_kperm[16],*po_ptr = &(po_kperm[0]);
+	const uint32 dft13_offs[13] = {0,0x20<<L2_SZ_VD,0x40<<L2_SZ_VD,0x60<<L2_SZ_VD,0x80<<L2_SZ_VD,0xa0<<L2_SZ_VD,0xc0<<L2_SZ_VD,0xe0<<L2_SZ_VD,0x100<<L2_SZ_VD,0x120<<L2_SZ_VD,0x140<<L2_SZ_VD,0x160<<L2_SZ_VD,0x180<<L2_SZ_VD}, *dft13_offptr = &(dft13_offs[0]);
 #endif
 	static double radix_inv, n2inv;
 	double scale, dtmp, maxerr = 0.0;
@@ -306,7 +296,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;	// Base address for discrete per-thread local stores
   #else
-	double *add0,*add1,*add2,*add3,*add4,*add5,*add6,*add7,*add8,*add9,*adda,*addb,*addc,*addd,*adde,*addf;	/* Addresses into array sections */
+	double *add0,*add1,*add2,*add3;	/* Addresses into array sections */
   #endif
 
 	// Uint64 bitmaps for alternate "rounded the other way" copies of sqrt2,isrt2. Default round-to-nearest versions
@@ -521,9 +511,9 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 
 		// This array pointer must be set based on vec_dbl-sized alignment at runtime for each thread:
 			for(l = 0; l < RE_IM_STRIDE; l++) {
-				if( ((long)&tdat[ithread].cy_dat[l] & sz_vd_m1) == 0 ) {
+				if( ((long)&tdat[ithread].cy_dat[l] & SZ_VDM1) == 0 ) {
 					tdat[ithread].cy = &tdat[ithread].cy_dat[l];
-				//	fprintf(stderr,"%d-byte-align cy_dat array at element[%d]\n",sz_vd,l);
+				//	fprintf(stderr,"%d-byte-align cy_dat array at element[%d]\n",SZ_VD,l);
 					break;
 				}
 			}
@@ -572,14 +562,14 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 		cy = tmp;		tmp += 0x34;	// RADIX/4 vec_dbl slots for carry sub-array
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x390; This is where the value of half_arr_offset208 comes from
-		half_arr= tmp + 0x02;	// This table needs 96*sz_vd bytes in avx mode
+		half_arr= tmp + 0x02;	// This table needs 96*SZ_VD bytes in avx mode
 	  #else
 		cy = tmp;		tmp += 0x68;	// RADIX/2 vec_dbl slots for carry sub-array
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x3c4; This is where the value of half_arr_offset208 comes from
-		half_arr= tmp + 0x02;	// This table needs 32*sz_vd bytes in sse2 mode
+		half_arr= tmp + 0x02;	// This table needs 32*SZ_VD bytes in sse2 mode
 	  #endif
-		ASSERT(HERE, (radix208_creals_in_local_store << l2_sz_vd) >= ((long)half_arr - (long)r00) + (20 << l2_sz_vd), "radix208_creals_in_local_store checksum failed!");
+		ASSERT(HERE, (radix208_creals_in_local_store << L2_SZ_VD) >= ((long)half_arr - (long)r00) + (20 << L2_SZ_VD), "radix208_creals_in_local_store checksum failed!");
 		/* These remain fixed: */
 		VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );
 	  #if 1
@@ -646,7 +636,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 			memcpy(tm2, tmp, nbytes);
 			tmp = tm2;		tm2 += cslots_in_local_store;
 		}
-		nbytes = sz_vd;	// sse2_rnd is a solo (in the SIMD-vector) datum
+		nbytes = SZ_VD;	// sse2_rnd is a solo (in the SIMD-vector) datum
 		tmp = sse2_rnd;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
@@ -794,9 +784,9 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
-		nbytes = 96 << l2_sz_vd;
+		nbytes = 96 << L2_SZ_VD;
 	  #else
-		nbytes = 64 << l2_sz_vd;
+		nbytes = 64 << L2_SZ_VD;
 	  #endif
 
 	#elif defined(USE_SSE2)
@@ -834,9 +824,9 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 		ctmp->re = inv_mult[1];	ctmp->im = inv_mult[0];	++ctmp;
 		ctmp->re = inv_mult[0];	ctmp->im = inv_mult[1];	++ctmp;
 		ctmp->re = inv_mult[1];	ctmp->im = inv_mult[1];	++ctmp;
-		nbytes = 24 << l2_sz_vd;
+		nbytes = 24 << L2_SZ_VD;
 	  #else
-		nbytes = 16 << l2_sz_vd;
+		nbytes = 16 << L2_SZ_VD;
 	  #endif
 
 	#endif
@@ -877,7 +867,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 			*(sse_n +i) = tmp64;
 		}
 
-		nbytes = 4 << l2_sz_vd;
+		nbytes = 4 << L2_SZ_VD;
 
 	  #ifdef USE_AVX512
 	   #ifdef CARRY_16_WAY
@@ -1080,7 +1070,7 @@ const double cc1=  0.88545602565320989590,	/* Real part of exp(i*2*pi/13), the r
 		#elif defined(USE_SSE2)
 			tidx_mod_stride = br4[tidx_mod_stride];
 		#endif
-			target_set = (target_set<<(l2_sz_vd-2)) + tidx_mod_stride;
+			target_set = (target_set<<(L2_SZ_VD-2)) + tidx_mod_stride;
 			target_cy  = target_wtfwd * ((int)-2 << (itmp64 & 255));
 		} else {
 			target_idx = target_set = 0;
@@ -1171,7 +1161,7 @@ for(outer=0; outer <= 1; outer++)
 	tmp = max_err;	VEC_DBL_INIT(tmp, 0.0);
 	tm2 = tmp + cslots_in_local_store;
 	for(ithread = 1; ithread < CY_THREADS; ++ithread) {
-		memcpy(tm2, tmp, sz_vd);
+		memcpy(tm2, tmp, SZ_VD);
 		tmp = tm2;		tm2 += cslots_in_local_store;
 	}
 
@@ -1920,7 +1910,9 @@ void radix208_dit_pass1(double a[], int n)
 		// circ-shift count of basic array needed for stage 1:
 		const int dif_ncshft[16] = {0x0,0x1,0x2,0x3,0x4,0x5,0x5,0x6,0x7,0x8,0x9,0x9,0xa,0xb,0xc,0x0},
 			// dif_pcshft has 13 base elts followed by repeat of first 12 of those to support circ-shift perms
-			dif_pcshft[25] = {0x0,0xc,0xb,0xa,0x9,0x8,0x7,0x6,0x5,0x4,0x3,0x2,0x1,0x0,0xc,0xb,0xa,0x9,0x8,0x7,0x6,0x5,0x4,0x3,0x2};
+			dif_pcshft[25] = {0x0,0xc,0xb,0xa,0x9,0x8,0x7,0x6,0x5,0x4,0x3,0x2,0x1,0x0,0xc,0xb,0xa,0x9,0x8,0x7,0x6,0x5,0x4,0x3,0x2},
+			// Jan 2021: need 2nd version of dif_pcshft[] with elts pre-shifted by <<(L2_SZ_VD+5) to support simple additive-address-offset computation in revised 11-DFT macro:
+			dif_pcshft2[25] = {0x0,0xc<<(L2_SZ_VD+5),0xb<<(L2_SZ_VD+5),0xa<<(L2_SZ_VD+5),0x9<<(L2_SZ_VD+5),0x8<<(L2_SZ_VD+5),0x7<<(L2_SZ_VD+5),0x6<<(L2_SZ_VD+5),0x5<<(L2_SZ_VD+5),0x4<<(L2_SZ_VD+5),0x3<<(L2_SZ_VD+5),0x2<<(L2_SZ_VD+5),0x1<<(L2_SZ_VD+5),0x0<<(L2_SZ_VD+5),0xc<<(L2_SZ_VD+5),0xb<<(L2_SZ_VD+5),0xa<<(L2_SZ_VD+5),0x9<<(L2_SZ_VD+5),0x8<<(L2_SZ_VD+5),0x7<<(L2_SZ_VD+5),0x6<<(L2_SZ_VD+5),0x5<<(L2_SZ_VD+5),0x4<<(L2_SZ_VD+5),0x3<<(L2_SZ_VD+5),0x2<<(L2_SZ_VD+5)};
 	// DIT:
 		const uint64 dit16_iidx_lo[13] = {
 			0x01327654fedcba98ull, 0x76543210ba98dcefull, 0xba98dcef32105467ull, 0x32105467dcef98abull, 0xdcef98ab54671023ull,
@@ -1930,12 +1922,15 @@ void radix208_dit_pass1(double a[], int n)
 		// circ-shift count of basic array needed for stage 2:
 		const int dit_ncshft[16] = {0x0,0xb,0xc,0x0,0x1,0x2,0x3,0x4,0x5,0x6,0x7,0x8,0x9,0xa,0xb,0xc},
 			// dit_pcshft has 13 base elts followed by repeat of first 12 of those to support circ-shift perms
-			dit_pcshft[25] = {0x0,0x9,0x5,0x1,0xa,0x6,0x2,0xb,0x7,0x3,0xc,0x8,0x4,0x0,0x9,0x5,0x1,0xa,0x6,0x2,0xb,0x7,0x3,0xc,0x8};
+			dit_pcshft[25] = {0x0,0x9,0x5,0x1,0xa,0x6,0x2,0xb,0x7,0x3,0xc,0x8,0x4,0x0,0x9,0x5,0x1,0xa,0x6,0x2,0xb,0x7,0x3,0xc,0x8},
+			// Jan 2021: need 2nd version of dit_pcshft[] with elts pre-shifted by <<(L2_SZ_VD+5) to support simple additive-address-offset computation in revised SIMD 11-DFT macro:
+			dit_pcshft2[25] = {0x0,0x9<<(L2_SZ_VD+5),0x5<<(L2_SZ_VD+5),0x1<<(L2_SZ_VD+5),0xa<<(L2_SZ_VD+5),0x6<<(L2_SZ_VD+5),0x2<<(L2_SZ_VD+5),0xb<<(L2_SZ_VD+5),0x7<<(L2_SZ_VD+5),0x3<<(L2_SZ_VD+5),0xc<<(L2_SZ_VD+5),0x8<<(L2_SZ_VD+5),0x4<<(L2_SZ_VD+5),0x0<<(L2_SZ_VD+5),0x9<<(L2_SZ_VD+5),0x5<<(L2_SZ_VD+5),0x1<<(L2_SZ_VD+5),0xa<<(L2_SZ_VD+5),0x6<<(L2_SZ_VD+5),0x2<<(L2_SZ_VD+5),0xb<<(L2_SZ_VD+5),0x7<<(L2_SZ_VD+5),0x3<<(L2_SZ_VD+5),0xc<<(L2_SZ_VD+5),0x8<<(L2_SZ_VD+5),};
 	// Shared by both DIF+DIT:
 		int plo[16],phi[13];
 		uint64 i64;
 		const int *iptr;
-		int kk, k0,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf;
+		int kk, k0,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf,po_kperm[16],*po_ptr = &(po_kperm[0]);
+		const uint32 dft13_offs[13] = {0,0x20<<L2_SZ_VD,0x40<<L2_SZ_VD,0x60<<L2_SZ_VD,0x80<<L2_SZ_VD,0xa0<<L2_SZ_VD,0xc0<<L2_SZ_VD,0xe0<<L2_SZ_VD,0x100<<L2_SZ_VD,0x120<<L2_SZ_VD,0x140<<L2_SZ_VD,0x160<<L2_SZ_VD,0x180<<L2_SZ_VD}, *dft13_offptr = &(dft13_offs[0]);
 
 		int j,j1,j2,jt,jp,k,l,ntmp;
 		// incr = Carry-chain wts-multipliers recurrence length, which must divide
@@ -1972,18 +1967,10 @@ void radix208_dit_pass1(double a[], int n)
 
 	#ifdef USE_SSE2
 
-		// lg(sizeof(vec_dbl)):
-	  #ifdef USE_AVX512
-		const int l2_sz_vd = 6;
-	  #elif defined(USE_AVX)
-		const int l2_sz_vd = 5;
-	  #else
-		const int l2_sz_vd = 4;
-	  #endif
 		const double crnd = 3.0*0x4000000*0x2000000;
 		int *itmp,*itm2;	// Pointer into the bjmodn array
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
-		double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7, *add8, *add9, *adda, *addb, *addc, *addd, *adde, *addf;
+		double *add0,*add1,*add2,*add3;	/* Addresses into array sections */
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
 		vec_dbl *tmp,*tm1,*tm2,	// Non-static utility ptrs
 			*va0,*va1,*va2,*va3,*va4,*va5,*va6,*va7,*va8,*va9,*vaa,*vab,*vac,
@@ -2138,12 +2125,12 @@ void radix208_dit_pass1(double a[], int n)
 		cy = tmp;		tmp += 0x34;	// RADIX/4 vec_dbl slots for carry sub-array
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x390; This is where the value of half_arr_offset208 comes from
-		half_arr= tmp + 0x02;	// This table needs 68*sz_vd bytes in avx mode
+		half_arr= tmp + 0x02;	// This table needs 68*SZ_VD bytes in avx mode
 	  #else
 		cy = tmp;		tmp += 0x68;	// RADIX/2 vec_dbl slots for carry sub-array
 		max_err = tmp + 0x00;
 		sse2_rnd= tmp + 0x01;	// sc_ptr += 0x3c4; This is where the value of half_arr_offset208 comes from
-		half_arr= tmp + 0x02;	// This table needs 20*sz_vd bytes in sse2 mode
+		half_arr= tmp + 0x02;	// This table needs 20*SZ_VD bytes in sse2 mode
 	  #endif
 		ASSERT(HERE, (r00 == thread_arg->r00), "thread-local memcheck failed!");
 		ASSERT(HERE, (half_arr == thread_arg->half_arr), "thread-local memcheck failed!");

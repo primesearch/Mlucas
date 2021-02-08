@@ -75,9 +75,27 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			k0 =  tmp64     &15; k1 = (tmp64>> 4)&15; k2 = (tmp64>> 8)&15; k3 = (tmp64>>12)&15; k4 = (tmp64>>16)&15; k5 = (tmp64>>20)&15; k6 = (tmp64>>24)&15; k7 = (tmp64>>28)&15;
 			k8 = (tmp64>>32)&15; k9 = (tmp64>>36)&15; ka = (tmp64>>40)&15; kb = (tmp64>>44)&15; kc = (tmp64>>48)&15; kd = (tmp64>>52)&15; ke = (tmp64>>56)&15; kf = (tmp64>>60);
 			addr = &a[j1+poff[p_od1[l]]];
-			add0 = addr+pp0f[k0]; add1 = addr+pp0f[k1]; add2 = addr+pp0f[k2]; add3 = addr+pp0f[k3]; add4 = addr+pp0f[k4]; add5 = addr+pp0f[k5]; add6 = addr+pp0f[k6]; add7 = addr+pp0f[k7];
-			add8 = addr+pp0f[k8]; add9 = addr+pp0f[k9]; adda = addr+pp0f[ka]; addb = addr+pp0f[kb]; addc = addr+pp0f[kc]; addd = addr+pp0f[kd]; adde = addr+pp0f[ke]; addf = addr+pp0f[kf];
-			SSE2_RADIX16_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2,two, tmp, OFF1,OFF2,OFF3,OFF4)
+			po_kperm[0x0] = plo[k0];
+			po_kperm[0x1] = plo[k1];
+			po_kperm[0x2] = plo[k2];
+			po_kperm[0x3] = plo[k3];
+			po_kperm[0x4] = plo[k4];
+			po_kperm[0x5] = plo[k5];
+			po_kperm[0x6] = plo[k6];
+			po_kperm[0x7] = plo[k7];
+			po_kperm[0x8] = plo[k8];
+			po_kperm[0x9] = plo[k9];
+			po_kperm[0xa] = plo[ka];
+			po_kperm[0xb] = plo[kb];
+			po_kperm[0xc] = plo[kc];
+			po_kperm[0xd] = plo[kd];
+			po_kperm[0xe] = plo[ke];
+			po_kperm[0xf] = plo[kf];
+			SSE2_RADIX16_DIT_0TWIDDLE(
+				addr,po_ptr,
+				isrt2,two,
+				tmp, OFF1,OFF2,OFF3,OFF4
+			)
 		}
 
 	/*...and now do 16 radix-3 transforms. */
@@ -102,67 +120,86 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		vec_dbl
 		*va0,*va1,*va2,	// I-ptrs
 		*vb0,*vb1,*vb2;	// O-ptrs
-	   #if OS_BITS == 64
 		vec_dbl
 		*vc0,*vc1,*vc2,	// I-ptrs
 		*vd0,*vd1,*vd2;	// O-ptrs
-		for(l = 0, tmp = r00r, ntmp = 0; l <  8; l++, ntmp += 6) {
-	   #else
-		for(l = 0, tmp = r00r, ntmp = 0; l < 16; l++, ntmp += 3) {
-	   #endif
+		for(l = 0, tmp = r00r, ntmp = 0; l <  8; l++, ntmp += 6)
+		{
 			// Input-ptrs are regular-stride offsets of r00:
 			va0 = tmp;			vb0 = s1p00r + optr_off[ntmp  ];
 			va1 = tmp + 0x20;	vb1 = s1p00r + optr_off[ntmp+1];
 			va2 = tmp + 0x40;	vb2 = s1p00r + optr_off[ntmp+2];
-		  #if OS_BITS == 64
+
 			vc0 = tmp + 0x02;	vd0 = s1p00r + optr_off[ntmp+3];
 			vc1 = tmp + 0x22;	vd1 = s1p00r + optr_off[ntmp+4];
 			vc2 = tmp + 0x42;	vd2 = s1p00r + optr_off[ntmp+5];
 			SSE2_RADIX_03_DFT_X2(cc1, va0,va1,va2, vb0,vb1,vb2, vc0,vc1,vc2, vd0,vd1,vd2)
 			tmp += 4;
-		  #else
-			SSE2_RADIX_03_DFT(va0,va1,va2, cc1, vb0,vb1,vb2)
-			tmp += 2;
-		  #endif
 		}
 
 	  #else
 
 	// Macros use literal ostrides which are [1,2,3,4]-multiples of 1 vector-complex = 0x20 bytes for sse2, 0x40 bytes for avx
 	// Offsets: 	00,01,03,02,07,06,05,04,15,14,13,12,11,10,09,08:
-		add0 = &a[j1    ];	addf = add0 + p08;
-		add1 = add0 + p01;	add8 = addf + p07;
-		add2 = add0 + p03;	add9 = addf + p06;
-		add3 = add0 + p02;	adda = addf + p05;
-		add4 = add0 + p07;	addb = addf + p04;
-		add5 = add0 + p06;	addc = addf + p03;
-		add6 = add0 + p05;	addd = addf + p02;
-		add7 = add0 + p04;	adde = addf + p01;
-		SSE2_RADIX16_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2,two, r00r, OFF1,OFF2,OFF3,OFF4)
+		addr = &a[j1    ];
+		po_kperm[0x0] =   0;
+		po_kperm[0x1] = p01;
+		po_kperm[0x2] = p03;
+		po_kperm[0x3] = p02;
+		po_kperm[0x4] = p07;
+		po_kperm[0x5] = p06;
+		po_kperm[0x6] = p05;
+		po_kperm[0x7] = p04;
+		po_kperm[0x8] = p07 + p08;
+		po_kperm[0x9] = p06 + p08;
+		po_kperm[0xa] = p05 + p08;
+		po_kperm[0xb] = p04 + p08;
+		po_kperm[0xc] = p03 + p08;
+		po_kperm[0xd] = p02 + p08;
+		po_kperm[0xe] = p01 + p08;
+		po_kperm[0xf] =       p08;
+		SSE2_RADIX16_DIT_0TWIDDLE(addr,po_ptr, isrt2,two, r00r, OFF1,OFF2,OFF3,OFF4)
 
 	// Offsets: 32+	05,04,06,07,01,00,02,03,09,08,10,11,14,15,12,13:
-		add5 = &a[j1+p32];	add9 = add5 + p08;
-		add0 = add5 + p05;	add8 = add9 + p01;
-		add1 = add5 + p04;	adda = add9 + p02;
-		add2 = add5 + p06;	addb = add9 + p03;
-		add3 = add5 + p07;	addc = add9 + p06;
-		add4 = add5 + p01;	addd = add9 + p07;
-		add6 = add5 + p02;	adde = add9 + p04;
-		add7 = add5 + p03;	addf = add9 + p05;
-		SSE2_RADIX16_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2,two, r16r, OFF1,OFF2,OFF3,OFF4)
+		addr = &a[j1+p32];
+		po_kperm[0x0] = p05;
+		po_kperm[0x1] = p04;
+		po_kperm[0x2] = p06;
+		po_kperm[0x3] = p07;
+		po_kperm[0x4] = p01;
+		po_kperm[0x5] =   0;
+		po_kperm[0x6] = p02;
+		po_kperm[0x7] = p03;
+		po_kperm[0x8] = p01 + p08;
+		po_kperm[0x9] =       p08;
+		po_kperm[0xa] = p02 + p08;
+		po_kperm[0xb] = p03 + p08;
+		po_kperm[0xc] = p06 + p08;
+		po_kperm[0xd] = p07 + p08;
+		po_kperm[0xe] = p04 + p08;
+		po_kperm[0xf] = p05 + p08;
+		SSE2_RADIX16_DIT_0TWIDDLE(addr,po_ptr, isrt2,two, r16r, OFF1,OFF2,OFF3,OFF4)
 
 	// Offsets: 16+ 10,11,08,09,12,13,15,14,02,03,00,01,04,05,07,06:
-		adda = &a[j1+p16];	add2 = adda + p08;
-		add0 = add2 + p02;	add8 = adda + p02;
-		add1 = add2 + p03;	add9 = adda + p03;
-		add3 = add2 + p01;	addb = adda + p01;
-		add4 = add2 + p04;	addc = adda + p04;
-		add5 = add2 + p05;	addd = adda + p05;
-		add6 = add2 + p07;	adde = adda + p07;
-		add7 = add2 + p06;	addf = adda + p06;
-		SSE2_RADIX16_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf, isrt2,two, r32r, OFF1,OFF2,OFF3,OFF4)
+		addr = &a[j1+p16];
+		po_kperm[0x0] = p02 + p08;
+		po_kperm[0x1] = p03 + p08;
+		po_kperm[0x2] =       p08;
+		po_kperm[0x3] = p01 + p08;
+		po_kperm[0x4] = p04 + p08;
+		po_kperm[0x5] = p05 + p08;
+		po_kperm[0x6] = p07 + p08;
+		po_kperm[0x7] = p06 + p08;
+		po_kperm[0x8] = p02;
+		po_kperm[0x9] = p03;
+		po_kperm[0xa] =   0;
+		po_kperm[0xb] = p01;
+		po_kperm[0xc] = p04;
+		po_kperm[0xd] = p05;
+		po_kperm[0xe] = p07;
+		po_kperm[0xf] = p06;
+		SSE2_RADIX16_DIT_0TWIDDLE(addr,po_ptr, isrt2,two, r32r, OFF1,OFF2,OFF3,OFF4)
 
-	   #if OS_BITS == 64
 		SSE2_RADIX_03_DFT_X2(cc1, r01r,r17r,r33r, s1p15r,s1p31r,s1p47r, r00r,r16r,r32r, s1p00r,s1p16r,s1p32r)
 		SSE2_RADIX_03_DFT_X2(cc1, r03r,r19r,r35r, s1p45r,s1p13r,s1p29r, r02r,r18r,r34r, s1p30r,s1p46r,s1p14r)
 		SSE2_RADIX_03_DFT_X2(cc1, r05r,r21r,r37r, s1p27r,s1p43r,s1p11r, r04r,r20r,r36r, s1p12r,s1p28r,s1p44r)
@@ -171,24 +208,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		SSE2_RADIX_03_DFT_X2(cc1, r11r,r27r,r43r, s1p21r,s1p37r,s1p05r, r10r,r26r,r42r, s1p06r,s1p22r,s1p38r)
 		SSE2_RADIX_03_DFT_X2(cc1, r13r,r29r,r45r, s1p03r,s1p19r,s1p35r, r12r,r28r,r44r, s1p36r,s1p04r,s1p20r)
 		SSE2_RADIX_03_DFT_X2(cc1, r15r,r31r,r47r, s1p33r,s1p01r,s1p17r, r14r,r30r,r46r, s1p18r,s1p34r,s1p02r)
-	   #else
-		SSE2_RADIX_03_DFT(r00r,r16r,r32r, cc1, s1p00r,s1p16r,s1p32r)
-		SSE2_RADIX_03_DFT(r01r,r17r,r33r, cc1, s1p15r,s1p31r,s1p47r)
-		SSE2_RADIX_03_DFT(r02r,r18r,r34r, cc1, s1p30r,s1p46r,s1p14r)
-		SSE2_RADIX_03_DFT(r03r,r19r,r35r, cc1, s1p45r,s1p13r,s1p29r)
-		SSE2_RADIX_03_DFT(r04r,r20r,r36r, cc1, s1p12r,s1p28r,s1p44r)
-		SSE2_RADIX_03_DFT(r05r,r21r,r37r, cc1, s1p27r,s1p43r,s1p11r)
-		SSE2_RADIX_03_DFT(r06r,r22r,r38r, cc1, s1p42r,s1p10r,s1p26r)
-		SSE2_RADIX_03_DFT(r07r,r23r,r39r, cc1, s1p09r,s1p25r,s1p41r)
-		SSE2_RADIX_03_DFT(r08r,r24r,r40r, cc1, s1p24r,s1p40r,s1p08r)
-		SSE2_RADIX_03_DFT(r09r,r25r,r41r, cc1, s1p39r,s1p07r,s1p23r)
-		SSE2_RADIX_03_DFT(r10r,r26r,r42r, cc1, s1p06r,s1p22r,s1p38r)
-		SSE2_RADIX_03_DFT(r11r,r27r,r43r, cc1, s1p21r,s1p37r,s1p05r)
-		SSE2_RADIX_03_DFT(r12r,r28r,r44r, cc1, s1p36r,s1p04r,s1p20r)
-		SSE2_RADIX_03_DFT(r13r,r29r,r45r, cc1, s1p03r,s1p19r,s1p35r)
-		SSE2_RADIX_03_DFT(r14r,r30r,r46r, cc1, s1p18r,s1p34r,s1p02r)
-		SSE2_RADIX_03_DFT(r15r,r31r,r47r, cc1, s1p33r,s1p01r,s1p17r)
-	   #endif
 
 	  #endif	// COMPACT_OBJ ?
 
@@ -583,25 +602,18 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			18,82,50,
 			12,76,44,
 			 6,70,38};
-	   #if OS_BITS == 64
-		for(l = 0, tmp = r00r, ntmp = 0; l <  8; l++, ntmp += 6) {
-	   #else
-		for(l = 0, tmp = r00r, ntmp = 0; l < 16; l++, ntmp += 3) {
-	   #endif
+		for(l = 0, tmp = r00r, ntmp = 0; l <  8; l++, ntmp += 6)
+		{
 			// Input-ptrs are regular-stride offsets of r00:
 			va0 = tmp;			vb0 = s1p00r + iptr_off[ntmp  ];
 			va1 = tmp + 0x02;	vb1 = s1p00r + iptr_off[ntmp+1];
 			va2 = tmp + 0x04;	vb2 = s1p00r + iptr_off[ntmp+2];
-		  #if OS_BITS == 64
+
 			vc0 = tmp + 0x06;	vd0 = s1p00r + iptr_off[ntmp+3];
 			vc1 = tmp + 0x08;	vd1 = s1p00r + iptr_off[ntmp+4];
 			vc2 = tmp + 0x0a;	vd2 = s1p00r + iptr_off[ntmp+5];
 			SSE2_RADIX_03_DFT_X2(cc1, vb0,vb1,vb2, va0,va1,va2, vd0,vd1,vd2, vc0,vc1,vc2)
 			tmp += 12;
-		  #else
-			SSE2_RADIX_03_DFT(vb0,vb1,vb2, cc1, va0,va1,va2)
-			tmp += 6;
-		  #endif
 		}
 
 		// Indices into 16-elt p01*[0-f] table; each DFT-16 needs sixteen 4-bit indices, thus needs a uint64.
@@ -609,19 +621,34 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		// Offsets: 32+	05,04,07,06,02,03,01,00,15,14,12,13,09,08,11,10, reverse order ==> 0xAB89DCEF01326745
 		// Offsets: 16+ 10,11,09,08,15,14,12,13,05,04,07,06,02,03,01,00, reverse order ==> 0x01326745DCEF89BA
 		const uint64 p_id2[3] = {0xDCEF89BA67453210ull,0xAB89DCEF01326745ull,0x01326745DCEF89BAull};
-		for(l = 0, tmp = r00r; l < 3; l++, tmp+=2) {
+		for(l = 0, tmp = r00r; l < 3; l++) {
 			tmp64 = p_id2[l];
-			k0 =  tmp64     &15; k1 = (tmp64>> 4)&15; k2 = (tmp64>> 8)&15; k3 = (tmp64>>12)&15; k4 = (tmp64>>16)&15; k5 = (tmp64>>20)&15; k6 = (tmp64>>24)&15; k7 = (tmp64>>28)&15;
-			k8 = (tmp64>>32)&15; k9 = (tmp64>>36)&15; ka = (tmp64>>40)&15; kb = (tmp64>>44)&15; kc = (tmp64>>48)&15; kd = (tmp64>>52)&15; ke = (tmp64>>56)&15; kf = (tmp64>>60);
+			po_kperm[0x0] = plo[ tmp64     &15];
+			po_kperm[0x1] = plo[(tmp64>> 4)&15];
+			po_kperm[0x2] = plo[(tmp64>> 8)&15];
+			po_kperm[0x3] = plo[(tmp64>>12)&15];
+			po_kperm[0x4] = plo[(tmp64>>16)&15];
+			po_kperm[0x5] = plo[(tmp64>>20)&15];
+			po_kperm[0x6] = plo[(tmp64>>24)&15];
+			po_kperm[0x7] = plo[(tmp64>>28)&15];
+			po_kperm[0x8] = plo[(tmp64>>32)&15];
+			po_kperm[0x9] = plo[(tmp64>>36)&15];
+			po_kperm[0xa] = plo[(tmp64>>40)&15];
+			po_kperm[0xb] = plo[(tmp64>>44)&15];
+			po_kperm[0xc] = plo[(tmp64>>48)&15];
+			po_kperm[0xd] = plo[(tmp64>>52)&15];
+			po_kperm[0xe] = plo[(tmp64>>56)&15];
+			po_kperm[0xf] = plo[(tmp64>>60)];
 			addr = &a[j1+poff[p_od1[l]]];	// p_od2[] would be same, no need for a 2nd such array
-			add0 = addr+pp0f[k0]; add1 = addr+pp0f[k1]; add2 = addr+pp0f[k2]; add3 = addr+pp0f[k3]; add4 = addr+pp0f[k4]; add5 = addr+pp0f[k5]; add6 = addr+pp0f[k6]; add7 = addr+pp0f[k7];
-			add8 = addr+pp0f[k8]; add9 = addr+pp0f[k9]; adda = addr+pp0f[ka]; addb = addr+pp0f[kb]; addc = addr+pp0f[kc]; addd = addr+pp0f[kd]; adde = addr+pp0f[ke]; addf = addr+pp0f[kf];
-			SSE2_RADIX16_DIF_0TWIDDLE(tmp,OFF1,OFF2,OFF3,OFF4, isrt2,two, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
+			SSE2_RADIX16_DIF_0TWIDDLE(
+				tmp,OFF1,OFF2,OFF3,OFF4,
+				isrt2,two,
+				addr,po_ptr
+			);	tmp += 0x2;
 		}
 
 	  #else
 
-	   #if OS_BITS == 64
 		SSE2_RADIX_03_DFT_X2(cc1, s1p00r,s1p32r,s1p16r, r00r,r01r,r02r, s1p45r,s1p29r,s1p13r, r03r,r04r,r05r)
 		SSE2_RADIX_03_DFT_X2(cc1, s1p42r,s1p26r,s1p10r, r06r,r07r,r08r, s1p39r,s1p23r,s1p07r, r09r,r10r,r11r)
 		SSE2_RADIX_03_DFT_X2(cc1, s1p36r,s1p20r,s1p04r, r12r,r13r,r14r, s1p33r,s1p17r,s1p01r, r15r,r16r,r17r)
@@ -630,58 +657,67 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		SSE2_RADIX_03_DFT_X2(cc1, s1p18r,s1p02r,s1p34r, r30r,r31r,r32r, s1p15r,s1p47r,s1p31r, r33r,r34r,r35r)
 		SSE2_RADIX_03_DFT_X2(cc1, s1p12r,s1p44r,s1p28r, r36r,r37r,r38r, s1p09r,s1p41r,s1p25r, r39r,r40r,r41r)
 		SSE2_RADIX_03_DFT_X2(cc1, s1p06r,s1p38r,s1p22r, r42r,r43r,r44r, s1p03r,s1p35r,s1p19r, r45r,r46r,r47r)
-	   #else
-		SSE2_RADIX_03_DFT(s1p00r,s1p32r,s1p16r, cc1, r00r,r01r,r02r)
-		SSE2_RADIX_03_DFT(s1p45r,s1p29r,s1p13r, cc1, r03r,r04r,r05r)
-		SSE2_RADIX_03_DFT(s1p42r,s1p26r,s1p10r, cc1, r06r,r07r,r08r)
-		SSE2_RADIX_03_DFT(s1p39r,s1p23r,s1p07r, cc1, r09r,r10r,r11r)
-		SSE2_RADIX_03_DFT(s1p36r,s1p20r,s1p04r, cc1, r12r,r13r,r14r)
-		SSE2_RADIX_03_DFT(s1p33r,s1p17r,s1p01r, cc1, r15r,r16r,r17r)
-		SSE2_RADIX_03_DFT(s1p30r,s1p14r,s1p46r, cc1, r18r,r19r,r20r)
-		SSE2_RADIX_03_DFT(s1p27r,s1p11r,s1p43r, cc1, r21r,r22r,r23r)
-		SSE2_RADIX_03_DFT(s1p24r,s1p08r,s1p40r, cc1, r24r,r25r,r26r)
-		SSE2_RADIX_03_DFT(s1p21r,s1p05r,s1p37r, cc1, r27r,r28r,r29r)
-		SSE2_RADIX_03_DFT(s1p18r,s1p02r,s1p34r, cc1, r30r,r31r,r32r)
-		SSE2_RADIX_03_DFT(s1p15r,s1p47r,s1p31r, cc1, r33r,r34r,r35r)
-		SSE2_RADIX_03_DFT(s1p12r,s1p44r,s1p28r, cc1, r36r,r37r,r38r)
-		SSE2_RADIX_03_DFT(s1p09r,s1p41r,s1p25r, cc1, r39r,r40r,r41r)
-		SSE2_RADIX_03_DFT(s1p06r,s1p38r,s1p22r, cc1, r42r,r43r,r44r)
-		SSE2_RADIX_03_DFT(s1p03r,s1p35r,s1p19r, cc1, r45r,r46r,r47r)
-	   #endif
 
 	// istride of [3 vector-complex]*[1,2,3,4] = [1,2,3,4]*0x60 bytes for sse2, [1,2,3,4]*0xc0 bytes for avx
 	// Offsets: 	00,01,02,03,05,04,07,06,10,11,09,08,15,14,12,13
-		add0 = &a[j1    ];	addb = add0 + p08;
-		add1 = add0 + p01;	add8 = addb + p02;
-		add2 = add0 + p02;	add9 = addb + p03;
-		add3 = add0 + p03;	adda = addb + p01;
-		add4 = add0 + p05;	addc = addb + p07;
-		add5 = add0 + p04;	addd = addb + p06;
-		add6 = add0 + p07;	adde = addb + p04;
-		add7 = add0 + p06;	addf = addb + p05;
-		SSE2_RADIX16_DIF_0TWIDDLE(r00r,OFF1,OFF2,OFF3,OFF4, isrt2,two, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
+		addr = &a[j1    ];
+		po_kperm[0x0] =   0;
+		po_kperm[0x1] = p01;
+		po_kperm[0x2] = p02;
+		po_kperm[0x3] = p03;
+		po_kperm[0x4] = p05;
+		po_kperm[0x5] = p04;
+		po_kperm[0x6] = p07;
+		po_kperm[0x7] = p06;
+		po_kperm[0x8] = p02 + p08;
+		po_kperm[0x9] = p03 + p08;
+		po_kperm[0xa] = p01 + p08;
+		po_kperm[0xb] =       p08;
+		po_kperm[0xc] = p07 + p08;
+		po_kperm[0xd] = p06 + p08;
+		po_kperm[0xe] = p04 + p08;
+		po_kperm[0xf] = p05 + p08;
+		SSE2_RADIX16_DIF_0TWIDDLE(r00r,OFF1,OFF2,OFF3,OFF4, isrt2,two, addr,po_ptr)
 
 	// Offsets: 32+	05,04,07,06,02,03,01,00,15,14,12,13,09,08,11,10
-		add7 = &a[j1+p32];	addd = add7 + p08;
-		add0 = add7 + p05;	add8 = addd + p07;
-		add1 = add7 + p04;	add9 = addd + p06;
-		add2 = add7 + p07;	adda = addd + p04;
-		add3 = add7 + p06;	addb = addd + p05;
-		add4 = add7 + p02;	addc = addd + p01;
-		add5 = add7 + p03;	adde = addd + p03;
-		add6 = add7 + p01;	addf = addd + p02;
-		SSE2_RADIX16_DIF_0TWIDDLE(r01r,OFF1,OFF2,OFF3,OFF4, isrt2,two, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
+		addr = &a[j1+p32];
+		po_kperm[0x0] = p05;
+		po_kperm[0x1] = p04;
+		po_kperm[0x2] = p07;
+		po_kperm[0x3] = p06;
+		po_kperm[0x4] = p02;
+		po_kperm[0x5] = p03;
+		po_kperm[0x6] = p01;
+		po_kperm[0x7] =   0;
+		po_kperm[0x8] = p07 + p08;
+		po_kperm[0x9] = p06 + p08;
+		po_kperm[0xa] = p04 + p08;
+		po_kperm[0xb] = p05 + p08;
+		po_kperm[0xc] = p01 + p08;
+		po_kperm[0xd] =       p08;
+		po_kperm[0xe] = p03 + p08;
+		po_kperm[0xf] = p02 + p08;
+		SSE2_RADIX16_DIF_0TWIDDLE(r01r,OFF1,OFF2,OFF3,OFF4, isrt2,two, addr,po_ptr)
 
 	// Offsets: 16+ 10,11,09,08,15,14,12,13,05,04,07,06,02,03,01,00:
-		addf = &a[j1+p16];	add3 = addf + p08;
-		add0 = add3 + p02;	add8 = addf + p05;
-		add1 = add3 + p03;	add9 = addf + p04;
-		add2 = add3 + p01;	adda = addf + p07;
-		add4 = add3 + p07;	addb = addf + p06;
-		add5 = add3 + p06;	addc = addf + p02;
-		add6 = add3 + p04;	addd = addf + p03;
-		add7 = add3 + p05;	adde = addf + p01;
-		SSE2_RADIX16_DIF_0TWIDDLE(r02r,OFF1,OFF2,OFF3,OFF4, isrt2,two, add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf)
+		addr = &a[j1+p16];
+		po_kperm[0x0] = p02 + p08;
+		po_kperm[0x1] = p03 + p08;
+		po_kperm[0x2] = p01 + p08;
+		po_kperm[0x3] =       p08;
+		po_kperm[0x4] = p07 + p08;
+		po_kperm[0x5] = p06 + p08;
+		po_kperm[0x6] = p04 + p08;
+		po_kperm[0x7] = p05 + p08;
+		po_kperm[0x8] = p05;
+		po_kperm[0x9] = p04;
+		po_kperm[0xa] = p07;
+		po_kperm[0xb] = p06;
+		po_kperm[0xc] = p02;
+		po_kperm[0xd] = p03;
+		po_kperm[0xe] = p01;
+		po_kperm[0xf] =   0;
+		SSE2_RADIX16_DIF_0TWIDDLE(r02r,OFF1,OFF2,OFF3,OFF4, isrt2,two, addr,po_ptr)
 
 	  #endif	// COMPACT_OBJ ?
 

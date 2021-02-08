@@ -50,9 +50,6 @@
 	#error Currently only LOACC carry-mode supported in AVX-512 builds!
   #endif
 #endif
-#if defined(LOACC) && (OS_BITS == 32)
-	#error 32-bit mode only supports the older HIACC carry macros!
-#endif
 
 #ifndef PFETCH_DIST
   #ifdef USE_AVX512
@@ -67,7 +64,7 @@
 // SIMD+SSE2 code only available for GCC build:
 #if defined(USE_SSE2) && defined(COMPILER_TYPE_GCC)
 
-	#include "sse2_macro.h"
+	#include "sse2_macro_gcc64.h"
 
   // For Mersenne-mod need (16 [SSE2] or 64 [AVX]) + (4 [HIACC] or 40 [LOACC]) added slots for half_arr lookup tables.
   // Max = (40 [SSE2]; 132 [AVX]),
@@ -202,21 +199,6 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	const char func[] = "radix128_ditN_cy_dif1";
 	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
-#ifdef USE_SSE2
-	const int sz_vd = sizeof(vec_dbl);
-	// lg(sizeof(vec_dbl)):
-  #ifdef USE_AVX512
-	const int l2_sz_vd = 6;
-  #elif defined(USE_AVX)
-	const int l2_sz_vd = 5;
-  #else
-	const int l2_sz_vd = 4;
-  #endif
-#else
-	const int sz_vd = sizeof(double);
-	const int l2_sz_vd = 3;
-#endif
-	const int sz_vd_m1 = sz_vd-1;
   #ifdef USE_AVX512
 	const int jhi_wrap_mers = 15;
 	const int jhi_wrap_ferm = 15;
@@ -259,7 +241,7 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	uint64 itmp64;
 	static uint64 psave = 0;
 	static uint32 bw,sw,nm1,p01,p02,p03,p04,p05,p06,p07,p08,p09,p0a,p0b,p0c,p0d,p0e,p0f,p10,p18,p20,p28,p30,p38,p40,p48,p50,p58,p60,p68,p70,p78, nsave = 0;
-	static int poff[RADIX>>2],po_br[16];	// Store mults of p-offsets for loop-controlled DFT macro calls
+	static int poff[RADIX>>2],po_lin[16],po_br[16];	// Store mults of p-offsets for loop-controlled DFT macro calls
 	static double radix_inv, n2inv;
 	double scale, dtmp, maxerr = 0.0;
 	// Local storage: We must use an array here because scalars have no guarantees about relative address offsets
@@ -286,8 +268,7 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
   #else
 
 //	int i0,i1,m0,m1,m3;	/* m2 already def'd for regular carry sequence */
-	double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7,	/* Addresses into array sections */
-			*add8, *add9, *adda, *addb, *addc, *addd, *adde, *addf;
+	double *add0,*add1,*add2,*add3,*add4,*add5,*add6,*add7;	/* Addresses into array sections */
 
   #endif
 	// Uint64 bitmaps for alternate "rounded the other way" copies of sqrt2,isrt2. Default round-to-nearest versions
@@ -299,7 +280,7 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	static vec_dbl *max_err, *sse2_rnd, *half_arr, *two,*one,*sqrt2,*isrt2,*cc0,*ss0,
 	#if COMPACT_OBJ
 		// ptrs to 16 sets of twiddles shared by the 2nd-half DIF and DIT DFT macros:
-		*twid0,*twid1,*twid2,*twid3,*twid4,*twid5,*twid6,*twid7,*twid8,*twid9,*twida,*twidb,*twidc,*twidd,*twide,*twidf,
+		*twid0,
 	#else
 		*nisrt2,	// each non-unity root now needs a negated counterpart:
 		*cc128_1,*ss128_1,*ncc128_1,*nss128_1,*cc64_1,*ss64_1,*ncc64_1,*nss64_1,*cc128_3,*ss128_3,*ncc128_3,*nss128_3,
@@ -307,22 +288,8 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		*cc16,*ss16,*ncc16,*nss16,*cc128_9,*ss128_9,*ncc128_9,*nss128_9,*cc64_5,*ss64_5,*ncc64_5,*nss64_5,*cc128_b,*ss128_b,*ncc128_b,*nss128_b,
 		*cc32_3,*ss32_3,*ncc32_3,*nss32_3,*cc128_d,*ss128_d,*ncc128_d,*nss128_d,*cc64_7,*ss64_7,*ncc64_7,*nss64_7,*cc128_f,*ss128_f,*ncc128_f,*nss128_f,
 	#endif
-		*r00,*r01,*r02,*r03,*r04,*r05,*r06,*r07,*r08,*r09,*r0A,*r0B,*r0C,*r0D,*r0E,*r0F,
-		*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r1A,*r1B,*r1C,*r1D,*r1E,*r1F,
-		*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r2A,*r2B,*r2C,*r2D,*r2E,*r2F,
-		*r30,*r31,*r32,*r33,*r34,*r35,*r36,*r37,*r38,*r39,*r3A,*r3B,*r3C,*r3D,*r3E,*r3F,
-		*r40,*r41,*r42,*r43,*r44,*r45,*r46,*r47,*r48,*r49,*r4A,*r4B,*r4C,*r4D,*r4E,*r4F,
-		*r50,*r51,*r52,*r53,*r54,*r55,*r56,*r57,*r58,*r59,*r5A,*r5B,*r5C,*r5D,*r5E,*r5F,
-		*r60,*r61,*r62,*r63,*r64,*r65,*r66,*r67,*r68,*r69,*r6A,*r6B,*r6C,*r6D,*r6E,*r6F,
-		*r70,*r71,*r72,*r73,*r74,*r75,*r76,*r77,*r78,*r79,*r7A,*r7B,*r7C,*r7D,*r7E,*r7F,
-		*s1p00,*s1p01,*s1p02,*s1p03,*s1p04,*s1p05,*s1p06,*s1p07,*s1p08,*s1p09,*s1p0a,*s1p0b,*s1p0c,*s1p0d,*s1p0e,*s1p0f,
-		*s1p10,*s1p11,*s1p12,*s1p13,*s1p14,*s1p15,*s1p16,*s1p17,*s1p18,*s1p19,*s1p1a,*s1p1b,*s1p1c,*s1p1d,*s1p1e,*s1p1f,
-		*s1p20,*s1p21,*s1p22,*s1p23,*s1p24,*s1p25,*s1p26,*s1p27,*s1p28,*s1p29,*s1p2a,*s1p2b,*s1p2c,*s1p2d,*s1p2e,*s1p2f,
-		*s1p30,*s1p31,*s1p32,*s1p33,*s1p34,*s1p35,*s1p36,*s1p37,*s1p38,*s1p39,*s1p3a,*s1p3b,*s1p3c,*s1p3d,*s1p3e,*s1p3f,
-		*s1p40,*s1p41,*s1p42,*s1p43,*s1p44,*s1p45,*s1p46,*s1p47,*s1p48,*s1p49,*s1p4a,*s1p4b,*s1p4c,*s1p4d,*s1p4e,*s1p4f,
-		*s1p50,*s1p51,*s1p52,*s1p53,*s1p54,*s1p55,*s1p56,*s1p57,*s1p58,*s1p59,*s1p5a,*s1p5b,*s1p5c,*s1p5d,*s1p5e,*s1p5f,
-		*s1p60,*s1p61,*s1p62,*s1p63,*s1p64,*s1p65,*s1p66,*s1p67,*s1p68,*s1p69,*s1p6a,*s1p6b,*s1p6c,*s1p6d,*s1p6e,*s1p6f,
-		*s1p70,*s1p71,*s1p72,*s1p73,*s1p74,*s1p75,*s1p76,*s1p77,*s1p78,*s1p79,*s1p7a,*s1p7b,*s1p7c,*s1p7d,*s1p7e,*s1p7f,
+		*r00,*r10,*r20,*r30,*r40,*r50,*r60,*r70,
+		*s1p00,*s1p10,*s1p20,*s1p30,*s1p40,*s1p50,*s1p60,*s1p70,
 		*cy_r,*cy_i;	// Need RADIX slots for sse2 carries, RADIX/2 for avx
   #ifdef USE_AVX
 	static vec_dbl *base_negacyclic_root;
@@ -532,10 +499,10 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 
 		// This array pointer must be set based on vec_dbl-sized alignment at runtime for each thread:
 			for(l = 0; l < RE_IM_STRIDE; l++) {
-				if( ((long)&tdat[ithread].cy_dat[l] & sz_vd_m1) == 0 ) {
+				if( ((long)&tdat[ithread].cy_dat[l] & SZ_VDM1) == 0 ) {
 					tdat[ithread].cy_r = &tdat[ithread].cy_dat[l];
 					tdat[ithread].cy_i = tdat[ithread].cy_r + RADIX;
-				//	fprintf(stderr,"%d-byte-align cy_dat array at element[%d]\n",sz_vd,l);
+				//	fprintf(stderr,"%d-byte-align cy_dat array at element[%d]\n",SZ_VD,l);
 					break;
 				}
 			}
@@ -561,138 +528,16 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		__r0 = sc_ptr;
 	  #endif
 		tmp = sc_ptr;
-		r00 = tmp + 0x00;	r20 = tmp + 0x40;
-		r01 = tmp + 0x02;	r21 = tmp + 0x42;
-		r02 = tmp + 0x04;	r22 = tmp + 0x44;
-		r03 = tmp + 0x06;	r23 = tmp + 0x46;
-		r04 = tmp + 0x08;	r24 = tmp + 0x48;
-		r05 = tmp + 0x0a;	r25 = tmp + 0x4a;
-		r06 = tmp + 0x0c;	r26 = tmp + 0x4c;
-		r07 = tmp + 0x0e;	r27 = tmp + 0x4e;
-		r08 = tmp + 0x10;	r28 = tmp + 0x50;
-		r09 = tmp + 0x12;	r29 = tmp + 0x52;
-		r0A = tmp + 0x14;	r2A = tmp + 0x54;
-		r0B = tmp + 0x16;	r2B = tmp + 0x56;
-		r0C = tmp + 0x18;	r2C = tmp + 0x58;
-		r0D = tmp + 0x1a;	r2D = tmp + 0x5a;
-		r0E = tmp + 0x1c;	r2E = tmp + 0x5c;
-		r0F = tmp + 0x1e;	r2F = tmp + 0x5e;
-		r10 = tmp + 0x20;	r30 = tmp + 0x60;
-		r11 = tmp + 0x22;	r31 = tmp + 0x62;
-		r12 = tmp + 0x24;	r32 = tmp + 0x64;
-		r13 = tmp + 0x26;	r33 = tmp + 0x66;
-		r14 = tmp + 0x28;	r34 = tmp + 0x68;
-		r15 = tmp + 0x2a;	r35 = tmp + 0x6a;
-		r16 = tmp + 0x2c;	r36 = tmp + 0x6c;
-		r17 = tmp + 0x2e;	r37 = tmp + 0x6e;
-		r18 = tmp + 0x30;	r38 = tmp + 0x70;
-		r19 = tmp + 0x32;	r39 = tmp + 0x72;
-		r1A = tmp + 0x34;	r3A = tmp + 0x74;
-		r1B = tmp + 0x36;	r3B = tmp + 0x76;
-		r1C = tmp + 0x38;	r3C = tmp + 0x78;
-		r1D = tmp + 0x3a;	r3D = tmp + 0x7a;
-		r1E = tmp + 0x3c;	r3E = tmp + 0x7c;
-		r1F = tmp + 0x3e;	r3F = tmp + 0x7e;
-		tmp += 0x80;
-		r40 = tmp + 0x00;	r60 = tmp + 0x40;
-		r41 = tmp + 0x02;	r61 = tmp + 0x42;
-		r42 = tmp + 0x04;	r62 = tmp + 0x44;
-		r43 = tmp + 0x06;	r63 = tmp + 0x46;
-		r44 = tmp + 0x08;	r64 = tmp + 0x48;
-		r45 = tmp + 0x0a;	r65 = tmp + 0x4a;
-		r46 = tmp + 0x0c;	r66 = tmp + 0x4c;
-		r47 = tmp + 0x0e;	r67 = tmp + 0x4e;
-		r48 = tmp + 0x10;	r68 = tmp + 0x50;
-		r49 = tmp + 0x12;	r69 = tmp + 0x52;
-		r4A = tmp + 0x14;	r6A = tmp + 0x54;
-		r4B = tmp + 0x16;	r6B = tmp + 0x56;
-		r4C = tmp + 0x18;	r6C = tmp + 0x58;
-		r4D = tmp + 0x1a;	r6D = tmp + 0x5a;
-		r4E = tmp + 0x1c;	r6E = tmp + 0x5c;
-		r4F = tmp + 0x1e;	r6F = tmp + 0x5e;
-		r50 = tmp + 0x20;	r70 = tmp + 0x60;
-		r51 = tmp + 0x22;	r71 = tmp + 0x62;
-		r52 = tmp + 0x24;	r72 = tmp + 0x64;
-		r53 = tmp + 0x26;	r73 = tmp + 0x66;
-		r54 = tmp + 0x28;	r74 = tmp + 0x68;
-		r55 = tmp + 0x2a;	r75 = tmp + 0x6a;
-		r56 = tmp + 0x2c;	r76 = tmp + 0x6c;
-		r57 = tmp + 0x2e;	r77 = tmp + 0x6e;
-		r58 = tmp + 0x30;	r78 = tmp + 0x70;
-		r59 = tmp + 0x32;	r79 = tmp + 0x72;
-		r5A = tmp + 0x34;	r7A = tmp + 0x74;
-		r5B = tmp + 0x36;	r7B = tmp + 0x76;
-		r5C = tmp + 0x38;	r7C = tmp + 0x78;
-		r5D = tmp + 0x3a;	r7D = tmp + 0x7a;
-		r5E = tmp + 0x3c;	r7E = tmp + 0x7c;
-		r5F = tmp + 0x3e;	r7F = tmp + 0x7e;
-		tmp += 0x80;
-		s1p00 = tmp + 0x00;	s1p20 = tmp + 0x40;
-		s1p01 = tmp + 0x02;	s1p21 = tmp + 0x42;
-		s1p02 = tmp + 0x04;	s1p22 = tmp + 0x44;
-		s1p03 = tmp + 0x06;	s1p23 = tmp + 0x46;
-		s1p04 = tmp + 0x08;	s1p24 = tmp + 0x48;
-		s1p05 = tmp + 0x0a;	s1p25 = tmp + 0x4a;
-		s1p06 = tmp + 0x0c;	s1p26 = tmp + 0x4c;
-		s1p07 = tmp + 0x0e;	s1p27 = tmp + 0x4e;
-		s1p08 = tmp + 0x10;	s1p28 = tmp + 0x50;
-		s1p09 = tmp + 0x12;	s1p29 = tmp + 0x52;
-		s1p0a = tmp + 0x14;	s1p2a = tmp + 0x54;
-		s1p0b = tmp + 0x16;	s1p2b = tmp + 0x56;
-		s1p0c = tmp + 0x18;	s1p2c = tmp + 0x58;
-		s1p0d = tmp + 0x1a;	s1p2d = tmp + 0x5a;
-		s1p0e = tmp + 0x1c;	s1p2e = tmp + 0x5c;
-		s1p0f = tmp + 0x1e;	s1p2f = tmp + 0x5e;
-		s1p10 = tmp + 0x20;	s1p30 = tmp + 0x60;
-		s1p11 = tmp + 0x22;	s1p31 = tmp + 0x62;
-		s1p12 = tmp + 0x24;	s1p32 = tmp + 0x64;
-		s1p13 = tmp + 0x26;	s1p33 = tmp + 0x66;
-		s1p14 = tmp + 0x28;	s1p34 = tmp + 0x68;
-		s1p15 = tmp + 0x2a;	s1p35 = tmp + 0x6a;
-		s1p16 = tmp + 0x2c;	s1p36 = tmp + 0x6c;
-		s1p17 = tmp + 0x2e;	s1p37 = tmp + 0x6e;
-		s1p18 = tmp + 0x30;	s1p38 = tmp + 0x70;
-		s1p19 = tmp + 0x32;	s1p39 = tmp + 0x72;
-		s1p1a = tmp + 0x34;	s1p3a = tmp + 0x74;
-		s1p1b = tmp + 0x36;	s1p3b = tmp + 0x76;
-		s1p1c = tmp + 0x38;	s1p3c = tmp + 0x78;
-		s1p1d = tmp + 0x3a;	s1p3d = tmp + 0x7a;
-		s1p1e = tmp + 0x3c;	s1p3e = tmp + 0x7c;
-		s1p1f = tmp + 0x3e;	s1p3f = tmp + 0x7e;
-		tmp += 0x80;
-		s1p40 = tmp + 0x00;	s1p60 = tmp + 0x40;
-		s1p41 = tmp + 0x02;	s1p61 = tmp + 0x42;
-		s1p42 = tmp + 0x04;	s1p62 = tmp + 0x44;
-		s1p43 = tmp + 0x06;	s1p63 = tmp + 0x46;
-		s1p44 = tmp + 0x08;	s1p64 = tmp + 0x48;
-		s1p45 = tmp + 0x0a;	s1p65 = tmp + 0x4a;
-		s1p46 = tmp + 0x0c;	s1p66 = tmp + 0x4c;
-		s1p47 = tmp + 0x0e;	s1p67 = tmp + 0x4e;
-		s1p48 = tmp + 0x10;	s1p68 = tmp + 0x50;
-		s1p49 = tmp + 0x12;	s1p69 = tmp + 0x52;
-		s1p4a = tmp + 0x14;	s1p6a = tmp + 0x54;
-		s1p4b = tmp + 0x16;	s1p6b = tmp + 0x56;
-		s1p4c = tmp + 0x18;	s1p6c = tmp + 0x58;
-		s1p4d = tmp + 0x1a;	s1p6d = tmp + 0x5a;
-		s1p4e = tmp + 0x1c;	s1p6e = tmp + 0x5c;
-		s1p4f = tmp + 0x1e;	s1p6f = tmp + 0x5e;
-		s1p50 = tmp + 0x20;	s1p70 = tmp + 0x60;
-		s1p51 = tmp + 0x22;	s1p71 = tmp + 0x62;
-		s1p52 = tmp + 0x24;	s1p72 = tmp + 0x64;
-		s1p53 = tmp + 0x26;	s1p73 = tmp + 0x66;
-		s1p54 = tmp + 0x28;	s1p74 = tmp + 0x68;
-		s1p55 = tmp + 0x2a;	s1p75 = tmp + 0x6a;
-		s1p56 = tmp + 0x2c;	s1p76 = tmp + 0x6c;
-		s1p57 = tmp + 0x2e;	s1p77 = tmp + 0x6e;
-		s1p58 = tmp + 0x30;	s1p78 = tmp + 0x70;
-		s1p59 = tmp + 0x32;	s1p79 = tmp + 0x72;
-		s1p5a = tmp + 0x34;	s1p7a = tmp + 0x74;
-		s1p5b = tmp + 0x36;	s1p7b = tmp + 0x76;
-		s1p5c = tmp + 0x38;	s1p7c = tmp + 0x78;
-		s1p5d = tmp + 0x3a;	s1p7d = tmp + 0x7a;
-		s1p5e = tmp + 0x3c;	s1p7e = tmp + 0x7c;
-		s1p5f = tmp + 0x3e;	s1p7f = tmp + 0x7e;
-		tmp += 0x80;
+		r00 = tmp + 0x00;	r40 = tmp + 0x80;
+		r10 = tmp + 0x20;	r50 = tmp + 0xa0;
+		r20 = tmp + 0x40;	r60 = tmp + 0xc0;
+		r30 = tmp + 0x60;	r70 = tmp + 0xe0;
+		tmp += 0x100;
+		s1p00 = tmp + 0x00;	s1p40 = tmp + 0x80;
+		s1p10 = tmp + 0x20;	s1p50 = tmp + 0xa0;
+		s1p20 = tmp + 0x40;	s1p60 = tmp + 0xc0;
+		s1p30 = tmp + 0x60;	s1p70 = tmp + 0xe0;
+		tmp += 0x100;
 		two     = tmp + 0;	// AVX+ versions of radix-8,16,32 twiddleless-DFT macros need consts [2,1,sqrt2,isrt2] quartet laid out thusly
 		one     = tmp + 1;
 		sqrt2   = tmp + 2;
@@ -715,21 +560,6 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		ss0		= tmp - 1;
 		// ptrs to 16 sets (3*7 = 21 vec_dbl data each) of non-unity twiddles shared by the 2nd-half DIF and DIT DFT macros:
 		twid0  = tmp + 0x00;
-		twid1  = tmp + 0x15;
-		twid2  = tmp + 0x2a;
-		twid3  = tmp + 0x3f;
-		twid4  = tmp + 0x54;
-		twid5  = tmp + 0x69;
-		twid6  = tmp + 0x7e;
-		twid7  = tmp + 0x93;
-		twid8  = tmp + 0xa8;
-		twid9  = tmp + 0xbd;
-		twida  = tmp + 0xd2;
-		twidb  = tmp + 0xe7;
-		twidc  = tmp + 0xfc;
-		twidd  = tmp + 0x111;
-		twide  = tmp + 0x126;
-		twidf  = tmp + 0x13b;
 		tmp += 0x150;	// += 16*21 = 0x150 => sc_ptr + 0x356 (alternate version below incurs 0x60 elts, thus diff = 0xf0
 	  #else
 		// For the +- isrt2 pair put the - datum first, thus cc0 satisfies the same "cc-1 gets you isrt2" property as do the other +-[cc,ss] pairs.
@@ -802,7 +632,7 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		half_arr= tmp + 0x02;	/* This table needs 32 x 16 bytes for Mersenne-mod, 2 for Fermat-mod */
 	  #endif
 //		ASSERT(HERE, half_arr_offset == (uint32)(half_arr-sc_ptr), "half_arr_offset mismatches actual!");
-		ASSERT(HERE, (radix128_creals_in_local_store << l2_sz_vd) >= ((long)half_arr - (long)r00) + (20 << l2_sz_vd), "radix128_creals_in_local_store checksum failed!");
+		ASSERT(HERE, (radix128_creals_in_local_store << L2_SZ_VD) >= ((long)half_arr - (long)r00) + (20 << L2_SZ_VD), "radix128_creals_in_local_store checksum failed!");
 
 		/* These remain fixed: */
 		VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one  , 1.0  );
@@ -882,7 +712,7 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			memcpy(tm2, tmp, nbytes);
 			tmp = tm2;		tm2 += cslots_in_local_store;
 		}
-		nbytes = sz_vd;	// sse2_rnd is a solo (in the SIMD-vector) datum
+		nbytes = SZ_VD;	// sse2_rnd is a solo (in the SIMD-vector) datum
 		tmp = sse2_rnd;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
@@ -922,7 +752,7 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			/* [+2] slot is for [scale,scale] */
 
 			// Propagate the above consts to the remaining threads:
-			nbytes = 2 << l2_sz_vd;
+			nbytes = 2 << L2_SZ_VD;
 			tmp = half_arr;
 			tm2 = tmp + cslots_in_local_store;
 			for(ithread = 1; ithread < CY_THREADS; ++ithread) {
@@ -1003,7 +833,7 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 
 		  #endif
 
-			nbytes = RADIX << (l2_sz_vd-1);	// RADIX*sz_vd/2; 7 AVX-register-sized complex data
+			nbytes = RADIX << (L2_SZ_VD-1);	// RADIX*SZ_VD/2; 7 AVX-register-sized complex data
 
 			// Propagate the above consts to the remaining threads:
 			tm2 = tmp + cslots_in_local_store;
@@ -1132,9 +962,9 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 			tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 			tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
-			nbytes = 96 << l2_sz_vd;
+			nbytes = 96 << L2_SZ_VD;
 		  #else
-			nbytes = 64 << l2_sz_vd;
+			nbytes = 64 << L2_SZ_VD;
 		  #endif
 
 		#else	// USE_SSE2
@@ -1172,9 +1002,9 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			ctmp->re = inv_mult[1];	ctmp->im = inv_mult[0];	++ctmp;
 			ctmp->re = inv_mult[0];	ctmp->im = inv_mult[1];	++ctmp;
 			ctmp->re = inv_mult[1];	ctmp->im = inv_mult[1];	++ctmp;
-			nbytes = 24 << l2_sz_vd;
+			nbytes = 24 << L2_SZ_VD;
 		  #else
-			nbytes = 16 << l2_sz_vd;
+			nbytes = 16 << L2_SZ_VD;
 		  #endif
 
 		#endif
@@ -1216,7 +1046,7 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			*(sse_nm1 +i) = tmp64;
 		}
 
-		nbytes = 4 << l2_sz_vd;
+		nbytes = 4 << L2_SZ_VD;
 
 	  #ifdef USE_AVX512
 	   #ifdef CARRY_16_WAY
@@ -1326,7 +1156,12 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		poff[0x14] = p50; poff[0x15] = p04+p50; poff[0x16] = p58; poff[0x17] = p04+p58;
 		poff[0x18] = p60; poff[0x19] = p04+p60; poff[0x1a] = p68; poff[0x1b] = p04+p68;
 		poff[0x1c] = p70; poff[0x1d] = p04+p70; poff[0x1e] = p78; poff[0x1f] = p04+p78;
-
+		// _lin = linear p-multiples (but padding means we can't assume e.g. p02 = 2*p01):
+		po_lin[0x0] =   0; po_lin[0x1] = p01; po_lin[0x2] = p02; po_lin[0x3] = p03;
+		po_lin[0x4] = p04; po_lin[0x5] = p05; po_lin[0x6] = p06; po_lin[0x7] = p07;
+		po_lin[0x8] = p08; po_lin[0x9] = p09; po_lin[0xa] = p0a; po_lin[0xb] = p0b;
+		po_lin[0xc] = p0c; po_lin[0xd] = p0d; po_lin[0xe] = p0e; po_lin[0xf] = p0f;
+		// _br  = bit-reversed p-multiples:
 		po_br[0x0] =   0; po_br[0x1] = p08; po_br[0x2] = p04; po_br[0x3] = p0c;
 		po_br[0x4] = p02; po_br[0x5] = p0a; po_br[0x6] = p06; po_br[0x7] = p0e;
 		po_br[0x8] = p01; po_br[0x9] = p09; po_br[0xa] = p05; po_br[0xb] = p0d;
@@ -1458,7 +1293,7 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		#elif defined(USE_SSE2)
 			tidx_mod_stride = br4[tidx_mod_stride];
 		#endif
-			target_set = (target_set<<(l2_sz_vd-2)) + tidx_mod_stride;
+			target_set = (target_set<<(L2_SZ_VD-2)) + tidx_mod_stride;
 			target_cy  = target_wtfwd * ((int)-2 << (itmp64 & 255));
 		} else {
 			target_idx = target_set = 0;
@@ -1554,7 +1389,7 @@ for(outer=0; outer <= 1; outer++)
 	tmp = max_err;	VEC_DBL_INIT(tmp, 0.0);
 	tm2 = tmp + cslots_in_local_store;
 	for(ithread = 1; ithread < CY_THREADS; ++ithread) {
-		memcpy(tm2, tmp, sz_vd);
+		memcpy(tm2, tmp, SZ_VD);
 		tmp = tm2;		tm2 += cslots_in_local_store;
 	}
 
@@ -2777,7 +2612,7 @@ void radix128_dit_pass1(double a[], int n)
 		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p01,p02,p03,p04,p05,p06,p07,p08,p09,p0a,p0b,p0c,p0d,p0e,p0f,p10,p18,p20,p28,p30,p38,p40,p48,p50,p58,p60,p68,p70,p78;
-		int poff[RADIX>>2],po_br[16];	// Store mults of p-offsets for loop-controlled DFT macro calls
+		int poff[RADIX>>2],po_lin[16],po_br[16];	// Store mults of p-offsets for loop-controlled DFT macro calls
 		int incr,j,j1,j2,jt,jp,k,l;
 		// incr = Carry-chain wts-multipliers recurrence length, which must divide
 		// RADIX/[n-wayness of carry macro], e.g. RADIX/[16|8|4] = 64|128|256 for avx512,avx,sse, respectively:
@@ -2805,8 +2640,7 @@ void radix128_dit_pass1(double a[], int n)
 	#ifdef USE_SSE2
 
 		const double crnd = 3.0*0x4000000*0x2000000;
-		double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7,	/* Addresses into array sections */
-				*add8, *add9, *adda, *addb, *addc, *addd, *adde, *addf;
+		double *add0,*add1,*add2,*add3,*add4,*add5,*add6,*add7;	/* Addresses into array sections */
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
 		vec_dbl *tmp,*tm0,*tm1,*tm2;	// utility ptrs
 		int *itmp,*itm2;			// Pointer into the bjmodn array
@@ -2814,30 +2648,12 @@ void radix128_dit_pass1(double a[], int n)
 		vec_dbl *max_err, *sse2_rnd, *half_arr, *two,*one,*sqrt2,*isrt2,*cc0,*ss0,
 	  #if COMPACT_OBJ
 			// ptrs to 16 sets of twiddles shared by the 2nd-half DIF and DIT DFT macros:
-			*twid0,*twid1,*twid2,*twid3,*twid4,*twid5,*twid6,*twid7,*twid8,*twid9,*twida,*twidb,*twidc,*twidd,*twide,*twidf,
+			*twid0,
 	  #else
-			*nisrt2,	// each non-unity root now needs a negated counterpart:
-			*cc128_1,*ss128_1,*ncc128_1,*nss128_1,*cc64_1,*ss64_1,*ncc64_1,*nss64_1,*cc128_3,*ss128_3,*ncc128_3,*nss128_3,
-			*cc32_1,*ss32_1,*ncc32_1,*nss32_1,*cc128_5,*ss128_5,*ncc128_5,*nss128_5,*cc64_3,*ss64_3,*ncc64_3,*nss64_3,*cc128_7,*ss128_7,*ncc128_7,*nss128_7,
-			*cc16,*ss16,*ncc16,*nss16,*cc128_9,*ss128_9,*ncc128_9,*nss128_9,*cc64_5,*ss64_5,*ncc64_5,*nss64_5,*cc128_b,*ss128_b,*ncc128_b,*nss128_b,
-			*cc32_3,*ss32_3,*ncc32_3,*nss32_3,*cc128_d,*ss128_d,*ncc128_d,*nss128_d,*cc64_7,*ss64_7,*ncc64_7,*nss64_7,*cc128_f,*ss128_f,*ncc128_f,*nss128_f,
+		#error COMPACT_OBJ must be defined nonzero!
 	  #endif
-			*r00,*r01,*r02,*r03,*r04,*r05,*r06,*r07,*r08,*r09,*r0A,*r0B,*r0C,*r0D,*r0E,*r0F,
-			*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r1A,*r1B,*r1C,*r1D,*r1E,*r1F,
-			*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r2A,*r2B,*r2C,*r2D,*r2E,*r2F,
-			*r30,*r31,*r32,*r33,*r34,*r35,*r36,*r37,*r38,*r39,*r3A,*r3B,*r3C,*r3D,*r3E,*r3F,
-			*r40,*r41,*r42,*r43,*r44,*r45,*r46,*r47,*r48,*r49,*r4A,*r4B,*r4C,*r4D,*r4E,*r4F,
-			*r50,*r51,*r52,*r53,*r54,*r55,*r56,*r57,*r58,*r59,*r5A,*r5B,*r5C,*r5D,*r5E,*r5F,
-			*r60,*r61,*r62,*r63,*r64,*r65,*r66,*r67,*r68,*r69,*r6A,*r6B,*r6C,*r6D,*r6E,*r6F,
-			*r70,*r71,*r72,*r73,*r74,*r75,*r76,*r77,*r78,*r79,*r7A,*r7B,*r7C,*r7D,*r7E,*r7F,
-			*s1p00,*s1p01,*s1p02,*s1p03,*s1p04,*s1p05,*s1p06,*s1p07,*s1p08,*s1p09,*s1p0a,*s1p0b,*s1p0c,*s1p0d,*s1p0e,*s1p0f,
-			*s1p10,*s1p11,*s1p12,*s1p13,*s1p14,*s1p15,*s1p16,*s1p17,*s1p18,*s1p19,*s1p1a,*s1p1b,*s1p1c,*s1p1d,*s1p1e,*s1p1f,
-			*s1p20,*s1p21,*s1p22,*s1p23,*s1p24,*s1p25,*s1p26,*s1p27,*s1p28,*s1p29,*s1p2a,*s1p2b,*s1p2c,*s1p2d,*s1p2e,*s1p2f,
-			*s1p30,*s1p31,*s1p32,*s1p33,*s1p34,*s1p35,*s1p36,*s1p37,*s1p38,*s1p39,*s1p3a,*s1p3b,*s1p3c,*s1p3d,*s1p3e,*s1p3f,
-			*s1p40,*s1p41,*s1p42,*s1p43,*s1p44,*s1p45,*s1p46,*s1p47,*s1p48,*s1p49,*s1p4a,*s1p4b,*s1p4c,*s1p4d,*s1p4e,*s1p4f,
-			*s1p50,*s1p51,*s1p52,*s1p53,*s1p54,*s1p55,*s1p56,*s1p57,*s1p58,*s1p59,*s1p5a,*s1p5b,*s1p5c,*s1p5d,*s1p5e,*s1p5f,
-			*s1p60,*s1p61,*s1p62,*s1p63,*s1p64,*s1p65,*s1p66,*s1p67,*s1p68,*s1p69,*s1p6a,*s1p6b,*s1p6c,*s1p6d,*s1p6e,*s1p6f,
-			*s1p70,*s1p71,*s1p72,*s1p73,*s1p74,*s1p75,*s1p76,*s1p77,*s1p78,*s1p79,*s1p7a,*s1p7b,*s1p7c,*s1p7d,*s1p7e,*s1p7f,
+			*r00,*r10,*r20,*r30,*r40,*r50,*r60,*r70,
+			*s1p00,*s1p10,*s1p20,*s1p30,*s1p40,*s1p50,*s1p60,*s1p70,
 			*cy_r,*cy_i;	// Need RADIX slots for sse2 carries, RADIX/2 for avx
 	  #ifdef USE_AVX
 		vec_dbl *base_negacyclic_root;
@@ -2971,147 +2787,29 @@ void radix128_dit_pass1(double a[], int n)
 		poff[0x14] = p50; poff[0x15] = p04+p50; poff[0x16] = p58; poff[0x17] = p04+p58;
 		poff[0x18] = p60; poff[0x19] = p04+p60; poff[0x1a] = p68; poff[0x1b] = p04+p68;
 		poff[0x1c] = p70; poff[0x1d] = p04+p70; poff[0x1e] = p78; poff[0x1f] = p04+p78;
-
+		// _lin = linear p-multiples (but padding means we can't assume e.g. p02 = 2*p01):
+		po_lin[0x0] =   0; po_lin[0x1] = p01; po_lin[0x2] = p02; po_lin[0x3] = p03;
+		po_lin[0x4] = p04; po_lin[0x5] = p05; po_lin[0x6] = p06; po_lin[0x7] = p07;
+		po_lin[0x8] = p08; po_lin[0x9] = p09; po_lin[0xa] = p0a; po_lin[0xb] = p0b;
+		po_lin[0xc] = p0c; po_lin[0xd] = p0d; po_lin[0xe] = p0e; po_lin[0xf] = p0f;
+		// _br  = bit-reversed p-multiples:
 		po_br[0x0] =   0; po_br[0x1] = p08; po_br[0x2] = p04; po_br[0x3] = p0c;
 		po_br[0x4] = p02; po_br[0x5] = p0a; po_br[0x6] = p06; po_br[0x7] = p0e;
 		po_br[0x8] = p01; po_br[0x9] = p09; po_br[0xa] = p05; po_br[0xb] = p0d;
 		po_br[0xc] = p03; po_br[0xd] = p0b; po_br[0xe] = p07; po_br[0xf] = p0f;
 
 	#ifdef USE_SSE2
-		r00 = thread_arg->r00;	// declared above
-		tmp = r00;
-		r00 = tmp + 0x00;	r20 = tmp + 0x40;
-		r01 = tmp + 0x02;	r21 = tmp + 0x42;
-		r02 = tmp + 0x04;	r22 = tmp + 0x44;
-		r03 = tmp + 0x06;	r23 = tmp + 0x46;
-		r04 = tmp + 0x08;	r24 = tmp + 0x48;
-		r05 = tmp + 0x0a;	r25 = tmp + 0x4a;
-		r06 = tmp + 0x0c;	r26 = tmp + 0x4c;
-		r07 = tmp + 0x0e;	r27 = tmp + 0x4e;
-		r08 = tmp + 0x10;	r28 = tmp + 0x50;
-		r09 = tmp + 0x12;	r29 = tmp + 0x52;
-		r0A = tmp + 0x14;	r2A = tmp + 0x54;
-		r0B = tmp + 0x16;	r2B = tmp + 0x56;
-		r0C = tmp + 0x18;	r2C = tmp + 0x58;
-		r0D = tmp + 0x1a;	r2D = tmp + 0x5a;
-		r0E = tmp + 0x1c;	r2E = tmp + 0x5c;
-		r0F = tmp + 0x1e;	r2F = tmp + 0x5e;
-		r10 = tmp + 0x20;	r30 = tmp + 0x60;
-		r11 = tmp + 0x22;	r31 = tmp + 0x62;
-		r12 = tmp + 0x24;	r32 = tmp + 0x64;
-		r13 = tmp + 0x26;	r33 = tmp + 0x66;
-		r14 = tmp + 0x28;	r34 = tmp + 0x68;
-		r15 = tmp + 0x2a;	r35 = tmp + 0x6a;
-		r16 = tmp + 0x2c;	r36 = tmp + 0x6c;
-		r17 = tmp + 0x2e;	r37 = tmp + 0x6e;
-		r18 = tmp + 0x30;	r38 = tmp + 0x70;
-		r19 = tmp + 0x32;	r39 = tmp + 0x72;
-		r1A = tmp + 0x34;	r3A = tmp + 0x74;
-		r1B = tmp + 0x36;	r3B = tmp + 0x76;
-		r1C = tmp + 0x38;	r3C = tmp + 0x78;
-		r1D = tmp + 0x3a;	r3D = tmp + 0x7a;
-		r1E = tmp + 0x3c;	r3E = tmp + 0x7c;
-		r1F = tmp + 0x3e;	r3F = tmp + 0x7e;
-		tmp += 0x80;
-		r40 = tmp + 0x00;	r60 = tmp + 0x40;
-		r41 = tmp + 0x02;	r61 = tmp + 0x42;
-		r42 = tmp + 0x04;	r62 = tmp + 0x44;
-		r43 = tmp + 0x06;	r63 = tmp + 0x46;
-		r44 = tmp + 0x08;	r64 = tmp + 0x48;
-		r45 = tmp + 0x0a;	r65 = tmp + 0x4a;
-		r46 = tmp + 0x0c;	r66 = tmp + 0x4c;
-		r47 = tmp + 0x0e;	r67 = tmp + 0x4e;
-		r48 = tmp + 0x10;	r68 = tmp + 0x50;
-		r49 = tmp + 0x12;	r69 = tmp + 0x52;
-		r4A = tmp + 0x14;	r6A = tmp + 0x54;
-		r4B = tmp + 0x16;	r6B = tmp + 0x56;
-		r4C = tmp + 0x18;	r6C = tmp + 0x58;
-		r4D = tmp + 0x1a;	r6D = tmp + 0x5a;
-		r4E = tmp + 0x1c;	r6E = tmp + 0x5c;
-		r4F = tmp + 0x1e;	r6F = tmp + 0x5e;
-		r50 = tmp + 0x20;	r70 = tmp + 0x60;
-		r51 = tmp + 0x22;	r71 = tmp + 0x62;
-		r52 = tmp + 0x24;	r72 = tmp + 0x64;
-		r53 = tmp + 0x26;	r73 = tmp + 0x66;
-		r54 = tmp + 0x28;	r74 = tmp + 0x68;
-		r55 = tmp + 0x2a;	r75 = tmp + 0x6a;
-		r56 = tmp + 0x2c;	r76 = tmp + 0x6c;
-		r57 = tmp + 0x2e;	r77 = tmp + 0x6e;
-		r58 = tmp + 0x30;	r78 = tmp + 0x70;
-		r59 = tmp + 0x32;	r79 = tmp + 0x72;
-		r5A = tmp + 0x34;	r7A = tmp + 0x74;
-		r5B = tmp + 0x36;	r7B = tmp + 0x76;
-		r5C = tmp + 0x38;	r7C = tmp + 0x78;
-		r5D = tmp + 0x3a;	r7D = tmp + 0x7a;
-		r5E = tmp + 0x3c;	r7E = tmp + 0x7c;
-		r5F = tmp + 0x3e;	r7F = tmp + 0x7e;
-		tmp += 0x80;
-		s1p00 = tmp + 0x00;	s1p20 = tmp + 0x40;
-		s1p01 = tmp + 0x02;	s1p21 = tmp + 0x42;
-		s1p02 = tmp + 0x04;	s1p22 = tmp + 0x44;
-		s1p03 = tmp + 0x06;	s1p23 = tmp + 0x46;
-		s1p04 = tmp + 0x08;	s1p24 = tmp + 0x48;
-		s1p05 = tmp + 0x0a;	s1p25 = tmp + 0x4a;
-		s1p06 = tmp + 0x0c;	s1p26 = tmp + 0x4c;
-		s1p07 = tmp + 0x0e;	s1p27 = tmp + 0x4e;
-		s1p08 = tmp + 0x10;	s1p28 = tmp + 0x50;
-		s1p09 = tmp + 0x12;	s1p29 = tmp + 0x52;
-		s1p0a = tmp + 0x14;	s1p2a = tmp + 0x54;
-		s1p0b = tmp + 0x16;	s1p2b = tmp + 0x56;
-		s1p0c = tmp + 0x18;	s1p2c = tmp + 0x58;
-		s1p0d = tmp + 0x1a;	s1p2d = tmp + 0x5a;
-		s1p0e = tmp + 0x1c;	s1p2e = tmp + 0x5c;
-		s1p0f = tmp + 0x1e;	s1p2f = tmp + 0x5e;
-		s1p10 = tmp + 0x20;	s1p30 = tmp + 0x60;
-		s1p11 = tmp + 0x22;	s1p31 = tmp + 0x62;
-		s1p12 = tmp + 0x24;	s1p32 = tmp + 0x64;
-		s1p13 = tmp + 0x26;	s1p33 = tmp + 0x66;
-		s1p14 = tmp + 0x28;	s1p34 = tmp + 0x68;
-		s1p15 = tmp + 0x2a;	s1p35 = tmp + 0x6a;
-		s1p16 = tmp + 0x2c;	s1p36 = tmp + 0x6c;
-		s1p17 = tmp + 0x2e;	s1p37 = tmp + 0x6e;
-		s1p18 = tmp + 0x30;	s1p38 = tmp + 0x70;
-		s1p19 = tmp + 0x32;	s1p39 = tmp + 0x72;
-		s1p1a = tmp + 0x34;	s1p3a = tmp + 0x74;
-		s1p1b = tmp + 0x36;	s1p3b = tmp + 0x76;
-		s1p1c = tmp + 0x38;	s1p3c = tmp + 0x78;
-		s1p1d = tmp + 0x3a;	s1p3d = tmp + 0x7a;
-		s1p1e = tmp + 0x3c;	s1p3e = tmp + 0x7c;
-		s1p1f = tmp + 0x3e;	s1p3f = tmp + 0x7e;
-		tmp += 0x80;
-		s1p40 = tmp + 0x00;	s1p60 = tmp + 0x40;
-		s1p41 = tmp + 0x02;	s1p61 = tmp + 0x42;
-		s1p42 = tmp + 0x04;	s1p62 = tmp + 0x44;
-		s1p43 = tmp + 0x06;	s1p63 = tmp + 0x46;
-		s1p44 = tmp + 0x08;	s1p64 = tmp + 0x48;
-		s1p45 = tmp + 0x0a;	s1p65 = tmp + 0x4a;
-		s1p46 = tmp + 0x0c;	s1p66 = tmp + 0x4c;
-		s1p47 = tmp + 0x0e;	s1p67 = tmp + 0x4e;
-		s1p48 = tmp + 0x10;	s1p68 = tmp + 0x50;
-		s1p49 = tmp + 0x12;	s1p69 = tmp + 0x52;
-		s1p4a = tmp + 0x14;	s1p6a = tmp + 0x54;
-		s1p4b = tmp + 0x16;	s1p6b = tmp + 0x56;
-		s1p4c = tmp + 0x18;	s1p6c = tmp + 0x58;
-		s1p4d = tmp + 0x1a;	s1p6d = tmp + 0x5a;
-		s1p4e = tmp + 0x1c;	s1p6e = tmp + 0x5c;
-		s1p4f = tmp + 0x1e;	s1p6f = tmp + 0x5e;
-		s1p50 = tmp + 0x20;	s1p70 = tmp + 0x60;
-		s1p51 = tmp + 0x22;	s1p71 = tmp + 0x62;
-		s1p52 = tmp + 0x24;	s1p72 = tmp + 0x64;
-		s1p53 = tmp + 0x26;	s1p73 = tmp + 0x66;
-		s1p54 = tmp + 0x28;	s1p74 = tmp + 0x68;
-		s1p55 = tmp + 0x2a;	s1p75 = tmp + 0x6a;
-		s1p56 = tmp + 0x2c;	s1p76 = tmp + 0x6c;
-		s1p57 = tmp + 0x2e;	s1p77 = tmp + 0x6e;
-		s1p58 = tmp + 0x30;	s1p78 = tmp + 0x70;
-		s1p59 = tmp + 0x32;	s1p79 = tmp + 0x72;
-		s1p5a = tmp + 0x34;	s1p7a = tmp + 0x74;
-		s1p5b = tmp + 0x36;	s1p7b = tmp + 0x76;
-		s1p5c = tmp + 0x38;	s1p7c = tmp + 0x78;
-		s1p5d = tmp + 0x3a;	s1p7d = tmp + 0x7a;
-		s1p5e = tmp + 0x3c;	s1p7e = tmp + 0x7c;
-		s1p5f = tmp + 0x3e;	s1p7f = tmp + 0x7e;
-		tmp += 0x80;
+		tmp = thread_arg->r00;	// declared above
+		r00 = tmp + 0x00;	r40 = tmp + 0x80;
+		r10 = tmp + 0x20;	r50 = tmp + 0xa0;
+		r20 = tmp + 0x40;	r60 = tmp + 0xc0;
+		r30 = tmp + 0x60;	r70 = tmp + 0xe0;
+		tmp += 0x100;
+		s1p00 = tmp + 0x00;	s1p40 = tmp + 0x80;
+		s1p10 = tmp + 0x20;	s1p50 = tmp + 0xa0;
+		s1p20 = tmp + 0x40;	s1p60 = tmp + 0xc0;
+		s1p30 = tmp + 0x60;	s1p70 = tmp + 0xe0;
+		tmp += 0x100;
 		two     = tmp + 0;	// AVX+ versions of radix-8,16,32 twiddleless-DFT macros need consts [2,1,sqrt2,isrt2] quartet laid out thusly
 		one     = tmp + 1;
 		sqrt2   = tmp + 2;
@@ -3134,73 +2832,9 @@ void radix128_dit_pass1(double a[], int n)
 		ss0		= tmp - 1;
 		// ptrs to 16 sets (3*7 = 21 vec_dbl data each) of non-unity twiddles shared by the 2nd-half DIF and DIT DFT macros:
 		twid0  = tmp + 0x00;
-		twid1  = tmp + 0x15;
-		twid2  = tmp + 0x2a;
-		twid3  = tmp + 0x3f;
-		twid4  = tmp + 0x54;
-		twid5  = tmp + 0x69;
-		twid6  = tmp + 0x7e;
-		twid7  = tmp + 0x93;
-		twid8  = tmp + 0xa8;
-		twid9  = tmp + 0xbd;
-		twida  = tmp + 0xd2;
-		twidb  = tmp + 0xe7;
-		twidc  = tmp + 0xfc;
-		twidd  = tmp + 0x111;
-		twide  = tmp + 0x126;
-		twidf  = tmp + 0x13b;
 		tmp += 0x150;	// += 16*21 = 0x150 => sc_ptr + 0x356 (alternate version below incurs 0x60 elts, thus diff = 0xf0)
 	  #else
-		// For the +- isrt2 pair put the - datum first, thus cc0 satisfies the same "cc-1 gets you isrt2" property as do the other +-[cc,ss] pairs.
-									// [copy isrt2]	= tmp + 0x2f;
-		nisrt2  = tmp + 0x00;				 cc16   = tmp + 0x30;
-		 isrt2  = tmp + 0x01;				 ss16   = tmp + 0x31;// [copy isrt2]	= tmp + 0x32;
-		 cc0    = tmp + 0x02;				ncc16   = tmp + 0x32;
-		 ss0    = tmp + 0x03;				nss16   = tmp + 0x33;
-// [copy isrt2]	= tmp + 0x04;		// [copy isrt2]	= tmp + 0x34;
-		 cc128_1= tmp + 0x05;				 cc128_9= tmp + 0x35;
-		 ss128_1= tmp + 0x06;				 ss128_9= tmp + 0x36;
-// [copy isrt2]	= tmp + 0x07;		// [copy isrt2] = tmp + 0x37;
-		ncc128_1= tmp + 0x08;				ncc128_9= tmp + 0x38;
-		nss128_1= tmp + 0x09;				nss128_9= tmp + 0x39;
-// [copy isrt2]	= tmp + 0x0a;		// [copy isrt2]	= tmp + 0x3a;
-		 cc64_1	= tmp + 0x0b;				 cc64_5	= tmp + 0x3b;
-		 ss64_1	= tmp + 0x0c;				 ss64_5	= tmp + 0x3c;
-// [copy isrt2]	= tmp + 0x0d;		// [copy isrt2]	= tmp + 0x3d;
-		ncc64_1	= tmp + 0x0e;				ncc64_5	= tmp + 0x3e;
-		nss64_1	= tmp + 0x0f;				nss64_5	= tmp + 0x3f;
-// [copy isrt2]	= tmp + 0x10;		// [copy isrt2]	= tmp + 0x40;
-		 cc128_3= tmp + 0x11;				 cc128_b= tmp + 0x41;
-		 ss128_3= tmp + 0x12;				 ss128_b= tmp + 0x42;
-// [copy isrt2]	= tmp + 0x13;		// [copy isrt2] = tmp + 0x43;
-		ncc128_3= tmp + 0x14;				ncc128_b= tmp + 0x44;
-		nss128_3= tmp + 0x15;				nss128_b= tmp + 0x45;
-// [copy isrt2]	= tmp + 0x16;		// [copy isrt2]	= tmp + 0x46;
-		 cc32_1	= tmp + 0x17;				 cc32_3	= tmp + 0x47;
-		 ss32_1	= tmp + 0x18;				 ss32_3	= tmp + 0x48;
-// [copy isrt2]	= tmp + 0x19;		// [copy isrt2]	= tmp + 0x49;
-		ncc32_1	= tmp + 0x1a;				ncc32_3	= tmp + 0x4a;
-		nss32_1	= tmp + 0x1b;				nss32_3	= tmp + 0x4b;
-// [copy isrt2]	= tmp + 0x1c;		// [copy isrt2]	= tmp + 0x4c;
-		 cc128_5= tmp + 0x1d;				 cc128_d= tmp + 0x4d;
-		 ss128_5= tmp + 0x1e;				 ss128_d= tmp + 0x4e;
-// [copy isrt2]	= tmp + 0x1f;		// [copy isrt2] = tmp + 0x4f;
-		ncc128_5= tmp + 0x20;				ncc128_d= tmp + 0x50;
-		nss128_5= tmp + 0x21;				nss128_d= tmp + 0x51;
-// [copy isrt2]	= tmp + 0x22;		// [copy isrt2]	= tmp + 0x52;
-		 cc64_3	= tmp + 0x23;				 cc64_7	= tmp + 0x53;
-		 ss64_3	= tmp + 0x24;				 ss64_7	= tmp + 0x54;
-// [copy isrt2]	= tmp + 0x25;		// [copy isrt2]	= tmp + 0x55;
-		ncc64_3	= tmp + 0x26;				ncc64_7	= tmp + 0x56;
-		nss64_3	= tmp + 0x27;				nss64_7	= tmp + 0x57;
-// [copy isrt2]	= tmp + 0x28;		// [copy isrt2]	= tmp + 0x58;
-		 cc128_7= tmp + 0x29;				 cc128_f= tmp + 0x59;
-		 ss128_7= tmp + 0x2a;				 ss128_f= tmp + 0x5a;
-// [copy isrt2]	= tmp + 0x2b;		// [copy isrt2] = tmp + 0x5b;
-		ncc128_7= tmp + 0x2c;				ncc128_f= tmp + 0x5c;
-		nss128_7= tmp + 0x2d;				nss128_f= tmp + 0x5d;
-// [copy isrt2]	= tmp + 0x2e;		// [copy isrt2]	= tmp + 0x5e;
-		tmp += 0x60;	// Add pad slot to make offset even; sc_ptr += 0x266
+		#error COMPACT_OBJ must be defined nonzero!
 	  #endif
 	  #ifdef USE_AVX512
 		cy_r = tmp;	cy_i = tmp+0x10;	tmp += 2*0x10;	// RADIX/8 vec_dbl slots for each of cy_r and cy_i carry sub-arrays

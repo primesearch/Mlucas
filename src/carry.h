@@ -598,15 +598,7 @@ so replace with a branchless -= sw (+= n if result < 0):
 
 	#else	/* GCC-style inline ASM: */
 
-		#if OS_BITS == 32
-
-			#include "carry_gcc32.h"
-
-		#else
-
-			#include "carry_gcc64.h"
-
-		#endif	/* #if(OS_BITS == 32) */
+		#include "carry_gcc64.h"
 
 	#endif	/* MSVC or GCC */
 

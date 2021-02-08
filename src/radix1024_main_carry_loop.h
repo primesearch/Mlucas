@@ -117,8 +117,8 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	  #endif	// FMA/AVX2 ?
 
 	  #ifndef USE_ARM_V8_SIMD
-		#undef OFF1	// DIF and DIT share same radix-16 DFT strides, so def once at top and undef here at borrom
-		#undef OFF2
+		#undef OFF1	// DIF and DIT share same radix-16 DFT strides in this case, so could def
+		#undef OFF2	// once at top and undef at borrom, but keep it clean and local-def.
 		#undef OFF3
 		#undef OFF4
 	  #endif
@@ -671,16 +671,6 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 		idx_incr = NDIVR;
 
 		tm1 = s1p00; tmp = cy_r;	/* <*** Again rely on contiguity of cy_r,i here ***/
-	  #if (OS_BITS == 32)
-		for(l = 0; l < RADIX; l++) {	// RADIX loop passes
-			// Each SSE2 carry macro call also processes 1 prefetch of main-array data
-			addr = a + j1 + pfetch_dist + poff[l>>2];	// poff[] = p0,4,8,...
-			addr += (-(l&0x10)) & p2;
-			addr += (-(l&0x01)) & p1;
-			SSE2_fermat_carry_norm_pow2_errcheck   (tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, addr, add0);
-			tm1 += 2; tmp++;
-		}
-	  #else	// 64-bit SSE2
 		for(l = 0; l < RADIX>>1; l++) {	// RADIX/2 loop passes
 			// Each SSE2 carry macro call also processes 2 prefetches of main-array data
 			addr = a + j1 + pfetch_dist + poff[l>>1];	// poff[] = p0,4,8,...
@@ -688,7 +678,6 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 			SSE2_fermat_carry_norm_pow2_errcheck_X2(tm1,tmp,NRT_BITS,NRTM1,idx_offset,idx_incr,half_arr,sign_mask,add1,add2, addr,p2, add0);
 			tm1 += 4; tmp += 2;
 		}
-	  #endif
 
 	#else	// Scalar-double mode:
 
@@ -748,6 +737,9 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 		#define OFF3	0x1800
 		#define OFF4	0x2000
 	  #endif
+		// SSE2_RADIX16_DIF_TWIDDLE_OOP needs these:
+		const int off_arr[16] = {0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf};
+		const int*off_ptr = &(off_arr[0]);
 
 	  #ifdef USE_AVX2
 
@@ -758,11 +750,9 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 			ntmp = reverse(l,64)<<1;
 			tmp = twid00 + (ntmp<<4)-ntmp;	// Twid-offsets are multiples of 30 vec_dbl
 			add0 = &a[j1] + dif_i_offsets[l];	// poffs[] = p10,p20,...,p3f0
-				add1 = add0+p1; add2 = add0+p2; add3 = add0+p3; add4 = add0+p4; add5 = add0+p5; add6 = add0+p6; add7 = add0+p7;
-			add8 = add0+p8; add9 = add1+p8; adda = add2+p8; addb = add3+p8; addc = add4+p8; addd = add5+p8; adde = add6+p8; addf = add7+p8;
 			SSE2_RADIX16_DIF_TWIDDLE_OOP(
-				tm1,OFF1,OFF2,OFF3,OFF4,
-				add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf,
+				tm1,OFF1,OFF4,
+				add0,off_ptr,
 				isrt2, tmp
 			);	tm1 += 2;
 		}
@@ -786,11 +776,9 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 			ntmp = reverse(l,64)<<1;
 			tmp = twid00 + (ntmp<<4)-ntmp;	// Twid-offsets are multiples of 30 vec_dbl
 			add0 = &a[j1] + dif_i_offsets[l];	// poffs[] = p10,p20,...,p3f0
-				add1 = add0+p1; add2 = add0+p2; add3 = add0+p3; add4 = add0+p4; add5 = add0+p5; add6 = add0+p6; add7 = add0+p7;
-			add8 = add0+p8; add9 = add1+p8; adda = add2+p8; addb = add3+p8; addc = add4+p8; addd = add5+p8; adde = add6+p8; addf = add7+p8;
 			SSE2_RADIX16_DIF_TWIDDLE_OOP(
-				tm1,OFF1,OFF2,OFF3,OFF4,
-				add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf,
+				tm1,OFF1,OFF4,
+				add0,off_ptr,
 				isrt2, tmp
 			);	tm1 += 2;
 		}
@@ -798,7 +786,7 @@ normally be getting dispatched to [radix] separate blocks of the A-array, we nee
 	  #endif	// FMA/AVX2 ?
 
 	  #ifndef USE_ARM_V8_SIMD
-		#undef OFF1	// DIF and DIT share same radix-16 DFT strides, so def once at top and undef here at borrom
+		#undef OFF1
 		#undef OFF2
 		#undef OFF3
 		#undef OFF4

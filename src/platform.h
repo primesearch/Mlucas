@@ -1578,14 +1578,14 @@ extern int NTHREADS;
 	#endif
 #endif
 
-// SIMD code only available for 64-bit GCC build:
-#if defined(USE_SSE2) && !defined(COMPILER_TYPE_GCC)
-	#error  SIMD code only available for GCC (or compatible compiler) build!
+// Jan 2021: 32-bit builds no longer supported in SIMD mode:
+#if defined(USE_SSE2) && (OS_BITS == 32)
+	#error  SIMD-assembler code only supported for 64-bit build!
 #endif
 
-// SIMD+AVX code only available for 64-bit build:
-#if defined(USE_AVX) && (OS_BITS == 32)
-	#error  SIMD+AVX code only available for 64-bit build!
+// SIMD code only available for 64-bit GCC (or compatible compiler) build:
+#if defined(USE_SSE2) && !defined(COMPILER_TYPE_GCC)
+	#error  SIMD code only available for GCC (or compatible compiler) build!
 #endif
 
 // Control over x86 inline assembly usage:

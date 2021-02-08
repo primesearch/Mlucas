@@ -33,21 +33,11 @@
 
 #ifdef USE_SSE2
 
-	#include "sse2_macro.h"
+	#include "sse2_macro_gcc64.h"
 	#include "radix16_utils_asm.h"
 
 	#ifdef COMPILER_TYPE_GCC	/* GCC-style inline ASM: */
-
-		#if OS_BITS == 32
-
-			#include "radix16_wrapper_square_gcc32.h"
-
-		#else
-
-			#include "radix16_wrapper_square_gcc64.h"
-
-		#endif
-
+		#include "radix16_wrapper_square_gcc64.h"
 	#endif
 
 #endif
@@ -126,19 +116,8 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	const int pfetch_dist = PFETCH_DIST;
 #ifdef USE_SSE2
 	const int stride = (int)RE_IM_STRIDE << 4;	// main-array loop stride = 32 for SSE2, 64 for AVX, 128 for AVX-512
-	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
-	// lg(sizeof(vec_dbl)):
-  #ifdef USE_AVX512
-	const int l2_sz_vd = 6;
-  #elif defined(USE_AVX)
-	const int l2_sz_vd = 5;
-  #else
-	const int l2_sz_vd = 4;
-  #endif
 #else
 	const int stride = 32;	// In this particular routine, scalar mode has same stride as SSE2
-	const int sz_vd = sizeof(double), sz_vd_m1 = sz_vd-1;
-	const int l2_sz_vd = 3;
 #endif
 	static int max_threads = 0;
 	static int nsave = 0;
@@ -234,7 +213,6 @@ The scratch array (2nd input argument) is only needed for data table initializat
 		#ifndef COMPILER_TYPE_GCC
 			ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 		#endif
-			ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
 
 		#ifdef USE_SSE2
 		//	fprintf(stderr, "%s: pfetch_dist = %d\n",func,pfetch_dist);
@@ -1452,7 +1430,7 @@ jump_in:	/* Entry point for all blocks but the first. */
 		// we store those results in d1,2,... struct-subfields:
 		// c_tmp = from-pointer:		tmp = to-pointer:
 		c_tmp = (vec_dbl*)(twidl+l+1); tmp = cc0+4;
-		memcpy(tmp, c_tmp, 30<<l2_sz_vd);	// (30 vec_dbl) worth of data
+		memcpy(tmp, c_tmp, 30<<L2_SZ_VD);	// (30 vec_dbl) worth of data
 	 #endif
 
 	#else	// On-the-fly twiddles computation:
@@ -1635,26 +1613,9 @@ jump_in:	/* Entry point for all blocks but the first. */
 		l += (iroot << 2) + iroot;	/* 13*iroot */
 		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[9] = k1<<4;	k2_arr[9] = k2<<4;
 
-	   #if OS_BITS == 32	// In 32-bit mode we only support SSE2 SIMD:
-
-		// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity:
-		add0 = (double *)k1_arr; add1 = (double *)k2_arr;	// Casts are only to get rid of compiler warnings
-		SSE2_RADIX16_CALC_TWIDDLES_1_2_4_8_13(cc0,add0,add1,rt0,rt1);
-		// Due to register paucity in 32-bit mode, use separate smaller asm macros to first compute the set of 5
-		// 'anchor twiddles' using full 2-table complex multiplies, then the remaining 10, done in 5-pairs fashion:
-		SSE2_CMUL_EXPO(c1,c4 ,c3 ,c5 );
-		SSE2_CMUL_EXPO(c1,c8 ,c7 ,c9 );
-		SSE2_CMUL_EXPO(c2,c8 ,c6 ,c10);
-		SSE2_CMUL_EXPO(c1,c13,c12,c14);
-		SSE2_CMUL_EXPO(c2,c13,c11,c15);
-
-	   #else	// 64-bit SSE2:
-
 		// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity:
 		add0 = (double *)k1_arr; add1 = (double *)k2_arr;	// Casts are only to get rid of compiler warnings
 		SSE2_RADIX16_CALC_TWIDDLES_LOACC(cc0,add0,add1,rt0,rt1);
-
-	   #endif	// 32-or-64-bit SSE2 ?
 
 	  #elif !defined(USE_AVX512)	// AVX/AVX2:
 
@@ -3907,7 +3868,9 @@ if(j1pad < 100) {
 		);
 
 	#else					// 32-bit SSE2 build
-		#error 32-bit SSE2 build no longer supported as of Mlucas v19!
+
+		#error 32-bit OSes no longer supported for SIMD builds!
+
 	#endif
 
 	  #ifdef USE_AVX512		// Register blocks beginning with r1,5,9,13,17,21,25,29 map to memlocs bdd0-7, no offsets >= 4:
@@ -4234,30 +4197,7 @@ if(j1pad < 100) {
 
 	#else					// 32-bit SSE2 build
 
-		__asm__ volatile (\
-			"movl	%[tmp0],%%eax\n\t"\
-			"movl	%[tmp1],%%esi\n\t"\
-			"movl	%[tmp2],%%ecx\n\t"\
-			"movl	%[tmp3],%%edx\n\t"\
-			"movaps	(%%eax),%%xmm0\n\t"\
-			"movaps	(%%esi),%%xmm1\n\t"\
-			"movaps	(%%ecx),%%xmm2\n\t"\
-			"movaps	(%%edx),%%xmm3\n\t"\
-			"shufpd	$1	,%%xmm0	,%%xmm0\n\t"\
-			"shufpd	$1	,%%xmm1	,%%xmm1\n\t"\
-			"shufpd	$1	,%%xmm2	,%%xmm2\n\t"\
-			"shufpd	$1	,%%xmm3	,%%xmm3\n\t"\
-			"movaps	%%xmm0,(%%eax)\n\t"\
-			"movaps	%%xmm1,(%%esi)\n\t"\
-			"movaps	%%xmm2,(%%ecx)\n\t"\
-			"movaps	%%xmm3,(%%edx)\n\t"\
-			:					// outputs: none
-			: [tmp0] "m" (tmp0)	// All inputs from memory addresses here
-			 ,[tmp1] "m" (tmp1)
-			 ,[tmp2] "m" (tmp2)
-			 ,[tmp3] "m" (tmp3)
-			: "cc","memory","eax","esi","ecx","edx","xmm0","xmm1","xmm2","xmm3"		// Clobbered registers
-		);
+	#error 32-bit OSes no longer supported for SIMD builds!
 
 	#endif
 

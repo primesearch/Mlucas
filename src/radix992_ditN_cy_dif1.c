@@ -160,23 +160,9 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 */
 	const char func[] = "radix992_ditN_cy_dif1";
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
-#ifdef USE_SSE2
-	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
-	// lg(sizeof(vec_dbl)):
-  #ifdef USE_AVX512
-	const int l2_sz_vd = 6;
-  #elif defined(USE_AVX)
-	const int l2_sz_vd = 5;
-  #else
-	const int l2_sz_vd = 4;
-  #endif
-#else
-	const int sz_vd = sizeof(double), sz_vd_m1 = sz_vd-1;
-	const int l2_sz_vd = 3;
-#endif
 	int NDIVR,i,j,j1,j2,jt,jp,jstart,jhi,full_pass,k,khi,l,ntmp,outer,nbytes;
 #ifdef USE_SSE2
-	uint32 nwt16 = nwt << l2_sz_vd;	// nwt*sizeof(vec_dbl); the '16' is a historical naming artifact dating to first SSE2 code
+	uint32 nwt16 = nwt << L2_SZ_VD;	// nwt*sizeof(vec_dbl); the '16' is a historical naming artifact dating to first SSE2 code
 #endif
 	// Need these both in scalar mode and to ease the SSE2-array init...dimension = ODD_RADIX;
 	// In order to ease the ptr-access for the || routine, lump these 4*ODD_RADIX doubles together with copies of
@@ -444,10 +430,10 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 
 		// This array pointer must be set based on vec_dbl-sized alignment at runtime for each thread:
 			for(l = 0; l < 4; l++) {
-				if( ((uint32)&tdat[ithread].cy_dat[l] & sz_vd_m1) == 0 ) {
+				if( ((uint32)&tdat[ithread].cy_dat[l] & SZ_VDM1) == 0 ) {
 					tdat[ithread].cy_r = &tdat[ithread].cy_dat[l];
 					tdat[ithread].cy_i = tdat[ithread].cy_r + RADIX;
-				//	fprintf(stderr,"%d-byte-align cy_dat array at element[%d]\n",sz_vd,l);
+				//	fprintf(stderr,"%d-byte-align cy_dat array at element[%d]\n",SZ_VD,l);
 					break;
 				}
 			}
@@ -532,7 +518,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		half_arr= tmp + 0x02;	/* This table needs 20 x 16 bytes for Mersenne-mod, and [4*ODD_RADIX] x 16 for Fermat-mod */
 	  #endif
 		ASSERT(HERE, half_arr_offset992 == (uint32)(half_arr-sc_ptr), "half_arr_offset mismatches actual!");
-		ASSERT(HERE, (radix992_creals_in_local_store << l2_sz_vd) >= ((long)half_arr - (long)r00) + (20 << l2_sz_vd), "radix992_creals_in_local_store checksum failed!");
+		ASSERT(HERE, (radix992_creals_in_local_store << L2_SZ_VD) >= ((long)half_arr - (long)r00) + (20 << L2_SZ_VD), "radix992_creals_in_local_store checksum failed!");
 
 		/* These remain fixed: */
 		VEC_DBL_INIT(isrt2,ISRT2);
@@ -555,7 +541,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			memcpy(tm2, tmp, nbytes);
 			tmp = tm2;		tm2 += cslots_in_local_store;
 		}
-		nbytes = sz_vd;	// sse2_rnd is a solo (in the SIMD-vector) datum
+		nbytes = SZ_VD;	// sse2_rnd is a solo (in the SIMD-vector) datum
 		tmp = sse2_rnd;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
@@ -862,7 +848,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		tmp64 = 0x3F7ACEDD6862D0D7ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(239*I*Pi/480) = sin(  1*I*Pi/480) */	tmp += 2;
 
 		tmp = base_negacyclic_root + RADIX*2;	// reset to point to start of above block
-		nbytes = RADIX*sz_vd/2;	// RADIX/4 AVX-register-sized complex data
+		nbytes = RADIX*SZ_VD/2;	// RADIX/4 AVX-register-sized complex data
 
 	  #else	// HIACC = false:
 
@@ -883,7 +869,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		++tmp;
 		tmp64 = 0x3F9ACE214390CA91ull;	VEC_DBL_INIT(tmp, *(double *)&tmp64);	// sin(04*I*Pi/480)
 		tmp = base_negacyclic_root + 8;	// reset to point to start of above block
-		nbytes = 4*sz_vd;	// 2 AVX-register-sized complex data
+		nbytes = 4*SZ_VD;	// 2 AVX-register-sized complex data
 
 	  #endif	// HIACC toggle
 
@@ -968,7 +954,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		tmp->d0 = baseinv[0];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
 		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
 
-		nbytes = 64 << l2_sz_vd;
+		nbytes = 64 << L2_SZ_VD;
 
 	#elif defined(USE_SSE2)
 
@@ -994,7 +980,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		ctmp->re = baseinv[0];	ctmp->im = baseinv[1];	++ctmp;
 		ctmp->re = baseinv[1];	ctmp->im = baseinv[1];	++ctmp;
 
-		nbytes = 16 << l2_sz_vd;
+		nbytes = 16 << L2_SZ_VD;
 	#endif
 
 		// Propagate the above consts to the remaining threads:
@@ -1034,7 +1020,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		*(sse_n +i) = tmp64;
 	}
 
-	nbytes = 4 << l2_sz_vd;
+	nbytes = 4 << L2_SZ_VD;
 
 #ifdef USE_AVX
 	n_minus_sil   = (struct uint32x4 *)sse_n + 1;
@@ -1216,7 +1202,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			ASSERT(HERE, wts_idx_incr != 0, "wts_idx_incr init failed!");
 
 		#ifdef USE_SSE2
-			wts_idx_inc2 = wts_idx_incr << (2*l2_sz_vd - 3);	/* In the SIMD version, use icycle0-6 as actual address
+			wts_idx_inc2 = wts_idx_incr << (2*L2_SZ_VD - 3);	/* In the SIMD version, use icycle0-6 as actual address
 							offsets, so wts_idx_incr includes a *sizeof(vec_dbl) for the array-of-vector-doubles indexing, and another
 							doubling|quadrupling|... to reflect the fact that the SIMD version of the loop is equivalent to 2|4|... scalar
 							loop executions, i.e. corresponds to [#doubles in each vec_dbl] scalar-code increments of the icycle indices. */
@@ -1253,7 +1239,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			}
 
 			// Propagate the above wts-consts to the remaining threads:
-			nbytes = ODD_RADIX*sz_vd;
+			nbytes = ODD_RADIX*SZ_VD;
 			tmp = half_arr;
 			tm2 = tmp + cslots_in_local_store;
 			for(ithread = 1; ithread < CY_THREADS; ++ithread) {
@@ -1324,9 +1310,9 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			}
 
 			for(i = 0; i < ODD_RADIX; i++) {
-				icycle[i] <<= l2_sz_vd;		jcycle[i] <<= l2_sz_vd;
+				icycle[i] <<= L2_SZ_VD;		jcycle[i] <<= L2_SZ_VD;
 			#ifdef USE_AVX
-				kcycle[i] <<= l2_sz_vd;		lcycle[i] <<= l2_sz_vd;
+				kcycle[i] <<= L2_SZ_VD;		lcycle[i] <<= L2_SZ_VD;
 			#endif
 			}
 
@@ -1441,7 +1427,7 @@ int radix992_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		#elif defined(USE_SSE2)
 			tidx_mod_stride = br4[tidx_mod_stride];
 		#endif
-			target_set = (target_set<<(l2_sz_vd-2)) + tidx_mod_stride;
+			target_set = (target_set<<(L2_SZ_VD-2)) + tidx_mod_stride;
 			target_cy  = target_wtfwd * ((int)-2 << (itmp64 & 255));
 		} else {
 			target_idx = target_set = 0;
@@ -1522,27 +1508,27 @@ for(outer=0; outer <= 1; outer++)
 		  #ifdef USE_AVX
 			kcycle[i] = jcycle[i] + wts_idx_incr;	kcycle[i] += ( (-(kcycle[i] < 0)) & nwt);
 			lcycle[i] = kcycle[i] + wts_idx_incr;	lcycle[i] += ( (-(lcycle[i] < 0)) & nwt);
-			kcycle[i] <<= l2_sz_vd;		lcycle[i] <<= l2_sz_vd;
+			kcycle[i] <<= L2_SZ_VD;		lcycle[i] <<= L2_SZ_VD;
 		  #endif
-			icycle[i] <<= l2_sz_vd;		jcycle[i] <<= l2_sz_vd;
+			icycle[i] <<= L2_SZ_VD;		jcycle[i] <<= L2_SZ_VD;
 		#endif
 		}
 	#endif
 
 	#ifdef USE_SSE2
-		// Remember: *cycle[] entries all << l2_sz_vd here - must left-shift-on-the-fly before using:
+		// Remember: *cycle[] entries all << L2_SZ_VD here - must left-shift-on-the-fly before using:
 		tm2 = half_arr + ODD_RADIX;
 		for(i = 0; i < ODD_RADIX; i++, tm2++) {
-			tm2->d0 = wtinv_arr[icycle[i] >> l2_sz_vd];
-			tm2->d1 = wtinv_arr[jcycle[i] >> l2_sz_vd];
+			tm2->d0 = wtinv_arr[icycle[i] >> L2_SZ_VD];
+			tm2->d1 = wtinv_arr[jcycle[i] >> L2_SZ_VD];
 		#ifdef USE_AVX
-			tm2->d2 = wtinv_arr[kcycle[i] >> l2_sz_vd];
-			tm2->d3 = wtinv_arr[lcycle[i] >> l2_sz_vd];
+			tm2->d2 = wtinv_arr[kcycle[i] >> L2_SZ_VD];
+			tm2->d3 = wtinv_arr[lcycle[i] >> L2_SZ_VD];
 		#endif
 		}
 
 		// Propagate the above inv-wts to the remaining threads - surrounding consts are unchanged:
-		nbytes = ODD_RADIX*sz_vd;
+		nbytes = ODD_RADIX*SZ_VD;
 		tmp = half_arr + ODD_RADIX;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
@@ -1580,7 +1566,7 @@ for(outer=0; outer <= 1; outer++)
 	tmp = max_err;	VEC_DBL_INIT(tmp, 0.0);
 	tm2 = tmp + cslots_in_local_store;
 	for(ithread = 1; ithread < CY_THREADS; ++ithread) {
-		memcpy(tm2, tmp, sz_vd);
+		memcpy(tm2, tmp, SZ_VD);
 		tmp = tm2;		tm2 += cslots_in_local_store;
 	}
 

@@ -24,18 +24,14 @@
 
 #ifdef USE_SSE2
 
-	#include "sse2_macro.h"
+	#include "sse2_macro_gcc64.h"
 	#include "radix32_utils_asm.h"
 
 	#ifndef COMPILER_TYPE_GCC
 		#error X86 SIMD build requires GCC-compatible compiler!
 	#endif
 
-	#if OS_BITS == 32
-		#include "radix32_wrapper_square_gcc32.h"
-	#else
-		#include "radix32_wrapper_square_gcc64.h"
-	#endif
+	#include "radix32_wrapper_square_gcc64.h"
 
 #endif
 
@@ -242,7 +238,6 @@ void radix32_dyadic_square(
 	#ifndef COMPILER_TYPE_GCC
 		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 	#endif
-		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
 
 	#ifdef USE_SSE2
 		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
@@ -577,37 +572,9 @@ void radix32_dyadic_square(
 		l += iroot;			/* 28*iroot */
 		k1=(l & NRTM1);	k2=(l >> NRT_BITS);	k1_arr[13] = k1<<4;	k2_arr[13] = k2<<4;
 
-	   #if OS_BITS == 32	// In 32-bit mode we only support SSE2 SIMD:
-
-		// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity:
-		add0 = (double *)k1_arr; add1 = (double *)k2_arr;	// Casts are only to get rid of compiler warnings
-		// Due to register paucity in 32-bit mode, use separate smaller asm macros to first compute the set of 7
-		// 'anchor twiddles' using full 2-table complex multiplies, then the remaining 24, done in 12-pairs fashion:
-		SSE2_RADIX32_CALC_TWIDDLES_1_2_3_7_14_21_28(cc0,add0,add1,rt0,rt1);
-
-		SSE2_CMUL_EXPO(c01,c07,c06,c08)
-		SSE2_CMUL_EXPO(c02,c07,c05,c09)
-		SSE2_CMUL_EXPO(c03,c07,c04,c0A)
-
-		SSE2_CMUL_EXPO(c01,c0E,c0D,c0F)
-		SSE2_CMUL_EXPO(c02,c0E,c0C,c10)
-		SSE2_CMUL_EXPO(c03,c0E,c0B,c11)
-
-		SSE2_CMUL_EXPO(c01,c15,c14,c16)
-		SSE2_CMUL_EXPO(c02,c15,c13,c17)
-		SSE2_CMUL_EXPO(c03,c15,c12,c18)
-
-		SSE2_CMUL_EXPO(c01,c1C,c1B,c1D)
-		SSE2_CMUL_EXPO(c02,c1C,c1A,c1E)
-		SSE2_CMUL_EXPO(c03,c1C,c19,c1F)
-
-	   #else	// 64-bit SSE2:
-
 		// Stash head-of-array-ptrs in tmps to workaround GCC's "not directly addressable" macro arglist stupidity:
 		add0 = (double *)k1_arr; add1 = (double *)k2_arr;	// Casts are only to get rid of compiler warnings
 		SSE2_RADIX32_CALC_TWIDDLES_LOACC(cc0,add0,add1,rt0,rt1);
-
-	   #endif	// 32-or-64-bit SSE2 ?
 
 	  #elif defined(USE_AVX) && !defined(USE_AVX512)	// AVX/AVX2:
 
@@ -855,188 +822,7 @@ printf("\tc[%2d] = %20.15f, %20.15f,%20.15f, %20.15f, s[%2d] = %20.15f,%20.15f,%
 
 	#if OS_BITS == 32
 
-		__asm__ volatile (\
-			"movl	%[__r00],%%eax		\n\t"\
-			/* z0^2: */							/*z10^2: */\
-			"movaps		 (%%eax),%%xmm0	\n\t	movaps	0x200(%%eax),%%xmm3	\n\t"\
-			"movaps	0x010(%%eax),%%xmm1	\n\t	movaps	0x210(%%eax),%%xmm4	\n\t"\
-			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
-			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
-			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
-			"mulpd		 (%%eax),%%xmm1	\n\t	mulpd	0x200(%%eax),%%xmm4	\n\t"\
-			"movaps	%%xmm0,     (%%eax)	\n\t	movaps	%%xmm3,0x200(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x010(%%eax)	\n\t	movaps	%%xmm4,0x210(%%eax)	\n\t"\
-			/* z1^2: */							/*z11^2: */\
-			"movaps	0x020(%%eax),%%xmm0	\n\t	movaps	0x220(%%eax),%%xmm3	\n\t"\
-			"movaps	0x030(%%eax),%%xmm1	\n\t	movaps	0x230(%%eax),%%xmm4	\n\t"\
-			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
-			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
-			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
-			"mulpd	0x020(%%eax),%%xmm1	\n\t	mulpd	0x220(%%eax),%%xmm4	\n\t"\
-			"movaps	%%xmm0,0x020(%%eax)	\n\t	movaps	%%xmm3,0x220(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x030(%%eax)	\n\t	movaps	%%xmm4,0x230(%%eax)	\n\t"\
-			/* z2^2: */							/*z12^2: */\
-			"movaps	0x040(%%eax),%%xmm0	\n\t	movaps	0x240(%%eax),%%xmm3	\n\t"\
-			"movaps	0x050(%%eax),%%xmm1	\n\t	movaps	0x250(%%eax),%%xmm4	\n\t"\
-			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
-			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
-			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
-			"mulpd	0x040(%%eax),%%xmm1	\n\t	mulpd	0x240(%%eax),%%xmm4	\n\t"\
-			"movaps	%%xmm0,0x040(%%eax)	\n\t	movaps	%%xmm3,0x240(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x050(%%eax)	\n\t	movaps	%%xmm4,0x250(%%eax)	\n\t"\
-			/* z3^2: */							/*z13^2: */\
-			"movaps	0x060(%%eax),%%xmm0	\n\t	movaps	0x260(%%eax),%%xmm3	\n\t"\
-			"movaps	0x070(%%eax),%%xmm1	\n\t	movaps	0x270(%%eax),%%xmm4	\n\t"\
-			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
-			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
-			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
-			"mulpd	0x060(%%eax),%%xmm1	\n\t	mulpd	0x260(%%eax),%%xmm4	\n\t"\
-			"movaps	%%xmm0,0x060(%%eax)	\n\t	movaps	%%xmm3,0x260(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x070(%%eax)	\n\t	movaps	%%xmm4,0x270(%%eax)	\n\t"\
-			/* z4^2: */							/*z14^2: */\
-			"movaps	0x080(%%eax),%%xmm0	\n\t	movaps	0x280(%%eax),%%xmm3	\n\t"\
-			"movaps	0x090(%%eax),%%xmm1	\n\t	movaps	0x290(%%eax),%%xmm4	\n\t"\
-			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
-			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
-			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
-			"mulpd	0x080(%%eax),%%xmm1	\n\t	mulpd	0x280(%%eax),%%xmm4	\n\t"\
-			"movaps	%%xmm0,0x080(%%eax)	\n\t	movaps	%%xmm3,0x280(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x090(%%eax)	\n\t	movaps	%%xmm4,0x290(%%eax)	\n\t"\
-			/* z5^2: */							/*z15^2: */\
-			"movaps	0x0a0(%%eax),%%xmm0	\n\t	movaps	0x2a0(%%eax),%%xmm3	\n\t"\
-			"movaps	0x0b0(%%eax),%%xmm1	\n\t	movaps	0x2b0(%%eax),%%xmm4	\n\t"\
-			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
-			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
-			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
-			"mulpd	0x0a0(%%eax),%%xmm1	\n\t	mulpd	0x2a0(%%eax),%%xmm4	\n\t"\
-			"movaps	%%xmm0,0x0a0(%%eax)	\n\t	movaps	%%xmm3,0x2a0(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x0b0(%%eax)	\n\t	movaps	%%xmm4,0x2b0(%%eax)	\n\t"\
-			/* z6^2: */							/*z16^2: */\
-			"movaps	0x0c0(%%eax),%%xmm0	\n\t	movaps	0x2c0(%%eax),%%xmm3	\n\t"\
-			"movaps	0x0d0(%%eax),%%xmm1	\n\t	movaps	0x2d0(%%eax),%%xmm4	\n\t"\
-			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
-			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
-			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
-			"mulpd	0x0c0(%%eax),%%xmm1	\n\t	mulpd	0x2c0(%%eax),%%xmm4	\n\t"\
-			"movaps	%%xmm0,0x0c0(%%eax)	\n\t	movaps	%%xmm3,0x2c0(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x0d0(%%eax)	\n\t	movaps	%%xmm4,0x2d0(%%eax)	\n\t"\
-			/* z7^2: */							/*z17^2: */\
-			"movaps	0x0e0(%%eax),%%xmm0	\n\t	movaps	0x2e0(%%eax),%%xmm3	\n\t"\
-			"movaps	0x0f0(%%eax),%%xmm1	\n\t	movaps	0x2f0(%%eax),%%xmm4	\n\t"\
-			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
-			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
-			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
-			"mulpd	0x0e0(%%eax),%%xmm1	\n\t	mulpd	0x2e0(%%eax),%%xmm4	\n\t"\
-			"movaps	%%xmm0,0x0e0(%%eax)	\n\t	movaps	%%xmm3,0x2e0(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x0f0(%%eax)	\n\t	movaps	%%xmm4,0x2f0(%%eax)	\n\t"\
-			/* z8^2: */							/*z18^2: */\
-			"movaps	0x100(%%eax),%%xmm0	\n\t	movaps	0x300(%%eax),%%xmm3	\n\t"\
-			"movaps	0x110(%%eax),%%xmm1	\n\t	movaps	0x310(%%eax),%%xmm4	\n\t"\
-			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
-			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
-			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
-			"mulpd	0x100(%%eax),%%xmm1	\n\t	mulpd	0x300(%%eax),%%xmm4	\n\t"\
-			"movaps	%%xmm0,0x100(%%eax)	\n\t	movaps	%%xmm3,0x300(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x110(%%eax)	\n\t	movaps	%%xmm4,0x310(%%eax)	\n\t"\
-			/* z9^2: */							/*z19^2: */\
-			"movaps	0x120(%%eax),%%xmm0	\n\t	movaps	0x320(%%eax),%%xmm3	\n\t"\
-			"movaps	0x130(%%eax),%%xmm1	\n\t	movaps	0x330(%%eax),%%xmm4	\n\t"\
-			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
-			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
-			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
-			"mulpd	0x120(%%eax),%%xmm1	\n\t	mulpd	0x320(%%eax),%%xmm4	\n\t"\
-			"movaps	%%xmm0,0x120(%%eax)	\n\t	movaps	%%xmm3,0x320(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x130(%%eax)	\n\t	movaps	%%xmm4,0x330(%%eax)	\n\t"\
-			/* zA^2: */							/*z1A^2: */\
-			"movaps	0x140(%%eax),%%xmm0	\n\t	movaps	0x340(%%eax),%%xmm3	\n\t"\
-			"movaps	0x150(%%eax),%%xmm1	\n\t	movaps	0x350(%%eax),%%xmm4	\n\t"\
-			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
-			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
-			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
-			"mulpd	0x140(%%eax),%%xmm1	\n\t	mulpd	0x340(%%eax),%%xmm4	\n\t"\
-			"movaps	%%xmm0,0x140(%%eax)	\n\t	movaps	%%xmm3,0x340(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x150(%%eax)	\n\t	movaps	%%xmm4,0x350(%%eax)	\n\t"\
-			/* zB^2: */							/*z1B^2: */\
-			"movaps	0x160(%%eax),%%xmm0	\n\t	movaps	0x360(%%eax),%%xmm3	\n\t"\
-			"movaps	0x170(%%eax),%%xmm1	\n\t	movaps	0x370(%%eax),%%xmm4	\n\t"\
-			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
-			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
-			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
-			"mulpd	0x160(%%eax),%%xmm1	\n\t	mulpd	0x360(%%eax),%%xmm4	\n\t"\
-			"movaps	%%xmm0,0x160(%%eax)	\n\t	movaps	%%xmm3,0x360(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x170(%%eax)	\n\t	movaps	%%xmm4,0x370(%%eax)	\n\t"\
-			/* zC^2: */							/*z1C^2: */\
-			"movaps	0x180(%%eax),%%xmm0	\n\t	movaps	0x380(%%eax),%%xmm3	\n\t"\
-			"movaps	0x190(%%eax),%%xmm1	\n\t	movaps	0x390(%%eax),%%xmm4	\n\t"\
-			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
-			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
-			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
-			"mulpd	0x180(%%eax),%%xmm1	\n\t	mulpd	0x380(%%eax),%%xmm4	\n\t"\
-			"movaps	%%xmm0,0x180(%%eax)	\n\t	movaps	%%xmm3,0x380(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x190(%%eax)	\n\t	movaps	%%xmm4,0x390(%%eax)	\n\t"\
-			/* zD^2: */							/*z1D^2: */\
-			"movaps	0x1a0(%%eax),%%xmm0	\n\t	movaps	0x3a0(%%eax),%%xmm3	\n\t"\
-			"movaps	0x1b0(%%eax),%%xmm1	\n\t	movaps	0x3b0(%%eax),%%xmm4	\n\t"\
-			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
-			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
-			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
-			"mulpd	0x1a0(%%eax),%%xmm1	\n\t	mulpd	0x3a0(%%eax),%%xmm4	\n\t"\
-			"movaps	%%xmm0,0x1a0(%%eax)	\n\t	movaps	%%xmm3,0x3a0(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x1b0(%%eax)	\n\t	movaps	%%xmm4,0x3b0(%%eax)	\n\t"\
-			/* zE^2: */							/*z1E^2: */\
-			"movaps	0x1c0(%%eax),%%xmm0	\n\t	movaps	0x3c0(%%eax),%%xmm3	\n\t"\
-			"movaps	0x1d0(%%eax),%%xmm1	\n\t	movaps	0x3d0(%%eax),%%xmm4	\n\t"\
-			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
-			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
-			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
-			"mulpd	0x1c0(%%eax),%%xmm1	\n\t	mulpd	0x3c0(%%eax),%%xmm4	\n\t"\
-			"movaps	%%xmm0,0x1c0(%%eax)	\n\t	movaps	%%xmm3,0x3c0(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x1d0(%%eax)	\n\t	movaps	%%xmm4,0x3d0(%%eax)	\n\t"\
-			/* zF^2: */							/*z1F^2: */\
-			"movaps	0x1e0(%%eax),%%xmm0	\n\t	movaps	0x3e0(%%eax),%%xmm3	\n\t"\
-			"movaps	0x1f0(%%eax),%%xmm1	\n\t	movaps	0x3f0(%%eax),%%xmm4	\n\t"\
-			"movaps		  %%xmm0,%%xmm2	\n\t	movaps		  %%xmm3,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm0	\n\t	addpd		  %%xmm4,%%xmm3	\n\t"\
-			"subpd		  %%xmm1,%%xmm2	\n\t	subpd		  %%xmm4,%%xmm5	\n\t"\
-			"addpd		  %%xmm1,%%xmm1	\n\t	addpd		  %%xmm4,%%xmm4	\n\t"\
-			"mulpd		  %%xmm2,%%xmm0	\n\t	mulpd		  %%xmm5,%%xmm3	\n\t"\
-			"mulpd	0x1e0(%%eax),%%xmm1	\n\t	mulpd	0x3e0(%%eax),%%xmm4	\n\t"\
-			"movaps	%%xmm0,0x1e0(%%eax)	\n\t	movaps	%%xmm3,0x3e0(%%eax)	\n\t"\
-			"movaps	%%xmm1,0x1f0(%%eax)	\n\t	movaps	%%xmm4,0x3f0(%%eax)	\n\t"\
-			:					// outputs: none
-			: [__r00] "m" (r00)	// All inputs from memory addresses here
-			: "cc","memory","eax","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5"	// Clobbered registers
-		);
+		#error 32-bit OSes no longer supported for SIMD builds!
 
 	#else	// 64-bit SIMD:
 
@@ -1623,13 +1409,8 @@ printf("\tc[%2d] = %20.15f, %20.15f,%20.15f, %20.15f, s[%2d] = %20.15f,%20.15f,%
 
 	#else	// SSE2:
 
-	  #if OS_BITS == 64
 		SSE2_RADIX32_WRAPPER_DIT(add0,add1
-		,isrt2,r00,r08,r10,r20,r28,r30    ,c01,c02    ,c04    ,c06    ,c08,c0A,c0C,c0E,c10,c12,c14,c16,c18,c1A,c1C,c1E)
-	  #else	// 32-bit SSE2:
-		SSE2_RADIX32_WRAPPER_DIT(add0,add1
-		,isrt2,r00,r08,r10,r20,r28,r30,c00,c01,c02,c03,c04,c05,c06,c07,c08,c0A,c0C,c0E,c10,c12,c14,c16,c18,c1A,c1C,c1E)
-	  #endif
+		,isrt2,r00,r08,r10                ,c01,c02    ,c04    ,c06    ,c08,c0A,c0C,c0E,c10,c12,c14,c16,c18,c1A,c1C,c1E)
 
 	#endif
 

@@ -66,90 +66,12 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				a,dit_i_offsets,
 				s1p00,	/* local scratch storage */
 				tmp,t_offsets
-			); tmp += 2;
+			); tmp += 2;	//<*** Radix-192 uses += 0x80 here! [similar diff for SSE2_RADIX_64_DIF calls] ***
 		}
 
 		/*...and now do 64 radix-15 transforms. See radix960_dit_pass1() for details on the oindex patterning.
 		In 64-bit mode we use the 16-register doubled-radix-15-DFT macros as detailed in the radix60 carry routine:
 		*/
-	  #if (OS_BITS == 32)
-		vec_dbl
-		*va0,*va1,*va2,*va3,*va4,*va5,*va6,*va7,*va8,*va9,*vaa,*vab,*vac,*vad,*vae,
-		*vc0,*vc1,*vc2,*vc3,*vc4,*vc5,*vc6,*vc7,*vc8,*vc9,*vca,*vcb,*vcc,*vcd,*vce;
-
-		tmp = r00;	tm2 = s1p00;	kk = 0x3c;	// Use kk as idx into phi[], so drop the trailing hex 0
-		for(l = 0; l < 64; l++) {
-		// NB: All offsets end up being shifted "one too many" bits leftward since
-		// we need vec_complex pointer offsets, whereas underlying pointers are vec_dbl:
-		// [0] here:
-			jp = ((64 - l)&0xf)<<1;	// Replace plo[] of scalar-double code with []<<1
-		// [1] here:
-			mask3 = (-(l > 0));
-			k0 = kk & mask3;
-		// [2] here:
-			// Remember: All indices /= 16 here:		Now get the resulting p* offsets: Replace phi[] of scalar-double code with []<<5
-			k1 = k0-0x10; k1 += (-(k1 < 0))&0x3c;		k0 = jp + (k0 << 5);
-			k2 = k1-0x10; k2 += (-(k2 < 0))&0x3c;		k1 = jp + (k1 << 5);
-			k3 = k2-0x10; k3 += (-(k3 < 0))&0x3c;		k2 = jp + (k2 << 5);
-			k4 = k3-0x10; k4 += (-(k4 < 0))&0x3c;		k3 = jp + (k3 << 5);
-			k5 = k4-0x10; k5 += (-(k5 < 0))&0x3c;		k4 = jp + (k4 << 5);
-			k6 = k5-0x10; k6 += (-(k6 < 0))&0x3c;		k5 = jp + (k5 << 5);
-			k7 = k6-0x10; k7 += (-(k7 < 0))&0x3c;		k6 = jp + (k6 << 5);
-			k8 = k7-0x10; k8 += (-(k8 < 0))&0x3c;		k7 = jp + (k7 << 5);
-			k9 = k8-0x10; k9 += (-(k9 < 0))&0x3c;		k8 = jp + (k8 << 5);
-			ka = k9-0x10; ka += (-(ka < 0))&0x3c;		k9 = jp + (k9 << 5);
-			kb = ka-0x10; kb += (-(kb < 0))&0x3c;		ka = jp + (ka << 5);
-			kc = kb-0x10; kc += (-(kc < 0))&0x3c;		kb = jp + (kb << 5);
-			kd = kc-0x10; kd += (-(kd < 0))&0x3c;		kc = jp + (kc << 5);
-			ke = kd-0x10; ke += (-(ke < 0))&0x3c;		kd = jp + (kd << 5);
-														ke = jp + (ke << 5);
-			// Set up for next loop execution:
-			kk -= 0x2c + ((l&0xf) == 0); //<*** further decr leading term whenever lo part passes thru 0
-			kk += (-(kk < 0))&0x3c;
-			// 1st set of Output ptrs:
-			vc0 = tm2+k0;
-			vc1 = tm2+k1;
-			vc2 = tm2+k2;
-			vc3 = tm2+k3;
-			vc4 = tm2+k4;
-			vc5 = tm2+k5;
-			vc6 = tm2+k6;
-			vc7 = tm2+k7;
-			vc8 = tm2+k8;
-			vc9 = tm2+k9;
-			vca = tm2+ka;
-			vcb = tm2+kb;
-			vcc = tm2+kc;
-			vcd = tm2+kd;
-			vce = tm2+ke;
-
-			// Input ptrs:
-			va0 = tmp     ;
-			va1 = tmp+0x02;
-			va2 = tmp+0x04;
-			va3 = tmp+0x06;
-			va4 = tmp+0x08;
-			va5 = tmp+0x0a;
-			va6 = tmp+0x0c;
-			va7 = tmp+0x0e;
-			va8 = tmp+0x10;
-			va9 = tmp+0x12;
-			vaa = tmp+0x14;
-			vab = tmp+0x16;
-			vac = tmp+0x18;
-			vad = tmp+0x1a;
-			vae = tmp+0x1c;
-
-			SSE2_RADIX_15_DIT(sse2_c3m1,sse2_cn1,
-				va0,va1,va2,va3,va4,va5,va6,va7,va8,va9,vaa,vab,vac,vad,vae,	/* Ins: r00 +... */
-				x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,	/* Scratch */
-				vc0,vc1,vc2,vc3,vc4,vc5,vc6,vc7,vc8,vc9,vca,vcb,vcc,vcd,vce		/* Outs: s1p00 +... */
-			);
-			tmp += 0x1e;	// advance ptr by 15 vec_cmplx [= 30 vec_dbl] elements
-		}
-
-	  #else	// (OS_BITS == 64):
-
 		vec_dbl
 		*va0,*va1,*va2,*va3,*va4,*va5,*va6,*va7,*va8,*va9,*vaa,*vab,*vac,*vad,*vae,
 		*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8,*vb9,*vba,*vbb,*vbc,*vbd,*vbe,
@@ -271,8 +193,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			);
 			tmp += 0x3c;	// advance ptr by 30 vec_cmplx [= 60 vec_dbl] elements
 		}
-
-	  #endif	// (OS_BITS == 32)
 
 	#else	/* !USE_SSE2 */
 
@@ -981,79 +901,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	#ifdef USE_SSE2
 
 	//...gather the needed data (960 64-bit complex) and do 64 radix-15 transforms:
-	  #if (OS_BITS == 32)
-
-		tmp = r00;	tm2 = s1p00;	kk = 0;
-		for(l = 0; l < 64; l++) {
-		// NB: All offsets end up being shifted "one too many" bits leftward since
-		// we need vec_complex pointer offsets, whereas underlying pointers are vec_dbl:
-		// [0] here:
-			jp = (l&0xf)<<1;	// p0,..,f, repeated 4x (Replace plo[] of scalar-double code with []<<1)
-		// [1],[2] here:
-			// Now get the remaining row terms and the resulting p* offsets:
-			k0 = kk;							// Now get the resulting shifted offsets, adding the low bits to each:
-			k1 = k0-4; k1 += (-(k1 < 0))&60;		k0 = (k0 << 5) + jp;
-			k2 = k1-4; k2 += (-(k2 < 0))&60;		k1 = (k1 << 5) + jp;
-			k3 = k2-4; k3 += (-(k3 < 0))&60;		k2 = (k2 << 5) + jp;
-			k4 = k3-4; k4 += (-(k4 < 0))&60;		k3 = (k3 << 5) + jp;
-			k5 = k4-4; k5 += (-(k5 < 0))&60;		k4 = (k4 << 5) + jp;
-			k6 = k5-4; k6 += (-(k6 < 0))&60;		k5 = (k5 << 5) + jp;
-			k7 = k6-4; k7 += (-(k7 < 0))&60;		k6 = (k6 << 5) + jp;
-			k8 = k7-4; k8 += (-(k8 < 0))&60;		k7 = (k7 << 5) + jp;
-			k9 = k8-4; k9 += (-(k9 < 0))&60;		k8 = (k8 << 5) + jp;
-			ka = k9-4; ka += (-(ka < 0))&60;		k9 = (k9 << 5) + jp;
-			kb = ka-4; kb += (-(kb < 0))&60;		ka = (ka << 5) + jp;
-			kc = kb-4; kc += (-(kc < 0))&60;		kb = (kb << 5) + jp;
-			kd = kc-4; kd += (-(kd < 0))&60;		kc = (kc << 5) + jp;
-			ke = kd-4; ke += (-(ke < 0))&60;		kd = (kd << 5) + jp;
-													ke = (ke << 5) + jp;
-			// Set up for next loop execution:
-			kk -= ((l & 0xf) != 0xf);
-			kk += (-(kk < 0))&60;
-			// 1st set of input ptrs:
-			vc0 = tm2+k0;
-			vc1 = tm2+k1;
-			vc2 = tm2+k2;
-			vc3 = tm2+k3;
-			vc4 = tm2+k4;
-			vc5 = tm2+k5;
-			vc6 = tm2+k6;
-			vc7 = tm2+k7;
-			vc8 = tm2+k8;
-			vc9 = tm2+k9;
-			vca = tm2+ka;
-			vcb = tm2+kb;
-			vcc = tm2+kc;
-			vcd = tm2+kd;
-			vce = tm2+ke;
-
-			// Output ptrs:
-			va0 = tmp     ;
-			va1 = tmp+0x02;
-			va2 = tmp+0x04;
-			va3 = tmp+0x06;
-			va4 = tmp+0x08;
-			va5 = tmp+0x0a;
-			va6 = tmp+0x0c;
-			va7 = tmp+0x0e;
-			va8 = tmp+0x10;
-			va9 = tmp+0x12;
-			vaa = tmp+0x14;
-			vab = tmp+0x16;
-			vac = tmp+0x18;
-			vad = tmp+0x1a;
-			vae = tmp+0x1c;
-
-			SSE2_RADIX_15_DIF(sse2_c3m1,sse2_cn1,
-				vc0,vc1,vc2,vc3,vc4,vc5,vc6,vc7,vc8,vc9,vca,vcb,vcc,vcd,vce,	/* Ins: s1p00 +... */
-				x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,	/* Scratch */
-				va0,va1,va2,va3,va4,va5,va6,va7,va8,va9,vaa,vab,vac,vad,vae		/* Outs: r00 +... */
-			);
-			tmp += 0x1e;	// advance ptr by 15 vec_cmplx [= 30 vec_dbl] elements
-		}
-
-	  #else	// (OS_BITS == 64):
-
 		tmp = r00;	tm2 = s1p00;	kk = 0;
 		for(l = 0; l < 64; l += 2) {
 		// NB: All offsets end up being shifted "one too many" bits leftward since
@@ -1166,8 +1013,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			);
 			tmp += 0x3c;	// advance ptr by 30 vec_cmplx [= 60 vec_dbl] elements
 		}
-
-	  #endif	// (OS_BITS == 32)
 
 		/*...and now do 15 radix-64 transforms, with index-perms as described in radix960_dif_pass1().
 		inputs of SSE2_RADIX16_DIT_0TWIDDLE from 30*vec_dbl - separated memlocs, same offsets as already set for DIT: */

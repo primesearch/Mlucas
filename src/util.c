@@ -26,7 +26,7 @@
 #ifdef TEST_SIMD
 	#include "dft_macro.h"
   #ifdef USE_SSE2
-	#include "sse2_macro.h"
+	#include "sse2_macro_gcc64.h"
 	#include "radix16_dif_dit_pass_asm.h"
   #endif
 #endif
@@ -1837,6 +1837,68 @@ void set_stacklimit_restart(char *argv[])
 #endif /* CPU_IS_X86  */
 }
 
+#ifdef CPU_IS_ARM_EABI
+
+// Apr 2018: Due to portability issues, replace the system-headers-based version of the "has advanced SIMD?"
+// check with one based on what amounts to "is the result of 'grep asimd /proc/cpuinfo' empty or not?".
+// Dec 2020: Apple M1 needs special handling, use the Clang/GCC-shared __ARM_NEON__ predefine to detect SIMD support:
+  #ifdef OS_TYPE_MACOSX
+
+	int has_asimd(void)
+	{
+	#ifdef __ARM_NEON
+		return (int)__ARM_NEON;
+	#else
+		return 0;
+	#endif
+	}
+
+  #elif 1
+
+	int has_asimd(void)
+	{
+		char in_line[STR_MAX_LEN];
+		FILE*fp = mlucas_fopen("/proc/cpuinfo", "r");
+		ASSERT(HERE, fp != 0x0, "/proc/cpuinfo file not found!");
+		while(fgets(in_line, STR_MAX_LEN, fp) != 0x0) {
+			if(strstr(in_line, "asimd") != 0)
+				return 1;
+		}
+		fclose(fp);	fp = 0x0;
+		return 0;
+	}
+
+  #elif __ARM_ARCH >= 8 // Rest of the preprocessor-conditional is the old version:
+
+	#error This system-header-based ARM-has-ASIMD code should not be used!
+	// Thanks to Laurent Desnogues for this:
+	#include <sys/auxv.h>
+	#include <asm/hwcap.h>
+	// Check for flag indicating CPU supports advanced SIMD instruction set.
+	// NB: For reasons unknown, when I tried putting this function def into get_cpuid.c as I do with the
+	// x86 has_sse2() and similar functions, everything compiled fine but got linker errors on the ARM,
+	// linker was unable to find the has_asimd() function. After dicking around with that problem for
+	// several hours (and hence, several hours too many), tried moving the def here, and it worked:
+	int has_asimd(void)
+	{
+		unsigned long hwcaps = getauxval(AT_HWCAP);
+	#ifndef HWCAP_ASIMD	// This is not def'd on pre-ASIMD platforms
+		const unsigned long HWCAP_ASIMD = 0;
+	#endif
+		if (hwcaps & HWCAP_ASIMD) {
+			return 1;
+		}
+		return 0;
+	}
+
+  #else	// Pre-v8 ARM does not have above asimd-headers, no point even looking for them
+
+	int has_asimd(void) { return 0; }
+
+  #endif	// #ifdef OS_TYPE_MACOSX
+
+#endif	// #ifdef CPU_IS_ARM_EABI
+
 /***The following 3 routines MUST BE CALLED IN THE SAME ORDER AS IN host_init()!***/
 
 void print_host_info(void)
@@ -1900,52 +1962,6 @@ void print_host_info(void)
 	printf("CPU Family = %s, OS = %s, %2d-bit Version, compiled with %s, Version %s.\n", CPU_NAME, OS_NAME, OS_BITS, COMPILER_NAME, COMPILER_VERSION);
 
 #ifdef CPU_IS_ARM_EABI
-
-	// Apr 2018: Due to portability issues, replace the system-headers-based version of the "has advanced SIMD?"
-	// check with one based on what amounts to "is the result of 'grep asimd /proc/cpuinfo' empty or not?":
-  #if 1
-
-	int has_asimd(void)
-	{
-		char in_line[STR_MAX_LEN];
-		FILE*fp = mlucas_fopen("/proc/cpuinfo", "r");
-		ASSERT(HERE, fp != 0x0, "/proc/cpuinfo file not found!");
-		while(fgets(in_line, STR_MAX_LEN, fp) != 0x0) {
-			if(strstr(in_line, "asimd") != 0)
-				return 1;
-		}
-		fclose(fp);	fp = 0x0;
-		return 0;
-	}
-
-  #elif __ARM_ARCH >= 8 // Rest of the preprocessor-conditional is the old version:
-
-	#error This system-header-based ARM-has-ASIMD code should not be used!
-	// Thanks to Laurent Desnogues for this:
-	#include <sys/auxv.h>
-	#include <asm/hwcap.h>
-	// Check for flag indicating CPU supports advanced SIMD instruction set.
-	// NB: For reasons unknown, when I tried putting this function def into get_cpuid.c as I do with the
-	// x86 has_sse2() and similar functions, everything compiled fine but got linker errors on the ARM,
-	// linker was unable to find the has_asimd() function. After dicking around with that problem for
-	// several hours (and hence, several hours too many), tried moving the def here, and it worked:
-	int has_asimd(void)
-	{
-		unsigned long hwcaps = getauxval(AT_HWCAP);
-	#ifndef HWCAP_ASIMD	// This is not def'd on pre-ASIMD platforms
-		const unsigned long HWCAP_ASIMD = 0;
-	#endif
-		if (hwcaps & HWCAP_ASIMD) {
-			return 1;
-		}
-		return 0;
-	}
-
-  #else	// Pre-v8 ARM does not have above asimd-headers, no point even looking for them
-
-	int has_asimd(void) { return 0; }
-
-  #endif
 
 	if(has_asimd()) {
 	#ifdef USE_ARM_V8_SIMD

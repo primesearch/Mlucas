@@ -101,7 +101,6 @@ void radix32_dif_pass(double a[], int n, struct complex rt0[], struct complex rt
 	#ifndef COMPILER_TYPE_GCC
 		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 	#endif
-		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
 		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
 		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
 			free((void *)sc_arr);	sc_arr=0x0;
@@ -1447,9 +1446,9 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;	/* Base address for discrete per-thread local stores */
 	// In || mode, only above base-pointer (shared by all threads) is static:
-	vec_dbl *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *one,*two,*sqrt2, *r00,*r10,*r20,*r30;
+	vec_dbl *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *one,*two,*sqrt2, *r00;
   #else
-	static vec_dbl *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *one,*two,*sqrt2, *r00,*r10,*r20,*r30;
+	static vec_dbl *isrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *one,*two,*sqrt2, *r00;
   #endif
 
 #else
@@ -1480,7 +1479,6 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 	#ifndef COMPILER_TYPE_GCC
 		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 	#endif
-		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
 		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
 		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
 			free((void *)sc_arr);	sc_arr=0x0;
@@ -1525,9 +1523,6 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
 		}
 		#else
 			r00   = sc_ptr;
-			r10   = sc_ptr + 0x10;
-			r20   = sc_ptr + 0x20;
-			r30   = sc_ptr + 0x30;
 			isrt2 = sc_ptr + 0x40;
 			cc0	  = sc_ptr + 0x41;
 			ss0	  = sc_ptr + 0x42;
@@ -1552,11 +1547,8 @@ void radix32_dit_pass(double a[], int n, struct complex rt0[], struct complex rt
   #ifdef MULTITHREAD
 	ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
 	r00 = __r0 + thr_id*0x90;
-	r10 = r00 + 0x10;
-	r20 = r00 + 0x20;
-	r30 = r00 + 0x30;
 	isrt2 = r00 + 0x40;
-	cc0	= r00 + 0x41;
+	cc0	= isrt2 + 1;
   #endif
 
 #endif	// USE_SSE2 ?
@@ -2303,7 +2295,7 @@ if(1) {
 	/* Gather needed data (32 64-bit complex, i.e. 64 64-bit reals) and do first set of four length-8 transforms,
 		processing sincos data in bit-reversed order.	*/
 		add0 = &a[j1];
-		SSE2_RADIX32_DIT_TWIDDLE(add0,p01,p02,p03,p04,p05,p06,p07,p08,p10,p18,r00,r10,r20,r30,isrt2)
+		SSE2_RADIX32_DIT_TWIDDLE(add0,p01,p02,p03,p04,p05,p06,p07,p08,p10,r00,isrt2)
 
 	  #if 0
 	  if((cc0 + 0x26)->d0 != 1.0) {	// Move debug to first case w/nontrivial twiddles

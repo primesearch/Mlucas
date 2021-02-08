@@ -1,0 +1,244 @@
+/*******************************************************************************
+*                                                                              *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
+*                                                                              *
+*  This program is free software; you can redistribute it and/or modify it     *
+*  under the terms of the GNU General Public License as published by the       *
+*  Free Software Foundation; either version 2 of the License, or (at your      *
+*  option) any later version.                                                  *
+*                                                                              *
+*  This program is distributed in the hope that it will be useful, but WITHOUT *
+*  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or       *
+*  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for   *
+*  more details.                                                               *
+*                                                                              *
+*  You should have received a copy of the GNU General Public License along     *
+*  with this program; see the file GPL.txt.  If not, you may view one at       *
+*  http://www.fsf.org/licenses/licenses.html, or obtain one by writing to the  *
+*  Free Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA     *
+*  02111-1307, USA.                                                            *
+*                                                                              *
+*******************************************************************************/
+
+#include "qfcheb.h"
+#include "align.h"
+#include "qfloat.h"
+
+char cbuf[STR_MAX_LEN];
+
+// Generate Chebyshev approximation to f(x) = sin(x) on x in [-1,+1]
+int 	main(int argc, char *argv[])
+{
+#ifdef macintosh
+	argc = ccommand(&argv);			/* Macintosh CW */
+#endif
+	char stFlag[STR_MAX_LEN], *cptr = 0x0;
+	int i,j,k,n=0, nargs = 1, scrnFlag;
+	if(argc != 3) {
+		fprintf(stderr,"*** ERROR: command-line must be of form -n [int]\n");
+		return 1;
+	}
+	strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
+	if(!STREQ(stFlag,"-n")) {
+		fprintf(stderr,"*** ERROR: Illegal command-line option %s ... -n is only supported flag\n", stFlag);
+		return 1;
+	}
+	strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
+	n = (int)strtol(stFlag, &cptr, 10);
+	ASSERT(HERE, IS_EVEN(n), "For silly reasons, n must be even!");
+	fprintf(stderr,"Using n = %d\n",n);
+
+	double maxerr, derr,xmaxerr;
+	struct complex *c_ptmp = 0x0;
+	// c = Cheb-coeffs, d = corresponding raw-monomial coeffs, t = Tn(x):
+	struct qfloat qfunc,qerr,qn,qninv,qpin,qx,q2x,qy,qscale,qscinv,qt,qk, *c = 0x0, *d = 0x0, *t = 0x0;
+	int64 *xpow_mults = 0x0; xpow_mults = ALLOC_INT64(xpow_mults, n*n);	// Coeffs of various powers of x in the Tn
+	// Alloc basis and coeffs (Cheb-basis and raw-monomials) arrays, add a pad element to each to allow for 1st neglected basis function:
+	c_ptmp = ALLOC_COMPLEX(c_ptmp, 3*n+2);	c = (struct qfloat *)ALIGN_COMPLEX(c_ptmp); d = c + n + 1; t = d + n + 1;
+	qn = i64_to_q((int64)n);
+	qninv = qfinv(qn);		// 1/n
+	qpin = qfmul(QPI, qninv);	// Pi/n
+	qninv = qfmul_pow2(qninv, 2);	// 4/n
+	// Scale factor for mapping target-function half-interval y in [0,ymax] to Chebyshev half-interval x in [0,+1]:
+	qscale = QPI4TH;
+	qscinv = qfinv(qscale);
+
+	/*****************************************************************/
+	/***************** Cos(y) for y in [-Pi/4,Pi/4]: *****************/
+	/*****************************************************************/
+	// cos(x) an even function so only need even-order Tj. Using same symmetry we only need the half-interval x in [0,+1]:
+	fprintf(stderr,"Computing Chebyshev-approximation to Cos(y) for |y| <= %18.16f, using first %d T_j(x):\n",qfdbl(qscale),n);
+	t[0] = QONE;	// The DC term
+	for(j = 0; j < n; j++) { c[j] = QZRO; }
+	for(i = 0, qk = QHALF; i < (n>>1); i++) {
+		qx = qfmul(qk,qpin);	// theta = (k + 1/2)*Pi/n
+		qx = qfcos(qx);		// x = cos(theta)
+		qy = qfmul(qx,qscale);
+		qfunc = qfcos(qy);	// f(x) = cos(y(x)) = cos(x*scale)
+		q2x = qfmul_pow2(qx,1);	// 2x
+	//	fprintf(stderr,"x[%2d] = %20.15f, cos(x) = %20.15f\n",i,qfdbl(qx),qfdbl(qfunc));
+		c[0] = qfadd(c[0],qfmul(qfunc,t[0]));	// cj += f(x)*Tj(x)
+		t[1] = qx;	// T1 done separately to complete init of 3-term recurrence
+		for(j = 2; j < n; j+=2) {
+			t[j] = qfsub(qfmul(q2x,t[j-1]), t[j-2]);	// Next odd  term: T[j] = 2.x.T[j-1] - T[j-2]
+			t[j+1] = qfsub(qfmul(q2x,t[j]), t[j-1]);	// Next even term: T[j+1] = 2.x.T[j] - T[j-1]
+			c[j] = qfadd(c[j],qfmul(qfunc,t[j]));	// cj += f(x)*Tj(x)
+		}
+		qk = qfadd(qk, QONE);	// k += 1
+	}
+	fprintf(stderr,"Chebyshev basis function coefficients, as double and [exact uint64 bitfield]:\n");
+	for(j = 0; j < n; j+=2) {
+		c[j] = qfmul(qninv,c[j]);
+		if(!j) c[0] = qfmul_pow2(c[0],-1);	// DC term normalizer is 1/n, half of the 2/n used for the remaining coefficients:
+		fprintf(stderr,"c[%2d] = %25.15e [0x%16llx]\n",j,qfdbl(c[j]),qfdbl_as_uint64(c[j]));	// (4/n)*[half-interval sum]
+	}
+
+	// Convert Cheb-coeffs to ones of underlying raw monomials. First init the x-powers coefficients array,
+	// treated as a 2D array with each T-poly having n entries, even though only the highest-term one, Tn-1 needs that many:
+	for(i = 0; i < n; i++) { d[i] = QZRO; }
+	for(i = 0; i < n*n; i++) { xpow_mults[i] = 0ull; }	// init = 0
+	xpow_mults[  0] = 1ull;	// T0 = 1 = 1.x^0
+	xpow_mults[n+1] = 1ull;	// T1 = x = 0.x^0 + 1.x^1
+	for(i = 2; i < n; i++) {
+		j = i*n;	// Ti's coeffs start at array elt i*n
+		for(k = j; k < (j+i); k++) { xpow_mults[k+1]  = 2*xpow_mults[k-n  ]; } 	// T[j] = 2.x.T[j-1] ...
+		for(k = j; k < (j+i); k++) { xpow_mults[k  ] -=   xpow_mults[k-2*n]; } 	// T[j] = 2.x.T[j-1] - T[j-2]
+		// Sanity-check each T's coeffs that they sum to 1:
+		uint64 csum = 0ull;
+		//fprintf(stderr,"Coeffs of T[%2d] = ",i);
+		for(k = j; k < (j+i+1); k++) {
+			csum += xpow_mults[k];
+		//	fprintf(stderr,"%lld,",xpow_mults[k]);
+		}// fprintf(stderr,"\n");
+		ASSERT(HERE, csum == 1ull, "Chebyshev basis function coefficients fail to sum = 1!");
+	}
+	// Now sum the weighted expansion coefficients to get the resulting raw-monomial coefficients:
+	for(i = 0; i < n; i++) { d[i] = QZRO; }
+	for(i = 0; i < n; i++) {	// This loop still over Cheb-basis index!
+		j = i*n;	// Ti's coeffs start at array elt i*n
+		// The coeffs of the various monomials terms the current (i)th basis function get weighted-added to the respective monomial-coeff accumulators:
+		qt = QONE;	// Need to multiply each power of x by 1/(scale factor) raised to same power
+		for(k = j; k < (j+i+1); k++) {
+		//	fprintf(stderr,"d[%2d] += %lld * %25.15e:\n",k-j,xpow_mults[k],qfdbl(c[i]));
+			d[k-j] = qfadd(d[k-j], qfmul(qt,qfmul(i64_to_q(xpow_mults[k]),c[i])));
+			qt = qfmul(qt,qscinv);	// up-multiply inverse coordinate scaling in preparation for next loop pass
+		}
+	}
+	fprintf(stderr,"Raw polynomial coefficients, as double and [exact uint64 bitfield]:\n");
+	for(j = 0; j < n; j++) {
+		if(qfcmpne(d[j],QZRO)) fprintf(stderr,"d[%2d] = %25.15e [0x%16llx]\n",j,qfdbl(d[j]),qfdbl_as_uint64(d[j]));
+	}
+
+	// Compute maxerr over [0,1], incrementing by 10^6:
+	maxerr = 0;
+	qx = QZRO;	qn = qfdiv(qscale,i64_to_q(1000000ull));
+	for(i = 0; i < 1000001; i++) {
+		q2x = qfmul_pow2(qx,1);	// 2x
+		qy = qfmul(qx,qscale);
+		qfunc = qfcos(qy);	// f(x) = cos(y(x)) = cos(x*scale)
+		qt = c[0];			// Init the sum of cj*Tj at the current x-value ... nonzero here, unlike the sin() case
+		t[1] = qx;	// T1 done separately to complete init of 3-term recurrence
+		for(j = 2; j < n; j+=2) {
+			t[j] = qfsub(qfmul(q2x,t[j-1]), t[j-2]);	// Next odd  term: T[j] = 2.x.T[j-1] - T[j-2]
+			t[j+1] = qfsub(qfmul(q2x,t[j]), t[j-1]);	// Next even term: T[j+1] = 2.x.T[j] - T[j-1]
+			qt = qfadd(qt,qfmul(c[j],t[j]));
+		}
+		qerr = qfabs(qfsub(qfunc,qt)); derr = qfdbl(qerr);
+		if(derr > maxerr) {
+			maxerr = derr;	xmaxerr = qfdbl(qx);
+		//	fprintf(stderr,"i = %d: at x = %25.15e, maxerr = %25.15e\n",i,qfdbl(qx),derr);
+		}
+		qx = qfadd(qx,qn);	// Increment x
+	}
+	fprintf(stderr,"maxerr = %25.15e at x = %20.15f\n",maxerr,xmaxerr);
+
+	/*****************************************************************/
+	/***************** Sin(y) for y in [-Pi/4,Pi/4]: *****************/
+	/*****************************************************************/
+	// sin(x) an odd function so only need odd-order Tj. Using same symmetry we only need the half-interval x in [0,+1]:
+	fprintf(stderr,"Computing Chebyshev-approximation to Sin(y) for |y| <= %18.16f, using first %d T_j(x):\n",qfdbl(qscale),n);
+	t[0] = QONE;	// The DC term - with a few further optimizations we wouldn't need this for the Sin(x) half of the run
+	for(j = 0; j < n; j++) { c[j] = QZRO; }
+	for(i = 0, qk = QHALF; i < (n>>1); i++) {
+		qx = qfmul(qk,qpin);	// theta = (k + 1/2)*Pi/n
+		qx = qfsin(qx);		// x = sin(theta)
+		qy = qfmul(qx,qscale);
+		qfunc = qfsin(qy);	// f(x) = sin(y(x)) = sin(x*scale)
+		q2x = qfmul_pow2(qx,1);	// 2x
+	//	fprintf(stderr,"x[%2d] = %20.15f, sin(x) = %20.15f\n",i,qfdbl(qx),qfdbl(qfunc));
+		t[1] = qx;	// T1 done separately to complete init of 3-term recurrence
+		for(j = 1; j < n; j+=2) {
+			if(j > 1) t[j] = qfsub(qfmul(q2x,t[j-1]), t[j-2]);	// Next odd  term: T[j] = 2.x.T[j-1] - T[j-2]
+					t[j+1] = qfsub(qfmul(q2x,t[j  ]), t[j-1]);	// Next even term: T[j+1] = 2.x.T[j] - T[j-1]
+			c[j] = qfadd(c[j],qfmul(qfunc,t[j]));	// cj += f(x)*Tj(x)
+		}
+		qk = qfadd(qk, QONE);	// k += 1
+	}
+	fprintf(stderr,"Chebyshev basis function coefficients, as double and [exact uint64 bitfield]:\n");
+	for(j = 1; j < n; j+=2) {
+		c[j] = qfmul(qninv,c[j]);
+		fprintf(stderr,"c[%2d] = %25.15e [0x%16llx]\n",j,qfdbl(c[j]),qfdbl_as_uint64(c[j]));	// (4/n)*[half-interval sum]
+	}
+
+	// Convert Cheb-coeffs to ones of underlying raw monomials. First init the x-powers coefficients array,
+	// treated as a 2D array with each T-poly having n entries, even though only the highest-term one, Tn-1 needs that many:
+	for(i = 0; i < n; i++) { d[i] = QZRO; }
+	for(i = 0; i < n*n; i++) { xpow_mults[i] = 0ull; }	// init = 0
+	xpow_mults[  0] = 1ull;	// T0 = 1 = 1.x^0
+	xpow_mults[n+1] = 1ull;	// T1 = x = 0.x^0 + 1.x^1
+	for(i = 2; i < n; i++) {
+		j = i*n;	// Ti's coeffs start at array elt i*n
+		for(k = j; k < (j+i); k++) { xpow_mults[k+1]  = 2*xpow_mults[k-n  ]; } 	// T[j] = 2.x.T[j-1] ...
+		for(k = j; k < (j+i); k++) { xpow_mults[k  ] -=   xpow_mults[k-2*n]; } 	// T[j] = 2.x.T[j-1] - T[j-2]
+		// Sanity-check each T's coeffs that they sum to 1:
+		uint64 csum = 0ull;
+		//fprintf(stderr,"Coeffs of T[%2d] = ",i);
+		for(k = j; k < (j+i+1); k++) {
+			csum += xpow_mults[k];
+		//	fprintf(stderr,"%lld,",xpow_mults[k]);
+		}// fprintf(stderr,"\n");
+		ASSERT(HERE, csum == 1ull, "Chebyshev basis function coefficients fail to sum = 1!");
+	}
+	// Now sum the weighted expansion coefficients to get the resulting raw-monomial coefficients:
+	for(i = 0; i < n; i++) { d[i] = QZRO; }
+	for(i = 0; i < n; i++) {	// This loop still over Cheb-basis index!
+		j = i*n;	// Ti's coeffs start at array elt i*n
+		// The coeffs of the various monomials terms the current (i)th basis function get weighted-added to the respective monomial-coeff accumulators:
+		qt = QONE;	// Need to multiply each power of x by 1/(scale factor) raised to same power
+		for(k = j; k < (j+i+1); k++) {
+		//	fprintf(stderr,"d[%2d] += %lld * %25.15e:\n",k-j,xpow_mults[k],qfdbl(c[i]));
+			d[k-j] = qfadd(d[k-j], qfmul(qt,qfmul(i64_to_q(xpow_mults[k]),c[i])));
+			qt = qfmul(qt,qscinv);	// up-multiply inverse coordinate scaling in preparation for next loop pass
+		}
+	}
+	fprintf(stderr,"Raw polynomial coefficients, as double and [exact uint64 bitfield]:\n");
+	for(j = 0; j < n; j++) {
+		if(qfcmpne(d[j],QZRO)) fprintf(stderr,"d[%2d] = %25.15e [0x%16llx]\n",j,qfdbl(d[j]),qfdbl_as_uint64(d[j]));
+	}
+
+	// Compute maxerr over [0,1], incrementing by 10^6:
+	maxerr = 0;
+	qx = QZRO;	qn = qfdiv(qscale,i64_to_q(1000000ull));
+	for(i = 0; i < 1000001; i++) {
+		q2x = qfmul_pow2(qx,1);	// 2x
+		qy = qfmul(qx,qscale);
+		qfunc = qfsin(qy);	// f(x) = sin(y(x)) = sin(x*scale)
+		qt = QZRO;			// Init the sum of cj*Tj at the current x-value
+		t[1] = qx;	// T1 done separately to complete init of 3-term recurrence
+		for(j = 1; j < n; j+=2) {
+			if(j > 1) t[j] = qfsub(qfmul(q2x,t[j-1]), t[j-2]);	// Next odd  term: T[j] = 2.x.T[j-1] - T[j-2]
+					t[j+1] = qfsub(qfmul(q2x,t[j  ]), t[j-1]);	// Next even term: T[j+1] = 2.x.T[j] - T[j-1]
+			qt = qfadd(qt,qfmul(c[j],t[j]));
+		}
+		qerr = qfabs(qfsub(qfunc,qt)); derr = qfdbl(qerr);
+		if(derr > maxerr) {
+			maxerr = derr;	xmaxerr = qfdbl(qx);
+		//	fprintf(stderr,"i = %d: at x = %25.15e, maxerr = %25.15e\n",i,qfdbl(qx),derr);
+		}
+		qx = qfadd(qx,qn);	// Increment x
+	}
+	fprintf(stderr,"maxerr = %25.15e at x = %20.15f\n",maxerr,xmaxerr);
+
+	return 0;
+}
+

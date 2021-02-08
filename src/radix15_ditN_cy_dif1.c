@@ -77,9 +77,8 @@ int radix15_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	col=co2=co3=ii0=ii1=ii2=ii3=ii4=ii5=ii6=ii7=ii8=ii9=ii10=ii11=ii12=ii13=ii14=-1;
 
 	if(RES_SHIFT) {
-	//	WARN(HERE, "CY routines with radix < 16 do not support shifted residues!", "", 1);
-	//	return(ERR_ASSERT);
-		ASSERT(HERE, 0,"CY routines with radix < 16 do not support shifted residues!");
+		WARN(HERE, "CY routines with radix < 16 do not support shifted residues!", "", 1);
+		return(ERR_ASSERT);
 	}
 
 	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
@@ -280,6 +279,12 @@ for(outer=0; outer <= 1; outer++)
 			j2 = j1+RE_IM_STRIDE;
 
 	// Gather the needed data (15 64-bit complex, i.e. 30 64-bit reals) and do five radix-3 transforms...
+		#if 1
+		RADIX_15_DIT(
+			a[j1],a[j2],a[j1+p1],a[j2+p1],a[j1+p2],a[j2+p2],a[j1+p3],a[j2+p3],a[j1+p4],a[j2+p4],a[j1+p5],a[j2+p5],a[j1+p6],a[j2+p6],a[j1+p7],a[j2+p7],a[j1+p8],a[j2+p8],a[j1+p9],a[j2+p9],a[j1+p10],a[j2+p10],a[j1+p11],a[j2+p11],a[j1+p12],a[j2+p12],a[j1+p13],a[j2+p13],a[j1+p14],a[j2+p14],
+			aj1p0r,aj1p0i,aj1p1r,aj1p1i,aj1p2r,aj1p2i,aj1p3r,aj1p3i,aj1p4r,aj1p4i,aj1p5r,aj1p5i,aj1p6r,aj1p6i,aj1p7r,aj1p7i,aj1p8r,aj1p8i,aj1p9r,aj1p9i,aj1p10r,aj1p10i,aj1p11r,aj1p11i,aj1p12r,aj1p12i,aj1p13r,aj1p13i,aj1p14r,aj1p14i
+		)
+		#else
 		/* ...Block 1:	*/
 			t0 =a[j1    ];	t1 =a[j2    ];
 			t2 =a[j1+p2 ];	t3 =a[j2+p2 ];
@@ -408,6 +413,7 @@ for(outer=0; outer <= 1; outer++)
 			aj1p13r=t16-t29;		aj1p13i=t17+t28;
 			aj1p7r =t16+t29;		aj1p7i =t17-t28;
 			aj1p1r =t10+t23;		aj1p1i =t11-t22;
+		#endif
 
 	/*...Now do the carries. Since the outputs would
 		normally be getting dispatched to 15 separate blocks of the A-array, we need 15 separate carries.	*/
@@ -468,10 +474,15 @@ for(outer=0; outer <= 1; outer++)
 	/* The radix-15 DIF pass is here: */
 
 		// Gather the needed data (5 64-bit complex, i.e. 10 64-bit reals) and do the first set of three length-5 transforms...
-		#if PFETCH
-		add0 = &a[j1];
-		prefetch_p_doubles(add0);
-		#endif
+		#if 1
+		RADIX_15_DIF(
+			aj1p0r,aj1p0i,aj1p1r,aj1p1i,aj1p2r,aj1p2i,aj1p3r,aj1p3i,aj1p4r,aj1p4i,aj1p5r,aj1p5i,aj1p6r,aj1p6i,aj1p7r,aj1p7i,aj1p8r,aj1p8i,aj1p9r,aj1p9i,aj1p10r,aj1p10i,aj1p11r,aj1p11i,aj1p12r,aj1p12i,aj1p13r,aj1p13i,aj1p14r,aj1p14i,
+			a[j1],a[j2],a[j1+p1],a[j2+p1],a[j1+p2],a[j2+p2],a[j1+p3],a[j2+p3],a[j1+p4],a[j2+p4],a[j1+p5],a[j2+p5],a[j1+p6],a[j2+p6],a[j1+p7],a[j2+p7],a[j1+p8],a[j2+p8],a[j1+p9],a[j2+p9],a[j1+p10],a[j2+p10],a[j1+p11],a[j2+p11],a[j1+p12],a[j2+p12],a[j1+p13],a[j2+p13],a[j1+p14],a[j2+p14]
+		)
+		#else
+		  #if PFETCH
+			add0 = &a[j1]; prefetch_p_doubles(add0);
+		  #endif
 		/* ...Block 1:	*/
 			t0 =aj1p0r;				t1 =aj1p0i;
 			t2 =aj1p12r;			t3 =aj1p12i;
@@ -482,10 +493,9 @@ for(outer=0; outer <= 1; outer++)
 			rt =aj1p6r;				it =aj1p6i;
 			t8 =t4 -rt;				t9 =t5 -it;
 			t4 =t4 +rt;				t5 =t5 +it;
-		#if PFETCH
-		addr = add0+p1;
-		prefetch_p_doubles(addr);
-		#endif
+		  #if PFETCH
+			addr = add0+p1; prefetch_p_doubles(addr);
+		  #endif
 			rt = t2+t4;				it = t3+t5;
 			t0 = t0+rt;				t1 = t1+it;
 			rt = t0+cn1*rt;			it = t1+cn1*it;
@@ -493,10 +503,9 @@ for(outer=0; outer <= 1; outer++)
 			t2 = rt+t4;				t3 = it+t5;
 			t4 = rt-t4;				t5 = it-t5;
 			rt = ss3*(t6-t8);			it = ss3*(t7-t9);
-		#if PFETCH
-		addr = add0+p2;
-		prefetch_p_doubles(addr);
-		#endif
+		  #if PFETCH
+			addr = add0+p2; prefetch_p_doubles(addr);
+		  #endif
 			t8 = rt+sn1*t8;			t9 = it+sn1*t9;
 			t6 = rt-sn2*t6;			t7 = it-sn2*t7;
 			rt=t8;				it=t9;
@@ -505,10 +514,9 @@ for(outer=0; outer <= 1; outer++)
 			rt=t6;				it=t7;
 			t6 =t4+it;				t7 =t5-rt;	/* <==prefer these to be stored in t6,7	*/
 			t4 =t4-it;				t5 =t5+rt;
-		#if PFETCH
-		addr = add0+p3;
-		prefetch_p_doubles(addr);
-		#endif
+		  #if PFETCH
+			addr = add0+p3; prefetch_p_doubles(addr);
+		  #endif
 		/* ...Block 2:	*/
 			t10=aj1p10r;			t11=aj1p10i;
 			t12=aj1p7r;				t13=aj1p7i;
@@ -519,10 +527,9 @@ for(outer=0; outer <= 1; outer++)
 			rt =aj1p1r;				it =aj1p1i;
 			t18=t14 -rt;			t19=t15 -it;
 			t14=t14 +rt;			t15=t15 +it;
-		#if PFETCH
-		addr = add0+p4;
-		prefetch_p_doubles(addr);
-		#endif
+		  #if PFETCH
+			addr = add0+p4; prefetch_p_doubles(addr);
+		  #endif
 			rt = t12+t14;			it = t13+t15;
 			t10= t10+rt;			t11= t11+it;
 			rt = t10+cn1*rt;			it = t11+cn1*it;
@@ -530,10 +537,9 @@ for(outer=0; outer <= 1; outer++)
 			t12= rt+t14;			t13= it+t15;
 			t14= rt-t14;			t15= it-t15;
 			rt = ss3*(t16-t18);			it = ss3*(t17-t19);
-		#if PFETCH
-		addr = add0+p5;
-		prefetch_p_doubles(addr);
-		#endif
+		  #if PFETCH
+			addr = add0+p5; prefetch_p_doubles(addr);
+		  #endif
 			t18= rt+sn1*t18;			t19= it+sn1*t19;
 			t16= rt-sn2*t16;			t17= it-sn2*t17;
 			rt =t18;				it =t19;
@@ -542,10 +548,9 @@ for(outer=0; outer <= 1; outer++)
 			rt =t16;				it =t17;
 			t16=t14+it;				t17=t15-rt;
 			t14=t14-it;				t15=t15+rt;
-		#if PFETCH
-		addr = add0+p6;
-		prefetch_p_doubles(addr);
-		#endif
+		  #if PFETCH
+			addr = add0+p6; prefetch_p_doubles(addr);
+		  #endif
 		/* ...Block 3:	*/
 			t20=aj1p5r;				t21=aj1p5i;
 			t22=aj1p2r;				t23=aj1p2i;
@@ -556,10 +561,9 @@ for(outer=0; outer <= 1; outer++)
 			rt =aj1p11r;			it =aj1p11i;
 			t28=t24 -rt;			t29=t25 -it;
 			t24=t24 +rt;			t25=t25 +it;
-		#if PFETCH
-		addr = add0+p7;
-		prefetch_p_doubles(addr);
-		#endif
+		  #if PFETCH
+			addr = add0+p7; prefetch_p_doubles(addr);
+		  #endif
 			rt = t22+t24;			it = t23+t25;
 			t20= t20+rt;			t21= t21+it;
 			rt = t20+cn1*rt;			it = t21+cn1*it;
@@ -567,10 +571,9 @@ for(outer=0; outer <= 1; outer++)
 			t22= rt+t24;			t23= it+t25;
 			t24= rt-t24;			t25= it-t25;
 			rt = ss3*(t26-t28);			it = ss3*(t27-t29);
-		#if PFETCH
-		addr = add0+p8;
-		prefetch_p_doubles(addr);
-		#endif
+		  #if PFETCH
+			addr = add0+p8; prefetch_p_doubles(addr);
+		  #endif
 			t28= rt+sn1*t28;			t29= it+sn1*t29;
 			t26= rt-sn2*t26;			t27= it-sn2*t27;
 			rt =t28;				it =t29;
@@ -579,10 +582,9 @@ for(outer=0; outer <= 1; outer++)
 			rt =t26;				it =t27;
 			t26=t24+it;				t27=t25-rt;
 			t24=t24-it;				t25=t25+rt;
-		#if PFETCH
-		addr = add0+p9;
-		prefetch_p_doubles(addr);
-		#endif
+		  #if PFETCH
+			addr = add0+p9; prefetch_p_doubles(addr);
+		  #endif
 	// ...and now do five radix-3 transforms:
 		/* ...Block 1:	*/
 			rt =t20;			it =t21;
@@ -594,10 +596,9 @@ for(outer=0; outer <= 1; outer++)
 			rt =s*t20;			it =s*t21;
 			a[j1+p1]=t10-it;		a[j2+p1]=t11+rt;
 			a[j1+p2]=t10+it;		a[j2+p2]=t11-rt;
-		#if PFETCH
-		addr = add0+p10;
-		prefetch_p_doubles(addr);
-		#endif
+		  #if PFETCH
+			addr = add0+p10; prefetch_p_doubles(addr);
+		  #endif
 		/* ...Block 2:	*/
 			rt =t22;			it =t23;
 			t22=t12-rt;			t23=t13-it;
@@ -608,10 +609,9 @@ for(outer=0; outer <= 1; outer++)
 			rt =s*t22;			it =s*t23;
 			a[j1+p14]=t12-it;		a[j2+p14]=t13+rt;
 			a[j1+p12]=t12+it;		a[j2+p12]=t13-rt;
-		#if PFETCH
-		addr = add0+p11;
-		prefetch_p_doubles(addr);
-		#endif
+		  #if PFETCH
+			addr = add0+p11; prefetch_p_doubles(addr);
+		  #endif
 		/* ...Block 3:	*/
 			rt =t24;			it =t25;
 			t24=t14-rt;			t25=t15-it;
@@ -622,10 +622,9 @@ for(outer=0; outer <= 1; outer++)
 			rt =s*t24;			it =s*t25;
 			a[j1+p10]=t14-it;		a[j2+p10]=t15+rt;
 			a[j1+p11]=t14+it;		a[j2+p11]=t15-rt;
-		#if PFETCH
-		addr = add0+p12;
-		prefetch_p_doubles(addr);
-		#endif
+		  #if PFETCH
+			addr = add0+p12; prefetch_p_doubles(addr);
+		  #endif
 		/* ...Block 4:	*/
 			rt =t26;			it =t27;
 			t26=t16-rt;			t27=t17-it;
@@ -636,10 +635,9 @@ for(outer=0; outer <= 1; outer++)
 			rt =s*t26;			it =s*t27;
 			a[j1+p6 ]=t16-it;		a[j2+p6 ]=t17+rt;
 			a[j1+p7 ]=t16+it;		a[j2+p7 ]=t17-rt;
-		#if PFETCH
-		addr = add0+p13;
-		prefetch_p_doubles(addr);
-		#endif
+		  #if PFETCH
+			addr = add0+p13; prefetch_p_doubles(addr);
+		  #endif
 		/* ...Block 5:	*/
 			rt =t28;			it =t29;
 			t28=t18-rt;			t29=t19-it;
@@ -650,21 +648,18 @@ for(outer=0; outer <= 1; outer++)
 			rt =s*t28;			it =s*t29;
 			a[j1+p5 ]=t18-it;		a[j2+p5 ]=t19+rt;
 			a[j1+p3 ]=t18+it;		a[j2+p3 ]=t19-rt;
-		#if PFETCH
-		addr = add0+p14;
-		prefetch_p_doubles(addr);
+		  #if PFETCH
+			addr = add0+p14; prefetch_p_doubles(addr);
+		  #endif
 		#endif
 		}
 
-		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
-		{
+		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
 			jstart += nwt;
 			jhi    += nwt;
-
 			col += 15;
 			co3 -= 15;
 		}
-
 	}
 
 	if(full_pass) {

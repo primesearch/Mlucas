@@ -56,9 +56,6 @@
 	#error Currently only LOACC carry-mode supported in AVX-512 builds!
   #endif
 #endif
-#if defined(LOACC) && (OS_BITS == 32)
-	#error 32-bit mode only supports the older HIACC carry macros!
-#endif
 
 #ifndef PFETCH_DIST
   #ifdef USE_AVX512
@@ -85,7 +82,7 @@
 	const int radix352_creals_in_local_store = 0x7dc;	// (half_arr_offset + RADIX) + 40 (=0x28) and round up to nearest multiple of 4
   #endif
 
-	#include "sse2_macro.h"
+	#include "sse2_macro_gcc64.h"
 	#include "radix11_sse_macro.h"
 	#include "radix32_ditN_cy_dif1_asm.h"
 
@@ -176,18 +173,6 @@ int radix352_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 #ifdef USE_SSE2
 	struct qfloat qtheta,qs,cq0,cq1,cq2,cq3,cq4,sq0,sq1,sq2,sq3,sq4;
-	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
-	// lg(sizeof(vec_dbl)):
-  #ifdef USE_AVX512
-	const int l2_sz_vd = 6;
-  #elif defined(USE_AVX)
-	const int l2_sz_vd = 5;
-  #else
-	const int l2_sz_vd = 4;
-  #endif
-#else
-	const int sz_vd = sizeof(double), sz_vd_m1 = sz_vd-1;
-	const int l2_sz_vd = 3;
 #endif
   #ifdef LOACC
 	static double wts_mult[2], inv_mult[2];	// Const wts-multiplier and 2*(its multiplicative inverse)
@@ -233,11 +218,12 @@ int radix352_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	// Need storage for 2 circular-shifts perms of a basic 11-vector, with shift count in [0,10] that means 2*21 elts:
 	static int dif_offsets[RADIX], dif_p20_cperms[42], dif_p20_lo_offset[32], dif_phi[ODD_RADIX];
 	static int dit_offsets[RADIX], dit_p20_cperms[42], dit_p20_lo_offset[32], dit_phi[ODD_RADIX];
+	const uint32 dft11_offs[11] = {0,0x40<<L2_SZ_VD,0x80<<L2_SZ_VD,0xc0<<L2_SZ_VD,0x100<<L2_SZ_VD,0x140<<L2_SZ_VD,0x180<<L2_SZ_VD,0x1c0<<L2_SZ_VD,0x200<<L2_SZ_VD,0x240<<L2_SZ_VD,0x280<<L2_SZ_VD}, *dft11_offptr = &(dft11_offs[0]);
 #endif
 	static double radix_inv, n2inv;
 // FMA-based SIMD or (scalar-double) + (LO_ADD = 1 in masterdefs.h)use these sincos constants:
 #if (defined(USE_AVX2) && DFT_11_FMA) || defined(USE_ARM_V8_SIMD) || (!defined(USE_SSE2) && defined(LO_ADD))
-  #warning Using FMA-heavy lo-add 11-DFT
+  #warning Using FMA-heavy / lo-add 11-DFT
 	// FMA based on simple radix-11 DFT implementation, same as LO_ADD - more accurate, and with FMA, faster as well
 	const double a1 =  0.84125353283118116886,	/* Real part of exp(i*2*pi/11), the radix-11 fundamental sincos datum	*/
 			b1 =  0.54064081745559758210,	/* Imag part of exp(i*2*pi/11).	*/
@@ -250,6 +236,7 @@ int radix352_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			a5 = -0.95949297361449738988,	/* cos(5u)	*/
 			b5 =  0.28173255684142969773;	/* sin(5u)	*/
 #else	// AVX, SSE2 and non-LO_ADD (cf. masterdefs.h) scalar-double builds all use these:
+  #warning Using FMA-lite / hi-add 11-DFT
 	const double a0 = 2.31329240211767848235, /* a0 = (   cq0      -  cq3+  cq2-  cq4)		*/
 			a1 =  1.88745388228838373902, /* a1 = (         cq1-  cq3+  cq2-  cq4)		*/
 			a2 = -1.41435370755978245393, /* a2 = (-2*cq0-2*cq1+3*cq3-2*cq2+3*cq4)/5	*/
@@ -527,9 +514,9 @@ int radix352_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 
 		// This array pointer must be set based on vec_dbl-sized alignment at runtime for each thread:
 			for(l = 0; l < RE_IM_STRIDE; l++) {
-				if( ((long)&tdat[ithread].cy_dat[l] & sz_vd_m1) == 0 ) {
+				if( ((long)&tdat[ithread].cy_dat[l] & SZ_VDM1) == 0 ) {
 					tdat[ithread].cy = &tdat[ithread].cy_dat[l];
-				//	fprintf(stderr,"%d-byte-align cy_dat array at element[%d]\n",sz_vd,l);
+				//	fprintf(stderr,"%d-byte-align cy_dat array at element[%d]\n",SZ_VD,l);
 					break;
 				}
 			}
@@ -621,7 +608,7 @@ int radix352_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		qt = qfadd(qt,qtheta);	cq4 = qfcos(qt);	sq4 = qfsin(qt);
 		//================================================================
 	  #endif
-		ASSERT(HERE, (radix352_creals_in_local_store << l2_sz_vd) >= ((long)half_arr - (long)r00) + (20 << l2_sz_vd), "radix352_creals_in_local_store checksum failed!");
+		ASSERT(HERE, (radix352_creals_in_local_store << L2_SZ_VD) >= ((long)half_arr - (long)r00) + (20 << L2_SZ_VD), "radix352_creals_in_local_store checksum failed!");
 		/* These remain fixed: */
 		VEC_DBL_INIT(two  , 2.0  );	VEC_DBL_INIT(one, 1.0  );
 	  #if 1
@@ -679,7 +666,7 @@ int radix352_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			memcpy(tm2, tmp, nbytes);
 			tmp = tm2;		tm2 += cslots_in_local_store;
 		}
-		nbytes = sz_vd;	// sse2_rnd is a solo (in the SIMD-vector) datum
+		nbytes = SZ_VD;	// sse2_rnd is a solo (in the SIMD-vector) datum
 		tmp = sse2_rnd;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
@@ -827,9 +814,9 @@ int radix352_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
-		nbytes = 96 << l2_sz_vd;
+		nbytes = 96 << L2_SZ_VD;
 	  #else
-		nbytes = 64 << l2_sz_vd;
+		nbytes = 64 << L2_SZ_VD;
 	  #endif
 
 	  #elif defined(USE_SSE2)
@@ -867,9 +854,9 @@ int radix352_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		ctmp->re = inv_mult[1];	ctmp->im = inv_mult[0];	++ctmp;
 		ctmp->re = inv_mult[0];	ctmp->im = inv_mult[1];	++ctmp;
 		ctmp->re = inv_mult[1];	ctmp->im = inv_mult[1];	++ctmp;
-		nbytes = 24 << l2_sz_vd;
+		nbytes = 24 << L2_SZ_VD;
 	  #else
-		nbytes = 16 << l2_sz_vd;
+		nbytes = 16 << L2_SZ_VD;
 	  #endif
 
 	  #endif
@@ -910,7 +897,7 @@ int radix352_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			*(sse_n +i) = tmp64;
 		}
 
-		nbytes = 4 << l2_sz_vd;
+		nbytes = 4 << L2_SZ_VD;
 
 	  #ifdef USE_AVX512
 	   #ifdef CARRY_16_WAY
@@ -1063,38 +1050,42 @@ int radix352_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 
 	/*** DIF indexing stuff: ***/
 
-	   #ifdef USE_SSE2
-		// Since SIMD code stores DIT-outs into contig-local mem rather than back into large-strided main-array locs,
-		// replacing p10*[] with []<<1 gives vec_dbl-complex stride analogs of the p-mults used here in scalar-double mode:
-
 		// Init storage for 2 circular-shifts perms of a basic 11-vector, with shift count in [0,10] that means 2*22 = 42 elts:
-		i = 0;
+	   #ifdef USE_SSE2
+		/* Since SIMD code stores DIT-outs into contig-local mem rather than back into large-strided main-array locs,
+		replacing p10*[] with []<<1 gives vec_dbl-complex stride analogs of the p-mults used here in scalar-double mode.
+		But since the resulting offset-indices will be getting added to a vec_dbl* which implies a pointer-arithmetic
+		addend left-shifted [L2_SZ_VD] bits, which will be 4,5,6 for sse2,avx,avx-512 and since x86 only supports
+		an LEA instruction with a max-shift of 3, to avoid the resulting performance penalty, simply inline the needed
+		operand-shift in this init stage, thus allowing the ensuing pointer arithmetic to be done via simple ADD:
+		*/
+		i = 0; j = L2_SZ_VD+1;
 		// Even multiples of p10 cshift array:
 		dif_p20_cperms[i++] = 0;
-		dif_p20_cperms[i++] = 0x140<<1;
-		dif_p20_cperms[i++] = 0x120<<1;
-		dif_p20_cperms[i++] = 0x100<<1;
-		dif_p20_cperms[i++] = 0xe0<<1;
-		dif_p20_cperms[i++] = 0xc0<<1;
-		dif_p20_cperms[i++] = 0xa0<<1;
-		dif_p20_cperms[i++] = 0x80<<1;
-		dif_p20_cperms[i++] = 0x60<<1;
-		dif_p20_cperms[i++] = 0x40<<1;
-		dif_p20_cperms[i++] = 0x20<<1;
+		dif_p20_cperms[i++] = 0x140<<j;
+		dif_p20_cperms[i++] = 0x120<<j;
+		dif_p20_cperms[i++] = 0x100<<j;
+		dif_p20_cperms[i++] = 0xe0<<j;
+		dif_p20_cperms[i++] = 0xc0<<j;
+		dif_p20_cperms[i++] = 0xa0<<j;
+		dif_p20_cperms[i++] = 0x80<<j;
+		dif_p20_cperms[i++] = 0x60<<j;
+		dif_p20_cperms[i++] = 0x40<<j;
+		dif_p20_cperms[i++] = 0x20<<j;
 		while(i < 2*ODD_RADIX-1) {
 			dif_p20_cperms[i] = dif_p20_cperms[i - ODD_RADIX]; ++i;
 		}
 		// Odd multiples of p10 cshift array:
-		dif_p20_cperms[i++] = 0x150<<1;
-		dif_p20_cperms[i++] = 0x130<<1;
-		dif_p20_cperms[i++] = 0x110<<1;
-		dif_p20_cperms[i++] = 0xf0<<1;
-		dif_p20_cperms[i++] = 0xd0<<1;
-		dif_p20_cperms[i++] = 0xb0<<1;
-		dif_p20_cperms[i++] = 0x90<<1;
-		dif_p20_cperms[i++] = 0x70<<1;
-		dif_p20_cperms[i++] = 0x50<<1;
-		dif_p20_cperms[i++] = 0x30<<1;
+		dif_p20_cperms[i++] = 0x150<<j;
+		dif_p20_cperms[i++] = 0x130<<j;
+		dif_p20_cperms[i++] = 0x110<<j;
+		dif_p20_cperms[i++] = 0xf0<<j;
+		dif_p20_cperms[i++] = 0xd0<<j;
+		dif_p20_cperms[i++] = 0xb0<<j;
+		dif_p20_cperms[i++] = 0x90<<j;
+		dif_p20_cperms[i++] = 0x70<<j;
+		dif_p20_cperms[i++] = 0x50<<j;
+		dif_p20_cperms[i++] = 0x30<<j;
 		dif_p20_cperms[i++] = 0x10<<1;
 		while(i < 4*ODD_RADIX-2) {
 			dif_p20_cperms[i] = dif_p20_cperms[i - ODD_RADIX]; ++i;
@@ -1249,34 +1240,34 @@ int radix352_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		// Since SIMD code stores DIT-outs into contig-local mem rather than back into large-strided main-array locs,
 		// replacing p10*[] with []<<1 gives vec_dbl-complex stride analogs of the p-mults used here in scalar-double mode:
 		// Init storage for 2 circular-shifts perms of a basic 11-vector, with shift count in [0,10] that means 2*22 = 42 elts:
-		i = 0;
+		i = 0; j = L2_SZ_VD+1;
 		// Even multiples of p10 cshift array:
 		dit_p20_cperms[i++] = 0;
-		dit_p20_cperms[i++] = 0x140<<1;
-		dit_p20_cperms[i++] = 0x120<<1;
-		dit_p20_cperms[i++] = 0x100<<1;
-		dit_p20_cperms[i++] = 0xe0<<1;
-		dit_p20_cperms[i++] = 0xc0<<1;
-		dit_p20_cperms[i++] = 0xa0<<1;
-		dit_p20_cperms[i++] = 0x80<<1;
-		dit_p20_cperms[i++] = 0x60<<1;
-		dit_p20_cperms[i++] = 0x40<<1;
-		dit_p20_cperms[i++] = 0x20<<1;
+		dit_p20_cperms[i++] = 0x140<<j;
+		dit_p20_cperms[i++] = 0x120<<j;
+		dit_p20_cperms[i++] = 0x100<<j;
+		dit_p20_cperms[i++] = 0xe0<<j;
+		dit_p20_cperms[i++] = 0xc0<<j;
+		dit_p20_cperms[i++] = 0xa0<<j;
+		dit_p20_cperms[i++] = 0x80<<j;
+		dit_p20_cperms[i++] = 0x60<<j;
+		dit_p20_cperms[i++] = 0x40<<j;
+		dit_p20_cperms[i++] = 0x20<<j;
 		while(i < 2*ODD_RADIX-1) {
 			dit_p20_cperms[i] = dit_p20_cperms[i - ODD_RADIX]; ++i;
 		}
 		// Odd multiples of p10 cshift array:
-		dit_p20_cperms[i++] = 0x150<<1;
-		dit_p20_cperms[i++] = 0x130<<1;
-		dit_p20_cperms[i++] = 0x110<<1;
-		dit_p20_cperms[i++] = 0xf0<<1;
-		dit_p20_cperms[i++] = 0xd0<<1;
-		dit_p20_cperms[i++] = 0xb0<<1;
-		dit_p20_cperms[i++] = 0x90<<1;
-		dit_p20_cperms[i++] = 0x70<<1;
-		dit_p20_cperms[i++] = 0x50<<1;
-		dit_p20_cperms[i++] = 0x30<<1;
-		dit_p20_cperms[i++] = 0x10<<1;
+		dit_p20_cperms[i++] = 0x150<<j;
+		dit_p20_cperms[i++] = 0x130<<j;
+		dit_p20_cperms[i++] = 0x110<<j;
+		dit_p20_cperms[i++] = 0xf0<<j;
+		dit_p20_cperms[i++] = 0xd0<<j;
+		dit_p20_cperms[i++] = 0xb0<<j;
+		dit_p20_cperms[i++] = 0x90<<j;
+		dit_p20_cperms[i++] = 0x70<<j;
+		dit_p20_cperms[i++] = 0x50<<j;
+		dit_p20_cperms[i++] = 0x30<<j;
+		dit_p20_cperms[i++] = 0x10<<j;
 		while(i < 4*ODD_RADIX-2) {
 			dit_p20_cperms[i] = dit_p20_cperms[i - ODD_RADIX]; ++i;
 		}
@@ -1532,7 +1523,7 @@ int radix352_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		#elif defined(USE_SSE2)
 			tidx_mod_stride = br4[tidx_mod_stride];
 		#endif
-			target_set = (target_set<<(l2_sz_vd-2)) + tidx_mod_stride;
+			target_set = (target_set<<(L2_SZ_VD-2)) + tidx_mod_stride;
 			target_cy  = target_wtfwd * ((int)-2 << (itmp64 & 255));
 		} else {
 			target_idx = target_set = 0;
@@ -1624,7 +1615,7 @@ for(outer=0; outer <= 1; outer++)
 	tmp = max_err;	VEC_DBL_INIT(tmp, 0.0);
 	tm2 = tmp + cslots_in_local_store;
 	for(ithread = 1; ithread < CY_THREADS; ++ithread) {
-		memcpy(tm2, tmp, sz_vd);
+		memcpy(tm2, tmp, SZ_VD);
 		tmp = tm2;		tm2 += cslots_in_local_store;
 	}
 
@@ -2798,7 +2789,7 @@ void radix352_dit_pass1(double a[], int n)
 		// Need storage for 2 circular-shifts perms of a basic 11-vector, with shift count in [0,10] that means 2*21 elts:
 		int dif_offsets[RADIX], dif_p20_cperms[42], dif_p20_lo_offset[32], dif_phi[ODD_RADIX];
 		int dit_offsets[RADIX], dit_p20_cperms[42], dit_p20_lo_offset[32], dit_phi[ODD_RADIX];
-
+		const uint32 dft11_offs[11] = {0,0x40<<L2_SZ_VD,0x80<<L2_SZ_VD,0xc0<<L2_SZ_VD,0x100<<L2_SZ_VD,0x140<<L2_SZ_VD,0x180<<L2_SZ_VD,0x1c0<<L2_SZ_VD,0x200<<L2_SZ_VD,0x240<<L2_SZ_VD,0x280<<L2_SZ_VD}, *dft11_offptr = &(dft11_offs[0]);
 		int j,j1,j2,jt,jp,k,l,ntmp, *ip;
 		// incr = Carry-chain wts-multipliers recurrence length, which must divide
 		// RADIX/[n-wayness of carry macro], e.g. RADIX/[16|8|4] = 22|44|88 for avx512,avx,sse, respectively.
@@ -2835,14 +2826,6 @@ void radix352_dit_pass1(double a[], int n)
 
 	#ifdef USE_SSE2
 
-		// lg(sizeof(vec_dbl)):
-	  #ifdef USE_AVX512
-		const int l2_sz_vd = 6;
-	  #elif defined(USE_AVX)
-		const int l2_sz_vd = 5;
-	  #else
-		const int l2_sz_vd = 4;
-	  #endif
 		const double crnd = 3.0*0x4000000*0x2000000;
 		int *itmp,*itm2;	// Pointer into the bjmodn array
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
@@ -3058,34 +3041,34 @@ void radix352_dit_pass1(double a[], int n)
 		// replacing p10*[] with []<<1 gives vec_dbl-complex stride analogs of the p-mults used here in scalar-double mode:
 
 		// Init storage for 2 circular-shifts perms of a basic 11-vector, with shift count in [0,10] that means 2*22 = 42 elts:
-		l = 0;
+		l = 0; j = L2_SZ_VD+1;
 		// Even multiples of p10 cshift array:
 		dif_p20_cperms[l++] = 0;
-		dif_p20_cperms[l++] = 0x140<<1;
-		dif_p20_cperms[l++] = 0x120<<1;
-		dif_p20_cperms[l++] = 0x100<<1;
-		dif_p20_cperms[l++] = 0xe0<<1;
-		dif_p20_cperms[l++] = 0xc0<<1;
-		dif_p20_cperms[l++] = 0xa0<<1;
-		dif_p20_cperms[l++] = 0x80<<1;
-		dif_p20_cperms[l++] = 0x60<<1;
-		dif_p20_cperms[l++] = 0x40<<1;
-		dif_p20_cperms[l++] = 0x20<<1;
+		dif_p20_cperms[l++] = 0x140<<j;
+		dif_p20_cperms[l++] = 0x120<<j;
+		dif_p20_cperms[l++] = 0x100<<j;
+		dif_p20_cperms[l++] = 0xe0<<j;
+		dif_p20_cperms[l++] = 0xc0<<j;
+		dif_p20_cperms[l++] = 0xa0<<j;
+		dif_p20_cperms[l++] = 0x80<<j;
+		dif_p20_cperms[l++] = 0x60<<j;
+		dif_p20_cperms[l++] = 0x40<<j;
+		dif_p20_cperms[l++] = 0x20<<j;
 		while(l < 2*ODD_RADIX-1) {
 			dif_p20_cperms[l] = dif_p20_cperms[l - ODD_RADIX]; ++l;
 		}
 		// Odd multiples of p10 cshift array:
-		dif_p20_cperms[l++] = 0x150<<1;
-		dif_p20_cperms[l++] = 0x130<<1;
-		dif_p20_cperms[l++] = 0x110<<1;
-		dif_p20_cperms[l++] = 0xf0<<1;
-		dif_p20_cperms[l++] = 0xd0<<1;
-		dif_p20_cperms[l++] = 0xb0<<1;
-		dif_p20_cperms[l++] = 0x90<<1;
-		dif_p20_cperms[l++] = 0x70<<1;
-		dif_p20_cperms[l++] = 0x50<<1;
-		dif_p20_cperms[l++] = 0x30<<1;
-		dif_p20_cperms[l++] = 0x10<<1;
+		dif_p20_cperms[l++] = 0x150<<j;
+		dif_p20_cperms[l++] = 0x130<<j;
+		dif_p20_cperms[l++] = 0x110<<j;
+		dif_p20_cperms[l++] = 0xf0<<j;
+		dif_p20_cperms[l++] = 0xd0<<j;
+		dif_p20_cperms[l++] = 0xb0<<j;
+		dif_p20_cperms[l++] = 0x90<<j;
+		dif_p20_cperms[l++] = 0x70<<j;
+		dif_p20_cperms[l++] = 0x50<<j;
+		dif_p20_cperms[l++] = 0x30<<j;
+		dif_p20_cperms[l++] = 0x10<<j;
 		while(l < 4*ODD_RADIX-2) {
 			dif_p20_cperms[l] = dif_p20_cperms[l - ODD_RADIX]; ++l;
 		}
@@ -3239,34 +3222,34 @@ void radix352_dit_pass1(double a[], int n)
 		// Since SIMD code stores DIT-outs into contig-local mem rather than back into large-strided main-array locs,
 		// replacing p10*[] with []<<1 gives vec_dbl-complex stride analogs of the p-mults used here in scalar-double mode:
 		// Init storage for 2 circular-shifts perms of a basic 11-vector, with shift count in [0,10] that means 2*22 = 42 elts:
-		l = 0;
+		l = 0; j = L2_SZ_VD+1;
 		// Even multiples of p10 cshift array:
 		dit_p20_cperms[l++] = 0;
-		dit_p20_cperms[l++] = 0x140<<1;
-		dit_p20_cperms[l++] = 0x120<<1;
-		dit_p20_cperms[l++] = 0x100<<1;
-		dit_p20_cperms[l++] = 0xe0<<1;
-		dit_p20_cperms[l++] = 0xc0<<1;
-		dit_p20_cperms[l++] = 0xa0<<1;
-		dit_p20_cperms[l++] = 0x80<<1;
-		dit_p20_cperms[l++] = 0x60<<1;
-		dit_p20_cperms[l++] = 0x40<<1;
-		dit_p20_cperms[l++] = 0x20<<1;
+		dit_p20_cperms[l++] = 0x140<<j;
+		dit_p20_cperms[l++] = 0x120<<j;
+		dit_p20_cperms[l++] = 0x100<<j;
+		dit_p20_cperms[l++] = 0xe0<<j;
+		dit_p20_cperms[l++] = 0xc0<<j;
+		dit_p20_cperms[l++] = 0xa0<<j;
+		dit_p20_cperms[l++] = 0x80<<j;
+		dit_p20_cperms[l++] = 0x60<<j;
+		dit_p20_cperms[l++] = 0x40<<j;
+		dit_p20_cperms[l++] = 0x20<<j;
 		while(l < 2*ODD_RADIX-1) {
 			dit_p20_cperms[l] = dit_p20_cperms[l - ODD_RADIX]; ++l;
 		}
 		// Odd multiples of p10 cshift array:
-		dit_p20_cperms[l++] = 0x150<<1;
-		dit_p20_cperms[l++] = 0x130<<1;
-		dit_p20_cperms[l++] = 0x110<<1;
-		dit_p20_cperms[l++] = 0xf0<<1;
-		dit_p20_cperms[l++] = 0xd0<<1;
-		dit_p20_cperms[l++] = 0xb0<<1;
-		dit_p20_cperms[l++] = 0x90<<1;
-		dit_p20_cperms[l++] = 0x70<<1;
-		dit_p20_cperms[l++] = 0x50<<1;
-		dit_p20_cperms[l++] = 0x30<<1;
-		dit_p20_cperms[l++] = 0x10<<1;
+		dit_p20_cperms[l++] = 0x150<<j;
+		dit_p20_cperms[l++] = 0x130<<j;
+		dit_p20_cperms[l++] = 0x110<<j;
+		dit_p20_cperms[l++] = 0xf0<<j;
+		dit_p20_cperms[l++] = 0xd0<<j;
+		dit_p20_cperms[l++] = 0xb0<<j;
+		dit_p20_cperms[l++] = 0x90<<j;
+		dit_p20_cperms[l++] = 0x70<<j;
+		dit_p20_cperms[l++] = 0x50<<j;
+		dit_p20_cperms[l++] = 0x30<<j;
+		dit_p20_cperms[l++] = 0x10<<j;
 		while(l < 4*ODD_RADIX-2) {
 			dit_p20_cperms[l] = dit_p20_cperms[l - ODD_RADIX]; ++l;
 		}

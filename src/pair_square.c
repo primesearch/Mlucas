@@ -25,8 +25,8 @@
 /***************/
 
 /*
-Macro versions of these are in sse2_macro.h, since radix32_wrapper_square.c also needs to inline those:
-SSE2 macros for this are in sse2_macro.h.
+Macro versions of these are in pair_square.h, since radix32_wrapper_square.c also needs to inline those;
+SSE2 macros for this are in sse2_macro_gcc64.h.
 */
 void pair_square(double *x1, double *y1, double *x2, double *y2, double c, double s)
 {

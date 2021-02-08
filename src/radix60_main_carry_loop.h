@@ -51,7 +51,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		/*...gather the needed data and do 15 radix-4 transforms...*/
 	  #if COMPACT_OBJ
-
+#warning using COMPACT_OBJ code.
 		/* Outputs in SSE2 modes are temps 2*15*16 = 22*16 = 0x160 bytes apart: */
 		// Indices into above 4-elt table; each DFT-4 needs four 2-bit indices, thus gets 1 byte
 		// Ex: 1st DFT-4 has add0-3 p01-multiple offsets 0,1,3,2; bit-reverse that to get p_idx[0] = 2310_4 = 0xb4:
@@ -73,14 +73,11 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		vec_dbl
 		*va0,*va1,*va2,*va3,*va4,*va5,*va6,*va7,*va8,*va9,*vaa,*vab,*vac,*vad,*vae,	// I-ptrs
 		*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8,*vb9,*vba,*vbb,*vbc,*vbd,*vbe;	// O-ptrs
-	  #ifdef USE_64BIT_ASM_STYLE
 		vec_dbl
 		*vc0,*vc1,*vc2,*vc3,*vc4,*vc5,*vc6,*vc7,*vc8,*vc9,*vca,*vcb,*vcc,*vcd,*vce,	// I-ptrs
 		*vd0,*vd1,*vd2,*vd3,*vd4,*vd5,*vd6,*vd7,*vd8,*vd9,*vda,*vdb,*vdc,*vdd,*vde;	// O-ptrs
-		for(l = 0, tmp = r00, ntmp = 0; l < 2; l++, ntmp += 30) {
-	  #else
-		for(l = 0, tmp = r00, ntmp = 0; l < 4; l++, ntmp += 15) {
-	  #endif
+		for(l = 0, tmp = r00, ntmp = 0; l < 2; l++, ntmp += 30)
+		{
 			// Input-ptrs are regular-stride offsets of r00:
 			va0 = tmp;		vb0 = s1p00 + optr_off[ntmp  ];
 			va1 = tmp +  2;	vb1 = s1p00 + optr_off[ntmp+1];
@@ -97,7 +94,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			vac = tmp + 24;	vbc = s1p00 + optr_off[ntmp+12];
 			vad = tmp + 26;	vbd = s1p00 + optr_off[ntmp+13];
 			vae = tmp + 28;	vbe = s1p00 + optr_off[ntmp+14];
-		#ifdef USE_64BIT_ASM_STYLE
+
 			vc0 = tmp + 30;	vd0 = s1p00 + optr_off[ntmp+15];
 			vc1 = tmp + 32;	vd1 = s1p00 + optr_off[ntmp+16];
 			vc2 = tmp + 34;	vd2 = s1p00 + optr_off[ntmp+17];
@@ -122,14 +119,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				vd0,vd1,vd2,vd3,vd4,vd5,vd6,vd7,vd8,vd9,vda,vdb,vdc,vdd,vde		/* outputs 2 */
 			);
 			tmp += 60;
-		#else
-			SSE2_RADIX_15_DIT(sse2_c3m1,sse2_cn1,
-				va0,va1,va2,va3,va4,va5,va6,va7,va8,va9,vaa,vab,vac,vad,vae,	/* inputs */
-				x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,	/* scratch */
-				vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8,vb9,vba,vbb,vbc,vbd,vbe		/* outputs */
-			);
-			tmp += 30;
-		#endif
 		}
 
 	  #else
@@ -153,13 +142,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	/* Block 15: */	add0 = &a[j1+p48];	add1 = add0+p01;	add3 = add0+p02;	add2 = add0+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r0e, OFF)
 
 		/*...and now do 4 radix-15 transforms. */
-	   #if (OS_BITS == 32) || !defined(USE_64BIT_ASM_STYLE)	// In 64-bit mode, default is to use simple 64-bit-ified version of the analogous 32-bit ASM macros, i.e. using just xmm0-7.
-		/* Radix-15 DFT uses adjacent temps for inputs, outputs are (cyclic) with pXXr having XX += 12 (24*16 bytes = 0x180) between successive outputs: */
-		SSE2_RADIX_15_DIT(sse2_c3m1,sse2_cn1, r00,r01,r02,r03,r04,r05,r06,r07,r08,r09,r0a,r0b,r0c,r0d,r0e, x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e, s1p00,s1p2e,s1p1d,s1p0c,s1p3b,s1p2a,s1p19,s1p08,s1p37,s1p26,s1p15,s1p04,s1p33,s1p22,s1p11);
-		SSE2_RADIX_15_DIT(sse2_c3m1,sse2_cn1, r10,r11,r12,r13,r14,r15,r16,r17,r18,r19,r1a,r1b,r1c,r1d,r1e, x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e, s1p10,s1p3e,s1p2d,s1p1c,s1p0b,s1p3a,s1p29,s1p18,s1p07,s1p36,s1p25,s1p14,s1p03,s1p32,s1p21);
-		SSE2_RADIX_15_DIT(sse2_c3m1,sse2_cn1, r20,r21,r22,r23,r24,r25,r26,r27,r28,r29,r2a,r2b,r2c,r2d,r2e, x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e, s1p20,s1p0e,s1p3d,s1p2c,s1p1b,s1p0a,s1p39,s1p28,s1p17,s1p06,s1p35,s1p24,s1p13,s1p02,s1p31);
-		SSE2_RADIX_15_DIT(sse2_c3m1,sse2_cn1, r30,r31,r32,r33,r34,r35,r36,r37,r38,r39,r3a,r3b,r3c,r3d,r3e, x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e, s1p30,s1p1e,s1p0d,s1p3c,s1p2b,s1p1a,s1p09,s1p38,s1p27,s1p16,s1p05,s1p34,s1p23,s1p12,s1p01);
-	   #else
 		SSE2_RADIX_15_DIT_X2(sse2_c3m1,sse2_cn1,two,
 			r00,r01,r02,r03,r04,r05,r06,r07,r08,r09,r0a,r0b,r0c,r0d,r0e,
 			x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,
@@ -174,7 +156,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			r30,r31,r32,r33,r34,r35,r36,r37,r38,r39,r3a,r3b,r3c,r3d,r3e,
 			y00,y01,y02,y03,y04,y05,y06,y07,y08,y09,y0a,y0b,y0c,y0d,y0e,
 			s1p30,s1p1e,s1p0d,s1p3c,s1p2b,s1p1a,s1p09,s1p38,s1p27,s1p16,s1p05,s1p34,s1p23,s1p12,s1p01);
-	   #endif
 
 	  #endif	// COMPACT_OBJ?
 
@@ -821,11 +802,8 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			90,82,74,66,58,50,42,34,26,18,10,2,114,106,98,
 			60,52,44,36,28,20,12,4,116,108,100,92,84,76,68,
 			30,22,14,6,118,110,102,94,86,78,70,62,54,46,38};
-	  #ifdef USE_64BIT_ASM_STYLE
-		for(l = 0, tmp = r00, ntmp = 0; l < 2; l++, ntmp += 30) {
-	  #else
-		for(l = 0, tmp = r00, ntmp = 0; l < 4; l++, ntmp += 15) {
-	  #endif
+		for(l = 0, tmp = r00, ntmp = 0; l < 2; l++, ntmp += 30)
+		{
 			// Input-ptrs are regular-stride offsets of r00:
 			va0 = tmp;		vb0 = s1p00 + iptr_off[ntmp  ];
 			va1 = tmp +  2;	vb1 = s1p00 + iptr_off[ntmp+1];
@@ -842,7 +820,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			vac = tmp + 24;	vbc = s1p00 + iptr_off[ntmp+12];
 			vad = tmp + 26;	vbd = s1p00 + iptr_off[ntmp+13];
 			vae = tmp + 28;	vbe = s1p00 + iptr_off[ntmp+14];
-		#ifdef USE_64BIT_ASM_STYLE
+
 			vc0 = tmp + 30;	vd0 = s1p00 + iptr_off[ntmp+15];
 			vc1 = tmp + 32;	vd1 = s1p00 + iptr_off[ntmp+16];
 			vc2 = tmp + 34;	vd2 = s1p00 + iptr_off[ntmp+17];
@@ -867,14 +845,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				vc0,vc1,vc2,vc3,vc4,vc5,vc6,vc7,vc8,vc9,vca,vcb,vcc,vcd,vce		/* outputs 2 */
 			);
 			tmp += 60;
-		#else
-			SSE2_RADIX_15_DIF(sse2_c3m1,sse2_cn1,
-				vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8,vb9,vba,vbb,vbc,vbd,vbe,	/* inputs */
-				x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e,	/* scratch */
-				va0,va1,va2,va3,va4,va5,va6,va7,va8,va9,vaa,vab,vac,vad,vae		/* outputs */
-			);
-			tmp += 30;
-		#endif
 		}
 		/*...and now do 15 radix-4 transforms...*/
 		// Indices into above 4-elt table; each DFT-4 needs four 2-bit indices, thus gets 1 byte
@@ -892,16 +862,9 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	  #else
 
 		/* Do 4 radix-15 transforms: */
-	   #if (OS_BITS == 32) || !defined(USE_64BIT_ASM_STYLE)	// In 64-bit mode, default is to use simple 64-bit-ified version of the analogous 32-bit ASM macros, i.e. using just xmm0-7.
-		/* NOTE that to permit us to re-use the s1p-data as both inputs and outputs of the radix-15 DIF DFT, must swap s1p[0123] -> s1p[0321] in output rows: */
-		SSE2_RADIX_15_DIF(sse2_c3m1,sse2_cn1,        s1p00,s1p3b,s1p37,s1p33,s1p2e,s1p2a,s1p26,s1p22,s1p1d,s1p19,s1p15,s1p11,s1p0c,s1p08,s1p04, x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e, r00,r01,r02,r03,r04,r05,r06,r07,r08,r09,r0a,r0b,r0c,r0d,r0e);
-		SSE2_RADIX_15_DIF(sse2_c3m1,sse2_cn1,        s1p30,s1p2b,s1p27,s1p23,s1p1e,s1p1a,s1p16,s1p12,s1p0d,s1p09,s1p05,s1p01,s1p3c,s1p38,s1p34, x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e, r10,r11,r12,r13,r14,r15,r16,r17,r18,r19,r1a,r1b,r1c,r1d,r1e);
-		SSE2_RADIX_15_DIF(sse2_c3m1,sse2_cn1,        s1p20,s1p1b,s1p17,s1p13,s1p0e,s1p0a,s1p06,s1p02,s1p3d,s1p39,s1p35,s1p31,s1p2c,s1p28,s1p24, x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e, r20,r21,r22,r23,r24,r25,r26,r27,r28,r29,r2a,r2b,r2c,r2d,r2e);
-		SSE2_RADIX_15_DIF(sse2_c3m1,sse2_cn1,        s1p10,s1p0b,s1p07,s1p03,s1p3e,s1p3a,s1p36,s1p32,s1p2d,s1p29,s1p25,s1p21,s1p1c,s1p18,s1p14, x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e, r30,r31,r32,r33,r34,r35,r36,r37,r38,r39,r3a,r3b,r3c,r3d,r3e);
-	   #else
 		SSE2_RADIX_15_DIF_X2(sse2_c3m1,sse2_cn1,two, s1p00,s1p3b,s1p37,s1p33,s1p2e,s1p2a,s1p26,s1p22,s1p1d,s1p19,s1p15,s1p11,s1p0c,s1p08,s1p04, x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e, r00,r01,r02,r03,r04,r05,r06,r07,r08,r09,r0a,r0b,r0c,r0d,r0e, s1p30,s1p2b,s1p27,s1p23,s1p1e,s1p1a,s1p16,s1p12,s1p0d,s1p09,s1p05,s1p01,s1p3c,s1p38,s1p34, y00,y01,y02,y03,y04,y05,y06,y07,y08,y09,y0a,y0b,y0c,y0d,y0e, r10,r11,r12,r13,r14,r15,r16,r17,r18,r19,r1a,r1b,r1c,r1d,r1e);
 		SSE2_RADIX_15_DIF_X2(sse2_c3m1,sse2_cn1,two, s1p20,s1p1b,s1p17,s1p13,s1p0e,s1p0a,s1p06,s1p02,s1p3d,s1p39,s1p35,s1p31,s1p2c,s1p28,s1p24, x00,x01,x02,x03,x04,x05,x06,x07,x08,x09,x0a,x0b,x0c,x0d,x0e, r20,r21,r22,r23,r24,r25,r26,r27,r28,r29,r2a,r2b,r2c,r2d,r2e, s1p10,s1p0b,s1p07,s1p03,s1p3e,s1p3a,s1p36,s1p32,s1p2d,s1p29,s1p25,s1p21,s1p1c,s1p18,s1p14, y00,y01,y02,y03,y04,y05,y06,y07,y08,y09,y0a,y0b,y0c,y0d,y0e, r30,r31,r32,r33,r34,r35,r36,r37,r38,r39,r3a,r3b,r3c,r3d,r3e);
-	   #endif
+
 		/*...and now do 15 radix-4 transforms...*/
 	/* Block 01: */	add0 = &a[j1    ];	add1 = add0+p01;	add2 = add0+p02;	add3 = add0+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r00, OFF)
 	/* Block 02: */	add1 = &a[j1+p08];	add0 = add1+p01;	add3 = add1+p02;	add2 = add1+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r01, OFF)

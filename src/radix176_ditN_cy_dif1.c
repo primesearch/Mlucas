@@ -55,9 +55,6 @@
 	#error Currently only LOACC carry-mode supported in AVX-512 builds!
   #endif
 #endif
-#if defined(LOACC) && (OS_BITS == 32)
-	#error 32-bit mode only supports the older HIACC carry macros!
-#endif
 
 #ifndef PFETCH_DIST
   #ifdef USE_AVX512
@@ -84,7 +81,7 @@
 	const int radix176_creals_in_local_store = 0x414;	// (half_arr_offset + RADIX) = 40 and round up to nearest multiple of 4
   #endif
 
-	#include "sse2_macro.h"
+	#include "sse2_macro_gcc64.h"
 	#include "radix11_sse_macro.h"
 
 #endif	// SSE2
@@ -175,18 +172,6 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	struct qfloat qt,qn;	// Both scalar and SIMD builds need these 2
 #ifdef USE_SSE2
 	struct qfloat qtheta,qs,cq0,cq1,cq2,cq3,cq4,sq0,sq1,sq2,sq3,sq4;
-	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
-	// lg(sizeof(vec_dbl)):
-  #ifdef USE_AVX512
-	const int l2_sz_vd = 6;
-  #elif defined(USE_AVX)
-	const int l2_sz_vd = 5;
-  #else
-	const int l2_sz_vd = 4;
-  #endif
-#else
-	const int sz_vd = sizeof(double), sz_vd_m1 = sz_vd-1;
-	const int l2_sz_vd = 3;
 #endif
   #ifdef LOACC
 	static double wts_mult[2], inv_mult[2];	// Const wts-multiplier and 2*(its multiplicative inverse)
@@ -231,7 +216,8 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	const int *iptr;
 	static int plo[16],phi[11];
 	uint64 i64;
-	int kk, k0,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf;
+	int kk, k0,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf,po_kperm[16],*po_ptr = &(po_kperm[0]);
+	const uint32 dft11_offs[11] = {0,0x20<<L2_SZ_VD,0x40<<L2_SZ_VD,0x60<<L2_SZ_VD,0x80<<L2_SZ_VD,0xa0<<L2_SZ_VD,0xc0<<L2_SZ_VD,0xe0<<L2_SZ_VD,0x100<<L2_SZ_VD,0x120<<L2_SZ_VD,0x140<<L2_SZ_VD}, *dft11_offptr = &(dft11_offs[0]);
 // DIF:
 	const uint64 dif16_oidx_lo[11] = {
 		0x01235476ba89efdcull, 0x45673201fecd98baull, 0xab98fecd45673201ull, 0x10324567ab98fecdull, 0xdcfeab9810324567ull,
@@ -240,8 +226,10 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	};
 	// circ-shift count of basic array needed for stage 1:
 	const int dif_ncshft[16] = {0x0,0x1,0x2,0x3,0x3,0x4,0x5,0x5,0x6,0x7,0x7,0x8,0x9,0x9,0xa,0x0},
-		// dif_pcshft has 11 base elts followed by repeat of first 10 of those to support circ-shift perms
-		dif_pcshft[21] = {0x0,0xa,0x9,0x8,0x7,0x6,0x5,0x4,0x3,0x2,0x1,0x0,0xa,0x9,0x8,0x7,0x6,0x5,0x4,0x3,0x2};
+		// dif_pcshft has 11 base elts followed by repeat of first 10 of those to support circ-shift perms:
+		dif_pcshft[21] = {0x0,0xa,0x9,0x8,0x7,0x6,0x5,0x4,0x3,0x2,0x1,0x0,0xa,0x9,0x8,0x7,0x6,0x5,0x4,0x3,0x2},
+		// Jan 2021: need 2nd version of dif_pcshft[] with elts pre-shifted by <<(L2_SZ_VD+5) to support simple additive-address-offset computation in revised 11-DFT macro:
+		dif_pcshft2[21] = {0x0,0xa<<(L2_SZ_VD+5),0x9<<(L2_SZ_VD+5),0x8<<(L2_SZ_VD+5),0x7<<(L2_SZ_VD+5),0x6<<(L2_SZ_VD+5),0x5<<(L2_SZ_VD+5),0x4<<(L2_SZ_VD+5),0x3<<(L2_SZ_VD+5),0x2<<(L2_SZ_VD+5),0x1<<(L2_SZ_VD+5),0x0<<(L2_SZ_VD+5),0xa<<(L2_SZ_VD+5),0x9<<(L2_SZ_VD+5),0x8<<(L2_SZ_VD+5),0x7<<(L2_SZ_VD+5),0x6<<(L2_SZ_VD+5),0x5<<(L2_SZ_VD+5),0x4<<(L2_SZ_VD+5),0x3<<(L2_SZ_VD+5),0x2<<(L2_SZ_VD+5)};
 // DIT:
 	const uint64 dit16_iidx_lo[11] = {
 		0x01327654fedcba98ull, 0x76543210ba98dcefull, 0xba98dcef32105467ull, 0xdcef98ab54671023ull, 0x5467102398abefcdull,
@@ -251,7 +239,9 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	// circ-shift count of basic array needed for stage 2:
 	const int dit_ncshft[16] = {0x0,0x7,0x8,0x9,0xa,0x0,0x1,0x2,0x3,0x4,0x5,0x6,0x7,0x8,0x9,0xa},
 		// dit_pcshft has 11 base elts followed by repeat of first 10 of those to support circ-shift perms
-		dit_pcshft[21] = {0x0,0x9,0x7,0x5,0x3,0x1,0xa,0x8,0x6,0x4,0x2,0x0,0x9,0x7,0x5,0x3,0x1,0xa,0x8,0x6,0x4};
+		dit_pcshft[21] = {0x0,0x9,0x7,0x5,0x3,0x1,0xa,0x8,0x6,0x4,0x2,0x0,0x9,0x7,0x5,0x3,0x1,0xa,0x8,0x6,0x4},
+		// Jan 2021: need 2nd version of dit_pcshft[] with elts pre-shifted by <<(L2_SZ_VD+5) to support simple additive-address-offset computation in revised SIMD 11-DFT macro:
+		dit_pcshft2[21] = {0x0,0x9<<(L2_SZ_VD+5),0x7<<(L2_SZ_VD+5),0x5<<(L2_SZ_VD+5),0x3<<(L2_SZ_VD+5),0x1<<(L2_SZ_VD+5),0xa<<(L2_SZ_VD+5),0x8<<(L2_SZ_VD+5),0x6<<(L2_SZ_VD+5),0x4<<(L2_SZ_VD+5),0x2<<(L2_SZ_VD+5),0x0<<(L2_SZ_VD+5),0x9<<(L2_SZ_VD+5),0x7<<(L2_SZ_VD+5),0x5<<(L2_SZ_VD+5),0x3<<(L2_SZ_VD+5),0x1<<(L2_SZ_VD+5),0xa<<(L2_SZ_VD+5),0x8<<(L2_SZ_VD+5),0x6<<(L2_SZ_VD+5),0x4<<(L2_SZ_VD+5)};
 #endif
 	static int poff[RADIX>>2];	// Store mults of p4 offset for loop control
 	static double radix_inv, n2inv;
@@ -333,7 +323,7 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;	// Base address for discrete per-thread local stores
   #else
-	double *add0,*add1,*add2,*add3,*add4,*add5,*add6,*add7,*add8,*add9,*adda,*addb,*addc,*addd,*adde,*addf;	/* Addresses into array sections */
+	double *add0,*add1,*add2,*add3;	/* Addresses into array sections */
   #endif
 
 	// Uint64 bitmaps for alternate "rounded the other way" copies of sqrt2,isrt2. Default round-to-nearest versions
@@ -550,9 +540,9 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 
 		// This array pointer must be set based on vec_dbl-sized alignment at runtime for each thread:
 			for(l = 0; l < RE_IM_STRIDE; l++) {
-				if( ((long)&tdat[ithread].cy_dat[l] & sz_vd_m1) == 0 ) {
+				if( ((long)&tdat[ithread].cy_dat[l] & SZ_VDM1) == 0 ) {
 					tdat[ithread].cy = &tdat[ithread].cy_dat[l];
-				//	fprintf(stderr,"%d-byte-align cy_dat array at element[%d]\n",sz_vd,l);
+				//	fprintf(stderr,"%d-byte-align cy_dat array at element[%d]\n",SZ_VD,l);
 					break;
 				}
 			}
@@ -749,7 +739,7 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			memcpy(tm2, tmp, nbytes);
 			tmp = tm2;		tm2 += cslots_in_local_store;
 		}
-		nbytes = sz_vd;	// sse2_rnd is a solo (in the SIMD-vector) datum
+		nbytes = SZ_VD;	// sse2_rnd is a solo (in the SIMD-vector) datum
 		tmp = sse2_rnd;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
@@ -897,9 +887,9 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
-		nbytes = 96 << l2_sz_vd;
+		nbytes = 96 << L2_SZ_VD;
 	  #else
-		nbytes = 64 << l2_sz_vd;
+		nbytes = 64 << L2_SZ_VD;
 	  #endif
 
 	  #elif defined(USE_SSE2)
@@ -937,9 +927,9 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		ctmp->re = inv_mult[1];	ctmp->im = inv_mult[0];	++ctmp;
 		ctmp->re = inv_mult[0];	ctmp->im = inv_mult[1];	++ctmp;
 		ctmp->re = inv_mult[1];	ctmp->im = inv_mult[1];	++ctmp;
-		nbytes = 24 << l2_sz_vd;
+		nbytes = 24 << L2_SZ_VD;
 	  #else
-		nbytes = 16 << l2_sz_vd;
+		nbytes = 16 << L2_SZ_VD;
 	  #endif
 
 	  #endif
@@ -980,7 +970,7 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			*(sse_n +i) = tmp64;
 		}
 
-		nbytes = 4 << l2_sz_vd;
+		nbytes = 4 << L2_SZ_VD;
 
 	  #ifdef USE_AVX512
 	   #ifdef CARRY_16_WAY
@@ -1203,7 +1193,7 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		#elif defined(USE_SSE2)
 			tidx_mod_stride = br4[tidx_mod_stride];
 		#endif
-			target_set = (target_set<<(l2_sz_vd-2)) + tidx_mod_stride;
+			target_set = (target_set<<(L2_SZ_VD-2)) + tidx_mod_stride;
 			target_cy  = target_wtfwd * ((int)-2 << (itmp64 & 255));
 		} else {
 			target_idx = target_set = 0;
@@ -1295,7 +1285,7 @@ for(outer=0; outer <= 1; outer++)
 	tmp = max_err;	VEC_DBL_INIT(tmp, 0.0);
 	tm2 = tmp + cslots_in_local_store;
 	for(ithread = 1; ithread < CY_THREADS; ++ithread) {
-		memcpy(tm2, tmp, sz_vd);
+		memcpy(tm2, tmp, SZ_VD);
 		tmp = tm2;		tm2 += cslots_in_local_store;
 	}
 
@@ -2081,7 +2071,8 @@ void radix176_dit_pass1(double a[], int n)
 		const int *iptr;
 		int plo[16],phi[11];
 		uint64 i64;
-		int kk, k0,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf;
+		int kk, k0,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf,po_kperm[16],*po_ptr = &(po_kperm[0]);
+		const uint32 dft11_offs[11] = {0,0x20<<L2_SZ_VD,0x40<<L2_SZ_VD,0x60<<L2_SZ_VD,0x80<<L2_SZ_VD,0xa0<<L2_SZ_VD,0xc0<<L2_SZ_VD,0xe0<<L2_SZ_VD,0x100<<L2_SZ_VD,0x120<<L2_SZ_VD,0x140<<L2_SZ_VD}, *dft11_offptr = &(dft11_offs[0]);
 	// DIF:
 		const uint64 dif16_oidx_lo[11] = {
 			0x01235476ba89efdcull, 0x45673201fecd98baull, 0xab98fecd45673201ull, 0x10324567ab98fecdull, 0xdcfeab9810324567ull,
@@ -2090,8 +2081,11 @@ void radix176_dit_pass1(double a[], int n)
 		};
 		// circ-shift count of basic array needed for stage 1:
 		const int dif_ncshft[16] = {0x0,0x1,0x2,0x3,0x3,0x4,0x5,0x5,0x6,0x7,0x7,0x8,0x9,0x9,0xa,0x0},
-			// dif_pcshft has 11 base elts followed by repeat of first 10 of those to support circ-shift perms
-			dif_pcshft[21] = {0x0,0xa,0x9,0x8,0x7,0x6,0x5,0x4,0x3,0x2,0x1,0x0,0xa,0x9,0x8,0x7,0x6,0x5,0x4,0x3,0x2};
+			// dif_pcshft has 11 base elts followed by repeat of first 10 of those to support circ-shift perms:
+			dif_pcshft[21] = {0x0,0xa,0x9,0x8,0x7,0x6,0x5,0x4,0x3,0x2,0x1,0x0,0xa,0x9,0x8,0x7,0x6,0x5,0x4,0x3,0x2},
+			// Jan 2021: need 2nd version of dif_pcshft[] with elts pre-shifted by <<(L2_SZ_VD+5) to support simple additive-address-offset computation in revised SIMD 11-DFT macro:
+			dif_pcshft2[21] = {0x0,0xa<<(L2_SZ_VD+5),0x9<<(L2_SZ_VD+5),0x8<<(L2_SZ_VD+5),0x7<<(L2_SZ_VD+5),0x6<<(L2_SZ_VD+5),0x5<<(L2_SZ_VD+5),0x4<<(L2_SZ_VD+5),0x3<<(L2_SZ_VD+5),0x2<<(L2_SZ_VD+5),0x1<<(L2_SZ_VD+5),0x0<<(L2_SZ_VD+5),0xa<<(L2_SZ_VD+5),0x9<<(L2_SZ_VD+5),0x8<<(L2_SZ_VD+5),0x7<<(L2_SZ_VD+5),0x6<<(L2_SZ_VD+5),0x5<<(L2_SZ_VD+5),0x4<<(L2_SZ_VD+5),0x3<<(L2_SZ_VD+5),0x2<<(L2_SZ_VD+5)};
+//printf("dif_pcshft = ");for(kk=0;kk<21;kk++){printf("%u.",dif_pcshft[kk]);}printf("\n");exit(0);
 	// DIT:
 		const uint64 dit16_iidx_lo[11] = {
 			0x01327654fedcba98ull, 0x76543210ba98dcefull, 0xba98dcef32105467ull, 0xdcef98ab54671023ull, 0x5467102398abefcdull,
@@ -2101,7 +2095,9 @@ void radix176_dit_pass1(double a[], int n)
 		// circ-shift count of basic array needed for stage 2:
 		const int dit_ncshft[16] = {0x0,0x7,0x8,0x9,0xa,0x0,0x1,0x2,0x3,0x4,0x5,0x6,0x7,0x8,0x9,0xa},
 			// dit_pcshft has 11 base elts followed by repeat of first 10 of those to support circ-shift perms
-			dit_pcshft[21] = {0x0,0x9,0x7,0x5,0x3,0x1,0xa,0x8,0x6,0x4,0x2,0x0,0x9,0x7,0x5,0x3,0x1,0xa,0x8,0x6,0x4};
+			dit_pcshft[21] = {0x0,0x9,0x7,0x5,0x3,0x1,0xa,0x8,0x6,0x4,0x2,0x0,0x9,0x7,0x5,0x3,0x1,0xa,0x8,0x6,0x4},
+			// Jan 2021: need 2nd version of dit_pcshft[] with elts pre-shifted by <<(L2_SZ_VD+5) to support simple additive-address-offset computation in revised SIMD 11-DFT macro:
+			dit_pcshft2[21] = {0x0,0x9<<(L2_SZ_VD+5),0x7<<(L2_SZ_VD+5),0x5<<(L2_SZ_VD+5),0x3<<(L2_SZ_VD+5),0x1<<(L2_SZ_VD+5),0xa<<(L2_SZ_VD+5),0x8<<(L2_SZ_VD+5),0x6<<(L2_SZ_VD+5),0x4<<(L2_SZ_VD+5),0x2<<(L2_SZ_VD+5),0x0<<(L2_SZ_VD+5),0x9<<(L2_SZ_VD+5),0x7<<(L2_SZ_VD+5),0x5<<(L2_SZ_VD+5),0x3<<(L2_SZ_VD+5),0x1<<(L2_SZ_VD+5),0xa<<(L2_SZ_VD+5),0x8<<(L2_SZ_VD+5),0x6<<(L2_SZ_VD+5),0x4<<(L2_SZ_VD+5)};
 
 		int j,j1,j2,jt,jp,k,l,ntmp;
 		// incr = Carry-chain wts-multipliers recurrence length, which must divide
@@ -2138,18 +2134,10 @@ void radix176_dit_pass1(double a[], int n)
 
 	#ifdef USE_SSE2
 
-		// lg(sizeof(vec_dbl)):
-	  #ifdef USE_AVX512
-		const int l2_sz_vd = 6;
-	  #elif defined(USE_AVX)
-		const int l2_sz_vd = 5;
-	  #else
-		const int l2_sz_vd = 4;
-	  #endif
 		const double crnd = 3.0*0x4000000*0x2000000;
 		int *itmp,*itm2;	// Pointer into the bjmodn array
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
-		double *add0, *add1, *add2, *add3, *add4, *add5, *add6, *add7, *add8, *add9, *adda, *addb, *addc, *addd, *adde, *addf;
+		double *add0,*add1,*add2,*add3;	/* Addresses into array sections */
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
 		vec_dbl *tmp,*tm1,*tm2,	// Utility ptrs
 			*va0,*va1,*va2,*va3,*va4,*va5,*va6,*va7,*va8,*va9,*vaa,

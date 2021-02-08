@@ -106,7 +106,6 @@ void radix8_dif_pass(double a[], int n, struct complex rt0[], struct complex rt1
 	#ifndef COMPILER_TYPE_GCC
 		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 	#endif
-		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
 		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 36*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
@@ -567,7 +566,6 @@ void radix8_dit_pass(double a[], int n, struct complex rt0[], struct complex rt1
 	#ifndef COMPILER_TYPE_GCC
 		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 	#endif
-		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
 		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
 		sc_arr = ALLOC_VEC_DBL(sc_arr, 36*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);

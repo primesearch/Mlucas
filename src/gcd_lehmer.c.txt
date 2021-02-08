@@ -49,7 +49,6 @@ g42 -c -Wall -O3 radix8_*cy*.c
 			WARNING: level-2 diagnostics not recommended for large vectors!
 */
 	int fft_gcd_debug = 0;
-	FILE *fp;
 	static char *file_access_mode[2] = {"a","w"};
 	char string0[STR_MAX_LEN];
 #if GCD_DEBUG >= 1
@@ -487,7 +486,7 @@ uint32	fft_gcd(
 			// c*u - d*v result into y:
 		if(!sign_cd) { tmp64 = mi64_sub(w,z, y, vec_len+sec_len); } else { tmp64 = mi64_sub(z,w, y, vec_len+sec_len); }
 			fprintf(fp,"|C*U - D*V| has borrow = %lld:\n",tmp64);	ASSERT(HERE, tmp64 == 0ull,"|C*U - D*V| has nonzero borrow!");
-		
+
 			i = mi64_getlen(x, vec_len+sec_len);	fprintf(fp,"A*U - B*V has %u nonzero words\n",i);
 			j = mi64_getlen(y, vec_len+sec_len);	fprintf(fp,"C*U - D*V has %u nonzero words\n",j);
 			kk = MAX(i,j);
@@ -2612,7 +2611,7 @@ exit(0);
 	q = E7A91D805CDE12D1, qinv_0 = B6FB5881169A3871	i = 1, tmp = 3297607FD9DE0641, qinv_1 = 7FA47E1017BB7631	i = 2, tmp = 381BA558A8D8F001, qinv_2 = 3185263C77958631	i = 3, tmp = 361D8D2A1F000001, qinv_3 = 5C0C09F288958631	i = 4, tmp = D03F000000000001, qinv_4 = 85FD09F288958631
 	q = FC2C1E395142152F, qinv_0 = F4845AABF3C63F8F	i = 1, tmp = BB5E3CA0A67A6641, qinv_1 = C2F9357D00BD61CF	i = 2, tmp = 83CF38DF6228F001, qinv_2 = D544EC71EEB351CF	i = 3, tmp = CE0A81B41F000001, qinv_3 = 12F860FDDDB351CF	i = 4, tmp = 643F000000000001, qinv_4 = 150760FDDDB351CF
 	q = 1EC2F20EF37E67D1, qinv_0 = 5C48D62CDA7B3771	i = 1, tmp = 51E13EF97E84BA41, qinv_1 =  7361C7D81214131	i = 2, tmp = 748FC358667EF001, qinv_2 = EED1E93EB7E55131	i = 3, tmp = DE1199CEDF000001, qinv_3 = 6252891708E55131	i = 4, tmp = 59BF000000000001, qinv_4 = C5C3891708E55131
-	
+
 	Now focus just on the final (4th) iteration, sort by #good bits in tmp:
 	q = 66280A2665999EA7	i = 4, tmp = 97C3FF0000000001, qinv_4 = 36C0866788262917
 	q = 4273DF5E2A92F759	i = 4, tmp = 4515FF0000000001, qinv_4 = DB86F3D0DB67E0E9
@@ -2670,12 +2669,12 @@ exit(0);
 	q = C0BB2BB9DA911E5F	i = 4, tmp = 1F00000000000001, qinv_4 = 2EEFE419D4CEBD9F
 	q = 45DE8690D11C8DA1	i = 4, tmp = 1F00000000000001, qinv_4 = 497A3304C7F29661
 	q = EC9E50DF4764663F	i = 4, tmp = 0000000000000001, qinv_4 = 3B5C754866A089BF
-	
+
 	So q == 7 or 9 (mod 16) gives 5 good bits in qinv_0 ==> 40 good bits in q*qinv_3 product computed on final iteration.
 	   q == 1 of F (mod 16) gives >= 6 bits in qinv_0, with odds of x good bits roughly halving with each increment in x.
-	
+
 	But what about the "missing moduli", i.e. q == 3,5,B,D (mod 16)?
-	
+
 	Tried those by twiddling the bottom 4 bits of the same dataset, all give >= 5 bits.
 	But interestingly, the mod-16 values which give "at least 5" (3,7,9,13) *never* seem to give more than 5,
 	whereas the ones which give "at least 6" (1,5,11,15) all give 6,7,8,... good bits with probability
@@ -2694,7 +2693,7 @@ exit(0);
 	rem = mi64_div_by_scalar64(x, mod, vec_len, u);
 	ASSERT(HERE, rem == mi64_div_by_scalar64_u2(x, mod, vec_len, v) && mi64_cmp_eq(u,v,vec_len), "mi64_div_by_scalar64 Test #0.a!");
 	ASSERT(HERE, rem == mi64_div_by_scalar64_u4(x, mod, vec_len, v) && mi64_cmp_eq(u,v,vec_len), "mi64_div_by_scalar64 Test #0.b!");
-	
+
 	/**** 5/16/2012: Tmp-code to test Montgomery-mul remainder for M977, see if can efficiently convert
 	carryout of my RL divisibility algo to true remainder:
 	*/
@@ -2709,7 +2708,7 @@ exit(0);
 	ASSERT(HERE, rem == mi64_div_by_scalar64   (x, mod, lenX, y), "mi64_div_by_scalar64 Test #0.1!");
 	ASSERT(HERE, rem == mi64_div_by_scalar64_u2(x, mod, lenX, y), "mi64_div_by_scalar64 Test #0.2!");
 	ASSERT(HERE, rem == mi64_div_by_scalar64_u4(x, mod, lenX, y), "mi64_div_by_scalar64 Test #0.4!");
-	
+
 	// A second odd modulus: Use x/2 for modding here to help debug the even-modulus code tested by the next case:
 	mod = 8040689323464953445ull;
 	rem =    2985496175289855ull;
@@ -2862,7 +2861,7 @@ b=2^64;t=1;x=2421895350930534175*t;t*=b;x+=2416981188099281967*t;t*=b;x+=1711971
 		j =  tmp64     & 0x3f;	// 63 bits = max shift count for short-shift routines
 		kk= (tmp64>>8) & 0x3f;	// Also randomly move start-word around between x[0-63] to test alignment-based code
 		// We do in-place shifts below, so copy x-vectar data into working arrays y and z:
-		memcpy(y+kk,x,vec_len<<3);	memcpy(z+kk,x,vec_len<<3);	
+		memcpy(y+kk,x,vec_len<<3);	memcpy(z+kk,x,vec_len<<3);
 		tmp64 = mi64_shrl_short_ref(y+kk,y+kk,j,vec_len);
 		tmp   = mi64_shrl_short    (z+kk,z+kk,j,vec_len);
 		ASSERT(HERE, tmp == tmp64 && mi64_cmp_eq(z+kk,y+kk,vec_len), "short-rshift test fails!");
@@ -2873,7 +2872,7 @@ b=2^64;t=1;x=2421895350930534175*t;t*=b;x+=2416981188099281967*t;t*=b;x+=1711971
 		j =  tmp64     & 0x3f;	// 63 bits = max shift count for short-shift routines
 		kk= (tmp64>>8) & 0x3f;	// Also randomly move start-word around between x[0-63] to test alignment-based code
 		// We do in-place shifts below, so copy x-vectar data into working arrays y and z:
-		memcpy(y+kk,x,vec_len<<3);	memcpy(z+kk,x,vec_len<<3);	
+		memcpy(y+kk,x,vec_len<<3);	memcpy(z+kk,x,vec_len<<3);
 		tmp64 = mi64_shl_short_ref(y+kk,y+kk,j,vec_len);
 		tmp   = mi64_shl_short    (z+kk,z+kk,j,vec_len);
 		ASSERT(HERE, tmp == tmp64 && mi64_cmp_eq(z+kk,y+kk,vec_len), "short-lshift test fails!");
@@ -3724,7 +3723,7 @@ if(MAX_ARRAY_DIM >= 1254)
 		*/
 		// First use this M(p) for a large-vector timing test of the mi64_div_by_scalar64 fucntion:
 		memset(u,0xff,(vec_len<<3));	u[vec_len-1] = (1ull << (p&63)) - 1;
-	
+
 	#if 0	// Set = 1 to do 64-bit is-divisible timing test
 		clock1 = clock();
 		for(i = 0; i < 10000; i++) {
@@ -3749,7 +3748,7 @@ if(MAX_ARRAY_DIM >= 1254)
 		printf	("GCD self-test #12.1 passed: mi64_div_by_scalar64(), %u*%u words processed, Time =%s\n",i,vec_len,get_time_str(tdiff));
 		exit(0);
 	#endif
-	
+
 		// Next try a gcd of 2^p-1 (huge) with just the small factor:
 		memset(v,(uint64) 0,(vec_len<<3));	v[0] = 87722769297534671ull;
 		clock1 = clock();
@@ -3757,11 +3756,11 @@ if(MAX_ARRAY_DIM >= 1254)
 		fail += (mi64_gcd(u, v, vec_len, eGCD = FALSE, 0x0,0x0,0x0,0x0, 0,0x0,0x0,0x0,0x0,0) != 1);
 		fail += (u[0] !=    87722769297534671ull);
 		ASSERT(HERE, fail==0,"GCD self-test #12a");
-	
+
 		clock2 = clock();
 		tdiff = (double)(clock2 - clock1);
 		printf	("GCD self-test #12a passed: GCD Time =%s\n",get_time_str(tdiff));
-	
+
 		/* Now create a full-length v-vector = [large random padding integer]*[known small factor]: */
 		memset(u,0xff,(vec_len<<3));	u[vec_len-1] = (1ull << (p&63)) - 1;
 		for(i = 0; i < vec_len-1; i++) {
@@ -3818,7 +3817,7 @@ if(MAX_ARRAY_DIM >= 1254)
 		p = 22030163;	vec_len = (p>>6)+1;
 		// First use this M(p) for a large-vector timing test of the mi64_div_by_scalar64 fucntion:
 		memset(x,0xff,(vec_len<<3));	x[vec_len-1] = (1ull << (p&63)) - 1;
-	
+
 		// Next try a gcd of 2^p-1 (huge) with just the small factor:
 		memset(y,(uint64) 0,(vec_len<<3));	y[1] = 43144178324ull; y[0] = 4788416424359163737ull;
 		clock1 = clock();
@@ -3829,7 +3828,7 @@ if(MAX_ARRAY_DIM >= 1254)
 		clock2 = clock();
 		tdiff = (double)(clock2 - clock1);
 		printf	("GCD self-test #13a passed: GCD Time =%s\n",get_time_str(tdiff));
-	
+
 		/* Now create a full-length y-vector = [large random padding integer]*[known small factor]: */
 		memset(x,0xff,(vec_len<<3));	x[vec_len-1] = (1ull << (p&63)) - 1;
 		y[0] = 0;

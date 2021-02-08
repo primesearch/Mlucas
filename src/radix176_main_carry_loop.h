@@ -63,26 +63,25 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		for(l = 0; l < 11; l++) {
 			i64 = dit16_iidx_lo[l];
 			// p-offset indices encoded in little-endian hex-char fashion:
-			k0 = plo[(i64 >> 60)&0xf];
-			k1 = plo[(i64 >> 56)&0xf];
-			k2 = plo[(i64 >> 52)&0xf];
-			k3 = plo[(i64 >> 48)&0xf];
-			k4 = plo[(i64 >> 44)&0xf];
-			k5 = plo[(i64 >> 40)&0xf];
-			k6 = plo[(i64 >> 36)&0xf];
-			k7 = plo[(i64 >> 32)&0xf];
-			k8 = plo[(i64 >> 28)&0xf];
-			k9 = plo[(i64 >> 24)&0xf];
-			ka = plo[(i64 >> 20)&0xf];
-			kb = plo[(i64 >> 16)&0xf];
-			kc = plo[(i64 >> 12)&0xf];
-			kd = plo[(i64 >>  8)&0xf];
-			ke = plo[(i64 >>  4)&0xf];
-			kf = plo[(i64      )&0xf];
+			po_kperm[0x0] = plo[(i64 >> 60)&0xf];
+			po_kperm[0x1] = plo[(i64 >> 56)&0xf];
+			po_kperm[0x2] = plo[(i64 >> 52)&0xf];
+			po_kperm[0x3] = plo[(i64 >> 48)&0xf];
+			po_kperm[0x4] = plo[(i64 >> 44)&0xf];
+			po_kperm[0x5] = plo[(i64 >> 40)&0xf];
+			po_kperm[0x6] = plo[(i64 >> 36)&0xf];
+			po_kperm[0x7] = plo[(i64 >> 32)&0xf];
+			po_kperm[0x8] = plo[(i64 >> 28)&0xf];
+			po_kperm[0x9] = plo[(i64 >> 24)&0xf];
+			po_kperm[0xa] = plo[(i64 >> 20)&0xf];
+			po_kperm[0xb] = plo[(i64 >> 16)&0xf];
+			po_kperm[0xc] = plo[(i64 >> 12)&0xf];
+			po_kperm[0xd] = plo[(i64 >>  8)&0xf];
+			po_kperm[0xe] = plo[(i64 >>  4)&0xf];
+			po_kperm[0xf] = plo[(i64      )&0xf];
 			addr = &a[j1] + phi[kk];	// offset = p10*[0,6,1,7,2,8,3,9,4,a,5], start idx = 0 and decr 5 (mod 11) each loop
-			add0=addr+k0; add1=addr+k1; add2=addr+k2; add3=addr+k3; add4=addr+k4; add5=addr+k5; add6=addr+k6; add7=addr+k7; add8=addr+k8; add9=addr+k9; adda=addr+ka; addb=addr+kb; addc=addr+kc; addd=addr+kd; adde=addr+ke; addf=addr+kf;
 			SSE2_RADIX16_DIT_0TWIDDLE(
-				add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf,
+				addr,po_ptr,
 				isrt2,two,
 				tmp,OFF1,OFF2,OFF3,OFF4
 			);	tmp += 0x20;
@@ -91,38 +90,16 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	//...and now do 16 radix-11 transforms:
 		tmp = r00;
 		for(l = 0; l < 16; l++) {
-			// Input-ptrs are regular-stride offsets of r00:
-			va0 = tmp;
-			va1 = tmp + 0x20;
-			va2 = tmp + 0x40;
-			va3 = tmp + 0x60;
-			va4 = tmp + 0x80;
-			va5 = tmp + 0xa0;
-			va6 = tmp + 0xc0;
-			va7 = tmp + 0xe0;
-			va8 = tmp + 0x100;
-			va9 = tmp + 0x120;
-			vaa = tmp + 0x140;
 			tm1 = s1p00 + (((16 - l)&0xf)<<1);	// Low-part offset = p0,f,e,...,2,1
-			// Hi-part of p-offset indices:
-			// Since SIMD code stores DIT-outs into contig-local mem rather than back into large-strided main-array locs,
-			// replacing phi[*] with (*)<<5 gives vec_dbl-complex stride analogs of the p-mults used here in scalar-double mode:
-			iptr = dit_pcshft + dit_ncshft[l];
-			k0 = *iptr;			vb0 = tm1 + (k0<<5);
-			k1 = *(iptr+0x1);	vb1 = tm1 + (k1<<5);
-			k2 = *(iptr+0x2);	vb2 = tm1 + (k2<<5);
-			k3 = *(iptr+0x3);	vb3 = tm1 + (k3<<5);
-			k4 = *(iptr+0x4);	vb4 = tm1 + (k4<<5);
-			k5 = *(iptr+0x5);	vb5 = tm1 + (k5<<5);
-			k6 = *(iptr+0x6);	vb6 = tm1 + (k6<<5);
-			k7 = *(iptr+0x7);	vb7 = tm1 + (k7<<5);
-			k8 = *(iptr+0x8);	vb8 = tm1 + (k8<<5);
-			k9 = *(iptr+0x9);	vb9 = tm1 + (k9<<5);
-			ka = *(iptr+0xa);	vba = tm1 + (ka<<5);
+			iptr = dit_pcshft2 + dit_ncshft[l];	// dit_ncshft[l] is an index of the starting element of dit_pcshft[] to use for the current 11-DFT's O-addressing
+			// I-ptrs are regular-stride offsets of r00; O-ptrs are offset w.r.to s1p00;
+			// the needed pointer-arithmetic shift has been incorporated into both sets of offsets,
+			// so cast both base-pointers to (uint64) to avoid need for add-with-one-shifted-addend:
+			// In the DIT-context 11-DFT macro invocation, I-offsets are constant-stride and O-offsets permuted:
 			SSE2_RADIX_11_DFT(
-				va0,va1,va2,va3,va4,va5,va6,va7,va8,va9,vaa,
+				tmp,dft11_offptr,
 				ua0,
-				vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8,vb9,vba
+				tm1,iptr
 			);	tmp += 2;
 		}
 
@@ -541,37 +518,15 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		tmp = r00;
 		for(l = 0; l < 16; l++) {
 			tm1 = s1p00 + ((((l<<2)+l) & 0xf)<<1);	// Low-part offset = p[5*l (mod 16)]
-			iptr = dif_pcshft + dif_ncshft[l];
-			// Hi-part of p-offset indices:
-			// Since SIMD code stores DIF-ins into contig-local mem rather than back into large-strided main-array locs,
-			// replacing phi[*] with (*)<<5 gives vec_dbl-complex stride analogs of the p-mults used here in scalar-double mode:
-			k0 = *iptr;			vb0 = tm1 + (k0<<5);
-			k1 = *(iptr+0x1);	vb1 = tm1 + (k1<<5);
-			k2 = *(iptr+0x2);	vb2 = tm1 + (k2<<5);
-			k3 = *(iptr+0x3);	vb3 = tm1 + (k3<<5);
-			k4 = *(iptr+0x4);	vb4 = tm1 + (k4<<5);
-			k5 = *(iptr+0x5);	vb5 = tm1 + (k5<<5);
-			k6 = *(iptr+0x6);	vb6 = tm1 + (k6<<5);
-			k7 = *(iptr+0x7);	vb7 = tm1 + (k7<<5);
-			k8 = *(iptr+0x8);	vb8 = tm1 + (k8<<5);
-			k9 = *(iptr+0x9);	vb9 = tm1 + (k9<<5);
-			ka = *(iptr+0xa);	vba = tm1 + (ka<<5);
-			// Output-ptrs [va/vb swap roles here vs DIT] are regular-stride offsets of r00:
-			va0 = tmp;
-			va1 = tmp + 0x20;
-			va2 = tmp + 0x40;
-			va3 = tmp + 0x60;
-			va4 = tmp + 0x80;
-			va5 = tmp + 0xa0;
-			va6 = tmp + 0xc0;
-			va7 = tmp + 0xe0;
-			va8 = tmp + 0x100;
-			va9 = tmp + 0x120;
-			vaa = tmp + 0x140;
+			iptr = dif_pcshft2 + dif_ncshft[l];
+			// O-ptrs are regular-stride offsets of r00; I-ptrs are offset w.r.to s1p00;
+			// the needed pointer-arithmetic shift has been incorporated into both sets of offsets,
+			// so cast both base-pointers to (uint64) to avoid need for add-with-one-shifted-addend:
+			// In the DIF-context 11-DFT macro invocation, I-offsets are permuted and O-offsets constant-stride:
 			SSE2_RADIX_11_DFT(
-				vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8,vb9,vba,
+				tm1,iptr,
 				ua0,
-				va0,va1,va2,va3,va4,va5,va6,va7,va8,va9,vaa
+				tmp,dft11_offptr
 			);	tmp += 2;
 		}
 	//...and now do 11 radix-16 transforms:
@@ -579,28 +534,27 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		for(l = 0; l < 11; l++) {
 			i64 = dif16_oidx_lo[l];
 			// p-offset indices encoded in little-endian hex-char fashion:
-			k0 = plo[(i64 >> 60)&0xf];
-			k1 = plo[(i64 >> 56)&0xf];
-			k2 = plo[(i64 >> 52)&0xf];
-			k3 = plo[(i64 >> 48)&0xf];
-			k4 = plo[(i64 >> 44)&0xf];
-			k5 = plo[(i64 >> 40)&0xf];
-			k6 = plo[(i64 >> 36)&0xf];
-			k7 = plo[(i64 >> 32)&0xf];
-			k8 = plo[(i64 >> 28)&0xf];
-			k9 = plo[(i64 >> 24)&0xf];
-			ka = plo[(i64 >> 20)&0xf];
-			kb = plo[(i64 >> 16)&0xf];
-			kc = plo[(i64 >> 12)&0xf];
-			kd = plo[(i64 >>  8)&0xf];
-			ke = plo[(i64 >>  4)&0xf];
-			kf = plo[(i64      )&0xf];
+			po_kperm[0x0] = plo[(i64 >> 60)&0xf];
+			po_kperm[0x1] = plo[(i64 >> 56)&0xf];
+			po_kperm[0x2] = plo[(i64 >> 52)&0xf];
+			po_kperm[0x3] = plo[(i64 >> 48)&0xf];
+			po_kperm[0x4] = plo[(i64 >> 44)&0xf];
+			po_kperm[0x5] = plo[(i64 >> 40)&0xf];
+			po_kperm[0x6] = plo[(i64 >> 36)&0xf];
+			po_kperm[0x7] = plo[(i64 >> 32)&0xf];
+			po_kperm[0x8] = plo[(i64 >> 28)&0xf];
+			po_kperm[0x9] = plo[(i64 >> 24)&0xf];
+			po_kperm[0xa] = plo[(i64 >> 20)&0xf];
+			po_kperm[0xb] = plo[(i64 >> 16)&0xf];
+			po_kperm[0xc] = plo[(i64 >> 12)&0xf];
+			po_kperm[0xd] = plo[(i64 >>  8)&0xf];
+			po_kperm[0xe] = plo[(i64 >>  4)&0xf];
+			po_kperm[0xf] = plo[(i64      )&0xf];
 			addr = &a[j1] + phi[dif_pcshft[l]];	// offset = p0,pa0,p90,...,p10
-			add0=addr+k0; add1=addr+k1; add2=addr+k2; add3=addr+k3; add4=addr+k4; add5=addr+k5; add6=addr+k6; add7=addr+k7; add8=addr+k8; add9=addr+k9; adda=addr+ka; addb=addr+kb; addc=addr+kc; addd=addr+kd; adde=addr+ke; addf=addr+kf;
 			SSE2_RADIX16_DIF_0TWIDDLE(
 				tmp,OFF1,OFF2,OFF3,OFF4,
 				isrt2,two,
-				add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf
+				addr,po_ptr
 			);	tmp += 0x20;
 		}
 

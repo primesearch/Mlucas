@@ -2762,7 +2762,7 @@ undo_initial_ffft_pass:
 		{
 			fprintf(stderr,"%s: max_fp > 0.01! Value = %20.10f\n",func,max_fp);
 			fprintf(stderr,"Check your build for inadvertent mixing of SIMD build modes!\n");
-			ASSERT(HERE, max_fp < 0.01,"mers_mod_square.c: max_fp < 0.01");
+			sprintf(cbuf,"%s: max_fp < 0.01 encountered during DWT-unweighting step!\n",func);	WARN(HERE, cbuf, "", 1); return(ERR_ASSERT);
 		}
 	}	// if(high bit of mode_flag unset)
 

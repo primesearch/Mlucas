@@ -63,26 +63,25 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		for(l = 0; l < 9; l++) {
 			i64 = dit16_iidx_lo[l];
 			// p-offset indices encoded in little-endian hex-char fashion:
-			k0 = plo[(i64 >> 60)&0xf];
-			k1 = plo[(i64 >> 56)&0xf];
-			k2 = plo[(i64 >> 52)&0xf];
-			k3 = plo[(i64 >> 48)&0xf];
-			k4 = plo[(i64 >> 44)&0xf];
-			k5 = plo[(i64 >> 40)&0xf];
-			k6 = plo[(i64 >> 36)&0xf];
-			k7 = plo[(i64 >> 32)&0xf];
-			k8 = plo[(i64 >> 28)&0xf];
-			k9 = plo[(i64 >> 24)&0xf];
-			ka = plo[(i64 >> 20)&0xf];
-			kb = plo[(i64 >> 16)&0xf];
-			kc = plo[(i64 >> 12)&0xf];
-			kd = plo[(i64 >>  8)&0xf];
-			ke = plo[(i64 >>  4)&0xf];
-			kf = plo[(i64      )&0xf];
+			po_kperm[0x0] = plo[(i64 >> 60)&0xf];
+			po_kperm[0x1] = plo[(i64 >> 56)&0xf];
+			po_kperm[0x2] = plo[(i64 >> 52)&0xf];
+			po_kperm[0x3] = plo[(i64 >> 48)&0xf];
+			po_kperm[0x4] = plo[(i64 >> 44)&0xf];
+			po_kperm[0x5] = plo[(i64 >> 40)&0xf];
+			po_kperm[0x6] = plo[(i64 >> 36)&0xf];
+			po_kperm[0x7] = plo[(i64 >> 32)&0xf];
+			po_kperm[0x8] = plo[(i64 >> 28)&0xf];
+			po_kperm[0x9] = plo[(i64 >> 24)&0xf];
+			po_kperm[0xa] = plo[(i64 >> 20)&0xf];
+			po_kperm[0xb] = plo[(i64 >> 16)&0xf];
+			po_kperm[0xc] = plo[(i64 >> 12)&0xf];
+			po_kperm[0xd] = plo[(i64 >>  8)&0xf];
+			po_kperm[0xe] = plo[(i64 >>  4)&0xf];
+			po_kperm[0xf] = plo[(i64      )&0xf];
 			addr = &a[j1] + phi[dit_phi[l]];	// offsets = p10*[0,2,1,6,8,7,4,3,5]
-			add0=addr+k0; add1=addr+k1; add2=addr+k2; add3=addr+k3; add4=addr+k4; add5=addr+k5; add6=addr+k6; add7=addr+k7; add8=addr+k8; add9=addr+k9; adda=addr+ka; addb=addr+kb; addc=addr+kc; addd=addr+kd; adde=addr+ke; addf=addr+kf;
 			SSE2_RADIX16_DIT_0TWIDDLE(
-				add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf,
+				addr,po_ptr,
 				isrt2,two,
 				tmp,OFF1,OFF2,OFF3,OFF4
 			);	tmp += 0x20;
@@ -681,28 +680,27 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		for(l = 0; l < 9; l++) {
 			i64 = dif16_oidx_lo[l];
 			// p-offset indices encoded in little-endian hex-char fashion:
-			k0 = plo[(i64 >> 60)&0xf];
-			k1 = plo[(i64 >> 56)&0xf];
-			k2 = plo[(i64 >> 52)&0xf];
-			k3 = plo[(i64 >> 48)&0xf];
-			k4 = plo[(i64 >> 44)&0xf];
-			k5 = plo[(i64 >> 40)&0xf];
-			k6 = plo[(i64 >> 36)&0xf];
-			k7 = plo[(i64 >> 32)&0xf];
-			k8 = plo[(i64 >> 28)&0xf];
-			k9 = plo[(i64 >> 24)&0xf];
-			ka = plo[(i64 >> 20)&0xf];
-			kb = plo[(i64 >> 16)&0xf];
-			kc = plo[(i64 >> 12)&0xf];
-			kd = plo[(i64 >>  8)&0xf];
-			ke = plo[(i64 >>  4)&0xf];
-			kf = plo[(i64      )&0xf];
+			po_kperm[0x0] = plo[(i64 >> 60)&0xf];
+			po_kperm[0x1] = plo[(i64 >> 56)&0xf];
+			po_kperm[0x2] = plo[(i64 >> 52)&0xf];
+			po_kperm[0x3] = plo[(i64 >> 48)&0xf];
+			po_kperm[0x4] = plo[(i64 >> 44)&0xf];
+			po_kperm[0x5] = plo[(i64 >> 40)&0xf];
+			po_kperm[0x6] = plo[(i64 >> 36)&0xf];
+			po_kperm[0x7] = plo[(i64 >> 32)&0xf];
+			po_kperm[0x8] = plo[(i64 >> 28)&0xf];
+			po_kperm[0x9] = plo[(i64 >> 24)&0xf];
+			po_kperm[0xa] = plo[(i64 >> 20)&0xf];
+			po_kperm[0xb] = plo[(i64 >> 16)&0xf];
+			po_kperm[0xc] = plo[(i64 >> 12)&0xf];
+			po_kperm[0xd] = plo[(i64 >>  8)&0xf];
+			po_kperm[0xe] = plo[(i64 >>  4)&0xf];
+			po_kperm[0xf] = plo[(i64      )&0xf];
 			addr = &a[j1] + phi[dif_phi[l]];	// = p10*[0,8,5,2,7,4,1,6,3]
-			add0=addr+k0; add1=addr+k1; add2=addr+k2; add3=addr+k3; add4=addr+k4; add5=addr+k5; add6=addr+k6; add7=addr+k7; add8=addr+k8; add9=addr+k9; adda=addr+ka; addb=addr+kb; addc=addr+kc; addd=addr+kd; adde=addr+ke; addf=addr+kf;
 			SSE2_RADIX16_DIF_0TWIDDLE(
 				tmp,OFF1,OFF2,OFF3,OFF4,
 				isrt2,two,
-				add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf
+				addr,po_ptr
 			);	tmp += 0x20;
 		}
 

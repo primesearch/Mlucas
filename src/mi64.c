@@ -801,14 +801,16 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 
 	/*
 	Process x[i1-1:i0] in downward (high-to-low-word) order.
-	[Note the asm-loop using the SHRD instruction was actually slower than the C-loop until I 4-way unrolled it].
-	Since Intel crapified the double-prec shifts post Core2 (latency/recip-thruput on Haswell both 2x those on Core2),
- 	under AVX2 use 256-bit vector ops - alas, no in-vector-register shift which allows bits to cross word boundaries -
-	to do the shifting:
+	[Note the asm-loop using the SHRD instruction was actually slower than the C-loop until I 4-way
+	unrolled it]. Since Intel crapified the double-prec shifts post Core2 (latency/recip-thruput on
+	Haswell both 2x those on Core2), under AVX2 use 256-bit vector ops - alas, no in-vector-register
+	shift which allows bits to cross word boundaries - to do the shifting:
 	*/
+  #ifdef YES_ASM	// Covers AVX2/AVX/SSE2 as well as non-SIMD x86_64
+
 	if(use_asm) {	// Collect various-build-mode asm-macros indie this if()
 
-  #ifdef FOO_AVX2	// code sequence here is slower on Haswell/Broadwell than the MOVDQA|MOVDQU-based one below
+   #ifdef FOO_AVX2	// code sequence here is slower on Haswell/Broadwell than the MOVDQA|MOVDQU-based one below
 
 	__asm__ volatile (\
 		"movq	%[__x],%%rax		\n\t"/*  Input array */\
@@ -854,7 +856,7 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm14","xmm15"	/* Clobbered registers */\
 		);
 
-  #elif defined(USE_AVX2)
+   #elif defined(USE_AVX2)
 
 	// No Separate versions for same-16-byte-aligned x,y and 8-byte-staggered,
 	// since under AVX2, MOVDQU applied to aligned data runs as fast as MOVDQA:
@@ -898,7 +900,7 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm14","xmm15"	/* Clobbered registers */\
 		);
 
-  #elif defined(USE_AVX)	//*** See commentary in mi64_shrl_short for why wrap this SSE2 code in an AVX-only flag
+   #elif defined(USE_AVX)	//*** See commentary in mi64_shrl_short for why wrap this SSE2 code in an AVX-only flag
 
 	if(x_misalign == y_misalign) {	// Separate versions for same-16-byte-aligned x,y and 8-byte-staggered:
 
@@ -1032,7 +1034,7 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 
 	}	// x,y same 16-byte alignment?
 
-  #else	// YES_ASM
+   #else	// Generic x86_64, no SIMD used:
 
 	// (len >= 5+1[i0]) = non-SIMD-apt value:
 	__asm__ volatile (\
@@ -1075,9 +1077,11 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		: "cc","memory","rax","rbx","rcx","rsi","r10","r11"	/* Clobbered registers */\
 		);
 
-  #endif
+   #endif
 
 	}	// use_asm?
+
+  #endif	// endif(YES_ASM)
 
 	// Low-end clean-up loop (only used in ASM-loop case):
 	for(i = i0-1; i > 0; i--) {
@@ -1239,6 +1243,8 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 	for(i = 0; i < i0; i++) {
 		y[i] = (x[i] >> nshift) + (x[i+1] << m64bits);
 	}
+
+  #ifdef YES_ASM	// Covers AVX2/AVX/SSE2 as well as non-SIMD x86_64
 
 	if(use_asm) {	// Collect various-build-mode asm-macros indie this if()
 
@@ -1530,7 +1536,7 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		: "cc","memory","rax","rbx","rcx","rdx","rsi","r10","r11","xmm0","xmm1","xmm2","xmm14","xmm15"	/* Clobbered registers */\
 		);
 
-	#else	// YES_ASM
+	#else	// Generic x86_64, no SIMD used:
 
 		// No need for i0 in this macro, since i0 = 0 guaranteed by 8-byte alignment assertion in non-SIMD case:
 	__asm__ volatile (\
@@ -1572,6 +1578,8 @@ uint64	mi64_shrl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 	#endif
 
 	}	// if(use_asm)...
+
+  #endif	// endif(YES_ASM)
 
 	// Full-vector processing loop if no ASM; high-end cleanup-loop if ASM:
 	for(i = i1; i < len-1; i++) {
@@ -6790,9 +6798,10 @@ See similar behavior for 4-way-split version of the algorithm.
 		"movslq	%[__len2],%%rcx		\n\t"/* ASM loop structured as for(j = len2-1; j != 0; --j){...} */\
 		"leaq	(%%r10,%%rcx,8),%%r11	\n\t"/* x + len2 */\
 		"subq	$1,%%rcx	\n\t"\
-	"jz loop2c_b0 	\n\t"/* check rsi == 0 ? here and if so, don't exec the loop. */
+	/* Jan 2021: Changed jump labels loop2c -> 42 and loop2c_b0 -> 43 and corr. jumps to 42b,43f to fix Clang-9 compile error: */\
+	"jz 43f 	\n\t"/* check rsi == 0 ? here and if so, don't exec the loop. */
 		"movq	(%%r10),%%rax		\n\t	movq	(%%r11),%%r12	\n\t"/* SHRD allows mem-ref only in DEST, so preload x[i],x[j] */\
-	"loop2c:		\n\t"\
+	"42:		\n\t"\
 		"movq	%%rcx,%%r15			\n\t"/* Move loop counter out of CL... */\
 		"movslq	%[__n],%%rcx		\n\t"/* ...and move shift count in. */\
 		"movq	0x8(%%r10),%%r13	\n\t	movq	0x8(%%r11),%%r14	\n\t"/* load x[i+1],x[j+1] */\
@@ -6810,9 +6819,9 @@ See similar behavior for 4-way-split version of the algorithm.
 		"movq	%%r13,%%rax			\n\t	movq	%%r14,%%r12		\n\t"/* copy x[i+1],x[j+1] into current-element regs */\
 		"movq	%%r15,%%rcx			\n\t"/* Restore loop counter to CL... */\
 	"subq	$1,%%rcx	\n\t"\
-	"jnz loop2c		\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
+	"jnz 42b		\n\t"/* loop1 end; continue is via jump-back if rcx != 0 */\
 		/* Last element (i = len2-1, j = len-1) has no shift-in from next-higher term: */\
-	"loop2c_b0:		\n\t"\
+	"43:		\n\t"\
 		"movq	0x8(%%r10),%%r13	\n\t"/* load x[i+1] */\
 		"movslq	%[__n],%%rcx		\n\t"/* move shift count into rcx */\
 		"shrdq	%%cl,%%r13,%%rax	\n\t	shrq	%%cl,%%r12		\n\t"/* (x[i+1],x[i])>>n, x[j] */\

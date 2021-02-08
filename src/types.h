@@ -136,6 +136,13 @@ EWM: nvcc gives 'error: invalid redeclaration of type name "int64_t"' for the ty
 #undef	HERE
 #define	HERE	__LINE__, __FILE__
 
+/* For my snprint-into-fixed-length-buffer calls, GCC 7.1 and later emit this kind of warning:
+	"warning: ‘%s’ directive output may be truncated writing up to 1023 bytes into a region of size between [foo] and [bar] [-Wformat-truncation=]
+Workarounds, including the slick typedef-based one below, are discussed here:
+	https://stackoverflow.com/questions/51534284/how-to-circumvent-format-truncation-warning-in-gcc
+*/
+#define snprintf_nowarn(...) (snprintf(__VA_ARGS__) < 0 ? abort() : (void)0)
+
 /* Array-bounds check, return TRUE if y-array has either endpoint in x-array's range or v.v.
 (need both ways to handle e.g. one array entirely contained within the other. Consider the
 following cartoon illustrating the possibilities:

@@ -53,9 +53,6 @@
 	#error Currently only LOACC carry-mode supported in AVX-512 builds!
   #endif
 #endif
-#if defined(LOACC) && (OS_BITS == 32)
-	#error 32-bit mode only supports the older HIACC carry macros!
-#endif
 
 #ifndef PFETCH_DIST
   #ifdef USE_AVX512
@@ -70,7 +67,7 @@
 // SIMD+SSE2 code only available for GCC build:
 #if defined(USE_SSE2) && defined(COMPILER_TYPE_GCC)
 
-	#include "sse2_macro.h"
+	#include "sse2_macro_gcc64.h"
 
   // For Mersenne-mod need (16 [SSE2] or 64 [AVX]) + (4 [HIACC] or 40 [LOACC]) added slots for half_arr lookup tables.
   // Max = (40 [SSE2]; 132 [AVX]),
@@ -180,21 +177,6 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 	static int thr_id = 0;	// Master thread gets this special id
 	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
-#ifdef USE_SSE2
-	const int sz_vd = sizeof(vec_dbl);
-	// lg(sizeof(vec_dbl)):
-  #ifdef USE_AVX512
-	const int l2_sz_vd = 6;
-  #elif defined(USE_AVX)
-	const int l2_sz_vd = 5;
-  #else
-	const int l2_sz_vd = 4;
-  #endif
-#else
-	const int sz_vd = sizeof(double);
-	const int l2_sz_vd = 3;
-#endif
-	const int sz_vd_m1 = sz_vd-1;
   #ifdef USE_AVX512
 	const int jhi_wrap_mers = 15;
 	const int jhi_wrap_ferm = 15;
@@ -509,10 +491,10 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 
 		// This array pointer must be set based on vec_dbl-sized alignment at runtime for each thread:
 			for(l = 0; l < RE_IM_STRIDE; l++) {
-				if( ((long)&tdat[ithread].cy_dat[l] & sz_vd_m1) == 0 ) {
+				if( ((long)&tdat[ithread].cy_dat[l] & SZ_VDM1) == 0 ) {
 					tdat[ithread].cy_r = &tdat[ithread].cy_dat[l];
 					tdat[ithread].cy_i = tdat[ithread].cy_r + RADIX;
-				//	fprintf(stderr,"%d-byte-align cy_dat array at element[%d]\n",sz_vd,l);
+				//	fprintf(stderr,"%d-byte-align cy_dat array at element[%d]\n",SZ_VD,l);
 					break;
 				}
 			}
@@ -566,7 +548,7 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 	  #endif
 
 		ASSERT(HERE, half_arr_offset1024 == (uint32)(half_arr-sc_ptr), "half_arr_offset mismatches actual!");
-		ASSERT(HERE, (radix1024_creals_in_local_store << l2_sz_vd) >= ((long)half_arr - (long)r00) + (20 << l2_sz_vd), "radix1024_creals_in_local_store checksum failed!");
+		ASSERT(HERE, (radix1024_creals_in_local_store << L2_SZ_VD) >= ((long)half_arr - (long)r00) + (20 << L2_SZ_VD), "radix1024_creals_in_local_store checksum failed!");
 
 		/* These remain fixed: */
 		VEC_DBL_INIT(isrt2,ISRT2);
@@ -648,7 +630,7 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 			memcpy(tm2, tmp, nbytes);
 			tmp = tm2;		tm2 += cslots_in_local_store;
 		}
-		nbytes = sz_vd;	// sse2_rnd is a solo (in the SIMD-vector) datum
+		nbytes = SZ_VD;	// sse2_rnd is a solo (in the SIMD-vector) datum
 		tmp = sse2_rnd;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
@@ -688,7 +670,7 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 			/* [+2] slot is for [scale,scale] */
 
 			// Propagate the above consts to the remaining threads:
-			nbytes = 2 << l2_sz_vd;
+			nbytes = 2 << L2_SZ_VD;
 			tmp = half_arr;
 			tm2 = tmp + cslots_in_local_store;
 			for(ithread = 1; ithread < CY_THREADS; ++ithread) {
@@ -770,7 +752,7 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 
 		  #endif
 
-			nbytes = RADIX << (l2_sz_vd-1);	// RADIX*sz_vd/2; 7 AVX-register-sized complex data
+			nbytes = RADIX << (L2_SZ_VD-1);	// RADIX*SZ_VD/2; 7 AVX-register-sized complex data
 
 			// Propagate the above consts to the remaining threads:
 			tm2 = tmp + cslots_in_local_store;
@@ -899,9 +881,9 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 			tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 			tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 			tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
-			nbytes = 96 << l2_sz_vd;
+			nbytes = 96 << L2_SZ_VD;
 		  #else
-			nbytes = 64 << l2_sz_vd;
+			nbytes = 64 << L2_SZ_VD;
 		  #endif
 
 		#else	// USE_SSE2
@@ -939,9 +921,9 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 			ctmp->re = inv_mult[1];	ctmp->im = inv_mult[0];	++ctmp;
 			ctmp->re = inv_mult[0];	ctmp->im = inv_mult[1];	++ctmp;
 			ctmp->re = inv_mult[1];	ctmp->im = inv_mult[1];	++ctmp;
-			nbytes = 24 << l2_sz_vd;
+			nbytes = 24 << L2_SZ_VD;
 		  #else
-			nbytes = 16 << l2_sz_vd;
+			nbytes = 16 << L2_SZ_VD;
 		  #endif
 
 		#endif
@@ -983,7 +965,7 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 			*(sse_nm1 +i) = tmp64;
 		}
 
-		nbytes = 4 << l2_sz_vd;
+		nbytes = 4 << L2_SZ_VD;
 
 	  #ifdef USE_AVX512
 	   #ifdef CARRY_16_WAY
@@ -1150,7 +1132,7 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 	#ifdef USE_SSE2
 		// o_offs 2x,4x,... what might be expected (= 2 vec_dbl per output) due to cast-to-double-pointer of DIT-64 output arg
 		for(l = 0; l < 64; l++) {
-			dif_o_offsets[l] = o_offsets[l] << (l2_sz_vd - 3);	// 2x for sse2, 4x for avx, etc
+			dif_o_offsets[l] = o_offsets[l] << (L2_SZ_VD - 3);	// 2x for sse2, 4x for avx, etc
 		}
 	#endif
 
@@ -1337,7 +1319,7 @@ int radix1024_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[
 		#elif defined(USE_SSE2)
 			tidx_mod_stride = br4[tidx_mod_stride];
 		#endif
-			target_set = (target_set<<(l2_sz_vd-2)) + tidx_mod_stride;
+			target_set = (target_set<<(L2_SZ_VD-2)) + tidx_mod_stride;
 			target_cy  = target_wtfwd * ((int)-2 << (itmp64 & 255));
 		} else {
 			target_idx = target_set = 0;
@@ -1433,7 +1415,7 @@ for(outer=0; outer <= 1; outer++)
 	tmp = max_err;	VEC_DBL_INIT(tmp, 0.0);
 	tm2 = tmp + cslots_in_local_store;
 	for(ithread = 1; ithread < CY_THREADS; ++ithread) {
-		memcpy(tm2, tmp, sz_vd);
+		memcpy(tm2, tmp, SZ_VD);
 		tmp = tm2;		tm2 += cslots_in_local_store;
 	}
 
@@ -3198,14 +3180,6 @@ void radix1024_dit_pass1(double a[], int n)
 
 	#ifdef USE_SSE2
 
-		// lg(sizeof(vec_dbl)):
-	  #ifdef USE_AVX512
-		const int l2_sz_vd = 6;
-	  #elif defined(USE_AVX)
-		const int l2_sz_vd = 5;
-	  #else
-		const int l2_sz_vd = 4;
-	  #endif
 		const double crnd = 3.0*0x4000000*0x2000000;
 		double *add0,*add1,*add2,*add3,*add4,*add5,*add6,*add7,*add8,*add9,*adda,*addb,*addc,*addd,*adde,*addf;
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
@@ -3408,7 +3382,7 @@ void radix1024_dit_pass1(double a[], int n)
 	#ifdef USE_SSE2
 		// o_offs 2x,4x,... what might be expected (= 2 vec_dbl per output) due to cast-to-double-pointer of DIT-64 output arg
 		for(l = 0; l < 64; l++) {
-			dif_o_offsets[l] = o_offsets[l] << (l2_sz_vd - 3);	// 2x for sse2, 4x for avx, etc
+			dif_o_offsets[l] = o_offsets[l] << (L2_SZ_VD - 3);	// 2x for sse2, 4x for avx, etc
 		}
 	#endif
 

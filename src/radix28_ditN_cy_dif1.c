@@ -1,3 +1,4 @@
+
 /*******************************************************************************
 *                                                                              *
 *   (C) 1997-2019 by Ernst W. Mayer.                                           *
@@ -47,9 +48,6 @@
 #endif
 #if defined(LOACC) && defined(USE_AVX512)
 	#error Currently only HIACC carry-mode supported in AVX-512 builds of radix-20,24,28 carry routines!
-#endif
-#if defined(LOACC) && (OS_BITS == 32)
-	#error 32-bit mode only supports the older HIACC carry macros!
 #endif
 
 #ifndef PFETCH_DIST
@@ -224,7 +222,7 @@ Example 2: p=2^25, n = 1835008 = 7*2^18, bjmodn00 - sw = bw = p%n = 524288 which
 		so init length-nwt local versions of base[] and baseinv[] arrays which contain the entries ordered via this index pattern.
 	*/
 
-	#include "sse2_macro.h"
+	#include "sse2_macro_gcc64.h"
 
 	#if (OS_BITS == 64)
 	  #ifdef USE_AVX
@@ -242,11 +240,7 @@ Example 2: p=2^25, n = 1835008 = 7*2^18, bjmodn00 - sw = bw = p%n = 524288 which
 	  #ifdef USE_ARM_V8_SIMD
 		#error ARMv8 build supports only small-macro-based 28-DFTs!
 	  #endif
-	  #if OS_BITS == 32
-		#include "radix28_ditN_cy_dif1_gcc32.h"
-	  #else
 		#include "radix28_ditN_cy_dif1_gcc64.h"
-	  #endif
 	#endif
 
 #endif
@@ -447,17 +441,6 @@ int radix28_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	const char func[] = "radix28_ditN_cy_dif1";
 	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
-#ifdef USE_SSE2
-	const int sz_vd = sizeof(vec_dbl);
-	// lg(sizeof(vec_dbl)):
-  #ifdef USE_AVX
-	const int l2_sz_vd = 5;
-  #else
-	const int l2_sz_vd = 4;
-  #endif
-#else
-	const int l2_sz_vd = 3;
-#endif
   #ifdef LOACC
 	static double wts_mult[2], inv_mult[2];	// Const wts-multiplier and 2*(its multiplicative inverse)
   #endif
@@ -473,7 +456,7 @@ int radix28_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	static int poff[RADIX>>2];	// Store [RADIX/4] mults of p04 offset for loop control
 	static double radix_inv, n2inv;
 #ifdef USE_SSE2
-	uint32 nwt16 = nwt << l2_sz_vd;	// nwt*sizeof(vec_dbl); the '16' is a historical naming artifact dating to first SSE2 code
+	uint32 nwt16 = nwt << L2_SZ_VD;	// nwt*sizeof(vec_dbl); the '16' is a historical naming artifact dating to first SSE2 code
 #endif
 	// Need these both in scalar mode and to ease the SSE2-array init...dimension = ODD_RADIX;
 	// In order to ease the ptr-access for the || routine, lump these 4*ODD_RADIX doubles together with copies of
@@ -911,7 +894,7 @@ int radix28_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			memcpy(tm2, tmp, nbytes);
 			tmp = tm2;		tm2 += cslots_in_local_store;
 		}
-		nbytes = sz_vd;	// sse2_rnd is a solo (in the SIMD-vector) datum
+		nbytes = SZ_VD;	// sse2_rnd is a solo (in the SIMD-vector) datum
 		tmp = sse2_rnd;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
@@ -1029,7 +1012,7 @@ int radix28_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		tmp64 = 0x3FBCA9B4332D6F61ull;	tmp->d2 = tm2->d2 = *(double *)&tmp64;	/* cos(26*I*Pi/56) = sin(02*I*Pi/56) */
 		tmp64 = 0x3FACB544024FC940ull;	tmp->d3 = tm2->d1 = *(double *)&tmp64;	/* cos(27*I*Pi/56) = sin(01*I*Pi/56) */
 		tmp = base_negacyclic_root + RADIX*2;	// reset to point to start of above block
-		nbytes = RADIX*sz_vd/2;	// 7 AVX-register-sized complex data
+		nbytes = RADIX*SZ_VD/2;	// 7 AVX-register-sized complex data
 
 	  #else	// HIACC = false ==> lower-precision version:
 
@@ -1068,7 +1051,7 @@ int radix28_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		++tmp;
 		tmp64 = 0x3FCC7B90E3024582ull;	VEC_DBL_INIT(tmp, *(double *)&tmp64);	// sin(04*I*Pi/56)
 		tmp = base_negacyclic_root + 8;	// reset to point to start of above block
-		nbytes = 4*sz_vd;	// 2 AVX-register-sized complex data
+		nbytes = 4*SZ_VD;	// 2 AVX-register-sized complex data
 
 	  #endif	// HIACC toggle
 
@@ -1189,9 +1172,9 @@ int radix28_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
-		nbytes = 96 << l2_sz_vd;
+		nbytes = 96 << L2_SZ_VD;
 	  #else
-		nbytes = 64 << l2_sz_vd;
+		nbytes = 64 << L2_SZ_VD;
 	  #endif
 
 	#else
@@ -1229,9 +1212,9 @@ int radix28_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		ctmp->re = inv_mult[1];	ctmp->im = inv_mult[0];	++ctmp;
 		ctmp->re = inv_mult[0];	ctmp->im = inv_mult[1];	++ctmp;
 		ctmp->re = inv_mult[1];	ctmp->im = inv_mult[1];	++ctmp;
-		nbytes = 24 << l2_sz_vd;
+		nbytes = 24 << L2_SZ_VD;
 	  #else
-		nbytes = 16 << l2_sz_vd;
+		nbytes = 16 << L2_SZ_VD;
 	  #endif
 
 	#endif
@@ -1274,7 +1257,7 @@ int radix28_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		*(sse_n +i) = tmp64;
 	}
 
-	nbytes = 4 << l2_sz_vd;
+	nbytes = 4 << L2_SZ_VD;
 
 #ifdef USE_AVX
 	n_minus_sil   = (struct uint32x4 *)sse_n + 1;
@@ -1609,7 +1592,7 @@ int radix28_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		#elif defined(USE_SSE2)
 			tidx_mod_stride = br4[tidx_mod_stride];
 		#endif
-			target_set = (target_set<<(l2_sz_vd-2)) + tidx_mod_stride;
+			target_set = (target_set<<(L2_SZ_VD-2)) + tidx_mod_stride;
 			target_cy  = target_wtfwd * ((int)-2 << (itmp64 & 255));
 		} else {
 			target_idx = target_set = 0;
@@ -1779,7 +1762,7 @@ for(outer=0; outer <= 1; outer++)
 		if( _bjmodn06[0] == bw ) { wts_idx_incr = 6; };
 
 	#ifdef USE_SSE2
-		wts_idx_inc2 = wts_idx_incr << (2*l2_sz_vd - 3);	/* In the SIMD version, use icycle0-6 as actual address
+		wts_idx_inc2 = wts_idx_incr << (2*L2_SZ_VD - 3);	/* In the SIMD version, use icycle0-6 as actual address
 						offsets, so wts_idx_incr includes a *sizeof(vec_dbl) for the array-of-vector-doubles indexing, and another
 						doubling|quadrupling|... to reflect the fact that the SIMD version of the loop is equivalent to 2|4|... scalar
 						loop executions, i.e. corresponds to [#doubles in each vec_dbl] scalar-code increments of the icycle indices. */
@@ -1964,7 +1947,7 @@ for(outer=0; outer <= 1; outer++)
 	  #endif
 
 		// Propagate the above consts to the remaining threads:
-		nbytes = RADIX*sz_vd;
+		nbytes = RADIX*SZ_VD;
 		tmp = half_arr;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
@@ -1972,21 +1955,21 @@ for(outer=0; outer <= 1; outer++)
 			tmp = tm2;		tm2 += cslots_in_local_store;
 		}
 
-		icycle0 <<= l2_sz_vd;		jcycle0 <<= l2_sz_vd;
-		icycle1 <<= l2_sz_vd;		jcycle1 <<= l2_sz_vd;
-		icycle2 <<= l2_sz_vd;		jcycle2 <<= l2_sz_vd;
-		icycle3 <<= l2_sz_vd;		jcycle3 <<= l2_sz_vd;
-		icycle4 <<= l2_sz_vd;		jcycle4 <<= l2_sz_vd;
-		icycle5 <<= l2_sz_vd;		jcycle5 <<= l2_sz_vd;
-		icycle6 <<= l2_sz_vd;		jcycle6 <<= l2_sz_vd;
+		icycle0 <<= L2_SZ_VD;		jcycle0 <<= L2_SZ_VD;
+		icycle1 <<= L2_SZ_VD;		jcycle1 <<= L2_SZ_VD;
+		icycle2 <<= L2_SZ_VD;		jcycle2 <<= L2_SZ_VD;
+		icycle3 <<= L2_SZ_VD;		jcycle3 <<= L2_SZ_VD;
+		icycle4 <<= L2_SZ_VD;		jcycle4 <<= L2_SZ_VD;
+		icycle5 <<= L2_SZ_VD;		jcycle5 <<= L2_SZ_VD;
+		icycle6 <<= L2_SZ_VD;		jcycle6 <<= L2_SZ_VD;
 	  #ifdef USE_AVX
-		kcycle0 <<= l2_sz_vd;		lcycle0 <<= l2_sz_vd;
-		kcycle1 <<= l2_sz_vd;		lcycle1 <<= l2_sz_vd;
-		kcycle2 <<= l2_sz_vd;		lcycle2 <<= l2_sz_vd;
-		kcycle3 <<= l2_sz_vd;		lcycle3 <<= l2_sz_vd;
-		kcycle4 <<= l2_sz_vd;		lcycle4 <<= l2_sz_vd;
-		kcycle5 <<= l2_sz_vd;		lcycle5 <<= l2_sz_vd;
-		kcycle6 <<= l2_sz_vd;		lcycle6 <<= l2_sz_vd;
+		kcycle0 <<= L2_SZ_VD;		lcycle0 <<= L2_SZ_VD;
+		kcycle1 <<= L2_SZ_VD;		lcycle1 <<= L2_SZ_VD;
+		kcycle2 <<= L2_SZ_VD;		lcycle2 <<= L2_SZ_VD;
+		kcycle3 <<= L2_SZ_VD;		lcycle3 <<= L2_SZ_VD;
+		kcycle4 <<= L2_SZ_VD;		lcycle4 <<= L2_SZ_VD;
+		kcycle5 <<= L2_SZ_VD;		lcycle5 <<= L2_SZ_VD;
+		kcycle6 <<= L2_SZ_VD;		lcycle6 <<= L2_SZ_VD;
 	  #endif
 
 	#endif	/* USE_SSE2 */
@@ -2156,7 +2139,7 @@ for(outer=0; outer <= 1; outer++)
 	tmp = max_err;	VEC_DBL_INIT(tmp, 0.0);
 	tm2 = tmp + cslots_in_local_store;
 	for(ithread = 1; ithread < CY_THREADS; ++ithread) {
-		memcpy(tm2, tmp, sz_vd);
+		memcpy(tm2, tmp, SZ_VD);
 		tmp = tm2;		tm2 += cslots_in_local_store;
 	}
 
@@ -3381,11 +3364,6 @@ void radix28_dit_pass1(double a[], int n)
 
 	#ifdef USE_SSE2
 
-	  #ifdef USE_AVX
-		const int l2_sz_vd = 5;
-	  #else
-		const int l2_sz_vd = 4;
-	  #endif
 		const double crnd = 3.0*0x4000000*0x2000000;
 		int *itmp;	// Pointer into the bjmodn array
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
@@ -3542,7 +3520,7 @@ void radix28_dit_pass1(double a[], int n)
 		poff[0] =   0; poff[1] = p04; poff[2] = p08; poff[3] = p12; poff[4] = p16; poff[5] = p20; poff[6] = p24;
 
 	#ifdef USE_SSE2
-		uint32 nwt16 = nwt << l2_sz_vd;	// nwt*sizeof(vec_dbl); the '16' is a historical naming artifact dating to first SSE2 code
+		uint32 nwt16 = nwt << L2_SZ_VD;	// nwt*sizeof(vec_dbl); the '16' is a historical naming artifact dating to first SSE2 code
 
 		tmp = thread_arg->s1p00r;
 		s1p00r = tmp + 0x00;

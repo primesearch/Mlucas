@@ -27,7 +27,7 @@
 	#define REFACTOR_4DFT_3TWIDDLE
 #endif
 #ifdef REFACTOR_4DFT_3TWIDDLE
-	#include "sse2_macro.h"
+	#include "sse2_macro_gcc64.h"
 #endif
 
 #define RADIX 16
@@ -159,17 +159,9 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;					// Base address for discrete per-thread local stores
-   #if OS_BITS == 64
 	vec_dbl *cc0, *ss0, *isrt2, *two, *r1;
-   #else	// 32-bit SSE2:
-	vec_dbl *cc0, *ss0, *isrt2, *two, *r1,*r3,*r5,*r7,*r9,*r17,*r25,*_c0,*_c1,*_c2,*_c3;
-   #endif
   #else
-   #if OS_BITS == 64
 	static vec_dbl *cc0, *ss0, *isrt2, *two, *r1;
-   #else	// 32-bit SSE2:
-	static vec_dbl *cc0, *ss0, *isrt2, *two, *r1,*r3,*r5,*r7,*r9,*r17,*r25,*_c0,*_c1,*_c2,*_c3;
-   #endif
   #endif
 
 #else
@@ -200,7 +192,6 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 	#ifndef COMPILER_TYPE_GCC
 		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 	#endif
-		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
 		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
 		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
 			free((void *)sc_arr);	sc_arr=0x0;
@@ -242,18 +233,6 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 										cc0 = sc_ptr + 0x21;
 										ss0 = sc_ptr + 0x22;
 										two = sc_ptr + 0x43;
-		  #if OS_BITS == 32	// 32-bit SSE2:
-			r3    = r1 + 0x02;
-			r5    = r1 + 0x04;
-			r7    = r1 + 0x06;
-			r9    = r1 + 0x08;
-			r17   = r1 + 0x10;
-			r25   = r1 + 0x18;
-			_c0   = r1 + 0x23;
-			_c1   = r1 + 0x33;
-			_c2   = r1 + 0x2b;
-			_c3   = r1 + 0x3b;
-		  #endif
 			/* These remain fixed: */
 			VEC_DBL_INIT(isrt2, ISRT2);
 		  #if defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE)
@@ -279,18 +258,6 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 		isrt2 = r1 + 0x20;
 		cc0   = r1 + 0x21;
 		two   = r1 + 0x43;
-	  #if OS_BITS == 32	// 32-bit SSE2:
-		r3    = r1 + 0x02;
-		r5    = r1 + 0x04;
-		r7    = r1 + 0x06;
-		r9    = r1 + 0x08;
-		r17   = r1 + 0x10;
-		r25   = r1 + 0x18;
-		_c0   = r1 + 0x23;
-		_c1   = r1 + 0x33;
-		_c2   = r1 + 0x2b;
-		_c3   = r1 + 0x3b;
-	  #endif
 	#endif
 
 #endif
@@ -1106,7 +1073,7 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 	   #endif
 
 	  // Play with prefetch in 64-bit AVX/SSE2 versions - once find reliable pfetch scheme, propagate to 32-bit SSE2 and AVX2 macros:
-	  #elif OS_BITS == 64
+	  #else
 
 	   #ifdef REFACTOR_4DFT_3TWIDDLE
 
@@ -1117,10 +1084,6 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 		SSE2_RADIX16_DIF_TWIDDLE(add0,p1,p2,p3,p4,p8,p12,r1,isrt2,pfetch_addr,pfetch_dist);
 
 	   #endif
-
-	  #else	// 32-bit SSE2:
-
-		SSE2_RADIX16_DIF_TWIDDLE(add0,p1,p2,p3,p4,p8,p12,r1,r3,r5,r7,r9,r17,r25,isrt2,cc0,_c0,_c1,_c2,_c3,pfetch_addr,pfetch_dist);
 
 	  #endif
 
@@ -1662,17 +1625,9 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;					// Base address for discrete per-thread local stores
-   #if OS_BITS == 64
 	vec_dbl *cc0, *ss0, *isrt2, *two, *r1;
-   #else	// 32-bit SSE2:
-	vec_dbl *cc0, *ss0, *isrt2, *two, *r1,*r3,*r5,*r7,*r9,*r11,*r13,*r15,*r17,*r25,*_c0,*_c1,*_c2,*_c3;
-   #endif
   #else
-   #if OS_BITS == 64
 	static vec_dbl *cc0, *ss0, *isrt2, *two, *r1;
-   #else	// 32-bit SSE2:
-	static vec_dbl *cc0, *ss0, *isrt2, *two, *r1,*r3,*r5,*r7,*r9,*r11,*r13,*r15,*r17,*r25,*_c0,*_c1,*_c2,*_c3;
-   #endif
   #endif
 
 #else
@@ -1706,7 +1661,6 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 	#ifndef COMPILER_TYPE_GCC
 		ASSERT(HERE, NTHREADS == 1, "Multithreading currently only supported for GCC builds!");
 	#endif
-		ASSERT(HERE, max_threads >= NTHREADS, "Multithreading requires max_threads >= NTHREADS!");
 		ASSERT(HERE, thr_id == -1, "Init-mode call must be outside of any multithreading!");
 		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
 			free((void *)sc_arr);	sc_arr=0x0;
@@ -1746,21 +1700,6 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 										cc0 = sc_ptr + 0x21;
 										ss0 = sc_ptr + 0x22;
 										two = sc_ptr + 0x43;
-		  #if OS_BITS == 32	// 32-bit SSE2:
-			r3    = r1 + 0x02;
-			r5    = r1 + 0x04;
-			r7    = r1 + 0x06;
-			r9    = r1 + 0x08;
-			r11   = r1 + 0x0a;
-			r13   = r1 + 0x0c;
-			r15   = r1 + 0x0e;
-			r17   = r1 + 0x10;
-			r25   = r1 + 0x18;
-			_c0   = r1 + 0x23;
-			_c1   = r1 + 0x33;
-			_c2   = r1 + 0x2b;
-			_c3   = r1 + 0x3b;
-		  #endif
 			/* These remain fixed: */
 			VEC_DBL_INIT(isrt2, ISRT2);
 		  #if defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE)
@@ -1785,21 +1724,6 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 		isrt2 = r1 + 0x20;
 		cc0   = r1 + 0x21;
 		two   = r1 + 0x43;
-	  #if OS_BITS == 32	// 32-bit SSE2:
-		r3    = r1 + 0x02;
-		r5    = r1 + 0x04;
-		r7    = r1 + 0x06;
-		r9    = r1 + 0x08;
-		r11   = r1 + 0x0a;
-		r13   = r1 + 0x0c;
-		r15   = r1 + 0x0e;
-		r17   = r1 + 0x10;
-		r25   = r1 + 0x18;
-		_c0   = r1 + 0x23;
-		_c1   = r1 + 0x33;
-		_c2   = r1 + 0x2b;
-		_c3   = r1 + 0x3b;
-	  #endif
 	#endif
 
 #endif
@@ -2525,7 +2449,7 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 	   #endif
 
 	  // SSE2 code has different macro arglists for 32 and 64-bit modes:
-	  #elif OS_BITS == 64
+	  #else
 
 	   #ifdef REFACTOR_4DFT_3TWIDDLE
 
@@ -2536,10 +2460,6 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 		SSE2_RADIX16_DIT_TWIDDLE(add0,p1,p2,p3,p4,p8,r1,isrt2,pfetch_addr,pfetch_dist);
 
 	   #endif
-
-	  #else	// 32-bit SSE2:
-
-		SSE2_RADIX16_DIT_TWIDDLE(add0,p1,p2,p3,p4,p8,r1,r3,r5,r7,r9,r11,r13,r15,r17,r25,isrt2,cc0,_c0,_c1,_c2,_c3,pfetch_addr,pfetch_dist);
 
 	  #endif
 

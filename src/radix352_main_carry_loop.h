@@ -48,26 +48,17 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			// in low 4 bits of kk; the "which length-21 half of the dit_p20_cperms array?" selector is via (kk < 0):
 			int ic = ((-(kk < 0)) & 21)	// +/- sign on kk puts us into lower/upper half of the cshift array (base index 0/21)
 						+ (kk & 0xf);	// ...and low 4 bits give the element index w.r.to the array-half in question.
-			int k0 = dit_p20_cperms[ic], k1 = dit_p20_cperms[ic+1], k2 = dit_p20_cperms[ic+2], k3 = dit_p20_cperms[ic+3], k4 = dit_p20_cperms[ic+4], k5 = dit_p20_cperms[ic+5], k6 = dit_p20_cperms[ic+6], k7 = dit_p20_cperms[ic+7], k8 = dit_p20_cperms[ic+8], k9 = dit_p20_cperms[ic+9], ka = dit_p20_cperms[ic+10];
 			// Extract Low part, i.e. (mod p20) of the p-index offsets in the above circ-perm-indexing scheme for the radix-11 DFTs:
 			kk = (kk & 0x7fffffff) >> 4;	tm1 = s1p00 + kk;
-			// I-ptrs are regular-stride offsets of r00; O-ptrs are offset w.r.to s1p00:
-			va0 = tmp;						vb0 = tm1 + k0;
-			va1 = tmp + 0x40;				vb1 = tm1 + k1;
-			va2 = tmp + 0x80;				vb2 = tm1 + k2;
-			va3 = tmp + 0xc0;				vb3 = tm1 + k3;
-			va4 = tmp + 0x100;				vb4 = tm1 + k4;
-			va5 = tmp + 0x140;				vb5 = tm1 + k5;
-			va6 = tmp + 0x180;				vb6 = tm1 + k6;
-			va7 = tmp + 0x1c0;				vb7 = tm1 + k7;
-			va8 = tmp + 0x200;				vb8 = tm1 + k8;
-			va9 = tmp + 0x240;				vb9 = tm1 + k9;
-			vaa = tmp + 0x280;				vba = tm1 + ka;
-
+			// I-ptrs are regular-stride offsets of r00; O-ptrs are offset w.r.to s1p00;
+			// the needed pointer-arithmetic shift has been incorporated into both sets of offsets,
+			// so cast both base-pointers to (uint64) to avoid need for add-with-one-shifted-addend:
+			// In the DIT-context 11-DFT macro invocation, I-offsets are constant-stride and O-offsets permuted:
+			int *ui32_ptr = &(dit_p20_cperms[ic]);
 			SSE2_RADIX_11_DFT(
-				va0,va1,va2,va3,va4,va5,va6,va7,va8,va9,vaa,
+				tmp,dft11_offptr,
 				ua0,
-				vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8,vb9,vba
+				tm1,ui32_ptr
 			);	tmp += 2;
 		}
 
@@ -460,26 +451,17 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			// in low 4 bits of kk; the "which length-21 half of the dif_p20_cperms array?" selector is via (kk < 0):
 			int ic = ((-(kk < 0)) & 21)	// +/- sign on kk puts us into lower/upper half of the cshift array (base index 0/21)
 						+ (kk & 0xf);	// ...and low 4 bits give the element index w.r.to the array-half in question.
-			int k0 = dif_p20_cperms[ic], k1 = dif_p20_cperms[ic+1], k2 = dif_p20_cperms[ic+2], k3 = dif_p20_cperms[ic+3], k4 = dif_p20_cperms[ic+4], k5 = dif_p20_cperms[ic+5], k6 = dif_p20_cperms[ic+6], k7 = dif_p20_cperms[ic+7], k8 = dif_p20_cperms[ic+8], k9 = dif_p20_cperms[ic+9], ka = dif_p20_cperms[ic+10];
 			// Extract Low part, i.e. (mod p20) of the p-index offsets in the above circ-perm-indexing scheme for the radix-11 DFTs:
 			kk = (kk & 0x7fffffff) >> 4;	tm1 = s1p00 + kk;
-			// O-ptrs are regular-stride offsets of r00; I-ptrs are offset w.r.to s1p00:
-			va0 = tmp;						vb0 = tm1 + k0;
-			va1 = tmp + 0x40;				vb1 = tm1 + k1;
-			va2 = tmp + 0x80;				vb2 = tm1 + k2;
-			va3 = tmp + 0xc0;				vb3 = tm1 + k3;
-			va4 = tmp + 0x100;				vb4 = tm1 + k4;
-			va5 = tmp + 0x140;				vb5 = tm1 + k5;
-			va6 = tmp + 0x180;				vb6 = tm1 + k6;
-			va7 = tmp + 0x1c0;				vb7 = tm1 + k7;
-			va8 = tmp + 0x200;				vb8 = tm1 + k8;
-			va9 = tmp + 0x240;				vb9 = tm1 + k9;
-			vaa = tmp + 0x280;				vba = tm1 + ka;
-
+			// O-ptrs are regular-stride offsets of r00; I-ptrs are offset w.r.to s1p00;
+			// the needed pointer-arithmetic shift has been incorporated into both sets of offsets,
+			// so cast both base-pointers to (uint64) to avoid need for add-with-one-shifted-addend:
+			int *ui32_ptr = &(dif_p20_cperms[ic]);
+			// In the DIF-context 11-DFT macro invocation, I-offsets are permuted and O-offsets constant-stride:
 			SSE2_RADIX_11_DFT(
-				vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8,vb9,vba,
+				tm1,ui32_ptr,
 				ua0,
-				va0,va1,va2,va3,va4,va5,va6,va7,va8,va9,vaa
+				tmp,dft11_offptr
 			);	tmp += 2;
 		}
 

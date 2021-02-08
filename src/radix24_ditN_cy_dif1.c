@@ -1,3 +1,4 @@
+
 /*******************************************************************************
 *                                                                              *
 *   (C) 1997-2019 by Ernst W. Mayer.                                           *
@@ -54,9 +55,6 @@
 #if defined(LOACC) && defined(USE_AVX512)
 	#error Currently only HIACC carry-mode supported in AVX-512 builds of radix-20,24,28 carry routines!
 #endif
-#if defined(LOACC) && (OS_BITS == 32)
-	#error 32-bit mode only supports the older HIACC carry macros!
-#endif
 
 #ifndef PFETCH_DIST
   #ifdef USE_AVX512
@@ -81,9 +79,7 @@
   #endif
 
   #if USE_SMALL_MACROS
-	#include "sse2_macro.h"
-  #elif OS_BITS == 32
-	#include "radix24_ditN_cy_dif1_gcc32.h"
+	#include "sse2_macro_gcc64.h"
   #else
 	#include "radix24_ditN_cy_dif1_gcc64.h"
   #endif
@@ -206,17 +202,6 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	const char func[] = "radix24_ditN_cy_dif1";
 	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
-#ifdef USE_SSE2
-	const int sz_vd = sizeof(vec_dbl);
-	// lg(sizeof(vec_dbl)):
-  #ifdef USE_AVX
-	const int l2_sz_vd = 5;
-  #else
-	const int l2_sz_vd = 4;
-  #endif
-#else
-	const int l2_sz_vd = 3;
-#endif
   #ifdef LOACC
 	static double wts_mult[2], inv_mult[2];	// Const wts-multiplier and 2*(its multiplicative inverse)
   #endif
@@ -564,14 +549,14 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		VEC_DBL_INIT(sse2_rnd,crnd);
 
 		// Propagate the above consts to the remaining threads:
-		nbytes = (long)cc0 - (long)isrt2 + sz_vd;	// #bytes in above sincos block of data
+		nbytes = (long)cc0 - (long)isrt2 + SZ_VD;	// #bytes in above sincos block of data
 		tmp = isrt2;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
 			memcpy(tm2, tmp, nbytes);
 			tmp = tm2;		tm2 += cslots_in_local_store;
 		}
-		nbytes = sz_vd;	// sse2_rnd is a solo (in the SIMD-vector) datum
+		nbytes = SZ_VD;	// sse2_rnd is a solo (in the SIMD-vector) datum
 		tmp = sse2_rnd;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
@@ -707,9 +692,9 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
-		nbytes = 96 << l2_sz_vd;
+		nbytes = 96 << L2_SZ_VD;
 	  #else
-		nbytes = 64 << l2_sz_vd;
+		nbytes = 64 << L2_SZ_VD;
 	  #endif
 
 	#elif defined(USE_SSE2)
@@ -747,9 +732,9 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		ctmp->re = inv_mult[1];	ctmp->im = inv_mult[0];	++ctmp;
 		ctmp->re = inv_mult[0];	ctmp->im = inv_mult[1];	++ctmp;
 		ctmp->re = inv_mult[1];	ctmp->im = inv_mult[1];	++ctmp;
-		nbytes = 24 << l2_sz_vd;
+		nbytes = 24 << L2_SZ_VD;
 	  #else
-		nbytes = 16 << l2_sz_vd;
+		nbytes = 16 << L2_SZ_VD;
 	  #endif
 
 	#endif
@@ -790,7 +775,7 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			*(sse_n +i) = tmp64;
 		}
 
-		nbytes = 4 << l2_sz_vd;
+		nbytes = 4 << L2_SZ_VD;
 
 	#ifdef USE_AVX
 		n_minus_sil   = (struct uint32x4 *)sse_n + 1;
@@ -844,7 +829,7 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		/* Init thread 1-CY_THREADS's local stores and pointers: */
 		for(i = 1; i < CY_THREADS; ++i) {
 			/* Only care about the constants for each thread here, but easier to just copy the entire thread0 local store: */
-			memcpy(s1p00, __r0, cslots_in_local_store << l2_sz_vd);	// bytewise copy treats complex and uint64 subdata the same
+			memcpy(s1p00, __r0, cslots_in_local_store << L2_SZ_VD);	// bytewise copy treats complex and uint64 subdata the same
 			s1p00 += cslots_in_local_store;
 		}
 	  #endif
@@ -1067,7 +1052,7 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		#elif defined(USE_SSE2)
 			tidx_mod_stride = br4[tidx_mod_stride];
 		#endif
-			target_set = (target_set<<(l2_sz_vd-2)) + tidx_mod_stride;
+			target_set = (target_set<<(L2_SZ_VD-2)) + tidx_mod_stride;
 			target_cy  = target_wtfwd * ((int)-2 << (itmp64 & 255));
 		} else {
 			target_idx = target_set = 0;
@@ -1200,7 +1185,7 @@ for(outer=0; outer <= 1; outer++)
 	tmp = max_err;	VEC_DBL_INIT(tmp, 0.0);
 	tm2 = tmp + cslots_in_local_store;
 	for(ithread = 1; ithread < CY_THREADS; ++ithread) {
-		memcpy(tm2, tmp, sz_vd);
+		memcpy(tm2, tmp, SZ_VD);
 		tmp = tm2;		tm2 += cslots_in_local_store;
 	}
 

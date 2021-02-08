@@ -71,21 +71,18 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		vec_dbl
 		*va0,*va1,*va2,*va3,*va4,	// I-ptrs
 		*vb0,*vb1,*vb2,*vb3,*vb4;	// O-ptrs
-	   #if OS_BITS == 64
 		vec_dbl
 		*vc0,*vc1,*vc2,*vc3,*vc4,	// I-ptrs
 		*vd0,*vd1,*vd2,*vd3,*vd4;	// O-ptrs
-		for(l = 0, tmp = r00, ntmp = 0; l < 4; l++, ntmp += 10) {
-	   #else
-		for(l = 0, tmp = r00, ntmp = 0; l < 8; l++, ntmp += 5) {
-	   #endif
+		for(l = 0, tmp = r00, ntmp = 0; l < 4; l++, ntmp += 10)
+		{
 			// Input-ptrs are regular-stride offsets of r00:
 			va0 = tmp;			vb0 = s1p00r + optr_off[ntmp  ];
 			va1 = tmp + 0x10;	vb1 = s1p00r + optr_off[ntmp+1];
 			va2 = tmp + 0x20;	vb2 = s1p00r + optr_off[ntmp+2];
 			va3 = tmp + 0x30;	vb3 = s1p00r + optr_off[ntmp+3];
 			va4 = tmp + 0x40;	vb4 = s1p00r + optr_off[ntmp+4];
-		  #if OS_BITS == 64
+
 			vc0 = tmp + 0x02;	vd0 = s1p00r + optr_off[ntmp+5];
 			vc1 = tmp + 0x12;	vd1 = s1p00r + optr_off[ntmp+6];
 			vc2 = tmp + 0x22;	vd2 = s1p00r + optr_off[ntmp+7];
@@ -95,10 +92,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				va0,va1,va2,va3,va4, vb0,vb1,vb2,vb3,vb4,
 				vc0,vc1,vc2,vc3,vc4, vd0,vd1,vd2,vd3,vd4)
 			tmp += 4;
-		  #else
-			SSE2_RADIX_05_DFT_0TWIDDLE(va0,va1,va2,va3,va4,xcc1,vb0,vb1,vb2,vb3,vb4)
-			tmp += 2;
-		  #endif
 		}
 
 	  #else
@@ -138,7 +131,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		SSE2_RADIX8_DIT_0TWIDDLE(add0,add1,add2,add3,add4,add5,add6,add7, r64, isrt2)
 	   #endif
 
-	   #if OS_BITS == 64
 		SSE2_RADIX_05_DFT_0TWIDDLE_X2(xcc1,two, r00,r16,r32,r48,r64, s1p00r,s1p16r,s1p32r,s1p08r,s1p24r,\
 										r02,r18,r34,r50,r66, s1p25r,s1p01r,s1p17r,s1p33r,s1p09r)
 		SSE2_RADIX_05_DFT_0TWIDDLE_X2(xcc1,two, r04,r20,r36,r52,r68, s1p10r,s1p26r,s1p02r,s1p18r,s1p34r,\
@@ -147,16 +139,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 										r10,r26,r42,r58,r74, s1p05r,s1p21r,s1p37r,s1p13r,s1p29r)
 		SSE2_RADIX_05_DFT_0TWIDDLE_X2(xcc1,two, r12,r28,r44,r60,r76, s1p30r,s1p06r,s1p22r,s1p38r,s1p14r,\
 										r14,r30,r46,r62,r78, s1p15r,s1p31r,s1p07r,s1p23r,s1p39r)
-	   #else
-		SSE2_RADIX_05_DFT_0TWIDDLE(r00,r16,r32,r48,r64,xcc1,s1p00r,s1p16r,s1p32r,s1p08r,s1p24r)
-		SSE2_RADIX_05_DFT_0TWIDDLE(r02,r18,r34,r50,r66,xcc1,s1p25r,s1p01r,s1p17r,s1p33r,s1p09r)
-		SSE2_RADIX_05_DFT_0TWIDDLE(r04,r20,r36,r52,r68,xcc1,s1p10r,s1p26r,s1p02r,s1p18r,s1p34r)
-		SSE2_RADIX_05_DFT_0TWIDDLE(r06,r22,r38,r54,r70,xcc1,s1p35r,s1p11r,s1p27r,s1p03r,s1p19r)
-		SSE2_RADIX_05_DFT_0TWIDDLE(r08,r24,r40,r56,r72,xcc1,s1p20r,s1p36r,s1p12r,s1p28r,s1p04r)
-		SSE2_RADIX_05_DFT_0TWIDDLE(r10,r26,r42,r58,r74,xcc1,s1p05r,s1p21r,s1p37r,s1p13r,s1p29r)
-		SSE2_RADIX_05_DFT_0TWIDDLE(r12,r28,r44,r60,r76,xcc1,s1p30r,s1p06r,s1p22r,s1p38r,s1p14r)
-		SSE2_RADIX_05_DFT_0TWIDDLE(r14,r30,r46,r62,r78,xcc1,s1p15r,s1p31r,s1p07r,s1p23r,s1p39r)
-	   #endif
 
 	  #endif
 
@@ -532,18 +514,15 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			 30,14,78,62,46,
 			 20,4,68,52,36,
 			 10,74,58,42,26};
-	   #if OS_BITS == 64
-		for(l = 0, tmp = r00, ntmp = 0; l < 4; l++, ntmp += 10) {
-	   #else
-		for(l = 0, tmp = r00, ntmp = 0; l < 8; l++, ntmp += 5) {
-	   #endif
+		for(l = 0, tmp = r00, ntmp = 0; l < 4; l++, ntmp += 10)
+		{
 			// Output-ptrs [va* here] are regular-stride offsets of r00:
 			va0 = tmp;			vb0 = s1p00r + iptr_off[ntmp  ];
 			va1 = tmp + 0x10;	vb1 = s1p00r + iptr_off[ntmp+1];
 			va2 = tmp + 0x20;	vb2 = s1p00r + iptr_off[ntmp+2];
 			va3 = tmp + 0x30;	vb3 = s1p00r + iptr_off[ntmp+3];
 			va4 = tmp + 0x40;	vb4 = s1p00r + iptr_off[ntmp+4];
-		  #if OS_BITS == 64
+
 			vc0 = tmp + 0x02;	vd0 = s1p00r + iptr_off[ntmp+5];
 			vc1 = tmp + 0x12;	vd1 = s1p00r + iptr_off[ntmp+6];
 			vc2 = tmp + 0x22;	vd2 = s1p00r + iptr_off[ntmp+7];
@@ -553,10 +532,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				vb0,vb1,vb2,vb3,vb4, va0,va1,va2,va3,va4,
 				vd0,vd1,vd2,vd3,vd4, vc0,vc1,vc2,vc3,vc4)
 			tmp += 4;
-		  #else
-			SSE2_RADIX_05_DFT_0TWIDDLE(va0,va1,va2,va3,va4,xcc1,vb0,vb1,vb2,vb3,vb4)
-			tmp += 2;
-		  #endif
 		}
 	/*...and now do 5 radix-8 transforms: */
 		const uint32 p_id2[5] = {054762310,045673201,032016754,067540123,001235476};	// Leading 0s = octal consts
@@ -575,7 +550,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	  #else
 
 	/*...gather the needed data (40 64-bit complex) and do 8 radix-5 transforms...*/
-	   #if OS_BITS == 64
+
 		SSE2_RADIX_05_DFT_0TWIDDLE_X2(xcc1,two, s1p00r,s1p32r,s1p24r,s1p16r,s1p08r, r00,r16,r32,r48,r64,\
 										s1p35r,s1p27r,s1p19r,s1p11r,s1p03r, r02,r18,r34,r50,r66)
 		SSE2_RADIX_05_DFT_0TWIDDLE_X2(xcc1,two, s1p30r,s1p22r,s1p14r,s1p06r,s1p38r, r04,r20,r36,r52,r68,\
@@ -584,16 +559,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 										s1p15r,s1p07r,s1p39r,s1p31r,s1p23r, r10,r26,r42,r58,r74)
 		SSE2_RADIX_05_DFT_0TWIDDLE_X2(xcc1,two, s1p10r,s1p02r,s1p34r,s1p26r,s1p18r, r12,r28,r44,r60,r76,\
 										s1p05r,s1p37r,s1p29r,s1p21r,s1p13r, r14,r30,r46,r62,r78)
-	   #else
-		SSE2_RADIX_05_DFT_0TWIDDLE(s1p00r,s1p32r,s1p24r,s1p16r,s1p08r,xcc1,r00,r16,r32,r48,r64)
-		SSE2_RADIX_05_DFT_0TWIDDLE(s1p35r,s1p27r,s1p19r,s1p11r,s1p03r,xcc1,r02,r18,r34,r50,r66)
-		SSE2_RADIX_05_DFT_0TWIDDLE(s1p30r,s1p22r,s1p14r,s1p06r,s1p38r,xcc1,r04,r20,r36,r52,r68)
-		SSE2_RADIX_05_DFT_0TWIDDLE(s1p25r,s1p17r,s1p09r,s1p01r,s1p33r,xcc1,r06,r22,r38,r54,r70)
-		SSE2_RADIX_05_DFT_0TWIDDLE(s1p20r,s1p12r,s1p04r,s1p36r,s1p28r,xcc1,r08,r24,r40,r56,r72)
-		SSE2_RADIX_05_DFT_0TWIDDLE(s1p15r,s1p07r,s1p39r,s1p31r,s1p23r,xcc1,r10,r26,r42,r58,r74)
-		SSE2_RADIX_05_DFT_0TWIDDLE(s1p10r,s1p02r,s1p34r,s1p26r,s1p18r,xcc1,r12,r28,r44,r60,r76)
-		SSE2_RADIX_05_DFT_0TWIDDLE(s1p05r,s1p37r,s1p29r,s1p21r,s1p13r,xcc1,r14,r30,r46,r62,r78)
-	   #endif
 
 	/*...and now do 5 radix-8 transforms, swapping the t[48+i] <--> t[64+i] pairs to undo the last-2-outputs-swap in the RADIX_05_DFT macro:	*/
 		add0 = &a[j1    ]; add1 = add0+p01; add2 = add0+p03; add3 = add0+p02; add4 = add0+p06; add5 = add0+p07; add6 = add0+p04; add7 = add0+p05;

@@ -36,12 +36,6 @@
   #endif
 #endif
 
-#ifndef COMPACT_OBJ	// Toggle for parametrized-loop-DFT compact-object code scheme
-  #ifdef USE_AVX512
-	#define COMPACT_OBJ	1	// AVX-512 builds [Intel KNL, specifically] only ones to show clear gain from this for radices < 64
-  #endif
-#endif
-
 #if defined(HIACC) && defined(LOACC)
 	#error Only one of LOACC and HIACC may be defined!
 #endif
@@ -59,9 +53,6 @@
   #elif defined(USE_AVX512)
 	#error Currently only LOACC carry-mode supported in AVX-512 builds!
   #endif
-#endif
-#if defined(LOACC) && (OS_BITS == 32)
-	#error 32-bit mode only supports the older HIACC carry macros!
 #endif
 
 #ifndef PFETCH_DIST
@@ -89,7 +80,7 @@
 	const int radix44_creals_in_local_store = 0x134;	// (half_arr_offset44 + RADIX) + 40 and round up to nearest multiple of 4
   #endif
 
-	#include "sse2_macro.h"
+	#include "sse2_macro_gcc64.h"
 	#include "radix11_sse_macro.h"
 
 #endif	/* USE_SSE2 */
@@ -178,22 +169,9 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 #ifdef USE_SSE2
-  #if COMPACT_OBJ
+	const uint32 dft11_offs[11] = {0,0x2<<L2_SZ_VD,0x4<<L2_SZ_VD,0x6<<L2_SZ_VD,0x8<<L2_SZ_VD,0xa<<L2_SZ_VD,0xc<<L2_SZ_VD,0xe<<L2_SZ_VD,0x10<<L2_SZ_VD,0x12<<L2_SZ_VD,0x14<<L2_SZ_VD}, *dft11_offptr = &(dft11_offs[0]), *ui32_ptr;
 	static uint32 p0123[4];
 	int i0,i1,i2,i3;
-  #endif
-	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
-	// lg(sizeof(vec_dbl)):
-  #ifdef USE_AVX512
-	const int l2_sz_vd = 6;
-  #elif defined(USE_AVX)
-	const int l2_sz_vd = 5;
-  #else
-	const int l2_sz_vd = 4;
-  #endif
-#else
-	const int sz_vd = sizeof(double), sz_vd_m1 = sz_vd-1;
-	const int l2_sz_vd = 3;
 #endif
   #ifdef LOACC
 	static double wts_mult[2], inv_mult[2];	// Const wts-multiplier and 2*(its multiplicative inverse)
@@ -296,12 +274,7 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 	vec_dbl *tmp,*tm1,*tm2;	// Non-static utility ptrs
 	static vec_dbl *two,*one,*five, *ua0,*ua1,*ua2,*ua3,*ua4,*ua5,*ua6,*ua7,*ua8,*ua9, *ub0,*ub1,*ub2,*ub3,*ub4,*ub5,*ub6,*ub7,*ub8,*ub9, *max_err, *sse2_rnd, *half_arr,
-		*r00,*r01,*r02,*r03,*r04,*r05,*r06,*r07,*r08,*r09,*r0a,*r0b,*r0c,*r0d,*r0e,*r0f,
-		*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r1a,*r1b,*r1c,*r1d,*r1e,*r1f,
-		*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r2a,*r2b,
-		*s1p00,*s1p01,*s1p02,*s1p03,*s1p04,*s1p05,*s1p06,*s1p07,*s1p08,*s1p09,*s1p0a,*s1p0b,*s1p0c,*s1p0d,*s1p0e,*s1p0f,
-		*s1p10,*s1p11,*s1p12,*s1p13,*s1p14,*s1p15,*s1p16,*s1p17,*s1p18,*s1p19,*s1p1a,*s1p1b,*s1p1c,*s1p1d,*s1p1e,*s1p1f,
-		*s1p20,*s1p21,*s1p22,*s1p23,*s1p24,*s1p25,*s1p26,*s1p27,*s1p28,*s1p29,*s1p2a,*s1p2b,
+		*r00,*s1p00,
 		*cy;	// Need RADIX/2 slots for sse2 carries, RADIX/4 for avx
 
 #endif
@@ -500,9 +473,9 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 		// This array pointer must be set based on vec_dbl-sized alignment at runtime for each thread:
 			for(l = 0; l < RE_IM_STRIDE; l++) {
-				if( ((long)&tdat[ithread].cy_dat[l] & sz_vd_m1) == 0 ) {
+				if( ((long)&tdat[ithread].cy_dat[l] & SZ_VDM1) == 0 ) {
 					tdat[ithread].cy = &tdat[ithread].cy_dat[l];
-				//	fprintf(stderr,"%d-byte-align cy_dat array at element[%d]\n",sz_vd,l);
+				//	fprintf(stderr,"%d-byte-align cy_dat array at element[%d]\n",SZ_VD,l);
 					break;
 				}
 			}
@@ -534,51 +507,6 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	#endif
 		r00 = sc_ptr;			tmp = r00 + 0x58;
 		r00 = r00 + 0x00;		s1p00 = tmp + 0x00;
-	  #if !COMPACT_OBJ
-		r01 = r00 + 0x02;		s1p01 = tmp + 0x02;
-		r02 = r00 + 0x04;		s1p02 = tmp + 0x04;
-		r03 = r00 + 0x06;		s1p03 = tmp + 0x06;
-		r04 = r00 + 0x08;		s1p04 = tmp + 0x08;
-		r05 = r00 + 0x0a;		s1p05 = tmp + 0x0a;
-		r06 = r00 + 0x0c;		s1p06 = tmp + 0x0c;
-		r07 = r00 + 0x0e;		s1p07 = tmp + 0x0e;
-		r08 = r00 + 0x10;		s1p08 = tmp + 0x10;
-		r09 = r00 + 0x12;		s1p09 = tmp + 0x12;
-		r0a = r00 + 0x14;		s1p0a = tmp + 0x14;
-		r0b = r00 + 0x16;		s1p0b = tmp + 0x16;
-		r0c = r00 + 0x18;		s1p0c = tmp + 0x18;
-		r0d = r00 + 0x1a;		s1p0d = tmp + 0x1a;
-		r0e = r00 + 0x1c;		s1p0e = tmp + 0x1c;
-		r0f = r00 + 0x1e;		s1p0f = tmp + 0x1e;
-		r10 = r00 + 0x20;		s1p10 = tmp + 0x20;
-		r11 = r00 + 0x22;		s1p11 = tmp + 0x22;
-		r12 = r00 + 0x24;		s1p12 = tmp + 0x24;
-		r13 = r00 + 0x26;		s1p13 = tmp + 0x26;
-		r14 = r00 + 0x28;		s1p14 = tmp + 0x28;
-		r15 = r00 + 0x2a;		s1p15 = tmp + 0x2a;
-		r16 = r00 + 0x2c;		s1p16 = tmp + 0x2c;
-		r17 = r00 + 0x2e;		s1p17 = tmp + 0x2e;
-		r18 = r00 + 0x30;		s1p18 = tmp + 0x30;
-		r19 = r00 + 0x32;		s1p19 = tmp + 0x32;
-		r1a = r00 + 0x34;		s1p1a = tmp + 0x34;
-		r1b = r00 + 0x36;		s1p1b = tmp + 0x36;
-		r1c = r00 + 0x38;		s1p1c = tmp + 0x38;
-		r1d = r00 + 0x3a;		s1p1d = tmp + 0x3a;
-		r1e = r00 + 0x3c;		s1p1e = tmp + 0x3c;
-		r1f = r00 + 0x3e;		s1p1f = tmp + 0x3e;
-		r20 = r00 + 0x40;		s1p20 = tmp + 0x40;
-		r21 = r00 + 0x42;		s1p21 = tmp + 0x42;
-		r22 = r00 + 0x44;		s1p22 = tmp + 0x44;
-		r23 = r00 + 0x46;		s1p23 = tmp + 0x46;
-		r24 = r00 + 0x48;		s1p24 = tmp + 0x48;
-		r25 = r00 + 0x4a;		s1p25 = tmp + 0x4a;
-		r26 = r00 + 0x4c;		s1p26 = tmp + 0x4c;
-		r27 = r00 + 0x4e;		s1p27 = tmp + 0x4e;
-		r28 = r00 + 0x50;		s1p28 = tmp + 0x50;
-		r29 = r00 + 0x52;		s1p29 = tmp + 0x52;
-		r2a = r00 + 0x54;		s1p2a = tmp + 0x54;
-		r2b = r00 + 0x56;		s1p2b = tmp + 0x56;
-	  #endif
 		tmp += 0x58;	// sc_ptr += 0xb0
 		two     = tmp + 0;	// AVX+ versions of various DFT macros need consts [2,1] pair laid out thusly
 		one     = tmp + 1;
@@ -622,7 +550,7 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		half_arr= tmp + 0x02;	/* This table needs 20 x 16 bytes for Mersenne-mod, and [4*odd_radix] x 16 for Fermat-mod */
 	  #endif
 
-		ASSERT(HERE, (radix44_creals_in_local_store << l2_sz_vd) >= ((long)half_arr - (long)r00) + (20 << l2_sz_vd), "radix44_creals_in_local_store checksum failed!");
+		ASSERT(HERE, (radix44_creals_in_local_store << L2_SZ_VD) >= ((long)half_arr - (long)r00) + (20 << L2_SZ_VD), "radix44_creals_in_local_store checksum failed!");
 	  #if (defined(USE_AVX2) && DFT_11_FMA) || defined(USE_ARM_V8_SIMD)
 	  	/* no-op */
 	  #else
@@ -788,7 +716,7 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			memcpy(tm2, tmp, nbytes);
 			tmp = tm2;		tm2 += cslots_in_local_store;
 		}
-		nbytes = sz_vd;	// sse2_rnd is a solo (in the SIMD-vector) datum
+		nbytes = SZ_VD;	// sse2_rnd is a solo (in the SIMD-vector) datum
 		tmp = sse2_rnd;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
@@ -936,9 +864,9 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
-		nbytes = 96 << l2_sz_vd;
+		nbytes = 96 << L2_SZ_VD;
 	  #else
-		nbytes = 64 << l2_sz_vd;
+		nbytes = 64 << L2_SZ_VD;
 	  #endif
 
 	#elif defined(USE_SSE2)
@@ -976,9 +904,9 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		ctmp->re = inv_mult[1];	ctmp->im = inv_mult[0];	++ctmp;
 		ctmp->re = inv_mult[0];	ctmp->im = inv_mult[1];	++ctmp;
 		ctmp->re = inv_mult[1];	ctmp->im = inv_mult[1];	++ctmp;
-		nbytes = 24 << l2_sz_vd;
+		nbytes = 24 << L2_SZ_VD;
 	  #else
-		nbytes = 16 << l2_sz_vd;
+		nbytes = 16 << L2_SZ_VD;
 	  #endif
 
 	#endif
@@ -1019,7 +947,7 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			*(sse_n +i) = tmp64;
 		}
 
-		nbytes = 4 << l2_sz_vd;
+		nbytes = 4 << L2_SZ_VD;
 
 	#ifdef USE_AVX512
 		n_minus_sil   = (struct uint32x8 *)sse_n + 1;
@@ -1081,9 +1009,9 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		p32 = p32 + ( (p32 >> DAT_BITS) << PAD_BITS );
 		p36 = p36 + ( (p36 >> DAT_BITS) << PAD_BITS );
 		p40 = p40 + ( (p40 >> DAT_BITS) << PAD_BITS );
-	  #if COMPACT_OBJ
+	#ifdef USE_SSE2
 		p0123[0] = 0; p0123[1] = p01; p0123[2] = p02; p0123[3] = p03;
-	  #endif
+	#endif
 		poff[0x0] =   0; poff[0x1] = p04; poff[0x2] = p08; poff[0x3] = p12;
 		poff[0x4] = p16; poff[0x5] = p20; poff[0x6] = p24; poff[0x7] = p28;
 		poff[0x8] = p32; poff[0x9] = p36; poff[0xa] = p40;
@@ -1192,7 +1120,7 @@ int radix44_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		#elif defined(USE_SSE2)
 			tidx_mod_stride = br4[tidx_mod_stride];
 		#endif
-			target_set = (target_set<<(l2_sz_vd-2)) + tidx_mod_stride;
+			target_set = (target_set<<(L2_SZ_VD-2)) + tidx_mod_stride;
 			target_cy  = target_wtfwd * ((int)-2 << (itmp64 & 255));
 		} else {
 			target_idx = target_set = 0;
@@ -1283,7 +1211,7 @@ for(outer=0; outer <= 1; outer++)
 	tmp = max_err;	VEC_DBL_INIT(tmp, 0.0);
 	tm2 = tmp + cslots_in_local_store;
 	for(ithread = 1; ithread < CY_THREADS; ++ithread) {
-		memcpy(tm2, tmp, sz_vd);
+		memcpy(tm2, tmp, SZ_VD);
 		tmp = tm2;		tm2 += cslots_in_local_store;
 	}
 
@@ -2033,22 +1961,16 @@ this means that the output permutation translates (in terms of of 4 radix-11 mac
 		double wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
 
 	#ifdef USE_SSE2
-	  #if COMPACT_OBJ
+		const uint32 dft11_offs[11] = {0,0x2<<L2_SZ_VD,0x4<<L2_SZ_VD,0x6<<L2_SZ_VD,0x8<<L2_SZ_VD,0xa<<L2_SZ_VD,0xc<<L2_SZ_VD,0xe<<L2_SZ_VD,0x10<<L2_SZ_VD,0x12<<L2_SZ_VD,0x14<<L2_SZ_VD}, *dft11_offptr = &(dft11_offs[0]), *ui32_ptr;
 		uint32 p0123[4];
 		int i0,i1,i2,i3;
-	  #endif
 		const double crnd = 3.0*0x4000000*0x2000000;
 		int *itmp,*itm2;	// Pointer into the bjmodn array
 		struct complex *ctmp;	// Hybrid AVX-DFT/SSE2-carry scheme used for Mersenne-mod needs a 2-word-double pointer
 		double *add0,*add1,*add2,*add3;
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
 		vec_dbl *two,*one,*five, *ua0,*ua1,*ua2,*ua3,*ua4,*ua5,*ua6,*ua7,*ua8,*ua9, *ub0,*ub1,*ub2,*ub3,*ub4,*ub5,*ub6,*ub7,*ub8,*ub9, *max_err, *sse2_rnd, *half_arr,
-			*r00,*r01,*r02,*r03,*r04,*r05,*r06,*r07,*r08,*r09,*r0a,*r0b,*r0c,*r0d,*r0e,*r0f,
-			*r10,*r11,*r12,*r13,*r14,*r15,*r16,*r17,*r18,*r19,*r1a,*r1b,*r1c,*r1d,*r1e,*r1f,
-			*r20,*r21,*r22,*r23,*r24,*r25,*r26,*r27,*r28,*r29,*r2a,*r2b,
-			*s1p00,*s1p01,*s1p02,*s1p03,*s1p04,*s1p05,*s1p06,*s1p07,*s1p08,*s1p09,*s1p0a,*s1p0b,*s1p0c,*s1p0d,*s1p0e,*s1p0f,
-			*s1p10,*s1p11,*s1p12,*s1p13,*s1p14,*s1p15,*s1p16,*s1p17,*s1p18,*s1p19,*s1p1a,*s1p1b,*s1p1c,*s1p1d,*s1p1e,*s1p1f,
-			*s1p20,*s1p21,*s1p22,*s1p23,*s1p24,*s1p25,*s1p26,*s1p27,*s1p28,*s1p29,*s1p2a,*s1p2b,
+			*r00,*s1p00,
 			*cy;	// Need RADIX/2 slots for sse2 carries, RADIX/4 for avx
 		vec_dbl *tmp,*tm1,*tm2;	// Non-static utility ptrs
 		double dtmp;
@@ -2165,9 +2087,9 @@ this means that the output permutation translates (in terms of of 4 radix-11 mac
 		p32 = p32 + ( (p32 >> DAT_BITS) << PAD_BITS );
 		p36 = p36 + ( (p36 >> DAT_BITS) << PAD_BITS );
 		p40 = p40 + ( (p40 >> DAT_BITS) << PAD_BITS );
-	  #if COMPACT_OBJ
+	#ifdef USE_SSE2
 		p0123[0] = 0; p0123[1] = p01; p0123[2] = p02; p0123[3] = p03;
-	  #endif
+	#endif
 		poff[0x0] =   0; poff[0x1] = p04; poff[0x2] = p08; poff[0x3] = p12;
 		poff[0x4] = p16; poff[0x5] = p20; poff[0x6] = p24; poff[0x7] = p28;
 		poff[0x8] = p32; poff[0x9] = p36; poff[0xa] = p40;
@@ -2175,51 +2097,6 @@ this means that the output permutation translates (in terms of of 4 radix-11 mac
 	#ifdef USE_SSE2
 		r00 = thread_arg->r00;	tmp = r00 + 0x58;
 		r00 = r00 + 0x00;		s1p00 = tmp + 0x00;
-	  #if !COMPACT_OBJ
-		r01 = r00 + 0x02;		s1p01 = tmp + 0x02;
-		r02 = r00 + 0x04;		s1p02 = tmp + 0x04;
-		r03 = r00 + 0x06;		s1p03 = tmp + 0x06;
-		r04 = r00 + 0x08;		s1p04 = tmp + 0x08;
-		r05 = r00 + 0x0a;		s1p05 = tmp + 0x0a;
-		r06 = r00 + 0x0c;		s1p06 = tmp + 0x0c;
-		r07 = r00 + 0x0e;		s1p07 = tmp + 0x0e;
-		r08 = r00 + 0x10;		s1p08 = tmp + 0x10;
-		r09 = r00 + 0x12;		s1p09 = tmp + 0x12;
-		r0a = r00 + 0x14;		s1p0a = tmp + 0x14;
-		r0b = r00 + 0x16;		s1p0b = tmp + 0x16;
-		r0c = r00 + 0x18;		s1p0c = tmp + 0x18;
-		r0d = r00 + 0x1a;		s1p0d = tmp + 0x1a;
-		r0e = r00 + 0x1c;		s1p0e = tmp + 0x1c;
-		r0f = r00 + 0x1e;		s1p0f = tmp + 0x1e;
-		r10 = r00 + 0x20;		s1p10 = tmp + 0x20;
-		r11 = r00 + 0x22;		s1p11 = tmp + 0x22;
-		r12 = r00 + 0x24;		s1p12 = tmp + 0x24;
-		r13 = r00 + 0x26;		s1p13 = tmp + 0x26;
-		r14 = r00 + 0x28;		s1p14 = tmp + 0x28;
-		r15 = r00 + 0x2a;		s1p15 = tmp + 0x2a;
-		r16 = r00 + 0x2c;		s1p16 = tmp + 0x2c;
-		r17 = r00 + 0x2e;		s1p17 = tmp + 0x2e;
-		r18 = r00 + 0x30;		s1p18 = tmp + 0x30;
-		r19 = r00 + 0x32;		s1p19 = tmp + 0x32;
-		r1a = r00 + 0x34;		s1p1a = tmp + 0x34;
-		r1b = r00 + 0x36;		s1p1b = tmp + 0x36;
-		r1c = r00 + 0x38;		s1p1c = tmp + 0x38;
-		r1d = r00 + 0x3a;		s1p1d = tmp + 0x3a;
-		r1e = r00 + 0x3c;		s1p1e = tmp + 0x3c;
-		r1f = r00 + 0x3e;		s1p1f = tmp + 0x3e;
-		r20 = r00 + 0x40;		s1p20 = tmp + 0x40;
-		r21 = r00 + 0x42;		s1p21 = tmp + 0x42;
-		r22 = r00 + 0x44;		s1p22 = tmp + 0x44;
-		r23 = r00 + 0x46;		s1p23 = tmp + 0x46;
-		r24 = r00 + 0x48;		s1p24 = tmp + 0x48;
-		r25 = r00 + 0x4a;		s1p25 = tmp + 0x4a;
-		r26 = r00 + 0x4c;		s1p26 = tmp + 0x4c;
-		r27 = r00 + 0x4e;		s1p27 = tmp + 0x4e;
-		r28 = r00 + 0x50;		s1p28 = tmp + 0x50;
-		r29 = r00 + 0x52;		s1p29 = tmp + 0x52;
-		r2a = r00 + 0x54;		s1p2a = tmp + 0x54;
-		r2b = r00 + 0x56;		s1p2b = tmp + 0x56;
-	  #endif
 		tmp += 0x58;	// sc_ptr += 0xb0
 		two     = tmp + 0;	// AVX+ versions of various DFT macros need consts [2,1] pair laid out thusly
 		one     = tmp + 1;

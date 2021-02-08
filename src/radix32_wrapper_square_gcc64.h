@@ -535,7 +535,7 @@
 	);\
 	}
 
-	#define SSE2_RADIX32_WRAPPER_DIT(Xadd0,Xadd1,Xisrt2,Xr00,Xr08,Xr10,Xr20,Xr28,Xr30,Xc01,Xc02,Xc04,Xc06,Xc08,Xc0A,Xc0C,Xc0E,Xc10,Xc12,Xc14,Xc16,Xc18,Xc1A,Xc1C,Xc1E)\
+	#define SSE2_RADIX32_WRAPPER_DIT(Xadd0,Xadd1,Xisrt2,Xr00,Xr08,Xr10,Xc01,Xc02,Xc04,Xc06,Xc08,Xc0A,Xc0C,Xc0E,Xc10,Xc12,Xc14,Xc16,Xc18,Xc1A,Xc1C,Xc1E)\
 	{\
 	__asm__ volatile (\
 		"ldr	x0,%[__add0]		\n\t"\
@@ -1029,9 +1029,6 @@ NOTE: Twiddles here shared between DIF/DIT portions, laid out like DIF, i.e. sli
 		 ,[__r00] "m" (Xr00)\
 		 ,[__r08] "m" (Xr08)\
 		 ,[__r10] "m" (Xr10)\
-		 ,[__r20] "m" (Xr20)\
-		 ,[__r28] "m" (Xr28)\
-		 ,[__r30] "m" (Xr30)\
 		 ,[__c01] "m" (Xc01)\
 		 ,[__c02] "m" (Xc02)\
 		 ,[__c04] "m" (Xc04)\
@@ -10222,7 +10219,7 @@ NOTE: Twiddles here shared between DIF/DIT portions, laid out like DIF, i.e. sli
 	);\
 	}
 
-	#define SSE2_RADIX32_WRAPPER_DIT(Xadd0,Xadd1,Xisrt2,Xr00,Xr08,Xr10,Xr20,Xr28,Xr30,Xc01,Xc02,Xc04,Xc06,Xc08,Xc0A,Xc0C,Xc0E,Xc10,Xc12,Xc14,Xc16,Xc18,Xc1A,Xc1C,Xc1E)\
+	#define SSE2_RADIX32_WRAPPER_DIT(Xadd0,Xadd1,Xisrt2,Xr00,Xr08,Xr10,Xc01,Xc02,Xc04,Xc06,Xc08,Xc0A,Xc0C,Xc0E,Xc10,Xc12,Xc14,Xc16,Xc18,Xc1A,Xc1C,Xc1E)\
 	{\
 	__asm__ volatile (\
 	/************************************************************************/\
@@ -10870,7 +10867,7 @@ NOTE: Twiddles here shared between DIF/DIT portions, laid out like DIF, i.e. sli
 		"/************************************************/	\n\t		/************************************************/	\n\t"\
 		"/*...Block 3: t04,t14,t24,t34 -> r20,24,22,26:  */	\n\t		/*...Block 7: t0C,t1C,t2C,t3C -> r28,2C,2A,2E:  */	\n\t"\
 		"/************************************************/	\n\t		/************************************************/	\n\t"\
-		"movq		%[__r20],%%rdx								/* base-addr in rcol = r28, so rdx offset +0x80 vs lcol */	\n\t"\
+		"addq	$0x200,%%rdx	/* __r20 */					/* base-addr in rcol = r28, so rdx offset +0x80 vs lcol */	\n\t"\
 		"leaq	0x010(%%rsi),%%rcx	/* cc0; Note cc0/ss0 are shared between lcol/rcol, so no rcx-offset until get to twiddles*/\n\t"\
 		"movaps		 0x020(%%rdx),%%xmm4					\n\t		movaps		 0x0a0(%%rdx),%%xmm12				\n\t"\
 		"movaps		 0x060(%%rdx),%%xmm0					\n\t		movaps		 0x0e0(%%rdx),%%xmm8 				\n\t"\
@@ -11013,9 +11010,6 @@ NOTE: Twiddles here shared between DIF/DIT portions, laid out like DIF, i.e. sli
 		 ,[__r00] "m" (Xr00)\
 		 ,[__r08] "m" (Xr08)\
 		 ,[__r10] "m" (Xr10)\
-		 ,[__r20] "m" (Xr20)\
-		 ,[__r28] "m" (Xr28)\
-		 ,[__r30] "m" (Xr30)\
 		 ,[__c01] "m" (Xc01)\
 		 ,[__c02] "m" (Xc02)\
 		 ,[__c04] "m" (Xc04)\

@@ -42,8 +42,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		}
 	/*...and now do 32 radix-5 transforms: */
 		tmp = r00;
-	   #if OS_BITS == 64
-
 		for(l = 0; l < 32; l += 2) {
 			// Input-ptrs are regular-stride offsets of r00:
 			va0 = tmp;	va1 = tmp + 0x40;	va2 = tmp + 0x80;	va3 = tmp + 0xc0;	va4 = tmp + 0x100;
@@ -72,38 +70,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				wa0,wa1,wa2,wa3,wa4, wb0,wb1,wb2,wb3,wb4
 			); tmp += 2;
 		}
-
-	   #else
-
-		for(l = 0; l < 32; l++) {
-			// Input-ptrs are regular-stride offsets of r00:
-			va0 = tmp;
-			va1 = tmp + 0x40;
-			va2 = tmp + 0x80;
-			va3 = tmp + 0xc0;
-			va4 = tmp + 0x100;
-			// Output pointers are into s1p** memblock:
-			int kk = dit_p20_lo_offset[l];
-			// Extract index (in [0-4]) into circ-shift array used for high parts of p-mults. The [0-4] value is
-			// in low 3 bits of kk; the "which length-9 half of the dit_p20_cperms array?" selector is via (kk < 0):
-			int ic = ((-(kk < 0)) & 9)	// +/- sign on kk puts us into lower/upper half of the cshift array (base index 0/9)
-						+ (kk & 0x7);	// ...and low 3 bits give the element index w.r.to the array-half in question.
-			int k0 = dit_p20_cperms[ic], k1 = dit_p20_cperms[ic+1], k2 = dit_p20_cperms[ic+2], k3 = dit_p20_cperms[ic+3], k4 = dit_p20_cperms[ic+4];
-			// Extract Low part, i.e. (mod p20) of the p-index offsets in the above circ-perm-indexing scheme for the radix-5 DFTs:
-			kk = (kk & 0x7fffffff) >> 3;
-			vb0 = s1p00 + (k0+kk);
-			vb1 = s1p00 + (k1+kk);
-			vb2 = s1p00 + (k2+kk);
-			vb3 = s1p00 + (k3+kk);
-			vb4 = s1p00 + (k4+kk);
-			SSE2_RADIX_05_DFT_0TWIDDLE(
-				va0,va1,va2,va3,va4,
-				ycc1,
-				vb0,vb1,vb2,vb3,vb4
-			);	tmp += 2;
-		}
-
-	  #endif
 
 	#else	// USE_SSE2 = False:
 
@@ -480,8 +446,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	/*...gather the needed data (160 64-bit complex, i.e. 320 64-bit reals) and do 32 radix-5 transforms...*/
 		tmp = r00;
-	   #if OS_BITS == 64
-
 		for(l = 0; l < 32; l += 2) {
 			// Input pointers are into s1p** memblock:
 			int kk = dif_p20_lo_offset[l];
@@ -510,38 +474,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 				wb0,wb1,wb2,wb3,wb4, wa0,wa1,wa2,wa3,wa4
 			); tmp += 2;
 		}
-
-	   #else
-
-		for(l = 0; l < 32; l++) {
-			// Input pointers are into s1p** memblock:
-			int kk = dif_p20_lo_offset[l];
-			// Extract index (in [0-4]) into circ-shift array used for high parts of p-mults. The [0-4] value is
-			// in low 3 bits of kk; the "which length-9 half of the dif_p20_cperms array?" selector is via (kk < 0):
-			int ic = ((-(kk < 0)) & 9)	// +/- sign on kk puts us into lower/upper half of the cshift array (base index 0/9)
-						+ (kk & 0x7);	// ...and low 3 bits give the element index w.r.to the array-half in question.
-			int k0 = dif_p20_cperms[ic], k1 = dif_p20_cperms[ic+1], k2 = dif_p20_cperms[ic+2], k3 = dif_p20_cperms[ic+3], k4 = dif_p20_cperms[ic+4];
-			// Extract Low part, i.e. (mod p20) of the p-index offsets in the above circ-perm-indexing scheme for the radix-5 DFTs:
-			kk = (kk & 0x7fffffff) >> 3;
-			vb0 = s1p00 + (k0+kk);
-			vb1 = s1p00 + (k1+kk);
-			vb2 = s1p00 + (k2+kk);
-			vb3 = s1p00 + (k3+kk);
-			vb4 = s1p00 + (k4+kk);
-			// Output-ptrs [va/vb swap roles here vs DIT] are regular-stride offsets of r00:
-			va0 = tmp;
-			va1 = tmp + 0x40;
-			va2 = tmp + 0x80;
-			va3 = tmp + 0xc0;
-			va4 = tmp + 0x100;
-			SSE2_RADIX_05_DFT_0TWIDDLE(
-				vb0,vb1,vb2,vb3,vb4,
-				ycc1,
-				va0,va1,va2,va3,va4
-			);	tmp += 2;
-		}
-
-	  #endif
 
 	/*...and now do 5 radix-32 transforms: */
 

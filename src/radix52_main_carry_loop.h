@@ -52,53 +52,8 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		#define OFF	0x1a0
 	  #endif
 
-	  #if COMPACT_OBJ
-
-		/* Outputs in SSE2 modes are temps 2*11*16 = 22*16 = 0x160 bytes apart: */
-		// Indices into above 4-elt table; each DFT-4 needs four 2-bit indices, thus gets 1 byte
-		// Ex: 1st DFT-4 has add0-3 p01-multiple offsets 0,1,3,2; bit-reverse that to get p_idx[0] = 2310_4 = 0xb4:
-		const uint8 p_id1[13] = {0xb4,0x1b,0x1b,0x1b,0xe1,0xe1,0xe1,0x4e,0x4e,0x4e,0xb4,0xb4,0xb4};
-		const uint8 p_od1[13] = {0,9,5,1,10,6,2,11,7,3,12,8,4};	// Indices into poff[]-array of p04-multiples
-		for(l = 0, tmp = r00; l < 13; l++, tmp+=2) {
-			i3 = p_id1[l]; i0 = i3&3; i1 = (i3>>2)&3; i2 = (i3>>4)&3; i3 = (i3>>6);
-			addr = &a[j1+poff[p_od1[l]]];
-			add0 = addr+p0123[i0];	add1 = addr+p0123[i1];	add2 = addr+p0123[i2];	add3 = addr+p0123[i3];
-			SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0,add1,add2,add3, tmp, OFF);
-		}
-		/*...and now do 4 radix-13 transforms. */
-		// Radix-13 DFT outputs are (cyclic) with vec_dbl-pointer -= 24[0x18] (mod 104) between successive outputs - just
-		// convert every 's1p' prefix in the non-compact-obj macro output list to a '0x' and *= 2 to get this table:
-		const uint8 optr_off[RADIX] = {
-			 0,80,56,32,8,88,64,40,16,96,72,48,24,
-			78,54,30,6,86,62,38,14,94,70,46,22,102,
-			52,28,4,84,60,36,12,92,68,44,20,100,76,
-			26,2,82,58,34,10,90,66,42,18,98,74,50};
-		vec_dbl
-		*va0,*va1,*va2,*va3,*va4,*va5,*va6,*va7,*va8,*va9,*vaa,*vab,*vac,	// I-ptrs
-		*vb0,*vb1,*vb2,*vb3,*vb4,*vb5,*vb6,*vb7,*vb8,*vb9,*vba,*vbb,*vbc;	// O-ptrs
-		for(l = 0, tmp = r00, ntmp = 0; l < 4; l++, ntmp += 13) {
-			// Input-ptrs are regular-stride offsets of r00:
-			va0 = tmp;		vb0 = s1p00 + optr_off[ntmp  ];
-			va1 = tmp +  2;	vb1 = s1p00 + optr_off[ntmp+1];
-			va2 = tmp +  4;	vb2 = s1p00 + optr_off[ntmp+2];
-			va3 = tmp +  6;	vb3 = s1p00 + optr_off[ntmp+3];
-			va4 = tmp +  8;	vb4 = s1p00 + optr_off[ntmp+4];
-			va5 = tmp + 10;	vb5 = s1p00 + optr_off[ntmp+5];
-			va6 = tmp + 12;	vb6 = s1p00 + optr_off[ntmp+6];
-			va7 = tmp + 14;	vb7 = s1p00 + optr_off[ntmp+7];
-			va8 = tmp + 16;	vb8 = s1p00 + optr_off[ntmp+8];
-			va9 = tmp + 18;	vb9 = s1p00 + optr_off[ntmp+9];
-			vaa = tmp + 20;	vba = s1p00 + optr_off[ntmp+10];
-			vab = tmp + 22;	vbb = s1p00 + optr_off[ntmp+11];
-			vac = tmp + 24;	vbc = s1p00 + optr_off[ntmp+12];
-			SSE2_RADIX_13_DFT(rad13_const,
-				va0,va1,va2,va3,va4,va5,va6,va7,va8,va9,vaa,vab,vac,	/* inputs */
-				vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8,vb9,vba,vbb,vbc		/* outputs */
-			);
-			tmp += 26;
-		}
-
-	  #else
+	  #if 1	// Direct-inlining of small 4-DFT macros is faster until we get beyond ~radix-60 and the resulting
+	  		// code bloat makes a parametrized-loop implementation with its smaller I-cache footprint faster:
 
 	/* Block 1 : */	add0 = &a[j1    ]; 	add1 = add0+p01;	add3 = add0+p02;	add2 = add0+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r00, OFF)
 	/* Block 2 : */	add3 = &a[j1+p36];	add2 = add3+p01;	add1 = add3+p02;	add0 = add3+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r01, OFF)
@@ -114,13 +69,42 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	/* Block 12: */	add0 = &a[j1+p32];	add1 = add0+p01;	add3 = add0+p02;	add2 = add0+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r0b, OFF)
 	/* Block 13: */	add0 = &a[j1+p16];	add1 = add0+p01;	add3 = add0+p02;	add2 = add0+p03;	SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0, add1, add2, add3, r0c, OFF)
 
-		/* Radix-13 DFT uses adjacent temps for inputs, outputs are (cyclic) with pXXr having XX += 40 (40*32 bytes = 0x500) or XX -= 12 (-12*32 bytes = -0x180) between successive outputs: */
-		SSE2_RADIX_13_DFT(rad13_const, r00,r01,r02,r03,r04,r05,r06,r07,r08,r09,r0a,r0b,r0c, s1p00,s1p28,s1p1c,s1p10,s1p04,s1p2c,s1p20,s1p14,s1p08,s1p30,s1p24,s1p18,s1p0c)
-		SSE2_RADIX_13_DFT(rad13_const, r0d,r0e,r0f,r10,r11,r12,r13,r14,r15,r16,r17,r18,r19, s1p27,s1p1b,s1p0f,s1p03,s1p2b,s1p1f,s1p13,s1p07,s1p2f,s1p23,s1p17,s1p0b,s1p33)
-		SSE2_RADIX_13_DFT(rad13_const, r1a,r1b,r1c,r1d,r1e,r1f,r20,r21,r22,r23,r24,r25,r26, s1p1a,s1p0e,s1p02,s1p2a,s1p1e,s1p12,s1p06,s1p2e,s1p22,s1p16,s1p0a,s1p32,s1p26)
-		SSE2_RADIX_13_DFT(rad13_const, r27,r28,r29,r2a,r2b,r2c,r2d,r2e,r2f,r30,r31,r32,r33, s1p0d,s1p01,s1p29,s1p1d,s1p11,s1p05,s1p2d,s1p21,s1p15,s1p09,s1p31,s1p25,s1p19)
+	  #else
+
+		/* Outputs in SSE2 modes are temps 2*11*16 = 22*16 = 0x160 bytes apart: */
+		// Indices into above 4-elt table; each DFT-4 needs four 2-bit indices, thus gets 1 byte
+		// Ex: 1st DFT-4 has add0-3 p01-multiple offsets 0,1,3,2; bit-reverse that to get p_idx[0] = 2310_4 = 0xb4:
+		const uint8 p_id1[13] = {0xb4,0x1b,0x1b,0x1b,0xe1,0xe1,0xe1,0x4e,0x4e,0x4e,0xb4,0xb4,0xb4};
+		const uint8 p_od1[13] = {0,9,5,1,10,6,2,11,7,3,12,8,4};	// Indices into poff[]-array of p04-multiples
+		for(l = 0, tmp = r00; l < 13; l++, tmp+=2) {
+			i3 = p_id1[l]; i0 = i3&3; i1 = (i3>>2)&3; i2 = (i3>>4)&3; i3 = (i3>>6);
+			addr = &a[j1+poff[p_od1[l]]];
+			add0 = addr+p0123[i0];	add1 = addr+p0123[i1];	add2 = addr+p0123[i2];	add3 = addr+p0123[i3];
+			SSE2_RADIX4_DIT_0TWIDDLE_STRIDE(add0,add1,add2,add3, tmp, OFF);
+		}
 
 	  #endif
+
+		/*...and now do 4 radix-13 transforms. */
+		// Radix-13 DFT outputs are (cyclic) with vec_dbl-pointer -= 24[0x18] (mod 104) between successive outputs - just
+		// convert every 's1p' prefix in the non-compact-obj macro output list to a '0x' and *= 2 to get this table:
+		const uint32 optr_off[RADIX] = {
+			 0<<L2_SZ_VD,80<<L2_SZ_VD,56<<L2_SZ_VD,32<<L2_SZ_VD,8<<L2_SZ_VD,88<<L2_SZ_VD,64<<L2_SZ_VD,40<<L2_SZ_VD,16<<L2_SZ_VD,96<<L2_SZ_VD,72<<L2_SZ_VD,48<<L2_SZ_VD,24<<L2_SZ_VD,
+			78<<L2_SZ_VD,54<<L2_SZ_VD,30<<L2_SZ_VD,6<<L2_SZ_VD,86<<L2_SZ_VD,62<<L2_SZ_VD,38<<L2_SZ_VD,14<<L2_SZ_VD,94<<L2_SZ_VD,70<<L2_SZ_VD,46<<L2_SZ_VD,22<<L2_SZ_VD,102<<L2_SZ_VD,
+			52<<L2_SZ_VD,28<<L2_SZ_VD,4<<L2_SZ_VD,84<<L2_SZ_VD,60<<L2_SZ_VD,36<<L2_SZ_VD,12<<L2_SZ_VD,92<<L2_SZ_VD,68<<L2_SZ_VD,44<<L2_SZ_VD,20<<L2_SZ_VD,100<<L2_SZ_VD,76<<L2_SZ_VD,
+			26<<L2_SZ_VD,2<<L2_SZ_VD,82<<L2_SZ_VD,58<<L2_SZ_VD,34<<L2_SZ_VD,10<<L2_SZ_VD,90<<L2_SZ_VD,66<<L2_SZ_VD,42<<L2_SZ_VD,18<<L2_SZ_VD,98<<L2_SZ_VD,74<<L2_SZ_VD,50<<L2_SZ_VD};
+		for(l = 0, tmp = r00, ntmp = 0; l < 4; l++, ntmp += 13) {
+			// I-ptrs are regular-stride offsets of r00; O-ptrs are offset w.r.to s1p00;
+			// the needed pointer-arithmetic shift has been incorporated into both sets of offsets,
+			// so cast both base-pointers to (uint64) to avoid need for add-with-one-shifted-addend:
+			// In the DIT-context 11-DFT macro invocation, I-offsets are constant-stride and O-offsets permuted:
+			ui32_ptr = &(optr_off[ntmp]);
+			SSE2_RADIX_13_DFT(
+				tmp,dft13_offptr,
+				rad13_const,
+				s1p00,ui32_ptr
+			);	tmp += 26;
+		}
 
 	#else	/* !USE_SSE2 */
 
@@ -469,35 +453,24 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	#ifdef USE_SSE2
 
-	   #if COMPACT_OBJ
-
 		/* Do 4 radix-13 transforms: */
 		// Radix-13 DFT inputs are (cyclic) with vec_dbl-pointer -= 8 (mod 104) between successive outputs
-		const uint8 iptr_off[RADIX] = {
-			 0,96,88,80,72,64,56,48,40,32,24,16,8,
-			78,70,62,54,46,38,30,22,14,6,102,94,86,
-			52,44,36,28,20,12,4,100,92,84,76,68,60,
-			26,18,10,2,98,90,82,74,66,58,50,42,34};
+		const uint32 iptr_off[RADIX] = {
+			 0<<L2_SZ_VD,96<<L2_SZ_VD,88<<L2_SZ_VD,80<<L2_SZ_VD,72<<L2_SZ_VD,64<<L2_SZ_VD,56<<L2_SZ_VD,48<<L2_SZ_VD,40<<L2_SZ_VD,32<<L2_SZ_VD,24<<L2_SZ_VD,16<<L2_SZ_VD,8<<L2_SZ_VD,
+			78<<L2_SZ_VD,70<<L2_SZ_VD,62<<L2_SZ_VD,54<<L2_SZ_VD,46<<L2_SZ_VD,38<<L2_SZ_VD,30<<L2_SZ_VD,22<<L2_SZ_VD,14<<L2_SZ_VD,6<<L2_SZ_VD,102<<L2_SZ_VD,94<<L2_SZ_VD,86<<L2_SZ_VD,
+			52<<L2_SZ_VD,44<<L2_SZ_VD,36<<L2_SZ_VD,28<<L2_SZ_VD,20<<L2_SZ_VD,12<<L2_SZ_VD,4<<L2_SZ_VD,100<<L2_SZ_VD,92<<L2_SZ_VD,84<<L2_SZ_VD,76<<L2_SZ_VD,68<<L2_SZ_VD,60<<L2_SZ_VD,
+			26<<L2_SZ_VD,18<<L2_SZ_VD,10<<L2_SZ_VD,2<<L2_SZ_VD,98<<L2_SZ_VD,90<<L2_SZ_VD,82<<L2_SZ_VD,74<<L2_SZ_VD,66<<L2_SZ_VD,58<<L2_SZ_VD,50<<L2_SZ_VD,42<<L2_SZ_VD,34<<L2_SZ_VD};
 		for(l = 0, tmp = r00, ntmp = 0; l < 4; l++, ntmp += 13) {
-			// Input-ptrs are regular-stride offsets of r00:
-			va0 = tmp;		vb0 = s1p00 + iptr_off[ntmp  ];
-			va1 = tmp +  2;	vb1 = s1p00 + iptr_off[ntmp+1];
-			va2 = tmp +  4;	vb2 = s1p00 + iptr_off[ntmp+2];
-			va3 = tmp +  6;	vb3 = s1p00 + iptr_off[ntmp+3];
-			va4 = tmp +  8;	vb4 = s1p00 + iptr_off[ntmp+4];
-			va5 = tmp + 10;	vb5 = s1p00 + iptr_off[ntmp+5];
-			va6 = tmp + 12;	vb6 = s1p00 + iptr_off[ntmp+6];
-			va7 = tmp + 14;	vb7 = s1p00 + iptr_off[ntmp+7];
-			va8 = tmp + 16;	vb8 = s1p00 + iptr_off[ntmp+8];
-			va9 = tmp + 18;	vb9 = s1p00 + iptr_off[ntmp+9];
-			vaa = tmp + 20;	vba = s1p00 + iptr_off[ntmp+10];
-			vab = tmp + 22;	vbb = s1p00 + iptr_off[ntmp+11];
-			vac = tmp + 24;	vbc = s1p00 + iptr_off[ntmp+12];
-			SSE2_RADIX_13_DFT(rad13_const,
-				vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8,vb9,vba,vbb,vbc,	/* inputs */
-				va0,va1,va2,va3,va4,va5,va6,va7,va8,va9,vaa,vab,vac		/* outputs */
-			);
-			tmp += 26;
+			// O-ptrs are regular-stride offsets of r00; I-ptrs are offset w.r.to s1p00;
+			// the needed pointer-arithmetic shift has been incorporated into both sets of offsets,
+			// so cast both base-pointers to (uint64) to avoid need for add-with-one-shifted-addend:
+			ui32_ptr = &(iptr_off[ntmp]);
+			// In the DIF-context 11-DFT macro invocation, I-offsets are permuted and O-offsets constant-stride:
+			SSE2_RADIX_13_DFT(
+				s1p00,ui32_ptr,
+				rad13_const,
+				tmp,dft13_offptr
+			);	tmp += 26;
 		}
 		/*...and now do 13 radix-4 transforms...*/
 		// Indices into above 4-elt table; each DFT-4 needs four 2-bit indices, thus gets 1 byte
@@ -510,33 +483,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			add0 = addr+p0123[i0];	add1 = addr+p0123[i1];	add2 = addr+p0123[i2];	add3 = addr+p0123[i3];
 			SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0,add1,add2,add3, tmp, OFF);
 		}
-
-	   #else
-
-		/*...gather the needed data (52 64-bit complex, i.e. 104 64-bit reals) and do 4 radix-13 transforms...*/
-		SSE2_RADIX_13_DFT(rad13_const, s1p00,s1p30,s1p2c,s1p28,s1p24,s1p20,s1p1c,s1p18,s1p14,s1p10,s1p0c,s1p08,s1p04, r00,r01,r02,r03,r04,r05,r06,r07,r08,r09,r0a,r0b,r0c)
-		SSE2_RADIX_13_DFT(rad13_const, s1p27,s1p23,s1p1f,s1p1b,s1p17,s1p13,s1p0f,s1p0b,s1p07,s1p03,s1p33,s1p2f,s1p2b, r0d,r0e,r0f,r10,r11,r12,r13,r14,r15,r16,r17,r18,r19)
-		SSE2_RADIX_13_DFT(rad13_const, s1p1a,s1p16,s1p12,s1p0e,s1p0a,s1p06,s1p02,s1p32,s1p2e,s1p2a,s1p26,s1p22,s1p1e, r1a,r1b,r1c,r1d,r1e,r1f,r20,r21,r22,r23,r24,r25,r26)
-		SSE2_RADIX_13_DFT(rad13_const, s1p0d,s1p09,s1p05,s1p01,s1p31,s1p2d,s1p29,s1p25,s1p21,s1p1d,s1p19,s1p15,s1p11, r27,r28,r29,r2a,r2b,r2c,r2d,r2e,r2f,r30,r31,r32,r33)
-
-		/*...and now do 13 radix-4 transforms...*/
-		/* Inputs in SIMD mode are temps 26*sizeof(vec_dbl) = bytes apart. Notice how the add* indices after the first row repeat with period 4: */
-		// Reorder blocks to yield sequentially increasing a-array offsets:
-	/* Block 01 : */	add0 = &a[j1    ];	add1 = add0+p01;	add3 = add0+p02;	add2 = add0+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r00, OFF)
-	/* Block 02 : */	add0 = &a[j1+p48];	add1 = add0+p01;	add3 = add0+p02;	add2 = add0+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r01, OFF)
-	/* Block 03 : */	add2 = &a[j1+p44];	add3 = add2+p01;	add0 = add2+p02;	add1 = add2+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r02, OFF)
-	/* Block 04 : */	add1 = &a[j1+p40];	add0 = add1+p01;	add2 = add1+p02;	add3 = add1+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r03, OFF)
-	/* Block 05 : */	add3 = &a[j1+p36];	add2 = add3+p01;	add1 = add3+p02;	add0 = add3+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r04, OFF)
-	/* Block 06 : */	add0 = &a[j1+p32];	add1 = add0+p01;	add3 = add0+p02;	add2 = add0+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r05, OFF)
-	/* Block 07 : */	add2 = &a[j1+p28];	add3 = add2+p01;	add0 = add2+p02;	add1 = add2+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r06, OFF)
-	/* Block 08 : */	add1 = &a[j1+p24];	add0 = add1+p01;	add2 = add1+p02;	add3 = add1+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r07, OFF)
-	/* Block 09 : */	add3 = &a[j1+p20];	add2 = add3+p01;	add1 = add3+p02;	add0 = add3+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r08, OFF)
-	/* Block 10 : */	add0 = &a[j1+p16];	add1 = add0+p01;	add3 = add0+p02;	add2 = add0+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r09, OFF)
-	/* Block 11 : */	add2 = &a[j1+p12];	add3 = add2+p01;	add0 = add2+p02;	add1 = add2+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r0a, OFF)
-	/* Block 12 : */	add1 = &a[j1+p08];	add0 = add1+p01;	add2 = add1+p02;	add3 = add1+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r0b, OFF)
-	/* Block 13 : */	add3 = &a[j1+p04];	add2 = add3+p01;	add1 = add3+p02;	add0 = add3+p03;	SSE2_RADIX4_DIF_0TWIDDLE_STRIDE(add0, add1, add2, add3, r0c, OFF)
-
-	   #endif
 
 	  #ifndef USE_ARM_V8_SIMD
 		#undef OFF

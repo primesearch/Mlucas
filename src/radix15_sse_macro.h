@@ -26,7 +26,7 @@
 #ifndef radix15_sse_macro_h_included
 #define radix15_sse_macro_h_included
 
-#include "sse2_macro.h"
+#include "sse2_macro_gcc64.h"
 
 /* General indexing for twiddleless radix-15 done as 3*radix-5 followed by 5*radix-3 is as for the scalar macro above:
 RADIX_15_DIF(00,01,02,03,04,05,06,07,08,09,0A,0B,0C,0D,0E)

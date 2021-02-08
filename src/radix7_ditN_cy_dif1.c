@@ -22,12 +22,6 @@
 
 #include "Mlucas.h"
 
-#if defined(USE_SSE2) && defined(COMPILER_TYPE_MSVC)
-
-	#include "sse2_macro.h"
-
-#endif
-
 /***************/
 
 int radix7_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], double wt1[], int si[], struct complex rn0[], struct complex rn1[],double base[], double baseinv[], int iter, double *fracmax, uint64 p)
@@ -93,9 +87,8 @@ int radix7_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], 
 	col=co2=co3=ii0=ii1=ii2=ii3=ii4=ii5=ii6=0;
 
 	if(RES_SHIFT) {
-	//	WARN(HERE, "CY routines with radix < 16 do not support shifted residues!", "", 1);
-	//	return(ERR_ASSERT);
-		ASSERT(HERE, 0,"CY routines with radix < 16 do not support shifted residues!");
+		WARN(HERE, "CY routines with radix < 16 do not support shifted residues!", "", 1);
+		return(ERR_ASSERT);
 	}
 
 	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:

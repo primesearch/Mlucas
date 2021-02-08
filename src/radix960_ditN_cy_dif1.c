@@ -46,9 +46,6 @@
 	#error Currently only LOACC carry-mode supported in AVX-512 builds!
   #endif
 #endif
-#if defined(LOACC) && (OS_BITS == 32)
-	#error 32-bit mode only supports the older HIACC carry macros!
-#endif
 
 #ifndef PFETCH_DIST
   #ifdef USE_AVX512
@@ -86,7 +83,7 @@
   #ifdef USE_AVX
 	#include "radix960_avx_negadwt_consts.h"
   #endif
-	#include "sse2_macro.h"
+	#include "sse2_macro_gcc64.h"
 	#include "radix15_sse_macro.h"
 
 #endif	// USE_SSE2
@@ -187,20 +184,6 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	static int thr_id = 0;	// Master thread gets this special id
 	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
-#ifdef USE_SSE2
-	const int sz_vd = sizeof(vec_dbl), sz_vd_m1 = sz_vd-1;
-	// lg(sizeof(vec_dbl)):
-  #ifdef USE_AVX512
-	const int l2_sz_vd = 6;
-  #elif defined(USE_AVX)
-	const int l2_sz_vd = 5;
-  #else
-	const int l2_sz_vd = 4;
-  #endif
-#else
-	const int sz_vd = sizeof(double), sz_vd_m1 = sz_vd-1;
-	const int l2_sz_vd = 3;
-#endif
   #ifdef LOACC
 	static double wts_mult[2], inv_mult[2];	// Const wts-multiplier and 2*(its multiplicative inverse)
   #endif
@@ -225,7 +208,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		incr = incr_med;
 	else
 		incr = incr_short;
-	uint32 nwt16 = nwt << l2_sz_vd;	// nwt*sizeof(vec_dbl); the '16' is a historical naming artifact dating to first SSE2 code
+	uint32 nwt16 = nwt << L2_SZ_VD;	// nwt*sizeof(vec_dbl); the '16' is a historical naming artifact dating to first SSE2 code
 
 	// Need these both in scalar mode and to ease the SSE2-array init...dimension = ODD_RADIX;
 	// In order to ease the ptr-access for the || routine, lump these 4*ODD_RADIX doubles together with copies of
@@ -583,10 +566,10 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 
 		// This array pointer must be set based on vec_dbl-sized alignment at runtime for each thread:
 			for(l = 0; l < RE_IM_STRIDE; l++) {
-				if( ((long)&tdat[ithread].cy_dat[l] & sz_vd_m1) == 0 ) {
+				if( ((long)&tdat[ithread].cy_dat[l] & SZ_VDM1) == 0 ) {
 					tdat[ithread].cy_r = &tdat[ithread].cy_dat[l];
 					tdat[ithread].cy_i = tdat[ithread].cy_r + RADIX;
-				//	fprintf(stderr,"%d-byte-align cy_dat array at element[%d]\n",sz_vd,l);
+				//	fprintf(stderr,"%d-byte-align cy_dat array at element[%d]\n",SZ_VD,l);
 					break;
 				}
 			}
@@ -678,7 +661,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		half_arr= tmp + 0x02;	/* This table needs 32 x 16 bytes for Mersenne-mod, and [4*ODD_RADIX] x 16 for Fermat-mod */
 	  #endif
 		ASSERT(HERE, half_arr_offset960 == (uint32)(half_arr-sc_ptr), "half_arr_offset mismatches actual!");
-		ASSERT(HERE, (radix960_creals_in_local_store << l2_sz_vd) >= ((long)half_arr - (long)r00) + (20 << l2_sz_vd), "radix960_creals_in_local_store checksum failed!");
+		ASSERT(HERE, (radix960_creals_in_local_store << L2_SZ_VD) >= ((long)half_arr - (long)r00) + (20 << L2_SZ_VD), "radix960_creals_in_local_store checksum failed!");
 
 		/* These remain fixed: */
 		VEC_DBL_INIT(isrt2,ISRT2);
@@ -712,7 +695,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			memcpy(tm2, tmp, nbytes);
 			tmp = tm2;		tm2 += cslots_in_local_store;
 		}
-		nbytes = sz_vd;	// sse2_rnd is a solo (in the SIMD-vector) datum
+		nbytes = SZ_VD;	// sse2_rnd is a solo (in the SIMD-vector) datum
 		tmp = sse2_rnd;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
@@ -789,7 +772,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			tmp64 = radix960_avx_negadwt_consts[j+3];	tmp->d3 = tm2->d1 = *(double *)&tmp64;	tmp += 2;
 		}
 		tmp = base_negacyclic_root + RADIX*2;	// reset to point to start of above block
-		nbytes = RADIX*sz_vd/2;	// RADIX/4 AVX-register-sized complex data
+		nbytes = RADIX*SZ_VD/2;	// RADIX/4 AVX-register-sized complex data
 
 	  #else	// HIACC = false:
 
@@ -842,7 +825,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 
 	   #endif
 
-		nbytes = 4*sz_vd;	// 2 SIMD-complex data
+		nbytes = 4*SZ_VD;	// 2 SIMD-complex data
 
 	  #endif	// HIACC toggle
 
@@ -973,9 +956,9 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[0];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
-		nbytes = 96 << l2_sz_vd;
+		nbytes = 96 << L2_SZ_VD;
 	  #else
-		nbytes = 64 << l2_sz_vd;
+		nbytes = 64 << L2_SZ_VD;
 	  #endif
 
 	#elif defined(USE_SSE2)
@@ -1013,9 +996,9 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		ctmp->re = inv_mult[1];	ctmp->im = inv_mult[0];	++ctmp;
 		ctmp->re = inv_mult[0];	ctmp->im = inv_mult[1];	++ctmp;
 		ctmp->re = inv_mult[1];	ctmp->im = inv_mult[1];	++ctmp;
-		nbytes = 24 << l2_sz_vd;
+		nbytes = 24 << L2_SZ_VD;
 	  #else
-		nbytes = 16 << l2_sz_vd;
+		nbytes = 16 << L2_SZ_VD;
 	  #endif
 
 	#endif
@@ -1057,7 +1040,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		*(sse_n +i) = tmp64;
 	}
 
-	nbytes = 4 << l2_sz_vd;
+	nbytes = 4 << L2_SZ_VD;
 
   #ifdef USE_AVX512
    #ifdef CARRY_16_WAY
@@ -1373,7 +1356,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			ASSERT(HERE, wts_idx_incr != 0, "wts_idx_incr init failed!");
 
 		#ifdef USE_SSE2
-			wts_idx_inc2 = wts_idx_incr << (2*l2_sz_vd - 3);	/* In the SIMD version, use icycle0-6 as actual address
+			wts_idx_inc2 = wts_idx_incr << (2*L2_SZ_VD - 3);	/* In the SIMD version, use icycle0-6 as actual address
 							offsets, so wts_idx_incr includes a *sizeof(vec_dbl) for the array-of-vector-doubles indexing, and another
 							doubling|quadrupling|... to reflect the fact that the SIMD version of the loop is equivalent to 2|4|... scalar
 							loop executions, i.e. corresponds to [#doubles in each vec_dbl] scalar-code increments of the icycle indices. */
@@ -1431,7 +1414,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			}
 
 			// Propagate the above wts-consts to the remaining threads:
-			nbytes = ODD_RADIX*sz_vd;
+			nbytes = ODD_RADIX*SZ_VD;
 			tmp = half_arr;
 			tm2 = tmp + cslots_in_local_store;
 			for(ithread = 1; ithread < CY_THREADS; ++ithread) {
@@ -1487,12 +1470,12 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			}
 
 			for(i = 0; i < ODD_RADIX; i++) {
-				icycle[i] <<= l2_sz_vd;	jcycle[i] <<= l2_sz_vd;
+				icycle[i] <<= L2_SZ_VD;	jcycle[i] <<= L2_SZ_VD;
 			#ifdef USE_AVX
-				kcycle[i] <<= l2_sz_vd;	lcycle[i] <<= l2_sz_vd;
+				kcycle[i] <<= L2_SZ_VD;	lcycle[i] <<= L2_SZ_VD;
 			#endif
 			#ifdef USE_AVX512
-				mcycle[i] <<= l2_sz_vd;	ncycle[i] <<= l2_sz_vd;	ocycle[i] <<= l2_sz_vd;	pcycle[i] <<= l2_sz_vd;
+				mcycle[i] <<= L2_SZ_VD;	ncycle[i] <<= L2_SZ_VD;	ocycle[i] <<= L2_SZ_VD;	pcycle[i] <<= L2_SZ_VD;
 			#endif
 			}
 
@@ -1545,9 +1528,9 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 				jhi = NDIVR/CY_THREADS;	// Earlier setting = NDIVR/CY_THREADS/2 was for simulating bjmodn evolution, need 2x that here
 				// Get value of (negative) increment resulting from (jhi-jstart)/stride execs of *cycle[] += wts_idx_inc* (mod nwt*):
 			#ifndef USE_SSE2
-				j = ((int64)wts_idx_incr * ( (jhi-jstart)>>(l2_sz_vd-2) ) % nwt  );	// []>>(l2_sz_vd-2) is fast subst. for []/stride
+				j = ((int64)wts_idx_incr * ( (jhi-jstart)>>(L2_SZ_VD-2) ) % nwt  );	// []>>(L2_SZ_VD-2) is fast subst. for []/stride
 			#else
-				j = ((int64)wts_idx_inc2 * ( (jhi-jstart)>>(l2_sz_vd-2) ) % nwt16);	// Cast wts_idx_inc* to signed 64-bit to avoid
+				j = ((int64)wts_idx_inc2 * ( (jhi-jstart)>>(L2_SZ_VD-2) ) % nwt16);	// Cast wts_idx_inc* to signed 64-bit to avoid
 						// overflow of product; further compute (jhi-jstart)/stride prior to multiply to gain more bits-to-spare.
 			#endif
 				// khi = 1 for Fermat-mod, thus no outer loop needed here
@@ -1633,7 +1616,7 @@ int radix960_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		#elif defined(USE_SSE2)
 			tidx_mod_stride = br4[tidx_mod_stride];
 		#endif
-			target_set = (target_set<<(l2_sz_vd-2)) + tidx_mod_stride;
+			target_set = (target_set<<(L2_SZ_VD-2)) + tidx_mod_stride;
 			target_cy  = target_wtfwd * ((int)-2 << (itmp64 & 255));
 		} else {
 			target_idx = target_set = 0;
@@ -1708,7 +1691,7 @@ for(outer=0; outer <= 1; outer++)
 	// in order to solve the save/restore issue. We start from the (static, unmodified during loop) ii[]-index values:
 	#ifndef MULTITHREAD
 		for(i = 0; i < ODD_RADIX; i++) {
-			/* Reinit *cycle indices their proper starting values - recall in SIMD mode these all are ( << l2_sz_vd): */
+			/* Reinit *cycle indices their proper starting values - recall in SIMD mode these all are ( << L2_SZ_VD): */
 			icycle[i] = i;
 		#ifdef USE_SSE2
 			jcycle[i] = icycle[i] + wts_idx_incr;	jcycle[i] += ( (-(jcycle[i] < 0)) & nwt);
@@ -1720,35 +1703,35 @@ for(outer=0; outer <= 1; outer++)
 			ncycle[i] = mcycle[i] + wts_idx_incr;	ncycle[i] += ( (-(ncycle[i] < 0)) & nwt);
 			ocycle[i] = ncycle[i] + wts_idx_incr;	ocycle[i] += ( (-(ocycle[i] < 0)) & nwt);
 			pcycle[i] = ocycle[i] + wts_idx_incr;	pcycle[i] += ( (-(pcycle[i] < 0)) & nwt);
-			mcycle[i] <<= l2_sz_vd;	ncycle[i] <<= l2_sz_vd;	ocycle[i] <<= l2_sz_vd;	pcycle[i] <<= l2_sz_vd;
+			mcycle[i] <<= L2_SZ_VD;	ncycle[i] <<= L2_SZ_VD;	ocycle[i] <<= L2_SZ_VD;	pcycle[i] <<= L2_SZ_VD;
 		   #endif
-			kcycle[i] <<= l2_sz_vd;	lcycle[i] <<= l2_sz_vd;
+			kcycle[i] <<= L2_SZ_VD;	lcycle[i] <<= L2_SZ_VD;
 		  #endif
-			icycle[i] <<= l2_sz_vd;	jcycle[i] <<= l2_sz_vd;
+			icycle[i] <<= L2_SZ_VD;	jcycle[i] <<= L2_SZ_VD;
 		#endif
 		}
 	#endif
 
 	#ifdef USE_SSE2
-		// Remember: *cycle[] entries all << l2_sz_vd here - must left-shift-on-the-fly before using:
+		// Remember: *cycle[] entries all << L2_SZ_VD here - must left-shift-on-the-fly before using:
 		tm2 = half_arr + ODD_RADIX;
 		for(i = 0; i < ODD_RADIX; i++, tm2++) {
-			tm2->d0 = wtinv_arr[icycle[i] >> l2_sz_vd];
-			tm2->d1 = wtinv_arr[jcycle[i] >> l2_sz_vd];
+			tm2->d0 = wtinv_arr[icycle[i] >> L2_SZ_VD];
+			tm2->d1 = wtinv_arr[jcycle[i] >> L2_SZ_VD];
 		#ifdef USE_AVX
-			tm2->d2 = wtinv_arr[kcycle[i] >> l2_sz_vd];
-			tm2->d3 = wtinv_arr[lcycle[i] >> l2_sz_vd];
+			tm2->d2 = wtinv_arr[kcycle[i] >> L2_SZ_VD];
+			tm2->d3 = wtinv_arr[lcycle[i] >> L2_SZ_VD];
 		#endif
 		#ifdef USE_AVX512
-			tm2->d4 = wtinv_arr[mcycle[i] >> l2_sz_vd];
-			tm2->d5 = wtinv_arr[ncycle[i] >> l2_sz_vd];
-			tm2->d6 = wtinv_arr[ocycle[i] >> l2_sz_vd];
-			tm2->d7 = wtinv_arr[pcycle[i] >> l2_sz_vd];
+			tm2->d4 = wtinv_arr[mcycle[i] >> L2_SZ_VD];
+			tm2->d5 = wtinv_arr[ncycle[i] >> L2_SZ_VD];
+			tm2->d6 = wtinv_arr[ocycle[i] >> L2_SZ_VD];
+			tm2->d7 = wtinv_arr[pcycle[i] >> L2_SZ_VD];
 		#endif
 		}
 
 		// Propagate the above inv-wts to the remaining threads - surrounding consts are unchanged:
-		nbytes = ODD_RADIX*sz_vd;
+		nbytes = ODD_RADIX*SZ_VD;
 		tmp = half_arr + ODD_RADIX;
 		tm2 = tmp + cslots_in_local_store;
 		for(ithread = 1; ithread < CY_THREADS; ++ithread) {
@@ -1786,7 +1769,7 @@ for(outer=0; outer <= 1; outer++)
 	tmp = max_err;	VEC_DBL_INIT(tmp, 0.0);
 	tm2 = tmp + cslots_in_local_store;
 	for(ithread = 1; ithread < CY_THREADS; ++ithread) {
-		memcpy(tm2, tmp, sz_vd);
+		memcpy(tm2, tmp, SZ_VD);
 		tmp = tm2;		tm2 += cslots_in_local_store;
 	}
 
@@ -3309,14 +3292,6 @@ void radix960_dit_pass1(double a[], int n)
 
 	#ifdef USE_SSE2
 
-		// lg(sizeof(vec_dbl)):
-	  #ifdef USE_AVX512
-		const int l2_sz_vd = 6;
-	  #elif defined(USE_AVX)
-		const int l2_sz_vd = 5;
-	  #else
-		const int l2_sz_vd = 4;
-	  #endif
 		const double crnd = 3.0*0x4000000*0x2000000;
 		double *add1,*add2,*add3;
 		int *bjmodn;	// Alloc mem for this along with other 	SIMD stuff
@@ -3543,7 +3518,7 @@ void radix960_dit_pass1(double a[], int n)
 		}
 
 	#ifdef USE_SSE2
-		uint32 nwt16 = nwt << l2_sz_vd;	// nwt*sizeof(vec_dbl); the '16' is a historical naming artifact dating to first SSE2 code
+		uint32 nwt16 = nwt << L2_SZ_VD;	// nwt*sizeof(vec_dbl); the '16' is a historical naming artifact dating to first SSE2 code
 
 		tmp = thread_arg->r00;
 		r00   = tmp;	tmp += 0x780;	// Head of RADIX*vec_cmplx-sized local store #1

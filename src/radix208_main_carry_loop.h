@@ -59,69 +59,101 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		for(l = 0; l < 13; l++) {
 			i64 = dit16_iidx_lo[l];
 			// p-offset indices encoded in little-endian hex-char fashion:
-			k0 = plo[(i64 >> 60)&0xf];
-			k1 = plo[(i64 >> 56)&0xf];
-			k2 = plo[(i64 >> 52)&0xf];
-			k3 = plo[(i64 >> 48)&0xf];
-			k4 = plo[(i64 >> 44)&0xf];
-			k5 = plo[(i64 >> 40)&0xf];
-			k6 = plo[(i64 >> 36)&0xf];
-			k7 = plo[(i64 >> 32)&0xf];
-			k8 = plo[(i64 >> 28)&0xf];
-			k9 = plo[(i64 >> 24)&0xf];
-			ka = plo[(i64 >> 20)&0xf];
-			kb = plo[(i64 >> 16)&0xf];
-			kc = plo[(i64 >> 12)&0xf];
-			kd = plo[(i64 >>  8)&0xf];
-			ke = plo[(i64 >>  4)&0xf];
-			kf = plo[(i64      )&0xf];
+			po_kperm[0x0] = plo[(i64 >> 60)&0xf];
+			po_kperm[0x1] = plo[(i64 >> 56)&0xf];
+			po_kperm[0x2] = plo[(i64 >> 52)&0xf];
+			po_kperm[0x3] = plo[(i64 >> 48)&0xf];
+			po_kperm[0x4] = plo[(i64 >> 44)&0xf];
+			po_kperm[0x5] = plo[(i64 >> 40)&0xf];
+			po_kperm[0x6] = plo[(i64 >> 36)&0xf];
+			po_kperm[0x7] = plo[(i64 >> 32)&0xf];
+			po_kperm[0x8] = plo[(i64 >> 28)&0xf];
+			po_kperm[0x9] = plo[(i64 >> 24)&0xf];
+			po_kperm[0xa] = plo[(i64 >> 20)&0xf];
+			po_kperm[0xb] = plo[(i64 >> 16)&0xf];
+			po_kperm[0xc] = plo[(i64 >> 12)&0xf];
+			po_kperm[0xd] = plo[(i64 >>  8)&0xf];
+			po_kperm[0xe] = plo[(i64 >>  4)&0xf];
+			po_kperm[0xf] = plo[(i64      )&0xf];
 			addr = &a[j1] + phi[kk];	// offset = p10*[0,a,7,4,1,b,8,5,2,c,9,6,3], start idx = 0 and decr 3 (mod 13) each loop
-			add0=addr+k0; add1=addr+k1; add2=addr+k2; add3=addr+k3; add4=addr+k4; add5=addr+k5; add6=addr+k6; add7=addr+k7; add8=addr+k8; add9=addr+k9; adda=addr+ka; addb=addr+kb; addc=addr+kc; addd=addr+kd; adde=addr+ke; addf=addr+kf;
 			SSE2_RADIX16_DIT_0TWIDDLE(
-				add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf,
+				addr,po_ptr,
 				isrt2,two,
 				tmp,OFF1,OFF2,OFF3,OFF4
 			);	tmp += 0x20;
 			kk -= 3; kk += ((-(kk < 0)) & 13);
 		}
 	//...and now do 16 radix-13 transforms:
+#if 0	// Debug:
+const char ref[416] = {	// RADIX/32 rows of 64 real (32 complex-pair) data each:
+	3,1,4,1,5,9,2,6,5,3,5,8,9,7,9,3,2,3,8,4,6,2,6,4,3,3,8,3,2,7,9,5,0,2,8,8,4,1,9,7,1,6,9,3,9,9,3,7,5,1,0,5,8,2,0,9,7,4,9,4,4,5,9,2,
+	3,0,7,8,1,6,4,0,6,2,8,6,2,0,8,9,9,8,6,2,8,0,3,4,8,2,5,3,4,2,1,1,7,0,6,7,9,8,2,1,4,8,0,8,6,5,1,3,2,8,2,3,0,6,6,4,7,0,9,3,8,4,4,6,
+	0,9,5,5,0,5,8,2,2,3,1,7,2,5,3,5,9,4,0,8,1,2,8,4,8,1,1,1,7,4,5,0,2,8,4,1,0,2,7,0,1,9,3,8,5,2,1,1,0,5,5,5,9,6,4,4,6,2,2,9,4,8,9,5,
+	4,9,3,0,3,8,1,9,6,4,4,2,8,8,1,0,9,7,5,6,6,5,9,3,3,4,4,6,1,2,8,4,7,5,6,4,8,2,3,3,7,8,6,7,8,3,1,6,5,2,7,1,2,0,1,9,0,9,1,4,5,6,4,8,
+	5,6,6,9,2,3,4,6,0,3,4,8,6,1,0,4,5,4,3,2,6,6,4,8,2,1,3,3,9,3,6,0,7,2,6,0,2,4,9,1,4,1,2,7,3,7,2,4,5,8,7,0,0,6,6,0,6,3,1,5,5,8,8,1,
+	7,4,8,8,1,5,2,0,9,2,0,9,6,2,8,2,9,2,5,4,0,9,1,7,1,5,3,6,4,3,6,7,8,9,2,5,9,0,3,6,0,0,1,1,3,3,0,5,3,0,5,4,8,8,2,0,4,6,6,5,2,1,3,8,
+	4,1,4,6,9,5,1,9,4,1,5,1,1,6,0,9,4,3,3,0,5,7,2,7,0,3,6,5,7,5,9,5
+};
+tmp = r00; tm1 = s1p00;
+for(l = 0; l < RADIX*2; l++,tmp++,tm1++) {
+	VEC_DBL_INIT(tmp,(double)ref[l]);
+	VEC_DBL_INIT(tm1,0.0);
+}
+tmp = r00; tm1 = s1p00;
+// 2 different branches to compare old-vs-new 11-dft macro:
+  #ifdef DFT_OLD
+	// Input-ptrs are regular-stride offsets of r00, O-ptrs are permuted-index:
+						iptr = dit_pcshft + dit_ncshft[0];
+	va0 = tmp;			k0 = *iptr;			vb0 = tm1 + (k0<<5);
+	va1 = tmp + 0x20;	k1 = *(iptr+0x1);	vb1 = tm1 + (k1<<5);
+	va2 = tmp + 0x40;	k2 = *(iptr+0x2);	vb2 = tm1 + (k2<<5);
+	va3 = tmp + 0x60;	k3 = *(iptr+0x3);	vb3 = tm1 + (k3<<5);
+	va4 = tmp + 0x80;	k4 = *(iptr+0x4);	vb4 = tm1 + (k4<<5);
+	va5 = tmp + 0xa0;	k5 = *(iptr+0x5);	vb5 = tm1 + (k5<<5);
+	va6 = tmp + 0xc0;	k6 = *(iptr+0x6);	vb6 = tm1 + (k6<<5);
+	va7 = tmp + 0xe0;	k7 = *(iptr+0x7);	vb7 = tm1 + (k7<<5);
+	va8 = tmp + 0x100;	k8 = *(iptr+0x8);	vb8 = tm1 + (k8<<5);
+	va9 = tmp + 0x120;	k9 = *(iptr+0x9);	vb9 = tm1 + (k9<<5);
+	vaa = tmp + 0x140;	ka = *(iptr+0xa);	vba = tm1 + (ka<<5);
+	vab = tmp + 0x160;	kb = *(iptr+0xb);	vbb = tm1 + (kb<<5);
+	vac = tmp + 0x180;	kc = *(iptr+0xc);	vbc = tm1 + (kc<<5);
+	SSE2_RADIX_13_DFT_OLD(rad13_const,
+		va0,va1,va2,va3,va4,va5,va6,va7,va8,va9,vaa,vab,vac,
+		vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8,vb9,vba,vbb,vbc
+	);	tmp += 2;
+  #elif defined(DFT_NEW)
+	iptr = dit_pcshft2 + dit_ncshft[0];	// dit_ncshft[l] is an index of the starting element of dit_pcshft[] to use for the current 11-DFT's O-addressing
+	// I-ptrs are regular-stride offsets of r00; O-ptrs are offset w.r.to s1p00;
+	// the needed pointer-arithmetic shift has been incorporated into both sets of offsets,
+	// so cast both base-pointers to (uint64) to avoid need for add-with-one-shifted-addend:
+	// In the DIT-context 11-DFT macro invocation, I-offsets are constant-stride and O-offsets permuted:
+	SSE2_RADIX_13_DFT(
+		tmp,dft13_offptr,
+		rad13_const,
+		tm1,iptr
+	);	tmp += 2;
+  #else
+	#error must -D-define either DFT_OLD or DFT_NEW at compile time!
+  #endif
+tmp = r00; tm1 = s1p00;
+printf("Radix %u: DFT-13 outputs, SIMD width = %u\n",RADIX,RE_IM_STRIDE);
+for(l = 0; l < RADIX; l++,tm1+=2) {
+	if(tm1->d0 != 0) printf("%3u: re,im = %16.10f,%16.10f\n",l,tm1->d0,(tm1+1)->d0);
+}
+exit(0);
+#endif
 		tmp = r00;
 		for(l = 0; l < 16; l++) {
-			// Input-ptrs are regular-stride offsets of r00:
-			va0 = tmp;
-			va1 = tmp + 0x20;
-			va2 = tmp + 0x40;
-			va3 = tmp + 0x60;
-			va4 = tmp + 0x80;
-			va5 = tmp + 0xa0;
-			va6 = tmp + 0xc0;
-			va7 = tmp + 0xe0;
-			va8 = tmp + 0x100;
-			va9 = tmp + 0x120;
-			vaa = tmp + 0x140;
-			vab = tmp + 0x160;
-			vac = tmp + 0x180;
 			tm1 = s1p00 + (((16 - l)&0xf)<<1);	// Low-part offset = p0,f,e,...,2,1
-			// Hi-part of p-offset indices:
-			// Since SIMD code stores DIT-outs into contig-local mem rather than back into large-strided main-array locs,
-			// replacing phi[*] with (*)<<5 gives vec_dbl-complex stride analogs of the p-mults used here in scalar-double mode:
-			iptr = dit_pcshft + dit_ncshft[l];
-			k0 = *iptr;			vb0 = tm1 + (k0<<5);
-			k1 = *(iptr+0x1);	vb1 = tm1 + (k1<<5);
-			k2 = *(iptr+0x2);	vb2 = tm1 + (k2<<5);
-			k3 = *(iptr+0x3);	vb3 = tm1 + (k3<<5);
-			k4 = *(iptr+0x4);	vb4 = tm1 + (k4<<5);
-			k5 = *(iptr+0x5);	vb5 = tm1 + (k5<<5);
-			k6 = *(iptr+0x6);	vb6 = tm1 + (k6<<5);
-			k7 = *(iptr+0x7);	vb7 = tm1 + (k7<<5);
-			k8 = *(iptr+0x8);	vb8 = tm1 + (k8<<5);
-			k9 = *(iptr+0x9);	vb9 = tm1 + (k9<<5);
-			ka = *(iptr+0xa);	vba = tm1 + (ka<<5);
-			kb = *(iptr+0xb);	vbb = tm1 + (kb<<5);
-			kc = *(iptr+0xc);	vbc = tm1 + (kc<<5);
-			SSE2_RADIX_13_DFT(rad13_const,
-				va0,va1,va2,va3,va4,va5,va6,va7,va8,va9,vaa,vab,vac,
-				vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8,vb9,vba,vbb,vbc
+			iptr = dit_pcshft2 + dit_ncshft[l];	// dit_ncshft[l] is an index of the starting element of dit_pcshft[] to use for the current 11-DFT's O-addressing
+			// I-ptrs are regular-stride offsets of r00; O-ptrs are offset w.r.to s1p00;
+			// the needed pointer-arithmetic shift has been incorporated into both sets of offsets,
+			// so cast both base-pointers to (uint64) to avoid need for add-with-one-shifted-addend:
+			// In the DIT-context 11-DFT macro invocation, I-offsets are constant-stride and O-offsets permuted:
+			SSE2_RADIX_13_DFT(
+				tmp,dft13_offptr,
+				rad13_const,
+				tm1,iptr
 			);	tmp += 2;
 		}
 
@@ -535,40 +567,15 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		tmp = r00;
 		for(l = 0; l < 16; l++) {
 			tm1 = s1p00 + ((((l<<1)+l) & 0xf)<<1);	// Low-part offset = p[3*l (mod 16)] = p0,3,6,9,c,f,2,5,...
-			iptr = dif_pcshft + dif_ncshft[l];
-			// Hi-part of p-offset indices:
-			// Since SIMD code stores DIF-ins into contig-local mem rather than back into large-strided main-array locs,
-			// replacing phi[*] with (*)<<5 gives vec_dbl-complex stride analogs of the p-mults used here in scalar-double mode:
-			k0 = *iptr;			vb0 = tm1 + (k0<<5);
-			k1 = *(iptr+0x1);	vb1 = tm1 + (k1<<5);
-			k2 = *(iptr+0x2);	vb2 = tm1 + (k2<<5);
-			k3 = *(iptr+0x3);	vb3 = tm1 + (k3<<5);
-			k4 = *(iptr+0x4);	vb4 = tm1 + (k4<<5);
-			k5 = *(iptr+0x5);	vb5 = tm1 + (k5<<5);
-			k6 = *(iptr+0x6);	vb6 = tm1 + (k6<<5);
-			k7 = *(iptr+0x7);	vb7 = tm1 + (k7<<5);
-			k8 = *(iptr+0x8);	vb8 = tm1 + (k8<<5);
-			k9 = *(iptr+0x9);	vb9 = tm1 + (k9<<5);
-			ka = *(iptr+0xa);	vba = tm1 + (ka<<5);
-			kb = *(iptr+0xb);	vbb = tm1 + (kb<<5);
-			kc = *(iptr+0xc);	vbc = tm1 + (kc<<5);
-			// Output-ptrs [va/vb swap roles here vs DIT] are regular-stride offsets of r00:
-			va0 = tmp;
-			va1 = tmp + 0x20;
-			va2 = tmp + 0x40;
-			va3 = tmp + 0x60;
-			va4 = tmp + 0x80;
-			va5 = tmp + 0xa0;
-			va6 = tmp + 0xc0;
-			va7 = tmp + 0xe0;
-			va8 = tmp + 0x100;
-			va9 = tmp + 0x120;
-			vaa = tmp + 0x140;
-			vab = tmp + 0x160;
-			vac = tmp + 0x180;
-			SSE2_RADIX_13_DFT(rad13_const,
-				vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8,vb9,vba,vbb,vbc,
-				va0,va1,va2,va3,va4,va5,va6,va7,va8,va9,vaa,vab,vac
+			iptr = dif_pcshft2 + dif_ncshft[l];
+			// O-ptrs are regular-stride offsets of r00; I-ptrs are offset w.r.to s1p00;
+			// the needed pointer-arithmetic shift has been incorporated into both sets of offsets,
+			// so cast both base-pointers to (uint64) to avoid need for add-with-one-shifted-addend:
+			// In the DIF-context 11-DFT macro invocation, I-offsets are permuted and O-offsets constant-stride:
+			SSE2_RADIX_13_DFT(
+				tm1,iptr,
+				rad13_const,
+				tmp,dft13_offptr
 			);	tmp += 2;
 		}
 	//...and now do 13 radix-16 transforms:
@@ -576,28 +583,27 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		for(l = 0; l < 13; l++) {
 			i64 = dif16_oidx_lo[l];
 			// p-offset indices encoded in little-endian hex-char fashion:
-			k0 = plo[(i64 >> 60)&0xf];
-			k1 = plo[(i64 >> 56)&0xf];
-			k2 = plo[(i64 >> 52)&0xf];
-			k3 = plo[(i64 >> 48)&0xf];
-			k4 = plo[(i64 >> 44)&0xf];
-			k5 = plo[(i64 >> 40)&0xf];
-			k6 = plo[(i64 >> 36)&0xf];
-			k7 = plo[(i64 >> 32)&0xf];
-			k8 = plo[(i64 >> 28)&0xf];
-			k9 = plo[(i64 >> 24)&0xf];
-			ka = plo[(i64 >> 20)&0xf];
-			kb = plo[(i64 >> 16)&0xf];
-			kc = plo[(i64 >> 12)&0xf];
-			kd = plo[(i64 >>  8)&0xf];
-			ke = plo[(i64 >>  4)&0xf];
-			kf = plo[(i64      )&0xf];
+			po_kperm[0x0] = plo[(i64 >> 60)&0xf];
+			po_kperm[0x1] = plo[(i64 >> 56)&0xf];
+			po_kperm[0x2] = plo[(i64 >> 52)&0xf];
+			po_kperm[0x3] = plo[(i64 >> 48)&0xf];
+			po_kperm[0x4] = plo[(i64 >> 44)&0xf];
+			po_kperm[0x5] = plo[(i64 >> 40)&0xf];
+			po_kperm[0x6] = plo[(i64 >> 36)&0xf];
+			po_kperm[0x7] = plo[(i64 >> 32)&0xf];
+			po_kperm[0x8] = plo[(i64 >> 28)&0xf];
+			po_kperm[0x9] = plo[(i64 >> 24)&0xf];
+			po_kperm[0xa] = plo[(i64 >> 20)&0xf];
+			po_kperm[0xb] = plo[(i64 >> 16)&0xf];
+			po_kperm[0xc] = plo[(i64 >> 12)&0xf];
+			po_kperm[0xd] = plo[(i64 >>  8)&0xf];
+			po_kperm[0xe] = plo[(i64 >>  4)&0xf];
+			po_kperm[0xf] = plo[(i64      )&0xf];
 			addr = &a[j1] + phi[dif_pcshft[l]];	// offset = p0,pc0,pb0,...,p10
-			add0=addr+k0; add1=addr+k1; add2=addr+k2; add3=addr+k3; add4=addr+k4; add5=addr+k5; add6=addr+k6; add7=addr+k7; add8=addr+k8; add9=addr+k9; adda=addr+ka; addb=addr+kb; addc=addr+kc; addd=addr+kd; adde=addr+ke; addf=addr+kf;
 			SSE2_RADIX16_DIF_0TWIDDLE(
 				tmp,OFF1,OFF2,OFF3,OFF4,
 				isrt2,two,
-				add0,add1,add2,add3,add4,add5,add6,add7,add8,add9,adda,addb,addc,addd,adde,addf
+				addr,po_ptr
 			);	tmp += 0x20;
 		}
 

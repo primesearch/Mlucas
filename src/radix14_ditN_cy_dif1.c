@@ -95,9 +95,8 @@ int radix14_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	col=co2=co3=ii0=ii1=ii2=ii3=ii4=ii5=ii6=ii7=ii8=ii9=ii10=ii11=ii12=ii13=-1;
 
 	if(RES_SHIFT) {
-	//	WARN(HERE, "CY routines with radix < 16 do not support shifted residues!", "", 1);
-	//	return(ERR_ASSERT);
-		ASSERT(HERE, 0,"CY routines with radix < 16 do not support shifted residues!");
+		WARN(HERE, "CY routines with radix < 16 do not support shifted residues!", "", 1);
+		return(ERR_ASSERT);
 	}
 
 	// Jan 2018: To support PRP-testing, read the LR-modpow-scalar-multiply-needed bit for the current iteration from the global array:
