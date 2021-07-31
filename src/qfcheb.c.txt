@@ -60,7 +60,12 @@ int 	main(int argc, char *argv[])
 	qpin = qfmul(QPI, qninv);	// Pi/n
 	qninv = qfmul_pow2(qninv, 2);	// 4/n
 	// Scale factor for mapping target-function half-interval y in [0,ymax] to Chebyshev half-interval x in [0,+1]:
+#if 1
+	const struct qfloat Q4TH = 	{0x3FD0000000000000ull,                 0ull};	// 1/4
+	qscale = Q4TH;
+#else
 	qscale = QPI4TH;
+#endif
 	qscinv = qfinv(qscale);
 
 	/*****************************************************************/
@@ -86,11 +91,12 @@ int 	main(int argc, char *argv[])
 		}
 		qk = qfadd(qk, QONE);	// k += 1
 	}
-	fprintf(stderr,"Chebyshev basis function coefficients, as double and [exact uint64 bitfield]:\n");
+	fprintf(stderr,"Chebyshev basis function coefficients, as exact uint64x2 bitfield and as doubles:\n");
 	for(j = 0; j < n; j+=2) {
-		c[j] = qfmul(qninv,c[j]);
+		c[j] = qfmul(qninv,c[j]);	// Half-interval sum means dobling the normalizer to (4/n)*[half-interval sum]
 		if(!j) c[0] = qfmul_pow2(c[0],-1);	// DC term normalizer is 1/n, half of the 2/n used for the remaining coefficients:
-		fprintf(stderr,"c[%2d] = %25.15e [0x%16llx]\n",j,qfdbl(c[j]),qfdbl_as_uint64(c[j]));	// (4/n)*[half-interval sum]
+//		fprintf(stderr,"c[%2d] = %25.15e [0x%016llx]\n",j,qfdbl(c[j]),qfdbl_as_uint64(c[j]));
+		fprintf(stderr,"c[%2d].hi,lo = [0x%016llXull,0x%016llXull]; (double) = %20.15e\n",j,c[j].hi,c[j].lo,qfdbl(c[j]));
 	}
 
 	// Convert Cheb-coeffs to ones of underlying raw monomials. First init the x-powers coefficients array,
@@ -124,10 +130,6 @@ int 	main(int argc, char *argv[])
 			qt = qfmul(qt,qscinv);	// up-multiply inverse coordinate scaling in preparation for next loop pass
 		}
 	}
-	fprintf(stderr,"Raw polynomial coefficients, as double and [exact uint64 bitfield]:\n");
-	for(j = 0; j < n; j++) {
-		if(qfcmpne(d[j],QZRO)) fprintf(stderr,"d[%2d] = %25.15e [0x%16llx]\n",j,qfdbl(d[j]),qfdbl_as_uint64(d[j]));
-	}
 
 	// Compute maxerr over [0,1], incrementing by 10^6:
 	maxerr = 0;
@@ -146,11 +148,19 @@ int 	main(int argc, char *argv[])
 		qerr = qfabs(qfsub(qfunc,qt)); derr = qfdbl(qerr);
 		if(derr > maxerr) {
 			maxerr = derr;	xmaxerr = qfdbl(qx);
-		//	fprintf(stderr,"i = %d: at x = %25.15e, maxerr = %25.15e\n",i,qfdbl(qx),derr);
 		}
 		qx = qfadd(qx,qn);	// Increment x
 	}
+	// Err at x = +1:
+//	fprintf(stderr,"i = %d: at x = %25.15e, maxerr = %25.15e\n",i,qfdbl(qx),derr);
+	// Maxerr value and x-location:
 	fprintf(stderr,"maxerr = %25.15e at x = %20.15f\n",maxerr,xmaxerr);
+
+	fprintf(stderr,"Raw polynomial coefficients, as exact uint64x2 bitfield and as doubles:\n");
+	for(j = 0; j < n; j += 2) {
+		//fprintf(stderr,"d[%2d] = %25.15e [0x%016llx]\n",j,qfdbl(d[j]),qfdbl_as_uint64(d[j]));
+		fprintf(stderr,"d[%2d].hi,lo = [0x%016llXull,0x%016llXull]; (double) = %20.15e\n",j,d[j].hi,d[j].lo,qfdbl(d[j]));
+	}
 
 	/*****************************************************************/
 	/***************** Sin(y) for y in [-Pi/4,Pi/4]: *****************/
@@ -174,10 +184,11 @@ int 	main(int argc, char *argv[])
 		}
 		qk = qfadd(qk, QONE);	// k += 1
 	}
-	fprintf(stderr,"Chebyshev basis function coefficients, as double and [exact uint64 bitfield]:\n");
+	fprintf(stderr,"Chebyshev basis function coefficients, as exact uint64x2 bitfield and as doubles:\n");
 	for(j = 1; j < n; j+=2) {
-		c[j] = qfmul(qninv,c[j]);
-		fprintf(stderr,"c[%2d] = %25.15e [0x%16llx]\n",j,qfdbl(c[j]),qfdbl_as_uint64(c[j]));	// (4/n)*[half-interval sum]
+		c[j] = qfmul(qninv,c[j]);	// Half-interval sum means dobling the normalizer to (4/n)*[half-interval sum]
+//		fprintf(stderr,"c[%2d] = %25.15e [0x%016llx]\n",j,qfdbl(c[j]),qfdbl_as_uint64(c[j]));
+		fprintf(stderr,"c[%2d].hi,lo = [0x%016llXull,0x%016llXull]; (double) = %20.15e\n",j,c[j].hi,c[j].lo,qfdbl(c[j]));
 	}
 
 	// Convert Cheb-coeffs to ones of underlying raw monomials. First init the x-powers coefficients array,
@@ -211,10 +222,6 @@ int 	main(int argc, char *argv[])
 			qt = qfmul(qt,qscinv);	// up-multiply inverse coordinate scaling in preparation for next loop pass
 		}
 	}
-	fprintf(stderr,"Raw polynomial coefficients, as double and [exact uint64 bitfield]:\n");
-	for(j = 0; j < n; j++) {
-		if(qfcmpne(d[j],QZRO)) fprintf(stderr,"d[%2d] = %25.15e [0x%16llx]\n",j,qfdbl(d[j]),qfdbl_as_uint64(d[j]));
-	}
 
 	// Compute maxerr over [0,1], incrementing by 10^6:
 	maxerr = 0;
@@ -233,11 +240,20 @@ int 	main(int argc, char *argv[])
 		qerr = qfabs(qfsub(qfunc,qt)); derr = qfdbl(qerr);
 		if(derr > maxerr) {
 			maxerr = derr;	xmaxerr = qfdbl(qx);
-		//	fprintf(stderr,"i = %d: at x = %25.15e, maxerr = %25.15e\n",i,qfdbl(qx),derr);
+			if(i == 1000000) fprintf(stderr,"i = %d: at x = %25.15e, maxerr = %25.15e\n",i,qfdbl(qx),derr);	// Always print err at x = +1
 		}
 		qx = qfadd(qx,qn);	// Increment x
 	}
+	// Err at x = +1:
+//	fprintf(stderr,"i = %d: at x = %25.15e, maxerr = %25.15e\n",i,qfdbl(qx),derr);
+	// Maxerr value and x-location:
 	fprintf(stderr,"maxerr = %25.15e at x = %20.15f\n",maxerr,xmaxerr);
+
+	fprintf(stderr,"Raw polynomial coefficients, as exact uint64x2 bitfield and as doubles:\n");
+	for(j = 1; j < n; j += 2) {
+		//fprintf(stderr,"d[%2d] = %25.15e [0x%016llx]\n",j,qfdbl(d[j]),qfdbl_as_uint64(d[j]));
+		fprintf(stderr,"d[%2d].hi,lo = [0x%016llXull,0x%016llXull]; (double) = %20.15e\n",j,d[j].hi,d[j].lo,qfdbl(d[j]));
+	}
 
 	return 0;
 }

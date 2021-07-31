@@ -299,7 +299,8 @@ me at: heber.tomer@gmail.com
 	#elif defined(OS_TYPE_LINUX)
 
 	  #if 0
-		// This is the affinity API tied to pthread library ... interestingly, it's less portable than the Linux system-centric one below
+		// This is the affinity API tied to pthread library ... interestingly, it's less portable than the
+		// Linux system-centric one below; e.g. GCC gives "error: unknown type name ‘cpuset_t’; did you mean ‘cpu_set_t’?" here:
 		int i,errcode;
 		cpuset_t *cset;
 		pthread_t pth;

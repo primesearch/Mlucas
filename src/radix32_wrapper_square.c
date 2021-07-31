@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -43,7 +43,7 @@
 	  0 - Do normal FFT-autosquare(a) for (ilo-ihi) successive iterations;
 	  1 - Do forward FFT(a) only and store result in a[], skipping dyadic-square and inv-FFT steps. In this case ilo = ihi;
 	> 1 - The fwd_fft_only arg contains a pointer to an array b[] in previously-forward-FFTed form, i.e. FFT(b). In this
-		  case we do the final-radix pass of FFT(a), then dyadic-multiply FFT(a) * FFT(b) (storing the result in a[]) in place
+		  case we do the final-radix fwd-FFT pass of FFT(a), then dyadic-multiply FFT(a) * FFT(b) (storing the result in a[]) in place
 		  of the usual pair_square step, then do the initial-radix pass of the iFFT of the result.
 */
 void radix32_wrapper_square(
@@ -205,9 +205,20 @@ void radix32_wrapper_square(
      initialize static data and lcoal-storage prior to actual use in computing a transform-based result.
 */
 	// For case of 2-input modmul, pointer to 2nd (presumed already fwd-FFTed) input array is supplied via fwd_fft_only argument:
+	/* v20: Bits 2:3 of fwd_fft = 3 means "dyadic-multiply of 2 inputs a and b, with both already forward-FFTed:
+		(double *)a = FFT(a), (double *)(fwd_fft_only - mode_flag) = FFT(b).
+	In this case we require bits 0:1 == 0, and fwd_fft = & ~0xC yields pointer to FFT(b), and we skip over fwd-FFT directly to
+	the dyadic-multiply FFT(a) * FFT(b) step, then iFFT the product, storing the result in a[].
+	*/
 	double *b = 0x0;
-	if(fwd_fft_only > 1)
-		b = (double *)fwd_fft_only;
+	if(fwd_fft_only >> 2) {		// Do the following 3 steps in both cases - if bits 2:3 == 0 the ANDs are no-ops...
+		b = (double *)(fwd_fft_only & ~0xCull);
+		// BUT, if bits 2:3 == 0, must avoid zeroing fwd_fft_only since "do 2-input dyadic-mul following fwd-FFT" relies on that != 0:
+		if(fwd_fft_only & 0xC) {
+			ASSERT(HERE, (fwd_fft_only & 0xF) == 0xC,"Illegal value for bits 2:3 of fwd_fft_only!");	// Otherwise bits 2:3 should've been zeroed prior to entry
+			fwd_fft_only = 3ull;
+		}
+	}
 
 	/* In order to eschew complex thread-block-and-sync logic related to the local-store-init step in multithread mode,
 	switch to a special-init-mode-call paradigm, in which the function is inited once (for as many threads as needed)
@@ -1523,6 +1534,9 @@ jump_in:	/* Entry point for all blocks but the first. */
 
 	#endif
 
+	if(fwd_fft_only == 3)
+		goto skip_fwd_fft;	// v20: jump-to-point for both-inputs-already-fwd-FFTed case
+
 	/*************************************************************/
 	/*                  1st set of inputs:                       */
 	/*************************************************************/
@@ -2121,6 +2135,8 @@ Scalar-dbl:	r0	i0	r1	i1	r2	i2	r3	i3	r4	i4	r5	i5	r6	i6	r7	i7	r8	i8	r9	i9	r10	i10	
 		a2p1Er = t1E-t3F;		a2p1Ei = t1F+t3E;
 		a2p1Fr = t1E+t3F;		a2p1Fi = t1F-t3E;
 
+skip_fwd_fft:	// v20: jump-to-point for both-inputs-already-fwd-FFTed case
+
 	// v19: If fwd_fft_only = 1, write fwd-FFT result back to input array, skipping dyadic-square and inv-FFT steps:
 	if(fwd_fft_only == 1)
 	{
@@ -2275,7 +2291,156 @@ Scalar-dbl:	r0	i0	r1	i1	r2	i2	r3	i3	r4	i4	r5	i5	r6	i6	r7	i7	r8	i8	r9	i9	r10	i10	
 		goto loop;	// Skip dyadic-mul and iFFT
 
 	} else if (fwd_fft_only) {	// 2-input modmul: fwdFFT data dyadic-mul'ed with precomputed 2nd-vector stored in fwd-FFTed form in b[]:
-
+	  if(fwd_fft_only == 3) {	// v20: Both inputs enter fwd-FFTed, must copy from main arrays a[],b[] to local-vars
+	/*************************************************************/
+	/*                  1st set of inputs:                       */
+	/*************************************************************/
+		rdum = j1pad;
+		idum = j1pad+RE_IM_STRIDE;
+	/*...Block 1: t00,t10,t20,t30	*/
+		a1p00r=a[rdum   ];	a1p00i=a[idum   ];
+		a1p01r=a[rdum+32];	a1p01i=a[idum+32];
+		a1p02r=a[rdum+16];	a1p02i=a[idum+16];
+		a1p03r=a[rdum+48];	a1p03i=a[idum+48];
+	/*...Block 5: t08,t18,t28,t38	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a1p04r=a[rdum+8 ];	a1p04i=a[idum+8 ];
+		a1p05r=a[rdum+40];	a1p05i=a[idum+40];
+		a1p06r=a[rdum+24];	a1p06i=a[idum+24];
+		a1p07r=a[rdum+56];	a1p07i=a[idum+56];
+	/*...Block 3: t04,t14,t24,t34	*/
+	#ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	#elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	#endif
+		a1p08r=a[rdum+4 ];	a1p08i=a[idum+4 ];
+		a1p09r=a[rdum+36];	a1p09i=a[idum+36];
+		a1p0Ar=a[rdum+20];	a1p0Ai=a[idum+20];
+		a1p0Br=a[rdum+52];	a1p0Bi=a[idum+52];
+	/*...Block 7: t0C,t1C,t2C,t3C	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a1p0Cr=a[rdum+12];	a1p0Ci=a[idum+12];
+		a1p0Dr=a[rdum+44];	a1p0Di=a[idum+44];
+		a1p0Er=a[rdum+28];	a1p0Ei=a[idum+28];
+		a1p0Fr=a[rdum+60];	a1p0Fi=a[idum+60];
+	/*...Block 2: t02,t12,t22,t32	*/
+	#ifdef USE_AVX512
+		rdum += 5;	idum += 5;
+	#elif defined(USE_AVX)
+		++rdum;	++idum;
+	#elif defined(USE_SSE2)
+		--rdum;	--idum;
+	#endif
+		a1p10r=a[rdum+2 ];	a1p10i=a[idum+2 ];
+		a1p11r=a[rdum+34];	a1p11i=a[idum+34];
+		a1p12r=a[rdum+18];	a1p12i=a[idum+18];
+		a1p13r=a[rdum+50];	a1p13i=a[idum+50];
+	/*...Block 6: t0A,t1A,t2A,t3A	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a1p14r=a[rdum+10];	a1p14i=a[idum+10];
+		a1p15r=a[rdum+42];	a1p15i=a[idum+42];
+		a1p16r=a[rdum+26];	a1p16i=a[idum+26];
+		a1p17r=a[rdum+58];	a1p17i=a[idum+58];
+	/*...Block 4: t06,t16,t26,t36	*/
+	#ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	#elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	#endif
+		a1p18r=a[rdum+6 ];	a1p18i=a[idum+6 ];
+		a1p19r=a[rdum+38];	a1p19i=a[idum+38];
+		a1p1Ar=a[rdum+22];	a1p1Ai=a[idum+22];
+		a1p1Br=a[rdum+54];	a1p1Bi=a[idum+54];
+	/*...Block 8: t0E,t1E,t2E,t3E	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a1p1Cr=a[rdum+14];	a1p1Ci=a[idum+14];
+		a1p1Dr=a[rdum+46];	a1p1Di=a[idum+46];
+		a1p1Er=a[rdum+30];	a1p1Ei=a[idum+30];
+		a1p1Fr=a[rdum+62];	a1p1Fi=a[idum+62];
+	/*************************************************************/
+	/*                  2nd set of inputs:                       */
+	/*************************************************************/
+		rdum = j2pad;
+		idum = j2pad+RE_IM_STRIDE;
+	/*...Block 1: t00,t10,t20,t30	*/
+		a2p00r=a[rdum   ];	a2p00i=a[idum   ];
+		a2p01r=a[rdum+32];	a2p01i=a[idum+32];
+		a2p02r=a[rdum+16];	a2p02i=a[idum+16];
+		a2p03r=a[rdum+48];	a2p03i=a[idum+48];
+	/*...Block 5: t08,t18,t28,t38	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a2p04r=a[rdum+8 ];	a2p04i=a[idum+8 ];
+		a2p05r=a[rdum+40];	a2p05i=a[idum+40];
+		a2p06r=a[rdum+24];	a2p06i=a[idum+24];
+		a2p07r=a[rdum+56];	a2p07i=a[idum+56];
+	/*...Block 3: t04,t14,t24,t34	*/
+	#ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	#elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	#endif
+		a2p08r=a[rdum+4 ];	a2p08i=a[idum+4 ];
+		a2p09r=a[rdum+36];	a2p09i=a[idum+36];
+		a2p0Ar=a[rdum+20];	a2p0Ai=a[idum+20];
+		a2p0Br=a[rdum+52];	a2p0Bi=a[idum+52];
+	/*...Block 7: t0C,t1C,t2C,t3C	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a2p0Cr=a[rdum+12];	a2p0Ci=a[idum+12];
+		a2p0Dr=a[rdum+44];	a2p0Di=a[idum+44];
+		a2p0Er=a[rdum+28];	a2p0Ei=a[idum+28];
+		a2p0Fr=a[rdum+60];	a2p0Fi=a[idum+60];
+	/*...Block 2: t02,t12,t22,t32	*/
+	#ifdef USE_AVX512
+		rdum += 5;	idum += 5;
+	#elif defined(USE_AVX)
+		++rdum;	++idum;
+	#elif defined(USE_SSE2)
+		--rdum;	--idum;
+	#endif
+		a2p10r=a[rdum+2 ];	a2p10i=a[idum+2 ];
+		a2p11r=a[rdum+34];	a2p11i=a[idum+34];
+		a2p12r=a[rdum+18];	a2p12i=a[idum+18];
+		a2p13r=a[rdum+50];	a2p13i=a[idum+50];
+	/*...Block 6: t0A,t1A,t2A,t3A	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a2p14r=a[rdum+10];	a2p14i=a[idum+10];
+		a2p15r=a[rdum+42];	a2p15i=a[idum+42];
+		a2p16r=a[rdum+26];	a2p16i=a[idum+26];
+		a2p17r=a[rdum+58];	a2p17i=a[idum+58];
+	/*...Block 4: t06,t16,t26,t36	*/
+	#ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	#elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	#endif
+		a2p18r=a[rdum+6 ];	a2p18i=a[idum+6 ];
+		a2p19r=a[rdum+38];	a2p19i=a[idum+38];
+		a2p1Ar=a[rdum+22];	a2p1Ai=a[idum+22];
+		a2p1Br=a[rdum+54];	a2p1Bi=a[idum+54];
+	/*...Block 8: t0E,t1E,t2E,t3E	*/
+	#ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	#endif
+		a2p1Cr=a[rdum+14];	a2p1Ci=a[idum+14];
+		a2p1Dr=a[rdum+46];	a2p1Di=a[idum+46];
+		a2p1Er=a[rdum+30];	a2p1Ei=a[idum+30];
+		a2p1Fr=a[rdum+62];	a2p1Fi=a[idum+62];
+	  }
 	/*************************************************************/
 	/*                  1st set of inputs:                       */
 	/*************************************************************/
@@ -2490,7 +2655,47 @@ Scalar-dbl:	r0	i0	r1	i1	r2	i2	r3	i3	r4	i4	r5	i5	r6	i6	r7	i7	r8	i8	r9	i9	r10	i10	
 		re0=re*c32_3;	im0=im*s32_3;	re1=re*s32_3;	im1=im*c32_3;
 		t0B=re1-im1;	t0C=re0+im0;
 		t0D=re0-im0;	t0E=re1+im1;
-
+		/*
+		if(j1 == 256) {
+			printf("j1,j2 = [%u],[%u]: Inputs to PAIR_MUL_4:\n",j1pad,j2pad);
+			printf("re,im,t1-6: %18.10e,%18.10e, %18.10e,%18.10e, %18.10e,%18.10e, %18.10e,%18.10e\n",re ,im ,t00,t01,t02,t03,t04,t05,t06);
+			printf("      t7-E: %18.10e,%18.10e, %18.10e,%18.10e, %18.10e,%18.10e, %18.10e,%18.10e\n",t07,t08,t09,t0A,t0B,t0C,t0D,t0E,t0F);
+		// BR pattern: [0,16,8,24] + [0,4,2,6,1,5,3,7]
+			printf("0 : %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p00r,a2p00r,a1p00i,a2p00i,b1p00r,b2p00r,b1p00i,b2p00i);
+			printf("1 : %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p10r,a2p10r,a1p10i,a2p10i,b1p10r,b2p10r,b1p10i,b2p10i);
+			printf("2 : %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p08r,a2p08r,a1p08i,a2p08i,b1p08r,b2p08r,b1p08i,b2p08i);
+			printf("3 : %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p18r,a2p18r,a1p18i,a2p18i,b1p18r,b2p18r,b1p18i,b2p18i);
+			printf("4 : %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p04r,a2p04r,a1p04i,a2p04i,b1p04r,b2p04r,b1p04i,b2p04i);
+			printf("5 : %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p14r,a2p14r,a1p14i,a2p14i,b1p14r,b2p14r,b1p14i,b2p14i);
+			printf("6 : %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p0Cr,a2p0Cr,a1p0Ci,a2p0Ci,b1p0Cr,b2p0Cr,b1p0Ci,b2p0Ci);
+			printf("7 : %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p1Cr,a2p1Cr,a1p1Ci,a2p1Ci,b1p1Cr,b2p1Cr,b1p1Ci,b2p1Ci);
+			printf("8 : %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p02r,a2p02r,a1p02i,a2p02i,b1p02r,b2p02r,b1p02i,b2p02i);
+			printf("9 : %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p12r,a2p12r,a1p12i,a2p12i,b1p12r,b2p12r,b1p12i,b2p12i);
+			printf("10: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p0Ar,a2p0Ar,a1p0Ai,a2p0Ai,b1p0Ar,b2p0Ar,b1p0Ai,b2p0Ai);
+			printf("11: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p1Ar,a2p1Ar,a1p1Ai,a2p1Ai,b1p1Ar,b2p1Ar,b1p1Ai,b2p1Ai);
+			printf("12: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p06r,a2p06r,a1p06i,a2p06i,b1p06r,b2p06r,b1p06i,b2p06i);
+			printf("13: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p16r,a2p16r,a1p16i,a2p16i,b1p16r,b2p16r,b1p16i,b2p16i);
+			printf("14: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p0Er,a2p0Er,a1p0Ei,a2p0Ei,b1p0Er,b2p0Er,b1p0Ei,b2p0Ei);
+			printf("15: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p1Er,a2p1Er,a1p1Ei,a2p1Ei,b1p1Er,b2p1Er,b1p1Ei,b2p1Ei);
+			printf("16: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p01r,a2p01r,a1p01i,a2p01i,b1p01r,b2p01r,b1p01i,b2p01i);
+			printf("17: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p11r,a2p11r,a1p11i,a2p11i,b1p11r,b2p11r,b1p11i,b2p11i);
+			printf("18: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p09r,a2p09r,a1p09i,a2p09i,b1p09r,b2p09r,b1p09i,b2p09i);
+			printf("19: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p19r,a2p19r,a1p19i,a2p19i,b1p19r,b2p19r,b1p19i,b2p19i);
+			printf("20: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p05r,a2p05r,a1p05i,a2p05i,b1p05r,b2p05r,b1p05i,b2p05i);
+			printf("21: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p15r,a2p15r,a1p15i,a2p15i,b1p15r,b2p15r,b1p15i,b2p15i);
+			printf("22: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p0Dr,a2p0Dr,a1p0Di,a2p0Di,b1p0Dr,b2p0Dr,b1p0Di,b2p0Di);
+			printf("23: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p1Dr,a2p1Dr,a1p1Di,a2p1Di,b1p1Dr,b2p1Dr,b1p1Di,b2p1Di);
+			printf("24: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p03r,a2p03r,a1p03i,a2p03i,b1p03r,b2p03r,b1p03i,b2p03i);
+			printf("25: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p13r,a2p13r,a1p13i,a2p13i,b1p13r,b2p13r,b1p13i,b2p13i);
+			printf("26: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p0Br,a2p0Br,a1p0Bi,a2p0Bi,b1p0Br,b2p0Br,b1p0Bi,b2p0Bi);
+			printf("27: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p1Br,a2p1Br,a1p1Bi,a2p1Bi,b1p1Br,b2p1Br,b1p1Bi,b2p1Bi);
+			printf("28: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p07r,a2p07r,a1p07i,a2p07i,b1p07r,b2p07r,b1p07i,b2p07i);
+			printf("29: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p17r,a2p17r,a1p17i,a2p17i,b1p17r,b2p17r,b1p17i,b2p17i);
+			printf("30: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p0Fr,a2p0Fr,a1p0Fi,a2p0Fi,b1p0Fr,b2p0Fr,b1p0Fi,b2p0Fi);
+			printf("31: %18.10e,%18.10e,%18.10e,%18.10e | %18.10e,%18.10e,%18.10e,%18.10e\n",a1p1Fr,a2p1Fr,a1p1Fi,a2p1Fi,b1p1Fr,b2p1Fr,b1p1Fi,b2p1Fi);
+		//	exit(0);
+		}
+		*/
 		PAIR_MUL_4( a1p00r,a1p00i,a2p1Fr,a2p1Fi, b1p00r,b1p00i,b2p1Fr,b2p1Fi,
 					a2p00r,a2p00i,a1p1Fr,a1p1Fi, b2p00r,b2p00i,b1p1Fr,b1p1Fi,
 					a1p02r,a1p02i,a2p1Dr,a2p1Di, b1p02r,b1p02i,b2p1Dr,b2p1Di,
@@ -3436,30 +3641,26 @@ Scalar-dbl:	r0	i0	r1	i1	r2	i2	r3	i3	r4	i4	r5	i5	r6	i6	r7	i7	r8	i8	r9	i9	r10	i10	
 
 	It's not clear whether there is a preference for one or the other instruction sequence based on resulting performance.
 	*/
+	if(fwd_fft_only != 3)	// v20: add support for both-inputs-already-fwd-FFTed case
+	{
 	  #ifdef USE_AVX512	// The generic pre-dyadic-square macro needs 8 main-array addresses in AVX mode
 	  					// because (add[1,3,5,7]-add[0,2,4,6]) have opposite signs for Fermat and Mersenne-mod:
-
 		// process 8 main-array blocks of 8 vec_dbl [= 8 x 8 = 64 doubles each] in AVX mode, total = 512 float64
 		SSE2_RADIX32_WRAPPER_DIF(add0,add1,add2,add3,add4,add5,add6,add7
 													,r00,r10,r20,r30,isrt2,cc0,c00,c01,c02,c03,c05,c07)
-
 	  #elif defined(USE_AVX)	// The generic pre-dyadic-square macro needs 4 main-array addresses in AVX mode
 	  					// because (add1-add0) and (add3-add2) have opposite signs for fermat and mersenne-mod:
-
 		// process 4 main-array blocks of 16 vec_dbl [= 16 x 4 = 64 doubles each] in AVX mode, total = 256 float64
 		SSE2_RADIX32_WRAPPER_DIF(add0,add1,add2,add3,r00,r10,r20,r30,isrt2,cc0,c00,c01,c02,c03,c05,c07)
-
-	#else	// SSE2:
-
+	  #else	// SSE2:
 		SSE2_RADIX32_WRAPPER_DIF(add0,add1,          r00,r10,r20,r30,isrt2,cc0,c00,c01,c02,c03,c05,c07)
-
-	#endif
+	  #endif
+	}
 
 	// v19: If fwd_fft_only = 1, write fwd-FFT result back to input array, skipping dyadic-square and inv-FFT steps:
 	if(fwd_fft_only == 1)
 	{
-	#ifdef USE_AVX512	// The generic pre-dyadic-square macro needs 8 main-array addresses in AVX512 mode
-
+	  #ifdef USE_AVX512	// The generic pre-dyadic-square macro needs 8 main-array addresses in AVX512 mode
 		// process 8 main-array blocks of [8 vec_dbl = 8 x 8 = 64 doubles] each in AVX512 mode, total = 64 vec_dbl = 32 vec_cmplx
 		nbytes = (long)r08 - (long)r00;
 		memcpy(add0, r00, nbytes);	// add0 = a + j1pad;
@@ -3470,35 +3671,53 @@ Scalar-dbl:	r0	i0	r1	i1	r2	i2	r3	i3	r4	i4	r5	i5	r6	i6	r7	i7	r8	i8	r9	i9	r10	i10	
 		memcpy(add3, r18, nbytes);	// add3 = add1 - 64;	// Last 4 offsets run in descending order for Mers-mod
 		memcpy(add5, r28, nbytes);	// add5 = add3 - 64;
 		memcpy(add7, r38, nbytes);	// add7 = add5 - 64;
-
-	#elif defined(USE_AVX)	// The generic pre-dyadic-square macro needs 4 main-array addresses in AVX mode
+	  #elif defined(USE_AVX)	// The generic pre-dyadic-square macro needs 4 main-array addresses in AVX mode
 	  						// because (add1-add0) and (add3-add2) have opposite signs for fermat and mersenne-mod:
-
 		// process 4 main-array blocks of [16 vec_dbl = 16 x 4 = 64 doubles] each in AVX mode, total = 64 vec_dbl = 32 vec_cmplx
 		nbytes = (long)r10 - (long)r00;
 		memcpy(add0, r00, nbytes);	// add0 = a + j1pad;
 		memcpy(add1, r10, nbytes);	// add1 = a + j2pad;
 		memcpy(add2, r20, nbytes);	// add2 = add0 + 64;	// add2 = add0 + [64 doubles, equiv to 8 AVX registers]
 		memcpy(add3, r30, nbytes);	// add3 = add1 - 64;	// Last 2 offsets run in descending order for Mers-mod
-
-	#else	// SSE2:
-
+	  #else	// SSE2:
 		// process 2 main-array blocks of [32 vec_dbl = 32 x 2 = 64 doubles] each in SSE2 mode, total = 64 vec_dbl = 32 vec_cmplx
 		nbytes = (long)r20 - (long)r00;
 		memcpy(add0, r00, nbytes);	// add0 = a + j1pad;
 		memcpy(add1, r20, nbytes);	// add1 = a + j2pad;
-
-	#endif
+	  #endif
 		goto loop;	// Skip dyadic-mul and iFFT
 
 	} else {
-
 	  // Structure remaining 2 options as nested if() subclause to allow sharing of several hundred lines of sincos-multiplier-related code:
-
 	  if (fwd_fft_only) {	// 2-input modmul: fwdFFT data dyadic-mul'ed with precomputed 2nd-vector stored in fwdFFTed form at address stored in (uint64)-cast form in fwd_fft_only
-
+	   if(fwd_fft_only == 3) {	// v20: Both inputs enter fwd-FFTed, must copy from main arrays a[],b[] to local-vars
+	   #ifdef USE_AVX512	// The generic pre-dyadic-square macro needs 8 main-array addresses in AVX512 mode
+		// process 8 main-array blocks of [8 vec_dbl = 8 x 8 = 64 doubles] each in AVX512 mode, total = 64 vec_dbl = 32 vec_cmplx
+		nbytes = (long)r08 - (long)r00;
+		memcpy(r00, add0, nbytes);	// add0 = a + j1pad;
+		memcpy(r10, add2, nbytes);	// add2 = add0 + 64;	// add2 = add0 + [64 doubles, equiv to 8 AVX-512 registers]
+		memcpy(r20, add4, nbytes);	// add4 = add2 + 64;
+		memcpy(r30, add6, nbytes);	// add6 = add4 + 64;
+		memcpy(r08, add1, nbytes);	// add1 = a + j2pad;
+		memcpy(r18, add3, nbytes);	// add3 = add1 - 64;	// Last 4 offsets run in descending order for Mers-mod
+		memcpy(r28, add5, nbytes);	// add5 = add3 - 64;
+		memcpy(r38, add7, nbytes);	// add7 = add5 - 64;
+	   #elif defined(USE_AVX)	// The generic pre-dyadic-square macro needs 4 main-array addresses in AVX mode
+	  						// because (add1-add0) and (add3-add2) have opposite signs for fermat and mersenne-mod:
+		// process 4 main-array blocks of [16 vec_dbl = 16 x 4 = 64 doubles] each in AVX mode, total = 64 vec_dbl = 32 vec_cmplx
+		nbytes = (long)r10 - (long)r00;
+		memcpy(r00, add0, nbytes);	// add0 = a + j1pad;
+		memcpy(r10, add1, nbytes);	// add1 = a + j2pad;
+		memcpy(r20, add2, nbytes);	// add2 = add0 + 64;	// add2 = add0 + [64 doubles, equiv to 8 AVX registers]
+		memcpy(r30, add3, nbytes);	// add3 = add1 - 64;	// Last 2 offsets run in descending order for Mers-mod
+	   #else	// SSE2:
+		// process 2 main-array blocks of [32 vec_dbl = 32 x 2 = 64 doubles] each in SSE2 mode, total = 64 vec_dbl = 32 vec_cmplx
+		nbytes = (long)r20 - (long)r00;
+		memcpy(r00, add0, nbytes);	// add0 = a + j1pad;
+		memcpy(r20, add1, nbytes);	// add1 = a + j2pad;
+	   #endif
+	   }
 	  #ifdef USE_AVX512	// The generic pre-dyadic-square macro needs 8 main-array addresses in AVX512 mode
-
 		// process 8 main-array blocks of [8 vec_dbl = 8 x 8 = 64 doubles] each in AVX512 mode, total = 64 vec_dbl = 32 vec_cmplx
 		bdd0 = b + j1pad;
 		bdd2 = bdd0 + 64;	// bdd2 = bdd0 + [64 doubles, equiv to 4 AVX-512 registers]
@@ -3508,22 +3727,17 @@ Scalar-dbl:	r0	i0	r1	i1	r2	i2	r3	i3	r4	i4	r5	i5	r6	i6	r7	i7	r8	i8	r9	i9	r10	i10	
 		bdd3 = bdd1 - 64;	// Last 4 offsets run in descending order for Mers-mod
 		bdd5 = bdd3 - 64;
 		bdd7 = bdd5 - 64;
-
 	  #elif defined(USE_AVX)	// The generic pre-dyadic-square macro needs 4 main-array addresses in AVX mode
 	  						// because (add1-add0) and (add3-add2) have opposite signs for fermat and mersenne-mod:
-
 		// process 4 main-array blocks of [16 vec_dbl = 16 x 4 = 64 doubles] each in AVX mode, total = 64 vec_dbl = 32 vec_cmplx
 		bdd0 = b + j1pad;
 		bdd1 = b + j2pad;
 		bdd2 = bdd0 + 64;	// bdd2 = bdd0 + [64 doubles, equiv to 8 AVX registers]
 		bdd3 = bdd1 - 64;	// Last 2 offsets run in descending order for Mers-mod
-
 	  #else	// SSE2:
-
 		// process 2 main-array blocks of [32 vec_dbl = 32 x 2 = 64 doubles] each in SSE2 mode, total = 64 vec_dbl = 32 vec_cmplx
 		bdd0 = b + j1pad;
 		bdd1 = b + j2pad;
-
 	  #endif
 		/* In SSE2 mode, data laid out in memory as described in "Normal execution" section below, with b-inputs similar to
 		a-inputs, just with r00-31 and r32-63 replaced by offsets relative to b-array addresses bdd0 and bdd1, respectively:
@@ -3700,7 +3914,7 @@ Scalar-dbl:	r0	i0	r1	i1	r2	i2	r3	i3	r4	i4	r5	i5	r6	i6	r7	i7	r8	i8	r9	i9	r10	i10	
 	  #endif
 		PAIR_MUL_4_SSE2(r08,r18,r26,r36, bpt0,bpt1,bpt2,bpt3, tmp2,tmp3,forth);
 
-	  #ifdef USE_AVX512		// Register blocks beginning with r1,5,9,13,17,21,25,29 map to memlocs bdd0-7, no offsets >= 4:
+	  #ifdef USE_AVX512		// Register blocks beginning with r00,08,10,18,20,28,30,38 map to memlocs bdd0-7, no offsets >= 8:
 		bpt0 = (vec_dbl*)bdd0+0x4; bpt1 = (vec_dbl*)bdd2+0x4; bpt2 = (vec_dbl*)bdd5+0x2; bpt3 = (vec_dbl*)bdd7+0x2;	// 04,14,2A,3A
 	  #elif defined(USE_AVX)// Register blocks beginning with r1,9,17,25 map to memlocs bdd0-3, no offsets >= 8:
 		bpt0 = (vec_dbl*)bdd0+0x4; bpt1 = (vec_dbl*)bdd1+0x4; bpt2 = (vec_dbl*)bdd2+0xa; bpt3 = (vec_dbl*)bdd3+0xa;	// 04,14,2A,3A
@@ -3709,7 +3923,7 @@ Scalar-dbl:	r0	i0	r1	i1	r2	i2	r3	i3	r4	i4	r5	i5	r6	i6	r7	i7	r8	i8	r9	i9	r10	i10	
 	  #endif
 		PAIR_MUL_4_SSE2(r04,r14,r2A,r3A, bpt0,bpt1,bpt2,bpt3, tmp4,tmp5,forth);
 
-	  #ifdef USE_AVX512		// Register blocks beginning with r1,5,9,13,17,21,25,29 map to memlocs bdd0-7, no offsets >= 4:
+	  #ifdef USE_AVX512		// Register blocks beginning with r00,08,10,18,20,28,30,38 map to memlocs bdd0-7, no offsets >= 8:
 		bpt0 = (vec_dbl*)bdd1+0x4; bpt1 = (vec_dbl*)bdd3+0x4; bpt2 = (vec_dbl*)bdd4+0x2; bpt3 = (vec_dbl*)bdd6+0x2;	// 0C,1C,22,32
 	  #elif defined(USE_AVX)// Register blocks beginning with r1,9,17,25 map to memlocs bdd0-3, no offsets >= 8:
 		bpt0 = (vec_dbl*)bdd0+0xc; bpt1 = (vec_dbl*)bdd1+0xc; bpt2 = (vec_dbl*)bdd2+0x2; bpt3 = (vec_dbl*)bdd3+0x2;	// 0C,1C,22,32

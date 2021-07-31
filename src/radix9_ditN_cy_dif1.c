@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -41,7 +41,7 @@ int radix9_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], 
 		,i,j,j1,j2,jstart,jhi,iroot,root_incr,k,khi,l,outer;
 	static uint64 psave = 0;
 	static uint32 bw,sw,bjmodnini,p1,p2,p3,p4,p5,p6,p7,p8, nsave = 0;
-	const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
+	const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 #if LO_ADD
 	static double c   =  0.76604444311897803520,	/* cos(2*pi/9) */
 		      s   =  0.64278760968653932631,	/* sin(2*pi/9) */

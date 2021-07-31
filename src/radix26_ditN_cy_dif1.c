@@ -41,7 +41,7 @@ int radix26_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		,i,j,j1,j2,jstart,jhi,iroot,root_incr,k,khi,l,outer;
 	static uint64 psave = 0;
 	static uint32 bw,sw,bjmodnini,p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19,p20,p21,p22,p23,p24,p25, nsave = 0;
-	const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
+	const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 	static double radix_inv, n2inv;
 	static double
 		bp0  = -.08333333333333333333,	/* -1/12 */

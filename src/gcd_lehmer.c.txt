@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -3405,7 +3405,7 @@ exit(0);
 	u[2] =    157590042578912ull; u[1] = 10558642444782195772ull; u[0] =   329809049266961143ull;	lenU = 3;
 	ASSERT(HERE, STREQ(&char_buf[convert_mi64_base10_char(char_buf, u, lenU, 0)], "53625112691923843508117942311516428173021903300344567"), "GCD self-test #8");
 	/* Test the back-conversion (string -> mi64): */
-	ASSERT(HERE, 0x0 != (out_array = convert_base10_char_mi64("53625112691923843508117942311516428173021903300344567", &i)) && (i == 3), "0");
+	i = 0; ASSERT(HERE, 0x0 != (out_array = convert_base10_char_mi64("53625112691923843508117942311516428173021903300344567", &i)) && (i == 3), "0");
 	ASSERT(HERE, mi64_cmp_eq(out_array, u, 3), "0");	free((void *)out_array);	out_array = 0x0;
 
 	ASSERT(HERE, mi64_pprimeF(u, 3ull, lenU) == 1, "GCD self-test #8.pr1");

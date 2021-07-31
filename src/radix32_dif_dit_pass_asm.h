@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -1049,7 +1049,9 @@
 	// Default here is to adapt the ALL_FMA versions of the AVX2 macros for AVX512 use,
 	// and use the extra vector registers to store e.g. 1.0.
 
-	// Cost [vector-ops only]: 386 MEM, 102 MUL, 368 FMA, 70 ADD
+	// Jan 2021: got rid of 142 FMA-with-one-1.0-multiplicand, thus 142 fewer FMA, 142 more ADD.
+	// Saw no perf-diff on KNL, but perhaps the above replacement will translate to slightly lower wattage.
+	// Cost [vector-ops only]: 386 MEM, 102 MUL, 226 FMA, 212 ADD
 	#define SSE2_RADIX32_DIF_TWIDDLE(Xadd0,Xp01,Xp02,Xp03,Xp04,Xp08,Xp0C,Xp10,Xp18,Xr00)\
 	{\
 	__asm__ volatile (\

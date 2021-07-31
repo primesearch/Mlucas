@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -29,26 +29,6 @@
 
 #ifndef COMPACT_OBJ	// Toggle for parametrized-loop-DFT compact-object code scheme
 	#define COMPACT_OBJ	1	// This radix large enough that we want small-obj to be default in all build modes
-#endif
-
-// Mersenne-mod takes a binary-toggle LOACC; must give a numerical value for Fermat-mod:
-#if defined(HIACC) && defined(LOACC)
-	#error Only one of LOACC and HIACC may be defined!
-#endif
-#if !defined(HIACC) && !defined(LOACC)
-  #if OS_BITS == 64
-	#define LOACC	1	// Default is suitable for F29 work @ FFT length 30M
-	#warning LOACC = 1
-  #else
-	#define HIACC	1	// 32-bit mode only supports the older HIACC carry macros
-  #endif
-#endif
-#ifdef HIACC
-  #ifdef USE_ARM_V8_SIMD
-	#error Currently only LOACC carry-mode supported in ARM v8 SIMD builds!
-  #elif defined(USE_AVX512)
-	#error Currently only LOACC carry-mode supported in AVX-512 builds!
-  #endif
 #endif
 
 #ifndef PFETCH_DIST
@@ -148,9 +128,7 @@
 		double *arrdat;			/* Main data array */
 		double *wt0;
 		double *wt1;
-	#ifdef LOACC
 		double *wts_mult, *inv_mult;
-	#endif
 		int *si;
 		struct complex *rn0;
 		struct complex *rn1;
@@ -229,14 +207,12 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
   #endif
-  #ifdef LOACC
 	static double wts_mult[2], inv_mult[2];	// Const wts-multiplier and 2*(its multiplicative inverse)
-  #endif
 	double rt,it, wt_re,wt_im, wi_re,wi_im;	// Fermat-mod weights stuff, used in both scalar and AVX mode
 	static uint32 bjmodnini;
 	// Jun 2018: Add support for residue shift. (Only LL-test needs intervention at carry-loop level).
-	int target_idx = -1, target_set,tidx_mod_stride;
-	double target_cy;
+	int target_idx = -1, target_set = 0,tidx_mod_stride;
+	double target_cy = 0;
 	static double ndivr_inv;
 	uint64 itmp64;
 	static uint64 psave = 0;
@@ -297,6 +273,8 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 
 	vec_dbl *tmp,*tm0,*tm1,*tm2;	// Non-static utility ptrs
 
+#else
+	static int p0123[4];
 #endif	// USE_SSE2
 
 #ifdef MULTITHREAD
@@ -313,7 +291,7 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 #elif !defined(USE_SSE2)
 
 	// Vars needed in scalar mode only:
-	const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
+	const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 	int m,m2;
 	double wt,wtinv,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
   #if PFETCH
@@ -380,8 +358,6 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 
 		nm1   = n-1;
 
-	#ifdef LOACC
-
 	  #ifdef USE_AVX512
 	   #ifdef CARRY_16_WAY
 		i = 16;
@@ -411,8 +387,6 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		wts_mult[1] = 0.5*wts_mult[0];
 		inv_mult[1] = 2.0*inv_mult[0];
 		ASSERT(HERE,fabs(wts_mult[1]*inv_mult[1] - 1.0) < EPS, "wts_mults fail accuracy check!");
-
-	#endif
 
 	#ifdef MULTITHREAD
 
@@ -489,10 +463,8 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		//	tdat[ithread].arrdat = a;			/* Main data array */
 			tdat[ithread].wt0 = wt0;
 			tdat[ithread].wt1 = wt1;
-		#ifdef LOACC
 			tdat[ithread].wts_mult = wts_mult;
 			tdat[ithread].inv_mult = inv_mult;
-		#endif
 			tdat[ithread].si  = si;
 			tdat[ithread].rn0 = rn0;
 			tdat[ithread].rn1 = rn1;
@@ -649,7 +621,7 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	  #if COMPACT_OBJ
 		// Use loop-based init for code compactness and extensibility to larger pow2 radices:
 		for(l = 0; l < 16; l++) {
-			j = reverse(l,16);	// twid0-offsets are processed in BR16 order
+			j = reverse(l,4);	// twid0-offsets are processed in BR16 order
 			tmp = twid0 + (j<<4)+(j<<2)+j;	// Twid-offsets are multiples of 21 vec_dbl
 			addr = DFT128_TWIDDLES[l]; addi = addr+1;	// Pointer to required row of 2-D twiddles array
 			VEC_DBL_INIT(tmp, ISRT2); tmp++;	VEC_DBL_INIT(tmp,*(addr+0x00)); tmp++;	VEC_DBL_INIT(tmp,*(addi+0x00)); tmp++;
@@ -927,7 +899,6 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			tmp->d0 = baseinv[0];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
 			tmp->d0 = baseinv[1];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
 			// In LOACC mode, put wts_mult and their inverses in the first 32 slots below in place of the 1/2-stuff:
-		  #ifdef LOACC
 			/* wts_mult:*/
 			tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[0];	++tmp;
 			tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[0];	++tmp;
@@ -963,9 +934,6 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 			tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 			nbytes = 96 << L2_SZ_VD;
-		  #else
-			nbytes = 64 << L2_SZ_VD;
-		  #endif
 
 		#else	// USE_SSE2
 
@@ -991,7 +959,6 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			ctmp->re = baseinv[0];	ctmp->im = baseinv[1];	++ctmp;
 			ctmp->re = baseinv[1];	ctmp->im = baseinv[1];	++ctmp;
 			// In LOACC mode, put wts_mult and their inverses in the first 8 slots below in place of the 1/2-stuff:
-		  #ifdef LOACC
 			/* wts_mult:*/
 			ctmp->re = wts_mult[0];	ctmp->im = wts_mult[0];	++ctmp;
 			ctmp->re = wts_mult[1];	ctmp->im = wts_mult[0];	++ctmp;
@@ -1003,9 +970,6 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			ctmp->re = inv_mult[0];	ctmp->im = inv_mult[1];	++ctmp;
 			ctmp->re = inv_mult[1];	ctmp->im = inv_mult[1];	++ctmp;
 			nbytes = 24 << L2_SZ_VD;
-		  #else
-			nbytes = 16 << L2_SZ_VD;
-		  #endif
 
 		#endif
 
@@ -1147,7 +1111,9 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		p68 = p68 + ( (p68 >> DAT_BITS) << PAD_BITS );
 		p70 = p70 + ( (p70 >> DAT_BITS) << PAD_BITS );
 		p78 = p78 + ( (p78 >> DAT_BITS) << PAD_BITS );
-
+	#ifndef USE_SSE2
+		p0123[0] = 0; p0123[1] = p01; p0123[2] = p02; p0123[3] = p03;
+	#endif
 		poff[0x00] =   0; poff[0x01] = p04    ; poff[0x02] = p08; poff[0x03] = p04+p08;
 		poff[0x04] = p10; poff[0x05] = p04+p10; poff[0x06] = p18; poff[0x07] = p04+p18;
 		poff[0x08] = p20; poff[0x09] = p04+p20; poff[0x0a] = p28; poff[0x0b] = p04+p28;
@@ -1311,7 +1277,7 @@ int radix128_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			_cy_i[i][ithread] = 0;
 		}
 	}
-  #ifndef USE_SSE2	// Non-SIMD builds don't support shifted-residue, so init LL cy_in as before:
+  #if 0	//ndef USE_SSE2	*** v20: Non-SIMD builds now also support shifted-residue
 	/* If an LL test, init the subtract-2: */
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRIMALITY)
 	{
@@ -2667,8 +2633,9 @@ void radix128_dit_pass1(double a[], int n)
 
 	#else
 
+		int p0123[4];
 		double *base, *baseinv;
-		const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
+		const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 		int m,m2,ntmp;
 		double wt,wtinv,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
 		int bjmodn[RADIX];	// Thread only carries a base datum here, must alloc a local array for remaining values
@@ -2708,12 +2675,10 @@ void radix128_dit_pass1(double a[], int n)
 		double *a = thread_arg->arrdat;
 		double *wt0 = thread_arg->wt0;
 		double *wt1 = thread_arg->wt1;
-	#ifdef LOACC
 		double *wts_mult = thread_arg->wts_mult;	// Const Intra-block wts-multiplier...
 		double *inv_mult = thread_arg->inv_mult;	// ...and 2*(its multiplicative inverse).
 		ASSERT(HERE,fabs(wts_mult[0]*inv_mult[0] - 1.0) < EPS, "wts_mults fail accuracy check!");
 		ASSERT(HERE,fabs(wts_mult[1]*inv_mult[1] - 1.0) < EPS, "wts_mults fail accuracy check!");
-	#endif
 		int *si = thread_arg->si;
 		struct complex *rn0 = thread_arg->rn0;
 		struct complex *rn1 = thread_arg->rn1;
@@ -2778,7 +2743,9 @@ void radix128_dit_pass1(double a[], int n)
 		p68 = p68 + ( (p68 >> DAT_BITS) << PAD_BITS );
 		p70 = p70 + ( (p70 >> DAT_BITS) << PAD_BITS );
 		p78 = p78 + ( (p78 >> DAT_BITS) << PAD_BITS );
-
+	#ifndef USE_SSE2
+		p0123[0] = 0; p0123[1] = p01; p0123[2] = p02; p0123[3] = p03;
+	#endif
 		poff[0x00] =   0; poff[0x01] = p04    ; poff[0x02] = p08; poff[0x03] = p04+p08;
 		poff[0x04] = p10; poff[0x05] = p04+p10; poff[0x06] = p18; poff[0x07] = p04+p18;
 		poff[0x08] = p20; poff[0x09] = p04+p20; poff[0x0a] = p28; poff[0x0b] = p04+p28;

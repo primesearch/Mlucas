@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -598,7 +598,15 @@ so replace with a branchless -= sw (+= n if result < 0):
 
 	#else	/* GCC-style inline ASM: */
 
-		#include "carry_gcc64.h"
+		#if OS_BITS == 32
+
+			#include "carry_gcc32.h"
+
+		#else
+
+			#include "carry_gcc64.h"
+
+		#endif	/* #if(OS_BITS == 32) */
 
 	#endif	/* MSVC or GCC */
 

@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -52,7 +52,7 @@ int test_fac()
 	double dbl,rnd;
 	uint32 pm60,km60;
 	uint64 hi64,lo64;
-#if FAC_DEBUG && (defined(P2WORD) || defined(P3WORD) || defined(P4WORD))
+#if defined(FAC_DEBUG) && (defined(P2WORD) || defined(P3WORD) || defined(P4WORD))
 	uint32 i2,i3,i4,ii,jj;
 #endif
 	char cbuf0[STR_MAX_LEN], cbuf1[STR_MAX_LEN], cbuf2[STR_MAX_LEN];
@@ -153,7 +153,7 @@ int test_fac()
 			#error	THREE_OP128 Only relevant for factoring up to 128 bits!
 		#endif
 		/* Only relevant if using fully 128-bit modmul routines: */
-		#if(defined(USE_128x96) && USE_128x96 != 0)
+		#if USE_128x96 != 0
 			#error	THREE_OP128 Only relevant if using fully 128-bit modmul routines - undef USE_128x96 or set = 0!
 		#endif
 	#endif
@@ -165,6 +165,15 @@ int test_fac()
 	#else
 		i = NUM_SIEVING_PRIME;
 		printf("NUM_SIEVING_PRIME = %u\n", i);
+	#endif
+
+	/* TF_CLASSES: */
+	#ifndef TF_CLASSES
+		/* This flag is required: */
+		ASSERT(HERE, 0,"TF_CLASSES not defined!");
+	#else
+		i = TF_CLASSES;
+		printf("TF_CLASSES = %u\n", i);
 	#endif
 
 	/* MUL_LOHI64_SUBROUTINE: */
@@ -203,10 +212,10 @@ int test_fac()
 	#endif
 
 	/* FAC_DEBUG: */
-	#if(!defined(FAC_DEBUG) || !FAC_DEBUG)
-	//	printf("FAC_DEBUG = 0\n");
+	#ifndef FAC_DEBUG
+	//	printf("FAC_DEBUG not defined\n");
 	#else
-		printf("FAC_DEBUG = %u\n", (uint32)FAC_DEBUG);
+		printf("FAC_DEBUG = true\n");
 	#endif
 
 	/* DBG_SIEVE: */
@@ -242,10 +251,12 @@ int test_fac()
 	#ifndef USE_128x96
 	//	printf("USE_128x96 not defined\n");
 	#else
-		printf("USE_128x96 = true\n");
+		i = USE_128x96;
+		printf("USE_128x96 = %u\n", i);
+		ASSERT(HERE,i <= 2,"Only USE_128x96 = 0-2 are recognized values!\n");
 		/* Only relevant for factoring up to 128 bits: */
 		#if(defined(P3WORD) || defined(P4WORD))
-			#error	USE_128x96 Only relevant for factoring up to 128 bits!
+			#warning USE_128x96 Only relevant for factoring up to 128 bits!
 		#endif
 	#endif
 
@@ -257,7 +268,9 @@ int test_fac()
 		#ifndef USE_128x96
 			printf("    USE_128x96 not defined\n");
 		#else
-			printf("    USE_128x96 = %u\n", USE_128x96);
+			i = USE_128x96;
+			printf("    USE_128x96 = %u\n", i);
+			ASSERT(HERE,i <= 2,"Only USE_128x96 = 0-2 are recognized values!\n");
 		#endif
 
 	#endif
@@ -359,9 +372,10 @@ int test_fac()
 	// Use 2^256 as a template for our 0-padding, but use 1 less leading 0 because convert_base10_char_mi64
 	// assumes worst-case value of 9999... for the leading digits in precomuting the #words for the calloc:
 	//                    2^256 = 115792089237316195423570985008687907853269984665640564039457584007913129639936:
-	p = convert_base10_char_mi64( "00000000000000000000000000000000000000364131549958466711308970009901738230041", &i);
+	// Feb 2020: Chnages to length-setting logic in convert_base10_char_mi64 mean we must init i,j = 0 prior to calling that function:
+	i = 0; p = convert_base10_char_mi64( "00000000000000000000000000000000000000364131549958466711308970009901738230041", &i);
 	ASSERT(HERE, mi64_getlen(p, i) == 3 && i == 4,"Bad p-length(s) in Apr2015 mi64_div test!");
-	q = convert_base10_char_mi64( "00000000000000000000000000000000000000000000000000000000019437941122649628431", &j);
+	j = 0; q = convert_base10_char_mi64( "00000000000000000000000000000000000000000000000000000000019437941122649628431", &j);
 	ASSERT(HERE, mi64_getlen(q, j) == 2 && j == 4,"Bad q-length(s) in Apr2015 mi64_div test!");
 	q2      = (uint64 *)calloc(4, sizeof(uint64));	// for quotient
 	u64_arr = (uint64 *)calloc(4, sizeof(uint64));	// for remainder
@@ -373,10 +387,10 @@ int test_fac()
 	p = 0x0; q = 0x0; q2 = 0x0; u64_arr = 0x0;
 
 	/* 01/09/2008: mi64_div bug debug: */
-	p = convert_base10_char_mi64("531137992816767098689588206552468627329593117727031923199444138200403559860852242739162502265229285668889329486246501015346579337652707239409519978766587351943831270835393219031728127", &i);
+	i = 0; p = convert_base10_char_mi64("531137992816767098689588206552468627329593117727031923199444138200403559860852242739162502265229285668889329486246501015346579337652707239409519978766587351943831270835393219031728127", &i);
 	two_p = (uint64 *)calloc(i, sizeof(uint64));
 	mi64_add(p,p,two_p,i);
-	q = convert_base10_char_mi64("4969289881134175801642878989330437804491760137935869781219375395913301677808943323410612629818326630668131744420258226244511522022525093242408710254941677603671849301746980479735516135243111", &j);
+	j = 0; q = convert_base10_char_mi64("4969289881134175801642878989330437804491760137935869781219375395913301677808943323410612629818326630668131744420258226244511522022525093242408710254941677603671849301746980479735516135243111", &j);
 	ASSERT(HERE, i==j,"0");
 	q2      = (uint64 *)calloc(i, sizeof(uint64));
 	u64_arr = (uint64 *)calloc(i, sizeof(uint64));
@@ -556,7 +570,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 	NB: p = 1231 not an M-prime exponent, but 1279 too close to 1280 = 64*20 for our purposes.
 	*/
 	// 2nd multiplicand is just leading digits of Pi, sans decimal point:
-	q2 = convert_base10_char_mi64("3141592653589793238462643383279502884197169399375105820974944592307816406286208998628034825342117067982148086513282306647093844609550582231725359408128481117450284102701938521105559644622948954930381964428810975665933446128475648233786783165271201909145648566923460348610454326648213393607260249141273724587006606315588174881520920962829254091715364367892590360011330530548820466521", &j);
+	j = 0; q2 = convert_base10_char_mi64("3141592653589793238462643383279502884197169399375105820974944592307816406286208998628034825342117067982148086513282306647093844609550582231725359408128481117450284102701938521105559644622948954930381964428810975665933446128475648233786783165271201909145648566923460348610454326648213393607260249141273724587006606315588174881520920962829254091715364367892590360011330530548820466521", &j);
 	ASSERT(HERE, j == 20, "vector lengths should be 20!");
 	q     = (uint64 *)calloc(j, sizeof(uint64));	// output array
 	mi64_mul_vector_hi_qmmp(q2, 1231, 60773088284ull, q, (j<<6));	// q = 2.k.M(p) + 1 with k = 60773088284
@@ -1289,19 +1303,16 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 	{
 		p64 = fac96[i].p;
 		q128.d1 = (uint64)fac96[i].d1; q128.d0 = fac96[i].d0;
-
-		/* Modify this so it'll work with 96-bit q's: */
-		two64modp = 0x8000000000000000ull%p64;
-		two64modp = (two64modp + two64modp)%p64;
-		res64 = (q128.d1*two64modp + q128.d0%p64)%p64;
-		if(res64 != 1)
-		{
+		q128.d0 -= 1ull;	// Sub off the 1 in q = 2.k.p+1 and check that result == 0 (mod 2.p)
+		res64 = mi64_div_binary((uint64*)&q128, &p64, 2,1, 0x0,0x0,0x0);
+		if(res64 != 1) {
 			fprintf(stderr,"ERROR : (p, q) = ( %s, %s ) : q mod (2p) = %s != 1!\n",
 					&cbuf0[convert_uint64_base10_char (cbuf0, p64)],
 					&cbuf1[convert_uint128_base10_char(cbuf1, q128)],
 					&cbuf2[convert_uint64_base10_char (cbuf2, res64)]);
 			ASSERT(HERE, 0,"0");
 		}
+		q128.d0 += 1ull;
 
 		/* To find the quotient k = (q-1)/(2*p), which may be > 64 bits, use mod-inverse with base 2^128 arithmetic.
 		Since the Newtonian mod-inverse algorithm only works for odd inputs, instead of finding (q-1)/(2*p), we find ((q-1)/2)/p.
@@ -1568,22 +1579,16 @@ if((q128.d1 >> 14) == 0) {
 /* Comment out the left-justified continue's below to enable factor reconstruction code. */
 		p64 = fac128[i].p;
 		q128.d1 = fac128[i].d1; q128.d0 = fac128[i].d0;
-
-		/* Modify this so it'll work with 128-bit q's: */
-		two64modp = 0x8000000000000000ull%p64;
-		two64modp = (two64modp + two64modp)%p64;
-		/* Really large factors may have high part sufficiently large that q128.d1*two64modp
-		overflows 64 bits, so stick an extra mod-p in there:
-		*/
-		res64 = ((q128.d1%p64)*two64modp + q128.d0%p64)%p64;
-		if(res64 != 1)
-		{
+		q128.d0 -= 1ull;	// Sub off the 1 in q = 2.k.p+1 and check that result == 0 (mod 2.p)
+		res64 = mi64_div_binary((uint64*)&q128, &p64, 2,1, 0x0,0x0,0x0);
+		if(res64 != 1) {
 			fprintf(stderr,"ERROR : (p, q) = ( %s, %s ) : q mod (2p) = %s != 1!\n",
 					&cbuf0[convert_uint64_base10_char (cbuf0, p64)],
 					&cbuf1[convert_uint128_base10_char(cbuf1, q128)],
 					&cbuf2[convert_uint64_base10_char (cbuf2, res64)]);
 			ASSERT(HERE, 0,"0");
 		}
+		q128.d0 += 1ull;
 
 		/* This uses the generic 128-bit mod function to calculate q%(2*p): */
 		p128.d0 = p64; p128.d1 = 0;
@@ -1799,7 +1804,7 @@ if((q128.d1 >> 14) == 0) {
 #if(defined(P2WORD))
 
 	/*** Only do this time-consuming series of 128-bit factor tests in debug mode: ***/
-  #if(FAC_DEBUG)
+  #ifdef FAC_DEBUG
 	/* 128_B: Construct more 128-bit test factors by multiplying together
 	a 63-bit factor q1 of M(p1) and a 64-bit factor q2 of M(p2)
 	and checking whether q1*q2 divides M(p1*p2).
@@ -1829,6 +1834,7 @@ if((q128.d1 >> 14) == 0) {
 		to composite factors which are a product of prime factors of
 		different-exponent M(p)'s. */
 
+		p128.d0 = p64; p128.d1 = 0;
 		res128 = twopmodq128(p128, q128);
 		if(!CMPEQ128(ONE128,res128))
 		{
@@ -1840,8 +1846,7 @@ if((q128.d1 >> 14) == 0) {
 			ASSERT(HERE, 0,"0");
 		}
 
-		p128.d0 = p64; p128.d1 = 0;
-		res64 = twopmodq128x2((uint64*)&p128, q128);
+		res64 = twopmodq128x2B((uint64*)&p128, q128);
 		if(res64 != 1)
 		{
 			fprintf(stderr,"ERROR63x64[%u][%u]: twopmodq128x2(%u*%u, %s*%s ) returns non-unity result %u\n",
@@ -1886,7 +1891,7 @@ if((q128.d1 >> 14) == 0) {
 		different-exponent M(p)'s. */
 
 		p128.d0 = p64; p128.d1 = 0;
-		res128 = twopmodq128(p64, q128);
+		res128 = twopmodq128(p128, q128);
 		if(!CMPEQ128(ONE128,res128))
 		{
 			fprintf(stderr,"ERROR_64x64[%u][%u]: twopmodq128(%u*%u, %s*%s ) returns non-unity result %s\n",
@@ -1897,7 +1902,7 @@ if((q128.d1 >> 14) == 0) {
 			ASSERT(HERE, 0,"0");
 		}
 
-		res64 = twopmodq128x2((uint64*)&p128, q128);
+		res64 = twopmodq128x2B((uint64*)&p128, q128);
 		if(res64 != 1)
 		{
 			fprintf(stderr,"ERROR64x64[%u][%u]: twopmodq128x2(%u*%u, %s*%s ) returns non-unity result %u\n",
@@ -1966,7 +1971,7 @@ if((q128.d1 >> 14) == 0) {
 			ASSERT(HERE, 0,"0");
 		}
 
-		res64 = twopmodq128x2((uint64*)&p128, q128);
+		res64 = twopmodq128x2B((uint64*)&p128, q128);
 		if(res64 != 1)
 		{
 			fprintf(stderr,"ERROR63x65[%u][%u]: twopmodq128x2(%u*%u, %s*%s ) returns non-unity result %u\n",
@@ -1980,7 +1985,7 @@ if((q128.d1 >> 14) == 0) {
    #ifdef FACTOR_STANDALONE
 	printf("\n");
    #endif
-  #endif	/* #if FAC_DEBUG */
+  #endif	/* #ifdef FAC_DEBUG */
 
 #ifdef FACTOR_STANDALONE
 	printf("Testing 128x2-bit factors...\n");
@@ -2313,7 +2318,7 @@ if((q128.d1 >> 14) == 0) {
 #if(0)//defined(P3WORD))
 
 	/*** Only do this time-consuming series of 192-bit factor tests in debug mode: ***/
-  #if(FAC_DEBUG)
+  #ifdef FAC_DEBUG
 	/* 192_B: Construct more 192-bit test factors by multiplying together
 	a 63-bit factor q1 of M(p1), a 64-bit factor q2 of M(p2) and a
 	65-bit factor q3 of M(p3) and checking whether q1*q2*q3 divides M(p1*p2*p3).
@@ -2445,7 +2450,7 @@ if((q128.d1 >> 14) == 0) {
    #ifdef FACTOR_STANDALONE
 	printf("\n");
    #endif
-  #endif	/* #if FAC_DEBUG */
+  #endif	/* #ifdef FAC_DEBUG */
 
 #endif	/* #if(defined(P3WORD)) */
 
@@ -2490,7 +2495,7 @@ if((q128.d1 >> 14) == 0) {
 	}
 
 	/*** Only do this time-consuming series of 256-bit factor tests in debug mode: ***/
-  #if(FAC_DEBUG)
+  #ifdef FAC_DEBUG
 	/* Construct 256-bit test factors by multiplying together a randomly chosen quartet
 	consisting of a 63-bit factor q1 of M(p1), 2 (distinct) 64-bit factors q2 of M(p2) and q3 of M(p3)
 	and a 65-bit factor q4 of M(p3) and checking whether q1*q2*q3*q4 divides M(p1*p2*p3*p4).
@@ -2574,7 +2579,7 @@ if((q128.d1 >> 14) == 0) {
    #ifdef FACTOR_STANDALONE
 	printf("\n");
    #endif
-  #endif	/* #if FAC_DEBUG */
+  #endif	/* #ifdef FAC_DEBUG */
 
 #endif	/* #if(defined(P4WORD)) */
 

@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -4490,13 +4490,10 @@ in the same order here as DIF, but the in-and-output-index offsets are BRed: j1 
 	*/
 		// s1p[00,08,10,18,20,28,30,38]:
 		off_ptr = o_offsets;
-/*const char dat[128] = {
-	3,1,4,1,5,9,2,6,5,3,5,8,9,7,9,3,2,3,8,4,6,2,6,4,3,3,8,3,2,7,9,5,0,2,8,8,4,1,9,7,1,6,9,3,9,9,3,7,5,1,0,5,8,2,0,9,7,4,9,4,4,5,9,2,
-	3,0,7,8,1,6,4,0,6,2,8,6,2,0,8,9,9,8,6,2,8,0,3,4,8,2,5,3,4,2,1,1,7,0,6,7,9,8,2,1,4,8,0,8,6,5,1,3,2,8,2,3,0,6,6,4,7,0,9,3,8,4,4,6
-};
-tmp = r00;
-for(i = 0; i < 128; i++) { VEC_DBL_INIT(tmp++,(double)dat[i]); }*/
-		tmp = r00;
+	/*
+	printf("off_ptr[0x8] = %2x\n",off_ptr[0x8]);	<*** 2x larger than the 0x10-mults in the 'else' below *>**
+	exit(0);
+	*/
 		// Apr 2014: Generalized-index scheme replaces original fixed __B-offsets 0x[0-7]0 with strides taken from
 		// o_offsets array. Due to the way the radix-64 DFTs are used to build larger pow2 and non-pow2 DFTs there
 		// is never an issue of irregular (i.e. not simple multiple of the basic stride in o_offsets[1]) strides,
@@ -4504,8 +4501,6 @@ for(i = 0; i < 128; i++) { VEC_DBL_INIT(tmp++,(double)dat[i]); }*/
 		// we only need a very small sampling of the o_offsets data - in fact just o_offsets[1-8] - to infer the rest:
 		j = off_ptr[8];	v0 = __B; v1 = __B+j; v2 = __B+(j<<1); v3 = __B+j+(j<<1);
 		uint64 dit_o_ptr_stride = (uint64)v1-(uint64)v0;
-//printf("r0-7 separated by ptr_diff = 0x%llX:\n",(uint64)r10-(uint64)r00);
-//printf("v0-7 separated by index-stride %u, ptr_diff = 0x%llX:\n",j,dit_o_ptr_stride);
 		j <<= 2;		v4 = v0+j; v5 = v1+j; v6 = v2+j; v7 = v3+j;
 	// Block 0: All unity twiddles:
 	  #ifdef USE_AVX2
@@ -4519,8 +4514,8 @@ for(i = 0; i < 128; i++) { VEC_DBL_INIT(tmp++,(double)dat[i]); }*/
 			v0,v7,v6,v5,v4,v3,v2,v1, isrt2
 		);
 	  #endif
-//printf("Block %u:\n",0);printf("\tv0 = [%15.10f,%15.10f]\n",v0->d0,(v0+1)->d0);printf("\tv1 = [%15.10f,%15.10f]\n",v1->d0,(v1+1)->d0);printf("\tv2 = [%15.10f,%15.10f]\n",v2->d0,(v2+1)->d0);printf("\tv3 = [%15.10f,%15.10f]\n",v3->d0,(v3+1)->d0);printf("\tv4 = [%15.10f,%15.10f]\n",v4->d0,(v4+1)->d0);printf("\tv5 = [%15.10f,%15.10f]\n",v5->d0,(v5+1)->d0);printf("\tv6 = [%15.10f,%15.10f]\n",v6->d0,(v6+1)->d0);printf("\tv7 = [%15.10f,%15.10f]\n",v7->d0,(v7+1)->d0);
 		tmp = r00;
+
 	// Note: Assumed 1-before 1st of the 14 sincos args in each call to SSE2_RADIX8_DIT_TWIDDLE_OOP is the basic isrt2 arg
 	// used for radix-8. This is a workaround of GCC's 30-arg limit for inline ASM macros, which proves a royal pain here.
 	//...and another kludge for the 30-arg limit: put a copy of (vec_dbl)2.0 into the first of each set of outputs:
@@ -4543,9 +4538,6 @@ for(i = 0; i < 128; i++) { VEC_DBL_INIT(tmp++,(double)dat[i]); }*/
 			v0,dit_o_ptr_stride,
 			twid_ptrs, two
 		);
-//v1 += j; v2 += j; v3 += j; v4 += j; v5 += j; v6 += j; v7 += j;
-//printf("Block %u: v0-v7 = %llX,%llX,%llX,%llX,%llX,%llX,%llX,%llX\n",4,v0,v1,v2,v3,v4,v5,v6,v7);
-//printf("Block %u:\n",4);printf("\tv0 = [%15.10f,%15.10f]\n",v0->d0,(v0+1)->d0);printf("\tv1 = [%15.10f,%15.10f]\n",v1->d0,(v1+1)->d0);printf("\tv2 = [%15.10f,%15.10f]\n",v2->d0,(v2+1)->d0);printf("\tv3 = [%15.10f,%15.10f]\n",v3->d0,(v3+1)->d0);printf("\tv4 = [%15.10f,%15.10f]\n",v4->d0,(v4+1)->d0);printf("\tv5 = [%15.10f,%15.10f]\n",v5->d0,(v5+1)->d0);printf("\tv6 = [%15.10f,%15.10f]\n",v6->d0,(v6+1)->d0);printf("\tv7 = [%15.10f,%15.10f]\n",v7->d0,(v7+1)->d0);
 	// Block 2: jt = j1 + p02;	jp = j2 + p02;
 		j = +4;	tmp += j;	// tmp = r0C
 		j = off_ptr[2]; v0 -= j;	// s1p02
@@ -4555,9 +4547,6 @@ for(i = 0; i < 128; i++) { VEC_DBL_INIT(tmp++,(double)dat[i]); }*/
 			v0,dit_o_ptr_stride,
 			twid_ptrs, two
 		);
-//v1 -= j; v2 -= j; v3 -= j; v4 -= j; v5 -= j; v6 -= j; v7 -= j;
-//printf("Block %u: v0-v7 = %llX,%llX,%llX,%llX,%llX,%llX,%llX,%llX\n",2,v0,v1,v2,v3,v4,v5,v6,v7);
-//printf("Block %u:\n",2);printf("\tv0 = [%15.10f,%15.10f]\n",v0->d0,(v0+1)->d0);printf("\tv1 = [%15.10f,%15.10f]\n",v1->d0,(v1+1)->d0);printf("\tv2 = [%15.10f,%15.10f]\n",v2->d0,(v2+1)->d0);printf("\tv3 = [%15.10f,%15.10f]\n",v3->d0,(v3+1)->d0);printf("\tv4 = [%15.10f,%15.10f]\n",v4->d0,(v4+1)->d0);printf("\tv5 = [%15.10f,%15.10f]\n",v5->d0,(v5+1)->d0);printf("\tv6 = [%15.10f,%15.10f]\n",v6->d0,(v6+1)->d0);printf("\tv7 = [%15.10f,%15.10f]\n",v7->d0,(v7+1)->d0);
 	// Block 6: jt = j1 + p06;	jp = j2 + p06;
 		j = -8;	tmp += j;	// tmp = r04
 		j = off_ptr[4]; v0 += j;	// s1p06
@@ -4567,9 +4556,6 @@ for(i = 0; i < 128; i++) { VEC_DBL_INIT(tmp++,(double)dat[i]); }*/
 			v0,dit_o_ptr_stride,
 			twid_ptrs, two
 		);
-//v1 += j; v2 += j; v3 += j; v4 += j; v5 += j; v6 += j; v7 += j;
-//printf("Block %u: v0-v7 = %llX,%llX,%llX,%llX,%llX,%llX,%llX,%llX\n",6,v0,v1,v2,v3,v4,v5,v6,v7);
-//printf("Block %u:\n",6);printf("\tv0 = [%15.10f,%15.10f]\n",v0->d0,(v0+1)->d0);printf("\tv1 = [%15.10f,%15.10f]\n",v1->d0,(v1+1)->d0);printf("\tv2 = [%15.10f,%15.10f]\n",v2->d0,(v2+1)->d0);printf("\tv3 = [%15.10f,%15.10f]\n",v3->d0,(v3+1)->d0);printf("\tv4 = [%15.10f,%15.10f]\n",v4->d0,(v4+1)->d0);printf("\tv5 = [%15.10f,%15.10f]\n",v5->d0,(v5+1)->d0);printf("\tv6 = [%15.10f,%15.10f]\n",v6->d0,(v6+1)->d0);printf("\tv7 = [%15.10f,%15.10f]\n",v7->d0,(v7+1)->d0);
 	// Block 1: jt = j1 + p01;	jp = j2 + p01;
 		j =+10;	tmp += j;	// tmp = r0E
 		j = off_ptr[5]; v0 -= j;	// s1p01
@@ -4579,9 +4565,6 @@ for(i = 0; i < 128; i++) { VEC_DBL_INIT(tmp++,(double)dat[i]); }*/
 			v0,dit_o_ptr_stride,
 			twid_ptrs, two
 		);
-//v1 -= j; v2 -= j; v3 -= j; v4 -= j; v5 -= j; v6 -= j; v7 -= j;
-//printf("Block %u: v0-v7 = %llX,%llX,%llX,%llX,%llX,%llX,%llX,%llX\n",1,v0,v1,v2,v3,v4,v5,v6,v7);
-//printf("Block %u:\n",1);printf("\tv0 = [%15.10f,%15.10f]\n",v0->d0,(v0+1)->d0);printf("\tv1 = [%15.10f,%15.10f]\n",v1->d0,(v1+1)->d0);printf("\tv2 = [%15.10f,%15.10f]\n",v2->d0,(v2+1)->d0);printf("\tv3 = [%15.10f,%15.10f]\n",v3->d0,(v3+1)->d0);printf("\tv4 = [%15.10f,%15.10f]\n",v4->d0,(v4+1)->d0);printf("\tv5 = [%15.10f,%15.10f]\n",v5->d0,(v5+1)->d0);printf("\tv6 = [%15.10f,%15.10f]\n",v6->d0,(v6+1)->d0);printf("\tv7 = [%15.10f,%15.10f]\n",v7->d0,(v7+1)->d0);
 	// Block 5: jt = j1 + p05;	jp = j2 + p05;
 		j = -8;	tmp += j;	// tmp = r06
 		j = off_ptr[4]; v0 += j;	// s1p05
@@ -4591,9 +4574,6 @@ for(i = 0; i < 128; i++) { VEC_DBL_INIT(tmp++,(double)dat[i]); }*/
 			v0,dit_o_ptr_stride,
 			twid_ptrs, two
 		);
-//v1 += j; v2 += j; v3 += j; v4 += j; v5 += j; v6 += j; v7 += j;
-//printf("Block %u: v0-v7 = %llX,%llX,%llX,%llX,%llX,%llX,%llX,%llX\n",5,v0,v1,v2,v3,v4,v5,v6,v7);
-//printf("Block %u:\n",5);printf("\tv0 = [%15.10f,%15.10f]\n",v0->d0,(v0+1)->d0);printf("\tv1 = [%15.10f,%15.10f]\n",v1->d0,(v1+1)->d0);printf("\tv2 = [%15.10f,%15.10f]\n",v2->d0,(v2+1)->d0);printf("\tv3 = [%15.10f,%15.10f]\n",v3->d0,(v3+1)->d0);printf("\tv4 = [%15.10f,%15.10f]\n",v4->d0,(v4+1)->d0);printf("\tv5 = [%15.10f,%15.10f]\n",v5->d0,(v5+1)->d0);printf("\tv6 = [%15.10f,%15.10f]\n",v6->d0,(v6+1)->d0);printf("\tv7 = [%15.10f,%15.10f]\n",v7->d0,(v7+1)->d0);
 	// Block 3: jt = j1 + p03;	jp = j2 + p03;
 		j = +4;	tmp += j;	// tmp = r0A
 		j = off_ptr[2]; v0 -= j;	// s1p03
@@ -4603,9 +4583,6 @@ for(i = 0; i < 128; i++) { VEC_DBL_INIT(tmp++,(double)dat[i]); }*/
 			v0,dit_o_ptr_stride,
 			twid_ptrs, two
 		);
-//v1 -= j; v2 -= j; v3 -= j; v4 -= j; v5 -= j; v6 -= j; v7 -= j;
-//printf("Block %u: v0-v7 = %llX,%llX,%llX,%llX,%llX,%llX,%llX,%llX\n",3,v0,v1,v2,v3,v4,v5,v6,v7);
-//printf("Block %u:\n",3);printf("\tv0 = [%15.10f,%15.10f]\n",v0->d0,(v0+1)->d0);printf("\tv1 = [%15.10f,%15.10f]\n",v1->d0,(v1+1)->d0);printf("\tv2 = [%15.10f,%15.10f]\n",v2->d0,(v2+1)->d0);printf("\tv3 = [%15.10f,%15.10f]\n",v3->d0,(v3+1)->d0);printf("\tv4 = [%15.10f,%15.10f]\n",v4->d0,(v4+1)->d0);printf("\tv5 = [%15.10f,%15.10f]\n",v5->d0,(v5+1)->d0);printf("\tv6 = [%15.10f,%15.10f]\n",v6->d0,(v6+1)->d0);printf("\tv7 = [%15.10f,%15.10f]\n",v7->d0,(v7+1)->d0);
 	// Block 7: jt = j1 + p07;	jp = j2 + p07;
 		j = -8;	tmp += j;	// tmp = r02
 		j = off_ptr[4]; v0 += j;	// s1p07
@@ -4615,10 +4592,6 @@ for(i = 0; i < 128; i++) { VEC_DBL_INIT(tmp++,(double)dat[i]); }*/
 			v0,dit_o_ptr_stride,
 			twid_ptrs, two
 		);
-//v1 += j; v2 += j; v3 += j; v4 += j; v5 += j; v6 += j; v7 += j;
-//printf("Block %u: v0-v7 = %llX,%llX,%llX,%llX,%llX,%llX,%llX,%llX\n",7,v0,v1,v2,v3,v4,v5,v6,v7);
-//printf("Block %u:\n",7);printf("\tv0 = [%15.10f,%15.10f]\n",v0->d0,(v0+1)->d0);printf("\tv1 = [%15.10f,%15.10f]\n",v1->d0,(v1+1)->d0);printf("\tv2 = [%15.10f,%15.10f]\n",v2->d0,(v2+1)->d0);printf("\tv3 = [%15.10f,%15.10f]\n",v3->d0,(v3+1)->d0);printf("\tv4 = [%15.10f,%15.10f]\n",v4->d0,(v4+1)->d0);printf("\tv5 = [%15.10f,%15.10f]\n",v5->d0,(v5+1)->d0);printf("\tv6 = [%15.10f,%15.10f]\n",v6->d0,(v6+1)->d0);printf("\tv7 = [%15.10f,%15.10f]\n",v7->d0,(v7+1)->d0);
-//exit(0);
 	  #ifndef USE_ARM_V8_SIMD
 		#undef OFF1
 	  #endif
@@ -4915,7 +4888,7 @@ for(i = 0; i < 128; i++) { VEC_DBL_INIT(tmp++,(double)dat[i]); }*/
 		// Index-offset names here reflect original unpermuted inputs, but the math also works for permuted ones:
 		int i,j,nshift, *off_ptr;
 		int p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,pa,pb,pc,pd,pe,pf;
-
+		ASSERT(HERE, o_idx != 0x0, "Null o_idx pointer in SSE2_RADIX256_DIF!");
 	// NOTE that unlike the RADIX_08_DIF_OOP() macro used for pass 1 of the radix-64 DFT, RADIX_16_DIF outputs are IN-ORDER rather than BR:
 	  #ifdef USE_ARM_V8_SIMD
 		uint32 OFF1,OFF2,OFF3,OFF4;
@@ -4966,9 +4939,7 @@ for(i = 0; i < 128; i++) { VEC_DBL_INIT(tmp++,(double)dat[i]); }*/
 		// Due to tangent-twiddles scheme and resulting singularity of tangent(arg(I)) = 1/0,
 		// only last 14 of the 15 with-twiddles DFTs allow use of FMA-based macros under Intel AVX2/FMA3:
 	// Block 8: BR twiddles = {  I.{},  C^ 8,-~C^ 8,  C^ 4,*~C^ 4, *C^ 4,-~C^ 4,  C^ 2,*~C^ 2, *C^ 6,-~C^ 6,  C^ 6,*~C^ 6, *C^ 2,-~C^ 2}
-		if(o_idx) {
-			off_ptr = o_offsets_lo + ((o_idx<<2)&0x30);	// Shorthand for 16*((o_idx>>2)&0x3)
-		}
+		off_ptr = o_offsets_lo + ((o_idx<<2)&0x30);	// Shorthand for 16*((o_idx>>2)&0x3)
 		j = 16;	// = 8<<1; Mimics elided i = 1 pass of length-14 loop below
 		tm2 = twid0 + (j<<4)-j;	// Twid-offsets are multiples of 30 vec_dbl - this one points to twid8 [of twid0-f]
 		addr = __B + o_offsets_hi[1];
@@ -4980,11 +4951,9 @@ for(i = 0; i < 128; i++) { VEC_DBL_INIT(tmp++,(double)dat[i]); }*/
 
 		// Remaining 14 sets of macro calls done in loop:
 		for(i = 2; i < 16; i++) {
-			if(o_idx) {
-				nshift = i+i;	// o_idx shift counts here run as >>2,4,...,30
-				off_ptr = o_offsets_lo + ( ((o_idx>>nshift)&0x3) << 4 );
-				p0  = off_ptr[0x0];p1  = off_ptr[0x1];p2  = off_ptr[0x2];p3  = off_ptr[0x3];p4  = off_ptr[0x4];p5  = off_ptr[0x5];p6  = off_ptr[0x6];p7  = off_ptr[0x7];p8  = off_ptr[0x8];p9  = off_ptr[0x9];pa  = off_ptr[0xa];pb  = off_ptr[0xb];pc  = off_ptr[0xc];pd  = off_ptr[0xd];pe  = off_ptr[0xe];pf  = off_ptr[0xf];
-			}
+			nshift = i+i;	// o_idx shift counts here run as >>2,4,...,30
+			off_ptr = o_offsets_lo + ( ((o_idx>>nshift)&0x3) << 4 );
+			p0  = off_ptr[0x0];p1  = off_ptr[0x1];p2  = off_ptr[0x2];p3  = off_ptr[0x3];p4  = off_ptr[0x4];p5  = off_ptr[0x5];p6  = off_ptr[0x6];p7  = off_ptr[0x7];p8  = off_ptr[0x8];p9  = off_ptr[0x9];pa  = off_ptr[0xa];pb  = off_ptr[0xb];pc  = off_ptr[0xc];pd  = off_ptr[0xd];pe  = off_ptr[0xe];pf  = off_ptr[0xf];
 			j = reverse16[i]<<1;
 			tm2 = twid0 + (j<<4)-j;	// Twid-offsets are multiples of 30 vec_dbl
 			addr = __B + o_offsets_hi[i];	// o_offsets_hi[] = p10,p20,...,pf0
@@ -4999,10 +4968,8 @@ for(i = 0; i < 128; i++) { VEC_DBL_INIT(tmp++,(double)dat[i]); }*/
 
 		// Remaining 15 sets of macro calls done in loop:
 		for(i = 1; i < 16; i++) {
-			if(o_idx) {
-				nshift = i+i;	// o_idx shift counts here run as >>2,4,...,30
-				off_ptr = o_offsets_lo + ( ((o_idx>>nshift)&0x3) << 4 );
-			}
+			nshift = i+i;	// o_idx shift counts here run as >>2,4,...,30
+			off_ptr = o_offsets_lo + ( ((o_idx>>nshift)&0x3) << 4 );
 			j = reverse16[i]<<1;
 			tm2 = twid0 + (j<<4)-j;	// Twid-offsets are multiples of 30 vec_dbl
 			addr = __B + o_offsets_hi[i];

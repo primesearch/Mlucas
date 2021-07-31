@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -718,7 +718,7 @@ uint64 twopmodq192_q4_qmmp(uint64 *p_in, uint64 k0, uint64 k1, uint64 k2, uint64
 		mmpsave = 192 - mi64_leadz(p_in,3);
 		// Check that it's really a double-Mersenne: Adding one, right-shift by mmpsave = #bits give 1:
 		mi64_add_scalar(p_in, 1ull, (uint64*)&x, 3);
-		mi64_shrl((uint64*)&x, (uint64*)&x, mmpsave, 3);
+		mi64_shrl((uint64*)&x, (uint64*)&x, mmpsave, 3,3);
 		--x.d0;	ASSERT(HERE, mi64_iszero((uint64*)&x, 3), "MMp check failed!");
 		x.d0 = 192; x.d1 = x.d2 = 0;
 		ADD192(p, x, pshift);

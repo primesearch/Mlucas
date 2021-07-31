@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -232,11 +232,9 @@
 
 #elif defined(USE_AVX512)	// AVX512 version, based on RADIX_11_DFT_FMA in dft_macro.h
 
-   #if DFT_11_FMA	// [1] Naive but good-ROE and FMA-friendly impl based on RADIX_11_DFT_BASIC in dft_macro.h:
+   #if DFT_11_FMA	// [1] DFT_11_FMA = True: Naive but good-ROE and FMA-friendly impl based on RADIX_11_DFT_BASIC in dft_macro.h:
 
-	// FMAs used for all arithmetic, including 'trivial' ones (one mult = 1.0) to replace ADD/SUB:
-	//
-	// Arithmetic opcount: [10 ADD, 140 FMA (20 trivial, incl 10 MUL), 166 memref], close to general target of 1 memref per vec_dbl arithmetic op.
+	// Arithmetic opcount: [30 ADD, 120 MUL/FMA, 166 memref], close to general target of 1 memref per vec_dbl arithmetic op.
 	// potentially much lower cycle count (at a max theoretical rate of 2 FMA/cycle) than non-FMA version.
 	//
 	// Compare to non-FMA: [182 ADD, 44 MUL), 154 memref], less accurate and bottlenecked by 1 ADD/cycle max issue rate.
@@ -494,7 +492,7 @@
 		);\
 	}
 
-   #else		// [2] [LOACC, no-flags default] based on Radix-11 DFT impl based on RADIX_11_DFT in dft_macro.h,
+   #else		// [2] DFT_11_FMA = False: based on Radix-11 DFT impl based on RADIX_11_DFT in dft_macro.h,
 				// using length-5 cyclic convolution scheme for the 5 x 5 matrix submultiplies.
 				// Totals: [134 ADD, 54 MUL/FMA, 153 memref] in this FMA-lite version (Use extra AVX512 vregs to save 19 memref vs AVX2 version).
 				//
@@ -720,11 +718,9 @@
 
 #elif defined(USE_AVX2)	// AVX+FMA version, based on RADIX_11_DFT_FMA in dft_macro.h
 
-   #if DFT_11_FMA	// [1] Naive but good-ROE and FMA-friendly impl based on RADIX_11_DFT_BASIC in dft_macro.h:
+   #if DFT_11_FMA	// [1] DFT_11_FMA = True: Naive but good-ROE and FMA-friendly impl based on RADIX_11_DFT_BASIC in dft_macro.h:
 
-	// FMAs used for all arithmetic, including 'trivial' ones (one mult = 1.0) to replace ADD/SUB:
-	//
-	// Arithmetic opcount: [20 ADD, 130 FMA (incl 10 MUL), 166 memref], close to general target of 1 memref per vec_dbl arithmetic op.
+	// Arithmetic opcount: [30 ADD, 120 MUL/FMA, 166 memref], close to general target of 1 memref per vec_dbl arithmetic op.
 	// potentially much lower cycle count (at a max theoretical rate of 2 FMA/cycle) than non-FMA version.
 	//
 	// Compare to non-FMA: [182 ADD, 44 MUL), 154 memref], less accurate and bottlenecked by 1 ADD/cycle max issue rate.
@@ -991,7 +987,7 @@
 		);\
 	}
 
-   #else		// [2] [LOACC, no-flags default] based on Radix-11 DFT impl based on RADIX_11_DFT in dft_macro.h,
+   #else		// [2] DFT_11_FMA = False: based on Radix-11 DFT impl based on RADIX_11_DFT in dft_macro.h,
 				// using length-5 cyclic convolution scheme for the 5 x 5 matrix submultiplies.
 				// Totals: [134 ADD, 54 MUL/FMA, 172 memref] in this FMA-lite version.
 				//
@@ -1701,7 +1697,7 @@
 
 #else
 
-	#error Unhandled combination of preprocessr flags!
+	#error Unhandled combination of preprocessor flags!
 
 #endif	// x86 simd version ?
 

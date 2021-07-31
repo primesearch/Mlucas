@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -96,8 +96,8 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			int k0 = dit_p20_cperms[jj], k1 = dit_p20_cperms[jj+1], k2 = dit_p20_cperms[jj+2], k3 = dit_p20_cperms[jj+3], k4 = dit_p20_cperms[jj+4], k5 = dit_p20_cperms[jj+5], k6 = dit_p20_cperms[jj+6];
 			// Extract Low part, i.e. (mod p20) of the p-index offsets in the above circ-perm-indexing scheme for the radix-7 DFTs:
 			kk = (kk & 0x7fffffff) >> 3;
-		  #if LO_ADD										/*                                                                           inputs                                                                                                */   /*                         intermediates             */  /*                                                               outputs                                                                 */  /*      sincos + misc temps      */
 			jt = j1+kk; jp = j2+kk;
+		  #if LO_ADD
 			RADIX_07_DFT(
 				tptr->re,tptr->im,(tptr+32)->re,(tptr+32)->im,(tptr+64)->re,(tptr+64)->im,(tptr+96)->re,(tptr+96)->im,(tptr+128)->re,(tptr+128)->im,(tptr+160)->re,(tptr+160)->im,(tptr+192)->re,(tptr+192)->im,
 				t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,
@@ -123,13 +123,18 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	{
 		// Check if current index-interval contains the target index for rotated-residue carry injection.
 		// In data-init we set target_idx = -1 on wraparound-carry mini-pass, so if() only taken on full pass:
-	#ifdef USE_SSE2
 		if(target_idx == j) {
+		#ifdef USE_SSE2
 			addr = (double *)s1p00 + target_set;
 			*addr += target_cy*(n>>1);	// target_cy = [-2 << within-word-shift]*[DWT weight]*n/2, i.e. includes fwd DWT weight and n/2 factor
+		#else
+			// target_set in [0,2*RADIX); tidx_mod_stride [even|odd] means shifted-carry goes into [Re|Im] part of the complex FFT datum:
+			l = target_set&1;	target_set >>= 1;
+			a[j1+poff[target_set>>2]+p0123[target_set&3]+l] += target_cy*(n>>1);
+		#endif
 			target_idx = -1;
 		}
-	#endif
+
 	#ifdef USE_AVX
 
 		add1 = &wt1[col  ];
@@ -191,8 +196,8 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		sinwtm1      ->d7 = si[nwt-l-1];	tmp->d7 = wt0[nwt-l-1]*scale;
 	  #endif
 
-	  #ifdef LOACC
-
+	  if(inc_arr[0]) {	// Have no specialized HIACC carry macro in AVX-512, so use 0-or-not-ness of the low
+						// inc_arr element to divert non-AVX512 builds to 'else' clause of if() in HIACC mode.
 		uint32 ii,loop, co2save = co2;
 		// Beyond chain length 8, the chained-weights scheme becomes too inaccurate, so re-init seed-wts every 8th pass or better:
 	  #ifdef CARRY_16_WAY
@@ -244,12 +249,12 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			}
 		}
 
-	  #else
+	  } else {	// HiACC:
 
 		/* In AVX mode advance carry-ptrs just 1 for each vector-carry-macro call: */
 		tm1 = s1p00; tmp = cy_r; itmp = bjmodn;
-		i = (!j);
 		addr = &prp_mult;
+		i = (!j);
 		for(l = 0; l < RADIX>>2; l++) {
 			// Each AVX carry macro call also processes 4 prefetches of main-array data
 			tm2 = (vec_dbl *)(a + j1 + pfetch_dist + poff[l]);	// poff[] = p0,4,8,...
@@ -260,14 +265,15 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 					// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
 
-	  #endif	// LOACC ?
+	  }	// LOACC or HIACC?
 
 		i =((uint32)(sw - bjmodn[0]) >> 31);	/* get ready for the next set...	*/
 
 	#elif defined(USE_SSE2)
 
-	  #ifdef LOACC
-
+	  if(inc_arr[0]) {	// Have no specialized HIACC carry macro in ARM_V8_SIMD, so use 0-or-not-ness of incr
+						// in lieu of (USE_SHORT_CY_CHAIN < USE_SHORT_CY_CHAIN_MAX) is for ARMv8
+						// to divert non-AVX512 builds to 'else' clause of if() in HIACC mode.
 		uint32 i0,i1,i2,i3, ii,nwtml, loop,nloop = RADIX>>2, co2save = co2;
 
 		i = (!j);	// Need this to force 0-wod to be bigword
@@ -332,7 +338,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			}
 		}
 
-	  #else	// Hi-accuracy is the default:
+	  } else {	// HiACC:
 
 		l= j & (nwt-1);
 		n_minus_sil   = n-si[l  ];
@@ -345,7 +351,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		wtlp1   =wt0[    l+1];
 		wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
-		ctmp = (struct complex *)half_arr + 16;	/* ptr to local storage for the doubled wtl,wtn terms: */
+		ctmp = (struct complex *)half_arr + 24;	/* ptr to local storage for the doubled wtl,wtn terms: */
 		ctmp->re = wtl;		ctmp->im = wtl;	++ctmp;
 		ctmp->re = wtn;		ctmp->im = wtn;	++ctmp;
 		ctmp->re = wtlp1;	ctmp->im = wtlp1;++ctmp;
@@ -377,7 +383,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		wtlp1   =wt0[    l+1];
 		wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
-		ctmp = (struct complex *)half_arr + 16;	/* ptr to local storage for the doubled wtl,wtn terms: */
+		ctmp = (struct complex *)half_arr + 24;	/* ptr to local storage for the doubled wtl,wtn terms: */
 		ctmp->re = wtl;		ctmp->im = wtl;	++ctmp;
 		ctmp->re = wtn;		ctmp->im = wtn;	++ctmp;
 		ctmp->re = wtlp1;	ctmp->im = wtlp1;++ctmp;
@@ -400,7 +406,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
-	  #endif	// LOACC or HIACC?
+	  }	// LOACC or HIACC?
 
 		i =((uint32)(sw - bjmodn[0]) >> 31);	/* get ready for the next set...	*/
 
@@ -417,37 +423,32 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		wtlp1   =wt0[    l+1];
 		wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
-	  #ifdef LOACC
+	  if(USE_SHORT_CY_CHAIN < USE_SHORT_CY_CHAIN_MAX) {	// LOACC with tunable DWT-weights chaining
 
 		/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */
 		l = 0; addr = cy_r; itmp = bjmodn;
 		for(ntmp = 0; ntmp < RADIX>>2; ntmp++) {
 			jt = j1 + poff[ntmp]; jp = j2 + poff[ntmp];	// poff[] = p04,08,...
-			// Re-init weights every 4th macro invocatin to keep errors under control:
+			// Re-init weights every 4th macro invocation to keep errors under control:
 			cmplx_carry_norm_errcheck0(a[jt   ],a[jp   ],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 			cmplx_carry_fast_errcheck (a[jt+p1],a[jp+p1],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 			cmplx_carry_fast_errcheck (a[jt+p2],a[jp+p2],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 			cmplx_carry_fast_errcheck (a[jt+p3],a[jp+p3],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 		}
 
-	  #else	// Hi-accuracy is the default:
+	  } else {	// HiACC:
 
 		/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */
 		l = 0; addr = cy_r; itmp = bjmodn;
-	   cmplx_carry_norm_errcheck0(a[j1   ],a[j2   ],*addr,*itmp,0,prp_mult); ++l; ++addr; ++itmp;
-		cmplx_carry_norm_errcheck(a[j1+p1],a[j2+p1],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-		cmplx_carry_norm_errcheck(a[j1+p2],a[j2+p2],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-		cmplx_carry_norm_errcheck(a[j1+p3],a[j2+p3],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-		// Remaining quartets of macro calls done in loop:
-		for(ntmp = 1; ntmp < RADIX>>2; ntmp++) {
+		for(ntmp = 0; ntmp < RADIX>>2; ntmp++) {
 			jt = j1 + poff[ntmp]; jp = j2 + poff[ntmp];	// poff[] = p04,08,...
-			cmplx_carry_norm_errcheck (a[jt   ],a[jp   ],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_errcheck0(a[jt   ],a[jp   ],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 			cmplx_carry_norm_errcheck (a[jt+p1],a[jp+p1],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 			cmplx_carry_norm_errcheck (a[jt+p2],a[jp+p2],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 			cmplx_carry_norm_errcheck (a[jt+p3],a[jp+p3],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 		}
 
-	  #endif
+	  }	// LOACC or HIACC?
 
 		i =((uint32)(sw - bjmodn[0]) >> 31);	/* get ready for the next set...	*/
 		co2 = co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
@@ -476,7 +477,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		tmp = base_negacyclic_root;	tm2 = tmp+1;
 
-	  #if HIACC
+	  #ifdef HIACC
 		// Hi-accuracy version needs RADIX/4 copies of each base root:
 		l = (j >> 1);	k1=(l & NRTM1);	k2=(l >> NRT_BITS);
 		dtmp=rn0[k1].re;			wt_im=rn0[k1].im;
@@ -542,70 +543,19 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	  #else	// HIACC = false:
 
-		// Oct 2014: Try getting most of the LOACC speedup with better accuracy by breaking the complex-roots-of-(-1)
-		// chaining into 2 or more equal-sized subchains, each starting with 'fresh' (unchained) complex roots:
-		#if (LOACC == 0)
-			#warning LOACC = 0
-			#define NFOLD 0
-		#elif (LOACC == 1)
-			#warning LOACC = 1
-			#define NFOLD 1
-		#elif (LOACC == 2)
-			#warning LOACC = 2
-			#define NFOLD 2
-		#elif (LOACC == 3)
-			#warning LOACC = 3
-			#define NFOLD 3
-		#elif (LOACC == 4)
-			#warning LOACC = 4
-			#define NFOLD 4
-		#else
-			#error If LOACC defined for build of radix224_ditN_cy_dif1.c, must be given value 0,1,2,3 or 4!
-		#endif
-
-		#ifdef USE_AVX512
-		// For NFOLD > 2,  RADIX/8 not divisible by 2^NFOLD, so use a more-general inner-loop scheme which can handle that:
-		  #if NFOLD == 0
-			const int nexec[] = {28};
-		  #elif NFOLD == 1
-			const int nexec[] = {14,14};
-		  #elif NFOLD == 2
-			const int nexec[] = {7,7,7,7};
-		  #elif NFOLD == 3
-			const int nexec[] = {4,3,4,3,4,3,4,3};
-		  #else
-			#error NFOLD may only range from 0-3!
-		  #endif
-		#elif defined(USE_AVX)
-		// For NFOLD > 4,  RADIX/4 not divisible by 2^NFOLD, so use a more-general inner-loop scheme which can handle that:
-		  #if NFOLD == 0
-			const int nexec[] = {56};
-		  #elif NFOLD == 1
-			const int nexec[] = {28,28};
-		  #elif NFOLD == 2
-			const int nexec[] = {14,14,14,14};
-		  #elif NFOLD == 3
-			const int nexec[] = {7,7,7,7,7,7,7,7};
-		  #elif NFOLD == 4
-			const int nexec[] = {4,3,4,3,4,3,4,3,4,3,4,3,4,3,4,3};
-		  #else
-			#error NFOLD may only range from 0-4!
-		  #endif
-		#endif
-
 		tm0 = s1p00; tm1 = cy_r; // tm2 = cy_i;	*** replace with literal-byte-offset in macro call to save a reg
 		ic_idx = 0; jc_idx = 1; kc_idx = 2; lc_idx = 3;
 	  #ifdef USE_AVX512
 		mc_idx = 4; nc_idx = 5; oc_idx = 6; pc_idx = 7;
 	  #endif
 
-		uint32 naccum = 0;	// Stores sum of [0-ntmp]th elements of nexec[]
-		for(ntmp = 0; ntmp < (1 << NFOLD); ++ntmp)
+		uint32 naccum = 0;	// Stores sum of [0-ntmp]th elements of inc_arr[]
+		for(ntmp = 0; ntmp < (1 << nfold); ++ntmp)
 		{
-			// E.g.: NFOLD = 1 (==> 2^NFOLD = 2-subchains) means L takes its value
+			// E.g.: nfold = 1 (==> 2^nfold = 2 subchains) means L takes its value
 			// from (j) at start of 1st inner-loop exec, and from (j + n/2) at start of 2nd:
-		//	l = (j + ntmp*(n>>NFOLD)) >> 1;	*** Only works if RADIX divisible by 2^(lg(RE_IM_STRIDE)+NFOLD)
-			l = (j + naccum*NDIVR*RE_IM_STRIDE) >> 1;	naccum += nexec[ntmp];
+		//	l = (j + ntmp*(n>>nfold)) >> 1;	*** Only works if RADIX divisible by 2^(lg(RE_IM_STRIDE)+nfold)
+			l = (j + naccum*NDIVR*RE_IM_STRIDE) >> 1;	naccum += inc_arr[ntmp];
 
 		// Get the needed quartet (octet if AVX512) of Nth roots of -1: This is the same code as in the scalar
 		// fermat_carry_norm_errcheck() macro, with the single index j replaced by the quartet j,j+2,j+4,j+6:
@@ -627,7 +577,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		#ifdef USE_AVX512
 			int k8,k9,ka,kb,kc,kd,ke,kf;
 
-			for(l = 0; l < nexec[ntmp]; l++) {
+			for(l = 0; l < inc_arr[ntmp]; l++) {
 				k1 = icycle[ic_idx];
 				k2 = icycle[jc_idx];	k9 = jcycle[ic_idx];
 				k3 = icycle[kc_idx];	ka = kcycle[ic_idx];
@@ -653,7 +603,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		#else	// AVX / AVX2
 
-			for(l = 0; l < nexec[ntmp]; l++) {
+			for(l = 0; l < inc_arr[ntmp]; l++) {
 				//See "Sep 2014" note in 32-bit SSE2 version of this code below
 				k1 = icycle[ic_idx];	k5 = jcycle[ic_idx];	k6 = kcycle[ic_idx];	k7 = lcycle[ic_idx];
 				k2 = icycle[jc_idx];
@@ -802,7 +752,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			// Extract Low part, i.e. (mod p20) of the p-index offsets in the above circ-perm-indexing scheme for the radix-7 DFTs:
 			kk = (kk & 0x7fffffff) >> 3;
 			jt = j1+kk; jp = j2+kk;
-		  #if LO_ADD										/*                                                                           inputs                                                                                                */   /*                         intermediates             */  /*                                                               outputs                                                                 */  /*      sincos + misc temps      */
+		  #if LO_ADD
 			RADIX_07_DFT(
 				a[jt+k0],a[jp+k0],a[jt+k1],a[jp+k1],a[jt+k2],a[jp+k2],a[jt+k3],a[jp+k3],a[jt+k4],a[jp+k4],a[jt+k5],a[jp+k5],a[jt+k6],a[jp+k6],
 				t00,t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,

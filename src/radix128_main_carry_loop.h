@@ -155,7 +155,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		uint64 dit_o_ptr_stride = (uint64)OFF1;
 		// Remaining 15 sets of macro calls done in loop:
 		for(l = 1; l < 16; l++) {
-			k1 = reverse(l,16);
+			k1 = reverse(l,4);
 			// Twid-offsets are multiples of 21 vec_dbl; +1 to point to cos [middle] term of each [isrt2,c,s] triplet
 			tm1 = r00 + (k1<<1); tm2 = s1p00 + (k1<<1); tmp = twid0 + (k1<<4)+(k1<<2)+k1;
 			// 7 [c,s] pointer-pairs, +=3 between pairs; c0 = tmp+1 to point to cos [middle] term of each [isrt2,c,s] triplet:
@@ -206,7 +206,7 @@ as are the index offsets of each sets of complex outputs in the A-array: [jt,jp]
 
 	// Remaining 15 sets of macro calls done in loop:
 	for(l = 1; l < 16; l++) {
-		tptr = t + reverse(l,16);
+		tptr = t + reverse(l,4);
 		k2 = po_br[l];	// po_br[] = p[084c2a6e195d3b7f]
 		jt = j1 + k2; jp = j2 + k2;
 		addr = DFT128_TWIDDLES[l]; addi = addr+1;	// Pointer to required row of 2-D twiddles array
@@ -227,13 +227,18 @@ as are the index offsets of each sets of complex outputs in the A-array: [jt,jp]
 	{
 		// Check if current index-interval contains the target index for rotated-residue carry injection.
 		// In data-init we set target_idx = -1 on wraparound-carry mini-pass, so if() only taken on full pass:
-	#ifdef USE_SSE2
 		if(target_idx == j) {
+		#ifdef USE_SSE2
 			addr = (double *)s1p00 + target_set;
 			*addr += target_cy*(n>>1);	// target_cy = [-2 << within-word-shift]*[DWT weight]*n/2, i.e. includes fwd DWT weight and n/2 factor
+		#else
+			// target_set in [0,2*RADIX); tidx_mod_stride [even|odd] means shifted-carry goes into [Re|Im] part of the complex FFT datum:
+			l = target_set&1;	target_set >>= 1;
+			a[j1+poff[target_set>>2]+p0123[target_set&3]+l] += target_cy*(n>>1);
+		#endif
 			target_idx = -1;
 		}
-	#endif
+
 	#ifdef USE_AVX
 		// For AVX512-and-beyond we support only the fast Mers-carry macros.
 		add1 = &wt1[col  ];
@@ -295,8 +300,11 @@ as are the index offsets of each sets of complex outputs in the A-array: [jt,jp]
 		sinwtm1      ->d7 = si[nwt-l-1];	tmp->d7 = wt0[nwt-l-1]*scale;
 	  #endif
 
-	  #ifdef LOACC
-
+	 #ifdef USE_AVX512
+	  if(1) {	// No HIACC mode for AVX-512
+	 #else
+	  if(USE_SHORT_CY_CHAIN < USE_SHORT_CY_CHAIN_MAX) {	// LOACC with tunable DWT-weights chaining
+	 #endif
 		uint32 ii,loop, co2save = co2;
 		// Beyond chain length 8, the chained-weights scheme becomes too inaccurate, so re-init seed-wts every 8th pass or better:
 		// incr must divide nloop [RADIX/8 = 16 or RADIX/16 = 8, depending on whether we use 8-or-16-way carry macros]!
@@ -348,7 +356,7 @@ as are the index offsets of each sets of complex outputs in the A-array: [jt,jp]
 			}
 		}
 
-	  #else	// USE_AVX: Hi-accuracy 4-way carry is the default:
+	  } else {	// HiACC:
 
 		/* In AVX mode advance carry-ptrs just 1 for each vector-carry-macro call: */
 		tm1 = s1p00; tmp = cy_r; itmp = bjmodn;
@@ -364,14 +372,17 @@ as are the index offsets of each sets of complex outputs in the A-array: [jt,jp]
 		co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 					// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
 
-	  #endif	// LOACC ?
+	  }	// LOACC or HIACC?
 
 		i =((uint32)(sw - bjmodn[0]) >> 31);	/* get ready for the next set...	*/
 
 	#elif defined(USE_SSE2)
 
-	  #ifdef LOACC
-
+	 #ifdef USE_ARM_V8_SIMD
+	  if(1) {	// No HIACC mode for ARMv8
+	 #else
+	  if(USE_SHORT_CY_CHAIN < USE_SHORT_CY_CHAIN_MAX) {	// LOACC with tunable DWT-weights chaining
+	 #endif
 		uint32 k0,k1,k2,k3, ii,loop,nwtml, co2save = co2;
 
 		i = (!j);	// Need this to force 0-wod to be bigword
@@ -435,7 +446,7 @@ as are the index offsets of each sets of complex outputs in the A-array: [jt,jp]
 			}
 		}
 
-	  #else	// Hi-accuracy is the default:
+	  } else {	// HiACC:
 
 		l= j & (nwt-1);			/* We want (S*J mod N) - SI(L) for all 32 carries, so precompute	*/
 		n_minus_sil   = n-si[l  ];		/* N - SI(L) and for each J, find N - (B*J mod N) - SI(L)		*/
@@ -448,7 +459,7 @@ as are the index offsets of each sets of complex outputs in the A-array: [jt,jp]
 		wtlp1   =wt0[    l+1];
 		wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
-		ctmp = (struct complex *)half_arr + 16;	/* ptr to local storage for the doubled wtl,wtn terms: */
+		ctmp = (struct complex *)half_arr + 24;	/* ptr to local storage for the doubled wtl,wtn terms: */
 		ctmp->re = ctmp->im = wtl;		++ctmp;
 		ctmp->re = ctmp->im = wtn;		++ctmp;
 		ctmp->re = ctmp->im = wtlp1;	++ctmp;
@@ -480,7 +491,7 @@ as are the index offsets of each sets of complex outputs in the A-array: [jt,jp]
 		wtlp1   =wt0[    l+1];
 		wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
-		ctmp = (struct complex *)half_arr + 16;	/* ptr to local storage for the doubled wtl,wtn terms: */
+		ctmp = (struct complex *)half_arr + 24;	/* ptr to local storage for the doubled wtl,wtn terms: */
 		ctmp->re = ctmp->im = wtl;		++ctmp;
 		ctmp->re = ctmp->im = wtn;		++ctmp;
 		ctmp->re = ctmp->im = wtlp1;	++ctmp;
@@ -500,7 +511,7 @@ as are the index offsets of each sets of complex outputs in the A-array: [jt,jp]
 			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
-	  #endif // HIACC or LOACC?
+	  }	// LOACC or HIACC?
 
 		i =((uint32)(sw - bjmodn[0]) >> 31);	/* get ready for the next set...	*/
 
@@ -517,42 +528,32 @@ as are the index offsets of each sets of complex outputs in the A-array: [jt,jp]
 		wtlp1   =wt0[    l+1];
 		wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
-	  #ifdef LOACC
+	  if(USE_SHORT_CY_CHAIN < USE_SHORT_CY_CHAIN_MAX) {	// LOACC with tunable DWT-weights chaining
 
 		/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */
 		l = 0; addr = cy_r; itmp = bjmodn;
-	   cmplx_carry_norm_pow2_errcheck0(a[j1    ],a[j2    ],*addr,*itmp,0,prp_mult); ++l; ++addr; ++itmp;
-		cmplx_carry_fast_pow2_errcheck(a[j1+p01],a[j2+p01],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-		cmplx_carry_fast_pow2_errcheck(a[j1+p02],a[j2+p02],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-		cmplx_carry_fast_pow2_errcheck(a[j1+p03],a[j2+p03],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-		// Remaining quartets of macro calls done in loop:
-		for(ntmp = 1; ntmp < RADIX>>2; ntmp++) {
+		for(ntmp = 0; ntmp < RADIX>>2; ntmp++) {
 			jt = j1 + poff[ntmp]; jp = j2 + poff[ntmp];	// poff[] = p04,08,...
-			// Re-init weights every 4th macro invocatin to keep errors under control:
+			// Re-init weights every 4th macro invocation to keep errors under control:
 			cmplx_carry_norm_pow2_errcheck0(a[jt    ],a[jp    ],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 			cmplx_carry_fast_pow2_errcheck (a[jt+p01],a[jp+p01],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 			cmplx_carry_fast_pow2_errcheck (a[jt+p02],a[jp+p02],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 			cmplx_carry_fast_pow2_errcheck (a[jt+p03],a[jp+p03],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 		}
 
-	  #else	// Hi-accuracy is the default:
+	  } else {	// HiACC:
 
 		/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */
 		l = 0; addr = cy_r; itmp = bjmodn;
-	   cmplx_carry_norm_pow2_errcheck0(a[j1    ],a[j2    ],*addr,*itmp,0,prp_mult); ++l; ++addr; ++itmp;
-		cmplx_carry_norm_pow2_errcheck(a[j1+p01],a[j2+p01],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-		cmplx_carry_norm_pow2_errcheck(a[j1+p02],a[j2+p02],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-		cmplx_carry_norm_pow2_errcheck(a[j1+p03],a[j2+p03],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-		// Remaining quartets of macro calls done in loop:
-		for(ntmp = 1; ntmp < RADIX>>2; ntmp++) {
+		for(ntmp = 0; ntmp < RADIX>>2; ntmp++) {
 			jt = j1 + poff[ntmp]; jp = j2 + poff[ntmp];	// poff[] = p04,08,...
-			cmplx_carry_norm_pow2_errcheck(a[jt    ],a[jp    ],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-			cmplx_carry_norm_pow2_errcheck(a[jt+p01],a[jp+p01],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-			cmplx_carry_norm_pow2_errcheck(a[jt+p02],a[jp+p02],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-			cmplx_carry_norm_pow2_errcheck(a[jt+p03],a[jp+p03],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_pow2_errcheck0(a[jt    ],a[jp    ],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_pow2_errcheck (a[jt+p01],a[jp+p01],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_pow2_errcheck (a[jt+p02],a[jp+p02],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_pow2_errcheck (a[jt+p03],a[jp+p03],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 		}
 
-	  #endif
+	  }	// LOACC or HIACC?
 
 		i =((uint32)(sw - bjmodn[0]) >> 31);	/* get ready for the next set...	*/
 		co2=co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
@@ -783,6 +784,7 @@ as are the index offsets of each sets of complex outputs in the A-array: [jt,jp]
 	#else
 
 	// Gather the needed data and do 8 twiddleless length-16 subtransforms, with p-offsets in br8 order: 04261537:
+	// NOTE that unlike the RADIX_08_DIF_OOP() macro used for pass 1 of the radix-64 DFT, RADIX_16_DIF outputs are IN-ORDER rather than BR:
 
 	  #ifndef USE_ARM_V8_SIMD	// These were last def'd prior to Pass 2 of above carry-preceding 128-DIT
 		#undef OFF1
@@ -821,7 +823,7 @@ as are the index offsets of each sets of complex outputs in the A-array: [jt,jp]
 	  #endif
 		tm1 = r00;
 		for(l = 0; l < 8; l++) {
-			k1 = reverse(l,8)<<1;
+			k1 = reverse(l,3)<<1;
 			tm2 = s1p00 + k1;
 			SSE2_RADIX16_DIF_0TWIDDLE_B(tm2,OFF1,OFF2,OFF3,OFF4, tmp,two, tm1);
 			tm1 += 32;
@@ -891,7 +893,7 @@ as are the index offsets of each sets of complex outputs in the A-array: [jt,jp]
 
 		// Remaining 15 sets of macro calls done in loop:
 		for(l = 1; l < 16; l++) {
-			k1 = reverse(l,16);
+			k1 = reverse(l,4);
 			// I-ptrs and sincos-ptrs; Twid-offsets are multiples of 21 vec_dbl; +1 to point to cos [middle] term of each [isrt2,c,s] triplet
 			tm1 = r00 + (l<<1); tmp = twid0 + (k1<<4)+(k1<<2)+k1;
 			vec_dbl *w[14], **twid_ptrs = &(w[0]);	// Array of 14 SIMD twiddles-pointers for the reduced-#args version of SSE2_RADIX8_DIT_TWIDDLE_OOP

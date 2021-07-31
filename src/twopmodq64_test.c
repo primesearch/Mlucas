@@ -329,11 +329,11 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 //int dbg = ( (p == (1ull<<32)) && ( (k0 == 2958ull) || (k1 == 2958ull) || (k2 == 2958ull) || (k3 == 2958ull) ) );
 //if(dbg) printf("Hit! k0-3 = %llu, %llu, %llu, %llu\n",k0, k1, k2, k3);
 	int32 j;
-	uint64 q0 = 1+(p<<1)*k0, q1 = 1+(p<<1)*k1, q2 = 1+(p<<1)*k2, q3 = 1+(p<<1)*k3
+	uint64 r = (p<<1), q0 = 1+r*k0, q1 = 1+r*k1, q2 = 1+r*k2, q3 = 1+r*k3
 	, qinv0, qinv1, qinv2, qinv3
 	, x0, x1, x2, x3
 	, y0, y1, y2, y3
-	, lo0, lo1, lo2, lo3, r;
+	, lo0, lo1, lo2, lo3;
 	uint64 pshift;
 	uint32 jshift, leadb, start_index, zshift;
 	uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
@@ -349,18 +349,29 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 
 	/* q must be odd for Montgomery-style modmul to work: */
 	ASSERT(HERE, q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 , "even modulus!");
-	qinv0 = (q0+q0+q0) ^ (uint64)2;
-	qinv1 = (q1+q1+q1) ^ (uint64)2;
-	qinv2 = (q2+q2+q2) ^ (uint64)2;
-	qinv3 = (q3+q3+q3) ^ (uint64)2;
 
-	for(j = 0; j < 4; j++)
-	{
-		qinv0 = qinv0*((uint64)2 - q0*qinv0);
-		qinv1 = qinv1*((uint64)2 - q1*qinv1);
-		qinv2 = qinv2*((uint64)2 - q2*qinv2);
-		qinv3 = qinv3*((uint64)2 - q3*qinv3);
-	}
+	// Compute 64-bit mod-inverses starting with 8-bits-good initializers:
+	uint32 q32_0,q32_1,q32_2,q32_3, qi32_0,qi32_1,qi32_2,qi32_3;
+	// minv8 = Table of precomputed byte-inverses def'd in mi64.h:
+	q32_0  = q0; qi32_0 = minv8[(q0 & 0xff)>>1];
+	q32_1  = q1; qi32_1 = minv8[(q1 & 0xff)>>1];
+	q32_2  = q2; qi32_2 = minv8[(q2 & 0xff)>>1];
+	q32_3  = q3; qi32_3 = minv8[(q3 & 0xff)>>1];
+	// Iteration 1 yields 16-bits-good inverses:
+	qi32_0 = qi32_0*(2u - q32_0*qi32_0);
+	qi32_1 = qi32_1*(2u - q32_1*qi32_1);
+	qi32_2 = qi32_2*(2u - q32_2*qi32_2);
+	qi32_3 = qi32_3*(2u - q32_3*qi32_3);
+	// Iteration 2 yields 32-bits-good inverses, which we store in uint64s to set up for final 64-bits-math iteration:
+	qinv0 = qi32_0*(2u - q32_0*qi32_0);
+	qinv1 = qi32_1*(2u - q32_1*qi32_1);
+	qinv2 = qi32_2*(2u - q32_2*qi32_2);
+	qinv3 = qi32_3*(2u - q32_3*qi32_3);
+	// Iteration 3 yields 64-bits-good inverses:
+	qinv0 = qinv0*(2ull - q0*qinv0);
+	qinv1 = qinv1*(2ull - q1*qinv1);
+	qinv2 = qinv2*(2ull - q2*qinv2);
+	qinv3 = qinv3*(2ull - q3*qinv3);
 
 	/* Since zstart is a power of two < 2^128, use a
 	 streamlined code sequence for the first iteration: */
@@ -401,70 +412,65 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 //printf("twopmodq64_q4 : x1 = %s\n", &str0[convert_uint64_base10_char(str0, x1)] );
 //for(j = start_index-2; j >= 0; j--) {
 	__asm__ volatile (\
-	"/* Load the q0|1|2 into rbx|rsi|rdi, keeping rcx free for loop index and rax:rdx for double-width MULs: */	\n\t"\
+	/* Load the q0|1|2 into rbx|rsi|rdi, keeping rcx free for loop index and rax:rdx for double-width MULs: */\
 		"movq	%[__q0],%%rbx	\n\t"\
 		"movq	%[__q1],%%rsi	\n\t"\
 		"movq	%[__q2],%%rdi	\n\t"\
-		"/* Must load q3 as-needed due to lack of user register to store it */\n\t"\
-	"/* Load the x's into r12-15: */	\n\t"\
+		/* Must load q3 as-needed due to lack of user register to store it */\
+	/* Load the x's into r12-15: */\
 		"movq	%[__x0],%%r12	\n\t"\
 		"movq	%[__x1],%%r13	\n\t"\
 		"movq	%[__x2],%%r14	\n\t"\
 		"movq	%[__x3],%%r15	\n\t"\
-	"/* Pure-ASM loop control: for(j = start_index-2; j >= 0; j--) */\n\t"\
+	/* Pure-ASM loop control: for(j = start_index-2; j >= 0; j--) */\
 		"movslq	%[__start_index], %%rcx		\n\t"\
 		"subq $2,%%rcx						\n\t"\
 		"test %%rcx, %%rcx					\n\t"\
-		"jl LoopEnd4		/* Skip if n < 0 */	\n\t"\
+		"jl LoopEnd4			\n\t"/* Skip if n < 0 */\
 	"LoopBeg4:								\n\t"\
-	"/* SQR_LOHI_q4(x*, lo*, hi*): */	\n\t"\
-		"movq	%%r12,%%rax	/* x0-3 in r8-11. */\n\t"\
+	/* SQR_LOHI_q4(x*, lo*, hi*): */\
+		"movq	%%r12,%%rax	\n\t"/* x0-3 in r8-11. */\
 		"mulq	%%rax		\n\t"\
-		"movq	%%rax,%%r8 	/* lo0 */	\n\t"\
-		"movq	%%rdx,%%r12	/* hi0 */	\n\t"\
+		"movq	%%rax,%%r8 	\n\t"/* lo0 */\
+		"movq	%%rdx,%%r12	\n\t"/* hi0 */\
 		"movq	%%r13,%%rax	\n\t"\
 		"mulq	%%rax		\n\t"\
-		"movq	%%rax,%%r9 	/* lo1 */	\n\t"\
-		"movq	%%rdx,%%r13	/* hi1 */	\n\t"\
+		"movq	%%rax,%%r9 	\n\t"/* lo1 */\
+		"movq	%%rdx,%%r13	\n\t"/* hi1 */\
 		"movq	%%r14,%%rax	\n\t"\
 		"mulq	%%rax		\n\t"\
-		"movq	%%rax,%%r10	/* lo2 */	\n\t"\
-		"movq	%%rdx,%%r14	/* hi2 */	\n\t"\
+		"movq	%%rax,%%r10	\n\t"/* lo2 */\
+		"movq	%%rdx,%%r14	\n\t"/* hi2 */\
 		"movq	%%r15,%%rax	\n\t"\
 		"mulq	%%rax		\n\t"\
-		"movq	%%rax,%%r11	/* lo3 */	\n\t"\
-		"movq	%%rdx,%%r15	/* hi3 */	\n\t"\
-		"\n\t"\
-		"\n\t"\
-	"/* MULL_q4((qinv*, lo*, lo*): */	\n\t"\
-		"\n\t"\
+		"movq	%%rax,%%r11	\n\t"/* lo3 */\
+		"movq	%%rdx,%%r15	\n\t"/* hi3 */\
+	/* MULL_q4((qinv*, lo*, lo*): */\
 		"imulq	%[__qinv0],%%r8 	\n\t"\
 		"imulq	%[__qinv1],%%r9 	\n\t"\
 		"imulq	%[__qinv2],%%r10	\n\t"\
 		"imulq	%[__qinv3],%%r11	\n\t"\
+	/* UMULH_q4((q*, lo*, lo*): lo0-3 in r8-11: */\
+		"movq	%%r8 ,%%rax	\n\t"/* lo0 */\
+		"mulq	%%rbx		\n\t"/* q0 in rbx; q0*lo0 in rax:rdx */\
+		"movq	%%rdx,%%r8 	\n\t"/* Discard low 64 bits [rax] */\
 		"\n\t"\
-	"/* UMULH_q4((q*, lo*, lo*): lo0-3 in r8-11: */	\n\t"\
+		"movq	%%r9 ,%%rax	\n\t"/* lo1 */\
+		"mulq	%%rsi		\n\t"/* q1 in rsi; q1*lo1 in rax:rdx */\
+		"movq	%%rdx,%%r9 	\n\t"/* Discard low 64 bits [rax] */\
 		"\n\t"\
-		"movq	%%r8 ,%%rax	/* lo0 */\n\t"\
-		"mulq	%%rbx	/* q0 in rbx; q0*lo0 in rax:rdx */\n\t"\
-		"movq	%%rdx,%%r8 	/* Discard low 64 bits [rax] */\n\t"\
+		"movq	%%r10,%%rax	\n\t"/* lo2 */\
+		"mulq	%%rdi		\n\t"/* q2 in rdi; q2*lo2 in rax:rdx */\
+		"movq	%%rdx,%%r10	\n\t"/* Discard low 64 bits [rax] */\
 		"\n\t"\
-		"movq	%%r9 ,%%rax	/* lo1 */\n\t"\
-		"mulq	%%rsi	/* q1 in rsi; q1*lo1 in rax:rdx */\n\t"\
-		"movq	%%rdx,%%r9 	/* Discard low 64 bits [rax] */\n\t"\
-		"\n\t"\
-		"movq	%%r10,%%rax	/* lo2 */\n\t"\
-		"mulq	%%rdi	/* q2 in rdi; q2*lo2 in rax:rdx */\n\t"\
-		"movq	%%rdx,%%r10	/* Discard low 64 bits [rax] */\n\t"\
-		"\n\t"\
-		"movq	%%r11,%%rax	/* lo3 */\n\t"\
+		"movq	%%r11,%%rax	\n\t"/* lo3 */\
 		"mulq	%[__q3]		\n\t"\
-		"movq	%%rdx,%%r11	/* Discard low 64 bits [rax] */\n\t"\
+		"movq	%%rdx,%%r11	\n\t"/* Discard low 64 bits [rax] */\
 		"\n\t"\
-	"/* If h < l, then calculate h-l+q < q; otherwise calculate h-l. */\n\t"\
-		"subq	%%r8 ,%%r12			\n\t" /* r12 = (h-l) */\
-		"leaq (%%r12,%%rbx),%%r8 	\n\t" /* r8  = (h-l)+q */\
-		"cmovcq %%r8 ,%%r12	\n\t" /* if carry = true (i.e. h > l), copy source (r8 = h-l+q) into dest (r12), else leave dest = h-l. */\
+	/* If h < l, then calculate h-l+q < q; otherwise calculate h-l. */\
+		"subq	%%r8 ,%%r12			\n\t"/* r12 = (h-l) */\
+		"leaq (%%r12,%%rbx),%%r8 	\n\t"/* r8  = (h-l)+q */\
+		"cmovcq %%r8 ,%%r12	\n\t"/* if carry = true (i.e. h > l), copy source (r8 = h-l+q) into dest (r12), else leave dest = h-l. */\
 		"\n\t"\
 		"subq	%%r9 ,%%r13			\n\t"\
 		"leaq (%%r13,%%rsi),%%r9 	\n\t"\
@@ -474,23 +480,23 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		"leaq (%%r14,%%rdi),%%r10	\n\t"\
 		"cmovcq %%r10,%%r14	\n\t"\
 		"\n\t"\
-		"movq	%[__q3],%%rdx	/* Re-use q3 several times below, so store in free register */\n\t"\
+		"movq	%[__q3],%%rdx	\n\t"/* Re-use q3 several times below, so store in free register */\
 		"subq	%%r11,%%r15			\n\t"\
 		"leaq (%%r15,%%rdx),%%r11	\n\t"\
 		"cmovcq %%r11,%%r15	\n\t"\
 		"\n\t"\
-"/* If current bit of pshift == 1, double each output modulo q: */	\n\t"\
-		"/* if((pshift >> j) & (uint64)1) { */	\n\t"\
-		"movl	%[__pshift],%%eax	/* Need to follow this with load-j-into-ecx if use HLL loop control in debug mode */\n\t"\
+	/* If current bit of pshift == 1, double each output modulo q: */\
+		/* if((pshift >> j) & (uint64)1) { */\
+		"movq	%[__pshift],%%rax	\n\t"/* Need to follow this with load-j-into-ecx if use HLL loop control in debug mode */\
 		"shrq	%%cl,%%rax				\n\t"\
 		"andq	$0x1,%%rax				\n\t"\
 	"je	twopmodq64_q4_pshiftjmp			\n\t"\
 		"\n\t"\
-		"movq	%%r12,%%r8 	/* r8  <- Copy of x */\n\t"\
-		"movq	%%r12,%%rax	/* rax <- Copy of x */\n\t"\
-		"leaq (%%r12,%%r12),%%r12	/* x+x */\n\t"\
-		"subq	%%rbx,%%r8	/* r8  <- x-q */\n\t"\
-		"addq	%%rax,%%r8 	/* r8 <- 2x-q */\n\t"\
+		"movq	%%r12,%%r8 	\n\t"/* r8  <- Copy of x */\
+		"movq	%%r12,%%rax	\n\t"/* rax <- Copy of x */\
+		"leaq (%%r12,%%r12),%%r12	\n\t"/* x+x */\
+		"subq	%%rbx,%%r8	\n\t"/* r8  <- x-q */\
+		"addq	%%rax,%%r8 	\n\t"/* r8 <- 2x-q */\
 		"cmovcq %%r8 ,%%r12	\n\t"/* if carry (i.e. x+x needed modding), copy source (r8 = x+x-q) into dest (r12), else leave dest = x+x. */\
 		"\n\t"\
 		"movq	%%r13,%%r9 	\n\t"\
@@ -510,16 +516,16 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 		"movq	%%r15,%%r11	\n\t"\
 		"movq	%%r15,%%rax	\n\t"\
 		"leaq (%%r15,%%r15),%%r15	\n\t"\
-		"subq	%[__q3],%%r11	/* Weird...using rdx in place of __q3 here made timings 1-2 percent  worse. */\n\t"\
+		"subq	%[__q3],%%r11	\n\t"/* Weird...using rdx in place of __q3 here made timings 1-2 percent  worse. */\
 		"addq	%%rax,%%r11	\n\t"\
 		"cmovcq %%r11,%%r15	\n\t"\
 		"\n\t"\
-	"twopmodq64_q4_pshiftjmp:					\n\t"\
-		"/* } endif((pshift >> j) & (uint64)1) */						\n\t"\
-		"subq	$1,%%rcx	/* j-- */		\n\t"\
-		"cmpq	$0,%%rcx	/* compare j vs 0 */\n\t"\
-		"jge	LoopBeg4	/* if (j >= 0), Loop */	\n\t"\
-	"LoopEnd4:							\n\t"\
+	"twopmodq64_q4_pshiftjmp:	\n\t"\
+		/* } endif((pshift >> j) & (uint64)1) */\
+		"subq	$1,%%rcx	\n\t"/* j-- */\
+		"cmpq	$0,%%rcx	\n\t"/* compare j vs 0 */\
+		"jge	LoopBeg4	\n\t"/* if (j >= 0), Loop */\
+	"LoopEnd4:			\n\t"\
 		"movq	%%r12,%[__x0]	\n\t"\
 		"movq	%%r13,%[__x1]	\n\t"\
 		"movq	%%r14,%[__x2]	\n\t"\
@@ -561,11 +567,11 @@ uint64 twopmodq64_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3)
 uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7)
 {
 	 int32 j;
-	uint64 q0 = 1+(p<<1)*k0, q1 = 1+(p<<1)*k1, q2 = 1+(p<<1)*k2, q3 = 1+(p<<1)*k3, q4 = 1+(p<<1)*k4, q5 = 1+(p<<1)*k5, q6 = 1+(p<<1)*k6, q7 = 1+(p<<1)*k7
+	uint64 r = (p<<1), q0 = 1+r*k0, q1 = 1+r*k1, q2 = 1+r*k2, q3 = 1+r*k3, q4 = 1+r*k4, q5 = 1+r*k5, q6 = 1+r*k6, q7 = 1+r*k7
 		, qinv0, qinv1, qinv2, qinv3, qinv4, qinv5, qinv6, qinv7
 		, x0, x1, x2, x3, x4, x5, x6, x7
 		, y0, y1, y2, y3, y4, y5, y6, y7
-		, lo0, lo1, lo2, lo3, lo4, lo5, lo6, lo7, r;
+		, lo0, lo1, lo2, lo3, lo4, lo5, lo6, lo7;
 	uint64 pshift;
 	uint32 jshift, leadb, start_index, zshift;
 	uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
@@ -581,26 +587,45 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 
 	/* q must be odd for Montgomery-style modmul to work: */
 	ASSERT(HERE, q0 & 1 && q1 & 1 && q2 & 1 && q3 & 1 && q4 & 1 && q5 & 1 && q6 & 1 && q7 & 1 , "even modulus!");
-	qinv0 = (q0+q0+q0) ^ (uint64)2;
-	qinv1 = (q1+q1+q1) ^ (uint64)2;
-	qinv2 = (q2+q2+q2) ^ (uint64)2;
-	qinv3 = (q3+q3+q3) ^ (uint64)2;
-	qinv4 = (q4+q4+q4) ^ (uint64)2;
-	qinv5 = (q5+q5+q5) ^ (uint64)2;
-	qinv6 = (q6+q6+q6) ^ (uint64)2;
-	qinv7 = (q7+q7+q7) ^ (uint64)2;
 
-	for(j = 0; j < 4; j++)
-	{
-		qinv0 = qinv0*((uint64)2 - q0*qinv0);
-		qinv1 = qinv1*((uint64)2 - q1*qinv1);
-		qinv2 = qinv2*((uint64)2 - q2*qinv2);
-		qinv3 = qinv3*((uint64)2 - q3*qinv3);
-		qinv4 = qinv4*((uint64)2 - q4*qinv4);
-		qinv5 = qinv5*((uint64)2 - q5*qinv5);
-		qinv6 = qinv6*((uint64)2 - q6*qinv6);
-		qinv7 = qinv7*((uint64)2 - q7*qinv7);
-	}
+	// Compute 64-bit mod-inverses starting with 8-bits-good initializers:
+	uint32 q32_0,q32_1,q32_2,q32_3,q32_4,q32_5,q32_6,q32_7, qi32_0,qi32_1,qi32_2,qi32_3,qi32_4,qi32_5,qi32_6,qi32_7;
+	// minv8 = Table of precomputed byte-inverses def'd in mi64.h:
+	q32_0  = q0; qi32_0 = minv8[(q0 & 0xff)>>1];
+	q32_1  = q1; qi32_1 = minv8[(q1 & 0xff)>>1];
+	q32_2  = q2; qi32_2 = minv8[(q2 & 0xff)>>1];
+	q32_3  = q3; qi32_3 = minv8[(q3 & 0xff)>>1];
+	q32_4  = q4; qi32_4 = minv8[(q4 & 0xff)>>1];
+	q32_5  = q5; qi32_5 = minv8[(q5 & 0xff)>>1];
+	q32_6  = q6; qi32_6 = minv8[(q6 & 0xff)>>1];
+	q32_7  = q7; qi32_7 = minv8[(q7 & 0xff)>>1];
+	// Iteration 1 yields 16-bits-good inverses:
+	qi32_0 = qi32_0*(2u - q32_0*qi32_0);
+	qi32_1 = qi32_1*(2u - q32_1*qi32_1);
+	qi32_2 = qi32_2*(2u - q32_2*qi32_2);
+	qi32_3 = qi32_3*(2u - q32_3*qi32_3);
+	qi32_4 = qi32_4*(2u - q32_4*qi32_4);
+	qi32_5 = qi32_5*(2u - q32_5*qi32_5);
+	qi32_6 = qi32_6*(2u - q32_6*qi32_6);
+	qi32_7 = qi32_7*(2u - q32_7*qi32_7);
+	// Iteration 2 yields 32-bits-good inverses, which we store in uint64s to set up for final 64-bits-math iteration:
+	qinv0 = qi32_0*(2u - q32_0*qi32_0);
+	qinv1 = qi32_1*(2u - q32_1*qi32_1);
+	qinv2 = qi32_2*(2u - q32_2*qi32_2);
+	qinv3 = qi32_3*(2u - q32_3*qi32_3);
+	qinv4 = qi32_4*(2u - q32_4*qi32_4);
+	qinv5 = qi32_5*(2u - q32_5*qi32_5);
+	qinv6 = qi32_6*(2u - q32_6*qi32_6);
+	qinv7 = qi32_7*(2u - q32_7*qi32_7);
+	// Iteration 3 yields 64-bits-good inverses:
+	qinv0 = qinv0*(2ull - q0*qinv0);
+	qinv1 = qinv1*(2ull - q1*qinv1);
+	qinv2 = qinv2*(2ull - q2*qinv2);
+	qinv3 = qinv3*(2ull - q3*qinv3);
+	qinv4 = qinv4*(2ull - q4*qinv4);
+	qinv5 = qinv5*(2ull - q5*qinv5);
+	qinv6 = qinv6*(2ull - q6*qinv6);
+	qinv7 = qinv7*(2ull - q7*qinv7);
 
 	/* Since zstart is a power of two < 2^128, use a
 	streamlined code sequence for the first iteration: */
@@ -659,7 +684,7 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 	}
 
 	__asm__ volatile (\
-	"/* Load the x's into r8-15: */	\n\t"\
+	/* Load the x's into r8-15: */\
 		"movq	%[__x0],%%r8 	\n\t"\
 		"movq	%[__x1],%%r9 	\n\t"\
 		"movq	%[__x2],%%r10	\n\t"\
@@ -668,17 +693,17 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		"movq	%[__x5],%%r13	\n\t"\
 		"movq	%[__x6],%%r14	\n\t"\
 		"movq	%[__x7],%%r15	\n\t"\
-	"/* Pure-ASM loop control: for(j = start_index-2; j >= 0; j--) */\n\t"\
+	/* Pure-ASM loop control: for(j = start_index-2; j >= 0; j--) */\
 		"movslq	%[__start_index], %%rcx		\n\t"\
 		"subq $2,%%rcx						\n\t"\
 		"test %%rcx, %%rcx					\n\t"\
-		"jl LoopEnd8		/* Skip if n < 0 */	\n\t"\
+		"jl LoopEnd8		\n\t"/* Skip if n < 0 */\
 	"LoopBeg8:								\n\t"\
-	"/* SQR_LOHI_q4(x*, lo*, hi*): */	\n\t"\
+	/* SQR_LOHI_q4(x*, lo*, hi*): */\
 		"movq	%%r8 ,%%rax		\n\t"\
 		"mulq	%%rax			\n\t"\
-		"movq	%%rax,%%r8		/* lo */	\n\t"\
-		"movq	%%rdx,%[__x0]	/* Move hi back into x */	\n\t"\
+		"movq	%%rax,%%r8		\n\t"/* lo */\
+		"movq	%%rdx,%[__x0]	\n\t"/* Move hi back into x */\
 		"movq	%%r9 ,%%rax	\n\t"\
 		"mulq	%%rax		\n\t"\
 		"movq	%%rax,%%r9  	\n\t"\
@@ -708,8 +733,7 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		"movq	%%rax,%%r15		\n\t"\
 		"movq	%%rdx,%[__x7]	\n\t"\
 		"\n\t"\
-		"\n\t"\
-	"/* MULL_q4((qinv*, lo*, lo*): */	\n\t"\
+	/* MULL_q4((qinv*, lo*, lo*): */\
 		"\n\t"\
 		"imulq	%[__qinv0],%%r8 	\n\t"\
 		"imulq	%[__qinv1],%%r9 	\n\t"\
@@ -720,11 +744,11 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		"imulq	%[__qinv6],%%r14	\n\t"\
 		"imulq	%[__qinv7],%%r15	\n\t"\
 		"\n\t"\
-	"/* UMULH_q4((q*, lo*, lo*): lo0-3 in r8-11: */	\n\t"\
+	/* UMULH_q4((q*, lo*, lo*): lo0-3 in r8-11: */\
 		"\n\t"\
-		"movq	%%r8 ,%%rax	/* lo0 */\n\t"\
-		"mulq	%[__q0]		/* q0*lo0 in rax:rdx */\n\t"\
-		"movq	%%rdx,%%r8 	/* Discard low 64 bits [rax] */\n\t"\
+		"movq	%%r8 ,%%rax	\n\t"/* lo0 */\
+		"mulq	%[__q0]		\n\t"/* q0*lo0 in rax:rdx */\
+		"movq	%%rdx,%%r8 	\n\t"/* Discard low 64 bits [rax] */\
 		"\n\t"\
 		"movq	%%r9 ,%%rax	\n\t"\
 		"mulq	%[__q1]		\n\t"\
@@ -754,7 +778,7 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		"mulq	%[__q7]		\n\t"\
 		"movq	%%rdx,%%r15	\n\t"\
 		"\n\t"\
-	"/* If h < l, then calculate h-l+q < q; otherwise calculate h-l. */\n\t"\
+	/* If h < l, then calculate h-l+q < q; otherwise calculate h-l. */\
 		"movq	%[__x0],%%rax	\n\t" /* h */\
 		"movq	%[__q0],%%rbx	\n\t" /* h */\
 		"subq	%%r8 ,%%rax		\n\t" /* rax = (h-l), sets cf used by cmov */\
@@ -803,12 +827,12 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		"leaq (%%rax,%%rbx),%%r15	\n\t"\
 		"cmovncq %%rax,%%r15	\n\t"\
 		"\n\t"\
-"/* If current bit of pshift == 1, double each output modulo q: */	\n\t"\
-		"/* if((pshift >> j) & (uint64)1) { */	\n\t"\
-		"movl	%[__pshift],%%eax	/* Need to follow this with load-j-into-ecx if use HLL loop control in debug mode */\n\t"\
-		"shrq	%%cl,%%rax				\n\t"\
-		"andq	$0x1,%%rax				\n\t"\
-	"je	twopmodq64_q8_pshiftjmp			\n\t"\
+	/* If current bit of pshift == 1, double each output modulo q: */\
+		/* if((pshift >> j) & (uint64)1) { */\
+		"movq	%[__pshift],%%rax	\n\t"/* Need to follow this with load-j-into-ecx if use HLL loop control in debug mode */\
+		"shrq	%%cl,%%rax			\n\t"\
+		"andq	$0x1,%%rax			\n\t"\
+	"je	twopmodq64_q8_pshiftjmp		\n\t"\
 		"\n\t"\
 		"movq	%[__q0],%%rax  	\n\t"/* rax <- Copy of q */\
 		"leaq (%%r8 ,%%r8 ),%%rbx	\n\t"/* rbx <- x+x, no CF set, leave r8 (x) intact */\
@@ -858,12 +882,12 @@ uint64 twopmodq64_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint6
 		"subq	%%rax,%%r15		\n\t"\
 		"cmovcq %%rbx,%%r15		\n\t"\
 		"\n\t"\
-	"twopmodq64_q8_pshiftjmp:					\n\t"\
-		"/* } endif((pshift >> j) & (uint64)1) */	\n\t"\
-		"subq	$1,%%rcx	/* j-- */		\n\t"\
-		"cmpq	$0,%%rcx	/* compare j vs 0 */\n\t"\
-		"jge	LoopBeg8	/* if (j >= 0), Loop */	\n\t"\
-	"LoopEnd8:							\n\t"\
+	"twopmodq64_q8_pshiftjmp:	\n\t"\
+		/* } endif((pshift >> j) & (uint64)1) */\
+		"subq	$1,%%rcx	\n\t"/* j-- */\
+		"cmpq	$0,%%rcx	\n\t"/* compare j vs 0 */\
+		"jge	LoopBeg8	\n\t"/* if (j >= 0), Loop */\
+	"LoopEnd8:			\n\t"\
 		"movq	%%r8 ,%[__x0]	\n\t"\
 		"movq	%%r9 ,%[__x1]	\n\t"\
 		"movq	%%r10,%[__x2]	\n\t"\

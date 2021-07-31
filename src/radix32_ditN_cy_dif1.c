@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -26,26 +26,6 @@
 #define RADIX 32	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
 
 #define EPS 1e-10
-
-// Mersenne-mod takes a binary-toggle LOACC; must give a numerical value for Fermat-mod:
-#if defined(HIACC) && defined(LOACC)
-	#error Only one of LOACC and HIACC may be defined!
-#endif
-#if !defined(HIACC) && !defined(LOACC)
-  #if OS_BITS == 64
-	#define LOACC	1	// Default is suitable for F29 work @ FFT length 30M
-	#warning LOACC = 1
-  #else
-	#define HIACC	1	// 32-bit mode only supports the older HIACC carry macros
-  #endif
-#endif
-#ifdef HIACC
-  #ifdef USE_ARM_V8_SIMD
-	#error Currently only LOACC carry-mode supported in ARM v8 SIMD builds!
-  #elif defined(USE_AVX512)
-	#error Currently only LOACC carry-mode supported in AVX-512 builds!
-  #endif
-#endif
 
 #ifndef PFETCH_DIST
   #ifdef USE_AVX512
@@ -110,9 +90,7 @@
 		double *arrdat;			/* Main data array */
 		double *wt0;
 		double *wt1;
-	#ifdef LOACC
 		double *wts_mult, *inv_mult;
-	#endif
 		int *si;
 		struct complex *rn0;
 		struct complex *rn1;
@@ -181,19 +159,17 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
   #endif
-  #ifdef LOACC
 	static double wts_mult[2], inv_mult[2];	// Const wts-multiplier and 2*(its multiplicative inverse)
-  #endif
 	double rt,it, wt_re,wt_im, wi_re,wi_im;	// Fermat-mod weights stuff, used in both scalar and AVX mode
 	static uint32 bjmodnini, nsave = 0;
 	// Jun 2018: Add support for residue shift. (Only LL-test needs intervention at carry-loop level).
-	int target_idx = -1, target_set,tidx_mod_stride;
-	double target_cy;
+	int target_idx = -1, target_set = 0,tidx_mod_stride;
+	double target_cy = 0;
 	static double ndivr_inv;
 	uint64 itmp64;
 	static uint64 psave = 0;
 	static uint32 bw,sw,nm1,p01,p02,p03,p04,p08,p0C,p10,p14,p18,p1C;
-	static int poff[RADIX>>2];	// Store mults of p-offsets for loop-controlled DFT macro calls
+	static int poff[RADIX>>2],p0123[4];	// Store mults of p-offsets for loop-controlled DFT macro calls
 	static int arr_offsets[RADIX];	// Shared by the DIF & DIT
 	static double radix_inv, n2inv;
 	double *addr,*addi;
@@ -322,8 +298,6 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 		nm1   = n-1;
 
-	#ifdef LOACC
-
 	  #ifdef USE_AVX512
 	   #ifdef CARRY_16_WAY
 		i = 16;
@@ -355,8 +329,6 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		inv_mult[1] = 2.0*inv_mult[0];
 		ASSERT(HERE,fabs(wts_mult[1]*inv_mult[1] - 1.0) < EPS, "wts_mults fail accuracy check!");
 	//	printf("1: wt*inv-1 = %15.8e\n",fabs(wts_mult[1]*inv_mult[1] - 1.));
-
-	#endif
 
 	#ifdef MULTITHREAD
 
@@ -438,10 +410,8 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		//	tdat[ithread].arrdat = a;			/* Main data array */
 			tdat[ithread].wt0 = wt0;
 			tdat[ithread].wt1 = wt1;
-		#ifdef LOACC
 			tdat[ithread].wts_mult = wts_mult;
 			tdat[ithread].inv_mult = inv_mult;
-		#endif
 			tdat[ithread].si  = si;
 			tdat[ithread].rn0 = rn0;
 			tdat[ithread].rn1 = rn1;
@@ -799,7 +769,6 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			tmp->d0 = baseinv[0];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
 			tmp->d0 = baseinv[1];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
 			// In LOACC mode, put wts_mult and their inverses in the first 32 slots below in place of the 1/2-stuff:
-		  #ifdef LOACC
 			/* wts_mult:*/
 			tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[0];	++tmp;
 			tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[0];	++tmp;
@@ -835,9 +804,6 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 			tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 			nbytes = 96 << L2_SZ_VD;
-		  #else
-			nbytes = 64 << L2_SZ_VD;
-		  #endif
 
 		#else	// USE_SSE2
 
@@ -863,7 +829,6 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			ctmp->re = baseinv[0];	ctmp->im = baseinv[1];	++ctmp;
 			ctmp->re = baseinv[1];	ctmp->im = baseinv[1];	++ctmp;
 			// In LOACC mode, put wts_mult and their inverses in the first 8 slots below in place of the 1/2-stuff:
-		  #ifdef LOACC
 			/* wts_mult:*/
 			ctmp->re = wts_mult[0];	ctmp->im = wts_mult[0];	++ctmp;
 			ctmp->re = wts_mult[1];	ctmp->im = wts_mult[0];	++ctmp;
@@ -875,9 +840,6 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 			ctmp->re = inv_mult[0];	ctmp->im = inv_mult[1];	++ctmp;
 			ctmp->re = inv_mult[1];	ctmp->im = inv_mult[1];	++ctmp;
 			nbytes = 24 << L2_SZ_VD;
-		  #else
-			nbytes = 16 << L2_SZ_VD;
-		  #endif
 
 		#endif
 
@@ -981,6 +943,8 @@ int radix32_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		p14 = p14 + ( (p14 >> DAT_BITS) << PAD_BITS );
 		p18 = p18 + ( (p18 >> DAT_BITS) << PAD_BITS );
 		p1C = p1C + ( (p1C >> DAT_BITS) << PAD_BITS );
+
+		p0123[0] = 0; p0123[1] = p01; p0123[2] = p02; p0123[3] = p03;
 
 		poff[0] =   0; poff[1] = p04    ; poff[2] = p08; poff[3] = p04+p08;
 		poff[4] = p10; poff[5] = p04+p10; poff[6] = p18; poff[7] = p04+p18;
@@ -1887,7 +1851,7 @@ void radix32_dit_pass1(double a[], int n)
 		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 		uint32 p01,p02,p03,p04,p08,p0C,p10,p14,p18,p1C;
-		int poff[RADIX>>2];	// Store mults of p-offsets for loop-controlled DFT macro calls
+		int poff[RADIX>>2],p0123[4];	// Store mults of p-offsets for loop-controlled DFT macro calls
 		int arr_offsets[RADIX];	// Shared by the DIF & DIT
 		int j,j1,j2,jt,jp,k,l,ntmp;
 		double wtl,wtlp1,wtn,wtnm1, temp,frac, dtmp;	/* Mersenne-mod weights stuff */
@@ -1932,7 +1896,7 @@ void radix32_dit_pass1(double a[], int n)
 	#else
 
 		double *base, *baseinv;
-		const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
+		const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 		int m,m2;
 		double wt,wtinv,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
 		int bjmodn[RADIX];	// Thread only carries a base datum here, must alloc a local array for remaining values
@@ -1971,12 +1935,10 @@ void radix32_dit_pass1(double a[], int n)
 		double *a = thread_arg->arrdat;
 		double *wt0 = thread_arg->wt0;
 		double *wt1 = thread_arg->wt1;
-	#ifdef LOACC
 		double *wts_mult = thread_arg->wts_mult;	// Const Intra-block wts-multiplier...
 		double *inv_mult = thread_arg->inv_mult;	// ...and 2*(its multiplicative inverse).
 		ASSERT(HERE,fabs(wts_mult[0]*inv_mult[0] - 1.0) < EPS, "wts_mults fail accuracy check!");
 		ASSERT(HERE,fabs(wts_mult[1]*inv_mult[1] - 1.0) < EPS, "wts_mults fail accuracy check!");
-	#endif
 		int *si = thread_arg->si;
 		struct complex *rn0 = thread_arg->rn0;
 		struct complex *rn1 = thread_arg->rn1;
@@ -2003,6 +1965,8 @@ void radix32_dit_pass1(double a[], int n)
 		p14 = p14 + ( (p14 >> DAT_BITS) << PAD_BITS );
 		p18 = p18 + ( (p18 >> DAT_BITS) << PAD_BITS );
 		p1C = p1C + ( (p1C >> DAT_BITS) << PAD_BITS );
+
+		p0123[0] = 0; p0123[1] = p01; p0123[2] = p02; p0123[3] = p03;
 
 		poff[0] =   0; poff[1] = p04    ; poff[2] = p08; poff[3] = p04+p08;
 		poff[4] = p10; poff[5] = p04+p10; poff[6] = p18; poff[7] = p04+p18;

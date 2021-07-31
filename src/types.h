@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -163,44 +163,36 @@ logical converse holds, that is if (y2 >= x1) && (y1 <= x2).
 #define ARRAYS_OVERLAP(x, lenx, y, leny)	( (x <= y) && (x+lenx) > y ) || ( (x > y) && (y+leny) > x )
 */
 
-// 32 and 64-bit 2s-comp integer mod-add/sub macros, compute z = (x +- y)%q. Assume the inputs
-// are normalized -- x,y < q -- and allow in-place: Any or all of x,y,z may refer to same operand.
-// Only optimize (e.g. via asm ad hardware carry-flags) the 64-bit version; 32-bit built atop that:
-#define MOD_ADD32(__x, __y, __q, __z)\
-{\
-	uint64 _xx = __x, _yy = __y, _qq = __q, _zz = __z;	\
-	MOD_ADD64(_xx, _yy, _qq, _zz);	\
-	__z = (uint32)_zz;	\
+// 32 and 64-bit 2s-comp integer mod-add/sub macros, compute z = (x +- y)%q. Assume inputs properly
+// typed and normalized x,y < q. Allow in-place: any or all of x,y,z may refer to same operand.
+#define MOD_ADD32(__x, __y, __q, __z) {\
+	uint32 cy,tmp;\
+	/* Need tmp for initial sum, since e.g. if x,z refer to same var the cy-check z < x always comes up 'false';
+	Inputs can actually be typed signed-int32 in calling code - only the compares care about that, force uint32 there. */\
+	tmp = __x + __y;	cy = tmp < (uint32)__x;		/* Since inputs assumed normalized (< q), cy = 1 implies q > 2^31, thus */\
+	__z = tmp - __q;	cy -= (uint32)__z > tmp;	/* tmp - q guaranteed to underflow -> no need to restore-add q in this case. */\
+	__z = __z + (cy & __q);			/* Only possible values of cy = 0,-1 here; and need to restore-add q if cy = -1. */\
 }
+#define MOD_SUB32(__x, __y, __q, __z) MOD_ADD32(__x, __q - __y, __q, __z)
 
-#define MOD_SUB32(__x, __y, __q, __z)\
-{\
-	uint64 _xx = __x, _yy = __y, _qq = __q, _zz = __z;	\
-	MOD_SUB64(_xx, _yy, _qq, _zz);	\
-	__z = (uint32)_zz;	\
-}
-
-#define MOD_ADD64(__x, __y, __q, __z)\
-{\
-	uint64 cy,tmp;\
-	/* Need tmp for initial sum, since e.g. if x,z refer to same var the cy-check z < x always comes up 'false': */\
-	tmp = __x + __y;	cy = tmp < __x;		/* Since inputs assumed normalized (< q), cy = 1 implies q > 2^63, thus */\
-	__z = tmp - __q;	cy -= __z > tmp;	/* tmp - q guaranteed to underflow -> no need to restore-add q in this case. */\
+#define MOD_ADD32(__x, __y, __q, __z) {\
+	uint32 cy,tmp;\
+	/* Need tmp for initial sum, since e.g. if x,z refer to same var the cy-check z < x always comes up 'false';
+	Inputs can actually be typed signed-int32 in calling code - only the compares care about that, force uint32 there. */\
+	tmp = __x + __y;	cy = tmp < (uint32)__x;		/* Since inputs assumed normalized (< q), cy = 1 implies q > 2^63, thus */\
+	__z = tmp - __q;	cy -= (uint32)__z > tmp;	/* tmp - q guaranteed to underflow -> no need to restore-add q in this case. */\
 	__z = __z + (cy & __q);			/* Only possible values of cy = 0,-1 here; and need to restore-add q if cy = -1. */\
 }
 
-#define MOD_SUB64(__x, __y, __q, __z)\
-{\
-	uint64 bw,tmp;\
-printf("MOD_SUB64: x,y,q = %llu,%llu,%llu",__x, __y, __q);\
-	/* Need tmp for initial diff, since e.g. if x,z refer to same var the bw-check z > x always comes up 'false': */\
-	tmp = __x - __y;	bw = tmp > __x;		/* Since inputs assumed normalized (< q), bw = 1 implies q > 2^63, thus */\
-printf("MOD_SUB64: x-y,bw = %llu,%llu",tmp,bw);\
-	__z = tmp + __q;	bw -= __z < tmp;	/* tmp + q guaranteed to overflow -> no need to restore-sub q in this case. */\
-printf("MOD_SUB64: __z,bw = %llu,%llu",__z,bw);\
-	__z = __z - (bw & __q);			/* Only possible values of bw = 0,-1 here; and need to restore-sub q if bw = -1. */\
-printf("MOD_SUB64: result = %llu",__z);\
+#define MOD_ADD64(__x, __y, __q, __z) {\
+	uint64 cy,tmp;\
+	/* Need tmp for initial sum, since e.g. if x,z refer to same var the cy-check z < x always comes up 'false';
+	Inputs can actually be typed signed-int64 in calling code - only the compares care about that, force uint64 there. */\
+	tmp = __x + __y;	cy = tmp < (uint64)__x;		/* Since inputs assumed normalized (< q), cy = 1 implies q > 2^63, thus */\
+	__z = tmp - __q;	cy -= (uint64)__z > tmp;	/* tmp - q guaranteed to underflow -> no need to restore-add q in this case. */\
+	__z = __z + (cy & __q);			/* Only possible values of cy = 0,-1 here; and need to restore-add q if cy = -1. */\
 }
+#define MOD_SUB64(__x, __y, __q, __z) MOD_ADD64(__x, __q - __y, __q, __z)
 
 /* Slow version of nearest-int; for doubles use faster trick,
 but this is useful for reference purposes and error checking:
@@ -322,6 +314,49 @@ which is why we union-ize the 128-bit structs storing the relevant data.
 */
 #ifdef COMPILER_TYPE_GCC
 
+	#undef float_x4
+	struct float_x4
+	{
+		float d0;
+		float d1;
+		float d2;
+		float d3;
+	} __attribute__ ((aligned (16)));
+
+	#undef float_x8
+	struct float_x8
+	{
+		float d0;
+		float d1;
+		float d2;
+		float d3;
+		float d4;
+		float d5;
+		float d6;
+		float d7;
+	} __attribute__ ((aligned (16)));
+
+	#undef float_x16
+	struct float_x16
+	{
+		float d0;
+		float d1;
+		float d2;
+		float d3;
+		float d4;
+		float d5;
+		float d6;
+		float d7;
+		float d8;
+		float d9;
+		float da;
+		float db;
+		float dc;
+		float dd;
+		float de;
+		float df;
+	} __attribute__ ((aligned (16)));
+
 	#undef complex
 	struct complex{
 		double re;
@@ -358,6 +393,49 @@ which is why we union-ize the 128-bit structs storing the relevant data.
 	} __attribute__ ((aligned (16)));
 
 #else
+
+	#undef float_x4
+	struct float_x4
+	{
+		float d0;
+		float d1;
+		float d2;
+		float d3;
+	}
+
+	#undef float_x8
+	struct float_x8
+	{
+		float d0;
+		float d1;
+		float d2;
+		float d3;
+		float d4;
+		float d5;
+		float d6;
+		float d7;
+	}
+
+	#undef float_x16
+	struct float_x16
+	{
+		float d0;
+		float d1;
+		float d2;
+		float d3;
+		float d4;
+		float d5;
+		float d6;
+		float d7;
+		float d8;
+		float d9;
+		float da;
+		float db;
+		float dc;
+		float dd;
+		float de;
+		float df;
+	}
 
 	#undef complex
 	struct complex{
@@ -399,15 +477,24 @@ which is why we union-ize the 128-bit structs storing the relevant data.
 // Basic macro used to assign same double initializer (val) to all subfields of a vec_dbl:
 #ifdef USE_AVX512
 
+	typedef struct float_x16	vec_flt;
+	#define VEC_FLT_INIT(vflt_ptr, val)	( (vflt_ptr)->d0 = (vflt_ptr)->d1 = (vflt_ptr)->d2 = (vflt_ptr)->d3 = (vflt_ptr)->d4 = (vflt_ptr)->d5 = (vflt_ptr)->d6 = (vflt_ptr)->d7 = (vflt_ptr)->d8 = (vflt_ptr)->d9 = (vflt_ptr)->da = (vflt_ptr)->db = (vflt_ptr)->dc = (vflt_ptr)->dd = (vflt_ptr)->de = (vflt_ptr)->df = val )
+
 	typedef struct double_x8	vec_dbl;
 	#define VEC_DBL_INIT(vdbl_ptr, val)	( (vdbl_ptr)->d0 = (vdbl_ptr)->d1 = (vdbl_ptr)->d2 = (vdbl_ptr)->d3 = (vdbl_ptr)->d4 = (vdbl_ptr)->d5 = (vdbl_ptr)->d6 = (vdbl_ptr)->d7 = val )
 
 #elif defined(USE_AVX)	// AVX and AVX2 both use 256-bit registers
 
+	typedef struct float_x8	vec_flt;
+	#define VEC_FLT_INIT(vflt_ptr, val)	( (vflt_ptr)->d0 = (vflt_ptr)->d1 = (vflt_ptr)->d2 = (vflt_ptr)->d3 = (vflt_ptr)->d4 = (vflt_ptr)->d5 = (vflt_ptr)->d6 = (vflt_ptr)->d7 = val )
+
 	typedef struct double_x4	vec_dbl;
 	#define VEC_DBL_INIT(vdbl_ptr, val)	( (vdbl_ptr)->d0 = (vdbl_ptr)->d1 = (vdbl_ptr)->d2 = (vdbl_ptr)->d3 = val )
 
 #elif defined(USE_SSE2)
+
+	typedef struct float_x4	vec_flt;
+	#define VEC_FLT_INIT(vflt_ptr, val)	( (vflt_ptr)->d0 = (vflt_ptr)->d1 = (vflt_ptr)->d2 = (vflt_ptr)->d3 = val )
 
 	typedef struct double_x2	vec_dbl;
 	#define VEC_DBL_INIT(vdbl_ptr, val)	( (vdbl_ptr)->d0 = (vdbl_ptr)->d1 = val )

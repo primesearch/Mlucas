@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -37,8 +37,15 @@
 	#error USE_FGT61 and USE_SSE2 may not be defined together!
 #endif
 
-#ifdef INCLUDE_PM1
-	#include "gcd_lehmer.h"
+// Builder to override these (or not) via compile flag:
+#define INCLUDE_TF	0	// Auto-TF-dispatch not supported
+#define INCLUDE_ECM	0	// ECM not supported
+#ifndef INCLUDE_PM1
+	#define INCLUDE_PM1	1	// v20: Make INCLUDE_PM1 = TRUE the default:
+#endif
+#if INCLUDE_PM1
+	#include <gmp.h>
+//	#include "gcd_lehmer.h"	// v20: Use GMP GCD, own-rolled n (log n)^2 one simply not in the cards.
 #endif
 
 /*******************************************************************************
@@ -68,28 +75,52 @@ uint32	ernstMain
 
 uint64	parse_cmd_args_get_shift_value(void);
 int		is_hex_string(char*s, int len);
-void	generate_JSON_report(const uint32 isprime, const uint64 p, const uint32 n, const uint64 Res64, const char*timebuffer, char*cstr);
+char*	check_kbnc(char*in_str, uint64*p);
+void	generate_JSON_report(const uint32 isprime, const uint64 p, const uint32 n, const uint64 Res64, const char*timebuffer, const uint32 B1, const uint64 B2, const char*factor, char*cstr);
 void	print_help(char*option);
 int		cfgNeedsUpdating(char*in_line);
 void	returnMlucasErrCode(uint32 ierr, char*s);
 void	printMlucasErrCode(uint32 ierr);
 uint64 	shift_word(double a[], int n, const uint64 p, const uint64 shift, const double cy_in);
 int		test_types_compatible(uint32 t1, uint32 t2);
-int		read_ppm1_residue(const uint32 nbytes, FILE*fp, uint8 arr_tmp[], uint64*Res64, uint64*Res35m1, uint64*Res36m1);
-int		read_ppm1_savefiles(uint64 p, int*kblocks, FILE*fp, uint32*ilo, uint8 arr1[], uint64*Res64, uint64*Res35m1, uint64*Res36m1, uint8 arr2[], uint64*i1, uint64*i2, uint64*i3);
+int		 read_ppm1_residue(const uint32 nbytes, FILE*fp,       uint8 arr_tmp[],       uint64*Res64,       uint64*Res35m1,       uint64*Res36m1);
 void	write_ppm1_residue(const uint32 nbytes, FILE*fp, const uint8 arr_tmp[], const uint64 Res64, const uint64 Res35m1, const uint64 Res36m1);
-void	write_ppm1_savefiles(uint64 p, int n     , FILE*fp, uint32 ihi, uint8 arr1[], uint64 Res64, uint64 Res35m1, uint64 Res36m1, uint8 arr2[], uint64 i1, uint64 i2, uint64 i3);
-int		convert_res_bytewise_FP(const uint8 arr_tmp[], double a[], int n, const uint64 p);
-void	convert_res_FP_bytewise(const double a[], uint8 arr_tmp[], int n, const uint64 p, uint64*Res64, uint64*Res35m1, uint64*Res36m1);
+int		 read_ppm1_savefiles(const char*fname, uint64 p, uint32*kblocks, FILE*fp, uint64*ilo, uint8 arr1[], uint64*Res64, uint64*Res35m1, uint64*Res36m1, uint8 arr2[], uint64*i1, uint64*i2, uint64*i3);
+void	write_ppm1_savefiles(const char*fname, uint64 p,          int n, FILE*fp, uint64 ihi, uint8 arr1[], uint64 Res64, uint64 Res35m1, uint64 Res36m1, uint8 arr2[], uint64 i1, uint64 i2, uint64 i3);
+int		convert_res_bytewise_FP(const uint8 ui64_arr_in[], double a[], int n, const uint64 p);
+void	convert_res_FP_bytewise(const double a[], uint8 ui64_arr_out[], int n, const uint64 p, uint64*Res64, uint64*Res35m1, uint64*Res36m1);
 uint32	get_default_factoring_depth(uint64 p);
+// Sets function pointers for DIF|DIT pass1 based on value of radix0:
+void dif1_dit1_func_name(
+	const int radix0,
+	void (**func_dif_pass1)(double [], int),
+	void (**func_dit_pass1)(double [], int)
+);
+uint32	extract_known_factors(uint64 p, char*fac_start, FILE*fptr);
+uint32	gcd(uint32 stage, uint64 p, uint64*resarr, uint32 nlimb, char*const gcd_str);
+uint32	filegrep(const char*fname, const char*find_string);
 void	write_fft_debug_data(double a[], int jlo, int jhi);
+
+/* pm1.c: */
+uint32	pm1_set_bounds(const uint64 p, const uint32 n, const uint32 tf_bits, const uint32 tests_saved,
+					const uint32 b1_prev, const uint64 b2_prev);
+uint32	pm1_check_bounds();
+uint32	compute_pm1_s1_product(const uint64 p);
+uint32	pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uint32 *nmul, uint64 *maxmult);
+void	pm1_bigstep_size(uint32 *nbuf, uint32*bigstep, uint32*m, const uint32 psmall);
+int		modpow(double a[], double b[], uint32 input_is_int, uint64 pow,
+			int	(*func_mod_square)(double [], int [], int, int, int, uint64, uint64, int, double *, int),
+			uint64 p, int n, int scrnFlag, double *tdiff);
+int		pm1_stage2(uint64 p, uint32 bigstep, uint32 m, double pow[], double*mult[], uint64 arr_scratch[],
+			int	(*func_mod_square)(double [], int [], int, int, int, uint64, uint64, int, double *, int),
+			int n, int scrnFlag, double *tdiff, char*const gcd_str);
 
 /* br.c: */
 void	print_pow2_twiddles(const uint32 n, const uint32 p, const uint32 q);
 void	bit_reverse_int(int vec[], int n, int nradices, int radix[], int incr, int*scratch);
 
 /* get_fft_radices.c: */
-int		get_fft_radices			(uint32 kblocks, int radix_set, int *nradices, int radix_vec[], int radix_vec_dim);
+int		get_fft_radices			(uint32 kblocks, int radix_set, uint32 *nradices, uint32 radix_vec[], int radix_vec_dim);
 void	test_fft_radixtables	(void);
 uint32	get_default_fft_length	(uint64 p);
 uint32	get_nextlarger_fft_length	(uint32 n);
@@ -276,7 +307,14 @@ void	radix32_dit_pass	(double a[], int n, struct complex rt0[], struct complex r
 	int	mers_mod_square		(double a[],             int arr_scratch[], int n, int ilo, int ihi, uint64 fwd_fft_only, uint64 p, int scrnFlag, double *tdiff, int update_shift);
 #endif
 
-	/* radix{16|32|64}_wrapper_square.c: */
+/* fermat_mod_square.c: */
+#if 0//def USE_FGT61	**** First get things working for LL case ****
+	int	fermat_mod_square	(double a[], uint64 b[], int arr_scratch[], int n, int ilo, int ihi, uint64 fwd_fft_only, uint64 p, int scrnFlag, double *tdiff, int update_shift);
+#else
+	int	fermat_mod_square	(double a[],             int arr_scratch[], int n, int ilo, int ihi, uint64 fwd_fft_only, uint64 p, int scrnFlag, double *tdiff, int update_shift);
+#endif
+
+/* radix{16|32|64}_wrapper_square.c: */
 #ifdef USE_FGT61
 	void	pair_square  (double *x1, double *y1, double *x2, double *y2, double c, double s,
 						  uint64 *u1, uint64 *v1, uint64 *u2, uint64 *v2, uint64 a, uint64 b);
@@ -316,13 +354,6 @@ void	radix32_dit_pass	(double a[], int n, struct complex rt0[], struct complex r
 				int nradices_prim, int radix_prim[], int ws_i, int ws_j1, int ws_j2, int ws_j2_start, int ws_k, int ws_m, int ws_blocklen, int ws_blocklen_sum,
 				int INIT_ARRAYS, int FORWARD_FFT_ONLY
 			);
-
-/* fermat_mod_square.c: */
-#if 0//def USE_FGT61	**** First get things working for LL case ****
-	int	fermat_mod_square	(double a[], uint64 b[], int arr_scratch[], int n, int ilo, int ihi, uint64 p, int scrnFlag, double *tdiff);
-#else
-	int	fermat_mod_square	(double a[],             int arr_scratch[], int n, int ilo, int ihi, uint64 p, int scrnFlag, double *tdiff);
-#endif
 
 #ifdef MULTITHREAD
 	uint32 parseAffinityTriplet(char*istr);
@@ -389,13 +420,13 @@ void	radix32_dit_pass	(double a[], int n, struct complex rt0[], struct complex r
 	void mers_process_chunk  (double a[], int arr_scratch[], int n, struct complex rt0[], struct complex rt1[],                               int index[], int block_index[], int ii, int nradices_prim, int radix_prim[], int ws_i[], int ws_j1[], int ws_j2[], int ws_j2_start[], int ws_k[], int ws_m[], int ws_blocklen[], int ws_blocklen_sum[], uint64 fwd_fft_only);
   #endif
 
-	void fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex rt0[], struct complex rt1[], int index[],                    int ii, int nradices_prim, int radix_prim[]);
+	void fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex rt0[], struct complex rt1[], int index[],                    int ii, int nradices_prim, int radix_prim[], uint64 fwd_fft_only);
 #endif
 
 	/* radix{16|32|64}_dyadic_square.c: */
-	void	radix16_dyadic_square	(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int ii, int nradices_prim, int radix_prim[], int incr, int init_sse2, int thr_id);
-	void	radix32_dyadic_square	(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int ii, int nradices_prim, int radix_prim[], int incr, int init_sse2, int thr_id);
-//	void	radix64_dyadic_square	(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int ii, int nradices_prim, int radix_prim[], int incr, int init_sse2, int thr_id);
+	void	radix16_dyadic_square	(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int ii, int nradices_prim, int radix_prim[], int incr, int init_sse2, int thr_id, uint64 fwd_fft_only);
+	void	radix32_dyadic_square	(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int ii, int nradices_prim, int radix_prim[], int incr, int init_sse2, int thr_id, uint64 fwd_fft_only);
+//	void	radix64_dyadic_square	(double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[], int ii, int nradices_prim, int radix_prim[], int incr, int init_sse2, int thr_id, uint64 fwd_fft_only);
 
 /* Each of the final-DIT-pass/propagate-carries/initial-DIF-pass routines comes in both an error-checking and non-error-checking
 version, unless it's one of the later SSE2-only radices, in which at least partial error checking is mandatory:

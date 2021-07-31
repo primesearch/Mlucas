@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -2024,7 +2024,7 @@
 
 #else
 
-	#error Unhandled combination of preprocessr flags!
+	#error Unhandled combination of preprocessor flags!
 
 #endif	// x86 simd version ?
 

@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -45,17 +45,134 @@ extern "C" {
   #endif
 #endif
 
-// Table of precomputed low-byte (mod 2^8) inverses used to init Montgomery inversions:
-static const uint8 minv8[128] = {														//  Index:
-	0x01,0xAB,0xCD,0xB7,0x39,0xA3,0xC5,0xEF,0xF1,0x1B,0x3D,0xA7,0x29,0x13,0x35,0xDF,	//   0- 15
-	0xE1,0x8B,0xAD,0x97,0x19,0x83,0xA5,0xCF,0xD1,0xFB,0x1D,0x87,0x09,0xF3,0x15,0xBF,	//  16- 31
-	0xC1,0x6B,0x8D,0x77,0xF9,0x63,0x85,0xAF,0xB1,0xDB,0xFD,0x67,0xE9,0xD3,0xF5,0x9F,	//  32- 47
-	0xA1,0x4B,0x6D,0x57,0xD9,0x43,0x65,0x8F,0x91,0xBB,0xDD,0x47,0xC9,0xB3,0xD5,0x7F,	//  48- 63
-	0x81,0x2B,0x4D,0x37,0xB9,0x23,0x45,0x6F,0x71,0x9B,0xBD,0x27,0xA9,0x93,0xB5,0x5F,	//  64- 79
-	0x61,0x0B,0x2D,0x17,0x99,0x03,0x25,0x4F,0x51,0x7B,0x9D,0x07,0x89,0x73,0x95,0x3F,	//  80- 95
-	0x41,0xEB,0x0D,0xF7,0x79,0xE3,0x05,0x2F,0x31,0x5B,0x7D,0xE7,0x69,0x53,0x75,0x1F,	//  96-111
-	0x21,0xCB,0xED,0xD7,0x59,0xC3,0xE5,0x0F,0x11,0x3B,0x5D,0xC7,0x49,0x33,0x55,0xFF		// 112-127
+// Table of leading 2048 bits of Pi treated as a no-binary-point bitstring 1100100100001111110110... in
+// to base-2^64 form, i.e. the final word 0x648... contains the leftmost 64 bits of the above expansion:
+static const uint64 pi_bits[32] = {														// Input index range by row:/
+	0xD42A90D5EF8E5D32ull,0xD6998B8682283D19ull,0x0AB9472D45556216ull,0x8AE9130C4C7D0288ull,
+	0x1CCAA4BE754AB572ull,0xEF15E5FB4AAC0B8Cull,0xDAE2AEF837A62964ull,0xCD93C1D17603D147ull,
+	0xF1CF3B960C074301ull,0x19482F23171B671Dull,0x78BA3604650C10BEull,0xB3861AA7255E4C02ull,
+	0xCF6A9483B84B4B36ull,0x0E3179AB1042A95Dull,0xC1B2AE91EE51D6CBull,0x348B1FD47E9267AFull,
+	0xCC6D241B0E2AE9CDull,0xE1003E5C50B1DF82ull,0x24943328F6722D9Eull,0xD74F9208BE258FF3ull,
+	0xF71C35FDAD44CFD2ull,0x85FFAE5B7A035BF6ull,0x7A262174D31BF6B5ull,0xF242DABB312F3F63ull,
+	0xA7F09AB6B6A8E122ull,0x98158536F92F8A1Bull,0xF7CA8CD9E69D218Dull,0x28A5043CC71A026Eull,
+	0x0105DF531D89CD91ull,0x948127044533E63Aull,0x62633145C06E0E68ull,0x6487ED5110B4611Aull
 };
+
+// Table of precomputed bit-reversed bytes used for bytewise bit-reversal utilities:
+static const uint8 brev8[256] = {														// Input index range by row:/
+	0x00,0x80,0x40,0xC0,0x20,0xA0,0x60,0xE0,0x10,0x90,0x50,0xD0,0x30,0xB0,0x70,0xF0,//  0- f
+	0x08,0x88,0x48,0xC8,0x28,0xA8,0x68,0xE8,0x18,0x98,0x58,0xD8,0x38,0xB8,0x78,0xF8,// 10-1f
+	0x04,0x84,0x44,0xC4,0x24,0xA4,0x64,0xE4,0x14,0x94,0x54,0xD4,0x34,0xB4,0x74,0xF4,// 20-2f
+	0x0C,0x8C,0x4C,0xCC,0x2C,0xAC,0x6C,0xEC,0x1C,0x9C,0x5C,0xDC,0x3C,0xBC,0x7C,0xFC,// 30-3f
+	0x02,0x82,0x42,0xC2,0x22,0xA2,0x62,0xE2,0x12,0x92,0x52,0xD2,0x32,0xB2,0x72,0xF2,// 40-4f
+	0x0A,0x8A,0x4A,0xCA,0x2A,0xAA,0x6A,0xEA,0x1A,0x9A,0x5A,0xDA,0x3A,0xBA,0x7A,0xFA,// 50-5f
+	0x06,0x86,0x46,0xC6,0x26,0xA6,0x66,0xE6,0x16,0x96,0x56,0xD6,0x36,0xB6,0x76,0xF6,// 60-6f
+	0x0E,0x8E,0x4E,0xCE,0x2E,0xAE,0x6E,0xEE,0x1E,0x9E,0x5E,0xDE,0x3E,0xBE,0x7E,0xFE,// 70-7f
+	0x01,0x81,0x41,0xC1,0x21,0xA1,0x61,0xE1,0x11,0x91,0x51,0xD1,0x31,0xB1,0x71,0xF1,// 80-8f
+	0x09,0x89,0x49,0xC9,0x29,0xA9,0x69,0xE9,0x19,0x99,0x59,0xD9,0x39,0xB9,0x79,0xF9,// 90-9f
+	0x05,0x85,0x45,0xC5,0x25,0xA5,0x65,0xE5,0x15,0x95,0x55,0xD5,0x35,0xB5,0x75,0xF5,// a0-af
+	0x0D,0x8D,0x4D,0xCD,0x2D,0xAD,0x6D,0xED,0x1D,0x9D,0x5D,0xDD,0x3D,0xBD,0x7D,0xFD,// b0-bf
+	0x03,0x83,0x43,0xC3,0x23,0xA3,0x63,0xE3,0x13,0x93,0x53,0xD3,0x33,0xB3,0x73,0xF3,// c0-cf
+	0x0B,0x8B,0x4B,0xCB,0x2B,0xAB,0x6B,0xEB,0x1B,0x9B,0x5B,0xDB,0x3B,0xBB,0x7B,0xFB,// d0-df
+	0x07,0x87,0x47,0xC7,0x27,0xA7,0x67,0xE7,0x17,0x97,0x57,0xD7,0x37,0xB7,0x77,0xF7,// e0-ef
+	0x0F,0x8F,0x4F,0xCF,0x2F,0xAF,0x6F,0xEF,0x1F,0x9F,0x5F,0xDF,0x3F,0xBF,0x7F,0xFF	// f0-ff
+};
+
+// Table of precomputed low-byte inverses used to init Montgomery inversion of odd input q,
+// such that init qinv = minv8[(q&0xff)>>1] yields ginv satisfying q*qinv == 1 (mod 2^8):
+static const uint8 minv8[128] = {														//  q-values:
+	0x01,0xAB,0xCD,0xB7,0x39,0xA3,0xC5,0xEF,0xF1,0x1B,0x3D,0xA7,0x29,0x13,0x35,0xDF,	//   1: 31:2
+	0xE1,0x8B,0xAD,0x97,0x19,0x83,0xA5,0xCF,0xD1,0xFB,0x1D,0x87,0x09,0xF3,0x15,0xBF,	//  33: 63:2
+	0xC1,0x6B,0x8D,0x77,0xF9,0x63,0x85,0xAF,0xB1,0xDB,0xFD,0x67,0xE9,0xD3,0xF5,0x9F,	//  65: 95:2
+	0xA1,0x4B,0x6D,0x57,0xD9,0x43,0x65,0x8F,0x91,0xBB,0xDD,0x47,0xC9,0xB3,0xD5,0x7F,	//  97:127:2
+	0x81,0x2B,0x4D,0x37,0xB9,0x23,0x45,0x6F,0x71,0x9B,0xBD,0x27,0xA9,0x93,0xB5,0x5F,	// 129:159:2
+	0x61,0x0B,0x2D,0x17,0x99,0x03,0x25,0x4F,0x51,0x7B,0x9D,0x07,0x89,0x73,0x95,0x3F,	// 161:191:2
+	0x41,0xEB,0x0D,0xF7,0x79,0xE3,0x05,0x2F,0x31,0x5B,0x7D,0xE7,0x69,0x53,0x75,0x1F,	// 193:223:2
+	0x21,0xCB,0xED,0xD7,0x59,0xC3,0xE5,0x0F,0x11,0x3B,0x5D,0xC7,0x49,0x33,0x55,0xFF		// 225:255:2
+};
+/* October 2020: Traded some e-mails/code/ideas with jeff Hurchalla re. n-bits-good initial-iterate formulae.
+Via Montgomery we have, for odd q, the 5-bits-good qinv_5 = (3*q)^2, which needs just 2 ADD and 1 XOR.
+
+On 10/7/20 3:55 AM, Jeff Hurchalla wrote:
+
+I'll paste a formula for 6 bits I think you'll find interesting.  This comes from early this year when
+I wrote a brute force program that gave me
+
+	inv_q_6bits = ((q^12)^(q<<4))+((q|8)<<2);
+
+The program found ~50 similar formulas (with the restriction they could use only 1 cycle operations like
+add/sub/xor/and/etc), and this was the simplest.  It took half a day to complete, while the 5 bit brute
+force program took under a second (with the already-known formula of (3*q)^2 as its best result).
+  I kind of suspect beyond 6 bits that a formula based on simple operations would need to to store and
+reuse intermediate calculations multiple times to be optimal, and that goes beyond what I tried to do,
+and probably beyond what's computationally feasible anyway for brute force.
+
+Getting back to the formula, on x86 I believe it would take 3 cycles to complete and need 5 instructions
+total (we can use a single LEA instruction to combine the "<<2" with the preceding add).  I think ARM can
+also combine that add/shift in 1 instruction, and also that it can combine the "<<4" with the preceding
+xor (though I haven't ever tried it) - which would mean 4 instructions total, and again 3 cycles latency.
+
+As far as I can tell it's not actually useful for anything!  Maybe a fun party trick, or good for some
+48 bit hardware that I've never heard about.
+
+I did have hopes for using one stage of a newton-like refinement with cubic convergance rather than
+quadratic, so that the initial 6 good bits could become 18 good bits after only a few instructions.
+A cubic-converging formula (or formulas?) definitely does exist although I don't have a link at hand,
+but as I recall it just takes too many steps to be worthwhile.  The whole thing would have to beat the
+5 bit good formula, which takes 2 cycles to get the initial inverse estimate, and then another 6 cycles
+using Dumas' method [http://marc-b-reynolds.github.io/math/2017/09/18/ModInverse.html] to get to 20 good
+bits - that's only 8 cycles total.  Since the 6 bit formula takes 3 cycles, the cubic refinement to 18
+good bits would need to complete in 4 cycles or less.  This was a half year ago but I recall the cubic
+method wasn't fast enough as presented - IIRC each cubic refinement took something like 6 or 7 cycles.
+
+
+On Oct 8, 2020, at 1:33 PM, Ernst Mayer wrote:
+
+That's interesting re. the 6-bits-good inverse formula - I had similarly considered writing a search
+program for useful formulae beyond 5 bits but decided against it, since my sense was that the complexity
+by the time one got to 8-bits would be more than simply using a LUT. But nice to see you found something
+neat for 6-bits, at least.
+
+One alternate way of going to 8 bits is via "splicing". Here a table of the high 3 bits of 8-bits-good
+inverses for q = 1,3,...,255, where some fiddling shows useful patterning in a 16-column view of those data:
+
+	0,5,6,5,1,5,6,7,7,0,1,5,1,0,1,6,
+	7,4,5,4,0,4,5,6,6,7,0,4,0,7,0,5,
+	6,3,4,3,7,3,4,5,5,6,7,3,7,6,7,4,
+	5,2,3,2,6,2,3,4,4,5,6,2,6,5,6,3,
+	4,1,2,1,5,1,2,3,3,4,5,1,5,4,5,2,
+	3,0,1,0,4,0,1,2,2,3,4,0,4,3,4,1,
+	2,7,0,7,3,7,0,1,1,2,3,7,3,2,3,0,
+	1,6,7,6,2,6,7,0,0,1,2,6,2,1,2,7,
+
+We see that each column contains a circular permutation of [7,6,5,4,3,2,1,0]; the left-shift counts of said
+"base permutation" by column are:
+
+	7 2 1 2 6 2 1 0 0 7 6 2 6 7 6 1
+
+We can simply concatenate those 16 perm-values into a 48-bit int, but find it more convenient to use a
+uint64, 4 bits per L-perm count, the corresponding hexits run in reverse order of the above:
+
+	lperm = 0x1676267001262127
+
+Then, given an odd int q whose mod-R inverse is sought:
+
+0. Bits 1-4 and 5-7 of q correspond to the column and row indices of the above 8-row, 16-col table:
+
+	qinv8 = (q&0xff)>>1, col = qinv8&0xf, row = qinv8>>4;
+
+1. (3*q)^2 gives low-5-bits-good inverse, whose higher bits we mask off: qinv8 = ((q+q+q)^2)&0x1f;
+
+2. Leftward-shift count needed for circular permutation of [7,6,5,4,3,2,1,0] is ls = (lperm >> (col<<2))&0xf;
+
+3. High 3 bits of 8-bit inverse are hi3 = (7 - ls - row)&0x7;
+
+4. Splice together to get 8-bits-good inverse: qinv8 += (hi3<<5);
+
+That needs 13 1-cycle ops beyond what is needed to compute (3*q)^2.
+As you noted, that much work beyond the simple 5-bits-good formula is probably an academic exercise, since
+a 128-entry LUT of precomputed 8-bit inverses is going to be faster.
+*/
 
 /*******************************************************************************
    Function prototypes. The corresponding function definitions will either
@@ -75,16 +192,14 @@ DEV void	mi64_rand				(uint64 x[], uint32 len);
 DEV void	mi64_set_eq				(uint64 x[], const uint64 y[], uint32 len);
 DEV void	mi64_set_eq_scalar		(uint64 x[], const uint64   a, uint32 len);
 DEV void	mi64_clear				(uint64 x[], uint32 len);
-DEV void	mi64_set_bit			(uint64 x[], uint32 bit);
-DEV int		mi64_test_bit			(const uint64 x[], uint32 bit);
 
 /* bitwise shift y = (x <<|>> nbits); '..._short()' are specialized less-than-64-bit left and rightward shifts: */
-DEV void	mi64_shlc				(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32 len);
-DEV void	mi64_shrc				(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32 len);
+DEV void	mi64_shlc				(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32 len, uint32 sign_flip);
+DEV void	mi64_shrc				(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32 len, uint32 sign_flip);
 DEV uint32	mi64_shlc_bits_align	(const uint64 x[], uint64 y[], uint32 nbits);	// This actually a hybrid of circular-shift and compare
 DEV uint32	mi64_shlc_bits_limb0	(const uint64 x0, const uint64 y[], uint32 nbits);
 DEV uint64	mi64_shl 				(const uint64 x[], uint64 y[], uint32 nshift, uint32 len);
-DEV uint64	mi64_shrl				(const uint64 x[], uint64 y[], uint32 nshift, uint32 len);
+DEV uint64	mi64_shrl				(const uint64 x[], uint64 y[], uint32 nshift, uint32 len, uint32 output_len);
 DEV uint64	mi64_shl_short_ref		(const uint64 x[], uint64 y[], uint32 nshift, uint32 len);
 DEV uint64	mi64_shl_short			(const uint64 x[], uint64 y[], uint32 nshift, uint32 len);
 DEV uint64	mi64_shrl_short_ref		(const uint64 x[], uint64 y[], uint32 nshift, uint32 len);
@@ -107,9 +222,14 @@ uint32	mi64_cmpuge				(const uint64 x[], const uint64 y[], uint32 len);
 
 /* POPC, leading & trailing binary zeros: */
 DEV uint32	mi64_popcount			(const uint64 x[], uint32 len);
+DEV int		mi64_test_bit			(const uint64 x[], uint32 bit);
+DEV void	mi64_set_bit			(      uint64 x[], uint32 bit, uint32 len, uint32 val);
+DEV void	mi64_flip_bit			(      uint64 x[], uint32 bit, uint32 len);
 DEV int		mi64_ith_set_bit		(const uint64 x[], uint32 bit, uint32 len);
 DEV uint32	mi64_trailz				(const uint64 x[], uint32 len);
 DEV uint32	mi64_leadz				(const uint64 x[], uint32 len);
+// v20: MD5 hash. Declare x[] non-const to enable message-preprocessing, but restore x to its input value prior to return:
+DEV void	mi64_md5				(uint64 x[], uint32 len, uint64 md5[], char*const md5_str);
 
 /* Extract leading 64 significant bits, or 128-most-significant-bits-starting-at-a-specified-bit-position. */
 DEV uint32	mi64_extract_lead64		(const uint64 x[], uint32 len, uint64*result);

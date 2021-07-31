@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -151,7 +151,21 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 	double c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12,s13,s14,s15;
 
 #ifdef USE_SSE2
-
+	// v20: Coeffs of 6-term [even|odd] Chebyshev approximation to [cos(x)|sin(x)], x in [0,Pi/4], IEEE64-doubles stored as uint64 bitfields:
+	const uint64 cheb_c[6] = {
+					0x3feffffffffffe0bull,	// d[ 0]
+					0xbfdffffffffe3763ull,	// d[ 2]
+					0x3fa5555554476425ull,	// d[ 4]
+					0xbf56c16b2d3e61f5ull,	// d[ 6]
+					0x3efa00e9685da9c4ull,	// d[ 8]
+					0xbe923c5c15441a00ull};	// d[10]
+	const uint64 cheb_s[6] = {
+					0x3fefffffffffffd9ull,	// d[ 1]
+					0xbfc5555555550efeull,	// d[ 3]
+					0x3f81111110bde5e3ull,	// d[ 5]
+					0xbf2a019f8a207d3full,	// d[ 7]
+					0x3ec71d7317b8ee33ull,	// d[ 9]
+					0xbe5a9507f3711e2dull};	// d[11]
 	static vec_dbl *sc_arr = 0x0, *sc_ptr;
 	double *add0, *add1, *add2;	/* Addresses into array sections */
 	const double *cd_ptr0, *cd_ptr1;
@@ -159,9 +173,11 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 
   #ifdef MULTITHREAD
 	static vec_dbl *__r0;					// Base address for discrete per-thread local stores
-	vec_dbl *cc0, *ss0, *isrt2, *two, *r1;
+	vec_dbl *cc0,*ss0,*isrt2,*two,*pi4,*c0thru15, *r1;
+	uint64 *sign_mask;
   #else
-	static vec_dbl *cc0, *ss0, *isrt2, *two, *r1;
+	static vec_dbl *cc0,*ss0,*isrt2,*two,*pi4,*c0thru15, *r1;
+	static uint64 *sign_mask;
   #endif
 
 #else
@@ -196,20 +212,35 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
 			free((void *)sc_arr);	sc_arr=0x0;
 		}
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 72*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		// v19 alloc'ed 72* ... v20 needs [1+1+4+8] = 18 more slots in SSE2 mode, [1+1+2+4] = 8 more in AVX/AVX2 mode, [1+1+1+2] = 5 more in AVX-512 mode,
+		// just use 20 more slots in all cases for simplicity's sake. Further add 12 slots for doubled-into-vectors 6-term Chebyshev expansions of cos, sin:
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 104*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
 	/* Use low 32 16-byte slots of sc_arr for temporaries, next 3 for the nontrivial complex 16th roots,
 	last 30 for the doubled sincos twiddles, plus at least 3 more slots to allow for 64-byte alignment of the array.
+	v20: Add 16 slots for auxiliary data needed for vectorized twiddle computation.
 	*/
 		#ifdef MULTITHREAD
 	//	if(max_threads > 1) {
-			__r0  = sc_ptr;
-			isrt2 = sc_ptr + 0x20;
-			cc0   = sc_ptr + 0x21;
-			ss0   = sc_ptr + 0x22;
-			two   = sc_ptr + 0x43;
+			__r0     = sc_ptr;
+			isrt2    = sc_ptr + 0x20;
+			cc0      = sc_ptr + 0x21;
+			ss0      = sc_ptr + 0x22;
+			two      = sc_ptr + 0x43;
+			/* v20:
+				Vector	#SIMD slots needed:
+				Const:		SSE2	AVX	AVX-512	parametrized:
+				sign_mask	4		??		??
+				2*pi/n		1		1		1	1
+				0-15flt		4		2		1	1 << (6-L2_SZ_VD)
+				0-15dbl		8		4		2	1 << (7-L2_SZ_VD)
+			*/
+			sign_mask = (uint64 *)(sc_ptr + 0x48);	// Start v20-added data after v19-alloc block; leave a few slots below the v20 stuff for spills, etc.
+			pi4      = sc_ptr + 0x4c;
+			c0thru15 = sc_ptr + 0x4d;	// First 1 << (6-L2_SZ_VD) slots hold (float)0-15, next 1 << (7-L2_SZ_VD) slots hold (double)0-15
+			/* Chebyshev-expansion coeffs for cos & sin start at sc_ptr + 0x58 */
 			for(i = 0; i < max_threads; ++i) {
 				/* These remain fixed within each per-thread local store: */
 				VEC_DBL_INIT(isrt2, ISRT2);
@@ -220,19 +251,46 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 				VEC_DBL_INIT(two  , 2.0);
 				VEC_DBL_INIT(cc0  , c);
 				VEC_DBL_INIT(ss0  , s);
+				// Set up the SIMD-tupled constants used by the vectorized twiddles-on-the-fly computation:
+																								// lo64,hi64:
+				*(sign_mask+0) = 0x7FFFFFFFFFFFFFFFull; *(sign_mask+1) = 0x7FFFFFFFFFFFFFFFull;	// +,+
+				*(sign_mask+2) = 0xFFFFFFFFFFFFFFFFull; *(sign_mask+3) = 0x7FFFFFFFFFFFFFFFull;	// -,+
+				*(sign_mask+4) = 0x7FFFFFFFFFFFFFFFull; *(sign_mask+5) = 0xFFFFFFFFFFFFFFFFull;	// +,-
+				*(sign_mask+6) = 0xFFFFFFFFFFFFFFFFull; *(sign_mask+7) = 0xFFFFFFFFFFFFFFFFull;	// -,-
+				// 128-bit memloc just below sign_mask reserved for spill of bytewise io[]-vec; next-lower 2 slots hold byte-mask vectors:
+				*(sign_mask-4) = 0x1111111111111111ull; *(sign_mask-3) = 0ull;	// 0x1111111111111111 in lo64, 0 in hi64
+				*(sign_mask-6) = 0x0000000f0000000full; *(sign_mask-5) = 0ull;	// 0x0000000f0000000f in lo64, 0 in hi64
+				VEC_DBL_INIT(pi4   , (double) 0.78539816339744830961  );	// pi/4
+			//	VEC_DBL_INIT(twopin, (double)12.56637061435917295376/n);	*** This must wait until regular thread-exec (i.e. non-init-mode) because in init mode, n is not supplied ... just combine with (double)0-15 per-thread init below
+				// (float)0-15, (double)0-15:								GDB needs these, else e.g.'p *(vec_flt *)(sc_ptr+0x4a)' gives 'No symbol "vec_flt" in current context':
+				float *flt_ptr = (float *)c0thru15;							//	vec_flt *vec_flt_ptr = (vec_flt *)flt_ptr;
+			//	double*dbl_ptr = (double*)(c0thru15 + (1 << (6-L2_SZ_VD)));	//	vec_dbl *vec_dbl_ptr = (vec_dbl *)dbl_ptr;
+				for(j = 0; j < 16; ++j) {
+					*flt_ptr++ = (float)j;
+			//		*dbl_ptr++ = (double)j;	<*** Just init these slots to [0-15]*twopin at same runtime-spot below - in fact instead of - where we init twopin
+				}
+				// Chebyshev-expansion coeffs for cos & sin start at (sign_mask+18) = (sc_ptr + 0x5a)...
+				// use the uint64 sign_mask pointer to init const-vec_dbl as paired-uint64 bitfields:
+				for(j =  0; j < 12; j+=2) { *(sign_mask+j+18) = *(sign_mask+j+19) = cheb_c[j>>1]; }
+				for(j = 12; j < 24; j+=2) { *(sign_mask+j+18) = *(sign_mask+j+19) = cheb_s[j>>1]; }
 			  #endif
-				isrt2 += 72;	/* Move on to next thread's local store */
-				cc0   += 72;
-				ss0   += 72;
-				two   += 72;
+				isrt2 += 104;	/* Move on to next thread's local store */
+				cc0   += 104;
+				ss0   += 104;
+				two   += 104;
+				pi4       += 104;
+				c0thru15  += 104;
+				sign_mask += 104;
 			}
 
 		#elif defined(COMPILER_TYPE_GCC)
-
 			r1  = sc_ptr + 0x00;	  isrt2 = sc_ptr + 0x20;
 										cc0 = sc_ptr + 0x21;
 										ss0 = sc_ptr + 0x22;
 										two = sc_ptr + 0x43;
+			sign_mask = (uint64 *)(sc_ptr + 0x48);	// Start v20-added data after v19-alloc block; leave a few slots below the v20 stuff for spills, etc.
+			pi4      = sc_ptr + 0x4c;
+			c0thru15 = sc_ptr + 0x4d;	// First 1 << (6-L2_SZ_VD) slots hold (float)0-15, next 1 << (7-L2_SZ_VD) slots hold (double)0-15
 			/* These remain fixed: */
 			VEC_DBL_INIT(isrt2, ISRT2);
 		  #if defined(USE_AVX2) && !defined(REFACTOR_4DFT_3TWIDDLE)
@@ -243,6 +301,18 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 			VEC_DBL_INIT(cc0  , c);
 			VEC_DBL_INIT(ss0  , s);
 		  #endif
+			// Set up the SIMD-tupled constants used by the vectorized twiddles-on-the-fly computation:
+			VEC_DBL_INIT(pi4   , (double) 0.78539816339744830961  );	// pi/4
+			float *flt_ptr = (float *)c0thru15;							//	vec_flt *vec_flt_ptr = (vec_flt *)flt_ptr;
+		//	double*dbl_ptr = (double*)(c0thru15 + (1 << (6-L2_SZ_VD)));	//	vec_dbl *vec_dbl_ptr = (vec_dbl *)dbl_ptr;
+			for(j = 0; j < 16; ++j) {
+				*flt_ptr++ = (float)j;
+		//		*dbl_ptr++ = (double)j;	<*** Just init these slots to [0-15]*twopin at same runtime-spot below - in fact instead of - where we init twopin
+			}
+			// Chebyshev-expansion coeffs for cos & sin start at (sign_mask+18) = (sc_ptr + 0x5a)...
+			// use the uint64 sign_mask pointer to init const-vec_dbl as paired-uint64 bitfields:
+			for(j =  0; j < 12; j+=2) { *(sign_mask+j+18) = *(sign_mask+j+19) = cheb_c[j>>1]; }
+			for(j = 12; j < 24; j+=2) { *(sign_mask+j+18) = *(sign_mask+j+19) = cheb_s[j>>1]; }
 
 		#else
 		  #error Non-GCC-compatible compilers not supported for SIMD builds!
@@ -254,10 +324,23 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 	/* If multithreaded, set the local-store pointers needed for the current thread; */
 	#ifdef MULTITHREAD
 		ASSERT(HERE, (uint32)thr_id < (uint32)max_threads, "Bad thread ID!");
-		r1 = __r0 + thr_id*72;
+		dtmp = (double)12.56637061435917295376/n;	// twopin = 2*pi/[complex FFT length] = 2*pi/(n/2) = 4*pi/n
+		r1 = __r0 + thr_id*104;
 		isrt2 = r1 + 0x20;
 		cc0   = r1 + 0x21;
 		two   = r1 + 0x43;
+		// Start v20-added data after v19-alloc block; unnamed sign_mask ptr is at += 0x48 and uses 4 slots:
+		pi4   = r1 + 0x4c;
+		// [0-15]*twopin:
+		double*dbl_ptr = (double*)(pi4 + 1 + (1 << (6-L2_SZ_VD)));
+		re0 = 4*dtmp; *(dbl_ptr+3) = 3*dtmp; *(dbl_ptr+2) = dtmp+dtmp; *(dbl_ptr+1) = dtmp; *dbl_ptr = 0.0;
+		for(j = 0; j < 12; j += 4) {
+			dbl_ptr += 4;
+			*(dbl_ptr+0) = *(dbl_ptr-4) + re0;
+			*(dbl_ptr+1) = *(dbl_ptr-3) + re0;
+			*(dbl_ptr+2) = *(dbl_ptr-2) + re0;
+			*(dbl_ptr+3) = *(dbl_ptr-1) + re0;
+		}
 	#endif
 
 #endif
@@ -305,28 +388,300 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 	p4 = p4 + ( (p4 >> DAT_BITS) << PAD_BITS );
 	p8 = p8 + ( (p8 >> DAT_BITS) << PAD_BITS );
 	p12= p12+ ( (p12>> DAT_BITS) << PAD_BITS );
-	// Make sure to at least one-time pre-test any index arithmetic assumptions used to save cycles in the loop
-	// body (both C and ASM). Since such checks may be runlength-dependent, need to be cheap enough to leave on
-	// all the time, as here where we do them just once prior to entering the processing loop. Since DIF and DIT
-	// encounter the same sets or index strides (albeit in opposite order), can split such tests between them:
-	//*** 2014: Failure of this assertion led me to find dependence on it in my new AVX2/FMA-based DIT macro ***
-	//*** [But fix obviates said dependence, so no longer appropriate to enforce it.] ***
-//	ASSERT(HERE, p2  == p1+p1, "radix16_dif_pass: p2  != p1+p1!");
-
+	/* Make sure to at least one-time pre-test any index arithmetic assumptions used to save cycles in the loop
+	body (both C and ASM). Since such checks may be runlength-dependent, need to be cheap enough to leave on
+	all the time, as here where we do them just once prior to entering the processing loop. Since DIF and DIT
+	encounter the same sets or index strides (albeit in opposite order), can split such tests between them:
+	*** 2014: Failure of this assertion led me to find dependence on it in my new AVX2/FMA-based DIT macro ***
+	*** [But fix obviates said dependence, so no longer appropriate to enforce it.] ***
+		ASSERT(HERE, p2  == p1+p1, "radix16_dif_pass: p2  != p1+p1!");
+	*/
 	iroot_prim=(incr >> 5);		/* (incr/2)/radix_now */
-
 	for(m=0; m < nloops; m++)	/* NLOOPS may range from 1 (if first pass radix = 16) to P*N/32 (last pass radix = 16).	 */
 	{				/* NLOOPS satisfies the identity NLOOPS * INCR = P*N, which says that we process the entire */
 					/* array each time this subroutine is executed (since P*N = vector length, sans padding.)   */
 
-/*	here are the needed sincos data - these are processed below in bit-reversed order. */
-	  iroot = index[m]*iroot_prim;
-	  i = iroot;
+	/*	here are the needed sincos data - these are processed below in bit-reversed order. */
+	  iroot = index[m]*iroot_prim;	// We are doing a length-N/2 complex FFT, and a
+	  i = iroot;					// given value of iroot corresponds to angle theta = iroot*(2*Pi/(N/2))
 
 /* In the DIF pass we may be able to afford a more-accurate twiddles computation,
    since we only compute each set of twiddles once and re-use it for many data blocks.
+
+v20:
+	For Mlucas real-FFT of n doubles => cFFT of length n/2, which equals the number of equal-sized slices the interval [0,2*Pi)
+	is subdivided into for computing twiddles. Thus, given an index [i] used for lookup into precomputed roots tables via
+			k1=(iroot & NRTM1);	k2=(iroot >> NRT_BITS);
+	the quadrant in which the corresponding twiddle lies is given by iq = i / (n/8).
+
+	Exploitable symmetries which can be used to cut size of theta, based on the quadrant. Assume theta in [0, 2*pi).
+	Let iq = int(theta/(pi/2) = 0-3 be the quadrant index, and gamma := theta - iq*pi/2 in [0, pi/2). Then:
+									Precompute 2-arrays scos[0,1] = [cos(gamma),sin(gamma)] and sign[0,1] = [+1,-1], then Re,Im terms
+	i	cos(theta)	sin(theta)		of output twiddle are [Re,Im] = [sign[s0]*scos[j],sign[s1]*scos[j^1]], where signs and index j
+	-	-----------	-----------		are computed as:
+	0	+cos(gamma)	+sin(gamma)			s0 = ((unsigned int)iq - 1) < 2
+	1	-sin(gamma)	+cos(gamma)			s1 = iq > 1
+	2	-cos(gamma)	-sin(gamma)			j = IS_ODD(iq)
+	3	+sin(gamma)	-cos(gamma)
+
+	We can even go one better by using the fact that all roots can be mapped to data in the first octant.
+	E.g. for gamma in [pi/4,pi/2), let delta = (pi/2-gamma), thus delta in [0,pi/4), use cos,sin(gamma) = sin,cos(delta).
+	Thus we have the following refinement based on octants - again precompute 2-arrays scos[0,1] = [cos(gamma),sin(gamma)]
+	and sign[0,1] = [+1,-1].  Let io = int(theta/(pi/4) = 0-7 be the octant index, and
+
+		gamma = theta - io*pi/4 if io even,
+		gamma = ((io+1)*pi/4 - theta if io odd.
+	We can handle both of these cases in branchless fashion by defining iodd = IS_ODD(io) and computing
+		gamma = sign[iodd]*(theta - (io+iodd)*pi/4) .
+
+	io	cos(theta)	sin(theta)		Then output twiddle = [Re,Im] = [sign[s0]*scos[j],sign[s1]*scos[j^1]], where signs and index j
+	--	-----------	-----------		are computed as:
+	0	+cos(gamma)	+sin(gamma)			s0 = ((unsigned int)io - 2) < 4
+	1	+sin(gamma)	+cos(gamma)			s1 = io > 3
+	2	-sin(gamma)	+cos(gamma)			j = IS_ODD((io+1)/2)
+	3	-cos(gamma)	+sin(gamma)
+	4	-cos(gamma)	-sin(gamma)
+	5	-sin(gamma)	-cos(gamma)
+	6	+sin(gamma)	-cos(gamma)
+	7	+cos(gamma)	-sin(gamma)
+
+For our SIMD implementation, however, the s0 computation is problemeatic because SSE2 only supports packed-compared for signed ints.
+Alternative to s0 = ((unsigned int)io - 2) < 4 which works even if 16 io-values concatenated as nibbles of a uint64, call it io_cat:
+
+	io		io+2	(io+2)>>2
+	000		0010	00
+	001		0011	00
+	010*	0100	01	<*** s0 = low bit of these ***
+	011*	0101	01
+	100*	0110	01
+	101*	0111	01
+	110		1000	10
+	111		1001	10
+	uint64 io_cat = ([16 io-values concatenated as nibbles] + 0x2222222222222222ull) >> 2;
+
+BUT, how to efficiently concatenate original 4-packed-dword vectors into this form?
+Better to leave as 128-bit vectors and focus on concatenating our initial 4 vectors-of-dwords into a single vector-of-bytes;
+notation below is low-to-high-[byte|word] within xmm-regs; '|' denotes dword boundaries:
+
+	xmm0 = [w0|w1|w2|w3]
+	xmm1 = [w4|w5|w6|w7]
+	xmm2 = [w8|w9|wa|wb]
+	xmm3 = [wc|wd|we|wf]
+4x4 matrix-transpose the above:
+	0,1,2,3		0,4,8,c
+	4,5,6,7	==>	1,5,9,d
+	8,9,a,b		2,6,a,e
+	c,d,e,f		3,7,b,f
+
+	movaps	xmm0,xmm4	// copy of xmm0
+	punpckldq xmm1,xmm0	// xmm0 = [w0|w4|w1|w5]
+	punpckhdq xmm1,xmm4	// xmm4 = [w2|w6|w3|w7]
+	movaps	xmm2,xmm5	// copy of xmm2
+	punpckldq xmm3,xmm2	// xmm2 = [w8|wc|w9|wd]
+	punpckhdq xmm3,xmm5	// xmm5 = [wa|we|wb|wf]
+
+	movaps	xmm0,xmm1	// copy of xmm0
+	punpcklqdq xmm2,xmm0	// xmm0 = [w0|w4|w8|wc]
+	punpcklqdq xmm2,xmm1	// xmm1 = [w1|w5|w9|wd]
+	movaps	xmm4,xmm3	// copy of xmm4
+	punpcklqdq xmm5,xmm4	// xmm4 = [w2|w6|wa|we]
+	punpcklqdq xmm5,xmm3	// xmm3 = [w3|w7|wb|wf]
+	movaps	xmm4,xmm2	// reg-copy xmm4 -> xmm2 to 'neatify' indexing
+	// Now concatenate bytes:
+	pslldq	$1,xmm1	// xmm1 = [ 0,w1, 0, 0| 0,w5, 0, 0| 0,w9, 0, 0| 0,wd, 0, 0]
+	pslldq	$2,xmm2	// xmm2 = [ 0, 0,w2, 0| 0, 0,w6, 0| 0, 0,wa, 0| 0, 0,we, 0]
+	pslldq	$3,xmm3	// xmm3 = [ 0, 0, 0,w3| 0, 0, 0,w7| 0, 0, 0,wb| 0, 0, 0,wf]
+	paddd xmm1,xmm0
+	paddd xmm3,xmm2
+	paddd xmm2,xmm0	// xmm0 = [w0,w1,w2,w3,w4,w5,w6,w7,w8,w9,wa,wb,wc,wd,we,wf]
+
+	But note, ultimately we need to extract pairs of adjacent-indexed bytes from any such packed-vetor-of-bytes
+	result and up-convert into packed-doubles. For the above bytes-in-order layout, can use PEXTRW [3 cycle,1/cycle]
+	to extract a target bytepair (PEXTRB needs SSE4.1) int either a 64-bit GPR or memloc. However, copying said bytes
+	into 4-byte-apart slots of an xmm is a headache. But in fact there is no need fo any of this awkwardness - just
+	skip all the matrix-transpose crap and bytewise-shift the latter 3 of
+		xmm0 = [w0|w1|w2|w3]
+		xmm1 = [w4|w5|w6|w7]
+		xmm2 = [w8|w9|wa|wb]
+		xmm3 = [wc|wd|we|wf]
+	to obtain 16-byte vectors
+		[0,-,-,-,1,-,-,-,2,-,-,-,3,-,-,-]
+		[-,4,-,-,-,5,-,-,-,6,-,-,-,7,-,-]
+		[-,-,8,-,-,-,9,-,-,-,a,-,-,-,b,-]
+		[-,-,-,c,-,-,-,d,-,-,-,e,-,-,-,f]
+	which we add together to get byte-vec [0,4,8,c,1,5,9,d,2,6,a,e,3,7,b,f]. In order to use CVTDQ2PD to convert
+	selected byte-pairs like 4,5 to packed-doubles, just bytewise-shift as needed and AND with byte-vec
+		[*,0,0,0,*,0,0,0,0,0,0,0,0,0,0,0}, where * denotes a byte == 11111111.
 */
 #if HIACC
+  #if 0
+	#error Experimental code, not ready for release!
+	// v20: SIMD -vectorized twiddles-on-the-fly computation:
+	const double sign[2] = {+1.0,-1.0};
+	float ff[16];
+	double theta[16], gamma[16], scos[2];
+	struct complex twiddle[16];
+	int ii[16],io[16],iodd[16],iq[16],is0[16],is1[16],jj[16];
+	#if 0	// Quadrants-based scheme:
+		const double pi2 = (double)1.57079632679489661922, pi_mults[4] = {0,pi2,2*pi2,3*pi2}, twopin = 8*pi2/n, sign[2] = {+1.0,-1.0};
+		int i15 = i*15, iq = i15/(n>>3),is0,is1;	// iq = 'index of quadrant'
+		double theta = i15*twopin, gamma = theta - pi_mults[iq], scos[2] = {cos(gamma),sin(gamma)};
+		is0 = ((unsigned int)iq - 1) < 2; is1 = (iq > 1);
+		j = IS_ODD(iq);
+	#else	// Octants-based scheme:
+		//uint32 idiv = (n>>4), imult = (uint32)((0x0000000100000000ull+idiv-1)/(n>>4));	// Divisor idiv = (n>>4); imult = (2^32+idiv-1)/idiv
+		float fndiv16 = (float)1.0/(float)(n>>4), *fndiv16_ptr = &fndiv16;
+		// Loop to test various fast alternatives to j/(n>>4) for every j < n/2:
+		for(j = 0; j < (n>>1); j++) {
+			// This fails for e.g. j = 393205 and (n>>4) = 393216:
+			//	ASSERT(HERE, __MULH32(j,imult) == j/(n>>4), "umulh32(j,imult) != j/(n>>4)");
+			ASSERT(HERE, (int)((float)j*fndiv16) == j/(n>>4), "(float)j*fndiv16 != j/(n>>4)");
+		}
+	i = 163397;
+		const double pi4_dbl = (double)0.78539816339744830961, twopin_dbl = 16*pi4_dbl/n;
+		double pi_mults[9]; for(j = 0; j < 9; j++) { pi_mults[j] = j*pi4_dbl; }
+		for(j = 0; j < 16; j++) {
+			ii[j] = i*j; io[j] = ii[j]/(n>>4); iodd[j] = io[j]&1;	// io = 'index of octant'
+			ff[j] = (float)ii[j]*fndiv16;
+			theta[j] = ii[j]*twopin_dbl; gamma[j] = sign[iodd[j]]*(theta[j] - pi_mults[io[j]+iodd[j]]);
+			scos[0] = cos(gamma[j]); scos[1] = sin(gamma[j]);
+			is0[j] = ((unsigned int)io[j] - 2) < 4; is1[j] = (io[j] > 3);
+			jj[j] = IS_ODD((io[j]+1)>>1);
+			ASSERT(HERE, (int)ff[j] == io[j], "ff != io error!");
+			twiddle[j].re = sign[is0[j]]*scos[jj[j]]; twiddle[j].im = sign[is1[j]]*scos[jj[j]^1];
+		}
+	#endif
+	#if 1
+	/*
+		PMULLD is slow! Latency = 6, and a PMULLD can start only every other cycle.
+		Need a faster way to compute [0-15]*iroot ... try some things involving fast permute/shift/adds.
+		Op		Form	Latency	Thruput[how many can start per cycle]
+		-----	----	----	----
+		movd	r32,xmm	2		3	<*** cheaper to do 2-3 redundant movd's instead of movd followed by xmm-copy
+		movddup	xmm,xmm	1		1	<*** formally for copying double in low half of src to both halves of dest, likely data-type-agnostic
+		pshufd	2.xmm,i	1		2
+		paddd	xmm,xmm	1		2	<*** prefer add to << 1 for doubling ***
+		pslld	xmm,i	1		1
+	We then need to do a batch of CVTDQ2PS vector-int32-to-float conversions, which need 5 cycles and can execute 1/cycle...that leads to
+	this still-much-too-slow instruction sequence:
+		movl	[__i],eax
+		movq	[__sm_ptr],rdx
+		leal	(eax,2),ebx			leal	(eax,4),ecx		// 2i,4i
+		movd rax,xmm0  movd rbx,xmm1  movd rcx,xmm2 // [1,2,4]*i in low 32 bits of xmm0,1,2 ... movd latency 2 but 3/cycle
+		pshufd	17,xmm0,xmm0	// [1,0,1,0]*i [MSW of vec @left], order-byte bit pattern [00 gives 1*i, 01 gives 0*i] = 00.01.00.01 = 17
+		pshufd	 5,xmm1,xmm1	// [2,2,0,0]*i, order-byte bit pattern [00 gives 2*i, 01 gives 0*i] = 00.00.01.01 = 5
+		pshufd	 0,xmm2,xmm2	// [4,4,4,4]*i, order-byte bit pattern [00 gives 4*i, 01 gives 0*i] = 00.00.00.00 = 0
+		paddd		xmm1,xmm0	// [3,2,1,0]*i = [1,0,1,0]*i + [2,2,0,0]*i; result overwrites [1,0,1,0]*i
+		movaps	xmm2,xmm1		// copy of [4,4,4,4]*i overwrites [2,2,0,0]*i
+		movaps	xmm2,xmm3		// another copy of [4,4,4,4]*i
+		paddd		xmm2,xmm2	// [8,8,8,8]*i = [4,4,4,4]*i + [4,4,4,4]*i
+		paddd		xmm0,xmm1	// [7,6,5,4]*i = [3,2,1,0]*i + [4,4,4,4]*i; result overwrites copy of [4,4,4,4]*i
+		paddd		xmm3,xmm3	// [8,8,8,8]*i = [4,4,4,4]*i + [4,4,4,4]*i
+		paddd		xmm0,xmm2	// [b,a,9,8]*i = [3,2,1,0]*i + [8,8,8,8]*i
+		paddd		xmm1,xmm3	// [f,e,d,c]*i = [7,6,5,4]*i + [8,8,8,8]*i
+		// Vector analog of the above octants-based scheme, with short-length polynomial approximation to cos(gamma),sin(gamma):
+		movss	[__fndiv16],xmm4
+		pshufd	0,xmm4,xmm4	// Broadcast low 32 bits of xmm4 to all 4 slots of xmm4 ***Want PSHUFD, *not* SHUFPD, even though float data ***
+		// There is no vector-integer DIV, so do the vector io = [ 0-15]*iroot/(n>>4) via SP-floats mul-by-reciprocal:
+		cvtdq2ps	xmm0,xmm0	[similar for xmm1-3]
+		mulps	xmm4,xmm0			"
+		cvtps2dq	xmm0,xmm0		"
+
+	Wait! The fundamental problem is that vector-int MUL is horribly slow on older x86_64 releases, to the extent it was supported at all.
+	But vector-float|double MUL is fast - we can use vector-floats instead. Now e.g. 15*iroot may be larger that a float 24-bit mantissa
+	can hold, but iroot will always have a large power-of-2 component, so that incurs no precision loss in the present context.
+	Similarly with the fndiv16 = 1/(n>>4) term we multiply the [0-15]*iroot vector with ... the only potential precision loss there
+	is any associated with the odd component of n, and since the result, which will get (int)-cast into the octant index, is < 8, it
+	seems unlikely that said index would fail to match the exactly-computed one, except possibly in very rare (Q: how rare?) cases.
+	So, we init a static vec-float = [15.0,14.0,...,1.0,0]
+	*/
+	__asm__ volatile (\
+	"movl	%[__i],%%ebx		\n\t"\
+	"movq	%[__fndiv16],%%rcx	\n\t"\
+	"movq	%[__sc_ptr],%%rax	\n\t"\
+	"movd	%%rbx,%%xmm4		\n\t"\
+	"movss	(%%rcx),%%xmm5		\n\t"/* [0,0,0,1]*fndiv16 */\
+		"pshufd	$0,%%xmm4,%%xmm4	\n\t"/* [1,1,1,1]*i */\
+		"pshufd	$0,%%xmm5,%%xmm5	\n\t"/* Broadcast fndiv16 to all 4 (float) slots of xmm5 ***Want PSHUFD, *not* SHUFPD, even though float data ***/\
+		"cvtdq2pd	%%xmm4,%%xmm7	\n\t"/* Bottom 2 copies of i get converted to doubles */\
+		"cvtdq2ps	%%xmm4,%%xmm4	\n\t"/* xmm5 already has float-format data, no type conversion needed */\
+	/* Here is the local-store layout for the auxiliary data needed by this macro:
+		sign_mask = sc_ptr + 0x48;	// Start v20-added data after v19-alloc block
+		pi4       = sc_ptr + 0x4c;
+		c0thru15  = sc_ptr + 0x4d;
+		// Starting at c0thru15,
+		// first 4 = [1 << (6-L2_SZ_VD)] slots = sc_ptr + 0x[4a-4d] hold (float)0-15
+		// next  8 = [1 << (7-L2_SZ_VD)] slots = sc_ptr + 0x[4e-56] hold (double)0-15
+	*/\
+	"movaps	0x4d0(%%rax),%%xmm0	\n\t"/* (float)[3,2,1,0] */\
+	"movaps	0x4e0(%%rax),%%xmm1	\n\t"/* (float)[7,6,5,4] */\
+	"movaps	0x4f0(%%rax),%%xmm2	\n\t"/* (float)[b,a,9,8] */\
+	"movaps	0x500(%%rax),%%xmm3	\n\t"/* (float)[f,e,d,c] */\
+		"mulps	%%xmm5,%%xmm4	\n\t"/* i*fndiv16, truncate-to-int gives io = i/(n>>4) */\
+	"movaps	0x510(%%rax),%%xmm8	\n\t"/* (double)[1,0]*twopin */\
+	"movaps	0x520(%%rax),%%xmm9	\n\t"/* (double)[3,2]*twopin */\
+	"movaps	0x530(%%rax),%%xmm10\n\t"/* (double)[5,4]*twopin */\
+	"movaps	0x540(%%rax),%%xmm11\n\t"/* (double)[7,6]*twopin */\
+		"mulps	%%xmm4,%%xmm0	\n\t"/* (float)[3,2,1,0]*i*fndiv16 */\
+		"mulps	%%xmm4,%%xmm1	\n\t"/* (float)[7,6,5,4]*i*fndiv16 */\
+		"mulps	%%xmm4,%%xmm2	\n\t"/* (float)[b,a,9,8]*i*fndiv16 */\
+		"mulps	%%xmm4,%%xmm3	\n\t"/* (float)[f,e,d,c]*i*fndiv16 */\
+		"mulpd	%%xmm7,%%xmm8	\n\t"/* (double)[1,0]*twopin*i */\
+		"mulpd	%%xmm7,%%xmm9	\n\t"/* (double)[3,2]*twopin*i */\
+		"mulpd	%%xmm7,%%xmm10	\n\t"/* (double)[5,4]*twopin*i */\
+		"mulpd	%%xmm7,%%xmm11	\n\t"/* (double)[7,6]*twopin*i */\
+		/* (int)((float)i*fndiv16) gives io = i/(n>>4), the vector octant-index: */\
+		"cvttps2dq	%%xmm0,%%xmm0	\n\t"\
+		"cvttps2dq	%%xmm1,%%xmm1	\n\t"\
+		"cvttps2dq	%%xmm2,%%xmm2	\n\t"\
+		"cvttps2dq	%%xmm3,%%xmm3	\n\t"\
+/*** Harmonize xmm-indexing between above and below ***/\
+		/* Convert the 16 dword io-values to concatenated 16-byte vec: */\
+		/* Viewed as 16-byte-vecs, xmm0=[-,-,-,3,-,-,-,2,-,-,-,1,-,-,-,0] */\
+		"pslldq	$1,%%xmm1		\n\t"/* [-,-,7,-,-,-,6,-,-,-,5,-,-,-,4,-] */\
+		"pslldq	$2,%%xmm2		\n\t"/* [-,b,-,-,-,a,-,-,-,9,-,-,-,8,-,-] */\
+		"pslldq	$3,%%xmm3		\n\t"/* [f,-,-,-,e,-,-,-,d,-,-,-,c,-,-,-] */\
+		"paddd %%xmm1,%%xmm0	\n\t"\
+		"paddd %%xmm3,%%xmm2	\n\t"\
+		"paddd %%xmm2,%%xmm0	\n\t"/* xmm0 = [f,b,7,3,e,a,6,2,d,9,5,1,c,8,4,0] */\
+	/***************************************************************************************************
+	would really like io-values packed 4-bits each into a int64 for later manipulations ... can we do this
+	and still preserve the 4-bytes-apart-ness of sequential index pairs for the below cast-to-double?
+	Yes we can: Take above vec-of-bytes and fold-with-shift upper half into lower:
+		[f,b,7,3,e,a,6,2]<<4 + [d,9,5,1,c,8,4,0]
+	then save copy of resulting 64-bit low-half to mem and use working copy for cast-to-double.
+	***************************************************************************************************/\
+		"movaps	%%xmm0,%%xmm1	\n\t"/* copy in xmm1 */
+		"psrldq	$8,%%xmm1		\n\t"/* [-,-,-,-,-,-,-,-,f,b,7,3,e,a,6,2] */
+		"pslld	$4,%%xmm1		\n\t"/* Upper halves of all bytes = 0, so can use any desired granularity for the <<= 4 */\
+		"paddd %%xmm1,%%xmm0	\n\t"/* xmm0: lo64 = packed vector of nibbles [f,d,b,9,7,5,3,1,e,c,a,8,6,4,2,0] *** hi64 still = [f,b,7,3,e,a,6,2] ***/\
+	/* Due to ambiguity re. MOVQ in GCC inline-asm can't copy to a GPR, so save copy of
+	64-bit packed-nibbles io[]-vec to memloc just below sign_mask: */\
+	"movsd	%%xmm0,0x478(%%rax)	\n\t"\
+	"movaps	0x460(%%rax),%%xmm1	\n\t"/* next-lower slot holds 0x1111111111111111 in lo64, 0 in hi64: */\
+	"movaps	0x550(%%rax),%%xmm12	\n\t"/* (double)[9,8]*twopin */\
+	"movaps	0x560(%%rax),%%xmm13	\n\t"/* (double)[b,a]*twopin */\
+	"movaps	0x570(%%rax),%%xmm14	\n\t"/* (double)[d,c]*twopin */\
+	"movaps	0x580(%%rax),%%xmm15	\n\t"/* (double)[f,e]*twopin */\
+		"mulpd	%%xmm7,%%xmm12	\n\t"/* (double)[9,8]*twopin*i */\
+		"mulpd	%%xmm7,%%xmm13	\n\t"/* (double)[b,a]*twopin*i */\
+		"mulpd	%%xmm7,%%xmm14	\n\t"/* (double)[d,c]*twopin*i */\
+		"mulpd	%%xmm7,%%xmm15	\n\t"/* (double)[f,e]*twopin*i */\
+	"movaps	0x450(%%rax),%%xmm7	\n\t"/* next-lower slot holds 0x0000000f0000000f in lo64, 0 in hi64: */\
+		/* AND io (in lo64 of xmm0) with a low-half vector of 1-nibbled to effect iodd = io & 1: */\
+		"pand	%%xmm0,%%xmm1	\n\t"/* lo64 = iodd in vec-of-nibbles */\
+		"paddb	%%xmm1,%%xmm0	\n\t"/* io += iodd: Could actually use any of PADDB/PADDW/PADDD/PADDQ here since no chance of overflow */\
+		/* write results: */\
+/**** Need to duplicate each of the 16 scalar-double cos outputs before writing twinned copies to memory ****/\
+		:					/* outputs: none */\
+		: [__sc_ptr] "m" (sc_ptr),	/* All inputs from memory addresses here */\
+		  [__i] "m" (i),\
+		  [__n] "m" (n),\
+		  [__fndiv16] "m" (fndiv16_ptr)\
+		: "cc","memory","rax","rbx","rcx","r8","r9","r10","r11","r12","r13","r14","r15","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"	/* Clobbered registers */\
+	);
+	#endif
+  #endif	// #endif(0) - experimental code!
 
 	#ifdef REFACTOR_4DFT_3TWIDDLE
 

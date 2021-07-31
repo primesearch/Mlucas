@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -245,7 +245,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 			ASSERT(HERE, 0, char_str);
 		}
 
-		for(i=1; i < NRADICES; i++) 
+		for(i=1; i < NRADICES; i++)
 		{
 			/*...Allocate and initialize an index array containing MM indices...	*/
 			if(i<(NRADICES-1)) {
@@ -557,7 +557,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 			 for even radix_vec0, for which the l1 = 0 and l2 = 1 blocks are processed separately within
 			 pairFFT_mul, i.e. we must call this routine a second time to process data in the l2-block.
 		*/
-		for(ii = 0; ii < radix_vec0; ii += 2) 
+		for(ii = 0; ii < radix_vec0; ii += 2)
 		{
 			if(ii == 0 && !(radix_vec0 & 1))	// Don't need the 2nd clause here since all radices even
 				jhi = 2;
@@ -637,7 +637,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 			continue;
 		} else {
 			/*...Do the final inverse FFT pass, carry propagation and initial forward FFT pass in one fell swoop, er, swell loop...	*/
-			fracmax = 0.0;
+			ierr = 0; fracmax = 0.0;
 			switch(radix_vec0) {
 				// For non-modded FFTmul, no need for:    *** ******** *** *** **         **** ******* ****          *
 				//	ierr = radix16_ditN_cy_dif1      (a,n,nwt,nwt_bits,wt0,wt1,si,0x0,0x0,base,baseinv,iter,&fracmax,p); break;

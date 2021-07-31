@@ -41,7 +41,7 @@ int radix22_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		,i,j,j1,j2,jstart,jhi,iroot,root_incr,k,khi,l,outer;
 	static uint64 psave = 0;
 	static uint32 bw,sw,bjmodnini,p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19,p20,p21, nsave = 0;
-	const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
+	const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 	static double radix_inv, n2inv;
 	static double	cc1 =  0.84125353283118116886,	/* Real part of exp(i*2*pi/11), the radix-11 fundamental sincos datum	*/
 			ss1 =  0.54064081745559758210,	/* Imag part of exp(i*2*pi/11).	*/

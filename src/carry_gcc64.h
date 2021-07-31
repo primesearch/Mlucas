@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -28,7 +28,7 @@ gcc:
 	error: cannot find a register in class ‘GENERAL_REGS’ while reloading ‘asm’
 	error: ‘asm’ operand has impossible constraints
 
-Check the compile optimization level - If 0, try upping to at east -O1.
+Check the compile optimization level - If -O0, try upping to at east -O1.
 #endif
 /*******************************************************************************
    We now include this header file if it was not included before.
@@ -38,11 +38,11 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 
 	/************** See the Visual-studio-style 32-bit analogs of these in carry.h for commented versions: **********/
 
-	/*************************************************************/
-	/**************** FERMAT  -MOD CARRY MACROS ******************/
-	/*************************************************************/
-
 #ifdef USE_ARM_V8_SIMD
+
+	/*************************************************************/
+	/**************** MERSENNE-MOD CARRY MACROS ******************/
+	/*************************************************************/
 
 	/***
 	To-Do: See if LD1 faster than LDP. Ref: https://stackoverflow.com/questions/29742844/a64-neon-simd-256-bit-comparison
@@ -812,7 +812,83 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 	);\
 	}
 
-	// We don't support Fermat-mod in ARMv8 builds, just include skeleton versions of the associated 128-bit SIMD carry macros:
+	// Don't support HIACC version of above Mersenne-mod macros nor Fermat-mod in ARMv8 builds,
+	// so just include skeleton versions of the associated 128-bit SIMD carry macros:
+	#define SSE2_cmplx_carry_norm_pow2_errcheck1_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1, Xprp_mult)\
+	{\
+		SSE2_cmplx_carry_norm_errcheck1_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp1, Xprp_mult)\
+	}
+
+	#define SSE2_cmplx_carry_norm_errcheck1_2B(Xdata,XwtA,XwtB,XwtC,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xi,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp1, Xprp_mult)\
+	{\
+	__asm__ volatile (\
+		"ldr	x0,%[__data]		\n\t"\
+		:					/* outputs: none */\
+		: [__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
+		, [__wtA]		"m" (XwtA)		\
+		, [__wtB]		"m" (XwtB)		\
+		, [__wtC]		"m" (XwtC)		\
+		, [__cyA]		"m" (XcyA)		\
+		, [__cyB]		"m" (XcyB)		\
+		, [__bjmod_0]	"m" (Xbjmod_0)		\
+		, [__half_arr]	"m" (Xhalf_arr)		\
+		, [__i]			"m" (Xi)			\
+		, [__n_minus_silp1] "m" (Xn_minus_silp1)\
+		, [__n_minus_sil]	"m" (Xn_minus_sil)	\
+		, [__sign_mask]	"m" (Xsign_mask)	\
+		, [__sinwt]		"m" (Xsinwt)		\
+		, [__sinwtm1]	"m" (Xsinwtm1)		\
+		, [__sse_bw]	"m" (Xsse_bw)		\
+		, [__sse_n]		"m" (Xsse_n)		\
+		, [__sse_sw]	"m" (Xsse_sw)		\
+		/* Prefetch: base address and 1 index offset */\
+		,	[__add0] "m" (Xadd0)\
+		,	[__p1]   "m" (Xp1)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory"	/* Clobbered registers */\
+	);\
+	}
+
+	#define SSE2_cmplx_carry_norm_pow2_errcheck2_2B(Xdata,XwtA,XwtB,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp2,Xp3, Xprp_mult)\
+	{\
+		SSE2_cmplx_carry_norm_errcheck2_2B(Xdata,XwtA,XwtB,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_nm1,Xsse_sw, Xadd0,Xp2,Xp3, Xprp_mult)\
+	}
+
+	#define SSE2_cmplx_carry_norm_errcheck2_2B(Xdata,XwtA,XwtB,XcyA,XcyB,Xbjmod_0,Xhalf_arr,Xn_minus_silp1,Xn_minus_sil,Xsign_mask,Xsinwt,Xsinwtm1,Xsse_bw,Xsse_n,Xsse_sw, Xadd0,Xp2,Xp3, Xprp_mult)\
+	{\
+	__asm__ volatile (\
+		"ldr	x0,%[__data]		\n\t"\
+		:					/* outputs: none */\
+		: [__data]		"m" (Xdata)	/* All inputs from memory addresses here */\
+		, [__wtA]		"m" (XwtA)		\
+		, [__wtB]		"m" (XwtB)		\
+		, [__cyA]		"m" (XcyA)		\
+		, [__cyB]		"m" (XcyB)		\
+		, [__bjmod_0]	"m" (Xbjmod_0)		\
+		, [__half_arr]	"m" (Xhalf_arr)		\
+		, [__n_minus_silp1] "m" (Xn_minus_silp1)\
+		, [__n_minus_sil]	"m" (Xn_minus_sil)	\
+		, [__sign_mask]	"m" (Xsign_mask)	\
+		, [__sinwt]		"m" (Xsinwt)		\
+		, [__sinwtm1]	"m" (Xsinwtm1)		\
+		, [__sse_bw]	"m" (Xsse_bw)		\
+		, [__sse_n]		"m" (Xsse_n)		\
+		, [__sse_sw]	"m" (Xsse_sw)		\
+		/* Prefetch: base address and 2 index offsets */\
+		,	[__add0] "m" (Xadd0)\
+		,	[__p2]   "m" (Xp2)\
+		,	[__p3]   "m" (Xp3)\
+		/* Mar 2018: Needed to support PRP testing: */\
+		,	[__prp_mult]   "m" (Xprp_mult)\
+		: "cc","memory"	/* Clobbered registers */\
+	);\
+	}
+
+	/*************************************************************/
+	/**************** FERMAT  -MOD CARRY MACROS ******************/
+	/*************************************************************/
+
 	#define SSE2_fermat_carry_norm_pow2_errcheck_X2(Xdata,Xcy,Xnrt_bits,Xnrtm1,Xidx_offset,Xidx_incr,Xhalf_arr,Xsign_mask,Xadd1,Xadd2, Xadd0,Xp1, Xprp_mult)\
 	{\
 	__asm__ volatile (\
@@ -2002,7 +2078,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x20(%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm0 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm1 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
 		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
-	"vfmadd213pd	(%%rbx),%%ymm15,%%ymm0	\n\t vfmadd213pd	(%%rbx),%%ymm15,%%ymm1	\n\t"/* temp = temp*prp_mult + cy */\
+	"vfmadd213pd	(%%rbx),%%ymm15,%%ymm0	\n\t vfmadd213pd	(%%rcx),%%ymm15,%%ymm1	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm0 ,%%ymm8			\n\t	vmovaps		%%ymm1 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -2043,7 +2119,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x20(%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm2 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm3 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
 		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
-	"vfmadd213pd	(%%rbx),%%ymm15,%%ymm2	\n\t vfmadd213pd	(%%rbx),%%ymm15,%%ymm3	\n\t"/* temp = temp*prp_mult + cy */\
+	"vfmadd213pd	(%%rbx),%%ymm15,%%ymm2	\n\t vfmadd213pd	(%%rcx),%%ymm15,%%ymm3	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm2 ,%%ymm8			\n\t	vmovaps		%%ymm3 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -2084,7 +2160,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x20(%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm4 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm5 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
 		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
-	"vfmadd213pd	(%%rbx),%%ymm15,%%ymm4	\n\t vfmadd213pd	(%%rbx),%%ymm15,%%ymm5	\n\t"/* temp = temp*prp_mult + cy */\
+	"vfmadd213pd	(%%rbx),%%ymm15,%%ymm4	\n\t vfmadd213pd	(%%rcx),%%ymm15,%%ymm5	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm4 ,%%ymm8			\n\t	vmovaps		%%ymm5 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -2125,7 +2201,7 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"vmovaps	0x20(%%rdx),%%ymm12	\n\t"/* [baseinv0-3] */\
 		"vsubpd		%%ymm6 ,%%ymm8 ,%%ymm8 	\n\t	vsubpd		%%ymm7 ,%%ymm9 ,%%ymm9 	\n\t"/* frac = [x - temp] */\
 		"vandpd		(%%rsi),%%ymm8 ,%%ymm8 	\n\t	vandpd		(%%rsi),%%ymm9 ,%%ymm9 	\n\t"/* frac = fabs(frac) */\
-	"vfmadd213pd	(%%rbx),%%ymm15,%%ymm6	\n\t vfmadd213pd	(%%rbx),%%ymm15,%%ymm7	\n\t"/* temp = temp*prp_mult + cy */\
+	"vfmadd213pd	(%%rbx),%%ymm15,%%ymm6	\n\t vfmadd213pd	(%%rcx),%%ymm15,%%ymm7	\n\t"/* temp = temp*prp_mult + cy */\
 		"vmaxpd		%%ymm13,%%ymm8 ,%%ymm13	\n\t	vmaxpd		%%ymm14,%%ymm9 ,%%ymm14	\n\t"/* if(frac > maxerr) maxerr=frac */\
 		"vmovaps	%%ymm6 ,%%ymm8			\n\t	vmovaps		%%ymm7 ,%%ymm9			\n\t"/* cpy temp */\
 		"vmulpd		%%ymm12,%%ymm8 ,%%ymm8 	\n\t	vmulpd		%%ymm12,%%ymm9 ,%%ymm9 	\n\t"/* temp*baseinv[0] ... inline the remaining +odd_radix offset in addressing */\
@@ -17433,9 +17509,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"andq	$0x30,	%%rdx			\n\t	andq	$0x30,	%%rcx			\n\t"/* m2 */\
 		"addq	%%rax,	%%rdi			\n\t	addq	%%rax,	%%rbx			\n\t"\
 		"addq	%%rax,	%%rdx			\n\t	addq	%%rax,	%%rcx			\n\t"\
-		"\n\t"\
-		"mulpd		0x100(%%rax),%%xmm2	\n\t	mulpd		0x100(%%rax),%%xmm6	\n\t"/* wt   =wtA*wtl */\
-		"mulpd		0x110(%%rax),%%xmm3	\n\t	mulpd		0x110(%%rax),%%xmm7	\n\t"/* wtinv=wtB*wtn */\
+		/* v20: wtl,wtn address offsets += 0x80 due to harmonization of HIACC & LOACC data layouts: */\
+		"mulpd		0x180(%%rax),%%xmm2	\n\t	mulpd		0x180(%%rax),%%xmm6	\n\t"/* wt   =wtA*wtl */\
+		"mulpd		0x190(%%rax),%%xmm3	\n\t	mulpd		0x190(%%rax),%%xmm7	\n\t"/* wtinv=wtB*wtn */\
 		"mulpd		     (%%rdi),%%xmm2	\n\t	mulpd		     (%%rbx),%%xmm6	\n\t"/* wt   =wt   *one_half[m01] */\
 		"mulpd		0x040(%%rdx),%%xmm3	\n\t	mulpd		0x040(%%rcx),%%xmm7	\n\t"/* wtinv=wtinv*one_half[4+m23] */\
 		"movq	%[__cyA]	,%%rcx		\n\t	movq	%[__cyB]	,%%rdx		\n\t"/* cy_in */\
@@ -17522,9 +17598,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"andq	$0x30,	%%rdx			\n\t	andq	$0x30,	%%rcx			\n\t"/* m2 */\
 		"addq	%%rax,	%%rdi			\n\t	addq	%%rax,	%%rbx			\n\t"\
 		"addq	%%rax,	%%rdx			\n\t	addq	%%rax,	%%rcx			\n\t"\
-		"\n\t"\
-		"mulpd	 0x120(%%rax)	,%%xmm2	\n\t	mulpd	 0x120(%%rax)	,%%xmm6	\n\t"/* wt   =wtA*wtlp1 */\
-		"mulpd	 0x130(%%rax)	,%%xmm3	\n\t	mulpd	 0x130(%%rax)	,%%xmm7	\n\t"/* wtinv=wtC*wtnm1 */\
+		/* v20: wtlp1,wtnm1 address offsets += 0x80 due to harmonization of HIACC & LOACC data layouts: */\
+		"mulpd	 0x1a0(%%rax)	,%%xmm2	\n\t	mulpd	 0x1a0(%%rax)	,%%xmm6	\n\t"/* wt   =wtA*wtlp1 */\
+		"mulpd	 0x1b0(%%rax)	,%%xmm3	\n\t	mulpd	 0x1b0(%%rax)	,%%xmm7	\n\t"/* wtinv=wtC*wtnm1 */\
 		"mulpd	      (%%rdi)	,%%xmm2	\n\t	mulpd	      (%%rbx)	,%%xmm6	\n\t"/* wt   =wt   *one_half[m01] */\
 		"mulpd	 0x040(%%rdx)	,%%xmm3	\n\t	mulpd	 0x040(%%rcx)	,%%xmm7	\n\t"/* wtinv=wtinv*one_half[4+m23] */\
 		"\n\t"\
@@ -17647,9 +17723,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"andq	$0x30,	%%rdx			\n\t	andq	$0x30,	%%rcx			\n\t"/* m2 */\
 		"addq	%%rax,	%%rdi			\n\t	addq	%%rax,	%%rbx			\n\t"\
 		"addq	%%rax,	%%rdx			\n\t	addq	%%rax,	%%rcx			\n\t"\
-		"\n\t"\
-		"mulpd		0x100(%%rax),%%xmm2	\n\t	mulpd		0x100(%%rax),%%xmm6	\n\t"/* wt   =wtA*wtl */\
-		"mulpd		0x110(%%rax),%%xmm3	\n\t	mulpd		0x110(%%rax),%%xmm7	\n\t"/* wtinv=wtB*wtn */\
+		/* v20: wtl,wtn address offsets += 0x80 due to harmonization of HIACC & LOACC data layouts: */\
+		"mulpd		0x180(%%rax),%%xmm2	\n\t	mulpd		0x180(%%rax),%%xmm6	\n\t"/* wt   =wtA*wtl */\
+		"mulpd		0x190(%%rax),%%xmm3	\n\t	mulpd		0x190(%%rax),%%xmm7	\n\t"/* wtinv=wtB*wtn */\
 		"mulpd		     (%%rdi),%%xmm2	\n\t	mulpd		     (%%rbx),%%xmm6	\n\t"/* wt   =wt   *one_half[m01] */\
 		"mulpd		0x040(%%rdx),%%xmm3	\n\t	mulpd		0x040(%%rcx),%%xmm7	\n\t"/* wtinv=wtinv*one_half[4+m23] */\
 		"movq	%[__cyA]	,%%rcx		\n\t	movq	%[__cyB]	,%%rdx		\n\t"/* cy_in */\
@@ -17735,9 +17811,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"andq	$0x30,	%%rdx			\n\t	andq	$0x30,	%%rcx			\n\t"/* m2 */\
 		"addq	%%rax,	%%rdi			\n\t	addq	%%rax,	%%rbx			\n\t"\
 		"addq	%%rax,	%%rdx			\n\t	addq	%%rax,	%%rcx			\n\t"\
-		"\n\t"\
-		"mulpd	 0x120(%%rax)	,%%xmm2	\n\t	mulpd	 0x120(%%rax)	,%%xmm6	\n\t"\
-		"mulpd	 0x130(%%rax)	,%%xmm3	\n\t	mulpd	 0x130(%%rax)	,%%xmm7	\n\t"\
+		/* v20: wtlp1,wtnm1 address offsets += 0x80 due to harmonization of HIACC & LOACC data layouts: */\
+		"mulpd	 0x1a0(%%rax)	,%%xmm2	\n\t	mulpd	 0x1a0(%%rax)	,%%xmm6	\n\t"\
+		"mulpd	 0x1b0(%%rax)	,%%xmm3	\n\t	mulpd	 0x1b0(%%rax)	,%%xmm7	\n\t"\
 		"mulpd	      (%%rdi)	,%%xmm2	\n\t	mulpd	      (%%rbx)	,%%xmm6	\n\t"\
 		"mulpd	 0x040(%%rdx)	,%%xmm3	\n\t	mulpd	 0x040(%%rcx)	,%%xmm7	\n\t"\
 		"\n\t"\
@@ -18431,9 +18507,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"andq	$0x30,	%%rdx			\n\t	andq	$0x30,	%%rcx			\n\t"\
 		"addq	%%rax,	%%rdi			\n\t	addq	%%rax,	%%rbx			\n\t"\
 		"addq	%%rax,	%%rdx			\n\t	addq	%%rax,	%%rcx			\n\t"\
-		"\n\t"\
-		"mulpd		0x100(%%rax),%%xmm2	\n\t	mulpd		0x100(%%rax),%%xmm6	\n\t"/* wt   =wtA*wtl */\
-		"mulpd		0x110(%%rax),%%xmm3	\n\t	mulpd		0x110(%%rax),%%xmm7	\n\t"/* wtinv=wtB*wtn */\
+		/* v20: wtl,wtn address offsets += 0x80 due to harmonization of HIACC & LOACC data layouts: */\
+		"mulpd		0x180(%%rax),%%xmm2	\n\t	mulpd		0x180(%%rax),%%xmm6	\n\t"/* wt   =wtA*wtl */\
+		"mulpd		0x190(%%rax),%%xmm3	\n\t	mulpd		0x190(%%rax),%%xmm7	\n\t"/* wtinv=wtB*wtn */\
 		"mulpd		     (%%rdi),%%xmm2	\n\t	mulpd		     (%%rbx),%%xmm6	\n\t"/* wt   =wt   *one_half[m01] */\
 		"mulpd		0x040(%%rdx),%%xmm3	\n\t	mulpd		0x040(%%rcx),%%xmm7	\n\t"/* wtinv=wtinv*one_half[4+m23] */\
 		"\n\t"\
@@ -18525,9 +18601,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"andq	$0x30,	%%rdx			\n\t	andq	$0x30,	%%rcx			\n\t"\
 		"addq	%%rax,	%%rdi			\n\t	addq	%%rax,	%%rbx			\n\t"\
 		"addq	%%rax,	%%rdx			\n\t	addq	%%rax,	%%rcx			\n\t"\
-		"\n\t"\
-		"mulpd	 0x120(%%rax)	,%%xmm2	\n\t	mulpd	 0x120(%%rax)	,%%xmm6	\n\t"/* wt   =wtA*wtlp1 */\
-		"mulpd	 0x130(%%rax)	,%%xmm3	\n\t	mulpd	 0x130(%%rax)	,%%xmm7	\n\t"/* wtinv=wtC*wtnm1 */\
+		/* v20: wtlp1,wtnm1 address offsets += 0x80 due to harmonization of HIACC & LOACC data layouts: */\
+		"mulpd	 0x1a0(%%rax)	,%%xmm2	\n\t	mulpd	 0x1a0(%%rax)	,%%xmm6	\n\t"/* wt   =wtA*wtlp1 */\
+		"mulpd	 0x1b0(%%rax)	,%%xmm3	\n\t	mulpd	 0x1b0(%%rax)	,%%xmm7	\n\t"/* wtinv=wtC*wtnm1 */\
 		"mulpd	      (%%rdi)	,%%xmm2	\n\t	mulpd	      (%%rbx)	,%%xmm6	\n\t"/* wt   =wt   *one_half[m01] */\
 		"mulpd	 0x040(%%rdx)	,%%xmm3	\n\t	mulpd	 0x040(%%rcx)	,%%xmm7	\n\t"/* wtinv=wtinv*one_half[4+m23] */\
 		"\n\t"\
@@ -18654,9 +18730,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"andq	$0x30,	%%rdx			\n\t	andq	$0x30,	%%rcx			\n\t"\
 		"addq	%%rax,	%%rdi			\n\t	addq	%%rax,	%%rbx			\n\t"\
 		"addq	%%rax,	%%rdx			\n\t	addq	%%rax,	%%rcx			\n\t"\
-		"\n\t"\
-		"mulpd		0x100(%%rax),%%xmm2	\n\t	mulpd		0x100(%%rax),%%xmm6	\n\t"\
-		"mulpd		0x110(%%rax),%%xmm3	\n\t	mulpd		0x110(%%rax),%%xmm7	\n\t"\
+		/* v20: wtlp1,wtnm1 address offsets += 0x80 due to harmonization of HIACC & LOACC data layouts: */\
+		"mulpd		0x180(%%rax),%%xmm2	\n\t	mulpd		0x180(%%rax),%%xmm6	\n\t"\
+		"mulpd		0x190(%%rax),%%xmm3	\n\t	mulpd		0x190(%%rax),%%xmm7	\n\t"\
 		"mulpd		     (%%rdi),%%xmm2	\n\t	mulpd		     (%%rbx),%%xmm6	\n\t"\
 		"mulpd		0x040(%%rdx),%%xmm3	\n\t	mulpd		0x040(%%rcx),%%xmm7	\n\t"\
 		"\n\t"\
@@ -18748,9 +18824,9 @@ Check the compile optimization level - If 0, try upping to at east -O1.
 		"andq	$0x30,	%%rdx			\n\t	andq	$0x30,	%%rcx			\n\t"\
 		"addq	%%rax,	%%rdi			\n\t	addq	%%rax,	%%rbx			\n\t"\
 		"addq	%%rax,	%%rdx			\n\t	addq	%%rax,	%%rcx			\n\t"\
-		"\n\t"\
-		"mulpd	 0x120(%%rax)	,%%xmm2	\n\t	mulpd	 0x120(%%rax)	,%%xmm6	\n\t"\
-		"mulpd	 0x130(%%rax)	,%%xmm3	\n\t	mulpd	 0x130(%%rax)	,%%xmm7	\n\t"\
+		/* v20: wtlp1,wtnm1 address offsets += 0x80 due to harmonization of HIACC & LOACC data layouts: */\
+		"mulpd	 0x1a0(%%rax)	,%%xmm2	\n\t	mulpd	 0x1a0(%%rax)	,%%xmm6	\n\t"\
+		"mulpd	 0x1b0(%%rax)	,%%xmm3	\n\t	mulpd	 0x1b0(%%rax)	,%%xmm7	\n\t"\
 		"mulpd	      (%%rdi)	,%%xmm2	\n\t	mulpd	      (%%rbx)	,%%xmm6	\n\t"\
 		"mulpd	 0x040(%%rdx)	,%%xmm3	\n\t	mulpd	 0x040(%%rcx)	,%%xmm7	\n\t"\
 		"\n\t"\

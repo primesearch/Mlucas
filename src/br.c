@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -30,7 +30,7 @@
 /*** NOTE: The printout is in row/col-bite-reversed form! ***/
 void print_pow2_twiddles(const uint32 n, const uint32 p, const uint32 q)
 {
-	const uint32 n2 = n>>1, n4 = n>>2, n8 = n>>3, lgn = trailz32(n);
+	const uint32 n2 = n>>1, n4 = n>>2, n8 = n>>3, lgn = trailz32(n),lgp = trailz32(p), lgq = trailz32(q);
 	uint32 pow2,odd, re_im_idx, sigma,signs;
 	int i,ir,j,k,pow;
 	const char csigns[2] = {'+','-'};
@@ -40,10 +40,10 @@ void print_pow2_twiddles(const uint32 n, const uint32 p, const uint32 q)
 	ASSERT(HERE, n == p*q, "n != p*q!");
 	printf("Fundamental-root powers for %d x %d impl of radix-%d DFT:\n",p,q,n);
 	for(i = 1; i < p; i++) {	// Skip 0-row, since those roots = 1
-		ir = reverse(i, p);
+		ir = reverse(i,lgp);
 		printf("Block %x: ",ir);
 		for(j = 1; j < q; j++) {	// Skip 0-col, since that root = 1
-			k = ir*reverse(j, q);
+			k = ir*reverse(j,lgq);
 			prefix[0] = prefix[1] = prefix[2] = ' ';
 			// First do the basic E^j = -E^(j-n2) reduction for j >= n2:
 			pow = k;
@@ -86,7 +86,7 @@ void print_pow2_twiddles(const uint32 n, const uint32 p, const uint32 q)
 			signs = (prefix[2] == '~')<<1;	// 0 bit: sign of re part; 1-bit: sign of im part
 			// If re/im swapped, need to swap 2 bits of sign field:
 			if(re_im_idx)
-				signs = reverse(signs, 4);	// reverse() takes #birs arg in the form n = 2^#bits, thus n = 2^2 = 4
+				signs = reverse(signs,2);
 			if(prefix[0] == '-')	// Flip both components' signs
 				signs = ~signs;
 			// Now assemble the final output-formatted sincos pair:

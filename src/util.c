@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -22,6 +22,7 @@
 
 #include "align.h"
 #include "util.h"
+#include "factor.h"	// Needed for twopmodq64() prototype
 #include "imul_macro.h"
 #ifdef TEST_SIMD
 	#include "dft_macro.h"
@@ -149,63 +150,30 @@ int mlucas_nanosleep(const struct timespec *req)
 	return ret;
 }
 
-/*** Const-arrays used in POPCNT and related bit-counting functions: ***/
-// Bytewise POPCNT:
-const uint8 pop8[256] = {
-	0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,
-	1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,
-	1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,
-	2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,4,5,5,6,5,6,6,7,5,6,6,7,6,7,7,8
-};
-// Bytewise LEADZ:
-const uint8 lz8[256] = {
-	8,7,6,6,5,5,5,5,4,4,4,4,4,4,4,4,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
-	1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-};
-// Bytewise TRAILZ:
-const uint8 tz8[256] = {
-	8,0,1,0,2,0,1,0,3,0,1,0,2,0,1,0,4,0,1,0,2,0,1,0,3,0,1,0,2,0,1,0,5,0,1,0,2,0,1,0,3,0,1,0,2,0,1,0,4,0,1,0,2,0,1,0,3,0,1,0,2,0,1,0,
-	6,0,1,0,2,0,1,0,3,0,1,0,2,0,1,0,4,0,1,0,2,0,1,0,3,0,1,0,2,0,1,0,5,0,1,0,2,0,1,0,3,0,1,0,2,0,1,0,4,0,1,0,2,0,1,0,3,0,1,0,2,0,1,0,
-	7,0,1,0,2,0,1,0,3,0,1,0,2,0,1,0,4,0,1,0,2,0,1,0,3,0,1,0,2,0,1,0,5,0,1,0,2,0,1,0,3,0,1,0,2,0,1,0,4,0,1,0,2,0,1,0,3,0,1,0,2,0,1,0,
-	6,0,1,0,2,0,1,0,3,0,1,0,2,0,1,0,4,0,1,0,2,0,1,0,3,0,1,0,2,0,1,0,5,0,1,0,2,0,1,0,3,0,1,0,2,0,1,0,4,0,1,0,2,0,1,0,3,0,1,0,2,0,1,0
-};
+/******* Supplements to stdio (e.g. binary-formatted output) *********/
 
-/* Bytewise ith_set_bit - the 8 4-bit subfields of each uint32 are numbered 1-8 and store the
-location [0-7] of the 1st-8th set bit in each byte, with hex-F denoting 'no such set bit'.
-Here is the simple C-snippet used to auto-generate the array data:
-uint32 i,j,bit,x32;
-for(i = 0; i < 256; i++) {
-	x32 = bit = 0;
-	for(j = 0; (j < 8) && (bit < pop8[i]); j++) {
-		if((i>>j)&1) x32 += j<<(4*bit++);
-	}
-	for(j = bit ; j < 8; j++) {
-		x32 += 0xf<<(4*j);
-	}
-	printf("0x%8X,",x32);
+void byte_bitstr(const uint8 byte, char*ostr)
+{
+	strcpy(ostr, bytestr[byte]);
 }
-printf("\n");
-*/
-const uint32 ith_set_bit8[256] = {
-	0xFFFFFFFF,0xFFFFFFF0,0xFFFFFFF1,0xFFFFFF10,0xFFFFFFF2,0xFFFFFF20,0xFFFFFF21,0xFFFFF210,0xFFFFFFF3,0xFFFFFF30,0xFFFFFF31,0xFFFFF310,0xFFFFFF32,0xFFFFF320,0xFFFFF321,0xFFFF3210,
-	0xFFFFFFF4,0xFFFFFF40,0xFFFFFF41,0xFFFFF410,0xFFFFFF42,0xFFFFF420,0xFFFFF421,0xFFFF4210,0xFFFFFF43,0xFFFFF430,0xFFFFF431,0xFFFF4310,0xFFFFF432,0xFFFF4320,0xFFFF4321,0xFFF43210,
-	0xFFFFFFF5,0xFFFFFF50,0xFFFFFF51,0xFFFFF510,0xFFFFFF52,0xFFFFF520,0xFFFFF521,0xFFFF5210,0xFFFFFF53,0xFFFFF530,0xFFFFF531,0xFFFF5310,0xFFFFF532,0xFFFF5320,0xFFFF5321,0xFFF53210,
-	0xFFFFFF54,0xFFFFF540,0xFFFFF541,0xFFFF5410,0xFFFFF542,0xFFFF5420,0xFFFF5421,0xFFF54210,0xFFFFF543,0xFFFF5430,0xFFFF5431,0xFFF54310,0xFFFF5432,0xFFF54320,0xFFF54321,0xFF543210,
-	0xFFFFFFF6,0xFFFFFF60,0xFFFFFF61,0xFFFFF610,0xFFFFFF62,0xFFFFF620,0xFFFFF621,0xFFFF6210,0xFFFFFF63,0xFFFFF630,0xFFFFF631,0xFFFF6310,0xFFFFF632,0xFFFF6320,0xFFFF6321,0xFFF63210,
-	0xFFFFFF64,0xFFFFF640,0xFFFFF641,0xFFFF6410,0xFFFFF642,0xFFFF6420,0xFFFF6421,0xFFF64210,0xFFFFF643,0xFFFF6430,0xFFFF6431,0xFFF64310,0xFFFF6432,0xFFF64320,0xFFF64321,0xFF643210,
-	0xFFFFFF65,0xFFFFF650,0xFFFFF651,0xFFFF6510,0xFFFFF652,0xFFFF6520,0xFFFF6521,0xFFF65210,0xFFFFF653,0xFFFF6530,0xFFFF6531,0xFFF65310,0xFFFF6532,0xFFF65320,0xFFF65321,0xFF653210,
-	0xFFFFF654,0xFFFF6540,0xFFFF6541,0xFFF65410,0xFFFF6542,0xFFF65420,0xFFF65421,0xFF654210,0xFFFF6543,0xFFF65430,0xFFF65431,0xFF654310,0xFFF65432,0xFF654320,0xFF654321,0xF6543210,
-	0xFFFFFFF7,0xFFFFFF70,0xFFFFFF71,0xFFFFF710,0xFFFFFF72,0xFFFFF720,0xFFFFF721,0xFFFF7210,0xFFFFFF73,0xFFFFF730,0xFFFFF731,0xFFFF7310,0xFFFFF732,0xFFFF7320,0xFFFF7321,0xFFF73210,
-	0xFFFFFF74,0xFFFFF740,0xFFFFF741,0xFFFF7410,0xFFFFF742,0xFFFF7420,0xFFFF7421,0xFFF74210,0xFFFFF743,0xFFFF7430,0xFFFF7431,0xFFF74310,0xFFFF7432,0xFFF74320,0xFFF74321,0xFF743210,
-	0xFFFFFF75,0xFFFFF750,0xFFFFF751,0xFFFF7510,0xFFFFF752,0xFFFF7520,0xFFFF7521,0xFFF75210,0xFFFFF753,0xFFFF7530,0xFFFF7531,0xFFF75310,0xFFFF7532,0xFFF75320,0xFFF75321,0xFF753210,
-	0xFFFFF754,0xFFFF7540,0xFFFF7541,0xFFF75410,0xFFFF7542,0xFFF75420,0xFFF75421,0xFF754210,0xFFFF7543,0xFFF75430,0xFFF75431,0xFF754310,0xFFF75432,0xFF754320,0xFF754321,0xF7543210,
-	0xFFFFFF76,0xFFFFF760,0xFFFFF761,0xFFFF7610,0xFFFFF762,0xFFFF7620,0xFFFF7621,0xFFF76210,0xFFFFF763,0xFFFF7630,0xFFFF7631,0xFFF76310,0xFFFF7632,0xFFF76320,0xFFF76321,0xFF763210,
-	0xFFFFF764,0xFFFF7640,0xFFFF7641,0xFFF76410,0xFFFF7642,0xFFF76420,0xFFF76421,0xFF764210,0xFFFF7643,0xFFF76430,0xFFF76431,0xFF764310,0xFFF76432,0xFF764320,0xFF764321,0xF7643210,
-	0xFFFFF765,0xFFFF7650,0xFFFF7651,0xFFF76510,0xFFFF7652,0xFFF76520,0xFFF76521,0xFF765210,0xFFFF7653,0xFFF76530,0xFFF76531,0xFF765310,0xFFF76532,0xFF765320,0xFF765321,0xF7653210,
-	0xFFFF7654,0xFFF76540,0xFFF76541,0xFF765410,0xFFF76542,0xFF765420,0xFF765421,0xF7654210,0xFFF76543,0xFF765430,0xFF765431,0xF7654310,0xFF765432,0xF7654320,0xF7654321,0x76543210
-};
+
+void	ui32_bitstr(const uint32 ui32, char*ostr)
+{
+	int i;
+	for(i = 0; i < 32; i += 8) {
+		// High byte ==> leftmost 8 chars of output string, thus the (24 - i)
+		byte_bitstr((uint8)(ui32 >> (24 - i)), ostr + i);
+	}
+}
+
+void	ui64_bitstr(const uint64 ui64, char*ostr)
+{
+	int i;
+	for(i = 0; i < 64; i += 8) {
+		// High byte ==> leftmost 8 chars of output string, thus the (56 - i)
+		byte_bitstr((uint8)(ui64 >> (56 - i)), ostr + i);
+	}
+}
 
 // Def ENABLE_MPRIME_PM1_SMOOTH at compile time to enable Mp p-1 smoothness code:
 #ifdef ENABLE_MPRIME_PM1_SMOOTH
@@ -245,7 +213,7 @@ const uint32 ith_set_bit8[256] = {
 		y = (uint64 *)calloc(lenX + 1, sizeof(uint64));
 		// 10^100 has 333 bits, thus needs 6 uint64s, as do the mod-10^100 remainders,
 		// but we allow the convert_base10_char_mi64() utility to do the allocation of the former for us:
-		ASSERT(HERE, 0x0 != (d = convert_base10_char_mi64("1000000000000000000000000000", &lenD)) && (lenD == 2), "0");
+		lenD = 0; ASSERT(HERE, 0x0 != (d = convert_base10_char_mi64("1000000000000000000000000000", &lenD)) && (lenD == 2), "0");
 		r = (uint64 *)calloc(lenD, sizeof(uint64));
 		nc -= 28;		// starting char of first 27-digit chunk
 		for(i = 0; ; i+=2) {	// i = #divides counter; do 2 divs per loop exec in attempt to get some modest pipelining
@@ -749,7 +717,7 @@ const uint32 ith_set_bit8[256] = {
 		}
 	}
 
-#ifdef USE_FMADD
+  #ifdef USE_FMADD
 
 	__global__ void VecMul50x50_exact(double*a, double*b, double*lo, double*hi)
 	{
@@ -814,7 +782,7 @@ const uint32 ith_set_bit8[256] = {
 		printf("CUDA fma_dmult_tests completed successfully!\n");
 	}
 
-#endif
+  #endif
 
 	/**********************************************************************************************/
 
@@ -869,7 +837,7 @@ const uint32 ith_set_bit8[256] = {
 			ASSERT(HERE, k*(p<<1)+1 == q, "k computed incorrectly!");
 			*(h_p     + i) = p          ;	*(h_pshft + i) = pshift     ;	*(h_k + i) = k;
 			*(h_zshft + i) = zshift     ;	*(h_stidx + i) = start_index;
-//	printf("p[%3d] = %u: pshift = %8u, zshift = %8u, stidx = %2u, k = %llu\n",i, p, pshift, zshift, start_index, k);
+		//	printf("p[%3d] = %u: pshift = %8u, zshift = %8u, stidx = %2u, k = %llu\n",i, p, pshift, zshift, start_index, k);
 		}
 		printf("Testing %d = %d 64-bit and %d 63-bit known-factors...",N,nelt64,N-nelt64);
 
@@ -878,7 +846,7 @@ const uint32 ith_set_bit8[256] = {
 		for(i = 0; i < N; ++i) {
 			*(h_B+i) = 0;
 		}
-//printf("Host code: p = %u, pshift = %u, k = %llu, zshift = %u, start_index = %u\n", p,pshift,h_A[0],zshift,start_index);
+	//	printf("Host code: p = %u, pshift = %u, k = %llu, zshift = %u, start_index = %u\n", p,pshift,h_A[0],zshift,start_index);
 		// Allocate vectors in device memory
 		uint64 *d_p,*d_pshft,*d_k;
 		uint32 *d_zshft,*d_stidx;
@@ -899,7 +867,7 @@ const uint32 ith_set_bit8[256] = {
 		int threadsPerBlock = 256;
 		int blocksPerGrid = (N + threadsPerBlock - 1) / threadsPerBlock;
 
-//	printf("VecModpow64<<< %d, %d >>> with %d 64-bit known-factors:\n", blocksPerGrid, threadsPerBlock, N);
+	//	printf("VecModpow64<<< %d, %d >>> with %d 64-bit known-factors:\n", blocksPerGrid, threadsPerBlock, N);
 		VecModpow64<<<blocksPerGrid, threadsPerBlock>>>(d_p,d_pshft,d_zshft,d_stidx,d_k, d_B, N);
 
 		// Copy result from device memory to host memory
@@ -962,7 +930,7 @@ const uint32 ith_set_bit8[256] = {
 		for(i = 0; i < N; ++i) {
 			*(h_B+i) = 0;
 		}
-//printf("Host code: p = %u, pshift = %u, k = %llu, zshift = %u, start_index = %u\n", p,pshift,h_A[0],zshift,start_index);
+	//	printf("Host code: p = %u, pshift = %u, k = %llu, zshift = %u, start_index = %u\n", p,pshift,h_A[0],zshift,start_index);
 		// Allocate vectors in device memory
 		uint64 *d_p,*d_pshft,*d_k;
 		uint32 *d_zshft,*d_stidx;
@@ -983,10 +951,10 @@ const uint32 ith_set_bit8[256] = {
 		int threadsPerBlock = 256;
 		int blocksPerGrid = (N + threadsPerBlock - 1) / threadsPerBlock;
 
-//	printf("VecModpow78<<< %d, %d >>> with %d copies of same 78-bit known-factor [blocksPerGrid = %d, threadsPerBlock = %d]:\n", blocksPerGrid, threadsPerBlock, N);
+	//	printf("VecModpow78<<< %d, %d >>> with %d copies of same 78-bit known-factor [blocksPerGrid = %d, threadsPerBlock = %d]:\n", blocksPerGrid, threadsPerBlock, N);
 		VecModpow78<<<blocksPerGrid, threadsPerBlock>>>(d_p,d_pshft,d_zshft,d_stidx,d_k, d_B, N);
-//	printf("GPU_TF78<<< %d, %d >>> with %d copies of same 78-bit known-factor:\n", blocksPerGrid, threadsPerBlock, N);
-//		GPU_TF78<<<blocksPerGrid, threadsPerBlock>>>(p,pshift,zshift,start_index, d_k, d_B, N);
+	//	printf("GPU_TF78<<< %d, %d >>> with %d copies of same 78-bit known-factor:\n", blocksPerGrid, threadsPerBlock, N);
+	//	GPU_TF78<<<blocksPerGrid, threadsPerBlock>>>(p,pshift,zshift,start_index, d_k, d_B, N);
 
 		// Copy result from device memory to host memory
 		// h_B contains the result in host memory
@@ -1053,7 +1021,7 @@ const uint32 ith_set_bit8[256] = {
 			k = (uint64)rnd;
 			*(h_p     + nelts) = p          ;	*(h_pshft + nelts) = pshift     ;	*(h_k + nelts) = k;
 			*(h_zshft + nelts) = zshift     ;	*(h_stidx + nelts) = start_index;
-//	printf("p[%3d] = %u: pshift = %8u, zshift = %8u, stidx = %2u, k = %llu\n",nelts, p, pshift, zshift, start_index, k);
+	//	printf("p[%3d] = %u: pshift = %8u, zshift = %8u, stidx = %2u, k = %llu\n",nelts, p, pshift, zshift, start_index, k);
 			++nelts;
 		}
 		printf("Testing %d 78-bit known-factors...",nelts);
@@ -1085,7 +1053,7 @@ const uint32 ith_set_bit8[256] = {
 		for(i = 0; i < N; ++i) {
 			*(h_B+i) = 0;
 		}
-//printf("Host code: p = %u, pshift = %u, k = %llu, zshift = %u, start_index = %u\n", p,pshift,h_A[0],zshift,start_index);
+	//	printf("Host code: p = %u, pshift = %u, k = %llu, zshift = %u, start_index = %u\n", p,pshift,h_A[0],zshift,start_index);
 		// Allocate vectors in device memory
 		uint64 *d_p,*d_pshft,*d_k;
 		uint32 *d_zshft,*d_stidx;
@@ -1106,7 +1074,7 @@ const uint32 ith_set_bit8[256] = {
 		int threadsPerBlock = 256;
 		int blocksPerGrid = (N + threadsPerBlock - 1) / threadsPerBlock;
 
-//		printf("VecModpow78 with %d 78-bit known-factors [blocksPerGrid = %d, threadsPerBlock = %d]:\n",nelts, blocksPerGrid, threadsPerBlock);
+	//	printf("VecModpow78 with %d 78-bit known-factors [blocksPerGrid = %d, threadsPerBlock = %d]:\n",nelts, blocksPerGrid, threadsPerBlock);
 		VecModpow78<<<blocksPerGrid, threadsPerBlock>>>(d_p,d_pshft,d_zshft,d_stidx,d_k, d_B, nelts);
 
 		// Copy result from device memory to host memory
@@ -1194,7 +1162,7 @@ const uint32 ith_set_bit8[256] = {
 			}
 			*(h_p     + nelts) = p          ;	*(h_pshft + nelts) = pshift     ;	*(h_k + nelts) = k;
 			*(h_zshft + nelts) = zshift     ;	*(h_stidx + nelts) = start_index;
-//	printf("p[%3d] = %u: pshift = %8u, zshift = %8u, stidx = %2u, k = %llu\n",nelts, p, pshift, zshift, start_index, k);
+	//	printf("p[%3d] = %u: pshift = %8u, zshift = %8u, stidx = %2u, k = %llu\n",nelts, p, pshift, zshift, start_index, k);
 			++nelts;
 		}
 		printf("Testing %d 96-bit known-factors...",nelts);
@@ -1226,7 +1194,7 @@ const uint32 ith_set_bit8[256] = {
 		for(i = 0; i < N; ++i) {
 			*(h_B+i) = 0;
 		}
-//printf("Host code: p = %u, pshift = %u, k = %llu, zshift = %u, start_index = %u\n", p,pshift,h_A[0],zshift,start_index);
+	//	printf("Host code: p = %u, pshift = %u, k = %llu, zshift = %u, start_index = %u\n", p,pshift,h_A[0],zshift,start_index);
 		// Allocate vectors in device memory
 		uint64 *d_p,*d_pshft,*d_k;
 		uint32 *d_zshft,*d_stidx;
@@ -1247,7 +1215,7 @@ const uint32 ith_set_bit8[256] = {
 		int threadsPerBlock = 256;
 		int blocksPerGrid = (N + threadsPerBlock - 1) / threadsPerBlock;
 
-//		printf("VecModpow96 with %d 96-bit known-factors [blocksPerGrid = %d, threadsPerBlock = %d]:\n",nelts, blocksPerGrid, threadsPerBlock);
+	//	printf("VecModpow96 with %d 96-bit known-factors [blocksPerGrid = %d, threadsPerBlock = %d]:\n",nelts, blocksPerGrid, threadsPerBlock);
 		VecModpow96<<<blocksPerGrid, threadsPerBlock>>>(d_p,d_pshft,d_zshft,d_stidx,d_k, d_B, nelts);
 
 		// Copy result from device memory to host memory
@@ -1272,7 +1240,7 @@ const uint32 ith_set_bit8[256] = {
 		printf("cudaVecModpowTest96 with %d test (p,q) pairs succeeded!\n",nelts);
 	}
 
-#endif
+#endif	// #if defined(USE_GPU) && defined(__CUDACC__)
 
 #undef PLATFORM_SKIP_RND_CONST_ENFORCEMENT
 
@@ -1484,6 +1452,12 @@ void host_init(void)
 	TWO63FLOAT = (double)2.0*0x80000000*0x80000000;
 	TWO64FLOAT = (double)4.0*0x80000000*0x80000000;	TWO64FLINV = 1.0/TWO64FLOAT;
 
+	// Check hashing routines in mi64 library (TO-DO: elaborate this into a full-blown mi64_test suite):
+/*	printf("INFO: mi64 hashing routines...\n");
+	uint64 md5[2], *x= (uint64 *)calloc(1000, sizeof(uint64));
+	uint32 len = 10; // Only need 8 for md5-hash of 0
+	mi64_md5(x, len, md5, cbuf);	sprintf(stderr,"MD5 = %s\n",cbuf);
+*/
 	/* Check qfloat routines (this call is also needed to init various qfloat global constants): */
 	printf("INFO: testing qfloat routines...\n");
 	qtest();	// 09/23/2012: Move to after above float-consts-inits because of the qfloat/mi64 routines which use those consts.
@@ -1528,6 +1502,23 @@ exit(0);
 #endif
 
 // Quick timings of various mi64 stuff:
+#if 0
+	// Apr 2021: check known factor of F31:
+	rng_isaac_init(TRUE);
+	uint64 rem[2] = {0ull,0ull}, q[2] = {3118754346955702273ull,2544ull};	// k = 3.13.140091319777; q = k.2^(m+2) + 1
+	int i,isfact,nlimb = (1<<25) + 1;	// # of 64-bit limbs in F31, which has 2^31+1 bits, thus needs one extra limb for the high 1-bit
+	uint64*vec1 = calloc(nlimb,sizeof(uint64));	ASSERT(HERE, vec1 != NULL, "vec1[]-array alloc failed!");
+	vec1[nlimb-1] = vec1[0] = 1ull;
+	isfact = mi64_div(vec1,q, nlimb,2, 0x0, rem);
+	ASSERT(HERE, isfact != 0, "Failed to find known stage 2 factor!");
+	// Now try a random (mlimb-1)-length multiple of q:
+	for(i = 0; i < nlimb-3; i++) { vec1[i] = rng_isaac_rand(); }
+	uint64*vec2 = calloc(nlimb,sizeof(uint64));	ASSERT(HERE, vec2 != NULL, "vec2[]-array alloc failed!");
+	mi64_mul_vector(vec1,nlimb-3, q,2, vec2,&i);	// i holds product length on return
+	isfact = mi64_div(vec2,q, nlimb-1,2, 0x0, rem);
+	ASSERT(HERE, isfact != 0, "Failed to find known stage 2 factor!");
+exit(0);
+#endif
 #if 0
 
 	rng_isaac_init(TRUE);
@@ -1837,11 +1828,54 @@ void set_stacklimit_restart(char *argv[])
 #endif /* CPU_IS_X86  */
 }
 
-#ifdef CPU_IS_ARM_EABI
+// Return available system RAM in MB:
+uint32 get_system_ram(void) {
+#ifdef OS_TYPE_LINUX
+
+	#include <sys/sysinfo.h>
+	/* Here the syntax of the sysinfo() call, and the components of the sysinfo struct:
+
+		int sysinfo(struct sysinfo *info);
+
+		struct sysinfo {
+			long uptime;				// Seconds since boot
+			unsigned long loads[3];		// 1, 5, and 15 minute load averages
+			unsigned long totalram;		// Total usable main memory size
+			unsigned long freeram;		// Available memory size
+			unsigned long sharedram;	// Amount of shared memory
+			unsigned long bufferram;	// Memory used by buffers
+			unsigned long totalswap;	// Total swap space size
+			unsigned long freeswap;		// swap space still available
+			unsigned short procs;		// Number of current processes
+			unsigned long totalhigh;	// Total high memory size
+			unsigned long freehigh;		// Available high memory size
+			unsigned int mem_unit;		// Memory unit size in bytes
+			char _f[20-2*sizeof(long)-sizeof(int)]; // Padding for libc5
+		};
+	*/
+	struct sysinfo info;
+	sysinfo(&info);
+	fprintf(stderr,"System total RAM = %lu, free RAM = %lu\n",info.totalram>>20,info.freeram>>20);
+	return (info.freeram)>>20;
+
+#elif defined(OS_TYPE_MACOSX)
+
+	/* get the number of CPUs from the system; For details, 'man sysctl', and/or bookmark this Apple Developer page:
+	https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/sysctlbyname.3.html. */
+	uint64 totalram;	// Under OS X, this needs to be an int (size_t gave garbage results)
+	int mib[4];
+	size_t len = sizeof(totalram);
+	sysctlbyname("hw.memsize", &totalram, &len, NULL, 0);
+	return (totalram >> 20);
+
+#endif
+}
 
 // Apr 2018: Due to portability issues, replace the system-headers-based version of the "has advanced SIMD?"
 // check with one based on what amounts to "is the result of 'grep asimd /proc/cpuinfo' empty or not?".
 // Dec 2020: Apple M1 needs special handling, use the Clang/GCC-shared __ARM_NEON__ predefine to detect SIMD support:
+#ifdef CPU_IS_ARM_EABI
+
   #ifdef OS_TYPE_MACOSX
 
 	int has_asimd(void)
@@ -1903,6 +1937,14 @@ void set_stacklimit_restart(char *argv[])
 
 void print_host_info(void)
 {
+	// Get available system RAM in MB, store in SYSTEM_RAM global:
+	SYSTEM_RAM = get_system_ram();
+	MAX_RAM_USE = SYSTEM_RAM*(double)MAX_RAM_USE*0.01;
+#ifdef OS_TYPE_LINUX
+	printf("INFO: %u MB of free system RAM detected; will use up to 90%% = %u MB of that, unless user specifies a lower fraction via -maxalloc.\n",SYSTEM_RAM,MAX_RAM_USE);
+#else
+	printf("INFO: %u MB of available system RAM detected; will use up to 50%% = %u MB of that, unless user specifies a lower fraction via -maxalloc.\n",SYSTEM_RAM,MAX_RAM_USE);
+#endif
 #if defined(USE_GPU) && defined(__CUDACC__)
 
 	gpu_config_t gpu_config;
@@ -2034,7 +2076,7 @@ void print_host_info(void)
 		printf("INFO: CPU supports AVX instruction set, but using SSE2-enabled build.\n");
 	} else */
 	if(has_sse2()) {
-		printf("INFO: Build uses SSE2 instruction set.\n");
+		printf("INFO: Build uses SSE2 ... 'enhanced SSE2' supported by CPU: SSE[3,3e,4.1,4.2] = [%u,%u,%u,%u]\n",has_sse3(),has_sse3e(),has_sse41(),has_sse42());
 	} else {
 		ASSERT(HERE, 0, "#define USE_SSE2 invoked but no SSE2 support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
 	}
@@ -3176,84 +3218,40 @@ double 	errprint_sincos(double *x, double *y, double theta)
 	return adiff;
 }
 
-/******* Supplements to stdio (e.g. binary-formatted output) *********/
-
-void byte_bitstr(const uint8 byte, char*ostr)
-{
-	const char bytestr[256][10] = {
-	"00000000 ","00000001 ","00000010 ","00000011 ","00000100 ","00000101 ","00000110 ","00000111 ","00001000 ","00001001 ","00001010 ","00001011 ","00001100 ","00001101 ","00001110 ","00001111 ",
-	"00010000 ","00010001 ","00010010 ","00010011 ","00010100 ","00010101 ","00010110 ","00010111 ","00011000 ","00011001 ","00011010 ","00011011 ","00011100 ","00011101 ","00011110 ","00011111 ",
-	"00100000 ","00100001 ","00100010 ","00100011 ","00100100 ","00100101 ","00100110 ","00100111 ","00101000 ","00101001 ","00101010 ","00101011 ","00101100 ","00101101 ","00101110 ","00101111 ",
-	"00110000 ","00110001 ","00110010 ","00110011 ","00110100 ","00110101 ","00110110 ","00110111 ","00111000 ","00111001 ","00111010 ","00111011 ","00111100 ","00111101 ","00111110 ","00111111 ",
-	"01000000 ","01000001 ","01000010 ","01000011 ","01000100 ","01000101 ","01000110 ","01000111 ","01001000 ","01001001 ","01001010 ","01001011 ","01001100 ","01001101 ","01001110 ","01001111 ",
-	"01010000 ","01010001 ","01010010 ","01010011 ","01010100 ","01010101 ","01010110 ","01010111 ","01011000 ","01011001 ","01011010 ","01011011 ","01011100 ","01011101 ","01011110 ","01011111 ",
-	"01100000 ","01100001 ","01100010 ","01100011 ","01100100 ","01100101 ","01100110 ","01100111 ","01101000 ","01101001 ","01101010 ","01101011 ","01101100 ","01101101 ","01101110 ","01101111 ",
-	"01110000 ","01110001 ","01110010 ","01110011 ","01110100 ","01110101 ","01110110 ","01110111 ","01111000 ","01111001 ","01111010 ","01111011 ","01111100 ","01111101 ","01111110 ","01111111 ",
-	"10000000 ","10000001 ","10000010 ","10000011 ","10000100 ","10000101 ","10000110 ","10000111 ","10001000 ","10001001 ","10001010 ","10001011 ","10001100 ","10001101 ","10001110 ","10001111 ",
-	"10010000 ","10010001 ","10010010 ","10010011 ","10010100 ","10010101 ","10010110 ","10010111 ","10011000 ","10011001 ","10011010 ","10011011 ","10011100 ","10011101 ","10011110 ","10011111 ",
-	"10100000 ","10100001 ","10100010 ","10100011 ","10100100 ","10100101 ","10100110 ","10100111 ","10101000 ","10101001 ","10101010 ","10101011 ","10101100 ","10101101 ","10101110 ","10101111 ",
-	"10110000 ","10110001 ","10110010 ","10110011 ","10110100 ","10110101 ","10110110 ","10110111 ","10111000 ","10111001 ","10111010 ","10111011 ","10111100 ","10111101 ","10111110 ","10111111 ",
-	"11000000 ","11000001 ","11000010 ","11000011 ","11000100 ","11000101 ","11000110 ","11000111 ","11001000 ","11001001 ","11001010 ","11001011 ","11001100 ","11001101 ","11001110 ","11001111 ",
-	"11010000 ","11010001 ","11010010 ","11010011 ","11010100 ","11010101 ","11010110 ","11010111 ","11011000 ","11011001 ","11011010 ","11011011 ","11011100 ","11011101 ","11011110 ","11011111 ",
-	"11100000 ","11100001 ","11100010 ","11100011 ","11100100 ","11100101 ","11100110 ","11100111 ","11101000 ","11101001 ","11101010 ","11101011 ","11101100 ","11101101 ","11101110 ","11101111 ",
-	"11110000 ","11110001 ","11110010 ","11110011 ","11110100 ","11110101 ","11110110 ","11110111 ","11111000 ","11111001 ","11111010 ","11111011 ","11111100 ","11111101 ","11111110 ","11111111 "
-	};
-	strcpy(ostr, bytestr[byte]);
-}
-
-void	ui32_bitstr(const uint32 ui32, char*ostr)
-{
-	int i;
-	for(i = 0; i < 32; i += 8) {
-		// High byte ==> leftmost 8 chars of output string, thus the (24 - i)
-		// Also note the padding byte on ostr to account for the blank byte_bitstr output terminators:
-		byte_bitstr((uint8)(ui32 >> (24 - i)), ostr + i + (i>>3));
-	}
-}
-
-void	ui64_bitstr(const uint64 ui64, char*ostr)
-{
-	int i;
-	for(i = 0; i < 64; i += 8) {
-		// High byte ==> leftmost 8 chars of output string, thus the (56 - i)
-		// Also note the padding byte on ostr to account for the blank byte_bitstr output terminators:
-		byte_bitstr((uint8)(ui64 >> (56 - i)), ostr + i + (i>>3));
-	}
-}
-
 /****************/
 
-/*...take index i of a set of N = 2^k and return the bit-reversed complement integer.
-     Since Mlucas isn't restricted to power-of-2 FFT lengths, we don't actually use
-     this function much, preferring the generalized-bit-reversal-on-input-index-vector form,
-     but include it for purposes of reference/utility-usage.
+/* Return bit-reversed complement of an [nbits] input integer i.
+Since Mlucas isn't restricted to power-of-2 FFT lengths and further uses a forward-DIF/inverse-DIT
+FFT to avoid the need for bit-reversal reordering of the data, we don't actually use this function
+much except as an auxiliary utility.
 */
-/*** REMEMBER: reverse() takes its #bits length arg in exponentiated form n = 2^#bits ***/
-
-int reverse(uint32 i, uint32 n)
+uint32 reverse(uint32 i, uint32 nbits)
 {
-	uint32 tmp = 0;
-
-/*...Make sure each new N is a power of 2. For high-performance implementations
-     (i.e. where one does tons of these,) one could skip this part after verifying
-     it on an initial test run. */
-
-	if((n >> trailz32(n)) != 1)
-	{
-		sprintf(cbuf,"FATAL: non-power-of-2 length encountered in REVERSE.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
-	}
-
-	n >>= 1;
-
-	while(n)
-	{
-		tmp <<= 1;
-		tmp += (i & 1);
+	uint32 j, tmp = 0;
+	ASSERT(HERE,nbits <= 32,"FATAL: bitlength limit 32 exceeded in call to REVERSE.\n");
+	for(j = 0; j < nbits; j++) {
+		tmp += tmp + (i & 1);
 		i >>= 1;
-		n >>= 1;
 	}
-
 	return(tmp);
+}
+
+/* 64-bit bytewise-llokup-based version of above. Input is not overwritten, unless caller also uses it to store result.
+version which also works with multiword inputs, cf. mi64.c:brev64():
+*/
+uint64 reverse64(uint64 i, uint32 nbits)
+{
+	uint32 pad_bits = 64-nbits;
+	uint8 *bin8 = (uint8 *)&i, bout8[8];
+	bout8[0] = brev8[bin8[7]];
+	bout8[1] = brev8[bin8[6]];
+	bout8[2] = brev8[bin8[5]];
+	bout8[3] = brev8[bin8[4]];
+	bout8[4] = brev8[bin8[3]];
+	bout8[5] = brev8[bin8[2]];
+	bout8[6] = brev8[bin8[1]];
+	bout8[7] = brev8[bin8[0]];
+	return (*(uint64 *)bout8) >> pad_bits;
 }
 
 /******* Bit-level utilities: ********/
@@ -3324,6 +3322,18 @@ void bit_clr32(uint32*arr, uint32 bit)
 void bit_clr32_x4(uint32*arr, uint32 bit1, uint32 bit2, uint32 bit3, uint32 bit4)
 {
 #ifdef X32_ASM
+	#if 1
+	__asm__ volatile (\
+		"movl	%0,%%esi	\n\t"\
+		"btrl	%1,%%esi		\n\t"\
+		"btrl	%2,%%esi		\n\t"\
+		"btrl	%3,%%esi		\n\t"\
+		"btrl	%4,%%esi		\n\t"\
+		:	/* outputs: none */\
+		:  "m" (*arr), "r" (bit1), "r" (bit2), "r" (bit3), "r" (bit4)\
+		: "cc","memory","esi"	/* Clobbered registers */\
+	);
+	#else
 	__asm__ volatile (\
 		"btrl  %1, %0		\n\t"\
 		"btrl  %2, %0		\n\t"\
@@ -3333,6 +3343,7 @@ void bit_clr32_x4(uint32*arr, uint32 bit1, uint32 bit2, uint32 bit3, uint32 bit4
 		:  "m" (*arr), "r" (bit1), "r" (bit2), "r" (bit3), "r" (bit4)\
 		: "cc","memory"	/* Clobbered registers */\
 		);
+	#endif
 #else
 	uint32 n1 = bit1>>5, n2 = bit2>>5, n3 = bit3>>5, n4 = bit4>>5;
 	uint32 mask1 = ~((uint32)1 << (bit1&31)),mask2 = ~((uint32)1 << (bit2&31)), mask3 = ~((uint32)1 << (bit3&31)),mask4 = ~((uint32)1 << (bit4&31));
@@ -3531,7 +3542,7 @@ DEV uint32 trailz64(uint64 x)
 }
 
 /***************/
-
+// Return number of leading (leftmost) zeros of input:
 DEV uint32 leadz32(uint32 x)
 {
 #ifdef X32_ASM
@@ -3670,9 +3681,12 @@ DEV uint64 isPow4_64(uint64 i64)
 }
 
 /***************/
+// Return bitlength of input, based on position of leftmost set bit:
+DEV uint32 nbits32(uint32 i) { return 32-leadz32(i); }
+DEV uint64 nbits64(uint64 i) { return 64-leadz64(i); }
 
-/* Extract (nbits) bits beginning at position (beg) */
-
+/***************/
+// Extract (nbits) bits beginning at position (beg):
 DEV uint32 ibits32(uint32 i, uint32 beg, uint32 nbits)
 {
 	uint32 ones_mask = 0xFFFFFFFF;
@@ -3726,49 +3740,120 @@ DEV void	mvbits64(uint64 x, uint32 src_bit_start, uint32 nbits, uint64*y, uint32
 /* returns 1 if p is a base-z Fermat pseudoprime, 0 otherwise. */
 DEV int pprimeF(uint32 p, uint32 base)
 {
+	if(p <= 2)
+		return(p == 2);
+	if(base == 2)
+		return(twompmodq32(p-1,p) == 1);
 	uint64 y = 1, n = p-1, flag;
 	uint64 z = base;	/* Need a 64-bit to store intermediate products without overflow */
-
-	while(n)
-	{
+	// Compute base^(p-1) (mod p) via modular binary powering - no advantage to using LR in this scalar version:
+	while(n) {
 		flag = n & 1;
 		n >>= 1;
-		if(flag) y = (y*z)%p;
+		if(flag)
+			y = (y*z)%p;
 		z = (z*z)%p;
 		if(!z) return 0;
 	}
 	return((int)(y==1));
 }
 
+// Uses binary search to determine if a given integer < 2^32 is a Fermat-base-2 pseudoprime (1 if yes, 0 if no)
+#include "f2psp_3_5.h"	// Sorted table of the 10403 Fermat-base-2 pseudoprimes < 2^32
+DEV uint32 is_f2psp(uint32 n) {
+	uint32 lo,hi,mid;
+	if(n < 341 || IS_EVEN(n))
+		return 0;
+	lo = 0; hi = 10403-1;
+	while(lo < hi) {
+		// if hi-lo odd (one even, one odd), mid on low side of 1/2-midpoint, i.e. for hi-lo = 1, mid = lo:
+		mid = (lo + hi)>>1;
+		if(f2psp[mid] < n) {	// n strictly in upper part of interval
+			lo = mid+1;
+		} else {	// n in lower part of interval, possibly at midpoint
+			hi = mid;
+		}
+	}
+	// Last pass thru above while() always has hi-lo = 1, i.e. , mid = lo on exit and we want to check hi-element for equality:
+	return (f2psp[hi] == n);
+}
+
+// Rigorous is-prime for n < 2^32:
+DEV uint32 is_prime(uint32 n) {
+	if(IS_EVEN(n))
+		return(n == 2);
+	return(pprimeF(n,2) && !is_f2psp(n));
+}
+
+// Get nearest Fermat 2-PRP to N in the specified search direction, up or down. Algorithm is slow try-next-odd:
+DEV uint32 next_prime(uint32 n, int dir) {
+	// direction properly specified?
+	ASSERT(HERE, ABS(dir) == 1,"next_prime(): Direction of search not properly specified, must = +1 (up) or -1 (down).");
+	// Some special-casing for small n:
+	if(n <= 3 && dir == -1) {
+		return(2*(n == 3));
+	}
+	if(n <  2 && dir == 1) {	// Ensuing oddifying step handles n == 2
+		return(2);
+	}
+	// startval of search must be odd:
+	if(!IS_ODD(n)) {
+		n -= dir;
+	}
+	dir += dir;
+	while(1) {
+		n += dir;
+		// N which pass Fermat base-2 PRP test further checked for Fermat base-PSP-ness to weed out pseudoprimes:
+		if(pprimeF(n,2) && !is_f2psp(n)) {
+			return(n);
+		}
+	}
+	return 0;
+}
+
+DEV uint32 nprimes_in_range(uint32 b1, uint32 b2) {
+	uint32 n,np;
+	if(b1 >= b2) {
+		ASSERT(HERE,0,"Error: nprimes_in_range() inputs must be b1 < b2");
+		return 0;
+	}
+	n = b1; np = (b1 <= 2);	// special-case to catch n = 2
+	// n must be odd:
+	if(!(n%2)) {
+		n += 1;
+	}
+	while(n < b2) {
+		np += (pprimeF(n,2) && !is_f2psp(n));
+		n += 2;
+	}
+	return np;
+}
+
 // 64-bit analog of pprimeF:
 DEV int pprimeF64(uint64 p, uint64 base)
 {
+	if(p <= 2ull)
+		return(p == 2ull);
+	if(p < 0xFFFFFFFFull && base < 0xFFFFFFFFull)
+		return pprimeF((uint32)p, (uint32)base);
+	if(base == 2ull)
+		return twopmodq64(p-1,p) == 1ull;
 	uint64 y = 1ull, n = p-1ull, flag;
 	uint64 z = base;
-
-	while(n)
-	{
+	while(n) {
 		flag = n & 1ull;
 		n >>= 1;
-		if(flag) y = mi64_modmul64(y,z,p);
+		if(flag)
+			y = mi64_modmul64(y,z,p);
 		z = mi64_modmul64(z,z,p);
 		if(!z) return 0;
 	}
-	return((int)(y==1ull));
+	return((int)(y == 1ull));
 }
 
 /***************/
 
-DEV int isPRP(uint32 p)
-{
-	// Handle even-argument case separately, since the powmod routines may not accept even moduli:
-	if((p & 1) == 0)
-		return (p == 2);
-	/* TODO: replace/supplement this with a rigorous trial-divide test for p < 2^32 */
-	return(pprimeF(p,2) && pprimeF(p,3) && pprimeF(p,5) && pprimeF(p,7) && pprimeF(p,11) && pprimeF(p,13));
-}
-
-#include "factor.h"	// Needed for twopmodq64() prototype
+// Nov 2020: For 32-bit args, replaced old isPRP with above rigorous is_prime.
 DEV int isPRP64(uint64 p)
 {
 	// Handle even-argument case separately, since the powmod routines may not accept even moduli:
@@ -4218,10 +4303,43 @@ For integers x, y with x, y > 0, returns integers {a,b,g} such that a*x + b*y = 
 
 When g = 1 and y > 0, the residues a and b are the inverses of x (mod y) and y (mod x), respectively.
 
-The GCD g is the return value of the function; note that the multipliers a and b
-overwrite the inputs x and y, so if the original inputs are needed subsequently,
-they must be copied prior to calling the function.
+The GCD g is the return value of the function.
+***NOTE***: The multipliers a and b overwrite the inputs x and y, so if the original inputs are
+			needed subsequently, they must be copied prior to calling the function.
 */
+DEV uint32 egcd32_B(int32 *x, int32 *y)
+{
+	int32 g = *x, w = *y, q;
+	int32 a = 1, b = 0, u = 0, v = 1;
+	/* Sign of these 3 doesn't matter since they're just temporaries: */
+	int32 d, e, f;
+
+	if(*x == *y) {
+		printf("ERROR: eGCD of identical arguments x = y = %u is illegal!\n", *x);	ASSERT(HERE, 0,"0");
+	} else if((*x == 0) || (*y == 0)) {
+		printf("ERROR: eGCD called with zero input: x = %u, y = %u\n", *x, *y);		ASSERT(HERE, 0,"0");
+	}
+
+	while(w) {
+		// Find quotient of current x/y and round toward zero - makes sense to try to take advantage of the fact
+		// that most q's are small (~80% of q's < 4), but in practice I've found that adding even simple logic to
+		// special-case for q = 0 (e.g. if(g < w) {d = a; e = b; f = g; } else ...) slows things down:
+		q = g/w;
+		// Find (u', v', w') and store in 3 temporaries:
+		d = a - q*u;
+		e = b - q*v;
+		f = g - q*w;
+		// Find (a', b', g'), i.e. move the old values of (u,v,w) into the slots for (a,b,g),
+		// then recover new values of (u, v, w) from the temporaries:
+		a = u;	u = d;
+		b = v;	v = e;
+		g = w;	w = f;
+	}
+	*x = a;
+	*y = b;
+	return(g);
+}
+
 DEV uint32 egcd32(uint32 *x, uint32 *y)
 {
 	uint32 g = *x, w = *y, q;
@@ -4297,14 +4415,14 @@ Finds multiplicative inverse of z (mod n).
 */
 DEV int modinv32(uint32 z, uint32 n)
 {
-	uint32 x = z, y = n;
-	uint32 gcd;
-	/* 01/26/04: Turns out this sign check isn't necessary, since the eGCD routine automatically handles the case x < y:
-	if(x < y)
-		gcd = egcd32(&y, &x);
-	else if(x > y)
-	*/
+	uint32 x = z, y = n, gcd;
+int32 x2 = z, y2 = n, gcd2;
 	gcd = egcd32(&x, &y);
+	gcd2= egcd32_B(&x2, &y2);
+	if(x2 < 0)	// since egcd32() only does positive-result normalization on x-output, only do it here to the egcd32_B x-output
+		x2 += n;
+	if(gcd != gcd2 || x != x2 || y != y2)
+		ASSERT(HERE, 0,"2 gcd results in modinv32 differ!");
 	ASSERT(HERE, gcd == 1,"gcd in modinv32 is non-unity!");
 	return x;
 }
@@ -7722,7 +7840,7 @@ exit(0);
 		*/
 		c_tmp = cc0 + 0x06; s_tmp = c_tmp+1;	/* c0,s0 */
 		for(i = 0; i < 32; i++, c_tmp+=2, s_tmp+=2) {
-			j = reverse(i,32);
+			j = reverse(i,5);
 			VEC_DBL_INIT(c_tmp, cc[j]);	VEC_DBL_INIT(s_tmp, ss[j]);
 		}
 	#endif
@@ -8576,5 +8694,18 @@ FILE *mlucas_fopen(const char *path, const char *mode)
 	strcpy(mlucas_path, MLUCAS_PATH);
 	strcat(mlucas_path, path);
 	return fopen(mlucas_path, mode);
+}
+
+/*********************/
+// Print the input string to stderr and the current-assignment logfile
+void mlucas_fprint(char*const cstr, int echo_to_stderr)
+{
+	ASSERT(HERE, cstr != 0x0 && strlen(cstr) > 0,"Null string-pointer or empty string supplied to mlucas_fprint!");
+	if(echo_to_stderr)
+		fprintf(stderr,"%s",cbuf);
+	fp = mlucas_fopen(STATFILE,"a");	// File-pointers fp,fq are globals def'd in Mlucas.c
+	if(fp) {
+		fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
+	}
 }
 

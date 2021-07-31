@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -80,7 +80,7 @@ __device__ uint32 mi64_twopmodq_gpu(
 	scratch2 = hi + lenQ*2;
 	cyout = mi64_mul_scalar(p,k<<1,q,lenQ);	ASSERT(HERE, 0 == cyout, "unexpected carryout of 2*p*k!");
 	q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
-	mi64_shrl(q, qhalf, 1, lenQ);	/* (q >> 1) = (q-1)/2, since q odd. */
+	mi64_shrl_short(q, qhalf, 1, lenQ);	/* (q >> 1) = (q-1)/2, since q odd. */
 
 	// Find modular inverse (mod 2^qbits) of q in preparation for modular multiply:
 	mi64_clear(qinv, lenQ);
@@ -211,39 +211,36 @@ void	mi64_brev(uint64 x[], uint32 n)
 printf("0x%2X,",(uint8)x[0]);
 }
 /*
-Bytewise version: consider an 11-bit (n=11) example of the above swap-bitpairs function.
-Separating things into bytes, our input is 00000000 ... 00000kji hgfedcba, result = ... 00000abc defghijk.
-If we init a table of reversed-bytes, then feed it the 2 low bytes of the input, we get [... ijk000000 abcdefgh].
-Further swapping these 2 bytes, get [... abcdefgh ijk000000]. Only need to right-shift 5 places - the number of
-leftover high-end bits in the upper byte of our 2-byte 'working set', to recover the correct result.
+Bytewise version:
 */
 #elif 1
-const uint8 brev8[256] = {
-	0x00,0x80,0x40,0xC0,0x20,0xA0,0x60,0xE0,0x10,0x90,0x50,0xD0,0x30,0xB0,0x70,0xF0,0x08,0x88,0x48,0xC8,0x28,0xA8,0x68,0xE8,0x18,0x98,0x58,0xD8,0x38,0xB8,0x78,0xF8,
-	0x04,0x84,0x44,0xC4,0x24,0xA4,0x64,0xE4,0x14,0x94,0x54,0xD4,0x34,0xB4,0x74,0xF4,0x0C,0x8C,0x4C,0xCC,0x2C,0xAC,0x6C,0xEC,0x1C,0x9C,0x5C,0xDC,0x3C,0xBC,0x7C,0xFC,
-	0x02,0x82,0x42,0xC2,0x22,0xA2,0x62,0xE2,0x12,0x92,0x52,0xD2,0x32,0xB2,0x72,0xF2,0x0A,0x8A,0x4A,0xCA,0x2A,0xAA,0x6A,0xEA,0x1A,0x9A,0x5A,0xDA,0x3A,0xBA,0x7A,0xFA,
-	0x06,0x86,0x46,0xC6,0x26,0xA6,0x66,0xE6,0x16,0x96,0x56,0xD6,0x36,0xB6,0x76,0xF6,0x0E,0x8E,0x4E,0xCE,0x2E,0xAE,0x6E,0xEE,0x1E,0x9E,0x5E,0xDE,0x3E,0xBE,0x7E,0xFE,
-	0x01,0x81,0x41,0xC1,0x21,0xA1,0x61,0xE1,0x11,0x91,0x51,0xD1,0x31,0xB1,0x71,0xF1,0x09,0x89,0x49,0xC9,0x29,0xA9,0x69,0xE9,0x19,0x99,0x59,0xD9,0x39,0xB9,0x79,0xF9,
-	0x05,0x85,0x45,0xC5,0x25,0xA5,0x65,0xE5,0x15,0x95,0x55,0xD5,0x35,0xB5,0x75,0xF5,0x0D,0x8D,0x4D,0xCD,0x2D,0xAD,0x6D,0xED,0x1D,0x9D,0x5D,0xDD,0x3D,0xBD,0x7D,0xFD,
-	0x03,0x83,0x43,0xC3,0x23,0xA3,0x63,0xE3,0x13,0x93,0x53,0xD3,0x33,0xB3,0x73,0xF3,0x0B,0x8B,0x4B,0xCB,0x2B,0xAB,0x6B,0xEB,0x1B,0x9B,0x5B,0xDB,0x3B,0xBB,0x7B,0xFB,
-	0x07,0x87,0x47,0xC7,0x27,0xA7,0x67,0xE7,0x17,0x97,0x57,0xD7,0x37,0xB7,0x77,0xF7,0x0F,0x8F,0x4F,0xCF,0x2F,0xAF,0x6F,0xEF,0x1F,0x9F,0x5F,0xDF,0x3F,0xBF,0x7F,0xFF
-};
+// 64-bit full-length single-limb bit-reversal routine. Input is not overwritten, unless caller also uses it to store result.
+// For version of this which allows #significant bits to be specified and only those low [nbits] reversed, cf. util.c::reverse64():
+uint64 brev64(uint64 x)
+{
+	uint8 *bin8 = (uint8 *)&x, bout8[8];
+	bout8[0] = brev8[bin8[7]];
+	bout8[1] = brev8[bin8[6]];
+	bout8[2] = brev8[bin8[5]];
+	bout8[3] = brev8[bin8[4]];
+	bout8[4] = brev8[bin8[3]];
+	bout8[5] = brev8[bin8[2]];
+	bout8[6] = brev8[bin8[1]];
+	bout8[7] = brev8[bin8[0]];
+	return *(uint64 *)bout8;
+}
+// Now use the above to construct a multiword bit-reversal:
 void	mi64_brev(uint64 x[], uint32 n)
 {
-	uint32 i,j,k, nw = (n+63)>>6,pad_bits = 64-(n&63);	// wi,wj = words containing (i)th and (j)th bits
-	uint64 mi,mj;
-	uint8 *ai,*aj, *bi=(uint8 *)&mi,*bj=(uint8 *)&mj;	// ai,aj = ptrs to in-bytes; bi,bj = ptrs to out-bytes, store in local-vars mi,mj to assemble
-	// Any 'middle word' for odd #words means redundancy in computing mi,mj, but eschew special post-loop code just to save a few ops in such cases:
-	for(i = 0; i < ((nw+1)>>1); ++i) {	// Exchange bits-reversed bytes within pairs of 64-bit words
-		j = nw-i-1;					// i,j = indices of the 2 words containing the bits to be swapped on this loop pass
-		ai = (uint8*)(x+i) + 7;	aj = (uint8*)(x+j) + 7;	// Point these to high bytes of each respective word
-		// Word which will overwrite x[i|j] consists of bit-reversed bytes of x[j|i], in reversed byte-order:
-		for(k = 0; k < 8; k++) {
-			*bi++ = brev8[*aj--];	*bj++ = brev8[*ai--];
-		}
-		x[i] = mi;				x[j] = mj;
+	uint32 i,j, nw = (n+63)>>6,pad_bits = 64-(n&63), imax = ((nw+1)>>1);
+	uint64 tmp64;
+	// Exchange bit-reversed pairs of 64-bit words starting at outermost set-words and working inward toward middle; 'middle word'
+	// for odd #words means redundancy in computing mi,mj, but eschew special post-loop code just to save a few ops in such cases:
+	for(i = 0; i < imax; ++i) {
+		j = nw-i-1;	// i,j = indices of the 2 words containing the bits to be swapped on this loop pass
+		tmp64 = brev64(x[i]);	x[i] = brev64(x[j]);	x[j] = tmp64;	// This works even if i == j, i.e. final loop-exec when n odd
 	}
-	mi64_shrl(x,x,pad_bits,nw);
+	mi64_shrl_short(x,x,pad_bits,nw);
 }
 #endif
 
@@ -302,26 +299,6 @@ void	mi64_clear(uint64 x[], uint32 len)
 	for(i = 0; i < len; ++i) {
 		x[i] = 0ull;
 	}
-}
-
-/* Set selected bit: */
-#ifdef __CUDA_ARCH__
-__device__
-#endif
-void	mi64_set_bit(uint64 x[], uint32 bit)
-{
-	uint32 bit_in_word = bit&63, word = (bit >> 6);
-	x[word] |= (0x0000000000000001ull << bit_in_word);
-}
-
-/* Return 1 if selected bit is set, 0 otherwise: */
-#ifdef __CUDA_ARCH__
-__device__
-#endif
-int		mi64_test_bit(const uint64 x[], uint32 bit)
-{
-	uint32 bit_in_word = bit&63, word = (bit >> 6);
-	return (int)(x[word] >> bit_in_word) & 0x1;
 }
 
 /*******************/
@@ -426,31 +403,36 @@ Allows in-place operation, i.e. x == y.
 	h	7	23	x, etc. Same as above, just with all indices +1.
 
 	So could use this as a basis for a practical algorithm, but 3 big strikes against it:
-	1. Code logic much more invloved than segmentwise-shift using auxiliary array to temp-store displaced elts;
+	1. Code logic much more involved than segmentwise-shift using auxiliary array to temp-store displaced elts;
 	2. Can't leverage any of the existing mi64-package functions, such as current mi64_shlc (which uses mi64_shrl,mi64_shl,mi64_add) does;
 	3. For large arrays and shift counts, above algo is going to be very cache-unfriendly.
+
+Feb 2020: Added sign_flip arg, to allow for handling of multiply by a power of 2 modulo a Fermat number,
+in which case the left-off-shifted bits stored in u[] need to be fed back in from the right with a - sign.
 */
 #ifdef __CUDA_ARCH__
 __device__
 #endif
-void	mi64_shlc(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32 len)
-{
-	uint32 i, nwshift = (nshift+63) >> 6, nwmod = ((nbits + 63)>>6);	// Here nwshift includes any partial words in addition to fullwords
+void	mi64_shlc(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32 len, uint32 sign_flip)
+{	/**** NOTE: The (nbits+63) here means the largest exponent currently testable is 4294967231 = 2^32-65, larger ones like 4294967291 = 2^32-5 overflow uint32 => nwmod = 0 ****/
+	ASSERT(HERE, nshift <= nbits && (nbits+63) <= 0xFFFFFFFFu, "mi64_shlc: Require (nshift <= nbits) and (nbits+63) < 2^32!");
+	uint32 i = nbits&63, nwshift = (nshift+63) >> 6, nwmod = ((nbits + 63)>>6);	// Here nwshift includes any partial words in addition to fullwords
 	ASSERT(HERE, x && len, "mi64_shlc: null input pointer or zero-length array!");
 	// W/o the extra "& (nbits&63)" this assumes nbits != 0, i.e. unsuitable for Fermats:
-	uint64 mask64 = (-1ull << (nbits&63)) & (uint64)(nbits&63);
+	uint64 cy, mask64 = (-1ull << i) & -(uint64)(i != 0);	// = (-1ull << i) if Mersenne, 0 if Fermat
 	ASSERT(HERE, (x[len-1] & mask64) == 0ull, "mi64_shlc: x[] has set bits beyond [nbits] position in high word!");
+//	printf("mi64_shlc: %u bits, %u limbs, mask64 = 0x%llX, high limb = 0x%llX\n",nbits,len,mask64,x[len-1]);
   #ifndef __CUDA_ARCH__
 	/* Scratch array for storing off-shifted intermediate (need this to support in-place functionality): */
 	static uint64 *u = 0x0;
 	static uint32 dimU = 0;
-		// Does scratch array need allocating or reallocating? (Use realloc for both cases).
-		// Use #words in modulus (as opposed to #words-in-shift) for needs-realloc check here:
-		if(dimU < nwmod) {
-			dimU = 2*(nwmod+1);
-			// Alloc 2x the immediately-needed to avoid excessive reallocs if needed size increases incrementally
-			u = (uint64 *)realloc(u, dimU*sizeof(uint64));
-		}
+	// Does scratch array need allocating or reallocating? (Use realloc for both cases).
+	// Use #words in modulus (as opposed to #words-in-shift) for needs-realloc check here:
+	if(dimU < nwmod) {
+		dimU = 2*(nwmod+1);
+		// Alloc 2x the immediately-needed to avoid excessive reallocs if needed size increases incrementally
+		u = (uint64 *)realloc(u, dimU*sizeof(uint64));
+	}
   #endif
 	ASSERT(HERE, nshift <= nbits, "mi64_shlc: shift count must be <= than bits in modulus!");	// This also ensures (nwshift < nwmod)
 	// Special-casing for 0 shift count, which includes the 1-full-rotation case nshift == nbits:
@@ -459,20 +441,33 @@ void	mi64_shlc(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32
 		return;
 	}
 	// [1] u = x >> (nbits - nshift): Off-shifted high (nshift) bits of the input ==> low bits of the scratch array via logical right-shift:
-	mi64_shrl(x, u, nbits-nshift, len);
+	mi64_shrl(x, u, nbits-nshift, len,len);
 	// [2] y = x << nshift, and mask off all but the low (nbits % 64) bits of the resulting high word of y[]:
-	mi64_shl(x, y, nshift, len);	i = nbits&63; y[len-1] &= ~(-1ull << i);
+	mi64_shl(x, y, nshift, len);	y[len-1] &= ~mask64;
 	// [3] y += u puts the off-shifted bits into the vacated low bits of the output:
-	mi64_add(y, u, y, nwshift);
+	if(sign_flip) {
+		cy = mi64_sub(y, u, y, nwshift);
+		if(cy) {
+			if(nwshift < len)
+				cy = mi64_sub_scalar(y+nwshift,cy,y+nwshift,len-nwshift);
+			// In Fermat-mod case, if high bits happen to = 0, must (mod Fm) by adding borrow = 1 back into low limb:
+			ASSERT(HERE, mi64_sub_scalar(y,cy,y,len) == 0ull, "Nonzero carryout of (mod Fm) low-limb incrementing!");
+		}
+	} else {
+		cy = mi64_add(y, u, y, nwshift);	ASSERT(HERE, cy == 0ull, "Nonzero carryout of nonoverlapping vector add!");
+	}
 }
 
-// Circular-rightward-shift uses that [i-bit rcshift] == [(nbits-i)-bit lcshift]:
+/* Circular-rightward-shift uses that [i-bit rcshift] == [(nbits-i)-bit lcshift].
+
+Feb 2020: Added sign_flip arg, to allow for handling of multiply by a power of 2 modulo a Fermat number.
+*/
 #ifdef __CUDA_ARCH__
 __device__
 #endif
-void	mi64_shrc(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32 len)
+void	mi64_shrc(const uint64 x[], uint64 y[], uint32 nbits, uint32 nshift, uint32 len, uint32 sign_flip)
 {
-	return mi64_shlc(x,y,nbits,nbits-nshift,len);
+	return mi64_shlc(x,y,nbits,nbits-nshift,len,sign_flip);
 }
 
 /*
@@ -519,9 +514,9 @@ uint32	mi64_shlc_bits_align(const uint64 x[], uint64 y[], uint32 nbits)
 	for(i = 0; i < nbits; i++) {	// Note the leftmost 64 bits in the loop need special handling
 		if(y0 == x0) {	// Found a 64-bit-word match; see if current shift yields a full-vector match
 			// Have moved 64-bit window i bits leftward in y, need i-bit rcshift of y for full-match check:
-			mi64_shrc(y, y, nbits, i, len);	// i == 0 not a problem here since mi64_shlc special-cases for shift count == nbits
+			mi64_shrc(y, y, nbits, i, len, 0);	// i == 0 not a problem here since mi64_shlc special-cases for shift count == nbits
 			if(mi64_cmp_eq(x, y, len)) match = TRUE;
-			mi64_shlc(y, y, nbits, i, len);	// undo the lcshift of y prior to return or loop-continuation
+			mi64_shlc(y, y, nbits, i, len, 0);	// undo the lcshift of y prior to return or loop-continuation
 			if(match) return (nbits-i) % nbits;
 		}
 		// For main part of vector (i < nbits-64), bit-to-be-shifted-in-from-left is in next-higher word.
@@ -589,6 +584,11 @@ uint32	mi64_shlc_bits_limb0(const uint64 x0, const uint64 y[], uint32 nbits)
 Logical-right-shift of a base-2^64 int x[] by (nshift) bits, returning the result in y[].
 Any off-shifted bits aside from the most-significant 64 are lost. No array-bounds checking is done.
 
+The output_len argument allows us to shift some desired bit-range from the source vector x[]
+into the low bits of the target y[] without y needing to be alloc'ed as large as x; say if we want
+to extract bits 999000-999999 of a million-bit source x into a thousand-bit (i.e. alloc'ed with no
+more than output_len = ceiling(1000/64) words) target y.
+
 Returns high 64 bits of off-shifted portion.
 Allows in-place operation, i.e. x == y.
 *To-do* Consider adding support for nonzero bits-shifted-in-from-left.
@@ -596,15 +596,23 @@ Allows in-place operation, i.e. x == y.
 #ifdef __CUDA_ARCH__
 __device__
 #endif
-uint64	mi64_shrl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
+uint64	mi64_shrl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len, uint32 output_len)
 {
 	int i;
 	uint32 nwshift = (nshift >> 6), rembits = (nshift & 63), m64bits;
 	uint64 hi64 = 0ull;
 	ASSERT(HERE, len != 0, "mi64_shrl: zero-length array!");
+	/* Ex: len = 1132 = 72448 bits, nshift = 70000, nwshift = 70000>>6 = 1093, rembits = 70000%64 = 48, m64bits = 64-rembits = 16
+	Thus we want the hi 2448 bits (38 full words + 16 bits) of x, and require output_len >= 39 .
+	y[0] gets hi 16 bits of x[nwshift] and low 48 of x[nwshift+1]: y[0] = (x[nwshift] >> rembits) + (x[nwshift+1] << m64bits)
+	len-nwshift = 1132-1093 = 39. */
+	ASSERT(HERE, output_len >= (len - nwshift), "mi64_shrl: output_len must be large enough to hold result!");
 	// Special-casing for 0 shift count:
 	if(!nshift) {
-		if(x != y) mi64_set_eq(y, x, len);	// Set y = x
+		if(x != y) {
+			mi64_set_eq(y, x, len);				// Set y = x...
+			mi64_clear(y+len, output_len - len);// ...and 0 any excess high limbs in y.
+		}
 		return 0ull;
 	}
 	/* Special-casing for shift-into-Bolivian (that's Mike-Tyson-ese for "oblivion"): */
@@ -613,34 +621,35 @@ uint64	mi64_shrl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		if(nwshift == len) {
 			hi64 = x[len-1];
 		}
-		// ... because after this next line, we can only distinguish between (nwhsift < len) and (nwshift >= len):
+		// ... because after this next line, we can only distinguish between (nwshift < len) and (nwshift >= len):
 		nwshift = len;
 		rembits = 0;
 	}
-
-	// hi64 plays the part of "y[-1]"; see above comment for why we deal with (nwshift >= len) above rather than here:
-	// Must do this *before* the loop because of in-place possibility:
+	// hi64 plays the part of "y[-1]"; see above comment for why we deal with (nwshift >= len) there rather than here:
+	// Must compute hi64 *before* the loop because of in-place possibility:
 	if(nwshift && (nwshift < len)) {
 		hi64 = x[nwshift-1];
 	}
-	/* Take care of the whole-word part of the shift: */
-	for(i = 0; i < len-nwshift; i++) {
-		y[i] = x[i+nwshift];
-	}
-	for(i = len-nwshift; i < len; i++) {
-		y[i] = 0ull;
-	}
-
-	/* If nshift not an exact multiple of the wordlength, take care of remaining shift bits: */
-	if(rembits) {
-		m64bits = (64-rembits);
-		hi64 = (hi64 >> rembits) + (y[0] << m64bits);
-		/* Process all but the most-significant element, in reverse order: */
-		for(i = 0; i < len-1; i++) {
-			y[i] = (y[i] >> rembits) + (y[i+1] << m64bits);
+	if(!rembits) {	// Whole-word shift:
+		for(i = 0; i < len-nwshift; i++) {
+			y[i] = x[i+nwshift];
 		}
-		/* Most-significant element gets zeros shifted in from the left: */
-		y[len-1] >>= rembits;
+	} else {	// nshift not an exact multiple of the wordlength:
+		m64bits = (64-rembits);
+		if(nwshift)
+			hi64 = (hi64 >> rembits) + (x[nwshift] << m64bits);
+		for(i = 0; i < len-nwshift-1; i++) {
+			y[i] = (x[i+nwshift] >> rembits) + (x[i+nwshift+1] << m64bits);	// Ex: on exit have just finished y[37] = x[1130]>>48 + x[1131]<<16
+		}																	// thus 2432 of our 2448 target bits
+		// Most-significant element gets zeros shifted in from the left:
+		y[i] = (x[i+nwshift] >> rembits);									// Ex: y[len-nwshift-1] = y[38] = x[1131]>>48
+		for(i = len-nwshift; i < output_len; i++) {
+			y[i] = 0ull;
+		}
+	}
+	// Zero any remaining output words above the rshifted-bit section:
+	for(i = len-nwshift; i < output_len; i++) {
+		y[i] = 0ull;
 	}
 	return hi64;
 }
@@ -1067,7 +1076,7 @@ uint64	mi64_shl_short(const uint64 x[], uint64 y[], uint32 nshift, uint32 len)
 		"subq	$0x20,%%r10			\n\t"\
 		"subq	$0x20,%%r11			\n\t"\
 	"subq	$4,%%rbx		\n\t"\
-	"jnz loop_shl_short	\n\t"/* loop end; continue is via jump-back if rcx != 0 */\
+	"jnz loop_shl_short	\n\t"/* loop end; continue is via jump-back if rbx != 0 */\
 		:	/* outputs: none */\
 		: [__x] "m" (x)	/* All inputs from memory addresses here */\
 		 ,[__y] "m" (y)	\
@@ -1678,7 +1687,50 @@ uint32	mi64_popcount(const uint64 x[], uint32 len)
 
 /*******************/
 
-// Remember, [i]th-bit index in arglist is *unit* offset, i.e. must be in [1,MAX_CORES]
+// Return 1 if selected bit is set, 0 otherwise:
+#ifdef __CUDA_ARCH__
+__device__
+#endif
+int		mi64_test_bit(const uint64 x[], uint32 bit)
+{
+	uint32 bit_in_word = bit&63, word = (bit >> 6);
+	return (int)(x[word] >> bit_in_word) & 0x1;
+}
+
+// Sets = val the [bit]th bit of x, leaving the other bits untouched. The value-to-set-the-bit-to [val]
+// must be 0 or 1 and the bit position must satisfy [bit] < 64*len for the function to have any effect:
+// v20: NOTE: This replaces previous version which took just x[] and [bit] as args,
+//		 always set the target bit = 1, and did no bounds checking.
+#ifdef __CUDA_ARCH__
+__device__
+#endif
+void mi64_set_bit(uint64 x[], uint32 bit, uint32 len, uint32 val)
+{
+	if(!len || (val > 2) || (bit > (len<<6))) return;
+	// First zero the target bit:
+	uint32 s = (bit & 63), word = bit>>6;
+	uint64 mask = ~(1ull << s);
+	x[word] &= mask;
+	// If val = 0, leave-as-zero the target bit of the mask, otherwise set it = 1:
+	mask = (uint64)val << s;
+	x[word] |= mask;
+}
+
+// Toggle the [bit]th bit of x. The position must satisfy [bit] < 64*len for the function to have any effect:
+#ifdef __CUDA_ARCH__
+__device__
+#endif
+void mi64_flip_bit(uint64 x[], uint32 bit, uint32 len)
+{
+	if(!len || bit > (len<<6)) return;
+	uint64 mask = 1ull << (bit & 63);
+	x[bit>>6] ^= mask;
+}
+
+/*******************/
+
+// Return bit position [0:64*(len-1)+63] of the [bit]th set bits in x, or -1 if there are fewer than
+// [bit] set bits in x, or if bit == 0 (i.e. user requests position of nonexistent "0th set bit"):
 #ifdef __CUDA_ARCH__
 __device__
 #endif
@@ -1703,7 +1755,7 @@ int	mi64_ith_set_bit(const uint64 x[], uint32 bit, uint32 len)
 
 /*******************/
 
-/* Returns number of trailing zeros of a base-2^64 multiword int x if x != 0, 0 otherwise. */
+/* Returns number of trailing 0-bits of a base-2^64 multiword int x if x != 0, 0 otherwise. */
 #ifdef __CUDA_ARCH__
 __device__
 #endif
@@ -1721,7 +1773,7 @@ uint32	mi64_trailz(const uint64 x[], uint32 len)
 
 /*******************/
 
-/* Returns number of leading zeros of a base-2^64 multiword int x, defaulting to len*64 if x == 0. */
+// Returns number of leading 0-bits of a base-2^64 multiword int x, defaulting to len*64 if x == 0, including the 0-length case:
 #ifdef __CUDA_ARCH__
 __device__
 #endif
@@ -1729,13 +1781,125 @@ uint32	mi64_leadz(const uint64 x[], uint32 len)
 {
 	int i;	// Loop index signed here
 	uint32 lz = 0;
-	ASSERT(HERE, len != 0, "mi64_leadz: zero-length array!");
+	if(!len) return 0;
 	for(i = len-1; i >= 0; i--, lz += 64) {
 		if(x[i]) {
 			return lz + leadz64(x[i]);
 		}
 	}
 	return lz;
+}
+
+/*******************/
+
+/* Compute MD5 hash of x, where x has at most 2^32 64-bit words, i.e. has max bitlength = 2^38.
+Algorithm steps in comments and 32-bit implementation adapted from https://en.wikipedia.org/wiki/MD5 .
+
+Assumes - this is checked at runtime and triggers an assertion failure if not satisfied:
+o The input vector x[] has a suitable amount of 0-padding at the high end. MD5 tacks on a 1-bit left
+	of the most-significant bit of the input, and needs the result 0-padded such that the resulting
+	total bitlength == 0 (mod 512), with the remaining high word (uppermost 64 bits) = 0.
+	We don't require the wordlength-as-given [len] to be a multiple of eight 64-bit words, just that
+	it be sufficiently larger than the input bitlength to allow a "working length" wlen <= len to be
+	used in the hash computation, such that wlen == 0 (mod 8) and still leaves > 64 leading 0-bits.
+	We do that as follows:
+	If nbits = input [x] bitlength = (64*len - lz), with lz = #leading 0-bits in x,
+	first compute the needed number of 512-bit data chucks: nblock = (nbits+576)/512, then nword = 8*nblocks.
+
+Returns:
+1. The 128-bit hash as a 16-char little-endian (LSbyte in 0-element) in the md5_str arg;
+2. [optionally, if a non-null md5[]-pointer is supplied] the hash in the low 2 words of the
+	input-arg md5[], using whatever endianness the underlying platform uses for its integer types.
+
+NOTE: Declare x[] non-const to enable message-preprocessing, but restore x to its input value prior to return.
+*/
+// Macro for leftrotate function - in the present case prefer this to my util.c:cshft32 utility
+// function since the latter has logic to handle the 0-shift case, whereas here all shifts != 0:
+#define LROT32(x,n) ((x << n) + (x >> (32-n)))
+
+#ifdef __CUDA_ARCH__
+__device__
+#endif
+#ifdef USE_BIG_ENDIAN
+	#error Need big-endian implementation of mi64_md5!
+#endif
+void mi64_md5(uint64 x[], uint32 len, uint64 md5[], char*const md5_str)
+{
+	ASSERT(HERE, x != 0x0, "mi64_md5: null input pointer!");
+	ASSERT(HERE, md5_str != 0x0, "mi64_md5: null md5_str pointer!");
+	md5_str[0] = '\0';	// should be null on entry, but better safe than sorry
+	uint32 i,j, lz = mi64_leadz(x,len);	// lz = #leading 0-bits in x
+	uint32 n = len<<6;	// n = 64*len = #bits in the [len] words of x, including leading 0-bits
+	uint32 nbit = n-lz;	// nbit = index of leftmost 1-bit. This also = the original message bitlength
+	// Compute the working length [nword]:
+	uint32 nblock = (nbit+576)>>9;	// needed number of 512-bit data chucks: nblock = (nbit+576)/512
+	uint32 nword = nblock<<3;		// nword = 8*#blocks: From here on will use that as the working length
+	ASSERT(HERE, len >= nword, "mi64_md5: input-vector lacks sufficient 0-padding!");
+	// Pre-processing:
+	// 1. first a single bit, 1, is appended to the end of the message:
+	mi64_set_bit(x,nbit,nword,1);	// nword here is only used by mi64_set_bit() for bounds-checking
+	// 2. next, append original length in bits (mod 2^64) to message (our max bitlength = 2^38, so the mod is moot):
+	x[nword-1] = (uint64)nbit;
+	// s specifies the per-round shift amounts, which can be stored as bytes:
+	const uint8 s[64] = {
+		 7,12,17,22, 7,12,17,22, 7,12,17,22, 7,12,17,22,
+		 5, 9,14,20, 5, 9,14,20, 5, 9,14,20, 5, 9,14,20,
+		 4,11,16,23, 4,11,16,23, 4,11,16,23, 4,11,16,23,
+		 6,10,15,21, 6,10,15,21, 6,10,15,21, 6,10,15,21
+	};
+	// Use binary integer part of the sines of integers (Radians) as constants:
+	//    K[i] := floor(2^32 × abs (sin(i + 1))), i = 0,...,63
+	const uint32 K[64] = {
+		0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
+		0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be, 0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821,
+		0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa, 0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
+		0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed, 0xa9e3e905, 0xfcefa3f8, 0x676f02d9, 0x8d2a4c8a,
+		0xfffa3942, 0x8771f681, 0x6d9d6122, 0xfde5380c, 0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70,
+		0x289b7ec6, 0xeaa127fa, 0xd4ef3085, 0x04881d05, 0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665,
+		0xf4292244, 0x432aff97, 0xab9423a7, 0xfc93a039, 0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1,
+		0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391
+	};
+	// Initialize the 128-bit state:
+	uint32 state[4] = {0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476};	// {a0,b0,c0,d0}
+	// Process the message in successive 512-bit chunks -
+	// We alias our 64-bit input vector x to a 32-bit pointer into each chunk to ease the indexing here:
+	uint32 *M;
+	for(j = 0; j < nword; j += 8) {	// for each 512-bit chunk of padded message do
+		M = (uint32*)(x + j);	// break chunk into sixteen 32-bit words M[0,...,15]
+		// Initialize hash value for this chunk:
+		uint32 A = state[0], B = state[1], C = state[2], D = state[3];	// {A,B,C,D} = {a0,b0,c0,d0}
+		// Inner loop of 4 processing rounds which modify the 128-bit state:
+		for(i = 0; i < 64; i++) {
+			uint32 F, g;
+			if(i < 16) {		// Round 1
+				F = (B & C) | ((!B) & D);
+				g = i;
+			} else if(i < 32) {	// Round 2,	shares g = B,3 with Round 3
+				F = (D & B) | ((!D) & C);
+				g = ((i<<2) + i + 1) & 15;	// (5*i + 1) mod 16, takes hex-values 1,6,B,0,5,A,F,4,9,E,3,8,D,2,7,C
+			} else if(i < 48) {	// Round 3,	shares g = B,3 with Round 2
+				F = B ^ C ^ D;
+				g = ((i<<1) + i + 5) & 15;	// (3*i + 5) mod 16, takes hex-values 5,8,B,E,1,4,7,A,D,0,3,6,9,C,F,2
+			} else {			// Round 4
+				F = C ^ (B | (!D));
+				g = ((i<<3) - i    ) & 15;	// (7*i    ) mod 16, takes hex-values 0,7,E,5,C,3,A,1,8,F,6,D,4,B,2,9
+			}	printf("i = %2u: g = %2u\n",i,g);
+			F = F + A + K[i] + M[g];	// All arithmetic modulo 2^32 via the variable typing
+			A = D; D = C; C = B;
+			B += LROT32(F, s[i]);
+		}
+		// Add this chunk's hash to result so far:
+		state[0] += A; state[1] += B; state[2] += C; state[3] += D;
+	}
+	// If caller provided an md5[] arg, write state to that in 2 x uint64 form:
+	if(md5) {
+		M = (uint32*)md5;
+		for(i = 0; i < 4; i++) { M[i] = state[i]; }
+	}
+	// Output in char[16]-form is in little-endian:
+	sprintf(md5_str,"%u%u%u%u",state[3],state[2],state[1],state[0]);
+	// Post-processing: restore preprocessed upper end of x to its input value
+	mi64_set_bit(x,nbit,nword,0); x[nword-1] = 0ull;
 }
 
 /*******************/
@@ -2471,7 +2635,7 @@ uint64	mi64_mul_scalar(const uint64 x[], uint64 a, uint64 y[], uint32 len)
 	uint64 lo, hi, cy = 0;
 
 	uint32 lmod4 = (len&0x3), ihi = len - lmod4;
-	for(; i < ihi; ++i)
+	while(i < ihi)
 	{
 	#ifdef MUL_LOHI64_SUBROUTINE
 		MUL_LOHI64(a, x[i],&lo,&hi);
@@ -2479,31 +2643,28 @@ uint64	mi64_mul_scalar(const uint64 x[], uint64 a, uint64 y[], uint32 len)
 		MUL_LOHI64(a, x[i], lo, hi);
 	#endif
 		y[i] = lo + cy;
-		cy = hi + (y[i] < lo);
-		i++;
+		cy = hi + (y[i++] < lo);
 	#ifdef MUL_LOHI64_SUBROUTINE
 		MUL_LOHI64(a, x[i],&lo,&hi);
 	#else
 		MUL_LOHI64(a, x[i], lo, hi);
 	#endif
 		y[i] = lo + cy;
-		cy = hi + (y[i] < lo);
-		i++;
+		cy = hi + (y[i++] < lo);
 	#ifdef MUL_LOHI64_SUBROUTINE
 		MUL_LOHI64(a, x[i],&lo,&hi);
 	#else
 		MUL_LOHI64(a, x[i], lo, hi);
 	#endif
 		y[i] = lo + cy;
-		cy = hi + (y[i] < lo);
-		i++;
+		cy = hi + (y[i++] < lo);
 	#ifdef MUL_LOHI64_SUBROUTINE
 		MUL_LOHI64(a, x[i],&lo,&hi);
 	#else
 		MUL_LOHI64(a, x[i], lo, hi);
 	#endif
 		y[i] = lo + cy;
-		cy = hi + (y[i] < lo);
+		cy = hi + (y[i++] < lo);
 	}
 	// Cleanup loop for remaining terms:
 	ASSERT(HERE, len != 0, "zero-length array!");
@@ -2738,9 +2899,7 @@ void	mi64_mul_vector(const uint64 x[], uint32 lenX, const uint64 y[], uint32 len
 	ASSERT(HERE, lenZ != 0x0, "Null lenZ pointer!");
 
 	/* Init z[] = 0: */
-	for(i = 0; i < lenX + lenY; i++) {
-		z[i] = 0;
-	}
+	for(i = 0; i < lenX + lenY; i++) { z[i] = 0; }
 
 	/* Find larger of the 2 inputs (in terms of actual length, not nominal length: */
 	lenX = mi64_getlen(x, lenX);
@@ -3293,7 +3452,7 @@ void	mi64_mul_vector_hi_qmmp(const uint64 y[], const uint64 p, const uint64 k, u
 	ASSERT(HERE, !bw, "Unexpected borrow!");
 
 	/* Right-shift by B bits to get UMULH(q,Y) = ((Z << p) - (2k-1).Y) >> B: */
-	mi64_shrl(v,v,bits,len2);
+	mi64_shrl(v,v,bits,len2,len2);
 	memcpy(z,v,len8);
 //	memcpy(z,v+len,len8);
 
@@ -3399,7 +3558,7 @@ void	mi64_mul_vector_hi_fast(const uint64 y[], const uint64 p, const uint64 k, u
 
 // 3. compute low n words of z >> (b-p), then separately shift in cz from the left, via (2^b*cz) >> (b-p) = (cz << p).
 	ASSERT(HERE, (len<<6) > p, "shift parameters out of range!");
-	bw1 = mi64_shrl(z,z,(len<<6)-p,len);	// low n words of z >> (b-p); high 64 bits of off-shifted portion saved in bw1
+	bw1 = mi64_shrl(z,z,(len<<6)-p,len,len);	// low n words of z >> (b-p); high 64 bits of off-shifted portion saved in bw1
 //if(k==900) printf("Mi64: bw1 = %20llu, z>> = %s\n", bw1,&s0[convert_mi64_base10_char(s0, z, len, 0)]);
 
 /* Check for borrow-on-subtract of to-be-off-shifted sections: have a borrow if
@@ -3490,7 +3649,7 @@ void	mi64_mul_vector_hi_qferm(const uint64 y[], const uint64 p, const uint64 k, 
 	ASSERT(HERE, (cy == 0ull), "Unexpected carry!");
 
 	/* Right-shift by B bits to get UMULH(q,Y) = ((Z << p) - (2k-1).Y) >> B: */
-	mi64_shrl(u,u,bits,len2);
+	mi64_shrl(u,u,bits,len2,len2);
 	memcpy(z,u,len8);
 }
 
@@ -3758,7 +3917,7 @@ especially as this routine is too slow to be useful for inputs larger than a cou
 	while(!mi64_iszero(n, curr_len))
 	{
 		flag = n[0] & 1;
-		mi64_shrl(n, n, 1, curr_len);	/* n >>= 1, also update curr_len */
+		mi64_shrl_short(n, n, 1, curr_len);	/* n >>= 1, also update curr_len */
 		curr_len = mi64_getlen(n, curr_len);
 
 	#if MI64_PRP_DBG
@@ -4536,7 +4695,7 @@ uint64 mi64_modmul64(const uint64 a, const uint64 b, const uint64 m)
 		*/
 	} 	// 63 or 64-bit modulus?
 
-#elif 1	// Barrett-modmul-based algo. N ~140 cycles on Core2, a smidge faster than Montgomery:
+#elif 0	// Barrett-modmul-based algo. N ~140 cycles on Core2, a smidge faster than Montgomery:
 
 	// [1] Left-justify modulus so that m' = (m << shift) is in [2^63,2^64):
 
@@ -4547,6 +4706,7 @@ uint64 mi64_modmul64(const uint64 a, const uint64 b, const uint64 m)
 		twoi = ip + ip;					//ASSERT(HERE, twoi > ip  , "Unexpected overflow in 2*ip computation!");
 		mulh = twoi + __MULH64(ip,ip);	ASSERT(HERE, mulh > twoi, "Unexpected overflow in mulh summation!");
 		mulh = __MULH64(m,mulh);
+		#error*** Mar 2021: Hit above assert with inputs (a=2, b=2, m=5000099); commenting it out, the iteration fails to converge ***
 		diff = ip - m - mulh;
 		ip += diff;
 		if(!diff) break;
@@ -4562,7 +4722,7 @@ uint64 mi64_modmul64(const uint64 a, const uint64 b, const uint64 m)
 	MULL64(m,hi,hi);
 	r = lo - hi;	// (+= 2^64 automatic if lo < hi)
 
-#elif 0	// Montgomery-modmul based algo:
+#elif 1	// Montgomery-modmul based algo:
 
 	// MONT_MUL64(a,b,m) gives a*b*B^(-1) % m, then  a second MONT_MUL64 of that with B^2%m gives a*b % m .
 	// This is worst-case scenario for this algo - just 1 modmul step, i.e. pre-and-post-computation dominate, needs ~150 cycles on Core2.
@@ -4674,17 +4834,17 @@ int mi64_div(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, uint6
 		if(q) mi64_clear(q,lenX);
 		return mi64_iszero(x, lenX);	// For x < y, y divides x iff x = 0
 	}
-	// If single-word divisor, use specialized single-word-divisor version:
+	// If single-word divisor, use specialized single-word-divisor version.
 	if(ylen == 1) {
 		itmp64 = mi64_div_by_scalar64_u4(x, y[0], xlen, q);	// Use 4-folded divrem for speed
+		if(r != 0x0) r[0] = itmp64;
 		retval = (itmp64 == 0ull);
-		if(r != 0x0)
-			r[0] = itmp64;
-		if(r == x) mi64_clear(r+1, lenY-1);			// Only clear high words of remainder array if rem-in-place (x == r)
 	} else {
 		retval = mi64_div_mont(x, y, xlen, ylen, q, r);
-		if(r == x) mi64_clear(r+ylen, lenX-ylen);	// Only clear high words of remainder array if rem-in-place (x == r)
 	}
+	// v20: Ugh - v19 was only clearing high words of remainder array if rem-in-place (x == r), even commenting
+	// to that effect; moreover the (x == r) mi64_clear was clearing (lenX-ylen) high words, not (lenY-ylen)! WTF?
+	if(r != 0x0) mi64_clear(r+ylen, lenY-ylen);
 	return retval;
 }
 #endif	// __CUDA_ARCH__ ?
@@ -4707,7 +4867,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
   #endif
 	int retval = -1;	// -1 implies uninited
 	int i,j;			// i and j must be signed
-	uint32 lenW,lenD,lenS,lenP,lenQ, ybits, log2_numbits, n, p, nshift, nws = 0, nbs = 0, nc = 0;
+	uint32 lenW,lenD,lenS,lenQ, ybits, log2_numbits, n, p, nshift, nws = 0, nbs = 0, nc = 0;
 	const uint32 ncmax = 16;
 	uint64 bw,mask,lo64,itmp64;
 	double fquo;
@@ -4863,8 +5023,8 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 		mi64_set_eq(rem_save, x, nws);
 		mask = ((uint64)-1 >> (64 - nbs));
 		rem_save[nws-1] &= mask;
-		mi64_shrl(x,v,nshift,lenX);
-		mi64_shrl(y,w,nshift,lenD);
+		mi64_shrl(x,v,nshift,lenX,lenX);
+		mi64_shrl(y,w,nshift,lenD,lenD);
 	#if MI64_DIV_MONT
 		if(dbg && (lenX <= 50))printf("x >> %u = %s\n",nshift, &s0[convert_mi64_base10_char(s0, v, lenX, 0)]);
 		if(dbg)printf("y >> %u = %s\n",nshift, &s0[convert_mi64_base10_char(s0, w, lenD, 0)]);
@@ -4887,7 +5047,7 @@ int mi64_div_mont(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY, 
 	{
 		// F-way folded version of 64-bit DIV requires dividend length to be padded as needed to make it a multiple
 		// of F, but take care of that via a bit of hackery within the mi64_div_by_scalar64_uF routines themselves:
-		itmp64 = mi64_div_by_scalar64_u4(v, w[0], lenP, q);
+		itmp64 = mi64_div_by_scalar64_u4(v, w[0], lenX, q);
 		if(r != 0x0)
 			r[0] = itmp64;
 		// If we applied an initial right-justify shift to the modulus, restore the shift to the
@@ -5346,11 +5506,11 @@ int mi64_div_binary(const uint64 x[], const uint64 y[], uint32 lenX, uint32 lenY
 			ASSERT(HERE, mi64_cmpult(xloc, yloc, max_len),"r >= yshift");
 			xlen = mi64_getlen(xloc, max_len);
 			if(q) {
-				mi64_set_bit(q, i);
+				mi64_set_bit(q,i,*lenQ,1);
 			}
 		}
 		if(i > 0) {
-			mi64_shrl(yloc, yloc, 1, ylen);
+			mi64_shrl_short(yloc, yloc, 1, ylen);
 			ylen = mi64_getlen(yloc, ylen);
 		}
 		max_len = MAX(xlen, ylen);
@@ -7844,8 +8004,13 @@ int	__convert_mi64_base10_char_print_lead0(char char_buf[], uint32 n_alloc_chars
 
 /* This is essentially an mi64 version of the <stdlib.h> strtoul function: Takes an input string,
 converts it - if numeric - to mi64 form, returning a pointer to the mi64 array allocated to
-store the result in the function value, and the nominal length of the result in terms of 64-bit
-words via argument #2.
+store the result in the function value.
+
+If *len == 0 on input the function allocates just the minimum number of limbs needed to hold
+the numeric value of the input string, and overwrites *len with this value.
+
+Otherwise *len is treated as a user-set number of limbs to be alloc'ed, and the function only
+checks that this is sufficient to store the numeric value of the input string.
 
 If the input string is not a valid numeric or some other conversion problem is encountered, both
 the return-value pointer and the word length argument (via the arglist len pointer) are set = 0.
@@ -7875,9 +8040,13 @@ uint64 *convert_base10_char_mi64(const char*char_buf, uint32 *len)
 			break;
 		}
 	}
-	/* Estimate # of 64-bit words based on length of non-whitespace portion of the string: */
-	*len = 1;
-	LEN_MAX = (uint32)ceil( (imax-i)/log10_base );
+
+	if(*len != 0) {	// User has set #limbs for us:
+		LEN_MAX = *len;
+	} else {	// Otherwise, compute an estimated # of limbs based on length of non-whitespace portion of the string:
+		*len = 1;
+		LEN_MAX = (uint32)ceil( (imax-i)/log10_base );
+	}
 	mi64_vec = (uint64 *)calloc(LEN_MAX+1, sizeof(uint64));	/* 01/09/2009: Add an extra zero-pad element here as workaround for bug in mi64_div called with differing-length operands */
 	imin = i;
 	for(i = imin; i < imax; i++) {
@@ -7976,7 +8145,7 @@ uint32 mi64_twopmodq(const uint64 p[], uint32 len_p, const uint64 k, uint64 q[],
 	if(dbg) printf("mi64_twopmodq: k = %llu, len = %u, lenQ = %u\n",k,len,lenQ);
   #endif
 	qbits = lenQ << 6;
-	mi64_shrl(q, qhalf, 1, lenQ);	/* (q >> 1) = (q-1)/2, since q odd. */
+	mi64_shrl_short(q, qhalf, 1, lenQ);	/* (q >> 1) = (q-1)/2, since q odd. */
 
 	/* pshift = p + len*64 */
 	pshift[lenP] = mi64_add_scalar(p, lenQ*64, pshift, lenP);	// April 2015: lenP ==> lenQ here!
@@ -8307,7 +8476,7 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 	ASSERT(HERE, !cyout, "2.k.M(p) overflows!");	// 2.k.M(p)
 	ASSERT(HERE, 0 != q[lenQ-1], "Excessive word size allocated for q!");
 	mi64_add_scalar(q, 1ull, q, lenQ);	// q = 2.k.M(p) + 1
-	mi64_shrl(q, qhalf, 1, lenQ);	/* (q >> 1) = (q-1)/2, since q odd. */
+	mi64_shrl_short(q, qhalf, 1, lenQ);	/* (q >> 1) = (q-1)/2, since q odd. */
   #else
 	// 2^p; cheaper than the "long way": q[0] = 1; mi64_shl(q, q, p, lenQ);
 	j = p>>6;	// p/64; the set-bit in 2^p goes into the (j)th word of q[]
@@ -8316,7 +8485,7 @@ uint32 mi64_twopmodq_qmmp(const uint64 p, const uint64 k, uint64*res)//, uint32 
 	cyout = mi64_mul_scalar(q, k2, q, lenQ);	ASSERT(HERE, !cyout, "2.k.M(p) overflows!");	// 2.k.M(p)
 	ASSERT(HERE, 0 != q[lenQ-1], "Excessive word size allocated for q!");
 	mi64_add_scalar(q, 1ull, q, lenQ);	// q = 2.k.M(p) + 1
-	mi64_shrl_short(q,qhalf, 1, lenQ);	// qhalf = (q >> 1) = (q-1)/2, since q odd.
+	mi64_shrl_short_short(q,qhalf, 1, lenQ);	// qhalf = (q >> 1) = (q-1)/2, since q odd.
   #endif
 	/*
 	Find modular inverse (mod 2^qbits) of q in preparation for modular multiply.

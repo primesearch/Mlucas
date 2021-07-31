@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -170,6 +170,7 @@ void testSmarandache(const uint32 imin, const uint32 imax, const uint8 pdiff[], 
 		uint64*factor_k;		// List of found factors for each p gets updated (we hope) within
 		uint32*nfactor;			// Here the '*' is to denote a writeable scalar
 		uint32 findex;
+		const char *pstring;
 		uint64*p;
 		uint64*two_p;
 		uint64*q;
@@ -210,10 +211,23 @@ void testSmarandache(const uint32 imin, const uint32 imax, const uint8 pdiff[], 
 
 #define SPOT_CHECK	0	// Enable periodic Spot-check (PRP or composite) of factor candidates
 
-#define FAC_DEBUG	0
-#if FAC_DEBUG
-	#warning Setting FAC_DEBUG in factor.h
+// printf character buffers - when using to print args in a single printf, need a separate buffer for each arg:
+char char_buf0[STR_MAX_LEN], char_buf1[STR_MAX_LEN], char_buf2[STR_MAX_LEN];
+//#define FAC_DEBUG
+#ifdef FAC_DEBUG
+	#warning FAC_DEBUG enabled for this build.
+	/* Set k_targ to some known-factor k to debug a specific missed-factor case: */
+	uint64 k_targ = 0ull;	// k = that of smallest factor of mm31
+	uint32 pass_targ = 0xffffffff;	/* Init to a known-invalid value; if user specifies
+	 								a known (valid) test factor via k_targ, pass_targ will
+	 								be set to the associated (legitimate) value between 0 and TF_PASSES-1;
+	 								(pass_targ < TF_PASSES) can subsequently be used as a quick
+	 								test for whether an appropriate test factor has been set. */
 	#define DBG_SIEVE	1
+  #if DBG_SIEVE
+	uint32 *startval_incr;
+	uint32 i64_targ, bit_targ;
+  #endif
 #endif
 
 // Oct 2015: GCD-associated self-tests provides a fair bit of added coverage of the mi64 library, so always include:
@@ -230,6 +244,10 @@ int restart;
 #ifdef FACTOR_STANDALONE
 	/* In standalone, need to locally define some Mdata.h/Mlucas.h-declared globals
 	which would normally be defined in Mlucas.c. */
+
+	// System-related globals:
+	uint32 SYSTEM_RAM = 0, MAX_RAM_USE = 90;	// Total usable main memory size, and max. amount of that to use per instance, in MB.
+												// Default value of the latter is 90 (as in, use up to 90% of available RAM).
 
 	char ESTRING[STR_MAX_LEN];	/* Exponent in string form */
 	char PSTRING[STR_MAX_LEN];	/* [exponent | index] of [Mersenne | Fermat ] Number being tested in string form, typically
@@ -262,31 +280,31 @@ allocated will likely need slightly more than 4GB of working memory with such a 
 */
 #ifndef NUM_SIEVING_PRIME
 	#ifdef NWORD	/* N-word P, N presumed to be > 1: */
-		#if FAC_DEBUG
+		#ifdef FAC_DEBUG
 			#define NUM_SIEVING_PRIME	10000
 		#else
 			#define NUM_SIEVING_PRIME	2000000
 		#endif
 	#elif(defined(P4WORD))	/* 4-word P: */
-		#if FAC_DEBUG
+		#ifdef FAC_DEBUG
 			#define NUM_SIEVING_PRIME	10000
 		#else
 			#define NUM_SIEVING_PRIME	1000000
 		#endif
 	#elif(defined(P3WORD))	/* 3-word P: */
-		#if FAC_DEBUG
+		#ifdef FAC_DEBUG
 			#define NUM_SIEVING_PRIME	10000
 		#else
 			#define NUM_SIEVING_PRIME	500000
 		#endif
 	#elif(defined(P2WORD))	/* 2-word P: */
-		#if FAC_DEBUG
+		#ifdef FAC_DEBUG
 			#define NUM_SIEVING_PRIME	10000
 		#else
 			#define NUM_SIEVING_PRIME	200000
 		#endif
 	#else	/* 1-word P limit is set by #of bits p can have so 120^2*p < 2^64: */
-		#if FAC_DEBUG || defined(USE_GPU)
+		#if defined(FAC_DEBUG) || defined(USE_GPU)
 			#define NUM_SIEVING_PRIME	10000
 		#else
 			#define NUM_SIEVING_PRIME	100000
@@ -301,7 +319,7 @@ allocated will likely need slightly more than 4GB of working memory with such a 
 /*...Known Mersenne prime exponents. This array must be null-terminated.	*/
 const uint32 knowns[] = {2,3,5,7,13,17,19,31,61,89,107,127,521,607,1279,2203,2281,3217,4253,4423,9689,9941
 	,11213,19937,21701,23209,44497,86243,110503,132049,216091,756839,859433,1257787,1398269,2976221,3021377,6972593
-	,13466917,20996011,24036583,25964951,30402457,32582657,37156667,42643801,43112609,57885161,0x0};
+	,13466917,20996011,24036583,25964951,30402457,32582657,37156667,42643801,43112609,57885161,74207281,77232917,82589933,0x0};
 
 /*** Code to small candidate factors q=2*k*p+1 of Mersenne numbers M(p) = 2^p - 1.
 
@@ -518,11 +536,11 @@ Unlike for (mod 60), use simple utility functions to manage these, rather than a
 	FACTOR_STANDALONE - build as a standalone program, rather than a callable
 						factor() subroutine.
 
-	FAC_DEBUG - define = 1 in factor.h to enable debugging diagnostic prints
+	FAC_DEBUG - define at compile time to enable debugging diagnostic prints
 				and assertions of the form ASSERT.
 
 	DBG_SIEVE - define = 1 to debug the sieve without actually spending time
-				doing trial divides. NOTE: Requires FAC_DEBUG = 1.
+				doing trial divides. NOTE: Requires FAC_DEBUG to be def'd.
 
 	NOBRANCH - define to invoke branchless versions of key code segments.
 
@@ -588,7 +606,7 @@ int main(int argc, char *argv[])
 
 #else
 
-  #if FAC_DEBUG
+  #ifdef FAC_DEBUG
 	#error FAC_DEBUG only permitted in standalone mode!
   #endif
 
@@ -618,8 +636,9 @@ int factor(char *pstring, double bmin, double bmax)
 											final factoring-run result ONLY for each assignment */
 	/* Restart file name:
 	This is set at runtime, based on either command-line -file flag argument
-	or (if -file {} not used) the exponent being processed. */
-	char RESTARTFILE[STR_MAX_LEN] = "";
+	or in the default case (i.e. -file {} not used) the exponent being processed: t[exponent].
+	*/
+	char RESTARTFILE[STR_MAX_LEN] = "", TMPFILE[STR_MAX_LEN] = "";
 
 	double bmin = 0.0, bmax = 0.0;	/* store log2 of (min|max) factoring bound */
 #endif
@@ -661,7 +680,7 @@ int factor(char *pstring, double bmin, double bmax)
 	#define MAX_TRYQ	64
 #elif defined(USE_AVX)
 	#define MAX_TRYQ	16
-#elif defined(USE_SSE2) && defined(X64_ASM)
+#elif defined(USE_SSE2) || defined(X64_ASM)
 	#define MAX_TRYQ	 8
 #else
 	#define MAX_TRYQ	 4
@@ -755,20 +774,6 @@ int factor(char *pstring, double bmin, double bmax)
 #ifdef P4WORD
 	uint256 p256,q256,t256;
 #endif
-#if FAC_DEBUG
-	/* Set k_targ to some known-factor k to debug a specific missed-factor case: */
-	uint64 k_targ = 56474845800ull;
-	uint32 pass_targ = 0xffffffff;	/* Init to a known-invalid value; if user specifies
-	 								a known test factor via k_targ, pass_targ will
-	 								be set to the associated (legitimate) value between 0 and TF_PASSES-1;
-	 								(pass_targ < TF_PASSES) can subsequently be used as a quick
-	 								test for whether a known test factor has been set. */
-#endif
-
-#if DBG_SIEVE
-	uint32 *startval_incr;
-	uint32 i64_targ, bit_targ;
-#endif
 
 	/*...time-related stuff	*/
 	clock_t clock1, clock2;
@@ -776,9 +781,6 @@ int factor(char *pstring, double bmin, double bmax)
 #if TEST_TRIALDIV
 	double citer;
 #endif
-	/* printf character buffers - when using to print args in a single printf,
-	need a separate buffer for each arg: */
-	char char_buf0[STR_MAX_LEN], char_buf1[STR_MAX_LEN], char_buf2[STR_MAX_LEN];
 	char *char_addr;
 
 /* Set == 1 to test the trial-div stuff: */
@@ -882,7 +884,7 @@ Others are optional and in some cases mutually exclusive:
 				 saved from previous runs with their current command line and modify
 				 one or the other so as to remove any pass-range conflicts.
 
-	-q [int]    A known factor for the number (only used if FAC_DEBUG = 1).
+	-q [int]    A known factor for the number (only used if FAC_DEBUG def'd).
 */
 #ifdef FACTOR_STANDALONE
 
@@ -931,7 +933,7 @@ Others are optional and in some cases mutually exclusive:
 			}
 			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
 			bmin = convert_base10_char_double(stFlag);
-		  #if FAC_DEBUG
+		  #ifdef FAC_DEBUG
 			printf("bmin = %lf\n", bmin);
 		  #endif
 		}
@@ -944,7 +946,7 @@ Others are optional and in some cases mutually exclusive:
 			}
 			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
 			bmax = convert_base10_char_double(stFlag);
-		  #if FAC_DEBUG
+		  #ifdef FAC_DEBUG
 			printf("bmax = %lf\n", bmax);
 		  #endif
 		}
@@ -1018,9 +1020,6 @@ Others are optional and in some cases mutually exclusive:
 		  #ifdef NWORD
 			ASSERT(HERE, NTHREADS == 1, "Arbitrary-precision build currently only supports single-threaded runs!");
 		  #endif
-			// Use the same affinity-setting code here as for the -cpu option, but simply for cores [0:NTHREADS-1]:
-			sprintf(cbuf,"0:%d",NTHREADS-1);
-			parseAffinityString(cbuf);
 		#endif
 		}
 		else	// Come again?
@@ -1056,16 +1055,23 @@ Others are optional and in some cases mutually exclusive:
 	#else
 		MAX_THREADS = get_num_cores();
 		ASSERT(HERE, MAX_THREADS > 0, "Illegal #Cores value stored in MAX_THREADS");
+		ASSERT(HERE, MAX_THREADS <= MAX_CORES,"MAX_THREADS exceeds the MAX_CORES setting in Mdata.h .");
 
-		if(!NTHREADS)	/* User may have already set via -nthread argument, in which case we skip this stuff: */
-		{
-			NTHREADS = MAX_THREADS;
-			fprintf(stderr,"Using NTHREADS = #CPUs = %d.\n", NTHREADS);
+		if(!NTHREADS) {
+			NTHREADS = 1;
+			fprintf(stderr,"No CPU set or threadcount specified ... running single-threaded.\n");
+			// Use the same affinity-setting code here as for the -cpu option, but simply for cores [0:NTHREADS-1]:
+		} else if(NTHREADS > MAX_CORES) {
+			sprintf(cbuf,"FATAL: NTHREADS = %d exceeds the MAX_CORES setting in Mdata.h = %d\n", NTHREADS, MAX_CORES);
+			ASSERT(HERE, 0, cbuf);
 		} else {	// In timing-test mode, allow #threads > #cores
-			if(NTHREADS > MAX_THREADS)
+			if(NTHREADS > MAX_THREADS) {
 				fprintf(stderr,"WARN: NTHREADS = %d exceeds number of cores = %d\n", NTHREADS, MAX_THREADS);
+			}
 			fprintf(stderr,"NTHREADS = %d\n", NTHREADS);
 		}
+		sprintf(cbuf,"0:%d",NTHREADS-1);
+		parseAffinityString(cbuf);
 		k_to_try = (uint64 *)calloc(TRYQ * NTHREADS, sizeof(uint64));
 
 		// Up to TF_PASSES work units (perhaps fewer if a restart) get done by a pool of NTHREADS threads.  Yypically have
@@ -1102,7 +1108,7 @@ Others are optional and in some cases mutually exclusive:
 	}	// End (inits)
 
 /* Do a quick series of self-tests: */
-#if 1//FAC_DEBUG
+#if 1//def FAC_DEBUG
 	test_fac();
 #endif
 
@@ -1120,8 +1126,7 @@ exit(0);
 	ASSERT(HERE, STRNEQ(pstring,""),"factor.c : pstring empty!");
 
 	/* -bmin/bmax used to set bounds for factoring: */
-	if(bmin || bmax)
-	{
+	if(bmin || bmax) {
 		ASSERT(HERE, (kmin==0 && kmax==0 && kplus==0),"(kmin==0 && kmax==0 && kplus==0)");
 
 		if(bmin < 0) {
@@ -1142,8 +1147,7 @@ exit(0);
 	}
 
 	/* -kmin/kmax used to set bounds for factoring: */
-	if(kmin || kmax)
-	{
+	if(kmin || kmax) {
 		ASSERT(HERE, kmax != 0 ,"factor.c: kmax not set!");
 		ASSERT(HERE, (int64)kmax > 0, "kmax must be 63 bits or less!");
 		ASSERT(HERE, (bmin==0 && bmax==0 && kplus==0),"(bmin==0 && bmax==0 && kplus==0)");
@@ -1161,9 +1165,11 @@ exit(0);
 			  || (MODULUS_TYPE ==   MODULUS_TYPE_FERMAT)
 				, "Unsupported modulus type!");
 
+	lenQ = ((uint32)MAX_BITS_Q + 63)>>6;	// This sets upper bound on #words needed to store max. factor candidate
+
 	// Convert power-of-2 exponent to unsigned int form and allocate the exponent-storage vector.
 	// We use MAX_BITS_P (defined in Mdata.h) to set the allocated storage here, but use the user-set
-	// exponent to set the number of words of that allocate storage which are actually used:
+	// exponent to set the number of words of that allocated storage which are actually used:
 	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
 	{
 		findex = convert_base10_char_uint64(pstring);
@@ -1184,19 +1190,17 @@ exit(0);
 		p     = (uint64 *)calloc( ((uint32)MAX_BITS_P + 63)>>6, sizeof(uint64));
 		p[0] = 1;	mi64_shl(p,p,findex,lenP);
 		mi64_sub_scalar(p,1,p,lenP);	// p = 2^findex - 1;
-	#if FAC_DEBUG
+	#ifdef FAC_DEBUG
 		printf("%s(%s) = M(p) with p = %s\n", NUM_PREFIX[MODULUS_TYPE], pstring, &char_buf0[convert_mi64_base10_char(char_buf0, p, lenP, 0)]);
 	#endif
 	} else {
-		/* Convert stringified exponent to mi64 form and check the length of p and of the max. factor: */
-		p = convert_base10_char_mi64(pstring, &lenP);	// This does the mem-alloc for us in this case
-		ASSERT(HERE, lenP > 0, "factor.c: Error converting pstring!");
+		// Convert stringified exponent to mi64 form, using same #limbs as for factor candidates:
+		p = convert_base10_char_mi64(pstring, &lenQ);	// This does the mem-alloc for us in this case
+		lenP = mi64_getlen(p, lenQ); ASSERT(HERE, lenP > 0, "factor.c: Error converting pstring!");
 		nbits_in_p = (lenP<<6) - mi64_leadz(p, lenP);
 	}
 
 	// Allocate the other modulus-dependent vectors:
-	lenQ = ((uint32)MAX_BITS_Q + 63)>>6;	// This sets upper bound on #words needed to store max. factor candidate
-
 	two_p   = (uint64 *)calloc(lenQ, sizeof(uint64));
 	p2NC    = (uint64 *)calloc(lenQ, sizeof(uint64));
 	q       = (uint64 *)calloc(lenQ * NTHREADS, sizeof(uint64));
@@ -1269,8 +1273,8 @@ exit(0);
 			mi64_sub_scalar(p, 1ull, q, lenP);	/* q = p-1 */
 			if(!mi64_twopmodq(q, lenP, 0, p, lenP, 0x0))
 			{
-				fprintf(stderr,"p is not prime! Offending p = %s\n", pstring);
-				ASSERT(HERE, 0,"0");
+				fprintf(stderr,"WARNING: p = %s is not prime ... proceeding anyway, on presumption user wants this.\n", pstring);
+			//	ASSERT(HERE, 0,"0");	Dec 2019 ... allowing odd composite exponents can still be useful, e.g. ATH used to TF M(p^2) for known Mersenne primes
 			}
 		}
 	}
@@ -1281,7 +1285,7 @@ exit(0);
 	/* 2*p*[number of classes]: */
 	p2NC[lenP] = mi64_mul_scalar(p, (uint64)2*TF_CLASSES, p2NC, lenP);
 
-  #if FAC_DEBUG
+  #ifdef FAC_DEBUG
 	printf("two_p        = %s\n", &char_buf0[convert_mi64_base10_char(char_buf0, two_p, lenQ, 0)]);
 	printf("2*p*#TF_CLASSES = %s\n", &char_buf0[convert_mi64_base10_char(char_buf0, p2NC , lenP, 0)]);
   #endif
@@ -1289,7 +1293,7 @@ exit(0);
 	// p mod TF_CLASSES:
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSMERS)
 	{
-		pmodNC = twopmmodq64(findex, (uint64)TF_CLASSES) - 1;		// For double-Mersenne factoring need M(p) mod #TF_CLASSES
+		pmodNC = twopmmodq64(findex, (uint64)TF_CLASSES) - 1;	// For double-Mersenne factoring need M(p) mod #TF_CLASSES
 		/*
 		The above routine computes 2^p (mod 60) via Montgomery-mul-based powering. That requires an odd modulus,
 		so the actual powering step computes 2^(p-2) (mod 15), multiplies the result by 4 to get 2^p (mod 60),
@@ -1323,9 +1327,11 @@ exit(0);
 		and in case someone else modifies this code for a purpose where the above call might in fact return 0 (mod 60):
 		*/
 		printf("p mod %u = %d\n", TF_CLASSES, pmodNC);
-		if(pmodNC != mi64_div_y32(p, TF_CLASSES, 0x0, lenP)) {
-			printf("p mod %u v2 = %d\n", TF_CLASSES, mi64_div_y32(p, TF_CLASSES, 0x0, lenP));
-			ASSERT(HERE, 0, "Powering and direct-long-dive give differing p % TF_CLASSES) values!");
+		itmp32 = mi64_div_y32(p, TF_CLASSES, 0x0, lenP);
+		if(pmodNC != itmp32) {
+			printf("p mod %u v2 = %d\n", TF_CLASSES, itmp32);
+			fprintf(stderr,"Warning: Differing (p %% TF_CLASSES) values from Powering and direct-long-div! Proceeding using the 2nd result (%u).\n",itmp32);
+			pmodNC = itmp32;
 		}
 	} else {
 		pmodNC = mi64_div_y32(p, TF_CLASSES, 0x0, lenP);
@@ -1362,42 +1368,1320 @@ exit(0);
 	Fermat-number factoring run, pstring > MAX_BITS_P is a Mersenne-number run.
 	*/
 	RESTARTFILE[0] = 't'; RESTARTFILE[1] = '\0'; strcat(RESTARTFILE, pstring);
-	fprintf(stderr,"INFO: Will write savefile %s every 2^%u = %llu factor candidates tried.\n",RESTARTFILE,CMASKBITS,countmask+1);
-	/* TF restart files are in HRF, not binary: */
-	fp = mlucas_fopen(RESTARTFILE, "r");
-	if(!fp) {
-									fprintf(stderr,"INFO: No factoring savefile %s found ... starting from scratch.\n",RESTARTFILE);
-	#ifndef FACTOR_STANDALONE
-		fq = mlucas_fopen(STATFILE,"a");	fprintf(	fq,"INFO: No factoring savefile %s found ... starting from scratch.\n",RESTARTFILE);	fclose(fq); fq = 0x0;
+	strcpy(TMPFILE, RESTARTFILE);	strcat(TMPFILE, ".tmp");
+	fprintf(stderr,"INFO: Will write checkpoint data to savefile %s.\n",RESTARTFILE);
+#warning bmax/kmax-synchro needs re-do!
+	/* If it's not a restart of an as-yet-uncompleted run, synchronize the factoring-bound params: */
+	if(!incomplete_run)
+	{
+		/* Double-check factoring pass bounds: */
+		if(passmin > (TF_PASSES-1) )
+		{
+			fprintf(stderr,"ERROR: passmin must be <= %u. Offending entry = %u.\n", TF_PASSES-1, passmin);
+			ASSERT(HERE, 0,"0");
+		}
+
+		if(passmax < passmin)
+		{
+			fprintf(stderr,"ERROR: (passmax = %u) < (passmin = %u)!\n", passmax, passmin);
+			ASSERT(HERE, 0,"0");
+		}
+		if(passmax > (TF_PASSES-1) )
+		{
+			fprintf(stderr,"ERROR: passmax must be <= %u. Offending entry = %u.\n", TF_PASSES-1, passmax);
+			ASSERT(HERE, 0,"0");
+		}
+
+		/**** Process factor candidate bounds: ****/
+
+		/* If any of bmin|kmin, bmax|kmax nonzero, calculate its counterpart: */
+	#ifdef P1WORD
+		/* Find FP approximation to 2*p - can't use this for multiword case, because double approximation tp 2*p may overflow: */
+		twop_float = (double)two_p[0];
 	#endif
-	} else {
-									fprintf(stderr,"Factoring savefile %s found ... reading ...\n",RESTARTFILE);
-	#ifndef FACTOR_STANDALONE
-		fq = mlucas_fopen(STATFILE,"a");	fprintf(	fq,"Factoring savefile %s found ... reading ...\n",RESTARTFILE);	fclose(fq); fq = 0x0;
-	#endif
-		/* The factoring checkpoint file is assumed to have the format:
-			Line 1:		{string containing the current exponent stored in pstring}
+		/* Compute kmax if not already set: */
+		if(!kmax) {
+			ASSERT(HERE, bmax <= (nbits_in_p+65), "Your bmax implies kmax > 64-bit, which exceeds the program's limit ... aborting.");
+			kmax = given_b_get_k(bmax, two_p, lenQ);
+			ASSERT(HERE, kmax > 0, "Something went wrong with the computation of kmax ... possibly your bmax implies kmax > 64-bit?");
+		}
+		if(kmin || bmin) {
+			if(kmin == 0ull) {	/* Lower Bound given in log2rithmic form */
+				ASSERT(HERE, bmin <= bmax, "bmin >= bmax!");
+				kmin = given_b_get_k(bmin, two_p, lenQ);
+			} else {
+				ASSERT(HERE, kmin <= kmax, "kmin >= kmax!");
+			#ifdef P1WORD
+				fqlo = kmin*twop_float + 1.0;
+				bmin = log(fqlo)*ILG2;
+			#endif
+			}
+		} else {
+		#ifdef P1WORD
+			fqlo = 1.0;
+		#else
+		#endif
+		}
 
-			Line 2:		{Log2(minimum factor to try), in floating double form}
-						If > 10^9 its whole-number part is taken as the KMin value instead.
-			Line 3:		{Log2(maximum factor to try), in floating double form}
-						If > 10^9 its whole-number part is taken as the KMax value instead.
+		if(kmax || bmax) {
+			if(kmax == 0ull) {	/* Upper Bound given in log2rithmic form */
+				kmax = given_b_get_k(bmax, two_p, lenQ);
+ 			} else {
+			#ifdef P1WORD
+				fqhi = kmax*twop_float + 1.0;
+				bmax = log(fqhi)*ILG2;
+			#endif
+			}
+		} else
+			ASSERT(HERE, 0 ,"factor.c : One of bmax, kmax must be nonzero!");
 
-			Line 4:		KMin = {smallest factor K value to be tried in each pass}
-			Line 5:		KNow = { largest factor K value tried so far during current pass}
-			Line 6:		KMax = { largest factor K value to be tried in each pass}
+		/**** At this point the paired elements bmin|kmin, bmax|kmax are in synchrony. ****/
 
-			Line 7:		PassMin = {maximum pass for the run (typically TF_PASSES-1, but perhaps not, e.g. for a factoring assignment split over multiple CPUs.}
-			Line 8:		PassNow = {current factoring pass}
-			Line 9:		PassMax = {maximum pass for the run (typically TF_PASSES-1, but perhaps not, e.g. for a factoring assignment split over multiple CPUs.}
-
-			Line 10:	Number of q's tried so far during the run
-
-			Line 11+:	Any diagnostic info not needed for restarting from interrupt
-						(mainly, in standalone mode can use this in place of STATFILE.)
+		/* If kplus given on command line, a valid restart file should have been found
+		and kmax incremented at this point, i.e. kplus should have been reset to zero:
 		*/
-		curr_line = 0;
+		ASSERT(HERE, kplus == 0, "kplus must be zero here!");
 
+		know = kmin;
+		passnow = passmin;
+
+	}	/* endif(!incomplete_run) */
+
+/*****************************************************/
+/****************** SIEVE STUFF: *********************/
+/*****************************************************/
+
+	ASSERT(HERE, NUM_SIEVING_PRIME > 0, "factor.c : NUM_SIEVING_PRIME > 0");
+
+/*   allocate the arrays and initialize the array of sieving primes	*/
+	temp_late = (uint64 *)calloc(len, sizeof(uint64));
+
+#if TF_CLASSES == 60
+	i = len/TF_CLASSES + 1;	// len not divisible by TF_CLASSES, so add a pad-word
+#else
+	i = (len*64)/TF_CLASSES + 1;	// 64*len divisible by TF_CLASSES, no need for padding
+		//**** Oct 2016: AVX-512 vector-bit-clear needs a padding element, so add one. ****
+#endif
+	bit_map = (uint64 *)calloc(i * NTHREADS, sizeof(uint64));
+	bit_map2= (uint64 *)calloc(i * NTHREADS, sizeof(uint64));	// 2nd alloc to give each thread 1 bit-clearable copy of master bit_map
+	if (bit_map == NULL) {
+		fprintf(stderr,"Memory allocation failure for BITMAP array");
+		ASSERT(HERE, 0,"0");
+	}
+	bit_atlas = (uint64 *)calloc(i * TF_PASSES, sizeof(uint64));
+	if (bit_atlas == NULL) {
+		fprintf(stderr,"Memory allocation failure for TEMPLATE array");
+		ASSERT(HERE, 0,"0");
+	}
+printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that in bit_atlas]\n",len,i,TF_PASSES);
+
+#ifdef USE_AVX512	// Use vector-int math and gather-load/scatter-store to accelerate the bit-clearing
+	psmall = (uint32 *)calloc(NUM_SIEVING_PRIME * NTHREADS, sizeof(uint32));
+	if (psmall == NULL) {
+		fprintf(stderr,"Memory allocation failure for PSMALL array");
+		ASSERT(HERE, 0,"0");
+	}
+#endif
+
+	pdiff = (uint8 *)calloc(NUM_SIEVING_PRIME * NTHREADS, sizeof(uint8));
+	if (pdiff == NULL) {
+		fprintf(stderr,"Memory allocation failure for pdiff array");
+		ASSERT(HERE, 0,"0");
+	}
+
+	startval = (uint32 *)calloc(NUM_SIEVING_PRIME * NTHREADS, sizeof(uint32));
+	if (startval == NULL) {
+		fprintf(stderr,"Memory allocation failure for STARTVAL array");
+		ASSERT(HERE, 0,"0");
+	}
+
+	pinv = (uint32 *)calloc(NUM_SIEVING_PRIME, sizeof(uint32));
+	if (pinv == NULL) {
+		fprintf(stderr,"Memory allocation failure for PINV array");
+		ASSERT(HERE, 0,"0");
+	}
+
+#if DBG_SIEVE
+	startval_incr = (uint32 *)calloc(NUM_SIEVING_PRIME, sizeof(uint32));
+	if (startval_incr == NULL) {
+		fprintf(stderr,"Memory allocation failure for STARTVAL_INCR array");
+		ASSERT(HERE, 0,"0");
+	}
+#endif
+
+		/* Check integrity (at least in the sense of monotonicity) for the precomputed pseudoprime table: */
+		for(i = 1; i < 9366; ++i) {
+			ASSERT(HERE, f2psp[i] > f2psp[i-1],"Misplaced pseudoprime!");
+		}
+
+		/* Test some near-2^32 known-prime cases: */
+		curr_p = (uint32)-5;
+		itmp32 = twopmodq32(curr_p-1, curr_p);
+		ASSERT(HERE, itmp32 == 1,"twopmodq32: 2^32 - 5 test fails!");
+		curr_p = (uint32)-17;
+		itmp32 = twopmodq32(curr_p-1, curr_p);
+		ASSERT(HERE, itmp32 == 1,"twopmodq32: 2^32 -17 test fails!");
+		curr_p = (uint32)-35;	/* Start of the last length-30 curr_p%30 == 11 interval < 2^32; the 6th candidate in that interval, 2^32-17, is prime */
+		itmp32 = twopmodq32_x8(curr_p, curr_p+ 2, curr_p+ 6, curr_p+ 8, curr_p+12, curr_p+18, curr_p+20, curr_p+26);
+		ASSERT(HERE, itmp32 ==32,"twopmodq32_x8: 2^32 -35 test fails!");
+
+		fprintf(stderr,"Generating difference table of first %u small primes\n", nprime);
+		curr_p = 3;	/* Current prime stored in l. */
+		max_diff = 0;
+
+		f2psp_idx = 0;	/* Index to next-expected Fermat base-2 pseudoprime in the precomputed table */
+
+		/* Init first few diffs between 3/5, 5/7, 7/11, so can start loop with curr_p = 11 == 1 (mod 10), as required by twopmodq32_x8(): */
+		pdiff[0] = 0;	pdiff[1] = pdiff[2] = 1;
+		ihi = curr_p = 11;
+	#ifdef USE_AVX512	// Use vector-int math and gather-load/scatter-store to accelerate the bit-clearing
+		psmall[0] = 3; psmall[1] = 5; psmall[2] = 7;
+	#endif
+		/* Process chunks of length 30, starting with curr_p == 11 (mod 30). Applying the obvious divide-by-3,5 mini-sieve,
+		we have 8 candidates in each interval: curr_p + [ 0, 2, 6, 8,12,18,20,26].
+		For example: curr_p = 11 gives the 8 candidates: 11,13,17,19,23,29,31,37.
+		*/
+		for(i = 3; i < nprime; curr_p += 30)
+		{
+			/* Make sure (curr_p + 29) < 2^32: */
+			if(curr_p > 0xffffffe3) {
+				fprintf(stderr,"curr_p overflows 32 bits!");
+				nprime = i;
+				break;
+			}
+
+			/* Max sieving prime must be < smallest candidate factor of M(p) */
+		#ifdef P1WORD
+			if((curr_p+29) > two_p[0]) {
+				nprime = i;
+				break;
+			}
+		#endif
+
+			/* Do a quick Fermat base-2 compositeness test before invoking the more expensive mod operations: */
+			itmp32 = twopmodq32_x8(curr_p, curr_p+ 2, curr_p+ 6, curr_p+ 8, curr_p+12, curr_p+18, curr_p+20, curr_p+26);
+			for(j = 0; j < 8; ++j)
+			{
+				if((itmp32 >> j)&0x1)	// It's a PRP, so check against the table of known pseudoprimes and
+				{						// (if it's not a PSP) init for the next gap
+					ASSERT(HERE, curr_p <= f2psp[f2psp_idx],"Error in pseudoprime sieve");
+					if((curr_p + pdsum_8[j]) == f2psp[f2psp_idx])	/* It's a base-2 pseudoprime */
+					{
+						++f2psp_idx;
+						pdiff[i] += pdiff_8[j];
+						continue;
+					}
+					else	/* It's prime - add final increment to current pdiff[i] and then increment i: */
+					{
+						ihi = (curr_p + pdsum_8[j]);
+					#ifdef USE_AVX512	// Use vector-int math and gather-load/scatter-store to accelerate the bit-clearing
+						psmall[i] = ihi;
+					#endif
+						pdiff[i] += pdiff_8[j];
+						if(pdiff[i] > max_diff)
+						{
+							max_diff = pdiff[i];
+						#if DBG_SIEVE
+							printf("pdiff = %d at curr_p = %u\n", 2*max_diff,ihi);
+						#endif
+						}
+						if(++i == nprime)
+						{
+							break;
+						}
+					}
+				}
+				else
+				{
+					pdiff[i] += pdiff_8[j];
+				}
+			}
+		}
+		MAX_SIEVING_PRIME = ihi;
+	#ifdef MULTITHREAD
+		uint8 *byteptr = pdiff;	// Each thread gets its own copy of the pdiff data:
+		for(thr_id = 1; thr_id < NTHREADS; thr_id++) {
+			byteptr += NUM_SIEVING_PRIME;
+			memcpy(byteptr, pdiff, NUM_SIEVING_PRIME);
+		}
+	#endif
+
+	#if 1//def FAC_DEBUG
+		printf("Using first %u odd primes; max gap = %u\n",nprime,2*max_diff);
+		printf("max sieving prime = %u\n",MAX_SIEVING_PRIME);
+	#endif
+
+#if 0
+	// Oct 2015: Play with Smarandache numbers ():
+	i = 2000000;	ASSERT(HERE, i <= nprime, "prime limit exceeded in testSmarandache!");
+	testSmarandache(100001,101000, pdiff, i);
+	exit(0);
+#endif
+#if 0
+	// Oct 2018: Play with "sieve survivors" stats: lim(n --> oo) prod_(p <= n)(1-1/p)/(1/ln(p^2))
+	i = 1000000000;	ASSERT(HERE, i <= MAX_SIEVING_PRIME, "prime limit exceeded in testSieveProdAsymp!");
+	struct qfloat qfprod = QHALF, qt;
+	double prod = 0.5, log_psq = log((double)i*i);
+	for(m = 0, curr_p = 3; m < nprime; m++) {
+		curr_p += (pdiff[m] << 1);
+		if(curr_p > i) break;
+		prod *= (1-1./curr_p);
+//	printf("p = %u: prod = %18.15f\n",curr_p,prod);
+		qt = qfsub(QONE,qf_rational_quotient(1ull,(uint64)curr_p));
+		qfprod = qfmul(qfprod,qt);
+	}
+	printf("Used primes <= %u: 1/ln(p^2) = %18.15f, prod_(p <= n)(1-1/p) = %18.15f, ratio = %18.15f, qfprod = %18.15f\n",i,log_psq,prod,log_psq*qfdbl(qfprod),qfdbl(qfprod));
+	exit(0);
+#endif
+/* Time the vector trialdiv stuff: */
+#if TEST_TRIALDIV
+	for(i = 0; i < vec_len; i++)
+	{
+		xvec[i]  = rng_isaac_rand();
+	}
+
+	clock1 = clock();
+	curr_p = 3;
+	for(m = 0; m < nprime; m++)
+	{
+		curr_p += (pdiff[m] << 1);
+		if(mi64_is_div_by_scalar32(xvec, curr_p, vec_len) == TRUE)
+			printf("mi64_is_div_by_scalar32 test: %10u is a divisor\n", curr_p);
+	}
+
+	clock2 = clock();	/* Assume sieve setup time < 2^32 cycles - even if that is violated it's no big deal at this point. */
+	tdiff = (double)(clock2 - clock1);
+	citer = tdiff*2000000000.0/CLOCKS_PER_SEC;
+	citer /= (double)vec_len*nprime;
+	printf	("Elapsed Time =%s; cycles/iter = %10.2f\n",get_time_str(tdiff),citer);
+
+	clock1 = clock();
+	curr_p = 3;
+	for(m = 0; m < nprime; m+=4)
+	{
+		curr_p += (pdiff[m  ] << 1); tryq[0] = curr_p;
+		curr_p += (pdiff[m+1] << 1); tryq[1] = curr_p;
+		curr_p += (pdiff[m+2] << 1); tryq[2] = curr_p;
+		curr_p += (pdiff[m+3] << 1); tryq[3] = curr_p;
+		j = mi64_is_div_by_scalar32_x4(xvec, tryq[0], tryq[1], tryq[2], tryq[3], vec_len);
+		if(j != 0)
+		{
+			for(i = 0; i < 4; ++i)
+			{
+				if((j >> i)&1)
+					printf("mi64_is_div_by_scalar32_x4 test: %10u is a divisor\n", tryq[i]);
+			}
+		}
+	}
+
+	clock2 = clock();	/* Assume sieve setup time < 2^32 cycles - even if that is violated it's no big deal at this point. */
+	tdiff = (double)(clock2 - clock1);
+	citer = tdiff*2000000000.0/CLOCKS_PER_SEC;
+	citer /= (double)vec_len*nprime;
+	printf	("Elapsed Time =%s; cycles/iter = %10.2f\n",get_time_str(tdiff),citer);
+
+	clock1 = clock();
+	curr_p = 3;
+	for(m = 0; m < nprime; m += 8)
+	{
+		curr_p += (pdiff[m  ] << 1); tryq[0] = curr_p;
+		curr_p += (pdiff[m+1] << 1); tryq[1] = curr_p;
+		curr_p += (pdiff[m+2] << 1); tryq[2] = curr_p;
+		curr_p += (pdiff[m+3] << 1); tryq[3] = curr_p;
+		curr_p += (pdiff[m+4] << 1); tryq[4] = curr_p;
+		curr_p += (pdiff[m+5] << 1); tryq[5] = curr_p;
+		curr_p += (pdiff[m+6] << 1); tryq[6] = curr_p;
+		curr_p += (pdiff[m+7] << 1); tryq[7] = curr_p;
+		j = mi64_is_div_by_scalar32_x8(xvec, tryq[0], tryq[1], tryq[2], tryq[3], tryq[4], tryq[5], tryq[6], tryq[7], vec_len);
+		if(j != 0)
+		{
+			for(i = 0; i < 8; ++i)
+			{
+				if((j >> i)&1)
+					printf("mi64_is_div_by_scalar32_x8 test: %10u is a divisor\n", tryq[i]);
+			}
+		}
+	}
+
+	clock2 = clock();	/* Assume sieve setup time < 2^32 cycles - even if that is violated it's no big deal at this point. */
+	tdiff = (double)(clock2 - clock1);
+	citer = tdiff*2000000000.0/CLOCKS_PER_SEC;
+	citer /= (double)vec_len*nprime;
+	printf	("Elapsed Time =%s; cycles/iter = %10.2f\n",get_time_str(tdiff),citer);
+
+	clock1 = clock();
+	curr_p = 3;
+	for(m = 0; m < nprime; m++)
+	{
+		curr_p += (pdiff[m] << 1);
+		if(mi64_is_div_by_scalar64(xvec, (uint64)curr_p, vec_len) == TRUE)
+			printf("mi64_is_div_by_scalar64 test: %10u is a divisor\n", curr_p);
+	}
+	clock2 = clock();	/* Assume sieve setup time < 2^32 cycles - even if that is violated it's no big deal at this point. */
+	tdiff = (double)(clock2 - clock1);
+	citer = tdiff*2000000000.0/CLOCKS_PER_SEC;
+	citer /= (double)vec_len*nprime;
+	printf	("Elapsed Time =%s; cycles/iter = %10.2f\n",get_time_str(tdiff),citer);
+
+	free((void*)xvec);
+#endif
+
+/*   for p < max prime in precomputed table, need to truncate the range of primes...	*/
+	/*********** WHY WAS THIS HERE? *************
+	curr_p = MAX_SIEVING_PRIME;
+	for(;;)
+	{
+		if(p > curr_p) break;
+		curr_p -= (pdiff[nprime--] << 1);
+	#ifdef FAC_DEBUG
+		ASSERT(HERE, curr_p == prime[nprime], "factor.c : curr_p == prime[nprime]");
+	#endif
+	}
+	MAX_SIEVING_PRIME = curr_p;
+	***********/
+
+	/****************** KNOWN-TEST-FACTOR STUFF: *******************/
+#ifdef FAC_DEBUG
+
+	if(k_targ) {
+		// Could add check of whether associated q is prime, but assume user knows what he's soing,
+		// and furthermore may be usefull to allow for composite products-of-smaller-prime-factors:
+		kmodNC = k_targ%TF_CLASSES;
+
+		printf("p mod %u = %d\n",TF_CLASSES, pmodNC);
+		printf("k mod %u = %d\n",TF_CLASSES, kmodNC);
+
+		/* ...and get the pass number on which the factor should be found.
+		(Remember that the pass number returned by CHECK_PKMOD[60|4620] is unit-offset).
+		If a known factor given, only process the given k/log2 range for that pass:
+		*/
+		ASSERT(HERE, lenP == 1, "lenP must == 1 in call to CHECK_PKMOD4620!");
+	#if TF_CLASSES == 60
+		pass_targ = CHECK_PKMOD60  (p[0], k_targ, 0x0) - 1;
+	#else	// 4620 classes:
+		pass_targ = CHECK_PKMOD4620(p[0], k_targ, 0x0) - 1;
+	#endif
+		ASSERT(HERE, (pass_targ < TF_PASSES), "Candidate factor set via k_targ is not a possible factor for this exponent!");
+		printf("Target pass for debug-factor = %u\n",pass_targ);
+	}
+
+#endif
+
+	itmp64 = (uint64)mi64_div_y32(p,TF_CLASSES,0x0,lenP);
+//	printf("p %% 60 = %llu\n",itmp64);
+
+#if TF_CLASSES == 60
+/*
+	const int pmod_vec[] = { 1, 7,11,13,17,19,23,29,31,37,41,43,47,49,53,59, 2,4,8,16,32, 0x0};
+	for(i = 0; pmod_vec[i] != 0; i++) {
+		ASSERT(HERE, CHECK_PKMOD60(pmod_vec[i], k, incr) == 16, "CHECK_PKMOD60 returns something other than the expected #TF_PASSES = 16!\n");
+	}
+	exit(0);
+Mersenne Mp: Acceptable km-values for the 16 possible pm (= p%60) values:
+	pm =  1: 0, 3, 8,11,15,20,23,24,35,36,39,44,48,51,56,59
+	pm =  7: 0, 5, 8, 9,12,17,20,24,29,32,33,44,45,48,53,57
+	pm = 11: 0, 1, 4, 9,13,16,21,24,25,28,33,36,40,45,48,49
+	pm = 13: 0, 3, 8,11,12,15,20,23,27,32,35,36,47,48,51,56
+	pm = 17: 0, 3, 4, 7,12,15,19,24,27,28,39,40,43,48,52,55
+	pm = 19: 0, 5, 9,12,17,20,21,24,29,32,36,41,44,45,56,57
+	pm = 23: 0, 1,12,13,16,21,25,28,33,36,37,40,45,48,52,57
+	pm = 29: 0, 4, 7,12,15,16,19,24,27,31,36,39,40,51,52,55
+	pm = 31: 0, 5, 8, 9,20,21,24,29,33,36,41,44,45,48,53,56
+	pm = 37: 0, 3, 8,12,15,20,23,24,27,32,35,39,44,47,48,59
+	pm = 41: 0, 3, 4,15,16,19,24,28,31,36,39,40,43,48,51,55
+	pm = 43: 0, 5, 8,12,17,20,21,32,33,36,41,45,48,53,56,57
+	pm = 47: 0, 4, 9,12,13,24,25,28,33,37,40,45,48,49,52,57
+	pm = 49: 0,11,12,15,20,24,27,32,35,36,39,44,47,51,56,59
+	pm = 53: 0, 3, 7,12,15,16,27,28,31,36,40,43,48,51,52,55
+	pm = 59: 0, 1, 4, 9,12,16,21,24,25,36,37,40,45,49,52,57
+Fermat Fn (n > 0): 0,Acceptable km-values for the ? possible pm (= p%60) values:
+	pm =  2: 0, 4,10,12,18,22,24,28,30,34,40,42,48,52,54,58
+	pm =  4: 0, 2, 6,12,14,20,24,26,30,32,36,42,44,50,54,56
+	pm =  8: 0, 6,10,12,16,18,22,28,30,36,40,42,46,48,52,58
+	pm = 16: 0, 6, 8,14,18,20,24,26,30,36,38,44,48,50,54,56	<*** F36 factor has k = 20 ... why do I miss? ***
+	pm = 32: 0, 4,10,12,18,22,24,28,30,34,40,42,48,52,54,58
+*/
+	i = CHECK_PKMOD60  (itmp64, k, incr);
+	ASSERT(HERE, i == TF_PASSES, "CHECK_PKMOD4620 returns something other than the expected #TF_PASSES! Exponent not of the required form (odd prime or odd composite == any_of[1,7,11,13,17,19,23,29,31,37,41,43,47,49,53,59] (mod 60).\n");
+/*
+	printf("k mod 60 = [");
+	for(i = 0, j = 0; i < 16; i++) {
+		j += incr[i];
+		printf("%3u",(uint32)j);
+	}
+	printf("]\n");
+	exit(0);
+*/
+#else	// 4620 classes:
+	i = CHECK_PKMOD4620(itmp64, k, incr);
+	ASSERT(HERE, i == TF_PASSES, "CHECK_PKMOD4620 returns something other than the expected #TF_PASSES! Exponent not of the required form (odd prime or odd composite == any_of[960 possible values] (mod 4620).\n");
+#endif
+
+	/* If it's a restart, interval_lo for the initial pass will be based
+	on (know), rather than (kmin) - handle that just inside the pass-loop: */
+	/* Using TF_CLASSES = 60 by way of example:
+	sievelets have bit_len = (len<<6)/60 ... each bit represents a k-incr of +60, so each pass (a.k.a. 'interval')
+	rep. a k-incr of len<<6. Thus to get interval corr. to given kmax, use kmax = interval*(len<<6); yielding
+		interval = kmax/(len<< 6) = (kmax>> 6)/len .
+	For TF_CLASSES = 4620, we have bit_len = (len<<12)/4620, thus kmax = interval*(len<<12), thus
+		interval = kmax/(len<<12) = (kmax>>12)/len .
+	*/
+	interval_lo = kmin/((uint64)len << TF_CLSHIFT);
+	interval_now= know/((uint64)len << TF_CLSHIFT);
+	interval_hi = (uint64)ceil((double)kmax/((uint64)len << TF_CLSHIFT));
+
+	/* Make sure we always do at least one full pass through the sieve
+	(e.g. if kmin = kmax = 1, ceil(kmax << TF_CLSHIFT) gives 0, same as (kmin << TF_CLSHIFT): */
+	if(interval_hi == interval_lo)
+		interval_hi += 1;
+
+	ninterval = interval_hi - interval_lo;
+
+	/* The actual kmin/kmax values used in the run are exact multiples
+	of len*64 - we always do at least one full pass through the sieve,
+	i.e. we run through at least (len*64) worth of k's */
+	kmin = interval_lo *(len << TF_CLSHIFT);
+	know = interval_now*(len << TF_CLSHIFT);
+	kmax = interval_hi *(len << TF_CLSHIFT);
+
+	/* And now that we have the actual kmin/kmax, recalculate these: */
+  #ifdef P1WORD
+	fqlo = kmin*twop_float + 1.0;
+	fqhi = kmax*twop_float + 1.0;
+  #endif
+
+	/* 11/14/05: Since we don't actually use bmin/bmax for anything other
+	than setting sieving bounds (which then get modified via the above
+	k-is-exact-multiple-of-sieve-length anyway), preserve any user-set
+	values, since these are typically whole numbers, and look nicer
+	in diagnostic and savefile printing:
+	*/
+	/*	bmin = log(fqlo)/log(2.0);*/
+	/*	bmax = log(fqhi)/log(2.0);*/
+
+#ifdef FAC_DEBUG
+	/* Make sure the range of k's for the run contains any target factor: */
+	if(k_targ)
+		ASSERT(HERE, (kmin <= k_targ) && (kmax >= k_targ),"k_targ not in [kmin, kmax]");
+#endif
+
+#ifdef FACTOR_STANDALONE
+	fp = stderr;
+#else
+	fp = mlucas_fopen(STATFILE,"a");
+#endif
+	fq = mlucas_fopen(OFILE,"a");
+
+#ifdef P1WORD
+	sprintf(char_buf0, "Searching in the interval k=[%s, %s], i.e. q=[%e, %e]\n", &char_buf1[convert_uint64_base10_char(char_buf1, kmin )], &char_buf2[convert_uint64_base10_char(char_buf2, kmax )],fqlo,fqhi);
+#else
+	sprintf(char_buf0, "Searching in the interval k=[%s, %s]\n", &char_buf1[convert_uint64_base10_char(char_buf1, kmin )], &char_buf2[convert_uint64_base10_char(char_buf2, kmax )]);
+#endif
+	fprintf(fp, "%s", char_buf0);	fprintf(fq, "%s", char_buf0);
+
+	sprintf(char_buf0, "Each of %3u (p mod %u) passes will consist of %s intervals of length %u\n", passmax-passmin+1, TF_CLASSES, &char_buf1[convert_uint64_base10_char(char_buf1, ninterval)], bit_len);
+	fprintf(fp, "%s", char_buf0);	fprintf(fq, "%s", char_buf0);
+
+	if(passnow != passmin || know != kmin)
+	{
+		sprintf(char_buf0, "Resuming execution with pass %u and k = %s\n", passnow, &char_buf1[convert_uint64_base10_char(char_buf1, know )]);
+		fprintf(fp, "%s", char_buf0);	fprintf(fq, "%s", char_buf0);
+		sprintf(char_buf0, "#Q tried = %s\n", &char_buf1[convert_uint64_base10_char (char_buf1, count)] );
+		fprintf(fp, "%s", char_buf0);	fprintf(fq, "%s", char_buf0);
+	count = 0;	// Reset == 0 prior to sieving so kvector-fill code works properly
+	}
+
+#ifndef FACTOR_STANDALONE
+	fclose(fp);
+#endif
+	fp = 0x0;
+	fclose(fq); fq = 0x0;
+
+/*...init clocks, etc....*/
+	clock1 = clock();
+	tdiff = 0.0;
+
+	// quick way to set all the bits = 1:
+	for(i = 0; i < len; i++) {
+		temp_late[i] = ~(uint64)0;
+	}
+
+	// Now generate q = 2kp+1 for as many k as desired; trial divide only if q passes
+    // a small-primes sieve and if q mod 8 = +1 or -1 [Mersenne] or k even [Fermat; this is because we retrofit
+    // the known form of Fn factors q = j.2^(n+2)+1 into our q = 2.k.p+1 scheme, replacing p with 2^n]:
+
+	if(MODULUS_TYPE ==  MODULUS_TYPE_FERMAT) {
+		/* No-odd-k sieve is simplest, so do it first.
+		Remember that k = 1 is in the zeroth bit here, i.e. we cycle through
+		bits 0-3 which correspond to q = 2kp+1, 4kp+1, 6kp+1, 8kp+1, respectively;
+		thus we keep only bits 1 (k = 2) and 3 (k = 4), by masking with 16 x 0b1010 = 16 x 0xA:
+		*/
+		temp_late[0] &= 0xAAAAAAAAAAAAAAAAull;
+	}
+	else
+	{
+		/* q mod 8 = +-1 sieve is simplest, so do it first. Note q mod 8 = +-1 is guaranteed
+		for (p mod TF_CLASSES) sieve via choice of acceptable values of increment (incr), but doing
+		q%8 = +-1 here is trivial and speeds search for multiples of small primes below.
+		*/
+		qmod8 = 1;
+		for(i = 0; i < 4; i++) {
+			/* Remember that k = 1 is in the zeroth bit here, i.e. we cycle through
+			bits 0-3 which correspond to q = 2kp+1, 4kp+1, 6kp+1, 8kp+1, respectively.
+
+			We don't need to worry about overflow-on-add of (two_p + qmod8),
+			since an overflow won't affect the result, modulo 8.
+			*/
+			qmod8=(two_p[0] + qmod8) & 7;
+			if(qmod8==3 || qmod8==5) {
+				for(l = i; l < 64; l += 4) {
+					temp_late[0] &= ~((uint64)1 << l); /* clear every fourth such bit from the first quadword...	*/
+				}
+			}
+		}
+	}
+
+	// Small-primes sieve needs only three (q mod 8 = +-1)-sieved registers to begin with, make 2 copies of the result:
+	temp_late[1]=temp_late[0];
+	temp_late[2]=temp_late[0];
+
+/*...next, find multiples of small primes.	*/
+
+	regs_todo=1;
+
+	curr_p = 3;
+	for(m = 0; m < nclear; m++)
+	{
+		curr_p += (pdiff[m] << 1);
+
+		two64modp = 0x8000000000000000ull%curr_p;
+		two64modp = (two64modp + two64modp)%curr_p;
+
+		regs_todo=regs_todo*curr_p;
+
+		mi64_set_eq_scalar(q, 1ull, lenQ);
+
+		for(k = 0; k < regs_todo; k++)	/* number of registers to run through while seaching for first multiple of (m)th prime...	*/
+		{
+			for(i = 0; i < 64; i++)			/* ...and run through the 64 bits of each register. */
+			{
+				mi64_add(q,two_p,q,lenQ);
+				if(!mi64_div_y32(q,curr_p,0x0,lenQ)) 	// To-Do: Replace all these slow mi64_div calls with mi64_is_div_by_scalar32,
+				{										// then consider vectorizing this step, and using SSE2 vector version! */
+				#if DBG_SIEVE
+				//	if(curr_p < 100) printf("0: Found a multiple of %u in bit %u of register %u\n", curr_p, i, (uint32)k);
+				#endif
+					for(l = (uint32)(k<<6)+i; l < (regs_todo<<6); l += curr_p)
+					{
+						i64=(l>>6);	/* l/64	*/
+						bit=l&63;	/* l%64	*/
+						temp_late[i64] &= ~((uint64)1 << bit);
+					}
+					goto KLOOP;
+				}
+			}
+		}
+		/* Should never reach this regular-loop-exit point: */
+		fprintf(stderr,"ERROR: failed to find a multiple of prime %u\n", curr_p);
+		ASSERT(HERE, 0,"0");
+
+	KLOOP:
+		/* Propagate copies of length (regs_todo) bit-cleared portion of sieve to remaining parts of sieve.
+		Here is the output of the commented-out diagnostic print:
+
+			Propagating 5 copies of first 3 template-array words.
+			Propagating 7 copies of first 15 template-array words.
+			Propagating 11 copies of first 105 template-array words.
+			Propagating 13 copies of first 1155 template-array words.
+			Propagating 17 copies of first 15015 template-array words.
+
+		Thus we really only need a template length = [product of first (nclear-1) off primes], since
+		that simply repeats n = [(nclear)th odd prime] times. We simply need to make sure our loop below
+		which copies the needed bits from the template to the bit_atlas also makes use of this repetition.
+		*/
+		if(m < (nclear-1)) {
+			ncopies = prime[m+1];
+			l = regs_todo;
+		//	printf("Propagating %u copies of first %u template-array words.\n", ncopies,l);
+			for(i = 2; i <= ncopies; i++, l += regs_todo) {
+				for(j = 0; j < regs_todo; j++) {
+					temp_late[l+j] = temp_late[j];
+				}
+			}
+		}
+	}	/* endfor(m = 0; m < nclear; m++) */
+
+	for(m = 0; m < len; m++) {
+		on_bits += popcount64(temp_late[m]);
+	}
+	printf("%u ones bits of %u in master sieve template.\n", on_bits, len<<6);
+
+#ifdef FACTOR_STANDALONE
+	 printf(   "TRYQ = %u, max sieving prime = %u\n",TRYQ,MAX_SIEVING_PRIME);
+#else
+	ASSERT(HERE, fp == 0x0,"0");
+	fp = mlucas_fopen(STATFILE,"a");
+	fprintf(fp,"TRYQ = %u, max sieving prime = %u\n",TRYQ,MAX_SIEVING_PRIME);
+	fclose(fp); fp = 0x0;
+#endif
+
+	/* Init bitmap in atlas for each of the [TF_PASSES] k mod TF_CLASSES cases:
+	We advance the current-bit-to-copy index [i] in increments based on the length-TF_PASSES incr[] array.
+	Copy each such bit into the current-bit ([bit]th) bit of the current ([word*TF_PASSES + l]th) bit_atlas word,
+	then increment l (which determines which of the TF_PASSES sievelets we are in).
+
+	Here are the resulting stats based on the number of classes:
+
+	TF_CLASSES = 60:
+	Copy 16 of every 60 bits - every [3.75]th bit on average - from the master template to the compact bit_atlas.
+	Since template has 64 x 255255 = 16336320 bits, and 16336320/60 = 272272 bits for each of 16 sievelets concatenated
+	into our bit_atlas, which thus has ceil(272272/64) = 4255 words, with high word [4254] using just its low 16 bits.
+
+	TF_CLASSES = 4620:
+	Copy 960 of every 60*77 bits - every [4.8125]th bit on average - from the master template to the compact bit_atlas.
+	Since template has 64^2 x 255255 = 1045524480 bits (= 130690560 bytes [~130MB]), and 1045524480/4620 = 226304 bits
+	for each of 960 sievelets concatenated into our bit_atlas, which thus has 226304/64 = 3536 words, with high word
+	[3535] using all its bits, as 226304 is divisible by 64.
+
+	Now, we prefer not to have to allocate the full-length template array unless absolutely necessary, but for
+	the 4620 case we can simply re-use the 60-class version 64 times.
+	*/
+	i = incr[0] - 1;
+	j = k = 0;
+	bit = word = 0;	// To shut up may-be-uninit warnings
+	ncopies = 0;
+	for(;;) /* K loops over 64-bit registers...	*/
+	{
+		l = 0;
+L3:
+	#if TF_CLASSES == 60
+		if(k == 0 && ncopies == 1) break;
+	#else	// 4620 classes:
+		if(k == 0 && ncopies == 64) break;
+	#endif
+		for(;;) /* I loops over bits...	*/
+		{
+			word = (uint32)(j>>6);
+			bit  = (uint32)(j&63);
+			if((temp_late[k]>>i) & 1) {
+		//	if(k<10)printf("Copying set bit at k = %u in word %u of temp_late to word %u*%u + %u, bit %u of bit_atlas\n",i+1,(uint32)k, word,TF_PASSES,l,bit);
+				*(bit_atlas + (word * TF_PASSES) + l) |= ((uint64)1 << bit);
+			}
+			if(++l == TF_PASSES) {
+				l = 0;
+				j++;
+			}
+			i += incr[l];
+			// I will not generally land on 64 here, so need a more general mod-needed check:
+			if(i >= 64) {
+				i &= 63;
+				k++;
+				if(k == len) {
+					k = 0;
+					ncopies++;
+				}
+				goto L3;
+			}
+		} /* end of I loop	*/
+	}	/* end of K loop	*/
+//printf("L3: template word %u [used %u copies] bit_atlas chart %u, word %u, bit %u\n",(uint32)k,ncopies,l,word,bit);	exit(0);
+	// For 60|4620 classes expect to end at bit 15|63 of the last word of each of the TF_PASSES = 16|960 sievelets (a.k.a. charts in our atlas):
+	ASSERT(HERE, (k == 0) && (l == 0), "bit_atlas init: Exit check 1 failed!");
+#if TF_CLASSES == 60
+	ASSERT(HERE, (word == 4254) && (bit == 15), "bit_atlas init: Exit check 2 failed!");
+#else	// 4620 classes:
+	ASSERT(HERE, (word == 3535) && (bit == 63), "bit_atlas init: Exit check 2 failed!");
+#endif
+
+#ifdef FAC_DEBUG
+  #if TF_CLASSES == 60
+	i = len/TF_CLASSES + 1;	// len not divisible by TF_CLASSES, so add a pad-word
+	j = i*64 - 48;	// #bits
+  #else
+	i = (len*64)/TF_CLASSES;	// 64*len divisible by TF_CLASSES, no need for padding
+	j = i*64;	// #bits
+  #endif
+	l = 0;	// accum popc
+	for(m = 0; m < i; m++) {
+		l += popcount64(bit_atlas[m]);
+	}
+//	printf("%u ones bits of %u [%6.2f%%] in bit_atlas set.\n",l,(uint32)j,100.*(float)l/j);	exit(0);
+//	  60:	184349 ones bits of 272272 [ 67.71%] in bit_atlas set.
+//	4620:	196610 ones bits of 226304 [ 86.88%] in bit_atlas set.
+#endif
+
+/*...deallocate full-sized bit_atlas.	*/
+	free((void *)temp_late); temp_late = 0x0;
+
+/*...At this point, replace the relative with the absolute increments:	*/
+	for(i = 1; i < TF_PASSES; i++) {	// Skip pass 0 here
+		incr[i] = incr[i-1] + incr[i];
+	}
+#if TF_CLASSES == 60
+	i = 0;
+	switch(pmodNC)
+	{
+		/*   p mod 12 = 1:	*/
+		case  1:ASSERT(HERE, incr[i++]== 3&&incr[i++]== 8&&incr[i++]==11&&incr[i++]==15&&incr[i++]==20&&incr[i++]==23&&incr[i++]==24&&incr[i++]==35&&incr[i++]==36&&incr[i++]==39&&incr[i++]==44&&incr[i++]==48&&incr[i++]==51&&incr[i++]==56&&incr[i++]==59&&incr[i++]==60, "factor.c : case  1"); break;	/* k mod 5 .ne. 2	*/
+		case 37:ASSERT(HERE, incr[i++]== 3&&incr[i++]== 8&&incr[i++]==12&&incr[i++]==15&&incr[i++]==20&&incr[i++]==23&&incr[i++]==24&&incr[i++]==27&&incr[i++]==32&&incr[i++]==35&&incr[i++]==39&&incr[i++]==44&&incr[i++]==47&&incr[i++]==48&&incr[i++]==59&&incr[i++]==60, "factor.c : case 37"); break;	/* k mod 5 .ne. 1	*/
+		case 13:ASSERT(HERE, incr[i++]== 3&&incr[i++]== 8&&incr[i++]==11&&incr[i++]==12&&incr[i++]==15&&incr[i++]==20&&incr[i++]==23&&incr[i++]==27&&incr[i++]==32&&incr[i++]==35&&incr[i++]==36&&incr[i++]==47&&incr[i++]==48&&incr[i++]==51&&incr[i++]==56&&incr[i++]==60, "factor.c : case 13"); break;	/* k mod 5 .ne. 4	*/
+		case 49:ASSERT(HERE, incr[i++]==11&&incr[i++]==12&&incr[i++]==15&&incr[i++]==20&&incr[i++]==24&&incr[i++]==27&&incr[i++]==32&&incr[i++]==35&&incr[i++]==36&&incr[i++]==39&&incr[i++]==44&&incr[i++]==47&&incr[i++]==51&&incr[i++]==56&&incr[i++]==59&&incr[i++]==60, "factor.c : case 49"); break;	/* k mod 5 .ne. 3	*/
+		/*   p mod 12 == 7:	*/
+		case 31:ASSERT(HERE, incr[i++]== 5&&incr[i++]== 8&&incr[i++]== 9&&incr[i++]==20&&incr[i++]==21&&incr[i++]==24&&incr[i++]==29&&incr[i++]==33&&incr[i++]==36&&incr[i++]==41&&incr[i++]==44&&incr[i++]==45&&incr[i++]==48&&incr[i++]==53&&incr[i++]==56&&incr[i++]==60, "factor.c : case 31"); break;	/* k mod 5 .ne. 2	*/
+		case  7:ASSERT(HERE, incr[i++]== 5&&incr[i++]== 8&&incr[i++]== 9&&incr[i++]==12&&incr[i++]==17&&incr[i++]==20&&incr[i++]==24&&incr[i++]==29&&incr[i++]==32&&incr[i++]==33&&incr[i++]==44&&incr[i++]==45&&incr[i++]==48&&incr[i++]==53&&incr[i++]==57&&incr[i++]==60, "factor.c : case  7"); break;	/* k mod 5 .ne. 1	*/
+		case 43:ASSERT(HERE, incr[i++]== 5&&incr[i++]== 8&&incr[i++]==12&&incr[i++]==17&&incr[i++]==20&&incr[i++]==21&&incr[i++]==32&&incr[i++]==33&&incr[i++]==36&&incr[i++]==41&&incr[i++]==45&&incr[i++]==48&&incr[i++]==53&&incr[i++]==56&&incr[i++]==57&&incr[i++]==60, "factor.c : case 43"); break;	/* k mod 5 .ne. 4	*/
+		case 19:ASSERT(HERE, incr[i++]== 5&&incr[i++]== 9&&incr[i++]==12&&incr[i++]==17&&incr[i++]==20&&incr[i++]==21&&incr[i++]==24&&incr[i++]==29&&incr[i++]==32&&incr[i++]==36&&incr[i++]==41&&incr[i++]==44&&incr[i++]==45&&incr[i++]==56&&incr[i++]==57&&incr[i++]==60, "factor.c : case 19"); break;	/* k mod 5 .ne. 3	*/
+		/*   p mod 12 == 5:	*/
+		case 41:ASSERT(HERE, incr[i++]== 3&&incr[i++]== 4&&incr[i++]==15&&incr[i++]==16&&incr[i++]==19&&incr[i++]==24&&incr[i++]==28&&incr[i++]==31&&incr[i++]==36&&incr[i++]==39&&incr[i++]==40&&incr[i++]==43&&incr[i++]==48&&incr[i++]==51&&incr[i++]==55&&incr[i++]==60, "factor.c : case 41"); break;	/* k mod 5 .ne. 2	*/
+		case 17:ASSERT(HERE, incr[i++]== 3&&incr[i++]== 4&&incr[i++]== 7&&incr[i++]==12&&incr[i++]==15&&incr[i++]==19&&incr[i++]==24&&incr[i++]==27&&incr[i++]==28&&incr[i++]==39&&incr[i++]==40&&incr[i++]==43&&incr[i++]==48&&incr[i++]==52&&incr[i++]==55&&incr[i++]==60, "factor.c : case 17"); break;	/* k mod 5 .ne. 1	*/
+		case 53:ASSERT(HERE, incr[i++]== 3&&incr[i++]== 7&&incr[i++]==12&&incr[i++]==15&&incr[i++]==16&&incr[i++]==27&&incr[i++]==28&&incr[i++]==31&&incr[i++]==36&&incr[i++]==40&&incr[i++]==43&&incr[i++]==48&&incr[i++]==51&&incr[i++]==52&&incr[i++]==55&&incr[i++]==60, "factor.c : case 53"); break;	/* k mod 5 .ne. 4	*/
+		case 29:ASSERT(HERE, incr[i++]== 4&&incr[i++]== 7&&incr[i++]==12&&incr[i++]==15&&incr[i++]==16&&incr[i++]==19&&incr[i++]==24&&incr[i++]==27&&incr[i++]==31&&incr[i++]==36&&incr[i++]==39&&incr[i++]==40&&incr[i++]==51&&incr[i++]==52&&incr[i++]==55&&incr[i++]==60, "factor.c : case 29"); break;	/* k mod 5 .ne. 3	*/
+		/*   p mod 12 == 11:	*/
+		case 11:ASSERT(HERE, incr[i++]== 1&&incr[i++]== 4&&incr[i++]== 9&&incr[i++]==13&&incr[i++]==16&&incr[i++]==21&&incr[i++]==24&&incr[i++]==25&&incr[i++]==28&&incr[i++]==33&&incr[i++]==36&&incr[i++]==40&&incr[i++]==45&&incr[i++]==48&&incr[i++]==49&&incr[i++]==60, "factor.c : case 11"); break;	/* k mod 5 .ne. 2	*/
+		case 47:ASSERT(HERE, incr[i++]== 4&&incr[i++]== 9&&incr[i++]==12&&incr[i++]==13&&incr[i++]==24&&incr[i++]==25&&incr[i++]==28&&incr[i++]==33&&incr[i++]==37&&incr[i++]==40&&incr[i++]==45&&incr[i++]==48&&incr[i++]==49&&incr[i++]==52&&incr[i++]==57&&incr[i++]==60, "factor.c : case 47"); break;	/* k mod 5 .ne. 1	*/
+		case 23:ASSERT(HERE, incr[i++]== 1&&incr[i++]==12&&incr[i++]==13&&incr[i++]==16&&incr[i++]==21&&incr[i++]==25&&incr[i++]==28&&incr[i++]==33&&incr[i++]==36&&incr[i++]==37&&incr[i++]==40&&incr[i++]==45&&incr[i++]==48&&incr[i++]==52&&incr[i++]==57&&incr[i++]==60, "factor.c : case 23"); break;	/* k mod 5 .ne. 4	*/
+		case 59:ASSERT(HERE, incr[i++]== 1&&incr[i++]== 4&&incr[i++]== 9&&incr[i++]==12&&incr[i++]==16&&incr[i++]==21&&incr[i++]==24&&incr[i++]==25&&incr[i++]==36&&incr[i++]==37&&incr[i++]==40&&incr[i++]==45&&incr[i++]==49&&incr[i++]==52&&incr[i++]==57&&incr[i++]==60, "factor.c : case 59"); break;	/* k mod 5 .ne. 3	*/
+		default:
+			ASSERT(HERE, MODULUS_TYPE == MODULUS_TYPE_FERMAT,"Only Mersenne and fermat-number factoring supported!");
+	}
+#endif
+
+	clock2 = clock();	/* Assume sieve setup time < 2^32 cycles - even if that
+							that is violated it's no big deal at this point. */
+	/* Use td here, as tdiff is reserved for the total runtime from factoring start: */
+	td = (double)(clock2 - clock1);
+	clock1 = clock2;
+
+#ifdef FACTOR_STANDALONE
+	if(!restart)
+		printf("Time to set up sieve =%s\n",get_time_str(td));
+#endif
+
+/* Run through each of the 16 "sievelets" as many times as necessary, each time copying
+the appropriate q mod 8 and small-prime bit-cleared bit_atlas into memory, clearing bits
+corresponding to multiples of the larger tabulated primes, and trial-factoring any
+candidate factors that survive sieving.	*/
+
+	nfactor = 0;
+
+#ifdef FAC_DEBUG
+	/* If a known factor given, only process the given k/log2 range for that pass: */
+	if(pass_targ < TF_PASSES) {
+		passmin = passnow = passmax = pass_targ;
+		printf("Setting run parameters to execute only the debug-targeted pass %u.\n",pass_targ);
+	}
+#endif
+
+#if 0//def USE_GPU *** Doing this here gives 'cudaGetLastError() returned 36: cannot set while device is active in this process' -
+			// This is because of the start-of-run GPU-self-tests in util.c; thus moved upstream to immediately precede those. ***
+	#error Wrong place for this!
+	// Disable default spin-loop-wait-for-GPU:
+	cudaSetDeviceFlags(cudaDeviceBlockingSync);
+#endif
+
+#ifdef MULTITHREAD
+
+//	printf("start; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
+	struct timespec ns_time;	// We want a sleep interval of 0.1 mSec here...
+	ns_time.tv_sec  =      0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
+	ns_time.tv_nsec = 10000000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
+
+	// Populate the work-unit-encoding data structs which will get done by our pool of threads.
+	// Current assignment may be restart of a partially-completed run, in which case npass < TF_PASSES
+  #if TF_CLASSES == 60
+	m = len/TF_CLASSES + 1;	// len not divisible by TF_CLASSES, so add a pad-word
+  #else
+	m = (len*64)/TF_CLASSES;	// 64*len divisible by TF_CLASSES, no need for padding
+  #endif
+	uint32 npass = passmax - passnow + 1;
+	fprintf(stderr, "INFO: %u passes to do; bit_map has %u 64-bit words.\n",npass,m);
+	/*
+	Break overall work into ceil(npass/NTHREADS) 'waves' of NTHREADS each, i.e. each wave using all
+	threads in the pool, with thread-synchronization at the end of each thread's factoring interval.
+	We need to sync up (rather than just allowing each thread to grab more work as soon as it's done
+	with its current (k mod) interval) because we memalloc for only NTHREADS concurrent threads, thus
+	e.g. using NTHREADS = 4 if we start with passes 0-3 and the pass 0 and 2 threads finish ahead of 1 and 3,
+	those 2 faster threads will get assigned the pass 4 and 5 work, and since 5 == 1 (mod NTHREADS), that
+	thread's memory footprint will overlap that of the not-yet-complete pass 1 thread's.
+	*/
+	uint32 wave, wave_max = ceil( (double)npass/NTHREADS );
+	fprintf(stderr,"INFO: Doing %u threadpool-waves of %u pool threads each:\n",wave_max,NTHREADS);
+	for(wave = 0; wave < wave_max; wave++)
+	{
+		for(thr_id = 0; thr_id < NTHREADS; thr_id++)	// Unique (within the context of the current wave) task ID
+		{												// used for slotting thread-local accesses to shared data arrays
+			i = wave*NTHREADS + thr_id;
+			pass = passnow + i;
+			// For partial-waves, easiest is to proceed as usual, 'init' the full NTHREADS pool tasks,
+			// but make the extra ones no-ops. But also need to avoid reading nonexistent bitmap data:
+			if(pass <= passmax) {
+				// Load 'master copy' of sievelet for the current pass number:
+				for(l = 0; l < m; l++) {
+					bit_map[l + m * thr_id] = *(bit_atlas + (l * TF_PASSES) + pass);
+				}
+
+				/* Starting no.-of-times-through-sieve = kmin/(64*len) : */
+				if(pass == passnow && (know > kmin)) {
+					interval_lo = know/((uint64)len << TF_CLSHIFT);
+					ASSERT(HERE, know == interval_lo *(len << TF_CLSHIFT),"know == interval_lo*(len << TF_CLSHIFT)");
+				} else {
+					interval_lo = kmin/((uint64)len << TF_CLSHIFT);
+					ASSERT(HERE, kmin == interval_lo *(len << TF_CLSHIFT),"kmin == interval_lo*(len << TF_CLSHIFT)");
+				}
+			} else {
+				interval_lo = interval_hi;	// This is what defines a 'no-op' pool task.
+			}
+			/* Set initial k for this pass to default value (= incr[pass]) + interval_lo*(64*len),
+			(assume this could be as large as 64 bits), then use it to set initial q for this pass:
+			*/
+			ASSERT(HERE, (double)interval_lo*(len << TF_CLSHIFT) < TWO64FLOAT, "(double)interval_lo*len < TWO64FLOAT");
+			k = (uint64)incr[pass] + interval_lo*(len << TF_CLSHIFT);
+		//	fprintf(stderr," [*** Init pass %u data: k0 = %llu, word0 = %16llX\n",pass,k,bit_map[0]);
+			struct fac_thread_data_t* targ = tdat + thr_id;
+			targ->count = &count;
+			targ->tid = thr_id;		// Within the per-thread TFing, only the pool-thread ID matters
+			targ->pass = pass;
+			targ->interval_lo = interval_lo;
+			targ->interval_hi = interval_hi;
+			targ->fbits_in_2p = fbits_in_2p;
+		#ifdef USE_AVX512
+			targ->psmall = psmall;
+		#endif
+			targ->nclear = nclear;
+			targ->sieve_len = len;
+			targ->p_last_small = p_last_small;
+			targ->nprime = nprime;
+			targ->MAX_SIEVING_PRIME = MAX_SIEVING_PRIME;
+			targ->pdiff = pdiff + NUM_SIEVING_PRIME * thr_id;
+			targ->startval = startval + NUM_SIEVING_PRIME * thr_id;
+			targ->k_to_try = k_to_try + TRYQ              * thr_id;
+			targ->factor_k = factor_k + TRYQ              * thr_id;
+			targ->nfactor = &nfactor;
+			targ->findex = findex;
+			targ->pstring = pstring;
+			targ->p     = p;
+			targ->two_p = two_p;
+			targ->q       = q       + lenQ * thr_id;
+			targ->q2      = q2      + lenQ * thr_id;
+			targ->u64_arr = u64_arr + lenQ * thr_id;
+			targ->lenP = lenP;
+			targ->lenQ = lenQ;
+			targ->kdeep = kdeep;
+			targ->ndeep = &ndeep;
+			targ->countmask = countmask;
+			targ->CMASKBITS = CMASKBITS;
+			targ->incr = incr[pass];
+			targ->kstart = k;
+			targ->bit_map  = bit_map  + m * thr_id;
+			targ->bit_map2 = bit_map2 + m * thr_id;
+			targ->tdiff = &tdiff;	// In || mode update tdiff directly, but only from the 0-thread
+			targ->MODULUS_TYPE = MODULUS_TYPE;
+			targ->VERSION      = VERSION;
+			targ->OFILE        = OFILE;
+
+		}	// thr_id-loop
+		// Use exit value of [pass] here: If doing only a subset of the full 'current wave' complement
+		// of NTHREADS passes - this can only occur during the final wave - adjust pool_work_units accordingly:
+		if(pass > passmax) {
+			pool_work_units = NTHREADS - (pass - passmax);	// Subtract excess #passes from default pool_work_units value
+			fprintf(stderr,"INFO: Final threadpool wave will use only %u of the %u pool threads.\n",pool_work_units,NTHREADS);
+		}
+
+		if(pool_work_units > 1)
+			fprintf(stderr, "Passes %u - %u: ",pass-NTHREADS+1, pass-NTHREADS+pool_work_units);
+		else
+			fprintf(stderr, "Pass %u: ",pass);
+
+		// For partial-waves, easiest is to proceed as usual, 'init' the full NTHREADS pool tasks,
+		// but make the extra ones no-ops. Here that means adding the full complement of NTHREADS tasks to the pool:
+		for(thr_id = 0; thr_id < NTHREADS; ++thr_id)
+		{
+			task_control.data = (void*)(&tdat[thr_id]);
+			threadpool_add_task(tpool, &task_control, task_is_blocking);
+		#if 0
+			printf("adding pool task %d with pool ID [%d]\n",thr_id,((struct thread_init *)(&task_control)->data)->thread_num);
+			struct fac_thread_data_t* targ = tdat + thr_id;
+			printf("This task has: pass %u, interval_[lo,hi] = [%llu,%llu]\n",targ->pass,targ->interval_lo,targ->interval_hi);
+			printf("; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
+		#endif
+		}
+
+		while(tpool->free_tasks_queue.num_tasks != NTHREADS) {
+			// Posix sleep() too granular here; use finer-resolution, declared in <time.h>; cf. http://linux.die.net/man/2/nanosleep
+			ASSERT(HERE, 0 == mlucas_nanosleep(&ns_time), "nanosleep fail!");
+		}
+		fprintf(stderr,"\n");	// For pretty-printing, have the inline-pass-printing reflect || work, newlines reflect sync-points
+	};	// wave-loop
+
+#else	// Single-threaded execution:
+
+	for(pass = passnow; pass <= passmax; pass++)
+	{
+		// Load 'master copy' of sievelet for the current pass number:
+	  #if TF_CLASSES == 60
+		m = len/TF_CLASSES + 1;	// len not divisible by TF_CLASSES, so add a pad-word
+	  #else
+		m = (len*64)/TF_CLASSES;	// 64*len divisible by TF_CLASSES, no need for padding
+	  #endif
+		for(i = 0; i < m; i++) {
+			bit_map[i] = *(bit_atlas + (i * TF_PASSES) + pass);
+		}
+
+	#if DBG_SIEVE
+		/* If debugging sieve, make sure critical bit hasn't been cleared: */
+		if( k_targ && (((bit_map[i64_targ] >> bit_targ) & 1) == 0) ) {
+			fprintf(stderr,"Critical bit cleared in master bitmap!\n");
+			ASSERT(HERE, 0,"0");
+		}
+	#endif
+
+	#ifdef FACTOR_STANDALONE
+		if(!restart) {
+			printf("pass = %u",pass);	fflush(stdout);
+		}
+	#else
+		ASSERT(HERE, fp == 0x0,"0");
+		fp = mlucas_fopen(STATFILE,"a");
+		fprintf(fp,"Starting Trial-factoring Pass %2u...\n",pass);
+		fclose(fp); fp = 0x0;
+	#endif
+
+		/* Starting no.-of-times-through-sieve = kmin/(64*len) : */
+		if(pass == passnow && (know > kmin)) {
+			interval_lo = know/((uint64)len << TF_CLSHIFT);
+			ASSERT(HERE, know == interval_lo*((uint64)len << TF_CLSHIFT),"know == interval_lo*((uint64)len << TF_CLSHIFT)");
+		} else {
+			interval_lo = kmin/((uint64)len << TF_CLSHIFT);
+			ASSERT(HERE, kmin == interval_lo*((uint64)len << TF_CLSHIFT),"kmin == interval_lo*((uint64)len << TF_CLSHIFT)");
+		}
+
+		/* Set initial k for this pass to default value (= incr[pass]) + interval_lo*(64*len),
+		(assume this could be as large as 64 bits), then use it to set initial q for this pass:
+		*/
+		ASSERT(HERE, (double)interval_lo*(len << TF_CLSHIFT) < TWO64FLOAT, "(double)interval_lo*len < TWO64FLOAT");
+		k = (uint64)incr[pass] + interval_lo*(len << TF_CLSHIFT);
+
+		i = nprime;	// Remember, MAX_SIEVING_PRIME is a *variable* and set at runtime, as opposed to the predef NUM_SIEVING_PRIME;
+					// And for small exponents, the actual #sieving prime is in nprime, and may be < NUM_SIEVING_PRIME.
+		count += PerPass_tfSieve(
+			pstring,
+			pass,
+			interval_lo,  interval_hi,
+			fbits_in_2p,
+			nclear,
+			len,	// #64-bit words in the full-length sieving bitmap setup by the (CPU-side) caller.
+			p_last_small,	//largest odd prime appearing in the product; that is, the (nclear)th odd prime.
+			i,	// #sieving primes (counting from 3)
+			MAX_SIEVING_PRIME,
+			pdiff,
+			startval,	// This gets updated within
+			k_to_try,	// Unused by GPU code; include to yield a (mostly) uniform API
+			factor_k,	// List of found factors for each p gets updated (we hope) within
+			&nfactor,	// Here the '*' is to denote a writeable scalar
+			findex,
+			p, two_p, lenP, lenQ, incr[pass],
+		#ifndef USE_GPU
+ 			kdeep, &ndeep, countmask, CMASKBITS, q, q2, u64_arr,
+		#endif
+			k,
+			bit_map, bit_map2,	// GPU version uses only 1st of these
+			&tdiff,
+			MODULUS_TYPE,
+			VERSION,
+			OFILE
+		);
+
+	#ifdef USE_GPU
+		cudaError = cudaGetLastError();
+		if(cudaError != cudaSuccess)
+		{
+			printf("ERROR: cudaGetLastError() returned %d: %s\n", cudaError, cudaGetErrorString(cudaError));
+			ASSERT(HERE, 0, "factor.c : GPU-side error detected!");
+		}
+	#endif
+
+	#ifdef FACTOR_STANDALONE
+		if(!restart)
+			printf("\n");
+	#else
+		fp = mlucas_fopen(STATFILE,"a");
+		fprintf(fp,"Trial-factoring Pass %2u: time =%s\n", pass,get_time_str(td));
+		fclose(fp); fp = 0x0;
+	#endif
+
+	/***********/
+	#ifdef ONEPASS
+		return 0;
+	#endif
+	/***********/
+	}	/* end of pass loop	*/
+
+#endif	// MULTITHREAD ?
+
+/*...all done.	*/
+#ifdef FACTOR_STANDALONE
+	if(!restart)
+	{
+		printf(   "%s(%s) has %u factors in range k = [%llu, %llu], passes %u-%u\n",
+	 	NUM_PREFIX[MODULUS_TYPE], pstring, nfactor, kmin, kmax, passmin, passmax);
+		printf(   "Performed %s trial divides\n", &char_buf0[convert_uint64_base10_char(char_buf0, count)]);
+		/* Since we're done accumulating cycle count, divide to get total time in seconds: */
+		printf(   "Clocks =%s\n",get_time_str(tdiff));
+	}
+#else
+	ASSERT(HERE, fp == 0x0,"0");
+	fp = mlucas_fopen(STATFILE,"a");
+	fprintf(fp,"Performed %s trial divides\n", &char_buf0[convert_uint64_base10_char(char_buf0, count)]);
+	/* Since we're done accumulating cycle count, divide to get total time in seconds: */
+	fprintf(fp,"Clocks =%s\n",get_time_str(tdiff));
+	fclose(fp); fp = 0x0;
+#endif
+
+	fp = mlucas_fopen(   OFILE,"a");
+  #ifdef P1WORD
+	 fprintf(fp,"M(%s) has %u factors in range k = [%llu, %llu], passes %u-%u\n", pstring, nfactor, kmin, kmax, passmin, passmax);
+  #else
+	 fprintf(fp,"M(%s) has %u factors in range k = [%llu, %llu], passes %u-%u\n", pstring, nfactor, kmin, kmax, passmin, passmax);
+  #endif
+	fclose(fp); fp = 0x0;
+
+#ifdef FAC_DEBUG
+	/* If a test factor was given, make sure we found at least one factor: */
+	if(k_targ > 0)
+	{
+		ASSERT(HERE, nfactor > 0,"k_targ > 0 but failed to find at least one factor");
+	}
+#endif
+
+	// If in double-Mersenne deep-sieve mode, print sorted list of k-to-do:
+	if((MODULUS_TYPE == MODULUS_TYPE_MERSMERS) && (findex > 10000)) {
+		if(ndeep > 0) {
+			qsort(kdeep, ndeep, sizeof(uint32), ncmp_uint32);
+			printf("MM(%u): Do deep sieving for k = ",findex);
+			for(i = 0; i < ndeep-1; i++) {
+				printf("%u,",kdeep[i]);
+			}
+			printf("%u\n",kdeep[i]);
+		}
+	}
+
+	// Free the allocated memory:
+	free((void *)factor_ptmp);
+	free((void *)p);
+	free((void *)kdeep);
+	free((void *)bit_map);
+	free((void *)bit_map2);
+	free((void *)bit_atlas);
+	free((void *)pdiff);
+	free((void *)startval);
+	free((void *)pinv);
+	free((void *)two_p);
+	free((void *)p2NC);
+	free((void *)q);
+	free((void *)q2);
+	free((void *)u64_arr);
+#ifdef MULTITHREAD
+	free((void *)tdat); tdat = 0x0;
+#endif
+
+	return(0);
+
+	/* Only reachable from argc/argv section: */
+#ifdef FACTOR_STANDALONE
+MFACTOR_HELP:
+	printf(" Mfactor command line options ...\n");
+	printf(" <CR>        Default mode: prompts for manual keyboard entry\n");
+	printf("\n");
+	printf(" -h          Prints this help file and exits\n");
+	printf("\n");
+	printf(" -m {num}    Trial-factor the Mersenne number M(num) = 2^num - 1.\n");
+	printf("\n");
+	printf(" -mm {num}   Trial-factor the double-Mersenne number M(M(num)) = 2^(2^num) - 1.\n");
+	printf("\n");
+	printf(" -f {num}    Trial-factor the Fermat number F(num) = 2^(2^num) + 1.\n");
+	printf("\n");
+	printf(" -file {string}    Name of checkpoint file (needed for restart-from-interrupt)\n");
+	printf("\n");
+  #ifdef P1WORD
+	printf(" -bmin {num} Log2(minimum factor to try), in floating double form.\n");
+	printf(" If > 10^9 its whole-number part is taken as the kmin value instead.\n");
+	printf("\n");
+	printf(" -bmax {num} Log2(maximum factor to try), in floating double form.\n");
+	printf(" If > 10^9 its whole-number part is taken as the kmax value instead.\n");
+	printf("\n");
+  #endif
+	printf(" -kmin {num}  Lowest factor K value to be tried in each pass ( > 0).\n");
+	printf("\n");
+	printf(" -kmax {num} Highest factor K value to be tried in each pass ( < 2^64).\n");
+	printf("\n");
+	printf(" -passmin {num}  Current factoring pass (0-%d).\n",TF_PASSES-1);
+	printf("\n");
+	printf(" -passmax {num}  Maximum pass for the run (0-%d).\n",TF_PASSES-1);
+  #ifdef MULTITHREAD
+	printf("\n");
+	printf(" -nthread {num}  Number of threads to use (1-%u). Each pass gets done by\n\t\t a separate thread; if #passes > #threads, some threads will do multiple passes.\n",TF_PASSES);
+  #endif
+	/* If we reached here other than via explicit invocation of the help menu, assert: */
+	if(!STREQ(stFlag, "-h"))
+		ASSERT(HERE, 0,"Mfactor: Unrecognized command-line option!");
+	return(0);
+#endif
+}
+
+/******************/
+
+#ifndef USE_GPU
+
+  #ifndef MULTITHREAD
+
+	uint64 PerPass_tfSieve(
+		const char *pstring,
+		const uint32 pass,
+		const uint64 interval_lo, const uint64 interval_hi,
+		const double fbits_in_2p,
+		const uint32 nclear,
+		const uint32 sieve_len,
+		const uint32 p_last_small,	//largest odd prime appearing in the product; that is, the (nclear)th odd prime.
+		const uint32 nprime,	// #sieving primes (counting from 3)
+		const uint32 MAX_SIEVING_PRIME,
+		const uint8 *pdiff,
+			  uint32*startval,
+			  uint64*k_to_try,
+			  uint64*factor_k,	// List of found factors for each p gets updated (we hope) within
+			  uint32*nfactor,	// Here the '*' is to denote a writeable scalar
+		const uint32 findex,
+		const uint64*p, const uint64*two_p, const uint32 lenP, const uint32 lenQ, const uint32 incr,
+		uint32*kdeep, uint32*ndeep, const uint64 countmask, const uint32 CMASKBITS,
+		uint64*q, uint64*q2, uint64*u64_arr,
+		const uint64 kstart,
+		const uint64*bit_map, uint64*bit_map2,
+		double *tdiff,
+		const int MODULUS_TYPE,
+		const char*VERSION,
+		const char*OFILE
+	) {
+		int    tid = 0;
+  #else
+
+	void*
+	PerPass_tfSieve(void*thread_arg)	// Thread-arg pointer *must* be cast to void and specialized inside the function
+	{
+		struct fac_thread_data_t* targ = thread_arg;	// Ref'd as task->data in threadpool.c::worker_thr_routine() caller
+		int    tid          = targ->tid;	// Thread ID (Use the pool-thread ID here rather than the task ID ... there are typically many more tasks than pool threads)
+		uint32 pass         = targ->pass;	// Which factoring pass is the thread doing?
+		uint64 interval_lo  = targ->interval_lo;
+		uint64 interval_hi  = targ->interval_hi;
+		double fbits_in_2p  = targ->fbits_in_2p;
+	#ifdef USE_AVX512
+		uint32 *psmall = targ->psmall;
+	#endif
+		uint32 nclear       = targ->nclear;
+		uint32 sieve_len    = targ->sieve_len;
+		uint32 p_last_small = targ->p_last_small;	//largest odd prime appearing in the product; that is = targ->; the (nclear)th odd prime.
+		uint32 nprime       = targ->nprime;			// #sieving primes (counting from 3)
+		uint32 MAX_SIEVING_PRIME = targ->MAX_SIEVING_PRIME;
+		uint8 *pdiff        = targ->pdiff;
+		uint32*startval     = targ->startval;
+		uint64*k_to_try     = targ->k_to_try;
+		uint64*factor_k     = targ->factor_k;		// List of found factors for each p gets updated (we hope) within
+		uint32*nfactor      = targ->nfactor;		// Here the '*' is to denote a writeable scalar
+		uint32 findex       = targ->findex;
+		const char *pstring = targ->pstring;
+		uint64*p            = targ->p;
+		uint64*two_p        = targ->two_p;
+		uint64*q            = targ->q;
+		uint64*q2           = targ->q2;
+		uint64*u64_arr      = targ->u64_arr;
+		uint32 lenP         = targ->lenP;
+		uint32 lenQ         = targ->lenQ;
+		uint32*kdeep        = targ->kdeep;
+		uint32*ndeep        = targ->ndeep;
+		uint64 countmask    = targ->countmask;
+		uint32 CMASKBITS    = targ->CMASKBITS;
+		uint32 incr         = targ->incr;
+		uint64 kstart       = targ->kstart;
+		uint64*bit_map      = targ->bit_map ;
+		uint64*bit_map2     = targ->bit_map2;
+		double *tdiff       = targ->tdiff;
+		int    MODULUS_TYPE = targ->MODULUS_TYPE;
+		const char *VERSION = targ->VERSION;
+		const char *OFILE   = targ->OFILE;
+  #endif
+	#ifdef MULTITHREAD
+		// Proper init (as opposed to no-init) key to avoiding deadlock here.
+		// Started with 2 separate _checkpoint and _foundfactor mutexes here, but since both code sections
+		// in question call some of the same mi64 functions, replaced with 'one mutex to rule them all' model:
+		pthread_mutex_t mutex_mi64        = PTHREAD_MUTEX_INITIALIZER,
+						mutex_updatecount = PTHREAD_MUTEX_INITIALIZER;	// No mi64 calls here.
+	#endif
+		FILE *fp = 0x0;
+		char *cstr,*char_addr;
+	#if TF_CLASSES == 60
+		const uint32 TRYQM1 = TRYQ-1, bit_len = (sieve_len << TF_CLSHIFT)/TF_CLASSES; 	// 255255*64  /  60 = 272272: Number of bits in each of the  16 mod-  60 sievelets
+	#else	// 4620 classes:
+		const uint32 TRYQM1 = TRYQ-1, bit_len = (sieve_len << TF_CLSHIFT)/TF_CLASSES;	// 255255*64^2/4620 = 226304: Number of bits in each of the 960 mod-4620 sievelets
+	#endif
+		int curr_line,itmp;
+		uint32 bit,bit_hi,curr_p,i,ihi,idx,j,l,m;
+		uint64 count = 0ull, itmp64, k = 0ull, sweep, res;
+		int32 q_index = -1;
+		double fbits_in_k = 0, fbits_in_q = 0;
+	#ifdef P1WORD
+		double twop_float = 0,fqlo,fqhi;
+		uint128 p128,q128,t128;	// Despite the naming, these are needed for nominal 1-word runs with moduli exceeding 64 bits
+	#endif
+	#ifdef P3WORD
+		uint192 p192,q192,t192;
+	  #ifdef USE_FLOAT
+		uint256 x256;	// Needed to hold result of twopmodq200_8WORD_DOUBLE
+	  #endif
+	#endif
+	#ifdef P4WORD
+		uint256 p256,q256,t256;
+	#endif
+		char cbuf[STR_MAX_LEN], cbuf2[STR_MAX_LEN];
+		clock_t clock1, clock2;
+
+		if(interval_lo == interval_hi) {
+			printf("Thread %u immediate-return (no-op)\n",tid);
+			return 0x0;
+		}
+
+	#warning Restart-file read/write needs finishing & debug!
+	#if 0
+	/* TF restart files are in HRF, not binary: */
+	int found_pass = FALSE;
+	fp = mlucas_fopen(RESTARTFILE, "r");
+	if(fp) {
+		// If file exists, it should have the proper first 2 lines:
+		itmp = fscanf(fp,"%s\n",cstr);
+		if(itmp <= 0 || !STREQ(cstr,pstring)) {
+			sprintf(char_buf0,"Line 1 entry found in factoring savefile [%s] does not match exponent of run [%s].",cstr,pstring);
+			ASSERT(HERE,0,char_buf0);
+		}
+		itmp = fscanf(fp,"%u\n",&i  );
+		if(itmp <= 0 || i != TF_PASSES      ) {
+			sprintf(char_buf0,"Line 1 entry found in factoring savefile [%d] does not match exponent of run [%d].",i,TF_PASSES);
+			ASSERT(HERE,0,char_buf0);
+		}
+		// See if restart file has a pass/max-k-reached entry matching the current pass:
+		while(fgets(cstr,STR_MAX_LEN,fp)) {
+			if((char_addr = strstr(cstr,"Pass ")) != 0) {
+				itmp = sscanf(char_addr,"%u",i);
+				if(itmp <= 0) {
+					fprintf(stderr,"ERROR: unable to read [Pass *: k] entry: offending line = [%s]\n",cstr); ASSERT(HERE, 0,"0");
+				}
+				if(i == pass) {	// Is the pass index the one we are updating? If yes, update the k-value
+					ASSERT(HERE, !found_pass, "Multiple current-pass entry found in savefile!");
+					found_pass = TRUE;
+					// Read the max-k-reached value
+					ASSERT(HERE,((char_addr = strstr(cstr,"Pass ")) != 0),"Expected : following pass number not found!");
+					itmp = sscanf(char_addr,"%llu",k);
+					ASSERT(HERE,itmp >= 0,"Unable to read max-k-reached value!");
+					// Even if valid entry found, process rest of file to ensure no duplicate-pass-number entries
+				}
+			}
+		}
 		/* pstring*/
 		++curr_line;
 		if(!fgets(in_line, STR_MAX_LEN, fp)) {
@@ -1659,1270 +2943,12 @@ GET_LINE4:
 		/* Successfully processed restart file: */
 		restart = TRUE;
 	}
-
+	#endif
+	// No restart file found, or no enty for this pass found in same, or max-k-reached-for-this-pass found therein <= kstart;
+	// Take starting k value from kstart:
+	if(!k)
+		k = kstart;
 /************************ END(RESTART STUFF) *******************/
-
-	/* If it's not a restart of an as-yet-uncompleted run, synchronize the factoring-bound params: */
-	if(!incomplete_run)
-	{
-		/* Double-check factoring pass bounds: */
-		if(passmin > (TF_PASSES-1) )
-		{
-			fprintf(stderr,"ERROR: passmin must be <= %u. Offending entry = %u.\n", TF_PASSES-1, passmin);
-			ASSERT(HERE, 0,"0");
-		}
-
-		if(passmax < passmin)
-		{
-			fprintf(stderr,"ERROR: (passmax = %u) < (passmin = %u)!\n", passmax, passmin);
-			ASSERT(HERE, 0,"0");
-		}
-		if(passmax > (TF_PASSES-1) )
-		{
-			fprintf(stderr,"ERROR: passmax must be <= %u. Offending entry = %u.\n", TF_PASSES-1, passmax);
-			ASSERT(HERE, 0,"0");
-		}
-
-		/**** Process factor candidate bounds: ****/
-
-		/* If any of bmin|kmin, bmax|kmax nonzero, calculate its counterpart: */
-	#ifdef P1WORD
-		/* Find FP approximation to 2*p - can't use this for multiword case, because double approximation tp 2*p may overflow: */
-		twop_float = (double)two_p[0];
-	#endif
-		/* Compute kmax if not already set: */
-		if(!kmax)
-			kmax = given_b_get_k(bmax, two_p, lenQ);
-		if(kmin || bmin) {
-			if(kmin == 0ull) {	/* Lower Bound given in log2rithmic form */
-				ASSERT(HERE, bmin <= bmax, "bmin >= bmax!");
-				kmin = given_b_get_k(bmin, two_p, lenQ);
-			} else {
-				ASSERT(HERE, kmin <= kmax, "kmin >= kmax!");
-			#ifdef P1WORD
-				fqlo = kmin*twop_float + 1.0;
-				bmin = log(fqlo)*ILG2;
-			#endif
-			}
-		} else {
-		#ifdef P1WORD
-			fqlo = 1.0;
-		#else
-		#endif
-		}
-
-		if(kmax || bmax) {
-			if(kmax == 0ull) {	/* Upper Bound given in log2rithmic form */
-				kmax = given_b_get_k(bmax, two_p, lenQ);
- 			} else {
-			#ifdef P1WORD
-				fqhi = kmax*twop_float + 1.0;
-				bmax = log(fqhi)*ILG2;
-			#endif
-			}
-		} else
-			ASSERT(HERE, 0 ,"factor.c : One of bmax, kmax must be nonzero!");
-
-		/**** At this point the paired elements bmin|kmin, bmax|kmax are in synchrony. ****/
-
-		/* If kplus given on command line, a valid restart file should have been found
-		and kmax incremented at this point, i.e. kplus should have been reset to zero:
-		*/
-		ASSERT(HERE, kplus == 0, "kplus must be zero here!");
-
-		know = kmin;
-		passnow = passmin;
-
-	}	/* endif(!incomplete_run) */
-
-/*****************************************************/
-/****************** SIEVE STUFF: *********************/
-/*****************************************************/
-
-	ASSERT(HERE, NUM_SIEVING_PRIME > 0, "factor.c : NUM_SIEVING_PRIME > 0");
-
-/*   allocate the arrays and initialize the array of sieving primes	*/
-	temp_late = (uint64 *)calloc(len, sizeof(uint64));
-
-#if TF_CLASSES == 60
-	i = len/TF_CLASSES + 1;	// len not divisible by TF_CLASSES, so add a pad-word
-#else
-	i = (len*64)/TF_CLASSES + 1;	// 64*len divisible by TF_CLASSES, no need for padding
-		//**** Oct 2016: AVX-512 vector-bit-clear needs a padding element, so add one. ****
-#endif
-	bit_map = (uint64 *)calloc(i * NTHREADS, sizeof(uint64));
-	bit_map2= (uint64 *)calloc(i * NTHREADS, sizeof(uint64));	// 2nd alloc to give each thread 1 bit-clearable copy of master bit_map
-	if (bit_map == NULL) {
-		fprintf(stderr,"Memory allocation failure for BITMAP array");
-		ASSERT(HERE, 0,"0");
-	}
-	bit_atlas = (uint64 *)calloc(i * TF_PASSES, sizeof(uint64));
-	if (bit_atlas == NULL) {
-		fprintf(stderr,"Memory allocation failure for TEMPLATE array");
-		ASSERT(HERE, 0,"0");
-	}
-printf("Allocated %u words in master template, %u in per-pass bit_map [%u x that in bit_atlas]\n",len,i,TF_PASSES);
-
-#ifdef USE_AVX512	// Use vector-int math and gather-load/scatter-store to accelerate the bit-clearing
-	psmall = (uint32 *)calloc(NUM_SIEVING_PRIME * NTHREADS, sizeof(uint32));
-	if (psmall == NULL) {
-		fprintf(stderr,"Memory allocation failure for PSMALL array");
-		ASSERT(HERE, 0,"0");
-	}
-#endif
-
-	pdiff = (uint8 *)calloc(NUM_SIEVING_PRIME * NTHREADS, sizeof(uint8));
-	if (pdiff == NULL) {
-		fprintf(stderr,"Memory allocation failure for pdiff array");
-		ASSERT(HERE, 0,"0");
-	}
-
-	startval = (uint32 *)calloc(NUM_SIEVING_PRIME * NTHREADS, sizeof(uint32));
-	if (startval == NULL) {
-		fprintf(stderr,"Memory allocation failure for STARTVAL array");
-		ASSERT(HERE, 0,"0");
-	}
-
-	pinv = (uint32 *)calloc(NUM_SIEVING_PRIME, sizeof(uint32));
-	if (pinv == NULL) {
-		fprintf(stderr,"Memory allocation failure for PINV array");
-		ASSERT(HERE, 0,"0");
-	}
-
-#if DBG_SIEVE
-	startval_incr = (uint32 *)calloc(NUM_SIEVING_PRIME, sizeof(uint32));
-	if (startval_incr == NULL) {
-		fprintf(stderr,"Memory allocation failure for STARTVAL_INCR array");
-		ASSERT(HERE, 0,"0");
-	}
-#endif
-
-		/* Check integrity (at least in the sense of monotonicity) for the precomputed pseudoprime table: */
-		for(i = 1; i < 9366; ++i) {
-			ASSERT(HERE, f2psp[i] > f2psp[i-1],"Misplaced pseudoprime!");
-		}
-
-		/* Test some near-2^32 known-prime cases: */
-		curr_p = (uint32)-5;
-		itmp32 = twopmodq32(curr_p-1, curr_p);
-		ASSERT(HERE, itmp32 == 1,"twopmodq32: 2^32 - 5 test fails!");
-		curr_p = (uint32)-17;
-		itmp32 = twopmodq32(curr_p-1, curr_p);
-		ASSERT(HERE, itmp32 == 1,"twopmodq32: 2^32 -17 test fails!");
-		curr_p = (uint32)-35;	/* Start of the last length-30 curr_p%30 == 11 interval < 2^32; the 6th candidate in that interval, 2^32-17, is prime */
-		itmp32 = twopmodq32_x8(curr_p, curr_p+ 2, curr_p+ 6, curr_p+ 8, curr_p+12, curr_p+18, curr_p+20, curr_p+26);
-		ASSERT(HERE, itmp32 ==32,"twopmodq32_x8: 2^32 -35 test fails!");
-
-		fprintf(stderr,"Generating difference table of first %u small primes\n", nprime);
-		curr_p = 3;	/* Current prime stored in l. */
-		max_diff = 0;
-
-		f2psp_idx = 0;	/* Index to next-expected Fermat base-2 pseudoprime in the precomputed table */
-
-		/* Init first few diffs between 3/5, 5/7, 7/11, so can start loop with curr_p = 11 == 1 (mod 10), as required by twopmodq32_x8(): */
-		pdiff[0] = 0;	pdiff[1] = pdiff[2] = 1;
-		ihi = curr_p = 11;
-	#ifdef USE_AVX512	// Use vector-int math and gather-load/scatter-store to accelerate the bit-clearing
-		psmall[0] = 3; psmall[1] = 5; psmall[2] = 7;
-	#endif
-		/* Process chunks of length 30, starting with curr_p == 11 (mod 30). Applying the obvious divide-by-3,5 mini-sieve,
-		we have 8 candidates in each interval: curr_p + [ 0, 2, 6, 8,12,18,20,26].
-		For example: curr_p = 11 gives the 8 candidates: 11,13,17,19,23,29,31,37.
-		*/
-		for(i = 3; i < nprime; curr_p += 30)
-		{
-			/* Make sure (curr_p + 29) < 2^32: */
-			if(curr_p > 0xffffffe3) {
-				fprintf(stderr,"curr_p overflows 32 bits!");
-				nprime = i;
-				break;
-			}
-
-			/* Max sieving prime must be < smallest candidate factor of M(p) */
-		#ifdef P1WORD
-			if((curr_p+29) > two_p[0]) {
-				nprime = i;
-				break;
-			}
-		#endif
-
-			/* Do a quick Fermat base-2 compositeness test before invoking the more expensive mod operations: */
-			itmp32 = twopmodq32_x8(curr_p, curr_p+ 2, curr_p+ 6, curr_p+ 8, curr_p+12, curr_p+18, curr_p+20, curr_p+26);
-			for(j = 0; j < 8; ++j)
-			{
-				if((itmp32 >> j)&0x1)	// It's a PRP, so check against the table of known pseudoprimes and
-				{						// (if it's not a PSP) init for the next gap
-					ASSERT(HERE, curr_p <= f2psp[f2psp_idx],"Error in pseudoprime sieve");
-					if((curr_p + pdsum_8[j]) == f2psp[f2psp_idx])	/* It's a base-2 pseudoprime */
-					{
-						++f2psp_idx;
-						pdiff[i] += pdiff_8[j];
-						continue;
-					}
-					else	/* It's prime - add final increment to current pdiff[i] and then increment i: */
-					{
-						ihi = (curr_p + pdsum_8[j]);
-					#ifdef USE_AVX512	// Use vector-int math and gather-load/scatter-store to accelerate the bit-clearing
-						psmall[i] = ihi;
-					#endif
-						pdiff[i] += pdiff_8[j];
-						if(pdiff[i] > max_diff)
-						{
-							max_diff = pdiff[i];
-						#if DBG_SIEVE
-							printf("pdiff = %d at curr_p = %u\n", 2*max_diff,ihi);
-						#endif
-						}
-						if(++i == nprime)
-						{
-							break;
-						}
-					}
-				}
-				else
-				{
-					pdiff[i] += pdiff_8[j];
-				}
-			}
-		}
-		MAX_SIEVING_PRIME = ihi;
-	#ifdef MULTITHREAD
-		uint8 *byteptr = pdiff;	// Each thread gets its own copy of the pdiff data:
-		for(thr_id = 1; thr_id < NTHREADS; thr_id++) {
-			byteptr += NUM_SIEVING_PRIME;
-			memcpy(byteptr, pdiff, NUM_SIEVING_PRIME);
-		}
-	#endif
-
-	#if 1//FAC_DEBUG
-		printf("Using first %u odd primes; max gap = %u\n",nprime,2*max_diff);
-		printf("max sieving prime = %u\n",MAX_SIEVING_PRIME);
-	#endif
-
-#if 0
-	// Oct 2015: Play with Smarandache numbers ():
-	i = 2000000;	ASSERT(HERE, i <= nprime, "prime limit exceded in testSmarandache!");
-	testSmarandache(100001,101000, pdiff, i);
-	exit(0);
-#endif
-#if 0
-	// Oct 2018: Play with "sieve survivors" stats: lim(n --> oo) prod_(p <= n)(1-1/p)/(1/ln(p^2))
-	i = 1000000000;	ASSERT(HERE, i <= MAX_SIEVING_PRIME, "prime limit exceeded in testSieveProdAsymp!");
-	struct qfloat qfprod = QHALF, qt;
-	double prod = 0.5, log_psq = log((double)i*i);
-	for(m = 0, curr_p = 3; m < nprime; m++) {
-		curr_p += (pdiff[m] << 1);
-		if(curr_p > i) break;
-		prod *= (1-1./curr_p);
-//	printf("p = %u: prod = %18.15f\n",curr_p,prod);
-		qt = qfsub(QONE,qf_rational_quotient(1ull,(uint64)curr_p));
-		qfprod = qfmul(qfprod,qt);
-	}
-	printf("Used primes <= %u: 1/ln(p^2) = %18.15f, prod_(p <= n)(1-1/p) = %18.15f, ratio = %18.15f, qfprod = %18.15f\n",i,log_psq,prod,log_psq*qfdbl(qfprod),qfdbl(qfprod));
-	exit(0);
-#endif
-/* Time the vector trialdiv stuff: */
-#if TEST_TRIALDIV
-	for(i = 0; i < vec_len; i++)
-	{
-		xvec[i]  = rng_isaac_rand();
-	}
-
-	clock1 = clock();
-	curr_p = 3;
-	for(m = 0; m < nprime; m++)
-	{
-		curr_p += (pdiff[m] << 1);
-		if(mi64_is_div_by_scalar32(xvec, curr_p, vec_len) == TRUE)
-			printf("mi64_is_div_by_scalar32 test: %10u is a divisor\n", curr_p);
-	}
-
-	clock2 = clock();	/* Assume sieve setup time < 2^32 cycles - even if that is violated it's no big deal at this point. */
-	tdiff = (double)(clock2 - clock1);
-	citer = tdiff*2000000000.0/CLOCKS_PER_SEC;
-	citer /= (double)vec_len*nprime;
-	printf	("Elapsed Time =%s; cycles/iter = %10.2f\n",get_time_str(tdiff),citer);
-
-	clock1 = clock();
-	curr_p = 3;
-	for(m = 0; m < nprime; m+=4)
-	{
-		curr_p += (pdiff[m  ] << 1); tryq[0] = curr_p;
-		curr_p += (pdiff[m+1] << 1); tryq[1] = curr_p;
-		curr_p += (pdiff[m+2] << 1); tryq[2] = curr_p;
-		curr_p += (pdiff[m+3] << 1); tryq[3] = curr_p;
-		j = mi64_is_div_by_scalar32_x4(xvec, tryq[0], tryq[1], tryq[2], tryq[3], vec_len);
-		if(j != 0)
-		{
-			for(i = 0; i < 4; ++i)
-			{
-				if((j >> i)&1)
-					printf("mi64_is_div_by_scalar32_x4 test: %10u is a divisor\n", tryq[i]);
-			}
-		}
-	}
-
-	clock2 = clock();	/* Assume sieve setup time < 2^32 cycles - even if that is violated it's no big deal at this point. */
-	tdiff = (double)(clock2 - clock1);
-	citer = tdiff*2000000000.0/CLOCKS_PER_SEC;
-	citer /= (double)vec_len*nprime;
-	printf	("Elapsed Time =%s; cycles/iter = %10.2f\n",get_time_str(tdiff),citer);
-
-	clock1 = clock();
-	curr_p = 3;
-	for(m = 0; m < nprime; m += 8)
-	{
-		curr_p += (pdiff[m  ] << 1); tryq[0] = curr_p;
-		curr_p += (pdiff[m+1] << 1); tryq[1] = curr_p;
-		curr_p += (pdiff[m+2] << 1); tryq[2] = curr_p;
-		curr_p += (pdiff[m+3] << 1); tryq[3] = curr_p;
-		curr_p += (pdiff[m+4] << 1); tryq[4] = curr_p;
-		curr_p += (pdiff[m+5] << 1); tryq[5] = curr_p;
-		curr_p += (pdiff[m+6] << 1); tryq[6] = curr_p;
-		curr_p += (pdiff[m+7] << 1); tryq[7] = curr_p;
-		j = mi64_is_div_by_scalar32_x8(xvec, tryq[0], tryq[1], tryq[2], tryq[3], tryq[4], tryq[5], tryq[6], tryq[7], vec_len);
-		if(j != 0)
-		{
-			for(i = 0; i < 8; ++i)
-			{
-				if((j >> i)&1)
-					printf("mi64_is_div_by_scalar32_x8 test: %10u is a divisor\n", tryq[i]);
-			}
-		}
-	}
-
-	clock2 = clock();	/* Assume sieve setup time < 2^32 cycles - even if that is violated it's no big deal at this point. */
-	tdiff = (double)(clock2 - clock1);
-	citer = tdiff*2000000000.0/CLOCKS_PER_SEC;
-	citer /= (double)vec_len*nprime;
-	printf	("Elapsed Time =%s; cycles/iter = %10.2f\n",get_time_str(tdiff),citer);
-
-	clock1 = clock();
-	curr_p = 3;
-	for(m = 0; m < nprime; m++)
-	{
-		curr_p += (pdiff[m] << 1);
-		if(mi64_is_div_by_scalar64(xvec, (uint64)curr_p, vec_len) == TRUE)
-			printf("mi64_is_div_by_scalar64 test: %10u is a divisor\n", curr_p);
-	}
-	clock2 = clock();	/* Assume sieve setup time < 2^32 cycles - even if that is violated it's no big deal at this point. */
-	tdiff = (double)(clock2 - clock1);
-	citer = tdiff*2000000000.0/CLOCKS_PER_SEC;
-	citer /= (double)vec_len*nprime;
-	printf	("Elapsed Time =%s; cycles/iter = %10.2f\n",get_time_str(tdiff),citer);
-
-	free((void*)xvec);
-#endif
-
-/*   for p < max prime in precomputed table, need to truncate the range of primes...	*/
-	/*********** WHY WAS THIS HERE? *************
-	curr_p = MAX_SIEVING_PRIME;
-	for(;;)
-	{
-		if(p > curr_p) break;
-		curr_p -= (pdiff[nprime--] << 1);
-	#if FAC_DEBUG
-		ASSERT(HERE, curr_p == prime[nprime], "factor.c : curr_p == prime[nprime]");
-	#endif
-	}
-	MAX_SIEVING_PRIME = curr_p;
-	***********/
-
-	/****************** KNOWN-TEST-FACTOR STUFF: *******************/
-#if FAC_DEBUG
-
-	if(k_targ)
-	{
-		// Could add check of whether associated q is prime, but assume user knows what he's soing,
-		// and furthermore may be usefull to allow for composite products-of-smaller-prime-factors:
-		kmodNC = k_targ%TF_CLASSES;
-
-		printf("p mod %u = %d\n",TF_CLASSES, pmodNC);
-		printf("k mod %u = %d\n",TF_CLASSES, kmodNC);
-
-		/* ...and get the pass number on which the factor should be found.
-		(Remember that the pass number returned by CHECK_PKMOD[60|4620] is unit-offset).
-		If a known factor given, only process the given k/log2 range for that pass:
-		*/
-		ASSERT(HERE, lenP == 1, "lenP must == 1 in call to CHECK_PKMOD4620!");
-	#if TF_CLASSES == 60
-		pass_targ = CHECK_PKMOD60  (p[0], k_targ, 0x0) - 1;
-	#else	// 4620 classes:
-		pass_targ = CHECK_PKMOD4620(p[0], k_targ, 0x0) - 1;
-	#endif
-		printf("Target pass for debug-factor = %u\n",pass_targ);
-	}
-exit(0);
-#endif	/* end #if(FAC_DEBUG) (q_targ processing) */
-
-	itmp64 = (uint64)mi64_div_y32(p,TF_CLASSES,0x0,lenP);
-//	printf("p %% 60 = %llu\n",itmp64);
-
-#if TF_CLASSES == 60
-/*
-	const int pmod_vec[] = { 1, 7,11,13,17,19,23,29,31,37,41,43,47,49,53,59, 2,4,8,16,32, 0x0};
-	for(i = 0; pmod_vec[i] != 0; i++) {
-		ASSERT(HERE, CHECK_PKMOD60(pmod_vec[i], k, incr) == 16, "CHECK_PKMOD60 returns something other than the expected #TF_PASSES = 16!\n");
-	}
-	exit(0);
-Mersenne Mp: Acceptable km-values for the 16 possible pm (= p%60) values:
-	pm =  1: 0, 3, 8,11,15,20,23,24,35,36,39,44,48,51,56,59
-	pm =  7: 0, 5, 8, 9,12,17,20,24,29,32,33,44,45,48,53,57
-	pm = 11: 0, 1, 4, 9,13,16,21,24,25,28,33,36,40,45,48,49
-	pm = 13: 0, 3, 8,11,12,15,20,23,27,32,35,36,47,48,51,56
-	pm = 17: 0, 3, 4, 7,12,15,19,24,27,28,39,40,43,48,52,55
-	pm = 19: 0, 5, 9,12,17,20,21,24,29,32,36,41,44,45,56,57
-	pm = 23: 0, 1,12,13,16,21,25,28,33,36,37,40,45,48,52,57
-	pm = 29: 0, 4, 7,12,15,16,19,24,27,31,36,39,40,51,52,55
-	pm = 31: 0, 5, 8, 9,20,21,24,29,33,36,41,44,45,48,53,56
-	pm = 37: 0, 3, 8,12,15,20,23,24,27,32,35,39,44,47,48,59
-	pm = 41: 0, 3, 4,15,16,19,24,28,31,36,39,40,43,48,51,55
-	pm = 43: 0, 5, 8,12,17,20,21,32,33,36,41,45,48,53,56,57
-	pm = 47: 0, 4, 9,12,13,24,25,28,33,37,40,45,48,49,52,57
-	pm = 49: 0,11,12,15,20,24,27,32,35,36,39,44,47,51,56,59
-	pm = 53: 0, 3, 7,12,15,16,27,28,31,36,40,43,48,51,52,55
-	pm = 59: 0, 1, 4, 9,12,16,21,24,25,36,37,40,45,49,52,57
-Fermat Fn (n > 0): 0,Acceptable km-values for the ? possible pm (= p%60) values:
-	pm =  2: 0, 4,10,12,18,22,24,28,30,34,40,42,48,52,54,58
-	pm =  4: 0, 2, 6,12,14,20,24,26,30,32,36,42,44,50,54,56
-	pm =  8: 0, 6,10,12,16,18,22,28,30,36,40,42,46,48,52,58
-	pm = 16: 0, 6, 8,14,18,20,24,26,30,36,38,44,48,50,54,56	<*** F36 factor has k = 20 ... why do I miss? ***
-	pm = 32: 0, 4,10,12,18,22,24,28,30,34,40,42,48,52,54,58
-*/
-	i = CHECK_PKMOD60  (itmp64, k, incr);
-/*
-	printf("k mod 60 = [");
-	for(i = 0, j = 0; i < 16; i++) {
-		j += incr[i];
-		printf("%3u",(uint32)j);
-	}
-	printf("]\n");
-	exit(0);
-*/
-#else	// 4620 classes:
-	i = CHECK_PKMOD4620(itmp64, k, incr);
-#endif
-	ASSERT(HERE, i == TF_PASSES, "CHECK_PKMOD4620 returns something other than the expected #TF_PASSES!\n");
-
-	/* If it's a restart, interval_lo for the initial pass will be based
-	on (know), rather than (kmin) - handle that just inside the pass-loop: */
-	/* Using TF_CLASSES = 60 by way of example:
-	sievelets have bit_len = (len<<6)/60 ... each bit represents a k-incr of +60, so each pass (a.k.a. 'interval')
-	rep. a k-incr of len<<6. Thus to get interval corr. to given kmax, use kmax = interval*(len<<6); yielding
-		interval = kmax/(len<< 6) = (kmax>> 6)/len .
-	For TF_CLASSES = 4620, we have bit_len = (len<<12)/4620, thus kmax = interval*(len<<12), thus
-		interval = kmax/(len<<12) = (kmax>>12)/len .
-	*/
-	interval_lo = kmin/((uint64)len << TF_CLSHIFT);
-	interval_now= know/((uint64)len << TF_CLSHIFT);
-	interval_hi = (uint64)ceil((double)kmax/((uint64)len << TF_CLSHIFT));
-
-	/* Make sure we always do at least one full pass through the sieve
-	(e.g. if kmin = kmax = 1, ceil(kmax << TF_CLSHIFT) gives 0, same as (kmin << TF_CLSHIFT): */
-	if(interval_hi == interval_lo)
-		interval_hi += 1;
-
-	ninterval = interval_hi - interval_lo;
-
-	/* The actual kmin/kmax values used in the run are exact multiples
-	of len*64 - we always do at least one full pass through the sieve,
-	i.e. we run through at least (len*64) worth of k's */
-	kmin = interval_lo *(len << TF_CLSHIFT);
-	know = interval_now*(len << TF_CLSHIFT);
-	kmax = interval_hi *(len << TF_CLSHIFT);
-
-	/* And now that we have the actual kmin/kmax, recalculate these: */
-  #ifdef P1WORD
-	fqlo = kmin*twop_float + 1.0;
-	fqhi = kmax*twop_float + 1.0;
-  #endif
-
-	/* 11/14/05: Since we don't actually use bmin/bmax for anything other
-	than setting sieving bounds (which then get modified via the above
-	k-is-exact-multiple-of-sieve-length anyway), preserve any user-set
-	values, since these are typically whole numbers, and look nicer
-	in diagnostic and savefile printing:
-	*/
-	/*	bmin = log(fqlo)/log(2.0);*/
-	/*	bmax = log(fqhi)/log(2.0);*/
-
-#if FAC_DEBUG
-	/* Make sure the range of k's for the run contains any target factor: */
-	if(k_targ)
-		ASSERT(HERE, (kmin <= k_targ) && (kmax >= k_targ),"k_targ not in [kmin, kmax]");
-#endif
-
-	ASSERT(HERE, fp == 0x0,"0");
-#ifdef FACTOR_STANDALONE
-	fp = stderr;
-#else
-	fp = mlucas_fopen(STATFILE,"a");
-#endif
-	fq = mlucas_fopen(OFILE,"a");
-
-#ifdef P1WORD
-	sprintf(char_buf0, "Searching in the interval k=[%s, %s], i.e. q=[%e, %e]\n", &char_buf1[convert_uint64_base10_char(char_buf1, kmin )], &char_buf2[convert_uint64_base10_char(char_buf2, kmax )],fqlo,fqhi);
-#else
-	sprintf(char_buf0, "Searching in the interval k=[%s, %s]\n", &char_buf1[convert_uint64_base10_char(char_buf1, kmin )], &char_buf2[convert_uint64_base10_char(char_buf2, kmax )]);
-#endif
-	fprintf(fp, "%s", char_buf0);	fprintf(fq, "%s", char_buf0);
-
-	sprintf(char_buf0, "Each of %3u (p mod %u) passes will consist of %s intervals of length %u\n", passmax-passmin+1, TF_CLASSES, &char_buf1[convert_uint64_base10_char(char_buf1, ninterval)], bit_len);
-	fprintf(fp, "%s", char_buf0);	fprintf(fq, "%s", char_buf0);
-
-	if(passnow != passmin || know != kmin)
-	{
-		sprintf(char_buf0, "Resuming execution with pass %u and k = %s\n", passnow, &char_buf1[convert_uint64_base10_char(char_buf1, know )]);
-		fprintf(fp, "%s", char_buf0);	fprintf(fq, "%s", char_buf0);
-		sprintf(char_buf0, "#Q tried = %s\n", &char_buf1[convert_uint64_base10_char (char_buf1, count)] );
-		fprintf(fp, "%s", char_buf0);	fprintf(fq, "%s", char_buf0);
-	count = 0;	// Reset == 0 prior to sieving so kvector-fill code works properly
-	}
-
-#ifndef FACTOR_STANDALONE
-	fclose(fp);
-#endif
-	fp = 0x0;
-	fclose(fq); fq = 0x0;
-
-/*...init clocks, etc....*/
-	clock1 = clock();
-	tdiff = 0.0;
-
-	// quick way to set all the bits = 1:
-	for(i = 0; i < len; i++) {
-		temp_late[i] = ~(uint64)0;
-	}
-
-	// Now generate q = 2kp+1 for as many k as desired; trial divide only if q passes
-    // a small-primes sieve and if q mod 8 = +1 or -1 [Mersenne] or k even [Fermat; this is because we retrofit
-    // the known form of Fn factors q = j.2^(n+2)+1 into our q = 2.k.p+1 scheme, replacing p with 2^n]:
-
-	if(MODULUS_TYPE ==  MODULUS_TYPE_FERMAT) {
-		/* No-odd-k sieve is simplest, so do it first.
-		Remember that k = 1 is in the zeroth bit here, i.e. we cycle through
-		bits 0-3 which correspond to q = 2kp+1, 4kp+1, 6kp+1, 8kp+1, respectively;
-		thus we keep only bits 1 (k = 2) and 3 (k = 4), by masking with 16 x 0b1010 = 16 x 0xA:
-		*/
-		temp_late[0] &= 0xAAAAAAAAAAAAAAAAull;
-	}
-	else
-	{
-		/* q mod 8 = +-1 sieve is simplest, so do it first. Note q mod 8 = +-1 is guaranteed
-		for (p mod TF_CLASSES) sieve via choice of acceptable values of increment (incr), but doing
-		q%8 = +-1 here is trivial and speeds search for multiples of small primes below.
-		*/
-		qmod8 = 1;
-		for(i = 0; i < 4; i++) {
-			/* Remember that k = 1 is in the zeroth bit here, i.e. we cycle through
-			bits 0-3 which correspond to q = 2kp+1, 4kp+1, 6kp+1, 8kp+1, respectively.
-
-			We don't need to worry about overflow-on-add of (two_p + qmod8),
-			since an overflow won't affect the result, modulo 8.
-			*/
-			qmod8=(two_p[0] + qmod8) & 7;
-			if(qmod8==3 || qmod8==5) {
-				for(l = i; l < 64; l += 4) {
-					temp_late[0] &= ~((uint64)1 << l); /* clear every fourth such bit from the first quadword...	*/
-				}
-			}
-		}
-	}
-
-	// Small-primes sieve needs only three (q mod 8 = +-1)-sieved registers to begin with, make 2 copies of the result:
-	temp_late[1]=temp_late[0];
-	temp_late[2]=temp_late[0];
-
-/*...next, find multiples of small primes.	*/
-
-	regs_todo=1;
-
-	curr_p = 3;
-	for(m = 0; m < nclear; m++)
-	{
-		curr_p += (pdiff[m] << 1);
-
-		two64modp = 0x8000000000000000ull%curr_p;
-		two64modp = (two64modp + two64modp)%curr_p;
-
-		regs_todo=regs_todo*curr_p;
-
-		mi64_set_eq_scalar(q, 1ull, lenQ);
-
-		for(k = 0; k < regs_todo; k++)	/* number of registers to run through while seaching for first multiple of (m)th prime...	*/
-		{
-			for(i = 0; i < 64; i++)			/* ...and run through the 64 bits of each register. */
-			{
-				mi64_add(q,two_p,q,lenQ);
-				if(!mi64_div_y32(q,curr_p,0x0,lenQ)) 	// To-Do: Replace all these slow mi64_div calls with mi64_is_div_by_scalar32,
-				{										// then consider vectorizing this step, and using SSE2 vector version! */
-				#if DBG_SIEVE
-				//	if(curr_p < 100) printf("0: Found a multiple of %u in bit %u of register %u\n", curr_p, i, (uint32)k);
-				#endif
-					for(l = (uint32)(k<<6)+i; l < (regs_todo<<6); l += curr_p)
-					{
-						i64=(l>>6);	/* l/64	*/
-						bit=l&63;	/* l%64	*/
-						temp_late[i64] &= ~((uint64)1 << bit);
-					}
-					goto KLOOP;
-				}
-			}
-		}
-		/* Should never reach this regular-loop-exit point: */
-		fprintf(stderr,"ERROR: failed to find a multiple of prime %u\n", curr_p);
-		ASSERT(HERE, 0,"0");
-
-	KLOOP:
-		/* Propagate copies of length (regs_todo) bit-cleared portion of sieve to remaining parts of sieve.
-		Here is the output of the commented-out diagnostic print:
-
-			Propagating 5 copies of first 3 template-array words.
-			Propagating 7 copies of first 15 template-array words.
-			Propagating 11 copies of first 105 template-array words.
-			Propagating 13 copies of first 1155 template-array words.
-			Propagating 17 copies of first 15015 template-array words.
-
-		Thus we really only need a template length = [product of first (nclear-1) off primes], since
-		that simply repeats n = [(nclear)th odd prime] times. We simply need to make sure our loop below
-		which copies the needed bits from the template to the bit_atlas also makes use of this repetition.
-		*/
-		if(m < (nclear-1)) {
-			ncopies = prime[m+1];
-			l = regs_todo;
-		//	printf("Propagating %u copies of first %u template-array words.\n", ncopies,l);
-			for(i = 2; i <= ncopies; i++, l += regs_todo) {
-				for(j = 0; j < regs_todo; j++) {
-					temp_late[l+j] = temp_late[j];
-				}
-			}
-		}
-	}	/* endfor(m = 0; m < nclear; m++) */
-
-	for(m = 0; m < len; m++) {
-		on_bits += popcount64(temp_late[m]);
-	}
-	printf("%u ones bits of %u in master sieve template.\n", on_bits, len<<6);
-
-#ifdef FACTOR_STANDALONE
-	 printf(   "TRYQ = %u, max sieving prime = %u\n",TRYQ,MAX_SIEVING_PRIME);
-#else
-	ASSERT(HERE, fp == 0x0,"0");
-	fp = mlucas_fopen(STATFILE,"a");
-	fprintf(fp,"TRYQ = %u, max sieving prime = %u\n",TRYQ,MAX_SIEVING_PRIME);
-	fclose(fp); fp = 0x0;
-#endif
-
-	/* Init bitmap in atlas for each of the [TF_PASSES] k mod TF_CLASSES cases:
-	We advance the current-bit-to-copy index [i] in increments based on the length-TF_PASSES incr[] array.
-	Copy each such bit into the current-bit ([bit]th) bit of the current ([word*TF_PASSES + l]th) bit_atlas word,
-	then increment l (which determines which of the TF_PASSES sievelets we are in).
-
-	Here are the resulting stats based on the number of classes:
-
-	TF_CLASSES = 60:
-	Copy 16 of every 60 bits - every [3.75]th bit on average - from the master template to the compact bit_atlas.
-	Since template has 64 x 255255 = 16336320 bits, and 16336320/60 = 272272 bits for each of 16 sievelets concatenated
-	into our bit_atlas, which thus has ceil(272272/64) = 4255 words, with high word [4254] using just its low 16 bits.
-
-	TF_CLASSES = 4620:
-	Copy 960 of every 60*77 bits - every [4.8125]th bit on average - from the master template to the compact bit_atlas.
-	Since template has 64^2 x 255255 = 1045524480 bits (= 130690560 bytes [~130MB]), and 1045524480/4620 = 226304 bits
-	for each of 960 sievelets concatenated into our bit_atlas, which thus has 226304/64 = 3536 words, with high word
-	[3535] using all its bits, as 226304 is divisible by 64.
-
-	Now, we prefer not to have to allocate the full-length template array unless absolutely necessary, but for
-	the 4620 case we can simply re-use the 60-class version 64 times.
-	*/
-	i = incr[0] - 1;
-	j = k = 0;
-	bit = word = 0;	// To shut up may-be-uninit warnings
-	ncopies = 0;
-	for(;;) /* K loops over 64-bit registers...	*/
-	{
-		l = 0;
-L3:
-	#if TF_CLASSES == 60
-		if(k == 0 && ncopies == 1) break;
-	#else	// 4620 classes:
-		if(k == 0 && ncopies == 64) break;
-	#endif
-		for(;;) /* I loops over bits...	*/
-		{
-			word = (uint32)(j>>6);
-			bit  = (uint32)(j&63);
-			if((temp_late[k]>>i) & 1) {
-		//	if(k<10)printf("Copying set bit at k = %u in word %u of temp_late to word %u*%u + %u, bit %u of bit_atlas\n",i+1,(uint32)k, word,TF_PASSES,l,bit);
-				*(bit_atlas + (word * TF_PASSES) + l) |= ((uint64)1 << bit);
-			}
-			if(++l == TF_PASSES) {
-				l = 0;
-				j++;
-			}
-			i += incr[l];
-			// I will not generally land on 64 here, so need a more general mod-needed check:
-			if(i >= 64) {
-				i &= 63;
-				k++;
-				if(k == len) {
-					k = 0;
-					ncopies++;
-				}
-				goto L3;
-			}
-		} /* end of I loop	*/
-	}	/* end of K loop	*/
-//printf("L3: template word %u [used %u copies] bit_atlas chart %u, word %u, bit %u\n",(uint32)k,ncopies,l,word,bit);	exit(0);
-	// For 60|4620 classes expect to end at bit 15|63 of the last word of each of the TF_PASSES = 16|960 sievelets (a.k.a. charts in our atlas):
-	ASSERT(HERE, (k == 0) && (l == 0), "bit_atlas init: Exit check 1 failed!");
-#if TF_CLASSES == 60
-	ASSERT(HERE, (word == 4254) && (bit == 15), "bit_atlas init: Exit check 2 failed!");
-#else	// 4620 classes:
-	ASSERT(HERE, (word == 3535) && (bit == 63), "bit_atlas init: Exit check 2 failed!");
-#endif
-
-#if FAC_DEBUG
-  #if TF_CLASSES == 60
-	i = len/TF_CLASSES + 1;	// len not divisible by TF_CLASSES, so add a pad-word
-	j = i*64 - 48;	// #bits
-  #else
-	i = (len*64)/TF_CLASSES;	// 64*len divisible by TF_CLASSES, no need for padding
-	j = i*64;	// #bits
-  #endif
-	l = 0;	// accum popc
-	for(m = 0; m < i; m++) {
-		l += popcount64(bit_atlas[m]);
-	}
-//	printf("%u ones bits of %u [%6.2f%%] in bit_atlas set.\n",l,(uint32)j,100.*(float)l/j);	exit(0);
-//	  60:	184349 ones bits of 272272 [ 67.71%] in bit_atlas set.
-//	4620:	196610 ones bits of 226304 [ 86.88%] in bit_atlas set.
-#endif
-
-/*...deallocate full-sized bit_atlas.	*/
-	free((void *)temp_late); temp_late = 0x0;
-
-/*...At this point, replace the relative with the absolute increments:	*/
-	for(i = 1; i < TF_PASSES; i++) {	// Skip pass 0 here
-		incr[i] = incr[i-1] + incr[i];
-	}
-#if TF_CLASSES == 60
-	i = 0;
-	switch(pmodNC)
-	{
-		/*   p mod 12 = 1:	*/
-		case  1:ASSERT(HERE, incr[i++]== 3&&incr[i++]== 8&&incr[i++]==11&&incr[i++]==15&&incr[i++]==20&&incr[i++]==23&&incr[i++]==24&&incr[i++]==35&&incr[i++]==36&&incr[i++]==39&&incr[i++]==44&&incr[i++]==48&&incr[i++]==51&&incr[i++]==56&&incr[i++]==59&&incr[i++]==60, "factor.c : case  1"); break;	/* k mod 5 .ne. 2	*/
-		case 37:ASSERT(HERE, incr[i++]== 3&&incr[i++]== 8&&incr[i++]==12&&incr[i++]==15&&incr[i++]==20&&incr[i++]==23&&incr[i++]==24&&incr[i++]==27&&incr[i++]==32&&incr[i++]==35&&incr[i++]==39&&incr[i++]==44&&incr[i++]==47&&incr[i++]==48&&incr[i++]==59&&incr[i++]==60, "factor.c : case 37"); break;	/* k mod 5 .ne. 1	*/
-		case 13:ASSERT(HERE, incr[i++]== 3&&incr[i++]== 8&&incr[i++]==11&&incr[i++]==12&&incr[i++]==15&&incr[i++]==20&&incr[i++]==23&&incr[i++]==27&&incr[i++]==32&&incr[i++]==35&&incr[i++]==36&&incr[i++]==47&&incr[i++]==48&&incr[i++]==51&&incr[i++]==56&&incr[i++]==60, "factor.c : case 13"); break;	/* k mod 5 .ne. 4	*/
-		case 49:ASSERT(HERE, incr[i++]==11&&incr[i++]==12&&incr[i++]==15&&incr[i++]==20&&incr[i++]==24&&incr[i++]==27&&incr[i++]==32&&incr[i++]==35&&incr[i++]==36&&incr[i++]==39&&incr[i++]==44&&incr[i++]==47&&incr[i++]==51&&incr[i++]==56&&incr[i++]==59&&incr[i++]==60, "factor.c : case 49"); break;	/* k mod 5 .ne. 3	*/
-		/*   p mod 12 == 7:	*/
-		case 31:ASSERT(HERE, incr[i++]== 5&&incr[i++]== 8&&incr[i++]== 9&&incr[i++]==20&&incr[i++]==21&&incr[i++]==24&&incr[i++]==29&&incr[i++]==33&&incr[i++]==36&&incr[i++]==41&&incr[i++]==44&&incr[i++]==45&&incr[i++]==48&&incr[i++]==53&&incr[i++]==56&&incr[i++]==60, "factor.c : case 31"); break;	/* k mod 5 .ne. 2	*/
-		case  7:ASSERT(HERE, incr[i++]== 5&&incr[i++]== 8&&incr[i++]== 9&&incr[i++]==12&&incr[i++]==17&&incr[i++]==20&&incr[i++]==24&&incr[i++]==29&&incr[i++]==32&&incr[i++]==33&&incr[i++]==44&&incr[i++]==45&&incr[i++]==48&&incr[i++]==53&&incr[i++]==57&&incr[i++]==60, "factor.c : case  7"); break;	/* k mod 5 .ne. 1	*/
-		case 43:ASSERT(HERE, incr[i++]== 5&&incr[i++]== 8&&incr[i++]==12&&incr[i++]==17&&incr[i++]==20&&incr[i++]==21&&incr[i++]==32&&incr[i++]==33&&incr[i++]==36&&incr[i++]==41&&incr[i++]==45&&incr[i++]==48&&incr[i++]==53&&incr[i++]==56&&incr[i++]==57&&incr[i++]==60, "factor.c : case 43"); break;	/* k mod 5 .ne. 4	*/
-		case 19:ASSERT(HERE, incr[i++]== 5&&incr[i++]== 9&&incr[i++]==12&&incr[i++]==17&&incr[i++]==20&&incr[i++]==21&&incr[i++]==24&&incr[i++]==29&&incr[i++]==32&&incr[i++]==36&&incr[i++]==41&&incr[i++]==44&&incr[i++]==45&&incr[i++]==56&&incr[i++]==57&&incr[i++]==60, "factor.c : case 19"); break;	/* k mod 5 .ne. 3	*/
-		/*   p mod 12 == 5:	*/
-		case 41:ASSERT(HERE, incr[i++]== 3&&incr[i++]== 4&&incr[i++]==15&&incr[i++]==16&&incr[i++]==19&&incr[i++]==24&&incr[i++]==28&&incr[i++]==31&&incr[i++]==36&&incr[i++]==39&&incr[i++]==40&&incr[i++]==43&&incr[i++]==48&&incr[i++]==51&&incr[i++]==55&&incr[i++]==60, "factor.c : case 41"); break;	/* k mod 5 .ne. 2	*/
-		case 17:ASSERT(HERE, incr[i++]== 3&&incr[i++]== 4&&incr[i++]== 7&&incr[i++]==12&&incr[i++]==15&&incr[i++]==19&&incr[i++]==24&&incr[i++]==27&&incr[i++]==28&&incr[i++]==39&&incr[i++]==40&&incr[i++]==43&&incr[i++]==48&&incr[i++]==52&&incr[i++]==55&&incr[i++]==60, "factor.c : case 17"); break;	/* k mod 5 .ne. 1	*/
-		case 53:ASSERT(HERE, incr[i++]== 3&&incr[i++]== 7&&incr[i++]==12&&incr[i++]==15&&incr[i++]==16&&incr[i++]==27&&incr[i++]==28&&incr[i++]==31&&incr[i++]==36&&incr[i++]==40&&incr[i++]==43&&incr[i++]==48&&incr[i++]==51&&incr[i++]==52&&incr[i++]==55&&incr[i++]==60, "factor.c : case 53"); break;	/* k mod 5 .ne. 4	*/
-		case 29:ASSERT(HERE, incr[i++]== 4&&incr[i++]== 7&&incr[i++]==12&&incr[i++]==15&&incr[i++]==16&&incr[i++]==19&&incr[i++]==24&&incr[i++]==27&&incr[i++]==31&&incr[i++]==36&&incr[i++]==39&&incr[i++]==40&&incr[i++]==51&&incr[i++]==52&&incr[i++]==55&&incr[i++]==60, "factor.c : case 29"); break;	/* k mod 5 .ne. 3	*/
-		/*   p mod 12 == 11:	*/
-		case 11:ASSERT(HERE, incr[i++]== 1&&incr[i++]== 4&&incr[i++]== 9&&incr[i++]==13&&incr[i++]==16&&incr[i++]==21&&incr[i++]==24&&incr[i++]==25&&incr[i++]==28&&incr[i++]==33&&incr[i++]==36&&incr[i++]==40&&incr[i++]==45&&incr[i++]==48&&incr[i++]==49&&incr[i++]==60, "factor.c : case 11"); break;	/* k mod 5 .ne. 2	*/
-		case 47:ASSERT(HERE, incr[i++]== 4&&incr[i++]== 9&&incr[i++]==12&&incr[i++]==13&&incr[i++]==24&&incr[i++]==25&&incr[i++]==28&&incr[i++]==33&&incr[i++]==37&&incr[i++]==40&&incr[i++]==45&&incr[i++]==48&&incr[i++]==49&&incr[i++]==52&&incr[i++]==57&&incr[i++]==60, "factor.c : case 47"); break;	/* k mod 5 .ne. 1	*/
-		case 23:ASSERT(HERE, incr[i++]== 1&&incr[i++]==12&&incr[i++]==13&&incr[i++]==16&&incr[i++]==21&&incr[i++]==25&&incr[i++]==28&&incr[i++]==33&&incr[i++]==36&&incr[i++]==37&&incr[i++]==40&&incr[i++]==45&&incr[i++]==48&&incr[i++]==52&&incr[i++]==57&&incr[i++]==60, "factor.c : case 23"); break;	/* k mod 5 .ne. 4	*/
-		case 59:ASSERT(HERE, incr[i++]== 1&&incr[i++]== 4&&incr[i++]== 9&&incr[i++]==12&&incr[i++]==16&&incr[i++]==21&&incr[i++]==24&&incr[i++]==25&&incr[i++]==36&&incr[i++]==37&&incr[i++]==40&&incr[i++]==45&&incr[i++]==49&&incr[i++]==52&&incr[i++]==57&&incr[i++]==60, "factor.c : case 59"); break;	/* k mod 5 .ne. 3	*/
-		default:
-			ASSERT(HERE, MODULUS_TYPE == MODULUS_TYPE_FERMAT,"Only Mersenne and fermat-number factoring supported!");
-	}
-#endif
-
-	clock2 = clock();	/* Assume sieve setup time < 2^32 cycles - even if that
-							that is violated it's no big deal at this point. */
-	/* Use td here, as tdiff is reserved for the total runtime from factoring start: */
-	td = (double)(clock2 - clock1);
-	clock1 = clock2;
-
-#ifdef FACTOR_STANDALONE
-	if(!restart)
-		printf("Time to set up sieve =%s\n",get_time_str(td));
-#endif
-
-/* Run through each of the 16 "sievelets" as many times as necessary, each time copying
-the appropriate q mod 8 and small-prime bit-cleared bit_atlas into memory, clearing bits
-corresponding to multiples of the larger tabulated primes, and trial-factoring any
-candidate factors that survive sieving.	*/
-
-	nfactor = 0;
-
-#if FAC_DEBUG
-	/* If a known factor given, only process the given k/log2 range for that pass: */
-	if(pass_targ < TF_PASSES)
-		passmin = passnow = passmax = pass_targ;
-#endif
-
-#if 0//def USE_GPU *** Doing this here gives 'cudaGetLastError() returned 36: cannot set while device is active in this process' -
-			// This is because of the start-of-run GPU-self-tests in util.c; thus moved upstream to immediately precede those. ***
-	#error Wrong place for this!
-	// Disable default spin-loop-wait-for-GPU:
-	cudaSetDeviceFlags(cudaDeviceBlockingSync);
-#endif
-
-#ifdef MULTITHREAD
-
-//	printf("start; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
-	struct timespec ns_time;	// We want a sleep interval of 0.1 mSec here...
-	ns_time.tv_sec  =      0;	// (time_t)seconds - Don't use this because under OS X it's of type __darwin_time_t, which is long rather than double as under most linux distros
-	ns_time.tv_nsec = 10000000;	// (long)nanoseconds - Get our desired 0.1 mSec as 10^5 nSec here
-
-	// Populate the work-unit-encoding data structs which will get done by our pool of threads.
-	// Current assignment may be restart of a partially-completed run, in which case npass < TF_PASSES
-  #if TF_CLASSES == 60
-	m = len/TF_CLASSES + 1;	// len not divisible by TF_CLASSES, so add a pad-word
-  #else
-	m = (len*64)/TF_CLASSES;	// 64*len divisible by TF_CLASSES, no need for padding
-  #endif
-	uint32 npass = passmax - passnow + 1;
-	fprintf(stderr, "INFO: %u passes to do; bit_map has %u 64-bit words.\n",npass,m);
-	/*
-	Break overall work into ceil(npass/NTHREADS) 'waves' of NTHREADS each, i.e. each wave using all
-	threads in the pool, with thread-synchronization at the end of each thread's factoring interval.
-	We need to sync up (rather than just allowing each thread to grab more work as soon as it's done
-	with its current (k mod) interval) because we memalloc for only NTHREADS concurrent threads, thus
-	e.g. using NTHREADS = 4 if we start with passes 0-3 and the pass 0 and 2 threads finish ahead of 1 and 3,
-	those 2 faster threads will get assigned the pass 4 and 5 work, and since 5 == 1 (mod NTHREADS), that
-	thread's memory footprint will overlap that of the not-yet-complete pass 1 thread's.
-	*/
-	uint32 wave, wave_max = ceil( (double)npass/NTHREADS );
-	fprintf(stderr,"INFO: Doing %u threadpool-waves of %u pool threads each:\n",wave_max,NTHREADS);
-	for(wave = 0; wave < wave_max; wave++)
-	{
-		for(thr_id = 0; thr_id < NTHREADS; thr_id++)	// Unique (within the context of the current wave) task ID
-		{												// used for slotting thread-local accesses to shared data arrays
-			i = wave*NTHREADS + thr_id;
-			pass = passnow + i;
-			// For partial-waves, easiest is to proceed as usual, 'init' the full NTHREADS pool tasks,
-			// but make the extra ones no-ops. But also need to avoid reading nonexistent bitmap data:
-			if(pass <= passmax) {
-				// Load 'master copy' of sievelet for the current pass number:
-				for(l = 0; l < m; l++) {
-					bit_map[l + m * thr_id] = *(bit_atlas + (l * TF_PASSES) + pass);
-				}
-
-				/* Starting no.-of-times-through-sieve = kmin/(64*len) : */
-				if(pass == passnow && (know > kmin)) {
-					interval_lo = (know>>6)/(uint64)len;
-					ASSERT(HERE, know == interval_lo *(len<<6),"know == interval_lo *(len<<6)");
-				} else {
-					interval_lo = (kmin>>6)/(uint64)len;
-					ASSERT(HERE, kmin == interval_lo *(len<<6),"kmin == interval_lo *(len<<6)");
-				}
-			} else {
-				interval_lo = interval_hi;	// This is what defines a 'no-op' pool task.
-			}
-			/* Set initial k for this pass to default value (= incr[pass]) + interval_lo*(64*len),
-			(assume this could be as large as 64 bits), then use it to set initial q for this pass:
-			*/
-			ASSERT(HERE, (double)interval_lo*(len<<6) < TWO64FLOAT, "(double)interval_lo*len < TWO64FLOAT");
-			k = (uint64)incr[pass] + interval_lo*(len<<6);
-		//	fprintf(stderr," [*** Init pass %u data: k0 = %llu, word0 = %16llX\n",pass,k,bit_map[0]);
-			struct fac_thread_data_t* targ = tdat + thr_id;
-			targ->count = &count;
-			targ->tid = thr_id;		// Within the per-thread TFing, only the pool-thread ID matters
-			targ->pass = pass;
-			targ->interval_lo = interval_lo;
-			targ->interval_hi = interval_hi;
-			targ->fbits_in_2p = fbits_in_2p;
-		#ifdef USE_AVX512
-			targ->psmall = psmall;
-		#endif
-			targ->nclear = nclear;
-			targ->sieve_len = len;
-			targ->p_last_small = p_last_small;
-			targ->nprime = nprime;
-			targ->MAX_SIEVING_PRIME = MAX_SIEVING_PRIME;
-			targ->pdiff = pdiff + NUM_SIEVING_PRIME * thr_id;
-			targ->startval = startval + NUM_SIEVING_PRIME * thr_id;
-			targ->k_to_try = k_to_try + TRYQ              * thr_id;
-			targ->factor_k = factor_k + TRYQ              * thr_id;
-			targ->nfactor = &nfactor;
-			targ->findex = findex;
-			targ->p     = p;
-			targ->two_p = two_p;
-			targ->q       = q       + lenQ * thr_id;
-			targ->q2      = q2      + lenQ * thr_id;
-			targ->u64_arr = u64_arr + lenQ * thr_id;
-			targ->lenP = lenP;
-			targ->lenQ = lenQ;
-			targ->kdeep = kdeep;
-			targ->ndeep = &ndeep;
-			targ->countmask = countmask;
-			targ->CMASKBITS = CMASKBITS;
-			targ->incr = incr[pass];
-			targ->kstart = k;
-			targ->bit_map  = bit_map  + m * thr_id;
-			targ->bit_map2 = bit_map2 + m * thr_id;
-			targ->tdiff = &tdiff;	// In || mode update tdiff directly, but only from the 0-thread
-			targ->MODULUS_TYPE = MODULUS_TYPE;
-			targ->VERSION      = VERSION;
-			targ->OFILE        = OFILE;
-
-		}	// thr_id-loop
-		// Use exit value of [pass] here: If doing only a subset of the full 'current wave' complement
-		// of NTHREADS passes - this can only occur during the final wave - adjust pool_work_units accordingly:
-		if(pass > passmax) {
-			pool_work_units = NTHREADS - (pass - passmax);	// Subtract excess #passes from default pool_work_units value
-			fprintf(stderr,"INFO: Final threadpool wave will use only %u of the %u pool threads.\n",pool_work_units,NTHREADS);
-		}
-
-		if(pool_work_units > 1)
-			fprintf(stderr, "Passes %u - %u: ",pass-NTHREADS+1, pass-NTHREADS+pool_work_units);
-		else
-			fprintf(stderr, "Pass %u: ",pass);
-
-		// For partial-waves, easiest is to proceed as usual, 'init' the full NTHREADS pool tasks,
-		// but make the extra ones no-ops. Here that means adding the full complement of NTHREADS tasks to the pool:
-		for(thr_id = 0; thr_id < NTHREADS; ++thr_id)
-		{
-			task_control.data = (void*)(&tdat[thr_id]);
-			threadpool_add_task(tpool, &task_control, task_is_blocking);
-		#if 0
-			printf("adding pool task %d with pool ID [%d]\n",thr_id,((struct thread_init *)(&task_control)->data)->thread_num);
-			struct fac_thread_data_t* targ = tdat + thr_id;
-			printf("This task has: pass %u, interval_[lo,hi] = [%llu,%llu]\n",targ->pass,targ->interval_lo,targ->interval_hi);
-			printf("; #tasks = %d, #free_tasks = %d\n", tpool->tasks_queue.num_tasks, tpool->free_tasks_queue.num_tasks);
-		#endif
-		}
-
-		while(tpool->free_tasks_queue.num_tasks != NTHREADS) {
-			// Posix sleep() too granular here; use finer-resolution, declared in <time.h>; cf. http://linux.die.net/man/2/nanosleep
-			ASSERT(HERE, 0 == mlucas_nanosleep(&ns_time), "nanosleep fail!");
-		}
-		fprintf(stderr,"\n");	// For pretty-printing, have the inline-pass-printing reflect || work, newlines reflect sync-points
-	};	// wave-loop
-
-#else	// Single-threaded execution:
-
-	for(pass = passnow; pass <= passmax; pass++)
-	{
-		// Load 'master copy' of sievelet for the current pass number:
-	  #if TF_CLASSES == 60
-		m = len/TF_CLASSES + 1;	// len not divisible by TF_CLASSES, so add a pad-word
-	  #else
-		m = (len*64)/TF_CLASSES;	// 64*len divisible by TF_CLASSES, no need for padding
-	  #endif
-		for(i = 0; i < m; i++) {
-			bit_map[i] = *(bit_atlas + (i * TF_PASSES) + pass);
-		}
-
-	#if DBG_SIEVE
-		/* If debugging sieve, make sure critical bit hasn't been cleared: */
-		if( k_targ && (((bit_map[i64_targ] >> bit_targ) & 1) == 0) ) {
-			fprintf(stderr,"Critical bit cleared in master bitmap!\n");
-			ASSERT(HERE, 0,"0");
-		}
-	#endif
-
-	#ifdef FACTOR_STANDALONE
-		if(!restart) {
-			printf("pass = %u",pass);	fflush(stdout);
-		}
-	#else
-		ASSERT(HERE, fp == 0x0,"0");
-		fp = mlucas_fopen(STATFILE,"a");
-		fprintf(fp,"Starting Trial-factoring Pass %2u...\n",pass);
-		fclose(fp); fp = 0x0;
-	#endif
-
-		/* Starting no.-of-times-through-sieve = kmin/(64*len) : */
-		if(pass == passnow && (know > kmin)) {
-			interval_lo = (know>>6)/(uint64)len;
-			ASSERT(HERE, know == interval_lo *(len<<6),"know == interval_lo *(len<<6)");
-		} else {
-			interval_lo = (kmin>>6)/(uint64)len;
-			ASSERT(HERE, kmin == interval_lo *(len<<6),"kmin == interval_lo *(len<<6)");
-		}
-
-		/* Set initial k for this pass to default value (= incr[pass]) + interval_lo*(64*len),
-		(assume this could be as large as 64 bits), then use it to set initial q for this pass:
-		*/
-		ASSERT(HERE, (double)interval_lo*(len<<6) < TWO64FLOAT, "(double)interval_lo*len < TWO64FLOAT");
-		k = (uint64)incr[pass] + interval_lo*(len<<6);
-
-		i = NUM_SIEVING_PRIME;
-		count += PerPass_tfSieve(
-			interval_lo,  interval_hi,
-			fbits_in_2p,
-			nclear,
-			len,	// #64-bit words in the full-length sieving bitmap setup by the (CPU-side) caller.
-			p_last_small,	//largest odd prime appearing in the product; that is, the (nclear)th odd prime.
-			i,	// #sieving primes (counting from 3)
-			MAX_SIEVING_PRIME,
-			pdiff,
-			startval,	// This gets updated within
-			k_to_try,	// Unused by GPU code; include to yield a (mostly) uniform API
-			factor_k,	// List of found factors for each p gets updated (we hope) within
-			&nfactor,	// Here the '*' is to denote a writeable scalar
-			findex,
-			p, two_p, lenP, lenQ, incr[pass],
-		#ifndef USE_GPU
- 			kdeep, &ndeep, countmask, CMASKBITS, q, q2, u64_arr,
-		#endif
-			k,
-			bit_map, bit_map2,	// GPU version uses only 1st of these
-			&tdiff,
-			MODULUS_TYPE,
-			VERSION,
-			OFILE
-		);
-
-	#ifdef USE_GPU
-		cudaError = cudaGetLastError();
-		if(cudaError != cudaSuccess)
-		{
-			printf("ERROR: cudaGetLastError() returned %d: %s\n", cudaError, cudaGetErrorString(cudaError));
-			ASSERT(HERE, 0, "factor.c : GPU-side error detected!");
-		}
-	#endif
-
-	#ifdef FACTOR_STANDALONE
-		if(!restart)
-			printf("\n");
-	#else
-		fp = mlucas_fopen(STATFILE,"a");
-		fprintf(fp,"Trial-factoring Pass %2u: time =%s\n", pass,get_time_str(td));
-		fclose(fp); fp = 0x0;
-	#endif
-
-	/***********/
-	#ifdef ONEPASS
-		return 0;
-	#endif
-	/***********/
-	}	/* end of pass loop	*/
-
-#endif	// MULTITHREAD ?
-
-/*...all done.	*/
-#ifdef FACTOR_STANDALONE
-	if(!restart)
-	{
-		printf(   "%s(%s) has %u factors in range k = [%llu, %llu], passes %u-%u\n",
-	 	NUM_PREFIX[MODULUS_TYPE], pstring, nfactor, kmin, kmax, passmin, passmax);
-		printf(   "Performed %s trial divides\n", &char_buf0[convert_uint64_base10_char(char_buf0, count)]);
-		/* Since we're done accumulating cycle count, divide to get total time in seconds: */
-		printf(   "Clocks =%s\n",get_time_str(tdiff));
-	}
-#else
-	ASSERT(HERE, fp == 0x0,"0");
-	fp = mlucas_fopen(STATFILE,"a");
-	fprintf(fp,"Performed %s trial divides\n", &char_buf0[convert_uint64_base10_char(char_buf0, count)]);
-	/* Since we're done accumulating cycle count, divide to get total time in seconds: */
-	fprintf(fp,"Clocks =%s\n",get_time_str(tdiff));
-	fclose(fp); fp = 0x0;
-#endif
-
-	fp = mlucas_fopen(   OFILE,"a");
-  #ifdef P1WORD
-	 fprintf(fp,"M(%s) has %u factors in range k = [%llu, %llu], passes %u-%u\n", pstring, nfactor, kmin, kmax, passmin, passmax);
-  #else
-	 fprintf(fp,"M(%s) has %u factors in range k = [%llu, %llu], passes %u-%u\n", pstring, nfactor, kmin, kmax, passmin, passmax);
-  #endif
-	fclose(fp); fp = 0x0;
-
-#if FAC_DEBUG
-	/* If a test factor was given, make sure we found at least one factor: */
-	if(k_targ > 0)
-	{
-		ASSERT(HERE, nfactor > 0,"k_targ > 0 but failed to find at least one factor");
-	}
-#endif
-
-	// If in double-Mersenne deep-sieve mode, print sorted list of k-to-do:
-	if((MODULUS_TYPE == MODULUS_TYPE_MERSMERS) && (findex > 10000)) {
-		if(ndeep > 0) {
-			qsort(kdeep, ndeep, sizeof(uint32), ncmp_uint32);
-			printf("MM(%u): Do deep sieving for k = ",findex);
-			for(i = 0; i < ndeep-1; i++) {
-				printf("%u,",kdeep[i]);
-			}
-			printf("%u\n",kdeep[i]);
-		}
-	}
-
-	// Free the allocated memory:
-	free((void *)factor_ptmp);
-	free((void *)p);
-	free((void *)kdeep);
-	free((void *)bit_map);
-	free((void *)bit_map2);
-	free((void *)bit_atlas);
-	free((void *)pdiff);
-	free((void *)startval);
-	free((void *)pinv);
-	free((void *)two_p);
-	free((void *)p2NC);
-	free((void *)q);
-	free((void *)q2);
-	free((void *)u64_arr);
-#ifdef MULTITHREAD
-	free((void *)tdat); tdat = 0x0;
-#endif
-
-	return(0);
-
-	/* Only reachable from argc/argv section: */
-#ifdef FACTOR_STANDALONE
-MFACTOR_HELP:
-	printf(" Mfactor command line options ...\n");
-	printf(" <CR>        Default mode: prompts for manual keyboard entry\n");
-	printf("\n");
-	printf(" -h          Prints this help file and exits\n");
-	printf("\n");
-	printf(" -m {num}    Trial-factor the Mersenne number M(num) = 2^num - 1.\n");
-	printf("\n");
-	printf(" -mm {num}   Trial-factor the double-Mersenne number M(M(num)) = 2^(2^num) - 1.\n");
-	printf("\n");
-	printf(" -f {num}    Trial-factor the Fermat number F(num) = 2^(2^num) + 1.\n");
-	printf("\n");
-	printf(" -file {string}    Name of checkpoint file (needed for restart-from-interrupt)\n");
-	printf("\n");
-  #ifdef P1WORD
-	printf(" -bmin {num} Log2(minimum factor to try), in floating double form.\n");
-	printf(" If > 10^9 its whole-number part is taken as the kmin value instead.\n");
-	printf("\n");
-	printf(" -bmax {num} Log2(maximum factor to try), in floating double form.\n");
-	printf(" If > 10^9 its whole-number part is taken as the kmax value instead.\n");
-	printf("\n");
-  #endif
-	printf(" -kmin {num}  Lowest factor K value to be tried in each pass ( > 0).\n");
-	printf("\n");
-	printf(" -kmax {num} Highest factor K value to be tried in each pass ( < 2^64).\n");
-	printf("\n");
-	printf(" -passmin {num}  Current factoring pass (0-%d).\n",TF_PASSES-1);
-	printf("\n");
-	printf(" -passmax {num}  Maximum pass for the run (0-%d).\n",TF_PASSES-1);
-  #ifdef MULTITHREAD
-	printf("\n");
-	printf(" -nthread {num}  Number of threads to use (1-%u). Each pass gets done by\n\t\t a separate thread; if #passes > #threads, some threads will do multiple passes.\n",TF_PASSES);
-  #endif
-	/* If we reached here other than via explicit invocation of the help menu, assert: */
-	if(!STREQ(stFlag, "-h"))
-		ASSERT(HERE, 0,"Mfactor: Unrecognized command-line option!");
-	return(0);
-#endif
-}
-
-/******************/
-
-#ifndef USE_GPU
-
-  #ifndef MULTITHREAD
-
-	uint64 PerPass_tfSieve(
-		const uint64 interval_lo, const uint64 interval_hi,
-		const double fbits_in_2p,
-		const uint32 nclear,
-		const uint32 sieve_len,
-		const uint32 p_last_small,	//largest odd prime appearing in the product; that is, the (nclear)th odd prime.
-		const uint32 nprime,	// #sieving primes (counting from 3)
-		const uint32 MAX_SIEVING_PRIME,
-		const uint8 *pdiff,
-			  uint32*startval,
-			  uint64*k_to_try,
-			  uint64*factor_k,	// List of found factors for each p gets updated (we hope) within
-			  uint32*nfactor,	// Here the '*' is to denote a writeable scalar
-		const uint32 findex,
-		const uint64*p, const uint64*two_p, const uint32 lenP, const uint32 lenQ, const uint32 incr,
-		uint32*kdeep, uint32*ndeep, const uint64 countmask, const uint32 CMASKBITS,
-		uint64*q, uint64*q2, uint64*u64_arr,
-		const uint64 kstart,
-		const uint64*bit_map, uint64*bit_map2,
-		double *tdiff,
-		const int MODULUS_TYPE,
-		const char*VERSION,
-		const char*OFILE
-	) {
-		int    tid = 0;
-  #else
-
-	void*
-	PerPass_tfSieve(void*thread_arg)	// Thread-arg pointer *must* be cast to void and specialized inside the function
-	{
-		struct fac_thread_data_t* targ = thread_arg;	// Ref'd as task->data in threadpool.c::worker_thr_routine() caller
-		int    tid          = targ->tid;	// Thread ID (Use the pool-thread ID here rather than the task ID ... there are typically many more tasks than pool threads)
-		uint32 pass         = targ->pass;	// Which factoring pass is the thread doing?
-		uint64 interval_lo  = targ->interval_lo;
-		uint64 interval_hi  = targ->interval_hi;
-		double fbits_in_2p  = targ->fbits_in_2p;
-	#ifdef USE_AVX512
-		uint32 *psmall = targ->psmall;
-	#endif
-		uint32 nclear       = targ->nclear;
-		uint32 sieve_len    = targ->sieve_len;
-		uint32 p_last_small = targ->p_last_small;	//largest odd prime appearing in the product; that is = targ->; the (nclear)th odd prime.
-		uint32 nprime       = targ->nprime;			// #sieving primes (counting from 3)
-		uint32 MAX_SIEVING_PRIME = targ->MAX_SIEVING_PRIME;
-		uint8 *pdiff        = targ->pdiff;
-		uint32*startval     = targ->startval;
-		uint64*k_to_try     = targ->k_to_try;
-		uint64*factor_k     = targ->factor_k;		// List of found factors for each p gets updated (we hope) within
-		uint32*nfactor      = targ->nfactor;		// Here the '*' is to denote a writeable scalar
-		uint32 findex       = targ->findex;
-		uint64*p            = targ->p;
-		uint64*two_p        = targ->two_p;
-		uint64*q            = targ->q;
-		uint64*q2           = targ->q2;
-		uint64*u64_arr      = targ->u64_arr;
-		uint32 lenP         = targ->lenP;
-		uint32 lenQ         = targ->lenQ;
-		uint32*kdeep        = targ->kdeep;
-		uint32*ndeep        = targ->ndeep;
-		uint64 countmask    = targ->countmask;
-		uint32 CMASKBITS    = targ->CMASKBITS;
-		uint32 incr         = targ->incr;
-		uint64 kstart       = targ->kstart;
-		uint64*bit_map      = targ->bit_map ;
-		uint64*bit_map2     = targ->bit_map2;
-		double *tdiff       = targ->tdiff;
-		int    MODULUS_TYPE = targ->MODULUS_TYPE;
-		const char *VERSION = targ->VERSION;
-		const char *OFILE   = targ->OFILE;
-  #endif
-	#ifdef MULTITHREAD
-		// Proper init (as opposed to no-init) key to avoiding deadlock here.
-		// Started with 2 separate _checkpoint and _foundfactor mutexes here, but since both code sections
-		// in question call some of the same mi64 functions, replaced with 'one mutex to rule them all' model:
-		pthread_mutex_t mutex_mi64        = PTHREAD_MUTEX_INITIALIZER,
-						mutex_updatecount = PTHREAD_MUTEX_INITIALIZER;	// No mi64 calls here.
-	#endif
-		FILE *fp = 0x0;
-	#if TF_CLASSES == 60
-		const uint32 TRYQM1 = TRYQ-1, bit_len = (sieve_len << TF_CLSHIFT)/TF_CLASSES; 	// 255255*64  /  60 = 272272: Number of bits in each of the  16 mod-  60 sievelets
-	#else	// 4620 classes:
-		const uint32 TRYQM1 = TRYQ-1, bit_len = (sieve_len << TF_CLSHIFT)/TF_CLASSES;	// 255255*64^2/4620 = 226304: Number of bits in each of the 960 mod-4620 sievelets
-	#endif
-		uint32 bit,bit_hi,curr_p,i,ihi,idx,j,l,m;
-		uint64 count = 0, itmp64, k = kstart, sweep, res;
-		int32 q_index = -1;
-		double fbits_in_k = 0, fbits_in_q = 0;
-	#ifdef P1WORD
-		double twop_float = 0,fqlo,fqhi;
-		uint128 p128,q128,t128;	// Despite the naming, these are needed for nominal 1-word runs with moduli exceeding 64 bits
-	#endif
-	#ifdef P3WORD
-		uint192 p192,q192,t192;
-	  #ifdef USE_FLOAT
-		uint256 x256;	// Needed to hold result of twopmodq200_8WORD_DOUBLE
-	  #endif
-	#endif
-	#ifdef P4WORD
-		uint256 p256,q256,t256;
-	#endif
-		char cbuf[STR_MAX_LEN], cbuf2[STR_MAX_LEN];
-		clock_t clock1, clock2;
-
-		if(interval_lo == interval_hi) {
-			printf("Thread %u immediate-return (no-op)\n",tid);
-			return 0x0;
-		}
 
 	#ifdef MULTITHREAD
 	//	fprintf(stderr, "In PerPass_tfSieve task_id = %u, worker thread id %u\n", tid, ((struct thread_init *)targ)->thread_num);
@@ -2930,7 +2956,7 @@ MFACTOR_HELP:
 	#endif
 		clock1 = clock();	// In || mode, only the 0-thread accumulates runtime, but do this for all threads to avoid uninit warnings
 
-	  #if FAC_DEBUG
+	  #ifdef FAC_DEBUG
 		// compute qstart = 2.kstart.p + 1:
 		ASSERT(HERE, 0 == mi64_mul_scalar(two_p,k,q,lenQ), "2.k.p overflows!");
 		q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
@@ -2949,12 +2975,12 @@ MFACTOR_HELP:
 #ifdef MULTITHREAD
 //if(tid == 0)
 #endif
-//	printf("k0 = %llu, sweep %llu, count %llu: k0-3 = %llu,%llu,%llu,%llu\n",kstart,sweep,count,k_to_try[0],k_to_try[1],k_to_try[2],k_to_try[3]);
+//	printf("sweep %llu: k0 = %llu, count %llu: k0-3 = %llu,%llu,%llu,%llu\n",sweep,kstart,count,k_to_try[0],k_to_try[1],k_to_try[2],k_to_try[3]);
 
 			/* Accumulate the cycle count every so often to avoid problems with integer overflow
 			of the clock() result, if clock_t happens to be a 32-bit int type on the host platform:
 			*/
-			if((tid == 0) && (sweep & 127) == 0) {	// Only the lowest-index thread does screen status-update prints
+			if((tid == 0) && sweep && (sweep & 127) == 0) {	// Only the lowest-index thread does screen status-update prints
 			#ifdef FACTOR_STANDALONE
 				printf(".");	fflush(stdout);
 			#endif
@@ -2967,7 +2993,7 @@ MFACTOR_HELP:
 		  #endif
 			memcpy(bit_map2, bit_map, (ihi<<3));	// Load fresh copy of master sievelet
 
-		#if FAC_DEBUG	// If enable this, make sure to also uncomment "# survived" complement below!
+		#ifdef FAC_DEBUG	// If enable this, make sure to also uncomment "# survived" complement below!
 			m = 0;	// accum popc
 			for(i = 0; i < ihi; i++) {
 				m += popcount64(bit_map2[i]);
@@ -2975,7 +3001,7 @@ MFACTOR_HELP:
 		  #ifdef MULTITHREAD
 			if(tid == 0)
 		  #endif
-			printf("%u ones bits of %u [%6.2f%%] in bit_map set.\n",m,bit_len,100.*(float)m/bit_len);
+			if(sweep == 0) printf("%u ones bits of %u [%6.2f%%] in bit_map set.\n",m,bit_len,100.*(float)m/bit_len);
 		#endif
 
 			// To track lg(q) = lg(2.k.p+1), use approximation q ~= 2.k.p, thus lg(q) ~= lg(2.p) + lg(k).
@@ -3111,20 +3137,23 @@ MFACTOR_HELP:
 
 		#else	/******** Non-SIMD (pre-AVX512) **********/
 
+		  #ifdef USE_NCQ
+			#warning Using 4-way bit-clear in PerPass_tfSieve.
 			uint32 cq[4], ncq = 0;	// mnemonic: ncq = 'Number in to-be-Cleared Queue', cq[] stores said queue
+		  #endif
 			curr_p = p_last_small;
 			for(m = nclear; m < nprime; m++)
 			{
 				curr_p += (pdiff[m] << 1);	//	if(current_prime == 107) printf("   prime %8d has offset = %8d\n", curr_p, startval[m]);	//	if(pass == 4 && startval[m] < 100) printf("1: Found a multiple of %u in bit %u\n", curr_p,startval[m]);
 				l = startval[m];
 				// Special-handling code for p == curr_p case:
-				if(l == 0xffffffff) {	//	printf("hit p == curr_p case!\n");
-					continue;
-				}
+			//	if(l == 0xffffffff) {	//	printf("hit p == curr_p case!\n");
+			//		continue;
+			//	}
 				// Need to account for the fact that primes greater than the # of bits in the sieve
 				// may not hit *any* sieve bit on the current pass through the sieve:
 				if(l >= bit_len) {
-					startval[m] -= bit_len;
+					startval[m] -= bit_len & -(l != 0xffffffff);	// Try combining regular and (p == curr_p) cases
 				} else {
 					while(l < bit_len) {
 					#ifdef USE_NCQ
@@ -3137,8 +3166,9 @@ MFACTOR_HELP:
 						bit_clr32((uint32 *)bit_map2,l);
 					#endif
 					#if DBG_SIEVE
-						if(k_targ && l == (i64_targ*64 + bit_targ))
+						if(k_targ && l == (i64_targ*64 + bit_targ)) {
 							fprintf(stderr,"Critical bit being cleared by prime %u, with offset %u\n", curr_p, startval[m]);	ASSERT(HERE, 0,"0");
+						}
 					#endif
 						l += curr_p;
 					}
@@ -3162,7 +3192,7 @@ MFACTOR_HELP:
 			ihi = (sieve_len*64)/TF_CLASSES;	// 64*sieve_len divisible by TF_CLASSES, no need for padding
 		  #endif
 			ASSERT(HERE, ihi == ((bit_len+63)>>6), "Ihi value-check failed!");
-		#if FAC_DEBUG
+		#ifdef FAC_DEBUG
 			m = 0;	// accum popc
 			for(i = 0; i < ihi; i++) {
 				m += popcount64(bit_map2[i]);
@@ -3186,7 +3216,7 @@ MFACTOR_HELP:
 				}
 				for(bit = 0; bit < bit_hi; bit++)	// BIT loops over bits in each sievelet word
 				{
-				#if FAC_DEBUG
+				#ifdef FAC_DEBUG
 					/* If a known factor is specified, here it is in the bitmap: */
 					if(k == k_targ)
 					{
@@ -3213,6 +3243,7 @@ MFACTOR_HELP:
 						*/
 						if((count & countmask) == 0)
 						{
+							fprintf(stderr,"[k = %llu]",k);
 						#ifdef MULTITHREAD
 							pthread_mutex_lock(&mutex_mi64);
 						//	printf("Count = %u * 2^%u checkpoint: Thread %u locked mutex_mi64 ... ",(uint32)(count >> CMASKBITS),CMASKBITS,tid);
@@ -3220,7 +3251,7 @@ MFACTOR_HELP:
 							fp = mlucas_fopen(OFILE,"a");
 							ASSERT(HERE, 0 == mi64_mul_scalar(two_p,k,q,lenQ), "2.k.p overflows!");
 							q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
-						#if FAC_DEBUG
+						#ifdef FAC_DEBUG
 							sprintf(cbuf, " Count = %u * 2^%u: k = %llu, Current q = %s\n",
 								(uint32)(count >> CMASKBITS),CMASKBITS,k,&cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)]);
 							fprintf(stderr, "%s", cbuf);
@@ -3345,8 +3376,6 @@ MFACTOR_HELP:
 								*/
 								}
 							} else {
-//if(k == 233112)
-//printf("Here! k = %llu\n",k);
 								ASSERT(HERE, 0 == mi64_mul_scalar(two_p,k,q,lenQ), "2.k.p overflows!");
 								q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
 								res = mi64_twopmodq(p, lenP, k, q, lenQ, u64_arr);
@@ -3379,12 +3408,12 @@ MFACTOR_HELP:
 
 						  #elif(defined(P2WORD))
 
-						   #if(  defined(USE_128x96) && USE_128x96 == 1)
+						   #if USE_128x96 == 1
 							/* Use strictly  96-bit routines: */
 							if(p[1] == 0 && (q[1] >> 32) == 0)
 								res = twopmodq96	(p[0],k);
 							else
-						   #elif(defined(USE_128x96) && USE_128x96 == 2)
+						   #elif USE_128x96 == 2
 							/* Use hybrid 128_96-bit routines: */
 							if(p[1] == 0 && (q[1] >> 32) == 0)
 								res = twopmodq128_96(p[0],k);
@@ -3419,10 +3448,10 @@ MFACTOR_HELP:
 								else
 								{
 									ASSERT(HERE, fbits_in_q < 96, "fbits_in_q exceeds allowable limit of 96!");
-								  #if(  defined(USE_128x96) && USE_128x96 == 1)
+								  #if USE_128x96 == 1
 									/* Use strictly  96-bit routines: */
 									res = twopmodq96	(p[0],k);
-								  #elif(defined(USE_128x96) && USE_128x96 == 2)
+								  #elif USE_128x96 == 2
 									/* Use hybrid 128_96-bit routines: */
 									res = twopmodq128_96(p[0],k);
 								  #else
@@ -3477,12 +3506,12 @@ MFACTOR_HELP:
 						  #elif(defined(P2WORD))
 
 							/* Itanium seems to perform poorly with 96-bit variant: */
-						   #if(  defined(USE_128x96) && USE_128x96 == 1)
+						   #if USE_128x96 == 1
 							/* Use strictly  96-bit routines: */
 							if(p[1] == 0 && fbits_in_q < 96)
 								res = twopmodq96_q4     (p[0],k_to_try[0],k_to_try[1],k_to_try[2],k_to_try[3], 0,tid);
 							else
-						   #elif(defined(USE_128x96) && USE_128x96 == 2)
+						   #elif USE_128x96 == 2
 							/* Use hybrid 128_96-bit routines: */
 							if(p[1] == 0 && fbits_in_q < 96)
 								res = twopmodq128_96_q4 (p[0],k_to_try[0],k_to_try[1],k_to_try[2],k_to_try[3]);
@@ -3523,10 +3552,10 @@ MFACTOR_HELP:
 							  #endif
 								else {
 									ASSERT(HERE, fbits_in_q < 96, "fbits_in_q exceeds allowable limit of 96!");
-								#if(defined(USE_128x96) && USE_128x96 == 1)
+								#if USE_128x96 == 1
 									/* Use strictly  96-bit routines: */
 									res = twopmodq96_q4		(p[0],k_to_try[0],k_to_try[1],k_to_try[2],k_to_try[3], 0,tid);
-								#elif(!defined(USE_128x96) || USE_128x96 == 2)
+								#elif USE_128x96 == 2
 									/* Use hybrid 128_96-bit routines: */
 									res = twopmodq128_96_q4	(p[0],k_to_try[0],k_to_try[1],k_to_try[2],k_to_try[3]);
 								#else
@@ -3552,12 +3581,12 @@ MFACTOR_HELP:
 						  #elif(defined(P2WORD))
 
 							/* Itanium seems to perform poorly with 96-bit variant: */
-						   #if(  defined(USE_128x96) && USE_128x96 == 1)
+						   #if USE_128x96 == 1
 							/* Use strictly  96-bit routines: */
 							if(p[1] == 0 && fbits_in_q < 96)
 								res = twopmodq96_q8     (p[0],k_to_try[0],k_to_try[1],k_to_try[2],k_to_try[3],k_to_try[4],k_to_try[5],k_to_try[6],k_to_try[7], 0,tid);
 							else
-						   #elif(defined(USE_128x96) && USE_128x96 == 2)
+						   #elif USE_128x96 == 2
 							/* Use hybrid 128_96-bit routines: */
 							if(p[1] == 0 && fbits_in_q < 96)
 								res = twopmodq128_96_q8 (p[0],k_to_try[0],k_to_try[1],k_to_try[2],k_to_try[3],k_to_try[4],k_to_try[5],k_to_try[6],k_to_try[7]);
@@ -3584,10 +3613,10 @@ MFACTOR_HELP:
 							  #endif
 								else {
 									ASSERT(HERE, fbits_in_q < 96, "fbits_in_q exceeds allowable limit of 96!");
-								#if(defined(USE_128x96) && USE_128x96 == 1)
+								#if USE_128x96 == 1
 									/* Use strictly  96-bit routines: */
 									res = twopmodq96_q8		(p[0],k_to_try[0],k_to_try[1],k_to_try[2],k_to_try[3],k_to_try[4],k_to_try[5],k_to_try[6],k_to_try[7], 0,tid);
-								#elif(!defined(USE_128x96) || USE_128x96 == 2)
+								#elif USE_128x96 == 2
 									/* Use hybrid 128_96-bit routines: */
 									res = twopmodq128_96_q8	(p[0],k_to_try[0],k_to_try[1],k_to_try[2],k_to_try[3],k_to_try[4],k_to_try[5],k_to_try[6],k_to_try[7]);
 								#else
@@ -3660,7 +3689,7 @@ MFACTOR_HELP:
 									//	printf("q = %s\n", &cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)]);
 									//	printf("res = %s\n", &cbuf[convert_mi64_base10_char(cbuf, q2, lenQ, 0)]);
 									} else {
-									  #if FAC_DEBUG
+									  #ifdef FAC_DEBUG
 										printf("Factor found: q = %s. Checking primality...\n", &cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)]);
 									  #endif
 										/* Do a quick base-3 compositeness check (base-2 would be much faster due to
@@ -3674,7 +3703,7 @@ MFACTOR_HELP:
 										{
 											factor_k[(*nfactor)++] = k_to_try[l];
 											sprintf(cbuf,"\n\tFactor with k = %llu. This factor is a probable prime.\n", k_to_try[l]);
-										#if FAC_DEBUG
+										#ifdef FAC_DEBUG
 											if(TRYQM1 > 1)
 												printf("factor was number %u of 0-%u in current batch.\n", l, TRYQM1);
 										#endif
@@ -3730,7 +3759,7 @@ MFACTOR_HELP:
 			{
 				for(l = 0; l <= (uint32)q_index; l++)
 				{
-				#if FAC_DEBUG
+				#ifdef FAC_DEBUG
 					ASSERT(HERE, 0 == mi64_mul_scalar(two_p,k_to_try[l],q,lenQ), "2.k.p overflows!");
 					q[0] += 1;	// q = 2.k.p + 1; No need to check for carry since 2.k.p even
 					printf("A: Trying q = %s\n", &cbuf[convert_mi64_base10_char(cbuf, q, lenQ, 0)]);
@@ -3793,7 +3822,7 @@ MFACTOR_HELP:
 							fprintf(fp,"%s", cbuf);
 							fclose(fp); fp = 0x0;
 
-						#if FAC_DEBUG
+						#ifdef FAC_DEBUG
 							printf("factor was number %u of 0-%u in current batch.\n", l, TRYQM1);
 						#endif
 							factor_k[(*nfactor)++] = k;
@@ -3810,122 +3839,89 @@ MFACTOR_HELP:
 			}	/* endif(q_index >= 0) */
 		#endif	/* end #if(TRYQ > 1) */
 
-	/******************* MOVE CHKPT STUFF TO FACTOR-MAIN! ***********************/
-		#if 0//(!FAC_DEBUG)
+	#warning Need to move checkpointing stuff to factor-main!
+	#if 0
+		#if (!FAC_DEBUG)
 			/*
-			Every 1024th pass, write the checkpoint file, with format as described previously.
+			Every 1024th pass through the small-primes sieve, and also following the final pass
+			through the sieve, write the checkpoint file, with format as described previously.
+
+			Since we expect that multiple jobs and/or threads may be working on the same exponent,
+			we make such checkpoint-updates atomic as follows:
+
+			1. job/thread X acquires file lock and opens checkpoint file <filename> for reading, if it exists.
+				No other job/thread may acquire file lock until X releases it;
+			2. X also opens a 2nd, temporary, file <filename.tmp> for writing, beginning with line 1: exponent (= pstring)
+				and line 2, Value of TF_PASSES in the build (16 or 960)
+			3. If there was an existing savefile found in step [1], X copies its contents
+				to the .tmp file in [2] line-by-line, only updating the single "Pass *: [max k reached]" entry
+				corresponding to the current pass whose progress is being saved via checkpointing;
+			4. X closes both files, renames <filename.tmp> to <filename>, thus overwriting the now-obsolete
+				version of the latter;
+			5. X releases the file lock and resumes processing factor candidates.
 			*/
-			if(((sweep + 1) %(1024/lenQ + 1)) == 0 || ((sweep + 1) == interval_hi))
+			if(1) {//((sweep + 1) %(1024/lenQ + 1)) == 0 || ((sweep + 1) == interval_hi))
 			{
 				/* TF restart files are in HRF, not binary: */
-				fp = mlucas_fopen(RESTARTFILE, "w");
+				fp = mlucas_fopen(RESTARTFILE, "r");
+				fq = mlucas_fopen(    TMPFILE, "w");
 				if(!fp) {
-					fprintf(stderr,"INFO: Unable to open factoring savefile %s for writing...quitting.\n",RESTARTFILE);
-				#ifndef FACTOR_STANDALONE
-					fp = mlucas_fopen(STATFILE,"a");
-					fprintf(	fp,"INFO: Unable to open factoring savefile %s for writing...quitting.\n",RESTARTFILE);
-					fclose(fp); fp = 0x0;
-				#endif
-					ASSERT(HERE, 0,"0");
-				} else {
-					curr_line = 0;
-
-					/* pstring: */
-					++curr_line;
-					itmp = fprintf(fp,"%s\n",pstring);
-					if(itmp <= 0)
-					{
-						fprintf(stderr,"ERROR: unable to write Line %d (current exponent) of factoring restart file %s!\n", curr_line, RESTARTFILE);
-						ASSERT(HERE, 0,"0");
-					}
-
-					/* bmin: */
-					++curr_line;
-					itmp = fprintf(fp, "%lf\n", bmin);
-					if(itmp <= 0)
-					{
-						fprintf(stderr,"ERROR: unable to write Line %d (bmin) of factoring restart file %s!\n", curr_line, RESTARTFILE);
-						ASSERT(HERE, 0,"0");
-					}
-
-					/* bmax: */
-					++curr_line;
-					itmp = fprintf(fp, "%lf\n", bmax);
-					if(itmp <= 0)
-					{
-						fprintf(stderr,"ERROR: unable to write Line %d (bmax) of factoring restart file %s!\n", curr_line, RESTARTFILE);
-						ASSERT(HERE, 0,"0");
-					}
-
-					/* KMin: */
-					++curr_line;
-					itmp = fprintf(fp,"KMin = %s\n", &char_buf0[convert_uint64_base10_char (char_buf0, kmin)]);
-					if(itmp <= 0)
-					{
-						fprintf(stderr,"ERROR: unable to write Line %d (KMin) of factoring restart file %s!\n", curr_line, RESTARTFILE);
-						ASSERT(HERE, 0,"0");
-					}
-
-					/* KNow: */
-					++curr_line;
-					/* Calculate the current k-value... */
-					k = (uint64)incr + (sweep+1)*(sieve_len<<6);
-					itmp = fprintf(fp,"KNow = %s\n", &char_buf0[convert_uint64_base10_char (char_buf0, k)]);
-					if(itmp <= 0)
-					{
-						fprintf(stderr,"ERROR: unable to write Line %d (KNow) of factoring restart file %s!\n", curr_line, RESTARTFILE);
-						ASSERT(HERE, 0,"0");
-					}
-
-					/* KMax: */
-					++curr_line;
-					itmp = fprintf(fp,"KMax = %s\n", &char_buf0[convert_uint64_base10_char (char_buf0, kmax)]);
-					if(itmp <= 0)
-					{
-						fprintf(stderr,"ERROR: unable to write Line %d (KMax) of factoring restart file %s!\n", curr_line, RESTARTFILE);
-						ASSERT(HERE, 0,"0");
-					}
-
-					/* PassMin: */
-					++curr_line;
-					itmp = fprintf(fp,"PassMin = %u\n", passmin);
-					if(itmp <= 0)
-					{
-						fprintf(stderr,"ERROR: unable to write Line %d (PassMin) of factoring restart file %s!\n", curr_line, RESTARTFILE);
-						ASSERT(HERE, 0,"0");
-					}
-
-					/* PassNow: */
-					++curr_line;
-					itmp = fprintf(fp,"PassNow = %u\n", pass   );
-					if(itmp <= 0)
-					{
-						fprintf(stderr,"ERROR: unable to write Line %d (PassNow) of factoring restart file %s!\n", curr_line, RESTARTFILE);
-						ASSERT(HERE, 0,"0");
-					}
-
-					/* PassMax: */
-					++curr_line;
-					itmp = fprintf(fp,"PassMax = %u\n", passmax);
-					if(itmp <= 0)
-					{
-						fprintf(stderr,"ERROR: unable to write Line %d (PassMax) of factoring restart file %s!\n", curr_line, RESTARTFILE);
-						ASSERT(HERE, 0,"0");
-					}
-
-					/* Number of q's tried: */
-					++curr_line;
-					itmp = fprintf(fp,"#Q tried = %s\n", &char_buf0[convert_uint64_base10_char (char_buf0, count)]);
-					if(itmp <= 0)
-					{
-						fprintf(stderr,"ERROR: unable to write Line %d (#Q tried) of factoring restart file %s!\n", curr_line, RESTARTFILE);
-						ASSERT(HERE, 0,"0");
-					}
-
-					fclose(fp); fp = 0x0;
+					fprintf(stderr,"INFO: factoring savefile %s not found - will create.\n",RESTARTFILE);
+				} else {	// If file exists, it should have the proper first 2 lines:
+					itmp = fscanf(fp,"%s\n",cstr); if(itmp <= 0 || !STREQ(cstr,pstring)) ASSERT(HERE,0,"Line 1 entry found in factoring savefile does not match exponent of run.");
+					itmp = fscanf(fp,"%u\n",&i  ); if(itmp <= 0 || i != TF_PASSES      ) ASSERT(HERE,0,"Line 2 entry found in factoring savefile does not match TF_PASSES value of build.");
 				}
-			}	/* Successfully wrote restart file. */
+				if(!fq) {
+					fprintf(stderr,"INFO: Unable to open factoring savefile %s for reading and/or %s.tmp for writing...quitting.\n",RESTARTFILE,RESTARTFILE);
+					ASSERT(HERE, 0,"0");
+				}
+
+				curr_line = 0;
+				/* pstring: */
+				++curr_line;
+				itmp = fprintf(fq,"%s\n",pstring);
+				if(itmp <= 0) {
+					fprintf(stderr,"ERROR: unable to write Line %d (current exponent) to %s.\n", curr_line, TMPFILE);
+					ASSERT(HERE, 0,"0");
+				}
+				/* TF_PASSES: */
+				++curr_line;
+				itmp = fprintf(fq,"%u\n",TF_PASSES);
+				if(itmp <= 0) {
+					fprintf(stderr,"ERROR: unable to write Line %d (TF_PASSES of build) to %s!\n", curr_line, TMPFILE);
+					ASSERT(HERE, 0,"0");
+				}
+
+				// Now copy any remaining entries in existing file, modifying only the one corr. to the current pass, if it exists:
+				if(fp) {
+					while(fgets(cstr,STR_MAX_LEN,fp)) {
+						if((char_addr = strstr(cstr,"Pass ")) != 0) {
+							itmp = sreadf(char_addr,"%u",i);
+							if(itmp <= 0) {
+								fprintf(stderr,"ERROR: unable to read [Pass *: k] entry: offending line = [%s]\n",cstr); ASSERT(HERE, 0,"0");
+							}
+							if(i == pass) {	// Is the pass index the one we are updating? If yes, update the k-value
+								ASSERT(HERE, !found_pass, "Multiple current-pass entry found in savefile!");
+								found_pass = TRUE;
+								// Calculate the current k-value
+								k = (uint64)incr + (sweep+1)*(sieve_len<<6);
+								fprintf(fq,"Pass %u: %llu\n",pass,k);
+							} else			// Otherwise just copy as-is
+								fputs(cstr,STR_MAX_LEN,fq);
+						} else {	// Just copy as-is
+							fputs(cstr,STR_MAX_LEN,fq);
+						}
+					}
+				}
+				if(fp) { fclose(fp); fp = 0x0; }
+				fclose(fq); fq = 0x0;
+				if(rename(TMPFILE,RESTARTFILE)) {
+					sprintf(cstr,"ERROR: unable to rename %s file ==> %s.\n",TMPFILE,RESTARTFILE);
+					ASSERT(HERE,0,cstr);
+				}
+			}	// Successfully updated restart file.
 		#endif /* #if !FAC_DEBUG */
+	#endif	// #if 0 [restartfile stuff]
 	#if DBG_SIEVE
 		QUIT:
 	#endif
@@ -4095,7 +4091,7 @@ uint32 CHECK_PKMOD4620(uint64 p, uint64 k, uint32*incr)
 }
 
 // Computes 2*p (mod curr_p):
-uint32 twop_mod_smallp(const int MODULUS_TYPE, const uint64*two_p, const uint32 findex, const uint32 lenP, const uint32 curr_p)
+uint32 twop_mod_smallp(const int MODULUS_TYPE, const uint64*two_p, const uint32 findex, const uint32 len2P, const uint32 curr_p)
 {
 	uint32 r;
 #ifdef P1WORD
@@ -4110,9 +4106,9 @@ uint32 twop_mod_smallp(const int MODULUS_TYPE, const uint64*two_p, const uint32 
 		r += (-((int32)r < 0)) & curr_p;
 		r += r;
 		if(r >= curr_p) { r -= curr_p; }
-	//	ASSERT(HERE, r == mi64_div_y32(two_p, curr_p, 0x0, lenP), "Fast 2p (mod q) for MMp fails!");
+	//	ASSERT(HERE, r == mi64_div_y32(two_p, curr_p, 0x0, len2P), "Fast 2p (mod q) for MMp fails!");
 	} else {
-		r = mi64_div_y32(two_p, curr_p, 0x0, lenP+1);	// 2p may have  more word than p
+		r = mi64_div_y32(two_p, curr_p, 0x0, len2P);
 	}
 #endif
 	return r;
@@ -4123,7 +4119,7 @@ void	get_startval(
 	const uint64 p,		// Only need LSW of this
 	const uint32 findex,// Double-Mersenne and Fermat cases
 	const uint64*two_p,	// Here, need the full multiword array (of which use just LSW if P!WORD def'd)
-	const uint32 lenP,	// Manyword case
+	const uint32 lenQ,	// Manyword case ... note we supply max #words needed to hold factor candidates here, i.e. two_p occupies no more than that
 	const uint32 bit_len,
 	const uint32 interval_lo, const uint32 incr,
 	const uint32 nclear, const uint32 nprime, const uint32 p_last_small,
@@ -4133,22 +4129,23 @@ void	get_startval(
 {
 	uint32 i, m, curr_p;
 	uint64 dstartval;
-	/* startbit k (occurrence of first multiple of prime curr_p in first pass
-	through the relevant sievelet) is defined by
-
+	/* startbit k (occurrence of first multiple of prime curr_p in first pass through the relevant sievelet) is defined by
 		(offset[curr_ p] + k*prime) (mod TF_CLASSES) = incr(pass)-1, k = 0, ... ,TF_CLASSES-1 .
 	*/
 	curr_p = p_last_small;
 	for(m = nclear; m < nprime; m++)
 	{
-		curr_p += (pdiff[m] << 1);
-		// Special-handling code for p == curr_p case - this is needed to prevent 0-input assertion in below modinv computation:
-		if(p == curr_p) {
+		curr_p += (pdiff[m] << 1);	ASSERT(HERE, pprimeF(curr_p,2), "Alleged curr_p is Composite!");
+		uint32 twop_mod_currp = twop_mod_smallp(MODULUS_TYPE, two_p, findex, lenQ, curr_p);	// This handles both the 1-word and multiword-exponent cases
+		// Special-handling code for p == curr_p case - this is needed to prevent 0-input  assertion in the modinv computation below.
+		// Dec 2019: Replaced (p == curr_p) with if() clause which also catches curr_p-divides-exponent for composite exponents:
+		if(!twop_mod_currp) {
 			startval[m] = 0xffffffff;
 			continue;
 		}
 	/*
 		Given a pass#, get inc = incr[pass] [3452 here] and seek an index x [604 here] such that
+
 		1 + 2*p*( x*TF_CLASSES + inc ) is divisible by the current small-prime, curr_p.
 		In other words, we need to find the smallest nonnegative integer x such that
 
@@ -4162,8 +4159,7 @@ void	get_startval(
 		for nonnegative integer x.
 		If we first find BI := inverse of the rhs constant B (mod curr_p), we multiply both sides by that to get
 		(A*BI)*x == 1 (mod curr_p), and then we can simply use a second eGCD to find x = inverse of (A*BI) (mod curr_p):
-	*/										// 2p may have 1 more word than p: vvvv
-		uint32 twop_mod_currp = twop_mod_smallp(MODULUS_TYPE, two_p, findex, lenP+1, curr_p);	// This handles both the 1-word and multiword-exponent cases
+	*/
 		uint32 A = ((uint64)twop_mod_currp * (uint64)TF_CLASSES) % curr_p;
 		uint32 B = ((uint64)twop_mod_currp * (uint64)incr + 1) % curr_p;
 		if(B == 0) {	// Must guard against eGCD with identical args below
@@ -4237,7 +4233,7 @@ void	get_startval(
 			else
 				startval[m] = dstartval;
 
-		#if FAC_DEBUG
+		#ifdef FAC_DEBUG
 			ASSERT(HERE, startval     [m] < curr_p, "factor.c : startval     [m] < curr_p");
 		  #if DBG_SIEVE
 			startval_incr[m] = i*curr_p - bit_len;
@@ -4250,7 +4246,7 @@ void	get_startval(
 
 uint64 given_b_get_k(double bits, const uint64 two_p[], uint32 len)
 {
-	uint32 i,l;
+	int i,l;
 	uint64 itmp64, k;
 	double fqlo, twop_float;
 #ifdef P1WORD
@@ -4263,7 +4259,8 @@ uint64 given_b_get_k(double bits, const uint64 two_p[], uint32 len)
 	// while avoiding possible overflow of a double-exponent field. (I.e. can't directly compute
 	// pow(2.0, bits) because b may exceed __DBL_MAX_EXP__ = 1024).
 	i = mi64_extract_lead64(two_p, len, &itmp64);	// i has bitlength of 2*p; itmp64 has leading 64 bits
-	l = i-64;	// Number of low-order bits we discarded in retaining just the leading 64
+	// Number of low-order bits we discarded in retaining just the leading 64 ... this needs to be signed in case 2p < 2^64
+	l = i-64;
 	k = (uint64)(pow(2.0, bits-l)/(double)itmp64);
 //	convert_uint64_base2_char(cbuf, itmp64);
 //	printf("2*p = %16llX has %u bits, lead64 = %s ==> k = %16llu.\n",itmp64,i,cbuf,k);

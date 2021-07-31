@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -25,27 +25,6 @@
 #define RADIX 20	// Use #define rather than const int to ensure it's really a compile-time const in the C sense
 
 #define EPS 1e-10
-
-#if defined(HIACC) && defined(LOACC)
-	#error Only one of LOACC and HIACC may be defined!
-#endif
-#if !defined(HIACC) && !defined(LOACC)
-  #ifdef USE_AVX512
-	#define HIACC	1	// Radix-20,24,28 carry routines are special, require avx-512 builds to be done in HIACC mode
-	#warning HIACC = 1
-  #elif OS_BITS == 64
-	#define LOACC	1	// Default is suitable for F29 work @ FFT length 30M
-	#warning LOACC = 1
-  #else
-	#define HIACC	1	// 32-bit mode only supports the older HIACC carry macros
-  #endif
-#endif
-#if defined(HIACC) && defined(USE_ARM_V8_SIMD)
-	#error Currently only LOACC carry-mode supported in ARM v8 SIMD builds!
-#endif
-#if defined(LOACC) && defined(USE_AVX512)
-	#error Currently only HIACC carry-mode supported in AVX-512 builds of radix-20,24,28 carry routines!
-#endif
 
 #ifndef PFETCH_DIST
   #ifdef USE_AVX512
@@ -111,9 +90,7 @@
 		double *arrdat;			/* Main data array */
 		double *wt0;
 		double *wt1;
-	#ifdef LOACC
 		double *wts_mult, *inv_mult;
-	#endif
 		int *si;
 	#ifdef USE_SSE2
 		vec_dbl *r00;
@@ -187,19 +164,17 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	static	int NDIVR;
 	const int pfetch_dist = PFETCH_DIST;
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
-	int i,j,j1,j2,jstart,jhi,full_pass,k,khi,l,outer,nbytes;
+	int i,j,j1,j2,jt,jp,jstart,jhi,full_pass,k,khi,l,outer,nbytes;
 	// Jun 2018: Add support for residue shift. (Only LL-test needs intervention at carry-loop level).
-	int target_idx = -1, target_set,tidx_mod_stride;
-	double target_cy;
+	int target_idx = -1, target_set = 0,tidx_mod_stride;
+	double target_cy = 0;
 	static double ndivr_inv;
 	uint64 itmp64;
 	static uint64 psave = 0;
-  #ifdef LOACC
 	static double wts_mult[2], inv_mult[2];	// Const wts-multiplier and 2*(its multiplicative inverse)
-  #endif
 	double wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
-	static uint32 bw,sw,bjmodnini,p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19, nsave = 0;
-	static int poff[RADIX>>2];	// Store [RADIX/4] mults of p04 offset for loop control
+	static uint32 bw,sw,bjmodnini,p01,p02,p03,p04,p08,p12,p16, nsave = 0;
+	static int poff[RADIX>>2],p0123[4];	// Store [RADIX/4] mults of p04 offset for loop control
 	const double	uc1 = -1.25000000000000000000,	/* [cos(u)+cos(2u)]/2-1 = -5/4; u = 2*pi/5 */
 					uc2 =  0.55901699437494742409,	/* [cos(u)-cos(2u)]/2 */
 					us1 =  0.95105651629515357211,	/*  sin(u) */
@@ -271,7 +246,7 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
   #if PFETCH
 	double *addr, *addp;
   #endif
-	const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
+	const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 	double wt,wtinv,wtA,wtB,wtC;
 	int m,m2;
 	int bjmodn00,bjmodn01,bjmodn02,bjmodn03,bjmodn04,bjmodn05,bjmodn06,bjmodn07,bjmodn08,bjmodn09,bjmodn10,bjmodn11,bjmodn12,bjmodn13,bjmodn14,bjmodn15,bjmodn16,bjmodn17,bjmodn18,bjmodn19;
@@ -342,7 +317,6 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		bw    = p%n;	/* Number of bigwords in the Crandall/Fagin mixed-radix representation = (Mersenne exponent) mod (vector length).	*/
 		sw    = n - bw;	/* Number of smallwords.	*/
 
-	#ifdef LOACC
 	  #define CARRY_8_WAY	// Make default due to higher accuracy
 
 	  #ifdef USE_AVX	// AVX LOACC: can select between carry macros processing 4 and 8 independent carries
@@ -372,8 +346,6 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		wts_mult[1] = 0.5*wts_mult[0];
 		inv_mult[1] = 2.0*inv_mult[0];
 		ASSERT(HERE,fabs(wts_mult[1]*inv_mult[1] - 1.0) < EPS, "wts_mults fail accuracy check!");
-
-	#endif
 
 	#ifdef MULTITHREAD
 
@@ -450,10 +422,8 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		//	tdat[ithread].arrdat = a;			/* Main data array */
 			tdat[ithread].wt0 = wt0;
 			tdat[ithread].wt1 = wt1;
-		#ifdef LOACC
 			tdat[ithread].wts_mult = wts_mult;
 			tdat[ithread].inv_mult = inv_mult;
-		#endif
 			tdat[ithread].si  = si;
 		}
 	#endif
@@ -643,7 +613,6 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		tmp->d0 = baseinv[0];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
 		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
 		// In LOACC mode, put wts_mult and their inverses in the first 32 slots below in place of the 1/2-stuff:
-	  #ifdef LOACC
 		/* wts_mult:*/
 		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[0];	++tmp;
 		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[0];	++tmp;
@@ -679,9 +648,6 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 		nbytes = 96 << L2_SZ_VD;
-	  #else
-		nbytes = 64 << L2_SZ_VD;
-	  #endif
 
 	#elif defined(USE_SSE2)
 
@@ -707,7 +673,6 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		ctmp->re = baseinv[0];	ctmp->im = baseinv[1];	++ctmp;
 		ctmp->re = baseinv[1];	ctmp->im = baseinv[1];	++ctmp;
 		// In LOACC mode, put wts_mult and their inverses in the first 8 slots below in place of the 1/2-stuff:
-	  #ifdef LOACC
 		/* wts_mult:*/
 		ctmp->re = wts_mult[0];	ctmp->im = wts_mult[0];	++ctmp;
 		ctmp->re = wts_mult[1];	ctmp->im = wts_mult[0];	++ctmp;
@@ -719,9 +684,6 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		ctmp->re = inv_mult[0];	ctmp->im = inv_mult[1];	++ctmp;
 		ctmp->re = inv_mult[1];	ctmp->im = inv_mult[1];	++ctmp;
 		nbytes = 24 << L2_SZ_VD;
-	  #else
-		nbytes = 16 << L2_SZ_VD;
-	  #endif
 
 	#endif
 
@@ -824,42 +786,20 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		p01 = NDIVR;
 		p02 = p01 + p01;
 		p03 = p02 + p01;
-		p04 = p03 + p01;
-		p05 = p04 + p01;
-		p06 = p05 + p01;
-		p07 = p06 + p01;
-		p08 = p07 + p01;
-		p09 = p08 + p01;
-		p10 = p09 + p01;
-		p11 = p10 + p01;
-		p12 = p11 + p01;
-		p13 = p12 + p01;
-		p14 = p13 + p01;
-		p15 = p14 + p01;
-		p16 = p15 + p01;
-		p17 = p16 + p01;
-		p18 = p17 + p01;
-		p19 = p18 + p01;
+		p04 = p01<<2;
+		p08 = p01<<3;
+		p12 = p08 + p04;
+		p16 = p01<<4;
 
 		p01 = p01 + ( (p01 >> DAT_BITS) << PAD_BITS );
 		p02 = p02 + ( (p02 >> DAT_BITS) << PAD_BITS );
 		p03 = p03 + ( (p03 >> DAT_BITS) << PAD_BITS );
 		p04 = p04 + ( (p04 >> DAT_BITS) << PAD_BITS );
-		p05 = p05 + ( (p05 >> DAT_BITS) << PAD_BITS );
-		p06 = p06 + ( (p06 >> DAT_BITS) << PAD_BITS );
-		p07 = p07 + ( (p07 >> DAT_BITS) << PAD_BITS );
 		p08 = p08 + ( (p08 >> DAT_BITS) << PAD_BITS );
-		p09 = p09 + ( (p09 >> DAT_BITS) << PAD_BITS );
-		p10 = p10 + ( (p10 >> DAT_BITS) << PAD_BITS );
-		p11 = p11 + ( (p11 >> DAT_BITS) << PAD_BITS );
 		p12 = p12 + ( (p12 >> DAT_BITS) << PAD_BITS );
-		p13 = p13 + ( (p13 >> DAT_BITS) << PAD_BITS );
-		p14 = p14 + ( (p14 >> DAT_BITS) << PAD_BITS );
-		p15 = p15 + ( (p15 >> DAT_BITS) << PAD_BITS );
 		p16 = p16 + ( (p16 >> DAT_BITS) << PAD_BITS );
-		p17 = p17 + ( (p17 >> DAT_BITS) << PAD_BITS );
-		p18 = p18 + ( (p18 >> DAT_BITS) << PAD_BITS );
-		p19 = p19 + ( (p19 >> DAT_BITS) << PAD_BITS );
+
+		p0123[0] = 0; p0123[1] = p01; p0123[2] = p02; p0123[3] = p03;
 
 		poff[0] =   0; poff[1] = p04; poff[2] = p08; poff[3] = p12; poff[4] = p16;
 
@@ -1059,7 +999,7 @@ int radix20_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		_cy18[ithread] = 0;
 		_cy19[ithread] = 0;
 	}
-  #ifndef USE_SSE2	// Non-SIMD builds don't support shifted-residue, so init LL cy_in as before:
+  #if 0	//ndef USE_SSE2	*** v20: Non-SIMD builds now also support shifted-residue
 	/* If an LL test, init the subtract-2: */
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRIMALITY)
 	{
@@ -1557,26 +1497,26 @@ for(outer=0; outer <= 1; outer++)
 		{
 			// Generate padded version of j, since prepadding pini is thread-count unsafe:
 			j2 = j + ( (j >> DAT_BITS) << PAD_BITS );
-			a[j2    ] *= radix_inv;
-			a[j2+p01] *= radix_inv;
-			a[j2+p02] *= radix_inv;
-			a[j2+p03] *= radix_inv;
-			a[j2+p04] *= radix_inv;
-			a[j2+p05] *= radix_inv;
-			a[j2+p06] *= radix_inv;
-			a[j2+p07] *= radix_inv;
-			a[j2+p08] *= radix_inv;
-			a[j2+p09] *= radix_inv;
-			a[j2+p10] *= radix_inv;
-			a[j2+p11] *= radix_inv;
-			a[j2+p12] *= radix_inv;
-			a[j2+p13] *= radix_inv;
-			a[j2+p14] *= radix_inv;
-			a[j2+p15] *= radix_inv;
-			a[j2+p16] *= radix_inv;
-			a[j2+p17] *= radix_inv;
-			a[j2+p18] *= radix_inv;
-			a[j2+p19] *= radix_inv;
+			a[j2        ] *= radix_inv;
+			a[j2    +p01] *= radix_inv;
+			a[j2    +p02] *= radix_inv;
+			a[j2    +p03] *= radix_inv;
+			a[j2+p04    ] *= radix_inv;
+			a[j2+p04+p01] *= radix_inv;
+			a[j2+p04+p02] *= radix_inv;
+			a[j2+p04+p03] *= radix_inv;
+			a[j2+p08    ] *= radix_inv;
+			a[j2+p08+p01] *= radix_inv;
+			a[j2+p08+p02] *= radix_inv;
+			a[j2+p08+p03] *= radix_inv;
+			a[j2+p12    ] *= radix_inv;
+			a[j2+p12+p01] *= radix_inv;
+			a[j2+p12+p02] *= radix_inv;
+			a[j2+p12+p03] *= radix_inv;
+			a[j2+p16    ] *= radix_inv;
+			a[j2+p16+p01] *= radix_inv;
+			a[j2+p16+p02] *= radix_inv;
+			a[j2+p16+p03] *= radix_inv;
 		}
 	}
 }	/* endfor(outer) */
@@ -1861,7 +1801,7 @@ void radix20_dit_pass1(double a[], int n)
 	{
 		const int pfetch_dist = PFETCH_DIST;
 		const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
-		int j,j1,j2,k,l;
+		int j,j1,j2,jt,jp,k,l;
 		double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
 	#ifdef USE_AVX
 		struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
@@ -1869,7 +1809,7 @@ void radix20_dit_pass1(double a[], int n)
 		int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
 	#endif
 		double wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
-		int poff[RADIX>>2];	// Store [RADIX/4] mults of p04 offset for loop control
+		int poff[RADIX>>2],p0123[4];	// Store [RADIX/4] mults of p04 offset for loop control
 
 	#ifdef USE_SSE2
 
@@ -1896,8 +1836,8 @@ void radix20_dit_pass1(double a[], int n)
 					,us2 =  1.53884176858762670130	/* [sin(u)+sin(2u)] */
 					,us3 =  0.36327126400268044292;	/* [sin(u)-sin(2u)] */
 		double *addr,*addp, *base, *baseinv;
-		uint32 p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19;
-		const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
+		uint32 p01,p02,p03,p04,p08,p12,p16;
+		const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 		int m,m2;
 		double wt,wtinv,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
 		double rt,it,temp,frac
@@ -1937,16 +1877,13 @@ void radix20_dit_pass1(double a[], int n)
 		double *a = thread_arg->arrdat;
 		double *wt0 = thread_arg->wt0;
 		double *wt1 = thread_arg->wt1;
-	#ifdef LOACC
 		double *wts_mult = thread_arg->wts_mult;	// Const Intra-block wts-multiplier...
 		double *inv_mult = thread_arg->inv_mult;	// ...and 2*(its multiplicative inverse).
 		ASSERT(HERE,fabs(wts_mult[0]*inv_mult[0] - 1.0) < EPS, "wts_mults fail accuracy check!");
 		ASSERT(HERE,fabs(wts_mult[1]*inv_mult[1] - 1.0) < EPS, "wts_mults fail accuracy check!");
-	#endif
 		int *si = thread_arg->si;
 
 		/*   constant index offsets for array load/stores are here.	*/
-	#ifdef USE_SSE2
 		p01 = NDIVR;
 		p02 = p01 + p01;
 		p03 = p02 + p01;
@@ -1954,28 +1891,7 @@ void radix20_dit_pass1(double a[], int n)
 		p08 = p01<<3;
 		p12 = p08 + p04;
 		p16 = p01<<4;
-	#else
-		p01 = NDIVR;
-		p02 = p01 + p01;
-		p03 = p02 + p01;
-		p04 = p03 + p01;
-		p05 = p04 + p01;
-		p06 = p05 + p01;
-		p07 = p06 + p01;
-		p08 = p07 + p01;
-		p09 = p08 + p01;
-		p10 = p09 + p01;
-		p11 = p10 + p01;
-		p12 = p11 + p01;
-		p13 = p12 + p01;
-		p14 = p13 + p01;
-		p15 = p14 + p01;
-		p16 = p15 + p01;
-		p17 = p16 + p01;
-		p18 = p17 + p01;
-		p19 = p18 + p01;
-	#endif	// USE_SSE2
-	#ifdef USE_SSE2
+
 		p01 = p01 + ( (p01 >> DAT_BITS) << PAD_BITS );
 		p02 = p02 + ( (p02 >> DAT_BITS) << PAD_BITS );
 		p03 = p03 + ( (p03 >> DAT_BITS) << PAD_BITS );
@@ -1983,27 +1899,9 @@ void radix20_dit_pass1(double a[], int n)
 		p08 = p08 + ( (p08 >> DAT_BITS) << PAD_BITS );
 		p12 = p12 + ( (p12 >> DAT_BITS) << PAD_BITS );
 		p16 = p16 + ( (p16 >> DAT_BITS) << PAD_BITS );
-	#else
-		p01 = p01 + ( (p01 >> DAT_BITS) << PAD_BITS );
-		p02 = p02 + ( (p02 >> DAT_BITS) << PAD_BITS );
-		p03 = p03 + ( (p03 >> DAT_BITS) << PAD_BITS );
-		p04 = p04 + ( (p04 >> DAT_BITS) << PAD_BITS );
-		p05 = p05 + ( (p05 >> DAT_BITS) << PAD_BITS );
-		p06 = p06 + ( (p06 >> DAT_BITS) << PAD_BITS );
-		p07 = p07 + ( (p07 >> DAT_BITS) << PAD_BITS );
-		p08 = p08 + ( (p08 >> DAT_BITS) << PAD_BITS );
-		p09 = p09 + ( (p09 >> DAT_BITS) << PAD_BITS );
-		p10 = p10 + ( (p10 >> DAT_BITS) << PAD_BITS );
-		p11 = p11 + ( (p11 >> DAT_BITS) << PAD_BITS );
-		p12 = p12 + ( (p12 >> DAT_BITS) << PAD_BITS );
-		p13 = p13 + ( (p13 >> DAT_BITS) << PAD_BITS );
-		p14 = p14 + ( (p14 >> DAT_BITS) << PAD_BITS );
-		p15 = p15 + ( (p15 >> DAT_BITS) << PAD_BITS );
-		p16 = p16 + ( (p16 >> DAT_BITS) << PAD_BITS );
-		p17 = p17 + ( (p17 >> DAT_BITS) << PAD_BITS );
-		p18 = p18 + ( (p18 >> DAT_BITS) << PAD_BITS );
-		p19 = p19 + ( (p19 >> DAT_BITS) << PAD_BITS );
-	#endif	// USE_SSE2
+
+		p0123[0] = 0; p0123[1] = p01; p0123[2] = p02; p0123[3] = p03;
+
 		poff[0] =   0; poff[1] = p04; poff[2] = p08; poff[3] = p12; poff[4] = p16;
 
 	#ifdef USE_SSE2

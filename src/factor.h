@@ -126,7 +126,7 @@ PLEASE REFER TO FACTOR.C FOR A DESCRIPTION OF THE APPLICABLE #DEFINES
 #ifdef USE_128x96
 	/* Currently only values of 0,1,2 supported: */
 	#if(USE_128x96 > 2)
-		#error Unrecognized value of USE_128x96!
+		#error Unsupported value of USE_128x96!
 	#endif
 
 	/* If 2-word-or-greater factoring not enabled, make sure factors < 2^96: */
@@ -136,17 +136,11 @@ PLEASE REFER TO FACTOR.C FOR A DESCRIPTION OF THE APPLICABLE #DEFINES
 #endif
 
 /* Key debug #define off value of EWM_DEBUG (set in masterdefs.h) and FACTOR_STANDALONE, set at compile time: */
-#undef FAC_DEBUG
-#if EWM_DEBUG && defined(FACTOR_STANDALONE)
-	#warning Setting FAC_DEBUG in factor.h
-	#define FAC_DEBUG	1
-#else
-	#define FAC_DEBUG	0	/* Set == 1 to enable more-extensive self-checking in test_fac() */
-#endif
-
-#undef DBG_SIEVE
-#if FAC_DEBUG
-	#define	DBG_SIEVE	0	/* Set == 1 to enable sieve debugging (Note that no actual trial-divides will occur in this case) */
+#ifndef FAC_DEBUG
+	#if EWM_DEBUG && defined(FACTOR_STANDALONE)
+		#warning Setting FAC_DEBUG in factor.h
+		#define FAC_DEBUG
+	#endif
 #endif
 
 #ifndef TRYQ	/* # of candidates at a time to try. Must be of form 2^k, or zero to skip trial division step
@@ -276,6 +270,7 @@ uint64	twopmodq128_96_q8_const_qhi(uint64 p, uint64 khi, uint64 k0, uint64 k1, u
 
 uint128	twopmodq128		(uint128 p, uint128 q);	// q, not k!
 uint64	twopmodq128x2	(uint64 *p, uint64 k);
+uint64	twopmodq128x2B	(uint64 *p, uint128 q);	// q, not k!
 uint64	twopmodq128_q4	(uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
 uint64	twopmodq128_q8	(uint64 *p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
 

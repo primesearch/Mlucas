@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -84,64 +84,6 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			kk -= 3; kk += ((-(kk < 0)) & 13);
 		}
 	//...and now do 16 radix-13 transforms:
-#if 0	// Debug:
-const char ref[416] = {	// RADIX/32 rows of 64 real (32 complex-pair) data each:
-	3,1,4,1,5,9,2,6,5,3,5,8,9,7,9,3,2,3,8,4,6,2,6,4,3,3,8,3,2,7,9,5,0,2,8,8,4,1,9,7,1,6,9,3,9,9,3,7,5,1,0,5,8,2,0,9,7,4,9,4,4,5,9,2,
-	3,0,7,8,1,6,4,0,6,2,8,6,2,0,8,9,9,8,6,2,8,0,3,4,8,2,5,3,4,2,1,1,7,0,6,7,9,8,2,1,4,8,0,8,6,5,1,3,2,8,2,3,0,6,6,4,7,0,9,3,8,4,4,6,
-	0,9,5,5,0,5,8,2,2,3,1,7,2,5,3,5,9,4,0,8,1,2,8,4,8,1,1,1,7,4,5,0,2,8,4,1,0,2,7,0,1,9,3,8,5,2,1,1,0,5,5,5,9,6,4,4,6,2,2,9,4,8,9,5,
-	4,9,3,0,3,8,1,9,6,4,4,2,8,8,1,0,9,7,5,6,6,5,9,3,3,4,4,6,1,2,8,4,7,5,6,4,8,2,3,3,7,8,6,7,8,3,1,6,5,2,7,1,2,0,1,9,0,9,1,4,5,6,4,8,
-	5,6,6,9,2,3,4,6,0,3,4,8,6,1,0,4,5,4,3,2,6,6,4,8,2,1,3,3,9,3,6,0,7,2,6,0,2,4,9,1,4,1,2,7,3,7,2,4,5,8,7,0,0,6,6,0,6,3,1,5,5,8,8,1,
-	7,4,8,8,1,5,2,0,9,2,0,9,6,2,8,2,9,2,5,4,0,9,1,7,1,5,3,6,4,3,6,7,8,9,2,5,9,0,3,6,0,0,1,1,3,3,0,5,3,0,5,4,8,8,2,0,4,6,6,5,2,1,3,8,
-	4,1,4,6,9,5,1,9,4,1,5,1,1,6,0,9,4,3,3,0,5,7,2,7,0,3,6,5,7,5,9,5
-};
-tmp = r00; tm1 = s1p00;
-for(l = 0; l < RADIX*2; l++,tmp++,tm1++) {
-	VEC_DBL_INIT(tmp,(double)ref[l]);
-	VEC_DBL_INIT(tm1,0.0);
-}
-tmp = r00; tm1 = s1p00;
-// 2 different branches to compare old-vs-new 11-dft macro:
-  #ifdef DFT_OLD
-	// Input-ptrs are regular-stride offsets of r00, O-ptrs are permuted-index:
-						iptr = dit_pcshft + dit_ncshft[0];
-	va0 = tmp;			k0 = *iptr;			vb0 = tm1 + (k0<<5);
-	va1 = tmp + 0x20;	k1 = *(iptr+0x1);	vb1 = tm1 + (k1<<5);
-	va2 = tmp + 0x40;	k2 = *(iptr+0x2);	vb2 = tm1 + (k2<<5);
-	va3 = tmp + 0x60;	k3 = *(iptr+0x3);	vb3 = tm1 + (k3<<5);
-	va4 = tmp + 0x80;	k4 = *(iptr+0x4);	vb4 = tm1 + (k4<<5);
-	va5 = tmp + 0xa0;	k5 = *(iptr+0x5);	vb5 = tm1 + (k5<<5);
-	va6 = tmp + 0xc0;	k6 = *(iptr+0x6);	vb6 = tm1 + (k6<<5);
-	va7 = tmp + 0xe0;	k7 = *(iptr+0x7);	vb7 = tm1 + (k7<<5);
-	va8 = tmp + 0x100;	k8 = *(iptr+0x8);	vb8 = tm1 + (k8<<5);
-	va9 = tmp + 0x120;	k9 = *(iptr+0x9);	vb9 = tm1 + (k9<<5);
-	vaa = tmp + 0x140;	ka = *(iptr+0xa);	vba = tm1 + (ka<<5);
-	vab = tmp + 0x160;	kb = *(iptr+0xb);	vbb = tm1 + (kb<<5);
-	vac = tmp + 0x180;	kc = *(iptr+0xc);	vbc = tm1 + (kc<<5);
-	SSE2_RADIX_13_DFT_OLD(rad13_const,
-		va0,va1,va2,va3,va4,va5,va6,va7,va8,va9,vaa,vab,vac,
-		vb0,vb1,vb2,vb3,vb4,vb5,vb6,vb7,vb8,vb9,vba,vbb,vbc
-	);	tmp += 2;
-  #elif defined(DFT_NEW)
-	iptr = dit_pcshft2 + dit_ncshft[0];	// dit_ncshft[l] is an index of the starting element of dit_pcshft[] to use for the current 11-DFT's O-addressing
-	// I-ptrs are regular-stride offsets of r00; O-ptrs are offset w.r.to s1p00;
-	// the needed pointer-arithmetic shift has been incorporated into both sets of offsets,
-	// so cast both base-pointers to (uint64) to avoid need for add-with-one-shifted-addend:
-	// In the DIT-context 11-DFT macro invocation, I-offsets are constant-stride and O-offsets permuted:
-	SSE2_RADIX_13_DFT(
-		tmp,dft13_offptr,
-		rad13_const,
-		tm1,iptr
-	);	tmp += 2;
-  #else
-	#error must -D-define either DFT_OLD or DFT_NEW at compile time!
-  #endif
-tmp = r00; tm1 = s1p00;
-printf("Radix %u: DFT-13 outputs, SIMD width = %u\n",RADIX,RE_IM_STRIDE);
-for(l = 0; l < RADIX; l++,tm1+=2) {
-	if(tm1->d0 != 0) printf("%3u: re,im = %16.10f,%16.10f\n",l,tm1->d0,(tm1+1)->d0);
-}
-exit(0);
-#endif
 		tmp = r00;
 		for(l = 0; l < 16; l++) {
 			tm1 = s1p00 + (((16 - l)&0xf)<<1);	// Low-part offset = p0,f,e,...,2,1
@@ -223,13 +165,18 @@ exit(0);
 
 		// Check if current index-interval contains the target index for rotated-residue carry injection.
 		// In data-init we set target_idx = -1 on wraparound-carry mini-pass, so if() only taken on full pass:
-	#ifdef USE_SSE2
 		if(target_idx == j) {
+		#ifdef USE_SSE2
 			addr = (double *)s1p00 + target_set;
 			*addr += target_cy*(n>>1);	// target_cy = [-2 << within-word-shift]*[DWT weight]*n/2, i.e. includes fwd DWT weight and n/2 factor
+		#else
+			// target_set in [0,2*RADIX); tidx_mod_stride [even|odd] means shifted-carry goes into [Re|Im] part of the complex FFT datum:
+			l = target_set&1;	target_set >>= 1;
+			a[j1+poff[target_set>>2]+p0123[target_set&3]+l] += target_cy*(n>>1);
+		#endif
 			target_idx = -1;
 		}
-	#endif
+
 	#ifdef USE_AVX
 
 		add1 = &wt1[col  ];
@@ -291,8 +238,8 @@ exit(0);
 		sinwtm1      ->d7 = si[nwt-l-1];	tmp->d7 = wt0[nwt-l-1]*scale;
 	  #endif
 
-	  #ifdef LOACC
-
+	  if(inc_arr[0]) {	// Have no specialized HIACC carry macro in AVX-512, so use 0-or-not-ness of the low
+						// inc_arr element to divert non-AVX512 builds to 'else' clause of if() in HIACC mode.
 		uint32 ii,loop, co2save = co2;
 		// Beyond chain length 8, the chained-weights scheme becomes too inaccurate, so re-init seed-wts every 8th pass or better:
 	  #ifdef CARRY_16_WAY
@@ -344,7 +291,7 @@ exit(0);
 			}
 		}
 
-	  #else
+	  } else {	// HiACC:
 
 		/* In AVX mode advance carry-ptrs just 1 for each vector-carry-macro call: */
 		tm1 = s1p00; tmp = cy; itmp = bjmodn;
@@ -360,14 +307,15 @@ exit(0);
 		co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 					// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
 
-	  #endif	// LOACC ?
+	  }	// LOACC or HIACC?
 
 		i =((uint32)(sw - bjmodn[0]) >> 31);	/* get ready for the next set...	*/
 
 	#elif defined(USE_SSE2)
 
-	  #ifdef LOACC
-
+	  if(inc_arr[0]) {	// Have no specialized HIACC carry macro in ARM_V8_SIMD, so use 0-or-not-ness of incr
+						// in lieu of (USE_SHORT_CY_CHAIN < USE_SHORT_CY_CHAIN_MAX) is for ARMv8
+						// to divert non-AVX512 builds to 'else' clause of if() in HIACC mode.
 		// DIF/DIT loops use k1,k2 and there those mustbbe signed, so use i0-3 here:
 		uint32 i0,i1,i2,i3, ii,nwtml, loop,nloop = RADIX>>2, co2save = co2;
 		i = (!j);	// Need this to force 0-wod to be bigword
@@ -432,7 +380,7 @@ exit(0);
 			}
 		}
 
-	  #else	// Hi-accuracy is the default:
+	  } else {	// HiACC:
 
 		l= j & (nwt-1);
 		n_minus_sil   = n-si[l  ];
@@ -445,7 +393,7 @@ exit(0);
 		wtlp1   =wt0[    l+1];
 		wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
-		ctmp = (struct complex *)half_arr + 16;	/* ptr to local storage for the doubled wtl,wtn terms: */
+		ctmp = (struct complex *)half_arr + 24;	/* ptr to local storage for the doubled wtl,wtn terms: */
 		ctmp->re = wtl;		ctmp->im = wtl;	++ctmp;
 		ctmp->re = wtn;		ctmp->im = wtn;	++ctmp;
 		ctmp->re = wtlp1;	ctmp->im = wtlp1;++ctmp;
@@ -477,7 +425,7 @@ exit(0);
 		wtlp1   =wt0[    l+1];
 		wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
-		ctmp = (struct complex *)half_arr + 16;	/* ptr to local storage for the doubled wtl,wtn terms: */
+		ctmp = (struct complex *)half_arr + 24;	/* ptr to local storage for the doubled wtl,wtn terms: */
 		ctmp->re = wtl;		ctmp->im = wtl;	++ctmp;
 		ctmp->re = wtn;		ctmp->im = wtn;	++ctmp;
 		ctmp->re = wtlp1;	ctmp->im = wtlp1;++ctmp;
@@ -500,7 +448,7 @@ exit(0);
 			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
-	  #endif	// LOACC or HIACC?
+	  }	// LOACC or HIACC?
 
 		i =((uint32)(sw - bjmodn[0]) >> 31);	/* get ready for the next set...	*/
 
@@ -517,42 +465,32 @@ exit(0);
 		wtlp1   =wt0[    l+1];
 		wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
-	  #ifdef LOACC
+	  if(USE_SHORT_CY_CHAIN < USE_SHORT_CY_CHAIN_MAX) {	// LOACC with tunable DWT-weights chaining
 
 		/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */
 		l = 0; addr = cy; itmp = bjmodn;
-	   cmplx_carry_norm_errcheck0(a[j1   ],a[j2   ],*addr,*itmp,0,prp_mult); ++l; ++addr; ++itmp;
-		cmplx_carry_fast_errcheck(a[j1+p1],a[j2+p1],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-		cmplx_carry_fast_errcheck(a[j1+p2],a[j2+p2],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-		cmplx_carry_fast_errcheck(a[j1+p3],a[j2+p3],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-		// Remaining quartets of macro calls done in loop:
-		for(ntmp = 1; ntmp < RADIX>>2; ntmp++) {
+		for(ntmp = 0; ntmp < RADIX>>2; ntmp++) {
 			jt = j1 + poff[ntmp]; jp = j2 + poff[ntmp];	// poff[] = p04,08,...
-			// Re-init weights every 4th macro invocatin to keep errors under control:
+			// Re-init weights every 4th macro invocation to keep errors under control:
 			cmplx_carry_norm_errcheck0(a[jt   ],a[jp   ],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 			cmplx_carry_fast_errcheck (a[jt+p1],a[jp+p1],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 			cmplx_carry_fast_errcheck (a[jt+p2],a[jp+p2],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 			cmplx_carry_fast_errcheck (a[jt+p3],a[jp+p3],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 		}
 
-	  #else	// Hi-accuracy is the default:
+	  } else {	// HiACC:
 
 		/*...set0 is slightly different from others; divide work into blocks of 4 macro calls, 1st set of which gets pulled out of loop: */
 		l = 0; addr = cy; itmp = bjmodn;
-	   cmplx_carry_norm_errcheck0(a[j1   ],a[j2   ],*addr,*itmp,0,prp_mult); ++l; ++addr; ++itmp;
-		cmplx_carry_norm_errcheck(a[j1+p1],a[j2+p1],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-		cmplx_carry_norm_errcheck(a[j1+p2],a[j2+p2],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-		cmplx_carry_norm_errcheck(a[j1+p3],a[j2+p3],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
-		// Remaining quartets of macro calls done in loop:
-		for(ntmp = 1; ntmp < RADIX>>2; ntmp++) {
+		for(ntmp = 0; ntmp < RADIX>>2; ntmp++) {
 			jt = j1 + poff[ntmp]; jp = j2 + poff[ntmp];	// poff[] = p04,08,...
-			cmplx_carry_norm_errcheck (a[jt   ],a[jp   ],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
+			cmplx_carry_norm_errcheck0(a[jt   ],a[jp   ],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 			cmplx_carry_norm_errcheck (a[jt+p1],a[jp+p1],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 			cmplx_carry_norm_errcheck (a[jt+p2],a[jp+p2],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 			cmplx_carry_norm_errcheck (a[jt+p3],a[jp+p3],*addr,*itmp,l,prp_mult); ++l; ++addr; ++itmp;
 		}
 
-	  #endif
+	  }	// LOACC or HIACC?
 
 		i =((uint32)(sw - bjmodn[0]) >> 31);	/* get ready for the next set...	*/
 		co2 = co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done

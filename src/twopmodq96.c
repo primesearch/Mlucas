@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -23,8 +23,8 @@
 #include "factor.h"
 #include "align.h"
 
-#define FAC_DEBUG 0
-#if FAC_DEBUG
+#ifdef FAC_DEBUG
+	#warning Compiling twopmodq96.c with FAC_DEBUG on.
 	char char_buf[1024], str0[64], str1[64];
 #endif
 
@@ -189,7 +189,7 @@ The key 3-operation sequence here is as follows:
 */
 uint96 twopmodq96(uint64 p, uint64 k)
 {
-#if FAC_DEBUG
+#ifdef FAC_DEBUG
 	int dbg = (p == 0);
 	uint128 y;
 #endif
@@ -226,7 +226,7 @@ uint96 twopmodq96(uint64 p, uint64 k)
 	zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
 	pshift = ~pshift;
 
-#if FAC_DEBUG
+#ifdef FAC_DEBUG
 if(dbg)printf("twopmodq96:\n");
 #endif
 	ASSERT(HERE, (p >> 63) == 0, "p must be < 2^63!");
@@ -245,7 +245,7 @@ if(dbg)printf("twopmodq96:\n");
 	!    Find modular inverse (mod 2^96) of q in preparation for modular multiply.
 	*/
 	/* q must be odd for Montgomery-style modmul to work: */
-#if FAC_DEBUG
+#ifdef FAC_DEBUG
 	ASSERT(HERE, (q.d0 & (uint64)1) == 1, "twopmodq96 : (q.d0 & (uint64)1) == 1");
 #endif
 	/* Init qinv = q. We're really only interested in the bottom 2 bits of q. */
@@ -283,7 +283,7 @@ if(dbg)printf("twopmodq96:\n");
 	(May be able to squeeze a bit more out by using 32-bit MULLs rather than 64-bit MULLs in some places,
 	but since the main action is in the j-loop below, don't bother with further speedups here.
 	*/
-#if FAC_DEBUG
+#ifdef FAC_DEBUG
 	MULL96(q, qinv, x);			MULL128(q, qinv, y);
 	SUB96 (TWO96, x, x);		SUB128 (TWO128, y, y);
 	MULL96(qinv, x, x);			MULL128(qinv, y, y);
@@ -298,7 +298,7 @@ if(dbg)printf("twopmodq96:\n");
 #endif
 	qinv.d1 &= 0x00000000ffffffff;	/* Only want the lower 32 bits here */
 
-#if FAC_DEBUG
+#ifdef FAC_DEBUG
 	ASSERT(HERE, qinv.d1 == x.d1 && qinv.d0 == x.d0, "twopmodq96 : qinv.d1 == x.d1 && qinv.d0 == x.d0");
 	if(dbg) printf("q    = %s\n", &char_buf[convert_uint96_base10_char(char_buf, q   )]);
 	if(dbg) printf("qinv = %s\n", &char_buf[convert_uint96_base10_char(char_buf, qinv)]);
@@ -308,41 +308,41 @@ if(dbg)printf("twopmodq96:\n");
 	j = start_index-1;
 
 	/* MULL96(zstart,qinv,lo) simply amounts to a left-shift of the bits of qinv: */
-#if FAC_DEBUG
+#ifdef FAC_DEBUG
 	if(dbg) printf("zshift  = %u\n", zshift);
 #endif
 	LSHIFT96(qinv, zshift, lo);
 
-#if FAC_DEBUG
+#ifdef FAC_DEBUG
 	if(dbg) printf("lo = %s\n", &char_buf[convert_uint96_base10_char(char_buf, lo)]);
 #endif
 
 	MULH96(q,lo,lo);
 
-#if FAC_DEBUG
+#ifdef FAC_DEBUG
 	if(dbg) printf("q*lo/2^96 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, lo)]);
 #endif
 
 	/* hi = 0 in this instance, which simplifies things. */
 	SUB96(q, lo, x);	/* Put the result in lo (rather than x), to ease overflow check below */
 
-#if FAC_DEBUG
+#ifdef FAC_DEBUG
 	if(dbg) printf("x = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)]);
 #endif
 
 	if((pshift >> j) & (uint64)1)
 	{
-	#if FAC_DEBUG
+	#ifdef FAC_DEBUG
 		ASSERT(HERE, CMPULT96(x, q), "twopmodq96 : CMPULT96(x,q)");
 	#endif
 		/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 		if(CMPUGT96(x, qhalf)){ ADD96(x, x, x); SUB96(x, q, x); }else{ ADD96(x, x, x); }
 	}
 
-#if FAC_DEBUG
+#ifdef FAC_DEBUG
 	if(dbg) printf("x0= %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)]);
 #endif
-#if FAC_DEBUG
+#ifdef FAC_DEBUG
 	if(CMPULT96(q, x)){ sprintf(char_buf, "twopmodq96 : (x0 = %s) >= (q = %s)", &str0[convert_uint96_base10_char(str0, x)], &str1[convert_uint96_base10_char(str1, q)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
 #endif
 
@@ -350,17 +350,17 @@ if(dbg)printf("twopmodq96:\n");
 	{
 		/*...x^2 mod q is returned in x. */
 		SQR_LOHI96(x,lo,hi);	/* x=x*x;l=x%b;h=(x-l)/b; */
-#if FAC_DEBUG
+#ifdef FAC_DEBUG
 	if(dbg) printf("lo= %s\n", &char_buf[convert_uint96_base10_char(char_buf,lo)]);
 	if(dbg) printf("hi= %s\n", &char_buf[convert_uint96_base10_char(char_buf,hi)]);
 #endif
 		MULL96(lo,qinv,lo);		/* l=i*l%b; */
-#if FAC_DEBUG
+#ifdef FAC_DEBUG
 	if(dbg) printf("lo = MULL96(lo,qinv) = %s\n", &char_buf[convert_uint96_base10_char(char_buf,lo)]);
 #endif
 		MULH96(q,lo,lo);		/* x=q*l%b;l=(l-x)/b; */
 								/* x=(h-l)%q */
-#if FAC_DEBUG
+#ifdef FAC_DEBUG
 	if(dbg) printf("lo = MULH96(q,lo) = %s\n", &char_buf[convert_uint96_base10_char(char_buf,lo)]);
 #endif
 		/* If h < l, then calculate q-l+h < q; otherwise calculate h-l. */
@@ -368,7 +368,7 @@ if(dbg)printf("twopmodq96:\n");
 		{
 			SUB96(q, lo, lo);
 			ADD96(lo, hi, x);
-#if FAC_DEBUG
+#ifdef FAC_DEBUG
 	if(dbg) printf("q-l   = %10u, %20llu\n", lo.d1, lo.d0);
 	if(dbg) printf("q-l+h = %10u, %20llu\n",  x.d1,  x.d0);
 #endif
@@ -376,28 +376,28 @@ if(dbg)printf("twopmodq96:\n");
 		else
 		{
 			SUB96(hi, lo, x);
-#if FAC_DEBUG
+#ifdef FAC_DEBUG
 	if(dbg) printf("q=h-l = %10u, %20llu\n",  x.d1,  x.d0);
 #endif
 		}
 
-#if FAC_DEBUG
+#ifdef FAC_DEBUG
 if(dbg)printf("j = %2d, x = %s",j, &char_buf[convert_uint96_base10_char(char_buf, x)]);
 #endif
 
 		if((pshift >> j) & (uint64)1)
 		{
-		#if FAC_DEBUG
+		#ifdef FAC_DEBUG
 			ASSERT(HERE, CMPULT96(x, q), "twopmodq96 : CMPULT96(x,q)");
 		#endif
 			/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 			if(CMPUGT96(x, qhalf)){ ADD96(x, x, x); SUB96(x, q, x); }else{ ADD96(x, x, x); }
 
-#if FAC_DEBUG
+#ifdef FAC_DEBUG
 	if(dbg) printf("*2= %s", &char_buf[convert_uint96_base10_char(char_buf, x)]);
 #endif
 		}
-#if FAC_DEBUG
+#ifdef FAC_DEBUG
 	if(dbg) printf("\n");
 #endif
 	}
@@ -409,7 +409,7 @@ if(dbg)printf("j = %2d, x = %s",j, &char_buf[convert_uint96_base10_char(char_buf
 	q.d0 -= FERMAT;
 	SUB96(x,q,x);
 
-#if FAC_DEBUG
+#ifdef FAC_DEBUG
 if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)]);
 #endif
 	return x;
@@ -426,9 +426,10 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 	// not - here we use just x86_64 non-vector instructions - but use same name as in vector-radix* code to show analogous mem-handling:
 	uint64 twopmodq96_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, int init_sse2, int thr_id)
 	{
-	#if FAC_DEBUG
-		int dbg = (p == 2147483647) && (k0 == 68745);
-	/*	int dbg = STREQ(&char_buf[convert_uint64_base10_char(char_buf, p)], "0");*/
+	#ifdef FAC_DEBUG
+		uint64 p_targ = 5506720553412961ull, k_targ = 46126737231ull;	// Set these to desired target values
+		int dbg = (p == p_targ) && (k0 == k_targ || k1 == k_targ || k2 == k_targ || k3 == k_targ);
+		if(dbg) { k0 = k1 = k2 = k3 = k_targ; }	// Make all equal k_targ so only need to debug-print the 0-data
 	#endif
 		static int first_entry = TRUE;
 		static int max_threads = 1;	// Default local-array-init is for just a single thread ... caller can re-init for > 1 threads later, if desired.
@@ -536,7 +537,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		zshift = 95 - leadb;
 		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
 		pshift = ~pshift;
-	#if FAC_DEBUG
+	#ifdef FAC_DEBUG
 		if(dbg)	printf("twopmodq96_q4: leadb = %u\n",leadb);
 	#endif
 
@@ -611,25 +612,17 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		qinv2->d1 &= 0x00000000ffffffff;
 		qinv3->d1 &= 0x00000000ffffffff;
 
-	#if FAC_DEBUG
-		if(dbg)
-		{
+	#ifdef FAC_DEBUG
+		if(dbg) {
 			printf("q0 = %s\n", &char_buf[convert_uint96ptr_base10_char(char_buf, qptr0)]);
-			printf("q1 = %s\n", &char_buf[convert_uint96ptr_base10_char(char_buf, qptr1)]);
-			printf("q2 = %s\n", &char_buf[convert_uint96ptr_base10_char(char_buf, qptr2)]);
-			printf("q3 = %s\n", &char_buf[convert_uint96ptr_base10_char(char_buf, qptr3)]);
-			printf("\n");
 			printf("qinv0 = %s\n", &char_buf[convert_uint96ptr_base10_char(char_buf, qinv0)]);
-			printf("qinv1 = %s\n", &char_buf[convert_uint96ptr_base10_char(char_buf, qinv1)]);
-			printf("qinv2 = %s\n", &char_buf[convert_uint96ptr_base10_char(char_buf, qinv2)]);
-			printf("qinv3 = %s\n", &char_buf[convert_uint96ptr_base10_char(char_buf, qinv3)]);
 		}
 	#endif
 
 		/* Since zstart is a power of two < 2^96, use a streamlined code sequence for the first iteration: */
 		j = start_index-1;
 
-	#if FAC_DEBUG
+	#ifdef FAC_DEBUG
 		if(dbg) printf("zshift  = %u\n", zshift);
 	#endif
 		/* MULL96(zstart,qinv,lo) simply amounts to a left-shift of the bits of qinv: */
@@ -637,7 +630,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		LSHIFT96_PTR(qinv1, zshift, lo1);
 		LSHIFT96_PTR(qinv2, zshift, lo2);
 		LSHIFT96_PTR(qinv3, zshift, lo3);
-	#if FAC_DEBUG
+	#ifdef FAC_DEBUG
 		if(dbg) printf("lo0 = %s\n", &char_buf[convert_uint96ptr_base10_char(char_buf, lo0)]);
 	#endif
 
@@ -646,8 +639,8 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		, qptr1, lo1, lo1
 		, qptr2, lo2, lo2
 		, qptr3, lo3, lo3);
-	#if FAC_DEBUG
-		if(dbg) printf("q0*lo0/2^96 = %s\n", &char_buf[convert_uint96ptr_base10_char(char_buf, lo0)]);
+	#ifdef FAC_DEBUG
+		if(dbg) printf("q0*lo0/2^96ptr = %s\n", &char_buf[convert_uint96ptr_base10_char(char_buf, lo0)]);
 	#endif
 
 		/* hi = 0 in this instance, which simplifies things. */
@@ -655,23 +648,33 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		SUB96_PTR(qptr1, lo1, x1);
 		SUB96_PTR(qptr2, lo2, x2);
 		SUB96_PTR(qptr3, lo3, x3);
+	#ifdef FAC_DEBUG
+		if(dbg) printf("x0 = %s\n", &char_buf[convert_uint96ptr_base10_char(char_buf, x0)]);
+	#endif
 
 		/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 		if((pshift >> j) & (uint64)1)
 		{
-		#if FAC_DEBUG
-			ASSERT(HERE, CMPULT96_PTR(x0, qptr0), "twopmodq96_q4 : CMPULT96(x0,q0)");
-		#endif
 			if(CMPUGT96_PTR(x0, qhalf0)){ ADD96_PTR(x0, x0, x0); SUB96_PTR(x0, qptr0, x0); }else{ ADD96_PTR(x0, x0, x0); }
+		#ifdef FAC_DEBUG
+			if(dbg) { printf("x0 = %s\n", &char_buf[convert_uint96ptr_base10_char(char_buf, x0)]); }
+		#endif
 			if(CMPUGT96_PTR(x1, qhalf1)){ ADD96_PTR(x1, x1, x1); SUB96_PTR(x1, qptr1, x1); }else{ ADD96_PTR(x1, x1, x1); }
 			if(CMPUGT96_PTR(x2, qhalf2)){ ADD96_PTR(x2, x2, x2); SUB96_PTR(x2, qptr2, x2); }else{ ADD96_PTR(x2, x2, x2); }
 			if(CMPUGT96_PTR(x3, qhalf3)){ ADD96_PTR(x3, x3, x3); SUB96_PTR(x3, qptr3, x3); }else{ ADD96_PTR(x3, x3, x3); }
-		#if FAC_DEBUG
-			if(dbg) printf("x0 = %s\n", &char_buf[convert_uint96ptr_base10_char(char_buf, x0)]);
+		#ifdef FAC_DEBUG
 			ASSERT(HERE, CMPULT96_PTR(x0, qptr0), "twopmodq96_q4 : CMPULT96(x0,q0)");
 		#endif
 		}
 
+		/*** NB: For whatever reason, Clang does not like that above final pre-asm-loop if(dbg) to
+			be placed next to the ASSERT, i.e. following the 4 CMPs ...  gives a bunch of errors like this:
+
+			../twopmodq96.c:669:4: error: invalid symbol redefinition
+					"movq   %[__q0],%%rsi   /@ Use qptr0 as the base address throughout @/
+					^
+		GCC has no such issue. Moved the if(dbg) up to follow the 1st CMP by way of workaround.
+		*/
 		__asm__ volatile (\
 			"movq	%[__q0],%%rsi	/* Use qptr0 as the base address throughout */\n\t"\
 		"/* Load the x.d0's: */	\n\t"\
@@ -938,7 +941,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			"\n\t"\
 	"/* If current bit of pshift == 1, double each output modulo q: */	\n\t"\
 			"/* if((pshift >> j) & (uint64)1) { */	\n\t"\
-			"movl	%[__pshift],%%eax		\n\t"\
+			"movq	%[__pshift],%%rax		\n\t"\
 			"shrq	%%cl,%%rax				\n\t"\
 			"andq	$0x1,%%rax				\n\t"\
 		"je	twopmodq96_q4_pshiftjmp			\n\t"\
@@ -1012,7 +1015,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			"movq	%%r11,0xb0(%%rsi)	\n\t"\
 			"movq	%%r15,0xb8(%%rsi)	\n\t"\
 			"subq	$1,%%rcx	/* j-- */		\n\t"\
-			"cmpq	$0,%%rcx	/* compare j vs 0 */\n\t"\
+			"cmpq	$0,%%rcx	/* compare decremented j vs 0 */\n\t"\
 			"jge	LoopBeg	/* if (j >= 0), Loop */	\n\t"\
 		"LoopEnd:							\n\t"\
 			:	/* outputs: none */\
@@ -1022,6 +1025,9 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			: "cc","memory","rax","rcx","rdx","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"		/* Clobbered registers */\
 		);
 		/* endfor() */
+	#ifdef FAC_DEBUG
+		if(dbg) printf("On loop exit: x0 = %s\n", &char_buf[convert_uint96ptr_base10_char(char_buf, x0)]);
+	#endif
 
 		/*...Double and return.	These are specialized for the case
 		where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2.
@@ -1043,13 +1049,9 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		tmp1 = CMPEQ96_PTR(x1, ONE96_PTR);
 		tmp2 = CMPEQ96_PTR(x2, ONE96_PTR);
 		tmp3 = CMPEQ96_PTR(x3, ONE96_PTR);
-	#if FAC_DEBUG
-		if(dbg)
-		{
+	#ifdef FAC_DEBUG
+		if(dbg) {
 			printf("xout0 = %s\n", &char_buf[convert_uint96ptr_base10_char(char_buf, x0)]);
-			printf("xout1 = %s\n", &char_buf[convert_uint96ptr_base10_char(char_buf, x1)]);
-			printf("xout2 = %s\n", &char_buf[convert_uint96ptr_base10_char(char_buf, x2)]);
-			printf("xout3 = %s\n", &char_buf[convert_uint96ptr_base10_char(char_buf, x3)]);
 			exit(0);
 		}
 	#endif
@@ -1062,11 +1064,12 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 	}
 
 #else	/* Reference version using multiword macros: */
-
+#warning Using ref-version of twopmodq96_q4.
 	uint64 twopmodq96_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, int init_sse2, int thr_id)
 	{
-	#if FAC_DEBUG
-		int dbg = (p == 0);
+		if(init_sse2) return 0;
+	#ifdef FAC_DEBUG
+		int dbg = (p == 5506720553412961ull) && ((k0 == 46126737231ull) || (k1 == 46126737231ull) || (k2 == 46126737231ull) || (k3 == 46126737231ull));
 	/*	int dbg = STREQ(&char_buf[convert_uint64_base10_char(char_buf, p)], "0");*/
 	#endif
 		 int32 j;
@@ -1100,7 +1103,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		zshift = 95 - leadb;
 		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
 		pshift = ~pshift;
-	#if FAC_DEBUG
+	#ifdef FAC_DEBUG
 		if(dbg)	printf("twopmodq96_q4: leadb = %u\n",leadb);
 	#endif
 
@@ -1122,7 +1125,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		q1.d0 += 1;
 		q2.d0 += 1;
 		q3.d0 += 1;
-	  #if FAC_DEBUG
+	  #ifdef FAC_DEBUG
 		if(dbg)
 		{
 			printf("q0 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, q0)]);
@@ -1148,7 +1151,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		!    Find modular inverse (mod 2^96) of q in preparation for modular multiply.
 		*/
 		/* q must be odd for Montgomery-style modmul to work: */
-	#if FAC_DEBUG
+	#ifdef FAC_DEBUG
 		ASSERT(HERE, (q0.d0 & (uint64)1) == 1, "twopmodq96_q4 : (q0.d0 & (uint64)1) == 1");
 	#endif
 		qinv0.d0  = (q0.d0 + q0.d0 + q0.d0) ^ (uint64)2;	qinv0.d1  = (uint64)0;
@@ -1201,14 +1204,9 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		qinv2.d1 &= 0x00000000ffffffff;
 		qinv3.d1 &= 0x00000000ffffffff;
 	#endif
-	  #if FAC_DEBUG
+	  #ifdef FAC_DEBUG
 		if(dbg)
 		{
-			printf("q0 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, q0)]);
-			printf("q1 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, q1)]);
-			printf("q2 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, q2)]);
-			printf("q3 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, q3)]);
-			printf("\n");
 			printf("qinv0 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, qinv0)]);
 			printf("qinv1 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, qinv1)]);
 			printf("qinv2 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, qinv2)]);
@@ -1219,7 +1217,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		/* Since zstart is a power of two < 2^96, use a streamlined code sequence for the first iteration: */
 		j = start_index-1;
 
-	#if FAC_DEBUG
+	#ifdef FAC_DEBUG
 		if(dbg) printf("zshift  = %u\n", zshift);
 	#endif
 		/* MULL96(zstart,qinv,lo) simply amounts to a left-shift of the bits of qinv: */
@@ -1227,7 +1225,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		LSHIFT96(qinv1, zshift, lo1);
 		LSHIFT96(qinv2, zshift, lo2);
 		LSHIFT96(qinv3, zshift, lo3);
-	#if FAC_DEBUG
+	#ifdef FAC_DEBUG
 		if(dbg) {
 			printf("lo0 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, lo0)]);
 			printf("lo1 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, lo1)]);
@@ -1241,7 +1239,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		, q1, lo1, lo1
 		, q2, lo2, lo2
 		, q3, lo3, lo3);
-	#if FAC_DEBUG
+	#ifdef FAC_DEBUG
 		if(dbg) {
 			printf("q0*lo0/2^96 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, lo0)]);
 			printf("q0*lo1/2^96 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, lo1)]);
@@ -1255,7 +1253,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		SUB96(q1, lo1, x1);
 		SUB96(q2, lo2, x2);
 		SUB96(q3, lo3, x3);
-	#if FAC_DEBUG
+	#ifdef FAC_DEBUG
 		if(dbg) {
 			printf("x0 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x0)]);
 			printf("x1 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x1)]);
@@ -1267,25 +1265,28 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 		if((pshift >> j) & (uint64)1)
 		{
-		#if FAC_DEBUG
-			ASSERT(HERE, CMPULT96(x0, q0), "twopmodq96_q4 : CMPULT96(x0,q0)");
-		#endif
 			if(CMPUGT96(x0, qhalf0)){ ADD96(x0, x0, x0); SUB96(x0, q0, x0); }else{ ADD96(x0, x0, x0); }
 			if(CMPUGT96(x1, qhalf1)){ ADD96(x1, x1, x1); SUB96(x1, q1, x1); }else{ ADD96(x1, x1, x1); }
 			if(CMPUGT96(x2, qhalf2)){ ADD96(x2, x2, x2); SUB96(x2, q2, x2); }else{ ADD96(x2, x2, x2); }
 			if(CMPUGT96(x3, qhalf3)){ ADD96(x3, x3, x3); SUB96(x3, q3, x3); }else{ ADD96(x3, x3, x3); }
-		#if FAC_DEBUG
+		#ifdef FAC_DEBUG
+		//	if(CMPULT96(q0, x0)) { sprintf(char_buf, "twopmodq96_q4 : (x0 = %s) >= (q0 = %s)", &str0[convert_uint96_base10_char(str0, x0)], &str1[convert_uint96_base10_char(str1, q0)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
 			ASSERT(HERE, CMPULT96(x0, q0), "twopmodq96_q4 : CMPULT96(x0,q0)");
-			if(CMPULT96(q0, x0)){
-				sprintf(char_buf, "twopmodq96_q4 : (x0 = %s) >= (q0 = %s)", &str0[convert_uint96_base10_char(str0, x0)], &str1[convert_uint96_base10_char(str1, q0)] );
-			//	DBG_WARN(HERE, char_buf, STATFILE, !restart);
+			ASSERT(HERE, CMPULT96(x1, q1), "twopmodq96_q4 : CMPULT96(x1,q1)");
+			ASSERT(HERE, CMPULT96(x2, q2), "twopmodq96_q4 : CMPULT96(x2,q2)");
+			ASSERT(HERE, CMPULT96(x3, q3), "twopmodq96_q4 : CMPULT96(x3,q3)");
+			if(dbg) {
+				printf("x0 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x0)]);
+				printf("x1 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x1)]);
+				printf("x2 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x2)]);
+				printf("x3 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x3)]);
 			}
 		#endif
 		}
 
 		for(j = start_index-2; j >= 0; j--)
 		{
-		#if FAC_DEBUG
+		#ifdef FAC_DEBUG
 			if(dbg)printf("j = %2d:\n", j);
 		#endif
 			/*...x^2 mod q is returned in x. */
@@ -1294,7 +1295,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			, x1, lo1, hi1
 			, x2, lo2, hi2
 			, x3, lo3, hi3);
-		#if FAC_DEBUG
+		#ifdef FAC_DEBUG
 			if(dbg) {
 				printf("Multiply output #1.lo0 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, lo0)]);
 				printf("Multiply output #1.lo1 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, lo1)]);
@@ -1313,7 +1314,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			, lo1, qinv1, lo1
 			, lo2, qinv2, lo2
 			, lo3, qinv3, lo3);
-		#if FAC_DEBUG
+		#ifdef FAC_DEBUG
 			if(dbg) {
 				printf("Multiply output #2.0 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, lo0)]);
 				printf("Multiply output #2.1 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, lo1)]);
@@ -1327,7 +1328,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			, q1, lo1, lo1
 			, q2, lo2, lo2
 			, q3, lo3, lo3);
-		#if FAC_DEBUG
+		#ifdef FAC_DEBUG
 			if(dbg) {
 				printf("Multiply output #3.0 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, lo0)]);
 				printf("Multiply output #3.1 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, lo1)]);
@@ -1391,7 +1392,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			*/
 			if((pshift >> j) & (uint64)1)
 			{
-			#if FAC_DEBUG
+			#ifdef FAC_DEBUG
 				ASSERT(HERE, CMPULT96(x0, q0), "twopmodq96_q4 : CMPULT96(x0,q0)");
 				ASSERT(HERE, CMPULT96(x1, q1), "twopmodq96_q4 : CMPULT96(x1,q1)");
 				ASSERT(HERE, CMPULT96(x2, q2), "twopmodq96_q4 : CMPULT96(x2,q2)");
@@ -1426,11 +1427,11 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 				hx0 -= hq_or_nil_lo26[hidx];
 				ix0 -= iq_or_nil_lo26[iidx];
 			#endif
-			#if FAC_DEBUG
+			#ifdef FAC_DEBUG
 				if(dbg) printf("*2= %s", &char_buf[convert_uint96_base10_char(char_buf, x0)]);
 			#endif
 			}
-		#if FAC_DEBUG
+		#ifdef FAC_DEBUG
 			if(dbg) printf("\n");
 		#endif
 
@@ -1441,7 +1442,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			if(CMPULT96(hi1, lo1)) { SUB96(q1, lo1, lo1);	ADD96(lo1, hi1, x1); } else { SUB96(hi1, lo1, x1); }
 			if(CMPULT96(hi2, lo2)) { SUB96(q2, lo2, lo2);	ADD96(lo2, hi2, x2); } else { SUB96(hi2, lo2, x2); }
 			if(CMPULT96(hi3, lo3)) { SUB96(q3, lo3, lo3);	ADD96(lo3, hi3, x3); } else { SUB96(hi3, lo3, x3); }
-		#if FAC_DEBUG
+		#ifdef FAC_DEBUG
 			if(dbg) {
 			printf("(h-l) mod q #0 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x0)]);
 			printf("(h-l) mod q #1 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x1)]);
@@ -1453,7 +1454,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 			/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 			if((pshift >> j) & (uint64)1)
 			{
-			#if FAC_DEBUG
+			#ifdef FAC_DEBUG
 				ASSERT(HERE, CMPULT96(x0, q0), "twopmodq96_q4 : CMPULT96(x0,q0)");
 				ASSERT(HERE, CMPULT96(x1, q1), "twopmodq96_q4 : CMPULT96(x1,q1)");
 				ASSERT(HERE, CMPULT96(x2, q2), "twopmodq96_q4 : CMPULT96(x2,q2)");
@@ -1463,7 +1464,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 				if(CMPUGT96(x1, qhalf1)){ ADD96(x1, x1, x1); SUB96(x1, q1, x1); }else{ ADD96(x1, x1, x1); }
 				if(CMPUGT96(x2, qhalf2)){ ADD96(x2, x2, x2); SUB96(x2, q2, x2); }else{ ADD96(x2, x2, x2); }
 				if(CMPUGT96(x3, qhalf3)){ ADD96(x3, x3, x3); SUB96(x3, q3, x3); }else{ ADD96(x3, x3, x3); }
-			#if FAC_DEBUG
+			#ifdef FAC_DEBUG
 				if(dbg) {
 					printf("x0 = %s, *2 .\n", &char_buf[convert_uint96_base10_char(char_buf, x0)]);
 					printf("x1 = %s, *2 .\n", &char_buf[convert_uint96_base10_char(char_buf, x1)]);
@@ -1472,7 +1473,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 				}
 			#endif
 			} else {
-			#if FAC_DEBUG
+			#ifdef FAC_DEBUG
 				if(dbg) {
 					printf("x0 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x0)]);
 					printf("x1 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x1)]);
@@ -1481,7 +1482,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 				}
 			#endif
 			}
-		#if FAC_DEBUG
+		#ifdef FAC_DEBUG
 			if(dbg) printf("\n");
 		#endif
 
@@ -1507,7 +1508,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		tmp1 = CMPEQ96(x1, ONE96);
 		tmp2 = CMPEQ96(x2, ONE96);
 		tmp3 = CMPEQ96(x3, ONE96);
-	#if FAC_DEBUG
+	#ifdef FAC_DEBUG
 		if(dbg)
 		{
 			printf("xout0 = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x0)]);
@@ -1649,7 +1650,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 		zshift = 95 - leadb;
 		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
 		pshift = ~pshift;
-	#if FAC_DEBUG
+	#ifdef FAC_DEBUG
 		if(dbg)	printf("twopmodq96_q8: leadb = %u\n",leadb);
 	#endif
 
@@ -1967,7 +1968,7 @@ start_index = 2;	// debug - just one loop exec
 		** 8,9 FREE **/\
 			"\n\t"\
 		/* If current bit of pshift == 1, double each output modulo q: */\
-			"movl	%[__pshift],%%eax		\n\t"\
+			"movq	%[__pshift],%%rax		\n\t"\
 			"shrq	%%cl,%%rax				\n\t"\
 			"andq	$0x1,%%rax				\n\t"\
 		"je	twopmodq96_q8_pshiftjmp	\n\t"/* if((pshift >> j) & (uint64)1) { */\
@@ -2064,7 +2065,7 @@ exit(0);
 
 	uint64 twopmodq96_q8(uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7, int init_sse2, int thr_id)
 	{
-	#if FAC_DEBUG
+	#ifdef FAC_DEBUG
 		int dbg = STREQ(&char_buf[convert_uint64_base10_char(char_buf, p)], "0");
 	#endif
 		 int32 j;
@@ -2091,7 +2092,7 @@ exit(0);
 		zshift <<= 1;				/* Doubling the shift count here takes cares of the first SQR_LOHI */
 		pshift = ~pshift;
 
-	#if FAC_DEBUG
+	#ifdef FAC_DEBUG
 		if(dbg)printf("twopmodq96_q8:\n");
 	#endif
 
@@ -2140,7 +2141,7 @@ exit(0);
 		!    Find modular inverse (mod 2^96) of q in preparation for modular multiply.
 		*/
 		/* q must be odd for Montgomery-style modmul to work: */
-	#if FAC_DEBUG
+	#ifdef FAC_DEBUG
 		ASSERT(HERE, (q0.d0 & (uint64)1) == 1, "twopmodq96_q8 : (q0.d0 & (uint64)1) == 1");
 		ASSERT(HERE, (q1.d0 & (uint64)1) == 1, "twopmodq96_q8 : (q1.d0 & (uint64)1) == 1");
 		ASSERT(HERE, (q2.d0 & (uint64)1) == 1, "twopmodq96_q8 : (q2.d0 & (uint64)1) == 1");
@@ -2263,7 +2264,7 @@ exit(0);
 
 		if((pshift >> j) & (uint64)1)
 		{
-		#if FAC_DEBUG
+		#ifdef FAC_DEBUG
 			ASSERT(HERE, CMPULT96(x0, q0), "twopmodq96_q8 : CMPULT96(x0,q0)");
 			ASSERT(HERE, CMPULT96(x1, q1), "twopmodq96_q8 : CMPULT96(x1,q1)");
 			ASSERT(HERE, CMPULT96(x2, q2), "twopmodq96_q8 : CMPULT96(x2,q2)");
@@ -2284,7 +2285,7 @@ exit(0);
 			if(CMPUGT96(x7, qhalf7)){ ADD96(x7, x7, x7); SUB96(x7, q7, x7); }else{ ADD96(x7, x7, x7); }
 		}
 
-	#if FAC_DEBUG
+	#ifdef FAC_DEBUG
 		if(CMPULT96(q0, x0)){ sprintf(char_buf, "twopmodq96_q8 : (x0 = %s) >= (q0 = %s)", &str0[convert_uint96_base10_char(str0, x0)], &str1[convert_uint96_base10_char(str1, q0)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
 		if(CMPULT96(q1, x1)){ sprintf(char_buf, "twopmodq96_q8 : (x1 = %s) >= (q1 = %s)", &str0[convert_uint96_base10_char(str0, x1)], &str1[convert_uint96_base10_char(str1, q1)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
 		if(CMPULT96(q2, x2)){ sprintf(char_buf, "twopmodq96_q8 : (x2 = %s) >= (q2 = %s)", &str0[convert_uint96_base10_char(str0, x2)], &str1[convert_uint96_base10_char(str1, q2)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
@@ -2340,7 +2341,7 @@ exit(0);
 
 			if((pshift >> j) & (uint64)1)
 			{
-			#if FAC_DEBUG
+			#ifdef FAC_DEBUG
 				ASSERT(HERE, CMPULT96(x0, q0), "twopmodq96_q8 : CMPULT96(x0,q0)");
 				ASSERT(HERE, CMPULT96(x1, q1), "twopmodq96_q8 : CMPULT96(x1,q1)");
 				ASSERT(HERE, CMPULT96(x2, q2), "twopmodq96_q8 : CMPULT96(x2,q2)");

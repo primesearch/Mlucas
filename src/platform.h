@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -21,8 +21,9 @@
 *******************************************************************************/
 
 /****************************************************************************
- * Principal platform (CPU/compiler/OS) identification header file.
- ****************************************************************************/
+***   Principal platform (CPU/compiler/OS) identification header file.    ***
+*** To list all compiler predefines, use 'gcc -dM -E align.h < /dev/null' ***
+****************************************************************************/
 #ifndef platform_h_included
 #define platform_h_included
 
@@ -275,7 +276,7 @@ o RE_IM_STRIDE = Numberic of doubles (real*8 in Fortran-style num-bytes lingo) i
                = Number of real*8 array slots separating grouped Re and Im elements of the same complex datum
                  in the vector that gets FFTed. Default (non-SIMD) value is 1, SSE2 = 2, AVX/AVX2 = 4, AVX512 = 8.
 
-o L2_SZ_VD = lg(sizeof(vec_dbl) = 4 for sse2, 5 for avx/avx2, 6 for avx512.
+o L2_SZ_VD = lg(sizeof(vec_dbl) = 3 for scalar-double (no SIMD), 4 for sse2, 5 for avx/avx2, 6 for avx512.
 
 o SZ_VD = sizeof(vec_dbl), SZ_VD_M1 = SZ_VD-1.
 */
@@ -305,7 +306,7 @@ o SZ_VD = sizeof(vec_dbl), SZ_VD_M1 = SZ_VD-1.
 	#define SZ_VD			16
 	#define SZ_VDM1			15
 
-#else	// Scalar-double mode: Still need to define the qtys below:
+#else	// Scalar-double mode means no SIMD, but still need to define the qtys below:
 
 	#define RE_IM_STRIDE	1
 	#define L2_SZ_VD		3
@@ -376,7 +377,7 @@ o SZ_VD = sizeof(vec_dbl), SZ_VD_M1 = SZ_VD-1.
 		#define OS_BITS 64
 	#else
 		// EWM: align.h here simply serves to provide a non-empty file arg to gcc, without the Mlucas-macros clutter that would result from using a .c file as arg:
-		#error __SIZEOF_POINTER__ defined but returns unrecognized value! Use gcc -dM -E align.h < /dev/null | grep __SIZEOF_POINTER__ to examine.
+		#error __SIZEOF_POINTER__ defined but returns unrecognized value! Use 'gcc -dM -E align.h < /dev/null | grep __SIZEOF_POINTER__' to examine.
 	#endif
 
   // Otherwise see if can use the value of __LONG_MAX__ in limits.h to quickly and portably determine whether it's 32-bit or 64-it OS:
@@ -1254,7 +1255,16 @@ states that the compiler defines __64BIT__ if compiling in 64-bit mode.
 extern int MAX_THREADS;
 extern int NTHREADS;
 
-// Needed to add the GCC flag here, otherwise MSVC tries to #include headers, etc even if USE_THREADS not defined:
+// Nov 2020: Under MacOS, use of sysctlbyname call in util.c::print_host_info needs this moved outside #ifdef USE_THREADS.
+// Feb 2021: Under Linux, per this [url=https://github.com/open5gs/open5gs/issues/600]Github discussion[/url],
+// "sysctl() is deprecated and may break build with glibc >= 2.30", so add an appropriate GLIBC-version clause:
+#if defined(OS_TYPE_MACOSX) || !defined(OS_TYPE_GNU_HURD) && ((__GLIBC__ < 2) || (__GLIBC_MINOR__ < 30))
+  #ifdef OS_TYPE_LINUX
+	#warning GLIBC either not defined or version < 2.30 ... including <sys/sysctl.h> header.
+  #endif
+	#include <sys/sysctl.h>
+#endif
+
 #ifdef USE_THREADS
 
   #if defined(COMPILER_TYPE_GCC) && defined(OS_POSIX_COMPLIANT)
@@ -1303,9 +1313,6 @@ extern int NTHREADS;
 		#define __USE_GNU
 		#include <sched.h>
 
-	  #ifndef OS_TYPE_GNU_HURD
-		#include <sys/sysctl.h>
-	  #endif
 		#include <unistd.h>	// Needed for Posix sleep() command, among other things
 		#ifdef OS_TYPE_LINUX
 
@@ -1578,14 +1585,14 @@ extern int NTHREADS;
 	#endif
 #endif
 
-// Jan 2021: 32-bit builds no longer supported in SIMD mode:
-#if defined(USE_SSE2) && (OS_BITS == 32)
-	#error  SIMD-assembler code only supported for 64-bit build!
-#endif
-
 // SIMD code only available for 64-bit GCC (or compatible compiler) build:
-#if defined(USE_SSE2) && !defined(COMPILER_TYPE_GCC)
-	#error  SIMD code only available for GCC (or compatible compiler) build!
+#if defined(USE_SSE2)
+	#if OS_BITS == 32
+		#error  SIMD-assembler code only supported for 64-bit build!
+	#endif
+	#ifndef COMPILER_TYPE_GCC
+		#error  SIMD code only available for GCC (or compatible compiler) build!
+	#endif
 #endif
 
 // Control over x86 inline assembly usage:

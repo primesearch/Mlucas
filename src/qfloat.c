@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -189,17 +189,17 @@ const struct qfloat QTHREE  = {0x4008000000000000ull, 0x0000000000000000ull};
 const struct qfloat Q2PI    = {0x401921FB54442D18ull, 0x469898CC51701B84ull};	// 2*Pi
 const struct qfloat QPI     = {0x400921FB54442D18ull, 0x469898CC51701B84ull};	// Pi
 const struct qfloat QPIHALF = {0x3FF921FB54442D18ull, 0x469898CC51701B84ull};	// Pi/2
-const struct qfloat QIPIHLF = {0x3FE45F306DC9C882ull, 0xA53F84EAFA3EA69Cull};	// 2/Pi
-
 const struct qfloat QPI4TH  = {0x3FE921FB54442D18ull, 0x469898CC51701B84ull};	// Pi/4
+const struct qfloat QIPIHLF = {0x3FE45F306DC9C882ull, 0xA53F84EAFA3EA69Cull};	// 2/Pi
 const struct qfloat QLN2    = {0x3FE62E42FEFA39EFull, 0x35793C7673007E5Full};	// log(2)
 const struct qfloat QEXP    = {0x4005BF0A8B145769ull, 0x5355FB8AC404E7A8ull};	// E
 const struct qfloat QSQRT2  = {0x3FF6A09E667F3BCCull, 0x908B2FB1366EA958ull};	// NB: Use Pari to output sqrt(2), then display in hex using 'bc -l' and 'obase=16' gives
 const struct qfloat QISRT2  = {0x3FE6A09E667F3BCCull, 0x908B2FB1366EA958ull};	// 1.6A09E667F3BCC908B2FB1366EA957D4, which is already normalized with hidden bit left of the '.'
 const struct qfloat QI64AGM = {0x403D1FB7DBFA8B50ull, 0x9906EE26BBF22BBBull};	/* 1/AGM(1,1/2^64) for log(x), @full precision */
 const struct qfloat QSNAN   = {0xFFFFFFFFFFFFFFFFull, 0xFFFFFFFFFFFFFFFFull};	/* signaling NaN */
+
 // Array of precomputed small-integer inverses
-// $$%^%$@ GCC would not allow me to set the first 2 elts = QSNAN, QONE: "error: initializer element is not constant"
+// !$%^%$@ GCC/Clang would not allow me to set the first 2 elts = QSNAN, QONE: "error: initializer element is not a compile-time constant"
 static const struct qfloat QNINV[] = {
 	{0xFFFFFFFFFFFFFFFFull,0xFFFFFFFFFFFFFFFFull},	// n =  0; set inv = QSNAN
 	{0x3FF0000000000000ull,0x0000000000000000ull},	// n =  1
@@ -1333,6 +1333,11 @@ struct qfloat qfsub	(struct qfloat q1, struct qfloat q2)
 	return q;
 }
 
+// Absolute-difference:
+struct qfloat qfabsdiff(struct qfloat q1, struct qfloat q2)
+{
+	return qfabs(qfsub(q1,q2));
+}
 
 /*
 Qfloat addition algorithm. Assumes both summands are nonnegative. A fair amount of code,
@@ -2406,35 +2411,57 @@ struct qfloat qfcot(struct qfloat q)
    sign and magnitude of the input and map that to the proper call to either
    +-sin(arg) or +-cos(arg), where arg is in [0, pi/2).
 
-   Use the following symmetries, all based on the general formulae
+   Use the following symmetries, all based on the angle-sum identities
 
 	cos(x+a) = cos(x)*cos(a) - sin(x)*sin(a);	sin(x+a) = sin(x)*cos(a) + cos(x)*sin(a);
 
    1) exp(I*(x + 2*k*pi)) = exp(I*x);						(full-rotation symmetry, a = 2*k*pi)
-
    2) cos(x + pi  ) = -cos(x);      sin(x + pi  ) = -sin(x);	(half-rotation symmetry, a = pi  )
-
    3) cos(x + pi/2) = -sin(x);      sin(x + pi/2) = +cos(x);	(symmetry about y-axis,  a = pi/2)
 
+	Let i = int(theta/(pi/2) (mod 4) = 0-3 be the quadrant index, and gamma := theta - i*pi/2 in [0, pi/2). Then:
+
+		i	cos(theta)		sin(theta)
+		-	-----------		-----------
+		0	+cos(gamma)		+sin(gamma)
+		1	-sin(gamma)		+cos(gamma)
+		2	-cos(gamma)		-sin(gamma)
+		3	+sin(gamma)		-cos(gamma)
+
+	We can even go one better by using the fact that all roots can be mapped to data in the first octant.
+
+	Let i = int(theta/(pi/4) (mod 8) = 0-7 be the octant index, and gamma := theta - i*pi/4 in [0, pi/4). Then:
+
+		i	cos(theta)			sin(theta)
+		-	------------------	------------------
+		0	+cos(       gamma)	+sin(       gamma)
+		1	+sin(  pi/2-gamma)	+cos(  pi/2-gamma)
+		2	-sin(       gamma)	+cos(       gamma)
+		3	-cos(  pi  -gamma)	+sin(  pi  -gamma)
+		4	-cos(       gamma)	-sin(       gamma)
+		5	-sin(3*pi/2-gamma)	-cos(3*pi/2-gamma)
+		6	+sin(       gamma)	-cos(       gamma)
+		7	+cos(2*pi  -gamma)	-sin(2*pi  -gamma)
+
+	We implement the latter by starting with the quadrant-based mapping, then mapping the resulting
+	args in [0, pi/2) to [0, pi/4) in the low-level qfcs1 and qfsn1 routines using the symmetries
+
+		cos(pi/2 - x) = sin(x),	    sin(pi/2 - x) = cos(x).
 */
 struct qfloat qfcos	(struct qfloat q)
 {
 	struct qfloat qt;
 	uint128 i;
 	uint32 quad;
-
-	qt = qfabs(q);				/* Need deal only with nonnegative numbers. */
-	qt = qfmul(qt, QIPIHLF);	/* Get q/(pi/2)... */
-	i  = qfint(qt);				/* ...And truncate that to the next-smaller integer (128-bit int in this case). */
-
-	/* For the quadrant, we only need the result modulo 4. */
+	qt = qfabs(q);				// Need deal only with nonnegative numbers.
+	qt = qfmul(qt, QIPIHLF);	// Get q/(pi/2)...
+	i  = qfint(qt);				// ...And truncate that to the next-smaller integer (128-bit int in this case).
+	// For the quadrant, we only need the result modulo 4:
 	quad = i.d0 & (uint64)3;
 	ASSERT(HERE, !i.d1 && (int64)i.d0 >= 0,"QFCOS: quadrant error");
 	qt = i64_to_q((int64)i.d0);
-
-	/* The calling argument is q mod pi/2 */
+	// The calling argument is q mod pi/2:
 	q = qfsub(q, qfmul(qt, QPIHALF));
-
 	if(quad == 0)
 		q = qfcs1(q);
 	else if(quad == 1)
@@ -2443,7 +2470,6 @@ struct qfloat qfcos	(struct qfloat q)
 		q = qfneg(qfcs1(q));
 	else if(quad == 3)
 		q = qfsn1(q);
-
 	return q;
 }
 
@@ -2452,19 +2478,15 @@ struct qfloat qfsin	(struct qfloat q)
 	struct qfloat qt;
 	uint128 i;
 	uint32 quad, sign = qfcmplt(q, QZRO);
-
-	qt = qfabs(q);				/* Deal only with nonnegative numbers. */
-	qt = qfmul(qt, QIPIHLF);	/* Get q/(pi/2)... */
-	i  = qfint(qt);				/* ...And truncate that to the next-smaller integer (128-bit int in this case). */
-
-	/* For the quadrant, we only need the result modulo 4. */
+	qt = qfabs(q);				// Need deal only with nonnegative numbers.
+	qt = qfmul(qt, QIPIHLF);	// Get q/(pi/2)...
+	i  = qfint(qt);				// ...And truncate that to the next-smaller integer (128-bit int in this case).
+	// For the quadrant, we only need the result modulo 4:
 	quad = i.d0 & (uint64)3;
 	ASSERT(HERE, !i.d1 && (int64)i.d0 >= 0,"QFSIN: quadrant error");
 	qt = i64_to_q((int64)i.d0);
-
-	/* The calling argument is q mod pi/2 */
+	// The calling argument is q mod pi/2:
 	q = qfsub(q, qfmul(qt, QPIHALF));
-
 	if(quad == 0)
 		q = qfsn1(q);
 	else if(quad == 1)
@@ -2494,10 +2516,47 @@ Actually, the Taylor series itself doesn't require any limitations whatsoever on
 argument, but for the sake of fast convergence and high accuracy, we desire smallish arguments.
 Since this routine is designed strictly to be called from the high-level qfcos routine, which
 maps an arbitrary qfloat argument into [0, pi/2), the restriction on inputs is no problem.
+
+Jan 2002: Add fixed-order polynomial exoansions based on Chebyshev-basis approximation to cos,sin(x)
+for x in [-pi/4,pi/4], using first 24 T_j(x). Here are the resulting max abs-error values relative to
+the existing Taylor-series-based expansion:
+
+maxerr =     1.811577853939244e-33 at x =    0.001315541923691
+maxerr =     3.129636159629258e-34 at x =    0.753856573155407
+
 */
+// Jan 2020: This is ~10% faster than Taylor-series approach on my CoreDuo MacBook
+// but slightly less accurate, so leave the Taylor series way as the default:
+#undef USE_CHEB_EXPANSION
+#define USE_CHEB_EXPANSION	0	// 0 = Taylor series, > 0 = Chebyshev-derived near-minimax poly, 1 = branchless, 2 = branched
+#if (USE_CHEB_EXPANSION < 0) || (USE_CHEB_EXPANSION > 2)
+	#error Allowable values of USE_CHEB_EXPANSION = 0,1,2!
+#endif
 struct qfloat qfcs1(struct qfloat q)
 {
-	uint32 i,j, e_sum, e_new;
+#if (USE_CHEB_EXPANSION == 1)	// Branchless algorithm:
+	const struct qfloat g[2] = {QZRO,QPIHALF}, qeps = {0x3930000000000000ull, 0x0000000000000000ull};;
+	struct qfloat q2, sum;
+#elif (USE_CHEB_EXPANSION == 2)
+	int i;
+	struct qfloat qsqr, sum;
+	const struct qfloat coeff[12] = {
+		{0x3FEFFFFFFFFFFFFFull,0xFFFFFFFFFFFFFED7ull},
+		{0xBFDFFFFFFFFFFFFFull,0xFFFFFFFFFFFD69B3ull},
+		{0x3FA5555555555555ull,0x55555555502458ABull},
+		{0xBF56C16C16C16C16ull,0xC16C16AFDFC52F06ull},
+		{0x3EFA01A01A01A01Aull,0x019FDA92EFCFD33Cull},
+		{0xBE927E4FB7789F5Cull,0x7264FD63BD813E8Bull},
+		{0x3E21EED8EFF8D896ull,0x33A732C1DF58EB2Eull},
+		{0xBDA93974A8C07706ull,0x64DDC3EB89ACE555ull},
+		{0x3D2AE7F3E725CD67ull,0xCF3B27A90337C664ull},
+		{0xBCA682784CBB96C1ull,0xAFC0F5C914D95396ull},
+		{0x3C1E53FB4C09439Aull,0x5F593CD59E826B71ull},
+		{0xBB90B0F048BCA62Full,0x4FF38D712E5D4A81ull}
+	};
+#else
+	int i,j;
+	uint32 e_sum, e_new;
 	struct qfloat qsqr, sum, curr_term, q1, mult;
 	const int qsz = sizeof(struct qfloat);
 	static struct qfloat*denoms = 0x0;
@@ -2512,16 +2571,27 @@ struct qfloat qfcs1(struct qfloat q)
 			denoms[j  ] = qfmul(QNINV[i+1], QNINV[i+2]);
 		}
 	}
-
+#endif
 	/* Make sure argument is in range... */
 	DBG_ASSERT(HERE, (qfcmple(qfneg(QEPS), q) && qfcmplt(q, qfadd(QPIHALF, QEPS))), "ERROR 200 in qfloat.c");
 
+#if (USE_CHEB_EXPANSION == 1)	// Branchless algorithm:
+
+	// q < pi/4: compute cos(q); q >= pi/4: compute sin(pi/2 - q). Break this into the following steps:
+	int cos_or_sin = qfcmpge(q,QPI4TH);	// [0] q < pi/4: cos_or_sin = 0; q >= pi/4: cos_or_sin = 1
+	q2 = qfsub(q,zero_or_pi2[cos_or_sin]);	// [1] q < pi/4: q2 = q - 0; q >= pi/4: q2 = q - pi/2
+	q2.hi ^= (uint64)cos_or_sin << 63;		// [2] q < pi/4: q2 = q - 0; q >= pi/4: q2 = pi/2 - q
+	sum = qfcos_or_sin1(q2,cos_or_sin);	// [3] q < pi/4: s2 = cos(q); q >= pi/4: s2 = sin(pi/2 - q).
+
+#else	// Legacy algorithm w/branch
+
 	if(qfcmpeq(QZRO, q)) {
 		return QONE;
-	} else if(qfcmplt(qfmul_pow2(QPIHALF, -1), q)) {	/* Argument is > pi/4. Return cos (pi/2 - q). */
-		return qfsn1(qfsub(QPIHALF, q));
-	}
+	} else if(qfcmpgt(q,QPI4TH)) {		// Argument > pi/4; return sin(pi/2 - q). ***NOTE:*** Use > here and >= in the corresponding
+		return qfsn1(qfsub(QPIHALF, q));// qfsn1 code; if use >= for both, execution will bounce back and forth in an infinite recursive
+	}									// loop (==> "EXC_BAD_ACCESS, Could not access memory") when q == QPI4TH.
 
+  #if !USE_CHEB_EXPANSION
 	/* Initialize partial sum to 1 - x^2/2... */
 	qsqr= qfmul(q, q);
 	curr_term = qfmul_pow2(qsqr, -1);
@@ -2552,6 +2622,25 @@ struct qfloat qfcs1(struct qfloat q)
 		}
 	}
 	ASSERT(HERE, ((int32)(e_sum - e_new) > 115), "Unconverged cos(x) summation!");
+
+  #elif (USE_CHEB_EXPANSION == 2)
+
+	/* Compute first-12-even-bases Chebyshev approximation,
+		c0 + c2.x^2 + c4.x^4 + c6.x^6 + c8.x^8 + c10.x^10 + c12.x^12 + c14.x^14 + c16.x^16 + c18.x^18 + c20.x^20 + c22.x^22,
+	with the multiply-accumulation structured like so, preserving maximal accuracy by starting at the small (right) end and working leftward:
+		c0 + x^2.(c2 + x^2.(c4 + x^2.(c6 + x^2.(c8 + x^2.(c10 + x^2.(c12 + x^2.(c14 + x^2.(c16 + x^2.(c18 + x^2.(c20 + x^2.c22))))))))))
+	*/
+	// Initialize accumulator to c20 + c22.x^2:
+	qsqr= qfmul(q, q);
+	sum = qfmul(qsqr,coeff[11]);
+	sum = qfadd(coeff[10], sum);
+	for(i = 9; i >= 0; i--)	{
+		sum = qfmul(qsqr,sum);
+		sum = qfadd(coeff[i], sum);
+	}
+
+  #endif
+#endif
 	return sum;
 }
 
@@ -2568,7 +2657,29 @@ maps an arbitrary qfloat argument into [0, pi/2), the restriction on inputs is n
 */
 struct qfloat qfsn1(struct qfloat q)
 {
-	uint32 i,j, e_sum, e_new;
+#if (USE_CHEB_EXPANSION == 1)	// Branchless algorithm:
+	const struct qfloat zero_or_pi2[2] = {QZRO,QPIHALF}, qeps = {0x3930000000000000ull, 0x0000000000000000ull};;
+	struct qfloat q2, sum;
+#elif (USE_CHEB_EXPANSION == 2)
+	int i;
+	struct qfloat qsqr, sum;
+	const struct qfloat coeff[12] = {
+		{0x3FF0000000000000ull,0x000000000000019Full},
+		{0xBFC5555555555555ull,0x55555555555D3720ull},
+		{0x3F81111111111111ull,0x11111111274A67C2ull},
+		{0xBF2A01A01A01A01Aull,0x01A01A7441697770ull},
+		{0x3EC71DE3A556C733ull,0x8FAC077F9BABDB73ull},
+		{0xBE5AE64567F544E3ull,0x944939AFB8657D0Cull},
+		{0x3DE6124613A86D13ull,0x19936FC2A332D1C8ull},
+		{0xBD6AE7F3E733D377ull,0x7C466FD62F4FAF8Cull},
+		{0x3CE952C770628C4Dull,0x785AD699F7C50A9Eull},
+		{0xBC62F49B7DC66453ull,0x343E4FE1AC28ECB9ull},
+		{0x3BD71BCED110E8CEull,0x0B2F6B7014428EB2ull},
+		{0xBB4773EEB2D02E27ull,0x8A69E1E69474DF98ull}
+	};
+#else
+	int i,j;
+	uint32 e_sum, e_new;
 	struct qfloat qsqr, sum, curr_term, q1, mult;
 	const int qsz = sizeof(struct qfloat);
 	static struct qfloat*denoms = 0x0;
@@ -2583,16 +2694,27 @@ struct qfloat qfsn1(struct qfloat q)
 			denoms[j  ] = qfmul(QNINV[i+1], QNINV[i+2]);
 		}
 	}
-
+#endif
 	/* Make sure argument is in range... */
 	DBG_ASSERT(HERE, (qfcmple(qfneg(QEPS), q) && qfcmplt(q, qfadd(QPIHALF, QEPS))), "ERROR 210 in qfloat.c");
 
+#if (USE_CHEB_EXPANSION == 1)	// Branchless algorithm:
+
+	// q < pi/4: compute sin(q); q >= pi/4: compute cos(pi/2 - q). Break this into the following steps:
+	int sin_or_cos = qfcmpge(q,QPI4TH);	// [0] q < pi/4: sin_or_cos = 0; q >= pi/4: sin_or_cos = 1
+	q2 = qfsub(q,zero_or_pi2[sin_or_cos]);	// [1] q < pi/4: q2 = q - 0; q >= pi/4: q2 = q - pi/2
+	q2.hi ^= (uint64)sin_or_cos << 63;		// [2] q < pi/4: q2 = q - 0; q >= pi/4: q2 = pi/2 - q
+	sum = qfcos_or_sin1(q2,1-sin_or_cos);	// [3] q < pi/4: s2 = sin(q); q >= pi/4: s2 = cos(pi/2 - q).
+
+#else	// Legacy algorithm w/branch
+
 	if(qfcmpeq(QZRO, q)) {
 		return QZRO;
-	} else if(qfcmplt(qfmul_pow2(QPIHALF, -1), q)) {	/* Argument is > pi/4. Return cos (pi/2 - q). */
-		return qfcs1(qfsub(QPIHALF, q));
-	}
+	} else if(qfcmpge(q,QPI4TH)) {		// Argument >= pi/4; return cos(pi/2 - q). ***NOTE:*** Use >= here and > in the corresponding
+		return qfcs1(qfsub(QPIHALF, q));// qfcs1 code; if use >= for both, execution will bounce back and forth in an infinite recursive
+	}									// loop (==> "EXC_BAD_ACCESS, Could not access memory") when q == QPI4TH.
 
+  #if !USE_CHEB_EXPANSION
 	/* Initialize partial sum to x... */
 	qsqr= qfmul(q, q);
 	curr_term = sum = q;
@@ -2622,6 +2744,72 @@ struct qfloat qfsn1(struct qfloat q)
 		}
 	}
 	ASSERT(HERE, ((int32)(e_sum - e_new) > 115), "Unconverged sin(x) summation!");
+
+  #elif (USE_CHEB_EXPANSION == 2)
+
+	// Compute first-12-odd-bases Chebyshev approximation;
+	// Initialize accumulator to c21 + c23.x^2:
+	qsqr= qfmul(q, q);
+	sum = qfmul(qsqr,coeff[11]);
+	sum = qfadd(coeff[10], sum);
+	for(i = 9; i >= 0; i--)	{
+		sum = qfmul(qsqr,sum);
+		sum = qfadd(coeff[i], sum);
+	}
+	sum = qfmul(q,sum);	// Need a final mul-by-x in the sin(x) case
+
+  #endif
+#endif
+	return sum;
+}
+
+struct qfloat qfcos_or_sin1(struct qfloat q, int cos_or_sin)
+{
+	int i,i0;
+	struct qfloat qsqr, sum;
+	const struct qfloat coeff[24] = {	// Now interleave the even (cosine) and odd (sine) Chebyshev coefficients:
+		{0x3FEFFFFFFFFFFFFFull,0xFFFFFFFFFFFFFED7ull},
+		{0x3FF0000000000000ull,0x000000000000019Full},
+		{0xBFDFFFFFFFFFFFFFull,0xFFFFFFFFFFFD69B3ull},
+		{0xBFC5555555555555ull,0x55555555555D3720ull},
+		{0x3FA5555555555555ull,0x55555555502458ABull},
+		{0x3F81111111111111ull,0x11111111274A67C2ull},
+		{0xBF56C16C16C16C16ull,0xC16C16AFDFC52F06ull},
+		{0xBF2A01A01A01A01Aull,0x01A01A7441697770ull},
+		{0x3EFA01A01A01A01Aull,0x019FDA92EFCFD33Cull},
+		{0x3EC71DE3A556C733ull,0x8FAC077F9BABDB73ull},
+		{0xBE927E4FB7789F5Cull,0x7264FD63BD813E8Bull},
+		{0xBE5AE64567F544E3ull,0x944939AFB8657D0Cull},
+		{0x3E21EED8EFF8D896ull,0x33A732C1DF58EB2Eull},
+		{0x3DE6124613A86D13ull,0x19936FC2A332D1C8ull},
+		{0xBDA93974A8C07706ull,0x64DDC3EB89ACE555ull},
+		{0xBD6AE7F3E733D377ull,0x7C466FD62F4FAF8Cull},
+		{0x3D2AE7F3E725CD67ull,0xCF3B27A90337C664ull},
+		{0x3CE952C770628C4Dull,0x785AD699F7C50A9Eull},
+		{0xBCA682784CBB96C1ull,0xAFC0F5C914D95396ull},
+		{0xBC62F49B7DC66453ull,0x343E4FE1AC28ECB9ull},
+		{0x3C1E53FB4C09439Aull,0x5F593CD59E826B71ull},
+		{0x3BD71BCED110E8CEull,0x0B2F6B7014428EB2ull},
+		{0xBB90B0F048BCA62Full,0x4FF38D712E5D4A81ull},
+		{0xBB4773EEB2D02E27ull,0x8A69E1E69474DF98ull}
+	};
+	// GCC/Clang would not allow me to set the first 2 elts = QONE,QZRO: "error: initializer element is not a compile-time constant":
+	static struct qfloat one_or_q[2] = {
+		{0x3FF0000000000000ull, 0x0000000000000000ull},	// = QONE
+		{0x0000000000000000ull, 0x0000000000000000ull}	// = QZRO, used here as a compile-time placeholder
+	};
+	// Now insert the runtie value of the angular arg in the 2nd slot:
+	one_or_q[1] = q;
+	// Initialize accumulator to c20 + c22.x^2 [cosine case] or c21 + c23.x^2 [sine case]:
+	i0 = 22 + cos_or_sin;
+	qsqr= qfmul(q, q);
+	sum = qfmul(qsqr,coeff[i0]);
+	sum = qfadd(coeff[i0-2], sum);
+	for(i = i0-4; i >= 0; i -= 2) {
+		sum = qfmul(qsqr,sum);
+		sum = qfadd(coeff[i], sum);
+	}
+	sum = qfmul(one_or_q[cos_or_sin],sum);	// Need a final mul-by-x in the sin(x) case
 	return sum;
 }
 

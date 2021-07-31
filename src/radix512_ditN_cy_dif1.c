@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -482,10 +482,10 @@ void radix512_dit_pass1(double a[], int n)
 			a[jt    ],a[jp    ],a[jt+p20],a[jp+p20],a[jt+p40],a[jp+p40],a[jt+p60],a[jp+p60],a[jt+p80],a[jp+p80],a[jt+pa0],a[jp+pa0],a[jt+pc0],a[jp+pc0],a[jt+pe0],a[jp+pe0],a[ju],a[jv],a[ju+p20],a[jv+p20],a[ju+p40],a[jv+p40],a[ju+p60],a[jv+p60],a[ju+p80],a[jv+p80],a[ju+pa0],a[jv+pa0],a[ju+pc0],a[jv+pc0],a[ju+pe0],a[jv+pe0],
 			c16,s16
 		);
-	
+
 		// Remaining 31 sets of macro calls done in loop:
 		for(i = 1; i < 32; i++) {
-			tptr = t + reverse(i,32);
+			tptr = t + reverse(i,5);
 			jt = j1 + po_br[i]; jp = j2 + po_br[i];
 			ju = jt+p100;	jv = jp+p100;
 			addr = DFT1024_TWIDDLES[i]; addi = addr+1;	// Pointer to required row of 2-D twiddles array

@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -68,10 +68,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		/* And now do a quarter of 3-DFTs. Required output index permutation: [0,1,2,3,4,5,6,7,8,9,a,b] => [0,3,6,9,4,7,a,1,8,b,2,5],
 		i.e. in terms of our trial-output ordering into trios, [0,4,8|1,5,9|2,6,a|3,7,b] => [0,4,8|3,7,b|6,a,2|9,1,5]:
 		*/
-		RADIX_03_DFT(s,c3m1,t00,t01,t02,t03,t04,t05,u1,u2,u3,u4,u5,u6,a1p00r,a1p00i,a1p04r,a1p04i,a1p08r,a1p08i);
-		RADIX_03_DFT(s,c3m1,t06,t07,t08,t09,t10,t11,u1,u2,u3,u4,u5,u6,a1p03r,a1p03i,a1p07r,a1p07i,a1p11r,a1p11i);
-		RADIX_03_DFT(s,c3m1,t12,t13,t14,t15,t16,t17,u1,u2,u3,u4,u5,u6,a1p06r,a1p06i,a1p10r,a1p10i,a1p02r,a1p02i);
-		RADIX_03_DFT(s,c3m1,t18,t19,t20,t21,t22,t23,u1,u2,u3,u4,u5,u6,a1p09r,a1p09i,a1p01r,a1p01i,a1p05r,a1p05i);
+		RADIX_03_DFT(s,c3m1,t00,t01,t02,t03,t04,t05,u1,u2,u3,u4,u5,u6,a[j1   ],a[j2   ],a[j1+p4],a[j2+p4],a[j1+p8],a[j2+p8]);	jt = j1+p3; jp = j2+p3;
+		RADIX_03_DFT(s,c3m1,t06,t07,t08,t09,t10,t11,u1,u2,u3,u4,u5,u6,a[jt   ],a[jp   ],a[jt+p4],a[jp+p4],a[jt+p8],a[jp+p8]);	jt = j1+p2; jp = j2+p2;
+		RADIX_03_DFT(s,c3m1,t12,t13,t14,t15,t16,t17,u1,u2,u3,u4,u5,u6,a[jt+p4],a[jp+p4],a[jt+p8],a[jp+p8],a[jt   ],a[jp   ]);	jt = j1+p1; jp = j2+p1;
+		RADIX_03_DFT(s,c3m1,t18,t19,t20,t21,t22,t23,u1,u2,u3,u4,u5,u6,a[jt+p8],a[jp+p8],a[jt   ],a[jp   ],a[jt+p4],a[jp+p4]);
 
 
 	#endif	/* USE_SSE2 */
@@ -81,13 +81,18 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		// Check if current index-interval contains the target index for rotated-residue carry injection.
 		// In data-init we set target_idx = -1 on wraparound-carry mini-pass, so if() only taken on full pass:
-	#ifdef USE_SSE2
 		if(target_idx == j) {
+		#ifdef USE_SSE2
 			addr = (double *)s1p00 + target_set;
 			*addr += target_cy*(n>>1);	// target_cy = [-2 << within-word-shift]*[DWT weight]*n/2, i.e. includes fwd DWT weight and n/2 factor
+		#else
+			// target_set in [0,2*RADIX); tidx_mod_stride [even|odd] means shifted-carry goes into [Re|Im] part of the complex FFT datum:
+			l = target_set&1;	target_set >>= 1;
+			a[j1+poff[target_set>>2]+p0123[target_set&3]+l] += target_cy*(n>>1);
+		#endif
 			target_idx = -1;
 		}
-	#endif
+
 	#ifdef USE_AVX
 
 		add1 = &wt1[col  ];
@@ -117,8 +122,8 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		n_minus_silp1->d3 = n-si[l+1];		tmp->d1 = wt0[nwt-l  ]*scale;
 		sinwt        ->d3 = si[nwt-l  ];	tmp->d2 = wt0[    l+1];
 		sinwtm1      ->d3 = si[nwt-l-1];	tmp->d3 = wt0[nwt-l-1]*scale;
-
-	 #ifdef LOACC
+	 #ifndef USE_AVX512	// Radix-12,20,24,28 carry routines are special, require avx-512 builds to be done in HIACC-only mode
+	  if(USE_SHORT_CY_CHAIN < USE_SHORT_CY_CHAIN_MAX) {	// LOACC with tunable DWT-weights chaining
 
 		// Since use wt1-array in the wtsinit macro, need to fiddle this here:
 		co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
@@ -135,8 +140,8 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		add0 = a + j1 + pfetch_dist + p8;
 		AVX_cmplx_carry_fast_errcheck_X4(s1p08, cy08, bjmodn08, half_arr,i,sign_mask,sse_bw,sse_n,sse_sw, add0,p1,p2,p3, addr);
 
-	 #else	// USE_AVX: Hi-accuracy 4-way carry is the default:
-
+	  } else {	// HIACC:
+	 #endif
 		// Each AVX carry macro call also processes 4 prefetches of main-array data
 		i = (!j);
 		addr = &prp_mult;
@@ -149,15 +154,18 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 		co2 = co3;	// For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
 					// (and only then: for all subsequent blocks it's superfluous), this assignment decrements co2 by radix(1).
-
-	 #endif	// USE_AVX: (8-way or 4-way LOACC) or (4-way HIACC) ?
-
+	 #ifndef USE_AVX512
+	  }	// USE_AVX: (8-way or 4-way LOACC) or (4-way HIACC) ?
+	 #endif
 		i =((uint32)(sw - *bjmodn00) >> 31);	/* get ready for the next set...	*/
 
 	#elif defined(USE_SSE2)
 
-	  #ifdef LOACC
-
+	 #ifdef USE_ARM_V8_SIMD
+	  if(1) {	// No HIACC mode for ARMv8
+	 #else
+	  if(USE_SHORT_CY_CHAIN < USE_SHORT_CY_CHAIN_MAX) {	// LOACC with tunable DWT-weights chaining
+	 #endif
 		/*** wt_re,wi_re,wt_im,wi_im inits. Cf. radix16_main_carry_loop.h for scalar-macro prototyping of this: ***/
 		uint32 k0,k1,k2,k3, nwtml;
 		l = j & (nwt-1);	nwtml = nwt-l;
@@ -213,7 +221,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4; i = 0;
 		}
 
-	  #else	// Hi-accuracy is the default:
+	  } else {	// HiACC:
 
 		l= j & (nwt-1);
 		n_minus_sil   = n-si[l  ];
@@ -228,7 +236,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	/************ See the radix16_ditN_cy_dif1 routine for details on how the SSE2 carry stuff works **********/
 
-		ctmp = (struct complex *)half_arr + 16;	/* ptr to local storage for the doubled wtl,wtn terms: */
+		ctmp = (struct complex *)half_arr + 24;	/* ptr to local storage for the doubled wtl,wtn terms: */
 		ctmp->re = wtl;		ctmp->im = wtl;	++ctmp;
 		ctmp->re = wtn;		ctmp->im = wtn;	++ctmp;
 		ctmp->re = wtlp1;	ctmp->im = wtlp1;++ctmp;
@@ -261,7 +269,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		wtlp1   =wt0[    l+1];
 		wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
-		ctmp = (struct complex *)half_arr + 16;	/* ptr to local storage for the doubled wtl,wtn terms: */
+		ctmp = (struct complex *)half_arr + 24;	/* ptr to local storage for the doubled wtl,wtn terms: */
 		ctmp->re = wtl;		ctmp->im = wtl;	++ctmp;
 		ctmp->re = wtn;		ctmp->im = wtn;	++ctmp;
 		ctmp->re = wtlp1;	ctmp->im = wtlp1;++ctmp;
@@ -282,7 +290,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 			tm1 += 8; tmp += 2; tm2 += 2; itmp += 4;
 		}
 
-	  #endif	// LOACC or HIACC?
+	  }	// LOACC or HIACC?
 
 		i =((uint32)(sw - *bjmodn00) >> 31);	/* get ready for the next set...	*/
 
@@ -300,18 +308,21 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 		wtnm1   =wt0[nwt-l-1]*scale;	/* ...and here.	*/
 
 		/*...set0 is slightly different from others:	*/
-	   cmplx_carry_norm_errcheck0(a1p00r,a1p00i,cy00,bjmodn00,0 ,prp_mult);
-		cmplx_carry_norm_errcheck(a1p01r,a1p01i,cy01,bjmodn01,1 ,prp_mult);
-		cmplx_carry_norm_errcheck(a1p02r,a1p02i,cy02,bjmodn02,2 ,prp_mult);
-		cmplx_carry_norm_errcheck(a1p03r,a1p03i,cy03,bjmodn03,3 ,prp_mult);
-		cmplx_carry_norm_errcheck(a1p04r,a1p04i,cy04,bjmodn04,4 ,prp_mult);
-		cmplx_carry_norm_errcheck(a1p05r,a1p05i,cy05,bjmodn05,5 ,prp_mult);
-		cmplx_carry_norm_errcheck(a1p06r,a1p06i,cy06,bjmodn06,6 ,prp_mult);
-		cmplx_carry_norm_errcheck(a1p07r,a1p07i,cy07,bjmodn07,7 ,prp_mult);
-		cmplx_carry_norm_errcheck(a1p08r,a1p08i,cy08,bjmodn08,8 ,prp_mult);
-		cmplx_carry_norm_errcheck(a1p09r,a1p09i,cy09,bjmodn09,9 ,prp_mult);
-		cmplx_carry_norm_errcheck(a1p10r,a1p10i,cy10,bjmodn10,10,prp_mult);
-		cmplx_carry_norm_errcheck(a1p11r,a1p11i,cy11,bjmodn11,11,prp_mult);
+		jt = j1; jp = j2;
+	   cmplx_carry_norm_errcheck0(a[jt   ],a[jp   ],cy00,bjmodn00,0 ,prp_mult);
+		cmplx_carry_norm_errcheck(a[jt+p1],a[jp+p1],cy01,bjmodn01,1 ,prp_mult);
+		cmplx_carry_norm_errcheck(a[jt+p2],a[jp+p2],cy02,bjmodn02,2 ,prp_mult);
+		cmplx_carry_norm_errcheck(a[jt+p3],a[jp+p3],cy03,bjmodn03,3 ,prp_mult);
+		jt = j1+p4; jp = j2+p4;
+		cmplx_carry_norm_errcheck(a[jt   ],a[jp   ],cy04,bjmodn04,4 ,prp_mult);
+		cmplx_carry_norm_errcheck(a[jt+p1],a[jp+p1],cy05,bjmodn05,5 ,prp_mult);
+		cmplx_carry_norm_errcheck(a[jt+p2],a[jp+p2],cy06,bjmodn06,6 ,prp_mult);
+		cmplx_carry_norm_errcheck(a[jt+p3],a[jp+p3],cy07,bjmodn07,7 ,prp_mult);
+		jt = j1+p8; jp = j2+p8;
+		cmplx_carry_norm_errcheck(a[jt   ],a[jp   ],cy08,bjmodn08,8 ,prp_mult);
+		cmplx_carry_norm_errcheck(a[jt+p1],a[jp+p1],cy09,bjmodn09,9 ,prp_mult);
+		cmplx_carry_norm_errcheck(a[jt+p2],a[jp+p2],cy10,bjmodn10,10,prp_mult);
+		cmplx_carry_norm_errcheck(a[jt+p3],a[jp+p3],cy11,bjmodn11,11,prp_mult);
 
 		i =((uint32)(sw - bjmodn00) >> 31);	/* get ready for the next set...	*/
 		co2=co3;	/* For all data but the first set in each j-block, co2=co3. Thus, after the first block of data is done
@@ -337,10 +348,10 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 
 	#else
 		// Twiddleless version requires us to swap inputs [0,4,8|1,5,9|2,6,10|3,7,11] => [0,8,4|9,5,1|6,2,10|3,11,7]:
-		RADIX_03_DFT(s,c3m1,a1p00r,a1p00i,a1p08r,a1p08i,a1p04r,a1p04i,u1,u2,u3,u4,u5,u6,t00,t01,t02,t03,t04,t05);
-		RADIX_03_DFT(s,c3m1,a1p09r,a1p09i,a1p05r,a1p05i,a1p01r,a1p01i,u1,u2,u3,u4,u5,u6,t06,t07,t08,t09,t10,t11);
-		RADIX_03_DFT(s,c3m1,a1p06r,a1p06i,a1p02r,a1p02i,a1p10r,a1p10i,u1,u2,u3,u4,u5,u6,t12,t13,t14,t15,t16,t17);
-		RADIX_03_DFT(s,c3m1,a1p03r,a1p03i,a1p11r,a1p11i,a1p07r,a1p07i,u1,u2,u3,u4,u5,u6,t18,t19,t20,t21,t22,t23);
+		RADIX_03_DFT(s,c3m1,a[j1   ],a[j2   ],a[j1+p8],a[j2+p8],a[j1+p4],a[j2+p4],u1,u2,u3,u4,u5,u6,t00,t01,t02,t03,t04,t05);	jt = j1+p1; jp = j2+p1;
+		RADIX_03_DFT(s,c3m1,a[jt+p8],a[jp+p8],a[jt+p4],a[jp+p4],a[jt   ],a[jp   ],u1,u2,u3,u4,u5,u6,t06,t07,t08,t09,t10,t11);	jt = j1+p2; jp = j2+p2;
+		RADIX_03_DFT(s,c3m1,a[jt+p4],a[jp+p4],a[jt   ],a[jp   ],a[jt+p8],a[jp+p8],u1,u2,u3,u4,u5,u6,t12,t13,t14,t15,t16,t17);	jt = j1+p3; jp = j2+p3;
+		RADIX_03_DFT(s,c3m1,a[jt   ],a[jp   ],a[jt+p8],a[jp+p8],a[jt+p4],a[jp+p4],u1,u2,u3,u4,u5,u6,t18,t19,t20,t21,t22,t23);
 		// And do a trio of 4-DFTs; Required output index permutation = [0,1,2,3|9,8,b,a|6,7,5,4]:
 		RADIX_04_DIF(t00,t01,t06,t07,t12,t13,t18,t19,a[j1   ],a[j2   ],a[j1+p1],a[j2+p1],a[j1+p2],a[j2+p2],a[j1+p3],a[j2+p3],rt,it);	jt = j1+p8; jp = j2+p8;
 		RADIX_04_DIF(t02,t03,t08,t09,t14,t15,t20,t21,a[jt+p1],a[jp+p1],a[jt   ],a[jp   ],a[jt+p3],a[jp+p3],a[jt+p2],a[jp+p2],rt,it);	jt = j1+p4; jp = j2+p4;

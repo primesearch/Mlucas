@@ -72,8 +72,9 @@ in util.c), otherwise alias the entire 4-argument DBG_ASSERT invocation to "Boli
 #undef  NOBRANCH
 #define NOBRANCH	1	/* Switch between branched and branchless versions of various key sequences. */
 
-#undef	LO_ADD
-#define	LO_ADD		1	/* TRUE = use algorithm with more mul and fewer add */
+#ifndef	LO_ADD
+	#define	LO_ADD		1	/* TRUE = use algorithm with more mul and fewer add */
+#endif
 
 #undef	N_LEADING_RADICES
 #define	N_LEADING_RADICES	8	/* # of intervals we split adjacent power-of-2 transform lengths into */

@@ -1173,30 +1173,43 @@ Then compute rsqr = R^2 (mod q) = 2^128 (mod q);
 x = mont_mul64(x,rsqr) gives x *= R (mod q), so each ensuing mont_mul64 will preserve the extra power of R.
 Then loop over low (start_index) = 11 bits of p (*not* pshift) = 11110111111_2 from left to right;
 for each bit do an update x = mont_sqr64(x) and mod-double the result if the corrent bit of pshift = 1:
-j	bit	power (+64)
---	---	------
-10	1	107
- 9	1	215
- 8	1	431
- 7	1	863
- 6	0	1726
- 5	1	3453
- 4	1	6907
- 3	1	13815
- 2	1	27631
- 1	1	55263
- 0	1	110527
+	j	bit	power (+64)
+	--	---	------
+	10	1	107
+	 9	1	215
+	 8	1	431
+	 7	1	863
+	 6	0	1726
+	 5	1	3453
+	 4	1	6907
+	 3	1	13815
+	 2	1	27631
+	 1	1	55263
+	 0	1	110527
 and a final mont_unity_mul64(x) subtracts 64 from the power, leaving the desired power p = 110527.
+
+Ex 2:  p = 31 = 11111_2, q = 60: 2^31 % 60 = 8, but q = 2^2.15, so Mont-mul code computes 2^(31-2) % 15 = 2, then 2<<2 = 8.
+	p' = 31-2; q' = q>>2 = 15
+	p' + 64 = 93 = 1011101_2
+	jshift = leadz64(p'+64) = 57
+Extract leftmost 6 bits of p'+64:
+	leadb = ((p+64')<<jshift) >> 58 = 101110_2 = 46
+	start_index = 58-jshift = 1
+Leftmost 6 bits of = 110101 = 46, so can do those in 1-shot by init x = 2^46;
+Then compute rsqr = R^2 (mod q') = 2^128 (mod q') = 1;
+x = mont_mul64(x,rsqr) gives x *= R (mod q), so each ensuing mont_mul64 will preserve the extra power of R.
+Then loop over low (start_index) = 1 bits of UN-COMPLEMENTED pshift = 1_2 from left to right;
+for each bit do an update x = mont_sqr64(x) and mod-double the result if the current bit of pshift = 1:
+	j	bit	power (+64)
+	--	---	------
+	 0	1	46*2+1 = 93, and we verify that 2^93 % q' = 2^93 % 15 = 2,
+and a final mont_unity_mul64(x) subtracts 64 from the power, leaving the desired power p' = 29.
 */
 uint64 twopmmodq64(uint64 p, uint64 q)
 {
-	 int32 j = leadz64(p);
+	 int32 j;
 	uint32 leadb, start_index, nshift;
-	uint64 qhalf, qinv, x, rsqr;
-	// Extract leftmost 6 bits of p and subtract from 64:
-	leadb = (p<<j) >> 58;
-	start_index = 58-j;
-	qhalf  = q>>1;	/* = (q-1)/2, since q odd. */
+	uint64 pshift, qhalf, qinv, x, rsqr;
 	nshift = trailz64(q);
 	if(nshift)
 	{
@@ -1204,6 +1217,12 @@ uint64 twopmmodq64(uint64 p, uint64 q)
 		q >>= nshift;
 		p -= nshift;	// Must also right-shift dividend by (nshift) bits; for 2^p this means subtracting nshift from p
 	}
+	qhalf  = q>>1;	/* = (q-1)/2, since q odd. */
+	// Extract leftmost 6 bits of (p+64) and subtract from 64:
+	pshift = p + 64;
+	j = leadz64(pshift);
+	leadb = (pshift<<j) >> 58;	// No (pshift = ~pshift) step in positive-power algorithm!
+	start_index = 58-j;
 	/* q must be odd for Montgomery-style modmul to work: */
 	ASSERT(HERE, (q & 0x1) && (q > 1), "q must be odd > 1!");
 	qinv = (q+q+q) ^ (uint64)2;
@@ -1218,7 +1237,7 @@ uint64 twopmmodq64(uint64 p, uint64 q)
 	{
 		MONT_SQR64(x,q,qinv,x);
 //	printf("Bit %u = %u\n",j,(p >> j) & (uint64)1);
-		if((p >> j) & (uint64)1) {
+		if((pshift >> j) & (uint64)1) {
 			if(x > qhalf) {	/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 				x = x + x;
 				x -= q;

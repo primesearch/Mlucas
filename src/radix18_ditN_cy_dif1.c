@@ -41,7 +41,7 @@ int radix18_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		,i,j,j1,j2,jstart,jhi,iroot,root_incr,k,khi,l,outer;
 	static uint64 psave = 0;
 	static uint32 bw,sw,bjmodnini,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13,p14,p15,p16,p17, nsave = 0;
-	const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
+	const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 	static double c   =  0.76604444311897803520,	/* cos(2*pi/9) */
 					s   =  0.64278760968653932631,	/* sin(2*pi/9) */
 					c2  =  0.17364817766693034887,	/* cos(2*u) */

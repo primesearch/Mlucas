@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -39,7 +39,8 @@ int radix8_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], 
 */
 	static int n8;
 	int i,j,j1,j2,jstart,jhi,full_pass,k1,k2,k,khi,l,outer;
-	int bjmodn0,bjmodn1,bjmodn2,bjmodn3,bjmodn4,bjmodn5,bjmodn6,bjmodn7;
+	// For some reason GCC treats these as possibly-uninited in cmplx_carry_norm_pow2_errcheck(), so init = 0;
+	int bjmodn0 = 0,bjmodn1 = 0,bjmodn2 = 0,bjmodn3 = 0,bjmodn4 = 0,bjmodn5 = 0,bjmodn6 = 0,bjmodn7 = 0;
 	static uint32 bjmodnini, nsave = 0;
 	static uint64 psave = 0;
 	static uint32 bw,sw,nm1,p1,p2,p3,p4,p5,p6,p7;

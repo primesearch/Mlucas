@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -1764,7 +1764,7 @@ uint64 twopmodq78_3WORD_DOUBLE_q2(uint64 p, uint64 k0, uint64 k1, int init_sse2,
 		"addpd	%%xmm3,%%xmm1		\n\t"/* xlo = (h-l)lo + (qlo26 & bitmask) */\
 		"/* xhi52,xlo26 in xmm2,xmm1; qhi52,qlo26 in 0x30(%%rdx),0x10(%%rax): */\n\t"\
 	/* if((pshift >> j) & (uint64)1) { */\
-		"movslq	%[__pshift],%%rax	\n\t"\
+		"movq	%[__pshift],%%rax	\n\t"\
 		"movslq	%[__j],%%rcx		\n\t"\
 		"shrq	%%cl,%%rax		\n\t"\
 		"andq	$0x1,%%rax		\n\t"\
@@ -2855,7 +2855,7 @@ uint64 twopmodq78_3WORD_DOUBLE_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uin
 			"addpd	%%xmm6,%%xmm1			\n\t	addpd	%%xmm14,%%xmm9			\n\t"\
 			/* qlo26 in xmm5, qhi52 in xmm0 */\
 			/* if((pshift >> j) & (uint64)1) { */\
-			"movslq	%[__pshift],%%rax		\n\t"\
+			"movq	%[__pshift],%%rax		\n\t"\
 			"shrq	%%cl,%%rax				\n\t"\
 			"andq	$0x1,%%rax				\n\t"\
 			/* Branchless version of the conditional doubling: */\
@@ -4566,7 +4566,7 @@ uint64 twopmodq78_3WORD_DOUBLE_q4_REF(uint64 p, uint64 k0, uint64 k1, uint64 k2,
 				"addpd	%%xmm6,%%xmm1			\n\t	addpd	%%xmm14,%%xmm9			\n\t				addq	%%rax,%%r11	\n\t"\
 				"/* qlo26 in xmm5, qhi52 in xmm0 */															adcq	%%rdx,%%r15	\n\t"\
 				"/* if((pshift >> j) & (uint64)1): */		\n\t"\
-				"movslq	%[__pshift],%%rax					\n\t"\
+				"movq	%[__pshift],%%rax					\n\t"\
 				"shrq	%%cl,%%rax	/* j already in c-reg */\n\t"\
 				"andq	$0x1,%%rax							\n\t"\
 			"je	twopmodq96_q4_pshiftjmp						\n\t"\

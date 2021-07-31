@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -34,25 +34,6 @@
 							// but high-ROE van Buskirk-style 'tangent' DFT. Toggle only respected for build modes - that
 							// means ones where FMA instructions exist - which allow both options. With FMA, the 'naive'
 							// DFT has a comparable opcount to the VB one, since it yields a target-rich environment for FMA.
-  #endif
-#endif
-
-#if defined(HIACC) && defined(LOACC)
-	#error Only one of LOACC and HIACC may be defined!
-#endif
-#if !defined(HIACC) && !defined(LOACC)
-  #if OS_BITS == 64
-	#define LOACC	1	// Default is suitable for F29 work @ FFT length 30M
-	#warning LOACC = 1
-  #else
-	#define HIACC	1	// 32-bit mode only supports the older HIACC carry macros
-  #endif
-#endif
-#ifdef HIACC
-  #ifdef USE_ARM_V8_SIMD
-	#error Currently only LOACC carry-mode supported in ARM v8 SIMD builds!
-  #elif defined(USE_AVX512)
-	#error Currently only LOACC carry-mode supported in AVX-512 builds!
   #endif
 #endif
 
@@ -118,9 +99,7 @@
 		double *arrdat;			/* Main data array */
 		double *wt0;
 		double *wt1;
-	#ifdef LOACC
 		double *wts_mult, *inv_mult;
-	#endif
 		int *si;
 	#ifdef USE_SSE2
 		vec_dbl *r00;
@@ -173,9 +152,7 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 #ifdef USE_SSE2
 	struct qfloat qtheta,qs,cq0,cq1,cq2,cq3,cq4,sq0,sq1,sq2,sq3,sq4;
 #endif
-  #ifdef LOACC
 	static double wts_mult[2], inv_mult[2];	// Const wts-multiplier and 2*(its multiplicative inverse)
-  #endif
 	double wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
 	// Cleanup loop assumes carryins propagate at most 4 words up, but need at least 1 vec_cmplx
 	// (2 vec_dbl)'s worth of doubles in wraparound step, hence AVX-512 needs value bumped up:
@@ -189,23 +166,28 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 	// RADIX/[n-wayness of carry macro], e.g. RADIX/[16|8|4] = 11|22|44 for avx512,avx,sse, respectively.
 	// But fixed-incr too restrictive here, so 'divide 11|22|44 into pieces' via increment-array whose elts sum to 11|22|44:
 	const int *incr,*inc_arr;
-  #ifdef USE_AVX512
-	const int incr_long[] = {11}, incr_med[] = {6,5}, incr_short[] = {4,3,4};
+  #ifdef USE_AVX512	// Have no specialized HIACC carry macro in AVX-512 and ARMv8 SIMD, so these get an "goes to 11" in LOACC mode via an incr_hiacc[] array:
+	const int incr_long[] = {11}, incr_med[] = {6,5}, incr_short[] = {4,3,4}, incr_hiacc[] = {1,1,1,1,1,1,1,1,1,1,1};
   #elif defined(USE_AVX)
-	const int incr_long[] = {11,11}, incr_med[] = {6,5,6,5}, incr_short[] = {4,3,4,4,3,4};
+	const int incr_long[] = {11,11}, incr_med[] = {6,5,6,5}, incr_short[] = {4,3,4,4,3,4}, incr_hiacc[] = {0};
+  #elif defined(USE_ARM_V8_SIMD)
+	const int incr_long[] = {11,11,11,11}, incr_med[] = {6,5,6,5,6,5,6,5}, incr_short[] = {4,4,4,4,4,4,4,4,4,4,4}, incr_hiacc[] = {2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2};
   #else
-	const int incr_long[] = {11,11,11,11}, incr_med[] = {6,5,6,5,6,5,6,5}, incr_short[] = {4,4,4,4,4,4,4,4,4,4,4};
+	const int incr_long[] = {11,11,11,11}, incr_med[] = {6,5,6,5,6,5,6,5}, incr_short[] = {4,3,4,4,3,4,4,3,4,4,3,4}, incr_hiacc[] = {0};
   #endif
 	// Allows cy-macro error data to be used to fiddle incr on the fly to a smaller, safer value if necessary
 	if(USE_SHORT_CY_CHAIN == 0)
 		inc_arr = incr_long;
 	else if(USE_SHORT_CY_CHAIN == 1)
 		inc_arr = incr_med;
-	else
+	else if(USE_SHORT_CY_CHAIN == 2)
 		inc_arr = incr_short;
+	else
+		inc_arr = incr_hiacc;
+
 	// Jun 2018: Add support for residue shift. (Only LL-test needs intervention at carry-loop level).
-	int target_idx = -1, target_set,tidx_mod_stride;
-	double target_cy;
+	int target_idx = -1, target_set = 0,tidx_mod_stride;
+	double target_cy = 0;
 	static double ndivr_inv;
 	uint64 itmp64;
 	static uint64 psave = 0;
@@ -245,9 +227,9 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 #endif
 	static int poff[RADIX>>2];	// Store mults of p4 offset for loop control
 	static double radix_inv, n2inv;
-// FMA-based SIMD or (scalar-double) + (LO_ADD = 1 in masterdefs.h)use these sincos constants:
-#if (defined(USE_AVX2) && DFT_11_FMA) || defined(USE_ARM_V8_SIMD) || (!defined(USE_SSE2) && defined(LO_ADD))
-  #warning Using FMA-heavy lo-add 11-DFT
+// FMA-based SIMD or (scalar-double) + (LO_ADD = 1 in masterdefs.h) use these sincos constants:
+#if (defined(USE_AVX2) && DFT_11_FMA) || defined(USE_ARM_V8_SIMD) || (!defined(USE_SSE2) && (LO_ADD != 0))
+	#warning Using FMA-heavy lo-add 11-DFT
 	// FMA based on simple radix-11 DFT implementation, same as LO_ADD - more accurate, and with FMA, faster as well
 	const double cc1 =  0.84125353283118116886,	/* Real part of exp(i*2*pi/11), the radix-11 fundamental sincos datum	*/
 			ss1 =  0.54064081745559758210,	/* Imag part of exp(i*2*pi/11).	*/
@@ -260,6 +242,8 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			cc5 = -0.95949297361449738988,	/* cos(5u)	*/
 			ss5 =  0.28173255684142969773;	/* sin(5u)	*/
 #else	// AVX, SSE2 and non-LO_ADD (cf. masterdefs.h) scalar-double builds all use these:
+	#warning LO_ADD = 0 defined at compile time ... using low-mul Nussbaumer-style 11-DFT
+	// 5 Dec 2014: Change const -> static to enable wrong-way-rounding sensitivity experiments:
 	const double a0 = 2.31329240211767848235, /* a0 = (   cq0      -  cq3+  cq2-  cq4)		*/
 			a1 =  1.88745388228838373902, /* a1 = (         cq1-  cq3+  cq2-  cq4)		*/
 			a2 = -1.41435370755978245393, /* a2 = (-2*cq0-2*cq1+3*cq3-2*cq2+3*cq4)/5	*/
@@ -270,7 +254,7 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			a7 =  1.07027574694717148957, /* a7 = (         cq1-  cq3            )		*/
 			a8 = -0.55486073394528506404, /* a8 = (-  cq0-  cq1+4*cq3-  cq2-  cq4)/5	*/
 			a9 = -1.10000000000000000000, /* a9 = (   cq0+  cq1+  cq3+  cq2+  cq4)/5 - 1*/
-
+			/* Sine terms same form as cos, but cq1 => -sq1 and no -1 on b9 term: */
 			b0 =  0.49298012814084233296, /* b0 = (   sq0      -  sq3+  sq2-  sq4)		*/
 			b1 = -0.95729268466927362054, /* b1 = (      -  sq1-  sq3+  sq2-  sq4)		*/
 			b2 =  0.37415717312460801167, /* b2 = (-2*sq0+2*sq1+3*sq3-2*sq2+3*sq4)/5	*/
@@ -345,7 +329,9 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		*r00,	// Head of RADIX*vec_cmplx-sized local store #1
 		*s1p00,	// Head of RADIX*vec_cmplx-sized local store #2
 		*cy;	// Need RADIX/2 slots for sse2 carries, RADIX/4 for avx
-#endif
+#else
+	static int p0123[4];
+#endif	// USE_SSE2?
 
 #ifdef MULTITHREAD
 
@@ -361,7 +347,7 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 #elif !defined(USE_SSE2)
 
 	// Vars needed in scalar mode only:
-	const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
+	const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 	int m,m2;
 	double wt,wtinv,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
 	int bjmodn[RADIX];
@@ -425,8 +411,6 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		bw    = p%n;	/* Number of bigwords in the Crandall/Fagin mixed-radix representation = (Mersenne exponent) mod (vector length).	*/
 		sw    = n - bw;	/* Number of smallwords.	*/
 
-	#ifdef LOACC
-
 	  #ifdef USE_AVX512
 	   #ifdef CARRY_16_WAY
 		i = 16;
@@ -455,8 +439,6 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		wts_mult[1] = 0.5*wts_mult[0];
 		inv_mult[1] = 2.0*inv_mult[0];
 		ASSERT(HERE,fabs(wts_mult[1]*inv_mult[1] - 1.0) < EPS, "wts_mults fail accuracy check!");
-
-	#endif
 
 	#ifdef MULTITHREAD
 
@@ -532,10 +514,8 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		//	tdat[ithread].arrdat = a;			/* Main data array */
 			tdat[ithread].wt0 = wt0;
 			tdat[ithread].wt1 = wt1;
-		#ifdef LOACC
 			tdat[ithread].wts_mult = wts_mult;
 			tdat[ithread].inv_mult = inv_mult;
-		#endif
 			tdat[ithread].si  = si;
 
 		// This array pointer must be set based on vec_dbl-sized alignment at runtime for each thread:
@@ -852,7 +832,6 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		tmp->d0 = baseinv[0];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
 		tmp->d0 = baseinv[1];	tmp->d1 = baseinv[1];	tmp->d2 = baseinv[1];	tmp->d3 = baseinv[1];	++tmp;
 		// In LOACC mode, put wts_mult and their inverses in the first 32 slots below in place of the 1/2-stuff:
-	   #ifdef LOACC
 		/* wts_mult:*/
 		tmp->d0 = wts_mult[0];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[0];	++tmp;
 		tmp->d0 = wts_mult[1];	tmp->d1 = wts_mult[0];	tmp->d2 = wts_mult[0];	tmp->d3 = wts_mult[0];	++tmp;
@@ -888,9 +867,6 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		tmp->d0 = inv_mult[0];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 		tmp->d0 = inv_mult[1];	tmp->d1 = inv_mult[1];	tmp->d2 = inv_mult[1];	tmp->d3 = inv_mult[1];	++tmp;
 		nbytes = 96 << L2_SZ_VD;
-	  #else
-		nbytes = 64 << L2_SZ_VD;
-	  #endif
 
 	  #elif defined(USE_SSE2)
 
@@ -916,7 +892,6 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		ctmp->re = baseinv[0];	ctmp->im = baseinv[1];	++ctmp;
 		ctmp->re = baseinv[1];	ctmp->im = baseinv[1];	++ctmp;
 		// In LOACC mode, put wts_mult and their inverses in the first 8 slots below in place of the 1/2-stuff:
-	  #ifdef LOACC
 		/* wts_mult:*/
 		ctmp->re = wts_mult[0];	ctmp->im = wts_mult[0];	++ctmp;
 		ctmp->re = wts_mult[1];	ctmp->im = wts_mult[0];	++ctmp;
@@ -928,9 +903,6 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		ctmp->re = inv_mult[0];	ctmp->im = inv_mult[1];	++ctmp;
 		ctmp->re = inv_mult[1];	ctmp->im = inv_mult[1];	++ctmp;
 		nbytes = 24 << L2_SZ_VD;
-	  #else
-		nbytes = 16 << L2_SZ_VD;
-	  #endif
 
 	  #endif
 
@@ -1064,7 +1036,9 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 		p80 += ( (p80 >> DAT_BITS) << PAD_BITS );
 		p90 += ( (p90 >> DAT_BITS) << PAD_BITS );
 		pa0 += ( (pa0 >> DAT_BITS) << PAD_BITS );
-
+	#ifndef USE_SSE2
+		p0123[0] = 0; p0123[1] = p1; p0123[2] = p2; p0123[3] = p3;
+	#endif
 		poff[     0] =   0; poff[     1] =     p4; poff[     2] =     p8; poff[     3] =     pc;
 		poff[0x04+0] = p10; poff[0x04+1] = p10+p4; poff[0x04+2] = p10+p8; poff[0x04+3] = p10+pc;
 		poff[0x08+0] = p20; poff[0x08+1] = p20+p4; poff[0x08+2] = p20+p8; poff[0x08+3] = p20+pc;
@@ -1211,7 +1185,7 @@ int radix176_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[]
 			_cy[i][ithread] = 0;
 		}
 	}
-  #ifndef USE_SSE2	// Non-SIMD builds don't support shifted-residue, so init LL cy_in as before:
+  #if 0	//ndef USE_SSE2	*** v20: Non-SIMD builds now also support shifted-residue
 	/* If an LL test, init the subtract-2: */
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRIMALITY)
 	{
@@ -2104,20 +2078,25 @@ void radix176_dit_pass1(double a[], int n)
 		// RADIX/[n-wayness of carry macro], e.g. RADIX/[16|8|4] = 11|22|44 for avx512,avx,sse, respectively.
 		// But fixed-incr too restrictive here, so 'divide 11|22|44 into pieces' via increment-array whose elts sum to 11|22|44:
 		const int *incr,*inc_arr;
-	  #ifdef USE_AVX512
-		const int incr_long[] = {11}, incr_med[] = {6,5}, incr_short[] = {4,3,4};
+	  #ifdef USE_AVX512	// Have no specialized HIACC carry macro in AVX-512 and ARMv8 SIMD, so these get an "goes to 11" in LOACC mode via an incr_hiacc[] array:
+		const int incr_long[] = {11}, incr_med[] = {6,5}, incr_short[] = {4,3,4}, incr_hiacc[] = {1,1,1,1,1,1,1,1,1,1,1};
 	  #elif defined(USE_AVX)
-		const int incr_long[] = {11,11}, incr_med[] = {6,5,6,5}, incr_short[] = {4,3,4,4,3,4};
+		const int incr_long[] = {11,11}, incr_med[] = {6,5,6,5}, incr_short[] = {4,3,4,4,3,4}, incr_hiacc[] = {0};
+	  #elif defined(USE_ARM_V8_SIMD)
+		const int incr_long[] = {11,11,11,11}, incr_med[] = {6,5,6,5,6,5,6,5}, incr_short[] = {4,4,4,4,4,4,4,4,4,4,4}, incr_hiacc[] = {2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2};
 	  #else
-		const int incr_long[] = {11,11,11,11}, incr_med[] = {6,5,6,5,6,5,6,5}, incr_short[] = {4,4,4,4,4,4,4,4,4,4,4};
+		const int incr_long[] = {11,11,11,11}, incr_med[] = {6,5,6,5,6,5,6,5}, incr_short[] = {4,3,4,4,3,4,4,3,4,4,3,4}, incr_hiacc[] = {0};
 	  #endif
-	// Allows cy-macro error data to be used to fiddle incr on the fly to a smaller, safer value if necessary
-	if(USE_SHORT_CY_CHAIN == 0)
-		inc_arr = incr_long;
-	else if(USE_SHORT_CY_CHAIN == 1)
-		inc_arr = incr_med;
-	else
-		inc_arr = incr_short;
+		// Allows cy-macro error data to be used to fiddle incr on the fly to a smaller, safer value if necessary
+		if(USE_SHORT_CY_CHAIN == 0)
+			inc_arr = incr_long;
+		else if(USE_SHORT_CY_CHAIN == 1)
+			inc_arr = incr_med;
+		else if(USE_SHORT_CY_CHAIN == 2)
+			inc_arr = incr_short;
+		else
+			inc_arr = incr_hiacc;
+
 	#ifdef USE_AVX512
 		double t0,t1,t2,t3;
 	  #ifdef CARRY_16_WAY
@@ -2151,9 +2130,10 @@ void radix176_dit_pass1(double a[], int n)
 
 	#else
 
-	  #if LO_ADD	// cf. masterdefs.h; this gives higher MUL count but improved accuracy
-		const double
-			cc1 =  0.84125353283118116886,	/* Real part of exp(i*2*pi/11), the radix-11 fundamental sincos datum	*/
+	  // FMA-based SIMD or (scalar-double) + (LO_ADD = 1 in masterdefs.h) use these sincos constants:
+	  #if (defined(USE_AVX2) && DFT_11_FMA) || defined(USE_ARM_V8_SIMD) || (!defined(USE_SSE2) && (LO_ADD != 0))
+		// FMA based on simple radix-11 DFT implementation, same as LO_ADD - more accurate, and with FMA, faster as well
+		const double cc1 =  0.84125353283118116886,	/* Real part of exp(i*2*pi/11), the radix-11 fundamental sincos datum	*/
 			ss1 =  0.54064081745559758210,	/* Imag part of exp(i*2*pi/11).	*/
 			cc2 =  0.41541501300188642553,	/* cos(2u)	*/
 			ss2 =  0.90963199535451837140,	/* sin(2u)	*/
@@ -2163,9 +2143,9 @@ void radix176_dit_pass1(double a[], int n)
 			ss4 =  0.75574957435425828378,	/* sin(4u)	*/
 			cc5 = -0.95949297361449738988,	/* cos(5u)	*/
 			ss5 =  0.28173255684142969773;	/* sin(5u)	*/
-	  #else
-		const double
-			a0 =  2.31329240211767848235, /* a0 = (   cq0      -  cq3+  cq2-  cq4)		*/
+	  #else	// AVX, SSE2 and non-LO_ADD (cf. masterdefs.h) scalar-double builds all use these:
+		// 5 Dec 2014: Change const -> static to enable wrong-way-rounding sensitivity experiments:
+		const double a0 = 2.31329240211767848235, /* a0 = (   cq0      -  cq3+  cq2-  cq4)		*/
 			a1 =  1.88745388228838373902, /* a1 = (         cq1-  cq3+  cq2-  cq4)		*/
 			a2 = -1.41435370755978245393, /* a2 = (-2*cq0-2*cq1+3*cq3-2*cq2+3*cq4)/5	*/
 			a3 =  0.08670737584270518028, /* a3 = (-  cq0+  cq1-  cq3+  cq2      )		*/
@@ -2175,7 +2155,7 @@ void radix176_dit_pass1(double a[], int n)
 			a7 =  1.07027574694717148957, /* a7 = (         cq1-  cq3            )		*/
 			a8 = -0.55486073394528506404, /* a8 = (-  cq0-  cq1+4*cq3-  cq2-  cq4)/5	*/
 			a9 = -1.10000000000000000000, /* a9 = (   cq0+  cq1+  cq3+  cq2+  cq4)/5 - 1*/
-
+			/* Sine terms same form as cos, but cq1 => -sq1 and no -1 on b9 term: */
 			b0 =  0.49298012814084233296, /* b0 = (   sq0      -  sq3+  sq2-  sq4)		*/
 			b1 = -0.95729268466927362054, /* b1 = (      -  sq1-  sq3+  sq2-  sq4)		*/
 			b2 =  0.37415717312460801167, /* b2 = (-2*sq0+2*sq1+3*sq3-2*sq2+3*sq4)/5	*/
@@ -2186,9 +2166,10 @@ void radix176_dit_pass1(double a[], int n)
 			b7 = -1.66538156970877665518, /* b7 = (      -  sq1-  sq3            )		*/
 			b8 =  0.42408709531871829886, /* b8 = (-  sq0+  sq1+4*sq3-  sq2-  sq4)/5	*/
 			b9 =  0.33166247903553998491; /* b9 = (   sq0-  sq1+  sq3+  sq2+  sq4)/5	*/
-	  #endif	// LO_ADD ?
+	  #endif
 		double *base, *baseinv;
-		const  double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
+		int p0123[4];
+		const double one_half[3] = {1.0, 0.5, 0.25};	/* Needed for small-weights-tables scheme */
 		int m,m2;
 		double wt,wtinv,wtA,wtB,wtC;	/* Mersenne-mod weights stuff */
 		int bjmodn[RADIX];	// Thread only carries a base datum here, must alloc a local array for remaining values
@@ -2225,12 +2206,10 @@ void radix176_dit_pass1(double a[], int n)
 		double *a = thread_arg->arrdat;
 		double *wt0 = thread_arg->wt0;
 		double *wt1 = thread_arg->wt1;
-	#ifdef LOACC
 		double *wts_mult = thread_arg->wts_mult;	// Const Intra-block wts-multiplier...
 		double *inv_mult = thread_arg->inv_mult;	// ...and 2*(its multiplicative inverse).
 		ASSERT(HERE,fabs(wts_mult[0]*inv_mult[0] - 1.0) < EPS, "wts_mults fail accuracy check!");
 		ASSERT(HERE,fabs(wts_mult[1]*inv_mult[1] - 1.0) < EPS, "wts_mults fail accuracy check!");
-	#endif
 		int *si = thread_arg->si;
 
 		/*   constant index offsets for array load/stores are here.	*/
@@ -2285,7 +2264,9 @@ void radix176_dit_pass1(double a[], int n)
 		p80 += ( (p80 >> DAT_BITS) << PAD_BITS );
 		p90 += ( (p90 >> DAT_BITS) << PAD_BITS );
 		pa0 += ( (pa0 >> DAT_BITS) << PAD_BITS );
-
+	#ifndef USE_SSE2
+		p0123[0] = 0; p0123[1] = p1; p0123[2] = p2; p0123[3] = p3;
+	#endif
 		poff[     0] =   0; poff[     1] =     p4; poff[     2] =     p8; poff[     3] =     pc;
 		poff[0x04+0] = p10; poff[0x04+1] = p10+p4; poff[0x04+2] = p10+p8; poff[0x04+3] = p10+pc;
 		poff[0x08+0] = p20; poff[0x08+1] = p20+p4; poff[0x08+2] = p20+p8; poff[0x08+3] = p20+pc;

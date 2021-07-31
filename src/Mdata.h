@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -39,6 +39,9 @@ extern "C" {
 /*
 !...Module for stashing global parameters used by various Mlucas routines.
 */
+// System-related globals:
+extern uint32 SYSTEM_RAM, MAX_RAM_USE;	// Total usable main memory size, and max. amount of that to use per instance, in MB
+
 // Used to force local-data-tables-reinits in cases of suspected table-data corruption:
 extern int REINIT_LOCAL_DATA_TABLES;
 // Normally = True; set = False on quit-signal-received to allow desired code sections to and take appropriate action:
@@ -70,8 +73,10 @@ i.e. max. 16 bits per digit of the transform vector: */
 
 #define MAX_SELFTEST_ITERS			1000000
 extern int ITERS_BETWEEN_CHECKPOINTS;	/* number of iterations between checkpoints */
+extern int DO_GCHECK;	// Mersenne/PRP or Fermat/Pepin case
 extern int ITERS_BETWEEN_GCHECK_UPDATES;	// #iterations between Gerbicz-checksum updates
 extern int ITERS_BETWEEN_GCHECKS;			// #iterations between Gerbicz-checksum residue-integrity checks
+extern uint32 NERR_GCHECK;	// v20: Add counter for Gerbicz-check errors encountered during test
 
 #undef	FACTOR_PASS_MAX
 #define	FACTOR_PASS_MAX	16
@@ -124,8 +129,8 @@ All but the "else" stuff below is specific to factor.c built in standalone mode:
 	#else
 		#define MAX_BITS_Q	128
 	#endif
-#else	/* 1-word P limit is set by #of bits p can have so 120^2*p < 2^64: */
-	#define MAX_BITS_P	50
+#else	/* 1-word P limit is set by #of bits p can have so 120*p < 2^64: */
+	#define MAX_BITS_P	57
 	#ifdef USE_FLOAT
 		#define MAX_BITS_Q	78
 	#else
@@ -219,16 +224,16 @@ extern uint32 SW_DIV_N;	/* Needed for the subset of radix* carry routines which 
 #define ISRT2 (const double)0.7071067811865476	//extern const double ISRT2;
 #define SQRT2 (const double)1.41421356237309504880
 
-extern double AME,MME;	/* Avg and Max per-iteration fractional error for a given iteration interval */
-
-/* Iteration # at which to start collecting RO Err data for AME & MME computation: */
-#define AME_ITER_START (30u)
+extern double AME,MME;			/* Avg and Max per-iteration fractional error for a given iteration interval */
+extern uint32 AME_ITER_START;	/* Iteration # at which to start collecting RO Err data for AME & MME computation: */
 
 extern uint64 PMIN;	/* minimum exponent allowed */
 extern uint64 PMAX;	/* maximum exponent allowed */
 
 // Apr 2018 - Support shift count for rotated-residue computations:
 extern uint64 RES_SHIFT, GCHECK_SHIFT;
+// Feb 2020: added a uint32 to keep track of the shifted-residue sign, needed for rotated residue Fermat-mod arithmetic:
+extern uint32 RES_SIGN;
 extern uint64 *BIGWORD_BITMAP;	/* Needed for fast how-many-residue-bits-up-to-this-array-word lookup, which the carry routines
 								use to figure out where to inject the -2 in a rotated-residue LL test using Crandall/Fagin IBDWT.
 								A 1-bit means a bigword (p/n+1 bits); 0 means a smallword (p/n bits), where p/n is integer-div. */
@@ -243,6 +248,15 @@ extern uint32 *BIGWORD_NBITS;	/* Array in which the (k)th element stores total n
 // Pépin test to another base, the more-general PRP-worktype must be specified with appropriate parameters.
 extern uint32 PRP_BASE;
 extern uint64 *BASE_MULTIPLIER_BITS;
+// Nov 2020: p-1 stuff:
+extern uint64 *PM1_S1_PRODUCT;	// Vector to hold Stage 1 prime-powers product product in most-significant-bit-deleted-and-result-bit-reversed [MSBDARBR] form
+extern uint32 PM1_S1_PROD_B1, PM1_S1_PROD_BITS;	// Stage 1 bound to which the current value of PM1_S1_PRODUCT corresponds, and #bits in the MSBDARBR result
+extern uint32 PM1_S2_NBUF;	// # of floating-double residue-length memblocks available for Stage 2
+// Allow Stage 2 bounds to be > 2^32; B2_start defaults to B1, but can be set > B1 to allow for arbitrary Stage 2 prime intervals:
+extern uint32 B1;
+extern uint64 B2,B2_start;
+// Bit-depth of TF done on a given exponent. This is currently only used for auto-setting p-1 bounds:
+extern uint32 TF_BITS;
 
 // Work types. These must be <= 255 to be compatible with bytewise savefile format!
 // Make sure to bunch all the currently-supported test types at top of list, with no numerical gaps:
@@ -282,13 +296,14 @@ From the code, here is the description of the 5 residue types --- quite a mess. 
 
 EWM: For the v19 release, Mlucas will support only PRP type 1|5 (these 2 only differ when accompanied by an ensuing cofactor-PRP test).
 */
-#define TEST_TYPE_PRP				2
-#define TEST_TYPE_MAX				2	// Set = to largest currently-supported test_type
+#define TEST_TYPE_PRP				2	// PRP-CF (Mersenne-cofactor-PRP tests) have same functionality as PRP, but with one
+										// or more known factors also supplied for an ensuing Suyama-style cofactor-PRP test.
+										// We differentiate the 2 test types by PRP-CF having > 0 entries in the KNOWN_FACTORS array.
+#define TEST_TYPE_PM1				3
+#define TEST_TYPE_MAX				3	// Set = to largest currently-supported test_type
 // Remaining work types not currently supported:
-#define TEST_TYPE_PRPCOFACTOR		3	// Same as PRP, but with one or more known factors also supplied for an ensuing Suyama-style cofactor-PRP test.
-#define TEST_TYPE_TRIALFACTORING	4
-#define TEST_TYPE_PMINUS1			5
-#define TEST_TYPE_ECM				6
+#define TEST_TYPE_TF				4
+#define TEST_TYPE_ECM				5
 #define TEST_TYPE_DIM				(TEST_TYPE_ECM + 1)	// Set = to largest *declared* test_type value + 1
 
 /* These must be <= 255 to be compatible with bytewise savefile format! */
@@ -310,11 +325,12 @@ extern uint32 TRANSFORM_TYPE;
 #define RIGHT_ANGLE			2
 #define TRANSFORM_TYPE_MAX	2
 
-extern const char OFILE[], RANGEFILE[];
+extern const char OFILE[], WORKFILE[];
 extern const char LOCAL_INI_FILE[];
 extern char CONFIGFILE[];
 extern char STATFILE[];
 extern char RESTARTFILE[];
+extern uint64 KNOWN_FACTORS[40];	// Known prime-factors input to p-1 runs ... for now limit to 10 factors, each < 2^256
 
 extern int INTERACT;
 
@@ -430,13 +446,16 @@ const long double inv61   = (long double)1.0/61;
 const long double inv_m61 = (long double)1.0/2305843009213693951ull;
 */
 #define MAX_RADIX	4096	// Largest leading-radix currently supported
-extern int NRADICES, RADIX_VEC[10];	/* RADIX[] stores sequence of complex FFT radices used.	*/
+extern uint32 NRADICES, RADIX_VEC[10];	/* NRADICES, RADIX_VEC[] store number & set of complex FFT radices used.	*/
 
-extern int ROE_ITER;	// Iteration of any dangerously high ROE encountered during the current iteration interval. This must be > 0, but make signed to allow sign-flip encoding of retry-fail.
+extern int ROE_ITER;	// Iteration of any dangerously high ROE encountered during the current iteration interval.
+						// This must be > 0, but make signed to allow sign-flip encoding of retry-fail.
 extern double ROE_VAL;	// Value (must be in (0, 0.5)) of dangerously high ROE encountered during the current iteration interval
-extern int USE_SHORT_CY_CHAIN;
-#define USE_SHORT_CY_CHAIN_MAX	2	// This is a fixed const built into the carry-step implementation via the incr_long|med|short values
+extern uint32 NERR_ROE;	// v20: Add counter for dangerously high ROEs encountered during test
 
+extern int USE_SHORT_CY_CHAIN;
+#define USE_SHORT_CY_CHAIN_MAX	3	// This is a fixed const built into the carry-step implementation via the incr_long|med|short values
+									// v20: Add support for one more, hiacc, replacing the earlier compile-time HIACC flag in CY routines
 extern FILE *dbg_file;
 extern double*ADDR0;	// Allows for easy debug on address-read-or-write than setting a watchpoint
 

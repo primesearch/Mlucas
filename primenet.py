@@ -5,6 +5,7 @@
 # This handles LL and PRP testing (first-time and double-check), i.e. all the worktypes supported by the program.
 # EWM: adapted from https://github.com/MarkRose/primetools/blob/master/mfloop.py by teknohog and Mark Rose, with help rom Gord Palameta.
 # 2020: support for computer registration and assignment-progress via direct Primenet-v5-API calls by Loïc Le Loarer <loic@le-loarer.org>.
+# 2021: support for p-1 assignment fetch (Pfactor= and Pminus1= formats) and results reporting (worktyp = PM1) added by EWM for Mlucas v20 release.
 
 # This script is intended to be run alongside Mlucas - use it to register your computer (if you've not previously done so)
 # and then reinvoke in periodic-update mode to automatically fetch work from the Primenet server, report latest results and
@@ -13,7 +14,7 @@
 
 ################################################################################
 #                                                                              #
-#   (C) 2017-2020 by Ernst W. Mayer.                                                #
+#   (C) 2017-2020 by Ernst W. Mayer.                                           #
 #                                                                              #
 #  This program is free software; you can redistribute it and/or modify it     #
 #  under the terms of the GNU General Public License as published by the       #
@@ -45,24 +46,24 @@ import platform
 
 # More python3-backward-incompatibility-breakage-related foo - thanks to Gord Palameta for the workaround:
 try:
-    # Python3
-    import http.cookiejar as cookiejar
-    from urllib.error import URLError, HTTPError
-    from urllib.parse import urlencode
-    from urllib.request import build_opener, install_opener, urlopen
-    from urllib.request import HTTPCookieProcessor
+	# Python3
+	import http.cookiejar as cookiejar
+	from urllib.error import URLError, HTTPError
+	from urllib.parse import urlencode
+	from urllib.request import build_opener, install_opener, urlopen
+	from urllib.request import HTTPCookieProcessor
 except ImportError:
-    # Python2
-    import cookielib as cookiejar
-    from urllib2 import URLError, HTTPError
-    from urllib import urlencode
-    from urllib2 import build_opener, install_opener, urlopen
-    from urllib2 import HTTPCookieProcessor
+	# Python2
+	import cookielib as cookiejar
+	from urllib2 import URLError, HTTPError
+	from urllib import urlencode
+	from urllib2 import build_opener, install_opener, urlopen
+	from urllib2 import HTTPCookieProcessor
 
 try:
-    from configparser import ConfigParser, Error as ConfigParserError
+	from configparser import ConfigParser, Error as ConfigParserError
 except ImportError:
-    from ConfigParser import ConfigParser, Error as ConfigParserError  # ver. < 3.0
+	from ConfigParser import ConfigParser, Error as ConfigParserError  # ver. < 3.0
 
 from collections import namedtuple
 
@@ -171,7 +172,8 @@ def primenet_fetch(num_to_get):
 	if not primenet_login:
 		return []
 	# As of early 2018, here is the full list of assignment-type codes supported by the Primenet server; Mlucas
-	# v18 (and thus this script) supports only the subset of these indicated by an asterisk in the left column.
+	# v20 (and thus this script) supports only the subset of these indicated by an asterisk in the left column.
+	# The Pminus1 worktype is supported only as split from an LL|PRP assignment needing p-1 done, hence the **.
 	# Supported assignment types may be specified via either their PrimeNet number code or the listed Mnemonic:
 	#			Worktype:
 	# Code		Mnemonic			Description
@@ -179,7 +181,8 @@ def primenet_fetch(num_to_get):
 	#    0						Whatever makes the most sense
 	#    1						Trial factoring to low limits
 	#    2						Trial factoring
-	#    4						P-1 factoring
+	#    3	Pfactor				P-1 factoring
+	# ** 4	Pminus1				P-1 factoring
 	#    5						ECM for first factor on Mersenne numbers
 	#    6						ECM on Fermat numbers
 	#    8						ECM on mersenne cofactors
@@ -270,12 +273,12 @@ def mersenne_find(line, complete=True):
 	return re.search("[Pp]rogram", line)
 
 try:
-    from statistics import median_low
+	from statistics import median_low
 except ImportError:
-    def median_low(mylist):
-        sorts = sorted(mylist)
-        length = len(sorts)
-        return sorts[(length-1)//2]
+	def median_low(mylist):
+		sorts = sorted(mylist)
+		length = len(sorts)
+		return sorts[(length-1)//2]
 
 def parse_stat_file(p):
 	statfile = 'p' + str(p) + '.stat'
@@ -592,6 +595,7 @@ def submit_one_line(sendline):
 
 def get_result_type(ar):
 	"""Extract result type from JSON result"""
+	# Cf. The Primenet API forum thread [https://mersenneforum.org/showthread.php?t=23992] for lists of codes:
 	if ar['worktype'] == 'LL':
 		if ar['status'] == 'P':
 			return primenet_api.PRIMENET_AR_LL_PRIME
@@ -602,6 +606,11 @@ def get_result_type(ar):
 			return primenet_api.PRIMENET_AR_PRP_PRIME
 		else:
 			return primenet_api.PRIMENET_AR_PRP_RESULT
+	elif ar['worktype'] == 'PM1':
+		if ar['status'] == 'F':
+			return primenet_api.PRIMENET_AR_P1_FACTOR
+		else:
+			return primenet_api.PRIMENET_AR_P1_NOFACTOR
 	else:
 		raise ValueError("This is a bug in primenet.py, Unsupported worktype {0}".format(ar['worktype']))
 
@@ -642,6 +651,16 @@ def submit_one_line_v5(sendline, guid, ar):
 			args['sc'] = ar['shift-count']
 		if 'errors' in ar:
 			args['gbz'] = 1
+	elif result_type in frozenset([primenet_api.PRIMENET_AR_P1_FACTOR, primenet_api.PRIMENET_AR_P1_NOFACTOR]):
+		tasks = readonly_list_file(workfile)
+		if result_type == primenet_api.PRIMENET_AR_P1_NOFACTOR:
+			args["d"] = 0
+		args.update((("A", 1), ("b", 2), ("c", -1)))
+		args['B1'] = ar['B1']
+		if 'B2' in ar:
+			args['B2'] = ar['B2']
+		if result_type == primenet_api.PRIMENET_AR_P1_FACTOR:
+			args["f"] = ar['factors'][0]
 	args['fftlen'] = ar['fft-length']
 	result = send_request(guid, args)
 	if result is None:
@@ -737,7 +756,7 @@ parser.add_option("-p", "--password", dest="password", help="Primenet password")
 # -t is reserved for timeout, instead use -T for assignment-type preference:
 parser.add_option("-T", "--worktype", dest="worktype", default="101", help="Worktype code, default is 101 for double-check LL, alternatively 100 (smallest available first-time LL), 102 (world-record-sized first-time LL), 104 (100M digit number to LL test - not recommended), 150 (smallest available first-time PRP), 151 (double-check PRP), 152 (world-record-sized first-time PRP), 153 (100M digit number to PRP test - not recommended)")
 
-parser.add_option("-n", "--num_cache", dest="num_cache", type="int", default=1, help="Number of assignments to cache, default: %default")
+parser.add_option("-n", "--num_cache", dest="num_cache", type="int", default=2, help="Number of assignments to cache, default: %default")
 parser.add_option("-L", "--percent_limit", dest="percent_limit", type="int", default=90, help="Add one to num_cache when current assignment is already done at this percentage, default: %default")
 
 parser.add_option("-t", "--timeout", dest="timeout", type="int", default=60*60*6, help="Seconds to wait between network updates, default %default [6 hours]. Use 0 for a single update without looping.")

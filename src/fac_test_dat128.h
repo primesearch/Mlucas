@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -58,9 +58,9 @@
 		{15, 69801146ull,13376893484985149619ull},			// 1997 Crandall/van Halewyn
 		{16,       39ull, 1485176525646847404ull},			// 1996 Crandall/Dilcher
 		{18,        0ull,   77509585098133576ull},			// 1999 Crandall/McIntosh/Tardif
-		{19,971680160ull,15036099344401914846ull},			// 2009 Bessell/Woltman
-		{22,208923546ull,18410182759848881875ull},			// 2010 Bessell/Woltman
-		{31,        0ull,       5463561471303ull},			// 2001 Kruppa/Forbes
+		{19,971680160ull,15036099344401914846ull},			// 2009 Bessell/Woltman (ECM); k = 2.8962167624028624126082526703
+		{22,208923546ull,18410182759848881875ull},			// 2010 Bessell/Woltman (ECM); k = 31.2252461.1045429261.52795084261
+		{31,        0ull,       5463561471303ull},			// 2001 Kruppa/Forbes (TF); k = 3.13.140091319777; would need p-1 stage 2 slightly > 10^11
 		{37,        0ull,          1275438465ull},			// 1991 Gostin
 		{39,        0ull,    2864929972774011ull},			// 2012 Rajala/Woltman
 		{42,        0ull,     222636358286122ull},			// 2011 Maznichenko/Rodenkirch
@@ -90,8 +90,10 @@
 	// Testcases with factors > 256 bits (i.e. larger than our current largest fixed-length
 	// modpow support, hence necessitating the use of the arbitrary-length mi64-code modpow).
 	// Here interpret the above testFac128 struct as a [n,pow2,k] trio, Fn = 2^2^n+1 is the
-	// Fermat number and q = k.2^pow2 + 1 the factor. Limit ourselves to n < 10000 in order
-	// to keep the resulting self-test timings reasonable.
+	// Fermat number and q = k.2^pow2 + 1 the factor.
+/****NOTE: This particular subtable defines pow2 such that k odd - other Fermat-factor tables in my fac_test_dat* files
+define pow2 := 2^(n+2), allow k to be either even or odd, as the case may be. To_do: regularize all tables to same convention ***/
+	// Limit ourselves to n < 10000 in order to keep the resulting self-test timings reasonable.
 	// To check any particular (alleged) factor q of Fn using Pari, use Mod(2,q)^(2^n)+1.
 	static const struct testFac128 ffacBig[] =
 	{

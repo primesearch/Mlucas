@@ -406,50 +406,50 @@ Totals: 72 ADD, 16 MUL	*/
 	__cx0,__sx0,__cx1,__sx1,__cx2,__sx2,__cx3,__sx3,\
 	__rt,__it)\
 {\
-	__t0r = __A0r;						__t0i = __A0i;\
-	__t6r = __A1r - __A6r;				__t6i = __A1i - __A6i;	/* x1 - x6 */\
-	__t1r = __A1r + __A6r;				__t1i = __A1i + __A6i;	/* x1 + x6 */\
+	__tr0 = __Ar0;						__ti0 = __Ai0;\
+	__tr6 = __Ar1 - __Ar6;				__ti6 = __Ai1 - __Ai6;	/* x1 - x6 */\
+	__tr1 = __Ar1 + __Ar6;				__ti1 = __Ai1 + __Ai6;	/* x1 + x6 */\
 \
-	__t5r = __A2r - __A5r;				__t5i = __A2i - __A5i;	/* x2 - x5 */\
-	__t2r = __A2r + __A5r;				__t2i = __A2i + __A5i;	/* x2 + x5 */\
+	__tr5 = __Ar2 - __Ar5;				__ti5 = __Ai2 - __Ai5;	/* x2 - x5 */\
+	__tr2 = __Ar2 + __Ar5;				__ti2 = __Ai2 + __Ai5;	/* x2 + x5 */\
 \
-	__t4r = __A3r - __A4r;				__t4i = __A3i - __A4i;	/* x3 - x4 */\
-	__t3r = __A3r + __A4r;				__t3i = __A3i + __A4i;	/* x3 + x4 */\
+	__tr4 = __Ar3 - __Ar4;				__ti4 = __Ai3 - __Ai4;	/* x3 - x4 */\
+	__tr3 = __Ar3 + __Ar4;				__ti3 = __Ai3 + __Ai4;	/* x3 + x4 */\
 \
-	__rt = __t1r+__t2r+__t3r;			__it = __t1i+__t2i+__t3i;\
-	__B0r= __rt+__t0r;					__B0i= __it+__t0i;\
-	__t0r= __rt*__cx0+__t0r;			__t0i= __it*__cx0+__t0i;\
-	__t1r= __t1r-__t2r;					__t1i= __t1i-__t2i;\
-	__t2r= __t3r-__t2r;					__t2i= __t3i-__t2i;\
-	__t3r=(__t1r+__t2r)*__cx3;			__t3i=(__t1i+__t2i)*__cx3;\
-	__t1r= __t1r*__cx1;					__t1i= __t1i*__cx1;\
-	__t2r= __t2r*__cx2;					__t2i= __t2i*__cx2;\
-	__rt = __t1r-__t3r;					__it = __t1i-__t3i;\
-	__t2r= __t2r-__t3r;					__t2i= __t2i-__t3i;\
+	__rt = __tr1+__tr2+__tr3;			__it = __ti1+__ti2+__ti3;\
+	__Br0= __rt+__tr0;					__Bi0= __it+__ti0;\
+	__tr0= __rt*__cx0+__tr0;			__ti0= __it*__cx0+__ti0;\
+	__tr1= __tr1-__tr2;					__ti1= __ti1-__ti2;\
+	__tr2= __tr3-__tr2;					__ti2= __ti3-__ti2;\
+	__tr3=(__tr1+__tr2)*__cx3;			__ti3=(__ti1+__ti2)*__cx3;\
+	__tr1= __tr1*__cx1;					__ti1= __ti1*__cx1;\
+	__tr2= __tr2*__cx2;					__ti2= __ti2*__cx2;\
+	__rt = __tr1-__tr3;					__it = __ti1-__ti3;\
+	__tr2= __tr2-__tr3;					__ti2= __ti2-__ti3;\
 \
-	__t1r= __t0r-__rt-__t2r;			__t1i= __t0i-__it-__t2i;\
-	__t2r= __t0r+__t2r;					__t2i= __t0i+__t2i;\
-	__t0r= __t0r+__rt;					__t0i= __t0i+__it;\
+	__tr1= __tr0-__rt-__tr2;			__ti1= __ti0-__it-__ti2;\
+	__tr2= __tr0+__tr2;					__ti2= __ti0+__ti2;\
+	__tr0= __tr0+__rt;					__ti0= __ti0+__it;\
 \
-	__t3r=(__t6r-__t4r+__t5r)*__sx0;	__t3i=(__t6i-__t4i+__t5i)*__sx0;\
-	__t6r= __t6r-__t5r;					__t6i= __t6i-__t5i;\
-	__t5r= __t4r+__t5r;					__t5i= __t4i+__t5i;\
-	__t4r=(__t5r-__t6r)*__sx3;			__t4i=(__t5i-__t6i)*__sx3;\
-	__t6r= __t6r*__sx1;					__t6i= __t6i*__sx1;\
-	__t5r= __t5r*__sx2;					__t5i= __t5i*__sx2;\
-	__t6r= __t4r+__t6r;					__t6i= __t4i+__t6i;\
-	__t5r= __t4r-__t5r;					__t5i= __t4i-__t5i;\
+	__tr3=(__tr6-__tr4+__tr5)*__sx0;	__ti3=(__ti6-__ti4+__ti5)*__sx0;\
+	__tr6= __tr6-__tr5;					__ti6= __ti6-__ti5;\
+	__tr5= __tr4+__tr5;					__ti5= __ti4+__ti5;\
+	__tr4=(__tr5-__tr6)*__sx3;			__ti4=(__ti5-__ti6)*__sx3;\
+	__tr6= __tr6*__sx1;					__ti6= __ti6*__sx1;\
+	__tr5= __tr5*__sx2;					__ti5= __ti5*__sx2;\
+	__tr6= __tr4+__tr6;					__ti6= __ti4+__ti6;\
+	__tr5= __tr4-__tr5;					__ti5= __ti4-__ti5;\
 \
-	__t4r= __t3r-__t6r-__t5r;			__t4i= __t3i-__t6i-__t5i;\
-	__t5r= __t3r+__t5r;					__t5i= __t3i+__t5i;\
-	__t3r= __t3r+__t6r;					__t3i= __t3i+__t6i;\
+	__tr4= __tr3-__tr6-__tr5;			__ti4= __ti3-__ti6-__ti5;\
+	__tr5= __tr3+__tr5;					__ti5= __ti3+__ti5;\
+	__tr3= __tr3+__tr6;					__ti3= __ti3+__ti6;\
 \
-	__B1r =__t0r-__t3i;					__B1i =__t0i+__t3r;\
-	__B2r =__t1r-__t4i;					__B2i =__t1i+__t4r;\
-	__B3r =__t2r+__t5i;					__B3i =__t2i-__t5r;\
-	__B4r =__t2r-__t5i;					__B4i =__t2i+__t5r;\
-	__B5r =__t1r+__t4i;					__B5i =__t1i-__t4r;\
-	__B6r =__t0r+__t3i;					__B6i =__t0i-__t3r;\
+	__Br1 =__tr0-__ti3;					__Bi1 =__ti0+__tr3;\
+	__Br2 =__tr1-__ti4;					__Bi2 =__ti1+__tr4;\
+	__Br3 =__tr2+__ti5;					__Bi3 =__ti2-__tr5;\
+	__Br4 =__tr2-__ti5;					__Bi4 =__ti2+__tr5;\
+	__Br5 =__tr1+__ti4;					__Bi5 =__ti1-__tr4;\
+	__Br6 =__tr0+__ti3;					__Bi6 =__ti0-__tr3;\
 }
 
 /* Totals: 60 ADD, 36 MUL	*/

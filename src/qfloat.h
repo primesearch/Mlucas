@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2020 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -153,11 +153,12 @@ struct qfloat qf_rational_quotient(int64 p, int64 q);
 struct qfloat qfinc(struct qfloat q);
 struct qfloat qfdec(struct qfloat q);
 
-/* Top-level add and subtract routines seen by the caller - these examine the
+/* Top-level add, subtract and absolute-difference routines seen by the caller - these examine the
    signs of the inputs, send the proper combination of +-q1 and +-q2 to the
    low-level qfsum and qfdif functions, and properly sign the result. */
 struct qfloat qfadd	(struct qfloat q1, struct qfloat q2);
 struct qfloat qfsub	(struct qfloat q1, struct qfloat q2);
+struct qfloat qfabsdiff(struct qfloat q1, struct qfloat q2);
 /* Low-level add and subtract routines, which assume both inputs are nonnegative.
 NOTE: these are intended to be called ONLY from qfadd and qfsub. */
 struct qfloat qfsum	(struct qfloat q1, struct qfloat q2);
@@ -195,6 +196,8 @@ struct qfloat qftanh_and_cosh(struct qfloat *x);
 /* low-level sine and cosine routines - these require an argument in [0, pi/2). */
 struct qfloat qfcs1	(struct qfloat q);
 struct qfloat qfsn1	(struct qfloat q);
+// The above 2 both feed either q or pi/2-q to this one, which requires arg in [0, pi/4):
+struct qfloat qfcos_or_sin1(struct qfloat q, int cos_or_sin);
 
 // Utility macros:
 #define QLEADZ(__x)	( leadz64(__x.hi) + ((-(sint32)(__x.hi == 0)) && leadz64(__x.lo)) )
