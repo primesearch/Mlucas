@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2020 by Ernst W. Mayer.                                           *
+*   (C) 1997-2021 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -52,6 +52,7 @@
 		int*ws_blocklen;
 		int*ws_blocklen_sum;
 		uint64 fwd_fft;
+		double *c;		// Optional auxiliary submul array
 	};
 #else
 	#define CTIME	/* In single-thread mode, prefer cycle-based time because of its finer granularity */
@@ -134,7 +135,8 @@ of 2 separate sub-bitfields:
 					p[exponent].M savefile.
 					if the check fails, skip the savefile-writing and instead roll back and restart the PRP test from the p[exponent].M file.
 */
-int	mers_mod_square(double a[],             int arr_scratch[], int n, int ilo, int ihi, uint64 fwd_fft_only, uint64 p, int scrnFlag, double *tdiff, int update_shift)
+// v20.1: Add auxiliary submul-array arg c[] to support FFT-submul a[]*(b[] - c[]) used by p-1 stage 2, with b[],c[] fwd-FFTed on entry:
+int	mers_mod_square(double a[],             int arr_scratch[], int n, int ilo, int ihi, uint64 fwd_fft_only, uint64 p, int scrnFlag, double *tdiff, int update_shift, double c[])
 {
 	const char func[] = "mers_mod_square";
 	const char*arr_sml[] = {"long","medium","short","hiacc"};	// Carry-chain length descriptors
@@ -1371,8 +1373,8 @@ for(i=0; i < NRT; i++) {
 		init_sse2 = nchunks;	// Use *value* of init_sse2 to store #threads
 		thr_id = -1;
 		/* The dyadic-square routines need a few more params passed in init-mode than do the standalone FFT-pass routines: */
-		radix16_wrapper_square(0x0,     arr_scratch, n, radix0, 0x0,0x0,          nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id, FALSE);
-		radix32_wrapper_square(0x0, arr_scratch, n, radix0, 0x0, 0x0, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id, FALSE);
+		radix16_wrapper_square(0x0, arr_scratch, n, radix0, 0x0,0x0, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id, FALSE, 0x0);
+		radix32_wrapper_square(0x0, arr_scratch, n, radix0, 0x0,0x0, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id, FALSE, 0x0);
 	}
 	if(init_sse2 == FALSE || (saved_init_sse2 < nchunks)) {		// New run, or need to up #threads in local-store inits
 	//	init_sse2 = TRUE;
@@ -1383,8 +1385,8 @@ for(i=0; i < NRT; i++) {
 		radix32_dif_pass(0x0, 0, 0x0, 0x0, 0, 0, 0x0, init_sse2, thr_id);
 		/* The dyadic-square routines need a few more params passed in init-mode than do the standalone FFT-pass routines: */
 		// Dec 2017: Add rt0,rt1-pointers to the wrapper_square init calls to support USE_PRECOMPUTED_TWIDDLES build option:
-		radix16_wrapper_square(0x0,     arr_scratch, n, radix0, rt0,rt1,          nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id, FALSE);
-		radix32_wrapper_square(0x0, arr_scratch, n, radix0, rt0,rt1, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id, FALSE);
+		radix16_wrapper_square(0x0, arr_scratch, n, radix0, rt0,rt1, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id, FALSE, 0x0);
+		radix32_wrapper_square(0x0, arr_scratch, n, radix0, rt0,rt1, nradices_prim, radix_prim, 0,0,0,0,0,0,0,0, init_sse2, thr_id, FALSE, 0x0);
 
 		radix8_dit_pass (0x0, 0, 0x0, 0x0, 0, 0, 0x0, init_sse2, thr_id);
 		radix16_dit_pass(0x0,     0, 0x0,0x0,          0, 0, 0x0, init_sse2, thr_id);
@@ -1674,7 +1676,7 @@ for(i=0; i < NRT; i++) {
 
 	// v19: Add support for mod_mul with one input being in precomputed fwd-FFTed form:
 #ifdef MULTITHREAD
-	for(i = 0; i < nchunks; ++i) { tdat[i].arrdat = a; tdat[i].fwd_fft = fwd_fft; }
+	for(i = 0; i < nchunks; ++i) { tdat[i].arrdat = a; tdat[i].fwd_fft = fwd_fft; tdat[i].c = c; }
 //	printf("Thread 0: arrdat = 0x%llX, fwd_fft = 0x%llX\n",tdat[0].arrdat,tdat[0].fwd_fft);
 #endif
 
@@ -1812,7 +1814,7 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 	/* Unthreaded version: */
 	for(ii = 0; ii < radix0; ii += 2)
 	{
-		mers_process_chunk(a,arr_scratch,n,rt0,rt1,index,block_index,ii,nradices_prim,radix_prim,ws_i,ws_j1,ws_j2,ws_j2_start,ws_k,ws_m,ws_blocklen,ws_blocklen_sum, fwd_fft);
+		mers_process_chunk(a,arr_scratch,n,rt0,rt1,index,block_index,ii,nradices_prim,radix_prim,ws_i,ws_j1,ws_j2,ws_j2_start,ws_k,ws_m,ws_blocklen,ws_blocklen_sum, fwd_fft, c);
 	}
 
 #endif
@@ -1992,8 +1994,8 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 				fprintf(fq,"%s",cbuf);
 			// v20: For == 0.4375, in PRP-test mode, if already at shortest chain length, simply allow further 0.4375 errors,
 			// since Gerbicz check will catch rare cases of a wrong-way digit rounding, i.e. 0.4375 really being a 0.5625 in disguise:
-			} else if(fracmax == 0.4375 && (TEST_TYPE == TEST_TYPE_PRP || TEST_TYPE == TEST_TYPE_PM1)) {
-				#warning Revert!
+			} else if(fracmax == 0.4375 && TEST_TYPE == TEST_TYPE_PRP) {
+				/* No-op */
 			} else if(fracmax >= 0.4375 ) {	// already at shortest chain length
 				// In range test mode, any fractional part > 0.4375 is cause for error exit, triggering switch to next-larger FFT length:
 				ROE_ITER = iter;
@@ -2184,13 +2186,15 @@ mers_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and s
 	int*ws_blocklen     = thread_arg->ws_blocklen;
 	int*ws_blocklen_sum = thread_arg->ws_blocklen_sum;
 	uint64 fwd_fft      = thread_arg->fwd_fft;
+	double*c            = thread_arg->c;
 
 #else
 
 void mers_process_chunk(
 	double a[], int arr_scratch[], int n, struct complex rt0[], struct complex rt1[],
 	int index[], int block_index[], int ii, int nradices_prim, int radix_prim[],
-	int ws_i[], int ws_j1[], int ws_j2[], int ws_j2_start[], int ws_k[], int ws_m[], int ws_blocklen[], int ws_blocklen_sum[], uint64 fwd_fft
+	int ws_i[], int ws_j1[], int ws_j2[], int ws_j2_start[], int ws_k[], int ws_m[], int ws_blocklen[], int ws_blocklen_sum[],
+	uint64 fwd_fft, double c[]
 )
 {
 	int thr_id = 0;	/* In unthreaded mode this must always = 0 */
@@ -2201,6 +2205,7 @@ void mers_process_chunk(
 	int radix0 = RADIX_VEC[0];
 	int i,incr,istart,j,jhi,jstart,k,koffset,l,mm;
 	int init_sse2 = FALSE;	// Init-calls to various radix-pass routines presumed done prior to entry into this routine
+	/*** Unlike fermat_mod_square, no need for separate cptr = c + [offset] here, since c-array offsets computed inside radix*_wrapper_square routines ***/
 
 	/* If radix0 odd and i = 0, process just one block of data, otherwise do two: */
 	if(ii == 0 && (radix0 & 1))
@@ -2208,7 +2213,7 @@ void mers_process_chunk(
 	else
 		jhi = 2;
 
-	/* v20: Bits 2:3 of fwd_fft = 3 means "dyadic-multiply of 2 inputs a and b, with both already forward-FFTed:
+	/* v20: [Bits 2:3 of fwd_fft] = 3 means "dyadic-multiply of 2 inputs a and b, with both already forward-FFTed:
 		(double *)a = FFT(a), (double *)(fwd_fft_only - mode_flag) = FFT(b).
 	In this case fwd_fft &= ~0xC yields pointer to FFT(b) we skip over fwd-FFT directly to
 	dyadic-multiply FFT(a) * FFT(b) and iFFT the product, storing the result in a[].
@@ -2273,11 +2278,11 @@ void mers_process_chunk(
 		switch(RADIX_VEC[NRADICES-1])
 		{
 		case 16 :
-			radix16_wrapper_square(a,arr_scratch,n,radix0,rt0,rt1,nradices_prim,radix_prim, ws_i[l], ws_j1[l], ws_j2[l], ws_j2_start[l], ws_k[l], ws_m[l], ws_blocklen[l], ws_blocklen_sum[l],init_sse2,thr_id, fwd_fft); break;
+			radix16_wrapper_square(a,arr_scratch,n,radix0,rt0,rt1,nradices_prim,radix_prim, ws_i[l], ws_j1[l], ws_j2[l], ws_j2_start[l], ws_k[l], ws_m[l], ws_blocklen[l], ws_blocklen_sum[l],init_sse2,thr_id, fwd_fft, c); break;
 		case 32 :
-			radix32_wrapper_square(a,arr_scratch,n,radix0,rt0,rt1,nradices_prim,radix_prim, ws_i[l], ws_j1[l], ws_j2[l], ws_j2_start[l], ws_k[l], ws_m[l], ws_blocklen[l], ws_blocklen_sum[l],init_sse2,thr_id, fwd_fft); break;
+			radix32_wrapper_square(a,arr_scratch,n,radix0,rt0,rt1,nradices_prim,radix_prim, ws_i[l], ws_j1[l], ws_j2[l], ws_j2_start[l], ws_k[l], ws_m[l], ws_blocklen[l], ws_blocklen_sum[l],init_sse2,thr_id, fwd_fft, c); break;
 	/*	case 64 :
-			radix64_wrapper_square(a,arr_scratch,n,radix0,rt0,rt1,nradices_prim,radix_prim, ws_i[l], ws_j1[l], ws_j2[l], ws_j2_start[l], ws_k[l], ws_m[l], ws_blocklen[l], ws_blocklen_sum[l],init_sse2,thr_id, fwd_fft); break;
+			radix64_wrapper_square(a,arr_scratch,n,radix0,rt0,rt1,nradices_prim,radix_prim, ws_i[l], ws_j1[l], ws_j2[l], ws_j2_start[l], ws_k[l], ws_m[l], ws_blocklen[l], ws_blocklen_sum[l],init_sse2,thr_id, fwd_fft, c); break;
 		*/
 		default :
 			sprintf(cbuf,"FATAL: radix %d not available for wrapper/square. Halting...\n",RADIX_VEC[NRADICES-1]); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);

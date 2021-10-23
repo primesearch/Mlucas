@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2020 by Ernst W. Mayer.                                           *
+*   (C) 1997-2021 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -77,8 +77,9 @@ uint32 NERR_GCHECK = 0;	// v20: Add counter for Gerbicz-check errors encountered
 int ITERS_BETWEEN_GCHECK_UPDATES = 1000;	// iterations between Gerbicz-checkproduct updates
 int ITERS_BETWEEN_GCHECKS     = 1000000;	// #iterations between Gerbicz-checksum residue-integrity checks
 
-char ESTRING[STR_MAX_LEN];	/* Exponent in string form */
-char PSTRING[STR_MAX_LEN];	/* Number being tested in string form, typically estring concatenated with several other descriptors, e.g. strcat("M",estring) */
+char ESTRING[STR_MAX_LEN];	// Mersenne exponent or Fermat-number index in string form - for M(p) this == p, for F(m) this == m
+char BIN_EXP[STR_MAX_LEN];	// Binary exponent in string form - for M(p) this == p, for F(m) this == 2^m
+char PSTRING[STR_MAX_LEN];	// Modulus being used in string form, e.g. "M110916929" and "F33".
 
 // The index following 'mask' here = log2(#doubles in SIMD register) = log2(#bits in SIMD register) - 6.
 // The corrsponding mask masks off one my bit than this, since we are dealing with complex FFT data which
@@ -127,7 +128,7 @@ uint32 *BIGWORD_NBITS = 0x0;
 uint32 PRP_BASE = 0;
 uint64 *BASE_MULTIPLIER_BITS = 0x0;	// Runtime-allocated bitwise multiply-by-base array
 // Nov 2020: p-1 stuff:
-uint64 *PM1_S1_PRODUCT = 0x0;	// Vector to hold Stage 1 prime-powers product product
+uint64 *PM1_S1_PRODUCT = 0x0, PM1_S1_PROD_RES64 = 0ull;	// Vector to hold Stage 1 prime-powers product, and (mod 2^64) checksum on same
 uint32 PM1_S1_PROD_B1 = 0, PM1_S1_PROD_BITS = 0;	// Stage 1 bound to which the current value of PM1_S1_PRODUCT corresponds, and its #bits
 uint32 PM1_S2_NBUF = 0;	// # of floating-double residue-length memblocks available for Stage 2
 // Allow Stage 2 bounds to be > 2^32; B2_start defaults to B1, but can be set > B1 to allow for arbitrary Stage 2 prime intervals:
@@ -158,8 +159,8 @@ of the leading 3 characters of the two version strings in question.
 //           now that I'm < 2x slower (on Haswell+) resume version numbering according to the scheme:
 //				Major index = year - 2000
 //				Minor index = release # of that year, zero-indexed.
-// As before, a patch suffix of x, y, or z following the above numeric index indicates an [alpha,beta,gamma] (experimental,unstable) code.
-const char VERSION   [] = "20.0";			// e.g. Dec 2014 was 2nd release of that year, thus 14.1 = [20]14.[--2]
+// A version suffix of x, y, or z following the above numeric index indicates an [alpha,beta,gamma] (experimental,unstable) code:
+const char VERSION   [] = "20.1";
 
 const char OFILE     [] = "results.txt";	/* ASCII logfile containing FINAL RESULT ONLY for each
 											assignment - detailed intermediate results for each assignment
@@ -339,7 +340,7 @@ uint32	ernstMain
 	uint32 i,j,k = 0;
 	/* TODO: some of these need to become 64-bit: */
 	uint32 dum,findex = 0,ierr = 0,ilo = 0,ihi = 0,iseed,isprime,kblocks = 0,maxiter = 0,n = 0,npad = 0;
-	uint64 itmp64, fwd_fft_only = 0ull, s1 = 0ull,s2 = 0ull,s3 = 0ull;	// s1,2,3: Triply-redundant whole-array checksum on b,c-arrays used in the G-check
+	uint64 itmp64, s1 = 0ull,s2 = 0ull,s3 = 0ull;	// s1,2,3: Triply-redundant whole-array checksum on b,c-arrays used in the G-check
 	uint32 mode_flag = 0, first_sub, last_sub;
 	/* Exponent of number to be tested - note that for trial-factoring, we represent p
 	strictly in string[STR_MAX_LEN] form in this module, only converting it to numeric
@@ -385,7 +386,7 @@ uint32	ernstMain
 	differences at least roughly every half hour (preferably every second or so)
 	to avoid weirdness due to flipping of the sign bit or integer overflow.
 */
-	/*clock_t clock1, clock2;	Moved these to mers_mod_square.c */
+	/*clock_t clock1, clock2;	Moved these to [mers|fermat]_mod_square.c */
 	double tdiff,tdif2;
   #define SIZE 256
 	time_t calendar_time;
@@ -498,7 +499,11 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 
 	  read_next_assignment:
 		/* Read first line of worktodo.ini file into 1K character array... */
-		ASSERT(HERE, fgets(in_line, STR_MAX_LEN, fp) != 0x0, "Hit EOF while attempting to read next line of worktodo!");
+		if(!fgets(in_line, STR_MAX_LEN, fp)) {
+			sprintf(cbuf,"Hit EOF while attempting to read next line of worktodo!");
+			fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf);	fclose(fq); fq = 0x0; };
+			ASSERT(HERE,0,cbuf);
+		}
 
 		/* Skip any whitespace at beginning of the line: */
 		char_addr = in_line;	i = 0;
@@ -553,11 +558,10 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			tests_saved = strtoul(++char_addr, (char**)NULL, 10);
 			if(tests_saved > 2) {
 				sprintf(cbuf, "ERROR: the specified tests_saved field [%u] should be 0,1 or 2!\n",tests_saved); fprintf(stderr,"%s",cbuf);
-				fp = mlucas_fopen(OFILE,"a"); if(fp){ fprintf(    fp,"%s",cbuf);	fclose(fp); fp = 0x0; }; ASSERT(HERE,0,cbuf);
+				fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf);	fclose(fq); fq = 0x0; }; ASSERT(HERE,0,cbuf);
 			}
 			pm1_done = (tests_saved == 0);
 			// If there is still factoring remaining to be done, modify the assignment type appropriately.
-		#if INCLUDE_PM1
 			if(pm1_done) {	// pm1_done == TRUE is more or less a no-op, translating to "proceed with primality test"
 				cptr = char_addr;	// ...but we do need to advance cptr past the ,TF_BITS,tests_saved cahr-block
 			} else {
@@ -581,7 +585,6 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				split_curr_assignment = TRUE;	// This will trigger the corresponding code following the goto:
 				goto GET_NEXT_ASSIGNMENT;
 			}
-		#endif
 			if((char_addr = strstr(cptr, ",")) == 0x0) {	// First-time PRP test:
 				PRP_BASE = 3;
 				TEST_TYPE = TEST_TYPE_PRP;
@@ -650,11 +653,10 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			char_offset =  6;
 		}
 	#endif
-	#if INCLUDE_PM1
 		/* 11/23/2020: George W. re. p-1 assignment formats:
 		"There is no documentation on the worktodo lines (except the source code):
 
-			Pminus1=[aid?],k,b,n,c,B1,B2[,TF_BITS][,B2_start][,known_factors]	(,-separated list of known factor bookended with "")
+			Pminus1=[aid?],k,b,n,c,B1,B2[,TF_BITS][,B2_start][,known_factors]	(,-separated list of known factors bookended with "")
 			Pfactor=[aid],k,b,n,c,TF_BITS,ll_tests_saved_if_factor_found
 
 		[***EWM: Mlucas v20 converts PRP-with-(p-1)-needed assignments to paired Pminus1|PRP
@@ -713,7 +715,6 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			tests_saved = (int)strtoul(char_addr+1, &cptr, 10);
 			ASSERT(HERE, pm1_set_bounds(p, get_default_fft_length(p)<<10, TF_BITS, tests_saved, 0,0), "Failed to set p-1 bounds!");
 		}
-	#endif	// #if INCLUDE_PM1
 	#if INCLUDE_ECM
 		else if(strstr(char_addr, "ECM"))
 		{
@@ -723,15 +724,14 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	#endif
 		else
 		{
-			snprintf_nowarn(cbuf,STR_MAX_LEN, "ERROR: Unrecognized/Unsupported option. The ini file entry was %s\n", char_addr);
+			snprintf_nowarn(cbuf,STR_MAX_LEN, "ERROR: Unrecognized/Unsupported option or empty assignment line. The ini file entry was %s\n", char_addr);
 			fprintf(stderr,"%s",cbuf);
-			fp = mlucas_fopen(OFILE,"a"); if(fp){ fprintf(    fp,"%s",cbuf); fclose(fp);	fp = 0x0; }
+			fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf); fclose(fq);	fq = 0x0; }
 			goto read_next_assignment;
 		}
 
 		if(!p) {	// For legacy assignment types, set p here
-			char_addr += char_offset;
-			ASSERT(HERE, (char_addr = strstr(char_addr, "=")) != 0x0,"Expected '=' not found in assignment-specifying line!");
+			char_addr += char_offset;	ASSERT(HERE, (char_addr = strstr(char_addr, "=")) != 0x0,"Expected '=' not found in assignment-specifying line!");
 			char_addr++;
 			/* Skip any whitespace following the equals sign:*/
 			while(isspace(*char_addr)) { ++char_addr; }
@@ -743,7 +743,8 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 
 	GET_EXPO:
 		// Need to init this for savefile-naming code
-		ASSERT(HERE, p != 0ull, "Exponent has not been set!");	sprintf(ESTRING,"%llu",p);
+		ASSERT(HERE, p != 0ull, "Exponent has not been set!");
+		sprintf(ESTRING,"%llu",p);
 
 		// In PRP-test case, have already read the exponent from the worktodo line
 		/* Special case of user forcing a non-default FFT length for an exponent in the worktodo.ini file: */
@@ -781,7 +782,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			if(MODULUS_TYPE != MODULUS_TYPE_MERSENNE) {
 				sprintf(cbuf, "ERROR: Trial-factoring Currently only supported for Mersenne numbers. The ini file entry was %s\n", in_line);
 													  fprintf(stderr,"%s",cbuf);
-				fp = mlucas_fopen(OFILE,"a"); if(fp){ fprintf(    fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
+				fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf);	fclose(fq); fq = 0x0; }
 				goto GET_NEXT_ASSIGNMENT;
 			}
 
@@ -799,7 +800,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				if(TF_BITS > log2_max_factor) {
 					sprintf(cbuf, "INFO: the specified already-factored-to depth of %u bits exceeds the default %10.4f bits - no more factoring to be done.\n", TF_BITS, log2_max_factor);
 														  fprintf(stderr,"%s",cbuf);
-					fp = mlucas_fopen(OFILE,"a"); if(fp){ fprintf(    fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
+					fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf);	fclose(fq); fq = 0x0; }
 					goto GET_NEXT_ASSIGNMENT;
 				}
 			}
@@ -814,20 +815,20 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				if(bit_depth_todo > MAX_FACT_BITS) {
 					sprintf(cbuf, "ERROR: factor-to bit_depth of %u > max. allowed of %u. The ini file entry was %s\n", TF_BITS, MAX_FACT_BITS, in_line);
 														  fprintf(stderr,"%s",cbuf);
-					fp = mlucas_fopen(OFILE,"a"); if(fp){ fprintf(    fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
+					fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf);	fclose(fq); fq = 0x0; }
 					goto GET_NEXT_ASSIGNMENT;
 				}
 				else if(bit_depth_todo <= TF_BITS) {
 					sprintf(cbuf, "ERROR: factor-to bit_depth of %u < already-done depth of %u. The ini file entry was %s\n", TF_BITS, TF_BITS, in_line);
 														  fprintf(stderr,"%s",cbuf);
-					fp = mlucas_fopen(OFILE,"a"); if(fp){ fprintf(    fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
+					fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf);	fclose(fq); fq = 0x0; }
 					goto GET_NEXT_ASSIGNMENT;
 				}
 				else if(bit_depth_todo > log2_max_factor) {
 					sprintf(cbuf, "WARN: the specified factor-to depth of %u bits exceeds the default %10.4f bits - I hope you know what you're doing.\n", TF_BITS, log2_max_factor);
 					log2_max_factor = bit_depth_todo;
 														  fprintf(stderr,"%s",cbuf);
-					fp = mlucas_fopen(OFILE,"a"); if(fp){ fprintf(    fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
+					fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf);	fclose(fq); fq = 0x0; }
 				}
 				log2_max_factor = bit_depth_todo;
 			}
@@ -836,7 +837,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		{
 			sprintf(cbuf, "ERROR: Inputs this large only permitted for trial-factoring. The ini file entry was %s\n", in_line);
 												  fprintf(stderr,"%s",cbuf);
-			fp = mlucas_fopen(OFILE,"a"); if(fp){ fprintf(    fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
+			fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf);	fclose(fq); fp = 0x0; }
 			goto GET_NEXT_ASSIGNMENT;
 		}
 	#endif 	// INCLUDE_TF
@@ -857,7 +858,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				if(TF_BITS > MAX_FACT_BITS) {
 					snprintf_nowarn(cbuf,STR_MAX_LEN,"ERROR: TF_BITS of %u > max. allowed of %u. The ini file entry was %s\n", TF_BITS, MAX_FACT_BITS, in_line);
 														  fprintf(stderr,"%s",cbuf);
-					fp = mlucas_fopen(OFILE,"a"); if(fp){ fprintf(    fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
+					fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf);	fclose(fq); fp = 0x0; }
 					goto GET_NEXT_ASSIGNMENT;
 				}
 				/* If TF_BITS less than default TF depth for this exponent
@@ -872,7 +873,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				else if(TF_BITS > log2_max_factor) {
 					sprintf(cbuf, "WARN: the specified already-factored-to depth of %u bits exceeds the default %10.4f bits - no more factoring to be done.\n", TF_BITS, log2_max_factor);
 														  fprintf(stderr,"%s",cbuf);
-					fp = mlucas_fopen(OFILE,"a"); if(fp){ fprintf(    fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
+					fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf);	fclose(fq); fp = 0x0; }
 				}
 			#endif
 			}
@@ -883,9 +884,8 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				pm1_done = strtoul(char_addr, (char**)NULL, 10);
 				if(pm1_done > 1) {
 					sprintf(cbuf, "WARN: the specified pm1_done field [%u] should be 0 or 1!\n",pm1_done); fprintf(stderr,"%s",cbuf);
-					fp = mlucas_fopen(OFILE,"a"); if(fp){ fprintf(    fp,"%s",cbuf);	fclose(fp); fp = 0x0; }; ASSERT(HERE,0,cbuf);
+					fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf);	fclose(fq); fq = 0x0; }; ASSERT(HERE,0,cbuf);
 				}
-			#if INCLUDE_PM1
 				if(!pm1_done) {	// pm1_done == TRUE is a no-op, translating to "proceed with primality test"
 					// Don't actually use this in pm1_set_bounds(), due to the rise of the single-shot PRP-with-proof paradigm, but for form's sake:
 					tests_saved = 1;
@@ -900,14 +900,14 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 					strncpy(aid,char_addr,32);	sprintf(cbuf,"Pminus1=%s,1,2,%llu,-1,%u,%llu\n",aid,p,B1,B2);	// If we get here, it's a M(p), not F(m)
 					// Copy all but the final (pm1_done) char of the assignment into cstr and append pm1_done = 1. If in_line ends with newline, first --j:
 					j = strlen(in_line) - 1;	j -= (in_line[j] == '\n');
-					strncpy(cstr,in_line,j); strcat(cstr,"1\n");
+					strncpy(cstr,in_line,j);	cstr[j] = '\0';	strcat(cstr,"1\n");
 					split_curr_assignment = TRUE;	// This will trigger the corresponding code following the goto:
 					goto GET_NEXT_ASSIGNMENT;
 				}
-			#endif
 			}
 		}	/* if(TEST_TYPE == TEST_TYPE_PRIMALITY) */
-	}
+		if(fp) { fclose(fp); fp = 0x0; }	// Close workfile, of still open
+	}	// endif(fp)
 	/****************************************/
 	/* Self-test or User-supplied exponent: */
 	/****************************************/
@@ -960,15 +960,11 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		}
 		else if(TEST_TYPE == TEST_TYPE_PM1)	/* P-1 factoring attempt */
 		{
-		#if INCLUDE_PM1
 			ASSERT(HERE, nbits_in_p <= MAX_PRIMALITY_TEST_BITS, "Inputs this large only permitted for trial-factoring.");
 			pm1_check_bounds();
 			// Proper setting of timing_test_iters in this case needs us to compute the stage 1 prime-powers product:
 			// Compute stage 1 prime-powers product, store in PM1_S1_PRODUCT and store #bits of same in PM1_S1_PROD_BITS:
 			s1p_alloc = compute_pm1_s1_product(p);
-			// Print a simple (mod 2^64) checksum:
-			for(i = 0, itmp64 = 0ull; i < s1p_alloc; i++) { itmp64 += PM1_S1_PRODUCT[i]; }
-			fprintf(stderr,"PM1_S1_PRODUCT has %llu limbs, Res64 = %llu\n",s1p_alloc,itmp64);
 			RES_SHIFT = 0ull;	// Must set = 0 here to make sure BASE_MULTIPLIER_BITS array gets set = 0 below
 			iterations = PM1_S1_PROD_BITS;
 			if(iterations > MAX_SELFTEST_ITERS) {
@@ -976,9 +972,6 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				return ERR_TESTITERS_OUTOFRANGE;
 			}
 			timing_test_iters = iterations;
-		#else
-			ASSERT(HERE, 0, "P-1 factoring not supported for this build!");
-		#endif
 		}
 		else	/* Primality or PRP test */
 		{
@@ -1052,13 +1045,12 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 	{
-		ASSERT(HERE, !(p >> 32), "p must be 32-bit or less!");	/* Future versions will need to loosen this p < 2^32 restriction: */
 		/*  ...make sure p is prime...	*/
 		/* TODO: if/when TF code is hooked in, make its small-primes table a global and
 		init it at the start of execution, then use it to trial-divide p up to sqrt(p):
 		*/
 		/* Allow non-prime-exponents for p-1 test, but not for LL: */
-		if(!is_prime((uint32)p) && ((TEST_TYPE == TEST_TYPE_PRIMALITY) || (TEST_TYPE == TEST_TYPE_PRP))) {
+		if(!isPRP64(p) && ((TEST_TYPE == TEST_TYPE_PRIMALITY) || (TEST_TYPE == TEST_TYPE_PRP))) {
 			fprintf(stderr, "Mersenne Primality/PRP-tests require a prime exponent!\n");
 			return ERR_EXPONENT_ILLEGAL;
 		}
@@ -1082,11 +1074,6 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		else if(TEST_TYPE == TEST_TYPE_PM1) {
 			// Compute stage 1 prime-powers product, store in PM1_S1_PRODUCT, store #bits of same in PM1_S1_PROD_BITS:
 			s1p_alloc = compute_pm1_s1_product(p);
-			// Print a simple (mod 2^64) checksum:
-			for(i = 0, itmp64 = 0ull; i < s1p_alloc; i++) {
-				itmp64 += PM1_S1_PRODUCT[i];
-			}
-			fprintf(stderr,"PM1_S1_PRODUCT has %llu limbs, Res64 = %llu\n",s1p_alloc,itmp64);
 			maxiter = PM1_S1_PROD_BITS;	// NOTE: In this case we don't want to override the PRP_BASE = 3 value set in compute_pm1_s1_product()
 			ASSERT(HERE, B1 > 0 && maxiter > B1, "P-1 b1 and/or maxiter unset!");
 			RES_SHIFT = 0ull;	// Must set = 0 here to make sure BASE_MULTIPLIER_BITS array gets set = 0 below
@@ -1104,6 +1091,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		// in one step - use PSTRING for temporary storage here:
 		strcpy(ESTRING, &PSTRING[convert_uint64_base10_char(PSTRING, (uint64)findex)]);
 		ASSERT(HERE, (p >> findex) == 1,"Require (p >> findex) == 1");
+		sprintf(BIN_EXP,"%llu",p);	// May need this for workfile postprocessing if assignment is in KBNC format
 		TRANSFORM_TYPE = RIGHT_ANGLE;
 		sprintf(PSTRING, "F%u", findex);
 		if(TEST_TYPE == TEST_TYPE_PRIMALITY) {
@@ -1112,11 +1100,6 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		} else if(TEST_TYPE == TEST_TYPE_PM1) {
 			// Compute stage 1 prime-powers product, store in PM1_S1_PRODUCT, store #bits of same in PM1_S1_PROD_BITS:
 			s1p_alloc = compute_pm1_s1_product(p);
-			// Print a simple (mod 2^64) checksum:
-			for(i = 0, itmp64 = 0ull; i < s1p_alloc; i++) {
-				itmp64 += PM1_S1_PRODUCT[i];
-			}
-			fprintf(stderr,"PM1_S1_PRODUCT has %llu limbs, Res64 = %llu\n",s1p_alloc,itmp64);
 			maxiter = PM1_S1_PROD_BITS;	// NOTE: In this case we don't want to override the PRP_BASE = 3 value set in compute_pm1_s1_product()
 			ASSERT(HERE, B1 > 0 && maxiter > B1, "P-1 b1 and/or maxiter unset!");
 			RES_SHIFT = 0ull;	// Must set = 0 here to make sure BASE_MULTIPLIER_BITS array gets set = 0 below
@@ -1127,7 +1110,6 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		if(RES_SHIFT == 0ull) {
 			for(i = 0; i < j; i++) { BASE_MULTIPLIER_BITS[i] = 0ull; }
 		} else {
-			if(RES_SHIFT && (p+63) > 0xFFFFFFFFull) { fprintf(stderr,"Exponents this large do not support residue shift! Please run with '-shift 0'."); exit(0); }	// E.g. mi64_shlc currently limited to 32-bit shift counts
 			// In order to avoid shift = 0 after [findex] repeated doublings (mod 2^findex), try using a randomized
 			// bitmap, 1 bit read each squaring, if bit = 1 we multiply the residue by 2 and increment the shift by 1:
 			// "Prime' the RNG by doing [24-bit random] calls:
@@ -1144,6 +1126,10 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	{
 		ASSERT(HERE, 0,"Unknown Self-Test Modulus Type!");
 	}	/* endif(MODULUS_TYPE) */
+
+	// mi64_shlc currently limited to 32-bit shift counts - for technical reasons described in comments at top of that function,
+	// the largest exponent testable-with-shift must satisfy condition below, which yields largest M(p) with p = 4294967231 = 2^32-65:
+	if(RES_SHIFT && (p+63) > 0xFFFFFFFFull) { fprintf(stderr,"Exponents this large do not support residue shift! Please run with '-shift 0'.\n"); exit(0); }
 
 	/* In production-run (INTERACT = False) mode, allow command-line-forced FFT lengths which are at most
 	"one size too large" relative to the default length for the exponent in question. Supported lengths
@@ -1292,10 +1278,8 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		nbytes = nalloc<<3;
 		ASSERT(HERE, a_ptmp == 0x0 && a == 0x0 && b == 0x0 && c == 0x0 && d == 0x0 && e == 0x0 && arrtmp == 0x0,"Require (a_ptmp,b,c,d,e,arrtmp) == 0x0");
 	#ifdef USE_LOWMEM	// Handy for huge-FFT self-tests on low-mem systems
-	  #if INCLUDE_PM1
 		#warning ******** Low-memory build mode only allows Stage 1 p-1 support ... disabling Stage 2. ********
-	  #endif
-	    #warning ******** Low-memory build mode only allows primality testing (LL), not PRP-testing with its robust added error-checking ********
+	    #warning ******** Low-memory build mode only allows LL-testing, not PRP-testing|Gerbicz-check. ********
 		j = 1;
 	#else
 		j = 5;
@@ -1532,9 +1516,7 @@ READ_RESTART_FILE:
 	}
 
 	if(restart)
-	{
 		snprintf_nowarn(cbuf,STR_MAX_LEN, "Restarting %s at iteration = %u. Res64: %016llX, residue shift count = %llu\n",PSTRING,ilo,Res64,RES_SHIFT);
-	}
 
 	/*...Restart and FFT info.	*/
 	if(INTERACT)
@@ -1642,7 +1624,7 @@ READ_RESTART_FILE:
 /********************************************************/
 
 	// Set function pointer to point to [mers|fermat]_mod_square based on modulus type:
-	int	(*func_mod_square)(double [], int [], int, int, int, uint64, uint64, int, double *, int)
+	int	(*func_mod_square)(double [], int [], int, int, int, uint64, uint64, int, double *, int, double *)
 						= ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? mers_mod_square : fermat_mod_square);
 	int update_shift = (RES_SHIFT != 0ull);	// If shift = 0 at outset, don't update (only need for Fermat-mod, due to the random-bit aspect there)
 
@@ -1667,11 +1649,23 @@ READ_RESTART_FILE:
 			ihi = maxiter;
 		// If p-1: start of each iteration cycle, copy bits ilo:ihi-1 of PM1_S1_PRODUCT into low bits of BASE_MULTIPLIER_BITS vector:
 		if(TEST_TYPE == TEST_TYPE_PM1) {
-			k = (ihi+63)>>6; 	// #limbs of PM1_S1_PRODUCT needed, INCLUDING BITS 0:ILO-1 WHICH WILL BE GETTING OFF-SHIFTED - we will only be extracting the bitrange ilo:ihi-1
-			j = ITERS_BETWEEN_CHECKPOINTS;	// (ihi-ilo) <= ITERS_BETWEEN_CHECKPOINTS, the '<' is only on the final iteration interval
+			k = (ihi+63)>>6;// #limbs of PM1_S1_PRODUCT needed, INCL. BITS 0:ILO-1 WHICH WILL BE GETTING OFF-SHIFTED - only extract ilo:ihi-1
+			j = ITERS_BETWEEN_CHECKPOINTS;	// Need full iter-interval's worth of bits here because for interval ilo:ihi-1, cy-routines
+			// read bits starting with bit (ilo % ITERS_BETWEEN_CHECKPOINTS). If user stops run, rebuilds with higher value of the latter
+			// and restarts, cy-routine will read bits (ilo % ITERS_BETWEEN_CHECKPOINTS):(ihi % ITERS_BETWEEN_CHECKPOINTS - 1) of the
+			// BASE_MULTIPLIER_BITS vector. That further means my original mi64_shrl(PM1_S1_PRODUCT,BASE_MULTIPLIER_BITS, ilo, k,i) call
+			// below needs ilo to be replaced by ilo - (ilo % ITERS_BETWEEN_CHECKPOINTS), which simply == ilo in the absence of such
+			// within-run ITERS_BETWEEN_CHECKPOINTS-fiddling. 1st-release of v20 had this bug, which hosed my 1st run of F33 s1.
 			i = (j+63)>>6; j &= 63;			// i = #limbs needed to hold current bit ilo:ihi-1 window; j = #low bits set in high uint64 of same
-			mi64_shrl(PM1_S1_PRODUCT,BASE_MULTIPLIER_BITS, ilo, k,i);	// Copy the needed limbs from arrtmp into BASE_MULTIPLIER_BITS...
+			// Copy the needed limbs from arrtmp into BASE_MULTIPLIER_BITS...
+			mi64_shrl(PM1_S1_PRODUCT,BASE_MULTIPLIER_BITS, ilo - (ilo % ITERS_BETWEEN_CHECKPOINTS), k,i);
 			itmp64 = ~(-1ull << j); BASE_MULTIPLIER_BITS[i-1] &= itmp64;// ...and zero any excess bits at the high end.
+			for(i = 0, itmp64 = 0ull; i < s1p_alloc; i++) { itmp64 += PM1_S1_PRODUCT[i]; }
+			if(itmp64 != PM1_S1_PROD_RES64) {
+				snprintf_nowarn(cbuf,STR_MAX_LEN,"PM1_S1_PRODUCT (mod 2^64_ checksum mismatch! (Current[%llu] != Reference[%llu]). Aborting due to suspected data corruption.\n",itmp64,PM1_S1_PROD_RES64);
+				fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
+				ASSERT(HERE,0,cbuf);
+			}
 		}
 		/* Here's the big one - (ITERS_BETWEEN_CHECKPOINTS) squaring steps.
 		XYZ_mod_square returns 0 if no errors detected during this iteration cycle.
@@ -1682,26 +1676,7 @@ READ_RESTART_FILE:
 		AME = MME = 0.0;	/* Init Avg. & Max. RO Error */
 		AME_ITER_START = 30;/* Start collecting AME after allowing residue to "fill up" in initial few tens of iters */
 	#ifdef USE_FGT61
-		fwd_fft_only = 0ull;
-		ierr = func_mod_square  (a,c, (int*)arrtmp, n, ilo, ihi, fwd_fft_only, p, scrnFlag, &tdiff, update_shift);
-	#elif USE_2STEP	/****************** test out 2-input modmul ******************/
-		fwd_fft_only = (uint64)b;	// Copy a into b and do fwd-FFT-only of b:
-		uint32 iii;
-		for(iii = ilo; iii < ihi; iii++) {
-			memcpy(b, a, nbytes);	// Copy a into b and do fwd-FFT-only of b:
-			// [b] needs fwd-weighting and initial-fwd-FFT-pass done on entry, exit moot since fwd-FFT-only: mode_flag = 00_2:
-			mode_flag = 0;
-			ierr = func_mod_square  (b, (int*)arrtmp, n, iii,iii+1,      4ull + (uint64)mode_flag, p, scrnFlag, &tdiff, FALSE);
-			//	fprintf(stderr,"fFFT(c), mode = %u\n",mode_flag);
-
-			// [a] needs fwd-weighting and initial-fwd-FFT-pass done on entry, undone on exit: mode_flag = 00_2 again:
-			ierr = func_mod_square  (a, (int*)arrtmp, n, iii,iii+1, (uint64)b + (uint64)mode_flag, p, scrnFlag, &tdiff, FALSE);
-			//	printf("Iter %u: FFT(b)*FFT(c) step.\n",i);
-			/* Old call sequence, predating the later mode-control elaboration:
-			ierr = func_mod_square  (b, (int*)arrtmp, n, iii,iii+1, 1ull        , p, scrnFlag, &tdiff, update_shift);
-			ierr = func_mod_square  (a, (int*)arrtmp, n, iii,iii+1, fwd_fft_only, p, scrnFlag, &tdiff, update_shift);
-			*/
-		}
+		ierr = func_mod_square  (a,c, (int*)arrtmp, n, ilo, ihi, 0ull, p, scrnFlag, &tdiff, update_shift);
 	#else
 	  // v19 Gerbicz-checkproduct updates: break iteration loop into subsegments of length ITERS_BETWEEN_GCHECK_UPDATES.
 	  if(DO_GCHECK) {
@@ -1725,14 +1700,14 @@ READ_RESTART_FILE:
 			// Last  subinterval: [a] !need fwd-weighting and initial-fwd-FFT-pass done on entry but done on exit: mode_flag = 01_2
 			// Intermediate subs: [a] !need fwd-weighting and initial-fwd-FFT-pass done on entry, !undone on exit: mode_flag = 11_2
 				mode_flag = 3 - first_sub - (last_sub<<1);
-				ierr = func_mod_square  (a, (int*)arrtmp, n, i,i+itodo, (uint64)mode_flag, p, scrnFlag, &tdif2, update_shift);	tdiff += tdif2;
+				ierr = func_mod_square  (a, (int*)arrtmp, n, i,i+itodo, (uint64)mode_flag, p, scrnFlag, &tdif2, update_shift, 0x0);	tdiff += tdif2;
 				if(ierr) {
 					fprintf(stderr,"At iteration %d: mod_square returned with err code %u\n",ROE_ITER,ierr);
 					/* If interrupt *and* we're past the first subinterval, need to undo initial-fwd-FFT-pass and DWT-weighting on b[],
 					whose value will reflect the last multiple-of-ITERS_BETWEEN_GCHECK_UPDATES iteration - prior to writing it,
 					along with the current PRP residue, to savefile: */
 					if(ierr == ERR_INTERRUPT && !first_sub)
-						ierr = func_mod_square  (b, (int*)arrtmp, n, i,i+1, 8ull, p, scrnFlag, &tdif2, FALSE);
+						ierr = func_mod_square  (b, (int*)arrtmp, n, i,i+1, 8ull, p, scrnFlag, &tdif2, FALSE, 0x0);
 					break;
 				}
 				/* At end of each subinterval, do a single modmul of current residue a[] with Gerbicz-checkproduct to update the latter:
@@ -1752,7 +1727,7 @@ READ_RESTART_FILE:
 			/* Note: Interrupt during this step should not be a problem, except in the sense that the resulting MLUCAS_KEEP_RUNNING = False
 			would prevent the ensuing func_mod_square call to compute FFT(b)*FFT(c) from doing so ... so instead break out of loop: */
 				mode_flag = 1 - last_sub;
-				ierr = func_mod_square  (c, (int*)arrtmp, n, i,i+1,      4ull + (uint64)mode_flag, p, scrnFlag, &tdif2, FALSE);
+				ierr = func_mod_square  (c, (int*)arrtmp, n, i,i+1,      4ull + (uint64)mode_flag, p, scrnFlag, &tdif2, FALSE, 0x0);
 				if(ierr) {
 					if(ierr == ERR_INTERRUPT) {
 						fprintf(stderr,"Caught interrupt in fFFT(c) step.\n");
@@ -1785,7 +1760,7 @@ READ_RESTART_FILE:
 			step and force the undo-initial-FFT-pass-and-DWT-weighting step, leaving a pure-int G-check residue ready for savefile-writing: */
 				mode_flag = 3 - first_sub - (last_sub<<1);
 			//	printf("Iter %u: FFT(b)*FFT(c) step.\n",i);
-				ierr = func_mod_square  (b, (int*)arrtmp, n, i,i+1, (uint64)c + (uint64)mode_flag, p, scrnFlag, &tdif2, FALSE);
+				ierr = func_mod_square  (b, (int*)arrtmp, n, i,i+1, (uint64)c + (uint64)mode_flag, p, scrnFlag, &tdif2, FALSE, 0x0);
 				if(ierr) {
 					if(ierr == ERR_INTERRUPT) {
 						fprintf(stderr,"Caught interrupt in FFT(b)*FFT(c) step.\n");
@@ -1859,15 +1834,15 @@ READ_RESTART_FILE:
 				**************************************************************************************************************/
 			}
 		} else if(MLUCAS_KEEP_RUNNING) {	// Final partial-length interval skips G-check
-			ierr = func_mod_square  (a, (int*)arrtmp, n, ilo,ihi, 0ull, p, scrnFlag, &tdiff, update_shift);
+			ierr = func_mod_square  (a, (int*)arrtmp, n, ilo,ihi, 0ull, p, scrnFlag, &tdiff, update_shift, 0x0);
 		}
 	  } else {
 			// For straight LL-test there is (at least at this writing) no known analog of the Gerbicz check:
-			ierr = func_mod_square  (a, (int*)arrtmp, n, ilo,ihi, 0ull, p, scrnFlag, &tdiff, update_shift);
-	  }
-	#endif	// #ifdef USE_FGT61|USE_2STEP [both strictly experimental]
+			ierr = func_mod_square  (a, (int*)arrtmp, n, ilo,ihi, 0ull, p, scrnFlag, &tdiff, update_shift, 0x0);
+	  }	// endif(DO_GCHECK)
+	#endif	// #ifdef USE_FGT61 [strictly experimental]
 
-		// Roundoff-retry scheme is detailed in comments of the above fermat_mod_square() function:
+		// Roundoff-retry scheme is detailed in comments of the above func_mod_square() function:
 		if(ierr) {
 			// v19: For "nonzero exit carry" errors due to residue data corruption (not uncommon on e.g. cellphones)
 			// added handling - if at least one previous savefile write, try restart from that:
@@ -1904,20 +1879,15 @@ READ_RESTART_FILE:
 	/*...Every (ITERS_BETWEEN_CHECKPOINTS)th iteration, print timings to stdout or STATFILE.
 	If it's a regular (i.e. non-timing) test, also write current residue to restart files.
 	*/
-	//	if(RES_SHIFT) for(j = 0; j < n; j++) a[j] = -a[j];	// *************** DEBUG (attempted) of Fermat-mod-with-shift *******************
-
 		/* v18: Moved term-output below convert_res_FP_bytewise call since in the presence of cshifted residues
 		need convert_res_FP_bytewise call to remove cshift and compute SH residues: */
 		// Zero high uint64s of target arrays, since double-to-int residue conversion is bytewise & may leave >=1 MSBs in high word untouched:
-		j = (p+63)>>6;	arrtmp[j-1] = 0ull;
+		// Fermat-mod residue formally needs an extra bit, though said bit should == 1
+		// only in the highly unlikely case of a prime-Fermat Pepin-test result:
+		j = (p+63+(MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6;	arrtmp[j-1] = 0ull;
 		convert_res_FP_bytewise(	a, (uint8*)      arrtmp, n, p, &Res64, &Res35m1, &Res36m1);	// LL/PRP-test/[p-1 stage 1] residue
-			// If p-1 stage 1, in the ensuing call to write_ppm1_savefiles(), we will supplement the residue+checksums with
-			// the #bits of the full (as in, leftmost-1-bit-deleted and rest bit-reversed) stage 1 prime-powers-product in
-			// PM1_S1_PROD_BITS, the product itself in PM1_S1_PRODUCT[] and an MD5 checksum on the latter.
-			// If p-1 stage 2, we can use the stage 1 residue for any restarts, we just need to provide the last-processed
-			// stage 2 probable-prime in order to properly resume. We can do that ***** TBD ******
+		// G-check residue...must not touch i1,i2,i3 again until ensuing write_ppm1_savefiles call!
 		if(TEST_TYPE == TEST_TYPE_PRP) {
-			// G-check residue...must not touch i1,i2,i3 again until ensuing write_ppm1_savefiles call!
 			e_uint64_ptr[j-1] = 0ull;
 			convert_res_FP_bytewise(b, (uint8*)e_uint64_ptr, n, p, &i1,&i2,&i3);
 		}
@@ -1969,7 +1939,7 @@ READ_RESTART_FILE:
 			// Un-updated copy of the checkproduct saved in [d]; square that ITERS_BETWEEN_GCHECK_UPDATES times...
 			// [d] !need fwd-weighting and initial-fwd-FFT-pass done on entry but undone on exit: mode_flag = 01_2:
 			mode_flag = 1;
-			ierr = mers_mod_square  (d,0x0, n, ihi,ihi+ITERS_BETWEEN_GCHECK_UPDATES, (uint64)mode_flag, p, scrnFlag, &tdiff, FALSE);
+			ierr = func_mod_square  (d,0x0, n, ihi,ihi+ITERS_BETWEEN_GCHECK_UPDATES, (uint64)mode_flag, p, scrnFlag, &tdiff, FALSE, 0x0);
 			if(ierr) {
 				if(ierr == ERR_INTERRUPT) {
 					fprintf(stderr,"Caught interrupt in Gerbicz-checkproduct mod-squaring update ... skipping G-check and savefile-update and performing immediate-exit.\n");
@@ -1985,7 +1955,7 @@ READ_RESTART_FILE:
 			}
 			// ...then multiply squaring result by initial PRP seed and compare result to updated copy of the checkproduct saved in b[].
 			// First zero the high uint64s of the target array, since the double-to-int residue conversion is bytewise, i.e. may leave 1 or more MSBs in high word untouched:
-			j = (p+63)>>6;	c_uint64_ptr[j-1] = 0ull;
+			j = (p+63+(MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6;	c_uint64_ptr[j-1] = 0ull;
 			// [1] Convert b[],d[] to bytewise form, former assumed already in e[] doubles-array, latter into currently-unused c[] doubles-array:
 			convert_res_FP_bytewise(d, (uint8*)c_uint64_ptr, n, p, 0x0,0x0,0x0);
 			// Only need to compute this for initial interval - after that the needed adjustment-shift remains constant
@@ -2214,8 +2184,9 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 	/*...Check (probable) primality:	*/
 	if(TEST_TYPE == TEST_TYPE_PRIMALITY || TEST_TYPE == TEST_TYPE_PRP)
 	{
-		// v20: Cofactor-PRP test:
-		if(TEST_TYPE == TEST_TYPE_PRP && KNOWN_FACTORS[0] != 0ull)
+		// v21: Cofactor-PRP test applies to primality/Fermat and PRP/Mersenne residues:
+		if( ((TEST_TYPE == TEST_TYPE_PRIMALITY && MODULUS_TYPE == MODULUS_TYPE_FERMAT) || (TEST_TYPE == TEST_TYPE_PRP))
+		 && KNOWN_FACTORS[0] != 0ull)
 		{
 			INTERACT = 1;	// For future debug & test
 			uint64 *ai = (uint64 *)a, *bi = (uint64 *)b, *atmp = (uint64 *)arrtmp;	// Handy 'precast' pointers
@@ -2235,10 +2206,10 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			fprintf(stderr, " this gives an average %20.15f bits per digit\n",1.0*p/n);
 			// Compute Fermat-PRP residue [A] from Euler-PRP (= Pepin-test) residue via a single mod-squaring:
 			BASE_MULTIPLIER_BITS[0] = 0ull;
-	/*A*/	ierr = fermat_mod_square(a, (int*)arrtmp, n, ilo,ihi, 0ull, p, scrnFlag, &tdiff, TRUE);
+	/*A*/	ierr = func_mod_square(a, (int*)arrtmp, n, ilo,ihi, 0ull, p, scrnFlag, &tdiff, TRUE, 0x0);
 			convert_res_FP_bytewise(a, (uint8*)arrtmp, n, p, &Res64, &Res35m1, &Res36m1);
 			fprintf(stderr, "Fermat-PRP residue: Res64 = %llX\n",Res64);
-			mi64_set_eq(ai,atmp,(p+63)>>6);	// Copy packed-bit result back into low ceiling(p/64) bytes of A-vec (treated as a uint64 array)
+			mi64_set_eq(ai,atmp,(p+63+(MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6);	// Copy packed-bit result back into low ceiling(p/64) bytes of A-vec (treated as a uint64 array)
 			// Compute "prime-factor product residue" [B] from Euler-PRP (= Pepin-test) residue ... first init bitwise mul-by-base array = F, i.e. storing product of known small-prime factors:
 			ASSERT(HERE, nfac > 0,"Cofactor-PRP test requires one or more known factors!");
 			BASE_MULTIPLIER_BITS[0] = 1ull;	lenf = 1;
@@ -2258,9 +2229,9 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			BASE_MULTIPLIER_BITS[0] -= 1ull;	// F-1; no chance of a borrow here
 			b[0] = PRP_BASE;	ASSERT(HERE, PRP_BASE < (1 << (uint32)ceil(1.0*p/n)), "PRP_BASE out of range!");
 			ilo = 0;	ihi = fbits-1;	// LR modpow; init b[0] = PRP_BASE takes cares of leftmots bit
-/************** For mers-mod support, do we need to replace p>>6 with (p+63)>>6 in mi64 calls below? ***************/
+/************** For mers-mod support, do we need to replace p>>6 with (p+63+(MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6 in mi64 calls below? ***************/
 			mi64_brev(BASE_MULTIPLIER_BITS,ihi);	// bit-reverse low [ihi] bits of BASE_MULTIPLIER_BITS:
-	/*B*/	ierr = fermat_mod_square(b, (int*)arrtmp, n, ilo,ihi, 0ull, p, scrnFlag, &tdiff, TRUE);
+	/*B*/	ierr = func_mod_square(b, (int*)arrtmp, n, ilo,ihi, 0ull, p, scrnFlag, &tdiff, TRUE, 0x0);
 			convert_res_FP_bytewise(b, (uint8*)arrtmp, n, p, &Res64, &Res35m1, &Res36m1);	// Res64 = 0x25f5ab0ffc728c87
 			fprintf(stderr, "Processed %u bits in binary modpow. %u^(F-1) residue: Res64 = %llX\n",ihi,PRP_BASE,Res64);
 			mi64_set_eq(bi,atmp,p>>6);	// Copy packed-bit result back into low ceiling(p/8) bytes of A-vec (treated as a unit64 array)
@@ -2290,7 +2261,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			BASE_MULTIPLIER_BITS[     0] += 1ull;	// ... and add 1 to recover F; no chance of a carryout here
 			// Since F << N, use Mont-mul-div for C - quotient overwrites N, no rem-vec needed, just verify that F is in fact a divisor:
 			ASSERT(HERE, 1 == mi64_div(bi,BASE_MULTIPLIER_BITS, j,lenf, atmp,0x0), "C = N/F should have 0 remainder!");
-			i = (p+63)>>6;	j = mi64_getlen(atmp, j);
+			i = (p+63+(MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6;	j = mi64_getlen(atmp, j);
 			// R = (A - B) mod C in B-array; store Q = (A - B)/C in curr_fac[] in case want to remultiply and verify Q*C + R = (A - B):
 			mi64_div_binary(ai,atmp, i,j, curr_fac,(uint32 *)&j, bi);	// On return, j has quotient length
 			// For 1-word quotient q, double-check binary-div result by computing (q*denominator + r) and comparing vs numerator:
@@ -2309,7 +2280,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 				lg_fac += log((double)itmp64)*ILG2;
 				lg_cof -= lg_fac;
 			}
-			i = (p+63)>>6;	j = mi64_getlen(bi, i);	// Returns 0 iff all limbs of remainder == 0
+			i = (p+63+(MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6;	j = mi64_getlen(bi, i);	// Returns 0 iff all limbs of remainder == 0
 			printf(" with FFT length %u = %u K: Res64: %016llX.\n",n,kblocks,bi[0]);
 			i = ceil(lg_cof*log10_2);
 			if(!j)
@@ -2345,7 +2316,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 				2. Compute mi" such that m".mi" == 1 (mod b^2)
 				3. Solve for k = -r".mi" (mod b^2) .
 			*/
-			j = (p+63)>>6;	itmp64 = PRP_BASE*(uint64)PRP_BASE;
+			j = (p+63+(MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6;	itmp64 = PRP_BASE*(uint64)PRP_BASE;
 			// Init vector to hold m = 2^p-1:
 			d_uint64_ptr[j-1] = (1ull<<(p&63)) - 1ull;	for(i = 0; i < (j-1); i++) { d_uint64_ptr[i] = -1ull; }
 		  // [1]:
@@ -2405,7 +2376,8 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
 			// UTC is for the result as submitted to the server:
 			gm_time = gmtime(&calendar_time);
-			strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S %Z",gm_time);
+			// Want 'UTC' instead of 'GMT', so include that in lieu of the %Z format specifier
+			strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S UTC",gm_time);
 			generate_JSON_report(isprime,p,n,Res64,timebuffer, 0,0ull,0x0, cstr);	// Trio of p-1 fields all 0; cstr holds the formatted output line here
 		}
 
@@ -2473,13 +2445,12 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			if(fp){ fprintf(fp,"\n%s",cstr);	fclose(fp);	fp = 0x0; }
 		}
 	} else if(TEST_TYPE == TEST_TYPE_PM1) {
-	#if INCLUDE_PM1
 		// If just completed S1, do a GCD. ihi == maxiter true of both just-completed S1 and completed-S1 residue read from savefile,
 		// but in the latter case set ilo == ihi to differentiate between the two. ***6/22/21: BUT! If run halted mid-GCD, on restart
 		// will have ilo == ihi ... supplement with what amounts to 'grep Stage STATFILE', if found, then GCD completed:
 		if( ilo < ihi || !filegrep(STATFILE,"Stage"))
 		{	// j = #limbs; clear high limb before filling arrtmp[0:j-1] with bytewise residue just to be sure:
-			j = (p+63)>>6; arrtmp[j-1] = 0ull;
+			j = (p+63+(MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6; arrtmp[j-1] = 0ull;
 			convert_res_FP_bytewise(a,(uint8*)arrtmp,n,p,0x0,0x0,0x0);
 			arrtmp[0] -= 1;	// S1 GCD needs residue-1
 			i = gcd(1,p,arrtmp,j,gcd_str);	// 1st arg = stage just completed
@@ -2488,7 +2459,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 				// Write JSON output and go to next assignment:
 				B2_start = B2 = 0ull;	// Need JSON output to reflect that no S2 was run
 				gm_time = gmtime(&calendar_time);
-				strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S %Z",gm_time);
+				strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S UTC",gm_time);
 				generate_JSON_report(0,p,n,0ull,timebuffer, B1,B2,gcd_str, cstr);	// cstr holds JSONified output
 				fp = mlucas_fopen(OFILE,"a");
 				if(fp){ fprintf(fp,"\n%s",cstr);	fclose(fp);	fp = 0x0; }
@@ -2502,9 +2473,23 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			for(i = 0; i < j; i++) {
 				BASE_MULTIPLIER_BITS[i] = 0ull;
 			}
-			// Get PM1_S2_NBUF based on available RAM; n doubles need n/2^17 MB; use KB and double-math for the intermediates here
-			PM1_S2_NBUF = (uint32)(MAX_RAM_USE*1024./(n>>7)) - 5;	// Assume 5 of those n-double chunks are already used for Stage 1 residue and other stuff
-			fprintf(stderr,"Available memory allows up to %u Stage 2 residue-sized memory buffers.\n",PM1_S2_NBUF);
+			// If user did not preset via -pm1_s2_nbuf, set PM1_S2_NBUF based on available RAM.
+			// n doubles need n/2^17 MB; use KB and double-math for the intermediates here:
+			j = SYSTEM_RAM*(double)MAX_RAM_USE*0.01;
+			if(!PM1_S2_NBUF) {
+			#ifdef OS_TYPE_LINUX
+				printf("INFO: %u MB of free system RAM detected; will use up to %u%% = %u MB of that for p-1 stage 2.\n",SYSTEM_RAM,MAX_RAM_USE,j);
+			#else
+				printf("INFO: %u MB of available system RAM detected; will use up to %u%% = %u MB of that for p-1 stage 2.\n",SYSTEM_RAM,MAX_RAM_USE,j);
+			#endif
+				// Assume 5 of those n-double chunks are already used for Stage 1 residue and other stuff
+				PM1_S2_NBUF = (uint32)(j*1024./(n>>7)) - 5;
+				fprintf(stderr,"Available memory allows up to %u Stage 2 residue-sized memory buffers.\n",PM1_S2_NBUF);
+			} else {
+				fprintf(stderr,"User specified a maximum of %u Stage 2 residue-sized memory buffers.\n",PM1_S2_NBUF);
+				if( PM1_S2_NBUF > ((uint32)(j*1024./(n>>7)) - 5) )
+					fprintf(stderr,"WARNING: User-specified maximum number of Stage 2 buffers may exceed %u MB of available RAM.\n",j);
+			}
 			ASSERT(HERE, PM1_S2_NBUF >= 24,"p-1 Stage 2 requires at least 24 residue-sized memory buffers!\n");
 			uint32 pm1_bigstep = 0, pm1_stage2_mem_multiple = 0;
 			// If S2 restart file exists, read high byte of nsquares field, which stores value of
@@ -2517,8 +2502,10 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 				// If S2 savefile exists, any relocation-prime will have been written into the high byte of the
 				// nsquares field, byte 10 of the file. If S2 started and touched the savefile but was aborted prior
 				// to the first S2 interim-checkpoint, said byte will have been written to, but with a 0:
-				for(j = 0; j < 10; j++) { psmall = fgetc(fp); }
+				for(j = 0; j < 10; j++) { i = fgetc(fp); }
 				fclose(fp); fp = 0x0;
+				if(i != EOF)	// Needed to handle case where .s2 file was touched but ended up empty or < 10 bytes long
+					psmall = i;
 			}
 			// Now feed any relocation-prime value (psmall, stored in i here) to the pm1_bigstep_size() call, which resets
 			// PM1_S2_NBUF to the largest S2 buffer count <= (input PM1_S2_NBUF value) which is also compatible with psmall:
@@ -2540,13 +2527,13 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			// prompting an early-return (In this case the S2 code will have reset B2 to reflect the actual interval run);
 			// otherwise do end-of-scheduled-S2 GCD - S2 residue returned in arrtmp, no need to call convert_res_FP_bytewise():
 			if(!strlen(gcd_str)) {
-				j = (p+63)>>6;
+				j = (p+63+(MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6;
 				i = gcd(2,p,arrtmp,j,gcd_str);	// 1st arg = stage just completed
 			}
 			// If factor found, gcd() will have done needed status-file-writes; unlike S1, leave B2 as-is, need it for the JSON output.
 			// Write JSON output and go to next assignment:
 			gm_time = gmtime(&calendar_time);
-			strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S %Z",gm_time);
+			strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S UTC",gm_time);
 			generate_JSON_report(0,p,n,0ull,timebuffer, B1,B2,gcd_str, cstr);	// cstr holds JSONified output
 			fp = mlucas_fopen(OFILE,"a");
 			if(fp){ fprintf(fp,"\n%s",cstr);	fclose(fp);	fp = 0x0; }
@@ -2554,9 +2541,6 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 	  #else
 		exit(0);	// Stage-1-only builds on low-mem systems exit here
 	  #endif	// USE_LOWMEM?
-	#else
-		ASSERT(HERE, 0, "P-1 factoring not supported for this build/platform.");
-	#endif
 	} else {
 		ASSERT(HERE, 0, "Unrecognized test type!");
 	}	/* endif(TEST_TYPE == TEST_TYPE_PRIMALITY) */
@@ -2577,6 +2561,9 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 		2. A Primality or PRP-test assignment with p-1 already done.
 	*/
 GET_NEXT_ASSIGNMENT:
+
+	// If workfile is still open, close it:
+	if(fp) { fclose(fp);	fp = 0x0; }
 
 	if(!INTERACT)
 	{
@@ -2621,7 +2608,8 @@ GET_NEXT_ASSIGNMENT:
 			fprintf(stderr,"%s",cbuf);
 			fp = mlucas_fopen(OFILE, "a");	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
 			ASSERT(HERE,0,"");
-		} else if(!strstr(in_line, ESTRING)) {
+		// Look for m in 1st-assignment; for F[m], need to also look for 2^m in case assignment is in KBNC format:
+		} else if( !strstr(in_line, ESTRING) && !(MODULUS_TYPE == MODULUS_TYPE_FERMAT && strstr(in_line, BIN_EXP)) ) {
 			snprintf_nowarn(cbuf,STR_MAX_LEN, "ERROR: Current exponent %s not found in line 1 of %s file - quitting.\n", ESTRING, WORKFILE);
 			fprintf(stderr,"%s",cbuf);
 			fp = mlucas_fopen(OFILE, "a");	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
@@ -2639,7 +2627,6 @@ GET_NEXT_ASSIGNMENT:
 					fputs(in_line, fq);
 				}
 			#endif
-			#if INCLUDE_PM1
 				// This imples TEST_TYPE == TEST_TYPE_PM1; note that this flag gets cleared on cycling back to RANGE_BEG:
 				if(split_curr_assignment) {
 					/*0/1 flag indicating whether P-1 has been done assumed to follow second comma in in_line: */
@@ -2647,7 +2634,6 @@ GET_NEXT_ASSIGNMENT:
 					fputs(cstr, fq);	// The PRP or LL assignment, with trailing 0 indicating p-1 done (true by time we get to it)
 					i = 2;	// And reset remaining-assignments counter
 				}
-			#endif
 			} else if(strstr(in_line, "Pminus1")) {
 				// If current p-1 assignment found a factor and resulted from splitting of a PRP/LL assignment -
 				// note that split_curr_assignment == TRUE only at time of the initial splitting - delete them both:
@@ -2776,7 +2762,7 @@ void 	Mlucas_init(void)
 	n = (MAX_FFT_LENGTH_IN_K << 10);
 	/* Make sure N didn't overflow */
 	ASSERT(HERE, (n >> 10) == MAX_FFT_LENGTH_IN_K,"Require (n >> 10) == MAX_FFT_LENGTH_IN_K");
-	PMAX = given_N_get_maxP(n);
+	PMAX = 1.05*given_N_get_maxP(n);	// Allow same wiggle room here as in ernstMain
 
 	ASSERT(HERE, PMAX > PMIN,"Require PMAX > PMIN");
 
@@ -2789,7 +2775,7 @@ void 	Mlucas_init(void)
 		fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 	}
 #endif
-#if 0//INCLUDE_PM1	v20: Use GMP GCD, own-rolled n (log n)^2 one simply not in the cards.
+#if 0//INCLUDE_PM1	v20: Use GMP GCD, own-rolled O(n*(log n)^2) one simply not in the cards.
 	/* Simple self-tester for GCD routines in gcd_lehmer.c: */
 	fprintf(stderr, "INFO: testing GCD routines...\n");
 	if(test_gcd() != 0)
@@ -2841,9 +2827,9 @@ uint64 	shift_word(double a[], int n, const uint64 p, const uint64 shift, const 
 	static int first_entry=TRUE, nsave = 0;
 	static uint64 psave = 0ull;
 	static double bits_per_word = 0.0, words_per_bit = 0.0;
-	int pow2_fft,bimodn,curr_bit64,curr_wd64,w64,curr_wd_bits,mod64,findex,i,ii,j,j1,j2;
+	int pow2_fft,bimodn,curr_bit64,curr_wd64,w64,curr_wd_bits,mod64,findex,i,j,j1,j2;
 	static uint32 bw = 0,sw = 0,nwt = 0,sw_div_n,base[2],baseinv[2],bits[2];
-	uint32 sw_idx_modn;
+	uint32 sw_idx_modn,ii;	// Aug 2021: ii needs to be unsigned for the (shift < ii) compare when shift >= 2^31
 	double cy,theta,wt_fwd,wt_cos,wt_sin;
 	uint64 nbits, itmp64;
 	 int64 retval = -1;	// Make this signed to ease "not yet set?" check
@@ -3096,7 +3082,7 @@ DONE:
 #endif
 
 /* Number of distinct FFT lengths supported for self-tests: */
-#define numTest				120	// = sum of all the subranges below
+#define numTest				129	// = sum of all the subranges below
 /* Number of FFT lengths in the various subranges of the full self-test suite: */
 #define numTiny 			32
 #define numSmall			32
@@ -3104,7 +3090,7 @@ DONE:
 #define numLarge			24
 #define numHuge				16
 /* Adding larger FFT lengths to test vectors requires supporting changes to Mdata.h:MAX_FFT_LENGTH_IN_K and get_fft_radices.c */
-#define numEgregious		 0
+#define numEgregious		 9
 #define numBrobdingnagian	 0
 #define numGodzillian		 0
 #if(numTiny+numSmall+numMedium+numLarge+numHuge+numEgregious+numBrobdingnagian+numGodzillian != numTest)
@@ -3142,7 +3128,7 @@ HERE IS THE PROCEDURE FOR ADDING A BEW ENTRY TO THE EXPONENT/RESIDUE TABLE BELOW
 */
 struct testMers{
 	int fftLength;		/* FFT length in K (i.e. 4 means an array of 4K doubles) */
-	uint32 exponent;	/* Test exponent for this FFT length. */
+	uint64 exponent;	/* Test exponent for this FFT length. */
 	struct res_triplet	res_t[3];	/* 100,1000 and 10000-iteration SH-residue triplets */
 };
 
@@ -3153,135 +3139,144 @@ struct testMers MersVec[numTest+1] =
 /*	  FFTlen(K)     p              Res64           mod 2^35-1      mod 2^36-1               Res64           mod 2^35-1      mod 2^36-1     */
 /*	    -----    --------     ----------------     -----------     -----------         ----------------     -----------     -----------    */
 	/* Tiny:                                     [%34359738367  ][%68719476735  ]                         [%34359738367  ][%68719476735  ] */
-	{     8,    173431u, { {0x85301536E4CA9B11ull,  3707224323ull, 36851834664ull}, {0x2FD5120BEC41F449ull, 28734955954ull, 23103392631ull}, {0x139D1D396F173696ull, 12716541843ull, 58117202214ull} } },
-	{     9,    194609u, { {0xC711AF1008612BC6ull,  1574019740ull, 37260026270ull}, {0x5153F6E040CD1BE6ull, 15446410924ull,  3291404673ull}, {0x33E19077F35070A3ull, 34231248547ull, 24411805292ull} } },
-	{    10,    215767u, { {0x4428783BC62760F0ull,  7466284975ull, 53916123655ull}, {0xED46A8C001908815ull,   739143119ull, 36950829937ull}, {0xCBE0AD544E96FDB9ull,  7625169722ull, 52027104104ull} } },
-	{    11,    236813u, { {0x592D849AF4D1336Full, 29025996994ull, 48905971124ull}, {0xB4EEB63BB656F424ull,  5361680901ull, 31850818767ull}, {0x5AEBAE493B085903ull, 20240457506ull, 42866015746ull} } },
-	{    12,    257903u, { {0x1D8121DE28B60996ull, 22402402961ull, 65583959369ull}, {0x54F2BE961A674CB1ull, 25601315553ull, 54298899520ull}, {0x50DFBA28D0D1A8C3ull, 17306049864ull, 68068537809ull} } },
-	{    13,    278917u, { {0xE3BC90B0E652C7C0ull, 21244206101ull, 51449948145ull}, {0x93AF8994F95F2E50ull, 16427368469ull, 10707190710ull}, {0x1674AAA04F7BD61Aull, 12079507298ull, 56593045102ull} } },
-	{    14,    299903u, { {0xDB8E39C67F8CCA0Aull, 20506717562ull, 44874927985ull}, {0x4E7CCB446371C470ull, 34135369163ull, 61575700812ull}, {0x04ACC83FFE9CEAD4ull, 26179715264ull, 65445483729ull} } },
-	{    15,    320851u, { {0xB3C5A1C03E26BB17ull, 22101045153ull,  4420560161ull}, {0x923A9870D65BC73Dull, 29411268414ull, 30739991617ull}, {0xB3F1ACF3A26C4D72ull, 32179253815ull, 68615042306ull} } },
-	{    16,    341749u, { {0x8223DF939E46A0FFull, 32377771756ull, 38218252095ull}, {0xC6A5D4B6034A34B8ull, 31917858141ull, 59888258577ull}, {0x93EF44581866E318ull, 18805111197ull,  8333640393ull} } },
-	{    18,    383521u, { {0xBF30D4AF5ADF87C8ull, 15059093425ull, 52618040649ull}, {0x9F453732B3FE3C04ull,  4385160151ull, 47987324636ull}, {0x0DBF50D7F2142148ull,  1608653720ull, 52016825449ull} } },
-	{    20,    425149u, { {0x6951388C3B99EEC0ull,  4401287495ull, 19242775142ull}, {0x501CEC2CB2080627ull, 21816565170ull, 41043945930ull}, {0x5A9A9BF4608090A2ull, 27025233803ull, 68581005187ull} } },
-	{    22,    466733u, { {0xD95F8EC0F32B4756ull, 19305723506ull, 26588871256ull}, {0xB1F58184918D94B6ull,  8443388060ull, 11738516313ull}, {0xAC4B1F499BF2C2DAull,  7322105347ull, 15747709958ull} } },
-	{    24,    508223u, { {0xDA46E41316F8BCCAull, 25471180026ull,  1635203275ull}, {0x27A5B285281466B9ull, 11438869313ull,  7226774009ull}, {0x4ABED2868B800F7Dull,  7783533092ull, 66921500486ull} } },
-	{    26,    549623u, { {0x6649D9D6CD4E0CE1ull, 25445908581ull, 26118212198ull}, {0x1A4F280627A15B3Cull, 13286323782ull, 31550278005ull}, {0x86404E236E99B3C4ull, 17401894517ull, 40934891751ull} } },
-	{    28,    590963u, { {0x4ADDB6C4A76465AFull,  6532108269ull, 54921134131ull}, {0x3063D08A7BABD7B8ull,  4777711548ull, 39733274344ull}, {0xBE2ABBB09336F32Eull, 30656127523ull, 50296089656ull} } },
-	{    30,    632251u, { {0x0811FAA40601EB1Dull, 16369365746ull,  6888026123ull}, {0xF324E4DEC564AF91ull, 10236920023ull, 34068699974ull}, {0xAA622CF2A48F6085ull, 22315931502ull,  1049914969ull} } },
-	{    32,    673469u, { {0x1A4EF8A0D172FBAAull, 32667536946ull, 11393278588ull}, {0xA4DFD62B928F68A4ull, 11900420802ull, 66610946021ull}, {0xFA3993AC9CE7BEEDull,   117685830ull, 39361570554ull} } },
-	{    36,    755737u, { {0x13B13C61298088DCull, 34092803628ull,  7584858890ull}, {0x33A2A43DE8782CCCull,  2953124985ull, 62434716987ull}, {0xD0DF76911349551Bull, 28919846011ull, 30432969648ull} } },
-	{    40,    837817u, { {0x88555D9AAD3FF2DDull,  8573348747ull, 67896670216ull}, {0xEAC1676D914878C0ull, 34312095136ull, 45077378164ull}, {0x89E1C4D06BB0F9F3ull,  6272358557ull, 24712951618ull} } },
-	{    44,    919729u, { {0x6ACC03213A37BA5Bull,  3870201113ull, 48145739792ull}, {0xDA98B49CC83C60CBull, 15886769401ull, 62221100895ull}, {0xF1DA20E7D5A89638ull,  4633752262ull, 20941274692ull} } },
-	{    48,   1001467u, { {0x6B1C76AB5431FDA4ull,  6795121241ull, 65308927583ull}, {0xBD99FD21F4136BFCull, 26386988063ull, 61607603549ull}, {0x9136554E4718BFA9ull, 18451197932ull, 37688798842ull} } },
-	{    52,   1083077u, { {0xA591637EC8CF3FE4ull,  4769775755ull, 65114872367ull}, {0xE59C08B13B00E6FFull,  1383963096ull, 26100699764ull}, {0x48CCA2242A1F9352ull, 30318043361ull, 12067176371ull} } },
-	{    56,   1164533u, { {0xEC4F2579E4533584ull,  5456769127ull, 59922459736ull}, {0xF7D2BF94C2767D36ull, 30727892629ull, 48141128220ull}, {0xE332E3891AE98AD7ull,  7024598607ull, 65691841143ull} } },
-	{    60,   1245877u, { {0xC91002E1A4EE7E07ull,  6217476228ull, 40164514288ull}, {0xEABE9E1A31DF5877ull,   831216169ull, 29591771932ull}, {0xCB85101F6857519Dull, 30425930108ull,  2198194326ull} } },
-	{    64,   1327099u, { {0xAC070112281229E0ull, 14226353454ull,  1640524016ull}, {0xF25AA54053C5BB64ull, 32455038659ull, 53547160776ull}, {0x3854D019CE12CC9Aull, 29589836279ull,  2174826233ull} } },
-	{    72,   1489223u, { {0x6674518EA19B3D6Aull, 32383400562ull, 53234746310ull}, {0xEB312091097F6C3Bull,  3980687908ull,  8568698675ull}, {0xC225FAF24A093590ull, 22407813999ull, 30924932017ull} } },
-	{    80,   1650959u, { {0xE5326E754F3202A8ull,  5593233426ull, 33337128557ull}, {0xFC3E8CDA60AF5CF8ull, 11466296968ull, 12651602524ull}, {0x4D68554B73674A60ull,  2253999911ull, 55045374456ull} } },
-	{    88,   1812347u, { {0x81BDD3AC63DF3F73ull, 19957199947ull, 61002681293ull}, {0x3D3E429D7427C4EAull, 25342898119ull, 34322985438ull}, {0x5769D7B47C49436Full,  5234049262ull, 26872574292ull} } },
-	{    96,   1973431u, { {0x901C8305DA9FF95Aull, 32611811878ull, 55986702160ull}, {0x0790CA11ADAA47E3ull, 17075140845ull, 12883521448ull}, {0xF18EADC267DE6FC1ull, 24308841307ull, 31678116890ull} } },
-	{   104,   2134201u, { {0x59BDA0D80F3279EDull, 17901153436ull,  3927067335ull}, {0x2F81B21BC680C861ull, 18443771511ull, 45465079919ull}, {0x439245FA16A38116ull, 20996570088ull,   489289103ull} } },
-	{   112,   2294731u, { {0xC44ACC96D268625Full, 10331638988ull,  2292055445ull}, {0xED20577E16E128DEull, 32248607028ull, 14903460370ull}, {0xCB862A1B42B230A2ull, 23316229090ull, 23891565685ull} } },
-	{   120,   2455003u, { {0xC5F7DB23F174A67Dull, 32991574397ull, 31642856976ull}, {0x401670254012E5ABull, 33626385418ull, 66465546971ull}, {0x20AB396E327C09C1ull, 13309965383ull, 60492105240ull} } },
+	{     8,    173431ull, { {0x85301536E4CA9B11ull,  3707224323ull, 36851834664ull}, {0x2FD5120BEC41F449ull, 28734955954ull, 23103392631ull}, {0x139D1D396F173696ull, 12716541843ull, 58117202214ull} } },
+	{     9,    194609ull, { {0xC711AF1008612BC6ull,  1574019740ull, 37260026270ull}, {0x5153F6E040CD1BE6ull, 15446410924ull,  3291404673ull}, {0x33E19077F35070A3ull, 34231248547ull, 24411805292ull} } },
+	{    10,    215767ull, { {0x4428783BC62760F0ull,  7466284975ull, 53916123655ull}, {0xED46A8C001908815ull,   739143119ull, 36950829937ull}, {0xCBE0AD544E96FDB9ull,  7625169722ull, 52027104104ull} } },
+	{    11,    236813ull, { {0x592D849AF4D1336Full, 29025996994ull, 48905971124ull}, {0xB4EEB63BB656F424ull,  5361680901ull, 31850818767ull}, {0x5AEBAE493B085903ull, 20240457506ull, 42866015746ull} } },
+	{    12,    257903ull, { {0x1D8121DE28B60996ull, 22402402961ull, 65583959369ull}, {0x54F2BE961A674CB1ull, 25601315553ull, 54298899520ull}, {0x50DFBA28D0D1A8C3ull, 17306049864ull, 68068537809ull} } },
+	{    13,    278917ull, { {0xE3BC90B0E652C7C0ull, 21244206101ull, 51449948145ull}, {0x93AF8994F95F2E50ull, 16427368469ull, 10707190710ull}, {0x1674AAA04F7BD61Aull, 12079507298ull, 56593045102ull} } },
+	{    14,    299903ull, { {0xDB8E39C67F8CCA0Aull, 20506717562ull, 44874927985ull}, {0x4E7CCB446371C470ull, 34135369163ull, 61575700812ull}, {0x04ACC83FFE9CEAD4ull, 26179715264ull, 65445483729ull} } },
+	{    15,    320851ull, { {0xB3C5A1C03E26BB17ull, 22101045153ull,  4420560161ull}, {0x923A9870D65BC73Dull, 29411268414ull, 30739991617ull}, {0xB3F1ACF3A26C4D72ull, 32179253815ull, 68615042306ull} } },
+	{    16,    341749ull, { {0x8223DF939E46A0FFull, 32377771756ull, 38218252095ull}, {0xC6A5D4B6034A34B8ull, 31917858141ull, 59888258577ull}, {0x93EF44581866E318ull, 18805111197ull,  8333640393ull} } },
+	{    18,    383521ull, { {0xBF30D4AF5ADF87C8ull, 15059093425ull, 52618040649ull}, {0x9F453732B3FE3C04ull,  4385160151ull, 47987324636ull}, {0x0DBF50D7F2142148ull,  1608653720ull, 52016825449ull} } },
+	{    20,    425149ull, { {0x6951388C3B99EEC0ull,  4401287495ull, 19242775142ull}, {0x501CEC2CB2080627ull, 21816565170ull, 41043945930ull}, {0x5A9A9BF4608090A2ull, 27025233803ull, 68581005187ull} } },
+	{    22,    466733ull, { {0xD95F8EC0F32B4756ull, 19305723506ull, 26588871256ull}, {0xB1F58184918D94B6ull,  8443388060ull, 11738516313ull}, {0xAC4B1F499BF2C2DAull,  7322105347ull, 15747709958ull} } },
+	{    24,    508223ull, { {0xDA46E41316F8BCCAull, 25471180026ull,  1635203275ull}, {0x27A5B285281466B9ull, 11438869313ull,  7226774009ull}, {0x4ABED2868B800F7Dull,  7783533092ull, 66921500486ull} } },
+	{    26,    549623ull, { {0x6649D9D6CD4E0CE1ull, 25445908581ull, 26118212198ull}, {0x1A4F280627A15B3Cull, 13286323782ull, 31550278005ull}, {0x86404E236E99B3C4ull, 17401894517ull, 40934891751ull} } },
+	{    28,    590963ull, { {0x4ADDB6C4A76465AFull,  6532108269ull, 54921134131ull}, {0x3063D08A7BABD7B8ull,  4777711548ull, 39733274344ull}, {0xBE2ABBB09336F32Eull, 30656127523ull, 50296089656ull} } },
+	{    30,    632251ull, { {0x0811FAA40601EB1Dull, 16369365746ull,  6888026123ull}, {0xF324E4DEC564AF91ull, 10236920023ull, 34068699974ull}, {0xAA622CF2A48F6085ull, 22315931502ull,  1049914969ull} } },
+	{    32,    673469ull, { {0x1A4EF8A0D172FBAAull, 32667536946ull, 11393278588ull}, {0xA4DFD62B928F68A4ull, 11900420802ull, 66610946021ull}, {0xFA3993AC9CE7BEEDull,   117685830ull, 39361570554ull} } },
+	{    36,    755737ull, { {0x13B13C61298088DCull, 34092803628ull,  7584858890ull}, {0x33A2A43DE8782CCCull,  2953124985ull, 62434716987ull}, {0xD0DF76911349551Bull, 28919846011ull, 30432969648ull} } },
+	{    40,    837817ull, { {0x88555D9AAD3FF2DDull,  8573348747ull, 67896670216ull}, {0xEAC1676D914878C0ull, 34312095136ull, 45077378164ull}, {0x89E1C4D06BB0F9F3ull,  6272358557ull, 24712951618ull} } },
+	{    44,    919729ull, { {0x6ACC03213A37BA5Bull,  3870201113ull, 48145739792ull}, {0xDA98B49CC83C60CBull, 15886769401ull, 62221100895ull}, {0xF1DA20E7D5A89638ull,  4633752262ull, 20941274692ull} } },
+	{    48,   1001467ull, { {0x6B1C76AB5431FDA4ull,  6795121241ull, 65308927583ull}, {0xBD99FD21F4136BFCull, 26386988063ull, 61607603549ull}, {0x9136554E4718BFA9ull, 18451197932ull, 37688798842ull} } },
+	{    52,   1083077ull, { {0xA591637EC8CF3FE4ull,  4769775755ull, 65114872367ull}, {0xE59C08B13B00E6FFull,  1383963096ull, 26100699764ull}, {0x48CCA2242A1F9352ull, 30318043361ull, 12067176371ull} } },
+	{    56,   1164533ull, { {0xEC4F2579E4533584ull,  5456769127ull, 59922459736ull}, {0xF7D2BF94C2767D36ull, 30727892629ull, 48141128220ull}, {0xE332E3891AE98AD7ull,  7024598607ull, 65691841143ull} } },
+	{    60,   1245877ull, { {0xC91002E1A4EE7E07ull,  6217476228ull, 40164514288ull}, {0xEABE9E1A31DF5877ull,   831216169ull, 29591771932ull}, {0xCB85101F6857519Dull, 30425930108ull,  2198194326ull} } },
+	{    64,   1327099ull, { {0xAC070112281229E0ull, 14226353454ull,  1640524016ull}, {0xF25AA54053C5BB64ull, 32455038659ull, 53547160776ull}, {0x3854D019CE12CC9Aull, 29589836279ull,  2174826233ull} } },
+	{    72,   1489223ull, { {0x6674518EA19B3D6Aull, 32383400562ull, 53234746310ull}, {0xEB312091097F6C3Bull,  3980687908ull,  8568698675ull}, {0xC225FAF24A093590ull, 22407813999ull, 30924932017ull} } },
+	{    80,   1650959ull, { {0xE5326E754F3202A8ull,  5593233426ull, 33337128557ull}, {0xFC3E8CDA60AF5CF8ull, 11466296968ull, 12651602524ull}, {0x4D68554B73674A60ull,  2253999911ull, 55045374456ull} } },
+	{    88,   1812347ull, { {0x81BDD3AC63DF3F73ull, 19957199947ull, 61002681293ull}, {0x3D3E429D7427C4EAull, 25342898119ull, 34322985438ull}, {0x5769D7B47C49436Full,  5234049262ull, 26872574292ull} } },
+	{    96,   1973431ull, { {0x901C8305DA9FF95Aull, 32611811878ull, 55986702160ull}, {0x0790CA11ADAA47E3ull, 17075140845ull, 12883521448ull}, {0xF18EADC267DE6FC1ull, 24308841307ull, 31678116890ull} } },
+	{   104,   2134201ull, { {0x59BDA0D80F3279EDull, 17901153436ull,  3927067335ull}, {0x2F81B21BC680C861ull, 18443771511ull, 45465079919ull}, {0x439245FA16A38116ull, 20996570088ull,   489289103ull} } },
+	{   112,   2294731ull, { {0xC44ACC96D268625Full, 10331638988ull,  2292055445ull}, {0xED20577E16E128DEull, 32248607028ull, 14903460370ull}, {0xCB862A1B42B230A2ull, 23316229090ull, 23891565685ull} } },
+	{   120,   2455003ull, { {0xC5F7DB23F174A67Dull, 32991574397ull, 31642856976ull}, {0x401670254012E5ABull, 33626385418ull, 66465546971ull}, {0x20AB396E327C09C1ull, 13309965383ull, 60492105240ull} } },
 	/* Small: */
-	{   128,   2614999u, { {0x040918890E98F8DAull, 14867710211ull, 47602627318ull}, {0x1A184504D2DE2D3Cull,  5934292942ull,  4090378120ull}, {0xE7126F512D3FD742ull, 17101849610ull, 66501661438ull} } },
-	{   144,   2934479u, { {0x1B90A27301980A3Aull,  7043479338ull, 38327130996ull}, {0x8C3045C6534867C6ull, 12456621644ull, 52801948293ull}, {0xF17F4A594A281B94ull,  5970782987ull, 68371435254ull} } },
-	{   160,   3253153u, { {0x9AFD3618C164D1B4ull, 16551334620ull, 55616214582ull}, {0x1493A70897A8D058ull, 34082962858ull, 60773088284ull}, {0x57D3F1A090E78729ull, 26902546905ull, 49396480035ull} } },
-	{   176,   3571153u, { {0xA016F25779902477ull, 21500047857ull,  9150810891ull}, {0x8E6F248EC96445FFull, 22443629034ull, 16625023722ull}, {0xFFD8B840C06A5EACull, 32183737848ull, 42577197579ull} } },
-	{   192,   3888509u, { {0x71E61322CCFB396Cull, 29259839105ull, 50741070790ull}, {0x3CEDB241702D2907ull,  6177258458ull, 21951191321ull}, {0xAF407D11B2D74C3Cull, 31653650180ull, 27299459944ull} } },
-	{   208,   4205303u, { {0xC08562DA75132764ull,  7099101614ull, 36784779697ull}, {0xAD381B4FE91D46FDull,  7173420823ull, 51721175527ull}, {0xC70061EF9537C4E1ull,  9945894076ull,  2301956793ull} } },
-	{   224,   4521557u, { {0xE68210464F96D6A6ull, 20442129364ull, 11338970081ull}, {0x3B06B74F5D4C0E35ull,  7526060994ull, 28782225212ull}, {0xB720ACD1D69A7ECFull, 28103212586ull, 10983125296ull} } },
-	{   240,   4837331u, { {0xB0D0E72B7C87C174ull, 15439682274ull, 46315054895ull}, {0x3AA14E0E90D16317ull,  5730133308ull, 50944347816ull}, {0x12CFBF6001E59FF7ull, 26877054587ull, 60322521357ull} } },
-	{   256,   5152643u, { {0x074879D86679CB5Bull,  1208548964ull, 48525653083ull}, {0x98AF5E14C824A252ull,   783196824ull,  6594302302ull}, {0x7DA0D3B9EFEA4931ull, 32608975347ull, 43428286760ull} } },
-	{   288,   5782013u, { {0x9869BE81D9AB1564ull, 15509103769ull, 49640026911ull}, {0x7C998719C6001318ull, 23749848147ull, 19853218689ull}, {0xE2E246D9094EBFD7ull, 26657044660ull,  7091330955ull} } },
-	{   320,   6409849u, { {0x20739E43A693A937ull, 27970131351ull, 15334307151ull}, {0xE20A76DCEB6774A6ull, 14260757089ull, 68560882840ull}, {0xCEC786F8883D8D1Full,  5597853948ull, 57984323163ull} } },
-	{   352,   7036339u, { {0xD6A226BAB5E14D62ull,  9444972171ull, 28639488018ull}, {0x0579D28296F29D92ull, 18964853245ull, 30111685201ull}, {0xB9CF9FE489BD34CFull, 11297283566ull, 16782498229ull} } },
-	{   384,   7661567u, { {0x3A929F577AC9725Full, 23890492835ull, 64821764767ull}, {0x2ECBA785576E6D58ull, 26446200615ull, 60269798452ull}, {0x22AA4A0A7A3676A7ull, 23262227373ull, 26736591016ull} } },
-	{   416,   8285659u, { {0xDCA138D55C36E40Cull, 10452583294ull,  4308453248ull}, {0x1FEE7F79E32229A6ull, 11936075329ull, 16061515794ull}, {0x9B5324C99CCE498Dull, 14697684311ull, 16439873760ull} } },
-	{   448,   8908723u, { {0x436494C7EA194FA1ull,  2976149044ull, 21645125251ull}, {0xD2FCEDE29E818A26ull, 15260150529ull, 11678366985ull}, {0x952F59F4972F830Aull, 17286796157ull, 11216464341ull} } },
-	{   480,   9530803u, { {0x6D52BCCB796A46E9ull, 28296985362ull, 66294636306ull}, {0x786CB610A809B762ull, 24654197494ull, 57943258783ull}, {0x40564770A8540610ull, 27197548273ull, 32971949076ull} } },
-	{   512,  10151971u, { {0x7BA3DD9C38878B83ull, 24395728676ull, 12632037498ull}, {0x8E9FA3093ACD81C1ull,  6345070464ull, 65203567231ull}, {0xBBD3BD10BA9983B5ull,  7822185024ull, 14668688365ull} } },
-	{   576,  11391823u, { {0x78D8769B9F75FB2Bull,  7286184017ull, 17306427758ull}, {0x5834BDA7558DD43Cull, 11189092321ull, 23026923116ull}, {0x793D548FCB76B28Cull, 11310068490ull, 24716315416ull} } },
-	{   640,  12628613u, { {0xF951B697F5C5032Aull,  9262385660ull, 57463106915ull}, {0x93B526040205BA27ull, 30538079080ull, 32317022014ull}, {0x25544FC69ADB28F9ull, 28253742327ull,  1823182110ull} } },
-	{   704,  13862759u, { {0xBB2F69275D79A9EEull, 12230183669ull, 68684647134ull}, {0x7343ECC160AA00D5ull, 24655585170ull, 51102704879ull}, {0x1402EEF49394CDC7ull,  5500341204ull, 59999916295ull} } },
-	{   768,  15094403u, { {0xF6895EB66EADE9C5ull,  8490184692ull, 23393343807ull}, {0xF673A8D6413923A9ull, 20026779905ull, 67516766223ull}, {0xD63752CA13598971ull, 24773095342ull, 29303310893ull} } },
-	{   832,  16323773u, { {0xEB8890F379392B2Full, 27289972116ull, 63975275393ull}, {0xD681EDD3A1EC3780ull, 12515962698ull, 40155157152ull}, {0xEB9C9477368BF584ull, 13378242091ull,  9365072054ull} } },
-	{   896,  17551099u, { {0xAB1180428ED65EE0ull,  3105108668ull, 66518734167ull}, {0x31813367849BBF49ull,  9516734777ull, 18271834608ull}, {0x95C2E1F201FCE598ull,  6264820675ull, 49312303312ull} } },
-	{   960,  18776473u, { {0xCA7D81B22AE24935ull, 24317941565ull, 67706175547ull}, {0x02EB980A49E7B60Full,  5730644436ull, 48386545950ull}, {0xBC6503AA5C062308ull, 29760131532ull, 31603724687ull} } },
-	{  1024,  19800083u, { {0x95AFD7A5269F14F6ull, 26677613826ull, 37493068952ull}, {0x18A53602BAA0E197ull,   624371978ull, 15180896714ull}, {0xF79CD0274644183Dull, 21538070258ull, 26190157173ull} } },
-	{  1152,  22217791u, { {0x9EFE3D8C08D89E48ull,  8307313500ull, 40673806995ull}, {0xE1F94CD14457EDADull, 23322294478ull, 42677160325ull}, {0xF60CFBDEA4ADF55Full,  5469936596ull, 35790203222ull} } },
-	{  1280,  24629621u, { {0x85D92483D90E5029ull,  6310387878ull, 18231127032ull}, {0xBEE63CF182681345ull,  7247112769ull, 24502530130ull}, {0x89977592EE68F853ull, 31511858957ull, 44154237710ull} } },
-	{  1408,  27036157u, { {0x3BAC320B542307B0ull, 28733834194ull, 35177623244ull}, {0xBAE66098A85CD960ull, 25462246119ull, 52444387524ull}, {0x0569BF7834267F10ull, 27834108530ull, 44136002879ull} } },
-	{  1536,  29437799u, { {0x9E279D6E3752A61Cull,  6467723895ull, 50774708769ull}, {0x5A2D06C05D222BF2ull, 22780146874ull, 60521558933ull}, {0xC6D352199D949DCDull, 30008450771ull, 37092077102ull} } },
-	{  1664,  31835017u, { {0xE10EFEAEDCF46110ull, 21648491345ull, 41207849648ull}, {0x8717F387BB55E1ECull, 17021700047ull, 59165499154ull}, {0x5CDA924B80871209ull, 22299652758ull, 41171353038ull} } },
-	{  1792,  34228133u, { {0x9FC8394655E0334Eull,  1603847275ull, 51947401644ull}, {0x1128E4676929F8C8ull, 33342766910ull, 55912489998ull}, {0xE697B18729853BEEull, 25335158858ull, 63783469524ull} } },
-	{  1920,  36617407u, { {0xB7FA68741ABA807Aull,  2831791183ull, 44591522415ull}, {0x0F635E0B2DC95F81ull, 24912661453ull, 45929081959ull}, {0x2B5BCFC6BA94177Aull,  7824653065ull, 62951001255ull} } },
+	{   128,   2614999ull, { {0x040918890E98F8DAull, 14867710211ull, 47602627318ull}, {0x1A184504D2DE2D3Cull,  5934292942ull,  4090378120ull}, {0xE7126F512D3FD742ull, 17101849610ull, 66501661438ull} } },
+	{   144,   2934479ull, { {0x1B90A27301980A3Aull,  7043479338ull, 38327130996ull}, {0x8C3045C6534867C6ull, 12456621644ull, 52801948293ull}, {0xF17F4A594A281B94ull,  5970782987ull, 68371435254ull} } },
+	{   160,   3253153ull, { {0x9AFD3618C164D1B4ull, 16551334620ull, 55616214582ull}, {0x1493A70897A8D058ull, 34082962858ull, 60773088284ull}, {0x57D3F1A090E78729ull, 26902546905ull, 49396480035ull} } },
+	{   176,   3571153ull, { {0xA016F25779902477ull, 21500047857ull,  9150810891ull}, {0x8E6F248EC96445FFull, 22443629034ull, 16625023722ull}, {0xFFD8B840C06A5EACull, 32183737848ull, 42577197579ull} } },
+	{   192,   3888509ull, { {0x71E61322CCFB396Cull, 29259839105ull, 50741070790ull}, {0x3CEDB241702D2907ull,  6177258458ull, 21951191321ull}, {0xAF407D11B2D74C3Cull, 31653650180ull, 27299459944ull} } },
+	{   208,   4205303ull, { {0xC08562DA75132764ull,  7099101614ull, 36784779697ull}, {0xAD381B4FE91D46FDull,  7173420823ull, 51721175527ull}, {0xC70061EF9537C4E1ull,  9945894076ull,  2301956793ull} } },
+	{   224,   4521557ull, { {0xE68210464F96D6A6ull, 20442129364ull, 11338970081ull}, {0x3B06B74F5D4C0E35ull,  7526060994ull, 28782225212ull}, {0xB720ACD1D69A7ECFull, 28103212586ull, 10983125296ull} } },
+	{   240,   4837331ull, { {0xB0D0E72B7C87C174ull, 15439682274ull, 46315054895ull}, {0x3AA14E0E90D16317ull,  5730133308ull, 50944347816ull}, {0x12CFBF6001E59FF7ull, 26877054587ull, 60322521357ull} } },
+	{   256,   5152643ull, { {0x074879D86679CB5Bull,  1208548964ull, 48525653083ull}, {0x98AF5E14C824A252ull,   783196824ull,  6594302302ull}, {0x7DA0D3B9EFEA4931ull, 32608975347ull, 43428286760ull} } },
+	{   288,   5782013ull, { {0x9869BE81D9AB1564ull, 15509103769ull, 49640026911ull}, {0x7C998719C6001318ull, 23749848147ull, 19853218689ull}, {0xE2E246D9094EBFD7ull, 26657044660ull,  7091330955ull} } },
+	{   320,   6409849ull, { {0x20739E43A693A937ull, 27970131351ull, 15334307151ull}, {0xE20A76DCEB6774A6ull, 14260757089ull, 68560882840ull}, {0xCEC786F8883D8D1Full,  5597853948ull, 57984323163ull} } },
+	{   352,   7036339ull, { {0xD6A226BAB5E14D62ull,  9444972171ull, 28639488018ull}, {0x0579D28296F29D92ull, 18964853245ull, 30111685201ull}, {0xB9CF9FE489BD34CFull, 11297283566ull, 16782498229ull} } },
+	{   384,   7661567ull, { {0x3A929F577AC9725Full, 23890492835ull, 64821764767ull}, {0x2ECBA785576E6D58ull, 26446200615ull, 60269798452ull}, {0x22AA4A0A7A3676A7ull, 23262227373ull, 26736591016ull} } },
+	{   416,   8285659ull, { {0xDCA138D55C36E40Cull, 10452583294ull,  4308453248ull}, {0x1FEE7F79E32229A6ull, 11936075329ull, 16061515794ull}, {0x9B5324C99CCE498Dull, 14697684311ull, 16439873760ull} } },
+	{   448,   8908723ull, { {0x436494C7EA194FA1ull,  2976149044ull, 21645125251ull}, {0xD2FCEDE29E818A26ull, 15260150529ull, 11678366985ull}, {0x952F59F4972F830Aull, 17286796157ull, 11216464341ull} } },
+	{   480,   9530803ull, { {0x6D52BCCB796A46E9ull, 28296985362ull, 66294636306ull}, {0x786CB610A809B762ull, 24654197494ull, 57943258783ull}, {0x40564770A8540610ull, 27197548273ull, 32971949076ull} } },
+	{   512,  10151971ull, { {0x7BA3DD9C38878B83ull, 24395728676ull, 12632037498ull}, {0x8E9FA3093ACD81C1ull,  6345070464ull, 65203567231ull}, {0xBBD3BD10BA9983B5ull,  7822185024ull, 14668688365ull} } },
+	{   576,  11391823ull, { {0x78D8769B9F75FB2Bull,  7286184017ull, 17306427758ull}, {0x5834BDA7558DD43Cull, 11189092321ull, 23026923116ull}, {0x793D548FCB76B28Cull, 11310068490ull, 24716315416ull} } },
+	{   640,  12628613ull, { {0xF951B697F5C5032Aull,  9262385660ull, 57463106915ull}, {0x93B526040205BA27ull, 30538079080ull, 32317022014ull}, {0x25544FC69ADB28F9ull, 28253742327ull,  1823182110ull} } },
+	{   704,  13862759ull, { {0xBB2F69275D79A9EEull, 12230183669ull, 68684647134ull}, {0x7343ECC160AA00D5ull, 24655585170ull, 51102704879ull}, {0x1402EEF49394CDC7ull,  5500341204ull, 59999916295ull} } },
+	{   768,  15094403ull, { {0xF6895EB66EADE9C5ull,  8490184692ull, 23393343807ull}, {0xF673A8D6413923A9ull, 20026779905ull, 67516766223ull}, {0xD63752CA13598971ull, 24773095342ull, 29303310893ull} } },
+	{   832,  16323773ull, { {0xEB8890F379392B2Full, 27289972116ull, 63975275393ull}, {0xD681EDD3A1EC3780ull, 12515962698ull, 40155157152ull}, {0xEB9C9477368BF584ull, 13378242091ull,  9365072054ull} } },
+	{   896,  17551099ull, { {0xAB1180428ED65EE0ull,  3105108668ull, 66518734167ull}, {0x31813367849BBF49ull,  9516734777ull, 18271834608ull}, {0x95C2E1F201FCE598ull,  6264820675ull, 49312303312ull} } },
+	{   960,  18776473ull, { {0xCA7D81B22AE24935ull, 24317941565ull, 67706175547ull}, {0x02EB980A49E7B60Full,  5730644436ull, 48386545950ull}, {0xBC6503AA5C062308ull, 29760131532ull, 31603724687ull} } },
+	{  1024,  19800083ull, { {0x95AFD7A5269F14F6ull, 26677613826ull, 37493068952ull}, {0x18A53602BAA0E197ull,   624371978ull, 15180896714ull}, {0xF79CD0274644183Dull, 21538070258ull, 26190157173ull} } },
+	{  1152,  22217791ull, { {0x9EFE3D8C08D89E48ull,  8307313500ull, 40673806995ull}, {0xE1F94CD14457EDADull, 23322294478ull, 42677160325ull}, {0xF60CFBDEA4ADF55Full,  5469936596ull, 35790203222ull} } },
+	{  1280,  24629621ull, { {0x85D92483D90E5029ull,  6310387878ull, 18231127032ull}, {0xBEE63CF182681345ull,  7247112769ull, 24502530130ull}, {0x89977592EE68F853ull, 31511858957ull, 44154237710ull} } },
+	{  1408,  27036157ull, { {0x3BAC320B542307B0ull, 28733834194ull, 35177623244ull}, {0xBAE66098A85CD960ull, 25462246119ull, 52444387524ull}, {0x0569BF7834267F10ull, 27834108530ull, 44136002879ull} } },
+	{  1536,  29437799ull, { {0x9E279D6E3752A61Cull,  6467723895ull, 50774708769ull}, {0x5A2D06C05D222BF2ull, 22780146874ull, 60521558933ull}, {0xC6D352199D949DCDull, 30008450771ull, 37092077102ull} } },
+	{  1664,  31835017ull, { {0xE10EFEAEDCF46110ull, 21648491345ull, 41207849648ull}, {0x8717F387BB55E1ECull, 17021700047ull, 59165499154ull}, {0x5CDA924B80871209ull, 22299652758ull, 41171353038ull} } },
+	{  1792,  34228133ull, { {0x9FC8394655E0334Eull,  1603847275ull, 51947401644ull}, {0x1128E4676929F8C8ull, 33342766910ull, 55912489998ull}, {0xE697B18729853BEEull, 25335158858ull, 63783469524ull} } },
+	{  1920,  36617407ull, { {0xB7FA68741ABA807Aull,  2831791183ull, 44591522415ull}, {0x0F635E0B2DC95F81ull, 24912661453ull, 45929081959ull}, {0x2B5BCFC6BA94177Aull,  7824653065ull, 62951001255ull} } },
 	/* Medium: */
-	{  2048,  39003229u, { {0xEC810981F56D5EC7ull, 29671814311ull, 35851198865ull}, {0xC7979AEE894F6DDEull,  6017514065ull, 41670805527ull}, {0x4669B1DD352C46BCull,  4806501770ull, 33957162576ull} } },
-	{  2304,  43765019u, { {0x672821643AEE9552ull, 19240824825ull,  8017358641ull}, {0x90CF100A46BE5B64ull, 24299840772ull, 29209909852ull}, {0xA280EC055C5ADAE2ull, 28830689436ull, 48353443940ull} } },
-	{  2560,  48515021u, { {0x015D3A5DC74024D1ull,  4691430475ull, 36435156228ull}, {0xFCFC9219B830DA28ull, 11946340838ull, 45970544027ull}, {0x88EBED279C6A1DE3ull,  9620966362ull,  3964242016ull} } },
-	{  2816,  53254447u, { {0x75F9FC3C84FF5B40ull,   745331612ull, 37955073618ull}, {0xBECD92EA2134D5FEull, 18833421072ull, 15730516149ull}, {0x57B3BAD33AFBC633ull, 26171947880ull, 67540452305ull} } },
-	{  3072,  57984131u, { {0xC7632FA366FCA848ull, 19810840296ull,  5919463661ull}, {0x678F955DDBA52AA4ull, 11995136918ull, 51932258375ull}, {0xE24A37C7B3884058ull, 17264313237ull,  9074782273ull} } },
-	{  3328,  62705077u, { {0xE2CC67B70119ECA9ull,  7229868717ull, 32316011766ull}, {0xD2F94003F0B47BBCull, 19281845997ull, 52908700180ull}, {0xAF81565673A4D22Bull, 11464285328ull, 30793044388ull} } },
-	{  3584,  67417873u, { {0x536142387279C6B7ull, 16480189705ull, 28663441842ull}, {0x4398ADDF46CE1F19ull, 20678941264ull, 64584283338ull}, {0xB88E95C5FA3D4C5Bull,  3311195148ull,  4541514528ull} } },
-	{  3840,  72123137u, { {0x99D05C8A80D2C4ABull, 23223478983ull,  7287108796ull}, {0x48F0329C29D5464Bull,  7693484624ull, 34460970218ull}, {0xA1EA526351C5A64Eull, 10198942223ull, 29783198404ull} } },
-	{  4096,  76821337u, { {0x18F108A0AEC92DA2ull, 25631216955ull, 19217786538ull}, {0x91B09D853C38FC2Bull,  1172724107ull, 62760945815ull}, {0xFB663A86824AAFC5ull,  9621633845ull, 68132687365ull} } },
-	{  4608,  86198291u, { {0x238B15CD7C7C8936ull, 34119649670ull, 50469517589ull}, {0xF1A033E0DEC1330Eull, 16165796253ull, 41865067374ull}, {0x2F1992A097857555ull,  7327358291ull, 32105027991ull} } },
-	{  5120,  95551873u, { {0x4AA89191484E7B56ull, 23537039943ull, 42089192670ull}, {0x811090D60FA9522Cull,  9010676320ull, 44606915786ull}, {0x7BE331521D4C32C2ull, 29429879592ull, 10276666456ull} } },
-	{  5632, 104884309u, { {0x1B2A391D6B7404CDull,  7884768330ull, 55887740575ull}, {0x77CA1E7005AFA4E0ull, 26306026902ull, 21589856845ull}, {0x0F08D303912B27B4ull,   630913159ull, 40892070508ull} } },
-	{  6144, 114197579u, { {0x6903363805E74E29ull,  6950779993ull, 63247095474ull}, {0xEB9D9802854B00A5ull, 24150112753ull, 67039249183ull}, {0xB64714689FA05366ull, 28265310306ull, 41895437602ull} } },
-	{  6656, 123493333u, { {0x651AA3D64C84FA54ull,  9429656635ull, 48354702979ull}, {0x967C90E697CCE6D9ull,  6779392734ull, 18484099736ull}, {0x6C9511DD6EA12528ull, 27647756232ull, 21104526614ull} } },
-	{  7168, 132772789u, { {0xDD02AEFE839F92D5ull,  7411321303ull, 16339659737ull}, {0xED6E26868AC2833Eull, 14154101692ull, 46327957293ull}, {0x80610E8FC3EB92E2ull, 19290762572ull, 46994666267ull} } },
-	{  7680, 142037359u, { {0x9CD0C494D16CB432ull, 23235865558ull, 14066262122ull}, {0xFD6240B21A370394ull, 16216979592ull, 44514519060ull}, {0x097C240EA1436743ull,  5457504643ull, 58797441684ull} } },
+	{  2048,  39003229ull, { {0xEC810981F56D5EC7ull, 29671814311ull, 35851198865ull}, {0xC7979AEE894F6DDEull,  6017514065ull, 41670805527ull}, {0x4669B1DD352C46BCull,  4806501770ull, 33957162576ull} } },
+	{  2304,  43765019ull, { {0x672821643AEE9552ull, 19240824825ull,  8017358641ull}, {0x90CF100A46BE5B64ull, 24299840772ull, 29209909852ull}, {0xA280EC055C5ADAE2ull, 28830689436ull, 48353443940ull} } },
+	{  2560,  48515021ull, { {0x015D3A5DC74024D1ull,  4691430475ull, 36435156228ull}, {0xFCFC9219B830DA28ull, 11946340838ull, 45970544027ull}, {0x88EBED279C6A1DE3ull,  9620966362ull,  3964242016ull} } },
+	{  2816,  53254447ull, { {0x75F9FC3C84FF5B40ull,   745331612ull, 37955073618ull}, {0xBECD92EA2134D5FEull, 18833421072ull, 15730516149ull}, {0x57B3BAD33AFBC633ull, 26171947880ull, 67540452305ull} } },
+	{  3072,  57984131ull, { {0xC7632FA366FCA848ull, 19810840296ull,  5919463661ull}, {0x678F955DDBA52AA4ull, 11995136918ull, 51932258375ull}, {0xE24A37C7B3884058ull, 17264313237ull,  9074782273ull} } },
+	{  3328,  62705077ull, { {0xE2CC67B70119ECA9ull,  7229868717ull, 32316011766ull}, {0xD2F94003F0B47BBCull, 19281845997ull, 52908700180ull}, {0xAF81565673A4D22Bull, 11464285328ull, 30793044388ull} } },
+	{  3584,  67417873ull, { {0x536142387279C6B7ull, 16480189705ull, 28663441842ull}, {0x4398ADDF46CE1F19ull, 20678941264ull, 64584283338ull}, {0xB88E95C5FA3D4C5Bull,  3311195148ull,  4541514528ull} } },
+	{  3840,  72123137ull, { {0x99D05C8A80D2C4ABull, 23223478983ull,  7287108796ull}, {0x48F0329C29D5464Bull,  7693484624ull, 34460970218ull}, {0xA1EA526351C5A64Eull, 10198942223ull, 29783198404ull} } },
+	{  4096,  76821337ull, { {0x18F108A0AEC92DA2ull, 25631216955ull, 19217786538ull}, {0x91B09D853C38FC2Bull,  1172724107ull, 62760945815ull}, {0xFB663A86824AAFC5ull,  9621633845ull, 68132687365ull} } },
+	{  4608,  86198291ull, { {0x238B15CD7C7C8936ull, 34119649670ull, 50469517589ull}, {0xF1A033E0DEC1330Eull, 16165796253ull, 41865067374ull}, {0x2F1992A097857555ull,  7327358291ull, 32105027991ull} } },
+	{  5120,  95551873ull, { {0x4AA89191484E7B56ull, 23537039943ull, 42089192670ull}, {0x811090D60FA9522Cull,  9010676320ull, 44606915786ull}, {0x7BE331521D4C32C2ull, 29429879592ull, 10276666456ull} } },
+	{  5632, 104884309ull, { {0x1B2A391D6B7404CDull,  7884768330ull, 55887740575ull}, {0x77CA1E7005AFA4E0ull, 26306026902ull, 21589856845ull}, {0x0F08D303912B27B4ull,   630913159ull, 40892070508ull} } },
+	{  6144, 114197579ull, { {0x6903363805E74E29ull,  6950779993ull, 63247095474ull}, {0xEB9D9802854B00A5ull, 24150112753ull, 67039249183ull}, {0xB64714689FA05366ull, 28265310306ull, 41895437602ull} } },
+	{  6656, 123493333ull, { {0x651AA3D64C84FA54ull,  9429656635ull, 48354702979ull}, {0x967C90E697CCE6D9ull,  6779392734ull, 18484099736ull}, {0x6C9511DD6EA12528ull, 27647756232ull, 21104526614ull} } },
+	{  7168, 132772789ull, { {0xDD02AEFE839F92D5ull,  7411321303ull, 16339659737ull}, {0xED6E26868AC2833Eull, 14154101692ull, 46327957293ull}, {0x80610E8FC3EB92E2ull, 19290762572ull, 46994666267ull} } },
+	{  7680, 142037359ull, { {0x9CD0C494D16CB432ull, 23235865558ull, 14066262122ull}, {0xFD6240B21A370394ull, 16216979592ull, 44514519060ull}, {0x097C240EA1436743ull,  5457504643ull, 58797441684ull} } },
 	/* Large: */
-	{  8192, 152816047u, { {0xB58E6FA510DC5049ull, 27285140530ull, 16378703918ull}, {0x75F2841AEBE29216ull, 13527336804ull,   503424366ull}, {0x99F8960CD890E06Aull,  8967321988ull, 43646415661ull} } },
-	{  9216, 171465013u, { {0x60FE24EF89D6140Eull, 25324379967ull,  3841674711ull}, {0x6753411471AD8945ull, 17806860702ull,  3977771754ull}, {0xED3635BF88F37FEFull,  7478721112ull, 47452797377ull} } },
-	{ 10240, 190066777u, { {0x65CF47927C02AC8Eull, 33635344843ull, 67530958158ull}, {0xBADA7FD24D959D21ull, 12777066809ull, 67273129313ull}, {0x82F65495D24A985Full, 22254800275ull, 49183722280ull} } },
-	{ 11264, 208626181u, { {0x6FC0151B81E5173Full, 29164620640ull, 19126254587ull}, {0xD74AA66757A5345Eull, 17524190590ull, 14029371481ull}, {0xDCF9ED39C7EB15B8ull, 34266921309ull, 65896285387ull} } },
-	{ 12288, 227147083u, { {0xE01AE9C859ADB03Aull,  7273133358ull,   681418986ull}, {0x303F142E1E88D5B4ull, 28479237457ull, 42044197589ull}, {0x3102781BC131D263ull, 24437355640ull, 48518577431ull} } },
-	{ 13312, 245632679u, { {0x0A6ACB405ADC0354ull,    39452330ull, 38999048555ull}, {0xB38B02A4F195762Full,  3280152282ull, 30314100936ull}, {0xF020F5041AE2CABEull, 24388185991ull, 16285954298ull} } },
-	{ 14336, 264085733u, { {0x5ACE4CCE3B925A81ull,  4584210608ull, 36618317213ull}, {0x02F5EC0CBB1C2032ull, 27165893636ull,   687123146ull}, {0xC6D65BD8A6087F08ull, 15586314376ull, 54717373852ull} } },
-	{ 15360, 282508657u, { {0xE7B08ED3A92EC6ECull,   875689313ull, 41754616020ull}, {0xD08FBAFF5CA5096Full, 30398073011ull, 62088094181ull}, {0xD6B7357DF761AA51ull, 28631146088ull, 26883666300ull} } },
-	{ 16384, 300903377u, { {0xA23E8D2F532F05E6ull, 17871262795ull, 53388776441ull}, {0x14F20059083BF452ull, 16549596802ull, 56184170215ull}, {0x76B8A857EC9B3042ull, 14094306048ull, 61845793513ull} } },
-	{ 18432, 337615277u, { {0xAEB976D153A4176Bull, 15040345558ull, 14542578090ull}, {0x503B443CB1E0CD2Dull, 29149628739ull,  5785599363ull}, {0x2D3047CEFF2F5A6Dull,  6100949709ull, 36303747216ull} } },
-	{ 20480, 374233309u, { {0x6D95C0E62C8F9606ull,  3426866174ull, 39787406588ull}, {0xD08FB9031D460B7Eull, 30083048700ull, 30636357797ull}, {0x3A58018C387FBB68ull, 26771468430ull,  7763681227ull} } },
-	{ 22528, 410766953u, { {0x254572CAB2014E6Cull, 17794160487ull, 13396317974ull}, {0x6202B11AA8602531ull,  9896689730ull, 13179771096ull}, {0x57919ED698DB2058ull, 12202175362ull, 54676834262ull} } },
-	{ 24576, 447223969u, { {0x547DF462C7DAD1F6ull, 21523243373ull, 60663902864ull}, {0x06AB4D8E6FD9D69Bull, 23751736171ull, 10720018557ull}, {0x2B0DE10480A159B7ull,  8420637297ull, 56684836957ull} } },
-	{ 26624, 483610763u, { {0xED3E248A29A1C6A8ull,  3863520901ull, 56560420765ull}, {0xC29358F8206746D6ull, 28829535828ull,  8160695393ull}, {0x56442E62439686ABull, 16425477242ull, 62275447263ull} } },
-	{ 28672, 519932827u, { {0xCA7B3A76819D67F7ull,  7078504016ull, 32836389262ull}, {0x5799C8BE8E02B56Full, 22269194969ull, 11617462155ull}, {0xBA8FC230F7B5EA7Dull, 27830917747ull, 28996845727ull} } },
-	{ 30720, 556194803u, { {0x56CDF80EFF67C1C1ull, 15611746359ull, 45837150207ull}, {0xCBC88456B4B47AC0ull,  3535843471ull, 18652930008ull}, {0xB0B6B164FC22EA57ull, 23758922431ull, 63785512003ull} } },
-	{ 32768, 592400713u, { {0xD8C829884B234EB4ull, 13278383896ull, 54835531046ull}, {0x994DD6B24F452451ull, 28289805997ull, 11462134131ull}, {0x8EEAD14850955F52ull,  3931092242ull,  2483613485ull} } },
-	{ 36864, 664658101u, { {0x2A809B0C735BAC4Bull, 10513414423ull, 54347266174ull}, {0xAB2147D9BAA22BB4ull, 12259954326ull, 67125404781ull}, {0xB4CFF625B3E3FD79ull, 11392807713ull, 32757679957ull} } },
-	{ 40960, 736728527u, { {0xB9AC3EC848FF60A5ull,  7352037613ull,  7261166574ull}, {0x3D623A79D0F14EFFull, 31246254654ull, 49195074754ull}, {0x08F1C4771CDDC601ull, 26432814693ull, 42011833744ull} } },
-	{ 45056, 808631029u, { {0x9D543D67F48AF766ull,  4288733345ull, 27338399854ull}, {0x62A4DF80612E897Bull, 32232536296ull, 47296762118ull}, {0xC42E0660237238BFull,  2574282651ull, 59023604757ull} } },
-	{ 49152, 880380937u, { {0x82ED59E22D585BF6ull, 34028441473ull, 54282489944ull}, {0x7F110FD687DB7CB5ull, 14440703450ull, 57885720403ull}, {0xFB7D2A3EA41594FEull,  2563979873ull, 33101322377ull} } },
-	{ 53248, 951990961u, { {0xE98B9D69E5F350D1ull, 14692034938ull,  2987127112ull}, {0x634157BCC596287Dull, 31799414844ull, 64590776355ull}, {0x2D82590AC2DCB435ull, 25060823443ull, 13978506048ull} } },
-	{ 57344,1023472049u, { {0x960CE3D7029BDB70ull,  2075307892ull, 59259408155ull}, {0x9D98FF9A3FD21D1Bull, 10507186734ull,  3891581073ull}, {0x1CAE6ACE4720BCE8ull, 34199730716ull, 12202402908ull} } },
-	{ 61440,1094833457u, { {0x9A2592E96BC1C827ull, 18678252759ull,   949397216ull}, {0x79BF2E2F5AE7985Bull,  8407199527ull, 64114889744ull}, {0x911DB4B5D8EFD861ull,  1735549534ull, 50988019040ull} } },
+	{  8192, 152816047ull, { {0xB58E6FA510DC5049ull, 27285140530ull, 16378703918ull}, {0x75F2841AEBE29216ull, 13527336804ull,   503424366ull}, {0x99F8960CD890E06Aull,  8967321988ull, 43646415661ull} } },
+	{  9216, 171465013ull, { {0x60FE24EF89D6140Eull, 25324379967ull,  3841674711ull}, {0x6753411471AD8945ull, 17806860702ull,  3977771754ull}, {0xED3635BF88F37FEFull,  7478721112ull, 47452797377ull} } },
+	{ 10240, 190066777ull, { {0x65CF47927C02AC8Eull, 33635344843ull, 67530958158ull}, {0xBADA7FD24D959D21ull, 12777066809ull, 67273129313ull}, {0x82F65495D24A985Full, 22254800275ull, 49183722280ull} } },
+	{ 11264, 208626181ull, { {0x6FC0151B81E5173Full, 29164620640ull, 19126254587ull}, {0xD74AA66757A5345Eull, 17524190590ull, 14029371481ull}, {0xDCF9ED39C7EB15B8ull, 34266921309ull, 65896285387ull} } },
+	{ 12288, 227147083ull, { {0xE01AE9C859ADB03Aull,  7273133358ull,   681418986ull}, {0x303F142E1E88D5B4ull, 28479237457ull, 42044197589ull}, {0x3102781BC131D263ull, 24437355640ull, 48518577431ull} } },
+	{ 13312, 245632679ull, { {0x0A6ACB405ADC0354ull,    39452330ull, 38999048555ull}, {0xB38B02A4F195762Full,  3280152282ull, 30314100936ull}, {0xF020F5041AE2CABEull, 24388185991ull, 16285954298ull} } },
+	{ 14336, 264085733ull, { {0x5ACE4CCE3B925A81ull,  4584210608ull, 36618317213ull}, {0x02F5EC0CBB1C2032ull, 27165893636ull,   687123146ull}, {0xC6D65BD8A6087F08ull, 15586314376ull, 54717373852ull} } },
+	{ 15360, 282508657ull, { {0xE7B08ED3A92EC6ECull,   875689313ull, 41754616020ull}, {0xD08FBAFF5CA5096Full, 30398073011ull, 62088094181ull}, {0xD6B7357DF761AA51ull, 28631146088ull, 26883666300ull} } },
+	{ 16384, 300903377ull, { {0xA23E8D2F532F05E6ull, 17871262795ull, 53388776441ull}, {0x14F20059083BF452ull, 16549596802ull, 56184170215ull}, {0x76B8A857EC9B3042ull, 14094306048ull, 61845793513ull} } },
+	{ 18432, 337615277ull, { {0xAEB976D153A4176Bull, 15040345558ull, 14542578090ull}, {0x503B443CB1E0CD2Dull, 29149628739ull,  5785599363ull}, {0x2D3047CEFF2F5A6Dull,  6100949709ull, 36303747216ull} } },
+	{ 20480, 374233309ull, { {0x6D95C0E62C8F9606ull,  3426866174ull, 39787406588ull}, {0xD08FB9031D460B7Eull, 30083048700ull, 30636357797ull}, {0x3A58018C387FBB68ull, 26771468430ull,  7763681227ull} } },
+	{ 22528, 410766953ull, { {0x254572CAB2014E6Cull, 17794160487ull, 13396317974ull}, {0x6202B11AA8602531ull,  9896689730ull, 13179771096ull}, {0x57919ED698DB2058ull, 12202175362ull, 54676834262ull} } },
+	{ 24576, 447223969ull, { {0x547DF462C7DAD1F6ull, 21523243373ull, 60663902864ull}, {0x06AB4D8E6FD9D69Bull, 23751736171ull, 10720018557ull}, {0x2B0DE10480A159B7ull,  8420637297ull, 56684836957ull} } },
+	{ 26624, 483610763ull, { {0xED3E248A29A1C6A8ull,  3863520901ull, 56560420765ull}, {0xC29358F8206746D6ull, 28829535828ull,  8160695393ull}, {0x56442E62439686ABull, 16425477242ull, 62275447263ull} } },
+	{ 28672, 519932827ull, { {0xCA7B3A76819D67F7ull,  7078504016ull, 32836389262ull}, {0x5799C8BE8E02B56Full, 22269194969ull, 11617462155ull}, {0xBA8FC230F7B5EA7Dull, 27830917747ull, 28996845727ull} } },
+	{ 30720, 556194803ull, { {0x56CDF80EFF67C1C1ull, 15611746359ull, 45837150207ull}, {0xCBC88456B4B47AC0ull,  3535843471ull, 18652930008ull}, {0xB0B6B164FC22EA57ull, 23758922431ull, 63785512003ull} } },
+	{ 32768, 592400713ull, { {0xD8C829884B234EB4ull, 13278383896ull, 54835531046ull}, {0x994DD6B24F452451ull, 28289805997ull, 11462134131ull}, {0x8EEAD14850955F52ull,  3931092242ull,  2483613485ull} } },
+	{ 36864, 664658101ull, { {0x2A809B0C735BAC4Bull, 10513414423ull, 54347266174ull}, {0xAB2147D9BAA22BB4ull, 12259954326ull, 67125404781ull}, {0xB4CFF625B3E3FD79ull, 11392807713ull, 32757679957ull} } },
+	{ 40960, 736728527ull, { {0xB9AC3EC848FF60A5ull,  7352037613ull,  7261166574ull}, {0x3D623A79D0F14EFFull, 31246254654ull, 49195074754ull}, {0x08F1C4771CDDC601ull, 26432814693ull, 42011833744ull} } },
+	{ 45056, 808631029ull, { {0x9D543D67F48AF766ull,  4288733345ull, 27338399854ull}, {0x62A4DF80612E897Bull, 32232536296ull, 47296762118ull}, {0xC42E0660237238BFull,  2574282651ull, 59023604757ull} } },
+	{ 49152, 880380937ull, { {0x82ED59E22D585BF6ull, 34028441473ull, 54282489944ull}, {0x7F110FD687DB7CB5ull, 14440703450ull, 57885720403ull}, {0xFB7D2A3EA41594FEull,  2563979873ull, 33101322377ull} } },
+	{ 53248, 951990961ull, { {0xE98B9D69E5F350D1ull, 14692034938ull,  2987127112ull}, {0x634157BCC596287Dull, 31799414844ull, 64590776355ull}, {0x2D82590AC2DCB435ull, 25060823443ull, 13978506048ull} } },
+	{ 57344,1023472049ull, { {0x960CE3D7029BDB70ull,  2075307892ull, 59259408155ull}, {0x9D98FF9A3FD21D1Bull, 10507186734ull,  3891581073ull}, {0x1CAE6ACE4720BCE8ull, 34199730716ull, 12202402908ull} } },
+	{ 61440,1094833457ull, { {0x9A2592E96BC1C827ull, 18678252759ull,   949397216ull}, {0x79BF2E2F5AE7985Bull,  8407199527ull, 64114889744ull}, {0x911DB4B5D8EFD861ull,  1735549534ull, 50988019040ull} } },
 	/* Huge: */
-	{ 65536,1154422469u, { {0x192E6EAFFD43E9FAull, 30072967508ull, 30146559703ull}, {0xF2F00B7E84C2E1BFull, 19943239289ull, 24420286066ull}, {0xAB8AC7C62F338C6Bull, 12524447086ull, 59476256925ull} } },
-	{ 73728,1295192531u, { {0xB27DA804065CE0F0ull, 32028474870ull,  4673589134ull}, {0xC27FFBC8C26ADECAull, 14821731491ull, 12633158186ull}, {0xB59F4E88ED5BD206ull,  8793702325ull, 23847832170ull} } },
-	{ 81920,1435594063u, { {0xEAA4B1860B83B83Aull,  5360760716ull, 30032711420ull}, {0x8ED1F6797052808Bull, 12465651506ull, 15167335169ull}, {0x11D81C6F0C26E1DDull, 29918698499ull, 14822236568ull} } },
-	{ 90112,1575664327u, { {0xB1208BF90F8A5F2Bull, 14482434352ull, 53904130189ull}, {0x91DCC94B91975220ull, 11918171509ull, 24914196890ull}, {0x14634D2F1AE28E71ull, 27426869580ull, 55674782001ull} } },
-	{ 98304,1715433593u, { {0x888C5077BF7B35C6ull, 11014256284ull,  7058435784ull}, {0xE2900883E7942E82ull,  3249945856ull, 52796723415ull}, {0xF508DA785F13900Aull, 12331159768ull,  8263352568ull} } },
-	{106496,1854927187u, { {0xE214E9D9B5DF88C6ull, 31246037001ull, 41196573397ull}, {0x97B90915FCC84F3Dull,  4066557343ull,  8643832976ull}, {0xC925A7C98B071EA3ull,  4584603566ull,  5494202371ull} } },
-	{114688,1994166553u, { {0x97CB9BB7B10ACDB6ull, 29731218900ull, 41079146164ull}, {0x731E1DEA0C44C6F0ull, 17898260503ull, 50239810521ull}, {0xE3B5A66B1E7BD939ull, 18336439338ull,  8747708778ull} } },
-	{122880,2133169847u, { {0xE47D8B5358EF54C3ull, 23695933555ull,  9095062555ull}, {0x67AB11594B0259E2ull, 28996300980ull, 42317029883ull}, {0xF1BE5C86FC344316ull, 15007099960ull, 48305102359ull} } },
-	{131072,2271952979u, { {0xC1E106DDB9130C60ull, 28466654847ull,  2809950058ull}, {0x95040E469CB56B1Cull, 11462402438ull, 65195054604ull}, {0x29D2BC60D0A6433Bull, 17248509923ull, 65288675815ull} } },
-	{147456,2548912547u, { {0x0A90B6DFE4B67FA8ull,  2911086656ull,   352658774ull}, {0x0E3BB13E8A3D5423ull,  8106055758ull, 40110016443ull}, {0x2D1CE6B3C15D7928ull,  8760449222ull, 36523527286ull} } },
-	{163840,2825137853u, { {0x9616ABEBC6C6CEE7ull,  3210524650ull, 29896777233ull}, {0x50377E8E2D69CF34ull, 31970351482ull, 16492388277ull}, {0xEF6F3620B2ACAE1Aull, 17362789883ull, 63052996361ull} } },
-	{180224,3100703087u, { {0x84733643F13E142Cull, 16994390023ull, 54102326365ull}, {0x4E2D2ABEC2476E91ull, 13606047319ull, 53489572729ull}, {0x6EADF2CA5A105ADBull,  1258341886ull, 16132828428ull} } },
-	{196608,3375668707u, { {0xB6020B31E56F7084ull,  3093741491ull, 38543047658ull}, {0xFF59C1C4C143FAF1ull, 14905579503ull, 55972451853ull}, {0x3C078FB26EE259C3ull,  3771373011ull, 17382177751ull} } },
-	{212992,3650084989u, { {0x81F9E20215F35118ull, 26775101986ull, 18205883100ull}, {0x6D7BBBC871E7A9C7ull, 33288617035ull, 58325157025ull}, {0xFA6AA38124FBD9BFull, 31065720669ull, 57214863223ull} } },
-	{229376,3923994593u, { {0x7361B81570E0D40Bull, 17519351834ull, 62306741722ull}, {0x0D55F61A66723BD1ull,  4047679372ull, 33957032240ull}, {0x4AACFFA34E3F0F38ull,  2465714172ull,  3668956930ull} } },
-	{245760,4197433843u, { {0x867D55103978279Eull, 17280909179ull, 33994287864ull}, {0xAB36DA76A360C278ull,  8802311168ull,  5436890357ull}, {0x21A0188B3DDD7973ull, 28089987193ull, 18266022124ull} } },
-/* Larger require 64-bit exponent support: */
+	{ 65536,1154422469ull, { {0x192E6EAFFD43E9FAull, 30072967508ull, 30146559703ull}, {0xF2F00B7E84C2E1BFull, 19943239289ull, 24420286066ull}, {0xAB8AC7C62F338C6Bull, 12524447086ull, 59476256925ull} } },
+	{ 73728,1295192531ull, { {0xB27DA804065CE0F0ull, 32028474870ull,  4673589134ull}, {0xC27FFBC8C26ADECAull, 14821731491ull, 12633158186ull}, {0xB59F4E88ED5BD206ull,  8793702325ull, 23847832170ull} } },
+	{ 81920,1435594063ull, { {0xEAA4B1860B83B83Aull,  5360760716ull, 30032711420ull}, {0x8ED1F6797052808Bull, 12465651506ull, 15167335169ull}, {0x11D81C6F0C26E1DDull, 29918698499ull, 14822236568ull} } },
+	{ 90112,1575664327ull, { {0xB1208BF90F8A5F2Bull, 14482434352ull, 53904130189ull}, {0x91DCC94B91975220ull, 11918171509ull, 24914196890ull}, {0x14634D2F1AE28E71ull, 27426869580ull, 55674782001ull} } },
+	{ 98304,1715433593ull, { {0x888C5077BF7B35C6ull, 11014256284ull,  7058435784ull}, {0xE2900883E7942E82ull,  3249945856ull, 52796723415ull}, {0xF508DA785F13900Aull, 12331159768ull,  8263352568ull} } },
+	{106496,1854927187ull, { {0xE214E9D9B5DF88C6ull, 31246037001ull, 41196573397ull}, {0x97B90915FCC84F3Dull,  4066557343ull,  8643832976ull}, {0xC925A7C98B071EA3ull,  4584603566ull,  5494202371ull} } },
+	{114688,1994166553ull, { {0x97CB9BB7B10ACDB6ull, 29731218900ull, 41079146164ull}, {0x731E1DEA0C44C6F0ull, 17898260503ull, 50239810521ull}, {0xE3B5A66B1E7BD939ull, 18336439338ull,  8747708778ull} } },
+	{122880,2133169847ull, { {0xE47D8B5358EF54C3ull, 23695933555ull,  9095062555ull}, {0x67AB11594B0259E2ull, 28996300980ull, 42317029883ull}, {0xF1BE5C86FC344316ull, 15007099960ull, 48305102359ull} } },
+	{131072,2271952979ull, { {0xF8137FB0E00BCC55ull, 26051697479ull, 27441427672ull}, {0x62A2E1A9A055358Bull,  4627749088ull, 28710079083ull}, {0x0ull, 0ull, 0ull} } },
+	{147456,2548912547ull, { {0x5E213FBAFF82685Aull, 22451221320ull, 39039734900ull}, {0xC389436CC479E2E1ull,  7838917905ull, 66548008864ull}, {0x0ull, 0ull, 0ull} } },
+	{163840,2825137853ull, { {0xAD3B129CD55821CFull,  2579580241ull, 65442845493ull}, {0x925F66B7986320BEull,  5355291557ull, 43930449714ull}, {0x0ull, 0ull, 0ull} } },
+	{180224,3100703087ull, { {0x0B9AADC5599AA013ull, 17824815619ull, 32339793121ull}, {0x15A52A9E4B638559ull, 18530057795ull, 63757289449ull}, {0x0ull, 0ull, 0ull} } },
+	{196608,3375668707ull, { {0x487B04D336385B62ull, 22477489910ull, 66079895176ull}, {0xC01F6617CD154EE8ull,  2883760509ull,  3966976333ull}, {0x0ull, 0ull, 0ull} } },
+	{212992,3650084989ull, { {0x4F061E9732F6D86Eull, 25292467156ull, 29551251146ull}, {0x4BA7E5B4BF1051BEull, 15573066947ull, 25395261391ull}, {0x0ull, 0ull, 0ull} } },
+	{229376,3923994593ull, { {0x1BCAD347E137ABECull, 19940191823ull, 48110255963ull}, {0x32677A46B243C568ull,   602580754ull, 43290561406ull}, {0x0ull, 0ull, 0ull} } },
+	{245760,4197433843ull, { {0xC198853698CCAC7Full,  4937317521ull, 39532729153ull}, {0x74BA0019FC712DA6ull,  4461023520ull,  2965110143ull}, {0x0ull, 0ull, 0ull} } },
+/* Larger require -shift 0: */
 	/* Egregious: */
+	{262144,4515590323ull, { {0x3B720039AA646317ull, 27060729660ull,  9603836312ull}, {0x9F8DD1E56E1063D9ull, 18665901522ull, 17899962874ull}, {0x0ull, 0ull, 0ull} } },
+	{294912,5065885219ull, { {0x48B9C434ADA5C932ull, 16019066807ull, 17346586962ull}, {0x7F65539D123420A8ull,  2842988794ull, 23960120686ull}, {0x0ull, 0ull, 0ull} } },
+	{327680,5614702259ull, { {0xE900D20947E96181ull, 12677175309ull, 46263325668ull}, {0xC0D077CD8E03FE07ull, 33414013825ull, 32326844283ull}, {0x0ull, 0ull, 0ull} } },
+	{360448,6162190477ull, { {0x9E271959008B80D3ull, 31437330830ull, 36751682930ull}, {0xAE9E9BE256655FE1ull, 30096752173ull, 10472606829ull}, {0x0ull, 0ull, 0ull} } },
+	{393216,6708471481ull, { {0x9DC838BAC4CCF77Cull, 26649031745ull,   200515496ull}, {0x59077693710A8DF3ull, 32893924229ull, 51130131345ull}, {0x0ull, 0ull, 0ull} } },
+	{425984,7253646773ull, { {0xF04B3315B0250C1Aull, 25225037379ull, 54925972151ull}, {0x2227BF75276EDDE1ull,  6501658866ull, 45908319782ull}, {0x0ull, 0ull, 0ull} } },
+	{458752,7797801821ull, { {0xDFB6E25E4DAE64D5ull,  2368273704ull, 20371186304ull}, {0x1D0AC271BAFB7B3Full, 19243408286ull, 36957506781ull}, {0x0ull, 0ull, 0ull} } },
+	{491520,8341009997ull, { {0x15ED525006050B39ull, 32048847842ull, 54898451004ull}, {0x15EAF415588F56D8ull, 14874774582ull, 22782105046ull}, {0x0ull, 0ull, 0ull} } },
+	{524288,8883334793ull, { {0x61776F2413CD7E79ull, 32946827752ull, 24059669414ull}, {0xE496C31B2534F520ull, 11663456039ull, 21852180932ull}, {0x0ull, 0ull, 0ull} } },
 	/* Brobdingnagian: */
 	/* Godzillian: */
-	{     0,         0u, { {                 0ull,           0ull,           0ull}, {                 0ull,           0ull,           0ull} } }
+	{     0,         0ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } }
 };
 
 // Reference Mersenne base-3 PRP residues - we use the 0-padding slot in the above MersVec[]
@@ -3292,128 +3287,128 @@ struct testMers MersVecPRP[numTest] =
 /*	  FFTlen(K)     p              Res64           mod 2^35-1      mod 2^36-1               Res64           mod 2^35-1      mod 2^36-1     */
 /*	    -----    --------     ----------------     -----------     -----------         ----------------     -----------     -----------    */
 	/* Tiny:                                     [%34359738367  ][%68719476735  ]                         [%34359738367  ][%68719476735  ] */
-	{     8,    173431u, { {0x59CB251F7D619429ull,  8164951424ull,  9846474576ull}, {0x918DD39863CB308Full,  7494791413ull, 15913265901ull}, {0x0ull, 0ull, 0ull} } },
-	{     9,    194609u, { {0x6D47B1862C6AD488ull,  7469936757ull, 15426710219ull}, {0xE27427193254DABAull, 23325429059ull, 42526935522ull}, {0x0ull, 0ull, 0ull} } },
-	{    10,    215767u, { {0xB7AA48826FA5622Eull, 18605212920ull, 51958758083ull}, {0x9F4A039DD6E9FAEEull, 19792956637ull, 29606652933ull}, {0x0ull, 0ull, 0ull} } },
-	{    11,    236813u, { {0xE521AA8C68D3EA8Dull, 29439531719ull, 51299632013ull}, {0x2F13F1F265F2F2D3ull, 25527516254ull, 56556340711ull}, {0x0ull, 0ull, 0ull} } },
-	{    12,    257903u, { {0x78D18DAA0211746Cull, 24776275699ull, 23960399868ull}, {0x5BA635C1FA4FC4C1ull, 16504851407ull, 15421897878ull}, {0x0ull, 0ull, 0ull} } },
-	{    13,    278917u, { {0x466481AA8F523774ull,  4879692182ull, 35261457136ull}, {0x703FA3FE37EFFAA3ull, 17262836411ull, 57590389198ull}, {0x0ull, 0ull, 0ull} } },
-	{    14,    299903u, { {0x2FFDF13628DD9271ull, 27842284148ull, 39770512868ull}, {0x8D10C61FEA78088Cull, 30967510385ull, 17203398344ull}, {0x0ull, 0ull, 0ull} } },
-	{    15,    320851u, { {0xBFC67AB3CD20A5D1ull, 19065610760ull, 43681250762ull}, {0x3BC6C1D7281A842Full,  9947758605ull, 28952573372ull}, {0x0ull, 0ull, 0ull} } },
-	{    16,    341749u, { {0x35EF82F656B51F1Full,  7029818683ull, 28919393248ull}, {0x4523FBE344DB54E1ull, 10285169590ull, 13266208357ull}, {0x0ull, 0ull, 0ull} } },
-	{    18,    383521u, { {0x27490630F66623F0ull, 18175042063ull, 46462537136ull}, {0xED1B1867004B2043ull, 25094109590ull, 17095709313ull}, {0x0ull, 0ull, 0ull} } },
-	{    20,    425149u, { {0x8D76E39499E2084Cull, 24854409897ull, 22759143673ull}, {0x93458CC621904526ull, 21512676920ull, 16851627129ull}, {0x0ull, 0ull, 0ull} } },
-	{    22,    466733u, { {0x879E8E552CD9DA78ull, 23261845992ull, 68280331649ull}, {0x6236D9EC41B6B5B6ull,  4903056247ull, 48171921146ull}, {0x0ull, 0ull, 0ull} } },
-	{    24,    508223u, { {0x60A1C833EFA3DB08ull, 20330461575ull, 33681508814ull}, {0x5478EE8AECEF292Dull, 14773583446ull, 53242362800ull}, {0x0ull, 0ull, 0ull} } },
-	{    26,    549623u, { {0x7712E54BC57A6453ull, 22830350274ull,   975086245ull}, {0xCFCCD199B73D359Eull, 27986465261ull,  9872179127ull}, {0x0ull, 0ull, 0ull} } },
-	{    28,    590963u, { {0x854A6C0BF1C0CA1Eull, 28465583444ull, 36207128387ull}, {0xD5494A4A30A6FF6Cull, 31443909484ull,  5696651641ull}, {0x0ull, 0ull, 0ull} } },
-	{    30,    632251u, { {0xB9CE4D9CA145E37Eull,  2871789007ull, 25988330025ull}, {0x4FC369BD2786569Aull,  6701883912ull, 61126990820ull}, {0x0ull, 0ull, 0ull} } },
-	{    32,    673469u, { {0x6FBFD30EA9AFA1DFull,  8567510574ull, 68209730811ull}, {0xDCAE0C41C5226178ull,  9502071634ull, 54856537405ull}, {0x0ull, 0ull, 0ull} } },
-	{    36,    755737u, { {0x192B125399E579F8ull,   686716901ull, 14476488268ull}, {0x70C7BD4ECBFBBE50ull,  8165021045ull, 35292725948ull}, {0x0ull, 0ull, 0ull} } },
-	{    40,    837817u, { {0x926C5D9C8E7DB701ull, 28915417288ull, 67081161725ull}, {0x90CF0AB873151579ull,  5754527985ull, 19567107501ull}, {0x0ull, 0ull, 0ull} } },
-	{    44,    919729u, { {0x7E6995C2CCF4EF68ull, 28772226367ull, 18123291009ull}, {0x82AD751476F1686Aull, 10164437921ull,   713706080ull}, {0x0ull, 0ull, 0ull} } },
-	{    48,   1001467u, { {0x42377D7C601947B7ull,  9525663359ull, 23726952031ull}, {0x8FC9D307DECC9D27ull,  9068970885ull, 10905178413ull}, {0x0ull, 0ull, 0ull} } },
-	{    52,   1083077u, { {0x421844FFA21114FDull, 31935019641ull, 23327236236ull}, {0xEB311A383414F206ull, 32908672229ull, 27953087816ull}, {0x0ull, 0ull, 0ull} } },
-	{    56,   1164533u, { {0xA53DFEE326A1047Dull, 16620085594ull,  8781848624ull}, {0xCADC99271CD41A6Full,  6810587643ull, 31020450647ull}, {0x0ull, 0ull, 0ull} } },
-	{    60,   1245877u, { {0x375B40C9457701FCull,  2166978503ull, 39855448230ull}, {0x215D54D0A8FFFF60ull, 28855568754ull, 66990790203ull}, {0x0ull, 0ull, 0ull} } },
-	{    64,   1327099u, { {0xE103AADBBB1C0647ull,  5046837446ull, 54383774262ull}, {0x2ECF95D374E31C8Bull, 12248705176ull, 62538924593ull}, {0x0ull, 0ull, 0ull} } },
-	{    72,   1489223u, { {0xF6529A6352653F58ull, 13581202031ull,   526519996ull}, {0x889AB3D63246A31Eull, 13004174458ull, 26135310351ull}, {0x0ull, 0ull, 0ull} } },
-	{    80,   1650959u, { {0x5FED95FC59F7565Cull, 15548760878ull, 61249993123ull}, {0xE4E8534D42053642ull,  7337120128ull, 20789742952ull}, {0x0ull, 0ull, 0ull} } },
-	{    88,   1812347u, { {0x9AD66AD3088328A4ull, 12597406758ull, 63502374600ull}, {0xBF286CDFAD530AC0ull, 10289356709ull, 46915628424ull}, {0x0ull, 0ull, 0ull} } },
-	{    96,   1973431u, { {0xAEE0C19E8742E3F4ull, 13726807213ull, 35724802848ull}, {0xBC213307E70191C5ull, 22512982343ull, 57049970336ull}, {0x0ull, 0ull, 0ull} } },
-	{   104,   2134201u, { {0x098CAA3C0D107D6Bull, 22532136240ull, 26338802769ull}, {0x323774250D9B9516ull, 23273779605ull, 62209779235ull}, {0x0ull, 0ull, 0ull} } },
-	{   112,   2294731u, { {0x47BC4AAA2FCCB1B9ull, 12907399344ull, 18863682101ull}, {0x91C50C372C12C703ull, 20908991540ull,  3451873052ull}, {0x0ull, 0ull, 0ull} } },
-	{   120,   2455003u, { {0x63B512C24CB1233Bull,  5184435613ull, 27026274870ull}, {0x32E590C747238DA0ull, 21275876272ull, 57125434840ull}, {0x0ull, 0ull, 0ull} } },	/* Small: */
-	{   128,   2614999u, { {0xBE4B6CE5EE76C4C0ull, 18066416827ull, 29451205104ull}, {0xB891A4CBE3EB0176ull,  2435134785ull, 53572085501ull}, {0x0ull, 0ull, 0ull} } },
-	{   144,   2934479u, { {0x88A4403B9664A68Cull, 23316820590ull,  9544550461ull}, {0xFAD3E1AF502B1890ull, 32036343077ull, 67901574685ull}, {0x0ull, 0ull, 0ull} } },
-	{   160,   3253153u, { {0x169BE706A0A0E185ull, 14483224776ull, 24483883970ull}, {0x5AED9CABD303E0A2ull, 31855596295ull, 44842948697ull}, {0x0ull, 0ull, 0ull} } },
-	{   176,   3571153u, { {0x9C8A2EE1911F431Full,  1629566665ull, 66119740380ull}, {0x9C3CBB337EFFEC88ull,  5934946818ull,  8480402165ull}, {0x0ull, 0ull, 0ull} } },
-	{   192,   3888509u, { {0x6CBAD54404C0AD1Aull, 12134100075ull, 18473223759ull}, {0x7A932AEA2AD84232ull,  6089810731ull, 44138905118ull}, {0x0ull, 0ull, 0ull} } },
-	{   208,   4205303u, { {0x7D26A1F82679CECEull, 19082741636ull, 13798992673ull}, {0xEED98C7E1CC9ECC3ull, 13732641502ull, 49458162824ull}, {0x0ull, 0ull, 0ull} } },
-	{   224,   4521557u, { {0x209349496454CEE6ull,  9940761503ull, 40783122082ull}, {0xE714F3E1C1F76042ull, 29521914431ull, 66307263755ull}, {0x0ull, 0ull, 0ull} } },
-	{   240,   4837331u, { {0x4921BBB418D6C421ull, 32777132087ull, 40599659577ull}, {0xAF3009961984E8AFull,   901839485ull, 27501073879ull}, {0x0ull, 0ull, 0ull} } },
-	{   256,   5152643u, { {0x2C67CB0282445407ull, 23339732910ull, 66204717452ull}, {0xC98A287287F9A1D7ull, 27688432919ull,  5877304726ull}, {0x0ull, 0ull, 0ull} } },
-	{   288,   5782013u, { {0x985729C933D5E2FCull, 18320412728ull, 63235668703ull}, {0xAD12AB708012B28Eull, 24649900938ull, 62536412254ull}, {0x0ull, 0ull, 0ull} } },
-	{   320,   6409849u, { {0xC58B1A6B98D84124ull, 18260049968ull,  6810024189ull}, {0x9B92CB21587AD6A6ull,  2110758259ull, 35105008257ull}, {0x0ull, 0ull, 0ull} } },
-	{   352,   7036339u, { {0xC4364C1187F97A3Dull, 32150872197ull, 22781304616ull}, {0xA4D21311394D4FA7ull,  6324578481ull, 63084024685ull}, {0x0ull, 0ull, 0ull} } },
-	{   384,   7661567u, { {0x1BBD63B803CE21D3ull, 16526828977ull, 42457373301ull}, {0xF4925EF17FC3E524ull, 20165927952ull,  9629593178ull}, {0x0ull, 0ull, 0ull} } },
-	{   416,   8285659u, { {0xCA23151CCBE0740Full, 32337110525ull, 42837664157ull}, {0xA26DE72D0F7C6FD5ull, 11507652174ull, 49006121983ull}, {0x0ull, 0ull, 0ull} } },
-	{   448,   8908723u, { {0xA95ECF765A7DE485ull, 26599751692ull, 19767035912ull}, {0x49222AF41653543Full, 25829109676ull, 51898058114ull}, {0x0ull, 0ull, 0ull} } },
-	{   480,   9530803u, { {0x347EFC46B7C24927ull,  6753764868ull, 35076313672ull}, {0x4F47C7D80A2A809Eull, 15357957620ull, 19681757341ull}, {0x0ull, 0ull, 0ull} } },
-	{   512,  10151971u, { {0xB3ED60F4AFBFB3A9ull, 22642977085ull,  1231176073ull}, {0x0EC12794332A0E0Eull,  6716458209ull, 51444232175ull}, {0x0ull, 0ull, 0ull} } },
-	{   576,  11391823u, { {0x03ED6E37A156364Full,  1386523443ull, 30193596545ull}, {0xA4F7D77F194536D4ull, 33981920699ull, 60276616145ull}, {0x0ull, 0ull, 0ull} } },
-	{   640,  12628613u, { {0xEAB53ECA446C7805ull,  3501890600ull, 56340973024ull}, {0x43BE1E7645CCBF2Cull, 32711506328ull, 41455841852ull}, {0x0ull, 0ull, 0ull} } },
-	{   704,  13862759u, { {0x8D00941F37977416ull, 29194902133ull, 53354630705ull}, {0x9D080C44C635F531ull, 28299345740ull, 14583867538ull}, {0x0ull, 0ull, 0ull} } },
-	{   768,  15094403u, { {0xC06D680B4315439Eull,   572672330ull, 17897298649ull}, {0xF5E8A6E2EB14969Dull, 26424320220ull, 33311538128ull}, {0x0ull, 0ull, 0ull} } },
-	{   832,  16323773u, { {0x8A384DAF318BA11Cull, 29227782395ull, 49747663115ull}, {0x3A9A2BC7040F8F9Bull, 13221935219ull, 45353311168ull}, {0x0ull, 0ull, 0ull} } },
-	{   896,  17551099u, { {0x236222CD1EF76404ull, 21554725722ull,  3020230570ull}, {0x15E08DB95124C451ull,  6571842111ull,   415617468ull}, {0x0ull, 0ull, 0ull} } },
-	{   960,  18776473u, { {0x64DB852FB1D962E3ull, 30312455711ull,  3637871395ull}, {0xA654C7C6210CD8F2ull, 18496147373ull, 43979502788ull}, {0x0ull, 0ull, 0ull} } },
-	{  1024,  20000047u, { {0x9D7E8C7336639EC4ull, 26990419379ull, 31343788296ull}, {0xEC57D79E86049AB4ull, 14020695804ull, 57562607914ull}, {0x5CC79106F08DC6D6ull, 14144638043ull,   651426155ull} } },
-	{  1152,  22442237u, { {0xED82318E04A2A345ull,  8753176558ull, 32504299898ull}, {0x3B646DBA5F3653A2ull, 16747135485ull, 54376147696ull}, {0x2A8DCFFF3810D237ull,   597977664ull,  4018709428ull} } },
-	{  1280,  24878401u, { {0xCE58A90EAC0139F1ull, 21686423079ull, 52735040981ull}, {0xE41022DE4EBE5A0Eull, 31073614876ull, 50104107291ull}, {0x71DAC0A6112FF806ull,  1019654400ull, 54335318694ull} } },
-	{  1408,  27309229u, { {0xA070B7876AA20DA7ull, 26032112892ull, 32165824910ull}, {0x5B7DB0F2C5CA7EE0ull, 33557517402ull, 49136716314ull}, {0xC5285004A4A8738Eull, 23326684308ull, 15608345791ull} } },
-	{  1536,  29735137u, { {0x70EF0D4A10AF820Cull, 31410231016ull, 19708126433ull}, {0xBA715ACC32497841ull, 30597754543ull, 12259094014ull}, {0x5505A14DFD239B10ull,  4793841111ull, 10366011218ull} } },
-	{  1664,  32156581u, { {0x0ABAAF28B6995BF5ull, 25429439627ull, 29692330080ull}, {0xA3A513F3864F2486ull,  7487969602ull, 28002054176ull}, {0xBEAB8973C2FAAB17ull, 19372157564ull,  4721013073ull} } },
-	{  1792,  34573867u, { {0x93B9E2F8EB75BFCDull, 28229043348ull, 23811859510ull}, {0xAF09EB79E9FD2368ull, 14328542178ull, 22451054390ull}, {0xDCC79070AEFDF160ull, 28503147261ull,  9196986298ull} } },
-	{  1920,  36987271u, { {0x1FD9118DC82BEE78ull, 30917851138ull, 46406380675ull}, {0x33D7AD617976CEC1ull, 12975636226ull, 29187764572ull}, {0x5E856539865A176Cull,  9594612383ull, 46445499555ull} } },
+	{     8,    173431ull, { {0x59CB251F7D619429ull,  8164951424ull,  9846474576ull}, {0x918DD39863CB308Full,  7494791413ull, 15913265901ull}, {0x0ull, 0ull, 0ull} } },
+	{     9,    194609ull, { {0x6D47B1862C6AD488ull,  7469936757ull, 15426710219ull}, {0xE27427193254DABAull, 23325429059ull, 42526935522ull}, {0x0ull, 0ull, 0ull} } },
+	{    10,    215767ull, { {0xB7AA48826FA5622Eull, 18605212920ull, 51958758083ull}, {0x9F4A039DD6E9FAEEull, 19792956637ull, 29606652933ull}, {0x0ull, 0ull, 0ull} } },
+	{    11,    236813ull, { {0xE521AA8C68D3EA8Dull, 29439531719ull, 51299632013ull}, {0x2F13F1F265F2F2D3ull, 25527516254ull, 56556340711ull}, {0x0ull, 0ull, 0ull} } },
+	{    12,    257903ull, { {0x78D18DAA0211746Cull, 24776275699ull, 23960399868ull}, {0x5BA635C1FA4FC4C1ull, 16504851407ull, 15421897878ull}, {0x0ull, 0ull, 0ull} } },
+	{    13,    278917ull, { {0x466481AA8F523774ull,  4879692182ull, 35261457136ull}, {0x703FA3FE37EFFAA3ull, 17262836411ull, 57590389198ull}, {0x0ull, 0ull, 0ull} } },
+	{    14,    299903ull, { {0x2FFDF13628DD9271ull, 27842284148ull, 39770512868ull}, {0x8D10C61FEA78088Cull, 30967510385ull, 17203398344ull}, {0x0ull, 0ull, 0ull} } },
+	{    15,    320851ull, { {0xBFC67AB3CD20A5D1ull, 19065610760ull, 43681250762ull}, {0x3BC6C1D7281A842Full,  9947758605ull, 28952573372ull}, {0x0ull, 0ull, 0ull} } },
+	{    16,    341749ull, { {0x35EF82F656B51F1Full,  7029818683ull, 28919393248ull}, {0x4523FBE344DB54E1ull, 10285169590ull, 13266208357ull}, {0x0ull, 0ull, 0ull} } },
+	{    18,    383521ull, { {0x27490630F66623F0ull, 18175042063ull, 46462537136ull}, {0xED1B1867004B2043ull, 25094109590ull, 17095709313ull}, {0x0ull, 0ull, 0ull} } },
+	{    20,    425149ull, { {0x8D76E39499E2084Cull, 24854409897ull, 22759143673ull}, {0x93458CC621904526ull, 21512676920ull, 16851627129ull}, {0x0ull, 0ull, 0ull} } },
+	{    22,    466733ull, { {0x879E8E552CD9DA78ull, 23261845992ull, 68280331649ull}, {0x6236D9EC41B6B5B6ull,  4903056247ull, 48171921146ull}, {0x0ull, 0ull, 0ull} } },
+	{    24,    508223ull, { {0x60A1C833EFA3DB08ull, 20330461575ull, 33681508814ull}, {0x5478EE8AECEF292Dull, 14773583446ull, 53242362800ull}, {0x0ull, 0ull, 0ull} } },
+	{    26,    549623ull, { {0x7712E54BC57A6453ull, 22830350274ull,   975086245ull}, {0xCFCCD199B73D359Eull, 27986465261ull,  9872179127ull}, {0x0ull, 0ull, 0ull} } },
+	{    28,    590963ull, { {0x854A6C0BF1C0CA1Eull, 28465583444ull, 36207128387ull}, {0xD5494A4A30A6FF6Cull, 31443909484ull,  5696651641ull}, {0x0ull, 0ull, 0ull} } },
+	{    30,    632251ull, { {0xB9CE4D9CA145E37Eull,  2871789007ull, 25988330025ull}, {0x4FC369BD2786569Aull,  6701883912ull, 61126990820ull}, {0x0ull, 0ull, 0ull} } },
+	{    32,    673469ull, { {0x6FBFD30EA9AFA1DFull,  8567510574ull, 68209730811ull}, {0xDCAE0C41C5226178ull,  9502071634ull, 54856537405ull}, {0x0ull, 0ull, 0ull} } },
+	{    36,    755737ull, { {0x192B125399E579F8ull,   686716901ull, 14476488268ull}, {0x70C7BD4ECBFBBE50ull,  8165021045ull, 35292725948ull}, {0x0ull, 0ull, 0ull} } },
+	{    40,    837817ull, { {0x926C5D9C8E7DB701ull, 28915417288ull, 67081161725ull}, {0x90CF0AB873151579ull,  5754527985ull, 19567107501ull}, {0x0ull, 0ull, 0ull} } },
+	{    44,    919729ull, { {0x7E6995C2CCF4EF68ull, 28772226367ull, 18123291009ull}, {0x82AD751476F1686Aull, 10164437921ull,   713706080ull}, {0x0ull, 0ull, 0ull} } },
+	{    48,   1001467ull, { {0x42377D7C601947B7ull,  9525663359ull, 23726952031ull}, {0x8FC9D307DECC9D27ull,  9068970885ull, 10905178413ull}, {0x0ull, 0ull, 0ull} } },
+	{    52,   1083077ull, { {0x421844FFA21114FDull, 31935019641ull, 23327236236ull}, {0xEB311A383414F206ull, 32908672229ull, 27953087816ull}, {0x0ull, 0ull, 0ull} } },
+	{    56,   1164533ull, { {0xA53DFEE326A1047Dull, 16620085594ull,  8781848624ull}, {0xCADC99271CD41A6Full,  6810587643ull, 31020450647ull}, {0x0ull, 0ull, 0ull} } },
+	{    60,   1245877ull, { {0x375B40C9457701FCull,  2166978503ull, 39855448230ull}, {0x215D54D0A8FFFF60ull, 28855568754ull, 66990790203ull}, {0x0ull, 0ull, 0ull} } },
+	{    64,   1327099ull, { {0xE103AADBBB1C0647ull,  5046837446ull, 54383774262ull}, {0x2ECF95D374E31C8Bull, 12248705176ull, 62538924593ull}, {0x0ull, 0ull, 0ull} } },
+	{    72,   1489223ull, { {0xF6529A6352653F58ull, 13581202031ull,   526519996ull}, {0x889AB3D63246A31Eull, 13004174458ull, 26135310351ull}, {0x0ull, 0ull, 0ull} } },
+	{    80,   1650959ull, { {0x5FED95FC59F7565Cull, 15548760878ull, 61249993123ull}, {0xE4E8534D42053642ull,  7337120128ull, 20789742952ull}, {0x0ull, 0ull, 0ull} } },
+	{    88,   1812347ull, { {0x9AD66AD3088328A4ull, 12597406758ull, 63502374600ull}, {0xBF286CDFAD530AC0ull, 10289356709ull, 46915628424ull}, {0x0ull, 0ull, 0ull} } },
+	{    96,   1973431ull, { {0xAEE0C19E8742E3F4ull, 13726807213ull, 35724802848ull}, {0xBC213307E70191C5ull, 22512982343ull, 57049970336ull}, {0x0ull, 0ull, 0ull} } },
+	{   104,   2134201ull, { {0x098CAA3C0D107D6Bull, 22532136240ull, 26338802769ull}, {0x323774250D9B9516ull, 23273779605ull, 62209779235ull}, {0x0ull, 0ull, 0ull} } },
+	{   112,   2294731ull, { {0x47BC4AAA2FCCB1B9ull, 12907399344ull, 18863682101ull}, {0x91C50C372C12C703ull, 20908991540ull,  3451873052ull}, {0x0ull, 0ull, 0ull} } },
+	{   120,   2455003ull, { {0x63B512C24CB1233Bull,  5184435613ull, 27026274870ull}, {0x32E590C747238DA0ull, 21275876272ull, 57125434840ull}, {0x0ull, 0ull, 0ull} } },	/* Small: */
+	{   128,   2614999ull, { {0xBE4B6CE5EE76C4C0ull, 18066416827ull, 29451205104ull}, {0xB891A4CBE3EB0176ull,  2435134785ull, 53572085501ull}, {0x0ull, 0ull, 0ull} } },
+	{   144,   2934479ull, { {0x88A4403B9664A68Cull, 23316820590ull,  9544550461ull}, {0xFAD3E1AF502B1890ull, 32036343077ull, 67901574685ull}, {0x0ull, 0ull, 0ull} } },
+	{   160,   3253153ull, { {0x169BE706A0A0E185ull, 14483224776ull, 24483883970ull}, {0x5AED9CABD303E0A2ull, 31855596295ull, 44842948697ull}, {0x0ull, 0ull, 0ull} } },
+	{   176,   3571153ull, { {0x9C8A2EE1911F431Full,  1629566665ull, 66119740380ull}, {0x9C3CBB337EFFEC88ull,  5934946818ull,  8480402165ull}, {0x0ull, 0ull, 0ull} } },
+	{   192,   3888509ull, { {0x6CBAD54404C0AD1Aull, 12134100075ull, 18473223759ull}, {0x7A932AEA2AD84232ull,  6089810731ull, 44138905118ull}, {0x0ull, 0ull, 0ull} } },
+	{   208,   4205303ull, { {0x7D26A1F82679CECEull, 19082741636ull, 13798992673ull}, {0xEED98C7E1CC9ECC3ull, 13732641502ull, 49458162824ull}, {0x0ull, 0ull, 0ull} } },
+	{   224,   4521557ull, { {0x209349496454CEE6ull,  9940761503ull, 40783122082ull}, {0xE714F3E1C1F76042ull, 29521914431ull, 66307263755ull}, {0x0ull, 0ull, 0ull} } },
+	{   240,   4837331ull, { {0x4921BBB418D6C421ull, 32777132087ull, 40599659577ull}, {0xAF3009961984E8AFull,   901839485ull, 27501073879ull}, {0x0ull, 0ull, 0ull} } },
+	{   256,   5152643ull, { {0x2C67CB0282445407ull, 23339732910ull, 66204717452ull}, {0xC98A287287F9A1D7ull, 27688432919ull,  5877304726ull}, {0x0ull, 0ull, 0ull} } },
+	{   288,   5782013ull, { {0x985729C933D5E2FCull, 18320412728ull, 63235668703ull}, {0xAD12AB708012B28Eull, 24649900938ull, 62536412254ull}, {0x0ull, 0ull, 0ull} } },
+	{   320,   6409849ull, { {0xC58B1A6B98D84124ull, 18260049968ull,  6810024189ull}, {0x9B92CB21587AD6A6ull,  2110758259ull, 35105008257ull}, {0x0ull, 0ull, 0ull} } },
+	{   352,   7036339ull, { {0xC4364C1187F97A3Dull, 32150872197ull, 22781304616ull}, {0xA4D21311394D4FA7ull,  6324578481ull, 63084024685ull}, {0x0ull, 0ull, 0ull} } },
+	{   384,   7661567ull, { {0x1BBD63B803CE21D3ull, 16526828977ull, 42457373301ull}, {0xF4925EF17FC3E524ull, 20165927952ull,  9629593178ull}, {0x0ull, 0ull, 0ull} } },
+	{   416,   8285659ull, { {0xCA23151CCBE0740Full, 32337110525ull, 42837664157ull}, {0xA26DE72D0F7C6FD5ull, 11507652174ull, 49006121983ull}, {0x0ull, 0ull, 0ull} } },
+	{   448,   8908723ull, { {0xA95ECF765A7DE485ull, 26599751692ull, 19767035912ull}, {0x49222AF41653543Full, 25829109676ull, 51898058114ull}, {0x0ull, 0ull, 0ull} } },
+	{   480,   9530803ull, { {0x347EFC46B7C24927ull,  6753764868ull, 35076313672ull}, {0x4F47C7D80A2A809Eull, 15357957620ull, 19681757341ull}, {0x0ull, 0ull, 0ull} } },
+	{   512,  10151971ull, { {0xB3ED60F4AFBFB3A9ull, 22642977085ull,  1231176073ull}, {0x0EC12794332A0E0Eull,  6716458209ull, 51444232175ull}, {0x0ull, 0ull, 0ull} } },
+	{   576,  11391823ull, { {0x03ED6E37A156364Full,  1386523443ull, 30193596545ull}, {0xA4F7D77F194536D4ull, 33981920699ull, 60276616145ull}, {0x0ull, 0ull, 0ull} } },
+	{   640,  12628613ull, { {0xEAB53ECA446C7805ull,  3501890600ull, 56340973024ull}, {0x43BE1E7645CCBF2Cull, 32711506328ull, 41455841852ull}, {0x0ull, 0ull, 0ull} } },
+	{   704,  13862759ull, { {0x8D00941F37977416ull, 29194902133ull, 53354630705ull}, {0x9D080C44C635F531ull, 28299345740ull, 14583867538ull}, {0x0ull, 0ull, 0ull} } },
+	{   768,  15094403ull, { {0xC06D680B4315439Eull,   572672330ull, 17897298649ull}, {0xF5E8A6E2EB14969Dull, 26424320220ull, 33311538128ull}, {0x0ull, 0ull, 0ull} } },
+	{   832,  16323773ull, { {0x8A384DAF318BA11Cull, 29227782395ull, 49747663115ull}, {0x3A9A2BC7040F8F9Bull, 13221935219ull, 45353311168ull}, {0x0ull, 0ull, 0ull} } },
+	{   896,  17551099ull, { {0x236222CD1EF76404ull, 21554725722ull,  3020230570ull}, {0x15E08DB95124C451ull,  6571842111ull,   415617468ull}, {0x0ull, 0ull, 0ull} } },
+	{   960,  18776473ull, { {0x64DB852FB1D962E3ull, 30312455711ull,  3637871395ull}, {0xA654C7C6210CD8F2ull, 18496147373ull, 43979502788ull}, {0x0ull, 0ull, 0ull} } },
+	{  1024,  20000047ull, { {0x9D7E8C7336639EC4ull, 26990419379ull, 31343788296ull}, {0xEC57D79E86049AB4ull, 14020695804ull, 57562607914ull}, {0x5CC79106F08DC6D6ull, 14144638043ull,   651426155ull} } },
+	{  1152,  22442237ull, { {0xED82318E04A2A345ull,  8753176558ull, 32504299898ull}, {0x3B646DBA5F3653A2ull, 16747135485ull, 54376147696ull}, {0x2A8DCFFF3810D237ull,   597977664ull,  4018709428ull} } },
+	{  1280,  24878401ull, { {0xCE58A90EAC0139F1ull, 21686423079ull, 52735040981ull}, {0xE41022DE4EBE5A0Eull, 31073614876ull, 50104107291ull}, {0x71DAC0A6112FF806ull,  1019654400ull, 54335318694ull} } },
+	{  1408,  27309229ull, { {0xA070B7876AA20DA7ull, 26032112892ull, 32165824910ull}, {0x5B7DB0F2C5CA7EE0ull, 33557517402ull, 49136716314ull}, {0xC5285004A4A8738Eull, 23326684308ull, 15608345791ull} } },
+	{  1536,  29735137ull, { {0x70EF0D4A10AF820Cull, 31410231016ull, 19708126433ull}, {0xBA715ACC32497841ull, 30597754543ull, 12259094014ull}, {0x5505A14DFD239B10ull,  4793841111ull, 10366011218ull} } },
+	{  1664,  32156581ull, { {0x0ABAAF28B6995BF5ull, 25429439627ull, 29692330080ull}, {0xA3A513F3864F2486ull,  7487969602ull, 28002054176ull}, {0xBEAB8973C2FAAB17ull, 19372157564ull,  4721013073ull} } },
+	{  1792,  34573867ull, { {0x93B9E2F8EB75BFCDull, 28229043348ull, 23811859510ull}, {0xAF09EB79E9FD2368ull, 14328542178ull, 22451054390ull}, {0xDCC79070AEFDF160ull, 28503147261ull,  9196986298ull} } },
+	{  1920,  36987271ull, { {0x1FD9118DC82BEE78ull, 30917851138ull, 46406380675ull}, {0x33D7AD617976CEC1ull, 12975636226ull, 29187764572ull}, {0x5E856539865A176Cull,  9594612383ull, 46445499555ull} } },
 	/* Medium: */
-	{  2048,  39397201u, { {0x6D2DA75A04F538E6ull, 27183858872ull, 28453479981ull}, {0xF71AB763CBA394DDull, 20849861319ull, 65329085551ull}, {0xDCFC108BB85E2FA7ull, 24908241672ull, 53956544053ull} } },
-	{  2304,  44207087u, { {0x17A51F8EBE222971ull, 20700958815ull, 19557281705ull}, {0x9603404F386381D1ull, 13688982479ull, 15674920724ull}, {0xC7B242D05373D3CAull,  2707265651ull,  5882282433ull} } },
-	{  2560,  49005071u, { {0x778BE03E5722FE96ull, 25483813566ull, 14727845285ull}, {0x798CFC88734572AEull, 30521003775ull, 33673503490ull}, {0x9737799C41D18480ull, 18819745044ull, 37090058475ull} } },
-	{  2816,  53792327u, { {0x7BE008D91E80DB49ull,  1791708263ull,  1480510204ull}, {0xDD858F590924665Full, 26857094761ull, 17153737658ull}, {0x8139A3391FC82B64ull, 14978416401ull, 23884206625ull} } },
-	{  3072,  58569809u, { {0xECE8A3CA1F66D83Aull,  9805362291ull, 43153620706ull}, {0xFBA8C97760C5FE86ull, 11145859641ull, 16209757579ull}, {0x29FF471C9A28D07Full, 32759739090ull,  5331109071ull} } },
-	{  3328,  63338459u, { {0x24A0F7BE95910DFCull,  6775505897ull, 39005906148ull}, {0x2B63FF56792E239Cull, 15844211278ull, 37865572416ull}, {0xDAEF98E50ECF3AABull, 28953421873ull, 49571783147ull} } },
-	{  3584,  68098843u, { {0xAE2AED0851C344FFull, 29322480531ull,  7619686742ull}, {0x796289EFF35C1625ull, 20303644792ull, 16113781047ull}, {0xDEF7187C62A2FE6Eull,  1552555257ull, 23682222360ull} } },
-	{  3840,  72851621u, { {0x41BB879F5BF89744ull, 15213631662ull, 47597325409ull}, {0x13AD29D142D2DD68ull,  2896274647ull, 28918042313ull}, {0x08BFA29C23275DD5ull, 15547700048ull, 36389342409ull} } },
-	{  4096,  77597293u, { {0x5CA5EB4B2C403B40ull, 16067213695ull, 16060551561ull}, {0x8A91734601A3CA83ull, 25368547633ull, 15106685038ull}, {0x1B1628C39003FC08ull, 31104368473ull, 30825982076ull} } },
-	{  4608,  87068977u, { {0x790629521C99A54Full,  6004740145ull, 58203809974ull}, {0x8C70DA87F106F6F6ull,  5407783662ull, 22056008955ull}, {0x45DC86154DE680CDull, 23780020949ull, 25229002925ull} } },
-	{  5120,  96517019u, { {0x50BE76BDB9D43685ull, 33893245159ull, 32100820412ull}, {0x4D05925CD78F753Cull, 13802941362ull, 22609697002ull}, {0x954387C749FFA9F3ull, 14415933176ull, 19405933610ull} } },
-	{  5632, 105943723u, { {0x1236DCECCCD91F1Bull, 11308642381ull, 28977161847ull}, {0x79A6575BCA014534ull, 30115274802ull,   828334544ull}, {0x4B8E27CD1CA2ED7Bull, 14367849395ull, 43143949281ull} } },
-	{  6144, 115351063u, { {0x952594D45AC0CD66ull, 33154662725ull, 46573658072ull}, {0x71ABDF14CCB6F83Cull,  2372123324ull, 52765668028ull}, {0x82D8CD4BA692CB52ull, 14510733169ull, 67876507716ull} } },
-	{  6656, 124740697u, { {0xF8E8C1410A022709ull, 13190590977ull, 39845130919ull}, {0x36F1A6E76E58E9C0ull, 27234521341ull, 16590439770ull}, {0xEE5448CFEDDBDEFEull,  2841484794ull, 12463515449ull} } },
-	{  7168, 134113933u, { {0x1A946511EF44970Full, 21181711241ull, 30706184956ull}, {0x685E4EDB1A55944Aull,  6228216981ull, 24476904464ull}, {0xA96D930D64AA9158ull,  3314680740ull, 44392410575ull} } },
-	{  7680, 143472073u, { {0xBD65A37723E2747Dull, 22515080503ull,  9322142584ull}, {0xB97E419D5BB91AE7ull,  4358792147ull, 10943432917ull}, {0xC16E2E327A370783ull, 31343185282ull, 21808110777ull} } },	/* Large: */
-	{  8192, 152816047u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{  9216, 171465013u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 10240, 190066777u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 11264, 208626181u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 12288, 227147083u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 13312, 245632679u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 14336, 264085733u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 15360, 282508657u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 16384, 300903377u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 18432, 337615277u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 20480, 374233309u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 22528, 410766953u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 24576, 447223969u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 26624, 483610763u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 28672, 519932827u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 30720, 556194803u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 32768, 592400713u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 36864, 664658101u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 40960, 736728527u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 45056, 808631029u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 49152, 880380937u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 53248, 951990961u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 57344,1023472049u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 61440,1094833457u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{  2048,  39397201ull, { {0x6D2DA75A04F538E6ull, 27183858872ull, 28453479981ull}, {0xF71AB763CBA394DDull, 20849861319ull, 65329085551ull}, {0xDCFC108BB85E2FA7ull, 24908241672ull, 53956544053ull} } },
+	{  2304,  44207087ull, { {0x17A51F8EBE222971ull, 20700958815ull, 19557281705ull}, {0x9603404F386381D1ull, 13688982479ull, 15674920724ull}, {0xC7B242D05373D3CAull,  2707265651ull,  5882282433ull} } },
+	{  2560,  49005071ull, { {0x778BE03E5722FE96ull, 25483813566ull, 14727845285ull}, {0x798CFC88734572AEull, 30521003775ull, 33673503490ull}, {0x9737799C41D18480ull, 18819745044ull, 37090058475ull} } },
+	{  2816,  53792327ull, { {0x7BE008D91E80DB49ull,  1791708263ull,  1480510204ull}, {0xDD858F590924665Full, 26857094761ull, 17153737658ull}, {0x8139A3391FC82B64ull, 14978416401ull, 23884206625ull} } },
+	{  3072,  58569809ull, { {0xECE8A3CA1F66D83Aull,  9805362291ull, 43153620706ull}, {0xFBA8C97760C5FE86ull, 11145859641ull, 16209757579ull}, {0x29FF471C9A28D07Full, 32759739090ull,  5331109071ull} } },
+	{  3328,  63338459ull, { {0x24A0F7BE95910DFCull,  6775505897ull, 39005906148ull}, {0x2B63FF56792E239Cull, 15844211278ull, 37865572416ull}, {0xDAEF98E50ECF3AABull, 28953421873ull, 49571783147ull} } },
+	{  3584,  68098843ull, { {0xAE2AED0851C344FFull, 29322480531ull,  7619686742ull}, {0x796289EFF35C1625ull, 20303644792ull, 16113781047ull}, {0xDEF7187C62A2FE6Eull,  1552555257ull, 23682222360ull} } },
+	{  3840,  72851621ull, { {0x41BB879F5BF89744ull, 15213631662ull, 47597325409ull}, {0x13AD29D142D2DD68ull,  2896274647ull, 28918042313ull}, {0x08BFA29C23275DD5ull, 15547700048ull, 36389342409ull} } },
+	{  4096,  77597293ull, { {0x5CA5EB4B2C403B40ull, 16067213695ull, 16060551561ull}, {0x8A91734601A3CA83ull, 25368547633ull, 15106685038ull}, {0x1B1628C39003FC08ull, 31104368473ull, 30825982076ull} } },
+	{  4608,  87068977ull, { {0x790629521C99A54Full,  6004740145ull, 58203809974ull}, {0x8C70DA87F106F6F6ull,  5407783662ull, 22056008955ull}, {0x45DC86154DE680CDull, 23780020949ull, 25229002925ull} } },
+	{  5120,  96517019ull, { {0x50BE76BDB9D43685ull, 33893245159ull, 32100820412ull}, {0x4D05925CD78F753Cull, 13802941362ull, 22609697002ull}, {0x954387C749FFA9F3ull, 14415933176ull, 19405933610ull} } },
+	{  5632, 105943723ull, { {0x1236DCECCCD91F1Bull, 11308642381ull, 28977161847ull}, {0x79A6575BCA014534ull, 30115274802ull,   828334544ull}, {0x4B8E27CD1CA2ED7Bull, 14367849395ull, 43143949281ull} } },
+	{  6144, 115351063ull, { {0x952594D45AC0CD66ull, 33154662725ull, 46573658072ull}, {0x71ABDF14CCB6F83Cull,  2372123324ull, 52765668028ull}, {0x82D8CD4BA692CB52ull, 14510733169ull, 67876507716ull} } },
+	{  6656, 124740697ull, { {0xF8E8C1410A022709ull, 13190590977ull, 39845130919ull}, {0x36F1A6E76E58E9C0ull, 27234521341ull, 16590439770ull}, {0xEE5448CFEDDBDEFEull,  2841484794ull, 12463515449ull} } },
+	{  7168, 134113933ull, { {0x1A946511EF44970Full, 21181711241ull, 30706184956ull}, {0x685E4EDB1A55944Aull,  6228216981ull, 24476904464ull}, {0xA96D930D64AA9158ull,  3314680740ull, 44392410575ull} } },
+	{  7680, 143472073ull, { {0xBD65A37723E2747Dull, 22515080503ull,  9322142584ull}, {0xB97E419D5BB91AE7ull,  4358792147ull, 10943432917ull}, {0xC16E2E327A370783ull, 31343185282ull, 21808110777ull} } },	/* Large: */
+	{  8192, 152816047ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{  9216, 171465013ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 10240, 190066777ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 11264, 208626181ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 12288, 227147083ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 13312, 245632679ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 14336, 264085733ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 15360, 282508657ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 16384, 300903377ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 18432, 337615277ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 20480, 374233309ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 22528, 410766953ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 24576, 447223969ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 26624, 483610763ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 28672, 519932827ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 30720, 556194803ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 32768, 592400713ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 36864, 664658101ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 40960, 736728527ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 45056, 808631029ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 49152, 880380937ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 53248, 951990961ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 57344,1023472049ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 61440,1094833457ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
 	/* Huge: */
-	{ 65536,1154422469u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
-	{ 73728,1295192531u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
-	{ 81920,1435594063u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
-	{ 90112,1575664327u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
-	{ 98304,1715433593u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
-	{106496,1854927187u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
-	{114688,1994166553u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
-	{122880,2133169847u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
-	{131072,2271952979u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
-	{147456,2548912547u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
-	{163840,2825137853u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
-	{180224,3100703087u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
-	{196608,3375668707u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
-	{212992,3650084989u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
-	{229376,3923994593u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } },
-	{245760,4197433843u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {                 0ull,           0ull,           0ull} } }
+	{ 65536,1154422469ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 73728,1295192531ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 81920,1435594063ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 90112,1575664327ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{ 98304,1715433593ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{106496,1854927187ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{114688,1994166553ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{122880,2133169847ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{131072,2271952979ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{147456,2548912547ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{163840,2825137853ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{180224,3100703087ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{196608,3375668707ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{212992,3650084989ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{229376,3923994593ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{245760,4197433843ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } }
 /* Larger require 64-bit exponent support: */
 	/* Egregious: */
 	/* Brobdingnagian: */
@@ -3435,40 +3430,40 @@ i-=2;isprime(i)
 
 struct testFerm{
 	int fftLength;		/* FFT length in K (i.e. 4 means an array of 4K doubles) */
-	int Fidx;			/* Fermat number index */
+	uint32 Fidx;			/* Fermat number index */
 	struct res_triplet	res_t[3];	/* 100,1000 and 10000-iteration SH-residue triplets */
 };
 
 /* Array of 100-iteration reference values for Fermat self-tests. Only allow Fidx >= 14: */
 #define FermArrayIdxOffset		14	/* Amount to subtract from m to get the prestored residues for F_m */
 #define numFerm		20
-struct testMers FermVec[numFerm+1] =
+struct testFerm FermVec[numFerm+1] =
 {
 /*                                   100-iteration residues:                                  1000-iteration residues:              */
 /* FFTlen(K) Fidx           Res64           mod 2^35-1      mod 2^36-1               Res64           mod 2^35-1      mod 2^36-1     */
 /*   ------- ----      ----------------     -----------     -----------         ----------------     -----------     -----------    */
 	/*                                    [%34359738367  ][%68719476735  ]                         [%34359738367  ][%68719476735  ] */
-	{     1,  14, { {0xDB9AC520C403CB21ull,   342168579ull, 59244817440ull}, {0xF111F12732CCCB0Full, 24848612524ull, 66609820796ull}, {0x78738D068D641C2Cull, 12664273769ull, 29297626750ull} } },
-	{     2,  15, { {0x3B21A6E55ED13454ull, 28379302213ull, 15546218647ull}, {0x4784657F2A36BE74ull,   617376037ull, 44891093359ull}, {0x589BFE53458FFC14ull, 12200390606ull, 46971422957ull} } },
-	{     4,  16, { {0xAAE76C15C2B37465ull, 20013824731ull,  2261076122ull}, {0x42CC2CBE97C728E6ull, 30814966349ull, 44505312792ull}, {0xEED00D8AE6886440ull, 19057922301ull, 53800020279ull} } },
-	{     8,  17, { {0xFFA16CDC8C87483Cull, 20917337408ull, 26110327818ull}, {0x43CAB295FFB2661Full, 18197605796ull,  9842643677ull}, {0x5C7B0049549D4174ull,  8923959253ull, 40303785249ull} } },
-	{    16,  18, { {0x7C6B681485EB86DBull,  5745147782ull, 50521157289ull}, {0x8193BD41931E9DE8ull, 19662968587ull, 51102742548ull}, {0x9D6A242467D28700ull, 12912307491ull, 23293425575ull} } },
-	{    32,  19, { {0x529E54642A813995ull, 17797950508ull, 32039741221ull}, {0xE24EAE4B153EE86Bull, 11155350666ull, 49866866361ull}, {0x787FABD98DD5FEC0ull, 10784283812ull, 50254721650ull} } },
-	{    64,  20, { {0x64629CED6E218018ull,  8485981669ull, 53977437340ull}, {0xA380121F6FD26B2Aull, 15876203498ull, 36314727556ull}, {0x352CB92DABA82A8Bull,  6625203514ull, 20044302250ull} } },
-	{   128,  21, { {0x1DE0171591038250ull, 33758422990ull,  8269940507ull}, {0x1B331FBB41AF33D7ull, 17971032338ull,  2929392342ull}, {0x2E7F9D30EAFC7D47ull, 28599205675ull, 44913594527ull} } },
-	{   256,  22, { {0x9201143390F3828Dull,  1749100092ull, 46602233256ull}, {0x1B331FBB41AF33D7ull, 17971032338ull,  2929392342ull}, {0x4380A384A80C079Eull, 30799637462ull, 32805936529ull} } },
-	{   512,  23, { {0x9C3F8E29B397B32Bull,  1094055486ull, 13316822657ull}, {0xBD642EA0479D8FF0ull, 31625967305ull, 57187857233ull}, {0xC0F18B226C20AE50ull, 31325111828ull, 10029614864ull} } },
-	{  1024,  24, { {0xDB9F01963ED9DC8Bull, 27887793041ull, 13169874547ull}, {0x40F2DECE9C351236ull,  9074286032ull, 38590877049ull}, {0x84FEE61771F20003ull, 19739002855ull, 42109658313ull} } },
-	{  2048,  25, { {0x376C33921E5F675Full, 13022327996ull, 46818697393ull}, {0xA51F8577A407CB75ull,  9865976783ull, 35171498411ull}, {0x2B1D829E05C85CA3ull, 27914095914ull, 58025822027ull} } },
-	{  4096,  26, { {0xA42BECD80DAEC4CBull, 10087739060ull, 25252768685ull}, {0xECC9408A7295401Dull,  5904751941ull, 58967745948ull}, {0x0C054D0376BD8E9Eull, 24761357761ull, 23215069147ull} } },
-	{  8192,  27, { {0xFB69E377519D8CE6ull, 15449775614ull, 51221672039ull}, {0x24898E3BEB59DCE6ull, 24957168001ull,  2072452827ull}, {0x443DE289690070EDull, 30674247970ull, 29955017069ull} } },
-	{ 16384,  28, { {0xA4FF6F8C3CB38B85ull, 18933356966ull, 30899345457ull}, {0x8B451AF25E8CC50Eull,   674652743ull, 39963850167ull}, {0x0F38D26B35C6794Cull,  7003106751ull, 60469235270ull} } },
-	{ 32768,  29, { {0xAFBF110B593E26F6ull, 32666279868ull, 18995112582ull}, {0xA6B643FF24C6ADC1ull, 15753158767ull, 13965270144ull}, {0xB194096866F68C59ull, 19667273394ull,  3552165634ull} } },
-	{ 65536,  30, { {0x68B1BDA5D6BAE04Bull,  3347054148ull, 47892955488ull}, {0x361F30024AF9FE26ull, 26693502373ull, 67933083515ull}, {0x3A70D98DA3ED809Aull, 10877397803ull, 41746600776ull} } },
-	{131072,  31, { {0x00C36B4AB38FC326ull, 12487821860ull, 64847210796ull}, {0x243D46185B4FAAC8ull, 14946978930ull, 42870390813ull}, {0xDD3651B25892F424ull,  6237393494ull, 22880395670ull} } },
-	{262144,  32, { {0xFB5A3146BE2CA886ull, 33629944997ull, 19559359478ull}, {0x0479E68514EAD529ull,    59701496ull, 58397447084ull}, {0x78CD466FDDA4F156ull,  5752278548ull, 18141301956ull} } },
-	{524288,  33, { {0x25D9822BD1555EB9ull, 10052071893ull, 20645266428ull}, {0xACF521F811129C9Eull, 25612341094ull, 61523429244ull}, {0x269405A9B18B3310ull,  4910011908ull,  2895484666ull} } },
-	{     0,   0, { {                 0ull,           0ull,           0ull}, {                 0ull,           0ull,           0ull}, {                 0ull,           0ull,           0ull} } }
+	{     1,  14u, { {0xDB9AC520C403CB21ull,   342168579ull, 59244817440ull}, {0xF111F12732CCCB0Full, 24848612524ull, 66609820796ull}, {0x78738D068D641C2Cull, 12664273769ull, 29297626750ull} } },
+	{     2,  15u, { {0x3B21A6E55ED13454ull, 28379302213ull, 15546218647ull}, {0x4784657F2A36BE74ull,   617376037ull, 44891093359ull}, {0x589BFE53458FFC14ull, 12200390606ull, 46971422957ull} } },
+	{     4,  16u, { {0xAAE76C15C2B37465ull, 20013824731ull,  2261076122ull}, {0x42CC2CBE97C728E6ull, 30814966349ull, 44505312792ull}, {0xEED00D8AE6886440ull, 19057922301ull, 53800020279ull} } },
+	{     8,  17u, { {0xFFA16CDC8C87483Cull, 20917337408ull, 26110327818ull}, {0x43CAB295FFB2661Full, 18197605796ull,  9842643677ull}, {0x5C7B0049549D4174ull,  8923959253ull, 40303785249ull} } },
+	{    16,  18u, { {0x7C6B681485EB86DBull,  5745147782ull, 50521157289ull}, {0x8193BD41931E9DE8ull, 19662968587ull, 51102742548ull}, {0x9D6A242467D28700ull, 12912307491ull, 23293425575ull} } },
+	{    32,  19u, { {0x529E54642A813995ull, 17797950508ull, 32039741221ull}, {0xE24EAE4B153EE86Bull, 11155350666ull, 49866866361ull}, {0x787FABD98DD5FEC0ull, 10784283812ull, 50254721650ull} } },
+	{    64,  20u, { {0x64629CED6E218018ull,  8485981669ull, 53977437340ull}, {0xA380121F6FD26B2Aull, 15876203498ull, 36314727556ull}, {0x352CB92DABA82A8Bull,  6625203514ull, 20044302250ull} } },
+	{   128,  21u, { {0x1DE0171591038250ull, 33758422990ull,  8269940507ull}, {0x1B331FBB41AF33D7ull, 17971032338ull,  2929392342ull}, {0x2E7F9D30EAFC7D47ull, 28599205675ull, 44913594527ull} } },
+	{   256,  22u, { {0x9201143390F3828Dull,  1749100092ull, 46602233256ull}, {0x1B331FBB41AF33D7ull, 17971032338ull,  2929392342ull}, {0x4380A384A80C079Eull, 30799637462ull, 32805936529ull} } },
+	{   512,  23u, { {0x9C3F8E29B397B32Bull,  1094055486ull, 13316822657ull}, {0xBD642EA0479D8FF0ull, 31625967305ull, 57187857233ull}, {0xC0F18B226C20AE50ull, 31325111828ull, 10029614864ull} } },
+	{  1024,  24u, { {0xDB9F01963ED9DC8Bull, 27887793041ull, 13169874547ull}, {0x40F2DECE9C351236ull,  9074286032ull, 38590877049ull}, {0x84FEE61771F20003ull, 19739002855ull, 42109658313ull} } },
+	{  2048,  25u, { {0x376C33921E5F675Full, 13022327996ull, 46818697393ull}, {0xA51F8577A407CB75ull,  9865976783ull, 35171498411ull}, {0x2B1D829E05C85CA3ull, 27914095914ull, 58025822027ull} } },
+	{  4096,  26u, { {0xA42BECD80DAEC4CBull, 10087739060ull, 25252768685ull}, {0xECC9408A7295401Dull,  5904751941ull, 58967745948ull}, {0x0C054D0376BD8E9Eull, 24761357761ull, 23215069147ull} } },
+	{  8192,  27u, { {0xFB69E377519D8CE6ull, 15449775614ull, 51221672039ull}, {0x24898E3BEB59DCE6ull, 24957168001ull,  2072452827ull}, {0x443DE289690070EDull, 30674247970ull, 29955017069ull} } },
+	{ 16384,  28u, { {0xA4FF6F8C3CB38B85ull, 18933356966ull, 30899345457ull}, {0x8B451AF25E8CC50Eull,   674652743ull, 39963850167ull}, {0x0F38D26B35C6794Cull,  7003106751ull, 60469235270ull} } },
+	{ 32768,  29u, { {0xAFBF110B593E26F6ull, 32666279868ull, 18995112582ull}, {0xA6B643FF24C6ADC1ull, 15753158767ull, 13965270144ull}, {0xB194096866F68C59ull, 19667273394ull,  3552165634ull} } },
+	{ 65536,  30u, { {0x68B1BDA5D6BAE04Bull,  3347054148ull, 47892955488ull}, {0x361F30024AF9FE26ull, 26693502373ull, 67933083515ull}, {0x3A70D98DA3ED809Aull, 10877397803ull, 41746600776ull} } },
+	{131072,  31u, { {0x00C36B4AB38FC326ull, 12487821860ull, 64847210796ull}, {0x243D46185B4FAAC8ull, 14946978930ull, 42870390813ull}, {0xDD3651B25892F424ull,  6237393494ull, 22880395670ull} } },
+	{262144,  32u, { {0xFB5A3146BE2CA886ull, 33629944997ull, 19559359478ull}, {0x0479E68514EAD529ull,    59701496ull, 58397447084ull}, {0x78CD466FDDA4F156ull,  5752278548ull, 18141301956ull} } },
+	{524288,  33u, { {0x25D9822BD1555EB9ull, 10052071893ull, 20645266428ull}, {0xACF521F811129C9Eull, 25612341094ull, 61523429244ull}, {0x269405A9B18B3310ull,  4910011908ull,  2895484666ull} } },
+	{     0,   0u, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } }
 };
 
 /***************************************************************************************/
@@ -3478,11 +3473,11 @@ int 	main(int argc, char *argv[])
 	int		retVal=0;
 	uint64	Res64, Res35m1, Res36m1;
 	char	stFlag[STR_MAX_LEN];
-	uint64	i64arg;
-	uint32	iarg = 0, iters = 0, k = 0, maxFFT, expo = 0, findex = 0;
+	uint64	i64arg, expo = 0, lo,hi;
+	uint32	iarg = 0, iters = 0, k = 0, maxFFT, findex = 0;
 	double	darg;
 	int		new_cfg = FALSE;
-	int		i,j, idum, lo, hi, nargs, scrnFlag;
+	int		i,j, idum, nargs, scrnFlag, maxAllocSet = FALSE, nbufSet = FALSE;
 	int		start = -1, finish = -1, modType = 0, testType = 0, selfTest = 0, userSetExponent = 0, xNum = 0;
 #ifdef MULTITHREAD
 	// Vars for mgmt of mutually exclusive arg sets:
@@ -3503,6 +3498,7 @@ int 	main(int argc, char *argv[])
 just below the upper limit for each FFT lengh in some subrange of the self-tests:
 */
 #if 0
+	// Note this is 32-bit only!
 	for(i = 68; i < numTest; i++) {
 		j = given_N_get_maxP(MersVec[i].fftLength << 10);
 		if((j&1) == 0) --j; 	// make sure it's odd
@@ -3557,18 +3553,16 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
 		if(nargs >= argc) {
 			fprintf(stderr, "*** ERROR: Unterminated command-line option or malformed argument.\n");
-			print_help("self_test");
+			print_help();
 		}
 
 		if(stFlag[0] != '-') {
 			fprintf(stderr, "*** ERROR: Illegal command-line option %s\n", stFlag);
 			fprintf(stderr, "*** All command-line options must be of form -{flag} [argument]\n\n");
-			print_help("");
+			print_help();
 		}
 
-		if(STREQ(stFlag, "-h")) { print_help(""); }
-
-		if(STREQ(stFlag, "-topic")) { print_help("topic"); }
+		if(STREQ(stFlag, "-h")) { print_help(); }
 
 		/* Mersenne self-test: requires a user-set exponent, FFT length or one of the supported -s arguments below: */
 		if(STREQ(stFlag, "-s"))
@@ -3609,20 +3603,35 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 					break;
 
 				fprintf(stderr, "*** ERROR: Illegal argument %s to -s flag\n", stFlag);
-				print_help("self_test");
+				print_help();
 			}
 			modType  = MODULUS_TYPE_MERSENNE;
 		}
 
 		else if(STREQ(stFlag, "-maxalloc"))	// maxalloc arg is max %-of-available-mem to use
 		{
+			ASSERT(HERE, nbufSet == FALSE, "Only one of -maxalloc and -pm1_s2_buf flags may be used!");
 			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
 			darg = strtod(stFlag,&cptr);
-			// Must be in [10,90], default = 90:
-			ASSERT(HERE, (darg >= 10 || darg <= 90), "maxalloc argument is %%-of-available-mem to use; must be in the range [10,90] ... halting.");
+			// Must be > 0:
+			ASSERT(HERE, (darg > 0), "maxalloc (%%-of-available-mem to use) argument must be > 0 ... halting.");
+			// Max-%-of-RAM-to-use currently stored in MAX_RAM_USE ... later will multiply by (available system RAM in MB):
+			MAX_RAM_USE = darg;
+			maxAllocSet = TRUE;
+			printf("INFO: User specified -maxalloc: will use up to %u%% of available system RAM.\n",MAX_RAM_USE);
+		}
+
+		else if(STREQ(stFlag, "-pm1_s2_nbuf"))	// pm1_s2_nbuf arg is max %-of-available-mem to use
+		{
+			ASSERT(HERE, maxAllocSet == FALSE, "Only one of -maxalloc and -pm1_s2_buf flags may be used!");
+			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
+			darg = strtod(stFlag,&cptr);
+			// Must be > 0:
+			ASSERT(HERE, (darg > 0), "pm1_s2_nbuf argument is %%-of-available-mem to use; must be in the range [10,90] ... halting.");
 			// Max-%-of-RAM-to-use currently stored in MAX_RAM_USE ... later will convert to floating-fraction and multiply by (available system RAM in MB):
-			MAX_RAM_USE = SYSTEM_RAM*darg*0.01;
-			printf("INFO: User specified -maxalloc: will use up to %6.2f = %u MB of available system RAM.\n",darg,MAX_RAM_USE);
+			PM1_S2_NBUF = darg;
+			nbufSet = TRUE;
+			printf("INFO: User specified -pm1_s2_nbuf = %u.\n",PM1_S2_NBUF);
 		}
 
 		else if(STREQ(stFlag, "-iters"))
@@ -3810,10 +3819,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		else if(STREQ(stFlag, "-m") || STREQ(stFlag, "-mersenne"))
 		{
 			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
-			i64arg = atol(stFlag);
-			// Must be < 2^32:
-			ASSERT(HERE, !(i64arg>>32), "Mersenne-number exponent argument must be < 2^32 ... halting.");
-			expo = (uint32)i64arg;
+			expo = atol(stFlag);
 			userSetExponent = 1;
 			//*** use 0-pad slot in MersVec[] to store user-set-exponent data irrespective of whether LL-test or PRP-test: ***
 			MersVec[numTest].exponent = expo;
@@ -3834,7 +3840,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 				return ERR_EXPONENT_ILLEGAL;
 			}
 			userSetExponent = 1;
-			FermVec[numFerm].exponent = findex;
+			FermVec[numFerm].Fidx = findex;
 			start = numFerm; finish = start+1;
 			modType = MODULUS_TYPE_FERMAT;
 		}
@@ -3842,7 +3848,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		else
 		{
 			fprintf(stderr, "*** ERROR: Unrecognized flag %s.\n", stFlag);
-			print_help("");
+			print_help();
 		}
 	}	/* end of command-line-argument processing while() loop */
 
@@ -3969,14 +3975,14 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			if(i != MersVec[j].fftLength) {
 				hi = given_N_get_maxP(i<<10) | 0x1;	/* Make sure starting value is odd */
 				lo = hi - 1000;	if(lo < PMIN) lo = PMIN;
-				for(i = hi; i >=lo; i -= 2) {
-					if(is_prime(i)) {
-						MersVec[numTest].exponent = i;
+				for(expo = hi; expo >=lo; expo -= 2) {
+					if(isPRP64(expo)) {
+						MersVec[numTest].exponent = expo;
 						break;
 					}
 				}
-				if(i < lo || lo >= hi) {
-					fprintf(stderr, "ERROR: unable to find a prime in the interval %u <= x <= %u.\n", lo, hi);
+				if(expo < lo || lo >= hi) {
+					fprintf(stderr, "ERROR: unable to find a prime in the interval %llu <= x <= %llu.\n", lo, hi);
 					ASSERT(HERE, 0,"0");
 				}
 			} else {	/* Use the corresponding entry of MersVec: */
@@ -3989,13 +3995,13 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 	}
 	else if(modType == MODULUS_TYPE_FERMAT)
 	{
-		if(FermVec[start].exponent == 0) {
+		if(FermVec[start].Fidx == 0) {
 			i = FermVec[start].fftLength;
 			ASSERT(HERE, i > 0                  ,"Require i > 0                  ");
 			ASSERT(HERE, i <=MAX_FFT_LENGTH_IN_K,"Require i <=MAX_FFT_LENGTH_IN_K");
 
 			if(i > FermVec[numFerm-1].fftLength)	/* Computing a new-largest entry? */
-				FermVec[numFerm].exponent = (i << 4);
+				FermVec[numFerm].Fidx = (i << 4);
 			else {	/* Find the corresponding entry of FermVec: */
 				for(lo = 0; lo < numFerm; lo++) {
 					if(FermVec[lo].fftLength >= i) {
@@ -4180,7 +4186,7 @@ TIMING_TEST_LOOP:
 				Res64   = FermVec[xNum].res_t[mvec_res_t_idx].sh0;
 				Res35m1 = FermVec[xNum].res_t[mvec_res_t_idx].sh1;
 				Res36m1 = FermVec[xNum].res_t[mvec_res_t_idx].sh2;
-				retVal = ernstMain(modType,testType,(uint64)FermVec[xNum].exponent,iarg,radix_set,maxFFT,iters,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime);
+				retVal = ernstMain(modType,testType,(uint64)FermVec[xNum].Fidx    ,iarg,radix_set,maxFFT,iters,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime);
 			}
 			else if(modType == MODULUS_TYPE_MERSENNE && testType == TEST_TYPE_PRIMALITY)
 			{
@@ -4266,11 +4272,18 @@ TIMING_TEST_LOOP:
 
 			/* 16 Dec 2007: Added the (runtime != 0) here to workaround the valid-timing-test-but-runtime = 0
 			issue on systems with round-to-nearest-second granularity of the clock() function: */
-			// v20: Multiply runtime in sec by 1 + [weighted sum of ROE data] to prefer more-accurate radix-combos among ones with similar runtimes:
+		#if 1
+			if( runtime_best == 0.0 || ((runtime != 0) && (runtime < runtime_best)) ) {
+				runtime_best = runtime;
+		#else	//*** This ROE-weighted scheme is having some unexpected suboptimal results - revisit later: ***
+			// v20: Multiply runtime in sec by 1 + [weighted sum of ROE data] to prefer
+			// more-accurate radix-combos among ones with similar runtimes:
 			wruntime = runtime*(1 + 4*AME + MME);	// Give AME more weight as it is less noisy
 			if( runtime_best == 0.0 || ((runtime != 0) && (wruntime < wruntime_best)) ) {
-				runtime_best = runtime;	// Use ROE-weighted runtimes in above comparison but save actual runtime for later cfg-file writing
+				// Use ROE-weighted runtimes in above comparison but save actual runtime for later cfg-file writing:
+				runtime_best = runtime;
 				wruntime_best = wruntime;
+		#endif
 				radix_best = radix_set;
 				// Dec 2014: Changed from reporting [min,max]MME for all radsets @ the given FFT length - which is
 				// confusing since what one really cares about is the ROE levels of the best-timed radset, not the ones
@@ -4403,243 +4416,9 @@ uint64	parse_cmd_args_get_shift_value(void)
 
 /******************/
 
-void print_help(char*option)
+void print_help(void)
 {
-	int lo, hi, printall = 0;
-	if(STREQ(option,"")) printall = TRUE;
-
-	fprintf(stderr, "For the full list of command line options, run the program with the -h flag.\n");
-	fprintf(stderr, "For a list of command-line options grouped by type, run the program with the -topic flag.\n\n");
-
-  if(printall)
-	fprintf(stderr, "Mlucas command line options:\n\
-	\n\
-	 Symbol and abbreviation key:\n\
-	       <CR> :  carriage return\n\
-	        |   :  separator for one-of-the-following multiple-choice menus\n\
-	       []   :  encloses optional arguments\n\
-	       {}   :  denotes user-supplied numerical arguments of the type noted.\n\
-	              ({int} means nonnegative integer, {+int} = positive int, {float} = float.)\n\
-	  -argument :  Vertical stacking indicates argument short 'nickname' options,\n\
-	  -arg      :  e.g. in this example '-arg' can be used in place of '-argument'.\n\
-	\n\
-	 Supported arguments:\n\
-	\n\
-	 <CR>        Default mode: looks for a %s file in the local\n\
-	             directory; if none found, prompts for manual keyboard entry\n\
-	\n", WORKFILE);
-
-  if(printall || STREQ(option,"topic")) {
-	fprintf(stderr, "Help submenus by topic. No additional arguments may follow the displayed ones:\n");
-	fprintf(stderr, " -s            Post-build self-testing for various FFT-length rnages.\n");
-	fprintf(stderr, " -fft[len]     FFT-length setting.\n");
-	fprintf(stderr, " -radset       FFT radix-set specification.\n");
-	fprintf(stderr, " -m[ersenne]   Mersenne-number primality testing.\n");
-	fprintf(stderr, " -f[ermat]     Fermat-number primality testing.\n");
-	fprintf(stderr, " -shift        ***SIMD builds only*** Number of bits by which to shift the initial seed (= iteration-0 residue).\n");
-	fprintf(stderr, " -prp          Probable-primality testing mode.\n");
-	fprintf(stderr, " -iters        Iteration-number setting.\n");
-	fprintf(stderr, " -nthread|cpu  Setting threadcount and CPU core affinity.\n");
-	fprintf(stderr, " -maxalloc     Setting maximum-percentage of available system RAM to use per instance.\n");
-	fprintf(stderr, "\n");
-  }
-
-  if(printall || STREQ(option,"self_test")) {
-	fprintf(stderr, " *** NOTE: *** The following self-test options will cause an mlucas.cfg file containing\n\
-     the optimal FFT radix set for the runlength(s) tested to be created (if one did not\n\
-     exist previously) or appended (if one did) with new timing data. Such a file-write is\n\
-     triggered by each complete set of FFT radices available at a given FFT length being\n\
-     tested, i.e. by a self-test without a user-specified -radset argument.\n\
-     (A user-specific Mersenne exponent may be supplied via the -m flag; if none is specified,\n\
-     the program will use the largest permissible exponent for the given FFT length, based on\n\
-     its internal length-setting algorithm). The user must specify the number of iterations for\n\
-     the self-test via the -iters flag; while it is not required, it is strongly recommended to\n\
-     stick to one of the standard timing-test values of -iters = [100,1000,10000], with the larger\n\
-     values being preferred for multithreaded timing tests, in order to assure a decently large\n\
-     slice of CPU time. Similarly, it is recommended to not use the -m flag for such tests, unless\n\
-     roundoff error levels on a given compute platform are such that the default exponent at one or\n\
-     more FFT lengths of interest prevents a reasonable sampling of available radix sets at same.\n\
-        If the user lets the program set the exponent and uses one of the aforementioned standard\n\
-     self-test iteration counts, the resulting best-timing FFT radix set will only be written to the\n\
-     resulting mlucas.cfg file if the timing-test result matches the internally- stored precomputed\n\
-     one for the given default exponent at the iteration count in question, with eligible radix sets\n\
-     consisting of those for which the roundoff error remains below an acceptable threshold.\n\
-     If the user instead specifies the exponent (only allowed for a single-FFT-length timing test)****************\n\
-     and/or a non-default iteration number, the resulting best-timing FFT radix set will only be\n\
-     written to the resulting mlucas.cfg file if the timing-test results match each other? ********* check logic here *******\n");
-	fprintf(stderr, "     This is important for tuning code parameters to your particular platform.\n");
-	fprintf(stderr, "\n");
-	fprintf(stderr, "   FOR BEST RESULTS, RUN ANY SELF-TESTS UNDER ZERO- OR CONSTANT-LOAD CONDITIONS\n");
-	fprintf(stderr, "\n");
-	fprintf(stderr, " -s {...}    Self-test, user must also supply exponent [via -m or -f] and/or FFT length to use.\n");
-	fprintf(stderr, "\n");
-	lo = 0; hi = numTiny;
-	fprintf(stderr, " -s tiny     Runs 100-iteration self-tests on set of %3d Mersenne exponents, ranging from %d to %d\n", numTiny, MersVec[lo].exponent, MersVec[hi-1].exponent);
-	fprintf(stderr, " -s t        This will take around 1 minute on a fast CPU..\n");
-	fprintf(stderr, "\n");
-	lo = 0; hi = numSmall;
-	fprintf(stderr, " -s small    Runs 100-iteration self-tests on set of %3d Mersenne exponents, ranging from %d to %d\n", numSmall, MersVec[lo].exponent, MersVec[hi-1].exponent);
-	fprintf(stderr, " -s s        This will take around 10 minutes on a fast CPU..\n");
-	fprintf(stderr, "\n");
-	lo =hi; hi+= numMedium;
-	fprintf(stderr, "**** THIS IS THE ONLY SELF-TEST ORDINARY USERS ARE RECOMMENDED TO DO: ******\n");
-	fprintf(stderr, "*                                                                          *\n");
-	fprintf(stderr, "* -s medium   Runs set of %3d Mersenne exponents, ranging from %d to %d\n", numMedium,MersVec[lo].exponent, MersVec[hi-1].exponent);
-	fprintf(stderr, "* -s m        This will take around an hour on a fast CPU.                 *\n");
-	fprintf(stderr, "*                                                                          *\n");
-	fprintf(stderr, "****************************************************************************\n");
-	fprintf(stderr, "\n");
-	lo =hi; hi+= numLarge;
-	fprintf(stderr, " -s large    Runs set of %3d Mersenne exponents, ranging from %d to %d\n", numLarge, MersVec[lo].exponent, MersVec[hi-1].exponent);
-	fprintf(stderr, " -s l        This will take around an hour on a fast CPU.\n");
-	fprintf(stderr, "\n");
-	lo =hi; hi+= numHuge;
-	fprintf(stderr, " -s huge     Runs set of %3d Mersenne exponents, ranging from %d to %d\n", numHuge,  MersVec[lo].exponent, MersVec[hi-1].exponent);
-	fprintf(stderr, " -s h        This will take a couple of hours on a fast CPU.\n");
-	fprintf(stderr, "\n");
-	fprintf(stderr, " -s all      Runs 100-iteration self-tests of all test Mersenne exponents and all FFT radix sets.\n");
-	fprintf(stderr, " -s a        This will take several hours on a fast CPU.\n");
-	fprintf(stderr, "\n");
-  }
-  if(printall || STREQ(option,"fftlen")) {
-	fprintf(stderr, " -fft[len] {+int}   If {+int} is one of the available FFT lengths (in Kilodoubles), runs all\n");
-	fprintf(stderr, "             all available FFT radices available at that length, unless the -radset flag is\n");
-	fprintf(stderr, "             invoked (see below for details). If -fft is invoked without the -iters flag,\n");
-	fprintf(stderr, "             it is assumed the user wishes to do a production run with a non-default FFT length,\n");
-	fprintf(stderr, "             In this case the program requires a valid %s-file entry with exponent\n",WORKFILE);
-	fprintf(stderr, "             not more than 5%% larger than the default maximum for that FFT length.\n");
-	fprintf(stderr, "                  If -fft is invoked with a user-supplied value of -iters but without a\n");
-	fprintf(stderr, "             user-supplied exponent, the program will do the specified number of iterations\n");
-	fprintf(stderr, "             using the default self-test Mersenne or Fermat exponent for that FFT length.\n");
-	fprintf(stderr, "                  If -fft is invoked with a user-supplied value of -iters and either the\n");
-	fprintf(stderr, "             -m or -f flag and a user-supplied exponent, the program will do the specified\n");
-	fprintf(stderr, "             number of iterations of either the Lucas-Lehmer test with starting value 4 (-m)\n");
-	fprintf(stderr, "             or the Pe'pin test with starting value 3 (-f) on the user-specified modulus.\n");
-	fprintf(stderr, "\n");
-	fprintf(stderr, "             In either of the latter 2 cases, the program will produce a cfg-file entry based\n");
-	fprintf(stderr, "             on the timing results, assuming at least one radix set ran the specified #iters\n");
-	fprintf(stderr, "             to completion without suffering a fatal error of some kind.\n");
-	fprintf(stderr, "             Use this to find the optimal radix set for a single FFT length on your hardware.\n");
-	fprintf(stderr, "\n");
-	fprintf(stderr, "             NOTE: IF YOU USE OTHER THAN THE DEFAULT MODULUS OR #ITERS FOR SUCH A SINGLE-FFT-\n");
-	fprintf(stderr, "             LENGTH TIMING TEST, IT IS UP TO YOU TO MANUALLY VERIFY THAT THE RESIDUES OUTPUT\n");
-	fprintf(stderr, "             MATCH FOR ALL FFT RADIX COMBINATIONS AND THE ROUNDOFF ERRORS ARE REASONABLE!\n");
-	fprintf(stderr, "\n");
-  }
-  if(printall || STREQ(option,"radset")) {
-	fprintf(stderr, " -radset {int}    Specific index of a set of complex FFT radices to use, based on the big\n");
-	fprintf(stderr, "             select table in the function get_fft_radices(). Requires a supported value of\n");
-	fprintf(stderr, "             -fft to also be specified, as well as a value of -iters for the timing test.\n");
-	fprintf(stderr, "\n");
-  }
-  if(printall || STREQ(option,"mersenne")) {
-	fprintf(stderr, " -m [{+int}] Performs a Lucas-Lehmer primality test of the Mersenne number M(int) = 2^int - 1,\n");
-	fprintf(stderr, "             where int must be an odd prime. If -iters is also invoked, this indicates a timing test.\n");
-	fprintf(stderr, "             and requires suitable added arguments (-fft and, optionally, -radset) to be supplied.\n");
-	fprintf(stderr, "                If the -fft option (and optionally -radset) is also invoked but -iters is not, the\n");
-	fprintf(stderr, "             program first checks the first line of the worktodo.ini file to see if the assignment\n");
-	fprintf(stderr, "             specified there is a Lucas-Lehmer test with the same exponent as specified via the -m\n");
-	fprintf(stderr, "             argument. If so, the -fft argument is treated as a user override of the default FFT\n");
-	fprintf(stderr, "             length for the exponent. If -radset is also invoked, this is similarly treated as a user-\n");
-	fprintf(stderr, "             specified radix set for the user-set FFT length; otherwise the program will use the cfg file\n");
-	fprintf(stderr, "             to select the radix set to be used for the user-forced FFT length.\n");
-	fprintf(stderr, "                If the worktodo.ini file entry does not match the -m value, a set of timing self-tests is\n");
-	fprintf(stderr, "             run on the user-specified Mersenne number using all sets of FFT radices available at the\n");
-	fprintf(stderr, "             specified FFT length.\n");
-	fprintf(stderr, "                If the -fft option is not invoked, the self-tests use all sets of\n");
-	fprintf(stderr, "             FFT radices available at that exponent's default FFT length.\n");
-	fprintf(stderr, "                Use this to find the optimal radix set for a single given Mersenne number\n");
-	fprintf(stderr, "             exponent on your hardware, similarly to the -fft option.\n");
-	fprintf(stderr, "                Performs as many iterations as specified via the -iters flag [required].\n");
-	fprintf(stderr, "\n");
-  }
-  if(printall || STREQ(option,"fermat")) {
-	fprintf(stderr, " -f {int}    Performs a base-3 Pe'pin test on the Fermat number F(num) = 2^(2^num) + 1.\n");
-	fprintf(stderr, "                If desired this can be invoked together with the -fft option.\n");
-	fprintf(stderr, "             as for the Mersenne-number self-tests (see notes about the -m flag;\n");
-	fprintf(stderr, "             note that not all FFT lengths supported for -m are available for -f).\n");
-	fprintf(stderr, "             Optimal radix sets and timings are written to a fermat.cfg file.\n");
-	fprintf(stderr, "                Performs as many iterations as specified via the -iters flag [required].\n");
-	fprintf(stderr, "\n");
-  }
-  if(printall || STREQ(option,"shift")) {
-	fprintf(stderr, " -shift         ***SIMD builds only*** Bits by which to circular-left-shift the initial seed.\n");
-	fprintf(stderr, "             This shift count is doubled (modulo the number of bits of the modulus being tested)\n");
-	fprintf(stderr, "             each iteration. Savefile residues are rightward-shifted by the current shift count\n");
-	fprintf(stderr, "             before being written to the file; thus savefiles contain the unshifted residue, and\n");
-	fprintf(stderr, "             separately the current shift count, which the program uses to leftward-shift the\n");
-	fprintf(stderr, "             savefile residue when the program is restarted from interrupt.\n");
-	fprintf(stderr, "                The shift count is a 64-bit unsigned int (e.g. to accommodate Fermat numbers > F32).\n");
-	fprintf(stderr, "\n");
-  }
-  if(printall || STREQ(option,"prp")) {
-	fprintf(stderr, " -prp {int}     Instead of running the rigorous primality test defined for the modulus type\n");
-	fprintf(stderr, "             in question (Lucas-Lehmer test for Mersenne numbers, Pe'pin test for Fermat numbers\n");
-	fprintf(stderr, "             do a probably-primality test to the specified integer base b = {int}.\n");
-	fprintf(stderr, "                For a Mersenne number M(p), starting with initial seed x = b (which must not = 2\n");
-	fprintf(stderr, "             or a power of 2), this means do a Fermat-PRP test, consisting of (p-2) iterations of\n");
-	fprintf(stderr, "             form x = b*x^2 (mod M(p)) plus a final mod-squaring x = x^2 (mod M(p)), with M(p) being\n");
-	fprintf(stderr, "             a probable-prime to base b if the result == 1.\n");
-	fprintf(stderr, "                For a Fermat number F(m), starting with initial seed x = b (which must not = 2\n");
-	fprintf(stderr, "             or a power of 2), this means do an Euler-PRP test (referred to as a Pe'pin test for these\n");
-	fprintf(stderr, "             moduli), i.e. do 2^m-1 iterations of form x = b*x^2 (mod F(m)), with F(m) being not merely\n");
-	fprintf(stderr, "             a probable prime but in fact deterministically a prime if the result == -1. The reason we\n");
-	fprintf(stderr, "             still use the -prp flag in the Fermat case is for legacy-code compatibility: All pre-v18\n");
-	fprintf(stderr, "             Mlucas versions supported only Pe'pin testing to base b = 3; now the user can use the -prp\n");
-	fprintf(stderr, "             flag with a suitable base-value to override this default choice of base.\n");
-	fprintf(stderr, "\n");
-  }
-  if(printall || STREQ(option,"iters")) {
-	fprintf(stderr, " -iters {int}   Do {int} self-test iterations of the type determined by the\n");
-	fprintf(stderr, "             modulus-related options (-s/-m = Lucas-Lehmer test iterations with\n");
-	fprintf(stderr, "             initial seed 4, -f = Pe'pin-test squarings with initial seed 3.\n");
-	fprintf(stderr, "\n");
-  }
-  if(printall || STREQ(option,"maxalloc")) {
-	fprintf(stderr, " -maxalloc {int}   Maximum-percentage of available system RAM to use per instance. Must be in [10,90], default = 90.\n");
-	fprintf(stderr, "\n");
-  }
- #ifdef MULTITHREAD
-  if(printall || STREQ(option,"nthread")) {
-	fprintf(stderr, " -nthread {int}   For multithread-enabled builds, run with this many threads.\n\
-     If the user does not specify a thread count, the default is to run single-threaded\n\
-     with that thread's affinity set to logical core 0.\n\
-     \n\
-     AFFINITY: The code will attempt to set the affinity of the resulting threads\n\
-     0:n-1 to the same-indexed processor cores - whether this means distinct physical\n\
-     cores is entirely up to the CPU vendor - E.g. Intel uses such a numbering scheme\n\
-     but AMD does not. For this reason as of v17 this option is deprecated in favor of\n\
-     the -cpu flag, whose usage is detailed below, with the online README page providing\n\
-     guidance for the core-numbering schemes of popular CPU vendors.\n\
-     \n\
-     If n exceeds the available number of logical processor cores (call it #cpu), the\n\
-     program will halt with an error message.\n\
-     \n\
-     For greater control over affinity setting, use the -cpu option, which supports two\n\
-     distinct core-specification syntaxes (which may be mixed together), as follows:\n\
-     \n\
-     -cpu {lo[:hi[:incr]]}   (All args {int} here) Set thread/CPU affinity.\n\
-     NOTE: This flag and -nthread are mutually exclusive: If -cpu is used, the threadcount\n\
-     is inferred from the numeric-argument-triplet which follows. If only the 'lo' argument\n\
-     of the triplet is supplied, this means 'run single-threaded with affinity to CPU {lo}.'\n\
-     If the increment (third) argument of the triplet is omitted, it is taken as incr = 1.\n\
-     The CPU set encoded by the integer-triplet argument to -cpu corresponds to the\n\
-     values of the integer loop index i in the C-loop for(i = lo; i <= hi; i += incr),\n\
-     excluding the loop-exit value of i. Thus '-cpu 0:3' and '-cpu 0:3:1' are both\n\
-     exactly equivalent to '-nthread 4', whereas '-cpu 0:6:2' and '-cpu 0:7:2' both\n\
-     specify affinity setting to cores 0,2,4,6, assuming said cores exist.\n\
-     Lastly, note that no whitespace is permitted within the colon-separated numeric field.\n\
-     \n\
-     -cpu {triplet0[,triplet1,...]}   This is simply an extended version of the above affinity-\n\
-     setting syntax in which each of the comma-separated 'triplet' subfields is in the above\n\
-     form and, analogously to the one-triplet-only version, no whitespace is permitted within\n\
-     the colon-and-comma-separated numeric field. Thus '-cpu 0:3,8:11' and '-cpu 0:3:1,8:11:1'\n\
-     both specify an 8-threaded run with affinity set to the core quartets 0-3 and 8-11,\n\
-     whereas '-cpu 0:3:2,8:11:2' means run 4-threaded on cores 0,2,8,10. As described for the\n\
-     -nthread option, it is an error for any core index to exceed the available number of logical\n\
-     processor cores.\n");
-  }
- #endif
+	fprintf(stderr, "Please refer to the help.txt file for the full list of command line options.\n");
 	exit(EXIT_SUCCESS);
 }
 
@@ -4918,7 +4697,7 @@ int read_ppm1_savefiles(const char*fname, uint64 p, uint32*kblocks, FILE*fp, uin
 {
 	const char func[] = "read_ppm1_savefiles";
 	uint32 i,j,nbytes = 0,nerr;
-	uint64 itmp64, nsquares = 0ull;
+	uint64 nsquares = 0ull;
 	*Res64 = 0ull;	// 0 value on return indicates failure of some kind
 	ASSERT(HERE, arr1 != 0x0, "Null arr1 pointer!");
 
@@ -4944,7 +4723,7 @@ int read_ppm1_savefiles(const char*fname, uint64 p, uint32*kblocks, FILE*fp, uin
 		i = fgetc(fp);	nsquares += (uint64)i << (8*j);
 	}
 	// v20: E.g. distributed deep p-1 S2 may use B2 >= 2^32: Only allow nsquares >= 2^32 if it's an S2 restart:
-	if(TEST_TYPE == TEST_TYPE_PM1 && nsquares > 0xFFFFFFFFull) {
+	if(TEST_TYPE == TEST_TYPE_PM1 && strstr(fname, ".s2") && nsquares > 0xFFFFFFFFull) {
 		ASSERT(HERE, B2_start <= nsquares, "P-1 stage 2 restart requires (B2_start in worktodo assignment) <= (savefile nsquares field)!");
 		// If S2 restart and (nsquares > B2_start), read the ensuing S2 interim residue; if (nsquares == B2_start)
 		// it means S2 started but was aborted for some reason before writing an interim S2 residue. That will set
@@ -5088,7 +4867,7 @@ void write_ppm1_savefiles(const char*fname, uint64 p, int n, FILE*fp, uint64 ihi
 		TRANSFORM_TYPE = REAL_WRAPPER;
 	} else if(MODULUS_TYPE == MODULUS_TYPE_FERMAT) {
 		ASSERT(HERE, p % 8 == 0,"write_ppm1_savefiles: p % 8 == 0");
-		nbytes = (p/8) + 1;
+		nbytes = (p/8) + 1;	// We don't expect > p bits except in the highly unlikely case of a prime-Fermat Pepin-test result
 		TRANSFORM_TYPE = RIGHT_ANGLE;
 	}
 
@@ -5164,7 +4943,8 @@ int 	convert_res_bytewise_FP(const uint8 ui64_arr_in[], double a[], int n, const
 	}
 	nbytes = (p + 7)/8;
 	// Apply the circular shift:
-	mi64_shlc((uint64*)ui64_arr_in, (uint64*)ui64_arr_in, p, RES_SHIFT, (p+63)>>6, (MODULUS_TYPE == MODULUS_TYPE_FERMAT));
+	uint32 is_ferm = (MODULUS_TYPE == MODULUS_TYPE_FERMAT);
+	mi64_shlc((uint64*)ui64_arr_in, (uint64*)ui64_arr_in, p, RES_SHIFT, (p+63+is_ferm)>>6, is_ferm);
 
 	/* Vector length a power of 2? */
 	pow2_fft = (n >> trailz32(n)) == 1;
@@ -5173,13 +4953,9 @@ int 	convert_res_bytewise_FP(const uint8 ui64_arr_in[], double a[], int n, const
 	base[0] = 1 << bits[0];
 
 	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT && pow2_fft == TRUE)
-	{
 		bits[1] =     bits[0];
-	}
 	else
-	{
 		bits[1] = 1 + bits[0];
-	}
 	base[1] = 1 << bits[1];
 
 	bw = p%n;	/* cf. mers_mod_square.c	*/
@@ -5627,7 +5403,7 @@ void	convert_res_FP_bytewise(const double a[], uint8 ui64_arr_out[], int n, cons
 
 	// Remove the circular shift ... have no mi64_rshc function, so use that b-bit rightward cshift equivalent to (p-b)-bit left-cshift.
 	// (But must guard against RES_SHIFT = 0, since in that case the left-shift count == p and mi64_shlc requires shift count strictly < p):
-	j = (p+63)>>6;	// # of 64-bit limbs
+	j = (p+63+(MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6;	// # of 64-bit limbs
 	if(RES_SHIFT) {
 	//	fprintf(stderr,"convert_res_FP_bytewise: removing shift = %llu\n",RES_SHIFT);
 		uint32 sign_flip = (MODULUS_TYPE == MODULUS_TYPE_FERMAT);
@@ -5850,7 +5626,7 @@ void generate_JSON_report(
 		if(!strlen(factor)) {	// No factor was found:
 			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%s\", \"exponent\":%llu, \"worktype\":\"%s\", \"fft-length\":%u, \"B1\":%u, \"B2\":%llu, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",pm1_status[0],p,ttype,n,B1,B2,VERSION,timebuffer,aid);
 		} else {	// The factor in the eponymous arglist field was found:
-			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%s\", \"exponent\":%llu, \"worktype\":\"%s\", \"fft-length\":%u, \"B1\":%u, \"factors\":[%s], \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",pm1_status[1],p,ttype,n,B1,factor,VERSION,timebuffer,aid);
+			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%s\", \"exponent\":%llu, \"worktype\":\"%s\", \"fft-length\":%u, \"B1\":%u, \"factors\":[\"%s\"], \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",pm1_status[1],p,ttype,n,B1,factor,VERSION,timebuffer,aid);
 		}
 	} else
 		ASSERT(HERE, 0, "Unsupported test type!");
@@ -6004,6 +5780,7 @@ uint32 extract_known_factors(uint64 p, char*fac_start, FILE*fptr) {
 // The decimal value of the GCD is returned in gcd_str, presumed to be dimensioned >= 1024 chars:
 uint32 gcd(uint32 stage, uint64 p, uint64*resarr, uint32 nlimb, char*const gcd_str) {
 #if !INCLUDE_PM1
+	#warning INCLUDE_PM1 defined == 0 at compile time ... No GCDs will be done on p-1 outputs.
 	return 0;	// If user turns off p-1 support, keep the decl of gcd() to allow pm1.c to build
 #else
 	// Unlike standard types and Mlucas internal structs, GMP objects must be declared before any expressions,

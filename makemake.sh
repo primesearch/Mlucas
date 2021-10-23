@@ -63,36 +63,35 @@ fi
 
 # Thx to tdulcet for streamlined case-based syntax here, but ugh - non-matching ')', really?:
 if [[ $# -eq 1 ]]; then
-	case "${1,,}" in
-	'avx512_skylake')
-		ARGS+=( -DUSE_AVX512 -march=skylake-avx512 )
-	;;
-	'avx512_knl')
-		ARGS+=( -DUSE_AVX512 -march=knl )
-	;;
-	'avx2')
-		ARGS+=( -DUSE_AVX2 -mavx2 )
-	;;
-	'avx')
-		ARGS+=( -DUSE_AVX -mavx )
-	;;
-	'sse2')
-		ARGS+=( -DUSE_SSE2 )
-	;;
-	'asimd')
-		ARGS+=( -DUSE_ARM_V8_SIMD )
-	;;
-	'nosimd')
+
+	if [ "$1" = 'avx512_skylake' ]; then
+		echo "Building for avx512_skylake SIMD in directory obj_$1; the executable will be named Mlucas_$1"
+		ARGS+=( "-DUSE_AVX512" -march=skylake-avx512 )
+	elif [ "$1" = 'avx512_knl' ]; then
+		echo "Building for avx2 SIMD in directory obj_$1; the executable will be named Mlucas_$1"
+		ARGS+=( "-DUSE_AVX512" -march=knl )
+	elif [ "$1" = 'avx2' ]; then
+		echo "Building for avx2 SIMD in directory obj_$1; the executable will be named Mlucas_$1"
+		ARGS+=( "-DUSE_AVX2" -mavx2 )
+	elif [ "$1" = 'avx' ]; then
+		echo "Building for avx SIMD in directory obj_$1; the executable will be named Mlucas_$1"
+		ARGS+=( "-DUSE_AVX" -mavx )
+	elif [ "$1" = 'sse2' ]; then
+		echo "Building for sse2 SIMD in directory obj_$1; the executable will be named Mlucas_$1"
+		ARGS+=( "-DUSE_SSE2" )
+	elif [ "$1" = 'asimd' ]; then
+		echo "Building for avx2 SIMD in directory obj_$1; the executable will be named Mlucas_$1"
+		ARGS+=( "-DUSE_ARM_V8_SIMD" )
+	elif [ "$1" = 'nosimd' ]; then
+		echo "Building in scalar-double (no-SIMD) mode in directory obj_$1; the executable will be named Mlucas_$1"
 		# This one's a no-op
-	;;
-	*)
-		echo "Unrecognized SIMD-build flag ... aborting." >&2
+	else
+		echo "Unrecognized SIMD-build flag ... aborting."
 		exit 1
-	;;
-	esac
+	fi
+
 	DIR+="_$1"
 	EXE+="_$1"
-	echo "Building for ${1,,} SIMD in directory '$DIR'; the executable will be named '$EXE'"
 
 elif uname -a | grep -iq 'Mac'; then
 

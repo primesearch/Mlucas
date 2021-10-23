@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2020 by Ernst W. Mayer.                                           *
+*   (C) 1997-2021 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -249,7 +249,8 @@ extern uint32 *BIGWORD_NBITS;	/* Array in which the (k)th element stores total n
 extern uint32 PRP_BASE;
 extern uint64 *BASE_MULTIPLIER_BITS;
 // Nov 2020: p-1 stuff:
-extern uint64 *PM1_S1_PRODUCT;	// Vector to hold Stage 1 prime-powers product product in most-significant-bit-deleted-and-result-bit-reversed [MSBDARBR] form
+extern uint64 *PM1_S1_PRODUCT, PM1_S1_PROD_RES64;	// Vector to hold Stage 1 prime-powers product product in
+					// most-significant-bit-deleted-and-result-bit-reversed form, and (mod 2^64) checksum on same.
 extern uint32 PM1_S1_PROD_B1, PM1_S1_PROD_BITS;	// Stage 1 bound to which the current value of PM1_S1_PRODUCT corresponds, and #bits in the MSBDARBR result
 extern uint32 PM1_S2_NBUF;	// # of floating-double residue-length memblocks available for Stage 2
 // Allow Stage 2 bounds to be > 2^32; B2_start defaults to B1, but can be set > B1 to allow for arbitrary Stage 2 prime intervals:

@@ -1,0 +1,359 @@
+[***** This file best-viewed with a 4-column tab setting *****]
+
+===================== Mlucas command line options listing =====================
+
+Note: besides the basic post-build self-test flags covered by the online README page
+( http://www.mersenneforum.org/mayer/README.html ),
+the most-crucial command-line flags the average user doing GIMPS production work
+needs to be familiar with are '-cpu' and (for stage 2 of p-1 work), '-maxalloc'.
+
+===============================================================================
+
+Symbol and abbreviation key:
+
+	<CR>: carriage return
+	|	: separator for one-of-the-following multiple-choice menus
+	{}	: denotes user-supplied numerical arguments of the type noted:
+		{int} means nonnegative integer, {+int} = positive int, {float} = float.
+		Args not enclosed in [] are required.
+	[]	: encloses optional arguments.
+		The required/optional syntax is nested, e.g. for -cpu {lo[:hi[:incr]]},
+		all args {int}, 'lo' is required at a minimum. If the user wants a core-range,
+		':hi' is also required, and for a range-with-constant-stride, ':incr' is also
+		required.
+
+	Vertical stacking indicates argument short 'nickname' options, e.g. for
+
+		-argument : [blah blah]
+		-arg      : [blah blah]
+
+	the stacking means that '-arg' can be used in place of '-argument'.
+
+===============================================================================
+
+Supported command-line arguments:
+
+[0]:
+	<CR>	Default mode: looks for a worktodo.ini file in the local directory;
+			if none found, prompts for manual keyboard entry
+
+======================
+
+[1]: Post-build self-testing for various FFT-length ranges:
+
+	FOR BEST RESULTS, RUN ANY SELF-TESTS UNDER ZERO- OR CONSTANT-LOAD CONDITIONS.
+
+	The following self-test options will cause an mlucas.cfg file containing
+	the optimal FFT radix set for the runlength(s) tested to be created (if one did not
+	exist previously) or appended (if one did) with new timing data. Such a file-write is
+	triggered by each complete set of FFT radices available at a given FFT length being
+	tested, i.e. by a self-test without a user-specified -radset argument.
+
+	A user-specific Mersenne exponent may be supplied via the -m flag; if none is specified,
+	the program will use the largest permissible exponent for the given FFT length, based on
+	its internal length-setting algorithm. If the user does use -m to specify an exponent,
+	the -iters argument is also required.
+
+	The default number of iterations for the self-test is 100 for <= 4 threads and 1000 for more
+	than 4 threads. The user may also override the default via the -iters flag; while it is not
+	required, it is best to use one of the standard timing-test values of -iters = [100,1000,10000],
+	with the larger values being preferred for multithreaded timing tests, in order to minimize
+	noise in timing data.
+
+	Similarly, it is recommended to not use the -m flag for such tests, unless
+	roundoff error levels on a given compute platform are such that the default exponent at one or
+	more FFT lengths of interest prevents a reasonable sampling of available radix sets at same.
+
+	If the user lets the program set the exponent and uses one of the aforementioned standard
+	self-test iteration counts, the resulting best-timing FFT radix set will only be written to the
+	resulting mlucas.cfg file if the timing-test residues match the internally-stored precomputed
+	ones for the given default exponent at the iteration count in question, with eligible radix sets
+	consisting of those for which the roundoff error also remains below an acceptable threshold.
+
+	If the user instead specifies the exponent (only allowed for a single-FFT-length timing test)
+	and an iteration number (reuired in this case), the resulting best-timing FFT radix set will
+	only be written to the resulting mlucas.cfg file if the timing-test results match each other.
+	This is important for tuning code parameters to your particular platform.
+
+Options:
+
+ -s {anything other than the mnemonics below}: Self-test, user must also supply exponent [via -m or -f],
+	iteration number and (optionally) FFT length to use.
+
+ -s tiny	Runs 100 (<= 4 threads) or 1000-iteration self-tests on a set of 32 Mersenne exponents,
+ -s t		ranging from 173431 to 2455003. This will take around 1 minute on a fast CPU.
+
+ -s small	Runs 100 or 1000-iteration self-tests on a set of 32 Mersenne exponents, ranging from
+ -s s		2614999 to 36617407. This will take around 10 minutes on a fast CPU..
+
+************** THIS IS THE ONLY SELF-TEST ORDINARY USERS ARE RECOMMENDED TO DO: *************
+*																							*
+* -s medium	Runs 100 or 1000-iteration self-tests on a set of 16 Mersenne exponents ranging *
+* -s m		from 39003229 to 142037359. This will take around an hour on a fast CPU.		*
+*																							*
+*********************************************************************************************
+
+ -s large	Runs 100 or 1000-iteration self-tests on a set of 24 Mersenne exponents, ranging from
+ -s l		152816047 to 1094833457. This will take around 10 hours on a fast CPU.
+
+ -s huge	Runs 100 or 1000-iteration self-tests on a set of 16 Mersenne exponents, ranging from
+ -s h		1154422469 to 4197433843. This will take several days on a fast CPU.
+
+ -s all		Runs 100-iteration self-tests of all test Mersenne exponents and all FFT radix sets.
+ -s a		This will take the better part of a full week on a fast CPU.
+
+======================
+
+[2]: FFT-length setting:
+
+ -fft[len] {+int}
+ 	If {+int[K|M]} is one of the available FFT lengths, runs all available FFT radices
+ 	available at that length, unless the -radset flag is invoked (see below for details).
+ 	If -fft is invoked without the -iters flag, it is assumed the user wishes to do a
+ 	production run with a non-default FFT length, in this case the program requires a
+ 	valid worktodo.ini-file entry with exponent not more than 5% larger than the
+ 	default maximum for that FFT length.
+
+	Without the optional suffixes (i.e. a pure-integer argument), the code treats the
+	numeric value as representing Kilodoubles. The code also supports a floating-point
+	numeric argument with either a 'K' or 'M' suffix. For example, the following are
+	all equivalent: -fft 5632, -fft 5632, -fft 5632K, -fft 5.5M, and all result in an
+	FFT having length 5.5 × 2^20 = 5632 × 2^10 = 5767168 doubles. Any numeric value
+	must map to a supported FFT length; for Mlucas these are of form k × 2^n, where k
+	is an odd integer in the set [1,3,5,7,9,11,13,15].
+
+	If -fft is invoked with a user-supplied value of -iters but without a
+	user-supplied exponent, the program will do the specified number of iterations
+	using the default self-test Mersenne or Fermat-number exponent for that FFT length.
+
+	If -fft is invoked with a user-supplied value of -iters and either the
+	-m or -f flag and a user-supplied exponent, the program will do the specified
+	number of iterations of either the Lucas-Lehmer test with starting value 4 (-m)
+	or the Pe'pin test with starting value 3 (-f) on the user-specified modulus.
+
+	In either of the latter 2 cases, the program will produce a cfg-file entry based
+	on the timing results, assuming at least 50% of the available radix sets at the
+	given FFT length ran the specified #iters to completion without suffering a fatal
+	error of some kind, e.g. excessive roundoff error, mismatching residues versus-
+	tabulated, or "No AVX-512 support; Skipping this leading radix" for certain smaller
+	leading radices.
+	Use this to find the optimal radix set for a single FFT length on your hardware.
+
+	NOTE: If you use other than the default modulus or #iters for such a single-fft-
+	length timing test, it is up to you to manually verify that the residues output
+	match for all fft radix combinations and that the roundoff errors are reasonable.
+
+======================
+
+[3]: FFT radix-set specification:
+
+ -radset {int[comma-separated list of ints]}
+	Requires a supported value of -fft to also be specified, as well as a value of -iters.
+	If this argument is invoked, a single-FFT-length and single-set-of-FFT-radices timing
+	test is assumed. If a single {int} argument is supplied, this indicates the specific
+	index of a set of complex FFT radices to use, based on the big select table in the
+	function get_fft_radices().
+
+	Optionally, the -radset flag can take an actual set of comma-separated FFT radices.
+	Said radix set must be one of those present in the aformentiones select table for the
+	FFT length in question.
+
+======================
+
+[4]: Mersenne-number primality testing:
+
+ -m [{+int}]
+	Performs a Lucas-Lehmer primality test of the Mersenne number M(int) = 2^int - 1,
+	where int must be an odd prime. If -iters is also invoked, this indicates a timing test.
+	and requires suitable added arguments (-fft and, optionally, -radset) to be supplied.
+	If the -fft option (and optionally -radset) is also invoked but -iters is not, the
+	program first checks the first line of the worktodo.ini file to see if the assignment
+	specified there is a Lucas-Lehmer test with the same exponent as specified via the -m
+	argument. If so, the -fft argument is treated as a user override of the default FFT
+	length for the exponent. If -radset is also invoked, this is similarly treated as a user-
+	specified radix set for the user-set FFT length; otherwise the program will use the
+	mlucas.cfg file to select the radix set to be used for the user-forced FFT length.
+
+	If the worktodo.ini file entry does not match the -m value, a set of timing self-tests is
+	run on the user-specified Mersenne number using all sets of FFT radices available at the
+	specified FFT length.
+
+	If the -fft option is not invoked, the self-tests use all sets of FFT radices available
+	at that exponent's default FFT length. Users can use this to find the optimal radix set
+	for a single given Mersenne number exponent on their hardware, similarly to the -fft option.
+	Performs as many iterations as specified via the -iters flag [required].
+
+======================
+
+[5]: Fermat-number primality testing:
+
+ -f {int}
+	Performs a base-3 Pe'pin test on the Fermat number F(num) = 2^(2^num) + 1.
+	If desired this can be invoked together with the -fft option, as for the Mersenne-number
+	self-tests (see notes about the -m flag). Note that not all FFT lengths supported for -m
+	are available for -f; the supported ones are of form k × 2^n, where k is an odd integer
+	in the set [1,7,15,63].
+
+	Optimal radix sets and timings are written to a fermat.cfg file.
+	Performs as many iterations as specified via the -iters flag [required].
+
+======================
+
+[6]: Residue shift:
+
+ -shift {int}
+	Number of bits by which to shift the initial seed (= iteration-0 residue). This initial
+	shift count is doubled (modulo the binary exponent of the modulus being tested) each
+	iteration; for Fermat-number tests the mod-doubling is further augmented by addition of a
+	random bit, in order to keep the shift count from landing on 0 after (Fermat-number index)
+	iterations and remaining 0. (Cf. https://mersenneforum.org/showthread.php?p=582525#post582525)
+
+	Savefile residues are rightward-shifted by the current shift count
+	before being written to the file; thus savefiles contain the unshifted residue, and
+	separately the current shift count, which the program uses to leftward-shift the
+	savefile residue when the program is restarted from interrupt.
+
+	The shift count is a 32-bit unsigned int; any modulus having > 2^32 bits (thus using an
+	FFT length of 256M or larger) requires 0 shift.
+
+======================
+
+[7]: Probable-primality testing mode:
+
+ -prp {int}
+	Instead of running the rigorous primality test defined for the modulus type
+	in question (Lucas-Lehmer test for Mersenne numbers, Pe'pin test for Fermat numbers),
+	do a probable-primality test to the specified integer base b = {int}.
+
+	For a Mersenne number M(p), starting with initial seed x = b (which must not = 2
+	or a power of 2), this means do a Fermat-PRP test, consisting of (p-2) iterations of
+	form x = b*x^2 (mod M(p)) plus a final mod-squaring x = x^2 (mod M(p)), with M(p) being
+	a probable-prime to base b if the result == 1.
+
+	For a Fermat number F(m), starting with initial seed x = b (which must not = 2
+	or a power of 2), this means do an Euler-PRP test (referred to as a Pe'pin test for these
+	moduli), i.e. do 2^m-1 iterations of form x = b*x^2 (mod F(m)), with F(m) being not merely
+	a probable prime but in fact deterministically a prime if the result == -1. The reason we
+	still use the -prp flag in the Fermat case is for legacy-code compatibility: All pre-v18
+	Mlucas versions supported only Pe'pin testing to base b = 3; now the user can use the -prp
+	flag with a suitable base-value to override this default choice of base.
+
+======================
+
+[8]: Iteration-number setting:
+
+ -iters {int}
+	Do {int} self-test iterations of the type determined by the
+	modulus-related options (-s/-m = Lucas-Lehmer test iterations with
+	initial seed 4, -f = Pe'pin-test squarings with initial seed 3.
+
+======================
+
+[9]: Setting maximum-percentage of system free-RAM to use for p-1 stage 2 work per instance:
+
+ -maxalloc {int}
+	Maximum-percentage of available system RAM to use per instance. Must be
+	>= 10. Default = 90; user-specified values greater than 90 are allowed, but
+	only called for if the program is underestimating system free RAM for some reason.
+	Use the free-RAM field in the first few lines of Linux 'top' output to check this.
+	Under MacOS the default is 50% of available (not free) RAM
+	If the system is swapping between RAM and HD/SSD during stage 2, as evidenced by
+	free-RAM dropping to near-0 and 'kswapd' entries appearing among the CPU-%-sorted
+	of the 'top' output, the value needs to be lowered.
+
+ -pm1_s2_nbuf {int}
+	Since available RAM fluctuates depending on current load, this flag alternatively
+	allows the user to set the maximum number of p-1 stage 2 buffers to use per instance.
+	Currently, the number of stage 2 buffers must be a multiple of 24 or 40; if the user-
+	set maximum value is not such, the largest such multiple <= the user-specified value
+	is used for stage 2 work.
+
+Only one of the 2 flags may be set via the command line.
+
+These 2 flags are only important in the context of stage 2 of p-1 factoring, which
+will be done automatically before a Lucas-Lehmer primality or probable-primality-test
+if the GIMPS assignment in question indicates that some p-1 effort is warranted.
+
+======================
+
+[10]: Setting threadcount and CPU core affinity:
+
+Note: As of this writing (v20.1) setting core affinity is not effective when running
+on Windows Subsystem for Linux (WSL), presumably due to virtualization. Processes
+will core-hop, negatively impacting efficiency.
+
+ [obsolescent - not recommended, please use the -cpu flag instead]
+ -nthread {int}
+	For multithread-enabled builds, run with this many threads.
+	If the user does not specify a thread count, the default is to run single-threaded
+	with that thread's affinity set to logical core 0.
+
+	AFFINITY: The code will attempt to set the affinity of the resulting threads
+	0:n-1 to the same-indexed processor cores - whether this means distinct physical
+	cores is entirely up to the CPU vendor - E.g. Intel uses such a numbering scheme
+	but AMD does not. For this reason as of v17 this option is deprecated in favor of
+	the -cpu flag, whose usage is detailed below, with the online README page providing
+	guidance for the core-numbering schemes of popular CPU vendors.
+
+	If n exceeds the available number of logical processor cores (call it #cpu), the
+	program will halt with an error message.
+
+	For greater control over affinity setting, use the -cpu option, which supports two
+	distinct core-specification syntaxes (which may be mixed together), as follows:
+
+[recommended:]
+ -cpu {lo[:hi[:incr]]}
+	(All args {int} here) Set thread/CPU affinity. NOTE: This flag and -nthread are mutually exclusive!
+	If -cpu is used, the threadcount is inferred from the numeric-argument-triplet which follows.
+	If only the 'lo' argument of the triplet is supplied, it means 'run single-threaded with affinity
+	to logical core {lo}.' (In the absence of hyperthreading, logical and physical cores are the same.)
+	If the increment (third) argument of the triplet is omitted, it is taken as incr = 1.
+	The CPU set encoded by the integer-triplet argument to -cpu corresponds to the
+	values of the integer loop index i in the C-loop for(i = lo; i <= hi; i += incr),
+	excluding the loop-exit value of i. Thus '-cpu 0:3' and '-cpu 0:3:1' are both
+	exactly equivalent to '-nthread 4', whereas '-cpu 0:6:2' and '-cpu 0:7:2' both
+	specify affinity setting to logical cores 0,2,4,6, assuming said cores exist.
+	Lastly, note that no whitespace is permitted within the colon-separated numeric field.
+
+	-cpu {triplet0[,triplet1,...]}	This is simply an extended version of the above affinity-
+	setting syntax in which each of the comma-separated 'triplet' subfields is in the above
+	form and, analogously to the one-triplet-only version, no whitespace is permitted within
+	the colon-and-comma-separated numeric field. Thus '-cpu 0:3,8:11' and '-cpu 0:3:1,8:11:1'
+	both specify an 8-threaded run with affinity set to logical core quartets 0-3 and 8-11,
+	whereas '-cpu 0:3:2,8:11:2' means run 4-threaded on cores 0,2,8,10. As described for the
+	-nthread option, it is an error for any core index to exceed the available number of logical
+	processor cores.
+
+======================
+
+[11]: Undocumented user controls:
+
+(Yes, the author appreciates the contradiction inherent in the category title and the ensuing 'documentation of Undocumented user controls" - think of this category as capturing what some other freeware packages put in e.g. an Undoc.txt file.)
+
+o Frequency of savefile writes: The default frequency is threadcount-dependent: every 10,000 iterations for <= 4 threads; every 100,000 iterations for more than 4 threads. At run-start, you will see this captured in the informational terminal output (which gets piped to nohup.out if you prefix your instance invocation with "nohup", as is recommended):
+
+	Set affinity for the following 4 cores: 0.1.2.3.
+	NTHREADS = 4
+	Setting ITERS_BETWEEN_CHECKPOINTS = 10000.
+
+For p-1 factoring, slightly different terminology is used for .stat-file entries documenting savefile-writes: "S1 bit = ..." reflects which bit of the p-1 stage 1 small-prime-powers product (whose bitlength is roughly 1.4x the stage 1 bound B1) for stage 1, and "S2 at q = ..." reflecting which stage 2 primes have been processed (prime lass than and nearest the printed value). However, in all three cases the underlying savefile frequency is based on the smae matric: the number of mod-M(p) multiplies done during the current task. Thus p-1 stage 1 checkpoints will occur at rougly the same wall-clock frequency as for LL and PRP-test ones; the stage 2 savefile-update frequency will be perhaps 10-20% slower, reflecting the fact that while LL/PRP/stage-1 all do chains of in-place mod-M(p) "autosquarings", p-1 stage 2 does 2-input mod-M(p) multiplies, each of which requires 2x more data to stream between the CPU and the cache+memory subsystem.
+
+The ITERS_BETWEEN_CHECKPOINTS value can only be customised by recompiling Mlucas.c with invocation of the USE_CHECK_INTERVAL preprocessor flag, e.g. "gcc -c [compile flags from the top of your post-install build.log file] -DUSE_CHECK_INTERVAL=[your desired value] ../src/Mlucas.c" followed by relinking of the Mlucas binary, but note that there are constraints on the value related to the Gerbicz-checking done for PRP tests. (Said constraints are enforced for non-PRP-tests as well, because a given build may be used for various kinds of testing.) Specifically, the USE_CHECK_INTERVAL value must be a multiple of 1000 and must divide 1 million. Such customization is recommended only for users who know what they are doing - if you try fiddling the value and break something, don't look to the author for help.
+
+======================
+
+o General troubleshooting: Please start by looking for posts about your issue in the mersenneforum.org thread specific to the release you are using. If you don't find anything, make a post describing your problem.
+
+======================
+
+*** DON'Ts ***
+
+o DON'T omit actually *reading* - not 'skimming' - the latest version of the README.html. This is especially important for new users - Mlucas is not a one-or-two-click "do everything for me" program. Experienced users will still want to peruse the online readme page, especially for details about the latest releases.
+
+o DON'T skip the post-build self-test step.
+
+o DON'T run multiple Mlucas instances in a given run directory.
+
+======================
+
+Last updated: 30 Aug 2021

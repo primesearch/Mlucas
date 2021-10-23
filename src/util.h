@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2020 by Ernst W. Mayer.                                           *
+*   (C) 1997-2021 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -266,7 +266,7 @@ DEV uint64	ibits64	(uint64 i, uint32 beg, uint32 nbits);
 DEV uint64	getbits64(uint64 x, uint32 src_bit_start, uint32 nbits,           uint32 tgt_bit_start);
 DEV void	mvbits64 (uint64 x, uint32 src_bit_start, uint32 nbits, uint64*y, uint32 tgt_bit_start);
 DEV int		pprimeF	(uint32 p, uint32 z);
-DEV uint32	is_f2psp(uint32 n);
+DEV uint32	is_f2psp(uint32 n, uint32*idx_next_psp);
 DEV uint32	is_prime(uint32 n);
 DEV uint32	next_prime(uint32 n, int dir);
 DEV uint32	nprimes_in_range(uint32 b1, uint32 b2);

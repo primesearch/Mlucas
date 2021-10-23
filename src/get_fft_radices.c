@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2020 by Ernst W. Mayer.                                           *
+*   (C) 1997-2021 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -105,7 +105,7 @@ int	get_fft_radices(uint32 kblocks, int radix_set, uint32 *nradices, uint32 radi
 		return ERR_FFTLENGTH_ILLEGAL;
 	}
 	i = kblocks >> trailz32(kblocks);	// odd component of FFT length
-	if(i > 15 && i != 31 && i != 63)	// Apr 2014: Add rdix-31,63 support for purpose of ROE testing of F33-mod aithmetic
+	if(i > 15 && i != 31 && i != 63)	// Apr 2014: Add radix-31,63 support for purpose of ROE testing of F33-mod arithmetic
 	{
 		fprintf(stderr,"ERROR: specified FFT length %d K has non-power-of-2 component %d,\n", kblocks,i);
 		fprintf(stderr,"       which exceeds the maximum allowed odd radix of 15.\n");
@@ -2631,7 +2631,10 @@ uint32 get_default_fft_length(uint64 p)
 			twoK *= 2;
 		fftLen = leadingRadixVec[i]*twoK;
 	}
-	ASSERT(HERE, 0,"0");
+	if((fftLen >> 10) == 589824)
+		fprintf(stderr,"get_default_fft_length: Allowing fftLen 576M just for informational purposes ... note this length is not supported.\n");
+	else
+		ASSERT(HERE, 0,"get_default_fft_length: fftLen > MAX_FFT_LENGTH_IN_K!");
 	return 0;
 }
 

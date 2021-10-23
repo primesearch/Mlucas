@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2020 by Ernst W. Mayer.                                           *
+*   (C) 1997-2021 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -634,14 +634,15 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 												/* (cy_i_cy_r) --vvvvv  vvvvvvvvvvvvvvvvv--[1,2,3]*ODD_RADIX; assumed << l2_sz_vd on input: */
 			SSE2_fermat_carry_norm_errcheck_X8_loacc(tm0,tmp,tm1,0x1c0, 0x1c0,0x380,0x540, half_arr,sign_mask,k1,k2,k3,k4,k5,k6,k7,k8,k9,ka,kb,kc,kd,ke,kf, tm2,p01,p02,p03,p04, addr);
 			tm0 += 16; tm1++;
-			MOD_ADD32(ic_idx, 8, ODD_RADIX, ic_idx);
-			MOD_ADD32(jc_idx, 8, ODD_RADIX, jc_idx);
-			MOD_ADD32(kc_idx, 8, ODD_RADIX, kc_idx);
-			MOD_ADD32(lc_idx, 8, ODD_RADIX, lc_idx);
-			MOD_ADD32(mc_idx, 8, ODD_RADIX, mc_idx);
-			MOD_ADD32(nc_idx, 8, ODD_RADIX, nc_idx);
-			MOD_ADD32(oc_idx, 8, ODD_RADIX, oc_idx);
-			MOD_ADD32(pc_idx, 8, ODD_RADIX, pc_idx);
+			// *** BUG: *** Aug 2021: Needed to reduce the constant addend 8 mod-ODD_RADIX, i.e. 8%7 = 1:
+			MOD_ADD32(ic_idx, 1, ODD_RADIX, ic_idx);
+			MOD_ADD32(jc_idx, 1, ODD_RADIX, jc_idx);
+			MOD_ADD32(kc_idx, 1, ODD_RADIX, kc_idx);
+			MOD_ADD32(lc_idx, 1, ODD_RADIX, lc_idx);
+			MOD_ADD32(mc_idx, 1, ODD_RADIX, mc_idx);
+			MOD_ADD32(nc_idx, 1, ODD_RADIX, nc_idx);
+			MOD_ADD32(oc_idx, 1, ODD_RADIX, oc_idx);
+			MOD_ADD32(pc_idx, 1, ODD_RADIX, pc_idx);
 		}
 
 	   #else	// AVX / AVX2

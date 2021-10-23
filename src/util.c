@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2020 by Ernst W. Mayer.                                           *
+*   (C) 1997-2021 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -1939,12 +1939,12 @@ void print_host_info(void)
 {
 	// Get available system RAM in MB, store in SYSTEM_RAM global:
 	SYSTEM_RAM = get_system_ram();
-	MAX_RAM_USE = SYSTEM_RAM*(double)MAX_RAM_USE*0.01;
 #ifdef OS_TYPE_LINUX
-	printf("INFO: %u MB of free system RAM detected; will use up to 90%% = %u MB of that, unless user specifies a lower fraction via -maxalloc.\n",SYSTEM_RAM,MAX_RAM_USE);
+	printf("INFO: %u MB of free system RAM detected.\n",SYSTEM_RAM);
 #else
-	printf("INFO: %u MB of available system RAM detected; will use up to 50%% = %u MB of that, unless user specifies a lower fraction via -maxalloc.\n",SYSTEM_RAM,MAX_RAM_USE);
+	printf("INFO: %u MB of available system RAM detected.\n",SYSTEM_RAM);
 #endif
+
 #if defined(USE_GPU) && defined(__CUDACC__)
 
 	gpu_config_t gpu_config;
@@ -3758,13 +3758,17 @@ DEV int pprimeF(uint32 p, uint32 base)
 	return((int)(y==1));
 }
 
-// Uses binary search to determine if a given integer < 2^32 is a Fermat-base-2 pseudoprime (1 if yes, 0 if no)
-#include "f2psp_3_5.h"	// Sorted table of the 10403 Fermat-base-2 pseudoprimes < 2^32
-DEV uint32 is_f2psp(uint32 n) {
+// Uses binary search to determine if a given integer n < 2^32 is a Fermat-base-2 pseudoprime (1 if yes, 0 if no).
+// The optional arg idx_next_psp, if present, contains the index in the f2psp[]-array of the next 2-psp >= n .
+#include "f2psp_3_5.h"	// f2psp[] is sorted table of the 9366 Fermat-base-2 pseudoprimes < 2^32 not divisible by 3 or 5
+DEV uint32 is_f2psp(uint32 n, uint32*idx_next_psp) {
 	uint32 lo,hi,mid;
-	if(n < 341 || IS_EVEN(n))
+	if(n < 341 || IS_EVEN(n)) {
+		if(idx_next_psp)
+			*idx_next_psp = 0;
 		return 0;
-	lo = 0; hi = 10403-1;
+	}
+	lo = 0; hi = 9366-1;
 	while(lo < hi) {
 		// if hi-lo odd (one even, one odd), mid on low side of 1/2-midpoint, i.e. for hi-lo = 1, mid = lo:
 		mid = (lo + hi)>>1;
@@ -3775,14 +3779,25 @@ DEV uint32 is_f2psp(uint32 n) {
 		}
 	}
 	// Last pass thru above while() always has hi-lo = 1, i.e. , mid = lo on exit and we want to check hi-element for equality:
-	return (f2psp[hi] == n);
+	if(f2psp[hi] == n) {
+	//	fprintf(stderr,"f2psp[%u] == %u\n",hi,n);
+		return 1;
+	} else {
+		if(idx_next_psp)
+			*idx_next_psp = hi;
+		return 0;
+	}
 }
 
 // Rigorous is-prime for n < 2^32:
 DEV uint32 is_prime(uint32 n) {
+	if(n < 2)
+		return 0;
 	if(IS_EVEN(n))
 		return(n == 2);
-	return(pprimeF(n,2) && !is_f2psp(n));
+	if(n < 7)
+		return 1;
+	return(pprimeF(n,2) && !is_f2psp(n,0x0));
 }
 
 // Get nearest Fermat 2-PRP to N in the specified search direction, up or down. Algorithm is slow try-next-odd:
@@ -3804,27 +3819,71 @@ DEV uint32 next_prime(uint32 n, int dir) {
 	while(1) {
 		n += dir;
 		// N which pass Fermat base-2 PRP test further checked for Fermat base-PSP-ness to weed out pseudoprimes:
-		if(pprimeF(n,2) && !is_f2psp(n)) {
+		if(pprimeF(n,2) && !is_f2psp(n,0x0)) {
 			return(n);
 		}
 	}
 	return 0;
 }
 
+// On Core2 gives 1857859 primes in [1000000,30000000] in 2.5 sec; 8444396 primes in [5000000,150000000] in 14 sec.
+// If for some reason need to speed things up further, next thing to try is to use 4-way or 8-way modexp in pprimeF.
 DEV uint32 nprimes_in_range(uint32 b1, uint32 b2) {
-	uint32 n,np;
+	uint32 i,n,np,idx,nmod30;
 	if(b1 >= b2) {
-		ASSERT(HERE,0,"Error: nprimes_in_range() inputs must be b1 < b2");
-		return 0;
+		fprintf(stderr,"Error: nprimes_in_range() inputs must be b1 < b2; user input %u,%u\n",b1,b2);
+		exit(1);
 	}
-	n = b1; np = (b1 <= 2);	// special-case to catch n = 2
+	if(b1 >= 5) {
+		np = (b1 > 1) + (b1 > 2) + (b1 > 4);	b1 = 7;
+	}
+	n = b1;
 	// n must be odd:
-	if(!(n%2)) {
+	if(!(n&1)) {
 		n += 1;
 	}
-	while(n < b2) {
-		np += (pprimeF(n,2) && !is_f2psp(n));
+	while(n%3 == 0 || n%5 == 0) {
 		n += 2;
+	}
+	/* Now we have n odd >= 7 and not divisible by 3 or 5 on loop entry.
+	Use of f2psp, the table of 9366 base-2 Fermat pseudoprimes < 2^32 not divisible by 3 or 5,
+	requires we filter out such (n%3 == 0 || n%5 == 0) using a simple mod-30 sieve. For a given
+	n%30 in the 'keep' list, 'incr' means the increment needed to get to the next 'keep' value:
+		n%30:	01 03 05 07 09 11 13 15 17 19 21 23 25 27 29
+		keep:	 x        x     x  x     x  x     x        x
+		incr:	 6        4     2  4     2  4     6        2
+	Store the 8 increments in a array, cycle through them as many times as needed.
+	*/
+	const uint32 incr[8] = {6,4,2,4,2,4,6,2};
+	nmod30 = n%30;
+	if(nmod30 == 1)
+		idx = 0;
+	else if(nmod30 == 7)
+		idx = 1;
+	else if(nmod30 == 11)
+		idx = 2;
+	else if(nmod30 == 13)
+		idx = 3;
+	else if(nmod30 == 17)
+		idx = 4;
+	else if(nmod30 == 19)
+		idx = 5;
+	else if(nmod30 == 23)
+		idx = 6;
+	else if(nmod30 == 29)
+		idx = 7;
+	// On return i contains index of nearest 2-psp >= n:
+	is_f2psp(n,&i);
+	while(n < b2) {
+		if(pprimeF(n,2)) {
+			// If n is 2-psp, increment 2-psp table index - cheaper than doing full-blown binary search each time
+			if(f2psp[i] == n) {
+			//	fprintf(stderr,"hit 2-psp %u\n",n);
+				i++;
+			} else
+				np++;
+		}
+		n += incr[idx]; idx = (idx + 1)&7;
 	}
 	return np;
 }
@@ -8703,9 +8762,9 @@ void mlucas_fprint(char*const cstr, int echo_to_stderr)
 	ASSERT(HERE, cstr != 0x0 && strlen(cstr) > 0,"Null string-pointer or empty string supplied to mlucas_fprint!");
 	if(echo_to_stderr)
 		fprintf(stderr,"%s",cbuf);
-	fp = mlucas_fopen(STATFILE,"a");	// File-pointers fp,fq are globals def'd in Mlucas.c
-	if(fp) {
-		fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
+	FILE *fptr = mlucas_fopen(STATFILE,"a");
+	if(fptr) {
+		fprintf(fptr,"%s",cbuf);	fclose(fptr);	fptr = 0x0;
 	}
 }
 

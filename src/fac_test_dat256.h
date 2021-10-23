@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2019 by Ernst W. Mayer.                                           *
+*   (C) 1997-2021 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -60,7 +60,7 @@
 		{207,	             3ull},		// 1956 R. M. Robinson
 		{215,	         32111ull},		// 1980 H. Suyama
 		{226,2*	            15ull},		// 1956 R. M. Robinson
-		{228,2*	            29ull},		// 1956 R. M. Robinson 
+		{228,2*	            29ull},		// 1956 R. M. Robinson
 		{0,0ull}
 	};
 

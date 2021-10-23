@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2020 by Ernst W. Mayer.                                           *
+*   (C) 1997-2021 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -43,6 +43,7 @@
 		int nradices_prim;
 		int *radix_prim;
 		uint64 fwd_fft;
+		double *c;		// Optional auxiliary submul array
 	};
 
 #else
@@ -59,51 +60,51 @@ uint32 SW_DIV_N;	/* Needed for the subset of radix* carry routines which support
 
 /*...Subroutine to perform Fermat-mod squaring on the data in the length-N real vector A.
 
-     Acronym: DIF = Decimation In Frequency, DIT = Decimation In Time.
+	Acronym: DIF = Decimation In Frequency, DIT = Decimation In Time.
 
-     One-pass combined fwd-DWT-weighting/fwd-DIF-FFT/pointwise-squaring/inv-DIT-FFT/inv-DWT-weighting
-     for use with a packed-vector complex transform to halve the runlength of the corresponding real-vector
-     transform. transform. We use the standard weighting that allows an acyclic length-N convolution to be
-     effected via a length-N cyclic, namely premultiplying the elements by weight factors which are the
-     first N (2*N)th complex roots of unity (the array name 'wn' is a mnemonic for 'roots negacyclic'):
+	One-pass combined fwd-DWT-weighting/fwd-DIF-FFT/pointwise-squaring/inv-DIT-FFT/inv-DWT-weighting
+	for use with a packed-vector complex transform to halve the runlength of the corresponding real-vector
+	transform. transform. We use the standard weighting that allows an acyclic length-N convolution to be
+	effected via a length-N cyclic, namely premultiplying the elements by weight factors which are the
+	first N (2*N)th complex roots of unity (the array name 'wn' is a mnemonic for 'roots negacyclic'):
 
-                   rn(j) = exp(i*j*pi/N), j=0,...,N-1,
+				rn(j) = exp(i*j*pi/N), j=0,...,N-1,
 
-     performing a length-N cyclic convolution on the weighted vector, then multiplying the
-     outputs by the analogous inverse weights.
+	performing a length-N cyclic convolution on the weighted vector, then multiplying the
+	outputs by the analogous inverse weights.
 
-     We can exploit the symmetries of complex exponentials to reduce storage and improve
-     performance in several ways here:
+	We can exploit the symmetries of complex exponentials to reduce storage and improve
+	performance in several ways here:
 
-     Symmetry (1): Since each component of WT is simply a complex exponential, inverse weights
-                   are just complex conjugates, and don't need to be stored separately.
+	Symmetry (1): Since each component of WT is simply a complex exponential, inverse weights
+				are just complex conjugates, and don't need to be stored separately.
 
-     Symmetry (2): rn(j + N/2) = exp(i*(j + N/2)*pi/N) =  exp(i*pi/2) * exp(i*j*pi/N) = I * rn(j),
-                   so the acyclic weighting leads naturally to a right-angle transform, i.e. by
-                   grouping elements (j, j + N/2) of the original length-N real input vector
-                   as complex pairs we can simply apply the weight factor rn(j) to each complex
-                   datum that results from the pairing and then go ahead and do a length-(N/2)
-                   complex transform on the paired, weighted data, without any additional
-                   complex/real wrapper step as is normally required (e.g. for Mersenne-mod.)
+	Symmetry (2): rn(j + N/2) = exp(i*(j + N/2)*pi/N) =  exp(i*pi/2) * exp(i*j*pi/N) = I * rn(j),
+				so the acyclic weighting leads naturally to a right-angle transform, i.e. by
+				grouping elements (j, j + N/2) of the original length-N real input vector
+				as complex pairs we can simply apply the weight factor rn(j) to each complex
+				datum that results from the pairing and then go ahead and do a length-(N/2)
+				complex transform on the paired, weighted data, without any additional
+				complex/real wrapper step as is normally required (e.g. for Mersenne-mod.)
 
-     When the transform length is a power of 2 (which, using 64-bit floats, works well for numbers
-     up to about the size of F35 or so), this is all that is required. For non-power-of-2 transform
-     lengths we combine the above weighting with a Crandall/Fagin-style irrational-base discrete
-     weighted transform (IBDWT) to effect the needed Fermat-mod autonegacyclic convolution.
+	When the transform length is a power of 2 (which, using 64-bit floats, works well for numbers
+	up to about the size of F35 or so), this is all that is required. For non-power-of-2 transform
+	lengths we combine the above weighting with a Crandall/Fagin-style irrational-base discrete
+	weighted transform (IBDWT) to effect the needed Fermat-mod autonegacyclic convolution.
 
-     At the beginning of each loop execution, data are assumed to have already been forward-weighted
-     and the initial-radix pass of the S-pass forward FFT done. The loop then does the following:
+	At the beginning of each loop execution, data are assumed to have already been forward-weighted
+	and the initial-radix pass of the S-pass forward FFT done. The loop then does the following:
 
-     (1) Performs the 2nd through (S-1)st passes of the complex DIF forward FFT;
-     (2) Does the final-radix forward FFT pass, the complex-pointwise squaring step,
-         and the initial-radix inverse FFT pass in a single pass through the data;
-     (3) Performs the 2nd through (S-1)st passes of the complex DIT inverse FFT,
-         with radices processed in reverse order from the forward FFT (this is
-         not necessary for power-of-2 transform lengths, but ensures that DIF radix 1
-         equals DIT radix S and vice versa, which is required for steps (2) and (4));
-     (4) Does the final-radix inverse FFT pass, the inverse DWT weighting, the carry
-         propagation step (with fractional roundoff error check), the forward DWT weighting,
-         and the initial-radix forward FFT pass in a single pass through the data.
+	(1) Performs the 2nd through (S-1)st passes of the complex DIF forward FFT;
+	(2) Does the final-radix forward FFT pass, the complex-pointwise squaring step,
+		and the initial-radix inverse FFT pass in a single pass through the data;
+	(3) Performs the 2nd through (S-1)st passes of the complex DIT inverse FFT,
+		with radices processed in reverse order from the forward FFT (this is
+		not necessary for power-of-2 transform lengths, but ensures that DIF radix 1
+		equals DIT radix S and vice versa, which is required for steps (2) and (4));
+	(4) Does the final-radix inverse FFT pass, the inverse DWT weighting, the carry
+		propagation step (with fractional roundoff error check), the forward DWT weighting,
+		and the initial-radix forward FFT pass in a single pass through the data.
 
 The scratch array (2nd input argument) is only needed for data table initializations, i.e. if first_entry = TRUE.
 */
@@ -176,7 +177,8 @@ of 2 separate sub-bitfields:
 					p[exponent].M savefile.
 					if the check fails, skip the savefile-writing and instead roll back and restart the PRP test from the p[exponent].M file.
 */
-int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, uint64 fwd_fft_only, uint64 p, int scrnFlag, double *tdiff, int update_shift)
+// v20.1: Add auxiliary submul-array arg c[] to support FFT-submul a[]*(b[] - c[]) used by p-1 stage 2, with b[],c[] fwd-FFTed on entry:
+int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, uint64 fwd_fft_only, uint64 p, int scrnFlag, double *tdiff, int update_shift, double c[])
 {
 	const char func[] = "fermat_mod_square";
 	const char*arr_sml[] = {"long","medium","short","hiacc"};	// Carry-chain length descriptors
@@ -1171,8 +1173,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 
 		/* The dyadic-square routines need a few more params passed in init-mode than do the standalone FFT-pass routines: */
 		// Sep 2014: Add roots-table pointers to arglist since now need these to init modified 2-table-CMUL scheme:
-		radix16_dyadic_square(0x0, arr_scratch, n, radix0, rt0, rt1, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id, FALSE);
-		radix32_dyadic_square(0x0, arr_scratch, n, radix0, rt0, rt1, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id, FALSE);
+		radix16_dyadic_square(0x0, arr_scratch, n, radix0, rt0, rt1, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id, FALSE, 0x0);
+		radix32_dyadic_square(0x0, arr_scratch, n, radix0, rt0, rt1, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id, FALSE, 0x0);
 
 		radix8_dit_pass (0x0, 0, 0x0, 0x0, 0, 0, 0x0, init_sse2, thr_id);
 		radix16_dit_pass(0x0, 0, 0x0, 0x0, 0, 0, 0x0, init_sse2, thr_id);
@@ -1184,8 +1186,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		init_sse2 = nchunks;	// Use *value* of init_sse2 to store #threads
 		thr_id = -1;
 		/* The dyadic-square routines need a few more params passed in init-mode than do the standalone FFT-pass routines: */
-		radix16_dyadic_square(0x0, arr_scratch, n, radix0, rt0, rt1, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id, FALSE);
-		radix32_dyadic_square(0x0, arr_scratch, n, radix0, rt0, rt1, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id, FALSE);
+		radix16_dyadic_square(0x0, arr_scratch, n, radix0, rt0, rt1, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id, FALSE, 0x0);
+		radix32_dyadic_square(0x0, arr_scratch, n, radix0, rt0, rt1, 0, nradices_prim, radix_prim, 0, init_sse2,thr_id, FALSE, 0x0);
 	}
 	new_runlength = FALSE;
 
@@ -1195,7 +1197,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 
 	// v20: Add support for mod_mul with one input being in precomputed fwd-FFTed form:
 #ifdef MULTITHREAD
-	for(i = 0; i < nchunks; ++i) { tdat[i].arrdat = a; tdat[i].fwd_fft = fwd_fft; }
+	for(i = 0; i < nchunks; ++i) { tdat[i].arrdat = a; tdat[i].fwd_fft = fwd_fft; tdat[i].c = c; }
 //	printf("Thread 0: arrdat = 0x%llX, fwd_fft = 0x%llX\n",tdat[0].arrdat,tdat[0].fwd_fft);
 #endif
 
@@ -1323,7 +1325,7 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 {
 
 /*...perform the FFT-based squaring:
-     Do last S-1 of S forward decimation-in-frequency transform passes.	*/
+	Do last S-1 of S forward decimation-in-frequency transform passes.	*/
 
 	/* Break the remaining portion of the FFT into radix0 blocks, each of which ideally
 	should operate on a dataset which fits entirely into the L2 cache of the host machine.
@@ -1367,7 +1369,7 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 	/* Unthreaded version: */
 	for(ii = 0; ii < radix0; ++ii)
 	{
-		fermat_process_chunk(a,arr_scratch,n,rt0,rt1,index,ii,nradices_prim,radix_prim, fwd_fft);
+		fermat_process_chunk(a,arr_scratch,n,rt0,rt1,index,ii,nradices_prim,radix_prim, fwd_fft, c);
 	}
 
 #endif	// threaded?
@@ -1758,11 +1760,12 @@ fermat_process_chunk(void*targ)	// Thread-arg pointer *must* be cast to void and
 	int nradices_prim   = thread_arg->nradices_prim;
 	int*radix_prim      = thread_arg->radix_prim;
 	uint64 fwd_fft      = thread_arg->fwd_fft;
+	double*c            = thread_arg->c;
 
 #else
 
 void fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex rt0[], struct complex rt1[],
-	int index[], int ii, int nradices_prim, int radix_prim[], uint64 fwd_fft)
+	int index[], int ii, int nradices_prim, int radix_prim[], uint64 fwd_fft, double c[])
 {
 	int thr_id = 0;	/* In unthreaded mode this must always = 0 */
 
@@ -1770,9 +1773,10 @@ void fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex r
 
 	const char func[] = "fermat_process_chunk";
 	int radix0 = RADIX_VEC[0];
-    int i,incr,istart,jstart,k,koffset,l,mm;
+	int i,incr,istart,jstart,k,koffset,l,mm;
 	int init_sse2 = FALSE;	// Init-calls to various radix-pass routines presumed done prior to entry into this routine
 	uint64 bptr = 0x0;	// Pointer to B-array, if one is supplied in guise of the uint64 fwd_fft arg
+	double*cptr = 0x0;
 
 	l = ii;
 	k    = 0;
@@ -1785,8 +1789,8 @@ void fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex r
 		bptr = (uint64)((double*)fwd_fft + jstart);
 	else
 		bptr = fwd_fft;
-
-	/* v20: Bits 2:3 of fwd_fft = 3 means "dyadic-multiply of 2 inputs a and b, with both already forward-FFTed:
+	if(c) cptr = c + jstart;
+	/* v20: [Bits 2:3 of fwd_fft] = 3 means "dyadic-multiply of 2 inputs a and b, with both already forward-FFTed:
 		(double *)a = FFT(a), (double *)(fwd_fft_only - mode_flag) = FFT(b).
 	In this case fwd_fft &= ~0xC yields pointer to FFT(b) we skip over fwd-FFT directly to
 	dyadic-multiply FFT(a) * FFT(b) and iFFT the product, storing the result in a[].
@@ -1826,13 +1830,12 @@ void fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex r
 	switch(RADIX_VEC[NRADICES-1])
 	{
 		case 16:
-			radix16_dyadic_square(&a[jstart],arr_scratch,n,radix0,rt0,rt1,ii,nradices_prim,radix_prim,incr,init_sse2,thr_id, bptr); break;
+			radix16_dyadic_square(&a[jstart],arr_scratch,n,radix0,rt0,rt1,ii,nradices_prim,radix_prim,incr,init_sse2,thr_id, bptr, cptr); break;
 		case 32:
-			radix32_dyadic_square(&a[jstart],arr_scratch,n,radix0,rt0,rt1,ii,nradices_prim,radix_prim,incr,init_sse2,thr_id, bptr); break;
+			radix32_dyadic_square(&a[jstart],arr_scratch,n,radix0,rt0,rt1,ii,nradices_prim,radix_prim,incr,init_sse2,thr_id, bptr, cptr); break;
 		default:
 			sprintf(cbuf,"FATAL: radix %d not available for wrapper/square. Halting...\n",RADIX_VEC[NRADICES-1]); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 	}
-
 #ifdef DBG_TIME
 	clock2 = clock();
 	*dt_sqr += (double)(clock2 - clock1);
@@ -1848,7 +1851,7 @@ void fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex r
 	}
 
 	/*...Rest of inverse decimation-in-time (DIT) transform. Note that during IFFT we process the radices in reverse
-     order. The first array sent to each pass routine is assumed to contain the bit-reversed floating data.	*/
+	order. The first array sent to each pass routine is assumed to contain the bit-reversed floating data.	*/
 
 	/* Quick-n-dirty way of generating the correct starting values of k, mm and incr -
 	simply use the skeleton of the forward (DIF) loop, sans the i = NRADICES-2 pass

@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2020 by Ernst W. Mayer.                                           *
+*   (C) 1997-2021 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -54,7 +54,7 @@
 void radix16_wrapper_square(
 	double a[],             int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[],
 	int nradices_prim, int radix_prim[], int ws_i, int ws_j1, int ws_j2, int ws_j2_start, int ws_k, int ws_m, int ws_blocklen, int ws_blocklen_sum,
-	int init_sse2, int thr_id, uint64 fwd_fft_only
+	int init_sse2, int thr_id, uint64 fwd_fft_only, double c_arr[]
 )
 {
 	const char func[] = "radix16_wrapper_square";
@@ -154,12 +154,12 @@ The scratch array (2nd input argument) is only needed for data table initializat
   #endif
 	static uint32 *sm_arr = 0x0,*sm_ptr;	// Base-ptr to arrays of k1,k2-index-vectors used in SIMD roots-computation.
 	static vec_dbl *sc_arr = 0x0, *sc_ptr;
-	double *add0,*add1, *bdd0,*bdd1;	/* Addresses into array sections */
+	double *add0,*add1, *bdd0,*bdd1, *cdd0,*cdd1;	/* Addresses into array sections */
   #ifdef USE_AVX
-	double *add2,*add3, *bdd2,*bdd3;
+	double *add2,*add3, *bdd2,*bdd3, *cdd2,*cdd3;
   #endif
   #ifdef USE_AVX512
-	double *add4,*add5,*add6,*add7, *bdd4,*bdd5,*bdd6,*bdd7;
+	double *add4,*add5,*add6,*add7, *bdd4,*bdd5,*bdd6,*bdd7, *cdd4,*cdd5,*cdd6,*cdd7;
   #endif
 	vec_dbl *tmp, *c_tmp,*s_tmp, *bpt0,*bpt1,*bpt2,*bpt3;
   #ifdef USE_AVX2
@@ -174,13 +174,13 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	uint32  *k1_arr, *k2_arr;
 	vec_dbl *cc0, *ss0, *isrt2,*one,*two,*forth, *tmp0,*tmp1,*tmp2,*tmp3
 			,*r1,*r3,*r5,*r7,*r9,*r11,*r13,*r15,*r17,*r19,*r21,*r23,*r25,*r27,*r29,*r31
-			,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15;
+			,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15, *bminusc_ptr;
   #else
 	// Same list of ptrs (sans base-address) as above, but now make them static:
 	static uint32  *k1_arr, *k2_arr;
 	static vec_dbl *cc0, *ss0, *isrt2,*one,*two,*forth, *tmp0,*tmp1,*tmp2,*tmp3
 			,*r1,*r3,*r5,*r7,*r9,*r11,*r13,*r15,*r17,*r19,*r21,*r23,*r25,*r27,*r29,*r31
-			,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15;
+			,*c1,*c2,*c3,*c4,*c5,*c6,*c7,*c8,*c9,*c10,*c11,*c12,*c13,*c14,*c15, *bminusc_ptr;
   #endif
 
 #endif
@@ -197,6 +197,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 	*/
 	double *b = 0x0;
 	if(fwd_fft_only >> 2) {		// Do the following 3 steps in both cases - if bits 2:3 == 0 the ANDs are no-ops...
+		// The submul-auxiliary array c_arr[], if present, in already in proper double[] form, but b[] needs low-bits-cleared and casting
 		b = (double *)(fwd_fft_only & ~0xCull);
 		// BUT, if bits 2:3 == 0, must avoid zeroing fwd_fft_only since "do 2-input dyadic-mul following fwd-FFT" relies on that != 0:
 		if(fwd_fft_only & 0xC) {
@@ -237,14 +238,13 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			sm_arr = ALLOC_INT(sm_arr, max_threads*20*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "FATAL: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 			sm_ptr = ALIGN_INT(sm_arr);
 			ASSERT(HERE, ((uint32)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
-			// Twiddles-array: Need 0x47 slots for data, plus need to leave room to pad-align:
-			sc_arr = ALLOC_VEC_DBL(sc_arr, 0x4c*max_threads);	ASSERT(HERE, sc_arr != 0,"FATAL: unable to allocate sc_arr!");
+			// Twiddles-array: Need 0x47 slots for data, plus need to leave room to pad-align.
+			// v20: To support inline a*(b-c) for p-1 stage 2, need 2*RADIX = 32 added vec_dbl, thus 0x4c ==> 0x6c:
+			sc_arr = ALLOC_VEC_DBL(sc_arr, 0x6c*max_threads);	ASSERT(HERE, sc_arr != 0,"FATAL: unable to allocate sc_arr!");
 			sc_ptr = ALIGN_VEC_DBL(sc_arr);
 			ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
-
 			/* Use low 32 16-byte slots of sc_arr for temporaries, next 4 for const = 1/4 and nontrivial complex 16th roots,
-			last 30 for the doubled sincos twiddles, plus at least 3 more slots to allow for 64-byte alignment of the array.
-			*/
+			last 30 for the doubled sincos twiddles, plus at least 3 more slots to allow for 64-byte alignment of the array: */
 		  #ifdef MULTITHREAD
 			__i0  = sm_ptr;
 			__r0  = sc_ptr;
@@ -254,6 +254,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			one   = sc_ptr + 0x43;
 			two   = sc_ptr + 0x44;	// PAIR_SQUARE_4_AVX2 assumes two = forth-1
 			forth = sc_ptr + 0x45;
+			bminusc_ptr = sc_ptr + 0x4c;
 			for(i = 0; i < max_threads; ++i) {
 				/* These remain fixed within each per-thread local store: */
 				VEC_DBL_INIT(isrt2, ISRT2);
@@ -262,12 +263,13 @@ The scratch array (2nd input argument) is only needed for data table initializat
 				VEC_DBL_INIT(one  , 1.00);
 				VEC_DBL_INIT(two  , 2.00);
 				VEC_DBL_INIT(forth, 0.25);
-				isrt2 += 0x4c;	/* Move on to next thread's local store */
-				cc0   += 0x4c;
-				ss0   += 0x4c;
-				one   += 0x4c;
-				two   += 0x4c;
-				forth += 0x4c;
+				isrt2 += 0x6c;	/* Move on to next thread's local store */
+				cc0   += 0x6c;
+				ss0   += 0x6c;
+				one   += 0x6c;
+				two   += 0x6c;
+				forth += 0x6c;
+				bminusc_ptr += 0x6c;
 			}
 		  #else
 			k1_arr = sm_ptr;
@@ -296,6 +298,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 								tmp1 = cc0 + 0x03;
 									tmp2 = cc0 + 0x25;
 									tmp3 = cc0 + 0x26;
+			bminusc_ptr = isrt2 + 0x2c;
 			/* These remain fixed: */
 			VEC_DBL_INIT(isrt2, ISRT2);
 			VEC_DBL_INIT(cc0  , c	);
@@ -1067,7 +1070,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
   #ifdef USE_SSE2
 	k1_arr = __i0 + thr_id*20*RE_IM_STRIDE;
 	k2_arr = k1_arr +      10*RE_IM_STRIDE;
-	r1 = __r0 + thr_id*0x4c;cc0	= r1 + 0x21;
+	r1 = __r0 + thr_id*0x6c;cc0	= r1 + 0x21;
 	r3	= r1 + 0x02;		ss0	= r1 + 0x22;
 	r5	= r1 + 0x04;		c8	= r1 + 0x25;	// Insert a pad here to match offsets in radix16_dyadic_square
 	r7	= r1 + 0x06;		c4	= r1 + 0x27;
@@ -1091,6 +1094,7 @@ The scratch array (2nd input argument) is only needed for data table initializat
 							tmp1 = r1 + 0x24;
 							tmp2 = r1 + 0x46;
 							tmp3 = r1 + 0x47;
+	bminusc_ptr = r1 + 0x4c;
   #endif
 #endif
 	/*...If a new runlength, should not get to this point: */
@@ -2387,224 +2391,342 @@ skip_fwd_fft:	// v20: jump-to-point for both-inputs-already-fwd-FFTed case
 		goto loop;	// Skip dyadic-mul and iFFT
 
 	} else if (fwd_fft_only) {	// 2-input modmul: fwdFFT data dyadic-mul'ed with precomputed 2nd-vector stored in fwd-FFTed form in b[]:
-	  if(fwd_fft_only == 3) {	// v20: Both inputs enter fwd-FFTed, must copy from main arrays a[],b[] to local-vars
-	/*************************************************************/
-	/*                  1st set of inputs:                       */
-	/*************************************************************/
+
+	  if(fwd_fft_only == 3)	// v20: Both inputs enter fwd-FFTed, must copy from main arrays a[],b[] to local-vars
+	  {
+	  /*************************************************************/
+	  /*                  1st set of inputs:                       */
+	  /*************************************************************/
 		rdum = j1pad;
 		idum = j1pad+RE_IM_STRIDE;
-	/*...Block 1: t1,9,17,25 */
+	  /*...Block 1: t1,9,17,25 */
 		aj1p0r  = a[rdum   ];	aj1p0i  = a[idum   ];
 		aj1p1r  = a[rdum+16];	aj1p1i  = a[idum+16];
-	#ifdef USE_AVX512
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
+	  #endif
 		aj1p2r  = a[rdum+8 ];	aj1p2i  = a[idum+8 ];
 		aj1p3r  = a[rdum+24];	aj1p3i  = a[idum+24];
-	/*...Block 3: t5,13,21,29 */
-	#ifdef USE_AVX512
+	  /*...Block 3: t5,13,21,29 */
+	  #ifdef USE_AVX512
 		rdum += 2;	idum += 2;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
-	#endif
+	  #endif
 		aj1p4r  = a[rdum+4 ];	aj1p4i  = a[idum+4 ];
 		aj1p5r  = a[rdum+20];	aj1p5i  = a[idum+20];
-	#ifdef USE_AVX512
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
+	  #endif
 		aj1p6r  = a[rdum+12];	aj1p6i  = a[idum+12];
 		aj1p7r  = a[rdum+28];	aj1p7i  = a[idum+28];
-	/*...Block 2: t3,11,19,27 */
-	#ifdef USE_AVX512
+	  /*...Block 2: t3,11,19,27 */
+	  #ifdef USE_AVX512
 		rdum += 5;	idum += 5;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		++rdum;	++idum;
-	#elif defined(USE_SSE2)
+	  #elif defined(USE_SSE2)
 		--rdum;	--idum;
-	#endif
+	  #endif
 		aj1p8r  = a[rdum+2 ];	aj1p8i  = a[idum+2 ];
 		aj1p9r  = a[rdum+18];	aj1p9i  = a[idum+18];
-	#ifdef USE_AVX512
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
+	  #endif
 		aj1pAr = a[rdum+10];	aj1pAi = a[idum+10];
 		aj1pBr = a[rdum+26];	aj1pBi = a[idum+26];
-	/*...Block 4: t7,15,23,31 */
-	#ifdef USE_AVX512
+	  /*...Block 4: t7,15,23,31 */
+	  #ifdef USE_AVX512
 		rdum += 2;	idum += 2;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
-	#endif
+	  #endif
 		aj1pCr = a[rdum+6 ];	aj1pCi = a[idum+6 ];
 		aj1pDr = a[rdum+22];	aj1pDi = a[idum+22];
-	#ifdef USE_AVX512
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
+	  #endif
 		aj1pEr = a[rdum+14];	aj1pEi = a[idum+14];
 		aj1pFr = a[rdum+30];	aj1pFi = a[idum+30];
-	/*************************************************************/
-	/*                  2nd set of inputs:                       */
-	/*************************************************************/
+	  /*************************************************************/
+	  /*                  2nd set of inputs:                       */
+	  /*************************************************************/
 		rdum = j2pad;
 		idum = j2pad+RE_IM_STRIDE;
-	/*...Block 1: t1,9,17,25 */
+	  /*...Block 1: t1,9,17,25 */
 		aj2p0r  = a[rdum   ];	aj2p0i  = a[idum   ];
 		aj2p1r  = a[rdum+16];	aj2p1i  = a[idum+16];
-	#ifdef USE_AVX512
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
+	  #endif
 		aj2p2r  = a[rdum+8 ];	aj2p2i  = a[idum+8 ];
 		aj2p3r  = a[rdum+24];	aj2p3i  = a[idum+24];
-	/*...Block 3: t5,13,21,29 */
-	#ifdef USE_AVX512
+	  /*...Block 3: t5,13,21,29 */
+	  #ifdef USE_AVX512
 		rdum += 2;	idum += 2;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
-	#endif
+	  #endif
 		aj2p4r  = a[rdum+4 ];	aj2p4i  = a[idum+4 ];
 		aj2p5r  = a[rdum+20];	aj2p5i  = a[idum+20];
-	#ifdef USE_AVX512
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
+	  #endif
 		aj2p6r  = a[rdum+12];	aj2p6i  = a[idum+12];
 		aj2p7r  = a[rdum+28];	aj2p7i  = a[idum+28];
-	/*...Block 2: t3,11,19,27 */
-	#ifdef USE_AVX512
+	  /*...Block 2: t3,11,19,27 */
+	  #ifdef USE_AVX512
 		rdum += 5;	idum += 5;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		++rdum;	++idum;
-	#elif defined(USE_SSE2)
+	  #elif defined(USE_SSE2)
 		--rdum;	--idum;
-	#endif
+	  #endif
 		aj2p8r  = a[rdum+2 ];	aj2p8i  = a[idum+2 ];
 		aj2p9r  = a[rdum+18];	aj2p9i  = a[idum+18];
-	#ifdef USE_AVX512
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
+	  #endif
 		aj2pAr = a[rdum+10];	aj2pAi = a[idum+10];
 		aj2pBr = a[rdum+26];	aj2pBi = a[idum+26];
-	/*...Block 4: t7,15,23,31 */
-	#ifdef USE_AVX512
+	  /*...Block 4: t7,15,23,31 */
+	  #ifdef USE_AVX512
 		rdum += 2;	idum += 2;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
-	#endif
+	  #endif
 		aj2pCr = a[rdum+6 ];	aj2pCi = a[idum+6 ];
 		aj2pDr = a[rdum+22];	aj2pDi = a[idum+22];
-	#ifdef USE_AVX512
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
+	  #endif
 		aj2pEr = a[rdum+14];	aj2pEi = a[idum+14];
 		aj2pFr = a[rdum+30];	aj2pFi = a[idum+30];
 	  }
-	/*************************************************************/
-	/*                  1st set of inputs:                       */
-	/*************************************************************/
+
+	  if(c_arr) {	// c_arr != 0x0: a * (b - c)
+
+	  /*************************************************************/
+	  /*                  1st set of inputs:                       */
+	  /*************************************************************/
 		rdum = j1pad;
 		idum = j1pad+RE_IM_STRIDE;
-	/*...Block 1: t1,9,17,25 */
-		bj1p0r  = b[rdum   ];	bj1p0i  = b[idum   ];
-		bj1p1r  = b[rdum+16];	bj1p1i  = b[idum+16];
-	#ifdef USE_AVX512
+	  /*...Block 1: t1,9,17,25 */
+		bj1p0r = b[rdum   ] - c_arr[rdum   ];	bj1p0i = b[idum   ] - c_arr[idum   ];
+		bj1p1r = b[rdum+16] - c_arr[rdum+16];	bj1p1i = b[idum+16] - c_arr[idum+16];
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
-		bj1p2r  = b[rdum+8 ];	bj1p2i  = b[idum+8 ];
-		bj1p3r  = b[rdum+24];	bj1p3i  = b[idum+24];
-	/*...Block 3: t5,13,21,29 */
-	#ifdef USE_AVX512
+	  #endif
+		bj1p2r = b[rdum+8 ] - c_arr[rdum+8 ];	bj1p2i = b[idum+8 ] - c_arr[idum+8 ];
+		bj1p3r = b[rdum+24] - c_arr[rdum+24];	bj1p3i = b[idum+24] - c_arr[idum+24];
+	  /*...Block 3: t5,13,21,29 */
+	  #ifdef USE_AVX512
 		rdum += 2;	idum += 2;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
-	#endif
-		bj1p4r  = b[rdum+4 ];	bj1p4i  = b[idum+4 ];
-		bj1p5r  = b[rdum+20];	bj1p5i  = b[idum+20];
-	#ifdef USE_AVX512
+	  #endif
+		bj1p4r = b[rdum+4 ] - c_arr[rdum+4 ];	bj1p4i = b[idum+4 ] - c_arr[idum+4 ];
+		bj1p5r = b[rdum+20] - c_arr[rdum+20];	bj1p5i = b[idum+20] - c_arr[idum+20];
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
-		bj1p6r  = b[rdum+12];	bj1p6i  = b[idum+12];
-		bj1p7r  = b[rdum+28];	bj1p7i  = b[idum+28];
-	/*...Block 2: t3,11,19,27 */
-	#ifdef USE_AVX512
+	  #endif
+		bj1p6r = b[rdum+12] - c_arr[rdum+12];	bj1p6i = b[idum+12] - c_arr[idum+12];
+		bj1p7r = b[rdum+28] - c_arr[rdum+28];	bj1p7i = b[idum+28] - c_arr[idum+28];
+	  /*...Block 2: t3,11,19,27 */
+	  #ifdef USE_AVX512
 		rdum += 5;	idum += 5;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		++rdum;	++idum;
-	#elif defined(USE_SSE2)
+	  #elif defined(USE_SSE2)
 		--rdum;	--idum;
-	#endif
-		bj1p8r  = b[rdum+2 ];	bj1p8i  = b[idum+2 ];
-		bj1p9r  = b[rdum+18];	bj1p9i  = b[idum+18];
-	#ifdef USE_AVX512
+	  #endif
+		bj1p8r = b[rdum+2 ] - c_arr[rdum+2 ];	bj1p8i = b[idum+2 ] - c_arr[idum+2 ];
+		bj1p9r = b[rdum+18] - c_arr[rdum+18];	bj1p9i = b[idum+18] - c_arr[idum+18];
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
-		bj1pAr = b[rdum+10];	bj1pAi = b[idum+10];
-		bj1pBr = b[rdum+26];	bj1pBi = b[idum+26];
-	/*...Block 4: t7,15,23,31 */
-	#ifdef USE_AVX512
+	  #endif
+		bj1pAr = b[rdum+10] - c_arr[rdum+10];	bj1pAi = b[idum+10] - c_arr[idum+10];
+		bj1pBr = b[rdum+26] - c_arr[rdum+26];	bj1pBi = b[idum+26] - c_arr[idum+26];
+	  /*...Block 4: t7,15,23,31 */
+	  #ifdef USE_AVX512
 		rdum += 2;	idum += 2;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
-	#endif
-		bj1pCr = b[rdum+6 ];	bj1pCi = b[idum+6 ];
-		bj1pDr = b[rdum+22];	bj1pDi = b[idum+22];
-	#ifdef USE_AVX512
+	  #endif
+		bj1pCr = b[rdum+6 ] - c_arr[rdum+6 ];	bj1pCi = b[idum+6 ] - c_arr[idum+6 ];
+		bj1pDr = b[rdum+22] - c_arr[rdum+22];	bj1pDi = b[idum+22] - c_arr[idum+22];
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
-		bj1pEr = b[rdum+14];	bj1pEi = b[idum+14];
-		bj1pFr = b[rdum+30];	bj1pFi = b[idum+30];
-	/*************************************************************/
-	/*                  2nd set of inputs:                       */
-	/*************************************************************/
+	  #endif
+		bj1pEr = b[rdum+14] - c_arr[rdum+14];	bj1pEi = b[idum+14] - c_arr[idum+14];
+		bj1pFr = b[rdum+30] - c_arr[rdum+30];	bj1pFi = b[idum+30] - c_arr[idum+30];
+	  /*************************************************************/
+	  /*                  2nd set of inputs:                       */
+	  /*************************************************************/
 		rdum = j2pad;
 		idum = j2pad+RE_IM_STRIDE;
-	/*...Block 1: t1,9,17,25 */
+	  /*...Block 1: t1,9,17,25 */
+		bj2p0r = b[rdum   ] - c_arr[rdum   ];	bj2p0i = b[idum   ] - c_arr[idum   ];
+		bj2p1r = b[rdum+16] - c_arr[rdum+16];	bj2p1i = b[idum+16] - c_arr[idum+16];
+	  #ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	  #endif
+		bj2p2r = b[rdum+8 ] - c_arr[rdum+8 ];	bj2p2i = b[idum+8 ] - c_arr[idum+8 ];
+		bj2p3r = b[rdum+24] - c_arr[rdum+24];	bj2p3i = b[idum+24] - c_arr[idum+24];
+	  /*...Block 3: t5,13,21,29 */
+	  #ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	  #elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	  #endif
+		bj2p4r = b[rdum+4 ] - c_arr[rdum+4 ];	bj2p4i = b[idum+4 ] - c_arr[idum+4 ];
+		bj2p5r = b[rdum+20] - c_arr[rdum+20];	bj2p5i = b[idum+20] - c_arr[idum+20];
+	  #ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	  #endif
+		bj2p6r = b[rdum+12] - c_arr[rdum+12];	bj2p6i = b[idum+12] - c_arr[idum+12];
+		bj2p7r = b[rdum+28] - c_arr[rdum+28];	bj2p7i = b[idum+28] - c_arr[idum+28];
+	  /*...Block 2: t3,11,19,27 */
+	  #ifdef USE_AVX512
+		rdum += 5;	idum += 5;
+	  #elif defined(USE_AVX)
+		++rdum;	++idum;
+	  #elif defined(USE_SSE2)
+		--rdum;	--idum;
+	  #endif
+		bj2p8r = b[rdum+2 ] - c_arr[rdum+2 ];	bj2p8i = b[idum+2 ] - c_arr[idum+2 ];
+		bj2p9r = b[rdum+18] - c_arr[rdum+18];	bj2p9i = b[idum+18] - c_arr[idum+18];
+	  #ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	  #endif
+		bj2pAr = b[rdum+10] - c_arr[rdum+10];	bj2pAi = b[idum+10] - c_arr[idum+10];
+		bj2pBr = b[rdum+26] - c_arr[rdum+26];	bj2pBi = b[idum+26] - c_arr[idum+26];
+	  /*...Block 4: t7,15,23,31 */
+	  #ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	  #elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	  #endif
+		bj2pCr = b[rdum+6 ] - c_arr[rdum+6 ];	bj2pCi = b[idum+6 ] - c_arr[idum+6 ];
+		bj2pDr = b[rdum+22] - c_arr[rdum+22];	bj2pDi = b[idum+22] - c_arr[idum+22];
+	  #ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	  #endif
+		bj2pEr = b[rdum+14] - c_arr[rdum+14];	bj2pEi = b[idum+14] - c_arr[idum+14];
+		bj2pFr = b[rdum+30] - c_arr[rdum+30];	bj2pFi = b[idum+30] - c_arr[idum+30];
+
+	  } else {	// c_arr = 0x0: a * b
+
+	  /*************************************************************/
+	  /*                  1st set of inputs:                       */
+	  /*************************************************************/
+		rdum = j1pad;
+		idum = j1pad+RE_IM_STRIDE;
+	  /*...Block 1: t1,9,17,25 */
+		bj1p0r  = b[rdum   ];	bj1p0i  = b[idum   ];
+		bj1p1r  = b[rdum+16];	bj1p1i  = b[idum+16];
+	  #ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	  #endif
+		bj1p2r  = b[rdum+8 ];	bj1p2i  = b[idum+8 ];
+		bj1p3r  = b[rdum+24];	bj1p3i  = b[idum+24];
+	  /*...Block 3: t5,13,21,29 */
+	  #ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	  #elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	  #endif
+		bj1p4r  = b[rdum+4 ];	bj1p4i  = b[idum+4 ];
+		bj1p5r  = b[rdum+20];	bj1p5i  = b[idum+20];
+	  #ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	  #endif
+		bj1p6r  = b[rdum+12];	bj1p6i  = b[idum+12];
+		bj1p7r  = b[rdum+28];	bj1p7i  = b[idum+28];
+	  /*...Block 2: t3,11,19,27 */
+	  #ifdef USE_AVX512
+		rdum += 5;	idum += 5;
+	  #elif defined(USE_AVX)
+		++rdum;	++idum;
+	  #elif defined(USE_SSE2)
+		--rdum;	--idum;
+	  #endif
+		bj1p8r  = b[rdum+2 ];	bj1p8i  = b[idum+2 ];
+		bj1p9r  = b[rdum+18];	bj1p9i  = b[idum+18];
+	  #ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	  #endif
+		bj1pAr = b[rdum+10];	bj1pAi = b[idum+10];
+		bj1pBr = b[rdum+26];	bj1pBi = b[idum+26];
+	  /*...Block 4: t7,15,23,31 */
+	  #ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	  #elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	  #endif
+		bj1pCr = b[rdum+6 ];	bj1pCi = b[idum+6 ];
+		bj1pDr = b[rdum+22];	bj1pDi = b[idum+22];
+	  #ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	  #endif
+		bj1pEr = b[rdum+14];	bj1pEi = b[idum+14];
+		bj1pFr = b[rdum+30];	bj1pFi = b[idum+30];
+	  /*************************************************************/
+	  /*                  2nd set of inputs:                       */
+	  /*************************************************************/
+		rdum = j2pad;
+		idum = j2pad+RE_IM_STRIDE;
+	  /*...Block 1: t1,9,17,25 */
 		bj2p0r  = b[rdum   ];	bj2p0i  = b[idum   ];
 		bj2p1r  = b[rdum+16];	bj2p1i  = b[idum+16];
-	#ifdef USE_AVX512
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
+	  #endif
 		bj2p2r  = b[rdum+8 ];	bj2p2i  = b[idum+8 ];
 		bj2p3r  = b[rdum+24];	bj2p3i  = b[idum+24];
-	/*...Block 3: t5,13,21,29 */
-	#ifdef USE_AVX512
+	  /*...Block 3: t5,13,21,29 */
+	  #ifdef USE_AVX512
 		rdum += 2;	idum += 2;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
-	#endif
+	  #endif
 		bj2p4r  = b[rdum+4 ];	bj2p4i  = b[idum+4 ];
 		bj2p5r  = b[rdum+20];	bj2p5i  = b[idum+20];
-	#ifdef USE_AVX512
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
+	  #endif
 		bj2p6r  = b[rdum+12];	bj2p6i  = b[idum+12];
 		bj2p7r  = b[rdum+28];	bj2p7i  = b[idum+28];
-	/*...Block 2: t3,11,19,27 */
-	#ifdef USE_AVX512
+	  /*...Block 2: t3,11,19,27 */
+	  #ifdef USE_AVX512
 		rdum += 5;	idum += 5;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		++rdum;	++idum;
-	#elif defined(USE_SSE2)
+	  #elif defined(USE_SSE2)
 		--rdum;	--idum;
-	#endif
+	  #endif
 		bj2p8r  = b[rdum+2 ];	bj2p8i  = b[idum+2 ];
 		bj2p9r  = b[rdum+18];	bj2p9i  = b[idum+18];
-	#ifdef USE_AVX512
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
+	  #endif
 		bj2pAr = b[rdum+10];	bj2pAi = b[idum+10];
 		bj2pBr = b[rdum+26];	bj2pBi = b[idum+26];
-	/*...Block 4: t7,15,23,31 */
-	#ifdef USE_AVX512
+	  /*...Block 4: t7,15,23,31 */
+	  #ifdef USE_AVX512
 		rdum += 2;	idum += 2;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
-	#endif
+	  #endif
 		bj2pCr = b[rdum+6 ];	bj2pCi = b[idum+6 ];
 		bj2pDr = b[rdum+22];	bj2pDi = b[idum+22];
-	#ifdef USE_AVX512
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
+	  #endif
 		bj2pEr = b[rdum+14];	bj2pEi = b[idum+14];
 		bj2pFr = b[rdum+30];	bj2pFi = b[idum+30];
+
+	  }	// endif(c_arr)
 
 	  if(j1 == 0)	/* NB: mustn't use re, im as temps in exe1-3 section, since those contain saved sincos data for exe4 block. */
 	  {				// Jul 2015: Now moot since to avoid name-clashes in FGT61-mode, have renamed the doubles re,im -> RT,IT
@@ -3380,7 +3502,9 @@ skip_fwd_fft:	// v20: jump-to-point for both-inputs-already-fwd-FFTed case
 		goto loop;	// Skip dyadic-mul and iFFT
 
 	} else if (fwd_fft_only) {	// 2-input modmul: fwdFFT data dyadic-mul'ed with precomputed 2nd-vector stored in fwdFFTed form at address stored in (uint64)-cast form in fwd_fft_only
-	  if(fwd_fft_only == 3) {	// v20: Both inputs enter fwd-FFTed, must copy from main arrays a[],b[] to local-vars
+
+	  if(fwd_fft_only == 3)	// v20: Both inputs enter fwd-FFTed, must copy from main arrays a[],b[] to local-vars
+	  {
 	  #ifdef USE_AVX512	// The generic pre-dyadic-square macro needs 8 main-array addresses in AVX512 mode
 		// process 8 main-array blocks of [4 vec_dbl = 4 x 8 = 32 doubles] each in AVX512 mode, total = 32 vec_dbl = 16 vec_cmplx
 		nbytes = (long)r5 - (long)r1;
@@ -3407,28 +3531,387 @@ skip_fwd_fft:	// v20: jump-to-point for both-inputs-already-fwd-FFTed case
 		memcpy(r17, add1, nbytes);	// add1 = a + j2pad;``
 	  #endif
 	  }
+
 	  #ifdef USE_AVX512	// The generic pre-dyadic-square macro needs 8 main-array addresses in AVX512 mode
 		// process 8 main-array blocks of [4 vec_dbl = 4 x 8 = 32 doubles] each in AVX512 mode, total = 32 vec_dbl = 16 vec_cmplx
-		bdd0 = b + j1pad;
+		bdd0 = (double *)b + j1pad;
 		bdd2 = bdd0 + 32;	// bdd2 = bdd0 + [32 doubles, equiv to 4 AVX-512 registers]
 		bdd4 = bdd2 + 32;
 		bdd6 = bdd4 + 32;
-		bdd1 = b + j2pad;
+		bdd1 = (double *)b + j2pad;
 		bdd3 = bdd1 - 32;	// Last 4 offsets run in descending order for Mers-mod
 		bdd5 = bdd3 - 32;
 		bdd7 = bdd5 - 32;
 	  #elif defined(USE_AVX)	// The generic pre-dyadic-square macro needs 4 main-array addresses in AVX mode
-	  						// because (add1-add0) and (add3-add2) have opposite signs for fermat and mersenne-mod:
+							// because (add1-add0) and (add3-add2) have opposite signs for fermat and mersenne-mod:
 		// process 4 main-array blocks of [8 vec_dbl = 8 x 4 = 32 doubles] each in AVX mode, total = 32 vec_dbl = 16 vec_cmplx
-		bdd0 = b + j1pad;
-		bdd1 = b + j2pad;
+		bdd0 = (double *)b + j1pad;
 		bdd2 = bdd0 + 32;	// bdd2 = bdd0 + [32 doubles, equiv to 8 AVX registers]
+		bdd1 = (double *)b + j2pad;
 		bdd3 = bdd1 - 32;	// Last 2 offsets run in descending order for Mers-mod
 	  #else	// SSE2:
 		// process 2 main-array blocks of [16 vec_dbl = 16 x 2 = 32 doubles] each in SSE2 mode, total = 32 vec_dbl = 16 vec_cmplx
-		bdd0 = b + j1pad;
-		bdd1 = b + j2pad;
+		bdd0 = (double *)b + j1pad;
+		bdd1 = (double *)b + j2pad;
 	  #endif
+
+		if(c_arr) {	// c_arr != 0x0: a * (b - c)
+
+		#ifdef USE_AVX512
+			cdd0 = c_arr + j1pad;
+			cdd2 = cdd0 + 32;
+			cdd4 = cdd2 + 32;
+			cdd6 = cdd4 + 32;
+			cdd1 = c_arr + j2pad;
+			cdd3 = cdd1 - 32;
+			cdd5 = cdd3 - 32;
+			cdd7 = cdd5 - 32;
+		#elif defined(USE_AVX)
+			cdd0 = c_arr + j1pad;
+			cdd1 = c_arr + j2pad;
+			cdd2 = cdd0 + 32;
+			cdd3 = cdd1 - 32;
+		#else	// SSE2:
+			cdd0 = c_arr + j1pad;
+			cdd1 = c_arr + j2pad;
+		#endif
+		/********** In the inline-(B-C) macros, r1 and bminusc_ptr are the I/O base-addresses;
+				bdd0,cdd0 the B and C-array-section addresses: **********/
+		#ifdef USE_ARM_V8_SIMD
+		  __asm__ volatile (\
+			"ldr	x0,%[__bminusc_ptr]	\n\t"\
+			"ldr	x1,%[__bdd0]		\n\t	ldr	x2,%[__cdd0]	\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			"add x0,x0,#0x40 \n\t add x1,x1,#0x40 \n\t add x2,x2,#0x40	\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			"add x0,x0,#0x40 \n\t add x1,x1,#0x40 \n\t add x2,x2,#0x40	\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			"add x0,x0,#0x40 \n\t add x1,x1,#0x40 \n\t add x2,x2,#0x40	\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			"add x0,x0,#0x40 \n\t"\
+			"ldr	x1,%[__bdd1]		\n\t	ldr	x2,%[__cdd1]\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			"add x0,x0,#0x40 \n\t add x1,x1,#0x40 \n\t add x2,x2,#0x40	\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			"add x0,x0,#0x40 \n\t add x1,x1,#0x40 \n\t add x2,x2,#0x40	\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			"add x0,x0,#0x40 \n\t add x1,x1,#0x40 \n\t add x2,x2,#0x40	\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			:					// outputs: none
+			: [__bminusc_ptr] "m" (bminusc_ptr)	// Local temp-storage array to hold B-C outputs
+			 ,[__bdd0] "m" (bdd0)	// B-array base-address
+			 ,[__bdd1] "m" (bdd1)
+			 ,[__cdd0] "m" (cdd0)
+			 ,[__cdd1] "m" (cdd1)
+			: "cc","memory","x0","x1","x2", "v0","v1","v2","v3","v4","v5","v6","v7"	/* Clobbered registers */\
+		  );
+		  // Re-point bdd* to bminusc_ptr-offsets - bdd are double*, thus each bminusc_ptr-incr = 2 doubles,
+		  // total local-table size = 2*radix = 32 vec_dbl = 64 double. Within this contig-table bdd* indices are in-order:
+		  bdd0 = (double *)bminusc_ptr;
+		  bdd1 = bdd0 + 32;
+
+		#elif defined(USE_AVX512)	// AVX512 implements a 512-bit-register version of the the AVX2 ALL_FMA-macro
+
+		  __asm__ volatile (\
+			"movq	%[__bminusc_ptr],%%rax	\n\t"\
+			"movq	%[__bdd0],%%rbx		\n\t	movq	%[__cdd0],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+			"addq	$0x100,%%rax		\n\t"\
+			"movq	%[__bdd1],%%rbx		\n\t	movq	%[__cdd1],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+			"addq	$0x100,%%rax		\n\t"\
+			"movq	%[__bdd2],%%rbx		\n\t	movq	%[__cdd2],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+			"addq	$0x100,%%rax		\n\t"\
+			"movq	%[__bdd3],%%rbx		\n\t	movq	%[__cdd3],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+			"addq	$0x100,%%rax		\n\t"\
+			"movq	%[__bdd4],%%rbx		\n\t	movq	%[__cdd4],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+			"addq	$0x100,%%rax		\n\t"\
+			"movq	%[__bdd5],%%rbx		\n\t	movq	%[__cdd5],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+			"addq	$0x100,%%rax		\n\t"\
+			"movq	%[__bdd6],%%rbx		\n\t	movq	%[__cdd6],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+			"addq	$0x100,%%rax		\n\t"\
+			"movq	%[__bdd7],%%rbx		\n\t	movq	%[__cdd7],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+			:					// outputs: none
+			: [__bminusc_ptr] "m" (bminusc_ptr)	// Local temp-storage array to hold B-C outputs
+			 ,[__bdd0] "m" (bdd0)	// B-array base-address
+			 ,[__bdd1] "m" (bdd1)
+			 ,[__bdd2] "m" (bdd2)
+			 ,[__bdd3] "m" (bdd3)
+			 ,[__bdd4] "m" (bdd4)
+			 ,[__bdd5] "m" (bdd5)
+			 ,[__bdd6] "m" (bdd6)
+			 ,[__bdd7] "m" (bdd7)
+			 ,[__cdd0] "m" (cdd0)
+			 ,[__cdd1] "m" (cdd1)
+			 ,[__cdd2] "m" (cdd2)
+			 ,[__cdd3] "m" (cdd3)
+			 ,[__cdd4] "m" (cdd4)
+			 ,[__cdd5] "m" (cdd5)
+			 ,[__cdd6] "m" (cdd6)
+			 ,[__cdd7] "m" (cdd7)
+			: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm3"	// Clobbered registers
+		  );
+		  // Re-point bdd* to bminusc_ptr-offsets - bdd are double*, thus each bminusc_ptr-incr = 8 doubles,
+		  // total local-table size = 2*radix = 32 vec_dbl = 256 double. Within this contig-table bdd* indices are in-order:
+		  bdd0 = (double *)bminusc_ptr;
+		  bdd1 = bdd0 + 32;
+		  bdd2 = bdd1 + 32;
+		  bdd3 = bdd2 + 32;
+		  bdd4 = bdd3 + 32;
+		  bdd5 = bdd4 + 32;
+		  bdd6 = bdd5 + 32;
+		  bdd7 = bdd6 + 32;
+
+		#elif defined(USE_AVX)
+
+		  __asm__ volatile (\
+			"movq	%[__bminusc_ptr],%%rax	\n\t"\
+			"movq	%[__bdd0],%%rbx		\n\t	movq	%[__cdd0],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+			"addq	$0x080,%%rax		\n\t"\
+			"addq	$0x080,%%rbx		\n\t	addq	$0x080,%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+			"addq	$0x080,%%rax		\n\t"\
+			"movq	%[__bdd1],%%rbx		\n\t	movq	%[__cdd1],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+			"addq	$0x080,%%rax		\n\t"\
+			"addq	$0x080,%%rbx		\n\t	addq	$0x080,%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+			"addq	$0x080,%%rax		\n\t"\
+			"movq	%[__bdd2],%%rbx		\n\t	movq	%[__cdd2],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+			"addq	$0x080,%%rax		\n\t"\
+			"addq	$0x080,%%rbx		\n\t	addq	$0x080,%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+			"addq	$0x080,%%rax		\n\t"\
+			"movq	%[__bdd3],%%rbx		\n\t	movq	%[__cdd3],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+			"addq	$0x080,%%rax		\n\t"\
+			"addq	$0x080,%%rbx		\n\t	addq	$0x080,%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+			:					// outputs: none
+			: [__bminusc_ptr] "m" (bminusc_ptr)	// Local temp-storage array to hold B-C outputs
+			 ,[__bdd0] "m" (bdd0)	// B-array base-address
+			 ,[__bdd1] "m" (bdd1)
+			 ,[__bdd2] "m" (bdd2)
+			 ,[__bdd3] "m" (bdd3)
+			 ,[__cdd0] "m" (cdd0)
+			 ,[__cdd1] "m" (cdd1)
+			 ,[__cdd2] "m" (cdd2)
+			 ,[__cdd3] "m" (cdd3)
+			: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm3"	// Clobbered registers
+		  );
+		  // Re-point bdd* to bminusc_ptr-offsets - bdd are double*, thus each bminusc_ptr-incr = 4 doubles,
+		  // total local-table size = 2*radix = 32 vec_dbl = 128 double. Within this contig-table bdd* indices are in-order:
+		  bdd0 = (double *)bminusc_ptr;
+		  bdd1 = bdd0 + 32;
+		  bdd2 = bdd1 + 32;
+		  bdd3 = bdd2 + 32;
+
+		#else	// 64-bit SSE2:
+
+		  __asm__ volatile (\
+			"movq	%[__bminusc_ptr],%%rax	\n\t"\
+			"movq	%[__bdd0],%%rbx		\n\t	movq	%[__cdd0],%%rcx		\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+			"addq	$0x040,%%rax		\n\t"\
+			"addq	$0x040,%%rbx		\n\t	addq	$0x040,%%rcx		\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+			"addq	$0x040,%%rax		\n\t"\
+			"addq	$0x040,%%rbx		\n\t	addq	$0x040,%%rcx		\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+			"addq	$0x040,%%rax		\n\t"\
+			"addq	$0x040,%%rbx		\n\t	addq	$0x040,%%rcx		\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+			"addq	$0x040,%%rax		\n\t"\
+			"movq	%[__bdd1],%%rbx		\n\t	movq	%[__cdd1],%%rcx		\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+			"addq	$0x040,%%rax		\n\t"\
+			"addq	$0x040,%%rbx		\n\t	addq	$0x040,%%rcx		\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+			"addq	$0x040,%%rax		\n\t"\
+			"addq	$0x040,%%rbx		\n\t	addq	$0x040,%%rcx		\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+			"addq	$0x040,%%rax		\n\t"\
+			"addq	$0x040,%%rbx		\n\t	addq	$0x040,%%rcx		\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+			:					// outputs: none
+			: [__bminusc_ptr] "m" (bminusc_ptr)	// Local temp-storage array to hold B-C outputs
+			 ,[__bdd0] "m" (bdd0)	// B-array base-address
+			 ,[__bdd1] "m" (bdd1)
+			 ,[__cdd0] "m" (cdd0)
+			 ,[__cdd1] "m" (cdd1)
+			: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm3"	// Clobbered registers
+		  );
+		  // Re-point bdd* to bminusc_ptr-offsets - bdd are double*, thus each bminusc_ptr-incr = 2 doubles,
+		  // total local-table size = 2*radix = 32 vec_dbl = 64 double. Within this contig-table bdd* indices are in-order:
+		  bdd0 = (double *)bminusc_ptr;
+		  bdd1 = bdd0 + 32;
+
+		#endif	// AVX or SSE2?
+
+		} else {	// c_arr = 0x0: a * b
+
+		}	// endif(c_arr)
+
 		/* In SSE2 mode, data laid out in memory as described in "Normal execution" section below, with b-inputs similar to
 		a-inputs, just with r1-16 and r17-32 replaced by offsets relative to b-array addresses bdd0 and bdd1, respectively:
 							A-data:									B-data[SSE2]:			B-data[AVX]:		B-data[AVX-512]:

@@ -1,6 +1,6 @@
 /*******************************************************************************
 *                                                                              *
-*   (C) 1997-2020 by Ernst W. Mayer.                                           *
+*   (C) 1997-2021 by Ernst W. Mayer.                                           *
 *                                                                              *
 *  This program is free software; you can redistribute it and/or modify it     *
 *  under the terms of the GNU General Public License as published by the       *
@@ -49,7 +49,7 @@
 void radix32_wrapper_square(
 	double a[], int arr_scratch[], int n, int radix0, struct complex rt0[], struct complex rt1[],
 	int nradices_prim, int radix_prim[], int ws_i, int ws_j1, int ws_j2, int ws_j2_start, int ws_k, int ws_m, int ws_blocklen, int ws_blocklen_sum,
-	int init_sse2, int thr_id, uint64 fwd_fft_only
+	int init_sse2, int thr_id, uint64 fwd_fft_only, double c_arr[]
 )
 {
 	const char func[] = "radix32_wrapper_square";
@@ -161,12 +161,12 @@ void radix32_wrapper_square(
 		// to alloc storage here for all cases, even though that leaves upper array halves unused for sub-AVX512.
 	static uint32 *sm_arr = 0x0,*sm_ptr;	// Base-ptr to arrays of k1,k2-index-vectors used in SIMD roots-computation.
 	static vec_dbl *sc_arr = 0x0, *sc_ptr;
-	double *add0,*add1, *bdd0,*bdd1;	/* Addresses into array sections */
+	double *add0,*add1, *bdd0,*bdd1, *cdd0,*cdd1;	/* Addresses into array sections */
   #ifdef USE_AVX
-	double *add2,*add3, *bdd2,*bdd3;
+	double *add2,*add3, *bdd2,*bdd3, *cdd2,*cdd3;
   #endif
   #ifdef USE_AVX512
-	double *add4,*add5,*add6,*add7, *bdd4,*bdd5,*bdd6,*bdd7;
+	double *add4,*add5,*add6,*add7, *bdd4,*bdd5,*bdd6,*bdd7, *cdd4,*cdd5,*cdd6,*cdd7;
   #endif
 	vec_dbl *tmp, *c_tmp,*s_tmp, *bpt0,*bpt1,*bpt2,*bpt3;
   #ifdef USE_AVX2
@@ -186,7 +186,7 @@ void radix32_wrapper_square(
 		,*r00,*r02,*r04,*r06,*r08,*r0A,*r0C,*r0E
 		,*r10,*r12,*r14,*r16,*r18,*r1A,*r1C,*r1E
 		,*r20,*r22,*r24,*r26,*r28,*r2A,*r2C,*r2E
-		,*r30,*r32,*r34,*r36,*r38,*r3A,*r3C,*r3E;
+		,*r30,*r32,*r34,*r36,*r38,*r3A,*r3C,*r3E, *bminusc_ptr;
   #else		// Same list of ptrs as above (except for base-ptr), but now make them static:
 	static uint32  *k1_arr, *k2_arr;
 	static vec_dbl *isrt2,*sqrt2,*one,*two, *cc0,*ss0,*cc1,*ss1,*cc3,*ss3
@@ -196,7 +196,7 @@ void radix32_wrapper_square(
 		,*r00,*r02,*r04,*r06,*r08,*r0A,*r0C,*r0E
 		,*r10,*r12,*r14,*r16,*r18,*r1A,*r1C,*r1E
 		,*r20,*r22,*r24,*r26,*r28,*r2A,*r2C,*r2E
-		,*r30,*r32,*r34,*r36,*r38,*r3A,*r3C,*r3E;
+		,*r30,*r32,*r34,*r36,*r38,*r3A,*r3C,*r3E, *bminusc_ptr;
   #endif
 
 #endif
@@ -212,6 +212,7 @@ void radix32_wrapper_square(
 	*/
 	double *b = 0x0;
 	if(fwd_fft_only >> 2) {		// Do the following 3 steps in both cases - if bits 2:3 == 0 the ANDs are no-ops...
+		// The submul-auxiliary array c_arr[], if present, in already in proper double[] form, but b[] needs low-bits-cleared and casting
 		b = (double *)(fwd_fft_only & ~0xCull);
 		// BUT, if bits 2:3 == 0, must avoid zeroing fwd_fft_only since "do 2-input dyadic-mul following fwd-FFT" relies on that != 0:
 		if(fwd_fft_only & 0xC) {
@@ -252,8 +253,9 @@ void radix32_wrapper_square(
 		sm_arr = ALLOC_INT(sm_arr, max_threads*28*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "FATAL: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sm_ptr = ALIGN_INT(sm_arr);
 		ASSERT(HERE, ((uint32)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
-		// Twiddles-array: Need 0x92 slots for data, plus need to leave room to pad-align:
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x98*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		// Twiddles-array: Need 0x92 slots for data, plus need to leave room to pad-align.
+		// v20: To support inline a*(b-c) for p-1 stage 2, need 2*RADIX = 64 added vec_dbl, thus 0x98 ==> 0xd8:
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 0xd8*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
@@ -277,6 +279,7 @@ void radix32_wrapper_square(
 			forth = sc_ptr + 0x90;	// but note SSE2_RADIX32_WRAPPER_DIF/T asm macros are shared by Mersenne & Fermat,
 			sqrt2 = sc_ptr + 0x91;	// and assume two = isrt2 + 0x47, sqrt2 = two + 2, one = two + 3, i.e. need to
 			one	  = sc_ptr + 0x92;	// "leave slot for forth just above two".
+			bminusc_ptr = sc_ptr + 0x98;
 			for(i = 0; i < max_threads; ++i) {
 				/* These remain fixed within each per-thread local store: */
 				VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(sqrt2, SQRT2);
@@ -285,17 +288,18 @@ void radix32_wrapper_square(
 				VEC_DBL_INIT(cc1  , c32_1);		VEC_DBL_INIT(ss1, s32_1);
 				VEC_DBL_INIT(cc3  , c32_3);		VEC_DBL_INIT(ss3, s32_3);
 				/* Move on to next thread's local store */
-				isrt2 += 0x98;
-				cc0   += 0x98;
-				ss0   += 0x98;
-				cc1   += 0x98;
-				ss1   += 0x98;
-				cc3   += 0x98;
-				ss3   += 0x98;
-				one   += 0x98;
-				two   += 0x98;
-				forth += 0x98;
-				sqrt2 += 0x98;
+				isrt2 += 0xd8;
+				cc0   += 0xd8;
+				ss0   += 0xd8;
+				cc1   += 0xd8;
+				ss1   += 0xd8;
+				cc3   += 0xd8;
+				ss3   += 0xd8;
+				one   += 0xd8;
+				two   += 0xd8;
+				forth += 0xd8;
+				sqrt2 += 0xd8;
+				bminusc_ptr = sc_ptr + 0xd8;
 			}
 		  #else
 			k1_arr = sm_ptr;
@@ -340,6 +344,7 @@ void radix32_wrapper_square(
 			tmp5	= sc_ptr + 0x45;	forth	= cc0 + 0x47;
 			tmp6	= sc_ptr + 0x46;	sqrt2	= cc0 + 0x48;
 			tmp7	= sc_ptr + 0x47;	one	 	= cc0 + 0x49;
+			bminusc_ptr = sc_ptr + 0x98;
 			/* These remain fixed: */
 			VEC_DBL_INIT(isrt2, ISRT2);		VEC_DBL_INIT(sqrt2, SQRT2);
 			VEC_DBL_INIT(one  , 1.0  );		VEC_DBL_INIT(two, 2.0  );	VEC_DBL_INIT(forth, 0.25 );
@@ -510,7 +515,7 @@ void radix32_wrapper_square(
   #ifdef USE_SSE2
 	k1_arr = __i0 + thr_id*28*RE_IM_STRIDE;
 	k2_arr = k1_arr +      14*RE_IM_STRIDE;
-	r00 = __r0 + thr_id*0x98;isrt2	= r00 + 0x48;
+	r00 = __r0 + thr_id*0xd8;isrt2	= r00 + 0x48;
 	r02		= r00 + 0x02;	cc0		= r00 + 0x49;
 	r04		= r00 + 0x04;	cc1		= r00 + 0x4b;
 	r06		= r00 + 0x06;	cc3		= r00 + 0x4d;
@@ -550,6 +555,7 @@ void radix32_wrapper_square(
 	tmp5	= r00 + 0x45;	forth	= r00 + 0x90;
 	tmp6	= r00 + 0x46;	sqrt2	= r00 + 0x91;
 	tmp7	= r00 + 0x47;	one	 	= r00 + 0x92;
+	bminusc_ptr = r00 + 0x98;
   #endif
 #endif
 	/*...If a new runlength, should not get to this point: */
@@ -2146,36 +2152,36 @@ skip_fwd_fft:	// v20: jump-to-point for both-inputs-already-fwd-FFTed case
 		rdum = j1pad;
 		idum = j1pad+RE_IM_STRIDE;
 	/*...Block 1: t00,t10,t20,t30	*/
-		a[rdum   ]=a1p00r;	a[idum   ]=a1p00i;
-		a[rdum+32]=a1p01r;	a[idum+32]=a1p01i;
-		a[rdum+16]=a1p02r;	a[idum+16]=a1p02i;
-		a[rdum+48]=a1p03r;	a[idum+48]=a1p03i;
+		a[rdum   ] = a1p00r;	a[idum   ] = a1p00i;
+		a[rdum+32] = a1p01r;	a[idum+32] = a1p01i;
+		a[rdum+16] = a1p02r;	a[idum+16] = a1p02i;
+		a[rdum+48] = a1p03r;	a[idum+48] = a1p03i;
 	/*...Block 5: t08,t18,t28,t38	*/
 	#ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
 	#endif
-		a[rdum+8 ]=a1p04r;	a[idum+8 ]=a1p04i;
-		a[rdum+40]=a1p05r;	a[idum+40]=a1p05i;
-		a[rdum+24]=a1p06r;	a[idum+24]=a1p06i;
-		a[rdum+56]=a1p07r;	a[idum+56]=a1p07i;
+		a[rdum+8 ] = a1p04r;	a[idum+8 ] = a1p04i;
+		a[rdum+40] = a1p05r;	a[idum+40] = a1p05i;
+		a[rdum+24] = a1p06r;	a[idum+24] = a1p06i;
+		a[rdum+56] = a1p07r;	a[idum+56] = a1p07i;
 	/*...Block 3: t04,t14,t24,t34	*/
 	#ifdef USE_AVX512
 		rdum += 2;	idum += 2;
 	#elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
 	#endif
-		a[rdum+4 ]=a1p08r;	a[idum+4 ]=a1p08i;
-		a[rdum+36]=a1p09r;	a[idum+36]=a1p09i;
-		a[rdum+20]=a1p0Ar;	a[idum+20]=a1p0Ai;
-		a[rdum+52]=a1p0Br;	a[idum+52]=a1p0Bi;
+		a[rdum+4 ] = a1p08r;	a[idum+4 ] = a1p08i;
+		a[rdum+36] = a1p09r;	a[idum+36] = a1p09i;
+		a[rdum+20] = a1p0Ar;	a[idum+20] = a1p0Ai;
+		a[rdum+52] = a1p0Br;	a[idum+52] = a1p0Bi;
 	/*...Block 7: t0C,t1C,t2C,t3C	*/
 	#ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
 	#endif
-		a[rdum+12]=a1p0Cr;	a[idum+12]=a1p0Ci;
-		a[rdum+44]=a1p0Dr;	a[idum+44]=a1p0Di;
-		a[rdum+28]=a1p0Er;	a[idum+28]=a1p0Ei;
-		a[rdum+60]=a1p0Fr;	a[idum+60]=a1p0Fi;
+		a[rdum+12] = a1p0Cr;	a[idum+12] = a1p0Ci;
+		a[rdum+44] = a1p0Dr;	a[idum+44] = a1p0Di;
+		a[rdum+28] = a1p0Er;	a[idum+28] = a1p0Ei;
+		a[rdum+60] = a1p0Fr;	a[idum+60] = a1p0Fi;
 	/*...Block 2: t02,t12,t22,t32	*/
 	#ifdef USE_AVX512
 		rdum += 5;	idum += 5;
@@ -2184,72 +2190,72 @@ skip_fwd_fft:	// v20: jump-to-point for both-inputs-already-fwd-FFTed case
 	#elif defined(USE_SSE2)
 		--rdum;	--idum;
 	#endif
-		a[rdum+2 ]=a1p10r;	a[idum+2 ]=a1p10i;
-		a[rdum+34]=a1p11r;	a[idum+34]=a1p11i;
-		a[rdum+18]=a1p12r;	a[idum+18]=a1p12i;
-		a[rdum+50]=a1p13r;	a[idum+50]=a1p13i;
+		a[rdum+2 ] = a1p10r;	a[idum+2 ] = a1p10i;
+		a[rdum+34] = a1p11r;	a[idum+34] = a1p11i;
+		a[rdum+18] = a1p12r;	a[idum+18] = a1p12i;
+		a[rdum+50] = a1p13r;	a[idum+50] = a1p13i;
 	/*...Block 6: t0A,t1A,t2A,t3A	*/
 	#ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
 	#endif
-		a[rdum+10]=a1p14r;	a[idum+10]=a1p14i;
-		a[rdum+42]=a1p15r;	a[idum+42]=a1p15i;
-		a[rdum+26]=a1p16r;	a[idum+26]=a1p16i;
-		a[rdum+58]=a1p17r;	a[idum+58]=a1p17i;
+		a[rdum+10] = a1p14r;	a[idum+10] = a1p14i;
+		a[rdum+42] = a1p15r;	a[idum+42] = a1p15i;
+		a[rdum+26] = a1p16r;	a[idum+26] = a1p16i;
+		a[rdum+58] = a1p17r;	a[idum+58] = a1p17i;
 	/*...Block 4: t06,t16,t26,t36	*/
 	#ifdef USE_AVX512
 		rdum += 2;	idum += 2;
 	#elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
 	#endif
-		a[rdum+6 ]=a1p18r;	a[idum+6 ]=a1p18i;
-		a[rdum+38]=a1p19r;	a[idum+38]=a1p19i;
-		a[rdum+22]=a1p1Ar;	a[idum+22]=a1p1Ai;
-		a[rdum+54]=a1p1Br;	a[idum+54]=a1p1Bi;
+		a[rdum+6 ] = a1p18r;	a[idum+6 ] = a1p18i;
+		a[rdum+38] = a1p19r;	a[idum+38] = a1p19i;
+		a[rdum+22] = a1p1Ar;	a[idum+22] = a1p1Ai;
+		a[rdum+54] = a1p1Br;	a[idum+54] = a1p1Bi;
 	/*...Block 8: t0E,t1E,t2E,t3E	*/
 	#ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
 	#endif
-		a[rdum+14]=a1p1Cr;	a[idum+14]=a1p1Ci;
-		a[rdum+46]=a1p1Dr;	a[idum+46]=a1p1Di;
-		a[rdum+30]=a1p1Er;	a[idum+30]=a1p1Ei;
-		a[rdum+62]=a1p1Fr;	a[idum+62]=a1p1Fi;
+		a[rdum+14] = a1p1Cr;	a[idum+14] = a1p1Ci;
+		a[rdum+46] = a1p1Dr;	a[idum+46] = a1p1Di;
+		a[rdum+30] = a1p1Er;	a[idum+30] = a1p1Ei;
+		a[rdum+62] = a1p1Fr;	a[idum+62] = a1p1Fi;
 	/*************************************************************/
 	/*                  2nd set of inputs:                       */
 	/*************************************************************/
 		rdum = j2pad;
 		idum = j2pad+RE_IM_STRIDE;
 	/*...Block 1: t00,t10,t20,t30	*/
-		a[rdum   ]=a2p00r;	a[idum   ]=a2p00i;
-		a[rdum+32]=a2p01r;	a[idum+32]=a2p01i;
-		a[rdum+16]=a2p02r;	a[idum+16]=a2p02i;
-		a[rdum+48]=a2p03r;	a[idum+48]=a2p03i;
+		a[rdum   ] = a2p00r;	a[idum   ] = a2p00i;
+		a[rdum+32] = a2p01r;	a[idum+32] = a2p01i;
+		a[rdum+16] = a2p02r;	a[idum+16] = a2p02i;
+		a[rdum+48] = a2p03r;	a[idum+48] = a2p03i;
 	/*...Block 5: t08,t18,t28,t38	*/
 	#ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
 	#endif
-		a[rdum+8 ]=a2p04r;	a[idum+8 ]=a2p04i;
-		a[rdum+40]=a2p05r;	a[idum+40]=a2p05i;
-		a[rdum+24]=a2p06r;	a[idum+24]=a2p06i;
-		a[rdum+56]=a2p07r;	a[idum+56]=a2p07i;
+		a[rdum+8 ] = a2p04r;	a[idum+8 ] = a2p04i;
+		a[rdum+40] = a2p05r;	a[idum+40] = a2p05i;
+		a[rdum+24] = a2p06r;	a[idum+24] = a2p06i;
+		a[rdum+56] = a2p07r;	a[idum+56] = a2p07i;
 	/*...Block 3: t04,t14,t24,t34	*/
 	#ifdef USE_AVX512
 		rdum += 2;	idum += 2;
 	#elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
 	#endif
-		a[rdum+4 ]=a2p08r;	a[idum+4 ]=a2p08i;
-		a[rdum+36]=a2p09r;	a[idum+36]=a2p09i;
-		a[rdum+20]=a2p0Ar;	a[idum+20]=a2p0Ai;
-		a[rdum+52]=a2p0Br;	a[idum+52]=a2p0Bi;
+		a[rdum+4 ] = a2p08r;	a[idum+4 ] = a2p08i;
+		a[rdum+36] = a2p09r;	a[idum+36] = a2p09i;
+		a[rdum+20] = a2p0Ar;	a[idum+20] = a2p0Ai;
+		a[rdum+52] = a2p0Br;	a[idum+52] = a2p0Bi;
 	/*...Block 7: t0C,t1C,t2C,t3C	*/
 	#ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
 	#endif
-		a[rdum+12]=a2p0Cr;	a[idum+12]=a2p0Ci;
-		a[rdum+44]=a2p0Dr;	a[idum+44]=a2p0Di;
-		a[rdum+28]=a2p0Er;	a[idum+28]=a2p0Ei;
-		a[rdum+60]=a2p0Fr;	a[idum+60]=a2p0Fi;
+		a[rdum+12] = a2p0Cr;	a[idum+12] = a2p0Ci;
+		a[rdum+44] = a2p0Dr;	a[idum+44] = a2p0Di;
+		a[rdum+28] = a2p0Er;	a[idum+28] = a2p0Ei;
+		a[rdum+60] = a2p0Fr;	a[idum+60] = a2p0Fi;
 	/*...Block 2: t02,t12,t22,t32	*/
 	#ifdef USE_AVX512
 		rdum += 5;	idum += 5;
@@ -2258,337 +2264,495 @@ skip_fwd_fft:	// v20: jump-to-point for both-inputs-already-fwd-FFTed case
 	#elif defined(USE_SSE2)
 		--rdum;	--idum;
 	#endif
-		a[rdum+2 ]=a2p10r;	a[idum+2 ]=a2p10i;
-		a[rdum+34]=a2p11r;	a[idum+34]=a2p11i;
-		a[rdum+18]=a2p12r;	a[idum+18]=a2p12i;
-		a[rdum+50]=a2p13r;	a[idum+50]=a2p13i;
+		a[rdum+2 ] = a2p10r;	a[idum+2 ] = a2p10i;
+		a[rdum+34] = a2p11r;	a[idum+34] = a2p11i;
+		a[rdum+18] = a2p12r;	a[idum+18] = a2p12i;
+		a[rdum+50] = a2p13r;	a[idum+50] = a2p13i;
 	/*...Block 6: t0A,t1A,t2A,t3A	*/
 	#ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
 	#endif
-		a[rdum+10]=a2p14r;	a[idum+10]=a2p14i;
-		a[rdum+42]=a2p15r;	a[idum+42]=a2p15i;
-		a[rdum+26]=a2p16r;	a[idum+26]=a2p16i;
-		a[rdum+58]=a2p17r;	a[idum+58]=a2p17i;
+		a[rdum+10] = a2p14r;	a[idum+10] = a2p14i;
+		a[rdum+42] = a2p15r;	a[idum+42] = a2p15i;
+		a[rdum+26] = a2p16r;	a[idum+26] = a2p16i;
+		a[rdum+58] = a2p17r;	a[idum+58] = a2p17i;
 	/*...Block 4: t06,t16,t26,t36	*/
 	#ifdef USE_AVX512
 		rdum += 2;	idum += 2;
 	#elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
 	#endif
-		a[rdum+6 ]=a2p18r;	a[idum+6 ]=a2p18i;
-		a[rdum+38]=a2p19r;	a[idum+38]=a2p19i;
-		a[rdum+22]=a2p1Ar;	a[idum+22]=a2p1Ai;
-		a[rdum+54]=a2p1Br;	a[idum+54]=a2p1Bi;
+		a[rdum+6 ] = a2p18r;	a[idum+6 ] = a2p18i;
+		a[rdum+38] = a2p19r;	a[idum+38] = a2p19i;
+		a[rdum+22] = a2p1Ar;	a[idum+22] = a2p1Ai;
+		a[rdum+54] = a2p1Br;	a[idum+54] = a2p1Bi;
 	/*...Block 8: t0E,t1E,t2E,t3E	*/
 	#ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
 	#endif
-		a[rdum+14]=a2p1Cr;	a[idum+14]=a2p1Ci;
-		a[rdum+46]=a2p1Dr;	a[idum+46]=a2p1Di;
-		a[rdum+30]=a2p1Er;	a[idum+30]=a2p1Ei;
-		a[rdum+62]=a2p1Fr;	a[idum+62]=a2p1Fi;
+		a[rdum+14] = a2p1Cr;	a[idum+14] = a2p1Ci;
+		a[rdum+46] = a2p1Dr;	a[idum+46] = a2p1Di;
+		a[rdum+30] = a2p1Er;	a[idum+30] = a2p1Ei;
+		a[rdum+62] = a2p1Fr;	a[idum+62] = a2p1Fi;
 		goto loop;	// Skip dyadic-mul and iFFT
 
 	} else if (fwd_fft_only) {	// 2-input modmul: fwdFFT data dyadic-mul'ed with precomputed 2nd-vector stored in fwd-FFTed form in b[]:
-	  if(fwd_fft_only == 3) {	// v20: Both inputs enter fwd-FFTed, must copy from main arrays a[],b[] to local-vars
-	/*************************************************************/
-	/*                  1st set of inputs:                       */
-	/*************************************************************/
+
+	  if(fwd_fft_only == 3)	// v20: Both inputs enter fwd-FFTed, must copy from main arrays a[],b[] to local-vars
+	  {
+	  /*************************************************************/
+	  /*                  1st set of inputs:                       */
+	  /*************************************************************/
 		rdum = j1pad;
 		idum = j1pad+RE_IM_STRIDE;
-	/*...Block 1: t00,t10,t20,t30	*/
-		a1p00r=a[rdum   ];	a1p00i=a[idum   ];
-		a1p01r=a[rdum+32];	a1p01i=a[idum+32];
-		a1p02r=a[rdum+16];	a1p02i=a[idum+16];
-		a1p03r=a[rdum+48];	a1p03i=a[idum+48];
-	/*...Block 5: t08,t18,t28,t38	*/
-	#ifdef USE_AVX512
+	  /*...Block 1: t00,t10,t20,t30	*/
+		a1p00r = a[rdum   ];	a1p00i = a[idum   ];
+		a1p01r = a[rdum+32];	a1p01i = a[idum+32];
+		a1p02r = a[rdum+16];	a1p02i = a[idum+16];
+		a1p03r = a[rdum+48];	a1p03i = a[idum+48];
+	  /*...Block 5: t08,t18,t28,t38	*/
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
-		a1p04r=a[rdum+8 ];	a1p04i=a[idum+8 ];
-		a1p05r=a[rdum+40];	a1p05i=a[idum+40];
-		a1p06r=a[rdum+24];	a1p06i=a[idum+24];
-		a1p07r=a[rdum+56];	a1p07i=a[idum+56];
-	/*...Block 3: t04,t14,t24,t34	*/
-	#ifdef USE_AVX512
+	  #endif
+		a1p04r = a[rdum+8 ];	a1p04i = a[idum+8 ];
+		a1p05r = a[rdum+40];	a1p05i = a[idum+40];
+		a1p06r = a[rdum+24];	a1p06i = a[idum+24];
+		a1p07r = a[rdum+56];	a1p07i = a[idum+56];
+	  /*...Block 3: t04,t14,t24,t34	*/
+	  #ifdef USE_AVX512
 		rdum += 2;	idum += 2;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
-	#endif
-		a1p08r=a[rdum+4 ];	a1p08i=a[idum+4 ];
-		a1p09r=a[rdum+36];	a1p09i=a[idum+36];
-		a1p0Ar=a[rdum+20];	a1p0Ai=a[idum+20];
-		a1p0Br=a[rdum+52];	a1p0Bi=a[idum+52];
-	/*...Block 7: t0C,t1C,t2C,t3C	*/
-	#ifdef USE_AVX512
+	  #endif
+		a1p08r = a[rdum+4 ];	a1p08i = a[idum+4 ];
+		a1p09r = a[rdum+36];	a1p09i = a[idum+36];
+		a1p0Ar = a[rdum+20];	a1p0Ai = a[idum+20];
+		a1p0Br = a[rdum+52];	a1p0Bi = a[idum+52];
+	  /*...Block 7: t0C,t1C,t2C,t3C	*/
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
-		a1p0Cr=a[rdum+12];	a1p0Ci=a[idum+12];
-		a1p0Dr=a[rdum+44];	a1p0Di=a[idum+44];
-		a1p0Er=a[rdum+28];	a1p0Ei=a[idum+28];
-		a1p0Fr=a[rdum+60];	a1p0Fi=a[idum+60];
-	/*...Block 2: t02,t12,t22,t32	*/
-	#ifdef USE_AVX512
+	  #endif
+		a1p0Cr = a[rdum+12];	a1p0Ci = a[idum+12];
+		a1p0Dr = a[rdum+44];	a1p0Di = a[idum+44];
+		a1p0Er = a[rdum+28];	a1p0Ei = a[idum+28];
+		a1p0Fr = a[rdum+60];	a1p0Fi = a[idum+60];
+	  /*...Block 2: t02,t12,t22,t32	*/
+	  #ifdef USE_AVX512
 		rdum += 5;	idum += 5;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		++rdum;	++idum;
-	#elif defined(USE_SSE2)
+	  #elif defined(USE_SSE2)
 		--rdum;	--idum;
-	#endif
-		a1p10r=a[rdum+2 ];	a1p10i=a[idum+2 ];
-		a1p11r=a[rdum+34];	a1p11i=a[idum+34];
-		a1p12r=a[rdum+18];	a1p12i=a[idum+18];
-		a1p13r=a[rdum+50];	a1p13i=a[idum+50];
-	/*...Block 6: t0A,t1A,t2A,t3A	*/
-	#ifdef USE_AVX512
+	  #endif
+		a1p10r = a[rdum+2 ];	a1p10i = a[idum+2 ];
+		a1p11r = a[rdum+34];	a1p11i = a[idum+34];
+		a1p12r = a[rdum+18];	a1p12i = a[idum+18];
+		a1p13r = a[rdum+50];	a1p13i = a[idum+50];
+	  /*...Block 6: t0A,t1A,t2A,t3A	*/
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
-		a1p14r=a[rdum+10];	a1p14i=a[idum+10];
-		a1p15r=a[rdum+42];	a1p15i=a[idum+42];
-		a1p16r=a[rdum+26];	a1p16i=a[idum+26];
-		a1p17r=a[rdum+58];	a1p17i=a[idum+58];
-	/*...Block 4: t06,t16,t26,t36	*/
-	#ifdef USE_AVX512
+	  #endif
+		a1p14r = a[rdum+10];	a1p14i = a[idum+10];
+		a1p15r = a[rdum+42];	a1p15i = a[idum+42];
+		a1p16r = a[rdum+26];	a1p16i = a[idum+26];
+		a1p17r = a[rdum+58];	a1p17i = a[idum+58];
+	  /*...Block 4: t06,t16,t26,t36	*/
+	  #ifdef USE_AVX512
 		rdum += 2;	idum += 2;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
-	#endif
-		a1p18r=a[rdum+6 ];	a1p18i=a[idum+6 ];
-		a1p19r=a[rdum+38];	a1p19i=a[idum+38];
-		a1p1Ar=a[rdum+22];	a1p1Ai=a[idum+22];
-		a1p1Br=a[rdum+54];	a1p1Bi=a[idum+54];
-	/*...Block 8: t0E,t1E,t2E,t3E	*/
-	#ifdef USE_AVX512
+	  #endif
+		a1p18r = a[rdum+6 ];	a1p18i = a[idum+6 ];
+		a1p19r = a[rdum+38];	a1p19i = a[idum+38];
+		a1p1Ar = a[rdum+22];	a1p1Ai = a[idum+22];
+		a1p1Br = a[rdum+54];	a1p1Bi = a[idum+54];
+	  /*...Block 8: t0E,t1E,t2E,t3E	*/
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
-		a1p1Cr=a[rdum+14];	a1p1Ci=a[idum+14];
-		a1p1Dr=a[rdum+46];	a1p1Di=a[idum+46];
-		a1p1Er=a[rdum+30];	a1p1Ei=a[idum+30];
-		a1p1Fr=a[rdum+62];	a1p1Fi=a[idum+62];
-	/*************************************************************/
-	/*                  2nd set of inputs:                       */
-	/*************************************************************/
+	  #endif
+		a1p1Cr = a[rdum+14];	a1p1Ci = a[idum+14];
+		a1p1Dr = a[rdum+46];	a1p1Di = a[idum+46];
+		a1p1Er = a[rdum+30];	a1p1Ei = a[idum+30];
+		a1p1Fr = a[rdum+62];	a1p1Fi = a[idum+62];
+	  /*************************************************************/
+	  /*                  2nd set of inputs:                       */
+	  /*************************************************************/
 		rdum = j2pad;
 		idum = j2pad+RE_IM_STRIDE;
-	/*...Block 1: t00,t10,t20,t30	*/
-		a2p00r=a[rdum   ];	a2p00i=a[idum   ];
-		a2p01r=a[rdum+32];	a2p01i=a[idum+32];
-		a2p02r=a[rdum+16];	a2p02i=a[idum+16];
-		a2p03r=a[rdum+48];	a2p03i=a[idum+48];
-	/*...Block 5: t08,t18,t28,t38	*/
-	#ifdef USE_AVX512
+	  /*...Block 1: t00,t10,t20,t30	*/
+		a2p00r = a[rdum   ];	a2p00i = a[idum   ];
+		a2p01r = a[rdum+32];	a2p01i = a[idum+32];
+		a2p02r = a[rdum+16];	a2p02i = a[idum+16];
+		a2p03r = a[rdum+48];	a2p03i = a[idum+48];
+	  /*...Block 5: t08,t18,t28,t38	*/
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
-		a2p04r=a[rdum+8 ];	a2p04i=a[idum+8 ];
-		a2p05r=a[rdum+40];	a2p05i=a[idum+40];
-		a2p06r=a[rdum+24];	a2p06i=a[idum+24];
-		a2p07r=a[rdum+56];	a2p07i=a[idum+56];
-	/*...Block 3: t04,t14,t24,t34	*/
-	#ifdef USE_AVX512
+	  #endif
+		a2p04r = a[rdum+8 ];	a2p04i = a[idum+8 ];
+		a2p05r = a[rdum+40];	a2p05i = a[idum+40];
+		a2p06r = a[rdum+24];	a2p06i = a[idum+24];
+		a2p07r = a[rdum+56];	a2p07i = a[idum+56];
+	  /*...Block 3: t04,t14,t24,t34	*/
+	  #ifdef USE_AVX512
 		rdum += 2;	idum += 2;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
-	#endif
-		a2p08r=a[rdum+4 ];	a2p08i=a[idum+4 ];
-		a2p09r=a[rdum+36];	a2p09i=a[idum+36];
-		a2p0Ar=a[rdum+20];	a2p0Ai=a[idum+20];
-		a2p0Br=a[rdum+52];	a2p0Bi=a[idum+52];
-	/*...Block 7: t0C,t1C,t2C,t3C	*/
-	#ifdef USE_AVX512
+	  #endif
+		a2p08r = a[rdum+4 ];	a2p08i = a[idum+4 ];
+		a2p09r = a[rdum+36];	a2p09i = a[idum+36];
+		a2p0Ar = a[rdum+20];	a2p0Ai = a[idum+20];
+		a2p0Br = a[rdum+52];	a2p0Bi = a[idum+52];
+	  /*...Block 7: t0C,t1C,t2C,t3C	*/
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
-		a2p0Cr=a[rdum+12];	a2p0Ci=a[idum+12];
-		a2p0Dr=a[rdum+44];	a2p0Di=a[idum+44];
-		a2p0Er=a[rdum+28];	a2p0Ei=a[idum+28];
-		a2p0Fr=a[rdum+60];	a2p0Fi=a[idum+60];
-	/*...Block 2: t02,t12,t22,t32	*/
-	#ifdef USE_AVX512
+	  #endif
+		a2p0Cr = a[rdum+12];	a2p0Ci = a[idum+12];
+		a2p0Dr = a[rdum+44];	a2p0Di = a[idum+44];
+		a2p0Er = a[rdum+28];	a2p0Ei = a[idum+28];
+		a2p0Fr = a[rdum+60];	a2p0Fi = a[idum+60];
+	  /*...Block 2: t02,t12,t22,t32	*/
+	  #ifdef USE_AVX512
 		rdum += 5;	idum += 5;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		++rdum;	++idum;
-	#elif defined(USE_SSE2)
+	  #elif defined(USE_SSE2)
 		--rdum;	--idum;
-	#endif
-		a2p10r=a[rdum+2 ];	a2p10i=a[idum+2 ];
-		a2p11r=a[rdum+34];	a2p11i=a[idum+34];
-		a2p12r=a[rdum+18];	a2p12i=a[idum+18];
-		a2p13r=a[rdum+50];	a2p13i=a[idum+50];
-	/*...Block 6: t0A,t1A,t2A,t3A	*/
-	#ifdef USE_AVX512
+	  #endif
+		a2p10r = a[rdum+2 ];	a2p10i = a[idum+2 ];
+		a2p11r = a[rdum+34];	a2p11i = a[idum+34];
+		a2p12r = a[rdum+18];	a2p12i = a[idum+18];
+		a2p13r = a[rdum+50];	a2p13i = a[idum+50];
+	  /*...Block 6: t0A,t1A,t2A,t3A	*/
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
-		a2p14r=a[rdum+10];	a2p14i=a[idum+10];
-		a2p15r=a[rdum+42];	a2p15i=a[idum+42];
-		a2p16r=a[rdum+26];	a2p16i=a[idum+26];
-		a2p17r=a[rdum+58];	a2p17i=a[idum+58];
-	/*...Block 4: t06,t16,t26,t36	*/
-	#ifdef USE_AVX512
+	  #endif
+		a2p14r = a[rdum+10];	a2p14i = a[idum+10];
+		a2p15r = a[rdum+42];	a2p15i = a[idum+42];
+		a2p16r = a[rdum+26];	a2p16i = a[idum+26];
+		a2p17r = a[rdum+58];	a2p17i = a[idum+58];
+	  /*...Block 4: t06,t16,t26,t36	*/
+	  #ifdef USE_AVX512
 		rdum += 2;	idum += 2;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
-	#endif
-		a2p18r=a[rdum+6 ];	a2p18i=a[idum+6 ];
-		a2p19r=a[rdum+38];	a2p19i=a[idum+38];
-		a2p1Ar=a[rdum+22];	a2p1Ai=a[idum+22];
-		a2p1Br=a[rdum+54];	a2p1Bi=a[idum+54];
-	/*...Block 8: t0E,t1E,t2E,t3E	*/
-	#ifdef USE_AVX512
+	  #endif
+		a2p18r = a[rdum+6 ];	a2p18i = a[idum+6 ];
+		a2p19r = a[rdum+38];	a2p19i = a[idum+38];
+		a2p1Ar = a[rdum+22];	a2p1Ai = a[idum+22];
+		a2p1Br = a[rdum+54];	a2p1Bi = a[idum+54];
+	  /*...Block 8: t0E,t1E,t2E,t3E	*/
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
-		a2p1Cr=a[rdum+14];	a2p1Ci=a[idum+14];
-		a2p1Dr=a[rdum+46];	a2p1Di=a[idum+46];
-		a2p1Er=a[rdum+30];	a2p1Ei=a[idum+30];
-		a2p1Fr=a[rdum+62];	a2p1Fi=a[idum+62];
+	  #endif
+		a2p1Cr = a[rdum+14];	a2p1Ci = a[idum+14];
+		a2p1Dr = a[rdum+46];	a2p1Di = a[idum+46];
+		a2p1Er = a[rdum+30];	a2p1Ei = a[idum+30];
+		a2p1Fr = a[rdum+62];	a2p1Fi = a[idum+62];
 	  }
-	/*************************************************************/
-	/*                  1st set of inputs:                       */
-	/*************************************************************/
+
+	  if(c_arr) {	// c_arr != 0x0: a * (b - c)
+
+	  /*************************************************************/
+	  /*                  1st set of inputs:                       */
+	  /*************************************************************/
 		rdum = j1pad;
 		idum = j1pad+RE_IM_STRIDE;
-	/*...Block 1: t00,t10,t20,t30	*/
-		b1p00r=b[rdum   ];	b1p00i=b[idum   ];
-		b1p01r=b[rdum+32];	b1p01i=b[idum+32];
-		b1p02r=b[rdum+16];	b1p02i=b[idum+16];
-		b1p03r=b[rdum+48];	b1p03i=b[idum+48];
-	/*...Block 5: t08,t18,t28,t38	*/
-	#ifdef USE_AVX512
+	  /*...Block 1: t00,t10,t20,t30	*/
+		b1p00r = b[rdum   ] - c_arr[rdum   ];	b1p00i = b[idum   ] - c_arr[idum   ];
+		b1p01r = b[rdum+32] - c_arr[rdum+32];	b1p01i = b[idum+32] - c_arr[idum+32];
+		b1p02r = b[rdum+16] - c_arr[rdum+16];	b1p02i = b[idum+16] - c_arr[idum+16];
+		b1p03r = b[rdum+48] - c_arr[rdum+48];	b1p03i = b[idum+48] - c_arr[idum+48];
+	  /*...Block 5: t08,t18,t28,t38	*/
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
-		b1p04r=b[rdum+8 ];	b1p04i=b[idum+8 ];
-		b1p05r=b[rdum+40];	b1p05i=b[idum+40];
-		b1p06r=b[rdum+24];	b1p06i=b[idum+24];
-		b1p07r=b[rdum+56];	b1p07i=b[idum+56];
-	/*...Block 3: t04,t14,t24,t34	*/
-	#ifdef USE_AVX512
+	  #endif
+		b1p04r = b[rdum+8 ] - c_arr[rdum+8 ];	b1p04i = b[idum+8 ] - c_arr[idum+8 ];
+		b1p05r = b[rdum+40] - c_arr[rdum+40];	b1p05i = b[idum+40] - c_arr[idum+40];
+		b1p06r = b[rdum+24] - c_arr[rdum+24];	b1p06i = b[idum+24] - c_arr[idum+24];
+		b1p07r = b[rdum+56] - c_arr[rdum+56];	b1p07i = b[idum+56] - c_arr[idum+56];
+	  /*...Block 3: t04,t14,t24,t34	*/
+	  #ifdef USE_AVX512
 		rdum += 2;	idum += 2;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
-	#endif
-		b1p08r=b[rdum+4 ];	b1p08i=b[idum+4 ];
-		b1p09r=b[rdum+36];	b1p09i=b[idum+36];
-		b1p0Ar=b[rdum+20];	b1p0Ai=b[idum+20];
-		b1p0Br=b[rdum+52];	b1p0Bi=b[idum+52];
-	/*...Block 7: t0C,t1C,t2C,t3C	*/
-	#ifdef USE_AVX512
+	  #endif
+		b1p08r = b[rdum+4 ] - c_arr[rdum+4 ];	b1p08i = b[idum+4 ] - c_arr[idum+4 ];
+		b1p09r = b[rdum+36] - c_arr[rdum+36];	b1p09i = b[idum+36] - c_arr[idum+36];
+		b1p0Ar = b[rdum+20] - c_arr[rdum+20];	b1p0Ai = b[idum+20] - c_arr[idum+20];
+		b1p0Br = b[rdum+52] - c_arr[rdum+52];	b1p0Bi = b[idum+52] - c_arr[idum+52];
+	  /*...Block 7: t0C,t1C,t2C,t3C	*/
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
-		b1p0Cr=b[rdum+12];	b1p0Ci=b[idum+12];
-		b1p0Dr=b[rdum+44];	b1p0Di=b[idum+44];
-		b1p0Er=b[rdum+28];	b1p0Ei=b[idum+28];
-		b1p0Fr=b[rdum+60];	b1p0Fi=b[idum+60];
-	/*...Block 2: t02,t12,t22,t32	*/
-	#ifdef USE_AVX512
+	  #endif
+		b1p0Cr = b[rdum+12] - c_arr[rdum+12];	b1p0Ci = b[idum+12] - c_arr[idum+12];
+		b1p0Dr = b[rdum+44] - c_arr[rdum+44];	b1p0Di = b[idum+44] - c_arr[idum+44];
+		b1p0Er = b[rdum+28] - c_arr[rdum+28];	b1p0Ei = b[idum+28] - c_arr[idum+28];
+		b1p0Fr = b[rdum+60] - c_arr[rdum+60];	b1p0Fi = b[idum+60] - c_arr[idum+60];
+	  /*...Block 2: t02,t12,t22,t32	*/
+	  #ifdef USE_AVX512
 		rdum += 5;	idum += 5;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		++rdum;	++idum;
-	#elif defined(USE_SSE2)
+	  #elif defined(USE_SSE2)
 		--rdum;	--idum;
-	#endif
-		b1p10r=b[rdum+2 ];	b1p10i=b[idum+2 ];
-		b1p11r=b[rdum+34];	b1p11i=b[idum+34];
-		b1p12r=b[rdum+18];	b1p12i=b[idum+18];
-		b1p13r=b[rdum+50];	b1p13i=b[idum+50];
-	/*...Block 6: t0A,t1A,t2A,t3A	*/
-	#ifdef USE_AVX512
+	  #endif
+		b1p10r = b[rdum+2 ] - c_arr[rdum+2 ];	b1p10i = b[idum+2 ] - c_arr[idum+2 ];
+		b1p11r = b[rdum+34] - c_arr[rdum+34];	b1p11i = b[idum+34] - c_arr[idum+34];
+		b1p12r = b[rdum+18] - c_arr[rdum+18];	b1p12i = b[idum+18] - c_arr[idum+18];
+		b1p13r = b[rdum+50] - c_arr[rdum+50];	b1p13i = b[idum+50] - c_arr[idum+50];
+	  /*...Block 6: t0A,t1A,t2A,t3A	*/
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
-		b1p14r=b[rdum+10];	b1p14i=b[idum+10];
-		b1p15r=b[rdum+42];	b1p15i=b[idum+42];
-		b1p16r=b[rdum+26];	b1p16i=b[idum+26];
-		b1p17r=b[rdum+58];	b1p17i=b[idum+58];
-	/*...Block 4: t06,t16,t26,t36	*/
-	#ifdef USE_AVX512
+	  #endif
+		b1p14r = b[rdum+10] - c_arr[rdum+10];	b1p14i = b[idum+10] - c_arr[idum+10];
+		b1p15r = b[rdum+42] - c_arr[rdum+42];	b1p15i = b[idum+42] - c_arr[idum+42];
+		b1p16r = b[rdum+26] - c_arr[rdum+26];	b1p16i = b[idum+26] - c_arr[idum+26];
+		b1p17r = b[rdum+58] - c_arr[rdum+58];	b1p17i = b[idum+58] - c_arr[idum+58];
+	  /*...Block 4: t06,t16,t26,t36	*/
+	  #ifdef USE_AVX512
 		rdum += 2;	idum += 2;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
-	#endif
-		b1p18r=b[rdum+6 ];	b1p18i=b[idum+6 ];
-		b1p19r=b[rdum+38];	b1p19i=b[idum+38];
-		b1p1Ar=b[rdum+22];	b1p1Ai=b[idum+22];
-		b1p1Br=b[rdum+54];	b1p1Bi=b[idum+54];
-	/*...Block 8: t0E,t1E,t2E,t3E	*/
-	#ifdef USE_AVX512
+	  #endif
+		b1p18r = b[rdum+6 ] - c_arr[rdum+6 ];	b1p18i = b[idum+6 ] - c_arr[idum+6 ];
+		b1p19r = b[rdum+38] - c_arr[rdum+38];	b1p19i = b[idum+38] - c_arr[idum+38];
+		b1p1Ar = b[rdum+22] - c_arr[rdum+22];	b1p1Ai = b[idum+22] - c_arr[idum+22];
+		b1p1Br = b[rdum+54] - c_arr[rdum+54];	b1p1Bi = b[idum+54] - c_arr[idum+54];
+	  /*...Block 8: t0E,t1E,t2E,t3E	*/
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
-		b1p1Cr=b[rdum+14];	b1p1Ci=b[idum+14];
-		b1p1Dr=b[rdum+46];	b1p1Di=b[idum+46];
-		b1p1Er=b[rdum+30];	b1p1Ei=b[idum+30];
-		b1p1Fr=b[rdum+62];	b1p1Fi=b[idum+62];
-	/*************************************************************/
-	/*                  2nd set of inputs:                       */
-	/*************************************************************/
+	  #endif
+		b1p1Cr = b[rdum+14] - c_arr[rdum+14];	b1p1Ci = b[idum+14] - c_arr[idum+14];
+		b1p1Dr = b[rdum+46] - c_arr[rdum+46];	b1p1Di = b[idum+46] - c_arr[idum+46];
+		b1p1Er = b[rdum+30] - c_arr[rdum+30];	b1p1Ei = b[idum+30] - c_arr[idum+30];
+		b1p1Fr = b[rdum+62] - c_arr[rdum+62];	b1p1Fi = b[idum+62] - c_arr[idum+62];
+	  /*************************************************************/
+	  /*                  2nd set of inputs:                       */
+	  /*************************************************************/
 		rdum = j2pad;
 		idum = j2pad+RE_IM_STRIDE;
-	/*...Block 1: t00,t10,t20,t30	*/
-		b2p00r=b[rdum   ];	b2p00i=b[idum   ];
-		b2p01r=b[rdum+32];	b2p01i=b[idum+32];
-		b2p02r=b[rdum+16];	b2p02i=b[idum+16];
-		b2p03r=b[rdum+48];	b2p03i=b[idum+48];
-	/*...Block 5: t08,t18,t28,t38	*/
-	#ifdef USE_AVX512
+	  /*...Block 1: t00,t10,t20,t30	*/
+		b2p00r = b[rdum   ] - c_arr[rdum   ];	b2p00i = b[idum   ] - c_arr[idum   ];
+		b2p01r = b[rdum+32] - c_arr[rdum+32];	b2p01i = b[idum+32] - c_arr[idum+32];
+		b2p02r = b[rdum+16] - c_arr[rdum+16];	b2p02i = b[idum+16] - c_arr[idum+16];
+		b2p03r = b[rdum+48] - c_arr[rdum+48];	b2p03i = b[idum+48] - c_arr[idum+48];
+	  /*...Block 5: t08,t18,t28,t38	*/
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
-		b2p04r=b[rdum+8 ];	b2p04i=b[idum+8 ];
-		b2p05r=b[rdum+40];	b2p05i=b[idum+40];
-		b2p06r=b[rdum+24];	b2p06i=b[idum+24];
-		b2p07r=b[rdum+56];	b2p07i=b[idum+56];
-	/*...Block 3: t04,t14,t24,t34	*/
-	#ifdef USE_AVX512
+	  #endif
+		b2p04r = b[rdum+8 ] - c_arr[rdum+8 ];	b2p04i = b[idum+8 ] - c_arr[idum+8 ];
+		b2p05r = b[rdum+40] - c_arr[rdum+40];	b2p05i = b[idum+40] - c_arr[idum+40];
+		b2p06r = b[rdum+24] - c_arr[rdum+24];	b2p06i = b[idum+24] - c_arr[idum+24];
+		b2p07r = b[rdum+56] - c_arr[rdum+56];	b2p07i = b[idum+56] - c_arr[idum+56];
+	  /*...Block 3: t04,t14,t24,t34	*/
+	  #ifdef USE_AVX512
 		rdum += 2;	idum += 2;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
-	#endif
-		b2p08r=b[rdum+4 ];	b2p08i=b[idum+4 ];
-		b2p09r=b[rdum+36];	b2p09i=b[idum+36];
-		b2p0Ar=b[rdum+20];	b2p0Ai=b[idum+20];
-		b2p0Br=b[rdum+52];	b2p0Bi=b[idum+52];
-	/*...Block 7: t0C,t1C,t2C,t3C	*/
-	#ifdef USE_AVX512
+	  #endif
+		b2p08r = b[rdum+4 ] - c_arr[rdum+4 ];	b2p08i = b[idum+4 ] - c_arr[idum+4 ];
+		b2p09r = b[rdum+36] - c_arr[rdum+36];	b2p09i = b[idum+36] - c_arr[idum+36];
+		b2p0Ar = b[rdum+20] - c_arr[rdum+20];	b2p0Ai = b[idum+20] - c_arr[idum+20];
+		b2p0Br = b[rdum+52] - c_arr[rdum+52];	b2p0Bi = b[idum+52] - c_arr[idum+52];
+	  /*...Block 7: t0C,t1C,t2C,t3C	*/
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
-		b2p0Cr=b[rdum+12];	b2p0Ci=b[idum+12];
-		b2p0Dr=b[rdum+44];	b2p0Di=b[idum+44];
-		b2p0Er=b[rdum+28];	b2p0Ei=b[idum+28];
-		b2p0Fr=b[rdum+60];	b2p0Fi=b[idum+60];
-	/*...Block 2: t02,t12,t22,t32	*/
-	#ifdef USE_AVX512
+	  #endif
+		b2p0Cr = b[rdum+12] - c_arr[rdum+12];	b2p0Ci = b[idum+12] - c_arr[idum+12];
+		b2p0Dr = b[rdum+44] - c_arr[rdum+44];	b2p0Di = b[idum+44] - c_arr[idum+44];
+		b2p0Er = b[rdum+28] - c_arr[rdum+28];	b2p0Ei = b[idum+28] - c_arr[idum+28];
+		b2p0Fr = b[rdum+60] - c_arr[rdum+60];	b2p0Fi = b[idum+60] - c_arr[idum+60];
+	  /*...Block 2: t02,t12,t22,t32	*/
+	  #ifdef USE_AVX512
 		rdum += 5;	idum += 5;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		++rdum;	++idum;
-	#elif defined(USE_SSE2)
+	  #elif defined(USE_SSE2)
 		--rdum;	--idum;
-	#endif
-		b2p10r=b[rdum+2 ];	b2p10i=b[idum+2 ];
-		b2p11r=b[rdum+34];	b2p11i=b[idum+34];
-		b2p12r=b[rdum+18];	b2p12i=b[idum+18];
-		b2p13r=b[rdum+50];	b2p13i=b[idum+50];
-	/*...Block 6: t0A,t1A,t2A,t3A	*/
-	#ifdef USE_AVX512
+	  #endif
+		b2p10r = b[rdum+2 ] - c_arr[rdum+2 ];	b2p10i = b[idum+2 ] - c_arr[idum+2 ];
+		b2p11r = b[rdum+34] - c_arr[rdum+34];	b2p11i = b[idum+34] - c_arr[idum+34];
+		b2p12r = b[rdum+18] - c_arr[rdum+18];	b2p12i = b[idum+18] - c_arr[idum+18];
+		b2p13r = b[rdum+50] - c_arr[rdum+50];	b2p13i = b[idum+50] - c_arr[idum+50];
+	  /*...Block 6: t0A,t1A,t2A,t3A	*/
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
-		b2p14r=b[rdum+10];	b2p14i=b[idum+10];
-		b2p15r=b[rdum+42];	b2p15i=b[idum+42];
-		b2p16r=b[rdum+26];	b2p16i=b[idum+26];
-		b2p17r=b[rdum+58];	b2p17i=b[idum+58];
-	/*...Block 4: t06,t16,t26,t36	*/
-	#ifdef USE_AVX512
+	  #endif
+		b2p14r = b[rdum+10] - c_arr[rdum+10];	b2p14i = b[idum+10] - c_arr[idum+10];
+		b2p15r = b[rdum+42] - c_arr[rdum+42];	b2p15i = b[idum+42] - c_arr[idum+42];
+		b2p16r = b[rdum+26] - c_arr[rdum+26];	b2p16i = b[idum+26] - c_arr[idum+26];
+		b2p17r = b[rdum+58] - c_arr[rdum+58];	b2p17i = b[idum+58] - c_arr[idum+58];
+	  /*...Block 4: t06,t16,t26,t36	*/
+	  #ifdef USE_AVX512
 		rdum += 2;	idum += 2;
-	#elif defined(USE_AVX)
+	  #elif defined(USE_AVX)
 		rdum -= 2;	idum -= 2;
-	#endif
-		b2p18r=b[rdum+6 ];	b2p18i=b[idum+6 ];
-		b2p19r=b[rdum+38];	b2p19i=b[idum+38];
-		b2p1Ar=b[rdum+22];	b2p1Ai=b[idum+22];
-		b2p1Br=b[rdum+54];	b2p1Bi=b[idum+54];
-	/*...Block 8: t0E,t1E,t2E,t3E	*/
-	#ifdef USE_AVX512
+	  #endif
+		b2p18r = b[rdum+6 ] - c_arr[rdum+6 ];	b2p18i = b[idum+6 ] - c_arr[idum+6 ];
+		b2p19r = b[rdum+38] - c_arr[rdum+38];	b2p19i = b[idum+38] - c_arr[idum+38];
+		b2p1Ar = b[rdum+22] - c_arr[rdum+22];	b2p1Ai = b[idum+22] - c_arr[idum+22];
+		b2p1Br = b[rdum+54] - c_arr[rdum+54];	b2p1Bi = b[idum+54] - c_arr[idum+54];
+	  /*...Block 8: t0E,t1E,t2E,t3E	*/
+	  #ifdef USE_AVX512
 		rdum -= 4;	idum -= 4;
-	#endif
-		b2p1Cr=b[rdum+14];	b2p1Ci=b[idum+14];
-		b2p1Dr=b[rdum+46];	b2p1Di=b[idum+46];
-		b2p1Er=b[rdum+30];	b2p1Ei=b[idum+30];
-		b2p1Fr=b[rdum+62];	b2p1Fi=b[idum+62];
+	  #endif
+		b2p1Cr = b[rdum+14] - c_arr[rdum+14];	b2p1Ci = b[idum+14] - c_arr[idum+14];
+		b2p1Dr = b[rdum+46] - c_arr[rdum+46];	b2p1Di = b[idum+46] - c_arr[idum+46];
+		b2p1Er = b[rdum+30] - c_arr[rdum+30];	b2p1Ei = b[idum+30] - c_arr[idum+30];
+		b2p1Fr = b[rdum+62] - c_arr[rdum+62];	b2p1Fi = b[idum+62] - c_arr[idum+62];
+
+	  } else {	// c_arr = 0x0: a * b
+
+	  /*************************************************************/
+	  /*                  1st set of inputs:                       */
+	  /*************************************************************/
+		rdum = j1pad;
+		idum = j1pad+RE_IM_STRIDE;
+	  /*...Block 1: t00,t10,t20,t30	*/
+		b1p00r = b[rdum   ];	b1p00i = b[idum   ];
+		b1p01r = b[rdum+32];	b1p01i = b[idum+32];
+		b1p02r = b[rdum+16];	b1p02i = b[idum+16];
+		b1p03r = b[rdum+48];	b1p03i = b[idum+48];
+	  /*...Block 5: t08,t18,t28,t38	*/
+	  #ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	  #endif
+		b1p04r = b[rdum+8 ];	b1p04i = b[idum+8 ];
+		b1p05r = b[rdum+40];	b1p05i = b[idum+40];
+		b1p06r = b[rdum+24];	b1p06i = b[idum+24];
+		b1p07r = b[rdum+56];	b1p07i = b[idum+56];
+	  /*...Block 3: t04,t14,t24,t34	*/
+	  #ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	  #elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	  #endif
+		b1p08r = b[rdum+4 ];	b1p08i = b[idum+4 ];
+		b1p09r = b[rdum+36];	b1p09i = b[idum+36];
+		b1p0Ar = b[rdum+20];	b1p0Ai = b[idum+20];
+		b1p0Br = b[rdum+52];	b1p0Bi = b[idum+52];
+	  /*...Block 7: t0C,t1C,t2C,t3C	*/
+	  #ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	  #endif
+		b1p0Cr = b[rdum+12];	b1p0Ci = b[idum+12];
+		b1p0Dr = b[rdum+44];	b1p0Di = b[idum+44];
+		b1p0Er = b[rdum+28];	b1p0Ei = b[idum+28];
+		b1p0Fr = b[rdum+60];	b1p0Fi = b[idum+60];
+	  /*...Block 2: t02,t12,t22,t32	*/
+	  #ifdef USE_AVX512
+		rdum += 5;	idum += 5;
+	  #elif defined(USE_AVX)
+		++rdum;	++idum;
+	  #elif defined(USE_SSE2)
+		--rdum;	--idum;
+	  #endif
+		b1p10r = b[rdum+2 ];	b1p10i = b[idum+2 ];
+		b1p11r = b[rdum+34];	b1p11i = b[idum+34];
+		b1p12r = b[rdum+18];	b1p12i = b[idum+18];
+		b1p13r = b[rdum+50];	b1p13i = b[idum+50];
+	  /*...Block 6: t0A,t1A,t2A,t3A	*/
+	  #ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	  #endif
+		b1p14r = b[rdum+10];	b1p14i = b[idum+10];
+		b1p15r = b[rdum+42];	b1p15i = b[idum+42];
+		b1p16r = b[rdum+26];	b1p16i = b[idum+26];
+		b1p17r = b[rdum+58];	b1p17i = b[idum+58];
+	  /*...Block 4: t06,t16,t26,t36	*/
+	  #ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	  #elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	  #endif
+		b1p18r = b[rdum+6 ];	b1p18i = b[idum+6 ];
+		b1p19r = b[rdum+38];	b1p19i = b[idum+38];
+		b1p1Ar = b[rdum+22];	b1p1Ai = b[idum+22];
+		b1p1Br = b[rdum+54];	b1p1Bi = b[idum+54];
+	  /*...Block 8: t0E,t1E,t2E,t3E	*/
+	  #ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	  #endif
+		b1p1Cr = b[rdum+14];	b1p1Ci = b[idum+14];
+		b1p1Dr = b[rdum+46];	b1p1Di = b[idum+46];
+		b1p1Er = b[rdum+30];	b1p1Ei = b[idum+30];
+		b1p1Fr = b[rdum+62];	b1p1Fi = b[idum+62];
+	  /*************************************************************/
+	  /*                  2nd set of inputs:                       */
+	  /*************************************************************/
+		rdum = j2pad;
+		idum = j2pad+RE_IM_STRIDE;
+	  /*...Block 1: t00,t10,t20,t30	*/
+		b2p00r = b[rdum   ];	b2p00i = b[idum   ];
+		b2p01r = b[rdum+32];	b2p01i = b[idum+32];
+		b2p02r = b[rdum+16];	b2p02i = b[idum+16];
+		b2p03r = b[rdum+48];	b2p03i = b[idum+48];
+	  /*...Block 5: t08,t18,t28,t38	*/
+	  #ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	  #endif
+		b2p04r = b[rdum+8 ];	b2p04i = b[idum+8 ];
+		b2p05r = b[rdum+40];	b2p05i = b[idum+40];
+		b2p06r = b[rdum+24];	b2p06i = b[idum+24];
+		b2p07r = b[rdum+56];	b2p07i = b[idum+56];
+	  /*...Block 3: t04,t14,t24,t34	*/
+	  #ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	  #elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	  #endif
+		b2p08r = b[rdum+4 ];	b2p08i = b[idum+4 ];
+		b2p09r = b[rdum+36];	b2p09i = b[idum+36];
+		b2p0Ar = b[rdum+20];	b2p0Ai = b[idum+20];
+		b2p0Br = b[rdum+52];	b2p0Bi = b[idum+52];
+	  /*...Block 7: t0C,t1C,t2C,t3C	*/
+	  #ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	  #endif
+		b2p0Cr = b[rdum+12];	b2p0Ci = b[idum+12];
+		b2p0Dr = b[rdum+44];	b2p0Di = b[idum+44];
+		b2p0Er = b[rdum+28];	b2p0Ei = b[idum+28];
+		b2p0Fr = b[rdum+60];	b2p0Fi = b[idum+60];
+	  /*...Block 2: t02,t12,t22,t32	*/
+	  #ifdef USE_AVX512
+		rdum += 5;	idum += 5;
+	  #elif defined(USE_AVX)
+		++rdum;	++idum;
+	  #elif defined(USE_SSE2)
+		--rdum;	--idum;
+	  #endif
+		b2p10r = b[rdum+2 ];	b2p10i = b[idum+2 ];
+		b2p11r = b[rdum+34];	b2p11i = b[idum+34];
+		b2p12r = b[rdum+18];	b2p12i = b[idum+18];
+		b2p13r = b[rdum+50];	b2p13i = b[idum+50];
+	  /*...Block 6: t0A,t1A,t2A,t3A	*/
+	  #ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	  #endif
+		b2p14r = b[rdum+10];	b2p14i = b[idum+10];
+		b2p15r = b[rdum+42];	b2p15i = b[idum+42];
+		b2p16r = b[rdum+26];	b2p16i = b[idum+26];
+		b2p17r = b[rdum+58];	b2p17i = b[idum+58];
+	  /*...Block 4: t06,t16,t26,t36	*/
+	  #ifdef USE_AVX512
+		rdum += 2;	idum += 2;
+	  #elif defined(USE_AVX)
+		rdum -= 2;	idum -= 2;
+	  #endif
+		b2p18r = b[rdum+6 ];	b2p18i = b[idum+6 ];
+		b2p19r = b[rdum+38];	b2p19i = b[idum+38];
+		b2p1Ar = b[rdum+22];	b2p1Ai = b[idum+22];
+		b2p1Br = b[rdum+54];	b2p1Bi = b[idum+54];
+	  /*...Block 8: t0E,t1E,t2E,t3E	*/
+	  #ifdef USE_AVX512
+		rdum -= 4;	idum -= 4;
+	  #endif
+		b2p1Cr = b[rdum+14];	b2p1Ci = b[idum+14];
+		b2p1Dr = b[rdum+46];	b2p1Di = b[idum+46];
+		b2p1Er = b[rdum+30];	b2p1Ei = b[idum+30];
+		b2p1Fr = b[rdum+62];	b2p1Fi = b[idum+62];
+
+	  }	// endif(c_arr)
 
 	  if(j1 == 0)	/* NB: mustn't use re, im as temps in exe1-3 section, since those contain saved sincos data for exe4 block. */
 	  {				// Jul 2015: Now moot since to avoid name-clashes in FGT61-mode, have renamed the doubles re,im -> RT,IT
@@ -3690,7 +3854,9 @@ skip_fwd_fft:	// v20: jump-to-point for both-inputs-already-fwd-FFTed case
 	} else {
 	  // Structure remaining 2 options as nested if() subclause to allow sharing of several hundred lines of sincos-multiplier-related code:
 	  if (fwd_fft_only) {	// 2-input modmul: fwdFFT data dyadic-mul'ed with precomputed 2nd-vector stored in fwdFFTed form at address stored in (uint64)-cast form in fwd_fft_only
-	   if(fwd_fft_only == 3) {	// v20: Both inputs enter fwd-FFTed, must copy from main arrays a[],b[] to local-vars
+
+	   if(fwd_fft_only == 3)	// v20: Both inputs enter fwd-FFTed, must copy from main arrays a[],b[] to local-vars
+	   {
 	   #ifdef USE_AVX512	// The generic pre-dyadic-square macro needs 8 main-array addresses in AVX512 mode
 		// process 8 main-array blocks of [8 vec_dbl = 8 x 8 = 64 doubles] each in AVX512 mode, total = 64 vec_dbl = 32 vec_cmplx
 		nbytes = (long)r08 - (long)r00;
@@ -3717,6 +3883,7 @@ skip_fwd_fft:	// v20: jump-to-point for both-inputs-already-fwd-FFTed case
 		memcpy(r20, add1, nbytes);	// add1 = a + j2pad;
 	   #endif
 	   }
+
 	  #ifdef USE_AVX512	// The generic pre-dyadic-square macro needs 8 main-array addresses in AVX512 mode
 		// process 8 main-array blocks of [8 vec_dbl = 8 x 8 = 64 doubles] each in AVX512 mode, total = 64 vec_dbl = 32 vec_cmplx
 		bdd0 = b + j1pad;
@@ -3739,6 +3906,570 @@ skip_fwd_fft:	// v20: jump-to-point for both-inputs-already-fwd-FFTed case
 		bdd0 = b + j1pad;
 		bdd1 = b + j2pad;
 	  #endif
+
+		if(c_arr) {	// c_arr != 0x0: a * (b - c)
+
+		#ifdef USE_AVX512
+			cdd0 = c_arr + j1pad;
+			cdd2 = cdd0 + 64;
+			cdd4 = cdd2 + 64;
+			cdd6 = cdd4 + 64;
+			cdd1 = c_arr + j2pad;
+			cdd3 = cdd1 - 64;
+			cdd5 = cdd3 - 64;
+			cdd7 = cdd5 - 64;
+		#elif defined(USE_AVX)
+			cdd0 = c_arr + j1pad;
+			cdd1 = c_arr + j2pad;
+			cdd2 = cdd0 + 64;
+			cdd3 = cdd1 - 64;
+		#else	// SSE2:
+			cdd0 = c_arr + j1pad;
+			cdd1 = c_arr + j2pad;
+		#endif
+		/********** In the inline-(B-C) macros, r1 and bminusc_ptr are the I/O base-addresses;
+				bdd0,cdd0 the B and C-array-section addresses: **********/
+		#ifdef USE_ARM_V8_SIMD
+		  __asm__ volatile (\
+			"ldr	x0,%[__bminusc_ptr]	\n\t"\
+			"ldr	x1,%[__bdd0]		\n\t	ldr	x2,%[__cdd0]	\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			"add x0,x0,#0x40 \n\t add x1,x1,#0x40 \n\t add x2,x2,#0x40	\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			"add x0,x0,#0x40 \n\t add x1,x1,#0x40 \n\t add x2,x2,#0x40	\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			"add x0,x0,#0x40 \n\t add x1,x1,#0x40 \n\t add x2,x2,#0x40	\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			"add x0,x0,#0x40 \n\t add x1,x1,#0x40 \n\t add x2,x2,#0x40	\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			"add x0,x0,#0x40 \n\t add x1,x1,#0x40 \n\t add x2,x2,#0x40	\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			"add x0,x0,#0x40 \n\t add x1,x1,#0x40 \n\t add x2,x2,#0x40	\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			"add x0,x0,#0x40 \n\t add x1,x1,#0x40 \n\t add x2,x2,#0x40	\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			"add x0,x0,#0x40 \n\t"\
+			"ldr	x1,%[__bdd1]		\n\t	ldr	x2,%[__cdd1]\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			"add x0,x0,#0x40 \n\t add x1,x1,#0x40 \n\t add x2,x2,#0x40	\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			"add x0,x0,#0x40 \n\t add x1,x1,#0x40 \n\t add x2,x2,#0x40	\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			"add x0,x0,#0x40 \n\t add x1,x1,#0x40 \n\t add x2,x2,#0x40	\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			"add x0,x0,#0x40 \n\t add x1,x1,#0x40 \n\t add x2,x2,#0x40	\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			"add x0,x0,#0x40 \n\t add x1,x1,#0x40 \n\t add x2,x2,#0x40	\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			"add x0,x0,#0x40 \n\t add x1,x1,#0x40 \n\t add x2,x2,#0x40	\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			"add x0,x0,#0x40 \n\t add x1,x1,#0x40 \n\t add x2,x2,#0x40	\n\t"\
+			"ldp	q0,q1,[x1]			\n\t	ldp	q2,q3,[x1,#0x20]	\n\t"\
+			"ldp	q4,q5,[x2]			\n\t	ldp	q6,q7,[x2,#0x20]	\n\t"\
+			"fsub	v0.2d,v0.2d,v4.2d	\n\t	fsub	v1.2d,v1.2d,v5.2d	\n\t"\
+			"fsub	v2.2d,v2.2d,v6.2d	\n\t	fsub	v3.2d,v3.2d,v7.2d	\n\t"\
+			"stp	q0,q1,[x0]			\n\t	stp	q2,q3,[x0,#0x20]	\n\t"\
+			:					// outputs: none
+			: [__bminusc_ptr] "m" (bminusc_ptr)	// Local temp-storage array to hold B-C outputs
+			 ,[__bdd0] "m" (bdd0)	// B-array base-address
+			 ,[__bdd1] "m" (bdd1)
+			 ,[__cdd0] "m" (cdd0)
+			 ,[__cdd1] "m" (cdd1)
+			: "cc","memory","x0","x1","x2", "v0","v1","v2","v3","v4","v5","v6","v7"	/* Clobbered registers */\
+		  );
+		  // Re-point bdd* to bminusc_ptr-offsets - bdd are double*, thus each bminusc_ptr-incr = 2 doubles,
+		  // total local-table size = 2*radix = 32 vec_dbl = 64 double. Within this contig-table bdd* indices are in-order:
+		  bdd0 = (double *)bminusc_ptr;
+		  bdd1 = bdd0 + 64;
+
+		#elif defined(USE_AVX512)	// AVX512 implements a 512-bit-register version of the the AVX2 ALL_FMA-macro
+
+		  __asm__ volatile (\
+		"movq	%[__bminusc_ptr],%%rax	\n\t"\
+		"movq	%[__bdd0],%%rbx		\n\t	movq	%[__cdd0],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+		"addq	$0x100,%%rax	\n\t	addq	$0x100,%%rbx	\n\t	addq	$0x100,%%rcx	\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+		"addq	$0x100,%%rax		\n\t"\
+		"movq	%[__bdd1],%%rbx		\n\t	movq	%[__cdd1],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+		"addq	$0x100,%%rax	\n\t	addq	$0x100,%%rbx	\n\t	addq	$0x100,%%rcx	\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+		"addq	$0x100,%%rax		\n\t"\
+		"movq	%[__bdd2],%%rbx		\n\t	movq	%[__cdd2],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+		"addq	$0x100,%%rax	\n\t	addq	$0x100,%%rbx	\n\t	addq	$0x100,%%rcx	\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+		"addq	$0x100,%%rax		\n\t"\
+		"movq	%[__bdd3],%%rbx		\n\t	movq	%[__cdd3],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+		"addq	$0x100,%%rax	\n\t	addq	$0x100,%%rbx	\n\t	addq	$0x100,%%rcx	\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+		"addq	$0x100,%%rax		\n\t"\
+		"movq	%[__bdd4],%%rbx		\n\t	movq	%[__cdd4],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+		"addq	$0x100,%%rax	\n\t	addq	$0x100,%%rbx	\n\t	addq	$0x100,%%rcx	\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+		"addq	$0x100,%%rax		\n\t"\
+		"movq	%[__bdd5],%%rbx		\n\t	movq	%[__cdd5],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+		"addq	$0x100,%%rax	\n\t	addq	$0x100,%%rbx	\n\t	addq	$0x100,%%rcx	\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+		"addq	$0x100,%%rax		\n\t"\
+		"movq	%[__bdd6],%%rbx		\n\t	movq	%[__cdd6],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+		"addq	$0x100,%%rax	\n\t	addq	$0x100,%%rbx	\n\t	addq	$0x100,%%rcx	\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+		"addq	$0x100,%%rax		\n\t"\
+		"movq	%[__bdd7],%%rbx		\n\t	movq	%[__cdd7],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+		"addq	$0x100,%%rax	\n\t	addq	$0x100,%%rbx	\n\t	addq	$0x100,%%rcx	\n\t"\
+			"vmovaps		 (%%rbx),%%zmm0	\n\t	vmovaps	0x080(%%rbx),%%zmm2	\n\t"\
+			"vmovaps	0x040(%%rbx),%%zmm1	\n\t	vmovaps	0x0c0(%%rbx),%%zmm3	\n\t"\
+		"vsubpd		 (%%rcx),%%zmm0,%%zmm0	\n\t	vsubpd	0x080(%%rcx),%%zmm2,%%zmm2	\n\t"\
+		"vsubpd	0x040(%%rcx),%%zmm1,%%zmm1	\n\t	vsubpd	0x0c0(%%rcx),%%zmm3,%%zmm3	\n\t"\
+			"vmovaps	%%zmm0,     (%%rax)	\n\t	vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+			"vmovaps	%%zmm1,0x040(%%rax)	\n\t	vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+			:					// outputs: none
+			: [__bminusc_ptr] "m" (bminusc_ptr)	// Local temp-storage array to hold B-C outputs
+			 ,[__bdd0] "m" (bdd0)	// B-array base-address
+			 ,[__bdd1] "m" (bdd1)
+			 ,[__bdd2] "m" (bdd2)
+			 ,[__bdd3] "m" (bdd3)
+			 ,[__bdd4] "m" (bdd4)
+			 ,[__bdd5] "m" (bdd5)
+			 ,[__bdd6] "m" (bdd6)
+			 ,[__bdd7] "m" (bdd7)
+			 ,[__cdd0] "m" (cdd0)
+			 ,[__cdd1] "m" (cdd1)
+			 ,[__cdd2] "m" (cdd2)
+			 ,[__cdd3] "m" (cdd3)
+			 ,[__cdd4] "m" (cdd4)
+			 ,[__cdd5] "m" (cdd5)
+			 ,[__cdd6] "m" (cdd6)
+			 ,[__cdd7] "m" (cdd7)
+			: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm3"	// Clobbered registers
+		  );
+		  // Re-point bdd* to bminusc_ptr-offsets - bdd are double*, thus each bminusc_ptr-incr = 8 doubles,
+		  // total local-table size = 2*radix = 32 vec_dbl = 256 double. Within this contig-table bdd* indices are in-order:
+		  bdd0 = (double *)bminusc_ptr;
+		  bdd1 = bdd0 + 64;
+		  bdd2 = bdd1 + 64;
+		  bdd3 = bdd2 + 64;
+		  bdd4 = bdd3 + 64;
+		  bdd5 = bdd4 + 64;
+		  bdd6 = bdd5 + 64;
+		  bdd7 = bdd6 + 64;
+
+		#elif defined(USE_AVX)
+
+		  __asm__ volatile (\
+		"movq	%[__bminusc_ptr],%%rax	\n\t"\
+		"movq	%[__bdd0],%%rbx		\n\t	movq	%[__cdd0],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+		"addq	$0x80,%%rax	\n\t	addq	$0x80,%%rbx	\n\t	addq	$0x80,%%rcx	\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+		"addq	$0x80,%%rax	\n\t	addq	$0x80,%%rbx	\n\t	addq	$0x80,%%rcx	\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+		"addq	$0x80,%%rax	\n\t	addq	$0x80,%%rbx	\n\t	addq	$0x80,%%rcx	\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+		"addq	$0x080,%%rax		\n\t"\
+		"movq	%[__bdd1],%%rbx		\n\t	movq	%[__cdd1],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+		"addq	$0x80,%%rax	\n\t	addq	$0x80,%%rbx	\n\t	addq	$0x80,%%rcx	\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+		"addq	$0x80,%%rax	\n\t	addq	$0x80,%%rbx	\n\t	addq	$0x80,%%rcx	\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+		"addq	$0x80,%%rax	\n\t	addq	$0x80,%%rbx	\n\t	addq	$0x80,%%rcx	\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+		"addq	$0x080,%%rax		\n\t"\
+		"movq	%[__bdd2],%%rbx		\n\t	movq	%[__cdd2],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+		"addq	$0x80,%%rax	\n\t	addq	$0x80,%%rbx	\n\t	addq	$0x80,%%rcx	\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+		"addq	$0x80,%%rax	\n\t	addq	$0x80,%%rbx	\n\t	addq	$0x80,%%rcx	\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+		"addq	$0x80,%%rax	\n\t	addq	$0x80,%%rbx	\n\t	addq	$0x80,%%rcx	\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+		"addq	$0x080,%%rax		\n\t"\
+		"movq	%[__bdd3],%%rbx		\n\t	movq	%[__cdd3],%%rcx		\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+		"addq	$0x80,%%rax	\n\t	addq	$0x80,%%rbx	\n\t	addq	$0x80,%%rcx	\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+		"addq	$0x80,%%rax	\n\t	addq	$0x80,%%rbx	\n\t	addq	$0x80,%%rcx	\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+		"addq	$0x80,%%rax	\n\t	addq	$0x80,%%rbx	\n\t	addq	$0x80,%%rcx	\n\t"\
+			"vmovaps		 (%%rbx),%%ymm0	\n\t	vmovaps	0x040(%%rbx),%%ymm2	\n\t"\
+			"vmovaps	0x020(%%rbx),%%ymm1	\n\t	vmovaps	0x060(%%rbx),%%ymm3	\n\t"\
+		"vsubpd		 (%%rcx),%%ymm0,%%ymm0	\n\t	vsubpd	0x040(%%rcx),%%ymm2,%%ymm2	\n\t"\
+		"vsubpd	0x020(%%rcx),%%ymm1,%%ymm1	\n\t	vsubpd	0x060(%%rcx),%%ymm3,%%ymm3	\n\t"\
+			"vmovaps	%%ymm0,     (%%rax)	\n\t	vmovaps	%%ymm2,0x040(%%rax)	\n\t"\
+			"vmovaps	%%ymm1,0x020(%%rax)	\n\t	vmovaps	%%ymm3,0x060(%%rax)	\n\t"\
+			:					// outputs: none
+			: [__bminusc_ptr] "m" (bminusc_ptr)	// Local temp-storage array to hold B-C outputs
+			 ,[__bdd0] "m" (bdd0)	// B-array base-address
+			 ,[__bdd1] "m" (bdd1)
+			 ,[__bdd2] "m" (bdd2)
+			 ,[__bdd3] "m" (bdd3)
+			 ,[__cdd0] "m" (cdd0)
+			 ,[__cdd1] "m" (cdd1)
+			 ,[__cdd2] "m" (cdd2)
+			 ,[__cdd3] "m" (cdd3)
+			: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm3"	// Clobbered registers
+		  );
+		  // Re-point bdd* to bminusc_ptr-offsets - bdd are double*, thus each bminusc_ptr-incr = 4 doubles,
+		  // total local-table size = 2*radix = 32 vec_dbl = 128 double. Within this contig-table bdd* indices are in-order:
+		  bdd0 = (double *)bminusc_ptr;
+		  bdd1 = bdd0 + 64;
+		  bdd2 = bdd1 + 64;
+		  bdd3 = bdd2 + 64;
+
+		#else	// 64-bit SSE2:
+
+		  __asm__ volatile (\
+		"movq	%[__bminusc_ptr],%%rax	\n\t"\
+		"movq	%[__bdd0],%%rbx		\n\t	movq	%[__cdd0],%%rcx		\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+		"addq	$0x40,%%rax	\n\t	addq	$0x40,%%rbx	\n\t	addq	$0x40,%%rcx	\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+		"addq	$0x40,%%rax	\n\t	addq	$0x40,%%rbx	\n\t	addq	$0x40,%%rcx	\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+		"addq	$0x40,%%rax	\n\t	addq	$0x40,%%rbx	\n\t	addq	$0x40,%%rcx	\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+		"addq	$0x40,%%rax	\n\t	addq	$0x40,%%rbx	\n\t	addq	$0x40,%%rcx	\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+		"addq	$0x40,%%rax	\n\t	addq	$0x40,%%rbx	\n\t	addq	$0x40,%%rcx	\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+		"addq	$0x40,%%rax	\n\t	addq	$0x40,%%rbx	\n\t	addq	$0x40,%%rcx	\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+		"addq	$0x40,%%rax	\n\t	addq	$0x40,%%rbx	\n\t	addq	$0x40,%%rcx	\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+		"addq	$0x040,%%rax		\n\t"\
+		"movq	%[__bdd1],%%rbx		\n\t	movq	%[__cdd1],%%rcx		\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+		"addq	$0x40,%%rax	\n\t	addq	$0x40,%%rbx	\n\t	addq	$0x40,%%rcx	\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+		"addq	$0x40,%%rax	\n\t	addq	$0x40,%%rbx	\n\t	addq	$0x40,%%rcx	\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+		"addq	$0x40,%%rax	\n\t	addq	$0x40,%%rbx	\n\t	addq	$0x40,%%rcx	\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+		"addq	$0x40,%%rax	\n\t	addq	$0x40,%%rbx	\n\t	addq	$0x40,%%rcx	\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+		"addq	$0x40,%%rax	\n\t	addq	$0x40,%%rbx	\n\t	addq	$0x40,%%rcx	\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+		"addq	$0x40,%%rax	\n\t	addq	$0x40,%%rbx	\n\t	addq	$0x40,%%rcx	\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+		"addq	$0x40,%%rax	\n\t	addq	$0x40,%%rbx	\n\t	addq	$0x40,%%rcx	\n\t"\
+			"movaps		 (%%rbx),%%xmm0	\n\t	movaps	0x020(%%rbx),%%xmm2	\n\t"\
+			"movaps	0x010(%%rbx),%%xmm1	\n\t	movaps	0x030(%%rbx),%%xmm3	\n\t"\
+			"subpd		 (%%rcx),%%xmm0	\n\t	subpd	0x020(%%rcx),%%xmm2	\n\t"\
+			"subpd	0x010(%%rcx),%%xmm1	\n\t	subpd	0x030(%%rcx),%%xmm3	\n\t"\
+			"movaps	%%xmm0,     (%%rax)	\n\t	movaps	%%xmm2,0x020(%%rax)	\n\t"\
+			"movaps	%%xmm1,0x010(%%rax)	\n\t	movaps	%%xmm3,0x030(%%rax)	\n\t"\
+			:					// outputs: none
+			: [__bminusc_ptr] "m" (bminusc_ptr)	// Local temp-storage array to hold B-C outputs
+			 ,[__bdd0] "m" (bdd0)	// B-array base-address
+			 ,[__bdd1] "m" (bdd1)
+			 ,[__cdd0] "m" (cdd0)
+			 ,[__cdd1] "m" (cdd1)
+			: "cc","memory","rax","rbx","rcx","xmm0","xmm1","xmm2","xmm3"	// Clobbered registers
+		  );
+		  // Re-point bdd* to bminusc_ptr-offsets - bdd are double*, thus each bminusc_ptr-incr = 2 doubles,
+		  // total local-table size = 2*radix = 32 vec_dbl = 64 double. Within this contig-table bdd* indices are in-order:
+		  bdd0 = (double *)bminusc_ptr;
+		  bdd1 = bdd0 + 64;
+
+		#endif	// AVX or SSE2?
+
+		} else {	// c_arr = 0x0: a * b
+
+		}	// endif(c_arr)
+
 		/* In SSE2 mode, data laid out in memory as described in "Normal execution" section below, with b-inputs similar to
 		a-inputs, just with r00-31 and r32-63 replaced by offsets relative to b-array addresses bdd0 and bdd1, respectively:
 							A-data:									B-data[SSE2]:				B-data[AVX]:			B-data[AVX-512]:
