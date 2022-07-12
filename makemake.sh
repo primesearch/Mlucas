@@ -96,7 +96,6 @@ if [[ $# -eq 1 ]]; then
 elif uname -a | grep -iq 'Mac'; then
 
 	echo -e "MacOS detected.\n"
-	CPU_THREADS=$(sysctl -n hw.ncpu)
 	if sysctl -a | grep machdep.cpu.features | grep -iq 'avx512'; then
 		echo -e "The CPU supports the AVX512 SIMD build mode.\n"
 		ARGS+=( "-DUSE_AVX512" -march=native )
@@ -120,7 +119,6 @@ elif uname -a | grep -iq 'Mac'; then
 else
 
 	echo -e "Assuming OS = Linux.\n"
-	CPU_THREADS=$(nproc --all)
 	if grep -iq 'avx512' /proc/cpuinfo; then
 		echo -e "The CPU supports the AVX512 SIMD build mode.\n"
 		ARGS+=( "-DUSE_AVX512" -march=native )

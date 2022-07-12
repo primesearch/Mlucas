@@ -34,7 +34,7 @@ To build the sieve factoring code in standalone mode, see the compile instructio
 
 	/* Define FFT-related globals (declared in Mdata.h) */
 	uint32 N2,NRT,NRT_BITS,NRTM1;
-	int NRADICES, RADIX_VEC[10];	/* RADIX_VEC[] stores sequence of complex FFT radices used.	*/
+	uint32 NRADICES, RADIX_VEC[10];	/* RADIX_VEC[] stores sequence of complex FFT radices used.	*/
   #ifdef MULTITHREAD
 	uint64 CORE_SET[MAX_CORES>>6];	// Bitmap for user-controlled affinity setting, as specified via the -cpu flag
   #endif
@@ -1245,7 +1245,7 @@ exit(0);
 	if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)
 	{
 		ASSERT(HERE, findex == mi64_trailz(p, lenP), "Internal Fermat-exponent bad power of 2!");
-		mi64_shrl(p, q, findex, lenP);
+		mi64_shrl(p, q, findex, lenP,lenP);
 		mi64_sub_scalar(q, 1ull, q, lenP);
 		ASSERT(HERE, mi64_iszero(q, lenP), "Internal Fermat-exponent not a power of 2!");
 	}
@@ -1263,7 +1263,7 @@ exit(0);
 			// And now proceed to all-binary-ones test of vector-form M(p):
 			mi64_add_scalar(p, 1ull, q, lenP);
 			ASSERT(HERE, findex == mi64_trailz(q, lenP), "Internal M(M(p))-exponent bad power of 2!");
-			mi64_shrl(q, q, findex, lenP);
+			mi64_shrl(q, q, findex, lenP,lenP);
 			mi64_sub_scalar(q, 1ull, q, lenP);
 			ASSERT(HERE, mi64_iszero(q, lenP), "Internal M(M(p))-exponent fails all-binary-ones check!");
 		}

@@ -90,14 +90,8 @@ int radix22_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	if((n_div_nwt << nwt_bits) != n22)
 	{
-		sprintf(cbuf,"FATAL: iter = %10d; NWT_BITS does not divide N/22 in radix22_ditN_cy_dif1.\n",iter);
-		if(INTERACT)fprintf(stderr,"%s",cbuf);
-		fp = mlucas_fopen(   OFILE,"a");
-		fq = mlucas_fopen(STATFILE,"a");
-		fprintf(fp,"%s",cbuf);
-		fprintf(fq,"%s",cbuf);
-		fclose(fp);	fp = 0x0;
-		fclose(fq);	fq = 0x0;
+		sprintf(cbuf,"ERROR: iter = %10d; NWT_BITS does not divide N/22 in radix22_ditN_cy_dif1.\n",iter);
+		mlucas_fprint(cbuf,INTERACT);
 		err=ERR_CARRY;
 		return(err);
 	}
@@ -737,16 +731,10 @@ for(outer=0; outer <= 1; outer++)
 
 	if(fabs(cy00)+fabs(cy01)+fabs(cy02)+fabs(cy03)+fabs(cy04)+fabs(cy05)+fabs(cy06)+fabs(cy07)+fabs(cy08)+fabs(cy09)+fabs(cy10)+fabs(cy11)+fabs(cy12)+fabs(cy13)+fabs(cy14)+fabs(cy15)+fabs(cy16)+fabs(cy17)+fabs(cy18)+fabs(cy19)+fabs(cy20)+fabs(cy21) != 0.0)
 	{
-			sprintf(cbuf,"FATAL: iter = %10d; nonzero exit carry in radix22_ditN_cy_dif1 - input wordsize may be too small.\n",iter);
-			if(INTERACT)fprintf(stderr,"%s",cbuf);
-			fp = mlucas_fopen(   OFILE,"a");
-			fq = mlucas_fopen(STATFILE,"a");
-		fprintf(fp,"%s",cbuf);
-		fprintf(fq,"%s",cbuf);
-			fclose(fp);	fp = 0x0;
-			fclose(fq);	fq = 0x0;
-			err=ERR_CARRY;
-			return(err);
+		sprintf(cbuf,"ERROR: iter = %10d; nonzero exit carry in radix22_ditN_cy_dif1 - input wordsize may be too small.\n",iter);
+		mlucas_fprint(cbuf,INTERACT);
+		err=ERR_CARRY;
+		return(err);
 	}
 	*fracmax = maxerr;
 	return(0);

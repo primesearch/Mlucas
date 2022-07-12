@@ -1163,7 +1163,7 @@ uint64 twopmodq78_3WORD_DOUBLE_q2(uint64 p, uint64 k0, uint64 k1, int init_sse2,
 			free((void *)sc_arr);	sc_arr=0x0;
 		}
 		// Alloc the local-memory block:
-		sc_arr = ALLOC_DOUBLE(sc_arr, 0x2c*max_threads + 4);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_arr = ALLOC_DOUBLE(sc_arr, 0x2c*max_threads + 4);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = (double *)ALIGN_VEC_DBL(sc_arr);	// Force vec_dbl-alignment
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 	#ifdef MULTITHREAD
@@ -2002,7 +2002,7 @@ uint64 twopmodq78_3WORD_DOUBLE_q4(uint64 p, uint64 k0, uint64 k1, uint64 k2, uin
 			free((void *)sc_arr);	sc_arr=0x0;
 		}
 		// Alloc the local-memory block:
-		sc_arr = ALLOC_DOUBLE(sc_arr, 0x50*max_threads + 4);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_arr = ALLOC_DOUBLE(sc_arr, 0x50*max_threads + 4);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = (double *)ALIGN_VEC_DBL(sc_arr);	// Force vec_dbl-alignment
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 	#ifdef MULTITHREAD
@@ -3390,7 +3390,7 @@ uint64 twopmodq78_3WORD_DOUBLE_q4_REF(uint64 p, uint64 k0, uint64 k1, uint64 k2,
 				free((void *)sc_arr);	sc_arr=0x0;
 			}
 			// Alloc the local-memory block - SSE2 needs 6 fewer double-slots than AVX (since only need one copy each of two13i,two26f,two26i), but use same AVX-alloc for both:
-			sc_arr = ALLOC_DOUBLE(sc_arr, 0x6c*max_threads + 4);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+			sc_arr = ALLOC_DOUBLE(sc_arr, 0x6c*max_threads + 4);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 			sc_ptr = (double *)ALIGN_VEC_DBL(sc_arr);	// Force vec_dbl-alignment
 			ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 		#ifdef MULTITHREAD
@@ -3967,7 +3967,7 @@ uint64 twopmodq78_3WORD_DOUBLE_q4_REF(uint64 p, uint64 k0, uint64 k1, uint64 k2,
 			zshift0 <<= 1;			zshift1 <<= 1;			/* In [0,76]/[36,112]; Doubling the shift count here takes cares of the first SQR_LOHI */
 			pshift = ~pshift;
 			/* 40 16-byte slots for floats, 16 for ints: */
-			sc_arr = ALLOC_VEC_DBL(sc_arr, 40+32);	ASSERT(HERE, sc_arr != 0x0, "FATAL: unable to allocate sc_arr!");
+			sc_arr = ALLOC_VEC_DBL(sc_arr, 40+32);	ASSERT(HERE, sc_arr != 0x0, "ERROR: unable to allocate sc_arr!");
 			sc_ptr = (double *)ALIGN_VEC_DBL(sc_arr);
 			ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 			/* Remember, these are POINTERS-TO-DOUBLES, so need an increment of 2 to span an SSE register.
@@ -4890,7 +4890,7 @@ uint64 twopmodq78_3WORD_DOUBLE_q4_REF(uint64 p, uint64 k0, uint64 k1, uint64 k2,
 				free((void *)sc_arr);	sc_arr=0x0;
 			}
 			// Alloc the local-memory block:
-			sc_arr = ALLOC_DOUBLE(sc_arr, 0xfc*max_threads + 4);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+			sc_arr = ALLOC_DOUBLE(sc_arr, 0xfc*max_threads + 4);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 			sc_ptr = (double *)ALIGN_VEC_DBL(sc_arr);	// Force vec_dbl-alignment
 			ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 		#ifdef MULTITHREAD
@@ -5441,7 +5441,7 @@ uint64 twopmodq78_3WORD_DOUBLE_q4_REF(uint64 p, uint64 k0, uint64 k1, uint64 k2,
 			// Alloc the local-memory block the #bytes multiplier has plenty of extra room built in, e.g. for debug-data-writes:
 		#ifdef USE_AVX512_I
 
-			sc_arr = ALLOC_UINT64(sc_arr, 0x1c0*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+			sc_arr = ALLOC_UINT64(sc_arr, 0x1c0*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 			sc_ptr = (uint64 *)ALIGN_VEC_U64(sc_arr);	// Force vec_u64-alignment
 			ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 		  #ifdef MULTITHREAD
@@ -5494,7 +5494,7 @@ uint64 twopmodq78_3WORD_DOUBLE_q4_REF(uint64 p, uint64 k0, uint64 k1, uint64 k2,
 		#else	// Default AVX-512 floating-point-FMA mode
 		/***************************************************/
 
-			sc_arr = ALLOC_DOUBLE(sc_arr, 0x1c0*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+			sc_arr = ALLOC_DOUBLE(sc_arr, 0x1c0*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 			sc_ptr = (uint64 *)ALIGN_VEC_DBL(sc_arr);	// Force vec_u64-alignment
 			ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 		  #ifdef MULTITHREAD
@@ -6188,7 +6188,7 @@ j	bit	mod_sqr sequence																		xout			code gives same?
 			// Alloc the local-memory block the #bytes multiplier has plenty of extra room built in, e.g. for debug-data-writes:
 		#ifdef USE_AVX512_I
 
-			sc_arr = ALLOC_UINT64(sc_arr, 0x380*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+			sc_arr = ALLOC_UINT64(sc_arr, 0x380*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 			sc_ptr = (uint64 *)ALIGN_VEC_U64(sc_arr);	// Force vec_u64-alignment
 			ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 		  #ifdef MULTITHREAD
@@ -6241,7 +6241,7 @@ j	bit	mod_sqr sequence																		xout			code gives same?
 		#else	// Default AVX-512 floating-point-FMA mode
 		/***************************************************/
 
-			sc_arr = ALLOC_DOUBLE(sc_arr, 0x380*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+			sc_arr = ALLOC_DOUBLE(sc_arr, 0x380*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 			sc_ptr = (uint64 *)ALIGN_VEC_DBL(sc_arr);	// Force vec_u64-alignment
 			ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 		  #ifdef MULTITHREAD

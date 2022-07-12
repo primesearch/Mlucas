@@ -22,8 +22,9 @@
 
 #include "Mlucas.h"
 
-// In SSE2 mode this variant is unambiguously faster; for ARMv8 (which also sets USE_SSE2) it is the only implemented 16-DFT:
-#if defined(USE_SSE2) && !defined(USE_AVX512)	// No such macro version in avx512 mode!
+// In SSE2 mode this variant is unambiguously faster; for ARMv8 (which also sets USE_SSE2) it is the only implemented 16-DFT.
+// Tangent-DIF is default version in avx512 mode ... compile with -DREFACTOR_4DFT_3TWIDDLE to force non-tangent:
+#if defined(USE_SSE2) && (defined(USE_IMCI512) || !defined(USE_AVX512))	// Use non-tangent for 1st-gen Xeon Phi
 	#define REFACTOR_4DFT_3TWIDDLE
 #endif
 #ifdef REFACTOR_4DFT_3TWIDDLE
@@ -45,14 +46,6 @@
 	#endif
 #endif
 
-#ifdef REFACTOR_4DFT_3TWIDDLE
-	#warning REFACTOR_4DFT_3TWIDDLE
-#elif defined(DFT_V2)
-	#warning DFT_V2
-#else
-	#warning DFT_V1
-#endif
-
 #ifndef PFETCH_DIST
   #ifdef USE_AVX
 	#define PFETCH_DIST	4096	// This seems to work best on my Haswell
@@ -62,6 +55,14 @@
 #endif
 
 #ifdef USE_SSE2
+
+	#ifdef REFACTOR_4DFT_3TWIDDLE
+		#warning REFACTOR_4DFT_3TWIDDLE
+	#elif defined(DFT_V2)
+		#warning DFT_V2
+	#else
+		#warning DFT_V1
+	#endif
 
   #ifndef COMPILER_TYPE_GCC
 	#error SSE2 code not supported for this compiler!
@@ -214,7 +215,7 @@ void radix16_dif_pass	(double a[],             int n, struct complex rt0[], stru
 		}
 		// v19 alloc'ed 72* ... v20 needs [1+1+4+8] = 18 more slots in SSE2 mode, [1+1+2+4] = 8 more in AVX/AVX2 mode, [1+1+1+2] = 5 more in AVX-512 mode,
 		// just use 20 more slots in all cases for simplicity's sake. Further add 12 slots for doubled-into-vectors 6-term Chebyshev expansions of cos, sin:
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 104*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 104*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
@@ -2020,7 +2021,7 @@ void radix16_dit_pass	(double a[],             int n, struct complex rt0[], stru
 		if(sc_arr != 0x0) {	// Have previously-malloc'ed local storage
 			free((void *)sc_arr);	sc_arr=0x0;
 		}
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 72*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 72*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 

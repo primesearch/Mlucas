@@ -211,6 +211,34 @@ uint128 test_modsqr128_96(uint128 x, uint128 q)
 	return t;
 }
 
+/***********************************************************************************/
+// Battery of self-tests for the 64-bit 2^[+|-]p (mod q) functions:
+uint32 test_twopmodq64(uint32 imax)
+{
+	uint32 i;
+	uint64 p,q, pos,neg,inv, prod128[2], rem;
+	rng_isaac_init(TRUE);
+	for(i = 0; i < imax; i++) {
+		p = rng_isaac_rand();
+		q = rng_isaac_rand() | 1ull;	// q must be odd
+		pos = twopmmodq64(p,q);
+		neg = twopmodq64 (p,q);
+	#warning modinv64 fails for some 64-bit inputs - needs investigation.
+	//	inv = modinv64(neg,q);
+		// As a workaround for the modinv64 issue, instead compute 128-bit product pos*neg and check that pos*neg == 1 (mod q):
+	  #ifdef MUL_LOHI64_SUBROUTINE
+		MUL_LOHI64(pos,neg,prod128+0 ,prod128+1 );
+	  #else
+		MUL_LOHI64(pos,neg,prod128[0],prod128[1]);
+	  #endif
+		mi64_div(prod128, &q, 2,1, 0x0,&rem);	// Omit quotient computation; remainder in rem
+		if(rem != 1) {
+			fprintf(stderr,"Mismatch in test_twopmodq64: p = %llu; q = %llu: 2^[+|-p] (mod q) = %llu, %llu.\n",p,q,pos,neg);
+			return 1;
+		}
+	}
+	return 0;
+}
 
 /*
 !   We calculate 2^(-p) rather than 2^p since Montgomery's MULH64-based modular
@@ -1213,7 +1241,7 @@ uint64 twopmmodq64(uint64 p, uint64 q)
 	nshift = trailz64(q);
 	if(nshift)
 	{
-		ASSERT(HERE, p >= nshift, "twopmodq64 : Must add code to explicitly save off-shifted low bits of modulus!");
+		ASSERT(HERE, p >= nshift, "twopmodq64: Must add code to explicitly save off-shifted low bits of modulus!");
 		q >>= nshift;
 		p -= nshift;	// Must also right-shift dividend by (nshift) bits; for 2^p this means subtracting nshift from p
 	}
@@ -1236,8 +1264,8 @@ uint64 twopmmodq64(uint64 p, uint64 q)
 	for(j = start_index-1; j >= 0; j--)
 	{
 		MONT_SQR64(x,q,qinv,x);
-//	printf("Bit %u = %u\n",j,(p >> j) & (uint64)1);
-		if((pshift >> j) & (uint64)1) {
+	//	printf("J = %u: MONT_SQR64(x) = %llu, (x *= 2)-Bit = %llu\n",j,x,(p >> j) & (uint64)1);
+		if((p >> j) & (uint64)1) {	//**** Original p here, not pshift! ****
 			if(x > qhalf) {	/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
 				x = x + x;
 				x -= q;
@@ -1547,7 +1575,6 @@ uint64 twopmodq64(uint64 p, uint64 q)
 	uint64 qhalf, qinv, x;
 	uint64 pshift;
 	uint32 jshift, leadb, start_index, zshift;
-	uint32 FERMAT = isPow2_64(p)<<1;	// *2 is b/c need to add 2 to the usual Mers-mod residue in the Fermat case
 
 	pshift = p + 64;
 	jshift = leadz64(pshift);
@@ -1584,9 +1611,9 @@ uint64 twopmodq64(uint64 p, uint64 q)
 		x = x + x - (q & -(x >= qhalf));
 	}
 #if FAC_DEBUG
-/*	ASSERT(HERE, x < q, "twopmodq64 : x0 < q");	*/
+/*	ASSERT(HERE, x < q, "twopmodq64: x0 < q");	*/
   #if 0	/* These appear to be benign: */
-	if(x >= q){ sprintf(char_buf, "twopmodq64 : (x0 = %s) >= (q = %s)", &str0[convert_uint64_base10_char(str0, x)], &str1[convert_uint64_base10_char(str1, q)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
+	if(x >= q){ sprintf(char_buf, "twopmodq64: (x0 = %s) >= (q = %s)", &str0[convert_uint64_base10_char(str0, x)], &str1[convert_uint64_base10_char(str1, q)] );	DBG_WARN(HERE, char_buf, STATFILE, !restart); }
   #endif
 #endif
 
@@ -1594,19 +1621,27 @@ uint64 twopmodq64(uint64 p, uint64 q)
 	{
 		MONT_SQR64(x,q,qinv,x);
 		if((pshift >> j) & (uint64)1)
-		{
-			if(x > qhalf)	/* Combines overflow-on-add and need-to-subtract-q-from-sum checks */
-			{
+		{	// Combines overflow-on-add and need-to-subtract-q-from-sum checks:
+			if(x > qhalf) {
 				x = x + x;
 				x -= q;
-			}
-			else
+			} else
 				x = x + x;
 		}
 	}
-
-	/*...Double and return.	These are specialized for the case where 2^p == 1 mod q implies divisibility, in which case x = (q+1)/2. */
-	x = x+x+FERMAT-q;	/* In the case of interest, x = (q+1)/2 < 2^63, so x + x cannot overflow. */
+#if 0
+  #error Computing "is divisible?" (rather than true mod) in twopmodq64!
+	uint32 FERMAT = isPow2_64(p)<<1;	// *2 because need to add 2 to the usual Mers-mod residue in the Fermat case
+	// Double and return. This variant is specialized for case where 2^p == 2*x == +-1 (mod q)
+	// implies divisibility, hence x = (q+1)/2 prior to mod-doubling.:
+	x = x+x+FERMAT-q;	// In the case of interest, x = (q+1)/2 < 2^63, so x + x cannot overflow
+#else
+	if(x > qhalf) {
+		x = x + x;
+		x -= q;
+	} else
+		x = x + x;
+#endif
 	return x;
 }
 
@@ -2064,7 +2099,7 @@ uint64 twopmodq65(uint64 p, uint64 k)
 	int dbg = (p == 0);
 #endif
 	 int32 j;
-	uint64 q, qinv, x, y, lo, hi, r;
+	uint64 q, qinv, x, y, lo, hi;
 	uint64 A, B, t;
 	uint64 pshift;
 	uint32 jshift, leadb, start_index, zshift;

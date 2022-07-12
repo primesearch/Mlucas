@@ -247,7 +247,7 @@ void bit_reverse_int(int vec[], int n, int nradices, int radix[], int incr, int*
 		k *= radix[i];
 	}
 	if(k != n) {
-		printf("FATAL: product of radices [%u",radix[0]);
+		printf("ERROR: product of radices [%u",radix[0]);
 		for(count = 1, i = 0; count < nradices; count++)
 		{
 			printf("*%u",radix[i]);

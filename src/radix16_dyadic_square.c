@@ -195,7 +195,7 @@ void radix16_dyadic_square(
 
 		index_ptmp = ALLOC_INT(N2/16);
 		index = ALIGN_INT(index_ptmp);
-		if(!index){ sprintf(cbuf,"FATAL: unable to allocate array ITMP in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(!index){ sprintf(cbuf,"ERROR: unable to allocate array ITMP in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		for(i=0; i < N2/16; i++)
 		{
 			index[i]=i;
@@ -205,11 +205,11 @@ void radix16_dyadic_square(
 		index1_mod = (n>>5)/radix0;	/* complex length requires an additional divide by 2 */
 
 		index_ptmp0 = ALLOC_INT(index_ptmp0, index0_mod);
-		if(!index_ptmp0){ sprintf(cbuf,"FATAL: unable to allocate array INDEX_PTMP0 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(!index_ptmp0){ sprintf(cbuf,"ERROR: unable to allocate array INDEX_PTMP0 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		index0 = ALIGN_INT(index_ptmp0);
 
 		index_ptmp1 = ALLOC_INT(index_ptmp1, index1_mod);
-		if(!index_ptmp1){ sprintf(cbuf,"FATAL: unable to allocate array INDEX_PTMP1 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(!index_ptmp1){ sprintf(cbuf,"ERROR: unable to allocate array INDEX_PTMP1 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		index1 = ALIGN_INT(index_ptmp1);
 
 		for(i=0; i < index0_mod; i++){index0[i]=       i;}
@@ -228,7 +228,7 @@ void radix16_dyadic_square(
 			if(i == radix0)
 				break;
 		}
-		if(nradices_prim_radix0 >= nradices_prim) { sprintf(cbuf,"FATAL: nradices_prim_radix0 must be < nradices_prim in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(nradices_prim_radix0 >= nradices_prim) { sprintf(cbuf,"ERROR: nradices_prim_radix0 must be < nradices_prim in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 
 		bit_reverse_int(index0, index0_mod,                 nradices_prim_radix0, &radix_prim[nradices_prim_radix0-1], -1,(int *)arr_scratch);
 		bit_reverse_int(index1, index1_mod, nradices_prim-4-nradices_prim_radix0, &radix_prim[nradices_prim       -5], -1,(int *)arr_scratch);
@@ -256,11 +256,11 @@ void radix16_dyadic_square(
 			free((void *)sc_arr);	sc_arr=0x0;
 		}
 		// Index vectors used in SIMD roots-computation.
-		sm_arr = ALLOC_INT(sm_arr, max_threads*10*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "FATAL: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sm_arr = ALLOC_INT(sm_arr, max_threads*10*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "ERROR: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sm_ptr = ALIGN_INT(sm_arr);
 		ASSERT(HERE, ((uint32)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
 		// Twiddles-array:
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 72*max_threads + 100);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 72*max_threads + 100);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 

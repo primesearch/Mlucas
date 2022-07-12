@@ -231,8 +231,8 @@ uint64 brev64(uint64 x)
 }
 // Now use the above to construct a multiword bit-reversal:
 void	mi64_brev(uint64 x[], uint32 n)
-{
-	uint32 i,j, nw = (n+63)>>6,pad_bits = 64-(n&63), imax = ((nw+1)>>1);
+{	// Oct 2021: Need 2nd '&63'-mod in computing pad_bits so pad_bits = 0 rather than 64 when n == 0 (mod 64):
+	uint32 i,j, nw = (n+63)>>6,pad_bits = (64-(n&63))&63, imax = ((nw+1)>>1);
 	uint64 tmp64;
 	// Exchange bit-reversed pairs of 64-bit words starting at outermost set-words and working inward toward middle; 'middle word'
 	// for odd #words means redundancy in computing mi,mj, but eschew special post-loop code just to save a few ops in such cases:
@@ -602,11 +602,18 @@ uint64	mi64_shrl(const uint64 x[], uint64 y[], uint32 nshift, uint32 len, uint32
 	uint32 nwshift = (nshift >> 6), rembits = (nshift & 63), m64bits;
 	uint64 hi64 = 0ull;
 	ASSERT(HERE, len != 0, "mi64_shrl: zero-length array!");
-	/* Ex: len = 1132 = 72448 bits, nshift = 70000, nwshift = 70000>>6 = 1093, rembits = 70000%64 = 48, m64bits = 64-rembits = 16
+	/*
+	Ex 1: len = 1132 = 72448 bits, nshift = 70000, nwshift = 70000>>6 = 1093, rembits = 70000%64 = 48, m64bits = 64-rembits = 16
 	Thus we want the hi 2448 bits (38 full words + 16 bits) of x, and require output_len >= 39 .
 	y[0] gets hi 16 bits of x[nwshift] and low 48 of x[nwshift+1]: y[0] = (x[nwshift] >> rembits) + (x[nwshift+1] << m64bits)
-	len-nwshift = 1132-1093 = 39. */
-	ASSERT(HERE, output_len >= (len - nwshift), "mi64_shrl: output_len must be large enough to hold result!");
+	len-nwshift = 1132-1093 = 39.
+
+	Ex 2: len = 99704 = 6381056 bits, nshift = 6380000, nwshift = 6380000>>6 = 99687, rembits = 6380000%64 = 32, m64bits = 32.
+	Thus we want the hi 1056 bits (16 full words + 32 bits) of x[], and require output_len >= 17 .
+	But user has specified output_len = 16, meaning they want at most 1024 bits of x[], so only copy that many and exit.
+	So allow output_len to be 1 limb smaller than 17 as a fudge factor to handle arbitrary in-word copy-bit boundaries:
+	*/
+	ASSERT(HERE, output_len >= (len-nwshift)-1, "mi64_shrl: output_len must be large enough to hold result!");
 	// Special-casing for 0 shift count:
 	if(!nshift) {
 		if(x != y) {
@@ -2372,7 +2379,7 @@ uint64	mi64_add_cyin(const uint64 x[], const uint64 y[], uint64 z[], uint32 len,
 			: "cc","memory","rax","rbx","rcx","rdx","rsi","rdi","r8"	/* Clobbered registers */\
 		);
 
-	#elif defined(USE_AVX512)
+	#elif defined(USE_AVX512) || !defined(USE_IMCI512)
 
 		// AVX512 prototype code for 8-folded adc loop
 		uint32 i, lrem = (len&7), len8 = len >> 3;
@@ -7248,7 +7255,7 @@ uint64 mi64_div_by_scalar64_u4(uint64 x[], uint64 q, uint32 lenu, uint64 y[])
 	} else if(!y) {	// Even modulus, no quotient computation, uses Algo B
 
 		// Inline right-shift of x-vector with modding - 1 less loop-exec here due to shift-in from next-higher terms:
-		for(i0 = 0, i1 = len4, i2 = i1+i1, i3 = i1+i2; i0 < len4-1; ++i0, ++i1, ++i2, ++i3, iptr0 += ptr_incr, iptr1 += ptr_incr, iptr2 += ptr_incr, iptr3 += ptr_incr) {
+		for(i0 = 0, i1 = len4, i2 = i1+i1, i3 = i1+i2; i0 < len4-1; ++i0, ++i1, ++i2, ++i3) {
 			bw0 = (x[i0] >> nshift) + (x[i0+1] << lshift);
 			bw1 = (x[i1] >> nshift) + (x[i1+1] << lshift);
 			bw2 = (x[i2] >> nshift) + (x[i2+1] << lshift);

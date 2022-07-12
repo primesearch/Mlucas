@@ -37,6 +37,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>	// Nov 2021: Add to provide POSIX case-insensitive string compare string compare strcasecmp() and strncasecmp();
+						// cf. https://stackoverflow.com/questions/5820810/case-insensitive-string-comparison-in-c
 #include <time.h>
 
 #ifdef macintosh

@@ -22,7 +22,7 @@
 
 #include "util.h"
 
-#if(defined(CPU_IS_X86) || defined(CPU_IS_IA64) || defined(CPU_IS_X86_64))
+#if(defined(CPU_IS_X86) || defined(CPU_IS_IA64) || defined(CPU_IS_X86_64) || defined(CPU_IS_K1OM))
 
 	/* cpuid(func,ax,bx,cx,dx) macro: put whatever function number you want in for func,
 	and put in 4 32-bit ints to store the output values of eax, ebx, ecx, and edx, respectively.
@@ -35,9 +35,13 @@
   #ifdef COMPILER_TYPE_GCC
 
 	// xgetbv(ax,dx) macro: Needed for AVX support detection for OS being used: Set ecx = 0, see if xgetbv sets bits 1:2 of eax:
+   #ifdef CPU_IS_K1OM
+	#define XGETBV(arg1,ax,dx) /* no-op */
+   #else
 	#define XGETBV(arg1,ax,dx)\
 		__asm__ __volatile__ ("xgetbv":\
 	"=a" (ax), "=d" (dx) : "c" (arg1));
+   #endif
 
 	#define CPUID(arg1,arg2,ax,bx,cx,dx)\
 		__asm__ __volatile__ ("cpuid":\
@@ -518,6 +522,17 @@
 		has_avx512: XGETBV(0,a,d) returns [a] =       E7
 		has_avx512: CPUID(7,0) returns [b] = 1C0D23AB
 	*/
+	uint32	has_imci512()
+	{
+	#ifdef USE_IMCI512	// USE_AVX512 is auto-def'd when USE_IMCI512 is invoked at compile time, but not v.v.
+		uint32 a,b,c,d;
+		CPUID(1,0,a,b,c,d);
+		printf("has_imci512: CPUID(1,0) returns [a,b,c,d] = [%8X,%8X,%8X,%8X]\n",a,b,c,d);
+	#else
+		return 0;
+	#endif
+	}
+
 	uint32	has_avx512()
 	{
 	#ifdef USE_AVX

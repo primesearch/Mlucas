@@ -48,11 +48,14 @@
 
   // For Mersenne-mod need (16 [SSE2] or 64 [AVX]) + (24 [SSE2] or 68 [AVX])[LOACC] added slots for half_arr lookup tables.
   // Max = (40 = 0x28 [SSE2]; 132 = 0x84 [AVX]), add to (half_arr_offset12 + RADIX) to get value of radix12_creals_in_local_store.
-  #ifdef USE_AVX	// RADIX = 0x18:
-	const int half_arr_offset24 = 0x3b;	// + RADIX = 0x55; Used for thread local-storage-integrity checking
-	const int radix24_creals_in_local_store = 0xdc;	// (half_arr_offset24 + RADIX) + 132 and round up to nearest multiple of 4
+  #ifdef USE_AVX512	// RADIX/8 = 3 fewer carry slots than AVX:
+	const int half_arr_offset24 = 0x39;	// + RADIX = 0x50; Used for thread local-storage-integrity checking
+	const int radix24_creals_in_local_store = 0xc0;	// += 132(0x84) and round up to nearest multiple of 4
+  #elif defined(USE_AVX)
+	const int half_arr_offset24 = 0x3c;	// + RADIX = 0x53; Used for thread local-storage-integrity checking
+	const int radix24_creals_in_local_store = 0xc0;	// (half_arr_offset24 + RADIX) + 132 and round up to nearest multiple of 4
   #else
-	const int half_arr_offset24 = 0x41;	// + RADIX = 0x59; Used for thread local-storage-integrity checking
+	const int half_arr_offset24 = 0x42;	// + RADIX = 0x59; Used for thread local-storage-integrity checking
 	const int radix24_creals_in_local_store = 0x84;	// (half_arr_offset24 + RADIX) + 40 and round up to nearest multiple of 4
   #endif
 
@@ -180,6 +183,11 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	const int stride = (int)RE_IM_STRIDE << 1;	// main-array loop stride = 2*RE_IM_STRIDE
 	static double wts_mult[2], inv_mult[2];	// Const wts-multiplier and 2*(its multiplicative inverse)
 	double wt_re,wt_im, wi_re,wi_im;	// Fermat-mod/LOACC weights stuff, used in both scalar and SIMD mode
+  #ifdef USE_AVX512
+	const int jhi_wrap = 15;
+  #else
+	const int jhi_wrap =  7;
+  #endif
 	int NDIVR,i,j,j1,j2,jt,jp,jstart,jhi,full_pass,k,khi,l,ntmp,outer,nbytes;
 	// Jun 2018: Add support for residue shift. (Only LL-test needs intervention at carry-loop level).
 	int target_idx = -1, target_set = 0,tidx_mod_stride;
@@ -201,7 +209,10 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 /*...stuff for the reduced-length DWT weights array is here:	*/
 	int n_div_nwt;
 	int col,co2,co3;
-  #ifdef USE_AVX
+  #ifdef USE_AVX512
+	double t0,t1,t2,t3;
+	static struct uint32x8 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+  #elif defined(USE_AVX)
 	static struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
   #else
 	int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
@@ -307,15 +318,16 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 	if((n_div_nwt << nwt_bits) != NDIVR)
 	{
-		sprintf(cbuf,"FATAL: iter = %10d; NWT_BITS does not divide N/RADIX in %s.\n",iter,func);
-		if(INTERACT) fprintf(stderr,"%s",cbuf);
-		fp = mlucas_fopen(   OFILE,"a");	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
-		fq = mlucas_fopen(STATFILE,"a");	fprintf(fq,"%s",cbuf);	fclose(fq);	fq = 0x0;
+		fprintf(stderr,"ERROR: iter = %10d; NWT_BITS does not divide N/RADIX in %s.\n",iter,func);
 		err = ERR_SKIP_RADIX_SET;
 		return(err);
 	}
 
-	if(p != psave || n != nsave) {	/* Exponent or array length change triggers re-init */
+	if(p != psave || n != nsave
+	#ifdef USE_PTHREAD	// Oct 2021: cf. radix176_ditN_cy_dif1.c for why I added this
+		|| (tdat != 0x0 && tdat[0].wt1 != wt1)
+	#endif
+	) {	/* Exponent or array length change triggers re-init */
 		first_entry=TRUE;
 		/* To-do: Support #thread change here! */
 	}
@@ -376,8 +388,8 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		if(!isPow2(CY_THREADS))		{ WARN(HERE, "CY_THREADS not a power of 2!", "", 1); return(ERR_ASSERT); }
 		if(CY_THREADS > 1)
 		{
-			if(NDIVR    %CY_THREADS != 0) { WARN(HERE, "NDIVR    %CY_THREADS != 0", "", 1); return(ERR_ASSERT); }
-			if(n_div_nwt%CY_THREADS != 0) { WARN(HERE, "n_div_nwt%CY_THREADS != 0", "", 1); return(ERR_ASSERT); }
+			if(NDIVR    %CY_THREADS != 0) { WARN(HERE, "NDIVR    %CY_THREADS != 0 ... likely more threads than this leading radix can handle.", "", 1); return(ERR_ASSERT); }
+			if(n_div_nwt%CY_THREADS != 0) { WARN(HERE, "n_div_nwt%CY_THREADS != 0 ... likely more threads than this leading radix can handle.", "", 1); return(ERR_ASSERT); }
 		}
 
 	  #ifdef USE_PTHREAD
@@ -446,7 +458,7 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		// consisting of 88 dcomplex and (12+RADIX/2) uint64 element slots per thread
 		// (Add as many padding elts to the latter as needed to make it a multiple of 4):
 		cslots_in_local_store = radix24_creals_in_local_store + (((12+RADIX/2)/2 + 3) & ~0x3);
-		sc_arr = ALLOC_VEC_DBL(sc_arr, cslots_in_local_store*CY_THREADS);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_arr = ALLOC_VEC_DBL(sc_arr, cslots_in_local_store*CY_THREADS);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 		sm_ptr = (uint64*)(sc_ptr + radix24_creals_in_local_store);
@@ -456,23 +468,22 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 	next 12 for the doubled carry pairs, next 2 for ROE and RND_CONST, next 20 for the half_arr table lookup stuff,
 	plus at least 3 more slots to allow for 64-byte alignment of the array:
 	*/
-	#ifdef USE_PTHREAD
+	  #ifdef USE_PTHREAD
 		__r0 = sc_ptr;
-	#endif
-	#ifdef USE_AVX
-		s1p00 = sc_ptr + 0x00;		isrt2	= sc_ptr + 0x30;
-		s1p01 = sc_ptr + 0x02;		cc3		= sc_ptr + 0x31;
-		s1p02 = sc_ptr + 0x04;		cc0  	= sc_ptr + 0x32;
-		s1p03 = sc_ptr + 0x06;		cy00	= sc_ptr + 0x33;
-		s1p04 = sc_ptr + 0x08;		cy04	= sc_ptr + 0x34;
-		s1p05 = sc_ptr + 0x0a;		cy08	= sc_ptr + 0x35;
-		s1p06 = sc_ptr + 0x0c;		cy12	= sc_ptr + 0x36;
-		s1p07 = sc_ptr + 0x0e;		cy16	= sc_ptr + 0x37;
-		s1p08 = sc_ptr + 0x10;		cy20	= sc_ptr + 0x38;
-		s1p09 = sc_ptr + 0x12;		max_err = sc_ptr + 0x39;
-		s1p10 = sc_ptr + 0x14;		sse2_rnd= sc_ptr + 0x3a;
-		s1p11 = sc_ptr + 0x16;		half_arr= sc_ptr + 0x3b;	/* This table needs 20x16 bytes */
-		s1p12 = sc_ptr + 0x18;		// half_arr = sc_ptr + 0x3b; This is where the value of half_arr_offset24 comes from
+	  #endif
+		s1p00 = sc_ptr + 0x00;
+		s1p01 = sc_ptr + 0x02;
+		s1p02 = sc_ptr + 0x04;
+		s1p03 = sc_ptr + 0x06;
+		s1p04 = sc_ptr + 0x08;
+		s1p05 = sc_ptr + 0x0a;
+		s1p06 = sc_ptr + 0x0c;
+		s1p07 = sc_ptr + 0x0e;
+		s1p08 = sc_ptr + 0x10;
+		s1p09 = sc_ptr + 0x12;
+		s1p10 = sc_ptr + 0x14;
+		s1p11 = sc_ptr + 0x16;
+		s1p12 = sc_ptr + 0x18;
 		s1p13 = sc_ptr + 0x1a;
 		s1p14 = sc_ptr + 0x1c;
 		s1p15 = sc_ptr + 0x1e;
@@ -484,37 +495,51 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		s1p21 = sc_ptr + 0x2a;
 		s1p22 = sc_ptr + 0x2c;
 		s1p23 = sc_ptr + 0x2e;
-	#else
-		s1p00 = sc_ptr + 0x00;		isrt2	= sc_ptr + 0x30;
-		s1p01 = sc_ptr + 0x02;		cc3		= sc_ptr + 0x31;
-		s1p02 = sc_ptr + 0x04;		cc0  	= sc_ptr + 0x32;
-		s1p03 = sc_ptr + 0x06;		cy00	= sc_ptr + 0x33;
-		s1p04 = sc_ptr + 0x08;		cy02	= sc_ptr + 0x34;
-		s1p05 = sc_ptr + 0x0a;		cy04	= sc_ptr + 0x35;
-		s1p06 = sc_ptr + 0x0c;		cy06	= sc_ptr + 0x36;
-		s1p07 = sc_ptr + 0x0e;		cy08	= sc_ptr + 0x37;
-		s1p08 = sc_ptr + 0x10;		cy10	= sc_ptr + 0x38;
-		s1p09 = sc_ptr + 0x12;		cy12	= sc_ptr + 0x39;
-		s1p10 = sc_ptr + 0x14;		cy14	= sc_ptr + 0x3a;
-		s1p11 = sc_ptr + 0x16;		cy16	= sc_ptr + 0x3b;
-		s1p12 = sc_ptr + 0x18;		cy18	= sc_ptr + 0x3c;
-		s1p13 = sc_ptr + 0x1a;		cy20	= sc_ptr + 0x3d;
-		s1p14 = sc_ptr + 0x1c;		cy22	= sc_ptr + 0x3e;
-		s1p15 = sc_ptr + 0x1e;		max_err = sc_ptr + 0x3f;
-		s1p16 = sc_ptr + 0x20;		sse2_rnd= sc_ptr + 0x40;
-		s1p17 = sc_ptr + 0x22;		half_arr= sc_ptr + 0x41;	/* This table needs 20x16 bytes */
-		s1p18 = sc_ptr + 0x24;		// half_arr = sc_ptr + 0x41; This is where the value of half_arr_offset24 comes from
-		s1p19 = sc_ptr + 0x26;
-		s1p20 = sc_ptr + 0x28;
-		s1p21 = sc_ptr + 0x2a;
-		s1p22 = sc_ptr + 0x2c;
-		s1p23 = sc_ptr + 0x2e;
-	#endif
+		isrt2 = sc_ptr + 0x30;
+		cc3   = sc_ptr + 0x31;
+		cc0   = sc_ptr + 0x32;
+		tmp = sc_ptr + 0x33;
+	  #ifdef USE_AVX512
+		cy00	= tmp + 0x0;
+		cy08	= tmp + 0x1;
+		cy16	= tmp + 0x2;
+		tmp += 0x3;	// sc_ptr += 0x36
+	  #elif defined(USE_AVX)
+		cy00	= tmp + 0x0;
+		cy04	= tmp + 0x1;
+		cy08	= tmp + 0x2;
+		cy12	= tmp + 0x3;
+		cy16	= tmp + 0x4;
+		cy20	= tmp + 0x5;
+		tmp += 0x6;	// sc_ptr += 0x39
+	  #else
+		cy00	= tmp + 0x3;
+		cy02	= tmp + 0x4;
+		cy04	= tmp + 0x5;
+		cy06	= tmp + 0x6;
+		cy08	= tmp + 0x7;
+		cy10	= tmp + 0x8;
+		cy12	= tmp + 0x9;
+		cy14	= tmp + 0xa;
+		cy16	= tmp + 0xb;
+		cy18	= tmp + 0xc;
+		cy20	= tmp + 0xd;
+		cy22	= tmp + 0xe;
+		tmp += 0xc;	// sc_ptr += 0x3f
+	  #endif
+		max_err = tmp + 0x00;
+		sse2_rnd= tmp + 0x01;
+		half_arr= tmp + 0x02;	/* This table needs 20x16 bytes */
+		// half_arr = sc_ptr + 0x[39|3c|42] [AVX512|AVX|SSE2]; This is where the value of half_arr_offset24 comes from
 		/* These remain fixed: */
 		VEC_DBL_INIT(isrt2, ISRT2);
 		VEC_DBL_INIT(cc3  , c3m1 );
 		VEC_DBL_INIT(cc0  , s    );
-		VEC_DBL_INIT(sse2_rnd,crnd);
+	  #ifdef USE_AVX512	// In AVX-512 mode, use VRNDSCALEPD for rounding and hijack this vector-data slot for the 4 base/baseinv-consts
+		sse2_rnd->d0 = base[0]; sse2_rnd->d1 = baseinv[1]; sse2_rnd->d2 = wts_mult[1]; sse2_rnd->d3 = inv_mult[0];
+	  #else
+		VEC_DBL_INIT(sse2_rnd, crnd);
+	  #endif
 
 		// Propagate the above consts to the remaining threads:
 		nbytes = (long)cc0 - (long)isrt2 + SZ_VD;	// #bytes in above sincos block of data
@@ -737,12 +762,18 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 
 		nbytes = 4 << L2_SZ_VD;
 
-	#ifdef USE_AVX
+	#ifdef USE_AVX512
+		n_minus_sil   = (struct uint32x8 *)sse_n + 1;
+		n_minus_silp1 = (struct uint32x8 *)sse_n + 2;
+		sinwt         = (struct uint32x8 *)sse_n + 3;
+		sinwtm1       = (struct uint32x8 *)sse_n + 4;
+		nbytes += 128;
+	#elif defined(USE_AVX)
 		n_minus_sil   = (struct uint32x4 *)sse_n + 1;
 		n_minus_silp1 = (struct uint32x4 *)sse_n + 2;
 		sinwt         = (struct uint32x4 *)sse_n + 3;
 		sinwtm1       = (struct uint32x4 *)sse_n + 4;
-		nbytes += 64;;
+		nbytes += 64;
 	#endif
 
 		// Propagate the above consts to the remaining threads:
@@ -958,12 +989,12 @@ int radix24_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[],
 		_cy_22	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_22== 0x0);
 		_cy_23	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_23== 0x0);
 
-		ASSERT(HERE, ptr_prod == 0, "FATAL: unable to allocate one or more auxiliary arrays in radix24_ditN_cy_dif1.");
+		ASSERT(HERE, ptr_prod == 0, "ERROR: unable to allocate one or more auxiliary arrays in radix24_ditN_cy_dif1.");
 
 		/* Create (THREADS + 1) copies of _bjmodnini and use the extra (uppermost) one to store the "master" increment,
 		i.e. the one that n2/24-separated FFT outputs need:
 		*/
-		_bjmodnini = (int *)malloc((CY_THREADS + 1)*sizeof(int));	if(!_bjmodnini){ sprintf(cbuf,"FATAL: unable to allocate array _bjmodnini in radix24_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		_bjmodnini = (int *)malloc((CY_THREADS + 1)*sizeof(int));	if(!_bjmodnini){ sprintf(cbuf,"ERROR: unable to allocate array _bjmodnini in radix24_ditN_cy_dif1.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		_bjmodnini[0] = 0;
 		_bjmodnini[1] = 0;
 
@@ -1111,7 +1142,7 @@ for(outer=0; outer <= 1; outer++)
 
 		_jstart[ithread] = ithread*NDIVR/CY_THREADS;
 		if(!full_pass)
-			_jhi[ithread] = _jstart[ithread] + 7;		/* Cleanup loop assumes carryins propagate at most 4 words up. */
+			_jhi[ithread] = _jstart[ithread] + jhi_wrap;	/* Cleanup loop assumes carryins propagate at most 4 words up. */
 		else
 			_jhi[ithread] = _jstart[ithread] + nwt-1;
 
@@ -1191,8 +1222,14 @@ for(outer=0; outer <= 1; outer++)
 	#ifdef USE_SSE2
 		ASSERT(HERE, tdat[ithread].s1p00 == __r0 + ithread*cslots_in_local_store, "thread-local memcheck fail!");
 		tmp = tdat[ithread].half_arr;
+	  #ifdef USE_AVX512	// In AVX-512 mode, use VRNDSCALEPD for rounding and hijack this vector-data slot for the 4 base/baseinv-consts
+		ASSERT(HERE, ((tmp-1)->d0 == base[0] && (tmp-1)->d1 == baseinv[1] && (tmp-1)->d2 == wts_mult[1] && (tmp-1)->d3 == inv_mult[0]), "thread-local memcheck failed!");
+	  #else
 		ASSERT(HERE, ((tmp-1)->d0 == crnd && (tmp-1)->d1 == crnd), "thread-local memcheck failed!");
-	  #ifdef USE_AVX
+	  #endif
+	  #ifdef USE_AVX512
+			/* No-Op */
+	  #elif defined(USE_AVX)
 		// Grab some elt of base-data [offset by, say, +32] and mpy by its inverse [+16 further]
 		dtmp = (tmp+40)->d0 * (tmp+56)->d0;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
 		dtmp = (tmp+40)->d1 * (tmp+56)->d1;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
@@ -1330,13 +1367,22 @@ for(outer=0; outer <= 1; outer++)
 		bjmodn23 = _bjmodn23[ithread];
 	#endif
 		/* init carries	*/
-	#ifdef USE_AVX	// AVX and AVX2 both use 256-bit registers
-		cy00->d0 = _cy_00[ithread];		cy00->d1 = _cy_01[ithread];		cy00->d2 = _cy_02[ithread];		cy00->d3 = _cy_03[ithread];
-		cy04->d0 = _cy_04[ithread];		cy04->d1 = _cy_05[ithread];		cy04->d2 = _cy_06[ithread];		cy04->d3 = _cy_07[ithread];
-		cy08->d0 = _cy_08[ithread];		cy08->d1 = _cy_09[ithread];		cy08->d2 = _cy_10[ithread];		cy08->d3 = _cy_11[ithread];
-		cy12->d0 = _cy_12[ithread];		cy12->d1 = _cy_13[ithread];		cy12->d2 = _cy_14[ithread];		cy12->d3 = _cy_15[ithread];
-		cy16->d0 = _cy_16[ithread];		cy16->d1 = _cy_17[ithread];		cy16->d2 = _cy_18[ithread];		cy16->d3 = _cy_19[ithread];
-		cy20->d0 = _cy_20[ithread];		cy20->d1 = _cy_21[ithread];		cy20->d2 = _cy_22[ithread];		cy20->d3 = _cy_23[ithread];
+	#ifdef USE_AVX512
+		tmp = cy;
+		for(l = 0; l < RADIX; l += 8, ++tmp) {
+			tmp->d0 = _cy[l  ][ithread];
+			tmp->d1 = _cy[l+1][ithread];
+			tmp->d2 = _cy[l+2][ithread];
+			tmp->d3 = _cy[l+3][ithread];
+			tmp->d4 = _cy[l+4][ithread];
+			tmp->d5 = _cy[l+5][ithread];
+			tmp->d6 = _cy[l+6][ithread];
+			tmp->d7 = _cy[l+7][ithread];
+		}
+	#elif defined(USE_AVX)	// AVX and AVX2 both use 256-bit registers
+		cy00->d0 = _cy_00[ithread];		cy00->d1 = _cy_01[ithread];		cy00->d2 = _cy_02[ithread];		cy00->d3 = _cy_03[ithread];		cy00->d4 = _cy_04[ithread];		cy00->d5 = _cy_05[ithread];		cy00->d6 = _cy_06[ithread];		cy00->d7 = _cy_07[ithread];
+		cy08->d0 = _cy_08[ithread];		cy08->d1 = _cy_09[ithread];		cy08->d2 = _cy_10[ithread];		cy08->d3 = _cy_11[ithread];		cy08->d4 = _cy_12[ithread];		cy08->d5 = _cy_13[ithread];		cy08->d6 = _cy_14[ithread];		cy08->d7 = _cy_15[ithread];
+		cy16->d0 = _cy_16[ithread];		cy16->d1 = _cy_17[ithread];		cy16->d2 = _cy_18[ithread];		cy16->d3 = _cy_19[ithread];		cy16->d4 = _cy_20[ithread];		cy16->d5 = _cy_21[ithread];		cy16->d6 = _cy_22[ithread];		cy16->d7 = _cy_23[ithread];
 	#elif defined(USE_SSE2)
 		cy00->d0 = _cy_00[ithread];		cy00->d1 = _cy_01[ithread];
 		cy02->d0 = _cy_02[ithread];		cy02->d1 = _cy_03[ithread];
@@ -1386,7 +1432,18 @@ for(outer=0; outer <= 1; outer++)
 		/* At end of each thread-processed work chunk, dump the
 		carryouts into their non-thread-private array slots:
 		*/
-	#ifdef USE_AVX
+	#ifdef USE_AVX512
+		_cy_00[ithread] = cy00->d0;	_cy_01[ithread] = cy00->d1;	_cy_02[ithread] = cy00->d2;	_cy_03[ithread] = cy00->d3;	_cy_04[ithread] = cy00->d4;	_cy_05[ithread] = cy00->d5;	_cy_06[ithread] = cy00->d6;	_cy_07[ithread] = cy00->d7;
+		_cy_08[ithread] = cy08->d0;	_cy_09[ithread] = cy08->d1;	_cy_10[ithread] = cy08->d2;	_cy_11[ithread] = cy08->d3;	_cy_12[ithread] = cy08->d4;	_cy_13[ithread] = cy08->d5;	_cy_14[ithread] = cy08->d6;	_cy_15[ithread] = cy08->d7;
+		_cy_16[ithread] = cy16->d0;	_cy_17[ithread] = cy16->d1;	_cy_18[ithread] = cy16->d2;	_cy_19[ithread] = cy16->d3;	_cy_20[ithread] = cy16->d4;	_cy_21[ithread] = cy16->d5;	_cy_22[ithread] = cy16->d6;	_cy_23[ithread] = cy16->d7;
+		if(full_pass) {
+			t0 = MAX(max_err->d0,max_err->d1);
+			t1 = MAX(max_err->d2,max_err->d3);
+			t2 = MAX(max_err->d4,max_err->d5);
+			t3 = MAX(max_err->d6,max_err->d7);
+			maxerr = MAX( MAX(t0,t1), MAX(t2,t3) );
+		}
+	#elif defined(USE_AVX)	// AVX and AVX2 both use 256-bit registers
 		_cy_00[ithread] = cy00->d0;	_cy_01[ithread] = cy00->d1;	_cy_02[ithread] = cy00->d2;	_cy_03[ithread] = cy00->d3;
 		_cy_04[ithread] = cy04->d0;	_cy_05[ithread] = cy04->d1;	_cy_06[ithread] = cy04->d2;	_cy_07[ithread] = cy04->d3;
 		_cy_08[ithread] = cy08->d0;	_cy_09[ithread] = cy08->d1;	_cy_10[ithread] = cy08->d2;	_cy_11[ithread] = cy08->d3;
@@ -1589,8 +1646,7 @@ for(outer=0; outer <= 1; outer++)
 
 	full_pass = 0;
 	scale = prp_mult = 1;
-
-	jhi = 7;
+	jhi = jhi_wrap;
 
 	for(ithread = 0; ithread < CY_THREADS; ithread++)
 	{
@@ -1638,10 +1694,8 @@ for(outer=0; outer <= 1; outer++)
 
 	if(t00 != 0.0)
 	{
-		sprintf(cbuf,"FATAL: iter = %10d; nonzero exit carry in %s - input wordsize may be too small.\n",iter,func);
-		if(INTERACT) fprintf(stderr,"%s",cbuf);
-		fp = mlucas_fopen(   OFILE,"a");	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
-		fq = mlucas_fopen(STATFILE,"a");	fprintf(fq,"%s",cbuf);	fclose(fq);	fq = 0x0;
+		sprintf(cbuf,"ERROR: iter = %10d; nonzero exit carry in %s - input wordsize may be too small.\n",iter,func);
+		mlucas_fprint(cbuf,INTERACT);
 		err = ERR_CARRY;
 		return(err);
 	}
@@ -1710,7 +1764,9 @@ void radix24_dif_pass1(double a[], int n)
 
 	for(j=0; j < NDIVR; j += 2)
 	{
-	#ifdef USE_AVX
+	#ifdef USE_AVX512
+		j1 = (j & mask03) + br16[j&15];
+	#elif defined(USE_AVX)
 		j1 = (j & mask02) + br8[j&7];
 	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
@@ -1816,7 +1872,9 @@ void radix24_dit_pass1(double a[], int n)
 
 	for(j=0; j < NDIVR; j += 2)
 	{
-	#ifdef USE_AVX
+	#ifdef USE_AVX512
+		j1 = (j & mask03) + br16[j&15];
+	#elif defined(USE_AVX)
 		j1 = (j & mask02) + br8[j&7];
 	#elif defined(USE_SSE2)
 		j1 = (j & mask01) + br4[j&3];
@@ -1878,7 +1936,10 @@ void radix24_dit_pass1(double a[], int n)
 		int poff[RADIX>>2],p0123[4];	// Store [RADIX/4] mults of p04 offset for loop control
 		int j,j1,j2,k,l;
 		double wtl,wtlp1,wtn,wtnm1;	/* Mersenne-mod weights stuff */
-	#ifdef USE_AVX
+	#ifdef USE_AVX512
+		double t0,t1,t2,t3;
+		struct uint32x8 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
+	#elif defined(USE_AVX)
 		struct uint32x4 *n_minus_sil,*n_minus_silp1,*sinwt,*sinwtm1;
 	#else
 		int n_minus_sil,n_minus_silp1,sinwt,sinwtm1;
@@ -2013,7 +2074,17 @@ void radix24_dit_pass1(double a[], int n)
 		s1p22  = s1p00 + 0x2c;
 		s1p23  = s1p00 + 0x2e;
 	  #endif
-	  #ifdef USE_AVX
+	  #ifdef USE_AVX512
+		isrt2	= s1p00 + 0x30;
+		cc3		= s1p00 + 0x31;
+		cc0  	= s1p00 + 0x32;
+		cy00	= s1p00 + 0x33;
+		cy08	= s1p00 + 0x34;
+		cy16	= s1p00 + 0x35;
+		max_err = s1p00 + 0x36;
+		sse2_rnd= s1p00 + 0x37;
+		half_arr= s1p00 + 0x38;
+	  #elif defined(USE_AVX)
 		isrt2	= s1p00 + 0x30;
 		cc3		= s1p00 + 0x31;
 		cc0  	= s1p00 + 0x32;
@@ -2045,9 +2116,13 @@ void radix24_dit_pass1(double a[], int n)
 	  #endif
 		ASSERT(HERE, (s1p00 == thread_arg->s1p00), "thread-local memcheck failed!");
 		ASSERT(HERE, (half_arr == thread_arg->half_arr), "thread-local memcheck failed!");
+	  #ifndef USE_AVX512	// In AVX-512 mode, use VRNDSCALEPD for rounding and hijack this vector-data slot for the 4 base/baseinv-consts:
 		ASSERT(HERE, (sse2_rnd->d0 == crnd && sse2_rnd->d1 == crnd), "thread-local memcheck failed!");
+	  #endif
 		tmp = half_arr;
-	  #ifdef USE_AVX
+	  #ifdef USE_AVX512
+		/* No-Op */
+	  #elif defined(USE_AVX)
 		// Grab some elt of base-data [offset by, say, +32] and mpy by its inverse [+16 further]
 		dtmp = (tmp+40)->d0 * (tmp+56)->d0;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
 		dtmp = (tmp+40)->d1 * (tmp+56)->d1;	ASSERT(HERE, fabs(dtmp - 1.0) < EPS, "thread-local memcheck failed!");
@@ -2062,12 +2137,18 @@ void radix24_dit_pass1(double a[], int n)
 		sse_bw  = sign_mask + RE_IM_STRIDE;	// (  #doubles in a SIMD complex) x 32-bits = RE_IM_STRIDE x 64-bits
 		sse_sw  = sse_bw    + RE_IM_STRIDE;
 		sse_n   = sse_sw    + RE_IM_STRIDE;
-	  #ifdef USE_AVX
+	  #ifdef USE_AVX512
+		n_minus_sil   = (struct uint32x8 *)sse_n + 1;
+		n_minus_silp1 = (struct uint32x8 *)sse_n + 2;
+		sinwt         = (struct uint32x8 *)sse_n + 3;
+		sinwtm1       = (struct uint32x8 *)sse_n + 4;
+	  #elif defined(USE_AVX)
 		n_minus_sil   = (struct uint32x4 *)sse_n + 1;
 		n_minus_silp1 = (struct uint32x4 *)sse_n + 2;
 		sinwt         = (struct uint32x4 *)sse_n + 3;
 		sinwtm1       = (struct uint32x4 *)sse_n + 4;
-
+	  #endif
+	  #ifdef USE_AVX
 		bjmodn00 = (int*)(sinwtm1 + RE_IM_STRIDE);
 	  #else
 		bjmodn00 = (int*)(sse_n + RE_IM_STRIDE);
@@ -2104,7 +2185,32 @@ void radix24_dit_pass1(double a[], int n)
 	#endif	// USE_SSE2 ?
 
 		/* Init DWT-indices: */	/* init carries	*/
-	#ifdef USE_AVX
+	#ifdef USE_AVX512
+		cy00->d0 = thread_arg->cy00;		*bjmodn00 = thread_arg->bjmodn00;
+		cy00->d1 = thread_arg->cy01;		*bjmodn01 = thread_arg->bjmodn01;
+		cy00->d2 = thread_arg->cy02;		*bjmodn02 = thread_arg->bjmodn02;
+		cy00->d3 = thread_arg->cy03;		*bjmodn03 = thread_arg->bjmodn03;
+		cy00->d4 = thread_arg->cy04;		*bjmodn04 = thread_arg->bjmodn04;
+		cy00->d5 = thread_arg->cy05;		*bjmodn05 = thread_arg->bjmodn05;
+		cy00->d6 = thread_arg->cy06;		*bjmodn06 = thread_arg->bjmodn06;
+		cy00->d7 = thread_arg->cy07;		*bjmodn07 = thread_arg->bjmodn07;
+		cy08->d0 = thread_arg->cy08;		*bjmodn08 = thread_arg->bjmodn08;
+		cy08->d1 = thread_arg->cy09;		*bjmodn09 = thread_arg->bjmodn09;
+		cy08->d2 = thread_arg->cy10;		*bjmodn10 = thread_arg->bjmodn10;
+		cy08->d3 = thread_arg->cy11;		*bjmodn11 = thread_arg->bjmodn11;
+		cy08->d4 = thread_arg->cy12;		*bjmodn12 = thread_arg->bjmodn12;
+		cy08->d5 = thread_arg->cy13;		*bjmodn13 = thread_arg->bjmodn13;
+		cy08->d6 = thread_arg->cy14;		*bjmodn14 = thread_arg->bjmodn14;
+		cy08->d7 = thread_arg->cy15;		*bjmodn15 = thread_arg->bjmodn15;
+		cy16->d0 = thread_arg->cy16;		*bjmodn16 = thread_arg->bjmodn16;
+		cy16->d1 = thread_arg->cy17;		*bjmodn17 = thread_arg->bjmodn17;
+		cy16->d2 = thread_arg->cy18;		*bjmodn18 = thread_arg->bjmodn18;
+		cy16->d3 = thread_arg->cy19;		*bjmodn19 = thread_arg->bjmodn19;
+		cy16->d4 = thread_arg->cy20;		*bjmodn20 = thread_arg->bjmodn20;
+		cy16->d5 = thread_arg->cy21;		*bjmodn21 = thread_arg->bjmodn21;
+		cy16->d6 = thread_arg->cy22;		*bjmodn22 = thread_arg->bjmodn22;
+		cy16->d7 = thread_arg->cy23;		*bjmodn23 = thread_arg->bjmodn23;
+	#elif defined(USE_AVX)
 		cy00->d0 = thread_arg->cy00;		*bjmodn00 = thread_arg->bjmodn00;
 		cy00->d1 = thread_arg->cy01;		*bjmodn01 = thread_arg->bjmodn01;
 		cy00->d2 = thread_arg->cy02;		*bjmodn02 = thread_arg->bjmodn02;
@@ -2129,9 +2235,7 @@ void radix24_dit_pass1(double a[], int n)
 		cy20->d1 = thread_arg->cy21;		*bjmodn21 = thread_arg->bjmodn21;
 		cy20->d2 = thread_arg->cy22;		*bjmodn22 = thread_arg->bjmodn22;
 		cy20->d3 = thread_arg->cy23;		*bjmodn23 = thread_arg->bjmodn23;
-
 	#elif defined(USE_SSE2)
-
 		cy00->d0 = thread_arg->cy00;		*bjmodn00 = thread_arg->bjmodn00;
 		cy00->d1 = thread_arg->cy01;		*bjmodn01 = thread_arg->bjmodn01;
 		cy02->d0 = thread_arg->cy02;		*bjmodn02 = thread_arg->bjmodn02;
@@ -2156,9 +2260,7 @@ void radix24_dit_pass1(double a[], int n)
 		cy20->d1 = thread_arg->cy21;		*bjmodn21 = thread_arg->bjmodn21;
 		cy22->d0 = thread_arg->cy22;		*bjmodn22 = thread_arg->bjmodn22;
 		cy22->d1 = thread_arg->cy23;		*bjmodn23 = thread_arg->bjmodn23;
-
 	#else
-
 		cy00 = thread_arg->cy00;		bjmodn00 = thread_arg->bjmodn00;
 		cy01 = thread_arg->cy01;		bjmodn01 = thread_arg->bjmodn01;
 		cy02 = thread_arg->cy02;		bjmodn02 = thread_arg->bjmodn02;
@@ -2183,7 +2285,6 @@ void radix24_dit_pass1(double a[], int n)
 		cy21 = thread_arg->cy21;		bjmodn21 = thread_arg->bjmodn21;
 		cy22 = thread_arg->cy22;		bjmodn22 = thread_arg->bjmodn22;
 		cy23 = thread_arg->cy23;		bjmodn23 = thread_arg->bjmodn23;
-
 	#endif	// SSE2 or AVX?
 
 		/********************************************************************************/
@@ -2195,8 +2296,37 @@ void radix24_dit_pass1(double a[], int n)
 		/* At end of each thread-processed work chunk, dump the
 		carryouts into their non-thread-private array slots:
 		*/
-	#ifdef USE_AVX
-
+	#ifdef USE_AVX512
+		thread_arg->cy00 = cy00->d0;
+		thread_arg->cy01 = cy00->d1;
+		thread_arg->cy02 = cy00->d2;
+		thread_arg->cy03 = cy00->d3;
+		thread_arg->cy04 = cy00->d4;
+		thread_arg->cy05 = cy00->d5;
+		thread_arg->cy06 = cy00->d6;
+		thread_arg->cy07 = cy00->d7;
+		thread_arg->cy08 = cy08->d0;
+		thread_arg->cy09 = cy08->d1;
+		thread_arg->cy10 = cy08->d2;
+		thread_arg->cy11 = cy08->d3;
+		thread_arg->cy12 = cy08->d4;
+		thread_arg->cy13 = cy08->d5;
+		thread_arg->cy14 = cy08->d6;
+		thread_arg->cy15 = cy08->d7;
+		thread_arg->cy16 = cy16->d0;
+		thread_arg->cy17 = cy16->d1;
+		thread_arg->cy18 = cy16->d2;
+		thread_arg->cy19 = cy16->d3;
+		thread_arg->cy20 = cy16->d4;
+		thread_arg->cy21 = cy16->d5;
+		thread_arg->cy22 = cy16->d6;
+		thread_arg->cy23 = cy16->d7;
+		t0 = MAX(max_err->d0,max_err->d1);
+		t1 = MAX(max_err->d2,max_err->d3);
+		t2 = MAX(max_err->d4,max_err->d5);
+		t3 = MAX(max_err->d6,max_err->d7);
+		maxerr = MAX( MAX(t0,t1), MAX(t2,t3) );
+	#elif defined(USE_AVX)
 		thread_arg->cy00 = cy00->d0;
 		thread_arg->cy01 = cy00->d1;
 		thread_arg->cy02 = cy00->d2;
@@ -2222,9 +2352,7 @@ void radix24_dit_pass1(double a[], int n)
 		thread_arg->cy22 = cy20->d2;
 		thread_arg->cy23 = cy20->d3;
 		maxerr = MAX( MAX(max_err->d0,max_err->d1) , MAX(max_err->d2,max_err->d3) );
-
 	#elif defined(USE_SSE2)
-
 		thread_arg->cy00 = cy00->d0;
 		thread_arg->cy01 = cy00->d1;
 		thread_arg->cy02 = cy02->d0;
@@ -2250,9 +2378,7 @@ void radix24_dit_pass1(double a[], int n)
 		thread_arg->cy22 = cy22->d0;
 		thread_arg->cy23 = cy22->d1;
 		maxerr = MAX(max_err->d0,max_err->d1);
-
 	#else
-
 		thread_arg->cy00 = cy00;
 		thread_arg->cy01 = cy01;
 		thread_arg->cy02 = cy02;
@@ -2277,7 +2403,6 @@ void radix24_dit_pass1(double a[], int n)
 		thread_arg->cy21 = cy21;
 		thread_arg->cy22 = cy22;
 		thread_arg->cy23 = cy23;
-
 	#endif	// SSE2 or AVX?
 
 		/* Since will lose separate maxerr values when threads are merged, save them after each pass. */

@@ -485,7 +485,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 				free((void *)sm_arr);	sm_arr=0x0;
 			}
 			// Alloc the local-memory block:
-			sm_arr = ALLOC_UINT64(sm_arr, 0x32*max_threads);	ASSERT(HERE, sm_arr != 0x0, "FATAL: unable to allocate sm_arr!");
+			sm_arr = ALLOC_UINT64(sm_arr, 0x32*max_threads);	ASSERT(HERE, sm_arr != 0x0, "ERROR: unable to allocate sm_arr!");
 			sm_ptr = (uint64*)ALIGN_UINT64(sm_arr);	ASSERT(HERE, ((uint64)sm_ptr & 0xf) == 0, "sm_ptr not 16-byte aligned!");
 		#ifdef MULTITHREAD
 			__r0  = (uint96 *)sm_ptr;
@@ -1589,7 +1589,7 @@ if(dbg)printf("xout = %s\n", &char_buf[convert_uint96_base10_char(char_buf, x)])
 				free((void *)sm_arr);	sm_arr=0x0;
 			}
 			// Alloc the local-memory block - use uint64 allooc/align macros here, but underlying data are all uint96 = [uint64,uint32] pairs:
-			sm_arr = (uint96*)ALLOC_UINT64(sm_arr, 0x4a*max_threads);	ASSERT(HERE, sm_arr != 0x0, "FATAL: unable to allocate sm_arr!");
+			sm_arr = (uint96*)ALLOC_UINT64(sm_arr, 0x4a*max_threads);	ASSERT(HERE, sm_arr != 0x0, "ERROR: unable to allocate sm_arr!");
 			sm_ptr = (uint96*)ALIGN_UINT64(sm_arr);	ASSERT(HERE, ((uint64)sm_ptr & 0xf) == 0, "sm_ptr not 16-byte aligned!");
 		#ifdef MULTITHREAD
 			__r0  = (uint96 *)sm_ptr;

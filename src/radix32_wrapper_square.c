@@ -250,12 +250,12 @@ void radix32_wrapper_square(
 		// Index vectors used in SIMD roots-computation.
 		// The AVX512 compute-sincos-mults code needs 2 elements per complex-double-load, so use 14*RE_IM_STRIDE per array
 		// to alloc storage here for all cases, even though that leaves upper array halves unused for sub-AVX512.
-		sm_arr = ALLOC_INT(sm_arr, max_threads*28*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "FATAL: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sm_arr = ALLOC_INT(sm_arr, max_threads*28*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "ERROR: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sm_ptr = ALIGN_INT(sm_arr);
 		ASSERT(HERE, ((uint32)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
 		// Twiddles-array: Need 0x92 slots for data, plus need to leave room to pad-align.
 		// v20: To support inline a*(b-c) for p-1 stage 2, need 2*RADIX = 64 added vec_dbl, thus 0x98 ==> 0xd8:
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 0xd8*max_threads);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 0xd8*max_threads);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 
@@ -452,7 +452,7 @@ void radix32_wrapper_square(
 			free((void *)index_ptmp);	index_ptmp=0x0;
 		}
 		index_ptmp = ALLOC_INT(index_ptmp, N2/32);
-		ASSERT(HERE, index_ptmp != 0,"FATAL: unable to allocate array INDEX!");
+		ASSERT(HERE, index_ptmp != 0,"ERROR: unable to allocate array INDEX!");
 		index      = ALIGN_INT(index_ptmp);
 	/*
 	!...Now rearrange FFT sincos indices using the main loop structure as a template.

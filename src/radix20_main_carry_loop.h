@@ -473,7 +473,7 @@ for(k=1; k <= khi; k++)	/* Do n/(radix(1)*nwt) outer loop executions...	*/
 	/*...and now do 5 radix-4 transforms...*/
 						 /*          inputs           */ /*                                      outputs                                      */
 	  #if PFETCH
-		addp = addr+p09;
+		addp = addr+p08+p01;
 		prefetch_p_doubles(addp);
 
 		RADIX_04_DIF_PFETCH(t00,t01,t10,t11,t20,t21,t30,t31,a[j1    ],a[j2    ],a[j1+p01],a[j2+p01],a[j1+p03],a[j2+p03],a[j1+p02],a[j2+p02],rt,it,addr,addp,p08+p02,p08+p03);	jt = j1+p16; jp = j2+p16;

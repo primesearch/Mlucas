@@ -964,7 +964,8 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"movslq	%[__p8],%%rcx				\n\t"\
 		"movslq	%[__p12],%%rdx				\n\t"\
 		"movq	%[__isrt2],%%rsi 			\n\t"\
-	"leaq	(%%rbx,8),%%r14	\n\t"	/* Save copy of p4 pointer offset for prefetch */\
+	"xorq	%%r14,%%r14	\n\t"/* Zero r14 and include in LEA to eliminate "scale factor of 8 without an index register" assembler warnings */\
+	"leaq	(%%r14,%%rbx,8),%%r14	\n\t"/* Save copy of p4 pointer offset for prefetch */\
 	"prefetcht1	%c[__pfetch_dist](%%r13)\n\t"/* [base-addr + fetch-ahead] + p0 */\
 		"leaq	(%%rax,%%rbx,8),%%rbx		\n\t"\
 		"leaq	(%%rax,%%rcx,8),%%rcx		\n\t"\
@@ -1249,6 +1250,7 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 
 	// The non-name-suffixed DIF,DIT macros in AVX2 and AVX512 mode are based on the AVX-mode _V2 macros:
 	// 96 ADD, 80 FMA, 48 pure-MUL, 316 MOVAPS
+	/*** Dec 2021: Delete the prefetcht1 instructions in order to allow use on IMCI512 (first-gen Xeon Phi) ***/
 	#define SSE2_RADIX16_DIF_TWIDDLE(Xadd0,Xp1,Xp2,Xp3,Xp4,Xp8,Xp12,Xr0,Xtwo,Xcc0,Xpfetch_addr1,Xpfetch_dist)\
 	{\
 	__asm__ volatile (\
@@ -1266,7 +1268,7 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"movslq	%[__p4],%%rbx			\n\t	leaq	(%%rax,%%rbx,8),%%rbx	\n\t"\
 		"movslq	%[__p8],%%rcx			\n\t	leaq	(%%rax,%%rcx,8),%%rcx	\n\t"\
 		"movslq	%[__p12],%%rdx			\n\t	leaq	(%%rax,%%rdx,8),%%rdx	\n\t"\
-	"prefetcht1	%c[__pfetch_dist](%%rax)\n\t"/* [base-address + data-fetch-ahead index] + p0 */\
+	/*"prefetcht1	%c[__pfetch_dist](%%rax)\n\t"// [base-address + data-fetch-ahead index] + p0 */\
 		/* Do the p0,p2 combo: */\
 		"vmovaps	     (%%rcx),%%zmm4	\n\t	shlq	$3,%%rdi			\n\t"\
 		"vmovaps	0x040(%%rcx),%%zmm5	\n\t"\
@@ -1335,7 +1337,7 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"vmovaps	%%zmm5,0x180(%%r10)	\n\t	vmovaps	%%zmm13,0x380(%%r10)		\n\t"\
 		"vmovaps	%%zmm7,0x040(%%r10)	\n\t	vmovaps	%%zmm15,0x240(%%r10)		\n\t"\
 		"vmovaps	%%zmm4,0x0c0(%%r10)	\n\t	vmovaps	%%zmm12,0x2c0(%%r10)		\n\t"\
-	"prefetcht1	%c[__pfetch_dist](%%rcx)\n\t"/* ... + p8 */\
+	/*"prefetcht1	%c[__pfetch_dist](%%rcx)\n\t"// ... + p8 */\
 	/*
 		i0 = (vec_dbl *)(add0+p1); i1 = (vec_dbl *)(add0+p4+p1); i2 = (vec_dbl *)(add0+p8+p1); i3 = (vec_dbl *)(add0+p12+p1);
 		o0 += 16; o1 += 16; o2 += 16; o3 += 16;
@@ -1439,7 +1441,7 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"vmovaps	0x040(%%rcx),%%zmm5	\n\t	vmovaps	0x140(%%rcx),%%zmm13		\n\t"\
 		"vmovaps	     (%%rsi),%%zmm2	\n\t	vmovaps	     (%%r8),%%zmm10			\n\t"\
 		"vmovaps	0x040(%%rsi),%%zmm3	\n\t	vmovaps	0x040(%%r8),%%zmm11			\n\t"\
-	"prefetcht1	%c[__pfetch_dist](%%r10,%%r9)\n\t"/* ... + p4 */\
+	/*"prefetcht1	%c[__pfetch_dist](%%r10,%%r9)\n\t"// ... + p4 */\
 		"vmovaps	%%zmm4,%%zmm6		\n\t	vmovaps	%%zmm12,%%zmm14				\n\t"\
 		"vmovaps	%%zmm5,%%zmm7		\n\t	vmovaps	%%zmm13,%%zmm15				\n\t"\
 		"vmovaps	     (%%rax),%%zmm0	\n\t	vmovaps	0x100(%%rax),%%zmm8 		\n\t"\
@@ -1523,7 +1525,7 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"vmovaps	0x040(%%rcx),%%zmm5	\n\t	vmovaps	0x140(%%rcx),%%zmm13		\n\t"\
 		"vmovaps	     (%%rsi),%%zmm2	\n\t	vmovaps	     (%%r8),%%zmm10			\n\t"\
 		"vmovaps	0x040(%%rsi),%%zmm3	\n\t	vmovaps	0x040(%%r8),%%zmm11			\n\t"\
-	"prefetcht1	%c[__pfetch_dist](%%r10,%%r9)\n\t"/* ... + pC */\
+	/*"prefetcht1	%c[__pfetch_dist](%%r10,%%r9)\n\t"// ... + pC */\
 		"vmovaps	%%zmm4,%%zmm6		\n\t	vmovaps	%%zmm12,%%zmm14				\n\t"\
 		"vmovaps	%%zmm5,%%zmm7		\n\t	vmovaps	%%zmm13,%%zmm15				\n\t"\
 		"vmovaps	     (%%rax),%%zmm0	\n\t	vmovaps	0x100(%%rax),%%zmm8 		\n\t"\
@@ -1737,7 +1739,8 @@ The workaround is to use -O1 or higher, whether one is building a debuggable bin
 		"leaq	(%%rax,%%rcx,8),%%rcx	\n\t"/* add0+p2 */\
 		"leaq	(%%rax,%%rdx,8),%%rdx	\n\t"/* add0+p3 */\
 		"movq	%[__r1],%%rdi	\n\t"/* ptr to local-mem [t1] */\
-	"leaq	(%%r10,8),%%r14	\n\t"	/* Save a copy of p4 in ptr-offset form. Will prefetch from [base-address + data-fetch-ahead index] + [0,p4,p8,p12] on each macro call. */\
+	"xorq	%%r14,%%r14	\n\t"/* Zero r14 and include in LEA to eliminate "scale factor of 8 without an index register" assembler warnings */\
+	"leaq	(%%r14,%%r10,8),%%r14	\n\t"/* Save a copy of p4 in ptr-offset form. Will prefetch from [base-address + data-fetch-ahead index] + [0,p4,p8,p12] on each macro call. */\
 	"prefetcht1	%c[__pfetch_dist](%%r13)\n\t"/* [base-address + data-fetch-ahead index] + p0 */\
 		"vmovaps		     (%%rax),%%zmm0 	\n\t	vmovaps		     (%%rbx),%%zmm8 	\n\t"/*	t1,rt =__A0,1r; */\
 		"vmovaps		     (%%rcx),%%zmm4 	\n\t	vmovaps		     (%%rdx),%%zmm9 	\n\t"/*	t5,it =__A2,3r; */\

@@ -356,15 +356,16 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 
 	if((n_div_nwt << nwt_bits) != NDIVR)
 	{
-		sprintf(cbuf,"FATAL: iter = %10d; NWT_BITS does not divide N/RADIX in %s.\n",iter,func);
-		if(INTERACT) fprintf(stderr,"%s",cbuf);
-		fp = mlucas_fopen(   OFILE,"a");	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
-		fq = mlucas_fopen(STATFILE,"a");	fprintf(fq,"%s",cbuf);	fclose(fq);	fq = 0x0;
+		fprintf(stderr,"ERROR: iter = %10d; NWT_BITS does not divide N/RADIX in %s.\n",iter,func);
 		err = ERR_SKIP_RADIX_SET;
 		return(err);
 	}
 
-	if(p != psave || n != nsave) {	/* Exponent or array length change triggers re-init */
+	if(p != psave || n != nsave
+	#ifdef USE_PTHREAD	// Oct 2021: cf. radix176_ditN_cy_dif1.c for why I added this
+		|| (tdat != 0x0 && tdat[0].wt1 != wt1)
+	#endif
+	) {	/* Exponent or array length change triggers re-init */
 		first_entry=TRUE;
 		/* To-do: Support #thread change here! */
 	}
@@ -461,8 +462,8 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 		if(!isPow2(CY_THREADS))		{ WARN(HERE, "CY_THREADS not a power of 2!", "", 1); return(ERR_ASSERT); }
 		if(CY_THREADS > 1)
 		{
-			if(NDIVR    %CY_THREADS != 0) { WARN(HERE, "NDIVR    %CY_THREADS != 0", "", 1); return(ERR_ASSERT); }
-			if(n_div_nwt%CY_THREADS != 0) { WARN(HERE, "n_div_nwt%CY_THREADS != 0", "", 1); return(ERR_ASSERT); }
+			if(NDIVR    %CY_THREADS != 0) { WARN(HERE, "NDIVR    %CY_THREADS != 0 ... likely more threads than this leading radix can handle.", "", 1); return(ERR_ASSERT); }
+			if(n_div_nwt%CY_THREADS != 0) { WARN(HERE, "n_div_nwt%CY_THREADS != 0 ... likely more threads than this leading radix can handle.", "", 1); return(ERR_ASSERT); }
 		}
 
 	  #ifdef USE_PTHREAD
@@ -539,7 +540,7 @@ int radix16_ditN_cy_dif1		(double a[],             int n, int nwt, int nwt_bits,
 		// consisting of 128 dcomplex and (12+RADIX/2) uint64 element slots per thread
 		// (Add as many padding elts to the latter as needed to make it a multiple of 4):
 		cslots_in_local_store = radix16_creals_in_local_store + (((12+RADIX/2)/2 + 3) & ~0x3);
-		sc_arr = ALLOC_VEC_DBL(sc_arr, cslots_in_local_store*CY_THREADS);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_arr = ALLOC_VEC_DBL(sc_arr, cslots_in_local_store*CY_THREADS);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 		sm_ptr = (uint64*)(sc_ptr + radix16_creals_in_local_store);
@@ -1202,14 +1203,14 @@ half_arr+5*radix	radix		[LOACC-only] inv_mult-lut
 		_cy_iE	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_iE== 0x0);
 		_cy_iF	= (double *)malloc(j);	ptr_prod += (uint32)(_cy_iF== 0x0);
 
-		ASSERT(HERE, ptr_prod == 0, "FATAL: unable to allocate one or more auxiliary arrays.");
+		ASSERT(HERE, ptr_prod == 0, "ERROR: unable to allocate one or more auxiliary arrays.");
 
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 		{
 			/* Create (THREADS + 1) copies of _bjmodnini and use the extra (uppermost) one to store the "master" increment,
 			i.e. the one that n2/16-separated FFT outputs need:
 			*/
-			_bjmodnini = (int *)malloc((CY_THREADS + 1)*sizeof(int));	if(!_bjmodnini){ sprintf(cbuf,"FATAL: unable to allocate array _bjmodnini.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+			_bjmodnini = (int *)malloc((CY_THREADS + 1)*sizeof(int));	if(!_bjmodnini){ sprintf(cbuf,"ERROR: unable to allocate array _bjmodnini.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 			_bjmodnini[0] = 0;
 			_bjmodnini[1] = 0;
 			for(j=0; j < NDIVR/CY_THREADS; j++)
@@ -2197,10 +2198,8 @@ for(outer=0; outer <= 1; outer++)
 //fprintf(stderr, "radix16_carry: A[0-3] = %20.5f %20.5f %20.5f %20.5f\n",a[0],a[1],a[2],a[3]);
 	if(t1 != 0.0)
 	{
-		sprintf(cbuf,"FATAL: iter = %10d; nonzero exit carry in %s - input wordsize may be too small.\n",iter,func);
-		if(INTERACT) fprintf(stderr,"%s",cbuf);
-		fp = mlucas_fopen(   OFILE,"a");	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
-		fq = mlucas_fopen(STATFILE,"a");	fprintf(fq,"%s",cbuf);	fclose(fq);	fq = 0x0;
+		sprintf(cbuf,"ERROR: iter = %10d; nonzero exit carry in %s - input wordsize may be too small.\n",iter,func);
+		mlucas_fprint(cbuf,INTERACT);
 		err = ERR_CARRY;
 		return(err);
 	}
@@ -3090,9 +3089,9 @@ t23=rt;	rt =t31*c + t32*s;	it =t32*c - t31*s;		cmul_modq8(m31,m32, cm,q8-sm, &rm
 	   #endif
 		double t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,t21,t22,t23,t24,t25,t26,t27,t28,t29,t30,t31,t32;
 	  #endif
-		int bjmodn0,bjmodn1,bjmodn2,bjmodn3,bjmodn4,bjmodn5,bjmodn6,bjmodn7,bjmodn8,bjmodn9,bjmodnA,bjmodnB,bjmodnC,bjmodnD,bjmodnE,bjmodnF;
-		double cy_r0,cy_r1,cy_r2,cy_r3,cy_r4,cy_r5,cy_r6,cy_r7,cy_r8,cy_r9,cy_rA,cy_rB,cy_rC,cy_rD,cy_rE,cy_rF,
-			cy_i0,cy_i1,cy_i2,cy_i3,cy_i4,cy_i5,cy_i6,cy_i7,cy_i8,cy_i9,cy_iA,cy_iB,cy_iC,cy_iD,cy_iE,cy_iF;
+		int bjmodn0=0,bjmodn1=0,bjmodn2=0,bjmodn3=0,bjmodn4=0,bjmodn5=0,bjmodn6=0,bjmodn7=0,bjmodn8=0,bjmodn9=0,bjmodnA=0,bjmodnB=0,bjmodnC=0,bjmodnD=0,bjmodnE=0,bjmodnF=0;
+		double cy_r0=0,cy_r1=0,cy_r2=0,cy_r3=0,cy_r4=0,cy_r5=0,cy_r6=0,cy_r7=0,cy_r8=0,cy_r9=0,cy_rA=0,cy_rB=0,cy_rC=0,cy_rD=0,cy_rE=0,cy_rF=0,
+			cy_i0=0,cy_i1=0,cy_i2=0,cy_i3=0,cy_i4=0,cy_i5=0,cy_i6=0,cy_i7=0,cy_i8=0,cy_i9=0,cy_iA=0,cy_iB=0,cy_iC=0,cy_iD=0,cy_iE=0,cy_iF=0;
 	#ifdef USE_FGT61
 		const uint64 q  = 0x1FFFFFFFFFFFFFFFull, q2=q+q, q3=q2+q, q4=q2+q2, q5=q4+q, q8=q4+q4;	// q = 2^61 - 1, and needed small multiples
 		// primitive 16th root of unity, scaled by *8:

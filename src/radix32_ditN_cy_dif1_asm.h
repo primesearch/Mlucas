@@ -26,6 +26,13 @@
 #ifndef radix32_ditN_cy_dif1_gcc_h_included
 #define radix32_ditN_cy_dif1_gcc_h_included
 
+// Oct 2021: In x86-asm, replaced MOVSLQ of arr_offsets elements to MOVL using 32-bit destination-register name alias
+// to allow 512M self-test using this leading radix to pass. At 512M, radix0 = 32 gives p-offsets which use all 32 bits
+// on a uint32 when (<<3)ed into the byte-offset form stored in arr_offsets[], must load not-in-sign-extended form.
+// NOTE: The radix-16 carry-wrapping routine works just fine at 256M even though the resulting byte-offsets are similarly
+// large, because the C code feeds non-(<<3)-ed (double*) strides to the ASM (in sse2_macro_gcc64.h), which uses LEAQ
+// with an inlined *8 offset to generate the needed byte-strides.
+
 #ifdef USE_ARM_V8_SIMD
 
 	/* Both DIF and DIT macros assume needed roots of unity laid out in memory relative to the input pointer isrt2 like so:
@@ -822,10 +829,10 @@
 		/* SSE2_RADIX4_DIT_0TWIDDLE(add0,add1,add2,add3, r00)	SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO(add4,add5,add6,add7, r08): */\
 		/* Can't simply addq these to a 64-bit base array address since the offsets are 4-byte array data: */\
 		"movq	%[__arr_offsets],%%rdi				\n\t"\
-		"movslq	0x00(%%rdi),%%rax		\n\t"/* p00 */"			movslq	0x10(%%rdi),%%r10	\n\t"/* p04 */\
-		"movslq	0x04(%%rdi),%%rbx		\n\t"/* p01 */"			movslq	0x14(%%rdi),%%r11	\n\t"/* p05 */\
-		"movslq	0x08(%%rdi),%%rcx		\n\t"/* p02 */"			movslq	0x18(%%rdi),%%r12	\n\t"/* p06 */\
-		"movslq	0x0c(%%rdi),%%rdx		\n\t"/* p03 */"			movslq	0x1c(%%rdi),%%r13	\n\t"/* p07 */\
+		"movl	0x00(%%rdi),%%eax		\n\t"/* p00 */"			movl	0x10(%%rdi),%%r10d	\n\t"/* p04 */\
+		"movl	0x04(%%rdi),%%ebx		\n\t"/* p01 */"			movl	0x14(%%rdi),%%r11d	\n\t"/* p05 */\
+		"movl	0x08(%%rdi),%%ecx		\n\t"/* p02 */"			movl	0x18(%%rdi),%%r12d	\n\t"/* p06 */\
+		"movl	0x0c(%%rdi),%%edx		\n\t"/* p03 */"			movl	0x1c(%%rdi),%%r13d	\n\t"/* p07 */\
 		"movq	%[__add],%%rdi						\n\t"\
 		"addq	%%rdi,%%rax							\n\t		addq	%%rdi,%%r10	\n\t"\
 		"addq	%%rdi,%%rbx							\n\t		addq	%%rdi,%%r11	\n\t"\
@@ -885,10 +892,10 @@
 		"addq	$0x400,%%rsi			\n\t"\
 		/* SSE2_RADIX4_DIT_0TWIDDLE(add0,add1,add2,add3, r10)	SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO(add4,add5,add6,add7, r18): */\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x20(%%rdi),%%rax		\n\t"/* p08 */"			movslq	0x30(%%rdi),%%r10	\n\t"/* p0c */\
-		"movslq	0x24(%%rdi),%%rbx		\n\t"/* p09 */"			movslq	0x34(%%rdi),%%r11	\n\t"/* p0d */\
-		"movslq	0x28(%%rdi),%%rcx		\n\t"/* p0a */"			movslq	0x38(%%rdi),%%r12	\n\t"/* p0e */\
-		"movslq	0x2c(%%rdi),%%rdx		\n\t"/* p0b */"			movslq	0x3c(%%rdi),%%r13	\n\t"/* p0f */\
+		"movl	0x20(%%rdi),%%eax		\n\t"/* p08 */"			movl	0x30(%%rdi),%%r10d	\n\t"/* p0c */\
+		"movl	0x24(%%rdi),%%ebx		\n\t"/* p09 */"			movl	0x34(%%rdi),%%r11d	\n\t"/* p0d */\
+		"movl	0x28(%%rdi),%%ecx		\n\t"/* p0a */"			movl	0x38(%%rdi),%%r12d	\n\t"/* p0e */\
+		"movl	0x2c(%%rdi),%%edx		\n\t"/* p0b */"			movl	0x3c(%%rdi),%%r13d	\n\t"/* p0f */\
 		"movq	%[__add],%%rdi						\n\t"\
 		"addq	%%rdi,%%rax							\n\t		addq	%%rdi,%%r10	\n\t"\
 		"addq	%%rdi,%%rbx							\n\t		addq	%%rdi,%%r11	\n\t"\
@@ -948,10 +955,10 @@
 		"addq	$0x400,%%rsi			\n\t"\
 		/* SSE2_RADIX4_DIT_0TWIDDLE(add0,add1,add2,add3, r20)	SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO(add4,add5,add6,add7, r28): */\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x40(%%rdi),%%rax		\n\t"/* p08 */"			movslq	0x50(%%rdi),%%r10	\n\t"/* p0c */\
-		"movslq	0x44(%%rdi),%%rbx		\n\t"/* p09 */"			movslq	0x54(%%rdi),%%r11	\n\t"/* p0d */\
-		"movslq	0x48(%%rdi),%%rcx		\n\t"/* p0a */"			movslq	0x58(%%rdi),%%r12	\n\t"/* p0e */\
-		"movslq	0x4c(%%rdi),%%rdx		\n\t"/* p0b */"			movslq	0x5c(%%rdi),%%r13	\n\t"/* p0f */\
+		"movl	0x40(%%rdi),%%eax		\n\t"/* p08 */"			movl	0x50(%%rdi),%%r10d	\n\t"/* p0c */\
+		"movl	0x44(%%rdi),%%ebx		\n\t"/* p09 */"			movl	0x54(%%rdi),%%r11d	\n\t"/* p0d */\
+		"movl	0x48(%%rdi),%%ecx		\n\t"/* p0a */"			movl	0x58(%%rdi),%%r12d	\n\t"/* p0e */\
+		"movl	0x4c(%%rdi),%%edx		\n\t"/* p0b */"			movl	0x5c(%%rdi),%%r13d	\n\t"/* p0f */\
 		"movq	%[__add],%%rdi						\n\t"\
 		"addq	%%rdi,%%rax							\n\t		addq	%%rdi,%%r10	\n\t"\
 		"addq	%%rdi,%%rbx							\n\t		addq	%%rdi,%%r11	\n\t"\
@@ -1011,10 +1018,10 @@
 		"addq	$0x400,%%rsi			\n\t"\
 		/* SSE2_RADIX4_DIT_0TWIDDLE(add0,add1,add2,add3, r01)	SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO(add4,add5,add6,add7, r18): */\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x60(%%rdi),%%rax		\n\t"/* p08 */"			movslq	0x70(%%rdi),%%r10	\n\t"/* p0c */\
-		"movslq	0x64(%%rdi),%%rbx		\n\t"/* p09 */"			movslq	0x74(%%rdi),%%r11	\n\t"/* p0d */\
-		"movslq	0x68(%%rdi),%%rcx		\n\t"/* p0a */"			movslq	0x78(%%rdi),%%r12	\n\t"/* p0e */\
-		"movslq	0x6c(%%rdi),%%rdx		\n\t"/* p0b */"			movslq	0x7c(%%rdi),%%r13	\n\t"/* p0f */\
+		"movl	0x60(%%rdi),%%eax		\n\t"/* p08 */"			movl	0x70(%%rdi),%%r10d	\n\t"/* p0c */\
+		"movl	0x64(%%rdi),%%ebx		\n\t"/* p09 */"			movl	0x74(%%rdi),%%r11d	\n\t"/* p0d */\
+		"movl	0x68(%%rdi),%%ecx		\n\t"/* p0a */"			movl	0x78(%%rdi),%%r12d	\n\t"/* p0e */\
+		"movl	0x6c(%%rdi),%%edx		\n\t"/* p0b */"			movl	0x7c(%%rdi),%%r13d	\n\t"/* p0f */\
 		"movq	%[__add],%%rdi						\n\t"\
 		"addq	%%rdi,%%rax							\n\t		addq	%%rdi,%%r10	\n\t"\
 		"addq	%%rdi,%%rbx							\n\t		addq	%%rdi,%%r11	\n\t"\
@@ -1558,10 +1565,10 @@
 	/*...Block 1: t00,t10,t20,t30 in r00,04,02,06 */		/*...Block 5: t08,t18,t28,t38	*/\
 		"movq	%[__r00],%%rsi					\n\t"\
 		"movq	%[__arr_offsets],%%rdi			\n\t"\
-		"movslq	0x0(%%rdi),%%rax	/* p00 */	\n\t		movslq	0x10(%%rdi),%%r10	/* p04 */	\n\t"\
-		"movslq	0x4(%%rdi),%%rbx	/* p01 */	\n\t		movslq	0x14(%%rdi),%%r11	/* p05 */	\n\t"\
-		"movslq	0x8(%%rdi),%%rcx	/* p02 */	\n\t		movslq	0x18(%%rdi),%%r12	/* p06 */	\n\t"\
-		"movslq	0xc(%%rdi),%%rdx	/* p03 */	\n\t		movslq	0x1c(%%rdi),%%r13	/* p07 */	\n\t"\
+		"movl	0x0(%%rdi),%%eax	/* p00 */	\n\t		movl	0x10(%%rdi),%%r10d	/* p04 */	\n\t"\
+		"movl	0x4(%%rdi),%%ebx	/* p01 */	\n\t		movl	0x14(%%rdi),%%r11d	/* p05 */	\n\t"\
+		"movl	0x8(%%rdi),%%ecx	/* p02 */	\n\t		movl	0x18(%%rdi),%%r12d	/* p06 */	\n\t"\
+		"movl	0xc(%%rdi),%%edx	/* p03 */	\n\t		movl	0x1c(%%rdi),%%r13d	/* p07 */	\n\t"\
 		"movq	%[__add],%%rdi					\n\t"\
 		"addq	%%rdi,%%rax						\n\t		addq	%%rdi,%%r10						\n\t"\
 		"addq	%%rdi,%%rbx						\n\t		addq	%%rdi,%%r11						\n\t"\
@@ -1612,10 +1619,10 @@
 		/*...Block 3: t04,t14,t24,t34	*/					/*...Block 7: t0C,t1C,t2C,t3C	*/\
 		"addq	$0x800,%%rsi		/* r20 */	\n\t"		/* r28 */\
 		"movq	%[__arr_offsets],%%rdi			\n\t"\
-		"movslq	0x20(%%rdi),%%rax	/* p08 */	\n\t		movslq	0x30(%%rdi),%%r10	/* p0c */	\n\t"\
-		"movslq	0x24(%%rdi),%%rbx	/* p09 */	\n\t		movslq	0x34(%%rdi),%%r11	/* p0d */	\n\t"\
-		"movslq	0x28(%%rdi),%%rcx	/* p0a */	\n\t		movslq	0x38(%%rdi),%%r12	/* p0e */	\n\t"\
-		"movslq	0x2c(%%rdi),%%rdx	/* p0b */	\n\t		movslq	0x3c(%%rdi),%%r13	/* p0f */	\n\t"\
+		"movl	0x20(%%rdi),%%eax	/* p08 */	\n\t		movl	0x30(%%rdi),%%r10d	/* p0c */	\n\t"\
+		"movl	0x24(%%rdi),%%ebx	/* p09 */	\n\t		movl	0x34(%%rdi),%%r11d	/* p0d */	\n\t"\
+		"movl	0x28(%%rdi),%%ecx	/* p0a */	\n\t		movl	0x38(%%rdi),%%r12d	/* p0e */	\n\t"\
+		"movl	0x2c(%%rdi),%%edx	/* p0b */	\n\t		movl	0x3c(%%rdi),%%r13d	/* p0f */	\n\t"\
 		"movq	%[__add],%%rdi					\n\t"\
 		"addq	%%rdi,%%rax						\n\t		addq	%%rdi,%%r10						\n\t"\
 		"addq	%%rdi,%%rbx						\n\t		addq	%%rdi,%%r11						\n\t"\
@@ -1676,10 +1683,10 @@
 		/*...Block 2: t02,t12,t22,t32	*/					/*...Block 6: t0A,t1A,t2A,t3A	*/\
 		"subq	$0x400,%%rsi		/* r10 */	\n\t"		/* r18 */\
 		"movq	%[__arr_offsets],%%rdi			\n\t"\
-		"movslq	0x40(%%rdi),%%rax	/* p10 */	\n\t		movslq	0x50(%%rdi),%%r10	/* p14 */	\n\t"\
-		"movslq	0x44(%%rdi),%%rbx	/* p11 */	\n\t		movslq	0x54(%%rdi),%%r11	/* p15 */	\n\t"\
-		"movslq	0x48(%%rdi),%%rcx	/* p12 */	\n\t		movslq	0x58(%%rdi),%%r12	/* p16 */	\n\t"\
-		"movslq	0x4c(%%rdi),%%rdx	/* p13 */	\n\t		movslq	0x5c(%%rdi),%%r13	/* p17 */	\n\t"\
+		"movl	0x40(%%rdi),%%eax	/* p10 */	\n\t		movl	0x50(%%rdi),%%r10d	/* p14 */	\n\t"\
+		"movl	0x44(%%rdi),%%ebx	/* p11 */	\n\t		movl	0x54(%%rdi),%%r11d	/* p15 */	\n\t"\
+		"movl	0x48(%%rdi),%%ecx	/* p12 */	\n\t		movl	0x58(%%rdi),%%r12d	/* p16 */	\n\t"\
+		"movl	0x4c(%%rdi),%%edx	/* p13 */	\n\t		movl	0x5c(%%rdi),%%r13d	/* p17 */	\n\t"\
 		"movq	%[__add],%%rdi					\n\t"\
 		"addq	%%rdi,%%rax						\n\t		addq	%%rdi,%%r10						\n\t"\
 		"addq	%%rdi,%%rbx						\n\t		addq	%%rdi,%%r11						\n\t"\
@@ -1745,10 +1752,10 @@
 		/*...Block 4: t06,t16,t26,t36	*/					/*...Block 8: t0E,t1E,t2E,t3E	*/\
 		"addq	$0x800,%%rsi		/* r30 */	\n\t"		/* r38 */\
 		"movq	%[__arr_offsets],%%rdi			\n\t"\
-		"movslq	0x60(%%rdi),%%rax	/* p18 */	\n\t		movslq	0x70(%%rdi),%%r10	/* p1c */	\n\t"\
-		"movslq	0x64(%%rdi),%%rbx	/* p19 */	\n\t		movslq	0x74(%%rdi),%%r11	/* p1d */	\n\t"\
-		"movslq	0x68(%%rdi),%%rcx	/* p1a */	\n\t		movslq	0x78(%%rdi),%%r12	/* p1e */	\n\t"\
-		"movslq	0x6c(%%rdi),%%rdx	/* p1b */	\n\t		movslq	0x7c(%%rdi),%%r13	/* p1f */	\n\t"\
+		"movl	0x60(%%rdi),%%eax	/* p18 */	\n\t		movl	0x70(%%rdi),%%r10d	/* p1c */	\n\t"\
+		"movl	0x64(%%rdi),%%ebx	/* p19 */	\n\t		movl	0x74(%%rdi),%%r11d	/* p1d */	\n\t"\
+		"movl	0x68(%%rdi),%%ecx	/* p1a */	\n\t		movl	0x78(%%rdi),%%r12d	/* p1e */	\n\t"\
+		"movl	0x6c(%%rdi),%%edx	/* p1b */	\n\t		movl	0x7c(%%rdi),%%r13d	/* p1f */	\n\t"\
 		"movq	%[__add],%%rdi					\n\t"\
 		"addq	%%rdi,%%rax						\n\t		addq	%%rdi,%%r10						\n\t"\
 		"addq	%%rdi,%%rbx						\n\t		addq	%%rdi,%%r11						\n\t"\
@@ -1833,10 +1840,10 @@
 		/* SSE2_RADIX4_DIT_0TWIDDLE(add0,add1,add2,add3, r00)	SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO(add4,add5,add6,add7, r08): */\
 		/* Can't simply addq these to a 64-bit base array address since the offsets are 4-byte array data: */\
 		"movq	%[__arr_offsets],%%rdi				\n\t"\
-		"movslq	0x00(%%rdi),%%rax		\n\t"/* p00 */"			movslq	0x10(%%rdi),%%r10	\n\t"/* p04 */\
-		"movslq	0x04(%%rdi),%%rbx		\n\t"/* p01 */"			movslq	0x14(%%rdi),%%r11	\n\t"/* p05 */\
-		"movslq	0x08(%%rdi),%%rcx		\n\t"/* p02 */"			movslq	0x18(%%rdi),%%r12	\n\t"/* p06 */\
-		"movslq	0x0c(%%rdi),%%rdx		\n\t"/* p03 */"			movslq	0x1c(%%rdi),%%r13	\n\t"/* p07 */\
+		"movl	0x00(%%rdi),%%eax		\n\t"/* p00 */"			movl	0x10(%%rdi),%%r10d	\n\t"/* p04 */\
+		"movl	0x04(%%rdi),%%ebx		\n\t"/* p01 */"			movl	0x14(%%rdi),%%r11d	\n\t"/* p05 */\
+		"movl	0x08(%%rdi),%%ecx		\n\t"/* p02 */"			movl	0x18(%%rdi),%%r12d	\n\t"/* p06 */\
+		"movl	0x0c(%%rdi),%%edx		\n\t"/* p03 */"			movl	0x1c(%%rdi),%%r13d	\n\t"/* p07 */\
 		"movq	%[__add],%%rdi						\n\t"\
 		"addq	%%rdi,%%rax							\n\t		addq	%%rdi,%%r10	\n\t"\
 		"addq	%%rdi,%%rbx							\n\t		addq	%%rdi,%%r11	\n\t"\
@@ -1896,10 +1903,10 @@
 		"addq	$0x200,%%rsi			\n\t"\
 		/* SSE2_RADIX4_DIT_0TWIDDLE(add0,add1,add2,add3, r10)	SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO(add4,add5,add6,add7, r18): */\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x20(%%rdi),%%rax		\n\t"/* p08 */"			movslq	0x30(%%rdi),%%r10	\n\t"/* p0c */\
-		"movslq	0x24(%%rdi),%%rbx		\n\t"/* p09 */"			movslq	0x34(%%rdi),%%r11	\n\t"/* p0d */\
-		"movslq	0x28(%%rdi),%%rcx		\n\t"/* p0a */"			movslq	0x38(%%rdi),%%r12	\n\t"/* p0e */\
-		"movslq	0x2c(%%rdi),%%rdx		\n\t"/* p0b */"			movslq	0x3c(%%rdi),%%r13	\n\t"/* p0f */\
+		"movl	0x20(%%rdi),%%eax		\n\t"/* p08 */"			movl	0x30(%%rdi),%%r10d	\n\t"/* p0c */\
+		"movl	0x24(%%rdi),%%ebx		\n\t"/* p09 */"			movl	0x34(%%rdi),%%r11d	\n\t"/* p0d */\
+		"movl	0x28(%%rdi),%%ecx		\n\t"/* p0a */"			movl	0x38(%%rdi),%%r12d	\n\t"/* p0e */\
+		"movl	0x2c(%%rdi),%%edx		\n\t"/* p0b */"			movl	0x3c(%%rdi),%%r13d	\n\t"/* p0f */\
 		"movq	%[__add],%%rdi						\n\t"\
 		"addq	%%rdi,%%rax							\n\t		addq	%%rdi,%%r10	\n\t"\
 		"addq	%%rdi,%%rbx							\n\t		addq	%%rdi,%%r11	\n\t"\
@@ -1959,10 +1966,10 @@
 		"addq	$0x200,%%rsi			\n\t"\
 		/* SSE2_RADIX4_DIT_0TWIDDLE(add0,add1,add2,add3, r20)	SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO(add4,add5,add6,add7, r28): */\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x40(%%rdi),%%rax		\n\t"/* p08 */"			movslq	0x50(%%rdi),%%r10	\n\t"/* p0c */\
-		"movslq	0x44(%%rdi),%%rbx		\n\t"/* p09 */"			movslq	0x54(%%rdi),%%r11	\n\t"/* p0d */\
-		"movslq	0x48(%%rdi),%%rcx		\n\t"/* p0a */"			movslq	0x58(%%rdi),%%r12	\n\t"/* p0e */\
-		"movslq	0x4c(%%rdi),%%rdx		\n\t"/* p0b */"			movslq	0x5c(%%rdi),%%r13	\n\t"/* p0f */\
+		"movl	0x40(%%rdi),%%eax		\n\t"/* p08 */"			movl	0x50(%%rdi),%%r10d	\n\t"/* p0c */\
+		"movl	0x44(%%rdi),%%ebx		\n\t"/* p09 */"			movl	0x54(%%rdi),%%r11d	\n\t"/* p0d */\
+		"movl	0x48(%%rdi),%%ecx		\n\t"/* p0a */"			movl	0x58(%%rdi),%%r12d	\n\t"/* p0e */\
+		"movl	0x4c(%%rdi),%%edx		\n\t"/* p0b */"			movl	0x5c(%%rdi),%%r13d	\n\t"/* p0f */\
 		"movq	%[__add],%%rdi						\n\t"\
 		"addq	%%rdi,%%rax							\n\t		addq	%%rdi,%%r10	\n\t"\
 		"addq	%%rdi,%%rbx							\n\t		addq	%%rdi,%%r11	\n\t"\
@@ -2022,10 +2029,10 @@
 		"addq	$0x200,%%rsi			\n\t"\
 		/* SSE2_RADIX4_DIT_0TWIDDLE(add0,add1,add2,add3, r01)	SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO(add4,add5,add6,add7, r18): */\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x60(%%rdi),%%rax		\n\t"/* p08 */"			movslq	0x70(%%rdi),%%r10	\n\t"/* p0c */\
-		"movslq	0x64(%%rdi),%%rbx		\n\t"/* p09 */"			movslq	0x74(%%rdi),%%r11	\n\t"/* p0d */\
-		"movslq	0x68(%%rdi),%%rcx		\n\t"/* p0a */"			movslq	0x78(%%rdi),%%r12	\n\t"/* p0e */\
-		"movslq	0x6c(%%rdi),%%rdx		\n\t"/* p0b */"			movslq	0x7c(%%rdi),%%r13	\n\t"/* p0f */\
+		"movl	0x60(%%rdi),%%eax		\n\t"/* p08 */"			movl	0x70(%%rdi),%%r10d	\n\t"/* p0c */\
+		"movl	0x64(%%rdi),%%ebx		\n\t"/* p09 */"			movl	0x74(%%rdi),%%r11d	\n\t"/* p0d */\
+		"movl	0x68(%%rdi),%%ecx		\n\t"/* p0a */"			movl	0x78(%%rdi),%%r12d	\n\t"/* p0e */\
+		"movl	0x6c(%%rdi),%%edx		\n\t"/* p0b */"			movl	0x7c(%%rdi),%%r13d	\n\t"/* p0f */\
 		"movq	%[__add],%%rdi						\n\t"\
 		"addq	%%rdi,%%rax							\n\t		addq	%%rdi,%%r10	\n\t"\
 		"addq	%%rdi,%%rbx							\n\t		addq	%%rdi,%%r11	\n\t"\
@@ -2570,10 +2577,10 @@
 	/*...Block 1: t00,t10,t20,t30 in r00,04,02,06 */		/*...Block 5: t08,t18,t28,t38	*/\
 		"movq	%[__r00],%%rsi					\n\t"\
 		"movq	%[__arr_offsets],%%rdi			\n\t"\
-		"movslq	0x0(%%rdi),%%rax	/* p00 */	\n\t		movslq	0x10(%%rdi),%%r10	/* p04 */	\n\t"\
-		"movslq	0x4(%%rdi),%%rbx	/* p01 */	\n\t		movslq	0x14(%%rdi),%%r11	/* p05 */	\n\t"\
-		"movslq	0x8(%%rdi),%%rcx	/* p02 */	\n\t		movslq	0x18(%%rdi),%%r12	/* p06 */	\n\t"\
-		"movslq	0xc(%%rdi),%%rdx	/* p03 */	\n\t		movslq	0x1c(%%rdi),%%r13	/* p07 */	\n\t"\
+		"movl	0x0(%%rdi),%%eax	/* p00 */	\n\t		movl	0x10(%%rdi),%%r10d	/* p04 */	\n\t"\
+		"movl	0x4(%%rdi),%%ebx	/* p01 */	\n\t		movl	0x14(%%rdi),%%r11d	/* p05 */	\n\t"\
+		"movl	0x8(%%rdi),%%ecx	/* p02 */	\n\t		movl	0x18(%%rdi),%%r12d	/* p06 */	\n\t"\
+		"movl	0xc(%%rdi),%%edx	/* p03 */	\n\t		movl	0x1c(%%rdi),%%r13d	/* p07 */	\n\t"\
 		"movq	%[__add],%%rdi					\n\t"\
 		"addq	%%rdi,%%rax						\n\t		addq	%%rdi,%%r10						\n\t"\
 		"addq	%%rdi,%%rbx						\n\t		addq	%%rdi,%%r11						\n\t"\
@@ -2624,10 +2631,10 @@
 		/*...Block 3: t04,t14,t24,t34	*/					/*...Block 7: t0C,t1C,t2C,t3C	*/\
 		"addq	$0x400,%%rsi		/* r20 */	\n\t"		/* r28 */\
 		"movq	%[__arr_offsets],%%rdi			\n\t"\
-		"movslq	0x20(%%rdi),%%rax	/* p08 */	\n\t		movslq	0x30(%%rdi),%%r10	/* p0c */	\n\t"\
-		"movslq	0x24(%%rdi),%%rbx	/* p09 */	\n\t		movslq	0x34(%%rdi),%%r11	/* p0d */	\n\t"\
-		"movslq	0x28(%%rdi),%%rcx	/* p0a */	\n\t		movslq	0x38(%%rdi),%%r12	/* p0e */	\n\t"\
-		"movslq	0x2c(%%rdi),%%rdx	/* p0b */	\n\t		movslq	0x3c(%%rdi),%%r13	/* p0f */	\n\t"\
+		"movl	0x20(%%rdi),%%eax	/* p08 */	\n\t		movl	0x30(%%rdi),%%r10d	/* p0c */	\n\t"\
+		"movl	0x24(%%rdi),%%ebx	/* p09 */	\n\t		movl	0x34(%%rdi),%%r11d	/* p0d */	\n\t"\
+		"movl	0x28(%%rdi),%%ecx	/* p0a */	\n\t		movl	0x38(%%rdi),%%r12d	/* p0e */	\n\t"\
+		"movl	0x2c(%%rdi),%%edx	/* p0b */	\n\t		movl	0x3c(%%rdi),%%r13d	/* p0f */	\n\t"\
 		"movq	%[__add],%%rdi					\n\t"\
 		"addq	%%rdi,%%rax						\n\t		addq	%%rdi,%%r10						\n\t"\
 		"addq	%%rdi,%%rbx						\n\t		addq	%%rdi,%%r11						\n\t"\
@@ -2688,10 +2695,10 @@
 		/*...Block 2: t02,t12,t22,t32	*/					/*...Block 6: t0A,t1A,t2A,t3A	*/\
 		"subq	$0x200,%%rsi		/* r10 */	\n\t"		/* r18 */\
 		"movq	%[__arr_offsets],%%rdi			\n\t"\
-		"movslq	0x40(%%rdi),%%rax	/* p10 */	\n\t		movslq	0x50(%%rdi),%%r10	/* p14 */	\n\t"\
-		"movslq	0x44(%%rdi),%%rbx	/* p11 */	\n\t		movslq	0x54(%%rdi),%%r11	/* p15 */	\n\t"\
-		"movslq	0x48(%%rdi),%%rcx	/* p12 */	\n\t		movslq	0x58(%%rdi),%%r12	/* p16 */	\n\t"\
-		"movslq	0x4c(%%rdi),%%rdx	/* p13 */	\n\t		movslq	0x5c(%%rdi),%%r13	/* p17 */	\n\t"\
+		"movl	0x40(%%rdi),%%eax	/* p10 */	\n\t		movl	0x50(%%rdi),%%r10d	/* p14 */	\n\t"\
+		"movl	0x44(%%rdi),%%ebx	/* p11 */	\n\t		movl	0x54(%%rdi),%%r11d	/* p15 */	\n\t"\
+		"movl	0x48(%%rdi),%%ecx	/* p12 */	\n\t		movl	0x58(%%rdi),%%r12d	/* p16 */	\n\t"\
+		"movl	0x4c(%%rdi),%%edx	/* p13 */	\n\t		movl	0x5c(%%rdi),%%r13d	/* p17 */	\n\t"\
 		"movq	%[__add],%%rdi					\n\t"\
 		"addq	%%rdi,%%rax						\n\t		addq	%%rdi,%%r10						\n\t"\
 		"addq	%%rdi,%%rbx						\n\t		addq	%%rdi,%%r11						\n\t"\
@@ -2757,10 +2764,10 @@
 		/*...Block 4: t06,t16,t26,t36	*/					/*...Block 8: t0E,t1E,t2E,t3E	*/\
 		"addq	$0x400,%%rsi		/* r30 */	\n\t"		/* r38 */\
 		"movq	%[__arr_offsets],%%rdi			\n\t"\
-		"movslq	0x60(%%rdi),%%rax	/* p18 */	\n\t		movslq	0x70(%%rdi),%%r10	/* p1c */	\n\t"\
-		"movslq	0x64(%%rdi),%%rbx	/* p19 */	\n\t		movslq	0x74(%%rdi),%%r11	/* p1d */	\n\t"\
-		"movslq	0x68(%%rdi),%%rcx	/* p1a */	\n\t		movslq	0x78(%%rdi),%%r12	/* p1e */	\n\t"\
-		"movslq	0x6c(%%rdi),%%rdx	/* p1b */	\n\t		movslq	0x7c(%%rdi),%%r13	/* p1f */	\n\t"\
+		"movl	0x60(%%rdi),%%eax	/* p18 */	\n\t		movl	0x70(%%rdi),%%r10d	/* p1c */	\n\t"\
+		"movl	0x64(%%rdi),%%ebx	/* p19 */	\n\t		movl	0x74(%%rdi),%%r11d	/* p1d */	\n\t"\
+		"movl	0x68(%%rdi),%%ecx	/* p1a */	\n\t		movl	0x78(%%rdi),%%r12d	/* p1e */	\n\t"\
+		"movl	0x6c(%%rdi),%%edx	/* p1b */	\n\t		movl	0x7c(%%rdi),%%r13d	/* p1f */	\n\t"\
 		"movq	%[__add],%%rdi					\n\t"\
 		"addq	%%rdi,%%rax						\n\t		addq	%%rdi,%%r10						\n\t"\
 		"addq	%%rdi,%%rbx						\n\t		addq	%%rdi,%%r11						\n\t"\
@@ -2856,10 +2863,10 @@
 		/* SSE2_RADIX4_DIT_0TWIDDLE(add0,add1,add2,add3, r00)	SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO(add4,add5,add6,add7, r08): */\
 		/* Can't simply addq these to a 64-bit base array address since the offsets are 4-byte array data: */\
 		"movq	%[__arr_offsets],%%rdi				\n\t"\
-		"movslq	0x00(%%rdi),%%rax		\n\t"/* p00 */"			movslq	0x10(%%rdi),%%r10	\n\t"/* p04 */\
-		"movslq	0x04(%%rdi),%%rbx		\n\t"/* p01 */"			movslq	0x14(%%rdi),%%r11	\n\t"/* p05 */\
-		"movslq	0x08(%%rdi),%%rcx		\n\t"/* p02 */"			movslq	0x18(%%rdi),%%r12	\n\t"/* p06 */\
-		"movslq	0x0c(%%rdi),%%rdx		\n\t"/* p03 */"			movslq	0x1c(%%rdi),%%r13	\n\t"/* p07 */\
+		"movl	0x00(%%rdi),%%eax		\n\t"/* p00 */"			movl	0x10(%%rdi),%%r10d	\n\t"/* p04 */\
+		"movl	0x04(%%rdi),%%ebx		\n\t"/* p01 */"			movl	0x14(%%rdi),%%r11d	\n\t"/* p05 */\
+		"movl	0x08(%%rdi),%%ecx		\n\t"/* p02 */"			movl	0x18(%%rdi),%%r12d	\n\t"/* p06 */\
+		"movl	0x0c(%%rdi),%%edx		\n\t"/* p03 */"			movl	0x1c(%%rdi),%%r13d	\n\t"/* p07 */\
 		"movq	%[__add],%%rdi						\n\t"\
 		"addq	%%rdi,%%rax							\n\t		addq	%%rdi,%%r10	\n\t"\
 		"addq	%%rdi,%%rbx							\n\t		addq	%%rdi,%%r11	\n\t"\
@@ -2934,10 +2941,10 @@
 		"addq	$0x200,%%rsi			\n\t"\
 		/* SSE2_RADIX4_DIT_0TWIDDLE(add0,add1,add2,add3, r10)	SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO(add4,add5,add6,add7, r18): */\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x20(%%rdi),%%rax		\n\t"/* p08 */"			movslq	0x30(%%rdi),%%r10	\n\t"/* p0c */\
-		"movslq	0x24(%%rdi),%%rbx		\n\t"/* p09 */"			movslq	0x34(%%rdi),%%r11	\n\t"/* p0d */\
-		"movslq	0x28(%%rdi),%%rcx		\n\t"/* p0a */"			movslq	0x38(%%rdi),%%r12	\n\t"/* p0e */\
-		"movslq	0x2c(%%rdi),%%rdx		\n\t"/* p0b */"			movslq	0x3c(%%rdi),%%r13	\n\t"/* p0f */\
+		"movl	0x20(%%rdi),%%eax		\n\t"/* p08 */"			movl	0x30(%%rdi),%%r10d	\n\t"/* p0c */\
+		"movl	0x24(%%rdi),%%ebx		\n\t"/* p09 */"			movl	0x34(%%rdi),%%r11d	\n\t"/* p0d */\
+		"movl	0x28(%%rdi),%%ecx		\n\t"/* p0a */"			movl	0x38(%%rdi),%%r12d	\n\t"/* p0e */\
+		"movl	0x2c(%%rdi),%%edx		\n\t"/* p0b */"			movl	0x3c(%%rdi),%%r13d	\n\t"/* p0f */\
 		"movq	%[__add],%%rdi						\n\t"\
 		"addq	%%rdi,%%rax							\n\t		addq	%%rdi,%%r10	\n\t"\
 		"addq	%%rdi,%%rbx							\n\t		addq	%%rdi,%%r11	\n\t"\
@@ -3012,10 +3019,10 @@
 		"addq	$0x200,%%rsi			\n\t"\
 		/* SSE2_RADIX4_DIT_0TWIDDLE(add0,add1,add2,add3, r20)	SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO(add4,add5,add6,add7, r28): */\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x40(%%rdi),%%rax		\n\t"/* p08 */"			movslq	0x50(%%rdi),%%r10	\n\t"/* p0c */\
-		"movslq	0x44(%%rdi),%%rbx		\n\t"/* p09 */"			movslq	0x54(%%rdi),%%r11	\n\t"/* p0d */\
-		"movslq	0x48(%%rdi),%%rcx		\n\t"/* p0a */"			movslq	0x58(%%rdi),%%r12	\n\t"/* p0e */\
-		"movslq	0x4c(%%rdi),%%rdx		\n\t"/* p0b */"			movslq	0x5c(%%rdi),%%r13	\n\t"/* p0f */\
+		"movl	0x40(%%rdi),%%eax		\n\t"/* p08 */"			movl	0x50(%%rdi),%%r10d	\n\t"/* p0c */\
+		"movl	0x44(%%rdi),%%ebx		\n\t"/* p09 */"			movl	0x54(%%rdi),%%r11d	\n\t"/* p0d */\
+		"movl	0x48(%%rdi),%%ecx		\n\t"/* p0a */"			movl	0x58(%%rdi),%%r12d	\n\t"/* p0e */\
+		"movl	0x4c(%%rdi),%%edx		\n\t"/* p0b */"			movl	0x5c(%%rdi),%%r13d	\n\t"/* p0f */\
 		"movq	%[__add],%%rdi						\n\t"\
 		"addq	%%rdi,%%rax							\n\t		addq	%%rdi,%%r10	\n\t"\
 		"addq	%%rdi,%%rbx							\n\t		addq	%%rdi,%%r11	\n\t"\
@@ -3090,10 +3097,10 @@
 		"addq	$0x200,%%rsi			\n\t"\
 		/* SSE2_RADIX4_DIT_0TWIDDLE(add0,add1,add2,add3, r01)	SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO(add4,add5,add6,add7, r18): */\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x60(%%rdi),%%rax		\n\t"/* p08 */"			movslq	0x70(%%rdi),%%r10	\n\t"/* p0c */\
-		"movslq	0x64(%%rdi),%%rbx		\n\t"/* p09 */"			movslq	0x74(%%rdi),%%r11	\n\t"/* p0d */\
-		"movslq	0x68(%%rdi),%%rcx		\n\t"/* p0a */"			movslq	0x78(%%rdi),%%r12	\n\t"/* p0e */\
-		"movslq	0x6c(%%rdi),%%rdx		\n\t"/* p0b */"			movslq	0x7c(%%rdi),%%r13	\n\t"/* p0f */\
+		"movl	0x60(%%rdi),%%eax		\n\t"/* p08 */"			movl	0x70(%%rdi),%%r10d	\n\t"/* p0c */\
+		"movl	0x64(%%rdi),%%ebx		\n\t"/* p09 */"			movl	0x74(%%rdi),%%r11d	\n\t"/* p0d */\
+		"movl	0x68(%%rdi),%%ecx		\n\t"/* p0a */"			movl	0x78(%%rdi),%%r12d	\n\t"/* p0e */\
+		"movl	0x6c(%%rdi),%%edx		\n\t"/* p0b */"			movl	0x7c(%%rdi),%%r13d	\n\t"/* p0f */\
 		"movq	%[__add],%%rdi						\n\t"\
 		"addq	%%rdi,%%rax							\n\t		addq	%%rdi,%%r10	\n\t"\
 		"addq	%%rdi,%%rbx							\n\t		addq	%%rdi,%%r11	\n\t"\
@@ -3721,10 +3728,10 @@
 	/*...Block 1: t00,t10,t20,t30 in r00,04,02,06 */		/*...Block 5: t08,t18,t28,t38	*/\
 		"movq	%[__r00],%%rsi					\n\t"\
 		"movq	%[__arr_offsets],%%rdi			\n\t"\
-		"movslq	0x0(%%rdi),%%rax	/* p00 */	\n\t		movslq	0x10(%%rdi),%%r10	/* p04 */	\n\t"\
-		"movslq	0x4(%%rdi),%%rbx	/* p01 */	\n\t		movslq	0x14(%%rdi),%%r11	/* p05 */	\n\t"\
-		"movslq	0x8(%%rdi),%%rcx	/* p02 */	\n\t		movslq	0x18(%%rdi),%%r12	/* p06 */	\n\t"\
-		"movslq	0xc(%%rdi),%%rdx	/* p03 */	\n\t		movslq	0x1c(%%rdi),%%r13	/* p07 */	\n\t"\
+		"movl	0x0(%%rdi),%%eax	/* p00 */	\n\t		movl	0x10(%%rdi),%%r10d	/* p04 */	\n\t"\
+		"movl	0x4(%%rdi),%%ebx	/* p01 */	\n\t		movl	0x14(%%rdi),%%r11d	/* p05 */	\n\t"\
+		"movl	0x8(%%rdi),%%ecx	/* p02 */	\n\t		movl	0x18(%%rdi),%%r12d	/* p06 */	\n\t"\
+		"movl	0xc(%%rdi),%%edx	/* p03 */	\n\t		movl	0x1c(%%rdi),%%r13d	/* p07 */	\n\t"\
 		"movq	%[__add],%%rdi					\n\t"\
 		"addq	%%rdi,%%rax						\n\t		addq	%%rdi,%%r10						\n\t"\
 		"addq	%%rdi,%%rbx						\n\t		addq	%%rdi,%%r11						\n\t"\
@@ -3776,10 +3783,10 @@
 		/*...Block 3: t04,t14,t24,t34	*/					/*...Block 7: t0C,t1C,t2C,t3C	*/\
 		"addq	$0x400,%%rsi		/* r20 */	\n\t"		/* r28 */\
 		"movq	%[__arr_offsets],%%rdi			\n\t"\
-		"movslq	0x20(%%rdi),%%rax	/* p08 */	\n\t		movslq	0x30(%%rdi),%%r10	/* p0c */	\n\t"\
-		"movslq	0x24(%%rdi),%%rbx	/* p09 */	\n\t		movslq	0x34(%%rdi),%%r11	/* p0d */	\n\t"\
-		"movslq	0x28(%%rdi),%%rcx	/* p0a */	\n\t		movslq	0x38(%%rdi),%%r12	/* p0e */	\n\t"\
-		"movslq	0x2c(%%rdi),%%rdx	/* p0b */	\n\t		movslq	0x3c(%%rdi),%%r13	/* p0f */	\n\t"\
+		"movl	0x20(%%rdi),%%eax	/* p08 */	\n\t		movl	0x30(%%rdi),%%r10d	/* p0c */	\n\t"\
+		"movl	0x24(%%rdi),%%ebx	/* p09 */	\n\t		movl	0x34(%%rdi),%%r11d	/* p0d */	\n\t"\
+		"movl	0x28(%%rdi),%%ecx	/* p0a */	\n\t		movl	0x38(%%rdi),%%r12d	/* p0e */	\n\t"\
+		"movl	0x2c(%%rdi),%%edx	/* p0b */	\n\t		movl	0x3c(%%rdi),%%r13d	/* p0f */	\n\t"\
 		"movq	%[__add],%%rdi					\n\t"\
 		"addq	%%rdi,%%rax						\n\t		addq	%%rdi,%%r10						\n\t"\
 		"addq	%%rdi,%%rbx						\n\t		addq	%%rdi,%%r11						\n\t"\
@@ -3849,10 +3856,10 @@
 		/*...Block 2: t02,t12,t22,t32	*/					/*...Block 6: t0A,t1A,t2A,t3A	*/\
 		"subq	$0x200,%%rsi		/* r10 */	\n\t"		/* r18 */\
 		"movq	%[__arr_offsets],%%rdi			\n\t"\
-		"movslq	0x40(%%rdi),%%rax	/* p10 */	\n\t		movslq	0x50(%%rdi),%%r10	/* p14 */	\n\t"\
-		"movslq	0x44(%%rdi),%%rbx	/* p11 */	\n\t		movslq	0x54(%%rdi),%%r11	/* p15 */	\n\t"\
-		"movslq	0x48(%%rdi),%%rcx	/* p12 */	\n\t		movslq	0x58(%%rdi),%%r12	/* p16 */	\n\t"\
-		"movslq	0x4c(%%rdi),%%rdx	/* p13 */	\n\t		movslq	0x5c(%%rdi),%%r13	/* p17 */	\n\t"\
+		"movl	0x40(%%rdi),%%eax	/* p10 */	\n\t		movl	0x50(%%rdi),%%r10d	/* p14 */	\n\t"\
+		"movl	0x44(%%rdi),%%ebx	/* p11 */	\n\t		movl	0x54(%%rdi),%%r11d	/* p15 */	\n\t"\
+		"movl	0x48(%%rdi),%%ecx	/* p12 */	\n\t		movl	0x58(%%rdi),%%r12d	/* p16 */	\n\t"\
+		"movl	0x4c(%%rdi),%%edx	/* p13 */	\n\t		movl	0x5c(%%rdi),%%r13d	/* p17 */	\n\t"\
 		"movq	%[__add],%%rdi					\n\t"\
 		"addq	%%rdi,%%rax						\n\t		addq	%%rdi,%%r10						\n\t"\
 		"addq	%%rdi,%%rbx						\n\t		addq	%%rdi,%%r11						\n\t"\
@@ -3925,10 +3932,10 @@
 		/*...Block 4: t06,t16,t26,t36	*/					/*...Block 8: t0E,t1E,t2E,t3E	*/\
 		"addq	$0x400,%%rsi		/* r30 */	\n\t"		/* r38 */\
 		"movq	%[__arr_offsets],%%rdi			\n\t"\
-		"movslq	0x60(%%rdi),%%rax	/* p18 */	\n\t		movslq	0x70(%%rdi),%%r10	/* p1c */	\n\t"\
-		"movslq	0x64(%%rdi),%%rbx	/* p19 */	\n\t		movslq	0x74(%%rdi),%%r11	/* p1d */	\n\t"\
-		"movslq	0x68(%%rdi),%%rcx	/* p1a */	\n\t		movslq	0x78(%%rdi),%%r12	/* p1e */	\n\t"\
-		"movslq	0x6c(%%rdi),%%rdx	/* p1b */	\n\t		movslq	0x7c(%%rdi),%%r13	/* p1f */	\n\t"\
+		"movl	0x60(%%rdi),%%eax	/* p18 */	\n\t		movl	0x70(%%rdi),%%r10d	/* p1c */	\n\t"\
+		"movl	0x64(%%rdi),%%ebx	/* p19 */	\n\t		movl	0x74(%%rdi),%%r11d	/* p1d */	\n\t"\
+		"movl	0x68(%%rdi),%%ecx	/* p1a */	\n\t		movl	0x78(%%rdi),%%r12d	/* p1e */	\n\t"\
+		"movl	0x6c(%%rdi),%%edx	/* p1b */	\n\t		movl	0x7c(%%rdi),%%r13d	/* p1f */	\n\t"\
 		"movq	%[__add],%%rdi					\n\t"\
 		"addq	%%rdi,%%rax						\n\t		addq	%%rdi,%%r10						\n\t"\
 		"addq	%%rdi,%%rbx						\n\t		addq	%%rdi,%%r11						\n\t"\
@@ -4027,10 +4034,10 @@
 		"movq	%[__r00],%%rsi	\n\t"\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
 		/* Can't simply addq these to a 64-bit base array address since the offsets are 4-byte array data: */\
-		"movslq	0x0(%%rdi),%%rax	\n\t"/* p00 */\
-		"movslq	0x4(%%rdi),%%rbx	\n\t"/* p01 */\
-		"movslq	0x8(%%rdi),%%rcx	\n\t"/* p02 */\
-		"movslq	0xc(%%rdi),%%rdx	\n\t"/* p03 */\
+		"movl	0x0(%%rdi),%%eax	\n\t"/* p00 */\
+		"movl	0x4(%%rdi),%%ebx	\n\t"/* p01 */\
+		"movl	0x8(%%rdi),%%ecx	\n\t"/* p02 */\
+		"movl	0xc(%%rdi),%%edx	\n\t"/* p03 */\
 		"movq	%[__add],%%rdi		\n\t"\
 		"addq	%%rdi,%%rax	\n\t"/* add0 + p00 */\
 		"addq	%%rdi,%%rbx	\n\t"/* add0 + p01 */\
@@ -4081,10 +4088,10 @@
 		/* SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO(add4, add5, add6, add7, r08): */\
 		"addq	$0x80,%%rsi			\n\t"\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x10(%%rdi),%%rax	\n\t"/* p04 */\
-		"movslq	0x14(%%rdi),%%rbx	\n\t"/* p05 */\
-		"movslq	0x18(%%rdi),%%rcx	\n\t"/* p06 */\
-		"movslq	0x1c(%%rdi),%%rdx	\n\t"/* p07 */\
+		"movl	0x10(%%rdi),%%eax	\n\t"/* p04 */\
+		"movl	0x14(%%rdi),%%ebx	\n\t"/* p05 */\
+		"movl	0x18(%%rdi),%%ecx	\n\t"/* p06 */\
+		"movl	0x1c(%%rdi),%%edx	\n\t"/* p07 */\
 		"movq	%[__add],%%rdi		\n\t"\
 		"addq	%%rdi,%%rax	\n\t"\
 		"addq	%%rdi,%%rbx	\n\t"\
@@ -4208,10 +4215,10 @@
 	/*...Block 2: */\
 		"addq	$0x80,%%rsi			\n\t"\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x20(%%rdi),%%rax	\n\t"/* p08 */\
-		"movslq	0x24(%%rdi),%%rbx	\n\t"/* p09 */\
-		"movslq	0x28(%%rdi),%%rcx	\n\t"/* p0a */\
-		"movslq	0x2c(%%rdi),%%rdx	\n\t"/* p0b */\
+		"movl	0x20(%%rdi),%%eax	\n\t"/* p08 */\
+		"movl	0x24(%%rdi),%%ebx	\n\t"/* p09 */\
+		"movl	0x28(%%rdi),%%ecx	\n\t"/* p0a */\
+		"movl	0x2c(%%rdi),%%edx	\n\t"/* p0b */\
 		"movq	%[__add],%%rdi		\n\t"\
 		"addq	%%rdi,%%rax	\n\t"\
 		"addq	%%rdi,%%rbx	\n\t"\
@@ -4263,10 +4270,10 @@
 		/* SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO(add4, add5, add6, add7, r18): */\
 		"addq	$0x80,%%rsi			\n\t"\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x30(%%rdi),%%rax	\n\t"/* p0c */\
-		"movslq	0x34(%%rdi),%%rbx	\n\t"/* p0d */\
-		"movslq	0x38(%%rdi),%%rcx	\n\t"/* p0e */\
-		"movslq	0x3c(%%rdi),%%rdx	\n\t"/* p0f */\
+		"movl	0x30(%%rdi),%%eax	\n\t"/* p0c */\
+		"movl	0x34(%%rdi),%%ebx	\n\t"/* p0d */\
+		"movl	0x38(%%rdi),%%ecx	\n\t"/* p0e */\
+		"movl	0x3c(%%rdi),%%edx	\n\t"/* p0f */\
 		"movq	%[__add],%%rdi		\n\t"\
 		"addq	%%rdi,%%rax	\n\t"\
 		"addq	%%rdi,%%rbx	\n\t"\
@@ -4390,10 +4397,10 @@
 	/*...Block 3: */\
 		"addq	$0x80,%%rsi			\n\t"\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x40(%%rdi),%%rax	\n\t"/* p10 */\
-		"movslq	0x44(%%rdi),%%rbx	\n\t"/* p11 */\
-		"movslq	0x48(%%rdi),%%rcx	\n\t"/* p12 */\
-		"movslq	0x4c(%%rdi),%%rdx	\n\t"/* p13 */\
+		"movl	0x40(%%rdi),%%eax	\n\t"/* p10 */\
+		"movl	0x44(%%rdi),%%ebx	\n\t"/* p11 */\
+		"movl	0x48(%%rdi),%%ecx	\n\t"/* p12 */\
+		"movl	0x4c(%%rdi),%%edx	\n\t"/* p13 */\
 		"movq	%[__add],%%rdi		\n\t"\
 		"addq	%%rdi,%%rax	\n\t"\
 		"addq	%%rdi,%%rbx	\n\t"\
@@ -4445,10 +4452,10 @@
 		/* SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO(add4, add5, add6, add7, r28): */\
 		"addq	$0x80,%%rsi			\n\t"\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x50(%%rdi),%%rax	\n\t"/* p14 */\
-		"movslq	0x54(%%rdi),%%rbx	\n\t"/* p15 */\
-		"movslq	0x58(%%rdi),%%rcx	\n\t"/* p16 */\
-		"movslq	0x5c(%%rdi),%%rdx	\n\t"/* p17 */\
+		"movl	0x50(%%rdi),%%eax	\n\t"/* p14 */\
+		"movl	0x54(%%rdi),%%ebx	\n\t"/* p15 */\
+		"movl	0x58(%%rdi),%%ecx	\n\t"/* p16 */\
+		"movl	0x5c(%%rdi),%%edx	\n\t"/* p17 */\
 		"movq	%[__add],%%rdi		\n\t"\
 		"addq	%%rdi,%%rax	\n\t"\
 		"addq	%%rdi,%%rbx	\n\t"\
@@ -4572,10 +4579,10 @@
 	/*...Block 4: */\
 		"addq	$0x80,%%rsi			\n\t"\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x60(%%rdi),%%rax	\n\t"/* p18 */\
-		"movslq	0x64(%%rdi),%%rbx	\n\t"/* p19 */\
-		"movslq	0x68(%%rdi),%%rcx	\n\t"/* p1a */\
-		"movslq	0x6c(%%rdi),%%rdx	\n\t"/* p1b */\
+		"movl	0x60(%%rdi),%%eax	\n\t"/* p18 */\
+		"movl	0x64(%%rdi),%%ebx	\n\t"/* p19 */\
+		"movl	0x68(%%rdi),%%ecx	\n\t"/* p1a */\
+		"movl	0x6c(%%rdi),%%edx	\n\t"/* p1b */\
 		"movq	%[__add],%%rdi		\n\t"\
 		"addq	%%rdi,%%rax	\n\t"\
 		"addq	%%rdi,%%rbx	\n\t"\
@@ -4627,10 +4634,10 @@
 		/* SSE2_RADIX4_DIT_0TWIDDLE_2NDOFTWO(add4, add5, add6, add7, r38): */\
 		"addq	$0x80,%%rsi			\n\t"\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x70(%%rdi),%%rax	\n\t"/* p1c */\
-		"movslq	0x74(%%rdi),%%rbx	\n\t"/* p1d */\
-		"movslq	0x78(%%rdi),%%rcx	\n\t"/* p1e */\
-		"movslq	0x7c(%%rdi),%%rdx	\n\t"/* p1f */\
+		"movl	0x70(%%rdi),%%eax	\n\t"/* p1c */\
+		"movl	0x74(%%rdi),%%ebx	\n\t"/* p1d */\
+		"movl	0x78(%%rdi),%%ecx	\n\t"/* p1e */\
+		"movl	0x7c(%%rdi),%%edx	\n\t"/* p1f */\
 		"movq	%[__add],%%rdi		\n\t"\
 		"addq	%%rdi,%%rax	\n\t"\
 		"addq	%%rdi,%%rbx	\n\t"\
@@ -6049,10 +6056,10 @@
 	/*...Block 1: t00,t10,t20,t30 in r00,04,02,06 - note swapped middle 2 indices! */\
 		"movq	%[__r00],%%rsi	\n\t"\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x0(%%rdi),%%rax	\n\t"/* p00 */\
-		"movslq	0x4(%%rdi),%%rbx	\n\t"/* p01 */\
-		"movslq	0x8(%%rdi),%%rcx	\n\t"/* p02 */\
-		"movslq	0xc(%%rdi),%%rdx	\n\t"/* p03 */\
+		"movl	0x0(%%rdi),%%eax	\n\t"/* p00 */\
+		"movl	0x4(%%rdi),%%ebx	\n\t"/* p01 */\
+		"movl	0x8(%%rdi),%%ecx	\n\t"/* p02 */\
+		"movl	0xc(%%rdi),%%edx	\n\t"/* p03 */\
 		"movq	%[__add],%%rdi		\n\t"\
 		"addq	%%rdi,%%rax	\n\t"\
 		"addq	%%rdi,%%rbx	\n\t"\
@@ -6097,10 +6104,10 @@
 		/*...Block 5: t08,t18,t28,t38	*/\
 		"addq	$0x80,%%rsi			\n\t"/* r08 */\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x10(%%rdi),%%rax	\n\t"/* p04 */\
-		"movslq	0x14(%%rdi),%%rbx	\n\t"/* p05 */\
-		"movslq	0x18(%%rdi),%%rcx	\n\t"/* p06 */\
-		"movslq	0x1c(%%rdi),%%rdx	\n\t"/* p07 */\
+		"movl	0x10(%%rdi),%%eax	\n\t"/* p04 */\
+		"movl	0x14(%%rdi),%%ebx	\n\t"/* p05 */\
+		"movl	0x18(%%rdi),%%ecx	\n\t"/* p06 */\
+		"movl	0x1c(%%rdi),%%edx	\n\t"/* p07 */\
 		"movq	%[__add],%%rdi		\n\t"\
 		"addq	%%rdi,%%rax	\n\t"\
 		"addq	%%rdi,%%rbx	\n\t"\
@@ -6159,10 +6166,10 @@
 		/*...Block 3: t04,t14,t24,t34	*/\
 		"addq	$0x180,%%rsi		\n\t"/* r20 */\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x20(%%rdi),%%rax	\n\t"/* p08 */\
-		"movslq	0x24(%%rdi),%%rbx	\n\t"/* p09 */\
-		"movslq	0x28(%%rdi),%%rcx	\n\t"/* p0a */\
-		"movslq	0x2c(%%rdi),%%rdx	\n\t"/* p0b */\
+		"movl	0x20(%%rdi),%%eax	\n\t"/* p08 */\
+		"movl	0x24(%%rdi),%%ebx	\n\t"/* p09 */\
+		"movl	0x28(%%rdi),%%ecx	\n\t"/* p0a */\
+		"movl	0x2c(%%rdi),%%edx	\n\t"/* p0b */\
 		"movq	%[__add],%%rdi		\n\t"\
 		"addq	%%rdi,%%rax	\n\t"\
 		"addq	%%rdi,%%rbx	\n\t"\
@@ -6234,10 +6241,10 @@
 		/*...Block 7: t0C,t1C,t2C,t3C	*/\
 		"addq	$0x80,%%rsi			\n\t"/* r28 */\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x30(%%rdi),%%rax	\n\t"/* p0c */\
-		"movslq	0x34(%%rdi),%%rbx	\n\t"/* p0d */\
-		"movslq	0x38(%%rdi),%%rcx	\n\t"/* p0e */\
-		"movslq	0x3c(%%rdi),%%rdx	\n\t"/* p0f */\
+		"movl	0x30(%%rdi),%%eax	\n\t"/* p0c */\
+		"movl	0x34(%%rdi),%%ebx	\n\t"/* p0d */\
+		"movl	0x38(%%rdi),%%ecx	\n\t"/* p0e */\
+		"movl	0x3c(%%rdi),%%edx	\n\t"/* p0f */\
 		"movq	%[__add],%%rdi		\n\t"\
 		"addq	%%rdi,%%rax	\n\t"\
 		"addq	%%rdi,%%rbx	\n\t"\
@@ -6309,10 +6316,10 @@
 		/*...Block 2: t02,t12,t22,t32	*/\
 		"subq	$0x180,%%rsi		\n\t"/* r10 */\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x40(%%rdi),%%rax	\n\t"/* p10 */\
-		"movslq	0x44(%%rdi),%%rbx	\n\t"/* p11 */\
-		"movslq	0x48(%%rdi),%%rcx	\n\t"/* p12 */\
-		"movslq	0x4c(%%rdi),%%rdx	\n\t"/* p13 */\
+		"movl	0x40(%%rdi),%%eax	\n\t"/* p10 */\
+		"movl	0x44(%%rdi),%%ebx	\n\t"/* p11 */\
+		"movl	0x48(%%rdi),%%ecx	\n\t"/* p12 */\
+		"movl	0x4c(%%rdi),%%edx	\n\t"/* p13 */\
 		"movq	%[__add],%%rdi		\n\t"\
 		"addq	%%rdi,%%rax	\n\t"\
 		"addq	%%rdi,%%rbx	\n\t"\
@@ -6388,10 +6395,10 @@
 		/*...Block 6: t0A,t1A,t2A,t3A	*/\
 		"addq	$0x80,%%rsi			\n\t"/* r18 */\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x50(%%rdi),%%rax	\n\t"/* p14 */\
-		"movslq	0x54(%%rdi),%%rbx	\n\t"/* p15 */\
-		"movslq	0x58(%%rdi),%%rcx	\n\t"/* p16 */\
-		"movslq	0x5c(%%rdi),%%rdx	\n\t"/* p17 */\
+		"movl	0x50(%%rdi),%%eax	\n\t"/* p14 */\
+		"movl	0x54(%%rdi),%%ebx	\n\t"/* p15 */\
+		"movl	0x58(%%rdi),%%ecx	\n\t"/* p16 */\
+		"movl	0x5c(%%rdi),%%edx	\n\t"/* p17 */\
 		"movq	%[__add],%%rdi		\n\t"\
 		"addq	%%rdi,%%rax	\n\t"\
 		"addq	%%rdi,%%rbx	\n\t"\
@@ -6467,10 +6474,10 @@
 		/*...Block 4: t06,t16,t26,t36	*/\
 		"addq	$0x180,%%rsi		\n\t"/* r30 */\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x60(%%rdi),%%rax	\n\t"/* p18 */\
-		"movslq	0x64(%%rdi),%%rbx	\n\t"/* p19 */\
-		"movslq	0x68(%%rdi),%%rcx	\n\t"/* p1a */\
-		"movslq	0x6c(%%rdi),%%rdx	\n\t"/* p1b */\
+		"movl	0x60(%%rdi),%%eax	\n\t"/* p18 */\
+		"movl	0x64(%%rdi),%%ebx	\n\t"/* p19 */\
+		"movl	0x68(%%rdi),%%ecx	\n\t"/* p1a */\
+		"movl	0x6c(%%rdi),%%edx	\n\t"/* p1b */\
 		"movq	%[__add],%%rdi		\n\t"\
 		"addq	%%rdi,%%rax	\n\t"\
 		"addq	%%rdi,%%rbx	\n\t"\
@@ -6546,10 +6553,10 @@
 		/*...Block 8: t0E,t1E,t2E,t3E	*/\
 		"addq	$0x80,%%rsi			\n\t"/* r38 */\
 		"movq	%[__arr_offsets],%%rdi	\n\t"\
-		"movslq	0x70(%%rdi),%%rax	\n\t"/* p1c */\
-		"movslq	0x74(%%rdi),%%rbx	\n\t"/* p1d */\
-		"movslq	0x78(%%rdi),%%rcx	\n\t"/* p1e */\
-		"movslq	0x7c(%%rdi),%%rdx	\n\t"/* p1f */\
+		"movl	0x70(%%rdi),%%eax	\n\t"/* p1c */\
+		"movl	0x74(%%rdi),%%ebx	\n\t"/* p1d */\
+		"movl	0x78(%%rdi),%%ecx	\n\t"/* p1e */\
+		"movl	0x7c(%%rdi),%%edx	\n\t"/* p1f */\
 		"movq	%[__add],%%rdi		\n\t"\
 		"addq	%%rdi,%%rax	\n\t"\
 		"addq	%%rdi,%%rbx	\n\t"\

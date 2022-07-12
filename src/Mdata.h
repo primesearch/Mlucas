@@ -163,11 +163,13 @@ All but the "else" stuff below is specific to factor.c built in standalone mode:
 #define ERR_SKIP_RADIX_SET			14	// In context of self-testing, not fatal for run overall but skip the current set of FFT radices
 #define ERR_INTERRUPT				15	// On one of several interrupt SIGs, exit iteration loop prematurely, write savefiles and exit
 #define ERR_GERBICZ_CHECK			16
-#define ERR_MAX	ERR_GERBICZ_CHECK
+#define ERR_MAX		ERR_GERBICZ_CHECK
 
 /***********************************************************************************************/
 /* Globals. Unless specified otherwise, these are declared in Mdata.h and defined in Mlucas.c: */
 /***********************************************************************************************/
+
+extern const char *err_code[ERR_MAX];
 
 /* ESTRING stores the exponent E of the number in question, whose representation is indicated by the value
 of the MODULUS_TYPE global declared below. We assume the number is of the form N = A^E + B,
@@ -199,7 +201,7 @@ extern char PSTRING[STR_MAX_LEN];	/* Number being tested in string form, typical
 #endif
 
 extern const int hex_chars[16];
-extern char cbuf[STR_MAX_LEN];
+extern char cbuf[STR_MAX_LEN], cstr[STR_MAX_LEN];
 extern char in_line[STR_MAX_LEN];
 extern char *char_addr;
 extern int char_offset;
@@ -327,7 +329,7 @@ extern uint32 TRANSFORM_TYPE;
 #define TRANSFORM_TYPE_MAX	2
 
 extern const char OFILE[], WORKFILE[];
-extern const char LOCAL_INI_FILE[];
+extern const char MLUCAS_INI_FILE[];
 extern char CONFIGFILE[];
 extern char STATFILE[];
 extern char RESTARTFILE[];
@@ -383,7 +385,7 @@ extern int32 DAT_BITS, PAD_BITS;
 			*/
 // Number of doubles per padding insert = (1 << PAD_BITS_DEF) .
 // In SIMD mode, number of padding elements between data blocks must be a multiple of SIMD vector-double count:
-#ifdef USE_AVX512	// AVX512 both uses 512-bit registers [8 doubles]
+#ifdef USE_AVX512	// AVX512 uses 512-bit registers [8 doubles]
 	#define PAD_BITS_DEF ( 3u)
 #else	// AVX uses 256-bit registers [4 doubles]; SSE2 uses 128-bit [2 doubles], but make 4 pad-doubles the minimum:
 	#define PAD_BITS_DEF ( 2u)

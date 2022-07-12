@@ -28,6 +28,11 @@
 	#error imul_macro.h file not included in build!
 #endif
 
+// Oct 2021: Fixed non-threadsafe bug in v20-added FFT-length reversion code, but add preprocessor
+// flag to allow builders to disable it at compile time if they encounter any further bugs or performance issues:
+#ifndef USE_FFTLEN_REVERSION
+	#define USE_FFTLEN_REVERSION 1	// Builder would invoke -DUSE_FFTLEN_REVERSION=0 at compile time to override the default
+#endif
 /* Make sure none of the factoring-module-only flags are active: */
 #if(defined(P4WORD) || defined(P3WORD) || defined(P2WORD))
 	#error multiword exponents only allowed for factor.c built in standalone mode!
@@ -36,9 +41,10 @@
 	#error FACTOR_STANDALONE flag only allowed for factor.c built in standalone mode!
 #endif
 
-/*********************************************************************************/
-/* Globals. Unless specified otherwise, these are declared in Mdata.h:           */
-/*********************************************************************************/
+/******************************************************************************************************/
+/* Allocate storage for Globals (externs). Unless specified otherwise, these are declared in Mdata.h: */
+/******************************************************************************************************/
+
 // System-related globals:
 uint32 SYSTEM_RAM = 0;	// Total usable main memory size in MB, and max. % of that to use per instance.
 #ifdef OS_TYPE_LINUX			// Linux: this is based on the value of the sysinfo "freeram" field; default is 90%.
@@ -105,7 +111,7 @@ const int hex_chars[16] = {'0','1','2','3','4','5','6','7','8','9','A','B','C','
 char cbuf[STR_MAX_LEN],cstr[STR_MAX_LEN];
 char in_line[STR_MAX_LEN];
 char *char_addr;
-int char_offset;
+
 FILE *fp = 0x0, *fq = 0x0;	// Our convention is to always set these = 0x0 on fclose, so nullity correlates with "no open file attached"
 
 /* File access mode is a 3-character string, with the last of these being a mandatory null terminator: */
@@ -114,7 +120,25 @@ char FILE_ACCESS_MODE[3] = {'x','y','\0'};
 /* Matrix of supported moduli/test-types - init'ed in Mlucas_init */
 int ASSIGNMENT_TYPE_MATRIX[MODULUS_TYPE_DIM][TEST_TYPE_DIM];
 
-/****** Allocate storage for Globals (externs): ******/
+/* These need to be kept updated to match the #defines in Mdata.h: */
+const char *err_code[ERR_MAX] = {
+	"ERR_INCORRECT_RES64",
+	"ERR_RADIX0_UNAVAILABLE",
+	"ERR_RADIXSET_UNAVAILABLE",
+	"ERR_TESTTYPE_UNSUPPORTED",
+	"ERR_EXPONENT_ILLEGAL",
+	"ERR_FFTLENGTH_ILLEGAL",
+	"ERR_ECHECK_NOTBOOL",
+	"ERR_TESTITERS_OUTOFRANGE",
+	"ERR_ROUNDOFF",
+	"ERR_CARRY",
+	"ERR_RUN_SELFTEST_FORLENGTH",
+	"ERR_ASSERT",
+	"ERR_UNKNOWN_FATAL",
+	"ERR_SKIP_RADIX_SET",
+	"ERR_INTERRUPT",
+	"ERR_GERBICZ_CHECK"
+};
 
 // Shift count and auxiliary arrays used to support rotated-residue computations:
 uint64 RES_SHIFT = 0xFFFFFFFFFFFFFFFFull;	// 0 is a valid value here, so init to UINT64_MAX, which value is treated as "uninited"
@@ -155,12 +179,13 @@ but not between versions 3.0x and 3.0g or between 3.1 and 3.141.
 This reduces the "retime?" decision in the cfgNeedsUpdating() function to a simple comparison
 of the leading 3 characters of the two version strings in question.
 */
-// Dec 2014: After many years frozen at 3.0x (since x86 code wildly uncompetitive with Prime95),
-//           now that I'm < 2x slower (on Haswell+) resume version numbering according to the scheme:
-//				Major index = year - 2000
-//				Minor index = release # of that year, zero-indexed.
-// A version suffix of x, y, or z following the above numeric index indicates an [alpha,beta,gamma] (experimental,unstable) code:
-const char VERSION   [] = "20.1";
+/* Dec 2014: Implement version numbering according to the scheme:
+	Major index = year - 2000
+	Minor index = release # of that year, zero-indexed.
+A version suffix of x, y, or z following the above numeric index indicates an [alpha,beta,gamma] (experimental,unstable) code.
+A third index following release # indicates a patch number relative to that release. No 3rd index can be read as "patch number 0".
+*/
+const char VERSION   [] = "20.1.1";
 
 const char OFILE     [] = "results.txt";	/* ASCII logfile containing FINAL RESULT ONLY for each
 											assignment - detailed intermediate results for each assignment
@@ -168,7 +193,7 @@ const char OFILE     [] = "results.txt";	/* ASCII logfile containing FINAL RESUL
 const char WORKFILE [] = "worktodo.ini";	/* File containing exponents to be tested. New exponents
 											may be appended at will, while the program is running. */
 
-const char LOCAL_INI_FILE[] = "local.ini";	/* File containing user-customizable configuration settings [currently unused] */
+const char MLUCAS_INI_FILE[] = "mlucas.ini";	/* File containing user-customizable configuration settings [currently unused] */
 
 char CONFIGFILE[15];						/* Configuration File: contains allowed FFT lengths
 											and allows user to control (at runtime, and in
@@ -194,6 +219,8 @@ uint64 PMIN;		/* minimum exponent allowed */
 uint64 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
 					   and will be determined at runtime, via call to given_N_get_maxP(). */
 
+/****** END(Allocate storage for Globals (externs)). ******/
+
 #ifndef NO_USE_SIGNALS
 	void sig_handler(int signo)
 	{
@@ -210,6 +237,8 @@ uint64 PMAX;		/* maximum exponent allowed depends on max. FFT length allowed
 		} else if(signo == SIGUSR2) {
 			fprintf(stderr,"received SIGUSR2 signal.\n");	sprintf(cbuf,"received SIGUSR2 signal.\n");
 		}
+	// Dec 2021: Until resolve run-to-run inconsistencies in signal handling, kill it with fire:
+	exit(1);
 		// Toggle a global to allow desired code sections to detect signal-received and take appropriate action:
 		MLUCAS_KEEP_RUNNING = 0;
 	}
@@ -339,7 +368,7 @@ uint32	ernstMain
 /*...scalars and fixed-size arrays...	*/
 	uint32 i,j,k = 0;
 	/* TODO: some of these need to become 64-bit: */
-	uint32 dum,findex = 0,ierr = 0,ilo = 0,ihi = 0,iseed,isprime,kblocks = 0,maxiter = 0,n = 0,npad = 0;
+	uint32 dum = 0,findex = 0,ierr = 0,ilo = 0,ihi = 0,iseed,isprime,kblocks = 0,maxiter = 0,n = 0,npad = 0;
 	uint64 itmp64, s1 = 0ull,s2 = 0ull,s3 = 0ull;	// s1,2,3: Triply-redundant whole-array checksum on b,c-arrays used in the G-check
 	uint32 mode_flag = 0, first_sub, last_sub;
 	/* Exponent of number to be tested - note that for trial-factoring, we represent p
@@ -359,9 +388,9 @@ uint32	ernstMain
 		,13466917,20996011,24036583,25964951,30402457,32582657,37156667,42643801,43112609,57885161,74207281,77232917,82589933,0x0};
 
 /*...What a bunch of characters...	*/
-	char *cptr = 0x0, gcd_str[STR_MAX_LEN], aid[33] = "\0";	// 32-hexit Primenet assignment id needs 33rd char for \0
+	char *cptr = 0x0, *endp, gcd_str[STR_MAX_LEN], aid[33] = "\0";	// 32-hexit Primenet assignment id needs 33rd char for \0
 /*...initialize logicals and factoring parameters...	*/
-	int restart = FALSE, start_run = TRUE;
+	int restart = FALSE, use_lowmem = 0, check_interval = 0;
 
 #if INCLUDE_TF
 	uint32 bit_depth_todo = 0;
@@ -369,10 +398,9 @@ uint32	ernstMain
 	uint32 factor_pass_start = 0, factor_pass_hi = 0;
 	double log2_min_factor = 0, log2_max_factor = 0;
 #endif
-	// These are only used if INCLUDE_PM1 is on (the default unless builder overrides),
-	// but always declare for assignment-parsing usage:
-	uint32 pm1_done = FALSE, tests_saved = 0, split_curr_assignment = FALSE;
-
+	double tests_saved = 0.0;	// Make this a dfloat to allow fractional-parts
+	uint32 pm1_done = FALSE, split_curr_assignment = FALSE, s2_continuation = FALSE, s2_partial = FALSE;
+	uint32 pm1_bigstep = 0, pm1_stage2_mem_multiple = 0, psmall = 0;
 /*...allocatable data arrays and associated params: */
 	static uint64 nbytes = 0, nalloc = 0, arrtmp_alloc = 0, s1p_alloc = 0;
 	static double *a_ptmp = 0x0, *a = 0x0, *b = 0x0, *c = 0x0, *d = 0x0, *e = 0x0;
@@ -399,9 +427,9 @@ uint32	ernstMain
 	INTERACT = FALSE;
 
 RANGE_BEG:
-	p = 0ull;
-	// v19: Reset carry-chain length fiddler to default (faster/lower-accuracy) at start of each run:
-	USE_SHORT_CY_CHAIN = 0;
+
+	p = 0ull; ierr = 0;
+	USE_SHORT_CY_CHAIN = 0;		// v19: Reset carry-chain length fiddler to default (faster/lower-accuracy) at start of each run:
 	ROE_ITER = 0; ROE_VAL = 0.0;
 	NERR_GCHECK = NERR_ROE = 0;	// v20: Add counters for Gerbicz-check errors and dangerously high ROEs encountered
 								// during test - if a restart, will re-read actual cumulative values from checkpoint file.
@@ -410,8 +438,37 @@ RANGE_BEG:
 	nfac = 0; mi64_clear(KNOWN_FACTORS,40);
 	NRADICES = 0;
 	RESTARTFILE[0] = STATFILE[0] = '\0';
-	restart=FALSE;
-	gcd_str[0] = '\0'; split_curr_assignment = FALSE;
+	restart = FALSE;
+	B1 = 0; B2 = B2_start = 0ull; gcd_str[0] = '\0'; split_curr_assignment = s2_continuation = s2_partial = FALSE;
+	pm1_bigstep = pm1_stage2_mem_multiple = psmall = 0;
+
+	// Check for user-set value of various flags. Failure-to-find-or-parse results in isNaN(dtmp) = TRUE, print nothing in that case:
+	double dtmp = mlucas_getOptVal(MLUCAS_INI_FILE,"LowMem");
+	if(dtmp != 0) {
+		if(dtmp != dtmp) {	// isNaN is C99, want something that also works on pre-C99 platforms
+			sprintf(cbuf,"User did not set LowMem in %s ... allowing all test types.\n",MLUCAS_INI_FILE);
+		} else if(dtmp == 1) {
+			sprintf(cbuf,"User set LowMem = 1 in %s ... this allows PRP-testing but excludes p-1 stage 2.\n",MLUCAS_INI_FILE);	use_lowmem = 1;
+		} else if(dtmp == 2) {
+			sprintf(cbuf,"User set LowMem = 2 in %s ... this excludes both PRP-testing and p-1 stage 2.\n",MLUCAS_INI_FILE);	use_lowmem = 2;
+		} else {
+			sprintf(cbuf,"User set unsupported value LowMem = %f in %s ... ignoring.\n",dtmp,MLUCAS_INI_FILE);
+		}
+		mlucas_fprint(cbuf,1);
+	}
+	dtmp = mlucas_getOptVal(MLUCAS_INI_FILE,"CheckInterval");
+	if(dtmp != 0) {
+		if(dtmp != dtmp) {
+			sprintf(cbuf,"User did not set CheckInterval in %s ... using default.\n",MLUCAS_INI_FILE);
+		} else if(dtmp < 1000 || dtmp > 1000000) {
+			sprintf(cbuf,"User set CheckInterval = %f in %s ... values < 10^3 or > 10^6 are not supported, ignoring.\n",dtmp,MLUCAS_INI_FILE);
+		} else if(DNINT(dtmp) != dtmp) {
+			sprintf(cbuf,"User set non-whole-number CheckInterval = %f in %s ... ignoring.\n",dtmp,MLUCAS_INI_FILE);
+		} else {
+			sprintf(cbuf,"User set CheckInterval = %d in %s.\n",(int)dtmp,MLUCAS_INI_FILE);	check_interval = (int)dtmp;
+		}
+		mlucas_fprint(cbuf,1);
+	}
 
 /*  ...If multithreading enabled, set max. # of threads based on # of available (logical) processors,
 with the default #threads = 1 and affinity set to logical core 0, unless user overrides those via -nthread or -cpu:
@@ -438,13 +495,13 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		sprintf(cbuf,"0:%d",NTHREADS-1);
 		parseAffinityString(cbuf);
 	} else if(NTHREADS > MAX_CORES) {
-		sprintf(cbuf,"FATAL: NTHREADS = %d exceeds the MAX_CORES setting in Mdata.h = %d\n", NTHREADS, MAX_CORES);
+		sprintf(cbuf,"ERROR: NTHREADS = %d exceeds the MAX_CORES setting in Mdata.h = %d\n", NTHREADS, MAX_CORES);
 		ASSERT(HERE, 0, cbuf);
 	} else {	// In timing-test mode, allow #threads > #cores
 		if(NTHREADS > MAX_THREADS) {
 			fprintf(stderr,"WARN: NTHREADS = %d exceeds number of cores = %d\n", NTHREADS, MAX_THREADS);
 		}
-		if(start_run) fprintf(stderr,"NTHREADS = %d\n", NTHREADS);
+		fprintf(stderr,"NTHREADS = %d\n", NTHREADS);
 	}
 
 #else
@@ -456,64 +513,67 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	/* Make number of iterations between checkpoints dependent on #threads -
 	don't want excessively frequent savefile writes, at most 1 or 2 an hour is needed:
 	*/
-// Nov 2020: Allow this to be set at compile time, subject to constraints related to Gerbicz check that follow:
-#ifndef USE_CHECK_INTERVAL
-	if(NTHREADS > 4)
-		ITERS_BETWEEN_CHECKPOINTS = 100000;
-	else
-		ITERS_BETWEEN_CHECKPOINTS =  10000;
-#else
-	#if(USE_CHECK_INTERVAL < 10000)
-		#error USE_CHECK_INTERVAL must be set >= 10000.
-	#endif
-	ITERS_BETWEEN_CHECKPOINTS = USE_CHECK_INTERVAL;
-#endif
+// Oct 2021: Allow this to be set via CheckInterval option in mlucas.ini and read at program-start time,
+// albeit for PRP-tests subject to constraints related to Gerbicz checking:
+	if(!check_interval) {
+		if(NTHREADS > 4)
+			ITERS_BETWEEN_CHECKPOINTS = 100000;
+		else
+			ITERS_BETWEEN_CHECKPOINTS =  10000;
+	} else if(check_interval < 1000) {
+		ASSERT(HERE,0,"User-set value of check_interval must >= 1000.");
+	} else
+		ITERS_BETWEEN_CHECKPOINTS = check_interval;
+
 	fprintf(stderr,"Setting ITERS_BETWEEN_CHECKPOINTS = %u.\n",ITERS_BETWEEN_CHECKPOINTS);
 
-	// v19: If PRP test, make sure Gerbicz-checkproduct interval divides checkpoint-writing one:
 	i = ITERS_BETWEEN_GCHECKS;
 	j = ITERS_BETWEEN_GCHECK_UPDATES;
-	k = ITERS_BETWEEN_CHECKPOINTS;
 	ASSERT(HERE, i == j*j, "#iterations between Gerbicz-checksum updates must = sqrt(#iterations between residue-integrity checks)");
-	ASSERT(HERE, i%k == 0 && k%j == 0, "G-checkproduct update interval must divide savefile-update one, which must divide the G-check interval");
+	// v19: If PRP test, make sure Gerbicz-checkproduct interval divides checkpoint-writing one.
+	// If not true, merely warn here because user may be doing LL/DC/p-1 and not PRP-tests:
+	k = ITERS_BETWEEN_CHECKPOINTS;
+	if(i%k != 0 || k%j != 0)
+		fprintf(stderr,"WARN: G-checkproduct update interval must divide savefile-update one, which must divide the G-check interval ... this will trigger an assertion-exit if a PRP-test is attempted.");
+
 	// Alloc bitwise multiply-by-base array, needed to support P-1 factoring and PRP testing:
 	if(!BASE_MULTIPLIER_BITS) {
 		j = ((ITERS_BETWEEN_CHECKPOINTS+63) >> 6) + 1;	// Add 1 pad element in case compiler does not 64-bit align
-		BASE_MULTIPLIER_BITS = ALLOC_UINT64(BASE_MULTIPLIER_BITS, j);	if(!BASE_MULTIPLIER_BITS){ sprintf(cbuf, "FATAL: unable to allocate BASE_MULTIPLIER_BITS array in main.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		BASE_MULTIPLIER_BITS = ALLOC_UINT64(BASE_MULTIPLIER_BITS, j);	if(!BASE_MULTIPLIER_BITS){ sprintf(cbuf, "ERROR: unable to allocate BASE_MULTIPLIER_BITS array in main.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		BASE_MULTIPLIER_BITS = ALIGN_UINT64(BASE_MULTIPLIER_BITS);	ASSERT(HERE, ((long)BASE_MULTIPLIER_BITS & 63) == 0x0,"BASE_MULTIPLIER_BITS[] not aligned on 64-byte boundary!");
 		for(i = 0; i < j; i++) { BASE_MULTIPLIER_BITS[i] = 0ull; }	// v20: Init = 0 here, in case we jump directly into p-1 stage 2 on restart
 	}
 
 	/* Look for worktodo.ini file...	*/
-	fp = 0x0;
-	if (start_run && (!exponent || (exponent!=0 && fft_length!=0 && iterations==0))) {
+ fp = 0x0;
+	if (!exponent || (exponent!=0 && fft_length!=0 && iterations==0)) {
 		fprintf(stderr," looking for %s file...\n", WORKFILE);
 		fp = mlucas_fopen(WORKFILE, "r");
 	}
 
-	/****************************************/
-	/*...Automated exponent-dispatch mode...*/
-	/****************************************/
+	/***********************************************************************************/
+	/* Automated exponent-dispatch mode - Note that in the assignment-syntax comments, */
+	/* <> and [] mean required and optional arguments, respectively:                   */
+	/***********************************************************************************/
 	if (fp) {
-		if (start_run) fprintf(stderr," worktodo.ini file found...reading next assignment...\n");
+		fprintf(stderr," worktodo.ini file found...reading next assignment...\n");
 
-	  read_next_assignment:
-		/* Read first line of worktodo.ini file into 1K character array... */
+	  read_next_assignment:	// Read first line of worktodo.ini file into 1K character array:
 		if(!fgets(in_line, STR_MAX_LEN, fp)) {
-			sprintf(cbuf,"Hit EOF while attempting to read next line of worktodo!");
-			fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf);	fclose(fq); fq = 0x0; };
-			ASSERT(HERE,0,cbuf);
+			fprintf(stderr,"Hit EOF while attempting to read next line of worktodo ... quitting.\n");
+			exit(0);
 		}
-
+		fprintf(stderr," worktodo.ini entry: %s\n",in_line);
 		/* Skip any whitespace at beginning of the line: */
-		char_addr = in_line;	i = 0;
-		while(isspace(in_line[i])) { ++i; }
-		char_addr += i;
-
-		/* If leading char is numeric, assume it's Mersenne-exponent-only (legacy) format: */
-		if(isdigit(in_line[i])) {
-			p = strtoull(char_addr, &cptr, 10);	ASSERT(HERE, p != -1ull, "strtoull() overflow detected.");
-			goto GET_EXPO;
+		char_addr = in_line;
+		while(isspace(*char_addr)) {
+			++char_addr;
+		}
+		// v20.1.1: Parse all lines whose 1st non-WS char is alphabetic; print "Ignoring (copy of workfile line)" for all entries not so.
+		// NB: Discontinue support for numeric leading char, i.e. Mersenne-exponent-only legacy format:
+		if(!isalpha(*char_addr)) {
+			fprintf(stderr," Leading non-WS char of worktodo.ini entry is not alphabetic ... skipping to next entry.\n");
+			goto read_next_assignment;
 		}
 
 		// Otherwise assume Prime95-style ini file format, with a possible modulus-specific leading keyword;
@@ -521,14 +581,15 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		MODULUS_TYPE = MODULUS_TYPE_MERSENNE;
 		/* Re. the recently-added-to-Primenet PRP assignment type, On Dec 19, 2017, at 5:07 PM, George Woltman wrote:
 
-		In "PRP=<aid>,1,2,75869377,-1,75,0,3,4"		(<aid> stands in for a 32-hexit assignment ID)
-			The first four [numeric] values are k,b,n,c as in k*b^n+c
+		In "PRP=[aid],1,2,75869377,-1,75,0,3,4"		([aid] stands for an optional 32-hexit assignment ID)
+			The first four (numeric) values are k,b,n,c as in modulus = k*b^n + c
 			75 is how far factored
 			0 is the number of PRP tests that will be saved if P-1 is done and finds a factor
-			3 is the PRP base		[used for the first-time test]
-			4 is the residue type	[used for the first-time test]
+			3 is the PRP base		(used for the first-time test)
+			4 is the residue type	(used for the first-time test)
 
-		You should only need to support residue types 1 and 5, which are identical if there are no cofactors (in JSON return residue type 1).
+		You should only need to support residue types 1 and 5, which are identical if there are no cofactors
+		(==> in JSON-result, return residue type 1).
 
 		Example:	PRP=C42540C352E54E906108D48FA5D89488,1,2,80340397,-1,75,0,3,1
 		means a PRP test of 1.2^80340397-1 = M80340397, TFed to 2^75 (ignore), 0 saved tests (ignore), PRP base 3 and type 1.
@@ -537,55 +598,94 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		and default to base = 3, residue type 1. Further, there is also a PRPDC= format for such.
 		PRP-CF (Mersenne-cofactor-PRP tests) have same format as PRP, but append one or more known factors:
 
-			PRP=<aid>,1,2,3215747,-1,99,0,3,1,"4457025343,185822885311153245017"
+			PRP=[aid],1,2,3215747,-1,99,0,3,1,"4457025343,185822885311153245017"
+
+		Ref. for residue type definitions: https://www.mersenneforum.org/showthread.php?p=468378#post468378
+		George: "There are (at least) 5 PRP residue types:
+																		EWM: Needed LR-binary-modpow modmul sequence, N = M(p) = 2^p-1 = [p binary ones],
+																		initial seed x = a, and example final result for a = 3 and M(23) (not prime), M(31) (prime):
+																													p = 23	p = 31	bc code:
+			1: Fermat PRP. N is PRP if a^(N-1) = 1 mod N				p-1 (x = a.x^2), followed by one (x = x^2)	5884965	+1	m = 2^p-1; x = a = 3; for(i = 0; i < (p-2); i++) { x = a*x^2 % m; }; x = x^2 % m; x
+			2: SPRP variant, N is PRP if a^((N-1)/2) = +/-1 mod N		p-1 (x = a.x^2)								7511964	-1	m = 2^p-1; x = a = 3; for(i = 0; i < (p-2); i++) { x = a*x^2 % m; }; x
+			3: Fermat PRP variant. N is PRP if a^(N+1) = a^2 mod N		p   mod-squarings (x = x^2)					2633043	 9	m = 2^p-1; x = a = 3; for(i = 0; i < p; i++) { x = x^2 % m; }; x
+			4: SPRP variant. N is PRP if a^((N+1)/2) = +/-a mod N		p-1 mod-squarings (x = x^2)					5758678	-3	m = 2^p-1; x = a = 3; for(i = 0; i < (p-1); i++) { x = x^2 % m; }; x
+			5: Fermat PRP cofactor variant, N/d is PRP if a^(N-1) = a^d mod N/d
+
+		I encourage programs to return type 1 residues as that has been the standard for prime95, PFGW, LLR for many years."
+
+		EWM: Note for PRP w/Gerbicz-check we need a mod-squaring-only sequence, so we *compute* type 3, but then do a
+		mod-div-by-scalar to get a^(N-1) mod N from a^2 mod N and *report* the resulting type 1 residue to the server.
+		Example:
+			Compute type 3 (Fermat-PRP) residue for N = M(23) using p = 23 mod-squarings of initial seed a = 3, yielding R3 = 2633043.
+		Now we need to mod-divide by a^2 = 9 to get R1, which amounts to finding R1 such that a^2*R1 == R3 (mod N). 2 options here:
+
+		1: Compute the inverse of a^2 (mod N) = 1864135, R1 = (a^-2)*R3 (mod N) = 5884965 .
+
+		2: Find a small multiplier k such that R3 + k*N is divisible by a^2 = 9. Using trial and error starting from k = 0:
+			k	R3 + k*N (mod 9)
+			--	-------
+			0	3
+			1	7
+			2	2
+			3	6
+			4	1
+			5	5
+			6	0, so R1 = (R3 + 6*N)/9 = 5884965 .
+		More cleverly, we compute R3 == 3 (mod 9) and N == 4 (mod 9), so we want to solve 3 + 4*k == 0 (mod 9) for the index k.
+		That can be done by simply rearranging to 4*k == -3 (mod 9), then finding inverse of 4 (mod 9) and multiplying both sides
+		by that (mod 9) to get k. Note the difference between this mod-inverse computation and the one in option [1]: This one is
+		not the mod-inverse w.r.to N, it's one w.r.to a^2, which is tiny compared to N.
+			Calling that with args x = 4, n = 9 gives our k = -3*modinv(4,9) = -3*-2 = 6, same as the above trial-and-error approach.
 		*/
 		if((char_addr = strstr(in_line, "PRP")) != 0)	// This also handles the PRPDC= format
 		{
 			TEST_TYPE = TEST_TYPE_PRP;
-			/* No dicking around with whitespace allowed here: */
-			if(char_addr != in_line)
-				ASSERT(HERE, 0,"Assignment type specifier must occur at beginning of worktodo.ini file entry, with no whitespace!");
-			else
-				char_addr += 3;
+			char_addr += 3;
 			// Check [k,b,n,c] portion of in_line:
 			cptr = check_kbnc(char_addr, &p);
 			ASSERT(HERE, cptr != 0x0, "[k,b,n,c] portion of in_line fails to parse correctly!");
-			// Next 2 entries in in-string are how-far-factored and "# of PRP tests that will be saved if P-1 is done and finds a factor":
-			ASSERT(HERE, (char_addr = strstr(cptr, ",")) != 0x0,"Expected ',' not found in assignment-specifying line!");	cptr++;
-			TF_BITS = 0xffffffff;	// Only check if there's an appropriate TF_BITS entry in the input line
-			TF_BITS = strtoul(++char_addr, (char**)NULL, 10);
-			ASSERT(HERE, (char_addr = strstr(cptr, ",")) != 0x0,"Expected ',' not found in assignment-specifying line!");	cptr++;
-			tests_saved = strtoul(++char_addr, (char**)NULL, 10);
-			if(tests_saved > 2) {
-				sprintf(cbuf, "ERROR: the specified tests_saved field [%u] should be 0,1 or 2!\n",tests_saved); fprintf(stderr,"%s",cbuf);
-				fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf);	fclose(fq); fq = 0x0; }; ASSERT(HERE,0,cbuf);
+			// Next 2 entries in in_line are how-far-factored and "# of PRP tests that will be saved if P-1 is done and finds a factor":
+			TF_BITS = 0xffffffff; tests_saved = 0.0;
+			if((char_addr = strstr(cptr, ",")) != 0x0) {
+				cptr++;
+				// Only check if there's an appropriate TF_BITS entry in the input line
+				TF_BITS = strtoul(++char_addr, &endp, 10);
+				ASSERT(HERE, (char_addr = strstr(cptr, ",")) != 0x0,"Expected ',' not found after TF_BITS field in assignment-specifying line!");	cptr++;
+				tests_saved = strtod(++char_addr, &endp);
+				if(tests_saved < 0 || tests_saved > 2) {
+					sprintf(cbuf, "ERROR: the specified tests_saved field [%10.5f] should be in the range [0,2]!\n",tests_saved);	ASSERT(HERE,0,cbuf);
+				}
+				// char_addr now points to leftmost char of tests_saved field, which we will overwrite with 0;
+				// endp points to to-be-appended leftover portion
 			}
 			pm1_done = (tests_saved == 0);
 			// If there is still factoring remaining to be done, modify the assignment type appropriately.
 			if(pm1_done) {	// pm1_done == TRUE is more or less a no-op, translating to "proceed with primality test"
-				cptr = char_addr;	// ...but we do need to advance cptr past the ,TF_BITS,tests_saved cahr-block
+				cptr = char_addr;	// ...but we do need to advance cptr past the ,TF_BITS,tests_saved char-block
 			} else {
 				// Create p-1 assignment, then edit original assignment line appropriately
 				TEST_TYPE = TEST_TYPE_PM1;
 				kblocks = get_default_fft_length(p);
-				ASSERT(HERE, pm1_set_bounds(p, kblocks<<10, TF_BITS, tests_saved, 0,0), "Failed to set p-1 bounds!");
+				ASSERT(HERE, pm1_set_bounds(p, kblocks<<10, TF_BITS, tests_saved), "Failed to set p-1 bounds!");
 				// Format the p-1 assignment into cbuf - use cptr here, as need to preserve value of char_addr:
 				cptr = strstr(in_line, "=");	ASSERT(HERE,cptr != 0x0,"Malformed assignment!");
 				cptr++;	while(isspace(*cptr)) { ++cptr; }	// Skip any whitespace following the equals sign
-				ASSERT(HERE, is_hex_string(cptr, 32), "Expect a 32-hex-digit PrimeNet v5 assignment ID following the work type specifier!");
-				strncpy(aid,cptr,32);	sprintf(cbuf,"Pminus1=%s,1,2,%llu,-1,%u,%llu\n",aid,p,B1,B2);	// If we get here, it's a M(p), not F(m)
+				if(is_hex_string(cptr, 32)) {
+					strncpy(aid,cptr,32);	sprintf(cbuf,"Pminus1=%s,1,2,%llu,-1,%u,%llu\n",aid,p,B1,B2);	// If we get here, it's a M(p), not F(m)
+				} else
+					sprintf(cbuf,"Pminus1=1,2,%llu,-1,%u,%llu\n",p,B1,B2);
 				// Copy up to the final (tests_saved) char of the assignment into cstr and append tests_saved = 0;
 				// A properly formatted tests_saved field is 1 char wide and begins at the current value of char_addr:
 				i = char_addr - in_line; strncpy(cstr,in_line, i); cstr[i] = '0'; cstr[i+1] = '\0';
 				// Append the rest of the original assignment. If original lacked a linefeed, add one to the edited copy:
-				strcat(cstr,in_line + (i + 1));
+				strcat(cstr,endp);
 				if(cstr[strlen(cstr)-1] != '\n') {
 					strcat(cstr,"\n");
 				}
 				split_curr_assignment = TRUE;	// This will trigger the corresponding code following the goto:
 				goto GET_NEXT_ASSIGNMENT;
-			}
-			if((char_addr = strstr(cptr, ",")) == 0x0) {	// First-time PRP test:
+			}	// First-time PRP test ... !cptr check is for assignments ending with [k,b,n,c] like "PRP=1,2,93018301,-1":
+			if(!cptr || (char_addr = strstr(cptr, ",")) == 0x0) {
 				PRP_BASE = 3;
 				TEST_TYPE = TEST_TYPE_PRP;
 			} else {	// PRP double-check:
@@ -596,7 +696,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				i = (int)strtol(char_addr+1, &cptr, 10); ASSERT(HERE, i == 1 || i == 5,"Only PRP-tests of type 1 (PRP-only) and type 5 (PRP and subsequent cofactor-PRP check) supported!");
 				// Read in known prime-factors, if any supplied - resulting factors end up in KNOWN_FACTORS[]:
 				if(*cptr == ',')						//vv--- Pass in unused file-ptr fq here in case function emits any messages:
-					nfac = extract_known_factors(p,cptr+1,fq);
+					nfac = extract_known_factors(p,cptr+1);
 				// Use 0-or-not-ness of KNOWN_FACTORS[0] to differentiate between PRP-only and PRP-CF:
 				if(KNOWN_FACTORS[0] != 0ull) {
 					ASSERT(HERE, i == 5,"Only PRP-CF tests of type 5 supported!");
@@ -607,10 +707,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		}
 		else if((char_addr = strstr(in_line, "Fermat")) != 0)
 		{
-			if(char_addr != in_line)
-				ASSERT(HERE, 0,"Modulus type specifier must occur at beginning of worktodo.ini file entry, with no whitespace!");
-			else
-				char_addr += 6;
+			char_addr += 6;
 			/* Look for comma following the modulus keyword and position next-keyword search right after it: */
 			if(!STREQN(char_addr,",",1))
 				ASSERT(HERE, 0,"Expected ',' not found in input following modulus type specifier!");
@@ -618,61 +715,55 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				char_addr++;
 
 			MODULUS_TYPE = MODULUS_TYPE_FERMAT;
-			PRP_BASE = 2;	// v20: Pépin test doesn't use this as the initial seed - that defauts to 3 - but rather for the random-shift offsets used to prevent the shift count from modding to 0 as a result of repeated doublings (mod 2^m)
+			PRP_BASE = 2;	// v20: Pépin test doesn't use this as the initial seed (that defaults to 3), but rather for the random-shift
+							// offsets used to prevent the shift count from modding to 0 as a result of repeated doublings (mod 2^m)
 		}
 		/* "Mersenne" is the default and hence not required, but allow it: */
 		else if((char_addr = strstr(in_line, "Mersenne")) != 0)
 		{
-			if(char_addr != in_line)
-				ASSERT(HERE, 0,"Modulus type specifier must occur at beginning of worktodo.ini file entry, with no whitespace!");
-			else
-				char_addr += 8;
+			char_addr += 8;
 			/* Look for comma following the modulus keyword and position next-keyword search right after it: */
 			if(!STREQN(char_addr,",",1))
 				ASSERT(HERE, 0,"Expected ',' not found in input following modulus type specifier!");
 			else
 				char_addr++;
 		}
-		else
-			char_addr = in_line;
 
-		if(strstr(char_addr, "Test"))	// Pépin tests are assigned via "Fermat,Test=[Fermat number index]", so catch this clause
+		// Pépin tests are assigned via "Fermat,Test=<Fermat number index>", so catch this clause by starting new if/else()
+		if((char_addr = strstr(in_line, "Test")) != 0)
 		{
 			TEST_TYPE = TEST_TYPE_PRIMALITY;
-			char_offset =  4;
+			char_addr +=  4;
 		}
-		else if(strstr(char_addr, "DoubleCheck"))
+		else if((char_addr = strstr(in_line, "DoubleCheck")) != 0)
 		{
 			TEST_TYPE = TEST_TYPE_PRIMALITY;
-			char_offset = 11;
+			char_addr += 11;
 		}
 	#if INCLUDE_TF
-		else if(strstr(char_addr, "Factor"))
+		else if((char_addr = strstr(in_line, "Factor")) != 0)
 		{
 			TEST_TYPE = TEST_TYPE_TF;
-			char_offset =  6;
+			char_addr +=  6;
 		}
 	#endif
 		/* 11/23/2020: George W. re. p-1 assignment formats:
 		"There is no documentation on the worktodo lines (except the source code):
 
-			Pminus1=[aid?],k,b,n,c,B1,B2[,TF_BITS][,B2_start][,known_factors]	(,-separated list of known factors bookended with "")
-			Pfactor=[aid],k,b,n,c,TF_BITS,ll_tests_saved_if_factor_found
+			Pminus1=[aid,]k,b,n,c,B1,B2[,TF_BITS][,B2_start][,known_factors]	(,-separated list of known factors bookended with "")
+			Pfactor=[aid,]k,b,n,c,TF_BITS,ll_tests_saved_if_factor_found
 
-		[***EWM: Mlucas v20 converts PRP-with-(p-1)-needed assignments to paired Pminus1|PRP
-			assignments to support the fused (p-1)-S1|First-part-of-PRP-test algorithm.***]
+		(***EWM: Mlucas v20 converts PRP-with-(p-1)-needed assignments to paired Pminus1|PRP
+			assignments to support the fused (p-1)-S1|First-part-of-PRP-test algorithm. ***)
 
 		A tests_saved value of 0.0 will bypass any P-1 factoring. The PRP residue type is defined in primenet.h .
 		AFAIK, the server issues Pfactor= lines not Pminus1= lines."
 		*/
-		// Allow 2nd letter of 7-char target keyword to be either upper-or-lowercase:
-		else if(strstr(char_addr, "PMinus1") || strstr(char_addr, "Pminus1"))
+		// Use case-insensitive analog of strstr, stristr():
+		else if((char_addr = stristr(in_line, "pminus1")) != 0)
 		{
 			TEST_TYPE = TEST_TYPE_PM1;
-			if(char_addr != in_line)	// No dicking around with whitespace allowed here
-				ASSERT(HERE, 0,"Assignment type specifier must occur at beginning of worktodo.ini file entry, with no whitespace!");
-			else
-				char_addr += 7;
+			char_addr += 7;
 			// Check [k,b,n,c] portion of in_line:
 			cptr = check_kbnc(char_addr, &p);
 			ASSERT(HERE, cptr != 0x0, "[k,b,n,c] portion of in_line fails to parse correctly!");
@@ -687,57 +778,59 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			input was in fact == ULONG_LONG_MAX? We assume here that nobody will use a p-1 stage bound so large:
 			*/
 			B2 = (uint64)strtoull(char_addr+1, &cptr, 10);	ASSERT(HERE, B2 != -1ull, "strtoull() overflow detected.");
-			// Remaining args optional, but presumed in-order, e.g. we only look for ',B2_start' field if ',TF_BITS' was present:
+			// Remaining args optional, with the 2 numerics presumed in-order, e.g. we only look for ',B2_start' field if ',TF_BITS' was present:
 			if((char_addr = strstr(cptr, ",")) != 0x0) {
 				TF_BITS = (int)strtoul(char_addr+1, &cptr, 10);	ASSERT(HERE, TF_BITS < 100 ,"TF_BITS value read from assignment is out of range.");
 				if((char_addr = strstr(cptr, ",")) != 0x0) {
 					B2_start = (uint64)strtoull(char_addr+1, &cptr, 10);	ASSERT(HERE, B2_start != -1ull, "strtoull() overflow detected.");
+					if(B2_start > B1)	// It's a stage 2 continuation run
+						s2_continuation = TRUE;
 					// Read in known prime-factors, if any supplied - resulting factors end up in KNOWN_FACTORS[]:
-					if(*cptr == ',') nfac = extract_known_factors(p,cptr+1,fq);
+					if(*cptr == ',') nfac = extract_known_factors(p,cptr+1);
+				} else if((char_addr = strstr(cptr, "\"")) != 0x0) {	// Known-factors list need not be preceded by TF_BITS or B2_start
+					nfac = extract_known_factors(p,cptr);	// cptr, not cptr+1 here, since need to preserve leading " bracketing factors-list
 				}
 			}
 		}
-		else if(strstr(char_addr, "PFactor") || strstr(char_addr, "Pfactor"))
+		else if((char_addr = stristr(in_line, "pfactor")) != 0)	// Caseless substring-match as with pminus 1
 		{
 			TEST_TYPE = TEST_TYPE_PM1;
 			PRP_BASE = 3;
-			/* No dicking around with whitespace allowed here: */
-			if(char_addr != in_line)
-				ASSERT(HERE, 0,"Assignment type specifier must occur at beginning of worktodo.ini file entry, with no whitespace!");
-			else
-				char_addr += 7;
+			char_addr += 7;
 			// Check [k,b,n,c] portion of in_line:
 			cptr = check_kbnc(char_addr, &p);
 			ASSERT(HERE, cptr != 0x0, "[k,b,n,c] portion of in_line fails to parse correctly!");
-			ASSERT(HERE, strstr(cptr, ",") != 0x0 ,"Expected ',' not found in assignment-specifying line!");
+			ASSERT(HERE, (char_addr = strstr(cptr, ",")) != 0x0 ,"Expected ',' not found in assignment-specifying line!");
 			TF_BITS = (int)strtoul(char_addr+1, &cptr, 10);
-			ASSERT(HERE, strstr(cptr, ",") != 0x0 ,"Expected ',' not found in assignment-specifying line!");
+			ASSERT(HERE, (char_addr = strstr(cptr, ",")) != 0x0 ,"Expected ',' not found in assignment-specifying line!");
 			tests_saved = (int)strtoul(char_addr+1, &cptr, 10);
-			ASSERT(HERE, pm1_set_bounds(p, get_default_fft_length(p)<<10, TF_BITS, tests_saved, 0,0), "Failed to set p-1 bounds!");
+			ASSERT(HERE, pm1_set_bounds(p, get_default_fft_length(p)<<10, TF_BITS, tests_saved), "Failed to set p-1 bounds!");
 		}
 	#if INCLUDE_ECM
 		else if(strstr(char_addr, "ECM"))
 		{
 			TEST_TYPE = TEST_TYPE_ECM;
-			char_offset =  3;
+			char_addr +=  3;
 		}
 	#endif
 		else
 		{
-			snprintf_nowarn(cbuf,STR_MAX_LEN, "ERROR: Unrecognized/Unsupported option or empty assignment line. The ini file entry was %s\n", char_addr);
+			snprintf_nowarn(cbuf,STR_MAX_LEN,"WARN: Unrecognized/Unsupported option or empty assignment line. The ini file entry was %s\n",in_line);
 			fprintf(stderr,"%s",cbuf);
-			fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf); fclose(fq);	fq = 0x0; }
 			goto read_next_assignment;
 		}
 
 		if(!p) {	// For legacy assignment types, set p here
-			char_addr += char_offset;	ASSERT(HERE, (char_addr = strstr(char_addr, "=")) != 0x0,"Expected '=' not found in assignment-specifying line!");
+			ASSERT(HERE, (char_addr = strstr(char_addr, "=")) != 0x0,"Expected '=' not found in assignment-specifying line!");
 			char_addr++;
 			/* Skip any whitespace following the equals sign:*/
 			while(isspace(*char_addr)) { ++char_addr; }
 			/* Check for a 32-hex-digit PrimeNet v5 assignment ID preceding the exponent: */
 			if(is_hex_string(char_addr, 32))
 				char_addr += 33;
+			else if(STREQN_NOCASE(char_addr,"n/a",3))
+				char_addr = strstr(char_addr, ",") + 1;
+
 			p = strtoull(char_addr, &cptr, 10);	ASSERT(HERE, p != -1ull, "strtoull() overflow detected.");
 		}
 
@@ -747,10 +840,10 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		sprintf(ESTRING,"%llu",p);
 
 		// In PRP-test case, have already read the exponent from the worktodo line
-		/* Special case of user forcing a non-default FFT length for an exponent in the worktodo.ini file: */
-		if(exponent) {
-  			if((p != exponent))// || (MODULUS_TYPE != MODULUS_TYPE_MERSENNE))	15. Oct 2012: Need same flexibility for Fermat numbers (e.g. F27 @ 7168k) as for Mersennes, so disable modulus-type part of conditional
-				ASSERT(HERE, 0,"User-supplied exponent and FFT-length for full-length test requires an exponent-matching 'Test=[exponent]' or 'DoubleCheck=[exponent]' worktodo.ini entry!");
+		/* Special case of user forcing a non-default FFT length for an exponent in the worktodo file: */
+		if(exponent && (p != exponent)) {	// || (MODULUS_TYPE != MODULUS_TYPE_MERSENNE))	15. Oct 2012: Need same flexibility for Fermat numbers (e.g. F27 @ 7168k) as for Mersennes, so disable modulus-type part of conditional
+			sprintf(cbuf,"User-supplied exponent and FFT-length for full-length test requires an exponent-matching 'Test=<exponent>' or 'DoubleCheck=<exponent>' %s entry!",WORKFILE);
+			ASSERT(HERE, 0,cbuf);
 		}
 
 		/* Check #bits in the Mersenne exponent vs. the allowed maximum: */
@@ -780,9 +873,8 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		if(TEST_TYPE == TEST_TYPE_TF) {
 			/* Currently TF only supported for Mersennes: */
 			if(MODULUS_TYPE != MODULUS_TYPE_MERSENNE) {
-				sprintf(cbuf, "ERROR: Trial-factoring Currently only supported for Mersenne numbers. The ini file entry was %s\n", in_line);
-													  fprintf(stderr,"%s",cbuf);
-				fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf);	fclose(fq); fq = 0x0; }
+				sprintf(cbuf, "ERROR: Trial-factoring Currently only supported for Mersenne numbers. The ini file entry was %s\n",in_line);
+				fprintf(stderr,"%s",cbuf);
 				goto GET_NEXT_ASSIGNMENT;
 			}
 
@@ -795,12 +887,11 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			char_addr = strstr(char_addr, ",");
 			if(char_addr++) {
 				/* Convert the ensuing numeric digits to ulong: */
-				TF_BITS = strtoul(char_addr, (char**)NULL, 10);
+				TF_BITS = strtoul(char_addr, &endp, 10);
 				/* Specified already-factored-to depth is larger than default factor-to depth - no more factoring to be done. */
 				if(TF_BITS > log2_max_factor) {
 					sprintf(cbuf, "INFO: the specified already-factored-to depth of %u bits exceeds the default %10.4f bits - no more factoring to be done.\n", TF_BITS, log2_max_factor);
-														  fprintf(stderr,"%s",cbuf);
-					fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf);	fclose(fq); fq = 0x0; }
+					fprintf(stderr,"%s",cbuf);
 					goto GET_NEXT_ASSIGNMENT;
 				}
 			}
@@ -811,33 +902,29 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			if(char_addr)
 				char_addr = strstr(char_addr, ",");
 			if(char_addr++) {
-				bit_depth_todo = strtoul(char_addr, (char**)NULL, 10);
+				bit_depth_todo = strtoul(char_addr, &endp, 10);
 				if(bit_depth_todo > MAX_FACT_BITS) {
-					sprintf(cbuf, "ERROR: factor-to bit_depth of %u > max. allowed of %u. The ini file entry was %s\n", TF_BITS, MAX_FACT_BITS, in_line);
-														  fprintf(stderr,"%s",cbuf);
-					fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf);	fclose(fq); fq = 0x0; }
+					sprintf(cbuf, "ERROR: factor-to bit_depth of %u > max. allowed of %u. The ini file entry was %s\n",TF_BITS,MAX_FACT_BITS,in_line);
+					fprintf(stderr,"%s",cbuf);
 					goto GET_NEXT_ASSIGNMENT;
 				}
 				else if(bit_depth_todo <= TF_BITS) {
-					sprintf(cbuf, "ERROR: factor-to bit_depth of %u < already-done depth of %u. The ini file entry was %s\n", TF_BITS, TF_BITS, in_line);
-														  fprintf(stderr,"%s",cbuf);
-					fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf);	fclose(fq); fq = 0x0; }
+					sprintf(cbuf, "ERROR: factor-to bit_depth of %u < already-done depth of %u. The ini file entry was %s\n",TF_BITS,TF_BITS,in_line);
+					fprintf(stderr,"%s",cbuf);
 					goto GET_NEXT_ASSIGNMENT;
 				}
 				else if(bit_depth_todo > log2_max_factor) {
-					sprintf(cbuf, "WARN: the specified factor-to depth of %u bits exceeds the default %10.4f bits - I hope you know what you're doing.\n", TF_BITS, log2_max_factor);
+					sprintf(cbuf, "WARN: the specified factor-to depth of %u bits exceeds the default %10.4f bits - I hope you know what you're doing.\n",TF_BITS,log2_max_factor);
 					log2_max_factor = bit_depth_todo;
-														  fprintf(stderr,"%s",cbuf);
-					fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf);	fclose(fq); fq = 0x0; }
+					fprintf(stderr,"%s",cbuf);
 				}
 				log2_max_factor = bit_depth_todo;
 			}
 		}
 		else if(nbits_in_p > MAX_PRIMALITY_TEST_BITS)
 		{
-			sprintf(cbuf, "ERROR: Inputs this large only permitted for trial-factoring. The ini file entry was %s\n", in_line);
-												  fprintf(stderr,"%s",cbuf);
-			fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf);	fclose(fq); fp = 0x0; }
+			sprintf(cbuf, "ERROR: Inputs this large only permitted for trial-factoring. The ini file entry was %s\n",in_line);
+			fprintf(stderr,"%s",cbuf);
 			goto GET_NEXT_ASSIGNMENT;
 		}
 	#endif 	// INCLUDE_TF
@@ -845,7 +932,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		/* If "Test..." or "DoubleCheck", check for TF_BITS and pm1_done fields following the = sign:
 		if present and there is still factoring remaining to be done, modify the assignment type appropriately.
 		Assignment format:
-			[Test|DoubleCheck]=[aid?],p,TF_BITS,pm1_done?
+			<Test|DoubleCheck>=[aid],p,TF_BITS,pm1_done?
 		*/
 		if(TEST_TYPE == TEST_TYPE_PRIMALITY) {
 			/* TF_BITS: */
@@ -853,12 +940,11 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			char_addr = strstr(char_addr, ",");
 			if(char_addr++) {
 				/* Convert the ensuing numeric digits to ulong: */
-				TF_BITS = strtoul(char_addr, (char**)NULL, 10);
+				TF_BITS = strtoul(char_addr, &endp, 10);
 			#if INCLUDE_TF
 				if(TF_BITS > MAX_FACT_BITS) {
 					snprintf_nowarn(cbuf,STR_MAX_LEN,"ERROR: TF_BITS of %u > max. allowed of %u. The ini file entry was %s\n", TF_BITS, MAX_FACT_BITS, in_line);
-														  fprintf(stderr,"%s",cbuf);
-					fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf);	fclose(fq); fp = 0x0; }
+					fprintf(stderr,"%s",cbuf);
 					goto GET_NEXT_ASSIGNMENT;
 				}
 				/* If TF_BITS less than default TF depth for this exponent
@@ -872,41 +958,45 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 				}
 				else if(TF_BITS > log2_max_factor) {
 					sprintf(cbuf, "WARN: the specified already-factored-to depth of %u bits exceeds the default %10.4f bits - no more factoring to be done.\n", TF_BITS, log2_max_factor);
-														  fprintf(stderr,"%s",cbuf);
-					fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf);	fclose(fq); fp = 0x0; }
+					fprintf(stderr,"%s",cbuf);
 				}
 			#endif
-			}
-			// p-1 factoring already done?
-			char_addr = strstr(char_addr, ",");
-			if(char_addr++) {
-				/* Convert the ensuing numeric digits to ulong: */
-				pm1_done = strtoul(char_addr, (char**)NULL, 10);
-				if(pm1_done > 1) {
-					sprintf(cbuf, "WARN: the specified pm1_done field [%u] should be 0 or 1!\n",pm1_done); fprintf(stderr,"%s",cbuf);
-					fq = mlucas_fopen(OFILE,"a"); if(fq){ fprintf(    fq,"%s",cbuf);	fclose(fq); fq = 0x0; }; ASSERT(HERE,0,cbuf);
-				}
-				if(!pm1_done) {	// pm1_done == TRUE is a no-op, translating to "proceed with primality test"
-					// Don't actually use this in pm1_set_bounds(), due to the rise of the single-shot PRP-with-proof paradigm, but for form's sake:
-					tests_saved = 1;
-					// Create p-1 assignment, then edit original assignment line appropriately
-					TEST_TYPE = TEST_TYPE_PM1;
-					kblocks = get_default_fft_length(p);
-					ASSERT(HERE, pm1_set_bounds(p, kblocks<<10, TF_BITS, tests_saved, 0,0), "Failed to set p-1 bounds!");
-					// Format the p-1 assignment into cbuf:
-					char_addr = strstr(in_line, "=");	ASSERT(HERE,char_addr != 0x0,"Malformed assignment!");
-					char_addr++;	while(isspace(*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
-					ASSERT(HERE, is_hex_string(char_addr, 32), "Expect a 32-hex-digit PrimeNet v5 assignment ID following the work type specifier!");
-					strncpy(aid,char_addr,32);	sprintf(cbuf,"Pminus1=%s,1,2,%llu,-1,%u,%llu\n",aid,p,B1,B2);	// If we get here, it's a M(p), not F(m)
-					// Copy all but the final (pm1_done) char of the assignment into cstr and append pm1_done = 1. If in_line ends with newline, first --j:
-					j = strlen(in_line) - 1;	j -= (in_line[j] == '\n');
-					strncpy(cstr,in_line,j);	cstr[j] = '\0';	strcat(cstr,"1\n");
-					split_curr_assignment = TRUE;	// This will trigger the corresponding code following the goto:
-					goto GET_NEXT_ASSIGNMENT;
+				// p-1 factoring already done?
+				char_addr = strstr(char_addr, ",");
+				if(char_addr++) {
+					/* Convert the ensuing numeric digits to ulong: */
+					pm1_done = strtoul(char_addr, &endp, 10);
+					if(pm1_done > 1) {
+						sprintf(cbuf, "ERROR: the specified pm1_done field [%u] should be 0 or 1!\n",pm1_done);
+						ASSERT(HERE,0,cbuf);
+					}
+					if(!pm1_done) {	// pm1_done == TRUE is a no-op, translating to "proceed with primality test"
+						// Don't actually use this in pm1_set_bounds(), due to the rise of the single-shot PRP-with-proof paradigm, but for form's sake:
+						tests_saved = 1;
+						// Create p-1 assignment, then edit original assignment line appropriately
+						TEST_TYPE = TEST_TYPE_PM1;
+						kblocks = get_default_fft_length(p);
+						ASSERT(HERE, pm1_set_bounds(p, kblocks<<10, TF_BITS, tests_saved), "Failed to set p-1 bounds!");
+						// Format the p-1 assignment into cbuf:
+						char_addr = strstr(in_line, "=");	ASSERT(HERE,char_addr != 0x0,"Malformed assignment!");
+						char_addr++;	while(isspace(*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
+						if(is_hex_string(char_addr, 32)) {
+							strncpy(aid,char_addr,32);	sprintf(cbuf,"Pminus1=%s,1,2,%llu,-1,%u,%llu\n",aid,p,B1,B2);	// If we get here, it's a M(p), not F(m)
+						} else
+							sprintf(cbuf,"Pminus1=1,2,%llu,-1,%u,%llu\n",p,B1,B2);
+
+						// Copy all but the final (pm1_done) char of the assignment into cstr and append pm1_done = 1. If in_line ends with newline, first --j:
+						j = strlen(in_line) - 1;	j -= (in_line[j] == '\n');
+						strncpy(cstr,in_line,j);	cstr[j] = '\0';	strcat(cstr,"1\n");
+						split_curr_assignment = TRUE;	// This will trigger the corresponding code following the goto:
+						goto GET_NEXT_ASSIGNMENT;
+					}
 				}
 			}
 		}	/* if(TEST_TYPE == TEST_TYPE_PRIMALITY) */
-		if(fp) { fclose(fp); fp = 0x0; }	// Close workfile, of still open
+		if(fp) {	// Close workfile, if still open
+			fclose(fp); fp = 0x0;
+		}
 	}	// endif(fp)
 	/****************************************/
 	/* Self-test or User-supplied exponent: */
@@ -914,6 +1004,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	else if(exponent != 0)	/* elseif((found WORKFILE) == FALSE) */
 	{
 		p = exponent;
+		fprintf(stderr," %s file not found...using user-supplied command-line exponent p = %llu\n",WORKFILE,p);
 		/* This takes care of the number-to-char conversion and leading-whitespace-removal
 		in one step - use PSTRING for temporary storage here: */
 		strcpy(ESTRING, &PSTRING[convert_uint64_base10_char(PSTRING, p)]);
@@ -978,7 +1069,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		/*	fprintf(stderr, "P = %u, nbits_in_p = %d\n",p,nbits_in_p);	*/
 			ASSERT(HERE, nbits_in_p <= MAX_PRIMALITY_TEST_BITS, "Inputs this large only permitted for trial-factoring.");
 			ASSERT(HERE,iterations != 0,"Timing test with User-supplied exponent requires number of iterations to be specified via the -iters flag!");
-			if((int)iterations <= 0) {
+			if(iterations <= 0) {
 				fprintf(stderr, " Specified %u self-test iterations : must be > 0.\n", iterations);
 				return ERR_TESTITERS_OUTOFRANGE;
 			} else if(iterations > MAX_SELFTEST_ITERS) {
@@ -987,12 +1078,15 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			}
 			timing_test_iters = iterations;
 		}
+	} else {
+		ASSERT(HERE, 0, "Illegal combination of command args - please run with -h to see help menu. Note that if you are trying to run a single-FFT-length self-test, you *must* explicitly specify the iteration count, e.g. './Mlucas -fft 7168 <-iters [+int]> [-cpu <args>]'");
+	}	// endif(found WORKFILE?)
+
+	// If production run (not self-test), echo assignment to per-exponent logfile:
+	if(!INTERACT) {
+		snprintf_nowarn(cbuf,STR_MAX_LEN," worktodo.ini entry: %s\n",in_line);
+		mlucas_fprint(cbuf,0);
 	}
-	else
-	{
-		ASSERT(HERE, 0, "Illegal combination of command args - please run with -h to see help menu. Note that if you are trying to run a single-FFT-length self-test, you *must* explicitly specify the iteration count, e.g. './Mlucas -fft 7168 -iters [100|1000|10000] [-cpu [args]]'");
-	}
-	/* endif(found WORKFILE?)	*/
 
 /*************************************************************************************/
 
@@ -1029,7 +1123,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 #endif
 	if(TEST_TYPE > TEST_TYPE_MAX)
 	{
-		ASSERT(HERE, 0,"FATAL: Unrecognized assignment type in savefile processing.\n");
+		ASSERT(HERE, 0,"ERROR: Unrecognized assignment type in savefile processing.\n");
 	}
 	/* endif(TEST_TYPE == ...) */
 
@@ -1045,7 +1139,6 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 
 	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 	{
-		/*  ...make sure p is prime...	*/
 		/* TODO: if/when TF code is hooked in, make its small-primes table a global and
 		init it at the start of execution, then use it to trial-divide p up to sqrt(p):
 		*/
@@ -1054,11 +1147,15 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			fprintf(stderr, "Mersenne Primality/PRP-tests require a prime exponent!\n");
 			return ERR_EXPONENT_ILLEGAL;
 		}
+		// PRP implies Mersenne-mod, base must be > 1 and not a power of 2:
+		if(TEST_TYPE == TEST_TYPE_PRP && (PRP_BASE < 2 || isPow2(PRP_BASE))) {
+			fprintf(stderr, "PRP-test requires base > 1 and not a power of 2!\n");
+			return ERR_EXPONENT_ILLEGAL;
+		}
 
 		TRANSFORM_TYPE = REAL_WRAPPER;
 		snprintf_nowarn(PSTRING,STR_MAX_LEN, "M%s", ESTRING);
-		/*
-		v19: Unlike standard Fermat-PRP test with its [p-2 squarings-and-mul-by-base, followed by 1 final pure-squaring],
+		/* v19: Unlike standard mod-M(p) Fermat-PRP test with its [p-2 (x := x^2*base) steps followed by 1 final squaring],
 		Gerbicz check requires a pure sequence of squarings. RG: simply replace the standard Fermat-PRP test with a modified
 		one where we add 2 to the computed power and check whether the result == x0^2 (mod n).
 		E.g. for n = 2^p-1, instead of the standard base-x0 Fermat PRP test,
@@ -1067,12 +1164,22 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			x0^(n+1) = x0^(2^p) == x0^2 (mod n).
 		That means start with initial seed x0 and do p mod-squarings:
 		*/
-		if(TEST_TYPE == TEST_TYPE_PRIMALITY)	// LL-test
-			maxiter = (uint32)p-2;
-		else if(TEST_TYPE == TEST_TYPE_PRP)		// Fermat-PRP test modified as described in above commentary
-			maxiter = (uint32)p;
-		else if(TEST_TYPE == TEST_TYPE_PM1) {
+		// Only check production-run exponents here - self-tests already have an iteration limit < 2^32:
+		if(TEST_TYPE == TEST_TYPE_PRIMALITY || TEST_TYPE == TEST_TYPE_PRP) {
+			if(p > (1ull << 32) && !INTERACT) {	// No point emitting the warning for self-tests since those are guaranteed to have (maxiter < MAX_SELFTEST_ITERS)
+				fprintf(stderr,"Full-length LL/PRP/Pepin tests on exponents this large not supported; will exit at self-test limit of %u.\n",MAX_SELFTEST_ITERS);
+				maxiter = MAX_SELFTEST_ITERS;
+			} else
+				maxiter = (uint32)p;
+		}
+
+		if(TEST_TYPE == TEST_TYPE_PRIMALITY) {	// LL does p-2 iterations; Fermat-PRP modified as described in above commentary does p
+			maxiter -= 2;
+		} else if(TEST_TYPE == TEST_TYPE_PRP) {
+			/* No-op */
+		} else if(TEST_TYPE == TEST_TYPE_PM1) {
 			// Compute stage 1 prime-powers product, store in PM1_S1_PRODUCT, store #bits of same in PM1_S1_PROD_BITS:
+			pm1_check_bounds();
 			s1p_alloc = compute_pm1_s1_product(p);
 			maxiter = PM1_S1_PROD_BITS;	// NOTE: In this case we don't want to override the PRP_BASE = 3 value set in compute_pm1_s1_product()
 			ASSERT(HERE, B1 > 0 && maxiter > B1, "P-1 b1 and/or maxiter unset!");
@@ -1095,10 +1202,11 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		TRANSFORM_TYPE = RIGHT_ANGLE;
 		sprintf(PSTRING, "F%u", findex);
 		if(TEST_TYPE == TEST_TYPE_PRIMALITY) {
-			maxiter = (uint32)p-1;	// Pepin-test
+			maxiter -= 1;	// Pepin-test does p-1 iterations
 			PRP_BASE = 2;	// v18: Pépin test doesn't really need this, but since it is in fact an Euler-PRP test and permits Gerbicz check, init it as we do for Mersenne-mod PRP case
 		} else if(TEST_TYPE == TEST_TYPE_PM1) {
 			// Compute stage 1 prime-powers product, store in PM1_S1_PRODUCT, store #bits of same in PM1_S1_PROD_BITS:
+			pm1_check_bounds();
 			s1p_alloc = compute_pm1_s1_product(p);
 			maxiter = PM1_S1_PROD_BITS;	// NOTE: In this case we don't want to override the PRP_BASE = 3 value set in compute_pm1_s1_product()
 			ASSERT(HERE, B1 > 0 && maxiter > B1, "P-1 b1 and/or maxiter unset!");
@@ -1122,29 +1230,31 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 			printf("random-bit-array[0] = 0x%016llX; popcount[100] = %u\n",BASE_MULTIPLIER_BITS[0],popcount64(BASE_MULTIPLIER_BITS[0]) + popcount64(BASE_MULTIPLIER_BITS[1] & 0x0000000fffffffffull));
 		}
 	}
-	else
-	{
+	else {
 		ASSERT(HERE, 0,"Unknown Self-Test Modulus Type!");
 	}	/* endif(MODULUS_TYPE) */
 
 	// mi64_shlc currently limited to 32-bit shift counts - for technical reasons described in comments at top of that function,
 	// the largest exponent testable-with-shift must satisfy condition below, which yields largest M(p) with p = 4294967231 = 2^32-65:
-	if(RES_SHIFT && (p+63) > 0xFFFFFFFFull) { fprintf(stderr,"Exponents this large do not support residue shift! Please run with '-shift 0'.\n"); exit(0); }
-
+	if(RES_SHIFT && (p+63) > 0xFFFFFFFFull) {
+		sprintf(cbuf,"ERROR: Exponents this large do not support residue shift! Please run with '-shift 0'.\n");
+		ASSERT(HERE,0,cbuf);
+	}
 	/* In production-run (INTERACT = False) mode, allow command-line-forced FFT lengths which are at most
 	"one size too large" relative to the default length for the exponent in question. Supported lengths
 	are of the form [8,9,10,11,12,13,14,15]*2^k, so base our acceptance threshold on the largest adjacent-
 	FFT-lengths ratio permitted under this schema, 9/8:
 	*/
+FFT_DEFAULT:
 	kblocks = get_default_fft_length(p);
 	if(!fft_length || (!INTERACT && 8*fft_length > 9*kblocks)) {
 		if(!kblocks) {
-			fprintf(stderr,"ERROR detected in get_default_fft_length for p = %u.\n", (uint32)p);
+			fprintf(stderr,"ERROR detected in get_default_fft_length for p = %llu.\n",p);
 			return ERR_FFTLENGTH_ILLEGAL;
 		}
 	} else {
 		kblocks = fft_length;
-		if((int)kblocks <= 0) {
+		if(kblocks <= 0) {
 			fprintf(stderr, "ERROR: %d K must be >= 0.\n",kblocks);
 			return ERR_FFTLENGTH_ILLEGAL;
 		}
@@ -1224,18 +1334,18 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 	print a warning if the p/pmax ratio > 1 to an acceptably small degree; error out if the ratio is unreasonably > 1:
 	*/
 	uint64 pmax_rec = given_N_get_maxP(n);	double exp_ratio =  (double)p/pmax_rec;
-	fprintf(stderr, "INFO: Maximum recommended exponent for this runlength = %llu; p[ = %llu]/pmax_rec = %12.10f.\n",given_N_get_maxP(n),p,exp_ratio);
+	fprintf(stderr, "INFO: Maximum recommended exponent for FFT length (%u Kdbl) = %llu; p[ = %llu]/pmax_rec = %12.10f.\n",kblocks,pmax_rec,p,exp_ratio);
 	// Set initial value of USE_SHORT_CY_CHAIN based on how close p/pmax is to 1.0, but only if current chain length is longer
 	// (e.g. if ROE-retry logic has led to a shorter-than-default chain length, don't revert to default):
-	if(exp_ratio > 1.00 && USE_SHORT_CY_CHAIN < 3)
+	if(exp_ratio > 0.99 && USE_SHORT_CY_CHAIN < 3)
 		USE_SHORT_CY_CHAIN = 3;
-	else if(exp_ratio > 0.99 && USE_SHORT_CY_CHAIN < 2)
+	else if(exp_ratio > 0.98 && USE_SHORT_CY_CHAIN < 2)
 		USE_SHORT_CY_CHAIN = 2;
-	else if(exp_ratio > 0.98 && USE_SHORT_CY_CHAIN < 1)
+	else if(exp_ratio > 0.97 && USE_SHORT_CY_CHAIN < 1)
 		USE_SHORT_CY_CHAIN = 1;
 	const char*arr_sml[] = {"long","medium","short","hiacc"};
 	fprintf(stderr,"Initial DWT-multipliers chain length = [%s] in carry step.\n",arr_sml[USE_SHORT_CY_CHAIN]);
-	// v20: If exp_ration > 0.98, set ITERS_BETWEEN_CHECKPOINTS = 10000 irrespective of #threads or user-forced greater value;
+	// v20: If exp_ratio > 0.98, set ITERS_BETWEEN_CHECKPOINTS = 10000 irrespective of #threads or user-forced greater value;
 	if(USE_SHORT_CY_CHAIN)
 		ITERS_BETWEEN_CHECKPOINTS = MIN(ITERS_BETWEEN_CHECKPOINTS,10000);
 
@@ -1244,7 +1354,7 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		if((i << 10) == get_nextlarger_fft_length(n) && exp_ratio < 1.05)
 			fprintf(stderr, "INFO: specified FFT length %d K is less than recommended %d K for this p.\n",kblocks,i);
 		else {
-			sprintf(cbuf, "ERROR: specified FFT length %d K is much too small: Recommended length for this p = %d K.\n",kblocks,i);
+			sprintf(cbuf, "ERROR: specified FFT length %d K is much too small: Recommended length for this p = %d K ... quitting.\n",kblocks,i);
 			ASSERT(HERE, 0, cbuf);
 		}
 	}
@@ -1277,34 +1387,36 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 		nalloc = npad + j;	ASSERT(HERE, (nalloc & 7) == 0,"nalloc must be a multiple of 8!");	// This is so b,c,d enjoy same 64-byte alignment as a[]
 		nbytes = nalloc<<3;
 		ASSERT(HERE, a_ptmp == 0x0 && a == 0x0 && b == 0x0 && c == 0x0 && d == 0x0 && e == 0x0 && arrtmp == 0x0,"Require (a_ptmp,b,c,d,e,arrtmp) == 0x0");
-	#ifdef USE_LOWMEM	// Handy for huge-FFT self-tests on low-mem systems
-		#warning ******** Low-memory build mode only allows Stage 1 p-1 support ... disabling Stage 2. ********
-	    #warning ******** Low-memory build mode only allows LL-testing, not PRP-testing|Gerbicz-check. ********
-		j = 1;
-	#else
-		j = 5;
-	#endif
-		a_ptmp = ALLOC_DOUBLE(a_ptmp, j*nalloc);	if(!a_ptmp){ sprintf(cbuf, "FATAL: unable to allocate array A in main.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(use_lowmem == 2) {	// Handy for huge-FFT self-tests on low-mem systems
+			sprintf(cbuf,"WARN: Low-memory[%u] run mode disallows PRP-testing|Gerbicz-check and p-1 stage 2.\n",use_lowmem);
+			mlucas_fprint(cbuf,1);
+			j = 1;
+		} else {
+			j = 5;
+		}
+		a_ptmp = ALLOC_DOUBLE(a_ptmp, j*nalloc);	if(!a_ptmp){ sprintf(cbuf, "ERROR: unable to allocate array A in main.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		a      = ALIGN_DOUBLE(a_ptmp);
 		ASSERT(HERE, ((long)a & 63) == 0x0,"a[] not aligned on 64-byte boundary!");
 		if(((long)a & 127) != 0x0)
 			fprintf(stderr, "WARN: a[] = 0x%08lX not aligned on 128-byte boundary!\n", (long)a);
 		// v19: Add three more full-residue arrays to support 2-input FFT-modmul needed for Gerbicz check (and later, p-1 support):
-	#ifndef USE_LOWMEM
-		b = a + nalloc;	c = b + nalloc;	d = c + nalloc, e = d + nalloc;
-		b_uint64_ptr = (uint64*)b; c_uint64_ptr = (uint64*)c; d_uint64_ptr = (uint64*)d; e_uint64_ptr = (uint64*)e;
-	#endif
+		if(use_lowmem < 2) {
+			b = a + nalloc;	c = b + nalloc;	d = c + nalloc, e = d + nalloc;
+			b_uint64_ptr = (uint64*)b; c_uint64_ptr = (uint64*)c; d_uint64_ptr = (uint64*)d; e_uint64_ptr = (uint64*)e;
+		}
+
 		// For this residue (and scratch) byte-array, conservatively figure at least 4 bits per float-double residue word.
 		// For multi-FFT-length self-tests, conservatively figure as many as 20 bits (2.5 bytes) per float-double residue word:
 		// v20: for largest currently supported FFT of 512Mdoubles, i still -barely - fits in a uint32, but 2.5*i does not:
 		arrtmp_alloc = i; arrtmp_alloc = MAX((p+63)>>2, (uint64)(arrtmp_alloc*2.5)) >> 3;	// #limb needed to store p bits = (p+63)>>6, so alloc at least 2x this
-		arrtmp = ALLOC_UINT64(arrtmp, arrtmp_alloc);if(!arrtmp ){ sprintf(cbuf, "FATAL: unable to allocate array ARRTMP with %u bytes in main.\n",i); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		arrtmp = ALLOC_UINT64(arrtmp, arrtmp_alloc);if(!arrtmp ){ sprintf(cbuf, "ERROR: unable to allocate array ARRTMP with %u bytes in main.\n",i); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+
 		// For an n-word main-array, BIGWORD_BITMAP and BIGWORD_NBITS have (n/64) elts each, thus need 1/64 + 1/32 the total
 		// storage of the main-array. Use uint64 alloc-macro for both, so halve the num-elts arg for the BIGWORD_NBITS alloc.
 		// As with above arrays, for multi-length self-test, alloc based on max. FFT length used (i) rather than current length (n).
 		// Don't need any array padding on these bitmap arrays, but since nalloc includes padding, no harm in using it:
-		BIGWORD_BITMAP =           ALLOC_UINT64(BIGWORD_BITMAP, nalloc>>6);	if(!BIGWORD_BITMAP){ sprintf(cbuf, "FATAL: unable to allocate array BIGWORD_BITMAP in main.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		BIGWORD_NBITS  = (uint32 *)ALLOC_UINT64(BIGWORD_NBITS , nalloc>>7);	if(!BIGWORD_NBITS ){ sprintf(cbuf, "FATAL: unable to allocate array BIGWORD_NBITS in main.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		BIGWORD_BITMAP =           ALLOC_UINT64(BIGWORD_BITMAP, nalloc>>6);	if(!BIGWORD_BITMAP){ sprintf(cbuf, "ERROR: unable to allocate array BIGWORD_BITMAP in main.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		BIGWORD_NBITS  = (uint32 *)ALLOC_UINT64(BIGWORD_NBITS , nalloc>>7);	if(!BIGWORD_NBITS ){ sprintf(cbuf, "ERROR: unable to allocate array BIGWORD_NBITS in main.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 	}
 // Multithreaded-code debug: Set address to watch:
 #ifdef MULTITHREAD
@@ -1317,46 +1429,43 @@ with the default #threads = 1 and affinity set to logical core 0, unless user ov
 
 READ_RESTART_FILE:
 
-	if(!INTERACT)	/* Only do the restart-file stuff if it's not a self-test */
-	{
-		if(ierr == ERR_GERBICZ_CHECK)
-			strcat(cstr, ".G");
+	if(!INTERACT)	// Only do the restart-file stuff if it's not a self-test
+	{	// 27 Nov 2021: If hit successive G-check errors, on try 2 cstr already has the .G extension, end up with doubled .G.G and
+		if(ierr == ERR_GERBICZ_CHECK) {	// "file not found" assertion-exit. So add a re-init of cstr == RESTARTFILE before strcat()
+			strcpy(cstr, RESTARTFILE); strcat(cstr, ".G");
+		} else if(s2_continuation) {
+			strcpy(cstr, RESTARTFILE); strcat(cstr, ".s1");
+		}
 		/* See if there's a restart file: */
 		fp = mlucas_fopen(cstr, "rb");
 		/* If so, read the savefile: */
 		if(fp) {
 			if(TEST_TYPE == TEST_TYPE_PRP) {
 				dum = PRP_BASE;
-			#ifdef USE_LOWMEM
-				ASSERT(HERE, 0, "PRP-test mode not available in Low-memory build mode!");
-			#endif
+				ASSERT(HERE, use_lowmem < 2, "PRP-test mode not available in Low-memory[2] run mode!");
 			}
-			i = read_ppm1_savefiles(RESTARTFILE, p, &j, fp, &itmp64,
+			i = read_ppm1_savefiles(cstr, p, &j, fp, &itmp64,
 												(uint8*)arrtmp      , &Res64,&Res35m1,&Res36m1,	// Primality-test residue
 												(uint8*)e_uint64_ptr, &i1   ,&i2     ,&i3     );// v19: G-check residue
 			fclose(fp); fp = 0x0;
 			ilo = itmp64;	// v20: E.g. distributed deep p-1 S2 may use B2 >= 2^32, so made nsquares field in savefiles r/w a uint64
 			if(!i) {
-				fp = mlucas_fopen(   OFILE,"a");
-				fq = mlucas_fopen(STATFILE,"a");
 				/* First print any error message that may have been issued during the above function call: */
-				if(strstr(cbuf, "read_ppm1_savefiles")) {
-							fprintf(stderr,"%s",cbuf);
-					if(fp){ fprintf(	fp,"%s",cbuf); }
-					if(fq){ fprintf(	fq,"%s",cbuf); }
-				}
+				if(strstr(cbuf, "read_ppm1_savefiles"))
+					mlucas_fprint(cbuf,1);
 				/* And now for the official spokesmessage: */
 				snprintf_nowarn(cbuf,STR_MAX_LEN, "ERROR: read_ppm1_savefiles Failed on savefile %s!\n",cstr);
-						fprintf(stderr,"%s",cbuf);
-				if(fp){ fprintf(	fp,"%s",cbuf); fclose(fp); fp = 0x0; }
-				if(fq){ fprintf(	fq,"%s",cbuf); fclose(fq); fq = 0x0; }
+				mlucas_fprint(cbuf,1);
 
-				if(ierr == ERR_GERBICZ_CHECK)
-					ASSERT(HERE, 0,"Failed to correctly read last-good-Gerbicz-check data savefile!");
-				else if(cstr[0] != 'q') {
+				if(ierr == ERR_GERBICZ_CHECK) {
+					sprintf(cbuf,"Failed to correctly read last-good-Gerbicz-check data savefile!");
+					mlucas_fprint(cbuf,0); ASSERT(HERE,0,cbuf);
+				} else if(cstr[0] != 'q') {
 					cstr[0] = 'q';	goto READ_RESTART_FILE;
-				} else
-					ASSERT(HERE, 0,"Failed to correctly read both primary or secondary savefile!");
+				} else {
+					sprintf(cbuf,"Failed to correctly read both primary or secondary savefile!");
+					mlucas_fprint(cbuf,0); ASSERT(HERE,0,cbuf);
+				}
 			}
 			// If user attempts to restart run with different PRP base than it was started with, ignore the new value and continue with the initial one:
 			if(TEST_TYPE == TEST_TYPE_PRP && dum != PRP_BASE) {
@@ -1364,50 +1473,59 @@ READ_RESTART_FILE:
 			}
 			// If FFT-length-in-K field returns nonzero and is greater than kblocks (e.g. if ROEs caused switch to larger FFT length),
 			// ***and user did not override via cmd-line*** (i.e. fft_length arg not set) reset FFT length and radix set accordingly.
-			// v20: If FFTlen was pvsly auto-increased due to ROE but err-freq sufficiently low, revert FFTlen to default:
-												//	vvvvvvvvvvvvvvvvvvvvvvvv
-			if((j && j > kblocks) && !fft_length && !(NERR_ROE <= (ilo>>19))) {
+			// v20: If FFTlen was upped due to ROE but err-freq sufficiently low, allow reversion of FFTlen, by skipping the 'if' body:
+			//*** Oct 2021: to work safely, this needs to trigger reinit of the default-FFT-length-and-radix-set carry-thread data ***
+		  #if USE_FFTLEN_REVERSION
+			/* Clause #3: Use larger FFT length in savefile if ROE-frequecy is insufficiently low, defined as
+			ROE-frequecy > [one larger-FFT-triggering ROE every 64 checkpoint intervals, on average], thus
+			[NERR_ROE > ilo/(64*ITERS_BETWEEN_CHECKPOINTS)], or sans divide, (NERR_ROE<<6)*ITERS_BETWEEN_CHECKPOINTS > ilo]:
+			*/
+			if((j && j > kblocks) && !fft_length && (NERR_ROE<<6)*ITERS_BETWEEN_CHECKPOINTS > ilo) {
+		  #else
+			#warning INFO: Disallowing FFT-length reversion for borderline-ROE cases.
+			if((j && j > kblocks) && !fft_length) { //^^^^^^^^^^^^^^^^^^^^^^
+		  #endif
 				kblocks = j;
 				// Clear out current FFT-radix data, since get_preferred_fft_radix() expects that:
 				for(i = 0; i < NRADICES; i++) { RADIX_VEC[i] = 0; }
 				NRADICES = 0;
 				goto SETUP_FFT;
 			}
-			/* On gcheck-error restart, if p near max for FFT length, small chance error was caused by ROE aliasing, in which
-			case restart-from-last-gcheckpoint with same shift will simply reproduce the failure. To avoid this, randomize the
-			shift in such cases - easiest way is to take FP residue array output by convert_res_bytewise_FP and circular-shift
-			by, say, 16 words, to avoid having to deal with various SIMD layouts. Must also increment RES_SHIFT correspondingly:
+			/* On gcheck-error restart, if p near max for the given FFT length, there is a small chance the GEC-failure was caused
+			by ROE aliasing, e.g. a floating-point convolution output X.4375 or Y.5625 which gets rounded to X or Y but where the
+			exact integer output is really X+1 or Y-1, respectively. In such an case, restart from the last GEC checkpoint data with
+			the same circular residue shift will simply reproduce the failure, i.e. report a ROE = |NINT(output) - output| = 0.4375.
+			To avoid this infinite-loop-of-GEC-failures scenario, pseudorandomize the FFT inputs by fiddling the residue shift in such
+			cases - easiest way is to simple double (mod p) the shift count, then do as normal, i.e. read the shift-removed packed-bit
+			residue in last-good savefile and circular-shift it by the modified shift count before calling the convert_res_bytewise_FP()
+			function to convert it to balanced-digit floating-point form. There is still a chance that the thus-fiddled FFT inputs will
+			again lead to a fatal ROE in the resulting convolution outputs, but the odds of such an ROE again being of the "silent but
+			deadly" aliased-ROE type are negligibly small. Even should such an improbability occur, if it does the program will once
+			more pseudorandomize the FFT inputs by again mod-doubling the shift count, i.e. we'll never get stuck:
 			*/
 			if(ierr == ERR_GERBICZ_CHECK) {
 				MOD_ADD64(RES_SHIFT,RES_SHIFT,p,RES_SHIFT);
 				snprintf_nowarn(cbuf,STR_MAX_LEN, "Gerbicz-check-error restart: Mod-doubling residue shift to avoid repeating any possible fractional-error aliasing in retry, new shift = %llu\n",RES_SHIFT);
-															fprintf(stderr,"%s",cbuf);
-				fp = mlucas_fopen(   OFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
-				fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
-			#warning **** Test this G-err fiddle! ****
+				mlucas_fprint(cbuf,1);
 			}
 			/* Allocate floating-point residue array and convert savefile bytewise residue to floating-point form, after
 			first applying required circular shift read into the global RES_SHIFT during the above bytewise-savefile read.
 			*/
 			if(!convert_res_bytewise_FP((uint8*)arrtmp, a, n, p)) {
 				snprintf_nowarn(cbuf,STR_MAX_LEN, "ERROR: convert_res_bytewise_FP Failed on primality-test residue read from savefile %s!\n",cstr);
-															fprintf(stderr,"%s",cbuf);
-				fp = mlucas_fopen(   OFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
-				fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
+				mlucas_fprint(cbuf,0);
 				if(cstr[0] != 'q' && !(ierr == ERR_GERBICZ_CHECK)) {	// Secondary savefile only exists for regular checkpoint files
 					cstr[0] = 'q';
 					goto READ_RESTART_FILE;
 				} else {
-					ASSERT(HERE, 0,"0");
+					ASSERT(HERE,0,cbuf);
 				}
 			}
 			// v19: G-check residue
 		  if(TEST_TYPE == TEST_TYPE_PRP) {
 			if(!convert_res_bytewise_FP((uint8*)e_uint64_ptr, b, n, p)) {
 				snprintf_nowarn(cbuf,STR_MAX_LEN, "ERROR: convert_res_bytewise_FP Failed on Gerbicz-check residue read from savefile %s!\n",cstr);
-															fprintf(stderr,"%s",cbuf);
-				fp = mlucas_fopen(   OFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
-				fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
+				mlucas_fprint(cbuf,0); ASSERT(HERE,0,cbuf);
 			} else {
 				ierr = 0;
 				s1 = sum64(b_uint64_ptr, n); s2 = s3 = s1;	// Init triply-redundant checksum of G-checkproduct
@@ -1419,43 +1537,45 @@ READ_RESTART_FILE:
 			ihi-= ihi%ITERS_BETWEEN_CHECKPOINTS;
 			// Will check below: if ihi > maxiter, will reset == maxiter
 			restart = TRUE;
+			/*** already closed restart file ***/
 		}
 		else /* if(!fp) */
 		{
 			/* If we're on the primary restart file, set up for secondary: */
-			if(cstr[0] != 'q' && !(ierr == ERR_GERBICZ_CHECK)) {	// Secondary savefile only exists for regular checkpoint files
+			if(ierr == ERR_GERBICZ_CHECK || s2_continuation) {	// Secondary savefile only exists for regular checkpoint files
+				snprintf_nowarn(cbuf,STR_MAX_LEN, "INFO: Needed restart file %s not found...moving on to next assignment in %s.\n",cstr,WORKFILE);
+				mlucas_fprint(cbuf,1);
+				goto GET_NEXT_ASSIGNMENT;
+			} else if(cstr[0] != 'q') {
 				snprintf_nowarn(cbuf,STR_MAX_LEN, "INFO: primary restart file %s not found...looking for secondary...\n",cstr);
-													fprintf(stderr,"%s",cbuf);
-				fp = mlucas_fopen(   OFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
-				fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
+				mlucas_fprint(cbuf,1);
 				cstr[0] = 'q';
 				goto READ_RESTART_FILE;
 			} else {
-				sprintf(cbuf, "INFO: no restart file found...starting run from scratch.\n");	fprintf(stderr,"%s",cbuf);
-				fp = mlucas_fopen(   OFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
-				fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
-				if(ierr == ERR_GERBICZ_CHECK) { ierr = 0; restart = FALSE; }
+				sprintf(cbuf, "INFO: no restart file found...starting run from scratch.\n");
+				mlucas_fprint(cbuf,1);
+				if(ierr == ERR_GERBICZ_CHECK) {
+					ierr = 0; restart = FALSE;
+				}
 			}
 		}	/* endif(fp) */
 	}	/* endif(!INTERACT)	*/
 
 	if(!restart) {
 		/*...set initial iteration loop parameters...	*/
-		ilo=0;
+		ilo = 0;
 		if(INTERACT)
-			ihi=timing_test_iters;
+			ihi = timing_test_iters;
 		else
-			ihi=ITERS_BETWEEN_CHECKPOINTS;
+			ihi = ITERS_BETWEEN_CHECKPOINTS;
 	}
 
 	// PRP-test: Init bitwise multiply-by-base array - cf. comment re. modified Fermat-PRP needed by Gerbicz check
-	// ~line 1070 above ==> all bits = 0 for Mersenne-PRP-test, not all-1s-with-LS-bit-0 as for the unmodfied Fermat-PRP
-	// test of a Mersenne. Thus also no need to call mi64_brev to put bitmap in BRed form used by LR modpow:
+	// above ==> all bits = 0 for Mersenne-PRP-test, rather than all-ones-with-least-significant-bit-0 as for the
+	// unmodfied Fermat-PRP test of an M(p). Thus no need to call mi64_brev to put bitmap in BRed form used by LR modpow:
 	if(TEST_TYPE == TEST_TYPE_PRP) {
-		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
-			itmp64 = 0ull;//0xFFFFFFFFFFFFFFFFull;
-		else
-			itmp64 = 0ull;
+		ASSERT(HERE, MODULUS_TYPE == MODULUS_TYPE_MERSENNE, "PRP-test mode only supported for Mersenne moduli! For Fermat numbers, just use the default (Pe'pin test) mode.");
+		itmp64 = 0ull;
 		for(i = 0; i < ((ITERS_BETWEEN_CHECKPOINTS+63) >> 6); i++) {
 			BASE_MULTIPLIER_BITS[i] = itmp64;
 		}
@@ -1475,6 +1595,7 @@ READ_RESTART_FILE:
 		if(TEST_TYPE == TEST_TYPE_PM1) {
 			iseed = PRP_BASE;
 		} else if(TEST_TYPE == TEST_TYPE_PRP) {
+			ASSERT(HERE, use_lowmem < 2, "PRP-test mode not available in Low-memory[2] run mode!");
 			iseed = b[0] = d[0] = PRP_BASE;	// If doing a PRP test, init the Gerbicz residue-product accumulator b[] and its redundant copy d[]. On restart b[] inited via full-bytewise-array read from savefile.
 			s1 = s2 = s3 = PRP_BASE;	// Init triply-redundant checksum of G-checkproduct
 		} else if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE && TEST_TYPE == TEST_TYPE_PRIMALITY)
@@ -1509,35 +1630,23 @@ READ_RESTART_FILE:
 			ASSERT(HERE, (itmp64 & 255) < ceil((double)p/n), "Return value of shift_word(): bit-in-array-word value out of range!");
 		}
 	} else if(TEST_TYPE == TEST_TYPE_PRP) {
-	#ifdef USE_LOWMEM
-		ASSERT(HERE, 0, "PRP-test mode not available in Low-memory build mode!");
-	#endif
 		memcpy(d, b, nbytes);	// If doing a PRP test, init redundant copy d[] Gerbicz residue-product accumulator b[].
 	}
 
-	if(restart)
+	if(restart) {
 		snprintf_nowarn(cbuf,STR_MAX_LEN, "Restarting %s at iteration = %u. Res64: %016llX, residue shift count = %llu\n",PSTRING,ilo,Res64,RES_SHIFT);
+		mlucas_fprint(cbuf,0);
+	}
 
 	/*...Restart and FFT info.	*/
-	if(INTERACT)
-	{
-		fprintf(stderr, "%s: using FFT length %uK = %u 8-byte floats, initial residue shift count = %llu\n",PSTRING,kblocks,n,RES_SHIFT);
-		fprintf(stderr, " this gives an average %20.15f bits per digit\n",1.0*p/n);
-		if(TEST_TYPE == TEST_TYPE_PRP)
-			fprintf(stderr, "The test will be done in form of a %u-PRP test.\n",PRP_BASE);
+	snprintf_nowarn(cbuf,STR_MAX_LEN,"%s: using FFT length %uK = %u 8-byte floats, initial residue shift count = %llu\n",PSTRING,kblocks,n,RES_SHIFT);
+	sprintf(cstr,"This gives an average %20.15f bits per digit\n",1.0*p/n);	strcat(cbuf,cstr);
+	if(TEST_TYPE == TEST_TYPE_PRP) {
+		sprintf(cstr,"The test will be done in form of a %u-PRP test.\n",PRP_BASE);	strcat(cbuf,cstr);
 	}
-	else
-	{
-		fp = mlucas_fopen(STATFILE,"a");
-		if(fp) {
-			fprintf(fp,"%s",cbuf);
-			fprintf(fp,"%s: using FFT length %uK = %u 8-byte floats, initial residue shift count = %llu\n",PSTRING,kblocks,n,RES_SHIFT);
-			fprintf(fp," this gives an average %20.15f bits per digit\n",1.0*p/n);
-			if(TEST_TYPE == TEST_TYPE_PRP)
-				fprintf(fp, "The test will be done in form of a %u-PRP test.\n",PRP_BASE);
-			fclose(fp);	fp = 0x0;
-		}
-	}
+	// If self-test (INTERACT = True), echo only to stderr (uint32 flag > 1);
+	// otherwise echo only to logfile (flag = 0); use -INTERACT to set flag appropriately
+	mlucas_fprint(cbuf,-INTERACT);
 
 /*...main loop...	*/
 /******************* AVX debug stuff: *******************/
@@ -1639,12 +1748,20 @@ READ_RESTART_FILE:
 	}
 
 	// G-check applies to primality/Fermat and PRP/Mersenne:
-	DO_GCHECK = ( (TEST_TYPE == TEST_TYPE_PRIMALITY) && (MODULUS_TYPE == MODULUS_TYPE_FERMAT))
+	DO_GCHECK = ( (TEST_TYPE == TEST_TYPE_PRIMALITY) && (MODULUS_TYPE == MODULUS_TYPE_FERMAT) && (use_lowmem < 2) )
 				|| (TEST_TYPE == TEST_TYPE_PRP);
+	// v19: If PRP test, make sure Gerbicz-checkproduct interval divides checkpoint-writing one:
+	if(DO_GCHECK) {
+		i = ITERS_BETWEEN_GCHECKS;
+		j = ITERS_BETWEEN_GCHECK_UPDATES;
+		k = ITERS_BETWEEN_CHECKPOINTS;
+		ASSERT(HERE, i == j*j, "#iterations between Gerbicz-checksum updates must = sqrt(#iterations between residue-integrity checks)");
+		ASSERT(HERE, i%k == 0 && k%j == 0, "G-checkproduct update interval must divide savefile-update one, which must divide the G-check interval");
+	}
 
 	for(;;)
 	{
-		ASSERT(HERE, (int)maxiter > 0,"Require (int)maxiter > 0");
+		ASSERT(HERE, maxiter > 0,"Require (uint32)maxiter > 0");
 		if(ihi > maxiter)
 			ihi = maxiter;
 		// If p-1: start of each iteration cycle, copy bits ilo:ihi-1 of PM1_S1_PRODUCT into low bits of BASE_MULTIPLIER_BITS vector:
@@ -1663,8 +1780,7 @@ READ_RESTART_FILE:
 			for(i = 0, itmp64 = 0ull; i < s1p_alloc; i++) { itmp64 += PM1_S1_PRODUCT[i]; }
 			if(itmp64 != PM1_S1_PROD_RES64) {
 				snprintf_nowarn(cbuf,STR_MAX_LEN,"PM1_S1_PRODUCT (mod 2^64_ checksum mismatch! (Current[%llu] != Reference[%llu]). Aborting due to suspected data corruption.\n",itmp64,PM1_S1_PROD_RES64);
-				fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
-				ASSERT(HERE,0,cbuf);
+				mlucas_fprint(cbuf,0); ASSERT(HERE,0,cbuf);
 			}
 		}
 		/* Here's the big one - (ITERS_BETWEEN_CHECKPOINTS) squaring steps.
@@ -1702,7 +1818,7 @@ READ_RESTART_FILE:
 				mode_flag = 3 - first_sub - (last_sub<<1);
 				ierr = func_mod_square  (a, (int*)arrtmp, n, i,i+itodo, (uint64)mode_flag, p, scrnFlag, &tdif2, update_shift, 0x0);	tdiff += tdif2;
 				if(ierr) {
-					fprintf(stderr,"At iteration %d: mod_square returned with err code %u\n",ROE_ITER,ierr);
+					fprintf(stderr,"At iteration %d: mod_square returned with error code[%u] = %s\n",ROE_ITER,ierr,returnMlucasErrCode(ierr));
 					/* If interrupt *and* we're past the first subinterval, need to undo initial-fwd-FFT-pass and DWT-weighting on b[],
 					whose value will reflect the last multiple-of-ITERS_BETWEEN_GCHECK_UPDATES iteration - prior to writing it,
 					along with the current PRP residue, to savefile: */
@@ -1733,25 +1849,22 @@ READ_RESTART_FILE:
 						fprintf(stderr,"Caught interrupt in fFFT(c) step.\n");
 						break;
 					} else {
-						returnMlucasErrCode(ierr,cstr);
-						snprintf_nowarn(cbuf,STR_MAX_LEN,"Unhandled Error of type %s in fFFT(c) step - please send e-mail to ewmayer@aol.com with copy of the p*.stat file attached. Proceeding to next assignment...\n",cstr);
-						fp = mlucas_fopen(   OFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
-						fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
-						ASSERT(HERE,0,cbuf);
+						snprintf_nowarn(cbuf,STR_MAX_LEN,"Unhandled Error of type[%u] = %s in fFFT(c) step - please send e-mail to ewmayer@aol.com with copy of the p*.stat file attached. Proceeding to next assignment...\n",ierr,returnMlucasErrCode(ierr));
+						mlucas_fprint(cbuf,0); ASSERT(HERE,0,cbuf);
 					//	goto GET_NEXT_ASSIGNMENT;
 					}
 				}
 			//	fprintf(stderr,"fFFT(c), mode = %u\n",mode_flag);
 
-			// prior to each b[]-update, check integrity of array data:
-			if(!mi64_cmp_eq(b_uint64_ptr,d_uint64_ptr,n)) {	// Houston, we have a problem
-				s1 = consensus_checksum(s1,s2,s3);
-				if(s1 == sum64(b_uint64_ptr, n)) {	/* b-data good; no-op */
-				} else if(s1 == sum64(d_uint64_ptr, n)) {	// c-data good, copy back into b
-					memcpy(d, b, nbytes);
-				} else	// Catastrophic data corruption
-					ASSERT(HERE, 0, "Catastrophic data corruption detected in G-checkproduct integrity validation ... rolling back to last good G-check. ");
-			}
+				// prior to each b[]-update, check integrity of array data:
+				if(!mi64_cmp_eq(b_uint64_ptr,d_uint64_ptr,n)) {	// Houston, we have a problem
+					s1 = consensus_checksum(s1,s2,s3);
+					if(s1 == sum64(b_uint64_ptr, n)) {	/* b-data good; no-op */
+					} else if(s1 == sum64(d_uint64_ptr, n)) {	// c-data good, copy back into b
+						memcpy(d, b, nbytes);
+					} else	// Catastrophic data corruption
+						ASSERT(HERE, 0, "Catastrophic data corruption detected in G-checkproduct integrity validation ... rolling back to last good G-check. ");
+				}
 
 			// First subinterval: [b] needs fwd-weighting and initial-fwd-FFT-pass done on entry, !undone on exit: mode_flag = 10_2
 			// Intermediate subs: [b] !need fwd-weighting and initial-fwd-FFT-pass done on entry, !undone on exit: mode_flag = 11_2
@@ -1766,11 +1879,8 @@ READ_RESTART_FILE:
 						fprintf(stderr,"Caught interrupt in FFT(b)*FFT(c) step.\n");
 						break;
 					} else {
-						returnMlucasErrCode(ierr,cstr);
-						snprintf_nowarn(cbuf,STR_MAX_LEN,"Unhandled Error of type %s in FFT(b)*FFT(c) step - please send e-mail to ewmayer@aol.com with copy of the p*.stat file attached. Proceeding to next assignment...\n",cstr);
-						fp = mlucas_fopen(   OFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
-						fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
-						ASSERT(HERE,0,cbuf);
+						snprintf_nowarn(cbuf,STR_MAX_LEN,"Unhandled Error of type[%u] = %s in FFT(b)*FFT(c) step - please send e-mail to ewmayer@aol.com with copy of the p*.stat file attached. Proceeding to next assignment...\n",ierr,returnMlucasErrCode(ierr));
+						mlucas_fprint(cbuf,0); ASSERT(HERE,0,cbuf);
 					//	goto GET_NEXT_ASSIGNMENT;
 					}
 				}
@@ -1832,7 +1942,7 @@ READ_RESTART_FILE:
 						print "Final residue = ",x,"\n";
 					}
 				**************************************************************************************************************/
-			}
+			}	// end while(!ierr && MLUCAS_KEEP_RUNNING && i < ihi)
 		} else if(MLUCAS_KEEP_RUNNING) {	// Final partial-length interval skips G-check
 			ierr = func_mod_square  (a, (int*)arrtmp, n, ilo,ihi, 0ull, p, scrnFlag, &tdiff, update_shift, 0x0);
 		}
@@ -1848,19 +1958,15 @@ READ_RESTART_FILE:
 			// added handling - if at least one previous savefile write, try restart from that:
 			if((ierr == ERR_CARRY) && !INTERACT && ihi > ITERS_BETWEEN_CHECKPOINTS) {
 				sprintf(cbuf,"Retrying from most-recent savefile, in case the issue was due to residue-data corruption.\n");
-				fp = mlucas_fopen(   OFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
-				fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
+				mlucas_fprint(cbuf,1);
 				goto READ_RESTART_FILE;
 			}
 			// v20: Simplify the logic here - skip previous interval-retry step:
 			if((ierr == ERR_ROUNDOFF) && !INTERACT) {
 				ASSERT(HERE, ROE_ITER > 0, "ERR_ROUNDOFF returned but ROE_ITER <= 0!");
-				fp = mlucas_fopen(   OFILE,"a");
-				fq = mlucas_fopen(STATFILE,"a");
-				sprintf(cbuf," Switching to next-larger available FFT length %uK and restarting from last checkpoint file.\n",(n >> 10));
-				fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
-				fprintf(fq,"%s",cbuf);	fclose(fq);	fq = 0x0;
 				n = get_nextlarger_fft_length(n);	kblocks = (n >> 10);
+				sprintf(cbuf," Switching to next-larger available FFT length %uK and restarting from last checkpoint file.\n",kblocks);
+				mlucas_fprint(cbuf,1);
 				NERR_ROE++;
 				USE_SHORT_CY_CHAIN = 0;
 				ROE_ITER = 0;
@@ -1897,12 +2003,13 @@ READ_RESTART_FILE:
 
 		// In non-interactive (production-run) mode, write savefiles and exit gracefully on signal:
 		if(ierr == ERR_INTERRUPT) {
-			fp = mlucas_fopen(STATFILE,"a");
-			if(fp){ fprintf(fp,"%s",cbuf); }	// First print the signal-handler-generated message
+			// First print the signal-handler-generated message:
+			mlucas_fprint(cbuf,1);
 			ihi = ROE_ITER;	// Last-iteration-completed-before-interrupt saved here
-			fprintf(stderr,"Iter = %u: Writing savefiles and exiting.\n",ihi);
-			sprintf(cbuf  ,"Iter = %u: Writing savefiles and exiting.\n",ihi);
-			if(fp){	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;	}
+		/*** Nov 2021: interrupt-handling still not stable ... runs that have been underway for a day or more refuse to quit. Just clean-exit w/o savefile write for now: ***/
+		//	sprintf(cbuf,"Iter = %u: Writing savefiles and exiting.\n",ihi);
+			sprintf(cbuf,"Exiting at Iter = %u.\n",ihi); mlucas_fprint(cbuf,1);
+			exit(1);
 		}
 
 		/*...Done?	*/
@@ -1918,9 +2025,7 @@ READ_RESTART_FILE:
 				, timebuffer, PSTRING, iter_or_stage[TEST_TYPE == TEST_TYPE_PM1], ihi, (float)ihi / (float)maxiter * 100,get_time_str(tdiff)
 				, 1000*get_time(tdiff)/(ihi - ilo), Res64, AME, MME, RES_SHIFT);
 
-			fp = mlucas_fopen(STATFILE,"a");	  if(fp){	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;	}
-			if (scrnFlag)
-				fprintf(stderr,"%s",cbuf);	/* Echo output to stddev */
+			mlucas_fprint(cbuf,scrnFlag);
 		}
 
 		// Do not save a final residue unless p-1 or cofactor-PRP mode (but this leaves the penultimate residue file intact):
@@ -1928,7 +2033,7 @@ READ_RESTART_FILE:
 
 		/* If Mersenne/PRP or Fermat test, do Gerbicz-check every million squarings. Make sure current run has done at least
 		one intermediate G-checkproduct update. How do we know that current iter-interval (ilo,ihi] contains such an update?
-		(That is, a multiple of ITERS_BETWEEN_GCHECK_UPDATES): Test if (ihi % ITERS_BETWEEN_GCHECK_UPDATES > ilo):
+		(That is, a multiple of ITERS_BETWEEN_GCHECK_UPDATES): Set j =  ITERS_BETWEEN_GCHECK_UPDATES, test if ihi/j > ilo/j.
 		Examples, all using ITERS_BETWEEN_GCHECK_UPDATES = 1000:
 		o ilo = 0, ihi = 1000: integer divide gives ilo/1000 = 0, ihi/1000 = 1 difference > 0, thus contains an update
 		o ilo = 1000, ihi = 1507: ilo/1000 = 1, ihi/1000 = 1 difference = 0, thus !contains an update
@@ -1937,19 +2042,25 @@ READ_RESTART_FILE:
 		if(MLUCAS_KEEP_RUNNING && DO_GCHECK && (ilo/j < ihi/j) && (ihi % i) == 0)
 		{
 			// Un-updated copy of the checkproduct saved in [d]; square that ITERS_BETWEEN_GCHECK_UPDATES times...
-			// [d] !need fwd-weighting and initial-fwd-FFT-pass done on entry but undone on exit: mode_flag = 01_2:
-			mode_flag = 1;
+			/*
+			Mar 2022: User hit assertion-exit below ... had set CheckInterval = 1000 = ITERS_BETWEEN_GCHECK_UPDATES,
+			smallest allowable value, in his mlucas.ini ... that means the iter-interval between 999-1000k, leading
+			up to first G-check, had both first_sub - last_sub = 1.
+			My original version of the mode_flag setting below implicitly assumed first_sub = 0, last_sub = 1.
+			*/
+			// Last subinterval always TRUE at this point, i.e. [d] needs fwd-weighting and initial-fwd-FFT-pass undone on exit: mode_flag = 0*_2
+			// If First subinterval also TRUE, [d] needs fwd-weighting and initial-fwd-FFT-pass done on entry: mode_flag = 00_2.
+			/* Note: Interrupt during this step should not be a problem, the handling code in func_mod_square will complete the FFT-mul
+			step and force the undo-initial-FFT-pass-and-DWT-weighting step, leaving a pure-int G-check residue ready for savefile-writing: */
+			mode_flag = 1 - first_sub;
 			ierr = func_mod_square  (d,0x0, n, ihi,ihi+ITERS_BETWEEN_GCHECK_UPDATES, (uint64)mode_flag, p, scrnFlag, &tdiff, FALSE, 0x0);
 			if(ierr) {
 				if(ierr == ERR_INTERRUPT) {
 					fprintf(stderr,"Caught interrupt in Gerbicz-checkproduct mod-squaring update ... skipping G-check and savefile-update and performing immediate-exit.\n");
-					exit(0);
+					exit(1);
 				} else {
-					returnMlucasErrCode(ierr,cstr);
-					snprintf_nowarn(cbuf,STR_MAX_LEN,"Unhandled Error of type %s in Gerbicz-checkproduct mod-squaring update - please send e-mail to ewmayer@aol.com with copy of the p*.stat file attached. Proceeding to next assignment...\n",cstr);
-					fp = mlucas_fopen(   OFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
-					fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
-					ASSERT(HERE,0,cbuf);
+					snprintf_nowarn(cbuf,STR_MAX_LEN,"Unhandled Error of type[%u] = %s in Gerbicz-checkproduct mod-squaring update - please send e-mail to ewmayer@aol.com with copy of the p*.stat file attached. Proceeding to next assignment...\n",ierr,returnMlucasErrCode(ierr));
+					mlucas_fprint(cbuf,0); ASSERT(HERE,0,cbuf);
 				//	goto GET_NEXT_ASSIGNMENT;
 				}
 			}
@@ -1993,7 +2104,7 @@ READ_RESTART_FILE:
 			ASSERT(HERE, mi64_cmpult(c_uint64_ptr,d_uint64_ptr,j), "Gerbicz checkproduct reduction (mod 2^p-1) failed!");
 			if(mi64_cmp_eq(e_uint64_ptr,c_uint64_ptr,j)) {
 				sprintf(cbuf,"At iteration %u, shift = %llu: Gerbicz check passed.\n",ihi,RES_SHIFT);
-				fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
+				mlucas_fprint(cbuf,0);
 				// In G-check case we need b[] for that, thus skipped the d = b redundancy-copy ... do that now:
 				memcpy(d, b, nbytes);
 				s1 = sum64(b_uint64_ptr, n); s2 = s3 = s1;	// Init triply-redundant checksum of G-checkproduct
@@ -2001,7 +2112,7 @@ READ_RESTART_FILE:
 				i = mi64_shlc_bits_align(e_uint64_ptr,c_uint64_ptr,p);
 				if(i != -1) {
 					sprintf(cbuf,"Gerbicz check passes if D *= 2^%u (mod 2^p-1)\n",i);
-					fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
+					mlucas_fprint(cbuf,0);
 					// In G-check case we need b[] for that, thus skipped the d = b redundancy-copy ... do that now:
 					memcpy(d, b, nbytes);
 					s1 = sum64(b_uint64_ptr, n); s2 = s3 = s1;	// Init triply-redundant checksum of G-checkproduct
@@ -2010,7 +2121,7 @@ READ_RESTART_FILE:
 						sprintf(cbuf,"Gerbicz check iteration %u failed! Restarting from scratch.\n",ihi);
 					else
 						sprintf(cbuf,"Gerbicz check iteration %u failed! Restarting from last-good-Gerbicz-check data.\n",ihi);
-					fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
+					mlucas_fprint(cbuf,0);
 					ierr = ERR_GERBICZ_CHECK;
 					NERR_GCHECK++;
 					goto READ_RESTART_FILE;
@@ -2044,7 +2155,7 @@ READ_RESTART_FILE:
 		fp = mlucas_fopen(RESTARTFILE, "wb");
 		if(fp) {		// In the non-PRP-test case, write_ppm1_savefiles() treats the latter 4 args as null:
 			write_ppm1_savefiles(RESTARTFILE,p,n,fp, itmp64, (uint8*)arrtmp,Res64,Res35m1,Res36m1, (uint8*)e_uint64_ptr,i1,i2,i3);
-			fclose(fp);	fp = 0x0;
+			fclose(fp); fp = 0x0;
 			/* If we're on the primary restart file, set up for secondary: */
 			if(RESTARTFILE[0] != 'q') {
 				RESTARTFILE[0] = 'q';	goto WRITE_RESTART_FILE;
@@ -2053,9 +2164,7 @@ READ_RESTART_FILE:
 			}
 		} else {
 			snprintf_nowarn(cbuf,STR_MAX_LEN, "ERROR: unable to open restart file %s for write of checkpoint data.\n",RESTARTFILE);
-										        fprintf(stderr,"%s",cbuf);
-			fp = mlucas_fopen(   OFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
-			fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
+			mlucas_fprint(cbuf,1);
 			/*
 			Don't want to assert here - asllow processing to continue, in case this is a transient failure-to-open.
 			e.g. due to a backup utility having temporarily locked the savefile, or an out-of-disk-space problem.
@@ -2072,12 +2181,10 @@ READ_RESTART_FILE:
 				fp = mlucas_fopen(cstr, "wb");
 				if(fp) {
 					write_ppm1_savefiles(cstr,p,n,fp, itmp64, (uint8*)arrtmp,Res64,Res35m1,Res36m1, (uint8*)e_uint64_ptr,i1,i2,i3);
-					fclose(fp);	fp = 0x0;
+					fclose(fp); fp = 0x0;
 				} else {
 					snprintf_nowarn(cbuf,STR_MAX_LEN, "ERROR: unable to open Gerbicz-check savefile %s for write of checkpoint data.\n",cstr);
-														fprintf(stderr,"%s",cbuf);
-					fp = mlucas_fopen(   OFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
-					fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
+					mlucas_fprint(cbuf,1);
 				}
 			}	// ihi a multiple of ITERS_BETWEEN_GCHECKS?
 		}
@@ -2087,9 +2194,15 @@ READ_RESTART_FILE:
 		// For Fermats and cofactor-PRP tests of either modulus type, exit only after writing final-residue checkpoint file:
 		if( ihi == maxiter ) break;
 
-		if(kblocks > get_default_fft_length(p) && kblocks > fft_length && NERR_ROE <= (ihi>>19)) {
-			// If FFTlen was pvsly auto-increased due to ROE but latest interval clean and err-freq sufficiently low, revert
-			// FFTlen to default. 2nd clause in the above if() guards against doing this if the user has forced the larger FFT.
+		if((TEST_TYPE == TEST_TYPE_PRIMALITY || TEST_TYPE == TEST_TYPE_PRP) && p > (1ull << 32) && ihi >= MAX_SELFTEST_ITERS) {
+			fprintf(stderr,"Full-length LL/PRP tests on exponents this large not supported; exiting at self-test limit of %u.\n",MAX_SELFTEST_ITERS);
+			exit(0);
+		}
+
+	  #if USE_FFTLEN_REVERSION
+		// If FFTlen was pvsly auto-increased due to ROE but latest interval clean and err-freq sufficiently low, revert
+		// FFTlen to default. 2nd clause in the if() guards against doing this if the user has forced the larger FFT:
+		if(kblocks > get_default_fft_length(p) && kblocks > fft_length && (NERR_ROE<<6)*ITERS_BETWEEN_CHECKPOINTS <= ihi) {
 			kblocks = get_default_fft_length(p);	// Default FFT length in Kdoubles for this exponent
 			if(n > (kblocks << 10))		// We are already running at a larger-than-default FFT length
 				n = kblocks << 10;
@@ -2099,7 +2212,7 @@ READ_RESTART_FILE:
 			NRADICES = 0;
 			goto SETUP_FFT;
 		}
-
+	  #endif
 		/*...reset loop parameters and begin next iteration cycle...	*/
 		ilo = ihi;
 		ihi = ilo+ITERS_BETWEEN_CHECKPOINTS;
@@ -2322,6 +2435,9 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 		  // [1]:
 			mi64_div(arrtmp, &itmp64, j,1, 0x0,&rmodb);	// Omit quotient computation; remainder r" in rmodb
 			mmodb = twopmmodq64(p,itmp64);				// m"
+			// In the most common case PRP_BASE = 3, use that 2^6 == 1 (mod 9), thus 2^p == 2^(p mod 6) (mod 9)
+			if(PRP_BASE == 3)
+				ASSERT(HERE, mmodb == (1ull<<(p % 6)) % 9,"2^p == 2^(p mod 6) (mod 9) fails!");
 			// mmodb = (2^p-1) % base ... for reasons unknown, the macro MOD_SUB64 was not inlined properly under gdb
 			if(mmodb)
 				mmodb--;
@@ -2375,10 +2491,14 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 		// v19: Add basic JSON-formatted result report for M-number tests:
 		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
 			// UTC is for the result as submitted to the server:
+			calendar_time = time(NULL);
 			gm_time = gmtime(&calendar_time);
+			if(!gm_time)	// If UTC not available for some reason, just substitute the local time:
+				gm_time = localtime(&calendar_time);
 			// Want 'UTC' instead of 'GMT', so include that in lieu of the %Z format specifier
 			strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S UTC",gm_time);
-			generate_JSON_report(isprime,p,n,Res64,timebuffer, 0,0ull,0x0, cstr);	// Trio of p-1 fields all 0; cstr holds the formatted output line here
+			// Trio of p-1 fields all 0; cstr holds the formatted output line here:
+			generate_JSON_report(isprime,p,n,Res64,timebuffer, 0,0ull,0x0,s2_partial, cstr);
 		}
 
 		/*...Unbelievable - I must be hallucinating.	*/
@@ -2387,9 +2507,7 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 			{
 				/*... this gets written both to file and to stdout, the latter irrespective of whether the run is in interactive mode...	*/
 				snprintf_nowarn(cbuf,STR_MAX_LEN, "%s is a new FERMAT PRIME!!!\nPlease send e-mail to ewmayer@aol.com.\n",PSTRING);
-											        fprintf(stderr,"%s",cbuf);
-				fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0; }
-				fp = mlucas_fopen(   OFILE,"a");	if(fp){ fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0; }
+				mlucas_fprint(cbuf,1);
 			}
 			else if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)
 			{
@@ -2398,23 +2516,13 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 					if(p == knowns[i]) { break; }
 				}
 
-				if(knowns[i] != 0)
-				{
+				if(knowns[i] != 0) {
 					snprintf_nowarn(cbuf,STR_MAX_LEN, "%s is a known MERSENNE PRIME.\n",PSTRING);
-
-					if(INTERACT || scrnFlag)	/* Echo output to stddev */
-						fprintf(stderr,"%s",cbuf);
-					else
-					{
-						fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(fp,"%s",cbuf);	fprintf(fp,"\n%s",cstr);	fclose(fp);	fp = 0x0; }
-						fp = mlucas_fopen(   OFILE,"a");	if(fp){ fprintf(fp,"%s",cbuf);	fprintf(fp,"\n%s",cstr);	fclose(fp);	fp = 0x0; }
-					}
+					mlucas_fprint(cbuf,(INTERACT || scrnFlag));	// Latter clause == "Echo output to stderr?"
 				} else {
-					/*... this gets written both to file and to stdout, the latter irrespective of whether the run is in interactive mode...	*/
+					// This gets written both to file and to stderr, the latter irrespective of whether the run is in interactive mode:
 					snprintf_nowarn(cbuf,STR_MAX_LEN, "%s is a (probable) new MERSENNE PRIME!!!\nPlease send e-mail to ewmayer@aol.com and woltman@alum.mit.edu.\n",PSTRING);
-												fprintf(stderr,"%s",cbuf);
-					fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(fp,"%s",cbuf);	fprintf(fp,"\n%s",cstr);	fclose(fp);	fp = 0x0; }
-					fp = mlucas_fopen(   OFILE,"a");	if(fp){ fprintf(fp,"%s",cbuf);	fprintf(fp,"\n%s",cstr);	fclose(fp);	fp = 0x0; }
+					mlucas_fprint(cbuf,1);
 				}
 			}
 			else
@@ -2427,130 +2535,240 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 		else {
 			// Otherwise, write the 64-bit hex residue. As of v19, we write the old-style HRF-formatted result
 			// just to the exponent-specific logfile, and the server-expected JSON-formatted result to the results file:
-			fp = mlucas_fopen(STATFILE,"a");
-			if(fp) {
-				snprintf_nowarn(cbuf,STR_MAX_LEN, "%s is not prime. Res64: %016llX. Program: E%s. Final residue shift count = %llu\n",PSTRING,Res64,VERSION,RES_SHIFT);
-				fprintf(fp,"%s",cbuf);
-				// Also write the 3 supplemental SH residues to the .stat file:
-				if(!INTERACT) {
-					snprintf_nowarn(cbuf,STR_MAX_LEN, "%s mod 2^35 - 1 = %20.0f\n",PSTRING,(double)Res35m1);
-					if(fp){ fprintf(fp,"%s",cbuf); }
-					snprintf_nowarn(cbuf,STR_MAX_LEN, "%s mod 2^36 - 1 = %20.0f\n",PSTRING,(double)Res36m1);
-					if(fp){ fprintf(fp,"%s",cbuf); }
-				}
-				fclose(fp);	fp = 0x0;
-			}
+			snprintf_nowarn(cbuf,STR_MAX_LEN, "%s is not prime. Program: E%s. Final residue shift count = %llu.\nIf using the manual results submission form at mersenne.org, paste the following JSON-formatted results line:\n%s\n",PSTRING,VERSION,RES_SHIFT,cstr);
+			mlucas_fprint(cbuf,1);
 			// v19: Finish with the JSON-formatted result line:
 			fp = mlucas_fopen(OFILE,"a");
-			if(fp){ fprintf(fp,"\n%s",cstr);	fclose(fp);	fp = 0x0; }
+			if(fp) {
+				fprintf(fp,"\n%s",cstr); fclose(fp); fp = 0x0;
+			}
 		}
 	} else if(TEST_TYPE == TEST_TYPE_PM1) {
-		// If just completed S1, do a GCD. ihi == maxiter true of both just-completed S1 and completed-S1 residue read from savefile,
+		// If just completed S1, do a GCD. (ihi == maxiter) is true of both just-completed S1 and completed-S1 residue read from savefile,
 		// but in the latter case set ilo == ihi to differentiate between the two. ***6/22/21: BUT! If run halted mid-GCD, on restart
-		// will have ilo == ihi ... supplement with what amounts to 'grep Stage STATFILE', if found, then GCD completed:
-		if( ilo < ihi || !filegrep(STATFILE,"Stage"))
+		// will have ilo == ihi ... supplement with what amounts to 'grep GCD [STATFILE]', if found, then GCD completed:
+		if( ilo < ihi || !filegrep(STATFILE,"GCD",cbuf,0))
 		{	// j = #limbs; clear high limb before filling arrtmp[0:j-1] with bytewise residue just to be sure:
 			j = (p+63+(MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6; arrtmp[j-1] = 0ull;
 			convert_res_FP_bytewise(a,(uint8*)arrtmp,n,p,0x0,0x0,0x0);
 			arrtmp[0] -= 1;	// S1 GCD needs residue-1
-			i = gcd(1,p,arrtmp,j,gcd_str);	// 1st arg = stage just completed
+			i = gcd(1,p,arrtmp,0x0,j,gcd_str);	// 1st arg = stage just completed
 			// If factor found, gcd() will have done needed status-file-writes:
 			if(i || B2 <= B1) {	// Need to also account for the possibility of no-stage-2, in which case B2 <= B1
 				// Write JSON output and go to next assignment:
 				B2_start = B2 = 0ull;	// Need JSON output to reflect that no S2 was run
+				calendar_time = time(NULL);
 				gm_time = gmtime(&calendar_time);
+				if(!gm_time)	// If UTC not available for some reason, just substitute the local time:
+					gm_time = localtime(&calendar_time);
 				strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S UTC",gm_time);
-				generate_JSON_report(0,p,n,0ull,timebuffer, B1,B2,gcd_str, cstr);	// cstr holds JSONified output
+				generate_JSON_report(0,p,n,0ull,timebuffer, B1,B2,gcd_str,s2_partial, cstr);	// cstr holds JSONified output
+				snprintf_nowarn(cbuf,STR_MAX_LEN, "If using the manual results submission form at mersenne.org, paste the following JSON-formatted results line:\n%s\n",cstr);
+				mlucas_fprint(cbuf,0);
 				fp = mlucas_fopen(OFILE,"a");
-				if(fp){ fprintf(fp,"\n%s",cstr);	fclose(fp);	fp = 0x0; }
+				if(fp) {
+					fprintf(fp,"\n%s",cstr); fclose(fp); fp = 0x0;
+				}
 			}
 		}
-	  #ifndef USE_LOWMEM	// Huge-FFT runs on low-mem systems only allow Stage 1
-		// Stage 2: set #buffers based on available system RAM
-		if(B2_start < B2) {
-			// Must clear BASE_MULTIPLIER_BITS in prep for S2:
-			j = ((ITERS_BETWEEN_CHECKPOINTS+63) >> 6);
-			for(i = 0; i < j; i++) {
-				BASE_MULTIPLIER_BITS[i] = 0ull;
+		// Huge-FFT runs on low-mem systems only allow Stage 1:
+		if(!use_lowmem) {
+			// Stage 2: set #buffers based on available system RAM
+			if(B2_start < B2) {
+				// Must clear BASE_MULTIPLIER_BITS in prep for S2:
+				j = ((ITERS_BETWEEN_CHECKPOINTS+63) >> 6);
+				for(i = 0; i < j; i++) {
+					BASE_MULTIPLIER_BITS[i] = 0ull;
+				}
+				// If user did not preset via -pm1_s2_nbuf, set PM1_S2_NBUF based on available RAM.
+				// n doubles need n/2^17 MB; use KB and double-math for the intermediates here:
+				j = SYSTEM_RAM*(double)MAX_RAM_USE*0.01;
+				if(!PM1_S2_NBUF) {
+				#ifdef OS_TYPE_LINUX
+					printf("INFO: %u MB of free system RAM detected; will use up to %u%% = %u MB of that for p-1 stage 2.\n",SYSTEM_RAM,MAX_RAM_USE,j);
+				#else
+					printf("INFO: %u MB of available system RAM detected; will use up to %u%% = %u MB of that for p-1 stage 2.\n",SYSTEM_RAM,MAX_RAM_USE,j);
+				#endif
+					// Assume 5 of those n-double chunks are already used for Stage 1 residue and other stuff
+					PM1_S2_NBUF = (uint32)(j*1024./(n>>7)) - 5;
+					fprintf(stderr,"Available memory allows up to %u Stage 2 residue-sized memory buffers.\n",PM1_S2_NBUF);
+				} else {
+					fprintf(stderr,"User specified a maximum of %u Stage 2 residue-sized memory buffers.\n",PM1_S2_NBUF);
+					if( PM1_S2_NBUF > ((uint32)(j*1024./(n>>7)) - 5) )
+						fprintf(stderr,"WARNING: User-specified maximum number of Stage 2 buffers may exceed %u MB of available RAM.\n",j);
+				}
+				ASSERT(HERE, PM1_S2_NBUF >= 24,"p-1 Stage 2 requires at least 24 residue-sized memory buffers!\n");
+				// See if S2 restart file exists:
+				strcpy(cstr,RESTARTFILE); cstr[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f'); strcat(cstr, ".s2");
+				// If a regular (non-continuation, i.e. B2_start = B1) stage 2 and S2 restart file exists, read
+				// bounds and bigstep D from logfile to infer relocation-prime psmall from D and seed the call to
+				// pm1_bigstep_size() with that to ensure our restart-run bigstep shares the same relocation-prime:
+				if(!s2_continuation) {
+					fp = mlucas_fopen(cstr,"rb");
+					if(fp) {
+						// This snip reads the relocation-prime from the high byte of the nsquares field, byte 10 of the S2 savefile:
+						i = fgetc(fp);
+						if(!test_types_compatible(i, TEST_TYPE)) {
+							snprintf_nowarn(cbuf,STR_MAX_LEN, "%s: TEST_TYPE != fgetc(fp)\n",cstr); ASSERT(HERE,0,cbuf);
+						}
+						if((i = fgetc(fp)) != MODULUS_TYPE) {
+							snprintf_nowarn(cbuf,STR_MAX_LEN, "ERROR: %s: MODULUS_TYPE != fgetc(fp)\n",cstr); ASSERT(HERE,0,cbuf);
+						}
+						itmp64 = 0ull; 	for(j = 0; j < 8; j++) { i = fgetc(fp);	itmp64 += (uint64)i << (8*j); }
+						fclose(fp); fp = 0x0;
+						if(i != EOF)	// Needed to handle case where .s2 file was touched but ended up empty or < 10 bytes long
+							psmall = i;
+						itmp64 &= 0x00FFFFFFFFFFFFFFull;	// Mask off psmall to get stage 2 q of checkpoint data
+						fprintf(stderr,"Read iter = %llu and relocation-prime psmall = %u from savefile %s.\n",itmp64,psmall,cstr);
+						// Now parse logfile to get proper B2 and validate corresponding B2_start vs B2/[psmall from .s2 file].
+						// Logfiles can be messy and include one or more aborted-restarts; we want the last B2_start-containing
+						// entry followed by a savefile-write entry, as inferred from presence of a "% complete" substring:
+						j = filegrep(STATFILE,"% complete",cbuf,-1);	// Trailing -1 means return last such match, if any, in cbuf
+						filegrep(STATFILE,"B2_start = ",cbuf,j);	// Trailing j-arg means return last such match before line j, if any, in cbuf
+						// If match "B2_start =", read bigstep D from match-line and infer relocation-prime psmall from D:
+						if(strlen(cbuf)) {
+							char_addr = strstr(cbuf,"B2_start = ");
+							B2_start = (uint64)strtoull(char_addr+11, &cptr, 10);	ASSERT(HERE, B2_start != -1ull, "strtoull() overflow detected.");
+							char_addr = strstr(cbuf,"B2 = ");
+							B2 = (uint64)strtoull(char_addr+5, &cptr, 10);	ASSERT(HERE, B2 != -1ull, "strtoull() overflow detected.");
+							char_addr = strstr(cbuf,"Bigstep = ");
+							if(char_addr) {
+								i = strtoul(char_addr+10, &endp, 10);
+								if((i%210) == 0)
+									i = 11;
+								else if((i%330) == 0)
+									i = 7;
+								else {
+									fprintf(stderr,"WARNING: Bigstep value %u read from logfile %s unsupported ... ignoring.\n",i,cstr);
+									i = 0;
+								}
+							}
+							// Now compare the params from the restartfile vs those captured in the log:
+							if(psmall)
+								ASSERT(HERE, psmall == i && B2_start == B2/psmall, "Stage 2 params mismatch those captured in the .stat logfile!");
+							else
+								psmall = i;
+							// If stage 2 q of checkpoint >= B2, proceed directly to GCD:
+							if(itmp64 >= B2)
+								goto PM1_STAGE2_GCD;
+							// Lastly, must reset B2_start = B1, since stage 2 code expects that to properly (re)init relocation-params:
+							B2_start = B1;
+						}
+					}
+				}
+				// Now feed any relocation-prime value (psmall, stored in i here) to the pm1_bigstep_size() call, which resets
+				// PM1_S2_NBUF to the largest S2 buffer count <= (input PM1_S2_NBUF value) which is also compatible with psmall:
+				pm1_bigstep_size(&PM1_S2_NBUF, &pm1_bigstep, &pm1_stage2_mem_multiple, psmall);
+				fprintf(stderr,"Using %u Stage 2 memory buffers, D = %u, M = %u, psmall = %u.\n",PM1_S2_NBUF,pm1_bigstep,pm1_stage2_mem_multiple,psmall);
+				double*mult[4] = {b,c,d,e};	// Pointers to scratch storage in form of 4 residue-length subarrays
+				ierr = pm1_stage2(p, pm1_bigstep, pm1_stage2_mem_multiple,
+					a,mult,arrtmp,	// Pointers stage 1 residue in a[], double** scratch storage 4-vector mult[], arrtmp
+					func_mod_square, n, scrnFlag, &tdiff, gcd_str);
+				if(ierr && (ierr % ERR_ROUNDOFF) == 0) {	// Workaround for pthreaded-run issue where a single ROE sometimes shows up as an integer multiple of ERR_ROUNDOFF
+					n = get_nextlarger_fft_length(n);	kblocks = (n >> 10);
+					// Clear out current FFT-radix data, since get_preferred_fft_radix() expects that:
+					for(i = 0; i < NRADICES; i++) { RADIX_VEC[i] = 0; }		NRADICES = 0;
+					goto SETUP_FFT;
+				} else if(ierr == ERR_INTERRUPT) {
+					// First print the signal-handler-generated message:
+					mlucas_fprint(cbuf,1);
+					exit(1);
+				} else if(ierr) {
+					sprintf(cbuf,"p-1 stage 2 hit an unhandled error of type[%u] = %s! Aborting.",ierr,returnMlucasErrCode(ierr));
+					ASSERT(HERE,0,cbuf);
+				}
+				// If gcd_str non-empty on return, it means one of the intermediate S2 GCDs turned up a factor,
+				// prompting an early-return, In this case the S2 code will have reset B2 to reflect the actual interval run.
+				// Otherwise do end-of-scheduled-S2 GCD - S2 residue returned in arrtmp, no need to call convert_res_FP_bytewise():
+			PM1_STAGE2_GCD:
+				if(strlen(gcd_str)) {
+					s2_partial = TRUE;	// Clue the JSON-generating function to partial-s2-ness
+				} else {
+					j = (p+63+(MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6;
+					i = gcd(2,p,arrtmp,0x0,j,gcd_str);	// 1st arg = stage just completed
+				}
+				// If factor found, gcd() will have done needed status-file-writes; unlike S1, leave B2 as-is, need it for the JSON output.
+				// Write JSON output and go to next assignment:
+				calendar_time = time(NULL);
+				gm_time = gmtime(&calendar_time);
+				if(!gm_time)	// If UTC not available for some reason, just substitute the local time:
+					gm_time = localtime(&calendar_time);
+				strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S UTC",gm_time);
+				generate_JSON_report(0,p,n,0ull,timebuffer, B1,B2,gcd_str,s2_partial, cstr);	// cstr holds JSONified output
+				snprintf_nowarn(cbuf,STR_MAX_LEN, "If using the manual results submission form at mersenne.org, paste the following JSON-formatted results line:\n%s\n",cstr);
+				mlucas_fprint(cbuf,0);
+				fp = mlucas_fopen(OFILE,"a");
+				if(fp){
+					fprintf(fp,"\n%s",cstr); fclose(fp); fp = 0x0;
+				}
 			}
-			// If user did not preset via -pm1_s2_nbuf, set PM1_S2_NBUF based on available RAM.
-			// n doubles need n/2^17 MB; use KB and double-math for the intermediates here:
-			j = SYSTEM_RAM*(double)MAX_RAM_USE*0.01;
-			if(!PM1_S2_NBUF) {
-			#ifdef OS_TYPE_LINUX
-				printf("INFO: %u MB of free system RAM detected; will use up to %u%% = %u MB of that for p-1 stage 2.\n",SYSTEM_RAM,MAX_RAM_USE,j);
-			#else
-				printf("INFO: %u MB of available system RAM detected; will use up to %u%% = %u MB of that for p-1 stage 2.\n",SYSTEM_RAM,MAX_RAM_USE,j);
-			#endif
-				// Assume 5 of those n-double chunks are already used for Stage 1 residue and other stuff
-				PM1_S2_NBUF = (uint32)(j*1024./(n>>7)) - 5;
-				fprintf(stderr,"Available memory allows up to %u Stage 2 residue-sized memory buffers.\n",PM1_S2_NBUF);
-			} else {
-				fprintf(stderr,"User specified a maximum of %u Stage 2 residue-sized memory buffers.\n",PM1_S2_NBUF);
-				if( PM1_S2_NBUF > ((uint32)(j*1024./(n>>7)) - 5) )
-					fprintf(stderr,"WARNING: User-specified maximum number of Stage 2 buffers may exceed %u MB of available RAM.\n",j);
-			}
-			ASSERT(HERE, PM1_S2_NBUF >= 24,"p-1 Stage 2 requires at least 24 residue-sized memory buffers!\n");
-			uint32 pm1_bigstep = 0, pm1_stage2_mem_multiple = 0;
-			// If S2 restart file exists, read high byte of nsquares field, which stores value of
-			// any relocation-prime used for stage 2), and seed the call to pm1_bigstep_size()
-			// with that to ensure our restart-run bigstep shares the same relocation-prime:
-			strcpy(cstr,RESTARTFILE); cstr[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f'); strcat(cstr, ".s2");
-			uint32 psmall = 0;
-			fp = mlucas_fopen(cstr,"rb");
-			if(fp) {
-				// If S2 savefile exists, any relocation-prime will have been written into the high byte of the
-				// nsquares field, byte 10 of the file. If S2 started and touched the savefile but was aborted prior
-				// to the first S2 interim-checkpoint, said byte will have been written to, but with a 0:
-				for(j = 0; j < 10; j++) { i = fgetc(fp); }
-				fclose(fp); fp = 0x0;
-				if(i != EOF)	// Needed to handle case where .s2 file was touched but ended up empty or < 10 bytes long
-					psmall = i;
-			}
-			// Now feed any relocation-prime value (psmall, stored in i here) to the pm1_bigstep_size() call, which resets
-			// PM1_S2_NBUF to the largest S2 buffer count <= (input PM1_S2_NBUF value) which is also compatible with psmall:
-			pm1_bigstep_size(&PM1_S2_NBUF, &pm1_bigstep, &pm1_stage2_mem_multiple, psmall);
-			fprintf(stderr,"Using %u Stage 2 memory buffers.\n",PM1_S2_NBUF);
-			double*mult[4] = {b,c,d,e};	// Pointers to scratch storage in form of 4 residue-length subarrays
-			int pm1_fail = pm1_stage2(p, pm1_bigstep, pm1_stage2_mem_multiple,
-				a,mult,arrtmp,	// Pointers stage 1 residue in a[], double** scratch storage 4-vector mult[], arrtmp
-				func_mod_square, n, scrnFlag, &tdiff, gcd_str);
-			if(pm1_fail == ERR_ROUNDOFF) {
-				n = get_nextlarger_fft_length(n);	kblocks = (n >> 10);
-				// Clear out current FFT-radix data, since get_preferred_fft_radix() expects that:
-				for(i = 0; i < NRADICES; i++) { RADIX_VEC[i] = 0; }		NRADICES = 0;
-				goto SETUP_FFT;
-			} else if(pm1_fail) {
-				sprintf(cbuf,"p-1 stage 2 hit an unhandled error of type = %u! Aborting.",ierr); ASSERT(HERE,0,cbuf);
-			}
-			// If gcd_str non-empty on return, it means one of the intermediate S2 GCDs turned up a factor,
-			// prompting an early-return (In this case the S2 code will have reset B2 to reflect the actual interval run);
-			// otherwise do end-of-scheduled-S2 GCD - S2 residue returned in arrtmp, no need to call convert_res_FP_bytewise():
-			if(!strlen(gcd_str)) {
-				j = (p+63+(MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6;
-				i = gcd(2,p,arrtmp,j,gcd_str);	// 1st arg = stage just completed
-			}
-			// If factor found, gcd() will have done needed status-file-writes; unlike S1, leave B2 as-is, need it for the JSON output.
-			// Write JSON output and go to next assignment:
-			gm_time = gmtime(&calendar_time);
-			strftime(timebuffer,SIZE,"%Y-%m-%d %H:%M:%S UTC",gm_time);
-			generate_JSON_report(0,p,n,0ull,timebuffer, B1,B2,gcd_str, cstr);	// cstr holds JSONified output
-			fp = mlucas_fopen(OFILE,"a");
-			if(fp){ fprintf(fp,"\n%s",cstr);	fclose(fp);	fp = 0x0; }
+		} else {
+			fprintf(stderr,"User specified low-mem run mode ... no stage 2.\n");
 		}
-	  #else
-		exit(0);	// Stage-1-only builds on low-mem systems exit here
-	  #endif	// USE_LOWMEM?
 	} else {
 		ASSERT(HERE, 0, "Unrecognized test type!");
 	}	/* endif(TEST_TYPE == TEST_TYPE_PRIMALITY) */
 
 	/*...If successful completion, delete the secondary restart files...save the primary in case it's a prime,
-	so we can re-run the last p%2000 iterations by way of quick partial verification:
+	so we can re-run the last (p % ITERS_BETWEEN_CHECKPOINTS) iterations by way of quick partial verification: */
+	/* v20.1: If not an assignment-to-split and just-completed test was a regular (non-stage-2-continuation) p-1
+	run, rename the primary savefile add a ".s1" to the name so as to not collide with any ensuing LL/PRP test.
+	***BUT:*** If our restart ended up being from the secondary q-savefile due to a missing/corrupted p-savefile,
+	we want to rename *that* one to [p|f][expo].s1.
+		And in fact we have a similar scenario for LL/PRP tests - we want to preserve 1 copy of final savefile
+	in case we need to rerun-last-few-thousand iters for an alleged prime discovery, so fiddle logic for both cases.
 	*/
+	// Start with the primary savefile, loop over both, if needed
+	RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
+	if(TEST_TYPE == TEST_TYPE_PM1) {
+		/*
+		Dec 2021: If just-completed p-1 run, delete any .s2 savefile created during stage 2, in case user wants to do
+		one or more stage 2 continuation runs. Using the s2 residue instead of the s1 should be OK in such cases, but
+		it offers no advantage in terms of covering the s2 primes, and if the s2 residue was somehow silently corrupted,
+		re-using it would kibosh subsequent stage 2 continuation runs. Safer to start with s1 residue for those:
+		*/
+		strcpy(cstr, RESTARTFILE); strcat(cstr, ".s2");
+		if(remove(cstr)) {
+			snprintf_nowarn(cbuf,STR_MAX_LEN,"INFO: Unable to remove stage 2 savefile %s.\n",cstr);
+			mlucas_fprint(cbuf,1);
+		}
+		if(!s2_continuation) {
+			strcpy(cstr, RESTARTFILE); strcat(cstr, ".s1");	// cstr = [p|f][expo].s1
+		}
+	} else if(TEST_TYPE == TEST_TYPE_PRIMALITY || TEST_TYPE == TEST_TYPE_PRP) {
+		strcpy(cstr, RESTARTFILE); cstr[0] = 'q';		// cstr = q[expo]
+	}
+	for(ierr = 0; ; RESTARTFILE[0] = 'q') {	// Start with the p-savefile, inrement to q-savefile on looping
+		if(restart_file_valid(RESTARTFILE, p, (uint8*)arrtmp, (uint8*)e_uint64_ptr)) {
+			// If end of a regular (non-s2-continuation) p-1 run and primary good, rename it from [p|f][expo] ==> [p|f][expo].s1;
+			// if primary missing/corrupt, rename secondary q[expo] ==> [p|f][expo].s1:
+			if(TEST_TYPE == TEST_TYPE_PM1 && !s2_continuation) {
+				if(rename(RESTARTFILE, cstr)) {
+					snprintf_nowarn(cbuf,STR_MAX_LEN,"ERROR: unable to rename the p-1 stage 1 savefile %s ==> %s ... any ensuing LL/PRP test will overwrite.\n",RESTARTFILE,cstr);
+					mlucas_fprint(cbuf,1);
+				}
+			} else if(TEST_TYPE == TEST_TYPE_PRIMALITY || TEST_TYPE == TEST_TYPE_PRP) {
+				// If primary was missing/corrupt, i.e. we're on the secondary, rename secondary to primary-name
+				if(RESTARTFILE[0] == 'q') {
+					RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
+					if(rename(cstr, RESTARTFILE)) {
+						snprintf_nowarn(cbuf,STR_MAX_LEN,"ERROR: Primary savefile missing/corrupt, but unable to rename the secondary %s ==> %s ... any ensuing LL/PRP test will overwrite.\n",RESTARTFILE,cstr);
+						mlucas_fprint(cbuf,1);
+					}
+				} else if(remove(cstr))	// ...otherwise delete the secondary
+					fprintf(stderr, "Unable to delete secondary restart file %s.\n",cstr);
+			}
+		} else
+			ierr = 1;
+		// If no errors on primary, break; otherwise loop
+		if(!ierr || RESTARTFILE[0] == 'q')
+			break;
+	}
+	// If completion of LL/PRP run, or secondary was not used as a backup for p-1 stage 1 savefile rename, delete it now:
 	RESTARTFILE[0] = 'q';
 	if(remove(RESTARTFILE))
 		fprintf(stderr, "Unable to delete secondary restart file %s\n",RESTARTFILE);
+
 	RESTARTFILE[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
 
 	/*...If in non-interactive (production) mode, delete the just-completed assignment from the workfile.
@@ -2563,61 +2781,50 @@ PM1_STAGE2:	// Stage 2 invocation is several hundred lines below, but this needs
 GET_NEXT_ASSIGNMENT:
 
 	// If workfile is still open, close it:
-	if(fp) { fclose(fp);	fp = 0x0; }
+	if(fp) { fclose(fp); fp = 0x0; }
 
-	if(!INTERACT)
-	{
-		//*** IN THIS CASE MUST MAKE SURE CBUF,CSTR ONLY GET OVERWRITTEN ON FATAL ERROR, SINCE THEY CONTAIN THE SPLIT ASSIGNMENT! ***
+	if(!INTERACT) {
+		//*** IN THIS CASE MUST MAKE SURE CBUF,CSTR ONLY GET OVERWRITTEN ON ERROR ERROR, SINCE THEY CONTAIN THE SPLIT ASSIGNMENT! ***
 		if(split_curr_assignment) {
 			sprintf(ESTRING,"%llu",p);	// Set ESTRING here, as this bypasses the normal route for getting to GET_NEXT_ASSIGNMENT
 			ASSERT(HERE, TEST_TYPE == TEST_TYPE_PM1,"GET_NEXT_ASSIGNMENT: split_curr_assignment = TRUE, but TEST_TYPE != PM1.");
-		}
-		// If not an assignment-to-split and just-completed test was p-1, rename the primary savefile from p[expo] to p[expo].s1 so as to not collide with any ensuing LL/PRP test:
-		else if(TEST_TYPE == TEST_TYPE_PM1) {
-			strcpy(cstr, RESTARTFILE);
-			strcat(cstr, ".s1");
-			if(rename(RESTARTFILE, cstr)) {
-				snprintf_nowarn(cbuf,STR_MAX_LEN,"ERROR: unable to rename the p-1 stage 1 savefile %s ==> %s ... any ensuing LL/PRP test will overwrite.\n",RESTARTFILE,cstr);
-				fprintf(stderr,"%s",cbuf);
-				fp = mlucas_fopen(OFILE,"a");	if(fp){	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;	}
-			}
 		}
 
 		fp = mlucas_fopen(WORKFILE,"r");
 		if(!fp) {
 			sprintf(cbuf,"ERROR: unable to open %s file for reading.\n",WORKFILE);
-			fp = mlucas_fopen(OFILE,"a");
-			if(fp) {
-				fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
-			}
-			fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+			ASSERT(HERE,0,cbuf);
 		}
-
 		/* Remove any WINI.TMP file that may be present: */
 		remove("WINI.TMP");
 		fq = mlucas_fopen("WINI.TMP", "w");
 		if(!fq) {
-			fprintf(stderr, "Unable to open WINI.TMP file for writing.\n");
-			fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+			sprintf(cbuf, "Unable to open WINI.TMP file for writing.\n");
+			ASSERT(HERE,0,cbuf);
 		}
 
+	GET_NEXT:
 		/* Delete or suitably modify current-assignment line (line 1) of worktodo.ini file: */
 		i = 0;	// This counter tells how many *additional* assignments exist in worktodo.ini
 		if(!fgets(in_line, STR_MAX_LEN, fp)) {
 			sprintf(cbuf, "ERROR: %s file not found at end of current-assignment processing\n", WORKFILE);
-			fprintf(stderr,"%s",cbuf);
-			fp = mlucas_fopen(OFILE, "a");	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
-			ASSERT(HERE,0,"");
-		// Look for m in 1st-assignment; for F[m], need to also look for 2^m in case assignment is in KBNC format:
-		} else if( !strstr(in_line, ESTRING) && !(MODULUS_TYPE == MODULUS_TYPE_FERMAT && strstr(in_line, BIN_EXP)) ) {
+			ASSERT(HERE,0,cbuf);
+		}
+		// v20.1.1: Parse all lines whose 1st non-WS char is alphabetic;
+		char_addr = in_line;	j = 0;
+		while(isspace(in_line[j])) { ++j; }
+		char_addr += j;
+		if(!isalpha(in_line[j]))
+			goto GET_NEXT;
+
+		// Look for m in first eligible assignment; for F[m], need to also look for 2^m in case assignment is in KBNC format:
+		if(!strstr(in_line, ESTRING) && !(MODULUS_TYPE == MODULUS_TYPE_FERMAT && strstr(in_line, BIN_EXP)) ) {
 			snprintf_nowarn(cbuf,STR_MAX_LEN, "ERROR: Current exponent %s not found in line 1 of %s file - quitting.\n", ESTRING, WORKFILE);
-			fprintf(stderr,"%s",cbuf);
-			fp = mlucas_fopen(OFILE, "a");	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
 			ASSERT(HERE,0,cbuf);
 		} else {
 			/* If we just finished the TF or p-1 preprocessing step of an LL or PRP test,
 			update the current-assignment line to reflect that and write it out: */
-			if(strstr(in_line, "PRP=") || strstr(in_line, "Test") || strstr(in_line, "DoubleCheck")) {
+			if(strstr(in_line, "PRP") || strstr(in_line, "Test") || strstr(in_line, "DoubleCheck")) {
 			#if INCLUDE_TF
 				if(TEST_TYPE == TEST_TYPE_TF) {
 					/* Factor depth assumed to follow the first comma in in_line: */
@@ -2634,21 +2841,29 @@ GET_NEXT_ASSIGNMENT:
 					fputs(cstr, fq);	// The PRP or LL assignment, with trailing 0 indicating p-1 done (true by time we get to it)
 					i = 2;	// And reset remaining-assignments counter
 				}
-			} else if(strstr(in_line, "Pminus1")) {
+			} else if(stristr(in_line, "pminus1")) {
 				// If current p-1 assignment found a factor and resulted from splitting of a PRP/LL assignment -
 				// note that split_curr_assignment == TRUE only at time of the initial splitting - delete them both:
 				ASSERT(HERE, TEST_TYPE == TEST_TYPE_PM1,"GET_NEXT_ASSIGNMENT: current assignment is Pminus1=, but TEST_TYPE != PM1.");
 				if(strlen(gcd_str) != 0) {	// Found a factor?
 					char_addr = strstr(in_line, "=");	ASSERT(HERE,char_addr != 0x0,"Malformed assignment!");
-					char_addr++;	ASSERT(HERE, is_hex_string(char_addr, 32), "Expect a 32-hex-digit PrimeNet v5 assignment ID following the work type specifier!");
-					strncpy(aid,char_addr,32);
+					char_addr++;
+					if(is_hex_string(char_addr, 32)) {
+						strncpy(aid,char_addr,32);
+					} else if(STREQN_NOCASE(char_addr,"n/a",3)) {
+						strncpy(aid,char_addr, 3);
+					} else {
+						snprintf_nowarn(cbuf,STR_MAX_LEN,"INFO: Assignment \"%s\" lacks a valid assignment ID ... proceeding anyway.\n",in_line);
+						mlucas_fprint(cbuf,1);
+						aid[0] = '\0';	// This guarantees that the strstr(in_line,aid) part of on the next-assignment search below succeeds.
+					}
 					// If next assignment exists, is an LL/PRP, and has same exponent and AID, delete it (by doing nothing), otherwise
 					// copy it to the fq-file. We use both the AID and binary exponent here, since the former could be some made-up
 					// value (e.g. all-0s) and the latter has a nonzero chance of appearing in the AID of an unrelated next-assignment:
 					in_line[0] = '\0';	// Careful here - if next fgets(in_line) fails, are left with old in_line, must zero it first.
 					if(fgets(in_line, STR_MAX_LEN, fp)) {
-						if( (strstr(in_line, "PRP=") || strstr(in_line, "Test=") || strstr(in_line, "DoubleCheck="))
-						 && strstr(in_line,ESTRING) && strstr(in_line,aid) )
+						if( (strstr(in_line, "PRP") || strstr(in_line, "Test") || strstr(in_line, "DoubleCheck"))
+						 && stristr(in_line,ESTRING) && strstr(in_line,aid) )
 						{
 							/* Lose the assignment (by way of no-op) */
 						} else {
@@ -2664,8 +2879,8 @@ GET_NEXT_ASSIGNMENT:
 		{
 			fputs(in_line, fq);	++i;
 		}
-		fclose(fp);	fp = 0x0;
-		fclose(fq);	fq = 0x0;
+		fclose(fp); fp = 0x0;
+		fclose(fq); fq = 0x0;
 
 		/* Now blow away the old worktodo.ini file and rename WINI.TMP ==> worktodo.ini...	*/
 		remove(WORKFILE);
@@ -2673,36 +2888,23 @@ GET_NEXT_ASSIGNMENT:
 		{
 			sprintf(cbuf,"ERROR: unable to rename WINI.TMP file ==> %s ... attempting line-by-line copy instead.\n",WORKFILE);
 			fprintf(stderr,"%s",cbuf);
-			fp = mlucas_fopen(OFILE,"a");	if(fp){	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;	}
 
 			/* If attempting to simply rename the TMP file fails, do it the hard way: */
 			fp = mlucas_fopen(WORKFILE,"w");
-			if(!fp)
-			{
+			if(!fp) {
 				sprintf(cbuf,"ERROR: unable to open %s file for writing.\n", WORKFILE);
-				fp = mlucas_fopen(OFILE,"a");
-				if(fp)
-				{
-					fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
-				}
-				if(scrnFlag)		/* Echo output to stddev */
-				{
-					fprintf(stderr,"%s",cbuf);
-				}
-				fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+				ASSERT(HERE,0,cbuf);
 			}
 
 			fq = mlucas_fopen("WINI.TMP", "r");
-			if(!fq)
-			{
+			if(!fq) {
 				sprintf(cbuf,"Unable to open WINI.TMP file for reading.\n");
-				fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+				ASSERT(HERE, 0,cbuf);
 			}
-			while(fgets(in_line, STR_MAX_LEN, fq))
-			{
+			while(fgets(in_line, STR_MAX_LEN, fq)) {
 				fputs(in_line, fp);
 			}
-			fclose(fp);	fp = 0x0;
+			fclose(fp); fp = 0x0;
 			fclose(fq); fq = 0x0;
 
 			/*...Then remove the WINI.TMP file:	*/
@@ -2710,9 +2912,12 @@ GET_NEXT_ASSIGNMENT:
 			remove("WINI.TMP");
 		}
 		/* if one or more exponents left in rangefile, go back for more; otherwise exit. */
-		if (i > 0)
+		if (i > 0) {
+			// Reset any globals which are optionally user-forced here; e.g. PM1_S2_NBUF can be user or auto-set,
+			// no easy way to determine which it was, so only respect for first p-1 stage 2 done since program start:
+			PM1_S2_NBUF = 0;
 			goto RANGE_BEG;   /* CYCLE RANGE */
-		else
+		} else
 			exit(EXIT_SUCCESS);
 	}
 
@@ -2775,7 +2980,7 @@ void 	Mlucas_init(void)
 		fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 	}
 #endif
-#if 0//INCLUDE_PM1	v20: Use GMP GCD, own-rolled O(n*(log n)^2) one simply not in the cards.
+#if 0	// v20: Use GMP GCD, own-rolled O(n*(log n)^2) one simply not in the cards.
 	/* Simple self-tester for GCD routines in gcd_lehmer.c: */
 	fprintf(stderr, "INFO: testing GCD routines...\n");
 	if(test_gcd() != 0)
@@ -3279,119 +3484,120 @@ struct testMers MersVec[numTest+1] =
 	{     0,         0ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } }
 };
 
-// Reference Mersenne base-3 PRP residues - we use the 0-padding slot in the above MersVec[]
-// to store user-set-exponent data irrespective of whether LL-test or PRP-test, so no 0-pad here:
-struct testMers MersVecPRP[numTest] =
+// Reference Mersenne base-3 PRP residues - as with above MersVec[], use a 0-padding slot to store any user-set-exponent data:
+struct testMers MvecPRP[numTest+1] =
 {
 /*                                         100-iteration residues:	                               1000-iteration residues:                */
 /*	  FFTlen(K)     p              Res64           mod 2^35-1      mod 2^36-1               Res64           mod 2^35-1      mod 2^36-1     */
 /*	    -----    --------     ----------------     -----------     -----------         ----------------     -----------     -----------    */
 	/* Tiny:                                     [%34359738367  ][%68719476735  ]                         [%34359738367  ][%68719476735  ] */
-	{     8,    173431ull, { {0x59CB251F7D619429ull,  8164951424ull,  9846474576ull}, {0x918DD39863CB308Full,  7494791413ull, 15913265901ull}, {0x0ull, 0ull, 0ull} } },
-	{     9,    194609ull, { {0x6D47B1862C6AD488ull,  7469936757ull, 15426710219ull}, {0xE27427193254DABAull, 23325429059ull, 42526935522ull}, {0x0ull, 0ull, 0ull} } },
-	{    10,    215767ull, { {0xB7AA48826FA5622Eull, 18605212920ull, 51958758083ull}, {0x9F4A039DD6E9FAEEull, 19792956637ull, 29606652933ull}, {0x0ull, 0ull, 0ull} } },
-	{    11,    236813ull, { {0xE521AA8C68D3EA8Dull, 29439531719ull, 51299632013ull}, {0x2F13F1F265F2F2D3ull, 25527516254ull, 56556340711ull}, {0x0ull, 0ull, 0ull} } },
-	{    12,    257903ull, { {0x78D18DAA0211746Cull, 24776275699ull, 23960399868ull}, {0x5BA635C1FA4FC4C1ull, 16504851407ull, 15421897878ull}, {0x0ull, 0ull, 0ull} } },
-	{    13,    278917ull, { {0x466481AA8F523774ull,  4879692182ull, 35261457136ull}, {0x703FA3FE37EFFAA3ull, 17262836411ull, 57590389198ull}, {0x0ull, 0ull, 0ull} } },
-	{    14,    299903ull, { {0x2FFDF13628DD9271ull, 27842284148ull, 39770512868ull}, {0x8D10C61FEA78088Cull, 30967510385ull, 17203398344ull}, {0x0ull, 0ull, 0ull} } },
-	{    15,    320851ull, { {0xBFC67AB3CD20A5D1ull, 19065610760ull, 43681250762ull}, {0x3BC6C1D7281A842Full,  9947758605ull, 28952573372ull}, {0x0ull, 0ull, 0ull} } },
-	{    16,    341749ull, { {0x35EF82F656B51F1Full,  7029818683ull, 28919393248ull}, {0x4523FBE344DB54E1ull, 10285169590ull, 13266208357ull}, {0x0ull, 0ull, 0ull} } },
-	{    18,    383521ull, { {0x27490630F66623F0ull, 18175042063ull, 46462537136ull}, {0xED1B1867004B2043ull, 25094109590ull, 17095709313ull}, {0x0ull, 0ull, 0ull} } },
-	{    20,    425149ull, { {0x8D76E39499E2084Cull, 24854409897ull, 22759143673ull}, {0x93458CC621904526ull, 21512676920ull, 16851627129ull}, {0x0ull, 0ull, 0ull} } },
-	{    22,    466733ull, { {0x879E8E552CD9DA78ull, 23261845992ull, 68280331649ull}, {0x6236D9EC41B6B5B6ull,  4903056247ull, 48171921146ull}, {0x0ull, 0ull, 0ull} } },
-	{    24,    508223ull, { {0x60A1C833EFA3DB08ull, 20330461575ull, 33681508814ull}, {0x5478EE8AECEF292Dull, 14773583446ull, 53242362800ull}, {0x0ull, 0ull, 0ull} } },
-	{    26,    549623ull, { {0x7712E54BC57A6453ull, 22830350274ull,   975086245ull}, {0xCFCCD199B73D359Eull, 27986465261ull,  9872179127ull}, {0x0ull, 0ull, 0ull} } },
-	{    28,    590963ull, { {0x854A6C0BF1C0CA1Eull, 28465583444ull, 36207128387ull}, {0xD5494A4A30A6FF6Cull, 31443909484ull,  5696651641ull}, {0x0ull, 0ull, 0ull} } },
-	{    30,    632251ull, { {0xB9CE4D9CA145E37Eull,  2871789007ull, 25988330025ull}, {0x4FC369BD2786569Aull,  6701883912ull, 61126990820ull}, {0x0ull, 0ull, 0ull} } },
-	{    32,    673469ull, { {0x6FBFD30EA9AFA1DFull,  8567510574ull, 68209730811ull}, {0xDCAE0C41C5226178ull,  9502071634ull, 54856537405ull}, {0x0ull, 0ull, 0ull} } },
-	{    36,    755737ull, { {0x192B125399E579F8ull,   686716901ull, 14476488268ull}, {0x70C7BD4ECBFBBE50ull,  8165021045ull, 35292725948ull}, {0x0ull, 0ull, 0ull} } },
-	{    40,    837817ull, { {0x926C5D9C8E7DB701ull, 28915417288ull, 67081161725ull}, {0x90CF0AB873151579ull,  5754527985ull, 19567107501ull}, {0x0ull, 0ull, 0ull} } },
-	{    44,    919729ull, { {0x7E6995C2CCF4EF68ull, 28772226367ull, 18123291009ull}, {0x82AD751476F1686Aull, 10164437921ull,   713706080ull}, {0x0ull, 0ull, 0ull} } },
-	{    48,   1001467ull, { {0x42377D7C601947B7ull,  9525663359ull, 23726952031ull}, {0x8FC9D307DECC9D27ull,  9068970885ull, 10905178413ull}, {0x0ull, 0ull, 0ull} } },
-	{    52,   1083077ull, { {0x421844FFA21114FDull, 31935019641ull, 23327236236ull}, {0xEB311A383414F206ull, 32908672229ull, 27953087816ull}, {0x0ull, 0ull, 0ull} } },
-	{    56,   1164533ull, { {0xA53DFEE326A1047Dull, 16620085594ull,  8781848624ull}, {0xCADC99271CD41A6Full,  6810587643ull, 31020450647ull}, {0x0ull, 0ull, 0ull} } },
-	{    60,   1245877ull, { {0x375B40C9457701FCull,  2166978503ull, 39855448230ull}, {0x215D54D0A8FFFF60ull, 28855568754ull, 66990790203ull}, {0x0ull, 0ull, 0ull} } },
-	{    64,   1327099ull, { {0xE103AADBBB1C0647ull,  5046837446ull, 54383774262ull}, {0x2ECF95D374E31C8Bull, 12248705176ull, 62538924593ull}, {0x0ull, 0ull, 0ull} } },
-	{    72,   1489223ull, { {0xF6529A6352653F58ull, 13581202031ull,   526519996ull}, {0x889AB3D63246A31Eull, 13004174458ull, 26135310351ull}, {0x0ull, 0ull, 0ull} } },
-	{    80,   1650959ull, { {0x5FED95FC59F7565Cull, 15548760878ull, 61249993123ull}, {0xE4E8534D42053642ull,  7337120128ull, 20789742952ull}, {0x0ull, 0ull, 0ull} } },
-	{    88,   1812347ull, { {0x9AD66AD3088328A4ull, 12597406758ull, 63502374600ull}, {0xBF286CDFAD530AC0ull, 10289356709ull, 46915628424ull}, {0x0ull, 0ull, 0ull} } },
-	{    96,   1973431ull, { {0xAEE0C19E8742E3F4ull, 13726807213ull, 35724802848ull}, {0xBC213307E70191C5ull, 22512982343ull, 57049970336ull}, {0x0ull, 0ull, 0ull} } },
-	{   104,   2134201ull, { {0x098CAA3C0D107D6Bull, 22532136240ull, 26338802769ull}, {0x323774250D9B9516ull, 23273779605ull, 62209779235ull}, {0x0ull, 0ull, 0ull} } },
-	{   112,   2294731ull, { {0x47BC4AAA2FCCB1B9ull, 12907399344ull, 18863682101ull}, {0x91C50C372C12C703ull, 20908991540ull,  3451873052ull}, {0x0ull, 0ull, 0ull} } },
-	{   120,   2455003ull, { {0x63B512C24CB1233Bull,  5184435613ull, 27026274870ull}, {0x32E590C747238DA0ull, 21275876272ull, 57125434840ull}, {0x0ull, 0ull, 0ull} } },	/* Small: */
-	{   128,   2614999ull, { {0xBE4B6CE5EE76C4C0ull, 18066416827ull, 29451205104ull}, {0xB891A4CBE3EB0176ull,  2435134785ull, 53572085501ull}, {0x0ull, 0ull, 0ull} } },
-	{   144,   2934479ull, { {0x88A4403B9664A68Cull, 23316820590ull,  9544550461ull}, {0xFAD3E1AF502B1890ull, 32036343077ull, 67901574685ull}, {0x0ull, 0ull, 0ull} } },
-	{   160,   3253153ull, { {0x169BE706A0A0E185ull, 14483224776ull, 24483883970ull}, {0x5AED9CABD303E0A2ull, 31855596295ull, 44842948697ull}, {0x0ull, 0ull, 0ull} } },
-	{   176,   3571153ull, { {0x9C8A2EE1911F431Full,  1629566665ull, 66119740380ull}, {0x9C3CBB337EFFEC88ull,  5934946818ull,  8480402165ull}, {0x0ull, 0ull, 0ull} } },
-	{   192,   3888509ull, { {0x6CBAD54404C0AD1Aull, 12134100075ull, 18473223759ull}, {0x7A932AEA2AD84232ull,  6089810731ull, 44138905118ull}, {0x0ull, 0ull, 0ull} } },
-	{   208,   4205303ull, { {0x7D26A1F82679CECEull, 19082741636ull, 13798992673ull}, {0xEED98C7E1CC9ECC3ull, 13732641502ull, 49458162824ull}, {0x0ull, 0ull, 0ull} } },
-	{   224,   4521557ull, { {0x209349496454CEE6ull,  9940761503ull, 40783122082ull}, {0xE714F3E1C1F76042ull, 29521914431ull, 66307263755ull}, {0x0ull, 0ull, 0ull} } },
-	{   240,   4837331ull, { {0x4921BBB418D6C421ull, 32777132087ull, 40599659577ull}, {0xAF3009961984E8AFull,   901839485ull, 27501073879ull}, {0x0ull, 0ull, 0ull} } },
-	{   256,   5152643ull, { {0x2C67CB0282445407ull, 23339732910ull, 66204717452ull}, {0xC98A287287F9A1D7ull, 27688432919ull,  5877304726ull}, {0x0ull, 0ull, 0ull} } },
-	{   288,   5782013ull, { {0x985729C933D5E2FCull, 18320412728ull, 63235668703ull}, {0xAD12AB708012B28Eull, 24649900938ull, 62536412254ull}, {0x0ull, 0ull, 0ull} } },
-	{   320,   6409849ull, { {0xC58B1A6B98D84124ull, 18260049968ull,  6810024189ull}, {0x9B92CB21587AD6A6ull,  2110758259ull, 35105008257ull}, {0x0ull, 0ull, 0ull} } },
-	{   352,   7036339ull, { {0xC4364C1187F97A3Dull, 32150872197ull, 22781304616ull}, {0xA4D21311394D4FA7ull,  6324578481ull, 63084024685ull}, {0x0ull, 0ull, 0ull} } },
-	{   384,   7661567ull, { {0x1BBD63B803CE21D3ull, 16526828977ull, 42457373301ull}, {0xF4925EF17FC3E524ull, 20165927952ull,  9629593178ull}, {0x0ull, 0ull, 0ull} } },
-	{   416,   8285659ull, { {0xCA23151CCBE0740Full, 32337110525ull, 42837664157ull}, {0xA26DE72D0F7C6FD5ull, 11507652174ull, 49006121983ull}, {0x0ull, 0ull, 0ull} } },
-	{   448,   8908723ull, { {0xA95ECF765A7DE485ull, 26599751692ull, 19767035912ull}, {0x49222AF41653543Full, 25829109676ull, 51898058114ull}, {0x0ull, 0ull, 0ull} } },
-	{   480,   9530803ull, { {0x347EFC46B7C24927ull,  6753764868ull, 35076313672ull}, {0x4F47C7D80A2A809Eull, 15357957620ull, 19681757341ull}, {0x0ull, 0ull, 0ull} } },
-	{   512,  10151971ull, { {0xB3ED60F4AFBFB3A9ull, 22642977085ull,  1231176073ull}, {0x0EC12794332A0E0Eull,  6716458209ull, 51444232175ull}, {0x0ull, 0ull, 0ull} } },
-	{   576,  11391823ull, { {0x03ED6E37A156364Full,  1386523443ull, 30193596545ull}, {0xA4F7D77F194536D4ull, 33981920699ull, 60276616145ull}, {0x0ull, 0ull, 0ull} } },
-	{   640,  12628613ull, { {0xEAB53ECA446C7805ull,  3501890600ull, 56340973024ull}, {0x43BE1E7645CCBF2Cull, 32711506328ull, 41455841852ull}, {0x0ull, 0ull, 0ull} } },
-	{   704,  13862759ull, { {0x8D00941F37977416ull, 29194902133ull, 53354630705ull}, {0x9D080C44C635F531ull, 28299345740ull, 14583867538ull}, {0x0ull, 0ull, 0ull} } },
-	{   768,  15094403ull, { {0xC06D680B4315439Eull,   572672330ull, 17897298649ull}, {0xF5E8A6E2EB14969Dull, 26424320220ull, 33311538128ull}, {0x0ull, 0ull, 0ull} } },
-	{   832,  16323773ull, { {0x8A384DAF318BA11Cull, 29227782395ull, 49747663115ull}, {0x3A9A2BC7040F8F9Bull, 13221935219ull, 45353311168ull}, {0x0ull, 0ull, 0ull} } },
-	{   896,  17551099ull, { {0x236222CD1EF76404ull, 21554725722ull,  3020230570ull}, {0x15E08DB95124C451ull,  6571842111ull,   415617468ull}, {0x0ull, 0ull, 0ull} } },
-	{   960,  18776473ull, { {0x64DB852FB1D962E3ull, 30312455711ull,  3637871395ull}, {0xA654C7C6210CD8F2ull, 18496147373ull, 43979502788ull}, {0x0ull, 0ull, 0ull} } },
-	{  1024,  20000047ull, { {0x9D7E8C7336639EC4ull, 26990419379ull, 31343788296ull}, {0xEC57D79E86049AB4ull, 14020695804ull, 57562607914ull}, {0x5CC79106F08DC6D6ull, 14144638043ull,   651426155ull} } },
-	{  1152,  22442237ull, { {0xED82318E04A2A345ull,  8753176558ull, 32504299898ull}, {0x3B646DBA5F3653A2ull, 16747135485ull, 54376147696ull}, {0x2A8DCFFF3810D237ull,   597977664ull,  4018709428ull} } },
-	{  1280,  24878401ull, { {0xCE58A90EAC0139F1ull, 21686423079ull, 52735040981ull}, {0xE41022DE4EBE5A0Eull, 31073614876ull, 50104107291ull}, {0x71DAC0A6112FF806ull,  1019654400ull, 54335318694ull} } },
-	{  1408,  27309229ull, { {0xA070B7876AA20DA7ull, 26032112892ull, 32165824910ull}, {0x5B7DB0F2C5CA7EE0ull, 33557517402ull, 49136716314ull}, {0xC5285004A4A8738Eull, 23326684308ull, 15608345791ull} } },
-	{  1536,  29735137ull, { {0x70EF0D4A10AF820Cull, 31410231016ull, 19708126433ull}, {0xBA715ACC32497841ull, 30597754543ull, 12259094014ull}, {0x5505A14DFD239B10ull,  4793841111ull, 10366011218ull} } },
-	{  1664,  32156581ull, { {0x0ABAAF28B6995BF5ull, 25429439627ull, 29692330080ull}, {0xA3A513F3864F2486ull,  7487969602ull, 28002054176ull}, {0xBEAB8973C2FAAB17ull, 19372157564ull,  4721013073ull} } },
-	{  1792,  34573867ull, { {0x93B9E2F8EB75BFCDull, 28229043348ull, 23811859510ull}, {0xAF09EB79E9FD2368ull, 14328542178ull, 22451054390ull}, {0xDCC79070AEFDF160ull, 28503147261ull,  9196986298ull} } },
-	{  1920,  36987271ull, { {0x1FD9118DC82BEE78ull, 30917851138ull, 46406380675ull}, {0x33D7AD617976CEC1ull, 12975636226ull, 29187764572ull}, {0x5E856539865A176Cull,  9594612383ull, 46445499555ull} } },
+	{     8,    173431ull, { {0x5626DEB6B07622F3ull, 32131772281ull, 45561861712ull}, {0x2CFA9D066FA0AC59ull, 19159609871ull,  3629111748ull}, {0x91968AE0B907BC06ull, 18780821129ull, 60175052951ull} } },
+	{     9,    194609ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    10,    215767ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    11,    236813ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    12,    257903ull, { {0x582A66DD4D8799EEull, 29535927244ull, 68660141246ull}, {0xEA5F22C54501846Full, 28855133772ull, 33619980259ull}, {0x5869D6DAA84D8F95ull, 13664256258ull,  9507781795ull} } },
+	{    13,    278917ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    14,    299903ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    15,    320851ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    16,    341749ull, { {0xC736F1C2D213F1C1ull, 12211349626ull, 66509411860ull}, {0x8640A90521C2F7CCull, 26292223176ull, 67588668714ull}, {0x9EBE2EF30FB7D464ull, 12905240924ull, 64076380848ull} } },
+	{    18,    383521ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    20,    425149ull, { {0xD3C192FF131CFC3Bull, 24519426320ull, 28595715402ull}, {0xCF0C17092AA78E04ull,  2271546708ull, 64056281496ull}, {0xE1F87989962DF48Eull, 26999099038ull, 52441645398ull} } },
+	{    22,    466733ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    24,    508223ull, { {0x104F46B5B27DA109ull, 30634543418ull, 10636054863ull}, {0xFF40B3BCD8A23424ull, 30297179510ull, 62834095876ull}, {0x760A533DA9DE9552ull, 21594588451ull, 56782339492ull} } },
+	{    26,    549623ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    28,    590963ull, { {0xECC45D40806A111Cull,  5787783130ull, 59666588997ull}, {0x4B8E8B5D4FA21D2Dull, 18930182921ull, 43534886672ull}, {0x876053199A486A8Full,  6807528947ull, 12093315482ull} } },
+	{    30,    632251ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{    32,    673469ull, { {0xBD9646EE9AB18A7Aull, 26182028770ull, 59419684231ull}, {0x739B932AC594AA0Aull, 27600316683ull, 23680060816ull}, {0x0090EA7A76098D32ull, 10354482855ull, 28199252596ull} } },
+	{    36,    755737ull, { {0xD3D7FCAAEC0D1CFAull, 16915465692ull, 12970156038ull}, {0x2ACB2B184E935C33ull,  2577059552ull, 25431200361ull}, {0xAD4F3FEAD246F78Dull, 11105939650ull, 27677803777ull} } },
+	{    40,    837817ull, { {0x4BB1FE516DA56352ull, 14130534986ull, 57171707410ull}, {0xEDE384F60E7930DEull,  6782691233ull, 37080068160ull}, {0x985E59A168A2C374ull, 19638026482ull, 42674666120ull} } },
+	{    44,    919729ull, { {0xBB36618A59F029BEull, 34052740788ull, 15139731592ull}, {0xAD419B6CE6F8A9B3ull, 25643929440ull,  3277180760ull}, {0xF1CCE9D2493ED0E7ull, 22901033162ull, 64906607173ull} } },
+	{    48,   1001467ull, { {0xA750B4E8AEB33412ull, 14158218491ull, 67000020730ull}, {0x037EAC5E83798D97ull, 18831036867ull, 45448571503ull}, {0x8500430AFA74A003ull, 32712078146ull, 26108052951ull} } },
+	{    52,   1083077ull, { {0x114B2898842D031Dull, 29992192737ull, 56153605976ull}, {0xC94D7EB86E333093ull, 25051877532ull, 36547212533ull}, {0x7B3B4B2B1E4AB4F1ull, 15083485543ull, 45190699824ull} } },
+	{    56,   1164533ull, { {0xF3845BFD27BE17C0ull,  6122435706ull, 16830581570ull}, {0xEEA2A73E1B5B9F5Eull, 14009513529ull, 10409904152ull}, {0x8A1B59E0A1013082ull, 17983199887ull, 45703273488ull} } },
+	{    60,   1245877ull, { {0xD3563072BBF5635Full, 26075147849ull, 59833238241ull}, {0x8228F9186BCCB825ull, 23336209236ull, 33753236087ull}, {0x8F50A4E950A208ECull, 10931878951ull, 43004788142ull} } },
+	{    64,   1327099ull, { {0xA27D809BEA4B39EAull,  9126841940ull, 61797063350ull}, {0x5A458E090D0A11FBull, 12180510644ull, 38241257645ull}, {0xBAC955A84544EA74ull, 19644122492ull, 31588337102ull} } },
+	{    72,   1489223ull, { {0x8115A8E974FE98BEull, 11713639178ull, 10466124455ull}, {0x853E9866ADE224FEull, 33773857851ull, 32975791386ull}, {0x30582D7F92A6D1FCull, 33748010249ull, 27388102096ull} } },
+	{    80,   1650959ull, { {0x1D2DD2DF1933C0FCull,  6345481587ull, 37786169874ull}, {0x2D535BBF29F7CCD2ull,  4940281875ull, 42673535389ull}, {0xAF0A3BA384876D7Aull, 11399245247ull, 30073539441ull} } },
+	{    88,   1812347ull, { {0x7FC9EA6769384320ull,  7891088336ull, 25044784554ull}, {0x0D1A4A0CD22AEB9Aull,  9596030110ull, 59365967842ull}, {0xA68AE2A59E471BE5ull, 15180142327ull, 52575114331ull} } },
+	{    96,   1973431ull, { {0xB4CCA30966A4CE5Dull, 10270866356ull,   231429614ull}, {0xFCFC64781863674Eull, 23326776387ull, 52335987311ull}, {0x24EA8DEDBC00B415ull,  7671704365ull, 48042022252ull} } },
+	{   104,   2134201ull, { {0x95DC857850180714ull, 11171528275ull, 64711382522ull}, {0x9FDC4093379BDB26ull, 18930952224ull,  1611454415ull}, {0xA141EA8967903F5Bull, 29876787665ull, 33823887927ull} } },
+	{   112,   2294731ull, { {0x061CBC59DFB9CA06ull, 30425834940ull, 58336162616ull}, {0x580DF81D69FF6AD5ull,  8559569627ull, 10292910153ull}, {0x11BBBAD23995BB7Eull, 24990081881ull, 54500653284ull} } },
+	{   120,   2455003ull, { {0x6580BD648772EDCEull, 13614650659ull, 27233253889ull}, {0x123237E17FF20692ull,  2520412521ull, 58497023977ull}, {0xF534CA2A0954221Bull, 16035573032ull, 55020965205ull} } },
+	/* Small: */
+	{   128,   2614999ull, { {0x61B3FF2749C421B2ull,  2127565925ull, 16135835978ull}, {0x5BF36C6CEA901199ull, 10377428760ull, 51455129205ull}, {0x44AE5B04991410FAull, 21353616283ull, 33587198015ull} } },
+	{   144,   2934479ull, { {0xA322CF3BF0E43C86ull, 11064021322ull, 40809116502ull}, {0x556A5ADD65F0FB19ull, 11232143236ull, 16154650197ull}, {0x371C7434AB5079E1ull,  8183503318ull, 20346531393ull} } },
+	{   160,   3253153ull, { {0xBE895574A3B5D29Dull,  4066068489ull, 27925792309ull}, {0x01972AEA521B5CDBull,  3673290729ull, 52399520094ull}, {0x37626B30822C90C2ull, 13476423895ull, 31936880647ull} } },
+	{   176,   3571153ull, { {0xEB2F80B8B07B0C2Eull, 25525358118ull, 23794747344ull}, {0x669E15DC5325F9F3ull, 19996304981ull, 57830333278ull}, {0x20084A9830401673ull,  2415150132ull, 51845829949ull} } },
+	{   192,   3888509ull, { {0x79FA4A9B6D077D31ull, 11817088595ull, 25793400384ull}, {0x986ED026065B3A3Dull, 28358614794ull, 61747377645ull}, {0xCD9CF17AA323A403ull, 25995389972ull, 16101059938ull} } },
+	{   208,   4205303ull, { {0x20026FC75F1DACF2ull,   552886193ull, 35476382470ull}, {0x242488772DD4950Bull, 30174013897ull,  1712275816ull}, {0x370F8FD2CCB44245ull,  1046366655ull, 34353654023ull} } },
+	{   224,   4521557ull, { {0xA5A3CA4D85A4DC25ull,  9322238657ull, 22846601560ull}, {0xD3046AC342DF5023ull,  1943060627ull, 46395479024ull}, {0xDCD16AAA39454FE8ull,  3893524834ull,  2191423213ull} } },
+	{   240,   4837331ull, { {0x5E3C81457025A604ull, 12304143407ull, 29892018271ull}, {0x5E3C01108CBDE306ull, 28432606765ull, 35060019602ull}, {0xB82D80D8A8E662E0ull,  5053875088ull,  3674489982ull} } },
+	{   256,   5152643ull, { {0x0A0ECD28374A3886ull, 10006324455ull, 31836113189ull}, {0xFAB1B0725803FC5Bull, 23503205738ull, 22955043669ull}, {0x25EB5A52ED298638ull, 21533519724ull, 56771934948ull} } },
+	{   288,   5782013ull, { {0x8337D5DC89B9D7D8ull,  2750208646ull, 43710371927ull}, {0x81E025B2C36AF97Aull, 24587374922ull, 13476375540ull}, {0x7136299FEAE393A1ull,   873504035ull, 29264996801ull} } },
+	{   320,   6409849ull, { {0xC1F07CFE2F8A2C90ull, 10288499049ull, 20419861489ull}, {0x962E7949F9A7E628ull, 15432666362ull, 30085592572ull}, {0x61E84019BC81B682ull, 17697124115ull, 46942817024ull} } },
+	{   352,   7036339ull, { {0x336D9F3394B6F164ull, 17579907539ull, 13739842033ull}, {0x73AB57CC1CE38E7Cull, 30295988192ull, 23080433211ull}, {0x484554266231F919ull, 12854439638ull, 51687722348ull} } },
+	{   384,   7661567ull, { {0x8CD5DBE23CC7D207ull, 27522372639ull,  4855853542ull}, {0x46453E1E483825B3ull, 26570117855ull,  8838577209ull}, {0x90838723D9A646F0ull, 19365339919ull, 54968311494ull} } },
+	{   416,   8285659ull, { {0x2937D7BB53DB3A2Eull, 11180491559ull, 25143810934ull}, {0x453BB746F323DEAEull, 33021626783ull, 27443129753ull}, {0x4BAF1BA1324437A9ull,  7860885520ull, 59647517322ull} } },
+	{   448,   8908723ull, { {0x547ADE1396F9C514ull, 18521157282ull, 59551009514ull}, {0x50092676FDE714A2ull, 16701877626ull, 43153619853ull}, {0x9E1092E438D8BCC8ull, 22087345475ull,  5454828580ull} } },
+	{   480,   9530803ull, { {0x78D7C3BE6CEDAC01ull,  9241094902ull, 30808621041ull}, {0xC779524E4064A4B0ull, 18207111510ull, 33501852597ull}, {0x3EA6480E92D43A4Eull, 30247093504ull, 48234064574ull} } },
+	{   512,  10151971ull, { {0x7145494EBE359D55ull, 23248741638ull, 48651777267ull}, {0x8BDB481C8392BFD5ull, 26285780620ull,  7866437445ull}, {0x08F52C235D33F535ull, 10426106456ull, 60796101403ull} } },
+	{   576,  11391823ull, { {0xF9B279685D09CFCBull, 33118971289ull,  8380201274ull}, {0x631163D4E003D666ull, 15205345326ull, 56430348449ull}, {0xF001086F1B17E323ull, 14146155388ull, 43443184054ull} } },
+	{   640,  12628613ull, { {0x19F38A1A24F47141ull, 28053480100ull, 63839732215ull}, {0x46CC84D00A6C3798ull,  7876783548ull, 52638210432ull}, {0x52ACFB11F83FB959ull, 28102345675ull, 48183960941ull} } },
+	{   704,  13862759ull, { {0x7841B14AA240BC68ull,  9071998639ull,  8214384913ull}, {0x0518A8C7C3FB7B6Full,  9386753257ull,  4271506407ull}, {0xAB7F59730EAF000Cull, 25492803550ull, 39530850106ull} } },
+	{   768,  15094403ull, { {0xD2BAF6916DE41B4Aull, 33907731243ull, 60082525243ull}, {0xE4780B94895718A8ull,  9102718496ull, 57395342555ull}, {0xA8AFFF234B1E3C32ull, 16763634198ull, 28601819201ull} } },
+	{   832,  16323773ull, { {0xA87D786264D0EC8Aull, 12495933155ull, 37472327802ull}, {0xAE66B1040E98A5E8ull, 16343234311ull, 38946126334ull}, {0xCB0B755797CF128Bull, 10365202833ull, 20742591729ull} } },
+	{   896,  17551099ull, { {0x59DAAE490AE3000Bull, 28683449829ull, 28452420814ull}, {0x766B2B663B520EF7ull,  2975453465ull, 42346868910ull}, {0x1CF5E66D07CD953Dull, 25387533318ull, 26555619006ull} } },
+	{   960,  18776473ull, { {0xCDE871BF25E32E3Bull, 31673267310ull, 52228110774ull}, {0x5366B5BE07F98107ull, 23248985466ull, 26763145241ull}, {0x58DB393E9B69FE09ull,  1673827116ull, 65412337112ull} } },
+	{  1024,  20000047ull, { {0xF804962A99E06D0Cull,  1860502464ull, 53057883331ull}, {0x89356E1C8F6F1E48ull, 22320943580ull, 35169637716ull}, {0x94C9EE9C64F737E4ull, 31567228626ull, 56393904459ull} } },
+	{  1152,  22442237ull, { {0x0D9595BF361781F9ull, 20413575841ull, 37106981458ull}, {0xE5BFCB9E43A3E9F3ull, 20960264993ull, 64719249630ull}, {0x44515095B41E5606ull, 24782945059ull, 39032256339ull} } },
+	{  1280,  24878401ull, { {0x2CBF037107A1847Dull, 22690755724ull, 56236025943ull}, {0x59F656025983667Bull,  5142037023ull, 11990415177ull}, {0x3A343F6424076489ull, 18282185034ull, 25811451519ull} } },
+	{  1408,  27309229ull, { {0xBF16EFC49A336692ull, 31238875220ull, 58423375260ull}, {0xB3B79B9B95B76297ull, 26402154389ull, 62028968784ull}, {0x2E0C3A1000F7B0F9ull, 32941800112ull,   747986439ull} } },
+	{  1536,  29735137ull, { {0x1C67BD358F25FE5Aull, 18399031066ull, 37515566273ull}, {0xF246C8AB58A1C74Eull, 21054258805ull, 47020117222ull}, {0x207FE2BADA1C43C5ull,  3284146171ull,  2281976028ull} } },
+	{  1664,  32156581ull, { {0x98A7C4D249C14A4Full, 20144152830ull, 56678356879ull}, {0xE5AEA4A688D5928Cull, 27069838966ull, 37265104256ull}, {0xE63FD6C1CF930EB2ull, 23334182391ull, 19780994645ull} } },
+	{  1792,  34573867ull, { {0xD42C4E48467FFFB7ull, 31980303049ull, 62848444803ull}, {0xE5C6F0D767DCBCB0ull, 26394307125ull, 19768489106ull}, {0xC8F429962FC0C412ull, 31086854861ull, 48294508690ull} } },
+	{  1920,  36987271ull, { {0xFF48564F7201B487ull, 25019473293ull, 10999816574ull}, {0x432CACFAC7536F31ull, 23972386709ull, 39242248517ull}, {0xA5FDDBF4742D26EDull,  7858251857ull, 16067544118ull} } },
 	/* Medium: */
-	{  2048,  39397201ull, { {0x6D2DA75A04F538E6ull, 27183858872ull, 28453479981ull}, {0xF71AB763CBA394DDull, 20849861319ull, 65329085551ull}, {0xDCFC108BB85E2FA7ull, 24908241672ull, 53956544053ull} } },
-	{  2304,  44207087ull, { {0x17A51F8EBE222971ull, 20700958815ull, 19557281705ull}, {0x9603404F386381D1ull, 13688982479ull, 15674920724ull}, {0xC7B242D05373D3CAull,  2707265651ull,  5882282433ull} } },
-	{  2560,  49005071ull, { {0x778BE03E5722FE96ull, 25483813566ull, 14727845285ull}, {0x798CFC88734572AEull, 30521003775ull, 33673503490ull}, {0x9737799C41D18480ull, 18819745044ull, 37090058475ull} } },
-	{  2816,  53792327ull, { {0x7BE008D91E80DB49ull,  1791708263ull,  1480510204ull}, {0xDD858F590924665Full, 26857094761ull, 17153737658ull}, {0x8139A3391FC82B64ull, 14978416401ull, 23884206625ull} } },
-	{  3072,  58569809ull, { {0xECE8A3CA1F66D83Aull,  9805362291ull, 43153620706ull}, {0xFBA8C97760C5FE86ull, 11145859641ull, 16209757579ull}, {0x29FF471C9A28D07Full, 32759739090ull,  5331109071ull} } },
-	{  3328,  63338459ull, { {0x24A0F7BE95910DFCull,  6775505897ull, 39005906148ull}, {0x2B63FF56792E239Cull, 15844211278ull, 37865572416ull}, {0xDAEF98E50ECF3AABull, 28953421873ull, 49571783147ull} } },
-	{  3584,  68098843ull, { {0xAE2AED0851C344FFull, 29322480531ull,  7619686742ull}, {0x796289EFF35C1625ull, 20303644792ull, 16113781047ull}, {0xDEF7187C62A2FE6Eull,  1552555257ull, 23682222360ull} } },
-	{  3840,  72851621ull, { {0x41BB879F5BF89744ull, 15213631662ull, 47597325409ull}, {0x13AD29D142D2DD68ull,  2896274647ull, 28918042313ull}, {0x08BFA29C23275DD5ull, 15547700048ull, 36389342409ull} } },
-	{  4096,  77597293ull, { {0x5CA5EB4B2C403B40ull, 16067213695ull, 16060551561ull}, {0x8A91734601A3CA83ull, 25368547633ull, 15106685038ull}, {0x1B1628C39003FC08ull, 31104368473ull, 30825982076ull} } },
-	{  4608,  87068977ull, { {0x790629521C99A54Full,  6004740145ull, 58203809974ull}, {0x8C70DA87F106F6F6ull,  5407783662ull, 22056008955ull}, {0x45DC86154DE680CDull, 23780020949ull, 25229002925ull} } },
-	{  5120,  96517019ull, { {0x50BE76BDB9D43685ull, 33893245159ull, 32100820412ull}, {0x4D05925CD78F753Cull, 13802941362ull, 22609697002ull}, {0x954387C749FFA9F3ull, 14415933176ull, 19405933610ull} } },
-	{  5632, 105943723ull, { {0x1236DCECCCD91F1Bull, 11308642381ull, 28977161847ull}, {0x79A6575BCA014534ull, 30115274802ull,   828334544ull}, {0x4B8E27CD1CA2ED7Bull, 14367849395ull, 43143949281ull} } },
-	{  6144, 115351063ull, { {0x952594D45AC0CD66ull, 33154662725ull, 46573658072ull}, {0x71ABDF14CCB6F83Cull,  2372123324ull, 52765668028ull}, {0x82D8CD4BA692CB52ull, 14510733169ull, 67876507716ull} } },
-	{  6656, 124740697ull, { {0xF8E8C1410A022709ull, 13190590977ull, 39845130919ull}, {0x36F1A6E76E58E9C0ull, 27234521341ull, 16590439770ull}, {0xEE5448CFEDDBDEFEull,  2841484794ull, 12463515449ull} } },
-	{  7168, 134113933ull, { {0x1A946511EF44970Full, 21181711241ull, 30706184956ull}, {0x685E4EDB1A55944Aull,  6228216981ull, 24476904464ull}, {0xA96D930D64AA9158ull,  3314680740ull, 44392410575ull} } },
-	{  7680, 143472073ull, { {0xBD65A37723E2747Dull, 22515080503ull,  9322142584ull}, {0xB97E419D5BB91AE7ull,  4358792147ull, 10943432917ull}, {0xC16E2E327A370783ull, 31343185282ull, 21808110777ull} } },	/* Large: */
-	{  8192, 152816047ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{  9216, 171465013ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 10240, 190066777ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 11264, 208626181ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 12288, 227147083ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 13312, 245632679ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 14336, 264085733ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 15360, 282508657ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 16384, 300903377ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 18432, 337615277ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 20480, 374233309ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 22528, 410766953ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 24576, 447223969ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 26624, 483610763ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 28672, 519932827ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 30720, 556194803ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 32768, 592400713ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 36864, 664658101ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 40960, 736728527ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 45056, 808631029ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 49152, 880380937ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 53248, 951990961ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 57344,1023472049ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{ 61440,1094833457ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{  2048,  39397201ull, { {0x926CA6804251B3EEull, 28060637476ull, 49790249351ull}, {0x6489E97CBC5580AAull,  9625584894ull, 62826847344ull}, {0x053BC856B8BE4270ull,  4691188379ull, 60624374837ull} } },
+	{  2304,  44207087ull, { {0x02BB72063670F51Bull, 12694994014ull, 31300999610ull}, {0xDB77D5DBFD8297EDull, 20254637099ull, 52711100645ull}, {0x391A0B2307926600ull, 33289407481ull, 33078655462ull} } },
+	{  2560,  49005071ull, { {0xA58C6E638188B85Full, 30546989250ull, 52706842241ull}, {0xE2126248B4846CD6ull,   685992662ull, 35816889167ull}, {0xCA778F9AB26281B8ull, 11413212083ull,  1212979690ull} } },
+	{  2816,  53792327ull, { {0xE5B6FD041C5C5B08ull, 16802279919ull, 45744609376ull}, {0x905C64E6B30CBBABull, 10202620340ull, 13224782271ull}, {0x056DDDAFC35968E5ull,  6286892553ull, 37514012293ull} } },
+	{  3072,  58569809ull, { {0x7F39D5ED6103EBABull, 16756172503ull, 66487365574ull}, {0x8830F2A0B6737836ull,  2942497587ull, 46149388407ull}, {0x0CFE2DB14EEFBF07ull, 26575645314ull, 46479029624ull} } },
+	{  3328,  63338459ull, { {0x984077364B7DC067ull, 31200355828ull, 53223232350ull}, {0xC460BCC10E7C4633ull, 28854750816ull, 17126512478ull}, {0x4E012FD2746144CAull, 28091592352ull,  9463381637ull} } },
+	{  3584,  68098843ull, { {0x2629F428E8AAF210ull, 31208335732ull, 28724687211ull}, {0x27C14BD10BBCC373ull, 25428252468ull, 24335967243ull}, {0xFA54F0C508E93DFDull, 10745895462ull,  6297999612ull} } },
+	{  3840,  72851621ull, { {0xC9790A9AE318D8A0ull,  7965585773ull, 38904230464ull}, {0xD40DA752D00A58B8ull,  3810739518ull,  7705774890ull}, {0x0ED03C062FF2A606ull,  2639280055ull, 37383026335ull} } },
+	{  4096,  77597293ull, { {0x8A37C0FF09636A7Full,   830455861ull, 40725642853ull}, {0x525B3401B12A2878ull,  6322052778ull, 50560800498ull}, {0x7E130AB5C1CF9FC3ull,   821663107ull, 49875216353ull} } },
+	{  4608,  87068977ull, { {0xAFD146065C8A2F8Aull,  3265972347ull, 27188046914ull}, {0xC3E83DF5C838746Dull,  9185368986ull, 65232442937ull}, {0x4273C31CB66A685Bull, 22667296906ull, 46963850727ull} } },
+	{  5120,  96517019ull, { {0x3BBBD10EC4BD191Eull, 13411649980ull, 56736468345ull}, {0xB06AF4101E3CC028ull, 14290899010ull, 58971130200ull}, {0xDD87E6A5A509FFC2ull,  2239081373ull, 53398491455ull} } },
+	{  5632, 105943723ull, { {0xA0204A10ADA1D777ull,   325219564ull, 48693854932ull}, {0x61D45F7DAFD716FCull,  2255330486ull, 33206674222ull}, {0x0818EBD02C01A08Eull, 31797592248ull, 31752563546ull} } },
+	{  6144, 115351063ull, { {0x35C7DE3E3F3F8D94ull, 31618972943ull, 55520653728ull}, {0x956FB2D53BEC843Cull, 11148946878ull, 33245408201ull}, {0x4CAA4EBEB4EB4951ull, 11777136074ull, 25148258060ull} } },
+	{  6656, 124740697ull, { {0x4681EC451768F31Aull, 12959366213ull, 18617894816ull}, {0x05DFD257F3AE1F02ull, 12757038996ull,  2260817322ull}, {0x1CC290E749E46688ull,  6693583950ull, 43197953245ull} } },
+	{  7168, 134113933ull, { {0xE6A04B7C79535282ull, 31728172652ull, 58237681894ull}, {0x3D1CF94DCA031EA6ull,  6612981966ull, 36523212505ull}, {0x5AAB8CCA656621B2ull,  7673677458ull, 48483227415ull} } },
+	{  7680, 143472073ull, { {0x6EAAFFBBB2B27868ull, 12622370397ull,  9274290901ull}, {0x513410FA3142A1ECull, 27159455539ull, 38629970432ull}, {0x1D3D8F16FA48CC4Cull, 27219308286ull, 15713263754ull} } },
+	/* Large: */
+	{  8192, 152816047ull, { {0x55D755491E9A5BE7ull, 17408991436ull, 55204850562ull}, {0xA160152F199821D0ull, 23171738795ull, 32522593027ull}, {0x10447B5958C7153Dull, 25649892134ull, 63692031319ull} } },
+	{  9216, 171465013ull, { {0x7FC9A3D6580A67DBull,  2493822844ull, 32653389776ull}, {0xEDBDBED649AC1C07ull, 31826896222ull, 51396833159ull}, {0x1259EFF4D4B88CE2ull, 20123348812ull, 61034401374ull} } },
+	{ 10240, 190066777ull, { {0xC875BAE2D9D23F8Eull, 10787379418ull, 62215501884ull}, {0xD0534B8C3FD4FEBDull, 22561335508ull, 19377764663ull}, {0xD7B93BF968F0F50Full, 24193017740ull,  1698596575ull} } },
+	{ 11264, 208626181ull, { {0x121330EF1C9C65D4ull, 15421852243ull, 16454197259ull}, {0x9342E60165C9515Bull, 21714755947ull,  9528514349ull}, {0xB73DA3A3DCFC2715ull, 18785773681ull,  5941932830ull} } },
+	{ 12288, 227147083ull, { {0x939900344B3A9CF5ull, 10791587738ull, 51376518661ull}, {0x9B6A405153110744ull, 33911048215ull, 10244698095ull}, {0x372C128DE18F44A8ull, 22661022105ull, 28319883481ull} } },
+	{ 13312, 245632679ull, { {0x77BAD267187DB572ull,  6978161239ull, 31566453664ull}, {0x843B2C80EFD985D4ull, 31638655555ull, 34886706969ull}, {0xFEA3E15FF92C0B9Eull, 25087739150ull, 65596702716ull} } },
+	{ 14336, 264085733ull, { {0x3B6C5DD137A06F3Cull,  2041442582ull, 41068697072ull}, {0x1D4E6F465FB90F6Eull, 30561782032ull,  1263429588ull}, {0xAA93E30434811C8Dull,  2228362920ull,  8335956471ull} } },
+	{ 15360, 282508657ull, { {0x006B5DC0A65002D1ull, 31937249556ull, 54892782386ull}, {0xCC239E0E7FCBC7E2ull, 22387326720ull, 24840066078ull}, {0x804B979EB89922BAull, 26535016499ull, 63049971720ull} } },
+	{ 16384, 300903377ull, { {0xE1FFB7FA51A666BDull, 16509353676ull, 33290659747ull}, {0x729F90E2F3D1C751ull, 11110715400ull, 57675528900ull}, {0xE584214AFA269421ull, 33543551870ull, 17530147104ull} } },
+	{ 18432, 337615277ull, { {0x4EA0D844C4D4A158ull, 15144962431ull, 63334776550ull}, {0xB23CA173BE980CD5ull, 34244619245ull, 21356443084ull}, {0xBCE24CE8A48EF4C8ull, 18408960714ull, 40047346011ull} } },
+	{ 20480, 374233309ull, { {0xAC8A22C76BFE8A7Dull, 30655495979ull, 20979915815ull}, {0xB31E512AD3D23426ull, 19514358995ull, 11856185197ull}, {0x38B9508197A2F880ull, 17914520610ull, 40675602543ull} } },
+	{ 22528, 410766953ull, { {0xA5A013AD452E9CA1ull,  6158071328ull, 30004265076ull}, {0x5863D58C9141BAADull,  5535389685ull,  4594364305ull}, {0x6D0DA537655ADB8Full, 28534262546ull, 56406949849ull} } },
+	{ 24576, 447223969ull, { {0xEC329D5F8EA6B575ull,  8127808506ull, 48282079888ull}, {0xBAD0E2BA110A8248ull,   551404710ull, 48950059099ull}, {0x294D8DA9F0957D69ull, 18477018631ull,  4404820879ull} } },
+	{ 26624, 483610763ull, { {0x51652EAE126ACC75ull, 20340182567ull, 55729433233ull}, {0x184D46BA91B4286Dull, 31213394420ull, 54386141290ull}, {0x7AD715347087A95Dull, 29627983156ull, 55271838273ull} } },
+	{ 28672, 519932827ull, { {0xE2C5CA7A92E9D9AFull, 10027203195ull, 55451827923ull}, {0x6154C17BA65CDE41ull,  1952185223ull,  7287620568ull}, {0x87268C55E4BCB257ull, 23433413895ull, 47801213689ull} } },
+	{ 30720, 556194803ull, { {0xEA0DD84F89EC9475ull,  2640397683ull, 10711381600ull}, {0x9366059D474B5372ull, 26599065025ull, 33329252442ull}, {0x3D17BC75E5E3DDEFull, 32874051574ull, 57034690579ull} } },
+	{ 32768, 592400713ull, { {0xA4869F5FE9F96DBDull, 19624228853ull, 26960586543ull}, {0x092EC7F7DA96A330ull, 20551131024ull, 16345984908ull}, {0x38C8047BB23D3146ull, 18285343891ull, 62090151768ull} } },
+	{ 36864, 664658101ull, { {0x6DB632AA8386525Bull,  9946879119ull, 35779904199ull}, {0xCFA85C70B49A5B3Full, 14532066374ull, 10923711144ull}, {0x680471EBEF0500BCull, 29423921028ull, 21769143331ull} } },
+	{ 40960, 736728527ull, { {0x999B28F81B1B37C0ull, 15281289408ull, 12055047400ull}, {0x851D858E64D2D7DEull, 15017284283ull,  6105199500ull}, {0x2022E24AC582ABDFull, 26611160419ull, 12727750935ull} } },
+	{ 45056, 808631029ull, { {0xC6E167CAB66F6C66ull, 24733824729ull, 55248890737ull}, {0x7FE8B4A8C80520CDull, 26074748676ull, 17574876945ull}, {0x1BD35D3BB502A327ull,  7929585559ull, 13807068803ull} } },
+	{ 49152, 880380937ull, { {0xBE4EDE9750058245ull,  1628233733ull, 63365088770ull}, {0xF855B49E2A5653E2ull,  7420489469ull, 44867201251ull}, {0xB98AA627050B671Aull, 10196185952ull,  1461018327ull} } },
+	{ 53248, 951990961ull, { {0xCDCEB6E9A3CF5747ull, 13166317856ull, 46957323254ull}, {0x1EC13F17D33FC1F0ull, 30008301556ull, 19194697819ull}, {0x91827F71C70B72E2ull,  6915899554ull, 51031186257ull} } },
+	{ 57344,1023472049ull, { {0x428763AC63EEBB06ull,  4046036533ull, 65887115399ull}, {0x9819D4EECD27A260ull,  2725007656ull, 27008383182ull}, {0x0B9FF561BB7E6A8Eull, 27229975800ull, 68594865215ull} } },
+	{ 61440,1094833457ull, { {0xD8419FF6C0F1BBE0ull,  1663876259ull, 34786957257ull}, {0x2A79788D7D8D853Bull, 20881114859ull, 33590133948ull}, {0x2D3034F9BEFD96D5ull,  2175887418ull, 16970800813ull} } },
 	/* Huge: */
 	{ 65536,1154422469ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
 	{ 73728,1295192531ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
@@ -3408,11 +3614,21 @@ struct testMers MersVecPRP[numTest] =
 	{196608,3375668707ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
 	{212992,3650084989ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
 	{229376,3923994593ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
-	{245760,4197433843ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } }
-/* Larger require 64-bit exponent support: */
+	{245760,4197433843ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+/* Larger require -shift 0: */
 	/* Egregious: */
+	{262144,4515590323ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{294912,5065885219ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{327680,5614702259ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{360448,6162190477ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{393216,6708471481ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{425984,7253646773ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{458752,7797801821ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{491520,8341009997ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
+	{524288,8883334793ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } },
 	/* Brobdingnagian: */
 	/* Godzillian: */
+	{     0,         0ull, { {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull}, {0x0ull, 0ull, 0ull} } }
 };
 
 /* PARI/GP script for generating more FFT-length/maxP entries in the above table uses condensed code from given_N_get_maxP():
@@ -3487,12 +3703,13 @@ int 	main(int argc, char *argv[])
 	int		quick_self_test = 0, fftlen = 0, radset = -1;
 	uint32 numrad = 0, rad_prod = 0, rvec[10], rvec2[10];	/* Temporary storage for FFT radices */
 	double	runtime,wruntime, runtime_best,wruntime_best, tdiff;	// v20: w-prefixed are weighted by associated ROEs
-	double	roerr_avg, roerr_max;
+	double	roerr_avg = 0, roerr_max = 0;
 	int		radix_set, radix_best, nradix_set_succeed;
 
 	uint32 mvec_res_t_idx = 0;	/* Lookup index into the res_triplet table */
 	uint32 new_data;
 	struct res_triplet new_res = {0ull,0ull,0ull};
+	struct testMers*MvecPtr = MersVec;	// Set this to point at either MersVec (the default) or MvecPRP, depending on test type
 
 /* Enable this and set upper loop bound appropriately to regenerate a quick list of primes
 just below the upper limit for each FFT lengh in some subrange of the self-tests:
@@ -3525,11 +3742,9 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 	// v18: Enable access to argc/argv outside main():
 	global_argv = argv;
 
-	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
-		ASSERT(HERE, (MersVec[numTest-1].fftLength != 0) &&  (MersVec[numTest].fftLength == 0), "numTest != MersVec allocated size!");
-	} else {
-		ASSERT(HERE, (FermVec[numFerm-1].fftLength != 0) &&  (FermVec[numFerm].fftLength == 0), "numFerm != FermVec allocated size!");
-	}
+	ASSERT(HERE, (MersVec[numTest-1].fftLength != 0) &&  (MersVec[numTest].fftLength == 0), "numTest != MersVec allocated size!");
+	ASSERT(HERE, (MvecPRP[numTest-1].fftLength != 0) &&  (MvecPRP[numTest].fftLength == 0), "numTest != MvecPRP allocated size!");
+	ASSERT(HERE, (FermVec[numFerm-1].fftLength != 0) &&  (FermVec[numFerm].fftLength == 0), "numFerm != FermVec allocated size!");
 
 	/*...check that various data types are of the assumed length
 	and do some other basic sanity checks:
@@ -3551,14 +3766,13 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 	while(argv[nargs])
 	{
 		strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
-		if(nargs >= argc) {
+		if(nargs > argc) {	// == no longer applies since e.g. -prp requires no numeric arg and can come last:
 			fprintf(stderr, "*** ERROR: Unterminated command-line option or malformed argument.\n");
 			print_help();
 		}
 
 		if(stFlag[0] != '-') {
-			fprintf(stderr, "*** ERROR: Illegal command-line option %s\n", stFlag);
-			fprintf(stderr, "*** All command-line options must be of form -{flag} [argument]\n\n");
+			fprintf(stderr, "*** ERROR: Illegal command-line option '%s'\n", stFlag);
 			print_help();
 		}
 
@@ -3590,19 +3804,19 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 				if(STREQ(stFlag, "l") || STREQ(stFlag, "large"))	/* large  */
 					break;
 				start = finish; finish += numHuge;
-				if(STREQ(stFlag, "h") || STREQ(stFlag, "xl"))		/* huge   */
+				if(STREQ(stFlag, "h") || STREQ(stFlag, "huge") || STREQ(stFlag, "xl"))		/* huge   */
 					break;
 				start = finish; finish += numEgregious;
-				if(STREQ(stFlag, "e") || STREQ(stFlag, "xxl"))
+				if(STREQ(stFlag, "e") || STREQ(stFlag, "egregious") || STREQ(stFlag, "xxl"))
 					break;
 				start = finish; finish += numBrobdingnagian;
-				if(STREQ(stFlag, "b") || STREQ(stFlag, "xxxl"))
+				if(STREQ(stFlag, "b") || STREQ(stFlag, "brobdingnagian") || STREQ(stFlag, "xxxl"))
 					break;
 				start = finish; finish += numGodzillian;
-				if(STREQ(stFlag, "g") || STREQ(stFlag, "gojira"))
+				if(STREQ(stFlag, "g") || STREQ(stFlag, "godzillian") || STREQ(stFlag, "gojira"))
 					break;
 
-				fprintf(stderr, "*** ERROR: Illegal argument %s to -s flag\n", stFlag);
+				fprintf(stderr, "*** ERROR: Illegal argument '%s' to -s flag\n", stFlag);
 				print_help();
 			}
 			modType  = MODULUS_TYPE_MERSENNE;
@@ -3627,7 +3841,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
 			darg = strtod(stFlag,&cptr);
 			// Must be > 0:
-			ASSERT(HERE, (darg > 0), "pm1_s2_nbuf argument is %%-of-available-mem to use; must be in the range [10,90] ... halting.");
+			ASSERT(HERE, (darg > 0), "pm1_s2_nbuf argument must be integer ... halting.");
 			// Max-%-of-RAM-to-use currently stored in MAX_RAM_USE ... later will convert to floating-fraction and multiply by (available system RAM in MB):
 			PM1_S2_NBUF = darg;
 			nbufSet = TRUE;
@@ -3745,17 +3959,6 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			RES_SHIFT = i64arg;
 		}
 
-		else if(STREQ(stFlag, "-prp"))
-		{
-			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
-			i64arg = atol(stFlag);
-			// Must be < 2^32:
-			ASSERT(HERE, !(i64arg>>32), "prp argument must be < 2^32 ... halting.");
-			PRP_BASE = (uint32)i64arg;
-			ASSERT(HERE, testType != TEST_TYPE_PM1, "PRP and P-1 test types not simultaneously specifiable.");
-			testType = TEST_TYPE_PRP;
-		}
-
 		// v20: Add p-1 support:
 		else if(STREQ(stFlag, "-b1"))
 		{
@@ -3821,10 +4024,46 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
 			expo = atol(stFlag);
 			userSetExponent = 1;
-			//*** use 0-pad slot in MersVec[] to store user-set-exponent data irrespective of whether LL-test or PRP-test: ***
-			MersVec[numTest].exponent = expo;
+			// Use 0-pad slot in MvecPtr[] to store user-set-exponent data - that can point to either MersVec
+			// or MvecPRP. if -prp is invoked after the -m {+int} flag, at that point copy any exponent set
+			// here from MersVec[numTest].exponent to MvecPRP[numTest].exponent :
+			MvecPtr[numTest].exponent = expo;
 			start = numTest; finish = start+1;
 			modType = MODULUS_TYPE_MERSENNE;
+		}
+
+		else if(STREQ(stFlag, "-prp"))	// This flag optionally takes a numeric base arg, and trips us into PRP-test mode
+		{
+			if(nargs < argc) {
+				strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
+				if(isdigit(stFlag[0])) {
+					PRP_BASE = atol(stFlag);
+					if(PRP_BASE+1 == 0) {
+						snprintf_nowarn(cbuf,STR_MAX_LEN, "*** ERROR: Numeric arg to -prp flag, '%s', overflows uint32 field.\n", stFlag);
+						ASSERT(HERE,0,cbuf);
+					}
+				}
+				else
+					--nargs;
+			}
+			// Use 0-pad slot in MvecPRP[] to store user-set-exponent data:
+			ASSERT(HERE,MvecPtr == MersVec,"-prp flag invoked, but MvecPtr does not reflect the default MersVec init-value!");
+			MvecPtr = MvecPRP;
+			if(MersVec[numTest].exponent) {
+				MvecPtr[numTest].exponent = MersVec[numTest].exponent;
+				MersVec[numTest].exponent = 0ull;
+			}
+			if(!PRP_BASE)	// If user has not (yet) specified base, default = 3; if -base comes later in cmd-line, it will override
+				PRP_BASE = 3;
+			modType = MODULUS_TYPE_MERSENNE;
+			testType = TEST_TYPE_PRP;
+		}
+
+		else if(STREQ(stFlag, "-base"))
+		{
+			strncpy(stFlag, argv[nargs++], STR_MAX_LEN);
+			i64arg = atol(stFlag);
+			PRP_BASE = (uint32)i64arg;
 		}
 
 		else if(STREQ(stFlag, "-f") || STREQ(stFlag, "-fermat"))
@@ -3868,7 +4107,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			FermVec[numFerm].fftLength = fftlen;
 			start = numFerm; finish = start+1;
 		} else {
-			MersVec[numTest].fftLength = fftlen;
+			MvecPtr[numTest].fftLength = fftlen;
 			start = numTest; finish = start+1;
 		}
 	}
@@ -3877,7 +4116,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 		if(modType == MODULUS_TYPE_FERMAT)
 			iarg = FermVec[numFerm].fftLength;
 		else
-			iarg = MersVec[numTest].fftLength;
+			iarg = MvecPtr[numTest].fftLength;
 
 		if(iarg == 0) {
 			sprintf(cbuf  , "*** ERROR: Must specify a valid FFT length on command line before -radset argument!\n");
@@ -3916,7 +4155,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 			ASSERT(HERE, 0,cbuf);
 		}
 	ERNST_MAIN:
-		if((retVal = ernstMain(modType,testType,0,MersVec[start].fftLength,0,0,0,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime)) != 0)
+		if((retVal = ernstMain(modType,testType,0,MvecPtr[start].fftLength,0,0,0,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime)) != 0)
 		{
 			printMlucasErrCode(retVal);
 
@@ -3932,7 +4171,7 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 
 			/**** IF POSSIBLE, USE ONE OF THE STANDARD TEST EXPONENTS HERE, SO CAN CHECK RES64s!!! ****/
 				for(i = 0; i < numTest; i++) {
-					if(MersVec[i].fftLength == k) {
+					if(MvecPtr[i].fftLength == k) {
 						userSetExponent = 0;
 						start = i; finish = start+1;
 						break;
@@ -3940,8 +4179,8 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 				}
 				if(i == numTest) {
 					userSetExponent = 1;
-					MersVec[numTest].exponent = convert_base10_char_uint64(ESTRING);
-					MersVec[numTest].fftLength = k;
+					MvecPtr[numTest].exponent = convert_base10_char_uint64(ESTRING);
+					MvecPtr[numTest].fftLength = k;
 					start = numTest; finish = start+1;
 				}
 
@@ -3960,24 +4199,22 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 	/* If user specified iters and FFT length but no exponent, get default Mersenne exponent for that FFT length: */
 	else if(modType == MODULUS_TYPE_MERSENNE)
 	{
-		if(MersVec[start].exponent == 0)
+		if(MvecPtr[start].exponent == 0)
 		{
-			i = MersVec[start].fftLength;
+			i = MvecPtr[start].fftLength;
 			ASSERT(HERE, i > 0                  ,"Require i > 0                  ");
 			ASSERT(HERE, i <=MAX_FFT_LENGTH_IN_K,"Require i <=MAX_FFT_LENGTH_IN_K");
 
-			/* If the FFT length is not represented in MersVec[],
-			find the nearest prime <= given_N_get_maxP(FFT length):
-			*/
+			// If FFT length is not represented in reference-residue array, find nearest prime <= given_N_get_maxP(FFT length):
 			for(j = 0; j < numTest; j++) {
-				if(i == MersVec[j].fftLength) break;
+				if(i == MvecPtr[j].fftLength) break;
 			}
-			if(i != MersVec[j].fftLength) {
+			if(i != MvecPtr[j].fftLength) {
 				hi = given_N_get_maxP(i<<10) | 0x1;	/* Make sure starting value is odd */
 				lo = hi - 1000;	if(lo < PMIN) lo = PMIN;
 				for(expo = hi; expo >=lo; expo -= 2) {
 					if(isPRP64(expo)) {
-						MersVec[numTest].exponent = expo;
+						MvecPtr[numTest].exponent = expo;
 						break;
 					}
 				}
@@ -3985,13 +4222,13 @@ just below the upper limit for each FFT lengh in some subrange of the self-tests
 					fprintf(stderr, "ERROR: unable to find a prime in the interval %llu <= x <= %llu.\n", lo, hi);
 					ASSERT(HERE, 0,"0");
 				}
-			} else {	/* Use the corresponding entry of MersVec: */
+			} else {	/* Use the corresponding entry of MvecPtr: */
 				start = j; finish = start+1;
 			}
 		}
 		/* If user specified exponent but no FFT length, get default FFT length for that exponent: */
-		else if(MersVec[numTest].exponent && (MersVec[numTest].fftLength == 0))
-			MersVec[numTest].fftLength = get_default_fft_length((uint64)(MersVec[numTest].exponent));
+		else if(MvecPtr[numTest].exponent && (MvecPtr[numTest].fftLength == 0))
+			MvecPtr[numTest].fftLength = get_default_fft_length((uint64)(MvecPtr[numTest].exponent));
 	}
 	else if(modType == MODULUS_TYPE_FERMAT)
 	{
@@ -4027,10 +4264,15 @@ TIMING_TEST_LOOP:
 	if(selfTest) {
 		fprintf(stderr, "\n           Mlucas selftest running.....\n\n");
 		/* We have precomputed 100, 1000 and 10000-iteration residues for the predefined self-test exponents: */
-		if( (userSetExponent && (modType == MODULUS_TYPE_MERSENNE)) || (iters && (iters != 100) && (iters != 1000) && (iters != 10000)) )
-		{
-			fprintf(stderr, "\n********** Non-default exponent or #iters not one of [100,1000,10000] - You will have to manually  **********");
-			fprintf(stderr, "\n********** verify that the Res64s output for this self-test match for all FFT radix combinations!! **********\n\n\n");
+		if( userSetExponent && (modType == MODULUS_TYPE_MERSENNE) ) {
+			fprintf(stderr, "\n********** Non-default exponent - you will need to manually verify that the residue **********");
+			fprintf(stderr, "\n********** triplets output for this self-test match for all FFT radix combinations! **********\n\n");
+		} else if( iters && (iters != 100) && (iters != 1000) && (iters != 10000) ) {
+			fprintf(stderr, "\n********** #Iters not one of [100,1000,10000] - you will need to manually verify that  **********");
+			fprintf(stderr, "\n********** residue triplets output for self-test match for all FFT radix combinations! **********\n\n");
+		} else if( testType == TEST_TYPE_PRP && PRP_BASE != 3 ) {
+			fprintf(stderr, "\n********** Non-default PRP base - you will need to manually verify that the residue **********");
+			fprintf(stderr, "\n********** triplets output for this self-test match for all FFT radix combinations! **********\n\n");
 		}
 		fprintf(stderr, "/****************************************************************************/\n\n");
 	}
@@ -4102,14 +4344,11 @@ TIMING_TEST_LOOP:
 													(b) if so, read the first line;
 												in one fell swoop. */
 	fp = mlucas_fopen(CONFIGFILE,FILE_ACCESS_MODE);
-	if(!fp)
-	{
+	if(!fp) {
 		sprintf(cbuf, "INFO: Unable to find/open %s file in %s mode ... creating from scratch.\n", CONFIGFILE, FILE_ACCESS_MODE);
 		fprintf(stderr,"%s",cbuf);
 		new_cfg = TRUE;
-	}
-	else
-	{
+	} else {
 		/* Program version string assumed to be stored in line 1 of .cfg file -
 		if it's not, the .cfg file is by definition outdated:
 		*/
@@ -4118,7 +4357,7 @@ TIMING_TEST_LOOP:
 		else
 			new_cfg = TRUE;
 
-		fclose(fp);	fp = 0x0;
+		fclose(fp); fp = 0x0;
 	}
 
 	/* If existing .cfg file is for current program version, file-append mode is appropriate;
@@ -4135,7 +4374,7 @@ TIMING_TEST_LOOP:
 	FILE_ACCESS_MODE[1] = FILE_FORMAT_ASCII;
 
 	/* What's the max. FFT length (in K) for the set of self-tests? */
-	maxFFT = MersVec[finish-1].fftLength;
+	maxFFT = MvecPtr[finish-1].fftLength;
 
 	for (xNum = start; xNum < finish; xNum++)    /* Step through the exponents */
 	{
@@ -4143,7 +4382,7 @@ TIMING_TEST_LOOP:
 
 		/* If it's a self-test [i.e. timing test] and user hasn't specified #iters, set to default: */
 		if(selfTest && !iters) {
-			if(NTHREADS >= 4)
+			if(NTHREADS > 4)
 				iters = 1000;
 			else
 				iters = 100;
@@ -4152,12 +4391,10 @@ TIMING_TEST_LOOP:
 		if(iters == 100 || iters == 1000 || iters == 10000) {
 			mvec_res_t_idx = NINT( log((double)iters)/log(10.) ) - 2;	/* log10(iters) - 2, use slower NINT rather than DNINT here since latter needs correct rounding mode */
 			ASSERT(HERE, mvec_res_t_idx < 3,"main: mvec_res_t_idx out of range!");
-			// Since use empty-data-slot at top of MersVec[] for both primality & prp single-case tests that,
-			// rather than MersVecPRP[], appears here in the PRP-part of the conditional:
-			if( (modType == MODULUS_TYPE_MERSENNE && testType == TEST_TYPE_PRIMALITY && MersVec[xNum].res_t[mvec_res_t_idx].sh0 == 0)
-			 || (modType == MODULUS_TYPE_MERSENNE && testType == TEST_TYPE_PRP       && MersVec[xNum].res_t[mvec_res_t_idx].sh0 == 0)
-			 || (modType == MODULUS_TYPE_FERMAT   && FermVec[xNum].res_t[mvec_res_t_idx].sh0 == 0) )	/* New self-test residue being computed */
-			{
+			// Use empty-data-slot at top of MersVec[] or MvecPRP[], respectively, for primality & prp single-case tests:
+			if( (modType == MODULUS_TYPE_MERSENNE && MvecPtr[xNum].res_t[mvec_res_t_idx].sh0 == 0)
+			 || (modType == MODULUS_TYPE_FERMAT   && FermVec[xNum].res_t[mvec_res_t_idx].sh0 == 0) )
+			{	// New self-test residue being computed:
 				new_data = TRUE;
 				new_res.sh0 = new_res.sh1 = new_res.sh2 = 0ull;
 			}
@@ -4175,9 +4412,14 @@ TIMING_TEST_LOOP:
 			radix_set = 0;
 
 		if(modType == MODULUS_TYPE_MERSENNE)
-			iarg = MersVec[xNum].fftLength;
+			iarg = MvecPtr[xNum].fftLength;
 		else if(modType == MODULUS_TYPE_FERMAT)
 			iarg = FermVec[xNum].fftLength;
+
+		// For SIMD builds only use FFT lengths which are at least a multiple of 4 Kdoubles:
+	  #ifdef USE_SSE2
+		if(iarg & 3) continue;
+	  #endif
 
 		while(get_fft_radices(iarg, radix_set, &NRADICES, RADIX_VEC, 10) == 0)	/* Try all the radix sets available for this FFT length. */
 		{
@@ -4188,22 +4430,15 @@ TIMING_TEST_LOOP:
 				Res36m1 = FermVec[xNum].res_t[mvec_res_t_idx].sh2;
 				retVal = ernstMain(modType,testType,(uint64)FermVec[xNum].Fidx    ,iarg,radix_set,maxFFT,iters,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime);
 			}
-			else if(modType == MODULUS_TYPE_MERSENNE && testType == TEST_TYPE_PRIMALITY)
+			else if(modType == MODULUS_TYPE_MERSENNE)
 			{
-				Res64   = MersVec[xNum].res_t[mvec_res_t_idx].sh0;
-				Res35m1 = MersVec[xNum].res_t[mvec_res_t_idx].sh1;
-				Res36m1 = MersVec[xNum].res_t[mvec_res_t_idx].sh2;
-				retVal = ernstMain(modType,testType,(uint64)MersVec[xNum].exponent,iarg,radix_set,maxFFT,iters,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime);
+				Res64   = MvecPtr[xNum].res_t[mvec_res_t_idx].sh0;
+				Res35m1 = MvecPtr[xNum].res_t[mvec_res_t_idx].sh1;
+				Res36m1 = MvecPtr[xNum].res_t[mvec_res_t_idx].sh2;
+				retVal = ernstMain(modType,testType,(uint64)MvecPtr[xNum].exponent,iarg,radix_set,maxFFT,iters,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime);
 			}
-			else if(modType == MODULUS_TYPE_MERSENNE && testType == TEST_TYPE_PRP)
-			{
-				Res64   = MersVecPRP[xNum].res_t[mvec_res_t_idx].sh0;
-				Res35m1 = MersVecPRP[xNum].res_t[mvec_res_t_idx].sh1;
-				Res36m1 = MersVecPRP[xNum].res_t[mvec_res_t_idx].sh2;
-				retVal = ernstMain(modType,testType,(uint64)MersVec[xNum].exponent,iarg,radix_set,maxFFT,iters,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime);
-			}
-			else	if(testType == TEST_TYPE_PM1) {
-				retVal = ernstMain(modType,testType,(uint64)MersVec[xNum].exponent,iarg,radix_set,maxFFT,iters,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime);
+			else if(testType == TEST_TYPE_PM1) {
+				retVal = ernstMain(modType,testType,(uint64)MvecPtr[xNum].exponent,iarg,radix_set,maxFFT,iters,&Res64,&Res35m1,&Res36m1,scrnFlag,&runtime);
 			}
 			else
 				ASSERT(HERE, 0,"Unsupported modulus and/or test type!");
@@ -4218,35 +4453,26 @@ TIMING_TEST_LOOP:
 				|| (iters == 10000 && MME >=0.4375 ) ) )
 			{
 				fprintf(stderr, "***** Excessive level of roundoff error detected - this radix set will not be used. *****\n");
-
-				/* If user-specified radix set, do only that one: */
-				if(radset >= 0) goto DONE;
-
-				runtime = 0.0;
-				++radix_set;
-				continue;
+				if(radset >= 0)	// If user-specified radix set, do only that one:
+					goto DONE;
+				runtime = 0.0; ++radix_set; continue;
 			}
-			else if(retVal)	/* Bzzzzzzzzzzzt!!! That answer is incorrect. The penalty is death... */
+			else if(retVal)	// Bzzzzzzzzzzzt!!! That answer is incorrect. The penalty is death:
 			{
 				printMlucasErrCode(retVal);
 				if( !userSetExponent && ((iters == 100) || (iters == 1000) || (iters == 10000)) )
-				{
 					fprintf(stderr, "Error detected - this radix set will not be used.\n");
-				}
-				/* If user-specified radix set, do only that one: */
-				if(radset >= 0) goto DONE;
-
-				runtime = 0.0;
-				++radix_set;
-				continue;
+				if(radset >= 0)	// If user-specified radix set, do only that one:
+					goto DONE;
+				runtime = 0.0; ++radix_set; continue;
 			}
-			else if(radset >= 0)	/* If user-specified radix set, do only that one: */
+			else if(radset >= 0)	// If user-specified radix set, do only that one:
 			{
 				goto DONE;
 			}
-			else if(new_data)		/* New self-test residue being computed - write detailed SH residues to .cfg file if get a consensus value */
+			else if(new_data)	// New self-test residues being computed - write to .cfg file if get a consensus value:
 			{
-				if(!new_res.sh0)	/* First of the available radix sets... */
+				if(!new_res.sh0)	// First of the available radix sets:
 				{
 					new_res.sh0 = Res64  ;
 					new_res.sh1 = Res35m1;
@@ -4254,7 +4480,7 @@ TIMING_TEST_LOOP:
 					nradix_set_succeed++;	// This assumes when doing such a new-data-selftest the initial radset gives the correct result,
 											// which may not be justified, but we can add fancier consensus-weighing logic later, if needed.
 				}
-				else if				/* All subsequent radix sets must match to produce a consensus result: */
+				else if			// All subsequent radix sets must match to produce a consensus result:
 				(
 					new_res.sh0 == Res64
 				 &&	new_res.sh1 == Res35m1
@@ -4263,8 +4489,7 @@ TIMING_TEST_LOOP:
 				{
 					nradix_set_succeed++;
 				} else {
-					runtime = 0.0;	++radix_set;
-					continue;
+					runtime = 0.0; ++radix_set; continue;
 				}
 			} else {	// If not a new-data self-tests (i.e. it's a regular -s one), getting here means the current radset succeeded:
 				nradix_set_succeed++;
@@ -4316,8 +4541,7 @@ TIMING_TEST_LOOP:
 			tdiff = runtime_best/((double)iters*CLOCKS_PER_SEC);
 		#endif
 			fp = mlucas_fopen(CONFIGFILE,FILE_ACCESS_MODE);
-			if(!fp)
-			{
+			if(!fp) {
 				sprintf(cbuf  , "INFO: Unable to open %s file in %s mode ... \n", CONFIGFILE, FILE_ACCESS_MODE);
 				fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 			}
@@ -4325,8 +4549,7 @@ TIMING_TEST_LOOP:
 			/* Put code version on line 1.
 			Only want to do this once; subsequent mlucas_fopen/fprintf are in append mode:
 			*/
-			if(new_cfg && FILE_ACCESS_MODE[0]==FILE_ACCESS_WRITE)
-			{
+			if(new_cfg && FILE_ACCESS_MODE[0] == FILE_ACCESS_WRITE) {
 				fprintf(fp, "%s\n", VERSION);
 				FILE_ACCESS_MODE[0]=FILE_ACCESS_APPEND;
 			}
@@ -4343,8 +4566,7 @@ TIMING_TEST_LOOP:
 				Double-check existence of, and print info about,
 				best radix set found for this FFT length:
 			*/
-			if(get_fft_radices(iarg, radix_best, &NRADICES, RADIX_VEC, 10) != 0)
-			{
+			if(get_fft_radices(iarg, radix_best, &NRADICES, RADIX_VEC, 10) != 0) {
 				sprintf(cbuf  , "ERROR: alleged best-radix-set index %u is unsupported.\n",radix_best);
 				fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 			}
@@ -4358,11 +4580,11 @@ TIMING_TEST_LOOP:
 				fprintf(fp, "\tp = %s: %d-iter Res mod 2^64, 2^35-1, 2^36-1 = %016llX, %11.0f, %11.0f",ESTRING,iters,new_res.sh0,(double)new_res.sh1,(double)new_res.sh2);
 
 			fprintf(fp,"\n");
-			fclose(fp);	fp = 0x0;
+			fclose(fp); fp = 0x0;
 
 			/* if just adding entry for a single FFT length needed for current exponent, return to here: */
 			if (quick_self_test) {
-				quick_self_test = 0;
+				quick_self_test = selfTest = 0; start = numTest; finish = start+1;
 				goto ERNST_MAIN;
 			}
 		}
@@ -4444,32 +4666,10 @@ int	cfgNeedsUpdating(char*in_line)
 
 /******************/
 
-/* These need to be kept updated to match the #defines in Mdata.h: */
-const char *err_code[] = {
-	"ERR_INCORRECT_RES64",
-	"ERR_RADIX0_UNAVAILABLE",
-	"ERR_RADIXSET_UNAVAILABLE",
-	"ERR_TESTTYPE_UNSUPPORTED",
-	"ERR_EXPONENT_ILLEGAL",
-	"ERR_FFTLENGTH_ILLEGAL",
-	"ERR_ECHECK_NOTBOOL",
-	"ERR_TESTITERS_OUTOFRANGE",
-	"ERR_ROUNDOFF",
-	"ERR_CARRY",
-	"ERR_RUN_SELFTEST_FORLENGTH",
-	"ERR_ASSERT",
-	"ERR_UNKNOWN_FATAL",
-	"ERR_INTERRUPT"
-};
-
-void	returnMlucasErrCode(uint32 ierr, char*s)
+const char*returnMlucasErrCode(uint32 ierr)
 {
-	ASSERT(HERE, s != 0x0, "Null string pointer!");
 	ASSERT(HERE, ierr < ERR_MAX, "Error code out of range!");
-	if(ierr == 0)
-		s[0] = '\0';
-	else
-		strcpy(s, err_code[ierr-1]);
+	return err_code[ierr-1];
 }
 
 void	printMlucasErrCode(uint32 ierr)
@@ -4557,6 +4757,11 @@ EWM's notes added in {}:
 	   time so that the whole residue is a standard, least non-negative
 	   one (i.e. all bytes deemed positive).
 
+	{c0}: EWM - an 8-byte unsigned integer checksum containing residue modulo 2^64, i.e.
+		the least-significant 64 residue bits. This is all-but-useless as a residue integrity
+		check, but is included for arcane code-historical reasons. This field may be repurposed
+		at some later point.
+
 	{c1}: EWM - a  5-byte unsigned integer checksum containing residue modulo 2^35 - 1.
 
 	{c2}: EWM - a  5-byte unsigned integer checksum containing residue modulo 2^36 - 1.
@@ -4566,7 +4771,7 @@ EWM's notes added in {}:
 		computation, e.g. stage bounds, possibly even a condensed run history, if more
 		than one person has contributed pieces of the full computation.
 
-	EWM - added in v18:
+EWM - added in v18:
 	{kblocks}: 4 bytes to store the FFT length (in Kdoubles) actually
 		used at time of savefile write. This is needed to support the code auto-switching
 		to a larger-than-default FFT length during the run as a result of excessive ROE.
@@ -4574,11 +4779,18 @@ EWM's notes added in {}:
 	{shift}: 8 bytes to store the circular bitwise residue-shift value at the time of the
 		savefile write. Note that the unshifted residue is what is actually written to the file.
 
-The input arguments Res64, Res35m1, Res36m1 are 3 checksums (residue modulo 2^64, 2^35-1, 2^36-1)
-intended to be compared to the same gotten via subsequent processing (e.g. conversion to floating-
-point form) of the residue array itself. (These are essentially the Selfridge-Hurwitz residues
-commonly used in Fermat-number primality testing, but with the mod-2^36 component widened to 64 bits).
+EWM - added in v19:
+	For PRP-tests, second bytewise residue array and associated [c0,c1,c2] checksum triplet.
+	The 8-byte {c0}-checksum field is repurposed here to store a circular bitwise residue-shift
+	value which to apply to the G-check residues after reading it.
+
+EWM - added in v20:
+	{e1} A 4-byte field storing the cumulative number of occurrences of convolution-output fractional
+	roundoff errors (ROE) >= 0.4375 (>= for LL, > for PRP)for the test in question.
+
+	{e2} A 4-byte field storing the number of occurrences of Gerbicz-check errors for the test in question.
 */
+
 /* Dec 2017: For Fermat case the Pepin primality test is indistinguishable from an Euler-PRP test and
 e.g. cofactor-PRP tests start from Pepin residue. Thus for this modulus type these two
 disparate-seeming test types are acceptable; add this little utility function to enforce that:
@@ -4690,7 +4902,7 @@ int read_ppm1_residue(const uint32 nbytes, FILE*fp, uint8 arr_tmp[], uint64*Res6
 
 // Returns 1 on successful read, 0 otherwise:
 // v19: For PRP-tests, also write a second Gerbicz-check residue array [arr2] and associated S-H checksum triplet [i1,i2,i3]
-// v20: E.g. distributed deep p-1 S2 may use B2 >= 2^32, so make ilo a uint64-ptr; add filename arg since S2 appends '.s2' to RESTARTFILE:
+// v20: Distributed deep p-1 S2 may use B2 >= 2^32, so make ilo a uint64-ptr; add filename arg since S2 appends '.s2' to RESTARTFILE:
 int read_ppm1_savefiles(const char*fname, uint64 p, uint32*kblocks, FILE*fp, uint64*ilo,
 	uint8 arr1[], uint64*Res64, uint64*Res35m1, uint64*Res36m1,
 	uint8 arr2[], uint64*i1   , uint64*i2     , uint64*i3     )
@@ -4824,10 +5036,7 @@ void write_ppm1_residue(const uint32 nbytes, FILE*fp, const uint8 arr_tmp[], con
 	if(i != nbytes) {
 		fclose(fp); fp = 0x0;
 		snprintf_nowarn(cbuf,STR_MAX_LEN,"%s: Error writing residue to restart file.\n",func);
-									        fprintf(stderr,"%s",cbuf);
-		fp = mlucas_fopen(   OFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
-		fp = mlucas_fopen(STATFILE,"a");	if(fp){ fprintf(	fp,"%s",cbuf);	fclose(fp); fp = 0x0; }
-		ASSERT(HERE, 0,"");
+		mlucas_fprint(cbuf,0);	ASSERT(HERE,0,cbuf);
 	}
 	/* ...and checksums:	*/
 	/* Res64: */
@@ -5163,6 +5372,7 @@ form, use the mi64_cvt_double_uint64() and mi64_cvt_uint64_double() functions in
 */
 void	convert_res_FP_bytewise(const double a[], uint8 ui64_arr_out[], int n, const uint64 p, uint64*Res64, uint64*Res35m1, uint64*Res36m1)
 {
+	const char func[] = "convert_res_FP_bytewise";
 	int bimodn,curr_bits,curr_char,cy,findex,ii,j,j1,k,pass,rbits,msw_lt0,bw,sw,bits[2],pow2_fft;
 	uint64 nbits,curr_wd64,base[2];	/* Assume base may be > 2^32 (e.g. for mixed FFT/FGT) but < 2^53, i.e. fits in a double */
 	double atmp;
@@ -5295,7 +5505,10 @@ void	convert_res_FP_bytewise(const double a[], uint8 ui64_arr_out[], int n, cons
 		#endif
 			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 			atmp = a[j1];
-			ASSERT(HERE, atmp == NINT(atmp), "Input float-residue elements must have 0 fractional part!");
+			if(atmp != NINT(atmp)) {
+				sprintf(cbuf,"%s: Input float-residue elements must have 0 fractional part! A[%u (of %u)] = %20.10f",func,j,n,atmp);
+				ASSERT(HERE, 0, cbuf);
+			}
 			itmp = (int64)(atmp+ cy);	/* current digit in int64 form, subtracting any borrow from the previous digit.	*/
 			if(itmp < 0) {			/* If current digit < 0, add the current base and set carry into next-higher digit = -1	*/
 				itmp += (base[ii]);
@@ -5313,8 +5526,7 @@ void	convert_res_FP_bytewise(const double a[], uint8 ui64_arr_out[], int n, cons
 			curr_bits = bits[ii] + rbits;
 
 			rbits = curr_bits;
-			for(k = 0; k < curr_bits/8; k++)
-			{
+			for(k = 0; k < curr_bits/8; k++) {
 				ui64_arr_out[curr_char++] = itmp & 255;
 				itmp = (uint64)itmp>>8;
 				rbits -= 8;
@@ -5353,7 +5565,10 @@ void	convert_res_FP_bytewise(const double a[], uint8 ui64_arr_out[], int n, cons
 		#endif
 			j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 			atmp = a[j1];
-			ASSERT(HERE, atmp == NINT(atmp), "Input float-residue elements must have 0 fractional part!");
+			if(atmp != NINT(atmp)) {
+				sprintf(cbuf,"%s: Input float-residue elements must have 0 fractional part! A[%u (of %u) = %20.10f] = ",func,j,n,atmp);
+				ASSERT(HERE, 0, cbuf);
+			}
 			itmp = (int64)(atmp+ cy);	/* current digit in int64 form, subtracting any borrow from the previous digit.	*/
 			if(itmp < 0) {			/* If current digit < 0, add the current base and set carry into next-higher digit = -1	*/
 				itmp += (base[ii]);
@@ -5371,8 +5586,7 @@ void	convert_res_FP_bytewise(const double a[], uint8 ui64_arr_out[], int n, cons
 			curr_bits = bits[ii] + rbits;
 
 			rbits = curr_bits;
-			for(k = 0; k < curr_bits/8; k++)
-			{
+			for(k = 0; k < curr_bits/8; k++) {
 				ui64_arr_out[curr_char++] = itmp & 255;
 				itmp = (uint64)itmp>>8;
 				rbits -= 8;
@@ -5514,18 +5728,24 @@ char*check_kbnc(char*in_str, uint64*p) {
 		}
 		char_addr++;
 		while(isspace(*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
-		if(!is_hex_string(char_addr, 32)) {
-			fprintf(stderr,"%s: Expect a 32-hex-digit PrimeNet v5 assignment ID following the work type specifier! If this is a manually-created %s-file entry, please insert any 32-char hexadecimal string and a ',' following the '=', save the file and and retry.\n",func,WORKFILE); break;
+		if(is_hex_string(char_addr, 32)) {
+			cptr = char_addr + 32;
+			if((char_addr = strstr(cptr, ",")) == 0x0) {
+				fprintf(stderr,"%s: Expected ',' not found in assignment-specifying line!\n",func); break;
+			} else
+				++char_addr;
+		} else if(STREQN_NOCASE(char_addr,"n/a",3)) {
+			cptr = char_addr + 3;
+			if((char_addr = strstr(cptr, ",")) == 0x0) {
+				fprintf(stderr,"%s: Expected ',' not found in assignment-specifying line!\n",func); break;
+			} else
+				++char_addr;
 		}
-		cptr = char_addr + 32;
 		/*
 		Since my code only supports Mersenne and Fermat-number moduli, check to ensure
 		that k = 1, b = 2, c = (+1 or -1) and (n prime if c = -1, n  =  2^m if c = +1):
 		*/
-		if((char_addr = strstr(cptr, ",")) == 0x0) {
-			fprintf(stderr,"%s: Expected ',' not found in assignment-specifying line!\n",func); break;
-		}
-		i = (int)strtol(char_addr+1, &cptr, 10);
+		i = (int)strtol(char_addr, &cptr, 10);
 		if(i != 1) {
 			fprintf(stderr,"%s: In modulus expression m = k*b^n+c, only k = 1 currently supported!\n",func); break;
 		}
@@ -5551,9 +5771,9 @@ char*check_kbnc(char*in_str, uint64*p) {
 			fprintf(stderr,"%s: In modulus expression m = k*b^n+c, only c = +-1 currently supported!\n",func); break;
 		}
 		if(i == -1) {
-			// Future versions will need to loosen the p < 2^32 restriction:
-			if((*p >> 32) || !is_prime((uint32)*p)) {
-				fprintf(stderr,"%s: Mersenne exponent must be prime < 2^32!\n",func); break;
+			uint32 phi32 = (*p >> 32);
+			if((phi32 && !isPRP64(*p)) || (!phi32 && !is_prime((uint32)*p))) {
+				fprintf(stderr,"%s: Mersenne exponent must be prime!\n",func); break;
 			}
 			MODULUS_TYPE = MODULUS_TYPE_MERSENNE;
 		} else if(i == 1) {
@@ -5587,36 +5807,46 @@ No factor found:
 */
 void generate_JSON_report(
 	const uint32 isprime, const uint64 p, const uint32 n, const uint64 Res64, const char*timebuffer,
-	const uint32 B1, const uint64 B2, const char*factor,	// Trio of p-1 fields
+	const uint32 B1, const uint64 B2, const char*factor, const uint32 s2_partial,	// Quartet of p-1 fields
 	char*cstr)	// cstr, takes the formatted output line; the preceding const-ones are inputs for that:
 {
 	char ttype[11] = "\0", aid[33] = "\0";	// aid needs 33rd char for \0
 	const char prp_status[2] = {'C','P'};
 	const char*pm1_status[2] = {"NF","F"};
+	const char*false_or_true[2] = {"false","true"};
 	// Attempt to read 32-hex-char Primenet assignment ID for current assignment (first line of WORKFILE):
-	fp = mlucas_fopen(WORKFILE, "r");
-	ASSERT(HERE,fp != 0x0,"Workfile not found!");
-	ASSERT(HERE,fgets(in_line, STR_MAX_LEN, fp) != 0x0,"Workfile is empty!");
-	fclose(fp);	fp = 0x0;
-	// Is there a Primenet-style 32-hexit assignment ID in the assignment line? If so, include it in the JSON output:
+	ASSERT(HERE,(fp = mlucas_fopen(WORKFILE, "r")) != 0x0,"Workfile not found!");
+	// v20.1.1: Parse first line whose leading non-WS char is alphabetic:
+	char_addr = 0x0;
+	while(fgets(in_line, STR_MAX_LEN, fp) != 0x0) {
+		char_addr = in_line; while(isspace(*char_addr)) { ++char_addr; }
+		if(isalpha(*char_addr)) break;
+	}
+	fclose(fp); fp = 0x0;
+	ASSERT(HERE,strlen(char_addr) != 0 && isalpha(*char_addr),"Eligible assignment (leading non-WS char alphabetic) not found in workfile!");
+	if(!strstr(in_line, ESTRING) && !(MODULUS_TYPE == MODULUS_TYPE_FERMAT && strstr(in_line, BIN_EXP)) ) {
+		snprintf_nowarn(cbuf,STR_MAX_LEN, "ERROR: Current exponent %s not found in %s file!\n",ESTRING,WORKFILE);
+		ASSERT(HERE,0,cbuf);
+	}
+	// Is there a Primenet-server 32-hexit assignment ID in the assignment line? If so, include it in the JSON output:
 	char_addr = strstr(in_line, "=");
 	if(char_addr) {
 		char_addr++;
 		while(isspace(*char_addr)) { ++char_addr; }	// Skip any whitespace following the equals sign
-		ASSERT(HERE, is_hex_string(char_addr, 32), "Expect a 32-hex-digit PrimeNet v5 assignment ID following the work type specifier!");
-		strncpy(aid,char_addr,32);
+		if(is_hex_string(char_addr, 32) && STRNEQN(char_addr,"00000000000000000000000000000000",32))
+			strncpy(aid,char_addr,32);
 	}
-	// Write the result line. The 2 nested conditionals here are LL-or-PRP and AID-found-or-not:
+	// Write the result line. The 2 nested conditionals here are LL-or-PRP and has-AID-or-not:
 	if(TEST_TYPE == TEST_TYPE_PRIMALITY) {
 		snprintf(ttype,10,"LL");
-		if(char_addr) {
+		if(*aid) {
 			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%llu, \"worktype\":\"%s\", \"res64\":\"%016llX\", \"fft-length\":%u, \"shift-count\":%llu, \"error-code\":\"00000000\", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,n,RES_SHIFT,VERSION,timebuffer,aid);
 		} else {
 			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%llu, \"worktype\":\"%s\", \"res64\":\"%016llX\", \"fft-length\":%u, \"shift-count\":%llu, \"error-code\":\"00000000\", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,n,RES_SHIFT,VERSION,timebuffer);
 		}
 	} else if(TEST_TYPE == TEST_TYPE_PRP) {	// Only support type-1 PRP tests, so hardcode that subfield:
 		snprintf(ttype,10,"PRP-%u",PRP_BASE);
-		if(char_addr) {
+		if(*aid) {
 			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%llu, \"worktype\":\"%s\", \"res64\":\"%016llX\", \"residue-type\":1, \"fft-length\":%u, \"shift-count\":%llu, \"error-code\":\"00000000\", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,n,RES_SHIFT,VERSION,timebuffer,aid);
 		} else {
 			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%c\", \"exponent\":%llu, \"worktype\":\"%s\", \"res64\":\"%016llX\", \"residue-type\":1, \"fft-length\":%u, \"shift-count\":%llu, \"error-code\":\"00000000\", \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",prp_status[isprime],p,ttype,Res64,n,RES_SHIFT,VERSION,timebuffer);
@@ -5624,10 +5854,26 @@ void generate_JSON_report(
 	} else if(TEST_TYPE == TEST_TYPE_PM1) {	// For p-1 assume there was an AID in the assignment, even if an all-0s one:
 		snprintf(ttype,10,"PM1");
 		if(!strlen(factor)) {	// No factor was found:
+		  if(*aid) {
 			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%s\", \"exponent\":%llu, \"worktype\":\"%s\", \"fft-length\":%u, \"B1\":%u, \"B2\":%llu, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",pm1_status[0],p,ttype,n,B1,B2,VERSION,timebuffer,aid);
+		  } else {
+			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%s\", \"exponent\":%llu, \"worktype\":\"%s\", \"fft-length\":%u, \"B1\":%u, \"B2\":%llu, \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",pm1_status[0],p,ttype,n,B1,B2,VERSION,timebuffer);
+		  }
 		} else {	// The factor in the eponymous arglist field was found:
+		  if(B2 <= B1) {	// No stage 2 was run
+		   if(*aid) {
 			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%s\", \"exponent\":%llu, \"worktype\":\"%s\", \"fft-length\":%u, \"B1\":%u, \"factors\":[\"%s\"], \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",pm1_status[1],p,ttype,n,B1,factor,VERSION,timebuffer,aid);
-		}
+		   } else {
+			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%s\", \"exponent\":%llu, \"worktype\":\"%s\", \"fft-length\":%u, \"B1\":%u, \"factors\":[\"%s\"], \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",pm1_status[1],p,ttype,n,B1,factor,VERSION,timebuffer);
+		   }
+		  } else {	// Include B2 and flag indicating whether the s2 interval was completely covered or not. Factor must be in "" due to possibility of > 64-bit, which overflows a JSON int:
+		   if(*aid) {
+			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%s\", \"exponent\":%llu, \"worktype\":\"%s\", \"fft-length\":%u, \"B1\":%u, \"B2\":%llu, \"partial-stage-2\":%s, \"factors\":[\"%s\"], \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\", \"aid\":\"%s\"}\n",pm1_status[1],p,ttype,n,B1,B2,false_or_true[s2_partial],factor,VERSION,timebuffer,aid);
+		   } else {
+			snprintf(cstr,STR_MAX_LEN,"{\"status\":\"%s\", \"exponent\":%llu, \"worktype\":\"%s\", \"fft-length\":%u, \"B1\":%u, \"B2\":%llu, \"partial-stage-2\":%s, \"factors\":[\"%s\"], \"program\":{\"name\":\"Mlucas\", \"version\":\"%s\"}, \"timestamp\":\"%s\"}\n",pm1_status[1],p,ttype,n,B1,B2,false_or_true[s2_partial],factor,VERSION,timebuffer);
+		   }
+		  }
+	}
 	} else
 		ASSERT(HERE, 0, "Unsupported test type!");
 }
@@ -5694,7 +5940,7 @@ void dif1_dit1_func_name(
 	case 4032:	*func_dif_pass1 = radix4032_dif_pass1;	*func_dit_pass1 = radix4032_dit_pass1;	break;
 //	case 4096:	*func_dif_pass1 = radix4096_dif_pass1;	*func_dit_pass1 = radix4096_dit_pass1;	break;
 	default:
-		sprintf(cbuf,"FATAL: radix %d not available for [dif,dit] pass1. Halting...\n",radix0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+		sprintf(cbuf,"ERROR: radix %d not available for [dif,dit] pass1. Halting...\n",radix0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
   }
 }
 
@@ -5704,12 +5950,10 @@ void dif1_dit1_func_name(
 double-quote-and comma-delimited "factor1,factor2,...,factorN" format. Each alleged known-factor is checked for
 correctness (in both the is-base-2-Fermat-PRP and divides-the-modulus senses), with factors limited to < 2^256;
 the factors are stored in the global KNOWN_FACTORS[], with a limit of 10 known factors per household.
-ASSUMES:
-	o modulus type and binary exponent have been set prior to function call;
-	o fptr an unused (as in 0x0 per our convention) file-ptr in case function emits any messages.
+Assumes: Modulus type and binary exponent have been set prior to function call;
 Returns: The number of factors read in.
 */
-uint32 extract_known_factors(uint64 p, char*fac_start, FILE*fptr) {
+uint32 extract_known_factors(uint64 p, char*fac_start) {
 	uint32 i, fbits, lenf, nchar, nfac = 0;
 	uint64 *fac = 0x0, twop[4], quo[4],rem[4];	// fac = ptr to each mi64-converted factor input string;
 	uint256 p256,q256,res256;
@@ -5754,33 +5998,36 @@ uint32 extract_known_factors(uint64 p, char*fac_start, FILE*fptr) {
 				// Incremented nfac already, so just-added entry in slot (nfac-1):
 				if(mi64_cmp_eq(KNOWN_FACTORS + 4*i, KNOWN_FACTORS + 4*(nfac-1), 4)) {
 					mi64_clear(KNOWN_FACTORS + 4*(--nfac), 4);
-					ASSERT(HERE, fptr == 0x0,"File pointer not null on input!");
 					// Using cbuf as both string-arg and target string is problematic, so use 2nd string-global cstr as target:
 					snprintf_nowarn(cstr,STR_MAX_LEN, "WARNING: p = %llu, known-factor list entry %s is a duplicate ... removing.\n",p,cbuf);
 					fprintf(stderr,"%s",cstr);
-					fptr = mlucas_fopen(   OFILE,"a");
-					if(fptr) {
-						fprintf(fptr,"%s",cstr);
-						fclose(fptr); fptr = 0x0;
-					}
 				}
 			}
 		}
 		cptr = char_addr+1;	// Advance 1-char past the current , or "
 	}
-	ASSERT(HERE,char_addr == 0x0,"Unrecognized token sequence in parsing known-factors line of worktodo file!");
+	if(char_addr != 0x0) {
+		sprintf(cbuf,"%s: Unrecognized token sequence in parsing known-factors portion of assignment: \"%s\".",WORKFILE,fac_start);	ASSERT(HERE,0,cbuf);
+	}
 	ASSERT(HERE, nfac != 0,"Must specify at least one known factor!");
 	return nfac;
 }
 
 /*********************/
 
-// Take GCD of 2^p-1 and nlimb resarr[], with nlimb := ceiling(p/64). Nonzero return value indicates
-// nontrivial GCD, after dividing out any known factors stored in the extern KNOWN_FACTORS array.
-// The decimal value of the GCD is returned in gcd_str, presumed to be dimensioned >= 1024 chars:
-uint32 gcd(uint32 stage, uint64 p, uint64*resarr, uint32 nlimb, char*const gcd_str) {
-#if !INCLUDE_PM1
-	#warning INCLUDE_PM1 defined == 0 at compile time ... No GCDs will be done on p-1 outputs.
+/*
+If p != 0 (this requires vec2 == 0x0):
+	For (MODULUS_TYPE == MODULUS_TYPE_[FERMAT|MERSENNE]), take GCD of 2^p[+|-]1 and nlimb resarr[],
+	with nlimb := ceiling(p/64). A nonzero return value indicates a nontrivial GCD, after dividing
+	out any known factors stored in the extern KNOWN_FACTORS array.
+If p == 0 (this requires vec2 != 0x0):
+	Take GCD of the 2 nlimb-inputs vec1[] and vec2[].
+	A nonzero return value indicates a nontrivial GCD.
+The decimal value of the GCD is returned in gcd_str, presumed to be dimensioned >= 1024 chars:
+*/
+uint32 gcd(uint32 stage, uint64 p, uint64*vec1, uint64*vec2, uint32 nlimb, char*const gcd_str) {
+#if !INCLUDE_GMP
+	#warning INCLUDE_GMP defined == 0 at compile time ... No GCDs will be done on p-1 outputs.
 	return 0;	// If user turns off p-1 support, keep the decl of gcd() to allow pm1.c to build
 #else
 	// Unlike standard types and Mlucas internal structs, GMP objects must be declared before any expressions,
@@ -5791,18 +6038,24 @@ uint32 gcd(uint32 stage, uint64 p, uint64*resarr, uint32 nlimb, char*const gcd_s
 	uint32 i, retval = 0;
 	double tdiff = 0.0, clock1, clock2;
 	clock1 = getRealTime();
-	ASSERT(HERE, resarr != 0x0 && nlimb == (p + 63)>>6, "Bad inputs to GCD()!");
+	ASSERT(HERE, vec1 != 0x0, "Null-pointer vec1 input to GCD()!");
+	ASSERT(HERE,!(p && vec2), "One and only one of p and vec2 args to GCD() must be non-null!");
 	mpz_init(gmp_arr1); mpz_init(gmp_arr2);
 	// Init divisor, remainder, quotient, in case of nontrivial raw GCD and >= 1 known factors:
 	mpz_init(gmp_d); mpz_init(gmp_r); mpz_init(gmp_q);
 	mpz_init_set_ui(gmp_one,1ull); gmp_exp = p;
-	// Import arrtmp into GMP array1, least-sign. element first, host byte order within each word, at 64-bit width:
-	mpz_import(gmp_arr1, nlimb, -1, sizeof(uint64), 0, 0, resarr);
-	mpz_mul_2exp(gmp_arr2, gmp_one,gmp_exp);
-	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)	// 2^p-1:
-		mpz_sub(gmp_arr2, gmp_arr2,gmp_one);
-	else if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)// F(m): p holds 2^m, so F(m) = 2^p+1:
-		mpz_add(gmp_arr2, gmp_arr2,gmp_one);
+	// Import vec1 into GMP array1, least-sign. element first, host byte order within each word, at 64-bit width:
+	mpz_import(gmp_arr1, nlimb, -1, sizeof(uint64), 0, 0, vec1);
+	if(p != 0) {
+		ASSERT(HERE, nlimb == (p + 63 + (MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6, "Bad inputs to GCD()!");
+		mpz_mul_2exp(gmp_arr2, gmp_one,gmp_exp);
+		if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)	// 2^p-1:
+			mpz_sub(gmp_arr2, gmp_arr2,gmp_one);
+		else if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)// F(m): p holds 2^m, so F(m) = 2^p+1:
+			mpz_add(gmp_arr2, gmp_arr2,gmp_one);
+	} else {
+		mpz_import(gmp_arr2, nlimb, -1, sizeof(uint64), 0, 0, vec2);
+	}
 //	gmp_printf("Input1 has %llu bits\n",mpz_sizeinbase(gmp_arr1,2));
 //	gmp_printf("Input2 has %llu bits\n",mpz_sizeinbase(gmp_arr2,2));
 	// Take gcd and return in gmp_arr1:
@@ -5823,17 +6076,14 @@ uint32 gcd(uint32 stage, uint64 p, uint64*resarr, uint32 nlimb, char*const gcd_s
 	}
 	// Recompute bitlength of GCD
 	gmp_size = mpz_sizeinbase(gmp_arr1,2);
-	if(gmp_size < 2) {
+	if(gmp_size < 2)
 		goto gcd_return;	// GCD = 0 or 1
 	// Now the base-10 digit count:
 	gmp_size = mpz_sizeinbase(gmp_arr1,10);
 	// Anything >= 900 digits (~90% the value of our STR_MAX_LEN dimensioning of I/O strings) treated as suspect:
-	if(gmp_size >= 900)
+	if(gmp_size >= 900) {
 		snprintf_nowarn(cbuf,STR_MAX_LEN, "GCD has %u digits -- possible data corruption, aborting.\n",(uint32)gmp_size);
-		fprintf(stderr,"%s",cbuf);
-		fp = mlucas_fopen(STATFILE,"a");
-		if(fp) { fprintf(fp,"%s",cbuf); fclose(fp); fp = 0x0; }
-		ASSERT(HERE, 0, cbuf);
+		mlucas_fprint(cbuf,0); ASSERT(HERE,0,cbuf);
 	}
 	retval = 1;
 gcd_return:
@@ -5844,35 +6094,146 @@ gcd_return:
 		gcd_str[0] = '\0';
 		gmp_snprintf(cbuf,STR_MAX_LEN,"Stage %u: No factor found.\n",stage);
 	}
-	fprintf(stderr,"%s",cbuf);
-	fp = mlucas_fopen(STATFILE,"a"); if(fp) { fprintf(fp,"%s",cbuf); fclose(fp); fp = 0x0; }
+	mlucas_fprint(cbuf,1);
 	clock2 = getRealTime(); tdiff = clock2 - clock1;
 	snprintf(cbuf,STR_MAX_LEN,"Time for GCD =%s\n",get_time_str(tdiff));
-	fprintf(stderr,"%s",cbuf);
-	fp = mlucas_fopen(STATFILE,"a"); if(fp) { fprintf(fp,"%s",cbuf); fclose(fp); fp = 0x0; }
+	mlucas_fprint(cbuf,1);
 	// Done with the GMP arrays:
 	mpz_clear(gmp_arr1); mpz_clear(gmp_arr2); mpz_clear(gmp_d); mpz_clear(gmp_r); mpz_clear(gmp_q);
 	return retval;
-#endif	// INCLUDE_PM1 ?
+#endif	// INCLUDE_GMP ?
 }
 
 /*********************/
 
-// Returns number of times find_string found in file named fname.
-// Assumes the file exists in the run directory - if not, hard-ASSERT:
-uint32 filegrep(const char*fname, const char*find_string) {
-	uint32 retval = 0;
-	fp = mlucas_fopen(fname,"r");
-	if(fp){
-		while(fgets(in_line, STR_MAX_LEN, fp)) {
-			retval += (strstr(in_line,find_string) != 0x0);
+/*
+For (MODULUS_TYPE == MODULUS_TYPE_[FERMAT|MERSENNE]), computes inverse (mod 2^p[+|-]1)
+of vec1[] and returns it in vec2[].
+GMP mod-inverse; arglist as for mpz_gcd but also returns int:
+
+		int mpz_invert (mpz t rop, const mpz t op1, const mpz t op2)
+
+	Compute the inverse of op1 modulo op2 and put the result in rop. If the inverse exists, the
+	return value is non-zero and rop will satisfy 0 ≤ rop < |op2| (with rop = 0 possible only when
+	|op2| = 1, i.e., in the somewhat degenerate zero ring). If an inverse doesn’t exist the return
+	value is zero and rop is undefined. The behaviour of this function is undefined when op2 = 0.
+*/
+void modinv(uint64 p, uint64*vec1, uint64*vec2, uint32 nlimb) {
+#if !INCLUDE_GMP
+	#warning INCLUDE_GMP defined == 0 at compile time ... No MODINV support.
+	// If user turns off p-1 support, keep the decl of modinv() to allow pm1.c to build
+	mi64_clear(vec2,nlimb);	// Return 0
+#else
+	// Unlike standard types and Mlucas internal structs, GMP objects must be declared before any expressions,
+	// else GCC emits "error: a label can only be part of a statement and a declaration is not a statement":
+	mpz_t gmp_arr1, gmp_arr2, gmp_one;
+	mp_bitcnt_t gmp_exp;
+	size_t gmp_size;
+	uint32 i, retval = 0;
+	size_t inv_limbs;
+	uint64 *export_result_addr;
+	double tdiff = 0.0, clock1, clock2;
+	clock1 = getRealTime();
+	ASSERT(HERE, vec1 != 0x0 && vec2 != 0x0, "Null-pointer input to MODINV()!");
+	mpz_init(gmp_arr1); mpz_init(gmp_arr2);
+	mpz_init_set_ui(gmp_one,1ull); gmp_exp = p;
+	// Import vec1 into GMP array1, least-sign. element first, host byte order within each word, at 64-bit width:
+	// void mpz_import (mpz_t rop, size_t count, int order, size_t size, int	[Function] endian, size_t nails, const void *op)
+	mpz_import(gmp_arr1, nlimb, -1, sizeof(uint64), 0, 0, vec1);
+	ASSERT(HERE, (p != 0) && (nlimb == (p + 63 + (MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6), "Bad inputs to MODINV()!");
+	mpz_mul_2exp(gmp_arr2, gmp_one,gmp_exp);
+	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE)	// 2^p-1:
+		mpz_sub(gmp_arr2, gmp_arr2,gmp_one);
+	else if(MODULUS_TYPE == MODULUS_TYPE_FERMAT)// F(m): p holds 2^m, so F(m) = 2^p+1:
+		mpz_add(gmp_arr2, gmp_arr2,gmp_one);
+//	gmp_printf("Input1 has %llu bits\n",mpz_sizeinbase(gmp_arr1,2));
+//	gmp_printf("Input2 has %llu bits\n",mpz_sizeinbase(gmp_arr2,2));
+	/*
+	GMP mod-inverse; arglist as for mpz_gcd but also returns int:
+
+		int mpz_invert (mpz t rop, const mpz t op1, const mpz t op2)
+
+	"Compute the inverse of op1 modulo op2 and put the result in rop. If the inverse exists, the
+	return value is non-zero and rop will satisfy 0 ≤ rop < |op2| (with rop = 0 possible only when
+	|op2| = 1, i.e., in the somewhat degenerate zero ring). If an inverse doesn’t exist the return
+	value is zero and rop is undefined. The behaviour of this function is undefined when op2 = 0."
+	*/
+	// Return inverse in gmp_arr1:
+	retval = mpz_invert(gmp_arr1, gmp_arr1,gmp_arr2);
+	gmp_size = mpz_sizeinbase(gmp_arr1,2);
+	if(!retval) {
+		snprintf(cbuf,STR_MAX_LEN,"MODINV: Fatal error: inverse does not exist.\n");
+		mlucas_fprint(cbuf,0); ASSERT(HERE,0,cbuf);
+	}
+	// Export the result from gmp_arr1 to destination array vec2:
+	// void * mpz_export (void *rop, size_t *countp, int order, size_t size, int	[Function] endian, size_t nails, const mpz_t op)
+	export_result_addr = mpz_export(vec2, &inv_limbs, -1, sizeof(uint64), 0, 0, gmp_arr1);
+	ASSERT(HERE, inv_limbs <= nlimb && export_result_addr == vec2, "GMP was unable to export result to the specified target array!");
+	// Explicitly zero any excess limbs left at top of vec2:
+	for(i = inv_limbs; i < nlimb; i++) {
+		vec2[i] = 0ull;
+	}
+	// Done with the GMP arrays:
+	mpz_clear(gmp_arr1); mpz_clear(gmp_arr2);
+#endif	// INCLUDE_GMP ?
+}
+
+/*********************/
+// Tries to read restartfile with name [fname], allegedly containing restart data for Mersenne or Fermat
+// modulus with binary exponent [expo]. Returns 1 on successful read and checksum validation, 0 otherwise.
+// Assumes the globals TEST_TYPE and MODULUS_TYPE have been properly set in main.
+// Requires pointers arr1 (and arr2 if a PRP-test residue) to scratch arrays with sufficient allocation
+// to hold the bytewise residue(s) stored in the file to be passed in.
+int restart_file_valid(const char*fname, const uint64 p, uint8*arr1, uint8*arr2)
+{
+	int retval = 0;
+	uint32 j;
+	uint64 Res64,Res35m1,Res36m1, i1,i2,i3, itmp64;
+	FILE*fptr = mlucas_fopen(fname,"r");
+	if(fptr) {
+		retval = read_ppm1_savefiles(fname, p, &j, fptr, &itmp64,
+										arr1, &Res64,&Res35m1,&Res36m1,	// Primality-test residue
+										arr2, &i1   ,&i2     ,&i3     );// [PRP-test] G-check residues
+		fclose(fptr);
+	}
+	if(!retval && strstr(cbuf, "read_ppm1_savefiles"))
+		mlucas_fprint(cbuf,1);
+	return retval;
+}
+
+/*********************/
+// Returns line number of substring find_string found in file named fname. Assumes file exists in run directory - if not, hard-ASSERT.
+// Depending on whether the associated integer arg find_before_line_number = 0 or not, the mandatory cstr arg will contain a copy of
+// either the first or last-line-before-line-number matching find_str, respectively. If no matches, 0 is returned and cstr = '\0'.
+// To find the line number and content of the last occurrence of find_str, period, set find_before_line_number = -1:
+uint32 filegrep(const char*fname, const char*find_str, char*cstr, uint32 find_before_line_number)
+{
+	uint32 curr_line = 0, found_line = 0;
+	ASSERT(HERE, cstr != 0x0, "filegrep(): cstr pointer argument must be non-null!");
+	cstr[0] = '\0';
+	if(strlen(find_str) == 0)	// Nothing to find
+		return 0;
+	FILE*fptr = mlucas_fopen(fname,"r");
+	if(fptr){
+		while(fgets(in_line, STR_MAX_LEN, fptr)) {
+			++curr_line;
+			if(find_before_line_number && curr_line >= find_before_line_number)
+				break;
+			if(strstr(in_line,find_str) != 0x0) {
+				found_line = curr_line;
+				strcpy(cstr,in_line);
+				if(!find_before_line_number)	// if find_before_line_number == 0, return first occurrence:
+					break;
+			}
 		}
+		fclose(fptr);
 	} else {
 		sprintf(cbuf,"filegrep error: file %s not found.\n",fname);
 		ASSERT(HERE, 0, cbuf);
 	}
-	fclose(fp);	fp = 0x0;
-	return retval;
+	if(strlen(cstr) != 0)
+		return found_line;
+	else return 0;
 }
 
 /*********************/

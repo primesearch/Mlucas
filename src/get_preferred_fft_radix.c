@@ -108,16 +108,18 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 	{
 		while(fgets(in_line, STR_MAX_LEN, fp))
 		{
-			/* Each FFT-length entry assumed to begin with an int followed by whitespace: */
+		//	fprintf(stderr,"Current line: %s",in_line);
+			/* Each FFT-length entry assumed to begin with an int followed by whitespace;
+			any line not of that form is ignored, thus allowing pretty much any common comment-format: */
 			if(sscanf(in_line, "%d", &i) == 1)
 			{
 				/* Consider any entry with an FFT length >= target, which further contains
-				a per-iteration timing datum in the form 'msec/iter = %7.2f', with the float arg in milliseconds:
+				a per-iteration timing datum in the form 'msec/iter = [float arg]' in non-exponential form:
 				*/
-				if((i >= kblocks) && (char_addr = strstr(in_line, "sec/iter =")) != 0)
+				if((i >= kblocks) && (char_addr = strstr(in_line, "msec/iter =")) != 0)
 				{
 					/* Stores whether we found an entry for the requested FFT length
-					(whether that proves to have the best timing for lengths >= kblocks or note):
+					(whether that proves to have the best timing for lengths >= kblocks or not):
 					*/
 					if(i == kblocks)
 						found = TRUE;
@@ -194,22 +196,16 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 								ASSERT(HERE, 0, cbuf);
 							}
 							kprod >>= 10;
-
 							tbest = tcurr;
 
-							if(i == kblocks)
-							{
+							if(i == kblocks) {
 								/* Product of radices must equal complex vector length (n/2): */
-								if(kprod != kblocks)
-								{
+								if(kprod != kblocks) {
 									snprintf_nowarn(cbuf,STR_MAX_LEN,"get_preferred_fft_radix: mismatching data in %s file: (product of complex radices)/2^10 (%d) != kblocks/2 (%d), offending input line %s", CONFIGFILE, kprod, kblocks/2, in_line);
 									ASSERT(HERE, 0, cbuf);
 								}
-
 								retval = i;			/* Preferred FFT length */
-							}
-							else
-							{
+							} else {
 								ASSERT(HERE, i == extractFFTlengthFrom32Bit(retval), "get_preferred_fft_radix: i != extractFFTlengthFrom32Bit(retval)!");
 							}
 						}
@@ -218,9 +214,7 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 			}
 		}
 		fclose(fp);	fp = 0x0;
-	}
-	else
-	{
+	} else {
 		sprintf(cbuf, "CONFIGFILE = %s: open failed -- please run the post-build self-tests as described in the README!", CONFIGFILE);
 		ASSERT(HERE, 0 , cbuf);
 	}
@@ -228,16 +222,11 @@ uint32	get_preferred_fft_radix(uint32 kblocks)
 	/* Only return nonzero if an entry for the specified FFT length was found.
 	Otherwise clear RADIX_VEC and return 0:
 	*/
-	if(!found)
-	{
+	if(!found) {
 		retval = 0;
-		for(j=0; j<10; j++)
-		{
-			RADIX_VEC[j] = 0;
-		}
+		for(j=0; j<10; j++) { RADIX_VEC[j] = 0; }
 		NRADICES = 0;
 	}
-
 	return retval;
 }
 

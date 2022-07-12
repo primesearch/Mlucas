@@ -32,7 +32,7 @@
 	#define PLATFORM_DEBUG
 #endif
 
-// Define PLATFORM_DEBUG at compile time to enable these internal platfrom-related diagnostic #warning prints:
+// Define PLATFORM_DEBUG at compile time to enable these internal platform-related diagnostic #warning prints:
 #ifdef PLATFORM_DEBUG
 	/* Set = 1 to print brief OS summary at compile time: */
 	#define	OS_DEBUG	1
@@ -208,14 +208,14 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 	#undef	CPU_SUBTYPE_PA1
 	#undef	CPU_SUBTYPE_PA2
 
-// SIMD-functionality-related flags: We currently only care about the x86 family SSE2 / AVX / AVX2 instruction sets.
+// SIMD-functionality-related flags: We currently only care about the x86 family SSE2/AVX/AVX2/AVX-512 instruction sets.
 // Define these in a "grandfathered-in" fashion, i.e. each higher-functionality flag automatically enables the lower
 // ones, e.g. AVX2 enables both AVX and SSE2. This is because we code things such that SIMD-enabled #ifdefs wrap
 // variable defs shared by all these specific SIMD ISAs, but e.g. for AVX/AVX2 the vec_dbl type encodes a
 // 4-double struct, whereas for SSE2, vec_dbl is a 2-double struct. In places where we really need to invoke
 // separate code sections based on these #defs, we check them in inverse order, i.e. highest first. That way if e.g.
 // AVX2, AVX and SSE2 have different versions of a common-named arithmetic macro, the fact that all of these #defines
-// are enabled yields no conflict, since the highest-level one wins, as it were:
+// are enabled yields no conflict, since the highest-level one wins, as it were.
 
 // Jun 2017: Add support for Arm Neon via USE_ARM_V8_SIMD flag, which triggers setting of the USE_SSE2 flag,
 // since those two instruction sets are both 128-bit vector, i.e. share same data-alloc-and-alignment requirements:
@@ -258,6 +258,17 @@ based on different key capabilities. Default CPU subtypes are as indicated.
 		#error Only one of USE_SSE2[or USE_ARM_V8_SIMD] / USE_AVX / USE_AVX2 may be defined at compile time!
 	#endif
 
+	#define	USE_SSE2
+
+#elif defined(USE_IMCI512)
+
+	#if defined(USE_AVX512) || defined(USE_AVX2) || defined(USE_AVX) || defined(USE_SSE2)
+		#error Only one of USE_SSE2[or USE_ARM_V8_SIMD] / USE_AVX / USE_AVX2 / USE_AVX512 / USE_AVX512_I may be defined at compile time!
+	#endif
+
+	#define USE_AVX512
+	#define USE_AVX2
+	#define USE_AVX
 	#define	USE_SSE2
 
 #endif
@@ -404,6 +415,36 @@ o SZ_VD = sizeof(vec_dbl), SZ_VD_M1 = SZ_VD-1.
 	#endif
 
   #endif
+
+/* k1om - Intel Xeon Phi KNC coprocessor cards, which look a lot like x86_64 but are not, so we check for them before x86_64.
+		these are basically a manycore Pentium 1, extended to 64-bit word size, with a custom SIMD instruction set tacked on.*/
+#elif(defined(__k1om__))
+
+	#ifndef OS_BITS
+		#define OS_BITS 64
+	#endif
+
+	#define CPU_TYPE
+	#define CPU_IS_K1OM
+
+	#ifndef COMPILER_TYPE   // NVCC may already have been defined
+		// Gnu C compiler: Note this gets triggered as desired for llvm/clang, but for that we use non-GCC flags
+		// to set COMPILER_NAME to reflect that while the compiler is gcc-compatible, it is not gcc:
+		#if(defined(__GNUC__) || defined(__GNUG__))
+			#define COMPILER_TYPE
+			#define COMPILER_TYPE_GCC
+		/* Intel C compiler: */
+		#elif(defined(__INTEL_COMPILER) || defined(__ICC) || defined(__ICL))    // __ICL is the predef for Windows
+			#define COMPILER_TYPE
+			#define COMPILER_TYPE_ICC
+			#define COMPILER_TYPE_GCC       // Jun 2017: Just handle Intel compiler like Clang, i.e. as "GCC compatible"
+		/* Unknown: */
+		#else
+			#define COMPILER_TYPE
+			#define COMPILER_TYPE_UNKNOWN
+		#endif
+	#endif
+	#warning "Xeon Phi (1st-Gen) detected"
 
 /* 32-bit X86, Gnu C or Metrowerks CodeWarrior C compiler: */
 #elif(defined(__i386) || defined(__i386__))
@@ -591,16 +632,16 @@ o SZ_VD = sizeof(vec_dbl), SZ_VD_M1 = SZ_VD-1.
 		Various header files containing ICC intrinsics for IA64:
 		we include individual ones of these as needed by the various
 		functionality modules (e.g. prefetch.h and sse2.h):
-		#include <emmintrin.h>				* Principal header file for SSE2 intrinsics										*
-		#include <fvec.h>					* SSE intrinsics for Class Libraries											*
-		#include <ia64intrin.h>				* Miscellaneous IA-64 intrinsics.												*
-		#include <ia64regs.h>				* Header file for registers on Itanium-based systems							*
-		#include <ivec.h>					* MMX instructions intrinsics for Class Libraries								*
-		#include <mathimf.h>				* Principal header file for current Intel Math Library							*
-		#include <mmclass.h>				* Principal header files for MMX™ instructions with Class Libraries				*
-		#include <mmintrin.h>				* Intrinsics for MMX instructions												*
-		#include <omp.h>					* Principal header file OpenMP*													*
-		#include <sse2mmx.h>				* Emulated versions of 128-bit SSE2 intrinsics (for P3 and Itanium)					*
+		#include <emmintrin.h>				* Principal header file for SSE2 intrinsics							*
+		#include <fvec.h>					* SSE intrinsics for Class Libraries								*
+		#include <ia64intrin.h>				* Miscellaneous IA-64 intrinsics.									*
+		#include <ia64regs.h>				* Header file for registers on Itanium-based systems				*
+		#include <ivec.h>					* MMX instructions intrinsics for Class Libraries					*
+		#include <mathimf.h>				* Principal header file for current Intel Math Library				*
+		#include <mmclass.h>				* Principal header files for MMX instructions with Class Libraries	*
+		#include <mmintrin.h>				* Intrinsics for MMX instructions									*
+		#include <omp.h>					* Principal header file OpenMP										*
+		#include <sse2mmx.h>				* Emulated versions of 128-bit SSE2 intrinsics (for P3 and Itanium)	*
 		*/
 
 	/* IA-64 (Itanium), Gnu C or C++ compiler */
@@ -1294,7 +1335,7 @@ extern int NTHREADS;
 		However, whether I define the above or not, on my distro (Fedora v16), I get these compile-time warnings
 		indicating that the affinity stuff is not being included:
 
-			"warning: implicit declaration of function ÔCPU_ZEROÕ", etc.
+			"warning: implicit declaration of function 'CPU_ZERO'", etc.
 
 		Some sleuthing reveals that (at least in my distro) sched.h #includes <features.h>,
 		and the latter header then defines __USE_GNU if _GNU_SOURCE is defined.
@@ -1397,11 +1438,11 @@ extern int NTHREADS;
 	#warning	CPU_NAME "PowerPC"
   #endif
 	#define	CPU_NAME "PowerPC"
-#elif defined(CPU_IS_X86)
+#elif defined(CPU_IS_K1OM)
   #if CPU_DEBUG
-	#warning	CPU_NAME "x86"
+	#warning	CPU_NAME "x86 / k1om"
   #endif
-	#define	CPU_NAME "x86"
+	#define	CPU_NAME "x86 / k1om"
 	#define	FP_MANTISSA_BITS_DOUBLE	64
 #elif defined(CPU_IS_X86_64)
   #if CPU_DEBUG

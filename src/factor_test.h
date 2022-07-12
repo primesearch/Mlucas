@@ -655,7 +655,7 @@ ASSERT(HERE, 0 == mi64_div_by_scalar64(p, 458072843161ull, i, p), "M7331/4580728
 			ASSERT(HERE, 0,"0");
 		}
 		res64 = twopmodq64(p64, q64);
-		if(res64 != 1ull) {
+		if(res64 != -1ull) {	// Nov 2021: fiddled twopmodq64() to return true-mod
 			fprintf(stderr,"ERROR: twopmodq64(F%u, k = %llu) returns non-unity result %u\n",(uint32)ffac64[i].p,k, (uint32)res64);
 			ASSERT(HERE, 0,"0");
 		}

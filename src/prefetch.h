@@ -442,6 +442,7 @@ after the IA64/ICC case because, bizarrely, ICC also #defines __GNUC__ .
 #else
 
 //	#error No platform-specific prefetch block found in prefetch.h!
+	# define PFETCH 1
 
 	# define CACHE_LINE_INTS     0
 	# define CACHE_LINE_DOUBLES  0

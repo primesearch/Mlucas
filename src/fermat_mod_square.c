@@ -200,7 +200,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 	static int nradices_prim,nradices_radix0,radix_prim[30];/* RADIX_PRIM stores sequence of complex FFT radices used, in terms of their prime factors.	*/
 	static int *index = 0x0, *index_ptmp = 0x0;		/* Bit-reversal index array and array storing S*I mod N values for DWT weights.	*/
 
-	int i,ii,ierr = 0,iter,j,j1,j2,k,l,m,mm,k1,k2;
+	int bimodn,i,ii,ierr = 0,iter,j,j1,j2,k,l,m,mm,k1,k2;
 	static uint64 psave=0;
 	static uint32 nsave=0, rad0save=0, new_runlength=0;
 	static uint32 nwt,nwt_bits,bw,sw,bits_small;
@@ -320,24 +320,24 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		/* My array padding scheme requires N/radix0 to be a power of 2, and to be >= 2^DAT_BITS, where the latter
 		parameter is set in the Mdata.h file: */
 		if(n%radix0 != 0) {
-			sprintf(cbuf  ,"FATAL: radix0 does not divide N!\n"); fprintf(stderr,"%s", cbuf); ASSERT(HERE, 0,cbuf);
+			sprintf(cbuf  ,"ERROR: radix0 does not divide N!\n"); fprintf(stderr,"%s", cbuf); ASSERT(HERE, 0,cbuf);
 		}
 		/* Make sure n/radix0 is a power of 2: */
 		i = n/radix0;
 		if((i >> trailz32(i)) != 1) {
-			sprintf(cbuf  ,"FATAL: n/radix0 not a power of 2!\n"); fprintf(stderr,"%s", cbuf); ASSERT(HERE, 0,cbuf);
+			sprintf(cbuf  ,"ERROR: n/radix0 not a power of 2!\n"); fprintf(stderr,"%s", cbuf); ASSERT(HERE, 0,cbuf);
 		}
 
 		if(DAT_BITS < 31) {
 			/* Now make sure n/radix0 is sufficiently large (unless n < 2^DAT_BITS, in which case it doesn't matter): */
 			if(i < (1 << DAT_BITS)) {
-			//	sprintf(cbuf  ,"FATAL: n/radix0 must be >= %u!\n", (1 << DAT_BITS));	fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+			//	sprintf(cbuf  ,"ERROR: n/radix0 must be >= %u!\n", (1 << DAT_BITS));	fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 				// Mar 2018: Switch to 'soft' assertion error here, e.g. for timing tests at small FFT lengths:
 				sprintf(cbuf  ,"n/radix0 must be >= %u! Skipping this radix combo.\n", (1 << DAT_BITS));	WARN(HERE, cbuf, "", 1); return(ERR_ASSERT);
 			}
 			/* We also have a lower limit on 2^DAT_BITS set by the wrapper_square routine: */
 			if((1 << DAT_BITS) < 2*RADIX_VEC[NRADICES-1]) {
-				sprintf(cbuf  ,"FATAL: Value of DAT_BITS means final FFT radix may not exceed = %u!\n", (1 << (DAT_BITS-1)));
+				sprintf(cbuf  ,"ERROR: Value of DAT_BITS means final FFT radix may not exceed = %u!\n", (1 << (DAT_BITS-1)));
 				fprintf(stderr,"%s", cbuf);
 				ASSERT(HERE, 0,cbuf);
 			}
@@ -351,17 +351,9 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		}; sprintf(char_addr,"\n");
 
 		if(INTERACT)
-		{
 			fprintf(stderr,"%s",cbuf);
-		}
 		else
-		{
-			fp = mlucas_fopen(STATFILE,"a");	fprintf(fp,"%s",cbuf);	fclose(fp);	fp = 0x0;
-			if (scrnFlag)	/* Echo output to stddev */
-			{
-				fprintf(stderr,"%s",cbuf);
-			}
-		}
+			mlucas_fprint(cbuf,0);	// In production-run mode, write to logfile
 
 	/*...******Forward FFT****** permuted sincos index array is here: first, calculate the needed dimension...	*/
 		k  = 0;
@@ -377,7 +369,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		}
 
 		if(mm*RADIX_VEC[NRADICES-1] != N2) {
-			sprintf(cbuf  ,"FATAL: product of radices not equal to complex vector length\n");
+			sprintf(cbuf  ,"ERROR: product of radices not equal to complex vector length\n");
 			fprintf(stderr,"%s", cbuf);
 			ASSERT(HERE, 0,cbuf);
 		}
@@ -386,7 +378,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 					*** set a breakpoint in malloc_error_break to debug
 		if(!index_ptmp)
 		{
-			sprintf(cbuf  ,"FATAL: unable to allocate array INDEX in %s.\n",func);
+			sprintf(cbuf  ,"ERROR: unable to allocate array INDEX in %s.\n",func);
 			fprintf(stderr,"%s", cbuf);
 			ASSERT(HERE, 0,cbuf);
 		}
@@ -539,7 +531,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			nradices_radix0 = 12;
 			radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 		default:
-			sprintf(cbuf  ,"FATAL: radix %d not available for Fermat-mod transform. Halting...\n",RADIX_VEC[i]);
+			sprintf(cbuf  ,"ERROR: radix %d not available for Fermat-mod transform. Halting...\n",RADIX_VEC[i]);
 			fprintf(stderr,"%s", cbuf);
 			ASSERT(HERE, 0,cbuf);
 		}
@@ -579,7 +571,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			case 32:
 				radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; radix_prim[l++] = 2; break;
 			default:
-				sprintf(cbuf  ,"FATAL: intermediate radix %d not available. Halting...\n",RADIX_VEC[i]);
+				sprintf(cbuf  ,"ERROR: intermediate radix %d not available. Halting...\n",RADIX_VEC[i]);
 				fprintf(stderr,"%s", cbuf);
 				ASSERT(HERE, 0,cbuf);
 			}
@@ -587,7 +579,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			/* Final radix must be 16 or 32: */
 			if(i == NRADICES-1 && RADIX_VEC[i] < 16)
 			{
-				sprintf(cbuf  ,"FATAL: final radix %d not available. Halting...\n",RADIX_VEC[i]);
+				sprintf(cbuf  ,"ERROR: final radix %d not available. Halting...\n",RADIX_VEC[i]);
 				fprintf(stderr,"%s", cbuf);
 				ASSERT(HERE, 0,cbuf);
 			}
@@ -625,8 +617,8 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 			baseinv[0] = (double)(1.0/base[0]    );	baseinv[1] = (double)(1.0/base[1]);	/* don't need extended precision for this since both bases are powers of 2.	*/
 
 			/*...stuff for the reduced-length DWT weights arrays is here:	*/
-			wt0_ptmp = ALLOC_DOUBLE(wt0_ptmp, nwt);	if(!wt0_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array WT0 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }; wt0 = ALIGN_DOUBLE(wt0_ptmp);
-			wt1_ptmp = ALLOC_DOUBLE(wt1_ptmp, nwt);	if(!wt1_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array WT1 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }; wt1 = ALIGN_DOUBLE(wt1_ptmp);
+			wt0_ptmp = ALLOC_DOUBLE(wt0_ptmp, nwt);	if(!wt0_ptmp){ sprintf(cbuf,"ERROR: unable to allocate array WT0 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }; wt0 = ALIGN_DOUBLE(wt0_ptmp);
+			wt1_ptmp = ALLOC_DOUBLE(wt1_ptmp, nwt);	if(!wt1_ptmp){ sprintf(cbuf,"ERROR: unable to allocate array WT1 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }; wt1 = ALIGN_DOUBLE(wt1_ptmp);
 
 		/******************************************************************/
 		/* Crandall/Fagin weighting factors and number of bits per digit. */
@@ -710,14 +702,14 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		/* No need for a fancy NINT here: */
 		NRT_BITS = (uint32)(log(sqrt(1.0*n))/log(2.0) + 0.5);
 		NRT = 1 << NRT_BITS;
-		if(n%NRT){ sprintf(cbuf,"FATAL: NRT does not divide N!\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(n%NRT){ sprintf(cbuf,"ERROR: NRT does not divide N!\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		NRTM1 = NRT - 1;
 
 		/*...The rt0 array stores the (0:NRT-1)th powers of the [N2]th root of unity
 		(i.e. will be accessed using the lower (NRT) bits of the integer sincos index):
 		*/
 		rt0_ptmp = ALLOC_COMPLEX(rt0_ptmp, NRT);
-		if(!rt0_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array RT0 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(!rt0_ptmp){ sprintf(cbuf,"ERROR: unable to allocate array RT0 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		rt0 = ALIGN_COMPLEX(rt0_ptmp);
 
 		qt     = i64_to_q((int64)N2);
@@ -816,7 +808,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		(and will be accessed using the upper bits, <NRT:31>, of the integer sincos index):
 		*/
 		rt1_ptmp = ALLOC_COMPLEX(rt1_ptmp, n/(2*NRT));
-		if(!rt1_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array RT1 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(!rt1_ptmp){ sprintf(cbuf,"ERROR: unable to allocate array RT1 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		rt1 = ALIGN_COMPLEX(rt1_ptmp);
 
 		qn     = i64_to_q((int64)NRT);
@@ -921,7 +913,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		/*...The rn0 array stores the (0:NRT-1)th powers of the [2*n]th root of unity
 		(i.e. will be accessed using the lower (NRT) bits of the integer sincos index):
 		*/
-		rn0_ptmp = ALLOC_COMPLEX(rn0_ptmp, NRT);	if(!rn0_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array RN0 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); } rn0 = ALIGN_COMPLEX(rn0_ptmp);
+		rn0_ptmp = ALLOC_COMPLEX(rn0_ptmp, NRT);	if(!rn0_ptmp){ sprintf(cbuf,"ERROR: unable to allocate array RN0 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); } rn0 = ALIGN_COMPLEX(rn0_ptmp);
 
 		qt     = i64_to_q((int64)N2);
 		qtheta = qfdiv(QPIHALF, qt);	/* (2*pi)/(2*N) = (pi/2)/(N/2) */
@@ -1015,7 +1007,7 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 		/*...The rn1 array stores the (0:(n/2)/NRT-1)th powers of the [(n/2)/NRT]th root of unity
 		(and will be accessed using the upper bits, <NRT:31>, of the integer sincos index):
 		*/
-		rn1_ptmp = ALLOC_COMPLEX(rn1_ptmp, N2/NRT);	if(!rn1_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array RN1 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); } rn1 = ALIGN_COMPLEX(rn1_ptmp);
+		rn1_ptmp = ALLOC_COMPLEX(rn1_ptmp, N2/NRT);	if(!rn1_ptmp){ sprintf(cbuf,"ERROR: unable to allocate array RN1 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); } rn1 = ALIGN_COMPLEX(rn1_ptmp);
 
 		qn     = i64_to_q((int64)NRT);
 		qt     = i64_to_q((int64)N2);
@@ -1242,11 +1234,12 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 					j1 = j;
 				#endif
 					j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
+					ASSERT(HERE, DNINT(a[j1]) == a[j1],"fermat_mod_square.c: Input a[j] noninteger!");
 					wt = wt0[ii];
 					a[j1] *= wt;
 					ii += SW_DIV_N - nwt;
 					ii += ( (-(int)((uint32)ii >> 31)) & nwt);
-									}
+				}
 				/* Odds: */
 				ASSERT(HERE, ii == 0,"fermat_mod_square.c: ii == 0");
 				for(j = 0; j < n; j += 2)
@@ -1262,11 +1255,12 @@ int fermat_mod_square(double a[], int arr_scratch[], int n, int ilo, int ihi, ui
 				#endif
 					j1 = j1 + ( (j1>> DAT_BITS) << PAD_BITS );	/* padded-array fetch index is here */
 					j2 = j1 + RE_IM_STRIDE;
+					ASSERT(HERE, DNINT(a[j2]) == a[j2],"fermat_mod_square.c: Input a[j] noninteger!");
 					wt = wt0[ii];
 					a[j2] *= wt;
 					ii += SW_DIV_N - nwt;
 					ii += ( (-(int)((uint32)ii >> 31)) & nwt);
-									}
+				}
 			}
 			/* Acyclic twisting: */
 			for(j = 0; j < n; j += 2)
@@ -1478,7 +1472,7 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 			ierr = radix4096_ditN_cy_dif1    (a,n,nwt,nwt_bits,wt0,wt1,0x0,rn0,rn1,base,baseinv,iter,&fracmax,p); break;
 	*/
 		default:
-			sprintf(cbuf,"FATAL: radix %d not available for ditN_cy_dif1. Halting...\n",radix0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+			sprintf(cbuf,"ERROR: radix %d not available for ditN_cy_dif1. Halting...\n",radix0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 	}
 
 	// v19: Nonzero exit carries used to be fatal, added retry-from-last-savefile handling for these
@@ -1505,7 +1499,7 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 			fprintf(stderr,"%s",cbuf);
 			if(fracmax > 0.47 )
 			{
-				fprintf(stderr," FATAL ERROR...Halting test of F%u\n",findex);
+				fprintf(stderr," ERROR ERROR...Halting test of F%u\n",findex);
 				ierr = ERR_ROUNDOFF;
 				return(ierr);
 			} else if(USE_SHORT_CY_CHAIN < USE_SHORT_CY_CHAIN_MAX) {
@@ -1516,21 +1510,13 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 		}
 		else
 		{
-			fp = mlucas_fopen(   OFILE,"a");
-			fq = mlucas_fopen(STATFILE,"a");
-			fprintf(fp,"%s",cbuf);
-			fprintf(fq,"%s",cbuf);
-			if (scrnFlag)	/* Echo output to stddev */
-			{
-				fprintf(stderr,"%s",cbuf);
-			}
+			mlucas_fprint(cbuf,scrnFlag);	// Echo output to stddev
 
 			// For <= 0.4375, before switching to next-larger FFT length, try reducing DWT-multipliers chain length:
 			if(fracmax == 0.4375 && USE_SHORT_CY_CHAIN < USE_SHORT_CY_CHAIN_MAX) {
 				USE_SHORT_CY_CHAIN++;
 				sprintf(cbuf," Reducing DWT-multipliers chain length from [%s] to [%s] in carry step to see if this prevents further excessive fractional parts.\n",arr_sml[USE_SHORT_CY_CHAIN-1],arr_sml[USE_SHORT_CY_CHAIN]);
-				fprintf(fp,"%s",cbuf);
-				fprintf(fq,"%s",cbuf);
+				mlucas_fprint(cbuf,scrnFlag);	// Echo output to stderr
 			// v20: For == 0.4375, in PRP-test mode, if already at shortest chain length, simply allow further 0.4375 errors,
 			// since Gerbicz check will catch rare cases of a wrong-way digit rounding, i.e. 0.4375 really being a 0.5625 in disguise:
 			} else if(fracmax == 0.4375 && TEST_TYPE == TEST_TYPE_PRP) {
@@ -1541,8 +1527,7 @@ for(iter=ilo+1; iter <= ihi && MLUCAS_KEEP_RUNNING; iter++)
 				ROE_VAL = fracmax;
 				ierr = ERR_ROUNDOFF;
 			}
-			fclose(fp);	fp = 0x0;
-			fclose(fq);	fq = 0x0;
+
 			if(ierr)
 				return(ierr);
 		}
@@ -1580,7 +1565,9 @@ if(iter < ihi) {
 	ASSERT(HERE, !MLUCAS_KEEP_RUNNING, "Premature iteration-loop exit due to unexpected condition!");
 	ierr = ERR_INTERRUPT;
 	ROE_ITER = iter;	// Function return value used for error code, so save number of last-iteration-completed-before-interrupt here
-	mode_flag ^= 0x2;	// v20: In case of interrupt-exit override any mode_flag "skip undo of initial DIF pass" setting
+//	fprintf(stderr,"Caught signal at iter = %u; mode_flag = 0x%X\n",iter,mode_flag);
+	mode_flag &= 0xfffffffd;	// v20: In case of interrupt-exit override any mode_flag "skip undo of initial DIF pass" setting
+//	fprintf(stderr,"After ^2-toggle, mode_flag = 0x%X, (mode_flag >> 1) = 0x%X\n",mode_flag,mode_flag>>1);
 }
 
 #ifdef RTIME
@@ -1666,7 +1653,8 @@ undo_initial_ffft_pass:
 				ii += ( (-(int)((uint32)ii >> 31)) & nwt);\
 			}
 		}
-
+		k = 0;	// Counts # of FP outputs which are out of range in the sense that [digit] > base/2
+		bimodn = n;
 		/* Acyclic untwisting: */
 		for(j = 0; j < n; j += 2)
 		{
@@ -1695,17 +1683,26 @@ undo_initial_ffft_pass:
 			a[j2] = a[j2]*re - a[j1]*im;
 			a[j1] = t1;
 
+			ii = (bimodn > sw);					/*       i = 1 if a bigword,   0 if a smallword */
+			bimodn -= sw;						/* result >= 0 if a bigword, < 0 if a smallword */
+			bimodn += ( ((int)ii-1) & n);		/*       add 0 if a bigword,   N if a smallword */
+
 			atmp  = a[j1]*radix_inv;
-			a[j1] = NINT(atmp);
+			a[j1] = DNINT(atmp);
+			k += (fabs(2*a[j1]) > base[ii]);
 			frac_fp = fabs(a[j1]-atmp);
 			if(frac_fp > max_fp)
 				max_fp = frac_fp;
 
 			atmp  = a[j2]*radix_inv;
-			a[j2] = NINT(atmp);
+			a[j2] = DNINT(atmp);
+			k += (fabs(2*a[j1]) > base[ii]);
 			frac_fp = fabs(a[j2]-atmp);
 			if(frac_fp > max_fp)
 				max_fp = frac_fp;
+		}
+		if(k) {
+			fprintf(stderr,"%s: Warning: %u of %u out-of-range output digits detected.\n",func,k,n);
 		}
 		if(max_fp > 0.01)
 		{
@@ -1725,17 +1722,8 @@ undo_initial_ffft_pass:
 		ASSERT(HERE, (ierr == 0) && (iter = ihi+1), "[2a] sanity check failed!");
 		ROE_ITER = 0;
 		ROE_VAL = 0.0;
-		fp = mlucas_fopen(   OFILE,"a");
-		fq = mlucas_fopen(STATFILE,"a");
 		sprintf(cbuf,"Retry of iteration interval with fatal roundoff error was successful.\n");
-		fprintf(fp,"%s",cbuf);
-		fprintf(fq,"%s",cbuf);
-		fclose(fp);	fp = 0x0;
-		fclose(fq);	fq = 0x0;
-		if(scrnFlag)	/* Echo output to stddev */
-		{
-			fprintf(stderr,"%s",cbuf);
-		}
+		mlucas_fprint(cbuf,scrnFlag);	// Echo output to stddev
 	}
 
 	return(ierr);
@@ -1812,7 +1800,7 @@ void fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex r
 		case 32:
 			radix32_dif_pass(&a[jstart],n,rt0,rt1,&index[k+koffset],mm,incr,init_sse2,thr_id); break;
 		default:
-			sprintf(cbuf,"FATAL: radix %d not available for dif_pass. Halting...\n",RADIX_VEC[i]); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+			sprintf(cbuf,"ERROR: radix %d not available for dif_pass. Halting...\n",RADIX_VEC[i]); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 		}
 		k    += mm*radix0;
 		mm   *= RADIX_VEC[i];
@@ -1834,7 +1822,7 @@ void fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex r
 		case 32:
 			radix32_dyadic_square(&a[jstart],arr_scratch,n,radix0,rt0,rt1,ii,nradices_prim,radix_prim,incr,init_sse2,thr_id, bptr, cptr); break;
 		default:
-			sprintf(cbuf,"FATAL: radix %d not available for wrapper/square. Halting...\n",RADIX_VEC[NRADICES-1]); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+			sprintf(cbuf,"ERROR: radix %d not available for wrapper/square. Halting...\n",RADIX_VEC[NRADICES-1]); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 	}
 #ifdef DBG_TIME
 	clock2 = clock();
@@ -1885,7 +1873,7 @@ void fermat_process_chunk(double a[], int arr_scratch[], int n, struct complex r
 		case 32:
 			radix32_dit_pass(&a[jstart],n,rt0,rt1,&index[k+koffset],mm,incr,init_sse2,thr_id); break;
 		default:
-			sprintf(cbuf,"FATAL: radix %d not available for dit_pass. Halting...\n",RADIX_VEC[i]); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+			sprintf(cbuf,"ERROR: radix %d not available for dit_pass. Halting...\n",RADIX_VEC[i]); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 		}
 	}	/* end i-loop */
 

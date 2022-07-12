@@ -40,10 +40,10 @@
 // Builder to override these (or not) via compile flag:
 #define INCLUDE_TF	0	// Auto-TF-dispatch not supported
 #define INCLUDE_ECM	0	// ECM not supported
-#ifndef INCLUDE_PM1
-	#define INCLUDE_PM1	1	// v20: Make INCLUDE_PM1 = TRUE the default:
+#ifndef INCLUDE_GMP
+	#define INCLUDE_GMP	1	// v20: Make INCLUDE_GMP = TRUE the default:
 #endif
-#if INCLUDE_PM1
+#if INCLUDE_GMP
 	#include <gmp.h>
 //	#include "gcd_lehmer.h"	// v20: Use GMP GCD, own-rolled n (log n)^2 one simply not in the cards.
 #endif
@@ -76,10 +76,13 @@ uint32	ernstMain
 uint64	parse_cmd_args_get_shift_value(void);
 int		is_hex_string(char*s, int len);
 char*	check_kbnc(char*in_str, uint64*p);
-void	generate_JSON_report(const uint32 isprime, const uint64 p, const uint32 n, const uint64 Res64, const char*timebuffer, const uint32 B1, const uint64 B2, const char*factor, char*cstr);
+void	generate_JSON_report(
+	const uint32 isprime, const uint64 p, const uint32 n, const uint64 Res64, const char*timebuffer,
+	const uint32 B1, const uint64 B2, const char*factor, const uint32 s2_partial, char*cstr
+);
 void	print_help(void);
 int		cfgNeedsUpdating(char*in_line);
-void	returnMlucasErrCode(uint32 ierr, char*s);
+const char*returnMlucasErrCode(uint32 ierr);
 void	printMlucasErrCode(uint32 ierr);
 uint64 	shift_word(double a[], int n, const uint64 p, const uint64 shift, const double cy_in);
 int		test_types_compatible(uint32 t1, uint32 t2);
@@ -96,17 +99,20 @@ void dif1_dit1_func_name(
 	void (**func_dif_pass1)(double [], int),
 	void (**func_dit_pass1)(double [], int)
 );
-uint32	extract_known_factors(uint64 p, char*fac_start, FILE*fptr);
-uint32	gcd(uint32 stage, uint64 p, uint64*resarr, uint32 nlimb, char*const gcd_str);
-uint32	filegrep(const char*fname, const char*find_string);
+uint32	extract_known_factors(uint64 p, char*fac_start);
+uint32	gcd(uint32 stage, uint64 p, uint64*vec1, uint64*vec2, uint32 nlimb, char*const gcd_str);
+void	modinv(uint64 p, uint64*vec1, uint64*vec2, uint32 nlimb);
+int		restart_file_valid(const char*fname, const uint64 p, uint8*arr1, uint8*arr2);
+uint32	filegrep(const char*fname, const char*find_str, char*cstr, uint32 find_before_line_number);
 void	write_fft_debug_data(double a[], int jlo, int jhi);
 
 /* pm1.c: */
-uint32	pm1_set_bounds(const uint64 p, const uint32 n, const uint32 tf_bits, const uint32 tests_saved,
-					const uint32 b1_prev, const uint64 b2_prev);
+uint32	pm1_set_bounds(const uint64 p, const uint32 n, const uint32 tf_bits, const uint32 tests_saved);
 uint32	pm1_check_bounds();
 uint32	compute_pm1_s1_product(const uint64 p);
 uint32	pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uint32 *nmul, uint64 *maxmult);
+int		 read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 arr[], uint64*sum64);
+int		write_pm1_s1_prod(const char*fname, uint64 p, uint32 nbits, uint64 arr[], uint64 sum64);
 void	pm1_bigstep_size(uint32 *nbuf, uint32*bigstep, uint32*m, const uint32 psmall);
 int		modpow(double a[], double b[], uint32 input_is_int, uint64 pow,
 			int	(*func_mod_square)(double [], int [], int, int, int, uint64, uint64, int, double *, int, double *),

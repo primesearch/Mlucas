@@ -235,12 +235,12 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			// Index vectors used in SIMD roots-computation.
 			// The AVX512 compute-sincos-mults code needs 2 elements per complex-double-load, so use 10*RE_IM_STRIDE per array
 			// to alloc storage here for all cases, even though that leaves upper array halves unused for sub-AVX512.
-			sm_arr = ALLOC_INT(sm_arr, max_threads*20*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "FATAL: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+			sm_arr = ALLOC_INT(sm_arr, max_threads*20*RE_IM_STRIDE + 16);	if(!sm_arr){ sprintf(cbuf, "ERROR: unable to allocate sm_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 			sm_ptr = ALIGN_INT(sm_arr);
 			ASSERT(HERE, ((uint32)sm_ptr & 0x3f) == 0, "sm_ptr not 64-byte aligned!");
 			// Twiddles-array: Need 0x47 slots for data, plus need to leave room to pad-align.
 			// v20: To support inline a*(b-c) for p-1 stage 2, need 2*RADIX = 32 added vec_dbl, thus 0x4c ==> 0x6c:
-			sc_arr = ALLOC_VEC_DBL(sc_arr, 0x6c*max_threads);	ASSERT(HERE, sc_arr != 0,"FATAL: unable to allocate sc_arr!");
+			sc_arr = ALLOC_VEC_DBL(sc_arr, 0x6c*max_threads);	ASSERT(HERE, sc_arr != 0,"ERROR: unable to allocate sc_arr!");
 			sc_ptr = ALIGN_VEC_DBL(sc_arr);
 			ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 			/* Use low 32 16-byte slots of sc_arr for temporaries, next 4 for const = 1/4 and nontrivial complex 16th roots,
@@ -392,11 +392,11 @@ The scratch array (2nd input argument) is only needed for data table initializat
 			free((void *)twidl_ptmp);	twidl_ptmp = 0x0;
 		#endif
 		}
-		index_ptmp = ALLOC_INT(index_ptmp, N2/16);	ASSERT(HERE, index_ptmp != 0,"FATAL: unable to allocate array INDEX!");
+		index_ptmp = ALLOC_INT(index_ptmp, N2/16);	ASSERT(HERE, index_ptmp != 0,"ERROR: unable to allocate array INDEX!");
 		index = ALIGN_INT(index_ptmp);
 	#ifdef USE_PRECOMPUTED_TWIDDLES
 	printf("%s: Alloc precomputed-twiddles array with %u Kdoubles.\n",func,N2*15/8);
-		twidl_ptmp = ALLOC_COMPLEX(twidl_ptmp, N2*15/16);	ASSERT(HERE, twidl_ptmp != 0,"FATAL: unable to allocate twidl_ptmp!");
+		twidl_ptmp = ALLOC_COMPLEX(twidl_ptmp, N2*15/16);	ASSERT(HERE, twidl_ptmp != 0,"ERROR: unable to allocate twidl_ptmp!");
 		twidl = ALIGN_COMPLEX(twidl_ptmp);	ASSERT(HERE, ((long)twidl & 0x3f) == 0, "twidl-array not 64-byte aligned!");
 	#endif
 	/*

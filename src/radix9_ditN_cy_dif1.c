@@ -103,14 +103,8 @@ int radix9_ditN_cy_dif1(double a[], int n, int nwt, int nwt_bits, double wt0[], 
 
 	if((n_div_nwt << nwt_bits) != n9)
 	{
-		sprintf(cbuf,"FATAL: iter = %10d; NWT_BITS does not divide N/9 in radix9_ditN_cy_dif1.\n",iter);
-		if(INTERACT)fprintf(stderr,"%s",cbuf);
-		fp = mlucas_fopen(   OFILE,"a");
-		fq = mlucas_fopen(STATFILE,"a");
-		fprintf(fp,"%s",cbuf);
-		fprintf(fq,"%s",cbuf);
-		fclose(fp);	fp = 0x0;
-		fclose(fq);	fq = 0x0;
+		sprintf(cbuf,"ERROR: iter = %10d; NWT_BITS does not divide N/9 in radix9_ditN_cy_dif1.\n",iter);
+		mlucas_fprint(cbuf,INTERACT);
 		err=ERR_CARRY;
 		return(err);
 	}
@@ -626,14 +620,8 @@ for(outer=0; outer <= 1; outer++)
 
 	if(fabs(cy0)+fabs(cy1)+fabs(cy2)+fabs(cy3)+fabs(cy4)+fabs(cy5)+fabs(cy6)+fabs(cy7)+fabs(cy8) != 0.0)
 	{
-	    sprintf(cbuf,"FATAL: iter = %10d; nonzero exit carry in radix9_ditN_cy_dif1 - input wordsize may be too small.\n",iter);
-	    if(INTERACT)fprintf(stderr,"%s",cbuf);
-	    fp = mlucas_fopen(   OFILE,"a");
-	    fq = mlucas_fopen(STATFILE,"a");
-		fprintf(fp,"%s",cbuf);
-		fprintf(fq,"%s",cbuf);
-	    fclose(fp);	fp = 0x0;
-	    fclose(fq);	fq = 0x0;
+	    sprintf(cbuf,"ERROR: iter = %10d; nonzero exit carry in radix9_ditN_cy_dif1 - input wordsize may be too small.\n",iter);
+	    mlucas_fprint(cbuf,INTERACT);
 	    err=ERR_CARRY;
 	    return(err);
 	}

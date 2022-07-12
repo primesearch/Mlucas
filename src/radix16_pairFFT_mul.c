@@ -282,7 +282,7 @@ void radix16_pairFFT_mul(
 			free((void *)index_ptmp);	index_ptmp=0x0;
 		}
 		index_ptmp = ALLOC_INT(index_ptmp, N2/16);
-		ASSERT(HERE, index_ptmp != 0,"FATAL: unable to allocate array INDEX!");
+		ASSERT(HERE, index_ptmp != 0,"ERROR: unable to allocate array INDEX!");
 		index = ALIGN_INT(index_ptmp);
 	/*
 	!...Now rearrange FFT sincos indices using the main loop structure as a template.
@@ -341,7 +341,7 @@ void radix16_pairFFT_mul(
 
 	/*...If a new runlength, should not get to this point: */
 	if(n != nsave) {
-		sprintf(cbuf,"FATAL: %s: INIT_ARRAYS not invoked for new runlength!",func);
+		sprintf(cbuf,"ERROR: %s: INIT_ARRAYS not invoked for new runlength!",func);
 		ASSERT(HERE, 0,cbuf);
 	}
 

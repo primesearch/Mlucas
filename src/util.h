@@ -148,7 +148,7 @@ double	 getRealTime();
 /* get_cpuid.c: x86 and other inline-ASM-targeted CPUs */
 #ifdef CPU_IS_ARM_EABI
 	int has_asimd(void);
-#elif(defined(CPU_IS_X86) || defined(CPU_IS_IA64) || defined(CPU_IS_X86_64))
+#elif(defined(CPU_IS_X86) || defined(CPU_IS_IA64) || defined(CPU_IS_X86_64) || defined(CPU_IS_K1OM))
 	void	get_cpu(void);
 	uint32	has_sse  (void);
 	uint32	has_sse2 (void);
@@ -158,6 +158,7 @@ double	 getRealTime();
 	uint32	has_sse42(void);
 	uint32	has_avx  (void);
 	uint32	has_avx2 (void);
+	uint32	has_imci512(void);	// 1st-gen Xeon Phi (Knights Ferry, Knights Corner)
 	uint32	has_avx512(void);
 	void	cpu_details(void);
 #endif
@@ -187,8 +188,9 @@ char	*quote_spaces(char *dest, char *src); /* Double-quote spaces in string  */
 int		mkdir_p(char *path); /* Emulate `mkdir -p path'  */
 char	*shell_quote(char *dest, char *src); /* Escape shell meta characters  */
 FILE	*mlucas_fopen(const char *path, const char *mode); /* fopen() wrapper  */
-// v20: Add simple utility to print the input string to stderr and the current-assignment logfile:
-void	mlucas_fprint(char*const cstr, int echo_to_stderr);
+// v20: Add simple utility to print the input string to the current-assignment logfile and/or to stderr:
+void	mlucas_fprint(char*const cstr, uint32 echo_to_stderr);
+double	mlucas_getOptVal(const char*fname, char*optname);
 
 #ifdef USE_GPU
 //#if defined(USE_GPU) && defined(__CUDACC__)

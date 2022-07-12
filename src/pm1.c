@@ -156,7 +156,7 @@ void bytevec_bclr_pair(uint8*x, uint8*y, int bit) {
 	x[i] &= mask;	y[i] &= mask;
 }
 
-/* Set default p-1 stage bounds for M(p), in the context of length-n FFT-modmul.
+/* Set default p-1 stage bounds for M(p), in the context of length-n-doubles FFT-modmul.
 This needs to be enhanced to pick B1 and B2 based on the following nontrivial optimization problem:
 	For given (TF done to 2^tf_bits with no factor found)
 	and (p-1 attempted to stage bounds b1_prev and b2_prev with no factor found),
@@ -172,27 +172,34 @@ In other words, (S*(1-P) - W) is an average-total-work function, which we attemp
 
 The resulting bounds are set in form of the globals B1 and B2.
 Return value != 0 indicates success; return 0 indicates an error of some kind, in which case B1 and B2 are set = 0.
-On successful execution, B2 > B1 > 0 and PM1_S2_NBUF will have been set based on available RAM and n.
+On successful execution, B2 > B1 > 0 and PM1_S2_NBUF will have been set based on available RAM and FFT-length-in-doubles, n.
 */
-uint32 pm1_set_bounds(const uint64 p, const uint32 n, const uint32 tf_bits, const uint32 tests_saved,
-					const uint32 b1_prev, const uint64 b2_prev)
+uint32 pm1_set_bounds(const uint64 p, const uint32 n, const uint32 tf_bits, const uint32 tests_saved)
 {
 	const double inv100k = 1./100000, inv1m = 1./1000000;
 /* NB: Since GIMPS testing will all soon be 1-shot PRP-with-proof-of-correctness, no need to make use of tests_saved. */
 	// Get PM1_S2_NBUF based on available RAM; n doubles need n/2^17 MB; use KB and double-math for the intermediates here.
 	// First compute FP-form #bufs if < 5 set PM1_S2_NBUF = 0, to prevent (dtmp - 5) from giving nonsense after cast-to-uint32:
+	uint64 i64;
 	double dtmp = (SYSTEM_RAM*(double)MAX_RAM_USE*0.01)*1024./(n>>7);
 	sprintf(cbuf,"pm1_set_bounds: Stage 2 needs at least 24+5 buffers ... each buffer needs %u MB; avail-RAM allows %u such.\n",(n>>17),(uint32)dtmp);
 	mlucas_fprint(cbuf,1);
-	if(dtmp < 5.) {
-		PM1_S2_NBUF = 0;
-	} else {
-		// Assume 5 n-double chunks already alloc'ed for Stage 1 residue and other stuff
-		PM1_S2_NBUF = (uint32)dtmp - 5;
+	if(PM1_S2_NBUF && PM1_S2_NBUF > ((uint32)dtmp - 5)) {
+		sprintf(cbuf,"WARNING: User-specified Stage 2 buffer count %u exceeds avail-RAM ... each buffer needs %u MB; avail-RAM allows %u such.\n",PM1_S2_NBUF,(n>>17),(uint32)dtmp);
+		mlucas_fprint(cbuf,1);
+	} else if(!PM1_S2_NBUF) {	// Respect any user-set value here, so long as it's >= minimum-buffer-count
+		if(dtmp < 5.) {
+			PM1_S2_NBUF = 0;
+		} else {	// Assume 5 n-double chunks already alloc'ed for Stage 1 residue and other stuff:
+			PM1_S2_NBUF = (uint32)dtmp - 5;
+		}
 	}
-	B1 = p>>7;	// #bits in Stage 1 prime-powers product ~= 1.4*B1, so e.g. B1 = p/128 gives a ~= 1.1*p/100 bits
-	// Round up to nearest 100k:
-	B1 = (B1 + 99999)*inv100k;	B1 *= 100000;	ASSERT(HERE, B1 >= 100000, "B1 unacceptably small!");
+	// Force B1 >= 10^4 to avoid possible large-buffer-count underflow of qlo in stage 2.
+	// Conservatively use (#bits in Stage 1 prime-powers product ~= 1.5*B1), must fit into a uint32, thus B1_max = 2^33/3 = 2863311530:
+	i64 = p>>7;
+	ASSERT(HERE, i64 <= 2863311530ull, "Stage 1 prime-powers product must fit into a uint32; default B1 for your exponent is too large!");
+	B1 = MAX((uint32)i64,10000);	// #bits in Stage 1 prime-powers product ~= 1.4*B1, so e.g. B1 = p/128 gives a ~= 1.1*p/100 bits
+	B1 = (B1 + 99999)*inv100k;	B1 *= 100000;	ASSERT(HERE, B1 >= 100000, "B1 unacceptably small!");	// Round up to nearest 100k:
 	if(PM1_S2_NBUF < 24) {
 		sprintf(cbuf,"pm1_set_bounds: Insufficient free memory for Stage 2 ... will run only Stage 1.\n");
 		mlucas_fprint(cbuf,1);
@@ -223,7 +230,7 @@ uint32 pm1_set_bounds(const uint64 p, const uint32 n, const uint32 tf_bits, cons
 		B2 = (B2 + 999999)*inv1m;	B2 *= 1000000;	ASSERT(HERE, B2 >= 1000000, "B2 unacceptably small!");
 	}
 	pm1_check_bounds();	// This sanity-checks the bounds and sets B2_start = B1 if unset.
-	sprintf(cbuf,"Setting p-1 stage bounds b1 = %u, b2_start = %llu, b2 = %llu.\n",B1,B2_start,B2);
+	sprintf(cbuf,"Setting default p-1 stage bounds b1 = %u, b2_start = %llu, b2 = %llu.\n",B1,B2_start,B2);
 	mlucas_fprint(cbuf,1);
 	return 1;
 }
@@ -231,15 +238,18 @@ uint32 pm1_set_bounds(const uint64 p, const uint32 n, const uint32 tf_bits, cons
 /* Check the p-1 stage bounds stored in the globals B1 and B2. Return value != 0 indicates success;
 return 0 indicates an error of some kind; in this case B1 and B2 are left as-is to aid in debugging.
 */
-uint32 pm1_check_bounds()
-{
+uint32 pm1_check_bounds() {
 	while(1) {
 		if(B1 == 0) { sprintf(cbuf,"P-1 requires at least a nonzero Stage 1 bound to be specified via the -b1 flag.\n"); break; }
+		// Force B1 >= 10^4 to avoid possible large-buffer-count underflow of qlo in stage 2:
+	#ifndef PM1_DEBUG	// Allow any B1 in debug-build mode
+		if(B1 < 10000) { sprintf(cbuf,"The minimum P-1 Stage 1 bound = 10000; resetting to that.\n"); mlucas_fprint(cbuf,1); B1 = 10000; }
+	#endif
 		if(B2_start) {
 			if(B2_start > B2) { sprintf(cbuf,"P-1 Stage 2 starting bound [= %llu] must be less than or equal to Stage 2 bound [= %llu].\n",B2_start,B2); break; }
 			if(B1 > B2) { sprintf(cbuf,"P-1 Stage 2 bound [= %llu] must be greater than or equal to that of Stage 1 [= %u].\n",B2,B1); break; }
 		} else if(B2) {	// Stage 2 takes off where Stage 1 left off
-			if(B1 > B2) { sprintf(cbuf,"P-1 Stage 2 bound [= %llu] must be greater than or equal to that of Stage 1 [= %u].\n",B2,B1); break; }
+			if(B1 > B2) { sprintf(cbuf,"P-1 Stage 2 bound [= %llu] set nonzero but < Stage 1 bound [= %u] ... no Stage 2 will be run.\n",B2,B1); }
 			B2_start = B1;
 		} else {	// No Stage 2 - Can set both of these to 0 or B1 in this case
 			B2_start = B2 = (uint64)0;
@@ -290,50 +300,68 @@ uint32 compute_pm1_s1_product(const uint64 p) {
 	double ln = log(B1), lg = ln*ILG2;
 	uint32 i,len = 0,nmul,nbits,ebits = (uint32)((lg-A)*B1/(ln-A));
 	uint64 iseed,maxmult;
-	// Compute Stage 1 prime-powers product product, starting with alloc of needed memory:
+	char savefile[STR_MAX_LEN];
+
+	// Compute Stage 1 prime-powers product, starting with alloc of needed memory:
 	uint32 s1p_alloc = ((ebits + 63)>>6) + 1;	// Add 1 to account for seeding-by-binary-exponent described below
 	PM1_S1_PRODUCT = ALLOC_UINT64(PM1_S1_PRODUCT, s1p_alloc);
 	if(!PM1_S1_PRODUCT ){
-		sprintf(cbuf, "FATAL: unable to allocate array PM1_S1_PRODUCT with %u linbs in main.\n",s1p_alloc);
+		sprintf(cbuf, "ERROR: unable to allocate array PM1_S1_PRODUCT with %u linbs in main.\n",s1p_alloc);
 		mlucas_fprint(cbuf,1);	ASSERT(HERE, 0,cbuf);
 	}
-	// For M(p) want to seed the S1 prime-powers product with 2*p; for F(m) we want seed = 2^(m+2). Since in the latter
-	// case our input p contains 2^m, can handle both cases via iseed = 4*p, giving an extra *2 in the Mersenne case:
-	iseed = p<<2;	ASSERT(HERE, (iseed>>2) == p,"Binary exponent overflows (uint64)4*p in compute_pm1_s1_product!");
-	len = pm1_s1_ppow_prod(iseed, B1, PM1_S1_PRODUCT, &nmul, &maxmult);	PM1_S1_PROD_B1 = B1;
-	nbits = (len<<6)-mi64_leadz(PM1_S1_PRODUCT,len);
-	if(len > s1p_alloc) {
-		sprintf(cbuf,"Size of S1 prime-powers product exceeds alloc of PM1_S1_PRODUCT[]!");
-		mlucas_fprint(cbuf,1);	ASSERT(HERE, 0,cbuf);
-	}
-/*
-	fprintf(stderr,"Product of Stage 1 prime powers used %u mi64_mul_scalar() calls; max-multiplier %u bits\n",nmul, 64-leadz64(maxmult));
-	fprintf(stderr,"Limbs of PM1_S1_PRODUCT, low to high:\n");
-	for(i = 0; i < len; i+=8) {
-		fprintf(stderr,"%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx\n",PM1_S1_PRODUCT[i],PM1_S1_PRODUCT[i+1],PM1_S1_PRODUCT[i+2],PM1_S1_PRODUCT[i+3],PM1_S1_PRODUCT[i+4],PM1_S1_PRODUCT[i+5],PM1_S1_PRODUCT[i+6],PM1_S1_PRODUCT[i+7]);
-	}
-	exit(0);
-*/
-	sprintf(cbuf,"Product of Stage 1 prime powers with b1 = %u is %u bits (%u limbs), vs estimated %u. Setting PRP_BASE = 3.\n",B1,nbits,len,ebits);
+
+	// (E.g. on restart) First see if a savefile holding the precomputed/bit-reversed product for this p and B1 exists:
+	strcpy(savefile, RESTARTFILE);
+	savefile[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
+	strcat(savefile, ".s1_prod");
+	if((len = read_pm1_s1_prod(savefile, p, &PM1_S1_PROD_BITS, PM1_S1_PRODUCT, &PM1_S1_PROD_RES64)) != 0) {
+		sprintf(cbuf, "INFO: Successfully read precomputed/bit-reversed Stage 1 prime-powers product savefile for this modulus and B1 = %u.\n",B1);
+		mlucas_fprint(cbuf,1);
+	} else {	// Cpmpute product from scratch:
+		// For M(p) want to seed the S1 prime-powers product with 2*p; for F(m) we want seed = 2^(m+2). Since in the latter
+		// case our input p contains 2^m, can handle both cases via iseed = 4*p, giving an extra *2 in the Mersenne case:
+		iseed = p<<2;	ASSERT(HERE, (iseed>>2) == p,"Binary exponent overflows (uint64)4*p in compute_pm1_s1_product!");
+		len = pm1_s1_ppow_prod(iseed, B1, PM1_S1_PRODUCT, &nmul, &maxmult);	PM1_S1_PROD_B1 = B1;
+		nbits = (len<<6)-mi64_leadz(PM1_S1_PRODUCT,len);
+		if(len > s1p_alloc) {
+			sprintf(cbuf,"Size of S1 prime-powers product exceeds alloc of PM1_S1_PRODUCT[]!");
+			mlucas_fprint(cbuf,1);	ASSERT(HERE, 0,cbuf);
+		}
+	/*
+		fprintf(stderr,"Product of Stage 1 prime powers used %u mi64_mul_scalar() calls; max-multiplier %u bits\n",nmul, 64-leadz64(maxmult));
+		fprintf(stderr,"Limbs of PM1_S1_PRODUCT, low to high:\n");
+		for(i = 0; i < len; i+=8) {
+			fprintf(stderr,"%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx\n",PM1_S1_PRODUCT[i],PM1_S1_PRODUCT[i+1],PM1_S1_PRODUCT[i+2],PM1_S1_PRODUCT[i+3],PM1_S1_PRODUCT[i+4],PM1_S1_PRODUCT[i+5],PM1_S1_PRODUCT[i+6],PM1_S1_PRODUCT[i+7]);
+		}
+		exit(0);
+	*/
+	//	fprintf(stderr,"PM1_S1_PRODUCT limbs[%u,%u,...,1,0] = %016llX,%016llX,...,%016llX,%016llX\n",len-1,len-2,PM1_S1_PRODUCT[len-1],PM1_S1_PRODUCT[len-2],PM1_S1_PRODUCT[1],PM1_S1_PRODUCT[0]);
+		// Ignore the #iters != 0 user needed to set to invoke selfTest mode, replace with nbits in S1 prime-powers product:
+		PM1_S1_PROD_BITS = nbits-1;	// Leftmost bit accounted for by setting initial seed in the LR-modular binary powering
+		// Bit-reverse s1 product, leaving leftmost 1-bit off. REMEMBER, this puts the 0-bits corresponding to the
+		// power of 2 in the product leftmost, thus PM1_S1_PRODUCT may end up with < len nonzero words, we have some
+		// number of 0-but-significant leftmost bits in the bit-reversed prime-powers product. Don't need to explicitly zero
+		// the (64 - PM1_S1_PROD_BITS%64) upper bits of high word since mi64_brev's >>= pad_bits does it for us, but better safe than sorry:
+		uint32 pad_bits = 64 - (PM1_S1_PROD_BITS & 63);
+		if(pad_bits != 0)
+			PM1_S1_PRODUCT[len-1] &= (-1ull >> pad_bits);
+		else	// If leading-bit-ignored product a multiple of 64 bits long, our working length is 1 limb shorter than otherwise:
+			--len;
+		mi64_brev(PM1_S1_PRODUCT, PM1_S1_PROD_BITS);
+		// Compute a simple (mod 2^64) checksum, which can be rechecked at start of every savefile-update interval for data integrity:
+		PM1_S1_PROD_RES64 = 0ull;
+		for(i = 0; i < len; i++) { PM1_S1_PROD_RES64 += PM1_S1_PRODUCT[i]; }
+		// Write result to savefile:
+		if(!write_pm1_s1_prod(savefile, p, PM1_S1_PROD_BITS, PM1_S1_PRODUCT, PM1_S1_PROD_RES64)) {
+			snprintf_nowarn(cbuf,STR_MAX_LEN,"WARN: Unable to write precomputed/bit-reversed Stage 1 prime-powers product to savefile %s.\n",savefile);
+			mlucas_fprint(cbuf,1);
+		}
+	} 	// endif(read_pm1_s1_prod)
+
+	sprintf(cbuf,"Product of Stage 1 prime powers with b1 = %u is %u bits (%u limbs), vs estimated %u. Setting PRP_BASE = 3.\n",B1,PM1_S1_PROD_BITS+1,len,ebits);
 	mlucas_fprint(cbuf,1);
-//	fprintf(stderr,"PM1_S1_PRODUCT limbs[%u,%u,...,1,0] = %016llX,%016llX,...,%016llX,%016llX\n",len-1,len-2,PM1_S1_PRODUCT[len-1],PM1_S1_PRODUCT[len-2],PM1_S1_PRODUCT[1],PM1_S1_PRODUCT[0]);
-	// Ignore the #iters != 0 user needed to set to invoke selfTest mode, replace with nbits in S1 prime-powers product:
-	PM1_S1_PROD_BITS = nbits-1;	// Leftmost bit accounted for by setting initial seed in the LR-modular binary powering
-	// Bit-reverse s1 product, leaving leftmost 1-bit off. REMEMBER, this puts the 0-bits corresponding to the
-	// power of 2 in the product leftmost, thus PM1_S1_PRODUCT may end up with < len nonzero words, we have some
-	// number of 0-but-significant leftmost bits in the bit-reversed prime-powers product. Don't need to explicitly zero
-	// the (64 - PM1_S1_PROD_BITS%64) upper bits of high word since mi64_brev's >>= pad_bits does it for us, but better safe than sorry:
-	uint32 pad_bits = 64 - (PM1_S1_PROD_BITS & 63);
-	if(pad_bits != 0)
-		PM1_S1_PRODUCT[len-1] &= (-1ull >> pad_bits);
-	else	// If leading-bit-ignored product a multiple of 64 bits long, our working length is 1 limb shorter than otherwise:
-		--len;
-	mi64_brev(PM1_S1_PRODUCT, PM1_S1_PROD_BITS);
 	PRP_BASE = 3;
-	// Compute a simple (mod 2^64) checksum, which can be rechecked at start of every savefile-update interval for data integrity:
-	PM1_S1_PROD_RES64 = 0ull;
-	for(i = 0; i < len; i++) { PM1_S1_PROD_RES64 += PM1_S1_PRODUCT[i]; }
-	sprintf(cbuf,"BRed PM1_S1_PRODUCT has %u limbs, Res64 = %llu\n",len,iseed);
+	sprintf(cbuf,"BRed (PM1_S1_PRODUCT sans leading bit) has %u limbs, Res64 = %llu\n",len,PM1_S1_PROD_RES64);
 	mlucas_fprint(cbuf,0);
 	return len;	// return actual #limbs of product, not initial overestimate
 }
@@ -381,11 +409,131 @@ uint32 pm1_s1_ppow_prod(const uint64 iseed, const uint32 b1, uint64 accum[], uin
 	return len;
 }
 
+// Returns 1 on successful read, 0 otherwise:
+int read_pm1_s1_prod(const char*fname, uint64 p, uint32*nbits, uint64 arr[], uint64*sum64)
+{
+	const char func[] = "read_pm1_s1_prod";
+	int retval = 0;
+	uint8 c;
+	uint32 i,j,b1 = 0,nbytes,nlimbs;
+	uint64 itmp64 = 0ull,isum64 = 0ull;
+	ASSERT(HERE, arr != 0x0, "Null arr pointer!");
+	ASSERT(HERE, strlen(fname) != 0, "Empty filename!");
+
+	FILE*fptr = mlucas_fopen(fname, "rb");
+	if(!fptr) {
+		fprintf(stderr,"INFO: precomputed p-1 stage 1 primes-product file %s not found...computing from scratch.\n",fname);
+		goto PM1_S1P_READ_RETURN;
+	} else
+		fprintf(stderr,"INFO: precomputed p-1 stage 1 primes-product file %s found...reading...\n",fname);
+
+	if(!test_types_compatible((i = fgetc(fptr)), TEST_TYPE)) {
+		sprintf(cbuf, "ERROR: %s: TEST_TYPE[%u] mismatches one[%u] read from savefile!\n",func,TEST_TYPE,i);
+		goto PM1_S1P_READ_RETURN;
+	}
+	if((i = fgetc(fptr)) != MODULUS_TYPE) {
+		sprintf(cbuf, "ERROR: %s: MODULUS_TYPE[%u] mismatches one[%u] read from savefile!\n",func,MODULUS_TYPE,i);
+		goto PM1_S1P_READ_RETURN;
+	}
+	// compare b1 of savefile data vs global B1 presumed to have been set by caller:
+ 	for(j = 0; j < 32; j += 8) {
+		i = fgetc(fptr);	b1 += (uint64)i << j;
+	}
+	if(B1 != b1) {
+		sprintf(cbuf, "INFO: %s: B1 of current run[%u] mismatches one[%u] of savefile data.\n",func,B1,b1);
+		goto PM1_S1P_READ_RETURN;
+	}
+	// Read bitlength of precomputed/bit-reversed product:
+	*nbits = 0;
+ 	for(j = 0; j < 32; j += 8) {
+		i = fgetc(fptr);	*nbits += i << j;
+	}
+
+	// Set the number of product bytes and zero the corr. target-array limbs:
+	nbytes = (*nbits + 7)/8; nlimbs = (nbytes + 7)/8;
+	for(i = 0; i < nlimbs; i++) { arr[i] = 0ull; }
+
+	// Read the bytewise product into our array of 64-bit limbs:
+	// j holds index of current byte of limb, (j>>3) = index of current limb of target
+	for(j = 0; j < nbytes; j++) {				//vvvvvvvvv = 8*j (mod 64)
+		c = fgetc(fptr);	arr[j>>3] += ((uint64)c << ((j<<3)&63));
+	}
+	// Read 8 bytes of simple (sum of limbs, mod 2^64) checksum, compare to one computed from read data:
+	for(j = 0; j < 64; j += 8) {
+		i = fgetc(fptr);	isum64 += (uint64)i << j;
+	}
+	for(i = 0; i < nlimbs; i++) { itmp64 += arr[i]; }
+	if(itmp64 != isum64) {
+		sprintf(cbuf, "INFO: %s: Computed checksum[%llX] mismatches one[%llX] appended to savefile data.\n",func,itmp64,isum64);
+		*sum64 = 0ull;
+		goto PM1_S1P_READ_RETURN;
+	} else {
+		*sum64 = isum64;
+		retval = nlimbs;
+	}
+PM1_S1P_READ_RETURN:
+	if(fptr) { fclose(fptr); fptr = 0x0; }
+	return retval;
+}
+
+// Returns 1 on successful write, 0 otherwise:
+int write_pm1_s1_prod(const char*fname, uint64 p, uint32 nbits, uint64 arr[], uint64 sum64)
+{
+	const char func[] = "write_pm1_s1_prod";
+	int retval = 0;
+	uint8 c;
+	uint32 i,j,b1 = 0,nbytes,nlimbs;
+	uint64 itmp64 = 0ull;
+	ASSERT(HERE, arr != 0x0, "Null arr pointer!");
+	ASSERT(HERE, strlen(fname) != 0, "Empty filename!");
+
+	FILE*fptr = mlucas_fopen(fname, "wb");
+	if(!fptr) {
+		sprintf(cbuf,"ERROR: Unable to open precomputed p-1 stage 1 primes-product file %s for writing.\n",fname);
+		mlucas_fprint(cbuf,1);	ASSERT(HERE, 0, cbuf);
+	}
+	fprintf(stderr,"INFO: Opened precomputed p-1 stage 1 primes-product file %s for writing...\n",fname);
+
+	fputc(TEST_TYPE,fptr);
+	fputc(MODULUS_TYPE,fptr);
+	// B1:
+ 	for(j = 0; j < 32; j += 8) {
+		fputc(B1>>j,fptr);
+	}
+	// Write bitlength of precomputed/bit-reversed product:
+ 	for(j = 0; j < 32; j += 8) {
+		fputc(nbits>>j,fptr);
+	}
+
+	// Set the number of product bytes and limbs:
+	nbytes = (nbits + 7)/8; nlimbs = (nbytes + 7)/8;
+
+	// Write the bytewise product stored in our array of 64-bit limbs:
+	// j holds index of current byte of limb, (j>>3) = index of current limb of source
+	for(j = 0; j < nbytes; j++) {				//vvvvvvvvv = 8*j (mod 64)
+		c = arr[j>>3] >> ((j<<3)&63); fputc(c,fptr);
+	}
+	// Write 8 bytes of simple (sum of limbs, mod 2^64) checksum, after comparing arglist version to one computed from actual data:
+	for(i = 0; i < nlimbs; i++) { itmp64 += arr[i]; }
+	if(itmp64 != sum64) {
+		sprintf(cbuf, "INFO: %s: Computed checksum[%llX] mismatches one[%llX] in arglist.\n",func,itmp64,sum64);
+		goto PM1_S1P_WRITE_RETURN;
+	}
+	for(j = 0; j < 64; j += 8) {
+		c = sum64 >> j; fputc(c,fptr);
+	}
+	retval = 1;
+
+PM1_S1P_WRITE_RETURN:
+	if(fptr) { fclose(fptr); fptr = 0x0; }
+	return retval;
+}
+
 /* Given stage 2 #buffers determined from available RAM and modulus size, returns preferred bigstep size
 (available values 210,330 and 420) and extended-prime-pairing-window multiplicity m for stage 2. Data set1 and set2
 contain #modmul for simulated stage 2 with B1 = 5e6 and B2 = 150e6 for bigstep = 210 and 330, respectively.
-There are 8444396 primes in [5000000,150000000], so as a simple sanity check, the lowest possible #modmul -
-neglecting 2-modmul-per-bigstep-loop overhead associated with bigstep-up-multiplies - is 1/2 this = 4222198.
+There are 8095883 primes in [5000000,150000000], so as a simple sanity check, the lowest possible #modmul -
+neglecting 2-modmul-per-bigstep-loop overhead associated with bigstep-up-multiplies - is 1/2 this = 4047941.
 Taking into account said overhead & assuming 100% prime-pairing, lowest #modmul for various bigstep values D:
 	D	#loops	min #modmul for [b1,b2] = [5e6,150e6]
 	---	------	-------
@@ -407,7 +555,7 @@ Here is the procedure for creating our simple lookup table consisting of [#bufs,
 Here the data resulting from our prime-pairing algo, sorted as per above, in human-readable form - M is the
 "extended prime-pairing window multiplicity" associated with each [#buf,D] pair - larger M yields larger pairing %,
 but smaller D incur more per-loop up-multiply cost, so we have a complicated optimization problem best addressed
-by crunching the actual numbers and letting the chips (modmuls) fall as they may. Dividing 8096116 (#primes in sample
+by crunching the actual numbers and letting the chips (modmuls) fall as they may. Dividing 8095883 (#primes in sample
 S2 interval [5000000,150000000]) by #loops for each distinct D-value gives average number of stage 2 primes processed
 per D-width loop pass as [11.7|18.4|23.5|46.9] for D = [210|330|420|840] (D = 660 was not best at any #buf).
 %modmul is relative to min-#buf-24 baseline:
@@ -476,7 +624,7 @@ and thus benefits proportionally more from relocation:
 	 672 5307229 62.57% 420 324675 14	84.95		2400 4713322 55.57% 840 162338 25	91.60
 			[continued at upper right:]
 
-And here the data for the smaller stage 2 interval B1 = 1m, B2 = 30m, which contains 1857859 primes:
+And here the data for the smaller stage 2 interval B1 = 1m, B2 = 30m, which contains 1779361 primes:
 No small-prime relocation:
 	#buf #modmul %modmul D  nloop  M	%pair		#buf #modmul %modmul D  nloop  M	%pair[cont. from bottom left:]
 	  24 1818134 100.0% 210 138096  1	26.76		 720 1145216 62.98% 420  69048 15	86.85
@@ -576,8 +724,13 @@ void pm1_bigstep_size(uint32*nbuf, uint32*bigstep, uint32*m, uint32 psmall)
 		lut = lut_psmall11;
 	else
 		ASSERT(HERE, 0, "pm1_bigstep_size: Bad input value of relocation-prime!");
- 	// High-RAM case - For given D and associated num_b, M = floor(nbuf/num_b), where num_b = 24|40|48|80|96
- 	// for D = 210|330|420|660|840. Only need to special-case psmall = 7 here, all others use D = 840:
+	// High-RAM case - For given D and associated num_b, M = floor(nbuf/num_b), where num_b = 24|40|48|80|96
+	// for D = 210|330|420|660|840. Only need to special-case psmall = 7 here, all others use D = 840:
+	if(*nbuf >= 10000) {
+		sprintf(cbuf,"WARNING: %u buffers requested; Stage 2 allows a maximum of 10000.\n",*nbuf);
+		mlucas_fprint(cbuf,1);
+		*nbuf = 10000;
+	}
 	if(*nbuf >= 2400) {
 		if(psmall == 7) {
 			*bigstep = 660;	*m = *nbuf/80; *nbuf = *m * 80;
@@ -586,11 +739,12 @@ void pm1_bigstep_size(uint32*nbuf, uint32*bigstep, uint32*m, uint32 psmall)
 		}
 		return;
 	}
-	ASSERT(HERE, *nbuf >= 24, "P-1 stage 2 needs at least 24 buffers of available RAM!");
 	int i, num_b = 0;
 	for(i = 0; ; i += 2) {	// Foregoing assert ensures i gets incremented at least once
 		if(lut[i] > *nbuf) break;
 	}
+	if(!i)
+		ASSERT(HERE, 0, "P-1 stage 2 with relocation prime psmall = 7|11 needs at least 40|24 buffers of available RAM, respectively!");
 	if(psmall) {
 		sprintf(cbuf,"Previous Stage 2 work used relocation-prime %u ... enforcing compatibility with this: bigstep must be a multiple of %u.\n",psmall,18-psmall);
 		mlucas_fprint(cbuf,1);
@@ -605,8 +759,7 @@ void pm1_bigstep_size(uint32*nbuf, uint32*bigstep, uint32*m, uint32 psmall)
 	}
 	// For each lut[] pair, lut[i] stores nbuf, lut[i+1] stores bigstep, but above loops' structure ensures
 	// that we overshoot nbuf, i.e. on exit want to set nbuf = lut[i-2], bigstep = lut[i-1]:
-	*bigstep = lut[i-1];
-	*nbuf = lut[i-2];
+	*bigstep = lut[i-1];	*nbuf = lut[i-2];
 	// For a given #bufs value, the paired bigstep D yields an extended-prime-pairing-window multiplicity #bufs/num_b,
 	// where num_b = #integers in [1,D/2-1] which are coprime to D and = [24|40|48|80|96] for D = [210|330|420|660|840]:
 	for(i = 1; i < (*bigstep>>1); i++) {
@@ -616,7 +769,7 @@ void pm1_bigstep_size(uint32*nbuf, uint32*bigstep, uint32*m, uint32 psmall)
 	return;
 }
 
-/* Binary modpow, a^pow (mod [M(p) or F(lg2(p))]), using length-n FFT. Requires pow != 0.
+/* In-place binary modpow, a^pow (mod [M(p) or F(lg2(p))]), using length-n FFT. Requires pow != 0.
 Whether Input|Output vector a[] needs fwd-DWT weighting and pass 1 of fwd-FFT done on entry
 and undone rior to return are controlled by low 2 bits of mode_flag arg, as detailed in the
 long comment about this flag at top of [mers|ferm]_mod_square.c.
@@ -625,7 +778,7 @@ Assumes function-pointer arg has been set to point to either [mers|ferm]_mod_squ
 Our crappy modmul-API forces caller to specify an "input is pure-int?" flag.
 Needs pointer to scratch storage vector b[] to be provided.
 
-Result is left in fwdFFT-pass1-done form, and overwrites input a[].
+Result is left in fwd-FFT-pass1-done form, and overwrites input a[].
 Returns nonzero if any of the modmuls returned an error code.
 */
 int modpow(double a[], double b[], uint32 input_is_int, uint64 pow,
@@ -634,16 +787,38 @@ int modpow(double a[], double b[], uint32 input_is_int, uint64 pow,
 {
 	*tdiff = 0.0;
 	double tdif2 = 0.0;	// Need 2 timers here - tdif2 for the individual func_mod_square calls, accumulate in tdiff
-	int npad = n + ( (n >> DAT_BITS) << PAD_BITS ), nbytes = npad<<3;	// npad = length of padded data array
-	uint32 i,ierr = 0;
-	// pow = 1 is mathematically a no-op, but due to above note [*] we require pow > 1, to make sure at least 1 modmul gets done:
-	ASSERT(HERE,a && b && n && pow > 1 && func_mod_square,"Zero input or power < 2 in pm1.c::modpow!");
-	uint32 mode_flag;
-	// Init b = fwdFFT(a); only need this is power != 2^k, in which case we only need autosquarings:
+	uint64 npad = n + ( (n >> DAT_BITS) << PAD_BITS ), nbytes = npad<<3;	// npad = length of padded data array
+	// v20.1.1: Made npad, nbytes 64-bit here and in pm1_stage2() to allow FFT >= 512M. (Could also do nbytes = (uint64)npad<<3)
+	uint32 i,ierr = 0,nerr = 0, mode_flag;
+#ifdef PM1_DEBUG
+	uint32 j; double dsum;
+#endif
+	ASSERT(HERE,a && b && n && func_mod_square,"Null input pointer or vector length in pm1.c::modpow!");
+	// pow = 0: , b[1:n-1] = 0:
+	if(!pow) {
+		b[0] = 1.0;
+		for(i = 1; i < npad; i++) { b[i] = 0.0; }
+		return 0;
+	}
+	// pow = 1 is mathematically a no-op, but if a != b need to copy a into b:
+	if(pow == 1 && a != b) {
+		memcpy(b,a,nbytes);	// Assume disjoint memory footprints here
+		return 0;
+	}
+	// Init b = fwdFFT(a); only need this if power != 2^k, in which case we only need autosquarings:
+#ifdef PM1_DEBUG
+	fprintf(stderr,"MODPOW: pow = %llu\n",pow);
+#endif
 	if(!isPow2_64(pow)) {
 		memcpy(b,a,nbytes);	// b = a           vvvv + 4 to effect "Do in-place forward FFT only; low bit = 0 here implies pure-int input"
-		ierr += func_mod_square(b, 0x0, n, 0,1, 4ull + (uint64)(!input_is_int), p, scrnFlag,&tdif2, FALSE, 0x0);	*tdiff += tdif2;
-	}	ASSERT(HERE, ierr == 0, "func_mod_square returns error!");
+		ierr = func_mod_square(b, 0x0, n, 0,1, 4ull + (uint64)(!input_is_int), p, scrnFlag,&tdif2, FALSE, 0x0); *tdiff += tdif2; nerr += ierr;
+		if(ierr == ERR_INTERRUPT) {
+			return ierr;
+		}
+	#ifdef PM1_DEBUG
+		dsum = 0; for(j = 0; j < npad; j++) { dsum += fabs(b[j]); }; fprintf(stderr,"b = fwdFFT(a) gives b[0] = %20.8f, b[1] = %20.8f, L1(b) = %20.8f\n",b[0],b[1],dsum/n); MME = 0;
+	#endif
+	}	ASSERT(HERE, nerr == 0, "func_mod_square returns error!");
 	// Use LR binary modpow algorithm, though it's no faster in this general case than RL:
 	uint32 len = nbits64(pow);
 	pow = reverse64(pow,len)>>1;	// Leftmost bit of input power accounted for by implied (result = a[]) init;
@@ -665,15 +840,27 @@ int modpow(double a[], double b[], uint32 input_is_int, uint64 pow,
 		else		// i != 1: bit 0 = 1
 			mode_flag = 3;
 		// y *= y:
-		ierr += func_mod_square(a, 0x0, n, i,i+1, (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); *tdiff += tdif2;
+		ierr = func_mod_square(a, 0x0, n, i,i+1, (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); *tdiff += tdif2; nerr += ierr;
+		if(ierr == ERR_INTERRUPT) {
+			return ierr;
+		}
+	#ifdef PM1_DEBUG
+		dsum = 0; for(j = 0; j < npad; j++) { dsum += fabs(a[j]); }; fprintf(stderr,"a^2: MME = %8.6f, a[0] = %20.8f, a[1] = %20.8f, L1(a) = %20.8f\n",MME,a[0],a[1],dsum/n); MME = 0;
+	#endif
 	  if(pow&1)	{	// y *= a; mode_flag for this fixed = 3:
-		ierr += func_mod_square(a, 0x0, n, i,i+1, (uint64)b +  3ull, p, scrnFlag,&tdif2, FALSE, 0x0); *tdiff += tdif2;
+		ierr = func_mod_square(a, 0x0, n, i,i+1, (uint64)b +  3ull, p, scrnFlag,&tdif2, FALSE, 0x0); *tdiff += tdif2; nerr += ierr;
+		if(ierr == ERR_INTERRUPT) {
+			return ierr;
+		}
+	  #ifdef PM1_DEBUG
+		dsum = 0; for(j = 0; j < npad; j++) { dsum += fabs(a[j]); }; fprintf(stderr,"a*b: MME = %8.6f, a[0] = %20.8f, a[1] = %20.8f, L1(a) = %20.8f\n",MME,a[0],a[1],dsum/n); MME = 0;
+	  #endif
 	  }
 	}
 	// For initial release, no error handling - note we do have ROE handling in the main Stage 2 loop:
-	if(ierr != 0) { sprintf(cbuf,"modpow hit an error of type = %u! Aborting.",ierr); ASSERT(HERE,0,cbuf); }
+	if(nerr != 0) { sprintf(cbuf,"modpow hit one or more errors! Aborting."); ASSERT(HERE,0,cbuf); }
 	// Result returned in a[]:
-	return (ierr != 0);
+	return (nerr != 0);
 }
 
 /*
@@ -691,20 +878,15 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	[a] If S1 incomplete (based on maxiter < PM1_S1_PROD_BITS), resume;
 	[b] If S1 completed, including GCD, feed residue to S2.
 2. S2 needs to do S1-res powering in both from-scratch and S2-restart-from-interrupt cases.
-3. On entry, S2 will check for existence of ".s2" savefile:
-	[a] If exists, read nsquares, compare vs B2_start of worktodo assignment. If nsquares > B2_start,
-		it's a stage 2 restart, resume S2 at q = nsquares;
-	[b] If no S2 savefile, the first thing we do in S2 is create the S2 savefile and write the header,
-		data, including B2_start in the nsquares field, thus should S2 be interrupted prior to first
-		interim-residue-write, on restart the calling program infers 'S1 done' via existence of S2
-		savefile and again proceeds to S2.
+3. On entry, S2 will check for existence of ".s2" savefile; If exists, read nsquares, resume S2 there.
+
 	6/08/21: Added small-prime relocation for the most-common use case of a contiguous (B2_start = B1 at
 	start of stage 2) S2 continuation, in which we run S2 not from (B2_start = B1) to B2 but rather from
-	B2/psmall to B2, where psmall = smallest prime which is not a factor of our bigstep D. In our case,
+	B1*psmall to B2, where psmall = smallest prime which is not a factor of our bigstep D. In our case,
 	that means psmall = 7 (for D = 330|660) or psmall = 11 (for D = 210|420|840). In the context of this
-	relocation scheme, our initial 'S1 done' S2 savefile write uses B2_start = B1 in the nsquares field;
-	subsequent writes of the file using actual S2 interim residues use nsquare = (current q), the smallest
-	of which will have q ~= B2_start/psmall.
+	relocation scheme, any restart - which may encounter differing avail-mem than initial S2 start and
+	thus want to choose different D (and if a Pfactor= assignment, different B2) needs to be constrained
+	to use a D with the same psmall as the preceding S2 work, and must also use the same B2.
 4. Every so often, S2 writes savefile using end-of-k-loop value of residue 'pow';
 5. On S2 completion, returns S2 bytewise residue in arrtmp.
 */
@@ -734,10 +916,15 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
   {
 	const double inv10m = 1./10000000; uint32 q_div_10M, q_old_10M = 0;	// For intermediate GCD-scheduling
 	gcd_str[0] = '\0';	// should be null on entry, but better safe than sorry
-	char savefile[STR_MAX_LEN];	// S2 savefile
-	uint64 Res64, Res35m1, Res36m1;
+	char savefile[STR_MAX_LEN];	// S1 residue-inverse file
+	uint32 restart = 0, input_is_int = 0, mode_flag = 0, kblocks = (n>>10), interim_gcd = 1;
 	// npad = length of padded data array:
-	uint32 restart = 0, input_is_int = 0, mode_flag = 0, kblocks = (n>>10), npad = n + ( (n >> DAT_BITS) << PAD_BITS ), nbytes = npad<<3;
+	uint64 Res64,Res35m1,Res36m1, nalloc, npad = n + ( (n >> DAT_BITS) << PAD_BITS ), nbytes = npad<<3;
+#if USE_PP1_MULTS		// (p+1)-style version of stage 2 loop-multipliers
+	char inv_file[STR_MAX_LEN];	// S1 residue-inverse file
+	uint32 s1_inverse = 0;
+	const uint64 two35m1 = (uint64)0x00000007FFFFFFFFull, two36m1 = (uint64)0x0000000FFFFFFFFFull;	/* 2^35,36-1 */
+#endif
   #define SIZE 256
 	time_t calendar_time;
 	struct tm *local_time;
@@ -745,7 +932,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
   #ifdef CTIME
 	clock_t clock1, clock2;
   #else
-	double clock1, clock2;
+	double clock1, clock2, dtmp;
   #endif
 	double tdif2 = 0.0;	// tdif2 is dummy-arg for the time-ptr field of the modmul calls; as that neglects time used
 						// for memcpy and FFT(a-b) calls, use arglist-ptr tdiff to accumulate overall elapsed-time.
@@ -762,13 +949,11 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 #endif	// #ifdef PM1_STANDALONE
 	const char func[] = "pm1_stage2";
 	char stFlag[STR_MAX_LEN];
-	int i,j,jeven;	// Make these signed to allow for downward-running loop indices & loop control
-#ifdef PM1_DEBUG
-	int bit;
-#endif
+	int retval = 0, i,j,jhi,jeven;	// Make i,j signed to allow for downward-running loop indices & loop control
 	// num_b is #buffers per unit of extended-pairing-window size M; wsize is #bytes needed per 'word' of the associated bitmap
-	uint32 bigstep_pow2,rsize, nq,np=0,ns=0,ierr,m2,m_is_odd,m_is_even,nalloc, num_b,psmall,wsize, k,k0=0, nmodmul = 0,nmodmul_save = 0, p1,p2;
-	uint64 tmp,q,q0,q1,q2,qlo = 0ull, reloc_start, pinv64 = 0ull;
+	uint32 bigstep_pow2,rsize, nq,np=0,ns=0,ierr,nerr,m2,m_is_odd,m_is_even,num_b,psmall,wsize, k,k0=0, nmodmul = 0,nmodmul_save = 0, p1,p2;
+	uint32 word,bit;
+	uint64 tmp,q,q0,q1,q2, qlo = 0ull,qhi, reloc_start, pinv64 = 0ull;
 	// map_lo|hi intended as variable ptrs to various parts of map[], lo|hi as const ptrs to words beyond end of
 	// "working map". Alas, since we alloc map[] at runtime, we can't actually declare hi|lo as const-ptrs. File under
 	// "stupid C tricks" - lack of a "set once at runtime but compiler/OS treat as const subsequently" declaration option:
@@ -778,6 +963,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	static double *a_ptmp = 0x0, *a = 0x0;	// Storage for stage 2 in form of ptrs to m*[24,40 or 48] residue-length subarrays, depending
 	static double **buf = 0x0;	// on whether bigstep = [210,330,420 or 840]. a[] is simply a tmp-ptr used to init buf[]
 								// and then as an alias for mult[3]. 	<**** NOTE! ****
+	static double *vone = 0x0;	// Holds fwdFFT(1)
   #ifdef macintosh
 	argc = ccommand(&argv);			/* Macintosh CW */
   #endif
@@ -814,6 +1000,13 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	else
 		ASSERT(HERE,0,"Modulus type not set in pm1_stage2!");
   #endif
+	// See if user opted out of doing interim GCDs (the default is interim_gcd = 1, i.e. do them):
+	dtmp = mlucas_getOptVal(MLUCAS_INI_FILE,"InterimGCD");	// Any failure-to-find-or-parse can be checked for via isNaN(dtmp)
+	if(dtmp == 0) {
+		sprintf(cbuf,"User set InterimGCD = 0 in %s ... will only take GCD after completion of stage 2.\n",MLUCAS_INI_FILE);
+		mlucas_fprint(cbuf,1);
+		interim_gcd = 0;
+	}
 	// Whichever bigstep values we want to allow here, the resulting num_b must be a multiple of 8:
 	if(bigstep == 210) {		// 2.3.5.7
 		num_b = 24;	bigstep_pow2 = 1; rsize = 3; psmall = 11;	// psmall = smallest prime which is not a factor of D
@@ -829,18 +1022,39 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 		fprintf(stderr, "*** ERROR: -bigstep arg must be one of [210|330|420|660|840]; user entered %s.\n", stFlag);	return 1;
 	}
 	wsize = num_b>>2;	// bitmap word has 2*num_b bits and num_b>>2 bytes
-
+	/*
+	Small-prime relocation: If B2/psmall >= B1, we map the primes q in [B1,B2/psmall] to [B1*psmall,B2], run
+	stage 2 not from B1 to B2 but from B1*psmall to B2, and incorporate them into the stage 2 accumulator when
+	each corresponding semiprime q*psmall is hit in the remapped stage 2 interval:
+	*/
 	pm1_check_bounds();	// This sanity-checks the bounds and sets B2_start = B1 if unset.
-	if(B2_start == B1 && B2/psmall > B1) {	// It's possible user running a S2 with B2/psmall < B1, hence the 2nd clause
-		reloc_start = psmall*B1;	// Start including relocation-semiprimes once S2 passes this point...
-		B2_start = B2/psmall;		// ...and shift B2_start upward to reflect the fact that primes in [B1,B2/psmall]
-									// will be relocated to [psmall*B1,B2]
+	if(B2_start == B1 && B2 >= B1*psmall) {	// It's possible user running a S2 with B2/psmall < B1, hence the 2nd clause
+		reloc_start = psmall*B1;				// Start including relocation-semiprimes once S2 passes this point, and
+		B2_start = MIN(reloc_start, B2/psmall);	// shift B2_start upward to reflect the fact that primes in [B1,B2/psmall]
+												// will be relocated to [B1*psmall,B2].
 	} else {	// In the case of a standalone S2 interval (B2_small > B1), set psmall = 0 and reloc_start = UINT64_MAX:
 		psmall = 0; reloc_start = -1ull;
 	}
 	sprintf(cbuf,"Using B2_start = %llu, B2 = %llu, Bigstep = %u, M = %u\n",B2_start,B2,bigstep,m);
 	mlucas_fprint(cbuf,1);
 	uint32 reloc_on = FALSE;	// Gets switched to TRUE (= start using semiprimes which are multiples of psmall) when q > reloc_start
+
+	// Oct 2021: For small q0 and large #bufs, qlo can underflow, so check!
+	q0 = B2_start + bigstep - B2_start%bigstep;
+	if(q0 <= (m/2+1)*(uint64)bigstep) {	// Don't have m2 yet
+		// Max #bufs computed by recasting if() expression as equality and solving for m, then decrementing m to
+		// ensure result m satisfies q0 < (m/2+1)*bigstep (note strictly less-than!) and using PM1_S2_NBUF = m*num_b:
+		tmp = (q0/(uint64)bigstep - 1)<<1;	// tmp holds m_max as a uint64
+		// For this condition to be hit implies q0 quite small, but makes sure resulting m is 32-bit anyway:
+		if((uint64)m < tmp) {
+			sprintf(cbuf, "Nonsensical value of M_max = %llu in qlo-underflow check ... aborting.",tmp);
+			mlucas_fprint(cbuf,1);	ASSERT(HERE, 0,cbuf);
+		}
+		m = tmp-1;
+		PM1_S2_NBUF = m*num_b;	// Don't use PM1_S2_NBUF per se in code below, but reset for consistency
+		sprintf(cbuf, "WARNING: The stage 1 bound %u allows a maximum #buffers = %u; using that.\n",B1,PM1_S2_NBUF);
+		mlucas_fprint(cbuf,1);
+	}
 
 	// May 2021: Added support for M even:
 	m_is_odd = IS_ODD(m);
@@ -850,10 +1064,19 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
   #ifndef PM1_STANDALONE
 	nlimb = (p+63+(MODULUS_TYPE == MODULUS_TYPE_FERMAT))>>6;	// # of 64-bit limbs in p-bit vector, alloc 2 of these for debug:
   #endif
+/******************************************************************************************************/
+/*** EVERY ERROR-RETURN FROM HERE ONWARD MUST DEALLOCATE THE ALLOCATED MEMORY, I.E. GOTO ERR_RETURN ***/
+/******************************************************************************************************/
 	// Init the needed array storage:
   #ifndef PM1_STANDALONE
-	// Double arrays - need (num_b*m) arrays, each holding npad doubles:
-	nalloc = num_b*m*npad;
+	// Double arrays - need (num_b*m + [defined(USE_PP1_MULTS)]) arrays, each holding npad doubles; the +1 entry
+	// is for the (p+1)-style loop-multiplier scheme, to store fwdFFT(1), which it uses for carry-normalization:
+   #ifdef USE_PP1_MULTS
+	const int use_pp1 = 1;
+   #else
+	const int use_pp1 = 0;
+   #endif
+	nalloc = (m*num_b + use_pp1)*npad;
 	j = 0;
 	if(nalloc & 7)
 		j = 8 - (nalloc & 7);
@@ -861,15 +1084,19 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	// double*a holds ptr to 1 scratch vector, double**buf holds ptrs to num_b*m double-vecs of same length npad:
 	a_ptmp = ALLOC_DOUBLE(a_ptmp, nalloc);
 	if(!a_ptmp){
-		sprintf(cbuf, "FATAL: unable to allocate the needed %u+1 buffers of p-1 Stage 2 storage.\n",num_b*m);
+		sprintf(cbuf, "ERROR: unable to allocate the needed %u buffers of p-1 Stage 2 storage.\n",num_b*m + use_pp1);
 		mlucas_fprint(cbuf,1);	ASSERT(HERE, 0,cbuf);
 	}
 	a      = ALIGN_DOUBLE(a_ptmp);	ASSERT(HERE, ((long)a & 63) == 0x0,"a[] not aligned on 64-byte boundary!");
 	buf = (double **)calloc(num_b*m,sizeof(double *));
 	// ...and num_b*m "buffers" for precomputed bigstep-coprime odd-square powers of the stage 1 residue:
 	for(i = 0; i < num_b*m; i++) {
-		buf[i] = a + i*npad;	ASSERT(HERE, ((long)(buf[i]) & 63) == 0x0,"buf[i] not aligned on 64-byte boundary!");
+		buf[i] = a + i*npad;
+//		fprintf(stderr,"buf[%3d] = 0x%llX\n",i,(uint64)buf[i]);
+		ASSERT(HERE, ((long)(buf[i]) & 63) == 0x0,"buf[i] not aligned on 64-byte boundary!");
 	}
+	// Still do fwdFFT(1) as init-FFT step in non-(p+1) build, but use uppermost buf[] entry to hold as throwaway result:
+	vone = a + (i - 1 + use_pp1)*npad;
 	a = mult[3];	// Rest of the way, a[] serves as a handy alias for mult[3]
 
    #ifdef MULTITHREAD
@@ -970,7 +1197,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 		0x00,0x20,0x00,0x21,0x80,0x10
 	};
 	const uint8*reloc_mod_psmall_bytemap = 0x0;	// Clang disallowed separate 'uint8*' type-decl in each if/else branch
- 	if(psmall == 7) {	// pinv64 = 64-bit Montgomery inverse of psmall: psmall*pinv64 == 1 (mod 2^64)
+	if(psmall == 7) {	// pinv64 = 64-bit Montgomery inverse of psmall: psmall*pinv64 == 1 (mod 2^64)
 		reloc_mod_psmall_bytemap = reloc_mod7_bytemap;	pinv64 = 0x6DB6DB6DB6DB6DB7ull;
 	} else if(psmall == 11) {
 		reloc_mod_psmall_bytemap = reloc_mod11_bytemap;	pinv64 = 0x2E8BA2E8BA2E8BA3ull;
@@ -984,7 +1211,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	if(j != m*num_b) {
 		sprintf(cbuf,"Error: #ints coprime to D should == M*%u, instead got %u\n",num_b,j);
 		mlucas_fprint(cbuf,1);
-		return 1;
+		retval = 1; goto ERR_RETURN;
 	}
 	for(j = 2*num_b; j < m*num_b; j++) {
 		ASSERT(HERE,b[j] == bigstep + b[j-2*num_b],"Bigstep-power-offset check fails!");
@@ -1057,24 +1284,24 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 		e.g. for 210, num_b = 24 and b[24] = 107 = 210-103 = bigstep - b[23].
 	Once we have the first 2*num_b powers, each remaining one follows the simple formula b[i] = bigstep + b[i-2*num_b]
 	Problem:
-		We actually need the stage 1 residue (pow) raised to the above sequence values, SQUARED. Thus we need the diffs between
+		We actually need the stage 1 residue (A) raised to the above sequence values, SQUARED. Thus we need the diffs between
 	successive squares for our up-multiply loop. Here are those diffs for the first 2*num_b entries for bigstep value 210, for example:
 	210: square-diffs, all are multiples of 24. For each distinct multiple of 24, @ means first appearance in the sequence,
 			* means last; entries lacking these annotators appear just once in this low-2*num_b-terms square-diffs sequence:
 	b[i] =     1,11,13,17,19 ,23,29 ,31,37 ,41 ,43,47,53 ,59 ,61,67 ,71 ,73,79,83,89 ,97 ,101,103,107,109,113,121,127,131,137,139,143,149,151,157,163,167,169,173,179,181,187,191,193,197,199,209
 	s[i] = 24*[-,5@,2@*,5,3@*,7@,13@,5*,17@,13*,7*,15,25@,28@,10,32@,23@,12,38,27,43@,62@,33@,17*,35 ,18 ,37 ,78 ,62*,43*,67 ,23*,47 ,73 ,25*,77 ,80 ,55 ,28*,57 ,88 ,30 ,92 ,63 ,32*,65 ,33*,170]
 	Simpler to use that diffs between successive odd squares follow a simple +=8 rule: 3^2-1^2 = 8, 5^2-3^2 = 16, 7^2-5^2 = 24, etc.
-	Set 0-term of our pow^(b[i]^2) sequence = pow^1, fwd-FFT that. 3 modsquares of a 2nd copy of pow^1 give pow^8, which we also
-	fwd-FFT and use as a fixed multiplier, with which we will generate ascending multiple-of-8 powers, pow8,16,24,... . We then use
+	Set 0-term of our A^(b[i]^2) sequence = A^1, fwd-FFT that. 3 modsquares of a 2nd copy of A^1 give A^8, which we also
+	fwd-FFT and use as a fixed multiplier, with which we will generate ascending multiple-of-8 powers, A8,16,24,... . We then use
 	these to run through ascending odd-square powers, and each time our loop index curr_i = 1,3,5,... hits the next entry in our b[i]
-	sequence, we deposit the associated pow^(b[i]^2) term in the corresponding buf[i] entry:
+	sequence, we deposit the associated A^(b[i]^2) term in the corresponding buf[i] entry:
 	i	j	mult[0]	mult[1]	b[i] ?=j	Action
-	0	1	pow^1	pow^8	1	1	buf[i++] = mult[0]
-	1	3	pow^9	pow^16	11	0
-	1	5	pow^25	pow^24	11	0
-	1	7	pow^49	pow^32	11	0
-	1	9	pow^81	pow^40	11	0
-	1	11	pow^121	pow^48	11	1	buf[i++] = mult[0], etc.
+	0	1	A^1 	A^8		1	1	buf[i++] = mult[0]
+	1	3	A^9		A^16	11	0
+	1	5	A^25	A^24	11	0
+	1	7	A^49	A^32	11	0
+	1	9	A^81	A^40	11	0
+	1	11	A^121	A^48	11	1	buf[i++] = mult[0], etc.
 	*/
 #ifndef PM1_STANDALONE
   #ifdef CTIME
@@ -1082,63 +1309,344 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
   #else
 	clock1 = getRealTime();
   #endif
+	nerr = 0;
 	MME = 0.0;	// Reset (extern) maxROE
+	/* Init a const-vector fwdFFT(1) to and store in highest-index buf[] slot; use for normalization-multiply
+	prior to subtract-step in (p+1)-style Lucas-sequence multiplier computation. Since this may be the first modmul we do,
+	use a[] as a scratch array for the init section of func_mod_square(). No residue-shift here, so rightmost arg = False.
+	Alternatively, could use a simple loop-based init to set all the Re() entries of vone[] to 1, but that needs more code.
+	Still compute fwdFFT(1) by way of an init-FFT in non-(p+1) build, but map vone[] to uppermost buf[] entry, i.e. throw away:
+	*/
+	vone[0] = 1.0; for(j = 1; j < n; j++) { vone[j] = 0.0; }
+													//vvv-- Pure-int inputs, so mode_flag = 0
+	ierr = func_mod_square(vone, (void *)a, n, 0,1, 4ull, p, scrnFlag,&tdif2, FALSE, 0x0);	ASSERT(HERE, ierr == 0,"fwdFFT(1) hit error!");
+
+  #if !USE_PP1_MULTS		// Basic version:
+
 	sprintf(cbuf,"Using Bigstep %u, pairing-window multiplicity M = %u: Init M*%u = %u [base^(A^(b^2)) %% n] buffers for Stage 2...\n",bigstep,m,num_b,m*num_b);
 	mlucas_fprint(cbuf,1);
-	// [a] Generate a set of precomputed buffers pow^(b^2) for the set of b-values corr. to our choice of D:
- 	memcpy(buf[0] ,pow,nbytes);	// b[0] = 1 --> Copy of pow^1 into buf[0]
-	memcpy(mult[0],pow,nbytes);	// Another copy of pow^1 into mult[0][] - this will hold ascending odd-square powers pow^1,9,25,...
-	memcpy(mult[1],pow,nbytes);	// A third copy of pow^1 into mult[1][] - this will end up holding pow^8 in fwd-FFTed form:
+	// [a] Generate set of precomputed buffers A^(b^2) (A = s1 residue stored in pow[]) for b-values corr. to our choice of D:
+	memcpy(buf[0] ,pow,nbytes);	// b[0] = 1 --> Copy of A^1 into buf[0]
+	memcpy(mult[0],pow,nbytes);	// Another copy of A^1 into mult[0][] - this will hold ascending odd-square powers A^1,9,25,...
+	memcpy(mult[1],pow,nbytes);	// A third copy of A^1 into mult[1][] - this will end up holding A^8 in fwd-FFTed form:
 	mode_flag = 2;	// bit 1 of mode_flag = 1 since all FFT-mul outputs will be getting re-used as inputs
-	/* 3 mod-squares in-place to get pow^8 - since (e.g. if starting from B1-done savefile and doing only Stage 2)
-	this may be the first modmul we do, use a[] as a scratch array for the init section of func_mod_square().
-	No residue-shift here, so rightmost arg = False: */
-	ierr  = func_mod_square(mult[1], (void *)a, n, 0,3,        (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
-	mode_flag |= 1;	// Only 1st fft-mul of pow and its copies need low bit of mode_flag = 0!
-	memcpy(mult[2] ,mult[1],nbytes);	// mult[2][] holds ascending pow^8,16,24,..., in *non*-fwd-FFTed form (that is, fwd-FFT-pass-1-only-done form)
-	// mult[1] = fwdFFT(pow^8):					 vvvv + 4 to effect "Do in-place forward FFT only" of pow^8:
-	ierr += func_mod_square(mult[1],      0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	// 3 mod-squares in-place to get A^8:
+	ierr = func_mod_square(mult[1], 0x0, n, 0,3,        (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+	if(ierr == ERR_INTERRUPT) {
+		return ierr;
+	}
+	mode_flag |= 1;	// Only 1st fft-mul of A and its copies need low bit of mode_flag = 0!
+	memcpy(mult[2] ,mult[1],nbytes);	// mult[2][] holds ascending A^8,16,24,..., in *non*-fwd-FFTed form (that is, fwd-FFT-pass-1-done form)
+	// mult[1] = fwdFFT(A^8):					  vvvv + 4 to effect "Do in-place forward FFT only" of pow^8:
+	ierr = func_mod_square(mult[1], 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
 	// And now the big loop to compute the remaining pow^(b[i]^2) terms, each of which goes into buf[i++] in fwd-FFTed form.
 	// Each pass through the loop costs 2.5 modsqr and 1 memcpy, with a 2nd memcpy whenever we hit a b[i] and write a buf[] entry:
 	i = 1;
-  #ifdef PM1_DEBUG
-	fprintf(stderr,"Init buf[] = pow^");
-  #endif
+   #ifdef PM1_DEBUG
+	fprintf(stderr,"Init buf[] = A^");
+   #endif
 	for(j = 3; j < m*(bigstep>>1); j += 2) {
-		memcpy(a,mult[2],nbytes);	// a[] = Copy of fwd-FFT-pass-1-only-done(pow^8,16,24,...) to be fwd-FFTed
-		// a[] = FFT(pow^8,16,24,...):
-		ierr += func_mod_square(      a, 0x0, n, 0,1,         4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
-		// mult[0] *= a[]: mult[0] holds result, thus is not fwd-FFTed (that is, in fwd-FFT-pass-1-only-done form) on entry;
-		// Since mult[0] holds pure-int copy of stage 1 residue pow on loop entry, bit 0 of mode_flag = 0 for just its first use:
+		memcpy(a,mult[2],nbytes);	// a[] = Copy of fwd-FFT-pass-1-done(A^8,16,24,...) to be fwd-FFTed
+		// a[] = FFT(A^8,16,24,...):
+		ierr = func_mod_square(      a, 0x0, n, 0,1,         4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+		// mult[0] *= a[]: mult[0] holds result, thus is not fwd-FFTed (that is, in fwd-FFT-pass-1-done form) on entry;
+		// Since mult[0] holds pure-int copy of stage 1 residue A on loop entry, bit 0 of mode_flag = 0 for just its first use:
 		//                                                                                vvvvvvvv
-		ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)a + (uint64)(mode_flag - (j==3)), p, scrnFlag,&tdif2, FALSE, 0x0);
+		ierr = func_mod_square(mult[0], 0x0, n, 0,1, (uint64)a + (uint64)(mode_flag - (j==3)), p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+		if(ierr == ERR_INTERRUPT) {
+			return ierr;
+		}
 		if(b[i] == j) {
 		#ifdef PM1_DEBUG
-			fprintf(stderr,"%u.",j*j);
+			fprintf(stderr,"%u^2.",j);
 		#endif
-			memcpy(buf[i++],mult[0],nbytes);	// buf[i++] = mult[0] = fwd-FFT-pass-1-only-done(pow^1,9,25,...)
+//			fprintf(stderr,"buf[%3d] = 0x%llX\n",i,(uint64)buf[i]);
+			ASSERT(HERE, ((long)(buf[i]) & 63) == 0x0,"buf[i] not aligned on 64-byte boundary!");
+			memcpy(buf[i++],mult[0],nbytes);	// buf[i++] = mult[0] = fwd-FFT-pass-1-done(A^1,9,25,...)
 		}
-		// Up-multiply the fwd-FFT-pass-1-only-done(pow^8,16,24,...) by fixed multiplier fwd-FFT(pow^8):
-		// mult[2] = pow^16,24,... :
-		ierr += func_mod_square(mult[2], 0x0, n, 0,1, (uint64)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+		// Up-multiply the fwd-FFT-pass-1-done(A^8,16,24,...) by fixed multiplier fwd-FFT(A^8):
+		// mult[2] = A^16,24,... :
+		ierr = func_mod_square(mult[2], 0x0, n, 0,1, (uint64)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+		if(ierr == ERR_INTERRUPT) {
+			return ierr;
+		}
 	}
+
+  #else	// USE_PP1_MULTS = True: (p+1)-style version of stage 2 loop-multipliers, needs just 1 modmul per bigstep-loop
+	#warning Add signal-handling for non-fwd-only-FFTs!
+	// vec1,vec2 will hold stage 1 residue A (stored in FP form in pow[]) and its mod-inverse in packed-bit form
+	vec1[nlimb-1] = 0ull;
+	convert_res_FP_bytewise(pow,(uint8*)vec1, n, p, &Res64,&Res35m1,&Res36m1);
+fprintf(stderr,"#1: vec1 = A^+1 checksums = %llu,%llu,%llu; FP(A)[0:1] = %10.2f,%10.2f\n",Res64,Res35m1,Res36m1, pow[0],pow[1]);
+	// First see if there's a savefile-copy of the s1 residue-inverse:
+	strcpy(inv_file, RESTARTFILE);
+	inv_file[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
+	strcat(inv_file, ".inv");
+	fp = mlucas_fopen(inv_file,"rb");
+	// o If exists, read nsquares field (expected == 0 for s1-inv) into uint64 tmp:
+	if(fp) {												// G-check residue fields all set NULL in this call:
+		i = read_ppm1_savefiles(inv_file, p, &k, fp, &tmp, (uint8*)vec2, &Res64,&Res35m1,&Res36m1, 0x0,0x0,0x0,0x0);
+		fclose(fp); fp = 0x0;
+		ASSERT(HERE, tmp == 0ull, "Stage 1 residue-inverse savefile should have nsquares == 0!");
+		if(!i) {
+			/* First print any error message that may have been issued during the above function call: */
+			if(strstr(cbuf, "read_ppm1_savefiles"))
+				mlucas_fprint(cbuf,1);
+			// And now for the official spokesmessage:
+			snprintf_nowarn(cbuf,STR_MAX_LEN, "Read of stage 1 residue-inverse savefile %s failed for reasons unknown. Computing inverse...\n",inv_file);
+			mlucas_fprint(cbuf,1);
+		} else {
+			s1_inverse = TRUE;
+		}
+	}
+	if(!s1_inverse) {
+		snprintf(cbuf,STR_MAX_LEN, "Stage 2: Computing mod-inverse of Stage 1 residue...\n");	mlucas_fprint(cbuf,1);
+		modinv(p,vec1,vec2,nlimb);	// Result in vec2
+		Res64 = vec2[0];
+		Res35m1 = mi64_div_by_scalar64(vec2,two35m1,nlimb,0x0);
+		Res36m1 = mi64_div_by_scalar64(vec2,two36m1,nlimb,0x0);
+		// Write inverse to savefile:
+		fp = mlucas_fopen(inv_file, "wb");
+		if(fp) {
+			write_ppm1_savefiles(inv_file,p,n,fp, 0ull, (uint8*)vec2,Res64,Res35m1,Res36m1, 0x0,0x0,0x0,0x0);
+			fclose(fp);	fp = 0x0;
+		} else {
+			snprintf_nowarn(cbuf,STR_MAX_LEN, "ERROR: unable to open restart file %s for write of checkpoint data.\n",inv_file);
+			mlucas_fprint(cbuf,1);	ASSERT(HERE, 0,cbuf);
+		}
+	}
+	convert_res_bytewise_FP((uint8*)vec2, a, n, p);	// Use a[] to hold inverse A^-1 until done with it
+fprintf(stderr,"#1: vec2 = A^-1 checksums = %llu,%llu,%llu; FP(A^-1)[0:1] = %10.2f,%10.2f\n",Res64,Res35m1,Res36m1, a[0],a[1]);
+   #ifdef PM1_DEBUG
+	fprintf(stderr,"Checking mod-inverse...\n");
+	// Debug: check inverse ... start with copies of A (pow[]) and A^-1 (a[]) into mult0-1:
+	memcpy(mult[0],pow,nbytes);	memcpy(mult[1],a,nbytes);
+	// mult[1] = fwdFFT(A^-1):					       vvvv + 4 to effect "Do in-place forward FFT only"; bit 0 of mode_flag (the only one fwd-FFT cares about) = 0, since mult[0] enters in pure-int form
+	ierr += func_mod_square(mult[1],      0x0, n, 0,1, 4ull, p, scrnFlag,&tdif2, FALSE, 0x0);
+	// mult[0] = A * A^-1, check that result = 1 as expected:
+	mode_flag = 0;	// bits 0:1 of mode_flag = 0, since mult[0] enters in pure-int form and want output the same way
+	ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	ASSERT(HERE, mult[0][0] == 1.0, "inverse-check fails!");
+	for(i = 1; i < npad; i++) { ASSERT(HERE, mult[0][i] == 0.0, "inverse-check fails!"); }
+   #endif
+	/*** NOTE: vec1,vec2 hold stage 1 residue A and its mod-inverse in packed-bit form, can use any of
+	pow[], mult[0-2][], a[] in our ensuing stage 2 inits and still re-obtain b and b^-1 from vec1,2 at any time. ***/
+	/*
+	In order to use the Lucas-sequence index-incrementing identity V[n+j] = V[n]*V[j] - V[n-j] to get e.g.
+	V[3] = (A^(3*b) + A^-(3*b)) from (A^b + A^-b), first need V[2] = V[1]^2 - 2 (hello, Lucas-Lehmer!),
+	then V[3] = V[2]*V[1] - V[1] = V[1]*(V[2] - 1). Subsequent odd-index Vs then can be computed as
+	V[2*i+1] = V[2*i-1]*V[2] - V[2*i-3], e.g. 	V[5] = V[3]*V[2] - V[1] .
+	*/
+	sprintf(cbuf,"Using Bigstep %u, pairing-window multiplicity M = %u: Init M*%u = %u [base^(A^b + A^-b) %% n] buffers for Stage 2...\n",bigstep,m,num_b,m*num_b);
+	mlucas_fprint(cbuf,1);
+	// [a] Generate a set of precomputed buffers (A^b + A^-b) for the set of b-values corr. to our choice of D:
+   #ifdef PM1_DEBUG
+	fprintf(stderr,"Init buf[] = (A^j + A^-j) with j = 1.");
+   #endif
+	// Need to renormalize A + A^-1 sum prior to modmul - this is easier to do in packed-bit form, vec2 = vec1+vec2:
+   #if 0
+	tmp = mi64_add(vec1,vec2, vec2,nlimb-(MODULUS_TYPE == MODULUS_TYPE_FERMAT));	// Note, for Fermat-mod use 1 more
+			// limb than p>>6, so shorten sub-vec-length by 1 to make sure any carry ends up in tmp, not vec2[nlimb-1]
+	// Sign of wraparound carry depends on modulus type:
+	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
+		ASSERT(HERE,tmp == 0ull,"Mersenne-mod vec1+vec2 should never spill over into next word!");
+		// Now get the really carry bit, bit p. Normalized residue only uses bits <0:p-1>:
+		bit = p&63; word = p>>6; tmp = vec2[word]>>bit;
+		q = mi64_add_scalar(vec2, tmp, vec2, nlimb);
+		ASSERT(HERE,q == 0ull,"Mersenne-mod vec1+vec2 wraparound carry should never have carry-out!");
+	} else {
+		q = mi64_sub_scalar(vec2, tmp, vec2, nlimb-1);	// Again shorten vec-sub-length by 1 to properly check for borrow-out
+		ASSERT(HERE,q == 0ull,"Fermat-mod vec1+vec2 wraparound carry should never have borrow-out!");
+	}
+	convert_res_bytewise_FP((uint8*)vec2,buf[0], n, p);	// buf[0] = V[1]
+	// Now recover original vec2 = A^-1 from the FP version in a[]:
+	convert_res_FP_bytewise(a,(uint8*)vec2, n, p, &Res64, &Res35m1, &Res36m1);
+fprintf(stderr,"#2: vec2 = A^-1 checksums = %llu,%llu,%llu\n",Res64,Res35m1,Res36m1);
+   #else
+	// Original FP code for V[1] lacks post-add normalization:
+	for(i = 0; i < npad; i++) { buf[0][i] = pow[i] + a[i]; }	// V[1] = A^1 + A^-1
+   #endif
+dtmp = 0; for(k = 0; k < npad; k++) { dtmp += fabs(buf[0][k]); } dtmp /= n;
+fprintf(stderr,"V[1] has L1 = %20.10f\n",dtmp);
+
+	memcpy(mult[0], buf[0],nbytes);	// Copy of V[1] into mult[0]
+	// Put mult[0] = V[1] into fwd-FFT-pass-1-done form:
+	ierr += func_mod_square(mult[0], 0x0, n, 0,1, -4ull, p, scrnFlag,&tdif2, FALSE, 0x0);
+	memcpy(mult[1],mult[0],nbytes);	// Copy of fwd-FFT-pass-1-done(V[1]) into mult[1]
+	memcpy(mult[2],mult[0],nbytes);	// Copy of fwd-FFT-pass-1-done(V[1]) into mult[2]
+	mode_flag = 3;	// bit 1 of mode_flag = 1 since all FFT-mul outputs will be getting re-used as inputs
+					// bit 0 also = 1 since mult[0-2] holds copies of stage 1 residue A in fwd-FFT-pass-1-done form.
+	// 1 mod-square in-place and -2 to get V[2] - No residue-shift here, so rightmost arg = False:
+	ierr += func_mod_square(mult[1], 0x0, n, 0,1, (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	// Need to undo pass 1 of fwd-FFT prior to -= 2; do this just as with fwd-FFT-only, but with flag = 8 instead of 4:
+	ierr += func_mod_square(mult[1], 0x0, n, 0,1, 8ull, p, scrnFlag,&tdif2, FALSE, 0x0);
+	mult[1][0] -= 2;	// mult[1] = V[2]
+#if 0	/******************************/
+// Debug: Also compute V[2] via separate mod-squarings of A and A^-1, followed by summation and normalization-modmul:
+// Have pure-int inputs and want fwd-FFT-pass-1-done outputs, so force 2 in place of mode_flag:
+ierr  = func_mod_square(pow, 0x0, n, 0,1, 2ull, p, scrnFlag,&tdif2, FALSE, 0x0);	// A^+2
+ierr  = func_mod_square(  a, 0x0, n, 0,1, 2ull, p, scrnFlag,&tdif2, FALSE, 0x0);	// A^-2
+for(k = 0; k < npad; k++) { a[k] += pow[k]; }	// V[2] = A^2 + A^-2
+// Normalization-modmul - Have fwd-FFT-pass-1-done inputs and want pure-int outputs, so force 1 in place of mode_flag:
+ierr += func_mod_square(  a, 0x0, n, 0,1, (uint64)vone + 1ull, p, scrnFlag,&tdif2, FALSE, 0x0);
+j = 0; for(k = 0; k < npad; k++) {	// j stores #mismatches
+	if(a[k] != mult[1][k]) {
+		fprintf(stderr,"V[2] check: a[%u] (%10.2f) != mult[1][%u] (%10.2f)\n",j,a[k],j,mult[1][k]);
+		j++;
+	}
+	if(j > 100) break;
+}
+exit(0);
+#endif	/******************************/
+	// Ensuing do-full-fwd-FFT on V[2] again has pure-int inputs, so use 0 in place of mode_flag:
+	// mult[1] = fwdFFT(V[2]):				      vvvv + 4 to effect "Do in-place forward FFT only":
+	ierr += func_mod_square(mult[1], 0x0, n, 0,1, 4ull, p, scrnFlag,&tdif2, FALSE, 0x0);
+	// V[3] = V[1]*(V[2] - 1) ... we compute as V[2]*V[1] - V[1] since it makes the logical sequencing less awkward:
+MME = 0;
+#warning *************************** MULSUB path here gives ROE = 0.5! ***************************
+  #if 1//def USE_VEC_DBL_SUB
+	// mult[0] = V[2]*V[1]:
+	ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	// V[3] = V[2]*V[1] - V[1]; both sub-inputs are fwd-FFT-pass-1-done. The parallel-vector-sub leaves result in a[]:
+   #ifdef MULTITHREAD
+	vec_double_sub(tpool,tdat,mult[2]);
+   #else
+	vec_double_sub(mult[0],mult[2],a,npad);
+   #endif
+	memcpy(mult[0],a,nbytes);
+  #else
+	// V[3] = V[2]*V[1] - V[1]:
+	ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, (double*)(~((uint64)mult[2])));
+/*	ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)vone + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+   #ifdef MULTITHREAD
+	vec_double_sub(tpool,tdat,mult[2]);
+   #else
+	vec_double_sub(mult[0],mult[2],a,npad);
+   #endif
+	memcpy(mult[0],a,nbytes);
+*/
+  #endif
+dtmp = 0; for(k = 0; k < npad; k++) { dtmp += fabs(mult[0][k]); } dtmp /= n;
+fprintf(stderr,"V[3] has L1 = %20.10f, gives IERR = %u, ROE = %10.6f\n",dtmp,ierr,MME);
+	/* At this point:
+		buf[0]  holds V[1] in pure-int form; mult[2] holds V[1] in fwd-FFT-pass-1-done form
+		mult[0] holds V[3] in fwd-FFT-pass-1-done form
+		mult[1] = fwdFFT(V[2])
+	*/
+	i = 1;
+	if(b[i] == 3) {
+	#ifdef PM1_DEBUG
+		fprintf(stderr,"%u.",j);
+	#endif
+		memcpy(buf[i++],mult[0],nbytes);	// buf[i++] = mult[0] = (A^j + A^-j) in fwd-FFT-pass-1-done form
+	}
+
+	/* Loop to compute the remaining (A^b[i] + A^-b[i]) terms, each of which goes into buf[i++] in fwd-FFT-pass-1-done form.
+	Note that odd-index V[] then can be computed as V[2*i+1] = V[2*i-1]*V[2] - V[2*i-3], e.g. 	V[5] = V[3]*V[2] - V[1] .
+	On entry, mult[0-2] hold V[3,2,1], with the odd-index V[1,3]-terms in fwd-FFT-pass-1-done form and V[2] in fwd-FFTed form:
+	Each loop costs 1 mulsub (modsqr & vector-subtract) and 3 memcpy, with a 3rd memcpy whenever we hit a b[i] and write a buf[] entry:
+	*/
+	jhi = m*(bigstep>>1);
+	// Allow equality at upper end here so mult[0] = V[D/2] on loop exit, can use that to compute V[D]
+	// and compare the latter to separate-path way of getting V[D] in the loop-multiplier-computation section:
+	for(j = 5; j <= jhi; j += 2) {
+		if(j < jhi) memcpy(buf[i],mult[0],nbytes);	// Stash a copy of V[2*i-1] in buf[i]
+MME = 0;
+	#if 1//def USE_VEC_DBL_SUB
+	  /*** The problem with this build mode here is that while the V[odd]*V[2] intermediate
+	  is normalized, we follow with an unrenormalized subtract, leading to the norm of the subtrahend
+	  increasing monotonically: e.g. for p = 108268067, n = 6M have normalized-balanced-digit average
+	  of 17.209 bpd, corresponding to a fractional average-base of ~151478, which means a balanced-digit
+	  normalization should have L1 half that, ~75739. (But that crude average does not take into account
+	  #bw-vs-sw: bw = p%n = 1313315 ~= 20% bigwords, thus L1 will be < 75739.) L1 data below based on FFT-pass-1-done outputs:
+		V[2]*V[1]             has L1 =  705912.1840996306, ROE = 0.054688
+	  Up to this point things are fine - V[1]^2 is properly normalized, and the unnormalized -= 2 does not signify.
+	  But now we start using unnormalized whole-vector subtracts, e.g. V[3] = V[2]*V[1] - V[1]. So V[3] L1 jumps:
+		V[3]                  has L1 = 1222716.6898910117, ROE = 0.054688
+		V[3]*V[2]             has L1 =  705994.3160107044, ROE = 0.078125
+	  Similarly for rest - the V[odd]*V[2] intermediate is normalized, but L1 of the subtrahend increases monotonically:
+		V[ 5] = V[ 3]*V[2] - V[ 1] has L1 = 1222786.9329456112	V[ 5]*V[2] has L1 =  705730.2279694607, ROE = 0.070312
+		V[ 7] = V[ 5]*V[2] - V[ 3] has L1 = 1411983.6492863866	V[ 7]*V[2] has L1 =  705652.3466845521, ROE = 0.085938
+		V[ 9] = V[ 7]*V[2] - V[ 5] has L1 = 1411222.1661252610	V[ 9]*V[2] has L1 =  705793.4601404053, ROE = 0.078125
+		V[11] = V[ 9]*V[2] - V[ 7] has L1 = 1578687.5101256447	V[11]*V[2] has L1 =  705779.8257252158, ROE = 0.093750
+															...
+		V[101]= V[99]*V[2] - V[97] has L1 = 3669572.1187865455	V[101]*V[2] has L1 = 705953.0830486178, ROE = 0.218750
+		V[103]=V[101]*V[2] - V[99] has L1 =   3735250.9816183313
+	  ***/
+		// V[2*i-1] *= V[2]:
+		ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+		// V[2*i+1] = V[2*i-1]*V[2] - V[2*i-3]; the parallel-vector-sub leaves result in a[]:
+	  #ifdef MULTITHREAD
+		vec_double_sub(tpool,tdat,mult[2]);
+	  #else
+		vec_double_sub(mult[0],mult[2],a,npad);
+	  #endif
+		// Normalization-multiply by fwdFFT(1):
+		ierr += func_mod_square(a, 0x0, n, 0,1, (uint64)vone + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+		memcpy(mult[0],     a,nbytes);	// V[2*i+1] replaces V[2*i-1]:
+		if(j < jhi) memcpy(mult[2],buf[i],nbytes);	// V[2*i-1] replaces V[2*i-3]
+	#else
+	  #error This path gives ROE = 0.5!
+		// V[2*i+1] replaces V[2*i-1]:
+		ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, (double*)(~((uint64)mult[2])));
+		memcpy(mult[2],buf[i],nbytes);	// V[2*i-1] replaces V[2*i-3]
+		// MULSUB version needs subtrahend fully-fwdFFTed:
+		ierr += func_mod_square(mult[2], 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	#endif
+//	dtmp = 0; for(k = 0; k < npad; k++) { dtmp += fabs(mult[0][k]); } dtmp /= n;
+//	fprintf(stderr,"V[%u] = V[%u]*V[2] - V[%u] has L1 = %20.10f; IERR = %u, ROE = %10.6f\n",j,j-2,j-4,dtmp,ierr,MME);
+		if(b[i] == j) {
+		#ifdef PM1_DEBUG
+			fprintf(stderr,"%u.",j);
+		#endif
+			memcpy(buf[i++],mult[0],nbytes);	// buf[i++] = mult[0] = (A^j + A^-j) in fwd-FFT-pass-1-done form
+		}
+	}
+
+   #if 0
+	#define pp1_vd2_cross_check
+	// PP1 Debug: copy V[D/2] into vector :
+	memcpy(a,mult[0],nbytes);
+	dtmp = 0;
+	for(k = 0; k < npad; k++) { dtmp += fabs(a[k]); }
+	dtmp /= n;
+	fprintf(stderr,"Autosquare: V[D/2] with L1 = %20.10f",dtmp);
+	// 1 mod-square in-place -2 to get V[D]:
+	ierr += func_mod_square(a, 0x0, n, 0,1, (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	fprintf(stderr," gives IERR = %u, ROE = %10.6f\n",ierr,MME);
+	// Need to undo pass 1 of fwd-FFT prior to -= 2; do this just as with fwd-FFT-only, but with flag = 8 instead of 4:
+	ierr += func_mod_square(a, 0x0, n, 0,1,              8ull, p, scrnFlag,&tdif2, FALSE, 0x0);
+	a[0] -= 2;	// a = V[D]
+	convert_res_FP_bytewise(a,(uint8*)vec1, n, p, &Res64, &Res35m1, &Res36m1);
+	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
+		// Get the carry bit, bit p. Normalized residue only uses bits <0:p-1>:
+		bit = p&63; word = p>>6; tmp = vec1[word]>>bit;
+	} else {
+		tmp = vec1[nlimb-1];
+	}
+	ASSERT(HERE,tmp == 0ull,"Properly normalized residue should never spill over into next word!");
+   #endif	// PM1_DEBUG?
+
+  #endif	// USE_PP1_MULTS?
+
   #ifdef PM1_DEBUG
 	fprintf(stderr,"\n");
   #endif
+	if(nerr != 0) {
+		sprintf(cbuf,"Stage 2 buffer-init hit 1 or more fatal errors! Aborting.");
+		mlucas_fprint(cbuf,0);	ASSERT(HERE, 0,cbuf);
+	}
 	if(i != m*num_b) {
 		sprintf(cbuf,"Stage 2: Incorrect loop-exit value of buffer-index!");
-		mlucas_fprint(cbuf,1);	ASSERT(HERE, 0,cbuf);
+		mlucas_fprint(cbuf,0);	ASSERT(HERE, 0,cbuf);
 	}
-	// buf[] entries all need to be fwdFFTed;
+	// buf[] entries all need to be rest-of-fwd-FFTed;
 	for(i = 0; i < m*num_b; i++) {
-		// Since buf[0] holds pure-int copy of stage 1 residue pow on loop entry, bit 0 of mode_flag = 0 for just it:
+		// Since buf[0] holds pure-int copy of stage 1 residue A on loop entry, bit 0 of mode_flag = 0 for just it:
 		//                                                                    vvvvvvvv
-		ierr += func_mod_square(buf[i], 0x0, n, 0,1, 4ull + (uint64)(mode_flag - (i==0)), p, scrnFlag,&tdif2, FALSE, 0x0);
-	}
-	if(ierr != 0) {
-		sprintf(cbuf,"Stage 2 buffer-init hit 1 or more fatal errors! Aborting.");
-		mlucas_fprint(cbuf,1);	ASSERT(HERE, 0,cbuf);
-	}
+		ierr = func_mod_square(buf[i], 0x0, n, 0,1, 4ull + (uint64)(mode_flag - (i==0)), p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+	}	ASSERT(HERE, nerr == 0, "fwdFFT of buf[] entries returns error!");
+
 	// Accumulate the cycle count in a floating double on each pass to avoid problems
 	// with integer overflow of the clock() result, if clock_t happens to be 32-bit int on the host platform:
   #ifdef CTIME
@@ -1148,7 +1656,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
   #endif
 	*tdiff = clock2 - clock1; clock1 = clock2;
 	snprintf_nowarn(cbuf,STR_MAX_LEN, "Buffer-init done; clocks =%s, MaxErr = %10.9f.\n",get_time_str(*tdiff), MME);
-	mlucas_fprint(cbuf,scrnFlag);
+	mlucas_fprint(cbuf,1);
 
 	/********************* RESTART FILE STUFF: **********************/
 	// Make sure we append '.s2' to the primary restart file name:
@@ -1156,30 +1664,21 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	savefile[0] = ((MODULUS_TYPE == MODULUS_TYPE_MERSENNE) ? 'p' : 'f');
 	strcat(savefile, ".s2");
 	// [From the above p-1 savefile schema] 3. On entry, S2 checks for existence of ".s2" savefile:
-	fp = mlucas_fopen(savefile,"rb");
+	fp = mlucas_fopen(savefile,"r");
 	// o If exists, read nsquares field into uint64 qlo, mask off high byte (which stores the value of any relocation-prime
 	// psmall used for stage 2), compare vs original-assignment B2_start read (or inferred, as B2_start = B1) from worktodo entry:
 	if(fp) {												// G-check residue fields all set NULL in this call:
 		i = read_ppm1_savefiles(savefile, p, &k, fp, &qlo, (uint8*)arrtmp, &Res64,&Res35m1,&Res36m1, 0x0,0x0,0x0,0x0);
 		fclose(fp); fp = 0x0;
-		if(i && psmall)	// We expect the main-program S2-invocation code to have resolved this kind of mismatch via bigstep selection:
-			ASSERT(HERE, (uint32)(qlo >> 56) == psmall, "Mismatch between relocation-prime set for stage 2 restart and one read from S2 savefile!");
-		qlo &= 0x00ffffffffffffffull;	// Mask off high byte
-		// If qlo == (worktodo-file-read value of B2_start) it means S2 started but was aborted before writing an interim
-		// S2 residue. That triggers a 'return 0' from the read_ppm1_savefiles() call, which means start stage 2 from B2_start:
+		if(i && psmall)	{
+			// We expect the main-program S2-invocation code to have resolved this kind of mismatch via bigstep selection:
+			if(qlo >> 56)
+				ASSERT(HERE, (uint32)(qlo >> 56) == psmall, "Mismatch between relocation-prime set for stage 2 restart and one read from S2 savefile!");
+		}
+		qlo &= 0x00ffffffffffffffull;	// Mask off high byte storing psmall
+		// If savefile-read fails, start stage 2 from B2_start:
 		if(!i) {
-			if(qlo == B2_start) {
-				snprintf_nowarn(cbuf,STR_MAX_LEN, "Read of stage 2 savefile %s indicates S2 started but was aborted before writing an interim S2 residue. Starting stage 2 from scratch, qlo = B2_start = %llu.\n",savefile,B2_start);
-				mlucas_fprint(cbuf,1);
-			} else {	// Unknown kind of savefile-read error:
-				/* First print any error message that may have been issued during the above function call: */
-				if(strstr(cbuf, "read_ppm1_savefiles"))
-					mlucas_fprint(cbuf,1);
-				// And now for the official spokesmessage:
-				snprintf_nowarn(cbuf,STR_MAX_LEN, "Read of stage 2 savefile %s failed for reasons unknown. Starting stage 2 from scratch, qlo = B2_start = %llu.\n",savefile,B2_start);
-				mlucas_fprint(cbuf,1);
-				qlo = B2_start;
-			}
+			qlo = B2_start;
 		} else {
 			if(k != kblocks) {
 				sprintf(cbuf,"INFO: %s savefile has kblocks = (n>>10) = %u; Instead using kblocks %u for stage 2.\n",func,k,kblocks);
@@ -1196,29 +1695,16 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 			if(qlo >= B2)	// qlo >= S2 upper limit - nothing to do but proceed to gcd
 				goto S2_RETURN;
 		}
-	} else {
-	/* o If no S2 savefile, the first thing we do in S2 is create it and write the header data, including B2_start in the
-		nsquares field, thus should S2 be interrupted prior to first interim-save, on restart we infer 'S1 done' via existence of
-		S2 savefile. After this header-data-only file write, start S2 from whatever B2_start was set based on worktodo assignment:
-	*/
-		fp = mlucas_fopen(savefile,"wb");
-		ASSERT(HERE,fp && file_valid(fp),"S2 savefile-init: File pointer null or invalid for write!");
-		fputc(TEST_TYPE, fp);
-		fputc(MODULUS_TYPE, fp);
-		for(i = 0; i < 64; i += 8) {
-			fputc((B2_start >> i) & 0xff, fp);
-		}
-		fclose(fp);	fp = 0x0;
 	}
 
 #endif	// #ifndef PM1_STANDALONE
 
 	/***** Small-prime-relocation: for the most-common use case of a contiguous (B2_start == B1 at
-	start of stage 2) S2 continuation, we run S2 not from (B2_start = B1) to B2 but rather from
+	start of stage 2) S2 with bounds [B1,B2], we run S2 not from (B2_start = B1) to B2 but rather from
 	B2/psmall to B2, where psmall = smallest prime which is not a factor of our bigstep D: *****/
 	if(!qlo) {			// If qlo unset, set = default stage 2 starting point ... if qlo already set via restart-file
 		qlo = B2_start;	// read, it will automatically be > our small-prime-relocation-reflecting value of B2_start.
-		if(B2_start > B1) {
+		if(psmall && B2_start > B1) {	// If psmall = 0, it's an S2 continuation run, no relocation done
 			sprintf(cbuf,"Small-prime[%u] relocation: will start Stage 2 at bound %llu\n",psmall,qlo);
 			mlucas_fprint(cbuf,1);
 		}
@@ -1258,28 +1744,32 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	of each word correspond to singleton (in the sense that the corr. q2 is composite) q1 = (q - b[i])'s relative
 	to the center of each of the M D-intervals, the hi bits to the q2 = (q + b[i])'s.
 	*/
-	m2 = m/2;	/* m odd, so m2 = (m-1)/2 = # of D-interval on either side of the central 0-interval */
+	m2 = m/2;	// If m odd, m2 = (m-1)/2 = # of D-interval on either side of the central 0-interval
 	/*
-	We save ourself some awkward preprocessing by starting the stage 2 loop such that at end of the first loop pass,
+	We save ourselves some awkward preprocessing by starting the stage 2 loop such that at end of the first loop pass,
 	the D-interval centered on q0 (M odd) or just left of q0 (M even) enters the as the new upper-interval.
 	We only start actual 0-interval and extended-window pairing when said interval has shifted to the middle
 	of the extended pairing window, i.e. is the 0-interval (M odd), or shifted just left of the map midpoint (M even):
 	*/
+	ASSERT(HERE, q0 > (m2+1)*(uint64)bigstep, "ERROR: qlo underflows in p-1 stage 2.");
 	qlo = q0 - (m2+1)*(uint64)bigstep;
 	/*
 	[c] Our A^(a^2) values = A^((k*D)^2) and we'll be incrementing k between sweeps over the set of b's.
 	(k+1)^2 = k^2 + 2*k + 1, thus A^(((k+1)*D)^2) = A^(D^2*(k^2 + 2*k + 1)) = A^(D^2*k^2) * A^(D^2*(2*k + 1)),
 	so for a given starting value k0 precompute the following set of multipliers (all mod n):
 	*/
-	// At this point pow = A[stage 1 output]; need pow^(D^2), where D = bigstep:
+	// At this point pow = A[stage 1 residue]; need either A^(D^2) or (A^D + A^-D), where D = bigstep:
 #ifndef PM1_STANDALONE
 	snprintf_nowarn(cbuf,STR_MAX_LEN, "Computing Stage 2 loop-multipliers...\n");	mlucas_fprint(cbuf,1);
 	MME = 0.0;	// Reset maxROE
-	// Raise pow = A to power D^2, using mult[0] as a scratch array; again crap-API forces us to specify an "input is pure-int?" flag:
+	// Raise A to power D^2, using mult[0] as a scratch array; again crap-API forces us to specify an "input is pure-int?" flag:
 	input_is_int = TRUE;
-	// pow^(D^2), in-place:
+
+  #if !USE_PP1_MULTS		// Basic version, needs 2 modmul per D-loop:
+
+	// pow = A^(D^2), in-place, using mult[0] as a scratch array:
 	modpow(pow, mult[0], input_is_int, (uint64)bigstep*bigstep, func_mod_square, p, n, scrnFlag,&tdif2);
-	// mult[0] = A^(k0*D)^2) = (A^D^2)^(k0^2) = pow^(k0^2), using mult[2] as a scratch array:
+	// mult[0] = A^((k0*D)^2) = (A^D^2)^(k0^2) = pow^(k0^2), using mult[2] as a scratch array:
 	memcpy(mult[0],pow,nbytes);
 	input_is_int = FALSE;	// modpow() leaves result in fwdFFT-pass1-done form, so negate this flag for further raising steps
 	modpow(mult[0], mult[2], input_is_int, (uint64)k0*k0, func_mod_square, p, n, scrnFlag,&tdif2);
@@ -1289,21 +1779,194 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 	// mult[2] = A^(2*D^2) = pow^2:
 	memcpy(mult[2],pow,nbytes);
 	ierr = func_mod_square(mult[2], 0x0, n, 0,1,        (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	if(ierr == ERR_INTERRUPT) {
+		return ierr;
+	}
+
+  #else	// USE_PP1_MULTS = True: Inits here more involved but then needs just 1 Lucas-sequence-modmul per loop:
+	/*
+	Montgomery ["Speeding the Pollard and Elliptic Curve Methods of Factorization", Math. Comp. 48(177), pp 243-264, 1987,
+	https://doi.org/10.1090/S0025-5718-1987-0866113-7 ], in the p+1 section of the paper suggests, with variable names
+	replaced to match mine above:
+
+		"In Subsection 4.1, we used f(D) = A^(D^2) mod N. Another acceptable selection is
+			f(D) = (A^D + A^-D) = V[D](A^1 + A^-1) mod N.
+		This is well defined since GCD(A,N) = 1."
+
+	Here, V[n] is the (n)th element of the Lucas sequence of the 2nd kind.
+	Q: Does this preclude p-1 on known-stage-1-factor runs, i.e. ones where we seek additional factors using stage 2?
+	A: No, because have a stage 1 factor if GCD(A-1,N) > 1, not GCD(A,N) > 1.
+
+	The identity for index-incrementing we need is
+
+		V[n+j] = V[n]*V[j] - V[n-j] . [*]
+
+	Implementation of [*] ideally needs an FFT-based fused multiply-subtract.
+	For first-look impl just compute V[n]*V[j] via FFT-mul, fwd-FFT the reult, and subtract V[n-j], which is stored in fwd-FFTed form:
+	*/
+	// vec1,vec2 hold stage 1 residue A and its mod-inverse in packed-bit form,
+	// but for the (p+1)-style powering pow[] also still holds A in balanced-digit FP form:
+	memcpy(mult[2],pow,nbytes);
+	input_is_int = TRUE;
+  /******************************************************************************************************/
+  /********** Compute A^+[D,(k0-1)*D,k0*D], then add the ± components of each same-power pair: **********/
+  /******************************************************************************************************/
+	// mult[2] = A^D, in-place, using pow as a scratch array:
+	modpow(mult[2], pow, input_is_int, (uint64)bigstep, func_mod_square, p, n, scrnFlag,&tdif2);
+	input_is_int = FALSE;	// modpow() leaves result in fwdFFT-pass1-done form, so negate this flag for further raising steps
+	// mult[1] = A^((k0-1)*D), using pow as a scratch array:
+	memcpy(mult[1],mult[2],nbytes);
+	modpow(mult[1], pow, input_is_int, (uint64)k0-1, func_mod_square, p, n, scrnFlag,&tdif2);
+	// mult[1] gets fwdFFTed:
+	mode_flag = 3;	// bit 0 of mode_flag = 1 since modpow() leaves result in fwdFFT-pass1-done form;
+					// bit 1 of mode_flag = 1 since all FFT-mul outputs will be getting re-used as inputs
+	ierr += func_mod_square(mult[1], 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	// mult[0] = A^D * A^((k0-1)*D) = A^(k0*D):
+	memcpy(mult[0],mult[2],nbytes);
+	ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+  /******************************************************************************************************/
+  /********** Repeat above sequence for A^-1, adding resulting 3 vectors to mult[0-2] as we go: *********/
+  /******************************************************************************************************/
+	convert_res_bytewise_FP((uint8*)vec2,  a, n, p);
+	input_is_int = TRUE;
+	// a[] = A^-D, in-place, using pow as a scratch array:
+	modpow(a, pow, input_is_int, (uint64)bigstep, func_mod_square, p, n, scrnFlag,&tdif2);
+
+	// Debug: check inverse A^-D by mpying A^+D (mult[2]) and A^-D (a[]):
+   #if 0
+	// a[] = fwdFFT(A^-D):							   vvvv + 4 to effect "Do in-place forward FFT only"; bit 0 of mode_flag (the only one fwd-FFT cares about) = 1, since mult[0] enters in pure-int form
+	ierr += func_mod_square(      a, 0x0, n, 0,1,      4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	double dsum = 0.0; for(i = 0; i < npad; i++) { dsum += a[i]; }
+	fprintf(stderr,"fwdFFT(A^-D) has element 0 = %20.5f, sum = %20.5f\n",a[0],dsum);	// [0] = 66475254.49010, sum = 69950177280.00076
+	// mult[0] = A^+D * A^-D, check that result = 1 as expected:
+	mode_flag = 1;	// bits 0:1 of mode_flag = 1,0, since mult[2] enters in fwd-FFT-pass-1-done form and want output in pure-int form
+	ierr += func_mod_square(mult[2], 0x0, n, 0,1, (uint64)a + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	ASSERT(HERE, mult[2][0] == 1.0, "inverse-check fails!");
+	for(i = 1; i < npad; i++) {
+		ASSERT(HERE, mult[2][i] == 0.0, "inverse-check fails!");
+	}
+	fprintf(stderr,"A^-D inverse check passed ... exiting.\n");
+	exit(0);	// Since above debug overwrites mult[2], must quit.
+   #endif
+
+	// mult[2] = V[D] = A^D + A^-D:
+	for(i = 0; i < npad; i++) { mult[2][i] += a[i]; }
+	// Normalization-multiply by fwdFFT(1):
+	ierr += func_mod_square(mult[2], 0x0, n, 0,1, (uint64)vone + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+
+   #if 0
+	#ifndef pp1_vd2_cross_check
+		#error The V[D] cross-check code needs the above pp1_vd2_cross_check-defining snippet to be enabled!
+	#endif
+	// PP1 Debug: compare V[D] computed this way vs alternate-path V[D] computed in above buffer-init code:
+	memcpy(a,mult[2],nbytes);
+	// Need to undo pass 1 of fwd-FFT; do this just as with fwd-FFT-only, but with flag = 8 instead of 4:
+	ierr += func_mod_square(a, 0x0, n, 0,1, 8ull, p, scrnFlag,&tdif2, FALSE, 0x0);
+	convert_res_FP_bytewise(a,(uint8*)vec2, n, p, &Res64, &Res35m1, &Res36m1);
+	if(MODULUS_TYPE == MODULUS_TYPE_MERSENNE) {
+		// Get the carry bit, bit p. Normalized residue only uses bits <0:p-1>:
+		bit = p&63; word = p>>6; tmp = vec2[word]>>bit;
+		q = mi64_add_scalar(vec2, tmp, vec2, nlimb);
+	} else {
+		tmp = vec2[nlimb-1];
+		q = mi64_sub_scalar(vec2, tmp, vec2, nlimb-1);	// Again shorten vec-sub-length by 1 to properly check for borrow-out
+	}
+	ASSERT(HERE,q == 0ull,"Properly normalized vec1+vec2 wraparound carry should never have borrow-out!");
+	// Now compare to alternate-path V[D] computed in above buffer-init code:
+	ASSERT(HERE, mi64_cmp_eq(vec1,vec2,nlimb), "V[D] results mismatch!");
+	fprintf(stderr,"V[D] cross-check passed ... exiting.\n");
+	exit(0);	// Since above debug overwrites a[], must quit.
+   #endif	// PM1_DEBUG?
+
+	input_is_int = FALSE;	// modpow() leaves result in fwdFFT-pass1-done form, so negate this flag for further raising steps
+	// pow[] = (A^-D)^(k0-1) = A^-((k0-1)*D), in-place, using a[] as a scratch array:
+	memcpy(pow,a,nbytes);	// See "Problem" comment below for why we use pow[] as modpow input
+							// and a[] as scratch array here rather than simply doing in-place with a[] as input.
+	modpow(pow, a, input_is_int, (uint64)k0-1, func_mod_square, p, n, scrnFlag,&tdif2);
+
+	// Debug: check inverse A^-((k0-1)*D) by mpying A^+((k0-1)*D) (mult[1], already fully fwdFFTed) and A^-((k0-1)*D) (pow[]):
+   #if 0
+	// pow[] = A^+((k0-1)*D) * A^-((k0-1)*D), check that result = 1 as expected:
+	mode_flag = 1;	// bits 0:1 of mode_flag = 1,0, since pow[] enters in fwd-FFT-pass-1-done form and want output in pure-int form
+	ierr += func_mod_square(pow, 0x0, n, 0,1, (uint64)mult[1] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	ASSERT(HERE, pow[0] == 1.0, "A^-(k0-1)*D inverse-check fails!");
+	for(i = 1; i < npad; i++) {
+		ASSERT(HERE, pow[i] == 0.0, "A^-(k0-1)*D inverse-check fails!");
+	}
+	fprintf(stderr,"A^-(k0-1)*D inverse check passed ... exiting.\n");
+	exit(0);	// Since above debug overwrites pow[], must quit.
+   #endif
+
+	// mult[1] is fully fwdFFTed, so pow[] needs the same treatment prior to add:
+	ierr += func_mod_square(pow, 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	// mult[1] = A^((k0-1)*D) + A^-((k0-1)*D):
+	for(i = 0; i < npad; i++) { mult[1][i] += pow[i]; }
+	// Normalization-multiply by fwdFFT(1):
+	ierr += func_mod_square(mult[1], 0x0, n, 0,1, (uint64)vone + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+
+	/* Problem: destroyed A^-D in computing A^-((k0-1)*D) ... how can we compute A^-D * A^-((k0-1)*D) = A^-(k0*D)
+	with just those 2 double-float residue storage arrays and A^-D destroyed? Here's where we get absolutely filthy:
+	We know that as a side effect, modpow() uses the scratch-array to store the fwd-FFT of the input when the exponent
+	is not a power of 2 (in the power of 2 case, the scratch-array is unused). So if (k0-1) != 2^n, a[] holds FFT(A^-D)
+	at this point; if (k0-1) == 2^n, a[] holds A^-D and still needs fwd-FFTing: */
+	if(isPow2(k0-1)) {
+		ierr += func_mod_square(a, 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	}
+	// pow = A^-(k0*D) = A^-D * A^-((k0-1)*D) ... unlike positive-powers case, both inputs here already fwd-FFTed:
+	ierr += func_mod_square(pow, 0x0, n, 0,1, (uint64)a + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+
+	// Debug: check inverse A^-(k0*D) by mpying A^+(k0*D) (mult[0]) and A^-(k0*D) (pow[]):
+   #if 1
+	ierr += func_mod_square(mult[0], 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	mode_flag = 1;	// bits 0:1 of mode_flag = 1,0, since pow[] enters in fwd-FFT-pass-1-done form and want output in pure-int form
+	ierr += func_mod_square(pow, 0x0, n, 0,1, (uint64)mult[0] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+	ASSERT(HERE, pow[0] == 1.0, "A^-k0*D inverse-check fails!");
+	for(i = 1; i < npad; i++) {
+		ASSERT(HERE, pow[i] == 0.0, "A^-k0*D inverse-check fails!");
+	}
+	fprintf(stderr,"A^-k0*D inverse check passed ... exiting.\n");
+	exit(0);	// Since above debug overwrites pow[], must quit.
+   #endif
+
+	// mult[0] = A^(k0*D) + A^-(k0*D):
+	for(i = 0; i < npad; i++) { mult[0][i] += pow[i]; }
+	// Normalization-multiply by fwdFFT(1):
+	ierr += func_mod_square(mult[0], 0x0, n, 0,1, (uint64)vone + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+
+  #endif	// ifdef USE_PP1_MULTS
+
 	if(restart) {	// If restart, convert bytewise-residue S2 accumulator read from file to floating-point form:
 		if(!convert_res_bytewise_FP((uint8*)arrtmp, pow, n, p)) {
 			snprintf_nowarn(cbuf,STR_MAX_LEN, "ERROR: convert_res_bytewise_FP Failed on primality-test residue read from savefile %s!\n",savefile);
 			mlucas_fprint(cbuf,1);	ASSERT(HERE, 0,cbuf);
 		}
-		// Restart-file-read S2 iterim residue in pow[] needs fwd-weight and FFT-pass1-done:
-		ierr += func_mod_square(pow, 0x0, n, 0,1, -4ull, p, scrnFlag,&tdif2, FALSE, 0x0);
+		// Restart-file-read S2 interim residue in pow[] needs fwd-weight and FFT-pass1-done:
+		ierr = func_mod_square(pow, 0x0, n, 0,1, -4ull, p, scrnFlag,&tdif2, FALSE, 0x0);
 	} else {	// Init stage 2 accumulator pow = mult[0]; re-use same var as for stage 1 accum, since done with that):
-		memcpy(pow,mult[0],nbytes);
+	  #if !USE_PP1_MULTS
+		memcpy(pow,mult[0],nbytes);	// pow = A^((k0*D)^2) for regular (p-1); pow = A^(k0*D) + A^-(k0*D) for (p+1)-style stage 2
+	  #else
+	/************ Q: Does (p+1) code need to re-init pow from S1 residue here? **************/
+	   #if 0	// A: No, because pow = A^(k0*D) + A^-(k0*D) is perfectly fine as S2 init-accumulator
+		vec1[nlimb-1] = 0ull;
+		if(!convert_res_bytewise_FP((uint8*)vec1, pow, n, p)) {
+			snprintf_nowarn(cbuf,STR_MAX_LEN, "ERROR: convert_res_bytewise_FP Failed on S1 residue in vec1!\n");
+			mlucas_fprint(cbuf,1);	ASSERT(HERE, 0,cbuf);
+		}
+		// Pure-int S1 residue in pow[] needs fwd-weight and FFT-pass1-done:
+		ierr = func_mod_square(pow, 0x0, n, 0,1, -4ull, p, scrnFlag,&tdif2, FALSE, 0x0);
+	   #endif
+	/*************************************************************************************/
+	  #endif
 	}
-	// mult0-2 need to be fwdFFTed:
-	ierr += func_mod_square(mult[0], 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
-	ierr += func_mod_square(mult[1], 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
-	ierr += func_mod_square(mult[2], 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
-	if(ierr != 0) {
+	nerr = 0;
+	// mult0-2 need to be fwdFFTed ... if using (p+1)-style multiplier scheme, mult[1] is already so:
+	ierr = func_mod_square(mult[0], 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);	nerr += ierr;
+  #if !USE_PP1_MULTS
+	ierr = func_mod_square(mult[1], 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+  #endif
+	ierr = func_mod_square(mult[2], 0x0, n, 0,1, 4ull + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+	if(nerr != 0) {
 		sprintf(cbuf,"Stage 2 loop-multipliers computation hit one or more fatal errors! Aborting.");
 		mlucas_fprint(cbuf,1);	ASSERT(HERE, 0,cbuf);
 	}
@@ -1327,13 +1990,15 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 
 	The second kind is to update the stage 2 product accumulator, which also costs the same as a modsquare.
 	*/
-	ierr = 0;
-	for(q = qlo; q < B2; q += bigstep)
+	nerr = 0;
+	// Oct 2021: extend qhi by several times D to make sure we don't orphan any unpaired-primes just below B2:
+	qhi = (B2 + m*bigstep);
+	for(q = qlo; q < qhi; q += bigstep)
 	{
 		if(!reloc_on && q >= reloc_start) {	// Start including relocation-semiprimes once S@ passes this point
 			reloc_on = TRUE;
 			sprintf(cbuf,"Hit q = %llu >= reloc_start[%llu] ... enabling small-prime relocation.\n",q,reloc_start);
-			mlucas_fprint(cbuf,scrnFlag);
+			mlucas_fprint(cbuf,1);
 		}
 		// Only start actual 0-interval and extended-window pairing when q hits q0:
 		if(q >= q0) {
@@ -1391,10 +2056,13 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 				vec_double_sub(mult[0],buf[i],a,npad);	// a[] = (mult[0][] - buf[i][])
 			  #endif
 				// pow = pow*(mult[0] - buf[i]) % n: Don't increment nmodmul until after call due to ambiguity in eval order of func(i,++i):
-				ierr += func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)a       + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+				ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)a       + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE,    0x0);	nerr += ierr;
 			 #else
-				ierr += func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)mult[0] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, buf[i]);
+				ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)mult[0] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, buf[i]); nerr += ierr;
 			 #endif
+				if(ierr == ERR_INTERRUPT) {
+					return ierr;
+				}
 				++nmodmul;
 			#endif
 			}
@@ -1441,10 +2109,13 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 						vec_double_sub(mult[0],buf[tmp+j],a,npad);
 					  #endif
 						// pow = pow*(mult[0] - buf[tmp+j]) % n;
-						ierr += func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)a       + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+						ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)a       + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE,        0x0); nerr += ierr;
 					 #else
-						ierr += func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)mult[0] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, buf[tmp+j]);
+						ierr = func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)mult[0] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, buf[tmp+j]); nerr += ierr;
 					 #endif
+						if(ierr == ERR_INTERRUPT) {
+							return ierr;
+						}
 						++nmodmul;
 					#endif
 						bytevec_bclr_pair(map_lo,map_hi,j);	// Clear the paired 1-bits from the map words
@@ -1480,10 +2151,13 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 						vec_double_sub(mult[0],buf[tmp+i],a,npad);
 					  #endif
 						// pow = pow*(mult[0] - buf[tmp+i]) % n:
-						ierr += func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)a       + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
+						ierr += func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)a       + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE,        0x0); nerr += ierr;
 					 #else
-						ierr += func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)mult[0] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, buf[tmp+i]);
+						ierr += func_mod_square(pow, 0x0, n, nmodmul,nmodmul+1, (uint64)mult[0] + (uint64)mode_flag, p, scrnFlag,&tdif2, FALSE, buf[tmp+i]); nerr += ierr;
 					 #endif
+						if(ierr == ERR_INTERRUPT) {
+							return ierr;
+						}
 						++nmodmul;
 					#endif
 					}
@@ -1579,10 +2253,18 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 				// mul-by-precomputed-Montgomery inverse (mod 2^64), then check that for 2-PRP-ness.
 				// If no relocation being done, rmap = 0 and the test_bit() calls will return FALSE, but no point even doing them:
 				if(psmall) {
-					if(bytevec_test_bit(rmap,j      ))
-						q1 *= pinv64;	//fprintf(stderr,"%llu=>%llu\n",q1*psmall,q1);
-					if(bytevec_test_bit(rmap,i+num_b))
-						q2 *= pinv64;	//fprintf(stderr,"%llu=>%llu\n",q2*psmall,q2);
+					if(bytevec_test_bit(rmap,j      )) {
+						q1 *= pinv64;
+					#ifdef PM1_DEBUG
+						fprintf(stderr,"reloc q1: %llu => %llu\n",q1,q1*psmall);
+					#endif
+					}
+					if(bytevec_test_bit(rmap,i+num_b)) {
+						q2 *= pinv64;
+					#ifdef PM1_DEBUG
+						fprintf(stderr,"reloc q2: %llu => %llu\n",q2,q2*psmall);
+					#endif
+					}
 				}
 				p1 = pprimeF64(q1,2ull); p2 = pprimeF64(q2,2ull);	// Run q1,q2 through a base-2 Fermat-composite test
 				if(p1) bytevec_bset(map_hi,j);
@@ -1598,8 +2280,12 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 				q1 = tmp - b[i];
 				// If q divisible by our relocation prime psmall, first compute quotient q/psmall via
 				// mul-by-precomputed-Montgomery inverse (mod 2^64), then check that for 2-PRP-ness:
-				if(psmall && bytevec_test_bit(rmap,j))
+				if(psmall && bytevec_test_bit(rmap,j)) {
 					q1 *= pinv64;
+				#ifdef PM1_DEBUG
+					fprintf(stderr,"reloc q: %llu => %llu\n",q1,q1*psmall);
+				#endif
+				}
 				p1 = pprimeF64(q1,2ull);
 				if(p1) bytevec_bset(map_hi,j);
 			}
@@ -1607,23 +2293,73 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 		}
 	#ifdef PM1_DEBUG
 		// Print the string-form q%psmall bitmap:
-		bytevec_bitstr(rmap,wsize,cbuf);	//********************** Once debugged, mirror map-element BR/shifts in above
-		fprintf(stderr,"\tq == 0 (mod %u) bitmap: %s\n",psmall,cbuf);
+		if(psmall) {
+			bytevec_bitstr(rmap,wsize,cbuf);	//********************** Once debugged, mirror map-element BR/shifts in above
+			fprintf(stderr,"\tq == 0 (mod %u) bitmap: %s\n",psmall,cbuf);
+		}
 	#endif
 
 		// Only update mults once start actual 0-interval and extended-window pairing above:
 		if(q >= q0) {
 			// [f] Each ensuing k++ needs 2 modmuls to update A^((k*D)^2) for the incremented k, again all (mod n):
 		#ifndef PM1_STANDALONE
+//fprintf(stderr,"MME = %10.8f\n",MME);
+		  #if !USE_PP1_MULTS		// Basic version, needs 2 modmul per D-loop:
 		/*	mult[0] = mult[0]*mult[1] % n;	// 1. k^2 += 2*k + 1
 			mult[1] = mult[1]*mult[2] % n;	// 2. 2*k++
 		Since mult[0-2] all fwd-FFTed, this costs 2 x [dyadic-mul, inv-FFT, carry, fwd-FFT] = equivalent of 2 mod-squares.
 		*/
 			// Only increment nmodmul every 2nd call here, since each call is 1-FFT:
-/* [1a]: */	ierr += func_mod_square(mult[0], 0x0, n, nmodmul,nmodmul+1, (uint64)mult[1] + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
-/* [1b]: */	ierr += func_mod_square(mult[0], 0x0, n, nmodmul,nmodmul+1,            4ull       + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);	++nmodmul;
-/* [2a]: */	ierr += func_mod_square(mult[1], 0x0, n, nmodmul,nmodmul+1, (uint64)mult[2] + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);
-/* [2b]: */	ierr += func_mod_square(mult[1], 0x0, n, nmodmul,nmodmul+1,            4ull       + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0);	++nmodmul;
+/* [1a]: */	ierr = func_mod_square(mult[0], 0x0, n, nmodmul,nmodmul+1, (uint64)mult[1] + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+			if(ierr == ERR_INTERRUPT) {
+				return ierr;
+			}
+/* [1b]: */	ierr = func_mod_square(mult[0], 0x0, n, nmodmul,nmodmul+1,            4ull       + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+/* [2a]: */	ierr = func_mod_square(mult[1], 0x0, n, nmodmul,nmodmul+1, (uint64)mult[2] + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+			if(ierr == ERR_INTERRUPT) {
+				return ierr;
+			}
+/* [2b]: */	ierr = func_mod_square(mult[1], 0x0, n, nmodmul,nmodmul+1,            4ull       + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+			nmodmul += 2;
+
+		  #else	// USE_PP1_MULTS = True, needs just 1 modmul per D-loop:
+
+			/* Up-multiply uses Lucas sequence of 2nd kind:
+				V[n+j] = V[n]*V[j] - V[n-j] . [*]
+			Here - all 3 terms stored in fwdFFTed form:
+				V[n  ] = A^(k*D) + A^-(k*D), stored in mult[0];
+				V[n-j] = A^((k-1)*D) + A^-((k-1)*D), stored in mult[1].
+				V[  j] = A^D + A^-D, stored in mult[2];
+			The result V[n+j] = A^((k+1)*D) + A^-((k+1)*D) overwrites mult[0], so must save copy of it first,
+			since the old value must end up in mult[1]. This would need multiple memcpy to support, which would
+			more than offset gain from saving 1 modmul, so instead directly support it via one more modification
+			to the dyadic-mul routines, this one to add support for a fused mulsub operation, d = a*b - c,
+			with b[] treated as const (our V[j] above), the input a[] (our V[n]) overwriting c[] (our V[n-j])
+			after the subtract, and the result d[] (our V[n+j]) overwriting the input a[].
+			*/
+			// Only increment nmodmul once here, since each call is 1-FFT;
+			// The ~() on the 64-bit subtrahend address tells the modmul routine that it's a mulsub rather than a submul:
+			/******** For initial impl, use the sequence: ********/
+			memcpy(a,mult[0],nbytes);	// Save copy of V[n] = A^(k*D) + A^-(k*D) in a[];
+				// V[n] *= V[j] overwrites mult[0]:
+			ierr = func_mod_square(mult[0], 0x0, n, nmodmul,nmodmul+1, (uint64)mult[2] + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+			if(ierr == ERR_INTERRUPT) {
+				return ierr;
+			}
+			ierr = func_mod_square(mult[0], 0x0, n, nmodmul,nmodmul+1,            4ull       + mode_flag, p, scrnFlag,&tdif2, FALSE, 0x0); nerr += ierr;
+			++nmodmul;
+				// Subtract mult[0] -= V[n-1], yielding V[n+1] = V[n]*V[j] - V[n-1];
+		  #ifdef MULTITHREAD
+			vec_double_sub(tpool,tdat,mult[1]);
+		  #else
+			vec_double_sub(mult[0],mult[1],a,npad);
+		  #endif
+			memcpy(mult[1],a,nbytes);	// Copy of V[n] = A^(k*D) + A^-(k*D) stored in a[] overwrites mult[1].
+			/*****************************************************/
+		//	ierr += func_mod_square(mult[0], 0x0, n, nmodmul,nmodmul+1, (uint64)mult[2] + 0xC + mode_flag, p, scrnFlag,&tdif2, FALSE, (double*)(~(uint64)mult[1]));
+		//	ierr += func_mod_square(mult[0], 0x0, n, nmodmul,nmodmul+1,            4ull       + mode_flag, p, scrnFlag,&tdif2, FALSE,                         0x0);	++nmodmul;
+		  #endif
+
 		#endif
 			k++;
 			// (k - k0) = #bigstep-blocks (passes thru above loop) used in stage 2; #modmul = np + ns + 2*(k - k0).
@@ -1635,12 +2371,13 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 		clock2 = clock();	*tdiff += (double)(clock2 - clock1);	clock1 = clock2;
 	  #endif
 		// Only handle errs of type ROE in p-1 stage 2 - we prefer to handle such before doing any savefile-updating:
-		if(ierr)
-			return ierr;
+		if(nerr) {
+			retval = nerr; goto ERR_RETURN;;
+		}
 		/*...Every (ITERS_BETWEEN_CHECKPOINTS)th modmuls, print timings to stdout or STATFILE.
 		If it's a regular (i.e. non-timing) test, also write current residue to restart files.
 		*/
-		if((nmodmul - nmodmul_save) >= ITERS_BETWEEN_CHECKPOINTS || (q+bigstep) >= B2) {
+		if((nmodmul - nmodmul_save) >= ITERS_BETWEEN_CHECKPOINTS || (q+bigstep) >= qhi) {
 			// Copy current S2 residue into a[] and undo pass 1 of fwd-FFT:
 			memcpy(a,pow,nbytes);
 			ierr = func_mod_square(a, 0x0, n, 0,1, 8ull, p, scrnFlag,&tdif2, FALSE, 0x0);
@@ -1659,7 +2396,7 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 				, timebuffer, PSTRING, "S2 at q", q+bigstep, (float)(q-B2_start)/(float)(B2-B2_start) * 100,get_time_str(*tdiff)
 				, 1000*get_time(*tdiff)/(nmodmul - nmodmul_save), Res64, AME, MME);
 			mlucas_fprint(cbuf,scrnFlag);
-			*tdiff = 0.0;	// Reset timer at end of each iteration interval
+			*tdiff = MME = 0.0;	// Reset timer and maxerr at end of each iteration interval
 			fp = mlucas_fopen(savefile, "wb");
 			if(fp) {
 				// q won't get += bigstep until we loop, so here, (q + bigstep) is the q-value corr. to just-incremented k.
@@ -1670,18 +2407,22 @@ based on iteration count versus PM1_S1_PROD_BITS as computed from the B1 bound, 
 				snprintf_nowarn(cbuf,STR_MAX_LEN, "ERROR: unable to open restart file %s for write of checkpoint data.\n",savefile);
 				mlucas_fprint(cbuf,1);	ASSERT(HERE, 0,cbuf);
 			}
-			// If latest S2 interval crossed a 10M mark, do an intermediate GCD; if factor found, do an early-return;
-			if((q_div_10M = (uint32)(q * inv10m)) > q_old_10M) {
-				q_old_10M = q_div_10M;
-				i = gcd(2,p,arrtmp,nlimb,gcd_str);	// 1st arg = stage just completed
-				if(i)
-					goto S2_RETURN;
+			// If interim-GCDs enabled (default) and latest S2 interval crossed a 10M mark, take a GCD; if factor found, early-return;
+			if(interim_gcd) {
+				if((q_div_10M = (uint32)(q * inv10m)) > q_old_10M) {
+					q_old_10M = q_div_10M;
+					i = gcd(2,p,arrtmp,0x0,nlimb,gcd_str);	// 1st arg = stage just completed
+					if(i) {
+						B2 = q;	// Reset B2 to reflect the actual interval run
+						goto S2_RETURN;
+					}
+				}
 			}
 			nmodmul_save = nmodmul;
 		}
 	#endif	// #ifndef PM1_STANDALONE
 	}
-	ASSERT(HERE, ierr == 0, "Stage 2 loop hit a modmul error!");
+	ASSERT(HERE, nerr == 0, "Stage 2 loop hit a modmul error!");
 #ifndef PM1_STANDALONE
 	// Need to undo pass 1 of fwd-FFT on loop-exit; do this just as with fwd-FFT-only, but with flag = 8 instead of 4:
 	ierr = func_mod_square(pow, 0x0, n, 0,1, 8ull, p, scrnFlag,&tdif2, FALSE, 0x0);
@@ -1692,15 +2433,15 @@ S2_RETURN:
 	// (k - k0) = #bigstep-blocks (passes thru above loop) used in stage 2; np + ns + 2*(k - k0) = #modmul:
 	nmodmul = np + ns + 2*(k - k0);	// This is actually redundant, but just to spell it out
 	snprintf(cbuf,STR_MAX_LEN,"M = %2u: #buf = %4u, #pairs: %u, #single: %u (%5.2f%% paired), #blocks: %u, #modmul: %u\n",m,m*num_b,np,ns,100.0*2*np/(2*np+ns),k-k0,nmodmul);
-	mlucas_fprint(cbuf,scrnFlag);
-#if 1//def PM1_DEBUG
+	mlucas_fprint(cbuf,1);
+#ifdef PM1_DEBUG
+#warning Revert this preprocessor flag!
 	fprintf(stderr,"Res64 = 0x%016llX; clocks =%s, MaxErr = %10.9f\n",arrtmp[0],get_time_str(*tdiff),MME);
   if(p == 33554432) {  // F25: check if the known factor divides the S2 result:
 	ASSERT(HERE, MODULUS_TYPE == MODULUS_TYPE_FERMAT, "This p-1 self-test requires Fermat-mod mode!");
 	int isfact = mi64_is_div_by_scalar64(arrtmp,2170072644496392193ull,nlimb);	// k = 2^5.3^2.37.997.11066599
 	ASSERT(HERE, isfact != 0, "Failed to find known stage 2 factor!");
 	fprintf(stderr,"%s p-1 known-stage-2 prime self-test success!\n",PSTRING);
-	exit(0);
   }
   if(p == 108268067) {
 	ASSERT(HERE, MODULUS_TYPE == MODULUS_TYPE_MERSENNE, "This p-1 self-test requires Mersenne-mod mode!");
@@ -1708,7 +2449,6 @@ S2_RETURN:
 	int isfact = mi64_div(arrtmp,q, nlimb,2, 0x0, rem);
 	ASSERT(HERE, isfact != 0, "Failed to find known stage 2 factor!");
 	fprintf(stderr,"%s p-1 known-stage-2 prime self-test success!\n",PSTRING);
-	exit(0);
   }
   if(p == 2147483648) {  // F31: check if the known factor divides the S2 result:
 	ASSERT(HERE, MODULUS_TYPE == MODULUS_TYPE_FERMAT, "This p-1 self-test requires Fermat-mod mode!");
@@ -1716,7 +2456,6 @@ S2_RETURN:
 	int isfact = mi64_div(arrtmp,q, nlimb,2, 0x0, rem);
 	ASSERT(HERE, isfact != 0, "Failed to find known stage 2 factor!");
 	fprintf(stderr,"%s p-1 known-stage-2 prime self-test success!\n",PSTRING);
-	exit(0);
   }
 #endif
 #ifndef PM1_STANDALONE
@@ -1728,6 +2467,7 @@ S2_RETURN:
 	}
 	mlucas_fprint(cbuf,scrnFlag);
 #endif
+ERR_RETURN:
 	// Free the memory:
 	free((void *)a_ptmp); a_ptmp = a = 0x0; buf = 0x0;
 	free((void *)b); b = 0x0;
@@ -1737,7 +2477,7 @@ S2_RETURN:
 	free((void *)thread  ); thread   = 0x0;
 	free((void *)tdat    ); tdat     = 0x0;
   #endif
-	return 0;
+	return retval;
 }
 
 /************ Parallel|SIMD utility functions for p-1 Stage 2, a.k.a. "Amdahl's Law section": ************/

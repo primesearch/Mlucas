@@ -175,15 +175,6 @@ logical converse holds, that is if (y2 >= x1) && (y1 <= x2).
 }
 #define MOD_SUB32(__x, __y, __q, __z) MOD_ADD32(__x, __q - __y, __q, __z)
 
-#define MOD_ADD32(__x, __y, __q, __z) {\
-	uint32 cy,tmp;\
-	/* Need tmp for initial sum, since e.g. if x,z refer to same var the cy-check z < x always comes up 'false';
-	Inputs can actually be typed signed-int32 in calling code - only the compares care about that, force uint32 there. */\
-	tmp = __x + __y;	cy = tmp < (uint32)__x;		/* Since inputs assumed normalized (< q), cy = 1 implies q > 2^63, thus */\
-	__z = tmp - __q;	cy -= (uint32)__z > tmp;	/* tmp - q guaranteed to underflow -> no need to restore-add q in this case. */\
-	__z = __z + (cy & __q);			/* Only possible values of cy = 0,-1 here; and need to restore-add q if cy = -1. */\
-}
-
 #define MOD_ADD64(__x, __y, __q, __z) {\
 	uint64 cy,tmp;\
 	/* Need tmp for initial sum, since e.g. if x,z refer to same var the cy-check z < x always comes up 'false';
@@ -277,12 +268,27 @@ function call, since that may result in the function being called twice. */
 #define BIT_TEST(x,b)	( ((x) >> (b)) & 1 )
 
 #define	STREQ(s1,s2)	(!strcmp(s1,s2))
-
 #define	STREQN(s1,s2,n)	(!strncmp(s1,s2,n))
-
 #define	STRNEQ(s1,s2)	( strcmp(s1,s2))
-
 #define	STRNEQN(s1,s2,n)( strncmp(s1,s2,n))
+/* Nov 2021: Add case-insensitive versions of the above - here a hand-rolled ASCII-char-only version of STRNEQ_NOCASE
+adapted (to handle null a and/or b) from https://stackoverflow.com/questions/5820810/case-insensitive-string-comparison-in-c,
+in case it ever proves useful to have an own-rolled for portability:
+	int STRNEQ_NOCASE(char const *a, char const *b)
+	{						// If one input NULL, compare as not-equal; if both NULL compare as equal. If prefer
+		int d = (a != b);	// the convention that either-NULL should compare not-equal, instead init d = (!a || !b).
+		for (; a && b; a++, b++) {
+			int d = tolower((unsigned char)*a) - tolower((unsigned char)*b);
+			if (d != 0 || !*a)	// If all leading shared-chars are case-insensitive-equal but strlen(a) < strlen(b),
+				break;			// will hit d != 0 at '\0' of a; if strlen(a) == strlen(b), will exit on hitting !*a.
+		}
+		return d;
+	}
+*/
+#define	STREQ_NOCASE(s1,s2)		(!strcasecmp(s1,s2))
+#define	STREQN_NOCASE(s1,s2,n)	(!strncasecmp(s1,s2,n))
+#define	STRNEQ_NOCASE(s1,s2)	( strcasecmp(s1,s2))
+#define	STRNEQN_NOCASE(s1,s2,n)	( strncasecmp(s1,s2,n))
 
 /* Complex multiplication C = A*B, input as pairs of doubles.
 Designed so any or all of A, B, C may point to the same memory location. */
@@ -766,6 +772,9 @@ extern const uint256 TWO256;
 extern const uint512 NIL512;
 extern const uint512 ONE512;
 extern const uint512 TWO512;
+
+// Case-insensitive analog of strstr - this needs the ctype.h header:
+char* stristr(const char* haystack, const char* needle);
 
 /* Binary predicates for use of stdlib qsort(): */
 int ncmp_int   (const void * a, const void * b);	// Default-int compare predicate

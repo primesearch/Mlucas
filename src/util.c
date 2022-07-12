@@ -1474,9 +1474,18 @@ void host_init(void)
 	print_host_info();
 	check_nbits_in_types();
 
-	/* Test wide-mul routines: */
+	// Test wide-mul routines:
 	printf("INFO: testing IMUL routines...\n");
 	ASSERT(HERE, test_mul() == 0, "test_mul() returns nonzero!");
+
+	// Test the 64-bit 2^[+|-]p (mod q) functions:
+	uint32 imax = 100000;
+	fprintf(stderr,"INFO: Testing 64-bit 2^p (mod q) functions with %u random (p, q odd) pairs...\n",imax);
+	clock1 = clock();
+	ASSERT(HERE, test_twopmodq64(imax) == 0, "test_twopmodq64() returns nonzero!");
+	clock2 = clock();
+	tdiff = (double)(clock2 - clock1);
+//	printf("Time for %u 2^[+|-]p (mod q) call pairs =%s\n",imax, get_time_str(tdiff));
 
 	// Test certain aspects of SIMD functionality (aim is to expand this into a decently comprehensive
 	// timing-test-of-key-SIMD-code-constructs suite):
@@ -1502,25 +1511,33 @@ exit(0);
 #endif
 
 // Quick timings of various mi64 stuff:
-#if 0
-	// Apr 2021: check known factor of F31:
+#if INCLUDE_GMP && 0
+	uint32 m = 33;	// 7 Sep 2021: GMP gcd on Haswell quad needs 24|54 min for F31|32-sized inputs; insufficient RAM (8 GB) for F33
+					// On KNL with 16GB MCDRAM, need ??|??|?? min for F31|32|33, with F30 running on cores 0-63 and GIMPS-DC on 64-67.
+	ASSERT(HERE, m < 64, "Fermat-number index must be < 64!");
+	printf("INFO: testing GCD routines on F%u-sized inputs\n",m);
+	// Apr 2021: check known factor of F31 using both mi64_div and GMP gcd, to get timing on the latter:
 	rng_isaac_init(TRUE);
-	uint64 rem[2] = {0ull,0ull}, q[2] = {3118754346955702273ull,2544ull};	// k = 3.13.140091319777; q = k.2^(m+2) + 1
-	int i,isfact,nlimb = (1<<25) + 1;	// # of 64-bit limbs in F31, which has 2^31+1 bits, thus needs one extra limb for the high 1-bit
+	uint64 rem[2] = {0ull,0ull}, q[2] = {3118754346955702273ull,2544ull};	// Known factor of F31: k = 3.13.140091319777; q = k.2^(m+2) + 1
+	int i,isfact,nlimb = (1<<(m-6)) + 1;	// # of 64-bit limbs in Fm, which has 2^m+1 bits, thus needs one extra limb for the high 1-bit
+	// vec0 is used for scratch storage, since mi64_mul_vector() does not permit in-place operation:
+	uint64*vec0 = calloc(nlimb,sizeof(uint64));	ASSERT(HERE, vec0 != NULL, "vec0[]-array alloc failed!");
 	uint64*vec1 = calloc(nlimb,sizeof(uint64));	ASSERT(HERE, vec1 != NULL, "vec1[]-array alloc failed!");
-	vec1[nlimb-1] = vec1[0] = 1ull;
-	isfact = mi64_div(vec1,q, nlimb,2, 0x0, rem);
-	ASSERT(HERE, isfact != 0, "Failed to find known stage 2 factor!");
-	// Now try a random (mlimb-1)-length multiple of q:
-	for(i = 0; i < nlimb-3; i++) { vec1[i] = rng_isaac_rand(); }
 	uint64*vec2 = calloc(nlimb,sizeof(uint64));	ASSERT(HERE, vec2 != NULL, "vec2[]-array alloc failed!");
-	mi64_mul_vector(vec1,nlimb-3, q,2, vec2,&i);	// i holds product length on return
-	isfact = mi64_div(vec2,q, nlimb-1,2, 0x0, rem);
-	ASSERT(HERE, isfact != 0, "Failed to find known stage 2 factor!");
+	// Init 2 random (mlimb-1)-length multiples of q:
+	for(i = 0; i < nlimb-2; i++) { vec0[i] = rng_isaac_rand(); vec1[i] = rng_isaac_rand(); }
+	// i holds product length on return:
+	mi64_mul_vector(vec1,nlimb-2, q,2, vec2,&i);	ASSERT(HERE, i == nlimb, "Bad product length in gcd-test init!");
+	mi64_mul_vector(vec0,nlimb-2, q,2, vec1,&i);	ASSERT(HERE, i == nlimb, "Bad product length in gcd-test init!");
+	isfact = mi64_div(vec1,q, nlimb,2, 0x0, rem);	ASSERT(HERE, isfact != 0, "mi64_div failed to find target factor!");
+	isfact = mi64_div(vec2,q, nlimb,2, 0x0, rem);	ASSERT(HERE, isfact != 0, "mi64_div failed to find target factor!");
+	// Now feed our two random-multiple vectors to GMP gcd:
+	char gcd_str[STR_MAX_LEN];
+	isfact = gcd(0,0ull,vec1,vec2,nlimb,gcd_str);	// 1st arg = stage just completed
 exit(0);
 #endif
-#if 0
 
+#if 0
 	rng_isaac_init(TRUE);
 	uint32 i32,x32,bit, i,imax;
 	uint64 i64;
@@ -2017,7 +2034,7 @@ void print_host_info(void)
 	#endif
 	}
 
-#elif(defined(CPU_IS_X86) || defined(CPU_IS_IA64) || defined(CPU_IS_X86_64))
+#elif(defined(CPU_IS_X86) || defined(CPU_IS_IA64) || defined(CPU_IS_X86_64) || defined(CPU_IS_K1OM))
 
 //	get_cpu();
 
@@ -2028,9 +2045,28 @@ void print_host_info(void)
 		cpu_details();
 	#endif
 
-  #ifdef USE_AVX512
+  #ifdef USE_IMCI512	// 1st-gen Xeon Phi (KNF,KNC)
 
 	if(has_avx512()) {
+		ASSERT(HERE, 0, "Build uses AVX-512 instruction set, but only IMCI-512 (1st-gen Xeon Phi) supported this CPU!\n");
+	} else if(has_imci512()) {
+		printf("INFO: Build uses IMCI-512 instruction set.\n");
+	} else {
+		#define CPUID(arg1,arg2,ax,bx,cx,dx)\
+			__asm__ __volatile__ ("cpuid":\
+		"=a" (ax), "=b" (bx), "=c" (cx), "=d" (dx) : "a" (arg1), "c" (arg2));
+		uint32 a,b,c,d;
+		CPUID(1,0,a,b,c,d);
+		printf("has_imci512: CPUID returns [a,b,c,d] = [%8X,%8X,%8X,%8X]\n",a,b,c,d);
+		printf("#define USE_IMCI512 invoked but no FMA support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
+		ASSERT(HERE, 0, "#define USE_IMCI512 invoked but no FMA support detected on this CPU! Check get_cpuid functionality and CPU type.\n");
+	}
+
+  #elif(defined(USE_AVX512))
+
+	if(has_imci512()) {
+		ASSERT(HERE, 0, "Build uses AVX512 instruction set, but only IMCI-512 (1st-gen Xeon Phi) supported this CPU!\n");
+	} else 	if(has_avx512()) {
 		printf("INFO: Build uses AVX512 instruction set.\n");
 	} else {
 		#define CPUID(arg1,arg2,ax,bx,cx,dx)\
@@ -2045,7 +2081,9 @@ void print_host_info(void)
 
   #elif(defined(USE_AVX2))
 
-	if(has_avx2()) {
+	if(has_avx512()) {
+		printf("INFO: CPU supports AVX-512 instruction set, but using AVX2-enabled build.\n");
+	} else 	if(has_avx2()) {
 		printf("INFO: Build uses AVX2 instruction set.\n");
 	} else {
 		#define CPUID(arg1,arg2,ax,bx,cx,dx)\
@@ -2114,7 +2152,7 @@ void print_host_info(void)
 		if (!mkdir_p(MLUCAS_PATH)) {
 			printf("INFO: mkdir -p \"%s\" succeeded\n", MLUCAS_PATH);
 		} else {
-			fprintf(stderr, "FATAL: mkdir -p \"%s\" failed\n", MLUCAS_PATH);
+			fprintf(stderr, "ERROR: mkdir -p \"%s\" failed\n", MLUCAS_PATH);
 			ASSERT(HERE, 0, "Exiting.");
 		}
 	}
@@ -2863,7 +2901,7 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 
 /********************/
 
-#ifdef USE_AVX2
+#if defined(USE_AVX2) && !defined(USE_IMCI512)
 
 	// Self-test of fmadd-based 50x50==>100-bit exact integer product algorithms:
 	uint32	test_mul50x50()
@@ -2882,7 +2920,7 @@ I = 981 Needed extra sub: a = 916753724; p = 11581569; pinv = 370 [a/p = 79.1562
 		const double prod1_adj = 3.0;	// Const to multiply by base and add to prod[1] to ensure latter >= 0
 		if(!sc_arr) {
 			sc_arr = ALLOC_VEC_DBL(sc_arr, 8);
-			if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+			if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 			sc_ptr = (double *)ALIGN_VEC_DBL(sc_arr);
 			ASSERT(HERE, ((uint32)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 			/* Remember, rhese are POINTERS-TO-DOUBLES, so need an increment of 4 to span an AVX register: */
@@ -3228,7 +3266,7 @@ much except as an auxiliary utility.
 uint32 reverse(uint32 i, uint32 nbits)
 {
 	uint32 j, tmp = 0;
-	ASSERT(HERE,nbits <= 32,"FATAL: bitlength limit 32 exceeded in call to REVERSE.\n");
+	ASSERT(HERE,nbits <= 32,"ERROR: bitlength limit 32 exceeded in call to REVERSE.\n");
 	for(j = 0; j < nbits; j++) {
 		tmp += tmp + (i & 1);
 		i >>= 1;
@@ -3826,16 +3864,16 @@ DEV uint32 next_prime(uint32 n, int dir) {
 	return 0;
 }
 
-// On Core2 gives 1857859 primes in [1000000,30000000] in 2.5 sec; 8444396 primes in [5000000,150000000] in 14 sec.
+// On Core2 gives 1779361 primes in [1000000,30000000] in 2.5 sec; 8095883 primes in [5000000,150000000] in 14 sec.
 // If for some reason need to speed things up further, next thing to try is to use 4-way or 8-way modexp in pprimeF.
 DEV uint32 nprimes_in_range(uint32 b1, uint32 b2) {
-	uint32 i,n,np,idx,nmod30;
+	uint32 i=0,idx=0,n,np = 0,nmod30;
 	if(b1 >= b2) {
 		fprintf(stderr,"Error: nprimes_in_range() inputs must be b1 < b2; user input %u,%u\n",b1,b2);
 		exit(1);
 	}
-	if(b1 >= 5) {
-		np = (b1 > 1) + (b1 > 2) + (b1 > 4);	b1 = 7;
+	if(b1 < 7) {
+		np = (b1 <= 2) + (b1 <= 3) + (b1 <= 5);	b1 = 7;
 	}
 	n = b1;
 	// n must be odd:
@@ -3880,8 +3918,10 @@ DEV uint32 nprimes_in_range(uint32 b1, uint32 b2) {
 			if(f2psp[i] == n) {
 			//	fprintf(stderr,"hit 2-psp %u\n",n);
 				i++;
-			} else
+			} else {
+			//	fprintf(stderr,"p = %u\n",n);
 				np++;
+			}
 		}
 		n += incr[idx]; idx = (idx + 1)&7;
 	}
@@ -5728,9 +5768,9 @@ ftmp0 = ftmp;
 		int i,imax = 100000001, row,col, nerr;	// Use 10^8 loop execs in effort to yield timing on order of 1 sec on target CPUs
 			// Add 1 to make loop count odd, thus result of (imax) successive transposes equivalent to a single one
 		const int dim = 64;	// #elements in our matrix, allocate 2x this to allow for real/imag side-by-side variant
-		vec_dbl *mem  = ALLOC_VEC_DBL(mem, 2*dim+4);	// Add 4 pads to allow for alignment on up-to-128-byte boundary
-		vec_dbl *data = ALIGN_VEC_DBL(mem);
-		ASSERT(HERE, ((long)data & 0x1f) == 0, "data not 32-byte aligned!");
+		vec_dbl *mem = 0x0, *data;
+		mem = ALLOC_VEC_DBL(mem, 2*dim+4);	// Add 4 pads to allow for alignment on up-to-128-byte boundary
+		data = ALIGN_VEC_DBL(mem);	ASSERT(HERE, ((long)data & 0x1f) == 0, "data not 32-byte aligned!");
 		// Init the matrix -  Input matrix has rows containing [0-7][8-15]...[56-63]:
 		double *dptr = (double *)data;
 		for(i = 0; i < dim; i++) { *(dptr+i) = i; }
@@ -5743,6 +5783,93 @@ ftmp0 = ftmp;
 
 		// Do timing loop using 2 fundamentally different methods of effecting the transpose, the 2nd of
 		// which mimics the data movement surrounding the dyadic-square and carry steps of our FFT-mul:
+	  #ifdef USE_IMCI512
+		// [1a] Rowwise-load and in-register data shuffles. On KNL: 45 cycles per loop-exec:
+		nerr = 0; clock1 = getRealTime();
+		for(i = 0; i < imax; i++) {
+			__asm__ volatile (\
+				"movq	%[__data],%%rax \n\t"\
+			/* This mov/kmov/knot sequence saves ~4% overall-macro-runtime vs movl/kmov of 5 separate bitstrings into k1-k5 */\
+			"movl $0b10101010,%%ebx	\n\t movl $0b11001100,%%ecx	\n\t movl $0b11110000,%%edx	\n\t"\
+			"kmov	%%ebx,%%k1		\n\t kmov	%%ecx,%%k3		\n\t kmov	%%edx,%%k5		\n\t"\
+			"knot	%%k1 ,%%k2		\n\t knot	%%k3 ,%%k4		\n\t"\
+				/* Read in the 8 rows of our input matrix: */\
+				"vmovaps	0x000(%%rax),%%zmm0	\n\t"/* zmm0 = 00 01 02 03 04 05 06 07 */\
+				"vmovaps	0x040(%%rax),%%zmm1	\n\t"/* zmm1 = 10 11 12 13 14 15 16 17 */\
+				"vmovaps	0x080(%%rax),%%zmm2	\n\t"/* zmm2 = 20 21 22 23 24 25 26 27 */\
+				"vmovaps	0x0c0(%%rax),%%zmm3	\n\t"/* zmm3 = 30 31 32 33 34 35 36 37 */\
+				"vmovaps	0x100(%%rax),%%zmm4	\n\t"/* zmm4 = 40 41 42 43 44 45 46 47 */\
+				"vmovaps	0x140(%%rax),%%zmm5	\n\t"/* zmm5 = 50 51 52 53 54 55 56 57 */\
+				"vmovaps	0x180(%%rax),%%zmm6	\n\t"/* zmm6 = 60 61 62 63 64 65 66 67 */\
+				"vmovaps	0x1c0(%%rax),%%zmm7	\n\t"/* zmm7 = 70 71 72 73 74 75 76 77 */\
+
+				"vblendmpd		%%zmm1%{cdab%},%%zmm0,%%zmm8%{%%k1%}	\n\t"/* zmm8 = {0, 8, 2, 10, 4, 12, 6, 14} */\
+				"vblendmpd		%%zmm0%{cdab%},%%zmm1,%%zmm1%{%%k2%}	\n\t"/* zmm1 = {1, 9, 3, 11, 5, 13, 7, 15} */\
+				"vblendmpd		%%zmm3%{cdab%},%%zmm2,%%zmm0%{%%k1%}	\n\t"/* zmm0 = {16, 24, 18, 26, 20, 28, 22, 30 */\
+				"vblendmpd		%%zmm2%{cdab%},%%zmm3,%%zmm3%{%%k2%}	\n\t"/* zmm3 =  */\
+				"vblendmpd		%%zmm5%{cdab%},%%zmm4,%%zmm2%{%%k1%}	\n\t"/* zmm2 =  */\
+				"vblendmpd		%%zmm4%{cdab%},%%zmm5,%%zmm5%{%%k2%}	\n\t"/* zmm5 =  */\
+				"vblendmpd		%%zmm7%{cdab%},%%zmm6,%%zmm4%{%%k1%}	\n\t"/* zmm4 =  */\
+				"vblendmpd		%%zmm6%{cdab%},%%zmm7,%%zmm7%{%%k2%}	\n\t"/* zmm7 =  */\
+
+				"vblendmpd		%%zmm0%{badc%},%%zmm8,%%zmm6%{%%k3%}	\n\t"\
+				"vblendmpd		%%zmm8%{badc%},%%zmm0,%%zmm0%{%%k4%}	\n\t"\
+				"vblendmpd		%%zmm3%{badc%},%%zmm1,%%zmm8%{%%k3%}	\n\t"\
+				"vblendmpd		%%zmm1%{badc%},%%zmm3,%%zmm3%{%%k4%}	\n\t"\
+				"vblendmpd		%%zmm4%{badc%},%%zmm2,%%zmm1%{%%k3%}	\n\t"\
+				"vblendmpd		%%zmm2%{badc%},%%zmm4,%%zmm4%{%%k4%}	\n\t"\
+				"vblendmpd		%%zmm7%{badc%},%%zmm5,%%zmm2%{%%k3%}	\n\t"\
+				"vblendmpd		%%zmm5%{badc%},%%zmm7,%%zmm7%{%%k4%}	\n\t"\
+
+				"vpermf32x4	$78, %%zmm1,%%zmm1		\n\t"\
+				"vpermf32x4	$78, %%zmm2,%%zmm2		\n\t"\
+				"vpermf32x4	$78, %%zmm4,%%zmm4		\n\t"\
+				"vpermf32x4	$78, %%zmm7,%%zmm7		\n\t"\
+
+				"vblendmpd		%%zmm1,%%zmm6,%%zmm5%{%%k5%}	\n\t"\
+				"vblendmpd		%%zmm6,%%zmm1,%%zmm1%{%%k5%}		\n\t"\
+				"vblendmpd		%%zmm2,%%zmm8,%%zmm6%{%%k5%}		\n\t"\
+				"vblendmpd		%%zmm8,%%zmm2,%%zmm2%{%%k5%}		\n\t"\
+				"vblendmpd		%%zmm4,%%zmm0,%%zmm8%{%%k5%}		\n\t"\
+				"vblendmpd		%%zmm0,%%zmm4,%%zmm4%{%%k5%}		\n\t"\
+				"vblendmpd		%%zmm7,%%zmm3,%%zmm0%{%%k5%}		\n\t"\
+				"vblendmpd		%%zmm3,%%zmm7,%%zmm7%{%%k5%}		\n\t"\
+
+				"vpermf32x4	$78, %%zmm1,%%zmm1		\n\t"\
+				"vpermf32x4	$78, %%zmm2,%%zmm2		\n\t"\
+				"vpermf32x4	$78, %%zmm4,%%zmm4		\n\t"\
+				"vpermf32x4	$78, %%zmm7,%%zmm7		\n\t"\
+
+				"vmovaps	%%zmm5,0x000(%%rax)	\n\t"\
+				"vmovaps	%%zmm6,0x040(%%rax)	\n\t"\
+				"vmovaps	%%zmm8,0x080(%%rax)	\n\t"\
+				"vmovaps	%%zmm0,0x0c0(%%rax)	\n\t"\
+				"vmovaps	%%zmm1,0x100(%%rax)	\n\t"\
+				"vmovaps	%%zmm2,0x140(%%rax)	\n\t"\
+				"vmovaps	%%zmm4,0x180(%%rax)	\n\t"\
+				"vmovaps	%%zmm7,0x1c0(%%rax)	\n\t"\
+				:				// outputs: none
+				: [__data] "m" (data)	// All inputs from memory addresses here
+				: "cc","memory","rax","rbx","rcx","rdx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"
+			);
+		}
+		clock2 = getRealTime();
+		tdiff = (double)(clock2 - clock1);
+		printf("Method [1a]: Time for %u 8x8 doubles-transposes using in-register shuffles =%s\n",imax, get_time_str(tdiff));
+		// Check the result:
+	//	printf("Output matrix:\n");
+		for(i = 0; i < dim; i += 8) {
+			row = i>>3;
+		//	printf("Row %u: %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f\n",row,*(dptr+i),*(dptr+i+1),*(dptr+i+2),*(dptr+i+3),*(dptr+i+4),*(dptr+i+5),*(dptr+i+6),*(dptr+i+7));
+			// Expected (transposed-matrix) datum = row + 4*col
+			t0 = row; t1 = row+8; t2 = row+16; t3 = row+24;
+			nerr += (t0 != *(dptr+i+0)) + (t1 != *(dptr+i+1)) + (t2 != *(dptr+i+2)) + (t3 != *(dptr+i+3));
+			t0 += 32; t1 += 32; t2 += 32; t3 += 32;
+			nerr += (t0 != *(dptr+i+4)) + (t1 != *(dptr+i+5)) + (t2 != *(dptr+i+6)) + (t3 != *(dptr+i+7));
+		}
+		if(nerr) printf("Outputs incorrect! #mismatches = %u\n",nerr);
+
+	  #else	// AVX-512 version:
 
 		// [1a] Rowwise-load and in-register data shuffles. On KNL: 45 cycles per loop-exec:
 		nerr = 0; clock1 = getRealTime();
@@ -6061,8 +6188,15 @@ ftmp0 = ftmp;
 			nerr += (t0 != *(dptr+i+4)) + (t1 != *(dptr+i+5)) + (t2 != *(dptr+i+6)) + (t3 != *(dptr+i+7));
 		}
 		if(nerr) printf("Outputs incorrect! #mismatches = %u\n",nerr);
+	  #endif	// endif(USE_IMCI512 || USE_AVX512)
 
 		// [2a] Columnwise-load-and-rowwise-writeback using AVX512 gather-load functionality. On KNL: 56 cycles per loop-exec.
+		for(i = 0; i < dim; i++) { *(dptr+i) = i; }	// Re-init the matrix to be untransposed
+
+	  #ifdef USE_IMCI512
+	  #elif 0	// Here the code needing fixing-up:
+		#error Needs non-IMCI isntructions replaced!
+		nerr = 0; clock1 = getRealTime();
 		/* Compare latency/thruput/ports for shuffle and gather-based versions, using Agner Fog's KNL tables:
 		[1] vunpcklpd, vshuff64x2 both have 4-7 cycle latency, one can start every 2 cycles [3,1 on Skylake-X].
 								Thus 24 such in sequence with no wait-stalls ==> ~50 cycles, close to what I measure.
@@ -6070,7 +6204,65 @@ ftmp0 = ftmp;
 		Both [1] and [2] use port 5, but on KNL the 'empty' cycles between shuffle-op issues can be used to issue gathers,
 		which is what the side-by-ide matrix-pair [2b] variant tests.
 		*/
-		for(i = 0; i < dim; i++) { *(dptr+i) = i; }	// Re-init the matrix to be untransposed
+		nerr = 0; clock1 = getRealTime();
+		for(i = 0; i < imax; i++) {	// Nov 2016: 4.3 sec for 10^8 loops @1.3GHz ==> ~7 cycles per gather-load
+			__asm__ volatile (\
+				"movq		%[__data],%%rax		\n\t"\
+				/* Auxiliary register data needed for columnwise loads: */\
+			"movq	$0x1c1814100c080400,%%rbx	\n\t"/* 64-bit register w/byte offsets 0x[00,04,08,0c,10,14,18,1c], bytes numbered left-to-right */\
+				"vmovq		%%rbx,%%xmm8 		\n\t"/* Copy byte pattern to low qword (64 bits) of ymm8 [NB: avx-512 only supports MOVQ to/from 128-bit vector regs] */\
+				"vpmovzxbd	%%xmm8,%%ymm8		\n\t"/* vector-index offsets: ymm8 = 0x[00,04,08,0c,10,14,18,1c] in 32-bit form in low 8 dwords */\
+				"vpslld	$4,%%ymm8,%%ymm8		\n\t"/* The above bytewise offsets need scale *16 to get the needed ones - would include but
+												e.g. 0x1C<<4 overflows 1 byte), but x86 ISA only permits scale factors 1,2,4,8, so <<= 4 here. */\
+			/* Mask-reg zmm9 = 11...11 - this is stupidly zeroed each time we do gather-load, so need to reinit: */\
+			"movl	$-1,%%ebx	\n\t"/* Init opmask k1 (Only need the low byte) */\
+			/* Gather instruction sets mask-reg = 0, so must re-init opmask prior to each invocation */
+			"kmov	%%ebx,%%k1	\n\t	vgatherdpd 0x00(%%rax,%%ymm8),%%zmm0%{%%k1%}	\n\t"/* Col 0 */\
+			"kmov	%%ebx,%%k1	\n\t	vgatherdpd 0x08(%%rax,%%ymm8),%%zmm1%{%%k1%}	\n\t"/* Col 1 */\
+			"kmov	%%ebx,%%k1	\n\t	vgatherdpd 0x10(%%rax,%%ymm8),%%zmm2%{%%k1%}	\n\t"/* Col 2 */\
+			"kmov	%%ebx,%%k1	\n\t	vgatherdpd 0x18(%%rax,%%ymm8),%%zmm3%{%%k1%}	\n\t"/* Col 3 */\
+			"kmov	%%ebx,%%k1	\n\t	vgatherdpd 0x20(%%rax,%%ymm8),%%zmm4%{%%k1%}	\n\t"/* Col 4 */\
+			"kmov	%%ebx,%%k1	\n\t	vgatherdpd 0x28(%%rax,%%ymm8),%%zmm5%{%%k1%}	\n\t"/* Col 5 */\
+			"kmov	%%ebx,%%k1	\n\t	vgatherdpd 0x30(%%rax,%%ymm8),%%zmm6%{%%k1%}	\n\t"/* Col 6 */\
+			"kmov	%%ebx,%%k1	\n\t	vgatherdpd 0x38(%%rax,%%ymm8),%%zmm7%{%%k1%}	\n\t"/* Col 7 */\
+				/* Write original columns back as rows: */\
+				"vmovaps	%%zmm0,0x000(%%rax)	\n\t"\
+				"vmovaps	%%zmm1,0x040(%%rax)	\n\t"\
+				"vmovaps	%%zmm2,0x080(%%rax)	\n\t"\
+				"vmovaps	%%zmm3,0x0c0(%%rax)	\n\t"\
+				"vmovaps	%%zmm4,0x100(%%rax)	\n\t"\
+				"vmovaps	%%zmm5,0x140(%%rax)	\n\t"\
+				"vmovaps	%%zmm6,0x180(%%rax)	\n\t"\
+				"vmovaps	%%zmm7,0x1c0(%%rax)	\n\t"\
+				:						// outputs: none
+				: [__data] "m" (data)	// All inputs from memory addresses here
+				: "cc","memory","rax","rbx","xmm0","xmm1","xmm2","xmm3","xmm4","xmm5","xmm6","xmm7","xmm8"	// Clobbered registers - use xmm form for compatibility with older versions of clang/gcc
+			);
+		}
+		clock2 = getRealTime();
+		tdiff = (double)(clock2 - clock1);
+		printf("Method [2a]: Time for %u 8x8 doubles-transposes using gather-loads =%s\n",imax, get_time_str(tdiff));
+	//	printf("Output matrix:\n");
+		for(i = 0; i < dim; i += 8) {
+			row = i>>3;
+		//	printf("Row %u: %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f %3.0f\n",row,*(dptr+i),*(dptr+i+1),*(dptr+i+2),*(dptr+i+3),*(dptr+i+4),*(dptr+i+5),*(dptr+i+6),*(dptr+i+7));
+			// Expected (transposed-matrix) datum = row + 4*col
+			t0 = row; t1 = row+8; t2 = row+16; t3 = row+24;
+			nerr += (t0 != *(dptr+i+0)) + (t1 != *(dptr+i+1)) + (t2 != *(dptr+i+2)) + (t3 != *(dptr+i+3));
+			t0 += 32; t1 += 32; t2 += 32; t3 += 32;
+			nerr += (t0 != *(dptr+i+4)) + (t1 != *(dptr+i+5)) + (t2 != *(dptr+i+6)) + (t3 != *(dptr+i+7));
+		}
+		if(nerr) printf("Outputs incorrect! #mismatches = %u\n",nerr);
+
+	  #else
+
+		/* Compare latency/thruput/ports for shuffle and gather-based versions, using Agner Fog's KNL tables:
+		[1] vunpcklpd, vshuff64x2 both have 4-7 cycle latency, one can start every 2 cycles [3,1 on Skylake-X].
+								Thus 24 such in sequence with no wait-stalls ==> ~50 cycles, close to what I measure.
+		[2] vgatherdpd has 7-cycle latency, no data re. thruput, thus ~60 cycles per loop, again close to that observed.
+		Both [1] and [2] use port 5, but on KNL the 'empty' cycles between shuffle-op issues can be used to issue gathers,
+		which is what the side-by-ide matrix-pair [2b] variant tests.
+		*/
 		nerr = 0; clock1 = getRealTime();
 		for(i = 0; i < imax; i++) {	// Nov 2016: 4.3 sec for 10^8 loops @1.3GHz ==> ~7 cycles per gather-load
 			__asm__ volatile (\
@@ -6314,12 +6506,14 @@ ftmp0 = ftmp;
 			nerr += (t0 != *(dptr+i+4)) + (t1 != *(dptr+i+5)) + (t2 != *(dptr+i+6)) + (t3 != *(dptr+i+7));
 		}
 		if(nerr) printf("Outputs incorrect! #mismatches = %u\n",nerr);
+	  #endif	// endif(USE_IMCI512 || USE_AVX512)
 
 		return nerr;
 	}
   #endif
 
-  #ifdef USE_AVX	//********* Since AVX2 & AVX can run on much of the same hardware, lump them together
+  #if defined(USE_AVX) && !defined(USE_IMCI512)
+  	//********* Since AVX2 & AVX can run on much of the same hardware, lump them together
 					// and differentiate as needed within this outer preprocessor conditional - e.g. the
 					// test_simd_transpose_4x4() function uses both, if available, for comparative timings.
 	// 4x4 refers to linear memory treated as a 4x4 matrix-of-doubles:
@@ -6470,7 +6664,7 @@ ftmp0 = ftmp;
 	}
   #endif	// USE_AVX ?
 
-  #ifdef USE_SSE2
+  #if defined(USE_SSE2) && !defined(USE_IMCI512)
 	// Timing loop for 128-bit SIMD radix-4 DFT macro:
 	int	test_radix4_dft()
 	{
@@ -6492,7 +6686,7 @@ ftmp0 = ftmp;
 								13.,15.,31.,16.,-17.,27.,45.,28.,6.,-25.,-24.,15.,-6.,-1.,48.,-57.};
 		vec_dbl *c_tmp,*s_tmp, *cc0,*two, *r0,*r1,*r2,*r3;
 		// Alloc 8 vector-complex elts (16 vec_dbl) per input/output block rather than 4, so can also test two radix-4 DFTs done side-by-side:
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x42);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x42);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((long)sc_ptr & 0x3f) == 0, "sc_ptr not 64-byte aligned!");
 		add0 = sc_ptr;
@@ -6896,7 +7090,7 @@ ftmp0 = ftmp;
 		const int stride = 2*RE_IM_STRIDE, dim = stride<<4;
 		double c1,c2,c3,c4,c5,c6,c7,c8,c9,cA,cB,cC,cD,cE,cF, s1,s2,s3,s4,s5,s6,s7,s8,s9,sA,sB,sC,sD,sE,sF;
 		static double *a,*a_ptr;	// Dimension = number of scalar-doubles in 16 vector-complex in SIMD build mode
-		a_ptr = ALLOC_VEC_DBL(a_ptr, dim/RE_IM_STRIDE);	if(!a_ptr){ sprintf(cbuf, "FATAL: unable to allocate a_ptr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		a_ptr = ALLOC_VEC_DBL(a_ptr, dim/RE_IM_STRIDE);	if(!a_ptr){ sprintf(cbuf, "ERROR: unable to allocate a_ptr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		a     = ALIGN_VEC_DBL(a_ptr);
 		ASSERT(HERE, ((long)a & SZ_VDM1) == 0, "a0_ptr not 64-byte aligned!");
 	#ifdef USE_SSE2
@@ -6906,7 +7100,7 @@ ftmp0 = ftmp;
 		double *add0,*add1,*add2;	/* Addresses into array sections */
 		vec_dbl *c_tmp,*s_tmp, *i0,*i1,*i2,*i3, *o0,*o1,*o2,*o3;
 		static vec_dbl *cc0, *ss0, *isrt2, *two, *r00;
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 72);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 72);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((long)sc_ptr & SZ_VDM1) == 0, "sc_ptr not 64-byte aligned!");
 		r00 = sc_ptr + 0x00;	  isrt2 = sc_ptr + 0x20;
@@ -7804,7 +7998,7 @@ exit(0);
 		const int stride = 2*RE_IM_STRIDE, dim = stride<<5, idx[32] = {0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36,38,40,42,44,46,48,50,52,54,56,58,60,62};
 		double cc[32],ss[32];
 		static double *a,*a_ptr;	// Dimension = number of scalar-doubles in 16 vector-complex in SIMD build mode
-		a_ptr = ALLOC_VEC_DBL(a_ptr, dim/RE_IM_STRIDE);	if(!a_ptr){ sprintf(cbuf, "FATAL: unable to allocate a_ptr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		a_ptr = ALLOC_VEC_DBL(a_ptr, dim/RE_IM_STRIDE);	if(!a_ptr){ sprintf(cbuf, "ERROR: unable to allocate a_ptr!.\n"); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		a     = ALIGN_VEC_DBL(a_ptr);
 		ASSERT(HERE, ((long)a & SZ_VDM1) == 0, "a0_ptr not 64-byte aligned!");
 	#ifdef USE_SSE2
@@ -7814,7 +8008,7 @@ exit(0);
 		double *add0;	/* Addresses into array sections */
 		vec_dbl *c_tmp,*s_tmp;
 		static vec_dbl *isrt2,*sqrt2, *cc0, *ss0, *cc1, *ss1, *cc3, *ss3, *one,*two, *r00,*r10,*r20,*r30;
-		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x90);	if(!sc_arr){ sprintf(cbuf, "FATAL: unable to allocate sc_arr in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		sc_arr = ALLOC_VEC_DBL(sc_arr, 0x90);	if(!sc_arr){ sprintf(cbuf, "ERROR: unable to allocate sc_arr in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		sc_ptr = ALIGN_VEC_DBL(sc_arr);
 		ASSERT(HERE, ((long)sc_ptr & SZ_VDM1) == 0, "sc_ptr not 64-byte aligned!");
 		r00 = sc_ptr;
@@ -8072,7 +8266,7 @@ exit(0);
 			}
 			j1 = 0; j2 = RE_IM_STRIDE;
 		#ifdef USE_SSE2
-			SSE2_RADIX32_DIT_TWIDDLE(a,p01,p02,p03,p04,p05,p06,p07,p08,p10,p18,r00,r10,r20,r30,isrt2)
+			SSE2_RADIX32_DIT_TWIDDLE(a,p01,p02,p03,p04,p05,p06,p07,p08,p10,r00,isrt2)
 		#else
 			RADIX_32_DIT_TWIDDLE( a,idx, a,idx,	// This DFT is in-place
 									 cc[0x10],ss[0x10], cc[0x08],ss[0x08], cc[0x18],ss[0x18]
@@ -8562,7 +8756,7 @@ void set_mlucas_path(void)
 		bufsize = strlen(mlucas_path) + 1;
 		MLUCAS_PATH = (char*)malloc(bufsize); /* will not free!  */
 		if (MLUCAS_PATH == NULL) {
-			fprintf(stderr, "FATAL: unable to allocate buffer MLUCAS_PATH in set_mlucas_path()\n");
+			fprintf(stderr, "ERROR: unable to allocate buffer MLUCAS_PATH in set_mlucas_path()\n");
 			has_err = TRUE;
 			goto out_err_check;
 		}
@@ -8573,7 +8767,7 @@ void set_mlucas_path(void)
 	bufsize = (bufsize - 1) * 3 + 1;
 	mlucas_path = (char*)malloc(bufsize);
 	if (mlucas_path == NULL) {
-		fprintf(stderr, "FATAL: unable to allocate buffer mlucas_path in set_mlucas_path()\n");
+		fprintf(stderr, "ERROR: unable to allocate buffer mlucas_path in set_mlucas_path()\n");
 		has_err = TRUE;
 		goto out_err_check;
 	}
@@ -8581,7 +8775,7 @@ void set_mlucas_path(void)
 	quote_spaces(mlucas_path, MLUCAS_PATH);
 	cmdstr = (char*)malloc(bufsize + strlen("printf \"\""));
 	if (cmdstr == NULL) {
-		fprintf(stderr, "FATAL: unable to allocate buffer cmdstr in set_mlucas_path()\n");
+		fprintf(stderr, "ERROR: unable to allocate buffer cmdstr in set_mlucas_path()\n");
 		has_err = TRUE;
 		goto out_mlucas_path;
 	}
@@ -8590,7 +8784,7 @@ void set_mlucas_path(void)
 	strcat(cmdstr, mlucas_path);
 	pipe_ptr = popen(cmdstr, "r");
 	if (pipe_ptr == NULL) {
-		fprintf(stderr, "FATAL: unable to open pipe pipe_ptr in set_mlucas_path()\n");
+		fprintf(stderr, "ERROR: unable to open pipe pipe_ptr in set_mlucas_path()\n");
 		has_err = TRUE;
 		goto out_cmdstr;
 	}
@@ -8603,18 +8797,18 @@ void set_mlucas_path(void)
 
 	expanded_str = (char*)malloc(STR_MAX_LEN + 1); /* do not free!  */
 	if (expanded_str == NULL) {
-		fprintf(stderr, "FATAL: unable to allocate buffer expanded_str in set_mlucas_path()\n");
+		fprintf(stderr, "ERROR: unable to allocate buffer expanded_str in set_mlucas_path()\n");
 		has_err = TRUE;
 		goto out_pipe;
 	}
 	fgets(expanded_str, STR_MAX_LEN + 1, pipe_ptr);
 	if (getc(pipe_ptr) != EOF) {
-		fprintf(stderr, "FATAL: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH is longer than STR_MAX_LEN in set_mlucas_path()\n");
+		fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH is longer than STR_MAX_LEN in set_mlucas_path()\n");
 		has_err = TRUE;
 		goto out_pipe;
 	}
 	if (expanded_str[strlen(expanded_str) - 1] != '/') { /* strlen != 0  */
-		fprintf(stderr, "FATAL: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH does not end with a slash in set_mlucas_path()\n");
+		fprintf(stderr, "ERROR: environment variable MLUCAS_PATH or cpp macro MLUCAS_DEFAULT_PATH does not end with a slash in set_mlucas_path()\n");
 		has_err = TRUE;
 		goto out_pipe;
 	}
@@ -8693,7 +8887,7 @@ int mkdir_p(char *path)
 	strcat(cmdstr, tmp);
 	fp = popen(cmdstr, "r");
 	if (fp == NULL) {
-		fprintf(stderr, "FATAL: unable to open pipe fp in mkdir_p()\n");
+		fprintf(stderr, "ERROR: unable to open pipe fp in mkdir_p()\n");
 		ASSERT(HERE, 0, "Exiting.");
 	}
 	fgets(tmp, STR_MAX_LEN + 1, fp);
@@ -8756,15 +8950,50 @@ FILE *mlucas_fopen(const char *path, const char *mode)
 }
 
 /*********************/
-// Print the input string to stderr and the current-assignment logfile
-void mlucas_fprint(char*const cstr, int echo_to_stderr)
+/* Print the input string to current-assignment logfile and/or stderr, according to value of echo_to_stderr flag:
+	flag:	output to:
+	-----	--------------
+		0	logfile
+		1	logfile, stderr
+	 >= 2	stderr
+*/
+void mlucas_fprint(char*const cstr, uint32 echo_to_stderr)
 {
 	ASSERT(HERE, cstr != 0x0 && strlen(cstr) > 0,"Null string-pointer or empty string supplied to mlucas_fprint!");
 	if(echo_to_stderr)
-		fprintf(stderr,"%s",cbuf);
-	FILE *fptr = mlucas_fopen(STATFILE,"a");
-	if(fptr) {
-		fprintf(fptr,"%s",cbuf);	fclose(fptr);	fptr = 0x0;
+		fprintf(stderr,"%s",cstr);
+	if(echo_to_stderr < 2) {
+		FILE *fptr = mlucas_fopen(STATFILE,"a");
+		if(fptr) {
+			fprintf(fptr,"%s",cstr);
+			fclose(fptr); fptr = 0x0;
+		}
 	}
+}
+
+/*********************/
+// Return numerical value of specified-by-name user option in double-float form, if found in the specified file. The
+// targeted option is assumed to be formatted as [optname][ws][=][ws][value], with value representable as an IEEE64 double.
+// Any failure to obtain a valid value for the option returns a NaN; the caller should check for this using isNaN(result):
+double mlucas_getOptVal(const char*fname, char*optname)
+{
+	const char func[] = "mlucas_getOptVal";
+	char cstr[STR_MAX_LEN], *cptr,*cadd;
+	ASSERT(HERE, fname != 0x0 && strlen(fname) > 0,"Null filename-pointer or empty string supplied to mlucas_getOptVal!");
+	FILE *fptr = mlucas_fopen(fname,"r");
+	double result = strtod("NaN", 0x0);
+	if(fptr) {
+		while(fgets(cstr, STR_MAX_LEN, fptr)) {
+			if((cptr = strstr(cstr,optname)) != 0x0) {
+				if((cadd = strstr(cptr + strlen(optname),"=")) != 0x0) {
+				 	result = strtod(cadd+1,0x0);	// Could insert a ptr in place of 0x0 to hold ptr to any unconverted suffix, but
+				 									// in the case of an mlucas.ini entry it would typically just contain a newline.
+				 	return result;	// Return first occurrence of option in file
+				}
+			}
+		}
+		fclose(fptr);	fptr = 0x0;
+	}
+	return result;
 }
 

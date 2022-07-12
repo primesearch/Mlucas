@@ -211,6 +211,7 @@ uint128	test_modsqr128   (uint128 x, uint128 q);
 // to allow them to serve both as TF modules and to be used more generally, e.g. for PRP testing.
 // The multiple-trial-divisor routines are intended for TF use only, thus input their divisors
 // q = 2.k.p+1 using the factor index k:
+uint32	test_twopmodq64(uint32 imax);
 uint64	twopmodq63    (uint64 p, uint64 q);	// q, not k!
 uint64	twopmodq63_q4 (uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3);
 uint64	twopmodq63_q8 (uint64 p, uint64 k0, uint64 k1, uint64 k2, uint64 k3, uint64 k4, uint64 k5, uint64 k6, uint64 k7);
@@ -314,6 +315,8 @@ uint32	CHECK_PKMOD4620(uint64 p, uint64 k, uint32*incr);
 	__host__
   #endif
 	uint64 PerPass_tfSieve(
+		const char *pstring,
+		const uint32 pass,
 		const uint64 interval_lo, const uint64 interval_hi,
 		const double fbits_in_2p,
 		const uint32 nclear,

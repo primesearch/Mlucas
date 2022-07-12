@@ -51,6 +51,25 @@ const uint512 NIL512 = {(uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0, (
 const uint512 ONE512 = {(uint64)1, (uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0};
 const uint512 TWO512 = {(uint64)2, (uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0, (uint64)0};
 
+/* Nov 2021: Case-insensitive analog of strstr - used the code posted by 'chux' here:
+	https://stackoverflow.com/questions/27303062/strstr-function-like-that-ignores-upper-or-lower-case
+*/
+#include <ctype.h>	// Needed for tolower ... this include is normally via masterdefs.h
+char* stristr(const char* haystack, const char* needle) {
+	do {
+		const char* h = haystack;
+		const char* n = needle;
+		while (tolower((unsigned char) *h) == tolower((unsigned char ) *n) && *n) {
+			h++;
+			n++;
+		}
+		if (*n == 0) {
+			return (char *) haystack;
+		}
+	} while (*haystack++);
+	return 0;
+}
+
 /* Binary predicates for use of stdlib qsort(): */
 int ncmp_int(const void * a, const void * b)	// Default-int compare predicate
 {

@@ -179,13 +179,13 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		/* My array padding scheme requires N/radix_vec0 to be a power of 2, and to be >= 2^DAT_BITS, where the latter
 		parameter is set in the Mdata.h file: */
 		if(n%radix_vec0 != 0) {
-			ASSERT(HERE, 0, "FATAL: RADIX_VEC[0] does not divide N!\n");
+			ASSERT(HERE, 0, "ERROR: RADIX_VEC[0] does not divide N!\n");
 		}
 
 		/* Make sure n/radix_vec0 is a power of 2: */
 		i = n/radix_vec0;
 		if((i >> trailz32(i)) != 1) {
-			ASSERT(HERE, 0, "FATAL: n/RADIX_VEC[0] not a power of 2!\n");
+			ASSERT(HERE, 0, "ERROR: n/RADIX_VEC[0] not a power of 2!\n");
 		}
 
 		/*...Set the array padding parameters - only use array padding elements for runlengths > 32K. */
@@ -195,7 +195,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 
 			/* Now make sure n/RADIX_VEC[0] is sufficiently large (unless n < 2^DAT_BITS, in which case it doesn't matter): */
 			if(i < (1 << DAT_BITS)) {
-				sprintf(char_str, "FATAL: n/RADIX_VEC[0] must be >= %u!\n", (1 << DAT_BITS));
+				sprintf(char_str, "ERROR: n/RADIX_VEC[0] must be >= %u!\n", (1 << DAT_BITS));
 				ASSERT(HERE, 0, char_str);
 			}
 		}
@@ -296,7 +296,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 			radix32_pairFFT_mul(x, 0x0, 0x0, n,radix_vec0,0X0,0X0,0,nradices_prim,radix_prim,0,0, TRUE, FALSE, FALSE); break;
 */
 		  default :
-			sprintf(char_str, "FATAL: radix %d not available for _pairFFT dyadic-mul step.\n",RADIX_VEC[NRADICES-1]);
+			sprintf(char_str, "ERROR: radix %d not available for _pairFFT dyadic-mul step.\n",RADIX_VEC[NRADICES-1]);
 			ASSERT(HERE, 0, char_str);
 		}
 
@@ -414,7 +414,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		/* No need for a fancy NINT here: */
 		NRT_BITS = (uint32)(log(sqrt(1.0*n))/log(2.0) + 0.5);	NRT = 1 << NRT_BITS;	NRTM1 = NRT - 1;
 		if(n%NRT) {
-			sprintf(cbuf,"FATAL: NRT does not divide N!\n");
+			sprintf(cbuf,"ERROR: NRT does not divide N!\n");
 			ASSERT(HERE, 0,cbuf);
 		}
 
@@ -422,7 +422,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		(i.e. will be accessed using the lower lg(NRT) bits of the integer sincos index):
 		*/
 		rt0_ptmp = ALLOC_COMPLEX(rt0_ptmp, NRT);
-		if(!rt0_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array RT0 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(!rt0_ptmp){ sprintf(cbuf,"ERROR: unable to allocate array RT0 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		rt0 = ALIGN_COMPLEX(rt0_ptmp);
 
 		qt     = i64_to_q((int64)N2);
@@ -443,7 +443,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		(and will be accessed using the upper bits, <NRT:31>, of the integer sincos index):
 		*/
 		rt1_ptmp = ALLOC_COMPLEX(rt1_ptmp, n/(2*NRT));
-		if(!rt1_ptmp){ sprintf(cbuf,"FATAL: unable to allocate array RT1 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(!rt1_ptmp){ sprintf(cbuf,"ERROR: unable to allocate array RT1 in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		rt1 = ALIGN_COMPLEX(rt1_ptmp);
 
 		qn     = i64_to_q((int64)NRT);
@@ -468,7 +468,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		/* 8/23/2004: Need to allocate an extra element here to account for the padding element that gets inserted when radix_vec0 is odd: */
 
 		block_index = (int *)calloc((radix_vec0+1),sizeof(int));
-		if(!block_index){ sprintf(cbuf,"FATAL: unable to allocate array BLOCK_INDEX in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if(!block_index){ sprintf(cbuf,"ERROR: unable to allocate array BLOCK_INDEX in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 		/*
 		Examples - We only allow powers of 2 here, for the more general case cf. mers_mod_square.c:
 
@@ -543,14 +543,14 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		}		/* End of Main loop */
 
 		/* arrays storing the index values needed for the parallel-block wrapper/square scheme: */
-		if( !(ws_i            = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_I            in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_j1           = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_J1           in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_j2           = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_J2           in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_j2_start     = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_J2_START     in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_k            = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_K            in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_m            = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_M            in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_blocklen     = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_BLOCKLEN     in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
-		if( !(ws_blocklen_sum = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"FATAL: unable to allocate array WS_BLOCKLEN_SUM in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_i            = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_I            in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_j1           = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_J1           in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_j2           = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_J2           in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_j2_start     = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_J2_START     in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_k            = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_K            in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_m            = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_M            in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_blocklen     = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_BLOCKLEN     in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
+		if( !(ws_blocklen_sum = (int *)calloc(radix_vec0,sizeof(int))) ) { sprintf(cbuf,"ERROR: unable to allocate array WS_BLOCKLEN_SUM in %s.\n",func); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf); }
 
 		/*...Final DIF pass, wrapper/squaring and initial DIT pass are all done in-place.
 			 This combines data from both the l1 and l2-block, except in the case ii = 0
@@ -582,7 +582,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 						break;
 					*/
 					default :
-						sprintf(cbuf,"FATAL: Final radix %d not available for %s. Halting...\n",RADIX_VEC[NRADICES-1],func);
+						sprintf(cbuf,"ERROR: Final radix %d not available for %s. Halting...\n",RADIX_VEC[NRADICES-1],func);
 						fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 				}
 			}
@@ -613,7 +613,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 		case 32 :
 			radix32_dif_pass1(a,n); break;
 		default :
-			sprintf(cbuf,"FATAL: radix %d not available for dif_pass1. Halting...\n",radix_vec0);
+			sprintf(cbuf,"ERROR: radix %d not available for dif_pass1. Halting...\n",radix_vec0);
 			ASSERT(HERE, 0,cbuf);
 		}
 	  }
@@ -648,7 +648,7 @@ void pairFFT_mul(double x[], double y[], double z[], int n, int INIT_ARRAYS, int
 				case 32 :
 					ierr = radix32_ditN_cy_dif1      (a,n,  0,       0,0x0,0x0,0x0,0x0,0x0,0x0,     0x0,   0,&fracmax,0); break;
 				default :
-					sprintf(cbuf,"FATAL: radix %d not available for ditN_cy_dif1. Halting...\n",radix_vec0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
+					sprintf(cbuf,"ERROR: radix %d not available for ditN_cy_dif1. Halting...\n",radix_vec0); fprintf(stderr,"%s", cbuf);	ASSERT(HERE, 0,cbuf);
 			}
 			/* Nonzero remaining carries are instantly fatal: */
 			ASSERT(HERE, ierr == 0, "pairFFT_mul: Fatal: carry routine return error!");
@@ -753,7 +753,7 @@ if(FORWARD_FFT_ONLY != 2)	// Cf. comments in pairFFT_mul about this
 			case 32 :
 				radix32_dif_pass(&a[jstart],n,rt0,rt1,&index[k+koffset],mm,incr,init_sse2,thr_id); break;
 			default :
-				sprintf(cbuf,"pairFFT_mul_process_chunk: FATAL: radix %d not available for dif_pass. Halting...\n",RADIX_VEC[i]);
+				sprintf(cbuf,"pairFFT_mul_process_chunk: ERROR: radix %d not available for dif_pass. Halting...\n",RADIX_VEC[i]);
 				ASSERT(HERE, 0,cbuf);
 			}
 
@@ -782,7 +782,7 @@ if(FORWARD_FFT_ONLY != 2)	// Cf. comments in pairFFT_mul about this
 			radix32_pairFFT_mul(&a[jstart],ab_mul,cd_mul,n,radix_vec0,rt0,rt1,ii,nradices_prim,radix_prim,mm,incr, FALSE, FORWARD_FFT_ONLY); break;
 	*/
 		  default :
-			sprintf(char_str, "pairFFT_mul_process_chunk: FATAL: radix %d not available for dyadic mul step.\n",RADIX_VEC[NRADICES-1]);
+			sprintf(char_str, "pairFFT_mul_process_chunk: ERROR: radix %d not available for dyadic mul step.\n",RADIX_VEC[NRADICES-1]);
 			ASSERT(HERE, 0, char_str);
 		}
 	}
@@ -836,7 +836,7 @@ if(FORWARD_FFT_ONLY != 2)	// Cf. comments in pairFFT_mul about this
 			case 32 :
 				radix32_dit_pass(&a[jstart],n,rt0,rt1,&index[k+koffset],mm,incr,init_sse2,thr_id); break;
 			default :
-				sprintf(cbuf,"pairFFT_mul_process_chunk: FATAL: radix %d not available for dit_pass. Halting...\n",RADIX_VEC[i]);
+				sprintf(cbuf,"pairFFT_mul_process_chunk: ERROR: radix %d not available for dit_pass. Halting...\n",RADIX_VEC[i]);
 				ASSERT(HERE, 0,cbuf);
 			}
 		}	/* end i-loop */
